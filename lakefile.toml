@@ -1,0 +1,10 @@
+name = "asm-interp"
+version = "0.1.0"
+defaultTargets = ["asm-interp"]
+
+[[lean_lib]]
+name = "AsmInterp"
+
+[[lean_exe]]
+name = "asm-interp"
+root = "Main"
