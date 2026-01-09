@@ -120,7 +120,11 @@ def eval (s : MachineState) (i : Instr) : MachineState :=
     let val := eval_operand s src
     match dst with
     | .reg r => { s with regs := s.regs.set r val, rip := s.rip + 1 }
-    | .mem a => { s with heap := s.writeMem a val.toUInt8 |>.heap, rip := s.rip + 1 }
+    | .mem a =>
+      let s' := (List.range 8).foldl (fun st i =>
+        st.writeMem (a + i.toUInt64) ((val >>> (i.toUInt64 * 8)).toUInt8)
+      ) s
+      { s' with rip := s.rip + 1 }
     | _ => s
 
   | .add dst src =>
