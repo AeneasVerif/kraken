@@ -63,7 +63,7 @@ abbrev Heap := Std.ExtHashMap Word Word
 structure MachineState where
   regs : Registers := {}
   flags : Flags := {}
-  rip : UInt64 := 0
+  rip : Nat := 0
   heap : Heap := ∅ 
 
 -- We return errors for ill-formed operations: accessing memory that has not
@@ -142,6 +142,8 @@ def set_reg (s: MachineState) (o: Operand) (v: Word): Result MachineState := do
   | .imm _ =>
       .error "Ill-formed instruction (rip={repr s.rip})"
 
+-- This function intentionally does not increase the pc, callers will increase
+-- it (always by 1).
 def eval1 (s : MachineState) (i : Instr) (h: not (i.is_ctrl)) : Result MachineState := do
   match i with
   | .mov dst src =>
@@ -183,3 +185,15 @@ def eval1 (s : MachineState) (i : Instr) (h: not (i.is_ctrl)) : Result MachineSt
 
   | .jnz _ =>
       by contradiction
+
+def ctrl (s: MachineState) (lookup: Label -> Nat) (i: Instr) (h: i.is_ctrl): Result MachineState :=
+  match i with
+  | .jnz l =>
+      if s.flags.zf then
+        .ok { s with rip := lookup l }
+      else
+        .ok { s with rip := s.rip + 1 }
+  | _ =>
+      by
+        sorry
+
