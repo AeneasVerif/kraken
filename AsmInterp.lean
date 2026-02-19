@@ -263,3 +263,9 @@ def after (p: Program) (s: MachineState) (post: MachineState → Prop): Prop :=
   match repeat_ n (eval1 p) s with
   | .some s => post s
   | .none => False
+
+-- TEST
+
+def p1: Program := [
+  (.none, .mov (.reg .rax) (.imm 1)),
+]
