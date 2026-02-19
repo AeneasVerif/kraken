@@ -1,4 +1,4 @@
-namespace AsmInterp
+import Std
 
 -- Registers Enumeration
 inductive Reg
@@ -9,6 +9,8 @@ inductive Reg
 deriving Repr, BEq, DecidableEq
 
 -- Register State
+-- We choose this representation rather than a `Fin 16 -> Word` to avoid
+-- reasoning about functional modifications.
 structure Registers where
   rax : UInt64 := 0
   rbx : UInt64 := 0
@@ -45,25 +47,28 @@ def Registers.set (regs : Registers) (r : Reg) (v : UInt64) : Registers :=
 -- Flags
 structure Flags where
   zf : Bool := false -- Zero Flag
-  sf : Bool := false -- Sign Flag
   of : Bool := false -- Overflow Flag
   cf : Bool := false -- Carry Flag
 deriving Repr, BEq
 
 -- Heap
--- Using Array for memory.
+-- We only reason about aligned accesses, so our map only has keys that are = 0
+-- % 8. We do not make any assumptions about the memory -- reading an
+-- uninitialized value results in an error.
 abbrev Address := UInt64
-abbrev Byte := UInt8
-abbrev Heap := Array Byte
+abbrev Word := UInt64
+abbrev Heap := Std.ExtHashMap Word Word
 
 -- Machine State
 structure MachineState where
   regs : Registers := {}
   flags : Flags := {}
   rip : UInt64 := 0
-  -- Initialize heap with 1024 bytes of 0
-  heap : Heap := Array.replicate 1024 0
-deriving Repr
+  heap : Heap := ∅ 
+
+-- We return errors for ill-formed operations: accessing memory that has not
+-- been written before (we cannot assume anything!), non-aligned loads, etc.
+abbrev Result a := Except String a
 
 def MachineState.getReg (s : MachineState) (r : Reg) : UInt64 :=
   s.regs.get r
@@ -71,19 +76,19 @@ def MachineState.getReg (s : MachineState) (r : Reg) : UInt64 :=
 def MachineState.setReg (s : MachineState) (r : Reg) (v : UInt64) : MachineState :=
   { s with regs := s.regs.set r v }
 
-def MachineState.readMem (s : MachineState) (addr : Address) : Byte :=
-  let idx := addr.toNat
-  if idx < s.heap.size then
-    s.heap[idx]!
+def MachineState.readMem (s : MachineState) (addr : Address) : Result Word :=
+  if addr % 8 != 0 then
+    .error s!"Out-of-bounds access (rip={repr s.rip})"
   else
-    0
+    match s.heap[addr]? with
+    | .some v => .ok v
+    | .none => .error s!"Memory read but not written to (rip={repr s.rip}, addr={repr addr})"
 
-def MachineState.writeMem (s : MachineState) (addr : Address) (val : Byte) : MachineState :=
-  let idx := addr.toNat
-  if idx < s.heap.size then
-    { s with heap := s.heap.set! idx val }
+def MachineState.writeMem (s : MachineState) (addr : Address) (val : Word) : Result MachineState :=
+  if addr % 8 != 0 then
+    .error s!"Out-of-bounds access (rip={repr s.rip})"
   else
-    s -- Ignore out of bounds writes for now
+    .ok { s with heap := s.heap.insert addr val }
 
 -- Instructions
 inductive Operand
@@ -92,64 +97,89 @@ inductive Operand
 | mem (addr : Address)
 deriving Repr
 
+abbrev Label := String
+
 inductive Instr
 | mov (dst : Operand) (src : Operand)
-| add (dst : Operand) (src : Operand)
-| sub (dst : Operand) (src : Operand)
-| jmp (target : UInt64)
-| hlt
+| mulx (hi : Operand) (lo : Operand) (src1: Operand)
+| adcx (dst : Operand) (src : Operand)
+| adox (dst : Operand) (src : Operand)
+| jnz (target : Label)
 deriving Repr
 
+def Instr.is_ctrl
+  | Instr.jnz _ => true
+  | _ => false
+
 -- Evaluation Logic
-def updateFlags (res : UInt64) (_v1 : UInt64) (_v2 : UInt64) (_isSub : Bool) : Flags :=
-  { zf := res == 0,
-    sf := (res >>> 63) == 1,
-    of := false, -- TODO: Implement proper overflow logic
-    cf := false  -- TODO: Implement proper carry logic
-  }
-
-def eval_operand (s : MachineState) (o : Operand) : UInt64 :=
+def eval_operand (s : MachineState) (o : Operand) : Result UInt64 :=
   match o with
-  | .reg r => s.getReg r
-  | .imm v => v
-  | .mem a => s.readMem a |>.toUInt64
+  | .reg r => .ok (s.getReg r)
+  | .imm v => .ok v
+  | .mem a => s.readMem a
 
-def eval (s : MachineState) (i : Instr) : MachineState :=
+def eval_reg_or_mem (s : MachineState) (o : Operand) : Result UInt64 :=
+  match o with
+  | .reg r => .ok (s.getReg r)
+  | .mem a => s.readMem a
+  | .imm _ => .error "Ill-formed instruction (rip={repr s.rip})"
+
+def set_reg_or_mem (s: MachineState) (o: Operand) (v: Word): Result MachineState := do
+  match o with
+  | .reg r =>
+      .ok (s.setReg r v)
+  | .mem a =>
+      let s ← s.writeMem a v
+      .ok s
+  | .imm _ =>
+      .error "Ill-formed instruction (rip={repr s.rip})"
+
+def set_reg (s: MachineState) (o: Operand) (v: Word): Result MachineState := do
+  match o with
+  | .reg r =>
+      .ok (s.setReg r v)
+  | .mem _
+  | .imm _ =>
+      .error "Ill-formed instruction (rip={repr s.rip})"
+
+def eval1 (s : MachineState) (i : Instr) (h: not (i.is_ctrl)) : Result MachineState := do
   match i with
   | .mov dst src =>
-    let val := eval_operand s src
-    match dst with
-    | .reg r => { s with regs := s.regs.set r val, rip := s.rip + 1 }
-    | .mem a =>
-      let s' := (List.range 8).foldl (fun st i =>
-        st.writeMem (a + i.toUInt64) ((val >>> (i.toUInt64 * 8)).toUInt8)
-      ) s
-      { s' with rip := s.rip + 1 }
-    | _ => s
+      let val ← eval_operand s src
+      set_reg_or_mem s dst val
 
-  | .add dst src =>
-    match dst with
-    | .reg r =>
-      let v1 := s.getReg r
-      let v2 := eval_operand s src
-      let res := v1 + v2
-      let flags := updateFlags res v1 v2 false
-      { s with regs := s.regs.set r res, flags := flags, rip := s.rip + 1 }
-    | _ => s -- Only reg dst supported for now
+  | .adcx dst src =>
+      -- Some thoughts: I basically try to assert the well-formedness of
+      -- instructions (by asserting that e.g. immediate operands are not
+      -- allowed, or that the x64 semantics demand that the destination of adcx
+      -- be a general-purpose register... so that it at least simplifies the
+      -- reasoning, but realistically, since we intend to consume source
+      -- assembly (possibly with an actual frontend to parse .S syntax), the
+      -- assembler will enforce eventually that no such nonsensical instructions
+      -- exist. Is it worth the trouble?
+      let src_v ← eval_reg_or_mem s src
+      let dst_v ← eval_reg_or_mem s dst
+      let result := src_v.toNat + dst_v.toNat + s.flags.cf.toNat
+      let carry := result >>> 64
+      let result := UInt64.ofNat result
+      let s := { s with flags := { s.flags with cf := carry != 0 }}
+      set_reg s dst result
 
-  | .sub dst src =>
-    match dst with
-    | .reg r =>
-      let v1 := s.getReg r
-      let v2 := eval_operand s src
-      let res := v1 - v2
-      let flags := updateFlags res v1 v2 true
-      { s with regs := s.regs.set r res, flags := flags, rip := s.rip + 1 }
-    | _ => s
+  | .adox dst src =>
+      let src_v ← eval_reg_or_mem s src
+      let dst_v ← eval_reg_or_mem s dst
+      let result := src_v.toNat + dst_v.toNat + s.flags.of.toNat
+      let carry := result >>> 64
+      let result := UInt64.ofNat result
+      let s := { s with flags := { s.flags with of := carry != 0 }}
+      set_reg s dst result
 
-  | .jmp target =>
-    { s with rip := target }
+  | .mulx hi lo src1 =>
+      let src1 ← eval_reg_or_mem s src1
+      let src2 ← eval_reg_or_mem s (.reg .rdx)
+      let result := src1.toNat * src2.toNat
+      let s ← set_reg s lo (UInt64.ofNat result)
+      set_reg s hi (UInt64.ofNat (result >>> 64))
 
-  | .hlt => s
-
-end AsmInterp
+  | .jnz _ =>
+      by contradiction

@@ -13,7 +13,7 @@ def main : IO Unit := do
   let instrs := [
     Instr.mov (.reg .rax) (.imm 10),
     Instr.add (.reg .rax) (.imm 5),
-    Instr.mov (.mem 100) (.imm 0x1122334455667788),
+    Instr.mov (.mem 2048) (.imm 0x1122334455667788),
     Instr.hlt
   ]
 
@@ -25,7 +25,7 @@ def main : IO Unit := do
     IO.println s!"RIP: {currentState.rip}"
     match instr with
     | .mov (.mem addr) _ =>
-      let bytes := (List.range 8).map (fun i => currentState.readMem (addr + i.toUInt64))
+      let bytes := currentState.readMem 2048
       IO.println s!"Memory at {addr}: {bytes}"
     | _ => pure ()
     IO.println "---"
