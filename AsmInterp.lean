@@ -269,3 +269,12 @@ def after (p: Program) (s: MachineState) (post: MachineState → Prop): Prop :=
 def p1: Program := [
   (.none, .mov (.reg .rax) (.imm 1)),
 ]
+
+set_option maxRecDepth 1000
+
+example: after p1 {} (fun s => s.regs.rax == 1) := by
+  simp [after]
+  exists 1
+  rw [repeat_.eq_1]
+  simp [eval1,fetch]
+  sorry
