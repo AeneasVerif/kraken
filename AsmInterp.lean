@@ -1,5 +1,12 @@
 import Std
 
+-- FIXME -- surely something like this is in Std?
+
+def Option.except [Pure m] [MonadExcept e m] (self: Option α) (err : e): m α :=
+  match self with
+  | .none => throw err
+  | .some v => pure v
+
 -- STATE, INSTRUCTIONS, LABELS
 
 -- Registers Enumeration
@@ -75,34 +82,6 @@ def Instr.is_ctrl
   | Instr.jnz _ => true
   | _ => false
 
-
--- ERROR MONAD
-
--- We return errors for ill-formed operations: accessing memory that has not
--- been written before (we cannot assume anything!), non-aligned loads, etc.
-
--- FIXME: there is no instance of MonoBind for Except, so we temporarily define
--- `Result` to be `Option` and use smart constructors to be able to revert this
--- change easily later on.
-
-/- abbrev Result α := Except String α -/
-
-/- def Option.toResult (self: Option α) (msg: String): Result α := -/
-/-   match self with -/
-/-   | .some v => .ok v -/
-/-   | .none => .error msg -/
-
-/- def ok := Result.ok -/
-/- def error := Result.error -/
-
-abbrev Result α := Option α
-
-def Option.toResult (self: Option α) (_: String): Result α := self
-
-def ok (v: α): Result α := .some v
-def error (_: String): Result α := .none
-
-
 -- HELPERS
 
 def Registers.get (regs : Registers) (r : Reg) : UInt64 :=
@@ -125,56 +104,56 @@ def MachineState.getReg (s : MachineState) (r : Reg) : UInt64 :=
 def MachineState.setReg (s : MachineState) (r : Reg) (v : UInt64) : MachineState :=
   { s with regs := s.regs.set r v }
 
-def MachineState.readMem (s : MachineState) (addr : Address) : Result Word :=
+def MachineState.readMem [Pure m] [MonadExcept String m] (s : MachineState) (addr : Address) : m Word :=
   if addr % 8 != 0 then
-    error s!"Out-of-bounds access (rip={repr s.rip})"
+    throw s!"Out-of-bounds access (rip={repr s.rip})"
   else
-    s.heap[addr]?.toResult (s!"Memory read but not written to (rip={repr s.rip}, addr={repr addr})")
+    s.heap[addr]?.except (s!"Memory read but not written to (rip={repr s.rip}, addr={repr addr})")
 
-def MachineState.writeMem (s : MachineState) (addr : Address) (val : Word) : Result MachineState :=
+def MachineState.writeMem [Pure m] [MonadExcept String m] (s : MachineState) (addr : Address) (val : Word) : m MachineState :=
   if addr % 8 != 0 then
-    error s!"Out-of-bounds access (rip={repr s.rip})"
+    throw s!"Out-of-bounds access (rip={repr s.rip})"
   else
-    ok { s with heap := s.heap.insert addr val }
+    pure { s with heap := s.heap.insert addr val }
 
 
 -- EVALUATION
 
-def eval_operand (s : MachineState) (o : Operand) : Result UInt64 :=
+def eval_operand [Pure m] [MonadExcept String m] (s : MachineState) (o : Operand) : m UInt64 :=
   match o with
-  | .reg r => ok (s.getReg r)
-  | .imm v => ok v
+  | .reg r => pure (s.getReg r)
+  | .imm v => pure v
   | .mem a => s.readMem a
 
-def eval_reg_or_mem (s : MachineState) (o : Operand) : Result UInt64 :=
+def eval_reg_or_mem [Pure m] [MonadExcept String m] (s : MachineState) (o : Operand) : m UInt64 :=
   match o with
-  | .reg r => ok (s.getReg r)
+  | .reg r => pure (s.getReg r)
   | .mem a => s.readMem a
-  | .imm _ => error "Ill-formed instruction (rip={repr s.rip})"
+  | .imm _ => throw "Ill-formed instruction (rip={repr s.rip})"
 
-def set_reg_or_mem (s: MachineState) (o: Operand) (v: Word): Result MachineState := do
+def set_reg_or_mem [Monad m] [MonadExcept String m] (s: MachineState) (o: Operand) (v: Word): m MachineState := do
   match o with
   | .reg r =>
-      ok (s.setReg r v)
+      pure (s.setReg r v)
   | .mem a =>
       let s ← s.writeMem a v
-      ok s
+      pure s
   | .imm _ =>
-      error "Ill-formed instruction (rip={repr s.rip})"
+      throw "Ill-formed instruction (rip={repr s.rip})"
 
-def set_reg (s: MachineState) (o: Operand) (v: Word): Result MachineState := do
+def set_reg [Pure m] [MonadExcept String m] (s: MachineState) (o: Operand) (v: Word): m MachineState :=
   match o with
   | .reg r =>
-      ok (s.setReg r v)
+      pure (s.setReg r v)
   | .mem _
   | .imm _ =>
-      error "Ill-formed instruction (rip={repr s.rip})"
+      throw "Ill-formed instruction (rip={repr s.rip})"
 
 def next (s: MachineState): MachineState := { s with rip := s.rip + 1 }
 
 -- This function intentionally does not increase the pc, callers will increase
 -- it (always by 1).
-def strt1 (s : MachineState) (i : Instr) (h: not (i.is_ctrl)) : Result MachineState := do
+def strt1 [Monad m] [MonadExcept String m] (s : MachineState) (i : Instr) : m MachineState := do
   match i with
   | .mov dst src =>
       let val ← eval_operand s src
@@ -213,56 +192,62 @@ def strt1 (s : MachineState) (i : Instr) (h: not (i.is_ctrl)) : Result MachineSt
       -- Semantics say that if hi and lo are aliased, the value written is hi
       let s ← set_reg s lo (UInt64.ofNat result)
       set_reg s hi (UInt64.ofNat (result >>> 64))
+  | _ => throw "unsupported non-control instruction {repr i}"
 
-def ctrl (s: MachineState) (lookup: Label -> Result Nat) (i: Instr) (h: i.is_ctrl): Result MachineState := do
+def ctrl [Monad m] [MonadExcept String m] (s: MachineState) (lookup: Label → m Nat) (i: Instr) : m MachineState := do
   match i with
   | .jnz l =>
       if !s.flags.zf then
         let rip ← lookup l
-        ok { s with rip }
+        pure { s with rip }
       else
-        ok (next s)
+        pure (next s)
+  | _ => throw "unsupported control instruction {repr i}"
 
 abbrev Program := List (Option Label × Instr)
 
-def lookup (p: Program) (l: Label): Result Nat :=
-  (p.findIdx? (fun (l', _) => l' = .some l)).toResult "Invalid label: {repr l}"
+def lookup [Pure m] [MonadExcept String m] (p: Program) (l: Label): m Nat :=
+  (p.findIdx? (fun (l', _) => l' = .some l)).except "Invalid label: {repr l}"
 
-def fetch (p: Program) (s: MachineState): Result (Option Label × Instr) :=
-  p[s.rip]?.toResult "Impossible: PC outside of program bounds"
+def fetch [Pure m] [MonadExcept String m] (p: Program) (s: MachineState): m (Option Label × Instr) :=
+  p[s.rip]?.except "Impossible: PC outside of program bounds"
 
-def eval1 (p: Program) (s: MachineState): Result MachineState := do
-  let lookup := lookup p
+def eval1 [Monad m] [MonadExcept String m] (p: Program) (s: MachineState): m MachineState := do
   let (_, i) ← fetch p s
-  if h: i.is_ctrl then
-    let s ← ctrl s lookup i (by assumption)
-    s
+  if i.is_ctrl then
+    let s ← ctrl s (lookup p) i
+    pure s
   else
-    let s ← strt1 s i (by grind)
-    next s
+    let s ← strt1 s i
+    pure (next s)
 
-def eval (p: Program) (s: MachineState): Result MachineState := do
-  let s ← eval1 p s
+def eval (p: Program) (s: MachineState): Option MachineState := do
+  let s ← (eval1 (m:=Except String) p s).toOption
   eval p s
-partial_fixpoint  
-  
-def after1 (p: Program) (s: MachineState) (post: MachineState → Prop): Prop :=
-  match eval1 p s with
-  | .some s => post s
-  | .none => False
+partial_fixpoint
 
-def repeat_ (n: Nat) (f: α -> Result α) (x: α) : Result α :=
-  if n = 0 then
-    ok x
-  else do
-    let x ← f x
-    repeat_ (n - 1) f x
+def step1 (p: Program) (s: MachineState) (post: _) :=
+  @ExceptCpsT.runK Id Prop String MachineState (eval1 p s) "" post (fun _ => False) 
 
-def after (p: Program) (s: MachineState) (post: MachineState → Prop): Prop :=
-  exists n,
-  match repeat_ n (eval1 p) s with
-  | .some s => post s
-  | .none => False
+def Post := MachineState → Prop
+
+inductive eventually (p: Program): Post → Post
+  | done post initial:
+      post initial →
+      eventually _ post initial
+  | step post initial (midset: Post):
+      step1 p initial midset →
+      (forall (mid: MachineState), midset mid → eventually _ post mid) →
+      eventually _ post initial
+
+theorem step_cps {p : Program} (post: Post) (initial: MachineState):
+  step1 p initial (fun mid => eventually p post mid) → eventually p post initial :=
+  by
+    intro
+    apply eventually.step
+    <;> try assumption
+    intro
+    simp
 
 -- TEST
 
@@ -270,11 +255,23 @@ def p1: Program := [
   (.none, .mov (.reg .rax) (.imm 1)),
 ]
 
-set_option maxRecDepth 1000
+example: @ExceptCpsT.runK Id Prop String MachineState (eval1 p1 {}) "" (fun s => s.regs.rax = 1) (fun _ => False) := by
+  simp [Instr.is_ctrl,p1,eval1,fetch,Option.except,ExceptCpsT.runK,bind,pure]
+  simp [strt1,eval_operand,set_reg_or_mem,MachineState.setReg,next,Registers.set,pure,bind]
 
-example: after p1 {} (fun s => s.regs.rax == 1) := by
-  simp [after]
-  exists 1
-  rw [repeat_.eq_1]
-  simp [eval1,fetch]
-  sorry
+def p2: Program := [
+  (.none, .mov (.reg .rax) (.imm 1)),
+  (.none, .mov (.reg .rax) (.imm 2)),
+]
+
+example: eventually p2 (fun s => s.regs.rax = 2) {} := by
+  simp [p2]
+  apply step_cps
+  simp [step1,Instr.is_ctrl,eval1,fetch,Option.except,ExceptCpsT.runK,bind,pure]
+  simp [strt1,eval_operand,set_reg_or_mem,MachineState.setReg,next,Registers.set,pure,bind]
+  apply step_cps
+  simp [step1,Instr.is_ctrl,eval1,fetch,Option.except,ExceptCpsT.runK,bind,pure]
+  simp [strt1,eval_operand,set_reg_or_mem,MachineState.setReg,next,Registers.set,pure,bind]
+  apply eventually.done
+  simp
+
