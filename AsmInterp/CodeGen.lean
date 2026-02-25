@@ -4,7 +4,7 @@ Kraken - Code Generation
 Generates executable x86_64 assembly from Kraken programs.
 -/
 
-import AsmInterp
+import AsmInterp.Core
 
 namespace Kraken
 
