@@ -5,11 +5,11 @@ Test programs demonstrating the assembly interpreter.
 Requires Lean 4.28.0+ for SymM and full proof infrastructure.
 
 For the core semantics, see AsmInterp/Core.lean.
-For proof theorems, see AsmInterp/Proofs.lean.
+For proof theorems, see AsmInterp/Core.lean.
 -/
 
 import Lean.Meta.Sym.Grind
-import AsmInterp.Proofs
+import AsmInterp.Core
 
 open Lean Meta Sym Elab Tactic
 
