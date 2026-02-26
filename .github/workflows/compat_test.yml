@@ -1,0 +1,21 @@
+name: v4.22.0 Compatibility
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  compat-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install elan
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+          echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+      - name: Run v4.22.0 compatibility test
+        run: ./scripts/test-v4.22.0-compat.sh
