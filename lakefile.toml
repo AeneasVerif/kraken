@@ -2,11 +2,20 @@ name = "kraken"
 version = "0.1.0"
 defaultTargets = ["kraken"]
 
+# Core semantics library (Lean 4.22.0+ compatible)
 [[lean_lib]]
 name = "AsmInterp"
 
+# Assembly parser library
+[[lean_lib]]
+name = "Parsing"
 
+# Full library with parsing and semantics
+[[lean_lib]]
+name = "Kraken.Full"
+globs = ["AsmInterp", "Parsing"]
 
+# Executable
 [[lean_exe]]
 name = "kraken"
 root = "Main"
