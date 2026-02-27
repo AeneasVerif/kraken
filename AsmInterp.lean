@@ -3,13 +3,128 @@ import Lean
 import Lean.Meta.Sym.Grind
 open Lean Meta Sym Elab Tactic
 
+class Throw α where
+  throw: String → α
+
+def throw [inst: Throw α] :=
+  inst.throw
+
 -- Registers Enumeration
 inductive Reg
 | rax | rbx | rcx | rdx
 | rsi | rdi | rsp | rbp
 | r8  | r9  | r10 | r11
 | r12 | r13 | r14 | r15
+
+-- Aliased 32-bit registers
+| eax | ebx | ecx | edx
+| esi | edi | esp | ebp
+
+-- Aliased 16-bit registers
+| ax | bx | cx | dx
+| si | di | sp | bp
 deriving Repr, BEq, DecidableEq
+
+inductive Width
+| W16
+| W32
+| W64
+deriving Repr, BEq, DecidableEq
+
+def mask16: UInt64 := 0x0000FFFF
+def mask32: UInt64 := 0xFFFFFFFF
+def mask64: UInt64 := -1
+
+def Width.toNat
+| W16 => 16
+| W32 => 32
+| W64 => 64
+
+def Width.toMask
+| W16 => mask16
+| W32 => mask32
+| W64 => mask64
+
+def Reg.width
+| rax | rbx | rcx | rdx
+| rsi | rdi | rsp | rbp
+| r8  | r9  | r10 | r11
+| r12 | r13 | r14 | r15 => Width.W64
+
+| eax | ebx | ecx | edx
+| esi | edi | esp | ebp => .W32
+
+| ax | bx | cx | dx
+| si | di | sp | bp => .W16
+
+def Reg.shrink [Throw α] (self: Reg) (w: Width) (ret: Reg → α): α :=
+  match self, w with
+  | .rax, .W64 => ret .rax
+  | .rax, .W32 => ret .eax
+  | .rax, .W16 => ret .ax
+  | .eax, .W32 => ret .eax
+  | .eax, .W16 => ret .ax
+  | .ax, .W16 => ret .ax
+
+  | .rbx, .W64 => ret .rbx
+  | .rbx, .W32 => ret .ebx
+  | .rbx, .W16 => ret .bx
+  | .ebx, .W32 => ret .ebx
+  | .ebx, .W16 => ret .bx
+  | .bx, .W16 => ret .bx
+
+  | .rcx, .W64 => ret .rcx
+  | .rcx, .W32 => ret .ecx
+  | .rcx, .W16 => ret .cx
+  | .ecx, .W32 => ret .ecx
+  | .ecx, .W16 => ret .cx
+  | .cx, .W16 => ret .cx
+
+  | .rdx, .W64 => ret .rdx
+  | .rdx, .W32 => ret .edx
+  | .rdx, .W16 => ret .dx
+  | .edx, .W32 => ret .edx
+  | .edx, .W16 => ret .dx
+  | .dx, .W16 => ret .dx
+
+  | .rsi, .W64 => ret .rsi
+  | .rsi, .W32 => ret .esi
+  | .rsi, .W16 => ret .si
+  | .esi, .W32 => ret .esi
+  | .esi, .W16 => ret .si
+  | .si, .W16 => ret .si
+
+  | .rdi, .W64 => ret .rdi
+  | .rdi, .W32 => ret .edi
+  | .rdi, .W16 => ret .di
+  | .edi, .W32 => ret .edi
+  | .edi, .W16 => ret .di
+  | .di, .W16 => ret .di
+
+  | .rsp, .W64 => ret .rsp
+  | .rsp, .W32 => ret .esp
+  | .rsp, .W16 => ret .sp
+  | .esp, .W32 => ret .esp
+  | .esp, .W16 => ret .sp
+  | .sp, .W16 => ret .sp
+
+  | .rbp, .W64 => ret .rbp
+  | .rbp, .W32 => ret .ebp
+  | .rbp, .W16 => ret .bp
+  | .ebp, .W32 => ret .ebp
+  | .ebp, .W16 => ret .bp
+  | .bp, .W16 => ret .bp
+
+  | _, _ => throw "64-bit only register"
+
+-- We only track values held in the widest registers -- these are 64-bit, without any particular
+-- intepretation, i.e., UInt64. However, for the computation of e.g. the overflow flag, one has to
+-- intepret the value held in a potentially smaller register **as a signed integer**.
+def UInt64.toIntWithWidth (self: UInt64) (w: Width): Int :=
+  match w with
+  | .W64 => self.toInt64.toInt
+  | .W32 => (self &&& mask32).toNat.toInt32.toInt
+  | .W16 => (self &&& mask16).toNat.toInt16.toInt
 
 -- Register State
 -- We choose this representation rather than a `Fin 16 -> Word` to avoid
@@ -78,7 +193,6 @@ instance : Coe Int64 Operand where coe := Operand.imm
 attribute [coe] Operand.reg
 attribute [coe] Operand.imm
 
-
 abbrev Label := String
 
 -- Instructions (extended for MontMul)
@@ -91,8 +205,8 @@ inductive Instr
   | sub  (dst src : Operand)                   -- subq: dst -= src, sets CF, ZF, OF
   | sbb  (dst src : Operand)                   -- sbbq: dst -= src + CF, sets CF, ZF
   | mul  (src : Operand)                       -- mulq: rdx:rax = rax * src
-  | mulx (hi lo : Operand) (src : Operand)     -- mulxq: hi:lo = rdx * src (BMI2, no flags)
-  | imul (dst src : Operand)                   -- imulq: dst *= src (truncated, sets OF/CF)
+  | mulx (hi lo : Reg) (src : Operand)     -- mulxq: hi:lo = rdx * src (BMI2, no flags)
+  | imul (dst : Reg) (src : Operand)                   -- imulq: dst *= src (truncated, sets OF/CF)
   | neg  (dst : Operand)                       -- negq: dst = -dst, sets CF, ZF, OF
   | dec  (dst : Operand)                       -- decq: dst--, sets ZF (not CF!)
 
@@ -125,12 +239,27 @@ def Instr.is_ctrl
 
 -- HELPERS
 
+def read16 (x: UInt64): UInt64 := x &&& mask16
+def read32 (x: UInt64): UInt64 := x &&& mask32
+
 def Registers.get (regs : Registers) (r : Reg) : UInt64 :=
   match r with
   | .rax => regs.rax | .rbx => regs.rbx | .rcx => regs.rcx | .rdx => regs.rdx
   | .rsi => regs.rsi | .rdi => regs.rdi | .rsp => regs.rsp | .rbp => regs.rbp
   | .r8  => regs.r8  | .r9  => regs.r9  | .r10 => regs.r10 | .r11 => regs.r11
   | .r12 => regs.r12 | .r13 => regs.r13 | .r14 => regs.r14 | .r15 => regs.r15
+
+  | .eax => read32 regs.rax | .ebx => read32 regs.rbx | .ecx => read32 regs.rcx | .edx => read32 regs.rdx
+  | .esi => read32 regs.rsi | .edi => read32 regs.rdi | .esp => read32 regs.rsp | .ebp => read32 regs.rbp
+
+  | .ax => read16 regs.rax | .bx => read16 regs.rbx | .cx => read16 regs.rcx | .dx => read16 regs.rdx
+  | .si => read16 regs.rsi | .di => read16 regs.rdi | .sp => read16 regs.rsp | .bp => read16 regs.rbp
+
+def write16 (dst: UInt64) (src: UInt64): UInt64 := 
+  dst &&& ~~~mask16 ||| read16 src
+
+def write32 (dst: UInt64) (src: UInt64): UInt64 := 
+  dst &&& ~~~mask32 ||| read32 src
 
 def Registers.set (regs : Registers) (r : Reg) (v : UInt64) : Registers :=
   match r with
@@ -139,29 +268,37 @@ def Registers.set (regs : Registers) (r : Reg) (v : UInt64) : Registers :=
   | .r8  => { regs with r8  := v } | .r9  => { regs with r9  := v } | .r10 => { regs with r10 := v } | .r11 => { regs with r11 := v }
   | .r12 => { regs with r12 := v } | .r13 => { regs with r13 := v } | .r14 => { regs with r14 := v } | .r15 => { regs with r15 := v }
 
+  | .eax => { regs with rax := write32 regs.rax v } | .ebx => { regs with rbx := write32 regs.rbx v } | .ecx => { regs with rcx := write32 regs.rcx v } | .edx => { regs with rdx := write32 regs.rdx v }
+  | .esi => { regs with rsi := write32 regs.rsi v } | .edi => { regs with rdi := write32 regs.rdi v } | .esp => { regs with rsp := write32 regs.rsp v } | .ebp => { regs with rbp := write32 regs.rbp v }
+
+  | .ax => { regs with rax := write16 regs.rax v } | .bx => { regs with rbx := write16 regs.rbx v } | .cx => { regs with rcx := write16 regs.rcx v } | .dx => { regs with rdx := write16 regs.rdx v }
+  | .si => { regs with rsi := write16 regs.rsi v } | .di => { regs with rdi := write16 regs.rdi v } | .sp => { regs with rsp := write16 regs.rsp v } | .bp => { regs with rbp := write16 regs.rbp v }
+
 def MachineState.getReg (s : MachineState) (r : Reg) : UInt64 :=
   s.regs.get r
 
 def MachineState.setReg (s : MachineState) (r : Reg) (v : UInt64) : MachineState :=
   { s with regs := s.regs.set r v }
 
-class Throw α where
-  throw: String → α
+def Operand.width [Throw α] (self: Operand) (ret: Width → α): α :=
+  match self with
+  | reg r => ret r.width
+  | mem base _ _ _ => ret base.width
+  | _ => throw "Immediates do not carry a bit width"
 
-def throw [inst: Throw α] :=
-  inst.throw
-
-def MachineState.readMem [Throw α] (s : MachineState) (addr : Address) (ret: Word → α): α :=
+def MachineState.readMem [Throw α] (s : MachineState) (addr : Address) (width: Width) (ret: Word → α): α :=
   if addr % 8 != 0 then
     throw (s!"Out-of-bounds access (rip={repr s.rip})")
   else
     match s.heap[addr]? with
-    | .some v => ret v
+    | .some v => ret (v &&& width.toMask) -- little-endian
     | .none => throw (s!"Memory read but not written to (rip={repr s.rip}, addr={repr addr})")
 
-def MachineState.writeMem [Throw α] (s : MachineState) (addr : Address) (val : Word) (ret: MachineState → α) : α :=
+def MachineState.writeMem [Throw α] (s : MachineState) (addr : Address) (w: Width) (val : Word) (ret: MachineState → α) : α :=
   if addr % 8 != 0 then
     throw s!"Out-of-bounds access (rip={repr s.rip})"
+  else if w != .W64 then
+    throw s!"TODO: figure out what we do here"
   else
     ret { s with heap := s.heap.insert addr val }
 
@@ -198,24 +335,29 @@ theorem UInt64_ofInt_natCast_ne_zero (k : Nat) (h_lt : k < 2^64) (h_ne : k ≠ 0
 
 
 
--- Compute effective address: base + idx*scale + disp
-def effective_addr [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → α): α :=
+-- Compute effective address: base + idx*scale + disp. Per the Intel manual:
+-- - if the effective address is computed in a larger size than the destination operand, the bits
+--   are simply clamped (this is the behavior of setReg for e.g. eax -- no action needed here)
+-- - if the effective address is computed in a smaller size than the destination operand, then it is
+--   zero-extended (in other words, upper bits are discarded)
+def effective_addr [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → Width → α): α :=
   match o with
   | .mem base idx scale disp =>
+    -- ASSUME: base.width == idx.width (TODO: check)
     let idxVal := match idx with | .some r => s.getReg r | .none => 0
-    ret ((s.getReg base) + idxVal * scale.toUInt64 + UInt64.ofInt disp)
+    ret (((s.getReg base) + idxVal * scale.toUInt64 + UInt64.ofInt disp) &&& base.width.toMask) base.width
   | _ => throw "effective_addr called on non-memory operand"
 
 def eval_operand [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → α): α :=
   match o with
   | .reg r => ret (s.getReg r)
   | .imm v => ret (eval_imm v)
-  | .mem _ _ _ _ => effective_addr s o (fun addr => s.readMem addr ret)
+  | .mem _ _ _ _ => effective_addr s o (fun addr w => s.readMem addr w ret)
 
-def eval_reg_or_mem [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → α): α :=
+def eval_reg_or_mem [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → Width → α): α :=
   match o with
-  | .reg r => ret (s.getReg r)
-  | .mem _ _ _ _ => effective_addr s o (fun addr => s.readMem addr ret)
+  | .reg r => ret (s.getReg r) r.width
+  | .mem _ _ _ _ => effective_addr s o (fun addr w => s.readMem addr w (fun word => ret word w))
   | .imm _ => throw "Ill-formed instruction (rip={repr s.rip})"
 
 def set_reg_or_mem [Throw α] (s: MachineState) (o: Operand) (v: Word) (ret: MachineState → α): α :=
@@ -223,7 +365,7 @@ def set_reg_or_mem [Throw α] (s: MachineState) (o: Operand) (v: Word) (ret: Mac
   | .reg r =>
       ret (s.setReg r v)
   | .mem _ _ _ _ =>
-      effective_addr s o (fun addr => s.writeMem addr v ret)
+      effective_addr s o (fun addr w => s.writeMem addr w v ret)
   | .imm _ =>
       throw "Ill-formed instruction (rip={repr s.rip})"
 
@@ -239,32 +381,32 @@ def set_reg [Throw α] (s: MachineState) (o: Operand) (v: Word) (ret: MachineSta
 def next (s: MachineState): MachineState := { s with rip := s.rip + 1 }
 
 -- Signed overflow detection for addition: true if result overflows Int64 range
-def add_overflow (a b : UInt64) : Bool :=
-  let sum := a.toInt64.toInt + b.toInt64.toInt
-  sum >= 2^63 || sum < -2^63
+def add_overflow (w: Width) (a b : UInt64) : Bool :=
+  let sum := a.toIntWithWidth w + b.toIntWithWidth w
+  sum >= 2^(w.toNat - 1) || sum < -2^(w.toNat - 1)
 
 -- Addition with carry: dst + src + carry_in
 -- Returns (result, zf, cf, of)
-def add_with_carry (dst src : UInt64) (carry_in : Nat) : UInt64 × Bool × Bool × Bool :=
+def add_with_carry (w: Width) (dst src : UInt64) (carry_in : Nat) : UInt64 × Bool × Bool × Bool :=
   let result := dst.toNat + src.toNat + carry_in
-  let carry := result >>> 64
+  let carry := result >>> w.toNat
   let result64 := UInt64.ofNat result
   let zf := result64 == 0
   let cf := carry != 0
-  let of := add_overflow dst src
+  let of := add_overflow w dst src
   (result64, zf, cf, of)
 
 -- Signed overflow detection for subtraction: true if result overflows Int64 range
-def sub_overflow (a b : UInt64) : Bool :=
-  let diff := a.toInt64.toInt - b.toInt64.toInt
-  diff >= 2^63 || diff < -2^63
+def sub_overflow (w: Width) (a b : UInt64) : Bool :=
+  let diff := a.toIntWithWidth w - b.toIntWithWidth w
+  diff >= 2^(w.toNat - 1) || diff < -2^(w.toNat - 1)
 
 -- Subtraction with borrow: dst - src - carry_in
 -- Returns (result, zf, cf, of)
-def sub_with_borrow (dst src : UInt64) (carry_in : Nat) : UInt64 × Bool × Bool × Bool :=
+def sub_with_borrow (w: Width) (dst src : UInt64) (carry_in : Nat) : UInt64 × Bool × Bool × Bool :=
   let res := (Int.ofNat dst.toNat) - (Int.ofNat src.toNat) - carry_in
   let cf := res < 0
-  let of := sub_overflow dst src
+  let of := sub_overflow w dst src
   let result64 := UInt64.ofInt res
   let zf := result64 == 0
   (result64, zf, cf, of)
@@ -281,15 +423,15 @@ def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): 
 
   | .add dst src =>
       eval_operand s src (fun src_v =>
-      eval_reg_or_mem s dst (fun dst_v =>
-      let (result64, zf, cf, of) := add_with_carry dst_v src_v 0
+      eval_reg_or_mem s dst (fun dst_v w =>
+      let (result64, zf, cf, of) := add_with_carry w dst_v src_v 0
       set_reg_or_mem s dst result64 (fun s =>
       ret { s with flags := { zf, of, cf }})))
 
   | .adc dst src =>
       eval_operand s src (fun src_v =>
-      eval_reg_or_mem s dst (fun dst_v =>
-      let (result64, zf, cf, of) := add_with_carry dst_v src_v s.flags.cf.toNat
+      eval_reg_or_mem s dst (fun dst_v w =>
+      let (result64, zf, cf, of) := add_with_carry w dst_v src_v s.flags.cf.toNat
       set_reg_or_mem s dst result64 (fun s =>
       ret { s with flags := { zf, of, cf }})))
 
@@ -302,73 +444,81 @@ def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): 
       -- assembly (possibly with an actual frontend to parse .S syntax), the
       -- assembler will enforce eventually that no such nonsensical instructions
       -- exist. Is it worth the trouble?
-      eval_reg_or_mem s src (fun src_v  =>
-      eval_reg_or_mem s dst (fun dst_v  =>
+      eval_reg_or_mem s src (fun src_v w =>
+      eval_reg_or_mem s dst (fun dst_v _ =>
       let result := src_v.toNat + dst_v.toNat + s.flags.cf.toNat
-      let carry := result >>> 64
+      let carry := result >>> w.toNat
       let result := UInt64.ofNat result
       let s := { s with flags := { s.flags with cf := carry != 0 }}
       set_reg s dst result ret))
 
   | .adox dst src =>
-      eval_reg_or_mem s src (fun src_v  =>
-      eval_reg_or_mem s dst (fun dst_v  =>
+      eval_reg_or_mem s src (fun src_v w =>
+      eval_reg_or_mem s dst (fun dst_v _ =>
       -- TODO: figure out how to make sure that this let-binding does not get
       -- inlined, *unless* the right-hand side can be computed to a constant
       let result := src_v.toNat + dst_v.toNat + s.flags.of.toNat
-      let carry := result >>> 64
+      let carry := result >>> w.toNat
       let result := UInt64.ofNat result
       let s := { s with flags := { s.flags with of := carry != 0 }}
       set_reg s dst result ret))
 
   | .sub dst src =>
       eval_operand s src (fun src_v =>
-      eval_reg_or_mem s dst (fun dst_v =>
-      let (result64, zf, cf, of) := sub_with_borrow dst_v src_v 0
+      eval_reg_or_mem s dst (fun dst_v w =>
+      let (result64, zf, cf, of) := sub_with_borrow w dst_v src_v 0
       set_reg_or_mem s dst result64 (fun s =>
       ret { s with flags := { zf, of, cf }})))
 
   | .sbb dst src =>
       eval_operand s src (fun src_v =>
-      eval_reg_or_mem s dst (fun dst_v =>
-      let (result64, zf, cf, _of) := sub_with_borrow dst_v src_v s.flags.cf.toNat
+      eval_reg_or_mem s dst (fun dst_v w =>
+      let (result64, zf, cf, _of) := sub_with_borrow w dst_v src_v s.flags.cf.toNat
       set_reg_or_mem s dst result64 (fun s =>
       ret { s with flags := { s.flags with zf, cf }})))
 
   | .mul src =>
       -- mulq: rdx:rax = rax * src
-      eval_reg_or_mem s src (fun src_v =>
+      eval_reg_or_mem s src (fun src_v w =>
       let rax_v := s.getReg .rax
       let result := rax_v.toNat * src_v.toNat
-      let lo := UInt64.ofNat result
-      let hi := UInt64.ofNat (result >>> 64)
-      let s := s.setReg .rax lo
-      let s := s.setReg .rdx hi
+      let lo := (UInt64.ofNat result) &&& w.toMask
+      let hi := UInt64.ofNat (result >>> w.toNat)
+      Reg.shrink .rax w (fun r_lo =>
+      Reg.shrink .rdx w (fun r_hi =>
+      let s := s.setReg r_lo lo
+      let s := s.setReg r_hi hi
       -- mul sets OF and CF if high half is non-zero
       let cf := hi != 0
       let of := hi != 0
-      ret { s with flags := { s.flags with cf, of }})
+      ret { s with flags := { s.flags with cf, of }})))
 
-  | .mulx hi lo src1 =>
-      eval_reg_or_mem s src1 (fun src1_v  =>
+  | .mulx r_hi r_lo src1 =>
+      eval_reg_or_mem s src1 (fun src1_v w =>
       let src2_v := s.getReg .rdx
       let result := src1_v.toNat * src2_v.toNat
+      let lo := (UInt64.ofNat result) &&& w.toMask
+      let hi := UInt64.ofNat (result >>> w.toNat)
       -- Semantics say that if hi and lo are aliased, the value written is hi
-      set_reg s lo (UInt64.ofNat result) (fun s  =>
-      set_reg s hi (UInt64.ofNat (result >>> 64)) ret))
+      Reg.shrink r_lo w (fun r_lo =>
+      Reg.shrink r_hi w (fun r_hi =>
+      set_reg s r_lo lo (fun s  =>
+      set_reg s r_hi hi ret))))
 
-  | .imul dst src =>
-      eval_reg_or_mem s src (fun src_v =>
-      eval_reg_or_mem s dst (fun dst_v =>
-      let result := dst_v.toNat * src_v.toNat
-      let result64 := UInt64.ofNat result
-      -- OF/CF set if result doesn't fit in 64 bits
-      let overflow := result >>> 64 != 0
-      set_reg_or_mem s dst result64 (fun s =>
-      ret { s with flags := { s.flags with cf := overflow, of := overflow }})))
+  | .imul r_dst src =>
+      eval_reg_or_mem s src (fun src_v _ =>
+      eval_reg_or_mem s (.reg r_dst) (fun dst_v w => -- instruction homogenous
+      let result := dst_v.toIntWithWidth w * src_v.toIntWithWidth w
+      let result64 := UInt64.ofInt result
+      -- OF/CF set if result doesn't fit in 64 bits (TODO: is this the same as what the manual
+      -- says?)
+      let overflow := result >>> w.toNat != 0
+      r_dst.shrink w (fun r_dst =>
+      set_reg_or_mem s r_dst result64 (fun s =>
+      ret { s with flags := { s.flags with cf := overflow, of := overflow }}))))
 
   | .neg dst =>
-      eval_reg_or_mem s dst (fun dst_v =>
+      eval_reg_or_mem s dst (fun dst_v _ =>
       let result := 0 - dst_v
       let zf := result == 0
       let cf := dst_v != 0  -- CF is set unless operand is 0
@@ -376,21 +526,22 @@ def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): 
       ret { s with flags := { s.flags with zf, cf }}))
 
   | .dec dst =>
-      eval_reg_or_mem s dst (fun dst_v =>
+      eval_reg_or_mem s dst (fun dst_v w =>
       let result := dst_v - 1
       let zf := result == 0
-      let of := sub_overflow dst_v 1
+      let of := sub_overflow w dst_v 1
       -- dec does NOT affect CF
       set_reg_or_mem s dst result (fun s =>
       ret { s with flags := { s.flags with zf, of }}))
 
   | .lea dst src =>
       -- lea computes effective address, doesn't access memory
-      effective_addr s src (fun addr => ret (s.setReg dst addr))
+      -- see comment in effective_addr for zero-extension
+      effective_addr s src (fun addr _ => ret (s.setReg dst addr))
 
   | .xor dst src =>
       eval_operand s src (fun src_v =>
-      eval_reg_or_mem s dst (fun dst_v =>
+      eval_reg_or_mem s dst (fun dst_v _ =>
       let result := dst_v ^^^ src_v
       let zf := result == 0
       -- xor clears CF and OF
@@ -399,7 +550,7 @@ def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): 
 
   | .and dst src =>
       eval_operand s src (fun src_v =>
-      eval_reg_or_mem s dst (fun dst_v =>
+      eval_reg_or_mem s dst (fun dst_v _ =>
       let result := dst_v &&& src_v
       let zf := result == 0
       set_reg_or_mem s dst result (fun s =>
@@ -407,19 +558,19 @@ def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): 
 
   | .or dst src =>
       eval_operand s src (fun src_v =>
-      eval_reg_or_mem s dst (fun dst_v =>
+      eval_reg_or_mem s dst (fun dst_v _ =>
       let result := dst_v ||| src_v
       let zf := result == 0
       set_reg_or_mem s dst result (fun s =>
       ret { s with flags := { zf, of := false, cf := false }})))
 
   | .cmp a b =>
-      eval_reg_or_mem s a (fun a_v =>
+      eval_reg_or_mem s a (fun a_v w =>
       eval_operand s b (fun b_v =>
       let res := (Int.ofNat a_v.toNat) - (Int.ofNat b_v.toNat)
       let cf := res < 0
       let zf := res == 0
-      let of := sub_overflow a_v b_v
+      let of := sub_overflow w a_v b_v
       ret { s with flags := { zf, of, cf }}))
 
   | _ => throw s!"unsupported non-control instruction {repr i}"
@@ -701,7 +852,7 @@ def p3: Program := [
   (.none,         .mov (.reg .rdx) (.imm 2)),                -- rdx: current result = 2
   (.some "start", .sub (.reg .rbx) (.imm 0)),                -- TEST: zf = (rbx == 0)
   (.none        , .jz "end"),                                  -- end loop if rbx == 0 (a.k.a. "while rbx >= 0")
-  (.none        , .mulx (.reg .rax) (.reg .rdx) (.reg .rdx)),  -- BODY: rdx := rdx * rdx
+  (.none        , .mulx .rax .rdx (.reg .rdx)),             -- BODY: rdx := rdx * rdx
   (.none,         .sub (.reg .rbx) (.imm 1)),                -- rbx -= 1
   (.none,         .jmp "start"),                               -- go back to test & loop body
   (.some "end",   .mov (.reg .rax) (.imm 0)),                -- meaningless -- just want the label to be well-defined
@@ -715,7 +866,7 @@ def p3: Program := [
 
 def p3_spec (s: MachineState): Nat := 2^(2^s.regs.rbx.toNat)
 
-set_option maxHeartbeats 800000 in
+set_option maxHeartbeats 1000000 in
 theorem p3_correct (initial: MachineState):
     p3_spec initial < 2^64 →
     initial.rip = 0 →
@@ -782,6 +933,7 @@ theorem p3_correct (initial: MachineState):
 
         apply step_cps
         step_one
+        simp [Reg.width,Reg.shrink] 
         apply step_cps
         step_one
         apply step_cps
@@ -803,7 +955,8 @@ theorem p3_correct (initial: MachineState):
               . rw [h_inv]
                 have h_vi_k : v_i.toNat - (k - 1) = (v_i.toNat - k) + 1 := by omega
                 rw [h_vi_k, Nat.mod_eq_of_lt]
-                . rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_succ]
+                . simp [Width.toMask,mask64]
+                  rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_succ]
                 . apply Nat.lt_of_le_of_lt _ h_bounds
                   rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_succ]
                   apply Nat.pow_le_pow_right (by decide)
