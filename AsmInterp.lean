@@ -947,7 +947,7 @@ theorem p3_correct (initial: MachineState):
           | ⟨v_s⟩, ⟨v_i⟩ =>
             have h_k_lt : k < 2^64 := h_rbx_is_k ▸ (by rw [h_state]; exact v_s.isLt)
             have h_init_lt : v_i.toNat < 2^64 := v_i.isLt
-            simp [h_state, h_init, p3_spec, UInt64.ofInt, UInt64.ofNat, UInt64.toNat_ofNat] at *
+            simp [h_state, h_init, p3_spec, Width.toMask, mask64, UInt64.ofInt, UInt64.ofNat, UInt64.toNat_ofNat] at *
             constructor
             . omega
             . constructor
@@ -955,8 +955,7 @@ theorem p3_correct (initial: MachineState):
               . rw [h_inv]
                 have h_vi_k : v_i.toNat - (k - 1) = (v_i.toNat - k) + 1 := by omega
                 rw [h_vi_k, Nat.mod_eq_of_lt]
-                . simp [Width.toMask,mask64]
-                  rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_succ]
+                . rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_succ]
                 . apply Nat.lt_of_le_of_lt _ h_bounds
                   rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_succ]
                   apply Nat.pow_le_pow_right (by decide)
