@@ -97,14 +97,7 @@ inductive Instr
   | dec  (dst : Operand)                       -- decq: dst--, sets ZF (not CF!)
 
   -- Move/Load
-  | mov  (dst src : Operand)                   -- movq: 64-bit move
-  | movb (dst src : Operand)                   -- movb: 8-bit move (preserves upper 56 bits)
-  | movw (dst src : Operand)                   -- movw: 16-bit move (preserves upper 48 bits)
-  | movl (dst src : Operand)                   -- movl: 32-bit move (ZERO-extends to 64-bit!)
-  -- Sign-extending moves (source width → 64-bit)
-  | movsxbq (dst src : Operand)                -- movsbq: sign-extend 8-bit to 64-bit
-  | movsxwq (dst src : Operand)                -- movswq: sign-extend 16-bit to 64-bit
-  | movsxlq (dst src : Operand)                -- movslq: sign-extend 32-bit to 64-bit
+  | mov  (dst src : Operand)                   -- movq: 64-bit move (only 64-bit registers for now)
   | lea  (dst : Reg) (src : Operand)           -- leaq: dst = effective address
 
   -- Bitwise
@@ -171,28 +164,6 @@ def MachineState.writeMem [Throw α] (s : MachineState) (addr : Address) (val : 
     throw s!"Out-of-bounds access (rip={repr s.rip})"
   else
     ret { s with heap := s.heap.insert addr val }
-
--- Sign-extension helpers: extend smaller signed values to 64-bit
--- These check the sign bit and extend accordingly
-@[simp] def sign_extend_8_to_64 (v : UInt64) : UInt64 :=
-  if v &&& 0x80 != 0 then v ||| 0xFFFFFFFFFFFFFF00 else v &&& 0xFF
-
-@[simp] def sign_extend_16_to_64 (v : UInt64) : UInt64 :=
-  if v &&& 0x8000 != 0 then v ||| 0xFFFFFFFFFFFF0000 else v &&& 0xFFFF
-
-@[simp] def sign_extend_32_to_64 (v : UInt64) : UInt64 :=
-  if v &&& 0x80000000 != 0 then v ||| 0xFFFFFFFF00000000 else v &&& 0xFFFFFFFF
-
--- Zero-extension helpers: mask to width (upper bits become 0)
-@[simp] def zero_extend_8_to_64 (v : UInt64) : UInt64 := v &&& 0xFF
-@[simp] def zero_extend_16_to_64 (v : UInt64) : UInt64 := v &&& 0xFFFF
-@[simp] def zero_extend_32_to_64 (v : UInt64) : UInt64 := v &&& 0xFFFFFFFF
-
--- Partial register write helpers: merge new value into existing register
--- These preserve upper bits of dst and write lower bits from src
-@[simp] def write_low_8 (dst src : UInt64) : UInt64 := (dst &&& 0xFFFFFFFFFFFFFF00) ||| zero_extend_8_to_64 src
-@[simp] def write_low_16 (dst src : UInt64) : UInt64 := (dst &&& 0xFFFFFFFFFFFF0000) ||| zero_extend_16_to_64 src
--- movl zero-extends, so it's just zero_extend_32_to_64 (no preservation)
 
 -- Convert Int64 immediate to UInt64 for execution
 -- This is a direct conversion since the parser already handled sign-extension
@@ -307,38 +278,6 @@ def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): 
   | .mov dst src =>
       eval_operand s src (fun val =>
       set_reg_or_mem s dst val ret)
-
-  | .movb dst src =>
-      -- 8-bit move: preserves upper 56 bits of destination register
-      eval_operand s src (fun val =>
-      eval_reg_or_mem s dst (fun dst_v =>
-      set_reg_or_mem s dst (write_low_8 dst_v val) ret))
-
-  | .movw dst src =>
-      -- 16-bit move: preserves upper 48 bits of destination register
-      eval_operand s src (fun val =>
-      eval_reg_or_mem s dst (fun dst_v =>
-      set_reg_or_mem s dst (write_low_16 dst_v val) ret))
-
-  | .movl dst src =>
-      -- 32-bit move: ZERO-extends to 64-bit (x86-64 convention)
-      eval_operand s src (fun val =>
-      set_reg_or_mem s dst (zero_extend_32_to_64 val) ret)
-
-  | .movsxbq dst src =>
-      -- Sign-extend 8-bit to 64-bit
-      eval_operand s src (fun val =>
-      set_reg_or_mem s dst (sign_extend_8_to_64 val) ret)
-
-  | .movsxwq dst src =>
-      -- Sign-extend 16-bit to 64-bit
-      eval_operand s src (fun val =>
-      set_reg_or_mem s dst (sign_extend_16_to_64 val) ret)
-
-  | .movsxlq dst src =>
-      -- Sign-extend 32-bit to 64-bit
-      eval_operand s src (fun val =>
-      set_reg_or_mem s dst (sign_extend_32_to_64 val) ret)
 
   | .add dst src =>
       eval_operand s src (fun src_v =>
