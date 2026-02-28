@@ -804,7 +804,7 @@ macro_rules
       -- works for calls to strt1
       strt1,eval_operand,eval_reg_or_mem,set_reg,set_reg_or_mem,effective_addr,eval_imm,sub_with_borrow,add_with_carry,sub_overflow,add_overflow,MachineState.setReg,next,Registers.set,pure,bind,next,MachineState.getReg,Registers.get,
       -- or calls to ctrl
-      ctrl,lookup,List.findIdx?,List.findIdx?.go,pure,bind,jump_if,next] <;> try native_decide)
+      ctrl,lookup,List.findIdx?,List.findIdx?.go,pure,bind,jump_if,next])
 
 -- Example 2: stepping through both straightline and control instructions
 example: eventually p2 (fun s => s.regs.rax = 2) {} := by
