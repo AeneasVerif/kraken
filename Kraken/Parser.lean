@@ -492,19 +492,20 @@ def parseInstr : Parser Instr := do
     let dst ← parseRegOrMem
     pure (.setnc dst)
 
-  -- Conditional moves (64-bit only - non-q variants are 32-bit which we don't support)
-  | "cmovcq" | "cmovbq" => do
+  -- Conditional moves (64-bit)
+  -- Note: In AT&T syntax, suffix can be omitted when operands are 64-bit registers
+  | "cmovc" | "cmovcq" | "cmovb" | "cmovbq" => do
     let src ← parseOperand; parseComma; let dst ← parseRegOrMem
     pure (.cmovc dst src)
-  | "cmoveq" | "cmovzq" => do
+  | "cmove" | "cmoveq" | "cmovz" | "cmovzq" => do
     let src ← parseOperand; parseComma; let dst ← parseRegOrMem
     pure (.cmove dst src)
 
   -- Stack operations
-  | "push" => do
+  | "push" | "pushq" => do
     let src ← parseOperand
     pure (.push src)
-  | "pop" => do
+  | "pop" | "popq" => do
     let dst ← parseRegOrMem
     pure (.pop dst)
   | "ret" | "retq" =>

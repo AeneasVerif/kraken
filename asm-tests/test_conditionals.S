@@ -67,13 +67,31 @@ _start:
     pop %r8
     # Expected: r8 = 0x1234567890ABCDEF
 
-    # Initialize remaining registers
-    movq $300, %r9
-    movq $400, %r10
-    movq $500, %r11
-    movq $600, %r12
-    movq $700, %r13
-    movq $800, %r14
+    # ----- CMOVC (conditional move if carry) -----
+    # Test 1: CF=1 case (move should happen)
+    movq $0xFFFFFFFFFFFFFFFF, %r9
+    addq $1, %r9                     # Causes overflow, sets CF=1
+    movq $0x1111, %r10
+    movq $0x2222, %r11
+    cmovc %r10, %r11                 # CF=1, so r11 = r10 = 0x1111
+    # Expected: r11 = 0x1111
+
+    # Test 2: CF=0 case (no move)
+    xorq %rax, %rax                  # Clears CF
+    movq $0x3333, %r12
+    movq $0x4444, %r13
+    cmovc %r12, %r13                 # CF=0, so r13 stays 0x4444
+    # Expected: r13 = 0x4444
+
+    # ----- CMOVE (conditional move if zero) -----
+    # Test 3: ZF=1 case (move should happen)
+    movq $0x5555, %r14
+    xorq %rax, %rax                  # Sets ZF=1
+    movq $0x6666, %rbp
+    cmove %r14, %rbp                 # ZF=1, so rbp = r14 = 0x5555
+    # Expected: rbp = 0x5555
+
+    # Initialize remaining register
     movq $42, %r15
 
     jmp _kraken_capture
