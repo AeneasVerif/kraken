@@ -27,10 +27,23 @@ final_flags: .quad 0
 .globl _start
 
 _start:
-    # ----- TEST instruction -----
+    # ----- TEST instruction (64-bit) -----
     movq $0xFF, %rax
     testq %rax, %rax                 # Sets ZF=0 (non-zero)
     # ZF should be 0
+
+    # ----- TESTB instruction (8-bit) -----
+    # Test 8-bit immediate against al
+    movq $0x55, %rax                 # al = 0x55 (01010101)
+    testb $0xAA, %al                 # AND with 0xAA (10101010) = 0, ZF=1
+    setnc %r9b                       # r9b = 1 (CF=0 after testb)
+    # Expected: ZF=1, r9 has low byte set
+
+    # Test 8-bit reg against 8-bit reg
+    movq $0xFF, %rcx                 # cl = 0xFF
+    movq $0x0F, %rdx                 # dl = 0x0F
+    testb %dl, %cl                   # AND cl with dl = 0x0F, ZF=0
+    # Expected: ZF=0 (result non-zero)
 
     # ----- SETC / SETNC (set byte on carry) -----
     # First, create carry condition

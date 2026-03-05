@@ -43,6 +43,10 @@ _start:
     movq $7, %r9
     imulq %r9, %r8          # r8 = 5 * 7 = 35
 
+    # Test imulq with immediate (two-operand form with immediate)
+    movq $6, %r10
+    imulq $11, %r10         # r10 = 6 * 11 = 66
+
     # Restore rax for output
     movq %rcx, %rax
 

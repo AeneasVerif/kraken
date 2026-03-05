@@ -293,9 +293,11 @@ def parseInstr : Parser Instr := do
     let hi ← parseRegOperand
     pure (.mulx hi lo src)
   | "imul" | "imulq" => do
-    let src ← parseRegOrMem; parseComma; let dst ← parseRegOrMem
+    -- Two-operand form: src can be immediate, register, or memory
+    -- AT&T syntax: imul $imm, %reg OR imul %src, %dst
+    let src ← parseOperand; parseComma; let dst ← parseRegOrMem
     checkNoTwoMemory src dst
-    -- Only 64-bit IMUL is supported (two-operand form)
+    -- Only 64-bit IMUL is supported
     match dst with
     | .reg r => if r.width != .W64 then fail s!"imul only supports 64-bit operands, got {repr r}"
     | _ => pure ()
@@ -353,23 +355,54 @@ def parseInstr : Parser Instr := do
   | "test" | "testq" => do
     let src ← parseOperand; parseComma; let dst ← parseRegOrMem
     pure (.test dst src)
+  | "testb" => do
+    let src ← parseOperand; parseComma; let dst ← parseRegOrMem
+    pure (.testb dst src)
 
   -- Shift instructions - 64-bit
   | "shl" | "shlq" | "sal" | "salq" => do
-    let cnt ← parseOperand; parseComma; let dst ← parseRegOrMem
-    pure (.shl dst cnt)
+    -- Support both forms: shlq $count, %dst OR shlq %dst (implicit count=1)
+    let first ← parseOperand
+    let hasComma ← (attempt parseComma *> pure true) <|> pure false
+    if hasComma then
+      let dst ← parseRegOrMem
+      pure (.shl dst first)
+    else
+      pure (.shl first (.imm 1))
   | "shll" | "sall" => do
-    let cnt ← parseOperand; parseComma; let dst ← parseRegOrMem
-    pure (.shll dst cnt)
+    let first ← parseOperand
+    let hasComma ← (attempt parseComma *> pure true) <|> pure false
+    if hasComma then
+      let dst ← parseRegOrMem
+      pure (.shll dst first)
+    else
+      pure (.shll first (.imm 1))
   | "shr" | "shrq" => do
-    let cnt ← parseOperand; parseComma; let dst ← parseRegOrMem
-    pure (.shr dst cnt)
+    -- Support both forms: shrq $count, %dst OR shrq %dst (implicit count=1)
+    let first ← parseOperand
+    let hasComma ← (attempt parseComma *> pure true) <|> pure false
+    if hasComma then
+      let dst ← parseRegOrMem
+      pure (.shr dst first)
+    else
+      pure (.shr first (.imm 1))
   | "shrl" => do
-    let cnt ← parseOperand; parseComma; let dst ← parseRegOrMem
-    pure (.shrl dst cnt)
+    let first ← parseOperand
+    let hasComma ← (attempt parseComma *> pure true) <|> pure false
+    if hasComma then
+      let dst ← parseRegOrMem
+      pure (.shrl dst first)
+    else
+      pure (.shrl first (.imm 1))
   | "sar" | "sarq" => do
-    let cnt ← parseOperand; parseComma; let dst ← parseRegOrMem
-    pure (.sar dst cnt)
+    -- Support both forms: sarq $count, %dst OR sarq %dst (implicit count=1)
+    let first ← parseOperand
+    let hasComma ← (attempt parseComma *> pure true) <|> pure false
+    if hasComma then
+      let dst ← parseRegOrMem
+      pure (.sar dst first)
+    else
+      pure (.sar first (.imm 1))
   | "shld" | "shldq" => do
     -- shld %cl, %src, %dst (shift dst left, fill with src high bits)
     let cnt ← parseOperand; parseComma
@@ -529,9 +562,14 @@ def parseLine : Parser (Option (Option Label × Instr)) := do
     let c2 ← peek!
     -- Check if there's an instruction after the label
     if c2 == '\n' || c2 == '#' then
-      -- Label-only line (forward declaration) - not common, but handle it
+      -- Label-only line: treat as "label: nop"
+      -- NOTE: This is an imperfect fix. Ideally, standalone labels should be
+      -- associated with the *next* instruction's address, not inserted as a separate
+      -- nop instruction. However, this simple approach works for most cases where
+      -- labels are just jump targets. The extra nop has no semantic effect beyond
+      -- consuming one instruction slot.
       match lbl with
-      | some l => fail s!"label '{l}' without instruction not supported"
+      | some l => pure (some (some l, .nop))
       | none => pure none
     else
       let instr ← parseInstr
@@ -561,12 +599,38 @@ def parseProgram : Parser Program := parseProgramAux []
 -- Public API
 -- ============================================================================
 
+/-- Parse a single line of assembly (used internally with line tracking). -/
+def parseSingleLine (line : String) : Except String (Option (Option Label × Instr)) :=
+  if line.trim.isEmpty || line.trim.startsWith "#" then
+    .ok none
+  else
+    match parseLine (line ++ "\n").mkIterator with
+    | .success _ result => .ok result
+    | .error _ msg => .error msg
+
 /-- Parse an assembly string into a Program.
-    Returns an error message on failure. -/
+    Returns an error message with line number and content on failure. -/
 def parse (input : String) : Except String Program :=
-  match parseProgram input.mkIterator with
-  | .success _ prog => .ok prog
-  | .error _ msg => .error msg
+  let lines := input.splitOn "\n"
+  parseLines lines 1 []
+where
+  parseLines (lines : List String) (lineNum : Nat) (acc : Program) : Except String Program :=
+    match lines with
+    | [] => .ok acc
+    | line :: rest =>
+      let trimmed := line.trim
+      -- Skip empty lines and pure comment lines quickly
+      if trimmed.isEmpty || trimmed.startsWith "#" then
+        parseLines rest (lineNum + 1) acc
+      else
+        -- Try to parse the line
+        match parseSingleLine line with
+        | .ok none => parseLines rest (lineNum + 1) acc
+        | .ok (some entry) => parseLines rest (lineNum + 1) (acc ++ [entry])
+        | .error msg =>
+            -- Include line number and content in error message
+            let preview := if line.length > 60 then line.take 60 ++ "..." else line
+            .error s!"line {lineNum}: {msg}\n  | {preview}"
 
 /-- Parse an assembly string, panicking on failure (for use in #eval). -/
 def parse! (input : String) : Program :=

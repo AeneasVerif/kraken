@@ -230,6 +230,7 @@ inductive Instr
 
   -- Test (AND but discard result, set flags)
   | test (a b : Operand)                       -- testq: a AND b, set flags
+  | testb (a b : Operand)                      -- testb: 8-bit test
 
   -- Compare (sets flags only)
   | cmp  (a b : Operand)                       -- cmpq: compute a - b, set flags
@@ -266,6 +267,10 @@ inductive Instr
   --   ja      .a         Above (unsigned)   CF=0 ∧ ZF=0
   --   jbe     .be        Below/Equal        CF=1 ∨ ZF=1
   | jcc (cc : CondCode) (target : Label)
+
+  -- No operation (x86 NOP instruction)
+  -- Per Intel SDM: performs no operation. Used for padding or as placeholder.
+  | nop
   deriving Repr
 
 def Instr.is_ctrl
@@ -646,10 +651,11 @@ def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): 
 
   | .imul dst src =>
       -- imulq (64-bit only): Two-operand form DEST := truncate(DEST × SRC) (signed)
+      -- SRC can be immediate, register, or memory. DEST is register/memory (treated as source too)
       -- Note: Other widths (imulb/imulw/imull) would need different truncation/sign-extension.
-      -- The parser validates that operands are 64-bit. See: https://www.felixcloutier.com/x86/imul
+      -- See: https://www.felixcloutier.com/x86/imul
       -- OF/CF set when signed result doesn't fit in destination size
-      eval_reg_or_mem s src (fun src_v =>
+      eval_operand s src (fun src_v =>
       eval_reg_or_mem s dst (fun dst_v =>
       let result := dst_v.toInt64.toInt * src_v.toInt64.toInt
       let result64 := UInt64.ofInt result
@@ -974,6 +980,16 @@ def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): 
       let zf := result == 0
       ret { s with flags := { zf, of := false, cf := false }}))
 
+  | .testb a b =>
+      -- 8-bit test: AND the low 8 bits, set flags
+      eval_reg_or_mem s a (fun a_v =>
+      eval_operand s b (fun b_v =>
+      let a8 := mask8 a_v
+      let b8 := mask8 b_v
+      let result := a8 &&& b8
+      let zf := result == 0
+      ret { s with flags := { zf, of := false, cf := false }}))
+
   | .cmpl a b =>
       eval_reg_or_mem s a (fun a_v =>
       eval_operand s b (fun b_v =>
@@ -1046,6 +1062,10 @@ def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): 
       s.readMem rsp (fun retAddr =>
       let s := s.setReg .rsp (rsp + 8)
       ret { s with rip := retAddr.toNat })
+
+  | .nop =>
+      -- NOP: No operation. Does nothing, just advances to next instruction.
+      ret s
 
   | _ => throw s!"unsupported non-control instruction {repr i}"
 

@@ -380,8 +380,12 @@ def extractTestableCode (asmCode : String) : String :=
     else if inBlock && trimmed.startsWith "jmp" && trimmed.endsWith "_kraken_capture" then
       (acc, false)
     else if inBlock then
-      -- Skip directives, empty lines, and comment-only lines
-      let isDirective := trimmed.startsWith "." || trimmed.isEmpty || trimmed.startsWith "#"
+      -- Skip directives (like .align, .data), empty lines, and comment-only lines
+      -- BUT keep .L labels (local labels starting with .L followed by alphanumeric)
+      let isLocalLabel := trimmed.startsWith ".L" && trimmed.length > 2 &&
+                          (trimmed.get ⟨2⟩).isAlphanum
+      let isDirective := (trimmed.startsWith "." && !isLocalLabel) ||
+                         trimmed.isEmpty || trimmed.startsWith "#"
       if isDirective then (acc, inBlock)
       else (acc ++ [line], inBlock)
     else (acc, inBlock)
