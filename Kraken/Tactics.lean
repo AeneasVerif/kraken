@@ -49,7 +49,7 @@ theorem eventually_trans (program: Program) (p q: Post) (initial: MachineState)
         apply eventually.step
         <;> assumption -- Q: why does `grind` not work here?
 
-theorem eventually_weaken (program: Program) (p q: Post)
+theorem eventually_weaken (program: Program) (p q: Post) (initial: MachineState)
   (h: forall s, p s → q s):
     eventually program p initial → eventually program q initial
   := by
