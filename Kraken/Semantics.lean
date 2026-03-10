@@ -1091,6 +1091,10 @@ def ctrl {α} [Throw α] (s: MachineState) (lookup: Label → (Nat → α) → �
         | .a  => !s.flags.cf && !s.flags.zf  -- Above: CF=0 ∧ ZF=0
         | .be => s.flags.cf || s.flags.zf    -- Below/Equal: CF=1 ∨ ZF=1
       jump_if s cond rip ret)
+  | .ret =>
+      -- Return from function: signal termination by returning current state.
+      -- The eval function will detect this and stop recursing.
+      ret s
   | _ => throw s!"unsupported control instruction {repr i}"
 
 abbrev Program := List (Option Label × Instr)
@@ -1113,7 +1117,16 @@ def eval1 {α} [m: Throw α] (p: Program) (s: MachineState) (ret: MachineState �
       strt1 s i (fun s =>
       ret (next s)))
 
+/-- Check if current instruction is ret (signals termination). -/
+def isRet (p: Program) (s: MachineState) : Bool :=
+  match p[s.rip]? with
+  | .some (_, .ret) => true
+  | _ => false
+
 def eval (p: Program) (s: MachineState): Option MachineState := do
+  -- If current instruction is ret, return the current state (termination)
+  if isRet p s then
+    return s
   let s ← (eval1 (m:={ throw _ := Option.none }) p s) (fun s => .some s)
   eval p s
 partial_fixpoint
