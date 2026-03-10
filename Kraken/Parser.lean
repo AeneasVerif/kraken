@@ -245,6 +245,13 @@ def parseComma : Parser Unit := do
   let _ ← pchar ','
   skipHWs
 
+/-- Parse a comma-separated list of operands.
+    Returns an array with 1 or more operands. -/
+def parseOperandList : Parser (Array Operand) := do
+  let first ← parseOperand
+  let rest ← many (attempt (parseComma *> parseOperand))
+  pure (#[first] ++ rest)
+
 /-- Parse an instruction mnemonic and its operands.
     AT&T syntax: src, dst (reversed from Intel). -/
 def parseInstr : Parser Instr := do
@@ -360,49 +367,37 @@ def parseInstr : Parser Instr := do
     pure (.testb dst src)
 
   -- Shift instructions - 64-bit
+  -- Support both forms: shlq $count, %dst OR shlq %dst (implicit count=1)
   | "shl" | "shlq" | "sal" | "salq" => do
-    -- Support both forms: shlq $count, %dst OR shlq %dst (implicit count=1)
-    let first ← parseOperand
-    let hasComma ← (attempt parseComma *> pure true) <|> pure false
-    if hasComma then
-      let dst ← parseRegOrMem
-      pure (.shl dst first)
-    else
-      pure (.shl first (.imm 1))
+    let ops ← parseOperandList
+    match ops.toList with
+    | [dst] => pure (.shl dst (.imm 1))
+    | [cnt, dst] => pure (.shl dst cnt)
+    | _ => fail "shl expects 1 or 2 operands"
   | "shll" | "sall" => do
-    let first ← parseOperand
-    let hasComma ← (attempt parseComma *> pure true) <|> pure false
-    if hasComma then
-      let dst ← parseRegOrMem
-      pure (.shll dst first)
-    else
-      pure (.shll first (.imm 1))
+    let ops ← parseOperandList
+    match ops.toList with
+    | [dst] => pure (.shll dst (.imm 1))
+    | [cnt, dst] => pure (.shll dst cnt)
+    | _ => fail "shll expects 1 or 2 operands"
   | "shr" | "shrq" => do
-    -- Support both forms: shrq $count, %dst OR shrq %dst (implicit count=1)
-    let first ← parseOperand
-    let hasComma ← (attempt parseComma *> pure true) <|> pure false
-    if hasComma then
-      let dst ← parseRegOrMem
-      pure (.shr dst first)
-    else
-      pure (.shr first (.imm 1))
+    let ops ← parseOperandList
+    match ops.toList with
+    | [dst] => pure (.shr dst (.imm 1))
+    | [cnt, dst] => pure (.shr dst cnt)
+    | _ => fail "shr expects 1 or 2 operands"
   | "shrl" => do
-    let first ← parseOperand
-    let hasComma ← (attempt parseComma *> pure true) <|> pure false
-    if hasComma then
-      let dst ← parseRegOrMem
-      pure (.shrl dst first)
-    else
-      pure (.shrl first (.imm 1))
+    let ops ← parseOperandList
+    match ops.toList with
+    | [dst] => pure (.shrl dst (.imm 1))
+    | [cnt, dst] => pure (.shrl dst cnt)
+    | _ => fail "shrl expects 1 or 2 operands"
   | "sar" | "sarq" => do
-    -- Support both forms: sarq $count, %dst OR sarq %dst (implicit count=1)
-    let first ← parseOperand
-    let hasComma ← (attempt parseComma *> pure true) <|> pure false
-    if hasComma then
-      let dst ← parseRegOrMem
-      pure (.sar dst first)
-    else
-      pure (.sar first (.imm 1))
+    let ops ← parseOperandList
+    match ops.toList with
+    | [dst] => pure (.sar dst (.imm 1))
+    | [cnt, dst] => pure (.sar dst cnt)
+    | _ => fail "sar expects 1 or 2 operands"
   | "shld" | "shldq" => do
     -- shld %cl, %src, %dst (shift dst left, fill with src high bits)
     let cnt ← parseOperand; parseComma
