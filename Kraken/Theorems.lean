@@ -34,3 +34,12 @@ theorem UInt64_ofInt_natCast_ne_zero (k : Nat) (h_lt : k < 2^64) (h_ne : k ≠ 0
   have hzero : (0 : Nat) % 2^64 = 0 := Nat.zero_mod (2^64)
   rw [h2, hkmod, hzero] at h1
   exact h_ne h1
+
+-- ============================================================================
+-- Heap Region Helpers
+-- ============================================================================
+
+/-- Asserts that a contiguous region of n 64-bit words starting at addr exists in the heap.
+    Each word is at addr, addr+8, addr+16, ..., addr+(n-1)*8 -/
+def heapRegionValid (s : MachineState) (addr : UInt64) (n : Nat) : Prop :=
+  ∀ i : Nat, i < n → (s.heap[addr + i.toUInt64 * 8]?).isSome
