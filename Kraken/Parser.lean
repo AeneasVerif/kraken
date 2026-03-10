@@ -515,7 +515,7 @@ def parseInstr : Parser Instr := do
   -- Control flow - conditional jumps
   | _ =>
     if mn.startsWith "j" then do
-      match parseCondCode (mn.drop 1) with
+      match parseCondCode (String.mk (mn.toList.drop 1)) with
       | .ok cc => do
         skipHWs
         let target ← parseName
@@ -600,9 +600,7 @@ def parseSingleLine (line : String) : Except String (Option (Option Label × Ins
   if line.trim.isEmpty || line.trim.startsWith "#" then
     .ok none
   else
-    match parseLine (line ++ "\n").mkIterator with
-    | .success _ result => .ok result
-    | .error _ msg => .error msg
+    Parser.run parseLine (line ++ "\n")
 
 /-- Parse an assembly string into a Program.
     Returns an error message with line number and content on failure. -/
@@ -614,7 +612,7 @@ where
     match lines with
     | [] => .ok acc
     | line :: rest =>
-      let trimmed := line.trim
+      let trimmed : String := s!"{line.trim}"
       -- Skip empty lines and pure comment lines quickly
       if trimmed.isEmpty || trimmed.startsWith "#" then
         parseLines rest (lineNum + 1) acc
@@ -625,7 +623,7 @@ where
         | .ok (some entry) => parseLines rest (lineNum + 1) (acc ++ [entry])
         | .error msg =>
             -- Include line number and content in error message
-            let preview := if line.length > 60 then line.take 60 ++ "..." else line
+            let preview : String := if line.length > 60 then s!"{line.take 60}..." else line
             .error s!"line {lineNum}: {msg}\n  | {preview}"
 
 /-- Parse an assembly string, panicking on failure (for use in #eval). -/
