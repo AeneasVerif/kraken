@@ -407,13 +407,15 @@ def MachineState.getReg (s : MachineState) (r : Reg) : UInt64 :=
 def MachineState.setReg (s : MachineState) (r : Reg) (v : UInt64) : MachineState :=
   { s with regs := s.regs.set r v }
 
-class Throw (α : Type _) where
+variable {α : Type _}
+
+class Throw α where
   throw: String → α
 
-def throw {α : Type _} [inst: Throw α] :=
+def throw [inst: Throw α] :=
   inst.throw
 
-def MachineState.readMem {α : Type _} [Throw α] (s : MachineState) (addr : Address) (ret: Word → α): α :=
+def MachineState.readMem [Throw α] (s : MachineState) (addr : Address) (ret: Word → α): α :=
   if addr % 8 != 0 then
     throw (s!"Out-of-bounds access (rip={repr s.rip})")
   else
@@ -421,7 +423,7 @@ def MachineState.readMem {α : Type _} [Throw α] (s : MachineState) (addr : Add
     | .some v => ret v
     | .none => throw (s!"Memory read but not written to (rip={repr s.rip}, addr={repr addr})")
 
-def MachineState.writeMem {α : Type _} [Throw α] (s : MachineState) (addr : Address) (val : Word) (ret: MachineState → α) : α :=
+def MachineState.writeMem [Throw α] (s : MachineState) (addr : Address) (val : Word) (ret: MachineState → α) : α :=
   if addr % 8 != 0 then
     throw s!"Out-of-bounds access (rip={repr s.rip})"
   else
@@ -469,26 +471,26 @@ def MachineState.writeMem {α : Type _} [Throw α] (s : MachineState) (addr : Ad
 
 
 -- Compute effective address: base + idx*scale + disp
-def effective_addr {α : Type _} [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → α): α :=
+def effective_addr [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → α): α :=
   match o with
   | .mem base idx scale disp =>
     let idxVal := match idx with | .some r => s.getReg r | .none => 0
     ret ((s.getReg base) + idxVal * scale.toUInt64 + UInt64.ofInt disp)
   | _ => throw "effective_addr called on non-memory operand"
 
-def eval_operand {α : Type _} [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → α): α :=
+def eval_operand [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → α): α :=
   match o with
   | .reg r => ret (s.getReg r)
   | .imm v => ret (eval_imm v)
   | .mem _ _ _ _ => effective_addr s o (fun addr => s.readMem addr ret)
 
-def eval_reg_or_mem {α : Type _} [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → α): α :=
+def eval_reg_or_mem [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → α): α :=
   match o with
   | .reg r => ret (s.getReg r)
   | .mem _ _ _ _ => effective_addr s o (fun addr => s.readMem addr ret)
   | .imm _ => throw "Ill-formed instruction (rip={repr s.rip})"
 
-def set_reg_or_mem {α : Type _} [Throw α] (s: MachineState) (o: Operand) (v: Word) (ret: MachineState → α): α :=
+def set_reg_or_mem [Throw α] (s: MachineState) (o: Operand) (v: Word) (ret: MachineState → α): α :=
   match o with
   | .reg r =>
       ret (s.setReg r v)
@@ -497,7 +499,7 @@ def set_reg_or_mem {α : Type _} [Throw α] (s: MachineState) (o: Operand) (v: W
   | .imm _ =>
       throw "Ill-formed instruction (rip={repr s.rip})"
 
-def set_reg {α : Type _} [Throw α] (s: MachineState) (o: Operand) (v: Word) (ret: MachineState → α): α :=
+def set_reg [Throw α] (s: MachineState) (o: Operand) (v: Word) (ret: MachineState → α): α :=
   match o with
   | .reg r =>
       ret (s.setReg r v)
@@ -554,7 +556,7 @@ def sub_overflow (a b : UInt64) : Bool := sub_overflow_with_borrow a b 0
 -- it (always by 1).
 -- The reference semantics are taken from https://www.felixcloutier.com/x86/,
 -- which itself is just extracted from https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
-def strt1 {α : Type _} [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): α :=
+def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): α :=
   match i with
   | .mov dst src =>
       -- 64-bit move (movq/movabs): direct copy of evaluated value
@@ -1069,14 +1071,14 @@ def strt1 {α : Type _} [Throw α] (s : MachineState) (i : Instr) (ret: MachineS
 
   | _ => throw s!"unsupported non-control instruction {repr i}"
 
-def jump_if {α : Type _} [Throw α] (s: MachineState) (b: Bool) (rip: Nat) (ret: MachineState → α): α :=
+def jump_if [Throw α] (s: MachineState) (b: Bool) (rip: Nat) (ret: MachineState → α): α :=
   if b then
     ret { s with rip }
   else
     ret (next s)
 
 
-def ctrl {α : Type _} [Throw α] (s: MachineState) (lookup: Label → (Nat → α) → α) (i: Instr) (ret: MachineState → α): α :=
+def ctrl [Throw α] (s: MachineState) (lookup: Label → (Nat → α) → α) (i: Instr) (ret: MachineState → α): α :=
   match i with
   | .jmp l =>
       lookup l (fun rip =>
@@ -1095,17 +1097,17 @@ def ctrl {α : Type _} [Throw α] (s: MachineState) (lookup: Label → (Nat → 
 
 abbrev Program := List (Option Label × Instr)
 
-def lookup {α : Type _} [Throw α] (p: Program) (l: Label) (ret: Nat → α): α :=
+def lookup [Throw α] (p: Program) (l: Label) (ret: Nat → α): α :=
   match p.findIdx? (fun (l', _) => l' = .some l) with
   | .some rip => ret rip
   | .none => throw s!"Invalid label: {repr l}"
 
-def fetch {α : Type _} [Throw α] (p: Program) (s: MachineState) (ret: (Option Label × Instr) → α): α :=
+def fetch [Throw α] (p: Program) (s: MachineState) (ret: (Option Label × Instr) → α): α :=
   match p[s.rip]? with
   | .some ins => ret ins
   | .none => throw "Impossible: PC outside of program bounds"
 
-def eval1 {α : Type _} [m: Throw α] (p: Program) (s: MachineState) (ret: MachineState → α): α :=
+def eval1 [m: Throw α] (p: Program) (s: MachineState) (ret: MachineState → α): α :=
   fetch p s (fun (_, i) =>
     if i.is_ctrl then
       ctrl s (lookup p) i ret
