@@ -174,15 +174,29 @@ structure MachineState where
   heap : Heap := ∅
 deriving Repr
 
--- Operands (extended with indexed memory modes for MontMul)
--- Memory operands use WORD offsets (multiplied by 8 in code gen) for alignment
+-- Operands
+--
+-- We generally operate under the assumption that the width of an operation can
+-- be deduced from its operands, which allows us to keep a single inductive
+-- constructor for many variants. For instance, `mov %eax $0` is the r/32 i/32
+-- variant from https://www.felixcloutier.com/x86/mov. However, looking at `mov
+-- offset(%rax, %rbx, 4) $0`, we do not know whether we intend to write a byte
+-- or a 64-bit word. That is, we know that the *address size* is 64-bit [1], but
+-- we are missing the operand size. For that reason, and in keeping with the
+-- Intel syntax [2], we add an additional disambiguator to memory operands to
+-- capture the *operand size*. In most cases, the width of the *destination*
+-- operand determines which variant of the instruction we use. Some instructions
+-- like `mulx` have special cases.
+--
+-- [1] https://wiki.osdev.org/X86-64_Instruction_Encoding#Operand-size_and_address-size_override_prefix
+-- [2] https://en.wikipedia.org/wiki/X86_assembly_language#Syntax
 
 inductive Operand
 | reg (r : Reg)                                          -- %rax
 -- Immediates: we use a single Int64 type since the parser already handles
 -- sign-extension from AT&T syntax. The semantic value is always 64-bit signed.
 | imm (v : Int64)                                        -- $42 (signed immediate)
-| mem (base : Reg) (idx : Option Reg := .none) (scale : Nat := 1) (disp : Int := 0)
+| mem (w: Width) (base : Reg) (idx : Option Reg := .none) (scale : Nat := 1) (disp : Int := 0)
   -- Standard x86: base + idx*scale + disp. E.g. 8(%rsp) = disp 8, (%rsi,%r15,8) = idx .r15
   -- Per Intel SDM Vol. 2A Section 2.1.5 (SIB byte), valid scale values are 1, 2, 4, 8.
   -- The default scale is 1 (SIB SS bits = 00). Scale must be explicit in AT&T syntax when != 1.
@@ -283,7 +297,7 @@ def MachineState.setReg (s : MachineState) (r : Reg) (v : UInt64) : MachineState
 def Operand.width [Throw α] (self: Operand) (ret: Width → α): α :=
   match self with
   | reg r => ret r.width
-  | mem base _ _ _ => ret base.width
+  | mem w _ _ _ _ => ret w
   | _ => throw "Immediates do not carry a bit width"
 
 def MachineState.readMem [Throw α] (s : MachineState) (addr : Address) (width: Width) (ret: Word → α): α :=
@@ -340,32 +354,32 @@ theorem UInt64_ofInt_natCast_ne_zero (k : Nat) (h_lt : k < 2^64) (h_ne : k ≠ 0
 --   are simply clamped (this is the behavior of setReg for e.g. eax -- no action needed here)
 -- - if the effective address is computed in a smaller size than the destination operand, then it is
 --   zero-extended (in other words, upper bits are discarded)
-def effective_addr [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → Width → α): α :=
+def effective_addr [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → α): α :=
   match o with
-  | .mem base idx scale disp =>
+  | .mem _ base idx scale disp =>
     -- ASSUME: base.width == idx.width (TODO: check)
     let idxVal := match idx with | .some r => s.getReg r | .none => 0
-    ret (((s.getReg base) + idxVal * scale.toUInt64 + UInt64.ofInt disp) &&& base.width.toMask) base.width
+    ret (((s.getReg base) + idxVal * scale.toUInt64 + UInt64.ofInt disp) &&& base.width.toMask)
   | _ => throw "effective_addr called on non-memory operand"
 
 def eval_operand [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → α): α :=
   match o with
   | .reg r => ret (s.getReg r)
   | .imm v => ret (eval_imm v)
-  | .mem _ _ _ _ => effective_addr s o (fun addr w => s.readMem addr w ret)
+  | .mem w _ _ _ _ => effective_addr s o (fun addr => s.readMem addr w ret)
 
 def eval_reg_or_mem [Throw α] (s : MachineState) (o : Operand) (ret: UInt64 → Width → α): α :=
   match o with
   | .reg r => ret (s.getReg r) r.width
-  | .mem _ _ _ _ => effective_addr s o (fun addr w => s.readMem addr w (fun word => ret word w))
+  | .mem w _ _ _ _ => effective_addr s o (fun addr => s.readMem addr w (fun word => ret word w))
   | .imm _ => throw "Ill-formed instruction (rip={repr s.rip})"
 
 def set_reg_or_mem [Throw α] (s: MachineState) (o: Operand) (v: Word) (ret: MachineState → α): α :=
   match o with
   | .reg r =>
       ret (s.setReg r v)
-  | .mem _ _ _ _ =>
-      effective_addr s o (fun addr w => s.writeMem addr w v ret)
+  | .mem w _ _ _ _ =>
+      effective_addr s o (fun addr => s.writeMem addr w v ret)
   | .imm _ =>
       throw "Ill-formed instruction (rip={repr s.rip})"
 
@@ -373,7 +387,7 @@ def set_reg [Throw α] (s: MachineState) (o: Operand) (v: Word) (ret: MachineSta
   match o with
   | .reg r =>
       ret (s.setReg r v)
-  | .mem _ _ _ _
+  | .mem _ _ _ _ _
   | .imm _ =>
       throw "Ill-formed instruction (rip={repr s.rip})"
 
@@ -537,7 +551,7 @@ def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): 
   | .lea dst src =>
       -- lea computes effective address, doesn't access memory
       -- see comment in effective_addr for zero-extension
-      effective_addr s src (fun addr _ => ret (s.setReg dst addr))
+      effective_addr s src (fun addr => ret (s.setReg dst addr))
 
   | .xor dst src =>
       eval_operand s src (fun src_v =>
