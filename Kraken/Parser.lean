@@ -576,21 +576,6 @@ def skipToEndOfLine : Parser Unit := do
   let _ ← many (satisfy fun c => c != '\n')
   let _ ← (pchar '\n' *> pure ()) <|> pure ()
 
-/-- Parse multiple lines into a Program. -/
-partial def parseProgramAux (acc : Program) : Parser Program := do
-  skipHWs
-  let done ← (eof *> pure true) <|> pure false
-  if done then
-    pure acc
-  else
-    let line ← parseLine
-    skipToEndOfLine
-    match line with
-    | some entry => parseProgramAux (acc ++ [entry])
-    | none => parseProgramAux acc
-
-def parseProgram : Parser Program := parseProgramAux []
-
 -- ============================================================================
 -- Public API
 -- ============================================================================
