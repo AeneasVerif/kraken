@@ -128,7 +128,6 @@ instance : Repr Heap where
 structure MachineState where
   regs : Registers := {}
   flags : Flags := {}
-  rip : Nat := 0
   heap : Heap := ∅
 deriving Repr
 
@@ -410,15 +409,15 @@ def throw [inst: Throw α] :=
 
 def MachineState.readMem [Throw α] (s : MachineState) (addr : Address) (ret: Word → α): α :=
   if addr % 8 != 0 then
-    throw (s!"Out-of-bounds access (rip={repr s.rip})")
+    throw (s!"Out-of-bounds access")
   else
     match s.heap[addr]? with
     | .some v => ret v
-    | .none => throw (s!"Memory read but not written to (rip={repr s.rip}, addr={repr addr})")
+    | .none => throw (s!"Memory read but not written to (addr={repr addr})")
 
 def MachineState.writeMem [Throw α] (s : MachineState) (addr : Address) (val : Word) (ret: MachineState → α) : α :=
   if addr % 8 != 0 then
-    throw s!"Out-of-bounds access (rip={repr s.rip})"
+    throw s!"Out-of-bounds access"
   else
     ret { s with heap := s.heap.insert addr val }
 
@@ -500,8 +499,6 @@ def set_reg [Throw α] (s: MachineState) (o: Operand) (v: Word) (ret: MachineSta
   | .imm _ =>
       throw "Ill-formed instruction (rip={repr s.rip})"
 
-
-def next (s: MachineState): MachineState := { s with rip := s.rip + 1 }
 
 -- Signed overflow detection for addition with carry: compare unbounded Int sum to truncated Int64 result
 -- Overflow occurs iff the unbounded sum differs from the signed interpretation of the truncated result
@@ -1049,20 +1046,37 @@ def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): 
 
   | _ => throw s!"unsupported non-control instruction {repr i}"
 
-def jump_if [Throw α] (s: MachineState) (b: Bool) (rip: Nat) (ret: MachineState → α): α :=
-  if b then
-    ret { s with rip }
-  else
-    ret (next s)
+abbrev BasicBlock := List Instr
+abbrev Program := Std.TreeMap Label BasicBlock
 
+def lookup [Throw α] (p: Program) (l: Label) (ret: BasicBlock → α): α :=
+  match p.get? l with
+  | .some bb => ret bb
+  | .none => throw s!"Invalid label: {repr l}"
 
-def ctrl [Throw α] (s: MachineState) (lookup: Label → (Nat → α) → α) (i: Instr) (ret: MachineState → α): α :=
+mutual
+
+def eval_bb [Throw α] (p: Program) (s: MachineState) (bb: BasicBlock) (ret: MachineState → α): α :=
+  match bb with
+  | [] => ret s
+  | i :: bb =>
+    if i.is_ctrl then
+      ctrl_or_continue p s i bb ret
+    else
+      strt1 s i (fun s =>
+      eval_bb p s bb ret)
+partial_fixpoint
+
+def jump_to [m: Throw α] (p: Program) (s: MachineState) (l: Label) (ret: MachineState → α): α :=
+  lookup p l (fun bb =>
+  eval_bb p s bb ret)
+partial_fixpoint
+
+def ctrl_or_continue [Throw α] (p: Program) (s: MachineState) (i: Instr) (bb: BasicBlock) (ret: MachineState → α): α :=
   match i with
   | .jmp l =>
-      lookup l (fun rip =>
-      jump_if s True rip ret)
+      jump_to p s l ret
   | .jcc cc l =>
-      lookup l (fun rip =>
       let cond := match cc with
         | .z  => s.flags.zf           -- Zero: ZF=1
         | .nz => !s.flags.zf          -- Not Zero: ZF=0
@@ -1070,30 +1084,14 @@ def ctrl [Throw α] (s: MachineState) (lookup: Label → (Nat → α) → α) (i
         | .ae => !s.flags.cf          -- Above/Equal: CF=0
         | .a  => !s.flags.cf && !s.flags.zf  -- Above: CF=0 ∧ ZF=0
         | .be => s.flags.cf || s.flags.zf    -- Below/Equal: CF=1 ∨ ZF=1
-      jump_if s cond rip ret)
+      if cond then
+        jump_to p s l ret
+      else
+        eval_bb p s bb ret
   | _ => throw s!"unsupported control instruction {repr i}"
-
-abbrev Program := List (Option Label × Instr)
-
-def lookup [Throw α] (p: Program) (l: Label) (ret: Nat → α): α :=
-  match p.findIdx? (fun (l', _) => l' = .some l) with
-  | .some rip => ret rip
-  | .none => throw s!"Invalid label: {repr l}"
-
-def fetch [Throw α] (p: Program) (s: MachineState) (ret: (Option Label × Instr) → α): α :=
-  match p[s.rip]? with
-  | .some ins => ret ins
-  | .none => throw "Impossible: PC outside of program bounds"
-
-def eval1 [m: Throw α] (p: Program) (s: MachineState) (ret: MachineState → α): α :=
-  fetch p s (fun (_, i) =>
-    if i.is_ctrl then
-      ctrl s (lookup p) i ret
-    else
-      strt1 s i (fun s =>
-      ret (next s)))
-
-def eval (p: Program) (s: MachineState): Option MachineState := do
-  let s ← (eval1 (m:={ throw _ := Option.none }) p s) (fun s => .some s)
-  eval p s
 partial_fixpoint
+
+end
+
+def eval (p: Program) (s: MachineState) (start: Label): Option MachineState := do
+  jump_to (m:={ throw _ := Option.none }) p s start (fun s => .some s)
