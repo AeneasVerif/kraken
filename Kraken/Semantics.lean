@@ -128,7 +128,6 @@ instance : Repr Heap where
 structure MachineState where
   regs : Registers := {}
   flags : Flags := {}
-  rip : Nat := 0
   heap : Heap := ∅
 deriving Repr
 
@@ -410,15 +409,15 @@ def throw [inst: Throw α] :=
 
 def MachineState.readMem [Throw α] (s : MachineState) (addr : Address) (ret: Word → α): α :=
   if addr % 8 != 0 then
-    throw (s!"Out-of-bounds access (rip={repr s.rip})")
+    throw (s!"Out-of-bounds access")
   else
     match s.heap[addr]? with
     | .some v => ret v
-    | .none => throw (s!"Memory read but not written to (rip={repr s.rip}, addr={repr addr})")
+    | .none => throw (s!"Memory read but not written to (addr={repr addr})")
 
 def MachineState.writeMem [Throw α] (s : MachineState) (addr : Address) (val : Word) (ret: MachineState → α) : α :=
   if addr % 8 != 0 then
-    throw s!"Out-of-bounds access (rip={repr s.rip})"
+    throw s!"Out-of-bounds access"
   else
     ret { s with heap := s.heap.insert addr val }
 
@@ -501,8 +500,6 @@ def set_reg [Throw α] (s: MachineState) (o: Operand) (v: Word) (ret: MachineSta
       throw "Ill-formed instruction (rip={repr s.rip})"
 
 
-def next (s: MachineState): MachineState := { s with rip := s.rip + 1 }
-
 -- Signed overflow detection for addition with carry: compare unbounded Int sum to truncated Int64 result
 -- Overflow occurs iff the unbounded sum differs from the signed interpretation of the truncated result
 -- Per Intel SDM, OF reflects the full operation including carry-in
@@ -545,11 +542,9 @@ def sub_with_borrow (dst src : UInt64) (carry_in : Nat) : UInt64 × Bool × Bool
 def add_overflow (a b : UInt64) : Bool := add_overflow_with_carry a b 0
 def sub_overflow (a b : UInt64) : Bool := sub_overflow_with_borrow a b 0
 
--- This function intentionally does not increase the pc, callers will increase
--- it (always by 1).
 -- The reference semantics are taken from https://www.felixcloutier.com/x86/,
 -- which itself is just extracted from https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
-def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): α :=
+def x64 [Throw α] (s : MachineState) (i : Instr) (jmp : MachineState → Label → α) (ret : MachineState → α): α :=
   match i with
   | .mov dst src =>
       -- 64-bit move (movq/movabs): direct copy of evaluated value
@@ -1025,7 +1020,7 @@ def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): 
       else ret s
 
   -- ============================================================================
-  -- Stack operations and return
+  -- Stack operations
   -- ============================================================================
 
   | .push src =>
@@ -1040,29 +1035,21 @@ def strt1 [Throw α] (s : MachineState) (i : Instr) (ret: MachineState → α): 
       let s := s.setReg .rsp (rsp + 8)
       set_reg_or_mem s dst val ret)
 
+  -- ============================================================================
+  -- Control operations
+  -- ============================================================================
+
   | .ret =>
       -- Pop return address from stack and jump to it
       let rsp := s.getReg .rsp
       s.readMem rsp (fun retAddr =>
       let s := s.setReg .rsp (rsp + 8)
-      ret { s with rip := retAddr.toNat })
+      ret s) -- FIXME: implement jumping to non-labels
 
-  | _ => throw s!"unsupported non-control instruction {repr i}"
-
-def jump_if [Throw α] (s: MachineState) (b: Bool) (rip: Nat) (ret: MachineState → α): α :=
-  if b then
-    ret { s with rip }
-  else
-    ret (next s)
-
-
-def ctrl [Throw α] (s: MachineState) (lookup: Label → (Nat → α) → α) (i: Instr) (ret: MachineState → α): α :=
-  match i with
   | .jmp l =>
-      lookup l (fun rip =>
-      jump_if s True rip ret)
+      jmp s l
+
   | .jcc cc l =>
-      lookup l (fun rip =>
       let cond := match cc with
         | .z  => s.flags.zf           -- Zero: ZF=1
         | .nz => !s.flags.zf          -- Not Zero: ZF=0
@@ -1070,30 +1057,37 @@ def ctrl [Throw α] (s: MachineState) (lookup: Label → (Nat → α) → α) (i
         | .ae => !s.flags.cf          -- Above/Equal: CF=0
         | .a  => !s.flags.cf && !s.flags.zf  -- Above: CF=0 ∧ ZF=0
         | .be => s.flags.cf || s.flags.zf    -- Below/Equal: CF=1 ∨ ZF=1
-      jump_if s cond rip ret)
-  | _ => throw s!"unsupported control instruction {repr i}"
+      if cond then
+        jmp s l
+      else
+        ret s
 
-abbrev Program := List (Option Label × Instr)
+abbrev Program := List (Label × List Instr)
 
-def lookup [Throw α] (p: Program) (l: Label) (ret: Nat → α): α :=
-  match p.findIdx? (fun (l', _) => l' = .some l) with
-  | .some rip => ret rip
+def lookup [Throw α] (p: Program) (l: Label) (ret: List Instr → α) : α :=
+  match List.find? (fun (l', _) => l' = l) p with
+  | .some (_, b) => ret b
   | .none => throw s!"Invalid label: {repr l}"
 
-def fetch [Throw α] (p: Program) (s: MachineState) (ret: (Option Label × Instr) → α): α :=
-  match p[s.rip]? with
-  | .some ins => ret ins
-  | .none => throw "Impossible: PC outside of program bounds"
+def next_label [Throw α] (p: Program) (l: Label) (ret: Label → α) : α :=
+  match List.head? (List.tail (List.dropWhile (fun (l', _) => l' != l) p)) with
+  | .some (l, _) => ret l
+  | .none => throw s!"fell through the end of the program"
 
-def eval1 [m: Throw α] (p: Program) (s: MachineState) (ret: MachineState → α): α :=
-  fetch p s (fun (_, i) =>
-    if i.is_ctrl then
-      ctrl s (lookup p) i ret
-    else
-      strt1 s i (fun s =>
-      ret (next s)))
+def eval_block [Throw α] (p: Program) (s: MachineState) (block : List Instr) (jmp : MachineState → Label → α) (fallthrough : MachineState → α) : α :=
+  match block with
+  | [] => fallthrough s
+  | i :: block =>
+      x64 s i jmp (fun s =>
+      eval_block p s block jmp fallthrough)
 
-def eval (p: Program) (s: MachineState): Option MachineState := do
-  let s ← (eval1 (m:={ throw _ := Option.none }) p s) (fun s => .some s)
-  eval p s
+instance : Throw (Option α) where
+  throw _ := .none
+
+def eval (p: Program) (s: MachineState) (pc: Label): Option MachineState := do
+  let b ← lookup p pc .some
+  let (s, ol) ← eval_block p s b (fun s l => .some (s, .some l)) (fun s => .some (s, none))
+  match ol <|> next_label p pc .some with
+  | .some pc => eval p s pc
+  | .none => .some s
 partial_fixpoint
