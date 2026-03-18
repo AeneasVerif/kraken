@@ -152,6 +152,7 @@ def parseMemory : Parser Operand := do
   skipHWs
   -- Optional displacement
   let disp ← parseInt <|> pure 0
+  skipHWs
   let _ ← pchar '('
   skipHWs
   let base ← parseReg64
