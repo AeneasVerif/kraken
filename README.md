@@ -27,6 +27,7 @@ Included
 - Status flags
 - Memory access, including avoidance of faults
 - ADX, BMI, BMI2, and similar extensions
+- Assembler features: labels (relative and absolute references), arithmetic on immediates, rodata
 
 Excluded
 - Non-8-byte-aligned memory access (for now, to support eventually)
@@ -35,3 +36,4 @@ Excluded
 - Segment registers
 - MSRs
 - Other execution modes, such as 32-bit and 16-bit modes
+- Mutable globals (bss and data)
