@@ -37,3 +37,7 @@ Excluded
 - MSRs
 - Other execution modes, such as 32-bit and 16-bit modes
 - Mutable globals (bss and data)
+
+### Incidental extensions to x64
+
+While the model is centrally a subset of real x64, we do not go out of our way to model whether particular cobinations of operands are encodable, and instead give semantics to some instructions that cannot be assembled. For example, a `mov` from memory to memory is interpreted in the obvious way, even though an assembler would reject it. (We do model restrictions on operands where they simplify the semantics, e.g. entirely ruling out a memory operand in a particular position to make its evaluation infallible). However, we want to maintain the standard that if code proven against our semantics assembles for a real x64 target, then it will satisfy the proven specification. Thus we must make sure the incidental extensions to x64 do not clash with actual features of x64, or undefined behavior in x64 (e.g. bswap r16).
