@@ -25,8 +25,8 @@ Excluded
 
 ### Incidental extensions to x64
 
-While the model is centrally a subset of real x64,
-we do not seek to model which combinations of operands are encodable,
+While the model is centrally a subset of x64, we work with assembly, and
+we do not seek to model [which assembly programs are encodable](https://godbolt.org/z/Mb5YzbxMG),
 and instead give semantics to some instructions that cannot be assembled.
 For example, a `mov` from memory to memory is interpreted in the obvious way,
 even though an assembler would reject it.
