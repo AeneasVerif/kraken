@@ -19,7 +19,7 @@ Here are some common but easy-to-forget considerations to look out for:
   we need a decision about which write wins if the same destination is selected
 - For operations that write to registers and memory,
   do the writes to registers affect the calculation of the destination address?
-- When accessing memory, what width is used for code-address computations?
+- When accessing memory, what width is used for address computations?
 - For control instructions, what width is used for code-address computations?
 - When computing an operation on different-width inputs,
   is the shorter one sign-extended or zero-extended?
