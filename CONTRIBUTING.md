@@ -2,7 +2,11 @@
 
 ## Reviewing semantics
 
-All changes to semantics should be thoroughly checked against the [Intel SDM](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2b-manual.pdf) by two maintainers. As a maintainer proposing a change, please review your own edits and flag TODOs for anything not corroborated by an authoritative reference.
+All changes to semantics should be thoroughly checked against the [Intel SDM](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2b-manual.pdf)
+by two maintainers.
+As a maintainer proposing a change,
+please review your own edits
+and flag TODOs for anything not corroborated by an authoritative reference.
 
 Here are some common but easy-to-forget considerations to look out for:
 
