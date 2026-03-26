@@ -118,11 +118,35 @@ def parseRegNameW : Parser RegW := do
 
 end RegParsing
 
+def TypedBy (w: Option Width) (T: Width → Type) :=
+  match w with
+  | .some w => T w
+  | .none => Σ w, T w
+
+def MaybeTyped (T: Width → Type) :=
+  Σ w: Option Width,
+  match w with
+  | .some w => T w
+  | .none => (w: Width) → T w
+
+def MaybeTypedBy (w_in: Option Width) (T: Width → Type) :=
+  match w_in with
+  | .some w_in => T w_in
+  | .none => MaybeTyped T
+
 /-- Parse a register operand: %rax, %eax, %ax, %al, etc. -/
-def parseRegW : Parser RegW := do
+def parseRegWithWidth (w_in: Option Width) : Parser (TypedBy w_in Reg) := do
   skipHWs
   let _ ← pchar '%'
-  parseRegNameW
+  let ⟨ w, r ⟩ ← parseRegNameW
+  match w_in with
+  | .some w_in =>
+    if h: w = w_in then
+      pure (h ▸ r)
+    else
+      fail s!"register r was expected to have size {w_in} but has size {w}"
+  | .none =>
+    pure ⟨ w, r ⟩
 
 abbrev RegOrRipW := Σ w, RegOrRip w
 
@@ -135,18 +159,6 @@ def parseRegOrRipW : Parser RegOrRipW := do
     pure ⟨ .W64, .Rip ⟩
   )
   pure r
-
-/-- Parse a register, requiring 64-bit. -/
-def parseReg64W : Parser RegW := do
-  let r ← parseRegW
-  if r.1 != .W64 then fail "expected 64-bit register"
-  else pure r
-
-/-- Parse a register, requiring 32-bit. -/
-def parseReg32W : Parser RegW := do
-  let r ← parseRegW
-  if r.1 != .W32 then fail "expected 32-bit register"
-  else pure r
 
 -- ============================================================================
 -- Operand Parsing
@@ -192,7 +204,7 @@ def parseMemory : Parser AddrExpr := do
     skipHWs
     let _ ← pchar ','
     skipHWs
-    let r ← parseReg64W
+    let r ← parseRegWithWidth .none
     pure (some r)) <|> pure none
   -- Check for scale
   let scale ← match idx with
@@ -228,44 +240,49 @@ def parseImm w : Parser (Operand w) := do
     | _ => fail "not an immediate"
   pure (.imm i)
 
--- We need to eagerly parse (to move through the syntax), but we may need to
--- defer choosing a width for those operands that are untyped (as in: may have
--- any width).
-inductive MaybeTyped (T: Width → Type) where
-| Typed (w: Width) (_: T w)
-| Untyped (_: (w: Width) → T w)
-
 /-- Parse any operand: register, immediate, or memory. -/
-def parseOperand: Parser (MaybeTyped Operand) := do
-  skipHWs
-  let c ← peek!
-  match c with
-  | '%' =>
-    let ⟨ w, r ⟩ ← parseRegW
-    pure (.Typed w (.reg r))
-  | '$' =>
-    let i ← parseInt64
-    pure (.Untyped fun _ => .imm i)
-  | '.' =>
-    let i ← parseLabel
-    pure (.Untyped fun _ => .imm i)
-  | _ =>
-    if c == '(' || c == '-' || c.isDigit then
-      let m ← parseMemory
-      pure (.Untyped fun _ => .mem m)
-    else
-      fail s!"expected operand, got '{c}'"
+def parseOperandWithWidth (w_in: Option Width): Parser (MaybeTypedBy w_in Operand) := do
+  sorry
+  /- skipHWs -/
+  /- let c ← peek! -/
+  /- match c with -/
+  /- | '%' => -/
+  /-   let ⟨ w, r ⟩ ← parseRegWithWidth w_in -/
+  /-   pure (.Typed w (.reg r)) -/
+  /- | '$' => -/
+  /-   let i ← parseInt64 -/
+  /-   pure (.Untyped fun _ => .imm i) -/
+  /- | '.' => -/
+  /-   let i ← parseLabel -/
+  /-   pure (.Untyped fun _ => .imm i) -/
+  /- | _ => -/
+  /-   if c == '(' || c == '-' || c.isDigit then -/
+  /-     let m ← parseMemory -/
+  /-     pure (.Untyped fun _ => .mem m) -/
+  /-   else -/
+  /-     fail s!"expected operand, got '{c}'" -/
+
+-- We are returning a lambda because otherwise the elaborator transforms the
+-- `match w_in` into `match w_in, wp` which leads to type errors further down.
+def findOut { T1 T2: Width → Type } (w_in: Option Width) (f: {w: Width} → T1 w → T2 w):
+      TypedBy w_in T1 -> MaybeTypedBy w_in T2
+:=
+  match w_in with
+  | .some _ => fun mp => f mp
+  | .none => fun mp => ⟨ mp.1, (f mp.2) ⟩
 
 /-- Parse a register or memory operand (not immediate). -/
-def parseRegOrMem: Parser (MaybeTyped RegOrMem) := do
+def parseRegOrMem (w_in: Option Width): Parser (MaybeTypedBy w_in RegOrMem) := do
   skipHWs
   let c ← peek!
   if c == '%' then
-    let ⟨ w, r ⟩ ← parseRegW
-    pure (.Typed w (.Reg r))
+    let rww ← parseRegWithWidth w_in
+    pure (findOut w_in .Reg rww)
   else if c == '(' || c == '-' || c.isDigit then
     let m ← parseMemory
-    pure (.Untyped fun _ => .mem m)
+    match w_in with
+    | .some w_in => pure (.mem m)
+    | .none => pure ⟨ .none, fun _ => .mem m ⟩
   else
     fail "expected register or memory operand"
 
@@ -294,27 +311,30 @@ def parseComma : Parser Unit := do
   let _ ← pchar ','
   skipHWs
 
-def ascribe {T: Width → Type} (w: Width) (v: MaybeTyped T): Parser (T w) := do
-  match v with
-  | .Untyped v => pure (v w)
-  | .Typed w2 v =>
-    if h: w = w2 then
-      pure (h ▸ v)
-    else
-      fail s!"type error: {w} != {w2}"
+/- def ascribe {T: Width → Type} (w: Width) (v: MaybeTyped T): Parser (T w) := do -/
+/-   match v with -/
+/-   | .Untyped v => pure (v w) -/
+/-   | .Typed w2 v => -/
+/-     if h: w = w2 then -/
+/-       pure (h ▸ v) -/
+/-     else -/
+/-       fail s!"type error: {w} != {w2}" -/
 
-def ascribeOrInfer (op1: MaybeTyped T1) (next: Parser (MaybeTyped T2)): Parser (Σ w, T1 w × T2 w) := do
-  let op2 ← next
-  match op1 with
-  | .Typed w1 op1 =>
-    let op2 ← ascribe w1 op2 
-    pure ⟨ w1, op1, op2 ⟩
-  | .Untyped op1 =>
-    match op2 with
-    | .Typed w2 op2 =>
-      pure ⟨ w2, op1 w2, op2 ⟩
-    | .Untyped _ =>
-      fail "missing type annotation"
+/- def ascribeOrInfer (op1: MaybeTyped T1) (next: Parser (MaybeTyped T2)): Parser (Σ w, T1 w × T2 w) := do -/
+/-   let op2 ← next -/
+/-   match op1 with -/
+/-   | .Typed w1 op1 => -/
+/-     let op2 ← ascribe w1 op2 -/ 
+/-     pure ⟨ w1, op1, op2 ⟩ -/
+/-   | .Untyped op1 => -/
+/-     match op2 with -/
+/-     | .Typed w2 op2 => -/
+/-       pure ⟨ w2, op1 w2, op2 ⟩ -/
+/-     | .Untyped _ => -/
+/-       fail "missing type annotation" -/
+
+/- def MaybeTypedBy.get (self: MaybeTypedBy w_in T1) (prev: MaybeTyped T2): -/
+  
 
 /-- Parse an instruction mnemonic and its operands.
     AT&T syntax: src, dst (reversed from Intel). -/
@@ -326,15 +346,26 @@ def parseInstr : Parser Instr := do
   match mn with
   -- Arithmetic (two-operand: src, dst) - 64-bit
   | "add" =>
-    let src ← parseOperand
-    let ⟨ w, src, dst ⟩ ← ascribeOrInfer src parseRegOrMem
-    pure ⟨ .W64, w, .add dst src ⟩
-  | "addq" =>
-    let src ← parseOperand
-    let src ← ascribe .W64 src
-    let dst ← parseRegOrMem
-    let dst ← ascribe .W64 dst
-    pure ⟨ .W64, .W64, .add dst src ⟩
+    let ⟨ w, src ⟩ ← parseOperandWithWidth .none
+    let dst ← parseRegOrMem w
+    match w with
+    | .none =>
+      let ⟨ w_dst, dst ⟩ := dst
+      match w_dst with
+      | .none => fail ""
+      | .some w_dst =>
+        pure ⟨ .W64, w_dst, .add dst (src w_dst)⟩
+    | .some w =>
+      pure ⟨ .W64, w, .add dst src ⟩
+
+/-     let ⟨ w, src, dst ⟩ ← ascribeOrInfer src parseRegOrMem -/
+/-     pure ⟨ .W64, w, .add dst src ⟩ -/
+  /- | "addq" => -/
+  /-   let src ← parseOperand -/
+  /-   let src ← ascribe .W64 src -/
+  /-   let dst ← parseRegOrMem -/
+  /-   let dst ← ascribe .W64 dst -/
+  /-   pure ⟨ .W64, .W64, .add dst src ⟩ -/
   | _ =>
     fail "TODO"
   /- | "adc" | "adcq" => do -/
