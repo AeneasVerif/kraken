@@ -115,6 +115,8 @@ def parseRegNameW : Parser RegW := do
   | "sil" => pure ⟨ .W8, sil ⟩ | "dil" => pure ⟨ .W8, dil ⟩ | "spl" => pure ⟨ .W8, spl ⟩ | "bpl" => pure ⟨ .W8, bpl ⟩
   | "r8b"  => pure ⟨ .W8, r8b ⟩  | "r9b"  => pure ⟨ .W8, r9b ⟩  | "r10b" => pure ⟨ .W8, r10b ⟩ | "r11b" => pure ⟨ .W8, r11b ⟩
   | "r12b" => pure ⟨ .W8, r12b ⟩ | "r13b" => pure ⟨ .W8, r13b ⟩ | "r14b" => pure ⟨ .W8, r14b ⟩ | "r15b" => pure ⟨ .W8, r15b ⟩
+  -- high-byte registers
+  | "ah" => pure ⟨ .W8, ah ⟩ | "bh" => pure ⟨ .W8, bh ⟩ | "ch" => pure ⟨ .W8, ch ⟩ | "dh" => pure ⟨ .W8, dh ⟩
   | _ => fail s!"unknown register: {name}"
 
 end RegParsing
