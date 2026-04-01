@@ -241,15 +241,13 @@ def parseOperand: Parser (MaybeTyped Operand) := do
   | '$' =>
     let i ← parseInt64
     pure ⟨ .none, .imm i ⟩
-  | '.' =>
-    let i ← parseLabel
-    pure ⟨ .none, .imm i ⟩
   | _ =>
     if c == '(' || c == '-' || c.isDigit then
       let m ← parseMemory
       pure ⟨ .none, .mem m ⟩
     else
-      fail s!"expected operand, got '{c}'"
+      let i ← parseLabel
+      pure ⟨ .none, .imm i ⟩
 
 /-- Parse a register or memory operand (not immediate). -/
 def parseRegOrMem: Parser (MaybeTyped RegOrMem) := do
