@@ -371,7 +371,7 @@ end:
   | .ok test1 =>
     -- defaultLayout test1 ("loop", 3)
     let : Layout := { layout := defaultLayout test1 }
-    ConstExpr.interp (.sub (.Label "end") .after_current_instruction) ("loop", 3)
+    ConstExpr.interp (.sub (.Label "end") .after_current_instruction) (.mk 0 0)
   | .error _ => -1
 
 #eval runKraken test1

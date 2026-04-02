@@ -125,8 +125,8 @@ class Throw α where
 def throw {α} [inst: Throw α] :=
   inst.throw
 
-def Reg.interp {w} (r : Reg w) (s : MachineData) (_ : Position) (ret : w.type → α) :=
-  ret (s.regs.get r)
+def Reg.interp {w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
+  ret (s.regs.get r) -- the unused argument is present ^ for uniformity with RegOrMem.interp
 
 def MachineData.load [Throw α] (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → α): α :=
   if addr % 8 != 0 then throw (s!"Unimplemented: only 8-byte-aligned memory access is supported")
@@ -166,11 +166,11 @@ instance : Coe Int64 ConstExpr where coe := ConstExpr.Int64
 attribute [coe] ConstExpr.Label
 attribute [coe] ConstExpr.Int64
 
-def ConstExpr.interp [Layout] : ConstExpr → Position → _root_.Int64
+def ConstExpr.interp [Layout] : ConstExpr → Std.Rco _root_.Int64 → _root_.Int64
   | .Label l, _ => label l
   | .Int64 i, _ => i
-  | .before_current_instruction, pc => layout pc
-  | .after_current_instruction, pc => layout pc.next
+  | .before_current_instruction, r => r.lower
+  | .after_current_instruction, r => r.upper
   | .add e1 e2, p => e1.interp p + e2.interp p
   | .sub e1 e2, p => e1.interp p - e2.interp p
 
@@ -180,6 +180,7 @@ inductive RegOrRip: (w : Width) → Type where
 deriving Repr, BEq, DecidableEq
 
 instance: BEq ((w: Width) × RegOrRip w) where
+-- TODO: replace with `deriving` when droppint support for Lean 4.28
   beq := fun (p1: ((w: Width) × RegOrRip w)) (p2: ((w: Width) × RegOrRip w)) =>
     let ⟨ w1, r1 ⟩ := p1
     let ⟨ w2, r2 ⟩ := p2
@@ -189,6 +190,7 @@ instance: BEq ((w: Width) × RegOrRip w) where
       false
 
 instance: BEq ((w: Width) × Reg w) where
+-- TODO: replace with `deriving` when droppint support for Lean 4.28
   beq := fun (p1: ((w: Width) × Reg w)) (p2: ((w: Width) × Reg w)) =>
     let ⟨ w1, r1 ⟩ := p1
     let ⟨ w2, r2 ⟩ := p2
@@ -198,6 +200,7 @@ instance: BEq ((w: Width) × Reg w) where
       false
 
 instance: DecidableEq ((w: Width) × RegOrRip w) := by
+-- TODO: replace with `deriving` when droppint support for Lean 4.28
   intros p1 p2
   rcases p1 with ⟨ w1, r1 ⟩
   rcases p2 with ⟨ w2, r2 ⟩
@@ -212,6 +215,7 @@ instance: DecidableEq ((w: Width) × RegOrRip w) := by
     simp_all
 
 instance: DecidableEq ((w: Width) × Reg w) := by
+-- TODO: replace with `deriving` when droppint support for Lean 4.28
   intros p1 p2
   rcases p1 with ⟨ w1, r1 ⟩
   rcases p2 with ⟨ w2, r2 ⟩
@@ -241,10 +245,10 @@ def RipRel (e : ConstExpr) : AddrExpr := .mk (.some ⟨.W64, .Rip⟩) .none (.su
 class AddressSize where address_size : Width
 def address_size [inst: AddressSize] := inst.address_size
 
-def AddrExpr.interp [Layout] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Position) :=
+def AddrExpr.interp [Layout] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
   let base := match a.base with
               | .some ⟨_, .Reg r⟩ => (s.get r).toInt
-              | .some ⟨_, .Rip⟩ => (layout p.next).toInt
+              | .some ⟨_, .Rip⟩ => p.upper.toInt
               | .none => 0
   let idx := match a.idx with
              | .some ⟨⟨_, r⟩, c⟩ => (s.get r).toInt * c.bytes
@@ -260,7 +264,7 @@ attribute [coe] RegOrMem.Reg
 abbrev Dst := RegOrMem
 
 def BitVec.TODO_address_extend_signedness (x : BitVec w) {n : Nat} : BitVec n := x.setWidth _
-def RegOrMem.interp [Layout] [AddressSize] [Throw α] (o : RegOrMem w) (s : MachineData) (p : Position) (ret : w.type → α) :=
+def RegOrMem.interp [Layout] [AddressSize] [Throw α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
   | .Reg r => ret (s.regs.get r)
   | .mem a => s.load (a.interp s.regs p).TODO_address_extend_signedness w ret
@@ -268,7 +272,7 @@ def RegOrMem.interp [Layout] [AddressSize] [Throw α] (o : RegOrMem w) (s : Mach
 def MachineData.setReg (s : MachineData) (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
 
-def MachineData.set [Layout] [AddressSize] [Throw α] (s : MachineData) (d : Dst w) (v : w.type) (p : Position) (ret : MachineData → α) : α :=
+def MachineData.set [Layout] [AddressSize] [Throw α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
   match d with
   | .Reg r => ret (s.setReg r v)
   | .mem a => s.store (a.interp s.regs p).TODO_address_extend_signedness v ret
@@ -282,7 +286,7 @@ attribute [coe] Operand.imm
 abbrev Operand.reg (r : Reg w) : Operand w := .RegOrMem (.Reg r)
 abbrev Operand.mem (m : AddrExpr) : Operand w := .RegOrMem (.mem m)
 
-def Operand.interp [Layout] [AddressSize] [Throw α] (o : Operand w) (s : MachineData) (p : Position) (ret : w.type → α) :=
+def Operand.interp [Layout] [AddressSize] [Throw α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
   | .RegOrMem rm => rm.interp s p ret
   | .imm v => ret ((v.interp p).toBitVec.truncate _)
@@ -302,18 +306,18 @@ def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
 inductive ShiftCountExpr | cl | imm8 (v : ConstExpr)
 deriving Repr, BEq, DecidableEq
 
-def ShiftCountExpr.interp [Layout] (c : ShiftCountExpr) (s : MachineData) (p : Position) := match c with
+def ShiftCountExpr.interp [Layout] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
   | .cl => s.regs.rcx.toBitVec.take 8
   | .imm8 v => (v.interp p).toBitVec.truncate _
-def ShiftCountExpr.interpMasked [Layout] (c : ShiftCountExpr) (s : MachineData) (p : Position) (w : Width) : Nat :=
+def ShiftCountExpr.interpMasked [Layout] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width) : Nat :=
   (c.interp s p).toNat &&& match w with | .W64 => 0x1f | _ => 0x0f -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
 
 inductive RelRegOrMem | Rel (_ : ConstExpr) | Reg (r : Reg .W64) | mem (_ : AddrExpr)
 deriving Repr, BEq, DecidableEq
 
-def RelRegOrMem.interp [Layout] [AddressSize] [Throw α] (o : RelRegOrMem) (s : MachineData) (p : Position) (ret : BitVec 64 → α) :=
+def RelRegOrMem.interp [Layout] [AddressSize] [Throw α] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → α) :=
   match o with
-  | .Rel c => ret (layout p.next + c.interp p).toBitVec
+  | .Rel c => ret (p.upper + c.interp p).toBitVec
   | .Reg r => ret (s.regs.get r)
   | .mem a => s.load (a.interp s.regs p).TODO_address_extend_signedness .W64 ret
 
@@ -377,7 +381,7 @@ def undefined [inst: Undefined T R] := inst.undefined
 
 set_option maxHeartbeats 1000000
 def Operation.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α]
-  [Layout] [address_size : AddressSize] (i : Operation w) (p : Position) (s : MachineData)
+  [Layout] [address_size : AddressSize] (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
   (next : MachineData → α) (branch : Label → MachineData → α) (jmp : Int64 → MachineData → α) : α :=
   match (generalizing := false) (motive := Operation w → α) i with
   | .mov dst src => src.interp s p (fun val => s.set dst val p next)
@@ -627,7 +631,7 @@ def Operation.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags
   | .call tgt =>
     tgt.interp s p (fun a =>
     let rsp := s.regs.get64 .rsp - w.bytesv
-    { s with regs := s.regs.set64 .rsp rsp }.store rsp (w:=.W64) (layout p.next).toBitVec (jmp (.ofBitVec a)))
+    { s with regs := s.regs.set64 .rsp rsp }.store rsp (w:=.W64) p.upper.toBitVec (jmp (.ofBitVec a)))
   | .ret =>
     let rsp := s.regs.get64 .rsp
     s.load rsp .W64 (fun ra =>
@@ -641,7 +645,7 @@ structure Instr where
 deriving Repr, DecidableEq
 
 def Instr.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Layout]
-  (i : Instr) (s : MachineData) (p : Position)
+  (i : Instr) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → α) (branch : Label → MachineData → α) (jmp : Int64 → MachineData → α) : α :=
   Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next branch jmp
 
@@ -755,7 +759,7 @@ def Program.step [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α]
   | .some (.Label _ :: _)
   | .some (.ByteArray _ :: _) => throw s!"unreachable -- dropInstrs only returns .Instr"
   | .some (.Instr i :: _) =>
-    Instr.interp i s.1 pc
+    Instr.interp i s.1 (.mk (layout pc) (layout pc.next))
       (fun s => ret (s, layout pc.next))
       (fun l s => ret (s, label l,))
       (fun a s => ret (s, a))
@@ -767,7 +771,7 @@ def Program.straightline' [∀ w : Width, Undefined w.type α] [Undefined Status
   match suffix with
   | (.Label l) :: suffix => Program.straightline' suffix s (l, 0) ret
   | (.Instr i) :: suffix =>
-    Instr.interp i s pc
+    Instr.interp i s (.mk (layout pc) (layout pc.next))
       (next := fun s => Program.straightline' suffix s pc.next ret)
       (branch := fun l s => ret (s, label l))
       (jmp := fun a s => ret (s, a))
