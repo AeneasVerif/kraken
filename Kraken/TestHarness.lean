@@ -331,6 +331,22 @@ where
         | .ok s' => runBounded prog s' fuel'
         | .error e => .error e
 
+/-- Run a pre-parsed Program through Kraken's semantics.
+    For use with generated Program objects from AsmCompiler. -/
+def runKrakenProgram (prog : Program) (initState : MachineState := {})
+    : Except String MachineState :=
+  runBoundedProg prog initState 10000
+where
+  runBoundedProg (prog : Program) (s : MachineState) (fuel : Nat) : Except String MachineState :=
+    match fuel with
+    | 0 => .error "execution exceeded step limit"
+    | fuel' + 1 =>
+      if s.rip >= prog.length then .ok s
+      else
+        match eval1 (m := { throw := Except.error }) prog s (fun s => .ok s) with
+        | .ok s' => runBoundedProg prog s' fuel'
+        | .error e => .error e
+
 -- ============================================================================
 -- Test Result Type
 -- ============================================================================

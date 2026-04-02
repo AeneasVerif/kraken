@@ -23,3 +23,7 @@ name = "Kraken"
 [[lean_exe]]
 name = "krakentest"
 root = "KrakenTest"
+
+[[lean_exe]]
+name = "asmcompile"
+root = "AsmCompileMain"

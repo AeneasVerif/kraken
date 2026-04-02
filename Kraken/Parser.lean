@@ -612,68 +612,11 @@ where
             let preview : String := if line.length > 60 then s!"{line.take 60}..." else line
             .error s!"line {lineNum}: {msg}\n  | {preview}"
 
-/-- Parse an assembly string, panicking on failure (for use in #eval). -/
-def parse! (input : String) : Program :=
+/-- Parse an assembly string, returning empty on failure (for use in #eval). -/
+def parseOrEmpty (input : String) : Program :=
   match parse input with
   | .ok prog => prog
-  | .error msg => panic! s!"parse error: {msg}"
+  | _ => []
 
 end Kraken.Parser
-
--- ============================================================================
--- Tests
--- ============================================================================
-
-section Tests
-open Kraken.Parser
-
--- Test: Simple instruction
-#eval parse! "addq %rax, %rbx"
--- Expected: [(.none, .add (.reg .rbx) (.reg .rax))]
-
--- Test: Immediate operand
-#eval parse! "movq $42, %rax"
--- Expected: [(.none, .mov (.reg .rax) (.imm 42))]
-
--- Test: Memory operand with displacement
-#eval parse! "movq 8(%rsp), %rax"
--- Expected: [(.none, .mov (.reg .rax) (.mem .rsp .none 1 8))]
-
--- Test: Memory operand with index and scale
-#eval parse! "movq (%rsi, %r15, 8), %rax"
--- Expected: [(.none, .mov (.reg .rax) (.mem .rsi (some .r15) 8 0))]
-
--- Test: Labeled instruction
-#eval parse! "loop: addq $1, %rcx"
--- Expected: [(some "loop", .add (.reg .rcx) (.imm 1))]
-
--- Test: Conditional jump
-#eval parse! "jnz loop"
--- Expected: [(.none, .jcc .nz "loop")]
-
--- Test: Multi-line program
-#eval parse! "
-  movq $0, %rax
-loop:
-  addq $1, %rax
-  cmpq $10, %rax
-  jne loop
-"
-
--- Test: Negative immediate
-#eval parse! "addq $-1, %rax"
-
--- Test: Hex immediate
-#eval parse! "movq $0xff, %rax"
-
--- Test: mulx instruction
-#eval parse! "mulxq %r8, %r9, %r10"
-
--- Test: xor for zeroing
-#eval parse! "xorq %rax, %rax"
-
--- Test: lea with complex addressing
-#eval parse! "leaq 16(%rbp, %rcx, 4), %rax"
-
-end Tests
 

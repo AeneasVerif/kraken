@@ -401,10 +401,10 @@ def Registers.set (regs : Registers) (r : Reg) (v : UInt64) : Registers :=
   | .r12b => { regs with r12 := write8 regs.r12 v } | .r13b => { regs with r13 := write8 regs.r13 v }
   | .r14b => { regs with r14 := write8 regs.r14 v } | .r15b => { regs with r15 := write8 regs.r15 v }
 
-def MachineState.getReg (s : MachineState) (r : Reg) : UInt64 :=
+abbrev MachineState.getReg (s : MachineState) (r : Reg) : UInt64 :=
   s.regs.get r
 
-def MachineState.setReg (s : MachineState) (r : Reg) (v : UInt64) : MachineState :=
+abbrev MachineState.setReg (s : MachineState) (r : Reg) (v : UInt64) : MachineState :=
   { s with regs := s.regs.set r v }
 
 class Throw (α : Type _) where
