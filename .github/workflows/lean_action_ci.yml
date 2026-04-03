@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-core:
-    name: Build Kraken (4.22.0)
+    name: Build Kraken (as per lean-toolchain)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -16,9 +16,9 @@ jobs:
   build-experimental:
     name: Build KrakenExp (4.28.0)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: kraken-experimental
     steps:
       - uses: actions/checkout@v5
+      - name: Override Lean toolchain with 4.28
+        working_directory: kraken
+        run: echo "leanprover/lean4:v4.28.0" > lean-toolchain
       - uses: leanprover/lean-action@v1
