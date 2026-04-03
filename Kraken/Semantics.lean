@@ -335,7 +335,7 @@ def undefined [inst: Undefined T R] := inst.undefined
 set_option maxHeartbeats 1000000
 def Operation.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α]
   [Labels] [address_size : AddressSize] (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
-  (next : MachineData → α) (branch : Label → MachineData → α) (jmp : Int64 → MachineData → α) : α :=
+  (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
   match (generalizing := false) (motive := Operation w → α) i with
   | .mov dst src => src.interp s p (fun val => s.set dst val p next)
   | .movsx dst src => src.interp s p (fun val => s.set dst (val.signExtend _) p next)
@@ -577,7 +577,7 @@ def Operation.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags
     | _ => @undefined _ _ _ (fun v => next (s.setReg dst v))
   | .jcc cc l =>
     if cc.interp s.status
-    then branch l s
+    then jmp (label l) s
     else next s
   | .jmp tgt =>
     tgt.interp s p (fun a =>
@@ -600,8 +600,8 @@ structure Instr where
 
 def Instr.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Labels]
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
-  (next : MachineData → α) (branch : Label → MachineData → α) (jmp : Int64 → MachineData → α) : α :=
-  Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next branch jmp
+  (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
+  Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next jmp
 
 instance : Repr ByteArray where reprPrec _ _ := "<opaque byte array>"
 
@@ -612,157 +612,99 @@ inductive Directive
   | ByteArray (_ : ByteArray)
   deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
 
+def Directive.interp [Undefined Bool α] [Throw α] [Labels]
+  [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α]
+  (d : Directive) (s : MachineData) (p : Std.Rco Int64)
+  (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
+  match d with
+  | .Label _ => next s
+  | .Instr i => i.interp s p next jmp
+  | .ByteArray _ => throw s!"Unimplemented: execution reached data block at {p.1}"
+
+def Directives.interp [Undefined Bool α] [Throw α] [Labels]
+  [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α]
+  (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
+  (ret : Int64 → MachineData → α) : α :=
+  match ds with
+  | [] => ret pc s
+  | (d, sz) :: ds =>
+    d.interp s (.mk pc (pc+.ofNat sz)) ret (next := (fun s =>
+    interp ds s (pc+.ofNat sz) ret))
+
 abbrev Program := List Directive
+abbrev Executable := Int64 × List (Directive × Nat) -- start and sizes
+abbrev Position := Nat
 
-abbrev Position := Label × Nat
-def Position.Label (l : Label) : Position := (l, 0)
-def Position.next : Position → Position | (p, i) => (p, i+1)
-instance : Coe Label Position where coe := Position.Label
-attribute [coe] Position.Label
+-- TEMPORARY: replace with `import Init.Data.List.Scan.Basic` when dropping support for Lean 4.28
+namespace List
+@[inline]
+private def scanAuxM [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
+  go l init []
+where
+  @[specialize] go : List α → β → List β → m (List β)
+    | [], last, acc => pure <| last :: acc
+    | x :: xs, last, acc => do go xs (← f last x) (last :: acc)
+@[inline]
+def scanlM [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
+  List.reverse <$> scanAuxM f init l
+@[inline]
+def scanl (f : β → α → β) (init : β) (as : List α) : List β :=
+  Id.run <| as.scanlM (pure <| f · ·) init
+end List
 
-class Layout where layout : Position → Int64
-def layout [inst: Layout] := inst.layout
-instance [Layout] : Labels := { label l := layout l }
+def Executable.withAddresses (e : Executable)  : List (Int64 × Directive × Nat) :=
+  (e.2.scanl (fun (p, _, _) (d, z) => (p+.ofNat z, d, z)) (e.1, .ByteArray (.mk #[]), 0))
 
-/- Enumerate positions in a program. Two things to note:
-   - if the program does not start with a label, instructions at the beginning
-     of the program do not have a position (we could implicitly assign a label,
-     but do not currently do so).
-   - this does not enumerate all valid positions, for instance, (".foo", 0) is
-     valid but not generated -- we just pick the last label
+def Executable.labels (e : Executable) : Labels :=
+  { label l := (e.withAddresses.findSome?
+      (fun (p, d, _) => if d = .Label l then .some p else .none)).getD (-1) }
 
-   example:
+def Executable.directivesAtAddress (e : Executable) (a : Int64) : List (Directive × Nat) :=
+  (e.withAddresses.filter (·.1 = a)).map (·.2)
 
-   .foo:     // pc = (".foo", 0), no position generated
-   .bar:     // pc = (".bar", 0), no position generated
-     nop     // (".bar", 0)
-   .baz:
-     nop     // (".baz", 0)
+def Executable.directivesFromAddress (e : Executable) (a : Int64) : List (Directive × Nat) :=
+  e.2.drop (((e.withAddresses).map (·.1)).idxOf a)
 
-  Of note:
-  - The interpreter, which operates over positions, must also be able to deal
-    with multiple consecutive labels, by skipping through them (in other words,
-    the interpreter must handle (".foo", 0).
-  - Concrete layouts have further restrictions: the same Int64 must be assigned
-    to positions that denote the same layout (i.e. (".foo", 0) and (".bar", 0)
-    must map to the same Int64), and concrete layouts should also be able to
-    address *past* their label (i.e., (".foo", 1) and (".baz", 0) should map to
-    the same Int64).
+set_option linter.unusedVariables false in
+def Executable.step [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
+  [Throw α]
+  (e : Executable) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
+  let labels := e.labels; -- spurious warning https://github.com/leanprover/lean4/issues/13269
+  Directives.interp (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
-  Further notes (AE, JP): we reviewed all of the call-sites for the `layout`
-  function, and we only ever advance one past a valid program point. As in: we
-  should be able to prove a lemma that says that `layout` is only ever called
-  for positions within the span of the program source, or one past (which may
-  very well be the end).
-  - 
--/
-def Program.positions' (prog : Program) (pc : Option Position) : List Position :=
-  match prog, pc with
-  | .Label l :: prog, _ => Program.positions' prog (l, 0)
-  | .Instr _ :: prog, .some pc => pc :: Program.positions' prog pc.next
-  | .Instr _ :: prog, .none => Program.positions' prog .none
-  | .ByteArray _ :: prog, _ => Program.positions' prog .none
-  | [], _ => []
-def Program.positions (prog : Program) := prog.positions' .none
+set_option linter.unusedVariables false in
+def Executable.straightline [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
+  [Throw α]
+  (e : Executable) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
+  let labels := e.labels; -- spurious warning https://github.com/leanprover/lean4/issues/13269
+  Directives.interp (e.directivesFromAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
-/- We implement a concrete layout for execution purposes that satisfies the
-   criteria above, numbering instructions in the order that they come throughout
-   the program, ignoring labels and byte arrays.
--/
-def defaultLayout (p: Program) (pos: Position) :=
-  let (l, i) := pos
-  let rec layout (p: Program) (instrs: Nat) (found: Bool): Int64 :=
-    match p with
-    | .Label l2 :: p => layout p instrs (l = l2 || found)
-    | .Instr _ :: p =>
-      if found then
-        .ofNat (instrs + i)
-      else
-        layout p (instrs + 1) false
-    | .ByteArray _ :: p =>
-      if found then
-        -1 -- FIXME: should this throw?
-      else
-        layout p instrs false
-    | [] =>
-      -1
-  layout p 0 false
+-- -- Concrete evaluators for expedient testing
 
--- FIXME: temporarily matching on p :: _ rather than [p] to allow this to reduce
--- (rather than write behavioral lemmas on `layout` that would allow concluding.
--- Maybe it's not a big deal.
-def Program.position_of_addr [Layout] [Throw α] (prog : Program) (a : Int64) (ret : Position → α) : α :=
-  match prog.positions.filter (fun p => layout p = a) with
-  | p :: _ => ret p
-  | [] => throw s!"address {a} does not correspond to any known position"
-  /- | l => throw s!"address {a} does not corresponds to multiple positions: {l}" -/
-
-def dropInstrs (p: Program) (n: Nat): Option Program :=
-  match p with
-  | [] =>
-    if n = 0 then
-      .some []
-    else
-      .none
-  | .Instr _ :: ps =>
-    if n = 0 then
-      p
-    else
-      dropInstrs ps (n - 1)
-  | .Label _ :: ps =>
-    dropInstrs ps n
-  | .ByteArray _ :: _ =>
-    .none
-
--- AE: step seems more like something that could be « the spec » that
--- connects these variants
-def Program.step [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Layout]
-  (prog : Program) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
-  prog.position_of_addr s.2 (fun pc =>
-  let skipToLabel := prog.dropWhile (fun d => d != .Label pc.1)
-  match dropInstrs skipToLabel pc.2 with
-  | .some (.Label _ :: _)
-  | .some (.ByteArray _ :: _) => throw s!"unreachable -- dropInstrs only returns .Instr"
-  | .some (.Instr i :: _) =>
-    Instr.interp i s.1 (.mk (layout pc) (layout pc.next))
-      (fun s => ret (s, layout pc.next))
-      (fun l s => ret (s, label l,))
-      (fun a s => ret (s, a))
-  | .some [] => throw s!"execution outside program at {pc}"
-  | .none => throw s!"Unimplemented: execution reached data block at {pc}")
-
-def Program.straightline' [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Layout]
-  (suffix : List Directive) (s : MachineData) (pc : Position) (ret : MachineData × Int64 → α) : α :=
-  match suffix with
-  | (.Label l) :: suffix => Program.straightline' suffix s (l, 0) ret
-  | (.Instr i) :: suffix =>
-    Instr.interp i s (.mk (layout pc) (layout pc.next))
-      (next := fun s => Program.straightline' suffix s pc.next ret)
-      (branch := fun l s => ret (s, label l))
-      (jmp := fun a s => ret (s, a))
-  | (.ByteArray _)::_ => throw s!"Unimplemented: execution reached data block at {pc}"
-  | [] => ret (s, layout pc)
-
-def Program.straightline [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Layout]
-  (prog : Program) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
-  prog.position_of_addr s.2 (fun (pc: Position) =>
-  let skipToLabel := prog.dropWhile (fun d => d != .Label pc.1)
-  match dropInstrs skipToLabel pc.2 with
-  | .some skipLabels => Program.straightline' skipLabels s.1 pc ret
-  | .none => throw s!"position {pc} out of bounds")
-
-def eval (prog : Program) (s : MachineData × Int64) (until_ : MachineData × Int64 → Bool) : Except String (MachineData × Int64) :=
+def Executable.eval (e : Executable) (s : MachineData × Int64) (until_ : MachineData × Int64 → Bool) : Except String (MachineData × Int64) :=
   if until_ s then .ok s else
   let α := Except String (MachineData × Int64)
   let : Throw α := { throw s := .error s }
-  let : Layout := { layout := defaultLayout prog }
   let : Undefined Bool α := { undefined ret := ret (hash s.1.regs % 2 != 0) }
   let : Undefined StatusFlags α := { undefined ret := let h := (hash s.1.regs).toBitVec; ret (.mk h[0] h[1] h[2] h[3] h[4] h[5]) }
   let (w : Width) : Undefined w.type α := { undefined ret := ret ((hash s.1.regs).toBitVec.setWidth w.bits) }
-  match prog.straightline s Except.ok with
-  | .ok s => eval prog s until_
+  match e.straightline s Except.ok with
+  | .ok s => eval e s until_
   | .error s => .error s
 partial_fixpoint
+
+def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
+  match d with
+  | .Label _ => 0
+  | .Instr (.mk _ _ (.nop sz)) => sz -- may be zero
+  | .Instr i => (1 + hash (hashOfProgram, i) % 15).toNat
+  | .ByteArray bs => bs.size
+
+def Program.fakeLayout (prog : Program) : Executable :=
+  let h := hash prog; (0, prog.map (fun d => (d, d.fakeSize h)))
+
+def eval (prog : Program) (s : MachineData × Int64) (until_ : MachineData × Int64 → Bool) : Except String (MachineData × Int64) :=
+  Executable.eval prog.fakeLayout s until_
 
 /-- info: Except.ok 42 -/
 #guard_msgs in
@@ -773,7 +715,7 @@ partial_fixpoint
     .Instr (.mk .W64 .W64 (.inc (.Reg (.low .rax .W64)))),
     .Instr (.mk .W64 .W64 .ret) ]
   let data := { dmem := .ofList [(0x100, 0x1337)], regs := {rsp := 0x100} }
-  let start := defaultLayout prog ("main", 0)
+  let start := (Program.fakeLayout prog).labels.label "main"
   (eval prog (data, start) (fun (_, pc) => pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)
 
 namespace Reg
