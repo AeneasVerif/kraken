@@ -3,6 +3,23 @@
 
 import Std
 
+-- TODO: replace with `import Init.Data.List.Scan.Basic` when dropping support for Lean 4.28
+namespace List
+@[inline]
+private def scanAuxM [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
+  go l init []
+where
+  @[specialize] go : List α → β → List β → m (List β)
+    | [], last, acc => pure <| last :: acc
+    | x :: xs, last, acc => do go xs (← f last x) (last :: acc)
+@[inline]
+def scanlM [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
+  List.reverse <$> scanAuxM f init l
+@[inline]
+def scanl (f : β → α → β) (init : β) (as : List α) : List β :=
+  Id.run <| as.scanlM (pure <| f · ·) init
+end List
+
 -- injective coercions only
 attribute [-instance] BitVec.instNatCast
 attribute [-instance] BitVec.instIntCast
@@ -13,7 +30,7 @@ def BitVec.drop (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-
 def BitVec.replaceLow (old : BitVec w) (new : BitVec n) : BitVec w :=
   (BitVec.append (old.drop w) new).setWidth _
 
-inductive Width | W8 | W16 | W32 | W64 deriving Repr, BEq, DecidableEq
+inductive Width | W8 | W16 | W32 | W64 deriving Repr, BEq, DecidableEq, Hashable
 
 instance : ToString Width where
   toString | .W8 => "w8" | .W16 => "w16" | .W32 => "w32" | .W64 => "w64"
@@ -31,12 +48,12 @@ inductive Reg64
   | rsi | rdi | rsp | rbp
   | r8  | r9  | r10 | r11
   | r12 | r13 | r14 | r15
-  deriving Repr, BEq, DecidableEq
+  deriving Repr, BEq, DecidableEq, Hashable
 
 inductive Reg : Width → Type
   | low (_ : Reg64) (w : Width) : Reg w
   | ah : Reg .W8 | bh : Reg .W8 | ch : Reg .W8| dh : Reg .W8
-  deriving Repr, BEq, DecidableEq
+  deriving Repr, BEq, DecidableEq, Hashable
 
 namespace Reg
 def base {w} (r : Reg w) : Reg64 := match r with
@@ -65,7 +82,7 @@ structure Reg64s where
   r13 : UInt64 := 0
   r14 : UInt64 := 0
   r15 : UInt64 := 0
-  deriving Repr, BEq, DecidableEq, Hashable
+  deriving Repr, BEq, DecidableEq, Hashable, Hashable
 
 def Reg64s.get64 (s : Reg64s) (r : Reg64) : Width.W64.type := UInt64.toBitVec (match r with
   | .rax => s.rax | .rbx => s.rbx | .rcx => s.rcx | .rdx => s.rdx
@@ -103,13 +120,13 @@ structure StatusFlags where
   zf : Bool := false
   sf : Bool := false
   of : Bool := false
-  deriving Repr, BEq, DecidableEq
+  deriving Repr, BEq, DecidableEq, Hashable
 
 structure StatusFromResultFlags where
   cf : Bool
   af : Bool
   of : Bool
-  deriving Repr, BEq, DecidableEq
+  deriving Repr, BEq, DecidableEq, Hashable
 
 abbrev DataMem := Std.ExtHashMap UInt64 UInt64 -- 8-byte-aligned acceses only now
 instance : Repr DataMem where reprPrec _ _ := "<opaque memory>"
@@ -139,18 +156,8 @@ def MachineData.store [Throw α] (s : MachineData) (addr : BitVec 64) {w : Width
   ret { s with dmem := s.dmem.insert (.ofBitVec addr) (.ofBitVec (old.replaceLow v)) })
 
 abbrev Label := String
-abbrev Position := Label × Nat
-def Position.Label (l : Label) : Position := (l, 0)
-def Position.next : Position → Position | (p, i) => (p, i+1)
-instance : Coe Label Position where coe := Position.Label
-attribute [coe] Position.Label
-
-class Layout where
-  layout: Position → Int64
-  /- NextIsDifferent: (p:Position) → layout p ≠ layout p.next -/
-
-def layout [inst: Layout] := inst.layout
-def label [inst: Layout] l := inst.layout (l, 0)
+class Labels where layout : Label → Int64
+def layout [inst: Labels] := inst.layout
 
 inductive ConstExpr
   | Label (_ : Label)
@@ -160,95 +167,50 @@ inductive ConstExpr
   -- Careful adding operations here! Need to match overflow behavior of all
   -- assemblers we want compatibility with. We assume oversized literals error;
   -- clang and gcc seem to always use 64-bit arithmetic (MCValue has an int64).
-  deriving Repr, BEq, DecidableEq
+  deriving Repr, BEq, DecidableEq, Hashable
 instance : Coe Label ConstExpr where coe := ConstExpr.Label
 instance : Coe Int64 ConstExpr where coe := ConstExpr.Int64
 attribute [coe] ConstExpr.Label
 attribute [coe] ConstExpr.Int64
 
-def ConstExpr.interp [Layout] : ConstExpr → Std.Rco _root_.Int64 → _root_.Int64
-  | .Label l, _ => label l
+def ConstExpr.interp [Labels] : ConstExpr → Std.Rco _root_.Int64 → _root_.Int64
+  | .Label l, _ => layout l
   | .Int64 i, _ => i
   | .before_current_instruction, r => r.lower
   | .after_current_instruction, r => r.upper
   | .add e1 e2, p => e1.interp p + e2.interp p
   | .sub e1 e2, p => e1.interp p - e2.interp p
 
-inductive RegOrRip: (w : Width) → Type where
-  | Reg: Reg w → RegOrRip w
-  | Rip: RegOrRip .W64
-deriving Repr, BEq, DecidableEq
+structure RegW where -- TODO: when dropping support for Lean 4.28, this can be replaced with Σ (for deriving)
+   w : Width
+   reg : Reg w
+   deriving Repr, DecidableEq, Hashable
 
-instance: BEq ((w: Width) × RegOrRip w) where
--- TODO: replace with `deriving` when droppint support for Lean 4.28
-  beq := fun (p1: ((w: Width) × RegOrRip w)) (p2: ((w: Width) × RegOrRip w)) =>
-    let ⟨ w1, r1 ⟩ := p1
-    let ⟨ w2, r2 ⟩ := p2
-    if h: w1 = w2 then
-      r1 = (h ▸ r2)
-    else
-      false
-
-instance: BEq ((w: Width) × Reg w) where
--- TODO: replace with `deriving` when droppint support for Lean 4.28
-  beq := fun (p1: ((w: Width) × Reg w)) (p2: ((w: Width) × Reg w)) =>
-    let ⟨ w1, r1 ⟩ := p1
-    let ⟨ w2, r2 ⟩ := p2
-    if h: w1 = w2 then
-      r1 = (h ▸ r2)
-    else
-      false
-
-instance: DecidableEq ((w: Width) × RegOrRip w) := by
--- TODO: replace with `deriving` when droppint support for Lean 4.28
-  intros p1 p2
-  rcases p1 with ⟨ w1, r1 ⟩
-  rcases p2 with ⟨ w2, r2 ⟩
-  by_cases h: w1 = w2
-  . subst h -- rw leaves a heterogeneous equality
-    by_cases h2: r1 = r2
-    . apply isTrue
-      simp_all
-    . apply isFalse
-      simp_all
-  . apply isFalse
-    simp_all
-
-instance: DecidableEq ((w: Width) × Reg w) := by
--- TODO: replace with `deriving` when droppint support for Lean 4.28
-  intros p1 p2
-  rcases p1 with ⟨ w1, r1 ⟩
-  rcases p2 with ⟨ w2, r2 ⟩
-  by_cases h: w1 = w2
-  . subst h -- rw leaves a heterogeneous equality
-    by_cases h2: r1 = r2
-    . apply isTrue
-      simp_all
-    . apply isFalse
-      simp_all
-  . apply isFalse
-    simp_all
+inductive RegOrRipW : Type where
+  | RegW (_ : RegW)
+  | Rip
+  deriving Repr, DecidableEq, Hashable
 
 structure AddrIndex where
-  reg: Σ w, Reg w
-  scale: Width
-deriving Repr, BEq, DecidableEq
+  reg : RegW
+  scale : Width
+  deriving Repr, BEq, DecidableEq, Hashable
 
 structure AddrExpr where
-  base : Option (Σ w, RegOrRip w)
+  base : Option RegOrRipW
   idx : Option AddrIndex
   disp : ConstExpr := .Int64 0
-deriving Repr, BEq, DecidableEq
+  deriving Repr, BEq, DecidableEq, Hashable
 
-def RipRel (e : ConstExpr) : AddrExpr := .mk (.some ⟨.W64, .Rip⟩) .none (.sub e .after_current_instruction)
+def RipRel (e : ConstExpr) : AddrExpr := .mk (.some .Rip) .none (.sub e .after_current_instruction)
 
 class AddressSize where address_size : Width
 def address_size [inst: AddressSize] := inst.address_size
 
-def AddrExpr.interp [Layout] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
+def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
   let base := match a.base with
-              | .some ⟨_, .Reg r⟩ => (s.get r).toInt
-              | .some ⟨_, .Rip⟩ => p.upper.toInt
+              | .some (.RegW (.mk _ r)) => (s.get r).toInt
+              | .some .Rip => p.upper.toInt
               | .none => 0
   let idx := match a.idx with
              | .some ⟨⟨_, r⟩, c⟩ => (s.get r).toInt * c.bytes
@@ -256,7 +218,7 @@ def AddrExpr.interp [Layout] [address_size : AddressSize] (a : AddrExpr) (s : Re
   BitVec.ofInt address_size.address_size.bits (base + idx + (a.disp.interp p).toInt)
 
 inductive RegOrMem w | Reg (r : Reg w) | mem (_ : AddrExpr)
-deriving Repr, BEq, DecidableEq
+deriving Repr, BEq, DecidableEq, Hashable
 instance : Coe AddrExpr (RegOrMem w) where coe := RegOrMem.mem
 attribute [coe] RegOrMem.mem
 instance : Coe (Reg w) (RegOrMem w) where coe := RegOrMem.Reg
@@ -264,7 +226,7 @@ attribute [coe] RegOrMem.Reg
 abbrev Dst := RegOrMem
 
 def BitVec.TODO_address_extend_signedness (x : BitVec w) {n : Nat} : BitVec n := x.setWidth _
-def RegOrMem.interp [Layout] [AddressSize] [Throw α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
+def RegOrMem.interp [Labels] [AddressSize] [Throw α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
   | .Reg r => ret (s.regs.get r)
   | .mem a => s.load (a.interp s.regs p).TODO_address_extend_signedness w ret
@@ -272,13 +234,13 @@ def RegOrMem.interp [Layout] [AddressSize] [Throw α] (o : RegOrMem w) (s : Mach
 def MachineData.setReg (s : MachineData) (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
 
-def MachineData.set [Layout] [AddressSize] [Throw α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
+def MachineData.set [Labels] [AddressSize] [Throw α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
   match d with
   | .Reg r => ret (s.setReg r v)
   | .mem a => s.store (a.interp s.regs p).TODO_address_extend_signedness v ret
 
 inductive Operand w | RegOrMem (_ : RegOrMem w) | imm (v : ConstExpr)
-deriving Repr, BEq, DecidableEq
+deriving Repr, BEq, DecidableEq, Hashable
 instance : Coe (RegOrMem w) (Operand w) where coe := Operand.RegOrMem
 attribute [coe] Operand.RegOrMem
 instance : Coe ConstExpr (Operand w) where coe := Operand.imm
@@ -286,14 +248,14 @@ attribute [coe] Operand.imm
 abbrev Operand.reg (r : Reg w) : Operand w := .RegOrMem (.Reg r)
 abbrev Operand.mem (m : AddrExpr) : Operand w := .RegOrMem (.mem m)
 
-def Operand.interp [Layout] [AddressSize] [Throw α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
+def Operand.interp [Labels] [AddressSize] [Throw α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
   | .RegOrMem rm => rm.interp s p ret
   | .imm v => ret ((v.interp p).toBitVec.truncate _)
   -- we rely on assemblers erroring out on too-large immediates in uniform ops
 
 inductive CondCode | z | nz | c | nc | a | be
-deriving Repr, BEq, DecidableEq
+deriving Repr, BEq, DecidableEq, Hashable
 abbrev CondCode.e := CondCode.z
 abbrev CondCode.ne := CondCode.nz
 abbrev CondCode.b := CondCode.c
@@ -304,18 +266,18 @@ def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
   | .a  => !s.cf && !s.zf | .be => s.cf || s.zf
 
 inductive ShiftCountExpr | cl | imm8 (v : ConstExpr)
-deriving Repr, BEq, DecidableEq
+deriving Repr, BEq, DecidableEq, Hashable
 
-def ShiftCountExpr.interp [Layout] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
+def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
   | .cl => s.regs.rcx.toBitVec.take 8
   | .imm8 v => (v.interp p).toBitVec.truncate _
-def ShiftCountExpr.interpMasked [Layout] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width) : Nat :=
+def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width) : Nat :=
   (c.interp s p).toNat &&& match w with | .W64 => 0x1f | _ => 0x0f -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
 
 inductive RelRegOrMem | Rel (_ : ConstExpr) | Reg (r : Reg .W64) | mem (_ : AddrExpr)
-deriving Repr, BEq, DecidableEq
+deriving Repr, BEq, DecidableEq, Hashable
 
-def RelRegOrMem.interp [Layout] [AddressSize] [Throw α] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → α) :=
+def RelRegOrMem.interp [Labels] [AddressSize] [Throw α] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → α) :=
   match o with
   | .Rel c => ret (p.upper + c.interp p).toBitVec
   | .Reg r => ret (s.regs.get r)
@@ -369,7 +331,7 @@ inductive Operation (w : Width)
   -- TODO: optiona third argument, with the caveat that `.align 16,,0` is valid
   -- syntax
   | nopalign (alignment : Nat) (pad : Option Nat)
-deriving Repr, DecidableEq
+  deriving Repr, DecidableEq, Hashable
 
 def StatusFlags.from_result {w} (result : BitVec w) (f : StatusFromResultFlags) : StatusFlags :=
   { pf := (result.truncate 8).cpop % 2 != BitVec.zero _
@@ -381,8 +343,8 @@ def undefined [inst: Undefined T R] := inst.undefined
 
 set_option maxHeartbeats 1000000
 def Operation.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α]
-  [Layout] [address_size : AddressSize] (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
-  (next : MachineData → α) (branch : Label → MachineData → α) (jmp : Int64 → MachineData → α) : α :=
+  [Labels] [address_size : AddressSize] (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
+  (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
   match (generalizing := false) (motive := Operation w → α) i with
   | .mov dst src => src.interp s p (fun val => s.set dst val p next)
   | .movzx dst src => src.interp s p (fun val => s.set dst (val.zeroExtend _) p next)
@@ -623,7 +585,7 @@ def Operation.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags
     | _ => @undefined _ _ _ (fun v => next (s.setReg dst v))
   | .jcc cc l =>
     if cc.interp s.status
-    then branch l s
+    then jmp (layout l) s
     else next s
   | .jmp tgt =>
     tgt.interp s p (fun a =>
@@ -642,12 +604,12 @@ structure Instr where
   address_size : Width
   operation_size : Width
   operation : Operation operation_size
-deriving Repr, DecidableEq
+  deriving Repr, DecidableEq, Hashable
 
-def Instr.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Layout]
+def Instr.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Labels]
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
-  (next : MachineData → α) (branch : Label → MachineData → α) (jmp : Int64 → MachineData → α) : α :=
-  Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next branch jmp
+  (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
+  Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next jmp
 
 instance : Repr ByteArray where reprPrec _ _ := "<opaque byte array>"
 
@@ -655,142 +617,86 @@ inductive Directive
 | Instr (_ : Instr)
 | Label (_ : Label)
 | ByteArray (_ : ByteArray)
-deriving BEq, DecidableEq, Repr
+deriving BEq, DecidableEq, Repr, Hashable
+
+def Directive.interp [Undefined Bool α] [Throw α] [Labels]
+  [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α]
+  (d : Directive) (s : MachineData) (p : Std.Rco Int64)
+  (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
+  match d with
+  | .Label _ => next s
+  | .Instr i => i.interp s p next jmp
+  | .ByteArray _ => throw s!"Unimplemented: execution reached data block at {p.1}"
 
 abbrev Program := List Directive
+abbrev ProgramWithLayout := List (Directive × Std.Rco Int64)
 
-/- Enumerate positions in a program. Two things to note:
-   - if the program does not start with a label, instructions at the beginning
-     of the program do not have a position (we could implicitly assign a label,
-     but do not currently do so).
-   - this does not enumerate all valid positions, for instance, (".foo", 0) is
-     valid but not generated -- we just pick the last label
+def ProgramWithLayout.labels (prog : ProgramWithLayout) : Labels :=
+  { layout l := (prog.findSome? (fun (d, r) =>
+        if d = .Label l then .some r.lower else .none)
+      ).getD (-1) }
 
-   example:
+--- Single-step evaluator (i.e. until program counter changes)
 
-   .foo:     // pc = (".foo", 0), no position generated
-   .bar:     // pc = (".bar", 0), no position generated
-     nop     // (".bar", 0)
-   .baz:
-     nop     // (".baz", 0)
+def ProgramWithLayout.forward_at_pc [Throw α] [Labels : Labels]
+  [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] 
+  (prog : ProgramWithLayout) (s : MachineData) (pc : Int64)
+  (fallthrough : MachineData → α) (ret : Int64 → MachineData → α) : α :=
+  match prog with
+  | [] => fallthrough s
+  | (d, p) :: l =>
+    if p.lower == pc
+    then d.interp s p ret (next := fun s => forward_at_pc l s pc fallthrough ret)
+    else forward_at_pc l s pc fallthrough ret
 
-  Of note:
-  - The interpreter, which operates over positions, must also be able to deal
-    with multiple consecutive labels, by skipping through them (in other words,
-    the interpreter must handle (".foo", 0).
-  - Concrete layouts have further restrictions: the same Int64 must be assigned
-    to positions that denote the same layout (i.e. (".foo", 0) and (".bar", 0)
-    must map to the same Int64), and concrete layouts should also be able to
-    address *past* their label (i.e., (".foo", 1) and (".baz", 0) should map to
-    the same Int64).
+def ProgramWithLayout.step [Throw α]
+  [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
+  (prog : ProgramWithLayout) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
+  forward_at_pc prog s.1 s.2
+    (Labels := prog.labels)
+    (fallthrough := fun s => throw s!"execution outside program with state {repr s}")
+    (ret := fun a s => ret (s, a))
 
-  Further notes (AE, JP): we reviewed all of the call-sites for the `layout`
-  function, and we only ever advance one past a valid program point. As in: we
-  should be able to prove a lemma that says that `layout` is only ever called
-  for positions within the span of the program source, or one past (which may
-  very well be the end).
-  - 
--/
-def Program.positions' (prog : Program) (pc : Option Position) : List Position :=
-  match prog, pc with
-  | .Label l :: prog, _ => Program.positions' prog (l, 0)
-  | .Instr _ :: prog, .some pc => pc :: Program.positions' prog pc.next
-  | .Instr _ :: prog, .none => Program.positions' prog .none
-  | .ByteArray _ :: prog, _ => Program.positions' prog .none
-  | [], _ => []
-def Program.positions (prog : Program) := prog.positions' .none
+--- Straightline evaluator for more convenient proofs, intended to be equivalent
 
-/- We implement a concrete layout for execution purposes that satisfies the
-   criteria above, numbering instructions in the order that they come throughout
-   the program, ignoring labels and byte arrays.
--/
-def defaultLayout (p: Program) (pos: Position) :=
-  let (l, i) := pos
-  let rec layout (p: Program) (instrs: Nat) (found: Bool): Int64 :=
-    match p with
-    | .Label l2 :: p => layout p instrs (l = l2 || found)
-    | .Instr _ :: p =>
-      if found then
-        .ofNat (instrs + i)
-      else
-        layout p (instrs + 1) false
-    | .ByteArray _ :: p =>
-      if found then
-        -1 -- FIXME: should this throw?
-      else
-        layout p instrs false
-    | [] =>
-      -1
-  layout p 0 false
+def ProgramWithLayout.forward_from_pc [Throw α] [Labels : Labels]
+  [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] 
+  (prog : ProgramWithLayout) (s : MachineData) (pc : Int64)
+  (fallthrough : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
+  match prog with
+  | [] => fallthrough s
+  | (d, p) :: l =>
+    if p.lower == pc
+    then d.interp s p jmp (next := fun s => forward_from_pc l s p.upper fallthrough jmp)
+    else forward_from_pc l s pc fallthrough jmp
 
--- FIXME: temporarily matching on p :: _ rather than [p] to allow this to reduce
--- (rather than write behavioral lemmas on `layout` that would allow concluding.
--- Maybe it's not a big deal.
-def Program.position_of_addr [Layout] [Throw α] (prog : Program) (a : Int64) (ret : Position → α) : α :=
-  match prog.positions.filter (fun p => layout p = a) with
-  | p :: _ => ret p
-  | [] => throw s!"address {a} does not correspond to any known position"
-  /- | l => throw s!"address {a} does not corresponds to multiple positions: {l}" -/
+def ProgramWithLayout.straightline [Throw α]
+  [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
+  (prog : ProgramWithLayout) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
+  prog.forward_from_pc s.1 s.2
+    (Labels := prog.labels)
+    (fallthrough := fun s => throw s!"execution outside program with state {repr s}")
+    (jmp := fun a s => ret (s, a))
 
-def dropInstrs (p: Program) (n: Nat): Option Program :=
-  match p with
-  | [] =>
-    if n = 0 then
-      .some []
-    else
-      .none
-  | .Instr _ :: ps =>
-    if n = 0 then
-      p
-    else
-      dropInstrs ps (n - 1)
-  | .Label _ :: ps =>
-    dropInstrs ps n
-  | .ByteArray _ :: _ =>
-    .none
+def ProgramWithLayout.position_of_addr (prog : ProgramWithLayout) (a : Int64) :=
+  prog.findIdx (fun (_, r) => r.lower = a ∧ r.upper != r.lower)
 
--- AE: step seems more like something that could be « the spec » that
--- connects these variants
-def Program.step [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Layout]
-  (prog : Program) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
-  prog.position_of_addr s.2 (fun pc =>
-  let skipToLabel := prog.dropWhile (fun d => d != .Label pc.1)
-  match dropInstrs skipToLabel pc.2 with
-  | .some (.Label _ :: _)
-  | .some (.ByteArray _ :: _) => throw s!"unreachable -- dropInstrs only returns .Instr"
-  | .some (.Instr i :: _) =>
-    Instr.interp i s.1 (.mk (layout pc) (layout pc.next))
-      (fun s => ret (s, layout pc.next))
-      (fun l s => ret (s, label l,))
-      (fun a s => ret (s, a))
-  | .some [] => throw s!"execution outside program at {pc}"
-  | .none => throw s!"Unimplemented: execution reached data block at {pc}")
+def Program.fakeSizeOfDirective (prog : Program) (i : Nat) : Nat :=
+  match prog[i]? with
+  | .none => 0
+  | .some (.Label _) => 0
+  | .some (.Instr (.mk _ _ (.nop sz))) => sz -- may be zero
+  | .some (.Instr i) => (1 + hash (prog, i) % 15).toNat
+  | .some (.ByteArray bs) => bs.size
 
-def Program.straightline' [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Layout]
-  (suffix : List Directive) (s : MachineData) (pc : Position) (ret : MachineData × Int64 → α) : α :=
-  match suffix with
-  | (.Label l) :: suffix => Program.straightline' suffix s (l, 0) ret
-  | (.Instr i) :: suffix =>
-    Instr.interp i s (.mk (layout pc) (layout pc.next))
-      (next := fun s => Program.straightline' suffix s pc.next ret)
-      (branch := fun l s => ret (s, label l))
-      (jmp := fun a s => ret (s, a))
-  | (.ByteArray _)::_ => throw s!"Unimplemented: execution reached data block at {pc}"
-  | [] => ret (s, layout pc)
+def Program.withFakeLayout (prog : Program) : ProgramWithLayout :=
+  let sizes := (List.range prog.length).map prog.fakeSizeOfDirective
+  prog.zip (sizes.scanl (fun p sz => .mk p.upper (p.upper+.ofNat sz)) (.mk 0 0))
 
-def Program.straightline [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Layout]
-  (prog : Program) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
-  prog.position_of_addr s.2 (fun (pc: Position) =>
-  let skipToLabel := prog.dropWhile (fun d => d != .Label pc.1)
-  match dropInstrs skipToLabel pc.2 with
-  | .some skipLabels => Program.straightline' skipLabels s.1 pc ret
-  | .none => throw s!"position {pc} out of bounds")
-
-def eval (prog : Program) (s : MachineData × Int64) (until_ : MachineData × Int64 → Bool) : Except String (MachineData × Int64) :=
+def eval (prog : ProgramWithLayout) (s : MachineData × Int64) (until_ : MachineData × Int64 → Bool) : Except String (MachineData × Int64) :=
   if until_ s then .ok s else
   let α := Except String (MachineData × Int64)
   let : Throw α := { throw s := .error s }
-  let : Layout := { layout := defaultLayout prog }
   let : Undefined Bool α := { undefined ret := ret (hash s.1.regs % 2 != 0) }
   let : Undefined StatusFlags α := { undefined ret := let h := (hash s.1.regs).toBitVec; ret (.mk h[0] h[1] h[2] h[3] h[4] h[5]) }
   let (w : Width) : Undefined w.type α := { undefined ret := ret ((hash s.1.regs).toBitVec.setWidth w.bits) }
@@ -802,13 +708,13 @@ partial_fixpoint
 /-- info: Except.ok 42 -/
 #guard_msgs in
 #eval 
-  let prog := [
+  let prog := Program.withFakeLayout [
     .Label "main",
     .Instr (.mk .W64 .W64 (.lea (.low .rax .W64) (.mk .none .none (.Int64 41)))),
     .Instr (.mk .W64 .W64 (.inc (.Reg (.low .rax .W64)))),
     .Instr (.mk .W64 .W64 .ret) ]
   let data := { dmem := .ofList [(0x100, 0x1337)], regs := {rsp := 0x100} }
-  let start := defaultLayout prog ("main", 0)
+  let start := prog.labels.layout "main"
   (eval prog (data, start) (fun (_, pc) => pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)
 
 namespace Reg
