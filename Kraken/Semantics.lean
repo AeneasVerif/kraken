@@ -325,16 +325,16 @@ structure StatusFlags.from_result.Remaining where
 -- TEMPORARY: definitions stolen from Lean 4.28's standard library, but with a
 -- different name so that this file builds with both 4.27 and 4.28
 namespace BitVec
-def cpopNatRec_ (x : BitVec w) (pos acc : Nat) : Nat :=
+def cpopNatRec (x : BitVec w) (pos acc : Nat) : Nat :=
   match pos with
   | 0 => acc
-  | n + 1 => x.cpopNatRec_ n (acc + (x.getLsbD n).toNat)
+  | n + 1 => x.cpopNatRec n (acc + (x.getLsbD n).toNat)
 
-def cpop_ (x : BitVec w) : BitVec w := BitVec.ofNat w (cpopNatRec_ x w 0)
+def cpop (x : BitVec w) : BitVec w := BitVec.ofNat w (cpopNatRec x w 0)
 end BitVec
 
 def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
-  { pf := (result.truncate 8).cpop_ % 2 != BitVec.zero _
+  { pf := (result.truncate 8).cpop % 2 != BitVec.zero _
     zf := result == BitVec.zero _
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
 
