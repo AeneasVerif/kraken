@@ -633,7 +633,11 @@ def Directives.interp [Undefined Bool α] [Throw α] [Labels]
 
 abbrev Program := List Directive
 abbrev Executable := Int64 × List (Directive × Nat) -- start and sizes
-abbrev Position := Nat
+
+class Layout where (start : Int64) (size : Nat → Nat)
+def Layout.apply (l : Layout) (prog : Program) : Executable :=
+  (l.start, prog.mapIdx (fun i d => (d, l.size i)))
+instance : CoeFun Layout (fun _ => Program → Executable) where coe := Layout.apply
 
 -- TEMPORARY: replace with `import Init.Data.List.Scan.Basic` when dropping support for Lean 4.28
 namespace List
@@ -664,6 +668,9 @@ def Executable.directivesAtAddress (e : Executable) (a : Int64) : List (Directiv
 
 def Executable.directivesFromAddress (e : Executable) (a : Int64) : List (Directive × Nat) :=
   e.2.drop (((e.withAddresses).map (·.1)).idxOf a)
+
+def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directive × Nat) :=
+  e.2.dropWhile (·.1 != .Label l)
 
 set_option linter.unusedVariables false in
 def Executable.step [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
@@ -701,22 +708,24 @@ def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
   | .ByteArray bs => bs.size
 
 def Program.fakeLayout (prog : Program) : Executable :=
-  let h := hash prog; (0, prog.map (fun d => (d, d.fakeSize h)))
+  let : Inhabited Directive := .mk (.ByteArray (.mk #[]))
+  let h := hash prog;
+  let layout : Layout := { start := h.toInt64<<<16, size i := prog[i]!.fakeSize h }
+  layout prog
 
-def eval (prog : Program) (s : MachineData × Int64) (until_ : MachineData × Int64 → Bool) : Except String (MachineData × Int64) :=
-  Executable.eval prog.fakeLayout s until_
+abbrev eval [layout : Layout] (prog : Program) := (layout prog).eval
 
 /-- info: Except.ok 42 -/
 #guard_msgs in
 #eval 
-  let prog := [
+  let exe := Program.fakeLayout [
     .Label "main",
     .Instr (.mk .W64 .W64 (.lea (.low .rax .W64) (.mk .none .none (.Int64 41)))),
     .Instr (.mk .W64 .W64 (.inc (.Reg (.low .rax .W64)))),
     .Instr (.mk .W64 .W64 .ret) ]
+  let start := exe.labels.label "main"
   let data := { dmem := .ofList [(0x100, 0x1337)], regs := {rsp := 0x100} }
-  let start := (Program.fakeLayout prog).labels.label "main"
-  (eval prog (data, start) (fun (_, pc) => pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)
+  (exe.eval (data, start) (fun (_, pc) => pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)
 
 namespace Reg
 @[match_pattern] abbrev rax := low .rax .W64

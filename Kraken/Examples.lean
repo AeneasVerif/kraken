@@ -14,33 +14,20 @@ import Kraken.Eval
 
 open Kraken.Parser
 
-noncomputable
-def default [Layout] (start: Label): MachineState := ({}, layout start)
-
 def p1 := eval% parse! "start: mov $1, %rax"
 
-syntax "step1" : tactic
-macro_rules
-  | `(tactic|step1) =>
-  `(tactic|
-    simp [
-      step1,Program.straightline,
-      Program.position_of_addr,Program.positions,Program.positions',layout,List.filter,Position.Label,
-      List.dropWhile,bne,BEq.beq,instBEqDirective.beq,dropInstrs,Program.straightline',Instr.interp,Operation.interp,Operand.interp,
-      RegOrMem.interp,undefined,Undefined.undefined];
-    simp (ground:=True);
-    simp [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp];
-    simp (ground:=True)
-       <;> try native_decide)
+theorem Executable.directivesFromStart [layout : Layout] prog :
+    (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) :=
+  sorry
 
 -- Super-simple example to debug tactics
-example [Layout]: step1 p1 (default "start") (fun s => s.1.regs.rax = 1) := by
-  simp [p1,_root_.default]
-  simp [step1,Program.straightline]
-  simp [Program.position_of_addr,Program.positions,Program.positions',layout,List.filter,Position.Label]
-  simp [List.dropWhile,bne,BEq.beq,instBEqDirective.beq,dropInstrs,Program.straightline',Instr.interp,Operation.interp,Operand.interp]
-  simp (ground:=True)
-  simp [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp]
+example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+  dsimp only [p1]
+  dsimp only [step1,Executable.straightline]
+  rw [Executable.directivesFromStart]
+  simp [List.mapIdx,List.mapIdx.go]
+  dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp]
+  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp]
   simp (ground:=True)
   simp
   
@@ -58,21 +45,27 @@ def p2 : Program := eval% [
   .Instr ⟨ .W64, .W64, .jcc .nz "start" ⟩,
   .Instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.Int64 2)) ⟩,
 ]
+def p2' : Program := eval% parse! "
+start:
+  mov $1, %rax
+  xor %rax, %rax
+  jnz start
+  mov $2, %rax"
 
 -- Example 2: stepping through both straightline and control instructions
-example [Layout]: eventually p2 (fun s => s.1.regs.rax = 2) (default "start") := by
-  simp [p2,_root_.default]
-
-  -- FIXME: this is too aggressive, the (ground := True) in simp reduces many
-  -- steps at once
+example [layout : Layout]: eventually (layout p2) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
+  dsimp [p2]
   apply step_cps
-
-  step1
-  constructor
-  . apply eventually.done
-    simp
-  . apply eventually.done
-    simp
+  dsimp only [step1,Executable.straightline]
+  rw [Executable.directivesFromStart]
+  simp [List.mapIdx,List.mapIdx.go]
+  dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
+  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,CondCode.interp,StatusFlags.from_result]
+  simp only [Int64.toBitVec_ofNat, BitVec.ofNat_eq_ofNat, BitVec.truncate_eq_setWidth, BitVec.xor_self, BitVec.zero_eq,
+    BEq.rfl, Bool.not_true, Bool.false_eq_true, ↓reduceIte, BitVec.setWidth_zero, BitVec.msb_zero]
+  dsimp [undefined,Undefined.undefined]; intros _af
+  apply eventually.done
+  simp (ground:=True)
  
 -- Example 3 commented out until we figure out how to parse concrete syntax.
 /- def p3: Program := parse! "

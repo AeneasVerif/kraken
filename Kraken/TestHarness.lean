@@ -339,7 +339,7 @@ __end:
 "
 
 def finishCriterion (p: Program) (s: MachineState): Bool :=
-  let end_idx := defaultLayout p ("__end", 0)
+  let end_idx := p.fakeLayout.labels.label "__end"
   let current_idx := s.2
   current_idx = end_idx
 
@@ -348,8 +348,8 @@ def finishCriterion (p: Program) (s: MachineState): Bool :=
 def runKraken (asmCode : String) 
     : Except String MachineState := do
   let prog ← Parser.parse (startGadget ++ asmCode ++ endGadget)
-  let initState: MachineState := ({}, defaultLayout prog ("__start", 0))
-  eval prog initState (finishCriterion prog)
+  let initState: MachineState := ({}, prog.fakeLayout.labels.label "__start")
+  prog.fakeLayout.eval initState (finishCriterion prog)
 
 def test1 := "
 __start:
@@ -366,13 +366,6 @@ end:
 "
 
 #eval Parser.parse test1
-
-#eval match (Parser.parse test1) with
-  | .ok test1 =>
-    -- defaultLayout test1 ("loop", 3)
-    let : Layout := { layout := defaultLayout test1 }
-    ConstExpr.interp (.sub (.Label "end") .after_current_instruction) (.mk 0 0)
-  | .error _ => -1
 
 #eval runKraken test1
 

@@ -22,10 +22,10 @@ instance : Throw Prop where
 instance (T: Type): Undefined T Prop where
   undefined ret := ∀ (v: T), ret v
 
-def step1 [Layout] (p: Program) (s: MachineState) (post: Post) :=
-  Program.straightline p s post
+def step1 [Layout] (p: Executable) (s: MachineState) (post: Post) :=
+  Executable.straightline p s post
 
-inductive eventually [Layout] (prog: Program) (p: MachineState → Prop): MachineState -> Prop
+inductive eventually [Layout] (prog: Executable) (p: MachineState → Prop): MachineState -> Prop
   | done (initial: MachineState):
       p initial →
       eventually _ p initial
@@ -37,7 +37,7 @@ inductive eventually [Layout] (prog: Program) (p: MachineState → Prop): Machin
 
 -- THEOREMS
 
-theorem step_cps {p : Program} [Layout] (post: Post) (initial: MachineState):
+theorem step_cps {p : Executable} [Layout] (post: Post) (initial: MachineState):
   step1 p initial (fun mid => eventually p post mid) → eventually p post initial :=
   by
     intro
@@ -45,7 +45,7 @@ theorem step_cps {p : Program} [Layout] (post: Post) (initial: MachineState):
     <;> try assumption
     grind
 
-theorem eventually_trans [Layout] (program: Program) (p q: Post) (initial: MachineState)
+theorem eventually_trans [Layout] (program: Executable) (p q: Post) (initial: MachineState)
   (e: eventually program p initial)
   (h: forall s, p s → eventually program q s):
     eventually program q initial
@@ -57,7 +57,7 @@ theorem eventually_trans [Layout] (program: Program) (p q: Post) (initial: Machi
         apply eventually.step
         <;> assumption -- Q: why does `grind` not work here?
 
-theorem eventually_weaken [Layout] (program: Program) (p q: Post)
+theorem eventually_weaken [Layout] (program: Executable) (p q: Post)
   (h: forall s, p s → q s):
     eventually program p initial → eventually program q initial
   := by
@@ -70,7 +70,7 @@ theorem eventually_weaken [Layout] (program: Program) (p q: Post)
       grind
 
 -- A loop down to 0
-theorem reg_dec_loop [Layout] (prog: Program) (post: Post) (initial: MachineState) (invariant: Nat → Post) (n: Nat):
+theorem reg_dec_loop [Layout] (prog: Executable) (post: Post) (initial: MachineState) (invariant: Nat → Post) (n: Nat):
   -- if:
   -- invariant holds before entering the loop
   invariant n initial ∧
