@@ -134,18 +134,9 @@ def MachineData.store [Throw α] (s : MachineData) (addr : BitVec 64) {w : Width
   ret { s with dmem := s.dmem.insert (.ofBitVec addr) (.ofBitVec (old.replaceLow v)) })
 
 abbrev Label := String
-abbrev Position := Label × Nat
-def Position.Label (l : Label) : Position := (l, 0)
-def Position.next : Position → Position | (p, i) => (p, i+1)
-instance : Coe Label Position where coe := Position.Label
-attribute [coe] Position.Label
 
-class Layout where
-  layout: Position → Int64
-  /- NextIsDifferent: (p:Position) → layout p ≠ layout p.next -/
-
-def layout [inst: Layout] := inst.layout
-def label [inst: Layout] l := inst.layout (l, 0)
+class Labels where label : Label → Int64
+def label [inst: Labels] := inst.label
 
 inductive ConstExpr
   | Label (_ : Label)
@@ -161,7 +152,7 @@ instance : Coe Int64 ConstExpr where coe := ConstExpr.Int64
 attribute [coe] ConstExpr.Label
 attribute [coe] ConstExpr.Int64
 
-def ConstExpr.interp [Layout] : ConstExpr → Std.Rco _root_.Int64 → _root_.Int64
+def ConstExpr.interp [Labels] : ConstExpr → Std.Rco _root_.Int64 → _root_.Int64
   | .Label l, _ => label l
   | .Int64 i, _ => i
   | .before_current_instruction, r => r.lower
@@ -189,7 +180,7 @@ structure AddrExpr where
 class AddressSize where address_size : Width
 def address_size [inst: AddressSize] := inst.address_size
 
-def AddrExpr.interp [Layout] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
+def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
   let base := match a.base with
               | .some (.ofRegW ⟨_, r⟩)  => (s.get r).toInt
               | .some .rip => p.upper.toInt
@@ -208,7 +199,7 @@ attribute [coe] RegOrMem.Reg
 abbrev Dst := RegOrMem
 
 def BitVec.TODO_address_extend_signedness (x : BitVec w) {n : Nat} : BitVec n := x.setWidth _
-def RegOrMem.interp [Layout] [AddressSize] [Throw α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
+def RegOrMem.interp [Labels] [AddressSize] [Throw α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
   | .Reg r => ret (s.regs.get r)
   | .mem a => s.load (a.interp s.regs p).TODO_address_extend_signedness w ret
@@ -216,7 +207,7 @@ def RegOrMem.interp [Layout] [AddressSize] [Throw α] (o : RegOrMem w) (s : Mach
 def MachineData.setReg (s : MachineData) (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
 
-def MachineData.set [Layout] [AddressSize] [Throw α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
+def MachineData.set [Labels] [AddressSize] [Throw α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
   match d with
   | .Reg r => ret (s.setReg r v)
   | .mem a => s.store (a.interp s.regs p).TODO_address_extend_signedness v ret
@@ -230,7 +221,7 @@ attribute [coe] Operand.imm
 abbrev Operand.reg (r : Reg w) : Operand w := .RegOrMem (.Reg r)
 abbrev Operand.mem (m : AddrExpr) : Operand w := .RegOrMem (.mem m)
 
-def Operand.interp [Layout] [AddressSize] [Throw α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
+def Operand.interp [Labels] [AddressSize] [Throw α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
   | .RegOrMem rm => rm.interp s p ret
   | .imm v => ret ((v.interp p).toBitVec.truncate _)
@@ -250,16 +241,16 @@ def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
 inductive ShiftCountExpr | cl | imm8 (v : ConstExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-def ShiftCountExpr.interp [Layout] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
+def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
   | .cl => s.regs.rcx.toBitVec.take 8
   | .imm8 v => (v.interp p).toBitVec.truncate _
-def ShiftCountExpr.interpMasked [Layout] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width) : Nat :=
+def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width) : Nat :=
   (c.interp s p).toNat &&& match w with | .W64 => 0x1f | _ => 0x0f -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
 
 inductive RelRegOrMem | Rel (_ : ConstExpr) | Reg (r : Reg .W64) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-def RelRegOrMem.interp [Layout] [AddressSize] [Throw α] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → α) :=
+def RelRegOrMem.interp [Labels] [AddressSize] [Throw α] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → α) :=
   match o with
   | .Rel c => ret (p.upper + c.interp p).toBitVec
   | .Reg r => ret (s.regs.get r)
@@ -332,7 +323,7 @@ def undefined [inst: Undefined T R] := inst.undefined
 
 set_option maxHeartbeats 1000000
 def Operation.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α]
-  [Layout] [address_size : AddressSize] (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
+  [Labels] [address_size : AddressSize] (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
   (next : MachineData → α) (branch : Label → MachineData → α) (jmp : Int64 → MachineData → α) : α :=
   match (generalizing := false) (motive := Operation w → α) i with
   | .mov dst src => src.interp s p (fun val => s.set dst val p next)
@@ -596,7 +587,7 @@ structure Instr where
   operation : Operation operation_size
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
-def Instr.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Layout]
+def Instr.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Labels]
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → α) (branch : Label → MachineData → α) (jmp : Int64 → MachineData → α) : α :=
   Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next branch jmp
@@ -611,6 +602,16 @@ inductive Directive
   deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
 
 abbrev Program := List Directive
+
+abbrev Position := Label × Nat
+def Position.Label (l : Label) : Position := (l, 0)
+def Position.next : Position → Position | (p, i) => (p, i+1)
+instance : Coe Label Position where coe := Position.Label
+attribute [coe] Position.Label
+
+class Layout where layout : Position → Int64
+def layout [inst: Layout] := inst.layout
+instance [Layout] : Labels := { label l := layout l }
 
 /- Enumerate positions in a program. Two things to note:
    - if the program does not start with a label, instructions at the beginning
