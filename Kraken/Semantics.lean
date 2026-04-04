@@ -584,7 +584,7 @@ def Operation.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags
     jmp (.ofBitVec a) s)
   | .call tgt =>
     tgt.interp s p (fun a =>
-    let rsp := s.regs.get64 .rsp - w.bytesv
+    let rsp := s.regs.get64 .rsp - Width.W64.bytesv
     { s with regs := s.regs.set64 .rsp rsp }.store rsp (w:=.W64) p.upper.toBitVec (jmp (.ofBitVec a)))
   | .ret =>
     let rsp := s.regs.get64 .rsp
