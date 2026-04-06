@@ -198,11 +198,10 @@ instance : Coe (Reg w) (RegOrMem w) where coe := RegOrMem.Reg
 attribute [coe] RegOrMem.Reg
 abbrev Dst := RegOrMem
 
-def BitVec.TODO_address_extend_signedness (x : BitVec w) {n : Nat} : BitVec n := x.setWidth _
 def RegOrMem.interp [Labels] [AddressSize] [Throw α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
   | .Reg r => ret (s.regs.get r)
-  | .mem a => s.load (a.interp s.regs p).TODO_address_extend_signedness w ret
+  | .mem a => s.load ((a.interp s.regs p).zeroExtend _) w ret
 
 def MachineData.setReg (s : MachineData) (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
@@ -210,7 +209,7 @@ def MachineData.setReg (s : MachineData) (r : Reg w) (v : w.type) : MachineData 
 def MachineData.set [Labels] [AddressSize] [Throw α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
   match d with
   | .Reg r => ret (s.setReg r v)
-  | .mem a => s.store (a.interp s.regs p).TODO_address_extend_signedness v ret
+  | .mem a => s.store ((a.interp s.regs p).zeroExtend _) v ret
 
 inductive Operand w | RegOrMem (_ : RegOrMem w) | imm (v : ConstExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
