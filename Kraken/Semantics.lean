@@ -628,7 +628,7 @@ def Directives.interp [Undefined Bool α] [Throw α] [Labels]
   match ds with
   | [] => ret pc s
   | (d, sz) :: ds =>
-    d.interp s (.mk pc (pc+.ofNat sz)) ret (next := (fun s =>
+    d.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
     interp ds s (pc+.ofNat sz) ret))
 
 abbrev Program := List Directive
