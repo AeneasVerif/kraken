@@ -253,7 +253,7 @@ def RelRegOrMem.interp [Labels] [AddressSize] [Throw α] (o : RelRegOrMem) (s : 
   match o with
   | .Rel c => ret (p.upper + c.interp p).toBitVec
   | .Reg r => ret (s.regs.get r)
-  | .mem a => s.load (a.interp s.regs p).TODO_address_extend_signedness .W64 ret
+  | .mem a => s.load ((a.interp s.regs p).zeroExtend _) .W64 ret
 
 inductive Operation (w : Width)
   -- Data movement
