@@ -672,18 +672,16 @@ def Executable.directivesFromAddress (e : Executable) (a : Int64) : List (Direct
 def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directive × Nat) :=
   e.2.dropWhile (·.1 != .Label l)
 
-set_option linter.unusedVariables false in
 def Executable.step [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
   [Throw α]
   (e : Executable) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
-  let labels := e.labels; -- spurious warning https://github.com/leanprover/lean4/issues/13269
+  let := e.labels
   Directives.interp (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
-set_option linter.unusedVariables false in
 def Executable.straightline [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
   [Throw α]
   (e : Executable) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
-  let labels := e.labels; -- spurious warning https://github.com/leanprover/lean4/issues/13269
+  let := e.labels;
   Directives.interp (e.directivesFromAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
 -- -- Concrete evaluators for expedient testing
