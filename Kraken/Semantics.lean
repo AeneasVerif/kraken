@@ -86,7 +86,7 @@ def Reg64s.set64 (regs : Reg64s) (r : Reg64) (v : Width.W64.type) : Reg64s :=
   | .r12 => { regs with r12 := v } | .r13 => { regs with r13 := v }
   | .r14 => { regs with r14 := v } | .r15 => { regs with r15 := v }
 
-def Reg64s.get (s : Reg64s) {w : Width} (r : Reg w) : w.type :=
+def Reg64s.get (s : Reg64s) {w} (r : Reg w) : w.type :=
   ((s.get64 r.base).drop r.offset).take w.bits
   -- BitVec because it may be signed or unsigned depending on context
 
