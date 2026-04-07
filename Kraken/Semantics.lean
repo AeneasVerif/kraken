@@ -117,7 +117,7 @@ structure MachineData where -- does not include code or program position
 class Throw α where
   throw: String → α
 
-def throw {α : Sort _} [inst: Throw α] :=
+def throw {α} [inst: Throw α] :=
   inst.throw
 
 def Reg.interp {α w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
@@ -328,8 +328,8 @@ def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) 
     zf := result == BitVec.zero _
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
 
-class Undefined (T R : Sort _) where undefined : (T → R) → R
-def undefined {T R : Sort _} [inst: Undefined T R] := inst.undefined
+class Undefined (T R) where undefined : (T → R) → R
+def undefined {T R} [inst: Undefined T R] := inst.undefined
 
 set_option maxHeartbeats 1000000
 def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α]
