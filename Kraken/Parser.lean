@@ -224,7 +224,7 @@ def parseImm w : Parser (Operand w) := do
 -- defer choosing a width for those operands that are untyped (as in: may have
 -- any width).
 def MaybeTyped (T: Width → Type) :=
-  Σ (w: Option Width), match w with | .some w => T w | .none => { w: Width } → T w
+  Σ (w: Option Width), match w with | .some w => T w | .none => {w: Width} → T w
 
 /-- Parse any operand: register, immediate, or memory. -/
 def parseOperand: Parser (MaybeTyped Operand) := do
@@ -322,11 +322,11 @@ def ascribe {T: Width → Type} (w: Width) (v: MaybeTyped T): Parser (T w) := do
     else
       fail s!"type error: {w} != {w2}"
 
-def ascribeOrInfer (op1: MaybeTyped T1) (next: Parser (MaybeTyped T2)): Parser (Σ w, T1 w × T2 w) := do
+def ascribeOrInfer {T1 T2 : Width → Type} (op1: MaybeTyped T1) (next: Parser (MaybeTyped T2)): Parser (Σ w, T1 w × T2 w) := do
   let op2 ← next
   match op1 with
   | ⟨ .some w1, op1 ⟩ =>
-    let op2 ← ascribe w1 op2 
+    let op2 ← ascribe w1 op2
     pure ⟨ w1, op1, op2 ⟩
   | ⟨ .none, op1 ⟩ =>
     match op2 with
@@ -335,7 +335,7 @@ def ascribeOrInfer (op1: MaybeTyped T1) (next: Parser (MaybeTyped T2)): Parser (
     | ⟨ .none, _ ⟩ =>
       fail "missing type annotation"
 
-def parseWithType (op: Parser (MaybeTyped T1)) (w: Width): Parser (T1 w) := do
+def parseWithType {T1 : Width → Type} (op: Parser (MaybeTyped T1)) (w: Width): Parser (T1 w) := do
   let op ← op
   ascribe w op
 
@@ -359,7 +359,7 @@ def instrWidth (s: String): Parser Width :=
   | .none => fail "impossible: empty instruction"
   | .some c => Char.toWidth c
 
-def commaSeparated (w: Option Width) (p1: Parser (MaybeTyped T1)) (p2: Parser (MaybeTyped T2))
+def commaSeparated {T1 T2 : Width → Type} (w: Option Width) (p1: Parser (MaybeTyped T1)) (p2: Parser (MaybeTyped T2))
   (mk: {w: Width} → T2 w → T1 w → Operation w): Parser Instr := do
     match w with
     | .none =>
@@ -374,17 +374,17 @@ def commaSeparated (w: Option Width) (p1: Parser (MaybeTyped T1)) (p2: Parser (M
       -- flip the direction here
       pure ⟨ .W64, w, mk dst src ⟩
 
-def assertW (v: MaybeTyped T): Parser (Σ w: Width, T w) :=
+def assertW {T : Width → Type} (v: MaybeTyped T): Parser (Σ w: Width, T w) :=
   match v with
   | ⟨ .none, _ ⟩ => fail "missing type annotation"
   | ⟨ .some w, T ⟩ => pure ⟨ w, T ⟩
 
-def Option.toParser (self: Option T): Parser T :=
+def Option.toParser {T} (self: Option T): Parser T :=
   match self with
   | .some v => pure v
   | .none => fail "empty option"
 
-instance : Coe (Option T) (Parser T) where coe := Option.toParser
+instance {T} : Coe (Option T) (Parser T) where coe := Option.toParser
 
 /-- Parse an instruction mnemonic and its operands.
     AT&T syntax: src, dst (reversed from Intel). -/
@@ -399,7 +399,7 @@ def parseInstr : Parser Instr := do
     commaSeparated .none parseOperand parseRegOrMem .add
 
   | "addq" | "addl" | "addw" | "addb" =>
-    let w ← instrWidth mn 
+    let w ← instrWidth mn
     commaSeparated w parseOperand parseRegOrMem .add
 
   | "adc" =>
@@ -650,21 +650,21 @@ def parseInstr : Parser Instr := do
 
   | "shld" =>
     let cnt ← parseShiftExpr; parseComma
-    commaSeparated .none parseReg parseRegOrMem (fun dst src => .shld dst src cnt) 
+    commaSeparated .none parseReg parseRegOrMem (fun dst src => .shld dst src cnt)
 
   | "shldq" | "shldl" | "shldw" =>
     let w ← instrWidth mn
     let cnt ← parseShiftExpr; parseComma
-    commaSeparated w parseReg parseRegOrMem (fun dst src => .shld dst src cnt) 
+    commaSeparated w parseReg parseRegOrMem (fun dst src => .shld dst src cnt)
 
   | "shrd" =>
     let cnt ← parseShiftExpr; parseComma
-    commaSeparated .none parseReg parseRegOrMem (fun dst src => .shrd dst src cnt) 
+    commaSeparated .none parseReg parseRegOrMem (fun dst src => .shrd dst src cnt)
 
   | "shrdq" | "shrdl" | "shrdw" =>
     let w ← instrWidth mn
     let cnt ← parseShiftExpr; parseComma
-    commaSeparated w parseReg parseRegOrMem (fun dst src => .shrd dst src cnt) 
+    commaSeparated w parseReg parseRegOrMem (fun dst src => .shrd dst src cnt)
 
   -- Rotate instructions - 64-bit
   | "rol" =>
@@ -829,7 +829,7 @@ def parseLine : Parser (List Directive) := do
 -- Public API
 -- ============================================================================
 
-instance : Coe (ParseResult (List T1) (Sigma String.Pos)) (Except String (List T1)) where coe :=
+instance {T1} : Coe (ParseResult (List T1) (Sigma String.Pos)) (Except String (List T1)) where coe :=
   fun r => match r with
   | .success _ v => .ok v
   | .error _ .eof => .ok []

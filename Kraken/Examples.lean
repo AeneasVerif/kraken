@@ -30,11 +30,11 @@ example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.
   dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp]
   simp (ground:=True)
   simp
-  
+
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
   /- simp [MachineData.setReg,Reg64s.set,Reg64s.set64,ConstExpr.interp] -/
   /- simp [Width.bits] -/
-  
+
   /- simp [p1,step1,eval1,fetch,Instr.is_ctrl,strt1,eval_operand,eval_imm,set_reg_or_mem,next,MachineState.setReg,Registers.set] -/
 
 -- Stepping demo. Ideally, this demo should be without the first .mov
@@ -53,7 +53,7 @@ start:
   mov $2, %rax"
 
 -- Example 2: stepping through both straightline and control instructions
-example [layout : Layout]: eventually (layout p2) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
+example [layout : Layout] (s : MachineData): eventually (layout p2) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
   dsimp [p2]
   apply step_cps
   dsimp only [step1,Executable.straightline]
@@ -66,7 +66,7 @@ example [layout : Layout]: eventually (layout p2) (fun s => s.1.regs.rax = 2) (s
   dsimp [undefined,Undefined.undefined]; intros _af
   apply eventually.done
   simp (ground:=True)
- 
+
 -- Example 3 commented out until we figure out how to parse concrete syntax.
 /- def p3: Program := parse! "
 init:
@@ -180,4 +180,3 @@ theorem p3_correct [Layout] (initial: MachineState):
                   apply Nat.pow_le_pow_right (by decide)
                   omega
   -/
-

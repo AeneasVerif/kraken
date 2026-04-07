@@ -57,7 +57,7 @@ theorem eventually_trans [Layout] (program: Executable) (p q: Post) (initial: Ma
         apply eventually.step
         <;> assumption -- Q: why does `grind` not work here?
 
-theorem eventually_weaken [Layout] (program: Executable) (p q: Post)
+theorem eventually_weaken [Layout] (program: Executable) (p q: Post) (initial: MachineState)
   (h: forall s, p s → q s):
     eventually program p initial → eventually program q initial
   := by

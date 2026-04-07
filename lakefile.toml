@@ -2,6 +2,10 @@ name = "Kraken"
 version = "0.1.0"
 defaultTargets = ["Kraken"]
 
+[leanOptions]
+autoImplicit = false
+relaxedAutoImplicit = false
+
 [[lean_lib]]
 name = "Kraken"
 

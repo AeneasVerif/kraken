@@ -9,9 +9,9 @@ attribute [-instance] BitVec.instNatCast
 attribute [-instance] BitVec.instIntCast
 instance : Coe Bool Nat where coe := Bool.toNat
 
-def BitVec.take (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
-def BitVec.drop (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
-def BitVec.replaceLow (old : BitVec w) (new : BitVec n) : BitVec w :=
+def BitVec.take {w : Nat} (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
+def BitVec.drop {w : Nat} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
+def BitVec.replaceLow {w n : Nat} (old : BitVec w) (new : BitVec n) : BitVec w :=
   (BitVec.append (old.drop w) new).setWidth _
 
 inductive Width | W8 | W16 | W32 | W64 deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
@@ -22,7 +22,7 @@ instance : ToString Width where
 namespace Width
 def bits : Width → Nat | W8 => 8 | W16 => 16 | W32 => 32 | W64 => 64
 def bytes : Width → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8
-abbrev bytesv (w : Width) {n} : BitVec n := BitVec.ofNat n w.bytes
+abbrev bytesv (w : Width) {n : Nat} : BitVec n := BitVec.ofNat n w.bytes
 abbrev type (w : Width) : Type := BitVec w.bits
 instance {w : Width} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
 end Width
@@ -40,11 +40,11 @@ inductive Reg : Width → Type
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 namespace Reg
-def base {w} (r : Reg w) : Reg64 := match r with
+def base {w : Width} (r : Reg w) : Reg64 := match r with
   | .low r _ => r
   | .ah => .rax | .bh => .rbx | .ch => .rcx | .dh => .rdx
 
-def offset {w} (r : Reg w) : Nat := match r with
+def offset {w : Width} (r : Reg w) : Nat := match r with
   | .low _ _ => 0
   | .ah | .bh | .ch | .dh => 8
 end Reg
@@ -86,11 +86,11 @@ def Reg64s.set64 (regs : Reg64s) (r : Reg64) (v : Width.W64.type) : Reg64s :=
   | .r12 => { regs with r12 := v } | .r13 => { regs with r13 := v }
   | .r14 => { regs with r14 := v } | .r15 => { regs with r15 := v }
 
-def Reg64s.get (s : Reg64s) {w} (r : Reg w) : w.type :=
+def Reg64s.get (s : Reg64s) {w : Width} (r : Reg w) : w.type :=
   ((s.get64 r.base).drop r.offset).take w.bits
   -- BitVec because it may be signed or unsigned depending on context
 
-def Reg64s.set (s : Reg64s) (r : Reg w) (v : w.type) : Reg64s := match r with
+def Reg64s.set (s : Reg64s) {w : Width} (r : Reg w) (v : w.type) : Reg64s := match r with
   | .low r .W64 => s.set64 r v
   | .low r .W32 => s.set64 r (v.zeroExtend _)
   | .low r w => s.set64 r ((s.get64 r).replaceLow v)
@@ -117,19 +117,19 @@ structure MachineData where -- does not include code or program position
 class Throw α where
   throw: String → α
 
-def throw {α} [inst: Throw α] :=
+def throw {α : Sort _} [inst: Throw α] :=
   inst.throw
 
-def Reg.interp {w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
+def Reg.interp {α} {w : Width} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
   ret (s.regs.get r) -- the unused argument is present ^ for uniformity with RegOrMem.interp
 
-def MachineData.load [Throw α] (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → α): α :=
+def MachineData.load {α} [Throw α] (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → α): α :=
   if addr % 8 != 0 then throw (s!"Unimplemented: only 8-byte-aligned memory access is supported")
   else match s.dmem[UInt64.ofBitVec addr]? with
   | .some v => ret (v.toBitVec.truncate _)
   | .none => throw (s!"Memory accessed but not mapped (addr={repr addr})")
 
-def MachineData.store [Throw α] (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → α) : α :=
+def MachineData.store {α} [Throw α] (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → α) : α :=
   s.load addr .W64 (fun old =>
   ret { s with dmem := s.dmem.insert (.ofBitVec addr) (.ofBitVec (old.replaceLow v)) })
 
@@ -192,35 +192,35 @@ def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Re
 
 inductive RegOrMem w | Reg (r : Reg w) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
-instance : Coe AddrExpr (RegOrMem w) where coe := RegOrMem.mem
+instance {w : Width} : Coe AddrExpr (RegOrMem w) where coe := RegOrMem.mem
 attribute [coe] RegOrMem.mem
-instance : Coe (Reg w) (RegOrMem w) where coe := RegOrMem.Reg
+instance {w : Width} : Coe (Reg w) (RegOrMem w) where coe := RegOrMem.Reg
 attribute [coe] RegOrMem.Reg
 abbrev Dst := RegOrMem
 
-def RegOrMem.interp [Labels] [AddressSize] [Throw α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
+def RegOrMem.interp {α} {w : Width} [Labels] [AddressSize] [Throw α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
   | .Reg r => ret (s.regs.get r)
   | .mem a => s.load ((a.interp s.regs p).zeroExtend _) w ret
 
-def MachineData.setReg (s : MachineData) (r : Reg w) (v : w.type) : MachineData :=
+def MachineData.setReg (s : MachineData) {w : Width} (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
 
-def MachineData.set [Labels] [AddressSize] [Throw α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
+def MachineData.set {α} {w : Width} [Labels] [AddressSize] [Throw α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
   match d with
   | .Reg r => ret (s.setReg r v)
   | .mem a => s.store ((a.interp s.regs p).zeroExtend _) v ret
 
 inductive Operand w | RegOrMem (_ : RegOrMem w) | imm (v : ConstExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
-instance : Coe (RegOrMem w) (Operand w) where coe := Operand.RegOrMem
+instance {w : Width} : Coe (RegOrMem w) (Operand w) where coe := Operand.RegOrMem
 attribute [coe] Operand.RegOrMem
-instance : Coe ConstExpr (Operand w) where coe := Operand.imm
+instance {w : Width} : Coe ConstExpr (Operand w) where coe := Operand.imm
 attribute [coe] Operand.imm
-abbrev Operand.reg (r : Reg w) : Operand w := .RegOrMem (.Reg r)
-abbrev Operand.mem (m : AddrExpr) : Operand w := .RegOrMem (.mem m)
+abbrev Operand.reg {w : Width} (r : Reg w) : Operand w := .RegOrMem (.Reg r)
+abbrev Operand.mem {w : Width} (m : AddrExpr) : Operand w := .RegOrMem (.mem m)
 
-def Operand.interp [Labels] [AddressSize] [Throw α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
+def Operand.interp {α} {w : Width} [Labels] [AddressSize] [Throw α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
   | .RegOrMem rm => rm.interp s p ret
   | .imm v => ret ((v.interp p).toBitVec.truncate _)
@@ -249,7 +249,7 @@ def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) 
 inductive RelRegOrMem | Rel (_ : ConstExpr) | Reg (r : Reg .W64) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-def RelRegOrMem.interp [Labels] [AddressSize] [Throw α] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → α) :=
+def RelRegOrMem.interp {α} [Labels] [AddressSize] [Throw α] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → α) :=
   match o with
   | .Rel c => ret (p.upper + c.interp p).toBitVec
   | .Reg r => ret (s.regs.get r)
@@ -258,8 +258,8 @@ def RelRegOrMem.interp [Labels] [AddressSize] [Throw α] (o : RelRegOrMem) (s : 
 inductive Operation (w : Width)
   -- Data movement
   | mov (_ : Dst w) (src : Operand w)
-  | movsx (_ : Dst w) (src : RegOrMem w') -- {_ : w'.bits < w.bits ∧ w'.bits < 32}
-  | movzx (_ : Dst w) (src : RegOrMem w') -- {_ : w'.bits < w.bits ∧ w'.bits < 32}
+  | movsx {w' : Width} (_ : Dst w) (src : RegOrMem w') -- {_ : w'.bits < w.bits ∧ w'.bits < 32}
+  | movzx {w' : Width} (_ : Dst w) (src : RegOrMem w') -- {_ : w'.bits < w.bits ∧ w'.bits < 32}
   | push (src : Operand w)
   | pop  (_ : Dst w)
   | setcc (_ : CondCode) (_ : Dst w) -- {_ : w = .W8}
@@ -294,7 +294,7 @@ inductive Operation (w : Width)
   | ror  (_ : Dst w) (_ : ShiftCountExpr)
   | rcl  (_ : Dst w) (_ : ShiftCountExpr)
   | rcr  (_ : Dst w) (_ : ShiftCountExpr)
-  | bswap  (dst : Reg w) -- (_ : w = .W32 ∨ w = .W64) 
+  | bswap  (dst : Reg w) -- (_ : w = .W32 ∨ w = .W64)
   -- Control flow
   | jcc (cc : CondCode) (target : Label)
   | jmp (target : RelRegOrMem)
@@ -315,25 +315,25 @@ structure StatusFlags.from_result.Remaining where
 -- TEMPORARY: definitions stolen from Lean 4.28's standard library, but with a
 -- different name so that this file builds with both 4.27 and 4.28
 namespace BitVec
-def cpopNatRec_ (x : BitVec w) (pos acc : Nat) : Nat :=
+def cpopNatRec_ {w : Nat} (x : BitVec w) (pos acc : Nat) : Nat :=
   match pos with
   | 0 => acc
   | n + 1 => x.cpopNatRec_ n (acc + (x.getLsbD n).toNat)
 
-def cpop_ (x : BitVec w) : BitVec w := BitVec.ofNat w (cpopNatRec_ x w 0)
+def cpop_ {w : Nat} (x : BitVec w) : BitVec w := BitVec.ofNat w (cpopNatRec_ x w 0)
 end BitVec
 
-def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
+def StatusFlags.from_result {w : Nat} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
   { pf := (result.truncate 8).cpop_ % 2 != BitVec.zero _
     zf := result == BitVec.zero _
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
 
-class Undefined T R where undefined : (T → R) → R
-def undefined [inst: Undefined T R] := inst.undefined
+class Undefined (T R : Sort _) where undefined : (T → R) → R
+def undefined {T R : Sort _} [inst: Undefined T R] := inst.undefined
 
 set_option maxHeartbeats 1000000
-def Operation.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α]
-  [Labels] [address_size : AddressSize] (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
+def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α]
+  [Labels] [address_size : AddressSize] {w : Width} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
   (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
   match (generalizing := false) (motive := Operation w → α) i with
   | .mov dst src => src.interp s p (fun val => s.set dst val p next)
@@ -597,7 +597,7 @@ structure Instr where
   operation : Operation operation_size
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
-def Instr.interp [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Labels]
+def Instr.interp {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Labels]
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
   Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next jmp
@@ -611,7 +611,7 @@ inductive Directive
   | ByteArray (_ : ByteArray)
   deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
 
-def Directive.interp [Undefined Bool α] [Throw α] [Labels]
+def Directive.interp {α} [Undefined Bool α] [Throw α] [Labels]
   [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α]
   (d : Directive) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
@@ -620,7 +620,7 @@ def Directive.interp [Undefined Bool α] [Throw α] [Labels]
   | .Instr i => i.interp s p next jmp
   | .ByteArray _ => throw s!"Unimplemented: execution reached data block at {p.1}"
 
-def Directives.interp [Undefined Bool α] [Throw α] [Labels]
+def Directives.interp {α} [Undefined Bool α] [Throw α] [Labels]
   [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α]
   (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
   (ret : Int64 → MachineData → α) : α :=
@@ -641,17 +641,17 @@ instance : CoeFun Layout (fun _ => Program → Executable) where coe := Layout.a
 -- TEMPORARY: replace with `import Init.Data.List.Scan.Basic` when dropping support for Lean 4.28
 namespace List
 @[inline]
-private def scanAuxM [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
+private def scanAuxM {α β} {m : Type → Type} [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
   go l init []
 where
   @[specialize] go : List α → β → List β → m (List β)
     | [], last, acc => pure <| last :: acc
     | x :: xs, last, acc => do go xs (← f last x) (last :: acc)
 @[inline]
-def scanlM [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
+def scanlM {α β} {m : Type → Type} [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
   List.reverse <$> scanAuxM f init l
 @[inline]
-def scanl (f : β → α → β) (init : β) (as : List α) : List β :=
+def scanl {α β} (f : β → α → β) (init : β) (as : List α) : List β :=
   Id.run <| as.scanlM (pure <| f · ·) init
 end List
 
@@ -671,13 +671,13 @@ def Executable.directivesFromAddress (e : Executable) (a : Int64) : List (Direct
 def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directive × Nat) :=
   e.2.dropWhile (·.1 != .Label l)
 
-def Executable.step [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
+def Executable.step {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
   [Throw α]
   (e : Executable) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
   let := e.labels
   Directives.interp (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
-def Executable.straightline [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
+def Executable.straightline {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
   [Throw α]
   (e : Executable) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
   let := e.labels;
@@ -714,7 +714,7 @@ abbrev eval [layout : Layout] (prog : Program) := (layout prog).eval
 
 /-- info: Except.ok 42 -/
 #guard_msgs in
-#eval 
+#eval
   let exe := Program.fakeLayout [
     .Label "main",
     .Instr (.mk .W64 .W64 (.lea (.low .rax .W64) (.mk .none .none (.Int64 41)))),
