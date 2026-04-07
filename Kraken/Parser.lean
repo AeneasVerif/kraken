@@ -224,7 +224,7 @@ def parseImm w : Parser (Operand w) := do
 -- defer choosing a width for those operands that are untyped (as in: may have
 -- any width).
 def MaybeTyped (T: Width → Type) :=
-  Σ (w: Option Width), match w with | .some w => T w | .none => {w: Width} → T w
+  Σ (w: Option Width), match w with | .some w => T w | .none => { w: Width } → T w
 
 /-- Parse any operand: register, immediate, or memory. -/
 def parseOperand: Parser (MaybeTyped Operand) := do
