@@ -10,6 +10,9 @@ Compatible with Lean 4.22.0+.
 import Kraken.Semantics
 import Std.Internal.Parsec.String
 
+set_option autoImplicit true
+set_option relaxedAutoImplicit true
+
 namespace Kraken.Parser
 
 open Std.Internal.Parsec

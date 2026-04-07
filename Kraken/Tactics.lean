@@ -10,6 +10,9 @@ For advanced tactics (SymM), see kraken-experimental/KrakenExp/Tactics.lean.
 
 import Kraken.Theorems
 
+set_option autoImplicit true
+set_option relaxedAutoImplicit true
+
 -- PROOF INFRASTRUCTURE
 
 abbrev MachineState := MachineData × Int64

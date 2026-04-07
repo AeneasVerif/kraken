@@ -12,6 +12,9 @@ import Kraken.Tactics
 import Kraken.Parser
 import Kraken.Eval
 
+set_option autoImplicit true
+set_option relaxedAutoImplicit true
+
 open Kraken.Parser
 
 def p1 := eval% parse! "start: mov $1, %rax"

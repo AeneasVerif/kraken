@@ -4,6 +4,9 @@
 import Lean
 import Std
 
+set_option autoImplicit true
+set_option relaxedAutoImplicit true
+
 -- injective coercions only
 attribute [-instance] BitVec.instNatCast
 attribute [-instance] BitVec.instIntCast
