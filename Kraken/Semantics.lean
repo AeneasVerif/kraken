@@ -120,7 +120,7 @@ class Throw α where
 def throw {α : Sort _} [inst: Throw α] :=
   inst.throw
 
-def Reg.interp {α} {w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
+def Reg.interp {α w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
   ret (s.regs.get r) -- the unused argument is present ^ for uniformity with RegOrMem.interp
 
 def MachineData.load {α} [Throw α] (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → α): α :=
@@ -198,7 +198,7 @@ instance {w} : Coe (Reg w) (RegOrMem w) where coe := RegOrMem.Reg
 attribute [coe] RegOrMem.Reg
 abbrev Dst := RegOrMem
 
-def RegOrMem.interp {α} {w} [Labels] [AddressSize] [Throw α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
+def RegOrMem.interp {α w} [Labels] [AddressSize] [Throw α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
   | .Reg r => ret (s.regs.get r)
   | .mem a => s.load ((a.interp s.regs p).zeroExtend _) w ret
@@ -206,7 +206,7 @@ def RegOrMem.interp {α} {w} [Labels] [AddressSize] [Throw α] (o : RegOrMem w) 
 def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
 
-def MachineData.set {α} {w} [Labels] [AddressSize] [Throw α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
+def MachineData.set {α w} [Labels] [AddressSize] [Throw α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
   match d with
   | .Reg r => ret (s.setReg r v)
   | .mem a => s.store ((a.interp s.regs p).zeroExtend _) v ret
@@ -220,7 +220,7 @@ attribute [coe] Operand.imm
 abbrev Operand.reg {w} (r : Reg w) : Operand w := .RegOrMem (.Reg r)
 abbrev Operand.mem {w} (m : AddrExpr) : Operand w := .RegOrMem (.mem m)
 
-def Operand.interp {α} {w} [Labels] [AddressSize] [Throw α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
+def Operand.interp {α w} [Labels] [AddressSize] [Throw α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
   | .RegOrMem rm => rm.interp s p ret
   | .imm v => ret ((v.interp p).toBitVec.truncate _)
@@ -294,7 +294,7 @@ inductive Operation (w : Width)
   | ror  (_ : Dst w) (_ : ShiftCountExpr)
   | rcl  (_ : Dst w) (_ : ShiftCountExpr)
   | rcr  (_ : Dst w) (_ : ShiftCountExpr)
-  | bswap  (dst : Reg w) -- (_ : w = .W32 ∨ w = .W64) 
+  | bswap  (dst : Reg w) -- (_ : w = .W32 ∨ w = .W64)
   -- Control flow
   | jcc (cc : CondCode) (target : Label)
   | jmp (target : RelRegOrMem)
@@ -638,17 +638,17 @@ def Layout.apply (l : Layout) (prog : Program) : Executable :=
   (l.start, prog.mapIdx (fun i d => (d, l.size i)))
 instance : CoeFun Layout (fun _ => Program → Executable) where coe := Layout.apply
 
--- TEMPORARY: replace with `import Init.Data.List.Scan.Basic` when dropping support for Lean 4.28
+-- TEMPORARY: replace with `import Init.Data.List.scan.Basic` when dropping support for Lean 4.28
 namespace List
 @[inline]
-private def scanAuxM {α β} {m : Type → Type} [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
+private def scanAuxM {α β m} [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
   go l init []
 where
   @[specialize] go : List α → β → List β → m (List β)
     | [], last, acc => pure <| last :: acc
     | x :: xs, last, acc => do go xs (← f last x) (last :: acc)
 @[inline]
-def scanlM {α β} {m : Type → Type} [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
+def scanlM {α β m} [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
   List.reverse <$> scanAuxM f init l
 @[inline]
 def scanl {α β} (f : β → α → β) (init : β) (as : List α) : List β :=
@@ -714,7 +714,7 @@ abbrev eval [layout : Layout] (prog : Program) := (layout prog).eval
 
 /-- info: Except.ok 42 -/
 #guard_msgs in
-#eval 
+#eval
   let exe := Program.fakeLayout [
     .Label "main",
     .Instr (.mk .W64 .W64 (.lea (.low .rax .W64) (.mk .none .none (.Int64 41)))),

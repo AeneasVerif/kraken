@@ -322,7 +322,7 @@ def ascribe {T: Width → Type} (w: Width) (v: MaybeTyped T): Parser (T w) := do
     else
       fail s!"type error: {w} != {w2}"
 
-def ascribeOrInfer {T1 T2 : Width → Type} (op1: MaybeTyped T1) (next: Parser (MaybeTyped T2)): Parser (Σ w, T1 w × T2 w) := do
+def ascribeOrInfer {T1 T2} (op1: MaybeTyped T1) (next: Parser (MaybeTyped T2)): Parser (Σ w, T1 w × T2 w) := do
   let op2 ← next
   match op1 with
   | ⟨ .some w1, op1 ⟩ =>
@@ -335,7 +335,7 @@ def ascribeOrInfer {T1 T2 : Width → Type} (op1: MaybeTyped T1) (next: Parser (
     | ⟨ .none, _ ⟩ =>
       fail "missing type annotation"
 
-def parseWithType {T1 : Width → Type} (op: Parser (MaybeTyped T1)) (w: Width): Parser (T1 w) := do
+def parseWithType {T1} (op: Parser (MaybeTyped T1)) (w: Width): Parser (T1 w) := do
   let op ← op
   ascribe w op
 
@@ -359,7 +359,7 @@ def instrWidth (s: String): Parser Width :=
   | .none => fail "impossible: empty instruction"
   | .some c => Char.toWidth c
 
-def commaSeparated {T1 T2 : Width → Type} (w: Option Width) (p1: Parser (MaybeTyped T1)) (p2: Parser (MaybeTyped T2))
+def commaSeparated {T1 T2} (w: Option Width) (p1: Parser (MaybeTyped T1)) (p2: Parser (MaybeTyped T2))
   (mk: {w: Width} → T2 w → T1 w → Operation w): Parser Instr := do
     match w with
     | .none =>
@@ -374,7 +374,7 @@ def commaSeparated {T1 T2 : Width → Type} (w: Option Width) (p1: Parser (Maybe
       -- flip the direction here
       pure ⟨ .W64, w, mk dst src ⟩
 
-def assertW {T : Width → Type} (v: MaybeTyped T): Parser (Σ w: Width, T w) :=
+def assertW {T} (v: MaybeTyped T): Parser (Σ w: Width, T w) :=
   match v with
   | ⟨ .none, _ ⟩ => fail "missing type annotation"
   | ⟨ .some w, T ⟩ => pure ⟨ w, T ⟩
