@@ -177,6 +177,7 @@ def parseMemory : Parser AddrExpr := do
   skipHWs
   -- Optional displacement; TODO: parse ConstExpr generally
   let disp ← (do let i ← parseInt; pure (.Int64 (Int64.ofInt i))) <|> parseLabel <|> pure (.Int64 0)
+  skipHWs
   let _ ← pchar '('
 
   skipHWs
