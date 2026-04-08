@@ -4,7 +4,8 @@ Kraken Parser - x86_64 AT&T Assembly Parser
 Parses AT&T syntax assembly strings into Kraken's Program type.
 Uses Lean's built-in Std.Internal.Parsec library.
 
-Compatible with Lean 4.22.0+.
+The primary reference for the syntax is the GAS manual:
+https://sourceware.org/binutils/docs/as/
 -/
 
 import Kraken.Semantics
@@ -442,6 +443,11 @@ def parseInstr : Parser Instr := do
   | "mul" =>
     let src ← parseRegOrMem
     let ⟨ w, src ⟩ ← assertW src
+    pure ⟨ .W64, w, .mul src ⟩
+
+  | "mulq" | "mull" | "mulw" | "mulb" =>
+    let w ← instrWidth mn
+    let src ← parseRegOrMemWithType w
     pure ⟨ .W64, w, .mul src ⟩
 
   | "mulx" =>
