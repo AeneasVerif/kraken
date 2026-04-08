@@ -618,7 +618,8 @@ def parseInstr : Parser Instr := do
   -- Shift instructions - 64-bit
   | "shl"
   | "sal" =>
-    let cnt ← parseShiftExpr; parseComma
+    let parseOptionalShiftAndComma := (attempt do let cnt ← parseShiftExpr; parseComma; pure cnt) <|> pure (.imm8 (.Int64 1))
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMem
     let ⟨ w, dst ⟩ ← assertW dst
     pure ⟨ .W64, w, .shl dst cnt ⟩
@@ -626,31 +627,36 @@ def parseInstr : Parser Instr := do
   | "shlq" | "shll" | "shlw" | "shlb"
   | "salq" | "sall" | "salw" | "salb" =>
     let w ← instrWidth mn
-    let cnt ← parseShiftExpr; parseComma
+    let parseOptionalShiftAndComma := (attempt do let cnt ← parseShiftExpr; parseComma; pure cnt) <|> pure (.imm8 (.Int64 1))
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMemWithType w
     pure ⟨ .W64, w, .shl dst cnt ⟩
 
   | "shr" =>
-    let cnt ← parseShiftExpr; parseComma
+    let parseOptionalShiftAndComma := (attempt do let cnt ← parseShiftExpr; parseComma; pure cnt) <|> pure (.imm8 (.Int64 1))
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMem
     let ⟨ w, dst ⟩ ← assertW dst
     pure ⟨ .W64, w, .shr dst cnt ⟩
 
   | "shrq" | "shrl" | "shrw" | "shrb" =>
     let w ← instrWidth mn
-    let cnt ← parseShiftExpr; parseComma
+    let parseOptionalShiftAndComma := (attempt do let cnt ← parseShiftExpr; parseComma; pure cnt) <|> pure (.imm8 (.Int64 1))
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMemWithType w
     pure ⟨ .W64, w, .shr dst cnt ⟩
 
   | "sar" =>
-    let cnt ← parseShiftExpr; parseComma
+    let parseOptionalShiftAndComma := (attempt do let cnt ← parseShiftExpr; parseComma; pure cnt) <|> pure (.imm8 (.Int64 1))
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMem
     let ⟨ w, dst ⟩ ← assertW dst
     pure ⟨ .W64, w, .sar dst cnt ⟩
 
   | "sarq" | "sarl" | "sarw" | "sarb" =>
     let w ← instrWidth mn
-    let cnt ← parseShiftExpr; parseComma
+    let parseOptionalShiftAndComma := (attempt do let cnt ← parseShiftExpr; parseComma; pure cnt) <|> pure (.imm8 (.Int64 1))
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMemWithType w
     pure ⟨ .W64, w, .sar dst cnt ⟩
 
@@ -674,26 +680,30 @@ def parseInstr : Parser Instr := do
 
   -- Rotate instructions - 64-bit
   | "rol" =>
-    let cnt ← parseShiftExpr; parseComma
+    let parseOptionalShiftAndComma := (attempt do let cnt ← parseShiftExpr; parseComma; pure cnt) <|> pure (.imm8 (.Int64 1))
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMem
     let ⟨ w, dst ⟩ ← assertW dst
     pure ⟨ .W64, w, .rol dst cnt ⟩
 
   | "rolq" | "roll" | "rolw" | "rolb" =>
     let w ← instrWidth mn
-    let cnt ← parseShiftExpr; parseComma
+    let parseOptionalShiftAndComma := (attempt do let cnt ← parseShiftExpr; parseComma; pure cnt) <|> pure (.imm8 (.Int64 1))
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMemWithType w
     pure ⟨ .W64, w, .rol dst cnt ⟩
 
   | "ror" =>
-    let cnt ← parseShiftExpr; parseComma
+    let parseOptionalShiftAndComma := (attempt do let cnt ← parseShiftExpr; parseComma; pure cnt) <|> pure (.imm8 (.Int64 1))
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMem
     let ⟨ w, dst ⟩ ← assertW dst
     pure ⟨ .W64, w, .ror dst cnt ⟩
 
   | "rorq" | "rorl" | "rorw" | "rorb" =>
     let w ← instrWidth mn
-    let cnt ← parseShiftExpr; parseComma
+    let parseOptionalShiftAndComma := (attempt do let cnt ← parseShiftExpr; parseComma; pure cnt) <|> pure (.imm8 (.Int64 1))
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMemWithType w
     pure ⟨ .W64, w, .ror dst cnt ⟩
 
