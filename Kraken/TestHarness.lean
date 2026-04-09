@@ -158,6 +158,8 @@ def genCaptureEpilogue (memRegions : List MemRegion := []) : String :=
 -- Assembly Modification
 -- ============================================================================
 
+#eval System.Platform.isOSX
+
 /-- Wrap user's assembly code with capture infrastructure.
 
     The user's code should be a complete program (with .text, .globl _start, etc.)
@@ -173,10 +175,17 @@ def wrapAssembly (userAsm : String) (memRegions : List MemRegion := []) : String
 
     Example: makeTestProgram "addq $1, %rax" -/
 def makeTestProgram (instructions : String) (memRegions : List MemRegion := []) : String :=
+  let prologue :=
+    if System.Platform.isOSX then
+      ".text\n" ++
+      ".globl _main\n" ++
+      "_main:\n"
+    else
+      ".text\n" ++
+      ".globl _start\n" ++
+      "_start:\n"
   genCaptureData memRegions ++ "\n" ++
-  ".text\n" ++
-  ".globl _start\n" ++
-  "_start:\n" ++
+  prologue ++
   instructions ++ "\n" ++
   genCaptureEpilogue memRegions
 
@@ -414,7 +423,7 @@ def extractTestableCode (asmCode : String) : String :=
   let lines := asmCode.splitOn "\n"
   let inTest := lines.foldl (fun (acc, inBlock) line =>
     let trimmed := line.trim
-    if trimmed.startsWith "_start:" then (acc, true)
+    if trimmed.startsWith "_start:" || trimmed.startsWith "_main:" then (acc, true)
     else if inBlock && trimmed.startsWith "jmp" && trimmed.endsWith "_kraken_capture" then
       (acc, false)
     else if inBlock then
@@ -448,7 +457,7 @@ def runTest (asmCode : String) (asOutput : ByteArray) : TestResult :=
     else
       -- Run extracted code through Kraken
       match runKraken testCode with
-      | .error e => .krakenError s!"Error running extracted code: {e}"
+      | .error e => .krakenError s!"Error running extracted code: {e}\n{testCode}"
       | .ok krakenState => compareStates krakenState actualRegs actualFlags
 
 /-- Format a TestResult for display. -/
