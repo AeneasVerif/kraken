@@ -283,6 +283,7 @@ inductive Operation (w : Width)
   -- Bitwise
   | test (a : RegOrMem w) (b : Operand w)
   | and  (_ : Dst w) (src : Operand w)
+  | not  (_ : Dst w)
   | or   (_ : Dst w) (src : Operand w)
   | xor  (_ : Dst w) (src : Operand w)
   | shl  (_ : Dst w) (_ : ShiftCountExpr)
@@ -480,6 +481,10 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     undefined (fun af =>
     let status := .from_result v { cf := false, of := false, af }
     { s with status }.set dst v p next)))
+  | .not dst =>
+    dst.interp s p (fun a =>
+    let v := ~~~a
+    s.set dst v p next)
   | .shl dst count =>
     dst.interp s p (fun a =>
     let count := count.interpMasked s p w

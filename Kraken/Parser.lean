@@ -586,6 +586,16 @@ def parseInstr : Parser Instr := do
     let w ← instrWidth mn
     commaSeparated w parseOperand parseRegOrMem .and
 
+  | "not" =>
+    let dst ← parseRegOrMem
+    let ⟨ w, dst ⟩ ← assertW dst
+    pure ⟨ .W64, w, .not dst ⟩
+
+  | "notq" | "notl" | "notw" | "notb" =>
+    let w ← instrWidth mn
+    let dst ← parseRegOrMemWithType w
+    pure ⟨ .W64, w, .not dst ⟩
+
   | "or" =>
     commaSeparated .none parseOperand parseRegOrMem .or
 
