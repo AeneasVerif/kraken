@@ -22,6 +22,7 @@ final_flags: .quad 0
 .globl _main
 
 _main:
+  add $1, %rax
   xor %rax, %rax
   xor %rbx, %rbx
   xor %rcx, %rcx

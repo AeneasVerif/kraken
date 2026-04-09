@@ -78,4 +78,5 @@ fi
   cp "$TMPDIR/output.bin" output.bin
   cp $TMP_ASM_FILE input.S
   echo "Left output.bin and input.S in the working directory to help debug"
+  exit 1
 }

@@ -21,8 +21,7 @@ for test_file in "$ASM_TESTS_DIR"/test_*.S; do
     echo -n "Running $name... "
 
     if "$SCRIPT_DIR/run_asm_test.sh" "$test_file" > /tmp/test_output.txt 2>&1; then
-        result=$(cat /tmp/test_output.txt)
-        if echo "$result" | grep -q "^PASS"; then
+        if grep -q "^PASS" /tmp/test_output.txt; then
             echo "✓"
             PASSED=$((PASSED + 1))
         else

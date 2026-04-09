@@ -358,6 +358,7 @@ def runKraken (asmCode : String)
     : Except String MachineState := do
   let prog ← Parser.parse (startGadget ++ asmCode ++ endGadget)
   let initState: MachineState := ({}, prog.fakeLayout.labels.label "__start")
+  let initState := ({ initState.1 with status := { initState.1.status with zf := true, pf := true }}, initState.2)
   prog.fakeLayout.eval initState (finishCriterion prog)
 
 def test1 := "
