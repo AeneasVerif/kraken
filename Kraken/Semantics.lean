@@ -638,8 +638,10 @@ def Layout.apply (l : Layout) (prog : Program) : Executable :=
   (l.start, prog.mapIdx (fun i d => (d, l.size i)))
 instance : CoeFun Layout (fun _ => Program → Executable) where coe := Layout.apply
 
--- TEMPORARY: replace with `import Init.Data.List.scan.Basic` when dropping support for Lean 4.28
-namespace List
+-- TEMPORARY: delete when dropping support for Lean < 4.28 (which adds Init.Data.List.scan.Basic)
+-- This permits use of Mathlib 4.27 which also implements its own `scanl` which differs
+-- from the one in `List.Basic` in Lean 4.28
+namespace Kraken.Compat
 @[inline]
 private def scanAuxM {α β m} [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
   go l init []
@@ -652,11 +654,11 @@ def scanlM {α β m} [Monad m] (f : β → α → m β) (init : β) (l : List α
   List.reverse <$> scanAuxM f init l
 @[inline]
 def scanl {α β} (f : β → α → β) (init : β) (as : List α) : List β :=
-  Id.run <| as.scanlM (pure <| f · ·) init
-end List
+  Id.run <| Kraken.Compat.scanlM (pure <| f · ·) init as
+end Kraken.Compat
 
 def Executable.withAddresses (e : Executable)  : List (Int64 × Directive × Nat) :=
-  (e.2.scanl (fun (p, _, _) (d, z) => (p+.ofNat z, d, z)) (e.1, .ByteArray (.mk #[]), 0))
+  (Kraken.Compat.scanl (fun (p, _, _) (d, z) => (p+.ofNat z, d, z)) (e.1, .ByteArray (.mk #[]), 0) e.2)
 
 def Executable.labels (e : Executable) : Labels :=
   { label l := (e.withAddresses.findSome?
