@@ -38,11 +38,13 @@ if [[ $(uname) == "Darwin" ]]; then
   ASFLAGS="-target x86_64-apple-darwin"
   LDFLAGS="-lSystem -L$(xcode-select -p)/SDKs/MacOSX.sdk/usr/lib"
   STAT=gstat
-  TMP_ASM_FILE="$TMPDIR"/$(basename $ASM_FILE)
-  touch $TMP_ASM_FILE
 else
   STAT=stat
 fi
+
+# Assemble the assembly
+TMP_ASM_FILE="$TMPDIR"/$(basename $ASM_FILE)
+touch $TMP_ASM_FILE
 
 PROLOGUE=$KRAKEN_ROOT/asm-tests/prologue-$(uname).S
 EPILOGUE=$KRAKEN_ROOT/asm-tests/epilogue-$(uname).S
