@@ -2,6 +2,14 @@ name = "Kraken"
 version = "0.1.0"
 defaultTargets = ["Kraken"]
 
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+type = "git"
+uri = "https://github.com/leanprover-community/mathlib4"
+rev = "v4.27.0"
+
+
 [leanOptions]
 autoImplicit = false
 relaxedAutoImplicit = false
