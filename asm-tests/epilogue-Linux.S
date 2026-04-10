@@ -1,3 +1,4 @@
+jmp _kraken_capture
 
 # ====== KRAKEN CAPTURE EPILOGUE ======
 _kraken_capture:

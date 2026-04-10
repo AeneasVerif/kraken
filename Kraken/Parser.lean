@@ -503,13 +503,13 @@ def parseInstr : Parser Instr := do
   | "imulq" | "imull" | "imulw" | "imulb" =>
     let w ← instrWidth mn
     let src1 ← parseOperandWithType w; parseComma
-    (do
+    (attempt do
       let src2 ← parseRegOrMemWithType w; parseComma
       let dst ← parseRegWithType w
       pure ⟨ .W64, w, .imul (.some dst) src2 src1 ⟩
     ) <|>
     (do
-      let src2 ← parseRegOrMemWithType w; parseComma
+      let src2 ← parseRegOrMemWithType w
       pure ⟨ .W64, w, .imul none src2 src1 ⟩
     )
 
