@@ -557,7 +557,7 @@ def parseInstr : Parser Instr := do
     let w_dst ← instrWidth mn
     let c_src ← String.Pos.Raw.get? mn (.mk (mn.length - 2))
     let w_src ← Char.toWidth c_src
-    let src ← parseRegWithType w_src
+    let src ← parseRegWithType w_src; parseComma
     let dst ← parseRegWithType w_dst
     pure ⟨ .W64, w_dst, .movzx dst (.Reg src) ⟩
 
@@ -565,7 +565,7 @@ def parseInstr : Parser Instr := do
     let w_dst ← instrWidth mn
     let c_src ← String.Pos.Raw.get? mn (.mk (mn.length - 2))
     let w_src ← Char.toWidth c_src
-    let src ← parseRegWithType w_src
+    let src ← parseRegWithType w_src; parseComma
     let dst ← parseRegWithType w_dst
     pure ⟨ .W64, w_dst, .movzx dst (.Reg src) ⟩
 
