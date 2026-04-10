@@ -3,7 +3,7 @@
   Uses #guard_msgs to verify parser output against expected results.
 -/
 
-import Kraken.Parser
+import Kraken.ParseEffectful
 
 section Tests
 open Kraken.Parser

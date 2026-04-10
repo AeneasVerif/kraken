@@ -844,10 +844,4 @@ def parse (input: String): Except String Program := do
   ) ((1 : Nat), [])
   pure lines.reverse.flatten
 
-/-- Parse an assembly string, panicking on failure (for use in #eval). -/
-def parse! (input : String) : Program :=
-  match parse input with
-  | .ok prog => prog
-  | .error msg => panic! s!"parse error: {msg}"
-
 end Kraken.Parser

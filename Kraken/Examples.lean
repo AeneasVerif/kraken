@@ -9,7 +9,7 @@ For tactics, see Kraken/Tactics.lean.
 -/
 
 import Kraken.Tactics
-import Kraken.Parser
+import Kraken.ParseEffectful
 import Kraken.Eval
 
 open Kraken.Parser
