@@ -123,15 +123,32 @@ def throw {α} [inst: Throw α] :=
 def Reg.interp {α w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
   ret (s.regs.get r) -- the unused argument is present ^ for uniformity with RegOrMem.interp
 
+def MachineData.loadOpt {α} [Throw α] (s : MachineData) (addr : BitVec 64) (ret : Option UInt64 → α): α :=
+  if addr % 8 != 0 then
+    throw (s!"Unimplemented: only 8-byte-aligned memory access is supported")
+  else
+    ret (s.dmem[UInt64.ofBitVec addr]?)
+
 def MachineData.load {α} [Throw α] (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → α): α :=
-  if addr % 8 != 0 then throw (s!"Unimplemented: only 8-byte-aligned memory access is supported")
-  else match s.dmem[UInt64.ofBitVec addr]? with
-  | .some v => ret (v.toBitVec.truncate _)
-  | .none => throw (s!"Memory accessed but not mapped (addr={repr addr})")
+  loadOpt s addr (fun v =>
+    match v with
+    | .some v => ret (v.toBitVec.truncate _)
+    | .none => throw (s!"Memory accessed but not mapped (addr={repr addr})"))
 
 def MachineData.store {α} [Throw α] (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → α) : α :=
-  s.load addr .W64 (fun old =>
-  ret { s with dmem := s.dmem.insert (.ofBitVec addr) (.ofBitVec (old.replaceLow v)) })
+  s.loadOpt addr (fun old =>
+    match old with
+    | .some old =>
+      ret { s with dmem := s.dmem.insert (.ofBitVec addr) (.ofBitVec (old.toBitVec.replaceLow v)) }
+    | .none =>
+      if h: w = .W64 then
+        -- We know how to perform full writes even though there is not previous
+        -- value
+        have : w.type = BitVec 64 := by simp [h,Width.type,Width.bits]
+        ret { s with dmem := s.dmem.insert (.ofBitVec addr) (UInt64.ofBitVec (this ▸ v)) }
+      else
+        throw (s!"Cannot perform a partial write at {addr} because there is no previous value")
+  )
 
 abbrev Label := String
 
