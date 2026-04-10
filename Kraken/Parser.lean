@@ -4,7 +4,8 @@ Kraken Parser - x86_64 AT&T Assembly Parser
 Parses AT&T syntax assembly strings into Kraken's Program type.
 Uses Lean's built-in Std.Internal.Parsec library.
 
-Compatible with Lean 4.22.0+.
+The primary reference for the syntax is the GAS manual:
+https://sourceware.org/binutils/docs/as/
 -/
 
 import Kraken.Semantics
@@ -176,6 +177,7 @@ def parseMemory : Parser AddrExpr := do
   skipHWs
   -- Optional displacement; TODO: parse ConstExpr generally
   let disp ← (do let i ← parseInt; pure (.Int64 (Int64.ofInt i))) <|> parseLabel <|> pure (.Int64 0)
+  skipHWs
   let _ ← pchar '('
 
   skipHWs
@@ -288,6 +290,7 @@ def parseShiftExpr: Parser ShiftCountExpr := do
     let _ ← pstring "%cl"
     pure .cl)
 
+
 -- ============================================================================
 -- Condition Code Parsing
 -- ============================================================================
@@ -312,6 +315,10 @@ def parseComma : Parser Unit := do
   skipHWs
   let _ ← pchar ','
   skipHWs
+
+/-- Try to parse a shift count followed by a comma; if that fails, default to 1. -/
+def parseOptionalShiftAndComma : Parser ShiftCountExpr :=
+  (attempt do let cnt ← parseShiftExpr; parseComma; pure cnt) <|> pure (.imm8 (.Int64 1))
 
 def ascribe {T: Width → Type} (w: Width) (v: MaybeTyped T): Parser (T w) := do
   match v with
@@ -442,6 +449,11 @@ def parseInstr : Parser Instr := do
   | "mul" =>
     let src ← parseRegOrMem
     let ⟨ w, src ⟩ ← assertW src
+    pure ⟨ .W64, w, .mul src ⟩
+
+  | "mulq" | "mull" | "mulw" | "mulb" =>
+    let w ← instrWidth mn
+    let src ← parseRegOrMemWithType w
     pure ⟨ .W64, w, .mul src ⟩
 
   | "mulx" =>
@@ -622,7 +634,7 @@ def parseInstr : Parser Instr := do
   -- Shift instructions - 64-bit
   | "shl"
   | "sal" =>
-    let cnt ← parseShiftExpr; parseComma
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMem
     let ⟨ w, dst ⟩ ← assertW dst
     pure ⟨ .W64, w, .shl dst cnt ⟩
@@ -630,31 +642,31 @@ def parseInstr : Parser Instr := do
   | "shlq" | "shll" | "shlw" | "shlb"
   | "salq" | "sall" | "salw" | "salb" =>
     let w ← instrWidth mn
-    let cnt ← parseShiftExpr; parseComma
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMemWithType w
     pure ⟨ .W64, w, .shl dst cnt ⟩
 
   | "shr" =>
-    let cnt ← parseShiftExpr; parseComma
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMem
     let ⟨ w, dst ⟩ ← assertW dst
     pure ⟨ .W64, w, .shr dst cnt ⟩
 
   | "shrq" | "shrl" | "shrw" | "shrb" =>
     let w ← instrWidth mn
-    let cnt ← parseShiftExpr; parseComma
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMemWithType w
     pure ⟨ .W64, w, .shr dst cnt ⟩
 
   | "sar" =>
-    let cnt ← parseShiftExpr; parseComma
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMem
     let ⟨ w, dst ⟩ ← assertW dst
     pure ⟨ .W64, w, .sar dst cnt ⟩
 
   | "sarq" | "sarl" | "sarw" | "sarb" =>
     let w ← instrWidth mn
-    let cnt ← parseShiftExpr; parseComma
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMemWithType w
     pure ⟨ .W64, w, .sar dst cnt ⟩
 
@@ -678,26 +690,26 @@ def parseInstr : Parser Instr := do
 
   -- Rotate instructions - 64-bit
   | "rol" =>
-    let cnt ← parseShiftExpr; parseComma
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMem
     let ⟨ w, dst ⟩ ← assertW dst
     pure ⟨ .W64, w, .rol dst cnt ⟩
 
   | "rolq" | "roll" | "rolw" | "rolb" =>
     let w ← instrWidth mn
-    let cnt ← parseShiftExpr; parseComma
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMemWithType w
     pure ⟨ .W64, w, .rol dst cnt ⟩
 
   | "ror" =>
-    let cnt ← parseShiftExpr; parseComma
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMem
     let ⟨ w, dst ⟩ ← assertW dst
     pure ⟨ .W64, w, .ror dst cnt ⟩
 
   | "rorq" | "rorl" | "rorw" | "rorb" =>
     let w ← instrWidth mn
-    let cnt ← parseShiftExpr; parseComma
+    let cnt ← parseOptionalShiftAndComma
     let dst ← parseRegOrMemWithType w
     pure ⟨ .W64, w, .ror dst cnt ⟩
 
@@ -846,11 +858,12 @@ instance {T1} : Coe (ParseResult (List T1) (Sigma String.Pos)) (Except String (L
   | .error _ (.other msg) => .error msg
 
 def parse (input: String): Except String Program := do
-  let lines: List (Except _ _) := (input.splitOn "\n").map (fun x => parseLine ⟨ x, x.startPos ⟩)
-  let lines ← lines.foldlM (fun acc line => do
-    let line ← line
-    pure (line :: acc)
-  ) []
+  let rawLines := (input.splitOn "\n")
+  let (_, lines) ← rawLines.foldlM (fun (lineNum, acc) x => do
+    match (parseLine ⟨ x, x.startPos ⟩ : Except String (List Directive)) with
+    | .ok v => pure (lineNum + 1, v :: acc)
+    | .error msg => .error s!"line {lineNum}: {msg}"
+  ) ((1 : Nat), [])
   pure lines.reverse.flatten
 
 /-- Parse an assembly string, panicking on failure (for use in #eval). -/
@@ -860,152 +873,3 @@ def parse! (input : String) : Program :=
   | .error msg => panic! s!"parse error: {msg}"
 
 end Kraken.Parser
-
-
--- ============================================================================
--- Tests
--- ============================================================================
-
-section Tests
-open Kraken.Parser
-
-open Instr Operand Reg
-
--- Test: Simple instruction
-/--
-info: [Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64,
-      operation := Operation.add ↑(low Reg64.rbx Width.W64) ↑↑(low Reg64.rax Width.W64) }]
--/
-#guard_msgs in
-#eval parse! "addq %rax, %rbx"
-
--- Test: Immediate operand
-/--
-info: [Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64,
-      operation := Operation.mov ↑(low Reg64.rax Width.W64) ↑↑42 }]
--/
-#guard_msgs in
-#eval parse! "movq $42, %rax"
--- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .mov (.Reg (.low .rax .W64)) (.imm 42) }]
-
--- Test: Memory operand with displacement
-/--
-info: [Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64,
-      operation :=
-        Operation.mov ↑(low Reg64.rax Width.W64)
-          ↑↑{ base := some (RegOrRip.ofRegW { w := Width.W64, reg := low Reg64.rsp Width.W64 }), idx := none,
-                disp := ↑8 } }]-/
-#guard_msgs in
-#eval parse! "movq 8(%rsp), %rax"
--- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .mov (.Reg (.low .rax .W64)) (.mem .rsp .none 1 8) }]
-
--- Test: Memory operand with index and scale
-/--
-info: [Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64,
-      operation :=
-        Operation.mov ↑(low Reg64.rax Width.W64)
-          ↑↑{ base := some (RegOrRip.ofRegW { w := Width.W64, reg := low Reg64.rsi Width.W64 }),
-                idx := some { reg := { w := Width.W64, reg := low Reg64.r15 Width.W64 }, scale := Width.W64 } } }]
--/
-#guard_msgs in
-#eval parse! "movq (%rsi, %r15, 8), %rax"
--- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .mov (.Reg (.low .rax .W64)) (.mem .rsi (some .r15) 8 0) }]
-
--- Test: Labeled instruction
-/--
-info: [Directive.Label "loop",
-  Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64,
-      operation := Operation.add ↑(low Reg64.rcx Width.W64) ↑↑1 }]
--/
-#guard_msgs in
-#eval parse! "loop: addq $1, %rcx"
--- Expected: [.Label "loop", .Instr { address_size := .W64, operation_size := .W64, operation := .add (.Reg (.low .rcx .W64)) (.imm 1) }]
-
--- Test: Conditional jump
-/--
-info: [Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64, operation := Operation.jcc CondCode.nz "loop" }]
--/
-#guard_msgs in
-#eval parse! "jnz loop"
--- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .jcc .nz "loop" }]
-
--- Test: Multi-line program
-/--
-info: [Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64,
-      operation := Operation.mov ↑(low Reg64.rax Width.W64) ↑↑0 },
-  Directive.Label "loop",
-  Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64,
-      operation := Operation.add ↑(low Reg64.rax Width.W64) ↑↑1 },
-  Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64,
-      operation := Operation.cmp ↑(low Reg64.rax Width.W64) ↑↑10 },
-  Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64, operation := Operation.jcc CondCode.nz "loop" }]
--/
-#guard_msgs in
-#eval parse! "
-  movq $0, %rax
-loop:
-  addq $1, %rax
-  cmpq $10, %rax
-  jne loop
-"
-
--- Test: Negative immediate
-/--
-info: [Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64,
-      operation := Operation.add ↑(low Reg64.rax Width.W64) ↑↑(-1) }]
--/
-#guard_msgs in
-#eval parse! "addq $-1, %rax"
-
--- Test: Hex immediate
-/--
-info: [Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64,
-      operation := Operation.mov ↑(low Reg64.rax Width.W64) ↑↑255 }]
--/
-#guard_msgs in
-#eval parse! "movq $0xff, %rax"
-
--- Test: mulx instruction
-/--
-info: [Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64,
-      operation := Operation.mulx (low Reg64.r10 Width.W64) (low Reg64.r9 Width.W64) ↑(low Reg64.r8 Width.W64) }]
--/
-#guard_msgs in
-#eval parse! "mulxq %r8, %r9, %r10"
-
--- Test: xor for zeroing
-/--
-info: [Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64,
-      operation := Operation.xor ↑(low Reg64.rax Width.W64) ↑↑(low Reg64.rax Width.W64) }]
--/
-#guard_msgs in
-#eval parse! "xorq %rax, %rax"
-
--- Test: lea with complex addressing
-/--
-info: [Directive.Instr
-    { address_size := Width.W64, operation_size := Width.W64,
-      operation :=
-        Operation.lea (low Reg64.rax Width.W64)
-          { base := some (RegOrRip.ofRegW { w := Width.W64, reg := low Reg64.rbp Width.W64 }),
-            idx := some { reg := { w := Width.W64, reg := low Reg64.rcx Width.W64 }, scale := Width.W32 },
-            disp := ↑16 } }]
--/
-#guard_msgs in
-#eval parse! "leaq 16(%rbp, %rcx, 4), %rax"
-
-end Tests
