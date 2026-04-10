@@ -30,6 +30,5 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: leanprover/lean-action@v1
-        with:
-          test-cmd: lake build krakentest
+      - run: lake build krakentest
       - run: ./scripts/run_all_asm_tests.sh
