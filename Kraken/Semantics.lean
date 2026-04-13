@@ -47,72 +47,109 @@ def base {w} (r : Reg w) : Reg64 := match r with
 def offset {w} (r : Reg w) : Nat := match r with
   | .low _ _ => 0
   | .ah | .bh | .ch | .dh => 8
+
+@[match_pattern] abbrev rax := low .rax .W64
+@[match_pattern] abbrev rbx := low .rbx .W64
+@[match_pattern] abbrev rcx := low .rcx .W64
+@[match_pattern] abbrev rdx := low .rdx .W64
+@[match_pattern] abbrev rsi := low .rsi .W64
+@[match_pattern] abbrev rdi := low .rdi .W64
+@[match_pattern] abbrev rsp := low .rsp .W64
+@[match_pattern] abbrev rbp := low .rbp .W64
+@[match_pattern] abbrev r8  := low .r8  .W64
+@[match_pattern] abbrev r9  := low .r9  .W64
+@[match_pattern] abbrev r10 := low .r10 .W64
+@[match_pattern] abbrev r11 := low .r11 .W64
+@[match_pattern] abbrev r12 := low .r12 .W64
+@[match_pattern] abbrev r13 := low .r13 .W64
+@[match_pattern] abbrev r14 := low .r14 .W64
+@[match_pattern] abbrev r15 := low .r15 .W64
+
+@[match_pattern] abbrev eax  := low .rax .W32
+@[match_pattern] abbrev ebx  := low .rbx .W32
+@[match_pattern] abbrev ecx  := low .rcx .W32
+@[match_pattern] abbrev edx  := low .rdx .W32
+@[match_pattern] abbrev esi  := low .rsi .W32
+@[match_pattern] abbrev edi  := low .rdi .W32
+@[match_pattern] abbrev esp  := low .rsp .W32
+@[match_pattern] abbrev ebp  := low .rbp .W32
+@[match_pattern] abbrev r8d  := low .r8  .W32
+@[match_pattern] abbrev r9d  := low .r9  .W32
+@[match_pattern] abbrev r10d := low .r10 .W32
+@[match_pattern] abbrev r11d := low .r11 .W32
+@[match_pattern] abbrev r12d := low .r12 .W32
+@[match_pattern] abbrev r13d := low .r13 .W32
+@[match_pattern] abbrev r14d := low .r14 .W32
+@[match_pattern] abbrev r15d := low .r15 .W32
+
+@[match_pattern] abbrev ax   := low .rax .W16
+@[match_pattern] abbrev bx   := low .rbx .W16
+@[match_pattern] abbrev cx   := low .rcx .W16
+@[match_pattern] abbrev dx   := low .rdx .W16
+@[match_pattern] abbrev si   := low .rsi .W16
+@[match_pattern] abbrev di   := low .rdi .W16
+@[match_pattern] abbrev sp   := low .rsp .W16
+@[match_pattern] abbrev bp   := low .rbp .W16
+@[match_pattern] abbrev r8w  := low .r8  .W16
+@[match_pattern] abbrev r9w  := low .r9  .W16
+@[match_pattern] abbrev r10w := low .r10 .W16
+@[match_pattern] abbrev r11w := low .r11 .W16
+@[match_pattern] abbrev r12w := low .r12 .W16
+@[match_pattern] abbrev r13w := low .r13 .W16
+@[match_pattern] abbrev r14w := low .r14 .W16
+@[match_pattern] abbrev r15w := low .r15 .W16
+
+@[match_pattern] abbrev al   := low .rax .W8
+@[match_pattern] abbrev bl   := low .rbx .W8
+@[match_pattern] abbrev cl   := low .rcx .W8
+@[match_pattern] abbrev dl   := low .rdx .W8
+@[match_pattern] abbrev sil  := low .rsi .W8
+@[match_pattern] abbrev dil  := low .rdi .W8
+@[match_pattern] abbrev spl  := low .rsp .W8
+@[match_pattern] abbrev bpl  := low .rbp .W8
+@[match_pattern] abbrev r8b  := low .r8  .W8
+@[match_pattern] abbrev r9b  := low .r9  .W8
+@[match_pattern] abbrev r10b := low .r10 .W8
+@[match_pattern] abbrev r11b := low .r11 .W8
+@[match_pattern] abbrev r12b := low .r12 .W8
+@[match_pattern] abbrev r13b := low .r13 .W8
+@[match_pattern] abbrev r14b := low .r14 .W8
+@[match_pattern] abbrev r15b := low .r15 .W8
 end Reg
 
-structure Reg64s where
-  rax : UInt64 := 0
-  rbx : UInt64 := 0
-  rcx : UInt64 := 0
-  rdx : UInt64 := 0
-  rsi : UInt64 := 0
-  rdi : UInt64 := 0
-  rsp : UInt64 := 0
-  rbp : UInt64 := 0
-  r8  : UInt64 := 0
-  r9  : UInt64 := 0
-  r10 : UInt64 := 0
-  r11 : UInt64 := 0
-  r12 : UInt64 := 0
-  r13 : UInt64 := 0
-  r14 : UInt64 := 0
-  r15 : UInt64 := 0
-  deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr
+inductive Flag
+  | cf | pf | af | zf | sf | of
 
-def Reg64s.get64 (s : Reg64s) (r : Reg64) : Width.W64.type := UInt64.toBitVec (match r with
-  | .rax => s.rax | .rbx => s.rbx | .rcx => s.rcx | .rdx => s.rdx
-  | .rsi => s.rsi | .rdi => s.rdi | .rsp => s.rsp | .rbp => s.rbp
-  | .r8  => s.r8  | .r9  => s.r9  | .r10 => s.r10 | .r11 => s.r11
-  | .r12 => s.r12 | .r13 => s.r13 | .r14 => s.r14 | .r15 => s.r15)
+-- State modification primitives: get/set/undefine for Reg/Flag/Mem
+-- State argument goes last to make the functions compatible with pipeline syntax |>
+class StateAccess σ where
+  getReg {w} (r : Reg w) (s : σ) : w.type
+  setReg {w} (r : Reg w) (v : w.type) (s : σ) : σ
+  undefineReg {w} (r : Reg w) (s : σ) : σ
+  getFlag (f : Flag) (s : σ) : Bool
+  setFlag (f : Flag) {w : Width} (v : Bool) (s : σ) : σ
+  undefineFlag (f : Flag) {w : Width} (s : σ) : σ
+  getMem (addr : BitVec 64) (w : Width) {α} (ret : w.type → α) (s : σ) : α
+  setMem (addr : BitVec 64) {w : Width} (v : w.type) {α} (ret : σ → α) (s : σ) : α
+  undefineMem (addr : BitVec 64) {w : Width} {α} (ret : σ → α) (s : σ) : α
 
-def Reg64s.set64 (regs : Reg64s) (r : Reg64) (v : Width.W64.type) : Reg64s :=
-  let  v := UInt64.ofBitVec v
-  match r with
-  | .rax => { regs with rax := v } | .rbx => { regs with rbx := v }
-  | .rcx => { regs with rcx := v } | .rdx => { regs with rdx := v }
-  | .rsi => { regs with rsi := v } | .rdi => { regs with rdi := v }
-  | .rsp => { regs with rsp := v } | .rbp => { regs with rbp := v }
-  | .r8  => { regs with r8  := v } | .r9  => { regs with r9  := v }
-  | .r10 => { regs with r10 := v } | .r11 => { regs with r11 := v }
-  | .r12 => { regs with r12 := v } | .r13 => { regs with r13 := v }
-  | .r14 => { regs with r14 := v } | .r15 => { regs with r15 := v }
+def getReg {σ} [inst : StateAccess σ] {w} := @inst.getReg w
+def setReg {σ} [inst : StateAccess σ] {w} := @inst.setReg w
+def undefineReg {σ} [inst : StateAccess σ] {w} := @inst.undefineReg w
+def getFlag {σ} [inst : StateAccess σ] := inst.getFlag
+def setFlag {σ} [inst : StateAccess σ] := inst.setFlag
+def undefineFlag {σ} [inst : StateAccess σ] := inst.undefineFlag
+def getMem {σ} [inst : StateAccess σ] := inst.getMem
+def setMem {σ} [inst : StateAccess σ] := inst.setMem
+def undefineMem {σ} [inst : StateAccess σ] := inst.undefineMem
 
-def Reg64s.get (s : Reg64s) {w} (r : Reg w) : w.type :=
-  ((s.get64 r.base).drop r.offset).take w.bits
-  -- BitVec because it may be signed or unsigned depending on context
-
-def Reg64s.set (s : Reg64s) {w} (r : Reg w) (v : w.type) : Reg64s := match r with
-  | .low r .W64 => s.set64 r v
-  | .low r .W32 => s.set64 r (v.zeroExtend _)
-  | .low r w => s.set64 r ((s.get64 r).replaceLow v)
-  | .ah | .bh | .ch | .dh => let old := s.get64 r.base;
-    s.set64 r.base (old.replaceLow (BitVec.append v (s.get (.low r.base .W8))))
-
-structure StatusFlags where
-  cf : Bool
-  pf : Bool
-  af : Bool
-  zf : Bool
-  sf : Bool
-  of : Bool
-  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
-
-abbrev DataMem := Std.ExtHashMap UInt64 UInt64 -- 8-byte-aligned acceses only now
-instance : Repr DataMem where reprPrec _ _ := "<opaque memory>"
-structure MachineData where -- does not include code or program position
-  regs : Reg64s := {}
-  status : StatusFlags := .mk false false false false false false
-  dmem : DataMem := ∅
-  deriving Repr, BEq, DecidableEq
+/- sample usage:
+#check (fun σ (inst: StateAccess σ) (s: σ) => s |>
+  setReg .ah 42 |>
+  setReg .bh 43 |>
+  setMem 123 567 (fun sFinal =>
+    getReg .ah sFinal + getReg .bh sFinal))
+-/
 
 class Throw α where
   throw: String → α
@@ -120,18 +157,8 @@ class Throw α where
 def throw {α} [inst: Throw α] :=
   inst.throw
 
-def Reg.interp {α w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
-  ret (s.regs.get r) -- the unused argument is present ^ for uniformity with RegOrMem.interp
-
-def MachineData.load {α} [Throw α] (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → α): α :=
-  if addr % 8 != 0 then throw (s!"Unimplemented: only 8-byte-aligned memory access is supported")
-  else match s.dmem[UInt64.ofBitVec addr]? with
-  | .some v => ret (v.toBitVec.truncate _)
-  | .none => throw (s!"Memory accessed but not mapped (addr={repr addr})")
-
-def MachineData.store {α} [Throw α] (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → α) : α :=
-  s.load addr .W64 (fun old =>
-  ret { s with dmem := s.dmem.insert (.ofBitVec addr) (.ofBitVec (old.replaceLow v)) })
+def Reg.interp {σ α w} [StateAccess σ] (r : Reg w) (s : σ) (ret : w.type → α) :=
+  ret (getReg r s)
 
 abbrev Label := String
 
@@ -180,13 +207,14 @@ structure AddrExpr where
 class AddressSize where address_size : Width
 def address_size [inst: AddressSize] := inst.address_size
 
-def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
+def AddrExpr.interp [Labels] [address_size : AddressSize] {σ} [StateAccess σ]
+    (a : AddrExpr) (s : σ) (p : Std.Rco Int64) :=
   let base := match a.base with
-              | .some (.ofRegW ⟨_, r⟩)  => (s.get r).toInt
+              | .some (.ofRegW ⟨_, r⟩)  => (getReg r s).toInt
               | .some .rip => p.upper.toInt
               | .none => 0
   let idx := match a.idx with
-             | .some ⟨⟨_, r⟩, c⟩ => (s.get r).toInt * c.bytes
+             | .some ⟨⟨_, r⟩, c⟩ => (getReg r s).toInt * c.bytes
              | .none => 0
   BitVec.ofInt address_size.address_size.bits (base + idx + (a.disp.interp p).toInt)
 
@@ -198,18 +226,17 @@ instance {w} : Coe (Reg w) (RegOrMem w) where coe := RegOrMem.Reg
 attribute [coe] RegOrMem.Reg
 abbrev Dst := RegOrMem
 
-def RegOrMem.interp {α w} [Labels] [AddressSize] [Throw α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
+def RegOrMem.interp {σ α w} [Labels] [AddressSize] [Throw α] [StateAccess σ]
+    (o : RegOrMem w) (s : σ) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
-  | .Reg r => ret (s.regs.get r)
-  | .mem a => s.load ((a.interp s.regs p).zeroExtend _) w ret
+  | .Reg r => s |> getReg r |> ret
+  | .mem a => s |> getMem ((a.interp s p).zeroExtend _) w ret
 
-def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineData :=
-  { s with regs := s.regs.set r v }
-
-def MachineData.set {α w} [Labels] [AddressSize] [Throw α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
+def setDst {σ α w} [Labels] [AddressSize] [Throw α] [StateAccess σ]
+    (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : σ → α) (s : σ) : α :=
   match d with
-  | .Reg r => ret (s.setReg r v)
-  | .mem a => s.store ((a.interp s.regs p).zeroExtend _) v ret
+  | .Reg r => s |> setReg r v |> ret
+  | .mem a => s |> setMem ((a.interp s p).zeroExtend _) v ret
 
 inductive Operand w | RegOrMem (_ : RegOrMem w) | imm (v : ConstExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
@@ -220,7 +247,8 @@ attribute [coe] Operand.imm
 abbrev Operand.reg {w} (r : Reg w) : Operand w := .RegOrMem (.Reg r)
 abbrev Operand.mem {w} (m : AddrExpr) : Operand w := .RegOrMem (.mem m)
 
-def Operand.interp {α w} [Labels] [AddressSize] [Throw α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
+def Operand.interp {σ α w} [Labels] [AddressSize] [Throw α] [StateAccess σ]
+    (o : Operand w) (s : σ) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
   | .RegOrMem rm => rm.interp s p ret
   | .imm v => ret ((v.interp p).toBitVec.truncate _)
@@ -233,27 +261,37 @@ abbrev CondCode.ne := CondCode.nz
 abbrev CondCode.b := CondCode.c
 abbrev CondCode.ae := CondCode.nc
 
-def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
-  | .z  => s.zf | .nz => !s.zf | .c  => s.cf | .nc => !s.cf
-  | .a  => !s.cf && !s.zf | .be => s.cf || s.zf
+def CondCode.interp {σ} [StateAccess σ] (cc : CondCode) (s : σ) : Bool :=
+  match cc with
+  | .z => getFlag .zf s
+  | .nz => !(getFlag .zf s)
+  | .c => getFlag .cf s
+  | .nc => !(getFlag .cf s)
+  | .a => !(getFlag .cf s) && !(getFlag .zf s)
+  | .be => getFlag .cf s || getFlag .zf s
 
 inductive ShiftCountExpr | cl | imm8 (v : ConstExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
-  | .cl => s.regs.rcx.toBitVec.take 8
+def ShiftCountExpr.interp {σ} [Labels] [StateAccess σ]
+    (c : ShiftCountExpr) (s : σ) (p : Std.Rco Int64) :=
+  match c with
+  | .cl => (getReg .rcx s).take 8
   | .imm8 v => (v.interp p).toBitVec.truncate _
-def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width) : Nat :=
+
+def ShiftCountExpr.interpMasked {σ} [Labels] [StateAccess σ]
+    (c : ShiftCountExpr) (s : σ) (p : Std.Rco Int64) (w : Width) : Nat :=
   (c.interp s p).toNat &&& match w with | .W64 => 0x1f | _ => 0x0f -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
 
 inductive RelRegOrMem | Rel (_ : ConstExpr) | Reg (r : Reg .W64) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-def RelRegOrMem.interp {α} [Labels] [AddressSize] [Throw α] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → α) :=
+def RelRegOrMem.interp {σ α} [Labels] [AddressSize] [Throw α] [StateAccess σ]
+    (o : RelRegOrMem) (s : σ) (p : Std.Rco Int64) (ret : BitVec 64 → α) :=
   match o with
   | .Rel c => ret (p.upper + c.interp p).toBitVec
-  | .Reg r => ret (s.regs.get r)
-  | .mem a => s.load ((a.interp s.regs p).zeroExtend _) .W64 ret
+  | .Reg r => s |> getReg r |> ret
+  | .mem a => s |> getMem ((a.interp s p).zeroExtend _) .W64 ret
 
 inductive Operation (w : Width)
   -- Data movement
@@ -323,22 +361,13 @@ def cpopNatRec_ {w} (x : BitVec w) (pos acc : Nat) : Nat :=
 def cpop_ {w} (x : BitVec w) : BitVec w := BitVec.ofNat w (cpopNatRec_ x w 0)
 end BitVec
 
-def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
-  { pf := (result.truncate 8).cpop_ % 2 == BitVec.zero _
-    zf := result == BitVec.zero _
-    sf := result.msb, cf := f.cf, af := f.af, of := f.of }
-
-class Undefined (T R) where undefined : (T → R) → R
-def undefined {T R} [inst: Undefined T R] := inst.undefined
-
 set_option maxHeartbeats 1000000
-def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α]
-  [Labels] [address_size : AddressSize] {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
-  (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
+def Operation.interp {α σ} [Throw α] [Labels] [address_size : AddressSize] [StateAccess σ] {w}
+    (i : Operation w) (p : Std.Rco Int64) (s : σ) (next : σ → α) (jmp : Int64 → σ → α) : α :=
   match (generalizing := false) (motive := Operation w → α) i with
-  | .mov dst src => src.interp s p (fun val => s.set dst val p next)
-  | .movsx dst src => src.interp s p (fun val => s.set dst (val.signExtend _) p next)
-  | .movzx dst src => src.interp s p (fun val => s.set dst (val.zeroExtend _) p next)
+  | .mov dst src => src.interp s p (fun val => s |> setDst dst val p next)
+  | .movsx dst src => src.interp s p (fun val => s |> setDst dst (val.signExtend _) p next)
+  | .movzx dst src => src.interp s p (fun val => s |> setDst dst (val.zeroExtend _) p next)
   | .push src =>
     src.interp s p (fun v =>
     let rsp := s.regs.get64 .rsp - w.bytesv
@@ -348,6 +377,12 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     s.load rsp w (fun val =>
     s.set dst val p (fun s =>
     next { s with regs := s.regs.set64 .rsp (rsp + w.bytesv) }))
+  | .pop dst =>
+    let rsp := getReg .rsp s; s |>
+    getMem rsp w (fun val => s |>
+    setDst dst val p (fun s => s |>
+    setReg .rsp (rsp + w.bytesv) |>
+    next))
   | .setcc cc dst =>
     s.set dst (cc.interp s.status) p next
   | .cmovcc cc dst src =>
@@ -726,73 +761,3 @@ abbrev eval [layout : Layout] (prog : Program) := (layout prog).eval
   let start := exe.labels.label "main"
   let data := { dmem := .ofList [(0x100, 0x1337)], regs := {rsp := 0x100} }
   (exe.eval (data, start) (fun (_, pc) => pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)
-
-namespace Reg
-@[match_pattern] abbrev rax := low .rax .W64
-@[match_pattern] abbrev rbx := low .rbx .W64
-@[match_pattern] abbrev rcx := low .rcx .W64
-@[match_pattern] abbrev rdx := low .rdx .W64
-@[match_pattern] abbrev rsi := low .rsi .W64
-@[match_pattern] abbrev rdi := low .rdi .W64
-@[match_pattern] abbrev rsp := low .rsp .W64
-@[match_pattern] abbrev rbp := low .rbp .W64
-@[match_pattern] abbrev r8  := low .r8  .W64
-@[match_pattern] abbrev r9  := low .r9  .W64
-@[match_pattern] abbrev r10 := low .r10 .W64
-@[match_pattern] abbrev r11 := low .r11 .W64
-@[match_pattern] abbrev r12 := low .r12 .W64
-@[match_pattern] abbrev r13 := low .r13 .W64
-@[match_pattern] abbrev r14 := low .r14 .W64
-@[match_pattern] abbrev r15 := low .r15 .W64
-
-@[match_pattern] abbrev eax  := low .rax .W32
-@[match_pattern] abbrev ebx  := low .rbx .W32
-@[match_pattern] abbrev ecx  := low .rcx .W32
-@[match_pattern] abbrev edx  := low .rdx .W32
-@[match_pattern] abbrev esi  := low .rsi .W32
-@[match_pattern] abbrev edi  := low .rdi .W32
-@[match_pattern] abbrev esp  := low .rsp .W32
-@[match_pattern] abbrev ebp  := low .rbp .W32
-@[match_pattern] abbrev r8d  := low .r8  .W32
-@[match_pattern] abbrev r9d  := low .r9  .W32
-@[match_pattern] abbrev r10d := low .r10 .W32
-@[match_pattern] abbrev r11d := low .r11 .W32
-@[match_pattern] abbrev r12d := low .r12 .W32
-@[match_pattern] abbrev r13d := low .r13 .W32
-@[match_pattern] abbrev r14d := low .r14 .W32
-@[match_pattern] abbrev r15d := low .r15 .W32
-
-@[match_pattern] abbrev ax   := low .rax .W16
-@[match_pattern] abbrev bx   := low .rbx .W16
-@[match_pattern] abbrev cx   := low .rcx .W16
-@[match_pattern] abbrev dx   := low .rdx .W16
-@[match_pattern] abbrev si   := low .rsi .W16
-@[match_pattern] abbrev di   := low .rdi .W16
-@[match_pattern] abbrev sp   := low .rsp .W16
-@[match_pattern] abbrev bp   := low .rbp .W16
-@[match_pattern] abbrev r8w  := low .r8  .W16
-@[match_pattern] abbrev r9w  := low .r9  .W16
-@[match_pattern] abbrev r10w := low .r10 .W16
-@[match_pattern] abbrev r11w := low .r11 .W16
-@[match_pattern] abbrev r12w := low .r12 .W16
-@[match_pattern] abbrev r13w := low .r13 .W16
-@[match_pattern] abbrev r14w := low .r14 .W16
-@[match_pattern] abbrev r15w := low .r15 .W16
-
-@[match_pattern] abbrev al   := low .rax .W8
-@[match_pattern] abbrev bl   := low .rbx .W8
-@[match_pattern] abbrev cl   := low .rcx .W8
-@[match_pattern] abbrev dl   := low .rdx .W8
-@[match_pattern] abbrev sil  := low .rsi .W8
-@[match_pattern] abbrev dil  := low .rdi .W8
-@[match_pattern] abbrev spl  := low .rsp .W8
-@[match_pattern] abbrev bpl  := low .rbp .W8
-@[match_pattern] abbrev r8b  := low .r8  .W8
-@[match_pattern] abbrev r9b  := low .r9  .W8
-@[match_pattern] abbrev r10b := low .r10 .W8
-@[match_pattern] abbrev r11b := low .r11 .W8
-@[match_pattern] abbrev r12b := low .r12 .W8
-@[match_pattern] abbrev r13b := low .r13 .W8
-@[match_pattern] abbrev r14b := low .r14 .W8
-@[match_pattern] abbrev r15b := low .r15 .W8
-end Reg
