@@ -48,6 +48,23 @@ def offset {w} (r : Reg w) : Nat := match r with
   | .low _ _ => 0
   | .ah | .bh | .ch | .dh => 8
 
+def size {w} (r : Reg w) : Nat := match r with
+  | .low _ _ => w.bits
+  | .ah | .bh | .ch | .dh => 8
+
+def isL {w} (r : Reg w) : Bool := match r with
+  | .low _ .W8 => true
+  | _ => false
+
+def isH {w} (r : Reg w) : Bool := match r with
+  | .low _ _ => false
+  | .ah | .bh | .ch | .dh => true
+
+/-- Returns true iff the state modified by writing r1
+    is disjoint from the state modified by writing r2 -/
+def disjoint {w1 w2} (r1 : Reg w1) (r2 : Reg w2) : Bool :=
+  r1.base != r2.base || r1.isL && r2.isH || r2.isL && r1.isH
+
 @[match_pattern] abbrev rax := low .rax .W64
 @[match_pattern] abbrev rbx := low .rbx .W64
 @[match_pattern] abbrev rcx := low .rcx .W64
@@ -117,48 +134,70 @@ def offset {w} (r : Reg w) : Nat := match r with
 @[match_pattern] abbrev r15b := low .r15 .W8
 end Reg
 
-inductive Flag
+structure StatusFlags where
+  cf : Bool
+  pf : Bool
+  af : Bool
+  zf : Bool
+  sf : Bool
+  of : Bool
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+
+inductive StatusFlag
   | cf | pf | af | zf | sf | of
 
--- State modification primitives: get/set/undefine for Reg/Flag/Mem
--- State argument goes last to make the functions compatible with pipeline syntax |>
+/-- State modification primitives: get/set/undefine for Reg/Flag/Mem -/
 class StateAccess σ where
-  getReg {w} (r : Reg w) (s : σ) : w.type
-  setReg {w} (r : Reg w) (v : w.type) (s : σ) : σ
-  undefineReg {w} (r : Reg w) (s : σ) : σ
-  getFlag (f : Flag) (s : σ) : Bool
-  setFlag (f : Flag) {w : Width} (v : Bool) (s : σ) : σ
-  undefineFlag (f : Flag) {w : Width} (s : σ) : σ
-  getMem (addr : BitVec 64) (w : Width) {α} (ret : w.type → α) (s : σ) : α
-  setMem (addr : BitVec 64) {w : Width} (v : w.type) {α} (ret : σ → α) (s : σ) : α
-  undefineMem (addr : BitVec 64) {w : Width} {α} (ret : σ → α) (s : σ) : α
+  getReg (s : σ) {w} (r : Reg w) : w.type
+  setReg (s : σ) {w} (r : Reg w) (v : w.type) : σ
+  undefineReg (s : σ) {w} (r : Reg w) : σ
+  getFlag (s : σ) (f : StatusFlag) : Bool
+  setFlag (s : σ) (f : StatusFlag) (v : Bool) : σ
+  undefineFlag (s : σ) (f : StatusFlag) {w : Width} : σ
+  getMem (s : σ) (addr : BitVec 64) (w : Width) {α} (ret : w.type → α) : α
+  setMem (s : σ) (addr : BitVec 64) {w : Width} (v : w.type) {α} (ret : σ → α) : α
+  undefineMem (s : σ) (addr : BitVec 64) {w : Width} {α} (ret : σ → α) : α
 
-def getReg {σ} [inst : StateAccess σ] {w} := @inst.getReg w
-def setReg {σ} [inst : StateAccess σ] {w} := @inst.setReg w
-def undefineReg {σ} [inst : StateAccess σ] {w} := @inst.undefineReg w
-def getFlag {σ} [inst : StateAccess σ] := inst.getFlag
-def setFlag {σ} [inst : StateAccess σ] := inst.setFlag
-def undefineFlag {σ} [inst : StateAccess σ] := inst.undefineFlag
-def getMem {σ} [inst : StateAccess σ] := inst.getMem
-def setMem {σ} [inst : StateAccess σ] := inst.setMem
-def undefineMem {σ} [inst : StateAccess σ] := inst.undefineMem
+-- We don't define shorthands to get rid of the StateAccess prefix.
+-- Instead, we use the following shorthands (defined later):
+-- * Reg.interp/.get/.set/.undefine for registers
+-- * Flag.get/.set/.undefine for flags
+-- * load/store for memory
+-- * RegOrMem.interp/.set/.undefine for operands
 
-/- sample usage:
-#check (fun σ (inst: StateAccess σ) (s: σ) => s |>
-  setReg .ah 42 |>
-  setReg .bh 43 |>
-  setMem 123 567 (fun sFinal =>
-    getReg .ah sFinal + getReg .bh sFinal))
--/
+def Reg.get {σ w} [StateAccess σ] (r : Reg w) (s : σ) : w.type :=
+  StateAccess.getReg s r
+
+def Reg.set {σ w} [StateAccess σ] (r : Reg w) (v : w.type) (s : σ) : σ :=
+  StateAccess.setReg s r v
+
+def StatusFlag.get {σ} [StateAccess σ] (f : StatusFlag) (s : σ) : Bool :=
+  StateAccess.getFlag s f
+
+def StatusFlag.set {σ} [StateAccess σ] (f : StatusFlag) (v : Bool) (s : σ) : σ :=
+  StateAccess.setFlag s f v
+
+def StatusFlags.set {σ} [StateAccess σ] (fs : StatusFlags) (s : σ) : σ :=
+  let { cf, pf, af, zf, sf, of } := fs
+  StatusFlag.cf.set cf $
+  StatusFlag.pf.set pf $
+  StatusFlag.af.set af $
+  StatusFlag.zf.set zf $
+  StatusFlag.sf.set sf $
+  StatusFlag.of.set of $ s
+
+-- TODO which .interp are in CPS vs non-CPS style?
+def Reg.interp {σ α w} [StateAccess σ] (r : Reg w) (s : σ) (ret : w.type → α) :=
+  r.get s |> ret
+
+def load {σ} [inst : StateAccess σ] := inst.getMem
+def store {σ} [inst : StateAccess σ] := inst.setMem
 
 class Throw α where
   throw: String → α
 
 def throw {α} [inst: Throw α] :=
   inst.throw
-
-def Reg.interp {σ α w} [StateAccess σ] (r : Reg w) (s : σ) (ret : w.type → α) :=
-  ret (getReg r s)
 
 abbrev Label := String
 
@@ -210,11 +249,11 @@ def address_size [inst: AddressSize] := inst.address_size
 def AddrExpr.interp [Labels] [address_size : AddressSize] {σ} [StateAccess σ]
     (a : AddrExpr) (s : σ) (p : Std.Rco Int64) :=
   let base := match a.base with
-              | .some (.ofRegW ⟨_, r⟩)  => (getReg r s).toInt
+              | .some (.ofRegW ⟨_, r⟩)  => (r.get s).toInt
               | .some .rip => p.upper.toInt
               | .none => 0
   let idx := match a.idx with
-             | .some ⟨⟨_, r⟩, c⟩ => (getReg r s).toInt * c.bytes
+             | .some ⟨⟨_, r⟩, c⟩ => (r.get s).toInt * c.bytes
              | .none => 0
   BitVec.ofInt address_size.address_size.bits (base + idx + (a.disp.interp p).toInt)
 
@@ -229,14 +268,14 @@ abbrev Dst := RegOrMem
 def RegOrMem.interp {σ α w} [Labels] [AddressSize] [Throw α] [StateAccess σ]
     (o : RegOrMem w) (s : σ) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
-  | .Reg r => s |> getReg r |> ret
-  | .mem a => s |> getMem ((a.interp s p).zeroExtend _) w ret
+  | .Reg r => r.get s |> ret
+  | .mem a => load s ((a.interp s p).zeroExtend _) w ret
 
-def setDst {σ α w} [Labels] [AddressSize] [Throw α] [StateAccess σ]
-    (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : σ → α) (s : σ) : α :=
+def RegOrMem.set {σ α w} [Labels] [AddressSize] [Throw α] [StateAccess σ]
+    (d : Dst w) (v : w.type) (s : σ) (p : Std.Rco Int64) (ret : σ → α) : α :=
   match d with
-  | .Reg r => s |> setReg r v |> ret
-  | .mem a => s |> setMem ((a.interp s p).zeroExtend _) v ret
+  | .Reg r => r.set v s |> ret
+  | .mem a => store s ((a.interp s p).zeroExtend _) v ret
 
 inductive Operand w | RegOrMem (_ : RegOrMem w) | imm (v : ConstExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
@@ -263,12 +302,12 @@ abbrev CondCode.ae := CondCode.nc
 
 def CondCode.interp {σ} [StateAccess σ] (cc : CondCode) (s : σ) : Bool :=
   match cc with
-  | .z => getFlag .zf s
-  | .nz => !(getFlag .zf s)
-  | .c => getFlag .cf s
-  | .nc => !(getFlag .cf s)
-  | .a => !(getFlag .cf s) && !(getFlag .zf s)
-  | .be => getFlag .cf s || getFlag .zf s
+  | .z => StatusFlag.zf.get s
+  | .nz => ! StatusFlag.zf.get s
+  | .c => StatusFlag.cf.get s
+  | .nc => ! StatusFlag.cf.get s
+  | .a => ! StatusFlag.cf.get s && ! StatusFlag.zf.get s
+  | .be => StatusFlag.cf.get s || StatusFlag.zf.get s
 
 inductive ShiftCountExpr | cl | imm8 (v : ConstExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
@@ -276,7 +315,7 @@ inductive ShiftCountExpr | cl | imm8 (v : ConstExpr)
 def ShiftCountExpr.interp {σ} [Labels] [StateAccess σ]
     (c : ShiftCountExpr) (s : σ) (p : Std.Rco Int64) :=
   match c with
-  | .cl => (getReg .rcx s).take 8
+  | .cl => (Reg.rcx.get s).take 8
   | .imm8 v => (v.interp p).toBitVec.truncate _
 
 def ShiftCountExpr.interpMasked {σ} [Labels] [StateAccess σ]
@@ -290,8 +329,8 @@ def RelRegOrMem.interp {σ α} [Labels] [AddressSize] [Throw α] [StateAccess σ
     (o : RelRegOrMem) (s : σ) (p : Std.Rco Int64) (ret : BitVec 64 → α) :=
   match o with
   | .Rel c => ret (p.upper + c.interp p).toBitVec
-  | .Reg r => s |> getReg r |> ret
-  | .mem a => s |> getMem ((a.interp s p).zeroExtend _) .W64 ret
+  | .Reg r => r.get s |> ret
+  | .mem a => load s ((a.interp s p).zeroExtend _) .W64 ret
 
 inductive Operation (w : Width)
   -- Data movement
@@ -361,55 +400,54 @@ def cpopNatRec_ {w} (x : BitVec w) (pos acc : Nat) : Nat :=
 def cpop_ {w} (x : BitVec w) : BitVec w := BitVec.ofNat w (cpopNatRec_ x w 0)
 end BitVec
 
+def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
+  { pf := (result.truncate 8).cpop_ % 2 == BitVec.zero _
+    zf := result == BitVec.zero _
+    sf := result.msb, cf := f.cf, af := f.af, of := f.of }
+
 set_option maxHeartbeats 1000000
 def Operation.interp {α σ} [Throw α] [Labels] [address_size : AddressSize] [StateAccess σ] {w}
     (i : Operation w) (p : Std.Rco Int64) (s : σ) (next : σ → α) (jmp : Int64 → σ → α) : α :=
   match (generalizing := false) (motive := Operation w → α) i with
-  | .mov dst src => src.interp s p (fun val => s |> setDst dst val p next)
-  | .movsx dst src => src.interp s p (fun val => s |> setDst dst (val.signExtend _) p next)
-  | .movzx dst src => src.interp s p (fun val => s |> setDst dst (val.zeroExtend _) p next)
+  | .mov dst src => src.interp s p (fun val => dst.set val s p next)
+  | .movsx dst src => src.interp s p (fun val => dst.set (val.signExtend _) s p next)
+  | .movzx dst src => src.interp s p (fun val => dst.set (val.zeroExtend _) s p next)
   | .push src =>
     src.interp s p (fun v =>
-    let rsp := s.regs.get64 .rsp - w.bytesv
-    { s with regs := s.regs.set64 .rsp rsp }.store rsp v next)
+    let rsp := Reg.rsp.get s - w.bytesv
+    store (Reg.rsp.set rsp s) rsp v next)
   | .pop dst =>
-    let rsp := s.regs.get64 .rsp
-    s.load rsp w (fun val =>
-    s.set dst val p (fun s =>
-    next { s with regs := s.regs.set64 .rsp (rsp + w.bytesv) }))
-  | .pop dst =>
-    let rsp := getReg .rsp s; s |>
-    getMem rsp w (fun val => s |>
-    setDst dst val p (fun s => s |>
-    setReg .rsp (rsp + w.bytesv) |>
-    next))
+    let rsp := Reg.rsp.get s
+    load s rsp w (fun val =>
+    dst.set val s p (fun s =>
+    Reg.rsp.set (rsp + w.bytesv) s |> next))
   | .setcc cc dst =>
-    s.set dst (cc.interp s.status) p next
+    dst.set (cc.interp s) s p next
   | .cmovcc cc dst src =>
     src.interp s p (fun src =>
-    let v := if cc.interp s.status then src else s.regs.get dst
-    next (s.setReg dst v))
+    let v := if cc.interp s then src else dst.get s
+    dst.set v s |> next)
 -- Arithmetic
-  | .lea dst src => next (s.setReg dst ((src.interp s.regs p).zeroExtend _))
+  | .lea dst src => dst.set ((src.interp s p).zeroExtend _) s |> next
   | .add dst src =>
     src.interp s p (fun a =>
     dst.interp s p (fun b =>
     let v := a + b
-    let status := .from_result v {
+    let status := StatusFlags.from_result v {
       cf := v.toNat != a.toNat + b.toNat
       af := (v.truncate 4).toNat != (a.truncate 4).toNat + (b.truncate 4).toNat,
       of := v.toInt != a.toInt + b.toInt }
-    { s with status }.set dst v p next))
+    dst.set v (status.set s) p next))
   | .adc dst src =>
     src.interp s p (fun a =>
     dst.interp s p (fun b =>
-    let c := s.status.cf
-    let v := a + b + s.status.cf + c
-    let status := .from_result v {
+    let c := StatusFlag.cf.get s
+    let v := a + b + c
+    let status := StatusFlags.from_result v {
       cf := v.toNat != a.toNat + b.toNat + c
       af := (v.truncate 4).toNat != (a.truncate 4).toNat + (b.truncate 4).toNat + c,
       of := v.toInt != a.toInt + b.toInt + c }
-    { s with status }.set dst v p next))
+    dst.set v (status.set s) p next))
   | .adcx dst src =>
     src.interp s p (fun a =>
     dst.interp s p (fun b =>
