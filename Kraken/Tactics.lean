@@ -22,6 +22,8 @@ instance : Throw Prop where
 instance (T: Type): Undefined T Prop where
   undefined ret := ∀ (v: T), ret v
 
+-- Not really a step1 anymore -- this is more like a series of steps before a
+-- jump / return
 def step1 [Layout] (p: Executable) (s: MachineState) (post: Post) :=
   Executable.straightline p s post
 

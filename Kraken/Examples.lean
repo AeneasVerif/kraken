@@ -56,7 +56,29 @@ macro_rules
     rw [← h_hd];
     simp [Directives.interp, Directive.interp, Instr.interp, Operation.interp, RegOrMem.interp, Operand.interp];
     intro _af;
-    rw [← h_tl])
+    rw [← h_tl];
+    clear h_hd hd h_tl tl)
+
+syntax "step2" term: tactic
+macro_rules
+  | `(tactic|step2 $program) =>
+  `(tactic| (
+  have h_layout: $program = ?_ := by assumption
+  let tl: List (Directive×Nat) := ?_
+  have : $program = ?hd :: tl := by
+    simp [h_layout]
+    constructor <;> rfl
+  clear this
+
+  -- Get a definitional equality hypothesis for `tl`, to put the equality in a nice form.
+  have h_tl: tl = ?_ := by simp [tl]; rfl
+  rw [← h_tl] at h_layout
+
+  rw [h_layout]
+  clear h_layout
+
+  simp [Directives.interp, Directive.interp, Instr.interp, Operation.interp, RegOrMem.interp, Operand.interp]
+))
 
 theorem swap_correct [layout : Layout] (d : MachineData) :
       eventually (layout swap)
@@ -64,27 +86,44 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
           s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
           s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
       (d, layout.start) := by
+  -- We want to avoid substituting swap eagerly (say, with `simp [swap]`) because it is a large
+  -- term. Instead, get the definitional equality for `swap` and use that to rewrite in specific
+  -- locations.
+  have h: swap = ?_ := by dsimp [swap]; rfl
+
+  -- We use the eventually.step case: we need to straightline over the instructions
   apply step_cps
   dsimp only [step1, Executable.straightline]
-  dsimp only [swap]
-  rw [Executable.directivesFromStart]
-  simp [List.mapIdx, List.mapIdx.go]
+  -- This is where we need to avoid a `simp [swap]`. Instead, reason about the value of the concrete
+  -- layout.
+  have h_layout: (layout.apply swap).directivesFromAddress Layout.start = ?_ := by
+    rw [Executable.directivesFromStart]
+  rw (occs := .pos [2]) [h] at h_layout
+  clear h
+  simp [List.mapIdx, List.mapIdx.go] at h_layout
+  -- We had to do this because `List.mapIdx.go` is written in tail-recursive style, meaning we have
+  -- to compute the whole layout ahead of time. TODO: figure out if a dumb-style List.map would
+  -- allow us to name swap.hd and swap.tl right here.
 
-  generalize hpost: _::_ = p_post
+  step2 ((layout.apply swap).directivesFromAddress Layout.start)
+  clear h_layout
+  rename_i tl h_tl
+  step2 tl
+  rename_i tl h_tl
+  step2 tl
 
-  step1
-  step1
-  step1
+  intros _af _af _af
 
-  simp [MachineData.set, MachineData.setReg, Reg64s.set, Reg64s.set64]
+  dsimp [MachineData.set, MachineData.setReg, Reg64s.set, Reg64s.set64]
 
   apply eventually.done
-  simp (ground:=True)
+  /- simp (ground:=True) -/
   dsimp only [Reg64s.get, Reg64s.get64, Reg.base, Reg.offset]
   dsimp only [BitVec.drop, BitVec.take, Width.bits]
   bv_decide
 
 -- Stepping demo. Ideally, this demo should be without the first .mov
+
 def p2 : Program := eval% [
   .Label "start",
   .Instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.Int64 1)) ⟩,
