@@ -12,7 +12,7 @@ open Instr Operand Reg
 
 -- Test: Simple instruction
 /--
-info: [Directive.Instr
+info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation := Operation.add ↑(low Reg64.rbx Width.W64) ↑↑(low Reg64.rax Width.W64) }]
 -/
@@ -21,7 +21,7 @@ info: [Directive.Instr
 
 -- Test: Immediate operand
 /--
-info: [Directive.Instr
+info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation := Operation.mov ↑(low Reg64.rax Width.W64) ↑↑42 }]
 -/
@@ -31,7 +31,7 @@ info: [Directive.Instr
 
 -- Test: Memory operand with displacement
 /--
-info: [Directive.Instr
+info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation :=
         Operation.mov ↑(low Reg64.rax Width.W64)
@@ -43,7 +43,7 @@ info: [Directive.Instr
 
 -- Test: Memory operand with index and scale
 /--
-info: [Directive.Instr
+info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation :=
         Operation.mov ↑(low Reg64.rax Width.W64)
@@ -56,8 +56,8 @@ info: [Directive.Instr
 
 -- Test: Labeled instruction
 /--
-info: [Directive.Label "loop",
-  Directive.Instr
+info: [Directive.label "loop",
+  Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation := Operation.add ↑(low Reg64.rcx Width.W64) ↑↑1 }]
 -/
@@ -67,7 +67,7 @@ info: [Directive.Label "loop",
 
 -- Test: Conditional jump
 /--
-info: [Directive.Instr
+info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64, operation := Operation.jcc CondCode.nz "loop" }]
 -/
 #guard_msgs in
@@ -76,17 +76,17 @@ info: [Directive.Instr
 
 -- Test: Multi-line program
 /--
-info: [Directive.Instr
+info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation := Operation.mov ↑(low Reg64.rax Width.W64) ↑↑0 },
-  Directive.Label "loop",
-  Directive.Instr
+  Directive.label "loop",
+  Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation := Operation.add ↑(low Reg64.rax Width.W64) ↑↑1 },
-  Directive.Instr
+  Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation := Operation.cmp ↑(low Reg64.rax Width.W64) ↑↑10 },
-  Directive.Instr
+  Directive.instr
     { address_size := Width.W64, operation_size := Width.W64, operation := Operation.jcc CondCode.nz "loop" }]
 -/
 #guard_msgs in
@@ -100,7 +100,7 @@ loop:
 
 -- Test: Negative immediate
 /--
-info: [Directive.Instr
+info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation := Operation.add ↑(low Reg64.rax Width.W64) ↑↑(-1) }]
 -/
@@ -109,7 +109,7 @@ info: [Directive.Instr
 
 -- Test: Hex immediate
 /--
-info: [Directive.Instr
+info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation := Operation.mov ↑(low Reg64.rax Width.W64) ↑↑255 }]
 -/
@@ -118,7 +118,7 @@ info: [Directive.Instr
 
 -- Test: mulx instruction
 /--
-info: [Directive.Instr
+info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation := Operation.mulx (low Reg64.r10 Width.W64) (low Reg64.r9 Width.W64) ↑(low Reg64.r8 Width.W64) }]
 -/
@@ -127,7 +127,7 @@ info: [Directive.Instr
 
 -- Test: xor for zeroing
 /--
-info: [Directive.Instr
+info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation := Operation.xor ↑(low Reg64.rax Width.W64) ↑↑(low Reg64.rax Width.W64) }]
 -/
@@ -136,7 +136,7 @@ info: [Directive.Instr
 
 -- Test: lea with complex addressing
 /--
-info: [Directive.Instr
+info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation :=
         Operation.lea (low Reg64.rax Width.W64)
