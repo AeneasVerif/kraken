@@ -102,7 +102,10 @@ def run_kraken(path: Path) -> Tuple[Optional[ExecutionState], Optional[str]]:
     try:
         res = subprocess.run([KRAKEN_RUNNER, path], capture_output=True, check=True, timeout=TIMEOUT_SECONDS)
         data = json.loads(res.stdout)
-        return ExecutionState(regs=data["regs"], flags=data["flags"]), None
+        return ExecutionState(
+            # Lean serializes big integers as strings so as not to confuse javascript
+            regs={k: int(v) for k, v in data["regs"].items()},
+            flags=data["flags"]), None
     except subprocess.CalledProcessError as e:
         return None, f"Kraken Error:\n{(e.stderr or b"").decode(errors="replace").strip()}"
     except Exception as e:

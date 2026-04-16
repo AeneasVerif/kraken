@@ -66,7 +66,7 @@ structure Reg64s where
   r13 : UInt64 := 0
   r14 : UInt64 := 0
   r15 : UInt64 := 0
-  deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr
+  deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr, Lean.ToJson
 
 def Reg64s.get64 (s : Reg64s) (r : Reg64) : Width.W64.type := UInt64.toBitVec (match r with
   | .rax => s.rax | .rbx => s.rbx | .rcx => s.rcx | .rdx => s.rdx
@@ -104,7 +104,7 @@ structure StatusFlags where
   zf : Bool
   sf : Bool
   of : Bool
-  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr, Lean.ToJson
 
 abbrev DataMem := Std.ExtHashMap UInt64 UInt64 -- 8-byte-aligned acceses only now
 instance : Repr DataMem where reprPrec _ _ := "<opaque memory>"

@@ -21,28 +21,12 @@ open Lean
 
 -- TODO Add memory, for now we only track registers and flags.
 structure StateSummary where
-  regs : List (String × UInt64)
-  flags : List (String × Bool)
-
--- Custom json serialization for the state summary.
-instance : ToJson StateSummary where
-  toJson s :=
-    let regs := s.regs.map (fun (k, v) => (k, Json.num v.toNat))
-    let flags := s.flags.map (fun (k, v) => (k, toJson v))
-    Json.mkObj [
-      ("regs", Json.mkObj regs),
-      ("flags", Json.mkObj flags)
-    ]
+  regs : Reg64s
+  flags : StatusFlags
+deriving Lean.ToJson
 
 def summarize (s : MachineData) : StateSummary :=
-  let r := s.regs
-  let f := s.status
-  { regs := [("rax", r.rax), ("rbx", r.rbx), ("rcx", r.rcx), ("rdx", r.rdx),
-             ("rsi", r.rsi), ("rdi", r.rdi), ("rbp", r.rbp), ("r8", r.r8),
-             ("r9", r.r9), ("r10", r.r10), ("r11", r.r11), ("r12", r.r12),
-             ("r13", r.r13), ("r14", r.r14), ("r15", r.r15)],
-    flags := [("cf", f.cf), ("pf", f.pf), ("af", f.af),
-              ("zf", f.zf), ("sf", f.sf), ("of", f.of)] }
+  { regs := s.regs, flags := s.status }
 
 abbrev MachineState := MachineData × Int64
 
