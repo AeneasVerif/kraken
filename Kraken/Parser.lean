@@ -857,7 +857,7 @@ instance {T1} : Coe (ParseResult (List T1) (Sigma String.Pos)) (Except String (L
   | .error _ .eof => .ok []
   | .error _ (.other msg) => .error msg
 
-def parse (input: String): Except String Program := do
+def parse (input: String) : Except String Program := do
   let rawLines := (input.splitOn "\n")
   let (_, lines) ← rawLines.foldlM (fun (lineNum, acc) x => do
     match (parseLine ⟨ x, x.startPos ⟩ : Except String (List Directive)) with
@@ -866,10 +866,10 @@ def parse (input: String): Except String Program := do
   ) ((1 : Nat), [])
   pure lines.reverse.flatten
 
-/-- Parse an assembly string, panicking on failure (for use in #eval). -/
-def parse! (input : String) : Program :=
-  match parse input with
-  | .ok prog => prog
-  | .error msg => panic! s!"parse error: {msg}"
+/-- A version of `parse` that runs at compile-time. -/
+elab "parse(" s:str ")" : term => do
+  match parse s.getString with
+  | .ok p => return Lean.toExpr p
+  | .error e => throwErrorAt s e
 
 end Kraken.Parser

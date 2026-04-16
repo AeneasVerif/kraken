@@ -14,7 +14,7 @@ import Kraken.Eval
 
 open Kraken.Parser
 
-def p1 := eval% parse! "start: mov $1, %rax"
+def p1 := parse("start: mov $1, %rax")
 
 theorem Executable.directivesFromStart [layout : Layout] prog :
     (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) :=
@@ -37,10 +37,10 @@ example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.
 
   /- simp [p1,step1,eval1,fetch,Instr.is_ctrl,strt1,eval_operand,eval_imm,set_reg_or_mem,next,MachineState.setReg,Registers.set] -/
 
-def swap : Program := eval% parse! "
+def swap : Program := parse("
   xor %rbx, %rax
   xor %rax, %rbx
-  xor %rbx, %rax"
+  xor %rbx, %rax")
 
 theorem swap_correct [layout : Layout] (d : MachineData) :
       eventually (layout swap)
@@ -71,12 +71,12 @@ def p2 : Program := eval% [
   .Instr ⟨ .W64, .W64, .jcc .nz "start" ⟩,
   .Instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.Int64 2)) ⟩,
 ]
-def p2' : Program := eval% parse! "
+def p2' : Program := parse("
 start:
   mov $1, %rax
   xor %rax, %rax
   jnz start
-  mov $2, %rax"
+  mov $2, %rax")
 
 -- Example 2: stepping through both straightline and control instructions
 example [layout : Layout] (s : MachineData): eventually (layout p2) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
@@ -94,7 +94,7 @@ example [layout : Layout] (s : MachineData): eventually (layout p2) (fun s => s.
   simp (ground:=True)
 
 -- Example 3 commented out until we figure out how to parse concrete syntax.
-/- def p3: Program := parse! "
+/- def p3: Program := parse("
 init:
   mov $2 %rdx             # rdx: current result = 2
 start:
@@ -105,7 +105,7 @@ start:
   jmp start               # go back to test & loop body
 _end:
   nop
-"
+")
 
 def p3_spec (s: MachineState): Nat := 2^(2^s.1.regs.rbx.toNat)
 
