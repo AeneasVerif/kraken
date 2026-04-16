@@ -65,11 +65,11 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
 
 -- Stepping demo. Ideally, this demo should be without the first .mov
 def p2 : Program := eval% [
-  .Label "start",
-  .Instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.Int64 1)) ⟩,
-  .Instr ⟨ .W64, .W64, .xor Reg.rax Reg.rax ⟩,
-  .Instr ⟨ .W64, .W64, .jcc .nz "start" ⟩,
-  .Instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.Int64 2)) ⟩,
+  .label "start",
+  .instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.int64 1)) ⟩,
+  .instr ⟨ .W64, .W64, .xor Reg.rax Reg.rax ⟩,
+  .instr ⟨ .W64, .W64, .jcc .nz "start" ⟩,
+  .instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.int64 2)) ⟩,
 ]
 def p2' : Program := eval% parse! "
 start:

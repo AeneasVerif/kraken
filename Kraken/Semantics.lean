@@ -153,25 +153,25 @@ def MachineData.store {α} [Throw α] (s : MachineData) (addr : BitVec 64) {w : 
 abbrev Label := String
 
 class Labels where label : Label → Int64
-def label [inst: Labels] := inst.label
+export Labels (label)
 
 inductive ConstExpr
-  | Label (_ : Label)
-  | Int64 (_ : Int64)
+  | label (_ : Label)
+  | int64 (_ : Int64)
   | before_current_instruction | after_current_instruction
   | add (_ _ : ConstExpr) | sub (_ _ : ConstExpr)
   -- Careful adding operations here! Need to match overflow behavior of all
   -- assemblers we want compatibility with. We assume oversized literals error;
   -- clang and gcc seem to always use 64-bit arithmetic (MCValue has an int64).
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
-instance : Coe Label ConstExpr where coe := ConstExpr.Label
-instance : Coe Int64 ConstExpr where coe := ConstExpr.Int64
-attribute [coe] ConstExpr.Label
-attribute [coe] ConstExpr.Int64
+instance : Coe Label ConstExpr where coe := .label
+instance : Coe Int64 ConstExpr where coe := .int64
+attribute [coe] ConstExpr.label
+attribute [coe] ConstExpr.int64
 
 def ConstExpr.interp [Labels] : ConstExpr → Std.Rco _root_.Int64 → _root_.Int64
-  | .Label l, _ => label l
-  | .Int64 i, _ => i
+  | .label l, _ => Labels.label l
+  | .int64 i, _ => i
   | .before_current_instruction, r => r.lower
   | .after_current_instruction, r => r.upper
   | .add e1 e2, p => e1.interp p + e2.interp p
@@ -191,7 +191,7 @@ structure AddrIndex where
 structure AddrExpr where
   base : Option RegOrRip
   idx : Option AddrIndex
-  disp : ConstExpr := .Int64 0
+  disp : ConstExpr := .int64 0
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 class AddressSize where address_size : Width
@@ -207,17 +207,17 @@ def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Re
              | .none => 0
   BitVec.ofInt address_size.address_size.bits (base + idx + (a.disp.interp p).toInt)
 
-inductive RegOrMem w | Reg (r : Reg w) | mem (_ : AddrExpr)
+inductive RegOrMem w | reg (r : Reg w) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 instance {w} : Coe AddrExpr (RegOrMem w) where coe := RegOrMem.mem
 attribute [coe] RegOrMem.mem
-instance {w} : Coe (Reg w) (RegOrMem w) where coe := RegOrMem.Reg
-attribute [coe] RegOrMem.Reg
+instance {w} : Coe (Reg w) (RegOrMem w) where coe := .reg
+attribute [coe] RegOrMem.reg
 abbrev Dst := RegOrMem
 
 def RegOrMem.interp {α w} [Labels] [AddressSize] [Throw α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
-  | .Reg r => ret (s.regs.get r)
+  | .reg r => ret (s.regs.get r)
   | .mem a => s.load ((a.interp s.regs p).zeroExtend _) w ret
 
 def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineData :=
@@ -225,21 +225,21 @@ def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineD
 
 def MachineData.set {α w} [Labels] [AddressSize] [Throw α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
   match d with
-  | .Reg r => ret (s.setReg r v)
+  | .reg r => ret (s.setReg r v)
   | .mem a => s.store ((a.interp s.regs p).zeroExtend _) v ret
 
-inductive Operand w | RegOrMem (_ : RegOrMem w) | imm (v : ConstExpr)
+inductive Operand w | regOrMem (_ : RegOrMem w) | imm (v : ConstExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
-instance {w} : Coe (RegOrMem w) (Operand w) where coe := Operand.RegOrMem
-attribute [coe] Operand.RegOrMem
+instance {w} : Coe (RegOrMem w) (Operand w) where coe := .regOrMem
+attribute [coe] Operand.regOrMem
 instance {w} : Coe ConstExpr (Operand w) where coe := Operand.imm
 attribute [coe] Operand.imm
-abbrev Operand.reg {w} (r : Reg w) : Operand w := .RegOrMem (.Reg r)
-abbrev Operand.mem {w} (m : AddrExpr) : Operand w := .RegOrMem (.mem m)
+abbrev Operand.reg {w} (r : Reg w) : Operand w := regOrMem (.reg r)
+abbrev Operand.mem {w} (m : AddrExpr) : Operand w := regOrMem (.mem m)
 
 def Operand.interp {α w} [Labels] [AddressSize] [Throw α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
-  | .RegOrMem rm => rm.interp s p ret
+  | regOrMem rm => rm.interp s p ret
   | .imm v => ret ((v.interp p).toBitVec.truncate _)
   -- we rely on assemblers erroring out on too-large immediates in uniform ops
 
@@ -263,13 +263,13 @@ def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : S
 def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width) : Nat :=
   (c.interp s p).toNat &&& match w with | .W64 => 0x1f | _ => 0x0f -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
 
-inductive RelRegOrMem | Rel (_ : ConstExpr) | Reg (r : Reg .W64) | mem (_ : AddrExpr)
+inductive RelRegOrMem | rel (_ : ConstExpr) | reg (r : Reg .W64) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 def RelRegOrMem.interp {α} [Labels] [AddressSize] [Throw α] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → α) :=
   match o with
-  | .Rel c => ret (p.upper + c.interp p).toBitVec
-  | .Reg r => ret (s.regs.get r)
+  | .rel c => ret (p.upper + c.interp p).toBitVec
+  | .reg r => ret (s.regs.get r)
   | .mem a => s.load ((a.interp s.regs p).zeroExtend _) .W64 ret
 
 inductive Operation (w : Width)
@@ -628,9 +628,9 @@ instance : Repr ByteArray where reprPrec _ _ := "<opaque byte array>"
 
 deriving instance Lean.ToExpr for ByteArray
 inductive Directive
-  | Instr (_ : Instr)
-  | Label (_ : Label)
-  | ByteArray (_ : ByteArray)
+  | instr (_ : Instr)
+  | label (_ : Label)
+  | byteArray (_ : ByteArray)
   deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
 
 def Directive.interp {α} [Undefined Bool α] [Throw α] [Labels]
@@ -638,9 +638,9 @@ def Directive.interp {α} [Undefined Bool α] [Throw α] [Labels]
   (d : Directive) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
   match d with
-  | .Label _ => next s
-  | .Instr i => i.interp s p next jmp
-  | .ByteArray _ => throw s!"Unimplemented: execution reached data block at {p.1}"
+  | .label _ => next s
+  | .instr i => i.interp s p next jmp
+  | .byteArray _ => throw s!"Unimplemented: execution reached data block at {p.1}"
 
 def Directives.interp {α} [Undefined Bool α] [Throw α] [Labels]
   [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α]
@@ -681,11 +681,11 @@ def scanl {α β} (f : β → α → β) (init : β) (as : List α) : List β :=
 end Kraken.Compat
 
 def Executable.withAddresses (e : Executable)  : List (Int64 × Directive × Nat) :=
-  (Kraken.Compat.scanl (fun (p, _, _) (d, z) => (p+.ofNat z, d, z)) (e.1, .ByteArray (.mk #[]), 0) e.2)
+  (Kraken.Compat.scanl (fun (p, _, _) (d, z) => (p+.ofNat z, d, z)) (e.1, .byteArray (.mk #[]), 0) e.2)
 
 def Executable.labels (e : Executable) : Labels :=
   { label l := (e.withAddresses.findSome?
-      (fun (p, d, _) => if d = .Label l then .some p else .none)).getD (-1) }
+      (fun (p, d, _) => if d = .label l then .some p else .none)).getD (-1) }
 
 def Executable.directivesAtAddress (e : Executable) (a : Int64) : List (Directive × Nat) :=
   (e.withAddresses.filter (·.1 = a)).map (·.2)
@@ -694,7 +694,7 @@ def Executable.directivesFromAddress (e : Executable) (a : Int64) : List (Direct
   e.2.drop (((e.withAddresses).map (·.1)).idxOf a)
 
 def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directive × Nat) :=
-  e.2.dropWhile (·.1 != .Label l)
+  e.2.dropWhile (·.1 != .label l)
 
 def Executable.step {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
   [Throw α]
@@ -724,13 +724,13 @@ partial_fixpoint
 
 def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
   match d with
-  | .Label _ => 0
-  | .Instr (.mk _ _ (.nop sz)) => sz -- may be zero
-  | .Instr i => (1 + hash (hashOfProgram, i) % 15).toNat
-  | .ByteArray bs => bs.size
+  | .label _ => 0
+  | .instr (.mk _ _ (.nop sz)) => sz -- may be zero
+  | .instr i => (1 + hash (hashOfProgram, i) % 15).toNat
+  | .byteArray bs => bs.size
 
 def Program.fakeLayout (prog : Program) : Executable :=
-  let : Inhabited Directive := .mk (.ByteArray (.mk #[]))
+  let : Inhabited Directive := .mk (.byteArray (.mk #[]))
   let h := hash prog;
   let layout : Layout := { start := h.toInt64<<<16, size i := prog[i]!.fakeSize h }
   layout prog
@@ -741,10 +741,10 @@ abbrev eval [layout : Layout] (prog : Program) := (layout prog).eval
 #guard_msgs in
 #eval
   let exe := Program.fakeLayout [
-    .Label "main",
-    .Instr (.mk .W64 .W64 (.lea (.low .rax .W64) (.mk .none .none (.Int64 41)))),
-    .Instr (.mk .W64 .W64 (.inc (.Reg (.low .rax .W64)))),
-    .Instr (.mk .W64 .W64 .ret) ]
+    .label "main",
+    .instr (.mk .W64 .W64 (.lea (.low .rax .W64) (.mk .none .none (.int64 41)))),
+    .instr (.mk .W64 .W64 (.inc (.reg (.low .rax .W64)))),
+    .instr (.mk .W64 .W64 .ret) ]
   let start := exe.labels.label "main"
   let data := { dmem := .ofList [(0x100, 0x1337)], regs := {rsp := 0x100} }
   (exe.eval (data, start) (fun (_, pc) => pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)
