@@ -115,10 +115,8 @@ structure MachineData where -- does not include code or program position
   deriving Repr, BEq, DecidableEq
 
 class Throw α where
-  throw: String → α
-
-def throw {α} [inst: Throw α] :=
-  inst.throw
+  throw : String → α
+export Throw (throw)
 
 def Reg.interp {α w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
   ret (s.regs.get r) -- the unused argument is present ^ for uniformity with RegOrMem.interp
@@ -153,7 +151,7 @@ def MachineData.store {α} [Throw α] (s : MachineData) (addr : BitVec 64) {w : 
 abbrev Label := String
 
 class Labels where label : Label → Int64
-def label [inst: Labels] := inst.label
+export Labels (label)
 
 inductive ConstExpr
   | Label (_ : Label)
@@ -195,7 +193,7 @@ structure AddrExpr where
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 class AddressSize where address_size : Width
-def address_size [inst: AddressSize] := inst.address_size
+export AddressSize (address_size)
 
 def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
   let base := match a.base with
@@ -347,7 +345,7 @@ def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) 
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
 
 class Undefined (T R) where undefined : (T → R) → R
-def undefined {T R} [inst: Undefined T R] := inst.undefined
+export Undefined (undefined)
 
 set_option maxHeartbeats 1000000
 def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α]
