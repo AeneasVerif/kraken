@@ -37,29 +37,86 @@ example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.
 
   /- simp [p1,step1,eval1,fetch,Instr.is_ctrl,strt1,eval_operand,eval_imm,set_reg_or_mem,next,MachineState.setReg,Registers.set] -/
 
-def swap : Program := eval% parse! "
-  xor %rbx, %rax
-  xor %rax, %rbx
-  xor %rbx, %rax"
+open Lean Meta Elab Tactic
 
-theorem swap_correct [layout : Layout] (d : MachineData) :
-      eventually (layout swap)
+-- a very simple set function that replaces every occurence of a term in goal with a fresh identifier
+-- i am probably missing a lot of nuances here
+def set_simple (mvarId : MVarId) (t : Expr): MetaM MVarId := do
+  mvarId.withContext do
+    let target ← mvarId.getType
+    let type ← inferType t
+    let lctx ← getLCtx
+    let name := lctx.getUnusedName `x
+
+    let (fvarId, mvarId) ← (← mvarId.define name type t).intro name
+
+    mvarId.withContext do
+      let newTarget := target.replace fun e =>
+        if e == t then some (mkFVar fvarId) else none
+      mvarId.replaceTargetDefEq newTarget
+
+def abstractTailMeta (mvarId : MVarId) (typeName : Expr) : MetaM MVarId := do
+  mvarId.withContext do
+    let target ← mvarId.getType
+
+    let some consExpr := target.find? fun e =>
+      e.isAppOfArity ``List.cons 3 && e.getArg! 0 == typeName
+      | throwError "No non-empty list of type {typeName} found"
+    let tail := consExpr.getArg! 2
+
+    set_simple mvarId tail
+
+elab "set_simple " t:term : tactic => do
+  let mvarId ← getMainGoal
+  let term ← elabTerm t none
+  let newMvarId ← set_simple mvarId term
+  replaceMainGoal [newMvarId]
+
+elab "abstract_tail " t:term : tactic => do
+  let mvarId ← getMainGoal
+  let targetType ← elabTerm t none
+  let newMvarId ← abstractTailMeta mvarId targetType
+  replaceMainGoal [newMvarId]
+
+def swap : Program := eval% parse! "
+    xor %rbx, %rax
+    xor %rax, %rbx
+    xor %rbx, %rax"
+
+theorem swap_correct [layout : Layout] (s : MachineData) :
+      Executable.straightline (layout swap) (s, layout.start)
       (fun s' =>
-          s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
-          s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
-      (d, layout.start) := by
-  dsimp [swap]
-  apply step_cps
-  dsimp only [step1, Executable.straightline, Directives.interp]
+          s'.1.regs.get Reg.rax = s.regs.get Reg.rbx ∧
+          s'.1.regs.get Reg.rbx = s.regs.get Reg.rax)
+      := by
+  -- Necessary starting work to unfold the layout and move to the start.
+  set_simple s
+  cases s with | mk regs flags mem =>
+  cases regs with | mk rax =>
+  delta swap
+  dsimp only [Executable.straightline, Directives.interp]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx, List.mapIdx.go]
-  -- TODO It would be nice to progress instruction by instruction instead of all at once, like below.
-  dsimp only [Directives.interp, Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp]
-  dsimp [MachineData.set, MachineData.setReg, Reg64s.set, Reg64s.set64]
-  intros _af1 _af2 _af3
-  apply eventually.done
-  simp (ground:=True)
-  dsimp only [Reg64s.get, Reg64s.get64, Reg.base, Reg.offset]
+
+  -- step 1
+  abstract_tail (Directive × Nat)
+  dsimp (zeta:=false) [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,ConstExpr.interp,RegOrMem.interp,Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits]
+  intro v1 af1 status1
+  dsimp [x_1]; clear x_1
+
+  -- step 2
+  abstract_tail (Directive × Nat)
+  dsimp (zeta:=false) [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,ConstExpr.interp,RegOrMem.interp,Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits]
+  intro v2 af2 status2
+  dsimp [x_1]; clear x_1
+
+  -- step 3
+  dsimp (zeta:=false) [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,ConstExpr.interp,RegOrMem.interp,Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits]
+  intro v3 af3
+
+  -- postcondition
+  dsimp [v1,v2,v3]
+  dsimp [MachineData.setReg, Reg64s.set, Reg64s.set64,  Reg64s.get64]
   dsimp only [BitVec.drop, BitVec.take, Width.bits]
   bv_decide
 
