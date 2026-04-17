@@ -488,15 +488,13 @@ def parseInstr : Parser Instr := do
 
   | "imul" =>
     let src1 ← parseOperand; parseComma;
-    (do
+    (attempt do
       let src2 ← parseRegOrMem; parseComma
       let ⟨ w, src2, dst ⟩ ← ascribeOrInfer src2 parseReg
-      let src1 ← match src1 with
-        | ⟨ .none, src1 ⟩ => pure src1
-        | ⟨ .some w1, src1 ⟩ => if h: w1 = w then pure (h ▸ src1) else fail "type mismatch in imul"
-      pure ⟨ .W64, w, .imul (.some dst) src2 src1 ⟩
-    ) <|> (do
-      let ⟨ w, src1, src2 ⟩ ← ascribeOrInfer src1 parseRegOrMem; parseComma
+      let src1 ← ascribe w src1
+      pure ⟨ .W64, w, .imul (.some dst) src2 src1 ⟩)
+    <|> (do
+      let ⟨ w, src1, src2 ⟩ ← ascribeOrInfer src1 parseRegOrMem
       pure ⟨ .W64, w, .imul .none src2 src1 ⟩
     )
 
