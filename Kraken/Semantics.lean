@@ -347,8 +347,8 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
   | .pop dst =>
     let rsp := s.regs.get64 .rsp
     s.load rsp w (fun val =>
-    s.set dst val p (fun s =>
-    next { s with regs := s.regs.set64 .rsp (rsp + w.bytesv) }))
+    let s := { s with regs := s.regs.set64 .rsp (rsp + w.bytesv) }
+    s.set dst val p next)
   | .setcc cc dst =>
     s.set dst (cc.interp s.status) p next
   | .cmovcc cc dst src =>
