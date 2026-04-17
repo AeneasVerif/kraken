@@ -6,12 +6,14 @@ import struct
 import subprocess
 import sys
 import tempfile
+import difflib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-SCRIPT_DIR = Path(__file__).resolve().parent.parent.parent
-KRAKEN_RUNNER = SCRIPT_DIR / ".lake/build/bin/krakenrunner"
+BIN_DIR = Path(__file__).resolve().parent.parent.parent / ".lake/build/bin"
+KRAKEN_RUNNER = BIN_DIR / "krakenrunner"
+ATT2INTEL = BIN_DIR / "att2intel"
 
 REGS = ["rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rsp", "rbp",
         "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"]
@@ -22,6 +24,7 @@ TIMEOUT_SECONDS = 50
 class Color:
     GREEN = "\033[92m"
     RED = "\033[91m"
+    CYAN = "\033[96m"
     BOLD = "\033[1m"
     RESET = "\033[0m"
 
@@ -97,7 +100,6 @@ def run_real_x86(asm_path: Path) -> Tuple[Optional[ExecutionState], Optional[str
             prologue_len = full_source.split("# --- Test Code Start ---")[0].count("\n") + 1
             line_nr_adjusted_err = re.sub(r":(\d+):", lambda m: f":{int(m.group(1)) - prologue_len}:", err)
             return None, f"x86 Error ({e.cmd[0]}):\n{line_nr_adjusted_err}"
-
 def run_kraken(path: Path) -> Tuple[Optional[ExecutionState], Optional[str]]:
     try:
         res = subprocess.run([KRAKEN_RUNNER, path], capture_output=True, check=True, timeout=TIMEOUT_SECONDS)
@@ -133,8 +135,82 @@ def compare_states(real: ExecutionState, kraken: ExecutionState, undefined_flags
             diffs.append(f"flag {f}: x86={real.flags[f]} | kraken={kraken.flags[f]}")
     return diffs
 
+
+def assembled_text(src_path: Path, tmp_dir: Path) -> Tuple[Path, bytes]:
+    obj_path = tmp_dir / f"{src_path.stem}.o"
+    bin_path = tmp_dir / f"{src_path.stem}.bin"
+    try:
+        subprocess.run(['as', "-o", str(obj_path), str(src_path)],
+                       capture_output=True, check=True)
+        subprocess.run(["objcopy", "-O", "binary", "-j", ".text", str(obj_path), str(bin_path)],
+                       capture_output=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Subprocess failed: {' '.join(str(x) for x in e.cmd)}", file=sys.stderr)
+        err_msg = e.stderr.decode().strip() if isinstance(e.stderr, bytes) else (e.stderr or "")
+        print(f"Error: {err_msg}", file=sys.stderr)
+        raise
+    return obj_path, bin_path.read_bytes()
+
+def disassemble(obj_path: Path) -> List[str]:
+    try:
+        res = subprocess.run(["objdump", "-d", str(obj_path)],
+                             capture_output=True, check=True, text=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Subprocess failed: {' '.join(str(x) for x in e.cmd)}", file=sys.stderr)
+        print(f"Error: {e.stderr}", file=sys.stderr)
+        raise
+    return res.stdout.splitlines()
+
+def colorize_diff(diff_lines: List[str]) -> List[str]:
+    colored = []
+    for line in diff_lines:
+        if line.startswith('---') or line.startswith('+++'):
+            colored.append(f"{Color.BOLD}{line}{Color.RESET}")
+        elif line.startswith('-'):
+            colored.append(f"{Color.RED}{line}{Color.RESET}")
+        elif line.startswith('+'):
+            colored.append(f"{Color.GREEN}{line}{Color.RESET}")
+        elif line.startswith('@@'):
+            colored.append(f"{Color.CYAN}{line}{Color.RESET}")
+        else:
+            colored.append(line)
+    return colored
+
+def test_roundtrip(asm_path: Path) -> Tuple[bool, str]:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+        intel_src = tmp_dir / f"{asm_path.stem}.intel.S"
+
+        try:
+            with open(intel_src, "w") as f:
+                subprocess.run([ATT2INTEL, asm_path],
+                               stdout=f, stderr=subprocess.PIPE, check=True)
+        except subprocess.CalledProcessError as e:
+            err_msg = e.stderr.decode().strip() if isinstance(e.stderr, bytes) else (e.stderr or "")
+            return False, f"att2intel failed: {' '.join(str(x) for x in e.cmd)}\n{err_msg}"
+
+        try:
+            orig_obj, orig_bytes = assembled_text(asm_path, tmp_dir)
+            intel_obj, intel_bytes = assembled_text(intel_src, tmp_dir)
+            if orig_bytes != intel_bytes:
+                diff = difflib.unified_diff(
+                    disassemble(orig_obj), disassemble(intel_obj),
+                    fromfile="AT&T", tofile="Intel", lineterm=""
+                )
+                colored = colorize_diff(diff)
+                return False, f"Roundtrip mismatch:\n" + "\n".join(colored)
+        except subprocess.CalledProcessError as e:
+            err_msg = e.stderr.decode().strip() if isinstance(e.stderr, bytes) else (e.stderr or "")
+            return False, f"assembler failed: {' '.join(str(x) for x in e.cmd)}\n{err_msg}"
+    return True, ""
+
 def test_file(path: Path) -> Tuple[bool, str]:
-    print(f"{path.name:50}", end="")
+    print(f"{path.name:50}", end="", flush=True)
+
+    roundtrip_success, roundtrip_err = test_roundtrip(path)
+    if not roundtrip_success:
+        print(f"[{Color.RED}ROUNDTRIP FAIL{Color.RESET}]")
+        return False, roundtrip_err
 
     real, real_err = run_real_x86(path)
     kraken, kraken_err = run_kraken(path)
@@ -157,6 +233,12 @@ if __name__ == "__main__":
         print(f"{Color.RED}Error: Kraken runner not found at {KRAKEN_RUNNER}{Color.RESET}")
         print(f"\nTo build it, run the following from the project root:")
         print(f"  {Color.GREEN}lake build krakenrunner{Color.RESET}\n")
+        sys.exit(1)
+
+    if not ATT2INTEL.exists():
+        print(f"{Color.RED}Error: att2intel not found at {ATT2INTEL}{Color.RESET}")
+        print(f"\nTo build it, run the following from the project root:")
+        print(f"  {Color.GREEN}lake build att2intel{Color.RESET}\n")
         sys.exit(1)
 
     if len(sys.argv) < 2:
