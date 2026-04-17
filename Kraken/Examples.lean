@@ -43,7 +43,7 @@ def swap : Program := parse("
   xor %rbx, %rax")
 
 theorem swap_correct [layout : Layout] (d : MachineData) :
-      eventually (layout swap)
+      Eventually (layout swap)
       (fun s' =>
           s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
           s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
@@ -57,7 +57,7 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
   dsimp only [Directives.interp, Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp]
   dsimp [MachineData.set, MachineData.setReg, Reg64s.set, Reg64s.set64]
   intros _af1 _af2 _af3
-  apply eventually.done
+  apply Eventually.done
   simp (ground:=True)
   dsimp only [Reg64s.get, Reg64s.get64, Reg.base, Reg.offset]
   dsimp only [BitVec.drop, BitVec.take, Width.bits]
@@ -79,7 +79,7 @@ start:
   mov $2, %rax")
 
 -- Example 2: stepping through both straightline and control instructions
-example [layout : Layout] (s : MachineData): eventually (layout p2) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
+example [layout : Layout] (s : MachineData): Eventually (layout p2) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
   dsimp [p2]
   apply step_cps
   dsimp only [step1,Executable.straightline]
@@ -90,7 +90,7 @@ example [layout : Layout] (s : MachineData): eventually (layout p2) (fun s => s.
   simp only [Int64.toBitVec_ofNat, BitVec.ofNat_eq_ofNat, BitVec.truncate_eq_setWidth, BitVec.xor_self, BitVec.zero_eq,
     BEq.rfl, Bool.not_true, Bool.false_eq_true, ↓reduceIte, BitVec.setWidth_zero, BitVec.msb_zero]
   dsimp [undefined,Undefined.undefined]; intros _af
-  apply eventually.done
+  apply Eventually.done
   simp (ground:=True)
 
 -- Example 3 commented out until we figure out how to parse concrete syntax.
