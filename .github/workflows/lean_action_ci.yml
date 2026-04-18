@@ -20,4 +20,5 @@ jobs:
       - uses: actions/checkout@v5
       - uses: leanprover/lean-action@v1
       - run: lake build krakenrunner
+      - run: bash tool/get-sde.sh # ubuntu sh is out of date, use bash
       - run: python3 Kraken/Test/asm_tests.py Kraken/Test/asm
