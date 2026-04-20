@@ -25,47 +25,47 @@ instance (T: Type): Undefined T Prop where
 def step1 [Layout] (p: Executable) (s: MachineState) (post: Post) :=
   Executable.straightline p s post
 
-inductive eventually [Layout] (prog: Executable) (p: MachineState → Prop): MachineState -> Prop
+inductive Eventually [Layout] (prog: Executable) (p: MachineState → Prop): MachineState -> Prop
   | done (initial: MachineState):
       p initial →
-      eventually _ p initial
+      Eventually _ p initial
   | step (initial: MachineState):
       (mid_p: Post) ->
       step1 prog initial mid_p →
-      (forall (mid: MachineState), mid_p mid → eventually _ p mid) →
-      eventually _ p initial
+      (forall (mid: MachineState), mid_p mid → Eventually _ p mid) →
+      Eventually _ p initial
 
 -- THEOREMS
 
 theorem step_cps {p : Executable} [Layout] (post: Post) (initial: MachineState):
-  step1 p initial (fun mid => eventually p post mid) → eventually p post initial :=
+  step1 p initial (fun mid => Eventually p post mid) → Eventually p post initial :=
   by
     intro
-    apply eventually.step
+    apply Eventually.step
     <;> try assumption
     grind
 
 theorem eventually_trans [Layout] (program: Executable) (p q: Post) (initial: MachineState)
-  (e: eventually program p initial)
-  (h: forall s, p s → eventually program q s):
-    eventually program q initial
+  (e: Eventually program p initial)
+  (h: forall s, p s → Eventually program q s):
+    Eventually program q initial
   := by
     induction e with
     | done =>
         grind
     | step initial mid_p step pred ind_h =>
-        apply eventually.step
+        apply Eventually.step
         <;> assumption -- Q: why does `grind` not work here?
 
 theorem eventually_weaken [Layout] (program: Executable) (p q: Post) (initial: MachineState)
   (h: forall s, p s → q s):
-    eventually program p initial → eventually program q initial
+    Eventually program p initial → Eventually program q initial
   := by
     intro hp
     induction ih: hp -- Q: why does this not work with `induction ... with`?
-    . apply eventually.done
+    . apply Eventually.done
       grind
-    . apply eventually.step
+    . apply Eventually.step
       <;> try assumption
       grind
 
@@ -75,11 +75,11 @@ theorem reg_dec_loop [Layout] (prog: Executable) (post: Post) (initial: MachineS
   -- invariant holds before entering the loop
   invariant n initial ∧
   -- final iteration allows proving `post`
-  (forall state, invariant 0 state → eventually prog post state) ∧
+  (forall state, invariant 0 state → Eventually prog post state) ∧
   -- while iterating, we eventually re-establish the invariant
-  (forall state k, k ≠ 0 → invariant k state → eventually prog (invariant (k - 1)) state) →
+  (forall state k, k ≠ 0 → invariant k state → Eventually prog (invariant (k - 1)) state) →
   -- then: we can prove the post
-  eventually prog post initial
+  Eventually prog post initial
   := by
     intro misc
     rcases misc with ⟨ initial_invariant, case_zero, case_nonzero ⟩
