@@ -242,7 +242,7 @@ def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : S
   | .cl => s.regs.rcx.toBitVec.take 8
   | .imm8 v => (v.interp p).toBitVec.truncate _
 def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width) : Nat :=
-  (c.interp s p).toNat &&& match w with | .W64 => 0x1f | _ => 0x0f -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
+  (c.interp s p).toNat &&& match w with | .W64 => 0x3f | _ => 0x1f -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
 
 inductive RelRegOrMem | Rel (_ : ConstExpr) | Reg (r : Reg .W64) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
