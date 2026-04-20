@@ -115,40 +115,21 @@ structure MachineData where -- does not include code or program position
   deriving Repr, BEq, DecidableEq
 
 class Throw α where
-  throw: String → α
-
-def throw {α} [inst: Throw α] :=
-  inst.throw
+  throw : String → α
+export Throw (throw)
 
 def Reg.interp {α w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
   ret (s.regs.get r) -- the unused argument is present ^ for uniformity with RegOrMem.interp
 
-def MachineData.loadOpt {α} [Throw α] (s : MachineData) (addr : BitVec 64) (ret : Option UInt64 → α): α :=
-  if addr % 8 != 0 then
-    throw (s!"Unimplemented: only 8-byte-aligned memory access is supported")
-  else
-    ret (s.dmem[UInt64.ofBitVec addr]?)
-
 def MachineData.load {α} [Throw α] (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → α): α :=
-    loadOpt s addr (fun v =>
-    match v with
-    | .some v => ret (v.toBitVec.truncate _)
-    | .none => throw (s!"Memory accessed but not mapped (addr={repr addr})"))
+  if addr % 8 != 0 then throw (s!"Unimplemented: only 8-byte-aligned memory access is supported")
+  else match s.dmem[UInt64.ofBitVec addr]? with
+  | .some v => ret (v.toBitVec.truncate _)
+  | .none => throw (s!"Memory accessed but not mapped (addr={repr addr})")
 
 def MachineData.store {α} [Throw α] (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → α) : α :=
-    s.loadOpt addr (fun old =>
-    match old with
-    | .some old =>
-      ret { s with dmem := s.dmem.insert (.ofBitVec addr) (.ofBitVec (old.toBitVec.replaceLow v)) }
-    | .none =>
-      if h: w = .W64 then
-        -- We know how to perform full writes even though there is not previous
-        -- value
-        have : w.type = BitVec 64 := by simp [h,Width.type,Width.bits]
-        ret { s with dmem := s.dmem.insert (.ofBitVec addr) (UInt64.ofBitVec (this ▸ v)) }
-      else
-        throw (s!"Cannot perform a partial write at {addr} because there is no previous value")
-  )
+  s.load addr .W64 (fun old =>
+  ret { s with dmem := s.dmem.insert (.ofBitVec addr) (.ofBitVec (old.replaceLow v)) })
 
 abbrev Label := String
 
@@ -195,7 +176,7 @@ structure AddrExpr where
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 class AddressSize where address_size : Width
-def address_size [inst: AddressSize] := inst.address_size
+export AddressSize (address_size)
 
 def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
   let base := match a.base with
@@ -261,7 +242,7 @@ def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : S
   | .cl => s.regs.rcx.toBitVec.take 8
   | .imm8 v => (v.interp p).toBitVec.truncate _
 def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width) : Nat :=
-  (c.interp s p).toNat &&& match w with | .W64 => 0x1f | _ => 0x0f -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
+  (c.interp s p).toNat &&& match w with | .W64 => 0x3f | _ => 0x1f -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
 
 inductive RelRegOrMem | rel (_ : ConstExpr) | reg (r : Reg .W64) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
@@ -347,7 +328,7 @@ def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) 
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
 
 class Undefined (T R) where undefined : (T → R) → R
-def undefined {T R} [inst: Undefined T R] := inst.undefined
+export Undefined (undefined)
 
 set_option maxHeartbeats 1000000
 def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α]

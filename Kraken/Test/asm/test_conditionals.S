@@ -24,12 +24,6 @@ movq $0, %rsi
 setnc %sil                       # sil = 1 (CF not set after last addq)
 # Expected: rsi = 1
 
-# ----- PUSH / POP -----
-movq $0x1234567890ABCDEF, %rdi
-push %rdi
-pop %r8
-# Expected: r8 = 0x1234567890ABCDEF
-
 # Initialize remaining registers
 movq $300, %r9
 movq $400, %r10

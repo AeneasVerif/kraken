@@ -160,7 +160,7 @@ if __name__ == "__main__":
         sys.exit(1)
         
     target = Path(sys.argv[1]).resolve()
-    files = sorted(target.glob("*.S")) if target.is_dir() else ([target] if target.exists() else [])
+    files = sorted(target.rglob("*.S")) if target.is_dir() else ([target] if target.exists() else [])
     
     if not files:
         print(f"Error: No .S files found at {target}")

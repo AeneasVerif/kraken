@@ -19,7 +19,7 @@ import Lean.Data.Json
 
 open Lean
 
--- TODO Add memory, for now we only track registers and flags.
+-- TODO Add memory, for now we only track and compare registers and flags.
 structure StateSummary where
   regs : List (String × UInt64)
   flags : List (String × Bool)
@@ -49,13 +49,18 @@ abbrev MachineState := MachineData × Int64
 def _start: String := "_start"
 def _end: String := "_end"
 
+-- Give the program a stack of 100B initially.
+def stackSize := 100
+def initStack : List (UInt64 × UInt64) :=
+  (List.range stackSize).map (λ i => (0xfffffffffffffff8 - (i.toUInt64 * 8), 0))
+
 def finishCriterion (p: Program) (s: MachineState): Bool :=
   s.2 = p.fakeLayout.labels.label _end
 
 def runKraken (asmCode : String)
     : Except String MachineState := do
   let prog ← Kraken.Parser.parse (_start ++ ":" ++ asmCode ++ "\n" ++ _end ++ ":")
-  let initState: MachineState := ({}, prog.fakeLayout.labels.label _start)
+  let initState: MachineState := ({dmem := .ofList initStack}, prog.fakeLayout.labels.label _start)
   prog.fakeLayout.eval initState (finishCriterion prog)
 
 def main (args : List String) : IO UInt32 := do
