@@ -29,7 +29,6 @@ example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.
   dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp]
   dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp]
   simp (ground:=True)
-  simp
 
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
   /- simp [MachineData.setReg,Reg64s.set,Reg64s.set64,ConstExpr.interp] -/
