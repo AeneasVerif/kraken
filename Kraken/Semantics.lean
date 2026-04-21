@@ -15,6 +15,8 @@ def BitVec.take {w} (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
 def BitVec.drop {w} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
 def BitVec.replaceLow {w n} (old : BitVec w) (new : BitVec n) : BitVec w :=
   (BitVec.append (old.drop n) new).setWidth _
+def BitVec.replace {w1} (old : BitVec w1) (i : Nat) {w2} (new : BitVec w2) : BitVec w1 :=
+  (old.extractLsb' (i + w2) (w1 - w2 - i) ++ new ++ old.extractLsb' 0 i).setWidth _
 
 inductive Width | W8 | W16 | W32 | W64 deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
@@ -108,7 +110,7 @@ structure StatusFlags where
   of : Bool
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-abbrev DataMem := Std.ExtHashMap UInt64 UInt64 -- 8-byte-aligned acceses only now
+abbrev DataMem := Std.ExtHashMap UInt64 UInt64
 instance : Repr DataMem where reprPrec _ _ := "<opaque memory>"
 structure MachineData where -- does not include code or program position
   regs : Reg64s := {}
@@ -120,18 +122,45 @@ class Throw α where
   throw : String → α
 export Throw (throw)
 
+-- TODO how can nonmem_store communicate how custom OS/system state not part of MachineData
+-- should be updated?
+-- TODO and what if nonmem_load has side effects (e.g. acknowledging that we've seen a flag update)
+class NonmemAccess α where
+  nonmem_load (addr : BitVec 64) (w : Width) (ret : w.type → α): α
+  nonmem_store (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → α) : α
+export NonmemAccess (nonmem_load nonmem_store)
+
+class Permissions where
+  -- TODO do we prefer unifying these into one function, at the cost of introducing an
+  -- inductive Access = R | W | X ?
+  -- However, note that instruction sizes can be much wider and less aligned than data
+  can_read (addr : BitVec 64) (w : Width) : Bool
+  can_write (addr : BitVec 64) (w : Width) : Bool
+  can_exec (p: Std.Rco Int64) : Bool
+export Permissions (can_read can_write can_exec)
+
 def Reg.interp {α w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
   ret (s.regs.get r) -- the unused argument is present ^ for uniformity with RegOrMem.interp
 
-def MachineData.load {α} [Throw α] (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → α): α :=
-  if addr % 8 != 0 then throw (s!"Unimplemented: only 8-byte-aligned memory access is supported")
-  else match s.dmem[UInt64.ofBitVec addr]? with
-  | .some v => ret (v.toBitVec.take _)
-  | .none => throw (s!"Memory accessed but not mapped (addr={repr addr})")
+def MachineData.load {α} [Throw α] [Permissions] [NonmemAccess α]
+    (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → α): α :=
+  if addr % w.bytesv != 0 then throw s!"Unimplemented: only aligned memory access is supported"
+  else if !can_read addr w then throw s!"Memory read of {repr w} not allowed at address {repr addr}"
+  else let key := UInt64.ofBitVec (addr &&& ~~~0b111#64)
+  match s.dmem[key]? with
+  | .some v => ret (v.toBitVec.extractLsb' ((addr &&& 0b111#64) * 8#64).toNat w.bits)
+  | .none => nonmem_load addr w ret
 
-def MachineData.store {α} [Throw α] (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → α) : α :=
-  s.load addr .W64 (fun old =>
-  ret { s with dmem := s.dmem.insert (.ofBitVec addr) (.ofBitVec (old.replaceLow v)) })
+def MachineData.store {α} [Throw α] [Permissions] [NonmemAccess α]
+    (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → α) : α :=
+  if addr % w.bytesv != 0 then throw s!"Unimplemented: only aligned memory access is supported"
+  else if !can_write addr w then throw s!"Memory write of {repr w} not allowed at address {repr addr}"
+  else let key := UInt64.ofBitVec (addr &&& ~~~0b111#64)
+  match s.dmem[key]? with
+  | .some old =>
+      let new := UInt64.ofBitVec (old.toBitVec.replace ((addr &&& 0b111#64) * 8#64).toNat v)
+      ret { s with dmem := s.dmem.insert key new }
+  | .none => nonmem_store addr v ret
 
 abbrev Label := String
 
@@ -198,7 +227,7 @@ instance {w} : Coe (Reg w) (RegOrMem w) where coe := .reg
 attribute [coe] RegOrMem.reg
 abbrev Dst := RegOrMem
 
-def RegOrMem.interp {α w} [Labels] [AddressSize] [Throw α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
+def RegOrMem.interp {α w} [Labels] [AddressSize] [Throw α] [Permissions] [NonmemAccess α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
   | .reg r => ret (s.regs.get r)
   | .mem a => s.load ((a.interp s.regs p).zeroExtend _) w ret
@@ -206,7 +235,7 @@ def RegOrMem.interp {α w} [Labels] [AddressSize] [Throw α] (o : RegOrMem w) (s
 def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
 
-def MachineData.set {α w} [Labels] [AddressSize] [Throw α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
+def MachineData.set {α w} [Labels] [AddressSize] [Throw α] [Permissions] [NonmemAccess α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
   match d with
   | .reg r => ret (s.setReg r v)
   | .mem a => s.store ((a.interp s.regs p).zeroExtend _) v ret
@@ -220,7 +249,7 @@ attribute [coe] Operand.imm
 abbrev Operand.reg {w} (r : Reg w) : Operand w := regOrMem (.reg r)
 abbrev Operand.mem {w} (m : AddrExpr) : Operand w := regOrMem (.mem m)
 
-def Operand.interp {α w} [Labels] [AddressSize] [Throw α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
+def Operand.interp {α w} [Labels] [AddressSize] [Throw α] [Permissions] [NonmemAccess α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
   | .regOrMem rm => rm.interp s p ret
   | .imm v => ret ((v.interp p).toBitVec.take _)
@@ -249,7 +278,7 @@ def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) 
 inductive RelRegOrMem | rel (_ : ConstExpr) | reg (r : Reg .W64) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-def RelRegOrMem.interp {α} [Labels] [AddressSize] [Throw α] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → α) :=
+def RelRegOrMem.interp {α} [Labels] [AddressSize] [Throw α] [Permissions] [NonmemAccess α] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → α) :=
   match o with
   | .rel c => ret (p.upper + c.interp p).toBitVec
   | .reg r => ret (s.regs.get r)
@@ -336,6 +365,7 @@ export Undefined (undefined)
 
 set_option maxHeartbeats 1000000
 def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α]
+  [Permissions] [NonmemAccess α]
   [Labels] [address_size : AddressSize] {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
   (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
   match (generalizing := false) (motive := Operation w → α) i with
@@ -621,10 +651,13 @@ structure Instr where
   operation : Operation operation_size
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
-def Instr.interp {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Labels]
+def Instr.interp {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Permissions] [NonmemAccess α] [Labels]
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
-  Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next jmp
+  -- TODO where should we do this check?
+  if can_exec p
+  then Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next jmp
+  else throw s!"No exec permissions at {repr p.lower}..{repr p.upper}"
 
 instance : Repr ByteArray where reprPrec _ _ := "<opaque byte array>"
 
@@ -635,7 +668,7 @@ inductive Directive
   | byteArray (_ : ByteArray)
   deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
 
-def Directive.interp {α} [Undefined Bool α] [Throw α] [Labels]
+def Directive.interp {α} [Undefined Bool α] [Throw α] [Permissions] [NonmemAccess α] [Labels]
   [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α]
   (d : Directive) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
@@ -644,7 +677,7 @@ def Directive.interp {α} [Undefined Bool α] [Throw α] [Labels]
   | .instr i => i.interp s p next jmp
   | .byteArray _ => throw s!"Unimplemented: execution reached data block at {p.1}"
 
-def Directives.interp {α} [Undefined Bool α] [Throw α] [Labels]
+def Directives.interp {α} [Undefined Bool α] [Throw α] [Permissions] [NonmemAccess α] [Labels]
   [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α]
   (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
   (ret : Int64 → MachineData → α) : α :=
@@ -699,13 +732,13 @@ def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directiv
   e.2.dropWhile (·.1 != .label l)
 
 def Executable.step {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
-  [Throw α]
+  [Throw α] [Permissions] [NonmemAccess α]
   (e : Executable) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
   let := e.labels
   Directives.interp (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
 def Executable.straightline {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
-  [Throw α]
+  [Throw α] [Permissions] [NonmemAccess α]
   (e : Executable) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
   let := e.labels;
   Directives.interp (e.directivesFromAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
@@ -716,6 +749,17 @@ def Executable.eval (e : Executable) (s : MachineData × Int64) (until_ : Machin
   if until_ s then .ok s else
   let α := Except String (MachineData × Int64)
   let : Throw α := { throw s := .error s }
+  let : Permissions := {
+    can_read (addr : BitVec 64) (w : Width) := true
+    can_write (addr : BitVec 64) (w : Width) := true
+    can_exec (p: Std.Rco Int64) := true
+  }
+  let : NonmemAccess α := {
+    nonmem_load (addr : BitVec 64) (w : Width) ret :=
+      Except.error s!"Load at unmapped address {repr addr}"
+    nonmem_store (addr : BitVec 64) {w : Width} (v : w.type) ret :=
+      Except.error s!"Store at unmapped address {repr addr}"
+  }
   let : Undefined Bool α := { undefined ret := ret (hash s.1.regs % 2 != 0) }
   let : Undefined StatusFlags α := { undefined ret := let h := (hash s.1.regs).toBitVec; ret (.mk h[0] h[1] h[2] h[3] h[4] h[5]) }
   let (w : Width) : Undefined w.type α := { undefined ret := ret ((hash s.1.regs).toBitVec.setWidth w.bits) }

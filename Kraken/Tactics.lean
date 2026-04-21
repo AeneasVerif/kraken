@@ -22,6 +22,15 @@ instance : Throw Prop where
 instance (T: Type): Undefined T Prop where
   undefined ret := ∀ (v: T), ret v
 
+instance : Permissions where
+  can_read (_addr : BitVec 64) (_w : Width) := true
+  can_write (_addr : BitVec 64) (_w : Width) := true
+  can_exec (_p: Std.Rco Int64) := true
+
+instance : NonmemAccess Prop where
+  nonmem_load (_addr : BitVec 64) (_w : Width) _ret := False
+  nonmem_store (_addr : BitVec 64) {w : Width} (_v : w.type) _ret := False
+
 def step1 [Layout] (p: Executable) (s: MachineState) (post: Post) :=
   Executable.straightline p s post
 
