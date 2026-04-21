@@ -163,20 +163,20 @@ def parseInt64 : Parser ConstExpr := do
     Int64.ofInt (v - 18446744073709551616)
   else
     Int64.ofInt v
-  pure (.Int64 i64)
+  pure (.int64 i64)
 
 -- parseName allows for dots
 def parseLabelRaw : Parser Label := parseName
 
 def parseLabel : Parser ConstExpr := do
   let n ← parseLabelRaw
-  pure (.Label n)
+  pure (.label n)
 
 /-- Parse a memory operand (a.k.a. "address expression"): disp(%base), (%base,%idx,scale), etc. -/
 def parseMemory : Parser AddrExpr := do
   skipHWs
   -- Optional displacement; TODO: parse ConstExpr generally
-  let disp ← (do let i ← parseInt; pure (.Int64 (Int64.ofInt i))) <|> parseLabel <|> pure (.Int64 0)
+  let disp ← (do let i ← parseInt; pure (.int64 (Int64.ofInt i))) <|> parseLabel <|> pure (.int64 0)
   skipHWs
   let _ ← pchar '('
 
@@ -253,7 +253,7 @@ def parseRegOrMem: Parser (MaybeTyped RegOrMem) := do
   let c ← peek!
   if c == '%' then
     let ⟨ w, r ⟩ ← parseRegW
-    pure ⟨ .some w, (.Reg r) ⟩
+    pure ⟨ .some w, .reg r ⟩
   else if c == '(' || c == '-' || c.isDigit then
     let m ← parseMemory
     pure ⟨ .none, .mem m ⟩
@@ -265,7 +265,7 @@ def parseRelRegOrMem: Parser RelRegOrMem := do
   (do
     let ⟨ w, r ⟩ ← parseRegW
     if h: w = .W64 then
-      pure (.Reg (h ▸ r))
+      pure (.reg (h ▸ r))
     else
       fail "expected a 64-bit register in relative addressing position"
   ) <|> (do
@@ -273,7 +273,7 @@ def parseRelRegOrMem: Parser RelRegOrMem := do
     -- assume that all jumps are relative, in that this seems to be the behavior
     -- of the assembler
     let e ← parseLabel
-    pure (.Rel (.sub e .after_current_instruction))
+    pure (.rel (.sub e .after_current_instruction))
   ) <|> (do
     let m ← parseMemory
     pure (.mem m)
@@ -318,7 +318,7 @@ def parseComma : Parser Unit := do
 
 /-- Try to parse a shift count followed by a comma; if that fails, default to 1. -/
 def parseOptionalShiftAndComma : Parser ShiftCountExpr :=
-  (attempt do let cnt ← parseShiftExpr; parseComma; pure cnt) <|> pure (.imm8 (.Int64 1))
+  (attempt do let cnt ← parseShiftExpr; parseComma; pure cnt) <|> pure (.imm8 (.int64 1))
 
 def ascribe {T: Width → Type} (w: Width) (v: MaybeTyped T): Parser (T w) := do
   match v with
@@ -545,13 +545,13 @@ def parseInstr : Parser Instr := do
     -- Must be a register otherwise lacking type info
     let ⟨ _w_src, src ⟩ ← parseRegW
     let ⟨ w_dst, dst ⟩ ← parseRegW
-    pure ⟨ .W64, w_dst, .movsx dst (.Reg src) ⟩
+    pure ⟨ .W64, w_dst, .movsx dst (.reg src) ⟩
 
   | "movzx" =>
     -- Must be a register otherwise lacking type info
     let ⟨ _w_src, src ⟩ ← parseRegW
     let ⟨ w_dst, dst ⟩ ← parseRegW
-    pure ⟨ .W64, w_dst, .movzx dst (.Reg src) ⟩
+    pure ⟨ .W64, w_dst, .movzx dst (.reg src) ⟩
 
   | "movsbw" | "movsbl" | "movsbq" | "movswl" | "movswq" =>
     let w_dst ← instrWidth mn
@@ -559,7 +559,7 @@ def parseInstr : Parser Instr := do
     let w_src ← Char.toWidth c_src
     let src ← parseRegWithType w_src; parseComma
     let dst ← parseRegWithType w_dst
-    pure ⟨ .W64, w_dst, .movzx dst (.Reg src) ⟩
+    pure ⟨ .W64, w_dst, .movzx dst (.reg src) ⟩
 
   | "movzbw" | "movzbl" | "movzbq" | "movzwl" | "movzwq" =>
     let w_dst ← instrWidth mn
@@ -567,7 +567,7 @@ def parseInstr : Parser Instr := do
     let w_src ← Char.toWidth c_src
     let src ← parseRegWithType w_src; parseComma
     let dst ← parseRegWithType w_dst
-    pure ⟨ .W64, w_dst, .movzx dst (.Reg src) ⟩
+    pure ⟨ .W64, w_dst, .movzx dst (.reg src) ⟩
 
   | "lea" =>
     let src ← parseMemory; parseComma
@@ -817,7 +817,7 @@ def parseLine : Parser (List Directive) := do
   else
     let label ← (attempt do
       let l ← parseLabelDecl
-      pure (some (Directive.Label l))) <|> pure none
+      pure (some (Directive.label l))) <|> pure none
     skipHWs
     let instr ← (do
       let c ← peek!
@@ -836,10 +836,10 @@ def parseLine : Parser (List Directive) := do
             let pad ← parseHexOrDec
             pure (some pad.toNat)
           ) <|> pure none
-          pure (some (Directive.Instr ⟨ .W64, .W64, .nopalign alignment.toNat pad ⟩))
+          pure (some (Directive.instr ⟨ .W64, .W64, .nopalign alignment.toNat pad ⟩))
         ) <|> (do
           let instr ← parseInstr
-          pure (some (Directive.Instr instr)))
+          pure (some (Directive.instr instr)))
     ) <|> pure none
     match label, instr with
     | some l, some i => pure [l, i]

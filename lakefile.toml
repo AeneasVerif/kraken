@@ -8,6 +8,7 @@ relaxedAutoImplicit = false
 
 [[lean_lib]]
 name = "Kraken"
+globs = ["Kraken.*"]  # TODO: move the tests out of `Kraken`
 
 [[lean_exe]]
 name = "krakenrunner"
