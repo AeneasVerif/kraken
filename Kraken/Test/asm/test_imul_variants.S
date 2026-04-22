@@ -8,8 +8,11 @@
 #   r11 = 1 (Test 6 CF)
 #   r13 = 0 (Test 7 CF)
 #   r15 = 1 (Test 8 CF)
-#   rax = 0 (Test 8 low 32 bits)
+#   rax = 50 (Test 9)
+#   rcx = 30 (Test 10)
 #   rdx = 1 (Test 8 high 32 bits)
+#   rsi = 0 (cleared)
+#   rdi = 0 (cleared)
 
 # 1. Test 2-operand suffixed (This used to fail if attempt was missing)
 movq $5, %rax
@@ -37,8 +40,6 @@ movq $9, %r10
 imul %r10
 # Expected: rax = -45, rdx = -1
 
-# setc is used to save the carry flag accross these tests
-# so they can all be checked at the end
 # 6. Test 8-bit imul with overflow
 movb $100, %al
 movb $10, %cl
@@ -59,3 +60,18 @@ movl $0x10000, %ecx
 xorq %r15, %r15
 imul %ecx
 setc %r15b
+
+# 9. Test 2-operand memory inference
+movq %rsp, %rsi
+subq $8, %rsi
+movq $10, (%rsi)
+movq $5, %rax
+imul (%rsi), %rax
+xorq %rsi, %rsi # clear rsi to avoid address mismatch
+
+# 10. Test 3-operand memory inference
+movq %rsp, %rdi
+subq $16, %rdi
+movq $10, (%rdi)
+imul $3, (%rdi), %rcx
+xorq %rdi, %rdi # clear rdi to avoid address mismatch
