@@ -276,7 +276,7 @@ inductive Operation (w : Width)
   | cmp  (a : RegOrMem w) (b : Operand w)
   | mul  (src : RegOrMem w)
   | mulx (hi lo : Reg w) (src : RegOrMem w) -- {_ : 32 <= w.bits}
-  -- | imul1 (src : RegOrMem w)
+  | imul1 (src : RegOrMem w)
   | imul (_ : Option (Dst w)) (src1 : RegOrMem w) (src2 : Operand w)
   -- Bitwise
   | test (a : RegOrMem w) (b : Operand w)
@@ -455,6 +455,22 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     let s := s.setReg r_lo (.ofNat _ v) -- if r_hi = r_li, hi is written:
     let s := s.setReg r_hi (.ofNat _ (v >>> w.bits))
     next s)
+  | .imul1 src =>
+    let a := s.regs.get (Reg.low .rax w)
+    src.interp s p (fun b =>
+    let v := a.toInt * b.toInt
+    dbg_trace s!"imul1 executed: a={a.toInt}, b={b.toInt}, v={v}"
+    let s := if w == .W8 then
+      s.setReg (.low .rax .W16) (BitVec.ofInt 16 v)
+    else
+      let v_bv := BitVec.ofInt (w.bits * 2) v
+      let low := v_bv.extractLsb' 0 w.bits
+      let high := v_bv.extractLsb' w.bits w.bits
+      (s.setReg (.low .rax w) low).setReg (.low .rdx w) high
+    undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
+    let low := BitVec.ofInt w.bits v
+    let cf := v != low.toInt
+    next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))
   | .imul dst src1 src2 =>
     src1.interp s p (fun a =>
     src2.interp s p (fun b =>

@@ -487,28 +487,40 @@ def parseInstr : Parser Instr := do
     pure ⟨ .W64, w, .mulx hi lo src ⟩
 
   | "imul" =>
-    let src1 ← parseOperand; parseComma;
     (attempt do
-      let src2 ← parseRegOrMem; parseComma
-      let ⟨ w, src2, dst ⟩ ← ascribeOrInfer src2 parseReg
-      let src1 ← ascribe w src1
-      pure ⟨ .W64, w, .imul (.some dst) src2 src1 ⟩)
-    <|> (do
-      let ⟨ w, src1, src2 ⟩ ← ascribeOrInfer src1 parseRegOrMem
-      pure ⟨ .W64, w, .imul .none src2 src1 ⟩
+      let src1 ← parseOperand; parseComma;
+      (attempt do
+        let src2 ← parseRegOrMem; parseComma
+        let ⟨ w, src2, dst ⟩ ← ascribeOrInfer src2 parseReg
+        let src1 ← ascribe w src1
+        pure ⟨ .W64, w, .imul (.some dst) src2 src1 ⟩)
+      <|> (do
+        let ⟨ w, src1, src2 ⟩ ← ascribeOrInfer src1 parseRegOrMem
+        pure ⟨ .W64, w, .imul .none src2 src1 ⟩
+      )
+    ) <|> (do
+      let src ← parseRegOrMem
+      let ⟨ w, src ⟩ ← assertW src
+      pure ⟨ .W64, w, .imul1 src ⟩
     )
 
   | "imulq" | "imull" | "imulw" | "imulb" =>
     let w ← instrWidth mn
-    let src1 ← parseOperandWithType w; parseComma
     (attempt do
-      let src2 ← parseRegOrMemWithType w; parseComma
-      let dst ← parseRegWithType w
-      pure ⟨ .W64, w, .imul (.some dst) src2 src1 ⟩
+      let src1 ← parseOperandWithType w; parseComma
+      (attempt do
+        let src2 ← parseRegOrMemWithType w; parseComma
+        let dst ← parseRegWithType w
+        pure ⟨ .W64, w, .imul (.some dst) src2 src1 ⟩
+      ) <|>
+      (do
+        let src2 ← parseRegOrMemWithType w
+        pure ⟨ .W64, w, .imul none src2 src1 ⟩
+      )
     ) <|>
     (do
-      let src2 ← parseRegOrMemWithType w
-      pure ⟨ .W64, w, .imul none src2 src1 ⟩
+      let src ← parseRegOrMemWithType w
+      pure ⟨ .W64, w, .imul1 src ⟩
     )
 
   | "neg" =>
@@ -815,7 +827,7 @@ def parseLine : Parser (List Directive) := do
   else
     let label ← (attempt do
       let l ← parseLabelDecl
-      pure (some (Directive.label l))) <|> pure none
+      pure (some (Directive.Label l))) <|> pure none
     skipHWs
     let instr ← (do
       let c ← peek!
@@ -834,10 +846,10 @@ def parseLine : Parser (List Directive) := do
             let pad ← parseHexOrDec
             pure (some pad.toNat)
           ) <|> pure none
-          pure (some (Directive.instr ⟨ .W64, .W64, .nopalign alignment.toNat pad ⟩))
+          pure (some (Directive.Instr ⟨ .W64, .W64, .nopalign alignment.toNat pad ⟩))
         ) <|> (do
           let instr ← parseInstr
-          pure (some (Directive.instr instr)))
+          pure (some (Directive.Instr instr)))
     ) <|> pure none
     match label, instr with
     | some l, some i => pure [l, i]
