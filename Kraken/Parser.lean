@@ -827,7 +827,7 @@ def parseLine : Parser (List Directive) := do
   else
     let label ← (attempt do
       let l ← parseLabelDecl
-      pure (some (Directive.Label l))) <|> pure none
+      pure (some (Directive.label l))) <|> pure none
     skipHWs
     let instr ← (do
       let c ← peek!
@@ -846,10 +846,10 @@ def parseLine : Parser (List Directive) := do
             let pad ← parseHexOrDec
             pure (some pad.toNat)
           ) <|> pure none
-          pure (some (Directive.Instr ⟨ .W64, .W64, .nopalign alignment.toNat pad ⟩))
+          pure (some (Directive.instr ⟨ .W64, .W64, .nopalign alignment.toNat pad ⟩))
         ) <|> (do
           let instr ← parseInstr
-          pure (some (Directive.Instr instr)))
+          pure (some (Directive.instr instr)))
     ) <|> pure none
     match label, instr with
     | some l, some i => pure [l, i]
