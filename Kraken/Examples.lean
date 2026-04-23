@@ -11,8 +11,101 @@ For tactics, see Kraken/Tactics.lean.
 import Kraken.Tactics
 import Kraken.Parser
 import Kraken.Eval
+import Kraken.BetaLetReduce
+
+import Lean
 
 open Kraken.Parser
+
+namespace LiftArgs
+open Lean Meta Elab Term
+
+/-- Given a proof of `∀ x₁ ... xₙ, lhs = rhs`, return a proof where as many
+    trailing LHS arguments as possible are moved into a `fun ... => ...` on the
+    RHS via `funext`. A trailing LHS arg is liftable iff it is a forall-bound
+    fvar `f` that doesn't appear elsewhere in the LHS, and no other kept
+    forall-binder has a type depending on `f`. If lifting would consume the
+    first explicit (default-binder) argument of the LHS — leaving the LHS as
+    just `@FuncName` and producing a useless simp lemma — we instead emit a
+    warning and fall back to the function's `.eq_unfold` theorem. -/
+def liftArgs (proof : Expr) : MetaM Expr := do
+  forallTelescope (← inferType proof) fun xs body => do
+    let some (_, lhs, rhs) := body.eq?
+      | throwError "lift_args%: expected equation, got{indentExpr body}"
+    let lhsFn := lhs.getAppFn
+    let lhsArgs := lhs.getAppArgs
+
+    -- Index of the first default-binder arg of `lhsFn`.
+    let fnType ← inferType lhsFn
+    let firstExplicitIdx : Nat ←
+      forallBoundedTelescope fnType (some lhsArgs.size) fun fnArgs _ => do
+        let lctx ← getLCtx
+        for i in [0 : fnArgs.size] do
+          let bi := (lctx.find? fnArgs[i]!.fvarId!).map (·.binderInfo) |>.getD .default
+          if bi == .default then return i
+        return lhsArgs.size
+
+    let mut liftedFvars : Array Expr := #[]
+    let mut liftedSet : Std.HashSet FVarId := {}
+    let mut hitFirstExplicit := false
+    for i in [0 : lhsArgs.size] do
+      let argIdx := lhsArgs.size - 1 - i
+      let arg := lhsArgs[argIdx]!.consumeMData
+      let .fvar fvarId := arg | break
+      let some xsIdx := xs.findIdx? (·.fvarId! == fvarId) | break
+      if liftedSet.contains fvarId then break
+      if lhsFn.containsFVar fvarId then break
+      let mut bad := false
+      for j in [0 : argIdx] do
+        if lhsArgs[j]!.containsFVar fvarId then bad := true; break
+      if bad then break
+      -- Any kept forall-binder introduced after `f` whose type mentions `f`
+      -- would become ill-formed once `f` is lifted.
+      for k in [xsIdx + 1 : xs.size] do
+        if liftedSet.contains xs[k]!.fvarId! then continue
+        if (← inferType xs[k]!).containsFVar fvarId then bad := true; break
+      if bad then break
+      -- All checks passed; this arg would be lifted. If it's the first
+      -- explicit arg of the LHS, lifting would leave no anchor — bail out.
+      if argIdx ≤ firstExplicitIdx then
+        hitFirstExplicit := true
+        break
+      liftedFvars := liftedFvars.push arg
+      liftedSet := liftedSet.insert fvarId
+
+    if hitFirstExplicit then
+      let some fnName := lhsFn.constName?
+        | throwError "lift_args%: would lift all explicit args, but LHS head is not a constant"
+      let unfoldName := fnName.str "eq_unfold"
+      unless (← getEnv).contains unfoldName do
+        throwError "lift_args%: would lift all explicit args of `{fnName}`, but `{unfoldName}` does not exist"
+      logWarning m!"lift_args% would lift all explicit args of `{fnName}`; using `{unfoldName}` instead"
+      return (← mkConstWithFreshMVarLevels unfoldName)
+
+    trace[Meta.debug] "lift_args%: lifted {liftedFvars.size} of {lhsArgs.size} lhs args"
+    if liftedFvars.isEmpty then return proof
+
+    let mut p := mkAppN proof xs
+    for f in liftedFvars do
+      p ← mkAppM ``funext #[← mkLambdaFVars #[f] p]
+    let keptXs := xs.filter (fun x => !liftedSet.contains x.fvarId!)
+    -- Explicitly cast to a type that preserves the original binder names
+    -- (otherwise `funext` introduces fresh `x x_1 ...`).
+    let liftedInLhsOrder := liftedFvars.reverse
+    let cleanLhs := mkAppN lhsFn (lhsArgs.extract 0 (lhsArgs.size - liftedFvars.size))
+    let cleanRhs ← mkLambdaFVars liftedInLhsOrder rhs
+    let cleanEq ← mkEq cleanLhs cleanRhs
+    let expectedType ← mkForallFVars keptXs cleanEq
+    mkExpectedTypeHint (← mkLambdaFVars keptXs p) expectedType
+
+elab "lift_args% " thm:term : term => do
+  let proof ← match thm with
+    | `($id:ident) | `(@$id:ident) =>
+      mkConstWithFreshMVarLevels (← realizeGlobalConstNoOverloadWithInfo id)
+    | _ => elabTerm thm none
+  liftArgs proof
+
+end LiftArgs
 
 def p1 := parse("start: mov $1, %rax")
 
@@ -20,16 +113,84 @@ theorem Executable.directivesFromStart [layout : Layout] prog :
     (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) :=
   sorry
 
+def Directives.interp.eq_1' := lift_args% Directives.interp.eq_1
+def Directives.interp.eq_2' := lift_args% Directives.interp.eq_2
+def Directive.interp.eq_1' := lift_args% Directive.interp.eq_1
+def Directive.interp.eq_2' := lift_args% Directive.interp.eq_2
+def Operation.interp.eq_1' := lift_args% Operation.interp.eq_1
+def Operand.interp.eq_2' := lift_args% Operand.interp.eq_2
+def MachineData.set.eq_1' := lift_args% MachineData.set.eq_1
+def Reg64s.set.eq_1' := lift_args% Reg64s.set.eq_1
+def ConstExpr.interp.eq_2' := lift_args% ConstExpr.interp.eq_2
+def ConstExpr.interp.eq_6' := lift_args% ConstExpr.interp.eq_6
+def Reg64s.set64.eq_1' := lift_args% Reg64s.set64.eq_1
+
 -- Super-simple example to debug tactics
-example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
-  dsimp only [p1]
-  dsimp only [step1,Executable.straightline]
-  rw [Executable.directivesFromStart]
-  simp [List.mapIdx,List.mapIdx.go]
-  dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp]
-  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp]
-  simp (ground:=True)
-  simp
+example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by sym =>
+
+  --dsimp only [p1]
+  simp betaLetReduce [p1.eq_unfold]
+
+  --dsimp only [step1,Executable.straightline]
+  simp betaLetReduce [step1.eq_unfold,Executable.straightline.eq_unfold]
+  /-
+⊢ have e :=
+  layout.apply
+    [Directive.label "start",
+      Directive.instr
+        { address_size := Width.W64, operation_size := Width.W64,
+          operation := Operation.mov ↑(Reg.low Reg64.rax Width.W64) ↑↑1 }];
+have s := (s, Layout.start);
+Directives.interp (Executable.directivesFromAddress e s.snd) s.fst s.snd fun pc s => (s, pc).fst.regs.rax = 1
+  -/
+
+  --rw [Executable.directivesFromStart]
+  -- Need to unfold `e` at this point for thm to match
+  tactic => intro e; dsimp only [e]; sym =>
+  simp betaLetReduce [Executable.directivesFromStart]
+
+  --simp [List.mapIdx,List.mapIdx.go]
+  simp betaLetReduce [List.mapIdx_cons, List.mapIdx_nil]
+
+  --dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp]
+  simp betaLetReduce [Directives.interp.eq_1',Directives.interp.eq_2', Directive.interp.eq_1', Directive.interp.eq_2']
+  /-
+⊢ have pc := Layout.start;
+have ret := fun pc s => s.regs.rax = 1;
+have pc := pc + Int64.ofNat (Layout.size 0);
+{ address_size := Width.W64, operation_size := Width.W64,
+      operation := Operation.mov ↑(Reg.low Reg64.rax Width.W64) ↑↑1 }.interp
+  s (pc...pc + Int64.ofNat (Layout.size (0 + 1))) (fun s => ret (pc + Int64.ofNat (Layout.size (0 + 1))) s) ret
+  -/
+  -- unfold `ret`
+  tactic => intros pc ret pc2; subst ret; sym =>
+  simp betaLetReduce [Instr.interp.eq_unfold]
+  -- unfold `i` and iota reduce
+  tactic => intro i; subst i; dsimp only; sym =>
+  simp betaLetReduce [Operation.interp.eq_1']  -- makes `p` linear!
+  simp betaLetReduce [MachineData.set.eq_1']
+  /-
+pc : Int64 := Layout.start
+pc2 : Int64 := pc + Int64.ofNat (Layout.size 0)
+⊢ have p := pc2...pc2 + Int64.ofNat (Layout.size (0 + 1));
+(↑↑1).interp s p fun val => (s.setReg (Reg.low Reg64.rax Width.W64) val).regs.rax = 1
+  -/
+  -- unfold `p`
+  tactic => intro p; subst p; sym =>
+  simp betaLetReduce [Operand.interp.eq_2']
+
+  --dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp]
+  simp betaLetReduce [MachineData.setReg.eq_unfold,ConstExpr.interp.eq_2']
+  -- iota reduce
+  tactic => dsimp -zeta only; sym =>
+  -- does not match otherwise?
+  tactic => rw [Reg64s.set.eq_1']; sym =>
+  simp betaLetReduce [Reg64s.set64.eq_1']
+
+  -- iota reduce + finish
+  --simp (ground:=True)
+  --simp
+  tactic => simp [Width.bits]
 
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
   /- simp [MachineData.setReg,Reg64s.set,Reg64s.set64,ConstExpr.interp] -/
