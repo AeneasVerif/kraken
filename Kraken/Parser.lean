@@ -487,30 +487,40 @@ def parseInstr : Parser Instr := do
     pure ⟨ .W64, w, .mulx hi lo src ⟩
 
   | "imul" =>
-    let src1 ← parseOperand; parseComma;
-    (do
-      let src2 ← parseRegOrMem; parseComma
-      let ⟨ w, src2, dst ⟩ ← ascribeOrInfer src2 parseReg
-      let src1 ← match src1 with
-        | ⟨ .none, src1 ⟩ => pure src1
-        | ⟨ .some w1, src1 ⟩ => if h: w1 = w then pure (h ▸ src1) else fail "type mismatch in imul"
-      pure ⟨ .W64, w, .imul (.some dst) src2 src1 ⟩
+    (attempt do
+      let src1 ← parseOperand; parseComma;
+      (attempt do
+        let src2 ← parseRegOrMem; parseComma
+        let ⟨ w, src2, dst ⟩ ← ascribeOrInfer src2 parseReg
+        let src1 ← ascribe w src1
+        pure ⟨ .W64, w, .imul (.some dst) src2 src1 ⟩)
+      <|> (do
+        let ⟨ w, src1, src2 ⟩ ← ascribeOrInfer src1 parseRegOrMem
+        pure ⟨ .W64, w, .imul .none src2 src1 ⟩
+      )
     ) <|> (do
-      let ⟨ w, src1, src2 ⟩ ← ascribeOrInfer src1 parseRegOrMem; parseComma
-      pure ⟨ .W64, w, .imul .none src2 src1 ⟩
+      let src ← parseRegOrMem
+      let ⟨ w, src ⟩ ← assertW src
+      pure ⟨ .W64, w, .imul1 src ⟩
     )
 
   | "imulq" | "imull" | "imulw" | "imulb" =>
     let w ← instrWidth mn
-    let src1 ← parseOperandWithType w; parseComma
     (attempt do
-      let src2 ← parseRegOrMemWithType w; parseComma
-      let dst ← parseRegWithType w
-      pure ⟨ .W64, w, .imul (.some dst) src2 src1 ⟩
+      let src1 ← parseOperandWithType w; parseComma
+      (attempt do
+        let src2 ← parseRegOrMemWithType w; parseComma
+        let dst ← parseRegWithType w
+        pure ⟨ .W64, w, .imul (.some dst) src2 src1 ⟩
+      ) <|>
+      (do
+        let src2 ← parseRegOrMemWithType w
+        pure ⟨ .W64, w, .imul none src2 src1 ⟩
+      )
     ) <|>
     (do
-      let src2 ← parseRegOrMemWithType w
-      pure ⟨ .W64, w, .imul none src2 src1 ⟩
+      let src ← parseRegOrMemWithType w
+      pure ⟨ .W64, w, .imul1 src ⟩
     )
 
   | "neg" =>

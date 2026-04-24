@@ -29,9 +29,9 @@ def get_boilerplate(instruction_text: str) -> str:
   reg_count = len(REGS)
   # We move all base registers + the eflags register into memory, so as to dump it later to stdout.
   total_bytes = (reg_count + 1) * 8
-    
+
   moves = "\n    ".join([f"movq %{reg}, _final_state + {i*8}(%rip)" for i, reg in enumerate(REGS)])
-    
+
   return f"""
 .data
 .align 8
@@ -71,7 +71,7 @@ def parse_raw_state(raw_bytes: bytes) -> ExecutionState:
     unpacked = struct.unpack(fmt, raw_bytes)
     reg_values = unpacked[:-1]
     rflags = unpacked[-1]
-    
+
     return ExecutionState(
         regs=dict(zip(REGS, reg_values)),
         flags={name: bool(rflags & (1 << bit)) for name, bit in FLAG_MAP.items()}
@@ -83,7 +83,7 @@ def run_real_x86(asm_path: Path) -> Tuple[Optional[ExecutionState], Optional[str
         s_file = tmp / asm_path.name
         obj_file = tmp / f"{asm_path.stem}.o"
         bin_file = tmp / f"{asm_path.stem}.bin"
-        
+
         full_source = get_boilerplate(asm_path.read_text())
         s_file.write_text(full_source)
 
@@ -105,6 +105,10 @@ def run_kraken(path: Path) -> Tuple[Optional[ExecutionState], Optional[str]]:
         return ExecutionState(regs=data["regs"], flags=data["flags"]), None
     except subprocess.CalledProcessError as e:
         return None, f"Kraken Error:\n{(e.stderr or b"").decode(errors="replace").strip()}"
+    # This except clause ensures any stderr messages are shown even if there is a timeout
+    # (The default Exception object does not have a stderr attribute, so we cannot show this there)
+    except subprocess.TimeoutExpired as e:
+        return None, f"Kraken Error: {e}\nStderr:\n{(e.stderr or b'').decode(errors='replace').strip()}"
     except Exception as e:
         return None, f"Kraken Error: {e}"
 
@@ -123,7 +127,7 @@ def compare_states(real: ExecutionState, kraken: ExecutionState, undefined_flags
         rv, kv = real.regs[r], kraken.regs[r]
         if rv != kv:
             diffs.append(f"{r}: x86={rv:#x} ({rv}), kraken={kv:#x} ({kv})")
-            
+
     for f in [f for f in FLAG_MAP if not f in undefined_flags]:
         if real.flags[f] != kraken.flags[f]:
             diffs.append(f"flag {f}: x86={real.flags[f]} | kraken={kraken.flags[f]}")
@@ -131,7 +135,7 @@ def compare_states(real: ExecutionState, kraken: ExecutionState, undefined_flags
 
 def test_file(path: Path) -> Tuple[bool, str]:
     print(f"{path.name:50}", end="")
-    
+
     real, real_err = run_real_x86(path)
     kraken, kraken_err = run_kraken(path)
 
@@ -158,14 +162,14 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <file.S or dir>")
         sys.exit(1)
-        
+
     target = Path(sys.argv[1]).resolve()
     files = sorted(target.rglob("*.S")) if target.is_dir() else ([target] if target.exists() else [])
-    
+
     if not files:
         print(f"Error: No .S files found at {target}")
         sys.exit(1)
-    
+
     errors = []
     for f in files:
         success, report = test_file(f)
@@ -175,7 +179,7 @@ if __name__ == "__main__":
     print(f"\n{Color.BOLD}{'='*60}{Color.RESET}")
     print(f"Result: {len(files) - len(errors)}/{len(files)} passed")
     print(f"{Color.BOLD}{'='*60}{Color.RESET}")
-    
+
     if errors:
         print(f"\n{Color.RED}Failures:{Color.RESET}")
         for name, report in errors:
