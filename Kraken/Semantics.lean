@@ -466,9 +466,9 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     let s := if w == .W8 then
       s.setReg (.low .rax .W16) (BitVec.ofInt 16 v)
     else
-      let low := BitVec.ofInt w.bits v
-      let v_pos := if v < 0 then v + (1 <<< (w.bits * 2)) else v
-      let high := BitVec.ofInt w.bits (v_pos / (1 <<< w.bits))
+      let result := BitVec.ofInt (w.bits * 2) v
+      let low := result.take w.bits
+      let high := (result.drop w.bits).setWidth _
       (s.setReg (.low .rax w) low).setReg (.low .rdx w) high
     undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
     let low := BitVec.ofInt w.bits v
