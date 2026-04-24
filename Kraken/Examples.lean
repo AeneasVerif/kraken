@@ -26,9 +26,10 @@ example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.
   dsimp only [step1,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
-  dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp]
-  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp]
+  dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
+  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,Sem.all]
   simp (ground:=True)
+  simp
 
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
   /- simp [MachineData.setReg,Reg64s.set,Reg64s.set64,ConstExpr.interp] -/
@@ -54,7 +55,7 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
   simp [List.mapIdx, List.mapIdx.go]
   -- TODO It would be nice to progress instruction by instruction instead of all at once, like below.
   dsimp only [Directives.interp, Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp]
-  dsimp [MachineData.set, MachineData.setReg, Reg64s.set, Reg64s.set64]
+  dsimp [MachineData.set, MachineData.setReg, Reg64s.set, Reg64s.set64, Sem.all]
   intros _af1 _af2 _af3
   apply Eventually.done
   simp (ground:=True)
@@ -85,10 +86,10 @@ example [layout : Layout] (s : MachineData): Eventually (layout p2) (fun s => s.
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
   dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
-  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,CondCode.interp,StatusFlags.from_result]
+  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,CondCode.interp,StatusFlags.from_result, Sem.all]
   simp only [Int64.toBitVec_ofNat, BitVec.ofNat_eq_ofNat, BitVec.truncate_eq_setWidth, BitVec.xor_self, BitVec.zero_eq,
     BEq.rfl, Bool.not_true, Bool.false_eq_true, ↓reduceIte, BitVec.setWidth_zero, BitVec.msb_zero]
-  dsimp [undefined,Undefined.undefined]; intros _af
+  intros _af
   apply Eventually.done
   simp (ground:=True)
 
