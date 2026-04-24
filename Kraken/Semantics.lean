@@ -118,49 +118,42 @@ structure MachineData where -- does not include code or program position
   dmem : DataMem := ∅
   deriving Repr, BEq, DecidableEq
 
-class Throw α where
-  throw : String → α
-export Throw (throw)
-
--- TODO how can nonmem_store communicate how custom OS/system state not part of MachineData
--- should be updated?
--- TODO and what if nonmem_load has side effects (e.g. acknowledging that we've seen a flag update)
-class NonmemAccess α where
-  nonmem_load (addr : BitVec 64) (w : Width) (ret : w.type → α): α
-  nonmem_store (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → α) : α
-export NonmemAccess (nonmem_load nonmem_store)
-
-class Permissions where
-  -- TODO do we prefer unifying these into one function, at the cost of introducing an
-  -- inductive Access = R | W | X ?
-  -- However, note that instruction sizes can be much wider and less aligned than data
-  can_read (addr : BitVec 64) (w : Width) : Bool
-  can_write (addr : BitVec 64) (w : Width) : Bool
-  can_exec (p: Std.Rco Int64) : Bool
-export Permissions (can_read can_write can_exec)
+inductive Sem (α : Type)
+  | ret (a : α)
+  | undefined (msg : String)
+  | unimplemented (msg : String)
+  | nonmem_load (addr : BitVec 64) (w : Width) (ret : w.type → Sem α)
+  | nonmem_store (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Sem α)
+  | undefined_bitvec (w : Width) (cont : w.type → Sem α)
+  | undefined_status (cont : StatusFlags → Sem α)
+  | undefined_bool (cont : Bool → Sem α)
+  | can_read (addr : BitVec 64) (w : Width) (cont : Bool → Sem α)
+  | can_write (addr : BitVec 64) (w : Width) (cont : Bool → Sem α)
+  | can_exec (p: Std.Rco Int64) (cont : Bool → Sem α)
+export Sem (nonmem_load nonmem_store undefined unimplemented undefined_bitvec undefined_status undefined_bool can_read can_write can_exec)
 
 def Reg.interp {α w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
   ret (s.regs.get r) -- the unused argument is present ^ for uniformity with RegOrMem.interp
 
-def MachineData.load {α} [Throw α] [Permissions] [NonmemAccess α]
-    (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → α): α :=
-  if addr % w.bytesv != 0 then throw s!"Unimplemented: only aligned memory access is supported"
-  else if !can_read addr w then throw s!"Memory read of {repr w} not allowed at address {repr addr}"
-  else let key := UInt64.ofBitVec (addr &&& ~~~0b111#64)
-  match s.dmem[key]? with
-  | .some v => ret (v.toBitVec.extractLsb' ((addr &&& 0b111#64) * 8#64).toNat w.bits)
-  | .none => nonmem_load addr w ret
+def MachineData.load {α} (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → Sem α): Sem α :=
+  if addr % w.bytesv != 0 then .unimplemented s!"Unimplemented: only aligned memory access is supported"
+  else can_read addr w (fun allowed =>
+    if !allowed then .undefined s!"Memory read of {repr w} not allowed at address {repr addr}"
+    else let key := UInt64.ofBitVec (addr &&& ~~~0b111#64)
+    match s.dmem[key]? with
+    | .some v => ret (v.toBitVec.extractLsb' ((addr &&& 0b111#64) * 8#64).toNat w.bits)
+    | .none => nonmem_load addr w ret)
 
-def MachineData.store {α} [Throw α] [Permissions] [NonmemAccess α]
-    (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → α) : α :=
-  if addr % w.bytesv != 0 then throw s!"Unimplemented: only aligned memory access is supported"
-  else if !can_write addr w then throw s!"Memory write of {repr w} not allowed at address {repr addr}"
-  else let key := UInt64.ofBitVec (addr &&& ~~~0b111#64)
-  match s.dmem[key]? with
-  | .some old =>
-      let new := UInt64.ofBitVec (old.toBitVec.replace ((addr &&& 0b111#64) * 8#64).toNat v)
-      ret { s with dmem := s.dmem.insert key new }
-  | .none => nonmem_store addr v ret
+def MachineData.store {α} (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Sem α) : Sem α :=
+  if addr % w.bytesv != 0 then .unimplemented s!"Unimplemented: only aligned memory access is supported"
+  else can_write addr w (fun allowed =>
+    if !allowed then .undefined s!"Memory write of {repr w} not allowed at address {repr addr}"
+    else let key := UInt64.ofBitVec (addr &&& ~~~0b111#64)
+    match s.dmem[key]? with
+    | .some old =>
+        let new := UInt64.ofBitVec (old.toBitVec.replace ((addr &&& 0b111#64) * 8#64).toNat v)
+        ret { s with dmem := s.dmem.insert key new }
+    | .none => nonmem_store addr v ret)
 
 abbrev Label := String
 
@@ -227,7 +220,7 @@ instance {w} : Coe (Reg w) (RegOrMem w) where coe := .reg
 attribute [coe] RegOrMem.reg
 abbrev Dst := RegOrMem
 
-def RegOrMem.interp {α w} [Labels] [AddressSize] [Throw α] [Permissions] [NonmemAccess α] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
+def RegOrMem.interp {α w} [Labels] [AddressSize] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → Sem α) :=
   match o with
   | .reg r => ret (s.regs.get r)
   | .mem a => s.load ((a.interp s.regs p).zeroExtend _) w ret
@@ -235,7 +228,7 @@ def RegOrMem.interp {α w} [Labels] [AddressSize] [Throw α] [Permissions] [Nonm
 def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
 
-def MachineData.set {α w} [Labels] [AddressSize] [Throw α] [Permissions] [NonmemAccess α] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → α) : α :=
+def MachineData.set {α w} [Labels] [AddressSize] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → Sem α) : Sem α :=
   match d with
   | .reg r => ret (s.setReg r v)
   | .mem a => s.store ((a.interp s.regs p).zeroExtend _) v ret
@@ -249,7 +242,7 @@ attribute [coe] Operand.imm
 abbrev Operand.reg {w} (r : Reg w) : Operand w := regOrMem (.reg r)
 abbrev Operand.mem {w} (m : AddrExpr) : Operand w := regOrMem (.mem m)
 
-def Operand.interp {α w} [Labels] [AddressSize] [Throw α] [Permissions] [NonmemAccess α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
+def Operand.interp {α w} [Labels] [AddressSize] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → Sem α) :=
   match o with
   | .regOrMem rm => rm.interp s p ret
   | .imm v => ret ((v.interp p).toBitVec.take _)
@@ -278,7 +271,7 @@ def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) 
 inductive RelRegOrMem | rel (_ : ConstExpr) | reg (r : Reg .W64) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-def RelRegOrMem.interp {α} [Labels] [AddressSize] [Throw α] [Permissions] [NonmemAccess α] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → α) :=
+def RelRegOrMem.interp {α} [Labels] [AddressSize] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → Sem α) :=
   match o with
   | .rel c => ret (p.upper + c.interp p).toBitVec
   | .reg r => ret (s.regs.get r)
@@ -360,15 +353,13 @@ def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) 
     zf := result == BitVec.zero _
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
 
-class Undefined (T R) where undefined : (T → R) → R
-export Undefined (undefined)
+
 
 set_option maxHeartbeats 1000000
-def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α]
-  [Permissions] [NonmemAccess α]
+def Operation.interp {α}
   [Labels] [address_size : AddressSize] {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
-  (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
-  match (generalizing := false) (motive := Operation w → α) i with
+  (next : MachineData → Sem α) (jmp : Int64 → MachineData → Sem α) : Sem α :=
+  match (generalizing := false) (motive := Operation w → Sem α) i with
   | .mov dst src => src.interp s p (fun val => s.set dst val p next)
   | .movsx dst src => src.interp s p (fun val => s.set dst (val.signExtend _) p next)
   | .movzx dst src => src.interp s p (fun val => s.set dst (val.zeroExtend _) p next)
@@ -480,7 +471,7 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     let s := if w == .W8
       then s.setReg (.low .rax .W16) (.ofInt _ vn)
       else (s.setReg (.low .rax w) v).setReg (.low .rdx w) (.ofInt _ (vn >>> w.bits))
-    undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
+    undefined_bool (λ sf => undefined_bool (λ zf => undefined_bool (λ af => undefined_bool (λ pf =>
     next { s with status := { cf := v.unsigned != vn, pf, af, zf, sf, of := v.unsigned != vn }})))))
   | .mulx r_hi r_lo src1 =>
     src1.interp s p (fun a =>
@@ -513,21 +504,21 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     s.set (match (generalizing := false) (motive := Option (RegOrMem w) → RegOrMem w)
              dst with | .some dst => dst | _ => src1) v p (fun s =>
     let cf := v.signed != a.signed * b.signed
-    undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
+    undefined_bool (λ sf => undefined_bool (λ zf => undefined_bool (λ af => undefined_bool (λ pf =>
     next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))))
 -- Bitwise
   | .test a b =>
     a.interp s p (fun a =>
     b.interp s p (fun b =>
     let v := a &&& b
-    undefined (fun af =>
+    undefined_bool (fun af =>
     let status := .from_result v { cf := false, af, of := false}
     next { s with status})))
   | .and dst src | .or dst src | .xor dst src =>
     dst.interp s p (fun a =>
     src.interp s p (fun b =>
     let v := match i with | .and _ _ => a &&& b | .or _ _ => a ||| b | _ => a ^^^ b
-    undefined (fun af =>
+    undefined_bool (fun af =>
     let status := .from_result v { cf := false, of := false, af }
     { s with status }.set dst v p next)))
   | .not dst =>
@@ -539,27 +530,27 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := a <<< count
-    undefined (λ af =>
-    (λ setcf => if count < w.bits then setcf (a <<< (count-1)).msb else undefined setcf) (λ cf =>
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    undefined_bool (λ af =>
+    (λ setcf => if count < w.bits then setcf (a <<< (count-1)).msb else undefined_bool setcf) (λ cf =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined_bool setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .shr dst count =>
     dst.interp s p (fun a =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := a.ushiftRight count
-    undefined (λ af =>
-    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
-    (λ setof => if count == 1 then setof a.msb else undefined setof) (λ of =>
+    undefined_bool (λ af =>
+    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined_bool setcf) (λ cf =>
+    (λ setof => if count == 1 then setof a.msb else undefined_bool setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .sar dst count =>
     dst.interp s p (fun a =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := a.sshiftRight count
-    undefined (λ af =>
-    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
-    (λ setof => if count == 1 then setof false else undefined setof) (λ of =>
+    undefined_bool (λ af =>
+    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined_bool setcf) (λ cf =>
+    (λ setof => if count == 1 then setof false else undefined_bool setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .shrd dst src count =>
     dst.interp s p (fun a =>
@@ -567,10 +558,10 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := (((b.append a) >>> count).take w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined setstatus else
+    (λ setstatus => if count >= w.bits then undefined_status setstatus else
       let cf := a.getLsbD (count-1)
-      undefined (λ af =>
-      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+      undefined_bool (λ af =>
+      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined_bool setof) (λ of =>
       setstatus (.from_result v { cf, af, of})))) (λ status =>
     { s with status }.set dst v p next)))
   | .shld dst src count =>
@@ -579,10 +570,10 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := (((a.append b) <<< count).drop w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined setstatus else
+    (λ setstatus => if count >= w.bits then undefined_status setstatus else
       let cf := (a <<< (count-1)).msb
-      undefined (λ af =>
-      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+      undefined_bool (λ af =>
+      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined_bool setof) (λ of =>
       setstatus (.from_result v { cf, af, of})))) (λ status =>
     { s with status }.set dst v p next)))
   | .rol dst count =>
@@ -591,7 +582,7 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     if count == 0 then next s else
     let v := a.rotateLeft count
     let cf := v.getLsbD 0
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined_bool setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .ror dst count =>
     dst.interp s p (fun a =>
@@ -599,7 +590,7 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     if count == 0 then next s else
     let v := a.rotateRight count
     let cf := v.msb
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined_bool setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .rcr dst count =>
     dst.interp s p (fun a =>
@@ -607,7 +598,7 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     if count == 0 then next s else
     let t := (BitVec.ofBool s.status.cf ++ a).rotateRight count
     let (cf, v) := (t.msb, t.take w.bits)
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined_bool setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .rcl dst count =>
     dst.interp s p (fun a =>
@@ -615,11 +606,11 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     if count == 0 then next s else
     let t := (BitVec.ofBool s.status.cf ++ a).rotateLeft count
     let (cf, v) := (t.msb, t.take w.bits)
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined_bool setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .bswap dst =>
     let a := s.regs.get dst
-    match (generalizing := false) (motive := Width → α) w with
+    match (generalizing := false) (motive := Width → Sem α) w with
     | .W32 =>
       let v := a.take 8 ++ a.extractLsb' 8 8 ++ a.extractLsb' 16 8 ++ a.drop 24
       next (s.setReg dst (v.setWidth _))
@@ -627,7 +618,7 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
       let v := a.take 8 ++ a.extractLsb' 8 8 ++ a.extractLsb' 16 8 ++ a.extractLsb' 24 8
             ++ a.extractLsb' 32 8 ++ a.extractLsb' 40 8 ++ a.extractLsb' 48 8 ++ a.drop 56
       next (s.setReg dst (v.setWidth _))
-    | _ => @undefined _ _ _ (fun v => next (s.setReg dst v))
+    | _ => undefined_bitvec w (fun v => next (s.setReg dst v))
   | .jcc cc l =>
     if cc.interp s.status
     then jmp (label l) s
@@ -651,13 +642,13 @@ structure Instr where
   operation : Operation operation_size
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
-def Instr.interp {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α] [Throw α] [Permissions] [NonmemAccess α] [Labels]
+def Instr.interp {α} [Labels]
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
-  (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
-  -- TODO where should we do this check?
-  if can_exec p
-  then Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next jmp
-  else throw s!"No exec permissions at {repr p.lower}..{repr p.upper}"
+  (next : MachineData → Sem α) (jmp : Int64 → MachineData → Sem α) : Sem α :=
+  can_exec p (fun allowed =>
+    if allowed
+    then Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next jmp
+    else .undefined s!"No exec permissions at {repr p.lower}..{repr p.upper}")
 
 instance : Repr ByteArray where reprPrec _ _ := "<opaque byte array>"
 
@@ -668,19 +659,17 @@ inductive Directive
   | byteArray (_ : ByteArray)
   deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
 
-def Directive.interp {α} [Undefined Bool α] [Throw α] [Permissions] [NonmemAccess α] [Labels]
-  [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α]
+def Directive.interp {α} [Labels]
   (d : Directive) (s : MachineData) (p : Std.Rco Int64)
-  (next : MachineData → α) (jmp : Int64 → MachineData → α) : α :=
+  (next : MachineData → Sem α) (jmp : Int64 → MachineData → Sem α) : Sem α :=
   match d with
   | .label _ => next s
   | .instr i => i.interp s p next jmp
-  | .byteArray _ => throw s!"Unimplemented: execution reached data block at {p.1}"
+  | .byteArray _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
 
-def Directives.interp {α} [Undefined Bool α] [Throw α] [Permissions] [NonmemAccess α] [Labels]
-  [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α]
+def Directives.interp {α} [Labels]
   (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
-  (ret : Int64 → MachineData → α) : α :=
+  (ret : Int64 → MachineData → Sem α) : Sem α :=
   match ds with
   | [] => ret pc s
   | (d, sz) :: ds =>
@@ -731,42 +720,37 @@ def Executable.directivesFromAddress (e : Executable) (a : Int64) : List (Direct
 def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directive × Nat) :=
   e.2.dropWhile (·.1 != .label l)
 
-def Executable.step {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
-  [Throw α] [Permissions] [NonmemAccess α]
-  (e : Executable) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
+def Executable.step {α} (e : Executable) (s : MachineData × Int64) (ret : MachineData × Int64 → Sem α) : Sem α :=
   let := e.labels
   Directives.interp (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
-def Executable.straightline {α} [∀ w : Width, Undefined w.type α] [Undefined StatusFlags α] [Undefined Bool α]
-  [Throw α] [Permissions] [NonmemAccess α]
-  (e : Executable) (s : MachineData × Int64) (ret : MachineData × Int64 → α) : α :=
+def Executable.straightline {α} (e : Executable) (s : MachineData × Int64) (ret : MachineData × Int64 → Sem α) : Sem α :=
   let := e.labels;
   Directives.interp (e.directivesFromAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
 -- -- Concrete evaluators for expedient testing
 
-def Executable.eval (e : Executable) (s : MachineData × Int64) (until_ : MachineData × Int64 → Bool) : Except String (MachineData × Int64) :=
-  if until_ s then .ok s else
-  let α := Except String (MachineData × Int64)
-  let : Throw α := { throw s := .error s }
-  let : Permissions := {
-    can_read (addr : BitVec 64) (w : Width) := true
-    can_write (addr : BitVec 64) (w : Width) := true
-    can_exec (p: Std.Rco Int64) := true
-  }
-  let : NonmemAccess α := {
-    nonmem_load (addr : BitVec 64) (w : Width) ret :=
-      Except.error s!"Load at unmapped address {repr addr}"
-    nonmem_store (addr : BitVec 64) {w : Width} (v : w.type) ret :=
-      Except.error s!"Store at unmapped address {repr addr}"
-  }
-  let : Undefined Bool α := { undefined ret := ret (hash s.1.regs % 2 != 0) }
-  let : Undefined StatusFlags α := { undefined ret := let h := (hash s.1.regs).toBitVec; ret (.mk h[0] h[1] h[2] h[3] h[4] h[5]) }
-  let (w : Width) : Undefined w.type α := { undefined ret := ret ((hash s.1.regs).toBitVec.setWidth w.bits) }
-  match e.straightline s Except.ok with
-  | .ok s => eval e s until_
-  | .error s => .error s
-partial_fixpoint
+partial def Executable.eval (e : Executable) (s : MachineData × Int64) (until_ : MachineData × Int64 → Bool) : Except String (MachineData × Int64) :=
+  if until_ s then .ok s else handle_effects s (e.straightline s .ret)
+where
+  handle_effects s es  :=
+    match es with
+    | .ret s => eval e s until_
+    | .undefined msg => .error msg
+    | .unimplemented msg => .error msg
+    | .can_read _ _ cont => handle_effects s (cont true)
+    | .can_write _ _ cont => handle_effects s (cont true)
+    | .can_exec _ cont => handle_effects s (cont true)
+    | .nonmem_load addr _w _cont => .error s!"Load at unmapped address {repr addr}"
+    | .nonmem_store addr _v _cont => .error s!"Store at unmapped address {repr addr}"
+    | .undefined_bool cont =>
+      handle_effects s (cont (hash s.1.regs % 2 != 0))
+    | .undefined_status cont =>
+      let h := (hash s.1.regs).toBitVec
+      handle_effects s (cont (.mk h[0] h[1] h[2] h[3] h[4] h[5]))
+    | .undefined_bitvec w cont =>
+      handle_effects s (cont ((hash s.1.regs).toBitVec.setWidth w.bits))
+
 
 def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
   match d with

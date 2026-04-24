@@ -16,23 +16,25 @@ abbrev MachineState := MachineData × Int64
 
 abbrev Post := MachineState → Prop
 
-instance : Throw Prop where
-  throw _ := False
+def Sem.all {α : Type} (s : Sem α) (post : α → Prop) : Prop :=
+  match s with
+  | .ret a => post a
+  | .undefined _ => False
+  | .unimplemented _ => False
+  | .nonmem_load .. => False
+  | .nonmem_store .. => False
+  | .undefined_bitvec _ cont => ∀ v, (cont v).all post
+  | .undefined_status cont => ∀ sf, (cont sf).all post
+  | .undefined_bool cont => ∀ b, (cont b).all post
+  | .can_read _ _ cont => (cont true).all post
+  | .can_write _ _ cont => (cont true).all post
+  | .can_exec _ cont => (cont true).all post
 
-instance (T: Type): Undefined T Prop where
-  undefined ret := ∀ (v: T), ret v
+instance : Coe (Sem Prop) Prop where
+  coe s := s.all (fun p => p)
 
-instance : Permissions where
-  can_read (_addr : BitVec 64) (_w : Width) := true
-  can_write (_addr : BitVec 64) (_w : Width) := true
-  can_exec (_p: Std.Rco Int64) := true
-
-instance : NonmemAccess Prop where
-  nonmem_load (_addr : BitVec 64) (_w : Width) _ret := False
-  nonmem_store (_addr : BitVec 64) {w : Width} (_v : w.type) _ret := False
-
-def step1 [Layout] (p: Executable) (s: MachineState) (post: Post) :=
-  Executable.straightline p s post
+def step1 [Layout] (p: Executable) (s: MachineState) (post: Post) : Prop :=
+  Executable.straightline p s (fun s => .ret (post s))
 
 inductive Eventually [Layout] (prog: Executable) (p: MachineState → Prop): MachineState -> Prop
   | done (initial: MachineState):
