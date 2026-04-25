@@ -123,7 +123,7 @@ inductive Sem (α : Type)
   | undefined (msg : String)
   | unimplemented (msg : String)
   | nonmem_load (addr : BitVec 64) (w : Width) (ret : w.type → Sem α)
-  | nonmem_store (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Sem α)
+  | nonmem_store (addr : BitVec 64) {w : Width} (v : w.type) (ret: Unit → Sem α)
   | undefined_bitvec (w : Width) (cont : w.type → Sem α)
   | undefined_status (cont : StatusFlags → Sem α)
   | undefined_bool (cont : Bool → Sem α)
@@ -153,7 +153,7 @@ def MachineData.store {α} (s : MachineData) (addr : BitVec 64) {w : Width} (v :
     | .some old =>
         let new := UInt64.ofBitVec (old.toBitVec.replace ((addr &&& 0b111#64) * 8#64).toNat v)
         ret { s with dmem := s.dmem.insert key new }
-    | .none => nonmem_store addr v ret)
+    | .none => nonmem_store addr v (fun _ => ret s))
 
 abbrev Label := String
 
@@ -720,36 +720,38 @@ def Executable.directivesFromAddress (e : Executable) (a : Int64) : List (Direct
 def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directive × Nat) :=
   e.2.dropWhile (·.1 != .label l)
 
-def Executable.step {α} (e : Executable) (s : MachineData × Int64) (ret : MachineData × Int64 → Sem α) : Sem α :=
+abbrev MachineState := MachineData × Int64
+
+def Executable.step {α} (e : Executable) (s : MachineState) (ret : MachineState → Sem α) : Sem α :=
   let := e.labels
   Directives.interp (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
-def Executable.straightline {α} (e : Executable) (s : MachineData × Int64) (ret : MachineData × Int64 → Sem α) : Sem α :=
+def Executable.straightline {α} (e : Executable) (s : MachineState) (ret : MachineState → Sem α) : Sem α :=
   let := e.labels;
   Directives.interp (e.directivesFromAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
 -- -- Concrete evaluators for expedient testing
 
-partial def Executable.eval (e : Executable) (s : MachineData × Int64) (until_ : MachineData × Int64 → Bool) : Except String (MachineData × Int64) :=
-  if until_ s then .ok s else handle_effects s (e.straightline s .ret)
+partial def Executable.eval (e : Executable) (s : MachineState) (until_ : MachineState → Bool) : Except String (MachineState) :=
+  if until_ s then .ok s else handle_effects (e.straightline s .ret)
 where
-  handle_effects s es  :=
+  handle_effects es :=
     match es with
     | .ret s => eval e s until_
     | .undefined msg => .error msg
     | .unimplemented msg => .error msg
-    | .can_read _ _ cont => handle_effects s (cont true)
-    | .can_write _ _ cont => handle_effects s (cont true)
-    | .can_exec _ cont => handle_effects s (cont true)
+    | .can_read _ _ cont => handle_effects (cont true)
+    | .can_write _ _ cont => handle_effects (cont true)
+    | .can_exec _ cont => handle_effects (cont true)
     | .nonmem_load addr _w _cont => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store addr _v _cont => .error s!"Store at unmapped address {repr addr}"
     | .undefined_bool cont =>
-      handle_effects s (cont (hash s.1.regs % 2 != 0))
+      handle_effects (cont (hash s.1.regs % 2 != 0))
     | .undefined_status cont =>
       let h := (hash s.1.regs).toBitVec
-      handle_effects s (cont (.mk h[0] h[1] h[2] h[3] h[4] h[5]))
+      handle_effects (cont (.mk h[0] h[1] h[2] h[3] h[4] h[5]))
     | .undefined_bitvec w cont =>
-      handle_effects s (cont ((hash s.1.regs).toBitVec.setWidth w.bits))
+      handle_effects (cont ((hash s.1.regs).toBitVec.setWidth w.bits))
 
 
 def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
