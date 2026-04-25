@@ -84,21 +84,20 @@ structure SystemState where
   machineState : MachineState
   deviceState : IncrementerState
 
-def handle_effects (ds : IncrementerState) (es : Sem)
-    (ok : SystemState → Except String SystemState) : Except String SystemState :=
+def handle_effects (ds : IncrementerState) (es : Sem) : Except String SystemState :=
   match es with
-  | .ret ms => ok (.mk ms ds)
+  | .ret ms => .ok (.mk ms ds)
   | .undefined msg => .error msg
   | .unimplemented msg => .error msg
-  | .can_read _ _ cont => handle_effects ds (cont true) ok
-  | .can_write _ _ cont => handle_effects ds (cont true) ok
-  | .can_exec _ cont => handle_effects ds (cont true) ok
+  | .can_read _ _ cont => handle_effects ds (cont true)
+  | .can_write _ _ cont => handle_effects ds (cont true)
+  | .can_exec _ cont => handle_effects ds (cont true)
   | .nonmem_load addr w cont =>
     match w with
       | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
         | .some r => match ds.read_step r with
           | .some (reply, newDeviceState) =>
-            handle_effects ds (cont (UInt32.toBitVec reply)) ok
+            handle_effects ds (cont (UInt32.toBitVec reply))
           | .none => .error s!"Incrementer.read_step failed"
         | .none => .error s!"nonmem_load at unmapped address {repr addr}"
       | _ => .error s!"nonmem_load of width other than 4 bytes"
@@ -107,17 +106,17 @@ def handle_effects (ds : IncrementerState) (es : Sem)
       | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
         | .some r => match ds.write_step r (UInt32.ofBitVec v) with
           | .some newDeviceState =>
-            handle_effects newDeviceState (cont ()) ok
+            handle_effects newDeviceState (cont ())
           | .none => .error s!"Incrementer.write_step failed"
         | .none => .error s!"nonmem_store at unmapped address {repr addr}"
       | _ => .error s!"nonmem_store of width other than 4 bytes"
   | .undefined_bool cont =>
-    handle_effects ds (cont false) ok
+    handle_effects ds (cont false)
   | .undefined_status cont =>
     let h := (hash ds).toBitVec
-    handle_effects ds (cont (.mk h[0] h[1] h[2] h[3] h[4] h[5])) ok
+    handle_effects ds (cont (.mk h[0] h[1] h[2] h[3] h[4] h[5]))
   | .undefined_bitvec w cont =>
-    handle_effects ds (cont ((hash ds).toBitVec.setWidth w.bits)) ok
+    handle_effects ds (cont ((hash ds).toBitVec.setWidth w.bits))
 
 def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
     : Except String SystemState :=
@@ -126,5 +125,5 @@ def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
     if device's_turn then
       eval_schedule rest e { s with deviceState := s.deviceState.internal_step }
     else
-      handle_effects s.deviceState (e.step s.machineState .ret) (eval_schedule rest e)
+      (handle_effects s.deviceState (e.step s.machineState .ret)).bind (eval_schedule rest e)
   | .nil => .ok s
