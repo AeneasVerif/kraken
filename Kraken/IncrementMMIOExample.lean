@@ -84,8 +84,8 @@ structure SystemState where
   machineState : MachineState
   deviceState : IncrementerState
 
-def handle_effects (ds : IncrementerState) (es : Sem MachineState)
-    {α} (ok : SystemState → Except String α) : Except String α :=
+def handle_effects (ds : IncrementerState) (es : Sem)
+    (ok : SystemState → Except String SystemState) : Except String SystemState :=
   match es with
   | .ret ms => ok (.mk ms ds)
   | .undefined msg => .error msg
@@ -102,7 +102,7 @@ def handle_effects (ds : IncrementerState) (es : Sem MachineState)
           | .none => .error s!"Incrementer.read_step failed"
         | .none => .error s!"nonmem_load at unmapped address {repr addr}"
       | _ => .error s!"nonmem_load of width other than 4 bytes"
-  | @Sem.nonmem_store _ addr w v cont =>
+  | @Sem.nonmem_store addr w v cont =>
     match w with
       | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
         | .some r => match ds.write_step r (UInt32.ofBitVec v) with

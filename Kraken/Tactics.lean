@@ -14,7 +14,7 @@ import Kraken.Theorems
 
 abbrev Post := MachineState → Prop
 
-def Sem.all {α : Type} (s : Sem α) (post : α → Prop) : Prop :=
+def Sem.all (s : Sem) (post : MachineState → Prop) : Prop :=
   match s with
   | .ret a => post a
   | .undefined _ => False
@@ -28,11 +28,8 @@ def Sem.all {α : Type} (s : Sem α) (post : α → Prop) : Prop :=
   | .can_write _ _ cont => (cont true).all post
   | .can_exec _ cont => (cont true).all post
 
-instance : Coe (Sem Prop) Prop where
-  coe s := s.all (fun p => p)
-
-def step1 [Layout] (p: Executable) (s: MachineState) (post: Post) : Prop :=
-  Executable.straightline p s (fun s => .ret (post s))
+def step1 [Layout] (p: Executable) (s: MachineState) : Post → Prop :=
+  (Executable.straightline p s .ret).all
 
 inductive Eventually [Layout] (prog: Executable) (p: MachineState → Prop): MachineState -> Prop
   | done (initial: MachineState):

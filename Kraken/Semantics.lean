@@ -118,24 +118,24 @@ structure MachineData where -- does not include code or program position
   dmem : DataMem := ∅
   deriving Repr, BEq, DecidableEq
 
-inductive Sem (α : Type)
-  | ret (a : α)
+inductive Sem
+  | ret (a : MachineData × Int64)
   | undefined (msg : String)
   | unimplemented (msg : String)
-  | nonmem_load (addr : BitVec 64) (w : Width) (ret : w.type → Sem α)
-  | nonmem_store (addr : BitVec 64) {w : Width} (v : w.type) (ret: Unit → Sem α)
-  | undefined_bitvec (w : Width) (cont : w.type → Sem α)
-  | undefined_status (cont : StatusFlags → Sem α)
-  | undefined_bool (cont : Bool → Sem α)
-  | can_read (addr : BitVec 64) (w : Width) (cont : Bool → Sem α)
-  | can_write (addr : BitVec 64) (w : Width) (cont : Bool → Sem α)
-  | can_exec (p: Std.Rco Int64) (cont : Bool → Sem α)
+  | nonmem_load (addr : BitVec 64) (w : Width) (ret : w.type → Sem)
+  | nonmem_store (addr : BitVec 64) {w : Width} (v : w.type) (ret: Unit → Sem)
+  | undefined_bitvec (w : Width) (cont : w.type → Sem)
+  | undefined_status (cont : StatusFlags → Sem)
+  | undefined_bool (cont : Bool → Sem)
+  | can_read (addr : BitVec 64) (w : Width) (cont : Bool → Sem)
+  | can_write (addr : BitVec 64) (w : Width) (cont : Bool → Sem)
+  | can_exec (p: Std.Rco Int64) (cont : Bool → Sem)
 export Sem (nonmem_load nonmem_store undefined unimplemented undefined_bitvec undefined_status undefined_bool can_read can_write can_exec)
 
 def Reg.interp {α w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
   ret (s.regs.get r) -- the unused argument is present ^ for uniformity with RegOrMem.interp
 
-def MachineData.load {α} (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → Sem α): Sem α :=
+def MachineData.load (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → Sem): Sem :=
   if addr % w.bytesv != 0 then .unimplemented s!"Unimplemented: only aligned memory access is supported"
   else can_read addr w (fun allowed =>
     if !allowed then .undefined s!"Memory read of {repr w} not allowed at address {repr addr}"
@@ -144,7 +144,7 @@ def MachineData.load {α} (s : MachineData) (addr : BitVec 64) (w : Width) (ret 
     | .some v => ret (v.toBitVec.extractLsb' ((addr &&& 0b111#64) * 8#64).toNat w.bits)
     | .none => nonmem_load addr w ret)
 
-def MachineData.store {α} (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Sem α) : Sem α :=
+def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Sem) : Sem :=
   if addr % w.bytesv != 0 then .unimplemented s!"Unimplemented: only aligned memory access is supported"
   else can_write addr w (fun allowed =>
     if !allowed then .undefined s!"Memory write of {repr w} not allowed at address {repr addr}"
@@ -220,7 +220,7 @@ instance {w} : Coe (Reg w) (RegOrMem w) where coe := .reg
 attribute [coe] RegOrMem.reg
 abbrev Dst := RegOrMem
 
-def RegOrMem.interp {α w} [Labels] [AddressSize] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → Sem α) :=
+def RegOrMem.interp {w} [Labels] [AddressSize] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → Sem) :=
   match o with
   | .reg r => ret (s.regs.get r)
   | .mem a => s.load ((a.interp s.regs p).zeroExtend _) w ret
@@ -228,7 +228,7 @@ def RegOrMem.interp {α w} [Labels] [AddressSize] (o : RegOrMem w) (s : MachineD
 def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
 
-def MachineData.set {α w} [Labels] [AddressSize] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → Sem α) : Sem α :=
+def MachineData.set {w} [Labels] [AddressSize] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → Sem) : Sem :=
   match d with
   | .reg r => ret (s.setReg r v)
   | .mem a => s.store ((a.interp s.regs p).zeroExtend _) v ret
@@ -242,7 +242,7 @@ attribute [coe] Operand.imm
 abbrev Operand.reg {w} (r : Reg w) : Operand w := regOrMem (.reg r)
 abbrev Operand.mem {w} (m : AddrExpr) : Operand w := regOrMem (.mem m)
 
-def Operand.interp {α w} [Labels] [AddressSize] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → Sem α) :=
+def Operand.interp {w} [Labels] [AddressSize] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → Sem) :=
   match o with
   | .regOrMem rm => rm.interp s p ret
   | .imm v => ret ((v.interp p).toBitVec.take _)
@@ -271,7 +271,7 @@ def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) 
 inductive RelRegOrMem | rel (_ : ConstExpr) | reg (r : Reg .W64) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-def RelRegOrMem.interp {α} [Labels] [AddressSize] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → Sem α) :=
+def RelRegOrMem.interp [Labels] [AddressSize] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → Sem) :=
   match o with
   | .rel c => ret (p.upper + c.interp p).toBitVec
   | .reg r => ret (s.regs.get r)
@@ -356,10 +356,10 @@ def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) 
 
 
 set_option maxHeartbeats 1000000
-def Operation.interp {α}
-  [Labels] [address_size : AddressSize] {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
-  (next : MachineData → Sem α) (jmp : Int64 → MachineData → Sem α) : Sem α :=
-  match (generalizing := false) (motive := Operation w → Sem α) i with
+def Operation.interp [Labels] [address_size : AddressSize]
+  {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
+  (next : MachineData → Sem) (jmp : Int64 → MachineData → Sem) : Sem :=
+  match (generalizing := false) (motive := Operation w → Sem) i with
   | .mov dst src => src.interp s p (fun val => s.set dst val p next)
   | .movsx dst src => src.interp s p (fun val => s.set dst (val.signExtend _) p next)
   | .movzx dst src => src.interp s p (fun val => s.set dst (val.zeroExtend _) p next)
@@ -610,7 +610,7 @@ def Operation.interp {α}
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .bswap dst =>
     let a := s.regs.get dst
-    match (generalizing := false) (motive := Width → Sem α) w with
+    match (generalizing := false) (motive := Width → Sem) w with
     | .W32 =>
       let v := a.take 8 ++ a.extractLsb' 8 8 ++ a.extractLsb' 16 8 ++ a.drop 24
       next (s.setReg dst (v.setWidth _))
@@ -642,9 +642,9 @@ structure Instr where
   operation : Operation operation_size
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
-def Instr.interp {α} [Labels]
+def Instr.interp [Labels]
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
-  (next : MachineData → Sem α) (jmp : Int64 → MachineData → Sem α) : Sem α :=
+  (next : MachineData → Sem) (jmp : Int64 → MachineData → Sem) : Sem :=
   can_exec p (fun allowed =>
     if allowed
     then Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next jmp
@@ -659,17 +659,17 @@ inductive Directive
   | byteArray (_ : ByteArray)
   deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
 
-def Directive.interp {α} [Labels]
+def Directive.interp [Labels]
   (d : Directive) (s : MachineData) (p : Std.Rco Int64)
-  (next : MachineData → Sem α) (jmp : Int64 → MachineData → Sem α) : Sem α :=
+  (next : MachineData → Sem) (jmp : Int64 → MachineData → Sem) : Sem :=
   match d with
   | .label _ => next s
   | .instr i => i.interp s p next jmp
   | .byteArray _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
 
-def Directives.interp {α} [Labels]
+def Directives.interp [Labels]
   (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
-  (ret : Int64 → MachineData → Sem α) : Sem α :=
+  (ret : Int64 → MachineData → Sem) : Sem :=
   match ds with
   | [] => ret pc s
   | (d, sz) :: ds =>
@@ -722,11 +722,11 @@ def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directiv
 
 abbrev MachineState := MachineData × Int64
 
-def Executable.step {α} (e : Executable) (s : MachineState) (ret : MachineState → Sem α) : Sem α :=
+def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → Sem) : Sem :=
   let := e.labels
   Directives.interp (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
-def Executable.straightline {α} (e : Executable) (s : MachineState) (ret : MachineState → Sem α) : Sem α :=
+def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineState → Sem) : Sem :=
   let := e.labels;
   Directives.interp (e.directivesFromAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
