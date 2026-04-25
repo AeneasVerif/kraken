@@ -1,0 +1,146 @@
+import Kraken.Semantics
+
+/-
+A dummy device that can be accessed via MMIO and can only
+perform the veeery complicated operation of incrementing a
+number by one.
+Inspired by https://github.com/project-oak/silveroak/blob/main/firmware/IncrementWait/IncrementWaitSemantics.v
+Illustrates how MMIO stores *and loads* can modify the state of an external device.
+
+Overview of what can modify what:
+
+                MachineData     External state
+nonmem_load          N                YY
+nonmem_store         Y                YY
+
+N = No (excluded by signature of Sem.nomem_load)
+Y = Yes but not illustrated in this file (would need example where mmio_store
+    triggers passing owned memory to a device, or receiving it from the device)
+YY = Yes and illustrated in this file
+
+TODO: Do we want to support scenarios where an mmio_load of a done flag that
+equals 1 means that the CPU acknowledges that it now knows that the device
+(eg a NIC) has finished writing some buffers and therefore now these become
+owned by the CPU, so MachineData.dmem becomes bigger?
+If so, we'd need to change the signature of Sem.nomem_load and write more examples
+until all 4 cells in the above table are YY.
+-/
+
+-- state as seen by software, not necessarily implemented like this in hardware
+inductive IncrementerState
+  | idle
+  | busy (input : UInt32) (steps_until_done : Nat)
+  | done (answer : UInt32)
+
+inductive Incrementer.Register | VALUE | STATUS
+
+def VALUE_ADDR : UInt64 := 4096
+def STATUS_ADDR : UInt64 := 4100
+
+def STATUS_IDLE : UInt32 := 0
+def STATUS_BUSY : UInt32 := 1
+def STATUS_DONE : UInt32 := 2
+
+def IncrementerState.read_step (s : IncrementerState) (r : Incrementer.Register)
+  : Option (UInt32 × IncrementerState) :=
+  match r with
+  | .VALUE => match s with
+    | .idle => none
+    | .busy _ _ => none
+    -- note how a *read* causes a state transition in the device
+    | .done answer => some (answer, .idle)
+  | .STATUS => match s with
+    | .idle => some (STATUS_IDLE, s)
+    | .busy _ _  => some (STATUS_BUSY, s)
+    | .done _ => some (STATUS_DONE, s)
+
+-- software and proofs should not depend on this number,
+-- if we have nondeterminism available, we'd pick an arbitrary number here
+def N_STEPS_NEEDED : Nat := 3
+
+def IncrementerState.write_step (s : IncrementerState)
+  (r : Incrementer.Register) (v : UInt32)
+  : Option IncrementerState :=
+  match r with
+  | .VALUE => match s with
+    | .idle => some (.busy v N_STEPS_NEEDED)
+    | .busy _ _ => none
+    | .done _ => none
+  | .STATUS => none
+
+def IncrementerState.internal_step (s : IncrementerState) : IncrementerState :=
+  match s with
+  | .idle => s
+  | .busy input n => if n == 0 then .done (input + 1) else .busy input (n - 1)
+  | .done _ => s
+
+def Incrementer.Register.of_addr (addr : UInt64) : Option Incrementer.Register :=
+  if addr == VALUE_ADDR then some .VALUE
+  else if addr == STATUS_ADDR then some .STATUS
+  else none
+
+structure SystemState where
+  machineState : MachineData
+  pc : Int64
+  deviceState : IncrementerState
+
+def handle_effects (s : SystemState) (es : Sem SystemState)
+  (next : SystemState → Except String SystemState) : Except String SystemState :=
+  match es with
+  | .ret s =>
+    -- Note: here we completely ignore the s passed to handle_effects,
+    -- because we shadow it with the s from the .ret, which comes from es, not s.
+    -- Is this ok because it's similar to a state monad put?
+    -- Or is this a sign that we could replace (.ret s) by a .done without any
+    -- argument, and remove the α?
+    next s
+  | .undefined msg => .error msg
+  | .unimplemented msg => .error msg
+  | .can_read _ _ cont => handle_effects s (cont true) next
+  | .can_write _ _ cont => handle_effects s (cont true) next
+  | .can_exec _ cont => handle_effects s (cont true) next
+  | .nonmem_load addr w cont =>
+    match w with
+      | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
+        | .some r => match s.deviceState.read_step r with
+          | .some (reply, newDeviceState) =>
+            handle_effects { s with deviceState := newDeviceState }
+                           (cont (UInt32.toBitVec reply))
+                           next
+          | .none => .error s!"Incrementer.read_step failed"
+        | .none => .error s!"nonmem_load at unmapped address {repr addr}"
+      | _ => .error s!"nonmem_load of width other than 4 bytes"
+  | @Sem.nonmem_store _ addr w v cont =>
+    match w with
+      | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
+        | .some r => match s.deviceState.write_step r (UInt32.ofBitVec v) with
+          | .some newDeviceState =>
+            handle_effects { s with deviceState := newDeviceState }
+                           (cont s.machineState)
+                           next
+          | .none => .error s!"Incrementer.write_step failed"
+        | .none => .error s!"nonmem_store at unmapped address {repr addr}"
+      | _ => .error s!"nonmem_store of width other than 4 bytes"
+  | .undefined_bool cont =>
+    handle_effects s (cont (hash s.1.regs % 2 != 0)) next
+  | .undefined_status cont =>
+    let h := (hash s.1.regs).toBitVec
+    handle_effects s (cont (.mk h[0] h[1] h[2] h[3] h[4] h[5])) next
+  | .undefined_bitvec w cont =>
+    handle_effects s (cont ((hash s.1.regs).toBitVec.setWidth w.bits)) next
+
+def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
+    : Except String SystemState :=
+  match schedule with
+  | device's_turn :: rest =>
+    if device's_turn then
+      let s := { s with deviceState := s.deviceState.internal_step }
+      eval_schedule rest e s
+    else
+      -- TODO 1 CPU step should be 1 assembly instruction, not a whole
+      -- straightline sequence
+      handle_effects s (e.straightline (s.machineState, s.pc)  (fun (s', pc') =>
+        Sem.ret { machineState := s', deviceState := s.deviceState, pc := pc' }
+      ))
+      (eval_schedule rest e)
+  | .nil => .ok s
