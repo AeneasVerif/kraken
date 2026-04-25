@@ -31,6 +31,7 @@ inductive IncrementerState
   | idle
   | busy (input : UInt32) (steps_until_done : Nat)
   | done (answer : UInt32)
+  deriving Hashable
 
 inductive Incrementer.Register | VALUE | STATUS
 
@@ -80,67 +81,50 @@ def Incrementer.Register.of_addr (addr : UInt64) : Option Incrementer.Register :
   else none
 
 structure SystemState where
-  machineState : MachineData
-  pc : Int64
+  machineState : MachineState
   deviceState : IncrementerState
 
-def handle_effects (s : SystemState) (es : Sem SystemState)
-  (next : SystemState → Except String SystemState) : Except String SystemState :=
+def handle_effects (ds : IncrementerState) (es : Sem MachineState)
+    {α} (ok : SystemState → Except String α) : Except String α :=
   match es with
-  | .ret s =>
-    -- Note: here we completely ignore the s passed to handle_effects,
-    -- because we shadow it with the s from the .ret, which comes from es, not s.
-    -- Is this ok because it's similar to a state monad put?
-    -- Or is this a sign that we could replace (.ret s) by a .done without any
-    -- argument, and remove the α?
-    next s
+  | .ret ms => ok (.mk ms ds)
   | .undefined msg => .error msg
   | .unimplemented msg => .error msg
-  | .can_read _ _ cont => handle_effects s (cont true) next
-  | .can_write _ _ cont => handle_effects s (cont true) next
-  | .can_exec _ cont => handle_effects s (cont true) next
+  | .can_read _ _ cont => handle_effects ds (cont true) ok
+  | .can_write _ _ cont => handle_effects ds (cont true) ok
+  | .can_exec _ cont => handle_effects ds (cont true) ok
   | .nonmem_load addr w cont =>
     match w with
       | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
-        | .some r => match s.deviceState.read_step r with
+        | .some r => match ds.read_step r with
           | .some (reply, newDeviceState) =>
-            handle_effects { s with deviceState := newDeviceState }
-                           (cont (UInt32.toBitVec reply))
-                           next
+            handle_effects ds (cont (UInt32.toBitVec reply)) ok
           | .none => .error s!"Incrementer.read_step failed"
         | .none => .error s!"nonmem_load at unmapped address {repr addr}"
       | _ => .error s!"nonmem_load of width other than 4 bytes"
   | @Sem.nonmem_store _ addr w v cont =>
     match w with
       | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
-        | .some r => match s.deviceState.write_step r (UInt32.ofBitVec v) with
+        | .some r => match ds.write_step r (UInt32.ofBitVec v) with
           | .some newDeviceState =>
-            handle_effects { s with deviceState := newDeviceState }
-                           (cont s.machineState)
-                           next
+            handle_effects newDeviceState (cont ()) ok
           | .none => .error s!"Incrementer.write_step failed"
         | .none => .error s!"nonmem_store at unmapped address {repr addr}"
       | _ => .error s!"nonmem_store of width other than 4 bytes"
   | .undefined_bool cont =>
-    handle_effects s (cont (hash s.1.regs % 2 != 0)) next
+    handle_effects ds (cont false) ok
   | .undefined_status cont =>
-    let h := (hash s.1.regs).toBitVec
-    handle_effects s (cont (.mk h[0] h[1] h[2] h[3] h[4] h[5])) next
+    let h := (hash ds).toBitVec
+    handle_effects ds (cont (.mk h[0] h[1] h[2] h[3] h[4] h[5])) ok
   | .undefined_bitvec w cont =>
-    handle_effects s (cont ((hash s.1.regs).toBitVec.setWidth w.bits)) next
+    handle_effects ds (cont ((hash ds).toBitVec.setWidth w.bits)) ok
 
 def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
     : Except String SystemState :=
   match schedule with
   | device's_turn :: rest =>
     if device's_turn then
-      let s := { s with deviceState := s.deviceState.internal_step }
-      eval_schedule rest e s
+      eval_schedule rest e { s with deviceState := s.deviceState.internal_step }
     else
-      -- TODO 1 CPU step should be 1 assembly instruction, not a whole
-      -- straightline sequence
-      handle_effects s (e.straightline (s.machineState, s.pc)  (fun (s', pc') =>
-        Sem.ret { machineState := s', deviceState := s.deviceState, pc := pc' }
-      ))
-      (eval_schedule rest e)
+      handle_effects s.deviceState (e.step s.machineState .ret) (eval_schedule rest e)
   | .nil => .ok s

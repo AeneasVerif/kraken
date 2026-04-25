@@ -12,8 +12,6 @@ import Kraken.Theorems
 
 -- PROOF INFRASTRUCTURE
 
-abbrev MachineState := MachineData × Int64
-
 abbrev Post := MachineState → Prop
 
 def Sem.all {α : Type} (s : Sem α) (post : α → Prop) : Prop :=
