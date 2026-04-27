@@ -98,8 +98,8 @@ def handle_effects (ds : IncrementerState) (es : Effects)
     match w with
       | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
         | .some r => match ds.read_step r with
-          | .some (reply, newDeviceState) =>
-            handle_effects ds (cont (UInt32.toBitVec reply) dmem) ok
+          | .some (reply, ds') =>
+            handle_effects ds' (cont (UInt32.toBitVec reply) dmem) ok
           | .none => .error s!"Incrementer.read_step failed"
         | .none => .error s!"nonmem_load at unmapped address {repr addr}"
       | _ => .error s!"nonmem_load of width other than 4 bytes"
@@ -107,18 +107,12 @@ def handle_effects (ds : IncrementerState) (es : Effects)
     match w with
       | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
         | .some r => match ds.write_step r (UInt32.ofBitVec v) with
-          | .some newDeviceState =>
-            handle_effects newDeviceState (cont dmem) ok
+          | .some ds' =>
+            handle_effects ds' (cont dmem) ok
           | .none => .error s!"Incrementer.write_step failed"
         | .none => .error s!"nonmem_store at unmapped address {repr addr}"
       | _ => .error s!"nonmem_store of width other than 4 bytes"
-  | .undefined_bool cont =>
-    handle_effects ds (cont false) ok
-  | .undefined_status cont =>
-    let h := (hash ds).toBitVec
-    handle_effects ds (cont (.mk h[0] h[1] h[2] h[3] h[4] h[5])) ok
-  | .undefined_bitvec w cont =>
-    handle_effects ds (cont ((hash ds).toBitVec.setWidth w.bits)) ok
+  | @Effects.pick _ t cont => handle_effects ds (cont (t.from_hash (hash ds))) ok
 
 def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
     : Except String SystemState :=

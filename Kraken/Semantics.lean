@@ -118,6 +118,22 @@ structure MachineData where -- does not include code or program position
   dmem : DataMem := ∅
   deriving Repr, BEq, DecidableEq
 
+-- We only allow nondeterministic choices for a fixed set of types.
+class inductive NondetSupportingType : Type -> Type
+  | bitvec (w : Width) : NondetSupportingType w.type
+  | bool : NondetSupportingType Bool
+  | statusFlags : NondetSupportingType StatusFlags
+
+def NondetSupportingType.from_hash {α} [t : NondetSupportingType α] (h : UInt64) : α :=
+  match t with
+  | .bool => h % 2 != 0
+  | .statusFlags => let h := h.toBitVec; (.mk h[0] h[1] h[2] h[3] h[4] h[5])
+  | .bitvec w => h.toBitVec.setWidth w.bits
+
+instance (w : Width) : NondetSupportingType w.type := .bitvec w
+instance : NondetSupportingType Bool := .bool
+instance : NondetSupportingType StatusFlags := .statusFlags
+
 inductive Effects
   | done (a : MachineData × Int64)
   | undefined (msg : String)
@@ -127,13 +143,11 @@ inductive Effects
   -- data memory the process logically owns vs what memory is owned by devices
   | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : Width) (ret : w.type → DataMem → Effects)
   | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : Width} (v : w.type) (ret: DataMem → Effects)
-  | undefined_bitvec (w : Width) (cont : w.type → Effects)
-  | undefined_status (cont : StatusFlags → Effects)
-  | undefined_bool (cont : Bool → Effects)
+  | pick (α : Type) [NondetSupportingType α] (ret : α → Effects)
   | can_read (addr : BitVec 64) (w : Width) (cont : Bool → Effects)
   | can_write (addr : BitVec 64) (w : Width) (cont : Bool → Effects)
   | can_exec (p: Std.Rco Int64) (cont : Bool → Effects)
-export Effects (nonmem_load nonmem_store undefined unimplemented undefined_bitvec undefined_status undefined_bool can_read can_write can_exec)
+export Effects (nonmem_load nonmem_store undefined unimplemented pick can_read can_write can_exec)
 
 def Reg.interp {α w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
   ret (s.regs.get r) -- the unused argument is present ^ for uniformity with RegOrMem.interp
@@ -515,7 +529,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     let s := if w == .W8
       then s.setReg (.low .rax .W16) (.ofInt _ vn)
       else (s.setReg (.low .rax w) v).setReg (.low .rdx w) (.ofInt _ (vn >>> w.bits))
-    undefined_bool (λ sf => undefined_bool (λ zf => undefined_bool (λ af => undefined_bool (λ pf =>
+    pick Bool (λ sf => pick Bool (λ zf => pick Bool (λ af => pick Bool (λ pf =>
     next { s with status := { cf := v.unsigned != vn, pf, af, zf, sf, of := v.unsigned != vn }})))))
   | .mulx r_hi r_lo src1 =>
     src1.interp s p (fun a =>
@@ -537,7 +551,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
       let low := result.take w.bits
       let high := (result.drop w.bits).setWidth _
       (s.setReg (.low .rax w) low).setReg (.low .rdx w) high
-    undefined_bool (λ sf => undefined_bool (λ zf => undefined_bool (λ af => undefined_bool (λ pf =>
+    pick Bool (λ sf => pick Bool (λ zf => pick Bool (λ af => pick Bool (λ pf =>
     let low := BitVec.ofInt w.bits v
     let cf := v != low.toInt
     next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))
@@ -548,21 +562,21 @@ def Operation.interp [Labels] [address_size : AddressSize]
     s.set (match (generalizing := false) (motive := Option (RegOrMem w) → RegOrMem w)
              dst with | .some dst => dst | _ => src1) v p (fun s =>
     let cf := v.signed != a.signed * b.signed
-    undefined_bool (λ sf => undefined_bool (λ zf => undefined_bool (λ af => undefined_bool (λ pf =>
+    pick Bool (λ sf => pick Bool (λ zf => pick Bool (λ af => pick Bool (λ pf =>
     next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))))
 -- Bitwise
   | .test a b =>
     a.interp s p (fun a =>
     b.interp s p (fun b =>
     let v := a &&& b
-    undefined_bool (fun af =>
+    pick Bool (fun af =>
     let status := .from_result v { cf := false, af, of := false}
     next { s with status})))
   | .and dst src | .or dst src | .xor dst src =>
     dst.interp s p (fun a =>
     src.interp s p (fun b =>
     let v := match i with | .and _ _ => a &&& b | .or _ _ => a ||| b | _ => a ^^^ b
-    undefined_bool (fun af =>
+    pick Bool (fun af =>
     let status := .from_result v { cf := false, of := false, af }
     { s with status }.set dst v p next)))
   | .not dst =>
@@ -574,27 +588,27 @@ def Operation.interp [Labels] [address_size : AddressSize]
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := a <<< count
-    undefined_bool (λ af =>
-    (λ setcf => if count < w.bits then setcf (a <<< (count-1)).msb else undefined_bool setcf) (λ cf =>
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined_bool setof) (λ of =>
+    pick Bool (λ af =>
+    (λ setcf => if count < w.bits then setcf (a <<< (count-1)).msb else pick Bool setcf) (λ cf =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else pick Bool setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .shr dst count =>
     dst.interp s p (fun a =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := a.ushiftRight count
-    undefined_bool (λ af =>
-    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined_bool setcf) (λ cf =>
-    (λ setof => if count == 1 then setof a.msb else undefined_bool setof) (λ of =>
+    pick Bool (λ af =>
+    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else pick Bool setcf) (λ cf =>
+    (λ setof => if count == 1 then setof a.msb else pick Bool setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .sar dst count =>
     dst.interp s p (fun a =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := a.sshiftRight count
-    undefined_bool (λ af =>
-    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined_bool setcf) (λ cf =>
-    (λ setof => if count == 1 then setof false else undefined_bool setof) (λ of =>
+    pick Bool (λ af =>
+    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else pick Bool setcf) (λ cf =>
+    (λ setof => if count == 1 then setof false else pick Bool setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .shrd dst src count =>
     dst.interp s p (fun a =>
@@ -602,10 +616,10 @@ def Operation.interp [Labels] [address_size : AddressSize]
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := (((b.append a) >>> count).take w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined_status setstatus else
+    (λ setstatus => if count >= w.bits then pick StatusFlags setstatus else
       let cf := a.getLsbD (count-1)
-      undefined_bool (λ af =>
-      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined_bool setof) (λ of =>
+      pick Bool (λ af =>
+      (λ setof => if count == 1 then setof (v.msb != a.msb) else pick Bool setof) (λ of =>
       setstatus (.from_result v { cf, af, of})))) (λ status =>
     { s with status }.set dst v p next)))
   | .shld dst src count =>
@@ -614,10 +628,10 @@ def Operation.interp [Labels] [address_size : AddressSize]
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := (((a.append b) <<< count).drop w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined_status setstatus else
+    (λ setstatus => if count >= w.bits then pick StatusFlags setstatus else
       let cf := (a <<< (count-1)).msb
-      undefined_bool (λ af =>
-      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined_bool setof) (λ of =>
+      pick Bool (λ af =>
+      (λ setof => if count == 1 then setof (v.msb != a.msb) else pick Bool setof) (λ of =>
       setstatus (.from_result v { cf, af, of})))) (λ status =>
     { s with status }.set dst v p next)))
   | .rol dst count =>
@@ -626,7 +640,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     if count == 0 then next s else
     let v := a.rotateLeft count
     let cf := v.getLsbD 0
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined_bool setof) (λ of =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else pick Bool setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .ror dst count =>
     dst.interp s p (fun a =>
@@ -634,7 +648,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     if count == 0 then next s else
     let v := a.rotateRight count
     let cf := v.msb
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined_bool setof) (λ of =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else pick Bool setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .rcr dst count =>
     dst.interp s p (fun a =>
@@ -642,7 +656,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     if count == 0 then next s else
     let t := (BitVec.ofBool s.status.cf ++ a).rotateRight count
     let (cf, v) := (t.msb, t.take w.bits)
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined_bool setof) (λ of =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else pick Bool setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .rcl dst count =>
     dst.interp s p (fun a =>
@@ -650,7 +664,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     if count == 0 then next s else
     let t := (BitVec.ofBool s.status.cf ++ a).rotateLeft count
     let (cf, v) := (t.msb, t.take w.bits)
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined_bool setof) (λ of =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else pick Bool setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .bswap dst =>
     let a := s.regs.get dst
@@ -662,7 +676,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
       let v := a.take 8 ++ a.extractLsb' 8 8 ++ a.extractLsb' 16 8 ++ a.extractLsb' 24 8
             ++ a.extractLsb' 32 8 ++ a.extractLsb' 40 8 ++ a.extractLsb' 48 8 ++ a.drop 56
       next (s.setReg dst (v.setWidth _))
-    | _ => undefined_bitvec w (fun v => next (s.setReg dst v))
+    | _ => pick w.type (fun v => next (s.setReg dst v))
   | .jcc cc l =>
     if cc.interp s.status
     then jmp (label l) s
@@ -789,14 +803,7 @@ where
     | .can_exec _ cont => handle_effects (cont true)
     | .nonmem_load addr .. => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store addr .. => .error s!"Store at unmapped address {repr addr}"
-    | .undefined_bool cont =>
-      handle_effects (cont (hash s.1.regs % 2 != 0))
-    | .undefined_status cont =>
-      let h := (hash s.1.regs).toBitVec
-      handle_effects (cont (.mk h[0] h[1] h[2] h[3] h[4] h[5]))
-    | .undefined_bitvec w cont =>
-      handle_effects (cont ((hash s.1.regs).toBitVec.setWidth w.bits))
-
+    | @Effects.pick _ t cont => handle_effects (cont (t.from_hash (hash s.1.regs)))
 
 def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
   match d with
