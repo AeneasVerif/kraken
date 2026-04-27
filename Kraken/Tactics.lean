@@ -14,7 +14,7 @@ import Kraken.Theorems
 
 abbrev Post := MachineState → Prop
 
-def Sem.all (s : Sem) (post : MachineState → Prop) : Prop :=
+def Effects.all (s : Effects) (post : MachineState → Prop) : Prop :=
   match s with
   | .done a => post a
   | .undefined _ => False
