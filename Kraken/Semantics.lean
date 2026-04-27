@@ -122,8 +122,11 @@ inductive Effects
   | done (a : MachineData × Int64)
   | undefined (msg : String)
   | unimplemented (msg : String)
-  | nonmem_load (addr : BitVec 64) (w : Width) (ret : w.type → Effects)
-  | nonmem_store (addr : BitVec 64) {w : Width} (v : w.type) (ret: Unit → Effects)
+  -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
+  -- for instance, MMIO reads/writes at certain device register addresses might change what
+  -- data memory the process logically owns vs what memory is owned by devices
+  | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : Width) (ret : w.type → DataMem → Effects)
+  | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : Width} (v : w.type) (ret: DataMem → Effects)
   | undefined_bitvec (w : Width) (cont : w.type → Effects)
   | undefined_status (cont : StatusFlags → Effects)
   | undefined_bool (cont : Bool → Effects)
@@ -135,14 +138,41 @@ export Effects (nonmem_load nonmem_store undefined unimplemented undefined_bitve
 def Reg.interp {α w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
   ret (s.regs.get r) -- the unused argument is present ^ for uniformity with RegOrMem.interp
 
-def MachineData.load (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → Effects): Effects :=
+-- Since MMIO can cause devices to do arbitrary actions, a load might actually
+-- *modify* memory.
+-- But we don't want to model this full complexity everywhere, so we define a
+-- full_load that we use for MOV, and a simple_load that we use for all
+-- other instructions with memory operands.
+-- Because of this simplification, our semantics would reject the following example:
+-- A TEST instruction might load a flag from an MMIO address and bitwise-and it with
+-- an immediate, and if the result is non-zero, it might mean that some device has
+-- finished processing a buffer and therefore now passes ownership of that buffer
+-- to the CPU.
+-- Possible workarounds:
+-- * replace the TEST-with-memory-operand by a MOV and a TEST-with-register-operand
+-- * Change the signature of RegOrMem.interp to allow memory modification (considerable
+--   refactoring)
+
+def MachineData.generic_load
+  (nonmem_load_param : DataMem → BitVec 64 → (w': Width) → (w'.type → DataMem → Effects) → Effects)
+  (s : MachineData) (addr : BitVec 64) (w : Width)
+  (ret : w.type → DataMem → Effects): Effects :=
   if addr % w.bytesv != 0 then .unimplemented s!"Unimplemented: only aligned memory access is supported"
   else can_read addr w (fun allowed =>
     if !allowed then .undefined s!"Memory read of {repr w} not allowed at address {repr addr}"
     else let key := UInt64.ofBitVec (addr &&& ~~~0b111#64)
     match s.dmem[key]? with
-    | .some v => ret (v.toBitVec.extractLsb' ((addr &&& 0b111#64) * 8#64).toNat w.bits)
-    | .none => nonmem_load addr w ret)
+    | .some v => ret (v.toBitVec.extractLsb' ((addr &&& 0b111#64) * 8#64).toNat w.bits) s.dmem
+    | .none => nonmem_load_param s.dmem addr w ret)
+
+def MachineData.full_load :
+  MachineData → BitVec 64 → (w : Width) → (w.type → DataMem → Effects) → Effects :=
+  MachineData.generic_load nonmem_load
+
+def MachineData.simple_load (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → Effects): Effects :=
+  MachineData.generic_load nonmem_load_param s addr w (fun res _new_mem => ret res)
+  where nonmem_load_param _dmem _addr _w _ret :=
+    .unimplemented s!"Unimplemented: simple_load may not load outside of data memory, use full_load instead"
 
 def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Effects) : Effects :=
   if addr % w.bytesv != 0 then .unimplemented s!"Unimplemented: only aligned memory access is supported"
@@ -153,7 +183,7 @@ def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.ty
     | .some old =>
         let new := UInt64.ofBitVec (old.toBitVec.replace ((addr &&& 0b111#64) * 8#64).toNat v)
         ret { s with dmem := s.dmem.insert key new }
-    | .none => nonmem_store addr v (fun _ => ret s))
+    | .none => nonmem_store s.dmem addr v (fun dmem' => ret { s with dmem := dmem' }))
 
 abbrev Label := String
 
@@ -223,7 +253,12 @@ abbrev Dst := RegOrMem
 def RegOrMem.interp {w} [Labels] [AddressSize] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → Effects) :=
   match o with
   | .reg r => ret (s.regs.get r)
-  | .mem a => s.load ((a.interp s.regs p).zeroExtend _) w ret
+  | .mem a => s.simple_load ((a.interp s.regs p).zeroExtend _) w ret
+
+def RegOrMem.full_interp {w} [Labels] [AddressSize] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → DataMem → Effects) :=
+  match o with
+  | .reg r => ret (s.regs.get r) s.dmem
+  | .mem a => s.full_load ((a.interp s.regs p).zeroExtend _) w ret
 
 def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
@@ -246,6 +281,12 @@ def Operand.interp {w} [Labels] [AddressSize] (o : Operand w) (s : MachineData) 
   match o with
   | .regOrMem rm => rm.interp s p ret
   | .imm v => ret ((v.interp p).toBitVec.take _)
+  -- we rely on assemblers erroring out on too-large immediates in uniform ops
+
+def Operand.full_interp {w} [Labels] [AddressSize] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → DataMem → Effects) :=
+  match o with
+  | regOrMem rm => rm.full_interp s p ret
+  | .imm v => ret ((v.interp p).toBitVec.truncate _) s.dmem
   -- we rely on assemblers erroring out on too-large immediates in uniform ops
 
 inductive CondCode | z | nz | c | nc | a | be
@@ -275,7 +316,7 @@ def RelRegOrMem.interp [Labels] [AddressSize] (o : RelRegOrMem) (s : MachineData
   match o with
   | .rel c => ret (p.upper + c.interp p).toBitVec
   | .reg r => ret (s.regs.get r)
-  | .mem a => s.load ((a.interp s.regs p).zeroExtend _) .W64 ret
+  | .mem a => s.simple_load ((a.interp s.regs p).zeroExtend _) .W64 ret
 
 inductive Operation (w : Width)
   -- Data movement
@@ -360,16 +401,19 @@ def Operation.interp [Labels] [address_size : AddressSize]
   {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
   match (generalizing := false) (motive := Operation w → Effects) i with
-  | .mov dst src => src.interp s p (fun val => s.set dst val p next)
-  | .movsx dst src => src.interp s p (fun val => s.set dst (val.signExtend _) p next)
-  | .movzx dst src => src.interp s p (fun val => s.set dst (val.zeroExtend _) p next)
+  | .mov dst src => src.full_interp s p (fun val dmem' =>
+      { s with dmem := dmem' }.set dst val p next)
+  | .movsx dst src => src.full_interp s p (fun val dmem' =>
+      { s with dmem := dmem' }.set dst (val.signExtend _) p next)
+  | .movzx dst src => src.full_interp s p (fun val dmem' =>
+      { s with dmem := dmem' }.set dst (val.zeroExtend _) p next)
   | .push src =>
     src.interp s p (fun v =>
     let rsp := s.regs.get64 .rsp - w.bytesv
     { s with regs := s.regs.set64 .rsp rsp }.store rsp v next)
   | .pop dst =>
     let rsp := s.regs.get64 .rsp
-    s.load rsp w (fun val =>
+    s.simple_load rsp w (fun val =>
     let s := { s with regs := s.regs.set64 .rsp (rsp + w.bytesv) }
     s.set dst val p next)
   | .setcc cc dst =>
@@ -632,7 +676,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     { s with regs := s.regs.set64 .rsp rsp }.store rsp (w:=.W64) p.upper.toBitVec (jmp (.ofBitVec a)))
   | .ret =>
     let rsp := s.regs.get64 .rsp
-    s.load rsp .W64 (fun ra =>
+    s.simple_load rsp .W64 (fun ra =>
     jmp (.ofBitVec ra) { s with regs := s.regs.set64 .rsp (rsp + 8) })
   | nop _ | nopalign _ _ => next s
 
@@ -743,8 +787,8 @@ where
     | .can_read _ _ cont => handle_effects (cont true)
     | .can_write _ _ cont => handle_effects (cont true)
     | .can_exec _ cont => handle_effects (cont true)
-    | .nonmem_load addr _w _cont => .error s!"Load at unmapped address {repr addr}"
-    | .nonmem_store addr _v _cont => .error s!"Store at unmapped address {repr addr}"
+    | .nonmem_load addr .. => .error s!"Load at unmapped address {repr addr}"
+    | .nonmem_store addr .. => .error s!"Store at unmapped address {repr addr}"
     | .undefined_bool cont =>
       handle_effects (cont (hash s.1.regs % 2 != 0))
     | .undefined_status cont =>

@@ -94,21 +94,21 @@ def handle_effects (ds : IncrementerState) (es : Effects)
   | .can_read _ _ cont => handle_effects ds (cont true) ok
   | .can_write _ _ cont => handle_effects ds (cont true) ok
   | .can_exec _ cont => handle_effects ds (cont true) ok
-  | .nonmem_load addr w cont =>
+  | .nonmem_load dmem addr w cont =>
     match w with
       | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
         | .some r => match ds.read_step r with
           | .some (reply, newDeviceState) =>
-            handle_effects ds (cont (UInt32.toBitVec reply)) ok
+            handle_effects ds (cont (UInt32.toBitVec reply) dmem) ok
           | .none => .error s!"Incrementer.read_step failed"
         | .none => .error s!"nonmem_load at unmapped address {repr addr}"
       | _ => .error s!"nonmem_load of width other than 4 bytes"
-  | @Effects.nonmem_store addr w v cont =>
+  | @Effects.nonmem_store dmem addr w v cont =>
     match w with
       | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
         | .some r => match ds.write_step r (UInt32.ofBitVec v) with
           | .some newDeviceState =>
-            handle_effects newDeviceState (cont ()) ok
+            handle_effects newDeviceState (cont dmem) ok
           | .none => .error s!"Incrementer.write_step failed"
         | .none => .error s!"nonmem_store at unmapped address {repr addr}"
       | _ => .error s!"nonmem_store of width other than 4 bytes"
