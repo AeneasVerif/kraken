@@ -88,7 +88,7 @@ def handle_effects (ds : IncrementerState) (es : Sem)
   (ok : SystemState → Except String SystemState)
 : Except String SystemState :=
   match es with
-  | .ret ms => ok (.mk ms ds)
+  | .done ms => ok (.mk ms ds)
   | .undefined msg => .error msg
   | .unimplemented msg => .error msg
   | .can_read _ _ cont => handle_effects ds (cont true) ok
@@ -127,5 +127,5 @@ def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
     if device's_turn then
       eval_schedule rest e { s with deviceState := s.deviceState.internal_step }
     else
-      handle_effects s.deviceState (e.step s.machineState .ret) (eval_schedule rest e)
+      handle_effects s.deviceState (e.step s.machineState .done) (eval_schedule rest e)
   | .nil => .ok s

@@ -16,7 +16,7 @@ abbrev Post := MachineState → Prop
 
 def Sem.all (s : Sem) (post : MachineState → Prop) : Prop :=
   match s with
-  | .ret a => post a
+  | .done a => post a
   | .undefined _ => False
   | .unimplemented _ => False
   | .nonmem_load .. => False
@@ -29,7 +29,7 @@ def Sem.all (s : Sem) (post : MachineState → Prop) : Prop :=
   | .can_exec _ cont => (cont true).all post
 
 def step1 [Layout] (p: Executable) (s: MachineState) : Post → Prop :=
-  (Executable.straightline p s .ret).all
+  (Executable.straightline p s .done).all
 
 inductive Eventually [Layout] (prog: Executable) (p: MachineState → Prop): MachineState -> Prop
   | done (initial: MachineState):

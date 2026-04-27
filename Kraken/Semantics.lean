@@ -119,7 +119,7 @@ structure MachineData where -- does not include code or program position
   deriving Repr, BEq, DecidableEq
 
 inductive Sem
-  | ret (a : MachineData × Int64)
+  | done (a : MachineData × Int64)
   | undefined (msg : String)
   | unimplemented (msg : String)
   | nonmem_load (addr : BitVec 64) (w : Width) (ret : w.type → Sem)
@@ -733,11 +733,11 @@ def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineSt
 -- -- Concrete evaluators for expedient testing
 
 partial def Executable.eval (e : Executable) (s : MachineState) (until_ : MachineState → Bool) : Except String (MachineState) :=
-  if until_ s then .ok s else handle_effects (e.straightline s .ret)
+  if until_ s then .ok s else handle_effects (e.straightline s .done)
 where
   handle_effects es :=
     match es with
-    | .ret s => eval e s until_
+    | .done s => eval e s until_
     | .undefined msg => .error msg
     | .unimplemented msg => .error msg
     | .can_read _ _ cont => handle_effects (cont true)
