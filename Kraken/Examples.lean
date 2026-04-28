@@ -18,10 +18,7 @@ def p1 := parse("start: mov $1, %rax")
 
 theorem Executable.directivesFromStart [layout : Layout] prog :
     (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) := by
-  induction prog with
-  | nil => simp [Executable.directivesFromAddress,Layout.apply]
-  | cons p ps =>
-    simp [Executable.directivesFromAddress,Layout.apply,Executable.withAddresses]
+  induction prog <;> simp [Executable.directivesFromAddress,Layout.apply,Executable.withAddresses]
 
 -- Super-simple example to debug tactics
 example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
