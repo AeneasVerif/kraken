@@ -8,7 +8,7 @@ The primary reference for the syntax is the GAS manual:
 https://sourceware.org/binutils/docs/as/
 -/
 
-import Kraken.Semantics
+import Kraken.Syntax
 import Std.Internal.Parsec.String
 
 namespace Kraken.Parser
