@@ -207,8 +207,8 @@ theorem p3_correct [Layout] (initial: MachineState):
                   omega
   -/
 
-def p4 := eval% parse! "start: mov $2, %rax
-dec %rax"
+def p4 := eval% parse("start: mov $2, %rax
+dec %rax")
 
 -- Super-simple example to debug tactics
 example [layout : Layout] s : step1 (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
