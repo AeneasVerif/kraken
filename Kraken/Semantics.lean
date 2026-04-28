@@ -9,6 +9,8 @@ attribute [-instance] BitVec.instNatCast
 attribute [-instance] BitVec.instIntCast
 instance : Coe Bool Nat where coe := Bool.toNat
 
+def BitVec.unsigned {w} (x : BitVec w) : Int := x.toNat
+def BitVec.signed {w} (x : BitVec w) : Int := x.toInt
 def BitVec.take {w} (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
 def BitVec.drop {w} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
 def BitVec.replaceLow {w n} (old : BitVec w) (new : BitVec n) : BitVec w :=
@@ -124,7 +126,7 @@ def Reg.interp {α w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w
 def MachineData.load {α} [Throw α] (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → α): α :=
   if addr % 8 != 0 then throw (s!"Unimplemented: only 8-byte-aligned memory access is supported")
   else match s.dmem[UInt64.ofBitVec addr]? with
-  | .some v => ret (v.toBitVec.truncate _)
+  | .some v => ret (v.toBitVec.take _)
   | .none => throw (s!"Memory accessed but not mapped (addr={repr addr})")
 
 def MachineData.store {α} [Throw α] (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → α) : α :=
@@ -180,11 +182,11 @@ export AddressSize (address_size)
 
 def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
   let base := match a.base with
-              | .some (.ofRegW ⟨_, r⟩)  => (s.get r).toInt
+              | .some (.ofRegW ⟨_, r⟩)  => (s.get r).signed
               | .some .rip => p.upper.toInt
               | .none => 0
   let idx := match a.idx with
-             | .some ⟨⟨_, r⟩, c⟩ => (s.get r).toInt * c.bytes
+             | .some ⟨⟨_, r⟩, c⟩ => (s.get r).signed * c.bytes
              | .none => 0
   BitVec.ofInt address_size.address_size.bits (base + idx + (a.disp.interp p).toInt)
 
@@ -220,8 +222,8 @@ abbrev Operand.mem {w} (m : AddrExpr) : Operand w := regOrMem (.mem m)
 
 def Operand.interp {α w} [Labels] [AddressSize] [Throw α] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → α) :=
   match o with
-  | regOrMem rm => rm.interp s p ret
-  | .imm v => ret ((v.interp p).toBitVec.truncate _)
+  | .regOrMem rm => rm.interp s p ret
+  | .imm v => ret ((v.interp p).toBitVec.take _)
   -- we rely on assemblers erroring out on too-large immediates in uniform ops
 
 inductive CondCode | z | nz | c | nc | a | be
@@ -240,7 +242,7 @@ inductive ShiftCountExpr | cl | imm8 (v : ConstExpr)
 
 def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
   | .cl => s.regs.rcx.toBitVec.take 8
-  | .imm8 v => (v.interp p).toBitVec.truncate _
+  | .imm8 v => (v.interp p).toBitVec.take _
 def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width) : Nat :=
   (c.interp s p).toNat &&& match w with | .W64 => 0x3f | _ => 0x1f -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
 
@@ -325,7 +327,7 @@ def cpop_ {w} (x : BitVec w) : BitVec w := BitVec.ofNat w (cpopNatRec_ x w 0)
 end BitVec
 
 def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
-  { pf := (result.truncate 8).cpop_ % 2 == BitVec.zero _
+  { pf := (result.take 8).cpop_ % 2 == BitVec.zero _
     zf := result == BitVec.zero _
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
 
@@ -362,9 +364,9 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     dst.interp s p (fun b =>
     let v := a + b
     let status := .from_result v {
-      cf := v.toNat != a.toNat + b.toNat
-      af := (v.truncate 4).toNat != (a.truncate 4).toNat + (b.truncate 4).toNat,
-      of := v.toInt != a.toInt + b.toInt }
+      cf := v.unsigned != a.unsigned + b.unsigned
+      af := (v.take 4).unsigned != (a.take 4).unsigned + (b.take 4).unsigned,
+      of := v.signed != a.signed + b.signed }
     { s with status }.set dst v p next))
   | .adc dst src =>
     src.interp s p (fun a =>
@@ -372,54 +374,54 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     let c := s.status.cf
     let v := a + b + c
     let status := .from_result v {
-      cf := v.toNat != a.toNat + b.toNat + c
-      af := (v.truncate 4).toNat != (a.truncate 4).toNat + (b.truncate 4).toNat + c,
-      of := v.toInt != a.toInt + b.toInt + c }
+      cf := v.unsigned != a.unsigned + b.unsigned + c
+      af := (v.take 4).unsigned != (a.take 4).unsigned + (b.take 4).unsigned + c,
+      of := v.signed != a.signed + b.signed + c }
     { s with status }.set dst v p next))
   | .adcx dst src =>
     src.interp s p (fun a =>
     dst.interp s p (fun b =>
     let v := a + b + s.status.cf
-    let cf := v.toNat != a.toNat + b.toNat + s.status.cf.toNat
+    let cf := v.unsigned != a.unsigned + b.unsigned + s.status.cf
     next { s with regs := s.regs.set dst v, status := { s.status with cf := cf }}))
   | .adox dst src =>
     src.interp s p (fun a =>
     dst.interp s p (fun b =>
     let v := a + b + s.status.of
-    let of := v.toNat != a.toNat + b.toNat + s.status.of.toNat
+    let of := v.unsigned != a.unsigned + b.unsigned + s.status.of
     next { s with regs := s.regs.set dst v, status := { s.status with of := of }}))
   | .inc dst =>
     dst.interp s p (fun a =>
     let v := a + 1
     let status := .from_result v {
       cf := s.status.cf
-      af := (v.truncate 4).toNat != (a.truncate 4).toNat + 1,
-      of := v.toInt != a.toInt + 1 }
+      af := (v.take 4).unsigned != (a.take 4).unsigned + 1,
+      of := v.signed != a.signed + 1 }
     { s with status }.set dst v p next)
   | .dec dst =>
     dst.interp s p (fun a =>
     let v := a - 1
     let status := .from_result v {
       cf := s.status.cf
-      af := (v.truncate 4).toNat != (a.truncate 4).toNat - 1,
-      of := v.toInt != a.toInt - 1 }
+      af := (v.take 4).unsigned != (a.take 4).unsigned - 1,
+      of := v.signed != a.signed - 1 }
     { s with status }.set dst v p next)
   | .neg dst =>
     dst.interp s p (fun b =>
     let v := -b
     let status := .from_result v {
       cf := b != 0
-      af := (b.truncate 4) != 0,
-      of := v.toInt != - b.toInt }
+      af := (b.take 4) != 0,
+      of := v.signed != - b.signed }
     { s with status }.set dst v p next)
   | .sub dst src =>
     src.interp s p (fun a =>
     dst.interp s p (fun b =>
     let v := b - a
     let status := .from_result v {
-      cf := v.toNat != b.toNat - a.toNat
-      af := (v.truncate 4).toNat != (b.truncate 4).toNat - (a.truncate 4).toNat,
-      of := v.toInt != b.toInt - a.toInt }
+      cf := v.unsigned != b.unsigned - a.unsigned
+      af := (v.take 4).unsigned != (b.take 4).unsigned - (a.take 4).unsigned,
+      of := v.signed != b.signed - a.signed }
     { s with status }.set dst v p next))
   | .sbb dst src =>
     src.interp s p (fun a =>
@@ -427,35 +429,35 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     let c := s.status.cf
     let v := b - a - c
     let status := .from_result v {
-      cf := v.toNat != b.toNat - a.toNat - c.toNat
-      af := (v.truncate 4).toNat != (b.truncate 4).toNat - (a.truncate 4).toNat - c.toNat,
-      of := v.toInt != b.toInt - a.toInt - c.toInt }
+      cf := v.unsigned != b.unsigned - a.unsigned - c
+      af := (v.take 4).unsigned != (b.take 4).unsigned - (a.take 4).unsigned - c,
+      of := v.signed != b.signed - a.signed - c }
     { s with status }.set dst v p next))
   | .cmp a b =>
     a.interp s p (fun a =>
     b.interp s p (fun b =>
-    let v := b - a
+    let v := a - b
     let status := .from_result v {
-      cf := v.toNat != b.toNat - a.toNat
-      af := (v.truncate 4).toNat != (b.truncate 4).toNat - (a.truncate 4).toNat,
-      of := v.toInt != b.toInt - a.toInt }
+      cf := v.unsigned != a.unsigned - b.unsigned
+      af := (v.take 4).unsigned != (a.take 4).unsigned - (b.take 4).unsigned,
+      of := v.signed != a.signed - b.signed }
     next { s with status }))
   | .mul src =>
     let a := s.regs.get (Reg.low .rax w)
     src.interp s p (fun b =>
     let v := a * b
-    let vn := a.toNat * b.toNat
+    let vn := a.unsigned * b.unsigned
     let s := if w == .W8
-      then s.setReg (.low .rax .W16) (.ofNat _ vn)
-      else (s.setReg (.low .rax w) v).setReg (.low .rdx w) (.ofNat _ (vn >>> w.bits))
+      then s.setReg (.low .rax .W16) (.ofInt _ vn)
+      else (s.setReg (.low .rax w) v).setReg (.low .rdx w) (.ofInt _ (vn >>> w.bits))
     undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
-    next { s with status := { cf := v.toNat != vn, pf, af, zf, sf, of := v.toNat != vn }})))))
+    next { s with status := { cf := v.unsigned != vn, pf, af, zf, sf, of := v.unsigned != vn }})))))
   | .mulx r_hi r_lo src1 =>
     src1.interp s p (fun a =>
     let b := s.regs.get (.low .rdx w)
-    let v := a.toNat * b.toNat
-    let s := s.setReg r_lo (.ofNat _ v) -- if r_hi = r_li, hi is written:
-    let s := s.setReg r_hi (.ofNat _ (v >>> w.bits))
+    let v := a.unsigned * b.unsigned
+    let s := s.setReg r_lo (.ofInt _ v) -- if r_hi = r_li, hi is written:
+    let s := s.setReg r_hi (.ofInt _ (v >>> w.bits))
     next s)
   -- imul1 and imul collectively describe variants of the same
   -- syntax level `imul` instruction, where imul1 is the 1-operand case
@@ -480,7 +482,7 @@ def Operation.interp {α} [∀ w : Width, Undefined w.type α] [Undefined Status
     let v := a * b
     s.set (match (generalizing := false) (motive := Option (RegOrMem w) → RegOrMem w)
              dst with | .some dst => dst | _ => src1) v p (fun s =>
-    let cf := v.toInt != a.toInt * b.toInt
+    let cf := v.signed != a.signed * b.signed
     undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
     next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))))
 -- Bitwise
