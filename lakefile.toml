@@ -1,6 +1,6 @@
 name = "Kraken"
 version = "0.1.0"
-defaultTargets = ["Kraken"]
+defaultTargets = ["Kraken", "krakenrunner"]
 
 [leanOptions]
 autoImplicit = false
@@ -8,6 +8,7 @@ relaxedAutoImplicit = false
 
 [[lean_lib]]
 name = "Kraken"
+globs = ["Kraken.*"]  # TODO: move the tests out of `Kraken`
 
 [[lean_exe]]
 name = "krakenrunner"

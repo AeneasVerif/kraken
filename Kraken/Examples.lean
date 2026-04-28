@@ -14,7 +14,7 @@ import Kraken.Eval
 
 open Kraken.Parser
 
-def p1 := eval% parse! "start: mov $1, %rax"
+def p1 := parse("start: mov $1, %rax")
 
 theorem Executable.directivesFromStart [layout : Layout] prog :
     (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) :=
@@ -37,13 +37,13 @@ example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.
 
   /- simp [p1,step1,eval1,fetch,Instr.is_ctrl,strt1,eval_operand,eval_imm,set_reg_or_mem,next,MachineState.setReg,Registers.set] -/
 
-def swap : Program := eval% parse! "
+def swap : Program := parse("
   xor %rbx, %rax
   xor %rax, %rbx
-  xor %rbx, %rax"
+  xor %rbx, %rax")
 
 theorem swap_correct [layout : Layout] (d : MachineData) :
-      eventually (layout swap)
+      Eventually (layout swap)
       (fun s' =>
           s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
           s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
@@ -57,7 +57,7 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
   dsimp only [Directives.interp, Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp]
   dsimp [MachineData.set, MachineData.setReg, Reg64s.set, Reg64s.set64]
   intros _af1 _af2 _af3
-  apply eventually.done
+  apply Eventually.done
   simp (ground:=True)
   dsimp only [Reg64s.get, Reg64s.get64, Reg.base, Reg.offset]
   dsimp only [BitVec.drop, BitVec.take, Width.bits]
@@ -65,21 +65,21 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
 
 -- Stepping demo. Ideally, this demo should be without the first .mov
 def p2 : Program := eval% [
-  .Label "start",
-  .Instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.Int64 1)) ⟩,
-  .Instr ⟨ .W64, .W64, .xor Reg.rax Reg.rax ⟩,
-  .Instr ⟨ .W64, .W64, .jcc .nz "start" ⟩,
-  .Instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.Int64 2)) ⟩,
+  .label "start",
+  .instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.int64 1)) ⟩,
+  .instr ⟨ .W64, .W64, .xor Reg.rax Reg.rax ⟩,
+  .instr ⟨ .W64, .W64, .jcc .nz "start" ⟩,
+  .instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.int64 2)) ⟩,
 ]
-def p2' : Program := eval% parse! "
+def p2' : Program := parse("
 start:
   mov $1, %rax
   xor %rax, %rax
   jnz start
-  mov $2, %rax"
+  mov $2, %rax")
 
 -- Example 2: stepping through both straightline and control instructions
-example [layout : Layout] (s : MachineData): eventually (layout p2) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
+example [layout : Layout] (s : MachineData): Eventually (layout p2) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
   dsimp [p2]
   apply step_cps
   dsimp only [step1,Executable.straightline]
@@ -90,11 +90,11 @@ example [layout : Layout] (s : MachineData): eventually (layout p2) (fun s => s.
   simp only [Int64.toBitVec_ofNat, BitVec.ofNat_eq_ofNat, BitVec.truncate_eq_setWidth, BitVec.xor_self, BitVec.zero_eq,
     BEq.rfl, Bool.not_true, Bool.false_eq_true, ↓reduceIte, BitVec.setWidth_zero, BitVec.msb_zero]
   dsimp [undefined,Undefined.undefined]; intros _af
-  apply eventually.done
+  apply Eventually.done
   simp (ground:=True)
 
 -- Example 3 commented out until we figure out how to parse concrete syntax.
-/- def p3: Program := parse! "
+/- def p3: Program := parse("
 init:
   mov $2 %rdx             # rdx: current result = 2
 start:
@@ -105,7 +105,7 @@ start:
   jmp start               # go back to test & loop body
 _end:
   nop
-"
+")
 
 def p3_spec (s: MachineState): Nat := 2^(2^s.1.regs.rbx.toNat)
 
@@ -206,3 +206,29 @@ theorem p3_correct [Layout] (initial: MachineState):
                   apply Nat.pow_le_pow_right (by decide)
                   omega
   -/
+
+def p4 := eval% parse("start: mov $2, %rax
+dec %rax")
+
+-- Super-simple example to debug tactics
+example [layout : Layout] s : step1 (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+  let ss := s
+  change (step1 _ (ss, _) _)
+  cases s with | mk regs flags mem =>
+  cases regs with | mk rax =>
+  delta p4
+  dsimp only [step1,Executable.straightline]
+  rw [Executable.directivesFromStart]
+  simp [List.mapIdx,List.mapIdx.go]
+  dsimp (zeta:=false) only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,ConstExpr.interp,RegOrMem.interp,Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits]
+  dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [Reg64s.get64,Reg64s.set64,BitVec.drop,BitVec.take,ss] -- reduces UInt64.toBitVec but leaves let binders behind and gets stuck confused on it
+  intros rax1
+  lift_lets; intros t -- unfortunately a separte tactic rather than a simp flag
+  -- simp [MachineData.regs,Reg64s.set64,Reg64s.get64,ss] at t -- made no progress for some reason
+  dsimp (zeta:=false)(beta:=false)(eta:=false)(iota:=false)(proj:=true) only [Reg64s.set64,Reg64s.get64,ss,t]
+  -- now just bashing because rax1 in context is already bad
+  simp [rax1]
+  simp (ground:=true)
+  simp
+  simp (decide:=true)
+  
