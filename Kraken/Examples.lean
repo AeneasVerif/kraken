@@ -17,8 +17,11 @@ open Kraken.Parser
 def p1 := parse("start: mov $1, %rax")
 
 theorem Executable.directivesFromStart [layout : Layout] prog :
-    (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) :=
-  sorry
+    (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) := by
+  induction prog with
+  | nil => simp [Executable.directivesFromAddress,Layout.apply]
+  | cons p ps =>
+    simp [Executable.directivesFromAddress,Layout.apply,Executable.withAddresses]
 
 -- Super-simple example to debug tactics
 example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
@@ -28,8 +31,7 @@ example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.
   simp [List.mapIdx,List.mapIdx.go]
   dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp]
   dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp]
-  simp (ground:=True)
-  simp
+  simp (ground:=True) (decide:=True)
 
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
   /- simp [MachineData.setReg,Reg64s.set,Reg64s.set64,ConstExpr.interp] -/
@@ -60,7 +62,8 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
   apply Eventually.done
   simp (ground:=True)
   dsimp only [Reg64s.get, Reg64s.get64, Reg.base, Reg.offset]
-  dsimp only [BitVec.drop, BitVec.take, Width.bits]
+  dsimp only [BitVec.drop, BitVec.take, Width.bits,BitVec.extractLsb'_eq_self]
+  simp only [BitVec.extractLsb'_eq_self]
   bv_decide
 
 -- Stepping demo. Ideally, this demo should be without the first .mov
@@ -92,6 +95,7 @@ example [layout : Layout] (s : MachineData): Eventually (layout p2) (fun s => s.
   dsimp [undefined,Undefined.undefined]; intros _af
   apply Eventually.done
   simp (ground:=True)
+  rfl
 
 -- Example 3 commented out until we figure out how to parse concrete syntax.
 /- def p3: Program := parse("
