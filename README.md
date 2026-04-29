@@ -7,7 +7,7 @@ that performs computations using common registers and memory.
 Operating-systems features, concurrency, and I/O are currently out of scope.
 
 Included
-- 64-bit mode, incljuding 32-bit and smaller operations available in this mode
+- 64-bit mode, including 32-bit and smaller operations available in this mode
 - All 64-bit registers and [partial-register access](https://en.wikipedia.org/wiki/X86#Structure)
 - Status flags
 - Memory access, including avoidance of faults
@@ -38,4 +38,4 @@ we want to be sure that it will satisfy the proven specification.
 Thus incidental extensions to x64 must not clash with actual features of x64,
 or undefined behavior in x64 (e.g. bswap r16).
 
-More guidance on revieweing semantics is in [CONTRIBUTING.md](CONTRIBUTING.md).
+More guidance on reviewing semantics is in [CONTRIBUTING.md](CONTRIBUTING.md).
