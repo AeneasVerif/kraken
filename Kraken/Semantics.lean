@@ -493,7 +493,7 @@ def Operation.interp {α}
       let low := result.take w.bits
       let high := (result.drop w.bits).setWidth _
       (s.setReg (.low .rax w) low).setReg (.low .rdx w) high
-    undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
+    undefined_bool (λ sf => undefined_bool (λ zf => undefined_bool (λ af => undefined_bool (λ pf =>
     let low := BitVec.ofInt w.bits v
     let cf := v != low.toInt
     next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))
