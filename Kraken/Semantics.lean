@@ -125,44 +125,34 @@ inductive Effects
   | can_exec (p: Std.Rco Int64) (cont : Bool → Effects)
 export Effects (nonmem_load nonmem_store undefined unimplemented pick can_read can_write can_exec)
 
-def Reg.interp {α w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) (ret : w.type → α) :=
-  ret (s.regs.get r) -- the unused argument is present ^ for uniformity with RegOrMem.interp
+-- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
+-- value are present for uniformity with RegOrMem.interp
+def Reg.interp {w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64)
+  (ret : w.type → MachineData → Effects) : Effects :=
+  ret (s.regs.get r) s
 
 -- Since MMIO can cause devices to do arbitrary actions, a load might actually
--- *modify* memory.
--- But we don't want to model this full complexity everywhere, so we define a
--- full_load that we use for MOV, and a simple_load that we use for all
--- other instructions with memory operands.
--- Because of this simplification, our semantics would reject the following example:
+-- *modify* memory. For instance:
 -- A TEST instruction might load a flag from an MMIO address and bitwise-and it with
 -- an immediate, and if the result is non-zero, it might mean that some device has
 -- finished processing a buffer and therefore now passes ownership of that buffer
 -- to the CPU.
--- Possible workarounds:
--- * replace the TEST-with-memory-operand by a MOV and a TEST-with-register-operand
--- * Change the signature of RegOrMem.interp to allow memory modification (considerable
---   refactoring)
-
-def MachineData.generic_load
-  (nonmem_load_param : DataMem → BitVec 64 → (w': Width) → (w'.type → DataMem → Effects) → Effects)
+-- Note that `ret` takes a whole `MachineData` instead of only `DataMem`, which
+-- provides a bit more flexibility than we need: MachineData.load might change
+-- dmem, but will not change the registers or status flags.
+-- But this superfluous flexibility helps us simplify the state-threading:
+-- Instead of writing `fun v dmem => ... { s with dmem } ...` everywhere, we
+-- can just write `fun v s => ...` and the new `s` will shadow the old `s`.
+def MachineData.load
   (s : MachineData) (addr : BitVec 64) (w : Width)
-  (ret : w.type → DataMem → Effects): Effects :=
+  (ret : w.type → MachineData → Effects): Effects :=
   if addr % w.bytesv != 0 then .unimplemented s!"Unimplemented: only aligned memory access is supported"
   else can_read addr w (fun allowed =>
     if !allowed then .undefined s!"Memory read of {repr w} not allowed at address {repr addr}"
     else let key := UInt64.ofBitVec (addr &&& ~~~0b111#64)
     match s.dmem[key]? with
-    | .some v => ret (v.toBitVec.extractLsb' ((addr &&& 0b111#64) * 8#64).toNat w.bits) s.dmem
-    | .none => nonmem_load_param s.dmem addr w ret)
-
-def MachineData.full_load :
-  MachineData → BitVec 64 → (w : Width) → (w.type → DataMem → Effects) → Effects :=
-  MachineData.generic_load nonmem_load
-
-def MachineData.simple_load (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type → Effects): Effects :=
-  MachineData.generic_load nonmem_load_param s addr w (fun res _new_mem => ret res)
-  where nonmem_load_param _dmem _addr _w _ret :=
-    .unimplemented s!"Unimplemented: simple_load may not load outside of data memory, use full_load instead"
+    | .some v => ret (v.toBitVec.extractLsb' ((addr &&& 0b111#64) * 8#64).toNat w.bits) s
+    | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
 
 def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Effects) : Effects :=
   if addr % w.bytesv != 0 then .unimplemented s!"Unimplemented: only aligned memory access is supported"
@@ -196,15 +186,12 @@ def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Re
              | .none => 0
   BitVec.ofInt address_size.address_size.bits (base + idx + (a.disp.interp p).toInt)
 
-def RegOrMem.interp {w} [Labels] [AddressSize] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → Effects) :=
+def RegOrMem.interp {w} [Labels] [AddressSize]
+  (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64)
+  (ret : w.type → MachineData → Effects) :=
   match o with
-  | .reg r => ret (s.regs.get r)
-  | .mem a => s.simple_load ((a.interp s.regs p).zeroExtend _) w ret
-
-def RegOrMem.full_interp {w} [Labels] [AddressSize] (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → DataMem → Effects) :=
-  match o with
-  | .reg r => ret (s.regs.get r) s.dmem
-  | .mem a => s.full_load ((a.interp s.regs p).zeroExtend _) w ret
+  | .reg r => ret (s.regs.get r) s
+  | .mem a => s.load ((a.interp s.regs p).zeroExtend _) w ret
 
 def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
@@ -214,16 +201,12 @@ def MachineData.set {w} [Labels] [AddressSize] (s : MachineData) (d : Dst w) (v 
   | .reg r => ret (s.setReg r v)
   | .mem a => s.store ((a.interp s.regs p).zeroExtend _) v ret
 
-def Operand.interp {w} [Labels] [AddressSize] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → Effects) :=
+def Operand.interp {w} [Labels] [AddressSize]
+  (o : Operand w) (s : MachineData) (p : Std.Rco Int64)
+  (ret : w.type → MachineData → Effects) :=
   match o with
-  | .regOrMem rm => rm.interp s p ret
-  | .imm v => ret ((v.interp p).toBitVec.take _)
-  -- we rely on assemblers erroring out on too-large immediates in uniform ops
-
-def Operand.full_interp {w} [Labels] [AddressSize] (o : Operand w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → DataMem → Effects) :=
-  match o with
-  | regOrMem rm => rm.full_interp s p ret
-  | .imm v => ret ((v.interp p).toBitVec.truncate _) s.dmem
+  | regOrMem rm => rm.interp s p ret
+  | .imm v => ret ((v.interp p).toBitVec.truncate _) s
   -- we rely on assemblers erroring out on too-large immediates in uniform ops
 
 def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
@@ -236,11 +219,13 @@ def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : S
 def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width) : Nat :=
   (c.interp s p).toNat &&& match w with | .W64 => 0x3f | _ => 0x1f -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
 
-def RelRegOrMem.interp [Labels] [AddressSize] (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) (ret : BitVec 64 → Effects) :=
+def RelRegOrMem.interp [Labels] [AddressSize]
+  (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64)
+  (ret : BitVec 64 → MachineData → Effects) :=
   match o with
-  | .rel c => ret (p.upper + c.interp p).toBitVec
-  | .reg r => ret (s.regs.get r)
-  | .mem a => s.simple_load ((a.interp s.regs p).zeroExtend _) .W64 ret
+  | .rel c => ret (p.upper + c.interp p).toBitVec s
+  | .reg r => ret (s.regs.get r) s
+  | .mem a => s.load ((a.interp s.regs p).zeroExtend _) .W64 ret
 
 structure StatusFlags.from_result.Remaining where
   cf : Bool
@@ -271,32 +256,29 @@ def Operation.interp [Labels] [address_size : AddressSize]
   {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
   match (generalizing := false) (motive := Operation w → Effects) i with
-  | .mov dst src => src.full_interp s p (fun val dmem' =>
-      { s with dmem := dmem' }.set dst val p next)
-  | .movsx dst src => src.full_interp s p (fun val dmem' =>
-      { s with dmem := dmem' }.set dst (val.signExtend _) p next)
-  | .movzx dst src => src.full_interp s p (fun val dmem' =>
-      { s with dmem := dmem' }.set dst (val.zeroExtend _) p next)
+  | .mov dst src => src.interp s p (fun val s => s.set dst val p next)
+  | .movsx dst src => src.interp s p (fun val s => s.set dst (val.signExtend _) p next)
+  | .movzx dst src => src.interp s p (fun val s => s.set dst (val.zeroExtend _) p next)
   | .push src =>
-    src.interp s p (fun v =>
+    src.interp s p (fun v s =>
     let rsp := s.regs.get64 .rsp - w.bytesv
     { s with regs := s.regs.set64 .rsp rsp }.store rsp v next)
   | .pop dst =>
     let rsp := s.regs.get64 .rsp
-    s.simple_load rsp w (fun val =>
+    s.load rsp w (fun val s =>
     let s := { s with regs := s.regs.set64 .rsp (rsp + w.bytesv) }
     s.set dst val p next)
   | .setcc cc dst =>
     s.set dst (cc.interp s.status) p next
   | .cmovcc cc dst src =>
-    src.interp s p (fun src =>
+    src.interp s p (fun src s =>
     let v := if cc.interp s.status then src else s.regs.get dst
     next (s.setReg dst v))
 -- Arithmetic
   | .lea dst src => next (s.setReg dst ((src.interp s.regs p).zeroExtend _))
   | .add dst src =>
-    src.interp s p (fun a =>
-    dst.interp s p (fun b =>
+    src.interp s p (fun a s =>
+    dst.interp s p (fun b s =>
     let v := a + b
     let status := .from_result v {
       cf := v.unsigned != a.unsigned + b.unsigned
@@ -304,8 +286,8 @@ def Operation.interp [Labels] [address_size : AddressSize]
       of := v.signed != a.signed + b.signed }
     { s with status }.set dst v p next))
   | .adc dst src =>
-    src.interp s p (fun a =>
-    dst.interp s p (fun b =>
+    src.interp s p (fun a s =>
+    dst.interp s p (fun b s =>
     let c := s.status.cf
     let v := a + b + c
     let status := .from_result v {
@@ -314,19 +296,19 @@ def Operation.interp [Labels] [address_size : AddressSize]
       of := v.signed != a.signed + b.signed + c }
     { s with status }.set dst v p next))
   | .adcx dst src =>
-    src.interp s p (fun a =>
-    dst.interp s p (fun b =>
+    src.interp s p (fun a s =>
+    dst.interp s p (fun b s =>
     let v := a + b + s.status.cf
     let cf := v.unsigned != a.unsigned + b.unsigned + s.status.cf
     next { s with regs := s.regs.set dst v, status := { s.status with cf := cf }}))
   | .adox dst src =>
-    src.interp s p (fun a =>
-    dst.interp s p (fun b =>
+    src.interp s p (fun a s =>
+    dst.interp s p (fun b s =>
     let v := a + b + s.status.of
     let of := v.unsigned != a.unsigned + b.unsigned + s.status.of
     next { s with regs := s.regs.set dst v, status := { s.status with of := of }}))
   | .inc dst =>
-    dst.interp s p (fun a =>
+    dst.interp s p (fun a s =>
     let v := a + 1
     let status := .from_result v {
       cf := s.status.cf
@@ -334,7 +316,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
       of := v.signed != a.signed + 1 }
     { s with status }.set dst v p next)
   | .dec dst =>
-    dst.interp s p (fun a =>
+    dst.interp s p (fun a s =>
     let v := a - 1
     let status := .from_result v {
       cf := s.status.cf
@@ -342,7 +324,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
       of := v.signed != a.signed - 1 }
     { s with status }.set dst v p next)
   | .neg dst =>
-    dst.interp s p (fun b =>
+    dst.interp s p (fun b s =>
     let v := -b
     let status := .from_result v {
       cf := b != 0
@@ -350,8 +332,8 @@ def Operation.interp [Labels] [address_size : AddressSize]
       of := v.signed != - b.signed }
     { s with status }.set dst v p next)
   | .sub dst src =>
-    src.interp s p (fun a =>
-    dst.interp s p (fun b =>
+    src.interp s p (fun a s =>
+    dst.interp s p (fun b s =>
     let v := b - a
     let status := .from_result v {
       cf := v.unsigned != b.unsigned - a.unsigned
@@ -359,8 +341,8 @@ def Operation.interp [Labels] [address_size : AddressSize]
       of := v.signed != b.signed - a.signed }
     { s with status }.set dst v p next))
   | .sbb dst src =>
-    src.interp s p (fun a =>
-    dst.interp s p (fun b =>
+    src.interp s p (fun a s =>
+    dst.interp s p (fun b s =>
     let c := s.status.cf
     let v := b - a - c
     let status := .from_result v {
@@ -369,8 +351,8 @@ def Operation.interp [Labels] [address_size : AddressSize]
       of := v.signed != b.signed - a.signed - c }
     { s with status }.set dst v p next))
   | .cmp a b =>
-    a.interp s p (fun a =>
-    b.interp s p (fun b =>
+    a.interp s p (fun a s =>
+    b.interp s p (fun b s =>
     let v := a - b
     let status := .from_result v {
       cf := v.unsigned != a.unsigned - b.unsigned
@@ -379,7 +361,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     next { s with status }))
   | .mul src =>
     let a := s.regs.get (Reg.low .rax w)
-    src.interp s p (fun b =>
+    src.interp s p (fun b s =>
     let v := a * b
     let vn := a.unsigned * b.unsigned
     let s := if w == .W8
@@ -388,7 +370,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     pick Bool (λ sf => pick Bool (λ zf => pick Bool (λ af => pick Bool (λ pf =>
     next { s with status := { cf := v.unsigned != vn, pf, af, zf, sf, of := v.unsigned != vn }})))))
   | .mulx r_hi r_lo src1 =>
-    src1.interp s p (fun a =>
+    src1.interp s p (fun a s =>
     let b := s.regs.get (.low .rdx w)
     let v := a.unsigned * b.unsigned
     let s := s.setReg r_lo (.ofInt _ v) -- if r_hi = r_li, hi is written:
@@ -398,7 +380,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
   -- syntax level `imul` instruction, where imul1 is the 1-operand case
   | .imul1 src =>
     let a := s.regs.get (Reg.low .rax w)
-    src.interp s p (fun b =>
+    src.interp s p (fun b s =>
     let v := a.toInt * b.toInt
     let s := if w == .W8 then
       s.setReg (.low .rax .W16) (BitVec.ofInt 16 v)
@@ -412,8 +394,8 @@ def Operation.interp [Labels] [address_size : AddressSize]
     let cf := v != low.toInt
     next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))
   | .imul dst src1 src2 =>
-    src1.interp s p (fun a =>
-    src2.interp s p (fun b =>
+    src1.interp s p (fun a s =>
+    src2.interp s p (fun b s =>
     let v := a * b
     s.set (match (generalizing := false) (motive := Option (RegOrMem w) → RegOrMem w)
              dst with | .some dst => dst | _ => src1) v p (fun s =>
@@ -422,25 +404,25 @@ def Operation.interp [Labels] [address_size : AddressSize]
     next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))))
 -- Bitwise
   | .test a b =>
-    a.interp s p (fun a =>
-    b.interp s p (fun b =>
+    a.interp s p (fun a s =>
+    b.interp s p (fun b s =>
     let v := a &&& b
     pick Bool (fun af =>
     let status := .from_result v { cf := false, af, of := false}
     next { s with status})))
   | .and dst src | .or dst src | .xor dst src =>
-    dst.interp s p (fun a =>
-    src.interp s p (fun b =>
+    dst.interp s p (fun a s =>
+    src.interp s p (fun b s =>
     let v := match i with | .and _ _ => a &&& b | .or _ _ => a ||| b | _ => a ^^^ b
     pick Bool (fun af =>
     let status := .from_result v { cf := false, of := false, af }
     { s with status }.set dst v p next)))
   | .not dst =>
-    dst.interp s p (fun a =>
+    dst.interp s p (fun a s =>
     let v := ~~~a
     s.set dst v p next)
   | .shl dst count =>
-    dst.interp s p (fun a =>
+    dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := a <<< count
@@ -449,7 +431,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     (λ setof => if count == 1 then setof (v.msb != a.msb) else pick Bool setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .shr dst count =>
-    dst.interp s p (fun a =>
+    dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := a.ushiftRight count
@@ -458,7 +440,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     (λ setof => if count == 1 then setof a.msb else pick Bool setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .sar dst count =>
-    dst.interp s p (fun a =>
+    dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := a.sshiftRight count
@@ -467,8 +449,8 @@ def Operation.interp [Labels] [address_size : AddressSize]
     (λ setof => if count == 1 then setof false else pick Bool setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .shrd dst src count =>
-    dst.interp s p (fun a =>
-    src.interp s p (fun b =>
+    dst.interp s p (fun a s =>
+    src.interp s p (fun b s =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := (((b.append a) >>> count).take w.bits).setWidth _
@@ -479,8 +461,8 @@ def Operation.interp [Labels] [address_size : AddressSize]
       setstatus (.from_result v { cf, af, of})))) (λ status =>
     { s with status }.set dst v p next)))
   | .shld dst src count =>
-    dst.interp s p (fun a =>
-    src.interp s p (fun b =>
+    dst.interp s p (fun a s =>
+    src.interp s p (fun b s =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := (((a.append b) <<< count).drop w.bits).setWidth _
@@ -491,7 +473,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
       setstatus (.from_result v { cf, af, of})))) (λ status =>
     { s with status }.set dst v p next)))
   | .rol dst count =>
-    dst.interp s p (fun a =>
+    dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := a.rotateLeft count
@@ -499,7 +481,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     (λ setof => if count == 1 then setof (v.msb != a.msb) else pick Bool setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .ror dst count =>
-    dst.interp s p (fun a =>
+    dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := a.rotateRight count
@@ -507,7 +489,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     (λ setof => if count == 1 then setof (v.msb != a.msb) else pick Bool setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .rcr dst count =>
-    dst.interp s p (fun a =>
+    dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let t := (BitVec.ofBool s.status.cf ++ a).rotateRight count
@@ -515,7 +497,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     (λ setof => if count == 1 then setof (v.msb != a.msb) else pick Bool setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .rcl dst count =>
-    dst.interp s p (fun a =>
+    dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let t := (BitVec.ofBool s.status.cf ++ a).rotateLeft count
@@ -538,15 +520,15 @@ def Operation.interp [Labels] [address_size : AddressSize]
     then jmp (label l) s
     else next s
   | .jmp tgt =>
-    tgt.interp s p (fun a =>
+    tgt.interp s p (fun a s =>
     jmp (.ofBitVec a) s)
   | .call tgt =>
-    tgt.interp s p (fun a =>
+    tgt.interp s p (fun a s =>
     let rsp := s.regs.get64 .rsp - Width.W64.bytesv
     { s with regs := s.regs.set64 .rsp rsp }.store rsp (w:=.W64) p.upper.toBitVec (jmp (.ofBitVec a)))
   | .ret =>
     let rsp := s.regs.get64 .rsp
-    s.simple_load rsp .W64 (fun ra =>
+    s.load rsp .W64 (fun ra s =>
     jmp (.ofBitVec ra) { s with regs := s.regs.set64 .rsp (rsp + 8) })
   | nop _ | nopalign _ _ => next s
 
