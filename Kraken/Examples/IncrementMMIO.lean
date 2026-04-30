@@ -111,7 +111,7 @@ def handle_effects (ds : IncrementerState) (es : Effects)
           | .none => .error s!"Incrementer.write_step failed"
         | .none => .error s!"nonmem_store at unmapped address {repr addr}"
       | _ => .error s!"nonmem_store of width other than 4 bytes"
-  | @Effects.pick _ t cont => handle_effects ds (cont (t.from_hash (hash ds))) ok
+  | @Effects.undefined _ t cont => handle_effects ds (cont (t.from_hash (hash ds))) ok
 
 def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
     : Except String SystemState :=
