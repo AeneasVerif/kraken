@@ -17,7 +17,8 @@ def BitVec.drop {w} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n
 def BitVec.replaceLow {w n} (old : BitVec w) (new : BitVec n) : BitVec w :=
   (BitVec.append (old.drop n) new).setWidth _
 def BitVec.replace {w1} (old : BitVec w1) (i : Nat) {w2} (new : BitVec w2) : BitVec w1 :=
-  (old.extractLsb' (i + w2) (w1 - w2 - i) ++ new ++ old.extractLsb' 0 i).setWidth _
+  (old.drop (i + w2) ++ new ++ old.take i).setWidth _
+example : (0x11223344#32).replace 8 0x99#8 = 0x11229944 := by rfl
 
 namespace Reg
 def base {w} (r : Reg w) : Reg64 := match r with
