@@ -22,9 +22,9 @@ def Effects.all (s : Effects) (post : MachineState → Prop) : Prop :=
   | .nonmem_load .. => False
   | .nonmem_store .. => False
   | Effects.pick α cont => ∀ v: α, (cont v).all post
-  | .can_read _ _ cont => (cont true).all post
-  | .can_write _ _ cont => (cont true).all post
-  | .can_exec _ cont => (cont true).all post
+  | .require_read_access _ _ cont => (cont ()).all post
+  | .require_write_access _ _ cont => (cont ()).all post
+  | .require_exec_access _ cont => (cont ()).all post
 
 def step1 [Layout] (p: Executable) (s: MachineState) : Post → Prop :=
   (Executable.straightline p s .done).all

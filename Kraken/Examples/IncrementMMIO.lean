@@ -91,9 +91,9 @@ def handle_effects (ds : IncrementerState) (es : Effects)
   | .done ms => ok (.mk ms ds)
   | .undefined msg => .error msg
   | .unimplemented msg => .error msg
-  | .can_read _ _ cont => handle_effects ds (cont true) ok
-  | .can_write _ _ cont => handle_effects ds (cont true) ok
-  | .can_exec _ cont => handle_effects ds (cont true) ok
+  | .require_read_access _ _ cont => handle_effects ds (cont ()) ok
+  | .require_write_access _ _ cont => handle_effects ds (cont ()) ok
+  | .require_exec_access _ cont => handle_effects ds (cont ()) ok
   | .nonmem_load dmem addr w cont =>
     match w with
       | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with

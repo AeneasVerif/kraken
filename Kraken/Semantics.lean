@@ -121,10 +121,10 @@ inductive Effects
   | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : Width) (ret : w.type → DataMem → Effects)
   | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : Width} (v : w.type) (ret: DataMem → Effects)
   | pick (α : Type) [NondetSupportingType α] (ret : α → Effects)
-  | can_read (addr : BitVec 64) (w : Width) (cont : Bool → Effects)
-  | can_write (addr : BitVec 64) (w : Width) (cont : Bool → Effects)
-  | can_exec (p: Std.Rco Int64) (cont : Bool → Effects)
-export Effects (nonmem_load nonmem_store undefined unimplemented pick can_read can_write can_exec)
+  | require_read_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
+  | require_write_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
+  | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
+export Effects (undefined unimplemented nonmem_load nonmem_store pick require_read_access require_write_access require_exec_access)
 
 -- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
 -- value are present for uniformity with RegOrMem.interp
@@ -148,18 +148,16 @@ def MachineData.load
   (s : MachineData) (addr : BitVec 64) (w : Width)
   (ret : w.type → MachineData → Effects): Effects :=
   if addr % w.bytesv != 0 then .unimplemented s!"Unimplemented: only aligned memory access is supported"
-  else can_read addr w (fun allowed =>
-    if !allowed then .undefined s!"Memory read of {repr w} not allowed at address {repr addr}"
-    else let key := UInt64.ofBitVec (addr &&& ~~~0b111#64)
+  else require_read_access addr w (fun _unit =>
+    let key := UInt64.ofBitVec (addr &&& ~~~0b111#64)
     match s.dmem[key]? with
     | .some v => ret (v.toBitVec.extractLsb' ((addr &&& 0b111#64) * 8#64).toNat w.bits) s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
 
 def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Effects) : Effects :=
   if addr % w.bytesv != 0 then .unimplemented s!"Unimplemented: only aligned memory access is supported"
-  else can_write addr w (fun allowed =>
-    if !allowed then .undefined s!"Memory write of {repr w} not allowed at address {repr addr}"
-    else let key := UInt64.ofBitVec (addr &&& ~~~0b111#64)
+  else require_write_access addr w (fun _unit =>
+    let key := UInt64.ofBitVec (addr &&& ~~~0b111#64)
     match s.dmem[key]? with
     | .some old =>
         let new := UInt64.ofBitVec (old.toBitVec.replace ((addr &&& 0b111#64) * 8#64).toNat v)
@@ -536,10 +534,8 @@ def Operation.interp [Labels] [address_size : AddressSize]
 def Instr.interp [Labels]
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
-  can_exec p (fun allowed =>
-    if allowed
-    then Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next jmp
-    else .undefined s!"No exec permissions at {repr p.lower}..{repr p.upper}")
+  require_exec_access p (fun _unit =>
+    Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next jmp)
 
 def Directive.interp [Labels]
   (d : Directive) (s : MachineData) (p : Std.Rco Int64)
@@ -619,11 +615,11 @@ where
     | .done s => eval e s until_
     | .undefined msg => .error msg
     | .unimplemented msg => .error msg
-    | .can_read _ _ cont => handle_effects (cont true)
-    | .can_write _ _ cont => handle_effects (cont true)
-    | .can_exec _ cont => handle_effects (cont true)
-    | .nonmem_load addr .. => .error s!"Load at unmapped address {repr addr}"
-    | .nonmem_store addr .. => .error s!"Store at unmapped address {repr addr}"
+    | .require_read_access _ _ ok => handle_effects (ok ())
+    | .require_write_access _ _ ok => handle_effects (ok ())
+    | .require_exec_access _ ok => handle_effects (ok ())
+    | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
+    | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
     | @Effects.pick _ t cont => handle_effects (cont (t.from_hash (hash s.1.regs)))
 
 def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
