@@ -17,7 +17,6 @@ abbrev Post := MachineState → Prop
 def Effects.all (s : Effects) (post : MachineState → Prop) : Prop :=
   match s with
   | .done a => post a
-  | .undefined _ => False
   | .unimplemented _ => False
   | .nonmem_load .. => False
   | .nonmem_store .. => False

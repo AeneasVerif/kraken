@@ -89,7 +89,6 @@ def handle_effects (ds : IncrementerState) (es : Effects)
 : Except String SystemState :=
   match es with
   | .done ms => ok (.mk ms ds)
-  | .undefined msg => .error msg
   | .unimplemented msg => .error msg
   | .require_read_access _ _ cont => handle_effects ds (cont ()) ok
   | .require_write_access _ _ cont => handle_effects ds (cont ()) ok

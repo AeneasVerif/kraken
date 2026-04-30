@@ -113,7 +113,6 @@ instance : NondetSupportingType StatusFlags := .statusFlags
 
 inductive Effects
   | done (a : MachineData × Int64)
-  | undefined (msg : String)
   | unimplemented (msg : String)
   -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
   -- for instance, MMIO reads/writes at certain device register addresses might change what
@@ -124,7 +123,7 @@ inductive Effects
   | require_read_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
   | require_write_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
-export Effects (undefined unimplemented nonmem_load nonmem_store pick require_read_access require_write_access require_exec_access)
+export Effects (unimplemented nonmem_load nonmem_store pick require_read_access require_write_access require_exec_access)
 
 -- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
 -- value are present for uniformity with RegOrMem.interp
@@ -613,7 +612,6 @@ where
   handle_effects es :=
     match es with
     | .done s => eval e s until_
-    | .undefined msg => .error msg
     | .unimplemented msg => .error msg
     | .require_read_access _ _ ok => handle_effects (ok ())
     | .require_write_access _ _ ok => handle_effects (ok ())
