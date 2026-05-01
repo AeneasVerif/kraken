@@ -17,8 +17,9 @@ open Kraken.Parser
 def p1 := parse("start: mov $1, %rax")
 
 theorem Executable.directivesFromStart [layout : Layout] prog :
-    (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) :=
-  sorry
+    (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) := by
+  induction prog <;> simp [Executable.directivesFromAddress,Executable.withAddresses,Layout.apply]
+    
 
 -- Super-simple example to debug tactics
 example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
@@ -216,14 +217,20 @@ dec %rax")
 
 -- Super-simple example to debug tactics
 example [layout : Layout] s : step1 (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+  -- Refine the state to make registers apparent -- note that `cases` consumes
+  -- the hypothesis, and substitutes it, so we make a copy of it to have a
+  -- refined state in the hypotheses, not the goal.
   let ss := s
   change (step1 _ (ss, _) _)
   cases s with | mk regs flags mem =>
   cases regs with | mk rax =>
+  -- Rewrite the program to make layout, addresses, etc. apparent
   delta p4
   dsimp only [step1,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
+  -- We now have a goal of the form Directives.interp [ ..., ... ]. Time to do
+  -- some stepping.
   dsimp (zeta:=false)(iota:=true) only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,ConstExpr.interp,RegOrMem.interp,Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits,Effects.all]
   lift_lets
   dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [Reg64s.get64,Reg64s.set64,BitVec.drop,BitVec.take,ss,Effects.all] -- reduces UInt64.toBitVec but leaves let binders behind and gets stuck confused on it
@@ -234,3 +241,217 @@ example [layout : Layout] s : step1 (layout p4) (s, layout.start) (fun s => s.1.
   -- now just bashing because rax1 in context is already bad
   simp [rax1]
   simp (ground:=true) (decide:=true)
+
+/- Experiments using SymM: 1/N -/
+
+open Lean Meta Elab Tactic Sym
+
+def silly (mvarId: MVarId): SymM Unit := do
+  let rflRule ← mkBackwardRuleFromDecl ``Eq.refl
+  let _ ← rflRule.apply mvarId
+
+elab "silly " : tactic => do
+  let mvarId ← getMainGoal
+  SymM.run do silly mvarId
+
+example : 2 = 2 := by
+  silly
+
+/- Experiments using SymM: 2/N -/
+
+def f (x: Nat) (y: Nat): Prop := x = y
+
+def f_thm x y (h: x = y): f x y := by
+  simp [f]; assumption
+
+def silly2 (mvarId: MVarId): SymM Unit := do
+  let goal ← mvarId.getType
+  -- match goal with f ?x ?y
+  let_expr ent@f x y := goal | throwError "goal not of the form f x y"
+  -- apply f_thm
+  let thmRule ← mkBackwardRuleFromDecl ``f_thm
+  let .goals [ mvarId ] ← thmRule.apply mvarId | throwError "f_thm did not apply"
+  -- rfl
+  let rflRule ← mkBackwardRuleFromDecl ``Eq.refl
+  let .goals [] ← rflRule.apply mvarId | throwError "rfl did not apply"
+  /- let finalSimpMethods ← mkMethods #[] -/
+  /- let .closed ← Sym.simpGoal mvarId finalSimpMethods {} | throwError "simpGoal did not close" -/
+  /- return -/
+
+elab "silly2 " : tactic => do
+  let mvarId ← getMainGoal
+  SymM.run do silly2 mvarId
+
+example : f 4 (2 + 2) := by
+  apply f_thm
+  apply Eq.refl
+
+example : f 4 4 := by
+  silly2
+
+/- Experiments using SymM: 3/N -/
+
+def of_bits {α} (w: UInt64) (bits: List Bool) (k: UInt64 → α): α :=
+  match bits with
+  | b :: bits =>
+    let b: UInt64 := if b then 1 else 0
+    of_bits (w <<< 1 + b) bits k
+  | [] =>
+    k w
+
+#eval @List.cons Nat 0 (@.nil Nat)
+
+example : of_bits 0 [ true, false, true ] (fun r => r = 5) := by
+  simp [of_bits]
+  bv_decide
+
+theorem eq_cons (w: UInt64) (b: Bool) bits (k: UInt64 → Prop) (h:
+  let b: UInt64 := if b then 1 else 0
+  of_bits (w <<< 1 + b) bits k):
+  of_bits w (b :: bits) k
+:= by
+  simp [of_bits]
+  simp_all
+
+theorem eq_nil (w: UInt64) (k: UInt64 → Prop) (h:
+  k w):
+  of_bits w [] k
+:= by
+  simp [of_bits]
+  simp_all
+
+def silly3 (mvarId: MVarId): SymM MVarId := do
+  let ruleCons ← mkBackwardRuleFromDecl ``eq_cons
+  let ruleNil ← mkBackwardRuleFromDecl ``eq_nil
+  let simpMethods ← mkMethods #[``ite_cond_eq_true, ``ite_cond_eq_false]
+  let rec go (mvarId: MVarId): SymM MVarId := do
+    let goal ← mvarId.getType
+    -- match goal with `of_bits α w (b :: bits) post`
+    let_expr of_bits α w bits post := goal | throwError "not of_bits"
+    let_expr List.cons _ b bits := bits | return mvarId -- done; user can finish with bv_decide
+    -- one step of unfolding -- cons case
+    let .goals [ mvarId ] ← ruleCons.apply mvarId | throwError "eq_cons did not apply"
+    -- ERROR here: the have (in the signature of eq_cons) has already been
+    -- substituted -- this can be seen by adding `pure mvarId` right here.
+    -- SHOULD BE: let-binder in the goal: do some simp-ing
+    let mvarId ← match ← Sym.simpGoal mvarId simpMethods with
+      | .noProgress => pure mvarId
+      | .goal mvarId => pure mvarId
+      | .closed => throwError "unexpected"
+    let .goal _ mvarId ← Sym.intros mvarId | throwError "nothing to intros"
+    pure mvarId
+    /- let rflRule ← mkBackwardRuleFromDecl ``Eq.refl -/
+    /- let .goals [] ← rflRule.apply mvarId | throwError "rfl did not apply" -/
+    /- let finalSimpMethods ← mkMethods #[] -/
+    /- let .closed ← Sym.simpGoal mvarId finalSimpMethods {} | throwError "simpGoal did not close" -/
+    /- return -/
+  go mvarId
+
+elab "silly3 " : tactic => do
+  let mvarId ← getMainGoal
+  let mvarId ← SymM.run do silly3 mvarId
+  replaceMainGoal [ mvarId ]
+      
+example : of_bits 0 [ true, false, true ] (fun r => r = 5) := by
+  silly3
+
+/- Experiments using SymM: 4/N
+
+   This time, relying on the reduction machine provided by Sebastian Graf.
+   Original code below.
+-/
+
+/--
+Repeatedly reduces head redexes in `e`, cycling through the following reductions until
+no further progress is made:
+
+1. **Beta**: `(fun x₁ ... xₘ => b) a₁ ... aₙ` → `b[a₁/x₁, aₘ/xₘ] aₘ₊₁ ... aₙ`
+2. **Iota**: `MyType.casesOn (MyType.ctor args) alts` → `altᵢ args`
+   (matcher/recursor applied to a constructor, at reducible transparency)
+3. **Proj-reduction**: `⟨a, b, c⟩.1` → `a` (kernel `.proj` nodes)
+4. **Projection delta**: `Struct.field x` → `x.5` (unfolds projection *functions*,
+   progress only if followed by proj-reduction)
+
+Returns `none` when no reduction was possible. Maintains maximal sharing via `shareCommonInc`.
+-/
+meta partial def reduceHead? (e : Expr) : SymM (Option Expr) :=
+  withReducible <| go none e.getAppFn e.getAppRevArgs
+  where
+    go lastReduction f rargs := do
+      match f with
+      | .mdata _ f => go lastReduction f rargs
+      | .app f a => go lastReduction f (rargs.push a)
+      | .lam .. =>
+        if rargs.size = 0 then return lastReduction
+        let e' := f.betaRev rargs
+        let e' ← Sym.shareCommonInc e'
+        go (some e') e'.getAppFn e'.getAppRevArgs
+      | .const name .. =>
+        -- projections
+        if ← isProjectionFn name then
+          let some e' ← Meta.unfoldDefinition? (mkAppRev f rargs) | return lastReduction
+          let e' ← Sym.shareCommonInc e'
+          go lastReduction e'.getAppFn e'.getAppRevArgs  -- intentional lastReduction! see docstring
+        -- iota reduction: match/recursor with concrete discriminant
+        else if let some e' ← liftMetaM <| reduceRecMatcher? (mkAppRev f rargs) then
+          let e' ← Sym.shareCommonInc e'
+          go (some e') e'.getAppFn e'.getAppRevArgs
+        else
+          pure lastReduction
+      | .proj .. => match ← reduceProj? f with
+        | some f' =>
+          let e' := mkAppRev f' rargs
+          let e' ← Sym.shareCommonInc e'
+          go (some e') e'.getAppFn e'.getAppRevArgs
+        | none    => pure lastReduction
+      | _ => pure lastReduction
+
+def reduceApp (e: Expr) : SymM Expr :=
+  withReducible <|
+  let hd := e.getAppFn
+  let rargs := e.getAppRevArgs
+  let e := hd.betaRev rargs
+  shareCommonInc e
+
+partial def silly4 (mvarId: MVarId): SymM MVarId := do
+  let simpMethods ← mkMethods #[``ite_cond_eq_true, ``ite_cond_eq_false]
+  let goal_is_of_bits (goal: Expr): SymM Bool := do
+    let_expr of_bits _ _ bits _ := goal | throwError "ERROR: goal is not of the form of_bits"
+    let_expr List.cons _ _ _ := bits | return false
+    pure true
+
+  -- Assumes `goal_is_of_bits`.
+  let rec go (i: Nat) (mvarId: MVarId): SymM MVarId := do
+    let goal ← mvarId.getType
+    let is_cons ← goal_is_of_bits goal
+    -- NOTE: Symp.simpGoal does not work -- it reduces too aggressively; failed
+    -- attempt, below:
+    -- let .goal mvarId ← Sym.simpGoal mvarId unfoldMethods | throwError "can't unfold"
+    -- WORKING:
+    let some goal ← Meta.unfoldDefinition? goal | throwError "can't unfold"
+    let mvarId ← mvarId.replaceTargetDefEq (← reduceApp goal)
+
+    -- DONE: we just reduced the empty list case and now the user can deal with
+    -- the post-condition themselves
+    if not is_cons then
+      return mvarId
+
+    -- CONS CASE: we have binders to introduce
+    -- FIXME: no progress made by simp here; we want to simp in the goal since
+    -- we do not have simp at value yet.
+    let mvarId ← match ← Sym.simpGoal mvarId simpMethods with
+      | .noProgress => pure mvarId
+      | .goal mvarId => pure mvarId
+      | .closed => throwError "unexpected"
+    let .goal _ mvarId ← Sym.intros mvarId #[ Name.mkSimple (s!"bit{i}") ] | throwError "nothing to intros"
+    go (i + 1) mvarId
+  go 0 mvarId
+
+elab "silly4 " : tactic => do
+  let mvarId ← getMainGoal
+  let mvarId ← SymM.run do silly4 mvarId
+  replaceMainGoal [ mvarId ]
+      
+example : of_bits 0 [ true, false, true ] (fun r => r = 5) := by
+  silly4
+  bv_decide
