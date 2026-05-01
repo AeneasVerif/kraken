@@ -72,7 +72,8 @@ def IncrementerState.write_step (s : IncrementerState)
 def IncrementerState.internal_step (s : IncrementerState) : IncrementerState :=
   match s with
   | .idle => s
-  | .busy input n => if n == 0 then .done (input + 1) else .busy input (n - 1)
+  | .busy input 0 => .done (input + 1)
+  | .busy input (n + 1) => .busy input n
   | .done _ => s
 
 def Incrementer.Register.of_addr (addr : UInt64) : Option Incrementer.Register :=
@@ -84,24 +85,23 @@ structure SystemState where
   machineState : MachineState
   deviceState : IncrementerState
 
-def handle_effects (ds : IncrementerState) (es : Effects)
-  (ok : SystemState → Except String SystemState)
-: Except String SystemState :=
+def handleEffects (ds : IncrementerState) (es : Effects)
+    (ok : SystemState → Except String SystemState) :
+    Except String SystemState :=
   match es with
   | .done ms => ok (.mk ms ds)
   | .unimplemented msg => .error msg
   | .require_read_access _ _ cont => handle_effects ds (cont ()) ok
   | .require_write_access _ _ cont => handle_effects ds (cont ()) ok
   | .require_exec_access _ cont => handle_effects ds (cont ()) ok
-  | .nonmem_load dmem addr w cont =>
-    match w with
-      | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
-        | .some r => match ds.read_step r with
-          | .some (reply, ds') =>
-            handle_effects ds' (cont (UInt32.toBitVec reply) dmem) ok
-          | .none => .error s!"Incrementer.read_step failed"
-        | .none => .error s!"nonmem_load at unmapped address {repr addr}"
-      | _ => .error s!"nonmem_load of width other than 4 bytes"
+  | .nonmem_load dmem addr w cont => do
+    let .W32 := w
+      | throw s!"nonmem_load of width other than 4 bytes"
+    let some r := Incrementer.Register.of_addr (UInt64.ofBitVec addr)
+      | throw s!"nonmem_load at unmapped address {repr addr}"
+    let some (reply, ds') := ds.read_step r
+      | throw s!"Incrementer.read_step failed"
+    handle_effects ds' (cont (UInt32.toBitVec reply) dmem) ok
   | @Effects.nonmem_store dmem addr w v cont =>
     match w with
       | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
