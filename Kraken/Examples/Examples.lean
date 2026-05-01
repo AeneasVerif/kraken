@@ -20,6 +20,15 @@ theorem Executable.directivesFromStart [layout : Layout] prog :
     (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) :=
   sorry
 
+
+theorem Executable.directivesAtAddress_split [Layout] (e : Executable) (a : Int64) :
+  e.directivesAtAddress a =
+    let ds := e.directivesFromAddress a
+    let zero_sized := ds.takeWhile (fun x => x.2 = 0)
+    let first_nonzero := ds.dropWhile (fun x => x.2 = 0)
+    zero_sized ++ first_nonzero.take 1 := by
+  sorry
+
 -- Super-simple example to debug tactics
 example [layout : Layout] s : straightline_step (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
   dsimp only [p1]
@@ -93,45 +102,18 @@ example [layout : Layout] (s : MachineData): Eventually (straightline_step (layo
   apply Eventually.done
   simp (ground:=True)
 
-theorem p2_step1_lem [layout : Layout] :
-  (layout p2).directivesAtAddress layout.start = [ (.label "start", 0), (.instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.int64 1)) ⟩, 7) ] := by sorry
-
-theorem p2_step2_lem [layout : Layout] :
-  (layout p2).directivesAtAddress (layout.start + 0 + 7) = [ (.instr ⟨ .W64, .W64, .xor Reg.rax Reg.rax ⟩, 3) ] := by sorry
-
-theorem p2_step3_lem [layout : Layout] :
-  (layout p2).directivesAtAddress (layout.start + 0 + 7 + 3) = [ (.instr ⟨ .W64, .W64, .jcc .nz "start" ⟩, 5) ] := by sorry
-
-theorem p2_step4_lem [layout : Layout] :
-  (layout p2).directivesAtAddress (layout.start + 0 + 7 + 3 + 5) = [ (.instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.int64 2)) ⟩, 7) ] := by sorry
-
 -- Example 2 (Single-step version): stepping through instruction by instruction
 example [layout : Layout] (s : MachineData): Eventually (step1 (layout p2)) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
+  dsimp [p2]
   apply step_cps
-  unfold step1 Executable.step
-  rw [p2_step1_lem]
-  dsimp only [Directives.interp, Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp]
-  
-  apply step_cps
-  dsimp
-  rw [p2_step2_lem]
-  dsimp only [Directives.interp, Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp, CondCode.interp, StatusFlags.from_result]
-  intro af
-  
-  apply step_cps
-  dsimp
-  rw [p2_step3_lem]
-  dsimp only [Directives.interp, Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp, CondCode.interp, StatusFlags.from_result]
-  simp only [Int64.toBitVec_ofNat, BitVec.ofNat_eq_ofNat, BitVec.truncate_eq_setWidth, BitVec.xor_self, BitVec.zero_eq,
-    BEq.rfl, Bool.not_true, Bool.false_eq_true, ↓reduceIte, BitVec.setWidth_zero, BitVec.msb_zero]
-  
-  apply step_cps
-  dsimp
-  rw [p2_step4_lem]
-  dsimp only [Directives.interp, Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp, CondCode.interp, StatusFlags.from_result]
-  
-  apply Eventually.done
+  dsimp only [step1, Executable.step]
+  rw [Executable.directivesAtAddress_split]
+  simp [List.map]
+  -- We should be able to compute directivesAtAddress by unfolding definitions
+  -- and using computation since the program is a concrete list.
+  unfold Executable.directivesAtAddress Executable.withAddresses
   sorry
+
 
 -- Example 3 commented out until we figure out how to parse concrete syntax.
 /- def p3: Program := parse("
