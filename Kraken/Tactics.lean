@@ -28,6 +28,8 @@ def Effects.all (s : Effects) (post : MachineState → Prop) : Prop :=
 instance (T: Type): Undefined T Prop where
   undefined ret := ∀ (v: T), ret v
 
+-- NOTE: 'initial' cannot be moved to the left of the colon as a parameter
+-- because it varies in the recursive call in the 'step' constructor (it becomes 'mid').
 inductive Eventually {State : Type} (trans : State → (State → Prop) → Prop) (post : State → Prop) : State → Prop
   | done (initial: State):
       post initial →
