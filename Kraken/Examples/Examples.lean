@@ -26,10 +26,10 @@ example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.
   dsimp only [step1,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
-  dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp]
-  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp]
+  dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
+  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,require_exec_access]
   simp (ground:=True)
-  simp
+  dsimp only [Effects.all]
 
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
   /- simp [MachineData.setReg,Reg64s.set,Reg64s.set64,ConstExpr.interp] -/
@@ -55,7 +55,7 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
   simp [List.mapIdx, List.mapIdx.go]
   -- TODO It would be nice to progress instruction by instruction instead of all at once, like below.
   dsimp only [Directives.interp, Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp]
-  dsimp [MachineData.set, MachineData.setReg, Reg64s.set, Reg64s.set64]
+  dsimp [MachineData.set, MachineData.setReg, Reg64s.set, Reg64s.set64, Effects.all]
   intros _af1 _af2 _af3
   apply Eventually.done
   simp (ground:=True)
@@ -86,10 +86,10 @@ example [layout : Layout] (s : MachineData): Eventually (layout p2) (fun s => s.
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
   dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
-  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,CondCode.interp,StatusFlags.from_result]
+  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,CondCode.interp,StatusFlags.from_result, Effects.all]
   simp only [Int64.toBitVec_ofNat, BitVec.ofNat_eq_ofNat, BitVec.truncate_eq_setWidth, BitVec.xor_self, BitVec.zero_eq,
-    BEq.rfl, Bool.not_true, Bool.false_eq_true, ↓reduceIte, BitVec.setWidth_zero, BitVec.msb_zero]
-  dsimp [undefined,Undefined.undefined]; intros _af
+    BEq.rfl, Bool.not_true, Bool.false_eq_true, ↓reduceIte, BitVec.msb_zero]
+  intros _af
   apply Eventually.done
   simp (ground:=True)
 
@@ -220,8 +220,9 @@ example [layout : Layout] s : step1 (layout p4) (s, layout.start) (fun s => s.1.
   dsimp only [step1,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
-  dsimp (zeta:=false) only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,ConstExpr.interp,RegOrMem.interp,Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits]
-  dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [Reg64s.get64,Reg64s.set64,BitVec.drop,BitVec.take,ss] -- reduces UInt64.toBitVec but leaves let binders behind and gets stuck confused on it
+  dsimp (zeta:=false)(iota:=true) only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,ConstExpr.interp,RegOrMem.interp,Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits,Effects.all]
+  lift_lets
+  dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [Reg64s.get64,Reg64s.set64,BitVec.drop,BitVec.take,ss,Effects.all] -- reduces UInt64.toBitVec but leaves let binders behind and gets stuck confused on it
   intros rax1
   lift_lets; intros t -- unfortunately a separte tactic rather than a simp flag
   -- simp [MachineData.regs,Reg64s.set64,Reg64s.get64,ss] at t -- made no progress for some reason
@@ -231,4 +232,3 @@ example [layout : Layout] s : step1 (layout p4) (s, layout.start) (fun s => s.1.
   simp (ground:=true)
   simp
   simp (decide:=true)
-  

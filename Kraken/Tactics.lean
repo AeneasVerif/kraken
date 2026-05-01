@@ -12,18 +12,21 @@ import Kraken.Theorems
 
 -- PROOF INFRASTRUCTURE
 
-abbrev MachineState := MachineData × Int64
-
 abbrev Post := MachineState → Prop
 
-instance : Throw Prop where
-  throw _ := False
+def Effects.all (s : Effects) (post : MachineState → Prop) : Prop :=
+  match s with
+  | .done a => post a
+  | .unimplemented _ => False
+  | .nonmem_load .. => False
+  | .nonmem_store .. => False
+  | @Effects.undefined α _ cont => ∀ v: α, (cont v).all post
+  | .require_read_access _ _ cont => (cont ()).all post
+  | .require_write_access _ _ cont => (cont ()).all post
+  | .require_exec_access _ cont => (cont ()).all post
 
-instance (T: Type): Undefined T Prop where
-  undefined ret := ∀ (v: T), ret v
-
-def step1 [Layout] (p: Executable) (s: MachineState) (post: Post) :=
-  Executable.straightline p s post
+def step1 [Layout] (p: Executable) (s: MachineState) : Post → Prop :=
+  (Executable.straightline p s .done).all
 
 inductive Eventually [Layout] (prog: Executable) (p: MachineState → Prop): MachineState -> Prop
   | done (initial: MachineState):

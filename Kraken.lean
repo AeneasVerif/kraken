@@ -11,4 +11,4 @@ import Kraken.Semantics
 import Kraken.Parser
 import Kraken.Theorems
 import Kraken.Tactics
-import Kraken.Examples
+import Kraken.Examples.Examples

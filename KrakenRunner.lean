@@ -44,8 +44,6 @@ def summarize (s : MachineData) : StateSummary :=
     flags := [("cf", f.cf), ("pf", f.pf), ("af", f.af),
               ("zf", f.zf), ("sf", f.sf), ("of", f.of)] }
 
-abbrev MachineState := MachineData × Int64
-
 def _start: String := "_start"
 def _end: String := "_end"
 
