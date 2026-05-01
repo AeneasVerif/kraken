@@ -21,15 +21,15 @@ theorem Executable.directivesFromStart [layout : Layout] prog :
   sorry
 
 -- Super-simple example to debug tactics
-example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+example [layout : Layout] s : Step1 (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
   dsimp only [p1]
-  dsimp only [step1,Executable.straightline]
+  dsimp only [Step1,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
   dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
   dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,require_exec_access]
   simp (ground:=True)
-  dsimp only [Effects.all]
+  dsimp only [Effects.All]
 
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
   /- simp [MachineData.setReg,Reg64s.set,Reg64s.set64,ConstExpr.interp] -/
@@ -50,12 +50,12 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
       (d, layout.start) := by
   dsimp [swap]
   apply step_cps
-  dsimp only [step1, Executable.straightline, Directives.interp]
+  dsimp only [Step1, Executable.straightline, Directives.interp]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx, List.mapIdx.go]
   -- TODO It would be nice to progress instruction by instruction instead of all at once, like below.
   dsimp only [Directives.interp, Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp]
-  dsimp [MachineData.set, MachineData.setReg, Reg64s.set, Reg64s.set64, Effects.all]
+  dsimp [MachineData.set, MachineData.setReg, Reg64s.set, Reg64s.set64, Effects.All]
   intros _af1 _af2 _af3
   apply Eventually.done
   simp (ground:=True)
@@ -82,11 +82,11 @@ start:
 example [layout : Layout] (s : MachineData): Eventually (layout p2) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
   dsimp [p2]
   apply step_cps
-  dsimp only [step1,Executable.straightline]
+  dsimp only [Step1,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
   dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
-  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,CondCode.interp,StatusFlags.from_result, Effects.all]
+  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,CondCode.interp,StatusFlags.from_result, Effects.All]
   simp only [Int64.toBitVec_ofNat, BitVec.ofNat_eq_ofNat, BitVec.truncate_eq_setWidth, BitVec.xor_self, BitVec.zero_eq,
     BEq.rfl, Bool.not_true, Bool.false_eq_true, ↓reduceIte, BitVec.msb_zero]
   intros _af
@@ -211,18 +211,18 @@ def p4 := eval% parse("start: mov $2, %rax
 dec %rax")
 
 -- Super-simple example to debug tactics
-example [layout : Layout] s : step1 (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+example [layout : Layout] s : Step1 (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
   let ss := s
-  change (step1 _ (ss, _) _)
+  change (Step1 _ (ss, _) _)
   cases s with | mk regs flags mem =>
   cases regs with | mk rax =>
   delta p4
-  dsimp only [step1,Executable.straightline]
+  dsimp only [Step1,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
-  dsimp (zeta:=false)(iota:=true) only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,ConstExpr.interp,RegOrMem.interp,Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits,Effects.all]
+  dsimp (zeta:=false)(iota:=true) only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,ConstExpr.interp,RegOrMem.interp,Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits,Effects.All]
   lift_lets
-  dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [Reg64s.get64,Reg64s.set64,BitVec.drop,BitVec.take,ss,Effects.all] -- reduces UInt64.toBitVec but leaves let binders behind and gets stuck confused on it
+  dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [Reg64s.get64,Reg64s.set64,BitVec.drop,BitVec.take,ss,Effects.All] -- reduces UInt64.toBitVec but leaves let binders behind and gets stuck confused on it
   intros rax1
   lift_lets; intros t -- unfortunately a separte tactic rather than a simp flag
   -- simp [MachineData.regs,Reg64s.set64,Reg64s.get64,ss] at t -- made no progress for some reason
