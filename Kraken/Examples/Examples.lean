@@ -30,6 +30,7 @@ example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.
   dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,require_exec_access]
   simp (ground:=True)
   dsimp only [Effects.all]
+  rfl
 
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
   /- simp [MachineData.setReg,Reg64s.set,Reg64s.set64,ConstExpr.interp] -/
@@ -61,6 +62,8 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
   simp (ground:=True)
   dsimp only [Reg64s.get, Reg64s.get64, Reg.base, Reg.offset]
   dsimp only [BitVec.drop, BitVec.take, Width.bits]
+  dsimp only [Nat.sub_zero] -- FIXME: needed after nightly
+  simp only [BitVec.extractLsb'_eq_self] -- FIXME: needed after nightly
   bv_decide
 
 -- Stepping demo. Ideally, this demo should be without the first .mov
@@ -92,6 +95,7 @@ example [layout : Layout] (s : MachineData): Eventually (layout p2) (fun s => s.
   intros _af
   apply Eventually.done
   simp (ground:=True)
+  rfl -- FIXME: needed after nightly
 
 -- Example 3 commented out until we figure out how to parse concrete syntax.
 /- def p3: Program := parse("
@@ -229,6 +233,4 @@ example [layout : Layout] s : step1 (layout p4) (s, layout.start) (fun s => s.1.
   dsimp (zeta:=false)(beta:=false)(eta:=false)(iota:=false)(proj:=true) only [Reg64s.set64,Reg64s.get64,ss,t]
   -- now just bashing because rax1 in context is already bad
   simp [rax1]
-  simp (ground:=true)
-  simp
-  simp (decide:=true)
+  simp (ground:=true) (decide:=true)
