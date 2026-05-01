@@ -607,18 +607,18 @@ def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineSt
 -- -- Concrete evaluators for expedient testing
 
 partial def Executable.eval (e : Executable) (s : MachineState) (until_ : MachineState → Bool) : Except String (MachineState) :=
-  if until_ s then .ok s else handle_effects (e.straightline s .done)
+  if until_ s then .ok s else handleEffects (e.straightline s .done)
 where
-  handle_effects es :=
+  handleEffects es :=
     match es with
     | .done s => eval e s until_
     | .unimplemented msg => .error msg
-    | .require_read_access _ _ ok => handle_effects (ok ())
-    | .require_write_access _ _ ok => handle_effects (ok ())
-    | .require_exec_access _ ok => handle_effects (ok ())
+    | .require_read_access _ _ ok => handleEffects (ok ())
+    | .require_write_access _ _ ok => handleEffects (ok ())
+    | .require_exec_access _ ok => handleEffects (ok ())
     | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
-    | @Effects.undefined _ t cont => handle_effects (cont (t.from_hash (hash s.1.regs)))
+    | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
 
 def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
   match d with
