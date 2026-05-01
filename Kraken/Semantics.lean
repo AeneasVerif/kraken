@@ -119,7 +119,7 @@ inductive Effects
   -- data memory the process logically owns vs what memory is owned by devices
   | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : Width) (ret : w.type → DataMem → Effects)
   | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : Width} (v : w.type) (ret: DataMem → Effects)
-  | undefined (α : Type) [NondetSupportingType α] (ret : α → Effects)
+  | undefined {α : Type} [NondetSupportingType α] (ret : α → Effects)
   | require_read_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
   | require_write_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
@@ -365,7 +365,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     let s := if w == .W8
       then s.setReg (.low .rax .W16) (.ofInt _ vn)
       else (s.setReg (.low .rax w) v).setReg (.low .rdx w) (.ofInt _ (vn >>> w.bits))
-    undefined Bool (λ sf => undefined Bool (λ zf => undefined Bool (λ af => undefined Bool (λ pf =>
+    undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
     next { s with status := { cf := v.unsigned != vn, pf, af, zf, sf, of := v.unsigned != vn }})))))
   | .mulx r_hi r_lo src1 =>
     src1.interp s p (fun a s =>
@@ -387,7 +387,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
       let low := result.take w.bits
       let high := (result.drop w.bits).setWidth _
       (s.setReg (.low .rax w) low).setReg (.low .rdx w) high
-    undefined Bool (λ sf => undefined Bool (λ zf => undefined Bool (λ af => undefined Bool (λ pf =>
+    undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
     let low := BitVec.ofInt w.bits v
     let cf := v != low.toInt
     next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))
@@ -398,21 +398,21 @@ def Operation.interp [Labels] [address_size : AddressSize]
     s.set (match (generalizing := false) (motive := Option (RegOrMem w) → RegOrMem w)
              dst with | .some dst => dst | _ => src1) v p (fun s =>
     let cf := v.signed != a.signed * b.signed
-    undefined Bool (λ sf => undefined Bool (λ zf => undefined Bool (λ af => undefined Bool (λ pf =>
+    undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
     next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))))
 -- Bitwise
   | .test a b =>
     a.interp s p (fun a s =>
     b.interp s p (fun b s =>
     let v := a &&& b
-    undefined Bool (fun af =>
+    undefined (fun af =>
     let status := .from_result v { cf := false, af, of := false}
     next { s with status})))
   | .and dst src | .or dst src | .xor dst src =>
     dst.interp s p (fun a s =>
     src.interp s p (fun b s =>
     let v := match i with | .and _ _ => a &&& b | .or _ _ => a ||| b | _ => a ^^^ b
-    undefined Bool (fun af =>
+    undefined (fun af =>
     let status := .from_result v { cf := false, of := false, af }
     { s with status }.set dst v p next)))
   | .not dst =>
@@ -424,27 +424,27 @@ def Operation.interp [Labels] [address_size : AddressSize]
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := a <<< count
-    undefined Bool (λ af =>
-    (λ setcf => if count < w.bits then setcf (a <<< (count-1)).msb else undefined Bool setcf) (λ cf =>
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined Bool setof) (λ of =>
+    undefined (λ af =>
+    (λ setcf => if count < w.bits then setcf (a <<< (count-1)).msb else undefined setcf) (λ cf =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .shr dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := a.ushiftRight count
-    undefined Bool (λ af =>
-    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined Bool setcf) (λ cf =>
-    (λ setof => if count == 1 then setof a.msb else undefined Bool setof) (λ of =>
+    undefined (λ af =>
+    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
+    (λ setof => if count == 1 then setof a.msb else undefined setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .sar dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := a.sshiftRight count
-    undefined Bool (λ af =>
-    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined Bool setcf) (λ cf =>
-    (λ setof => if count == 1 then setof false else undefined Bool setof) (λ of =>
+    undefined (λ af =>
+    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
+    (λ setof => if count == 1 then setof false else undefined setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .shrd dst src count =>
     dst.interp s p (fun a s =>
@@ -452,10 +452,10 @@ def Operation.interp [Labels] [address_size : AddressSize]
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := (((b.append a) >>> count).take w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined StatusFlags setstatus else
+    (λ setstatus => if count >= w.bits then undefined setstatus else
       let cf := a.getLsbD (count-1)
-      undefined Bool (λ af =>
-      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined Bool setof) (λ of =>
+      undefined (λ af =>
+      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
       setstatus (.from_result v { cf, af, of})))) (λ status =>
     { s with status }.set dst v p next)))
   | .shld dst src count =>
@@ -464,10 +464,10 @@ def Operation.interp [Labels] [address_size : AddressSize]
     let count := count.interpMasked s p w
     if count == 0 then next s else
     let v := (((a.append b) <<< count).drop w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined StatusFlags setstatus else
+    (λ setstatus => if count >= w.bits then undefined setstatus else
       let cf := (a <<< (count-1)).msb
-      undefined Bool (λ af =>
-      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined Bool setof) (λ of =>
+      undefined (λ af =>
+      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
       setstatus (.from_result v { cf, af, of})))) (λ status =>
     { s with status }.set dst v p next)))
   | .rol dst count =>
@@ -476,7 +476,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     if count == 0 then next s else
     let v := a.rotateLeft count
     let cf := v.getLsbD 0
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined Bool setof) (λ of =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .ror dst count =>
     dst.interp s p (fun a s =>
@@ -484,7 +484,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     if count == 0 then next s else
     let v := a.rotateRight count
     let cf := v.msb
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined Bool setof) (λ of =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .rcr dst count =>
     dst.interp s p (fun a s =>
@@ -492,7 +492,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     if count == 0 then next s else
     let t := (BitVec.ofBool s.status.cf ++ a).rotateRight count
     let (cf, v) := (t.msb, t.take w.bits)
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined Bool setof) (λ of =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .rcl dst count =>
     dst.interp s p (fun a s =>
@@ -500,7 +500,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
     if count == 0 then next s else
     let t := (BitVec.ofBool s.status.cf ++ a).rotateLeft count
     let (cf, v) := (t.msb, t.take w.bits)
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined Bool setof) (λ of =>
+    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .bswap dst =>
     let a := s.regs.get dst
@@ -512,7 +512,7 @@ def Operation.interp [Labels] [address_size : AddressSize]
       let v := a.take 8 ++ a.extractLsb' 8 8 ++ a.extractLsb' 16 8 ++ a.extractLsb' 24 8
             ++ a.extractLsb' 32 8 ++ a.extractLsb' 40 8 ++ a.extractLsb' 48 8 ++ a.drop 56
       next (s.setReg dst (v.setWidth _))
-    | _ => undefined w.type (fun v => next (s.setReg dst v))
+    | _ => undefined (fun v => next (s.setReg dst v))
   | .jcc cc l =>
     if cc.interp s.status
     then jmp (label l) s
