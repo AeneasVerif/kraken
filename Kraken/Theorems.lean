@@ -29,11 +29,20 @@ theorem UInt64_ofInt_natCast_ne_zero (k : Nat) (h_lt : k < 2^64) (h_ne : k ≠ 0
 -- Omnisemantics Step Mixing
 -- ============================================================================
 
-theorem step_interp_eq [Layout] (p: Executable) (pc: Int64) (s: MachineData) (d: Directive) (sz: Nat) (ds: List (Directive × Nat)) (post: MachineState → Prop) [Labels]:
+theorem step_interp_eq [Layout] (p: Executable) (pc: Int64) (s: MachineData) (d: Directive) (sz: Nat) (ds: List (Directive × Nat)) (post: MachineState → Prop) [L : Labels]:
+  L = p.labels →
   p.directivesFromAddress pc = (d, sz) :: ds →
   (Executable.step p (s, pc) (fun s' => post s') ↔
    d.interp s (.mk pc (pc+.ofNat sz)) (jmp:=fun pc' s' => post (s', pc')) (next := fun s' => post (s', pc+.ofNat sz))) := by
-  sorry
+  intros h_labels h_from
+  unfold Executable.step
+  -- not true. directives could share an address
+  have h_at : p.directivesAtAddress pc = [(d, sz)] := by
+    sorry
+  rw [h_at]
+  dsimp [Directives.interp]
+  rw [h_labels]
+
 
 theorem directivesFromAddress_tail [Layout] (p: Executable) (pc: Int64) (d: Directive) (sz: Nat) (ds: List (Directive × Nat)):
   p.directivesFromAddress pc = (d, sz) :: ds →
@@ -84,7 +93,7 @@ theorem straightline_to_step1 [Layout] (p: Executable) (initial: MachineState) (
         apply Eventually.step (s, pc) mid_p
         · -- Prove step1 p (s, pc) mid_p
           unfold step1
-          have h_iff := @step_interp_eq _ p pc s d sz ds' mid_p p.labels h_eq.symm
+          have h_iff := @step_interp_eq _ p pc s d sz ds' mid_p p.labels (by rfl) h_eq.symm
           rw [h_iff]
           apply directive_interp_mono d s (.mk pc (pc+.ofNat sz)) h_cons
           · intros s' h_next_in
