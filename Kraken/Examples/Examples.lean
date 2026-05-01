@@ -20,34 +20,6 @@ theorem Executable.directivesFromStart [layout : Layout] prog :
     (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) :=
   sorry
 
--- Collects all directives at address 'a' by batching all consecutive zero-sized directives (labels) plus
--- the first non-zero-sized directive. (Concretely, labels are of size zero, for example).
--- General but awkward in proofs due to takeWhile, dropWhile
-theorem Executable.directivesAtAddress_split [Layout] (e : Executable) (a : Int64) :
-  e.directivesAtAddress a =
-    let ds := e.directivesFromAddress a
-    let zero_sized := ds.takeWhile (fun x => x.2 = 0)
-    let first_nonzero := ds.dropWhile (fun x => x.2 = 0)
-    zero_sized ++ first_nonzero.take 1 := by
-  sorry
-
--- As above, for special case where the first directive is size zero (ex label)
--- followed by a nonzero directive
-theorem Executable.directivesAtAddress_label_instr [Layout] (e : Executable) (a : Int64)
-  (d1 d2 : Directive) (sz2 : Nat) (ds : List (Directive × Nat)) :
-  e.directivesFromAddress a = (d1, 0) :: (d2, sz2) :: ds →
-  sz2 > 0 →
-  e.directivesAtAddress a = [(d1, 0), (d2, sz2)] := by
-  sorry
-
--- As above where the first directive is size nonzero
-theorem Executable.directivesAtAddress_nonzero [Layout] (e : Executable) (a : Int64)
-  (d : Directive) (sz : Nat) (ds : List (Directive × Nat)) :
-  e.directivesFromAddress a = (d, sz) :: ds →
-  sz > 0 →
-  e.directivesAtAddress a = [(d, sz)] := by
-  sorry
-
 -- Super-simple example to debug tactics
 example [layout : Layout] s : straightline_step (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
   dsimp only [p1]
@@ -120,16 +92,6 @@ example [layout : Layout] (s : MachineData): Eventually (straightline_step (layo
   intros _af
   apply Eventually.done
   simp (ground:=True)
-
--- Example 2 (Single-step version): stepping through instruction by instruction
-example [layout : Layout] (s : MachineData): Eventually (step1 (layout p2)) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
-  dsimp [p2]
-  apply step_cps
-  dsimp only [step1, Executable.step]
-  rw [Executable.directivesAtAddress_label_instr]
-
-  sorry
-
 
 -- Example 3 commented out until we figure out how to parse concrete syntax.
 /- def p3: Program := parse("

@@ -67,7 +67,7 @@ theorem eventually_weaken {State : Type} (trans : State → (State → Prop) →
     Eventually trans p initial → Eventually trans q initial
   := by
     intro hp
-    induction ih: hp
+    induction ih: hp  -- Q: why does this not work with `induction ... with`?
     . apply Eventually.done
       grind
     . apply Eventually.step
