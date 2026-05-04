@@ -330,6 +330,7 @@ def silly3 (mvarId: MVarId): SymM MVarId := do
     let_expr of_bits α w bits post := goal | throwError "not of_bits"
     let_expr List.cons _ b bits := bits | return mvarId -- done; user can finish with bv_decide
     -- one step of unfolding -- cons case
+    -- TODO: minimize and file a bug report
     let .goals [ mvarId ] ← ruleCons.apply mvarId | throwError "eq_cons did not apply"
     -- ERROR here: the have (in the signature of eq_cons) has already been
     -- substituted -- this can be seen by adding `pure mvarId` right here.
@@ -411,6 +412,7 @@ def reduceApp (e: Expr) : SymM Expr :=
   let hd := e.getAppFn
   let rargs := e.getAppRevArgs
   let e := hd.betaRev rargs
+  -- TODO: why is sharing not preserved here?
   shareCommonInc e
 
 partial def silly4 (mvarId: MVarId): SymM MVarId := do
@@ -428,6 +430,9 @@ partial def silly4 (mvarId: MVarId): SymM MVarId := do
     -- attempt, below:
     -- let .goal mvarId ← Sym.simpGoal mvarId unfoldMethods | throwError "can't unfold"
     -- WORKING:
+    -- TODO: just unfold the head?
+    -- TODO: have something more generic that finds *any* application whose head
+    -- is a definition from our semantics -- settle on a reduction strategy
     let some goal ← Meta.unfoldDefinition? goal | throwError "can't unfold"
     let mvarId ← mvarId.replaceTargetDefEq (← reduceApp goal)
 
@@ -439,6 +444,9 @@ partial def silly4 (mvarId: MVarId): SymM MVarId := do
     -- CONS CASE: we have binders to introduce
     -- FIXME: no progress made by simp here; we want to simp in the goal since
     -- we do not have simp at value yet.
+    -- TODO: try simp discharger
+    -- https://leanprover.zulipchat.com/#narrow/channel/594054-SymM-users/topic/simp.20with.20discharger.3F/near/591796469
+    -- to basically call simp with (ground := True)
     let mvarId ← match ← Sym.simpGoal mvarId simpMethods with
       | .noProgress => pure mvarId
       | .goal mvarId => pure mvarId
@@ -451,6 +459,8 @@ elab "silly4 " : tactic => do
   let mvarId ← getMainGoal
   let mvarId ← SymM.run do silly4 mvarId
   replaceMainGoal [ mvarId ]
+
+/- set_option pp.all true -/
       
 example : of_bits 0 [ true, false, true ] (fun r => r = 5) := by
   silly4
