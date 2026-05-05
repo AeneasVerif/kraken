@@ -299,62 +299,8 @@ def of_bits {α} (w: UInt64) (bits: List Bool) (k: UInt64 → α): α :=
   | [] =>
     k w
 
-#eval @List.cons Nat 0 (@.nil Nat)
+/- def silly3: dead-end, deleted, see git history -/
 
-example : of_bits 0 [ true, false, true ] (fun r => r = 5) := by
-  simp [of_bits]
-  bv_decide
-
-theorem eq_cons (w: UInt64) (b: Bool) bits (k: UInt64 → Prop) (h:
-  let b: UInt64 := if b then 1 else 0
-  of_bits (w <<< 1 + b) bits k):
-  of_bits w (b :: bits) k
-:= by
-  simp [of_bits]
-  simp_all
-
-theorem eq_nil (w: UInt64) (k: UInt64 → Prop) (h:
-  k w):
-  of_bits w [] k
-:= by
-  simp [of_bits]
-  simp_all
-
-def silly3 (mvarId: MVarId): SymM MVarId := do
-  let ruleCons ← mkBackwardRuleFromDecl ``eq_cons
-  let ruleNil ← mkBackwardRuleFromDecl ``eq_nil
-  let simpMethods ← mkMethods #[``ite_cond_eq_true, ``ite_cond_eq_false]
-  let rec go (mvarId: MVarId): SymM MVarId := do
-    let goal ← mvarId.getType
-    -- match goal with `of_bits α w (b :: bits) post`
-    let_expr of_bits α w bits post := goal | throwError "not of_bits"
-    let_expr List.cons _ b bits := bits | return mvarId -- done; user can finish with bv_decide
-    -- one step of unfolding -- cons case
-    -- TODO: minimize and file a bug report
-    let .goals [ mvarId ] ← ruleCons.apply mvarId | throwError "eq_cons did not apply"
-    -- ERROR here: the have (in the signature of eq_cons) has already been
-    -- substituted -- this can be seen by adding `pure mvarId` right here.
-    -- SHOULD BE: let-binder in the goal: do some simp-ing
-    let mvarId ← match ← Sym.simpGoal mvarId simpMethods with
-      | .noProgress => pure mvarId
-      | .goal mvarId => pure mvarId
-      | .closed => throwError "unexpected"
-    let .goal _ mvarId ← Sym.intros mvarId | throwError "nothing to intros"
-    pure mvarId
-    /- let rflRule ← mkBackwardRuleFromDecl ``Eq.refl -/
-    /- let .goals [] ← rflRule.apply mvarId | throwError "rfl did not apply" -/
-    /- let finalSimpMethods ← mkMethods #[] -/
-    /- let .closed ← Sym.simpGoal mvarId finalSimpMethods {} | throwError "simpGoal did not close" -/
-    /- return -/
-  go mvarId
-
-elab "silly3 " : tactic => do
-  let mvarId ← getMainGoal
-  let mvarId ← SymM.run do silly3 mvarId
-  replaceMainGoal [ mvarId ]
-      
-example : of_bits 0 [ true, false, true ] (fun r => r = 5) := by
-  silly3
 
 /- Experiments using SymM: 4/N
 
@@ -415,8 +361,15 @@ def reduceApp (e: Expr) : SymM Expr :=
   -- TODO: why is sharing not preserved here?
   shareCommonInc e
 
+/- simp using the provided methods *and* ground := True -/
+def mkSimpMethods (declNames : Array Name) : MetaM Sym.Simp.Methods := do
+  let rewrite ← Sym.mkSimprocFor declNames Sym.Simp.dischargeSimpSelf
+  return {
+    post := Sym.Simp.evalGround.andThen rewrite
+  }
+
 partial def silly4 (mvarId: MVarId): SymM MVarId := do
-  let simpMethods ← mkMethods #[``ite_cond_eq_true, ``ite_cond_eq_false]
+  let simpMethods ← mkSimpMethods #[``ite_cond_eq_true, ``ite_cond_eq_false]
   let goal_is_of_bits (goal: Expr): SymM Bool := do
     let_expr of_bits _ _ bits _ := goal | throwError "ERROR: goal is not of the form of_bits"
     let_expr List.cons _ _ _ := bits | return false
@@ -465,3 +418,134 @@ elab "silly4 " : tactic => do
 example : of_bits 0 [ true, false, true ] (fun r => r = 5) := by
   silly4
   bv_decide
+
+/- Experiments using SymM: 5/N -/
+
+def myUnfold (declName: Name) (lvls: List Level): SymM Expr := do
+  let some cinfo := (← getEnv).find? declName | throwError "oh noes"
+  -- check smart unfolding only after `getUnfoldableConstNoEx?` because smart unfoldings have a
+  -- significant chance of not existing and `Environment.contains` misses are more costly
+  if smartUnfolding.get (← getOptions) && (← getEnv).contains (mkSmartUnfoldingNameFor declName) then
+    throwError "oh noes 2"
+  else
+    unless cinfo.hasValue do
+      if cinfo.isAxiom then
+        recordUnfoldAxiom cinfo.name
+      throwError "oh noes 3"
+    if cinfo.levelParams.length != lvls.length then
+      throwError "oh noes 4"
+    else
+      let e := instantiateValueLevelParams cinfo lvls
+      recordUnfold declName
+      e
+
+def reallyUnfoldAndApp (hd: Expr) (rargs: Array Expr) : SymM Expr :=
+  withReducible <| do
+  let some hd ← withOptions (smartUnfolding.set · false) (Meta.unfoldDefinition? hd true) | throwError s!"can't unfold definition: {hd}"
+  /- let hd ← myUnfold declName us -/
+  let e := hd.betaRev rargs
+  shareCommonInc e
+
+def reallyReduceApp (e: Expr) : SymM Expr :=
+  withReducible <| do
+  let hd := e.getAppFn
+  let rargs := e.getAppRevArgs
+  reallyUnfoldAndApp hd rargs
+
+partial def reduceOne (e : Expr) : SymM Expr :=
+  withReducible <| go none e.getAppFn e.getAppRevArgs
+  where
+    go lastReduction f rargs := do
+      match f with
+      | .mdata _ f => go lastReduction f rargs
+      | .app f a => go lastReduction f (rargs.push a)
+      | .lam .. =>
+        if rargs.size = 0 then throwError ".lam"
+        let e' := f.betaRev rargs
+        let e' ← Sym.shareCommonInc e'
+        pure e'
+      | .const name lvls =>
+        -- projections
+        if ← isProjectionFn name then
+          let e' ← reallyUnfoldAndApp f rargs
+          let e' ← Sym.shareCommonInc e'
+          go e' e'.getAppFn e'.getAppRevArgs  -- intentional lastReduction! see docstring
+        -- iota reduction: match/recursor with concrete discriminant
+        else if let some e' ← liftMetaM <| reduceRecMatcher? (mkAppRev f rargs) then
+          let e' ← Sym.shareCommonInc e'
+          go (some e') e'.getAppFn e'.getAppRevArgs
+        else
+          let e' ← reallyUnfoldAndApp f rargs
+          let e' ← Sym.shareCommonInc e'
+          go e' e'.getAppFn e'.getAppRevArgs  -- intentional lastReduction! see docstring
+      | .proj .. => match ← reduceProj? f with
+        | some f' =>
+          let e' := mkAppRev f' rargs
+          let e' ← Sym.shareCommonInc e'
+          go (some e') e'.getAppFn e'.getAppRevArgs
+        | none    => throwError ".proj"
+      | _ => throwError "_"
+
+def matchApp (f: Name) (e: Expr): Option (Expr × Array Expr) :=
+  let hd := e.getAppFn
+  let rargs := e.getAppRevArgs
+  if hd.isConstOf f then
+    some (hd, rargs)
+  else
+    none
+
+partial def reduceKnownHeads (e: Expr): SymM Expr := do
+  let c: StateRefT Bool SymM Expr := do
+    traverseChildren (fun e => do
+      if e.isApp && [ ``Directives.interp, ``List.brecOn, ``List.brecOn.go, ``List.rec ].any e.getAppFn.isConstOf then
+        set true
+        let e ← reduceOne e
+        reduceKnownHeads e
+      else
+        pure e
+    ) e
+  let (e, rewrote) ← StateRefT'.run c false
+  if rewrote then
+    reduceKnownHeads e
+  else
+    pure e
+
+-- kstep: kraken stepping
+partial def kstep (mvarId: MVarId): SymM MVarId := do
+  let simpMethods ← mkSimpMethods #[``ite_cond_eq_true, ``ite_cond_eq_false]
+
+  let goal ← mvarId.getType
+  -- match goal with: Effects.all s p -- not using let_expr to get the levels to
+  -- rebuild the term.
+  let .some (hd, #[ p, s ]) := matchApp ``Effects.all goal | throwError "goal not of the form Effects.all"
+  let s ← reduceKnownHeads s
+  /- let some s ← reduceHead? s | throwError "no reduce head" -/
+  let goal := mkApp2 hd s p
+  let mvarId ← mvarId.replaceTargetDefEq goal
+  
+  pure mvarId
+
+elab "kstep " : tactic => do
+  let mvarId ← getMainGoal
+  let mvarId ← SymM.run do kstep mvarId
+  replaceMainGoal [ mvarId ]
+
+/- set_option pp.all true -/
+
+example [layout : Layout] s : step1 (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+  -- Refine the state to make registers apparent -- note that `cases` consumes
+  -- the hypothesis, and substitutes it, so we make a copy of it to have a
+  -- refined state in the hypotheses, not the goal.
+  let ss := s
+  change (step1 _ (ss, _) _)
+  cases s with | mk regs flags mem =>
+  cases regs with | mk rax =>
+  -- Rewrite the program to make layout, addresses, etc. apparent
+  delta p4
+  dsimp only [step1,Executable.straightline]
+  rw [Executable.directivesFromStart]
+  simp [List.mapIdx,List.mapIdx.go]
+  -- We now have a goal of the form Directives.interp [ ..., ... ]. Time to do
+  -- some stepping.
+  kstep
+  sorry
