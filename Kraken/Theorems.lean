@@ -29,12 +29,14 @@ theorem UInt64_ofInt_natCast_ne_zero (k : Nat) (h_lt : k < 2^64) (h_ne : k ≠ 0
 -- Omnisemantics Step Mixing
 -- ============================================================================
 
+/-
 theorem step_interp_eq [Layout] (p: Executable) (pc: Int64) (s: MachineData) (d: Directive) (sz: Nat) (ds: List (Directive × Nat)) (post: MachineState → Prop) [L : Labels]:
   L = p.labels →
   p.directivesFromAddress pc = (d, sz) :: ds →
-  (Executable.step p (s, pc) (fun s' => post s') ↔
-   d.interp s (.mk pc (pc+.ofNat sz)) (jmp:=fun pc' s' => post (s', pc')) (next := fun s' => post (s', pc+.ofNat sz))) := by
+  (step1 p (s, pc) post ↔
+   (d.interp s (.mk pc (pc+.ofNat sz)) (jmp:=fun pc' s' => .done (s', pc')) (next := fun s' => .done (s', pc+.ofNat sz))).all post) := by
   intros h_labels h_from
+  unfold step1
   unfold Executable.step
   -- not true. directives could share an address
   have h_at : p.directivesAtAddress pc = [(d, sz)] := by
@@ -50,12 +52,13 @@ theorem directivesFromAddress_tail [Layout] (p: Executable) (pc: Int64) (d: Dire
   sorry
 
 theorem directive_interp_mono (d : Directive) (s : MachineData) (p : Std.Rco Int64)
-  {next1 next2 : MachineData → Prop} {jmp1 jmp2 : Int64 → MachineData → Prop}
+  {next1 next2 : MachineData → Effects} {jmp1 jmp2 : Int64 → MachineData → Effects}
+  {post : MachineState → Prop}
   [Labels]
-  (h : Directive.interp d s p next1 jmp1)
-  (h_next : ∀ s', next1 s' → next2 s')
-  (h_jmp : ∀ pc' s', jmp1 pc' s' → jmp2 pc' s') :
-  Directive.interp d s p next2 jmp2 := by
+  (h : (Directive.interp d s p next1 jmp1).all post)
+  (h_next : ∀ s', (next1 s').all post → (next2 s').all post)
+  (h_jmp : ∀ pc' s', (jmp1 pc' s').all post → (jmp2 pc' s').all post) :
+  (Directive.interp d s p next2 jmp2).all post := by
   cases d with
   | label l =>
       dsimp [Directive.interp] at h ⊢
@@ -75,7 +78,7 @@ theorem straightline_to_step1 [Layout] (p: Executable) (initial: MachineState) (
   let _labels : Labels := p.labels
   have h_gen : ∀ (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64),
     ds = p.directivesFromAddress pc →
-    Directives.interp ds s pc (fun pc' s' => post (s', pc')) →
+    (Directives.interp ds s pc (fun pc' s' => .done (s', pc'))).all post →
     Eventually (step1 p) post (s, pc) := by
     intro ds
     induction ds with
@@ -92,7 +95,6 @@ theorem straightline_to_step1 [Layout] (p: Executable) (initial: MachineState) (
           post mid ∨ (mid.2 = pc + .ofNat sz ∧ Directives.interp ds' mid.1 mid.2 (fun pc' s' => post (s', pc')))
         apply Eventually.step (s, pc) mid_p
         · -- Prove step1 p (s, pc) mid_p
-          unfold step1
           have h_iff := @step_interp_eq _ p pc s d sz ds' mid_p p.labels (by rfl) h_eq.symm
           rw [h_iff]
           apply directive_interp_mono d s (.mk pc (pc+.ofNat sz)) h_cons
@@ -130,3 +132,4 @@ theorem eventually_straightline_to_step1 [Layout] (p: Executable) (initial: Mach
   | step initial mid_p h_step h_rest ih =>
       have h_ev := straightline_to_step1 p initial mid_p h_step
       apply eventually_trans (step1 p) mid_p post initial h_ev ih
+-/

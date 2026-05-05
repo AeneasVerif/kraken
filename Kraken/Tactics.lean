@@ -25,6 +25,9 @@ def Effects.all (s : Effects) (post : MachineState → Prop) : Prop :=
   | .require_write_access _ _ cont => (cont ()).all post
   | .require_exec_access _ cont => (cont ()).all post
 
+class Undefined (T : Type) (P : Type) where
+  undefined : (T → P) → P
+
 instance (T: Type): Undefined T Prop where
   undefined ret := ∀ (v: T), ret v
 
@@ -105,10 +108,10 @@ theorem reg_dec_loop {State : Type} (trans : State → (State → Prop) → Prop
 -- ============================================================================
 
 def step1 [Layout] (p: Executable) (s: MachineState) (post: Post) :=
-  Executable.step p s post
+  (Executable.step p s .done).all post
 
 def straightline_step [Layout] (p: Executable) (s: MachineState) (post: Post) :=
-  Executable.straightline p s post
+  (Executable.straightline p s .done).all post
 
 -- ============================================================================
 -- Tactic Macros
