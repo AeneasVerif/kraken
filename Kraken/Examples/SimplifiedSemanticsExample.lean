@@ -25,7 +25,7 @@ example (s : MachineData) :
   simp -- At this point we have simplified the match term from Simplified.step
   dsimp only [Directive.interp, Effects.all]
 
-  -- first mov
+  -- first step: mov
   apply step_cps
   dsimp only [simplified_step1, Kraken.Simplified.step]
   simp -- following line does symbolic execution
@@ -38,5 +38,22 @@ example (s : MachineData) :
   simp
   dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
   dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,CondCode.interp,StatusFlags.from_result, Effects.all]
+  -- unclear if these are needed --> To simplify state
+  -- unfold register lookup
+  dsimp only [Reg64s.get, Reg64s.get64, Reg.base, Reg.offset]
+  -- unfold bitvector arith
+  dsimp only [BitVec.drop, BitVec.take, Width.bits]
+  intro af
 
-  sorry
+  -- third step: jnz
+  apply step_cps
+  dsimp only [simplified_step1, Kraken.Simplified.step]
+  simp
+
+  -- fifth step: mov
+  apply step_cps
+  dsimp only [simplified_step1, Kraken.Simplified.step]
+  simp
+  apply Eventually.done
+  dsimp [MachineData.setReg, Reg64s.set, Reg64s.set64, ConstExpr.interp]
+  simp (ground := true)
