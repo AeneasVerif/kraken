@@ -452,7 +452,7 @@ def reallyReduceApp (e: Expr) : SymM Expr :=
   let rargs := e.getAppRevArgs
   reallyUnfoldAndApp hd rargs
 
-partial def reduceOne (e : Expr) : SymM Expr :=
+partial def reduceOne (e : Expr) (stop_: Name → Bool) : SymM Expr :=
   withReducible <| go none e.getAppFn e.getAppRevArgs
   where
     go lastReduction f rargs := do
@@ -468,14 +468,16 @@ partial def reduceOne (e : Expr) : SymM Expr :=
           let e' := f.betaRev rargs
           let e' ← Sym.shareCommonInc e'
           go (some e') e'.getAppFn e'.getAppRevArgs
-      | .const name lvls =>
-        -- projections
-        if ← isProjectionFn name then
+      | .const name _lvls =>
+        if stop_ name && lastReduction.isSome then
+          fallback
+        else if ← isProjectionFn name then
+          -- projections
           let some e' ← Meta.unfoldDefinition? (mkAppRev f rargs) true | fallback
           let e' ← Sym.shareCommonInc e'
           go (some e') e'.getAppFn e'.getAppRevArgs
-        -- iota reduction: match/recursor with concrete discriminant
         else if let some e' ← liftMetaM <| reduceRecMatcher? (mkAppRev f rargs) then
+          -- iota reduction: match/recursor with concrete discriminant
           let e' ← Sym.shareCommonInc e'
           go (some e') e'.getAppFn e'.getAppRevArgs
         else if let some e' ← Meta.unfoldDefinition? (mkAppRev f rargs) true then
@@ -500,7 +502,15 @@ def matchApp (f: Name) (e: Expr): Option (Expr × Array Expr) :=
   else
     none
 
-partial def reduceKnownHeads (targets: List Name) (e: Expr) (keepGoing := true): SymM Expr := do
+-- Traverses a term looking for an application whose head is in the list of
+-- target names, or a beta-redex, i.e. `app (lam ...) ...`; once found,
+-- repeatedly delta-beta-reduces this application, potentially discovering more
+-- delta-beta-redexes, and reducing those too, until either there is nothing
+-- left to reduce, or we hit an application whose head is `name` and for which
+-- `stop_ name`.
+--
+-- The returned boolean indicates whether such an application node was found.
+partial def reduceKnownHeads (targets: List Name) (e: Expr) (stop_ := fun (_: Name) => true): SymM (Expr × Bool) := do
   -- Traverse a term, remembering if we found anything to unfold anywhere
   let rec visit: Expr → StateRefT Bool SymM Expr := fun e => do
     -- we want to reduce:
@@ -511,14 +521,10 @@ partial def reduceKnownHeads (targets: List Name) (e: Expr) (keepGoing := true):
       e.isApp && e.getAppFn'.isLambda
     if worthReducing then
       set true
-      reduceOne e
+      reduceOne e stop_
     else
       traverseChildren visit e
-  let (e, rewrote) ← StateRefT'.run (visit e) false
-  if rewrote && keepGoing then
-    reduceKnownHeads targets e
-  else
-    pure e
+  StateRefT'.run (visit e) false
 
 -- kstep: kraken stepping
 partial def kstep (mvarId: MVarId): SymM MVarId := do
@@ -527,8 +533,29 @@ partial def kstep (mvarId: MVarId): SymM MVarId := do
   let goal ← mvarId.getType
   -- Reduces all beta-redexes, starting at Directives.interp -- reduces, in
   -- turn, Directive.interp, and possibly Instr.interp (or not, if it's a label)
-  let goal ← reduceKnownHeads [ ``Directives.interp ] goal (keepGoing := false)
-  let goal ← reduceKnownHeads [ ``Effects.all ] goal (keepGoing := false)
+  let rec go (goal: Expr): SymM Expr := do
+    let (goal, reduced) ← reduceKnownHeads [ ``Directives.interp ] goal (fun name => name = ``Directives.interp)
+    if !reduced then
+      throwError "Expected the goal to contain Directives.interp"
+    let goal ←
+      match matchApp ``Effects.all goal with
+      | .some (_, #[ _post, e_eff ]) =>
+        if false && e_eff.getAppFn.isConst then
+          let (goal, reduced) ← reduceKnownHeads [ ``Effects.all ] goal (fun name => name = ``Directives.interp)
+          if !reduced then
+            throwError "Expected the goal to contain Directives.interp"
+          pure goal
+        else
+          pure goal
+      | _ =>
+        pure goal
+    let (goal, _) ← reduceKnownHeads [] goal (fun name => name = ``Directives.interp)
+    pure goal
+
+  let goal ← go goal
+  let goal ← go goal
+
+  -- let (goal, _) ← reduceKnownHeads [ ``Effects.all ] goal (fun _ => false)
   /- let goal ← reduceKnownHeads [] goal (keepGoing := false) -/
   /- let goal ← reduceKnownHeads [ ``Effects.all ] goal (keepGoing := false) -/
   /- let goal ← reduceKnownHeads [] goal (keepGoing := false) -/
