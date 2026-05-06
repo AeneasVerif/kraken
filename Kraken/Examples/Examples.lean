@@ -456,35 +456,41 @@ partial def reduceOne (e : Expr) : SymM Expr :=
   withReducible <| go none e.getAppFn e.getAppRevArgs
   where
     go lastReduction f rargs := do
+      let fallback : SymM Expr := match lastReduction with
+        | some e' => pure e'
+        | none => throwError s!"reduceOne failed at: {mkAppRev f rargs}"
       match f with
       | .mdata _ f => go lastReduction f rargs
       | .app f a => go lastReduction f (rargs.push a)
       | .lam .. =>
-        if rargs.size = 0 then throwError ".lam"
-        let e' := f.betaRev rargs
-        let e' ← Sym.shareCommonInc e'
-        pure e'
+        if rargs.size = 0 then fallback
+        else
+          let e' := f.betaRev rargs
+          let e' ← Sym.shareCommonInc e'
+          go (some e') e'.getAppFn e'.getAppRevArgs
       | .const name lvls =>
         -- projections
         if ← isProjectionFn name then
-          let e' ← reallyUnfoldAndApp f rargs
+          let some e' ← Meta.unfoldDefinition? (mkAppRev f rargs) true | fallback
           let e' ← Sym.shareCommonInc e'
-          go lastReduction e'.getAppFn e'.getAppRevArgs  -- intentional lastReduction! see docstring
+          go (some e') e'.getAppFn e'.getAppRevArgs
         -- iota reduction: match/recursor with concrete discriminant
         else if let some e' ← liftMetaM <| reduceRecMatcher? (mkAppRev f rargs) then
           let e' ← Sym.shareCommonInc e'
           go (some e') e'.getAppFn e'.getAppRevArgs
-        else
-          let e' ← reallyUnfoldAndApp f rargs
+        else if let some e' ← Meta.unfoldDefinition? (mkAppRev f rargs) true then
           let e' ← Sym.shareCommonInc e'
-          go lastReduction e'.getAppFn e'.getAppRevArgs  -- intentional lastReduction! see docstring
+          go (some e') e'.getAppFn e'.getAppRevArgs
+        else
+          fallback
       | .proj .. => match ← reduceProj? f with
         | some f' =>
           let e' := mkAppRev f' rargs
           let e' ← Sym.shareCommonInc e'
           go (some e') e'.getAppFn e'.getAppRevArgs
-        | none    => throwError ".proj"
-      | _ => throwError "_"
+        | none    => fallback
+      | _ => fallback
+
 
 def matchApp (f: Name) (e: Expr): Option (Expr × Array Expr) :=
   let hd := e.getAppFn
@@ -494,15 +500,13 @@ def matchApp (f: Name) (e: Expr): Option (Expr × Array Expr) :=
   else
     none
 
-partial def reduceKnownHeads (e: Expr) (keepGoing := true): SymM Expr := do
+partial def reduceKnownHeads (targets: List Name) (e: Expr) (keepGoing := true): SymM Expr := do
   -- Traverse a term, remembering if we found anything to unfold anywhere
   let rec visit: Expr → StateRefT Bool SymM Expr := fun e => do
     -- we want to reduce:
     let worthReducing :=
       -- applications of known functions
-      e.isApp && [
-        ``Directives.interp, ``List.brecOn, ``List.brecOn.go, ``List.rec,
-      ].any e.getAppFn'.isConstOf ||
+      e.isApp && targets.any e.getAppFn'.isConstOf ||
       -- beta-redexes
       e.isApp && e.getAppFn'.isLambda
     if worthReducing then
@@ -512,7 +516,7 @@ partial def reduceKnownHeads (e: Expr) (keepGoing := true): SymM Expr := do
       traverseChildren visit e
   let (e, rewrote) ← StateRefT'.run (visit e) false
   if rewrote && keepGoing then
-    reduceKnownHeads e
+    reduceKnownHeads targets e
   else
     pure e
 
@@ -521,11 +525,13 @@ partial def kstep (mvarId: MVarId): SymM MVarId := do
   let simpMethods ← mkSimpMethods #[``ite_cond_eq_true, ``ite_cond_eq_false]
 
   let goal ← mvarId.getType
-  -- match goal with: Effects.all s p -- not using let_expr to get the levels to
-  -- rebuild the term.
-  let .some (hd, #[ p, s ]) := matchApp ``Effects.all goal | throwError "goal not of the form Effects.all"
-  let s ← reduceKnownHeads s (keepGoing := false)
-  let goal := mkApp2 hd s p
+  -- Reduces all beta-redexes, starting at Directives.interp -- reduces, in
+  -- turn, Directive.interp, and possibly Instr.interp (or not, if it's a label)
+  let goal ← reduceKnownHeads [ ``Directives.interp ] goal (keepGoing := false)
+  let goal ← reduceKnownHeads [ ``Effects.all ] goal (keepGoing := false)
+  /- let goal ← reduceKnownHeads [] goal (keepGoing := false) -/
+  /- let goal ← reduceKnownHeads [ ``Effects.all ] goal (keepGoing := false) -/
+  /- let goal ← reduceKnownHeads [] goal (keepGoing := false) -/
   let mvarId ← mvarId.replaceTargetDefEq goal
   
   pure mvarId
@@ -555,6 +561,9 @@ example [layout : Layout] s : step1 (layout p4) (s, layout.start) (fun s => s.1.
   -- TODO: make kstep at least do this:
   -- dsimp (zeta:=false)(iota:=true) only [Directives.interp]
   kstep
-  kstep
-  kstep
+  /- dsimp only [Effects.all] -/
+  /- kstep -/
+  /- kstep -/
+  lift_lets
+  intros
   sorry
