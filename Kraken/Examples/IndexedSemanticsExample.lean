@@ -39,7 +39,6 @@ example (s : MachineData) :
   simp
   dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
   dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,CondCode.interp,StatusFlags.from_result, Effects.all]
-  -- unclear if these are needed --> To simplify state
   -- unfold register lookup
   dsimp only [Reg64s.get, Reg64s.get64, Reg.base, Reg.offset]
   -- unfold bitvector arith
