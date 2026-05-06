@@ -25,12 +25,6 @@ def Effects.all (s : Effects) (post : MachineState → Prop) : Prop :=
   | .require_write_access _ _ cont => (cont ()).all post
   | .require_exec_access _ cont => (cont ()).all post
 
-class Undefined (T : Type) (P : Type) where
-  undefined : (T → P) → P
-
-instance (T: Type): Undefined T Prop where
-  undefined ret := ∀ (v: T), ret v
-
 -- NOTE: 'initial' cannot be moved to the left of the colon as a parameter
 -- because it varies in the recursive call in the 'step' constructor (it becomes 'mid').
 inductive Eventually {State : Type} (trans : State → (State → Prop) → Prop) (post : State → Prop) : State → Prop
