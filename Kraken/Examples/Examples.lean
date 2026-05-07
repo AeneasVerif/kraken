@@ -580,34 +580,39 @@ partial def kstep (mvarId: MVarId): SymM MVarId := do
   let simpMethods ← mkSimpMethods #[``ite_cond_eq_true, ``ite_cond_eq_false]
 
   let goal ← mvarId.getType
-  -- Reduces all beta-redexes, starting at Directives.interp -- reduces, in
-  -- turn, Directive.interp, and possibly Instr.interp (or not, if it's a label)
+  -- `go` takes a goal of the form (Directives.interp ...).all and reduces the
+  -- `Directives.interp` application until the next occurrence of `Directives.interp`.
   let rec go (goal: Expr): SymM Expr := do
-    let (goal, reduced) ← reduceKnownHeads [ ``Directives.interp ] goal (fun name => name = ``Directives.interp)
-    if !reduced then
-      throwError "Expected the goal to contain Directives.interp"
+    -- Reduce call to Directives.interp
+    let (goal, matched) ← reduceKnownHeads [ ``Directives.interp ] goal (fun name => name = ``Directives.interp)
+    if !matched then
+      return goal
+
+    -- This may leave an effect -- reduce the handler, if any.
     let goal ←
       match matchApp ``Effects.all goal with
       | .some (_, #[ _post, e_eff ]) =>
-        if false && e_eff.getAppFn.isConst then
-          let (goal, reduced) ← reduceKnownHeads [ ``Effects.all ] goal (fun name => name = ``Directives.interp)
-          if !reduced then
-            throwError "Expected the goal to contain Directives.interp"
+        -- We trigger reduction of Effects.all if its first argument is the
+        -- application of a constructor (which by typing ought to be an effect
+        -- constructor).
+        if ← Meta.isConstructorApp e_eff then
+          let (goal, true) ← reduceKnownHeads [ ``Effects.all ] goal (fun name => name = ``Directives.interp) |
+            throwError "could not reduce effect handling in goal"
           pure goal
         else
           pure goal
       | _ =>
         pure goal
+    -- There may be beta-redexes left still -- eliminate those if any.
     let (goal, _) ← reduceKnownHeads [] goal (fun name => name = ``Directives.interp)
-    pure goal
+    -- This is the equivalent of lift_lets, for which we have to re-establish
+    -- sharing.
+    let goal ← Meta.liftLets goal
+    let goal ← shareCommonInc goal
+    go goal
 
   let goal ← go goal
-  let goal ← go goal
 
-  -- let (goal, _) ← reduceKnownHeads [ ``Effects.all ] goal (fun _ => false)
-  /- let goal ← reduceKnownHeads [] goal (keepGoing := false) -/
-  /- let goal ← reduceKnownHeads [ ``Effects.all ] goal (keepGoing := false) -/
-  /- let goal ← reduceKnownHeads [] goal (keepGoing := false) -/
   let mvarId ← mvarId.replaceTargetDefEq goal
   
   pure mvarId
@@ -619,13 +624,23 @@ elab "kstep " : tactic => do
 
 /- set_option pp.all true -/
 
-example [layout : Layout] s : step1 (layout p4) (s, layout.start) (fun s => True) := by
+def p5 := eval% parse("start: mov $2, %rax
+dec %rax
+start2:
+dec %rax")
+
+set_option maxHeartbeats 1000000
+
+example [layout : Layout] s : step1 (layout bigp) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+  -- Refine the state to make registers apparent -- note that `cases` consumes
+  -- the hypothesis, and substitutes it, so we make a copy of it to have a
+  -- refined state in the hypotheses, not the goal.
   let ss := s
   change (step1 _ (ss, _) _)
   cases s with | mk regs flags mem =>
   cases regs with | mk rax =>
   -- Rewrite the program to make layout, addresses, etc. apparent
-  delta p4
+  delta bigp
   dsimp only [step1,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
@@ -634,9 +649,13 @@ example [layout : Layout] s : step1 (layout p4) (s, layout.start) (fun s => True
   -- TODO: make kstep at least do this:
   -- dsimp (zeta:=false)(iota:=true) only [Directives.interp]
   kstep
+  dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [
+    Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits,
+    Reg64s.get64,Reg64s.set64,BitVec.drop,BitVec.take,ss,
+    Reg64s.rax,Operation.interp
+  ] -- reduces UInt64.toBitVec but leaves let binders behind and gets stuck confused on it
   /- dsimp only [Effects.all] -/
   /- kstep -/
   /- kstep -/
-  lift_lets
-  intros
+  /- intros -/
   sorry
