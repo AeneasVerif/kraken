@@ -411,14 +411,14 @@ def reduceApp (e: Expr) : SymM Expr :=
   shareCommonInc e
 
 /- simp using the provided methods *and* ground := True -/
-def mkSimpMethods (declNames : Array Name) : MetaM Sym.Simp.Methods := do
+def mkSimpMethods4 (declNames : Array Name) : MetaM Sym.Simp.Methods := do
   let rewrite ← Sym.mkSimprocFor declNames Sym.Simp.dischargeSimpSelf
   return {
     post := Sym.Simp.evalGround.andThen rewrite
   }
 
 partial def silly4 (mvarId: MVarId): SymM MVarId := do
-  let simpMethods ← mkSimpMethods #[``ite_cond_eq_true, ``ite_cond_eq_false]
+  let simpMethods ← mkSimpMethods4 #[``ite_cond_eq_true, ``ite_cond_eq_false]
   let goal_is_of_bits (goal: Expr): SymM Bool := do
     let_expr of_bits _ _ bits _ := goal | throwError "ERROR: goal is not of the form of_bits"
     let_expr List.cons _ _ _ := bits | return false
@@ -574,6 +574,36 @@ partial def reduceKnownHeads (targets: List Name) (e: Expr) (stop_ := fun (_: Na
       traverseChildren visit e
   StateRefT'.run (visit e) false
 
+def projSimproc : Sym.Simp.Simproc := fun e => do
+  -- The problem is that the right subterm is never visited; perhaps we need to
+  -- take inspiration from the reduction of projectors in CBV?
+  --    https://leanprover.zulipchat.com/#narrow/channel/594054-SymM-users/topic/how.20can.20I.20tell.20Sym.2EsimpGoal.20to.20reduce.20projectors/near/593610862 
+  -- but if the correct subterms are not even visited, I'm not sure what to do
+  -- about this.
+  -- Uncomment for verbose output
+  -- logInfo m!"Current state: {← ppExpr e}"
+  if e.isApp then
+    let hd := e.getAppFn
+    let .some (name, _) := hd.const? | return .rfl
+    let isProj ← isProjectionFn name
+    /- logInfo m!"Current state: {isProj} {name}" -/
+    if name matches .str (.str (.str _ "Syntax") /- e.g. "Instr" -/_) /- e.g. "operation_size" -/_ && isProj then
+      let some e ← Meta.unfoldDefinition? (mkAppRev hd e.getAppRevArgs) | return .rfl
+      let e ← Sym.shareCommonInc e
+      pure (.step e (← Meta.mkEqRefl e))
+    else
+      pure .rfl
+  else
+    pure .rfl
+
+/- simp using the provided methods *and* ground := True -/
+def mkSimpMethods (declNames : Array Name) : MetaM Sym.Simp.Methods := do
+  let rewrite ← Sym.mkSimprocFor declNames Sym.Simp.dischargeSimpSelf
+  return {
+    -- Combine ground evaluation, projectors, and reduction of terms.
+    post := Sym.Simp.evalGround.andThen (projSimproc.andThen rewrite)
+  }
+
 -- kstep: kraken stepping
 partial def kstep (mvarId: MVarId): SymM MVarId := do
   let decls ← #[
@@ -626,13 +656,17 @@ partial def kstep (mvarId: MVarId): SymM MVarId := do
       | .goal mvarId => pure mvarId
       | .closed => throwError "unexpected"
 
+    -- For reasons that I don't fully understand (dependent arguments, maybe?)
+    -- my projection simplifier does *not* do what I want. One can try running
+    -- *just* the projection simplifications here, with this:
+    --
+    -- let mvarId ← match ← Sym.simpGoal mvarId { post := projSimproc } with ...
+
     -- This is the equivalent of lift_lets, for which we have to re-establish
     -- sharing.
     let goal ← mvarId.getType
     let goal ← Meta.liftLets goal
     let goal ← shareCommonInc goal
-
-    let goal ← Sym.foldProjs goal
     
 
     let mvarId ← mvarId.replaceTargetDefEq goal
@@ -655,6 +689,8 @@ start2:
 dec %rax")
 
 set_option maxHeartbeats 1000000
+/- set_option pp.rawOnError true -/
+/- set_option pp.all true -/
 
 example [layout : Layout] s : step1 (layout p5) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
@@ -669,9 +705,10 @@ example [layout : Layout] s : step1 (layout p5) (s, layout.start) (fun s => s.1.
   dsimp only [step1,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
-  -- We now have a goal of the form Directives.interp [ ..., ... ]. Time to do
-  -- some stepping.
   kstep
+  -- Simp-ing away the projectors should be done by kstep, above.
+  dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only []
+  sorry
   /- dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [ -/
   /-   Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits, -/
   /-   Reg64s.get64,Reg64s.set64,BitVec.drop,BitVec.take,ss, -/
