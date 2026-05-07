@@ -577,16 +577,29 @@ partial def reduceKnownHeads (targets: List Name) (e: Expr) (stop_ := fun (_: Na
 
 -- kstep: kraken stepping
 partial def kstep (mvarId: MVarId): SymM MVarId := do
-  let simpMethods ← mkSimpMethods #[``ite_cond_eq_true, ``ite_cond_eq_false]
+  let decls ← #[
+    ``Reg.interp, ``Reg64s.get, ``Reg.base, ``Reg.offset, ``MachineData.set,
+    ``MachineData.setReg, ``Reg64s.set, ``Width.type, ``Width.bits,
+    ``Reg64s.get64, ``Reg64s.set64, ``BitVec.drop, ``BitVec.take,
+    ``BitVec.extractLsb', ``BitVec.truncate, ``ConstExpr.interp
+  ].mapM (fun name => do
+    if let some eqns ← getEqnsFor? name then
+      pure eqns
+    else
+      pure #[name]
+  )
+  let simpMethods ← mkSimpMethods decls.flatten
 
-  let goal ← mvarId.getType
-  -- `go` takes a goal of the form (Directives.interp ...).all and reduces the
+
+  -- `step` takes a goal of the form (Directives.interp ...).all and reduces the
   -- `Directives.interp` application until the next occurrence of `Directives.interp`.
-  let rec go (goal: Expr): SymM Expr := do
+  let rec step (mvarId: MVarId): SymM MVarId := do
+    let goal ← mvarId.getType
+
     -- Reduce call to Directives.interp
     let (goal, matched) ← reduceKnownHeads [ ``Directives.interp ] goal (fun name => name = ``Directives.interp)
     if !matched then
-      return goal
+      return mvarId
 
     -- This may leave an effect -- reduce the handler, if any.
     let goal ←
@@ -605,19 +618,43 @@ partial def kstep (mvarId: MVarId): SymM MVarId := do
         pure goal
     -- There may be beta-redexes left still -- eliminate those if any.
     let (goal, _) ← reduceKnownHeads [] goal (fun name => name = ``Directives.interp)
+
+    -- At this stage, we have a bunch of helpers that we need to reduce away.
+    -- For convenience, we use a simp-set.
+    let mvarId ← mvarId.replaceTargetDefEq goal
+    let mvarId ← match ← Sym.simpGoal mvarId simpMethods with
+      | .noProgress => pure mvarId
+      | .goal mvarId => pure mvarId
+      | .closed => throwError "unexpected"
+
     -- This is the equivalent of lift_lets, for which we have to re-establish
     -- sharing.
+    let goal ← mvarId.getType
     let goal ← Meta.liftLets goal
     let goal ← shareCommonInc goal
-    go goal
 
-  let goal ← go goal
+    -- Reduce projectors -- FIXME does not seem to do anything
+    let goal ← liftMetaM <| Meta.transform goal (pre := fun e => do
+      if let .proj .. := e then
+        if let some r ← withDefault <| Meta.reduceProj? e then return .done r
+      return .continue)
+    let goal ← shareCommon (← liftMetaM <| unfoldReducible goal)
 
-  let mvarId ← mvarId.replaceTargetDefEq goal
+    let mvarId ← mvarId.replaceTargetDefEq goal
+    pure mvarId
+
+  let mvarId ← step mvarId
+  let mvarId ← step mvarId
+  let mvarId ← step mvarId
+
+  let mvarId ← match ← Sym.simpGoal mvarId simpMethods with
+    | .noProgress => pure mvarId
+    | .goal mvarId => pure mvarId
+    | .closed => throwError "unexpected"
   
   pure mvarId
 
-elab "kstep " : tactic => do
+elab "kstep" : tactic => do
   let mvarId ← getMainGoal
   let mvarId ← SymM.run do kstep mvarId
   replaceMainGoal [ mvarId ]
@@ -631,7 +668,7 @@ dec %rax")
 
 set_option maxHeartbeats 1000000
 
-example [layout : Layout] s : step1 (layout bigp) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+example [layout : Layout] s : step1 (layout p5) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
   -- refined state in the hypotheses, not the goal.
@@ -640,20 +677,20 @@ example [layout : Layout] s : step1 (layout bigp) (s, layout.start) (fun s => s.
   cases s with | mk regs flags mem =>
   cases regs with | mk rax =>
   -- Rewrite the program to make layout, addresses, etc. apparent
-  delta bigp
+  delta p5
   dsimp only [step1,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
   -- We now have a goal of the form Directives.interp [ ..., ... ]. Time to do
   -- some stepping.
-  -- TODO: make kstep at least do this:
-  -- dsimp (zeta:=false)(iota:=true) only [Directives.interp]
   kstep
   dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [
     Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits,
     Reg64s.get64,Reg64s.set64,BitVec.drop,BitVec.take,ss,
-    Reg64s.rax,Operation.interp
+    Reg64s.rax,BitVec.extractLsb',BitVec.truncate,ConstExpr.interp
   ] -- reduces UInt64.toBitVec but leaves let binders behind and gets stuck confused on it
+  /- lift_lets -/
+  /- dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [] -/
   /- dsimp only [Effects.all] -/
   /- kstep -/
   /- kstep -/
