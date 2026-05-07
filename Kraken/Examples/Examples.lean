@@ -542,7 +542,6 @@ partial def reduceOne (e : Expr) (stop_: Name → Bool) : SymM Expr :=
         | none    => fallback
       | _ => fallback
 
-
 def matchApp (f: Name) (e: Expr): Option (Expr × Array Expr) :=
   let hd := e.getAppFn
   let rargs := e.getAppRevArgs
@@ -633,24 +632,13 @@ partial def kstep (mvarId: MVarId): SymM MVarId := do
     let goal ← Meta.liftLets goal
     let goal ← shareCommonInc goal
 
-    -- Reduce projectors -- FIXME does not seem to do anything
-    let goal ← liftMetaM <| Meta.transform goal (pre := fun e => do
-      if let .proj .. := e then
-        if let some r ← withDefault <| Meta.reduceProj? e then return .done r
-      return .continue)
-    let goal ← shareCommon (← liftMetaM <| unfoldReducible goal)
+    let goal ← Sym.foldProjs goal
+    
 
     let mvarId ← mvarId.replaceTargetDefEq goal
-    pure mvarId
+    step mvarId
 
   let mvarId ← step mvarId
-  let mvarId ← step mvarId
-  let mvarId ← step mvarId
-
-  let mvarId ← match ← Sym.simpGoal mvarId simpMethods with
-    | .noProgress => pure mvarId
-    | .goal mvarId => pure mvarId
-    | .closed => throwError "unexpected"
   
   pure mvarId
 
@@ -684,15 +672,14 @@ example [layout : Layout] s : step1 (layout p5) (s, layout.start) (fun s => s.1.
   -- We now have a goal of the form Directives.interp [ ..., ... ]. Time to do
   -- some stepping.
   kstep
-  dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [
-    Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits,
-    Reg64s.get64,Reg64s.set64,BitVec.drop,BitVec.take,ss,
-    Reg64s.rax,BitVec.extractLsb',BitVec.truncate,ConstExpr.interp
-  ] -- reduces UInt64.toBitVec but leaves let binders behind and gets stuck confused on it
+  /- dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [ -/
+  /-   Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits, -/
+  /-   Reg64s.get64,Reg64s.set64,BitVec.drop,BitVec.take,ss, -/
+  /-   Reg64s.rax,BitVec.extractLsb',BitVec.truncate,ConstExpr.interp -/
+  /- ] -- reduces UInt64.toBitVec but leaves let binders behind and gets stuck confused on it -/
   /- lift_lets -/
   /- dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [] -/
   /- dsimp only [Effects.all] -/
   /- kstep -/
   /- kstep -/
   /- intros -/
-  sorry
