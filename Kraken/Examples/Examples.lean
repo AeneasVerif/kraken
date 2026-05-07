@@ -14,6 +14,55 @@ import Kraken.Eval
 
 open Kraken.Parser
 
+private def directiveKeywords : List String :=
+  ["file", "text", "data", "p2align", "balign",
+   "globl", "global", "type", "size", "section",
+   "weak", "hidden", "protected", "internal", "ident",
+   "cfi_startproc", "cfi_endproc", "cfi_def_cfa",
+   "cfi_offset", "cfi_adjust_cfa_offset", "cfi_def_cfa_offset",
+   "cfi_def_cfa_register", "cfi_restore", "cfi_remember_state",
+   "cfi_restore_state"]
+
+private def extractDirectiveName (s : String) : String :=
+  let rest := s.drop 1
+  let nameStr := (rest.takeWhile (fun c => c != ' ' && c != '\t' && c != ',' && c != ':')).toString
+  nameStr.toLower
+
+private def keepLine (line : String) : Bool :=
+  let stripped := (line.trimAsciiStart).toString
+  if stripped.isEmpty || stripped.startsWith "#" then true
+  else if !stripped.startsWith "." then true
+  else
+    let dirName := extractDirectiveName stripped
+    if stripped.any (· == ':') then true
+    else if directiveKeywords.contains dirName then false
+    else false
+
+def stripDirectives (content : String) : String :=
+  let lines := content.splitOn "\n"
+  let kept := lines.filter keepLine
+  "\n".intercalate kept
+
+
+open Lean Elab Term
+
+-- From IncludeStr.lean
+elab "include_str% " path:str : term => do
+  let pathStr := path.getString
+  let contents ← IO.FS.readFile pathStr
+  return mkStrLit contents
+
+-- From SafeParse.lean
+elab "safeParse(" path:str ")" : term => do
+  let pathStr := path.getString
+  let content ← IO.FS.readFile pathStr
+  let stripped := stripDirectives content
+  match Kraken.Parser.parse stripped with
+  | .ok p => return Lean.toExpr p
+  | .error _ => return Lean.toExpr ([] : Program)
+
+def bigp := safeParse("./ecc-secp521r1-modp.S")
+
 def p1 := parse("start: mov $1, %rax")
 
 theorem Executable.directivesFromStart [layout : Layout] prog :
@@ -570,10 +619,7 @@ elab "kstep " : tactic => do
 
 /- set_option pp.all true -/
 
-example [layout : Layout] s : step1 (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
-  -- Refine the state to make registers apparent -- note that `cases` consumes
-  -- the hypothesis, and substitutes it, so we make a copy of it to have a
-  -- refined state in the hypotheses, not the goal.
+example [layout : Layout] s : step1 (layout p4) (s, layout.start) (fun s => True) := by
   let ss := s
   change (step1 _ (ss, _) _)
   cases s with | mk regs flags mem =>
