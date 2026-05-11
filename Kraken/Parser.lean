@@ -882,4 +882,64 @@ elab "parse(" s:str ")" : term => do
   | .ok p => return Lean.toExpr p
   | .error e => throwErrorAt s e
 
+
+-- ============================================================================
+-- Assembly Preprocessing (Directive Stripping)
+-- ============================================================================
+-- These delete code that is not presently handled by Kraken. This is useful
+-- for running on code without needing to modify it to delete things we do not
+-- model. These are used in file parsing.
+
+private def directiveKeywords : List String :=
+  ["file", "text", "data", "p2align", "balign",
+   "globl", "global", "type", "size", "section",
+   "weak", "hidden", "protected", "internal", "ident",
+   "cfi_startproc", "cfi_endproc", "cfi_def_cfa",
+   "cfi_offset", "cfi_adjust_cfa_offset", "cfi_def_cfa_offset",
+   "cfi_def_cfa_register", "cfi_restore", "cfi_remember_state",
+   "cfi_restore_state"]
+
+private def extractDirectiveName (s : String) : String :=
+  let rest := s.drop 1
+  let nameStr := (rest.takeWhile (fun c => c != ' ' && c != '\t' && c != ',' && c != ':')).toString
+  nameStr.toLower
+
+private def keepLine (line : String) : Bool :=
+  let stripped := (line.trimAsciiStart).toString
+  if stripped.isEmpty || stripped.startsWith "#" then true
+  else if !stripped.startsWith "." then true
+  else
+    let dirName := extractDirectiveName stripped
+    if stripped.any (· == ':') then true
+    else if directiveKeywords.contains dirName then false
+    else false
+
+def stripDirectives (content : String) : String :=
+  let lines := content.splitOn "\n"
+  let kept := lines.filter keepLine
+  "\n".intercalate kept
+
+-- ============================================================================
+-- File Parsing Elaborators
+-- ============================================================================
+
+open Lean Elab Term
+
+/-- Read a file at elaboration time and return its contents as a string literal. -/
+elab "fileAsString(" path:str ")" : term => do
+  let pathStr := path.getString
+  let contents ← IO.FS.readFile pathStr
+  return mkStrLit contents
+
+/-- Parse an assembly file, stripping directives first.
+    Throws error on parse failure. -/
+elab "parseFile(" path:str ")" : term => do
+  let pathStr := path.getString
+  let content ← IO.FS.readFile pathStr
+  let stripped := stripDirectives content
+  match parse stripped with
+  | .ok p => return Lean.toExpr p
+  | .error e => throwErrorAt path e
+
+
 end Kraken.Parser
