@@ -35,8 +35,7 @@ info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation :=
         Operation.mov ↑(low Reg64.rax Width.W64)
-          ↑↑{ base := some (RegOrRip.ofRegW { w := Width.W64, reg := low Reg64.rsp Width.W64 }), idx := none,
-                disp := ↑8 } }] : List Directive
+          ↑↑{ base := some (RegOrRip.reg Reg64.rsp), idx := none, disp := ↑8 } }] : List Directive
 -/
 #guard_msgs in
 #check parse("movq 8(%rsp), %rax")
@@ -48,11 +47,8 @@ info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation :=
         Operation.mov ↑(low Reg64.rax Width.W64)
-          ↑↑{ base := some (RegOrRip.ofRegW { w := Width.W64, reg := low Reg64.rsi Width.W64 }),
-                idx :=
-                  some
-                    { reg := { w := Width.W64, reg := low Reg64.r15 Width.W64 },
-                      scale := Width.W64 } } }] : List Directive
+          ↑↑{ base := some (RegOrRip.reg Reg64.rsi),
+                idx := some { reg := Reg64.r15, scale := Width.W64 } } }] : List Directive
 -/
 #guard_msgs in
 #check parse("movq (%rsi, %r15, 8), %rax")
@@ -147,12 +143,22 @@ info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation :=
         Operation.lea (low Reg64.rax Width.W64)
-          { base := some (RegOrRip.ofRegW { w := Width.W64, reg := low Reg64.rbp Width.W64 }),
-            idx := some { reg := { w := Width.W64, reg := low Reg64.rcx Width.W64 }, scale := Width.W32 },
+          { base := some (RegOrRip.reg Reg64.rbp), idx := some { reg := Reg64.rcx, scale := Width.W32 },
             disp := ↑16 } }] : List Directive
 -/
 #guard_msgs in
 #check parse("leaq 16(%rbp, %rcx, 4), %rax")
+
+/--
+info: [Directive.instr
+    { address_size := Width.W32, operation_size := Width.W64,
+      operation :=
+        Operation.lea (low Reg64.rax Width.W64)
+          { base := some (RegOrRip.reg Reg64.rbp), idx := some { reg := Reg64.rcx, scale := Width.W32 },
+            disp := ↑16 } }] : List Directive
+-/
+#guard_msgs in
+#check parse("leaq 16(%ebp, %ecx, 4), %rax")
 
 section error_reporting
 
