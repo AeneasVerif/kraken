@@ -1,0 +1,13 @@
+movl $0x80000000, %eax
+leaq (%eax), %rbx
+leaq (%eax,%eax), %rbx
+leaq (%eax,%eax,1), %rbx
+leaq (%eax,%eax,2), %rcx
+leaq (%eax,%eax,4), %rdx
+leaq (%eax,%eax,8), %rsi
+leaq (%rax), %r8
+leaq (%rax,%rax), %r9
+leaq (%rax,%rax,1), %r10
+leaq (%rax,%rax,2), %r11
+leaq (%rax,%rax,4), %r12
+leaq (%rax,%rax,8), %r13
