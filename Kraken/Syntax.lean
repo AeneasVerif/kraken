@@ -48,10 +48,10 @@ structure RegW where (w : Width) (reg : Reg w)
 -- For address expressions, the width of the register is determined only by the
 -- instruction-wide address prefix. Concretely:
 -- * movb $2 (%eax) denotes moving a single byte (operand width) into the memory
---   location at the 32-bit address stored in %rax (address width) -- note that
+--   location at the 32-bit address stored in %eax (address width) -- note that
 --   there is inference here!
 -- * addr32 movb $2 (%rax) means the exact same thing, so the `addr32` prefix
---   acts as an instruction-wide override
+--   acts as an instruction-wide override (at least for Clang; GCC rejects this)
 --
 -- Note that by doing so, we faithfully model two key things
 -- * high byte registers cannot appear within memory operands:
