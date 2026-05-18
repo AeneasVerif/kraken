@@ -12,9 +12,9 @@ import Kraken.Semantics
 
 -- PROOF INFRASTRUCTURE
 
-abbrev Post := MachineState → Prop
+abbrev Post {State : Type} := State → Prop
 
-def Effects.all (s : Effects) (post : MachineState → Prop) : Prop :=
+def Effects.all (s : Effects) (post : @Post MachineState) : Prop :=
   match s with
   | .done a => post a
   | .unimplemented _ => False
@@ -27,12 +27,12 @@ def Effects.all (s : Effects) (post : MachineState → Prop) : Prop :=
 
 -- NOTE: 'initial' cannot be moved to the left of the colon as a parameter
 -- because it varies in the recursive call in the 'step' constructor (it becomes 'mid').
-inductive Eventually {State : Type} (trans : State → (State → Prop) → Prop) (post : State → Prop) : State → Prop
+inductive Eventually {State : Type} (trans : State → Post → Prop) (post : Post) : State → Prop
   | done (initial: State):
       post initial →
       Eventually trans post initial
   | step (initial: State):
-      (mid_p: State → Prop) →
+      (mid_p: Post) →
       trans initial mid_p →
       (forall (mid: State), mid_p mid → Eventually trans post mid) →
       Eventually trans post initial
@@ -41,7 +41,7 @@ inductive Eventually {State : Type} (trans : State → (State → Prop) → Prop
 -- Omnisemantics Proof Rules
 -- ============================================================================
 
-theorem step_cps {State : Type} (trans : State → (State → Prop) → Prop) (post : State → Prop) (initial : State) :
+theorem step_cps {State : Type} (trans : State → Post → Prop) (post : Post) (initial : State) :
   trans initial (fun mid => Eventually trans post mid) → Eventually trans post initial :=
   by
     intro
@@ -49,7 +49,7 @@ theorem step_cps {State : Type} (trans : State → (State → Prop) → Prop) (p
     <;> try assumption
     grind
 
-theorem eventually_trans {State : Type} (trans : State → (State → Prop) → Prop) (p q : State → Prop) (initial : State)
+theorem eventually_trans {State : Type} (trans : State → Post → Prop) (p q : Post) (initial : State)
   (e : Eventually trans p initial)
   (h : ∀ s, p s → Eventually trans q s) :
     Eventually trans q initial
@@ -61,7 +61,7 @@ theorem eventually_trans {State : Type} (trans : State → (State → Prop) → 
         apply Eventually.step
         <;> assumption
 
-theorem eventually_weaken {State : Type} (trans : State → (State → Prop) → Prop) (p q : State → Prop) (initial : State)
+theorem eventually_weaken {State : Type} (trans : State → Post → Prop) (p q : Post) (initial : State)
   (h : ∀ s, p s → q s) :
     Eventually trans p initial → Eventually trans q initial
   := by
@@ -74,7 +74,7 @@ theorem eventually_weaken {State : Type} (trans : State → (State → Prop) →
       grind
 
 -- A loop down to 0
-theorem reg_dec_loop {State : Type} (trans : State → (State → Prop) → Prop) (post : State → Prop) (initial : State) (invariant : Nat → State → Prop) (n : Nat) :
+theorem reg_dec_loop {State : Type} (trans : State → Post → Prop) (post : Post) (initial : State) (invariant : Nat → Post) (n : Nat) :
   -- if:
   -- invariant holds before entering the loop
   invariant n initial ∧
@@ -101,10 +101,10 @@ theorem reg_dec_loop {State : Type} (trans : State → (State → Prop) → Prop
 -- Concrete Transition Rules
 -- ============================================================================
 
-def step1 [Layout] (p: Executable) (s: MachineState) (post: Post) :=
+def step1 [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) :=
   (Executable.step p s .done).all post
 
-def straightline_step [Layout] (p: Executable) (s: MachineState) (post: Post) :=
+def straightline_step [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) :=
   (Executable.straightline p s .done).all post
 
 -- ============================================================================
