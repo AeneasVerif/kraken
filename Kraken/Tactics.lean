@@ -107,6 +107,44 @@ def step1 [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) 
 def straightline_step [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) :=
   (Executable.straightline p s .done).all post
 
+
+-- ============================================================================
+-- Predicate Transformer View (layered on top of Eventually)
+-- ============================================================================
+
+-- One-step Post → Post transformer (the "wlp" of a single trans step)
+def step_fn {State : Type} (trans : State → @Post State → Prop) (Q : @Post State) (s : State) : Prop :=
+  ∃ mid_p, trans s mid_p ∧ ∀ mid, mid_p mid → Q mid
+
+-- Eventually is the least fixpoint of (fun X s => post s ∨ step_fn trans X s).
+-- The two directions of the fixpoint equation:
+
+theorem eventually_unfold {State : Type} (trans : State → Post → Prop) (post : Post) (s : State) :
+    Eventually trans post s → post s ∨ step_fn trans (Eventually trans post) s := by
+  intro h
+  cases h with
+  | done _ hp        => exact Or.inl hp
+  | step _ mid_p ht hc => exact Or.inr ⟨mid_p, ht, hc⟩
+
+theorem eventually_fold {State : Type} (trans : State → Post → Prop) (post : Post) (s : State) :
+    post s ∨ step_fn trans (Eventually trans post) s → Eventually trans post s := by
+  intro h
+  rcases h with hp | ⟨mid_p, ht, hc⟩
+  · exact Eventually.done s hp
+  · exact Eventually.step s mid_p ht hc
+
+-- Induction principle in predicate-transformer style:
+-- Eventually is the *least* Post satisfying the fixpoint equation.
+theorem eventually_ind_pt {State : Type} (trans : State → Post → Prop) (post inv : Post)
+    (h_done : ∀ s, post s → inv s)
+    (h_step : ∀ s, step_fn trans inv s → inv s) :
+    ∀ s, Eventually trans post s → inv s := by
+  intro s he
+  induction he with
+  | done _ hp              => exact h_done _ hp
+  | step _ mid_p ht hc ih  => exact h_step _ ⟨mid_p, ht, ih⟩
+
+
 -- ============================================================================
 -- Tactic Macros
 -- ============================================================================
