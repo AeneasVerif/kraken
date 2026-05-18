@@ -3,3 +3,4 @@
 # Build artifacts from test runs
 *.o
 asm-tests/test
+__pycache__/
