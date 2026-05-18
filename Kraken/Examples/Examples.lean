@@ -21,9 +21,9 @@ theorem Executable.directivesFromStart [layout : Layout] prog :
   sorry
 
 -- Super-simple example to debug tactics
-example [layout : Layout] s : straightline_step (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+example [layout : Layout] s : straightlineStep (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
   dsimp only [p1]
-  dsimp only [straightline_step,Executable.straightline]
+  dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
   dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
@@ -43,14 +43,14 @@ def swap : Program := parse("
   xor %rbx, %rax")
 
 theorem swap_correct [layout : Layout] (d : MachineData) :
-      Eventually (straightline_step (layout swap))
+      Eventually (straightlineStep (layout swap))
       (fun s' =>
           s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
           s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
       (d, layout.start) := by
   dsimp [swap]
   apply step_cps
-  dsimp only [straightline_step, Executable.straightline, Directives.interp]
+  dsimp only [straightlineStep, Executable.straightline, Directives.interp]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx, List.mapIdx.go]
   -- TODO It would be nice to progress instruction by instruction instead of all at once, like below.
@@ -79,10 +79,10 @@ start:
   mov $2, %rax")
 
 -- Example 2: stepping through both straightline and control instructions
-example [layout : Layout] (s : MachineData): Eventually (straightline_step (layout p2)) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
+example [layout : Layout] (s : MachineData): Eventually (straightlineStep (layout p2)) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
   dsimp [p2]
   apply step_cps
-  dsimp only [straightline_step,Executable.straightline]
+  dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
   dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
@@ -211,13 +211,13 @@ def p4 := eval% parse("start: mov $2, %rax
 dec %rax")
 
 -- Super-simple example to debug tactics
-example [layout : Layout] s : straightline_step (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+example [layout : Layout] s : straightlineStep (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
   let ss := s
-  change (straightline_step _ (ss, _) _)
+  change (straightlineStep _ (ss, _) _)
   cases s with | mk regs flags mem =>
   cases regs with | mk rax =>
   delta p4
-  dsimp only [straightline_step,Executable.straightline]
+  dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
   dsimp (zeta:=false)(iota:=true) only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,ConstExpr.interp,RegOrMem.interp,Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits,Effects.all]

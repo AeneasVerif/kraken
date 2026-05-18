@@ -30,6 +30,6 @@ theorem UInt64_ofInt_natCast_ne_zero (k : Nat) (h_lt : k < 2^64) (h_ne : k ≠ 0
 -- ============================================================================
 
 theorem eventually_straightline_to_step1 [Layout] (p: Executable) (initial: MachineState) (post: Post)
-  (h: Eventually (straightline_step p) post initial):
+  (h: Eventually (straightlineStep p) post initial):
   Eventually (step1 p) post initial := by
     sorry
