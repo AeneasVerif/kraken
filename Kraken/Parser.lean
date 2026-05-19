@@ -919,6 +919,18 @@ def stripDirectives (content : String) : String :=
   let kept := lines.filter keepLine
   "\n".intercalate kept
 
+private def parseErrorLine (e : String) : Option (Nat × String) :=
+  if e.startsWith "line " then
+    let rest := (e.drop 5).toString
+    match rest.splitOn ":" with
+    | [] => none
+    | lineStr :: msgParts =>
+      match lineStr.trimAscii.toNat? with
+      | some lineNum => some (lineNum, (":".intercalate msgParts).trimAscii.toString)
+      | none => none
+  else
+    none
+
 -- ============================================================================
 -- File Parsing Elaborators
 -- ============================================================================
@@ -939,7 +951,23 @@ elab "parseFile(" path:str ")" : term => do
   let stripped := stripDirectives content
   match parse stripped with
   | .ok p => return Lean.toExpr p
-  | .error e => throwErrorAt path e
+  | .error e =>
+    match parseErrorLine e with
+    | some (lineNum, msg) =>
+      let m : Message := {
+        fileName      := pathStr,
+        pos           := { line := lineNum, column := 0 },
+        endPos        := none,
+        keepFullRange := false,
+        severity      := MessageSeverity.error,
+        isSilent      := false,
+        caption       := "",
+        data          := m!"{msg}"
+      }
+      logMessage m
+      throwErrorAt path s!"assembly parsing failed (see error in {pathStr}:{lineNum})"
+    | none =>
+      throwErrorAt path e
 
 
 end Kraken.Parser
