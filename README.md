@@ -4,7 +4,7 @@
 
 The x64 model is intended for verifying sequential software
 that performs computations using common registers and memory.
-Operating-systems features, concurrency, and I/O are currently out of scope.
+Operating-systems and concurrency features currently out of scope.
 
 Included
 - 64-bit mode, including 32-bit and smaller operations available in this mode
