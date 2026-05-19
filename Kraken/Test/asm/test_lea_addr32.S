@@ -1,7 +1,7 @@
 movl $0x80000000, %eax
 leaq (%eax), %rbx
-leaq (%eax,%eax), %rbx
-leaq (%eax,%eax,1), %rbx
+leaq (%eax,%eax), %r14
+leaq (%eax,%eax,1), %r15
 leaq (%eax,%eax,2), %rcx
 leaq (%eax,%eax,4), %rdx
 leaq (%eax,%eax,8), %rsi

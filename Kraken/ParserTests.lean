@@ -166,6 +166,19 @@ section error_reporting
 #guard_msgs in
 #check parse("xorq %rax, %unlikely")
 
+/--
+error: line 1: type mismatch in memory addressing operands: base ({w1}) and index ({w2}) have different widths
+-/
+#guard_msgs in
+#check parse("mov (%rax, %ebx)")
+
+/-- error: line 1: can't have two memory operands -/
+#guard_msgs in
+#check parse("mov (%rax), (%rax)")
+
+/-- error: line 1: high byte register cannot be used for an addrexpr -/
+#guard_msgs in
+#check parse("mov $2, (%ah)")
 
 end error_reporting
 

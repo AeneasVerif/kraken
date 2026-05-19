@@ -23,7 +23,7 @@ open Std.Internal.Parsec.String
 -- We need to eagerly parse (to move through the syntax), but we may need to
 -- defer choosing a width for those operands that are untyped (as in: may have
 -- any width).
-def MaybeTyped (T: Width → Type) :=
+def MaybeOpWidth (T: Width → Type) :=
   Σ (w: Option Width), match w with | .some w => T w | .none => { w: Width } → T w
 
 -- Most of our parsing functions return a MaybeAddrWidth × MaybeTyped T, in case
@@ -45,7 +45,7 @@ def mergeAddrWidths (w1 w2: MaybeAddrWidth): Parser MaybeAddrWidth :=
 
 -- If the context provides a type annotation, this forces a given width, or
 -- errors out if an incompatible one has been inferred.
-def ascribe {T: Width → Type} (w: Width) (v: MaybeTyped T): Parser (T w) := do
+def ascribe {T: Width → Type} (w: Width) (v: MaybeOpWidth T): Parser (T w) := do
   match v with
   | ⟨ .none, v ⟩ => pure v
   | ⟨ .some w2, v ⟩ =>
@@ -54,7 +54,7 @@ def ascribe {T: Width → Type} (w: Width) (v: MaybeTyped T): Parser (T w) := do
     else
       fail s!"type error: {w} != {w2}"
 
-def ascribeOrInfer {T1 T2} (op1: MaybeAddrWidth × MaybeTyped T1) (next: Parser (MaybeAddrWidth × MaybeTyped T2)): Parser (MaybeAddrWidth × Σ w, T1 w × T2 w) := do
+def ascribeOrInfer {T1 T2} (op1: MaybeAddrWidth × MaybeOpWidth T1) (next: Parser (MaybeAddrWidth × MaybeOpWidth T2)): Parser (MaybeAddrWidth × Σ w, T1 w × T2 w) := do
   let (addr_w2, op2) ← next
   let (addr_w1, op1) := op1
   let addr_w ← mergeAddrWidths addr_w1 addr_w2
@@ -70,12 +70,12 @@ def ascribeOrInfer {T1 T2} (op1: MaybeAddrWidth × MaybeTyped T1) (next: Parser 
       fail "missing type annotation"
 
 -- Naming convention: O = function takes an operand width
-def parseO {T1} (op: Parser (MaybeTyped T1)) (w: Width): Parser (T1 w) := do
+def parseO {T1} (op: Parser (MaybeOpWidth T1)) (w: Width): Parser (T1 w) := do
   let op ← op
   ascribe w op
 
 -- Naming convention: A = function also returns an address width
-def parseAO {T1} (op: Parser (MaybeAddrWidth × MaybeTyped T1)) (w: Width): Parser (MaybeAddrWidth × T1 w) := do
+def parseAO {T1} (op: Parser (MaybeAddrWidth × MaybeOpWidth T1)) (w: Width): Parser (MaybeAddrWidth × T1 w) := do
   let (addr_w, op) ← op
   let op ← ascribe w op
   pure (addr_w, op)
@@ -207,6 +207,10 @@ def parseRegOrRipW : Parser (Width × RegOrRip) := do
   let _ ← pchar '%'
   (do
     let _ ← pstring "rip"
+    -- TODO: once we start parsing %eip here, we need to understand what is the
+    -- behavior in 64-bit mode when the .S contains %eip -- does the address get
+    -- clamped to 32 bits? in that case, Semantics.lean needs to be updated to
+    -- process the `.rip` case via `toAddressSize`
     pure (.W64, .rip)
   ) <|>
   (do
@@ -296,7 +300,7 @@ def parseMemory : Parser (Width × AddrExpr) := do
   let w ← match w1, idx with
     | w1, .some (w2, _) =>
       if w1 ≠ w2 then
-        fail "type mismatch in memory addressing operands: base and index have different widths"
+        fail "type mismatch in memory addressing operands: base ({w1}) and index ({w2}) have different widths"
       else
         .pure w1
     | w1, .none =>
@@ -314,7 +318,7 @@ def parseImm w : Parser (Operand w) := do
   pure (.imm i)
 
 /-- Parse any operand: register, immediate, or memory. -/
-def parseOperand: Parser (MaybeAddrWidth × MaybeTyped Operand) := do
+def parseOperand: Parser (MaybeAddrWidth × MaybeOpWidth Operand) := do
   skipHWs
   let c ← peek!
   match c with
@@ -333,7 +337,7 @@ def parseOperand: Parser (MaybeAddrWidth × MaybeTyped Operand) := do
       pure (.none, ⟨ .none, .imm i ⟩)
 
 /-- Parse a register or memory operand (not immediate). -/
-def parseRegOrMem: Parser (MaybeAddrWidth × MaybeTyped RegOrMem) := do
+def parseRegOrMem: Parser (MaybeAddrWidth × MaybeOpWidth RegOrMem) := do
   skipHWs
   let c ← peek!
   if c == '%' then
@@ -405,14 +409,14 @@ def parseComma : Parser Unit := do
 def parseOptionalShiftAndComma : Parser ShiftCountExpr :=
   (attempt do let cnt ← parseShiftExpr; parseComma; pure cnt) <|> pure (.imm8 (.int64 1))
 
-def parseReg : Parser (MaybeTyped Reg) := do
+def parseReg : Parser (MaybeOpWidth Reg) := do
   let p ← parseRegW; pure ⟨ .some p.1, p.2 ⟩
 
 def parseRegO := parseO parseReg
 
 -- For compatibility with commaSeparated -- registers can never provide an
 -- inference hint about instruction address width.
-def parseRegA : Parser (MaybeAddrWidth × MaybeTyped Reg) := do
+def parseRegA : Parser (MaybeAddrWidth × MaybeOpWidth Reg) := do
   let p ← parseRegW; pure (.none, ⟨ .some p.1, p.2 ⟩)
 
 def parseOperandAO := parseAO parseOperand
@@ -432,7 +436,7 @@ def instrWidth (s: String): Parser Width :=
   | .none => fail "impossible: empty instruction"
   | .some c => Char.toWidth c
 
-def commaSeparated {T1 T2} (op_w: Option Width) (p1: Parser (MaybeAddrWidth × MaybeTyped T1)) (p2: Parser (MaybeAddrWidth × MaybeTyped T2))
+def commaSeparated {T1 T2} (op_w: Option Width) (p1: Parser (MaybeAddrWidth × MaybeOpWidth T1)) (p2: Parser (MaybeAddrWidth × MaybeOpWidth T2))
   (mk: {op_w: Width} → T2 op_w → T1 op_w → Operation op_w): Parser Instr := do
     match op_w with
     | .none =>
@@ -446,7 +450,7 @@ def commaSeparated {T1 T2} (op_w: Option Width) (p1: Parser (MaybeAddrWidth × M
       -- flip the direction here
       pure ⟨ (← mergeAddrWidths addr_w1 addr_w2).getD .W64, w, mk dst src ⟩
 
-def assertW {T} (v: MaybeTyped T): Parser (Σ w: Width, T w) :=
+def assertW {T} (v: MaybeOpWidth T): Parser (Σ w: Width, T w) :=
   match v with
   | ⟨ .none, _ ⟩ => fail "missing type annotation"
   | ⟨ .some w, T ⟩ => pure ⟨ w, T ⟩

@@ -55,12 +55,11 @@ structure RegW where (w : Width) (reg : Reg w)
 --
 -- Note that by doing so, we faithfully model two key things
 -- * high byte registers cannot appear within memory operands:
---
---  test.S:1:11: error: invalid base+index expression
---  movb $2, (%ah)
+--   test.S:1:11: error: invalid base+index expression
+--   movb $2, (%ah)
 -- * the operand encoding in the instruction encoding does not actually contain
--- a width -- it's all in the instruction-wide address size, modeled via the
--- `AddressSize` type class, below.
+--   a width -- it's all in the instruction-wide address size, modeled via the
+--   `AddressSize` type class, below.
 --
 -- Implementation-wise, this means that our parser *will* have to do some amount
 -- of type inference.
