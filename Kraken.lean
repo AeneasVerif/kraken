@@ -12,4 +12,4 @@ import Kraken.Parser
 import Kraken.Theorems
 import Kraken.Tactics
 import Kraken.Examples.Examples
-import Kraken.SimplifiedSemantics
+import Kraken.Variants.IndexedSemantics
