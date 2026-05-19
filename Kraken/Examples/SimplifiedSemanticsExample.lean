@@ -4,6 +4,7 @@ import Kraken.Eval
 import Kraken.SimplifiedSemantics
 
 open Kraken.Parser
+open Kraken.Simplified
 
 -- This is the same as p2 in Examples, but without using Executable
 def p2 : List Directive := [

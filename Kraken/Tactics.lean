@@ -9,7 +9,6 @@ For advanced tactics (SymM), see kraken-experimental/KrakenExp/Tactics.lean.
 -/
 
 import Kraken.Semantics
-import Kraken.SimplifiedSemantics
 
 -- PROOF INFRASTRUCTURE
 
@@ -106,9 +105,6 @@ def step1 [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) 
 
 def straightlineStep [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
   (Executable.straightline p s .done).All post
-
-def simplified_step1 (prog: List Directive) (s: MachineState) (post: @Post MachineState) : Prop :=
-  (Kraken.Simplified.step prog s.1 s.2.toInt.toNat).all post
 
 -- ============================================================================
 -- Predicate Transformer View (layered on top of Eventually)
