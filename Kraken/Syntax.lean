@@ -45,11 +45,29 @@ attribute [coe] ConstExpr.int64
 structure RegW where (w : Width) (reg : Reg w)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr, Hashable, Lean.ToExpr
 
-inductive RegOrRip where | ofRegW (_ : RegW) | rip : RegOrRip
+-- For address expressions, the width of the register is determined only by the
+-- instruction-wide address prefix. Concretely:
+-- * movb $2 (%eax) denotes moving a single byte (operand width) into the memory
+--   location at the 32-bit address stored in %eax (address width) -- note that
+--   there is inference here!
+-- * addr32 movb $2 (%rax) means the exact same thing, so the `addr32` prefix
+--   acts as an instruction-wide override (at least for Clang; GCC rejects this)
+--
+-- Note that by doing so, we faithfully model two key things
+-- * high byte registers cannot appear within memory operands:
+--   test.S:1:11: error: invalid base+index expression
+--   movb $2, (%ah)
+-- * the operand encoding in the instruction encoding does not actually contain
+--   a width -- it's all in the instruction-wide address size, modeled via the
+--   `AddressSize` type class, below.
+--
+-- Implementation-wise, this means that our parser *will* have to do some amount
+-- of type inference.
+inductive RegOrRip where | reg (_ : Reg64) | rip : RegOrRip
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 structure AddrIndex where
-  reg : RegW
+  reg : Reg64
   scale: Width
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
