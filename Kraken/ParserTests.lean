@@ -180,25 +180,36 @@ error: line 1: type mismatch in memory addressing operands: base ({w1}) and inde
 #guard_msgs in
 #check parse("mov $2, (%ah)")
 
-end error_reporting
+/-- error: line 1: unexpected end of input -/
+#guard_msgs in
+#check parse("addq %rax")
 
-/-! Behavior which is wrong. -/
-section broken
-
-/-- info: [] : List Directive -/
+/-- error: line 1: unexpected end of input -/
 #guard_msgs in
 #check parse("xorq %rax, 1")
 
-/-- info: [] : List Directive -/
+/-- error: line 1: unexpected end of input -/
 #guard_msgs in
 #check parse("addq")
 
-/-- error: line 2: unsupported instruction: loop -/
+/-- error: line 2: unexpected end of input -/
 #guard_msgs in
 #check parse("
-loop: loop: addq %rax, %rbx
+  addq %rax
+  cmpq $10, %rax
 ")
 
-end broken
+/-- error: line 1: type error: w64 != w32 -/
+#guard_msgs in
+#check parse("movq %eax, %rbx")
 
+/-- error: line 1: invalid scale 3, must be 1, 2, 4, or 8 -/
+#guard_msgs in
+#check parse("movq (%rax, %rcx, 3), %rbx")
+
+/-- error: line 1: unexpected trailing characters on line -/
+#guard_msgs in
+#check parse("movq %rax, %rbx garbage")
+
+end error_reporting
 end Tests
