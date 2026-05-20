@@ -14,19 +14,18 @@ import Kraken.Theorems
 
 abbrev Post := MachineState → Prop
 
-def Effects.all (s : Effects) (post : MachineState → Prop) : Prop :=
-  match s with
+def Effects.All (post : MachineState → Prop) : Effects → Prop
   | .done a => post a
   | .unimplemented _ => False
   | .nonmem_load .. => False
   | .nonmem_store .. => False
-  | @Effects.undefined α _ cont => ∀ v: α, (cont v).all post
-  | .require_read_access _ _ cont => (cont ()).all post
-  | .require_write_access _ _ cont => (cont ()).all post
-  | .require_exec_access _ cont => (cont ()).all post
+  | @Effects.undefined α _ cont => ∀ v: α, (cont v).All post
+  | .require_read_access _ _ cont => (cont ()).All post
+  | .require_write_access _ _ cont => (cont ()).All post
+  | .require_exec_access _ cont => (cont ()).All post
 
-def step1 [Layout] (p: Executable) (s: MachineState) : Post → Prop :=
-  (Executable.straightline p s .done).all
+def Step1 [Layout] (p: Executable) (s: MachineState) : Post → Prop :=
+  (Executable.straightline p s .done).All
 
 inductive Eventually [Layout] (prog: Executable) (p: MachineState → Prop): MachineState -> Prop
   | done (initial: MachineState):
@@ -34,14 +33,14 @@ inductive Eventually [Layout] (prog: Executable) (p: MachineState → Prop): Mac
       Eventually _ p initial
   | step (initial: MachineState):
       (mid_p: Post) ->
-      step1 prog initial mid_p →
+      Step1 prog initial mid_p →
       (forall (mid: MachineState), mid_p mid → Eventually _ p mid) →
       Eventually _ p initial
 
 -- THEOREMS
 
 theorem step_cps {p : Executable} [Layout] (post: Post) (initial: MachineState):
-  step1 p initial (fun mid => Eventually p post mid) → Eventually p post initial :=
+  Step1 p initial (fun mid => Eventually p post mid) → Eventually p post initial :=
   by
     intro
     apply Eventually.step
@@ -117,7 +116,7 @@ syntax "step_instr" : tactic
 macro_rules
   | `(tactic|step_instr) =>
   `(tactic|
-    delta step1 eval1 fetch;
+    delta Step1 eval1 fetch;
     dsimp only [List.findIdx?,List.findIdx,getElem?,List.get?Internal];
     dsimp only [Instr.is_ctrl];
     dsimp only [Bool.false_eq_true, ↓dreduceIte]; -- special simproc for if https://github.com/leanprover/lean4/blob/master/src/Lean/Meta/Tactic/Simp/BuiltinSimprocs/Core.lean#L25-L40
@@ -140,7 +139,7 @@ macro_rules
   | `(tactic|step_one) =>
   `(tactic|
     simp [
-      step1,Program.straightline,
+      Step1,Program.straightline,
       Program.position_of_addr,Program.positions,Program.positions',layout,List.filter,Position.Label,
       List.dropWhile,bne,BEq.beq,instBEqDirective.beq,dropInstrs,Program.straightline',Instr.interp,Operation.interp,Operand.interp];
     simp (ground:=True);
