@@ -180,24 +180,47 @@ error: line 1: type mismatch in memory addressing operands: base ({w1}) and inde
 #guard_msgs in
 #check parse("mov $2, (%ah)")
 
-end error_reporting
+/-- error: line 1: unexpected end of input -/
+#guard_msgs in
+#check parse("addq %rax")
 
-/-! Behavior which is wrong. -/
-section broken
-
-/-- info: [] : List Directive -/
+/-- error: line 1: unexpected end of input -/
 #guard_msgs in
 #check parse("xorq %rax, 1")
 
-/-- info: [] : List Directive -/
+/-- error: line 1: unexpected end of input -/
 #guard_msgs in
 #check parse("addq")
 
-/-- error: line 2: unsupported instruction: loop -/
+/-- error: line 2: unexpected end of input -/
 #guard_msgs in
 #check parse("
-loop: loop: addq %rax, %rbx
+  addq %rax
+  cmpq $10, %rax
 ")
+
+/-- error: line 1: type error: w64 != w32 -/
+#guard_msgs in
+#check parse("movq %eax, %rbx")
+
+/-- error: line 1: invalid scale 3, must be 1, 2, 4, or 8 -/
+#guard_msgs in
+#check parse("movq (%rax, %rcx, 3), %rbx")
+
+/-- error: line 1: unexpected trailing characters on line -/
+#guard_msgs in
+#check parse("movq %rax, %rbx garbage")
+
+end error_reporting
+
+section broken
+
+-- TODO: Support absolute memory addressing (bare displacements) and add reliable integration tests for it.
+-- Currently, the parser requires '(' after displacement, so this fails to parse with "expected: '('".
+-- Also, testing this on real x86 is tricky because we need a guaranteed mapped addresses.
+/-- error: line 1: expected: '(' -/
+#guard_msgs in
+#check parse("movq 1, %rax")
 
 end broken
 

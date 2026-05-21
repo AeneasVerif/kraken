@@ -885,47 +885,58 @@ def parseLabelDecl : Parser Label := do
 -- Line and Program Parsing
 -- ============================================================================
 
+def parseAlign : Parser Instr := do
+  let _ ← pstring ".align"
+  skipHWs
+  let alignment ← parseHexOrDec
+  let pad ← (do
+    skipHWs
+    let _ ← parseComma
+    skipHWs
+    let pad ← parseHexOrDec
+    pure (some pad.toNat)
+  ) <|> pure none
+  pure ⟨ .W64, .W64, .nopalign alignment.toNat pad ⟩
+
+def skipSpaceAndCheckLineEnd : Parser Bool := do
+  skipHWs
+  let c? ← peek?
+  match c? with
+  | none
+  | some '\n' =>
+    pure true
+  | some '#' =>
+    skipLineComment
+    pure true
+  | some _ =>
+    pure false
+
+def parseOptionalInstr : Parser (Option Directive) := do
+  if (← skipSpaceAndCheckLineEnd) then
+    pure none
+  else
+    let i ← parseAlign <|> parseInstr
+    pure (some (Directive.instr i))
+
+def checkLineEnd : Parser Unit := do
+  if (← skipSpaceAndCheckLineEnd) then
+    pure ()
+  else
+    fail "unexpected trailing characters on line"
+
 /-- Parse a single line: optional label, followed by optional instruction or directive.
     Returns a list of directives found on the line. -/
 def parseLine : Parser (List Directive) := do
   skipHWs
-  let c ← peek!
-  -- Skip empty lines and comment-only lines
-  if c == '\n' || c == '#' then
-    if c == '#' then skipLineComment
-    pure []
-  else
-    let label ← (attempt do
-      let l ← parseLabelDecl
-      pure (some (Directive.label l))) <|> pure none
-    skipHWs
-    let instr ← (do
-      let c ← peek!
-      if c == '\n' || c == '#' then
-        pure none
-      else
-        -- Try to parse a .align directive
-        (do
-          let _ ← pstring ".align"
-          skipHWs
-          let alignment ← parseHexOrDec
-          let pad ← (do
-            skipHWs
-            let _ ← parseComma
-            skipHWs
-            let pad ← parseHexOrDec
-            pure (some pad.toNat)
-          ) <|> pure none
-          pure (some (Directive.instr ⟨ .W64, .W64, .nopalign alignment.toNat pad ⟩))
-        ) <|> (do
-          let instr ← parseInstr
-          pure (some (Directive.instr instr)))
-    ) <|> pure none
-    match label, instr with
-    | some l, some i => pure [l, i]
-    | some l, none   => pure [l]
-    | none,   some i => pure [i]
-    | none,   none   => pure []
+  let labels ← many (attempt do
+    let l ← parseLabelDecl
+    pure (Directive.label l))
+  let instr ← parseOptionalInstr
+  checkLineEnd
+  let labelsList := labels.toList
+  match instr with
+  | some i => pure (labelsList ++ [i])
+  | none   => pure labelsList
 
 -- ============================================================================
 -- Public API
@@ -934,7 +945,7 @@ def parseLine : Parser (List Directive) := do
 instance {T1} : Coe (ParseResult (List T1) (Sigma String.Pos)) (Except String (List T1)) where coe :=
   fun r => match r with
   | .success _ v => .ok v
-  | .error _ .eof => .ok []
+  | .error _ .eof => .error "unexpected end of input"
   | .error _ (.other msg) => .error msg
 
 def parse (input: String) : Except String Program := do
