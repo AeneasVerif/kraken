@@ -212,4 +212,16 @@ error: line 1: type mismatch in memory addressing operands: base ({w1}) and inde
 #check parse("movq %rax, %rbx garbage")
 
 end error_reporting
+
+section broken
+
+-- TODO: Support absolute memory addressing (bare displacements) and add reliable integration tests for it.
+-- Currently, the parser requires '(' after displacement, so this fails to parse with "expected: '('".
+-- Also, testing this on real x86 is tricky because we need a guaranteed mapped addresses.
+/-- error: line 1: expected: '(' -/
+#guard_msgs in
+#check parse("movq 1, %rax")
+
+end broken
+
 end Tests
