@@ -581,8 +581,12 @@ def scanl {α β} (f : β → α → β) (init : β) (as : List α) : List β :=
   Id.run <| Kraken.Compat.scanlM (pure <| f · ·) init as
 end Kraken.Compat
 
-def Executable.withAddresses (e : Executable)  : List (Int64 × Directive × Nat) :=
-  (Kraken.Compat.scanl (fun (p, _, _) (d, z) => (p+.ofNat z, d, z)) (e.1, .byteArray (.mk #[]), 0) e.2)
+def Executable.withAddressesAux (pc : Int64) : List (Directive × Nat) → List (Int64 × Directive × Nat)
+  | [] => []
+  | (d, z) :: rest => (pc, d, z) :: withAddressesAux (pc + .ofNat z) rest
+
+def Executable.withAddresses (e : Executable) : List (Int64 × Directive × Nat) :=
+  Executable.withAddressesAux e.1 e.2
 
 def Executable.labels (e : Executable) : Labels :=
   { label l := (e.withAddresses.findSome?

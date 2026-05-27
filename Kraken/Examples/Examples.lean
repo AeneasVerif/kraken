@@ -16,8 +16,30 @@ open Kraken.Parser
 
 def p1 := parse("start: mov $1, %rax")
 
+theorem withAddressesAux_map_fst_idxOf_self (pc : Int64) (l : List (Directive × Nat)) :
+    ((Executable.withAddressesAux pc l).map (·.1)).idxOf pc = 0 := by
+  cases pc
+  rename_i u
+  cases u
+  rename_i bv
+  cases bv
+  rename_i fin
+  cases fin
+  cases l with
+  | nil => rfl
+  | cons hd tl =>
+    cases hd with | mk d z =>
+      dsimp [Executable.withAddressesAux, List.idxOf, BEq.beq]
+      simp [List.findIdx, List.findIdx.go]
+
 theorem Executable.directivesFromStart [layout : Layout] prog :
-    (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) :=
+    (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) := by
+  dsimp [directivesFromAddress, withAddresses, Layout.apply]
+  rw [withAddressesAux_map_fst_idxOf_self]
+  rfl
+
+theorem Executable.directivesAtStart [layout : Layout] prog :
+    (layout prog).directivesAtAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) :=
   sorry
 
 -- Super-simple example to debug tactics
@@ -30,6 +52,16 @@ example [layout : Layout] s : straightlineStep (layout p1) (s, layout.start) (fu
   dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,require_exec_access]
   simp (ground:=True)
   dsimp only [Effects.All]
+
+example [layout : Layout] s : step1 (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+  dsimp only [p1]
+  dsimp only [step1,Executable.step]
+  rw [Executable.directivesAtStart]
+  simp [List.mapIdx,List.mapIdx.go]
+  dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
+  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,require_exec_access]
+  simp (ground:=True)
+  dsimp only [Effects.all]
 
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
   /- simp [MachineData.setReg,Reg64s.set,Reg64s.set64,ConstExpr.interp] -/
