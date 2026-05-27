@@ -68,9 +68,9 @@ def straightline (full_prog : List Directive) (s : MachineData) (pc : Nat) : Eff
   straightline_go full_prog (full_prog.drop pc) s pc
 
 def indexed_step1 (prog: List Directive) (s: MachineState) (post: @Post MachineState) : Prop :=
-  (step prog s.1 s.2.toInt.toNat).all post
+  (step prog s.1 s.2.toInt.toNat).All post
 
 def indexed_straightline_step (prog: List Directive) (s: MachineState) (post: @Post MachineState) : Prop :=
-  (straightline prog s.1 s.2.toInt.toNat).all post
+  (straightline prog s.1 s.2.toInt.toNat).All post
 
 end Kraken.Indexed
