@@ -30,7 +30,7 @@ example [layout : Layout] s : Step1 (layout p1) (s, layout.start) (fun s => s.1.
   dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
   dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,require_exec_access]
   simp (ground:=True)
-  dsimp only [Effects.all]
+  dsimp only [Effects.All]
   rfl
 
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
@@ -231,7 +231,7 @@ example [layout : Layout] s : Step1 (layout p4) (s, layout.start) (fun s => s.1.
   simp [List.mapIdx,List.mapIdx.go]
   -- We now have a goal of the form Directives.interp [ ..., ... ]. Time to do
   -- some stepping.
-  dsimp (zeta:=false)(iota:=true) only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,ConstExpr.interp,RegOrMem.interp,Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits,Effects.all]
+  dsimp (zeta:=false)(iota:=true) only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,ConstExpr.interp,RegOrMem.interp,Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits,Effects.All]
   lift_lets
   dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [Reg64s.get64,Reg64s.set64,BitVec.drop,BitVec.take,ss,Effects.All] -- reduces UInt64.toBitVec but leaves let binders behind and gets stuck confused on it
   intros rax1
@@ -583,13 +583,13 @@ partial def kstep (mvarId: MVarId): SymM MVarId := do
 
     -- This may leave an effect -- reduce the handler, if any.
     let goal ←
-      match matchApp ``Effects.all goal with
+      match matchApp ``Effects.All goal with
       | .some (_, #[ _post, e_eff ]) =>
-        -- We trigger reduction of Effects.all if its first argument is the
+        -- We trigger reduction of Effects.All if its first argument is the
         -- application of a constructor (which by typing ought to be an effect
         -- constructor).
         if ← Meta.isConstructorApp e_eff then
-          let (goal, true) ← reduceKnownHeads [ ``Effects.all ] goal (fun name => name = ``Directives.interp) |
+          let (goal, true) ← reduceKnownHeads [ ``Effects.All ] goal (fun name => name = ``Directives.interp) |
             throwError "could not reduce effect handling in goal"
           pure goal
         else
@@ -675,7 +675,7 @@ def evalSymKStep : Grind.GrindTactic :=
     ``BitVec.extractLsb', ``BitVec.truncate, ``ConstExpr.interp,
 
     ``Directives.interp, ``Directive.interp, ``Instr.interp, ``Operation.interp,
-    ``Operand.interp, ``Effects.all,
+    ``Operand.interp, ``Effects.All,
     ``ConstExpr.interp, ``RegOrMem.interp, ``Reg.interp
   ]
 
@@ -708,17 +708,17 @@ set_option maxHeartbeats 1000000
 /- set_option pp.rawOnError true -/
 /- set_option pp.all true -/
 
-example [layout : Layout] s : step1 (layout p5) (s, layout.start) (fun s => s.1.regs.rax = 0) := by
+example [layout : Layout] s : Step1 (layout p5) (s, layout.start) (fun s => s.1.regs.rax = 0) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
   -- refined state in the hypotheses, not the goal.
   let ss := s
-  change (step1 _ (ss, _) _)
+  change (Step1 _ (ss, _) _)
   cases s with | mk regs flags mem =>
   cases regs with | mk rax =>
   -- Rewrite the program to make layout, addresses, etc. apparent
   delta p5
-  dsimp only [step1,Executable.straightline]
+  dsimp only [Step1,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
   sym => 
