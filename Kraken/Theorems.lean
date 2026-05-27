@@ -25,11 +25,60 @@ theorem UInt64_ofInt_natCast_ne_zero (k : Nat) (h_lt : k < 2^64) (h_ne : k ≠ 0
   rw [h2, hkmod, hzero] at h1
   exact h_ne h1
 
--- ============================================================================
--- Omnisemantics Step Mixing (And soundness of straightline instantiation)
--- ============================================================================
+theorem withAddressesAux_map_fst_idxOf_self (pc : Int64) (l : List (Directive × Nat)) :
+    ((Executable.withAddressesAux pc l).map (·.1)).idxOf pc = 0 := by
+  cases pc
+  rename_i u
+  cases u
+  rename_i bv
+  cases bv
+  rename_i fin
+  cases fin
+  cases l with
+  | nil => rfl
+  | cons hd tl =>
+    cases hd with | mk d z =>
+      dsimp [Executable.withAddressesAux, List.idxOf, BEq.beq]
+      simp [List.findIdx, List.findIdx.go]
 
-theorem eventually_straightline_to_step1 [Layout] (p: Executable) (initial: MachineState) (post: Post)
-  (h: Eventually (straightlineStep p) post initial):
-  Eventually (step1 p) post initial := by
-    sorry
+theorem Executable.directivesFromStart [layout : Layout] prog :
+    (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) := by
+  dsimp [directivesFromAddress, withAddresses, Layout.apply]
+  rw [withAddressesAux_map_fst_idxOf_self]
+  rfl
+
+theorem mapIdx_go_eq_map [layout : Layout] (h : ∀ i, layout.size i = 0) (prog : List Directive) (acc : Array (Directive × Nat)) :
+    List.mapIdx.go (fun i d => (d, layout.size i)) prog acc = acc.toList ++ prog.map (fun d => (d, 0)) := by
+  induction prog generalizing acc with
+  | nil =>
+    dsimp [List.mapIdx.go]
+    simp
+  | cons hd tl ih =>
+    dsimp [List.mapIdx.go]
+    have hz : layout.size acc.size = 0 := h acc.size
+    rw [hz]
+    rw [ih]
+    simp
+
+theorem mapIdx_eq_map [layout : Layout] (h : ∀ i, layout.size i = 0) (prog : List Directive) :
+    prog.mapIdx (fun i d => (d, layout.size i)) = prog.map (fun d => (d, 0)) := by
+  dsimp [List.mapIdx]
+  rw [mapIdx_go_eq_map h]
+  simp
+
+theorem withAddressesAux_zero_size (pc : Int64) (prog : List Directive) :
+    ((Executable.withAddressesAux pc (prog.map (fun d => (d, 0)))).filter (·.1 = pc)).map (·.2) =
+      prog.map (fun d => (d, 0)) := by
+  induction prog generalizing pc with
+  | nil => rfl
+  | cons hd tl ih =>
+    dsimp [List.map]
+    dsimp [Executable.withAddressesAux]
+    simp
+    rw [ih pc]
+
+theorem Executable.directivesAtStart [layout : Layout] prog (h : ∀ i, layout.size i = 0) :
+    (layout prog).directivesAtAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) := by
+  dsimp [directivesAtAddress, withAddresses, Layout.apply]
+  rw [mapIdx_eq_map h]
+  apply withAddressesAux_zero_size

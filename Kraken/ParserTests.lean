@@ -35,8 +35,7 @@ info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation :=
         Operation.mov ↑(low Reg64.rax Width.W64)
-          ↑↑{ base := some (RegOrRip.ofRegW { w := Width.W64, reg := low Reg64.rsp Width.W64 }), idx := none,
-                disp := ↑8 } }] : List Directive
+          ↑↑{ base := some (RegOrRip.reg Reg64.rsp), idx := none, disp := ↑8 } }] : List Directive
 -/
 #guard_msgs in
 #check parse("movq 8(%rsp), %rax")
@@ -48,11 +47,8 @@ info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation :=
         Operation.mov ↑(low Reg64.rax Width.W64)
-          ↑↑{ base := some (RegOrRip.ofRegW { w := Width.W64, reg := low Reg64.rsi Width.W64 }),
-                idx :=
-                  some
-                    { reg := { w := Width.W64, reg := low Reg64.r15 Width.W64 },
-                      scale := Width.W64 } } }] : List Directive
+          ↑↑{ base := some (RegOrRip.reg Reg64.rsi),
+                idx := some { reg := Reg64.r15, scale := Width.W64 } } }] : List Directive
 -/
 #guard_msgs in
 #check parse("movq (%rsi, %r15, 8), %rax")
@@ -147,12 +143,22 @@ info: [Directive.instr
     { address_size := Width.W64, operation_size := Width.W64,
       operation :=
         Operation.lea (low Reg64.rax Width.W64)
-          { base := some (RegOrRip.ofRegW { w := Width.W64, reg := low Reg64.rbp Width.W64 }),
-            idx := some { reg := { w := Width.W64, reg := low Reg64.rcx Width.W64 }, scale := Width.W32 },
+          { base := some (RegOrRip.reg Reg64.rbp), idx := some { reg := Reg64.rcx, scale := Width.W32 },
             disp := ↑16 } }] : List Directive
 -/
 #guard_msgs in
 #check parse("leaq 16(%rbp, %rcx, 4), %rax")
+
+/--
+info: [Directive.instr
+    { address_size := Width.W32, operation_size := Width.W64,
+      operation :=
+        Operation.lea (low Reg64.rax Width.W64)
+          { base := some (RegOrRip.reg Reg64.rbp), idx := some { reg := Reg64.rcx, scale := Width.W32 },
+            disp := ↑16 } }] : List Directive
+-/
+#guard_msgs in
+#check parse("leaq 16(%ebp, %ecx, 4), %rax")
 
 section error_reporting
 
@@ -160,25 +166,61 @@ section error_reporting
 #guard_msgs in
 #check parse("xorq %rax, %unlikely")
 
+/--
+error: line 1: type mismatch in memory addressing operands: base ({w1}) and index ({w2}) have different widths
+-/
+#guard_msgs in
+#check parse("mov (%rax, %ebx)")
 
-end error_reporting
+/-- error: line 1: can't have two memory operands -/
+#guard_msgs in
+#check parse("mov (%rax), (%rax)")
 
-/-! Behavior which is wrong. -/
-section broken
+/-- error: line 1: high byte register cannot be used for an addrexpr -/
+#guard_msgs in
+#check parse("mov $2, (%ah)")
 
-/-- info: [] : List Directive -/
+/-- error: line 1: unexpected end of input -/
+#guard_msgs in
+#check parse("addq %rax")
+
+/-- error: line 1: unexpected end of input -/
 #guard_msgs in
 #check parse("xorq %rax, 1")
 
-/-- info: [] : List Directive -/
+/-- error: line 1: unexpected end of input -/
 #guard_msgs in
 #check parse("addq")
 
-/-- error: line 2: unsupported instruction: loop -/
+/-- error: line 2: unexpected end of input -/
 #guard_msgs in
 #check parse("
-loop: loop: addq %rax, %rbx
+  addq %rax
+  cmpq $10, %rax
 ")
+
+/-- error: line 1: type error: w64 != w32 -/
+#guard_msgs in
+#check parse("movq %eax, %rbx")
+
+/-- error: line 1: invalid scale 3, must be 1, 2, 4, or 8 -/
+#guard_msgs in
+#check parse("movq (%rax, %rcx, 3), %rbx")
+
+/-- error: line 1: unexpected trailing characters on line -/
+#guard_msgs in
+#check parse("movq %rax, %rbx garbage")
+
+end error_reporting
+
+section broken
+
+-- TODO: Support absolute memory addressing (bare displacements) and add reliable integration tests for it.
+-- Currently, the parser requires '(' after displacement, so this fails to parse with "expected: '('".
+-- Also, testing this on real x86 is tricky because we need a guaranteed mapped addresses.
+/-- error: line 1: expected: '(' -/
+#guard_msgs in
+#check parse("movq 1, %rax")
 
 end broken
 
