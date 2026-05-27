@@ -78,6 +78,9 @@ def Reg64s.set (s : Reg64s) {w} (r : Reg w) (v : w.type) : Reg64s := match r wit
   | .ah | .bh | .ch | .dh => let old := s.get64 r.base;
     s.set64 r.base (old.replaceLow (BitVec.append v (s.get (.low r.base .W8))))
 
+def BitVec.toAddressSize [address_size: AddressSize] (w: BitVec 64): BitVec address_size.address_size.bits :=
+  w.take address_size.address_size.bits
+
 structure StatusFlags where
   cf : Bool
   pf : Bool
@@ -176,11 +179,11 @@ def ConstExpr.interp [Labels] : ConstExpr → Std.Rco _root_.Int64 → _root_.In
 
 def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
   let base := match a.base with
-              | .some (.ofRegW ⟨_, r⟩)  => (s.get r).signed
+              | .some (.reg r) => (s.get64 r).toAddressSize.signed
               | .some .rip => p.upper.toInt
               | .none => 0
   let idx := match a.idx with
-             | .some ⟨⟨_, r⟩, c⟩ => (s.get r).signed * c.bytes
+             | .some ⟨r, c⟩ => (s.get64 r).toAddressSize.signed * c.bytes
              | .none => 0
   BitVec.ofInt address_size.address_size.bits (base + idx + (a.disp.interp p).toInt)
 

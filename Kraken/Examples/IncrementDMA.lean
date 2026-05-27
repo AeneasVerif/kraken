@@ -64,5 +64,5 @@ structure SystemState where
   machineState : MachineState
   deviceState : IncrementerState
 
-def Effects.all (s : Effects) (ds : IncrementerState) (post : SystemState → Prop) : Prop
+def Effects.All (s : Effects) (ds : IncrementerState) (post : SystemState → Prop) : Prop
   := by sorry

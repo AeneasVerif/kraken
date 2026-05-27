@@ -14,16 +14,15 @@ import Kraken.Semantics
 
 abbrev Post {State : Type} := State → Prop
 
-def Effects.all (s : Effects) (post : @Post MachineState) : Prop :=
-  match s with
+def Effects.All (post : MachineState → Prop) : Effects → Prop
   | .done a => post a
   | .unimplemented _ => False
   | .nonmem_load .. => False
   | .nonmem_store .. => False
-  | @Effects.undefined α _ cont => ∀ v: α, (cont v).all post
-  | .require_read_access _ _ cont => (cont ()).all post
-  | .require_write_access _ _ cont => (cont ()).all post
-  | .require_exec_access _ cont => (cont ()).all post
+  | @Effects.undefined α _ cont => ∀ v: α, (cont v).All post
+  | .require_read_access _ _ cont => (cont ()).All post
+  | .require_write_access _ _ cont => (cont ()).All post
+  | .require_exec_access _ cont => (cont ()).All post
 
 -- NOTE: 'initial' cannot be moved to the left of the colon as a parameter
 -- because it varies in the recursive call in the 'step' constructor (it becomes 'mid').
@@ -101,11 +100,11 @@ theorem reg_dec_loop {State : Type} (trans : State → Post → Prop) (post : Po
 -- Concrete Transition Rules
 -- ============================================================================
 
-def step1 [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) :=
-  (Executable.step p s .done).all post
+def step1 [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
+  (Executable.step p s .done).All post
 
-def straightlineStep [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) :=
-  (Executable.straightline p s .done).all post
+def straightlineStep [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
+  (Executable.straightline p s .done).All post
 
 
 -- ============================================================================
