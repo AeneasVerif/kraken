@@ -24,22 +24,21 @@ example (s : MachineData) :
   apply step_cps
   dsimp only [indexed_step1,Kraken.Indexed.step]
   simp -- At this point we have simplified the match term from step
-  dsimp only [Directive.interp, Effects.all]
+  dsimp only [Directive.interp, Effects.All]
 
   -- first step: mov
   apply step_cps
   dsimp only [indexed_step1, Kraken.Indexed.step]
   simp -- following line does symbolic execution
   dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
-  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,CondCode.interp,StatusFlags.from_result, Effects.all]
+  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,CondCode.interp,StatusFlags.from_result, Effects.All]
 
   -- second step: xor %rax, %rax
   apply step_cps
   dsimp only [indexed_step1, Kraken.Indexed.step]
   simp
   dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
-  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,CondCode.interp,StatusFlags.from_result, Effects.all]
-  -- unfold register lookup
+  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,CondCode.interp,StatusFlags.from_result, Effects.All] -- unfold register lookup
   dsimp only [Reg64s.get, Reg64s.get64, Reg.base, Reg.offset]
   -- unfold bitvector arith
   dsimp only [BitVec.drop, BitVec.take, Width.bits]
