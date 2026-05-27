@@ -632,6 +632,71 @@ elab "kstep" : tactic => do
   let mvarId ← SymM.run do kstep mvarId
   replaceMainGoal [ mvarId ]
 
+/- Experiments using SymM: 6/N -/
+
+open Lean Meta Sym Sym.DSimp
+
+def deltaBetaOnly (targets: List Name) : DSimproc := fun e => do
+  unless e.isApp && targets.any e.getAppFn'.isConstOf do return .rfl
+  -- Remember that `Meta.unfoldDefinition` is "smart" and wants to see the whole
+  -- application node `f ...` before deciding whether it's worth doing a step of
+  -- delta and replacing `f` with its definition.
+  if let some e ← Meta.unfoldDefinition? e true then
+    return .step (← betaRevS e.getAppFn e.getAppRevArgs)
+  else
+    let f := e.getAppFn
+    logInfo m!"deltaBetaOnly: {f} is expected to reduce but Meta.unfoldDefinition thinks otherwise"
+    return .rfl
+
+syntax (name := symKStep) "kstep " : grind
+
+def myDsimpMatch : DSimproc := fun e => do
+  let some e' ← reduceRecMatcher? e | return .rfl
+  -- Iota-reduction may expose kernel `Expr.proj` terms via struct-eta,
+  -- which the structural simplifier cannot consume directly.
+  let e'' ← Sym.foldProjs e'
+  if isSameExpr e e'' then
+    return .rfl
+  else
+    return .step (← share e'')
+
+@[grind_tactic symKStep]
+def evalSymKStep : Grind.GrindTactic :=
+  fun _stx : Syntax => do
+  -- A `sym` tactic operates over a pair of the grind state and an MVarId
+  let gGoal : Grind.Goal ← Grind.getMainGoal
+  let mvarId := gGoal.mvarId
+  let goal ← mvarId.getType
+
+  let decls := [
+    ``Reg.interp, ``Reg64s.get, ``Reg.base, ``Reg.offset, ``MachineData.set,
+    ``MachineData.setReg, ``Reg64s.set, ``Width.type, ``Width.bits,
+    ``Reg64s.get64, ``Reg64s.set64, ``BitVec.drop, ``BitVec.take,
+    ``BitVec.extractLsb', ``BitVec.truncate, ``ConstExpr.interp,
+
+    ``Directives.interp, ``Directive.interp, ``Instr.interp, ``Operation.interp,
+    ``Operand.interp, ``Effects.all,
+    ``ConstExpr.interp, ``RegOrMem.interp, ``Reg.interp
+  ]
+
+  -- Doing just one round: unfold Directives.interp, then anything (except
+  -- Directives.interp) is game after that.
+  let goal ← Grind.liftGrindM (Sym.dsimp (methods := { pre := deltaBetaOnly decls >> myDsimpMatch >> beta >> dsimpProj}) goal)
+
+  let mvarId ← mvarId.replaceTargetDefEq goal
+
+  Grind.setGoals [ ({ gGoal with mvarId }) ]
+
+example: 1 = 0 + 1 := by
+  sym =>
+  kstep
+  tactic =>
+  rfl
+
+--------------------------------------------------------------------------------
+
+/- Example -/
+
 /- set_option pp.all true -/
 
 def p5 := parse("start: mov $2, %rax
@@ -643,7 +708,7 @@ set_option maxHeartbeats 1000000
 /- set_option pp.rawOnError true -/
 /- set_option pp.all true -/
 
-example [layout : Layout] s : step1 (layout p5) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+example [layout : Layout] s : step1 (layout p5) (s, layout.start) (fun s => s.1.regs.rax = 0) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
   -- refined state in the hypotheses, not the goal.
@@ -656,18 +721,7 @@ example [layout : Layout] s : step1 (layout p5) (s, layout.start) (fun s => s.1.
   dsimp only [step1,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
+  sym => 
   kstep
-  -- Simp-ing away the projectors should be done by kstep, above.
-  dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only []
-  sorry
-  /- dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [ -/
-  /-   Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits, -/
-  /-   Reg64s.get64,Reg64s.set64,BitVec.drop,BitVec.take,ss, -/
-  /-   Reg64s.rax,BitVec.extractLsb',BitVec.truncate,ConstExpr.interp -/
-  /- ] -- reduces UInt64.toBitVec but leaves let binders behind and gets stuck confused on it -/
-  /- lift_lets -/
-  /- dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [] -/
-  /- dsimp only [Effects.all] -/
-  /- kstep -/
-  /- kstep -/
-  /- intros -/
+  tactic =>
+  decide
