@@ -636,13 +636,15 @@ elab "kstep" : tactic => do
 
 open Lean Meta Sym Sym.DSimp
 
-def deltaBetaOnly (targets: List Name) : DSimproc := fun e => do
+def kdeltaBetaOnly (done: Bool) (targets: List Name) : DSimproc := fun e => do
   unless e.isApp && targets.any e.getAppFn'.isConstOf do return .rfl
   -- Remember that `Meta.unfoldDefinition` is "smart" and wants to see the whole
   -- application node `f ...` before deciding whether it's worth doing a step of
   -- delta and replacing `f` with its definition.
-  if let some e ← Meta.unfoldDefinition? e true then
-    return .step (← betaRevS e.getAppFn e.getAppRevArgs)
+  if let some e' ← Meta.unfoldDefinition? e true then
+    let e'' ← betaRevS e'.getAppFn e'.getAppRevArgs
+    logInfo m!"deltaBetaOnly: reduce\n{e}\nto\n{e''}"
+    return .step e'' (done := done)
   else
     let f := e.getAppFn
     logInfo m!"deltaBetaOnly: {f} is expected to reduce but Meta.unfoldDefinition thinks otherwise"
@@ -650,7 +652,7 @@ def deltaBetaOnly (targets: List Name) : DSimproc := fun e => do
 
 syntax (name := symKStep) "kstep " : grind
 
-def myDsimpMatch : DSimproc := fun e => do
+def kdsimpMatch (done: Bool) : DSimproc := fun e => do
   let some e' ← reduceRecMatcher? e | return .rfl
   -- Iota-reduction may expose kernel `Expr.proj` terms via struct-eta,
   -- which the structural simplifier cannot consume directly.
@@ -658,8 +660,31 @@ def myDsimpMatch : DSimproc := fun e => do
   if isSameExpr e e'' then
     return .rfl
   else
-    return .step (← share e'')
+    return .step (← share e'') (done := done)
 
+def kbeta (done: Bool): DSimproc := fun e => do
+  unless e.isApp do return .rfl
+  let f := e.getAppFn
+  if f.isHeadBetaTargetFn false then
+    return .step (← betaRevS f e.getAppRevArgs) (done := done)
+  else
+    return .rfl
+
+def kdsimpProj (done: Bool) : DSimproc := fun e => do
+  let f := e.getAppFn
+  let .const declName _ := f | return .rfl
+  let some _projInfo ← getProjectionFnInfo? declName | return .rfl
+  let reduceProjCont? (e? : Option Expr) : DSimpM Result := do
+    match e? with
+    | none   => return .rfl
+    | some e =>
+      match (← reduceProj? e.getAppFn) with
+      | some f => return .step (← shareCommon (mkAppN f e.getAppArgs)) (done := done)
+      | none   => return .rfl
+  -- TODO: special support for instances?
+  reduceProjCont? (← unfoldDefinition? e)
+
+-- TODO: make our tactic take an optional config to aid debugging
 @[grind_tactic symKStep]
 def evalSymKStep : Grind.GrindTactic :=
   fun _stx : Syntax => do
@@ -679,13 +704,18 @@ def evalSymKStep : Grind.GrindTactic :=
     ``ConstExpr.interp, ``RegOrMem.interp, ``Reg.interp
   ]
 
-  -- Doing just one round: unfold Directives.interp, then anything (except
-  -- Directives.interp) is game after that.
-  let goal ← Grind.liftGrindM (Sym.dsimp (methods := { pre := deltaBetaOnly decls >> myDsimpMatch >> beta >> dsimpProj}) goal)
+  -- Switch this to `true` to make the tactic stop earlier to examine
+  -- intermediary states.
+  let done := true
+
+  let goal ← Grind.liftGrindM (Sym.dsimp
+    (config := { maxSteps := 1000000 })
+    (methods := { pre := kdeltaBetaOnly done decls <|> kdsimpMatch done <|> kdsimpProj done <|> kbeta done})
+    goal)
 
   let mvarId ← mvarId.replaceTargetDefEq goal
 
-  Grind.setGoals [ ({ gGoal with mvarId }) ]
+  Grind.setGoals [ { gGoal with mvarId } ]
 
 example: 1 = 0 + 1 := by
   sym =>
@@ -708,6 +738,11 @@ set_option maxHeartbeats 1000000
 /- set_option pp.rawOnError true -/
 /- set_option pp.all true -/
 
+register_sym_dsimp kdsimp where
+  pre  := beta -->> match >> zeta >> zeta_delta
+  post := none
+
+
 example [layout : Layout] s : Step1 (layout p5) (s, layout.start) (fun s => s.1.regs.rax = 0) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
@@ -723,5 +758,31 @@ example [layout : Layout] s : Step1 (layout p5) (s, layout.start) (fun s => s.1.
   simp [List.mapIdx,List.mapIdx.go]
   sym => 
   kstep
+  sorry
+
+/-
+def bigp := parseFile("./ecc-secp521r1-modp.S")
+
+set_option maxRecDepth 4000
+set_option maxHeartbeats 2000000
+
+example [layout : Layout] s : Step1 (layout bigp) (s, layout.start) (fun s => s.1.regs.rax = 0) := by
+  -- Refine the state to make registers apparent -- note that `cases` consumes
+  -- the hypothesis, and substitutes it, so we make a copy of it to have a
+  -- refined state in the hypotheses, not the goal.
+  let ss := s
+  change (Step1 _ (ss, _) _)
+  cases s with | mk regs flags mem =>
+  cases regs with | mk rax =>
+  -- Rewrite the program to make layout, addresses, etc. apparent
+  delta bigp
+  dsimp only [Step1,Executable.straightline]
+  rw [Executable.directivesFromStart]
+  simp [List.mapIdx,List.mapIdx.go]
+  sym => 
+  kstep
   tactic =>
+  lift_lets
+  revert
   decide
+-/
