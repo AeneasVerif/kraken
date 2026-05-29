@@ -662,6 +662,8 @@ def klog : DSimproc := fun e => do
   -- We log every top-level term get a trace of the various states of the dsimp
   -- call.
   let s := (← get).numSteps
+  if s = 789 then
+    return .rfl (done := true)
   if e.isApp && e.getAppFn'.isConstOf ``Effects.All then
     logInfo m!"klog: step {s} visiting\n{e}"
   return .rfl
@@ -703,6 +705,16 @@ def kdsimpProj : DSimproc := fun e => do
   -- TODO: special support for instances?
   reduceProjCont? (← unfoldDefinition? e)
 
+def kLiftLets : DSimproc := fun e => do
+  let (es, st) ← Meta.ExtractLets.extract #[e] |>.run { onlyGivenNames := true } |>.run' {} |>.run { givenNames := [] }
+  unless st.decls.size != 0 do return .rfl
+  let e' := Meta.ExtractLets.mkLetDecls st.decls es[0]!
+  if isSameExpr e e' then
+    return .rfl
+  else
+    let e' ← Sym.share e'
+    return .step e'
+
 -- TODO: make our tactic take an optional config to aid debugging
 @[grind_tactic symKStep]
 def evalSymKStep : Grind.GrindTactic :=
@@ -727,7 +739,7 @@ def evalSymKStep : Grind.GrindTactic :=
 
   let goal ← Grind.liftGrindM (Sym.dsimp
     (config := { maxSteps := 1000000 })
-    (methods := { pre := klog >> kdeltaBetaOnly decls >> kdsimpMatch >> kdsimpProj >> kbeta})
+    (methods := { pre := klog >> kLiftLets >> kdeltaBetaOnly decls >> kdsimpMatch >> kdsimpProj >> kbeta})
     goal)
 
   let mvarId ← mvarId.replaceTargetDefEq goal
@@ -775,6 +787,10 @@ example [layout : Layout] s : Step1 (layout p5) (s, layout.start) (fun s => s.1.
   simp [List.mapIdx,List.mapIdx.go]
   sym => 
   kstep
+  tactic =>
+  lift_lets
+  sym =>
+  kstep
   sorry
 
   /- tactic => -/
@@ -802,8 +818,8 @@ example [layout : Layout] s : Step1 (layout p5) (s, layout.start) (fun s => s.1.
 /-   sym => -/ 
 /-   kstep -/
 /-   sorry -/
-/-   /1- tactic => -1/ -/
-/-   /1- lift_lets -1/ -/
-/-   /1- revert -1/ -'
-/-   /1- sorry -1/ -/
+/-   tactic => -/
+/-   lift_lets -/
+/-   revert -/
+/-   sorry -/
 
