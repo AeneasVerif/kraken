@@ -8,11 +8,11 @@ For semantics, see Kraken/Semantics.lean.
 For advanced tactics (SymM), see kraken-experimental/KrakenExp/Tactics.lean.
 -/
 
-import Kraken.Theorems
+import Kraken.Semantics
 
 -- PROOF INFRASTRUCTURE
 
-abbrev Post := MachineState → Prop
+abbrev Post {State : Type} := State → Prop
 
 def Effects.All (post : MachineState → Prop) : Effects → Prop
   | .done a => post a
@@ -24,47 +24,44 @@ def Effects.All (post : MachineState → Prop) : Effects → Prop
   | .require_write_access _ _ cont => (cont ()).All post
   | .require_exec_access _ cont => (cont ()).All post
 
-def Step1 [Layout] (p: Executable) (s: MachineState) : Post → Prop :=
-  (Executable.straightline p s .done).All
+-- NOTE: 'initial' cannot be moved to the left of the colon as a parameter
+-- because it varies in the recursive call in the 'step' constructor (it becomes 'mid').
+inductive Eventually {State : Type} (trans : State → Post → Prop) (post : Post) : Post
+  | done (initial: State):
+      post initial →
+      Eventually trans post initial
+  | step (initial: State):
+      (mid_p: Post) →
+      trans initial mid_p →
+      (forall (mid: State), mid_p mid → Eventually trans post mid) →
+      Eventually trans post initial
 
-inductive Eventually [Layout] (prog: Executable) (p: MachineState → Prop): MachineState -> Prop
-  | done (initial: MachineState):
-      p initial →
-      Eventually _ p initial
-  | step (initial: MachineState):
-      (mid_p: Post) ->
-      Step1 prog initial mid_p →
-      (forall (mid: MachineState), mid_p mid → Eventually _ p mid) →
-      Eventually _ p initial
-
--- THEOREMS
-
-theorem step_cps {p : Executable} [Layout] (post: Post) (initial: MachineState):
-  Step1 p initial (fun mid => Eventually p post mid) → Eventually p post initial :=
+theorem step_cps {State : Type} (trans : State → Post → Prop) (post : Post) (initial : State) :
+  trans initial (fun mid => Eventually trans post mid) → Eventually trans post initial :=
   by
     intro
     apply Eventually.step
     <;> try assumption
     grind
 
-theorem eventually_trans [Layout] (program: Executable) (p q: Post) (initial: MachineState)
-  (e: Eventually program p initial)
-  (h: forall s, p s → Eventually program q s):
-    Eventually program q initial
+theorem eventually_trans {State : Type} (trans : State → Post → Prop) (p q : Post) (initial : State)
+  (e : Eventually trans p initial)
+  (h : ∀ s, p s → Eventually trans q s) :
+    Eventually trans q initial
   := by
     induction e with
     | done =>
         grind
-    | step initial mid_p step pred ind_h =>
+    | step initial mid_p step_hyp rest_hyp ind_h =>
         apply Eventually.step
-        <;> assumption -- Q: why does `grind` not work here?
+        <;> assumption
 
-theorem eventually_weaken [Layout] (program: Executable) (p q: Post) (initial: MachineState)
-  (h: forall s, p s → q s):
-    Eventually program p initial → Eventually program q initial
+theorem eventually_weaken {State : Type} (trans : State → Post → Prop) (p q : Post) (initial : State)
+  (h : ∀ s, p s → q s) :
+    Eventually trans p initial → Eventually trans q initial
   := by
     intro hp
-    induction ih: hp -- Q: why does this not work with `induction ... with`?
+    induction ih: hp  -- Q: why does this not work with `induction ... with`?
     . apply Eventually.done
       grind
     . apply Eventually.step
@@ -72,16 +69,16 @@ theorem eventually_weaken [Layout] (program: Executable) (p q: Post) (initial: M
       grind
 
 -- A loop down to 0
-theorem reg_dec_loop [Layout] (prog: Executable) (post: Post) (initial: MachineState) (invariant: Nat → Post) (n: Nat):
+theorem reg_dec_loop {State : Type} (trans : State → Post → Prop) (post : Post) (initial : State) (invariant : Nat → Post) (n : Nat) :
   -- if:
   -- invariant holds before entering the loop
   invariant n initial ∧
   -- final iteration allows proving `post`
-  (forall state, invariant 0 state → Eventually prog post state) ∧
+  (∀ state, invariant 0 state → Eventually trans post state) ∧
   -- while iterating, we eventually re-establish the invariant
-  (forall state k, k ≠ 0 → invariant k state → Eventually prog (invariant (k - 1)) state) →
+  (∀ state k, k ≠ 0 → invariant k state → Eventually trans (invariant (k - 1)) state) →
   -- then: we can prove the post
-  Eventually prog post initial
+  Eventually trans post initial
   := by
     intro misc
     rcases misc with ⟨ initial_invariant, case_zero, case_nonzero ⟩
@@ -89,13 +86,17 @@ theorem reg_dec_loop [Layout] (prog: Executable) (post: Post) (initial: MachineS
       apply case_zero
       grind
     else
-      apply eventually_trans prog (invariant (n - 1)) post
+      apply eventually_trans trans (invariant (n - 1)) post
       grind
       intros srec _
-      apply reg_dec_loop prog post srec invariant (n - 1)
+      apply reg_dec_loop trans post srec invariant (n - 1)
       grind
 
--- TACTIC MACROS
+def step1 [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
+  (Executable.step p s .done).All post
+
+def straightlineStep [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
+  (Executable.straightline p s .done).All post
 
 -- Example 2: fine-grained tactics to step through the goal without un-necessary
 -- steps, and relying only on low-level tactics
@@ -116,7 +117,7 @@ syntax "step_instr" : tactic
 macro_rules
   | `(tactic|step_instr) =>
   `(tactic|
-    delta Step1 eval1 fetch;
+    delta step1 eval1 fetch;
     dsimp only [List.findIdx?,List.findIdx,getElem?,List.get?Internal];
     dsimp only [Instr.is_ctrl];
     dsimp only [Bool.false_eq_true, ↓dreduceIte]; -- special simproc for if https://github.com/leanprover/lean4/blob/master/src/Lean/Meta/Tactic/Simp/BuiltinSimprocs/Core.lean#L25-L40
@@ -139,7 +140,7 @@ macro_rules
   | `(tactic|step_one) =>
   `(tactic|
     simp [
-      Step1,Program.straightline,
+      step1,Program.straightline,
       Program.position_of_addr,Program.positions,Program.positions',layout,List.filter,Position.Label,
       List.dropWhile,bne,BEq.beq,instBEqDirective.beq,dropInstrs,Program.straightline',Instr.interp,Operation.interp,Operand.interp];
     simp (ground:=True);
