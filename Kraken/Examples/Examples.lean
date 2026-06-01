@@ -742,7 +742,7 @@ def evalSymKStep : Grind.GrindTactic :=
 
   let goal ← Grind.liftGrindM (Sym.dsimp
     (config := { maxSteps := 1000000 })
-    (methods := { pre := /-klog >> -/kLiftLets >> kdeltaBetaOnly decls >> kdsimpMatch >> kdsimpProj >> kbeta})
+    (methods := { pre := klog >> kdeltaBetaOnly decls >> kdsimpMatch >> kdsimpProj >> kbeta})
     goal)
 
   let mvarId ← mvarId.replaceTargetDefEq goal
@@ -798,29 +798,29 @@ example [layout : Layout] s : Step1 (layout p5) (s, layout.start) (fun s => s.1.
   /- lift_lets -/
   /- dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [Effects.All] -/
 
-def bigp := parseFile("./ecc-secp521r1-modp.S")
+/- def bigp := parseFile("./ecc-secp521r1-modp.S") -/
 
-set_option maxRecDepth 4000
-set_option maxHeartbeats 2000000
+/- set_option maxRecDepth 4000 -/
+/- set_option maxHeartbeats 2000000 -/
 
-example [layout : Layout] s : Step1 (layout bigp) (s, layout.start) (fun s => s.1.regs.rax = 0) := by
-  -- Refine the state to make registers apparent -- note that `cases` consumes
-  -- the hypothesis, and substitutes it, so we make a copy of it to have a
-  -- refined state in the hypotheses, not the goal.
-  let ss := s
-  change (Step1 _ (ss, _) _)
-  cases s with | mk regs flags mem =>
-  cases regs with | mk rax =>
-  -- Rewrite the program to make layout, addresses, etc. apparent
-  delta bigp
-  dsimp only [Step1,Executable.straightline]
-  rw [Executable.directivesFromStart]
-  simp [List.mapIdx,List.mapIdx.go]
-  sym => 
-  kstep
-  sorry
-  tactic =>
-  lift_lets
-  revert
-  sorry
+/- example [layout : Layout] s : Step1 (layout bigp) (s, layout.start) (fun s => s.1.regs.rax = 0) := by -/
+/-   -- Refine the state to make registers apparent -- note that `cases` consumes -/
+/-   -- the hypothesis, and substitutes it, so we make a copy of it to have a -/
+/-   -- refined state in the hypotheses, not the goal. -/
+/-   let ss := s -/
+/-   change (Step1 _ (ss, _) _) -/
+/-   cases s with | mk regs flags mem => -/
+/-   cases regs with | mk rax => -/
+/-   -- Rewrite the program to make layout, addresses, etc. apparent -/
+/-   delta bigp -/
+/-   dsimp only [Step1,Executable.straightline] -/
+/-   rw [Executable.directivesFromStart] -/
+/-   simp [List.mapIdx,List.mapIdx.go] -/
+/-   sym => -/ 
+/-   kstep -/
+/-   sorry -/
+/-   tactic => -/
+/-   lift_lets -/
+/-   revert -/
+/-   sorry -/
 
