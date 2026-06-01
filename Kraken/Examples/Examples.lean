@@ -642,7 +642,8 @@ def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
   -- application node `f ...` before deciding whether it's worth doing a step of
   -- delta and replacing `f` with its definition.
   if let some e' ← Meta.unfoldDefinition? e true then
-    /- logInfo m!"deltaBetaOnly: {e}\nunfolds to:{e'}" -/
+    let step := (← get).numSteps
+    logInfo m!"deltaBetaOnly {step}: {e}\nunfolds to:{e'}"
     let e' ← shareCommon e'
     let e'' ← betaRevS e'.getAppFn e'.getAppRevArgs
     -- Here, we want to give other simprocs a chance to run, and reduce e.g.
@@ -651,7 +652,7 @@ def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
     -- which is a the top-level; for that one particular case, done := True
     -- means that we effectively stopping the traversal (not what we want!).
     let isEffectsAll := e.getAppFn'.isConstOf ``Effects.All
-    /- logInfo m!"deltaBetaOnly: {e}\nunfolds to:{e'}\nreduces to: {e''}" -/
+    /- logInfo m!"deltaBetaOnly {step}: {e}\nunfolds to:{e'}\nreduces to: {e''}" -/
     return .step e'' (done := !isEffectsAll)
   else
     /- let f := e.getAppFn -/
@@ -686,7 +687,8 @@ def kbeta: DSimproc := fun e => do
   let f := e.getAppFn
   if f.isHeadBetaTargetFn false then
     let e' ← betaRevS f e.getAppRevArgs
-    /- logInfo m!"kbeta: {e} reduces to {e'}" -/
+    /- let step := (← get).numSteps -/
+    /- logInfo m!"kbeta {step}: {e}\nreduces to\n{e'}" -/
     return .step e'
   else
     return .rfl
@@ -742,7 +744,7 @@ def evalSymKStep : Grind.GrindTactic :=
 
   let goal ← Grind.liftGrindM (Sym.dsimp
     (config := { maxSteps := 1000000 })
-    (methods := { pre := klog >> kdeltaBetaOnly decls >> kdsimpMatch >> kdsimpProj >> kbeta})
+    (methods := { pre := /- klog >> -/ kdeltaBetaOnly decls >> kdsimpMatch >> kdsimpProj >> kbeta})
     goal)
 
   let mvarId ← mvarId.replaceTargetDefEq goal
