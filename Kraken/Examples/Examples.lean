@@ -636,28 +636,56 @@ elab "kstep" : tactic => do
 
 open Lean Meta Sym Sym.DSimp
 
+partial def peelLets (e : Expr) (fvars : Array Expr) (k : Expr → Array Expr → DSimpM Result) : DSimpM Result := do
+  match e with
+  | .letE name type val body _ =>
+    withLetDecl name type val fun fvar =>
+      peelLets (body.instantiate1 fvar) (fvars.push fvar) k
+  | _ => k e fvars
+
+partial def peelArgsLets (args : Array Expr) (i : Nat) (peeled : Array Expr) (fvars : Array Expr) (k : Array Expr → Array Expr → DSimpM Result) : DSimpM Result := do
+  if h : i < args.size then
+    let arg := args[i]
+    peelLets arg fvars fun arg' fvars' =>
+      peelArgsLets args (i + 1) (peeled.push arg') fvars' k
+  else
+    k peeled fvars
+
 def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
   unless e.isApp && targets.any e.getAppFn'.isConstOf do return .rfl
-  -- Remember that `Meta.unfoldDefinition` is "smart" and wants to see the whole
-  -- application node `f ...` before deciding whether it's worth doing a step of
-  -- delta and replacing `f` with its definition.
-  if let some e' ← Meta.unfoldDefinition? e true then
-    let step := (← get).numSteps
-    logInfo m!"deltaBetaOnly {step}: {e}\nunfolds to:{e'}"
-    let e' ← shareCommon e'
-    let e'' ← betaRevS e'.getAppFn e'.getAppRevArgs
-    -- Here, we want to give other simprocs a chance to run, and reduce e.g.
-    -- matches or projectors rather than recursively unfold other occurrences of
-    -- e.g. Directives.interp in the continuation *UNLESS* this is Effects.all
-    -- which is a the top-level; for that one particular case, done := True
-    -- means that we effectively stopping the traversal (not what we want!).
-    let isEffectsAll := e.getAppFn'.isConstOf ``Effects.All
-    /- logInfo m!"deltaBetaOnly {step}: {e}\nunfolds to:{e'}\nreduces to: {e''}" -/
-    return .step e'' (done := !isEffectsAll)
-  else
-    /- let f := e.getAppFn -/
-    /- logInfo m!"deltaBetaOnly: {f} is expected to reduce but Meta.unfoldDefinition thinks otherwise" -/
-    return .rfl
+
+  let f := e.getAppFn
+  let args := e.getAppArgs
+
+  -- In order to unblock reduction, Meta.unfoldDefinition will happily inline
+  -- away let-bindings to make e.g. a constructor appear as an argument to a
+  -- match recursor. We intervene ahead of time, and hoist the lets that appear in
+  -- argument position, which we know for a fact happens quite a bunch in our
+  -- semantics. Concretely: `f (let x = ... in arg)` => `let x = ... in f arg`.
+  peelArgsLets args 0 #[] #[] fun (peeled : Array Expr) (fvars : Array Expr) => do
+    -- Application, *sans* the let-bindings in the arguments.
+    let e_rebuilt := mkAppN f peeled
+    -- Remember that `Meta.unfoldDefinition` is "smart" and wants to see the whole
+    -- application node `f ...` before deciding whether it's worth doing a step of
+    -- delta and replacing `f` with its definition.
+    if let some e' ← Meta.unfoldDefinition? e_rebuilt true then
+      /- let step := (← get).numSteps -/
+      /- logInfo m!"deltaBetaOnly {step}: {e_rebuilt}\nunfolds to:{e'}" -/
+      let e' ← shareCommon e'
+      let e'' ← betaRevS e'.getAppFn e'.getAppRevArgs
+      let e'' ← mkLetFVars fvars e''
+      -- Here, we want to give other simprocs a chance to run, and reduce e.g.
+      -- matches or projectors rather than recursively unfold other occurrences of
+      -- e.g. Directives.interp in the continuation *UNLESS* this is Effects.all
+      -- which is a the top-level; for that one particular case, done := True
+      -- means that we effectively stopping the traversal (not what we want!).
+      let isEffectsAll := e.getAppFn'.isConstOf ``Effects.All
+      /- logInfo m!"deltaBetaOnly {step}: {e}\nunfolds to:{e'}\nreduces to: {e''}" -/
+      return .step e'' (done := !isEffectsAll)
+    else
+      /- let f := e.getAppFn -/
+      /- logInfo m!"deltaBetaOnly: {f} is expected to reduce but Meta.unfoldDefinition thinks otherwise" -/
+      return .rfl
 
 def klog : DSimproc := fun e => do
   -- We log every top-level term get a trace of the various states of the dsimp
