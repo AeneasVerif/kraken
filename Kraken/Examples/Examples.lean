@@ -640,12 +640,36 @@ elab "kstep" : tactic => do
 
 open Lean Meta Sym Sym.DSimp
 
+partial def peelLambdaLets (f : Expr) (args : Array Expr) (fvars : Array Expr) (k : Expr → Array Expr → DSimpM Result) : DSimpM Result := do
+  match f, args.isEmpty with
+  | .lam binderName binderType body binderInfo, false =>
+    match body with
+    | .letE letName letType letVal _letBody _ =>
+      if !letType.hasLooseBVar 0 && !letVal.hasLooseBVar 0 then
+        withLetDecl letName letType letVal fun fvarY => do
+          withLocalDecl binderName binderInfo binderType fun fvarX => do
+            let body' : Expr := body.instantiate1 fvarX
+            match body' with
+            | .letE _ _ _ letBody' _ =>
+              let instBody : Expr := letBody'.instantiate1 fvarY
+              let newLambda ← mkLambdaFVars #[fvarX] instBody
+              peelLambdaLets newLambda args (fvars.push fvarY) k
+            | _ => k (mkAppN f args) fvars
+      else
+        k (mkAppN f args) fvars
+    | _ => k (mkAppN f args) fvars
+  | _, _ => k (mkAppN f args) fvars
+
 partial def peelLets (e : Expr) (fvars : Array Expr) (k : Expr → Array Expr → DSimpM Result) : DSimpM Result := do
   match e with
   | .letE name type val body _ =>
     withLetDecl name type val fun fvar =>
       peelLets (body.instantiate1 fvar) (fvars.push fvar) k
-  | _ => k e fvars
+  | _ =>
+    if e.isApp && e.getAppFn.isLambda then
+      peelLambdaLets e.getAppFn e.getAppArgs fvars k
+    else
+      k e fvars
 
 partial def peelArgsLets (args : Array Expr) (i : Nat) (peeled : Array Expr) (fvars : Array Expr) (k : Array Expr → Array Expr → DSimpM Result) : DSimpM Result := do
   if h : i < args.size then
