@@ -361,11 +361,15 @@ def reduceApp (e: Expr) : SymM Expr :=
   -- TODO: why is sharing not preserved here?
   shareCommonInc e
 
+def debug: Sym.Simp.Simproc := fun e => do
+  logInfo m!"simp (not dsimp!): {e}"
+  return .rfl
+
 /- simp using the provided methods *and* ground := True -/
 def mkSimpMethods4 (declNames : Array Name) : MetaM Sym.Simp.Methods := do
   let rewrite ← Sym.mkSimprocFor declNames Sym.Simp.dischargeSimpSelf
   return {
-    post := Sym.Simp.evalGround.andThen rewrite
+    post := debug.andThen (rewrite.andThen Sym.Simp.evalGround)
   }
 
 partial def silly4 (mvarId: MVarId): SymM MVarId := do
@@ -676,25 +680,33 @@ def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
       let e'' ← mkLetFVars fvars e''
       -- Here, we want to give other simprocs a chance to run, and reduce e.g.
       -- matches or projectors rather than recursively unfold other occurrences of
-      -- e.g. Directives.interp in the continuation *UNLESS* this is Effects.all
-      -- which is a the top-level; for that one particular case, done := True
-      -- means that we effectively stopping the traversal (not what we want!).
-      let isEffectsAll := e.getAppFn'.isConstOf ``Effects.All
+      -- e.g. Directives.interp in the continuation. Because we are never at the top-level (due to
+      -- the presence of the debug let-gimmick), there is no danger that returning done := true will
+      -- stop the traversal.
       /- logInfo m!"deltaBetaOnly {step}: {e}\nunfolds to:{e'}\nreduces to: {e''}" -/
-      return .step e'' (done := !isEffectsAll)
+      return .step e'' (done := true)
     else
       /- let f := e.getAppFn -/
       /- logInfo m!"deltaBetaOnly: {f} is expected to reduce but Meta.unfoldDefinition thinks otherwise" -/
       return .rfl
 
+def gimmickId (p: Prop): Prop := p
+
+def gimmick {p: Prop} (h: gimmickId p): p := by
+  simp [gimmickId] at h
+  assumption
+
+-- Debugging the reduction steps: to easily have a marker that tells us when we've hit the top-level
+-- term, we assume prior to running `kstep`, the user does `apply gimmick`. (This also avoids having
+-- to reason about whether we're at the top-level term or not -- we never are.)
 def klog : DSimproc := fun e => do
   -- We log every top-level term get a trace of the various states of the dsimp
   -- call.
   let s := (← get).numSteps
   /- if s = 789 then -/
   /-   return .rfl (done := true) -/
-  if e.isApp && e.getAppFn'.isConstOf ``Effects.All then
-    logInfo m!"klog: step {s} visiting\n{e}"
+  if e.isApp && e.getAppFn'.isConstOf ``gimmickId then
+    logInfo m!"klog: step {s} visiting\n{e.getAppRevArgs[0]!}"
   return .rfl
 
 
@@ -755,6 +767,15 @@ def evalSymKStep : Grind.GrindTactic :=
   -- A `sym` tactic operates over a pair of the grind state and an MVarId
   let gGoal : Grind.Goal ← Grind.getMainGoal
   let mvarId := gGoal.mvarId
+
+  -- Apply the debug gimmick. We actually *do* expect the goal to be in this form (see comment in
+  -- kdeltaBetaOnly).
+  let gimmickRule ← mkBackwardRuleFromDecl ``gimmick
+  let mvarId ← Grind.liftGrindM (do
+    let .goals [mvarId] ← gimmickRule.apply mvarId | failure
+    pure mvarId
+  )
+
   let goal ← mvarId.getType
 
   let decls := [
@@ -770,20 +791,27 @@ def evalSymKStep : Grind.GrindTactic :=
     ``StatusFlags.from_result
   ]
 
-  let goal ← Grind.liftGrindM (Sym.dsimp
-    (config := { maxSteps := 1000000 })
-    (methods := { pre := /- klog >> -/ kdeltaBetaOnly decls >> kdsimpMatch >> kdsimpProj >> kbeta})
-    goal)
+  let goal ← Grind.liftGrindM (do
+    Sym.dsimp
+      (config := { maxSteps := 1000000 })
+      (methods := { pre := klog >> kdeltaBetaOnly decls >> kdsimpMatch >> kdsimpProj >> kbeta})
+      goal)
+
+  -- TEMPORARY: trying to simplify binders in the goal
+  /- let goal ← Meta.letToHave goal -/
+  /- let goal ← Grind.liftGrindM $ shareCommon goal -/
+  /- let mvarId ← mvarId.replaceTargetDefEq goal -/
+
+  /- let simpMethods: Sym.Simp.Methods ← mkSimpMethods4 #[ ``Nat.shiftRight_zero ] -/
+  /- let simpResult ← Grind.liftGrindM (Sym.simpGoal mvarId simpMethods) -/
+  /- let mvarId ← Grind.liftGrindM (match simpResult with -/
+  /-   | .noProgress => pure mvarId -/
+  /-   | .goal mvarId => pure mvarId -/
+  /-   | .closed => throwError "unexpected") -/
 
   let mvarId ← mvarId.replaceTargetDefEq goal
 
   Grind.setGoals [ { gGoal with mvarId } ]
-
-example: 1 = 0 + 1 := by
-  sym =>
-  kstep
-  tactic =>
-  rfl
 
 --------------------------------------------------------------------------------
 
@@ -791,6 +819,7 @@ example: 1 = 0 + 1 := by
 
 /- set_option pp.all true -/
 
+--def p5 := parse("start:
 def p5 := parse("start: mov $2, %rax
 dec %rax
 start2:
@@ -804,6 +833,7 @@ register_sym_dsimp kdsimp where
   pre  := beta -->> match >> zeta >> zeta_delta
   post := none
 
+#check Nat.shiftRight_zero
 
 example [layout : Layout] s : Step1 (layout p5) (s, layout.start) (fun s => s.1.regs.rax = 0) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
@@ -821,12 +851,14 @@ example [layout : Layout] s : Step1 (layout p5) (s, layout.start) (fun s => s.1.
   sym => 
   kstep
   tactic =>
+  /- simp (zeta:=false)(beta:=false)(eta:=false)(iota:=false)(proj:=false)(ground:=true) -/
+  simp (zeta:=false)(beta:=false)(eta:=false)(iota:=false)(proj:=false)(ground:=false) only [Nat.shiftRight_zero]
   intros
-  decide
+  simp [gimmickId]
 
-  /- tactic => -/
-  /- lift_lets -/
-  /- dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [Effects.All] -/
+/-   tactic => -/
+/-   lift_lets -/
+/-   dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [Effects.All] -/
 
 /- def bigp := parseFile("./ecc-secp521r1-modp.S") -/
 
@@ -849,8 +881,8 @@ example [layout : Layout] s : Step1 (layout p5) (s, layout.start) (fun s => s.1.
 /-   sym => -/ 
 /-   kstep -/
 /-   sorry -/
-/-   tactic => -/
-/-   lift_lets -/
-/-   revert -/
-/-   sorry -/
+/-   /1- tactic => -1/ -/
+/-   /1- lift_lets -1/ -/
+/-   /1- revert -1/ -/
+/-   /1- sorry -1/ -/
 
