@@ -752,7 +752,7 @@ def kbeta: DSimproc := fun e => do
     let e' ← betaRevS f e.getAppRevArgs
     /- let step := (← get).numSteps -/
     /- logInfo m!"kbeta {step}: {e}\nreduces to\n{e'}" -/
-    return .step e'
+    return .step e' (done := true)
   else
     return .rfl
 
@@ -809,7 +809,7 @@ def evalSymKStep : Grind.GrindTactic :=
 
     ``Directives.interp, ``Directive.interp, ``Instr.interp, ``Operation.interp,
     ``Operand.interp, ``Effects.All,
-    ``ConstExpr.interp, ``RegOrMem.interp, ``Reg.interp,
+    ``ConstExpr.interp, ``RegOrMem.interp, ``Reg.interp, ``MachineData.store,
 
     ``StatusFlags.from_result
   ]
@@ -838,11 +838,8 @@ def evalSymKStep : Grind.GrindTactic :=
 
 --------------------------------------------------------------------------------
 
-/- Example -/
+/- Examples -/
 
-/- set_option pp.all true -/
-
---def p5 := parse("start:
 def p5 := parse("start: mov $2, %rax
 dec %rax
 start2:
@@ -851,12 +848,6 @@ dec %rax")
 set_option maxHeartbeats 1000000
 set_option pp.rawOnError true
 /- set_option pp.all true -/
-
-register_sym_dsimp kdsimp where
-  pre  := beta -->> match >> zeta >> zeta_delta
-  post := none
-
-#check Nat.shiftRight_zero
 
 example [layout : Layout] s : Step1 (layout p5) (s, layout.start) (fun s => s.1.regs.rax = 0) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
@@ -868,6 +859,35 @@ example [layout : Layout] s : Step1 (layout p5) (s, layout.start) (fun s => s.1.
   cases regs with | mk rax =>
   -- Rewrite the program to make layout, addresses, etc. apparent
   delta p5
+  dsimp only [Step1,Executable.straightline]
+  rw [Executable.directivesFromStart]
+  simp [List.mapIdx,List.mapIdx.go]
+  sym => 
+  kstep
+  tactic =>
+  /- simp (zeta:=false)(beta:=false)(eta:=false)(iota:=false)(proj:=false)(ground:=true) -/
+  simp (zeta:=false)(beta:=false)(eta:=false)(iota:=false)(proj:=false)(ground:=false) only [Nat.shiftRight_zero]
+  intros
+  simp [gimmickId]
+
+def p6 := parse("push %rax
+mov $0, %rax
+pop %rax")
+
+set_option maxHeartbeats 1000000
+set_option pp.rawOnError true
+/- set_option pp.all true -/
+
+example [layout : Layout] s : Step1 (layout p6) (s, layout.start) (fun s' => s'.1.regs.rax = s.regs.rax) := by
+  -- Refine the state to make registers apparent -- note that `cases` consumes
+  -- the hypothesis, and substitutes it, so we make a copy of it to have a
+  -- refined state in the hypotheses, not the goal.
+  let ss := s
+  change (Step1 _ (ss, _) _)
+  cases s with | mk regs flags mem =>
+  cases regs with | mk rax =>
+  -- Rewrite the program to make layout, addresses, etc. apparent
+  delta p6
   dsimp only [Step1,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
