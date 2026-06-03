@@ -903,7 +903,7 @@ set_option pp.rawOnError true
 example [layout : Layout] (s: MachineData)
   (hAlign:
     have rsp := s.regs.rsp.toBitVec - BitVec.ofNat 64 Width.W64.bytes;
-    (rsp % BitVec.ofNat 64 Width.W64.bytes != 0) = True)
+    rsp % BitVec.ofNat 64 Width.W64.bytes = 0)
   : Step1 (layout p6) (s, layout.start) (fun s' => s'.1.regs.rax = s.regs.rax) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
@@ -920,11 +920,14 @@ example [layout : Layout] (s: MachineData)
   sym => 
   kstep
   tactic =>
-  simp only [hAlign]
-  /- simp (zeta:=false)(beta:=false)(eta:=false)(iota:=false)(proj:=false)(ground:=true) -/
-  simp (zeta:=false)(beta:=false)(eta:=false)(iota:=false)(proj:=false)(ground:=false) only [Nat.shiftRight_zero]
-  intros
-  simp [gimmickId]
+  lift_lets
+  intros rsp key v
+  simp
+  have: rsp % BitVec.ofNat 64 Width.W64.bytes = 0 := by grind
+  simp [this,gimmickId]
+  sym =>
+  simp [this]
+  sorry
 
 /-   tactic => -/
 /-   lift_lets -/
