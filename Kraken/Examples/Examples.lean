@@ -679,9 +679,10 @@ partial def peelArgsLets (args : Array Expr) (i : Nat) (peeled : Array Expr) (fv
     k peeled fvars
 
 def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
+  -- This focuses on application nodes.
   unless e.isApp && targets.any e.getAppFn'.isConstOf do return .rfl
 
-  let f := e.getAppFn
+  let f := e.getAppFn'
   let args := e.getAppArgs
 
   -- In order to unblock reduction, Meta.unfoldDefinition will happily inline
@@ -689,29 +690,47 @@ def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
   -- match recursor. We intervene ahead of time, and hoist the lets that appear in
   -- argument position, which we know for a fact happens quite a bunch in our
   -- semantics. Concretely: `f (let x = ... in arg)` => `let x = ... in f arg`.
-  peelArgsLets args 0 #[] #[] fun (peeled : Array Expr) (fvars : Array Expr) => do
-    -- Application, *sans* the let-bindings in the arguments.
-    let e_rebuilt := mkAppN f peeled
-    -- Remember that `Meta.unfoldDefinition` is "smart" and wants to see the whole
-    -- application node `f ...` before deciding whether it's worth doing a step of
-    -- delta and replacing `f` with its definition.
-    if let some e' ← Meta.unfoldDefinition? e_rebuilt true then
-      /- let step := (← get).numSteps -/
-      /- logInfo m!"deltaBetaOnly {step}: {e_rebuilt}\nunfolds to:{e'}" -/
-      let e' ← shareCommon e'
-      let e'' ← betaRevS e'.getAppFn e'.getAppRevArgs
-      let e'' ← mkLetFVars fvars e''
-      -- Here, we want to give other simprocs a chance to run, and reduce e.g.
-      -- matches or projectors rather than recursively unfold other occurrences of
-      -- e.g. Directives.interp in the continuation. Because we are never at the top-level (due to
-      -- the presence of the debug let-gimmick), there is no danger that returning done := true will
-      -- stop the traversal.
-      /- logInfo m!"deltaBetaOnly {step}: {e}\nunfolds to:{e'}\nreduces to: {e''}" -/
-      return .step e'' (done := true)
+  peelArgsLets args 0 #[] #[] fun (args : Array Expr) (fvars : Array Expr) => do
+
+    if f.isConstOf ``Effects.All && args[1]!.isApp && args[1]!.getAppFn'.isConstOf ``Directives.interp then
+      -- Finding a node of the form `Effects.All ... (Directives.interp ...)`
+      -- means that we are ready to step through. We manually force reduction of
+      -- Directives.interp (since it is *not* is our list of targets), then let
+      -- everything simplify until we're called again.
+      let some arg1 ← Meta.unfoldDefinition? args[1]! true | throwError "can't unfold Directives.interp"
+      let e := mkAppN f (args.set! 1 arg1)
+      let e' ← shareCommon e
+      let e'' ← mkLetFVars fvars e'
+      return .step e''
+      -- TODO: we could here have a post := in the simproc that forces the
+      -- result to be .step ... (done := true) to prevent the next unrolling of
+      -- Directives.interp from being applied. This would essentially allow
+      -- implementing a kstep1 tactic (and leave it to done := false to keep
+      -- stepping until something blocks).
+
+      -- Essentially this behavior allows us to keep reducing and stepping,
+      -- until we have no steps left to apply and YET the goal has landed us
+      -- back on something that is neither Effects.All ... (Directives.interp
+      -- ...), nor Effects.All ... (require_exec_access ...), handled in the
+      -- case below.
     else
-      /- let f := e.getAppFn -/
-      /- logInfo m!"deltaBetaOnly: {f} is expected to reduce but Meta.unfoldDefinition thinks otherwise" -/
-      return .rfl
+      -- Application, *sans* the let-bindings in the arguments.
+      let e_rebuilt := mkAppN f args
+      -- Remember that `Meta.unfoldDefinition` is "smart" and wants to see the whole
+      -- application node `f ...` before deciding whether it's worth doing a step of
+      -- delta and replacing `f` with its definition.
+      if let some e' ← Meta.unfoldDefinition? e_rebuilt true then
+        /- let step := (← get).numSteps -/
+        /- logInfo m!"deltaBetaOnly {step}: {e_rebuilt}\nunfolds to:{e'}" -/
+        let e' ← shareCommon e'
+        let e'' ← betaRevS e'.getAppFn e'.getAppRevArgs
+        let e'' ← mkLetFVars fvars e''
+        /- logInfo m!"deltaBetaOnly {step}: {e}\nunfolds to:{e'}\nreduces to: {e''}" -/
+        return .step e''
+      else
+        /- let f := e.getAppFn -/
+        /- logInfo m!"deltaBetaOnly: {f} is expected to reduce but Meta.unfoldDefinition thinks otherwise" -/
+        return .rfl
 
 def gimmickId (p: Prop): Prop := p
 
@@ -752,7 +771,7 @@ def kbeta: DSimproc := fun e => do
     let e' ← betaRevS f e.getAppRevArgs
     /- let step := (← get).numSteps -/
     /- logInfo m!"kbeta {step}: {e}\nreduces to\n{e'}" -/
-    return .step e' (done := true)
+    return .step e'
   else
     return .rfl
 
@@ -804,10 +823,13 @@ def evalSymKStep : Grind.GrindTactic :=
   let decls := [
     ``Reg.interp, ``Reg64s.get, ``Reg.base, ``Reg.offset, ``MachineData.set,
     ``MachineData.setReg, ``Reg64s.set, ``Width.type, ``Width.bits,
+    ``Width.bytesv,
     ``Reg64s.get64, ``Reg64s.set64, ``BitVec.drop, ``BitVec.take,
     ``BitVec.extractLsb', ``BitVec.truncate, ``ConstExpr.interp,
 
-    ``Directives.interp, ``Directive.interp, ``Instr.interp, ``Operation.interp,
+    -- We INTENTIONALLY do not include Directives.interp -- this serves as our
+    -- special marker, and one that determines whether we can resume.
+    ``Directive.interp, ``Instr.interp, ``Operation.interp,
     ``Operand.interp, ``Effects.All,
     ``ConstExpr.interp, ``RegOrMem.interp, ``Reg.interp, ``MachineData.store,
 
@@ -878,7 +900,11 @@ set_option maxHeartbeats 1000000
 set_option pp.rawOnError true
 /- set_option pp.all true -/
 
-example [layout : Layout] s : Step1 (layout p6) (s, layout.start) (fun s' => s'.1.regs.rax = s.regs.rax) := by
+example [layout : Layout] (s: MachineData)
+  (hAlign:
+    have rsp := s.regs.rsp.toBitVec - BitVec.ofNat 64 Width.W64.bytes;
+    (rsp % BitVec.ofNat 64 Width.W64.bytes != 0) = True)
+  : Step1 (layout p6) (s, layout.start) (fun s' => s'.1.regs.rax = s.regs.rax) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
   -- refined state in the hypotheses, not the goal.
@@ -894,6 +920,7 @@ example [layout : Layout] s : Step1 (layout p6) (s, layout.start) (fun s' => s'.
   sym => 
   kstep
   tactic =>
+  simp only [hAlign]
   /- simp (zeta:=false)(beta:=false)(eta:=false)(iota:=false)(proj:=false)(ground:=true) -/
   simp (zeta:=false)(beta:=false)(eta:=false)(iota:=false)(proj:=false)(ground:=false) only [Nat.shiftRight_zero]
   intros
