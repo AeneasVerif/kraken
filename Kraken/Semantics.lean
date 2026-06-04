@@ -166,6 +166,28 @@ def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.ty
         ret { s with dmem := s.dmem.insert key new }
     | .none => nonmem_store s.dmem addr v (fun dmem' => ret { s with dmem := dmem' }))
 
+theorem simpleAlignedStore64 (s : MachineData) (addr : BitVec 64) (v : BitVec 64) (ret: MachineData → Effects)
+  (hAligned: addr % 8 = 0)
+  (hContains: UInt64.ofBitVec addr ∈ s.dmem):
+  have: BitVec 64 = Width.W64.type := by simp [Width.type,Width.bits]
+  MachineData.store s addr (this ▸ v) ret =
+  require_write_access addr Width.W64 (fun _unit =>
+    ret { s with dmem := s.dmem.insert (UInt64.ofBitVec addr) (UInt64.ofBitVec v) }) :=
+by
+  simp only [MachineData.store,Width.bytesv,Width.bytes]
+  have: addr % 8#64 = 0#64 := by grind
+  simp only [this]
+  have: UInt64.ofBitVec (addr &&& ~~~0b111#64) = UInt64.ofBitVec addr := by
+    bv_decide
+  rw [this]
+  have: addr &&& 7#64 = 0 := by bv_decide
+  simp [this]
+  have: addr.toNat &&& 7 = 0 := by grind
+  simp [Width.bits,BitVec.replace]
+  ext
+  sorry
+  
+
 class Labels where label : Label → Int64
 export Labels (label)
 
