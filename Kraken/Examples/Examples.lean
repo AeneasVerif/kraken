@@ -831,7 +831,7 @@ def evalSymKStep : Grind.GrindTactic :=
     -- special marker, and one that determines whether we can resume.
     ``Directive.interp, ``Instr.interp, ``Operation.interp,
     ``Operand.interp, ``Effects.All,
-    ``ConstExpr.interp, ``RegOrMem.interp, ``Reg.interp, ``MachineData.store,
+    ``ConstExpr.interp, ``RegOrMem.interp, ``Reg.interp,
 
     ``StatusFlags.from_result
   ]
@@ -900,10 +900,38 @@ set_option maxHeartbeats 1000000
 set_option pp.rawOnError true
 /- set_option pp.all true -/
 
+theorem simpleAlignedStore64 (s : MachineData) (addr : BitVec 64) (v : Width.W64.type) (ret: MachineData → Effects)
+  (hAligned: addr % 8 = 0)
+  (hContains: UInt64.ofBitVec addr ∈ s.dmem):
+  MachineData.store s addr v ret =
+  require_write_access addr Width.W64 (fun _unit =>
+    ret { s with dmem := s.dmem.insert (UInt64.ofBitVec addr) (UInt64.ofBitVec v) }) :=
+by
+  simp only [MachineData.store,Width.bytesv,Width.bytes]
+  have: addr % 8#64 = 0#64 := by grind
+  simp only [this]
+  have: UInt64.ofBitVec (addr &&& ~~~0b111#64) = UInt64.ofBitVec addr := by
+    bv_decide
+  rw [this]
+  have: addr &&& 7#64 = 0 := by bv_decide
+  simp [this]
+  have: addr.toNat &&& 7 = 0 := by grind
+  simp [Width.bits]
+  simp [BitVec.replace]
+  rw [Std.ExtHashMap.getElem?_eq_some_getElem! hContains]
+  simp
+  ext
+  simp [BitVec.drop]
+  simp [Width.type,Width.bits] at v
+  have : 0#0 ++ v = v := by bv_decide
+  rw [this]
+
 example [layout : Layout] (s: MachineData)
   (hAlign:
     have rsp := s.regs.rsp.toBitVec - BitVec.ofNat 64 Width.W64.bytes;
+    have rsp := s.regs.rsp.toBitVec - BitVec.ofNat 64 Width.W64.bytes;
     rsp % BitVec.ofNat 64 Width.W64.bytes = 0)
+  (hContains: forall x, x ∈ s.dmem)
   : Step1 (layout p6) (s, layout.start) (fun s' => s'.1.regs.rax = s.regs.rax) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
@@ -921,6 +949,7 @@ example [layout : Layout] (s: MachineData)
   kstep
   tactic =>
   lift_lets
+  rw [simpleAlignedStore64]
   intros rsp key v
   simp
   have: rsp % BitVec.ofNat 64 Width.W64.bytes = 0 := by grind
