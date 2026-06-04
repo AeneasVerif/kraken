@@ -949,7 +949,7 @@ by
   rw [Std.ExtHashMap.getElem?_eq_some_getElem! hContains]
 
 example [layout : Layout] (s: MachineData)
-  (hAlign: s.regs.rsp % Width.W64.bytes = 0)
+  (hAlign: s.regs.rsp % (8 : UInt64) = 0)
   (hContains: forall x, x ∈ s.dmem)
   : Step1 (layout p6) (s, layout.start) (fun s' => s'.1.regs.rax = s.regs.rax) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
@@ -958,7 +958,7 @@ example [layout : Layout] (s: MachineData)
   let ss := s
   change (Step1 _ (ss, _) _)
   cases s with | mk regs flags mem =>
-  cases regs with | mk rax =>
+  cases regs with | mk rax rbx rcx rdx rsi rdi rsp_old rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
   -- Rewrite the program to make layout, addresses, etc. apparent
   delta p6
   dsimp only [Step1,Executable.straightline]
@@ -968,27 +968,25 @@ example [layout : Layout] (s: MachineData)
   kstep
   tactic =>
   lift_lets
-  intros rsp v
+  intros rsp_store v
   simp only [gimmickId]
-  have: rsp % 8 = 0 := by
-    simp [Width.bytes] at hAlign
-    sorry
+  have: rsp_store % 8 = 0 := by
+    have hAlignBV := congrArg UInt64.toBitVec hAlign
+    bv_decide
   rw [simpleAlignedStore64]
   <;> try grind
   sym =>
   kstep
   tactic =>
   lift_lets
-  intros
+  intros rsp
   simp only [gimmickId]
   rw [simpleAlignedLoad64]
   <;> try grind
   sym =>
   kstep
   tactic =>
-  simp [gimmickId]
-  sorry
-  
+  simp [gimmickId, rsp]
 
 example: True := by trivial
 
