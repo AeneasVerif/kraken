@@ -185,18 +185,12 @@ by
   have: addr.toNat &&& 7 = 0 := by grind
   simp [Width.bits]
   simp [BitVec.replace]
-  ext _unit
-  split
-  · rename_i old heq
-    have: old.toBitVec.drop 64 ++ v = v := by
-      simp [BitVec.drop]
-      bv_decide
-    rw [this]
-  · rename_i heq
-    have hIsSome : s.dmem[(UInt64.ofBitVec addr)]?.isSome = true :=
-      Std.ExtHashMap.isSome_getElem?_iff_mem.mpr hContains
-    rw [heq] at hIsSome
-    contradiction
+  rw [Std.ExtHashMap.getElem?_eq_some_getElem! hContains]
+  simp
+  ext
+  simp [BitVec.drop]
+  have : 0#0 ++ v = v := by bv_decide
+  rw [this]
   
 
 class Labels where label : Label → Int64
