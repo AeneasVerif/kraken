@@ -32,7 +32,6 @@ theorem Executable.directivesFromStart [layout : Layout] prog :
     (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) := by
   induction prog <;> simp [Executable.directivesFromAddress,Executable.withAddresses,Layout.apply]
     
-
 -- Super-simple example to debug tactics
 example [layout : Layout] s : Step1 (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
   dsimp only [p1]
@@ -739,15 +738,22 @@ def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
         let e'' ← mkLetFVars fvars e''
         /- logInfo m!"deltaBetaOnly {step}: {e}\nunfolds to:{e'}\nreduces to: {e''}" -/
         return .step e''
+      else if fvars.size > 0 then
+        -- Can't reduce application, but we should at least hoist the lets!
+        let e ← mkLetFVars fvars e_rebuilt
+        return .step e
       else
-        /- let f := e.getAppFn -/
-        /- logInfo m!"deltaBetaOnly: {f} is expected to reduce but Meta.unfoldDefinition thinks otherwise" -/
+        -- Really nothing to do here.
         return .rfl
 
 def gimmickId (p: Prop): Prop := p
 
 def gimmick {p: Prop} (h: gimmickId p): p := by
   simp [gimmickId] at h
+  assumption
+
+def gimmickInv {p: Prop} (h: p): gimmickId p := by
+  simp [gimmickId]
   assumption
 
 -- Debugging the reduction steps: to easily have a marker that tells us when we've hit the top-level
@@ -841,10 +847,13 @@ def evalSymKStep : Grind.GrindTactic :=
     ``BitVec.extractLsb', ``BitVec.truncate, ``ConstExpr.interp,
 
     -- We INTENTIONALLY do not include Directives.interp -- this serves as our
-    -- special marker, and one that determines whether we can resume.
+    -- special marker, and one that determines whether know we can resume.
     ``Directive.interp, ``Instr.interp, ``Operation.interp,
     ``Operand.interp, ``Effects.All,
     ``ConstExpr.interp, ``RegOrMem.interp, ``Reg.interp,
+
+    -- We also do not include MachineData.store/load as we intend for those to
+    -- be destructed with rw-lemmas.
 
     ``StatusFlags.from_result
   ]
@@ -868,6 +877,13 @@ def evalSymKStep : Grind.GrindTactic :=
   /-   | .closed => throwError "unexpected") -/
 
   let mvarId ← mvarId.replaceTargetDefEq goal
+
+  -- Remove the gimmick debug marker.
+  let gimmickRule ← mkBackwardRuleFromDecl ``gimmickInv
+  let mvarId ← Grind.liftGrindM (do
+    let .goals [mvarId] ← gimmickRule.apply mvarId | failure
+    pure mvarId
+  )
 
   Grind.setGoals [ { gGoal with mvarId } ]
 
@@ -903,7 +919,7 @@ example [layout : Layout] s : Step1 (layout p5) (s, layout.start) (fun s => s.1.
   /- simp (zeta:=false)(beta:=false)(eta:=false)(iota:=false)(proj:=false)(ground:=true) -/
   simp (zeta:=false)(beta:=false)(eta:=false)(iota:=false)(proj:=false)(ground:=false) only [Nat.shiftRight_zero]
   intros
-  simp [gimmickId]
+  bv_decide
 
 def p6 := parse("push %rax
 mov $0, %rax
@@ -973,6 +989,8 @@ example [layout : Layout] (s: MachineData)
   change (Step1 _ (ss, _) _)
   cases s with | mk regs flags mem =>
   cases regs with | mk rax rbx rcx rdx rsi rdi rsp_old rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
+  simp at hAlign
+  simp at hContains
   -- Rewrite the program to make layout, addresses, etc. apparent
   delta p6
   dsimp only [Step1,Executable.straightline]
@@ -983,10 +1001,7 @@ example [layout : Layout] (s: MachineData)
   tactic =>
   lift_lets
   intros rsp_store v
-  simp only [gimmickId]
-  have: rsp_store % 8 = 0 := by
-    have hAlignBV := congrArg UInt64.toBitVec hAlign
-    bv_decide
+  have: rsp_store % 8 = 0 := by bv_decide
   rw [simpleAlignedStore64]
   <;> try grind
   sym =>
@@ -994,26 +1009,26 @@ example [layout : Layout] (s: MachineData)
   tactic =>
   lift_lets
   intros rsp
-  simp only [gimmickId]
+  intros
   rw [simpleAlignedLoad64]
   <;> try grind
   sym =>
   kstep
   tactic =>
-  simp [gimmickId, rsp]
+  intros
+  simp [rsp]
 
 example: True := by trivial
-
-/-   tactic => -/
-/-   lift_lets -/
-/-   dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [Effects.All] -/
 
 /- def bigp := parseFile("./ecc-secp521r1-modp.S") -/
 
 /- set_option maxRecDepth 4000 -/
 /- set_option maxHeartbeats 2000000 -/
 
-/- example [layout : Layout] s : Step1 (layout bigp) (s, layout.start) (fun s => s.1.regs.rax = 0) := by -/
+/- example [layout : Layout] s -/ 
+/-   (hAlign: s.regs.rsp % 8 = 0) -/
+/-   (hContains: forall x, x ∈ s.dmem) -/
+/- : Step1 (layout bigp) (s, layout.start) (fun s => s.1.regs.rax = 0) := by -/
 /-   -- Refine the state to make registers apparent -- note that `cases` consumes -/
 /-   -- the hypothesis, and substitutes it, so we make a copy of it to have a -/
 /-   -- refined state in the hypotheses, not the goal. -/
@@ -1026,7 +1041,48 @@ example: True := by trivial
 /-   dsimp only [Step1,Executable.straightline] -/
 /-   rw [Executable.directivesFromStart] -/
 /-   simp [List.mapIdx,List.mapIdx.go] -/
+
 /-   sym => -/ 
+/-   kstep -/
+/-   tactic => -/
+/-   intro rsp_store -/
+/-   have: rsp_store % 8 = 0 := by bv_decide -/
+/-   rw [simpleAlignedStore64] -/
+/-   <;> try grind -/
+
+/-   sym => -/
+/-   kstep -/
+/-   tactic => -/
+/-   intro rsp_store -/
+/-   have: rsp_store % 8 = 0 := by bv_decide -/
+/-   rw [simpleAlignedStore64] -/
+/-   <;> try grind -/
+
+/-   sym => -/
+/-   kstep -/
+/-   tactic => -/
+/-   intro rsp_store -/
+/-   have: rsp_store % 8 = 0 := by bv_decide -/
+/-   rw [simpleAlignedStore64] -/
+/-   <;> try grind -/
+
+/-   sym => -/
+/-   kstep -/
+/-   tactic => -/
+/-   intro rsp_store -/
+/-   have: rsp_store % 8 = 0 := by bv_decide -/
+/-   rw [simpleAlignedStore64] -/
+/-   <;> try grind -/
+
+/-   sym => -/
+/-   kstep -/
+/-   tactic => -/
+/-   intro rsp_store -/
+/-   have: rsp_store % 8 = 0 := by bv_decide -/
+/-   rw [simpleAlignedStore64] -/
+/-   <;> try grind -/
+
+/-   sym => -/
 /-   kstep -/
 /-   sorry -/
 /-   /1- tactic => -1/ -/
