@@ -14,6 +14,18 @@ import Kraken.Eval
 
 open Kraken.Parser
 
+unif_hint (w : Width) where
+  w =?= Width.W8 |- Width.type w =?= BitVec 8
+
+unif_hint (w : Width) where
+  w =?= Width.W16 |- Width.type w =?= BitVec 16
+
+unif_hint (w : Width) where
+  w =?= Width.W32 |- Width.type w =?= BitVec 32
+
+unif_hint (w : Width) where
+  w =?= Width.W64 |- Width.type w =?= BitVec 64
+
 def p1 := parse("start: mov $1, %rax")
 
 theorem Executable.directivesFromStart [layout : Layout] prog :
@@ -905,7 +917,7 @@ set_option pp.rawOnError true
 theorem simpleAlignedStore64 (s : MachineData) (addr : BitVec 64) (v : BitVec 64) (ret: MachineData → Effects)
   (hAligned: addr % 8 = 0)
   (hContains: UInt64.ofBitVec addr ∈ s.dmem):
-  @MachineData.store s addr .W64 v ret =
+  MachineData.store s addr v ret =
   require_write_access addr Width.W64 (fun _unit =>
     ret { s with dmem := s.dmem.insert (UInt64.ofBitVec addr) (UInt64.ofBitVec v) }) :=
 by
