@@ -928,6 +928,26 @@ by
   have : 0#0 ++ v = v := by bv_decide
   rw [this]
 
+theorem simpleAlignedLoad64 (s : MachineData) (addr : BitVec 64) {w: Width} (ret: w.type → MachineData → Effects)
+  (hAligned: addr % 8 = 0)
+  (hContains: UInt64.ofBitVec addr ∈ s.dmem)
+  (hIs64: w = .W64):
+  have: w.type = BitVec 64 := by simp [Width.type,Width.bits,hIs64]
+  MachineData.load s addr w ret =
+  require_read_access addr Width.W64 (fun _unit =>
+    ret (this ▸ (s.dmem[UInt64.ofBitVec addr]!).toBitVec) s) :=
+by
+  simp only [MachineData.load,Width.bytesv,Width.bytes]
+  subst hIs64
+  have: addr % 8#64 = 0#64 := by grind
+  simp only [this]
+  have: UInt64.ofBitVec (addr &&& ~~~0b111#64) = UInt64.ofBitVec addr := by
+    bv_decide
+  rw [this]
+  have: addr &&& 7#64 = 0 := by bv_decide
+  simp [this,Width.bits]
+  rw [Std.ExtHashMap.getElem?_eq_some_getElem! hContains]
+
 example [layout : Layout] (s: MachineData)
   (hAlign: s.regs.rsp % Width.W64.bytes = 0)
   (hContains: forall x, x ∈ s.dmem)
@@ -961,7 +981,14 @@ example [layout : Layout] (s: MachineData)
   lift_lets
   intros
   simp only [gimmickId]
+  rw [simpleAlignedLoad64]
+  <;> try grind
+  sym =>
+  kstep
+  tactic =>
+  simp [gimmickId]
   sorry
+  
 
 example: True := by trivial
 
