@@ -183,9 +183,20 @@ by
   have: addr &&& 7#64 = 0 := by bv_decide
   simp [this]
   have: addr.toNat &&& 7 = 0 := by grind
-  simp [Width.bits,BitVec.replace]
-  ext
-  sorry
+  simp [Width.bits]
+  simp [BitVec.replace]
+  ext _unit
+  split
+  · rename_i old heq
+    have: old.toBitVec.drop 64 ++ v = v := by
+      simp [BitVec.drop]
+      bv_decide
+    rw [this]
+  · rename_i heq
+    have hIsSome : s.dmem[(UInt64.ofBitVec addr)]?.isSome = true :=
+      Std.ExtHashMap.isSome_getElem?_iff_mem.mpr hContains
+    rw [heq] at hIsSome
+    contradiction
   
 
 class Labels where label : Label → Int64
