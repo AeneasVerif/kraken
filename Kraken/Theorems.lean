@@ -78,10 +78,6 @@ theorem ofInt_inj_int (o1 o2 : Int) (h_o1 : 0 ≤ o1 ∧ o1 < 184467440737095516
   rw [h1, h2] at h_eq
   omega
 
-@[simp] theorem extract_self (v : BitVec 64) :
-  BitVec.extractLsb' 0 64 (BitVec.extractLsb' 0 64 v) = v := by
-  apply BitVec.eq_of_toNat_eq
-  simp
 
 @[simp] theorem bitvec_extractLsb'_0_64 (x : BitVec 64) : BitVec.extractLsb' 0 64 x = x := by bv_decide
 
@@ -151,36 +147,6 @@ theorem ofNat_inj (o1 o2 : Nat) (h_o1 : o1 < 18446744073709551616) (h_o2 : o2 < 
 -- Int64 / Int Conversion Lemmas
 -- ============================================================================
 
-@[simp] theorem int64_toint_zero : Int64.toInt 0 = 0 := rfl
-@[simp] theorem int64_toint_8 : Int64.toInt (Int64.ofNat 8) = 8 := rfl
-@[simp] theorem int64_toint_16 : Int64.toInt (Int64.ofNat 16) = 16 := rfl
-@[simp] theorem int64_toint_24 : Int64.toInt (Int64.ofNat 24) = 24 := rfl
-@[simp] theorem int64_toint_32 : Int64.toInt (Int64.ofNat 32) = 32 := rfl
-@[simp] theorem int64_toint_40 : Int64.toInt (Int64.ofNat 40) = 40 := rfl
-@[simp] theorem int64_toint_48 : Int64.toInt (Int64.ofNat 48) = 48 := rfl
-@[simp] theorem int64_toint_56 : Int64.toInt (Int64.ofNat 56) = 56 := rfl
-@[simp] theorem int64_toint_64 : Int64.toInt (Int64.ofNat 64) = 64 := rfl
-@[simp] theorem int64_toint_72 : Int64.toInt (Int64.ofNat 72) = 72 := rfl
-
-@[simp] theorem int_add_zero_end (x : Int) : x + 0 = x := by omega
-@[simp] theorem int_add_zero_middle (x y : Int) : x + 0 + y = x + y := by omega
-
-@[simp] theorem int64_toint_zero_add_general (rdi : UInt64) :
-  BitVec.zeroExtend 64 (BitVec.ofInt 64 ((BitVec.extractLsb' 0 64 rdi.toBitVec).toInt + 0 + Int64.toInt 0)) = rdi.toBitVec := by
-  have h1 : BitVec.extractLsb' 0 64 rdi.toBitVec = rdi.toBitVec := by
-    apply BitVec.eq_of_toNat_eq
-    simp
-  rw [h1]
-  have h2 : Int64.toInt 0 = 0 := rfl
-  rw [h2]
-  have h3 : rdi.toBitVec.toInt + 0 + 0 = rdi.toBitVec.toInt := by omega
-  rw [h3]
-  have h4 : rdi.toBitVec.toInt = rdi.toBitVec.signed := rfl
-  rw [h4]
-  rw [ofInt_signed]
-  apply BitVec.eq_of_toNat_eq
-  simp
-
 @[simp] theorem int64_toint_c_add_general (rdi : UInt64) (c : Int) :
   BitVec.zeroExtend 64 (BitVec.ofInt 64 ((BitVec.extractLsb' 0 64 rdi.toBitVec).toInt + 0 + c)) = rdi.toBitVec + BitVec.ofInt 64 c := by
   have h1 : BitVec.extractLsb' 0 64 rdi.toBitVec = rdi.toBitVec := by
@@ -204,16 +170,6 @@ theorem ofNat_inj (o1 o2 : Nat) (h_o1 : o1 < 18446744073709551616) (h_o2 : o2 < 
 -- ============================================================================
 -- 8-Byte Alignment & Bitmask Lemmas
 -- ============================================================================
-
-@[simp] theorem align_check (rdi : UInt64) (h_align : rdi.toNat % 8 = 0) (disp : Int) (h_disp : disp % 8 = 0) :
-  (BitVec.ofInt 64 (rdi.toBitVec.toInt + disp)) % 8#64 = 0#64 := by
-  apply BitVec.eq_of_toNat_eq
-  have h2 : rdi.toBitVec.toInt % 8 = 0 := by
-    have h_toNat : rdi.toBitVec.toNat = rdi.toNat := rfl
-    have h_toInt : rdi.toBitVec.toInt = if 2 * rdi.toBitVec.toNat < 18446744073709551616 then (rdi.toBitVec.toNat : Int) else (rdi.toBitVec.toNat : Int) - 18446744073709551616 := rfl
-    omega
-  simp
-  omega
 
 @[simp]
 theorem uint64_align_bv_8 (x : UInt64) (h : x.toNat % 8 = 0) : x.toBitVec % 8#64 = 0#64 := by
@@ -515,14 +471,6 @@ theorem mul_8_and_7 (k : Nat) : (8 * k) &&& 7 = 0 := by
           omega
         simp [h2]
 
-
-
-
-
-@[simp] theorem rdi_add_mask_c (rdi c : UInt64) (h1 : rdi.toNat % 8 = 0) (h2 : c.toNat % 8 = 0) :
-  (rdi + c) &&& 18446744073709551608 = rdi + c := by
-  apply uint64_mask_align_8
-  exact uint64_add_align_8 rdi c h1 h2
 
 @[simp] theorem bitvec_add_mask_0 (rdi : UInt64) (h1 : rdi.toNat % 8 = 0) :
   rdi.toBitVec &&& ~~~7#64 = rdi.toBitVec := by
