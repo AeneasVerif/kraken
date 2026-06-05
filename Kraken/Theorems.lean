@@ -85,21 +85,9 @@ theorem ofInt_inj_int (o1 o2 : Int) (h_o1 : 0 ≤ o1 ∧ o1 < 184467440737095516
 
 @[simp] theorem bitvec_extractLsb'_0_64 (x : BitVec 64) : BitVec.extractLsb' 0 64 x = x := by bv_decide
 
-@[simp]
-theorem bitvec_extract_eq (rdi : UInt64) :
-  BitVec.extractLsb' 0 64 rdi.toBitVec = rdi.toBitVec := by
-  apply BitVec.eq_of_toNat_eq
-  dsimp [BitVec.extractLsb']
-  simp
 
 @[simp] theorem bitvec_zeroExtend_64_64 (x : BitVec 64) : BitVec.zeroExtend 64 x = x := by bv_decide
 
-@[simp]
-theorem bitvec_zeroExtend_eq (x : BitVec 64) :
-  BitVec.zeroExtend 64 x = x := by
-  apply BitVec.eq_of_toNat_eq
-  dsimp [BitVec.zeroExtend]
-  simp
 
 @[simp]
 theorem bitvec_replace_all_64 (old : BitVec 64) (new : BitVec 64) :
@@ -107,17 +95,6 @@ theorem bitvec_replace_all_64 (old : BitVec 64) (new : BitVec 64) :
     dsimp only [BitVec.replace, BitVec.drop, BitVec.take]
     bv_decide
 
-@[simp] theorem bv_replace_0_64 (v : BitVec 64) (new : BitVec 64) :
-  v.replace 0 new = new := by
-  have h1 : v.take 0 = 0#0 := by apply BitVec.eq_of_toNat_eq; simp [BitVec.take]
-  have h2 : v.drop 64 = 0#0 := by apply BitVec.eq_of_toNat_eq; simp [BitVec.drop]
-  unfold BitVec.replace
-  rw [h1, h2]
-  have h3 : 0#0 ++ new = new := by
-    apply BitVec.eq_of_toNat_eq
-    change (0#0).toNat <<< 64 ||| new.toNat = new.toNat
-    simp
-  simp [h3]
 
 theorem bitvec_add_left_cancel (x y z : BitVec 64) (h : x + y = x + z) : y = z := by
   revert h
@@ -216,7 +193,7 @@ theorem ofNat_inj (o1 o2 : Nat) (h_o1 : o1 < 18446744073709551616) (h_o2 : o2 < 
   omega
 
 -- Bridge lemma: lets simp prove (n : UInt64).toNat % 8 = 0 for concrete n.
--- simp chains: bv_and_mask needs alignment → uint64_add_align_8 propagates it
+-- simp chains: uint64_mask_align_8 needs alignment → uint64_add_align_8 propagates it
 -- → this lemma reduces UInt64 literal alignment to Nat alignment (n % 8 = 0)
 -- → Nat.reduceMod computes n % 8 for ground n.
 @[simp] theorem uint64_ofNat_toNat_mod_8 (n : Nat) (h : n % 8 = 0) :
@@ -244,10 +221,6 @@ theorem uint64_align_bv_8 (x : UInt64) (h : x.toNat % 8 = 0) : x.toBitVec % 8#64
   change x.toNat % 8 = 0
   exact h
 
-@[simp] theorem bv_mod_8 (v : UInt64) (h : v.toNat % 8 = 0) : v.toBitVec % 8#64 = 0#64 := by
-  apply BitVec.eq_of_toNat_eq
-  change v.toNat % 8 = 0
-  exact h
 
 -- This is ~~~7 which is used as a mask in the kraken memory model. This is written in the format
 -- that makes it most useful for simp.
@@ -476,12 +449,6 @@ theorem uint64_add_align_8 (x : UInt64) (offset : UInt64)
   have h2 : 18446744073709551616 % 8 = 0 := by decide
   omega
 
-@[simp]
-theorem align_add_u64 (x y : UInt64) (hx : x.toNat % 8 = 0) (hy : y.toNat % 8 = 0) : (x + y).toNat % 8 = 0 := by
-  have h1 : (x + y).toNat = (x.toNat + y.toNat) % 18446744073709551616 := rfl
-  rw [h1]
-  have h2 : 18446744073709551616 % 8 = 0 := by decide
-  omega
 
 @[simp]
 theorem align_8_const (c : UInt64) (h : c.toNat % 8 = 0 := by decide) : c.toNat % 8 = 0 := h
@@ -548,49 +515,13 @@ theorem mul_8_and_7 (k : Nat) : (8 * k) &&& 7 = 0 := by
           omega
         simp [h2]
 
-@[simp] theorem bv_and_7 (v : UInt64) (h : v.toNat % 8 = 0) : v.toNat &&& 7 = 0 := by
-  have hk : v.toNat = 8 * (v.toNat / 8) := by omega
-  rw [hk, mul_8_and_7]
 
-@[simp] theorem bv_and_mask (v : UInt64) (h : v.toNat % 8 = 0) : v &&& 18446744073709551608 = v := by
-  apply UInt64.toNat_inj.1
-  have : (v &&& 18446744073709551608).toNat = v.toNat &&& 18446744073709551608 := by rfl
-  rw [this]
-  have hk : v.toNat = 8 * (v.toNat / 8) := by omega
-  have hv_lt : 8 * (v.toNat / 8) < 18446744073709551616 := by rw [← hk]; exact UInt64.toNat_lt_size v
-  generalize (v.toNat / 8) = k at hk hv_lt
-  rw [hk]
-  apply Nat.eq_of_testBit_eq
-  intro i
-  simp
-  cases i with
-  | zero =>
-    have : (8 * k).testBit 0 = false := by simp [Nat.testBit]; omega
-    simp [this]
-  | succ i => cases i with
-    | zero =>
-      have : (8 * k).testBit 1 = false := by simp [Nat.testBit]; omega
-      simp [this]
-    | succ i => cases i with
-      | zero =>
-        have : (8 * k).testBit 2 = false := by simp [Nat.testBit]; omega
-        simp [this]
-      | succ i =>
-        by_cases hi : i < 61
-        · have h_tb : Nat.testBit 18446744073709551608 (i + 3) = true := by
-            have : ∀ j : Fin 61, Nat.testBit 18446744073709551608 (j.val + 3) = true := by decide
-            exact this ⟨i, hi⟩
-          simp [h_tb]
-        · have h_tb : (8 * k).testBit (i + 3) = false := by
-            apply Nat.testBit_lt_two_pow
-            have : 8 * k < 2^64 := hv_lt
-            have : 2^64 ≤ 2^(i + 3) := Nat.pow_le_pow_right (by decide) (by omega)
-            omega
-          simp [h_tb]
+
+
 
 @[simp] theorem rdi_add_mask_c (rdi c : UInt64) (h1 : rdi.toNat % 8 = 0) (h2 : c.toNat % 8 = 0) :
   (rdi + c) &&& 18446744073709551608 = rdi + c := by
-  apply bv_and_mask
+  apply uint64_mask_align_8
   exact uint64_add_align_8 rdi c h1 h2
 
 @[simp] theorem bitvec_add_mask_0 (rdi : UInt64) (h1 : rdi.toNat % 8 = 0) :
