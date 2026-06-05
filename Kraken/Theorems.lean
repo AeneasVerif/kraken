@@ -6,7 +6,6 @@ import Kraken.Semantics
 import Kraken.Tactics
 
 -- UInt64.ofInt (k : Int) ≠ 0 when k is a natural number with k < 2^64 and k ≠ 0
--- This proof uses only core Lean lemmas (no Batteries/Mathlib)
 theorem UInt64_ofInt_natCast_ne_zero (k : Nat) (h_lt : k < 2^64) (h_ne : k ≠ 0) :
     UInt64.ofInt (k : Int) ≠ 0 := by
   simp only [UInt64.ofInt, ne_eq]
@@ -249,6 +248,7 @@ theorem uint64_ne_align_8_eq (x : UInt64) (offset1 offset2 : Nat)
     exact h_ne h_eq_num
   apply h_ne_bv
   exact congrArg UInt64.toBitVec h_eq
+
 theorem ofInt_mod_8 (offset : Int) (h : offset % 8 = 0) :
     (BitVec.ofInt 64 offset).toNat % 8 = 0 := by
   dsimp [BitVec.ofInt]
@@ -707,7 +707,6 @@ theorem mul_8_and_7 (k : Nat) : (8 * k) &&& 7 = 0 := by
   simp [h]
 
 
-
 @[simp] theorem isSome_to_exists {α} (o : Option α) (h : o.isSome) : ∃ v, o = some v := by
   cases o
   · contradiction
@@ -893,17 +892,6 @@ theorem align_check_add_lem (v : UInt64) (h : v.toNat % 8 = 0) (c : Int) (hc : c
 @[simp] theorem setReg_status (s : MachineData) {w} (r : Reg w) (v : w.type) :
   (s.setReg r v).status = s.status := rfl
 
-@[simp] theorem set64_rdi_rax (s : Reg64s) (v) : (s.set64 .rax v).rdi = s.rdi := rfl
-@[simp] theorem set64_rdi_rcx (s : Reg64s) (v) : (s.set64 .rcx v).rdi = s.rdi := rfl
-@[simp] theorem set64_rdi_rdx (s : Reg64s) (v) : (s.set64 .rdx v).rdi = s.rdi := rfl
-@[simp] theorem set64_rdi_rbx (s : Reg64s) (v) : (s.set64 .rbx v).rdi = s.rdi := rfl
-@[simp] theorem set64_rdi_rsi (s : Reg64s) (v) : (s.set64 .rsi v).rdi = s.rdi := rfl
-@[simp] theorem set64_rdi_rbp (s : Reg64s) (v) : (s.set64 .rbp v).rdi = s.rdi := rfl
-@[simp] theorem set64_rdi_r8  (s : Reg64s) (v) : (s.set64 .r8  v).rdi = s.rdi := rfl
-@[simp] theorem set64_rdi_r9  (s : Reg64s) (v) : (s.set64 .r9  v).rdi = s.rdi := rfl
-@[simp] theorem set64_rdi_r10 (s : Reg64s) (v) : (s.set64 .r10 v).rdi = s.rdi := rfl
-@[simp] theorem set64_rdi_r11 (s : Reg64s) (v) : (s.set64 .r11 v).rdi = s.rdi := rfl
-
 @[simp] theorem set_low_w64 (s : Reg64s) (r : Reg64) (v : BitVec 64) :
   s.set (.low r .W64) v = s.set64 r v := rfl
 
@@ -914,61 +902,6 @@ macro "u64_omega" : tactic => `(tactic| (
   intro h2;
   omega
 ))
-
-@[simp] theorem rdi_add_ne_1 (rdi : UInt64) : rdi ≠ rdi + 8 := by intro h; have h2 := congrArg UInt64.toNat h; change rdi.toNat = (rdi.toNat + 8) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_2 (rdi : UInt64) : rdi ≠ rdi + 16 := by intro h; have h2 := congrArg UInt64.toNat h; change rdi.toNat = (rdi.toNat + 16) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_3 (rdi : UInt64) : rdi ≠ rdi + 24 := by intro h; have h2 := congrArg UInt64.toNat h; change rdi.toNat = (rdi.toNat + 24) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_4 (rdi : UInt64) : rdi ≠ rdi + 32 := by intro h; have h2 := congrArg UInt64.toNat h; change rdi.toNat = (rdi.toNat + 32) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_5 (rdi : UInt64) : rdi ≠ rdi + 40 := by intro h; have h2 := congrArg UInt64.toNat h; change rdi.toNat = (rdi.toNat + 40) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_6 (rdi : UInt64) : rdi ≠ rdi + 48 := by intro h; have h2 := congrArg UInt64.toNat h; change rdi.toNat = (rdi.toNat + 48) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_7 (rdi : UInt64) : rdi ≠ rdi + 56 := by intro h; have h2 := congrArg UInt64.toNat h; change rdi.toNat = (rdi.toNat + 56) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_8 (rdi : UInt64) : rdi ≠ rdi + 64 := by intro h; have h2 := congrArg UInt64.toNat h; change rdi.toNat = (rdi.toNat + 64) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_9 (rdi : UInt64) : rdi ≠ rdi + 72 := by intro h; have h2 := congrArg UInt64.toNat h; change rdi.toNat = (rdi.toNat + 72) % 18446744073709551616 at h2; omega
-
-@[simp] theorem rdi_add_ne_12 (rdi : UInt64) : rdi + 8 ≠ rdi + 16 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 8) % 18446744073709551616 = (rdi.toNat + 16) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_13 (rdi : UInt64) : rdi + 8 ≠ rdi + 24 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 8) % 18446744073709551616 = (rdi.toNat + 24) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_14 (rdi : UInt64) : rdi + 8 ≠ rdi + 32 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 8) % 18446744073709551616 = (rdi.toNat + 32) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_15 (rdi : UInt64) : rdi + 8 ≠ rdi + 40 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 8) % 18446744073709551616 = (rdi.toNat + 40) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_16 (rdi : UInt64) : rdi + 8 ≠ rdi + 48 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 8) % 18446744073709551616 = (rdi.toNat + 48) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_17 (rdi : UInt64) : rdi + 8 ≠ rdi + 56 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 8) % 18446744073709551616 = (rdi.toNat + 56) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_18 (rdi : UInt64) : rdi + 8 ≠ rdi + 64 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 8) % 18446744073709551616 = (rdi.toNat + 64) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_19 (rdi : UInt64) : rdi + 8 ≠ rdi + 72 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 8) % 18446744073709551616 = (rdi.toNat + 72) % 18446744073709551616 at h2; omega
-
-@[simp] theorem rdi_add_ne_23 (rdi : UInt64) : rdi + 16 ≠ rdi + 24 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 16) % 18446744073709551616 = (rdi.toNat + 24) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_24 (rdi : UInt64) : rdi + 16 ≠ rdi + 32 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 16) % 18446744073709551616 = (rdi.toNat + 32) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_25 (rdi : UInt64) : rdi + 16 ≠ rdi + 40 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 16) % 18446744073709551616 = (rdi.toNat + 40) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_26 (rdi : UInt64) : rdi + 16 ≠ rdi + 48 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 16) % 18446744073709551616 = (rdi.toNat + 48) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_27 (rdi : UInt64) : rdi + 16 ≠ rdi + 56 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 16) % 18446744073709551616 = (rdi.toNat + 56) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_28 (rdi : UInt64) : rdi + 16 ≠ rdi + 64 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 16) % 18446744073709551616 = (rdi.toNat + 64) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_29 (rdi : UInt64) : rdi + 16 ≠ rdi + 72 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 16) % 18446744073709551616 = (rdi.toNat + 72) % 18446744073709551616 at h2; omega
-
-@[simp] theorem rdi_add_ne_34 (rdi : UInt64) : rdi + 24 ≠ rdi + 32 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 24) % 18446744073709551616 = (rdi.toNat + 32) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_35 (rdi : UInt64) : rdi + 24 ≠ rdi + 40 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 24) % 18446744073709551616 = (rdi.toNat + 40) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_36 (rdi : UInt64) : rdi + 24 ≠ rdi + 48 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 24) % 18446744073709551616 = (rdi.toNat + 48) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_37 (rdi : UInt64) : rdi + 24 ≠ rdi + 56 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 24) % 18446744073709551616 = (rdi.toNat + 56) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_38 (rdi : UInt64) : rdi + 24 ≠ rdi + 64 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 24) % 18446744073709551616 = (rdi.toNat + 64) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_39 (rdi : UInt64) : rdi + 24 ≠ rdi + 72 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 24) % 18446744073709551616 = (rdi.toNat + 72) % 18446744073709551616 at h2; omega
-
-@[simp] theorem rdi_add_ne_45 (rdi : UInt64) : rdi + 32 ≠ rdi + 40 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 32) % 18446744073709551616 = (rdi.toNat + 40) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_46 (rdi : UInt64) : rdi + 32 ≠ rdi + 48 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 32) % 18446744073709551616 = (rdi.toNat + 48) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_47 (rdi : UInt64) : rdi + 32 ≠ rdi + 56 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 32) % 18446744073709551616 = (rdi.toNat + 56) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_48 (rdi : UInt64) : rdi + 32 ≠ rdi + 64 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 32) % 18446744073709551616 = (rdi.toNat + 64) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_49 (rdi : UInt64) : rdi + 32 ≠ rdi + 72 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 32) % 18446744073709551616 = (rdi.toNat + 72) % 18446744073709551616 at h2; omega
-
-@[simp] theorem rdi_add_ne_56 (rdi : UInt64) : rdi + 40 ≠ rdi + 48 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 40) % 18446744073709551616 = (rdi.toNat + 48) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_57 (rdi : UInt64) : rdi + 40 ≠ rdi + 56 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 40) % 18446744073709551616 = (rdi.toNat + 56) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_58 (rdi : UInt64) : rdi + 40 ≠ rdi + 64 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 40) % 18446744073709551616 = (rdi.toNat + 64) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_59 (rdi : UInt64) : rdi + 40 ≠ rdi + 72 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 40) % 18446744073709551616 = (rdi.toNat + 72) % 18446744073709551616 at h2; omega
-
-@[simp] theorem rdi_add_ne_67 (rdi : UInt64) : rdi + 48 ≠ rdi + 56 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 48) % 18446744073709551616 = (rdi.toNat + 56) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_68 (rdi : UInt64) : rdi + 48 ≠ rdi + 64 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 48) % 18446744073709551616 = (rdi.toNat + 64) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_69 (rdi : UInt64) : rdi + 48 ≠ rdi + 72 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 48) % 18446744073709551616 = (rdi.toNat + 72) % 18446744073709551616 at h2; omega
-
-@[simp] theorem rdi_add_ne_78 (rdi : UInt64) : rdi + 56 ≠ rdi + 64 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 56) % 18446744073709551616 = (rdi.toNat + 64) % 18446744073709551616 at h2; omega
-@[simp] theorem rdi_add_ne_79 (rdi : UInt64) : rdi + 56 ≠ rdi + 72 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 56) % 18446744073709551616 = (rdi.toNat + 72) % 18446744073709551616 at h2; omega
-
-@[simp] theorem rdi_add_ne_89 (rdi : UInt64) : rdi + 64 ≠ rdi + 72 := by intro h; have h2 := congrArg UInt64.toNat h; change (rdi.toNat + 64) % 18446744073709551616 = (rdi.toNat + 72) % 18446744073709551616 at h2; omega
-
 
 @[simp]
 theorem bitvec_and_7_align_8 (x : BitVec 64) (h : x % 8#64 = 0#64) : x &&& 7#64 = 0#64 := by
@@ -1002,6 +935,7 @@ theorem bitvec_and_7_align_8 (x : BitVec 64) (h : x % 8#64 = 0#64) : x &&& 7#64 
   have h4 : some (getElem m k' h2) = m.get? k' := by simp
   rw [h3, h4]
   simp [h_ne]
+
 @[simp] theorem add_inj_left_eq_self (a b : UInt64) : (a + b = a) ↔ (b = 0) := by
   constructor
   · intro h; apply UInt64.toNat_inj.1; have h2 := congrArg UInt64.toNat h; revert h2; change (a.toNat + b.toNat) % 18446744073709551616 = a.toNat → (b.toNat = 0); intro h; have h3 := UInt64.toNat_lt_size a; have h4 := UInt64.toNat_lt_size b; change a.toNat < 18446744073709551616 at h3; change b.toNat < 18446744073709551616 at h4; omega
@@ -1026,20 +960,6 @@ theorem bitvec_and_7_align_8 (x : BitVec 64) (h : x % 8#64 = 0#64) : x &&& 7#64 
   constructor
   · intro h h_eq; apply h; apply UInt64.toNat_inj.1; have h2 := congrArg UInt64.toNat h_eq; revert h2; change b.toNat = 0 → a.toNat = (a.toNat + b.toNat) % 18446744073709551616; intro h; have h3 := UInt64.toNat_lt_size a; have h4 := UInt64.toNat_lt_size b; change a.toNat < 18446744073709551616 at h3; change b.toNat < 18446744073709551616 at h4; omega
   · intro h h_eq; apply h; apply UInt64.toNat_inj.1; have h2 := congrArg UInt64.toNat h_eq; revert h2; change a.toNat = (a.toNat + b.toNat) % 18446744073709551616 → (b.toNat = 0); intro h; have h3 := UInt64.toNat_lt_size a; have h4 := UInt64.toNat_lt_size b; change a.toNat < 18446744073709551616 at h3; change b.toNat < 18446744073709551616 at h4; omega
-
-@[simp] theorem set64_rax (s : Reg64s) (v) : s.set64 .rax v = { s with rax := UInt64.ofBitVec v } := rfl
-@[simp] theorem set64_rcx (s : Reg64s) (v) : s.set64 .rcx v = { s with rcx := UInt64.ofBitVec v } := rfl
-@[simp] theorem set64_rdx (s : Reg64s) (v) : s.set64 .rdx v = { s with rdx := UInt64.ofBitVec v } := rfl
-@[simp] theorem set64_rbx (s : Reg64s) (v) : s.set64 .rbx v = { s with rbx := UInt64.ofBitVec v } := rfl
-@[simp] theorem set64_rsi (s : Reg64s) (v) : s.set64 .rsi v = { s with rsi := UInt64.ofBitVec v } := rfl
-@[simp] theorem set64_rdi (s : Reg64s) (v) : s.set64 .rdi v = { s with rdi := UInt64.ofBitVec v } := rfl
-@[simp] theorem set64_rsp (s : Reg64s) (v) : s.set64 .rsp v = { s with rsp := UInt64.ofBitVec v } := rfl
-@[simp] theorem set64_rbp (s : Reg64s) (v) : s.set64 .rbp v = { s with rbp := UInt64.ofBitVec v } := rfl
-@[simp] theorem set64_r8  (s : Reg64s) (v) : s.set64 .r8  v = { s with r8  := UInt64.ofBitVec v } := rfl
-@[simp] theorem set64_r9  (s : Reg64s) (v) : s.set64 .r9  v = { s with r9  := UInt64.ofBitVec v } := rfl
-@[simp] theorem set64_r10 (s : Reg64s) (v) : s.set64 .r10 v = { s with r10 := UInt64.ofBitVec v } := rfl
-@[simp] theorem set64_r11 (s : Reg64s) (v) : s.set64 .r11 v = { s with r11 := UInt64.ofBitVec v } := rfl
-
 
 @[simp]
 theorem bitvec_extract_eq (rdi : UInt64) :
