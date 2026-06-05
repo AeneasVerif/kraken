@@ -438,26 +438,21 @@ theorem bitvec_ofInt_add_and_7 (rdi : UInt64) (h : rdi.toNat % 8 = 0) (c : Int) 
 theorem mul_8_and_7 (k : Nat) : (8 * k) &&& 7 = 0 := by
   apply Nat.eq_of_testBit_eq
   intro i
-  have h1 : Nat.testBit ((8 * k) &&& 7) i = (Nat.testBit (8 * k) i && Nat.testBit 7 i) := by simp
-  rw [h1]
+  simp only [Nat.testBit_and, Nat.zero_testBit]
   cases i with
-  | zero =>
-    have : (8 * k).testBit 0 = false := by simp [Nat.testBit]; omega
-    simp [this]
+  | zero => simp [Nat.testBit]; omega
   | succ i => cases i with
-    | zero =>
-      have : (8 * k).testBit 1 = false := by simp [Nat.testBit]; omega
-      simp [this]
+    | zero => simp [Nat.testBit]; omega
     | succ i => cases i with
-      | zero =>
-        have : (8 * k).testBit 2 = false := by simp [Nat.testBit]; omega
-        simp [this]
+      | zero => simp [Nat.testBit]; omega
       | succ i =>
-        have h2 : Nat.testBit 7 (i + 3) = false := by
-          apply Nat.testBit_lt_two_pow
-          have : 2^3 ≤ 2^(i+3) := Nat.pow_le_pow_right (by decide) (by omega)
-          omega
-        simp [h2]
+        have hi3 : i + 1 + 1 + 1 = i + 3 := by omega
+        rw [hi3]
+        have : (7 : Nat).testBit (i + 3) = false :=
+          Nat.testBit_lt_two_pow (by
+            calc 7 < 2^3 := by decide
+                 _ ≤ 2^(i+3) := Nat.pow_le_pow_right (by decide) (by omega))
+        simp [this]
 
 
 @[simp] theorem bitvec_add_mask_0 (rdi : UInt64) (h1 : rdi.toNat % 8 = 0) :
