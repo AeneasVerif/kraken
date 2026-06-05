@@ -480,7 +480,7 @@ def p4 := eval% parse("start: mov $2, %rax
 dec %rax")
 
 -- Super-simple example to debug tactics
-example [layout : Layout] s : Step1 (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+example [layout : Layout] s : straightlineStep (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
   -- refined state in the hypotheses, not the goal.
@@ -517,17 +517,17 @@ set_option maxHeartbeats 1000000
 set_option pp.rawOnError true
 /- set_option pp.all true -/
 
-example [layout : Layout] s : Step1 (layout p5) (s, layout.start) (fun s => s.1.regs.rax = 0) := by
+example [layout : Layout] s : straightlineStep (layout p5) (s, layout.start) (fun s => s.1.regs.rax = 0) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
   -- refined state in the hypotheses, not the goal.
   let ss := s
-  change (Step1 _ (ss, _) _)
+  change (straightlineStep _ (ss, _) _)
   cases s with | mk regs flags mem =>
   cases regs with | mk rax =>
   -- Rewrite the program to make layout, addresses, etc. apparent
   delta p5
-  dsimp only [Step1,Executable.straightline]
+  dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
 
@@ -598,19 +598,19 @@ by
 example [layout : Layout] (s: MachineData)
   (hAlign: s.regs.rsp % 8 = 0)
   (hContains: forall x, x ∈ s.dmem)
-  : Step1 (layout p6) (s, layout.start) (fun s' => s'.1.regs.rax = s.regs.rax) := by
+  : straightlineStep (layout p6) (s, layout.start) (fun s' => s'.1.regs.rax = s.regs.rax) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
   -- refined state in the hypotheses, not the goal.
   let ss := s
-  change (Step1 _ (ss, _) _)
+  change (straightlineStep _ (ss, _) _)
   cases s with | mk regs flags mem =>
   cases regs with | mk rax rbx rcx rdx rsi rdi rsp_old rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
   simp at hAlign
   simp at hContains
   -- Rewrite the program to make layout, addresses, etc. apparent
   delta p6
-  dsimp only [Step1,Executable.straightline]
+  dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
 
@@ -647,17 +647,17 @@ example [layout : Layout] (s: MachineData)
 /- example [layout : Layout] s -/ 
 /-   (hAlign: s.regs.rsp % 8 = 0) -/
 /-   (hContains: forall x, x ∈ s.dmem) -/
-/- : Step1 (layout bigp) (s, layout.start) (fun s => s.1.regs.rax = 0) := by -/
+/- : straightlineStep (layout bigp) (s, layout.start) (fun s => s.1.regs.rax = 0) := by -/
 /-   -- Refine the state to make registers apparent -- note that `cases` consumes -/
 /-   -- the hypothesis, and substitutes it, so we make a copy of it to have a -/
 /-   -- refined state in the hypotheses, not the goal. -/
 /-   let ss := s -/
-/-   change (Step1 _ (ss, _) _) -/
+/-   change (straightlineStep _ (ss, _) _) -/
 /-   cases s with | mk regs flags mem => -/
 /-   cases regs with | mk rax => -/
 /-   -- Rewrite the program to make layout, addresses, etc. apparent -/
 /-   delta bigp -/
-/-   dsimp only [Step1,Executable.straightline] -/
+/-   dsimp only [straightlineStep,Executable.straightline] -/
 /-   rw [Executable.directivesFromStart] -/
 /-   simp [List.mapIdx,List.mapIdx.go] -/
 
