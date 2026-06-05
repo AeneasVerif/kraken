@@ -234,14 +234,15 @@ theorem bitvec_add_align_8_mask_7 (x : BitVec 64) (offset : BitVec 64)
 theorem int_add_mask_align_8 (x : BitVec 64) (offset : Nat)
     (h_x : x % 8#64 = 0#64) (h_off : offset % 8 = 0) :
     (((x.toInt + (offset : Int)) % 18446744073709551616).toNat &&& 7) = 0 := by
-  rw [toNat_ofInt_eq]
-  rw [ofInt_toInt_add]
-  apply bitvec_add_align_8_mask_7 x (BitVec.ofNat 64 offset) h_x
-  apply BitVec.eq_of_toNat_eq
-  change ((BitVec.ofNat 64 offset).umod 8#64).toNat = (0#64).toNat
-  dsimp only [BitVec.umod]
-  simp
-  omega
+  rw [toNat_ofInt_eq, ofInt_toInt_add]
+  have hc_bv : (BitVec.ofNat 64 offset) % 8#64 = 0#64 := by
+    apply BitVec.eq_of_toNat_eq
+    change ((BitVec.ofNat 64 offset).umod 8#64).toNat = 0
+    dsimp only [BitVec.umod]
+    simp
+    omega
+  have h_add : (x + BitVec.ofNat 64 offset) &&& 7#64 = 0#64 := by revert h_x hc_bv; bv_decide
+  exact congrArg BitVec.toNat h_add
 
 @[simp]
 theorem uint64_add_mask_align_8 (x : UInt64) (offset : Nat)
@@ -277,16 +278,11 @@ theorem ofInt_add_align_8 (x : BitVec 64) (offset : Int) (h_x : x % 8#64 = 0#64)
 theorem int_add_mask_align_8_int (x : BitVec 64) (offset : Int)
     (h_x : x % 8#64 = 0#64) (h_off : offset % 8 = 0) :
     (((x.toInt + offset) % 18446744073709551616).toNat &&& 7) = 0 := by
-  rw [toNat_ofInt_eq]
-  have h_add : BitVec.ofInt 64 (x.toInt + offset) = x + BitVec.ofInt 64 offset := by
-    rw [ofInt_add, ofInt_toInt]
-  rw [h_add]
-  apply bitvec_add_align_8_mask_7 _ _ h_x
-  have h_mod : (BitVec.ofInt 64 offset).toNat % 8 = 0 := by
-    apply ofInt_mod_8 _ h_off
-  apply BitVec.eq_of_toNat_eq
-  change (BitVec.ofInt 64 offset).toNat % 8 = 0
-  exact h_mod
+  rw [toNat_ofInt_eq, ofInt_toInt_add_int]
+  have h_mod : (BitVec.ofInt 64 offset).toNat % 8 = 0 := ofInt_mod_8 _ h_off
+  have hc_bv : (BitVec.ofInt 64 offset) % 8#64 = 0#64 := by apply BitVec.eq_of_toNat_eq; exact h_mod
+  have h_add : (x + BitVec.ofInt 64 offset) &&& 7#64 = 0#64 := by revert h_x hc_bv; bv_decide
+  exact congrArg BitVec.toNat h_add
 
 @[simp]
 theorem uint64_add_mask_align_8_int (x : UInt64) (offset : Int)
@@ -323,68 +319,6 @@ theorem uint64_add_mask_align_8_val_int (x : UInt64) (offset : Int)
   apply uint64_add_align_bv_8_int _ _ h_x h_off
 
 @[simp]
-theorem uint64_toNat_add_mask_align_8 (x : UInt64) (offset : Nat)
-    (h_x : x.toNat % 8 = 0) (h_off : offset % 8 = 0)
-    (h_bounds : offset < 18446744073709551616) :
-    ((x.toNat + offset) % 18446744073709551616 &&& 7) = 0 := by
-  have h_eq : ((x.toNat + offset) % 18446744073709551616) = (x.toBitVec + BitVec.ofNat 64 offset).toNat := by
-    change (x.toNat + offset) % (2^64) =
-      (BitVec.ofNat 64 (x.toBitVec.toNat + (BitVec.ofNat 64 offset).toNat)).toNat
-    rw [BitVec.toNat_ofNat]
-    rw [BitVec.toNat_ofNat]
-    have h_mod : offset % 2^64 = offset := Nat.mod_eq_of_lt h_bounds
-    rw [h_mod]
-    rfl
-  rw [h_eq]
-  have h_align_bv : x.toBitVec % 8#64 = 0#64 := by
-    apply uint64_align_bv_8 _ h_x
-  have h_add : (x.toBitVec + BitVec.ofNat 64 offset) &&& 7#64 = 0#64 := by
-    have h_off_bv : BitVec.ofNat 64 offset % 8#64 = 0#64 := by
-      apply BitVec.eq_of_toNat_eq
-      change ((BitVec.ofNat 64 offset).umod 8#64).toNat = (0#64).toNat
-      dsimp [BitVec.umod]
-      rw [BitVec.toNat_ofNat]
-      rw [Nat.mod_eq_of_lt h_bounds]
-      change (offset % 8) = 0
-      exact h_off
-    revert h_align_bv h_off_bv
-    bv_decide
-  have h_add_toNat : ((x.toBitVec + BitVec.ofNat 64 offset) &&& 7#64).toNat = 0 := by rw [h_add]; rfl
-  change ((x.toBitVec + BitVec.ofNat 64 offset).toNat &&& 7) = 0 at h_add_toNat
-  exact h_add_toNat
-
-@[simp]
-theorem uint64_toNat_add_align_8 (x : UInt64) (offset : Nat)
-    (h_x : x.toNat % 8 = 0) (h_off : offset % 8 = 0)
-    (h_bounds : offset < 18446744073709551616) :
-    ((x.toNat + offset) % 18446744073709551616) % 8 = 0 := by
-  have h_eq : ((x.toNat + offset) % 18446744073709551616) = (x.toBitVec + BitVec.ofNat 64 offset).toNat := by
-    change (x.toNat + offset) % (2^64) =
-      (BitVec.ofNat 64 (x.toBitVec.toNat + (BitVec.ofNat 64 offset).toNat)).toNat
-    rw [BitVec.toNat_ofNat]
-    rw [BitVec.toNat_ofNat]
-    have h_mod : offset % 2^64 = offset := Nat.mod_eq_of_lt h_bounds
-    rw [h_mod]
-    rfl
-  rw [h_eq]
-  have h_align_bv : x.toBitVec % 8#64 = 0#64 := by
-    apply uint64_align_bv_8 _ h_x
-  have h_add : (x.toBitVec + BitVec.ofNat 64 offset) % 8#64 = 0#64 := by
-    have h_off_bv : BitVec.ofNat 64 offset % 8#64 = 0#64 := by
-      apply BitVec.eq_of_toNat_eq
-      change ((BitVec.ofNat 64 offset).umod 8#64).toNat = (0#64).toNat
-      dsimp [BitVec.umod]
-      rw [BitVec.toNat_ofNat]
-      rw [Nat.mod_eq_of_lt h_bounds]
-      change (offset % 8) = 0
-      exact h_off
-    revert h_align_bv h_off_bv
-    bv_decide
-  have h_add_toNat : ((x.toBitVec + BitVec.ofNat 64 offset) % 8#64).toNat = 0 := by rw [h_add]; rfl
-  change ((x.toBitVec + BitVec.ofNat 64 offset).toNat % 8) = 0 at h_add_toNat
-  exact h_add_toNat
-
-@[simp]
 theorem uint64_add_align_8 (x : UInt64) (offset : UInt64)
     (h_x : x.toNat % 8 = 0) (h_off : offset.toNat % 8 = 0 := by decide) :
     (x + offset).toNat % 8 = 0 := by
@@ -397,23 +331,16 @@ theorem uint64_add_align_8 (x : UInt64) (offset : UInt64)
 @[simp]
 theorem align_8_const (c : UInt64) (h : c.toNat % 8 = 0 := by decide) : c.toNat % 8 = 0 := h
 
-theorem align_check_add_lem (v : UInt64) (h : v.toNat % 8 = 0) (c : Int) (hc : c % 8 = 0) :
-  ((v.toBitVec.toInt + c) % 18446744073709551616).toNat % 8 = 0 := by
-  have hv : v.toBitVec.toInt % 8 = 0 := by
-    have h_toNat : v.toBitVec.toNat = v.toNat := rfl
-    have h_toInt : v.toBitVec.toInt = if 2 * v.toBitVec.toNat < 18446744073709551616 then (v.toBitVec.toNat : Int) else (v.toBitVec.toNat : Int) - 18446744073709551616 := rfl
-    omega
-  have hc_int : (v.toBitVec.toInt + c) % 8 = 0 := by omega
-  omega
-
 @[simp] theorem align_check_add (v : UInt64) (h : v.toNat % 8 = 0) (c : Int) (hc : c % 8 = 0) :
   (BitVec.ofInt 64 (v.toBitVec.signed + c)) % 8#64 = 0#64 := by
-  apply BitVec.eq_of_toNat_eq
-  have : v.toBitVec.signed = v.toBitVec.toInt := rfl
-  rw [this]
-  have := align_check_add_lem v h c hc
-  simp
-  omega
+  rw [BitVec.signed, ofInt_toInt_add_int]
+  have hv : v.toBitVec % 8#64 = 0#64 := uint64_align_bv_8 _ h
+  have hc_bv : (BitVec.ofInt 64 c) % 8#64 = 0#64 := by
+    apply BitVec.eq_of_toNat_eq
+    change (BitVec.ofInt 64 c).toNat % 8 = 0
+    apply ofInt_mod_8 _ hc
+  revert hv hc_bv
+  bv_decide
 
 @[simp]
 theorem bitvec_ofInt_add_mask_align_8 (rdi : UInt64) (h : rdi.toNat % 8 = 0) (c : Int) (hc : c % 8 = 0 := by decide) :
@@ -453,6 +380,50 @@ theorem mul_8_and_7 (k : Nat) : (8 * k) &&& 7 = 0 := by
             calc 7 < 2^3 := by decide
                  _ ≤ 2^(i+3) := Nat.pow_le_pow_right (by decide) (by omega))
         simp [this]
+
+@[simp]
+theorem uint64_toNat_add_mask_align_8 (x : UInt64) (offset : Nat)
+    (h_x : x.toNat % 8 = 0) (h_off : offset % 8 = 0) :
+    ((x.toNat + offset) % 18446744073709551616 &&& 7) = 0 := by
+  have h1 : (x + UInt64.ofNat offset).toNat = (x.toNat + offset) % 18446744073709551616 := by
+    change (x.toNat + (offset % 18446744073709551616)) % 18446744073709551616 = _
+    omega
+  rw [← h1]
+  have h2 : (x + UInt64.ofNat offset).toNat % 8 = 0 := by
+    apply uint64_add_align_8; exact h_x; change offset % 18446744073709551616 % 8 = 0; omega
+  have hk : (x + UInt64.ofNat offset).toNat = 8 * ((x + UInt64.ofNat offset).toNat / 8) := by omega
+  rw [hk]; exact mul_8_and_7 _
+
+@[simp]
+theorem uint64_toNat_add_align_8 (x : UInt64) (offset : Nat)
+    (h_x : x.toNat % 8 = 0) (h_off : offset % 8 = 0)
+    (h_bounds : offset < 18446744073709551616) :
+    ((x.toNat + offset) % 18446744073709551616) % 8 = 0 := by
+  have h_eq : ((x.toNat + offset) % 18446744073709551616) = (x.toBitVec + BitVec.ofNat 64 offset).toNat := by
+    change (x.toNat + offset) % (2^64) =
+      (BitVec.ofNat 64 (x.toBitVec.toNat + (BitVec.ofNat 64 offset).toNat)).toNat
+    rw [BitVec.toNat_ofNat]
+    rw [BitVec.toNat_ofNat]
+    have h_mod : offset % 2^64 = offset := Nat.mod_eq_of_lt h_bounds
+    rw [h_mod]
+    rfl
+  rw [h_eq]
+  have h_align_bv : x.toBitVec % 8#64 = 0#64 := by
+    apply uint64_align_bv_8 _ h_x
+  have h_add : (x.toBitVec + BitVec.ofNat 64 offset) % 8#64 = 0#64 := by
+    have h_off_bv : BitVec.ofNat 64 offset % 8#64 = 0#64 := by
+      apply BitVec.eq_of_toNat_eq
+      change ((BitVec.ofNat 64 offset).umod 8#64).toNat = (0#64).toNat
+      dsimp [BitVec.umod]
+      rw [BitVec.toNat_ofNat]
+      rw [Nat.mod_eq_of_lt h_bounds]
+      change (offset % 8) = 0
+      exact h_off
+    revert h_align_bv h_off_bv
+    bv_decide
+  have h_add_toNat : ((x.toBitVec + BitVec.ofNat 64 offset) % 8#64).toNat = 0 := by rw [h_add]; rfl
+  change ((x.toBitVec + BitVec.ofNat 64 offset).toNat % 8) = 0 at h_add_toNat
+  exact h_add_toNat
 
 
 @[simp] theorem bitvec_add_mask_0 (rdi : UInt64) (h1 : rdi.toNat % 8 = 0) :
