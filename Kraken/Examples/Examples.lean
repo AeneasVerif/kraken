@@ -283,9 +283,9 @@ theorem Executable.directivesFromStart [layout : Layout] prog :
   induction prog <;> simp [Executable.directivesFromAddress,Executable.withAddresses,Layout.apply]
     
 -- Super-simple example to debug tactics
-example [layout : Layout] s : Step1 (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+example [layout : Layout] s : straightlineStep (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
   dsimp only [p1]
-  dsimp only [Step1,Executable.straightline]
+  dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
 
@@ -306,14 +306,14 @@ def swap : Program := parse("
   xor %rbx, %rax")
 
 theorem swap_correct [layout : Layout] (d : MachineData) :
-      Eventually (layout swap)
+      Eventually (straightlineStep (layout swap))
       (fun s' =>
           s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
           s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
       (d, layout.start) := by
   dsimp [swap]
   apply step_cps
-  dsimp only [Step1, Executable.straightline, Directives.interp]
+  dsimp only [straightlineStep, Executable.straightline, Directives.interp]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx, List.mapIdx.go]
 
@@ -336,10 +336,10 @@ start:
   mov $2, %rax")
 
 -- Example 2: stepping through both straightline and control instructions
-example [layout : Layout] (s : MachineData): Eventually (layout p2) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
+example [layout : Layout] (s : MachineData): Eventually (straightlineStep (layout p2)) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
   dsimp [p2]
   apply step_cps
-  dsimp only [Step1,Executable.straightline]
+  dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
 
@@ -485,12 +485,12 @@ example [layout : Layout] s : Step1 (layout p4) (s, layout.start) (fun s => s.1.
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
   -- refined state in the hypotheses, not the goal.
   let ss := s
-  change (Step1 _ (ss, _) _)
+  change (straightlineStep _ (ss, _) _)
   cases s with | mk regs flags mem =>
   cases regs with | mk rax =>
   -- Rewrite the program to make layout, addresses, etc. apparent
   delta p4
-  dsimp only [Step1,Executable.straightline]
+  dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
 
