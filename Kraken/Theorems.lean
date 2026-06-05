@@ -310,14 +310,8 @@ theorem uint64_add_mask_align_8_val (x : UInt64) (offset : Nat)
     (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + (offset : Int)))) &&& 18446744073709551608 =
     (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + (offset : Int)))) := by
   apply uint64_ext
-  have h_align : BitVec.ofInt 64 (x.toBitVec.toInt + (offset : Int)) % 8#64 = 0#64 := by
-    apply uint64_add_align_bv_8 _ _ h_x h_off
-  have h_mask : BitVec.ofInt 64 (x.toBitVec.toInt + (offset : Int)) &&& 18446744073709551608#64 =
-      BitVec.ofInt 64 (x.toBitVec.toInt + (offset : Int)) := by
-    revert h_align
-    bv_decide
-  change (BitVec.ofInt 64 (x.toBitVec.toInt + (offset : Int)) &&& 18446744073709551608#64) = _
-  exact h_mask
+  apply bitvec_mask_align_8
+  apply uint64_add_align_bv_8 _ _ h_x h_off
 
 @[simp]
 theorem uint64_add_mask_align_8_val_int (x : UInt64) (offset : Int)
@@ -325,14 +319,8 @@ theorem uint64_add_mask_align_8_val_int (x : UInt64) (offset : Int)
     (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + offset))) &&& 18446744073709551608 =
     (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + offset))) := by
   apply uint64_ext
-  have h_align : BitVec.ofInt 64 (x.toBitVec.toInt + offset) % 8#64 = 0#64 := by
-    apply uint64_add_align_bv_8_int _ _ h_x h_off
-  have h_mask : BitVec.ofInt 64 (x.toBitVec.toInt + offset) &&& 18446744073709551608#64 =
-      BitVec.ofInt 64 (x.toBitVec.toInt + offset) := by
-    revert h_align
-    bv_decide
-  change (BitVec.ofInt 64 (x.toBitVec.toInt + offset) &&& 18446744073709551608#64) = _
-  exact h_mask
+  apply bitvec_mask_align_8
+  apply uint64_add_align_bv_8_int _ _ h_x h_off
 
 @[simp]
 theorem uint64_toNat_add_mask_align_8 (x : UInt64) (offset : Nat)
@@ -474,91 +462,18 @@ theorem mul_8_and_7 (k : Nat) : (8 * k) &&& 7 = 0 := by
 
 @[simp] theorem bitvec_add_mask_0 (rdi : UInt64) (h1 : rdi.toNat % 8 = 0) :
   rdi.toBitVec &&& ~~~7#64 = rdi.toBitVec := by
-  apply BitVec.eq_of_toNat_eq
-  have h3 : (~~~7#64).toNat = 18446744073709551608 := rfl
-  have h4 : (rdi.toBitVec &&& ~~~7#64).toNat = rdi.toBitVec.toNat &&& 18446744073709551608 := by rfl
-  rw [h4]
-  have hk1 : rdi.toBitVec.toNat = rdi.toNat := rfl
-  have hk2 : rdi.toNat = 8 * (rdi.toNat / 8) := by omega
-  have hv : rdi.toBitVec.toNat % 8 = 0 := by
-    rw [hk1, hk2]
-    omega
-  have hk : rdi.toBitVec.toNat = 8 * (rdi.toBitVec.toNat / 8) := by omega
-  have hv_lt : 8 * (rdi.toBitVec.toNat / 8) < 18446744073709551616 := by rw [← hk]; exact rdi.toBitVec.isLt
-  generalize (rdi.toBitVec.toNat / 8) = k at hk hv_lt
-  rw [hk]
-  apply Nat.eq_of_testBit_eq
-  intro i
-  simp
-  cases i with
-  | zero =>
-    have : (8 * k).testBit 0 = false := by simp [Nat.testBit]; omega
-    simp [this]
-  | succ i => cases i with
-    | zero =>
-      have : (8 * k).testBit 1 = false := by simp [Nat.testBit]; omega
-      simp [this]
-    | succ i => cases i with
-      | zero =>
-        have : (8 * k).testBit 2 = false := by simp [Nat.testBit]; omega
-        simp [this]
-      | succ i =>
-        by_cases hi : i < 61
-        · have h_tb : Nat.testBit 18446744073709551608 (i + 3) = true := by
-            have : ∀ j : Fin 61, Nat.testBit 18446744073709551608 (j.val + 3) = true := by decide
-            exact this ⟨i, hi⟩
-          simp [h_tb]
-        · have h_tb : (8 * k).testBit (i + 3) = false := by
-            apply Nat.testBit_lt_two_pow
-            have : 8 * k < 2^64 := hv_lt
-            have : 2^64 ≤ 2^(i + 3) := Nat.pow_le_pow_right (by decide) (by omega)
-            omega
-          simp [h_tb]
+  have : rdi.toBitVec % 8#64 = 0#64 := uint64_align_bv_8 _ h1
+  revert this
+  bv_decide
 
 @[simp] theorem bitvec_add_mask_c (rdi : UInt64) (c : BitVec 64) (h1 : rdi.toNat % 8 = 0) (h2 : c.toNat % 8 = 0 := by decide) :
   (rdi.toBitVec + c) &&& ~~~7#64 = rdi.toBitVec + c := by
-  apply BitVec.eq_of_toNat_eq
-  have h3 : (~~~7#64).toNat = 18446744073709551608 := rfl
-  have h4 : ((rdi.toBitVec + c) &&& ~~~7#64).toNat = (rdi.toBitVec + c).toNat &&& 18446744073709551608 := by rfl
-  rw [h4]
-  have hk1 : rdi.toBitVec.toNat = rdi.toNat := rfl
-  have hk2 : rdi.toNat = 8 * (rdi.toNat / 8) := by omega
-  have hk3 : c.toNat = 8 * (c.toNat / 8) := by omega
-  have hv : (rdi.toBitVec + c).toNat % 8 = 0 := by
-    change (rdi.toBitVec.toNat + c.toNat) % 18446744073709551616 % 8 = 0
-    rw [hk1, hk2, hk3]
-    omega
-  have hk : (rdi.toBitVec + c).toNat = 8 * ((rdi.toBitVec + c).toNat / 8) := by omega
-  have hv_lt : 8 * ((rdi.toBitVec + c).toNat / 8) < 18446744073709551616 := by rw [← hk]; exact (rdi.toBitVec + c).isLt
-  generalize ((rdi.toBitVec + c).toNat / 8) = k at hk hv_lt
-  rw [hk]
-  apply Nat.eq_of_testBit_eq
-  intro i
-  simp
-  cases i with
-  | zero =>
-    have : (8 * k).testBit 0 = false := by simp [Nat.testBit]; omega
-    simp [this]
-  | succ i => cases i with
-    | zero =>
-      have : (8 * k).testBit 1 = false := by simp [Nat.testBit]; omega
-      simp [this]
-    | succ i => cases i with
-      | zero =>
-        have : (8 * k).testBit 2 = false := by simp [Nat.testBit]; omega
-        simp [this]
-      | succ i =>
-        by_cases hi : i < 61
-        · have h_tb : Nat.testBit 18446744073709551608 (i + 3) = true := by
-            have : ∀ j : Fin 61, Nat.testBit 18446744073709551608 (j.val + 3) = true := by decide
-            exact this ⟨i, hi⟩
-          simp [h_tb]
-        · have h_tb : (8 * k).testBit (i + 3) = false := by
-            apply Nat.testBit_lt_two_pow
-            have : 8 * k < 2^64 := hv_lt
-            have : 2^64 ≤ 2^(i + 3) := Nat.pow_le_pow_right (by decide) (by omega)
-            omega
-          simp [h_tb]
+  have hv : (rdi.toBitVec + c) % 8#64 = 0#64 := by
+    apply bitvec_add_align_8
+    · exact uint64_align_bv_8 _ h1
+    · exact BitVec.eq_of_toNat_eq (show c.toNat % 8 = 0 from h2)
+  revert hv
+  bv_decide
 
 -- ============================================================================
 -- UInt64 Address Distinctness
@@ -570,29 +485,12 @@ theorem uint64_ne_align_8 (x : UInt64) (offset1 offset2 : Nat)
     (h_ne : offset1 ≠ offset2) :
     ((UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + (offset1 : Int)))) ==
      (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + (offset2 : Int))))) = false := by
-  have h_ne_bv : BitVec.ofInt 64 (x.toBitVec.toInt + (offset1 : Int)) ≠
-                 BitVec.ofInt 64 (x.toBitVec.toInt + (offset2 : Int)) := by
-    intro h_eq_bv
-    rw [ofInt_toInt_add, ofInt_toInt_add] at h_eq_bv
-    have h_eq_off : BitVec.ofNat 64 offset1 = BitVec.ofNat 64 offset2 := by
-      apply bitvec_add_left_cancel x.toBitVec _ _ h_eq_bv
-    have h_eq_num : offset1 = offset2 := by
-      apply ofNat_inj _ _ h_o1 h_o2 h_eq_off
-    exact h_ne h_eq_num
-  have h_ne_u : (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + (offset1 : Int)))) ≠
-                (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + (offset2 : Int)))) := by
-    intro h_eq
-    apply h_ne_bv
-    exact congrArg UInt64.toBitVec h_eq
-  have h_ne_eq : ((UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + (offset1 : Int)))) ==
-                  (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + (offset2 : Int))))) = false := by
-    match h : (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + (offset1 : Int)))) ==
-              (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + (offset2 : Int)))) with
-    | true =>
-      rw [beq_iff_eq] at h
-      contradiction
-    | false => rfl
-  exact h_ne_eq
+  apply beq_false_of_ne
+  intro h_eq
+  apply h_ne
+  have h_bv := congrArg UInt64.toBitVec h_eq
+  rw [ofInt_toInt_add, ofInt_toInt_add] at h_bv
+  exact ofNat_inj _ _ h_o1 h_o2 (bitvec_add_left_cancel x.toBitVec _ _ h_bv)
 
 @[simp]
 theorem uint64_ne_align_8_eq (x : UInt64) (offset1 offset2 : Nat)
@@ -602,17 +500,10 @@ theorem uint64_ne_align_8_eq (x : UInt64) (offset1 offset2 : Nat)
      UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + (offset2 : Int)))) = False := by
   apply eq_false
   intro h_eq
-  have h_ne_bv : BitVec.ofInt 64 (x.toBitVec.toInt + (offset1 : Int)) ≠
-                 BitVec.ofInt 64 (x.toBitVec.toInt + (offset2 : Int)) := by
-    intro h_eq_bv
-    rw [ofInt_toInt_add, ofInt_toInt_add] at h_eq_bv
-    have h_eq_off : BitVec.ofNat 64 offset1 = BitVec.ofNat 64 offset2 := by
-      apply bitvec_add_left_cancel x.toBitVec _ _ h_eq_bv
-    have h_eq_num : offset1 = offset2 := by
-      apply ofNat_inj _ _ h_o1 h_o2 h_eq_off
-    exact h_ne h_eq_num
-  apply h_ne_bv
-  exact congrArg UInt64.toBitVec h_eq
+  apply h_ne
+  have h_bv := congrArg UInt64.toBitVec h_eq
+  rw [ofInt_toInt_add, ofInt_toInt_add] at h_bv
+  exact ofNat_inj _ _ h_o1 h_o2 (bitvec_add_left_cancel x.toBitVec _ _ h_bv)
 
 @[simp]
 theorem uint64_ne_align_8_int (x : UInt64) (offset1 offset2 : Int)
@@ -621,29 +512,12 @@ theorem uint64_ne_align_8_int (x : UInt64) (offset1 offset2 : Int)
     (h_ne : offset1 ≠ offset2) :
     ((UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + offset1))) ==
      (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + offset2)))) = false := by
-  have h_ne_bv : BitVec.ofInt 64 (x.toBitVec.toInt + offset1) ≠
-                 BitVec.ofInt 64 (x.toBitVec.toInt + offset2) := by
-    intro h_eq_bv
-    rw [ofInt_add, ofInt_add, ofInt_toInt] at h_eq_bv
-    have h_eq_off : BitVec.ofInt 64 offset1 = BitVec.ofInt 64 offset2 := by
-      apply bitvec_add_left_cancel x.toBitVec _ _ h_eq_bv
-    have h_eq_num : offset1 = offset2 := by
-      apply ofInt_inj_int _ _ h_o1 h_o2 h_eq_off
-    exact h_ne h_eq_num
-  have h_ne_u : (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + offset1))) ≠
-                (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + offset2))) := by
-    intro h_eq
-    apply h_ne_bv
-    exact congrArg UInt64.toBitVec h_eq
-  have h_ne_eq : ((UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + offset1))) ==
-                  (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + offset2)))) = false := by
-    match h : (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + offset1))) ==
-              (UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + offset2))) with
-    | true =>
-      rw [beq_iff_eq] at h
-      contradiction
-    | false => rfl
-  exact h_ne_eq
+  apply beq_false_of_ne
+  intro h_eq
+  apply h_ne
+  have h_bv := congrArg UInt64.toBitVec h_eq
+  rw [ofInt_add, ofInt_add, ofInt_toInt] at h_bv
+  exact ofInt_inj_int _ _ h_o1 h_o2 (bitvec_add_left_cancel x.toBitVec _ _ h_bv)
 
 @[simp]
 theorem uint64_ne_align_8_eq_int (x : UInt64) (offset1 offset2 : Int)
@@ -654,89 +528,38 @@ theorem uint64_ne_align_8_eq_int (x : UInt64) (offset1 offset2 : Int)
      UInt64.ofBitVec (BitVec.ofInt 64 (x.toBitVec.toInt + offset2))) = False := by
   apply eq_false
   intro h_eq
-  have h_ne_bv : BitVec.ofInt 64 (x.toBitVec.toInt + offset1) ≠
-                 BitVec.ofInt 64 (x.toBitVec.toInt + offset2) := by
-    intro h_eq_bv
-    rw [ofInt_add, ofInt_add, ofInt_toInt] at h_eq_bv
-    have h_eq_off : BitVec.ofInt 64 offset1 = BitVec.ofInt 64 offset2 := by
-      apply bitvec_add_left_cancel x.toBitVec _ _ h_eq_bv
-    have h_eq_num : offset1 = offset2 := by
-      apply ofInt_inj_int _ _ h_o1 h_o2 h_eq_off
-    exact h_ne h_eq_num
-  apply h_ne_bv
-  exact congrArg UInt64.toBitVec h_eq
+  apply h_ne
+  have h_bv := congrArg UInt64.toBitVec h_eq
+  rw [ofInt_add, ofInt_add, ofInt_toInt] at h_bv
+  exact ofInt_inj_int _ _ h_o1 h_o2 (bitvec_add_left_cancel x.toBitVec _ _ h_bv)
 
 @[simp]
 theorem uint64_ne_align_8_u64 (x : UInt64) (offset1 offset2 : UInt64)
     (h_ne : offset1 ≠ offset2) :
     ((x + offset1) == (x + offset2)) = false := by
-  have h_ne_bv : x.toBitVec + offset1.toBitVec ≠ x.toBitVec + offset2.toBitVec := by
-    intro h_eq_bv
-    have h_eq_off : offset1.toBitVec = offset2.toBitVec := by
-      apply bitvec_add_left_cancel x.toBitVec _ _ h_eq_bv
-    have h_eq_num : offset1 = offset2 := by
-      apply uint64_ext _ _ h_eq_off
-    exact h_ne h_eq_num
-  have h_ne_u : (x + offset1) ≠ (x + offset2) := by
-    intro h_eq
-    apply h_ne_bv
-    have h_eq_bv2 : (x + offset1).toBitVec = (x + offset2).toBitVec := congrArg UInt64.toBitVec h_eq
-    exact h_eq_bv2
-  match h : (x + offset1) == (x + offset2) with
-  | true =>
-    rw [beq_iff_eq] at h
-    contradiction
-  | false => rfl
+  apply beq_false_of_ne
+  intro h_eq
+  exact h_ne (uint64_ext _ _ (bitvec_add_left_cancel x.toBitVec _ _ (congrArg UInt64.toBitVec h_eq)))
 
 @[simp]
 theorem uint64_ne_align_8_u64_zero_right (x : UInt64) (offset : UInt64)
     (h_ne : offset ≠ 0) :
     ((x + offset) == x) = false := by
-  have h_ne_bv : x.toBitVec + offset.toBitVec ≠ x.toBitVec := by
-    intro h_eq_bv
-    have h_eq_off : offset.toBitVec = 0#64 := by
-      have h_eq_bv_zero : x.toBitVec + offset.toBitVec = x.toBitVec + 0#64 := by
-        rw [h_eq_bv]
-        simp
-      apply bitvec_add_left_cancel x.toBitVec _ _ h_eq_bv_zero
-    have h_eq_num : offset = 0 := by
-      apply uint64_ext _ _ h_eq_off
-    exact h_ne h_eq_num
-  have h_ne_u : (x + offset) ≠ x := by
-    intro h_eq
-    apply h_ne_bv
-    have h_eq_bv2 : (x + offset).toBitVec = x.toBitVec := congrArg UInt64.toBitVec h_eq
-    exact h_eq_bv2
-  match h : (x + offset) == x with
-  | true =>
-    rw [beq_iff_eq] at h
-    contradiction
-  | false => rfl
+  apply beq_false_of_ne
+  intro h_eq
+  have h_bv : x.toBitVec + offset.toBitVec = x.toBitVec := congrArg UInt64.toBitVec h_eq
+  have : offset.toBitVec = 0#64 := bitvec_add_left_cancel x.toBitVec _ _ (by simp [h_bv])
+  exact h_ne (uint64_ext _ _ this)
 
 @[simp]
 theorem uint64_ne_align_8_u64_zero_left (x : UInt64) (offset : UInt64)
     (h_ne : offset ≠ 0) :
     (x == (x + offset)) = false := by
-  have h_ne_bv : x.toBitVec ≠ x.toBitVec + offset.toBitVec := by
-    intro h_eq_bv
-    have h_eq_off : 0#64 = offset.toBitVec := by
-      have h_eq_bv_zero : x.toBitVec + 0#64 = x.toBitVec + offset.toBitVec := by
-        rw [←h_eq_bv]
-        simp
-      apply bitvec_add_left_cancel x.toBitVec _ _ h_eq_bv_zero
-    have h_eq_num : offset = 0 := by
-      apply uint64_ext _ _ h_eq_off.symm
-    exact h_ne h_eq_num
-  have h_ne_u : x ≠ (x + offset) := by
-    intro h_eq
-    apply h_ne_bv
-    have h_eq_bv2 : x.toBitVec = (x + offset).toBitVec := congrArg UInt64.toBitVec h_eq
-    exact h_eq_bv2
-  match h : x == (x + offset) with
-  | true =>
-    rw [beq_iff_eq] at h
-    contradiction
-  | false => rfl
+  apply beq_false_of_ne
+  intro h_eq
+  have h_bv : x.toBitVec = x.toBitVec + offset.toBitVec := congrArg UInt64.toBitVec h_eq
+  have : 0#64 = offset.toBitVec := bitvec_add_left_cancel x.toBitVec _ _ (by simp [← h_bv])
+  exact h_ne (uint64_ext _ _ this.symm)
 
 @[simp]
 theorem uint64_ne_align_8_u64_eq (x : UInt64) (offset1 offset2 : UInt64)
@@ -744,12 +567,7 @@ theorem uint64_ne_align_8_u64_eq (x : UInt64) (offset1 offset2 : UInt64)
     (x + offset1 = x + offset2) = False := by
   apply eq_false
   intro h_eq
-  have h_eq_bv : x.toBitVec + offset1.toBitVec = x.toBitVec + offset2.toBitVec := congrArg UInt64.toBitVec h_eq
-  have h_eq_off : offset1.toBitVec = offset2.toBitVec := by
-    apply bitvec_add_left_cancel x.toBitVec _ _ h_eq_bv
-  have h_eq_num : offset1 = offset2 := by
-    apply uint64_ext _ _ h_eq_off
-  exact h_ne h_eq_num
+  exact h_ne (uint64_ext _ _ (bitvec_add_left_cancel x.toBitVec _ _ (congrArg UInt64.toBitVec h_eq)))
 
 @[simp]
 theorem uint64_ne_align_8_u64_zero_right_eq (x : UInt64) (offset : UInt64)
@@ -757,15 +575,9 @@ theorem uint64_ne_align_8_u64_zero_right_eq (x : UInt64) (offset : UInt64)
     (x + offset = x) = False := by
   apply eq_false
   intro h_eq
-  have h_eq_bv : x.toBitVec + offset.toBitVec = x.toBitVec := congrArg UInt64.toBitVec h_eq
-  have h_eq_off : offset.toBitVec = 0#64 := by
-    have h_eq_bv_zero : x.toBitVec + offset.toBitVec = x.toBitVec + 0#64 := by
-      rw [h_eq_bv]
-      simp
-    apply bitvec_add_left_cancel x.toBitVec _ _ h_eq_bv_zero
-  have h_eq_num : offset = 0 := by
-    apply uint64_ext _ _ h_eq_off
-  exact h_ne h_eq_num
+  have h_bv : x.toBitVec + offset.toBitVec = x.toBitVec := congrArg UInt64.toBitVec h_eq
+  have : offset.toBitVec = 0#64 := bitvec_add_left_cancel x.toBitVec _ _ (by simp [h_bv])
+  exact h_ne (uint64_ext _ _ this)
 
 @[simp]
 theorem uint64_ne_align_8_u64_zero_left_eq (x : UInt64) (offset : UInt64)
@@ -773,15 +585,9 @@ theorem uint64_ne_align_8_u64_zero_left_eq (x : UInt64) (offset : UInt64)
     (x = x + offset) = False := by
   apply eq_false
   intro h_eq
-  have h_eq_bv : x.toBitVec = x.toBitVec + offset.toBitVec := congrArg UInt64.toBitVec h_eq
-  have h_eq_off : 0#64 = offset.toBitVec := by
-    have h_eq_bv_zero : x.toBitVec + 0#64 = x.toBitVec + offset.toBitVec := by
-      rw [←h_eq_bv]
-      simp
-    apply bitvec_add_left_cancel x.toBitVec _ _ h_eq_bv_zero
-  have h_eq_num : offset = 0 := by
-    apply uint64_ext _ _ h_eq_off.symm
-  exact h_ne h_eq_num
+  have h_bv : x.toBitVec = x.toBitVec + offset.toBitVec := congrArg UInt64.toBitVec h_eq
+  have : 0#64 = offset.toBitVec := bitvec_add_left_cancel x.toBitVec _ _ (by simp [← h_bv])
+  exact h_ne (uint64_ext _ _ this.symm)
 
 @[simp]
 theorem base_offset_eq_false (base : UInt64) (off1 off2 : Nat)
