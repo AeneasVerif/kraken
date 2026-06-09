@@ -4,3 +4,4 @@
 *.o
 asm-tests/test
 __pycache__/
+*.orig

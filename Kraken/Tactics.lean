@@ -1,149 +1,248 @@
-/-
-Kraken - Proof Tactics
-
-Core tactics and theorems for stepping through assembly proofs.
-Compatible with Lean 4.22.0+.
-
-For semantics, see Kraken/Semantics.lean.
-For advanced tactics (SymM), see kraken-experimental/KrakenExp/Tactics.lean.
--/
-
+import Kraken.Syntax
 import Kraken.Semantics
+import Kraken.OmniSemantics
 
--- PROOF INFRASTRUCTURE
 
-abbrev Post {State : Type} := State → Prop
+--------------------------------------------------------------------------------
 
-def Effects.All (post : MachineState → Prop) : Effects → Prop
-  | .done a => post a
-  | .unimplemented _ => False
-  | .nonmem_load .. => False
-  | .nonmem_store .. => False
-  | @Effects.undefined α _ cont => ∀ v: α, (cont v).All post
-  | .require_read_access _ _ cont => (cont ()).All post
-  | .require_write_access _ _ cont => (cont ()).All post
-  | .require_exec_access _ cont => (cont ()).All post
+open Lean Meta Sym Sym.DSimp
+open Elab Tactic
 
--- NOTE: 'initial' cannot be moved to the left of the colon as a parameter
--- because it varies in the recursive call in the 'step' constructor (it becomes 'mid').
-inductive Eventually {State : Type} (trans : State → Post → Prop) (post : Post) : Post
-  | done (initial: State):
-      post initial →
-      Eventually trans post initial
-  | step (initial: State):
-      (mid_p: Post) →
-      trans initial mid_p →
-      (forall (mid: State), mid_p mid → Eventually trans post mid) →
-      Eventually trans post initial
+partial def peelLambdaLets (f : Expr) (args : Array Expr) (fvars : Array Expr) (k : Expr → Array Expr → DSimpM Result) : DSimpM Result := do
+  -- (fun y => let x = e1 in e2) () ~~> let x = e1 in (fun y => e2) ()
+  match f with
+  | .lam binderName binderType body binderInfo =>
+    match body with
+    | .letE letName letType letVal letBody _ =>
+      if !letType.hasLooseBVar 0 && !letVal.hasLooseBVar 0 then
+        withLetDecl letName letType letVal fun fvarLet => do
+          -- substitute open variable x for 0 in e2, shifting all other variables by 1
+          let instBody : Expr := letBody.instantiate1 fvarLet
+          -- meaning we can close in DeBruijn directly
+          let newLambda := .lam binderName binderType instBody binderInfo
+          -- and add our open variable to the list of variables to be folded over
+          peelLambdaLets newLambda args (fvars.push fvarLet) k
+      else
+        k (mkAppN f args) fvars
+    | _ => k (mkAppN f args) fvars
+  | _ => k (mkAppN f args) fvars
 
-theorem step_cps {State : Type} (trans : State → Post → Prop) (post : Post) (initial : State) :
-  trans initial (fun mid => Eventually trans post mid) → Eventually trans post initial :=
-  by
-    intro
-    apply Eventually.step
-    <;> try assumption
-    grind
-
-theorem eventually_trans {State : Type} (trans : State → Post → Prop) (p q : Post) (initial : State)
-  (e : Eventually trans p initial)
-  (h : ∀ s, p s → Eventually trans q s) :
-    Eventually trans q initial
-  := by
-    induction e with
-    | done =>
-        grind
-    | step initial mid_p step_hyp rest_hyp ind_h =>
-        apply Eventually.step
-        <;> assumption
-
-theorem eventually_weaken {State : Type} (trans : State → Post → Prop) (p q : Post) (initial : State)
-  (h : ∀ s, p s → q s) :
-    Eventually trans p initial → Eventually trans q initial
-  := by
-    intro hp
-    induction ih: hp  -- Q: why does this not work with `induction ... with`?
-    . apply Eventually.done
-      grind
-    . apply Eventually.step
-      <;> try assumption
-      grind
-
--- A loop down to 0
-theorem reg_dec_loop {State : Type} (trans : State → Post → Prop) (post : Post) (initial : State) (invariant : Nat → Post) (n : Nat) :
-  -- if:
-  -- invariant holds before entering the loop
-  invariant n initial ∧
-  -- final iteration allows proving `post`
-  (∀ state, invariant 0 state → Eventually trans post state) ∧
-  -- while iterating, we eventually re-establish the invariant
-  (∀ state k, k ≠ 0 → invariant k state → Eventually trans (invariant (k - 1)) state) →
-  -- then: we can prove the post
-  Eventually trans post initial
-  := by
-    intro misc
-    rcases misc with ⟨ initial_invariant, case_zero, case_nonzero ⟩
-    if n = 0 then
-      apply case_zero
-      grind
+partial def peelLets (e : Expr) (fvars : Array Expr) (k : Expr → Array Expr → DSimpM Result) : DSimpM Result := do
+  match e with
+  | .letE name type val body _ =>
+    withLetDecl name type val fun fvar =>
+      peelLets (body.instantiate1 fvar) (fvars.push fvar) k
+  | _ =>
+    if e.isApp && e.getAppFn.isLambda then
+      peelLambdaLets e.getAppFn e.getAppArgs fvars k
     else
-      apply eventually_trans trans (invariant (n - 1)) post
-      grind
-      intros srec _
-      apply reg_dec_loop trans post srec invariant (n - 1)
-      grind
+      k e fvars
 
-def step1 [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
-  (Executable.step p s .done).All post
+partial def peelArgsLets (args : Array Expr) (i : Nat) (peeled : Array Expr) (fvars : Array Expr) (k : Array Expr → Array Expr → DSimpM Result) : DSimpM Result := do
+  if h : i < args.size then
+    let arg := args[i]
+    peelLets arg fvars fun arg' fvars' =>
+      peelArgsLets args (i + 1) (peeled.push arg') fvars' k
+  else
+    k peeled fvars
 
-def straightlineStep [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
-  (Executable.straightline p s .done).All post
+def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
+  -- This focuses on application nodes.
+  unless e.isApp && targets.any e.getAppFn'.isConstOf do return .rfl
 
--- Example 2: fine-grained tactics to step through the goal without un-necessary
--- steps, and relying only on low-level tactics
+  let f := e.getAppFn'
+  let args := e.getAppArgs
 
--- STEP TACTIC: reduce a match
-syntax "step_match" : tactic
-macro_rules
-  | `(tactic|step_match) =>
-  `(tactic|
-    -- JP: looks like reducing a match needs both beta and iota?
-    -- the match in the goal below does not reduce properly if I remove beta := true
-    dsimp (config := { beta := true, zeta := false, iota := true, proj := false, eta := false })
+  -- In order to unblock reduction, Meta.unfoldDefinition will happily inline
+  -- away let-bindings to make e.g. a constructor appear as an argument to a
+  -- match recursor. We intervene ahead of time, and hoist the lets that appear in
+  -- argument position, which we know for a fact happens quite a bunch in our
+  -- semantics. Concretely: `f (let x = ... in arg)` => `let x = ... in f arg`.
+  peelArgsLets args 0 #[] #[] fun (args : Array Expr) (fvars : Array Expr) => do
+
+    if f.isConstOf ``Effects.All && args[1]!.isApp && args[1]!.getAppFn'.isConstOf ``Directives.interp then
+      -- Finding a node of the form `Effects.All ... (Directives.interp ...)`
+      -- means that we are ready to step through. We manually force reduction of
+      -- Directives.interp (since it is *not* is our list of targets), then let
+      -- everything simplify until we're called again.
+      let some arg1 ← Meta.unfoldDefinition? args[1]! true | throwError "can't unfold Directives.interp"
+      let e := mkAppN f (args.set! 1 arg1)
+      let e' ← shareCommon e
+      let e'' ← mkLetFVars fvars e'
+      return .step e''
+      -- TODO: we could here have a post := in the simproc that forces the
+      -- result to be .step ... (done := true) to prevent the next unrolling of
+      -- Directives.interp from being applied. This would essentially allow
+      -- implementing a kstep1 tactic (and leave it to done := false to keep
+      -- stepping until something blocks).
+
+      -- Essentially this behavior allows us to keep reducing and stepping,
+      -- until we have no steps left to apply and YET the goal has landed us
+      -- back on something that is neither Effects.All ... (Directives.interp
+      -- ...), nor Effects.All ... (require_exec_access ...), handled in the
+      -- case below.
+    else
+      -- Application, *sans* the let-bindings in the arguments.
+      let e_rebuilt := mkAppN f args
+      -- Remember that `Meta.unfoldDefinition` is "smart" and wants to see the whole
+      -- application node `f ...` before deciding whether it's worth doing a step of
+      -- delta and replacing `f` with its definition.
+      if let some e' ← Meta.unfoldDefinition? e_rebuilt true then
+        /- let step := (← get).numSteps -/
+        /- logInfo m!"deltaBetaOnly {step}: {e_rebuilt}\nunfolds to:{e'}" -/
+        let e' ← shareCommon e'
+        let e'' ← betaRevS e'.getAppFn e'.getAppRevArgs
+        let e'' ← mkLetFVars fvars e''
+        /- logInfo m!"deltaBetaOnly {step}: {e}\nunfolds to:{e'}\nreduces to: {e''}" -/
+        return .step e''
+      else if fvars.size > 0 then
+        -- Can't reduce application, but we should at least hoist the lets!
+        let e ← mkLetFVars fvars e_rebuilt
+        return .step e
+      else
+        -- Really nothing to do here.
+        return .rfl
+
+def gimmickId (p: Prop): Prop := p
+
+def gimmick {p: Prop} (h: gimmickId p): p := by
+  simp [gimmickId] at h
+  assumption
+
+def gimmickInv {p: Prop} (h: p): gimmickId p := by
+  simp [gimmickId]
+  assumption
+
+-- Debugging the reduction steps: to easily have a marker that tells us when we've hit the top-level
+-- term, we assume prior to running `kstep`, the user does `apply gimmick`. (This also avoids having
+-- to reason about whether we're at the top-level term or not -- we never are.)
+def klog : DSimproc := fun e => do
+  -- We log every top-level term get a trace of the various states of the dsimp
+  -- call.
+  let s := (← get).numSteps
+  /- if s = 789 then -/
+  /-   return .rfl (done := true) -/
+  if e.isApp && e.getAppFn'.isConstOf ``gimmickId then
+    logInfo m!"klog: step {s} visiting\n{e.getAppRevArgs[0]!}"
+  return .rfl
+
+
+syntax (name := symKStep) "kstep " : grind
+
+def kdsimpMatch: DSimproc := fun e => do
+  let some e' ← reduceRecMatcher? e | return .rfl
+  -- Iota-reduction may expose kernel `Expr.proj` terms via struct-eta,
+  -- which the structural simplifier cannot consume directly.
+  let e'' ← Sym.foldProjs e'
+  if isSameExpr e e'' then
+    return .rfl
+  else
+    return .step (← share e'')
+
+def kbeta: DSimproc := fun e => do
+  unless e.isApp do return .rfl
+  let f := e.getAppFn
+  if f.isHeadBetaTargetFn false then
+    let e' ← betaRevS f e.getAppRevArgs
+    /- let step := (← get).numSteps -/
+    /- logInfo m!"kbeta {step}: {e}\nreduces to\n{e'}" -/
+    return .step e'
+  else
+    return .rfl
+
+def kdsimpProj : DSimproc := fun e => do
+  let f := e.getAppFn
+  let .const declName _ := f | return .rfl
+  let some _projInfo ← getProjectionFnInfo? declName | return .rfl
+  let reduceProjCont? (e? : Option Expr) : DSimpM Result := do
+    match e? with
+    | none   => return .rfl
+    | some e =>
+      match (← reduceProj? e.getAppFn) with
+      | some f => return .step (← shareCommon (mkAppN f e.getAppArgs))
+      | none   => return .rfl
+  -- TODO: special support for instances?
+  reduceProjCont? (← unfoldDefinition? e)
+
+def kLiftLets : DSimproc := fun e => do
+  -- We only lift lets to the top-level (which is always an application of
+  -- Effects.all)
+  unless e.isApp && e.getAppFn'.isConstOf ``Effects.All do return .rfl
+
+  let (es, st) ← ExtractLets.extract #[e] |>.run {} |>.run' {} |>.run { givenNames := [] }
+  unless st.decls.size > 0 do return .rfl
+
+  let e' := Meta.ExtractLets.mkLetDecls st.decls es[0]!
+  let e' ← Sym.share e'
+  /- logInfo m!"liftLets produces {e'}" -/
+  return .step e'
+
+-- TODO: make our tactic take an optional config to aid debugging
+@[grind_tactic symKStep]
+def evalSymKStep : Grind.GrindTactic :=
+  fun _stx : Syntax => do
+  -- A `sym` tactic operates over a pair of the grind state and an MVarId
+  let gGoal : Grind.Goal ← Grind.getMainGoal
+  let mvarId := gGoal.mvarId
+
+  -- Apply the debug gimmick. We actually *do* expect the goal to be in this form (see comment in
+  -- kdeltaBetaOnly).
+  let gimmickRule ← mkBackwardRuleFromDecl ``gimmick
+  let mvarId ← Grind.liftGrindM (do
+    let .goals [mvarId] ← gimmickRule.apply mvarId | failure
+    pure mvarId
   )
 
--- STEP TACTIC: reduce the lookup of the next instruction
--- TODO: bail if the state's .rip is not a constant
-syntax "step_instr" : tactic
-macro_rules
-  | `(tactic|step_instr) =>
-  `(tactic|
-    delta step1 eval1 fetch;
-    dsimp only [List.findIdx?,List.findIdx,getElem?,List.get?Internal];
-    dsimp only [Instr.is_ctrl];
-    dsimp only [Bool.false_eq_true, ↓dreduceIte]; -- special simproc for if https://github.com/leanprover/lean4/blob/master/src/Lean/Meta/Tactic/Simp/BuiltinSimprocs/Core.lean#L25-L40
-    delta next
+  let goal ← mvarId.getType
+
+  let decls := [
+    ``Reg.interp, ``Reg64s.get, ``Reg.base, ``Reg.offset, ``MachineData.set,
+    ``MachineData.setReg, ``Reg64s.set, ``Width.type, ``Width.bits,
+    ``Width.bytes,
+    ``Width.bytesv,
+    ``Reg64s.get64, ``Reg64s.set64, ``BitVec.drop, ``BitVec.take,
+    ``BitVec.extractLsb', ``BitVec.truncate, ``ConstExpr.interp,
+
+    -- We INTENTIONALLY do not include Directives.interp -- this serves as our
+    -- special marker, and one that determines whether know we can resume.
+    ``Directive.interp, ``Instr.interp, ``Operation.interp,
+    ``Operand.interp, ``Effects.All,
+    ``ConstExpr.interp, ``RegOrMem.interp, ``Reg.interp,
+    ``ShiftCountExpr.interp, ``CondCode.interp,
+    ``ShiftCountExpr.interpMasked,
+
+    -- We also do not include MachineData.store/load as we intend for those to
+    -- be destructed with rw-lemmas.
+
+    ``StatusFlags.from_result
+  ]
+
+  let goal ← Grind.liftGrindM (do
+    Sym.dsimp
+      (config := { maxSteps := 1000000 })
+      (methods := { pre := klog >> kdeltaBetaOnly decls >> kdsimpMatch >> kdsimpProj >> kbeta})
+      goal)
+
+  -- TEMPORARY: trying to simplify binders in the goal
+  /- let goal ← Meta.letToHave goal -/
+  /- let goal ← Grind.liftGrindM $ shareCommon goal -/
+  /- let mvarId ← mvarId.replaceTargetDefEq goal -/
+
+  /- let simpMethods: Sym.Simp.Methods ← mkSimpMethods4 #[ ``Nat.shiftRight_zero ] -/
+  /- let simpResult ← Grind.liftGrindM (Sym.simpGoal mvarId simpMethods) -/
+  /- let mvarId ← Grind.liftGrindM (match simpResult with -/
+  /-   | .noProgress => pure mvarId -/
+  /-   | .goal mvarId => pure mvarId -/
+  /-   | .closed => throwError "unexpected") -/
+
+  let mvarId ← mvarId.replaceTargetDefEq goal
+
+  -- Remove the gimmick debug marker.
+  let gimmickRule ← mkBackwardRuleFromDecl ``gimmickInv
+  let mvarId ← Grind.liftGrindM (do
+    let .goals [mvarId] ← gimmickRule.apply mvarId | failure
+    pure mvarId
   )
 
--- NOTES: why is the right way of doing this? Ideally, we would not ask to
--- simplify anything that is not an internal definition, because it is not
--- modular. Problematic things here include, e.g., List.findIdx? (what if the
--- user uses this very function in their post-condition?).
---
--- Something equivalent to `match goal with` might work. Alternatively, we could
--- have copies of definitions, e.g. `def my_findIdx := normalize List.findIdx?`.
--- TODO: determine how to do that in Lean.
---
--- Furthermore, it would be nice to be able to specify that reducing e.g. a
--- projector should only be done if the left-hand side is not a variable.
-syntax "step_one" : tactic
-macro_rules
-  | `(tactic|step_one) =>
-  `(tactic|
-    simp [
-      step1,Program.straightline,
-      Program.position_of_addr,Program.positions,Program.positions',layout,List.filter,Position.Label,
-      List.dropWhile,bne,BEq.beq,instBEqDirective.beq,dropInstrs,Program.straightline',Instr.interp,Operation.interp,Operand.interp];
-    simp (ground:=True);
-    simp [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp];
-    simp (ground:=True)
-       <;> try decide)
+  Grind.setGoals [ { gGoal with mvarId } ]
+
