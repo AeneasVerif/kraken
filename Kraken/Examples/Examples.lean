@@ -33,7 +33,7 @@ example [layout : Layout] s : straightlineStep (layout p1) (s, layout.start) (fu
   simp [List.mapIdx,List.mapIdx.go]
 
   sym =>
-  kstep
+  kstep (alignedLoadsAndStores := true)
   tactic =>
   decide
 
@@ -102,34 +102,48 @@ example [layout : Layout] (s : MachineData): Eventually (straightlineStep (layou
   apply Eventually.done
   bv_decide
 
--- Example 3 commented out until we figure out how to parse concrete syntax.
+-- Example 3, more sophisticated
 
 -- TODO: restore p3
 
-/- def p3: Program := parse("
+def p3: Program := parse("
 init:
-  mov $2 %rdx             # rdx: current result = 2
+  mov $2, %rdx             # rdx: current result = 2
 start:
-  sub $0 %rbx             # TEST: zf = (rbx == 0)
+  sub $0, %rbx             # TEST: zf = (rbx == 0)
   jz _end                 # end loop if rbx == 0 (a.k.a. « while rbx >= 0 »)
-  .mulx %rdx %rdx %rax    # BODY: rdx := rdx * rdx
-  sub 1 %rbx              # rbx -= 1
+  mulx %rdx, %rdx, %rax    # BODY: rdx := rdx * rdx
+  sub $1, %rbx              # rbx -= 1
   jmp start               # go back to test & loop body
 _end:
   nop
 ")
 
-def p3_spec (s: MachineState): Nat := 2^(2^s.1.regs.rbx.toNat)
+def p3_spec (s: MachineData): Nat := 2^(2^s.regs.rbx.toNat)
 
 set_option maxHeartbeats 4000000 in
-theorem p3_correct [Layout] (initial: MachineState):
-    p3_spec initial < 2^64 →
-    (layout ("init", 0) = initial.2) →
-    eventually p3 (fun s => s.1.regs.rdx.toNat == p3_spec initial ∧ s.1.regs.rax == 0) initial :=
+theorem p3_correct [layout: Layout] (s: MachineData):
+    p3_spec s < 2^64 →
+    Eventually (straightlineStep (layout p3)) (fun s => s.1.regs.rdx.toNat = p3_spec s.1 ∧ s.1.regs.rax = 0) (s, layout.start) :=
   by
-  sorry -- simp times out due to larger Reg enum (64 constructors with aliased registers) -/
-  /-
-    intros h_bounds h_rip
+    intros h_bounds
+    dsimp [p3]
+    apply step_cps
+    dsimp only [straightlineStep,Executable.straightline]
+    rw [Executable.directivesFromStart]
+    simp [List.mapIdx,List.mapIdx.go]
+
+    -- TODO: resume fixing this example once
+    -- https://leanprover.zulipchat.com/#narrow/channel/594054-SymM-users/topic/kernel.20error.20with.20SymM/with/601889305
+    -- is fixed (Lean bug)
+
+    -- sym =>
+    -- kstep
+    -- intros
+    
+    sorry
+
+/-     intros h_bounds h_rip
     simp [p3]
     -- First step sets rdx = 2
     apply step_cps
@@ -216,8 +230,7 @@ theorem p3_correct [Layout] (initial: MachineState):
                   rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_succ]
                   apply Nat.pow_le_pow_right (by decide)
                   apply Nat.pow_le_pow_right (by decide)
-                  omega
-  -/
+                  omega -/
 
 def p4 := eval% parse("start: mov $2, %rax
 dec %rax")

@@ -127,7 +127,12 @@ def klog : DSimproc := fun e => do
   return .rfl
 
 
-syntax (name := symKStep) "kstep " : grind
+structure KStepConfig where
+  alignedLoadsAndStores : Bool := true
+
+declare_term_config_elab elabKStepConfig KStepConfig
+
+syntax (name := symKStep) "kstep" optConfig : grind
 
 def kdsimpMatch: DSimproc := fun e => do
   let some e' ← reduceRecMatcher? e | return .rfl
@@ -180,7 +185,10 @@ def kLiftLets : DSimproc := fun e => do
 -- TODO: make our tactic take an optional config to aid debugging
 @[grind_tactic symKStep]
 def evalSymKStep : Grind.GrindTactic :=
-  fun _stx : Syntax => do
+  fun stx : Syntax => do
+  let cfg := stx[1]
+  let config ← elabKStepConfig cfg
+  let alignedLoadsAndStore := config.alignedLoadsAndStores
   -- A `sym` tactic operates over a pair of the grind state and an MVarId
   let gGoal : Grind.Goal ← Grind.getMainGoal
   let mvarId := gGoal.mvarId
