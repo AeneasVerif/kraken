@@ -13,15 +13,6 @@ jobs:
       - uses: actions/checkout@v5
       - uses: leanprover/lean-action@v1
 
-  build-experimental:
-    name: Build KrakenExp (4.28.0)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - name: Override Lean toolchain with 4.28
-        run: echo "leanprover/lean4:v4.28.0" > lean-toolchain
-      - uses: leanprover/lean-action@v1
-
   run-asm-tests:
     name: Run ASM tests (Ubuntu)
     runs-on: ubuntu-latest

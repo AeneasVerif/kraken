@@ -14,6 +14,18 @@ abbrev type (w : Width) : Type := BitVec w.bits
 instance {w : Width} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
 end Width
 
+unif_hint (w : Width) where
+  w =?= Width.W8 |- Width.type w =?= BitVec 8
+
+unif_hint (w : Width) where
+  w =?= Width.W16 |- Width.type w =?= BitVec 16
+
+unif_hint (w : Width) where
+  w =?= Width.W32 |- Width.type w =?= BitVec 32
+
+unif_hint (w : Width) where
+  w =?= Width.W64 |- Width.type w =?= BitVec 64
+
 inductive Reg64
   | rax | rbx | rcx | rdx
   | rsi | rdi | rsp | rbp

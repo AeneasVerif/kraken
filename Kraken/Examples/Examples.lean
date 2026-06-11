@@ -1,8 +1,10 @@
 /-
 Kraken - Example Programs
 
-Test programs demonstrating the assembly interpreter.
-Compatible with Lean 4.22.0+.
+This demonstrates our proof style using the `kstep` stepping tactic that
+advances through ASM instructions. This is a work in progress, and is the result
+of several experiments, which can be found in the Git history at revision
+a556993a and earlier.
 
 For semantics, see Kraken/Semantics.lean.
 For tactics, see Kraken/Tactics.lean.
@@ -11,25 +13,29 @@ For tactics, see Kraken/Tactics.lean.
 import Kraken.Tactics
 import Kraken.Parser
 import Kraken.Eval
+import Kraken.Theorems
 
 open Kraken.Parser
+
+--------------------------------------------------------------------------------
 
 def p1 := parse("start: mov $1, %rax")
 
 theorem Executable.directivesFromStart [layout : Layout] prog :
-    (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) :=
-  sorry
-
+    (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) := by
+  induction prog <;> simp [Executable.directivesFromAddress,Executable.withAddresses,Layout.apply]
+    
 -- Super-simple example to debug tactics
 example [layout : Layout] s : straightlineStep (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
   dsimp only [p1]
   dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
-  dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
-  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,require_exec_access]
-  simp (ground:=True)
-  dsimp only [Effects.All]
+
+  sym =>
+  kstep
+  tactic =>
+  decide
 
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
   /- simp [MachineData.setReg,Reg64s.set,Reg64s.set64,ConstExpr.interp] -/
@@ -53,25 +59,19 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
   dsimp only [straightlineStep, Executable.straightline, Directives.interp]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx, List.mapIdx.go]
-  -- TODO It would be nice to progress instruction by instruction instead of all at once, like below.
-  dsimp only [Directives.interp, Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp]
-  dsimp [MachineData.set, MachineData.setReg, Reg64s.set, Reg64s.set64, Effects.All]
-  intros _af1 _af2 _af3
-  apply Eventually.done
-  simp (ground:=True)
-  dsimp only [Reg64s.get, Reg64s.get64, Reg.base, Reg.offset]
-  dsimp only [BitVec.drop, BitVec.take, Width.bits]
-  bv_decide
+
+  sym =>
+  kstep
+  tactic =>
+  simp (zeta:=false) -- TODO: figure out why `simp` gives us two `Eventually`s
+  lift_lets
+  intros
+  constructor
+  <;> apply Eventually.done
+  <;> bv_decide
 
 -- Stepping demo. Ideally, this demo should be without the first .mov
-def p2 : Program := eval% [
-  .label "start",
-  .instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.int64 1)) ⟩,
-  .instr ⟨ .W64, .W64, .xor Reg.rax Reg.rax ⟩,
-  .instr ⟨ .W64, .W64, .jcc .nz "start" ⟩,
-  .instr ⟨ .W64, .W64, .mov Reg.rax (.imm (.int64 2)) ⟩,
-]
-def p2' : Program := parse("
+def p2 : Program := parse("
 start:
   mov $1, %rax
   xor %rax, %rax
@@ -85,15 +85,27 @@ example [layout : Layout] (s : MachineData): Eventually (straightlineStep (layou
   dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
-  dsimp only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,RegOrMem.interp]
-  dsimp only [MachineData.set,Reg64s.set,MachineData.setReg,Reg64s.set64,ConstExpr.interp,CondCode.interp,StatusFlags.from_result, Effects.All]
-  simp only [Int64.toBitVec_ofNat, BitVec.ofNat_eq_ofNat, BitVec.truncate_eq_setWidth, BitVec.xor_self, BitVec.zero_eq,
-    BEq.rfl, Bool.not_true, Bool.false_eq_true, ↓reduceIte, BitVec.msb_zero]
-  intros _af
+
+  sym =>
+  kstep
+  tactic =>
+  lift_lets
+  -- TODO: I would like `kstep` to do this automatically
+  intros v1 v2 v status
+  -- TODO: I would like `kstep` to try `decide`-ing conditionals that block reduction (or `grind`-ing)
+  have: v1 = 0 := by decide
+  simp [this]
+
+  sym =>
+  kstep
+  tactic =>
   apply Eventually.done
-  simp (ground:=True)
+  bv_decide
 
 -- Example 3 commented out until we figure out how to parse concrete syntax.
+
+-- TODO: restore p3
+
 /- def p3: Program := parse("
 init:
   mov $2 %rdx             # rdx: current result = 2
@@ -212,23 +224,209 @@ dec %rax")
 
 -- Super-simple example to debug tactics
 example [layout : Layout] s : straightlineStep (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+  -- Refine the state to make registers apparent -- note that `cases` consumes
+  -- the hypothesis, and substitutes it, so we make a copy of it to have a
+  -- refined state in the hypotheses, not the goal.
   let ss := s
   change (straightlineStep _ (ss, _) _)
   cases s with | mk regs flags mem =>
   cases regs with | mk rax =>
+  -- Rewrite the program to make layout, addresses, etc. apparent
   delta p4
   dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
-  dsimp (zeta:=false)(iota:=true) only [Directives.interp,Directive.interp,Instr.interp,Operation.interp,Operand.interp,ConstExpr.interp,RegOrMem.interp,Reg.interp,Reg64s.get,Reg.base,Reg.offset,MachineData.set,MachineData.setReg,Reg64s.set,Width.type,Width.bits,Effects.All]
+
+  -- TODO: this preamble above is a good form for what we need (although I'd
+  -- also like registers to be exploded). Can we move it to a tactic? Like
+  -- `kprologue p4` or something. I did not manage because of the =>, and I got
+  -- into a rabbit hole of syntax macros and weird syntactic classes (elimExpr
+  -- vs ident) and gave up.
+
+  sym =>
+  kstep
+  intros
+  tactic =>
+  decide
+
+/- Examples -/
+
+def p5 := parse("start: mov $2, %rax
+dec %rax
+start2:
+dec %rax")
+
+set_option maxHeartbeats 1000000
+set_option pp.rawOnError true
+/- set_option pp.all true -/
+
+example [layout : Layout] s : straightlineStep (layout p5) (s, layout.start) (fun s => s.1.regs.rax = 0) := by
+  -- Refine the state to make registers apparent -- note that `cases` consumes
+  -- the hypothesis, and substitutes it, so we make a copy of it to have a
+  -- refined state in the hypotheses, not the goal.
+  let ss := s
+  change (straightlineStep _ (ss, _) _)
+  cases s with | mk regs flags mem =>
+  cases regs with | mk rax =>
+  -- Rewrite the program to make layout, addresses, etc. apparent
+  delta p5
+  dsimp only [straightlineStep,Executable.straightline]
+  rw [Executable.directivesFromStart]
+  simp [List.mapIdx,List.mapIdx.go]
+
+  -- TODO: same remark, lift this preamble
+
+  sym => 
+  kstep
+  tactic =>
+  bv_decide
+
+def p6 := parse("push %rax
+mov $0, %rax
+pop %rax")
+
+set_option maxHeartbeats 1000000
+set_option pp.rawOnError true
+/- set_option pp.coercions false -/
+/- set_option pp.all true -/
+
+
+example [layout : Layout] (s: MachineData)
+  (hAlign: s.regs.rsp % 8 = 0)
+  (hContains: forall x, x ∈ s.dmem)
+  : straightlineStep (layout p6) (s, layout.start) (fun s' => s'.1.regs.rax = s.regs.rax) := by
+  -- Refine the state to make registers apparent -- note that `cases` consumes
+  -- the hypothesis, and substitutes it, so we make a copy of it to have a
+  -- refined state in the hypotheses, not the goal.
+  let ss := s
+  change (straightlineStep _ (ss, _) _)
+  cases s with | mk regs flags mem =>
+  cases regs with | mk rax rbx rcx rdx rsi rdi rsp_old rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
+  simp at hAlign
+  simp at hContains
+  -- Rewrite the program to make layout, addresses, etc. apparent
+  delta p6
+  dsimp only [straightlineStep,Executable.straightline]
+  rw [Executable.directivesFromStart]
+  simp [List.mapIdx,List.mapIdx.go]
+
+  -- An example of how to do some memory reasoning.
+
+  sym => 
+  kstep
+  tactic =>
   lift_lets
-  dsimp (zeta:=false)(beta:=true)(eta:=false)(iota:=true)(proj:=true) only [Reg64s.get64,Reg64s.set64,BitVec.drop,BitVec.take,ss,Effects.All] -- reduces UInt64.toBitVec but leaves let binders behind and gets stuck confused on it
-  intros rax1
-  lift_lets; intros t -- unfortunately a separte tactic rather than a simp flag
-  -- simp [MachineData.regs,Reg64s.set64,Reg64s.get64,ss] at t -- made no progress for some reason
-  dsimp (zeta:=false)(beta:=false)(eta:=false)(iota:=false)(proj:=true) only [Reg64s.set64,Reg64s.get64,ss,t]
-  -- now just bashing because rax1 in context is already bad
-  simp [rax1]
-  simp (ground:=true)
-  simp
-  simp (decide:=true)
+  intros rsp_store v
+  -- TODO: I would like kstep to try to decide this automatically
+  have: rsp_store % 8 = 0 := by bv_decide
+  rw [simpleAlignedStore64]
+  <;> try grind
+  sym =>
+  kstep
+  tactic =>
+  lift_lets
+  intros rsp
+  intros
+  rw [simpleAlignedLoad64]
+  <;> try grind
+  sym =>
+  kstep
+  tactic =>
+  intros
+  simp [rsp]
+
+/- def bigp := parseFile("./ecc-secp521r1-modp.S") -/
+
+/- set_option maxRecDepth 4000 -/
+/- set_option maxHeartbeats 2000000 -/
+
+/- example [layout : Layout] s -/ 
+/-   (hAlign: s.regs.rsp % 8 = 0) -/
+/-   (hContains: forall x, x ∈ s.dmem) -/
+/- : straightlineStep (layout bigp) (s, layout.start) (fun s => s.1.regs.rax = 0) := by -/
+/-   -- Refine the state to make registers apparent -- note that `cases` consumes -/
+/-   -- the hypothesis, and substitutes it, so we make a copy of it to have a -/
+/-   -- refined state in the hypotheses, not the goal. -/
+/-   let ss := s -/
+/-   change (straightlineStep _ (ss, _) _) -/
+/-   cases s with | mk regs flags mem => -/
+/-   cases regs with | mk rax => -/
+/-   -- Rewrite the program to make layout, addresses, etc. apparent -/
+/-   delta bigp -/
+/-   dsimp only [straightlineStep,Executable.straightline] -/
+/-   rw [Executable.directivesFromStart] -/
+/-   simp [List.mapIdx,List.mapIdx.go] -/
+
+/-   sym => -/ 
+/-   kstep -/
+/-   tactic => -/
+/-   intro rsp_store -/
+/-   have: rsp_store % 8 = 0 := by bv_decide -/
+/-   rw [simpleAlignedStore64] -/
+/-   <;> try grind -/
+
+/-   sym => -/
+/-   kstep -/
+/-   tactic => -/
+/-   intro rsp_store -/
+/-   have: rsp_store % 8 = 0 := by bv_decide -/
+/-   rw [simpleAlignedStore64] -/
+/-   <;> try grind -/
+
+/-   sym => -/
+/-   kstep -/
+/-   tactic => -/
+/-   intro rsp_store -/
+/-   have: rsp_store % 8 = 0 := by bv_decide -/
+/-   rw [simpleAlignedStore64] -/
+/-   <;> try grind -/
+
+/-   sym => -/
+/-   kstep -/
+/-   tactic => -/
+/-   intro rsp_store -/
+/-   have: rsp_store % 8 = 0 := by bv_decide -/
+/-   rw [simpleAlignedStore64] -/
+/-   <;> try grind -/
+
+/-   sym => -/
+/-   kstep -/
+/-   tactic => -/
+/-   intro rsp_store -/
+/-   have: rsp_store % 8 = 0 := by bv_decide -/
+/-   rw [simpleAlignedStore64] -/
+/-   <;> try grind -/
+
+/-   sym => -/
+/-   kstep -/
+/-   tactic => -/
+/-   have: rsp_store % 8 = 0 := by bv_decide -/
+/-   rw [simpleAlignedLoad64] -/
+/-   <;> try grind -/
+
+/-   rotate_right 1 -/
+/-   . sorry -- need additional alignment hypotheses here -/
+/-   sym => -/
+/-   kstep -/
+/-   tactic => -/
+/-   intro count -/
+/-   have: count ≠ 0 := by bv_decide -/
+/-   simp [this] -/
+  
+/-   sym => -/
+/-   kstep -/
+/-   intro -/
+/-   tactic => -/
+/-   have : count = 55 := by decide -/
+/-   simp [this] -/
+  
+/-   sym => -/
+/-   kstep -/
+/-   intros -/
+/-   kstep -/
+/-   sorry -/
+  /- tactic => -/
+  /- lift_lets -/
+  /- revert -/
+  /- sorry -/
+

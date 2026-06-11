@@ -165,6 +165,7 @@ def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.ty
         let new := UInt64.ofBitVec (old.toBitVec.replace ((addr &&& 0b111#64) * 8#64).toNat v)
         ret { s with dmem := s.dmem.insert key new }
     | .none => nonmem_store s.dmem addr v (fun dmem' => ret { s with dmem := dmem' }))
+  
 
 class Labels where label : Label → Int64
 export Labels (label)
@@ -561,28 +562,8 @@ def Layout.apply (l : Layout) (prog : Program) : Executable :=
   (l.start, prog.mapIdx (fun i d => (d, l.size i)))
 instance : CoeFun Layout (fun _ => Program → Executable) where coe := Layout.apply
 
--- TEMPORARY: delete when dropping support for Lean <= 4.28
--- (above which Init.Data.List.scan.Basic is supported).
--- This namespace permits use of Mathlib 4.27 which also implements its own
--- `scanl` which differs from the one here.
-namespace Kraken.Compat
-@[inline]
-private def scanAuxM {α β m} [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
-  go l init []
-where
-  @[specialize] go : List α → β → List β → m (List β)
-    | [], last, acc => pure <| last :: acc
-    | x :: xs, last, acc => do go xs (← f last x) (last :: acc)
-@[inline]
-def scanlM {α β m} [Monad m] (f : β → α → m β) (init : β) (l : List α) : m (List β) :=
-  List.reverse <$> scanAuxM f init l
-@[inline]
-def scanl {α β} (f : β → α → β) (init : β) (as : List α) : List β :=
-  Id.run <| Kraken.Compat.scanlM (pure <| f · ·) init as
-end Kraken.Compat
-
 def Executable.withAddresses (e : Executable)  : List (Int64 × Directive × Nat) :=
-  (Kraken.Compat.scanl (fun (p, _, _) (d, z) => (p+.ofNat z, d, z)) (e.1, .byteArray (.mk #[]), 0) e.2)
+  (List.scanl (fun (p, _, _) (d, z) => (p+.ofNat z, d, z)) (e.1, .byteArray (.mk #[]), 0) e.2)
 
 def Executable.labels (e : Executable) : Labels :=
   { label l := (e.withAddresses.findSome?
