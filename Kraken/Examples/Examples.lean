@@ -133,10 +133,6 @@ theorem p3_correct [layout: Layout] (s: MachineData):
     rw [Executable.directivesFromStart]
     simp [List.mapIdx,List.mapIdx.go]
 
-    -- TODO: resume fixing this example once
-    -- https://leanprover.zulipchat.com/#narrow/channel/594054-SymM-users/topic/kernel.20error.20with.20SymM/with/601889305
-    -- is fixed (Lean bug)
-
     -- sym =>
     -- kstep
     -- intros
