@@ -105,18 +105,24 @@ def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
 
 def gimmickId (p: Prop): Prop := p
 
-def gimmick {p: Prop} (h: gimmickId p): p := by
+theorem gimmick {p: Prop} (h: gimmickId p): p := by
   simp [gimmickId] at h
   assumption
 
-def gimmickInv {p: Prop} (h: p): gimmickId p := by
+theorem gimmickInv {p: Prop} (h: p): gimmickId p := by
   simp [gimmickId]
   assumption
+
+
+structure KStepConfig where
+  alignedLoadsAndStores : Bool := true
+  debug : Bool := false
 
 -- Debugging the reduction steps: to easily have a marker that tells us when we've hit the top-level
 -- term, we assume prior to running `kstep`, the user does `apply gimmick`. (This also avoids having
 -- to reason about whether we're at the top-level term or not -- we never are.)
-def klog : DSimproc := fun e => do
+def klog (config: KStepConfig) : DSimproc := fun e => do
+  unless config.debug do return .rfl
   -- We log every top-level term get a trace of the various states of the dsimp
   -- call.
   let s := (← get).numSteps
@@ -125,10 +131,6 @@ def klog : DSimproc := fun e => do
   if e.isApp && e.getAppFn'.isConstOf ``gimmickId then
     logInfo m!"klog: step {s} visiting\n{e.getAppRevArgs[0]!}"
   return .rfl
-
-
-structure KStepConfig where
-  alignedLoadsAndStores : Bool := true
 
 declare_term_config_elab elabKStepConfig KStepConfig
 
@@ -228,7 +230,7 @@ def evalSymKStep : Grind.GrindTactic :=
   let goal ← Grind.liftGrindM (do
     Sym.dsimp
       (config := { maxSteps := 1000000 })
-      (methods := { pre := klog >> kdeltaBetaOnly decls >> kdsimpMatch >> kdsimpProj >> kbeta})
+      (methods := { pre := klog config >> kdeltaBetaOnly decls >> kdsimpMatch >> kdsimpProj >> kbeta})
       goal)
 
   -- TEMPORARY: trying to simplify binders in the goal
