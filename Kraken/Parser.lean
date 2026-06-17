@@ -621,15 +621,15 @@ def parseInstr : Parser Instr := do
     let w ← instrWidth mn
     commaSeparated w parseOperand parseRegOrMem .mov
 
-  | "moszx" =>
+  | "movsx" =>
     -- Must be a register otherwise lacking type info
-    let ⟨ _w_src, src ⟩ ← parseRegW
+    let ⟨ _w_src, src ⟩ ← parseRegW; parseComma
     let ⟨ w_dst, dst ⟩ ← parseRegW
     pure ⟨ .W64, w_dst, .movsx dst (.reg src) ⟩
 
   | "movzx" =>
     -- Must be a register otherwise lacking type info
-    let ⟨ _w_src, src ⟩ ← parseRegW
+    let ⟨ _w_src, src ⟩ ← parseRegW; parseComma
     let ⟨ w_dst, dst ⟩ ← parseRegW
     pure ⟨ .W64, w_dst, .movzx dst (.reg src) ⟩
 
@@ -639,7 +639,7 @@ def parseInstr : Parser Instr := do
     let w_src ← Char.toWidth c_src
     let src ← parseRegO w_src; parseComma
     let dst ← parseRegO w_dst
-    pure ⟨ .W64, w_dst, .movzx dst (.reg src) ⟩
+    pure ⟨ .W64, w_dst, .movsx dst (.reg src) ⟩
 
   | "movzbw" | "movzbl" | "movzbq" | "movzwl" | "movzwq" =>
     let w_dst ← instrWidth mn
