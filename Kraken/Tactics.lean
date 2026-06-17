@@ -123,7 +123,7 @@ def klog : DSimproc := fun e => do
   /- if s = 789 then -/
   /-   return .rfl (done := true) -/
   if e.isApp && e.getAppFn'.isConstOf ``gimmickId then
-    logInfo m!"klog: step {s} visiting\n{e.getAppRevArgs[0]!}"
+    pure () -- logInfo m!"klog: step {s} visiting\n{e.getAppRevArgs[0]!}"
   return .rfl
 
 
