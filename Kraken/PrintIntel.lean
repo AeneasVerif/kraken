@@ -1,5 +1,9 @@
 import Kraken.Syntax
-
+/-!
+# IntelPrinter
+This file prints Kraken-supported x64 assembly in Intel syntax.
+This is different from Parser.lean which expects AT&T syntax.
+-/
 
 instance : ToString Reg64 where
   toString r := match r with
