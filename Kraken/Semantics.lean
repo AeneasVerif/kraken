@@ -630,3 +630,8 @@ abbrev eval [layout : Layout] (prog : Program) := (layout prog).eval
   let start := exe.labels.label "main"
   let data := { dmem := .ofList [(0x100, 0x1337)], regs := {rsp := 0x100} }
   (exe.eval (data, start) (fun (_, pc) => pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)
+
+
+
+
+
