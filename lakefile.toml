@@ -13,3 +13,7 @@ globs = ["Kraken.*"]  # TODO: move the tests out of `Kraken`
 [[lean_exe]]
 name = "krakenrunner"
 root = "KrakenRunner"
+
+[[lean_lib]]
+name = "KrakenStdlibCandidates"
+globs = ["KrakenStdlibCandidates.*"]

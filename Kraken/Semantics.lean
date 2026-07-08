@@ -5,20 +5,12 @@ import Lean
 import Std
 import Kraken.Syntax
 
+import KrakenStdlibCandidates.Init.Data.BitVec.Basic
+
 -- injective coercions only
 attribute [-instance] BitVec.instNatCast
 attribute [-instance] BitVec.instIntCast
 instance : Coe Bool Nat where coe := Bool.toNat
-
-def BitVec.unsigned {w} (x : BitVec w) : Int := x.toNat
-def BitVec.signed {w} (x : BitVec w) : Int := x.toInt
-def BitVec.take {w} (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
-def BitVec.drop {w} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
-def BitVec.replaceLow {w n} (old : BitVec w) (new : BitVec n) : BitVec w :=
-  (BitVec.append (old.drop n) new).setWidth _
-def BitVec.replace {w1} (old : BitVec w1) (i : Nat) {w2} (new : BitVec w2) : BitVec w1 :=
-  (old.drop (i + w2) ++ new ++ old.take i).setWidth _
-example : (0x11223344#32).replace 8 0x99#8 = 0x11229944 := by rfl
 
 namespace Reg
 def base {w} (r : Reg w) : Reg64 := match r with
@@ -67,8 +59,9 @@ def Reg64s.set64 (regs : Reg64s) (r : Reg64) (v : Width.W64.type) : Reg64s :=
   | .r12 => { regs with r12 := v } | .r13 => { regs with r13 := v }
   | .r14 => { regs with r14 := v } | .r15 => { regs with r15 := v }
 
-def Reg64s.get (s : Reg64s) {w} (r : Reg w) : w.type :=
-  ((s.get64 r.base).drop r.offset).take w.bits
+def Reg64s.get (s : Reg64s) {w} (r : Reg w) : w.type := match r with
+  | .low r .W64 => s.get64 r
+  | r => ((s.get64 r.base).drop r.offset).take w.bits
   -- BitVec because it may be signed or unsigned depending on context
 
 def Reg64s.set (s : Reg64s) {w} (r : Reg w) (v : w.type) : Reg64s := match r with
@@ -235,19 +228,9 @@ structure StatusFlags.from_result.Remaining where
   of : Bool
   deriving Repr, BEq, DecidableEq
 
--- TEMPORARY: definitions stolen from Lean 4.28's standard library, but with a
--- different name so that this file builds with both 4.27 and 4.28
-namespace BitVec
-def cpopNatRec_ {w} (x : BitVec w) (pos acc : Nat) : Nat :=
-  match pos with
-  | 0 => acc
-  | n + 1 => x.cpopNatRec_ n (acc + (x.getLsbD n).toNat)
-
-def cpop_ {w} (x : BitVec w) : BitVec w := BitVec.ofNat w (cpopNatRec_ x w 0)
-end BitVec
 
 def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
-  { pf := (result.take 8).cpop_ % 2 == BitVec.zero _
+  { pf := (result.take 8).cpop % 2 == BitVec.zero _
     zf := result == BitVec.zero _
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
 
