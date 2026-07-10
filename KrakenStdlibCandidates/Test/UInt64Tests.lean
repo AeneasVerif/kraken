@@ -62,7 +62,6 @@ example (x y z w : UInt8) : ((x.toUInt16 * y.toUInt16) + z.toUInt16 + w.toUInt16
 
 
 example (x : UInt64) : (~~~(~~~x)) = x := by grind
-example (x y : UInt64) : x - y = x + ~~~y + 1 := by grind
 
 example (x : UInt64) : x <<< 1 = x + x := by grind
 

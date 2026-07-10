@@ -3,7 +3,6 @@ import KrakenStdlibCandidates.Init.GrindInternHooks
 import KrakenStdlibCandidates.Init.Data.Int.Bitwise.Lemmas
 import KrakenStdlibCandidates.Init.Data.BitVec.Lemmas
 import KrakenStdlibCandidates.Init.Data.UInt8.Lemmas
-private axiom cheat {p : Prop} : p
 
 /-!
 # Grind homomorphism lemmas for Int8.
@@ -78,7 +77,45 @@ theorem toInt_toInt16_mul (x y : Int8) : (x.toInt16 * y.toInt16).toInt = x.toInt
   have h_range2 : x.toInt * y.toInt < 2^15 := by omega
   exact Int.bmod_eq_of_le h_range1 h_range2
 
-theorem mul_range (x y : Int8) : -(2^14) + 2^7 ≤ x.toInt * y.toInt ∧ x.toInt * y.toInt ≤ 2^14 := cheat
+theorem mul_range (x y : Int8) :
+    -(2^14) + 2^7 ≤ x.toInt * y.toInt ∧ x.toInt * y.toInt ≤ 2^14 := by
+  have hx_abs : x.toInt.natAbs ≤ 2^7 := by
+    have h1 := Int8.le_toInt x
+    have h2 := Int8.toInt_lt x
+    omega
+  have hy_abs : y.toInt.natAbs ≤ 2^7 := by
+    have h1 := Int8.le_toInt y
+    have h2 := Int8.toInt_lt y
+    omega
+  have h_upper : x.toInt * y.toInt ≤ 2^7 * 2^7 := Int.mul_le_mul_of_natAbs_le hx_abs hy_abs
+  constructor
+  · by_cases h1 : 0 ≤ x.toInt
+    · have hx1 : (-x.toInt).natAbs ≤ 127 := by
+        have h := Int8.toInt_lt x
+        omega
+      have hy1 : y.toInt.natAbs ≤ 128 := by
+        have h := Int8.le_toInt y
+        have h2 := Int8.toInt_lt y
+        omega
+      have h_neg := Int.mul_le_mul_of_natAbs_le hx1 hy1
+      rw [Int.neg_mul] at h_neg
+      omega
+    · by_cases h2 : 0 ≤ y.toInt
+      · have hx2 : x.toInt.natAbs ≤ 128 := by
+          have h := Int8.le_toInt x
+          omega
+        have hy2 : (-y.toInt).natAbs ≤ 127 := by
+          have h := Int8.toInt_lt y
+          omega
+        have h_neg := Int.mul_le_mul_of_natAbs_le hx2 hy2
+        rw [Int.mul_neg] at h_neg
+        omega
+      · have : 0 ≤ x.toInt * y.toInt := by
+          have hx_neg : x.toInt ≤ 0 := by omega
+          have hy_neg : y.toInt ≤ 0 := by omega
+          exact Int.mul_nonneg_of_nonpos_of_nonpos hx_neg hy_neg
+        omega
+  · omega
 
 end Int8
 

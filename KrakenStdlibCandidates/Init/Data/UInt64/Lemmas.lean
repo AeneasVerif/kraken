@@ -2,7 +2,6 @@ prelude
 import Init.Data.UInt
 import KrakenStdlibCandidates.Init.GrindInternHooks
 import KrakenStdlibCandidates.Init.Data.BitVec.Lemmas
-private axiom cheat {p : Prop} : p
 /-!
 # Grind homomorphism lemmas for UInt64.
 -/
@@ -46,8 +45,6 @@ theorem eq_of_toNat_eq_u8 {a b : UInt8} (h : a.toNat = b.toNat) : a = b := UInt8
 theorem toBitVec_injective : Function.Injective UInt64.toBitVec := fun _ _ => UInt64.eq_of_toBitVec_eq
 attribute [grind inj] toBitVec_injective
 attribute [grind_homo] UInt64.xor_self UInt64.not_not UInt64.shiftLeft_zero UInt64.and_zero
-@[grind_homo] theorem hShiftLeft_eq (x y : UInt64) : x <<< y = x * UInt64.ofNat (2 ^ y.toNat) := cheat
-@[grind_homo] theorem hShiftRight_eq (x y : UInt64) : x >>> y = x / UInt64.ofNat (2 ^ y.toNat) := cheat
 
 
 
@@ -85,19 +82,14 @@ attribute [grind_homo] UInt64.xor_self UInt64.not_not UInt64.shiftLeft_zero UInt
 
 @[grind_homo] theorem zero_toBitVec_toNat : (0 : UInt64).toBitVec.toNat = 0 := rfl
 @[grind_homo] theorem zero_toBitVec_unsigned : (0 : UInt64).toBitVec.unsigned = 0 := rfl
+@[grind_homo] theorem ofBitVec_one : UInt64.ofBitVec (1#64) = 1 := rfl
+@[grind_homo] theorem ofBitVec_zero : UInt64.ofBitVec (0#64) = 0 := rfl
 
-@[grind_homo] theorem sub_eq (x y : UInt64) : x - y = x + ~~~y + 1 := by
-  apply eq_of_toNat_eq_u64
-  repeat rw [UInt64.toBitVec_toNat]
-  rw [UInt64.toBitVec_sub, BitVec.toNat_sub]
-  rw [UInt64.toBitVec_add, BitVec.toNat_add]
-  rw [UInt64.toBitVec_add, BitVec.toNat_add]
-  rw [UInt64.toBitVec_not, BitVec.toNat_not]
-  have h1 : (1 : UInt64).toBitVec.toNat = 1 := rfl
-  rw [h1]
-  change (18446744073709551616 - y.toBitVec.toNat + x.toBitVec.toNat) % 18446744073709551616 =
-         ((x.toBitVec.toNat + (18446744073709551616 - 1 - y.toBitVec.toNat)) % 18446744073709551616 + 1) % 18446744073709551616
-  have : y.toBitVec.toNat < 18446744073709551616 := y.toBitVec.isLt
-  omega
+@[grind_homo] theorem hShiftLeft_eq (x y : UInt64) :
+    x <<< y = x * UInt64.ofNat (2 ^ (y.toBitVec % 64).toNat) := by
+  apply UInt64.eq_of_toBitVec_eq
+  rw [UInt64.toBitVec_shiftLeft, UInt64.toBitVec_mul, UInt64.toBitVec_ofNat']
+  change x.toBitVec <<< (y.toBitVec % 64).toNat = x.toBitVec * BitVec.ofNat 64 (2 ^ (y.toBitVec % 64).toNat)
+  rw [BitVec.hShiftLeft_eq, ← BitVec.pow_two_eq_ofNat]
 
 end UInt64

@@ -3,7 +3,6 @@ import KrakenStdlibCandidates.Init.GrindInternHooks
 import KrakenStdlibCandidates.Init.Data.Int.Bitwise.Lemmas
 import KrakenStdlibCandidates.Init.Data.BitVec.Lemmas
 import KrakenStdlibCandidates.Init.Data.UInt32.Lemmas
-private axiom cheat {p : Prop} : p
 
 
 /-!
@@ -71,7 +70,40 @@ theorem toInt_toInt64_mul (x y : Int32) : (x.toInt64 * y.toInt64).toInt = x.toIn
   have h_range2 : x.toInt * y.toInt < 2^63 := by omega
   exact Int.bmod_eq_of_le h_range1 h_range2
 
-theorem mul_range (x y : Int32) : -(2^62) + 2^31 ≤ x.toInt * y.toInt ∧ x.toInt * y.toInt ≤ 2^62 := cheat
+theorem mul_range (x y : Int32) : -(2^62) + 2^31 ≤ x.toInt * y.toInt ∧ x.toInt * y.toInt ≤ 2^62 := by
+  have hx := Int32.le_toInt x
+  have hx2 := Int32.toInt_lt x
+  have hy := Int32.le_toInt y
+  have hy2 := Int32.toInt_lt y
+  have hx_abs : x.toInt.natAbs ≤ 2^31 := by omega
+  have hy_abs : y.toInt.natAbs ≤ 2^31 := by omega
+  have h_upper : x.toInt * y.toInt ≤ 2^31 * 2^31 := Int.mul_le_mul_of_natAbs_le hx_abs hy_abs
+  constructor
+  · have hx_cases : 0 ≤ x.toInt ∨ x.toInt < 0 := by omega
+    have hy_cases : 0 ≤ y.toInt ∨ y.toInt < 0 := by omega
+    rcases hx_cases with hx_pos | hx_neg
+    · rcases hy_cases with hy_pos | hy_neg
+      · have h := Int.mul_nonneg hx_pos hy_pos
+        omega
+      · have h1 : x.toInt ≤ 2^31 - 1 := by omega
+        have h2 : -y.toInt ≤ 2^31 := by omega
+        have h3 : 0 ≤ -y.toInt := by omega
+        have h4 : 0 ≤ (2^31 - 1 : Int) := by decide
+        have h_mul := Int.mul_le_mul h1 h2 h3 h4
+        rw [Int.mul_neg] at h_mul
+        omega
+    · rcases hy_cases with hy_pos | hy_neg
+      · have h1 : -x.toInt ≤ 2^31 := by omega
+        have h2 : y.toInt ≤ 2^31 - 1 := by omega
+        have h3 : 0 ≤ y.toInt := by omega
+        have h4 : 0 ≤ (2^31 : Int) := by decide
+        have h_mul := Int.mul_le_mul h1 h2 h3 h4
+        rw [Int.neg_mul] at h_mul
+        omega
+      · have h_mul := Int.mul_nonneg (by omega : 0 ≤ -x.toInt) (by omega : 0 ≤ -y.toInt)
+        rw [Int.neg_mul_neg] at h_mul
+        omega
+  · omega
 
 end Int32
 

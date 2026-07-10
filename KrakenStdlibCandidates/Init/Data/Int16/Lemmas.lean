@@ -3,7 +3,6 @@ import KrakenStdlibCandidates.Init.GrindInternHooks
 import KrakenStdlibCandidates.Init.Data.Int.Bitwise.Lemmas
 import KrakenStdlibCandidates.Init.Data.BitVec.Lemmas
 import KrakenStdlibCandidates.Init.Data.UInt16.Lemmas
-private axiom cheat {p : Prop} : p
 
 
 /-!
@@ -73,7 +72,55 @@ theorem toInt_toInt32_mul (x y : Int16) : (x.toInt32 * y.toInt32).toInt = x.toIn
   have h_range2 : x.toInt * y.toInt < 2^31 := by omega
   exact Int.bmod_eq_of_le h_range1 h_range2
 
-theorem mul_range (x y : Int16) : -(2^30) + 2^15 ≤ x.toInt * y.toInt ∧ x.toInt * y.toInt ≤ 2^30 := cheat
+theorem mul_range (x y : Int16) :
+    -(2^30) + 2^15 ≤ x.toInt * y.toInt ∧ x.toInt * y.toInt ≤ 2^30 := by
+  have hx_abs : x.toInt.natAbs ≤ 2^15 := by
+    have h1 := Int16.le_toInt x
+    have h2 := Int16.toInt_lt x
+    omega
+  have hy_abs : y.toInt.natAbs ≤ 2^15 := by
+    have h1 := Int16.le_toInt y
+    have h2 := Int16.toInt_lt y
+    omega
+  have h_upper : x.toInt * y.toInt ≤ 2^15 * 2^15 := Int.mul_le_mul_of_natAbs_le hx_abs hy_abs
+  have h_right : x.toInt * y.toInt ≤ 2^30 := by omega
+  have hx_cases : x.toInt < 0 ∨ 0 ≤ x.toInt := by omega
+  rcases hx_cases with hx_neg | hx_pos
+  · have hy_cases : y.toInt < 0 ∨ 0 ≤ y.toInt := by omega
+    rcases hy_cases with hy_neg | hy_pos
+    · have h_neg : 0 ≤ (-x.toInt) * (-y.toInt) := Int.mul_nonneg (by omega) (by omega)
+      have h_eq : (-x.toInt) * (-y.toInt) = x.toInt * y.toInt := Int.neg_mul_neg x.toInt y.toInt
+      have h_left : -(2^30) + 2^15 ≤ x.toInt * y.toInt := by omega
+      exact ⟨h_left, h_right⟩
+    · have hy_range : y.toInt ≤ 2^15 - 1 := by
+        have h := Int16.toInt_lt y
+        omega
+      have h_term1 : 0 ≤ y.toInt * (x.toInt + 2^15) :=
+        Int.mul_nonneg hy_pos (by have h := Int16.le_toInt x; omega)
+      have h_term2 : 0 ≤ (2^15 - 1 - y.toInt) * 2^15 := Int.mul_nonneg (by omega) (by decide)
+      have h1 : 0 ≤ y.toInt * (x.toInt + 2^15) + (2^15 - 1 - y.toInt) * 2^15 :=
+        Int.add_nonneg h_term1 h_term2
+      have h_comm : y.toInt * x.toInt = x.toInt * y.toInt := Int.mul_comm y.toInt x.toInt
+      have h2 : y.toInt * (x.toInt + 2^15) + (2^15 - 1 - y.toInt) * 2^15 =
+          x.toInt * y.toInt + 2^30 - 2^15 := by
+        simp [Int.mul_add, Int.sub_mul]
+        omega
+      have h_left : -(2^30) + 2^15 ≤ x.toInt * y.toInt := by omega
+      exact ⟨h_left, h_right⟩
+  · have hx_range : x.toInt ≤ 2^15 - 1 := by
+      have h := Int16.toInt_lt x
+      omega
+    have h_term1 : 0 ≤ x.toInt * (y.toInt + 2^15) :=
+      Int.mul_nonneg hx_pos (by have h := Int16.le_toInt y; omega)
+    have h_term2 : 0 ≤ (2^15 - 1 - x.toInt) * 2^15 := Int.mul_nonneg (by omega) (by decide)
+    have h1 : 0 ≤ x.toInt * (y.toInt + 2^15) + (2^15 - 1 - x.toInt) * 2^15 :=
+      Int.add_nonneg h_term1 h_term2
+    have h2 : x.toInt * (y.toInt + 2^15) + (2^15 - 1 - x.toInt) * 2^15 =
+        x.toInt * y.toInt + 2^30 - 2^15 := by
+      simp [Int.mul_add, Int.sub_mul]
+      omega
+    have h_left : -(2^30) + 2^15 ≤ x.toInt * y.toInt := by omega
+    exact ⟨h_left, h_right⟩
 
 end Int16
 

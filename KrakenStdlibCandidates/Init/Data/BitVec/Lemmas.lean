@@ -16,8 +16,6 @@ set_option autoImplicit true
 
 namespace BitVec
 
-private axiom cheat {p : Prop} : p
-
 @[grind_homo] theorem toNat_setWidth_8_16 (x : BitVec 8) : (BitVec.setWidth 16 x).toNat = x.toNat := by
   apply BitVec.toNat_setWidth'
   decide
@@ -29,6 +27,19 @@ private axiom cheat {p : Prop} : p
 @[grind_homo] theorem toNat_setWidth_32_64 (x : BitVec 32) : (BitVec.setWidth 64 x).toNat = x.toNat := by
   apply BitVec.toNat_setWidth'
   decide
+
+@[grind_homo] theorem toNat_setWidth_64_64 (x : BitVec 64) : (BitVec.setWidth 64 x).toNat = x.toNat := by
+  apply BitVec.toNat_setWidth'
+  decide
+
+@[grind_homo] theorem setWidth_same_eq {w : Nat} (x : BitVec w) : BitVec.setWidth w x = x := by
+  ext i hi; grind
+
+@[grind_homo] theorem setWidth_64_eq (x : BitVec 64) : BitVec.setWidth 64 x = x := by
+  ext i hi; grind
+
+@[grind_homo] theorem toNat_setWidth_same {w : Nat} (x : BitVec w) : (BitVec.setWidth w x).toNat = x.toNat := by
+  rw [setWidth_same_eq]
 
 attribute [grind_homo] BitVec.toNat_and
 attribute [grind_homo] BitVec.toNat_or
@@ -152,16 +163,44 @@ theorem toNat_ushiftRight_le {w : Nat} (x : BitVec w) (n : Nat) : (x >>> n).toNa
   (x + y).unsigned = (x.unsigned + y.unsigned) % (2 ^ w) := by
   dsimp only [unsigned]; simp
 
+theorem unsigned_add_eval (x y : BitVec w) :
+    (x + y).unsigned = if x.unsigned + y.unsigned < (2^w : Int) then x.unsigned + y.unsigned else x.unsigned + y.unsigned - (2^w : Int) := by
+  have := x.unsigned_range
+  have := y.unsigned_range
+  rw [unsigned_add]
+  split
+  · exact Int.emod_eq_of_lt (by omega) (by omega)
+  · have h_eq : (x.unsigned + y.unsigned) % (2^w : Int) = ((2^w : Int) + (x.unsigned + y.unsigned - 2^w)) % (2^w : Int) := by
+      congr 1; omega
+    rw [h_eq, Int.add_emod_left]
+    exact Int.emod_eq_of_lt (by omega) (by omega)
+
 @[grind_homo] theorem unsigned_mul (x y : BitVec w) :
   (x * y).unsigned = (x.unsigned * y.unsigned) % (2 ^ w) := by
   dsimp only [unsigned]; simp
 
 @[grind_homo] theorem unsigned_sub (x y : BitVec w) :
-  (x - y).unsigned = (x.unsigned - y.unsigned) % (2 ^ w) := cheat
+    (x - y).unsigned = (x.unsigned - y.unsigned) % (2 ^ w) := by
+  dsimp only [unsigned]
+  rw [BitVec.toNat_sub]
+  simp only [Int.ofNat_eq_natCast]
+  rw [Int.natCast_emod, Int.natCast_add, Int.natCast_sub (by omega)]
+  rw [Int.natCast_pow, Int.cast_ofNat_Int]
+  have h_rearrange : (2 ^ w - ↑y.toNat + ↑x.toNat : Int) = 2 ^ w + (↑x.toNat - ↑y.toNat) := by
+    omega
+  rw [h_rearrange, Int.add_emod_left]
 
-@[grind_homo] theorem unsigned_sub_eval {w : Nat} (x y : BitVec w) :
-  (x - y).unsigned = if y.unsigned ≤ x.unsigned then x.unsigned - y.unsigned else x.unsigned + (2^w : Int) - y.unsigned := cheat
-
+theorem unsigned_sub_eval (x y : BitVec w) :
+    (x - y).unsigned = if y.unsigned ≤ x.unsigned then x.unsigned - y.unsigned else x.unsigned + (2^w : Int) - y.unsigned := by
+  have hx := x.unsigned_range
+  have hy := y.unsigned_range
+  rw [unsigned_sub]
+  split <;> rename_i h
+  · exact Int.emod_eq_of_lt (by omega) (by omega)
+  · rw [← Int.add_emod_left]
+    have h_eq : ((2^w : Int) + (x.unsigned - y.unsigned)) = x.unsigned + (2^w : Int) - y.unsigned := by omega
+    rw [h_eq]
+    exact Int.emod_eq_of_lt (by omega) (by omega)
 
 @[grind_homo] theorem unsigned_inj {w : Nat} {x y : BitVec w} (h : x.unsigned = y.unsigned) :
   x = y := by
@@ -281,6 +320,20 @@ theorem ofNat_max_eq_allOnes {w : Nat} : BitVec.ofNat w (2^w - 1) = BitVec.allOn
 @[grind_homo] theorem unsigned_truncate {m : Nat} (n : Nat) (a : BitVec m) :
   (BitVec.truncate n a).unsigned = a.unsigned % (2 ^ n) := by
   dsimp only [unsigned]; simp
+
+@[grind_homo] theorem truncate_truncate_16_32 (a : BitVec 32) :
+    (a.truncate 16).truncate 8 = a.truncate 8 := by
+  apply unsigned_inj
+  rw [unsigned_truncate, unsigned_truncate, unsigned_truncate]
+  have h_eq : (a.toNat % 2^16 % 2^8 : Nat) = a.toNat % 2^8 := Nat.mod_mod_of_dvd a.toNat (by decide)
+  exact congrArg Int.ofNat h_eq
+
+@[grind_homo] theorem truncate_truncate_8_32 (a : BitVec 32) :
+    (a.truncate 8).truncate 8 = a.truncate 8 := by
+  apply unsigned_inj
+  rw [unsigned_truncate, unsigned_truncate]
+  have h_eq : (a.toNat % 2^8 % 2^8 : Nat) = a.toNat % 2^8 := Nat.mod_mod a.toNat (2^8)
+  exact congrArg Int.ofNat h_eq
 
 theorem unsigned_truncate_small (x : BitVec w) (h : x.unsigned < 2^n) : (x.truncate n).unsigned = x.unsigned := by
   have := x.unsigned_range
@@ -941,12 +994,6 @@ theorem drop_eq_truncate_ushiftRight {w : Nat} (n : Nat) (a : BitVec w) :
 
 attribute [grind_homo] BitVec.xor_self BitVec.not_not BitVec.shiftLeft_zero BitVec.allOnes_and BitVec.and_allOnes BitVec.not_zero
 
-@[grind_homo] theorem hShiftLeft_eq {w : Nat} (x : BitVec w) (n : Nat) : x <<< n = x * 2^n := cheat
-@[grind_homo] theorem hShiftRight_eq {w : Nat} (x : BitVec w) (n : Nat) : x >>> n = x / 2^n := cheat
-@[grind_homo] theorem truncate_truncate_16_32 {w : Nat} (x : BitVec w) : (x.truncate 32).truncate 16 = x.truncate 16 := by ext i; grind
-@[grind_homo] theorem truncate_truncate_8_32 {w : Nat} (x : BitVec w) : (x.truncate 32).truncate 8 = x.truncate 8 := by ext i; grind
-
-
 
 @[grind_homo] theorem slt_simp' {w : Nat} (a b : BitVec w) : (a.slt b = true) = (a.toInt < b.toInt) := by
   exact propext slt_iff_toInt_lt
@@ -960,8 +1007,28 @@ attribute [grind_homo] BitVec.xor_self BitVec.not_not BitVec.shiftLeft_zero BitV
 @[grind_homo_pred] theorem sle_toInt_pred {w : Nat} (a b : BitVec w) : (a.sle b = true) ↔ a.toInt ≤ b.toInt := by
   exact sle_iff_toInt_le
 
-@[grind_homo] theorem toInt_ofNat_eval {w : Nat} (n : Nat) : (BitVec.ofNat w n).toInt = (n : Int).bmod (2^w) := by
+@[grind_homo] theorem toInt_ofNat_eval {w : Nat} (n : Nat) :
+    (BitVec.ofNat w n).toInt = (n : Int).bmod (2^w) := by
   exact BitVec.signed_ofNat w n
+
+theorem pow_two_toNat (w n : Nat) : (2^n : BitVec w).toNat = (2^n : Nat) % 2^w := by
+  change ((2 : BitVec w).pow n).toNat = 2^n % 2^w
+  apply Int.ofNat_inj.mp
+  rw [toNat_eq_unsigned, unsigned_pow, unsigned_instOfNat]
+  push_cast
+  induction n <;> simp_all [Int.pow_succ, Int.mul_emod, Int.mul_comm]
+
+theorem pow_two_eq_ofNat (w n : Nat) : (2 : BitVec w) ^ n = BitVec.ofNat w (2^n) := by
+  apply BitVec.eq_of_toNat_eq
+  rw [pow_two_toNat, toNat_ofNat]
+
+@[grind_homo] theorem hShiftLeft_eq {w : Nat} (x : BitVec w) (n : Nat) : x <<< n = x * 2^n := by
+  apply BitVec.eq_of_toNat_eq
+  rw [toNat_shiftLeft, toNat_mul, Nat.shiftLeft_eq, pow_two_toNat]
+  calc (x.toNat * 2^n) % 2^w
+    _ = (x.toNat % 2^w * (2^n % 2^w)) % 2^w := by rw [Nat.mul_mod]
+    _ = (x.toNat % 2^w * ((2^n % 2^w) % 2^w)) % 2^w := by rw [Nat.mod_mod]
+    _ = (x.toNat * (2^n % 2^w)) % 2^w := by rw [← Nat.mul_mod]
 
 end BitVec
 

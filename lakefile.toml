@@ -1,6 +1,6 @@
 name = "Kraken"
 version = "0.1.0"
-defaultTargets = ["Kraken", "krakenrunner"]
+defaultTargets = ["KrakenStdlibCandidates", "Kraken", "krakenrunner"]
 
 [leanOptions]
 autoImplicit = false

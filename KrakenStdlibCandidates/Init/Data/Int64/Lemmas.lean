@@ -2,7 +2,6 @@ prelude
 import KrakenStdlibCandidates.Init.GrindInternHooks
 import KrakenStdlibCandidates.Init.Data.Int.Bitwise.Lemmas
 import KrakenStdlibCandidates.Init.Data.BitVec.Lemmas
-private axiom cheat {p : Prop} : p
 /-!
 # Grind homomorphism lemmas for Int64.
 -/
@@ -58,9 +57,6 @@ theorem lt_toInt_inst (a b : Int64) : a < b ↔ a.toBitVec.toInt < b.toBitVec.to
 
 attribute [grind_homo] Int64.xor_self Int64.not_not Int64.shiftLeft_zero Int64.and_zero
 
-@[grind_homo] theorem hShiftLeft_eq (x y : Int64) : x <<< y = x * Int64.ofNat (2 ^ y.toBitVec.toNat) := cheat
-@[grind_homo] theorem hShiftRight_eq (x y : Int64) : x >>> y = x / Int64.ofNat (2 ^ y.toBitVec.toNat) := cheat
-
 
 
 @[grind_homo] theorem toInt32_toInt16 (x : Int64) : x.toInt32.toInt16 = x.toInt16 := by
@@ -90,6 +86,16 @@ attribute [grind inj] toBitVec_injective
 @[grind_homo] theorem sub_eq (x y : Int64) : x - y = x + ~~~y + 1 := by
   rw [Int64.eq_iff_toBitVec_eq]
   grind
+
+theorem toBitVec_ofNat_eq (n : Nat) :
+    (Int64.ofNat n).toBitVec = BitVec.ofNat 64 n := rfl
+
+@[grind_homo] theorem hShiftLeft_eq (x y : Int64) :
+    x <<< y = x * Int64.ofNat (2 ^ (y.toBitVec.smod 64).toNat) := by
+  rw [Int64.eq_iff_toBitVec_eq]
+  rw [Int64.toBitVec_shiftLeft, Int64.toBitVec_mul, toBitVec_ofNat_eq]
+  change x.toBitVec <<< (y.toBitVec.smod 64).toNat = x.toBitVec * BitVec.ofNat 64 (2 ^ (y.toBitVec.smod 64).toNat)
+  rw [BitVec.hShiftLeft_eq, ← BitVec.pow_two_eq_ofNat]
 
 end Int64
 
