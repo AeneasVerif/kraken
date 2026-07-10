@@ -1,4 +1,4 @@
-import Kraken.SeparationPredicates
+import Kraken.Separation
 
 open Std
 open Std.ExtHashMap
@@ -122,14 +122,14 @@ private theorem disjoint_union_r (a b c : ExtHashMap key value) :
   rw [disjoint_union_l]
   rw [disjoint_symm_iff (m1:=b), disjoint_symm_iff (m1:=c)]
 
-theorem sep_comm (p q : ExtHashMap key value → Prop) : p ⋆ q = q ⋆ p := by
-  have h (p q : ExtHashMap key value → Prop) (m) (h : (p ⋆ q) m) : (q ⋆ p) m := by
+theorem sep_comm (p q : SepPred key value) : p ⋆ q = q ⋆ p := by
+  have h (p q : SepPred key value) (m) (h : (p ⋆ q) m) : (q ⋆ p) m := by
     have ⟨a, b, h_union, h_inter, hp, hq⟩ := h
     refine ⟨b, a, by rw [← h_union, union_comm_of_disjoint a b h_inter], disjoint_symm h_inter, hq, hp⟩
   funext m
   exact propext ⟨h p q m, h q p m⟩
 
-theorem sep_assoc (p q r : ExtHashMap key value → Prop) : p ⋆ q ⋆ r = p ⋆ (q ⋆ r) := by
+theorem sep_assoc (p q r : SepPred key value) : p ⋆ q ⋆ r = p ⋆ (q ⋆ r) := by
   funext m
   apply propext
   constructor
@@ -148,8 +148,8 @@ theorem sep_assoc (p q r : ExtHashMap key value → Prop) : p ⋆ q ⋆ r = p �
       exact (disjoint_union_l a b c).mpr ⟨hac, hbc_inter⟩
     · exact ((disjoint_union_r a b c).mp habc_inter).1
 
-instance : Std.Commutative (sep : (ExtHashMap key value → Prop) → _) := ⟨sep_comm⟩
-instance : Std.Associative (sep : (ExtHashMap key value → Prop) → _) := ⟨sep_assoc⟩
+instance : Std.Commutative (sep : SepPred key value → _) := ⟨sep_comm⟩
+instance : Std.Associative (sep : SepPred key value → _) := ⟨sep_assoc⟩
 
 end Std.ExtHashMap
 

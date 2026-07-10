@@ -1,5 +1,5 @@
 import Kraken.Semantics
-import Kraken.SeparationMemory
+import Kraken.Memory.Lemmas
 
 open Std
 open Std.ExtHashMap

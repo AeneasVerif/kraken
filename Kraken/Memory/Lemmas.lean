@@ -1,6 +1,6 @@
 import Kraken.Mem
-import Kraken.SeparationPredicates
-import Kraken.SeparationLogic
+import Kraken.Separation
+import Kraken.Separation.Lemmas
 
 
 open Std
@@ -148,7 +148,7 @@ theorem storeInt_sep {w : Nat} (a : BitVec w) (n : Nat) (_bs : List UInt8)
 
 theorem At_append_sep {w : Nat} (bs1 bs2 : List UInt8) (a : BitVec w)
     (h_len : bs1.length + bs2.length ≤ 2 ^ w) :
-    (bs1 ++ bs2).At a = (bs1.At a ⋆ bs2.At (a + .ofNat _ bs1.length)) := by
+    (((bs1 ++ bs2).At a : SepPred (BitVec w) UInt8) = (bs1.At a ⋆ bs2.At (a + .ofNat _ bs1.length))) := by
   funext m
   apply propext
   constructor
