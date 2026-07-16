@@ -1,7 +1,9 @@
 import Kraken.Mem
 import Kraken.Separation
-import Kraken.Separation.Lemmas
 
+/-!
+# Separation-logic interface to Kraken memory-access operations
+-/
 
 open Std
 open Std.ExtHashMap
@@ -96,7 +98,7 @@ private theorem disjoint_Atsame_l_same_r {w : Nat} (_bs bs : List UInt8) (a : Bi
 namespace Mem
 
 theorem loadBytes_sep {w : Nat} (bs : List UInt8) (a : BitVec w) (n : Nat) (R : Mem w → Prop) (m : Mem w)
-    (Hsep : m =⋆ bs.At a ⋆ R)
+    (Hsep : m =⋆ Eq (bs.At a) ⋆ R)
     (Hl : bs.length = n)
     (Hlw : n ≤ 2 ^ w) :
     m.loadBytes a n = some bs := by
@@ -119,8 +121,8 @@ theorem loadBytes_sep {w : Nat} (bs : List UInt8) (a : BitVec w) (n : Nat) (R : 
 
 theorem storeBytes_sep {w : Nat} (a : BitVec w) (n : Nat) (_bs bs : List UInt8)
     (R : Mem w → Prop) (m : Mem w)
-    (H : (m =⋆ _bs.At a ⋆ R) ∧ _bs.length = n ∧ bs.length = n) :
-    (m.storeBytes a bs) =⋆ bs.At a ⋆ R := by
+    (H : (m =⋆ Eq (_bs.At a) ⋆ R) ∧ _bs.length = n ∧ bs.length = n) :
+    (m.storeBytes a bs) =⋆ Eq (bs.At a) ⋆ R := by
   have ⟨Hsep, h_len1, h_len2⟩ := H
   have ⟨m1, m2, h_union, h_inter, hm1, hR⟩ := Hsep
   subst hm1
@@ -132,7 +134,7 @@ theorem storeBytes_sep {w : Nat} (a : BitVec w) (n : Nat) (_bs bs : List UInt8)
   exact ⟨m2, bs.At a, rfl, disjoint_symm (disjoint_Atsame_l_same_r _bs bs a m2 h_inter (by omega)), hR, rfl⟩
 
 theorem loadInt_sep {w : Nat} (bs : List UInt8) (a : BitVec w) (n : Nat) (R : Mem w → Prop) (m : Mem w)
-    (Hsep : m =⋆ bs.At a ⋆ R)
+    (Hsep : m =⋆ Eq (bs.At a) ⋆ R)
     (Hl : bs.length = n)
     (Hlw : n ≤ 2 ^ w) :
     m.loadInt a n = some (Int.ofBytes bs) := by
@@ -141,14 +143,14 @@ theorem loadInt_sep {w : Nat} (bs : List UInt8) (a : BitVec w) (n : Nat) (R : Me
 
 theorem storeInt_sep {w : Nat} (a : BitVec w) (n : Nat) (_bs : List UInt8)
     (R : Mem w → Prop) (m : Mem w)
-    (H : (m =⋆ _bs.At a ⋆ R) ∧ _bs.length = n) (v : Int) :
-    m.storeInt a n v =⋆ (Int.toBytes n v).At a ⋆ R := by
+    (H : (m =⋆ Eq (_bs.At a) ⋆ R) ∧ _bs.length = n) (v : Int) :
+    m.storeInt a n v =⋆ Eq ((Int.toBytes n v).At a) ⋆ R := by
   simp only [storeInt]
   exact storeBytes_sep a n _bs (Int.toBytes n v) R m ⟨H.1, H.2, Int.toBytes_length n v⟩
 
 theorem At_append_sep {w : Nat} (bs1 bs2 : List UInt8) (a : BitVec w)
     (h_len : bs1.length + bs2.length ≤ 2 ^ w) :
-    (((bs1 ++ bs2).At a : SepPred (BitVec w) UInt8) = (bs1.At a ⋆ bs2.At (a + .ofNat _ bs1.length))) := by
+    Eq ((bs1 ++ bs2).At a) = Eq (bs1.At a) ⋆ Eq (bs2.At (a + .ofNat _ bs1.length)) := by
   funext m
   apply propext
   constructor

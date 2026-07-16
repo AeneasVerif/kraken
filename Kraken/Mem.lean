@@ -1,6 +1,15 @@
 import Std.Data.ExtHashMap
 import Kraken.ToBytes
 
+/-!
+# Kraken Memory Access
+
+This module provides definitions and basic theorems about individual
+memory-accessing operations supported by Kraken semantics. Compound structures
+defined for programs, even if common, belong elsewhere. This file does not
+depend on separation-logic definitions.
+-/
+
 open Std
 open Std.ExtHashMap
 open List

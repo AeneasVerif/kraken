@@ -264,7 +264,7 @@ set_option pp.rawOnError true
 
 theorem p6_correct [layout : Layout] (s₀ : MachineData)
     (stack : List UInt8) (h_len : stack.length = 8) (R : DataMem → Prop)
-    (h_mem : s₀.dmem =⋆ stack.At (s₀.regs.rsp.toBitVec - 8#64) ⋆ R) :
+    (h_mem : s₀.dmem =⋆ Eq (stack.At (s₀.regs.rsp.toBitVec - 8#64)) ⋆ R) :
     Eventually (straightlineStep (layout p6))
       (fun s' => s'.1.regs.rax = s₀.regs.rax ∧ s'.1.regs.rsp = s₀.regs.rsp)
       (s₀, layout.start) := by
@@ -412,7 +412,7 @@ def move_2_regs_to_heap := parse("
 theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   (v1 v2 : UInt64)
   (R : DataMem → Prop)
-  (h_mem : s₀.dmem =⋆ v1.At s₀.regs.rdi ⋆ v2.At (s₀.regs.rdi.toBitVec + 8#64) ⋆ R)
+  (h_mem : s₀.dmem =⋆ Eq (v1.At s₀.regs.rdi.toBitVec) ⋆ Eq (v2.At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ R)
   : Eventually (straightlineStep (layout move_2_regs_to_heap))
       (fun s' =>
         s'.1.regs.r12 = s₀.regs.rax ∧
@@ -431,24 +431,24 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   simp [List.mapIdx, List.mapIdx.go]
   sym => kstep; tactic =>
   simp [AddrExpr.interp, ConstExpr.interp, Reg64s.get64, Width.bits, BitVec.toAddressSize, BitVec.signed, BitVec.take_all, BitVec.ofInt_toInt]
-  have h_mem1 := Mem.storeInt_sep rdi.toBitVec 8 v1.toBytes (v2.At (rdi.toBitVec + 8#64) ⋆ R) mem ⟨h_mem, h_bs1⟩ rax.toBitVec.toInt
+  have h_mem1 := Mem.storeInt_sep rdi.toBitVec 8 v1.toBytes (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ R) mem ⟨h_mem, h_bs1⟩ rax.toBitVec.toInt
   rw [store_sep]
   case h_mem => exact h_mem
   case h_len => exact h_bs1
-  replace h_mem1 : (v2.At (rdi.toBitVec + 8#64) ⋆ ((Int.toBytes 8 rax.toBitVec.toInt).At rdi.toBitVec ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
+  replace h_mem1 : (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
   sym => kstep; tactic =>
   simp [AddrExpr.interp, ConstExpr.interp, Reg64s.get64, Width.bits, BitVec.toAddressSize, BitVec.signed, BitVec.take_all, BitVec.ofInt_add, BitVec.ofInt_toInt]
   have h_mem2 := Mem.storeInt_sep (rdi.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1, h_bs2⟩ rcx.toBitVec.toInt
   rw [store_sep]
   case h_mem => exact h_mem1
   case h_len => exact h_bs2
-  replace h_mem2 : ((Int.toBytes 8 rax.toBitVec.toInt).At rdi.toBitVec ⋆ ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
+  replace h_mem2 : (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ (Eq ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
   sym => kstep; tactic =>
   simp [AddrExpr.interp, ConstExpr.interp, Reg64s.get64, Width.bits, BitVec.toAddressSize, BitVec.signed, BitVec.take_all, BitVec.ofInt_toInt]
   rw [load_sep]
   case h_mem => exact h_mem2
   case h_len => exact Int.toBytes_length 8 _
-  replace h_mem2 : ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64) ⋆ ((Int.toBytes 8 rax.toBitVec.toInt).At rdi.toBitVec ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
+  replace h_mem2 : (Eq ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
   sym => kstep; tactic =>
   simp [AddrExpr.interp, ConstExpr.interp, Reg64s.get64, Width.bits, BitVec.toAddressSize, BitVec.signed, BitVec.take_all, BitVec.ofInt_add, BitVec.ofInt_toInt]
   rw [load_sep]
@@ -468,7 +468,7 @@ def sib_example := parse("
 
 theorem sib_example_correct [layout : Layout] (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
-    (h_mem : s₀.dmem =⋆ v.At (s₀.regs.rdi.toBitVec + s₀.regs.r15.toBitVec * 8#64) ⋆ R) :
+    (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdi.toBitVec + s₀.regs.r15.toBitVec * 8#64)) ⋆ R) :
     Eventually (straightlineStep (layout sib_example))
       (fun s' => s'.1.regs.rax = 42)
       (s₀, layout.start) := by
@@ -505,7 +505,7 @@ def alu_mem_example := parse("
 
 theorem alu_mem_example_correct [layout : Layout] (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
-    (h_mem : s₀.dmem =⋆ v.At (s₀.regs.rdx.toBitVec + 136#64) ⋆ R) :
+    (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdx.toBitVec + 136#64)) ⋆ R) :
     Eventually (straightlineStep (layout alu_mem_example))
       (fun s' => s'.1.regs.rcx = 142)
       (s₀, layout.start) := by
@@ -550,7 +550,7 @@ def dynamic_stack_example := parse("
 theorem dynamic_stack_example_correct [layout : Layout] (s₀ : MachineData)
     (stack : List UInt8) (lstack : stack.length = 1024) R
     (h : s₀.regs.r9.toNat + s₀.regs.r15.toNat < 125)
-    (h_mem : s₀.dmem =⋆ stack.At (s₀.regs.rsp.toBitVec - 1024) ⋆ R) :
+    (h_mem : s₀.dmem =⋆ Eq (stack.At (s₀.regs.rsp.toBitVec - 1024)) ⋆ R) :
     Eventually (straightlineStep (layout dynamic_stack_example))
       (fun s' => s'.1.regs.rax = 42 ∧ s'.1.regs.rbx = 99 ∧ s'.1.regs.rsp = s₀.regs.rsp)
       (s₀, layout.start) := by
@@ -572,7 +572,7 @@ theorem dynamic_stack_example_correct [layout : Layout] (s₀ : MachineData)
   have h_At_append := Mem.At_append_sep (w := 64) (stack.take 1016) (stack.drop 1016) (rsp.toBitVec - 1024#64) (by
     rw [h_len_take, h_len_drop]
     decide)
-  change ((stack.take 1016 ++ stack.drop 1016).At (rsp.toBitVec - 1024#64) ⋆ R) mem at h_mem
+  change (Eq ((stack.take 1016 ++ stack.drop 1016).At (rsp.toBitVec - 1024#64)) ⋆ R) mem at h_mem
   rw [h_At_append] at h_mem
   rw [sep_assoc] at h_mem
   dsimp only [straightlineStep, Executable.straightline]
@@ -586,8 +586,8 @@ theorem dynamic_stack_example_correct [layout : Layout] (s₀ : MachineData)
     change rsp.toBitVec - 1024#64 + 1016#64 = rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)
     bv_decide
   rw [h_addr_eq] at h_mem
-  replace h_mem : ((stack.drop 1016).At (rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)) ⋆ ((stack.take 1016).At (rsp.toBitVec - 1024#64) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem
-  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)) 8 (stack.drop 1016) ((stack.take 1016).At (rsp.toBitVec - 1024#64) ⋆ R) mem ⟨h_mem, h_len_drop⟩ 99
+  replace h_mem : (Eq ((stack.drop 1016).At (rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8))) ⋆ (Eq ((stack.take 1016).At (rsp.toBitVec - 1024#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem
+  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)) 8 (stack.drop 1016) (Eq ((stack.take 1016).At (rsp.toBitVec - 1024#64)) ⋆ R) mem ⟨h_mem, h_len_drop⟩ 99
   rw [store_sep ss]
   case h_mem => exact h_mem
   case h_len => exact h_len_drop
