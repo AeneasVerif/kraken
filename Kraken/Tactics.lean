@@ -205,27 +205,8 @@ def evalSymKStep : Grind.GrindTactic :=
 
   let goal ← mvarId.getType
 
-  let decls := [
-    ``Reg.interp, ``Reg64s.get, ``Reg.base, ``Reg.offset, ``MachineData.set,
-    ``MachineData.setReg, ``Reg64s.set, ``Width.type, ``Width.bits,
-    ``Width.bytes,
-    ``Width.bytesv,
-    ``Reg64s.get64, ``Reg64s.set64, ``BitVec.drop, ``BitVec.take,
-    ``BitVec.extractLsb', ``BitVec.truncate, ``ConstExpr.interp,
-
-    -- We INTENTIONALLY do not include Directives.interp -- this serves as our
-    -- special marker, and one that determines whether know we can resume.
-    ``Directive.interp, ``Instr.interp, ``Operation.interp,
-    ``Operand.interp, ``Effects.All,
-    ``ConstExpr.interp, ``RegOrMem.interp, ``Reg.interp,
-    ``ShiftCountExpr.interp, ``CondCode.interp,
-    ``ShiftCountExpr.interpMasked,
-
-    -- We also do not include MachineData.store/load as we intend for those to
-    -- be destructed with rw-lemmas.
-
-    ``StatusFlags.from_result
-  ]
+  let env ← getEnv
+  let decls := (kstepExtension.getState env).toList
 
   let goal ← Grind.liftGrindM (do
     Sym.dsimp
