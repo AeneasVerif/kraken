@@ -184,9 +184,14 @@ def kLiftLets : DSimproc := fun e => do
   /- logInfo m!"liftLets produces {e'}" -/
   return .step e'
 
--- TODO: make our tactic take an optional config to aid debugging
+def mkSimpMethods (declNames : Array Name) : MetaM Sym.Simp.Methods := do
+  let rewrite ← Sym.mkSimprocFor declNames Sym.Simp.dischargeSimpSelf
+  return {
+    post := rewrite.andThen Sym.Simp.evalGround
+  }
+
 @[grind_tactic symKStep]
-def evalSymKStep : Grind.GrindTactic :=
+partial def evalSymKStep : Grind.GrindTactic :=
   fun stx : Syntax => do
   let cfg := stx[1]
   let config ← elabKStepConfig cfg
@@ -203,30 +208,41 @@ def evalSymKStep : Grind.GrindTactic :=
     pure mvarId
   )
 
-  let goal ← mvarId.getType
+  -- Main loop; we iterate rounds of dsimp, along with simp for memory-related
+  -- lemmas (TODO: we might simply want everything to be simp without auxiliary
+  -- lemmas).
+  let rec go (mvarId: MVarId): Grind.GrindTacticM MVarId := do
+    let goal ← mvarId.getType
 
-  let env ← getEnv
-  let decls := (kstepExtension.getState env).toList
+    let env ← getEnv
+    let decls := (kstepExtension.getState env).toList
 
-  let goal ← Grind.liftGrindM (do
-    Sym.dsimp
-      (config := { maxSteps := 1000000 })
-      (methods := { pre := klog config >> kdeltaBetaOnly decls >> kdsimpMatch >> kdsimpProj >> kbeta})
-      goal)
+    let goal ← Grind.liftGrindM (do
+      Sym.dsimp
+        (config := { maxSteps := 1000000 })
+        (methods := { pre := klog config >> kdeltaBetaOnly decls >> kdsimpMatch >> kdsimpProj >> kbeta})
+        goal)
 
-  -- TEMPORARY: trying to simplify binders in the goal
-  /- let goal ← Meta.letToHave goal -/
-  /- let goal ← Grind.liftGrindM $ shareCommon goal -/
-  /- let mvarId ← mvarId.replaceTargetDefEq goal -/
+    let mvarId ← mvarId.replaceTargetDefEq goal
 
-  /- let simpMethods: Sym.Simp.Methods ← mkSimpMethods4 #[ ``Nat.shiftRight_zero ] -/
-  /- let simpResult ← Grind.liftGrindM (Sym.simpGoal mvarId simpMethods) -/
-  /- let mvarId ← Grind.liftGrindM (match simpResult with -/
-  /-   | .noProgress => pure mvarId -/
-  /-   | .goal mvarId => pure mvarId -/
-  /-   | .closed => throwError "unexpected") -/
+    -- TEMPORARY: trying to simplify binders in the goal
+    /- let goal ← Meta.letToHave goal -/
+    /- let goal ← Grind.liftGrindM $ shareCommon goal -/
+    /- let mvarId ← mvarId.replaceTargetDefEq goal -/
 
-  let mvarId ← mvarId.replaceTargetDefEq goal
+    let simpMethods: Sym.Simp.Methods ← mkSimpMethods #[ ``Nat.shiftRight_zero ]
+    let simpResult ← Grind.liftGrindM (Sym.simpGoal mvarId simpMethods)
+    let (keepGoing, mvarId) ← Grind.liftGrindM (match simpResult with
+      | .noProgress => pure (false, mvarId)
+      | .goal mvarId => pure (true, mvarId)
+      | .closed => throwError "unexpected")
+
+    if keepGoing then
+      go mvarId
+    else
+      pure mvarId
+
+  let mvarId ← go mvarId
 
   -- Remove the gimmick debug marker.
   let gimmickRule ← mkBackwardRuleFromDecl ``gimmickInv
