@@ -1,6 +1,6 @@
 name = "Kraken"
 version = "0.1.0"
-defaultTargets = ["Kraken", "krakenrunner"]
+defaultTargets = ["Kraken", "krakenrunner", "att2intel"]
 
 [leanOptions]
 autoImplicit = false
@@ -13,3 +13,7 @@ globs = ["Kraken.*"]  # TODO: move the tests out of `Kraken`
 [[lean_exe]]
 name = "krakenrunner"
 root = "KrakenRunner"
+
+[[lean_exe]]
+name = "att2intel"
+root = "Att2Intel"

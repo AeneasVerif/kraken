@@ -8,8 +8,8 @@ instance : ToString Width where
   toString | .W8 => "w8" | .W16 => "w16" | .W32 => "w32" | .W64 => "w64"
 
 namespace Width
-@[kstep] def bits : Width → Nat | W8 => 8 | W16 => 16 | W32 => 32 | W64 => 64
-@[kstep] def bytes : Width → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8
+@[kstep, simp, reducible] def bits : Width → Nat | W8 => 8 | W16 => 16 | W32 => 32 | W64 => 64
+@[kstep, simp, reducible] def bytes : Width → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8
 @[kstep] abbrev bytesv (w : Width) {n} : BitVec n := BitVec.ofNat n w.bytes
 @[kstep] abbrev type (w : Width) : Type := BitVec w.bits
 instance {w : Width} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat

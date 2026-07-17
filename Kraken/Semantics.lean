@@ -4,6 +4,7 @@
 import Lean
 import Std
 import Kraken.Syntax
+import Kraken.Mem
 
 -- injective coercions only
 attribute [-instance] BitVec.instNatCast
@@ -19,9 +20,6 @@ end BitVec
 attribute [kstep] BitVec.extractLsb' BitVec.truncate
 def BitVec.replaceLow {w n} (old : BitVec w) (new : BitVec n) : BitVec w :=
   (BitVec.append (old.drop n) new).setWidth _
-def BitVec.replace {w1} (old : BitVec w1) (i : Nat) {w2} (new : BitVec w2) : BitVec w1 :=
-  (old.drop (i + w2) ++ new ++ old.take i).setWidth _
-example : (0x11223344#32).replace 8 0x99#8 = 0x11229944 := by rfl
 
 namespace Reg
 @[kstep] def base {w} (r : Reg w) : Reg64 := match r with
@@ -93,7 +91,7 @@ structure StatusFlags where
   of : Bool
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-abbrev DataMem := Std.ExtHashMap UInt64 UInt64
+abbrev DataMem := Mem 64
 instance : Repr DataMem where reprPrec _ _ := "<opaque memory>"
 structure MachineData where -- does not include code or program position
   regs : Reg64s := {}
@@ -152,23 +150,18 @@ export Effects (unimplemented nonmem_load nonmem_store undefined require_read_ac
 def MachineData.load
   (s : MachineData) (addr : BitVec 64) (w : Width)
   (ret : w.type → MachineData → Effects): Effects :=
-  if addr % w.bytesv != 0 then .unimplemented s!"Unimplemented: only aligned memory access is supported"
-  else require_read_access addr w (fun _unit =>
-    let key := UInt64.ofBitVec (addr &&& ~~~0b111#64)
-    match s.dmem[key]? with
-    | .some v => ret (v.toBitVec.extractLsb' ((addr &&& 0b111#64) * 8#64).toNat w.bits) s
+  require_read_access addr w (fun _unit =>
+    match Mem.loadInt s.dmem addr w.bytes with
+    | .some i => ret (.ofInt _ i) s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
 
 def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Effects) : Effects :=
-  if addr % w.bytesv != 0 then .unimplemented s!"Unimplemented: only aligned memory access is supported"
-  else require_write_access addr w (fun _unit =>
-    let key := UInt64.ofBitVec (addr &&& ~~~0b111#64)
-    match s.dmem[key]? with
-    | .some old =>
-        let new := UInt64.ofBitVec (old.toBitVec.replace ((addr &&& 0b111#64) * 8#64).toNat v)
-        ret { s with dmem := s.dmem.insert key new }
+  require_write_access addr w (fun _unit =>
+    match Mem.loadInt s.dmem addr w.bytes with
+    | .some _ =>
+        ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
     | .none => nonmem_store s.dmem addr v (fun dmem' => ret { s with dmem := dmem' }))
-  
+
 
 class Labels where label : Label → Int64
 export Labels (label)
@@ -631,5 +624,10 @@ abbrev eval [layout : Layout] (prog : Program) := (layout prog).eval
     .instr (.mk .W64 .W64 (.inc (.reg (.low .rax .W64)))),
     .instr (.mk .W64 .W64 .ret) ]
   let start := exe.labels.label "main"
-  let data := { dmem := .ofList [(0x100, 0x1337)], regs := {rsp := 0x100} }
+  let data := { dmem := Mem.storeInt {} 0x100 8 0x1337, regs := {rsp := 0x100} }
   (exe.eval (data, start) (fun (_, pc) => pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)
+
+
+
+
+
