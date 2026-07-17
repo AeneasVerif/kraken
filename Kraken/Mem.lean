@@ -25,6 +25,8 @@ def Mem.loadInt {w} (m : Mem w) (a : BitVec w) (n : Nat) : Option Int :=
   (loadBytes m a n).map Int.ofBytes
 
 
+-- JP: can't use the Mem abbreviation here because it resolves to List.Mem (the
+-- predicate)
 def List.At {w} (bs : List UInt8) (a : BitVec w) : ExtHashMap (BitVec w) UInt8 :=
   .ofList (bs.mapIdx (fun i b => (a + .ofNat w i, b)))
 
@@ -35,16 +37,16 @@ def Mem.storeInt {w} (m : Mem w) (a : BitVec w) (n : Nat) (v : Int) : Mem w :=
   storeBytes m a (Int.toBytes n v)
 
 
-def UInt64.At {w} (val : UInt64) (a : BitVec w) : ExtHashMap (BitVec w) UInt8 :=
+def UInt64.At {w} (val : UInt64) (a : BitVec w) : Mem w :=
   val.toBytes.At a
 
-def UInt32.At {w} (val : UInt32) (a : BitVec w) : ExtHashMap (BitVec w) UInt8 :=
+def UInt32.At {w} (val : UInt32) (a : BitVec w) : Mem w :=
   val.toBytes.At a
 
-def UInt16.At {w} (val : UInt16) (a : BitVec w) : ExtHashMap (BitVec w) UInt8 :=
+def UInt16.At {w} (val : UInt16) (a : BitVec w) : Mem w :=
   val.toBytes.At a
 
-def UInt8.At {w} (val : UInt8) (a : BitVec w) : ExtHashMap (BitVec w) UInt8 :=
+def UInt8.At {w} (val : UInt8) (a : BitVec w) : Mem w :=
   val.toBytes.At a
 
 
