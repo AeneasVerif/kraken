@@ -184,12 +184,6 @@ def kLiftLets : DSimproc := fun e => do
   /- logInfo m!"liftLets produces {e'}" -/
   return .step e'
 
-def mkSimpMethods (declNames : Array Name) : MetaM Sym.Simp.Methods := do
-  let rewrite ← Sym.mkSimprocFor declNames Sym.Simp.dischargeSimpSelf
-  return {
-    post := rewrite.andThen Sym.Simp.evalGround
-  }
-
 @[grind_tactic symKStep]
 partial def evalSymKStep : Grind.GrindTactic :=
   fun stx : Syntax => do
@@ -208,19 +202,26 @@ partial def evalSymKStep : Grind.GrindTactic :=
     pure mvarId
   )
 
+  let env ← getEnv
+
+  let declsForDSimp := (kstepExtension.getState env).toList
+  let kdsimpDecls := kdeltaBetaOnly declsForDSimp
+
+  let simpTheorems ← ksimpExt.getTheorems
+  -- let l := simpTheorems.thms.size
+  -- logInfo m!"kstep: found {l} ksimp theorems"
+  let simpMethods: Sym.Simp.Methods := { post := Sym.Simp.evalGround >> simpTheorems.rewrite }
+
   -- Main loop; we iterate rounds of dsimp, along with simp for memory-related
   -- lemmas (TODO: we might simply want everything to be simp without auxiliary
   -- lemmas).
   let rec go (mvarId: MVarId): Grind.GrindTacticM MVarId := do
     let goal ← mvarId.getType
 
-    let env ← getEnv
-    let decls := (kstepExtension.getState env).toList
-
     let goal ← Grind.liftGrindM (do
       Sym.dsimp
         (config := { maxSteps := 1000000 })
-        (methods := { pre := klog config >> kdeltaBetaOnly decls >> kdsimpMatch >> kdsimpProj >> kbeta})
+        (methods := { pre := klog config >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta})
         goal)
 
     let mvarId ← mvarId.replaceTargetDefEq goal
@@ -230,12 +231,13 @@ partial def evalSymKStep : Grind.GrindTactic :=
     /- let goal ← Grind.liftGrindM $ shareCommon goal -/
     /- let mvarId ← mvarId.replaceTargetDefEq goal -/
 
-    let simpMethods: Sym.Simp.Methods ← mkSimpMethods #[ ``Nat.shiftRight_zero ]
     let simpResult ← Grind.liftGrindM (Sym.simpGoal mvarId simpMethods)
     let (keepGoing, mvarId) ← Grind.liftGrindM (match simpResult with
       | .noProgress => pure (false, mvarId)
       | .goal mvarId => pure (true, mvarId)
       | .closed => throwError "unexpected")
+
+    logInfo m!"kstep: keepGoing = {keepGoing}"
 
     if keepGoing then
       go mvarId

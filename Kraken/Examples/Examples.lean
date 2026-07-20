@@ -270,6 +270,22 @@ set_option pp.rawOnError true
 /- set_option pp.coercions false -/
 /- set_option pp.all true -/
 
+attribute [ksimp] UInt64.ofBitVec_sub UInt64.ofBitVec_toBitVec UInt64.ofBitVec_ofNat Nat.sub_zero
+  UInt64.toNat_toBitVec Nat.shiftRight_zero BitVec.ofNat_uInt64ToNat
+
+theorem repro (rsp: UInt64):
+    -- let rsp1 := rsp.toBitVec - 8#64
+    -- ({ toBitVec := rsp1 }: UInt64) = { toBitVec := rsp.toBitVec } - { toBitVec := 8#64 }
+    ({ toBitVec := rsp.toBitVec - 8#64 }: UInt64) = { toBitVec := rsp.toBitVec } - { toBitVec := 8#64 }
+:= by
+  -- GOAL: { toBitVec := rsp.toBitVec - 8#64 } = rsp - { toBitVec := 8#64 }
+  -- NOTE: { toBitVec := rsp.toBitVec } in the rhs has been rewritten already into rsp
+  sym =>
+  simp [UInt64.ofBitVec_sub]
+  -- NEW GOAL: { toBitVec := rsp.toBitVec } - { toBitVec := 8#64 } = rsp - { toBitVec := 8#64 }
+  -- Q: how can I close this in sym?
+  tactic =>
+  rfl
 
 theorem p6_correct [layout : Layout] (s₀ : MachineData)
     (stack : List UInt8) (h_len : stack.length = 8) (R : DataMem → Prop)
@@ -288,9 +304,12 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
-  sym => kstep; tactic =>
-  simp only [UInt64.ofBitVec_sub, UInt64.ofBitVec_toBitVec, UInt64.ofBitVec_ofNat, Nat.sub_zero,
-    UInt64.toNat_toBitVec, Nat.shiftRight_zero, BitVec.ofNat_uInt64ToNat]
+  sym =>
+  kstep
+  -- simp [UInt64.ofBitVec_sub, UInt64.ofBitVec_toBitVec, UInt64.ofBitVec_ofNat, Nat.sub_zero, UInt64.toNat_toBitVec, Nat.shiftRight_zero, BitVec.ofNat_uInt64ToNat]
+  tactic =>
+  simp only [UInt64.ofBitVec_sub]
+  simp only [UInt64.ofBitVec_sub, UInt64.ofBitVec_toBitVec, UInt64.ofBitVec_ofNat, Nat.sub_zero, UInt64.toNat_toBitVec, Nat.shiftRight_zero, BitVec.ofNat_uInt64ToNat]
   have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
   rw [store_sep]
   case h_mem => exact h_mem

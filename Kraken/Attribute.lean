@@ -15,3 +15,8 @@ initialize registerBuiltinAttribute {
   add := fun declName _stx _kind => do
     modifyEnv fun env => kstepExtension.addEntry env declName
 }
+
+open Lean.Meta
+
+initialize ksimpExt : Sym.Simp.SymSimpExtension ←
+  Sym.Simp.registerSymSimpAttr `ksimp "simp theorems used by kstep"
