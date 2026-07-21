@@ -12,6 +12,17 @@ instance : ToString Reg64 where
   | .r8  => "r8"  | .r9  => "r9"  | .r10 => "r10" | .r11 => "r11"
   | .r12 => "r12" | .r13 => "r13" | .r14 => "r14" | .r15 => "r15"
 
+instance : ToString RegMm where
+  toString r := match r with
+  | .mm0  => "mm0"  | .mm1  => "mm1"  | .mm2  => "mm2"  | .mm3  => "mm3"
+  | .mm4  => "mm4"  | .mm5  => "mm5"  | .mm6  => "mm6"  | .mm7  => "mm7"
+  | .mm8  => "mm8"  | .mm9  => "mm9"  | .mm10 => "mm10" | .mm11 => "mm11"
+  | .mm12 => "mm12" | .mm13 => "mm13" | .mm14 => "mm14" | .mm15 => "mm15"
+  | .mm16 => "mm16" | .mm17 => "mm17" | .mm18 => "mm18" | .mm19 => "mm19"
+  | .mm20 => "mm20" | .mm21 => "mm21" | .mm22 => "mm22" | .mm23 => "mm23"
+  | .mm24 => "mm24" | .mm25 => "mm25" | .mm26 => "mm26" | .mm27 => "mm27"
+  | .mm28 => "mm28" | .mm29 => "mm29" | .mm30 => "mm30" | .mm31 => "mm31"
+
 def Reg.toStr {w} (r : Reg w) : String := match w, r with
   | .W64, .low r _ => toString r
   | .W32, .low r _ => match r with
@@ -30,8 +41,15 @@ def Reg.toStr {w} (r : Reg w) : String := match w, r with
     | .r8  => "r8b" | .r9  => "r9b" | .r10 => "r10b" | .r11 => "r11b"
     | .r12 => "r12b"| .r13 => "r13b"| .r14 => "r14b"| .r15 => "r15b"
   | .W8, .ah => "ah" | .W8, .bh => "bh" | .W8, .ch => "ch" | .W8, .dh => "dh"
+  | _, .low r _ => "INVALID_" ++ toString r
 
 instance {w} : ToString (Reg w) where toString := Reg.toStr
+
+instance {w} : ToString (AvxReg w) where
+  toString r := match r with
+  | .xmm r => "x" ++ toString r
+  | .ymm r => "y" ++ toString r
+  | .zmm r => "z" ++ toString r
 
 def RegOrRip.toStr (b : RegOrRip) (addr_w : Width := .W64) : String := match b with
   | .reg r => toString (Reg.low r addr_w)
@@ -55,7 +73,11 @@ instance : ToString AddrExpr where toString a := a.toStr
 
 def RegOrMem.toStr {w} (rm : RegOrMem w) (addr_w : Width := .W64) : String := match rm with
   | .reg r => ToString.toString r
+  | .avx r => ToString.toString r
   | .mem a => match w with
+    | .W512 => "ZWORD PTR " ++ a.toStr addr_w
+    | .W256 => "YWORD PTR " ++ a.toStr addr_w
+    | .W128 => "OWORD PTR " ++ a.toStr addr_w
     | .W64 => "QWORD PTR " ++ a.toStr addr_w
     | .W32 => "DWORD PTR " ++ a.toStr addr_w
     | .W16 => "WORD PTR " ++ a.toStr addr_w
@@ -85,6 +107,8 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .mov dst src => s!"mov {dst.toStr addr_w}, {src.toStr addr_w}"
   | .movsx dst src => s!"movsx {dst.toStr addr_w}, {src.toStr addr_w}"
   | .movzx dst src => s!"movzx {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .movups dst src => s!"movups {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vmovups dst src => s!"vmovups {dst.toStr addr_w}, {src.toStr addr_w}"
   | .push src => s!"push {src.toStr addr_w}"
   | .pop dst => s!"pop {dst.toStr addr_w}"
   | .setcc cc dst => s!"set{cc} {dst.toStr addr_w}"
@@ -137,4 +161,3 @@ instance : ToString Directive where
   | .instr i => ToString.toString i
   | .label l => s!"{l}:"
   | .byteArray bs => ".byte "++", ".intercalate (bs.toList.map (fun b => s!"{b}"))
-

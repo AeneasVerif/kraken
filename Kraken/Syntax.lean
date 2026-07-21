@@ -1,14 +1,14 @@
 import Lean
 import Std
 
-inductive Width | W8 | W16 | W32 | W64 deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+inductive Width | W8 | W16 | W32 | W64 | W128 | W256 | W512 deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 instance : ToString Width where
-  toString | .W8 => "w8" | .W16 => "w16" | .W32 => "w32" | .W64 => "w64"
+  toString | .W8 => "w8" | .W16 => "w16" | .W32 => "w32" | .W64 => "w64" | .W128 => "w128" | .W256 => "w256" | .W512 => "w512"
 
 namespace Width
-@[simp, reducible] def bits : Width → Nat | W8 => 8 | W16 => 16 | W32 => 32 | W64 => 64
-@[simp, reducible] def bytes : Width → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8
+@[simp, reducible] def bits : Width → Nat | W8 => 8 | W16 => 16 | W32 => 32 | W64 => 64 | W128 => 128 | W256 => 256 | W512 => 512
+@[simp, reducible] def bytes : Width → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8 | W128 => 16 | W256 => 32 | W512 => 64
 abbrev bytesv (w : Width) {n} : BitVec n := BitVec.ofNat n w.bytes
 abbrev type (w : Width) : Type := BitVec w.bits
 instance {w : Width} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
@@ -26,6 +26,26 @@ unif_hint (w : Width) where
 unif_hint (w : Width) where
   w =?= Width.W64 |- Width.type w =?= BitVec 64
 
+unif_hint (w : Width) where
+  w =?= Width.W128 |- Width.type w =?= BitVec 128
+
+unif_hint (w : Width) where
+  w =?= Width.W256 |- Width.type w =?= BitVec 256
+
+unif_hint (w : Width) where
+  w =?= Width.W512 |- Width.type w =?= BitVec 512
+
+inductive RegMm
+  | mm0  | mm1  | mm2  | mm3
+  | mm4  | mm5  | mm6  | mm7
+  | mm8  | mm9  | mm10 | mm11
+  | mm12 | mm13 | mm14 | mm15
+  | mm16 | mm17 | mm18 | mm19
+  | mm20 | mm21 | mm22 | mm23
+  | mm24 | mm25 | mm26 | mm27
+  | mm28 | mm29 | mm30 | mm31
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+
 inductive Reg64
   | rax | rbx | rcx | rdx
   | rsi | rdi | rsp | rbp
@@ -36,6 +56,12 @@ inductive Reg64
 inductive Reg : Width → Type
   | low (_ : Reg64) (w : Width) : Reg w
   | ah : Reg .W8 | bh : Reg .W8 | ch : Reg .W8| dh : Reg .W8
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+
+inductive AvxReg : Width → Type
+  | xmm (_ : RegMm) : AvxReg Width.W128
+  | ymm (_ : RegMm) : AvxReg Width.W256
+  | zmm (_ : RegMm) : AvxReg Width.W512
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 abbrev Label := String
@@ -55,6 +81,9 @@ attribute [coe] ConstExpr.label
 attribute [coe] ConstExpr.int64
 
 structure RegW where (w : Width) (reg : Reg w)
+  deriving Repr, DecidableEq, Hashable, Lean.ToExpr, Hashable, Lean.ToExpr
+
+structure AvxRegW where (w : Width) (reg : AvxReg w)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr, Hashable, Lean.ToExpr
 
 -- For address expressions, the width of the register is determined only by the
@@ -92,12 +121,18 @@ structure AddrExpr where
 class AddressSize where address_size : Width
 export AddressSize (address_size)
 
-inductive RegOrMem w | reg (r : Reg w) | mem (_ : AddrExpr)
+-- We already admit impossible instructions like mov [rax] [rax];
+-- instead of splitting the world of operands (or sub-splitting
+-- RegOrMem into regular registers or AvxRegOrMem), allow RegOrMem
+-- to use avx registers directly.
+inductive RegOrMem w | reg (r : Reg w) | avx (r : AvxReg w) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 instance {w} : Coe AddrExpr (RegOrMem w) where coe := RegOrMem.mem
 attribute [coe] RegOrMem.mem
 instance {w} : Coe (Reg w) (RegOrMem w) where coe := .reg
 attribute [coe] RegOrMem.reg
+instance {w} : Coe (AvxReg w) (RegOrMem w) where coe := .avx
+attribute [coe] RegOrMem.avx
 abbrev Dst := RegOrMem
 
 inductive Operand w | regOrMem (_ : RegOrMem w) | imm (v : ConstExpr)
@@ -107,6 +142,7 @@ attribute [coe] Operand.regOrMem
 instance {w} : Coe ConstExpr (Operand w) where coe := Operand.imm
 attribute [coe] Operand.imm
 abbrev Operand.reg {w} (r : Reg w) : Operand w := regOrMem (.reg r)
+abbrev Operand.avx {w} (r : AvxReg w) : Operand w := regOrMem (.avx r)
 abbrev Operand.mem {w} (m : AddrExpr) : Operand w := regOrMem (.mem m)
 
 inductive CondCode | z | nz | c | nc | a | be
@@ -127,6 +163,8 @@ inductive Operation (w : Width)
   | mov (_ : Dst w) (src : Operand w)
   | movsx {w'} (_ : Dst w) (src : RegOrMem w') -- {_ : w'.bits < w.bits ∧ w'.bits < 32}
   | movzx {w'} (_ : Dst w) (src : RegOrMem w') -- {_ : w'.bits < w.bits ∧ w'.bits < 32}
+  | movups (_ : Dst w) (src : RegOrMem w) -- sse regs
+  | vmovups (_ : Dst w) (src : RegOrMem w) -- avx regs
   | push (src : Operand w)
   | pop  (_ : Dst w)
   | setcc (_ : CondCode) (_ : Dst w) -- {_ : w = .W8}

@@ -137,6 +137,11 @@ def parseInt : Parser Int := do
   let val ← parseHexOrDec
   pure (if neg then -val else val)
 
+/-- Helper to parse a standard natural number. -/
+def parseNat : Parser Nat := do
+  let digits ← many1 digit
+  pure (digits.foldl (fun acc d => acc * 10 + (d.toNat - '0'.toNat)) 0)
+
 /-- Parse a name (identifier or label). -/
 def parseName : Parser String := do
   let first ← satisfy fun c => c.isAlpha || c == '_' || c == '.'
@@ -183,6 +188,36 @@ def parseRegNameW : Parser RegW := do
   | "ah" => pure ⟨ .W8, ah ⟩ | "bh" => pure ⟨ .W8, bh ⟩ | "ch" => pure ⟨ .W8, ch ⟩ | "dh" => pure ⟨ .W8, dh ⟩
   | _ => fail s!"unknown register: {name}"
 
+/-- Safely map a natural number index to its corresponding RegMm constructor. -/
+def toRegMm (idx : Nat) : Option RegMm :=
+  match idx with
+  | 0  => some .mm0  | 1  => some .mm1  | 2  => some .mm2  | 3  => some .mm3
+  | 4  => some .mm4  | 5  => some .mm5  | 6  => some .mm6  | 7  => some .mm7
+  | 8  => some .mm8  | 9  => some .mm9  | 10 => some .mm10 | 11 => some .mm11
+  | 12 => some .mm12 | 13 => some .mm13 | 14 => some .mm14 | 15 => some .mm15
+  | 16 => some .mm16 | 17 => some .mm17 | 18 => some .mm18 | 19 => some .mm19
+  | 20 => some .mm20 | 21 => some .mm21 | 22 => some .mm22 | 23 => some .mm23
+  | 24 => some .mm24 | 25 => some .mm25 | 26 => some .mm26 | 27 => some .mm27
+  | 28 => some .mm28 | 29 => some .mm29 | 30 => some .mm30 | 31 => some .mm31
+  | _ => none
+
+/-- Parse an AVX register operand (e.g., %xmm0, %ymm15, %zmm31). -/
+def parseAvxRegW : Parser AvxRegW := do
+  skipHWs
+  let _ ← pchar '%'
+  -- Match standard or uppercase variants of the AVX prefixes
+  let pfx ← (pstring "xmm" <|> pstring "XMM" <|>
+             pstring "ymm" <|> pstring "YMM" <|>
+             pstring "zmm" <|> pstring "ZMM")
+  let idx ← parseNat
+  match toRegMm idx with
+  | none => fail s!"invalid AVX register index: {idx} (must be between 0 and 31)"
+  | some mm =>
+    match pfx.toLower with
+    | "xmm" => pure ⟨ .W128, .xmm mm ⟩
+    | "ymm" => pure ⟨ .W256, .ymm mm ⟩
+    | "zmm" => pure ⟨ .W512, .zmm mm ⟩
+    | _ => fail s!"unknown AVX register prefix: {pfx}"
 end RegParsing
 
 /-- Parse a register operand: %rax, %eax, %ax, %al, etc. -/
@@ -341,8 +376,13 @@ def parseRegOrMem: Parser (MaybeAddrWidth × MaybeOpWidth RegOrMem) := do
   skipHWs
   let c ← peek!
   if c == '%' then
-    let ⟨ w, r ⟩ ← parseRegW
-    pure (.none, ⟨ .some w, .reg r ⟩)
+    (attempt do
+      let ⟨ w, r ⟩ ← parseAvxRegW
+      pure (.none, ⟨ .some w, .avx r ⟩)
+    ) <|> (do
+      let ⟨ w, r ⟩ ← parseRegW
+      pure (.none, ⟨ .some w, .reg r ⟩)
+    )
   else if c == '(' || c == '-' || c.isDigit then
     let (w, m) ← parseMemory
     pure (w, ⟨ .none, .mem m ⟩)
@@ -662,6 +702,12 @@ def parseInstr : Parser Instr := do
       fail "inconsistency in {mn}"
     else
       pure ⟨ addr_w, w, .lea dst src ⟩
+
+  | "movups" =>
+    commaSeparated .none parseRegOrMem parseRegOrMem .movups
+
+  | "vmovups" =>
+    commaSeparated .none parseRegOrMem parseRegOrMem .vmovups
 
   -- Bitwise - 64-bit
   | "xor" =>
