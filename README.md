@@ -15,8 +15,7 @@ Included
 - Assembler features: labels, arithmetic on immediates, rodata
 
 Excluded
-- Non-8-byte-aligned memory access (for now, to support eventually)
-- Handling of exceptions and faults
+- Handling of most exceptions and faults
 - Virtual memory
 - Segment registers
 - MSRs
