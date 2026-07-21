@@ -274,9 +274,9 @@ attribute [ksimp] UInt64.ofBitVec_sub UInt64.ofBitVec_toBitVec UInt64.ofBitVec_o
   UInt64.toNat_toBitVec Nat.shiftRight_zero BitVec.ofNat_uInt64ToNat
 
 theorem repro (rsp: UInt64):
-    -- let rsp1 := rsp.toBitVec - 8#64
-    -- ({ toBitVec := rsp1 }: UInt64) = { toBitVec := rsp.toBitVec } - { toBitVec := 8#64 }
-    ({ toBitVec := rsp.toBitVec - 8#64 }: UInt64) = { toBitVec := rsp.toBitVec } - { toBitVec := 8#64 }
+    let rsp1 := rsp.toBitVec - 8#64
+    ({ toBitVec := rsp1 }: UInt64) = { toBitVec := rsp.toBitVec } - { toBitVec := 8#64 }
+    -- ({ toBitVec := rsp.toBitVec - 8#64 }: UInt64) = { toBitVec := rsp.toBitVec } - { toBitVec := 8#64 }
 := by
   -- GOAL: { toBitVec := rsp.toBitVec - 8#64 } = rsp - { toBitVec := 8#64 }
   -- NOTE: { toBitVec := rsp.toBitVec } in the rhs has been rewritten already into rsp
