@@ -40,6 +40,7 @@ pushq $11   # 0x10
 pushq $12   # 0x8
 pushq $13   # 0x0
 
+# nb: this is allowed to be unaligned!
 vmovups (%rsp), %ymm2
 vmovups %ymm2, 0x20(%rsp)
 movq 0x20(%rsp), %r13  # 13
