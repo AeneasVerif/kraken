@@ -271,7 +271,7 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   apply step_cps
   let ss := s₀
   change (straightlineStep _ (ss, _) _)
-  cases s₀ with | mk regs flags mem =>
+  cases s₀ with | mk regs zmms flags mem =>
   cases regs with | mk rax rbx rcx rdx rsi rdi rsp rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
   have h_bs : stack.length = 8 := h_len
   -- Rewrite the program to make layout, addresses, etc. apparent
@@ -420,7 +420,7 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
         s'.1.regs.rdi = s₀.regs.rdi)
       (s₀, layout.start) := by
   apply step_cps
-  cases s₀ with | mk regs flags mem =>
+  cases s₀ with | mk regs zmms flags mem =>
   cases regs with | mk rax rbx rcx rdx rsi rdi rsp rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
   have h_bs2 : v2.toBytes.length = 8 := UInt64.toBytes_length v2
@@ -473,7 +473,7 @@ theorem sib_example_correct [layout : Layout] (s₀ : MachineData)
       (fun s' => s'.1.regs.rax = 42)
       (s₀, layout.start) := by
   apply step_cps
-  cases s₀ with | mk regs flags mem =>
+  cases s₀ with | mk regs zmms flags mem =>
   cases regs with | mk rax rbx rcx rdx rsi rdi rsp rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   dsimp only [straightlineStep, Executable.straightline]
@@ -510,7 +510,7 @@ theorem alu_mem_example_correct [layout : Layout] (s₀ : MachineData)
       (fun s' => s'.1.regs.rcx = 142)
       (s₀, layout.start) := by
   apply step_cps
-  cases s₀ with | mk regs flags mem =>
+  cases s₀ with | mk regs zmms flags mem =>
   cases regs with | mk rax rbx rcx rdx rsi rdi rsp rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   dsimp only [straightlineStep, Executable.straightline]
@@ -557,7 +557,7 @@ theorem dynamic_stack_example_correct [layout : Layout] (s₀ : MachineData)
   apply step_cps
   let ss := s₀
   change (straightlineStep _ (ss, _) _)
-  cases s₀ with | mk regs flags mem =>
+  cases s₀ with | mk regs zmms flags mem =>
   cases regs with | mk rax rbx rcx rdx rsi rdi rsp rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
   have h_bs : stack.length = 1024 := lstack
   have h_take_drop : stack = stack.take 1016 ++ stack.drop 1016 := by exact (List.take_append_drop 1016 stack).symm

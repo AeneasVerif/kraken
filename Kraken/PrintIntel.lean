@@ -12,6 +12,17 @@ instance : ToString Reg64 where
   | .r8  => "r8"  | .r9  => "r9"  | .r10 => "r10" | .r11 => "r11"
   | .r12 => "r12" | .r13 => "r13" | .r14 => "r14" | .r15 => "r15"
 
+instance : ToString RegMm where
+  toString r := match r with
+  | .mm0  => "mm0"  | .mm1  => "mm1"  | .mm2  => "mm2"  | .mm3  => "mm3"
+  | .mm4  => "mm4"  | .mm5  => "mm5"  | .mm6  => "mm6"  | .mm7  => "mm7"
+  | .mm8  => "mm8"  | .mm9  => "mm9"  | .mm10 => "mm10" | .mm11 => "mm11"
+  | .mm12 => "mm12" | .mm13 => "mm13" | .mm14 => "mm14" | .mm15 => "mm15"
+  | .mm16 => "mm16" | .mm17 => "mm17" | .mm18 => "mm18" | .mm19 => "mm19"
+  | .mm20 => "mm20" | .mm21 => "mm21" | .mm22 => "mm22" | .mm23 => "mm23"
+  | .mm24 => "mm24" | .mm25 => "mm25" | .mm26 => "mm26" | .mm27 => "mm27"
+  | .mm28 => "mm28" | .mm29 => "mm29" | .mm30 => "mm30" | .mm31 => "mm31"
+
 def Reg.toStr {w} (r : Reg w) : String := match w, r with
   | .W64, .low r _ => toString r
   | .W32, .low r _ => match r with
@@ -32,6 +43,12 @@ def Reg.toStr {w} (r : Reg w) : String := match w, r with
   | .W8, .ah => "ah" | .W8, .bh => "bh" | .W8, .ch => "ch" | .W8, .dh => "dh"
 
 instance {w} : ToString (Reg w) where toString := Reg.toStr
+
+instance {w} : ToString (AvxReg w) where
+  toString r := match r with
+  | .xmm r => "x" ++ toString r
+  | .ymm r => "y" ++ toString r
+  | .zmm r => "z" ++ toString r
 
 def RegOrRip.toStr (b : RegOrRip) (addr_w : Width := .W64) : String := match b with
   | .reg r => toString (Reg.low r addr_w)
@@ -62,10 +79,22 @@ def RegOrMem.toStr {w} (rm : RegOrMem w) (addr_w : Width := .W64) : String := ma
     | .W8 => "BYTE PTR " ++ a.toStr addr_w
 instance {w} : ToString (RegOrMem w) where toString rm := rm.toStr
 
+def AvxRegOrMem.toStr {w} (rm : AvxRegOrMem w) (addr_w : Width := .W64) : String := match rm with
+  | .avx r => ToString.toString r
+  | .mem a => match w with
+    | .W512 => "ZMMWORD PTR " ++ a.toStr addr_w
+    | .W256 => "YMMWORD PTR " ++ a.toStr addr_w
+    | .W128 => "XMMWORD PTR " ++ a.toStr addr_w
+instance {w} : ToString (AvxRegOrMem w) where toString rm := rm.toStr
+
 def Operand.toStr {w} (op : Operand w) (addr_w : Width := .W64) : String := match op with
   | .regOrMem rm => rm.toStr addr_w
   | .imm v => toString v
 instance {w} : ToString (Operand w) where toString op := op.toStr
+
+def AvxOperand.toStr {w} (op : AvxOperand w) (addr_w : Width := .W64) : String := match op with
+  | .regOrMem rm => rm.toStr addr_w
+instance {w} : ToString (AvxOperand w) where toString op := op.toStr
 
 def RelRegOrMem.toStr (rel : RelRegOrMem) (addr_w : Width := .W64) : String := match rel with
   | .rel (.sub e .after_current_instruction) => toString e
@@ -129,12 +158,18 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .nopalign a (some p) => s!".align {a}, {p}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
+def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : String := match op with
+  | .movups dst src => s!"movups {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vmovups dst src => s!"vmovups {dst.toStr addr_w}, {src.toStr addr_w}"
+instance {w} : ToString (Operation w) where toString op := op.toStr
+
 instance : ToString Instr where
-  toString i := i.operation.toStr i.address_size
+  toString i := match i with
+  | .regular a _ o => o.toStr a
+  | .avx a _ o => o.toStr a
 
 instance : ToString Directive where
   toString
   | .instr i => ToString.toString i
   | .label l => s!"{l}:"
   | .byteArray bs => ".byte "++", ".intercalate (bs.toList.map (fun b => s!"{b}"))
-

@@ -26,6 +26,39 @@ unif_hint (w : Width) where
 unif_hint (w : Width) where
   w =?= Width.W64 |- Width.type w =?= BitVec 64
 
+inductive AvxWidth | W128 | W256 | W512 deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+
+instance : ToString AvxWidth where
+  toString |.W128 => "w128" | .W256 => "w256" | .W512 => "w512"
+
+namespace AvxWidth
+@[simp, reducible] def bits : AvxWidth → Nat | W128 => 128 | W256 => 256 | W512 => 512
+@[simp, reducible] def bytes : AvxWidth → Nat | W128 => 16 | W256 => 32 | W512 => 64
+abbrev bytesv (w : AvxWidth) {n} : BitVec n := BitVec.ofNat n w.bytes
+abbrev type (w : AvxWidth) : Type := BitVec w.bits
+instance {w : AvxWidth} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
+end AvxWidth
+
+unif_hint (w : AvxWidth) where
+  w =?= AvxWidth.W128 |- AvxWidth.type w =?= BitVec 128
+
+unif_hint (w : AvxWidth) where
+  w =?= AvxWidth.W256 |- AvxWidth.type w =?= BitVec 256
+
+unif_hint (w : AvxWidth) where
+  w =?= AvxWidth.W512 |- AvxWidth.type w =?= BitVec 512
+
+inductive RegMm
+  | mm0  | mm1  | mm2  | mm3
+  | mm4  | mm5  | mm6  | mm7
+  | mm8  | mm9  | mm10 | mm11
+  | mm12 | mm13 | mm14 | mm15
+  | mm16 | mm17 | mm18 | mm19
+  | mm20 | mm21 | mm22 | mm23
+  | mm24 | mm25 | mm26 | mm27
+  | mm28 | mm29 | mm30 | mm31
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+
 inductive Reg64
   | rax | rbx | rcx | rdx
   | rsi | rdi | rsp | rbp
@@ -36,6 +69,12 @@ inductive Reg64
 inductive Reg : Width → Type
   | low (_ : Reg64) (w : Width) : Reg w
   | ah : Reg .W8 | bh : Reg .W8 | ch : Reg .W8| dh : Reg .W8
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+
+inductive AvxReg : AvxWidth → Type
+  | xmm (_ : RegMm) : AvxReg AvxWidth.W128
+  | ymm (_ : RegMm) : AvxReg AvxWidth.W256
+  | zmm (_ : RegMm) : AvxReg AvxWidth.W512
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 abbrev Label := String
@@ -55,6 +94,9 @@ attribute [coe] ConstExpr.label
 attribute [coe] ConstExpr.int64
 
 structure RegW where (w : Width) (reg : Reg w)
+  deriving Repr, DecidableEq, Hashable, Lean.ToExpr, Hashable, Lean.ToExpr
+
+structure AvxRegW where (w : AvxWidth) (reg : AvxReg w)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr, Hashable, Lean.ToExpr
 
 -- For address expressions, the width of the register is determined only by the
@@ -100,6 +142,14 @@ instance {w} : Coe (Reg w) (RegOrMem w) where coe := .reg
 attribute [coe] RegOrMem.reg
 abbrev Dst := RegOrMem
 
+inductive AvxRegOrMem (w : AvxWidth) | avx (r : AvxReg w) | mem (_ : AddrExpr)
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+instance {w} : Coe AddrExpr (AvxRegOrMem w) where coe := AvxRegOrMem.mem
+attribute [coe] AvxRegOrMem.mem
+instance {w} : Coe (AvxReg w) (AvxRegOrMem w) where coe := .avx
+attribute [coe] AvxRegOrMem.avx
+abbrev AvxDst := AvxRegOrMem
+
 inductive Operand w | regOrMem (_ : RegOrMem w) | imm (v : ConstExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 instance {w} : Coe (RegOrMem w) (Operand w) where coe := .regOrMem
@@ -108,6 +158,14 @@ instance {w} : Coe ConstExpr (Operand w) where coe := Operand.imm
 attribute [coe] Operand.imm
 abbrev Operand.reg {w} (r : Reg w) : Operand w := regOrMem (.reg r)
 abbrev Operand.mem {w} (m : AddrExpr) : Operand w := regOrMem (.mem m)
+
+-- TODO: We could remove this and use AvxRegOrMem directly.
+inductive AvxOperand (w : AvxWidth) | regOrMem (_ : AvxRegOrMem w)
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+instance {w} : Coe (AvxRegOrMem w) (AvxOperand w) where coe := .regOrMem
+attribute [coe] AvxOperand.regOrMem
+abbrev AvxOperand.avx {w} (r : AvxReg w) : AvxOperand w := regOrMem (.avx r)
+abbrev AvxOperand.mem {w} (m : AddrExpr) : AvxOperand w := regOrMem (.mem m)
 
 inductive CondCode | z | nz | c | nc | a | be
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
@@ -176,11 +234,21 @@ inductive Operation (w : Width)
   | nopalign (alignment : Nat) (pad : Option Nat)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
-structure Instr where
-  address_size : Width
-  operation_size : Width
-  operation : Operation operation_size
+inductive AvxOperation (w : AvxWidth)
+  | movups (_ : AvxDst w) (src : AvxRegOrMem w) -- sse regs only (TODO: constrain to .W128)
+  | vmovups (_ : AvxDst w) (src : AvxRegOrMem w)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
+
+inductive Instr
+  | regular (address_size : Width) (operation_size : Width) (operation : Operation operation_size)
+  | avx (address_size : Width) (operation_size : AvxWidth) (operation : AvxOperation operation_size)
+  deriving Repr, DecidableEq, Hashable, Lean.ToExpr
+
+instance [AddressSize] {w : Width} : CoeOut (Operation w) Instr where
+  coe op := Instr.regular address_size w op
+
+instance [AddressSize] {w : AvxWidth} : CoeOut (AvxOperation w) Instr where
+  coe op := Instr.avx address_size w op
 
 instance : Repr ByteArray where reprPrec _ _ := "<opaque byte array>"
 
