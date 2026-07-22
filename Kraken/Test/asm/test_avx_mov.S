@@ -24,3 +24,27 @@ vmovups (%rsp), %xmm1
 vmovups %xmm1, 16(%rsp)
 movq 16(%rsp), %rcx  # 45
 movq 24(%rsp), %rdx  # 44
+
+# Test avx vmovups with ymms
+popq %rcx
+popq %rcx
+popq %rcx
+popq %rcx
+
+pushq %rax  # 0x38
+pushq %rax  # 0x30
+pushq %rax  # 0x28
+pushq %rax  # 0x20
+pushq $10   # 0x18
+pushq $11   # 0x10
+pushq $12   # 0x8
+pushq $13   # 0x0
+
+vmovups (%rsp), %ymm2
+vmovups %ymm2, 0x20(%rsp)
+movq 0x20(%rsp), %r13  # 13
+movq 0x28(%rsp), %r12  # 12
+movq 0x30(%rsp), %r11  # 11
+movq 0x38(%rsp), %r10  # 10
+
+# TODO: zmms neeed avx512 support in the test harness

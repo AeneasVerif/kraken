@@ -82,9 +82,9 @@ instance {w} : ToString (RegOrMem w) where toString rm := rm.toStr
 def AvxRegOrMem.toStr {w} (rm : AvxRegOrMem w) (addr_w : Width := .W64) : String := match rm with
   | .avx r => ToString.toString r
   | .mem a => match w with
-    | .W512 => "ZWORD PTR " ++ a.toStr addr_w
-    | .W256 => "YWORD PTR " ++ a.toStr addr_w
-    | .W128 => "OWORD PTR " ++ a.toStr addr_w
+    | .W512 => "ZMMWORD PTR " ++ a.toStr addr_w
+    | .W256 => "YMMWORD PTR " ++ a.toStr addr_w
+    | .W128 => "XMMWORD PTR " ++ a.toStr addr_w
 instance {w} : ToString (AvxRegOrMem w) where toString rm := rm.toStr
 
 def Operand.toStr {w} (op : Operand w) (addr_w : Width := .W64) : String := match op with
