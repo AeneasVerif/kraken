@@ -124,7 +124,7 @@ structure RegZmms where
   zmm32 : ZmmValue := zmmZero
   deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr
 
-def RegZmms.get512 (s : RegZmms) (r : RegMm) : Width.W512.type := (match r with
+def RegZmms.get512 (s : RegZmms) (r : RegMm) : AvxWidth.W512.type := (match r with
   | .mm0  => s.zmm0  | .mm1  => s.zmm1  | .mm2  => s.zmm2  | .mm3  => s.zmm3
   | .mm4  => s.zmm4  | .mm5  => s.zmm5  | .mm6  => s.zmm6  | .mm7  => s.zmm7
   | .mm8  => s.zmm8  | .mm9  => s.zmm9  | .mm10 => s.zmm10 | .mm11 => s.zmm11
@@ -134,7 +134,7 @@ def RegZmms.get512 (s : RegZmms) (r : RegMm) : Width.W512.type := (match r with
   | .mm24 => s.zmm24 | .mm25 => s.zmm25 | .mm26 => s.zmm26 | .mm27 => s.zmm27
   | .mm28 => s.zmm28 | .mm29 => s.zmm29 | .mm30 => s.zmm30 | .mm31 => s.zmm31)
 
-def RegZmms.set512 (regs : RegZmms) (r : RegMm) (v : Width.W512.type) : RegZmms :=
+def RegZmms.set512 (regs : RegZmms) (r : RegMm) (v : AvxWidth.W512.type) : RegZmms :=
   match r with
   | .mm0  => { regs with zmm0  := v } | .mm1  => { regs with zmm1  := v }
   | .mm2  => { regs with zmm2  := v } | .mm3  => { regs with zmm3  := v }
@@ -190,6 +190,7 @@ structure MachineData where -- does not include code or program position
 -- We only allow nondeterministic choices for a fixed set of types.
 class inductive NondetSupportingType : Type -> Type
   | bitvec (w : Width) : NondetSupportingType w.type
+  | avx_bitvec (aw : AvxWidth) : NondetSupportingType aw.type
   | bool : NondetSupportingType Bool
   | statusFlags : NondetSupportingType StatusFlags
 
@@ -198,8 +199,10 @@ def NondetSupportingType.from_hash {α} [t : NondetSupportingType α] (h : UInt6
   | .bool => h % 2 != 0
   | .statusFlags => let h := h.toBitVec; (.mk h[0] h[1] h[2] h[3] h[4] h[5])
   | .bitvec w => h.toBitVec.setWidth w.bits
+  | .avx_bitvec w => h.toBitVec.setWidth w.bits
 
 instance (w : Width) : NondetSupportingType w.type := .bitvec w
+instance (w : AvxWidth) : NondetSupportingType w.type := .avx_bitvec w
 instance : NondetSupportingType Bool := .bool
 instance : NondetSupportingType StatusFlags := .statusFlags
 
@@ -243,6 +246,14 @@ def MachineData.load
     | .some i => ret (.ofInt _ i) s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
 
+def MachineData.loadAvx
+  (s : MachineData) (addr : BitVec 64) (w : AvxWidth)
+  (ret : w.type → MachineData → Effects): Effects :=
+  require_read_access addr .W64 (fun _unit =>
+match Mem.loadInt s.dmem addr w.bytes with
+    | .some i => ret (.ofInt _ i) s
+    | .none => unimplemented "AVX nonmem load not supported")
+
 def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Effects) : Effects :=
   require_write_access addr w (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
@@ -250,6 +261,12 @@ def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.ty
         ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
     | .none => nonmem_store s.dmem addr v (fun dmem' => ret { s with dmem := dmem' }))
 
+def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v : w.type) (ret: MachineData → Effects) : Effects :=
+  require_write_access addr .W64 (fun _unit =>
+match Mem.loadInt s.dmem addr w.bytes with
+    | .some _ =>
+        ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
+    | .none => unimplemented "AVX nonmem store not supported")
 
 class Labels where label : Label → Int64
 export Labels (label)
@@ -275,30 +292,40 @@ def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Re
 def RegOrMem.interp {w} [Labels] [AddressSize]
   (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64)
   (ret : w.type → MachineData → Effects) :=
-  match o with
+match o with
   | .reg r => ret (s.regs.get r) s
-  | .avx r => ret (s.zmms.get r) s
   | .mem a => s.load ((a.interp s.regs p).zeroExtend _) w ret
+
+def AvxRegOrMem.interp {w} [Labels] [AddressSize]
+  (o : AvxRegOrMem w) (s : MachineData) (p : Std.Rco Int64)
+  (ret : w.type → MachineData → Effects) :=
+match o with
+  | .avx r => ret (s.zmms.get r) s
+  | .mem a => s.loadAvx ((a.interp s.regs p).zeroExtend _) w ret
 
 def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
 
-def MachineData.setAvx (s : MachineData) {w} (r : AvxReg w) (v : w.type) : MachineData :=
+def MachineData.setAvxReg (s : MachineData) {w : AvxWidth} (r : AvxReg w) (v : w.type) : MachineData :=
   { s with zmms := s.zmms.set r v }
 
-def MachineData.setAvxLegacy (s : MachineData) {w} (r : AvxReg w) (v : w.type) : MachineData :=
+def MachineData.setAvxLegacyReg (s : MachineData) {w : AvxWidth} (r : AvxReg w) (v : w.type) : MachineData :=
   { s with zmms := s.zmms.setLegacy r v }
 
 def MachineData.set {w} [Labels] [AddressSize] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → Effects) : Effects :=
   match d with
   | .reg r => ret (s.setReg r v)
-  | .avx r => ret (s.setAvx r v)
   | .mem a => s.store ((a.interp s.regs p).zeroExtend _) v ret
 
-def MachineData.setLegacy {w} [Labels] [AddressSize] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → Effects) : Effects :=
-  match d with
-  | .avx r => ret (s.setAvxLegacy r v)
-  | _ => MachineData.set s d v p ret
+def MachineData.setAvx {aw} [Labels] [AddressSize] (s : MachineData) (d : AvxDst aw) (v : aw.type) (p : Std.Rco Int64) (ret : MachineData → Effects) : Effects :=
+match d with
+  | .avx r => ret (s.setAvxReg r v)
+  | .mem a => s.storeAvx ((a.interp s.regs p).zeroExtend _) v ret
+
+def MachineData.setAvxLegacy {w} [Labels] [AddressSize] (s : MachineData) (d : AvxDst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → Effects) : Effects :=
+match d with
+  | .avx r => ret (s.setAvxLegacyReg r v)
+  | .mem a => s.storeAvx ((a.interp s.regs p).zeroExtend _) v ret
 
 def Operand.interp {w} [Labels] [AddressSize]
   (o : Operand w) (s : MachineData) (p : Std.Rco Int64)
@@ -307,6 +334,12 @@ def Operand.interp {w} [Labels] [AddressSize]
   | regOrMem rm => rm.interp s p ret
   | .imm v => ret ((v.interp p).toBitVec.truncate _) s
   -- we rely on assemblers erroring out on too-large immediates in uniform ops
+
+def AvxOperand.interp {aw} [Labels] [AddressSize]
+  (o : AvxOperand aw) (s : MachineData) (p : Std.Rco Int64)
+  (ret : aw.type → MachineData → Effects) :=
+match o with
+  | regOrMem rm => rm.interp s p ret
 
 def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
   | .z  => s.zf | .nz => !s.zf | .c  => s.cf | .nc => !s.cf
@@ -358,8 +391,6 @@ def Operation.interp [Labels] [address_size : AddressSize]
   | .mov dst src => src.interp s p (fun val s => s.set dst val p next)
   | .movsx dst src => src.interp s p (fun val s => s.set dst (val.signExtend _) p next)
   | .movzx dst src => src.interp s p (fun val s => s.set dst (val.zeroExtend _) p next)
-  | .movups dst src => src.interp s p (fun val s => s.setLegacy dst val p next)
-  | .vmovups dst src => src.interp s p (fun val s => s.set dst val p next)
   | .push src =>
     src.interp s p (fun v s =>
     let rsp := s.regs.get64 .rsp - w.bytesv
@@ -633,11 +664,24 @@ def Operation.interp [Labels] [address_size : AddressSize]
     jmp (.ofBitVec ra) { s with regs := s.regs.set64 .rsp (rsp + 8) })
   | nop _ | nopalign _ _ => next s
 
+-- AVX Operations Interpreter
+def AvxOperation.interp [Labels] [address_size : AddressSize]
+  {w} (i : AvxOperation w) (p : Std.Rco Int64) (s : MachineData)
+  (next : MachineData → Effects) : Effects :=
+match i with
+  | .movups dst src => src.interp s p (fun val s => s.setAvxLegacy dst val p next)
+  | .vmovups dst src => src.interp s p (fun val s => s.setAvx dst val p next)
+
 def Instr.interp [Labels]
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
   require_exec_access p (fun _unit =>
-    Operation.interp (w := i.operation_size ) (address_size := .mk i.address_size) i.operation p s next jmp)
+    match i with
+      | .regular addr_sz op_sz op =>
+          Operation.interp (w := op_sz) (address_size := .mk addr_sz) op p s next jmp
+      | .avx addr_sz op_sz op =>
+          AvxOperation.interp (w := op_sz) (address_size := .mk addr_sz) op p s next
+  )
 
 def Directive.interp [Labels]
   (d : Directive) (s : MachineData) (p : Std.Rco Int64)
@@ -706,7 +750,7 @@ where
 def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
   match d with
   | .label _ => 0
-  | .instr (.mk _ _ (.nop sz)) => sz -- may be zero
+  | .instr (.regular _ _ (.nop sz)) => sz -- may be zero
   | .instr i => (1 + hash (hashOfProgram, i) % 15).toNat
   | .byteArray bs => bs.size
 
@@ -723,9 +767,9 @@ abbrev eval [layout : Layout] (prog : Program) := (layout prog).eval
 #eval
   let exe := Program.fakeLayout [
     .label "main",
-    .instr (.mk .W64 .W64 (.lea (.low .rax .W64) (.mk .none .none (.int64 41)))),
-    .instr (.mk .W64 .W64 (.inc (.reg (.low .rax .W64)))),
-    .instr (.mk .W64 .W64 .ret) ]
+    .instr (.regular .W64 .W64 (.lea (.low .rax .W64) (.mk .none .none (.int64 41)))),
+    .instr (.regular .W64 .W64 (.inc (.reg (.low .rax .W64)))),
+    .instr (.regular .W64 .W64 .ret) ]
   let start := exe.labels.label "main"
   let data := { dmem := Mem.storeInt {} 0x100 8 0x1337, regs := {rsp := 0x100} }
   (exe.eval (data, start) (fun (_, pc) => pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)

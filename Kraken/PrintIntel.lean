@@ -41,7 +41,6 @@ def Reg.toStr {w} (r : Reg w) : String := match w, r with
     | .r8  => "r8b" | .r9  => "r9b" | .r10 => "r10b" | .r11 => "r11b"
     | .r12 => "r12b"| .r13 => "r13b"| .r14 => "r14b"| .r15 => "r15b"
   | .W8, .ah => "ah" | .W8, .bh => "bh" | .W8, .ch => "ch" | .W8, .dh => "dh"
-  | _, .low r _ => "INVALID_" ++ toString r
 
 instance {w} : ToString (Reg w) where toString := Reg.toStr
 
@@ -73,21 +72,29 @@ instance : ToString AddrExpr where toString a := a.toStr
 
 def RegOrMem.toStr {w} (rm : RegOrMem w) (addr_w : Width := .W64) : String := match rm with
   | .reg r => ToString.toString r
-  | .avx r => ToString.toString r
   | .mem a => match w with
-    | .W512 => "ZWORD PTR " ++ a.toStr addr_w
-    | .W256 => "YWORD PTR " ++ a.toStr addr_w
-    | .W128 => "OWORD PTR " ++ a.toStr addr_w
     | .W64 => "QWORD PTR " ++ a.toStr addr_w
     | .W32 => "DWORD PTR " ++ a.toStr addr_w
     | .W16 => "WORD PTR " ++ a.toStr addr_w
     | .W8 => "BYTE PTR " ++ a.toStr addr_w
 instance {w} : ToString (RegOrMem w) where toString rm := rm.toStr
 
+def AvxRegOrMem.toStr {w} (rm : AvxRegOrMem w) (addr_w : Width := .W64) : String := match rm with
+  | .avx r => ToString.toString r
+  | .mem a => match w with
+    | .W512 => "ZWORD PTR " ++ a.toStr addr_w
+    | .W256 => "YWORD PTR " ++ a.toStr addr_w
+    | .W128 => "OWORD PTR " ++ a.toStr addr_w
+instance {w} : ToString (AvxRegOrMem w) where toString rm := rm.toStr
+
 def Operand.toStr {w} (op : Operand w) (addr_w : Width := .W64) : String := match op with
   | .regOrMem rm => rm.toStr addr_w
   | .imm v => toString v
 instance {w} : ToString (Operand w) where toString op := op.toStr
+
+def AvxOperand.toStr {w} (op : AvxOperand w) (addr_w : Width := .W64) : String := match op with
+  | .regOrMem rm => rm.toStr addr_w
+instance {w} : ToString (AvxOperand w) where toString op := op.toStr
 
 def RelRegOrMem.toStr (rel : RelRegOrMem) (addr_w : Width := .W64) : String := match rel with
   | .rel (.sub e .after_current_instruction) => toString e
@@ -107,8 +114,6 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .mov dst src => s!"mov {dst.toStr addr_w}, {src.toStr addr_w}"
   | .movsx dst src => s!"movsx {dst.toStr addr_w}, {src.toStr addr_w}"
   | .movzx dst src => s!"movzx {dst.toStr addr_w}, {src.toStr addr_w}"
-  | .movups dst src => s!"movups {dst.toStr addr_w}, {src.toStr addr_w}"
-  | .vmovups dst src => s!"vmovups {dst.toStr addr_w}, {src.toStr addr_w}"
   | .push src => s!"push {src.toStr addr_w}"
   | .pop dst => s!"pop {dst.toStr addr_w}"
   | .setcc cc dst => s!"set{cc} {dst.toStr addr_w}"
@@ -153,8 +158,15 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .nopalign a (some p) => s!".align {a}, {p}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
+def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : String := match op with
+  | .movups dst src => s!"movups {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vmovups dst src => s!"vmovups {dst.toStr addr_w}, {src.toStr addr_w}"
+instance {w} : ToString (Operation w) where toString op := op.toStr
+
 instance : ToString Instr where
-  toString i := i.operation.toStr i.address_size
+  toString i := match i with
+  | .regular a _ o => o.toStr a
+  | .avx a _ o => o.toStr a
 
 instance : ToString Directive where
   toString
