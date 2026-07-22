@@ -244,6 +244,12 @@ inductive Instr
   | avx (address_size : Width) (operation_size : AvxWidth) (operation : AvxOperation operation_size)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
+instance [AddressSize] {w : Width} : CoeOut (Operation w) Instr where
+  coe op := Instr.regular address_size w op
+
+instance [AddressSize] {w : AvxWidth} : CoeOut (AvxOperation w) Instr where
+  coe op := Instr.avx address_size w op
+
 instance : Repr ByteArray where reprPrec _ _ := "<opaque byte array>"
 
 deriving instance Lean.ToExpr for ByteArray
