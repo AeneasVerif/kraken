@@ -39,13 +39,24 @@ def get_boilerplate(instruction_text: str) -> str:
 .data
 .align 8
 _final_state: .space {total_bytes}
+_old_rsp: .quad 0
 
 .text
 .globl _start
 _start:
+    # Byte-align rsp so we can predict the value of PF.
+    movq %rsp, _old_rsp(%rip)
+    pushfq
+    popq %rax
+    andq $-256, %rsp
+    pushq %rax
+    xorl %eax, %eax
+    popfq
+
 # --- Test Code Start ---
 {instruction_text}
 # --- Test Code End ---
+    movq _old_rsp(%rip), %rsp
 {moves}
     pushfq
     popq %rax
