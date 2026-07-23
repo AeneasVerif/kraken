@@ -44,7 +44,7 @@ _old_rsp: .quad 0
 .text
 .globl _start
 _start:
-    # Byte-align rsp so we can predict the value of PF.
+    # 256B-align rsp so we can predict the value of PF.
     movq %rsp, _old_rsp(%rip)
     pushfq
     popq %rax
