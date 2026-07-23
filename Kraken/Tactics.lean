@@ -221,7 +221,8 @@ partial def evalSymKStep : Grind.GrindTactic :=
     let goal ← Grind.liftGrindM (do
       Sym.dsimp
         (config := { maxSteps := 1000000 })
-        (methods := { pre := klog config >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta})
+        (methods := {
+          pre := klog config >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta >> zeta})
         goal)
 
     let mvarId ← mvarId.replaceTargetDefEq goal

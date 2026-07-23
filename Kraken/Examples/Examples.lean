@@ -270,22 +270,37 @@ set_option pp.rawOnError true
 /- set_option pp.coercions false -/
 /- set_option pp.all true -/
 
-attribute [ksimp] UInt64.ofBitVec_sub UInt64.ofBitVec_toBitVec UInt64.ofBitVec_ofNat Nat.sub_zero
-  UInt64.toNat_toBitVec Nat.shiftRight_zero BitVec.ofNat_uInt64ToNat
+attribute [ksimp]
+  BitVec.ofInt_add
+  BitVec.ofInt_toInt
+  BitVec.ofNat_uInt64ToNat
+  BitVec.reduceOfInt
+  BitVec.setWidth_eq
+  Int.add_zero
+  Int.reduceBmod
+  Int.reduceNeg
+  Int64.reduceToInt
+  Int64.toInt_neg
+  Nat.reducePow
+  Nat.shiftRight_zero
+  Nat.sub_zero
+  UInt64.ofBitVec_add
+  UInt64.ofBitVec_ofNat
+  UInt64.ofBitVec_sub
+  UInt64.ofBitVec_toBitVec
+  UInt64.sub_add_cancel
+  UInt64.toBitVec_ofNat
+  UInt64.toBitVec_sub
+  UInt64.toNat_toBitVec
 
-theorem repro (rsp: UInt64):
-    -- let rsp1 := rsp.toBitVec - 8#64
-    -- ({ toBitVec := rsp1 }: UInt64) = { toBitVec := rsp.toBitVec } - { toBitVec := 8#64 }
-    ({ toBitVec := rsp.toBitVec - 8#64 }: UInt64) = { toBitVec := rsp.toBitVec } - { toBitVec := 8#64 }
+theorem repro (rax: UInt64):
+    (BitVec.ofNat 64 (BitVec.ofNat (64 - 0) rax.toNat).toNat) = rax
 := by
-  -- GOAL: { toBitVec := rsp.toBitVec - 8#64 } = rsp - { toBitVec := 8#64 }
-  -- NOTE: { toBitVec := rsp.toBitVec } in the rhs has been rewritten already into rsp
   sym =>
-  simp [UInt64.ofBitVec_sub]
-  -- NEW GOAL: { toBitVec := rsp.toBitVec } - { toBitVec := 8#64 } = rsp - { toBitVec := 8#64 }
-  -- Q: how can I close this in sym?
-  tactic =>
-  rfl
+  dsimp
+  simp [Nat.sub_zero, UInt64.toNat_toBitVec, BitVec.ofNat_uInt64ToNat]
+  -- tactic =>
+  -- rfl
 
 theorem p6_correct [layout : Layout] (s₀ : MachineData)
     (stack : List UInt8) (h_len : stack.length = 8) (R : DataMem → Prop)
@@ -304,26 +319,17 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
+  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
   sym =>
   kstep
-  -- simp [UInt64.ofBitVec_sub, UInt64.ofBitVec_toBitVec, UInt64.ofBitVec_ofNat, Nat.sub_zero, UInt64.toNat_toBitVec, Nat.shiftRight_zero, BitVec.ofNat_uInt64ToNat]
-  tactic =>
-  simp only [UInt64.ofBitVec_sub]
-  simp only [UInt64.ofBitVec_sub, UInt64.ofBitVec_toBitVec, UInt64.ofBitVec_ofNat, Nat.sub_zero, UInt64.toNat_toBitVec, Nat.shiftRight_zero, BitVec.ofNat_uInt64ToNat]
-  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
   rw [store_sep]
   case h_mem => exact h_mem
   case h_len => exact h_bs
-  sym => kstep; tactic =>
-  simp only [Int64.toBitVec_ofNat, BitVec.ofNat_eq_ofNat, BitVec.setWidth_eq, UInt64.ofBitVec_ofNat,
-    UInt64.toBitVec_sub, UInt64.toBitVec_ofNat, UInt64.ofBitVec_add, UInt64.ofBitVec_sub, UInt64.ofBitVec_toBitVec,
-    UInt64.sub_add_cancel]
-  sym => kstep; tactic =>
+  kstep
+  tactic =>
   rw [load_sep]
   case h_mem => exact h_mem1
   case h_len => exact Int.toBytes_length 8 _
-  sym =>
-  tactic =>
   apply Eventually.done
   simp only [and_true]
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
@@ -608,7 +614,9 @@ theorem dynamic_stack_example_correct [layout : Layout] (s₀ : MachineData)
   rw [Executable.directivesFromStart]
   simp [List.mapIdx, List.mapIdx.go]
   sym => kstep; tactic =>
-  simp [AddrExpr.interp, ConstExpr.interp, Reg64s.get64, Width.bits, BitVec.toAddressSize, BitVec.signed, BitVec.take_all, BitVec.ofInt_add, BitVec.ofInt_toInt]
+  simp only [BitVec.ofNat_uInt64ToNat,
+    Int64.reduceToInt, Int.reduceNeg, Int.reduceBmod,
+    BitVec.reduceOfInt, BitVec.setWidth_eq]
   have h_addr_eq : rsp.toBitVec - 1024#64 + BitVec.ofNat 64 (stack.take 1016).length = rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8) := by
     rw [h_len_take]
     change rsp.toBitVec - 1024#64 + 1016#64 = rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)
@@ -620,5 +628,6 @@ theorem dynamic_stack_example_correct [layout : Layout] (s₀ : MachineData)
   case h_mem => exact h_mem
   case h_len => exact h_len_drop
   sym =>
+  kstep
   -- FIXME: kstep here takes too long
   sorry

@@ -17,7 +17,12 @@ def signed {w} (x : BitVec w) : Int := x.toInt
 @[kstep] def take {w} (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
 @[kstep] def drop {w} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
 end BitVec
-attribute [kstep] BitVec.extractLsb' BitVec.truncate
+attribute [kstep]
+  BitVec.extractLsb'
+  BitVec.ofInt_add
+  BitVec.ofInt_toInt
+  BitVec.signed
+  BitVec.truncate
 def BitVec.replaceLow {w n} (old : BitVec w) (new : BitVec n) : BitVec w :=
   (BitVec.append (old.drop n) new).setWidth _
 
@@ -79,6 +84,7 @@ structure Reg64s where
   | .ah | .bh | .ch | .dh => let old := s.get64 r.base;
     s.set64 r.base (old.replaceLow (BitVec.append v (s.get (.low r.base .W8))))
 
+@[kstep]
 def BitVec.toAddressSize [address_size: AddressSize] (w: BitVec 64): BitVec address_size.address_size.bits :=
   w.take address_size.address_size.bits
 
@@ -174,7 +180,7 @@ export Labels (label)
   | .add e1 e2, p => e1.interp p + e2.interp p
   | .sub e1 e2, p => e1.interp p - e2.interp p
 
-def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
+@[kstep] def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
   let base := match a.base with
               | .some (.reg r) => (s.get64 r).toAddressSize.signed
               | .some .rip => p.upper.toInt
