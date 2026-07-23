@@ -6,4 +6,6 @@ pop %rsp
 mov %rsp, %rdi
 sub $42, %rdi
 mov %rsi, %rsp
-xor %rsi, %rsi
+
+# AF is undefined after xor
+mov $0, %rsi

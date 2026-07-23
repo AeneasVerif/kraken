@@ -11,5 +11,6 @@ sub %rsi, %rdi
 sub %rsi, %rax
 mov %rsi, %rsp
 
-xor %rsi, %rsi
-xor %r11, %r11
+# AF is undefined after xor
+mov $0, %rsi
+mov $0, %r11
