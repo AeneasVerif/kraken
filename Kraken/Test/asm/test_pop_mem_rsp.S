@@ -1,3 +1,5 @@
+# Undefined flags: af
+
 mov %rsp, %rsi
 
 pushq %rsp
@@ -11,6 +13,5 @@ sub %rsi, %rdi
 sub %rsi, %rax
 mov %rsi, %rsp
 
-# AF is undefined after xor
-mov $0, %rsi
-mov $0, %r11
+xor %rsi, %rsi
+xor %r11, %r11

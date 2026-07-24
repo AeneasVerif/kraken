@@ -50,6 +50,12 @@ def _end: String := "_end"
 
 -- Give the program a stack of 800B initially, mapped at a plausible place.
 def stackSize := 800
+-- Place the stack somewhere high in memory, aligned to 256 bytes. This will
+-- help us avoid disagreements with the actual machine: we will avoid over/underflow
+-- when we allocate stack memory using arithmetic instructions (which would happen
+-- if the stack were at 0), and fixing the last byte of the address at 0 means that
+-- we will match PF for these operations (providing that we also align rsp on
+-- hardware).
 def stackLocation: UInt64 := 0x7ffecafee200
 def initStack : DataMem := (List.replicate stackSize 0xff).At (stackLocation - stackSize)
 
