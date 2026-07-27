@@ -1,3 +1,5 @@
+# Undefined flags: af
+
 mov %rsp, %rsi
 
 pushq %rsp

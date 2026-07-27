@@ -39,13 +39,28 @@ def get_boilerplate(instruction_text: str) -> str:
 .data
 .align 8
 _final_state: .space {total_bytes}
+_old_rsp: .quad 0
 
 .text
 .globl _start
 _start:
+    # We start at an arbitrary 16B-aligned stack pointer. This makes it
+    # difficult to match the value of PF in the simulator if any computation
+    # is done using rsp (common for cleaning up the stack frame). Since PF
+    # is computed only on the lower 8 bits, if we 256B-align rsp, we can
+    # predict the value of PF (since we can choose rsp in the simulator).
+    movq %rsp, _old_rsp(%rip)   # Save the old rsp.
+    pushfq                      # We have to transfer rflags on the stack.
+    popq %rax                   # Save rflags in rax.
+    andq $-256, %rsp            # 256B-align rsp.
+    pushq %rax                  # Prepare to restore rflags (after xorl stomps them).
+    xorl %eax, %eax             # Zero rax (implicitly zero-extended dword op).
+    popfq                       # Restore rflags + stack alignment.
+
 # --- Test Code Start ---
 {instruction_text}
 # --- Test Code End ---
+    movq _old_rsp(%rip), %rsp   # Restore the old stack pointer.
 {moves}
     pushfq
     popq %rax

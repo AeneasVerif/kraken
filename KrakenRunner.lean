@@ -48,9 +48,16 @@ def summarize (s : MachineData) : StateSummary :=
 def _start: String := "_start"
 def _end: String := "_end"
 
--- Give the program a stack of 800B initially.
+-- Give the program a stack of 800B initially, mapped at a plausible place.
 def stackSize := 800
-def initStack : DataMem := (List.replicate stackSize 0xff).At (0-stackSize)
+-- Place the stack somewhere high in memory, aligned to 256 bytes. This will
+-- help us avoid disagreements with the actual machine: we will avoid over/underflow
+-- when we allocate stack memory using arithmetic instructions (which would happen
+-- if the stack were at 0), and fixing the last byte of the address at 0 means that
+-- we will match PF for these operations (providing that we also align rsp on
+-- hardware).
+def stackLocation: UInt64 := 0x7ffecafee200
+def initStack : DataMem := (List.replicate stackSize 0xff).At (stackLocation - stackSize)
 
 def finishCriterion (p: Program) (s: MachineState): Bool :=
   s.2 = p.fakeLayout.labels.label _end
@@ -58,7 +65,8 @@ def finishCriterion (p: Program) (s: MachineState): Bool :=
 def runKraken (asmCode : String)
     : Except String MachineState := do
   let prog ← Kraken.Parser.parse (_start ++ ":" ++ asmCode ++ "\n" ++ _end ++ ":")
-  let initState: MachineState := ({dmem := initStack}, prog.fakeLayout.labels.label _start)
+  let initRegs: Reg64s := {rsp := stackLocation}
+  let initState: MachineState := ({regs := initRegs, dmem := initStack}, prog.fakeLayout.labels.label _start)
   prog.fakeLayout.eval initState (finishCriterion prog)
 
 def main (args : List String) : IO UInt32 := do
