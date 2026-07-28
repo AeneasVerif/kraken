@@ -14,9 +14,19 @@ jobs:
       - uses: leanprover/lean-action@v1
 
   run-asm-tests:
-    name: Run ASM tests (Ubuntu)
+    name: Run X64 ASM tests (Ubuntu)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: leanprover/lean-action@v1
       - run: python3 Kraken/X64/Test/asm_tests.py Kraken/X64/Test/asm
+
+  run-aarch64-asm-tests:
+    name: Run AArch64 ASM tests (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+      - name: Install AArch64 cross-assembler and QEMU
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user
+      - run: python3 Kraken/AArch64/Test/asm_tests.py Kraken/AArch64/Test/asm
