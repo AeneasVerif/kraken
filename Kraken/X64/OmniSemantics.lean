@@ -8,7 +8,7 @@ For semantics, see Kraken/Semantics.lean.
 For advanced tactics (SymM), see kraken-experimental/KrakenExp/Tactics.lean.
 -/
 
-import Kraken.Semantics
+import Kraken.X64.Semantics
 
 -- PROOF INFRASTRUCTURE
 

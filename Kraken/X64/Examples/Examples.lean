@@ -10,12 +10,12 @@ For semantics, see Kraken/Semantics.lean.
 For tactics, see Kraken/Tactics.lean.
 -/
 
-import Kraken.Tactics
-import Kraken.Parser
+import Kraken.X64.Tactics
+import Kraken.X64.Parser
 import Kraken.Eval
-import Kraken.X64Sep
+import Kraken.X64.Sep
 
-open Kraken.Parser
+open Kraken.X64.Parser
 
 --------------------------------------------------------------------------------
 

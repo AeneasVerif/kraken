@@ -3,10 +3,10 @@
   Uses #guard_msgs to verify parser output against expected results.
 -/
 
-import Kraken.Parser
+import Kraken.X64.Parser
 
 section Tests
-open Kraken.Parser
+open Kraken.X64.Parser
 
 open Instr Operand Reg
 

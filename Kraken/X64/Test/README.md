@@ -28,14 +28,14 @@ Note: Always consult the [instruction manual](https://www.felixcloutier.com/x86/
 
 Ensure you have `binutils` (specifically `as` and `ld`) installed. Currently, the test suite is verified on **Ubuntu (latest)**; other platforms may produce incompatible results.
 
-### Execution Commants
+### Execution Commands
 ```bash
 # Run all tests
-python3 Kraken/Test/asm_tests.py Kraken/Test/asm
+python3 Kraken/X64/Test/asm_tests.py Kraken/X64/Test/asm
 
 # Run a specific test
-python3 Kraken/Test/asm_tests.py Kraken/Test/asm/test_arithmetic.S
+python3 Kraken/X64/Test/asm_tests.py Kraken/X64/Test/asm/test_arithmetic.S
 
 # Manual inspection of Kraken output
-./.lake/build/bin/krakenrunner Kraken/Test/asm/arithmetic_test.S 
+./.lake/build/bin/krakenrunner_x64 Kraken/X64/Test/asm/test_arithmetic.S
 ```
