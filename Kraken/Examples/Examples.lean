@@ -293,15 +293,6 @@ attribute [ksimp]
   UInt64.toBitVec_sub
   UInt64.toNat_toBitVec
 
-theorem repro (rax: UInt64):
-    (BitVec.ofNat 64 (BitVec.ofNat (64 - 0) rax.toNat).toNat) = rax
-:= by
-  sym =>
-  dsimp
-  simp [Nat.sub_zero, UInt64.toNat_toBitVec, BitVec.ofNat_uInt64ToNat]
-  -- tactic =>
-  -- rfl
-
 theorem p6_correct [layout : Layout] (s₀ : MachineData)
     (stack : List UInt8) (h_len : stack.length = 8) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (stack.At (s₀.regs.rsp.toBitVec - 8#64)) ⋆ R) :
@@ -319,115 +310,56 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
-  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
+  simp at h_mem
   sym =>
   kstep
+  -- NOTE: this rw currently succeeds only if kstep performs zeta, which in
+  -- turns unlocks more `ksimp` lemmas; barring that, we have a unification
+  -- problem (even though the call to MachineData.store *is* truly in the goal!)
+  -- TODO: backward lemma (in our goal)
   rw [store_sep]
   case h_mem => exact h_mem
   case h_len => exact h_bs
+  -- NOTE: adding a let-binding in store_sep does not seem to give us a nice
+  -- name for the new memory
   kstep
   tactic =>
+  -- NOTE: the post- of store_sep uses dmem := Mem.storeInt ... -- this is a
+  -- concrete value, not a separation logic predicate, so we lift a concrete
+  -- definition to a SL assertion via storeInt_sep
+  -- TODO: forward lemma (needed for the subgoal)
+  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
   rw [load_sep]
-  case h_mem => exact h_mem1
+  case h_mem => simp; exact h_mem1
   case h_len => exact Int.toBytes_length 8 _
   apply Eventually.done
   simp only [and_true]
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
 
-/- def bigp := parseFile("./ecc-secp521r1-modp.S") -/
+-- def bigp := parseFile("./ecc-secp521r1-modp.S")
 
 /- set_option maxRecDepth 4000 -/
 /- set_option maxHeartbeats 2000000 -/
 
-/- example [layout : Layout] s -/
-/-   (hAlign: s.regs.rsp % 8 = 0) -/
-/-   (hContains: forall x, x ∈ s.dmem) -/
-/- : straightlineStep (layout bigp) (s, layout.start) (fun s => s.1.regs.rax = 0) := by -/
-/-   -- Refine the state to make registers apparent -- note that `cases` consumes -/
-/-   -- the hypothesis, and substitutes it, so we make a copy of it to have a -/
-/-   -- refined state in the hypotheses, not the goal. -/
-/-   let ss := s -/
-/-   change (straightlineStep _ (ss, _) _) -/
-/-   cases s with | mk regs flags mem => -/
-/-   cases regs with | mk rax => -/
-/-   -- Rewrite the program to make layout, addresses, etc. apparent -/
-/-   delta bigp -/
-/-   dsimp only [straightlineStep,Executable.straightline] -/
-/-   rw [Executable.directivesFromStart] -/
-/-   simp [List.mapIdx,List.mapIdx.go] -/
+-- example [layout : Layout] s
+--   (hAlign: s.regs.rsp % 8 = 0)
+--   (hContains: forall x, x ∈ s.dmem)
+-- : straightlineStep (layout bigp) (s, layout.start) (fun s => s.1.regs.rax = 0) := by
+--   -- Refine the state to make registers apparent -- note that `cases` consumes
+--   -- the hypothesis, and substitutes it, so we make a copy of it to have a
+--   -- refined state in the hypotheses, not the goal.
+--   let ss := s
+--   change (straightlineStep _ (ss, _) _)
+--   cases s with | mk regs flags mem =>
+--   cases regs with | mk rax =>
+--   -- Rewrite the program to make layout, addresses, etc. apparent
+--   delta bigp
+--   dsimp only [straightlineStep,Executable.straightline]
+--   rw [Executable.directivesFromStart]
+--   simp [List.mapIdx,List.mapIdx.go]
+--   kstep
+--   done
 
-/-   sym => -/
-/-   kstep -/
-/-   tactic => -/
-/-   intro rsp_store -/
-/-   have: rsp_store % 8 = 0 := by bv_decide -/
-/-   rw [simpleAlignedStore64] -/
-/-   <;> try grind -/
-
-/-   sym => -/
-/-   kstep -/
-/-   tactic => -/
-/-   intro rsp_store -/
-/-   have: rsp_store % 8 = 0 := by bv_decide -/
-/-   rw [simpleAlignedStore64] -/
-/-   <;> try grind -/
-
-/-   sym => -/
-/-   kstep -/
-/-   tactic => -/
-/-   intro rsp_store -/
-/-   have: rsp_store % 8 = 0 := by bv_decide -/
-/-   rw [simpleAlignedStore64] -/
-/-   <;> try grind -/
-
-/-   sym => -/
-/-   kstep -/
-/-   tactic => -/
-/-   intro rsp_store -/
-/-   have: rsp_store % 8 = 0 := by bv_decide -/
-/-   rw [simpleAlignedStore64] -/
-/-   <;> try grind -/
-
-/-   sym => -/
-/-   kstep -/
-/-   tactic => -/
-/-   intro rsp_store -/
-/-   have: rsp_store % 8 = 0 := by bv_decide -/
-/-   rw [simpleAlignedStore64] -/
-/-   <;> try grind -/
-
-/-   sym => -/
-/-   kstep -/
-/-   tactic => -/
-/-   have: rsp_store % 8 = 0 := by bv_decide -/
-/-   rw [simpleAlignedLoad64] -/
-/-   <;> try grind -/
-
-/-   rotate_right 1 -/
-/-   . sorry -- need additional alignment hypotheses here -/
-/-   sym => -/
-/-   kstep -/
-/-   tactic => -/
-/-   intro count -/
-/-   have: count ≠ 0 := by bv_decide -/
-/-   simp [this] -/
-
-/-   sym => -/
-/-   kstep -/
-/-   intro -/
-/-   tactic => -/
-/-   have : count = 55 := by decide -/
-/-   simp [this] -/
-
-/-   sym => -/
-/-   kstep -/
-/-   intros -/
-/-   kstep -/
-/-   sorry -/
-  /- tactic => -/
-  /- lift_lets -/
-  /- revert -/
-  /- sorry -/
 
 
 open Std

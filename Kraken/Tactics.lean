@@ -184,6 +184,43 @@ def kLiftLets : DSimproc := fun e => do
   /- logInfo m!"liftLets produces {e'}" -/
   return .step e'
 
+-- FIXME: a copy-paste of the Lean implementation since it's marked as private
+def rwTarget (symm : Bool) (term : Expr) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
+  let goal ← Grind.getMainGoal
+  goal.withContext do
+    let mvarCounterSaved := (← getMCtx).mvarCounter
+    let r ← Term.withSynthesize do
+      let heq := term
+      /-
+      The target is in `sym` normal form (e.g., reducible constants have been unfolded), but the
+      given equation is not. We unfold reducible constants in its statement so that `kabstract`
+      key-matching can find occurrences of the lhs in the target, and the rhs requires less
+      normalization after the rewrite.
+      -/
+      let heqType ← instantiateMVars (← inferType heq)
+      let heqType' ← Sym.unfoldReducible heqType
+      let heq ← if isSameExpr heqType heqType' then pure heq else mkExpectedTypeHint heq heqType'
+      goal.mvarId.rewrite (← goal.mvarId.getType) heq symm
+    let mctx ← getMCtx
+    let mvarIds := r.mvarIds.filter fun mvarId => (mctx.getDecl mvarId |>.index) >= mvarCounterSaved
+    let eNew ← Grind.liftSymM <| Sym.preprocessExpr r.eNew
+    if eNew.hasExprMVar then
+      throwError "`rw` failed, resulting target contains metavariables{indentExpr eNew}"
+    let mvarId ← goal.mvarId.replaceTargetEq eNew r.eqProof
+    let mvarIds ← mvarIds.filterM fun mvarId => return !(← mvarId.isAssigned)
+    let sideGoals ← mvarIds.mapM fun mvarId => do
+      let target ← mvarId.getType
+      let target' ← Grind.liftSymM <| Sym.preprocessExpr target
+      if isSameExpr target target' then
+        -- The metavariable was created by `forallMetaTelescopeReducing` with kind `.natural`;
+        -- prevent it from being assigned by unification in later steps.
+        mvarId.setKind .syntheticOpaque
+        return { goal with mvarId }
+      else
+        let mvarId ← mvarId.replaceTargetDefEq target'
+        return { goal with mvarId }
+    pure ({ goal with mvarId }, sideGoals)
+
 @[grind_tactic symKStep]
 partial def evalSymKStep : Grind.GrindTactic :=
   fun stx : Syntax => do
@@ -207,17 +244,23 @@ partial def evalSymKStep : Grind.GrindTactic :=
   let declsForDSimp := (kstepExtension.getState env).toList
   let kdsimpDecls := kdeltaBetaOnly declsForDSimp
 
+  -- https://lean-lang.org/doc/api/Lean/Meta/Sym/Simp/SimpM.html
+  -- note the "contextual ite handling" --> are we doing this?
   let simpTheorems ← ksimpExt.getTheorems
-  -- let l := simpTheorems.thms.size
-  -- logInfo m!"kstep: found {l} ksimp theorems"
   let simpMethods: Sym.Simp.Methods := { post := Sym.Simp.evalGround >> simpTheorems.rewrite }
 
-  -- Main loop; we iterate rounds of dsimp, along with simp for memory-related
-  -- lemmas (TODO: we might simply want everything to be simp without auxiliary
-  -- lemmas).
+  let specLemmas := (kspecExtension.getState env).toList
+  let specTree: DiscrTree Name ← specLemmas.foldlM (fun specTree name => do
+    -- NOTE: hardcoding left-to-right order, for now
+    let (pat, _) ← mkEqPatternFromDecl name
+    pure (insertPattern specTree pat name)
+  ) {}
+
+  -- MAIN LOOP
   let rec go (mvarId: MVarId): Grind.GrindTacticM MVarId := do
     let goal ← mvarId.getType
 
+    -- STEP 1: dsimp
     let goal ← Grind.liftGrindM (do
       Sym.dsimp
         (config := { maxSteps := 1000000 })
@@ -232,11 +275,28 @@ partial def evalSymKStep : Grind.GrindTactic :=
     /- let goal ← Grind.liftGrindM $ shareCommon goal -/
     /- let mvarId ← mvarId.replaceTargetDefEq goal -/
 
+    -- STEP 2: simp
     let simpResult ← Grind.liftGrindM (Sym.simpGoal mvarId simpMethods)
     let (keepGoing, mvarId) ← Grind.liftGrindM (match simpResult with
       | .noProgress => pure (false, mvarId)
       | .goal mvarId => pure (true, mvarId)
       | .closed => throwError "unexpected")
+
+    -- STEP 3: spec lemmas
+    let goal ← mvarId.getType
+    let_expr Effects.All post state := goal | throwError "Goal not of the form Effects.all -- why?"
+    let (keepGoing2, mvarId) ← do
+      match getMatch specTree state with
+      | #[ thmName ] =>
+        logInfo m!"Found a spec lemma: {thmName}"
+        let (goal, subGoals) ← rwTarget false (mkConst thmName)
+        if subGoals.length > 0 then
+          throwError "TODO: subgoals"
+        pure (true, mvarId)
+      | #[] =>
+        pure (false, mvarId)
+      | _ =>
+        throwError "TODO"
 
     logInfo m!"kstep: keepGoing = {keepGoing}"
 
