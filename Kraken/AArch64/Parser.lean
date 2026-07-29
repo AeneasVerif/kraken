@@ -604,7 +604,7 @@ def parseExtOrImmReg (w : Width) : Parser (ExtOrImmReg w) := do
         | .W32 => ExtendType.UXTW
       pure (.ext { reg := regW, ext := { type := extType, amount := ExtendAmount.E0 } })
 
-def parseShiftRegExpr (w : Width) : Parser (ShiftRegExpr w) := do
+def parseShiftRegExpr (w : Width) (allowRor : Bool := false) : Parser (ShiftRegExpr w) := do
   let reg ← parseRegOrZr w
   skipHWs
   let nextC? ← peek?
@@ -616,6 +616,9 @@ def parseShiftRegExpr (w : Width) : Parser (ShiftRegExpr w) := do
       | "lsl" => pure ShiftType.LSL
       | "lsr" => pure ShiftType.LSR
       | "asr" => pure ShiftType.ASR
+      | "ror" =>
+        if allowRor then pure ShiftType.ROR
+        else fail "arithmetic instructions do not support ROR shift"
       | _ => fail s!"unknown shift type: {shiftName}"
     skipHWs
     let amt ← parseInt64
@@ -819,7 +822,7 @@ def parseLogical
   parseComma
   let src1 ← parseRegOrZr w
   parseComma
-  let shiftOp ← parseShiftRegExpr w
+  let shiftOp ← parseShiftRegExpr w true
   pure ⟨w, mkS dstW.reg src1 shiftOp⟩
 
 -- ============================================================================
@@ -955,7 +958,7 @@ def parseInstr : Parser Instr := do
     let src1W ← parseRegOrZrW
     let w := src1W.w
     parseComma
-    let src2 ← parseShiftRegExpr w
+    let src2 ← parseShiftRegExpr w true
     pure ⟨w, .ANDS_s (.low .XZR w) src1W.reg src2⟩
 
   | "lsl"   => parseThreeRegs .LSLV -- Alias of LSLV

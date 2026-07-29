@@ -645,6 +645,17 @@ info: [Directive.instr
 #guard_msgs in
 #check parseAArch64("add xzr, x1, x2")
 
+-- Test: Logical instruction with ROR shift
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.ORR_s (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64)
+          { reg := ↑↑XReg.X2 Width.W64, amount := 4, shift := ShiftType.ROR } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("orr x0, x1, x2, ror #4")
+
 -- Test: LDP with 64-bit registers and signed immediate offset
 /--
 info: [Directive.instr
@@ -820,6 +831,10 @@ section error_reporting
 /-- error: line 1: invalid extend amount: 33 -/
 #guard_msgs in
 #check parseAArch64("add w0, w1, w2, lsl #33")
+
+/-- error: line 1: unknown extension type: ror -/
+#guard_msgs in
+#check parseAArch64("add x0, x1, x2, ror #4")
 
 /-- error: line 1: pre-indexed offset 300 out of range [-256, 255] -/
 #guard_msgs in

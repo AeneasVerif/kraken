@@ -281,6 +281,7 @@ def ShiftRegExpr.interp {w} (expr : ShiftRegExpr w) (s : Reg64s) (_ : Std.Rco In
   | .LSL => base <<< amount
   | .LSR => base.ushiftRight amount
   | .ASR => base.sshiftRight amount
+  | .ROR => base.rotateRight amount
 
 def AddrExpr.eval [Labels] {w} (mem : AddrExpr w) (s : MachineData) (p : Std.Rco Int64) : BitVec 64 × MachineData :=
   let base := (s.regs.getRegOrSp mem.base).signed

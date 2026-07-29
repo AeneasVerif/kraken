@@ -99,7 +99,8 @@ inductive MemExtendAmount : Width → Type
   | E3 : MemExtendAmount .W64
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-inductive ShiftType | LSL | LSR | ASR
+-- Note: ROR is only valid for logic instructions, invalid for arithmetic instructions.
+inductive ShiftType | LSL | LSR | ASR | ROR
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 inductive ImmShift | S0 | S12
