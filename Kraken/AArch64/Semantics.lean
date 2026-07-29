@@ -313,6 +313,25 @@ def AddrExpr.interp [Labels] {w} (mem : AddrExpr w) (s : MachineData) (p : Std.R
     let (addr, s') := mem.eval s p
     s'.load addr w ret)
 
+def UnscaledAddrExpr.eval [Labels] (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) : BitVec 64 :=
+  let base := (s.regs.getRegOrSp mem.base).toInt
+  let off := Int64.toInt (mem.imm.interp p)
+  BitVec.ofInt 64 (base + off)
+
+def UnscaledAddrExpr.checkSPAlignment (mem : UnscaledAddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
+  match mem.base with
+  | .SP =>
+    if s.regs.getRegOrSp .SP % 16#64 != 0#64 then
+      .unimplemented s!"Unimplemented: SP is required to be 16-byte aligned"
+    else
+      ok ()
+  | _ => ok ()
+
+def UnscaledAddrExpr.interp [Labels] {w : Width} (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
+  mem.checkSPAlignment s (fun _unit =>
+    let addr := mem.eval s p
+    s.load addr w ret)
+
 def Literal.interp [Labels] {w} (expr : Literal w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) : Effects :=
   match expr with
   | .addr addr_expr => -- Load from address.
@@ -385,6 +404,12 @@ def Operation.interp [Labels]
       let val := s.regs.getRegOrZr src
       let (addr, s') := dst.eval s p
       s'.store addr val next)
+  | .LDUR dst src => src.interp s p (fun val s => s.setRegOrZr dst val next)
+  | .STUR src dst =>
+    dst.checkSPAlignment s (fun _unit =>
+      let val := s.regs.getRegOrZr src
+      let addr := dst.eval s p
+      s.store addr val next)
   -- TODO: Architecturally, the memory access ordering of LDP/STP is UNORDERED and can occur
   -- simultaneously as a 128-bit transaction or in any order on hardware. Here we model a specific
   -- sequential order (lower address first, then higher address), which does not necessarily reflect

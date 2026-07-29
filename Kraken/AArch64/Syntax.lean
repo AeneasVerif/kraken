@@ -190,6 +190,11 @@ structure AddrExpr (w : Width) where
   off : AddrOff w
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
+structure UnscaledAddrExpr where
+  base : RegOrSp .W64 -- Memory base register is always Xn|SP.
+  imm : ConstExpr
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+
 inductive AddrOrLit w | addr (_ : AddrExpr w) | lit (_ : Literal w)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 instance {w} : Coe (AddrExpr w) (AddrOrLit w) where coe := .addr
@@ -218,6 +223,8 @@ inductive Operation : Width → Type
   -- Loads and Stores.
   | LDR {w} (dst : RegOrZr w) (src : AddrOrLit w) : Operation w
   | STR {w} (src : RegOrZr w) (dst : AddrExpr w) : Operation w
+  | LDUR {w} (dst : RegOrZr w) (src : UnscaledAddrExpr) : Operation w
+  | STUR {w} (src : RegOrZr w) (dst : UnscaledAddrExpr) : Operation w
   | LDP {w} (dst1 : RegOrZr w) (dst2 : RegOrZr w) (src : AddrExpr w) : Operation w
   | STP {w} (src1 : RegOrZr w) (src2 : RegOrZr w) (dst : AddrExpr w) : Operation w
   --

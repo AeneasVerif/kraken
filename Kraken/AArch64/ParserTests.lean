@@ -604,6 +604,36 @@ main:
   str x1, [sp]
 ")
 
+-- Test: LDUR and STUR explicit mnemonics
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.LDUR (↑↑XReg.X0 Width.W64) { base := ↑↑XReg.X1 Width.W64, imm := ↑(-8) } },
+  Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.STUR (↑↑XReg.X2 Width.W32) { base := ↑↑XReg.X3 Width.W64, imm := ↑13 } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("
+  ldur x0, [x1, #-8]
+  stur w2, [x3, #13]
+")
+
+-- Test: LDR/STR automatic conversion to LDUR/STUR for negative or unaligned offsets
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.LDUR (↑↑XReg.X0 Width.W64) { base := ↑↑XReg.X1 Width.W64, imm := ↑(-8) } },
+  Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.LDUR (↑↑XReg.X0 Width.W64) { base := ↑↑XReg.X1 Width.W64, imm := ↑13 } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("
+  ldr x0, [x1, #-8]
+  ldr x0, [x1, #13]
+")
+
 -- Test: ADD_s with XZR destination
 /--
 info: [Directive.instr
@@ -799,9 +829,9 @@ section error_reporting
 #guard_msgs in
 #check parseAArch64("str x2, [x1], #-300")
 
-/-- error: line 1: unsigned offset 13 out of range [0, 32760] or not a multiple of 8 -/
+/-- error: line 1: offset 257 is neither a valid scaled offset [0, 32760] (multiple of 8) nor a valid unscaled offset [-256, 255] -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [x1, #13]")
+#check parseAArch64("ldr x0, [x1, #257]")
 
 /-- error: line 1: condition not satisfied -/
 #guard_msgs in

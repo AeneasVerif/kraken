@@ -252,6 +252,50 @@ def checkUnsignedOffset (w : Width) (imm : Int64) : Except String Unit :=
     .error s!"unsigned offset {imm.toInt} out of range [0, {maxOff}] or not a multiple of {align}"
   else .ok ()
 
+def checkLoadStoreOffset (w : Width) (imm : Int64) (allowUnscaled : Bool) : Except String Unit :=
+  let (maxOff, align) := match w with | .W32 => (16380, 4) | .W64 => (32760, 8)
+  let isScaled := imm.toInt >= 0 && imm.toInt <= maxOff && imm.toInt % align == 0
+  let isUnscaled := allowUnscaled && imm.toInt >= -256 && imm.toInt <= 255
+  if isScaled || isUnscaled then
+    .ok ()
+  else if allowUnscaled then
+    .error s!"offset {imm.toInt} is neither a valid scaled offset [0, {maxOff}] (multiple of {align}) nor a valid unscaled offset [-256, 255]"
+  else
+    .error s!"unsigned offset {imm.toInt} out of range [0, {maxOff}] or not a multiple of {align}"
+
+def checkUnscaledOffset (imm : Int64) : Except String Unit :=
+  if imm.toInt < -256 || imm.toInt > 255 then
+    .error s!"unscaled offset {imm.toInt} out of range [-256, 255]"
+  else .ok ()
+
+def addrExprNeedsUnscaled {w : Width} (addr : AddrExpr w) : Bool :=
+  match addr.off with
+  | .imm i =>
+    match i.index, i.imm with
+    | none, .int64 imm =>
+      let (_, align) := match w with | .W32 => (16380, 4) | .W64 => (32760, 8)
+      imm.toInt < 0 || imm.toInt % align != 0
+    | _, _ => false
+  | _ => false
+
+def addrOrLitNeedsUnscaled {w : Width} (a : AddrOrLit w) : Bool :=
+  match a with
+  | .addr addr => addrExprNeedsUnscaled addr
+  | .lit _ => false
+
+def addrExprToUnscaled {w : Width} (addr : AddrExpr w) : Option UnscaledAddrExpr :=
+  match addr.off with
+  | .imm i =>
+    match i.index with
+    | none => some { base := addr.base, imm := i.imm }
+    | some _ => none
+  | _ => none
+
+def addrOrLitToUnscaled {w : Width} (a : AddrOrLit w) : Option UnscaledAddrExpr :=
+  match a with
+  | .addr addr => addrExprToUnscaled addr
+  | .lit _ => none
+
 def checkShiftAmount (w : Width) (amt : Int64) : Except String Unit :=
   let maxAmt := match w with | .W32 => 31 | .W64 => 63
   if amt.toInt < 0 || amt.toInt > maxAmt then
@@ -319,7 +363,7 @@ def checkTbzBitPosition (instrName : String) (w : Width) (bit : Int) : Except St
     1. **Base-only / Post-indexed**: `[base]` or `[base], #imm`
     2. **Immediate / Pre-indexed**: `[base, #imm]` or `[base, #imm]!` or `[base, #:lo12:label]`
     3. **Register offset with optional extension/shift**: `[base, Rm]` or `[base, Rm, ext #amount]` -/
-def parseAddr (w : Width) : Parser (AddrExpr w) := do
+def parseAddr (w : Width) (allowUnscaled : Bool := false) : Parser (AddrExpr w) := do
   skipHWs
   let _ ← pchar '['
   let base ← parseRegOrSp .W64
@@ -357,7 +401,7 @@ def parseAddr (w : Width) : Parser (AddrExpr w) := do
           if imm.toInt < -256 || imm.toInt > 255 then
             fail s!"pre-indexed offset {imm.toInt} out of range [-256, 255]"
         else do
-          liftExcept (checkUnsignedOffset w imm)
+          liftExcept (checkLoadStoreOffset w imm allowUnscaled)
       | _ =>
         if isPre.isSome then
           fail "pre-indexed / post-indexed offsets must be constant numeric immediates"
@@ -396,11 +440,37 @@ def parseAddr (w : Width) : Parser (AddrExpr w) := do
   else
     fail s!"expected ',' or ']' after base register in memory operand, got {c}"
 
-def parseAddrOrLit (w : Width) : Parser (AddrOrLit w) := do
+def parseUnscaledAddr : Parser UnscaledAddrExpr := do
+  skipHWs
+  let _ ← pchar '['
+  let base ← parseRegOrSp .W64
+  skipHWs
+  let c ← peek!
+  if c == ']' then do
+    skip
+    pure { base := base, imm := .int64 0 }
+  else if c == ',' then do
+    skip
+    skipHWs
+    let nextC ← peek!
+    if nextC == '#' || nextC == '-' || nextC.isDigit then do
+      let expr ← parseConstExpr
+      skipHWs
+      let _ ← pchar ']'
+      match expr with
+      | .int64 imm => liftExcept (checkUnscaledOffset imm)
+      | _ => pure ()
+      pure { base := base, imm := expr }
+    else
+      fail "expected immediate offset in unscaled address operand"
+  else
+    fail s!"expected ',' or ']' after base register in unscaled address operand, got {c}"
+
+def parseAddrOrLit (w : Width) (allowUnscaled : Bool := false) : Parser (AddrOrLit w) := do
   skipHWs
   let c ← peek!
   if c == '[' then do
-    let m ← parseAddr w
+    let m ← parseAddr w allowUnscaled
     pure (.addr m)
   else if c == '=' then do
     skip
@@ -764,14 +834,36 @@ def parseInstr : Parser Instr := do
   | "ldr" =>
     let dstW ← parseRegOrZrW
     parseComma
-    let src ← parseAddrOrLit dstW.w
-    pure ⟨dstW.w, .LDR dstW.reg src⟩
+    let src ← parseAddrOrLit dstW.w true
+    if addrOrLitNeedsUnscaled src then
+      match addrOrLitToUnscaled src with
+      | some uoff => pure ⟨dstW.w, .LDUR dstW.reg uoff⟩
+      | none => fail "unscaled load cannot be literal or register offset"
+    else
+      pure ⟨dstW.w, .LDR dstW.reg src⟩
 
   | "str" =>
     let srcW ← parseRegOrZrW
     parseComma
-    let dst ← parseAddr srcW.w
-    pure ⟨srcW.w, .STR srcW.reg dst⟩
+    let dst ← parseAddr srcW.w true
+    if addrExprNeedsUnscaled dst then
+      match addrExprToUnscaled dst with
+      | some uoff => pure ⟨srcW.w, .STUR srcW.reg uoff⟩
+      | none => fail "unscaled store cannot be register offset"
+    else
+      pure ⟨srcW.w, .STR srcW.reg dst⟩
+
+  | "ldur" =>
+    let dstW ← parseRegOrZrW
+    parseComma
+    let src ← parseUnscaledAddr
+    pure ⟨dstW.w, .LDUR dstW.reg src⟩
+
+  | "stur" =>
+    let srcW ← parseRegOrZrW
+    parseComma
+    let dst ← parseUnscaledAddr
+    pure ⟨srcW.w, .STUR srcW.reg dst⟩
 
   | "ldp" =>
     let dst1W ← parseRegOrZrW
