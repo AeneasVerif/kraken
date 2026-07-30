@@ -297,19 +297,19 @@ partial def evalSymKStep : Grind.GrindTactic :=
 
         -- Found a spec lemma, which will generate subgoals; for now, subgoals (if not solved
         -- already!) are solved via `exact` (which may pick any hypothesis in the context, beware),
-        -- or grind.
-        let solveIfNotAlready: Grind.Goal → Grind.GrindTacticM Bool := fun subGoal => do
+        -- or grind, potentially returning a new subgoal.
+        let solveIfNotAlready: Grind.Goal → Grind.GrindTacticM (Bool × Grind.Goal) := fun subGoal => do
           -- Already solved this subgoal; skip
           if ← subGoal.mvarId.isAssigned then
             let t ← subGoal.mvarId.getType
             logInfo m!"Already solved: {t}"
-            return false
+            return (false, subGoal)
           -- Solvable with exact; we made progress
           if ← withReducible subGoal.mvarId.assumptionCore then
             let t ← subGoal.mvarId.getType
             let .some e ← getExprMVarAssignment? subGoal.mvarId | throwError "oh noes"
             logInfo m!"Solved by exact: {t} by {e}"
-            return true
+            return (true, subGoal)
           -- try
           --   subGoal.mvarId.refl
           --   let t ← subGoal.mvarId.getType
@@ -321,32 +321,37 @@ partial def evalSymKStep : Grind.GrindTactic :=
           match ← Grind.liftGrindM subGoal.grind with
           | .closed =>
               logInfo m!"Solved by grind: {t}"
-              return true
-          | .failed _ =>
-              logInfo m!"NOT solved by grind: {t}"
-              return false
+              return (true, subGoal)
+          | .failed subGoal =>
+              let isAssigned ← subGoal.mvarId.isAssigned
+              logInfo m!"NOT solved by grind: {t}, assigned? {isAssigned}"
+              return (false, subGoal)
 
         -- For this reason, we try to be intentional about the order in which we solve subgoals:
         -- solving the ⋆ separation logic predicate first allows making sensible decisions about
         -- metavariables, rather than picking any random hypothesis in the context
-        let starGoal ← subGoals.findM? (fun g => do
+        let starGoal ← subGoals.mapM (fun g => do
           let t ← g.mvarId.getType
           if t.getAppFn.isConstOf ``Std.ExtHashMap.sep then
             logInfo m!"Found sep goal: {t}"
-            return true
+            let (_, g) ← solveIfNotAlready g
+            return g
           else
-            return false
+            return g
         )
-        if let some g := starGoal then
-          let _ := ← solveIfNotAlready g
 
         -- Then, we repeatedly visit subgoals until we make no progress.
-        while ← (
-          subGoals.foldlM (fun progress subGoal => do
-            let r ← solveIfNotAlready subGoal
-            pure (r || progress)
-          ) false
-        ) do pure ()
+        let rec workSubGoals (subGoals: List Grind.Goal) := do
+          let (r, subGoals) ← subGoals.foldlM (fun (progress, gs) subGoal => do
+            let (r, g) ← solveIfNotAlready subGoal
+            pure (r || progress, g :: gs)
+          ) (false, [])
+          let subGoals := subGoals.reverse
+          if r then
+            workSubGoals subGoals
+          else
+            pure subGoals
+        let subGoals ← workSubGoals subGoals
 
         -- Unsolved goals left? Return control to the user
         let unsolvedGoals ← subGoals.filterMapM fun (g: Grind.Goal) => do

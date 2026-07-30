@@ -314,6 +314,7 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
   sym =>
   kstep
+  tactic =>
   -- NOTE: this rw currently succeeds only if kstep performs zeta, which in
   -- turns unlocks more `ksimp` lemmas; barring that, we have a unification
   -- problem (even though the call to MachineData.store *is* truly in the goal!)
@@ -332,11 +333,9 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   -- done
   -- case h_mem => simp; exact h_mem1
   -- case h_len => exact Int.toBytes_length 8 _
-  tactic =>
   apply Eventually.done
   simp only [and_true]
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
-  done
 
 -- def bigp := parseFile("./ecc-secp521r1-modp.S")
 
