@@ -39,10 +39,8 @@ inductive Eventually {State : Type} (trans : State → Post → Prop) (post : Po
 theorem step_cps {State : Type} (trans : State → Post → Prop) (post : Post) (initial : State) :
   trans initial (fun mid => Eventually trans post mid) → Eventually trans post initial :=
   by
-    intro
-    apply Eventually.step
-    <;> try assumption
-    grind
+    intro h
+    exact .step initial _ h (fun _ => id)
 
 theorem eventually_trans {State : Type} (trans : State → Post → Prop) (p q : Post) (initial : State)
   (e : Eventually trans p initial)
@@ -50,23 +48,14 @@ theorem eventually_trans {State : Type} (trans : State → Post → Prop) (p q :
     Eventually trans q initial
   := by
     induction e with
-    | done =>
-        grind
-    | step initial mid_p step_hyp rest_hyp ind_h =>
-        apply Eventually.step
-        <;> assumption
+    | done initial hp => exact h initial hp
+    | step initial mid_p ht _ ih => exact .step initial mid_p ht ih
 
 theorem eventually_weaken {State : Type} (trans : State → Post → Prop) (p q : Post) (initial : State)
   (h : ∀ s, p s → q s) :
     Eventually trans p initial → Eventually trans q initial
   := by
-    intro hp
-    induction ih: hp  -- Q: why does this not work with `induction ... with`?
-    . apply Eventually.done
-      grind
-    . apply Eventually.step
-      <;> try assumption
-      grind
+    exact fun hp => eventually_trans trans p q initial hp fun s hs => .done s (h s hs)
 
 -- A loop down to 0
 theorem reg_dec_loop {State : Type} (trans : State → Post → Prop) (post : Post) (initial : State) (invariant : Nat → Post) (n : Nat) :
@@ -80,17 +69,13 @@ theorem reg_dec_loop {State : Type} (trans : State → Post → Prop) (post : Po
   -- then: we can prove the post
   Eventually trans post initial
   := by
-    intro misc
-    rcases misc with ⟨ initial_invariant, case_zero, case_nonzero ⟩
-    if n = 0 then
-      apply case_zero
-      grind
+    rintro ⟨hinv, hzero, hnz⟩
+    if h : n = 0 then
+      exact hzero initial (h ▸ hinv)
     else
-      apply eventually_trans trans (invariant (n - 1)) post
-      grind
-      intros srec _
-      apply reg_dec_loop trans post srec invariant (n - 1)
-      grind
+      exact eventually_trans trans (invariant (n - 1)) post initial
+        (hnz initial n h hinv) fun s hs =>
+          reg_dec_loop trans post s invariant (n - 1) ⟨hs, hzero, hnz⟩
 
 def step1 [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
   (Executable.step p s .done).All post

@@ -2,6 +2,18 @@ import Kraken.X64.Syntax
 import Kraken.X64.Semantics
 import Kraken.X64.OmniSemantics
 
+theorem Executable.directivesFromStart [layout : Layout] prog :
+    (layout prog).directivesFromAddress layout.start =
+      prog.mapIdx (fun i d => (d, layout.size i)) := by
+  induction prog <;>
+    simp [Executable.directivesFromAddress, Executable.withAddresses, Layout.apply]
+
+macro "kprologue" p:ident : tactic =>
+  `(tactic|
+    (delta $p
+     dsimp only [straightlineStep, Executable.straightline]
+     rw [Executable.directivesFromStart]
+     simp [List.mapIdx, List.mapIdx.go]))
 
 --------------------------------------------------------------------------------
 
@@ -245,4 +257,3 @@ def evalSymKStep : Grind.GrindTactic :=
   )
 
   Grind.setGoals [ { gGoal with mvarId } ]
-
