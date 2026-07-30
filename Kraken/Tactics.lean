@@ -255,7 +255,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
   ) {}
 
   -- MAIN LOOP
-  let rec go (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
+  let rec go (goal: Grind.Goal): Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
     logInfo m!"MAIN LOOP ITERATION"
     let mvarId := goal.mvarId
     let goalT ← mvarId.getType
@@ -282,13 +282,13 @@ partial def evalSymKStep : Grind.GrindTactic :=
       | .closed => throwError "unexpected")
 
     -- STEP 3: spec lemmas
-    let goal := { goal with mvarId }
+    let goal: Grind.Goal := { goal with mvarId }
     let goalT ← mvarId.getType
     let_expr gimmickId goalT' := goalT | throwError "missing gimmick"
     -- No more Effects.All in the goal -- return to the user (we might be done,
     -- or realistically, we might need to debug).
-    let_expr Effects.All post state := goalT' | return goal
-    let (keepGoingSpec, goal) ← -- pure (false, goal)
+    let_expr Effects.All post state := goalT' | return (goal, [])
+    let (keepGoingSpec, goal) ←
       match getMatch specTree state with
       | #[ thmName ] =>
         logInfo m!"Found a spec lemma: {thmName}"
@@ -310,6 +310,12 @@ partial def evalSymKStep : Grind.GrindTactic :=
             let .some e ← getExprMVarAssignment? subGoal.mvarId | throwError "oh noes"
             logInfo m!"Solved by exact: {t} by {e}"
             return true
+          -- try
+          --   subGoal.mvarId.refl
+          --   let t ← subGoal.mvarId.getType
+          --   logInfo m!"Solved by refl: {t}"
+          --   return true
+          -- catch _ => pure ()
           let subGoal ← Grind.liftGrindM subGoal.internalizeAll
           let t ← subGoal.mvarId.getType
           match ← Grind.liftGrindM subGoal.grind with
@@ -342,13 +348,17 @@ partial def evalSymKStep : Grind.GrindTactic :=
           ) false
         ) do pure ()
 
-        let unsolvedGoals ← subGoals.filterMapM (fun (g: Grind.Goal) => do
+        -- Unsolved goals left? Return control to the user
+        let unsolvedGoals ← subGoals.filterMapM fun (g: Grind.Goal) => do
           if ← g.mvarId.isAssigned then
             return none
           else
-            return some (← mvarId.getType))
-        unsolvedGoals.forM fun t =>
-          throwError m!"Unsolved goal: {t}"
+            return some g
+        unsolvedGoals.forM fun mvarId => do
+          let t ← mvarId.mvarId.getType
+          logInfo m!"Unsolved goal: {t}"
+        if unsolvedGoals.length > 0 then
+          return (goal, unsolvedGoals)
 
         pure (true, goal)
       | #[] =>
@@ -361,9 +371,9 @@ partial def evalSymKStep : Grind.GrindTactic :=
     if keepGoingSimp || keepGoingSpec then
       go goal
     else
-      pure goal
+      pure (goal, [])
 
-  let goal ← go goal
+  let (goal, subGoals) ← go goal
 
   -- Remove the gimmick debug marker.
   let gimmickRule ← mkBackwardRuleFromDecl ``gimmickInv
@@ -372,5 +382,5 @@ partial def evalSymKStep : Grind.GrindTactic :=
     pure mvarId
   )
 
-  Grind.setGoals [ { goal with mvarId } ]
+  Grind.setGoals ({ goal with mvarId } :: subGoals)
 

@@ -38,11 +38,7 @@ inductive Eventually {State : Type} (trans : State → Post → Prop) (post : Po
 
 theorem step_cps {State : Type} (trans : State → Post → Prop) (post : Post) (initial : State) :
   trans initial (fun mid => Eventually trans post mid) → Eventually trans post initial :=
-  by
-    intro
-    apply Eventually.step
-    <;> try assumption
-    grind
+  fun h => Eventually.step initial _ h (fun _ h => h)
 
 theorem eventually_trans {State : Type} (trans : State → Post → Prop) (p q : Post) (initial : State)
   (e : Eventually trans p initial)

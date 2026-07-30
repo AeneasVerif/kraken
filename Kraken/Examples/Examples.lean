@@ -56,7 +56,7 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
   simp [List.mapIdx, List.mapIdx.go]
   sym => kstep; tactic =>
   simp (zeta:=false) -- TODO: figure out why `simp` gives us two `Eventually`s
-  lift_lets
+  -- lift_lets
   intros
   constructor
   <;> apply Eventually.done
@@ -77,17 +77,17 @@ example [layout : Layout] (s : MachineData): Eventually (straightlineStep (layou
   dsimp only [straightlineStep,Executable.straightline]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
-  sym => kstep; tactic =>
-  lift_lets
-  -- TODO: I would like `kstep` to do this automatically
-  intros v1 v2 v status
-  -- TODO: I would like `kstep` to try `decide`-ing conditionals that block reduction (or `grind`-ing)
-  have: v1 = 0 := by decide
-  simp [this]
-  sym => kstep; tactic =>
+  sym =>
+  kstep
+  tactic =>
+  intros v
+  simp
+  sym =>
+  kstep
+  tactic =>
   apply Eventually.done
   bv_decide
-
+ 
 -- Example 3, more sophisticated
 
 -- TODO: restore p3
@@ -229,7 +229,7 @@ example [layout : Layout] s : straightlineStep (layout p4) (s, layout.start) (fu
   -- vs ident) and gave up.
   sym =>
   kstep
-  intros
+  -- intros
   tactic =>
   decide
 
