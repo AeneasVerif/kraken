@@ -12,110 +12,36 @@ notation:70 m " =⋆ " P => P m
 omit [LawfulBEq key] in
 theorem disjoint_symm {m1 m2 : ExtHashMap key value} (h : m1.inter m2 = ∅) :
     m2.inter m1 = ∅ := by
-  rw [eq_empty_iff_forall_not_mem] at *
-  intro k
-  have h_not := h k
-  rw [inter_eq] at *
-  rw [mem_inter_iff] at *
-  intro h_mem
-  apply h_not
-  exact ⟨h_mem.2, h_mem.1⟩
+  simpa only [eq_empty_iff_forall_not_mem, inter_eq, mem_inter_iff, and_comm] using h
 
 omit [LawfulBEq key] in
 private theorem disjoint_symm_iff {m1 m2 : ExtHashMap key value} :
     (m1.inter m2 = ∅) = (m2.inter m1 = ∅) :=
   propext ⟨disjoint_symm, disjoint_symm⟩
 
-private theorem union_comm_of_disjoint (m1 m2 : ExtHashMap key value) (h_disj : m1.inter m2 = ∅) :
+theorem union_comm_of_disjoint (m1 m2 : ExtHashMap key value) (h_disj : m1.inter m2 = ∅) :
     m1.union m2 = m2.union m1 := by
   apply ExtHashMap.ext_getElem?
   intro k
   simp only [union_eq]
   rw [getElem?_union, getElem?_union]
-  cases h1 : m1[k]?
-  · cases h2 : m2[k]?
-    · rfl
-    · rfl
-  · have h_not_mem1 : k ∈ m1 := by
-      rw [mem_iff_isSome_getElem?]
-      rw [h1]
-      rfl
-    have h_not_mem2 : ¬ k ∈ m2 := fun h_mem2 => by
-      have h_empty := eq_empty_iff_forall_not_mem.mp h_disj k
-      rw [inter_eq, mem_inter_iff] at h_empty
-      exact h_empty ⟨h_not_mem1, h_mem2⟩
-    have h2 : m2[k]? = none := getElem?_eq_none h_not_mem2
-    rw [h2]
-    rfl
+  have hd := eq_empty_iff_forall_not_mem.mp h_disj k
+  simp only [inter_eq, mem_inter_iff] at hd
+  cases h1 : m1[k]? <;> cases h2 : m2[k]? <;> simp <;>
+    simp_all [mem_iff_isSome_getElem?]
 
 private theorem union_assoc (m1 m2 m3 : ExtHashMap key value) :
     (m1.union m2).union m3 = m1.union (m2.union m3) := by
   apply ExtHashMap.ext_getElem?
   intro k
-  simp only [union_eq]
-  rw [getElem?_union, getElem?_union, getElem?_union, getElem?_union]
-  cases m3[k]?
-  · rfl
-  · rfl
+  simpa only [union_eq, getElem?_union] using (Option.or_assoc).symm
 
 omit [LawfulBEq key] in
 private theorem disjoint_union_l (a b c : ExtHashMap key value) :
     ((a.union b).inter c = ∅) = (a.inter c = ∅ ∧ b.inter c = ∅) := by
   apply propext
-  constructor
-  · intro h
-    rw [eq_empty_iff_forall_not_mem] at h
-    constructor
-    · rw [eq_empty_iff_forall_not_mem]
-      intro k
-      have h_not := h k
-      intro h_ac
-      apply h_not
-      rw [inter_eq] at h_ac
-      rw [mem_inter_iff] at h_ac
-      have ⟨ha, hc⟩ := h_ac
-      rw [inter_eq]
-      rw [mem_inter_iff]
-      refine ⟨?_, hc⟩
-      rw [union_eq]
-      rw [mem_union_iff]
-      left
-      exact ha
-    · rw [eq_empty_iff_forall_not_mem]
-      intro k
-      have h_not := h k
-      intro h_bc
-      apply h_not
-      rw [inter_eq] at h_bc
-      rw [mem_inter_iff] at h_bc
-      have ⟨hb, hc⟩ := h_bc
-      rw [inter_eq]
-      rw [mem_inter_iff]
-      refine ⟨?_, hc⟩
-      rw [union_eq]
-      rw [mem_union_iff]
-      right
-      exact hb
-  · intro ⟨ha, hb⟩
-    rw [eq_empty_iff_forall_not_mem] at *
-    intro k
-    intro h_mem
-    rw [inter_eq] at h_mem
-    rw [mem_inter_iff] at h_mem
-    have ⟨h_ab, hc⟩ := h_mem
-    rw [union_eq] at h_ab
-    rw [mem_union_iff] at h_ab
-    cases h_ab with
-    | inl ha' =>
-      apply ha k
-      rw [inter_eq]
-      rw [mem_inter_iff]
-      exact ⟨ha', hc⟩
-    | inr hb' =>
-      apply hb k
-      rw [inter_eq]
-      rw [mem_inter_iff]
-      exact ⟨hb', hc⟩
+  simp only [eq_empty_iff_forall_not_mem, inter_eq, mem_inter_iff, union_eq, mem_union_iff]
+  grind
 
 omit [LawfulBEq key] in
 private theorem disjoint_union_r (a b c : ExtHashMap key value) :
@@ -154,4 +80,3 @@ instance : Std.Commutative (sep : (ExtHashMap key value → Prop) → _) := ⟨s
 instance : Std.Associative (sep : (ExtHashMap key value → Prop) → _) := ⟨sep_assoc⟩
 
 end Std.ExtHashMap
-

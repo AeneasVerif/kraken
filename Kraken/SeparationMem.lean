@@ -12,26 +12,9 @@ open List
 private theorem Std.ExtHashMap.get_union_l_disjoint {key value : Type} [BEq key] [EquivBEq key] [Hashable key] [LawfulHashable key] [LawfulBEq key]
     (m1 m2 : ExtHashMap key value) (k : key) (v : value) (h_disj : m1.inter m2 = ∅) (h : m1.get? k = some v) :
     (m1.union m2).get? k = some v := by
-  rw [get?_eq_getElem?]
   rw [get?_eq_getElem?] at h
-  rw [union_eq]
-  rw [getElem?_union]
-  rw [h]
-  have h_not_mem2 : ¬ k ∈ m2 := by
-    have h_empty := eq_empty_iff_forall_not_mem.mp h_disj k
-    have h_not_mem_inter : ¬ k ∈ m1 ∩ m2 := by
-      rw [← inter_eq]
-      exact h_empty
-    intro h_mem2
-    apply h_not_mem_inter
-    rw [mem_inter_iff]
-    refine ⟨?_, h_mem2⟩
-    rw [mem_iff_isSome_getElem?]
-    rw [h]
-    rfl
-  have h_none2 := getElem?_eq_none h_not_mem2
-  rw [h_none2]
-  rfl
+  rw [get?_eq_getElem?, union_comm_of_disjoint m1 m2 h_disj]
+  simp only [union_eq, getElem?_union, h, Option.some_or]
 
 private theorem Std.ExtHashMap.union_union_override {key value : Type} [BEq key] [EquivBEq key] [Hashable key] [LawfulHashable key] [LawfulBEq key]
     (m1 m2 m3 : ExtHashMap key value) (h_sub : ∀ k, k ∈ m1 → k ∈ m3) :
@@ -56,44 +39,24 @@ private theorem Std.ExtHashMap.union_union_override {key value : Type} [BEq key]
 
 private theorem List.mapM_loop_id_some {α : Type} (xs : List α) (acc : List α) :
     List.mapM.loop id (xs.map some) acc = some (acc.reverse ++ xs) := by
-  induction xs generalizing acc with
-  | nil =>
-    simp [List.mapM.loop]
-  | cons x xs ih =>
-    dsimp [List.mapM.loop]
-    rw [ih (x :: acc)]
-    simp
+  induction xs generalizing acc <;> simp_all [List.mapM.loop]
 
 private theorem List.allSome_map_some {α : Type} (l : List α) : List.allSome (l.map some) = some l := by
-  dsimp [List.allSome, List.mapM]
-  rw [List.mapM_loop_id_some l []]
-  simp
+  exact List.mapM_loop_id_some l []
 
 private theorem List.range_get_eq_map_some {α : Type} (l : List α) :
     (List.range l.length).map (fun i => if h : i < l.length then some (l.get ⟨i, h⟩) else none) = l.map some := by
-  apply List.ext_get
-  · simp
-  · intro n h1 h2
-    have hn : n < l.length := by
-      simp at h2
-      exact h2
-    simp [hn]
+  apply List.ext_get <;> simp
 
 private theorem mem_At_samerange {w : Nat} (_bs bs : List UInt8) (a : BitVec w) (h_len : _bs.length = bs.length) (k : BitVec w) :
     (k ∈ bs.At a) = (k ∈ _bs.At a) := by
-  apply propext
-  simp [mem_At_iff, h_len]
+  exact propext (by simp [mem_At_iff, h_len])
 
 private theorem disjoint_Atsame_l_same_r {w : Nat} (_bs bs : List UInt8) (a : BitVec w) (m2 : Mem w)
     (h_disj : (_bs.At a).inter m2 = ∅) (h_len : _bs.length = bs.length) :
     (bs.At a).inter m2 = ∅ := by
-  rw [eq_empty_iff_forall_not_mem] at *
-  intro k
-  have h_not_mem := h_disj k
-  rw [inter_eq] at *
-  rw [mem_inter_iff] at *
-  rw [mem_At_samerange _bs bs a h_len]
-  exact h_not_mem
+  simpa [eq_empty_iff_forall_not_mem, inter_eq, mem_inter_iff,
+    mem_At_samerange _bs bs a h_len] using h_disj
 
 namespace Mem
 
@@ -138,15 +101,14 @@ theorem loadInt_sep {w : Nat} (bs : List UInt8) (a : BitVec w) (n : Nat) (R : Me
     (Hl : bs.length = n)
     (Hlw : n ≤ 2 ^ w) :
     m.loadInt a n = some (Int.ofBytes bs) := by
-  rw [loadInt, loadBytes_sep bs a n R m Hsep Hl Hlw]
-  rfl
+  simp [loadInt, loadBytes_sep bs a n R m Hsep Hl Hlw]
 
 theorem storeInt_sep {w : Nat} (a : BitVec w) (n : Nat) (_bs : List UInt8)
     (R : Mem w → Prop) (m : Mem w)
     (H : (m =⋆ Eq (_bs.At a) ⋆ R) ∧ _bs.length = n) (v : Int) :
     m.storeInt a n v =⋆ Eq ((Int.toBytes n v).At a) ⋆ R := by
-  simp only [storeInt]
-  exact storeBytes_sep a n _bs (Int.toBytes n v) R m ⟨H.1, H.2, Int.toBytes_length n v⟩
+  simpa only [storeInt] using
+    storeBytes_sep a n _bs (Int.toBytes n v) R m ⟨H.1, H.2, Int.toBytes_length n v⟩
 
 theorem At_append_sep {w : Nat} (bs1 bs2 : List UInt8) (a : BitVec w)
     (h_len : bs1.length + bs2.length ≤ 2 ^ w) :
