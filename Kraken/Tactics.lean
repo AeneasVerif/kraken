@@ -1,7 +1,7 @@
 import Kraken.Syntax
 import Kraken.Semantics
 import Kraken.OmniSemantics
-
+import Kraken.Separation
 
 --------------------------------------------------------------------------------
 
@@ -203,8 +203,6 @@ def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM
     let mctx ← getMCtx
     let mvarIds := r.mvarIds.filter fun mvarId => (mctx.getDecl mvarId |>.index) >= mvarCounterSaved
     let eNew ← Grind.liftSymM <| Sym.preprocessExpr r.eNew
-    if eNew.hasExprMVar then
-      throwError "`rw` failed, resulting target contains metavariables{indentExpr eNew}"
     let mvarId ← goal.mvarId.replaceTargetEq eNew r.eqProof
     let mvarIds ← mvarIds.filterM fun mvarId => return !(← mvarId.isAssigned)
     let sideGoals ← mvarIds.mapM fun mvarId => do
@@ -258,6 +256,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
 
   -- MAIN LOOP
   let rec go (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
+    logInfo m!"MAIN LOOP ITERATION"
     let mvarId := goal.mvarId
     let goalT ← mvarId.getType
 
@@ -266,7 +265,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
       Sym.dsimp
         (config := { maxSteps := 1000000 })
         (methods := {
-          pre := klog config >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta >> zeta})
+          pre := klog config >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta >> zeta })
         goalT)
     )
 
@@ -285,16 +284,72 @@ partial def evalSymKStep : Grind.GrindTactic :=
     -- STEP 3: spec lemmas
     let goal := { goal with mvarId }
     let goalT ← mvarId.getType
-    let_expr gimmickId goalT' := goalT | throwError "missing goal gimmick"
-    let_expr Effects.All post state := goalT' | throwError "Goal not of the form Effects.all -- why?"
-    let (keepGoingSpec, goal) ← do
+    let_expr gimmickId goalT' := goalT | throwError "missing gimmick"
+    -- No more Effects.All in the goal -- return to the user (we might be done,
+    -- or realistically, we might need to debug).
+    let_expr Effects.All post state := goalT' | return goal
+    let (keepGoingSpec, goal) ← -- pure (false, goal)
       match getMatch specTree state with
       | #[ thmName ] =>
         logInfo m!"Found a spec lemma: {thmName}"
         let (goal, subGoals) ← rwTarget goal false (mkConst thmName)
         logInfo m!"{subGoals.length} subgoals generated"
-        if subGoals.length > 0 then
-          throwError "TODO: subgoals"
+
+        -- Found a spec lemma, which will generate subgoals; for now, subgoals (if not solved
+        -- already!) are solved via `exact` (which may pick any hypothesis in the context, beware),
+        -- or grind.
+        let solveIfNotAlready: Grind.Goal → Grind.GrindTacticM Bool := fun subGoal => do
+          -- Already solved this subgoal; skip
+          if ← subGoal.mvarId.isAssigned then
+            let t ← subGoal.mvarId.getType
+            logInfo m!"Already solved: {t}"
+            return false
+          -- Solvable with exact; we made progress
+          if ← withReducible subGoal.mvarId.assumptionCore then
+            let t ← subGoal.mvarId.getType
+            let .some e ← getExprMVarAssignment? subGoal.mvarId | throwError "oh noes"
+            logInfo m!"Solved by exact: {t} by {e}"
+            return true
+          let subGoal ← Grind.liftGrindM subGoal.internalizeAll
+          let t ← subGoal.mvarId.getType
+          match ← Grind.liftGrindM subGoal.grind with
+          | .closed =>
+              logInfo m!"Solved by grind: {t}"
+              return true
+          | .failed _ =>
+              logInfo m!"NOT solved by grind: {t}"
+              return false
+
+        -- For this reason, we try to be intentional about the order in which we solve subgoals:
+        -- solving the ⋆ separation logic predicate first allows making sensible decisions about
+        -- metavariables, rather than picking any random hypothesis in the context
+        let starGoal ← subGoals.findM? (fun g => do
+          let t ← g.mvarId.getType
+          if t.getAppFn.isConstOf ``Std.ExtHashMap.sep then
+            logInfo m!"Found sep goal: {t}"
+            return true
+          else
+            return false
+        )
+        if let some g := starGoal then
+          let _ := ← solveIfNotAlready g
+
+        -- Then, we repeatedly visit subgoals until we make no progress.
+        while ← (
+          subGoals.foldlM (fun progress subGoal => do
+            let r ← solveIfNotAlready subGoal
+            pure (r || progress)
+          ) false
+        ) do pure ()
+
+        let unsolvedGoals ← subGoals.filterMapM (fun (g: Grind.Goal) => do
+          if ← g.mvarId.isAssigned then
+            return none
+          else
+            return some (← mvarId.getType))
+        unsolvedGoals.forM fun t =>
+          throwError m!"Unsolved goal: {t}"
+
         pure (true, goal)
       | #[] =>
         pure (false, { goal with mvarId })

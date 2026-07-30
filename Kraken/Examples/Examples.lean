@@ -311,30 +311,32 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   rw [Executable.directivesFromStart]
   simp [List.mapIdx,List.mapIdx.go]
   simp at h_mem
+  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
   sym =>
   kstep
   -- NOTE: this rw currently succeeds only if kstep performs zeta, which in
   -- turns unlocks more `ksimp` lemmas; barring that, we have a unification
   -- problem (even though the call to MachineData.store *is* truly in the goal!)
   -- TODO: backward lemma (in our goal)
-  rw [store_sep]
-  case h_mem => exact h_mem
-  case h_len => exact h_bs
+  -- rw [store_sep]
+  -- case h_mem => exact h_mem
+  -- case h_len => exact h_bs
   -- NOTE: adding a let-binding in store_sep does not seem to give us a nice
   -- name for the new memory
-  kstep
-  tactic =>
+  -- kstep
   -- NOTE: the post- of store_sep uses dmem := Mem.storeInt ... -- this is a
   -- concrete value, not a separation logic predicate, so we lift a concrete
   -- definition to a SL assertion via storeInt_sep
   -- TODO: forward lemma (needed for the subgoal)
-  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
-  rw [load_sep]
-  case h_mem => simp; exact h_mem1
-  case h_len => exact Int.toBytes_length 8 _
+  -- rw [load_sep]
+  -- done
+  -- case h_mem => simp; exact h_mem1
+  -- case h_len => exact Int.toBytes_length 8 _
+  tactic =>
   apply Eventually.done
   simp only [and_true]
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
+  done
 
 -- def bigp := parseFile("./ecc-secp521r1-modp.S")
 
