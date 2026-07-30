@@ -3,7 +3,7 @@
 
 import Lean
 import Std
-import Kraken.Syntax
+import Kraken.X64.Syntax
 import Kraken.Mem
 
 -- injective coercions only

@@ -1,6 +1,6 @@
-import Kraken.Syntax
-import Kraken.Semantics
-import Kraken.OmniSemantics
+import Kraken.X64.Syntax
+import Kraken.X64.Semantics
+import Kraken.X64.OmniSemantics
 
 theorem Executable.directivesFromStart [layout : Layout] prog :
     (layout prog).directivesFromAddress layout.start =

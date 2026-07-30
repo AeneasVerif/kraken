@@ -1,4 +1,4 @@
-import Kraken.Semantics
+import Kraken.X64.Semantics
 
 /-
 A dummy device that can be accessed via MMIO and can only

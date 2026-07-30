@@ -1,4 +1,4 @@
-import Kraken.Semantics
+import Kraken.X64.Semantics
 import Kraken.SeparationMem
 
 open Std

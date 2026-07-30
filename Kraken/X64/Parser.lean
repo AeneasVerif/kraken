@@ -8,10 +8,10 @@ The primary reference for the syntax is the GAS manual:
 https://sourceware.org/binutils/docs/as/
 -/
 
-import Kraken.Syntax
+import Kraken.X64.Syntax
 import Std.Internal.Parsec.String
 
-namespace Kraken.Parser
+namespace Kraken.X64.Parser
 
 open Std.Internal.Parsec
 open Std.Internal.Parsec.String
@@ -1128,4 +1128,4 @@ elab "parseFile(" path:str ")" : term => do
   | .error e => throwErrorAt path e
 
 
-end Kraken.Parser
+end Kraken.X64.Parser

@@ -3,7 +3,7 @@ KrakenRunner - Run assembly instructions through Kraken Semantics and obtain res
 
 At this point this expects a file only containing a list of assembly instructions, no data block or similar.
 
-Usage: krakenrunner <assembly.S>
+Usage: krakenrunner_x64 <assembly.S>
 
 Arguments:
 - assembly.S: Assembly source file
@@ -13,8 +13,8 @@ Output:
   See StateSummary for format.
 -/
 
-import Kraken.Semantics
-import Kraken.Parser
+import Kraken.X64.Semantics
+import Kraken.X64.Parser
 import Kraken.Mem
 import Lean.Data.Json
 
@@ -64,7 +64,7 @@ def finishCriterion (p: Program) (s: MachineState): Bool :=
 
 def runKraken (asmCode : String)
     : Except String MachineState := do
-  let prog ← Kraken.Parser.parse (_start ++ ":" ++ asmCode ++ "\n" ++ _end ++ ":")
+  let prog ← Kraken.X64.Parser.parse (_start ++ ":" ++ asmCode ++ "\n" ++ _end ++ ":")
   let initRegs: Reg64s := {rsp := stackLocation}
   let initState: MachineState := ({regs := initRegs, dmem := initStack}, prog.fakeLayout.labels.label _start)
   prog.fakeLayout.eval initState (finishCriterion prog)

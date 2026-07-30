@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-BIN_DIR = Path(__file__).resolve().parent.parent.parent / ".lake/build/bin"
-KRAKEN_RUNNER = BIN_DIR / "krakenrunner"
+BIN_DIR = Path(__file__).resolve().parent.parent.parent.parent / ".lake/build/bin"
+KRAKEN_RUNNER = BIN_DIR / "krakenrunner_x64"
 ATT2INTEL = BIN_DIR / "att2intel"
 
 REGS = ["rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rsp", "rbp",
@@ -247,7 +247,7 @@ if __name__ == "__main__":
     if not KRAKEN_RUNNER.exists():
         print(f"{Color.RED}Error: Kraken runner not found at {KRAKEN_RUNNER}{Color.RESET}")
         print(f"\nTo build it, run the following from the project root:")
-        print(f"  {Color.GREEN}lake build krakenrunner{Color.RESET}\n")
+        print(f"  {Color.GREEN}lake build krakenrunner_x64{Color.RESET}\n")
         sys.exit(1)
 
     if not ATT2INTEL.exists():

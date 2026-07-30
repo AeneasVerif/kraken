@@ -7,8 +7,8 @@ Compatible with Lean 4.22.0+.
 For experimental features (SymM tactics), see kraken-experimental/.
 -/
 
-import Kraken.Semantics
-import Kraken.Parser
-import Kraken.Tactics
-import Kraken.X64Sep
-import Kraken.Examples.Examples
+import Kraken.X64.Semantics
+import Kraken.X64.Parser
+import Kraken.X64.Tactics
+import Kraken.X64.Sep
+import Kraken.X64.Examples.Examples
