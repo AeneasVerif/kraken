@@ -21,16 +21,9 @@ open Kraken.Parser
 
 def p1 := parse("start: mov $1, %rax")
 
-theorem Executable.directivesFromStart [layout : Layout] prog :
-    (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) := by
-  induction prog <;> simp [Executable.directivesFromAddress,Executable.withAddresses,Layout.apply]
-
 -- Super-simple example to debug tactics
 example [layout : Layout] s : straightlineStep (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
-  dsimp only [p1]
-  dsimp only [straightlineStep,Executable.straightline]
-  rw [Executable.directivesFromStart]
-  simp [List.mapIdx,List.mapIdx.go]
+  kprologue p1
   sym => kstep; tactic =>
   decide
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
@@ -49,11 +42,8 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
           s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
           s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
       (d, layout.start) := by
-  dsimp [swap]
   apply step_cps
-  dsimp only [straightlineStep, Executable.straightline, Directives.interp]
-  rw [Executable.directivesFromStart]
-  simp [List.mapIdx, List.mapIdx.go]
+  kprologue swap
   sym => kstep; tactic =>
   simp (zeta:=false) -- TODO: figure out why `simp` gives us two `Eventually`s
   lift_lets
@@ -72,11 +62,8 @@ start:
 
 -- Example 2: stepping through both straightline and control instructions
 example [layout : Layout] (s : MachineData): Eventually (straightlineStep (layout p2)) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
-  dsimp [p2]
   apply step_cps
-  dsimp only [straightlineStep,Executable.straightline]
-  rw [Executable.directivesFromStart]
-  simp [List.mapIdx,List.mapIdx.go]
+  kprologue p2
   sym => kstep; tactic =>
   lift_lets
   -- TODO: I would like `kstep` to do this automatically
@@ -208,16 +195,7 @@ example [layout : Layout] s : straightlineStep (layout p4) (s, layout.start) (fu
   change (straightlineStep _ (ss, _) _)
   cases s with | mk regs flags mem =>
   cases regs with | mk rax =>
-  -- Rewrite the program to make layout, addresses, etc. apparent
-  delta p4
-  dsimp only [straightlineStep,Executable.straightline]
-  rw [Executable.directivesFromStart]
-  simp [List.mapIdx,List.mapIdx.go]
-  -- TODO: this preamble above is a good form for what we need (although I'd
-  -- also like registers to be exploded). Can we move it to a tactic? Like
-  -- `kprologue p4` or something. I did not manage because of the =>, and I got
-  -- into a rabbit hole of syntax macros and weird syntactic classes (elimExpr
-  -- vs ident) and gave up.
+  kprologue p4
   sym =>
   kstep
   intros
@@ -243,12 +221,7 @@ example [layout : Layout] s : straightlineStep (layout p5) (s, layout.start) (fu
   change (straightlineStep _ (ss, _) _)
   cases s with | mk regs flags mem =>
   cases regs with | mk rax =>
-  -- Rewrite the program to make layout, addresses, etc. apparent
-  delta p5
-  dsimp only [straightlineStep,Executable.straightline]
-  rw [Executable.directivesFromStart]
-  simp [List.mapIdx,List.mapIdx.go]
-  -- TODO: same remark, lift this preamble
+  kprologue p5
   sym => kstep; tactic =>
   bv_decide
 
@@ -274,11 +247,7 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   cases s₀ with | mk regs zmms flags mem =>
   cases regs with | mk rax rbx rcx rdx rsi rdi rsp rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
   have h_bs : stack.length = 8 := h_len
-  -- Rewrite the program to make layout, addresses, etc. apparent
-  delta p6
-  dsimp only [straightlineStep,Executable.straightline]
-  rw [Executable.directivesFromStart]
-  simp [List.mapIdx,List.mapIdx.go]
+  kprologue p6
   sym => kstep; tactic =>
   simp only [UInt64.ofBitVec_sub, UInt64.ofBitVec_toBitVec, UInt64.ofBitVec_ofNat, Nat.sub_zero,
     UInt64.toNat_toBitVec, Nat.shiftRight_zero, BitVec.ofNat_uInt64ToNat]
@@ -425,10 +394,7 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
   have h_bs2 : v2.toBytes.length = 8 := UInt64.toBytes_length v2
   rw [sep_assoc] at h_mem
-  dsimp only [straightlineStep, Executable.straightline]
-  dsimp only [move_2_regs_to_heap]
-  rw [Executable.directivesFromStart]
-  simp [List.mapIdx, List.mapIdx.go]
+  kprologue move_2_regs_to_heap
   sym => kstep; tactic =>
   simp [AddrExpr.interp, ConstExpr.interp, Reg64s.get64, Width.bits, BitVec.toAddressSize, BitVec.signed, BitVec.take_all, BitVec.ofInt_toInt]
   have h_mem1 := Mem.storeInt_sep rdi.toBitVec 8 v1.toBytes (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ R) mem ⟨h_mem, h_bs1⟩ rax.toBitVec.toInt
@@ -476,10 +442,7 @@ theorem sib_example_correct [layout : Layout] (s₀ : MachineData)
   cases s₀ with | mk regs zmms flags mem =>
   cases regs with | mk rax rbx rcx rdx rsi rdi rsp rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
-  dsimp only [straightlineStep, Executable.straightline]
-  dsimp only [sib_example]
-  rw [Executable.directivesFromStart]
-  simp [List.mapIdx, List.mapIdx.go]
+  kprologue sib_example
   sym => kstep; tactic =>
   simp [AddrExpr.interp, ConstExpr.interp, Reg64s.get64, Width.bits, Width.bytes, BitVec.toAddressSize, BitVec.signed, BitVec.take_all, BitVec.ofInt_add, BitVec.ofInt_mul, BitVec.ofInt_toInt]
   rw [store_sep]
@@ -513,10 +476,7 @@ theorem alu_mem_example_correct [layout : Layout] (s₀ : MachineData)
   cases s₀ with | mk regs zmms flags mem =>
   cases regs with | mk rax rbx rcx rdx rsi rdi rsp rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
-  dsimp only [straightlineStep, Executable.straightline]
-  dsimp only [alu_mem_example]
-  rw [Executable.directivesFromStart]
-  simp [List.mapIdx, List.mapIdx.go]
+  kprologue alu_mem_example
   sym => kstep; tactic =>
   simp [AddrExpr.interp, ConstExpr.interp, Reg64s.get64, Width.bits, BitVec.toAddressSize, BitVec.signed, BitVec.take_all, BitVec.ofInt_add, BitVec.ofInt_toInt]
   have h_mem1 := Mem.storeInt_sep (rdx.toBitVec + 136#64) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
@@ -575,10 +535,7 @@ theorem dynamic_stack_example_correct [layout : Layout] (s₀ : MachineData)
   change (Eq ((stack.take 1016 ++ stack.drop 1016).At (rsp.toBitVec - 1024#64)) ⋆ R) mem at h_mem
   rw [h_At_append] at h_mem
   rw [sep_assoc] at h_mem
-  dsimp only [straightlineStep, Executable.straightline]
-  dsimp only [dynamic_stack_example]
-  rw [Executable.directivesFromStart]
-  simp [List.mapIdx, List.mapIdx.go]
+  kprologue dynamic_stack_example
   sym => kstep; tactic =>
   simp [AddrExpr.interp, ConstExpr.interp, Reg64s.get64, Width.bits, BitVec.toAddressSize, BitVec.signed, BitVec.take_all, BitVec.ofInt_add, BitVec.ofInt_toInt]
   have h_addr_eq : rsp.toBitVec - 1024#64 + BitVec.ofNat 64 (stack.take 1016).length = rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8) := by

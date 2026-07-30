@@ -80,8 +80,8 @@ theorem get?_At {w} (bs : List UInt8) (a : BitVec w) (p : BitVec w) (hw : bs.len
 
 theorem get?_At_idx {w} (bs : List UInt8) (a : BitVec w) (i : Nat) (hi : i < 2 ^ w) (hw : bs.length ≤ 2 ^ w) :
     (bs.At a).get? (a + .ofNat w i) = bs[i]? := by
-  rw [get?_eq_getElem?, get?_At _ _ _ hw]
-  simp [BitVec.add_comm a, BitVec.add_sub_cancel, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hi]
+  simpa [get?_eq_getElem?, BitVec.add_comm a, BitVec.add_sub_cancel,
+    BitVec.toNat_ofNat, Nat.mod_eq_of_lt hi] using get?_At bs a (a + .ofNat w i) hw
 
 theorem List.disjoint_At_append {w} (bs1 bs2 : List UInt8) (a : BitVec w)
     (h_len : bs1.length + bs2.length ≤ 2 ^ w) :
