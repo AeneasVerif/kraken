@@ -673,6 +673,13 @@ def parseCondCode (s : String) : Option CondCode :=
   | "nv" => some .NV
   | _ => none
 
+def parseCondArg : Parser CondCode := do
+  skipHWs
+  let name ← parseName
+  match parseCondCode name with
+  | some c => pure c
+  | none => fail s!"unknown condition code: {name}"
+
 -- ============================================================================
 -- Validation Helpers
 -- ============================================================================
@@ -825,6 +832,39 @@ def parseLogical
   let shiftOp ← parseShiftRegExpr w true
   pure ⟨w, mkS dstW.reg src1 shiftOp⟩
 
+def parseCondSelect
+    (mk : {w : Width} → RegOrZr w → RegOrZr w → RegOrZr w → CondCode → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src1 ← parseRegOrZr w
+  parseComma
+  let src2 ← parseRegOrZr w
+  parseComma
+  let cond ← parseCondArg
+  pure ⟨w, mk dstW.reg src1 src2 cond⟩
+
+def parseCondAlias
+    (mk : {w : Width} → RegOrZr w → RegOrZr w → RegOrZr w → CondCode → Operation w)
+    (sameSrc : Bool) (useXzr : Bool) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let (src1, src2) ← if useXzr then
+    pure (.low .XZR w, .low .XZR w)
+  else if sameSrc then do
+    let s ← parseRegOrZr w
+    parseComma
+    pure (s, s)
+  else do
+    let s1 ← parseRegOrZr w
+    parseComma
+    let s2 ← parseRegOrZr w
+    parseComma
+    pure (s1, s2)
+  let cond ← parseCondArg
+  pure ⟨w, mk dstW.reg src1 src2 cond.invert⟩
+
 -- ============================================================================
 -- Instruction Parsing
 -- ============================================================================
@@ -969,6 +1009,16 @@ def parseInstr : Parser Instr := do
   | "lsrv"  => parseThreeRegs .LSRV
   | "asrv"  => parseThreeRegs .ASRV
   | "rorv"  => parseThreeRegs .RORV
+
+  | "csel"  => parseCondSelect .CSEL
+  | "csinc" => parseCondSelect .CSINC
+  | "csinv" => parseCondSelect .CSINV
+  | "csneg" => parseCondSelect .CSNEG
+  | "cset"  => parseCondAlias .CSINC true true
+  | "csetm" => parseCondAlias .CSINV true true
+  | "cinc"  => parseCondAlias .CSINC true false
+  | "cinv"  => parseCondAlias .CSINV true false
+  | "cneg"  => parseCondAlias .CSNEG true false
 
   | "adr" =>
     let dst ← parseRegOrZr .W64

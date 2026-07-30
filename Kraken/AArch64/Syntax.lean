@@ -164,6 +164,16 @@ inductive CondCode | EQ | NE | CS | CC | MI | PL | VS | VC | HI | LS | GE | LT |
 abbrev CondCode.HS := CondCode.CS
 abbrev CondCode.LO := CondCode.CC
 
+def CondCode.invert : CondCode → CondCode
+  | .EQ => .NE | .NE => .EQ
+  | .CS => .CC | .CC => .CS
+  | .MI => .PL | .PL => .MI
+  | .VS => .VC | .VC => .VS
+  | .HI => .LS | .LS => .HI
+  | .GE => .LT | .LT => .GE
+  | .GT => .LE | .LE => .GT
+  | .AL => .NV | .NV => .AL
+
 inductive AddrOff w | imm (_ : ImmAddrExpr w) | reg (_ : MemExtRegExpr w)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 instance {w} : Coe (ImmAddrExpr w) (AddrOff w) where coe := .imm
@@ -267,6 +277,12 @@ inductive Operation : Width → Type
   | LSRV {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : RegOrZr w) : Operation w
   | ASRV {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : RegOrZr w) : Operation w
   | RORV {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : RegOrZr w) : Operation w
+  --
+  -- Conditional Select.
+  | CSEL {w} (dst : RegOrZr w) (src1 src2 : RegOrZr w) (cond : CondCode) : Operation w
+  | CSINC {w} (dst : RegOrZr w) (src1 src2 : RegOrZr w) (cond : CondCode) : Operation w
+  | CSINV {w} (dst : RegOrZr w) (src1 src2 : RegOrZr w) (cond : CondCode) : Operation w
+  | CSNEG {w} (dst : RegOrZr w) (src1 src2 : RegOrZr w) (cond : CondCode) : Operation w
   --
   -- Addressing.
   | ADR (dst : RegOrZr .W64) (target : ConstExpr) : Operation .W64

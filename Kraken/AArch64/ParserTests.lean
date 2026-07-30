@@ -656,6 +656,28 @@ info: [Directive.instr
 #guard_msgs in
 #check parseAArch64("orr x0, x1, x2, ror #4")
 
+-- Test: Conditional select instructions and aliases
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.CSEL (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64) (↑↑XReg.X2 Width.W64) CondCode.EQ },
+  Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.CSINV (↑↑XReg.X3 Width.W64) (↑XRegOrXzr.XZR Width.W64) (↑XRegOrXzr.XZR Width.W64) CondCode.EQ },
+  Directive.instr
+    { operation_size := Width.W32,
+      operation :=
+        Operation.CSINC (↑↑XReg.X4 Width.W32) (↑↑XReg.X5 Width.W32) (↑↑XReg.X5 Width.W32)
+          CondCode.CS }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("
+  csel x0, x1, x2, eq
+  csetm x3, ne
+  cinc w4, w5, lo
+")
+
 -- Test: LDP with 64-bit registers and signed immediate offset
 /--
 info: [Directive.instr

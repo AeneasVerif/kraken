@@ -581,6 +581,18 @@ def Operation.interp [Labels]
     let shift := val2.toNat % w.bits
     let res := val1.rotateRight shift
     s.setRegOrZr dst res next
+  | .CSEL dst src1 src2 cond =>
+    let val := if cond.interp s.status then s.regs.getRegOrZr src1 else s.regs.getRegOrZr src2
+    s.setRegOrZr dst val next
+  | .CSINC dst src1 src2 cond =>
+    let val := if cond.interp s.status then s.regs.getRegOrZr src1 else s.regs.getRegOrZr src2 + 1#w.bits
+    s.setRegOrZr dst val next
+  | .CSINV dst src1 src2 cond =>
+    let val := if cond.interp s.status then s.regs.getRegOrZr src1 else ~~~(s.regs.getRegOrZr src2)
+    s.setRegOrZr dst val next
+  | .CSNEG dst src1 src2 cond =>
+    let val := if cond.interp s.status then s.regs.getRegOrZr src1 else -(s.regs.getRegOrZr src2)
+    s.setRegOrZr dst val next
   | .ADR dst target =>
     let val := match target with
       | .int64 imm => BitVec.ofInt 64 (Int64.toInt p.lower + Int64.toInt imm)
