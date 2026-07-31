@@ -314,7 +314,8 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
   sym =>
   kstep
-  tactic =>
+  exact Int.toBytes_length 8 _
+  kstep
   -- NOTE: this rw currently succeeds only if kstep performs zeta, which in
   -- turns unlocks more `ksimp` lemmas; barring that, we have a unification
   -- problem (even though the call to MachineData.store *is* truly in the goal!)
@@ -333,9 +334,11 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   -- done
   -- case h_mem => simp; exact h_mem1
   -- case h_len => exact Int.toBytes_length 8 _
+  tactic =>
   apply Eventually.done
   simp only [and_true]
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
+  done
 
 -- def bigp := parseFile("./ecc-secp521r1-modp.S")
 
@@ -396,24 +399,13 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   dsimp only [move_2_regs_to_heap]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx, List.mapIdx.go]
-  sym => kstep; tactic =>
-  simp [AddrExpr.interp, ConstExpr.interp, Reg64s.get64, Width.bits, BitVec.toAddressSize, BitVec.signed, BitVec.take_all, BitVec.ofInt_toInt]
   have h_mem1 := Mem.storeInt_sep rdi.toBitVec 8 v1.toBytes (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ R) mem ⟨h_mem, h_bs1⟩ rax.toBitVec.toInt
-  rw [store_sep]
-  case h_mem => exact h_mem
-  case h_len => exact h_bs1
-  replace h_mem1 : (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
-  sym => kstep; tactic =>
-  simp [AddrExpr.interp, ConstExpr.interp, Reg64s.get64, Width.bits, BitVec.toAddressSize, BitVec.signed, BitVec.take_all, BitVec.ofInt_add, BitVec.ofInt_toInt]
+  have h_mem1' : (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
   have h_mem2 := Mem.storeInt_sep (rdi.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1, h_bs2⟩ rcx.toBitVec.toInt
-  rw [store_sep]
-  case h_mem => exact h_mem1
-  case h_len => exact h_bs2
-  replace h_mem2 : (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ (Eq ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
-  sym => kstep; tactic =>
-  simp [AddrExpr.interp, ConstExpr.interp, Reg64s.get64, Width.bits, BitVec.toAddressSize, BitVec.signed, BitVec.take_all, BitVec.ofInt_toInt]
-  rw [load_sep]
-  case h_mem => exact h_mem2
+  have h_mem2' : (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ (Eq ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
+  sym =>
+  kstep
+  tactic =>
   case h_len => exact Int.toBytes_length 8 _
   replace h_mem2 : (Eq ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
   sym => kstep; tactic =>

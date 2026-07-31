@@ -311,12 +311,12 @@ partial def evalSymKStep : Grind.GrindTactic :=
             logInfo m!"Solved by exact: {t} by {e}"
             return true
           -- Solvable with refl, maybe.
-          try
-            subGoal.mvarId.refl
-            let t ← subGoal.mvarId.getType
-            logInfo m!"Solved by refl: {t}"
-            return true
-          catch _ => pure ()
+          -- try
+          --   subGoal.mvarId.refl
+          --   let t ← subGoal.mvarId.getType
+          --   logInfo m!"Solved by refl: {t}"
+          --   return true
+          -- catch _ => pure ()
           -- Try solving with grind, roll back state otherwise (we don't want to
           -- return the failed Grind state).
           try
@@ -390,5 +390,12 @@ partial def evalSymKStep : Grind.GrindTactic :=
   
   logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
 
-  Grind.setGoals ({ goal with mvarId } :: subGoals)
+  Grind.setGoals (subGoals ++ [ { goal with mvarId } ])
 
+syntax (name := symRotateRight) "rotate_right" (ppSpace num)? : grind
+
+@[grind_tactic symRotateRight]
+def evalSymRotateRight : Grind.GrindTactic := fun stx => do
+  let n := if stx[1].isNone then 1 else stx[1][0].toNat
+  let goals ← Grind.getGoals
+  Grind.setGoals (goals.rotateRight n)
