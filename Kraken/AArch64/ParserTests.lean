@@ -121,7 +121,7 @@ info: [Directive.instr
 #guard_msgs in
 #check parseAArch64("add x0, x1, #0b1010")
 
--- Test: LDR with flexible sign ordering (-#16)
+-- Test: LDR with standard sign ordering (#-16)
 /--
 info: [Directive.instr
     { operation_size := Width.W64,
@@ -130,7 +130,7 @@ info: [Directive.instr
           ↑{ base := ↑XRegOrSp.SP Width.W64, off := ↑{ imm := ↑(-16), index := some Index.Pre } } }] : List Directive
 -/
 #guard_msgs in
-#check parseAArch64("ldr x1, [sp, -#16]!")
+#check parseAArch64("ldr x1, [sp, #-16]!")
 
 -- Test: ADD_s with shifted register (lsl #2)
 /--
@@ -834,6 +834,20 @@ info: [Directive.instr { operation_size := Width.W64, operation := Operation.B_c
 #guard_msgs in
 #check parseAArch64("b.ne exit")
 
+-- Test: BEQ (undotted) with label
+/--
+info: [Directive.instr { operation_size := Width.W64, operation := Operation.B_cond CondCode.EQ ↑"loop" }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("beq loop")
+
+-- Test: BNE (undotted) with label
+/--
+info: [Directive.instr { operation_size := Width.W64, operation := Operation.B_cond CondCode.NE ↑"exit" }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("bne exit")
+
 -- Test: BL with label
 /--
 info: [Directive.instr { operation_size := Width.W64, operation := Operation.BL ↑"foo" }] : List Directive
@@ -1072,6 +1086,26 @@ section error_reporting
 /-- error: line 1: invalid logical immediate: -0x1 -/
 #guard_msgs in
 #check parseAArch64("eor x0, x1, #-1")
+
+/-- error: line 1: UXTW extension requires a 32-bit index register (Wn) -/
+#guard_msgs in
+#check parseAArch64("ldr x0, [sp, x1, uxtw]")
+
+/-- error: line 1: SXTX extension requires a 64-bit index register (Xn) -/
+#guard_msgs in
+#check parseAArch64("ldr x0, [sp, w1, sxtx]")
+
+/-- error: line 1: unknown register, sp, or xzr: wlr -/
+#guard_msgs in
+#check parseAArch64("add w0, wlr, #1")
+
+/-- error: line 1: condition not satisfied -/
+#guard_msgs in
+#check parseAArch64("ldr x1, [sp, -#16]!")
+
+/-- error: line 1: unexpected trailing characters on line -/
+#guard_msgs in
+#check parseAArch64("add x0, x1, #1 # comment")
 
 end error_reporting
 

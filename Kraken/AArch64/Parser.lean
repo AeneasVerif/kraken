@@ -21,8 +21,14 @@ open Std.Internal.Parsec.String
 def skipHWs : Parser Unit := do
   let _ ← many (pchar ' ' <|> pchar '\t')
 
-/-- Skip a line comment starting with # or //. -/
-def skipLineComment : Parser Unit := do
+/-- Skip a trailing line comment starting with `//`. -/
+def skipTrailingComment : Parser Unit := do
+  let _ ← pstring "//"
+  let _ ← many (satisfy fun c => c != '\n')
+  pure ()
+
+/-- Skip a full-line comment starting with `#` or `//`. -/
+def skipFullLineComment : Parser Unit := do
   let _ ← pchar '#' <|> (pstring "//" *> pure '/')
   let _ ← many (satisfy fun c => c != '\n')
   pure ()
@@ -58,14 +64,12 @@ def parseDec : Parser Int := do
 
 def parseNumber : Parser Int := attempt parseHex <|> attempt parseBin <|> parseDec
 
-/-- Parse a signed integer (hex, binary, or decimal), allowing flexible sign/prefix ordering (`#-16`, `-#16`, or `#16`). -/
+/-- Parse a signed integer (hex, binary, or decimal) with optional leading `#` prefix (`#-16`, `-16`, or `#16`). -/
 def parseInt : Parser Int := do
   skipHWs
   let _ ← optional (pchar '#')
   skipHWs
   let neg ← (pchar '-' *> pure true) <|> (pchar '+' *> pure false) <|> pure false
-  skipHWs
-  let _ ← optional (pchar '#')
   skipHWs
   let val ← parseNumber
   pure (if neg then -val else val)
@@ -127,7 +131,7 @@ def parseXRegName (name : String) : Option (Width × XReg) :=
   | "w16" => some (.W32, .X16) | "w17" => some (.W32, .X17) | "w18" => some (.W32, .X18) | "w19" => some (.W32, .X19)
   | "w20" => some (.W32, .X20) | "w21" => some (.W32, .X21) | "w22" => some (.W32, .X22) | "w23" => some (.W32, .X23)
   | "w24" => some (.W32, .X24) | "w25" => some (.W32, .X25) | "w26" => some (.W32, .X26) | "w27" => some (.W32, .X27)
-  | "w28" => some (.W32, .X28) | "w29" | "wfp" => some (.W32, .X29) | "w30" | "wlr" => some (.W32, .X30)
+  | "w28" => some (.W32, .X28) | "w29" => some (.W32, .X29) | "w30" => some (.W32, .X30)
   | _ => none
 
 def checkWidth {T : Width → Type} (expected actual : Width) (val : T actual) : Parser (T expected) :=
@@ -243,16 +247,18 @@ def getMovShift (w : Width) (amt : Nat) : Except String (MovShift w) :=
   | _, _     => .error s!"invalid move wide shift amount {amt} for width {w}"
 
 def getMemExtendType (extName : String) (w : Width) : Except String MemExtendType :=
-  match extName.toLower with
-  | "uxtw" => .ok MemExtendType.UXTW
-  | "sxtw" => .ok MemExtendType.SXTW
-  | "uxtx" => .ok MemExtendType.UXTX
-  | "sxtx" => .ok MemExtendType.SXTX
-  | "lsl" =>
-    match w with
-    | .W64 => .ok MemExtendType.UXTX
-    | .W32 => .ok MemExtendType.UXTW
-  | _ => .error s!"unknown memory extension type: {extName}"
+  match extName.toLower, w with
+  | "uxtw", .W32 => .ok MemExtendType.UXTW
+  | "uxtw", .W64 => .error "UXTW extension requires a 32-bit index register (Wn)"
+  | "sxtw", .W32 => .ok MemExtendType.SXTW
+  | "sxtw", .W64 => .error "SXTW extension requires a 32-bit index register (Wn)"
+  | "uxtx", .W64 => .ok MemExtendType.UXTX
+  | "uxtx", .W32 => .error "UXTX extension requires a 64-bit index register (Xn)"
+  | "sxtx", .W64 => .ok MemExtendType.SXTX
+  | "sxtx", .W32 => .error "SXTX extension requires a 64-bit index register (Xn)"
+  | "lsl",  .W64 => .ok MemExtendType.UXTX
+  | "lsl",  .W32 => .ok MemExtendType.UXTW
+  | ext,    _    => .error s!"unknown memory extension type: {ext}"
 
 def checkUnsignedOffset (w : Width) (imm : Int64) : Except String Unit :=
   let (maxOff, align) := match w with | .W32 => (16380, 4) | .W64 => (32760, 8)
@@ -704,7 +710,7 @@ def isAtLineEndOrComment : Parser Bool := do
   | none | some '\n' =>
     pure true
   | _ =>
-    (attempt skipLineComment *> pure true) <|> pure false
+    (attempt skipTrailingComment *> pure true) <|> pure false
 
 /-- Parses an optional operand using `p`, or returns `defaultVal` if positioned at line end or comment. -/
 def parseOptionalOperand {α : Type} (p : Parser α) (defaultVal : α) : Parser α := do
@@ -1313,16 +1319,21 @@ def parseInstr : Parser Instr := do
     pure ⟨.W64, .NOP⟩
 
   | _ =>
-    if mn.startsWith "b." then
-      match parseCondCode (mn.drop 2).toString with
-      | some cond =>
-        let target ← parseConstExpr
-        if let .int64 imm := target then
-          liftExcept (checkBCondOffset imm)
-        pure ⟨.W64, .B_cond cond target⟩
-      | none => fail s!"unknown condition code in branch instruction: {mnemonic}"
-    else
-      fail s!"unsupported instruction: {mnemonic}"
+    let condStr? :=
+      if mn.startsWith "b." then some (mn.drop 2).toString
+      else if mn.startsWith "b" && mn.length == 3 then some (mn.drop 1).toString
+      else none
+    match condStr?.bind parseCondCode with
+    | some cond =>
+      let target ← parseConstExpr
+      if let .int64 imm := target then
+        liftExcept (checkBCondOffset imm)
+      pure ⟨.W64, .B_cond cond target⟩
+    | none =>
+      if mn.startsWith "b." then
+        fail s!"unknown condition code in branch instruction: {mnemonic}"
+      else
+        fail s!"unsupported instruction: {mnemonic}"
 
 -- ============================================================================
 -- Label Parsing
@@ -1361,15 +1372,21 @@ def checkLineEnd : Parser Unit := do
     Returns a list of directives found on the line. -/
 def parseLine : Parser (List Directive) := do
   skipHWs
-  let labels ← many (attempt do
-    let l ← parseLabelDecl
-    pure (Directive.label l))
-  let instr ← parseOptionalInstr
-  checkLineEnd
-  let labelsList := labels.toList
-  match instr with
-  | some i => pure (labelsList ++ [i])
-  | none   => pure labelsList
+  let c? ← peek?
+  if c? == some '#' || c? == some '/' then
+    let _ ← attempt skipFullLineComment
+    checkLineEnd
+    pure []
+  else
+    let labels ← many (attempt do
+      let l ← parseLabelDecl
+      pure (Directive.label l))
+    let instr ← parseOptionalInstr
+    checkLineEnd
+    let labelsList := labels.toList
+    match instr with
+    | some i => pure (labelsList ++ [i])
+    | none   => pure labelsList
 
 -- ============================================================================
 -- Public API
