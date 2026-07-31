@@ -106,6 +106,19 @@ inductive ShiftType | LSL | LSR | ASR | ROR
 inductive ImmShift | S0 | S12
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
+inductive MovShift : Width → Type
+  | LSL0 {w}  : MovShift w
+  | LSL16 {w} : MovShift w
+  | LSL32     : MovShift .W64
+  | LSL48     : MovShift .W64
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+
+def MovShift.toNat {w} : MovShift w → Nat
+  | .LSL0  => 0
+  | .LSL16 => 16
+  | .LSL32 => 32
+  | .LSL48 => 48
+
 inductive Index | Pre | Post
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
@@ -272,6 +285,11 @@ inductive Operation : Width → Type
   | EOR_i  {w} (dst : RegOrSp w) (src1 : RegOrZr w) (imm : ConstExpr) : Operation w
   | EOR_s  {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
   | BIC_s  {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
+  --
+  -- Move Wide Immediates.
+  | MOVZ {w} (dst : RegOrZr w) (imm : ConstExpr) (shift : MovShift w) : Operation w
+  | MOVK {w} (dst : RegOrZr w) (imm : ConstExpr) (shift : MovShift w) : Operation w
+  | MOVN {w} (dst : RegOrZr w) (imm : ConstExpr) (shift : MovShift w) : Operation w
   --
   -- Variable Shifts / Rotates.
   | LSLV {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : RegOrZr w) : Operation w

@@ -577,6 +577,20 @@ def Operation.interp [Labels]
     let val2 := src2.interp s.regs p
     let res := val1 &&& ~~~val2
     s.setRegOrZr dst res next
+  | .MOVZ dst imm shift =>
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& (0xFFFF : BitVec w.bits)
+    let res := val16 <<< shift.toNat
+    s.setRegOrZr dst res next
+  | .MOVK dst imm shift =>
+    let oldVal := s.regs.getRegOrZr dst
+    let mask := ~~~((0xFFFF : BitVec w.bits) <<< shift.toNat)
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& (0xFFFF : BitVec w.bits)
+    let res := (oldVal &&& mask) ||| (val16 <<< shift.toNat)
+    s.setRegOrZr dst res next
+  | .MOVN dst imm shift =>
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& (0xFFFF : BitVec w.bits)
+    let res := ~~~(val16 <<< shift.toNat)
+    s.setRegOrZr dst res next
   | .LSLV dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2

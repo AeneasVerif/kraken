@@ -701,6 +701,78 @@ info: [Directive.instr
   tst x7, #255
 ")
 
+-- Test: MOV and MVN aliases
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.ORR_s (↑↑XReg.X0 Width.W64) (↑XRegOrXzr.XZR Width.W64)
+          { reg := ↑↑XReg.X1 Width.W64, amount := 0, shift := ShiftType.LSL } },
+  Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.ADD_e (↑XRegOrSp.SP Width.W64) (↑↑XReg.X0 Width.W64) ↑{ imm := ↑0, shift := ImmShift.S0 } },
+  Directive.instr { operation_size := Width.W64, operation := Operation.MOVZ (↑↑XReg.X0 Width.W64) (↑0) MovShift.LSL0 },
+  Directive.instr
+    { operation_size := Width.W64, operation := Operation.MOVZ (↑↑XReg.X0 Width.W64) (↑255) MovShift.LSL0 },
+  Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.ORN_s (↑↑XReg.X2 Width.W64) (↑XRegOrXzr.XZR Width.W64)
+          { reg := ↑↑XReg.X3 Width.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("
+  mov x0, x1
+  mov sp, x0
+  mov x0, #0
+  mov x0, #255
+  mvn x2, x3
+")
+
+-- Test: Move Wide Immediate family (MOVZ, MOVK, MOVN)
+/--
+info: [Directive.instr
+    { operation_size := Width.W64, operation := Operation.MOVZ (↑↑XReg.X0 Width.W64) (↑1234) MovShift.LSL16 },
+  Directive.instr
+    { operation_size := Width.W32, operation := Operation.MOVK (↑↑XReg.X1 Width.W32) (↑5678) MovShift.LSL0 },
+  Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.MOVN (↑↑XReg.X2 Width.W64) (↑65535) MovShift.LSL48 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("
+  movz x0, #1234, lsl #16
+  movk w1, #5678, lsl #0
+  movn x2, #65535, lsl #48
+")
+
+-- Test: MOV immediate Priority 1 (MOVZ) -> Priority 2 (MOVN) -> Priority 3 (ORR_i)
+/--
+info: [Directive.instr { operation_size := Width.W64, operation := Operation.MOVZ (↑↑XReg.X0 Width.W64) (↑0) MovShift.LSL0 },
+  Directive.instr
+    { operation_size := Width.W64, operation := Operation.MOVZ (↑↑XReg.X1 Width.W64) (↑4660) MovShift.LSL16 },
+  Directive.instr { operation_size := Width.W64, operation := Operation.MOVN (↑↑XReg.X2 Width.W64) (↑1) MovShift.LSL0 },
+  Directive.instr { operation_size := Width.W32, operation := Operation.MOVN (↑↑XReg.X3 Width.W32) (↑0) MovShift.LSL0 },
+  Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.ORR_i (↑↑XReg.X4 Width.W64) (↑XRegOrXzr.XZR Width.W64) ↑72340172838076673 },
+  Directive.instr { operation_size := Width.W64, operation := Operation.MOVN (↑↑XReg.X5 Width.W64) (↑0) MovShift.LSL0 },
+  Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.MOVN (↑↑XReg.X6 Width.W32) (↑4) MovShift.LSL0 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("
+  mov x0, #0
+  mov x1, #0x12340000
+  mov x2, #0xfffffffffffffffe
+  mov w3, #0xffffffff
+  mov x4, #0x0101010101010101
+  mov x5, #-1
+  mov w6, #-5
+")
+
 -- Test: LDP with 64-bit registers and signed immediate offset
 /--
 info: [Directive.instr

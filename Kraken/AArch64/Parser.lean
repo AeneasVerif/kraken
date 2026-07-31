@@ -234,6 +234,14 @@ def getMemExtendAmount (w : Width) (amt : Nat) : Except String (MemExtendAmount 
   | .W64, 3 => .ok .E3
   | _, _ => .error s!"invalid memory extension shift amount {amt} for width {w}"
 
+def getMovShift (w : Width) (amt : Nat) : Except String (MovShift w) :=
+  match w, amt with
+  | _, 0     => .ok .LSL0
+  | _, 16    => .ok .LSL16
+  | .W64, 32 => .ok .LSL32
+  | .W64, 48 => .ok .LSL48
+  | _, _     => .error s!"invalid move wide shift amount {amt} for width {w}"
+
 def getMemExtendType (extName : String) (w : Width) : Except String MemExtendType :=
   match extName.toLower with
   | "uxtw" => .ok MemExtendType.UXTW
@@ -961,6 +969,99 @@ def parseCondAlias
   let cond ← parseCondArg
   pure ⟨w, mk dstW.reg src1 src2 cond.invert⟩
 
+def tryMovz (w : Width) (val : BitVec w.bits) : Option (Int64 × MovShift w) :=
+  let n := val.toNat
+  if n >>> 16 == 0 then
+    some (.ofNat n, .LSL0)
+  else if n &&& 0xFFFF == 0 && n >>> 32 == 0 then
+    some (.ofNat (n >>> 16), .LSL16)
+  else
+    match w with
+    | .W32 => none
+    | .W64 =>
+      if n &&& 0xFFFFFFFF == 0 && n >>> 48 == 0 then
+        some (.ofNat (n >>> 32), .LSL32)
+      else if n &&& 0xFFFFFFFFFFFF == 0 then
+        some (.ofNat (n >>> 48), .LSL48)
+      else
+        none
+
+def tryMovzOrMovn (w : Width) (val : BitVec w.bits) : Option (Bool × Int64 × MovShift w) :=
+  match tryMovz w val with
+  | some (imm16, shift) => some (false, imm16, shift)
+  | none =>
+    let invVal := ~~~val
+    match tryMovz w invVal with
+    | some (imm16, shift) => some (true, imm16, shift)
+    | none => none
+
+def parseMov : Parser Instr := do
+  let dstW ← parseAnyRegW
+  let w := dstW.1
+  parseComma
+  skipHWs
+  let nextC ← peek!
+  if nextC == '#' || nextC == '-' || nextC.isDigit then
+    let imm ← parseConstExpr
+    if let .int64 val := imm then
+      if !dstW.2.isSp then
+        let dstZr ← dstW.2.toRegOrZr
+        let valBitVec := BitVec.ofInt w.bits val.toInt
+        match tryMovzOrMovn w valBitVec with
+        | some (false, imm16, shift) => pure ⟨w, .MOVZ dstZr (.int64 imm16) shift⟩
+        | some (true, imm16, shift)  => pure ⟨w, .MOVN dstZr (.int64 imm16) shift⟩
+        | none =>
+          match checkLogicalImmediate w val with
+          | .ok _ =>
+            let dstSp ← dstW.2.toRegOrSp
+            pure ⟨w, .ORR_i dstSp (.low .XZR w) imm⟩
+          | .error _ => fail "immediate cannot be moved by a single instruction (requires MOVZ/MOVK sequence)"
+      else
+        let dstSp ← dstW.2.toRegOrSp
+        liftExcept (checkLogicalImmediate w val)
+        pure ⟨w, .ORR_i dstSp (.low .XZR w) imm⟩
+    else
+      let dstSp ← dstW.2.toRegOrSp
+      pure ⟨w, .ORR_i dstSp (.low .XZR w) imm⟩
+  else
+    let srcAny ← parseAnyReg w
+    if dstW.2.isSp || srcAny.isSp then
+      let dstSp ← dstW.2.toRegOrSp
+      let srcSp ← srcAny.toRegOrSp
+      pure ⟨w, .ADD_e dstSp srcSp (.imm { imm := 0, shift := .S0 })⟩
+    else
+      let dstZr ← dstW.2.toRegOrZr
+      let srcZr ← srcAny.toRegOrZr
+      pure ⟨w, .ORR_s dstZr (.low .XZR w) { reg := srcZr, amount := 0, shift := .LSL }⟩
+
+def parseMvn : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let shiftOp ← parseShiftRegExpr w true
+  pure ⟨w, .ORN_s dstW.reg (.low .XZR w) shiftOp⟩
+
+def parseMoveWide
+    (mk : {w : Width} → RegOrZr w → ConstExpr → MovShift w → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let imm ← parseConstExpr
+  if let .int64 val := imm then
+    if val.toInt < 0 || val.toInt > 0xFFFF then
+      fail s!"move wide immediate {val.toInt} out of range [0, 65535]"
+  let shift ← (attempt do
+    parseComma
+    skipHWs
+    let name ← parseName
+    if name.toLower != "lsl" then fail "only lsl shift supported for move wide"
+    let amt ← parseConstExpr
+    match amt with
+    | .int64 n => liftExcept (getMovShift w n.toBitVec.toNat)
+    | _ => liftExcept (getMovShift w 0)
+  ) <|> liftExcept (getMovShift w 0)
+  pure ⟨w, mk dstW.reg imm shift⟩
+
 -- ============================================================================
 -- Instruction Parsing
 -- ============================================================================
@@ -1123,6 +1224,12 @@ def parseInstr : Parser Instr := do
   | "cinc"  => parseCondAlias .CSINC true false
   | "cinv"  => parseCondAlias .CSINV true false
   | "cneg"  => parseCondAlias .CSNEG true false
+
+  | "mov"   => parseMov
+  | "mvn"   => parseMvn
+  | "movz"  => parseMoveWide .MOVZ
+  | "movk"  => parseMoveWide .MOVK
+  | "movn"  => parseMoveWide .MOVN
 
   | "adr" =>
     let dst ← parseRegOrZr .W64
