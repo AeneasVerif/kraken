@@ -1,6 +1,6 @@
 name = "Kraken"
 version = "0.1.0"
-defaultTargets = ["Kraken", "krakenrunner_x64", "att2intel"]
+defaultTargets = ["Kraken", "KrakenAArch64", "krakenrunner_x64", "krakenrunner_aarch64", "att2intel"]
 
 [leanOptions]
 autoImplicit = false
@@ -10,9 +10,16 @@ relaxedAutoImplicit = false
 name = "Kraken"
 globs = ["Kraken.*"]  # TODO: move the tests out of `Kraken`
 
+[[lean_lib]]
+name = "KrakenAArch64"
+
 [[lean_exe]]
 name = "krakenrunner_x64"
 root = "KrakenRunnerX64"
+
+[[lean_exe]]
+name = "krakenrunner_aarch64"
+root = "KrakenRunnerAArch64"
 
 [[lean_exe]]
 name = "att2intel"
