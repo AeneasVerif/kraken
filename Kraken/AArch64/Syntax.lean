@@ -262,15 +262,16 @@ inductive Operation : Width → Type
   | UMULH (dst : RegOrZr .W64) (src1 : RegOrZr .W64) (src2 : RegOrZr .W64) : Operation .W64
   --
   -- Logic (instructions have an immediate (_i) and shifted reg (_s) form).
-  -- TODO: The immediate form has a weird bitmask encoding.
-  --| AND_i {w} (dst : RegOrSp w) (src1 : RegOrSp w) (src2 : Int64) : Operation w
-  | AND_s {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
+  | AND_i  {w} (dst : RegOrSp w) (src1 : RegOrZr w) (imm : ConstExpr) : Operation w
+  | AND_s  {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
+  | ANDS_i {w} (dst : RegOrZr w) (src1 : RegOrZr w) (imm : ConstExpr) : Operation w
   | ANDS_s {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
-  --| ORR_i {w} (dst : RegOrSp w) (src1 : RegOrSp w) (src2 : Int64) : Operation w
-  | ORR_s {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
-  | ORN_s {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
-  | EOR_s {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
-  | BIC_s {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
+  | ORR_i  {w} (dst : RegOrSp w) (src1 : RegOrZr w) (imm : ConstExpr) : Operation w
+  | ORR_s  {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
+  | ORN_s  {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
+  | EOR_i  {w} (dst : RegOrSp w) (src1 : RegOrZr w) (imm : ConstExpr) : Operation w
+  | EOR_s  {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
+  | BIC_s  {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
   --
   -- Variable Shifts / Rotates.
   | LSLV {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : RegOrZr w) : Operation w

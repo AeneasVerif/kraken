@@ -678,6 +678,29 @@ info: [Directive.instr
   cinc w4, w5, lo
 ")
 
+-- Test: Logical immediate instructions and TST immediate alias
+/--
+info: [Directive.instr
+    { operation_size := Width.W64, operation := Operation.AND_i (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64) ↑255 },
+  Directive.instr
+    { operation_size := Width.W32, operation := Operation.ORR_i (↑↑XReg.X2 Width.W32) (↑↑XReg.X3 Width.W32) ↑255 },
+  Directive.instr
+    { operation_size := Width.W64, operation := Operation.EOR_i (↑XRegOrSp.SP Width.W64) (↑↑XReg.X4 Width.W64) ↑255 },
+  Directive.instr
+    { operation_size := Width.W32, operation := Operation.ANDS_i (↑↑XReg.X5 Width.W32) (↑↑XReg.X6 Width.W32) ↑255 },
+  Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.ANDS_i (↑XRegOrXzr.XZR Width.W64) (↑↑XReg.X7 Width.W64) ↑255 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("
+  and x0, x1, #255
+  orr w2, w3, #255
+  eor sp, x4, #255
+  ands w5, w6, #255
+  tst x7, #255
+")
+
 -- Test: LDP with 64-bit registers and signed immediate offset
 /--
 info: [Directive.instr
@@ -910,7 +933,7 @@ section error_reporting
 #guard_msgs in
 #check parseAArch64("stp x0, x1, [x0, #16]!")
 
-/-- error: line 1: unknown register or xzr: sp -/
+/-- error: line 1: sp/wsp not allowed in shifted register instruction (xzr expected) -/
 #guard_msgs in
 #check parseAArch64("and sp, x1, x2")
 
@@ -965,6 +988,18 @@ section error_reporting
 /-- error: line 1: tbz offset 0x10000 out of range [-0x8000, 0x7fc] or not a multiple of 4 -/
 #guard_msgs in
 #check parseAArch64("tbz x0, #10, #0x10000")
+
+/-- error: line 1: invalid logical immediate: 0x1f4 -/
+#guard_msgs in
+#check parseAArch64("and x0, x1, #500")
+
+/-- error: line 1: invalid logical immediate: 0x0 -/
+#guard_msgs in
+#check parseAArch64("orr x0, x1, #0")
+
+/-- error: line 1: invalid logical immediate: -0x1 -/
+#guard_msgs in
+#check parseAArch64("eor x0, x1, #-1")
 
 end error_reporting
 

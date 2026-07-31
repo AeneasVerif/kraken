@@ -525,18 +525,33 @@ def Operation.interp [Labels]
     let prod := val1.toNat * val2.toNat
     let res := BitVec.ofNat 64 (prod >>> 64)
     s.setRegOrZr dst res next
+  | .AND_i dst src1 imm =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 &&& val2
+    s.setRegOrSp dst res next
   | .AND_s dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := src2.interp s.regs p
     let res := val1 &&& val2
     s.setRegOrZr dst res next
+  | .ANDS_i dst src1 imm =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 &&& val2
+    let flags := StatusFlags.from_result res { c := false, v := false }
+    { s with status := flags }.setRegOrZr dst res next
   | .ANDS_s dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := src2.interp s.regs p
     let res := val1 &&& val2
     let flags := StatusFlags.from_result res { c := false, v := false }
-    let s' := { s with status := flags }
-    s'.setRegOrZr dst res next
+    { s with status := flags }.setRegOrZr dst res next
+  | .ORR_i dst src1 imm =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 ||| val2
+    s.setRegOrSp dst res next
   | .ORR_s dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := src2.interp s.regs p
@@ -547,6 +562,11 @@ def Operation.interp [Labels]
     let val2 := src2.interp s.regs p
     let res := val1 ||| ~~~val2
     s.setRegOrZr dst res next
+  | .EOR_i dst src1 imm =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 ^^^ val2
+    s.setRegOrSp dst res next
   | .EOR_s dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := src2.interp s.regs p

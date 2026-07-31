@@ -318,6 +318,62 @@ def checkAdrOffset (offset : Int64) : Except String Unit :=
     .error s!"adr offset {intToHexStr val} out of range [-0x100000, 0xfffff]"
   else .ok ()
 
+def isContiguousOnes (v : Nat) (E : Nat) : Bool :=
+  v > 0 && v < ((1 <<< E) - 1) && ((v + 1) &&& v) == 0
+
+def isRotatedRunOfOnesAux (elem : Nat) (E : Nat) : Nat → Bool
+  | 0 => false
+  | n + 1 =>
+    if isContiguousOnes elem E then
+      true
+    else
+      let nextElem := (elem >>> 1) ||| ((elem &&& 1) <<< (E - 1))
+      isRotatedRunOfOnesAux nextElem E n
+
+def isRotatedRunOfOnes (elem : Nat) (E : Nat) : Bool :=
+  isRotatedRunOfOnesAux elem E E
+
+def repeatElement (pattern : Nat) (wBits : Nat) (E : Nat) : Nat :=
+  match wBits, E with
+  | 64, 64 => pattern
+  | 64, 32 => pattern * 0x0000000100000001
+  | 64, 16 => pattern * 0x0001000100010001
+  | 64, 8  => pattern * 0x0101010101010101
+  | 64, 4  => pattern * 0x1111111111111111
+  | 64, 2  => pattern * 0x5555555555555555
+  | 32, 32 => pattern
+  | 32, 16 => pattern * 0x00010001
+  | 32, 8  => pattern * 0x01010101
+  | 32, 4  => pattern * 0x11111111
+  | 32, 2  => pattern * 0x55555555
+  | _, _ => 0
+
+def isRepeatedPattern (val : Nat) (wBits : Nat) (E : Nat) : Bool :=
+  let pattern := val &&& ((1 <<< E) - 1)
+  val == repeatElement pattern wBits E
+
+def isValidLogicalImmediate (w : Width) (val : Int64) : Bool :=
+  let vNat := match w with
+    | .W32 => (val.toBitVec.toNat &&& 0xFFFFFFFF)
+    | .W64 => val.toBitVec.toNat
+  let wBits := w.bits
+  let maxVal := (1 <<< wBits) - 1
+  if vNat == 0 || vNat == maxVal then
+    false
+  else
+    let sizes := match w with
+      | .W32 => [2, 4, 8, 16, 32]
+      | .W64 => [2, 4, 8, 16, 32, 64]
+    sizes.any (fun E =>
+      isRepeatedPattern vNat wBits E &&
+      isRotatedRunOfOnes (vNat &&& ((1 <<< E) - 1)) E)
+
+def checkLogicalImmediate (w : Width) (imm : Int64) : Except String Unit :=
+  if isValidLogicalImmediate w imm then
+    .ok ()
+  else
+    .error s!"invalid logical immediate: {intToHexStr imm.toInt}"
+
 def checkAdrpOffset (offset : Int64) : Except String Unit :=
   let val := offset.toInt
   if val % 0x1000 != 0 then
@@ -822,6 +878,46 @@ def parseFourRegs
   let src3 ← parseRegOrZr w
   pure ⟨w, mk dstW.reg src1 src2 src3⟩
 
+def parseLogicalNoFlags
+    (mkI : {w : Width} → RegOrSp w → RegOrZr w → ConstExpr → Operation w)
+    (mkS : {w : Width} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
+  let dstW ← parseAnyRegW
+  let w := dstW.1
+  parseComma
+  let src1 ← parseRegOrZr w
+  parseComma
+  skipHWs
+  let nextC ← peek!
+  if nextC == '#' || nextC == '-' || nextC.isDigit then
+    let dstSp ← dstW.2.toRegOrSp
+    let imm ← parseConstExpr
+    if let .int64 val := imm then
+      liftExcept (checkLogicalImmediate w val)
+    pure ⟨w, mkI dstSp src1 imm⟩
+  else
+    let dstZr ← dstW.2.toRegOrZr
+    let shiftOp ← parseShiftRegExpr w true
+    pure ⟨w, mkS dstZr src1 shiftOp⟩
+
+def parseLogicalFlags
+    (mkI : {w : Width} → RegOrZr w → RegOrZr w → ConstExpr → Operation w)
+    (mkS : {w : Width} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src1 ← parseRegOrZr w
+  parseComma
+  skipHWs
+  let nextC ← peek!
+  if nextC == '#' || nextC == '-' || nextC.isDigit then
+    let imm ← parseConstExpr
+    if let .int64 val := imm then
+      liftExcept (checkLogicalImmediate w val)
+    pure ⟨w, mkI dstW.reg src1 imm⟩
+  else
+    let shiftOp ← parseShiftRegExpr w true
+    pure ⟨w, mkS dstW.reg src1 shiftOp⟩
+
 def parseLogical
     (mkS : {w : Width} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
   let dstW ← parseRegOrZrW
@@ -988,18 +1084,26 @@ def parseInstr : Parser Instr := do
     let src2 ← parseRegOrZr .W64
     pure ⟨.W64, .UMULH dst src1 src2⟩
 
-  | "and"   => parseLogical .AND_s
-  | "ands"  => parseLogical .ANDS_s
-  | "orr"   => parseLogical .ORR_s
+  | "and"   => parseLogicalNoFlags .AND_i .AND_s
+  | "ands"  => parseLogicalFlags .ANDS_i .ANDS_s
+  | "orr"   => parseLogicalNoFlags .ORR_i .ORR_s
   | "orn"   => parseLogical .ORN_s
-  | "eor"   => parseLogical .EOR_s
+  | "eor"   => parseLogicalNoFlags .EOR_i .EOR_s
   | "bic"   => parseLogical .BIC_s
   | "tst"   => do  -- Alias of ANDS ZR, _, _
     let src1W ← parseRegOrZrW
     let w := src1W.w
     parseComma
-    let src2 ← parseShiftRegExpr w true
-    pure ⟨w, .ANDS_s (.low .XZR w) src1W.reg src2⟩
+    skipHWs
+    let nextC ← peek!
+    if nextC == '#' || nextC == '-' || nextC.isDigit then
+      let imm ← parseConstExpr
+      if let .int64 val := imm then
+        liftExcept (checkLogicalImmediate w val)
+      pure ⟨w, .ANDS_i (.low .XZR w) src1W.reg imm⟩
+    else
+      let src2 ← parseShiftRegExpr w true
+      pure ⟨w, .ANDS_s (.low .XZR w) src1W.reg src2⟩
 
   | "lsl"   => parseThreeRegs .LSLV -- Alias of LSLV
   | "lsr"   => parseThreeRegs .LSRV -- Alias of LSRV
