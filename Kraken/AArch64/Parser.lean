@@ -21,17 +21,18 @@ open Std.Internal.Parsec.String
 def skipHWs : Parser Unit := do
   let _ ← many (pchar ' ' <|> pchar '\t')
 
-/-- Skip a trailing line comment starting with `//`. -/
-def skipTrailingComment : Parser Unit := do
-  let _ ← pstring "//"
+/-- Consume characters until the end of the line (newline not consumed). -/
+def skipToNewline : Parser Unit := do
   let _ ← many (satisfy fun c => c != '\n')
   pure ()
 
+/-- Skip a trailing line comment starting with `//`. -/
+def skipTrailingComment : Parser Unit :=
+  pstring "//" *> skipToNewline
+
 /-- Skip a full-line comment starting with `#` or `//`. -/
-def skipFullLineComment : Parser Unit := do
-  let _ ← pchar '#' <|> (pstring "//" *> pure '/')
-  let _ ← many (satisfy fun c => c != '\n')
-  pure ()
+def skipFullLineComment : Parser Unit :=
+  (pchar '#' <|> (pstring "//" *> pure '/')) *> skipToNewline
 
 /-- Parse a single decimal digit. -/
 def digit : Parser Char := satisfy fun c => c >= '0' && c <= '9'
@@ -85,11 +86,10 @@ def parseInt64 : Parser Int64 := do
   let v ← parseInt
   if v < -9223372036854775808 || v >= 18446744073709551616 then
     fail s!"immediate {v} out of 64-bit range"
-  let i64 := if v > 9223372036854775807 then
+  pure (if v > 9223372036854775807 then
     Int64.ofInt (v - 18446744073709551616)
   else
-    Int64.ofInt v
-  pure i64
+    Int64.ofInt v)
 
 def parseLabelRaw : Parser Label := parseName
 
@@ -99,14 +99,14 @@ partial def parseConstExpr : Parser ConstExpr := do
   let _ ← optional (pchar '#')
   skipHWs
   let c ← peek!
-  if c == ':' then do
+  if c == ':' then
     let mod ← (pstring ":pg_hi21:" *> pure ConstExpr.pg_hi21) <|> (pstring ":lo12:" *> pure ConstExpr.lo12)
     let inner ← parseConstExpr
     pure (mod inner)
-  else if c == '-' || c == '+' || c.isDigit then do
+  else if c == '-' || c == '+' || c.isDigit then
     let i ← parseInt64
     pure (.int64 i)
-  else do
+  else
     let l ← parseLabelRaw
     pure (.label l)
 
@@ -216,6 +216,16 @@ def AnyReg.isXzr {w : Width} : AnyReg w → Bool
   | .xzr => true
   | _ => false
 
+/-- Extract the underlying `XReg` if this is a general-purpose register (and not `XZR`/`WZR`). -/
+def RegOrZr.toXReg? {w : Width} : RegOrZr w → Option XReg
+  | .low (.reg r) _ => some r
+  | _ => none
+
+/-- Extract the underlying `XReg` if this is a general-purpose register (and not `SP`/`WSP`). -/
+def RegOrSp.toXReg? {w : Width} : RegOrSp w → Option XReg
+  | .low (.reg r) _ => some r
+  | _ => none
+
 -- ============================================================================
 -- Operand Parsing
 -- ============================================================================
@@ -260,11 +270,9 @@ def getMemExtendType (extName : String) (w : Width) : Except String MemExtendTyp
   | "lsl",  .W32 => .ok MemExtendType.UXTW
   | ext,    _    => .error s!"unknown memory extension type: {ext}"
 
-def checkUnsignedOffset (w : Width) (imm : Int64) : Except String Unit :=
-  let (maxOff, align) := match w with | .W32 => (16380, 4) | .W64 => (32760, 8)
-  if imm.toInt < 0 || imm.toInt > maxOff || imm.toInt % align != 0 then
-    .error s!"unsigned offset {imm.toInt} out of range [0, {maxOff}] or not a multiple of {align}"
-  else .ok ()
+-- ============================================================================
+-- Validation Helpers
+-- ============================================================================
 
 def checkLoadStoreOffset (w : Width) (imm : Int64) (allowUnscaled : Bool) : Except String Unit :=
   let (maxOff, align) := match w with | .W32 => (16380, 4) | .W64 => (32760, 8)
@@ -427,6 +435,23 @@ def checkTbzBitPosition (instrName : String) (w : Width) (bit : Int) : Except St
   if bit < 0 || bit > maxBit then
     .error s!"{instrName} bit position {bit} out of range [0, {maxBit}] for {w.bits}-bit instruction"
   else .ok ()
+
+/-- Validates architectural constraints for `LDP` and `STP` instructions:
+    1. For `LDP`, `rt1` and `rt2` cannot be identical unless they are `XZR`/`WZR`.
+    2. If writeback (`!` pre-index or post-index) is used, the base register (`Rn`) cannot be one of the transfer registers (`rt1` or `rt2`). -/
+def checkLdpStpRegisters {w : Width} (isLdp : Bool) (reg1 : RegOrZr w) (reg2 : RegOrZr w) (mem : AddrExpr w) : Except String Unit := do
+  if isLdp && reg1 == reg2 && (RegOrZr.toXReg? reg1).isSome then
+    throw "unpredictable: identical destination registers in ldp instruction"
+  let hasWriteback := match mem.off with | .imm i => i.index.isSome | _ => false
+  if hasWriteback then
+    if let some baseReg := RegOrSp.toXReg? mem.base then
+      if RegOrZr.toXReg? reg1 == some baseReg || RegOrZr.toXReg? reg2 == some baseReg then
+        throw "unpredictable: writeback base register is also a transfer register"
+  pure ()
+
+-- ============================================================================
+-- Operand Parsing
+-- ============================================================================
 
 /-- Parses memory addressing operands for general load/store instructions (`LDR`/`STR`).
     Supports the following AArch64 addressing modes:
@@ -751,33 +776,6 @@ def parseCondArg : Parser CondCode := do
   | none => fail s!"unknown condition code: {name}"
 
 -- ============================================================================
--- Validation Helpers
--- ============================================================================
-
-/-- Extract the underlying `XReg` if this is a general-purpose register (and not `XZR`/`WZR`). -/
-def RegOrZr.toXReg? {w : Width} : RegOrZr w → Option XReg
-  | .low (.reg r) _ => some r
-  | _ => none
-
-/-- Extract the underlying `XReg` if this is a general-purpose register (and not `SP`/`WSP`). -/
-def RegOrSp.toXReg? {w : Width} : RegOrSp w → Option XReg
-  | .low (.reg r) _ => some r
-  | _ => none
-
-/-- Validates architectural constraints for `LDP` and `STP` instructions:
-    1. For `LDP`, `rt1` and `rt2` cannot be identical unless they are `XZR`/`WZR`.
-    2. If writeback (`!` pre-index or post-index) is used, the base register (`Rn`) cannot be one of the transfer registers (`rt1` or `rt2`). -/
-def checkLdpStpRegisters {w : Width} (isLdp : Bool) (reg1 : RegOrZr w) (reg2 : RegOrZr w) (mem : AddrExpr w) : Except String Unit := do
-  if isLdp && reg1 == reg2 && (RegOrZr.toXReg? reg1).isSome then
-    throw "unpredictable: identical destination registers in ldp instruction"
-  let hasWriteback := match mem.off with | .imm i => i.index.isSome | _ => false
-  if hasWriteback then
-    if let some baseReg := RegOrSp.toXReg? mem.base then
-      if RegOrZr.toXReg? reg1 == some baseReg || RegOrZr.toXReg? reg2 == some baseReg then
-        throw "unpredictable: writeback base register is also a transfer register"
-  pure ()
-
--- ============================================================================
 -- Instruction Parsing Helpers
 -- ============================================================================
 
@@ -1068,6 +1066,99 @@ def parseMoveWide
   ) <|> liftExcept (getMovShift w 0)
   pure ⟨w, mk dstW.reg imm shift⟩
 
+def parsePairMem
+    (mk : {w : Width} → RegOrZr w → RegOrZr w → AddrExpr w → Operation w)
+    (isLdp : Bool) : Parser Instr := do
+  let reg1W ← parseRegOrZrW
+  parseComma
+  let reg2 ← parseRegOrZr reg1W.w
+  parseComma
+  let mem ← parsePairAddr reg1W.w
+  liftExcept (checkLdpStpRegisters isLdp reg1W.reg reg2 mem)
+  pure ⟨reg1W.w, mk reg1W.reg reg2 mem⟩
+
+def parseThreeRegsW64
+    (mk : RegOrZr .W64 → RegOrZr .W64 → RegOrZr .W64 → Operation .W64) : Parser Instr := do
+  let dst ← parseRegOrZr .W64
+  parseComma
+  let src1 ← parseRegOrZr .W64
+  parseComma
+  let src2 ← parseRegOrZr .W64
+  pure ⟨.W64, mk dst src1 src2⟩
+
+def parseThreeRegsWithZr
+    (mk : {w : Width} → RegOrZr w → RegOrZr w → RegOrZr w → RegOrZr w → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src1 ← parseRegOrZr w
+  parseComma
+  let src2 ← parseRegOrZr w
+  pure ⟨w, mk dstW.reg src1 src2 (.low .XZR w)⟩
+
+def parseNegAlias
+    (mk : {w : Width} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src ← parseRegOrZr w
+  pure ⟨w, mk dstW.reg (.low .XZR w) { reg := src, amount := 0, shift := .LSL }⟩
+
+def parseTstAlias : Parser Instr := do
+  let src1W ← parseRegOrZrW
+  let w := src1W.w
+  parseComma
+  skipHWs
+  let nextC ← peek!
+  if nextC == '#' || nextC == '-' || nextC.isDigit then
+    let imm ← parseConstExpr
+    if let .int64 val := imm then
+      liftExcept (checkLogicalImmediate w val)
+    pure ⟨w, .ANDS_i (.low .XZR w) src1W.reg imm⟩
+  else
+    let src2 ← parseShiftRegExpr w true
+    pure ⟨w, .ANDS_s (.low .XZR w) src1W.reg src2⟩
+
+def parseAdr (checkOffset : Int64 → Except String Unit)
+    (mk : RegOrZr .W64 → ConstExpr → Operation .W64) : Parser Instr := do
+  let dst ← parseRegOrZr .W64
+  parseComma
+  let target ← parseConstExpr
+  if let .int64 imm := target then
+    liftExcept (checkOffset imm)
+  pure ⟨.W64, mk dst target⟩
+
+def parseBranch (mk : ConstExpr → Operation .W64) : Parser Instr := do
+  let target ← parseConstExpr
+  if let .int64 imm := target then
+    liftExcept (checkBOffset imm)
+  pure ⟨.W64, mk target⟩
+
+def parseBranchReg (mk : RegOrZr .W64 → Operation .W64) : Parser Instr := do
+  let target ← parseRegOrZr .W64
+  pure ⟨.W64, mk target⟩
+
+def parseCbz (name : String)
+    (mk : {w : Width} → RegOrZr w → ConstExpr → Operation w) : Parser Instr := do
+  let regW ← parseRegOrZrW
+  parseComma
+  let target ← parseConstExpr
+  if let .int64 imm := target then
+    liftExcept (checkCbzOffset name imm)
+  pure ⟨regW.w, mk regW.reg target⟩
+
+def parseTbz (name : String)
+    (mk : {w : Width} → RegOrZr w → Nat → ConstExpr → Operation w) : Parser Instr := do
+  let regW ← parseRegOrZrW
+  parseComma
+  let bit ← parseInt
+  liftExcept (checkTbzBitPosition name regW.w bit)
+  parseComma
+  let target ← parseConstExpr
+  if let .int64 imm := target then
+    liftExcept (checkTbzOffset name imm)
+  pure ⟨regW.w, mk regW.reg bit.toNat target⟩
+
 -- ============================================================================
 -- Instruction Parsing
 -- ============================================================================
@@ -1111,85 +1202,31 @@ def parseInstr : Parser Instr := do
     let dst ← parseUnscaledAddr
     pure ⟨srcW.w, .STUR srcW.reg dst⟩
 
-  | "ldp" =>
-    let dst1W ← parseRegOrZrW
-    parseComma
-    let dst2 ← parseRegOrZr dst1W.w
-    parseComma
-    let src ← parsePairAddr dst1W.w
-    liftExcept (checkLdpStpRegisters true dst1W.reg dst2 src)
-    pure ⟨dst1W.w, .LDP dst1W.reg dst2 src⟩
+  | "ldp"   => parsePairMem .LDP true
+  | "stp"   => parsePairMem .STP false
 
-  | "stp" =>
-    let src1W ← parseRegOrZrW
-    parseComma
-    let src2 ← parseRegOrZr src1W.w
-    parseComma
-    let dst ← parsePairAddr src1W.w
-    liftExcept (checkLdpStpRegisters false src1W.reg src2 dst)
-    pure ⟨src1W.w, .STP src1W.reg src2 dst⟩
+  | "add"   => parseArithNoFlags .ADD_e .ADD_s
+  | "adds"  => parseArithFlags "adds" .ADDS_e .ADDS_s
+  | "cmn"   => parseCompare .ADDS_e .ADDS_s
+  | "sub"   => parseArithNoFlags .SUB_e .SUB_s
+  | "subs"  => parseArithFlags "subs" .SUBS_e .SUBS_s
+  | "cmp"   => parseCompare .SUBS_e .SUBS_s
 
-  | "add"  => parseArithNoFlags .ADD_e .ADD_s
-  | "adds" => parseArithFlags "adds" .ADDS_e .ADDS_s
-  | "cmn"  => parseCompare .ADDS_e .ADDS_s
-  | "sub"  => parseArithNoFlags .SUB_e .SUB_s
-  | "subs" => parseArithFlags "subs" .SUBS_e .SUBS_s
-  | "cmp"  => parseCompare .SUBS_e .SUBS_s
-
-  | "adc"  => parseThreeRegs .ADC
-  | "adcs" => parseThreeRegs .ADCS
-  | "sbc"  => parseThreeRegs .SBC
-  | "sbcs" => parseThreeRegs .SBCS
+  | "adc"   => parseThreeRegs .ADC
+  | "adcs"  => parseThreeRegs .ADCS
+  | "sbc"   => parseThreeRegs .SBC
+  | "sbcs"  => parseThreeRegs .SBCS
 
   | "madd"  => parseFourRegs .MADD
   | "msub"  => parseFourRegs .MSUB
-  | "mneg"  => do -- Alias of MSUB _, _, _, ZR
-    let dstW ← parseRegOrZrW
-    let w := dstW.w
-    parseComma
-    let src1 ← parseRegOrZr w
-    parseComma
-    let src2 ← parseRegOrZr w
-    pure ⟨w, .MSUB dstW.reg src1 src2 (.low .XZR w)⟩
+  | "mneg"  => parseThreeRegsWithZr .MSUB
+  | "mul"   => parseThreeRegsWithZr .MADD
 
-  | "mul"   => do -- Alias of MADD _, _, _, ZR
-    let dstW ← parseRegOrZrW
-    let w := dstW.w
-    parseComma
-    let src1 ← parseRegOrZr w
-    parseComma
-    let src2 ← parseRegOrZr w
-    pure ⟨w, .MADD dstW.reg src1 src2 (.low .XZR w)⟩
+  | "neg"   => parseNegAlias .SUB_s
+  | "negs"  => parseNegAlias .SUBS_s
 
-  | "neg" => do -- Alias of SUB _, ZR, _, LSL #0
-    let dstW ← parseRegOrZrW
-    let w := dstW.w
-    parseComma
-    let src ← parseRegOrZr w
-    pure ⟨w, .SUB_s dstW.reg (.low .XZR w) { reg := src, amount := 0, shift := .LSL }⟩
-
-  | "negs" => do -- Alias of SUBS _, ZR, _, LSL #0
-    let dstW ← parseRegOrZrW
-    let w := dstW.w
-    parseComma
-    let src ← parseRegOrZr w
-    pure ⟨w, .SUBS_s dstW.reg (.low .XZR w) { reg := src, amount := 0, shift := .LSL }⟩
-
-  | "smulh" => do
-    let dst ← parseRegOrZr .W64
-    parseComma
-    let src1 ← parseRegOrZr .W64
-    parseComma
-    let src2 ← parseRegOrZr .W64
-    pure ⟨.W64, .SMULH dst src1 src2⟩
-
-  | "umulh" => do
-    let dst ← parseRegOrZr .W64
-    parseComma
-    let src1 ← parseRegOrZr .W64
-    parseComma
-    let src2 ← parseRegOrZr .W64
-    pure ⟨.W64, .UMULH dst src1 src2⟩
+  | "smulh" => parseThreeRegsW64 .SMULH
+  | "umulh" => parseThreeRegsW64 .UMULH
 
   | "and"   => parseLogicalNoFlags .AND_i .AND_s
   | "ands"  => parseLogicalFlags .ANDS_i .ANDS_s
@@ -1197,25 +1234,12 @@ def parseInstr : Parser Instr := do
   | "orn"   => parseLogical .ORN_s
   | "eor"   => parseLogicalNoFlags .EOR_i .EOR_s
   | "bic"   => parseLogical .BIC_s
-  | "tst"   => do  -- Alias of ANDS ZR, _, _
-    let src1W ← parseRegOrZrW
-    let w := src1W.w
-    parseComma
-    skipHWs
-    let nextC ← peek!
-    if nextC == '#' || nextC == '-' || nextC.isDigit then
-      let imm ← parseConstExpr
-      if let .int64 val := imm then
-        liftExcept (checkLogicalImmediate w val)
-      pure ⟨w, .ANDS_i (.low .XZR w) src1W.reg imm⟩
-    else
-      let src2 ← parseShiftRegExpr w true
-      pure ⟨w, .ANDS_s (.low .XZR w) src1W.reg src2⟩
+  | "tst"   => parseTstAlias
 
-  | "lsl"   => parseThreeRegs .LSLV -- Alias of LSLV
-  | "lsr"   => parseThreeRegs .LSRV -- Alias of LSRV
-  | "asr"   => parseThreeRegs .ASRV -- Alias of ASRV
-  | "ror"   => parseThreeRegs .RORV -- Alias of RORV
+  | "lsl"   => parseThreeRegs .LSLV
+  | "lsr"   => parseThreeRegs .LSRV
+  | "asr"   => parseThreeRegs .ASRV
+  | "ror"   => parseThreeRegs .RORV
   | "lslv"  => parseThreeRegs .LSLV
   | "lsrv"  => parseThreeRegs .LSRV
   | "asrv"  => parseThreeRegs .ASRV
@@ -1237,86 +1261,23 @@ def parseInstr : Parser Instr := do
   | "movk"  => parseMoveWide .MOVK
   | "movn"  => parseMoveWide .MOVN
 
-  | "adr" =>
-    let dst ← parseRegOrZr .W64
-    parseComma
-    let target ← parseConstExpr
-    if let .int64 imm := target then
-      liftExcept (checkAdrOffset imm)
-    pure ⟨.W64, .ADR dst target⟩
+  | "adr"   => parseAdr checkAdrOffset .ADR
+  | "adrp"  => parseAdr checkAdrpOffset .ADRP
 
-  | "adrp" =>
-    let dst ← parseRegOrZr .W64
-    parseComma
-    let target ← parseConstExpr
-    if let .int64 imm := target then
-      liftExcept (checkAdrpOffset imm)
-    pure ⟨.W64, .ADRP dst target⟩
-
-  | "b" =>
-    let target ← parseConstExpr
-    if let .int64 imm := target then
-      liftExcept (checkBOffset imm)
-    pure ⟨.W64, .B target⟩
-
-  | "bl" =>
-    let target ← parseConstExpr
-    if let .int64 imm := target then
-      liftExcept (checkBOffset imm)
-    pure ⟨.W64, .BL target⟩
-
-  | "blr" =>
-    let target ← parseRegOrZr .W64
-    pure ⟨.W64, .BLR target⟩
-
-  | "br" =>
-    let target ← parseRegOrZr .W64
-    pure ⟨.W64, .BR target⟩
-
-  | "ret" =>
+  | "b"     => parseBranch .B
+  | "bl"    => parseBranch .BL
+  | "blr"   => parseBranchReg .BLR
+  | "br"    => parseBranchReg .BR
+  | "ret"   => do
     let target ← parseOptionalOperand (parseRegOrZr .W64) RegOrZr.X30
     pure ⟨.W64, .RET target⟩
 
-  | "cbz" =>
-    let regW ← parseRegOrZrW
-    parseComma
-    let target ← parseConstExpr
-    if let .int64 imm := target then
-      liftExcept (checkCbzOffset "cbz" imm)
-    pure ⟨regW.w, .CBZ regW.reg target⟩
+  | "cbz"   => parseCbz "cbz" .CBZ
+  | "cbnz"  => parseCbz "cbnz" .CBNZ
+  | "tbz"   => parseTbz "tbz" .TBZ
+  | "tbnz"  => parseTbz "tbnz" .TBNZ
 
-  | "cbnz" =>
-    let regW ← parseRegOrZrW
-    parseComma
-    let target ← parseConstExpr
-    if let .int64 imm := target then
-      liftExcept (checkCbzOffset "cbnz" imm)
-    pure ⟨regW.w, .CBNZ regW.reg target⟩
-
-  | "tbz" =>
-    let regW ← parseRegOrZrW
-    parseComma
-    let bit ← parseInt
-    liftExcept (checkTbzBitPosition "tbz" regW.w bit)
-    parseComma
-    let target ← parseConstExpr
-    if let .int64 imm := target then
-      liftExcept (checkTbzOffset "tbz" imm)
-    pure ⟨regW.w, .TBZ regW.reg bit.toNat target⟩
-
-  | "tbnz" =>
-    let regW ← parseRegOrZrW
-    parseComma
-    let bit ← parseInt
-    liftExcept (checkTbzBitPosition "tbnz" regW.w bit)
-    parseComma
-    let target ← parseConstExpr
-    if let .int64 imm := target then
-      liftExcept (checkTbzOffset "tbnz" imm)
-    pure ⟨regW.w, .TBNZ regW.reg bit.toNat target⟩
-
-  | "nop" =>
-    pure ⟨.W64, .NOP⟩
+  | "nop"   => pure ⟨.W64, .NOP⟩
 
   | _ =>
     let condStr? :=
@@ -1336,34 +1297,28 @@ def parseInstr : Parser Instr := do
         fail s!"unsupported instruction: {mnemonic}"
 
 -- ============================================================================
--- Label Parsing
+-- Line and Program Parsing
 -- ============================================================================
 
 /-- Parse an optional label (name followed by colon).
     Uses attempt for proper backtracking if colon is not found. -/
 def parseLabelDecl : Parser Label := do
   skipHWs
-  (attempt do
+  attempt do
     let name ← parseName
     skipHWs
     let _ ← pchar ':'
-    pure name)
-
--- ============================================================================
--- Line and Program Parsing
--- ============================================================================
-
-def skipSpaceAndCheckLineEnd : Parser Bool := isAtLineEndOrComment
+    pure name
 
 def parseOptionalInstr : Parser (Option Directive) := do
-  if (← skipSpaceAndCheckLineEnd) then
+  if (← isAtLineEndOrComment) then
     pure none
   else
     let i ← parseInstr
     pure (some (Directive.instr i))
 
 def checkLineEnd : Parser Unit := do
-  if (← skipSpaceAndCheckLineEnd) then
+  if (← isAtLineEndOrComment) then
     pure ()
   else
     fail "unexpected trailing characters on line"
