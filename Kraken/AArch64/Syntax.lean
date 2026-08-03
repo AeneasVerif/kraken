@@ -1,6 +1,11 @@
 import Lean
 import Std
 
+/--
+Architectural operand and register width for AArch64 instructions.
+- `W32`: 32-bit register (`W0`-`W30`, `WSP`, `WZR`) or 32-bit operation.
+- `W64`: 64-bit register (`X0`-`X30`, `SP`, `XZR`) or 64-bit operation.
+-/
 inductive Width | W32 | W64 deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 instance : ToString Width where
@@ -20,7 +25,9 @@ unif_hint (w : Width) where
 unif_hint (w : Width) where
   w =?= Width.W64 |- Width.type w =?= BitVec 64
 
--- General purpose registers (GPR) X0 to X30.
+/--
+AArch64 General Purpose Registers (GPRs) `X0` through `X30`.
+-/
 inductive XReg
   |  X0 |  X1 |  X2 |  X3 |  X4 |  X5 |  X6 |  X7
   |  X8 |  X9 | X10 | X11 | X12 | X13 | X14 | X15
@@ -28,13 +35,17 @@ inductive XReg
   | X24 | X25 | X26 | X27 | X28 | X29 | X30
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
--- GPR or stack pointer.
+/--
+GPR or Stack Pointer (`SP`/`WSP`), used in contexts where index 31 means SP.
+-/
 inductive XRegOrSp
   | reg (_ : XReg)
   | SP
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
--- GPR or zero register.
+/--
+GPR or Zero Register (`XZR`/`WZR`), used in contexts where index 31 means ZR.
+-/
 inductive XRegOrXzr
   | reg (_ : XReg)
   | XZR
@@ -82,30 +93,65 @@ structure RegOrSpW where (w : Width) (reg : RegOrSp w)
 structure RegOrZrW where (w : Width) (reg : RegOrZr w)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
--- Note: LSL is another name for UXTW or UXTX, depending on whether it is a 32-bit or a 64-bit instruction.
+/--
+Architectural extension types for arithmetic instructions.
+- Supports unsigned/signed byte (`UXTB`, `SXTB`), halfword (`UXTH`, `SXTH`),
+  word (`UXTW`, `SXTW`), and doubleword (`UXTX`, `SXTX`). `UXTW` and `UXTX` are
+  also aliased as `LSL`, respectively, depending on operand width.
+-/
 inductive ExtendType | UXTB | SXTB | UXTH | SXTH | UXTW | SXTW | UXTX | SXTX
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
--- Note: LSL is another name for UXTX.
+/--
+Architectural extension types for memory addressing index registers.
+- Supports `UXTW`, `SXTW`, `UXTX`, `SXTX`, `LSL` alias.
+- `UXTW`/`SXTW` require a 32-bit index register `Wn`.
+- `SXTX`/`UXTX` require a 64-bit index register `Xn`.
+-/
 inductive MemExtendType | UXTW | SXTW | UXTX | SXTX
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
+/--
+Shift amount applied after extension in arithmetic instructions.
+-/
 inductive ExtendAmount | E0 | E1 | E2 | E3 | E4
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
+/--
+Shift amount applied to index registers in memory addressing.
+- Restricted to either unshifted (`E0`, shift `#0` / omitted)
+  or scaled by log2 of the access size in bytes:
+  - `E2` (`#2`) for 32-bit (`.W32`, 4-byte) operations.
+  - `E3` (`#3`) for 64-bit (`.W64`, 8-byte) operations.
+-/
 inductive MemExtendAmount : Width → Type
   | E0 {w} : MemExtendAmount w
   | E2 : MemExtendAmount .W32
   | E3 : MemExtendAmount .W64
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
--- Note: ROR is only valid for logic instructions, invalid for arithmetic instructions.
+/--
+Shift types for shifted-register operands.
+- `LSL`, `LSR`, `ASR` are allowed in both logical and arithmetic instructions.
+- `ROR` (rotate right) is only valid in logical instructions.
+-/
 inductive ShiftType | LSL | LSR | ASR | ROR
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
+/--
+Optional shift for immediate operands in arithmetic instructions.
+- Immediate values can only be unshifted (`S0`, `LSL #0` / omitted)
+  or shifted left by 12 bits (`S12`, `LSL #12`).
+-/
 inductive ImmShift | S0 | S12
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
+/--
+Allowed shift amounts for move wide immediate instructions.
+- For 32-bit registers (`.W32`): Can shift by `#0` (`LSL0`) or `#16` (`LSL16`).
+- For 64-bit registers (`.W64`): Can shift by `#0` (`LSL0`), `#16` (`LSL16`),
+  `#32` (`LSL32`), or `#48` (`LSL48`).
+-/
 inductive MovShift : Width → Type
   | LSL0 {w}  : MovShift w
   | LSL16 {w} : MovShift w
@@ -119,45 +165,70 @@ def MovShift.toNat {w} : MovShift w → Nat
   | .LSL32 => 32
   | .LSL48 => 48
 
+/--
+Addressing indexing mode for immediate memory offsets.
+- `Pre`: Pre-indexed writeback (`[Xn, #imm]!`). Base updated before access.
+- `Post`: Post-indexed writeback (`[Xn], #imm`). Base updated after access.
+- `none` (Option.none): Offset addressing (`[Xn, #imm]`) without base writeback.
+-/
 inductive Index | Pre | Post
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
+/-- Combined extension type and shift amount for arithmetic instructions. -/
 structure Extend where
   type : ExtendType
   amount : ExtendAmount
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
+/-- Combined extension type and shift amount for memory index registers. -/
 structure MemExtend (w : Width) where
   type : MemExtendType
   amount : MemExtendAmount w
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
+/-- Register operand with extension and shift for arithmetic instructions (`Xm, <extend> #<amount>`). -/
 structure ExtRegExpr where
   reg : RegOrZrW
   ext : Extend
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
+/-- Register operand with extension and shift for memory addressing (`[Xn, Xm, <extend> #<amount>]`). -/
 structure MemExtRegExpr (w : Width) where
   reg : RegOrZrW
   ext : MemExtend w
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
+/--
+12-bit unsigned immediate operand with optional `LSL #0` or `LSL #12` shift for arithmetic instructions.
+- The unsigned immediate `imm` must be in range $[0, 4095]$.
+-/
 structure ImmExpr (w : Width) where
   imm : ConstExpr -- 12-bit unsigned immediate value, must be in [0, 4095] when evaluated.
   shift : ImmShift
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
+/--
+Shifted register operand for logical and arithmetic instructions (`Xm, <shift> #<amount>`).
+- Shift amount `amount` must be in $[0, 31]$ for 32-bit (`.W32`) operations
+  and $[0, 63]$ for 64-bit (`.W64`) operations.
+-/
 structure ShiftRegExpr (w : Width) where
   reg : RegOrZr w
   amount : Int64 -- Must be in the range $[0, 31]$ for 32-bit instructions and [0, 63] for 64-bit instructions.
   shift : ShiftType
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
+/--
+Memory access byte offset. Valid architectural ranges depend on the addressing mode and access size:
+- **Unsigned scaled offset (`index = none`)**: A multiple of 4 in [0, 16380]
+  for 32-bit operations and a multiple of 8 in [0, 32760] for 64-bit operations.
+- **Signed unscaled / pre / post-indexed offset**: A 9-bit signed integer in
+  $[-256, 255]$ (`index = some .Pre | some .Post` or unscaled `LDUR/STUR`).
+- **Load/Store Pair (`LDP/STP`)**: A 7-bit signed integer scaled by instruction
+  size, giving $[-256, 252]$ (multiples of 4) for 32-bit and $[-512, 504]$
+  (multiples of 8) for 64-bit.
+-/
 structure ImmAddrExpr (w : Width) where
-  /-- Memory access byte offset. Valid architectural ranges depend on the addressing mode and access size:
-      - **Unsigned scaled offset (`index = none`)**: A multiple of 4 in [0, 16380] for 32-bit operations and a multiple of 8 in [0, 32760] for 64-bit operations.
-      - **Signed unscaled / pre-indexed / post-indexed offset (`index = some .Pre | some .Post` or unscaled `LDUR/STUR`)**: A 9-bit signed integer in $[-256, 255]$.
-      - **Load/Store Pair (`LDP/STP`)**: A 7-bit signed integer scaled by instruction size, giving $[-256, 252]$ (multiples of 4) for 32-bit and $[-512, 504]$ (multiples of 8) for 64-bit. -/
   imm : ConstExpr
   index : Option Index
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
@@ -216,7 +287,7 @@ structure AddrExpr (w : Width) where
 
 structure UnscaledAddrExpr where
   base : RegOrSp .W64 -- Memory base register is always Xn|SP.
-  imm : ConstExpr
+  imm : ConstExpr -- Literal `imm` must be a 9-bit signed unscaled integer in [-256, 255].
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 inductive AddrOrLit w | addr (_ : AddrExpr w) | lit (_ : Literal w)
