@@ -160,7 +160,7 @@ def compare_states(real: ExecutionState, kraken: ExecutionState, undefined_flags
         if rv != kv:
             diffs.append(f"{r}: x86={rv:#x} ({rv}), kraken={kv:#x} ({kv})")
 
-    for r in [r for r in ZMMS]:
+    for r in ZMMS:
         rv, kv = real.zmms.get(r, '0'), kraken.zmms.get(r, '0')
         if rv != kv:
             diffs.append(f"{r}: x86={rv}, kraken={kv}")
