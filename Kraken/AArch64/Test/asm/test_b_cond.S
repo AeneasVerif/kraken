@@ -30,3 +30,12 @@ _ge_target:
 b.le _le_target
 add x7, x7, #600
 _le_target:
+
+// undotted aliases: beq / bne
+cmp x0, x0
+beq _undotted_eq_taken
+add x8, x8, #1
+_undotted_eq_taken:
+bne _undotted_ne_taken
+add x9, x9, #10
+_undotted_ne_taken:

@@ -125,17 +125,20 @@ def gimmickInv {p: Prop} (h: p): gimmickId p := by
   simp [gimmickId]
   assumption
 
+-- Enable with `set_option trace.Kraken.kstep true`.
+initialize registerTraceClass `Kraken.kstep
+
 -- Debugging the reduction steps: to easily have a marker that tells us when we've hit the top-level
 -- term, we assume prior to running `kstep`, the user does `apply gimmick`. (This also avoids having
 -- to reason about whether we're at the top-level term or not -- we never are.)
 def klog : DSimproc := fun e => do
-  -- We log every top-level term get a trace of the various states of the dsimp
+  -- Trace every top-level term to show the various states of the dsimp
   -- call.
   let s := (← get).numSteps
   /- if s = 789 then -/
   /-   return .rfl (done := true) -/
   if e.isApp && e.getAppFn'.isConstOf ``gimmickId then
-    logInfo m!"klog: step {s} visiting\n{e.getAppRevArgs[0]!}"
+    trace[Kraken.kstep] "step {s} visiting\n{e.getAppRevArgs[0]!}"
   return .rfl
 
 
