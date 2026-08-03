@@ -281,6 +281,7 @@ def ShiftRegExpr.interp {w} (expr : ShiftRegExpr w) (s : Reg64s) (_ : Std.Rco In
   | .LSL => base <<< amount
   | .LSR => base.ushiftRight amount
   | .ASR => base.sshiftRight amount
+  | .ROR => base.rotateRight amount
 
 def AddrExpr.eval [Labels] {w} (mem : AddrExpr w) (s : MachineData) (p : Std.Rco Int64) : BitVec 64 × MachineData :=
   let base := (s.regs.getRegOrSp mem.base).signed
@@ -312,6 +313,25 @@ def AddrExpr.interp [Labels] {w} (mem : AddrExpr w) (s : MachineData) (p : Std.R
   mem.checkSPAlignment s (fun _unit =>
     let (addr, s') := mem.eval s p
     s'.load addr w ret)
+
+def UnscaledAddrExpr.eval [Labels] (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) : BitVec 64 :=
+  let base := (s.regs.getRegOrSp mem.base).toInt
+  let off := Int64.toInt (mem.imm.interp p)
+  BitVec.ofInt 64 (base + off)
+
+def UnscaledAddrExpr.checkSPAlignment (mem : UnscaledAddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
+  match mem.base with
+  | .SP =>
+    if s.regs.getRegOrSp .SP % 16#64 != 0#64 then
+      .unimplemented s!"Unimplemented: SP is required to be 16-byte aligned"
+    else
+      ok ()
+  | _ => ok ()
+
+def UnscaledAddrExpr.interp [Labels] {w : Width} (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
+  mem.checkSPAlignment s (fun _unit =>
+    let addr := mem.eval s p
+    s.load addr w ret)
 
 def Literal.interp [Labels] {w} (expr : Literal w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) : Effects :=
   match expr with
@@ -385,6 +405,12 @@ def Operation.interp [Labels]
       let val := s.regs.getRegOrZr src
       let (addr, s') := dst.eval s p
       s'.store addr val next)
+  | .LDUR dst src => src.interp s p (fun val s => s.setRegOrZr dst val next)
+  | .STUR src dst =>
+    dst.checkSPAlignment s (fun _unit =>
+      let val := s.regs.getRegOrZr src
+      let addr := dst.eval s p
+      s.store addr val next)
   -- TODO: Architecturally, the memory access ordering of LDP/STP is UNORDERED and can occur
   -- simultaneously as a 128-bit transaction or in any order on hardware. Here we model a specific
   -- sequential order (lower address first, then higher address), which does not necessarily reflect
@@ -499,18 +525,33 @@ def Operation.interp [Labels]
     let prod := val1.toNat * val2.toNat
     let res := BitVec.ofNat 64 (prod >>> 64)
     s.setRegOrZr dst res next
+  | .AND_i dst src1 imm =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 &&& val2
+    s.setRegOrSp dst res next
   | .AND_s dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := src2.interp s.regs p
     let res := val1 &&& val2
     s.setRegOrZr dst res next
+  | .ANDS_i dst src1 imm =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 &&& val2
+    let flags := StatusFlags.from_result res { c := false, v := false }
+    { s with status := flags }.setRegOrZr dst res next
   | .ANDS_s dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := src2.interp s.regs p
     let res := val1 &&& val2
     let flags := StatusFlags.from_result res { c := false, v := false }
-    let s' := { s with status := flags }
-    s'.setRegOrZr dst res next
+    { s with status := flags }.setRegOrZr dst res next
+  | .ORR_i dst src1 imm =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 ||| val2
+    s.setRegOrSp dst res next
   | .ORR_s dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := src2.interp s.regs p
@@ -521,6 +562,11 @@ def Operation.interp [Labels]
     let val2 := src2.interp s.regs p
     let res := val1 ||| ~~~val2
     s.setRegOrZr dst res next
+  | .EOR_i dst src1 imm =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 ^^^ val2
+    s.setRegOrSp dst res next
   | .EOR_s dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := src2.interp s.regs p
@@ -530,6 +576,20 @@ def Operation.interp [Labels]
     let val1 := s.regs.getRegOrZr src1
     let val2 := src2.interp s.regs p
     let res := val1 &&& ~~~val2
+    s.setRegOrZr dst res next
+  | .MOVZ dst imm shift =>
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& (0xFFFF : BitVec w.bits)
+    let res := val16 <<< shift.toNat
+    s.setRegOrZr dst res next
+  | .MOVK dst imm shift =>
+    let oldVal := s.regs.getRegOrZr dst
+    let mask := ~~~((0xFFFF : BitVec w.bits) <<< shift.toNat)
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& (0xFFFF : BitVec w.bits)
+    let res := (oldVal &&& mask) ||| (val16 <<< shift.toNat)
+    s.setRegOrZr dst res next
+  | .MOVN dst imm shift =>
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& (0xFFFF : BitVec w.bits)
+    let res := ~~~(val16 <<< shift.toNat)
     s.setRegOrZr dst res next
   | .LSLV dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
@@ -555,6 +615,18 @@ def Operation.interp [Labels]
     let shift := val2.toNat % w.bits
     let res := val1.rotateRight shift
     s.setRegOrZr dst res next
+  | .CSEL dst src1 src2 cond =>
+    let val := if cond.interp s.status then s.regs.getRegOrZr src1 else s.regs.getRegOrZr src2
+    s.setRegOrZr dst val next
+  | .CSINC dst src1 src2 cond =>
+    let val := if cond.interp s.status then s.regs.getRegOrZr src1 else s.regs.getRegOrZr src2 + 1#w.bits
+    s.setRegOrZr dst val next
+  | .CSINV dst src1 src2 cond =>
+    let val := if cond.interp s.status then s.regs.getRegOrZr src1 else ~~~(s.regs.getRegOrZr src2)
+    s.setRegOrZr dst val next
+  | .CSNEG dst src1 src2 cond =>
+    let val := if cond.interp s.status then s.regs.getRegOrZr src1 else -(s.regs.getRegOrZr src2)
+    s.setRegOrZr dst val next
   | .ADR dst target =>
     let val := match target with
       | .int64 imm => BitVec.ofInt 64 (Int64.toInt p.lower + Int64.toInt imm)
