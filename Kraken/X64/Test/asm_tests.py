@@ -17,6 +17,10 @@ ATT2INTEL = BIN_DIR / "att2intel"
 
 REGS = ["rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rsp", "rbp",
         "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"]
+# The extended zmm registers are frequently unavailable on actual machines.
+ZMMS = [f"zmm{i}" for i in range(32)]
+# ymm16..31 are only available on AVX512(VL), but we'll assume we have AVX2.
+SAFE_YMMS = [f"ymm{i}" for i in range(16)]
 # Maps each flag to its bit in the EFLAGS register.
 FLAG_MAP = {"cf": 0, "pf": 2, "af": 4, "zf": 6, "sf": 7, "of": 11}
 TIMEOUT_SECONDS = 50
@@ -30,10 +34,14 @@ class Color:
 
 def get_boilerplate(instruction_text: str) -> str:
   reg_count = len(REGS)
+  ymm_count = len(SAFE_YMMS)
   # We move all base registers + the eflags register into memory, so as to dump it later to stdout.
-  total_bytes = (reg_count + 1) * 8
+  # nb: we only read the YMM values since ZMMs are not widely supported
+  total_bytes = (reg_count + 1) * 8 + ymm_count * 32
+  ymm_base = (reg_count + 1) * 8
 
   moves = "\n    ".join([f"movq %{reg}, _final_state + {i*8}(%rip)" for i, reg in enumerate(REGS)])
+  ymm_moves = "\n    ".join([f"vmovups %{ymm}, _final_state + {ymm_base + i * 32}(%rip)" for i, ymm in enumerate(SAFE_YMMS)])
 
   return f"""
 .data
@@ -61,7 +69,8 @@ _start:
 {instruction_text}
 # --- Test Code End ---
     movq _old_rsp(%rip), %rsp   # Restore the old stack pointer.
-{moves}
+    {moves}
+    {ymm_moves}
     pushfq
     popq %rax
     movq %rax, _final_state + {reg_count * 8}(%rip)
@@ -82,16 +91,22 @@ _start:
 @dataclass
 class ExecutionState:
     regs: Dict[str, int]
+    zmms: Dict[str, int]
     flags: Dict[str, bool]
 
 def parse_raw_state(raw_bytes: bytes) -> ExecutionState:
-    fmt = f"<{len(REGS)}Q Q"
+    fmt = f"<{len(REGS)}Q Q" + "32s" * len(SAFE_YMMS)
     unpacked = struct.unpack(fmt, raw_bytes)
-    reg_values = unpacked[:-1]
-    rflags = unpacked[-1]
-
+    reg_values = unpacked[:len(REGS)]
+    rflags = unpacked[len(REGS)]
+    ymm_raw = unpacked[len(REGS) + 1:]
+    ymm_values = [
+        f"{int.from_bytes(chunk, byteorder='little'):x}"
+        for chunk in ymm_raw
+    ]
     return ExecutionState(
         regs=dict(zip(REGS, reg_values)),
+        zmms=dict(zip(ZMMS, ymm_values)),
         flags={name: bool(rflags & (1 << bit)) for name, bit in FLAG_MAP.items()}
     )
 
@@ -119,7 +134,7 @@ def run_kraken(path: Path) -> Tuple[Optional[ExecutionState], Optional[str]]:
     try:
         res = subprocess.run([KRAKEN_RUNNER, path], capture_output=True, check=True, timeout=TIMEOUT_SECONDS)
         data = json.loads(res.stdout)
-        return ExecutionState(regs=data["regs"], flags=data["flags"]), None
+        return ExecutionState(regs=data["regs"], zmms=data["zmms"], flags=data["flags"]), None
     except subprocess.CalledProcessError as e:
         return None, f"Kraken Error:\n{(e.stderr or b"").decode(errors="replace").strip()}"
     # This except clause ensures any stderr messages are shown even if there is a timeout
@@ -141,9 +156,14 @@ def get_undefined_flags(path: Path) -> List[str]:
 def compare_states(real: ExecutionState, kraken: ExecutionState, undefined_flags: List[str]) -> List[str]:
     diffs = []
     for r in [r for r in REGS if r != "rsp"]:
-        rv, kv = real.regs[r], kraken.regs[r]
+        rv, kv = real.regs.get(r, 0), kraken.regs.get(r, 0)
         if rv != kv:
             diffs.append(f"{r}: x86={rv:#x} ({rv}), kraken={kv:#x} ({kv})")
+
+    for r in ZMMS:
+        rv, kv = real.zmms.get(r, '0'), kraken.zmms.get(r, '0')
+        if rv != kv:
+            diffs.append(f"{r}: x86={rv}, kraken={kv}")
 
     for f in [f for f in FLAG_MAP if not f in undefined_flags]:
         if real.flags[f] != kraken.flags[f]:

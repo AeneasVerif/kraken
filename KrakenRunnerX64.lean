@@ -23,25 +23,38 @@ open Lean
 -- TODO Add memory, for now we only track and compare registers and flags.
 structure StateSummary where
   regs : List (String × UInt64)
+  zmms : List (String × ZmmValue)
   flags : List (String × Bool)
 
--- Custom json serialization for the state summary.
+-- Custom json serialization for the state summary. Registers with zero values
+-- are not included.
 instance : ToJson StateSummary where
   toJson s :=
-    let regs := s.regs.map (fun (k, v) => (k, Json.num v.toNat))
+    let regs := s.regs.filterMap (fun (k, v) => if v == 0 then none else some (k, Json.num v.toNat))
+    let zmms := s.zmms.filterMap (fun (k, v) => if v == 0#512 then none else some (k, Json.str (String.ofList (Nat.toDigits 16 v.toNat))))
     let flags := s.flags.map (fun (k, v) => (k, toJson v))
     Json.mkObj [
       ("regs", Json.mkObj regs),
+      ("zmms", Json.mkObj zmms),
       ("flags", Json.mkObj flags)
     ]
 
 def summarize (s : MachineData) : StateSummary :=
   let r := s.regs
+  let z := s.zmms
   let f := s.status
   { regs := [("rax", r.rax), ("rbx", r.rbx), ("rcx", r.rcx), ("rdx", r.rdx),
              ("rsi", r.rsi), ("rdi", r.rdi), ("rbp", r.rbp), ("r8", r.r8),
              ("r9", r.r9), ("r10", r.r10), ("r11", r.r11), ("r12", r.r12),
              ("r13", r.r13), ("r14", r.r14), ("r15", r.r15)],
+    zmms := [("zmm0", z.zmm0), ("zmm1", z.zmm1), ("zmm2", z.zmm2), ("zmm3", z.zmm3),
+             ("zmm4", z.zmm4), ("zmm5", z.zmm5), ("zmm6", z.zmm6), ("zmm7", z.zmm7),
+             ("zmm8", z.zmm8), ("zmm9", z.zmm9), ("zmm10", z.zmm10), ("zmm11", z.zmm11),
+             ("zmm12", z.zmm12), ("zmm13", z.zmm13), ("zmm14", z.zmm14), ("zmm15", z.zmm15),
+             ("zmm16", z.zmm16), ("zmm17", z.zmm17), ("zmm18", z.zmm18), ("zmm19", z.zmm19),
+             ("zmm20", z.zmm20), ("zmm21", z.zmm21), ("zmm22", z.zmm22), ("zmm23", z.zmm23),
+             ("zmm24", z.zmm24), ("zmm25", z.zmm25), ("zmm26", z.zmm26), ("zmm27", z.zmm27),
+             ("zmm28", z.zmm28), ("zmm29", z.zmm29), ("zmm30", z.zmm30), ("zmm31", z.zmm31)],
     flags := [("cf", f.cf), ("pf", f.pf), ("af", f.af),
               ("zf", f.zf), ("sf", f.sf), ("of", f.of)] }
 
