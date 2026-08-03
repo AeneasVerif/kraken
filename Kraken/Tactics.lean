@@ -224,18 +224,26 @@ partial def evalSymKStep : Grind.GrindTactic :=
   let cfg := stx[1]
   let config ← elabKStepConfig cfg
   let alignedLoadsAndStore := config.alignedLoadsAndStores
-  -- A `sym` tactic operates over a pair of the grind state and an MVarId
+  -- A `sym` tactic operates over a pair of the grind state and an MVarId. To avoid scope mistakes,
+  -- we only ever use `goal` and never let-bind mvarId.
   let goal : Grind.Goal ← Grind.getMainGoal
-  let mvarId := goal.mvarId
+
+  let gimmickRule ← mkBackwardRuleFromDecl ``gimmick
+  let insertGimmick (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
+    let .goals [mvarId] ← Grind.liftGrindM (gimmickRule.apply goal.mvarId) | failure
+    pure { goal with mvarId }
+
+  let gimmickRule ← mkBackwardRuleFromDecl ``gimmickInv
+  let removeGimmick (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
+    let mvarId ← Grind.liftGrindM (do
+      let .goals [mvarId] ← gimmickRule.apply goal.mvarId | failure
+      pure mvarId
+    )
+    pure { goal with mvarId }
 
   -- Apply the debug gimmick. We actually *do* expect the goal to be in this form (see comment in
   -- kdeltaBetaOnly).
-  let gimmickRule ← mkBackwardRuleFromDecl ``gimmick
-  let mvarId ← Grind.liftGrindM (do
-    let .goals [mvarId] ← gimmickRule.apply mvarId | failure
-    pure mvarId
-  )
-  let goal := { goal with mvarId }
+  let goal ← insertGimmick goal
 
   let env ← getEnv
 
@@ -254,20 +262,28 @@ partial def evalSymKStep : Grind.GrindTactic :=
     pure (insertPattern specTree pat name)
   ) {}
 
+  -- TODO: remove once we have lift_lets
+  let introsIf (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
+    let goal ← removeGimmick goal
+    let goal ← match ← Grind.liftGrindM (goal.intros #[]) with
+      | Grind.IntrosResult.failed => pure goal
+      | .goal _ goal => pure goal
+    pure (← insertGimmick goal)
+
   -- MAIN LOOP
   let rec go (goal: Grind.Goal): Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
     logInfo m!"MAIN LOOP ITERATION"
-    let mvarId := goal.mvarId
-    let goalT ← mvarId.getType
 
     -- STEP 1: dsimp
-    let mvarId ← mvarId.replaceTargetDefEq (← Grind.liftGrindM (do
-      Sym.dsimp
-        (config := { maxSteps := 1000000 })
-        (methods := {
-          pre := klog config >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta >> zeta })
-        goalT)
-    )
+    let goal ← do
+      let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM $
+        Sym.dsimp
+          (config := { maxSteps := 1000000 })
+          (methods := {
+            pre := klog config >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta })
+          (← goal.mvarId.getType))
+      introsIf ({ goal with mvarId })
+    logInfo m!"Goal after step 1: {goal.mvarId}"
 
     -- TEMPORARY: trying to simplify binders in the goal
     /- let goal ← Meta.letToHave goal -/
@@ -275,21 +291,23 @@ partial def evalSymKStep : Grind.GrindTactic :=
     /- let mvarId ← mvarId.replaceTargetDefEq goal -/
 
     -- STEP 2: simp
-    let simpResult ← Grind.liftGrindM (Sym.simpGoal mvarId simpMethods)
-    let (keepGoingSimp, mvarId) ← Grind.liftGrindM (match simpResult with
-      | .noProgress => pure (false, mvarId)
-      | .goal mvarId => pure (true, mvarId)
-      | .closed => throwError "unexpected")
+    let (keepGoingSimp, goal) ← Grind.liftGrindM $ do
+      let simpResult ← Sym.simpGoal goal.mvarId simpMethods
+      match simpResult with
+      | .noProgress => pure (false, goal)
+      | .goal mvarId => pure (true, { goal with mvarId })
+      | .closed => throwError "unexpected"
 
     -- STEP 3: spec lemmas
-    let goal: Grind.Goal := { goal with mvarId }
-    let goalT ← mvarId.getType
-    let_expr gimmickId goalT' := goalT | throwError "missing gimmick"
-    -- No more Effects.All in the goal -- return to the user (we might be done,
-    -- or realistically, we might need to debug).
-    let_expr Effects.All post state := goalT' | return (goal, [])
+    let goalState ← do
+      let goalT ← goal.mvarId.getType
+      let_expr gimmickId goalT' := goalT | throwError "missing gimmick"
+      -- No more Effects.All in the goal -- return to the user (we might be done,
+      -- or realistically, we might need to debug).
+      let_expr Effects.All post state := goalT' | return (goal, [])
+      pure state
     let (keepGoingSpec, goal) ←
-      match getMatch specTree state with
+      match getMatch specTree goalState with
       | #[ thmName ] =>
         logInfo m!"Found a spec lemma: {thmName}"
         let (goal, subGoals) ← rwTarget goal false (mkConst thmName)
@@ -368,7 +386,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
 
         pure (true, goal)
       | #[] =>
-        pure (false, { goal with mvarId })
+        pure (false, goal)
       | _ =>
         throwError "TODO"
 
@@ -382,15 +400,12 @@ partial def evalSymKStep : Grind.GrindTactic :=
   let (goal, subGoals) ← go goal
 
   -- Remove the gimmick debug marker.
-  let gimmickRule ← mkBackwardRuleFromDecl ``gimmickInv
-  let mvarId ← Grind.liftGrindM (do
-    let .goals [mvarId] ← gimmickRule.apply goal.mvarId | failure
-    pure mvarId
-  )
+  let goal ← removeGimmick goal
   
   logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
 
-  Grind.setGoals (subGoals ++ [ { goal with mvarId } ])
+  -- See lean4#14668 
+  Grind.setGoals (subGoals ++ [ goal ])
 
 syntax (name := symRotateRight) "rotate_right" (ppSpace num)? : grind
 

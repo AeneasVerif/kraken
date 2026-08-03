@@ -338,7 +338,7 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   apply Eventually.done
   simp only [and_true]
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
-  done
+  bv_decide
 
 -- def bigp := parseFile("./ecc-secp521r1-modp.S")
 
@@ -439,7 +439,10 @@ theorem sib_example_correct [layout : Layout] (s₀ : MachineData)
   dsimp only [sib_example]
   rw [Executable.directivesFromStart]
   simp [List.mapIdx, List.mapIdx.go]
-  sym => kstep; tactic =>
+  sym =>
+  kstep
+  tactic =>
+  exact h_mem
   simp [AddrExpr.interp, ConstExpr.interp, Reg64s.get64, Width.bits, Width.bytes, BitVec.toAddressSize, BitVec.signed, BitVec.take_all, BitVec.ofInt_add, BitVec.ofInt_mul, BitVec.ofInt_toInt]
   rw [store_sep]
   case h_mem => exact h_mem
