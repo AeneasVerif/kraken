@@ -19,6 +19,6 @@ addps %xmm1, %xmm2
 movaps 0(%rsp), %xmm3
 movaps 0(%rsp), %xmm4
 movaps 16(%rsp), %xmm5
-subps %xmm1, %xmm2
+subps %xmm4, %xmm5
 
 addq $0x20, %rsp
