@@ -46,7 +46,7 @@ partial def peelArgsLets (args : Array Expr) (i : Nat) (peeled : Array Expr) (fv
   else
     k peeled fvars
 
-def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
+def kdeltaBetaOnly (targets: List Name) (maxInstrCount : Option (IO.Ref Nat)) : DSimproc := fun e => do
   -- This focuses on application nodes.
   unless e.isApp && targets.any e.getAppFn'.isConstOf do return .rfl
 
@@ -61,6 +61,12 @@ def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
   peelArgsLets args 0 #[] #[] fun (args : Array Expr) (fvars : Array Expr) => do
 
     if f.isConstOf ``Effects.All && args[1]!.isApp && args[1]!.getAppFn'.isConstOf ``Directives.interp then
+      -- We optionally track how many times we've hit Directives.interp -- this tracks how
+      -- many instructions we've stepped through.
+      if (← maxInstrCount.mapM (·.get)) = .some 0 then
+        return .rfl
+      maxInstrCount.forM (fun r => r.modify (· - 1))
+
       -- Finding a node of the form `Effects.All ... (Directives.interp ...)`
       -- means that we are ready to step through. We manually force reduction of
       -- Directives.interp (since it is *not* is our list of targets), then let
@@ -134,7 +140,7 @@ def klog (config: KStepConfig) : DSimproc := fun e => do
 
 declare_term_config_elab elabKStepConfig KStepConfig
 
-syntax (name := symKStep) "kstep" optConfig : grind
+syntax (name := symKStep) "kstep" optConfig (ppSpace num)? : grind
 
 def kdsimpMatch: DSimproc := fun e => do
   let some e' ← reduceRecMatcher? e | return .rfl
@@ -222,6 +228,7 @@ def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM
 partial def evalSymKStep : Grind.GrindTactic :=
   fun stx : Syntax => do
   let cfg := stx[1]
+  let maxSteps? : Option Nat := if stx[2].isNone then none else some stx[2][0].toNat
   let config ← elabKStepConfig cfg
   let alignedLoadsAndStore := config.alignedLoadsAndStores
   -- A `sym` tactic operates over a pair of the grind state and an MVarId. To avoid scope mistakes,
@@ -248,7 +255,8 @@ partial def evalSymKStep : Grind.GrindTactic :=
   let env ← getEnv
 
   let declsForDSimp := (kstepExtension.getState env).toList
-  let kdsimpDecls := kdeltaBetaOnly declsForDSimp
+  let maxInstrCount ← maxSteps?.mapM (IO.mkRef ·)
+  let kdsimpDecls := kdeltaBetaOnly declsForDSimp maxInstrCount
 
   -- https://lean-lang.org/doc/api/Lean/Meta/Sym/Simp/SimpM.html
   -- note the "contextual ite handling" --> are we doing this?
@@ -272,8 +280,6 @@ partial def evalSymKStep : Grind.GrindTactic :=
 
   -- MAIN LOOP
   let rec go (goal: Grind.Goal): Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
-    logInfo m!"MAIN LOOP ITERATION"
-
     -- STEP 1: dsimp
     let goal ← do
       let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM $
@@ -283,7 +289,6 @@ partial def evalSymKStep : Grind.GrindTactic :=
             pre := klog config >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta })
           (← goal.mvarId.getType))
       introsIf ({ goal with mvarId })
-    logInfo m!"Goal after step 1: {goal.mvarId}"
 
     -- TEMPORARY: trying to simplify binders in the goal
     /- let goal ← Meta.letToHave goal -/

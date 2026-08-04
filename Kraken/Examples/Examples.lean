@@ -119,8 +119,10 @@ theorem p3_correct [layout: Layout] (s: MachineData):
     rw [Executable.directivesFromStart]
     simp [List.mapIdx,List.mapIdx.go]
 
-    -- sym =>
-    -- kstep
+    sym =>
+    kstep 3
+    tactic =>
+    apply reg_dec_loop
     -- intros
     
     sorry
@@ -400,7 +402,7 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   rw [Executable.directivesFromStart]
   simp [List.mapIdx, List.mapIdx.go]
   have h_mem1 := Mem.storeInt_sep rdi.toBitVec 8 v1.toBytes (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ R) mem ⟨h_mem, h_bs1⟩ rax.toBitVec.toInt
-  have h_mem1' : (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
+  have h_mem1 : (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
   have h_mem2 := Mem.storeInt_sep (rdi.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1, h_bs2⟩ rcx.toBitVec.toInt
   have h_mem2' : (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ (Eq ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
   sym =>
