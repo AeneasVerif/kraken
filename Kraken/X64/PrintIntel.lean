@@ -110,7 +110,7 @@ def RelRegOrMem.toStr (rel : RelRegOrMem) (addr_w : Width := .W64) : String := m
 instance : ToString RelRegOrMem where toString rel := rel.toStr
 
 instance : ToString CondCode where toString
-  | .z => "e" | .nz => "ne" | .c => "b" | .nc => "ae" | .a => "a" | .be => "be"
+  | .z => "e" | .nz => "ne" | .c => "b" | .nc => "ae" | .a => "a" | .be => "be" | .l => "l" | .le => "le"
 
 instance : ToString ShiftCountExpr where toString
   | .cl => "cl"

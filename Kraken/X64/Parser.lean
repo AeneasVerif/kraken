@@ -472,6 +472,8 @@ def parseCondCode (suffix : String.Slice) : Parser CondCode :=
   | "ae" | "nc" | "nb" => .pure .ae
   | "a" | "nbe" => .pure .a
   | "be" | "na" => .pure .be
+  | "l" | "nge" => .pure .l
+  | "le" | "ng" => .pure .le
   | _ => .fail s!"unknown condition code: {suffix}"
 
 -- ============================================================================
