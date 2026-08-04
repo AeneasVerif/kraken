@@ -10,6 +10,8 @@ def sep (p q : ExtHashMap key value → Prop) (m : ExtHashMap key value) : Prop 
 infixl:60 " ⋆ " => sep
 notation:70 m " =⋆ " P => P m
 
+def emp : ExtHashMap key value → Prop := fun m => m = ∅
+
 omit [LawfulBEq key] in
 theorem disjoint_symm {m1 m2 : ExtHashMap key value} (h : m1.inter m2 = ∅) :
     m2.inter m1 = ∅ := by
@@ -77,7 +79,37 @@ theorem sep_assoc (p q r : ExtHashMap key value → Prop) : p ⋆ q ⋆ r = p �
       exact (disjoint_union_l a b c).mpr ⟨hac, hbc_inter⟩
     · exact ((disjoint_union_r a b c).mp habc_inter).1
 
+theorem sep_comm_l (p q r : ExtHashMap key value → Prop) : p ⋆ (q ⋆ r) = q ⋆ (p ⋆ r) := by
+  rw [← sep_assoc, sep_comm p q, sep_assoc]
+
+theorem emp_sep (p : ExtHashMap key value → Prop) : emp ⋆ p = p := by
+  funext m
+  apply propext
+  constructor
+  · rintro ⟨a, b, h_union, _h_inter, ha, hb⟩
+    rw [ha] at h_union
+    have : b = m := by
+      apply ExtHashMap.ext_getElem?
+      intro k
+      simpa only [union_eq, getElem?_union_of_not_mem_left not_mem_empty] using
+        congrArg (fun x => x[k]?) h_union
+    simpa only [this] using hb
+  · intro hp
+    refine ⟨∅, m, ?_, ?_, rfl, hp⟩
+    · apply ExtHashMap.ext_getElem?
+      intro k
+      simp only [union_eq, getElem?_union_of_not_mem_left not_mem_empty]
+    · apply eq_empty_iff_forall_not_mem.mpr
+      intro k hk
+      exact not_mem_empty (mem_inter_iff.mp hk).1
+
+theorem sep_emp (p : ExtHashMap key value → Prop) : p ⋆ emp = p := by
+  rw [sep_comm, emp_sep]
+
 instance : Std.Commutative (sep : (ExtHashMap key value → Prop) → _) := ⟨sep_comm⟩
 instance : Std.Associative (sep : (ExtHashMap key value → Prop) → _) := ⟨sep_assoc⟩
+instance : Std.LawfulIdentity (sep : (ExtHashMap key value → Prop) → _) emp where
+  left_id := emp_sep
+  right_id := sep_emp
 
 end Std.ExtHashMap
