@@ -93,3 +93,19 @@ def step1 [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) 
 
 def straightlineStep [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
   (Executable.straightline p s .done).All post
+
+-- def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
+--   let := e.labels;
+--   Directives.interp (e.directivesFromAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
+
+theorem eventually_steps [Layout] (e: Executable) (s: MachineState) (p q: @Post MachineState) (n: Nat): 
+  let := e.labels;
+  let directives := (e.directivesFromAddress s.2)
+  let (d1, d2) := directives.splitAt n
+  let steps d: MachineState → Post → Prop := fun s p =>
+    (Directives.interp d1 s.1 s.2 (fun pc s => Effects.done (s, pc))).All p
+  Eventually (steps d1) p s →
+  (∀ s, p s → Eventually (steps d2) q s) →
+  Eventually (straightlineStep e) q s
+:=
+  by sorry
