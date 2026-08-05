@@ -111,6 +111,16 @@ def parseInt64 : Parser Int64 := do
   else
     Int64.ofInt v)
 
+/--
+Parse a non-negative immediate integer value.
+- Fails if the parsed integer is negative.
+-/
+def parseImmNat : Parser Nat := do
+  let i ← parseInt
+  if i < 0 then
+    fail s!"expected non-negative immediate, got {i}"
+  pure i.toNat
+
 /-- Parse a raw label name as a string identifier. -/
 def parseLabelRaw : Parser Label := parseName
 
@@ -576,10 +586,47 @@ def checkTbzOffset (instrName : String) (offset : Int64) : Except String Unit :=
 Validate a bit test position for `TBZ` / `TBNZ`:
 - Must be in `[0, 31]` for `.W32` and `[0, 63]` for `.W64`.
 -/
-def checkTbzBitPosition (instrName : String) (w : Width) (bit : Int) : Except String Unit :=
+def checkTbzBitPosition (instrName : String) (w : Width) (bit : Nat) : Except String Unit :=
   let maxBit := match w with | .W32 => 31 | .W64 => 63
-  if bit < 0 || bit > maxBit then
+  if bit > maxBit then
     .error s!"{instrName} bit position {bit} out of range [0, {maxBit}] for {w.bits}-bit instruction"
+  else .ok ()
+
+/--
+Validate that an immediate shift amount, bit position, or rotate/size index
+is within `[0, w.bits - 1]`.
+-/
+def checkBitWidthBound (instrName : String) (w : Width) (imm : Nat) : Except String Unit :=
+  let maxVal := w.bits - 1
+  if imm > maxVal then
+    .error s!"{instrName} immediate {imm} out of range [0, {maxVal}]"
+  else .ok ()
+
+/--
+Validate bitfield extract/insert bounds (`lsb < w.bits`, `width > 0`, and
+`lsb + width <= w.bits`).
+-/
+def checkBitfieldBounds (instrName : String) (w : Width) (lsb width : Nat) : Except String Unit :=
+  if lsb >= w.bits || width == 0 || lsb + width > w.bits then
+    .error s!"{instrName} bounds invalid: lsb={lsb}, width={width}, w={w.bits}"
+  else .ok ()
+
+/-- Validate conditional compare (`CCMP`/`CCMN`) immediate operand (`[0, 31]`). -/
+def checkCcmpImmediate (imm : Nat) : Except String Unit :=
+  if imm > 31 then
+    .error s!"ccmp/ccmn immediate {imm} out of range [0, 31]"
+  else .ok ()
+
+/-- Validate NZCV condition flags immediate operand (`[0, 15]`). -/
+def checkNzcvFlags (nzcv : Nat) : Except String Unit :=
+  if nzcv > 15 then
+    .error s!"nzcv immediate {nzcv} out of range [0, 15]"
+  else .ok ()
+
+/-- Validate a 12-bit unsigned arithmetic immediate (for ADD/SUB immediate operands). -/
+def checkArithmeticImmediate (imm : Int64) : Except String Unit :=
+  if imm.toInt < 0 || imm.toInt > 4095 then
+    .error s!"immediate {imm.toInt} out of range [0, 4095]"
   else .ok ()
 
 /--
@@ -669,9 +716,8 @@ def parseAddr (w : Width) (allowUnscaled : Bool := false) : Parser (AddrExpr w) 
         let _ ← optional (pchar ',')
         skipHWs
         let c? ← peek?
-        let amt ← if c? == some '#' || c? == some '-' || (c?.map Char.isDigit).getD false then do
-          let val ← parseInt
-          pure val.toNat
+        let amt ← if c? == some '#' || c? == some '-' || (c?.map Char.isDigit).getD false then
+          parseImmNat
         else
           pure 0
         let amount ← liftExcept (getMemExtendAmount w amt)
@@ -845,12 +891,11 @@ def parseExtOrImmReg (w : Width) : Parser (ExtOrImmReg w) := do
       let shiftName ← parseName
       if shiftName.toLower == "lsl" then do
         skipHWs
-        let amt ← parseInt
+        let amt ← parseImmNat
         match expr with
         | .int64 imm =>
-          if imm.toInt < 0 || imm.toInt > 4095 then
-            fail s!"immediate {imm.toInt} out of range [0, 4095]"
-          else if amt == 12 then
+          liftExcept (checkArithmeticImmediate imm)
+          if amt == 12 then
             pure (.imm { imm := expr, shift := ImmShift.S12 })
           else if amt == 0 then
             pure (.imm { imm := expr, shift := ImmShift.S0 })
@@ -862,8 +907,7 @@ def parseExtOrImmReg (w : Width) : Parser (ExtOrImmReg w) := do
     else
       match expr with
       | .int64 imm =>
-        if imm.toInt < 0 || imm.toInt > 4095 then
-          fail s!"immediate {imm.toInt} out of range [0, 4095]"
+        liftExcept (checkArithmeticImmediate imm)
       | _ => pure ()
       pure (.imm { imm := expr, shift := ImmShift.S0 })
   -- Case 2: Extended or shifted register operand (e.g. `x2`, `x2, uxtw #2`, or `x2, lsl #2`)
@@ -1470,13 +1514,206 @@ def parseTbz (name : String)
     (mk : {w : Width} → RegOrZr w → Nat → ConstExpr → Operation w) : Parser Instr := do
   let regW ← parseRegOrZrW
   parseComma
-  let bit ← parseInt
+  let bit ← parseImmNat
   liftExcept (checkTbzBitPosition name regW.w bit)
   parseComma
   let target ← parseConstExpr
   if let .int64 imm := target then
     liftExcept (checkTbzOffset name imm)
-  pure ⟨regW.w, mk regW.reg bit.toNat target⟩
+  pure ⟨regW.w, mk regW.reg bit target⟩
+
+/--
+Parse instructions that take two general-purpose register operands of the same
+width (`CLZ`, `CLS`, `RBIT`, `REV`, `REV16`).
+-/
+def parseTwoRegs (mk : {w : Width} → RegOrZr w → RegOrZr w → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src ← parseRegOrZr w
+  pure ⟨w, mk dstW.reg src⟩
+
+/--
+Parse instructions that take two 64-bit general-purpose register operands
+(`X0`-`X30`), such as `REV32` and `REV64`.
+-/
+def parseTwoRegsW64 (mk : RegOrZr .W64 → RegOrZr .W64 → Operation .W64) : Parser Instr := do
+  let dst ← parseRegOrZr .W64
+  parseComma
+  let src ← parseRegOrZr .W64
+  pure ⟨.W64, mk dst src⟩
+
+/--
+Parse long multiply-accumulate and multiply-subtract instructions (`SMADDL`,
+`UMADDL`, `SMSUBL`, `UMSUBL`).
+- Takes a 64-bit destination register, two 32-bit source registers, and a 64-bit
+  addend/subtrahend register.
+-/
+def parseFourRegsLong
+    (mk : RegOrZr .W64 → RegOrZr .W32 → RegOrZr .W32 → RegOrZr .W64 → Operation .W64) : Parser Instr := do
+  let dst ← parseRegOrZr .W64
+  parseComma
+  let src1 ← parseRegOrZr .W32
+  parseComma
+  let src2 ← parseRegOrZr .W32
+  parseComma
+  let src3 ← parseRegOrZr .W64
+  pure ⟨.W64, mk dst src1 src2 src3⟩
+
+/--
+Parse 3-register long multiply alias instructions (`SMULL`, `UMULL`, `SMNEGL`, `UMNEGL`).
+- Maps architecturally to 4-register long operations (`SMADDL`, `UMADDL`, `SMSUBL`, `UMSUBL`)
+  with `XZR` as the implicit fourth register operand.
+-/
+def parseThreeRegsLongWithZr
+    (mk : RegOrZr .W64 → RegOrZr .W32 → RegOrZr .W32 → RegOrZr .W64 → Operation .W64) : Parser Instr := do
+  let dst ← parseRegOrZr .W64
+  parseComma
+  let src1 ← parseRegOrZr .W32
+  parseComma
+  let src2 ← parseRegOrZr .W32
+  pure ⟨.W64, mk dst src1 src2 (.low .XZR .W64)⟩
+
+/--
+Parse shift alias instructions (`LSL`, `LSR`, `ASR`, `ROR`) with either an
+immediate shift amount or a register shift amount.
+- Immediate shifts map architecturally to bitfield operations (`UBFM`, `SBFM`, `EXTR`).
+- Register shifts map to variable shift instructions (`LSLV`, `LSRV`, `ASRV`, `RORV`).
+-/
+def parseShiftAlias (regOp : {w : Width} → RegOrZr w → RegOrZr w → RegOrZr w → Operation w)
+    (immOp : {w : Width} → RegOrZr w → RegOrZr w → Nat → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src1 ← parseRegOrZr w
+  parseComma
+  let nextC ← peek!
+  if nextC == '#' || nextC.isDigit || nextC == '-' || nextC == '+' then
+    let imm ← parseImmNat
+    liftExcept (checkBitWidthBound "shift" w imm)
+    pure ⟨w, immOp dstW.reg src1 imm⟩
+  else
+    let src2 ← parseRegOrZr w
+    pure ⟨w, regOp dstW.reg src1 src2⟩
+
+/--
+Parse extract register instructions (`EXTR`).
+- Syntax: `extr dst, src1, src2, #lsb`.
+- Validates that the least significant bit (`lsb`) immediate is in range `[0, w.bits - 1]`.
+-/
+def parseExtr : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src1 ← parseRegOrZr w
+  parseComma
+  let src2 ← parseRegOrZr w
+  parseComma
+  let lsb ← parseImmNat
+  liftExcept (checkBitWidthBound "extr" w lsb)
+  pure ⟨w, .EXTR dstW.reg src1 src2 lsb⟩
+
+/--
+Parse bitfield move instructions (`BFM`, `SBFM`, `UBFM`).
+- Syntax: `bfm dst, src, #immr, #imms`.
+- Validates that rotate (`immr`) and size (`imms`) immediates are within bounds `[0, w.bits - 1]`.
+-/
+def parseBitfield (mk : {w : Width} → RegOrZr w → RegOrZr w → Nat → Nat → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src ← parseRegOrZr w
+  parseComma
+  let immr ← parseImmNat
+  parseComma
+  let imms ← parseImmNat
+  liftExcept (checkBitWidthBound "bitfield" w immr)
+  liftExcept (checkBitWidthBound "bitfield" w imms)
+  pure ⟨w, mk dstW.reg src immr imms⟩
+
+/--
+Parse bitfield extract and insert-low alias instructions (`SBFX`, `UBFX`, `BFXIL`).
+- Syntax: `sbfx dst, src, #lsb, #width`.
+- Validates bounds (`width > 0` and `lsb + width <= w.bits`) and converts `lsb` and
+  `width` to bitfield operands (`immr = lsb`, `imms = lsb + width - 1`).
+-/
+def parseBitfieldExtract (mk : {w : Width} → RegOrZr w → RegOrZr w → Nat → Nat → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src ← parseRegOrZr w
+  parseComma
+  let lsb ← parseImmNat
+  parseComma
+  let width ← parseImmNat
+  liftExcept (checkBitfieldBounds "bitfield extract" w lsb width)
+  let immr := lsb
+  let imms := lsb + width - 1
+  pure ⟨w, mk dstW.reg src immr imms⟩
+
+/--
+Parse bitfield insert alias instructions (`BFI`, `SBFIZ`, `UBFIZ`).
+- Syntax: `bfi dst, src, #lsb, #width`.
+- Validates bounds (`width > 0` and `lsb + width <= w.bits`) and maps `lsb` and `width`
+  to rotate and size operands (`immr = (w.bits - lsb) % w.bits`, `imms = width - 1`).
+-/
+def parseBitfieldInsert (mk : {w : Width} → RegOrZr w → RegOrZr w → Nat → Nat → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src ← parseRegOrZr w
+  parseComma
+  let lsb ← parseImmNat
+  parseComma
+  let width ← parseImmNat
+  liftExcept (checkBitfieldBounds "bitfield insert" w lsb width)
+  let immr := (w.bits - lsb) % w.bits
+  let imms := width - 1
+  pure ⟨w, mk dstW.reg src immr imms⟩
+
+/--
+Parse sign-extend and zero-extend alias instructions (`SXTB`, `SXTH`, `SXTW`, `UXTB`, `UXTH`, `UXTW`).
+- Maps architecturally to signed or unsigned bitfield moves (`SBFM` or `UBFM`) with
+  `immr = 0` and fixed `imms` corresponding to the source byte, halfword, or word size.
+-/
+def parseExtendInstr (mk : {w : Width} → RegOrZr w → RegOrZr w → Nat → Nat → Operation w) (imms : Nat) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  parseComma
+  let srcW ← parseRegOrZrW
+  let src : RegOrZr dstW.w := match srcW.reg with
+    | .low r _ => .low r dstW.w
+  pure ⟨dstW.w, mk dstW.reg src 0 imms⟩
+
+/--
+Parse conditional compare instructions (`CCMP`, `CCMN`) with either a register
+or immediate second operand.
+- Syntax: `ccmp src1, src2|#imm, #nzcv, cond`.
+- Validates that `#imm` is in range `[0, 31]` and `#nzcv` flags immediate is in range `[0, 15]`.
+-/
+def parseCondCompare
+    (mkReg : {w : Width} → RegOrZr w → RegOrZr w → Nat → CondCode → Operation w)
+    (mkImm : {w : Width} → RegOrZr w → Nat → Nat → CondCode → Operation w) : Parser Instr := do
+  let src1W ← parseRegOrZrW
+  let w := src1W.w
+  parseComma
+  let nextC ← peek!
+  if nextC == '#' || nextC.isDigit || nextC == '-' || nextC == '+' then
+    let imm ← parseImmNat
+    liftExcept (checkCcmpImmediate imm)
+    parseComma
+    let nzcv ← parseImmNat
+    liftExcept (checkNzcvFlags nzcv)
+    parseComma
+    let cond ← parseCondArg
+    pure ⟨w, mkImm src1W.reg imm nzcv cond⟩
+  else
+    let src2 ← parseRegOrZr w
+    parseComma
+    let nzcv ← parseImmNat
+    liftExcept (checkNzcvFlags nzcv)
+    parseComma
+    let cond ← parseCondArg
+    pure ⟨w, mkReg src1W.reg src2 nzcv cond⟩
 
 -- ============================================================================
 -- Instruction Parsing
@@ -1546,6 +1783,16 @@ def parseInstr : Parser Instr := do
 
   | "smulh" => parseThreeRegsW64 .SMULH
   | "umulh" => parseThreeRegsW64 .UMULH
+  | "sdiv"  => parseThreeRegs .SDIV
+  | "udiv"  => parseThreeRegs .UDIV
+  | "smaddl" => parseFourRegsLong .SMADDL
+  | "umaddl" => parseFourRegsLong .UMADDL
+  | "smsubl" => parseFourRegsLong .SMSUBL
+  | "umsubl" => parseFourRegsLong .UMSUBL
+  | "smull" => parseThreeRegsLongWithZr .SMADDL
+  | "umull" => parseThreeRegsLongWithZr .UMADDL
+  | "smnegl" => parseThreeRegsLongWithZr .SMSUBL
+  | "umnegl" => parseThreeRegsLongWithZr .UMSUBL
 
   | "and"   => parseLogicalNoFlags .AND_i .AND_s
   | "ands"  => parseLogicalFlags .ANDS_i .ANDS_s
@@ -1553,16 +1800,46 @@ def parseInstr : Parser Instr := do
   | "orn"   => parseLogical .ORN_s
   | "eor"   => parseLogicalNoFlags .EOR_i .EOR_s
   | "bic"   => parseLogical .BIC_s
+  | "eon"   => parseLogical .EON_s
+  | "bics"  => parseLogical .BICS_s
   | "tst"   => parseTstAlias
 
-  | "lsl"   => parseThreeRegs .LSLV
-  | "lsr"   => parseThreeRegs .LSRV
-  | "asr"   => parseThreeRegs .ASRV
-  | "ror"   => parseThreeRegs .RORV
+  | "bfm"   => parseBitfield .BFM
+  | "sbfm"  => parseBitfield .SBFM
+  | "ubfm"  => parseBitfield .UBFM
+  | "sbfx"  => parseBitfieldExtract .SBFM
+  | "ubfx"  => parseBitfieldExtract .UBFM
+  | "bfxil" => parseBitfieldExtract .BFM
+  | "bfi"   => parseBitfieldInsert .BFM
+  | "sbfiz" => parseBitfieldInsert .SBFM
+  | "ubfiz" => parseBitfieldInsert .UBFM
+  | "sxtb"  => parseExtendInstr .SBFM 7
+  | "sxth"  => parseExtendInstr .SBFM 15
+  | "sxtw"  => parseExtendInstr .SBFM 31
+  | "uxtb"  => parseExtendInstr .UBFM 7
+  | "uxth"  => parseExtendInstr .UBFM 15
+  | "uxtw"  => parseExtendInstr .UBFM 31
+
+  | "clz"   => parseTwoRegs .CLZ
+  | "cls"   => parseTwoRegs .CLS
+  | "rbit"  => parseTwoRegs .RBIT
+  | "rev"   => parseTwoRegs .REV
+  | "rev16" => parseTwoRegs .REV16
+  | "rev32" => parseTwoRegsW64 .REV32
+  | "rev64" => parseTwoRegsW64 .REV
+  | "extr"  => parseExtr
+
+  | "lsl"   => parseShiftAlias .LSLV (fun {w} dst src imm => .UBFM dst src ((w.bits - imm) % w.bits) (w.bits - 1 - imm))
+  | "lsr"   => parseShiftAlias .LSRV (fun {w} dst src imm => .UBFM dst src imm (w.bits - 1))
+  | "asr"   => parseShiftAlias .ASRV (fun {w} dst src imm => .SBFM dst src imm (w.bits - 1))
+  | "ror"   => parseShiftAlias .RORV (fun dst src imm => .EXTR dst src src imm)
   | "lslv"  => parseThreeRegs .LSLV
   | "lsrv"  => parseThreeRegs .LSRV
   | "asrv"  => parseThreeRegs .ASRV
   | "rorv"  => parseThreeRegs .RORV
+
+  | "ccmp"  => parseCondCompare .CCMP_reg .CCMP_imm
+  | "ccmn"  => parseCondCompare .CCMN_reg .CCMN_imm
 
   | "csel"  => parseCondSelect .CSEL
   | "csinc" => parseCondSelect .CSINC

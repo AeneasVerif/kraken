@@ -353,7 +353,7 @@ info: [Directive.instr
 #check parseAArch64("sbcs w9, w10, w11")
 
 -- ============================================================================
--- 4. Multiply Instructions (MADD, MSUB, MUL, MNEG, SMULH, UMULH)
+-- 4. Multiply & Divide Instructions (MADD, MSUB, MUL, MNEG, SMULH, UMULH, SMULL, UMULL, SMADDL, UMADDL, SMSUBL, UMSUBL, SDIV, UDIV)
 -- ============================================================================
 
 -- Test: MADD 64-bit multiply-add
@@ -462,8 +462,114 @@ info: [Directive.instr
 #guard_msgs in
 #check parseAArch64("umulh x0, x1, x2")
 
+-- Test: SDIV
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.SDIV (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64) (↑↑XReg.X2 Width.W64) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("sdiv x0, x1, x2")
+
+-- Test: UDIV
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.UDIV (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) (↑↑XReg.X2 Width.W32) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("udiv w0, w1, w2")
+
+-- Test: SMULL
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.SMADDL (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W32) (↑↑XReg.X2 Width.W32)
+          (↑XRegOrXzr.XZR Width.W64) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("smull x0, w1, w2")
+
+-- Test: UMULL
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.UMADDL (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W32) (↑↑XReg.X2 Width.W32)
+          (↑XRegOrXzr.XZR Width.W64) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("umull x0, w1, w2")
+
+-- Test: SMNEGL
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.SMSUBL (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W32) (↑↑XReg.X2 Width.W32)
+          (↑XRegOrXzr.XZR Width.W64) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("smnegl x0, w1, w2")
+
+-- Test: UMNEGL
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.UMSUBL (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W32) (↑↑XReg.X2 Width.W32)
+          (↑XRegOrXzr.XZR Width.W64) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("umnegl x0, w1, w2")
+
+-- Test: SMADDL
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.SMADDL (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W32) (↑↑XReg.X2 Width.W32)
+          (↑↑XReg.X3 Width.W64) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("smaddl x0, w1, w2, x3")
+
+-- Test: UMADDL
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.UMADDL (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W32) (↑↑XReg.X2 Width.W32)
+          (↑↑XReg.X3 Width.W64) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("umaddl x0, w1, w2, x3")
+
+-- Test: SMSUBL
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.SMSUBL (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W32) (↑↑XReg.X2 Width.W32)
+          (↑↑XReg.X3 Width.W64) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("smsubl x0, w1, w2, x3")
+
+-- Test: UMSUBL
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.UMSUBL (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W32) (↑↑XReg.X2 Width.W32)
+          (↑↑XReg.X3 Width.W64) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("umsubl x0, w1, w2, x3")
+
 -- ============================================================================
--- 5. Logical Instructions (AND, ANDS, TST, ORR, ORN, EOR, BIC)
+-- 5. Logical Instructions (AND, ANDS, TST, ORR, ORN, EOR, BIC, EON, BICS)
 -- ============================================================================
 
 -- Test: AND_s with shifted register operand (lsr #4)
@@ -599,6 +705,28 @@ info: [Directive.instr
 #guard_msgs in
 #check parseAArch64("bic x0, x1, x2")
 
+-- Test: EON_s 64-bit logical XOR NOT
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.EON_s (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64)
+          { reg := ↑↑XReg.X2 Width.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("eon x0, x1, x2")
+
+-- Test: BICS_s 64-bit logical AND NOT setting flags
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.BICS_s (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64)
+          { reg := ↑↑XReg.X2 Width.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("bics x0, x1, x2")
+
 -- ============================================================================
 -- 6. Move & Move Wide Immediate Family (MOV, MVN, MOVZ, MOVK, MOVN)
 -- ============================================================================
@@ -728,7 +856,7 @@ info: [Directive.instr
 #check parseAArch64("mov w6, #-5")
 
 -- ============================================================================
--- 7. Variable Shifts and Rotates (LSL, LSR, ASR, ROR, LSLV, LSRV, ASRV, RORV)
+-- 7. Shifts, Rotates, and Bit Manipulation (LSL, LSR, ASR, ROR, LSLV, LSRV, ASRV, RORV, BFM, SBFM, UBFM, UBFX, SBFX, BFXIL, BFI, SBFIZ, UBFIZ, SXTW, CLZ, CLS, RBIT, REV, REV16, REV32, REV64, EXTR)
 -- ============================================================================
 
 -- Test: LSL register shift left (alias for LSLV)
@@ -776,8 +904,226 @@ info: [Directive.instr
 #guard_msgs in
 #check parseAArch64("ror x0, x1, x2")
 
+-- Test: UBFX
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.UBFM (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) 4 11 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ubfx w0, w1, #4, #8")
+
+-- Test: SXTW
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.SBFM (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64) 0 31 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("sxtw x0, w1")
+
+-- Test: CLZ
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.CLZ (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("clz w0, w1")
+
+-- Test: REV
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.REV (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("rev x0, x1")
+
+-- Test: SBFX
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.SBFM (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64) 0 15 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("sbfx x0, x1, #0, #16")
+
+-- Test: BFXIL
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.BFM (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) 4 11 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("bfxil w0, w1, #4, #8")
+
+-- Test: BFI
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.BFM (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) 24 7 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("bfi w0, w1, #8, #8")
+
+-- Test: SBFIZ
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.SBFM (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) 28 7 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("sbfiz w0, w1, #4, #8")
+
+-- Test: UBFIZ
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.UBFM (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) 28 7 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ubfiz w0, w1, #4, #8")
+
+-- Test: SXTB
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.SBFM (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) 0 7 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("sxtb w0, w1")
+
+-- Test: SXTH
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.SBFM (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) 0 15 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("sxth w0, w1")
+
+-- Test: UXTB
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.UBFM (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) 0 7 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("uxtb w0, w1")
+
+-- Test: UXTH
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.UBFM (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) 0 15 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("uxth w0, w1")
+
+-- Test: UXTW
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.UBFM (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64) 0 31 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("uxtw x0, w1")
+
+-- Test: LSL imm
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.UBFM (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64) 60 59 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("lsl x0, x1, #4")
+
+-- Test: LSR imm
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.UBFM (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) 4 31 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("lsr w0, w1, #4")
+
+-- Test: ASR imm
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.SBFM (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64) 4 63 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("asr x0, x1, #4")
+
+-- Test: ROR imm
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation :=
+        Operation.EXTR (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) (↑↑XReg.X1 Width.W32) 4 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ror w0, w1, #4")
+
+-- Test: CLS
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.CLS (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("cls x0, x1")
+
+-- Test: RBIT
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.RBIT (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("rbit w0, w1")
+
+-- Test: REV16
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.REV16 (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("rev16 w0, w1")
+
+-- Test: REV32
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.REV32 (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("rev32 x0, x1")
+
+-- Test: REV64
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.REV (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64) }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("rev64 x0, x1")
+
+-- Test: EXTR
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation :=
+        Operation.EXTR (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) (↑↑XReg.X2 Width.W32) 8 }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("extr w0, w1, w2, #8")
+
 -- ============================================================================
--- 8. Conditional Select Instructions & Aliases (CSEL, CSINC, CSINV, CSNEG, CSET, CSETM, CINC, CINV, CNEG)
+-- 8. Conditional Select & Compare Instructions (CSEL, CSINC, CSINV, CSNEG, CSET, CSETM, CINC, CINV, CNEG, CCMP, CCMN)
 -- ============================================================================
 
 -- Test: CSEL conditional select
@@ -877,6 +1223,42 @@ info: [Directive.instr
 -/
 #guard_msgs in
 #check parseAArch64("cneg w0, w1, gt")
+
+-- Test: CCMP reg
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.CCMP_reg (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64) 4 CondCode.EQ }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ccmp x0, x1, #4, eq")
+
+-- Test: CCMP imm
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation := Operation.CCMP_imm (↑↑XReg.X0 Width.W64) 10 2 CondCode.NE }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ccmp x0, #10, #2, ne")
+
+-- Test: CCMN reg
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.CCMN_reg (↑↑XReg.X0 Width.W32) (↑↑XReg.X1 Width.W32) 0 CondCode.EQ }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ccmn w0, w1, #0, eq")
+
+-- Test: CCMN imm
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation := Operation.CCMN_imm (↑↑XReg.X0 Width.W32) 1 0 CondCode.NE }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ccmn w0, #1, #0, ne")
 
 -- ============================================================================
 -- 9. PC-Relative Addressing & Relocation Modifiers (ADR, ADRP, :lo12:, :pg_hi21:)

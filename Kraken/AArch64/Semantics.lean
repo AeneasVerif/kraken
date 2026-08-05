@@ -315,7 +315,7 @@ def AddrExpr.interp [Labels] {w} (mem : AddrExpr w) (s : MachineData) (p : Std.R
     s'.load addr w ret)
 
 def UnscaledAddrExpr.eval [Labels] (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) : BitVec 64 :=
-  let base := (s.regs.getRegOrSp mem.base).toInt
+  let base := (s.regs.getRegOrSp mem.base).signed
   let off := Int64.toInt (mem.imm.interp p)
   BitVec.ofInt 64 (base + off)
 
@@ -393,6 +393,59 @@ def StatusFlags.subs {w} (res val1 val2 : BitVec w) : StatusFlags :=
   StatusFlags.from_result res {
     c := res.unsigned == val1.unsigned - val2.unsigned
     v := res.signed != val1.signed - val2.signed }
+
+def StatusFlags.ofNat (nzcv : Nat) : StatusFlags :=
+  { n := (nzcv &&& 8) != 0
+    z := (nzcv &&& 4) != 0
+    c := (nzcv &&& 2) != 0
+    v := (nzcv &&& 1) != 0 }
+
+def maskOfLen {w : Width} (len : Nat) : w.type :=
+  if len >= w.bits then
+    ~~~(0 : w.type)
+  else
+    ((1 : w.type) <<< len) - 1
+
+def evalUBFM {w : Width} (src : w.type) (immr imms : Nat) : w.type :=
+  let immr := immr % w.bits
+  let imms := imms % w.bits
+  if imms >= immr then
+    let len := imms - immr + 1
+    let field := (src >>> immr).take len
+    field.zeroExtend w.bits
+  else
+    let len := imms + 1
+    let pos := w.bits - immr
+    let field := src.take len
+    (field.zeroExtend w.bits) <<< pos
+
+def evalSBFM {w : Width} (src : w.type) (immr imms : Nat) : w.type :=
+  let immr := immr % w.bits
+  let imms := imms % w.bits
+  if imms >= immr then
+    let len := imms - immr + 1
+    let field := (src >>> immr).take len
+    field.signExtend w.bits
+  else
+    let len := imms + 1
+    let pos := w.bits - immr
+    let field := src.take len
+    (field.signExtend (w.bits - pos)).zeroExtend w.bits <<< pos
+
+def evalBFM {w : Width} (dst src : w.type) (immr imms : Nat) : w.type :=
+  let immr := immr % w.bits
+  let imms := imms % w.bits
+  if imms >= immr then
+    let len := imms - immr + 1
+    let mask := maskOfLen len
+    let field := (src >>> immr) &&& mask
+    (dst &&& ~~~mask) ||| field
+  else
+    let len := imms + 1
+    let pos := w.bits - immr
+    let mask := maskOfLen len <<< pos
+    let field := (src &&& maskOfLen len) <<< pos
+    (dst &&& ~~~mask) ||| field
 
 set_option maxHeartbeats 1000000
 def Operation.interp [Labels]
@@ -516,14 +569,48 @@ def Operation.interp [Labels]
   | .SMULH dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
-    let prod := val1.toInt * val2.toInt
+    let prod := val1.signed * val2.signed
     let res := (BitVec.ofInt 128 prod).extractLsb' 64 64
     s.setRegOrZr dst res next
   | .UMULH dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
-    let prod := val1.toNat * val2.toNat
-    let res := BitVec.ofNat 64 (prod >>> 64)
+    let prod := val1.unsigned * val2.unsigned
+    let res := (BitVec.ofInt 128 prod).extractLsb' 64 64
+    s.setRegOrZr dst res next
+  | .SDIV dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let res := if val2 == 0 then (0 : w.type) else val1.sdiv val2
+    s.setRegOrZr dst res next
+  | .UDIV dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let res := if val2 == 0 then (0 : w.type) else val1 / val2
+    s.setRegOrZr dst res next
+  | .SMADDL dst src1 src2 src3 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let val3 := s.regs.getRegOrZr src3
+    let res := BitVec.ofInt 64 (val1.signed * val2.signed + val3.signed)
+    s.setRegOrZr dst res next
+  | .UMADDL dst src1 src2 src3 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let val3 := s.regs.getRegOrZr src3
+    let res := BitVec.ofInt 64 (val1.unsigned * val2.unsigned + val3.unsigned)
+    s.setRegOrZr dst res next
+  | .SMSUBL dst src1 src2 src3 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let val3 := s.regs.getRegOrZr src3
+    let res := BitVec.ofInt 64 (val3.signed - val1.signed * val2.signed)
+    s.setRegOrZr dst res next
+  | .UMSUBL dst src1 src2 src3 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let val3 := s.regs.getRegOrZr src3
+    let res := BitVec.ofInt 64 (val3.unsigned - val1.unsigned * val2.unsigned)
     s.setRegOrZr dst res next
   | .AND_i dst src1 imm =>
     let val1 := s.regs.getRegOrZr src1
@@ -577,18 +664,78 @@ def Operation.interp [Labels]
     let val2 := src2.interp s.regs p
     let res := val1 &&& ~~~val2
     s.setRegOrZr dst res next
+  | .EON_s dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := src2.interp s.regs p
+    let res := val1 ^^^ ~~~val2
+    s.setRegOrZr dst res next
+  | .BICS_s dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := src2.interp s.regs p
+    let res := val1 &&& ~~~val2
+    let status' := StatusFlags.from_result res { c := false, v := false }
+    { s with status := status' }.setRegOrZr dst res next
+  | .BFM dst src immr imms =>
+    let val_dst := s.regs.getRegOrZr dst
+    let val_src := s.regs.getRegOrZr src
+    let res := evalBFM val_dst val_src immr imms
+    s.setRegOrZr dst res next
+  | .SBFM dst src immr imms =>
+    let val_src := s.regs.getRegOrZr src
+    let res := evalSBFM val_src immr imms
+    s.setRegOrZr dst res next
+  | .UBFM dst src immr imms =>
+    let val_src := s.regs.getRegOrZr src
+    let res := evalUBFM val_src immr imms
+    s.setRegOrZr dst res next
+  | .CLZ dst src =>
+    let val := s.regs.getRegOrZr src
+    s.setRegOrZr dst val.clz next
+  | .CLS dst src =>
+    let val := s.regs.getRegOrZr src
+    let res := (if val.msb then (~~~val).clz else val.clz) - 1#w.bits
+    s.setRegOrZr dst res next
+  | .RBIT dst src =>
+    let val := s.regs.getRegOrZr src
+    s.setRegOrZr dst val.reverse next
+  | .REV dst src =>
+    let val := s.regs.getRegOrZr src
+    let res : w.type := match w, val with
+      | .W32, v =>
+        let step1 := ((v &&& 0x00FF00FF#32) <<< 8) ||| ((v &&& 0xFF00FF00#32) >>> 8)
+        ((step1 &&& 0x0000FFFF#32) <<< 16) ||| ((step1 &&& 0xFFFF0000#32) >>> 16)
+      | .W64, v =>
+        let step1 := ((v &&& 0x00FF00FF00FF00FF#64) <<< 8) ||| ((v &&& 0xFF00FF00FF00FF00#64) >>> 8)
+        let step2 := ((step1 &&& 0x0000FFFF0000FFFF#64) <<< 16) ||| ((step1 &&& 0xFFFF0000FFFF0000#64) >>> 16)
+        ((step2 &&& 0x00000000FFFFFFFF#64) <<< 32) ||| ((step2 &&& 0xFFFFFFFF00000000#64) >>> 32)
+    s.setRegOrZr dst res next
+  | .REV16 dst src =>
+    let val := s.regs.getRegOrZr src
+    let res := ((val &&& 0x00FF00FF00FF00FF#w.bits) <<< 8) ||| ((val &&& 0xFF00FF00FF00FF00#w.bits) >>> 8)
+    s.setRegOrZr dst res next
+  | .REV32 dst src =>
+    let val := s.regs.getRegOrZr src
+    let step1 := ((val &&& 0x00FF00FF00FF00FF#64) <<< 8) ||| ((val &&& 0xFF00FF00FF00FF00#64) >>> 8)
+    let res := ((step1 &&& 0x0000FFFF0000FFFF#64) <<< 16) ||| ((step1 &&& 0xFFFF0000FFFF0000#64) >>> 16)
+    s.setRegOrZr dst res next
+  | .EXTR dst src1 src2 lsb =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let lsb := lsb % w.bits
+    let res := if lsb == 0 then val2 else (val1 <<< (w.bits - lsb)) ||| (val2 >>> lsb)
+    s.setRegOrZr dst res next
   | .MOVZ dst imm shift =>
-    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& (0xFFFF : BitVec w.bits)
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& 0xFFFF#w.bits
     let res := val16 <<< shift.toNat
     s.setRegOrZr dst res next
   | .MOVK dst imm shift =>
     let oldVal := s.regs.getRegOrZr dst
-    let mask := ~~~((0xFFFF : BitVec w.bits) <<< shift.toNat)
-    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& (0xFFFF : BitVec w.bits)
+    let mask := ~~~(0xFFFF#w.bits <<< shift.toNat)
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& 0xFFFF#w.bits
     let res := (oldVal &&& mask) ||| (val16 <<< shift.toNat)
     s.setRegOrZr dst res next
   | .MOVN dst imm shift =>
-    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& (0xFFFF : BitVec w.bits)
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& 0xFFFF#w.bits
     let res := ~~~(val16 <<< shift.toNat)
     s.setRegOrZr dst res next
   | .LSLV dst src1 src2 =>
@@ -627,6 +774,42 @@ def Operation.interp [Labels]
   | .CSNEG dst src1 src2 cond =>
     let val := if cond.interp s.status then s.regs.getRegOrZr src1 else -(s.regs.getRegOrZr src2)
     s.setRegOrZr dst val next
+  | .CCMP_reg src1 src2 nzcv cond =>
+    let status' := if cond.interp s.status then
+        let val1 := s.regs.getRegOrZr src1
+        let val2 := s.regs.getRegOrZr src2
+        let res := val1 - val2
+        StatusFlags.subs res val1 val2
+      else
+        StatusFlags.ofNat nzcv
+    next { s with status := status' }
+  | .CCMP_imm src1 imm nzcv cond =>
+    let status' := if cond.interp s.status then
+        let val1 := s.regs.getRegOrZr src1
+        let val2 := BitVec.ofNat w.bits imm
+        let res := val1 - val2
+        StatusFlags.subs res val1 val2
+      else
+        StatusFlags.ofNat nzcv
+    next { s with status := status' }
+  | .CCMN_reg src1 src2 nzcv cond =>
+    let status' := if cond.interp s.status then
+        let val1 := s.regs.getRegOrZr src1
+        let val2 := s.regs.getRegOrZr src2
+        let res := val1 + val2
+        StatusFlags.adds res val1 val2
+      else
+        StatusFlags.ofNat nzcv
+    next { s with status := status' }
+  | .CCMN_imm src1 imm nzcv cond =>
+    let status' := if cond.interp s.status then
+        let val1 := s.regs.getRegOrZr src1
+        let val2 := BitVec.ofNat w.bits imm
+        let res := val1 + val2
+        StatusFlags.adds res val1 val2
+      else
+        StatusFlags.ofNat nzcv
+    next { s with status := status' }
   | .ADR dst target =>
     let val := match target with
       | .int64 imm => BitVec.ofInt 64 (Int64.toInt p.lower + Int64.toInt imm)
@@ -649,13 +832,13 @@ def Operation.interp [Labels]
     s.setRegOrZr RegOrZr.X30 lr_val (fun s' => jmp (target.evalBranchTarget p) s')
   | .BLR target =>
     let lr_val := BitVec.ofInt 64 (Int64.toInt p.upper)
-    let target_val := Int64.ofInt (s.regs.getRegOrZr target).toInt
+    let target_val := Int64.ofInt (s.regs.getRegOrZr target).signed
     s.setRegOrZr RegOrZr.X30 lr_val (fun s' => jmp target_val s')
   | .BR target =>
-    let target_val := Int64.ofInt (s.regs.getRegOrZr target).toInt
+    let target_val := Int64.ofInt (s.regs.getRegOrZr target).signed
     jmp target_val s
   | .RET target =>
-    let target_val := Int64.ofInt (s.regs.getRegOrZr target).toInt
+    let target_val := Int64.ofInt (s.regs.getRegOrZr target).signed
     jmp target_val s
   | .CBZ reg target =>
     let val := s.regs.getRegOrZr reg

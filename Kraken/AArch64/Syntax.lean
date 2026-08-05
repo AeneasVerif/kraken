@@ -339,11 +339,19 @@ inductive Operation : Width → Type
   | SBC {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : RegOrZr w) : Operation w
   | SBCS {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : RegOrZr w) : Operation w
   --
+  -- Division.
+  | SDIV {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : RegOrZr w) : Operation w
+  | UDIV {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : RegOrZr w) : Operation w
+  --
   -- Multiply.
   | MADD {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : RegOrZr w) (src3 : RegOrZr w) : Operation w
   | MSUB {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : RegOrZr w) (src3 : RegOrZr w) : Operation w
   | SMULH (dst : RegOrZr .W64) (src1 : RegOrZr .W64) (src2 : RegOrZr .W64) : Operation .W64
   | UMULH (dst : RegOrZr .W64) (src1 : RegOrZr .W64) (src2 : RegOrZr .W64) : Operation .W64
+  | SMADDL (dst : RegOrZr .W64) (src1 : RegOrZr .W32) (src2 : RegOrZr .W32) (src3 : RegOrZr .W64) : Operation .W64
+  | UMADDL (dst : RegOrZr .W64) (src1 : RegOrZr .W32) (src2 : RegOrZr .W32) (src3 : RegOrZr .W64) : Operation .W64
+  | SMSUBL (dst : RegOrZr .W64) (src1 : RegOrZr .W32) (src2 : RegOrZr .W32) (src3 : RegOrZr .W64) : Operation .W64
+  | UMSUBL (dst : RegOrZr .W64) (src1 : RegOrZr .W32) (src2 : RegOrZr .W32) (src3 : RegOrZr .W64) : Operation .W64
   --
   -- Logic (instructions have an immediate (_i) and shifted reg (_s) form).
   | AND_i  {w} (dst : RegOrSp w) (src1 : RegOrZr w) (imm : ConstExpr) : Operation w
@@ -355,7 +363,21 @@ inductive Operation : Width → Type
   | ORN_s  {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
   | EOR_i  {w} (dst : RegOrSp w) (src1 : RegOrZr w) (imm : ConstExpr) : Operation w
   | EOR_s  {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
+  | EON_s  {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
   | BIC_s  {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
+  | BICS_s {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
+  --
+  -- Bitfield & Bit Manipulation.
+  | BFM  {w} (dst : RegOrZr w) (src : RegOrZr w) (immr : Nat) (imms : Nat) : Operation w
+  | SBFM {w} (dst : RegOrZr w) (src : RegOrZr w) (immr : Nat) (imms : Nat) : Operation w
+  | UBFM {w} (dst : RegOrZr w) (src : RegOrZr w) (immr : Nat) (imms : Nat) : Operation w
+  | CLZ  {w} (dst : RegOrZr w) (src : RegOrZr w) : Operation w
+  | CLS  {w} (dst : RegOrZr w) (src : RegOrZr w) : Operation w
+  | RBIT {w} (dst : RegOrZr w) (src : RegOrZr w) : Operation w
+  | REV  {w} (dst : RegOrZr w) (src : RegOrZr w) : Operation w
+  | REV16 {w} (dst : RegOrZr w) (src : RegOrZr w) : Operation w
+  | REV32 (dst : RegOrZr .W64) (src : RegOrZr .W64) : Operation .W64
+  | EXTR {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : RegOrZr w) (lsb : Nat) : Operation w
   --
   -- Move Wide Immediates.
   | MOVZ {w} (dst : RegOrZr w) (imm : ConstExpr) (shift : MovShift w) : Operation w
@@ -373,6 +395,12 @@ inductive Operation : Width → Type
   | CSINC {w} (dst : RegOrZr w) (src1 src2 : RegOrZr w) (cond : CondCode) : Operation w
   | CSINV {w} (dst : RegOrZr w) (src1 src2 : RegOrZr w) (cond : CondCode) : Operation w
   | CSNEG {w} (dst : RegOrZr w) (src1 src2 : RegOrZr w) (cond : CondCode) : Operation w
+  --
+  -- Conditional Compare (instructions have a reg (_r) and immediate (_i) form).
+  | CCMP_reg {w} (src1 : RegOrZr w) (src2 : RegOrZr w) (nzcv : Nat) (cond : CondCode) : Operation w
+  | CCMP_imm {w} (src1 : RegOrZr w) (imm : Nat) (nzcv : Nat) (cond : CondCode) : Operation w
+  | CCMN_reg {w} (src1 : RegOrZr w) (src2 : RegOrZr w) (nzcv : Nat) (cond : CondCode) : Operation w
+  | CCMN_imm {w} (src1 : RegOrZr w) (imm : Nat) (nzcv : Nat) (cond : CondCode) : Operation w
   --
   -- Addressing.
   | ADR (dst : RegOrZr .W64) (target : ConstExpr) : Operation .W64
