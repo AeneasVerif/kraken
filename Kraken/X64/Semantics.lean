@@ -722,10 +722,12 @@ def Executable.labels (e : Executable) : Labels :=
       (fun (p, d, _) => if d = .label l then .some p else .none)).getD (-1) }
 
 def Executable.directivesAtAddress (e : Executable) (a : Int64) : List (Directive × Nat) :=
-  (e.withAddresses.filter (·.1 = a)).map (·.2)
+  let starts_at_a := e.withAddresses.dropWhile (·.1 ≠ a)
+  (starts_at_a.takeWhile (·.1 = a)).map (·.2)
 
 def Executable.directivesFromAddress (e : Executable) (a : Int64) : List (Directive × Nat) :=
-  e.2.drop (((e.withAddresses).map (·.1)).idxOf a)
+  let starts_at_a := e.withAddresses.dropWhile (·.1 ≠ a)
+  starts_at_a.map (·.2)
 
 def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directive × Nat) :=
   e.2.dropWhile (·.1 != .label l)
