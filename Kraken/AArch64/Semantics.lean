@@ -163,6 +163,7 @@ inductive Effects
   | require_read_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
   | require_write_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
+  | unaligned_sp {w : Width} (sp : w.type)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
 
 -- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
@@ -304,7 +305,7 @@ def AddrExpr.checkSPAlignment {w} (mem : AddrExpr w) (s : MachineData) (ok : Uni
   match mem.base with
   | .SP =>
     if s.regs.getRegOrSp .SP % 16#64 != 0#64 then
-      .unimplemented s!"Unimplemented: SP is required to be 16-byte aligned"
+      .unaligned_sp (s.regs.getRegOrSp .SP)
     else
       ok ()
   | _ => ok ()
@@ -319,11 +320,12 @@ def UnscaledAddrExpr.eval [Labels] (mem : UnscaledAddrExpr) (s : MachineData) (p
   let off := Int64.toInt (mem.imm.interp p)
   BitVec.ofInt 64 (base + off)
 
+-- AArch64 mandates 16-byte alignment when accessing memory through SP.
 def UnscaledAddrExpr.checkSPAlignment (mem : UnscaledAddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
   match mem.base with
   | .SP =>
     if s.regs.getRegOrSp .SP % 16#64 != 0#64 then
-      .unimplemented s!"Unimplemented: SP is required to be 16-byte aligned"
+      .unaligned_sp (s.regs.getRegOrSp .SP)
     else
       ok ()
   | _ => ok ()
@@ -934,6 +936,7 @@ where
     | .require_exec_access _ ok => handleEffects (ok ())
     | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
+    | .unaligned_sp sp => .error s!"SP={sp} (is not 16-byte aligned)"
     | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
 
 def Directive.fakeSize (d : Directive) : Nat :=
