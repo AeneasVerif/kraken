@@ -90,3 +90,7 @@ theorem directivesAtFromPrefix (e: Executable) (a: Int64):
   refine ⟨((e.withAddresses.dropWhile (·.1 ≠ a)).dropWhile (·.1 = a)).map (·.2), ?_⟩
   rw [← List.map_append]
   rw [List.takeWhile_append_dropWhile]
+
+theorem eventually_step [Layout] (e: Executable) (s: MachineState) (post: @Post MachineState):
+    step1 e s (fun s => straightlineStep e s post) → straightlineStep e s post := by
+  sorry

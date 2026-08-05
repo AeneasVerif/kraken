@@ -381,8 +381,6 @@ def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) 
     zf := result == BitVec.zero _
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
 
-
-
 set_option maxHeartbeats 1000000
 def Operation.interp [Labels] [address_size : AddressSize]
   {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
