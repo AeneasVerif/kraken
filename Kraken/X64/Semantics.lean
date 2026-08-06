@@ -387,7 +387,7 @@ match o with
 def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
   | .z  => s.zf | .nz => !s.zf | .c  => s.cf | .nc => !s.cf
   | .a  => !s.cf && !s.zf | .be => s.cf || s.zf
-  | .l => s.sf ^^ s.of | .le => (s.sf ^^ s.of) || s.zf
+  | .l => s.sf != s.of | .le => (s.sf != s.of) || s.zf
 
 def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
   | .cl => s.regs.rcx.toBitVec.take 8
