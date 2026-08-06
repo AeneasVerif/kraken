@@ -64,11 +64,17 @@ def ConstExpr.toStr : ConstExpr → String
   | .sub e1 e2 => s!"({e1.toStr} - {e2.toStr})"
 instance : ToString ConstExpr where toString := ConstExpr.toStr
 
-def AddrExpr.toStr (a : AddrExpr) (addr_w : Width := .W64) : String := "["++ "+".intercalate (
-  (match a.base with | .some b => [b.toStr addr_w] | _ => [])
-  ++(match a.idx with | .some ⟨r, s⟩ => [s!"{Reg.low r addr_w}*{s.bytes}"] | _ => [])
-  ++[toString a.disp]) ++ "]"
-instance : ToString AddrExpr where toString a := a.toStr
+def AddrExpr.toStr (a : AddrExpr) (addr_w : Width := .W64) : String :=
+  let dispStr := match a.base, a.disp with
+    -- Unwrap RIP-relative displacements back to just the label for printing
+    -- (like RelRegOrMem.toStr below)
+    | .some .rip, .sub e .after_current_instruction => toString e
+    | _, _ => toString a.disp
+  "[" ++ "+".intercalate (
+    (match a.base with | .some b => [b.toStr addr_w] | _ => [])
+    ++ (match a.idx with | .some ⟨r, s⟩ => [s!"{Reg.low r addr_w}*{s.bytes}"] | _ => [])
+    ++ [dispStr]
+  ) ++ "]"
 
 def RegOrMem.toStr {w} (rm : RegOrMem w) (addr_w : Width := .W64) : String := match rm with
   | .reg r => ToString.toString r

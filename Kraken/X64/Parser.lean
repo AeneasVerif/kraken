@@ -367,6 +367,12 @@ def parseMemory : Parser (Width × AddrExpr) := do
     | w1, .none =>
       .pure w1
   let idx := Option.map (fun (_, idx) => ⟨idx, scale⟩) idx
+
+  -- Handle rip-relative addressing (like parseRelRegOrMem below).
+  let disp := match base, disp with
+    | .rip, .label l => .sub (.label l) .after_current_instruction
+    | _, _ => disp
+
   pure (w, { base, idx, disp })
 
 def parseImm w : Parser (Operand w) := do
