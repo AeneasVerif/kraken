@@ -427,6 +427,17 @@ theorem Directives.interp_mono [Labels]
       hret
       h
 
+theorem Directives.interp_step_all [Labels]
+    (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
+    (cont : Int64 → MachineData → Effects)
+    (post₁ post₂ : MachineState → Prop)
+    (hcont : ∀ pc' s', post₁ (s', pc') → (cont pc' s').All post₂)
+    (h : (Directives.interp ds s pc (fun pc' s' => Effects.done (s', pc'))).All post₁) :
+    (Directives.interp ds s pc cont).All post₂ := by
+  apply Directives.interp_mono ds s pc (fun pc' s' (h_ret : (Effects.done (s', pc')).All post₁) => by
+    dsimp [Effects.All] at h_ret
+    exact hcont pc' s' h_ret) h
+
 
 -- NOTE: 'initial' cannot be moved to the left of the colon as a parameter
 -- because it varies in the recursive call in the 'step' constructor (it becomes 'mid').
@@ -495,6 +506,44 @@ theorem directivesAtFromPrefix (e: Executable) (a: Int64):
   rw [← List.map_append]
   rw [List.takeWhile_append_dropWhile]
 
-theorem eventually_step [Layout] (e: Executable) (s: MachineState) (post: @Post MachineState):
-    step1 e s (fun s => straightlineStep e s post) → straightlineStep e s post := by
-  sorry
+theorem Directives.interp_append [Labels]
+    (ds1 ds2 : List (Directive × Nat)) (s : MachineData) (pc : Int64)
+    (ret : Int64 → MachineData → Effects)
+    {post : MachineState → Prop}
+    (hjmp : ∀ pc' s', (Directives.interp ds2 s' pc' ret).All post → (ret pc' s').All post)
+    (h : (Directives.interp ds1 s pc (fun pc' s' => Directives.interp ds2 s' pc' ret)).All post) :
+    (Directives.interp (ds1 ++ ds2) s pc ret).All post := by
+  induction ds1 generalizing s pc with
+  | nil =>
+    dsimp [Directives.interp] at *
+    exact h
+  | cons head tail ih =>
+    obtain ⟨d, sz⟩ := head
+    dsimp [Directives.interp] at *
+    apply Directive.interp_mono (jmp₁ := fun pc' s' => Directives.interp ds2 s' pc' ret) (jmp₂ := ret)
+      d s (.mk pc (pc + .ofNat sz))
+      (fun s' => ih s' (pc + .ofNat sz))
+      hjmp
+      h
+
+theorem eventually_step [Layout] (e: Executable) (st: MachineState) (post: @Post MachineState):
+    step1 e st (fun s => straightlineStep e s post) → straightlineStep e st post := by
+  intro h
+  let _ : Labels := e.labels
+  obtain ⟨s, pc⟩ := st
+  dsimp [step1, straightlineStep, Executable.step, Executable.straightline] at *
+  have hprefix := directivesAtFromPrefix e pc
+  rw [hprefix]
+  have h_step := Directives.interp_step_all (e.directivesAtAddress pc) s pc
+    (cont := fun pc' s' => Directives.interp (e.directivesFromAddress pc') s' pc' (fun pc s => Effects.done (s, pc)))
+    (post₁ := fun s' => (Directives.interp (e.directivesFromAddress s'.2) s'.1 s'.2 (fun pc s => Effects.done (s, pc))).All post)
+    (post₂ := post)
+    (hcont := fun pc' s' h => h)
+    h
+  apply Directives.interp_append (e.directivesAtAddress pc) _ s pc (fun pc s => Effects.done (s, pc))
+  · intro pc' s' h_jmp
+    dsimp [Effects.All]
+    sorry
+  · apply Directives.interp_mono (e.directivesAtAddress pc) s pc _ h_step
+    intro pc' s' h_cont
+    sorry
