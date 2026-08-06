@@ -711,27 +711,69 @@ def Layout.apply (l : Layout) (prog : Program) : Executable :=
   (l.start, prog.mapIdx (fun i d => (d, l.size i)))
 instance : CoeFun Layout (fun _ => Program → Executable) where coe := Layout.apply
 
-def Executable.withAddresses (e : Executable)  : List (Int64 × Directive × Nat) :=
-  (List.scanl (fun (p, _, _) (d, z) => (p+.ofNat z, d, z)) (e.1, .byteArray (.mk #[]), 0) e.2)
+/-- A directive together with its starting address and encoded size. -/
+structure Executable.LocatedDirective where
+  start : Int64
+  directive : Directive
+  size : Nat
 
-def Executable.labels (e : Executable) : Labels :=
-  { label l := (e.withAddresses.findSome?
-      (fun (p, d, _) => if d = .label l then .some p else .none)).getD (-1) }
+def Executable.LocatedDirective.stop (d : LocatedDirective) : Int64 :=
+  d.start + .ofNat d.size
 
-def Executable.directivesAtAddress (e : Executable) (a : Int64) : List (Directive × Nat) :=
-  (e.withAddresses.filter (·.1 = a)).map (·.2)
+/-- Assign starting addresses from left to right, advancing by each directive's size. -/
+def Executable.LocatedDirective.ofDirectives (start : Int64) :
+    List (Directive × Nat) → List LocatedDirective
+  | [] => []
+  | (directive, size) :: directives =>
+      ⟨start, directive, size⟩ :: ofDirectives (start + .ofNat size) directives
 
+/-- The executable's directives with one explicit location per source directive. -/
+def Executable.locatedDirectives (e : Executable) : List LocatedDirective :=
+  LocatedDirective.ofDirectives e.1 e.2
+
+/-- Tuple view of `locatedDirectives`; the first component is the starting address. -/
+def Executable.withAddresses (e : Executable) : List (Int64 × Directive × Nat) :=
+  e.locatedDirectives.map fun d => (d.start, d.directive, d.size)
+
+/-- Resolve the first matching label to its starting address, or `-1` if absent. -/
+@[reducible] def Executable.labels (e : Executable) : Labels :=
+  { label l := (e.locatedDirectives.findSome?
+      (fun d => if d.directive = .label l then .some d.start else .none)).getD (-1) }
+
+/-- The source suffix beginning at the first directive whose start is `a`. -/
 def Executable.directivesFromAddress (e : Executable) (a : Int64) : List (Directive × Nat) :=
-  e.2.drop (((e.withAddresses).map (·.1)).idxOf a)
+  e.2.drop ((e.locatedDirectives.map (·.start)).idxOf a)
+
+/-- Fetch the first non-label directive starting at `a`; labels do not constitute steps. -/
+def Executable.fetch? (e : Executable) (a : Int64) : Option LocatedDirective :=
+  e.locatedDirectives.find? fun d =>
+    d.start == a && match d.directive with
+      | .label _ => false
+      | _ => true
+
+/-- List view of `fetch?`; it contains at most one directive. -/
+def Executable.directivesAtAddress (e : Executable) (a : Int64) : List (Directive × Nat) :=
+  match e.fetch? a with
+  | .some d => [(d.directive, d.size)]
+  | .none => []
 
 def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directive × Nat) :=
   e.2.dropWhile (·.1 != .label l)
 
 abbrev MachineState := MachineData × Int64
 
+/--
+Interpret at most one non-label directive at the machine's current address.
+If none starts there, pass the unchanged state to `ret`.
+-/
 def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
   let := e.labels
-  Directives.interp (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
+  match e.fetch? s.2 with
+  | .none => ret s
+  | .some d =>
+      d.directive.interp s.1 (.mk d.start d.stop)
+        (next := fun s => ret (s, d.stop))
+        (jmp := fun pc s => ret (s, pc))
 
 def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
   let := e.labels;

@@ -12,3 +12,4 @@ import Kraken.X64.Parser
 import Kraken.X64.Tactics
 import Kraken.X64.Sep
 import Kraken.X64.Examples.Examples
+import Kraken.X64.Examples.SumToN

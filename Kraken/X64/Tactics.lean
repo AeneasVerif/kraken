@@ -6,7 +6,8 @@ theorem Executable.directivesFromStart [layout : Layout] prog :
     (layout prog).directivesFromAddress layout.start =
       prog.mapIdx (fun i d => (d, layout.size i)) := by
   induction prog <;>
-    simp [Executable.directivesFromAddress, Executable.withAddresses, Layout.apply]
+    simp [Executable.directivesFromAddress, Executable.locatedDirectives,
+      Executable.LocatedDirective.ofDirectives, Layout.apply]
 
 macro "kprologue" p:ident : tactic =>
   `(tactic|

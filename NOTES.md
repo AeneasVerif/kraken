@@ -1,11 +1,47 @@
 # Some notes on the design of Kraken
 
+## Current executable boundary
+
+Kraken currently treats assembly layout as post-assembly input. A `Program` is
+a list of parsed directives; a `Layout` supplies a base address and an encoded
+size for each list position; applying it produces an `Executable`. The core
+instruction semantics do not attempt to verify an assembler or linker.
+
+`Executable.locatedDirectives` computes one explicit location for every source
+directive by advancing a cursor by each encoded size. Its main consumers have
+different granularities:
+
+- `labels` resolves a label to its directive's starting address.
+- `fetch?` skips zero-sized labels and selects at most one non-label directive
+  whose starting address equals the current program counter.
+- `step` interprets that one directive over its half-open address range.
+- `straightline` interprets the suffix beginning at the current address until
+  control flow transfers or the suffix ends.
+
+This keeps labels, instruction starts, instruction stops, and source-list
+positions distinct. Multiple consecutive labels assigned size zero remain
+supported and resolve to the same address.
+
+The layout itself is still a trust boundary. Concrete verification examples
+should obtain sizes from assembled code and check them against the Lean list,
+as `Kraken/Examples/check_sum_to_n.py` does. Formally verified assembly or
+linking would require an additional correspondence theorem and is not part of
+the instruction-step semantics.
+
+This design deliberately leaves unrelated behavior unchanged: a missing
+instruction at the current address returns the current state to the
+continuation, and a missing label resolves to `-1`. Explicit execution faults
+and proof-carrying label/layout invariants are separate possible extensions.
+
+## Earlier design motivation
+
 Unlike prior work, we do not want to rely on the invariant that every potential
 jump location comes with a label. (Because, among other things, we want to stick
 to assembly source as it is written, and we want to deal with cases that are
 found in the wild, such as multiple identical consecutive labels.)
 
 We have two concepts:
+
 - a position, which is used by the semantics to indicate where we are in the
   program execution (think of it as a symbolic program counter) and
 - a layout, which maps a position to an actual address (unknown at proof-time)

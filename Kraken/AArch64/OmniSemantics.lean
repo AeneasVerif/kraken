@@ -1,11 +1,13 @@
 /-
-Kraken x86-64 - proof infrastructure for effectful execution.
+Kraken AArch64 - proof infrastructure for effectful execution.
+
+This mirrors the x86-64 proof layer over the AArch64 machine and effect types.
 -/
 
 import Kraken.OmniSemantics
-import Kraken.X64.Semantics
+import Kraken.AArch64.Semantics
 
-/-- Every outcome allowed by an effectful x86-64 execution satisfies `post`. -/
+/-- Every outcome allowed by an effectful AArch64 execution satisfies `post`. -/
 def Effects.All (post : MachineState → Prop) : Effects → Prop
   | .done a => post a
   | .unimplemented _ => False
@@ -16,12 +18,12 @@ def Effects.All (post : MachineState → Prop) : Effects → Prop
   | .require_write_access _ _ cont => (cont ()).All post
   | .require_exec_access _ cont => (cont ()).All post
 
-/-- One x86-64 instruction step, with all effects interpreted universally. -/
+/-- One AArch64 instruction step, with all effects interpreted universally. -/
 def step1 [Layout] (p : Executable) (s : MachineState)
     (post : @Post MachineState) : Prop :=
   (Executable.step p s .done).All post
 
-/-- Straight-line x86-64 execution, with all effects interpreted universally. -/
+/-- Straight-line AArch64 execution, with all effects interpreted universally. -/
 def straightlineStep [Layout] (p : Executable) (s : MachineState)
     (post : @Post MachineState) : Prop :=
   (Executable.straightline p s .done).All post

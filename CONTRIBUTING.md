@@ -2,11 +2,18 @@
 
 ## Reviewing semantics
 
-All changes to semantics should be thoroughly checked against the [Intel SDM](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2b-manual.pdf)
-by two maintainers.
+All changes to instruction semantics should be thoroughly checked against the
+applicable architecture reference: the [Intel SDM](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2b-manual.pdf)
+for x86-64 or the Arm Architecture Reference Manual for AArch64. They should be
+reviewed by two maintainers.
 As a maintainer proposing a change,
 please review your own edits
 and flag TODOs for anything not corroborated by an authoritative reference.
+
+Changes to executable layout, fetching, or control-flow dispatch should be kept
+behaviorally aligned between the x86-64 and AArch64 models. Tests should cover
+instruction address ranges, encoded-size advancement, and one or more
+zero-sized labels at an instruction address.
 
 Here are some common but easy-to-forget considerations to look out for:
 

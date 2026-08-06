@@ -20,6 +20,8 @@ jobs:
       - uses: actions/checkout@v5
       - uses: leanprover/lean-action@v1
       - run: python3 Kraken/X64/Test/asm_tests.py Kraken/X64/Test/asm
+      - name: Verify compiled sum-to-n artifact
+        run: python3 Kraken/Examples/check_sum_to_n.py --arch x64
 
   run-aarch64-asm-tests:
     name: Run AArch64 ASM tests (Ubuntu)
@@ -30,3 +32,7 @@ jobs:
       - name: Install AArch64 cross-assembler and QEMU
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user
       - run: python3 Kraken/AArch64/Test/asm_tests.py Kraken/AArch64/Test/asm
+      - name: Verify compiled sum-to-n artifact
+        run: >-
+          python3 Kraken/Examples/check_sum_to_n.py --arch aarch64
+          --objdump aarch64-linux-gnu-objdump
