@@ -2,11 +2,34 @@ import Kraken.X64.Syntax
 import Kraken.X64.Semantics
 import Kraken.X64.OmniSemantics
 
+theorem Executable.withAddresses_map_snd (ds : List (Directive × Nat)) (a : Int64) :
+    (Executable.withAddresses (a, ds)).map (·.2) = ds := by
+  induction ds generalizing a with
+  | nil =>
+    unfold Executable.withAddresses
+    rfl
+  | cons d ds ih =>
+    unfold Executable.withAddresses
+    dsimp
+    rw [ih (a + .ofNat d.2)]
+
+theorem Executable.withAddresses_dropWhile_start (ds : List (Directive × Nat)) (a : Int64) :
+    (Executable.withAddresses (a, ds)).dropWhile (fun x => x.1 ≠ a) =
+      Executable.withAddresses (a, ds) := by
+  cases ds with
+  | nil =>
+    unfold Executable.withAddresses
+    rfl
+  | cons d ds =>
+    unfold Executable.withAddresses
+    simp [List.dropWhile]
+
 theorem Executable.directivesFromStart [layout : Layout] prog :
     (layout prog).directivesFromAddress layout.start =
       prog.mapIdx (fun i d => (d, layout.size i)) := by
-  induction prog <;>
-    simp [Executable.directivesFromAddress, Executable.withAddresses, Layout.apply]
+  dsimp [Executable.directivesFromAddress, Layout.apply]
+  rw [Executable.withAddresses_dropWhile_start]
+  rw [Executable.withAddresses_map_snd]
 
 macro "kprologue" p:ident : tactic =>
   `(tactic|

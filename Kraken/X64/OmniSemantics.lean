@@ -77,8 +77,16 @@ theorem reg_dec_loop {State : Type} (trans : State → Post → Prop) (post : Po
         (hnz initial n h hinv) fun s hs =>
           reg_dec_loop trans post s invariant (n - 1) ⟨hs, hzero, hnz⟩
 
-def step1 [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
-  (Executable.step p s .done).All post
+def step1 [Layout] (e: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
+  (Executable.step e s .done).All post
 
-def straightlineStep [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
-  (Executable.straightline p s .done).All post
+def straightlineStep [Layout] (e: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
+  (Executable.straightline e s .done).All post
+
+theorem directivesAtFromPrefix (e: Executable) (a: Int64):
+  ∃ rest, e.directivesFromAddress a = e.directivesAtAddress a ++ rest
+:= by
+  dsimp [Executable.directivesFromAddress, Executable.directivesAtAddress]
+  refine ⟨((e.withAddresses.dropWhile (·.1 ≠ a)).dropWhile (·.1 = a)).map (·.2), ?_⟩
+  rw [← List.map_append]
+  rw [List.takeWhile_append_dropWhile]

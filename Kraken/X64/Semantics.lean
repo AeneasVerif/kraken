@@ -700,23 +700,34 @@ def Directives.interp [Labels]
     d.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
     interp ds s (pc+.ofNat sz) ret))
 
+-- JP: why is `size` not `Directive → Nat`?
 class Layout where (start : Int64) (size : Nat → Nat)
 def Layout.apply (l : Layout) (prog : Program) : Executable :=
   (l.start, prog.mapIdx (fun i d => (d, l.size i)))
 instance : CoeFun Layout (fun _ => Program → Executable) where coe := Layout.apply
 
-def Executable.withAddresses (e : Executable)  : List (Int64 × Directive × Nat) :=
-  (List.scanl (fun (p, _, _) (d, z) => (p+.ofNat z, d, z)) (e.1, .byteArray (.mk #[]), 0) e.2)
+-- Returns each directive paired with its start address and size.
+-- TODO: tail-recursive version for efficiency?
+def Executable.withAddresses (e : Executable): List (Int64 × Directive × Nat) :=
+  let (start_addr, ds) := e
+  match ds with
+  | [] => []
+  | (instr, instr_sz) :: ds =>
+    (start_addr, instr, instr_sz) :: Executable.withAddresses (start_addr + .ofNat instr_sz, ds)
+termination_by e.2
 
+@[reducible]
 def Executable.labels (e : Executable) : Labels :=
   { label l := (e.withAddresses.findSome?
       (fun (p, d, _) => if d = .label l then .some p else .none)).getD (-1) }
 
 def Executable.directivesAtAddress (e : Executable) (a : Int64) : List (Directive × Nat) :=
-  (e.withAddresses.filter (·.1 = a)).map (·.2)
+  let starts_at_a := e.withAddresses.dropWhile (·.1 ≠ a)
+  (starts_at_a.takeWhile (·.1 = a)).map (·.2)
 
 def Executable.directivesFromAddress (e : Executable) (a : Int64) : List (Directive × Nat) :=
-  e.2.drop (((e.withAddresses).map (·.1)).idxOf a)
+  let starts_at_a := e.withAddresses.dropWhile (·.1 ≠ a)
+  starts_at_a.map (·.2)
 
 def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directive × Nat) :=
   e.2.dropWhile (·.1 != .label l)
