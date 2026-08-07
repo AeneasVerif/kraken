@@ -169,6 +169,8 @@ def RegZmms.setLegacy (s : RegZmms) {w} (r : AvxReg w) (v : w.type) : RegZmms :=
 def BitVec.toAddressSize [address_size: AddressSize] (w: BitVec 64): BitVec address_size.address_size.bits :=
   w.take address_size.address_size.bits
 
+-- TODO: consider adding a `split` helper to switch representations between
+-- u128, 4xu32, etc.
 def BitVec.packedBinOp {w : Nat} (c : Nat) (op : BitVec c → BitVec c → BitVec c) (a b : BitVec w) : BitVec w :=
   if _ : c = 0 ∨ w < c then
     a -- Fallback/Base case (w = 0 or invalid chunk size)
