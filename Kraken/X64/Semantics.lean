@@ -169,6 +169,33 @@ def RegZmms.setLegacy (s : RegZmms) {w} (r : AvxReg w) (v : w.type) : RegZmms :=
 def BitVec.toAddressSize [address_size: AddressSize] (w: BitVec 64): BitVec address_size.address_size.bits :=
   w.take address_size.address_size.bits
 
+-- TODO: consider adding a `split` helper to switch representations between
+-- u128, 4xu32, etc.
+def BitVec.packedBinOp {w : Nat} (c : Nat) (op : BitVec c → BitVec c → BitVec c) (a b : BitVec w) : BitVec w :=
+  if _ : c = 0 ∨ w < c then
+    a -- Fallback/Base case (w = 0 or invalid chunk size)
+  else
+    -- Extract the lowest chunk
+    let a_low := a.take c
+    let b_low := b.take c
+    let res_low := op a_low b_low
+
+    -- Recursively process the remaining high bits
+    let a_high := a.drop c
+    let b_high := b.drop c
+    let res_high := BitVec.packedBinOp c op a_high b_high
+
+    -- Recombine: res_high is the high part, res_low is the low part
+    (BitVec.append res_high res_low).setWidth _
+termination_by w
+decreasing_by omega
+
+def BitVec.toFloat32 (v : BitVec 32) : Float32 :=
+  Float32.ofBits (UInt32.ofBitVec v)
+
+def Float32.toBitVec (f : Float32) : BitVec 32 :=
+  UInt32.toBitVec (Float32.toBits f)
+
 structure StatusFlags where
   cf : Bool
   pf : Bool
@@ -209,6 +236,7 @@ instance : NondetSupportingType StatusFlags := .statusFlags
 inductive Effects
   | done (a : MachineData × Int64)
   | unimplemented (msg : String)
+  | gp_unaligned (addr : BitVec 64) (w : Nat)
   -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
   -- for instance, MMIO reads/writes at certain device register addresses might change what
   -- data memory the process logically owns vs what memory is owned by devices
@@ -246,13 +274,25 @@ def MachineData.load
     | .some i => ret (.ofInt _ i) s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
 
+-- Alternatively, we could define this in terms of BitVecs without %:
+-- (addr &&& BitVec.ofNat 64 (bytes - 1)) == 0#64
+def isAligned (bytes : Nat) (addr : BitVec 64) : Bool :=
+  addr.toNat % bytes == 0
+
+-- Legacy SSE instructions are generally stricter about alignment requirements,
+-- while AVX (VEX-encoded) instructions can mostly deal with unaligned
+-- addresses (https://discourse.llvm.org/t/memory-alignment-model-on-avx-avx2-and-avx-512-targets/34705).
+-- For this reason we default checkAlign to false.
 def MachineData.loadAvx
   (s : MachineData) (addr : BitVec 64) (w : AvxWidth)
-  (ret : w.type → MachineData → Effects): Effects :=
-  require_read_access addr .W64 (fun _unit =>
-match Mem.loadInt s.dmem addr w.bytes with
-    | .some i => ret (.ofInt _ i) s
-    | .none => unimplemented "AVX nonmem load not supported")
+  (ret : w.type → MachineData → Effects) (checkAlign : Bool := false) : Effects :=
+  if checkAlign && !(isAligned w.bytes addr) then
+    .gp_unaligned addr w.bytes
+  else
+    require_read_access addr .W64 (fun _unit =>
+  match Mem.loadInt s.dmem addr w.bytes with
+      | .some i => ret (.ofInt _ i) s
+      | .none => unimplemented "AVX nonmem load not supported")
 
 def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Effects) : Effects :=
   require_write_access addr w (fun _unit =>
@@ -261,12 +301,15 @@ def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.ty
         ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
     | .none => nonmem_store s.dmem addr v (fun dmem' => ret { s with dmem := dmem' }))
 
-def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v : w.type) (ret: MachineData → Effects) : Effects :=
-  require_write_access addr .W64 (fun _unit =>
-match Mem.loadInt s.dmem addr w.bytes with
-    | .some _ =>
-        ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
-    | .none => unimplemented "AVX nonmem store not supported")
+def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v : w.type) (ret: MachineData → Effects) (checkAlign : Bool := false) : Effects :=
+  if checkAlign && !(isAligned w.bytes addr) then
+    .gp_unaligned addr w.bytes
+  else
+    require_write_access addr .W64 (fun _unit =>
+  match Mem.loadInt s.dmem addr w.bytes with
+      | .some _ =>
+          ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
+      | .none => unimplemented "AVX nonmem store not supported")
 
 class Labels where label : Label → Int64
 export Labels (label)
@@ -298,10 +341,10 @@ match o with
 
 def AvxRegOrMem.interp {w} [Labels] [AddressSize]
   (o : AvxRegOrMem w) (s : MachineData) (p : Std.Rco Int64)
-  (ret : w.type → MachineData → Effects) :=
+  (ret : w.type → MachineData → Effects) (checkAlign : Bool := false) :=
 match o with
   | .avx r => ret (s.zmms.get r) s
-  | .mem a => s.loadAvx ((a.interp s.regs p).zeroExtend _) w ret
+  | .mem a => s.loadAvx ((a.interp s.regs p).zeroExtend _) w ret checkAlign
 
 def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
@@ -317,15 +360,15 @@ def MachineData.set {w} [Labels] [AddressSize] (s : MachineData) (d : Dst w) (v 
   | .reg r => ret (s.setReg r v)
   | .mem a => s.store ((a.interp s.regs p).zeroExtend _) v ret
 
-def MachineData.setAvx {aw} [Labels] [AddressSize] (s : MachineData) (d : AvxDst aw) (v : aw.type) (p : Std.Rco Int64) (ret : MachineData → Effects) : Effects :=
+def MachineData.setAvx {aw} [Labels] [AddressSize] (s : MachineData) (d : AvxDst aw) (v : aw.type) (p : Std.Rco Int64) (ret : MachineData → Effects) (checkAlign : Bool := false) : Effects :=
 match d with
   | .avx r => ret (s.setAvxReg r v)
-  | .mem a => s.storeAvx ((a.interp s.regs p).zeroExtend _) v ret
+  | .mem a => s.storeAvx ((a.interp s.regs p).zeroExtend _) v ret checkAlign
 
-def MachineData.setAvxLegacy {w} [Labels] [AddressSize] (s : MachineData) (d : AvxDst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → Effects) : Effects :=
+def MachineData.setAvxLegacy {w} [Labels] [AddressSize] (s : MachineData) (d : AvxDst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → Effects) (checkAlign : Bool := false) : Effects :=
 match d with
   | .avx r => ret (s.setAvxLegacyReg r v)
-  | .mem a => s.storeAvx ((a.interp s.regs p).zeroExtend _) v ret
+  | .mem a => s.storeAvx ((a.interp s.regs p).zeroExtend _) v ret checkAlign
 
 def Operand.interp {w} [Labels] [AddressSize]
   (o : Operand w) (s : MachineData) (p : Std.Rco Int64)
@@ -337,9 +380,9 @@ def Operand.interp {w} [Labels] [AddressSize]
 
 def AvxOperand.interp {aw} [Labels] [AddressSize]
   (o : AvxOperand aw) (s : MachineData) (p : Std.Rco Int64)
-  (ret : aw.type → MachineData → Effects) :=
+  (ret : aw.type → MachineData → Effects) (checkAlign : Bool := false) :=
 match o with
-  | regOrMem rm => rm.interp s p ret
+  | regOrMem rm => rm.interp s p ret checkAlign
 
 def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
   | .z  => s.zf | .nz => !s.zf | .c  => s.cf | .nc => !s.cf
@@ -671,6 +714,28 @@ def AvxOperation.interp [Labels] [address_size : AddressSize]
 match i with
   | .movups dst src => src.interp s p (fun val s => s.setAvxLegacy dst val p next)
   | .vmovups dst src => src.interp s p (fun val s => s.setAvx dst val p next)
+  | .movaps dst src =>
+    src.interp s p (checkAlign := true)
+      (fun val s => s.setAvxLegacy dst val p (checkAlign := true) next)
+  -- TODO: MXCSR
+  | .subps dst src =>
+    src.interp s p (checkAlign := true) (fun a s =>
+    dst.interp s p (fun b s =>
+      let v := BitVec.packedBinOp 32 (fun dst_chunk src_chunk =>
+        let f_dst := BitVec.toFloat32 dst_chunk
+        let f_src := BitVec.toFloat32 src_chunk
+        Float32.toBitVec (f_dst - f_src)
+      ) b a
+      s.setAvxLegacy dst v p next))
+  | .addps dst src =>
+    src.interp s p (checkAlign := true) (fun a s =>
+    dst.interp s p (fun b s =>
+      let v := BitVec.packedBinOp 32 (fun dst_chunk src_chunk =>
+        let f_dst := BitVec.toFloat32 dst_chunk
+        let f_src := BitVec.toFloat32 src_chunk
+        Float32.toBitVec (f_dst + f_src)
+      ) b a
+      s.setAvxLegacy dst v p next))
 
 def Instr.interp [Labels]
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
@@ -751,6 +816,7 @@ where
     match es with
     | .done s => eval e s until_
     | .unimplemented msg => .error msg
+    | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
     | .require_read_access _ _ ok => handleEffects (ok ())
     | .require_write_access _ _ ok => handleEffects (ok ())
     | .require_exec_access _ ok => handleEffects (ok ())

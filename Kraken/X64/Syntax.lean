@@ -234,9 +234,14 @@ inductive Operation (w : Width)
   | nopalign (alignment : Nat) (pad : Option Nat)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
+-- The non-v* variants take SSE registers only.
+-- TODO: AVX512 extensions (write-masking, ...)
 inductive AvxOperation (w : AvxWidth)
-  | movups (_ : AvxDst w) (src : AvxRegOrMem w) -- sse regs only (TODO: constrain to .W128)
+  | movups (_ : AvxDst w) (src : AvxRegOrMem w)
   | vmovups (_ : AvxDst w) (src : AvxRegOrMem w)
+  | movaps (_ : AvxDst w) (src : AvxRegOrMem w)
+  | subps (_ : AvxDst w) (src : AvxRegOrMem w)
+  | addps (_ : AvxDst w) (src : AvxRegOrMem w)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 inductive Instr

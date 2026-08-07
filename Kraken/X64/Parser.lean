@@ -774,6 +774,15 @@ def parseInstr : Parser Instr := do
   | "vmovups" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovups
 
+  | "movaps" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .movaps
+
+  | "addps" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .addps
+
+  | "subps" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .subps
+
   -- Bitwise - 64-bit
   | "xor" =>
     commaSeparated .none parseOperand parseRegOrMem .xor

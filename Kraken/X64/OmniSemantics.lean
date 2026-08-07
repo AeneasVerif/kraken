@@ -17,6 +17,7 @@ abbrev Post {State : Type} := State → Prop
 def Effects.All (post : MachineState → Prop) : Effects → Prop
   | .done a => post a
   | .unimplemented _ => False
+  | .gp_unaligned .. => False
   | .nonmem_load .. => False
   | .nonmem_store .. => False
   | @Effects.undefined α _ cont => ∀ v: α, (cont v).All post
