@@ -272,10 +272,19 @@ def MachineData.load
     | .some i => ret (.ofInt _ i) s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
 
+-- Alternatively, we could define this in terms of BitVecs without %:
+-- (addr &&& BitVec.ofNat 64 (bytes - 1)) == 0#64
+def isAligned (bytes : Nat) (addr : BitVec 64) : Bool :=
+  addr.toNat % bytes == 0
+
+-- Legacy SSE instructions are generally stricter about alignment requirements,
+-- while AVX (VEX-encoded) instructions can mostly deal with unaligned
+-- addresses (https://discourse.llvm.org/t/memory-alignment-model-on-avx-avx2-and-avx-512-targets/34705).
+-- For this reason we default checkAlign to false.
 def MachineData.loadAvx
   (s : MachineData) (addr : BitVec 64) (w : AvxWidth)
   (ret : w.type → MachineData → Effects) (checkAlign : Bool := false) : Effects :=
-  if checkAlign && (addr &&& BitVec.ofNat 64 (w.bytes - 1)) != 0#64 then
+  if checkAlign && !(isAligned w.bytes addr) then
     .gp_unaligned addr w.bytes
   else
     require_read_access addr .W64 (fun _unit =>
@@ -291,7 +300,7 @@ def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.ty
     | .none => nonmem_store s.dmem addr v (fun dmem' => ret { s with dmem := dmem' }))
 
 def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v : w.type) (ret: MachineData → Effects) (checkAlign : Bool := false) : Effects :=
-  if checkAlign && (addr &&& BitVec.ofNat 64 (w.bytes - 1)) != 0#64 then
+  if checkAlign && !(isAligned w.bytes addr) then
     .gp_unaligned addr w.bytes
   else
     require_write_access addr .W64 (fun _unit =>
