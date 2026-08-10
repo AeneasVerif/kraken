@@ -11,19 +11,27 @@ attribute [-instance] BitVec.instNatCast
 attribute [-instance] BitVec.instIntCast
 instance : Coe Bool Nat where coe := Bool.toNat
 
-def BitVec.unsigned {w} (x : BitVec w) : Int := x.toNat
-def BitVec.signed {w} (x : BitVec w) : Int := x.toInt
-def BitVec.take {w} (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
-def BitVec.drop {w} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
+namespace BitVec
+def unsigned {w} (x : BitVec w) : Int := x.toNat
+def signed {w} (x : BitVec w) : Int := x.toInt
+@[kstep] def take {w} (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
+@[kstep] def drop {w} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
+end BitVec
+attribute [kstep]
+  BitVec.extractLsb'
+  BitVec.ofInt_add
+  BitVec.ofInt_toInt
+  BitVec.signed
+  BitVec.truncate
 def BitVec.replaceLow {w n} (old : BitVec w) (new : BitVec n) : BitVec w :=
   (BitVec.append (old.drop n) new).setWidth _
 
 namespace Reg
-def base {w} (r : Reg w) : Reg64 := match r with
+@[kstep] def base {w} (r : Reg w) : Reg64 := match r with
   | .low r _ => r
   | .ah => .rax | .bh => .rbx | .ch => .rcx | .dh => .rdx
 
-def offset {w} (r : Reg w) : Nat := match r with
+@[kstep] def offset {w} (r : Reg w) : Nat := match r with
   | .low _ _ => 0
   | .ah | .bh | .ch | .dh => 8
 end Reg
@@ -54,13 +62,13 @@ structure Reg64s where
   r15 : UInt64 := 0
   deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr
 
-def Reg64s.get64 (s : Reg64s) (r : Reg64) : Width.W64.type := UInt64.toBitVec (match r with
+@[kstep] def Reg64s.get64 (s : Reg64s) (r : Reg64) : Width.W64.type := UInt64.toBitVec (match r with
   | .rax => s.rax | .rbx => s.rbx | .rcx => s.rcx | .rdx => s.rdx
   | .rsi => s.rsi | .rdi => s.rdi | .rsp => s.rsp | .rbp => s.rbp
   | .r8  => s.r8  | .r9  => s.r9  | .r10 => s.r10 | .r11 => s.r11
   | .r12 => s.r12 | .r13 => s.r13 | .r14 => s.r14 | .r15 => s.r15)
 
-def Reg64s.set64 (regs : Reg64s) (r : Reg64) (v : Width.W64.type) : Reg64s :=
+@[kstep] def Reg64s.set64 (regs : Reg64s) (r : Reg64) (v : Width.W64.type) : Reg64s :=
   let  v := UInt64.ofBitVec v
   match r with
   | .rax => { regs with rax := v } | .rbx => { regs with rbx := v }
@@ -72,11 +80,11 @@ def Reg64s.set64 (regs : Reg64s) (r : Reg64) (v : Width.W64.type) : Reg64s :=
   | .r12 => { regs with r12 := v } | .r13 => { regs with r13 := v }
   | .r14 => { regs with r14 := v } | .r15 => { regs with r15 := v }
 
-def Reg64s.get (s : Reg64s) {w} (r : Reg w) : w.type :=
+@[kstep] def Reg64s.get (s : Reg64s) {w} (r : Reg w) : w.type :=
   ((s.get64 r.base).drop r.offset).take w.bits
   -- BitVec because it may be signed or unsigned depending on context
 
-def Reg64s.set (s : Reg64s) {w} (r : Reg w) (v : w.type) : Reg64s := match r with
+@[kstep] def Reg64s.set (s : Reg64s) {w} (r : Reg w) (v : w.type) : Reg64s := match r with
   | .low r .W64 => s.set64 r v
   | .low r .W32 => s.set64 r (v.zeroExtend _)
   | .low r w => s.set64 r ((s.get64 r).replaceLow v)
@@ -166,6 +174,7 @@ def RegZmms.setLegacy (s : RegZmms) {w} (r : AvxReg w) (v : w.type) : RegZmms :=
   | .ymm r => s.set512 r ((s.get512 r).replaceLow v)  -- impossible
   | .xmm r => s.set512 r ((s.get512 r).replaceLow v)
 
+@[kstep]
 def BitVec.toAddressSize [address_size: AddressSize] (w: BitVec 64): BitVec address_size.address_size.bits :=
   w.take address_size.address_size.bits
 
@@ -250,7 +259,7 @@ export Effects (unimplemented nonmem_load nonmem_store undefined require_read_ac
 
 -- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
 -- value are present for uniformity with RegOrMem.interp
-def Reg.interp {w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64)
+@[kstep] def Reg.interp {w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64)
   (ret : w.type → MachineData → Effects) : Effects :=
   ret (s.regs.get r) s
 
@@ -314,7 +323,7 @@ def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v 
 class Labels where label : Label → Int64
 export Labels (label)
 
-def ConstExpr.interp [Labels] : ConstExpr → Std.Rco _root_.Int64 → _root_.Int64
+@[kstep] def ConstExpr.interp [Labels] : ConstExpr → Std.Rco _root_.Int64 → _root_.Int64
   | .label l, _ => Labels.label l
   | .int64 i, _ => i
   | .before_current_instruction, r => r.lower
@@ -322,7 +331,7 @@ def ConstExpr.interp [Labels] : ConstExpr → Std.Rco _root_.Int64 → _root_.In
   | .add e1 e2, p => e1.interp p + e2.interp p
   | .sub e1 e2, p => e1.interp p - e2.interp p
 
-def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
+@[kstep] def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
   let base := match a.base with
               | .some (.reg r) => (s.get64 r).toAddressSize.signed
               | .some .rip => p.upper.toInt
@@ -332,7 +341,7 @@ def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Re
              | .none => 0
   BitVec.ofInt address_size.address_size.bits (base + idx + (a.disp.interp p).toInt)
 
-def RegOrMem.interp {w} [Labels] [AddressSize]
+@[kstep] def RegOrMem.interp {w} [Labels] [AddressSize]
   (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64)
   (ret : w.type → MachineData → Effects) :=
 match o with
@@ -346,6 +355,7 @@ match o with
   | .avx r => ret (s.zmms.get r) s
   | .mem a => s.loadAvx ((a.interp s.regs p).zeroExtend _) w ret checkAlign
 
+@[kstep]
 def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
 
@@ -355,6 +365,7 @@ def MachineData.setAvxReg (s : MachineData) {w : AvxWidth} (r : AvxReg w) (v : w
 def MachineData.setAvxLegacyReg (s : MachineData) {w : AvxWidth} (r : AvxReg w) (v : w.type) : MachineData :=
   { s with zmms := s.zmms.setLegacy r v }
 
+@[kstep]
 def MachineData.set {w} [Labels] [AddressSize] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → Effects) : Effects :=
   match d with
   | .reg r => ret (s.setReg r v)
@@ -370,7 +381,7 @@ match d with
   | .avx r => ret (s.setAvxLegacyReg r v)
   | .mem a => s.storeAvx ((a.interp s.regs p).zeroExtend _) v ret checkAlign
 
-def Operand.interp {w} [Labels] [AddressSize]
+@[kstep] def Operand.interp {w} [Labels] [AddressSize]
   (o : Operand w) (s : MachineData) (p : Std.Rco Int64)
   (ret : w.type → MachineData → Effects) :=
   match o with
@@ -384,15 +395,16 @@ def AvxOperand.interp {aw} [Labels] [AddressSize]
 match o with
   | regOrMem rm => rm.interp s p ret checkAlign
 
+@[kstep]
 def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
   | .z  => s.zf | .nz => !s.zf | .c  => s.cf | .nc => !s.cf
   | .a  => !s.cf && !s.zf | .be => s.cf || s.zf
   | .l => s.sf != s.of | .le => (s.sf != s.of) || s.zf
 
-def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
+@[kstep] def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
   | .cl => s.regs.rcx.toBitVec.take 8
   | .imm8 v => (v.interp p).toBitVec.take _
-def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width) : Nat :=
+@[kstep] def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width) : Nat :=
   (c.interp s p).toNat &&& match w with | .W64 => 0x3f | _ => 0x1f -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
 
 def RelRegOrMem.interp [Labels] [AddressSize]
@@ -420,7 +432,7 @@ def cpopNatRec_ {w} (x : BitVec w) (pos acc : Nat) : Nat :=
 def cpop_ {w} (x : BitVec w) : BitVec w := BitVec.ofNat w (cpopNatRec_ x w 0)
 end BitVec
 
-def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
+@[kstep] def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
   { pf := (result.take 8).cpop_ % 2 == BitVec.zero _
     zf := result == BitVec.zero _
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
@@ -428,7 +440,7 @@ def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) 
 
 
 set_option maxHeartbeats 1000000
-def Operation.interp [Labels] [address_size : AddressSize]
+@[kstep] def Operation.interp [Labels] [address_size : AddressSize]
   {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
   match (generalizing := false) (motive := Operation w → Effects) i with
@@ -738,6 +750,7 @@ match i with
       ) b a
       s.setAvxLegacy dst v p next))
 
+@[kstep]
 def Instr.interp [Labels]
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
@@ -749,7 +762,7 @@ def Instr.interp [Labels]
           AvxOperation.interp (w := op_sz) (address_size := .mk addr_sz) op p s next
   )
 
-def Directive.interp [Labels]
+@[kstep] def Directive.interp [Labels]
   (d : Directive) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
   match d with

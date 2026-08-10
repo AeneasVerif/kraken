@@ -6,6 +6,7 @@ variable {key value : Type} [BEq key] [EquivBEq key] [Hashable key] [LawfulHasha
 def sep (p q : ExtHashMap key value → Prop) (m : ExtHashMap key value) : Prop :=
  ∃ a b, a.union b = m ∧ a.inter b = ∅ ∧ p a ∧ q b
 
+-- type with: \st
 infixl:60 " ⋆ " => sep
 notation:70 m " =⋆ " P => P m
 

@@ -14,7 +14,7 @@ import Kraken.X64.Semantics
 
 abbrev Post {State : Type} := State → Prop
 
-def Effects.All (post : MachineState → Prop) : Effects → Prop
+@[kstep] def Effects.All (post : MachineState → Prop) : Effects → Prop
   | .done a => post a
   | .unimplemented _ => False
   | .gp_unaligned .. => False
