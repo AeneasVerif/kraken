@@ -197,7 +197,12 @@ def kdsimpProj : DSimproc := fun e => do
     | none   => return .rfl
     | some e =>
       match (← reduceProj? e.getAppFn) with
-      | some f => return .step (← shareCommon (mkAppN f e.getAppArgs))
+      | some f =>
+        -- Upstream Lean bug: reduceProj? can extract fields with loose bvars
+        -- from outer LocalDecls, introducing loose bvars into closed positions.
+        if f.hasLooseBVars && !e.hasLooseBVars then
+          return .rfl
+        return .step (← shareCommon (mkAppN f e.getAppArgs))
       | none   => return .rfl
   -- TODO: special support for instances?
   reduceProjCont? (← unfoldDefinition? e)

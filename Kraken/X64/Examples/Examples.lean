@@ -551,3 +551,16 @@ theorem dynamic_stack_example_correct [layout : Layout] (s₀ : MachineData)
   sym =>
   -- FIXME: kstep here takes too long
   sorry
+
+-- Reproduces a kernel diagnostic in kdsimpProj
+def p_test := parse("
+loop:
+  add $16, %rdx
+  jl loop
+")
+example [layout : Layout] (s : MachineData) :
+    Eventually (straightlineStep (layout p_test)) (fun s => True) (s, layout.start) := by
+  apply step_cps
+  kprologue p_test
+  sym => kstep; tactic =>
+  sorry
