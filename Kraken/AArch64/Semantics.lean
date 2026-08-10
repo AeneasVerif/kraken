@@ -1,0 +1,805 @@
+import Lean
+import Std
+import Kraken.AArch64.Syntax
+import Kraken.Mem
+
+-- injective coercions only
+attribute [-instance] BitVec.instNatCast
+attribute [-instance] BitVec.instIntCast
+instance : Coe Bool Nat where coe := Bool.toNat
+
+def BitVec.unsigned {w} (x : BitVec w) : Int := x.toNat
+def BitVec.signed {w} (x : BitVec w) : Int := x.toInt
+def BitVec.take {w} (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
+def BitVec.drop {w} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
+
+namespace RegOrSp
+def base {w} (r : RegOrSp w) : XRegOrSp := match r with
+  | .low r _ => r
+end RegOrSp
+
+namespace RegOrZr
+def base {w} (r : RegOrZr w) : XRegOrXzr := match r with
+  | .low r _ => r
+end RegOrZr
+
+structure Reg64s where
+  X0 : UInt64 := 0
+  X1 : UInt64 := 0
+  X2 : UInt64 := 0
+  X3 : UInt64 := 0
+  X4 : UInt64 := 0
+  X5 : UInt64 := 0
+  X6 : UInt64 := 0
+  X7 : UInt64 := 0
+  X8 : UInt64 := 0
+  X9 : UInt64 := 0
+  X10 : UInt64 := 0
+  X11 : UInt64 := 0
+  X12 : UInt64 := 0
+  X13 : UInt64 := 0
+  X14 : UInt64 := 0
+  X15 : UInt64 := 0
+  X16 : UInt64 := 0
+  X17 : UInt64 := 0
+  X18 : UInt64 := 0
+  X19 : UInt64 := 0
+  X20 : UInt64 := 0
+  X21 : UInt64 := 0
+  X22 : UInt64 := 0
+  X23 : UInt64 := 0
+  X24 : UInt64 := 0
+  X25 : UInt64 := 0
+  X26 : UInt64 := 0
+  X27 : UInt64 := 0
+  X28 : UInt64 := 0
+  X29 : UInt64 := 0
+  X30 : UInt64 := 0
+  SP : UInt64 := 0
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+
+def Reg64s.getXReg (s : Reg64s) (r : XReg) := match r with
+  |  .X0 =>  s.X0 |  .X1 =>  s.X1 |  .X2 =>  s.X2 |  .X3 =>  s.X3
+  |  .X4 =>  s.X4 |  .X5 =>  s.X5 |  .X6 =>  s.X6 |  .X7 =>  s.X7
+  |  .X8 =>  s.X8 |  .X9 =>  s.X9 | .X10 => s.X10 | .X11 => s.X11
+  | .X12 => s.X12 | .X13 => s.X13 | .X14 => s.X14 | .X15 => s.X15
+  | .X16 => s.X16 | .X17 => s.X17 | .X18 => s.X18 | .X19 => s.X19
+  | .X20 => s.X20 | .X21 => s.X21 | .X22 => s.X22 | .X23 => s.X23
+  | .X24 => s.X24 | .X25 => s.X25 | .X26 => s.X26 | .X27 => s.X27
+  | .X28 => s.X28 | .X29 => s.X29 | .X30 => s.X30
+
+def Reg64s.getRegOrSp64 (s : Reg64s) (r : XRegOrSp) : Width.W64.type := UInt64.toBitVec (match r with
+  | .reg r => s.getXReg r
+  | .SP => s.SP )
+
+def Reg64s.getRegOrZr64 (s : Reg64s) (r : XRegOrXzr) : Width.W64.type := UInt64.toBitVec (match r with
+  | .reg r => s.getXReg r
+  | .XZR => 0 ) -- Reads from XZR return constant 0.
+
+def Reg64s.setXReg (regs : Reg64s) (r : XReg) (v : Width.W64.type) : Reg64s :=
+  let v := UInt64.ofBitVec v
+  match r with
+  |  .X0 => { regs with  X0 := v } |  .X1 => { regs with  X1 := v }
+  |  .X2 => { regs with  X2 := v } |  .X3 => { regs with  X3 := v }
+  |  .X4 => { regs with  X4 := v } |  .X5 => { regs with  X5 := v }
+  |  .X6 => { regs with  X6 := v } |  .X7 => { regs with  X7 := v }
+  |  .X8 => { regs with  X8 := v } |  .X9 => { regs with  X9 := v }
+  | .X10 => { regs with X10 := v } | .X11 => { regs with X11 := v }
+  | .X12 => { regs with X12 := v } | .X13 => { regs with X13 := v }
+  | .X14 => { regs with X14 := v } | .X15 => { regs with X15 := v }
+  | .X16 => { regs with X16 := v } | .X17 => { regs with X17 := v }
+  | .X18 => { regs with X18 := v } | .X19 => { regs with X19 := v }
+  | .X20 => { regs with X20 := v } | .X21 => { regs with X21 := v }
+  | .X22 => { regs with X22 := v } | .X23 => { regs with X23 := v }
+  | .X24 => { regs with X24 := v } | .X25 => { regs with X25 := v }
+  | .X26 => { regs with X26 := v } | .X27 => { regs with X27 := v }
+  | .X28 => { regs with X28 := v } | .X29 => { regs with X29 := v }
+  | .X30 => { regs with X30 := v }
+
+def Reg64s.setRegOrSp64 (regs : Reg64s) (r : XRegOrSp) (v : Width.W64.type) : Reg64s :=
+  match r with
+  | .reg r => regs.setXReg r v
+  | .SP => { regs with SP := UInt64.ofBitVec v }
+
+def Reg64s.setRegOrZr64 (regs : Reg64s) (r : XRegOrXzr) (v : Width.W64.type) : Reg64s :=
+  match r with
+  | .reg r => regs.setXReg r v
+  | .XZR => regs -- Writes to XZR are dropped.
+
+def Reg64s.getRegOrSp (s : Reg64s) {w} (r : RegOrSp w) : w.type :=
+  (s.getRegOrSp64 r.base).take w.bits
+
+def Reg64s.getRegOrZr (s : Reg64s) {w} (r : RegOrZr w) : w.type :=
+  (s.getRegOrZr64 r.base).take w.bits
+
+def Reg64s.setRegOrSp (s : Reg64s) {w} (r : RegOrSp w) (v : w.type) : Reg64s := match r with
+  | .low r .W64 => s.setRegOrSp64 r v
+  | .low r .W32 => s.setRegOrSp64 r (v.zeroExtend _)
+
+def Reg64s.setRegOrZr (s : Reg64s) {w} (r : RegOrZr w) (v : w.type) : Reg64s := match r with
+  | .low r .W64 => s.setRegOrZr64 r v
+  | .low r .W32 => s.setRegOrZr64 r (v.zeroExtend _)
+
+structure StatusFlags where
+  n : Bool
+  z : Bool
+  c : Bool
+  v : Bool
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+
+abbrev DataMem := Mem 64
+instance : Repr DataMem where reprPrec _ _ := "<opaque memory>"
+structure MachineData where -- does not include code or program position
+  regs : Reg64s := {}
+  status : StatusFlags := .mk false false false false
+  dmem : DataMem := ∅
+  deriving Repr, BEq, DecidableEq
+
+-- We only allow nondeterministic choices for a fixed set of types.
+class inductive NondetSupportingType : Type -> Type
+  | bitvec (w : Width) : NondetSupportingType w.type
+  | bool : NondetSupportingType Bool
+  | statusFlags : NondetSupportingType StatusFlags
+
+def NondetSupportingType.from_hash {α} [t : NondetSupportingType α] (h : UInt64) : α :=
+  match t with
+  | .bool => h % 2 != 0
+  | .statusFlags => let h := h.toBitVec; (.mk h[0] h[1] h[2] h[3])
+  | .bitvec w => h.toBitVec.setWidth w.bits
+
+instance (w : Width) : NondetSupportingType w.type := .bitvec w
+instance : NondetSupportingType Bool := .bool
+instance : NondetSupportingType StatusFlags := .statusFlags
+
+inductive Effects
+  | done (a : MachineData × Int64)
+  | unimplemented (msg : String)
+  -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
+  -- for instance, MMIO reads/writes at certain device register addresses might change what
+  -- data memory the process logically owns vs what memory is owned by devices
+  | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : Width) (ret : w.type → DataMem → Effects)
+  | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : Width} (v : w.type) (ret: DataMem → Effects)
+  | undefined {α : Type} [NondetSupportingType α] (ret : α → Effects)
+  | require_read_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
+  | require_write_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
+  | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
+export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
+
+-- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
+-- value are present for uniformity with RegOrMem.interp
+def RegOrSp.interp {w} (r : RegOrSp w) (s : MachineData) (_ : Std.Rco Int64)
+  (ret : w.type → MachineData → Effects) : Effects :=
+  ret (s.regs.getRegOrSp r) s
+
+def RegOrZr.interp {w} (r : RegOrZr w) (s : MachineData) (_ : Std.Rco Int64)
+  (ret : w.type → MachineData → Effects) : Effects :=
+  ret (s.regs.getRegOrZr r) s
+
+-- Since MMIO can cause devices to do arbitrary actions, a load might actually
+-- *modify* memory. For instance:
+-- A TEST instruction might load a flag from an MMIO address and bitwise-and it with
+-- an immediate, and if the result is non-zero, it might mean that some device has
+-- finished processing a buffer and therefore now passes ownership of that buffer
+-- to the CPU.
+-- Note that `ret` takes a whole `MachineData` instead of only `DataMem`, which
+-- provides a bit more flexibility than we need: MachineData.load might change
+-- dmem, but will not change the registers or status flags.
+-- But this superfluous flexibility helps us simplify the state-threading:
+-- Instead of writing `fun v dmem => ... { s with dmem } ...` everywhere, we
+-- can just write `fun v s => ...` and the new `s` will shadow the old `s`.
+def MachineData.load
+  (s : MachineData) (addr : BitVec 64) (w : Width)
+  (ret : w.type → MachineData → Effects): Effects :=
+  require_read_access addr w (fun _unit =>
+    match Mem.loadInt s.dmem addr w.bytes with
+    | .some i => ret (.ofInt _ i) s
+    | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
+
+def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Effects) : Effects :=
+  require_write_access addr w (fun _unit =>
+    match Mem.loadInt s.dmem addr w.bytes with
+    | .some _ =>
+        ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
+    | .none => nonmem_store s.dmem addr v (fun dmem' => ret { s with dmem := dmem' }))
+
+class Labels where label : Label → Int64
+export Labels (label)
+
+def ConstExpr.interp [Labels] : ConstExpr → Std.Rco Int64 → Int64
+  | .label l, _ => Labels.label l
+  | .int64 i, _ => i
+  | .before_current_instruction, r => r.lower
+  | .after_current_instruction, r => r.upper
+  | .add e1 e2, p => e1.interp p + e2.interp p
+  | .sub e1 e2, p => e1.interp p - e2.interp p
+  | .pg_hi21 e, p =>
+    let val := BitVec.ofInt 64 (Int64.toInt (e.interp p))
+    let page := val &&& ~~~0xFFF#64
+    Int64.ofNat page.toNat
+  | .lo12 e, p =>
+    let val := BitVec.ofInt 64 (Int64.toInt (e.interp p))
+    let lo := val &&& 0xFFF#64
+    Int64.ofNat lo.toNat
+
+def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64) : Int64 :=
+  match target with
+  | .int64 imm => p.lower + imm
+  | _ => target.interp p
+
+def BitVec.apply_extend (v : BitVec 64) (ext : Extend) :=
+  let extended := match ext.type with
+               | .UXTB => (v.take 8).unsigned
+               | .SXTB => (v.take 8).signed
+               | .UXTH => (v.take 16).unsigned
+               | .SXTH => (v.take 16).signed
+               | .UXTW => (v.take 32).unsigned
+               | .SXTW => (v.take 32).signed
+               | .UXTX => v.unsigned
+               | .SXTX => v.signed
+  let shifted := match ext.amount with
+                 | .E0 => extended
+                 | .E1 => extended <<< 1
+                 | .E2 => extended <<< 2
+                 | .E3 => extended <<< 3
+                 | .E4 => extended <<< 4
+  shifted
+
+def BitVec.apply_mem_extend {w} (v : BitVec 64) (ext : MemExtend w) :=
+  let extended := match ext.type with
+               | .UXTW => (v.take 32).unsigned
+               | .SXTW => (v.take 32).signed
+               | .UXTX => v.unsigned
+               | .SXTX => v.signed
+  let shifted := match w, ext.amount with
+                 | _, .E0 => extended
+                 | .W32, .E2 => extended <<< 2
+                 | .W64, .E3 => extended <<< 3
+  shifted
+
+def ExtRegExpr.interp (er : ExtRegExpr) (s : Reg64s) (_ : Std.Rco Int64) :=
+  let base := s.getRegOrZr er.reg.reg
+  (base.take 64).apply_extend er.ext
+
+def MemExtRegExpr.interp {w} (er : MemExtRegExpr w) (s : Reg64s) (_ : Std.Rco Int64) :=
+  let base := s.getRegOrZr er.reg.reg
+  (base.take 64).apply_mem_extend er.ext
+
+def ExtOrImmReg.interp [Labels] {w} (expr : ExtOrImmReg w) (s : Reg64s) (p : Std.Rco Int64) : w.type :=
+  match expr with
+  | .ext e =>
+    BitVec.ofInt w.bits (e.interp s p)
+  | .imm i =>
+    let imm := Int64.toInt (i.imm.interp p)
+    match i.shift with
+    | .S0 => BitVec.ofInt w.bits (imm)
+    | .S12 => BitVec.ofInt w.bits (imm <<< 12)
+
+def ShiftRegExpr.interp {w} (expr : ShiftRegExpr w) (s : Reg64s) (_ : Std.Rco Int64) : w.type :=
+  let base := s.getRegOrZr expr.reg
+  let amount := (Int64.toInt expr.amount).toNat
+  match expr.shift with
+  | .LSL => base <<< amount
+  | .LSR => base.ushiftRight amount
+  | .ASR => base.sshiftRight amount
+  | .ROR => base.rotateRight amount
+
+def AddrExpr.eval [Labels] {w} (mem : AddrExpr w) (s : MachineData) (p : Std.Rco Int64) : BitVec 64 × MachineData :=
+  let base := (s.regs.getRegOrSp mem.base).signed
+  match mem.off with
+  | .reg r =>
+    let off := r.interp s.regs p
+    (BitVec.ofInt 64 (base + off), s)
+  | .imm i =>
+    let off := Int64.toInt (i.imm.interp p)
+    let addr := match i.index with
+      | some .Post => BitVec.ofInt 64 base
+      | _ => BitVec.ofInt 64 (base + off)
+    let s' := match i.index with
+      | some _ => { s with regs := s.regs.setRegOrSp mem.base (BitVec.ofInt 64 (base + off)) }
+      | none => s
+    (addr, s')
+
+-- AArch64 mandates 16-byte alignment when accessing memory through SP.
+def AddrExpr.checkSPAlignment {w} (mem : AddrExpr w) (s : MachineData) (ok : Unit → Effects) : Effects :=
+  match mem.base with
+  | .SP =>
+    if s.regs.getRegOrSp .SP % 16#64 != 0#64 then
+      .unimplemented s!"Unimplemented: SP is required to be 16-byte aligned"
+    else
+      ok ()
+  | _ => ok ()
+
+def AddrExpr.interp [Labels] {w} (mem : AddrExpr w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
+  mem.checkSPAlignment s (fun _unit =>
+    let (addr, s') := mem.eval s p
+    s'.load addr w ret)
+
+def UnscaledAddrExpr.eval [Labels] (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) : BitVec 64 :=
+  let base := (s.regs.getRegOrSp mem.base).toInt
+  let off := Int64.toInt (mem.imm.interp p)
+  BitVec.ofInt 64 (base + off)
+
+def UnscaledAddrExpr.checkSPAlignment (mem : UnscaledAddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
+  match mem.base with
+  | .SP =>
+    if s.regs.getRegOrSp .SP % 16#64 != 0#64 then
+      .unimplemented s!"Unimplemented: SP is required to be 16-byte aligned"
+    else
+      ok ()
+  | _ => ok ()
+
+def UnscaledAddrExpr.interp [Labels] {w : Width} (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
+  mem.checkSPAlignment s (fun _unit =>
+    let addr := mem.eval s p
+    s.load addr w ret)
+
+def Literal.interp [Labels] {w} (expr : Literal w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) : Effects :=
+  match expr with
+  | .addr addr_expr => -- Load from address.
+    let addr_val := Labels.label addr_expr.label
+    let addr := BitVec.ofInt 64 (Int64.toInt addr_val)
+    s.load addr w ret
+  | .pool litpool_expr => -- Bypass loading and return value directly.
+    let val := litpool_expr.expr.interp p
+    let val_bv : w.type := BitVec.ofInt w.bits (Int64.toInt val)
+    ret val_bv s
+
+def AddrOrLit.interp [Labels] {w} (expr : AddrOrLit w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
+  match expr with
+  | .addr addr_expr => addr_expr.interp s p ret
+  | .lit lit_expr => lit_expr.interp s p ret
+
+def MachineData.setRegOrSp (s : MachineData) {w} (r : RegOrSp w) (v : w.type) (ret : MachineData → Effects) : Effects :=
+  ret { s with regs := s.regs.setRegOrSp r v }
+
+def MachineData.setRegOrZr (s : MachineData) {w} (r : RegOrZr w) (v : w.type) (ret : MachineData → Effects) : Effects :=
+  ret { s with regs := s.regs.setRegOrZr r v }
+
+def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
+  | .EQ => s.z
+  | .NE => !s.z
+  | .CS => s.c
+  | .CC => !s.c
+  | .MI => s.n
+  | .PL => !s.n
+  | .VS => s.v
+  | .VC => !s.v
+  | .HI => s.c && !s.z
+  | .LS => !s.c || s.z
+  | .GE => s.n == s.v
+  | .LT => s.n != s.v
+  | .GT => !s.z && s.n == s.v
+  | .LE => s.z || s.n != s.v
+  | .AL => true
+  | .NV => true -- NV ("never") behaves the same as AL ("always") on AArch64
+
+structure StatusFlags.from_result.Remaining where
+  c : Bool
+  v : Bool
+  deriving Repr, BEq, DecidableEq
+
+def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
+  { n := result.msb
+    z := result == BitVec.zero _
+    c := f.c
+    v := f.v }
+
+def StatusFlags.adds {w} (res val1 val2 : BitVec w) : StatusFlags :=
+  StatusFlags.from_result res {
+    c := res.unsigned != val1.unsigned + val2.unsigned
+    v := res.signed != val1.signed + val2.signed }
+
+def StatusFlags.subs {w} (res val1 val2 : BitVec w) : StatusFlags :=
+  StatusFlags.from_result res {
+    c := res.unsigned == val1.unsigned - val2.unsigned
+    v := res.signed != val1.signed - val2.signed }
+
+set_option maxHeartbeats 1000000
+def Operation.interp [Labels]
+  {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
+  (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
+  match (generalizing := false) (motive := Operation w → Effects) i with
+  | .LDR dst src => src.interp s p (fun val s => s.setRegOrZr dst val next)
+  | .STR src dst =>
+    dst.checkSPAlignment s (fun _unit =>
+      let val := s.regs.getRegOrZr src
+      let (addr, s') := dst.eval s p
+      s'.store addr val next)
+  | .LDUR dst src => src.interp s p (fun val s => s.setRegOrZr dst val next)
+  | .STUR src dst =>
+    dst.checkSPAlignment s (fun _unit =>
+      let val := s.regs.getRegOrZr src
+      let addr := dst.eval s p
+      s.store addr val next)
+  -- TODO: Architecturally, the memory access ordering of LDP/STP is UNORDERED and can occur
+  -- simultaneously as a 128-bit transaction or in any order on hardware. Here we model a specific
+  -- sequential order (lower address first, then higher address), which does not necessarily reflect
+  -- physical execution order on device memory. (Note: unpredictable cases like identical transfer
+  -- registers in LDP or writeback conflicts are statically rejected during parsing).
+  | .LDP dst1 dst2 src =>
+    src.checkSPAlignment s (fun _unit =>
+      let (addr, s') := src.eval s p
+      s'.load addr w (fun val1 s'' =>
+        s''.load (addr + w.bytesv) w (fun val2 s''' =>
+          s'''.setRegOrZr dst1 val1 (fun s'''' => s''''.setRegOrZr dst2 val2 next))))
+  | .STP src1 src2 dst =>
+    dst.checkSPAlignment s (fun _unit =>
+      let val1 := s.regs.getRegOrZr src1
+      let val2 := s.regs.getRegOrZr src2
+      let (addr, s') := dst.eval s p
+      s'.store addr val1 (fun s'' =>
+        s''.store (addr + w.bytesv) val2 next))
+  | .ADD_e dst src1 src2 =>
+    let val1 := s.regs.getRegOrSp src1
+    let val2 := src2.interp s.regs p
+    let res := val1 + val2
+    s.setRegOrSp dst res next
+  | .ADD_s dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := src2.interp s.regs p
+    let res := val1 + val2
+    s.setRegOrZr dst res next
+  | .ADDS_e dst src1 src2 =>
+    let val1 := s.regs.getRegOrSp src1
+    let val2 := src2.interp s.regs p
+    let res := val1 + val2
+    { s with status := StatusFlags.adds res val1 val2 }.setRegOrZr dst res next
+  | .ADDS_s dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := src2.interp s.regs p
+    let res := val1 + val2
+    { s with status := StatusFlags.adds res val1 val2 }.setRegOrZr dst res next
+  | .SUB_e dst src1 src2 =>
+    let val1 := s.regs.getRegOrSp src1
+    let val2 := src2.interp s.regs p
+    let res := val1 - val2
+    s.setRegOrSp dst res next
+  | .SUB_s dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := src2.interp s.regs p
+    let res := val1 - val2
+    s.setRegOrZr dst res next
+  | .SUBS_e dst src1 src2 =>
+    let val1 := s.regs.getRegOrSp src1
+    let val2 := src2.interp s.regs p
+    let res := val1 - val2
+    { s with status := StatusFlags.subs res val1 val2 }.setRegOrZr dst res next
+  | .SUBS_s dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := src2.interp s.regs p
+    let res := val1 - val2
+    { s with status := StatusFlags.subs res val1 val2 }.setRegOrZr dst res next
+  | .ADC dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let carry : w.type := s.status.c
+    let res := val1 + val2 + carry
+    s.setRegOrZr dst res next
+  | .ADCS dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let carry : w.type := s.status.c
+    let res := val1 + val2 + carry
+    let carry_int : Int := if s.status.c then 1 else 0
+    let status := StatusFlags.from_result res {
+      c := res.unsigned != val1.unsigned + val2.unsigned + carry_int
+      v := res.signed != val1.signed + val2.signed + carry_int }
+    { s with status }.setRegOrZr dst res next
+  | .SBC dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let borrow : w.type := !s.status.c
+    let res := val1 - val2 - borrow
+    s.setRegOrZr dst res next
+  | .SBCS dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let borrow : w.type := !s.status.c
+    let res := val1 - val2 - borrow
+    let borrow_int : Int := if s.status.c then 0 else 1
+    let status := StatusFlags.from_result res {
+      c := val1.unsigned >= val2.unsigned + borrow_int
+      v := res.signed != val1.signed - val2.signed - borrow_int }
+    { s with status }.setRegOrZr dst res next
+  | .MADD dst src1 src2 src3 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let val3 := s.regs.getRegOrZr src3
+    let res := val1 * val2 + val3
+    s.setRegOrZr dst res next
+  | .MSUB dst src1 src2 src3 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let val3 := s.regs.getRegOrZr src3
+    let res := val3 - val1 * val2
+    s.setRegOrZr dst res next
+  | .SMULH dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let prod := val1.toInt * val2.toInt
+    let res := (BitVec.ofInt 128 prod).extractLsb' 64 64
+    s.setRegOrZr dst res next
+  | .UMULH dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let prod := val1.toNat * val2.toNat
+    let res := BitVec.ofNat 64 (prod >>> 64)
+    s.setRegOrZr dst res next
+  | .AND_i dst src1 imm =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 &&& val2
+    s.setRegOrSp dst res next
+  | .AND_s dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := src2.interp s.regs p
+    let res := val1 &&& val2
+    s.setRegOrZr dst res next
+  | .ANDS_i dst src1 imm =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 &&& val2
+    let flags := StatusFlags.from_result res { c := false, v := false }
+    { s with status := flags }.setRegOrZr dst res next
+  | .ANDS_s dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := src2.interp s.regs p
+    let res := val1 &&& val2
+    let flags := StatusFlags.from_result res { c := false, v := false }
+    { s with status := flags }.setRegOrZr dst res next
+  | .ORR_i dst src1 imm =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 ||| val2
+    s.setRegOrSp dst res next
+  | .ORR_s dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := src2.interp s.regs p
+    let res := val1 ||| val2
+    s.setRegOrZr dst res next
+  | .ORN_s dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := src2.interp s.regs p
+    let res := val1 ||| ~~~val2
+    s.setRegOrZr dst res next
+  | .EOR_i dst src1 imm =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 ^^^ val2
+    s.setRegOrSp dst res next
+  | .EOR_s dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := src2.interp s.regs p
+    let res := val1 ^^^ val2
+    s.setRegOrZr dst res next
+  | .BIC_s dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := src2.interp s.regs p
+    let res := val1 &&& ~~~val2
+    s.setRegOrZr dst res next
+  | .MOVZ dst imm shift =>
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& (0xFFFF : BitVec w.bits)
+    let res := val16 <<< shift.toNat
+    s.setRegOrZr dst res next
+  | .MOVK dst imm shift =>
+    let oldVal := s.regs.getRegOrZr dst
+    let mask := ~~~((0xFFFF : BitVec w.bits) <<< shift.toNat)
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& (0xFFFF : BitVec w.bits)
+    let res := (oldVal &&& mask) ||| (val16 <<< shift.toNat)
+    s.setRegOrZr dst res next
+  | .MOVN dst imm shift =>
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& (0xFFFF : BitVec w.bits)
+    let res := ~~~(val16 <<< shift.toNat)
+    s.setRegOrZr dst res next
+  | .LSLV dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let shift := val2.toNat % w.bits
+    let res := val1 <<< shift
+    s.setRegOrZr dst res next
+  | .LSRV dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let shift := val2.toNat % w.bits
+    let res := val1.ushiftRight shift
+    s.setRegOrZr dst res next
+  | .ASRV dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let shift := val2.toNat % w.bits
+    let res := val1.sshiftRight shift
+    s.setRegOrZr dst res next
+  | .RORV dst src1 src2 =>
+    let val1 := s.regs.getRegOrZr src1
+    let val2 := s.regs.getRegOrZr src2
+    let shift := val2.toNat % w.bits
+    let res := val1.rotateRight shift
+    s.setRegOrZr dst res next
+  | .CSEL dst src1 src2 cond =>
+    let val := if cond.interp s.status then s.regs.getRegOrZr src1 else s.regs.getRegOrZr src2
+    s.setRegOrZr dst val next
+  | .CSINC dst src1 src2 cond =>
+    let val := if cond.interp s.status then s.regs.getRegOrZr src1 else s.regs.getRegOrZr src2 + 1#w.bits
+    s.setRegOrZr dst val next
+  | .CSINV dst src1 src2 cond =>
+    let val := if cond.interp s.status then s.regs.getRegOrZr src1 else ~~~(s.regs.getRegOrZr src2)
+    s.setRegOrZr dst val next
+  | .CSNEG dst src1 src2 cond =>
+    let val := if cond.interp s.status then s.regs.getRegOrZr src1 else -(s.regs.getRegOrZr src2)
+    s.setRegOrZr dst val next
+  | .ADR dst target =>
+    let val := match target with
+      | .int64 imm => BitVec.ofInt 64 (Int64.toInt p.lower + Int64.toInt imm)
+      | _ => BitVec.ofInt 64 (Int64.toInt (target.interp p))
+    s.setRegOrZr dst val next
+  | .ADRP dst target =>
+    let val := match target with
+      | .int64 imm => BitVec.ofInt 64 (Int64.toInt p.lower + Int64.toInt imm)
+      | _ => BitVec.ofInt 64 (Int64.toInt (target.interp p))
+    s.setRegOrZr dst (val &&& ~~~0xFFF#64) next
+  | .B target =>
+    jmp (target.evalBranchTarget p) s
+  | .B_cond cond target =>
+    if cond.interp s.status then
+      jmp (target.evalBranchTarget p) s
+    else
+      next s
+  | .BL target =>
+    let lr_val := BitVec.ofInt 64 (Int64.toInt p.upper)
+    s.setRegOrZr RegOrZr.X30 lr_val (fun s' => jmp (target.evalBranchTarget p) s')
+  | .BLR target =>
+    let lr_val := BitVec.ofInt 64 (Int64.toInt p.upper)
+    let target_val := Int64.ofInt (s.regs.getRegOrZr target).toInt
+    s.setRegOrZr RegOrZr.X30 lr_val (fun s' => jmp target_val s')
+  | .BR target =>
+    let target_val := Int64.ofInt (s.regs.getRegOrZr target).toInt
+    jmp target_val s
+  | .RET target =>
+    let target_val := Int64.ofInt (s.regs.getRegOrZr target).toInt
+    jmp target_val s
+  | .CBZ reg target =>
+    let val := s.regs.getRegOrZr reg
+    if val == 0 then
+      jmp (target.evalBranchTarget p) s
+    else
+      next s
+  | .CBNZ reg target =>
+    let val := s.regs.getRegOrZr reg
+    if val != 0 then
+      jmp (target.evalBranchTarget p) s
+    else
+      next s
+  | .TBZ reg bit target =>
+    let val := s.regs.getRegOrZr reg
+    if val.getLsbD bit == false then
+      jmp (target.evalBranchTarget p) s
+    else
+      next s
+  | .TBNZ reg bit target =>
+    let val := s.regs.getRegOrZr reg
+    if val.getLsbD bit == true then
+      jmp (target.evalBranchTarget p) s
+    else
+      next s
+  | .NOP => next s
+
+def Instr.interp [Labels]
+  (i : Instr) (s : MachineData) (p : Std.Rco Int64)
+  (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
+  require_exec_access p (fun _unit =>
+    Operation.interp (w := i.operation_size) i.operation p s next jmp)
+
+def Directive.interp [Labels]
+  (d : Directive) (s : MachineData) (p : Std.Rco Int64)
+  (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
+  match d with
+  | .label _ => next s
+  | .instr i => i.interp s p next jmp
+  | .byteArray _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
+
+def Directives.interp [Labels]
+  (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
+  (ret : Int64 → MachineData → Effects) : Effects :=
+  match ds with
+  | [] => ret pc s
+  | (d, sz) :: ds =>
+    d.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
+    interp ds s (pc+.ofNat sz) ret))
+
+class Layout where (start : Int64) (size : Nat → Nat)
+def Layout.apply (l : Layout) (prog : Program) : Executable :=
+  (l.start, prog.mapIdx (fun i d => (d, l.size i)))
+instance : CoeFun Layout (fun _ => Program → Executable) where coe := Layout.apply
+
+def Executable.withAddresses (e : Executable)  : List (Int64 × Directive × Nat) :=
+  (List.scanl (fun (p, _, _) (d, z) => (p+.ofNat z, d, z)) (e.1, .byteArray (.mk #[]), 0) e.2)
+
+def Executable.labels (e : Executable) : Labels :=
+  { label l := (e.withAddresses.findSome?
+      (fun (p, d, _) => if d = .label l then .some p else .none)).getD (-1) }
+
+def Executable.directivesAtAddress (e : Executable) (a : Int64) : List (Directive × Nat) :=
+  (e.withAddresses.filter (·.1 = a)).map (·.2)
+
+def Executable.directivesFromAddress (e : Executable) (a : Int64) : List (Directive × Nat) :=
+  e.2.drop (((e.withAddresses).map (·.1)).idxOf a)
+
+def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directive × Nat) :=
+  e.2.dropWhile (·.1 != .label l)
+
+abbrev MachineState := MachineData × Int64
+
+def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
+  let := e.labels
+  Directives.interp (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
+
+def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
+  let := e.labels;
+  Directives.interp (e.directivesFromAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
+
+-- -- Concrete evaluators for expedient testing
+
+partial def Executable.eval (e : Executable) (s : MachineState) (until_ : MachineState → Bool) : Except String (MachineState) :=
+  if until_ s then .ok s else handleEffects (e.straightline s .done)
+where
+  handleEffects es :=
+    match es with
+    | .done s => eval e s until_
+    | .unimplemented msg => .error msg
+    | .require_read_access _ _ ok => handleEffects (ok ())
+    | .require_write_access _ _ ok => handleEffects (ok ())
+    | .require_exec_access _ ok => handleEffects (ok ())
+    | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
+    | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
+    | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
+
+def Directive.fakeSize (d : Directive) : Nat :=
+  match d with
+  | .instr _ => 4
+  | .label _ => 0
+  | .byteArray bs => bs.size
+
+def Program.fakeLayout (prog : Program) : Executable :=
+  let : Inhabited Directive := .mk (.byteArray (.mk #[]))
+  let h := hash prog;
+  let layout : Layout := { start := h.toInt64<<<16, size i := prog[i]!.fakeSize }
+  layout prog
+
+abbrev eval [layout : Layout] (prog : Program) := (layout prog).eval
+
+/-- info: Except.ok 58 -/
+#guard_msgs in
+#eval
+  let exe := Program.fakeLayout [
+    .label "main",
+    .instr ⟨.W64, .LDR .X1 (.addr { base := .SP, off := 0 })⟩,
+    .instr ⟨.W64, .ADD_e .X1 .X1 0x10⟩,
+    .instr ⟨.W64, .STR .X1 { base := .SP, off := 0 }⟩,
+    .instr ⟨.W64, .LDR .X2 (.addr { base := .SP, off := 0 })⟩]
+  let start := exe.labels.label "main"
+  let data := { dmem := Mem.storeInt {} 0x100 8 42, regs := {SP := 0x100} }
+  (exe.eval (data, start) (fun (_, pc) => (exe.directivesFromAddress pc).isEmpty)).bind (fun s => .ok s.1.regs.X2)
+
+/-- info: Except.ok (42, 264) -/
+#guard_msgs in
+#eval
+  let exe := Program.fakeLayout [
+    .label "main",
+    .instr ⟨.W64, .LDR .X1 (.addr { base := .SP, off := .imm { imm := 8, index := some .Pre } })⟩ ]
+  let start := exe.labels.label "main"
+  let data := { dmem := Mem.storeInt {} 0x108 8 42, regs := { SP := 0x100 } }
+  (exe.eval (data, start) (fun (_, pc) => (exe.directivesFromAddress pc).isEmpty)).bind (fun s => .ok (s.1.regs.X1, s.1.regs.SP))
+
+/-- info: Except.ok (42, 264) -/
+#guard_msgs in
+#eval
+  let exe := Program.fakeLayout [
+    .label "main",
+    .instr ⟨.W64, .STR .X1 { base := .SP, off := .imm { imm := 8, index := some .Post } }⟩ ]
+  let start := exe.labels.label "main"
+  let data := { dmem := Mem.storeInt {} 0x100 8 0, regs := { SP := 0x100, X1 := 42 } }
+  (exe.eval (data, start) (fun (_, pc) => (exe.directivesFromAddress pc).isEmpty)).bind (fun s =>
+    match Mem.loadInt s.1.dmem 0x100 8 with
+    | some v => .ok (v, s.1.regs.SP)
+    | none => .error "Memory store failed"
+  )

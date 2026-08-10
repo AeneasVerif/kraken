@@ -1,8 +1,8 @@
 -- Parses AT&T syntax assembly into Kraken's Lean format and then prints it as Intel syntax.
-import Kraken.Parser
-import Kraken.PrintIntel
+import Kraken.X64.Parser
+import Kraken.X64.PrintIntel
 
-open Kraken.Parser
+open Kraken.X64.Parser
 
 def main (args : List String) : IO UInt32 := do
   if args.isEmpty then
@@ -11,7 +11,7 @@ def main (args : List String) : IO UInt32 := do
 
   let asmCode ← IO.FS.readFile args[0]!
 
-  match Kraken.Parser.parse asmCode with
+  match Kraken.X64.Parser.parse asmCode with
   | .ok prog =>
       IO.println ".intel_syntax noprefix"
       for d in prog do
