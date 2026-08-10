@@ -340,9 +340,9 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
 --   dsimp only [straightlineStep,Executable.straightline]
 --   rw [Executable.directivesFromStart]
 --   simp [List.mapIdx,List.mapIdx.go]
+--   sym =>
 --   kstep
 --   done
-
 
 
 open Std
