@@ -98,11 +98,8 @@ theorem p3_correct [layout: Layout] (s: MachineData):
     Eventually (straightlineStep (layout p3)) (fun s => s.1.regs.rdx.toNat = p3_spec s.1 ∧ s.1.regs.rax = 0) (s, layout.start) :=
   by
     intros h_bounds
-    dsimp [p3]
     apply step_cps
-    dsimp only [straightlineStep,Executable.straightline]
-    rw [Executable.directivesFromStart]
-    simp [List.mapIdx,List.mapIdx.go]
+    kprologue p3
 
     sym =>
     -- kstep 3
@@ -244,7 +241,9 @@ set_option pp.rawOnError true
 /- set_option pp.all true -/
 
 attribute [ksimp]
+  BitVec.add_zero
   BitVec.ofInt_add
+  BitVec.ofInt_ofNat
   BitVec.ofInt_toInt
   BitVec.ofNat_uInt64ToNat
   BitVec.reduceOfInt
@@ -279,7 +278,6 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   cases regs with | mk rax rbx rcx rdx rsi rdi rsp rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
   have h_bs : stack.length = 8 := h_len
   kprologue p6
-  simp at h_mem
   have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
   sym =>
   kstep
@@ -363,10 +361,10 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   case h_len => exact h_bs2
   kstep
   case h_mem => tactic => simp; exact h_mem2'
-  case h_len => tactic => exact Int.toBytes_length 8 _
+  case h_len => tactic => rfl
   kstep
   case h_mem => tactic => simp; exact h_mem2''
-  case h_len => tactic => exact Int.toBytes_length 8 _
+  case h_len => tactic => rfl
   kstep
   tactic =>
   apply Eventually.done
@@ -381,7 +379,7 @@ def sib_example := parse("
 ")
 
 -- FIXME: I had to replace `s₀.regs.r15.toBitVec * 8#64` with `BitVec.ofInt 64
--- (s₀.regs.r15.toBitVec.toInt * 8)` to make the exampel go through. Why?
+-- (s₀.regs.r15.toBitVec.toInt * 8)` to make the example go through. Why?
 theorem sib_example_correct [layout : Layout] (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdi.toBitVec + BitVec.ofInt 64 (s₀.regs.r15.toBitVec.toInt * 8))) ⋆ R) :
