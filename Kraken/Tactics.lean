@@ -289,6 +289,9 @@ partial def evalSymKStep : Grind.GrindTactic :=
             pre := klog config >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta })
           (← goal.mvarId.getType))
       introsIf ({ goal with mvarId })
+    if config.debug then
+      let t ← goal.mvarId.getType
+      logInfo m!"MAIN LOOP, after step 1: {goal.mvarId}"
 
     -- TEMPORARY: trying to simplify binders in the goal
     /- let goal ← Meta.letToHave goal -/
@@ -302,6 +305,9 @@ partial def evalSymKStep : Grind.GrindTactic :=
       | .noProgress => pure (false, goal)
       | .goal mvarId => pure (true, { goal with mvarId })
       | .closed => throwError "unexpected"
+    if config.debug then
+      let t ← goal.mvarId.getType
+      logInfo m!"MAIN LOOP, after step 2: {t}"
 
     -- STEP 3: spec lemmas
     let goalState ← do
@@ -366,8 +372,13 @@ partial def evalSymKStep : Grind.GrindTactic :=
           else
             return false
         )
+
+        -- If we couldn't solve the ⋆ goal, we are likely going to make bad
+        -- decisions and instantiate metavariables randomly. Abort.
         if let some g := starGoal then
-          let _ := ← solveIfNotAlready g
+          let solved ← solveIfNotAlready g
+          if not solved then
+            return (goal, subGoals)
 
         -- Then, we repeatedly visit subgoals until we make no progress.
         while ← (
