@@ -121,7 +121,6 @@ theorem gimmickInv {p: Prop} (h: p): gimmickId p := by
 
 
 structure KStepConfig where
-  alignedLoadsAndStores : Bool := true
   debug : Bool := false
 
 -- Debugging the reduction steps: to easily have a marker that tells us when we've hit the top-level
@@ -230,7 +229,6 @@ partial def evalSymKStep : Grind.GrindTactic :=
   let cfg := stx[1]
   let maxSteps? : Option Nat := if stx[2].isNone then none else some stx[2][0].toNat
   let config ← elabKStepConfig cfg
-  let alignedLoadsAndStore := config.alignedLoadsAndStores
   -- A `sym` tactic operates over a pair of the grind state and an MVarId. To avoid scope mistakes,
   -- we only ever use `goal` and never let-bind mvarId.
   let goal : Grind.Goal ← Grind.getMainGoal
@@ -340,12 +338,12 @@ partial def evalSymKStep : Grind.GrindTactic :=
             logInfo m!"Solved by exact: {t} by {e}"
             return true
           -- Solvable with refl, maybe.
-          -- try
-          --   subGoal.mvarId.refl
-          --   let t ← subGoal.mvarId.getType
-          --   logInfo m!"Solved by refl: {t}"
-          --   return true
-          -- catch _ => pure ()
+          try
+            subGoal.mvarId.refl
+            let t ← subGoal.mvarId.getType
+            logInfo m!"Solved by refl: {t}"
+            return true
+          catch _ => pure ()
           -- Try solving with grind, roll back state otherwise (we don't want to
           -- return the failed Grind state).
           try

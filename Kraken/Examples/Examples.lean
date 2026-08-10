@@ -314,8 +314,6 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
   sym =>
   kstep
-  exact Int.toBytes_length 8 _
-  kstep
   tactic =>
   apply Eventually.done
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
