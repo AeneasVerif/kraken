@@ -141,6 +141,186 @@ info: [Directive.instr
 #guard_msgs in
 #check parseAArch64("stp xzr, xzr, [sp], #32")
 
+-- Test: LDRB 32-bit with unsigned offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation :=
+        Operation.LDRB (↑↑XReg.X0 Width.W32)
+          { base := ↑↑XReg.X1 Width.W64, off := ↑{ imm := ↑5, index := none } } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ldrb w0, [x1, #5]")
+
+-- Test: LDURB 32-bit with negative unscaled offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation :=
+        Operation.LDURB (↑↑XReg.X0 Width.W32) { base := ↑↑XReg.X1 Width.W64, imm := ↑(-5) } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ldurb w0, [x1, #-5]")
+
+-- Test: STRB 32-bit with unsigned offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation :=
+        Operation.STRB (↑↑XReg.X0 Width.W32)
+          { base := ↑↑XReg.X1 Width.W64, off := ↑{ imm := ↑10, index := none } } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("strb w0, [x1, #10]")
+
+-- Test: STURB 32-bit with negative unscaled offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation :=
+        Operation.STURB (↑↑XReg.X0 Width.W32) { base := ↑↑XReg.X1 Width.W64, imm := ↑(-10) } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("sturb w0, [x1, #-10]")
+
+-- Test: LDRSB 32-bit destination with unsigned offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation :=
+        Operation.LDRSB (↑↑XReg.X0 Width.W32)
+          { base := ↑↑XReg.X1 Width.W64, off := ↑{ imm := ↑5, index := none } } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ldrsb w0, [x1, #5]")
+
+-- Test: LDRSB 64-bit destination with unsigned offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.LDRSB (↑↑XReg.X0 Width.W64)
+          { base := ↑↑XReg.X1 Width.W64, off := ↑{ imm := ↑5, index := none } } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ldrsb x0, [x1, #5]")
+
+-- Test: LDURSB 64-bit destination with negative unscaled offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.LDURSB (↑↑XReg.X0 Width.W64) { base := ↑↑XReg.X1 Width.W64, imm := ↑(-5) } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ldursb x0, [x1, #-5]")
+
+-- Test: LDRH 32-bit with unsigned offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation :=
+        Operation.LDRH (↑↑XReg.X0 Width.W32)
+          { base := ↑↑XReg.X1 Width.W64, off := ↑{ imm := ↑6, index := none } } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ldrh w0, [x1, #6]")
+
+-- Test: LDURH 32-bit with negative unscaled offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation :=
+        Operation.LDURH (↑↑XReg.X0 Width.W32) { base := ↑↑XReg.X1 Width.W64, imm := ↑(-6) } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ldurh w0, [x1, #-6]")
+
+-- Test: STRH 32-bit with unsigned offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation :=
+        Operation.STRH (↑↑XReg.X0 Width.W32)
+          { base := ↑↑XReg.X1 Width.W64, off := ↑{ imm := ↑8, index := none } } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("strh w0, [x1, #8]")
+
+-- Test: STURH 32-bit with negative unscaled offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation :=
+        Operation.STURH (↑↑XReg.X0 Width.W32) { base := ↑↑XReg.X1 Width.W64, imm := ↑(-8) } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("sturh w0, [x1, #-8]")
+
+-- Test: LDRSH 32-bit destination with unsigned offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W32,
+      operation :=
+        Operation.LDRSH (↑↑XReg.X0 Width.W32)
+          { base := ↑↑XReg.X1 Width.W64, off := ↑{ imm := ↑6, index := none } } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ldrsh w0, [x1, #6]")
+
+-- Test: LDRSH 64-bit destination with unsigned offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.LDRSH (↑↑XReg.X0 Width.W64)
+          { base := ↑↑XReg.X1 Width.W64, off := ↑{ imm := ↑6, index := none } } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ldrsh x0, [x1, #6]")
+
+-- Test: LDURSH 64-bit destination with negative unscaled offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.LDURSH (↑↑XReg.X0 Width.W64) { base := ↑↑XReg.X1 Width.W64, imm := ↑(-6) } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ldursh x0, [x1, #-6]")
+
+-- Test: LDRSW 64-bit destination with unsigned offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.LDRSW (↑↑XReg.X0 Width.W64)
+          ↑{ base := ↑↑XReg.X1 Width.W64, off := ↑{ imm := ↑8, index := none } } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ldrsw x0, [x1, #8]")
+
+-- Test: LDURSW 64-bit destination with negative unscaled offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.LDURSW (↑↑XReg.X0 Width.W64) { base := ↑↑XReg.X1 Width.W64, imm := ↑(-8) } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ldursw x0, [x1, #-8]")
+
+-- Test: LDPSW 64-bit load pair with signed immediate offset
+/--
+info: [Directive.instr
+    { operation_size := Width.W64,
+      operation :=
+        Operation.LDPSW (↑↑XReg.X0 Width.W64) (↑↑XReg.X1 Width.W64)
+          { base := ↑XRegOrSp.SP Width.W64, off := ↑{ imm := ↑8, index := none } } }] : List Directive
+-/
+#guard_msgs in
+#check parseAArch64("ldpsw x0, x1, [sp, #8]")
+
 -- ============================================================================
 -- 2. Arithmetic Instructions (ADD, ADDS, SUB, SUBS, CMP, CMN, NEG, NEGS)
 -- ============================================================================
@@ -1494,6 +1674,22 @@ section error_reporting
 #guard_msgs in
 #check parseAArch64("ldr x0, [w1]")
 
+/-- error: line 1: expected w32 register, got w64 -/
+#guard_msgs in
+#check parseAArch64("ldrb x0, [x1]")
+
+/-- error: line 1: expected w32 register, got w64 -/
+#guard_msgs in
+#check parseAArch64("strb x0, [x1]")
+
+/-- error: line 1: expected w32 register, got w64 -/
+#guard_msgs in
+#check parseAArch64("ldrh x0, [x1]")
+
+/-- error: line 1: expected w32 register, got w64 -/
+#guard_msgs in
+#check parseAArch64("strh x0, [x1]")
+
 /-- error: line 1: condition not satisfied -/
 #guard_msgs in
 #check parseAArch64("add xzr, x1, #42")
@@ -1717,6 +1913,14 @@ section error_reporting
 /-- error: line 1: invalid memory extension shift amount 1 for width w64 -/
 #guard_msgs in
 #check parseAArch64("ldr x0, [x1, x2, lsl #1]")
+
+/-- error: line 1: invalid memory extension shift amount 1 for width w32 -/
+#guard_msgs in
+#check parseAArch64("ldrb w0, [x1, x2, lsl #1]")
+
+/-- error: line 1: invalid memory extension shift amount 2 for width w32 -/
+#guard_msgs in
+#check parseAArch64("ldrh w0, [x1, x2, lsl #2]")
 
 /-- error: line 1: invalid extend amount: 65 -/
 #guard_msgs in

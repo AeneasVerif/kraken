@@ -157,11 +157,11 @@ inductive Effects
   -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
   -- for instance, MMIO reads/writes at certain device register addresses might change what
   -- data memory the process logically owns vs what memory is owned by devices
-  | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : Width) (ret : w.type → DataMem → Effects)
-  | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : Width} (v : w.type) (ret: DataMem → Effects)
+  | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : MemWidth) (ret : w.type → DataMem → Effects)
+  | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : MemWidth} (v : w.type) (ret: DataMem → Effects)
   | undefined {α : Type} [NondetSupportingType α] (ret : α → Effects)
-  | require_read_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
-  | require_write_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
+  | require_read_access (addr : BitVec 64) (w : MemWidth) (ok : Unit → Effects)
+  | require_write_access (addr : BitVec 64) (w : MemWidth) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
   | unaligned_sp {w : Width} (sp : w.type)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
@@ -189,14 +189,14 @@ def RegOrZr.interp {w} (r : RegOrZr w) (s : MachineData) (_ : Std.Rco Int64)
 -- Instead of writing `fun v dmem => ... { s with dmem } ...` everywhere, we
 -- can just write `fun v s => ...` and the new `s` will shadow the old `s`.
 def MachineData.load
-  (s : MachineData) (addr : BitVec 64) (w : Width)
+  (s : MachineData) (addr : BitVec 64) (w : MemWidth)
   (ret : w.type → MachineData → Effects): Effects :=
   require_read_access addr w (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
     | .some i => ret (.ofInt _ i) s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
 
-def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Effects) : Effects :=
+def MachineData.store (s : MachineData) (addr : BitVec 64) {w : MemWidth} (v : w.type) (ret: MachineData → Effects) : Effects :=
   require_write_access addr w (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
     | .some _ =>
@@ -245,27 +245,28 @@ def BitVec.apply_extend (v : BitVec 64) (ext : Extend) :=
                  | .E4 => extended <<< 4
   shifted
 
-def BitVec.apply_mem_extend {w} (v : BitVec 64) (ext : MemExtend w) :=
+def BitVec.apply_mem_extend (v : BitVec 64) (ext : MemExtend) :=
   let extended := match ext.type with
                | .UXTW => (v.take 32).unsigned
                | .SXTW => (v.take 32).signed
                | .UXTX => v.unsigned
                | .SXTX => v.signed
-  let shifted := match w, ext.amount with
-                 | _, .E0 => extended
-                 | .W32, .E2 => extended <<< 2
-                 | .W64, .E3 => extended <<< 3
+  let shifted := match ext.amount with
+                 | .E0 => extended
+                 | .E1 => extended <<< 1
+                 | .E2 => extended <<< 2
+                 | .E3 => extended <<< 3
   shifted
 
 def ExtRegExpr.interp (er : ExtRegExpr) (s : Reg64s) (_ : Std.Rco Int64) :=
   let base := s.getRegOrZr er.reg.reg
   (base.take 64).apply_extend er.ext
 
-def MemExtRegExpr.interp {w} (er : MemExtRegExpr w) (s : Reg64s) (_ : Std.Rco Int64) :=
+def MemExtRegExpr.interp (er : MemExtRegExpr) (s : Reg64s) (_ : Std.Rco Int64) :=
   let base := s.getRegOrZr er.reg.reg
   (base.take 64).apply_mem_extend er.ext
 
-def ExtOrImmReg.interp [Labels] {w} (expr : ExtOrImmReg w) (s : Reg64s) (p : Std.Rco Int64) : w.type :=
+def ExtOrImmReg.interp [Labels] {w : Width} (expr : ExtOrImmReg) (s : Reg64s) (p : Std.Rco Int64) : w.type :=
   match expr with
   | .ext e =>
     BitVec.ofInt w.bits (e.interp s p)
@@ -284,7 +285,7 @@ def ShiftRegExpr.interp {w} (expr : ShiftRegExpr w) (s : Reg64s) (_ : Std.Rco In
   | .ASR => base.sshiftRight amount
   | .ROR => base.rotateRight amount
 
-def AddrExpr.eval [Labels] {w} (mem : AddrExpr w) (s : MachineData) (p : Std.Rco Int64) : BitVec 64 × MachineData :=
+def AddrExpr.eval [Labels] (mem : AddrExpr) (s : MachineData) (p : Std.Rco Int64) : BitVec 64 × MachineData :=
   let base := (s.regs.getRegOrSp mem.base).signed
   match mem.off with
   | .reg r =>
@@ -301,7 +302,7 @@ def AddrExpr.eval [Labels] {w} (mem : AddrExpr w) (s : MachineData) (p : Std.Rco
     (addr, s')
 
 -- AArch64 mandates 16-byte alignment when accessing memory through SP.
-def AddrExpr.checkSPAlignment {w} (mem : AddrExpr w) (s : MachineData) (ok : Unit → Effects) : Effects :=
+def AddrExpr.checkSPAlignment (mem : AddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
   match mem.base with
   | .SP =>
     if s.regs.getRegOrSp .SP % 16#64 != 0#64 then
@@ -310,10 +311,16 @@ def AddrExpr.checkSPAlignment {w} (mem : AddrExpr w) (s : MachineData) (ok : Uni
       ok ()
   | _ => ok ()
 
-def AddrExpr.interp [Labels] {w} (mem : AddrExpr w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
+def AddrExpr.interpLoad [Labels] {w : MemWidth} (mem : AddrExpr) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
   mem.checkSPAlignment s (fun _unit =>
     let (addr, s') := mem.eval s p
     s'.load addr w ret)
+
+def AddrExpr.interpStore [Labels] {w : MemWidth} (mem : AddrExpr) (s : MachineData) (p : Std.Rco Int64)
+    (val : w.type) (next : MachineData → Effects) : Effects :=
+  mem.checkSPAlignment s (fun _unit =>
+    let (addr, s') := mem.eval s p
+    s'.store addr (w := w) val next)
 
 def UnscaledAddrExpr.eval [Labels] (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) : BitVec 64 :=
   let base := (s.regs.getRegOrSp mem.base).signed
@@ -330,12 +337,18 @@ def UnscaledAddrExpr.checkSPAlignment (mem : UnscaledAddrExpr) (s : MachineData)
       ok ()
   | _ => ok ()
 
-def UnscaledAddrExpr.interp [Labels] {w : Width} (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
+def UnscaledAddrExpr.interpLoad [Labels] {w : MemWidth} (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
   mem.checkSPAlignment s (fun _unit =>
     let addr := mem.eval s p
     s.load addr w ret)
 
-def Literal.interp [Labels] {w} (expr : Literal w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) : Effects :=
+def UnscaledAddrExpr.interpStore [Labels] {w : MemWidth} (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64)
+    (val : w.type) (next : MachineData → Effects) : Effects :=
+  mem.checkSPAlignment s (fun _unit =>
+    let addr := mem.eval s p
+    s.store addr (w := w) val next)
+
+def Literal.interpLoad [Labels] {w : MemWidth} (expr : Literal) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) : Effects :=
   match expr with
   | .addr addr_expr => -- Load from address.
     let addr_val := Labels.label addr_expr.label
@@ -346,10 +359,10 @@ def Literal.interp [Labels] {w} (expr : Literal w) (s : MachineData) (p : Std.Rc
     let val_bv : w.type := BitVec.ofInt w.bits (Int64.toInt val)
     ret val_bv s
 
-def AddrOrLit.interp [Labels] {w} (expr : AddrOrLit w) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
+def AddrOrLit.interpLoad [Labels] {w : MemWidth} (expr : AddrOrLit) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
   match expr with
-  | .addr addr_expr => addr_expr.interp s p ret
-  | .lit lit_expr => lit_expr.interp s p ret
+  | .addr addr_expr => addr_expr.interpLoad s p ret
+  | .lit lit_expr => lit_expr.interpLoad s p ret
 
 def MachineData.setRegOrSp (s : MachineData) {w} (r : RegOrSp w) (v : w.type) (ret : MachineData → Effects) : Effects :=
   ret { s with regs := s.regs.setRegOrSp r v }
@@ -439,14 +452,14 @@ def evalBFM {w : Width} (dst src : w.type) (immr imms : Nat) : w.type :=
   let imms := imms % w.bits
   if imms >= immr then
     let len := imms - immr + 1
-    let mask := maskOfLen len
+    let mask : w.type := maskOfLen (w := w) len
     let field := (src >>> immr) &&& mask
     (dst &&& ~~~mask) ||| field
   else
     let len := imms + 1
     let pos := w.bits - immr
-    let mask := maskOfLen len <<< pos
-    let field := (src &&& maskOfLen len) <<< pos
+    let mask : w.type := (maskOfLen (w := w) len) <<< pos
+    let field : w.type := (src &&& maskOfLen (w := w) len) <<< pos
     (dst &&& ~~~mask) ||| field
 
 set_option maxHeartbeats 1000000
@@ -454,18 +467,10 @@ def Operation.interp [Labels]
   {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
   match (generalizing := false) (motive := Operation w → Effects) i with
-  | .LDR dst src => src.interp s p (fun val s => s.setRegOrZr dst val next)
-  | .STR src dst =>
-    dst.checkSPAlignment s (fun _unit =>
-      let val := s.regs.getRegOrZr src
-      let (addr, s') := dst.eval s p
-      s'.store addr val next)
-  | .LDUR dst src => src.interp s p (fun val s => s.setRegOrZr dst val next)
-  | .STUR src dst =>
-    dst.checkSPAlignment s (fun _unit =>
-      let val := s.regs.getRegOrZr src
-      let addr := dst.eval s p
-      s.store addr val next)
+  | .LDR dst src => src.interpLoad s p (fun val s => s.setRegOrZr dst val next)
+  | .STR src dst => dst.interpStore s p (s.regs.getRegOrZr src) next
+  | .LDUR dst src => src.interpLoad s p (fun val s => s.setRegOrZr dst val next)
+  | .STUR src dst => dst.interpStore s p (s.regs.getRegOrZr src) next
   -- TODO: Architecturally, the memory access ordering of LDP/STP is UNORDERED and can occur
   -- simultaneously as a 128-bit transaction or in any order on hardware. Here we model a specific
   -- sequential order (lower address first, then higher address), which does not necessarily reflect
@@ -484,6 +489,29 @@ def Operation.interp [Labels]
       let (addr, s') := dst.eval s p
       s'.store addr val1 (fun s'' =>
         s''.store (addr + w.bytesv) val2 next))
+  | .LDRB dst src => src.interpLoad (w := .W8) s p (fun val s' => s'.setRegOrZr dst (val.zeroExtend 32) next)
+  | .LDURB dst src => src.interpLoad (w := .W8) s p (fun val s' => s'.setRegOrZr dst (val.zeroExtend 32) next)
+  | .STRB src dst => dst.interpStore (w := .W8) s p ((s.regs.getRegOrZr src).take 8) next
+  | .STURB src dst => dst.interpStore (w := .W8) s p ((s.regs.getRegOrZr src).take 8) next
+  | .LDRSB dst src => src.interpLoad (w := .W8) s p (fun val s' => s'.setRegOrZr dst (val.signExtend w.bits) next)
+  | .LDURSB dst src => src.interpLoad (w := .W8) s p (fun val s' => s'.setRegOrZr dst (val.signExtend w.bits) next)
+  | .LDRH dst src => src.interpLoad (w := .W16) s p (fun val s' => s'.setRegOrZr dst (val.zeroExtend 32) next)
+  | .LDURH dst src => src.interpLoad (w := .W16) s p (fun val s' => s'.setRegOrZr dst (val.zeroExtend 32) next)
+  | .STRH src dst => dst.interpStore (w := .W16) s p ((s.regs.getRegOrZr src).take 16) next
+  | .STURH src dst => dst.interpStore (w := .W16) s p ((s.regs.getRegOrZr src).take 16) next
+  | .LDRSH dst src => src.interpLoad (w := .W16) s p (fun val s' => s'.setRegOrZr dst (val.signExtend w.bits) next)
+  | .LDURSH dst src => src.interpLoad (w := .W16) s p (fun val s' => s'.setRegOrZr dst (val.signExtend w.bits) next)
+  | .LDRSW dst src =>
+    src.interpLoad (w := .W32) s p (fun (val : BitVec 32) s' => s'.setRegOrZr dst (val.signExtend 64) next)
+  | .LDURSW dst src =>
+    src.interpLoad (w := .W32) s p (fun (val : BitVec 32) s' => s'.setRegOrZr dst (val.signExtend 64) next)
+  | .LDPSW dst1 dst2 src =>
+    src.checkSPAlignment s (fun _unit =>
+      let (addr, s') := src.eval s p
+      s'.load addr .W32 (fun val1 s'' =>
+        s''.load (addr + 4#64) .W32 (fun val2 s''' =>
+          s'''.setRegOrZr dst1 (val1.signExtend 64) (fun s'''' =>
+            s''''.setRegOrZr dst2 (val2.signExtend 64) next))))
   | .ADD_e dst src1 src2 =>
     let val1 := s.regs.getRegOrSp src1
     let val2 := src2.interp s.regs p
@@ -899,6 +927,7 @@ instance : CoeFun Layout (fun _ => Program → Executable) where coe := Layout.a
 def Executable.withAddresses (e : Executable)  : List (Int64 × Directive × Nat) :=
   (List.scanl (fun (p, _, _) (d, z) => (p+.ofNat z, d, z)) (e.1, .byteArray (.mk #[]), 0) e.2)
 
+@[reducible]
 def Executable.labels (e : Executable) : Labels :=
   { label l := (e.withAddresses.findSome?
       (fun (p, d, _) => if d = .label l then .some p else .none)).getD (-1) }

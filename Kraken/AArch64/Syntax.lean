@@ -2,6 +2,35 @@ import Lean
 import Std
 
 /--
+Memory access width.
+-/
+inductive MemWidth | W8 | W16 | W32 | W64
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+
+instance : ToString MemWidth where
+  toString | .W8 => "w8" | .W16 => "w16" | .W32 => "w32" | .W64 => "w64"
+
+namespace MemWidth
+@[reducible] def bits : MemWidth → Nat | W8 => 8 | W16 => 16 | W32 => 32 | W64 => 64
+@[reducible] def bytes : MemWidth → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8
+abbrev bytesv (w : MemWidth) {n} : BitVec n := BitVec.ofNat n w.bytes
+abbrev type (w : MemWidth) : Type := BitVec w.bits
+instance {w : MemWidth} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
+end MemWidth
+
+unif_hint (w : MemWidth) where
+  w =?= MemWidth.W8 |- MemWidth.type w =?= BitVec 8
+
+unif_hint (w : MemWidth) where
+  w =?= MemWidth.W16 |- MemWidth.type w =?= BitVec 16
+
+unif_hint (w : MemWidth) where
+  w =?= MemWidth.W32 |- MemWidth.type w =?= BitVec 32
+
+unif_hint (w : MemWidth) where
+  w =?= MemWidth.W64 |- MemWidth.type w =?= BitVec 64
+
+/--
 Architectural operand and register width for AArch64 instructions.
 - `W32`: 32-bit register (`W0`-`W30`, `WSP`, `WZR`) or 32-bit operation.
 - `W64`: 64-bit register (`X0`-`X30`, `SP`, `XZR`) or 64-bit operation.
@@ -12,10 +41,14 @@ instance : ToString Width where
   toString | .W32 => "w32" | .W64 => "w64"
 
 namespace Width
-def bits : Width → Nat | W32 => 32 | W64 => 64
-def bytes : Width → Nat | W32 => 4 | W64 => 8
-abbrev bytesv (w : Width) {n} : BitVec n := BitVec.ofNat n w.bytes
-abbrev type (w : Width) : Type := BitVec w.bits
+instance : Coe Width MemWidth where coe := fun w : Width =>
+  match w with
+  | .W32 => .W32
+  | .W64 => .W64
+@[reducible] def bits (w : Width) : Nat := (w : MemWidth).bits
+@[reducible] def bytes (w : Width) : Nat := (w : MemWidth).bytes
+abbrev bytesv (w : Width) {n} : BitVec n := (w : MemWidth).bytesv
+abbrev type (w : Width) : Type := (w : MemWidth).type
 instance {w : Width} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
 end Width
 
@@ -121,13 +154,11 @@ inductive ExtendAmount | E0 | E1 | E2 | E3 | E4
 Shift amount applied to index registers in memory addressing.
 - Restricted to either unshifted (`E0`, shift `#0` / omitted)
   or scaled by log2 of the access size in bytes:
+  - `E1` (`#1`) for 16-bit memory access.
   - `E2` (`#2`) for 32-bit (`.W32`, 4-byte) operations.
   - `E3` (`#3`) for 64-bit (`.W64`, 8-byte) operations.
 -/
-inductive MemExtendAmount : Width → Type
-  | E0 {w} : MemExtendAmount w
-  | E2 : MemExtendAmount .W32
-  | E3 : MemExtendAmount .W64
+inductive MemExtendAmount | E0 | E1 | E2 | E3
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 /--
@@ -181,9 +212,9 @@ structure Extend where
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 /-- Combined extension type and shift amount for memory index registers. -/
-structure MemExtend (w : Width) where
+structure MemExtend where
   type : MemExtendType
-  amount : MemExtendAmount w
+  amount : MemExtendAmount
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 /-- Register operand with extension and shift for arithmetic instructions (`Xm, <extend> #<amount>`). -/
@@ -193,16 +224,16 @@ structure ExtRegExpr where
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 /-- Register operand with extension and shift for memory addressing (`[Xn, Xm, <extend> #<amount>]`). -/
-structure MemExtRegExpr (w : Width) where
+structure MemExtRegExpr where
   reg : RegOrZrW
-  ext : MemExtend w
+  ext : MemExtend
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 /--
 12-bit unsigned immediate operand with optional `LSL #0` or `LSL #12` shift for arithmetic instructions.
 - The unsigned immediate `imm` must be in range $[0, 4095]$.
 -/
-structure ImmExpr (w : Width) where
+structure ImmExpr where
   imm : ConstExpr -- 12-bit unsigned immediate value, must be in [0, 4095] when evaluated.
   shift : ImmShift
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
@@ -228,18 +259,18 @@ Memory access byte offset. Valid architectural ranges depend on the addressing m
   size, giving $[-256, 252]$ (multiples of 4) for 32-bit and $[-512, 504]$
   (multiples of 8) for 64-bit.
 -/
-structure ImmAddrExpr (w : Width) where
+structure ImmAddrExpr where
   imm : ConstExpr
   index : Option Index
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 -- Address given by label (PC relative).
-structure LitAddrExpr (w : Width) where
+structure LitAddrExpr where
   label : Label
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 -- Value held in literal pool (PC relative).
-structure LitPoolExpr (w : Width) where
+structure LitPoolExpr where
   expr : ConstExpr
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
@@ -258,31 +289,31 @@ def CondCode.invert : CondCode → CondCode
   | .GT => .LE | .LE => .GT
   | .AL => .NV | .NV => .AL
 
-inductive AddrOff w | imm (_ : ImmAddrExpr w) | reg (_ : MemExtRegExpr w)
+inductive AddrOff | imm (_ : ImmAddrExpr) | reg (_ : MemExtRegExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
-instance {w} : Coe (ImmAddrExpr w) (AddrOff w) where coe := .imm
-instance {w} : Coe (MemExtRegExpr w) (AddrOff w) where coe := .reg
-instance {w} : Coe ConstExpr (ImmAddrExpr w) where coe := fun e => { imm := e, index := none }
-instance {w} : Coe ConstExpr (AddrOff w) where coe := fun e => .imm { imm := e, index := none }
-instance {w} : Coe Int64 (ImmAddrExpr w) where coe := fun i => { imm := .int64 i, index := none }
-instance {w} : Coe Int64 (AddrOff w) where coe := fun i => .imm { imm := .int64 i, index := none }
-instance {w n} [OfNat Int64 n] : OfNat (ImmAddrExpr w) n where
+instance : Coe ImmAddrExpr AddrOff where coe := .imm
+instance : Coe MemExtRegExpr AddrOff where coe := .reg
+instance : Coe ConstExpr ImmAddrExpr where coe := fun e => { imm := e, index := none }
+instance : Coe ConstExpr AddrOff where coe := fun e => .imm { imm := e, index := none }
+instance : Coe Int64 ImmAddrExpr where coe := fun i => { imm := .int64 i, index := none }
+instance : Coe Int64 AddrOff where coe := fun i => .imm { imm := .int64 i, index := none }
+instance {n} [OfNat Int64 n] : OfNat ImmAddrExpr n where
   ofNat := { imm := .int64 (OfNat.ofNat n), index := none }
-instance {w n} [OfNat Int64 n] : OfNat (AddrOff w) n where
+instance {n} [OfNat Int64 n] : OfNat AddrOff n where
   ofNat := .imm { imm := .int64 (OfNat.ofNat n), index := none }
 attribute [coe] AddrOff.imm
 attribute [coe] AddrOff.reg
 
-inductive Literal w | addr (_ : LitAddrExpr w) | pool (_ : LitPoolExpr w)
+inductive Literal | addr (_ : LitAddrExpr) | pool (_ : LitPoolExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
-instance {w} : Coe (LitAddrExpr w) (Literal w) where coe := .addr
-instance {w} : Coe (LitPoolExpr w) (Literal w) where coe := .pool
+instance : Coe LitAddrExpr Literal where coe := .addr
+instance : Coe LitPoolExpr Literal where coe := .pool
 attribute [coe] Literal.addr
 attribute [coe] Literal.pool
 
-structure AddrExpr (w : Width) where
+structure AddrExpr where
   base : RegOrSp .W64 -- Memory base register is always Xn|SP.
-  off : AddrOff w
+  off : AddrOff
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 structure UnscaledAddrExpr where
@@ -290,24 +321,24 @@ structure UnscaledAddrExpr where
   imm : ConstExpr -- Literal `imm` must be a 9-bit signed unscaled integer in [-256, 255].
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-inductive AddrOrLit w | addr (_ : AddrExpr w) | lit (_ : Literal w)
+inductive AddrOrLit | addr (_ : AddrExpr) | lit (_ : Literal)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
-instance {w} : Coe (AddrExpr w) (AddrOrLit w) where coe := .addr
-instance {w} : Coe (Literal w) (AddrOrLit w) where coe := .lit
+instance : Coe AddrExpr AddrOrLit where coe := .addr
+instance : Coe Literal AddrOrLit where coe := .lit
 attribute [coe] AddrOrLit.addr
 attribute [coe] AddrOrLit.lit
 
-inductive ExtOrImmReg w | ext (_ : ExtRegExpr) | imm (_ : ImmExpr w)
+inductive ExtOrImmReg | ext (_ : ExtRegExpr) | imm (_ : ImmExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
-instance {w} : Coe ExtRegExpr (ExtOrImmReg w) where coe := .ext
-instance {w} : Coe (ImmExpr w) (ExtOrImmReg w) where coe := .imm
-instance {w} : Coe ConstExpr (ImmExpr w) where coe := fun e => { imm := e, shift := .S0 }
-instance {w} : Coe ConstExpr (ExtOrImmReg w) where coe := fun e => .imm { imm := e, shift := .S0 }
-instance {w} : Coe Int64 (ImmExpr w) where coe := fun i => { imm := .int64 i, shift := .S0 }
-instance {w} : Coe Int64 (ExtOrImmReg w) where coe := fun i => .imm { imm := .int64 i, shift := .S0 }
-instance {w n} [OfNat Int64 n] : OfNat (ImmExpr w) n where
+instance : Coe ExtRegExpr ExtOrImmReg where coe := .ext
+instance : Coe ImmExpr ExtOrImmReg where coe := .imm
+instance : Coe ConstExpr ImmExpr where coe := fun e => { imm := e, shift := .S0 }
+instance : Coe ConstExpr ExtOrImmReg where coe := fun e => .imm { imm := e, shift := .S0 }
+instance : Coe Int64 ImmExpr where coe := fun i => { imm := .int64 i, shift := .S0 }
+instance : Coe Int64 ExtOrImmReg where coe := fun i => .imm { imm := .int64 i, shift := .S0 }
+instance {n} [OfNat Int64 n] : OfNat ImmExpr n where
   ofNat := { imm := .int64 (OfNat.ofNat n), shift := .S0 }
-instance {w n} [OfNat Int64 n] : OfNat (ExtOrImmReg w) n where
+instance {n} [OfNat Int64 n] : OfNat ExtOrImmReg n where
   ofNat := .imm { imm := .int64 (OfNat.ofNat n), shift := .S0 }
 attribute [coe] ExtOrImmReg.ext
 attribute [coe] ExtOrImmReg.imm
@@ -316,21 +347,36 @@ instance {w} : Coe (RegOrZr w) (ShiftRegExpr w) where coe := fun r => { reg := r
 
 inductive Operation : Width → Type
   -- Loads and Stores.
-  | LDR {w} (dst : RegOrZr w) (src : AddrOrLit w) : Operation w
-  | STR {w} (src : RegOrZr w) (dst : AddrExpr w) : Operation w
+  | LDR {w} (dst : RegOrZr w) (src : AddrOrLit) : Operation w
+  | STR {w} (src : RegOrZr w) (dst : AddrExpr) : Operation w
   | LDUR {w} (dst : RegOrZr w) (src : UnscaledAddrExpr) : Operation w
   | STUR {w} (src : RegOrZr w) (dst : UnscaledAddrExpr) : Operation w
-  | LDP {w} (dst1 : RegOrZr w) (dst2 : RegOrZr w) (src : AddrExpr w) : Operation w
-  | STP {w} (src1 : RegOrZr w) (src2 : RegOrZr w) (dst : AddrExpr w) : Operation w
+  | LDP {w} (dst1 : RegOrZr w) (dst2 : RegOrZr w) (src : AddrExpr) : Operation w
+  | STP {w} (src1 : RegOrZr w) (src2 : RegOrZr w) (dst : AddrExpr) : Operation w
+  | LDRB (dst : RegOrZr .W32) (src : AddrExpr) : Operation .W32
+  | LDURB (dst : RegOrZr .W32) (src : UnscaledAddrExpr) : Operation .W32
+  | STRB (src : RegOrZr .W32) (dst : AddrExpr) : Operation .W32
+  | STURB (src : RegOrZr .W32) (dst : UnscaledAddrExpr) : Operation .W32
+  | LDRSB {w} (dst : RegOrZr w) (src : AddrExpr) : Operation w
+  | LDURSB {w} (dst : RegOrZr w) (src : UnscaledAddrExpr) : Operation w
+  | LDRH (dst : RegOrZr .W32) (src : AddrExpr) : Operation .W32
+  | LDURH (dst : RegOrZr .W32) (src : UnscaledAddrExpr) : Operation .W32
+  | STRH (src : RegOrZr .W32) (dst : AddrExpr) : Operation .W32
+  | STURH (src : RegOrZr .W32) (dst : UnscaledAddrExpr) : Operation .W32
+  | LDRSH {w} (dst : RegOrZr w) (src : AddrExpr) : Operation w
+  | LDURSH {w} (dst : RegOrZr w) (src : UnscaledAddrExpr) : Operation w
+  | LDRSW (dst : RegOrZr .W64) (src : AddrOrLit) : Operation .W64
+  | LDURSW (dst : RegOrZr .W64) (src : UnscaledAddrExpr) : Operation .W64
+  | LDPSW (dst1 : RegOrZr .W64) (dst2 : RegOrZr .W64) (src : AddrExpr) : Operation .W64
   --
   -- Arithmetic (instructions have an extended (_e) and shifted reg (_s) form).
-  | ADD_e {w} (dst : RegOrSp w) (src1 : RegOrSp w) (src2 : ExtOrImmReg w) : Operation w
+  | ADD_e {w} (dst : RegOrSp w) (src1 : RegOrSp w) (src2 : ExtOrImmReg) : Operation w
   | ADD_s {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
-  | ADDS_e {w} (dst : RegOrZr w) (src1 : RegOrSp w) (src2 : ExtOrImmReg w) : Operation w
+  | ADDS_e {w} (dst : RegOrZr w) (src1 : RegOrSp w) (src2 : ExtOrImmReg) : Operation w
   | ADDS_s {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
-  | SUB_e {w} (dst : RegOrSp w) (src1 : RegOrSp w) (src2 : ExtOrImmReg w) : Operation w
+  | SUB_e {w} (dst : RegOrSp w) (src1 : RegOrSp w) (src2 : ExtOrImmReg) : Operation w
   | SUB_s {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
-  | SUBS_e {w} (dst : RegOrZr w) (src1 : RegOrSp w) (src2 : ExtOrImmReg w) : Operation w
+  | SUBS_e {w} (dst : RegOrZr w) (src1 : RegOrSp w) (src2 : ExtOrImmReg) : Operation w
   | SUBS_s {w} (dst : RegOrZr w) (src1 : RegOrZr w) (src2 : ShiftRegExpr w) : Operation w
   --
   -- Carry Arithmetic.
