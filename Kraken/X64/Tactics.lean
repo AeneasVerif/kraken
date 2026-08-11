@@ -322,6 +322,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
             pre := klog >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta })
           (← goal.mvarId.getType))
       introsIf ({ goal with mvarId })
+
     if config.debug then
       let t ← goal.mvarId.getType
       logInfo m!"MAIN LOOP, after step 1: {goal.mvarId}"
@@ -350,12 +351,21 @@ partial def evalSymKStep : Grind.GrindTactic :=
       -- or realistically, we might need to debug).
       let_expr Effects.All post state := goalT' | return (goal, [])
       pure state
+
     let (keepGoingSpec, goal) ←
       match getMatch specTree goalState with
       | #[ thmName ] =>
         logInfo m!"Found a spec lemma: {thmName}"
         let (goal, subGoals) ← rwTarget goal false (mkConst thmName)
         logInfo m!"{subGoals.length} subgoals generated"
+
+        let subGoals ← subGoals.mapM fun (subGoal: Grind.Goal) => do
+          -- Try simp -- who knows, one might get lucky
+          let simpResult ← Grind.liftGrindM (Sym.simpGoal subGoal.mvarId simpMethods)
+          match simpResult with
+          | .noProgress => pure subGoal
+          | .goal mvarId => pure { subGoal with mvarId }
+          | .closed => pure subGoal
 
         -- Found a spec lemma, which will generate subgoals; for now, subgoals (if not solved
         -- already!) are solved via `exact` (which may pick any hypothesis in the context, beware),
@@ -366,12 +376,14 @@ partial def evalSymKStep : Grind.GrindTactic :=
             let t ← subGoal.mvarId.getType
             logInfo m!"Already solved: {t}"
             return false
+
           -- Solvable with exact; we made progress
           if ← withReducible subGoal.mvarId.assumptionCore then
             let t ← subGoal.mvarId.getType
             let .some e ← getExprMVarAssignment? subGoal.mvarId | throwError "oh noes"
             logInfo m!"Solved by exact: {t} by {e}"
             return true
+
           -- Solvable with refl, maybe.
           try
             subGoal.mvarId.refl
@@ -379,6 +391,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
             logInfo m!"Solved by refl: {t}"
             return true
           catch _ => pure ()
+
           -- Try solving with grind, roll back state otherwise (we don't want to
           -- return the failed Grind state).
           try
@@ -453,7 +466,11 @@ partial def evalSymKStep : Grind.GrindTactic :=
   
   logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
 
-  -- See lean4#14668 
+  if let .some r := maxInstrCount then
+    let remaining ← r.get
+    if remaining > 0 then
+      throwError m!"kstep could not step through the remaining {remaining} steps"
+
   Grind.setGoals (subGoals ++ [ goal ])
 
 syntax (name := symRotateRight) "rotate_right" (ppSpace num)? : grind
