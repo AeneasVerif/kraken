@@ -437,8 +437,6 @@ end BitVec
     zf := result == BitVec.zero _
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
 
-
-
 set_option maxHeartbeats 1000000
 @[kstep] def Operation.interp [Labels] [address_size : AddressSize]
   {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
