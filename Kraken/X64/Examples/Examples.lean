@@ -325,6 +325,12 @@ def move_2_regs_to_heap := parse("
     movq 8(%rdi), %r13
 ")
 
+-- set_option pp.all true
+
+attribute [kstep]
+  AddressSize.address_size
+  AddressSize.mk 
+
 theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   (v1 v2 : UInt64)
   (R : DataMem → Prop)

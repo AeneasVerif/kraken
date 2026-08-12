@@ -311,21 +311,32 @@ partial def evalSymKStep : Grind.GrindTactic :=
       | .goal _ goal => pure goal
     pure (← insertGimmick goal)
 
-  -- MAIN LOOP
-  let rec go (goal: Grind.Goal): Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
+  let rec repeatGoal {α} (loop: α → Grind.GrindTacticM (Bool × α)) (goal: α): Grind.GrindTacticM α := do
+    let (keepGoing, goal) ← loop goal
+    if keepGoing then
+      repeatGoal loop goal
+    else
+      pure goal
+
+  -- A round of combined dsimp / simp -- this is close to what regular simp
+  -- would do with all the builtin simprocs related to bitvecs.
+  let dsimpAndSimp (goal: Grind.Goal) (extra: DSimproc := fun _ => pure .rfl) (intros := true): Grind.GrindTacticM _ := do
     -- STEP 1: dsimp
     let goal ← do
       let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM $
         Sym.dsimp
           (config := { maxSteps := 1000000 })
           (methods := {
-            pre := klog >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta })
+            pre := klog >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta >> extra})
           (← goal.mvarId.getType))
-      introsIf ({ goal with mvarId })
+      if intros then
+        introsIf ({ goal with mvarId })
+      else
+        pure { goal with mvarId }
 
     if config.debug then
       let t ← goal.mvarId.getType
-      logInfo m!"MAIN LOOP, after step 1: {goal.mvarId}"
+      logInfo m!"After dsimp: {goal.mvarId}"
 
     -- TEMPORARY: trying to simplify binders in the goal
     /- let goal ← Meta.letToHave goal -/
@@ -333,12 +344,16 @@ partial def evalSymKStep : Grind.GrindTactic :=
     /- let mvarId ← mvarId.replaceTargetDefEq goal -/
 
     -- STEP 2: simp
-    let (keepGoingSimp, goal) ← Grind.liftGrindM $ do
-      let simpResult ← Sym.simpGoal goal.mvarId simpMethods
-      match simpResult with
+    Grind.liftGrindM (Sym.simpGoal goal.mvarId simpMethods)
+
+  -- MAIN LOOP
+  let rec go (goal: Grind.Goal): Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
+
+    let (keepGoingSimp, goal) ← match ← dsimpAndSimp goal with
       | .noProgress => pure (false, goal)
       | .goal mvarId => pure (true, { goal with mvarId })
       | .closed => throwError "unexpected"
+
     if config.debug then
       let t ← goal.mvarId.getType
       logInfo m!"MAIN LOOP, after step 2: {t}"
@@ -359,37 +374,43 @@ partial def evalSymKStep : Grind.GrindTactic :=
         let (goal, subGoals) ← rwTarget goal false (mkConst thmName)
         logInfo m!"{subGoals.length} subgoals generated"
 
-        let subGoals ← subGoals.mapM fun (subGoal: Grind.Goal) => do
-          -- Try simp -- who knows, one might get lucky
-          let simpResult ← Grind.liftGrindM (Sym.simpGoal subGoal.mvarId simpMethods)
-          match simpResult with
-          | .noProgress => pure subGoal
-          | .goal mvarId => pure { subGoal with mvarId }
-          | .closed => pure subGoal
+        if config.debug then
+          subGoals.forM $ fun subGoal => do
+            let t ← subGoal.mvarId.getType
+            let closed ← subGoal.mvarId.isAssigned
+            let inconsistent := subGoal.inconsistent
+            logInfo m!"subGoal: {t} (closed: {closed}, inconsistent: {inconsistent})"
 
         -- Found a spec lemma, which will generate subgoals; for now, subgoals (if not solved
         -- already!) are solved via `exact` (which may pick any hypothesis in the context, beware),
         -- or grind.
-        let solveIfNotAlready: Grind.Goal → Grind.GrindTacticM Bool := fun subGoal => do
+        let trySolve: Grind.Goal → Grind.GrindTacticM (Option Grind.Goal) := fun subGoal => do
           -- Already solved this subgoal; skip
           if ← subGoal.mvarId.isAssigned then
             let t ← subGoal.mvarId.getType
             logInfo m!"Already solved: {t}"
-            return false
+            return .none
+
+          let subGoal ←
+            -- First, make potential progress -- this is useful in any case!
+            match ← dsimpAndSimp (extra := zeta) (intros := false) subGoal with
+            | .noProgress => pure subGoal
+            | .goal mvarId => pure { subGoal with mvarId }
+            | .closed => return .none
 
           -- Solvable with exact; we made progress
           if ← withReducible subGoal.mvarId.assumptionCore then
             let t ← subGoal.mvarId.getType
             let .some e ← getExprMVarAssignment? subGoal.mvarId | throwError "oh noes"
             logInfo m!"Solved by exact: {t} by {e}"
-            return true
+            return .none
 
           -- Solvable with refl, maybe.
           try
             subGoal.mvarId.refl
             let t ← subGoal.mvarId.getType
             logInfo m!"Solved by refl: {t}"
-            return true
+            return .none
           catch _ => pure ()
 
           -- Try solving with grind, roll back state otherwise (we don't want to
@@ -400,17 +421,17 @@ partial def evalSymKStep : Grind.GrindTactic :=
             match ← Grind.liftGrindM subGoal.grind with
             | .closed =>
                 logInfo m!"Solved by grind: {t}"
-                return true
+                return .none
             | .failed _ =>
                 logInfo m!"NOT solved by grind: {t}"
                 throwError "catch me"
-          catch _ =>
-            return false
+          catch e =>
+            return subGoal
 
         -- For this reason, we try to be intentional about the order in which we solve subgoals:
         -- solving the ⋆ separation logic predicate first allows making sensible decisions about
         -- metavariables, rather than picking any random hypothesis in the context
-        let starGoal ← subGoals.findM? (fun g => do
+        let (starGoal, otherSubGoals) ← subGoals.partitionM (fun g => do
           let t ← g.mvarId.getType
           if t.getAppFn.isConstOf ``Std.ExtHashMap.sep then
             logInfo m!"Found sep goal: {t}"
@@ -421,28 +442,27 @@ partial def evalSymKStep : Grind.GrindTactic :=
 
         -- If we couldn't solve the ⋆ goal, we are likely going to make bad
         -- decisions and instantiate metavariables randomly. Abort.
-        if let some g := starGoal then
-          let solved ← solveIfNotAlready g
-          if not solved then
-            return (goal, subGoals)
+        match starGoal with
+        | [ starGoal ] => 
+            let solved ← trySolve starGoal
+            match solved with
+            | .none => pure ()
+            | .some starGoal =>
+                return (goal, starGoal :: otherSubGoals)
+        | [] =>
+          pure ()
+        | _ =>
+          throwError "More than one star goal -- what to do?"
 
-        -- Then, we repeatedly visit subgoals until we make no progress.
-        while ← (
-          subGoals.foldlM (fun progress subGoal => do
-            let r ← solveIfNotAlready subGoal
-            pure (r || progress)
-          ) false
-        ) do pure ()
+        logInfo m!"HERE";
 
-        -- Unsolved goals left? Return control to the user
-        let unsolvedGoals ← subGoals.filterMapM fun (g: Grind.Goal) => do
-          if ← g.mvarId.isAssigned then
-            return none
-          else
-            return some g
+        -- One round of solving subgoals -- we could conceivably repeat here.
+        let unsolvedGoals ← otherSubGoals.filterMapM trySolve
+
         unsolvedGoals.forM fun mvarId => do
           let t ← mvarId.mvarId.getType
           logInfo m!"Unsolved goal: {t}"
+
         if unsolvedGoals.length > 0 then
           return (goal, unsolvedGoals)
 
