@@ -1,71 +1,12 @@
 import Lean.Elab.Tactic
-import Lean.Meta.Sym.SymM
+import Lean.Meta.Tactic.AC
 import Kraken.Separation
 
 open Lean Elab Tactic Meta
-open Lean.Meta.Sym (SymM)
-
-namespace Std.ExtHashMap
-
-variable {key value : Type} [BEq key] [EquivBEq key] [Hashable key] [LawfulHashable key] [LawfulBEq key]
-
-private theorem foldr_sep_append (xs ys : List (ExtHashMap key value → Prop)) :
-    xs.foldr sep emp ⋆ ys.foldr sep emp = (xs ++ ys).foldr sep emp := by
-  induction xs with
-  | nil => simpa only [List.foldr, List.nil_append] using emp_sep (ys.foldr sep emp)
-  | cons x xs ih => simpa only [List.foldr, List.cons_append] using
-      (sep_assoc x (xs.foldr sep emp) (ys.foldr sep emp)).trans (congrArg (sep x) ih)
-
-theorem foldr_sep_perm {xs ys : List (ExtHashMap key value → Prop)}
-    (h : xs.Perm ys) : xs.foldr sep emp = ys.foldr sep emp := by
-  apply h.foldr_eq'
-  intros
-  apply sep_comm_l
-
-/--
-The shallow syntax used by `ecancel`: only the separating conjunction spine is
-reified; atoms remain ordinary Lean expressions.
--/
-inductive SepTree (α : Type) where
-  | emp
-  | atom (a : α)
-  | sep (left right : SepTree α)
-
-namespace SepTree
-
-variable {α : Type}
-
-def flatten : SepTree α → List α
-  | .emp => []
-  | .atom a => [a]
-  | .sep left right => flatten left ++ flatten right
-
-def denote : SepTree (ExtHashMap key value → Prop) → ExtHashMap key value → Prop
-  | .emp => Std.ExtHashMap.emp
-  | .atom a => a
-  | .sep left right => denote left ⋆ denote right
-
-theorem denote_eq_foldr (tree : SepTree (ExtHashMap key value → Prop)) :
-    denote tree =
-      (flatten tree).foldr Std.ExtHashMap.sep Std.ExtHashMap.emp := by
-  induction tree with
-  | emp => rfl
-  | atom a => exact (sep_emp a).symm
-  | sep left right ihLeft ihRight =>
-    simp only [denote, flatten]
-    rw [ihLeft, ihRight, foldr_sep_append]
-
-end SepTree
-
-end Std.ExtHashMap
 
 namespace Kraken.Tactic
 
-private instance : MonadBacktrack Meta.SavedState SymM where
-  saveState := Meta.saveState
-  restoreState state := state.restore
-
-private partial def denoteClauses (predType : Expr) : List Expr → SymM Expr
+private partial def denoteClauses (predType : Expr) : List Expr → MetaM Expr
   | [] => withLocalDeclD `m predType.bindingDomain! fun m => do
       let body ← mkAppM ``Std.ExtHashMap.emp #[m]
       mkLambdaFVars #[m] body (etaReduce := true)
@@ -73,88 +14,156 @@ private partial def denoteClauses (predType : Expr) : List Expr → SymM Expr
     let rest ← denoteClauses predType ps
     mkAppM ``Std.ExtHashMap.sep #[p, rest]
 
-private structure Reification where
-  tree : Expr
-  clauses : List Expr
-
-private partial def reify (predType e : Expr) : SymM Reification := do
+private partial def reifyClauses (e : Expr) : MetaM (List Expr) := do
   let e ← instantiateMVars e
   if e.getAppFn.constName? == some ``Std.ExtHashMap.emp then
-    return {
-      tree := mkApp (mkConst ``Std.ExtHashMap.SepTree.emp) predType
-      clauses := []
-    }
+    return []
   if e.getAppFn.constName? == some ``Std.ExtHashMap.sep then
     let args := e.getAppArgs
-    let p ← reify predType args[args.size - 2]!
-    let q ← reify predType args[args.size - 1]!
-    return {
-      tree := mkApp3 (mkConst ``Std.ExtHashMap.SepTree.sep) predType p.tree q.tree
-      clauses := p.clauses ++ q.clauses
-    }
-  return {
-    tree := mkApp2 (mkConst ``Std.ExtHashMap.SepTree.atom) predType e
-    clauses := [e]
-  }
+    let p ← reifyClauses args[args.size - 2]!
+    let q ← reifyClauses args[args.size - 1]!
+    return p ++ q
+  return [e]
 
-private def assignNaked (predType : Expr) (lhs rhs : List Expr) : SymM Bool := do
+private def assignNaked (predType : Expr) (lhs rhs : List Expr) : MetaM Bool := do
   let [.mvar mvarId] := lhs | return false
   isDefEq (.mvar mvarId) (← denoteClauses predType rhs)
 
-private partial def cancelClauses (predType : Expr) (lhs rhs : List Expr) : SymM Bool := do
+private def reduceProjectionApp (e : Expr) : MetaM Expr := do
+  let some declName := e.getAppFn.constName? | return e
+  let some info ← getProjectionFnInfo? declName | return e
+  if info.fromClass then return e
+  let some unfolded ← unfoldDefinition? e | return e
+  let some fn ← reduceProj? unfolded.getAppFn | return e
+  return mkAppN fn unfolded.getAppArgs
+
+-- fuel: bound definitional unfolding to avoid expensive general reduction.
+private partial def matchClosed (lhs rhs : Expr) (fuel : Nat := 2) : MetaM Bool := do
+  let lhs ← reduceProjectionApp lhs
+  let rhs ← reduceProjectionApp rhs
+  if lhs == rhs then return true
+  if lhs.getAppFn == rhs.getAppFn then
+    let lhsArgs := lhs.getAppArgs
+    let rhsArgs := rhs.getAppArgs
+    unless lhsArgs.size == rhsArgs.size do return false
+    for lhsArg in lhsArgs, rhsArg in rhsArgs do
+      unless ← matchClosed lhsArg rhsArg fuel do return false
+    return true
+  if fuel == 0 then return false
+  if let some lhs ← unfoldDefinition? lhs then
+    if ← matchClosed lhs rhs (fuel - 1) then return true
+  if let some rhs ← unfoldDefinition? rhs then
+    if ← matchClosed lhs rhs (fuel - 1) then return true
+  return false
+
+private def matchAtom (lhs rhs : Expr) : MetaM Bool := do
+  if lhs == rhs then return true
+  if lhs.hasExprMVar || rhs.hasExprMVar then isDefEq lhs rhs
+  else matchClosed lhs rhs
+
+private def isNakedMVar : Expr → Bool
+  | .mvar _ => true
+  | _ => false
+
+-- Closed clauses can be cancelled greedily: unlike clauses containing
+-- metavariables, matching them cannot constrain a later cancellation choice.
+private partial def cancelClosedClauses : List Expr → List Expr → MetaM (List Expr × List Expr)
+  | [], rhs => return ([], rhs)
+  | l :: ls, rhs => do
+    if l.hasExprMVar then
+      let (ls, rhs) ← cancelClosedClauses ls rhs
+      return (l :: ls, rhs)
+    let some j ← rhs.toArray.findIdxM? (fun r => do
+        if r.hasExprMVar then return false
+        matchClosed l r) | do
+      let (ls, rhs) ← cancelClosedClauses ls rhs
+      return (l :: ls, rhs)
+    cancelClosedClauses ls (rhs.eraseIdx j)
+
+private partial def cancelClauses (predType : Expr) (lhs rhs : List Expr) : MetaM Bool := do
+  let (lhs, rhs) ← cancelClosedClauses lhs rhs
   if lhs.isEmpty && rhs.isEmpty then return true
   for i in List.range lhs.length do
     for j in List.range rhs.length do
       let l := lhs[i]!
       let r := rhs[j]!
-      let matched ← commitWhen do
-        isDefEq l r <&&> cancelClauses predType (lhs.eraseIdx i) (rhs.eraseIdx j)
-      if matched then return true
+      -- Closed matches have already been removed. A naked metavariable is
+      -- reserved for assignment to the conjunction of all remaining clauses
+      -- below.
+      if (l.hasExprMVar || r.hasExprMVar) && !isNakedMVar l && !isNakedMVar r then
+        let matched ← commitWhen do
+          unless ← matchAtom l r do return false
+          -- Matching may instantiate metavariables in the remaining clauses.
+          let lhs ← (lhs.eraseIdx i).mapM instantiateMVars
+          let rhs ← (rhs.eraseIdx j).mapM instantiateMVars
+          cancelClauses predType lhs rhs
+        if matched then return true
   assignNaked predType lhs rhs <||> assignNaked predType rhs lhs
 
-private partial def mkPermProof (predType : Expr) : List Expr → List Expr → SymM (Option Expr)
-  | [], [] => do
-    let nil ← mkListLit predType []
-    return some (← mkAppM ``List.Perm.refl #[nil])
-  | x :: xs, ys => do
-    let some i ← ys.toArray.findIdxM? (fun y => isDefEq x y) | return none
-    let before := ys.take i
-    let after := ys.drop (i + 1)
-    let some tailProof ← mkPermProof predType xs (before ++ after) | return none
-    let before ← mkListLit predType before
-    let after ← mkListLit predType after
-    return some (← mkAppOptM ``List.perm_cons_append_cons
-      #[none, none, some before, some after, some x, some tailProof])
+private partial def alignClauses : List Expr → List Expr → MetaM (Option (List Expr))
+  | [], [] => return some []
+  | lhs, r :: rs => do
+    let some i ← lhs.toArray.findIdxM? (fun l => matchAtom l r) | return none
+    let some rest ← alignClauses (lhs.eraseIdx i) rs | return none
+    return some (lhs[i]! :: rest)
   | _, _ => return none
 
-private def solveSepEq (lhs rhs : Expr) : SymM (Option Expr) := do
+/--
+Rebuilds `e` while preserving its sep/emp tree structure and replacing each
+atomic leaf, from left to right, with the next entry in `clauses`.
+Returns none if there are not enough clauses to replace every atomic leaf.
+Returns some (rebuilt expr, unused clauses) otherwise.
+-/
+private partial def canonicalize (e : Expr) (clauses : List Expr) :
+    MetaM (Option (Expr × List Expr)) := do
+  let e ← instantiateMVars e
+  if e.getAppFn.constName? == some ``Std.ExtHashMap.emp then
+    return some (e, clauses)
+  if e.getAppFn.constName? == some ``Std.ExtHashMap.sep then
+    let args := e.getAppArgs
+    let some (p, clauses) ← canonicalize args[args.size - 2]! clauses | return none
+    let some (q, clauses) ← canonicalize args[args.size - 1]! clauses | return none
+    return some (← mkAppM ``Std.ExtHashMap.sep #[p, q], clauses)
+  return match clauses with
+  | c :: clauses => some (c, clauses)
+  | [] => none
+
+private def proveSeqEq (lhs rhs : Expr) : MetaM (Option Expr) :=
+  commitWhenSomeNoEx? do
+    let lhs ← instantiateMVars lhs
+    let rhs ← instantiateMVars rhs
+    let lhsClauses ← reifyClauses lhs
+    let rhsClauses ← reifyClauses rhs
+    let some rhsClauses ← alignClauses lhsClauses rhsClauses | return none
+    let some (lhs, []) ← canonicalize lhs lhsClauses | return none
+    let some (rhs, []) ← canonicalize rhs rhsClauses | return none
+    let proof ← mkFreshExprMVar (← mkEq lhs rhs)
+    Lean.Meta.AC.rewriteUnnormalizedRefl proof.mvarId!
+    return some (← instantiateMVars proof)
+
+private def solveSepEq (lhs rhs : Expr) : MetaM (Option Expr) := do
+  let lhs ← instantiateMVars lhs
+  let rhs ← instantiateMVars rhs
+  if lhs == rhs then
+    return some (← mkEqRefl lhs)
   let predType ← inferType lhs
-  let lhsBefore ← reify predType lhs
-  let rhsBefore ← reify predType rhs
-  unless ← cancelClauses predType lhsBefore.clauses rhsBefore.clauses do return none
+  let lhsClauses ← reifyClauses lhs
+  let rhsClauses ← reifyClauses rhs
+  unless ← cancelClauses predType lhsClauses rhsClauses do return none
+  proveSeqEq lhs rhs
 
-  -- Evar assignments can expose new separating conjunctions. Reify again so
-  -- the proof certificate describes the instantiated spatial expressions.
-  let lhsAfter ← reify predType lhs
-  let rhsAfter ← reify predType rhs
-  let some permProof ← mkPermProof predType lhsAfter.clauses rhsAfter.clauses
-    | return none
-  let lhsProof ← mkAppM ``Std.ExtHashMap.SepTree.denote_eq_foldr #[lhsAfter.tree]
-  let rhsProof ← mkAppM ``Std.ExtHashMap.SepTree.denote_eq_foldr #[rhsAfter.tree]
-  let permProof ← mkAppM ``Std.ExtHashMap.foldr_sep_perm #[permProof]
-  let proof ← mkEqTrans lhsProof permProof
-  return some (← mkEqTrans proof (← mkEqSymm rhsProof))
-
-private def solveFromHypothesis (target : Expr) (localDecl : LocalDecl) : SymM (Option Expr) := do
-  let hypType := localDecl.type
+private def solveFromHypothesis (target : Expr) (localDecl : LocalDecl) : MetaM (Option Expr) := do
+  let target ← instantiateMVars target
+  let hypType ← instantiateMVars localDecl.type
   unless hypType.isApp do return none
   let targetFn := target.appFn!
   let targetArg := target.appArg!
   let hypFn := hypType.appFn!
   let hypArg := hypType.appArg!
-  unless ← isDefEq targetArg hypArg do return none
+  unless ← matchAtom (← reduceProjectionApp targetArg) (← reduceProjectionApp hypArg) do
+    return none
   let some hSeps ← solveSepEq hypFn targetFn | return none
-  let hFunEq ← mkAppM ``congrFun #[hSeps, targetArg]
+  let hFunEq ← mkAppM ``congrFun #[hSeps, hypArg]
   return some (← mkAppM ``Eq.mp #[hFunEq, localDecl.toExpr])
 
 syntax (name := ecancel) "ecancel" : tactic
@@ -167,17 +176,17 @@ def evalEcancel : Tactic :=
   -- Existential witnesses introduced by tactics are synthetic-opaque goals;
   -- `ecancel` intentionally instantiates them as part of cancellation.
   let solved ← withConfig (fun config => { config with assignSyntheticOpaque := true }) do
-    SymM.run do
-      if target.isAppOfArity ``Eq 3 then
-        let args := target.getAppArgs
-        if let some proof ← solveSepEq args[1]! args[2]! then
-          goal.assign proof
-          return true
-      for localDecl in ← getLCtx do
+    if target.isAppOfArity ``Eq 3 then
+      let args := target.getAppArgs
+      if let some proof ← solveSepEq args[1]! args[2]! then
+        goal.assign proof
+        return true
+    for localDecl? in (← getLCtx).decls.toArray.reverse do
+      if let some localDecl := localDecl? then
         if let some proof ← solveFromHypothesis target localDecl then
           goal.assign proof
           return true
-      return false
+    return false
   unless solved do
     throwError "ecancel: could not automatically solve goal {target}"
 end Kraken.Tactic

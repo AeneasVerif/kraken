@@ -18,12 +18,30 @@ example {w} (A B C D : Mem w → Prop) : A ⋆ (B ⋆ C) ⋆ D = (D ⋆ B) ⋆ (
 
 example {w} (A B C : Mem w → Prop) (m : Mem w) (h : (A ⋆ (B ⋆ C)) m) : ((C ⋆ A) ⋆ B) m := by ecancel
 
+example (v2 rax rdi : UInt64) (R : Mem 64 → Prop) (mem : Mem 64)
+    (h : (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi.toBitVec) ⋆
+      (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ R))
+      (Mem.storeInt mem rdi.toBitVec 8 rax.toBitVec.toInt)) :
+    (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆
+      (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi.toBitVec) ⋆ R))
+      (Mem.storeInt mem rdi.toBitVec 8 rax.toBitVec.toInt) := by
+  ecancel
+
+example (v : UInt64) (a : BitVec 64) (R : Mem 64 → Prop) :
+    Eq (v.At a) ⋆ R = R ⋆ Eq (v.toBytes.At a) := by
+  ecancel
+
 example {w} (A : Mem w → Prop) : ∃ X : Mem w → Prop, A = X ⋆ A := by refine ⟨?_, by ecancel⟩
 
 example {w} (A B C : Mem w → Prop) : ∃ X : Mem w → Prop, A ⋆ (B ⋆ C) = X ⋆ A := by refine ⟨?_, by ecancel⟩
 
 example {w} (A B : Mem w → Prop) :
     ∃ index : Nat, indexed index A ⋆ B = B ⋆ indexed 3 A := by
+  refine ⟨?_, by ecancel⟩
+
+example {w} (A : Mem w → Prop) :
+    ∃ index : Nat,
+      indexed index A ⋆ indexed 1 A = indexed 1 A ⋆ indexed 2 A := by
   refine ⟨?_, by ecancel⟩
 
 example {w} (A : Mem w → Prop) :
