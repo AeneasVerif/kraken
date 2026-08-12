@@ -129,7 +129,6 @@ structure RegZmms where
   zmm29 : ZmmValue := zmmZero
   zmm30 : ZmmValue := zmmZero
   zmm31 : ZmmValue := zmmZero
-  zmm32 : ZmmValue := zmmZero
   deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr
 
 def RegZmms.get512 (s : RegZmms) (r : RegMm) : AvxWidth.W512.type := (match r with
