@@ -68,15 +68,15 @@ def Reg64s.getXReg (s : Reg64s) (r : XReg) := match r with
   | .X24 => s.X24 | .X25 => s.X25 | .X26 => s.X26 | .X27 => s.X27
   | .X28 => s.X28 | .X29 => s.X29 | .X30 => s.X30
 
-def Reg64s.getRegOrSp64 (s : Reg64s) (r : XRegOrSp) : Width.W64.type := UInt64.toBitVec (match r with
+def Reg64s.getRegOrSp64 (s : Reg64s) (r : XRegOrSp) : RegWidth.W64.type := UInt64.toBitVec (match r with
   | .reg r => s.getXReg r
   | .SP => s.SP )
 
-def Reg64s.getRegOrZr64 (s : Reg64s) (r : XRegOrXzr) : Width.W64.type := UInt64.toBitVec (match r with
+def Reg64s.getRegOrZr64 (s : Reg64s) (r : XRegOrXzr) : RegWidth.W64.type := UInt64.toBitVec (match r with
   | .reg r => s.getXReg r
   | .XZR => 0 ) -- Reads from XZR return constant 0.
 
-def Reg64s.setXReg (regs : Reg64s) (r : XReg) (v : Width.W64.type) : Reg64s :=
+def Reg64s.setXReg (regs : Reg64s) (r : XReg) (v : RegWidth.W64.type) : Reg64s :=
   let v := UInt64.ofBitVec v
   match r with
   |  .X0 => { regs with  X0 := v } |  .X1 => { regs with  X1 := v }
@@ -96,12 +96,12 @@ def Reg64s.setXReg (regs : Reg64s) (r : XReg) (v : Width.W64.type) : Reg64s :=
   | .X28 => { regs with X28 := v } | .X29 => { regs with X29 := v }
   | .X30 => { regs with X30 := v }
 
-def Reg64s.setRegOrSp64 (regs : Reg64s) (r : XRegOrSp) (v : Width.W64.type) : Reg64s :=
+def Reg64s.setRegOrSp64 (regs : Reg64s) (r : XRegOrSp) (v : RegWidth.W64.type) : Reg64s :=
   match r with
   | .reg r => regs.setXReg r v
   | .SP => { regs with SP := UInt64.ofBitVec v }
 
-def Reg64s.setRegOrZr64 (regs : Reg64s) (r : XRegOrXzr) (v : Width.W64.type) : Reg64s :=
+def Reg64s.setRegOrZr64 (regs : Reg64s) (r : XRegOrXzr) (v : RegWidth.W64.type) : Reg64s :=
   match r with
   | .reg r => regs.setXReg r v
   | .XZR => regs -- Writes to XZR are dropped.
@@ -137,7 +137,7 @@ structure MachineData where -- does not include code or program position
 
 -- We only allow nondeterministic choices for a fixed set of types.
 class inductive NondetSupportingType : Type -> Type
-  | bitvec (w : Width) : NondetSupportingType w.type
+  | bitvec (w : RegWidth) : NondetSupportingType w.type
   | bool : NondetSupportingType Bool
   | statusFlags : NondetSupportingType StatusFlags
 
@@ -147,7 +147,7 @@ def NondetSupportingType.from_hash {α} [t : NondetSupportingType α] (h : UInt6
   | .statusFlags => let h := h.toBitVec; (.mk h[0] h[1] h[2] h[3])
   | .bitvec w => h.toBitVec.setWidth w.bits
 
-instance (w : Width) : NondetSupportingType w.type := .bitvec w
+instance (w : RegWidth) : NondetSupportingType w.type := .bitvec w
 instance : NondetSupportingType Bool := .bool
 instance : NondetSupportingType StatusFlags := .statusFlags
 
@@ -163,7 +163,7 @@ inductive Effects
   | require_read_access (addr : BitVec 64) (w : MemWidth) (ok : Unit → Effects)
   | require_write_access (addr : BitVec 64) (w : MemWidth) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
-  | unaligned_sp {w : Width} (sp : w.type)
+  | unaligned_sp {w : RegWidth} (sp : w.type)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
 
 -- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
@@ -229,12 +229,12 @@ def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64)
 
 def BitVec.apply_extend (v : BitVec 64) (ext : Extend) :=
   let extended := match ext.type with
-               | .UXTB => (v.take 8).unsigned
-               | .SXTB => (v.take 8).signed
-               | .UXTH => (v.take 16).unsigned
-               | .SXTH => (v.take 16).signed
-               | .UXTW => (v.take 32).unsigned
-               | .SXTW => (v.take 32).signed
+               | .UXTB => (v.take MemWidth.W8.bits).unsigned
+               | .SXTB => (v.take MemWidth.W8.bits).signed
+               | .UXTH => (v.take MemWidth.W16.bits).unsigned
+               | .SXTH => (v.take MemWidth.W16.bits).signed
+               | .UXTW => (v.take MemWidth.W32.bits).unsigned
+               | .SXTW => (v.take MemWidth.W32.bits).signed
                | .UXTX => v.unsigned
                | .SXTX => v.signed
   let shifted := match ext.amount with
@@ -247,8 +247,8 @@ def BitVec.apply_extend (v : BitVec 64) (ext : Extend) :=
 
 def BitVec.apply_mem_extend (v : BitVec 64) (ext : MemExtend) :=
   let extended := match ext.type with
-               | .UXTW => (v.take 32).unsigned
-               | .SXTW => (v.take 32).signed
+               | .UXTW => (v.take MemWidth.W32.bits).unsigned
+               | .SXTW => (v.take MemWidth.W32.bits).signed
                | .UXTX => v.unsigned
                | .SXTX => v.signed
   let shifted := match ext.amount with
@@ -260,13 +260,13 @@ def BitVec.apply_mem_extend (v : BitVec 64) (ext : MemExtend) :=
 
 def ExtRegExpr.interp (er : ExtRegExpr) (s : Reg64s) (_ : Std.Rco Int64) :=
   let base := s.getRegOrZr er.reg.reg
-  (base.take 64).apply_extend er.ext
+  (base.take RegWidth.W64.bits).apply_extend er.ext
 
 def MemExtRegExpr.interp (er : MemExtRegExpr) (s : Reg64s) (_ : Std.Rco Int64) :=
   let base := s.getRegOrZr er.reg.reg
-  (base.take 64).apply_mem_extend er.ext
+  (base.take RegWidth.W64.bits).apply_mem_extend er.ext
 
-def ExtOrImmReg.interp [Labels] {w : Width} (expr : ExtOrImmReg) (s : Reg64s) (p : Std.Rco Int64) : w.type :=
+def ExtOrImmReg.interp [Labels] {w : RegWidth} (expr : ExtOrImmReg) (s : Reg64s) (p : Std.Rco Int64) : w.type :=
   match expr with
   | .ext e =>
     BitVec.ofInt w.bits (e.interp s p)
@@ -415,13 +415,13 @@ def StatusFlags.ofNat (nzcv : Nat) : StatusFlags :=
     c := (nzcv &&& 2) != 0
     v := (nzcv &&& 1) != 0 }
 
-def maskOfLen {w : Width} (len : Nat) : w.type :=
+def maskOfLen {w : RegWidth} (len : Nat) : w.type :=
   if len >= w.bits then
     ~~~(0 : w.type)
   else
     ((1 : w.type) <<< len) - 1
 
-def evalUBFM {w : Width} (src : w.type) (immr imms : Nat) : w.type :=
+def evalUBFM {w : RegWidth} (src : w.type) (immr imms : Nat) : w.type :=
   let immr := immr % w.bits
   let imms := imms % w.bits
   if imms >= immr then
@@ -434,7 +434,7 @@ def evalUBFM {w : Width} (src : w.type) (immr imms : Nat) : w.type :=
     let field := src.take len
     (field.zeroExtend w.bits) <<< pos
 
-def evalSBFM {w : Width} (src : w.type) (immr imms : Nat) : w.type :=
+def evalSBFM {w : RegWidth} (src : w.type) (immr imms : Nat) : w.type :=
   let immr := immr % w.bits
   let imms := imms % w.bits
   if imms >= immr then
@@ -447,7 +447,7 @@ def evalSBFM {w : Width} (src : w.type) (immr imms : Nat) : w.type :=
     let field := src.take len
     (field.signExtend (w.bits - pos)).zeroExtend w.bits <<< pos
 
-def evalBFM {w : Width} (dst src : w.type) (immr imms : Nat) : w.type :=
+def evalBFM {w : RegWidth} (dst src : w.type) (immr imms : Nat) : w.type :=
   let immr := immr % w.bits
   let imms := imms % w.bits
   if imms >= immr then
@@ -481,7 +481,8 @@ def Operation.interp [Labels]
       let (addr, s') := src.eval s p
       s'.load addr w (fun val1 s'' =>
         s''.load (addr + w.bytesv) w (fun val2 s''' =>
-          s'''.setRegOrZr dst1 val1 (fun s'''' => s''''.setRegOrZr dst2 val2 next))))
+          s'''.setRegOrZr dst1 val1 (fun s'''' =>
+            s''''.setRegOrZr dst2 val2 next))))
   | .STP src1 src2 dst =>
     dst.checkSPAlignment s (fun _unit =>
       let val1 := s.regs.getRegOrZr src1
@@ -489,29 +490,51 @@ def Operation.interp [Labels]
       let (addr, s') := dst.eval s p
       s'.store addr val1 (fun s'' =>
         s''.store (addr + w.bytesv) val2 next))
-  | .LDRB dst src => src.interpLoad (w := .W8) s p (fun val s' => s'.setRegOrZr dst (val.zeroExtend 32) next)
-  | .LDURB dst src => src.interpLoad (w := .W8) s p (fun val s' => s'.setRegOrZr dst (val.zeroExtend 32) next)
-  | .STRB src dst => dst.interpStore (w := .W8) s p ((s.regs.getRegOrZr src).take 8) next
-  | .STURB src dst => dst.interpStore (w := .W8) s p ((s.regs.getRegOrZr src).take 8) next
-  | .LDRSB dst src => src.interpLoad (w := .W8) s p (fun val s' => s'.setRegOrZr dst (val.signExtend w.bits) next)
-  | .LDURSB dst src => src.interpLoad (w := .W8) s p (fun val s' => s'.setRegOrZr dst (val.signExtend w.bits) next)
-  | .LDRH dst src => src.interpLoad (w := .W16) s p (fun val s' => s'.setRegOrZr dst (val.zeroExtend 32) next)
-  | .LDURH dst src => src.interpLoad (w := .W16) s p (fun val s' => s'.setRegOrZr dst (val.zeroExtend 32) next)
-  | .STRH src dst => dst.interpStore (w := .W16) s p ((s.regs.getRegOrZr src).take 16) next
-  | .STURH src dst => dst.interpStore (w := .W16) s p ((s.regs.getRegOrZr src).take 16) next
-  | .LDRSH dst src => src.interpLoad (w := .W16) s p (fun val s' => s'.setRegOrZr dst (val.signExtend w.bits) next)
-  | .LDURSH dst src => src.interpLoad (w := .W16) s p (fun val s' => s'.setRegOrZr dst (val.signExtend w.bits) next)
+  | .LDRB dst src =>
+    src.interpLoad (w := .W8) s p (fun val s' =>
+      s'.setRegOrZr dst (val.zeroExtend RegWidth.W32.bits) next)
+  | .LDURB dst src =>
+    src.interpLoad (w := .W8) s p (fun val s' =>
+      s'.setRegOrZr dst (val.zeroExtend RegWidth.W32.bits) next)
+  | .STRB src dst =>
+    dst.interpStore (w := .W8) s p ((s.regs.getRegOrZr src).take MemWidth.W8.bits) next
+  | .STURB src dst =>
+    dst.interpStore (w := .W8) s p ((s.regs.getRegOrZr src).take MemWidth.W8.bits) next
+  | .LDRSB dst src =>
+    src.interpLoad (w := .W8) s p (fun val s' =>
+      s'.setRegOrZr dst (val.signExtend w.bits) next)
+  | .LDURSB dst src =>
+    src.interpLoad (w := .W8) s p (fun val s' =>
+      s'.setRegOrZr dst (val.signExtend w.bits) next)
+  | .LDRH dst src =>
+    src.interpLoad (w := .W16) s p (fun val s' =>
+      s'.setRegOrZr dst (val.zeroExtend RegWidth.W32.bits) next)
+  | .LDURH dst src =>
+    src.interpLoad (w := .W16) s p (fun val s' =>
+      s'.setRegOrZr dst (val.zeroExtend RegWidth.W32.bits) next)
+  | .STRH src dst =>
+    dst.interpStore (w := .W16) s p ((s.regs.getRegOrZr src).take MemWidth.W16.bits) next
+  | .STURH src dst =>
+    dst.interpStore (w := .W16) s p ((s.regs.getRegOrZr src).take MemWidth.W16.bits) next
+  | .LDRSH dst src =>
+    src.interpLoad (w := .W16) s p (fun val s' =>
+      s'.setRegOrZr dst (val.signExtend w.bits) next)
+  | .LDURSH dst src =>
+    src.interpLoad (w := .W16) s p (fun val s' =>
+      s'.setRegOrZr dst (val.signExtend w.bits) next)
   | .LDRSW dst src =>
-    src.interpLoad (w := .W32) s p (fun (val : BitVec 32) s' => s'.setRegOrZr dst (val.signExtend 64) next)
+    src.interpLoad (w := .W32) s p (fun val s' =>
+      s'.setRegOrZr dst (val.signExtend RegWidth.W64.bits) next)
   | .LDURSW dst src =>
-    src.interpLoad (w := .W32) s p (fun (val : BitVec 32) s' => s'.setRegOrZr dst (val.signExtend 64) next)
+    src.interpLoad (w := .W32) s p (fun val s' =>
+      s'.setRegOrZr dst (val.signExtend RegWidth.W64.bits) next)
   | .LDPSW dst1 dst2 src =>
     src.checkSPAlignment s (fun _unit =>
       let (addr, s') := src.eval s p
       s'.load addr .W32 (fun val1 s'' =>
-        s''.load (addr + 4#64) .W32 (fun val2 s''' =>
-          s'''.setRegOrZr dst1 (val1.signExtend 64) (fun s'''' =>
-            s''''.setRegOrZr dst2 (val2.signExtend 64) next))))
+        s''.load (addr + MemWidth.W32.bytesv) .W32 (fun val2 s''' =>
+          s'''.setRegOrZr dst1 (val1.signExtend RegWidth.W64.bits) (fun s'''' =>
+            s''''.setRegOrZr dst2 (val2.signExtend RegWidth.W64.bits) next))))
   | .ADD_e dst src1 src2 =>
     let val1 := s.regs.getRegOrSp src1
     let val2 := src2.interp s.regs p
@@ -600,13 +623,13 @@ def Operation.interp [Labels]
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
     let prod := val1.signed * val2.signed
-    let res := (BitVec.ofInt 128 prod).extractLsb' 64 64
+    let res := (BitVec.ofInt (RegWidth.W64.bits + RegWidth.W64.bits) prod).extractLsb' RegWidth.W64.bits RegWidth.W64.bits
     s.setRegOrZr dst res next
   | .UMULH dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
     let prod := val1.unsigned * val2.unsigned
-    let res := (BitVec.ofInt 128 prod).extractLsb' 64 64
+    let res := (BitVec.ofInt (RegWidth.W64.bits + RegWidth.W64.bits) prod).extractLsb' RegWidth.W64.bits RegWidth.W64.bits
     s.setRegOrZr dst res next
   | .SDIV dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
@@ -622,25 +645,25 @@ def Operation.interp [Labels]
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
     let val3 := s.regs.getRegOrZr src3
-    let res := BitVec.ofInt 64 (val1.signed * val2.signed + val3.signed)
+    let res := BitVec.ofInt RegWidth.W64.bits (val1.signed * val2.signed + val3.signed)
     s.setRegOrZr dst res next
   | .UMADDL dst src1 src2 src3 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
     let val3 := s.regs.getRegOrZr src3
-    let res := BitVec.ofInt 64 (val1.unsigned * val2.unsigned + val3.unsigned)
+    let res := BitVec.ofInt RegWidth.W64.bits (val1.unsigned * val2.unsigned + val3.unsigned)
     s.setRegOrZr dst res next
   | .SMSUBL dst src1 src2 src3 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
     let val3 := s.regs.getRegOrZr src3
-    let res := BitVec.ofInt 64 (val3.signed - val1.signed * val2.signed)
+    let res := BitVec.ofInt RegWidth.W64.bits (val3.signed - val1.signed * val2.signed)
     s.setRegOrZr dst res next
   | .UMSUBL dst src1 src2 src3 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
     let val3 := s.regs.getRegOrZr src3
-    let res := BitVec.ofInt 64 (val3.unsigned - val1.unsigned * val2.unsigned)
+    let res := BitVec.ofInt RegWidth.W64.bits (val3.unsigned - val1.unsigned * val2.unsigned)
     s.setRegOrZr dst res next
   | .AND_i dst src1 imm =>
     let val1 := s.regs.getRegOrZr src1

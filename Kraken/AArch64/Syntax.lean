@@ -35,28 +35,28 @@ Architectural operand and register width for AArch64 instructions.
 - `W32`: 32-bit register (`W0`-`W30`, `WSP`, `WZR`) or 32-bit operation.
 - `W64`: 64-bit register (`X0`-`X30`, `SP`, `XZR`) or 64-bit operation.
 -/
-inductive Width | W32 | W64 deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+inductive RegWidth | W32 | W64 deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-instance : ToString Width where
+instance : ToString RegWidth where
   toString | .W32 => "w32" | .W64 => "w64"
 
-namespace Width
-instance : Coe Width MemWidth where coe := fun w : Width =>
+namespace RegWidth
+instance : Coe RegWidth MemWidth where coe := fun w : RegWidth =>
   match w with
   | .W32 => .W32
   | .W64 => .W64
-@[reducible] def bits (w : Width) : Nat := (w : MemWidth).bits
-@[reducible] def bytes (w : Width) : Nat := (w : MemWidth).bytes
-abbrev bytesv (w : Width) {n} : BitVec n := (w : MemWidth).bytesv
-abbrev type (w : Width) : Type := (w : MemWidth).type
-instance {w : Width} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
-end Width
+@[reducible] def bits (w : RegWidth) : Nat := (w : MemWidth).bits
+@[reducible] def bytes (w : RegWidth) : Nat := (w : MemWidth).bytes
+abbrev bytesv (w : RegWidth) {n} : BitVec n := (w : MemWidth).bytesv
+abbrev type (w : RegWidth) : Type := (w : MemWidth).type
+instance {w : RegWidth} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
+end RegWidth
 
-unif_hint (w : Width) where
-  w =?= Width.W32 |- Width.type w =?= BitVec 32
+unif_hint (w : RegWidth) where
+  w =?= RegWidth.W32 |- RegWidth.type w =?= BitVec 32
 
-unif_hint (w : Width) where
-  w =?= Width.W64 |- Width.type w =?= BitVec 64
+unif_hint (w : RegWidth) where
+  w =?= RegWidth.W64 |- RegWidth.type w =?= BitVec 64
 
 /--
 AArch64 General Purpose Registers (GPRs) `X0` through `X30`.
@@ -84,12 +84,12 @@ inductive XRegOrXzr
   | XZR
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-inductive RegOrSp : Width → Type
-  | low (_ : XRegOrSp) (w : Width) : RegOrSp w
+inductive RegOrSp : RegWidth → Type
+  | low (_ : XRegOrSp) (w : RegWidth) : RegOrSp w
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-inductive RegOrZr : Width → Type
-  | low (_ : XRegOrXzr) (w : Width) : RegOrZr w
+inductive RegOrZr : RegWidth → Type
+  | low (_ : XRegOrXzr) (w : RegWidth) : RegOrZr w
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 instance {w} : Coe XRegOrSp (RegOrSp w) where coe := fun r => .low r w
@@ -120,10 +120,10 @@ instance {n} [OfNat Int64 n] : OfNat ConstExpr n where ofNat := .int64 (OfNat.of
 attribute [coe] ConstExpr.label
 attribute [coe] ConstExpr.int64
 
-structure RegOrSpW where (w : Width) (reg : RegOrSp w)
+structure RegOrSpW where (w : RegWidth) (reg : RegOrSp w)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
-structure RegOrZrW where (w : Width) (reg : RegOrZr w)
+structure RegOrZrW where (w : RegWidth) (reg : RegOrZr w)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 /--
@@ -183,7 +183,7 @@ Allowed shift amounts for move wide immediate instructions.
 - For 64-bit registers (`.W64`): Can shift by `#0` (`LSL0`), `#16` (`LSL16`),
   `#32` (`LSL32`), or `#48` (`LSL48`).
 -/
-inductive MovShift : Width → Type
+inductive MovShift : RegWidth → Type
   | LSL0 {w}  : MovShift w
   | LSL16 {w} : MovShift w
   | LSL32     : MovShift .W64
@@ -243,7 +243,7 @@ Shifted register operand for logical and arithmetic instructions (`Xm, <shift> #
 - Shift amount `amount` must be in $[0, 31]$ for 32-bit (`.W32`) operations
   and $[0, 63]$ for 64-bit (`.W64`) operations.
 -/
-structure ShiftRegExpr (w : Width) where
+structure ShiftRegExpr (w : RegWidth) where
   reg : RegOrZr w
   amount : Int64 -- Must be in the range $[0, 31]$ for 32-bit instructions and [0, 63] for 64-bit instructions.
   shift : ShiftType
@@ -345,7 +345,7 @@ attribute [coe] ExtOrImmReg.imm
 
 instance {w} : Coe (RegOrZr w) (ShiftRegExpr w) where coe := fun r => { reg := r, amount := 0, shift := .LSL }
 
-inductive Operation : Width → Type
+inductive Operation : RegWidth → Type
   -- Loads and Stores.
   | LDR {w} (dst : RegOrZr w) (src : AddrOrLit) : Operation w
   | STR {w} (src : RegOrZr w) (dst : AddrExpr) : Operation w
@@ -469,7 +469,7 @@ inductive Operation : Width → Type
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 structure Instr where
-  operation_size : Width
+  operation_size : RegWidth
   operation : Operation operation_size
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
