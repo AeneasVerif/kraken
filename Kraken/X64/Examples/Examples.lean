@@ -14,6 +14,7 @@ import Kraken.X64.Tactics
 import Kraken.X64.Parser
 import Kraken.Eval
 import Kraken.X64.Sep
+import Kraken.SeparationTactics
 
 open Kraken.X64.Parser
 
@@ -72,7 +73,7 @@ example [layout : Layout] (s : MachineData): Eventually (straightlineStep (layou
   tactic =>
   apply Eventually.done
   bv_decide
- 
+
 -- Example 3, more sophisticated
 
 -- TODO: restore p3
@@ -106,7 +107,7 @@ theorem p3_correct [layout: Layout] (s: MachineData):
     -- tactic =>
     -- apply reg_dec_loop
     -- intros
-    
+
     sorry
 
 /-     intros h_bounds h_rip
@@ -322,8 +323,7 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
 
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
   have h_bs2 : v2.toBytes.length = 8 := UInt64.toBytes_length v2
-  rw [sep_assoc] at h_mem
-  have h_mem1 := Mem.storeInt_sep rdi.toBitVec 8 v1.toBytes (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ R) mem ⟨h_mem, h_bs1⟩ rax.toBitVec.toInt
+  have h_mem1 := Mem.storeInt_sep rdi.toBitVec 8 v1.toBytes (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ R) mem ⟨by ecancel, h_bs1⟩ rax.toBitVec.toInt
   have h_mem1' : (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
   have h_mem2 := Mem.storeInt_sep (rdi.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ rcx.toBitVec.toInt
   have h_mem2' : (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ (Eq ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
@@ -334,7 +334,7 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   -- TODO: the kstep tactic is supposed to apply `exact`, but `exact` only applies after `simp`, so
   -- clearly, stuff is missing from the simp-set in `kstep`
   kstep
-  case h_mem => tactic => simp; exact h_mem
+  case h_mem => tactic => simp; ecancel
   case h_len => exact h_bs1
   kstep
   case h_mem => tactic => simp; exact h_mem1'
