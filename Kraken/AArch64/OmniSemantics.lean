@@ -1,19 +1,20 @@
 /-
-Kraken - AArch64 Proof Tactics and OmniSemantics
+Kraken AArch64 - Proof Tactics
 
 Core tactics and theorems for stepping through AArch64 assembly proofs.
-Compatible with Lean 4.22.0+.
 -/
 
 import Kraken.AArch64.Semantics
+import Kraken.Attribute
 
--- PROOF INFRASTRUCTURE FOR AArch64
+-- PROOF INFRASTRUCTURE
 
 abbrev Post {State : Type} := State → Prop
 
-def Effects.All (post : MachineState → Prop) : Effects → Prop
+@[kstep] def Effects.All (post : MachineState → Prop) : Effects → Prop
   | .done a => post a
   | .unimplemented _ => False
+  | .unaligned_sp .. => False
   | .nonmem_load .. => False
   | .nonmem_store .. => False
   | @Effects.undefined α _ cont => ∀ v: α, (cont v).All post
@@ -34,10 +35,8 @@ inductive Eventually {State : Type} (trans : State → Post → Prop) (post : Po
 theorem step_cps {State : Type} (trans : State → Post → Prop) (post : Post) (initial : State) :
   trans initial (fun mid => Eventually trans post mid) → Eventually trans post initial :=
   by
-    intro
-    apply Eventually.step
-    <;> try assumption
-    grind
+    intro h
+    exact .step initial _ h (fun _ => id)
 
 theorem eventually_trans {State : Type} (trans : State → Post → Prop) (p q : Post) (initial : State)
   (e : Eventually trans p initial)
@@ -45,30 +44,39 @@ theorem eventually_trans {State : Type} (trans : State → Post → Prop) (p q :
     Eventually trans q initial
   := by
     induction e with
-    | done =>
-        grind
-    | step initial mid_p step_hyp rest_hyp ind_h =>
-        apply Eventually.step
-        <;> assumption
+    | done initial hp => exact h initial hp
+    | step initial mid_p ht _ ih => exact .step initial mid_p ht ih
 
 theorem eventually_weaken {State : Type} (trans : State → Post → Prop) (p q : Post) (initial : State)
   (h : ∀ s, p s → q s) :
     Eventually trans p initial → Eventually trans q initial
   := by
-    intro hp
-    induction ih: hp
-    . apply Eventually.done
-      grind
-    . apply Eventually.step
-      <;> try assumption
-      grind
+    exact fun hp => eventually_trans trans p q initial hp fun s hs => .done s (h s hs)
 
-def step1 [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
-  (Executable.step p s .done).All post
+theorem reg_dec_loop {State : Type} (trans : State → Post → Prop) (post : Post) (initial : State) (invariant : Nat → Post) (n : Nat) :
+  invariant n initial ∧
+  (∀ state, invariant 0 state → Eventually trans post state) ∧
+  (∀ state k, k ≠ 0 → invariant k state → Eventually trans (invariant (k - 1)) state) →
+  Eventually trans post initial
+  := by
+    rintro ⟨hinv, hzero, hnz⟩
+    if h : n = 0 then
+      exact hzero initial (h ▸ hinv)
+    else
+      exact eventually_trans trans (invariant (n - 1)) post initial
+        (hnz initial n h hinv) fun s hs =>
+          reg_dec_loop trans post s invariant (n - 1) ⟨hs, hzero, hnz⟩
 
-def straightlineStep [Layout] (p: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
-  (Executable.straightline p s .done).All post
+def step1 [Layout] (e: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
+  (Executable.step e s .done).All post
 
-theorem Executable.directivesFromStart [layout : Layout] prog :
-    (layout prog).directivesFromAddress layout.start = prog.mapIdx (fun i d => (d, layout.size i)) := by
-  induction prog <;> simp [Executable.directivesFromAddress,Executable.withAddresses,Layout.apply]
+def straightlineStep [Layout] (e: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
+  (Executable.straightline e s .done).All post
+
+theorem directivesAtFromPrefix (e: Executable) (a: Int64):
+  ∃ rest, e.directivesFromAddress a = e.directivesAtAddress a ++ rest
+:= by
+  dsimp [Executable.directivesFromAddress, Executable.directivesAtAddress]
+  refine ⟨((e.withAddresses.dropWhile (·.1 ≠ a)).dropWhile (·.1 = a)).map (·.2), ?_⟩
+  rw [← List.map_append]
+  rw [List.takeWhile_append_dropWhile]
