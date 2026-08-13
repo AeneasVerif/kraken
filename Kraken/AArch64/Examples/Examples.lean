@@ -4,10 +4,13 @@ Kraken AArch64 - Example Programs
 Demonstrates AArch64 proofs using the `kstep` stepping tactic.
 -/
 
-import Kraken.AArch64.Tactics
+import Kraken.AArch64.OmniSemantics
 import Kraken.AArch64.Parser
-import Kraken.Eval
+import Kraken.AArch64.Semantics
 import Kraken.AArch64.Sep
+import Kraken.Eval
+import Kraken.SeparationTactics
+import Kraken.Tactics
 
 open Kraken.AArch64
 open Kraken.AArch64.Parser
@@ -46,15 +49,12 @@ def swap : Program := parseAArch64("
   eor x0, x0, x1")
 
 theorem swap_correct [layout : Layout] (d : MachineData) :
-    Eventually (straightlineStep (layout swap))
+    straightlineStep (layout swap) (d, layout.start)
     (fun s' =>
         s'.1.regs.getRegOrZr .X0 = d.regs.getRegOrZr .X1 ∧
-        s'.1.regs.getRegOrZr .X1 = d.regs.getRegOrZr .X0)
-    (d, layout.start) := by
-  apply step_cps
-  kprologue swap
+        s'.1.regs.getRegOrZr .X1 = d.regs.getRegOrZr .X0) := by
+  kprologue swap with d
   sym => kstep; tactic =>
-  apply Eventually.done
   grind
 
 -- Example 3: Multi-instruction arithmetic and shift pipeline
@@ -64,10 +64,10 @@ def arith_shift : Program := parseAArch64("
   sub x3, x2, x0
 ")
 
-theorem pipeline_correct [layout : Layout] (d : MachineData) :
+theorem arith_shift_correct [layout : Layout] (d : MachineData) :
     straightlineStep (layout arith_shift) (d, layout.start) (fun s' =>
       s'.1.regs.getRegOrZr .X3 = 3 * (d.regs.getRegOrZr .X1 + 42)) := by
-  kprologue arith_shift
+  kprologue arith_shift with d
   sym => kstep; tactic =>
   bv_decide
 
@@ -85,7 +85,7 @@ theorem p4_correct [layout : Layout] (d : MachineData) :
       (fun s' => s'.1.regs.X1 = 42)
       (d, layout.start) := by
   apply step_cps
-  kprologue controlflow
+  kprologue controlflow with d
   sym => kstep; tactic =>
   rename_i v v1
   have : v1 = 0 := by grind
@@ -116,22 +116,19 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
         s'.1.regs.X2 = s₀.regs.X2)
       (s₀, layout.start) := by
   apply step_cps
-  cases s₀ with | mk regs flags mem =>
-  cases regs with | mk x0 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19 x20 x21 x22 x23 x24 x25 x26 x27 x28 x29 x30 sp =>
-  kprologue move_2_regs_to_heap
+  kprologue move_2_regs_to_heap with s₀
 
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
   have h_bs2 : v2.toBytes.length = 8 := UInt64.toBytes_length v2
-  rw [sep_assoc] at h_mem
-  have h_mem1 := Mem.storeInt_sep x2.toBitVec 8 v1.toBytes (Eq (v2.At (x2.toBitVec + 8#64)) ⋆ R) mem ⟨h_mem, h_bs1⟩ x0.toBitVec.toInt
-  have h_mem1' : (Eq (v2.At (x2.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 x0.toBitVec.toInt).At x2) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
-  have h_mem2 := Mem.storeInt_sep (x2.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ x1.toBitVec.toInt
-  have h_mem2' : (Eq ((Int.toBytes 8 x0.toBitVec.toInt).At x2) ⋆ (Eq ((Int.toBytes 8 x1.toBitVec.toInt).At (x2.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
-  have h_mem2'' : (Eq ((Int.toBytes 8 x1.toBitVec.toInt).At (x2.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 x0.toBitVec.toInt).At x2.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
+  have h_mem1 := Mem.storeInt_sep X2.toBitVec 8 v1.toBytes (Eq (v2.At (X2.toBitVec + 8#64)) ⋆ R) mem ⟨by ecancel, h_bs1⟩ X0.toBitVec.toInt
+  have h_mem1' : (Eq (v2.At (X2.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 X0.toBitVec.toInt).At X2) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
+  have h_mem2 := Mem.storeInt_sep (X2.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ X1.toBitVec.toInt
+  have h_mem2' : (Eq ((Int.toBytes 8 X0.toBitVec.toInt).At X2) ⋆ (Eq ((Int.toBytes 8 X1.toBitVec.toInt).At (X2.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
+  have h_mem2'' : (Eq ((Int.toBytes 8 X1.toBitVec.toInt).At (X2.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 X0.toBitVec.toInt).At X2.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
   simp at h_mem
   sym =>
   kstep
-  case h_mem => tactic => simp; exact h_mem
+  case h_mem => tactic => simp; ecancel
   case h_len => exact h_bs1
   kstep
   case h_mem => tactic => simp; exact h_mem1'
@@ -163,12 +160,10 @@ theorem reg_offset_example_correct [layout : Layout] (s₀ : MachineData)
       (fun s' => s'.1.regs.X3 = 42)
       (s₀, layout.start) := by
   apply step_cps
-  cases s₀ with | mk regs flags mem =>
-  cases regs with | mk x0 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19 x20 x21 x22 x23 x24 x25 x26 x27 x28 x29 x30 sp =>
+  kprologue reg_offset_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
-  kprologue reg_offset_example
   simp at h_mem
-  have h_mem' := Mem.storeInt_sep (x1.toBitVec + BitVec.ofInt 64 (x2.toBitVec.toNat <<< 3)) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
+  have h_mem' := Mem.storeInt_sep (X1.toBitVec + BitVec.ofInt 64 (X2.toBitVec.toNat <<< 3)) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
   sym =>
   kstep
   case h_mem => tactic => simp; exact h_mem

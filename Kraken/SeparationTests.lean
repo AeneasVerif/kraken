@@ -1,5 +1,5 @@
-import Kraken.SeparationTactics
 import Kraken.Mem
+import Kraken.SeparationTactics
 
 open Std.ExtHashMap
 

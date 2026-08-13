@@ -1,6 +1,7 @@
+import Kraken.Attribute
+import Kraken.Layout
 import Lean
 import Std
-import Kraken.Attribute
 
 /--
 Memory access width.
@@ -484,7 +485,7 @@ inductive Directive
   deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
 
 abbrev Program := List Directive
-abbrev Executable := Int64 × List (Directive × Nat) -- start and sizes
+abbrev Executable := Kraken.Executable Directive
 
 namespace RegOrSp
 @[match_pattern] abbrev X0 := low (.reg .X0) .W64

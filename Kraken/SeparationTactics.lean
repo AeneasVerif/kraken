@@ -1,6 +1,6 @@
+import Kraken.Separation
 import Lean.Elab.Tactic
 import Lean.Meta.Tactic.AC
-import Kraken.Separation
 
 open Lean Elab Tactic Meta
 

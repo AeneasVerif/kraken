@@ -1,5 +1,5 @@
-import Std.Data.ExtHashMap
 import Kraken.ToBytes
+import Std.Data.ExtHashMap
 
 /-!
 # Kraken Memory Access

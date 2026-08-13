@@ -1,6 +1,7 @@
+import Kraken.Attribute
+import Kraken.Layout
 import Lean
 import Std
-import Kraken.Attribute
 
 inductive Width | W8 | W16 | W32 | W64 deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
@@ -266,7 +267,7 @@ inductive Directive
   deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
 
 abbrev Program := List Directive
-abbrev Executable := Int64 × List (Directive × Nat) -- start and sizes
+abbrev Executable := Kraken.Executable Directive
 
 namespace Reg
 @[match_pattern] abbrev rax := low .rax .W64

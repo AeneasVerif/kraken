@@ -122,5 +122,5 @@ def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
     if device's_turn then
       eval_schedule rest e { s with deviceState := s.deviceState.internal_step }
     else
-      handleEffects s.deviceState (e.step s.machineState .done) (eval_schedule rest e)
+      handleEffects s.deviceState (Executable.step e s.machineState .done) (eval_schedule rest e)
   | .nil => .ok s

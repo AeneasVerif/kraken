@@ -10,11 +10,13 @@ For semantics, see Kraken/Semantics.lean.
 For tactics, see Kraken/Tactics.lean.
 -/
 
-import Kraken.X64.Tactics
-import Kraken.X64.Parser
 import Kraken.Eval
-import Kraken.X64.Sep
 import Kraken.SeparationTactics
+import Kraken.Tactics
+import Kraken.X64.OmniSemantics
+import Kraken.X64.Parser
+import Kraken.X64.Semantics
+import Kraken.X64.Sep
 
 open Kraken.X64.Parser
 
@@ -297,9 +299,6 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
 
 open Std
 open Std.ExtHashMap
-
-theorem BitVec.take_all {w : Nat} (x : BitVec w) : x.take w = x := by
-  simp [BitVec.take]
 
 def move_2_regs_to_heap := parse("
     movq %rax, (%rdi)
