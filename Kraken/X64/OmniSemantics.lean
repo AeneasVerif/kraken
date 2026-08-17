@@ -155,8 +155,7 @@ def Executable.ResolvesFallthroughAt (e : Executable) (pc : Int64) : Prop :=
         (Kraken.Directives.takeBlock (e.directivesFromAddress pc)) pc)
 
 /-- A straight-line run executes the block at the current address, then
-continues only on fall-through. A jump ends the run at its target. This is the
-sound form of the step/straightline relation PR #140 was after. -/
+continues only on fall-through. A jump ends the run at its target. -/
 theorem Executable.straightline_eq_step {α : Type}
     (e : Executable) (st : MachineState)
     (h : e.ResolvesFallthroughAt st.2)
@@ -264,8 +263,7 @@ private theorem eventually_step1_of_straightlineStep_aux [Layout] (e : Executabl
 
 /-- Block-level proofs transfer to the single-step semantics: on an executable
 whose fetches are address-coherent, a spec proved against `straightlineStep`
-holds along `step1` execution. Completes the theorem deferred in #104 and
-resolves the question of #140 with a true statement. -/
+holds along `step1` execution. -/
 theorem Executable.eventually_step1_of_straightlineStep [Layout] (e : Executable)
     (hres : ∀ pc, e.ResolvesFallthroughAt pc ∨
       ∀ d ∈ e.directivesFromAddress pc, d.2 = 0) (s : MachineState)
@@ -317,7 +315,7 @@ private theorem dropWhile_ne_eq_nil {α : Type} (p : α → Bool) :
     exact dropWhile_ne_eq_nil p xs (fun y hy => h y (List.mem_cons_of_mem _ hy))
 
 /-- At an address where nothing starts, the fetch is empty and coherence is
-trivial — so `Resolves` reduces to a check over the finitely many start
+trivial, so `Resolves` reduces to a check over the finitely many start
 addresses of the executable. -/
 theorem Executable.resolves_of_members (e : Executable)
     (h : ∀ p ∈ e.withAddresses.map (·.1), e.ResolvesFallthroughAt p ∨

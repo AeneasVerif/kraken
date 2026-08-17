@@ -142,23 +142,22 @@ def isEffectsCtorHead (e : Expr) : MetaM Bool := do
 
 /-- Advance the effects tree sitting under `Effects.All` by one defeq step.
 
-While `Effects` is a monomorphic CPS type, the tree's head is
-`Directives.interp` directly. Under a result-polymorphic monadic `Effects`,
-the tree is a left-nested `Effects.bind` spine and the reduction site is its
-leftmost operand: a `Directives.interp` there gets force-unfolded in place
-(this is the event the step budget counts — one directive consumed from the
-list), and a constructor-headed operand lets the `bind` matcher itself reduce
-(plain definitional unfolding; the ctor commutes with `bind` one node at a
-time). Neither `Directives.interp` nor `Effects.bind` may be `@[kstep]`-tagged:
+The tree is a left-nested `Effects.bind` spine (or a bare `Directives.interp`
+application), and the reduction site is its leftmost operand: a
+`Directives.interp` there gets force-unfolded in place, which is the event
+the step budget counts, one directive consumed from the list. A
+constructor-headed operand lets the `bind` matcher itself reduce by plain
+definitional unfolding; the constructor commutes with `bind` one node at a
+time. Neither `Directives.interp` nor `Effects.bind` may be `@[kstep]`-tagged:
 the dsimp traversal is pre-order, so unfolding them head-first would produce
 matchers stuck on unreduced scrutinees.
 
 `stuck` means nothing here can advance (a `@[kspec]` hand-off such as
-`MachineData.load`/`store`, or a symbolic branch); `budgetExhausted` means the
-next advance would consume a directive the step budget no longer allows — the
-caller must block further reduction of this node rather than fall through to
-generic unfolding, which would step through directives behind the counter's
-back. -/
+`MachineData.load`/`store`, or a symbolic branch). `budgetExhausted` means
+the next advance would consume a directive the step budget does not allow;
+the caller must block further reduction of this node rather than fall
+through to generic unfolding, which would step through directives behind the
+counter's back. -/
 inductive AdvanceResult where
   | stepped (tree : Expr)
   | budgetExhausted
@@ -211,8 +210,8 @@ partial def advanceEffectsTree (maxInstrCount : Option (IO.Ref Nat)) (t : Expr) 
         -- `bind (let x := v; T) k ≡ let x := v; bind T k`. Everything here is
         -- locally closed except the let body's own binder, so no lifting is
         -- needed to move `k` under it. The arg-peeling machinery at the
-        -- enclosing `Effects.All` node then hoists it into the context, as the
-        -- CPS reduction path always did.
+        -- enclosing `Effects.All` node then hoists it into the context, where
+        -- reduction can continue around it.
         let .letE n ty val body nondep := m | return .stuck
         return .stepped (.letE n ty val
           (mkAppN t.getAppFn' ((bargs.set! (bargs.size - 2) body))) nondep)
@@ -270,9 +269,9 @@ def kdeltaBetaOnly (targets: List Name) (maxInstrCount : Option (IO.Ref Nat)) : 
         -- Really nothing to do here.
         return .rfl
 
-    -- The effects tree is `Effects.All`'s last argument: the predicate is
-    -- 2-ary while `Effects` is monomorphic and 3-ary once it is
-    -- result-polymorphic.
+    -- The effects tree is `Effects.All`'s last argument; indexing from the
+    -- end keeps this independent of the number of leading implicit
+    -- arguments.
     let treeIdx := args.size - 1
     if f.isConstOf `Effects.All && args.size ≥ 2 && args[treeIdx]!.isApp then
       match ← advanceEffectsTree maxInstrCount args[treeIdx]! with
@@ -438,9 +437,9 @@ partial def evalSymKStep : Grind.GrindTactic :=
   let specTree: DiscrTree Name ← specLemmas.foldlM (fun specTree name => do
     -- NOTE: hardcoding left-to-right order, for now
     -- Key each lemma on the effectful operation itself: for a bind-context
-    -- equation `(op …).bind k = …` that is the bind's first operand. Keying on
-    -- the whole bind node would drag `Effects.bind`'s type argument into the
-    -- key — for a load that is the dependent `w.type × MachineData`, which
+    -- equation `(op …).bind k = …` that is the bind's first operand. Keying
+    -- on the whole bind node would drag `Effects.bind`'s type argument into
+    -- the key; for a load that is the dependent `w.type × MachineData`, which
     -- never matches the goal's already-reduced form.
     let (pat, _) ← Sym.mkPatternFromDeclWithKey name (selectKey := fun type => do
       let_expr Eq _ lhs _ := type | throwError "kspec lemma {name} is not an equation"
@@ -502,8 +501,8 @@ partial def evalSymKStep : Grind.GrindTactic :=
         | .letE _ _ _ body _ => getEffectsState body
         | .mdata _ e => getEffectsState e
         | _ =>
-          -- The effects tree is `Effects.All`'s last argument (2-ary while
-          -- `Effects` is monomorphic, 3-ary once it is result-polymorphic).
+          -- The effects tree is `Effects.All`'s last argument; indexing
+          -- from the end keeps this independent of the leading implicits.
           if e.isApp && e.getAppFn.isConstOf `Effects.All && e.getAppArgs.size ≥ 2 then
             some e.getAppArgs.back!
           else
@@ -519,10 +518,10 @@ partial def evalSymKStep : Grind.GrindTactic :=
         throwError m!"kstep: found Effects.All but its last argument is not an effects tree:{indentExpr state}"
       pure state
 
-    -- A spec lemma's LHS may sit at the top of the tree (the CPS shapes, e.g.
-    -- `MachineData.load s addr w ret`) or at the leftmost operand of an
-    -- `Effects.bind` spine (the monadic shapes). Offer the tree and each spine
-    -- operand to the DiscrTree, outermost first, and take the first hit.
+    -- A spec lemma's subject may sit at the top of the tree or at the
+    -- leftmost operand of an `Effects.bind` spine. Offer the tree and each
+    -- spine operand to the DiscrTree, outermost first, and take the first
+    -- hit.
     let rec specCandidates (t : Expr) (acc : Array Expr) : Array Expr :=
       let acc := acc.push t
       if t.isApp && t.getAppFn.isConstOf `Effects.bind && t.getAppArgs.size ≥ 2 then

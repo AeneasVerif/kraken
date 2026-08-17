@@ -1043,9 +1043,8 @@ def Executable.step {α : Type} (e : Executable) (s : MachineState)
   e.stepWithExit s (fun s' ex => ret (s', ex.pc))
 
 /-- Run from the current address to the first taken jump or the end of the
-listing. Derived from the same monadic core as `step`, with the exit's
-program counter forgotten — behaviorally the semantics `Executable.eval`
-and the specs have always had. -/
+listing. Built on the same core as `step`; the continuation sees only the
+exit's program counter. -/
 def Executable.straightline {α : Type} (e : Executable) (s : MachineState)
     (ret : MachineState → Effects α) : Effects α :=
   let := e.labels
