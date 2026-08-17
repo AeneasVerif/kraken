@@ -38,3 +38,16 @@ example [layout : Layout] (s : MachineData) :
   kprologue budgetTestProgram with s
   sym =>
   kstep 5
+
+-- The stepping gate only normalizes the canonical monad instance. A goal
+-- mentioning a different `Bind Effects` instance is left alone, so its
+-- meaning survives `kstep` and the definitional closing step below.
+private def customBind : Bind Effects := ⟨fun _ _ => .unimplemented "custom"⟩
+
+example : ¬ Effects.All (fun _ : Nat => True)
+    (@Bind.bind Effects customBind _ _ (.done 0) (fun n => .done n)) := by
+  sym =>
+  kstep
+  tactic =>
+  intro h
+  exact h

@@ -166,7 +166,32 @@ inductive AdvanceResult where
 
 partial def advanceEffectsTree (maxInstrCount : Option (IO.Ref Nat)) (t : Expr) :
     DSimpM AdvanceResult := do
-  if t.isApp && t.getAppFn'.isConstOf `Directives.interp then
+  if t.isApp && t.getAppFn'.isConstOf ``Bind.bind && t.getAppArgs.size ≥ 6 then
+    -- `do`-notation elaborates to the `Bind.bind` method; when the instance is
+    -- the canonical `Effects` monad this is definitionally the structural
+    -- `Effects.bind`, and rebuilding it in that form gives the spine walk
+    -- below one head to work with. The equality is verified before stepping:
+    -- for any other instance the rebuild is not defeq, and the node is left
+    -- alone. Argument layout of `@Bind.bind`: [monad, inst, α, β, x, f].
+    let bargs := t.getAppArgs
+    let t' := mkApp4 (mkConst `Effects.bind)
+      bargs[bargs.size - 4]! bargs[bargs.size - 3]! bargs[bargs.size - 2]! bargs[bargs.size - 1]!
+    if ← (try withNewMCtxDepth (Meta.withTransparency .default (Meta.isDefEq t' t)) catch _ => pure false) then
+      return .stepped t'
+    else
+      return .stuck
+  else if t.isApp && t.getAppFn'.isConstOf ``Pure.pure && t.getAppArgs.size ≥ 4 then
+    -- Likewise `pure` is the `Pure.pure` method over `Effects.done`, with the
+    -- same canonical-instance check. Argument layout of `@Pure.pure`:
+    -- [monad, inst, α, a].
+    let bargs := t.getAppArgs
+    let t' := mkApp2 (mkConst `Effects.done)
+      bargs[bargs.size - 2]! bargs[bargs.size - 1]!
+    if ← (try withNewMCtxDepth (Meta.withTransparency .default (Meta.isDefEq t' t)) catch _ => pure false) then
+      return .stepped t'
+    else
+      return .stuck
+  else if t.isApp && t.getAppFn'.isConstOf `Directives.interp then
     -- We optionally track how many times we've hit Directives.interp -- this tracks how
     -- many instructions we've stepped through.
     if (← maxInstrCount.mapM (·.get)) = .some 0 then
@@ -180,8 +205,18 @@ partial def advanceEffectsTree (maxInstrCount : Option (IO.Ref Nat)) (t : Expr) 
     if bargs.size < 2 then
       return .stuck
     else
-      let m := bargs[bargs.size - 2]!
-      if ← isEffectsCtorHead m then
+      let m := bargs[bargs.size - 2]!.consumeMData
+      if m.isLet then
+        -- Float the let through the bind (a defeq step):
+        -- `bind (let x := v; T) k ≡ let x := v; bind T k`. Everything here is
+        -- locally closed except the let body's own binder, so no lifting is
+        -- needed to move `k` under it. The arg-peeling machinery at the
+        -- enclosing `Effects.All` node then hoists it into the context, as the
+        -- CPS reduction path always did.
+        let .letE n ty val body nondep := m | return .stuck
+        return .stepped (.letE n ty val
+          (mkAppN t.getAppFn' ((bargs.set! (bargs.size - 2) body))) nondep)
+      else if ← isEffectsCtorHead m then
         -- `m` is a constructor application: delta `bind` here so the matcher
         -- can consume it on the next pass.
         let some t' ← Meta.unfoldDefinition? t true | return .stuck
@@ -402,7 +437,18 @@ partial def evalSymKStep : Grind.GrindTactic :=
   let specLemmas := (kspecExtension.getState env).toList
   let specTree: DiscrTree Name ← specLemmas.foldlM (fun specTree name => do
     -- NOTE: hardcoding left-to-right order, for now
-    let (pat, _) ← mkEqPatternFromDecl name
+    -- Key each lemma on the effectful operation itself: for a bind-context
+    -- equation `(op …).bind k = …` that is the bind's first operand. Keying on
+    -- the whole bind node would drag `Effects.bind`'s type argument into the
+    -- key — for a load that is the dependent `w.type × MachineData`, which
+    -- never matches the goal's already-reduced form.
+    let (pat, _) ← Sym.mkPatternFromDeclWithKey name (selectKey := fun type => do
+      let_expr Eq _ lhs _ := type | throwError "kspec lemma {name} is not an equation"
+      let lhs := lhs.consumeMData
+      if lhs.isApp && lhs.getAppFn.isConstOf `Effects.bind && lhs.getAppArgs.size ≥ 2 then
+        pure (lhs.getAppArgs[lhs.getAppArgs.size - 2]!, ())
+      else
+        pure (lhs, ()))
     pure (insertPattern specTree pat name)
   ) {}
 

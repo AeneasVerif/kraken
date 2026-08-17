@@ -20,6 +20,31 @@ import Kraken.X64.Sep
 
 open Kraken.X64.Parser
 
+attribute [ksimp]
+  BitVec.add_zero
+  BitVec.ofInt_add
+  BitVec.ofInt_ofNat
+  BitVec.ofInt_toInt
+  BitVec.ofNat_uInt64ToNat
+  BitVec.reduceOfInt
+  BitVec.setWidth_eq
+  Int.add_zero
+  Int.reduceBmod
+  Int.reduceNeg
+  Int64.reduceToInt
+  Int64.toInt_neg
+  Nat.reducePow
+  Nat.shiftRight_zero
+  Nat.sub_zero
+  UInt64.ofBitVec_add
+  UInt64.ofBitVec_ofNat
+  UInt64.ofBitVec_sub
+  UInt64.ofBitVec_toBitVec
+  UInt64.sub_add_cancel
+  UInt64.toBitVec_ofNat
+  UInt64.toBitVec_sub
+  UInt64.toNat_toBitVec
+
 --------------------------------------------------------------------------------
 
 def p1 := parse("start: mov $1, %rax")
@@ -228,31 +253,6 @@ set_option maxHeartbeats 1000000
 set_option pp.rawOnError true
 /- set_option pp.coercions false -/
 /- set_option pp.all true -/
-
-attribute [ksimp]
-  BitVec.add_zero
-  BitVec.ofInt_add
-  BitVec.ofInt_ofNat
-  BitVec.ofInt_toInt
-  BitVec.ofNat_uInt64ToNat
-  BitVec.reduceOfInt
-  BitVec.setWidth_eq
-  Int.add_zero
-  Int.reduceBmod
-  Int.reduceNeg
-  Int64.reduceToInt
-  Int64.toInt_neg
-  Nat.reducePow
-  Nat.shiftRight_zero
-  Nat.sub_zero
-  UInt64.ofBitVec_add
-  UInt64.ofBitVec_ofNat
-  UInt64.ofBitVec_sub
-  UInt64.ofBitVec_toBitVec
-  UInt64.sub_add_cancel
-  UInt64.toBitVec_ofNat
-  UInt64.toBitVec_sub
-  UInt64.toNat_toBitVec
 
 theorem p6_correct [layout : Layout] (s₀ : MachineData)
     (stack : List UInt8) (h_len : stack.length = 8) (R : DataMem → Prop)
