@@ -158,30 +158,63 @@ instance (w : RegWidth) : NondetSupportingType w.type := .bitvec w
 instance : NondetSupportingType Bool := .bool
 instance : NondetSupportingType StatusFlags := .statusFlags
 
-inductive Effects
-  | done (a : MachineData × Int64)
+inductive Effects (α : Type) : Type 1
+  | done (a : α)
   | unimplemented (msg : String)
   -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
   -- for instance, MMIO reads/writes at certain device register addresses might change what
   -- data memory the process logically owns vs what memory is owned by devices
-  | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : MemWidth) (ret : w.type → DataMem → Effects)
-  | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : MemWidth} (v : w.type) (ret: DataMem → Effects)
-  | undefined {α : Type} [NondetSupportingType α] (ret : α → Effects)
-  | require_read_access (addr : BitVec 64) (w : MemWidth) (ok : Unit → Effects)
-  | require_write_access (addr : BitVec 64) (w : MemWidth) (ok : Unit → Effects)
-  | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
+  | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : MemWidth)
+      (ret : w.type → DataMem → Effects α)
+  | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : MemWidth} (v : w.type)
+      (ret : DataMem → Effects α)
+  | undefined {β : Type} [NondetSupportingType β] (ret : β → Effects α)
+  | require_read_access (addr : BitVec 64) (w : MemWidth) (ok : Unit → Effects α)
+  | require_write_access (addr : BitVec 64) (w : MemWidth) (ok : Unit → Effects α)
+  | require_exec_access (p : Std.Rco Int64) (ok : Unit → Effects α)
   | unaligned_sp {w : RegWidth} (sp : w.type)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
 
--- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
--- value are present for uniformity with RegOrMem.interp
-def RegOrSp.interp {w} (r : RegOrSp w) (s : MachineData) (_ : Std.Rco Int64)
-  (ret : w.type → MachineData → Effects) : Effects :=
-  ret (s.regs.getRegOrSp r) s
+def Effects.bind {α β : Type} : Effects α → (α → Effects β) → Effects β
+  | .done a, k => k a
+  | .unimplemented msg, _ => .unimplemented msg
+  | .nonmem_load dmem addr w ret, k =>
+      .nonmem_load dmem addr w fun v dmem => (ret v dmem).bind k
+  | .nonmem_store dmem addr v ret, k =>
+      .nonmem_store dmem addr v fun dmem => (ret dmem).bind k
+  | @Effects.undefined _ γ inst ret, k =>
+      @Effects.undefined _ γ inst fun v => (ret v).bind k
+  | .require_read_access addr w ok, k =>
+      .require_read_access addr w fun u => (ok u).bind k
+  | .require_write_access addr w ok, k =>
+      .require_write_access addr w fun u => (ok u).bind k
+  | .require_exec_access p ok, k =>
+      .require_exec_access p fun u => (ok u).bind k
+  | .unaligned_sp sp, _ => .unaligned_sp sp
 
-def RegOrZr.interp {w} (r : RegOrZr w) (s : MachineData) (_ : Std.Rco Int64)
-  (ret : w.type → MachineData → Effects) : Effects :=
-  ret (s.regs.getRegOrZr r) s
+instance : Monad Effects where
+  pure := .done
+  bind := .bind
+
+@[simp] theorem Effects.pure_eq {α : Type} (a : α) :
+    (pure a : Effects α) = .done a := rfl
+
+@[simp] theorem Effects.bind_eq {α β : Type} (m : Effects α) (k : α → Effects β) :
+    m >>= k = m.bind k := rfl
+
+theorem Effects.bind_done {α : Type} (m : Effects α) : m.bind .done = m := by
+  induction m <;> simp [Effects.bind, *]
+
+theorem Effects.bind_assoc {α β γ : Type} (m : Effects α)
+    (k₁ : α → Effects β) (k₂ : β → Effects γ) :
+    (m.bind k₁).bind k₂ = m.bind fun a => (k₁ a).bind k₂ := by
+  induction m <;> simp [Effects.bind, *]
+
+instance : LawfulMonad Effects :=
+  LawfulMonad.mk'
+    (id_map := Effects.bind_done)
+    (pure_bind := fun _ _ => rfl)
+    (bind_assoc := Effects.bind_assoc)
 
 -- Since MMIO can cause devices to do arbitrary actions, a load might actually
 -- *modify* memory. For instance:
@@ -195,15 +228,15 @@ def RegOrZr.interp {w} (r : RegOrZr w) (s : MachineData) (_ : Std.Rco Int64)
 -- But this superfluous flexibility helps us simplify the state-threading:
 -- Instead of writing `fun v dmem => ... { s with dmem } ...` everywhere, we
 -- can just write `fun v s => ...` and the new `s` will shadow the old `s`.
-def MachineData.load
+def MachineData.load {α : Type}
   (s : MachineData) (addr : BitVec 64) (w : MemWidth)
-  (ret : w.type → MachineData → Effects): Effects :=
+  (ret : w.type → MachineData → Effects α) : Effects α :=
   require_read_access addr w (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
     | .some i => ret (.ofInt _ i) s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
 
-def MachineData.store (s : MachineData) (addr : BitVec 64) {w : MemWidth} (v : w.type) (ret: MachineData → Effects) : Effects :=
+def MachineData.store {α : Type} (s : MachineData) (addr : BitVec 64) {w : MemWidth} (v : w.type) (ret : MachineData → Effects α) : Effects α :=
   require_write_access addr w (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
     | .some _ =>
@@ -309,7 +342,7 @@ def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64)
     (addr, s')
 
 -- AArch64 mandates 16-byte alignment when accessing memory through SP.
-@[kstep] def AddrExpr.checkSPAlignment (mem : AddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
+@[kstep] def AddrExpr.checkSPAlignment {α : Type} (mem : AddrExpr) (s : MachineData) (ok : Unit → Effects α) : Effects α :=
   match mem.base with
   | .SP =>
     if s.regs.getRegOrSp .SP % 16#64 != 0#64 then
@@ -318,13 +351,13 @@ def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64)
       ok ()
   | _ => ok ()
 
-@[kstep] def AddrExpr.interpLoad [Labels] {w : MemWidth} (mem : AddrExpr) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
+@[kstep] def AddrExpr.interpLoad {α : Type} [Labels] {w : MemWidth} (mem : AddrExpr) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects α) :=
   mem.checkSPAlignment s (fun _unit =>
     let (addr, s') := mem.eval s p
     s'.load addr w ret)
 
-@[kstep] def AddrExpr.interpStore [Labels] {w : MemWidth} (mem : AddrExpr) (s : MachineData) (p : Std.Rco Int64)
-    (val : w.type) (next : MachineData → Effects) : Effects :=
+@[kstep] def AddrExpr.interpStore {α : Type} [Labels] {w : MemWidth} (mem : AddrExpr) (s : MachineData) (p : Std.Rco Int64)
+    (val : w.type) (next : MachineData → Effects α) : Effects α :=
   mem.checkSPAlignment s (fun _unit =>
     let (addr, s') := mem.eval s p
     s'.store addr (w := w) val next)
@@ -335,7 +368,7 @@ def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64)
   BitVec.ofInt 64 (base + off)
 
 -- AArch64 mandates 16-byte alignment when accessing memory through SP.
-@[kstep] def UnscaledAddrExpr.checkSPAlignment (mem : UnscaledAddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
+@[kstep] def UnscaledAddrExpr.checkSPAlignment {α : Type} (mem : UnscaledAddrExpr) (s : MachineData) (ok : Unit → Effects α) : Effects α :=
   match mem.base with
   | .SP =>
     if s.regs.getRegOrSp .SP % 16#64 != 0#64 then
@@ -344,18 +377,18 @@ def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64)
       ok ()
   | _ => ok ()
 
-@[kstep] def UnscaledAddrExpr.interpLoad [Labels] {w : MemWidth} (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
+@[kstep] def UnscaledAddrExpr.interpLoad {α : Type} [Labels] {w : MemWidth} (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects α) :=
   mem.checkSPAlignment s (fun _unit =>
     let addr := mem.eval s p
     s.load addr w ret)
 
-@[kstep] def UnscaledAddrExpr.interpStore [Labels] {w : MemWidth} (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64)
-    (val : w.type) (next : MachineData → Effects) : Effects :=
+@[kstep] def UnscaledAddrExpr.interpStore {α : Type} [Labels] {w : MemWidth} (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64)
+    (val : w.type) (next : MachineData → Effects α) : Effects α :=
   mem.checkSPAlignment s (fun _unit =>
     let addr := mem.eval s p
     s.store addr (w := w) val next)
 
-@[kstep] def Literal.interpLoad [Labels] {w : MemWidth} (expr : Literal) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) : Effects :=
+@[kstep] def Literal.interpLoad {α : Type} [Labels] {w : MemWidth} (expr : Literal) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects α) : Effects α :=
   match expr with
   | .addr addr_expr => -- Load from address.
     let addr_val := Labels.label addr_expr.label
@@ -366,15 +399,15 @@ def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64)
     let val_bv : w.type := BitVec.ofInt w.bits (Int64.toInt val)
     ret val_bv s
 
-@[kstep] def AddrOrLit.interpLoad [Labels] {w : MemWidth} (expr : AddrOrLit) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
+@[kstep] def AddrOrLit.interpLoad {α : Type} [Labels] {w : MemWidth} (expr : AddrOrLit) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects α) :=
   match expr with
   | .addr addr_expr => addr_expr.interpLoad s p ret
   | .lit lit_expr => lit_expr.interpLoad s p ret
 
-@[kstep] def MachineData.setRegOrSp (s : MachineData) {w} (r : RegOrSp w) (v : w.type) (ret : MachineData → Effects) : Effects :=
+@[kstep] def MachineData.setRegOrSp {α : Type} (s : MachineData) {w} (r : RegOrSp w) (v : w.type) (ret : MachineData → Effects α) : Effects α :=
   ret { s with regs := s.regs.setRegOrSp r v }
 
-@[kstep] def MachineData.setRegOrZr (s : MachineData) {w} (r : RegOrZr w) (v : w.type) (ret : MachineData → Effects) : Effects :=
+@[kstep] def MachineData.setRegOrZr {α : Type} (s : MachineData) {w} (r : RegOrZr w) (v : w.type) (ret : MachineData → Effects α) : Effects α :=
   ret { s with regs := s.regs.setRegOrZr r v }
 
 @[kstep, simp] def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
@@ -470,10 +503,10 @@ def StatusFlags.ofNat (nzcv : Nat) : StatusFlags :=
     (dst &&& ~~~mask) ||| field
 
 set_option maxHeartbeats 1000000
-@[kstep] def Operation.interp [Labels]
+@[kstep] def Operation.interp {α : Type} [Labels]
   {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
-  (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
-  match (generalizing := false) (motive := Operation w → Effects) i with
+  (next : MachineData → Effects α) (jmp : Int64 → MachineData → Effects α) : Effects α :=
+  match (generalizing := false) (motive := Operation w → Effects α) i with
   | .LDR dst src => src.interpLoad s p (fun val s => s.setRegOrZr dst val next)
   | .STR src dst => dst.interpStore s p (s.regs.getRegOrZr src) next
   | .LDUR dst src => src.interpLoad s p (fun val s => s.setRegOrZr dst val next)
@@ -926,23 +959,23 @@ set_option maxHeartbeats 1000000
       next s
   | .NOP => next s
 
-@[kstep] def Instr.interp [Labels]
+@[kstep] def Instr.interp {α : Type} [Labels]
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
-  (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
+  (next : MachineData → Effects α) (jmp : Int64 → MachineData → Effects α) : Effects α :=
   require_exec_access p (fun _unit =>
     Operation.interp (w := i.operation_size) i.operation p s next jmp)
 
-@[kstep] def Directive.interp [Labels]
+@[kstep] def Directive.interp {α : Type} [Labels]
   (d : Directive) (s : MachineData) (p : Std.Rco Int64)
-  (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
+  (next : MachineData → Effects α) (jmp : Int64 → MachineData → Effects α) : Effects α :=
   match d with
   | .label _ => next s
   | .instr i => i.interp s p next jmp
   | .byteArray _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
 
-def Directives.interp [Labels]
+def Directives.interp {α : Type} [Labels]
   (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
-  (ret : Int64 → MachineData → Effects) : Effects :=
+  (ret : Int64 → MachineData → Effects α) : Effects α :=
   match ds with
   | [] => ret pc s
   | (d, sz) :: ds =>
@@ -961,12 +994,14 @@ def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directiv
 
 abbrev MachineState := MachineData × Int64
 
-def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
-  let := Executable.labels e
+def Executable.step {α : Type} (e : Executable) (s : MachineState)
+    (ret : MachineState → Effects α) : Effects α :=
+  let := e.labels
   Directives.interp (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
-def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
-  let := Executable.labels e
+def Executable.straightline {α : Type} (e : Executable) (s : MachineState)
+    (ret : MachineState → Effects α) : Effects α :=
+  let := e.labels
   Directives.interp (e.directivesFromAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
 -- -- Concrete evaluators for expedient testing
@@ -984,7 +1019,7 @@ where
     | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
     | .unaligned_sp sp => .error s!"SP={sp} (is not 16-byte aligned)"
-    | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
+    | @Effects.undefined _ _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
 
 def Directive.fakeSize (d : Directive) : Nat :=
   match d with
