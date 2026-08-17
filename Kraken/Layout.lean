@@ -70,4 +70,47 @@ theorem directivesAtFromPrefix {Directive : Type} (e: Executable Directive) (a: 
   rw [← List.map_append]
   rw [List.takeWhile_append_dropWhile]
 
+/-- Take the leading zero-sized entries through the first positive-sized one.
+
+Grouping zero-sized entries with their positive-sized successor is what makes
+repeated stepping make progress: a zero-sized directive occupies no address
+space, so fetching at its address again would yield it forever. On a listing
+whose addresses are laid out consecutively this is exactly
+`directivesAtAddress` at the block's start address: the entries starting at a
+given address are the zero-sized run there plus the first positive-sized
+directive. -/
+def Directives.takeBlock {Directive : Type} : List (Directive × Nat) → List (Directive × Nat)
+  | [] => []
+  | entry :: rest => if entry.2 = 0 then entry :: takeBlock rest else [entry]
+
+/-- The directives of a block are an initial segment of the directives they
+were taken from. -/
+theorem Directives.takeBlock_prefix {Directive : Type} (ds : List (Directive × Nat)) :
+    ∃ rest, ds = Directives.takeBlock ds ++ rest := by
+  induction ds with
+  | nil => exact ⟨[], rfl⟩
+  | cons entry rest ih =>
+    by_cases h : entry.2 = 0
+    · obtain ⟨tail, htail⟩ := ih
+      exact ⟨tail, by simp [Directives.takeBlock, h]; exact htail⟩
+    · exact ⟨rest, by simp [Directives.takeBlock, h]⟩
+
+/-- Advance `pc` across a sequence of laid-out directives. -/
+def Directives.fallthroughPC {Directive : Type} (ds : List (Directive × Nat)) (pc : Int64) : Int64 :=
+  ds.foldl (fun pc d => pc + .ofNat d.2) pc
+
+theorem Directives.fallthroughPC_append {Directive : Type}
+    (ds₁ ds₂ : List (Directive × Nat)) (pc : Int64) :
+    Directives.fallthroughPC (ds₁ ++ ds₂) pc =
+      Directives.fallthroughPC ds₂ (Directives.fallthroughPC ds₁ pc) := by
+  simp [Directives.fallthroughPC, List.foldl_append]
+
+/-- The address assigned to directive `i` by an executable's size table.
+At and beyond the end of the executable this is its fall-through address. -/
+def Directives.addressAt {Directive : Type} (ds : List (Directive × Nat)) (pc : Int64) (i : Nat) : Int64 :=
+  Directives.fallthroughPC (ds.take i) pc
+
+def Executable.addressAt {Directive : Type} (e : Executable Directive) (i : Nat) : Int64 :=
+  Directives.addressAt e.2 e.1 i
+
 end Kraken
