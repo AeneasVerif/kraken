@@ -85,7 +85,7 @@ structure SystemState where
   machineState : MachineState
   deviceState : IncrementerState
 
-def handleEffects (ds : IncrementerState) (es : Effects)
+def handleEffects (ds : IncrementerState) (es : Effects MachineState)
     (ok : SystemState → Except String SystemState) :
     Except String SystemState :=
   match es with
@@ -104,7 +104,7 @@ def handleEffects (ds : IncrementerState) (es : Effects)
       let some (reply, ds') := ds.read_step r
         | throw s!"Incrementer.read_step failed"
       handleEffects ds' (cont (h ▸ UInt32.toBitVec reply) dmem) ok
-  | @Effects.nonmem_store dmem addr w v cont =>
+  | @Effects.nonmem_store _ dmem addr w v cont =>
     match w with
       | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
         | .some r => match ds.write_step r (UInt32.ofBitVec v) with
@@ -113,7 +113,7 @@ def handleEffects (ds : IncrementerState) (es : Effects)
           | .none => .error s!"Incrementer.write_step failed"
         | .none => .error s!"nonmem_store at unmapped address {repr addr}"
       | _ => .error s!"nonmem_store of width other than 4 bytes"
-  | @Effects.undefined _ t cont => handleEffects ds (cont (t.from_hash (hash ds))) ok
+  | @Effects.undefined _ _ t cont => handleEffects ds (cont (t.from_hash (hash ds))) ok
 
 def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
     : Except String SystemState :=
