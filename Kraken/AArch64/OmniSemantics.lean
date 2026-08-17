@@ -1,15 +1,15 @@
 /-
-Omnisemantics for x64.
+Omnisemantics for AArch64.
 -/
 
+import Kraken.AArch64.Semantics
 import Kraken.Attribute
 import Kraken.OmniSemantics
-import Kraken.X64.Semantics
 
 @[kstep] def Effects.All (post : MachineState → Prop) : Effects → Prop
   | .done a => post a
   | .unimplemented _ => False
-  | .gp_unaligned .. => False
+  | .unaligned_sp .. => False
   | .nonmem_load .. => False
   | .nonmem_store .. => False
   | @Effects.undefined α _ cont => ∀ v: α, (cont v).All post

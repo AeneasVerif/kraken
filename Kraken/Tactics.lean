@@ -1,35 +1,15 @@
-import Kraken.X64.Syntax
-import Kraken.X64.Semantics
-import Kraken.X64.OmniSemantics
-import Kraken.X64.Sep
+/-
+Common Kraken Proof Tactics.
 
-theorem Executable.withAddresses_map_snd (ds : List (Directive × Nat)) (a : Int64) :
-    (Executable.withAddresses (a, ds)).map (·.2) = ds := by
-  induction ds generalizing a with
-  | nil =>
-    unfold Executable.withAddresses
-    rfl
-  | cons d ds ih =>
-    unfold Executable.withAddresses
-    grind
+Core tactics and theorems for stepping through Kraken assembly proofs.
+-/
 
-theorem Executable.withAddresses_dropWhile_start (ds : List (Directive × Nat)) (a : Int64) :
-    (Executable.withAddresses (a, ds)).dropWhile (fun x => x.1 ≠ a) =
-      Executable.withAddresses (a, ds) := by
-  cases ds with
-  | nil =>
-    unfold Executable.withAddresses
-    rfl
-  | cons d ds =>
-    unfold Executable.withAddresses
-    simp [List.dropWhile]
+import Kraken.Attribute
+import Kraken.Layout
+import Lean
+import Std
 
-theorem Executable.directivesFromStart [layout : Layout] prog :
-    (layout prog).directivesFromAddress layout.start =
-      prog.mapIdx (fun i d => (d, layout.size i)) := by
-  dsimp [Executable.directivesFromAddress, Layout.apply]
-  rw [Executable.withAddresses_dropWhile_start]
-  rw [Executable.withAddresses_map_snd]
+open Lean Meta Elab Tactic Kraken
 
 /-- Set up a straight-line proof for `p` from `s`, naming the state fields and
 general-purpose registers. `status` and `dmem` are called `flags` and `mem`. -/
@@ -40,7 +20,6 @@ private def kprologueBinderName (field : Lean.Name) : Lean.Name :=
   else if field == `dmem then `mem
   else field
 
-open Lean Meta Elab Tactic in
 elab_rules : tactic
   | `(tactic| kprologue $p:ident with $s:ident) => withMainContext do
       let env ← getEnv
@@ -99,19 +78,21 @@ elab_rules : tactic
           `(rcasesPat| $id:ident)
       let statePat ← `(rcasesPat| ⟨$[$statePats],*⟩)
 
+      let straightlineStepId := mkIdent `straightlineStep
+      let execStraightlineId := mkIdent `Executable.straightline
+
       evalTactic (← `(tactic|
         (let ss := $s
-         change (straightlineStep _ (ss, _) _)
+         change ($straightlineStepId:ident _ (ss, _) _)
          obtain $statePat:rcasesPat := $s
          delta $p
-         dsimp only [straightlineStep, Executable.straightline]
+         dsimp only [$straightlineStepId:ident, $execStraightlineId:ident]
          rw [Executable.directivesFromStart]
          simp [List.mapIdx, List.mapIdx.go])))
 
 --------------------------------------------------------------------------------
 
-open Lean Meta Sym Sym.DSimp
-open Elab Tactic
+open Sym Sym.DSimp
 
 partial def peelLambdaLets (f : Expr) (args : Array Expr) (fvars : Array Expr) (k : Expr → Array Expr → DSimpM Result) : DSimpM Result := do
   -- (fun y => let x = e1 in e2) () ~~> let x = e1 in (fun y => e2) ()
@@ -165,7 +146,7 @@ def kdeltaBetaOnly (targets: List Name) (maxInstrCount : Option (IO.Ref Nat)) : 
   -- semantics. Concretely: `f (let x = ... in arg)` => `let x = ... in f arg`.
   peelArgsLets args 0 #[] #[] fun (args : Array Expr) (fvars : Array Expr) => do
 
-    if f.isConstOf ``Effects.All && args[1]!.isApp && args[1]!.getAppFn'.isConstOf ``Directives.interp then
+    if f.isConstOf `Effects.All && args[1]!.isApp && args[1]!.getAppFn'.isConstOf `Directives.interp then
       -- We optionally track how many times we've hit Directives.interp -- this tracks how
       -- many instructions we've stepped through.
       if (← maxInstrCount.mapM (·.get)) = .some 0 then
@@ -284,7 +265,7 @@ def kdsimpProj : DSimproc := fun e => do
 def kLiftLets : DSimproc := fun e => do
   -- We only lift lets to the top-level (which is always an application of
   -- Effects.all)
-  unless e.isApp && e.getAppFn'.isConstOf ``Effects.All do return .rfl
+  unless e.isApp && e.getAppFn'.isConstOf `Effects.All do return .rfl
 
   let (es, st) ← ExtractLets.extract #[e] |>.run {} |>.run' {} |>.run { givenNames := [] }
   unless st.decls.size > 0 do return .rfl
@@ -417,9 +398,19 @@ partial def evalSymKStep : Grind.GrindTactic :=
     let goalState ← do
       let goalT ← goal.mvarId.getType
       let_expr gimmickId goalT' := goalT | throwError "missing gimmick"
+      let goalT' ← instantiateMVars goalT'
+      let rec getEffectsState (e : Expr) : Option Expr :=
+        match e with
+        | .letE _ _ _ body _ => getEffectsState body
+        | .mdata _ e => getEffectsState e
+        | _ =>
+          if e.isApp && e.getAppFn.isConstOf `Effects.All && e.getAppArgs.size == 2 then
+            some e.getAppArgs[1]!
+          else
+            none
       -- No more Effects.All in the goal -- return to the user (we might be done,
       -- or realistically, we might need to debug).
-      let_expr Effects.All post state := goalT' | return (goal, [])
+      let some state := getEffectsState goalT' | return (goal, [])
       pure state
 
     let (keepGoingSpec, goal) ←
@@ -482,7 +473,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
         -- metavariables, rather than picking any random hypothesis in the context
         let starGoal ← subGoals.findM? (fun g => do
           let t ← g.mvarId.getType
-          if t.getAppFn.isConstOf ``Std.ExtHashMap.sep then
+          if t.getAppFn.isConstOf `Std.ExtHashMap.sep then
             logInfo m!"Found sep goal: {t}"
             return true
           else
@@ -533,7 +524,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
 
   -- Remove the gimmick debug marker.
   let goal ← removeGimmick goal
-  
+
   logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
 
   if let .some r := maxInstrCount then

@@ -1,3 +1,5 @@
+import Kraken.Attribute
+import Kraken.Layout
 import Lean
 import Std
 
@@ -11,10 +13,10 @@ instance : ToString MemWidth where
   toString | .W8 => "w8" | .W16 => "w16" | .W32 => "w32" | .W64 => "w64"
 
 namespace MemWidth
-@[reducible] def bits : MemWidth → Nat | W8 => 8 | W16 => 16 | W32 => 32 | W64 => 64
-@[reducible] def bytes : MemWidth → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8
-abbrev bytesv (w : MemWidth) {n} : BitVec n := BitVec.ofNat n w.bytes
-abbrev type (w : MemWidth) : Type := BitVec w.bits
+@[kstep, simp, reducible] def bits : MemWidth → Nat | W8 => 8 | W16 => 16 | W32 => 32 | W64 => 64
+@[kstep, simp, reducible] def bytes : MemWidth → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8
+@[kstep] abbrev bytesv (w : MemWidth) {n} : BitVec n := BitVec.ofNat n w.bytes
+@[kstep] abbrev type (w : MemWidth) : Type := BitVec w.bits
 instance {w : MemWidth} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
 end MemWidth
 
@@ -45,10 +47,10 @@ instance : Coe RegWidth MemWidth where coe := fun w : RegWidth =>
   match w with
   | .W32 => .W32
   | .W64 => .W64
-@[reducible] def bits (w : RegWidth) : Nat := (w : MemWidth).bits
-@[reducible] def bytes (w : RegWidth) : Nat := (w : MemWidth).bytes
-abbrev bytesv (w : RegWidth) {n} : BitVec n := (w : MemWidth).bytesv
-abbrev type (w : RegWidth) : Type := (w : MemWidth).type
+@[kstep, simp, reducible] def bits (w : RegWidth) : Nat := (w : MemWidth).bits
+@[kstep, simp, reducible] def bytes (w : RegWidth) : Nat := (w : MemWidth).bytes
+@[kstep] abbrev bytesv (w : RegWidth) {n} : BitVec n := (w : MemWidth).bytesv
+@[kstep] abbrev type (w : RegWidth) : Type := (w : MemWidth).type
 instance {w : RegWidth} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
 end RegWidth
 
@@ -190,7 +192,7 @@ inductive MovShift : RegWidth → Type
   | LSL48     : MovShift .W64
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-def MovShift.toNat {w} : MovShift w → Nat
+@[kstep, simp, reducible] def MovShift.toNat {w} : MovShift w → Nat
   | .LSL0  => 0
   | .LSL16 => 16
   | .LSL32 => 32
@@ -483,7 +485,7 @@ inductive Directive
   deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
 
 abbrev Program := List Directive
-abbrev Executable := Int64 × List (Directive × Nat) -- start and sizes
+abbrev Executable := Kraken.Executable Directive
 
 namespace RegOrSp
 @[match_pattern] abbrev X0 := low (.reg .X0) .W64
