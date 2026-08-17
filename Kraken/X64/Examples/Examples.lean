@@ -106,6 +106,44 @@ theorem swap_correct_step1 (d : MachineData) :
     (swapUnitLayout swap) swapExe_resolves _ _ (swap_correct d)
 end SwapStep1
 
+def fourMovs : Program := parse("
+  mov $1, %rax
+  mov $2, %rbx
+  mov $3, %rcx
+  mov $4, %rdx")
+
+-- Bounded stepping with a sound resume point: run the first two directives,
+-- stop, and continue from a goal of the same shape.
+section BoundedStepping
+
+local instance fourMovsLayout : Layout := { start := 0, size := fun _ => 1 }
+
+example (s : MachineData) :
+    straightlineStep (fourMovsLayout fourMovs) (s, (0 : Int64))
+      (fun s' => s'.1.regs.rdx = 4) := by
+  kcut ((fourMovsLayout fourMovs).2.take 2)
+  case hsplit =>
+    simp [fourMovs, Kraken.Layout.apply, List.mapIdx_cons, List.mapIdx_nil,
+      Kraken.Layout.start, Kraken.Layout.size,
+      Kraken.Executable.directivesFromAddress, Kraken.Executable.withAddresses,
+      List.dropWhile, Kraken.Directives.fallthroughPC]
+  case run =>
+  simp only [fourMovs, Kraken.Layout.apply, List.mapIdx_cons, List.mapIdx_nil,
+    Kraken.Layout.size, List.take_succ_cons, List.take_zero]
+  sym =>
+  kstep
+  tactic =>
+  -- the resume point: the same goal shape, at the middle of the program
+  dsimp only [straightlineStep, Executable.straightline]
+  simp only [Kraken.Layout.start, Kraken.Executable.directivesFromAddress,
+    Kraken.Executable.withAddresses, List.dropWhile]
+  sym =>
+  kstep
+  tactic =>
+  rfl
+
+end BoundedStepping
+
 -- Stepping demo. Ideally, this demo should be without the first .mov
 def p2 : Program := parse("
 start:

@@ -145,6 +145,39 @@ theorem Executable.runSteps_all_eventually [Layout] (e : Executable) (n : Nat)
       apply step_cps
       exact Effects.All.imp (fun mid hmid => ih mid hmid) (Effects.all_bind.mp h)
 
+/-- Cut a straight-line run after a listing prefix: prove the prefix's run,
+with the remaining program as a fresh straight-line obligation at each
+fall-through exit and `post` directly at each jump target. Together with
+`kstep`'s step budget this advances a bounded number of directives and stops
+at a sound resume point of the same shape. The side condition is the fetch
+coherence at this one split, the fact `ResolvesFallthroughAt` states with the
+block as the prefix. -/
+theorem Executable.straightlineStep_cut [Layout] (e : Executable)
+    (st : MachineState) (post : @Post MachineState)
+    (pre : List (Directive × Nat))
+    (hsplit : e.directivesFromAddress st.2
+      = pre ++ e.directivesFromAddress (Kraken.Directives.fallthroughPC pre st.2))
+    (h : (let _ : Labels := e.labels
+          Directives.interp pre st.1 st.2).All
+          (fun se => match se with
+            | (s', .fallthrough pc') => straightlineStep e (s', pc') post
+            | (s', .jump t) => post (s', t))) :
+    straightlineStep e st post := by
+  obtain ⟨s, pc⟩ := st
+  have key := @Directives.interp_append_from e.labels pre
+    (e.directivesFromAddress (Kraken.Directives.fallthroughPC pre pc))
+    e.directivesFromAddress s pc rfl
+  rw [← hsplit] at key
+  unfold straightlineStep Executable.straightline
+  dsimp only
+  rw [key]
+  simp only [Effects.bind_eq, Effects.bind_assoc]
+  rw [Effects.all_bind]
+  refine Effects.All.imp (fun ⟨s', ex⟩ hex => ?_) h
+  cases ex with
+  | jump t => exact hex
+  | fallthrough pc' => exact hex
+
 /-- The fetched suffix at `pc` decomposes as the block at `pc` followed by the
 fetch at the block's fall-through address. This is the address-coherence fact
 an honest layout provides; `Layout.size` alone does not guarantee it. -/

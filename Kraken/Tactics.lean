@@ -90,6 +90,15 @@ elab_rules : tactic
          rw [Executable.directivesFromStart]
          simp [List.mapIdx, List.mapIdx.go])))
 
+/-- Cut the current straight-line goal after the given listing prefix: the
+`hsplit` goal is the fetch-coherence side condition at the split, and the
+`run` goal executes the prefix, leaving a same-shaped straight-line goal at
+each fall-through exit. With `kstep`'s budget this advances a bounded number
+of directives and stops at a sound resume point. -/
+macro "kcut" pre:term : tactic => do
+  let cut := Lean.mkIdent `Executable.straightlineStep_cut
+  `(tactic| refine $cut _ _ _ $pre ?hsplit ?run)
+
 --------------------------------------------------------------------------------
 
 open Sym Sym.DSimp
@@ -195,10 +204,15 @@ partial def advanceEffectsTree (maxInstrCount : Option (IO.Ref Nat)) (t : Expr) 
     -- many instructions we've stepped through.
     if (← maxInstrCount.mapM (·.get)) = .some 0 then
       return .budgetExhausted
-    let some t' ← Meta.unfoldDefinition? t true | throwError "can't unfold Directives.interp"
-    maxInstrCount.forM (fun r => r.modify (· - 1))
-    trace[Kraken.kstep] "consumed a directive at {t}"
-    return .stepped t'
+    match ← Meta.unfoldDefinition? t true with
+    | some t' =>
+      maxInstrCount.forM (fun r => r.modify (· - 1))
+      trace[Kraken.kstep] "consumed a directive at {t}"
+      return .stepped t'
+    | none =>
+      -- The directive list is not yet in constructor form (for example a
+      -- `take` that STEP 2 still needs to evaluate); stall rather than fail.
+      return .stuck
   else if t.isApp && t.getAppFn'.isConstOf `Effects.bind then
     let bargs := t.getAppArgs
     if bargs.size < 2 then
