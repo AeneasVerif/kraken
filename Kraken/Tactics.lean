@@ -90,6 +90,15 @@ elab_rules : tactic
          rw [Executable.directivesFromStart]
          simp [List.mapIdx, List.mapIdx.go])))
 
+/-- Cut the current straight-line goal after the given listing prefix: the
+`hsplit` goal is the fetch-coherence side condition at the split, and the
+`run` goal executes the prefix, leaving a same-shaped straight-line goal at
+each fall-through exit. With `kstep`'s budget this advances a bounded number
+of directives and stops at a sound resume point. -/
+macro "kcut" pre:term : tactic => do
+  let cut := Lean.mkIdent `Executable.straightlineStep_cut
+  `(tactic| refine $cut _ _ _ $pre ?hsplit ?run)
+
 --------------------------------------------------------------------------------
 
 open Sym Sym.DSimp
@@ -132,6 +141,106 @@ partial def peelArgsLets (args : Array Expr) (i : Nat) (peeled : Array Expr) (fv
   else
     k peeled fvars
 
+/-- Is `e` an application headed by a constructor of the (ISA-local, root-level)
+`Effects` inductive? -/
+def isEffectsCtorHead (e : Expr) : MetaM Bool := do
+  let some n := e.getAppFn'.constName? | return false
+  match (← getEnv).find? n with
+  | some (.ctorInfo ci) => return ci.induct == `Effects
+  | _ => return false
+
+/-- Advance the effects tree sitting under `Effects.All` by one defeq step.
+
+The tree is a left-nested `Effects.bind` spine (or a bare `Directives.interp`
+application), and the reduction site is its leftmost operand: a
+`Directives.interp` there gets force-unfolded in place, which is the event
+the step budget counts, one directive consumed from the list. A
+constructor-headed operand lets the `bind` matcher itself reduce by plain
+definitional unfolding; the constructor commutes with `bind` one node at a
+time. Neither `Directives.interp` nor `Effects.bind` may be `@[kstep]`-tagged:
+the dsimp traversal is pre-order, so unfolding them head-first would produce
+matchers stuck on unreduced scrutinees.
+
+`stuck` means nothing here can advance (a `@[kspec]` hand-off such as
+`MachineData.load`/`store`, or a symbolic branch). `budgetExhausted` means
+the next advance would consume a directive the step budget does not allow;
+the caller must block further reduction of this node rather than fall
+through to generic unfolding, which would step through directives behind the
+counter's back. -/
+inductive AdvanceResult where
+  | stepped (tree : Expr)
+  | budgetExhausted
+  | stuck
+
+partial def advanceEffectsTree (maxInstrCount : Option (IO.Ref Nat)) (t : Expr) :
+    DSimpM AdvanceResult := do
+  if t.isApp && t.getAppFn'.isConstOf ``Bind.bind && t.getAppArgs.size ≥ 6 then
+    -- `do`-notation elaborates to the `Bind.bind` method; when the instance is
+    -- the canonical `Effects` monad this is definitionally the structural
+    -- `Effects.bind`, and rebuilding it in that form gives the spine walk
+    -- below one head to work with. The equality is verified before stepping:
+    -- for any other instance the rebuild is not defeq, and the node is left
+    -- alone. Argument layout of `@Bind.bind`: [monad, inst, α, β, x, f].
+    let bargs := t.getAppArgs
+    let t' := mkApp4 (mkConst `Effects.bind)
+      bargs[bargs.size - 4]! bargs[bargs.size - 3]! bargs[bargs.size - 2]! bargs[bargs.size - 1]!
+    if ← (try withNewMCtxDepth (Meta.withTransparency .default (Meta.isDefEq t' t)) catch _ => pure false) then
+      return .stepped t'
+    else
+      return .stuck
+  else if t.isApp && t.getAppFn'.isConstOf ``Pure.pure && t.getAppArgs.size ≥ 4 then
+    -- Likewise `pure` is the `Pure.pure` method over `Effects.done`, with the
+    -- same canonical-instance check. Argument layout of `@Pure.pure`:
+    -- [monad, inst, α, a].
+    let bargs := t.getAppArgs
+    let t' := mkApp2 (mkConst `Effects.done)
+      bargs[bargs.size - 2]! bargs[bargs.size - 1]!
+    if ← (try withNewMCtxDepth (Meta.withTransparency .default (Meta.isDefEq t' t)) catch _ => pure false) then
+      return .stepped t'
+    else
+      return .stuck
+  else if t.isApp && t.getAppFn'.isConstOf `Directives.interp then
+    -- We optionally track how many times we've hit Directives.interp -- this tracks how
+    -- many instructions we've stepped through.
+    if (← maxInstrCount.mapM (·.get)) = .some 0 then
+      return .budgetExhausted
+    match ← Meta.unfoldDefinition? t true with
+    | some t' =>
+      maxInstrCount.forM (fun r => r.modify (· - 1))
+      trace[Kraken.kstep] "consumed a directive at {t}"
+      return .stepped t'
+    | none =>
+      -- The directive list is not yet in constructor form (for example a
+      -- `take` that STEP 2 still needs to evaluate); stall rather than fail.
+      return .stuck
+  else if t.isApp && t.getAppFn'.isConstOf `Effects.bind then
+    let bargs := t.getAppArgs
+    if bargs.size < 2 then
+      return .stuck
+    else
+      let m := bargs[bargs.size - 2]!.consumeMData
+      if m.isLet then
+        -- Float the let through the bind (a defeq step):
+        -- `bind (let x := v; T) k ≡ let x := v; bind T k`. Everything here is
+        -- locally closed except the let body's own binder, so no lifting is
+        -- needed to move `k` under it. The arg-peeling machinery at the
+        -- enclosing `Effects.All` node then hoists it into the context, where
+        -- reduction can continue around it.
+        let .letE n ty val body nondep := m | return .stuck
+        return .stepped (.letE n ty val
+          (mkAppN t.getAppFn' ((bargs.set! (bargs.size - 2) body))) nondep)
+      else if ← isEffectsCtorHead m then
+        -- `m` is a constructor application: delta `bind` here so the matcher
+        -- can consume it on the next pass.
+        let some t' ← Meta.unfoldDefinition? t true | return .stuck
+        return .stepped t'
+      else
+        match ← advanceEffectsTree maxInstrCount m with
+        | .stepped m' => return .stepped (mkAppN t.getAppFn' (bargs.set! (bargs.size - 2) m'))
+        | r => return r
+  else
+    return .stuck
+
 def kdeltaBetaOnly (targets: List Name) (maxInstrCount : Option (IO.Ref Nat)) : DSimproc := fun e => do
   -- This focuses on application nodes.
   unless e.isApp && targets.any e.getAppFn'.isConstOf do return .rfl
@@ -146,34 +255,13 @@ def kdeltaBetaOnly (targets: List Name) (maxInstrCount : Option (IO.Ref Nat)) : 
   -- semantics. Concretely: `f (let x = ... in arg)` => `let x = ... in f arg`.
   peelArgsLets args 0 #[] #[] fun (args : Array Expr) (fvars : Array Expr) => do
 
-    if f.isConstOf `Effects.All && args[1]!.isApp && args[1]!.getAppFn'.isConstOf `Directives.interp then
-      -- We optionally track how many times we've hit Directives.interp -- this tracks how
-      -- many instructions we've stepped through.
-      if (← maxInstrCount.mapM (·.get)) = .some 0 then
-        return .rfl
-      maxInstrCount.forM (fun r => r.modify (· - 1))
-
-      -- Finding a node of the form `Effects.All ... (Directives.interp ...)`
-      -- means that we are ready to step through. We manually force reduction of
-      -- Directives.interp (since it is *not* is our list of targets), then let
-      -- everything simplify until we're called again.
-      let some arg1 ← Meta.unfoldDefinition? args[1]! true | throwError "can't unfold Directives.interp"
-      let e := mkAppN f (args.set! 1 arg1)
-      let e' ← shareCommon e
-      let e'' ← mkLetFVars fvars e'
-      return .step e''
-      -- TODO: we could here have a post := in the simproc that forces the
-      -- result to be .step ... (done := true) to prevent the next unrolling of
-      -- Directives.interp from being applied. This would essentially allow
-      -- implementing a kstep1 tactic (and leave it to done := false to keep
-      -- stepping until something blocks).
-
-      -- Essentially this behavior allows us to keep reducing and stepping,
-      -- until we have no steps left to apply and YET the goal has landed us
-      -- back on something that is neither Effects.All ... (Directives.interp
-      -- ...), nor Effects.All ... (require_exec_access ...), handled in the
-      -- case below.
-    else
+    -- The generic path: force one step of delta-beta on a `@[kstep]`-tagged
+    -- application. (Also the fallback when the effects tree cannot advance:
+    -- this keeps reducing and stepping until we have no steps left to apply
+    -- and YET the goal has landed us back on something that is neither
+    -- `Effects.All ... (Directives.interp ...)` nor
+    -- `Effects.All ... (require_exec_access ...)`.)
+    let generic : DSimpM Result := do
       -- Application, *sans* the let-bindings in the arguments.
       let e_rebuilt := mkAppN f args
       -- Remember that `Meta.unfoldDefinition` is "smart" and wants to see the whole
@@ -194,6 +282,31 @@ def kdeltaBetaOnly (targets: List Name) (maxInstrCount : Option (IO.Ref Nat)) : 
       else
         -- Really nothing to do here.
         return .rfl
+
+    -- The effects tree is `Effects.All`'s last argument; indexing from the
+    -- end keeps this independent of the number of leading implicit
+    -- arguments.
+    let treeIdx := args.size - 1
+    if f.isConstOf `Effects.All && args.size ≥ 2 && args[treeIdx]!.isApp then
+      match ← advanceEffectsTree maxInstrCount args[treeIdx]! with
+      | .stepped tree' =>
+        let e := mkAppN f (args.set! treeIdx tree')
+        let e' ← shareCommon e
+        let e'' ← mkLetFVars fvars e'
+        return .step e''
+        -- TODO: we could here have a post := in the simproc that forces the
+        -- result to be .step ... (done := true) to prevent the next unrolling of
+        -- Directives.interp from being applied. This would essentially allow
+        -- implementing a kstep1 tactic (and leave it to done := false to keep
+        -- stepping until something blocks).
+      | .budgetExhausted =>
+        -- Out of steps: freeze this node. Falling through to the generic
+        -- branch would let smart unfolding of `Effects.All` keep executing
+        -- directives without counting them.
+        return .rfl
+      | .stuck => generic
+    else
+      generic
 
 def gimmickId (p: Prop): Prop := p
 
@@ -261,19 +374,6 @@ def kdsimpProj : DSimproc := fun e => do
       | none   => return .rfl
   -- TODO: special support for instances?
   reduceProjCont? (← unfoldDefinition? e)
-
-def kLiftLets : DSimproc := fun e => do
-  -- We only lift lets to the top-level (which is always an application of
-  -- Effects.all)
-  unless e.isApp && e.getAppFn'.isConstOf `Effects.All do return .rfl
-
-  let (es, st) ← ExtractLets.extract #[e] |>.run {} |>.run' {} |>.run { givenNames := [] }
-  unless st.decls.size > 0 do return .rfl
-
-  let e' := Meta.ExtractLets.mkLetDecls st.decls es[0]!
-  let e' ← Sym.share e'
-  /- logInfo m!"liftLets produces {e'}" -/
-  return .step e'
 
 -- FIXME: a copy-paste of the Lean implementation since it's marked as private
 def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
@@ -350,7 +450,18 @@ partial def evalSymKStep : Grind.GrindTactic :=
   let specLemmas := (kspecExtension.getState env).toList
   let specTree: DiscrTree Name ← specLemmas.foldlM (fun specTree name => do
     -- NOTE: hardcoding left-to-right order, for now
-    let (pat, _) ← mkEqPatternFromDecl name
+    -- Key each lemma on the effectful operation itself: for a bind-context
+    -- equation `(op …).bind k = …` that is the bind's first operand. Keying
+    -- on the whole bind node would drag `Effects.bind`'s type argument into
+    -- the key; for a load that is the dependent `w.type × MachineData`, which
+    -- never matches the goal's already-reduced form.
+    let (pat, _) ← Sym.mkPatternFromDeclWithKey name (selectKey := fun type => do
+      let_expr Eq _ lhs _ := type | throwError "kspec lemma {name} is not an equation"
+      let lhs := lhs.consumeMData
+      if lhs.isApp && lhs.getAppFn.isConstOf `Effects.bind && lhs.getAppArgs.size ≥ 2 then
+        pure (lhs.getAppArgs[lhs.getAppArgs.size - 2]!, ())
+      else
+        pure (lhs, ()))
     pure (insertPattern specTree pat name)
   ) {}
 
@@ -404,17 +515,39 @@ partial def evalSymKStep : Grind.GrindTactic :=
         | .letE _ _ _ body _ => getEffectsState body
         | .mdata _ e => getEffectsState e
         | _ =>
-          if e.isApp && e.getAppFn.isConstOf `Effects.All && e.getAppArgs.size == 2 then
-            some e.getAppArgs[1]!
+          -- The effects tree is `Effects.All`'s last argument; indexing
+          -- from the end keeps this independent of the leading implicits.
+          if e.isApp && e.getAppFn.isConstOf `Effects.All && e.getAppArgs.size ≥ 2 then
+            some e.getAppArgs.back!
           else
             none
       -- No more Effects.All in the goal -- return to the user (we might be done,
       -- or realistically, we might need to debug).
       let some state := getEffectsState goalT' | return (goal, [])
+      -- Guard against shape drift: what we hand to the spec engine must be an
+      -- `Effects` tree. (A partially applied `Effects.All` would satisfy the
+      -- arity test above and silently hand a predicate to the DiscrTree.)
+      let stateTy ← inferType state
+      unless stateTy.getAppFn.isConstOf `Effects do
+        throwError m!"kstep: found Effects.All but its last argument is not an effects tree:{indentExpr state}"
       pure state
 
+    -- A spec lemma's subject may sit at the top of the tree or at the
+    -- leftmost operand of an `Effects.bind` spine. Offer the tree and each
+    -- spine operand to the DiscrTree, outermost first, and take the first
+    -- hit.
+    let rec specCandidates (t : Expr) (acc : Array Expr) : Array Expr :=
+      let acc := acc.push t
+      if t.isApp && t.getAppFn.isConstOf `Effects.bind && t.getAppArgs.size ≥ 2 then
+        specCandidates t.getAppArgs[t.getAppArgs.size - 2]! acc
+      else
+        acc
+    let specMatches := ((specCandidates goalState #[]).findSome? (fun c =>
+      let ms := getMatch specTree c
+      if ms.isEmpty then none else some ms)).getD #[]
+
     let (keepGoingSpec, goal) ←
-      match getMatch specTree goalState with
+      match specMatches with
       | #[ thmName ] =>
         logInfo m!"Found a spec lemma: {thmName}"
         let (goal, subGoals) ← rwTarget goal false (mkConst thmName)

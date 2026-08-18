@@ -70,4 +70,55 @@ theorem directivesAtFromPrefix {Directive : Type} (e: Executable Directive) (a: 
   rw [← List.map_append]
   rw [List.takeWhile_append_dropWhile]
 
+/-- Take the leading zero-sized entries through the first positive-sized one.
+
+Grouping zero-sized entries with their positive-sized successor is what makes
+repeated stepping make progress: a zero-sized directive occupies no address
+space, so fetching at its address again would yield it forever. On a listing
+whose addresses are laid out consecutively this is exactly
+`directivesAtAddress` at the block's start address: the entries starting at a
+given address are the zero-sized run there plus the first positive-sized
+directive. -/
+def Directives.takeBlock {Directive : Type} : List (Directive × Nat) → List (Directive × Nat)
+  | [] => []
+  | entry :: rest => if entry.2 = 0 then entry :: takeBlock rest else [entry]
+
+/-- The directives of a block are an initial segment of the directives they
+were taken from. -/
+theorem Directives.takeBlock_prefix {Directive : Type} (ds : List (Directive × Nat)) :
+    ∃ rest, ds = Directives.takeBlock ds ++ rest := by
+  induction ds <;> simp_all [Directives.takeBlock] <;> split <;> simp_all
+
+/-- A nonempty listing yields a nonempty block. -/
+theorem Directives.takeBlock_ne_nil {Directive : Type} {ds : List (Directive × Nat)}
+    (h : ds ≠ []) : Directives.takeBlock ds ≠ [] := by
+  cases ds <;> simp_all [Directives.takeBlock] <;> split <;> simp_all
+
+/-- A listing of zero-sized directives is one block. -/
+theorem Directives.takeBlock_of_all_zero {Directive : Type} {ds : List (Directive × Nat)}
+    (h : ∀ d ∈ ds, d.2 = 0) : Directives.takeBlock ds = ds := by
+  induction ds <;> simp_all [Directives.takeBlock]
+
+theorem Directives.takeBlock_length_pos {Directive : Type} {ds : List (Directive × Nat)}
+    (h : ds ≠ []) : 0 < (Directives.takeBlock ds).length :=
+  Nat.pos_iff_ne_zero.mpr (by simpa using Directives.takeBlock_ne_nil h)
+
+/-- Advance `pc` across a sequence of laid-out directives. -/
+def Directives.fallthroughPC {Directive : Type} (ds : List (Directive × Nat)) (pc : Int64) : Int64 :=
+  ds.foldl (fun pc d => pc + .ofNat d.2) pc
+
+theorem Directives.fallthroughPC_append {Directive : Type}
+    (ds₁ ds₂ : List (Directive × Nat)) (pc : Int64) :
+    Directives.fallthroughPC (ds₁ ++ ds₂) pc =
+      Directives.fallthroughPC ds₂ (Directives.fallthroughPC ds₁ pc) := by
+  simp [Directives.fallthroughPC, List.foldl_append]
+
+/-- The address assigned to directive `i` by an executable's size table.
+At and beyond the end of the executable this is its fall-through address. -/
+def Directives.addressAt {Directive : Type} (ds : List (Directive × Nat)) (pc : Int64) (i : Nat) : Int64 :=
+  Directives.fallthroughPC (ds.take i) pc
+
+def Executable.addressAt {Directive : Type} (e : Executable Directive) (i : Nat) : Int64 :=
+  Directives.addressAt e.2 e.1 i
+
 end Kraken

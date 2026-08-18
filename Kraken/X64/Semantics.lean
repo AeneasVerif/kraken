@@ -243,46 +243,103 @@ instance (w : AvxWidth) : NondetSupportingType w.type := .avx_bitvec w
 instance : NondetSupportingType Bool := .bool
 instance : NondetSupportingType StatusFlags := .statusFlags
 
-inductive Effects
-  | done (a : MachineData × Int64)
+/-- The instruction effect tree: a computation that reads and writes machine
+state, requests access checks, draws nondeterministic values, or fails,
+producing a result of the given type. -/
+inductive Effects (α : Type) : Type 1
+  | done (a : α)
   | unimplemented (msg : String)
   | gp_unaligned (addr : BitVec 64) (w : Nat)
   -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
   -- for instance, MMIO reads/writes at certain device register addresses might change what
   -- data memory the process logically owns vs what memory is owned by devices
-  | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : Width) (ret : w.type → DataMem → Effects)
-  | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : Width} (v : w.type) (ret: DataMem → Effects)
-  | undefined {α : Type} [NondetSupportingType α] (ret : α → Effects)
-  | require_read_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
-  | require_write_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
-  | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
+  | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : Width)
+      (ret : w.type → DataMem → Effects α)
+  | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : Width} (v : w.type)
+      (ret : DataMem → Effects α)
+  | undefined {β : Type} [NondetSupportingType β] (ret : β → Effects α)
+  | require_read_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects α)
+  | require_write_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects α)
+  | require_exec_access (p : Std.Rco Int64) (ok : Unit → Effects α)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
+
+def Effects.bind {α β : Type} : Effects α → (α → Effects β) → Effects β
+  | .done a, k => k a
+  | .unimplemented msg, _ => .unimplemented msg
+  | .gp_unaligned addr w, _ => .gp_unaligned addr w
+  | .nonmem_load dmem addr w ret, k =>
+      .nonmem_load dmem addr w fun v dmem => (ret v dmem).bind k
+  | .nonmem_store dmem addr v ret, k =>
+      .nonmem_store dmem addr v fun dmem => (ret dmem).bind k
+  | @Effects.undefined _ γ inst ret, k =>
+      @Effects.undefined _ γ inst fun v => (ret v).bind k
+  | .require_read_access addr w ok, k =>
+      .require_read_access addr w fun u => (ok u).bind k
+  | .require_write_access addr w ok, k =>
+      .require_write_access addr w fun u => (ok u).bind k
+  | .require_exec_access p ok, k =>
+      .require_exec_access p fun u => (ok u).bind k
+
+instance : Monad Effects where
+  pure := .done
+  bind := .bind
+
+/-- A nondeterministically chosen value for use in `do` notation. -/
+@[kstep] def Effects.undef {β : Type} [NondetSupportingType β] : Effects β :=
+  .undefined .done
+
+@[simp] theorem Effects.pure_eq {α : Type} (a : α) :
+    (pure a : Effects α) = .done a := rfl
+
+@[simp] theorem Effects.bind_eq {α β : Type} (m : Effects α) (k : α → Effects β) :
+    m >>= k = m.bind k := rfl
+
+theorem Effects.bind_done {α : Type} (m : Effects α) : m.bind .done = m := by
+  induction m <;> simp [Effects.bind, *]
+
+theorem Effects.bind_assoc {α β γ : Type} (m : Effects α)
+    (k₁ : α → Effects β) (k₂ : β → Effects γ) :
+    (m.bind k₁).bind k₂ = m.bind fun a => (k₁ a).bind k₂ := by
+  induction m <;> simp [Effects.bind, *]
+
+instance : LawfulMonad Effects :=
+  LawfulMonad.mk'
+    (id_map := Effects.bind_done)
+    (pure_bind := fun _ _ => rfl)
+    (bind_assoc := Effects.bind_assoc)
+
+def Effects.exec {α : Type} (entropy : UInt64) : Effects α → Except String α
+  | .done a => .ok a
+  | .unimplemented msg => .error msg
+  | .gp_unaligned addr w =>
+      .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
+  | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
+  | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
+  | @Effects.undefined _ _ inst ret => (ret (inst.from_hash entropy)).exec entropy
+  | .require_read_access _ _ ok => (ok ()).exec entropy
+  | .require_write_access _ _ ok => (ok ()).exec entropy
+  | .require_exec_access _ ok => (ok ()).exec entropy
+
+/-- How one instruction transfers control: fall through, or jump to `target`. -/
+inductive Ctrl : Type
+  | next
+  | jmp (target : Int64)
+  deriving Repr, BEq, DecidableEq
 
 -- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
 -- value are present for uniformity with RegOrMem.interp
-@[kstep] def Reg.interp {w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64)
-  (ret : w.type → MachineData → Effects) : Effects :=
-  ret (s.regs.get r) s
+@[kstep] def Reg.interp {w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64) :
+    Effects (w.type × MachineData) :=
+  .done (s.regs.get r, s)
 
--- Since MMIO can cause devices to do arbitrary actions, a load might actually
--- *modify* memory. For instance:
--- A TEST instruction might load a flag from an MMIO address and bitwise-and it with
--- an immediate, and if the result is non-zero, it might mean that some device has
--- finished processing a buffer and therefore now passes ownership of that buffer
--- to the CPU.
--- Note that `ret` takes a whole `MachineData` instead of only `DataMem`, which
--- provides a bit more flexibility than we need: MachineData.load might change
--- dmem, but will not change the registers or status flags.
--- But this superfluous flexibility helps us simplify the state-threading:
--- Instead of writing `fun v dmem => ... { s with dmem } ...` everywhere, we
--- can just write `fun v s => ...` and the new `s` will shadow the old `s`.
+-- An MMIO load may return an updated data memory, for example when a device
+-- transfers ownership of a buffer back to the CPU.
 def MachineData.load
-  (s : MachineData) (addr : BitVec 64) (w : Width)
-  (ret : w.type → MachineData → Effects): Effects :=
+  (s : MachineData) (addr : BitVec 64) (w : Width) : Effects (w.type × MachineData) :=
   require_read_access addr w (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
-    | .some i => ret (.ofInt _ i) s
-    | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
+    | .some i => .done (.ofInt _ i, s)
+    | .none => nonmem_load s.dmem addr w (fun v dmem => .done (v, { s with dmem })))
 
 -- Alternatively, we could define this in terms of BitVecs without %:
 -- (addr &&& BitVec.ofNat 64 (bytes - 1)) == 0#64
@@ -295,30 +352,30 @@ def isAligned (bytes : Nat) (addr : BitVec 64) : Bool :=
 -- For this reason we default checkAlign to false.
 def MachineData.loadAvx
   (s : MachineData) (addr : BitVec 64) (w : AvxWidth)
-  (ret : w.type → MachineData → Effects) (checkAlign : Bool := false) : Effects :=
+  (checkAlign : Bool := false) : Effects (w.type × MachineData) :=
   if checkAlign && !(isAligned w.bytes addr) then
     .gp_unaligned addr w.bytes
   else
     require_read_access addr .W64 (fun _unit =>
   match Mem.loadInt s.dmem addr w.bytes with
-      | .some i => ret (.ofInt _ i) s
+      | .some i => .done (.ofInt _ i, s)
       | .none => unimplemented "AVX nonmem load not supported")
 
-def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Effects) : Effects :=
+def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) : Effects MachineData :=
   require_write_access addr w (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
     | .some _ =>
-        ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
-    | .none => nonmem_store s.dmem addr v (fun dmem' => ret { s with dmem := dmem' }))
+        .done { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
+    | .none => nonmem_store s.dmem addr v (fun dmem' => .done { s with dmem := dmem' }))
 
-def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v : w.type) (ret: MachineData → Effects) (checkAlign : Bool := false) : Effects :=
+def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v : w.type) (checkAlign : Bool := false) : Effects MachineData :=
   if checkAlign && !(isAligned w.bytes addr) then
     .gp_unaligned addr w.bytes
   else
     require_write_access addr .W64 (fun _unit =>
   match Mem.loadInt s.dmem addr w.bytes with
       | .some _ =>
-          ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
+          .done { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
       | .none => unimplemented "AVX nonmem store not supported")
 
 class Labels where label : Label → Int64
@@ -343,21 +400,19 @@ export Labels (label)
   BitVec.ofInt address_size.address_size.bits (base + idx + (a.disp.interp p).toInt)
 
 @[kstep] def RegOrMem.interp {w} [Labels] [AddressSize]
-  (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64)
-  (ret : w.type → MachineData → Effects) :=
+  (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64) : Effects (w.type × MachineData) :=
 match o with
-  | .reg r => ret (s.regs.get r) s
-  | .mem a => s.load ((a.interp s.regs p).zeroExtend _) w ret
+  | .reg r => .done (s.regs.get r, s)
+  | .mem a => s.load ((a.interp s.regs p).zeroExtend _) w
 
 def AvxRegOrMem.interp {w} [Labels] [AddressSize]
   (o : AvxRegOrMem w) (s : MachineData) (p : Std.Rco Int64)
-  (ret : w.type → MachineData → Effects) (checkAlign : Bool := false) :=
+  (checkAlign : Bool := false) : Effects (w.type × MachineData) :=
 match o with
-  | .avx r => ret (s.zmms.get r) s
-  | .mem a => s.loadAvx ((a.interp s.regs p).zeroExtend _) w ret checkAlign
+  | .avx r => .done (s.zmms.get r, s)
+  | .mem a => s.loadAvx ((a.interp s.regs p).zeroExtend _) w checkAlign
 
-@[kstep]
-def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineData :=
+@[kstep] def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
 
 def MachineData.setAvxReg (s : MachineData) {w : AvxWidth} (r : AvxReg w) (v : w.type) : MachineData :=
@@ -366,38 +421,35 @@ def MachineData.setAvxReg (s : MachineData) {w : AvxWidth} (r : AvxReg w) (v : w
 def MachineData.setAvxLegacyReg (s : MachineData) {w : AvxWidth} (r : AvxReg w) (v : w.type) : MachineData :=
   { s with zmms := s.zmms.setLegacy r v }
 
-@[kstep]
-def MachineData.set {w} [Labels] [AddressSize] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → Effects) : Effects :=
+@[kstep] def MachineData.set {w} [Labels] [AddressSize] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) : Effects MachineData :=
   match d with
-  | .reg r => ret (s.setReg r v)
-  | .mem a => s.store ((a.interp s.regs p).zeroExtend _) v ret
+  | .reg r => .done (s.setReg r v)
+  | .mem a => s.store ((a.interp s.regs p).zeroExtend _) v
 
-def MachineData.setAvx {aw} [Labels] [AddressSize] (s : MachineData) (d : AvxDst aw) (v : aw.type) (p : Std.Rco Int64) (ret : MachineData → Effects) (checkAlign : Bool := false) : Effects :=
+def MachineData.setAvx {aw} [Labels] [AddressSize] (s : MachineData) (d : AvxDst aw) (v : aw.type) (p : Std.Rco Int64) (checkAlign : Bool := false) : Effects MachineData :=
 match d with
-  | .avx r => ret (s.setAvxReg r v)
-  | .mem a => s.storeAvx ((a.interp s.regs p).zeroExtend _) v ret checkAlign
+  | .avx r => .done (s.setAvxReg r v)
+  | .mem a => s.storeAvx ((a.interp s.regs p).zeroExtend _) v checkAlign
 
-def MachineData.setAvxLegacy {w} [Labels] [AddressSize] (s : MachineData) (d : AvxDst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → Effects) (checkAlign : Bool := false) : Effects :=
+def MachineData.setAvxLegacy {w} [Labels] [AddressSize] (s : MachineData) (d : AvxDst w) (v : w.type) (p : Std.Rco Int64) (checkAlign : Bool := false) : Effects MachineData :=
 match d with
-  | .avx r => ret (s.setAvxLegacyReg r v)
-  | .mem a => s.storeAvx ((a.interp s.regs p).zeroExtend _) v ret checkAlign
+  | .avx r => .done (s.setAvxLegacyReg r v)
+  | .mem a => s.storeAvx ((a.interp s.regs p).zeroExtend _) v checkAlign
 
 @[kstep] def Operand.interp {w} [Labels] [AddressSize]
-  (o : Operand w) (s : MachineData) (p : Std.Rco Int64)
-  (ret : w.type → MachineData → Effects) :=
+  (o : Operand w) (s : MachineData) (p : Std.Rco Int64) : Effects (w.type × MachineData) :=
   match o with
-  | regOrMem rm => rm.interp s p ret
-  | .imm v => ret ((v.interp p).toBitVec.truncate _) s
+  | regOrMem rm => rm.interp s p
+  | .imm v => .done ((v.interp p).toBitVec.truncate _, s)
   -- we rely on assemblers erroring out on too-large immediates in uniform ops
 
 def AvxOperand.interp {aw} [Labels] [AddressSize]
   (o : AvxOperand aw) (s : MachineData) (p : Std.Rco Int64)
-  (ret : aw.type → MachineData → Effects) (checkAlign : Bool := false) :=
+  (checkAlign : Bool := false) : Effects (aw.type × MachineData) :=
 match o with
-  | regOrMem rm => rm.interp s p ret checkAlign
+  | regOrMem rm => rm.interp s p checkAlign
 
-@[kstep]
-def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
+@[kstep] def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
   | .z  => s.zf | .nz => !s.zf | .c  => s.cf | .nc => !s.cf
   | .a  => !s.cf && !s.zf | .be => s.cf || s.zf
   | .l => s.sf != s.of | .le => (s.sf != s.of) || s.zf
@@ -409,12 +461,11 @@ def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
   (c.interp s p).toNat &&& match w with | .W64 => 0x3f | _ => 0x1f -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
 
 def RelRegOrMem.interp [Labels] [AddressSize]
-  (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64)
-  (ret : BitVec 64 → MachineData → Effects) :=
+  (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64) : Effects (BitVec 64 × MachineData) :=
   match o with
-  | .rel c => ret (p.upper + c.interp p).toBitVec s
-  | .reg r => ret (s.regs.get r) s
-  | .mem a => s.load ((a.interp s.regs p).zeroExtend _) .W64 ret
+  | .rel c => .done ((p.upper + c.interp p).toBitVec, s)
+  | .reg r => .done (s.regs.get r, s)
+  | .mem a => s.load ((a.interp s.regs p).zeroExtend _) .W64
 
 structure StatusFlags.from_result.Remaining where
   cf : Bool
@@ -442,134 +493,155 @@ end BitVec
 
 set_option maxHeartbeats 1000000
 @[kstep] def Operation.interp [Labels] [address_size : AddressSize]
-  {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
-  (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
-  match (generalizing := false) (motive := Operation w → Effects) i with
-  | .mov dst src => src.interp s p (fun val s => s.set dst val p next)
-  | .movsx dst src => src.interp s p (fun val s => s.set dst (val.signExtend _) p next)
-  | .movzx dst src => src.interp s p (fun val s => s.set dst (val.zeroExtend _) p next)
-  | .push src =>
-    src.interp s p (fun v s =>
+  {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData) : Effects (MachineData × Ctrl) :=
+  match (generalizing := false) (motive := Operation w → Effects (MachineData × Ctrl)) i with
+  | .mov dst src => do
+    let (val, s) ← src.interp s p
+    let s ← s.set dst val p
+    pure (s, .next)
+  | .movsx dst src => do
+    let (val, s) ← src.interp s p
+    let s ← s.set dst (val.signExtend _) p
+    pure (s, .next)
+  | .movzx dst src => do
+    let (val, s) ← src.interp s p
+    let s ← s.set dst (val.zeroExtend _) p
+    pure (s, .next)
+  | .push src => do
+    let (v, s) ← src.interp s p
     let rsp := s.regs.get64 .rsp - w.bytesv
-    { s with regs := s.regs.set64 .rsp rsp }.store rsp v next)
-  | .pop dst =>
+    let s ← { s with regs := s.regs.set64 .rsp rsp }.store rsp v
+    pure (s, .next)
+  | .pop dst => do
     let rsp := s.regs.get64 .rsp
-    s.load rsp w (fun val s =>
+    let (val, s) ← s.load rsp w
     let s := { s with regs := s.regs.set64 .rsp (rsp + w.bytesv) }
-    s.set dst val p next)
-  | .setcc cc dst =>
-    s.set dst (cc.interp s.status) p next
-  | .cmovcc cc dst src =>
-    src.interp s p (fun src s =>
+    let s ← s.set dst val p
+    pure (s, .next)
+  | .setcc cc dst => do
+    let s ← s.set dst (cc.interp s.status) p
+    pure (s, .next)
+  | .cmovcc cc dst src => do
+    let (src, s) ← src.interp s p
     let v := if cc.interp s.status then src else s.regs.get dst
-    next (s.setReg dst v))
+    pure (s.setReg dst v, .next)
 -- Arithmetic
-  | .lea dst src => next (s.setReg dst ((src.interp s.regs p).zeroExtend _))
-  | .add dst src =>
-    src.interp s p (fun a s =>
-    dst.interp s p (fun b s =>
+  | .lea dst src => .done (s.setReg dst ((src.interp s.regs p).zeroExtend _), .next)
+  | .add dst src => do
+    let (a, s) ← src.interp s p
+    let (b, s) ← dst.interp s p
     let v := a + b
-    let status := .from_result v {
+    let status := StatusFlags.from_result v {
       cf := v.unsigned != a.unsigned + b.unsigned
       af := (v.take 4).unsigned != (a.take 4).unsigned + (b.take 4).unsigned,
       of := v.signed != a.signed + b.signed }
-    { s with status }.set dst v p next))
-  | .adc dst src =>
-    src.interp s p (fun a s =>
-    dst.interp s p (fun b s =>
+    let s ← { s with status }.set dst v p
+    pure (s, .next)
+  | .adc dst src => do
+    let (a, s) ← src.interp s p
+    let (b, s) ← dst.interp s p
     let c := s.status.cf
     let v := a + b + c
-    let status := .from_result v {
+    let status := StatusFlags.from_result v {
       cf := v.unsigned != a.unsigned + b.unsigned + c
       af := (v.take 4).unsigned != (a.take 4).unsigned + (b.take 4).unsigned + c,
       of := v.signed != a.signed + b.signed + c }
-    { s with status }.set dst v p next))
-  | .adcx dst src =>
-    src.interp s p (fun a s =>
-    dst.interp s p (fun b s =>
+    let s ← { s with status }.set dst v p
+    pure (s, .next)
+  | .adcx dst src => do
+    let (a, s) ← src.interp s p
+    let (b, s) ← dst.interp s p
     let v := a + b + s.status.cf
     let cf := v.unsigned != a.unsigned + b.unsigned + s.status.cf
-    next { s with regs := s.regs.set dst v, status := { s.status with cf := cf }}))
-  | .adox dst src =>
-    src.interp s p (fun a s =>
-    dst.interp s p (fun b s =>
+    pure ({ s with regs := s.regs.set dst v, status := { s.status with cf := cf }}, .next)
+  | .adox dst src => do
+    let (a, s) ← src.interp s p
+    let (b, s) ← dst.interp s p
     let v := a + b + s.status.of
     let of := v.unsigned != a.unsigned + b.unsigned + s.status.of
-    next { s with regs := s.regs.set dst v, status := { s.status with of := of }}))
-  | .inc dst =>
-    dst.interp s p (fun a s =>
+    pure ({ s with regs := s.regs.set dst v, status := { s.status with of := of }}, .next)
+  | .inc dst => do
+    let (a, s) ← dst.interp s p
     let v := a + 1
-    let status := .from_result v {
+    let status := StatusFlags.from_result v {
       cf := s.status.cf
       af := (v.take 4).unsigned != (a.take 4).unsigned + 1,
       of := v.signed != a.signed + 1 }
-    { s with status }.set dst v p next)
-  | .dec dst =>
-    dst.interp s p (fun a s =>
+    let s ← { s with status }.set dst v p
+    pure (s, .next)
+  | .dec dst => do
+    let (a, s) ← dst.interp s p
     let v := a - 1
-    let status := .from_result v {
+    let status := StatusFlags.from_result v {
       cf := s.status.cf
       af := (v.take 4).unsigned != (a.take 4).unsigned - 1,
       of := v.signed != a.signed - 1 }
-    { s with status }.set dst v p next)
-  | .neg dst =>
-    dst.interp s p (fun b s =>
+    let s ← { s with status }.set dst v p
+    pure (s, .next)
+  | .neg dst => do
+    let (b, s) ← dst.interp s p
     let v := -b
-    let status := .from_result v {
+    let status := StatusFlags.from_result v {
       cf := b != 0
       af := (b.take 4) != 0,
       of := v.signed != - b.signed }
-    { s with status }.set dst v p next)
-  | .sub dst src =>
-    src.interp s p (fun a s =>
-    dst.interp s p (fun b s =>
+    let s ← { s with status }.set dst v p
+    pure (s, .next)
+  | .sub dst src => do
+    let (a, s) ← src.interp s p
+    let (b, s) ← dst.interp s p
     let v := b - a
-    let status := .from_result v {
+    let status := StatusFlags.from_result v {
       cf := v.unsigned != b.unsigned - a.unsigned
       af := (v.take 4).unsigned != (b.take 4).unsigned - (a.take 4).unsigned,
       of := v.signed != b.signed - a.signed }
-    { s with status }.set dst v p next))
-  | .sbb dst src =>
-    src.interp s p (fun a s =>
-    dst.interp s p (fun b s =>
+    let s ← { s with status }.set dst v p
+    pure (s, .next)
+  | .sbb dst src => do
+    let (a, s) ← src.interp s p
+    let (b, s) ← dst.interp s p
     let c := s.status.cf
     let v := b - a - c
-    let status := .from_result v {
+    let status := StatusFlags.from_result v {
       cf := v.unsigned != b.unsigned - a.unsigned - c
       af := (v.take 4).unsigned != (b.take 4).unsigned - (a.take 4).unsigned - c,
       of := v.signed != b.signed - a.signed - c }
-    { s with status }.set dst v p next))
-  | .cmp a b =>
-    a.interp s p (fun a s =>
-    b.interp s p (fun b s =>
+    let s ← { s with status }.set dst v p
+    pure (s, .next)
+  | .cmp a b => do
+    let (a, s) ← a.interp s p
+    let (b, s) ← b.interp s p
     let v := a - b
-    let status := .from_result v {
+    let status := StatusFlags.from_result v {
       cf := v.unsigned != a.unsigned - b.unsigned
       af := (v.take 4).unsigned != (a.take 4).unsigned - (b.take 4).unsigned,
       of := v.signed != a.signed - b.signed }
-    next { s with status }))
-  | .mul src =>
+    pure ({ s with status }, .next)
+  | .mul src => do
     let a := s.regs.get (Reg.low .rax w)
-    src.interp s p (fun b s =>
+    let (b, s) ← src.interp s p
     let v := a * b
     let vn := a.unsigned * b.unsigned
     let s := if w == .W8
       then s.setReg (.low .rax .W16) (.ofInt _ vn)
       else (s.setReg (.low .rax w) v).setReg (.low .rdx w) (.ofInt _ (vn >>> w.bits))
-    undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
-    next { s with status := { cf := v.unsigned != vn, pf, af, zf, sf, of := v.unsigned != vn }})))))
-  | .mulx r_hi r_lo src1 =>
-    src1.interp s p (fun a s =>
+    let sf : Bool ← Effects.undef
+    let zf : Bool ← Effects.undef
+    let af : Bool ← Effects.undef
+    let pf : Bool ← Effects.undef
+    pure ({ s with status := { cf := v.unsigned != vn, pf, af, zf, sf, of := v.unsigned != vn }}, .next)
+  | .mulx r_hi r_lo src1 => do
+    let (a, s) ← src1.interp s p
     let b := s.regs.get (.low .rdx w)
     let v := a.unsigned * b.unsigned
     let s := s.setReg r_lo (.ofInt _ v) -- if r_hi = r_li, hi is written:
     let s := s.setReg r_hi (.ofInt _ (v >>> w.bits))
-    next s)
+    pure (s, .next)
   -- imul1 and imul collectively describe variants of the same
   -- syntax level `imul` instruction, where imul1 is the 1-operand case
-  | .imul1 src =>
+  | .imul1 src => do
     let a := s.regs.get (Reg.low .rax w)
-    src.interp s p (fun b s =>
+    let (b, s) ← src.interp s p
     let v := a.toInt * b.toInt
     let s := if w == .W8 then
       s.setReg (.low .rax .W16) (BitVec.ofInt 16 v)
@@ -578,207 +650,247 @@ set_option maxHeartbeats 1000000
       let low := result.take w.bits
       let high := (result.drop w.bits).setWidth _
       (s.setReg (.low .rax w) low).setReg (.low .rdx w) high
-    undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
+    let sf : Bool ← Effects.undef
+    let zf : Bool ← Effects.undef
+    let af : Bool ← Effects.undef
+    let pf : Bool ← Effects.undef
     let low := BitVec.ofInt w.bits v
     let cf := v != low.toInt
-    next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))
-  | .imul dst src1 src2 =>
-    src1.interp s p (fun a s =>
-    src2.interp s p (fun b s =>
+    pure ({ s with status := { cf := cf, pf, af, zf, sf, of := cf }}, .next)
+  | .imul dst src1 src2 => do
+    let (a, s) ← src1.interp s p
+    let (b, s) ← src2.interp s p
     let v := a * b
-    s.set (match (generalizing := false) (motive := Option (RegOrMem w) → RegOrMem w)
-             dst with | .some dst => dst | _ => src1) v p (fun s =>
+    let s ← s.set (match (generalizing := false) (motive := Option (RegOrMem w) → RegOrMem w)
+             dst with | .some dst => dst | _ => src1) v p
     let cf := v.signed != a.signed * b.signed
-    undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
-    next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))))
+    let sf : Bool ← Effects.undef
+    let zf : Bool ← Effects.undef
+    let af : Bool ← Effects.undef
+    let pf : Bool ← Effects.undef
+    pure ({ s with status := { cf := cf, pf, af, zf, sf, of := cf }}, .next)
 -- Bitwise
-  | .test a b =>
-    a.interp s p (fun a s =>
-    b.interp s p (fun b s =>
+  | .test a b => do
+    let (a, s) ← a.interp s p
+    let (b, s) ← b.interp s p
     let v := a &&& b
-    undefined (fun af =>
-    let status := .from_result v { cf := false, af, of := false}
-    next { s with status})))
-  | .and dst src | .or dst src | .xor dst src =>
-    dst.interp s p (fun a s =>
-    src.interp s p (fun b s =>
+    let af : Bool ← Effects.undef
+    let status := StatusFlags.from_result v { cf := false, af, of := false}
+    pure ({ s with status}, .next)
+  | .and dst src | .or dst src | .xor dst src => do
+    let (a, s) ← dst.interp s p
+    let (b, s) ← src.interp s p
     let v := match i with | .and _ _ => a &&& b | .or _ _ => a ||| b | _ => a ^^^ b
-    undefined (fun af =>
-    let status := .from_result v { cf := false, of := false, af }
-    { s with status }.set dst v p next)))
-  | .not dst =>
-    dst.interp s p (fun a s =>
+    let af : Bool ← Effects.undef
+    let status := StatusFlags.from_result v { cf := false, of := false, af }
+    let s ← { s with status }.set dst v p
+    pure (s, .next)
+  | .not dst => do
+    let (a, s) ← dst.interp s p
     let v := ~~~a
-    s.set dst v p next)
-  | .shl dst count =>
-    dst.interp s p (fun a s =>
+    let s ← s.set dst v p
+    pure (s, .next)
+  | .shl dst count => do
+    let (a, s) ← dst.interp s p
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then pure (s, .next) else do
     let v := a <<< count
-    undefined (λ af =>
-    (λ setcf => if count < w.bits then setcf (a <<< (count-1)).msb else undefined setcf) (λ cf =>
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
-    { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
-  | .shr dst count =>
-    dst.interp s p (fun a s =>
+    let af : Bool ← Effects.undef
+    let cf : Bool ← if count < w.bits then pure (a <<< (count-1)).msb else Effects.undef
+    let of : Bool ← if count == 1 then pure (v.msb != a.msb) else Effects.undef
+    let s ← { s with status := .from_result v { s.status with cf, af, of } }.set dst v p
+    pure (s, .next)
+  | .shr dst count => do
+    let (a, s) ← dst.interp s p
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then pure (s, .next) else do
     let v := a.ushiftRight count
-    undefined (λ af =>
-    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
-    (λ setof => if count == 1 then setof a.msb else undefined setof) (λ of =>
-    { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
-  | .sar dst count =>
-    dst.interp s p (fun a s =>
+    let af : Bool ← Effects.undef
+    let cf : Bool ← if count < w.bits then pure (a.getLsbD (count-1)) else Effects.undef
+    let of : Bool ← if count == 1 then pure a.msb else Effects.undef
+    let s ← { s with status := .from_result v { s.status with cf, af, of } }.set dst v p
+    pure (s, .next)
+  | .sar dst count => do
+    let (a, s) ← dst.interp s p
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then pure (s, .next) else do
     let v := a.sshiftRight count
-    undefined (λ af =>
-    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
-    (λ setof => if count == 1 then setof false else undefined setof) (λ of =>
-    { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
-  | .shrd dst src count =>
-    dst.interp s p (fun a s =>
-    src.interp s p (fun b s =>
+    let af : Bool ← Effects.undef
+    let cf : Bool ← if count < w.bits then pure (a.getLsbD (count-1)) else Effects.undef
+    let of : Bool ← if count == 1 then pure false else Effects.undef
+    let s ← { s with status := .from_result v { s.status with cf, af, of } }.set dst v p
+    pure (s, .next)
+  | .shrd dst src count => do
+    let (a, s) ← dst.interp s p
+    let (b, s) ← src.interp s p
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then pure (s, .next) else do
     let v := (((b.append a) >>> count).take w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined setstatus else
-      let cf := a.getLsbD (count-1)
-      undefined (λ af =>
-      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
-      setstatus (.from_result v { cf, af, of})))) (λ status =>
-    { s with status }.set dst v p next)))
-  | .shld dst src count =>
-    dst.interp s p (fun a s =>
-    src.interp s p (fun b s =>
+    let status : StatusFlags ←
+      if count >= w.bits then Effects.undef else do
+        let cf := a.getLsbD (count-1)
+        let af : Bool ← Effects.undef
+        let of : Bool ← if count == 1 then pure (v.msb != a.msb) else Effects.undef
+        pure (.from_result v { cf, af, of})
+    let s ← { s with status }.set dst v p
+    pure (s, .next)
+  | .shld dst src count => do
+    let (a, s) ← dst.interp s p
+    let (b, s) ← src.interp s p
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then pure (s, .next) else do
     let v := (((a.append b) <<< count).drop w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined setstatus else
-      let cf := (a <<< (count-1)).msb
-      undefined (λ af =>
-      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
-      setstatus (.from_result v { cf, af, of})))) (λ status =>
-    { s with status }.set dst v p next)))
-  | .rol dst count =>
-    dst.interp s p (fun a s =>
+    let status : StatusFlags ←
+      if count >= w.bits then Effects.undef else do
+        let cf := (a <<< (count-1)).msb
+        let af : Bool ← Effects.undef
+        let of : Bool ← if count == 1 then pure (v.msb != a.msb) else Effects.undef
+        pure (.from_result v { cf, af, of})
+    let s ← { s with status }.set dst v p
+    pure (s, .next)
+  | .rol dst count => do
+    let (a, s) ← dst.interp s p
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then pure (s, .next) else do
     let v := a.rotateLeft count
     let cf := v.getLsbD 0
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
-    { s with status := { s.status with cf, of } }.set dst v p next))
-  | .ror dst count =>
-    dst.interp s p (fun a s =>
+    let of : Bool ← if count == 1 then pure (v.msb != a.msb) else Effects.undef
+    let s ← { s with status := { s.status with cf, of } }.set dst v p
+    pure (s, .next)
+  | .ror dst count => do
+    let (a, s) ← dst.interp s p
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then pure (s, .next) else do
     let v := a.rotateRight count
     let cf := v.msb
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
-    { s with status := { s.status with cf, of } }.set dst v p next))
-  | .rcr dst count =>
-    dst.interp s p (fun a s =>
+    let of : Bool ← if count == 1 then pure (v.msb != a.msb) else Effects.undef
+    let s ← { s with status := { s.status with cf, of } }.set dst v p
+    pure (s, .next)
+  | .rcr dst count => do
+    let (a, s) ← dst.interp s p
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then pure (s, .next) else do
     let t := (BitVec.ofBool s.status.cf ++ a).rotateRight count
     let (cf, v) := (t.msb, t.take w.bits)
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
-    { s with status := { s.status with cf, of } }.set dst v p next))
-  | .rcl dst count =>
-    dst.interp s p (fun a s =>
+    let of : Bool ← if count == 1 then pure (v.msb != a.msb) else Effects.undef
+    let s ← { s with status := { s.status with cf, of } }.set dst v p
+    pure (s, .next)
+  | .rcl dst count => do
+    let (a, s) ← dst.interp s p
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then pure (s, .next) else do
     let t := (BitVec.ofBool s.status.cf ++ a).rotateLeft count
     let (cf, v) := (t.msb, t.take w.bits)
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
-    { s with status := { s.status with cf, of } }.set dst v p next))
+    let of : Bool ← if count == 1 then pure (v.msb != a.msb) else Effects.undef
+    let s ← { s with status := { s.status with cf, of } }.set dst v p
+    pure (s, .next)
   | .bswap dst =>
     let a := s.regs.get dst
-    match (generalizing := false) (motive := Width → Effects) w with
+    match (generalizing := false) (motive := Width → Effects (MachineData × Ctrl)) w with
     | .W32 =>
       let v := a.take 8 ++ a.extractLsb' 8 8 ++ a.extractLsb' 16 8 ++ a.drop 24
-      next (s.setReg dst (v.setWidth _))
+      .done (s.setReg dst (v.setWidth _), .next)
     | .W64 =>
       let v := a.take 8 ++ a.extractLsb' 8 8 ++ a.extractLsb' 16 8 ++ a.extractLsb' 24 8
             ++ a.extractLsb' 32 8 ++ a.extractLsb' 40 8 ++ a.extractLsb' 48 8 ++ a.drop 56
-      next (s.setReg dst (v.setWidth _))
-    | _ => undefined (fun v => next (s.setReg dst v))
+      .done (s.setReg dst (v.setWidth _), .next)
+    | _ => do
+      let v ← Effects.undef
+      pure (s.setReg dst v, .next)
   | .jcc cc l =>
     if cc.interp s.status
-    then jmp (label l) s
-    else next s
-  | .jmp tgt =>
-    tgt.interp s p (fun a s =>
-    jmp (.ofBitVec a) s)
-  | .call tgt =>
-    tgt.interp s p (fun a s =>
+    then .done (s, .jmp (label l))
+    else .done (s, .next)
+  | .jmp tgt => do
+    let (a, s) ← tgt.interp s p
+    pure (s, .jmp (.ofBitVec a))
+  | .call tgt => do
+    let (a, s) ← tgt.interp s p
     let rsp := s.regs.get64 .rsp - Width.W64.bytesv
-    { s with regs := s.regs.set64 .rsp rsp }.store rsp (w:=.W64) p.upper.toBitVec (jmp (.ofBitVec a)))
-  | .ret =>
+    let s ← { s with regs := s.regs.set64 .rsp rsp }.store rsp (w:=.W64) p.upper.toBitVec
+    pure (s, .jmp (.ofBitVec a))
+  | .ret => do
     let rsp := s.regs.get64 .rsp
-    s.load rsp .W64 (fun ra s =>
-    jmp (.ofBitVec ra) { s with regs := s.regs.set64 .rsp (rsp + 8) })
-  | nop _ | nopalign _ _ => next s
+    let (ra, s) ← s.load rsp .W64
+    pure ({ s with regs := s.regs.set64 .rsp (rsp + 8) }, .jmp (.ofBitVec ra))
+  | nop _ | nopalign _ _ => .done (s, .next)
 
 -- AVX Operations Interpreter
 def AvxOperation.interp [Labels] [address_size : AddressSize]
-  {w} (i : AvxOperation w) (p : Std.Rco Int64) (s : MachineData)
-  (next : MachineData → Effects) : Effects :=
+  {w} (i : AvxOperation w) (p : Std.Rco Int64) (s : MachineData) : Effects (MachineData × Ctrl) :=
 match i with
-  | .movups dst src => src.interp s p (fun val s => s.setAvxLegacy dst val p next)
-  | .vmovups dst src => src.interp s p (fun val s => s.setAvx dst val p next)
-  | .movaps dst src =>
-    src.interp s p (checkAlign := true)
-      (fun val s => s.setAvxLegacy dst val p (checkAlign := true) next)
+  | .movups dst src => do
+    let (val, s) ← src.interp s p
+    let s ← s.setAvxLegacy dst val p
+    pure (s, .next)
+  | .vmovups dst src => do
+    let (val, s) ← src.interp s p
+    let s ← s.setAvx dst val p
+    pure (s, .next)
+  | .movaps dst src => do
+    let (val, s) ← src.interp s p (checkAlign := true)
+    let s ← s.setAvxLegacy dst val p (checkAlign := true)
+    pure (s, .next)
   -- TODO: MXCSR
-  | .subps dst src =>
-    src.interp s p (checkAlign := true) (fun a s =>
-    dst.interp s p (fun b s =>
-      let v := BitVec.packedBinOp 32 (fun dst_chunk src_chunk =>
-        let f_dst := BitVec.toFloat32 dst_chunk
-        let f_src := BitVec.toFloat32 src_chunk
-        Float32.toBitVec (f_dst - f_src)
-      ) b a
-      s.setAvxLegacy dst v p next))
-  | .addps dst src =>
-    src.interp s p (checkAlign := true) (fun a s =>
-    dst.interp s p (fun b s =>
-      let v := BitVec.packedBinOp 32 (fun dst_chunk src_chunk =>
-        let f_dst := BitVec.toFloat32 dst_chunk
-        let f_src := BitVec.toFloat32 src_chunk
-        Float32.toBitVec (f_dst + f_src)
-      ) b a
-      s.setAvxLegacy dst v p next))
+  | .subps dst src => do
+    let (a, s) ← src.interp s p (checkAlign := true)
+    let (b, s) ← dst.interp s p
+    let v := BitVec.packedBinOp 32 (fun dst_chunk src_chunk =>
+      let f_dst := BitVec.toFloat32 dst_chunk
+      let f_src := BitVec.toFloat32 src_chunk
+      Float32.toBitVec (f_dst - f_src)
+    ) b a
+    let s ← s.setAvxLegacy dst v p
+    pure (s, .next)
+  | .addps dst src => do
+    let (a, s) ← src.interp s p (checkAlign := true)
+    let (b, s) ← dst.interp s p
+    let v := BitVec.packedBinOp 32 (fun dst_chunk src_chunk =>
+      let f_dst := BitVec.toFloat32 dst_chunk
+      let f_src := BitVec.toFloat32 src_chunk
+      Float32.toBitVec (f_dst + f_src)
+    ) b a
+    let s ← s.setAvxLegacy dst v p
+    pure (s, .next)
 
-@[kstep]
-def Instr.interp [Labels]
-  (i : Instr) (s : MachineData) (p : Std.Rco Int64)
-  (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
+@[kstep] def Instr.interp [Labels]
+  (i : Instr) (s : MachineData) (p : Std.Rco Int64) : Effects (MachineData × Ctrl) :=
   require_exec_access p (fun _unit =>
     match i with
       | .regular addr_sz op_sz op =>
-          Operation.interp (w := op_sz) (address_size := .mk addr_sz) op p s next jmp
+          Operation.interp (w := op_sz) (address_size := .mk addr_sz) op p s
       | .avx addr_sz op_sz op =>
-          AvxOperation.interp (w := op_sz) (address_size := .mk addr_sz) op p s next
+          AvxOperation.interp (w := op_sz) (address_size := .mk addr_sz) op p s
   )
 
 @[kstep] def Directive.interp [Labels]
-  (d : Directive) (s : MachineData) (p : Std.Rco Int64)
-  (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
+  (d : Directive) (s : MachineData) (p : Std.Rco Int64) : Effects (MachineData × Ctrl) :=
   match d with
-  | .label _ => next s
-  | .instr i => i.interp s p next jmp
+  | .label _ => .done (s, .next)
+  | .instr i => i.interp s p
   | .byteArray _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
 
+/-- How control leaves a list of directives. -/
+inductive BlockExit : Type
+  | fallthrough (next : Int64)
+  | jump (target : Int64)
+  deriving Repr, BEq, DecidableEq
+
+/-- The program counter after the exit, forgetting how control got there. -/
+@[kstep] def BlockExit.pc : BlockExit → Int64
+  | .fallthrough next => next
+  | .jump target => target
+
+/-- Run directives in order until the list ends or an instruction jumps. -/
 def Directives.interp [Labels]
-  (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
-  (ret : Int64 → MachineData → Effects) : Effects :=
+  (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64) : Effects (MachineData × BlockExit) :=
   match ds with
-  | [] => ret pc s
-  | (d, sz) :: ds =>
-    d.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
-    interp ds s (pc+.ofNat sz) ret))
+  | [] => .done (s, .fallthrough pc)
+  | (d, sz) :: ds => do
+    let (s, c) ← d.interp s (.mk pc (pc+.ofNat sz))
+    match c with
+    | .next => interp ds s (pc+.ofNat sz)
+    | .jmp target => pure (s, .jump target)
 
 abbrev Layout := Kraken.Layout Directive
 
@@ -792,13 +904,29 @@ def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directiv
 
 abbrev MachineState := MachineData × Int64
 
-def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
-  let := Executable.labels e
-  Directives.interp (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
+/-- Execute one positive-sized instruction, together with any leading
+zero-sized directives, passing the state and block exit to the continuation.
+The block is delimited by the size table (`takeBlock`); on a layout whose
+sizes wrap modulo 2^64 this can be a proper prefix of the directives whose
+assigned address equals the pc. -/
+def Executable.stepWithExit {α : Type} (e : Executable) (s : MachineState)
+    (ret : MachineData → BlockExit → Effects α) : Effects α :=
+  let := e.labels
+  (Directives.interp (Kraken.Directives.takeBlock (e.directivesFromAddress s.2)) s.1 s.2).bind
+    fun (s', ex) => ret s' ex
 
-def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
-  let := Executable.labels e
-  Directives.interp (e.directivesFromAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
+def Executable.step {α : Type} (e : Executable) (s : MachineState)
+    (ret : MachineState → Effects α) : Effects α :=
+  e.stepWithExit s (fun s' ex => ret (s', ex.pc))
+
+/-- Run from the current address to the first taken jump or the end of the
+listing. Built on the same core as `step`; the continuation sees only the
+exit's program counter. -/
+def Executable.straightline {α : Type} (e : Executable) (s : MachineState)
+    (ret : MachineState → Effects α) : Effects α :=
+  let := e.labels
+  (Directives.interp (e.directivesFromAddress s.2) s.1 s.2).bind
+    fun (s', ex) => ret (s', ex.pc)
 
 -- -- Concrete evaluators for expedient testing
 
@@ -815,7 +943,7 @@ where
     | .require_exec_access _ ok => handleEffects (ok ())
     | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
-    | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
+    | @Effects.undefined _ _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
 
 def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
   match d with
