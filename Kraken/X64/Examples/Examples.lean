@@ -253,32 +253,22 @@ theorem p3_len : ((layout p3).2).length = 10 := by
 theorem p3_fst : (layout p3).1 = layout.start := rfl
 
 theorem p3_raddr2 : raddr layout.start ((layout p3).2) 2 = paddr 2 := by
-  simp only [Kraken.Layout.apply, p3, List.mapIdx_cons, List.mapIdx_nil]
-  simp [raddr, paddr]
+  simp [Kraken.Layout.apply, p3, raddr, paddr, List.mapIdx_cons, List.mapIdx_nil]
 
 theorem p3_raddr8 : raddr layout.start ((layout p3).2) 8 = paddr 8 := by
-  simp only [Kraken.Layout.apply, p3, List.mapIdx_cons, List.mapIdx_nil]
-  simp [raddr, paddr]
+  simp [Kraken.Layout.apply, p3, raddr, paddr, List.mapIdx_cons, List.mapIdx_nil]
 
 theorem p3_raddr_lt2 (i : Nat) (hi : i < 2) :
     raddr layout.start ((layout p3).2) i = paddr i := by
   simp only [Kraken.Layout.apply, p3, List.mapIdx_cons, List.mapIdx_nil]
   match i, hi with
-  | 0, _ => simp [raddr, paddr]
-  | 1, _ => simp [raddr, paddr]
+  | 0, _ | 1, _ => simp [raddr, paddr]
 
 theorem p3_raddr_lt8 (i : Nat) (hi : i < 8) :
     raddr layout.start ((layout p3).2) i = paddr i := by
   simp only [Kraken.Layout.apply, p3, List.mapIdx_cons, List.mapIdx_nil]
   match i, hi with
-  | 0, _ => simp [raddr, paddr]
-  | 1, _ => simp [raddr, paddr]
-  | 2, _ => simp [raddr, paddr]
-  | 3, _ => simp [raddr, paddr]
-  | 4, _ => simp [raddr, paddr]
-  | 5, _ => simp [raddr, paddr]
-  | 6, _ => simp [raddr, paddr]
-  | 7, _ => simp [raddr, paddr]
+  | 0, _ | 1, _ | 2, _ | 3, _ | 4, _ | 5, _ | 6, _ | 7, _ => simp [raddr, paddr]
 
 /-- The layout places p3's directives so that the two jump targets are unambiguous. -/
 structure SaneP3Layout : Prop where
@@ -339,11 +329,7 @@ theorem jmp_back_plain (X : Int64) : X + ((paddr 2 : Int64) - X) = paddr 2 := by
 
 theorem jmp_back (X : Int64) :
     Int64.ofBitVec ((X + ((paddr 2 : Int64) - X)).toBitVec) = (paddr 2 : Int64) := by
-  have h : X + ((paddr 2 : Int64) - X) = paddr 2 := by
-    apply Int64.toBitVec_inj.mp
-    simp [Int64.toBitVec_add, Int64.toBitVec_sub]
-    rw [BitVec.add_comm, BitVec.sub_add_cancel]
-  rw [h]; rfl
+  simp [jmp_back_plain]
 
 
 -- Gauge: the head block with rbx = 0 falls through to _end, registers intact.
@@ -406,8 +392,8 @@ theorem step_head_nz (h : SaneP3Layout (layout := layout)) (s : MachineData)
     sym =>
     kstep
     tactic =>
-    simp [Effects.bind_eq, Effects.pure_eq, Effects.bind, Effects.All,
-      RelRegOrMem.interp, ConstExpr.interp, p3_label_start', jmp_back, jmp_back_plain]
+    simp [Effects.pure_eq, Effects.bind, Effects.All,
+      RelRegOrMem.interp, ConstExpr.interp, p3_label_start', jmp_back_plain]
     refine hQ _ _ _ _ ?_ ?_ ?_
     · show BitVec.ofInt 64 _ = _
       congr 1
@@ -485,8 +471,8 @@ theorem step_init_nz (s : MachineData) (hnz : s.regs.rbx ≠ 0) (Q : @Post Machi
     sym =>
     kstep
     tactic =>
-    simp [Effects.bind_eq, Effects.pure_eq, Effects.bind, Effects.All,
-      RelRegOrMem.interp, ConstExpr.interp, p3_label_start', jmp_back, jmp_back_plain]
+    simp [Effects.pure_eq, Effects.bind, Effects.All,
+      RelRegOrMem.interp, ConstExpr.interp, p3_label_start', jmp_back_plain]
     refine hQ _ _ _ _ ?_ ?_ ?_
     · show BitVec.ofInt 64 _ = _
       decide
@@ -500,17 +486,12 @@ theorem step_init_nz (s : MachineData) (hnz : s.regs.rbx ≠ 0) (Q : @Post Machi
 
 -- Arithmetic helpers for the mulx bound.
 theorem ofInt_toNat_of_lt (m : Nat) (hm : m < 2^64) :
-    (BitVec.ofInt 64 (m : Int)).toNat = m := by
-  simp [BitVec.toNat_ofInt]
-  omega
+    (BitVec.ofInt 64 (m : Int)).toNat = m := by simp; omega
 
 theorem ofInt_shift_of_lt (m : Nat) (hm : m < 2^64) :
     (BitVec.ofInt 64 ((m : Int) >>> 64)) = 0#64 := by
-  have : ((m : Int) >>> 64) = 0 := by
-    rw [Int.shiftRight_eq_div_pow]
-    omega
-  rw [this]
-  rfl
+  have : ((m : Int) >>> 64) = 0 := by rw [Int.shiftRight_eq_div_pow]; omega
+  simp [this]
 
 
 
@@ -544,8 +525,7 @@ theorem inv_zero_post (h : SaneP3Layout (layout := layout)) (n : Nat)
 theorem uint64_sub_one_toNat (x : UInt64) (hx : x.toNat ≠ 0) :
     (x - 1).toNat = x.toNat - 1 := by
   have h1 : x.toNat < 2^64 := x.toNat_lt_size
-  have h2 : UInt64.toNat 1 = 1 := rfl
-  simp only [UInt64.toNat_sub, h2]
+  simp only [UInt64.toNat_sub, show UInt64.toNat 1 = 1 from rfl]
   omega
 
 set_option maxHeartbeats 4000000 in
@@ -648,18 +628,10 @@ theorem L1_sane : SaneP3Layout (layout := L1) := by
   constructor
   · intro i hi
     match i, hi with
-    | 0, _ => decide
-    | 1, _ => decide
+    | 0, _ | 1, _ => decide
   · intro i hi
     match i, hi with
-    | 0, _ => decide
-    | 1, _ => decide
-    | 2, _ => decide
-    | 3, _ => decide
-    | 4, _ => decide
-    | 5, _ => decide
-    | 6, _ => decide
-    | 7, _ => decide
+    | 0, _ | 1, _ | 2, _ | 3, _ | 4, _ | 5, _ | 6, _ | 7, _ => decide
 
 /-- ...and it really applies to a nontrivial state: `rbx = 3`, so the program
 must compute `rdx = 2^(2^3) = 256`. -/

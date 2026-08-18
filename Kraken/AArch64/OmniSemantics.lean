@@ -20,16 +20,7 @@ import Kraken.OmniSemantics
 /-- `All` is monotone in its postcondition. -/
 theorem Effects.All.imp {α : Type} {post₁ post₂ : α → Prop} {m : Effects α}
     (h : ∀ a, post₁ a → post₂ a) : m.All post₁ → m.All post₂ := by
-  induction m <;> simp only [Effects.All] <;> intro hall
-  case done a => exact h a hall
-  case unimplemented => exact hall
-  case unaligned_sp => exact hall
-  case nonmem_load => exact hall
-  case nonmem_store => exact hall
-  case undefined ret ih => exact fun v => ih v (hall v)
-  case require_read_access _ _ _ ih => exact ih () hall
-  case require_write_access _ _ _ ih => exact ih () hall
-  case require_exec_access _ _ ih => exact ih () hall
+  induction m <;> simp_all [Effects.All]
 
 /-- Universal interpretation turns effect sequencing into nested `All`. -/
 theorem Effects.all_bind {α β : Type} {m : Effects α} {k : α → Effects β}
@@ -40,16 +31,7 @@ theorem Effects.all_bind {α β : Type} {m : Effects α} {k : α → Effects β}
 /-- `Effects.exec` chooses one of the outcomes described by `Effects.All`. -/
 theorem Effects.exec_ok {α : Type} {post : α → Prop} {m : Effects α} {entropy : UInt64} {a : α}
     (hall : m.All post) (hexec : m.exec entropy = .ok a) : post a := by
-  induction m with
-  | done b => cases hexec; exact hall
-  | unimplemented _ => exact absurd hexec (by simp [Effects.exec])
-  | unaligned_sp _ => exact absurd hexec (by simp [Effects.exec])
-  | nonmem_load _ _ _ _ _ => exact absurd hexec (by simp [Effects.exec])
-  | nonmem_store _ _ _ _ _ => exact absurd hexec (by simp [Effects.exec])
-  | undefined ret ih => exact ih _ (hall _) hexec
-  | require_read_access _ _ _ ih => exact ih () hall hexec
-  | require_write_access _ _ _ ih => exact ih () hall hexec
-  | require_exec_access _ _ ih => exact ih () hall hexec
+  induction m <;> simp_all [Effects.All, Effects.exec] <;> grind
 
 /-- Appending directives extends only the fall-through path; a jump from the
 prefix bypasses the suffix. -/
@@ -171,12 +153,10 @@ theorem Executable.straightlineStep_cut [Layout] (e : Executable)
   unfold straightlineStep Executable.straightline
   dsimp only
   rw [key]
-  simp only [Effects.bind_eq, Effects.bind_assoc]
+  simp only [Effects.bind_assoc]
   rw [Effects.all_bind]
   refine Effects.All.imp (fun ⟨s', ex⟩ hex => ?_) h
-  cases ex with
-  | jump t => exact hex
-  | fallthrough pc' => exact hex
+  cases ex <;> exact hex
 
 /-- The fetched suffix at `pc` decomposes as the block at `pc` followed by the
 fetch at the block's fall-through address. This is the address-coherence fact
@@ -209,28 +189,10 @@ theorem Executable.straightline_eq_step {α : Type}
   rw [← h] at key
   simp only [Executable.straightline, Executable.stepWithExit]
   rw [key]
-  simp only [Effects.bind_eq, Effects.bind_assoc]
+  simp only [Effects.bind_assoc]
   congr 1
   funext ⟨s', ex⟩
   cases ex <;> rfl
-
-/-- A nonempty listing yields a nonempty block. -/
-private theorem takeBlock_ne_nil {Directive : Type} {ds : List (Directive × Nat)}
-    (h : ds ≠ []) : Kraken.Directives.takeBlock ds ≠ [] := by
-  cases ds with
-  | nil => exact absurd rfl h
-  | cons entry rest =>
-    by_cases hz : entry.2 = 0 <;>
-      simp [Kraken.Directives.takeBlock, hz]
-
-/-- A listing of zero-sized directives is one block. -/
-private theorem takeBlock_of_all_zero {Directive : Type} :
-    ∀ {ds : List (Directive × Nat)}, (∀ d ∈ ds, d.2 = 0) →
-      Kraken.Directives.takeBlock ds = ds
-  | [], _ => rfl
-  | entry :: rest, h => by
-    simp [Kraken.Directives.takeBlock, h entry (List.mem_cons_self ..),
-      takeBlock_of_all_zero (fun d hd => h d (List.mem_cons_of_mem _ hd))]
 
 private theorem eventually_step1_of_straightlineStep_aux [Layout] (e : Executable)
     (hres : ∀ pc, e.ResolvesFallthroughAt pc ∨
@@ -266,7 +228,7 @@ private theorem eventually_step1_of_straightlineStep_aux [Layout] (e : Executabl
         unfold straightlineStep at h
         simp only [Executable.straightline] at h
         simp only [step1, Executable.step, Executable.stepWithExit]
-        rw [takeBlock_of_all_zero hz]
+        rw [Kraken.Directives.takeBlock_of_all_zero hz]
         exact Effects.All.imp (fun mid hm => Eventually.done mid hm) h
       -- Peel one block; every fall-through lands at the static address, whose
       -- fetched suffix is strictly shorter by address coherence.
@@ -280,14 +242,9 @@ private theorem eventually_step1_of_straightlineStep_aux [Layout] (e : Executabl
           (Kraken.Directives.takeBlock (e.directivesFromAddress s.2)) s.2)).length ≤ n := by
         have hsplit := hA
         unfold Executable.ResolvesFallthroughAt at hsplit
-        have hblock : Kraken.Directives.takeBlock (e.directivesFromAddress s.2) ≠ [] :=
-          takeBlock_ne_nil hnil
         have hlens := congrArg List.length hsplit
         simp only [List.length_append] at hlens
-        have hpos : 0 < (Kraken.Directives.takeBlock (e.directivesFromAddress s.2)).length := by
-          cases hblk : Kraken.Directives.takeBlock (e.directivesFromAddress s.2) with
-          | nil => exact absurd hblk hblock
-          | cons a l => simp
+        have hpos := Kraken.Directives.takeBlock_length_pos hnil
         omega
       refine Effects.All.imp (fun ⟨s', ex⟩ hex => ?_) h
       cases ex with
@@ -316,10 +273,7 @@ attribute [ksimp] Effects.ite_bind
 
 theorem all_ite {α : Type} {c : Prop} [Decidable c] (Q : α → Prop) (a b : Effects α) :
     (c → Effects.All Q a) → (¬ c → Effects.All Q b) → Effects.All Q (if c then a else b) := by
-  intro ha hb
-  by_cases hc : c
-  · simp [hc]; exact ha hc
-  · simp [hc]; exact hb hc
+  by_cases hc : c <;> simp_all
 
 /-- Every address either fetches coherently (the block there is followed by
 the fetch at its fall-through address) or reaches only zero-sized directives,
@@ -338,11 +292,9 @@ instance (e : Executable) (pc : Int64) :
         (Kraken.Directives.takeBlock (e.directivesFromAddress pc)) pc)))
 
 private theorem dropWhile_ne_eq_nil {α : Type} (p : α → Bool) :
-    ∀ (l : List α), (∀ x ∈ l, p x = true) → l.dropWhile p = []
-  | [], _ => rfl
-  | x :: xs, h => by
-    simp only [List.dropWhile, h x (List.mem_cons_self ..)]
-    exact dropWhile_ne_eq_nil p xs (fun y hy => h y (List.mem_cons_of_mem _ hy))
+    ∀ (l : List α), (∀ x ∈ l, p x = true) → l.dropWhile p = [] := by
+  intro l h
+  induction l <;> simp_all [List.dropWhile]
 
 /-- At an address where nothing starts, the fetch is empty and coherence is
 trivial, so `Resolves` reduces to a check over the finitely many start
@@ -357,20 +309,13 @@ theorem Executable.resolves_of_members (e : Executable)
   · refine Or.inl ?_
     have hnil : e.directivesFromAddress pc = [] := by
       unfold Kraken.Executable.directivesFromAddress
-      have : e.withAddresses.dropWhile (·.1 ≠ pc) = [] := by
-        apply dropWhile_ne_eq_nil
-        intro x hx
-        simp only [ne_eq, decide_eq_true_eq]
-        intro heq
-        exact hmem (List.mem_map.mpr ⟨x, hx, heq⟩)
-      rw [this]
-      rfl
-    unfold Executable.ResolvesFallthroughAt
-    rw [hnil]
-    show ([] : List (Directive × Nat)) = [] ++ e.directivesFromAddress
-        (Kraken.Directives.fallthroughPC [] pc)
-    have : Kraken.Directives.fallthroughPC ([] : List (Directive × Nat)) pc = pc := rfl
-    rw [this, List.nil_append, hnil]
+      rw [dropWhile_ne_eq_nil]
+      · rfl
+      · intro x hx
+        simpa only [ne_eq, decide_eq_true_eq] using
+          fun heq => hmem (List.mem_map.mpr ⟨x, hx, heq⟩)
+    simp [Executable.ResolvesFallthroughAt, hnil, Kraken.Directives.takeBlock,
+      Kraken.Directives.fallthroughPC]
 
 /-- The Eventually-level transfer: a block-granular execution proof yields a
 single-step one on a coherently-laid-out executable. -/

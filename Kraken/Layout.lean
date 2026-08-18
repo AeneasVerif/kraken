@@ -87,13 +87,21 @@ def Directives.takeBlock {Directive : Type} : List (Directive × Nat) → List (
 were taken from. -/
 theorem Directives.takeBlock_prefix {Directive : Type} (ds : List (Directive × Nat)) :
     ∃ rest, ds = Directives.takeBlock ds ++ rest := by
-  induction ds with
-  | nil => exact ⟨[], rfl⟩
-  | cons entry rest ih =>
-    by_cases h : entry.2 = 0
-    · obtain ⟨tail, htail⟩ := ih
-      exact ⟨tail, by simp [Directives.takeBlock, h]; exact htail⟩
-    · exact ⟨rest, by simp [Directives.takeBlock, h]⟩
+  induction ds <;> simp_all [Directives.takeBlock] <;> split <;> simp_all
+
+/-- A nonempty listing yields a nonempty block. -/
+theorem Directives.takeBlock_ne_nil {Directive : Type} {ds : List (Directive × Nat)}
+    (h : ds ≠ []) : Directives.takeBlock ds ≠ [] := by
+  cases ds <;> simp_all [Directives.takeBlock] <;> split <;> simp_all
+
+/-- A listing of zero-sized directives is one block. -/
+theorem Directives.takeBlock_of_all_zero {Directive : Type} {ds : List (Directive × Nat)}
+    (h : ∀ d ∈ ds, d.2 = 0) : Directives.takeBlock ds = ds := by
+  induction ds <;> simp_all [Directives.takeBlock]
+
+theorem Directives.takeBlock_length_pos {Directive : Type} {ds : List (Directive × Nat)}
+    (h : ds ≠ []) : 0 < (Directives.takeBlock ds).length :=
+  Nat.pos_iff_ne_zero.mpr (by simpa using Directives.takeBlock_ne_nil h)
 
 /-- Advance `pc` across a sequence of laid-out directives. -/
 def Directives.fallthroughPC {Directive : Type} (ds : List (Directive × Nat)) (pc : Int64) : Int64 :=
