@@ -6,6 +6,43 @@ instance : Coe UInt16 (BitVec 16) := ⟨UInt16.toBitVec⟩
 instance : Coe UInt32 (BitVec 32) := ⟨UInt32.toBitVec⟩
 instance : Coe UInt64 (BitVec 64) := ⟨UInt64.toBitVec⟩
 
+def BitVec.toBytes {w} (n : Nat) (v : BitVec w) : List UInt8 :=
+  match n with
+  | 0 => []
+  | n' + 1 => UInt8.ofBitVec (v.setWidth 8) :: BitVec.toBytes n' (v >>> 8)
+
+def BitVec.ofBytes (w : Nat) (bs : List UInt8) : BitVec w :=
+  match bs with
+  | [] => 0#w
+  | b :: bs' => (BitVec.ofBytes w bs' <<< 8) ||| b.toBitVec.setWidth w
+
+@[simp] theorem BitVec.toBytes_length {w} (n : Nat) (v : BitVec w) :
+    (BitVec.toBytes n v).length = n := by
+  induction n generalizing v <;> simp [BitVec.toBytes, *]
+
+theorem BitVec.getLsbD_ofBytes_toBytes {w} (n : Nat) (v : BitVec w) (i : Nat) :
+    (BitVec.ofBytes w (BitVec.toBytes n v)).getLsbD i = (decide (i < 8 * n) && v.getLsbD i) := by
+  induction n generalizing v i with
+  | zero => simp [BitVec.toBytes, BitVec.ofBytes]
+  | succ n ih =>
+    simp only [BitVec.toBytes, BitVec.ofBytes, BitVec.getLsbD_or, BitVec.getLsbD_shiftLeft,
+      BitVec.getLsbD_setWidth, ih, BitVec.getLsbD_ushiftRight]
+    by_cases hw : i < w
+    · by_cases h : i < 8
+      · simp [h, hw, show i < 8 * (n + 1) by omega]
+      · simp [h, hw, show 8 + (i - 8) = i by omega, show (i - 8 < 8 * n) = (i < 8 * (n + 1)) by
+          simp; omega]
+    · rw [BitVec.getLsbD_of_ge v i (by omega)]
+      by_cases h : i < 8 <;>
+        simp [h, hw, BitVec.getLsbD_of_ge v (8 + (i - 8)) (by omega)]
+
+@[simp] theorem BitVec.ofBytes_toBytes (w n : Nat) (h : w = 8 * n) (v : BitVec w) :
+    BitVec.ofBytes w (BitVec.toBytes n v) = v := by
+  rw [BitVec.eq_of_getLsbD_eq_iff]
+  intro i hi
+  rw [BitVec.getLsbD_ofBytes_toBytes]
+  simp [show i < 8 * n by omega]
+
 def Int.ofBytes (bs : List UInt8) : Int :=
   bs.foldr (fun b acc => acc * 256 + b.toNat) 0
 
@@ -102,7 +139,7 @@ private theorem pow_256_eq_pow_2 (n : Nat) (w : Nat) (h : w = 8 * n) : (256 : In
 
 theorem BitVec.ofInt_ofBytes_toBytes (w : Nat) (n : Nat) (h_wn : w = 8 * n) (val : BitVec w) :
     BitVec.ofInt w (Int.ofBytes (Int.toBytes n val.toInt)) = val := by
-  rw [ofBytes_toBytes, show 8 * n = w from h_wn.symm, Int.take, BitVec.ofInt_emod_self]
+  rw [_root_.ofBytes_toBytes, show 8 * n = w from h_wn.symm, Int.take, BitVec.ofInt_emod_self]
   exact BitVec.ofInt_toInt
 
 theorem Int.ofBytes_ge_zero (bs : List UInt8) : 0 <= Int.ofBytes bs := by
@@ -352,3 +389,30 @@ theorem UInt64.ofBytes_toBytes (val : UInt64) : UInt64.ofBytes val.toBytes = val
 
 theorem UInt64.toBytes_ofBytes (bs : List UInt8) (h : 8 ≤ bs.length) : (UInt64.ofBytes bs).toBytes = bs.take 8 := by
   exact BitVec.toBytes_ofBytes 64 8 rfl bs h
+
+theorem BitVec.ofBytes_eq_ofInt_ofBytes (w : Nat) (bs : List UInt8) :
+    BitVec.ofBytes w bs = BitVec.ofInt w (Int.ofBytes bs) := by
+  induction bs with
+  | nil => simp [BitVec.ofBytes, Int.ofBytes]
+  | cons b bs ih =>
+    rw [BitVec.ofBytes, ih, Int.ofBytes_cons, BitVec.ofInt_add, BitVec.ofInt_mul]
+    have hb : (BitVec.ofInt w (b.toNat : Int)) = b.toBitVec.setWidth w := by
+      apply BitVec.eq_of_toNat_eq
+      simp [BitVec.toNat_setWidth]
+    rw [hb]
+    have hshift : BitVec.ofInt w (Int.ofBytes bs) * BitVec.ofInt w 256
+        = BitVec.ofInt w (Int.ofBytes bs) <<< 8 := by
+      rw [BitVec.shiftLeft_eq_mul_twoPow]
+      congr 1
+      apply BitVec.eq_of_toNat_eq
+      simp
+    rw [hshift]
+    -- the low 8 bits of the shifted value are zero, so `+` and `|||` agree
+    rw [BitVec.add_eq_or_of_and_eq_zero]
+    apply BitVec.eq_of_getLsbD_eq
+    intro i
+    simp only [BitVec.getLsbD_and, BitVec.getLsbD_shiftLeft, BitVec.getLsbD_setWidth,
+      BitVec.getLsbD_zero]
+    by_cases h : (i : Nat) < 8
+    · simp [h]
+    · simp [h, BitVec.getLsbD_of_ge b.toBitVec i (by omega)]

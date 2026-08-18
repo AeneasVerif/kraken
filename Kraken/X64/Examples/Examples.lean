@@ -263,12 +263,12 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   apply step_cps
   kprologue p6 with s₀
   have h_bs : stack.length = 8 := h_len
-  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
+  have h_mem1 := Mem.storeBV_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec
   sym =>
   kstep
   tactic =>
   apply Eventually.done
-  rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
+  rw [BitVec.ofBytes_toBytes 64 8 rfl]
   bv_decide
 
 -- def bigp := parseFile("./ecc-secp521r1-modp.S")
@@ -322,11 +322,11 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
 
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
   have h_bs2 : v2.toBytes.length = 8 := UInt64.toBytes_length v2
-  have h_mem1 := Mem.storeInt_sep rdi.toBitVec 8 v1.toBytes (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ R) mem ⟨by ecancel, h_bs1⟩ rax.toBitVec.toInt
-  have h_mem1' : (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
-  have h_mem2 := Mem.storeInt_sep (rdi.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ rcx.toBitVec.toInt
-  have h_mem2' : (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ (Eq ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
-  have h_mem2'' : (Eq ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
+  have h_mem1 := Mem.storeBV_sep rdi.toBitVec 8 v1.toBytes (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ R) mem ⟨by ecancel, h_bs1⟩ rax.toBitVec
+  have h_mem1' : (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ (Eq ((BitVec.toBytes 8 rax.toBitVec).At rdi) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
+  have h_mem2 := Mem.storeBV_sep (rdi.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ rcx.toBitVec
+  have h_mem2' : (Eq ((BitVec.toBytes 8 rax.toBitVec).At rdi) ⋆ (Eq ((BitVec.toBytes 8 rcx.toBitVec).At (rdi.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
+  have h_mem2'' : (Eq ((BitVec.toBytes 8 rcx.toBitVec).At (rdi.toBitVec + 8#64)) ⋆ (Eq ((BitVec.toBytes 8 rax.toBitVec).At rdi.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
   simp at h_mem
   sym =>
   -- TODO: these would be prime examples for cancellation!
@@ -347,7 +347,7 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   kstep
   tactic =>
   apply Eventually.done
-  rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
+  rw [BitVec.ofBytes_toBytes 64 8 rfl, BitVec.ofBytes_toBytes 64 8 rfl]
   exact ⟨rfl, rfl, rfl⟩
 
 def sib_example := parse("
@@ -357,11 +357,9 @@ def sib_example := parse("
     movq (%rdi, %r15, 8), %rax
 ")
 
--- FIXME: I had to replace `s₀.regs.r15.toBitVec * 8#64` with `BitVec.ofInt 64
--- (s₀.regs.r15.toBitVec.toInt * 8)` to make the example go through. Why?
 theorem sib_example_correct [layout : Layout] (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
-    (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdi.toBitVec + BitVec.ofInt 64 (s₀.regs.r15.toBitVec.toInt * 8))) ⋆ R) :
+    (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdi.toBitVec + s₀.regs.r15.toBitVec * 8#64)) ⋆ R) :
     Eventually (straightlineStep (layout sib_example))
       (fun s' => s'.1.regs.rax = 42)
       (s₀, layout.start) := by
@@ -369,7 +367,7 @@ theorem sib_example_correct [layout : Layout] (s₀ : MachineData)
   kprologue sib_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   simp at h_mem
-  have h_mem' := Mem.storeInt_sep (rdi.toBitVec + BitVec.ofInt 64 (r15.toBitVec.toInt * 8)) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
+  have h_mem' := Mem.storeBV_sep (rdi.toBitVec + r15.toBitVec * 8#64) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42#64
   sym =>
   kstep
   case h_mem => tactic => simp; exact h_mem
@@ -398,21 +396,19 @@ theorem alu_mem_example_correct [layout : Layout] (s₀ : MachineData)
   apply step_cps
   kprologue alu_mem_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
-  have h_mem1 := Mem.storeInt_sep (rdx.toBitVec + 136#64) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
+  have h_mem1 := Mem.storeBV_sep (rdx.toBitVec + 136#64) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42#64
   sym =>
   kstep
   case h_mem => tactic => simp; exact h_mem
   case h_len => exact h_bs
   kstep
   case h_mem => tactic => simp; exact h_mem1
-  case h_len => exact Int.toBytes_length 8 _
+  case h_len => exact BitVec.toBytes_length 8 _
   kstep
   tactic =>
   apply Eventually.done
-  dsimp [UInt64.toBitVec]
-  change (100 : UInt64) + { toBitVec := BitVec.ofInt 64 (Int.ofBytes (Int.toBytes 8 (42#64).toInt)) } = (142 : UInt64)
-  rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
-  rfl
+  simp (config := { zetaDelta := true }) only [BitVec.ofBytes_toBytes 64 8 rfl]
+  bv_decide
 
 def dynamic_stack_example := parse("
     movq $99, -8(%rsp)
@@ -457,8 +453,7 @@ theorem dynamic_stack_example_correct [layout : Layout] (s₀ : MachineData)
     bv_decide
   rw [h_addr_eq] at h_mem
   replace h_mem : (Eq ((stack.drop 1016).At (rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8))) ⋆ (Eq ((stack.take 1016).At (rsp.toBitVec - 1024#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem
-  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)) 8 (stack.drop 1016) (Eq ((stack.take 1016).At (rsp.toBitVec - 1024#64)) ⋆ R) mem ⟨h_mem, h_len_drop⟩ 99
-
+  have h_mem1 := Mem.storeBV_sep (rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)) 8 (stack.drop 1016) (Eq ((stack.take 1016).At (rsp.toBitVec - 1024#64)) ⋆ R) mem ⟨h_mem, h_len_drop⟩ 99#64
   sym =>
   kstep
   case h_mem => tactic => simp; exact h_mem

@@ -13,7 +13,7 @@ namespace Width
 @[kstep, simp, reducible] def bytes : Width → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8
 @[kstep] abbrev bytesv (w : Width) {n} : BitVec n := BitVec.ofNat n w.bytes
 @[kstep] abbrev type (w : Width) : Type := BitVec w.bits
-instance {w : Width} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
+instance {w : Width} : Coe Bool w.type where coe := fun b : Bool => (BitVec.ofBool b).setWidth _
 end Width
 
 unif_hint (w : Width) where
@@ -38,7 +38,7 @@ namespace AvxWidth
 @[simp, reducible] def bytes : AvxWidth → Nat | W128 => 16 | W256 => 32 | W512 => 64
 abbrev bytesv (w : AvxWidth) {n} : BitVec n := BitVec.ofNat n w.bytes
 abbrev type (w : AvxWidth) : Type := BitVec w.bits
-instance {w : AvxWidth} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
+instance {w : AvxWidth} : Coe Bool w.type where coe := fun b : Bool => (BitVec.ofBool b).setWidth _
 end AvxWidth
 
 unif_hint (w : AvxWidth) where

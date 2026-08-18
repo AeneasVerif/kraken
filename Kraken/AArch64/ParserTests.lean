@@ -1424,7 +1424,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.CCMP_reg (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 4 CondCode.EQ }] : List Directive
+        Operation.CCMP_reg (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (4#4) CondCode.EQ }] : List Directive
 -/
 #guard_msgs in
 #check parseAArch64("ccmp x0, x1, #4, eq")
@@ -1433,7 +1433,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.CCMP_imm (↑↑XReg.X0 RegWidth.W64) 10 2 CondCode.NE }] : List Directive
+      operation := Operation.CCMP_imm (↑↑XReg.X0 RegWidth.W64) 10 (2#4) CondCode.NE }] : List Directive
 -/
 #guard_msgs in
 #check parseAArch64("ccmp x0, #10, #2, ne")
@@ -1443,7 +1443,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
-        Operation.CCMN_reg (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 CondCode.EQ }] : List Directive
+        Operation.CCMN_reg (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (0#4) CondCode.EQ }] : List Directive
 -/
 #guard_msgs in
 #check parseAArch64("ccmn w0, w1, #0, eq")
@@ -1452,7 +1452,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.CCMN_imm (↑↑XReg.X0 RegWidth.W32) 1 0 CondCode.NE }] : List Directive
+      operation := Operation.CCMN_imm (↑↑XReg.X0 RegWidth.W32) 1 (0#4) CondCode.NE }] : List Directive
 -/
 #guard_msgs in
 #check parseAArch64("ccmn w0, #1, #0, ne")
@@ -1822,6 +1822,10 @@ section error_reporting
 #guard_msgs in
 #check parseAArch64("ccmp x0, x1, #16, eq")
 
+/-- error: line 1: nzcv immediate 31 out of range [0, 15] -/
+#guard_msgs in
+#check parseAArch64("ccmn x0, x1, #31, ne")
+
 /-- error: line 1: immediate 18446744073709551616 out of 64-bit range -/
 #guard_msgs in
 #check parseAArch64("mov x0, #0x10000000000000000")
@@ -1853,6 +1857,18 @@ section error_reporting
 /-- error: line 1: shift immediate 32 out of range [0, 31] -/
 #guard_msgs in
 #check parseAArch64("lsl w0, w1, #32")
+
+/-- error: line 1: shift amount 64 out of range [0, 63] for 64-bit instruction -/
+#guard_msgs in
+#check parseAArch64("orr x0, x1, x2, lsl #64")
+
+/-- error: line 1: shift amount 32 out of range [0, 31] for 32-bit instruction -/
+#guard_msgs in
+#check parseAArch64("orr w0, w1, w2, lsl #32")
+
+/-- error: line 1: shift amount -1 out of range [0, 63] for 64-bit instruction -/
+#guard_msgs in
+#check parseAArch64("orr x0, x1, x2, lsl #-1")
 
 --
 -- Memory Addressing, Offset Bounds & Alignment Errors

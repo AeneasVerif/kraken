@@ -21,8 +21,9 @@ abbrev Mem (w) := ExtHashMap (BitVec w) UInt8
 def Mem.loadBytes {w} (m : Mem w) (a : BitVec w) (n : Nat) : Option (List UInt8) :=
   ((List.range n).map (fun i => m.get? (a + .ofNat _ i))).allSome
 
-def Mem.loadInt {w} (m : Mem w) (a : BitVec w) (n : Nat) : Option Int :=
-  (loadBytes m a n).map Int.ofBytes
+/-- Read `n` bytes at `a` and assemble them into a `bits`-wide value. -/
+def Mem.loadBV {w} (m : Mem w) (a : BitVec w) (bits n : Nat) : Option (BitVec bits) :=
+  (loadBytes m a n).map (BitVec.ofBytes bits)
 
 
 -- JP: can't use the Mem abbreviation here because it resolves to List.Mem (the
@@ -33,8 +34,9 @@ def List.At {w} (bs : List UInt8) (a : BitVec w) : ExtHashMap (BitVec w) UInt8 :
 def Mem.storeBytes {w} (m : Mem w) (a : BitVec w) (bs : List UInt8) : Mem w :=
   m.union (bs.At a)
 
-def Mem.storeInt {w} (m : Mem w) (a : BitVec w) (n : Nat) (v : Int) : Mem w :=
-  storeBytes m a (Int.toBytes n v)
+/-- Write the low `n` bytes of `v` at `a`. -/
+def Mem.storeBV {w bits} (m : Mem w) (a : BitVec w) (n : Nat) (v : BitVec bits) : Mem w :=
+  storeBytes m a (BitVec.toBytes n v)
 
 
 def UInt64.At {w} (val : UInt64) (a : BitVec w) : Mem w :=

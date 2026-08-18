@@ -1,24 +1,10 @@
 import Kraken.AArch64.Syntax
 import Kraken.Attribute
+import Kraken.BitVec
+import Kraken.Flags
 import Kraken.Mem
 import Lean
 import Std
-
--- injective coercions only
-attribute [-instance] BitVec.instNatCast
-attribute [-instance] BitVec.instIntCast
-instance : Coe Bool Nat where coe := Bool.toNat
-
-@[kstep] def BitVec.unsigned {w} (x : BitVec w) : Int := x.toNat
-@[kstep] def BitVec.signed {w} (x : BitVec w) : Int := x.toInt
-@[kstep] def BitVec.take {w} (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
-@[kstep] def BitVec.drop {w} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
-
-attribute [kstep]
-  BitVec.ofInt_add
-  BitVec.ofInt_toInt
-  BitVec.signed
-  BitVec.truncate
 
 namespace RegOrSp
 @[kstep] def base {w} (r : RegOrSp w) : XRegOrSp := match r with
@@ -199,15 +185,15 @@ def MachineData.load
   (s : MachineData) (addr : BitVec 64) (w : MemWidth)
   (ret : w.type → MachineData → Effects): Effects :=
   require_read_access addr w (fun _unit =>
-    match Mem.loadInt s.dmem addr w.bytes with
-    | .some i => ret (.ofInt _ i) s
+    match Mem.loadBV s.dmem addr w.bits w.bytes with
+    | .some v => ret v s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
 
 def MachineData.store (s : MachineData) (addr : BitVec 64) {w : MemWidth} (v : w.type) (ret: MachineData → Effects) : Effects :=
   require_write_access addr w (fun _unit =>
-    match Mem.loadInt s.dmem addr w.bytes with
+    match Mem.loadBytes s.dmem addr w.bytes with
     | .some _ =>
-        ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
+        ret { s with dmem := Mem.storeBV s.dmem addr w.bytes v }
     | .none => nonmem_store s.dmem addr v (fun dmem' => ret { s with dmem := dmem' }))
 
 class Labels where label : Label → Int64
@@ -221,29 +207,29 @@ export Labels (label)
   | .add e1 e2, p => e1.interp p + e2.interp p
   | .sub e1 e2, p => e1.interp p - e2.interp p
   | .pg_hi21 e, p =>
-    let val := BitVec.ofInt 64 (Int64.toInt (e.interp p))
+    let val := (e.interp p).toBitVec
     let page := val &&& ~~~0xFFF#64
-    Int64.ofNat page.toNat
+    Int64.ofBitVec page
   | .lo12 e, p =>
-    let val := BitVec.ofInt 64 (Int64.toInt (e.interp p))
+    let val := (e.interp p).toBitVec
     let lo := val &&& 0xFFF#64
-    Int64.ofNat lo.toNat
+    Int64.ofBitVec lo
 
 def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64) : Int64 :=
   match target with
   | .int64 imm => p.lower + imm
   | _ => target.interp p
 
-@[kstep] def BitVec.apply_extend (v : BitVec 64) (ext : Extend) :=
+@[kstep] def BitVec.apply_extend (v : BitVec 64) (ext : Extend) : BitVec 64 :=
   let extended := match ext.type with
-               | .UXTB => (v.take MemWidth.W8.bits).unsigned
-               | .SXTB => (v.take MemWidth.W8.bits).signed
-               | .UXTH => (v.take MemWidth.W16.bits).unsigned
-               | .SXTH => (v.take MemWidth.W16.bits).signed
-               | .UXTW => (v.take MemWidth.W32.bits).unsigned
-               | .SXTW => (v.take MemWidth.W32.bits).signed
-               | .UXTX => v.unsigned
-               | .SXTX => v.signed
+               | .UXTB => (v.take MemWidth.W8.bits).setWidth 64
+               | .SXTB => (v.take MemWidth.W8.bits).signExtend 64
+               | .UXTH => (v.take MemWidth.W16.bits).setWidth 64
+               | .SXTH => (v.take MemWidth.W16.bits).signExtend 64
+               | .UXTW => (v.take MemWidth.W32.bits).setWidth 64
+               | .SXTW => (v.take MemWidth.W32.bits).signExtend 64
+               | .UXTX => v
+               | .SXTX => v
   let shifted := match ext.amount with
                  | .E0 => extended
                  | .E1 => extended <<< 1
@@ -252,12 +238,12 @@ def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64)
                  | .E4 => extended <<< 4
   shifted
 
-@[kstep] def BitVec.apply_mem_extend (v : BitVec 64) (ext : MemExtend) :=
+@[kstep] def BitVec.apply_mem_extend (v : BitVec 64) (ext : MemExtend) : BitVec 64 :=
   let extended := match ext.type with
-               | .UXTW => (v.take MemWidth.W32.bits).unsigned
-               | .SXTW => (v.take MemWidth.W32.bits).signed
-               | .UXTX => v.unsigned
-               | .SXTX => v.signed
+               | .UXTW => (v.take MemWidth.W32.bits).setWidth 64
+               | .SXTW => (v.take MemWidth.W32.bits).signExtend 64
+               | .UXTX => v
+               | .SXTX => v
   let shifted := match ext.amount with
                  | .E0 => extended
                  | .E1 => extended <<< 1
@@ -276,16 +262,16 @@ def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64)
 @[kstep] def ExtOrImmReg.interp [Labels] {w : RegWidth} (expr : ExtOrImmReg) (s : Reg64s) (p : Std.Rco Int64) : w.type :=
   match expr with
   | .ext e =>
-    BitVec.ofInt w.bits (e.interp s p)
+    (e.interp s p).setWidth w.bits
   | .imm i =>
-    let imm := Int64.toInt (i.imm.interp p)
+    let imm := (i.imm.interp p).toBitVec
     match i.shift with
-    | .S0 => BitVec.ofInt w.bits (imm)
-    | .S12 => BitVec.ofInt w.bits (imm <<< 12)
+    | .S0 => imm.setWidth w.bits
+    | .S12 => (imm <<< 12).setWidth w.bits
 
 @[kstep] def ShiftRegExpr.interp {w} (expr : ShiftRegExpr w) (s : Reg64s) (_ : Std.Rco Int64) : w.type :=
   let base := s.getRegOrZr expr.reg
-  let amount := (Int64.toInt expr.amount).toNat
+  let amount := expr.amount
   match expr.shift with
   | .LSL => base <<< amount
   | .LSR => base.ushiftRight amount
@@ -293,18 +279,18 @@ def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64)
   | .ROR => base.rotateRight amount
 
 @[kstep] def AddrExpr.eval [Labels] (mem : AddrExpr) (s : MachineData) (p : Std.Rco Int64) : BitVec 64 × MachineData :=
-  let base := (s.regs.getRegOrSp mem.base).signed
+  let base := s.regs.getRegOrSp mem.base
   match mem.off with
   | .reg r =>
     let off := r.interp s.regs p
-    (BitVec.ofInt 64 (base + off), s)
+    (base + off, s)
   | .imm i =>
-    let off := Int64.toInt (i.imm.interp p)
+    let off := (i.imm.interp p).toBitVec
     let addr := match i.index with
-      | some .Post => BitVec.ofInt 64 base
-      | _ => BitVec.ofInt 64 (base + off)
+      | some .Post => base
+      | _ => base + off
     let s' := match i.index with
-      | some _ => { s with regs := s.regs.setRegOrSp mem.base (BitVec.ofInt 64 (base + off)) }
+      | some _ => { s with regs := s.regs.setRegOrSp mem.base (base + off) }
       | none => s
     (addr, s')
 
@@ -330,9 +316,9 @@ def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64)
     s'.store addr (w := w) val next)
 
 @[kstep] def UnscaledAddrExpr.eval [Labels] (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) : BitVec 64 :=
-  let base := (s.regs.getRegOrSp mem.base).signed
-  let off := Int64.toInt (mem.imm.interp p)
-  BitVec.ofInt 64 (base + off)
+  let base := s.regs.getRegOrSp mem.base
+  let off := (mem.imm.interp p).toBitVec
+  base + off
 
 -- AArch64 mandates 16-byte alignment when accessing memory through SP.
 @[kstep] def UnscaledAddrExpr.checkSPAlignment (mem : UnscaledAddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
@@ -359,11 +345,11 @@ def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64)
   match expr with
   | .addr addr_expr => -- Load from address.
     let addr_val := Labels.label addr_expr.label
-    let addr := BitVec.ofInt 64 (Int64.toInt addr_val)
+    let addr := addr_val.toBitVec
     s.load addr w ret
   | .pool litpool_expr => -- Bypass loading and return value directly.
     let val := litpool_expr.expr.interp p
-    let val_bv : w.type := BitVec.ofInt w.bits (Int64.toInt val)
+    let val_bv : w.type := val.toBitVec.setWidth w.bits
     ret val_bv s
 
 @[kstep] def AddrOrLit.interpLoad [Labels] {w : MemWidth} (expr : AddrOrLit) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
@@ -402,25 +388,29 @@ structure StatusFlags.from_result.Remaining where
 
 @[kstep, simp] def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
   { n := result.msb
-    z := result == BitVec.zero _
+    z := result == 0#w -- bv_decide abstracts `BitVec.zero w` as an opaque variable
     c := f.c
     v := f.v }
 
 @[kstep, simp] def StatusFlags.adds {w} (res val1 val2 : BitVec w) : StatusFlags :=
   StatusFlags.from_result res {
-    c := res.unsigned != val1.unsigned + val2.unsigned
-    v := res.signed != val1.signed + val2.signed }
+    c := Kraken.Flags.addCarry val1 val2 false
+    v := Kraken.Flags.addOverflow val1 val2 false }
 
+-- For AArch64 the `C` flag of a subtraction is the complement of the borrow.
 @[kstep, simp] def StatusFlags.subs {w} (res val1 val2 : BitVec w) : StatusFlags :=
   StatusFlags.from_result res {
-    c := res.unsigned == val1.unsigned - val2.unsigned
-    v := res.signed != val1.signed - val2.signed }
+    c := !Kraken.Flags.subBorrow val1 val2 false
+    v := Kraken.Flags.subOverflow val1 val2 false }
 
-def StatusFlags.ofNat (nzcv : Nat) : StatusFlags :=
-  { n := (nzcv &&& 8) != 0
-    z := (nzcv &&& 4) != 0
-    c := (nzcv &&& 2) != 0
-    v := (nzcv &&& 1) != 0 }
+def StatusFlags.ofBitVec (nzcv : BitVec 4) : StatusFlags :=
+  { n := nzcv.getLsbD 3
+    z := nzcv.getLsbD 2
+    c := nzcv.getLsbD 1
+    v := nzcv.getLsbD 0 }
+
+def shiftAmount {w : RegWidth} (val : w.type) : w.type :=
+  val &&& BitVec.ofNat w.bits (w.bits - 1)
 
 @[kstep, simp] def maskOfLen {w : RegWidth} (len : Nat) : w.type :=
   if len >= w.bits then
@@ -593,10 +583,9 @@ set_option maxHeartbeats 1000000
     let val2 := s.regs.getRegOrZr src2
     let carry : w.type := s.status.c
     let res := val1 + val2 + carry
-    let carry_int : Int := if s.status.c then 1 else 0
     let status := StatusFlags.from_result res {
-      c := res.unsigned != val1.unsigned + val2.unsigned + carry_int
-      v := res.signed != val1.signed + val2.signed + carry_int }
+      c := Kraken.Flags.addCarry val1 val2 s.status.c
+      v := Kraken.Flags.addOverflow val1 val2 s.status.c }
     { s with status }.setRegOrZr dst res next
   | .SBC dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
@@ -609,10 +598,10 @@ set_option maxHeartbeats 1000000
     let val2 := s.regs.getRegOrZr src2
     let borrow : w.type := !s.status.c
     let res := val1 - val2 - borrow
-    let borrow_int : Int := if s.status.c then 0 else 1
+    -- For AArch64 the `C` flag is the complement of the borrow (see `subs`).
     let status := StatusFlags.from_result res {
-      c := val1.unsigned >= val2.unsigned + borrow_int
-      v := res.signed != val1.signed - val2.signed - borrow_int }
+      c := !Kraken.Flags.subBorrow val1 val2 (!s.status.c)
+      v := Kraken.Flags.subOverflow val1 val2 (!s.status.c) }
     { s with status }.setRegOrZr dst res next
   | .MADD dst src1 src2 src3 =>
     let val1 := s.regs.getRegOrZr src1
@@ -629,14 +618,14 @@ set_option maxHeartbeats 1000000
   | .SMULH dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
-    let prod := val1.signed * val2.signed
-    let res := (BitVec.ofInt (RegWidth.W64.bits + RegWidth.W64.bits) prod).extractLsb' RegWidth.W64.bits RegWidth.W64.bits
+    let prod := val1.signExtend 128 * val2.signExtend 128
+    let res := prod.extractLsb' RegWidth.W64.bits RegWidth.W64.bits
     s.setRegOrZr dst res next
   | .UMULH dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
-    let prod := val1.unsigned * val2.unsigned
-    let res := (BitVec.ofInt (RegWidth.W64.bits + RegWidth.W64.bits) prod).extractLsb' RegWidth.W64.bits RegWidth.W64.bits
+    let prod := val1.setWidth 128 * val2.setWidth 128
+    let res := prod.extractLsb' RegWidth.W64.bits RegWidth.W64.bits
     s.setRegOrZr dst res next
   | .SDIV dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
@@ -652,29 +641,29 @@ set_option maxHeartbeats 1000000
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
     let val3 := s.regs.getRegOrZr src3
-    let res := BitVec.ofInt RegWidth.W64.bits (val1.signed * val2.signed + val3.signed)
+    let res := val1.signExtend RegWidth.W64.bits * val2.signExtend RegWidth.W64.bits + val3
     s.setRegOrZr dst res next
   | .UMADDL dst src1 src2 src3 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
     let val3 := s.regs.getRegOrZr src3
-    let res := BitVec.ofInt RegWidth.W64.bits (val1.unsigned * val2.unsigned + val3.unsigned)
+    let res := val1.setWidth RegWidth.W64.bits * val2.setWidth RegWidth.W64.bits + val3
     s.setRegOrZr dst res next
   | .SMSUBL dst src1 src2 src3 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
     let val3 := s.regs.getRegOrZr src3
-    let res := BitVec.ofInt RegWidth.W64.bits (val3.signed - val1.signed * val2.signed)
+    let res := val3 - val1.signExtend RegWidth.W64.bits * val2.signExtend RegWidth.W64.bits
     s.setRegOrZr dst res next
   | .UMSUBL dst src1 src2 src3 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
     let val3 := s.regs.getRegOrZr src3
-    let res := BitVec.ofInt RegWidth.W64.bits (val3.unsigned - val1.unsigned * val2.unsigned)
+    let res := val3 - val1.setWidth RegWidth.W64.bits * val2.setWidth RegWidth.W64.bits
     s.setRegOrZr dst res next
   | .AND_i dst src1 imm =>
     let val1 := s.regs.getRegOrZr src1
-    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let val2 := (imm.interp p).toBitVec.setWidth w.bits
     let res := val1 &&& val2
     s.setRegOrSp dst res next
   | .AND_s dst src1 src2 =>
@@ -684,7 +673,7 @@ set_option maxHeartbeats 1000000
     s.setRegOrZr dst res next
   | .ANDS_i dst src1 imm =>
     let val1 := s.regs.getRegOrZr src1
-    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let val2 := (imm.interp p).toBitVec.setWidth w.bits
     let res := val1 &&& val2
     let flags := StatusFlags.from_result res { c := false, v := false }
     { s with status := flags }.setRegOrZr dst res next
@@ -696,7 +685,7 @@ set_option maxHeartbeats 1000000
     { s with status := flags }.setRegOrZr dst res next
   | .ORR_i dst src1 imm =>
     let val1 := s.regs.getRegOrZr src1
-    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let val2 := (imm.interp p).toBitVec.setWidth w.bits
     let res := val1 ||| val2
     s.setRegOrSp dst res next
   | .ORR_s dst src1 src2 =>
@@ -711,7 +700,7 @@ set_option maxHeartbeats 1000000
     s.setRegOrZr dst res next
   | .EOR_i dst src1 imm =>
     let val1 := s.regs.getRegOrZr src1
-    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let val2 := (imm.interp p).toBitVec.setWidth w.bits
     let res := val1 ^^^ val2
     s.setRegOrSp dst res next
   | .EOR_s dst src1 src2 =>
@@ -785,42 +774,38 @@ set_option maxHeartbeats 1000000
     let res := if lsb == 0 then val2 else (val1 <<< (w.bits - lsb)) ||| (val2 >>> lsb)
     s.setRegOrZr dst res next
   | .MOVZ dst imm shift =>
-    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& 0xFFFF#w.bits
+    let val16 := ((imm.interp p).toBitVec.setWidth w.bits) &&& 0xFFFF#w.bits
     let res := val16 <<< shift.toNat
     s.setRegOrZr dst res next
   | .MOVK dst imm shift =>
     let oldVal := s.regs.getRegOrZr dst
     let mask := ~~~(0xFFFF#w.bits <<< shift.toNat)
-    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& 0xFFFF#w.bits
+    let val16 := ((imm.interp p).toBitVec.setWidth w.bits) &&& 0xFFFF#w.bits
     let res := (oldVal &&& mask) ||| (val16 <<< shift.toNat)
     s.setRegOrZr dst res next
   | .MOVN dst imm shift =>
-    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& 0xFFFF#w.bits
+    let val16 := ((imm.interp p).toBitVec.setWidth w.bits) &&& 0xFFFF#w.bits
     let res := ~~~(val16 <<< shift.toNat)
     s.setRegOrZr dst res next
   | .LSLV dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
-    let shift := val2.toNat % w.bits
-    let res := val1 <<< shift
+    let res := val1 <<< shiftAmount val2
     s.setRegOrZr dst res next
   | .LSRV dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
-    let shift := val2.toNat % w.bits
-    let res := val1.ushiftRight shift
+    let res := val1 >>> shiftAmount val2
     s.setRegOrZr dst res next
   | .ASRV dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
-    let shift := val2.toNat % w.bits
-    let res := val1.sshiftRight shift
+    let res := val1.sshiftRight' (shiftAmount val2)
     s.setRegOrZr dst res next
   | .RORV dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
-    let shift := val2.toNat % w.bits
-    let res := val1.rotateRight shift
+    let res := val1.rorBV (shiftAmount val2)
     s.setRegOrZr dst res next
   | .CSEL dst src1 src2 cond =>
     let val := if cond.interp s.status then s.regs.getRegOrZr src1 else s.regs.getRegOrZr src2
@@ -841,7 +826,7 @@ set_option maxHeartbeats 1000000
         let res := val1 - val2
         StatusFlags.subs res val1 val2
       else
-        StatusFlags.ofNat nzcv
+        StatusFlags.ofBitVec nzcv
     next { s with status := status' }
   | .CCMP_imm src1 imm nzcv cond =>
     let status' := if cond.interp s.status then
@@ -850,7 +835,7 @@ set_option maxHeartbeats 1000000
         let res := val1 - val2
         StatusFlags.subs res val1 val2
       else
-        StatusFlags.ofNat nzcv
+        StatusFlags.ofBitVec nzcv
     next { s with status := status' }
   | .CCMN_reg src1 src2 nzcv cond =>
     let status' := if cond.interp s.status then
@@ -859,7 +844,7 @@ set_option maxHeartbeats 1000000
         let res := val1 + val2
         StatusFlags.adds res val1 val2
       else
-        StatusFlags.ofNat nzcv
+        StatusFlags.ofBitVec nzcv
     next { s with status := status' }
   | .CCMN_imm src1 imm nzcv cond =>
     let status' := if cond.interp s.status then
@@ -868,17 +853,17 @@ set_option maxHeartbeats 1000000
         let res := val1 + val2
         StatusFlags.adds res val1 val2
       else
-        StatusFlags.ofNat nzcv
+        StatusFlags.ofBitVec nzcv
     next { s with status := status' }
   | .ADR dst target =>
     let val := match target with
-      | .int64 imm => BitVec.ofInt 64 (Int64.toInt p.lower + Int64.toInt imm)
-      | _ => BitVec.ofInt 64 (Int64.toInt (target.interp p))
+      | .int64 imm => (p.lower + imm).toBitVec
+      | _ => (target.interp p).toBitVec
     s.setRegOrZr dst val next
   | .ADRP dst target =>
     let val := match target with
-      | .int64 imm => BitVec.ofInt 64 (Int64.toInt p.lower + Int64.toInt imm)
-      | _ => BitVec.ofInt 64 (Int64.toInt (target.interp p))
+      | .int64 imm => (p.lower + imm).toBitVec
+      | _ => (target.interp p).toBitVec
     s.setRegOrZr dst (val &&& ~~~0xFFF#64) next
   | .B target =>
     jmp (target.evalBranchTarget p) s
@@ -888,17 +873,17 @@ set_option maxHeartbeats 1000000
     else
       next s
   | .BL target =>
-    let lr_val := BitVec.ofInt 64 (Int64.toInt p.upper)
+    let lr_val := p.upper.toBitVec
     s.setRegOrZr RegOrZr.X30 lr_val (fun s' => jmp (target.evalBranchTarget p) s')
   | .BLR target =>
-    let lr_val := BitVec.ofInt 64 (Int64.toInt p.upper)
-    let target_val := Int64.ofInt (s.regs.getRegOrZr target).signed
+    let lr_val := p.upper.toBitVec
+    let target_val := Int64.ofBitVec (s.regs.getRegOrZr target)
     s.setRegOrZr RegOrZr.X30 lr_val (fun s' => jmp target_val s')
   | .BR target =>
-    let target_val := Int64.ofInt (s.regs.getRegOrZr target).signed
+    let target_val := Int64.ofBitVec (s.regs.getRegOrZr target)
     jmp target_val s
   | .RET target =>
-    let target_val := Int64.ofInt (s.regs.getRegOrZr target).signed
+    let target_val := Int64.ofBitVec (s.regs.getRegOrZr target)
     jmp target_val s
   | .CBZ reg target =>
     let val := s.regs.getRegOrZr reg
@@ -1010,7 +995,7 @@ abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
     .instr ⟨.W64, .STR .X1 { base := .SP, off := 0 }⟩,
     .instr ⟨.W64, .LDR .X2 (.addr { base := .SP, off := 0 })⟩]
   let start := (Executable.labels exe).label "main"
-  let data : MachineData := { dmem := Mem.storeInt {} 0x100 8 42, regs := {SP := 0x100} }
+  let data : MachineData := { dmem := Mem.storeBV {} 0x100 8 (42 : BitVec 64), regs := {SP := 0x100} }
   (Executable.eval exe (data, start) (fun (_, pc) => (exe.directivesFromAddress pc).isEmpty)).bind (fun s => .ok s.1.regs.X2)
 
 /-- info: Except.ok (42, 264) -/
@@ -1020,7 +1005,7 @@ abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
     .label "main",
     .instr ⟨.W64, .LDR .X1 (.addr { base := .SP, off := .imm { imm := 8, index := some .Pre } })⟩ ]
   let start := (Executable.labels exe).label "main"
-  let data : MachineData := { dmem := Mem.storeInt {} 0x108 8 42, regs := { SP := 0x100 } }
+  let data : MachineData := { dmem := Mem.storeBV {} 0x108 8 (42 : BitVec 64), regs := { SP := 0x100 } }
   (Executable.eval exe (data, start) (fun (_, pc) => (exe.directivesFromAddress pc).isEmpty)).bind (fun s => .ok (s.1.regs.X1, s.1.regs.SP))
 
 /-- info: Except.ok (42, 264) -/
@@ -1030,9 +1015,9 @@ abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
     .label "main",
     .instr ⟨.W64, .STR .X1 { base := .SP, off := .imm { imm := 8, index := some .Post } }⟩ ]
   let start := (Executable.labels exe).label "main"
-  let data : MachineData := { dmem := Mem.storeInt {} 0x100 8 0, regs := { SP := 0x100, X1 := 42 } }
+  let data : MachineData := { dmem := Mem.storeBV {} 0x100 8 (0 : BitVec 64), regs := { SP := 0x100, X1 := 42 } }
   (Executable.eval exe (data, start) (fun (_, pc) => (exe.directivesFromAddress pc).isEmpty)).bind (fun s =>
-    match Mem.loadInt s.1.dmem 0x100 8 with
-    | some v => .ok (v, s.1.regs.SP)
+    match Mem.loadBV s.1.dmem 0x100 64 8 with
+    | some v => .ok (v.toNat, s.1.regs.SP)
     | none => .error "Memory store failed"
   )

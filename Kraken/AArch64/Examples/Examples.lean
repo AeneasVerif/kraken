@@ -120,11 +120,11 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
 
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
   have h_bs2 : v2.toBytes.length = 8 := UInt64.toBytes_length v2
-  have h_mem1 := Mem.storeInt_sep X2.toBitVec 8 v1.toBytes (Eq (v2.At (X2.toBitVec + 8#64)) ⋆ R) mem ⟨by ecancel, h_bs1⟩ X0.toBitVec.toInt
-  have h_mem1' : (Eq (v2.At (X2.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 X0.toBitVec.toInt).At X2) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
-  have h_mem2 := Mem.storeInt_sep (X2.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ X1.toBitVec.toInt
-  have h_mem2' : (Eq ((Int.toBytes 8 X0.toBitVec.toInt).At X2) ⋆ (Eq ((Int.toBytes 8 X1.toBitVec.toInt).At (X2.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
-  have h_mem2'' : (Eq ((Int.toBytes 8 X1.toBitVec.toInt).At (X2.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 X0.toBitVec.toInt).At X2.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
+  have h_mem1 := Mem.storeBV_sep X2.toBitVec 8 v1.toBytes (Eq (v2.At (X2.toBitVec + 8#64)) ⋆ R) mem ⟨by ecancel, h_bs1⟩ X0.toBitVec
+  have h_mem1' : (Eq (v2.At (X2.toBitVec + 8#64)) ⋆ (Eq ((BitVec.toBytes 8 X0.toBitVec).At X2) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
+  have h_mem2 := Mem.storeBV_sep (X2.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ X1.toBitVec
+  have h_mem2' : (Eq ((BitVec.toBytes 8 X0.toBitVec).At X2) ⋆ (Eq ((BitVec.toBytes 8 X1.toBitVec).At (X2.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
+  have h_mem2'' : (Eq ((BitVec.toBytes 8 X1.toBitVec).At (X2.toBitVec + 8#64)) ⋆ (Eq ((BitVec.toBytes 8 X0.toBitVec).At X2.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
   simp at h_mem
   sym =>
   kstep
@@ -142,7 +142,7 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   kstep
   tactic =>
   apply Eventually.done
-  rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
+  rw [BitVec.ofBytes_toBytes 64 8 rfl, BitVec.ofBytes_toBytes 64 8 rfl]
   exact ⟨rfl, rfl, rfl⟩
 
 -- Example 6: Memory access with shifted register offset [x1, x2, lsl #3]
@@ -155,7 +155,7 @@ def reg_offset_example : Program := parseAArch64("
 
 theorem reg_offset_example_correct [layout : Layout] (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
-    (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.X1.toBitVec + BitVec.ofInt 64 (s₀.regs.X2.toBitVec.toNat <<< 3))) ⋆ R) :
+    (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.X1.toBitVec + s₀.regs.X2.toBitVec <<< 3)) ⋆ R) :
     Eventually (straightlineStep (layout reg_offset_example))
       (fun s' => s'.1.regs.X3 = 42)
       (s₀, layout.start) := by
@@ -163,7 +163,7 @@ theorem reg_offset_example_correct [layout : Layout] (s₀ : MachineData)
   kprologue reg_offset_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   simp at h_mem
-  have h_mem' := Mem.storeInt_sep (X1.toBitVec + BitVec.ofInt 64 (X2.toBitVec.toNat <<< 3)) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
+  have h_mem' := Mem.storeBV_sep (X1.toBitVec + X2.toBitVec <<< 3) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42#64
   sym =>
   kstep
   case h_mem => tactic => simp; exact h_mem
