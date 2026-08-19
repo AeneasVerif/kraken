@@ -121,6 +121,17 @@ def parseImmNat : Parser Nat := do
     fail s!"expected non-negative immediate, got {i}"
   pure i.toNat
 
+/--
+Parse an unsigned immediate integer value fitting into a bitvector of width `w`.
+- Fails if the parsed integer is negative or exceeds `2^w - 1`.
+-/
+def parseBitVec (w : Nat) : Parser (BitVec w) := do
+  let n ← parseImmNat
+  let maxVal := 2^w - 1
+  if n > maxVal then
+    fail s!"immediate {n} out of range [0, {maxVal}]"
+  pure (BitVec.ofNat w n)
+
 /-- Parse a raw label name as a string identifier. -/
 def parseLabelRaw : Parser Label := parseName
 
@@ -409,11 +420,11 @@ Validate an optional shift amount for register operands:
 - Must be in `[0, 31]` for 32-bit instructions (`.W32`).
 - Must be in `[0, 63]` for 64-bit instructions (`.W64`).
 -/
-def checkShiftAmount (w : RegWidth) (amt : Int64) : Except String Nat :=
+def checkShiftAmount (w : RegWidth) (amt : Nat) : Except String Unit :=
   let maxAmt := w.bits - 1
-  if amt.toInt < 0 || amt.toInt > maxAmt then
-    .error s!"shift amount {amt.toInt} out of range [0, {maxAmt}] for {w.bits}-bit instruction"
-  else .ok amt.toInt.toNat
+  if amt > maxAmt then
+    .error s!"shift amount {amt} out of range [0, {maxAmt}] for {w.bits}-bit instruction"
+  else .ok ()
 
 /--
 Validate a signed immediate byte offset for load/store pair instructions (`LDP`/`STP`):
@@ -615,12 +626,6 @@ def checkCcmpImmediate (imm : Nat) : Except String Unit :=
   if imm > 31 then
     .error s!"ccmp/ccmn immediate {imm} out of range [0, 31]"
   else .ok ()
-
-/-- Validate the NZCV condition flags immediate operand (`[0, 15]`) and return it as a 4-bit flags field. -/
-def checkNzcvFlags (nzcv : Nat) : Except String (BitVec 4) :=
-  if nzcv > 15 then
-    .error s!"nzcv immediate {nzcv} out of range [0, 15]"
-  else .ok (BitVec.ofNat 4 nzcv)
 
 /-- Validate a 12-bit unsigned arithmetic immediate (for ADD/SUB immediate operands). -/
 def checkArithmeticImmediate (imm : Int64) : Except String Unit :=
@@ -950,9 +955,9 @@ def parseShiftRegExpr (w : RegWidth) (allowRor : Bool := false) : Parser (ShiftR
         else fail "arithmetic instructions do not support ROR shift"
       | _ => fail s!"unknown shift type: {shiftName}"
     skipHWs
-    let amt ← parseInt64
-    let amount ← liftExcept (checkShiftAmount w amt)
-    pure { reg := reg, amount := amount, shift := shiftType }
+    let amt ← parseImmNat
+    liftExcept (checkShiftAmount w amt)
+    pure { reg := reg, amount := amt, shift := shiftType }
   else
     pure { reg := reg, amount := 0, shift := ShiftType.LSL }
 
@@ -1856,16 +1861,14 @@ def parseCondCompare
     let imm ← parseImmNat
     liftExcept (checkCcmpImmediate imm)
     parseComma
-    let nzcvNat ← parseImmNat
-    let nzcv ← liftExcept (checkNzcvFlags nzcvNat)
+    let nzcv ← parseBitVec 4
     parseComma
     let cond ← parseCondArg
     pure ⟨w, mkImm src1W.reg imm nzcv cond⟩
   else
     let src2 ← parseRegOrZr w
     parseComma
-    let nzcvNat ← parseImmNat
-    let nzcv ← liftExcept (checkNzcvFlags nzcvNat)
+    let nzcv ← parseBitVec 4
     parseComma
     let cond ← parseCondArg
     pure ⟨w, mkReg src1W.reg src2 nzcv cond⟩

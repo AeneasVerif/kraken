@@ -298,7 +298,7 @@ def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64)
 @[kstep] def AddrExpr.checkSPAlignment (mem : AddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
   match mem.base with
   | .SP =>
-    if s.regs.getRegOrSp .SP % 16#64 != 0#64 then
+    if (s.regs.getRegOrSp .SP &&& 0xF#64) != 0#64 then
       .unaligned_sp (s.regs.getRegOrSp .SP)
     else
       ok ()
@@ -324,7 +324,7 @@ def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64)
 @[kstep] def UnscaledAddrExpr.checkSPAlignment (mem : UnscaledAddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
   match mem.base with
   | .SP =>
-    if s.regs.getRegOrSp .SP % 16#64 != 0#64 then
+    if (s.regs.getRegOrSp .SP &&& 0xF#64) != 0#64 then
       .unaligned_sp (s.regs.getRegOrSp .SP)
     else
       ok ()
@@ -403,13 +403,13 @@ structure StatusFlags.from_result.Remaining where
     c := !Kraken.Flags.subBorrow val1 val2 false
     v := Kraken.Flags.subOverflow val1 val2 false }
 
-def StatusFlags.ofBitVec (nzcv : BitVec 4) : StatusFlags :=
+@[kstep, simp] def StatusFlags.ofBitVec (nzcv : BitVec 4) : StatusFlags :=
   { n := nzcv.getLsbD 3
     z := nzcv.getLsbD 2
     c := nzcv.getLsbD 1
     v := nzcv.getLsbD 0 }
 
-def shiftAmount {w : RegWidth} (val : w.type) : w.type :=
+@[kstep, simp] def shiftAmount {w : RegWidth} (val : w.type) : w.type :=
   val &&& BitVec.ofNat w.bits (w.bits - 1)
 
 @[kstep, simp] def maskOfLen {w : RegWidth} (len : Nat) : w.type :=
@@ -771,7 +771,7 @@ set_option maxHeartbeats 1000000
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
     let lsb := lsb % w.bits
-    let res := if lsb == 0 then val2 else (val1 <<< (w.bits - lsb)) ||| (val2 >>> lsb)
+    let res := (val1 <<< (w.bits - lsb)) ||| (val2 >>> lsb)
     s.setRegOrZr dst res next
   | .MOVZ dst imm shift =>
     let val16 := ((imm.interp p).toBitVec.setWidth w.bits) &&& 0xFFFF#w.bits
@@ -995,7 +995,7 @@ abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
     .instr ⟨.W64, .STR .X1 { base := .SP, off := 0 }⟩,
     .instr ⟨.W64, .LDR .X2 (.addr { base := .SP, off := 0 })⟩]
   let start := (Executable.labels exe).label "main"
-  let data : MachineData := { dmem := Mem.storeBV {} 0x100 8 (42 : BitVec 64), regs := {SP := 0x100} }
+  let data : MachineData := { dmem := Mem.storeBV {} 0x100 8 42#64, regs := {SP := 0x100} }
   (Executable.eval exe (data, start) (fun (_, pc) => (exe.directivesFromAddress pc).isEmpty)).bind (fun s => .ok s.1.regs.X2)
 
 /-- info: Except.ok (42, 264) -/
@@ -1005,7 +1005,7 @@ abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
     .label "main",
     .instr ⟨.W64, .LDR .X1 (.addr { base := .SP, off := .imm { imm := 8, index := some .Pre } })⟩ ]
   let start := (Executable.labels exe).label "main"
-  let data : MachineData := { dmem := Mem.storeBV {} 0x108 8 (42 : BitVec 64), regs := { SP := 0x100 } }
+  let data : MachineData := { dmem := Mem.storeBV {} 0x108 8 42#64, regs := { SP := 0x100 } }
   (Executable.eval exe (data, start) (fun (_, pc) => (exe.directivesFromAddress pc).isEmpty)).bind (fun s => .ok (s.1.regs.X1, s.1.regs.SP))
 
 /-- info: Except.ok (42, 264) -/
@@ -1015,7 +1015,7 @@ abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
     .label "main",
     .instr ⟨.W64, .STR .X1 { base := .SP, off := .imm { imm := 8, index := some .Post } }⟩ ]
   let start := (Executable.labels exe).label "main"
-  let data : MachineData := { dmem := Mem.storeBV {} 0x100 8 (0 : BitVec 64), regs := { SP := 0x100, X1 := 42 } }
+  let data : MachineData := { dmem := Mem.storeBV {} 0x100 8 0#64, regs := { SP := 0x100, X1 := 42 } }
   (Executable.eval exe (data, start) (fun (_, pc) => (exe.directivesFromAddress pc).isEmpty)).bind (fun s =>
     match Mem.loadBV s.1.dmem 0x100 64 8 with
     | some v => .ok (v.toNat, s.1.regs.SP)

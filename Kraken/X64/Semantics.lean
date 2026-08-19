@@ -407,7 +407,12 @@ def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
 /-- The rotate amount for `rcl`/`rcr`, reduced modulo `1 + w.bits`. -/
 @[kstep] def ShiftCountExpr.interpRotateCarry [Labels] (c : ShiftCountExpr) (s : MachineData)
     (p : Std.Rco Int64) (w : Width) : BitVec (1 + w.bits) :=
-  (c.interpMaskedBV s p w).setWidth (1 + w.bits) % BitVec.ofNat (1 + w.bits) (1 + w.bits)
+  let cnt := c.interpMaskedBV s p w
+  match w with
+  | .W8  => cnt.setWidth 9 % 9#9
+  | .W16 => cnt.setWidth 17 % 17#17
+  | .W32 => cnt.setWidth 33
+  | .W64 => cnt.setWidth 65
 
 
 def RelRegOrMem.interp [Labels] [AddressSize]
@@ -838,5 +843,5 @@ abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
     .instr (.regular .W64 .W64 (.inc (.reg (.low .rax .W64)))),
     .instr (.regular .W64 .W64 .ret) ]
   let start := (Executable.labels exe).label "main"
-  let data : MachineData := { dmem := Mem.storeBV {} 0x100 8 (0x1337 : BitVec 64), regs := {rsp := 0x100} }
+  let data : MachineData := { dmem := Mem.storeBV {} 0x100 8 0x1337#64, regs := {rsp := 0x100} }
   (Executable.eval exe (data, start) (fun (_, pc) => pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)
