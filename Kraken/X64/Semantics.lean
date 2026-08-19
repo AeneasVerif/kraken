@@ -48,7 +48,7 @@ structure Reg64s where
   r13 : UInt64 := 0
   r14 : UInt64 := 0
   r15 : UInt64 := 0
-  deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 @[kstep] def Reg64s.get64 (s : Reg64s) (r : Reg64) : Width.W64.type := UInt64.toBitVec (match r with
   | .rax => s.rax | .rbx => s.rbx | .rcx => s.rcx | .rdx => s.rdx
@@ -80,7 +80,7 @@ structure Reg64s where
     s.set64 r.base (old.replaceLow (BitVec.append v (s.get (.low r.base .W8))))
 
 def ZmmValue : Type := BitVec 512
-  deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 def zmmZero : ZmmValue := 0#512
 
@@ -117,7 +117,7 @@ structure RegZmms where
   zmm29 : ZmmValue := zmmZero
   zmm30 : ZmmValue := zmmZero
   zmm31 : ZmmValue := zmmZero
-  deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 def RegZmms.get512 (s : RegZmms) (r : RegMm) : AvxWidth.W512.type := (match r with
   | .mm0  => s.zmm0  | .mm1  => s.zmm1  | .mm2  => s.zmm2  | .mm3  => s.zmm3
@@ -614,86 +614,86 @@ set_option maxHeartbeats 1000000
     s.set dst v p next)
   | .shl dst count =>
     dst.interp s p (fun a s =>
-    let count := count.interpMasked s p w
-    if count == 0 then next s else
+    let count := count.interpMaskedBV s p w
+    if count == 0#8 then next s else
     let v := a <<< count
     undefined (λ af =>
-    (λ setcf => if count < w.bits then setcf (a <<< (count-1)).msb else undefined setcf) (λ cf =>
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    (λ setcf => if count < w.bitsv then setcf (a <<< (count - 1#8)).msb else undefined setcf) (λ cf =>
+    (λ setof => if count == 1#8 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .shr dst count =>
     dst.interp s p (fun a s =>
-    let count := count.interpMasked s p w
-    if count == 0 then next s else
-    let v := a.ushiftRight count
+    let count := count.interpMaskedBV s p w
+    if count == 0#8 then next s else
+    let v := a >>> count
     undefined (λ af =>
-    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
-    (λ setof => if count == 1 then setof a.msb else undefined setof) (λ of =>
+    (λ setcf => if count < w.bitsv then setcf ((a >>> (count - 1#8)).getLsbD 0) else undefined setcf) (λ cf =>
+    (λ setof => if count == 1#8 then setof a.msb else undefined setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .sar dst count =>
     dst.interp s p (fun a s =>
-    let count := count.interpMasked s p w
-    if count == 0 then next s else
-    let v := a.sshiftRight count
+    let count := count.interpMaskedBV s p w
+    if count == 0#8 then next s else
+    let v := a.sshiftRight' count
     undefined (λ af =>
-    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
-    (λ setof => if count == 1 then setof false else undefined setof) (λ of =>
+    (λ setcf => if count < w.bitsv then setcf ((a >>> (count - 1#8)).getLsbD 0) else undefined setcf) (λ cf =>
+    (λ setof => if count == 1#8 then setof false else undefined setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .shrd dst src count =>
     dst.interp s p (fun a s =>
     src.interp s p (fun b s =>
-    let count := count.interpMasked s p w
-    if count == 0 then next s else
+    let count := count.interpMaskedBV s p w
+    if count == 0#8 then next s else
     let v := (((b.append a) >>> count).take w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined setstatus else
-      let cf := a.getLsbD (count-1)
+    (λ setstatus => if count >= w.bitsv then undefined setstatus else
+      let cf := (a >>> (count - 1#8)).getLsbD 0
       undefined (λ af =>
-      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+      (λ setof => if count == 1#8 then setof (v.msb != a.msb) else undefined setof) (λ of =>
       setstatus (.from_result v { cf, af, of})))) (λ status =>
     { s with status }.set dst v p next)))
   | .shld dst src count =>
     dst.interp s p (fun a s =>
     src.interp s p (fun b s =>
-    let count := count.interpMasked s p w
-    if count == 0 then next s else
+    let count := count.interpMaskedBV s p w
+    if count == 0#8 then next s else
     let v := (((a.append b) <<< count).drop w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined setstatus else
-      let cf := (a <<< (count-1)).msb
+    (λ setstatus => if count >= w.bitsv then undefined setstatus else
+      let cf := (a <<< (count - 1#8)).msb
       undefined (λ af =>
-      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+      (λ setof => if count == 1#8 then setof (v.msb != a.msb) else undefined setof) (λ of =>
       setstatus (.from_result v { cf, af, of})))) (λ status =>
     { s with status }.set dst v p next)))
   | .rol dst rotcount =>
     dst.interp s p (fun a s =>
-    let count := rotcount.interpMasked s p w
-    if count == 0 then next s else
+    let count := rotcount.interpMaskedBV s p w
+    if count == 0#8 then next s else
     let v := a.rolBV (rotcount.interpRotate s p w)
     let cf := v.getLsbD 0
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    (λ setof => if count == 1#8 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .ror dst rotcount =>
     dst.interp s p (fun a s =>
-    let count := rotcount.interpMasked s p w
-    if count == 0 then next s else
+    let count := rotcount.interpMaskedBV s p w
+    if count == 0#8 then next s else
     let v := a.rorBV (rotcount.interpRotate s p w)
     let cf := v.msb
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    (λ setof => if count == 1#8 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .rcr dst rotcount =>
     dst.interp s p (fun a s =>
-    let count := rotcount.interpMasked s p w
-    if count == 0 then next s else
+    let count := rotcount.interpMaskedBV s p w
+    if count == 0#8 then next s else
     let t := (BitVec.ofBool s.status.cf ++ a).rorBV (rotcount.interpRotateCarry s p w)
     let (cf, v) := (t.msb, t.take w.bits)
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    (λ setof => if count == 1#8 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .rcl dst rotcount =>
     dst.interp s p (fun a s =>
-    let count := rotcount.interpMasked s p w
-    if count == 0 then next s else
+    let count := rotcount.interpMaskedBV s p w
+    if count == 0#8 then next s else
     let t := (BitVec.ofBool s.status.cf ++ a).rolBV (rotcount.interpRotateCarry s p w)
     let (cf, v) := (t.msb, t.take w.bits)
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    (λ setof => if count == 1#8 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .bswap dst =>
     let a := s.regs.get dst

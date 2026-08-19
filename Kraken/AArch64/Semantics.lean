@@ -215,7 +215,8 @@ export Labels (label)
     let lo := val &&& 0xFFF#64
     Int64.ofBitVec lo
 
-def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64) : Int64 :=
+-- Evaluate a PC-relative target expression (used by branches, `ADR`/`ADRP`).
+@[kstep, simp] def ConstExpr.evalTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64) : Int64 :=
   match target with
   | .int64 imm => p.lower + imm
   | _ => target.interp p
@@ -413,14 +414,9 @@ structure StatusFlags.from_result.Remaining where
   val &&& BitVec.ofNat w.bits (w.bits - 1)
 
 @[kstep, simp] def maskOfLen {w : RegWidth} (len : Nat) : w.type :=
-  if len >= w.bits then
-    ~~~(0 : w.type)
-  else
-    ((1 : w.type) <<< len) - 1
+  ((1 : w.type) <<< len) - 1
 
 @[kstep, simp] def evalUBFM {w : RegWidth} (src : w.type) (immr imms : Nat) : w.type :=
-  let immr := immr % w.bits
-  let imms := imms % w.bits
   if imms >= immr then
     let len := imms - immr + 1
     let field := (src >>> immr).take len
@@ -432,8 +428,6 @@ structure StatusFlags.from_result.Remaining where
     (field.zeroExtend w.bits) <<< pos
 
 @[kstep, simp] def evalSBFM {w : RegWidth} (src : w.type) (immr imms : Nat) : w.type :=
-  let immr := immr % w.bits
-  let imms := imms % w.bits
   if imms >= immr then
     let len := imms - immr + 1
     let field := (src >>> immr).take len
@@ -445,8 +439,6 @@ structure StatusFlags.from_result.Remaining where
     (field.signExtend (w.bits - pos)).zeroExtend w.bits <<< pos
 
 @[kstep, simp] def evalBFM {w : RegWidth} (dst src : w.type) (immr imms : Nat) : w.type :=
-  let immr := immr % w.bits
-  let imms := imms % w.bits
   if imms >= immr then
     let len := imms - immr + 1
     let mask : w.type := maskOfLen (w := w) len
@@ -630,12 +622,12 @@ set_option maxHeartbeats 1000000
   | .SDIV dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
-    let res := if val2 == 0 then (0 : w.type) else val1.sdiv val2
+    let res := val1.sdiv val2
     s.setRegOrZr dst res next
   | .UDIV dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
-    let res := if val2 == 0 then (0 : w.type) else val1 / val2
+    let res := val1 / val2
     s.setRegOrZr dst res next
   | .SMADDL dst src1 src2 src3 =>
     let val1 := s.regs.getRegOrZr src1
@@ -770,7 +762,6 @@ set_option maxHeartbeats 1000000
   | .EXTR dst src1 src2 lsb =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
-    let lsb := lsb % w.bits
     let res := (val1 <<< (w.bits - lsb)) ||| (val2 >>> lsb)
     s.setRegOrZr dst res next
   | .MOVZ dst imm shift =>
@@ -856,25 +847,21 @@ set_option maxHeartbeats 1000000
         StatusFlags.ofBitVec nzcv
     next { s with status := status' }
   | .ADR dst target =>
-    let val := match target with
-      | .int64 imm => (p.lower + imm).toBitVec
-      | _ => (target.interp p).toBitVec
+    let val := (target.evalTarget p).toBitVec
     s.setRegOrZr dst val next
   | .ADRP dst target =>
-    let val := match target with
-      | .int64 imm => (p.lower + imm).toBitVec
-      | _ => (target.interp p).toBitVec
+    let val := (target.evalTarget p).toBitVec
     s.setRegOrZr dst (val &&& ~~~0xFFF#64) next
   | .B target =>
-    jmp (target.evalBranchTarget p) s
+    jmp (target.evalTarget p) s
   | .B_cond cond target =>
     if cond.interp s.status then
-      jmp (target.evalBranchTarget p) s
+      jmp (target.evalTarget p) s
     else
       next s
   | .BL target =>
     let lr_val := p.upper.toBitVec
-    s.setRegOrZr RegOrZr.X30 lr_val (fun s' => jmp (target.evalBranchTarget p) s')
+    s.setRegOrZr RegOrZr.X30 lr_val (fun s' => jmp (target.evalTarget p) s')
   | .BLR target =>
     let lr_val := p.upper.toBitVec
     let target_val := Int64.ofBitVec (s.regs.getRegOrZr target)
@@ -887,26 +874,26 @@ set_option maxHeartbeats 1000000
     jmp target_val s
   | .CBZ reg target =>
     let val := s.regs.getRegOrZr reg
-    if val == 0 then
-      jmp (target.evalBranchTarget p) s
+    if val == 0#w.bits then
+      jmp (target.evalTarget p) s
     else
       next s
   | .CBNZ reg target =>
     let val := s.regs.getRegOrZr reg
-    if val != 0 then
-      jmp (target.evalBranchTarget p) s
+    if val != 0#w.bits then
+      jmp (target.evalTarget p) s
     else
       next s
   | .TBZ reg bit target =>
     let val := s.regs.getRegOrZr reg
-    if val.getLsbD bit == false then
-      jmp (target.evalBranchTarget p) s
+    if !val.getLsbD bit then
+      jmp (target.evalTarget p) s
     else
       next s
   | .TBNZ reg bit target =>
     let val := s.regs.getRegOrZr reg
-    if val.getLsbD bit == true then
-      jmp (target.evalBranchTarget p) s
+    if val.getLsbD bit then
+      jmp (target.evalTarget p) s
     else
       next s
   | .NOP => next s
