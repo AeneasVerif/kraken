@@ -266,7 +266,7 @@ def MachineData.load
   (s : MachineData) (addr : BitVec 64) (w : Width)
   (ret : w.type → MachineData → Effects): Effects :=
   require_read_access addr w (fun _unit =>
-    match Mem.loadBV s.dmem addr w.bits w.bytes with
+    match Mem.loadBV s.dmem addr w.bytes with
     | .some v => ret v s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
 
@@ -285,7 +285,7 @@ def MachineData.loadAvx
     .gp_unaligned addr w.bytes
   else
     require_read_access addr .W64 (fun _unit =>
-  match Mem.loadBV s.dmem addr w.bits w.bytes with
+  match Mem.loadBV s.dmem addr w.bytes with
       | .some v => ret v s
       | .none => unimplemented "AVX nonmem load not supported")
 

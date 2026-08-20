@@ -9,8 +9,8 @@ instance : ToString Width where
   toString | .W8 => "w8" | .W16 => "w16" | .W32 => "w32" | .W64 => "w64"
 
 namespace Width
-@[kstep, simp, reducible] def bits : Width → Nat | W8 => 8 | W16 => 16 | W32 => 32 | W64 => 64
 @[kstep, simp, reducible] def bytes : Width → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8
+@[kstep, simp, reducible] def bits (w : Width) := 8 * w.bytes
 @[kstep] abbrev bytesv (w : Width) {n} : BitVec n := BitVec.ofNat n w.bytes
 @[kstep] abbrev type (w : Width) : Type := BitVec w.bits
 instance {w : Width} : Coe Bool w.type where coe := fun b : Bool => (BitVec.ofBool b).setWidth _
@@ -34,8 +34,8 @@ instance : ToString AvxWidth where
   toString |.W128 => "w128" | .W256 => "w256" | .W512 => "w512"
 
 namespace AvxWidth
-@[simp, reducible] def bits : AvxWidth → Nat | W128 => 128 | W256 => 256 | W512 => 512
 @[simp, reducible] def bytes : AvxWidth → Nat | W128 => 16 | W256 => 32 | W512 => 64
+@[simp, reducible] def bits (w : AvxWidth) := 8 * w.bytes
 abbrev bytesv (w : AvxWidth) {n} : BitVec n := BitVec.ofNat n w.bytes
 abbrev type (w : AvxWidth) : Type := BitVec w.bits
 instance {w : AvxWidth} : Coe Bool w.type where coe := fun b : Bool => (BitVec.ofBool b).setWidth _

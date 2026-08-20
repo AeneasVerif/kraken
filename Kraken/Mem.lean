@@ -21,9 +21,9 @@ abbrev Mem (w) := ExtHashMap (BitVec w) UInt8
 def Mem.loadBytes {w} (m : Mem w) (a : BitVec w) (n : Nat) : Option (List UInt8) :=
   ((List.range n).map (fun i => m.get? (a + .ofNat _ i))).allSome
 
-/-- Read `n` bytes at `a` and assemble them into a `bits`-wide value. -/
-def Mem.loadBV {w} (m : Mem w) (a : BitVec w) (bits n : Nat) : Option (BitVec bits) :=
-  (loadBytes m a n).map (BitVec.ofBytes bits)
+/-- Read `n` bytes at `a` and assemble them into a `8 * n`-wide value. -/
+def Mem.loadBV {w} (m : Mem w) (a : BitVec w) (n : Nat) : Option (BitVec (8 * n)) :=
+  (loadBytes m a n).map (BitVec.ofBytes (8 * n))
 
 
 -- JP: can't use the Mem abbreviation here because it resolves to List.Mem (the

@@ -27,4 +27,4 @@ theorem load_sep (s : MachineData) (addr : BitVec 64) (w : Width) (ret : w.type 
     MachineData.load s addr w ret =
       require_read_access addr w (fun _ => ret (BitVec.ofBytes w.bits bs) s) := by
   simp only [MachineData.load,
-    Mem.loadBV_sep bs addr w.bits w.bytes R s.dmem h_mem h_len (by cases w <;> decide)]
+    Mem.loadBV_sep bs addr w.bytes R s.dmem h_mem h_len (by cases w <;> decide)]

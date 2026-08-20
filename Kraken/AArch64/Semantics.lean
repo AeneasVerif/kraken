@@ -185,7 +185,7 @@ def MachineData.load
   (s : MachineData) (addr : BitVec 64) (w : MemWidth)
   (ret : w.type → MachineData → Effects): Effects :=
   require_read_access addr w (fun _unit =>
-    match Mem.loadBV s.dmem addr w.bits w.bytes with
+    match Mem.loadBV s.dmem addr w.bytes with
     | .some v => ret v s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
 
@@ -1017,7 +1017,7 @@ abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
   let start := (Executable.labels exe).label "main"
   let data : MachineData := { dmem := Mem.storeBV {} 0x100 8 0#64, regs := { SP := 0x100, X1 := 42 } }
   (Executable.eval exe (data, start) (fun (_, pc) => (exe.directivesFromAddress pc).isEmpty)).bind (fun s =>
-    match Mem.loadBV s.1.dmem 0x100 64 8 with
+    match Mem.loadBV s.1.dmem 0x100 8 with
     | some v => .ok (v.toNat, s.1.regs.SP)
     | none => .error "Memory store failed"
   )

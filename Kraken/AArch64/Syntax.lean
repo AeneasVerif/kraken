@@ -13,8 +13,8 @@ instance : ToString MemWidth where
   toString | .W8 => "w8" | .W16 => "w16" | .W32 => "w32" | .W64 => "w64"
 
 namespace MemWidth
-@[kstep, simp, reducible] def bits : MemWidth → Nat | W8 => 8 | W16 => 16 | W32 => 32 | W64 => 64
 @[kstep, simp, reducible] def bytes : MemWidth → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8
+@[kstep, simp, reducible] def bits (w : MemWidth) := 8 * w.bytes
 @[kstep] abbrev bytesv (w : MemWidth) {n} : BitVec n := BitVec.ofNat n w.bytes
 @[kstep] abbrev type (w : MemWidth) : Type := BitVec w.bits
 instance {w : MemWidth} : Coe Bool w.type where coe := fun b : Bool => (BitVec.ofBool b).setWidth _

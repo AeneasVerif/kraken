@@ -96,11 +96,11 @@ theorem storeBytes_sep {w : Nat} (a : BitVec w) (n : Nat) (_bs bs : List UInt8)
   rw [sep_comm]
   exact ⟨m2, bs.At a, rfl, disjoint_symm (disjoint_Atsame_l_same_r _bs bs a m2 h_inter (by omega)), hR, rfl⟩
 
-theorem loadBV_sep {w : Nat} (bs : List UInt8) (a : BitVec w) (bits n : Nat) (R : Mem w → Prop) (m : Mem w)
+theorem loadBV_sep {w : Nat} (bs : List UInt8) (a : BitVec w) (n : Nat) (R : Mem w → Prop) (m : Mem w)
     (Hsep : m =⋆ Eq (bs.At a) ⋆ R)
     (Hl : bs.length = n)
     (Hlw : n ≤ 2 ^ w) :
-    m.loadBV a bits n = some (BitVec.ofBytes bits bs) := by
+    m.loadBV a n = some (BitVec.ofBytes (8 * n) bs) := by
   simp [loadBV, loadBytes_sep bs a n R m Hsep Hl Hlw]
 
 theorem storeBV_sep {w : Nat} (a : BitVec w) (n : Nat) (_bs : List UInt8)
