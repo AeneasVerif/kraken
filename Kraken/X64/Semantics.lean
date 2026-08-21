@@ -270,7 +270,8 @@ def MachineData.load
     | .some v => ret v s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
 
--- `bytes` is always a power of two, so alignment is a bit mask test.
+-- This is equivalent to testing whether `addr % bytes == 0`:
+-- `bytes` is always a power of two, so alignment check is a bit mask test.
 def isAligned (bytes : Nat) (addr : BitVec 64) : Bool :=
   addr &&& BitVec.ofNat 64 (bytes - 1) == 0#64
 
