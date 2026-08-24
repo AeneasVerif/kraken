@@ -41,30 +41,22 @@ theorem setWidth_mul_setWidth_eq_ofInt {w n : Nat} (hn : w + w ≤ n) (a b : Bit
 theorem signExtend_mul_add_eq_ofInt (a b : BitVec 32) (c : BitVec 64) :
     a.signExtend 64 * b.signExtend 64 + c
       = BitVec.ofInt 64 (a.signed * b.signed + c.signed) := by
-  simp only [BitVec.signed]
-  rw [BitVec.ofInt_add, ← BitVec.ofInt_mul_toInt (by omega) (by omega),
-    BitVec.ofInt_toInt]
+  simp [signed, ofInt_add, ofInt_mul_toInt]
 
 theorem setWidth_mul_add_eq_ofInt (a b : BitVec 32) (c : BitVec 64) :
     a.setWidth 64 * b.setWidth 64 + c
       = BitVec.ofInt 64 (a.unsigned * b.unsigned + c.unsigned) := by
-  simp only [BitVec.unsigned]
-  rw [BitVec.ofInt_add, ← BitVec.ofInt_mul_toNat (by omega),
-    BitVec.ofInt_toNat_setWidth, BitVec.setWidth_eq]
+  simp [unsigned, ofInt_add, ofInt_mul_toNat]
 
 theorem sub_signExtend_mul_eq_ofInt (a b : BitVec 32) (c : BitVec 64) :
     c - a.signExtend 64 * b.signExtend 64
       = BitVec.ofInt 64 (c.signed - a.signed * b.signed) := by
-  simp only [BitVec.signed]
-  rw [BitVec.ofInt_sub, ← BitVec.ofInt_mul_toInt (by omega) (by omega),
-    BitVec.ofInt_toInt]
+  simp [signed, ofInt_sub, ofInt_mul_toInt]
 
 theorem sub_setWidth_mul_eq_ofInt (a b : BitVec 32) (c : BitVec 64) :
     c - a.setWidth 64 * b.setWidth 64
       = BitVec.ofInt 64 (c.unsigned - a.unsigned * b.unsigned) := by
-  simp only [BitVec.unsigned]
-  rw [BitVec.ofInt_sub, ← BitVec.ofInt_mul_toNat (by omega),
-    BitVec.ofInt_toNat_setWidth, BitVec.setWidth_eq]
+  simp [unsigned, ofInt_sub, ofInt_mul_toNat]
 
 -- x64 specific lemmas.
 

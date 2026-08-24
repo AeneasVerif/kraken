@@ -137,6 +137,7 @@ structure AddrExpr where
 
 class AddressSize where address_size : Width
 export AddressSize (address_size)
+attribute [kstep, reducible, simp] AddressSize.address_size
 
 inductive RegOrMem w | reg (r : Reg w) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr

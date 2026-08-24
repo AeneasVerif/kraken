@@ -347,8 +347,7 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   kstep
   tactic =>
   apply Eventually.done
-  rw [BitVec.ofBytes_toBytes 64 8 rfl, BitVec.ofBytes_toBytes 64 8 rfl]
-  exact ⟨rfl, rfl, rfl⟩
+  simp
 
 def sib_example := parse("
     movq $42, %rax
@@ -372,9 +371,6 @@ theorem sib_example_correct [layout : Layout] (s₀ : MachineData)
   kstep
   case h_mem => tactic => simp; exact h_mem
   case h_len => exact h_bs
-  kstep
-  case h_mem => tactic => simp; exact h_mem'
-  case h_len => exact by decide
   kstep
   tactic =>
   apply Eventually.done
@@ -407,8 +403,7 @@ theorem alu_mem_example_correct [layout : Layout] (s₀ : MachineData)
   kstep
   tactic =>
   apply Eventually.done
-  simp (config := { zetaDelta := true }) only [BitVec.ofBytes_toBytes 64 8 rfl]
-  bv_decide
+  rfl
 
 def dynamic_stack_example := parse("
     movq $99, -8(%rsp)

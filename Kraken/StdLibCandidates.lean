@@ -31,9 +31,7 @@ The signed counterpart needs no lemma at all, `BitVec.signExtend` is defined
 as `ofInt v x.toInt`. -/
 theorem ofInt_toNat_setWidth {m n : Nat} (y : BitVec m) :
     BitVec.ofInt n (y.toNat : Int) = y.setWidth n := by
-  apply BitVec.eq_of_toNat_eq
-  rw [BitVec.toNat_ofInt, BitVec.toNat_setWidth]
-  omega
+  simp
 
 /-- `BitVec.ofInt` commutes with left shift. Shifting an unbounded integer and
 then reducing gives the same result as reducing first and shifting inside the
@@ -150,17 +148,14 @@ def rolBV {w : Nat} (x : BitVec w) (m : BitVec w) : BitVec w :=
 
 theorem rolBV_eq_rotateLeft {w : Nat} (x m : BitVec w) (hm : m.toNat < w) :
     x.rolBV m = x.rotateLeft m.toNat := by
-  have hwlt : w < 2 ^ w := Nat.lt_two_pow_self
   have hwBV : (BitVec.ofNat w w).toNat = w := by
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hwlt]
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt Nat.lt_two_pow_self]
   have hsub : ((BitVec.ofNat w w) - m).toNat = w - m.toNat := by
     rw [BitVec.toNat_sub, hwBV]
     have hm2 := m.isLt
     rw [show (2 ^ w - m.toNat) + w = 2 ^ w + (w - m.toNat) by omega,
       Nat.add_mod_left, Nat.mod_eq_of_lt (by omega)]
-  rw [BitVec.rotateLeft_def, Nat.mod_eq_of_lt hm]
-  show (x <<< m.toNat) ||| (x >>> ((BitVec.ofNat w w) - m).toNat) = _
-  rw [hsub]
+  simp [rolBV, BitVec.rotateLeft_def, Nat.mod_eq_of_lt hm, hsub]
 
 theorem rotateLeft_mod {w : Nat} (x : BitVec w) (n : Nat) :
     x.rotateLeft (n % w) = x.rotateLeft n := by
@@ -172,17 +167,14 @@ theorem rotateRight_mod {w : Nat} (x : BitVec w) (n : Nat) :
 
 theorem rorBV_eq_rotateRight {w : Nat} (x m : BitVec w) (hm : m.toNat < w) :
     x.rorBV m = x.rotateRight m.toNat := by
-  have hwlt : w < 2 ^ w := Nat.lt_two_pow_self
   have hwBV : (BitVec.ofNat w w).toNat = w := by
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hwlt]
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt Nat.lt_two_pow_self]
   have hsub : ((BitVec.ofNat w w) - m).toNat = w - m.toNat := by
     rw [BitVec.toNat_sub, hwBV]
     have hm2 := m.isLt
     rw [show (2 ^ w - m.toNat) + w = 2 ^ w + (w - m.toNat) by omega,
       Nat.add_mod_left, Nat.mod_eq_of_lt (by omega)]
-  rw [BitVec.rotateRight_def, Nat.mod_eq_of_lt hm]
-  show (x >>> m.toNat) ||| (x <<< ((BitVec.ofNat w w) - m).toNat) = _
-  rw [hsub]
+  simp [rorBV, BitVec.rotateRight_def, Nat.mod_eq_of_lt hm, hsub]
 
 end BitVec
 
