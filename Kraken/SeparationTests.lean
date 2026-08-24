@@ -19,12 +19,12 @@ example {w} (A B C D : Mem w → Prop) : A ⋆ (B ⋆ C) ⋆ D = (D ⋆ B) ⋆ (
 example {w} (A B C : Mem w → Prop) (m : Mem w) (h : (A ⋆ (B ⋆ C)) m) : ((C ⋆ A) ⋆ B) m := by ecancel
 
 example (v2 rax rdi : UInt64) (R : Mem 64 → Prop) (mem : Mem 64)
-    (h : (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi.toBitVec) ⋆
+    (h : (Eq ((BitVec.toBytes 8 rax.toBitVec).At rdi.toBitVec) ⋆
       (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ R))
-      (Mem.storeInt mem rdi.toBitVec 8 rax.toBitVec.toInt)) :
+      (Mem.storeBV mem rdi.toBitVec 8 rax.toBitVec)) :
     (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆
-      (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi.toBitVec) ⋆ R))
-      (Mem.storeInt mem rdi.toBitVec 8 rax.toBitVec.toInt) := by
+      (Eq ((BitVec.toBytes 8 rax.toBitVec).At rdi.toBitVec) ⋆ R))
+      (Mem.storeBV mem rdi.toBitVec 8 rax.toBitVec) := by
   ecancel
 
 example (v : UInt64) (a : BitVec 64) (R : Mem 64 → Prop) :

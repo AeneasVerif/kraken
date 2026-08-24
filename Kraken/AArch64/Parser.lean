@@ -121,6 +121,17 @@ def parseImmNat : Parser Nat := do
     fail s!"expected non-negative immediate, got {i}"
   pure i.toNat
 
+/--
+Parse an unsigned immediate integer value fitting into a bitvector of width `w`.
+- Fails if the parsed integer is negative or exceeds `2^w - 1`.
+-/
+def parseBitVec (w : Nat) : Parser (BitVec w) := do
+  let n ← parseImmNat
+  let maxVal := 2^w - 1
+  if n > maxVal then
+    fail s!"immediate {n} out of range [0, {maxVal}]"
+  pure (BitVec.ofNat w n)
+
 /-- Parse a raw label name as a string identifier. -/
 def parseLabelRaw : Parser Label := parseName
 
@@ -409,10 +420,10 @@ Validate an optional shift amount for register operands:
 - Must be in `[0, 31]` for 32-bit instructions (`.W32`).
 - Must be in `[0, 63]` for 64-bit instructions (`.W64`).
 -/
-def checkShiftAmount (w : RegWidth) (amt : Int64) : Except String Unit :=
+def checkShiftAmount (w : RegWidth) (amt : Nat) : Except String Unit :=
   let maxAmt := w.bits - 1
-  if amt.toInt < 0 || amt.toInt > maxAmt then
-    .error s!"shift amount {amt.toInt} out of range [0, {maxAmt}] for {w.bits}-bit instruction"
+  if amt > maxAmt then
+    .error s!"shift amount {amt} out of range [0, {maxAmt}] for {w.bits}-bit instruction"
   else .ok ()
 
 /--
@@ -614,12 +625,6 @@ def checkBitfieldBounds (instrName : String) (w : RegWidth) (lsb width : Nat) : 
 def checkCcmpImmediate (imm : Nat) : Except String Unit :=
   if imm > 31 then
     .error s!"ccmp/ccmn immediate {imm} out of range [0, 31]"
-  else .ok ()
-
-/-- Validate NZCV condition flags immediate operand (`[0, 15]`). -/
-def checkNzcvFlags (nzcv : Nat) : Except String Unit :=
-  if nzcv > 15 then
-    .error s!"nzcv immediate {nzcv} out of range [0, 15]"
   else .ok ()
 
 /-- Validate a 12-bit unsigned arithmetic immediate (for ADD/SUB immediate operands). -/
@@ -950,7 +955,7 @@ def parseShiftRegExpr (w : RegWidth) (allowRor : Bool := false) : Parser (ShiftR
         else fail "arithmetic instructions do not support ROR shift"
       | _ => fail s!"unknown shift type: {shiftName}"
     skipHWs
-    let amt ← parseInt64
+    let amt ← parseImmNat
     liftExcept (checkShiftAmount w amt)
     pure { reg := reg, amount := amt, shift := shiftType }
   else
@@ -1846,8 +1851,8 @@ or immediate second operand.
 - Validates that `#imm` is in range `[0, 31]` and `#nzcv` flags immediate is in range `[0, 15]`.
 -/
 def parseCondCompare
-    (mkReg : {w : RegWidth} → RegOrZr w → RegOrZr w → Nat → CondCode → Operation w)
-    (mkImm : {w : RegWidth} → RegOrZr w → Nat → Nat → CondCode → Operation w) : Parser Instr := do
+    (mkReg : {w : RegWidth} → RegOrZr w → RegOrZr w → BitVec 4 → CondCode → Operation w)
+    (mkImm : {w : RegWidth} → RegOrZr w → Nat → BitVec 4 → CondCode → Operation w) : Parser Instr := do
   let src1W ← parseRegOrZrW
   let w := src1W.w
   parseComma
@@ -1856,16 +1861,14 @@ def parseCondCompare
     let imm ← parseImmNat
     liftExcept (checkCcmpImmediate imm)
     parseComma
-    let nzcv ← parseImmNat
-    liftExcept (checkNzcvFlags nzcv)
+    let nzcv ← parseBitVec 4
     parseComma
     let cond ← parseCondArg
     pure ⟨w, mkImm src1W.reg imm nzcv cond⟩
   else
     let src2 ← parseRegOrZr w
     parseComma
-    let nzcv ← parseImmNat
-    liftExcept (checkNzcvFlags nzcv)
+    let nzcv ← parseBitVec 4
     parseComma
     let cond ← parseCondArg
     pure ⟨w, mkReg src1W.reg src2 nzcv cond⟩

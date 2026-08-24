@@ -13,11 +13,11 @@ instance : ToString MemWidth where
   toString | .W8 => "w8" | .W16 => "w16" | .W32 => "w32" | .W64 => "w64"
 
 namespace MemWidth
-@[kstep, simp, reducible] def bits : MemWidth → Nat | W8 => 8 | W16 => 16 | W32 => 32 | W64 => 64
 @[kstep, simp, reducible] def bytes : MemWidth → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8
+@[kstep, simp, reducible] def bits (w : MemWidth) := 8 * w.bytes
 @[kstep] abbrev bytesv (w : MemWidth) {n} : BitVec n := BitVec.ofNat n w.bytes
 @[kstep] abbrev type (w : MemWidth) : Type := BitVec w.bits
-instance {w : MemWidth} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
+instance {w : MemWidth} : Coe Bool w.type where coe := fun b : Bool => (BitVec.ofBool b).setWidth _
 end MemWidth
 
 unif_hint (w : MemWidth) where
@@ -51,7 +51,7 @@ instance : Coe RegWidth MemWidth where coe := fun w : RegWidth =>
 @[kstep, simp, reducible] def bytes (w : RegWidth) : Nat := (w : MemWidth).bytes
 @[kstep] abbrev bytesv (w : RegWidth) {n} : BitVec n := (w : MemWidth).bytesv
 @[kstep] abbrev type (w : RegWidth) : Type := (w : MemWidth).type
-instance {w : RegWidth} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
+instance {w : RegWidth} : Coe Bool w.type where coe := fun b : Bool => (BitVec.ofBool b).setWidth _
 end RegWidth
 
 unif_hint (w : RegWidth) where
@@ -247,7 +247,7 @@ Shifted register operand for logical and arithmetic instructions (`Xm, <shift> #
 -/
 structure ShiftRegExpr (w : RegWidth) where
   reg : RegOrZr w
-  amount : Int64 -- Must be in the range $[0, 31]$ for 32-bit instructions and [0, 63] for 64-bit instructions.
+  amount : Nat -- Must be in the range $[0, 31]$ for 32-bit instructions and [0, 63] for 64-bit instructions.
   shift : ShiftType
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
@@ -445,10 +445,10 @@ inductive Operation : RegWidth → Type
   | CSNEG {w} (dst : RegOrZr w) (src1 src2 : RegOrZr w) (cond : CondCode) : Operation w
   --
   -- Conditional Compare (instructions have a reg (_r) and immediate (_i) form).
-  | CCMP_reg {w} (src1 : RegOrZr w) (src2 : RegOrZr w) (nzcv : Nat) (cond : CondCode) : Operation w
-  | CCMP_imm {w} (src1 : RegOrZr w) (imm : Nat) (nzcv : Nat) (cond : CondCode) : Operation w
-  | CCMN_reg {w} (src1 : RegOrZr w) (src2 : RegOrZr w) (nzcv : Nat) (cond : CondCode) : Operation w
-  | CCMN_imm {w} (src1 : RegOrZr w) (imm : Nat) (nzcv : Nat) (cond : CondCode) : Operation w
+  | CCMP_reg {w} (src1 : RegOrZr w) (src2 : RegOrZr w) (nzcv : BitVec 4) (cond : CondCode) : Operation w
+  | CCMP_imm {w} (src1 : RegOrZr w) (imm : Nat) (nzcv : BitVec 4) (cond : CondCode) : Operation w
+  | CCMN_reg {w} (src1 : RegOrZr w) (src2 : RegOrZr w) (nzcv : BitVec 4) (cond : CondCode) : Operation w
+  | CCMN_imm {w} (src1 : RegOrZr w) (imm : Nat) (nzcv : BitVec 4) (cond : CondCode) : Operation w
   --
   -- Addressing.
   | ADR (dst : RegOrZr .W64) (target : ConstExpr) : Operation .W64

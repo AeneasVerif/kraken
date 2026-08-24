@@ -2,29 +2,15 @@
 -- which itself is just extracted from https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
 
 import Kraken.Attribute
+import Kraken.BitVec
+import Kraken.Flags
 import Kraken.Layout
 import Kraken.Mem
 import Kraken.X64.Syntax
 import Lean
 import Std
 
--- injective coercions only
-attribute [-instance] BitVec.instNatCast
-attribute [-instance] BitVec.instIntCast
-instance : Coe Bool Nat where coe := Bool.toNat
-
-namespace BitVec
-def unsigned {w} (x : BitVec w) : Int := x.toNat
-def signed {w} (x : BitVec w) : Int := x.toInt
-@[kstep] def take {w} (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
-@[kstep] def drop {w} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
-end BitVec
-attribute [kstep]
-  BitVec.extractLsb'
-  BitVec.ofInt_add
-  BitVec.ofInt_toInt
-  BitVec.signed
-  BitVec.truncate
+attribute [kstep] BitVec.extractLsb'
 def BitVec.replaceLow {w n} (old : BitVec w) (new : BitVec n) : BitVec w :=
   (BitVec.append (old.drop n) new).setWidth _
 
@@ -62,7 +48,7 @@ structure Reg64s where
   r13 : UInt64 := 0
   r14 : UInt64 := 0
   r15 : UInt64 := 0
-  deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 @[kstep] def Reg64s.get64 (s : Reg64s) (r : Reg64) : Width.W64.type := UInt64.toBitVec (match r with
   | .rax => s.rax | .rbx => s.rbx | .rcx => s.rcx | .rdx => s.rdx
@@ -94,7 +80,7 @@ structure Reg64s where
     s.set64 r.base (old.replaceLow (BitVec.append v (s.get (.low r.base .W8))))
 
 def ZmmValue : Type := BitVec 512
-  deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 def zmmZero : ZmmValue := 0#512
 
@@ -131,7 +117,7 @@ structure RegZmms where
   zmm29 : ZmmValue := zmmZero
   zmm30 : ZmmValue := zmmZero
   zmm31 : ZmmValue := zmmZero
-  deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
 def RegZmms.get512 (s : RegZmms) (r : RegMm) : AvxWidth.W512.type := (match r with
   | .mm0  => s.zmm0  | .mm1  => s.zmm1  | .mm2  => s.zmm2  | .mm3  => s.zmm3
@@ -280,14 +266,14 @@ def MachineData.load
   (s : MachineData) (addr : BitVec 64) (w : Width)
   (ret : w.type → MachineData → Effects): Effects :=
   require_read_access addr w (fun _unit =>
-    match Mem.loadInt s.dmem addr w.bytes with
-    | .some i => ret (.ofInt _ i) s
+    match Mem.loadBV s.dmem addr w.bytes with
+    | .some v => ret v s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
 
--- Alternatively, we could define this in terms of BitVecs without %:
--- (addr &&& BitVec.ofNat 64 (bytes - 1)) == 0#64
+-- This is equivalent to testing whether `addr % bytes == 0`:
+-- `bytes` is always a power of two, so alignment check is a bit mask test.
 def isAligned (bytes : Nat) (addr : BitVec 64) : Bool :=
-  addr.toNat % bytes == 0
+  addr &&& BitVec.ofNat 64 (bytes - 1) == 0#64
 
 -- Legacy SSE instructions are generally stricter about alignment requirements,
 -- while AVX (VEX-encoded) instructions can mostly deal with unaligned
@@ -300,15 +286,15 @@ def MachineData.loadAvx
     .gp_unaligned addr w.bytes
   else
     require_read_access addr .W64 (fun _unit =>
-  match Mem.loadInt s.dmem addr w.bytes with
-      | .some i => ret (.ofInt _ i) s
+  match Mem.loadBV s.dmem addr w.bytes with
+      | .some v => ret v s
       | .none => unimplemented "AVX nonmem load not supported")
 
 def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Effects) : Effects :=
   require_write_access addr w (fun _unit =>
-    match Mem.loadInt s.dmem addr w.bytes with
+    match Mem.loadBytes s.dmem addr w.bytes with
     | .some _ =>
-        ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
+        ret { s with dmem := Mem.storeBV s.dmem addr w.bytes v }
     | .none => nonmem_store s.dmem addr v (fun dmem' => ret { s with dmem := dmem' }))
 
 def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v : w.type) (ret: MachineData → Effects) (checkAlign : Bool := false) : Effects :=
@@ -316,9 +302,9 @@ def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v 
     .gp_unaligned addr w.bytes
   else
     require_write_access addr .W64 (fun _unit =>
-  match Mem.loadInt s.dmem addr w.bytes with
+  match Mem.loadBytes s.dmem addr w.bytes with
       | .some _ =>
-          ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
+          ret { s with dmem := Mem.storeBV s.dmem addr w.bytes v }
       | .none => unimplemented "AVX nonmem store not supported")
 
 class Labels where label : Label → Int64
@@ -332,15 +318,16 @@ export Labels (label)
   | .add e1 e2, p => e1.interp p + e2.interp p
   | .sub e1 e2, p => e1.interp p - e2.interp p
 
-@[kstep] def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :=
+@[kstep] def AddrExpr.interp [Labels] [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64) :
+    BitVec address_size.address_size.bits :=
   let base := match a.base with
-              | .some (.reg r) => (s.get64 r).toAddressSize.signed
-              | .some .rip => p.upper.toInt
+              | .some (.reg r) => (s.get64 r).toAddressSize
+              | .some .rip => p.upper.toBitVec.toAddressSize
               | .none => 0
   let idx := match a.idx with
-             | .some ⟨r, c⟩ => (s.get64 r).toAddressSize.signed * c.bytes
+             | .some ⟨r, c⟩ => (s.get64 r).toAddressSize * BitVec.ofNat _ c.bytes
              | .none => 0
-  BitVec.ofInt address_size.address_size.bits (base + idx + (a.disp.interp p).toInt)
+  base + idx + (a.disp.interp p).toBitVec.toAddressSize
 
 @[kstep] def RegOrMem.interp {w} [Labels] [AddressSize]
   (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64)
@@ -405,8 +392,29 @@ def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
 @[kstep] def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
   | .cl => s.regs.rcx.toBitVec.take 8
   | .imm8 v => (v.interp p).toBitVec.take _
+
+@[kstep] def ShiftCountExpr.interpMaskedBV [Labels] (c : ShiftCountExpr) (s : MachineData)
+    (p : Std.Rco Int64) (w : Width) : BitVec 8 :=
+  (c.interp s p) &&& (match w with | .W64 => 0x3f#8 | _ => 0x1f#8)
+
 @[kstep] def ShiftCountExpr.interpMasked [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width) : Nat :=
-  (c.interp s p).toNat &&& match w with | .W64 => 0x3f | _ => 0x1f -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
+  (c.interpMaskedBV s p w).toNat
+
+/-- The rotate amount for `rol`/`ror`, reduced modulo the operand width. -/
+@[kstep] def ShiftCountExpr.interpRotate [Labels] (c : ShiftCountExpr) (s : MachineData)
+    (p : Std.Rco Int64) (w : Width) : BitVec w.bits :=
+  (c.interpMaskedBV s p w).setWidth w.bits &&& BitVec.ofNat w.bits (w.bits - 1)
+
+/-- The rotate amount for `rcl`/`rcr`, reduced modulo `1 + w.bits`. -/
+@[kstep] def ShiftCountExpr.interpRotateCarry [Labels] (c : ShiftCountExpr) (s : MachineData)
+    (p : Std.Rco Int64) (w : Width) : BitVec (1 + w.bits) :=
+  let cnt := c.interpMaskedBV s p w
+  match w with
+  | .W8  => cnt.setWidth 9 % 9#9
+  | .W16 => cnt.setWidth 17 % 17#17
+  | .W32 => cnt.setWidth 33
+  | .W64 => cnt.setWidth 65
+
 
 def RelRegOrMem.interp [Labels] [AddressSize]
   (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64)
@@ -422,23 +430,15 @@ structure StatusFlags.from_result.Remaining where
   of : Bool
   deriving Repr, BEq, DecidableEq
 
--- TEMPORARY: definitions stolen from Lean 4.28's standard library, but with a
--- different name so that this file builds with both 4.27 and 4.28
-namespace BitVec
-def cpopNatRec_ {w} (x : BitVec w) (pos acc : Nat) : Nat :=
-  match pos with
-  | 0 => acc
-  | n + 1 => x.cpopNatRec_ n (acc + (x.getLsbD n).toNat)
-
-def cpop_ {w} (x : BitVec w) : BitVec w := BitVec.ofNat w (cpopNatRec_ x w 0)
-end BitVec
+-- `PF` is set when the low byte of the result has an even number of set bits.
+def BitVec.evenParity8 {w} (x : BitVec w) : Bool :=
+  !(x.getLsbD 0 ^^ x.getLsbD 1 ^^ x.getLsbD 2 ^^ x.getLsbD 3
+    ^^ x.getLsbD 4 ^^ x.getLsbD 5 ^^ x.getLsbD 6 ^^ x.getLsbD 7)
 
 @[kstep] def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
-  { pf := (result.take 8).cpop_ % 2 == BitVec.zero _
-    zf := result == BitVec.zero _
+  { pf := result.evenParity8
+    zf := result == 0#w
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
-
-
 
 set_option maxHeartbeats 1000000
 @[kstep] def Operation.interp [Labels] [address_size : AddressSize]
@@ -470,9 +470,9 @@ set_option maxHeartbeats 1000000
     dst.interp s p (fun b s =>
     let v := a + b
     let status := .from_result v {
-      cf := v.unsigned != a.unsigned + b.unsigned
-      af := (v.take 4).unsigned != (a.take 4).unsigned + (b.take 4).unsigned,
-      of := v.signed != a.signed + b.signed }
+      cf := Kraken.Flags.addCarry a b false
+      af := Kraken.Flags.addCarry (a.take 4) (b.take 4) false,
+      of := Kraken.Flags.addOverflow a b false }
     { s with status }.set dst v p next))
   | .adc dst src =>
     src.interp s p (fun a s =>
@@ -480,37 +480,37 @@ set_option maxHeartbeats 1000000
     let c := s.status.cf
     let v := a + b + c
     let status := .from_result v {
-      cf := v.unsigned != a.unsigned + b.unsigned + c
-      af := (v.take 4).unsigned != (a.take 4).unsigned + (b.take 4).unsigned + c,
-      of := v.signed != a.signed + b.signed + c }
+      cf := Kraken.Flags.addCarry a b c
+      af := Kraken.Flags.addCarry (a.take 4) (b.take 4) c,
+      of := Kraken.Flags.addOverflow a b c }
     { s with status }.set dst v p next))
   | .adcx dst src =>
     src.interp s p (fun a s =>
     dst.interp s p (fun b s =>
     let v := a + b + s.status.cf
-    let cf := v.unsigned != a.unsigned + b.unsigned + s.status.cf
+    let cf := Kraken.Flags.addCarry a b s.status.cf
     next { s with regs := s.regs.set dst v, status := { s.status with cf := cf }}))
   | .adox dst src =>
     src.interp s p (fun a s =>
     dst.interp s p (fun b s =>
     let v := a + b + s.status.of
-    let of := v.unsigned != a.unsigned + b.unsigned + s.status.of
+    let of := Kraken.Flags.addCarry a b s.status.of
     next { s with regs := s.regs.set dst v, status := { s.status with of := of }}))
   | .inc dst =>
     dst.interp s p (fun a s =>
     let v := a + 1
     let status := .from_result v {
       cf := s.status.cf
-      af := (v.take 4).unsigned != (a.take 4).unsigned + 1,
-      of := v.signed != a.signed + 1 }
+      af := Kraken.Flags.addCarry (a.take 4) 1#4 false,
+      of := Kraken.Flags.addOverflow a 1 false }
     { s with status }.set dst v p next)
   | .dec dst =>
     dst.interp s p (fun a s =>
     let v := a - 1
     let status := .from_result v {
       cf := s.status.cf
-      af := (v.take 4).unsigned != (a.take 4).unsigned - 1,
-      of := v.signed != a.signed - 1 }
+      af := Kraken.Flags.subBorrow (a.take 4) 1#4 false,
+      of := Kraken.Flags.subOverflow a 1 false }
     { s with status }.set dst v p next)
   | .neg dst =>
     dst.interp s p (fun b s =>
@@ -518,16 +518,16 @@ set_option maxHeartbeats 1000000
     let status := .from_result v {
       cf := b != 0
       af := (b.take 4) != 0,
-      of := v.signed != - b.signed }
+      of := Kraken.Flags.subOverflow 0 b false }
     { s with status }.set dst v p next)
   | .sub dst src =>
     src.interp s p (fun a s =>
     dst.interp s p (fun b s =>
     let v := b - a
     let status := .from_result v {
-      cf := v.unsigned != b.unsigned - a.unsigned
-      af := (v.take 4).unsigned != (b.take 4).unsigned - (a.take 4).unsigned,
-      of := v.signed != b.signed - a.signed }
+      cf := Kraken.Flags.subBorrow b a false
+      af := Kraken.Flags.subBorrow (b.take 4) (a.take 4) false,
+      of := Kraken.Flags.subOverflow b a false }
     { s with status }.set dst v p next))
   | .sbb dst src =>
     src.interp s p (fun a s =>
@@ -535,52 +535,55 @@ set_option maxHeartbeats 1000000
     let c := s.status.cf
     let v := b - a - c
     let status := .from_result v {
-      cf := v.unsigned != b.unsigned - a.unsigned - c
-      af := (v.take 4).unsigned != (b.take 4).unsigned - (a.take 4).unsigned - c,
-      of := v.signed != b.signed - a.signed - c }
+      cf := Kraken.Flags.subBorrow b a c
+      af := Kraken.Flags.subBorrow (b.take 4) (a.take 4) c,
+      of := Kraken.Flags.subOverflow b a c }
     { s with status }.set dst v p next))
   | .cmp a b =>
     a.interp s p (fun a s =>
     b.interp s p (fun b s =>
     let v := a - b
     let status := .from_result v {
-      cf := v.unsigned != a.unsigned - b.unsigned
-      af := (v.take 4).unsigned != (a.take 4).unsigned - (b.take 4).unsigned,
-      of := v.signed != a.signed - b.signed }
+      cf := Kraken.Flags.subBorrow a b false
+      af := Kraken.Flags.subBorrow (a.take 4) (b.take 4) false,
+      of := Kraken.Flags.subOverflow a b false }
     next { s with status }))
   | .mul src =>
     let a := s.regs.get (Reg.low .rax w)
     src.interp s p (fun b s =>
     let v := a * b
-    let vn := a.unsigned * b.unsigned
+    -- `BitVec.umulOverflow` says exactly that its high half is nonzero,
+    -- which is the meaning of `CF`/`OF` here.
+    let vn := a.setWidth (w.bits + w.bits) * b.setWidth (w.bits + w.bits)
     let s := if w == .W8
-      then s.setReg (.low .rax .W16) (.ofInt _ vn)
-      else (s.setReg (.low .rax w) v).setReg (.low .rdx w) (.ofInt _ (vn >>> w.bits))
+      then s.setReg (.low .rax .W16) (vn.setWidth _)
+      else (s.setReg (.low .rax w) v).setReg (.low .rdx w) (vn.extractLsb' w.bits w.bits)
     undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
-    next { s with status := { cf := v.unsigned != vn, pf, af, zf, sf, of := v.unsigned != vn }})))))
+    let ovf := BitVec.umulOverflow a b
+    next { s with status := { cf := ovf, pf, af, zf, sf, of := ovf }})))))
   | .mulx r_hi r_lo src1 =>
     src1.interp s p (fun a s =>
     let b := s.regs.get (.low .rdx w)
-    let v := a.unsigned * b.unsigned
-    let s := s.setReg r_lo (.ofInt _ v) -- if r_hi = r_li, hi is written:
-    let s := s.setReg r_hi (.ofInt _ (v >>> w.bits))
+    let v := a.setWidth (w.bits + w.bits) * b.setWidth (w.bits + w.bits)
+    let s := s.setReg r_lo (v.setWidth _) -- if r_hi = r_li, hi is written:
+    let s := s.setReg r_hi (v.extractLsb' w.bits w.bits)
     next s)
   -- imul1 and imul collectively describe variants of the same
   -- syntax level `imul` instruction, where imul1 is the 1-operand case
   | .imul1 src =>
     let a := s.regs.get (Reg.low .rax w)
     src.interp s p (fun b s =>
-    let v := a.toInt * b.toInt
+    let v := a.signExtend (w.bits * 2) * b.signExtend (w.bits * 2)
     let s := if w == .W8 then
-      s.setReg (.low .rax .W16) (BitVec.ofInt 16 v)
+      s.setReg (.low .rax .W16) (v.setWidth 16)
     else
-      let result := BitVec.ofInt (w.bits * 2) v
-      let low := result.take w.bits
-      let high := (result.drop w.bits).setWidth _
+      let low := v.take w.bits
+      let high := (v.drop w.bits).setWidth _
       (s.setReg (.low .rax w) low).setReg (.low .rdx w) high
     undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
-    let low := BitVec.ofInt w.bits v
-    let cf := v != low.toInt
+    -- `CF`/`OF` say the low half alone does not represent the product, which
+    -- is the meaning of `BitVec.smulOverflow`.
+    let cf := BitVec.smulOverflow a b
     next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))
   | .imul dst src1 src2 =>
     src1.interp s p (fun a s =>
@@ -588,7 +591,7 @@ set_option maxHeartbeats 1000000
     let v := a * b
     s.set (match (generalizing := false) (motive := Option (RegOrMem w) → RegOrMem w)
              dst with | .some dst => dst | _ => src1) v p (fun s =>
-    let cf := v.signed != a.signed * b.signed
+    let cf := BitVec.smulOverflow a b
     undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
     next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))))
 -- Bitwise
@@ -612,86 +615,86 @@ set_option maxHeartbeats 1000000
     s.set dst v p next)
   | .shl dst count =>
     dst.interp s p (fun a s =>
-    let count := count.interpMasked s p w
-    if count == 0 then next s else
+    let count := count.interpMaskedBV s p w
+    if count == 0#8 then next s else
     let v := a <<< count
     undefined (λ af =>
-    (λ setcf => if count < w.bits then setcf (a <<< (count-1)).msb else undefined setcf) (λ cf =>
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    (λ setcf => if count < w.bitsv then setcf (a <<< (count - 1#8)).msb else undefined setcf) (λ cf =>
+    (λ setof => if count == 1#8 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .shr dst count =>
     dst.interp s p (fun a s =>
-    let count := count.interpMasked s p w
-    if count == 0 then next s else
-    let v := a.ushiftRight count
+    let count := count.interpMaskedBV s p w
+    if count == 0#8 then next s else
+    let v := a >>> count
     undefined (λ af =>
-    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
-    (λ setof => if count == 1 then setof a.msb else undefined setof) (λ of =>
+    (λ setcf => if count < w.bitsv then setcf ((a >>> (count - 1#8)).getLsbD 0) else undefined setcf) (λ cf =>
+    (λ setof => if count == 1#8 then setof a.msb else undefined setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .sar dst count =>
     dst.interp s p (fun a s =>
-    let count := count.interpMasked s p w
-    if count == 0 then next s else
-    let v := a.sshiftRight count
+    let count := count.interpMaskedBV s p w
+    if count == 0#8 then next s else
+    let v := a.sshiftRight' count
     undefined (λ af =>
-    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
-    (λ setof => if count == 1 then setof false else undefined setof) (λ of =>
+    (λ setcf => if count < w.bitsv then setcf ((a >>> (count - 1#8)).getLsbD 0) else undefined setcf) (λ cf =>
+    (λ setof => if count == 1#8 then setof false else undefined setof) (λ of =>
     { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
   | .shrd dst src count =>
     dst.interp s p (fun a s =>
     src.interp s p (fun b s =>
-    let count := count.interpMasked s p w
-    if count == 0 then next s else
+    let count := count.interpMaskedBV s p w
+    if count == 0#8 then next s else
     let v := (((b.append a) >>> count).take w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined setstatus else
-      let cf := a.getLsbD (count-1)
+    (λ setstatus => if count >= w.bitsv then undefined setstatus else
+      let cf := (a >>> (count - 1#8)).getLsbD 0
       undefined (λ af =>
-      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+      (λ setof => if count == 1#8 then setof (v.msb != a.msb) else undefined setof) (λ of =>
       setstatus (.from_result v { cf, af, of})))) (λ status =>
     { s with status }.set dst v p next)))
   | .shld dst src count =>
     dst.interp s p (fun a s =>
     src.interp s p (fun b s =>
-    let count := count.interpMasked s p w
-    if count == 0 then next s else
+    let count := count.interpMaskedBV s p w
+    if count == 0#8 then next s else
     let v := (((a.append b) <<< count).drop w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined setstatus else
-      let cf := (a <<< (count-1)).msb
+    (λ setstatus => if count >= w.bitsv then undefined setstatus else
+      let cf := (a <<< (count - 1#8)).msb
       undefined (λ af =>
-      (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+      (λ setof => if count == 1#8 then setof (v.msb != a.msb) else undefined setof) (λ of =>
       setstatus (.from_result v { cf, af, of})))) (λ status =>
     { s with status }.set dst v p next)))
-  | .rol dst count =>
+  | .rol dst rotcount =>
     dst.interp s p (fun a s =>
-    let count := count.interpMasked s p w
-    if count == 0 then next s else
-    let v := a.rotateLeft count
+    let count := rotcount.interpMaskedBV s p w
+    if count == 0#8 then next s else
+    let v := a.rolBV (rotcount.interpRotate s p w)
     let cf := v.getLsbD 0
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    (λ setof => if count == 1#8 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
-  | .ror dst count =>
+  | .ror dst rotcount =>
     dst.interp s p (fun a s =>
-    let count := count.interpMasked s p w
-    if count == 0 then next s else
-    let v := a.rotateRight count
+    let count := rotcount.interpMaskedBV s p w
+    if count == 0#8 then next s else
+    let v := a.rorBV (rotcount.interpRotate s p w)
     let cf := v.msb
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    (λ setof => if count == 1#8 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
-  | .rcr dst count =>
+  | .rcr dst rotcount =>
     dst.interp s p (fun a s =>
-    let count := count.interpMasked s p w
-    if count == 0 then next s else
-    let t := (BitVec.ofBool s.status.cf ++ a).rotateRight count
+    let count := rotcount.interpMaskedBV s p w
+    if count == 0#8 then next s else
+    let t := (BitVec.ofBool s.status.cf ++ a).rorBV (rotcount.interpRotateCarry s p w)
     let (cf, v) := (t.msb, t.take w.bits)
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    (λ setof => if count == 1#8 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
-  | .rcl dst count =>
+  | .rcl dst rotcount =>
     dst.interp s p (fun a s =>
-    let count := count.interpMasked s p w
-    if count == 0 then next s else
-    let t := (BitVec.ofBool s.status.cf ++ a).rotateLeft count
+    let count := rotcount.interpMaskedBV s p w
+    if count == 0#8 then next s else
+    let t := (BitVec.ofBool s.status.cf ++ a).rolBV (rotcount.interpRotateCarry s p w)
     let (cf, v) := (t.msb, t.take w.bits)
-    (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
+    (λ setof => if count == 1#8 then setof (v.msb != a.msb) else undefined setof) (λ of =>
     { s with status := { s.status with cf, of } }.set dst v p next))
   | .bswap dst =>
     let a := s.regs.get dst
@@ -841,5 +844,5 @@ abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
     .instr (.regular .W64 .W64 (.inc (.reg (.low .rax .W64)))),
     .instr (.regular .W64 .W64 .ret) ]
   let start := (Executable.labels exe).label "main"
-  let data : MachineData := { dmem := Mem.storeInt {} 0x100 8 0x1337, regs := {rsp := 0x100} }
+  let data : MachineData := { dmem := Mem.storeBV {} 0x100 8 0x1337#64, regs := {rsp := 0x100} }
   (Executable.eval exe (data, start) (fun (_, pc) => pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)
