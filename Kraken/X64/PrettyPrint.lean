@@ -71,25 +71,31 @@ unsafe def delabDirectiveNatPair : Delab := do
         let d ← Meta.evalExpr Directive typeExpr dExpr
         pure s!"{d}"
       else
-        pure "<symbolic_directive>"
+        -- Unfold let-bound variables (zeta reduction) and instantiate metavariables
+        let dExprUnfolded ← Meta.zetaReduce (← instantiateMVars dExpr)
+        -- Pretty-print the unfolded expression directly:
+        let fmt ← PrettyPrinter.ppExpr dExprUnfolded
+        pure s!"{fmt}"
 
-      -- 2. Extract the Nat index/offset from nExpr using fully-qualified matches
-      let idxStr ← match nExpr with
+      -- 2. Extract the Nat index/offset from nExpr
+      let idxStr ← if let some n := getNatVal? nExpr then
+        -- Case A: nExpr is already a literal number (e.g. `0`)
+        pure s!"#{n}"
+      else match nExpr with
         | Expr.app _ arg =>
+          -- Case B: nExpr is an application (e.g. `Kraken.Layout.size Directive 0`)
           if let some n := getNatVal? arg then
-            pure s!"{n}"
+            pure s!"#{n}"
           else
-            -- If it's a symbolic index (e.g. `layout.size 0`), navigate inside to get the index term
-            let idxStx ← withAppArg (withAppArg delab)
-            let fmt ← PrettyPrinter.ppTerm idxStx
-            pure s!"{fmt}"
-        | _ =>
-          if let some n := getNatVal? nExpr then
-            pure s!"{n}"
-          else
+            -- Fallback: delaborate the inner argument term symbolically
             let idxStx ← withAppArg delab
             let fmt ← PrettyPrinter.ppTerm idxStx
             pure s!"{fmt}"
+        | _ =>
+          -- Fallback for other symbolic expressions
+          let idxStx ← delab
+          let fmt ← PrettyPrinter.ppTerm idxStx
+          pure s!"{fmt}"
 
       let combinedStr := s!"@{idxStr}: {dStr}"
       return Syntax.mkStrLit combinedStr
