@@ -1,4 +1,9 @@
-import Std
+module
+
+public import Std.Data.ExtHashMap
+
+@[expose] public section
+
 namespace Std.ExtHashMap
 
 variable {key value : Type} [BEq key] [EquivBEq key] [Hashable key] [LawfulHashable key] [LawfulBEq key]

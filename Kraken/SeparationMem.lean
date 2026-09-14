@@ -1,5 +1,9 @@
-import Kraken.Mem
-import Kraken.Separation
+module
+
+public import Kraken.Mem
+public import Kraken.Separation
+
+@[expose] public section
 
 /-!
 # Separation-logic interface to Kraken memory-access operations

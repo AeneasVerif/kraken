@@ -1,4 +1,7 @@
+module
+
 import Kraken.Mem
+import Kraken.Separation
 import Kraken.SeparationTactics
 
 open Std.ExtHashMap

@@ -1,3 +1,7 @@
+module
+
+public section
+
 /-
 Common Kraken Temporal Logic and OmniSemantics.
 -/
