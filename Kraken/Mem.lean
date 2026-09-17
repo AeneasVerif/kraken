@@ -3,7 +3,7 @@ module
 public import Kraken.ToBytes
 public import Std.Data.ExtHashMap
 
-@[expose] public section
+public section
 
 /-!
 # Kraken Memory Access
@@ -41,16 +41,16 @@ def Mem.storeInt {w} (m : Mem w) (a : BitVec w) (n : Nat) (v : Int) : Mem w :=
   storeBytes m a (Int.toBytes n v)
 
 
-def UInt64.At {w} (val : UInt64) (a : BitVec w) : Mem w :=
+@[expose] def UInt64.At {w} (val : UInt64) (a : BitVec w) : Mem w :=
   val.toBytes.At a
 
-def UInt32.At {w} (val : UInt32) (a : BitVec w) : Mem w :=
+@[expose] def UInt32.At {w} (val : UInt32) (a : BitVec w) : Mem w :=
   val.toBytes.At a
 
-def UInt16.At {w} (val : UInt16) (a : BitVec w) : Mem w :=
+@[expose] def UInt16.At {w} (val : UInt16) (a : BitVec w) : Mem w :=
   val.toBytes.At a
 
-def UInt8.At {w} (val : UInt8) (a : BitVec w) : Mem w :=
+@[expose] def UInt8.At {w} (val : UInt8) (a : BitVec w) : Mem w :=
   val.toBytes.At a
 
 

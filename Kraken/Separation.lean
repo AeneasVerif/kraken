@@ -2,7 +2,7 @@ module
 
 public import Std.Data.ExtHashMap
 
-@[expose] public section
+public section
 
 namespace Std.ExtHashMap
 
