@@ -1,12 +1,18 @@
+module
+
 -- The reference semantics are taken from https://www.felixcloutier.com/x86/,
 -- which itself is just extracted from https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
 
 import Kraken.Attribute
-import Kraken.Layout
-import Kraken.Mem
-import Kraken.X64.Syntax
-import Lean
-import Std
+public import Kraken.Layout
+public import Kraken.Mem
+meta import Kraken.Mem
+public import Kraken.X64.Syntax
+meta import Kraken.X64.Syntax
+public import Lean.ToExpr
+meta import Lean.Elab.Deriving.ToExpr
+
+@[expose] public section
 
 -- injective coercions only
 attribute [-instance] BitVec.instNatCast

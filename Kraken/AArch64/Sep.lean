@@ -1,6 +1,10 @@
-import Kraken.AArch64.Semantics
+module
+
+public import Kraken.AArch64.Semantics
 import Kraken.Attribute
-import Kraken.SeparationMem
+public import Kraken.SeparationMem
+
+public section
 
 open Std
 open Std.ExtHashMap

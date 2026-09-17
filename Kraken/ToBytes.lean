@@ -1,3 +1,7 @@
+module
+
+@[expose] public section
+
 abbrev Nat.take (v : Nat) (w : Nat) : Nat := v % 2 ^ w
 abbrev Int.take (v : Int) (w : Nat) : Int := v % (2 : Int) ^ w
 
