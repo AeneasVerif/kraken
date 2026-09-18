@@ -22,7 +22,9 @@ open Kraken.X64.Parser
 def p1 := parse("start: mov $1, %rax")
 
 -- Super-simple example to debug tactics
-example [layout : Layout] s : straightlineStep (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+example [layout : Layout] (hwf : (layout p1).WellFormed) s :
+    Eventually (step1 (layout p1)) (fun s => s.1.regs.rax = 1) (s, layout.start) := by
+  apply eventually_step (layout p1) hwf
   kprologue p1
   sym => kstep; tactic =>
   decide
@@ -36,13 +38,13 @@ def swap : Program := parse("
   xor %rax, %rbx
   xor %rbx, %rax")
 
-theorem swap_correct [layout : Layout] (d : MachineData) :
-      Eventually (straightlineStep (layout swap))
+theorem swap_correct [layout : Layout] (hwf : (layout swap).WellFormed) (d : MachineData) :
+      Eventually (step1 (layout swap))
       (fun s' =>
           s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
           s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
       (d, layout.start) := by
-  apply step_cps
+  apply eventually_step_cps (layout swap) hwf
   kprologue swap
   sym => kstep; tactic =>
   simp (zeta:=false) -- TODO: figure out why `simp` gives us two `Eventually`s
@@ -61,8 +63,9 @@ start:
   mov $2, %rax")
 
 -- Example 2: stepping through both straightline and control instructions
-example [layout : Layout] (s : MachineData): Eventually (straightlineStep (layout p2)) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
-  apply step_cps
+example [layout : Layout] (hwf : (layout p2).WellFormed) (s : MachineData) :
+    Eventually (step1 (layout p2)) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
+  apply eventually_step_cps (layout p2) hwf
   kprologue p2
   sym => kstep; tactic =>
   lift_lets
@@ -187,10 +190,12 @@ def p4 := eval% parse("start: mov $2, %rax
 dec %rax")
 
 -- Super-simple example to debug tactics
-example [layout : Layout] s : straightlineStep (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+example [layout : Layout] (hwf : (layout p4).WellFormed) s :
+    Eventually (step1 (layout p4)) (fun s => s.1.regs.rax = 1) (s, layout.start) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
   -- refined state in the hypotheses, not the goal.
+  apply eventually_step (layout p4) hwf
   let ss := s
   change (straightlineStep _ (ss, _) _)
   cases s with | mk regs flags mem =>
@@ -213,10 +218,12 @@ set_option maxHeartbeats 1000000
 set_option pp.rawOnError true
 /- set_option pp.all true -/
 
-example [layout : Layout] s : straightlineStep (layout p5) (s, layout.start) (fun s => s.1.regs.rax = 0) := by
+example [layout : Layout] (hwf : (layout p5).WellFormed) s :
+    Eventually (step1 (layout p5)) (fun s => s.1.regs.rax = 0) (s, layout.start) := by
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
   -- refined state in the hypotheses, not the goal.
+  apply eventually_step (layout p5) hwf
   let ss := s
   change (straightlineStep _ (ss, _) _)
   cases s with | mk regs flags mem =>
@@ -235,13 +242,13 @@ set_option pp.rawOnError true
 /- set_option pp.all true -/
 
 
-theorem p6_correct [layout : Layout] (s₀ : MachineData)
+theorem p6_correct [layout : Layout] (hwf : (layout p6).WellFormed) (s₀ : MachineData)
     (stack : List UInt8) (h_len : stack.length = 8) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (stack.At (s₀.regs.rsp.toBitVec - 8#64)) ⋆ R) :
-    Eventually (straightlineStep (layout p6))
+    Eventually (step1 (layout p6))
       (fun s' => s'.1.regs.rax = s₀.regs.rax ∧ s'.1.regs.rsp = s₀.regs.rsp)
       (s₀, layout.start) := by
-  apply step_cps
+  apply eventually_step_cps (layout p6) hwf
   let ss := s₀
   change (straightlineStep _ (ss, _) _)
   cases s₀ with | mk regs zmms flags mem =>
@@ -378,17 +385,17 @@ def move_2_regs_to_heap := parse("
     movq 8(%rdi), %r13
 ")
 
-theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
+theorem move_2_regs_to_heap_correct [layout : Layout] (hwf : (layout move_2_regs_to_heap).WellFormed) (s₀ : MachineData)
   (v1 v2 : UInt64)
   (R : DataMem → Prop)
   (h_mem : s₀.dmem =⋆ Eq (v1.At s₀.regs.rdi.toBitVec) ⋆ Eq (v2.At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ R)
-  : Eventually (straightlineStep (layout move_2_regs_to_heap))
+  : Eventually (step1 (layout move_2_regs_to_heap))
       (fun s' =>
         s'.1.regs.r12 = s₀.regs.rax ∧
         s'.1.regs.r13 = s₀.regs.rcx ∧
         s'.1.regs.rdi = s₀.regs.rdi)
       (s₀, layout.start) := by
-  apply step_cps
+  apply eventually_step_cps (layout move_2_regs_to_heap) hwf
   cases s₀ with | mk regs zmms flags mem =>
   cases regs with | mk rax rbx rcx rdx rsi rdi rsp rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
@@ -432,13 +439,13 @@ def sib_example := parse("
     movq (%rdi, %r15, 8), %rax
 ")
 
-theorem sib_example_correct [layout : Layout] (s₀ : MachineData)
+theorem sib_example_correct [layout : Layout] (hwf : (layout sib_example).WellFormed) (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdi.toBitVec + s₀.regs.r15.toBitVec * 8#64)) ⋆ R) :
-    Eventually (straightlineStep (layout sib_example))
+    Eventually (step1 (layout sib_example))
       (fun s' => s'.1.regs.rax = 42)
       (s₀, layout.start) := by
-  apply step_cps
+  apply eventually_step_cps (layout sib_example) hwf
   cases s₀ with | mk regs zmms flags mem =>
   cases regs with | mk rax rbx rcx rdx rsi rdi rsp rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
@@ -466,13 +473,13 @@ def alu_mem_example := parse("
     addq 136(%rdx), %rcx
 ")
 
-theorem alu_mem_example_correct [layout : Layout] (s₀ : MachineData)
+theorem alu_mem_example_correct [layout : Layout] (hwf : (layout alu_mem_example).WellFormed) (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdx.toBitVec + 136#64)) ⋆ R) :
-    Eventually (straightlineStep (layout alu_mem_example))
+    Eventually (step1 (layout alu_mem_example))
       (fun s' => s'.1.regs.rcx = 142)
       (s₀, layout.start) := by
-  apply step_cps
+  apply eventually_step_cps (layout alu_mem_example) hwf
   cases s₀ with | mk regs zmms flags mem =>
   cases regs with | mk rax rbx rcx rdx rsi rdi rsp rbp r8 r9 r10 r11 r12 r13 r14 r15 =>
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
@@ -507,14 +514,14 @@ def dynamic_stack_example := parse("
     movq -8(%rsp), %rbx
 ")
 
-theorem dynamic_stack_example_correct [layout : Layout] (s₀ : MachineData)
+theorem dynamic_stack_example_correct [layout : Layout] (hwf : (layout dynamic_stack_example).WellFormed) (s₀ : MachineData)
     (stack : List UInt8) (lstack : stack.length = 1024) R
     (h : s₀.regs.r9.toNat + s₀.regs.r15.toNat < 125)
     (h_mem : s₀.dmem =⋆ Eq (stack.At (s₀.regs.rsp.toBitVec - 1024)) ⋆ R) :
-    Eventually (straightlineStep (layout dynamic_stack_example))
+    Eventually (step1 (layout dynamic_stack_example))
       (fun s' => s'.1.regs.rax = 42 ∧ s'.1.regs.rbx = 99 ∧ s'.1.regs.rsp = s₀.regs.rsp)
       (s₀, layout.start) := by
-  apply step_cps
+  apply eventually_step_cps (layout dynamic_stack_example) hwf
   let ss := s₀
   change (straightlineStep _ (ss, _) _)
   cases s₀ with | mk regs zmms flags mem =>

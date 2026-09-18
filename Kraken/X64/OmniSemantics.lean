@@ -813,3 +813,19 @@ theorem eventually_step_of_sum_lt [Layout] (e : Executable)
     Eventually (step1 e) post st :=
   eventually_step e (Executable.wellFormed_of_sum_lt e hsum) st post
 
+theorem eventually_step_cps [Layout] (e : Executable) (hwf : e.WellFormed)
+    (st : MachineState) (post : @Post MachineState) :
+    straightlineStep e st (fun mid => Eventually (step1 e) post mid) →
+    Eventually (step1 e) post st := by
+  intro h
+  exact eventually_trans (step1 e) (fun mid => Eventually (step1 e) post mid) post st
+    (eventually_step e hwf st _ h) (fun _ => id)
+
+theorem eventually_step_cps_of_sum_lt [Layout] (e : Executable)
+    (hsum : (e.2.map (·.2)).sum < 2 ^ 64)
+    (st : MachineState) (post : @Post MachineState) :
+    straightlineStep e st (fun mid => Eventually (step1 e) post mid) →
+    Eventually (step1 e) post st :=
+  eventually_step_cps e (Executable.wellFormed_of_sum_lt e hsum) st post
+
+
