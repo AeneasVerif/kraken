@@ -111,6 +111,16 @@ def parseInt64 : Parser Int64 := do
   else
     Int64.ofInt v)
 
+/--
+Parse a non-negative immediate integer value.
+- Fails if the parsed integer is negative.
+-/
+def parseImmNat : Parser Nat := do
+  let i ← parseInt
+  if i < 0 then
+    fail s!"expected non-negative immediate, got {i}"
+  pure i.toNat
+
 /-- Parse a raw label name as a string identifier. -/
 def parseLabelRaw : Parser Label := parseName
 
@@ -140,7 +150,7 @@ partial def parseConstExpr : Parser ConstExpr := do
 -- Register Parsing
 -- ============================================================================
 
-def parseXRegName (name : String) : Option (Width × XReg) :=
+def parseXRegName (name : String) : Option (RegWidth × XReg) :=
   match name.toLower with
   | "x0" => some (.W64, .X0) | "x1" => some (.W64, .X1) | "x2" => some (.W64, .X2) | "x3" => some (.W64, .X3)
   | "x4" => some (.W64, .X4) | "x5" => some (.W64, .X5) | "x6" => some (.W64, .X6) | "x7" => some (.W64, .X7)
@@ -161,7 +171,7 @@ def parseXRegName (name : String) : Option (Width × XReg) :=
   | _ => none
 
 /-- Enforce that an operand's actual parsed width matches the expected instruction width (`w`). -/
-def checkWidth {T : Width → Type} (expected actual : Width) (val : T actual) : Parser (T expected) :=
+def checkWidth {T : RegWidth → Type} (expected actual : RegWidth) (val : T actual) : Parser (T expected) :=
   if h : expected = actual then
     pure (h ▸ val)
   else
@@ -192,12 +202,12 @@ def parseRegOrZrW : Parser RegOrZrW := do
     | _ => fail s!"unknown register or xzr: {name}"
 
 /-- Parse a `RegOrSp` register operand and verify it matches width `w`. -/
-def parseRegOrSp (w : Width) : Parser (RegOrSp w) := do
+def parseRegOrSp (w : RegWidth) : Parser (RegOrSp w) := do
   let ⟨w', r⟩ ← parseRegOrSpW
   checkWidth w w' r
 
 /-- Parse a `RegOrZr` register operand and verify it matches width `w`. -/
-def parseRegOrZr (w : Width) : Parser (RegOrZr w) := do
+def parseRegOrZr (w : RegWidth) : Parser (RegOrZr w) := do
   let ⟨w', r⟩ ← parseRegOrZrW
   checkWidth w w' r
 
@@ -205,12 +215,12 @@ def parseRegOrZr (w : Width) : Parser (RegOrZr w) := do
 A generic parsed register (`gpr`, `sp`, or `xzr`) before instruction-specific
 context validation resolves index 31.
 -/
-inductive AnyReg (w : Width)
+inductive AnyReg (w : RegWidth)
   | gpr (r : XReg) : AnyReg w
   | sp : AnyReg w
   | xzr : AnyReg w
 
-abbrev AnyRegW := (w : Width) × AnyReg w
+abbrev AnyRegW := (w : RegWidth) × AnyReg w
 
 /-- Parse any valid register name and return its width and `AnyReg` variant. -/
 def parseAnyRegW : Parser AnyRegW := do
@@ -227,41 +237,37 @@ def parseAnyRegW : Parser AnyRegW := do
     | _ => fail s!"unknown register, sp, or xzr: {name}"
 
 /-- Parse any register name and verify that its width matches `w`. -/
-def parseAnyReg (w : Width) : Parser (AnyReg w) := do
+def parseAnyReg (w : RegWidth) : Parser (AnyReg w) := do
   let ⟨w', r⟩ ← parseAnyRegW
   checkWidth w w' r
 
 /-- Convert `AnyReg w` to `RegOrSp w`, rejecting `XZR`/`WZR` where `SP`/`WSP` is expected. -/
-def AnyReg.toRegOrSp {w : Width} : AnyReg w → Parser (RegOrSp w)
+def AnyReg.toRegOrSp {w : RegWidth} : AnyReg w → Parser (RegOrSp w)
   | .gpr r => pure (.low (.reg r) w)
-  | .sp => match w with
-    | .W64 => pure RegOrSp.SP
-    | .W32 => pure RegOrSp.WSP
+  | .sp => pure (.low .SP w)
   | .xzr => fail "xzr/wzr not allowed in immediate/extended register instruction (sp expected)"
 
 /-- Convert `AnyReg w` to `RegOrZr w`, rejecting `SP`/`WSP` where `XZR`/`WZR` is expected. -/
-def AnyReg.toRegOrZr {w : Width} : AnyReg w → Parser (RegOrZr w)
+def AnyReg.toRegOrZr {w : RegWidth} : AnyReg w → Parser (RegOrZr w)
   | .gpr r => pure (.low (.reg r) w)
-  | .xzr => match w with
-    | .W64 => pure RegOrZr.XZR
-    | .W32 => pure RegOrZr.WZR
+  | .xzr => pure (.low .XZR w)
   | .sp => fail "sp/wsp not allowed in shifted register instruction (xzr expected)"
 
-def AnyReg.isSp {w : Width} : AnyReg w → Bool
+def AnyReg.isSp {w : RegWidth} : AnyReg w → Bool
   | .sp => true
   | _ => false
 
-def AnyReg.isXzr {w : Width} : AnyReg w → Bool
+def AnyReg.isXzr {w : RegWidth} : AnyReg w → Bool
   | .xzr => true
   | _ => false
 
 /-- Extract the underlying `XReg` if this is a general-purpose register (and not `XZR`/`WZR`). -/
-def RegOrZr.toXReg? {w : Width} : RegOrZr w → Option XReg
+def RegOrZr.toXReg? {w : RegWidth} : RegOrZr w → Option XReg
   | .low (.reg r) _ => some r
   | _ => none
 
 /-- Extract the underlying `XReg` if this is a general-purpose register (and not `SP`/`WSP`). -/
-def RegOrSp.toXReg? {w : Width} : RegOrSp w → Option XReg
+def RegOrSp.toXReg? {w : RegWidth} : RegOrSp w → Option XReg
   | .low (.reg r) _ => some r
   | _ => none
 
@@ -281,15 +287,20 @@ def liftExcept {α : Type} (res : Except String α) : Parser α :=
 
 /--
 Validate a memory extension shift amount (`0` or log2 of access size in bytes).
-- `.W32`: Allows `0` (`E0`) or `2` (`E2`, `LSL #2`).
-- `.W64`: Allows `0` (`E0`) or `3` (`E3`, `LSL #3`).
+- 1-byte access (`scale = 1`): Only `0` (`E0`).
+- 2-byte access (`scale = 2`): Allows `0` (`E0`) or `1` (`E1`, `LSL #1`).
+- 4-byte access (`scale = 4`): Allows `0` (`E0`) or `2` (`E2`, `LSL #2`).
+- 8-byte access (`scale = 8`): Allows `0` (`E0`) or `3` (`E3`, `LSL #3`).
 -/
-def getMemExtendAmount (w : Width) (amt : Nat) : Except String (MemExtendAmount w) :=
-  match w, amt with
-  | .W32, 0 => .ok .E0
-  | .W32, 2 => .ok .E2
-  | .W64, 0 => .ok .E0
-  | .W64, 3 => .ok .E3
+def getMemExtendAmount (w : RegWidth) (amt : Nat) (scale : Nat := w.bytes) : Except String MemExtendAmount :=
+  match scale, amt with
+  | 1, 0 => .ok .E0
+  | 2, 0 => .ok .E0
+  | 2, 1 => .ok .E1
+  | 4, 0 => .ok .E0
+  | 4, 2 => .ok .E2
+  | 8, 0 => .ok .E0
+  | 8, 3 => .ok .E3
   | _, _ => .error s!"invalid memory extension shift amount {amt} for width {w}"
 
 /--
@@ -297,7 +308,7 @@ Validate a move-wide immediate shift amount (`MOVZ`/`MOVK`/`MOVN`).
 - `.W32`: Allows `0` or `16`.
 - `.W64`: Allows `0`, `16`, `32`, or `48`.
 -/
-def getMovShift (w : Width) (amt : Nat) : Except String (MovShift w) :=
+def getMovShift (w : RegWidth) (amt : Nat) : Except String (MovShift w) :=
   match w, amt with
   | _, 0     => .ok .LSL0
   | _, 16    => .ok .LSL16
@@ -311,7 +322,7 @@ and check that the register width matches:
 - `UXTW`/`SXTW` require a 32-bit register (`Wn`).
 - `UXTX`/`SXTX` require a 64-bit register (`Xn`).
 -/
-def getMemExtendType (extName : String) (w : Width) : Except String MemExtendType :=
+def getMemExtendType (extName : String) (w : RegWidth) : Except String MemExtendType :=
   match extName.toLower, w with
   | "uxtw", .W32 => .ok MemExtendType.UXTW
   | "uxtw", .W64 => .error "UXTW extension requires a 32-bit index register (Wn)"
@@ -332,20 +343,19 @@ def getMemExtendType (extName : String) (w : Width) : Except String MemExtendTyp
 /--
 Validate a load/store immediate byte offset:
 - **Unsigned scaled offset (`allowUnscaled = false` or `isScaled = true`)**:
-  Must be a multiple of 4 in `[0, 16380]` for `.W32` and a multiple of 8 in
-  `[0, 32760]` for `.W64`.
+  Must be a multiple of `scale` in `[0, 4095 * scale]`.
 - **Signed unscaled offset (`allowUnscaled = true`)**: Must be in `[-256, 255]`.
 -/
-def checkLoadStoreOffset (w : Width) (imm : Int64) (allowUnscaled : Bool) : Except String Unit :=
-  let (maxOff, align) := match w with | .W32 => (16380, 4) | .W64 => (32760, 8)
-  let isScaled := imm.toInt >= 0 && imm.toInt <= maxOff && imm.toInt % align == 0
+def checkLoadStoreOffset (w : RegWidth) (imm : Int64) (allowUnscaled : Bool) (scale : Nat := w.bytes) : Except String Unit :=
+  let maxOff := 4095 * scale
+  let isScaled := imm.toInt >= 0 && imm.toInt <= maxOff && imm.toInt % scale == 0
   let isUnscaled := allowUnscaled && imm.toInt >= -256 && imm.toInt <= 255
   if isScaled || isUnscaled then
     .ok ()
   else if allowUnscaled then
-    .error s!"offset {imm.toInt} is neither a valid scaled offset [0, {maxOff}] (multiple of {align}) nor a valid unscaled offset [-256, 255]"
+    .error s!"offset {imm.toInt} is neither a valid scaled offset [0, {maxOff}] (multiple of {scale}) nor a valid unscaled offset [-256, 255]"
   else
-    .error s!"unsigned offset {imm.toInt} out of range [0, {maxOff}] or not a multiple of {align}"
+    .error s!"unsigned offset {imm.toInt} out of range [0, {maxOff}] or not a multiple of {scale}"
 
 /-- Validate an unscaled 9-bit signed immediate byte offset for `LDUR`/`STUR` (`[-256, 255]`). -/
 def checkUnscaledOffset (imm : Int64) : Except String Unit :=
@@ -358,13 +368,12 @@ Determine whether a load/store immediate address (`AddrExpr`) requires
 automatic conversion to an unscaled `LDUR`/`STUR` instruction (i.e. when the
 offset is negative or not aligned to the access size).
 -/
-def addrExprNeedsUnscaled {w : Width} (addr : AddrExpr w) : Bool :=
+def addrExprNeedsUnscaled (addr : AddrExpr) (scale : Nat := 8) : Bool :=
   match addr.off with
   | .imm i =>
     match i.index, i.imm with
     | none, .int64 imm =>
-      let (_, align) := match w with | .W32 => (16380, 4) | .W64 => (32760, 8)
-      imm.toInt < 0 || imm.toInt % align != 0
+      imm.toInt < 0 || imm.toInt % scale != 0
     | _, _ => false
   | _ => false
 
@@ -372,16 +381,16 @@ def addrExprNeedsUnscaled {w : Width} (addr : AddrExpr w) : Bool :=
 Determine whether an `AddrOrLit` load operand requires conversion to an
 unscaled instruction.
 -/
-def addrOrLitNeedsUnscaled {w : Width} (a : AddrOrLit w) : Bool :=
+def addrOrLitNeedsUnscaled (a : AddrOrLit) (scale : Nat := 8) : Bool :=
   match a with
-  | .addr addr => addrExprNeedsUnscaled addr
+  | .addr addr => addrExprNeedsUnscaled addr scale
   | .lit _ => false
 
 /--
 Convert a standard immediate address expression (`AddrExpr`) to an unscaled
 address expression (`UnscaledAddrExpr`).
 -/
-def addrExprToUnscaled {w : Width} (addr : AddrExpr w) : Option UnscaledAddrExpr :=
+def addrExprToUnscaled (addr : AddrExpr) : Option UnscaledAddrExpr :=
   match addr.off with
   | .imm i =>
     match i.index with
@@ -390,7 +399,7 @@ def addrExprToUnscaled {w : Width} (addr : AddrExpr w) : Option UnscaledAddrExpr
   | _ => none
 
 /-- Convert an `AddrOrLit` operand to an unscaled address expression (`UnscaledAddrExpr`). -/
-def addrOrLitToUnscaled {w : Width} (a : AddrOrLit w) : Option UnscaledAddrExpr :=
+def addrOrLitToUnscaled (a : AddrOrLit) : Option UnscaledAddrExpr :=
   match a with
   | .addr addr => addrExprToUnscaled addr
   | .lit _ => none
@@ -400,8 +409,8 @@ Validate an optional shift amount for register operands:
 - Must be in `[0, 31]` for 32-bit instructions (`.W32`).
 - Must be in `[0, 63]` for 64-bit instructions (`.W64`).
 -/
-def checkShiftAmount (w : Width) (amt : Int64) : Except String Unit :=
-  let maxAmt := match w with | .W32 => 31 | .W64 => 63
+def checkShiftAmount (w : RegWidth) (amt : Int64) : Except String Unit :=
+  let maxAmt := w.bits - 1
   if amt.toInt < 0 || amt.toInt > maxAmt then
     .error s!"shift amount {amt.toInt} out of range [0, {maxAmt}] for {w.bits}-bit instruction"
   else .ok ()
@@ -411,7 +420,7 @@ Validate a signed immediate byte offset for load/store pair instructions (`LDP`/
 - For `.W32`: Multiple of 4 in `[-256, 252]`.
 - For `.W64`: Multiple of 8 in `[-512, 504]`.
 -/
-def checkPairOffset (w : Width) (imm : Int64) : Except String Unit :=
+def checkPairOffset (w : RegWidth) (imm : Int64) : Except String Unit :=
   let (minOff, maxOff, align) := match w with | .W32 => (-256, 252, 4) | .W64 => (-512, 504, 8)
   if imm.toInt < minOff || imm.toInt > maxOff || imm.toInt % align != 0 then
     .error s!"pair offset {imm.toInt} out of range [{minOff}, {maxOff}] or not a multiple of {align}"
@@ -487,7 +496,7 @@ for logical instructions (`AND`, `ORR`, `EOR`, `TST`).
 - Excludes all-zeros and all-ones values.
 - Checks for a repeated rotated run of ones across allowed element sizes `E`.
 -/
-def isValidLogicalImmediate (w : Width) (val : Int64) : Bool :=
+def isValidLogicalImmediate (w : RegWidth) (val : Int64) : Bool :=
   let vNat := match w with
     | .W32 => (val.toBitVec.toNat &&& 0xFFFFFFFF)
     | .W64 => val.toBitVec.toNat
@@ -510,7 +519,7 @@ Validate an ARMv8-A bitmask immediate for logical instructions
   (2, 4, 8, 16, 32, 64 bits).
 - Rejects all-zeros or all-ones bitmasks (`invalid logical immediate: <hex>`).
 -/
-def checkLogicalImmediate (w : Width) (imm : Int64) : Except String Unit :=
+def checkLogicalImmediate (w : RegWidth) (imm : Int64) : Except String Unit :=
   if isValidLogicalImmediate w imm then
     .ok ()
   else
@@ -576,10 +585,47 @@ def checkTbzOffset (instrName : String) (offset : Int64) : Except String Unit :=
 Validate a bit test position for `TBZ` / `TBNZ`:
 - Must be in `[0, 31]` for `.W32` and `[0, 63]` for `.W64`.
 -/
-def checkTbzBitPosition (instrName : String) (w : Width) (bit : Int) : Except String Unit :=
-  let maxBit := match w with | .W32 => 31 | .W64 => 63
-  if bit < 0 || bit > maxBit then
+def checkTbzBitPosition (instrName : String) (w : RegWidth) (bit : Nat) : Except String Unit :=
+  let maxBit := w.bits - 1
+  if bit > maxBit then
     .error s!"{instrName} bit position {bit} out of range [0, {maxBit}] for {w.bits}-bit instruction"
+  else .ok ()
+
+/--
+Validate that an immediate shift amount, bit position, or rotate/size index
+is within `[0, w.bits - 1]`.
+-/
+def checkBitWidthBound (instrName : String) (w : RegWidth) (imm : Nat) : Except String Unit :=
+  let maxVal := w.bits - 1
+  if imm > maxVal then
+    .error s!"{instrName} immediate {imm} out of range [0, {maxVal}]"
+  else .ok ()
+
+/--
+Validate bitfield extract/insert bounds (`lsb < w.bits`, `width > 0`, and
+`lsb + width <= w.bits`).
+-/
+def checkBitfieldBounds (instrName : String) (w : RegWidth) (lsb width : Nat) : Except String Unit :=
+  if lsb >= w.bits || width == 0 || lsb + width > w.bits then
+    .error s!"{instrName} bounds invalid: lsb={lsb}, width={width}, w={w.bits}"
+  else .ok ()
+
+/-- Validate conditional compare (`CCMP`/`CCMN`) immediate operand (`[0, 31]`). -/
+def checkCcmpImmediate (imm : Nat) : Except String Unit :=
+  if imm > 31 then
+    .error s!"ccmp/ccmn immediate {imm} out of range [0, 31]"
+  else .ok ()
+
+/-- Validate NZCV condition flags immediate operand (`[0, 15]`). -/
+def checkNzcvFlags (nzcv : Nat) : Except String Unit :=
+  if nzcv > 15 then
+    .error s!"nzcv immediate {nzcv} out of range [0, 15]"
+  else .ok ()
+
+/-- Validate a 12-bit unsigned arithmetic immediate (for ADD/SUB immediate operands). -/
+def checkArithmeticImmediate (imm : Int64) : Except String Unit :=
+  if imm.toInt < 0 || imm.toInt > 4095 then
+    .error s!"immediate {imm.toInt} out of range [0, 4095]"
   else .ok ()
 
 /--
@@ -588,7 +634,7 @@ Validate architectural constraints for `LDP` and `STP` instructions:
 2. If writeback (`!` pre-index or post-index) is used, the base register (`Rn`)
    cannot be one of the transfer registers (`rt1` or `rt2`).
 -/
-def checkLdpStpRegisters {w : Width} (isLdp : Bool) (reg1 : RegOrZr w) (reg2 : RegOrZr w) (mem : AddrExpr w) : Except String Unit := do
+def checkLdpStpRegisters {w : RegWidth} (isLdp : Bool) (reg1 : RegOrZr w) (reg2 : RegOrZr w) (mem : AddrExpr) : Except String Unit := do
   if isLdp && reg1 == reg2 && (RegOrZr.toXReg? reg1).isSome then
     throw "unpredictable: identical destination registers in ldp instruction"
   let hasWriteback := match mem.off with | .imm i => i.index.isSome | _ => false
@@ -612,7 +658,7 @@ Supports the following AArch64 addressing modes:
 3. **Register offset with optional extension/shift**: `[base, Rm]` or
    `[base, Rm, ext #amount]`
 -/
-def parseAddr (w : Width) (allowUnscaled : Bool := false) : Parser (AddrExpr w) := do
+def parseAddr (w : RegWidth) (allowUnscaled : Bool := false) (scale : Nat := w.bytes) : Parser AddrExpr := do
   skipHWs
   let _ ← pchar '['
   let base ← parseRegOrSp .W64
@@ -650,7 +696,7 @@ def parseAddr (w : Width) (allowUnscaled : Bool := false) : Parser (AddrExpr w) 
           if imm.toInt < -256 || imm.toInt > 255 then
             fail s!"pre-indexed offset {imm.toInt} out of range [-256, 255]"
         else do
-          liftExcept (checkLoadStoreOffset w imm allowUnscaled)
+          liftExcept (checkLoadStoreOffset w imm allowUnscaled scale)
       | _ =>
         if isPre.isSome then
           fail "pre-indexed / post-indexed offsets must be constant numeric immediates"
@@ -669,12 +715,11 @@ def parseAddr (w : Width) (allowUnscaled : Bool := false) : Parser (AddrExpr w) 
         let _ ← optional (pchar ',')
         skipHWs
         let c? ← peek?
-        let amt ← if c? == some '#' || c? == some '-' || (c?.map Char.isDigit).getD false then do
-          let val ← parseInt
-          pure val.toNat
+        let amt ← if c? == some '#' || c? == some '-' || (c?.map Char.isDigit).getD false then
+          parseImmNat
         else
           pure 0
-        let amount ← liftExcept (getMemExtendAmount w amt)
+        let amount ← liftExcept (getMemExtendAmount w amt scale)
         skipHWs
         let _ ← pchar ']'
         pure ⟨base, .reg { reg := regW, ext := { type := extType, amount := amount } }⟩
@@ -726,11 +771,11 @@ Parse a memory source operand for `LDR`:
 - PC-relative literal pool constant (`=const_expr`).
 - PC-relative symbol label (`label`).
 -/
-def parseAddrOrLit (w : Width) (allowUnscaled : Bool := false) : Parser (AddrOrLit w) := do
+def parseAddrOrLit (w : RegWidth) (allowUnscaled : Bool := false) (scale : Nat := w.bytes) : Parser AddrOrLit := do
   skipHWs
   let c ← peek!
   if c == '[' then do
-    let m ← parseAddr w allowUnscaled
+    let m ← parseAddr w allowUnscaled scale
     pure (.addr m)
   else if c == '=' then do
     skip
@@ -746,7 +791,7 @@ Parse memory addressing for load/store pair (`LDP` / `STP`):
   pre-indexed (`[base, #imm]!`), and post-indexed (`[base], #imm`).
 - Enforces pair offset scaling and alignment via `checkPairOffset`.
 -/
-def parsePairAddr (w : Width) : Parser (AddrExpr w) := do
+def parsePairAddr (w : RegWidth) : Parser AddrExpr := do
   skipHWs
   let _ ← pchar '['
   let base ← parseRegOrSp .W64
@@ -806,7 +851,7 @@ Validate and map an arithmetic extension mnemonic (`UXTB`, `SXTB`, `UXTH`,
 `SXTH`, `UXTW`, `SXTW`, `UXTX`, `SXTX`, `LSL`).
 - Maps `LSL` to `UXTX` for `.W64` and `UXTW` for `.W32`.
 -/
-def getExtendType (extName : String) (w : Width) : Except String ExtendType :=
+def getExtendType (extName : String) (w : RegWidth) : Except String ExtendType :=
   match extName.toLower with
   | "uxtb" => .ok ExtendType.UXTB
   | "sxtb" => .ok ExtendType.SXTB
@@ -831,7 +876,7 @@ Parse the second source operand of an `ADD_e` instruction
 2. **Extended/shifted register operand**: `Rm` or `Rm, ext #amount`
    (e.g. `x2, uxtw #2` or `x2, lsl #2`).
 -/
-def parseExtOrImmReg (w : Width) : Parser (ExtOrImmReg w) := do
+def parseExtOrImmReg (w : RegWidth) : Parser ExtOrImmReg := do
   skipHWs
   let c ← peek!
   -- Case 1: Immediate operand (e.g. `#42`, `#42, lsl #12`, or `:lo12:main`)
@@ -845,12 +890,11 @@ def parseExtOrImmReg (w : Width) : Parser (ExtOrImmReg w) := do
       let shiftName ← parseName
       if shiftName.toLower == "lsl" then do
         skipHWs
-        let amt ← parseInt
+        let amt ← parseImmNat
         match expr with
         | .int64 imm =>
-          if imm.toInt < 0 || imm.toInt > 4095 then
-            fail s!"immediate {imm.toInt} out of range [0, 4095]"
-          else if amt == 12 then
+          liftExcept (checkArithmeticImmediate imm)
+          if amt == 12 then
             pure (.imm { imm := expr, shift := ImmShift.S12 })
           else if amt == 0 then
             pure (.imm { imm := expr, shift := ImmShift.S0 })
@@ -862,8 +906,7 @@ def parseExtOrImmReg (w : Width) : Parser (ExtOrImmReg w) := do
     else
       match expr with
       | .int64 imm =>
-        if imm.toInt < 0 || imm.toInt > 4095 then
-          fail s!"immediate {imm.toInt} out of range [0, 4095]"
+        liftExcept (checkArithmeticImmediate imm)
       | _ => pure ()
       pure (.imm { imm := expr, shift := ImmShift.S0 })
   -- Case 2: Extended or shifted register operand (e.g. `x2`, `x2, uxtw #2`, or `x2, lsl #2`)
@@ -890,7 +933,7 @@ Parse a shifted register operand (`Rm` or `Rm, shift #amount`).
 - Enforces shift amount bounds (`[0, 31]` for `.W32`, `[0, 63]` for `.W64`).
 - Rejects `ROR` in arithmetic instructions.
 -/
-def parseShiftRegExpr (w : Width) (allowRor : Bool := false) : Parser (ShiftRegExpr w) := do
+def parseShiftRegExpr (w : RegWidth) (allowRor : Bool := false) : Parser (ShiftRegExpr w) := do
   let reg ← parseRegOrZr w
   skipHWs
   let nextC? ← peek?
@@ -984,8 +1027,8 @@ Parse arithmetic instructions without flags (`ADD`, `SUB`).
 - Handles stack pointer (`SP`) disambiguation for operand index 31.
 -/
 def parseArithNoFlags
-    (mkE : {w : Width} → RegOrSp w → RegOrSp w → ExtOrImmReg w → Operation w)
-    (mkS : {w : Width} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
+    (mkE : {w : RegWidth} → RegOrSp w → RegOrSp w → ExtOrImmReg → Operation w)
+    (mkS : {w : RegWidth} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
   let op1W ← parseAnyRegW
   let w := op1W.1
   parseComma
@@ -1019,8 +1062,8 @@ Parse arithmetic instructions that set flags (`ADDS`, `SUBS`).
 - Supports both extended-register (`_e`) and shifted-register (`_s`) forms.
 -/
 def parseArithFlags (instrName : String)
-    (mkE : {w : Width} → RegOrZr w → RegOrSp w → ExtOrImmReg w → Operation w)
-    (mkS : {w : Width} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
+    (mkE : {w : RegWidth} → RegOrZr w → RegOrSp w → ExtOrImmReg → Operation w)
+    (mkS : {w : RegWidth} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
   let op1W ← parseAnyRegW
   let w := op1W.1
   parseComma
@@ -1056,14 +1099,12 @@ Parse comparison instructions (`CMP`, `CMN`).
   `XZR` / `WZR`.
 -/
 def parseCompare
-    (mkE : {w : Width} → RegOrZr w → RegOrSp w → ExtOrImmReg w → Operation w)
-    (mkS : {w : Width} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
+    (mkE : {w : RegWidth} → RegOrZr w → RegOrSp w → ExtOrImmReg → Operation w)
+    (mkS : {w : RegWidth} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
   let op1W ← parseAnyRegW
   let w := op1W.1
   parseComma
-  let dstZr : RegOrZr w := match w with
-    | .W64 => RegOrZr.XZR
-    | .W32 => RegOrZr.WZR
+  let dstZr : RegOrZr w := .low .XZR w
   if op1W.2.isSp then
     let src1Sp ← op1W.2.toRegOrSp
     let op2 ← parseExtOrImmReg w
@@ -1088,7 +1129,7 @@ Parse three-register instructions (`ADC`, `SBC`, `LSLV`, `LSRV`, `ASRV`,
 - Enforces matching register widths across all three operands.
 -/
 def parseThreeRegs
-    (mk : {w : Width} → RegOrZr w → RegOrZr w → RegOrZr w → Operation w) : Parser Instr := do
+    (mk : {w : RegWidth} → RegOrZr w → RegOrZr w → RegOrZr w → Operation w) : Parser Instr := do
   let dstW ← parseRegOrZrW
   let w := dstW.w
   parseComma
@@ -1102,7 +1143,7 @@ Parse four-register multiply-accumulate instructions (`MADD`, `MSUB`).
 - Enforces matching register widths across all four operands (`dst, rn, rm, ra`).
 -/
 def parseFourRegs
-    (mk : {w : Width} → RegOrZr w → RegOrZr w → RegOrZr w → RegOrZr w → Operation w) : Parser Instr := do
+    (mk : {w : RegWidth} → RegOrZr w → RegOrZr w → RegOrZr w → RegOrZr w → Operation w) : Parser Instr := do
   let dstW ← parseRegOrZrW
   let w := dstW.w
   parseComma
@@ -1120,8 +1161,8 @@ Parse logical instructions without flags (`AND`, `ORR`, `EOR`).
 - Validates bitmasks.
 -/
 def parseLogicalNoFlags
-    (mkI : {w : Width} → RegOrSp w → RegOrZr w → ConstExpr → Operation w)
-    (mkS : {w : Width} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
+    (mkI : {w : RegWidth} → RegOrSp w → RegOrZr w → ConstExpr → Operation w)
+    (mkS : {w : RegWidth} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
   let dstW ← parseAnyRegW
   let w := dstW.1
   parseComma
@@ -1145,8 +1186,8 @@ Parse logical instructions that set flags (`ANDS`, `TST`).
 - `TST` is modeled architecturally as `ANDS` with destination `XZR` / `WZR`.
 -/
 def parseLogicalFlags
-    (mkI : {w : Width} → RegOrZr w → RegOrZr w → ConstExpr → Operation w)
-    (mkS : {w : Width} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
+    (mkI : {w : RegWidth} → RegOrZr w → RegOrZr w → ConstExpr → Operation w)
+    (mkS : {w : RegWidth} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
   let dstW ← parseRegOrZrW
   let w := dstW.w
   parseComma
@@ -1168,7 +1209,7 @@ Parse register-only logical instructions (`ORN`, `BIC`).
 - Supports shifted-register operands (including `ROR`).
 -/
 def parseLogical
-    (mkS : {w : Width} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
+    (mkS : {w : RegWidth} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
   let dstW ← parseRegOrZrW
   let w := dstW.w
   parseComma
@@ -1179,7 +1220,7 @@ def parseLogical
 
 /-- Parse conditional select instructions (`CSEL`, `CSINC`, `CSINV`, `CSNEG`). -/
 def parseCondSelect
-    (mk : {w : Width} → RegOrZr w → RegOrZr w → RegOrZr w → CondCode → Operation w) : Parser Instr := do
+    (mk : {w : RegWidth} → RegOrZr w → RegOrZr w → RegOrZr w → CondCode → Operation w) : Parser Instr := do
   let dstW ← parseRegOrZrW
   let w := dstW.w
   parseComma
@@ -1197,7 +1238,7 @@ Parse conditional select alias instructions (`CSET`, `CSETM`, `CNEG`).
 - `CNEG dst, src, cond` maps to `CSNEG dst, src, src, cond.invert`.
 -/
 def parseCondAlias
-    (mk : {w : Width} → RegOrZr w → RegOrZr w → RegOrZr w → CondCode → Operation w)
+    (mk : {w : RegWidth} → RegOrZr w → RegOrZr w → RegOrZr w → CondCode → Operation w)
     (sameSrc : Bool) (useXzr : Bool) : Parser Instr := do
   let dstW ← parseRegOrZrW
   let w := dstW.w
@@ -1222,7 +1263,7 @@ Check whether an unsigned bit vector value can be moved into a register using
 a single `MOVZ` instruction (i.e., it has at most one non-zero 16-bit halfword).
 - Returns `(imm16, shift)` for `LSL0`, `LSL16`, `LSL32`, or `LSL48`.
 -/
-def tryMovz (w : Width) (val : BitVec w.bits) : Option (Int64 × MovShift w) :=
+def tryMovz (w : RegWidth) (val : BitVec w.bits) : Option (Int64 × MovShift w) :=
   let n := val.toNat
   if n >>> 16 == 0 then
     some (.ofNat n, .LSL0)
@@ -1246,7 +1287,7 @@ instruction.
 - If that fails, tries `MOVZ` on the bitwise NOT (`~~~val`), which maps to `MOVN`.
 - Returns `(isMovn, imm16, shift)`.
 -/
-def tryMovzOrMovn (w : Width) (val : BitVec w.bits) : Option (Bool × Int64 × MovShift w) :=
+def tryMovzOrMovn (w : RegWidth) (val : BitVec w.bits) : Option (Bool × Int64 × MovShift w) :=
   match tryMovz w val with
   | some (imm16, shift) => some (false, imm16, shift)
   | none =>
@@ -1320,7 +1361,7 @@ Parse move wide instructions (`MOVZ`, `MOVK`, `MOVN`) with explicit
 - Enforces immediate range `[0, 65535]` and only allows `LSL` shifts.
 -/
 def parseMoveWide
-    (mk : {w : Width} → RegOrZr w → ConstExpr → MovShift w → Operation w) : Parser Instr := do
+    (mk : {w : RegWidth} → RegOrZr w → ConstExpr → MovShift w → Operation w) : Parser Instr := do
   let dstW ← parseRegOrZrW
   let w := dstW.w
   parseComma
@@ -1346,7 +1387,7 @@ Parse load/store pair instructions (`LDP`, `STP`).
 - Validates registers and pair addressing mode via `checkLdpStpRegisters`.
 -/
 def parsePairMem
-    (mk : {w : Width} → RegOrZr w → RegOrZr w → AddrExpr w → Operation w)
+    (mk : {w : RegWidth} → RegOrZr w → RegOrZr w → AddrExpr → Operation w)
     (isLdp : Bool) : Parser Instr := do
   let reg1W ← parseRegOrZrW
   parseComma
@@ -1355,6 +1396,164 @@ def parsePairMem
   let mem ← parsePairAddr reg1W.w
   liftExcept (checkLdpStpRegisters isLdp reg1W.reg reg2 mem)
   pure ⟨reg1W.w, mk reg1W.reg reg2 mem⟩
+
+/--
+Parse general load instruction (`LDR`) with automatic unscaled fallback (`LDUR`).
+-/
+def parseLdr : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src ← parseAddrOrLit w true
+  if addrOrLitNeedsUnscaled src w.bytes then
+    match addrOrLitToUnscaled src with
+    | some uoff => pure ⟨w, .LDUR dstW.reg uoff⟩
+    | none => fail "unscaled load cannot be literal or register offset"
+  else
+    pure ⟨w, .LDR dstW.reg src⟩
+
+/--
+Parse general store instruction (`STR`) with automatic unscaled fallback (`STUR`).
+-/
+def parseStr : Parser Instr := do
+  let srcW ← parseRegOrZrW
+  let w := srcW.w
+  parseComma
+  let dst ← parseAddr w true
+  if addrExprNeedsUnscaled dst w.bytes then
+    match addrExprToUnscaled dst with
+    | some uoff => pure ⟨w, .STUR srcW.reg uoff⟩
+    | none => fail "unscaled store cannot be register offset"
+  else
+    pure ⟨w, .STR srcW.reg dst⟩
+
+/--
+Parse explicit unscaled load instructions (`LDUR`, `LDURSB`, `LDURSH`).
+-/
+def parseUnscaledLoad
+    (mk : {w : RegWidth} → RegOrZr w → UnscaledAddrExpr → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  parseComma
+  let src ← parseUnscaledAddr
+  pure ⟨dstW.w, mk dstW.reg src⟩
+
+/--
+Parse explicit unscaled store instructions (`STUR`).
+-/
+def parseUnscaledStore
+    (mk : {w : RegWidth} → RegOrZr w → UnscaledAddrExpr → Operation w) : Parser Instr := do
+  let srcW ← parseRegOrZrW
+  parseComma
+  let dst ← parseUnscaledAddr
+  pure ⟨srcW.w, mk srcW.reg dst⟩
+
+/--
+Parse fixed-width load instructions with automatic unscaled fallback (e.g. `LDRB`, `LDRH` for `.W32`).
+-/
+def parseLoadFixed (w : RegWidth) (scale : Nat)
+    (mkScaled : RegOrZr w → AddrExpr → Operation w)
+    (mkUnscaled : RegOrZr w → UnscaledAddrExpr → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let dst ← checkWidth w dstW.w dstW.reg
+  parseComma
+  let src ← parseAddr w true scale
+  if addrExprNeedsUnscaled src scale then
+    match addrExprToUnscaled src with
+    | some uoff => pure ⟨w, mkUnscaled dst uoff⟩
+    | none => fail "unscaled load cannot be register offset"
+  else
+    pure ⟨w, mkScaled dst src⟩
+
+/--
+Parse fixed-width unscaled load instructions (e.g. `LDURB`, `LDURH` for `.W32`).
+-/
+def parseUnscaledLoadFixed (w : RegWidth)
+    (mk : RegOrZr w → UnscaledAddrExpr → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let dst ← checkWidth w dstW.w dstW.reg
+  parseComma
+  let src ← parseUnscaledAddr
+  pure ⟨w, mk dst src⟩
+
+/--
+Parse fixed-width store instructions with automatic unscaled fallback (e.g. `STRB`, `STRH` for `.W32`).
+-/
+def parseStoreFixed (w : RegWidth) (scale : Nat)
+    (mkScaled : RegOrZr w → AddrExpr → Operation w)
+    (mkUnscaled : RegOrZr w → UnscaledAddrExpr → Operation w) : Parser Instr := do
+  let srcW ← parseRegOrZrW
+  let src ← checkWidth w srcW.w srcW.reg
+  parseComma
+  let dst ← parseAddr w true scale
+  if addrExprNeedsUnscaled dst scale then
+    match addrExprToUnscaled dst with
+    | some uoff => pure ⟨w, mkUnscaled src uoff⟩
+    | none => fail "unscaled store cannot be register offset"
+  else
+    pure ⟨w, mkScaled src dst⟩
+
+/--
+Parse fixed-width unscaled store instructions (e.g. `STURB`, `STURH` for `.W32`).
+-/
+def parseUnscaledStoreFixed (w : RegWidth)
+    (mk : RegOrZr w → UnscaledAddrExpr → Operation w) : Parser Instr := do
+  let srcW ← parseRegOrZrW
+  let src ← checkWidth w srcW.w srcW.reg
+  parseComma
+  let dst ← parseUnscaledAddr
+  pure ⟨w, mk src dst⟩
+
+/--
+Parse signed-extend load instructions with automatic unscaled fallback (`LDRSB`, `LDRSH`).
+-/
+def parseLoadSigned (scale : Nat)
+    (mkScaled : {w : RegWidth} → RegOrZr w → AddrExpr → Operation w)
+    (mkUnscaled : {w : RegWidth} → RegOrZr w → UnscaledAddrExpr → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src ← parseAddr w true scale
+  if addrExprNeedsUnscaled src scale then
+    match addrExprToUnscaled src with
+    | some uoff => pure ⟨w, mkUnscaled dstW.reg uoff⟩
+    | none => fail "unscaled load cannot be register offset"
+  else
+    pure ⟨w, mkScaled dstW.reg src⟩
+
+/--
+Parse signed-extend 32-bit load into 64-bit register with automatic unscaled fallback (`LDRSW`).
+-/
+def parseLdrsw : Parser Instr := do
+  let dst ← parseRegOrZr .W64
+  parseComma
+  let src ← parseAddrOrLit .W32 true 4
+  if addrOrLitNeedsUnscaled src 4 then
+    match addrOrLitToUnscaled src with
+    | some uoff => pure ⟨.W64, .LDURSW dst uoff⟩
+    | none => fail "unscaled load cannot be literal or register offset"
+  else
+    pure ⟨.W64, .LDRSW dst src⟩
+
+/--
+Parse signed-extend 32-bit load into 64-bit register (`LDURSW`).
+-/
+def parseLdursw : Parser Instr := do
+  let dst ← parseRegOrZr .W64
+  parseComma
+  let src ← parseUnscaledAddr
+  pure ⟨.W64, .LDURSW dst src⟩
+
+/--
+Parse load pair signed word (`LDPSW`).
+-/
+def parseLdpsw : Parser Instr := do
+  let reg1 ← parseRegOrZr .W64
+  parseComma
+  let reg2 ← parseRegOrZr .W64
+  parseComma
+  let mem ← parsePairAddr .W32
+  liftExcept (checkLdpStpRegisters true reg1 reg2 mem)
+  pure ⟨.W64, .LDPSW reg1 reg2 mem⟩
 
 /--
 Parse instructions that take three 64-bit general-purpose register operands
@@ -1375,7 +1574,7 @@ Parse 3-register alias instructions that map to 4-register operations with
 as `MADD dst, src1, src2, xzr`).
 -/
 def parseThreeRegsWithZr
-    (mk : {w : Width} → RegOrZr w → RegOrZr w → RegOrZr w → RegOrZr w → Operation w) : Parser Instr := do
+    (mk : {w : RegWidth} → RegOrZr w → RegOrZr w → RegOrZr w → RegOrZr w → Operation w) : Parser Instr := do
   let dstW ← parseRegOrZrW
   let w := dstW.w
   parseComma
@@ -1389,7 +1588,7 @@ Parse negation alias instructions (`NEG dst, src` or `NEGS dst, src`).
 - Maps architecturally to `SUB dst, xzr, src` or `SUBS dst, xzr, src` with an optional shift.
 -/
 def parseNegAlias
-    (mk : {w : Width} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
+    (mk : {w : RegWidth} → RegOrZr w → RegOrZr w → ShiftRegExpr w → Operation w) : Parser Instr := do
   let dstW ← parseRegOrZrW
   let w := dstW.w
   parseComma
@@ -1452,7 +1651,7 @@ Parse compare-and-branch instructions (`CBZ`, `CBNZ`).
 - Validates 19-bit signed word target offset (`±1 MB`).
 -/
 def parseCbz (name : String)
-    (mk : {w : Width} → RegOrZr w → ConstExpr → Operation w) : Parser Instr := do
+    (mk : {w : RegWidth} → RegOrZr w → ConstExpr → Operation w) : Parser Instr := do
   let regW ← parseRegOrZrW
   parseComma
   let target ← parseConstExpr
@@ -1467,16 +1666,209 @@ Parse test-bit-and-branch instructions (`TBZ`, `TBNZ`).
   and 14-bit signed word target offset (`±32 KB`).
 -/
 def parseTbz (name : String)
-    (mk : {w : Width} → RegOrZr w → Nat → ConstExpr → Operation w) : Parser Instr := do
+    (mk : {w : RegWidth} → RegOrZr w → Nat → ConstExpr → Operation w) : Parser Instr := do
   let regW ← parseRegOrZrW
   parseComma
-  let bit ← parseInt
+  let bit ← parseImmNat
   liftExcept (checkTbzBitPosition name regW.w bit)
   parseComma
   let target ← parseConstExpr
   if let .int64 imm := target then
     liftExcept (checkTbzOffset name imm)
-  pure ⟨regW.w, mk regW.reg bit.toNat target⟩
+  pure ⟨regW.w, mk regW.reg bit target⟩
+
+/--
+Parse instructions that take two general-purpose register operands of the same
+width (`CLZ`, `CLS`, `RBIT`, `REV`, `REV16`).
+-/
+def parseTwoRegs (mk : {w : RegWidth} → RegOrZr w → RegOrZr w → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src ← parseRegOrZr w
+  pure ⟨w, mk dstW.reg src⟩
+
+/--
+Parse instructions that take two 64-bit general-purpose register operands
+(`X0`-`X30`), such as `REV32` and `REV64`.
+-/
+def parseTwoRegsW64 (mk : RegOrZr .W64 → RegOrZr .W64 → Operation .W64) : Parser Instr := do
+  let dst ← parseRegOrZr .W64
+  parseComma
+  let src ← parseRegOrZr .W64
+  pure ⟨.W64, mk dst src⟩
+
+/--
+Parse long multiply-accumulate and multiply-subtract instructions (`SMADDL`,
+`UMADDL`, `SMSUBL`, `UMSUBL`).
+- Takes a 64-bit destination register, two 32-bit source registers, and a 64-bit
+  addend/subtrahend register.
+-/
+def parseFourRegsLong
+    (mk : RegOrZr .W64 → RegOrZr .W32 → RegOrZr .W32 → RegOrZr .W64 → Operation .W64) : Parser Instr := do
+  let dst ← parseRegOrZr .W64
+  parseComma
+  let src1 ← parseRegOrZr .W32
+  parseComma
+  let src2 ← parseRegOrZr .W32
+  parseComma
+  let src3 ← parseRegOrZr .W64
+  pure ⟨.W64, mk dst src1 src2 src3⟩
+
+/--
+Parse 3-register long multiply alias instructions (`SMULL`, `UMULL`, `SMNEGL`, `UMNEGL`).
+- Maps architecturally to 4-register long operations (`SMADDL`, `UMADDL`, `SMSUBL`, `UMSUBL`)
+  with `XZR` as the implicit fourth register operand.
+-/
+def parseThreeRegsLongWithZr
+    (mk : RegOrZr .W64 → RegOrZr .W32 → RegOrZr .W32 → RegOrZr .W64 → Operation .W64) : Parser Instr := do
+  let dst ← parseRegOrZr .W64
+  parseComma
+  let src1 ← parseRegOrZr .W32
+  parseComma
+  let src2 ← parseRegOrZr .W32
+  pure ⟨.W64, mk dst src1 src2 (.low .XZR .W64)⟩
+
+/--
+Parse shift alias instructions (`LSL`, `LSR`, `ASR`, `ROR`) with either an
+immediate shift amount or a register shift amount.
+- Immediate shifts map architecturally to bitfield operations (`UBFM`, `SBFM`, `EXTR`).
+- Register shifts map to variable shift instructions (`LSLV`, `LSRV`, `ASRV`, `RORV`).
+-/
+def parseShiftAlias (regOp : {w : RegWidth} → RegOrZr w → RegOrZr w → RegOrZr w → Operation w)
+    (immOp : {w : RegWidth} → RegOrZr w → RegOrZr w → Nat → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src1 ← parseRegOrZr w
+  parseComma
+  let nextC ← peek!
+  if nextC == '#' || nextC.isDigit || nextC == '-' || nextC == '+' then
+    let imm ← parseImmNat
+    liftExcept (checkBitWidthBound "shift" w imm)
+    pure ⟨w, immOp dstW.reg src1 imm⟩
+  else
+    let src2 ← parseRegOrZr w
+    pure ⟨w, regOp dstW.reg src1 src2⟩
+
+/--
+Parse extract register instructions (`EXTR`).
+- Syntax: `extr dst, src1, src2, #lsb`.
+- Validates that the least significant bit (`lsb`) immediate is in range `[0, w.bits - 1]`.
+-/
+def parseExtr : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src1 ← parseRegOrZr w
+  parseComma
+  let src2 ← parseRegOrZr w
+  parseComma
+  let lsb ← parseImmNat
+  liftExcept (checkBitWidthBound "extr" w lsb)
+  pure ⟨w, .EXTR dstW.reg src1 src2 lsb⟩
+
+/--
+Parse bitfield move instructions (`BFM`, `SBFM`, `UBFM`).
+- Syntax: `bfm dst, src, #immr, #imms`.
+- Validates that rotate (`immr`) and size (`imms`) immediates are within bounds `[0, w.bits - 1]`.
+-/
+def parseBitfield (mk : {w : RegWidth} → RegOrZr w → RegOrZr w → Nat → Nat → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src ← parseRegOrZr w
+  parseComma
+  let immr ← parseImmNat
+  parseComma
+  let imms ← parseImmNat
+  liftExcept (checkBitWidthBound "bitfield" w immr)
+  liftExcept (checkBitWidthBound "bitfield" w imms)
+  pure ⟨w, mk dstW.reg src immr imms⟩
+
+/--
+Parse bitfield extract and insert-low alias instructions (`SBFX`, `UBFX`, `BFXIL`).
+- Syntax: `sbfx dst, src, #lsb, #width`.
+- Validates bounds (`width > 0` and `lsb + width <= w.bits`) and converts `lsb` and
+  `width` to bitfield operands (`immr = lsb`, `imms = lsb + width - 1`).
+-/
+def parseBitfieldExtract (mk : {w : RegWidth} → RegOrZr w → RegOrZr w → Nat → Nat → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src ← parseRegOrZr w
+  parseComma
+  let lsb ← parseImmNat
+  parseComma
+  let width ← parseImmNat
+  liftExcept (checkBitfieldBounds "bitfield extract" w lsb width)
+  let immr := lsb
+  let imms := lsb + width - 1
+  pure ⟨w, mk dstW.reg src immr imms⟩
+
+/--
+Parse bitfield insert alias instructions (`BFI`, `SBFIZ`, `UBFIZ`).
+- Syntax: `bfi dst, src, #lsb, #width`.
+- Validates bounds (`width > 0` and `lsb + width <= w.bits`) and maps `lsb` and `width`
+  to rotate and size operands (`immr = (w.bits - lsb) % w.bits`, `imms = width - 1`).
+-/
+def parseBitfieldInsert (mk : {w : RegWidth} → RegOrZr w → RegOrZr w → Nat → Nat → Operation w) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  let w := dstW.w
+  parseComma
+  let src ← parseRegOrZr w
+  parseComma
+  let lsb ← parseImmNat
+  parseComma
+  let width ← parseImmNat
+  liftExcept (checkBitfieldBounds "bitfield insert" w lsb width)
+  let immr := (w.bits - lsb) % w.bits
+  let imms := width - 1
+  pure ⟨w, mk dstW.reg src immr imms⟩
+
+/--
+Parse sign-extend and zero-extend alias instructions (`SXTB`, `SXTH`, `SXTW`, `UXTB`, `UXTH`, `UXTW`).
+- Maps architecturally to signed or unsigned bitfield moves (`SBFM` or `UBFM`) with
+  `immr = 0` and fixed `imms` corresponding to the source byte, halfword, or word size.
+-/
+def parseExtendInstr (mk : {w : RegWidth} → RegOrZr w → RegOrZr w → Nat → Nat → Operation w) (imms : Nat) : Parser Instr := do
+  let dstW ← parseRegOrZrW
+  parseComma
+  let srcW ← parseRegOrZrW
+  let src : RegOrZr dstW.w := match srcW.reg with
+    | .low r _ => .low r dstW.w
+  pure ⟨dstW.w, mk dstW.reg src 0 imms⟩
+
+/--
+Parse conditional compare instructions (`CCMP`, `CCMN`) with either a register
+or immediate second operand.
+- Syntax: `ccmp src1, src2|#imm, #nzcv, cond`.
+- Validates that `#imm` is in range `[0, 31]` and `#nzcv` flags immediate is in range `[0, 15]`.
+-/
+def parseCondCompare
+    (mkReg : {w : RegWidth} → RegOrZr w → RegOrZr w → Nat → CondCode → Operation w)
+    (mkImm : {w : RegWidth} → RegOrZr w → Nat → Nat → CondCode → Operation w) : Parser Instr := do
+  let src1W ← parseRegOrZrW
+  let w := src1W.w
+  parseComma
+  let nextC ← peek!
+  if nextC == '#' || nextC.isDigit || nextC == '-' || nextC == '+' then
+    let imm ← parseImmNat
+    liftExcept (checkCcmpImmediate imm)
+    parseComma
+    let nzcv ← parseImmNat
+    liftExcept (checkNzcvFlags nzcv)
+    parseComma
+    let cond ← parseCondArg
+    pure ⟨w, mkImm src1W.reg imm nzcv cond⟩
+  else
+    let src2 ← parseRegOrZr w
+    parseComma
+    let nzcv ← parseImmNat
+    liftExcept (checkNzcvFlags nzcv)
+    parseComma
+    let cond ← parseCondArg
+    pure ⟨w, mkReg src1W.reg src2 nzcv cond⟩
 
 -- ============================================================================
 -- Instruction Parsing
@@ -1487,42 +1879,27 @@ def parseInstr : Parser Instr := do
   let mnemonic ← parseName
   let mn := mnemonic.toLower
   match mn with
-  | "ldr" =>
-    let dstW ← parseRegOrZrW
-    parseComma
-    let src ← parseAddrOrLit dstW.w true
-    if addrOrLitNeedsUnscaled src then
-      match addrOrLitToUnscaled src with
-      | some uoff => pure ⟨dstW.w, .LDUR dstW.reg uoff⟩
-      | none => fail "unscaled load cannot be literal or register offset"
-    else
-      pure ⟨dstW.w, .LDR dstW.reg src⟩
-
-  | "str" =>
-    let srcW ← parseRegOrZrW
-    parseComma
-    let dst ← parseAddr srcW.w true
-    if addrExprNeedsUnscaled dst then
-      match addrExprToUnscaled dst with
-      | some uoff => pure ⟨srcW.w, .STUR srcW.reg uoff⟩
-      | none => fail "unscaled store cannot be register offset"
-    else
-      pure ⟨srcW.w, .STR srcW.reg dst⟩
-
-  | "ldur" =>
-    let dstW ← parseRegOrZrW
-    parseComma
-    let src ← parseUnscaledAddr
-    pure ⟨dstW.w, .LDUR dstW.reg src⟩
-
-  | "stur" =>
-    let srcW ← parseRegOrZrW
-    parseComma
-    let dst ← parseUnscaledAddr
-    pure ⟨srcW.w, .STUR srcW.reg dst⟩
-
-  | "ldp"   => parsePairMem .LDP true
-  | "stp"   => parsePairMem .STP false
+  | "ldr"    => parseLdr
+  | "str"    => parseStr
+  | "ldur"   => parseUnscaledLoad .LDUR
+  | "stur"   => parseUnscaledStore .STUR
+  | "ldp"    => parsePairMem .LDP true
+  | "stp"    => parsePairMem .STP false
+  | "ldrb"   => parseLoadFixed .W32 1 .LDRB .LDURB
+  | "ldurb"  => parseUnscaledLoadFixed .W32 .LDURB
+  | "strb"   => parseStoreFixed .W32 1 .STRB .STURB
+  | "sturb"  => parseUnscaledStoreFixed .W32 .STURB
+  | "ldrsb"  => parseLoadSigned 1 .LDRSB .LDURSB
+  | "ldursb" => parseUnscaledLoad .LDURSB
+  | "ldrh"   => parseLoadFixed .W32 2 .LDRH .LDURH
+  | "ldurh"  => parseUnscaledLoadFixed .W32 .LDURH
+  | "strh"   => parseStoreFixed .W32 2 .STRH .STURH
+  | "sturh"  => parseUnscaledStoreFixed .W32 .STURH
+  | "ldrsh"  => parseLoadSigned 2 .LDRSH .LDURSH
+  | "ldursh" => parseUnscaledLoad .LDURSH
+  | "ldrsw"  => parseLdrsw
+  | "ldursw" => parseLdursw
+  | "ldpsw"  => parseLdpsw
 
   | "add"   => parseArithNoFlags .ADD_e .ADD_s
   | "adds"  => parseArithFlags "adds" .ADDS_e .ADDS_s
@@ -1546,6 +1923,16 @@ def parseInstr : Parser Instr := do
 
   | "smulh" => parseThreeRegsW64 .SMULH
   | "umulh" => parseThreeRegsW64 .UMULH
+  | "sdiv"  => parseThreeRegs .SDIV
+  | "udiv"  => parseThreeRegs .UDIV
+  | "smaddl" => parseFourRegsLong .SMADDL
+  | "umaddl" => parseFourRegsLong .UMADDL
+  | "smsubl" => parseFourRegsLong .SMSUBL
+  | "umsubl" => parseFourRegsLong .UMSUBL
+  | "smull" => parseThreeRegsLongWithZr .SMADDL
+  | "umull" => parseThreeRegsLongWithZr .UMADDL
+  | "smnegl" => parseThreeRegsLongWithZr .SMSUBL
+  | "umnegl" => parseThreeRegsLongWithZr .UMSUBL
 
   | "and"   => parseLogicalNoFlags .AND_i .AND_s
   | "ands"  => parseLogicalFlags .ANDS_i .ANDS_s
@@ -1553,16 +1940,46 @@ def parseInstr : Parser Instr := do
   | "orn"   => parseLogical .ORN_s
   | "eor"   => parseLogicalNoFlags .EOR_i .EOR_s
   | "bic"   => parseLogical .BIC_s
+  | "eon"   => parseLogical .EON_s
+  | "bics"  => parseLogical .BICS_s
   | "tst"   => parseTstAlias
 
-  | "lsl"   => parseThreeRegs .LSLV
-  | "lsr"   => parseThreeRegs .LSRV
-  | "asr"   => parseThreeRegs .ASRV
-  | "ror"   => parseThreeRegs .RORV
+  | "bfm"   => parseBitfield .BFM
+  | "sbfm"  => parseBitfield .SBFM
+  | "ubfm"  => parseBitfield .UBFM
+  | "sbfx"  => parseBitfieldExtract .SBFM
+  | "ubfx"  => parseBitfieldExtract .UBFM
+  | "bfxil" => parseBitfieldExtract .BFM
+  | "bfi"   => parseBitfieldInsert .BFM
+  | "sbfiz" => parseBitfieldInsert .SBFM
+  | "ubfiz" => parseBitfieldInsert .UBFM
+  | "sxtb"  => parseExtendInstr .SBFM 7
+  | "sxth"  => parseExtendInstr .SBFM 15
+  | "sxtw"  => parseExtendInstr .SBFM 31
+  | "uxtb"  => parseExtendInstr .UBFM 7
+  | "uxth"  => parseExtendInstr .UBFM 15
+  | "uxtw"  => parseExtendInstr .UBFM 31
+
+  | "clz"   => parseTwoRegs .CLZ
+  | "cls"   => parseTwoRegs .CLS
+  | "rbit"  => parseTwoRegs .RBIT
+  | "rev"   => parseTwoRegs .REV
+  | "rev16" => parseTwoRegs .REV16
+  | "rev32" => parseTwoRegsW64 .REV32
+  | "rev64" => parseTwoRegsW64 .REV
+  | "extr"  => parseExtr
+
+  | "lsl"   => parseShiftAlias .LSLV (fun {w} dst src imm => .UBFM dst src ((w.bits - imm) % w.bits) (w.bits - 1 - imm))
+  | "lsr"   => parseShiftAlias .LSRV (fun {w} dst src imm => .UBFM dst src imm (w.bits - 1))
+  | "asr"   => parseShiftAlias .ASRV (fun {w} dst src imm => .SBFM dst src imm (w.bits - 1))
+  | "ror"   => parseShiftAlias .RORV (fun dst src imm => .EXTR dst src src imm)
   | "lslv"  => parseThreeRegs .LSLV
   | "lsrv"  => parseThreeRegs .LSRV
   | "asrv"  => parseThreeRegs .ASRV
   | "rorv"  => parseThreeRegs .RORV
+
+  | "ccmp"  => parseCondCompare .CCMP_reg .CCMP_imm
+  | "ccmn"  => parseCondCompare .CCMN_reg .CCMN_imm
 
   | "csel"  => parseCondSelect .CSEL
   | "csinc" => parseCondSelect .CSINC

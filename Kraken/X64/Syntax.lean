@@ -1,3 +1,5 @@
+import Kraken.Attribute
+import Kraken.Layout
 import Lean
 import Std
 
@@ -7,10 +9,10 @@ instance : ToString Width where
   toString | .W8 => "w8" | .W16 => "w16" | .W32 => "w32" | .W64 => "w64"
 
 namespace Width
-@[simp, reducible] def bits : Width → Nat | W8 => 8 | W16 => 16 | W32 => 32 | W64 => 64
-@[simp, reducible] def bytes : Width → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8
-abbrev bytesv (w : Width) {n} : BitVec n := BitVec.ofNat n w.bytes
-abbrev type (w : Width) : Type := BitVec w.bits
+@[kstep, simp, reducible] def bits : Width → Nat | W8 => 8 | W16 => 16 | W32 => 32 | W64 => 64
+@[kstep, simp, reducible] def bytes : Width → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8
+@[kstep] abbrev bytesv (w : Width) {n} : BitVec n := BitVec.ofNat n w.bytes
+@[kstep] abbrev type (w : Width) : Type := BitVec w.bits
 instance {w : Width} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
 end Width
 
@@ -167,7 +169,7 @@ attribute [coe] AvxOperand.regOrMem
 abbrev AvxOperand.avx {w} (r : AvxReg w) : AvxOperand w := regOrMem (.avx r)
 abbrev AvxOperand.mem {w} (m : AddrExpr) : AvxOperand w := regOrMem (.mem m)
 
-inductive CondCode | z | nz | c | nc | a | be
+inductive CondCode | z | nz | c | nc | a | be | l | le
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 abbrev CondCode.e := CondCode.z
 abbrev CondCode.ne := CondCode.nz
@@ -234,9 +236,14 @@ inductive Operation (w : Width)
   | nopalign (alignment : Nat) (pad : Option Nat)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
+-- The non-v* variants take SSE registers only.
+-- TODO: AVX512 extensions (write-masking, ...)
 inductive AvxOperation (w : AvxWidth)
-  | movups (_ : AvxDst w) (src : AvxRegOrMem w) -- sse regs only (TODO: constrain to .W128)
+  | movups (_ : AvxDst w) (src : AvxRegOrMem w)
   | vmovups (_ : AvxDst w) (src : AvxRegOrMem w)
+  | movaps (_ : AvxDst w) (src : AvxRegOrMem w)
+  | subps (_ : AvxDst w) (src : AvxRegOrMem w)
+  | addps (_ : AvxDst w) (src : AvxRegOrMem w)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 inductive Instr
@@ -260,7 +267,7 @@ inductive Directive
   deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
 
 abbrev Program := List Directive
-abbrev Executable := Int64 × List (Directive × Nat) -- start and sizes
+abbrev Executable := Kraken.Executable Directive
 
 namespace Reg
 @[match_pattern] abbrev rax := low .rax .W64

@@ -367,6 +367,12 @@ def parseMemory : Parser (Width × AddrExpr) := do
     | w1, .none =>
       .pure w1
   let idx := Option.map (fun (_, idx) => ⟨idx, scale⟩) idx
+
+  -- Handle rip-relative addressing (like parseRelRegOrMem below).
+  let disp := match base, disp with
+    | .rip, .label l => .sub (.label l) .after_current_instruction
+    | _, _ => disp
+
   pure (w, { base, idx, disp })
 
 def parseImm w : Parser (Operand w) := do
@@ -466,6 +472,8 @@ def parseCondCode (suffix : String.Slice) : Parser CondCode :=
   | "ae" | "nc" | "nb" => .pure .ae
   | "a" | "nbe" => .pure .a
   | "be" | "na" => .pure .be
+  | "l" | "nge" => .pure .l
+  | "le" | "ng" => .pure .le
   | _ => .fail s!"unknown condition code: {suffix}"
 
 -- ============================================================================
@@ -767,6 +775,15 @@ def parseInstr : Parser Instr := do
 
   | "vmovups" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovups
+
+  | "movaps" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .movaps
+
+  | "addps" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .addps
+
+  | "subps" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .subps
 
   -- Bitwise - 64-bit
   | "xor" =>

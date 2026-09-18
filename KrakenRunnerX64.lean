@@ -1,5 +1,5 @@
 /-
-KrakenRunner - Run assembly instructions through Kraken Semantics and obtain results as json.
+KrakenRunnerX64 - Run assembly instructions through Kraken Semantics and obtain results as json.
 
 At this point this expects a file only containing a list of assembly instructions, no data block or similar.
 
@@ -13,9 +13,9 @@ Output:
   See StateSummary for format.
 -/
 
-import Kraken.X64.Semantics
-import Kraken.X64.Parser
 import Kraken.Mem
+import Kraken.X64.Parser
+import Kraken.X64.Semantics
 import Lean.Data.Json
 
 open Lean

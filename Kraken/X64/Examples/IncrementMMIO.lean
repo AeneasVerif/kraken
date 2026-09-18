@@ -91,17 +91,19 @@ def handleEffects (ds : IncrementerState) (es : Effects)
   match es with
   | .done ms => ok (.mk ms ds)
   | .unimplemented msg => .error msg
+  | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
   | .require_read_access _ _ cont => handleEffects ds (cont ()) ok
   | .require_write_access _ _ cont => handleEffects ds (cont ()) ok
   | .require_exec_access _ cont => handleEffects ds (cont ()) ok
   | .nonmem_load dmem addr w cont => do
-    let .W32 := w
-      | throw s!"nonmem_load of width other than 4 bytes"
-    let some r := Incrementer.Register.of_addr (UInt64.ofBitVec addr)
-      | throw s!"nonmem_load at unmapped address {repr addr}"
-    let some (reply, ds') := ds.read_step r
-      | throw s!"Incrementer.read_step failed"
-    handleEffects ds' (cont (UInt32.toBitVec reply) dmem) ok
+    match h: w with
+    | .W8 | .W16 | .W64 => throw s!"nonmem_load of width other than 4 bytes"
+    | .W32 => 
+      let some r := Incrementer.Register.of_addr (UInt64.ofBitVec addr)
+        | throw s!"nonmem_load at unmapped address {repr addr}"
+      let some (reply, ds') := ds.read_step r
+        | throw s!"Incrementer.read_step failed"
+      handleEffects ds' (cont (h ▸ UInt32.toBitVec reply) dmem) ok
   | @Effects.nonmem_store dmem addr w v cont =>
     match w with
       | .W32 => match Incrementer.Register.of_addr (UInt64.ofBitVec addr) with
@@ -120,5 +122,5 @@ def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
     if device's_turn then
       eval_schedule rest e { s with deviceState := s.deviceState.internal_step }
     else
-      handleEffects s.deviceState (e.step s.machineState .done) (eval_schedule rest e)
+      handleEffects s.deviceState (Executable.step e s.machineState .done) (eval_schedule rest e)
   | .nil => .ok s
