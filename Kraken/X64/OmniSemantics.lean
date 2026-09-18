@@ -526,24 +526,128 @@ theorem Directives.interp_append [Labels]
       hjmp
       h
 
-theorem eventually_step [Layout] (e: Executable) (st: MachineState) (post: @Post MachineState):
-    step1 e st (fun s => straightlineStep e s post) → straightlineStep e st post := by
+theorem Directives.interp_split [Labels]
+    (ds1 ds2 : List (Directive × Nat)) (s : MachineData) (pc : Int64)
+    (ret₁ ret₂ : Int64 → MachineData → Effects)
+    {post₁ post₂ : MachineState → Prop}
+    (hjmp : ∀ pc' s', (ret₁ pc' s').All post₁ → (ret₂ pc' s').All post₂)
+    (hnext : ∀ s',
+      (Directives.interp ds2 s' (ds1.foldl (fun p (_, sz) => p + .ofNat sz) pc) ret₁).All post₁ →
+      (ret₂ (ds1.foldl (fun p (_, sz) => p + .ofNat sz) pc) s').All post₂)
+    (h : (Directives.interp (ds1 ++ ds2) s pc ret₁).All post₁) :
+    (Directives.interp ds1 s pc ret₂).All post₂ := by
+  induction ds1 generalizing s pc with
+  | nil =>
+    dsimp [Directives.interp] at *
+    exact hnext s h
+  | cons head tail ih =>
+    obtain ⟨d, sz⟩ := head
+    dsimp [Directives.interp] at *
+    exact Directive.interp_mono d s (.mk pc (pc + .ofNat sz))
+      (fun s' => ih s' (pc + .ofNat sz) hnext)
+      hjmp
+      h
+
+theorem withAddresses_dropWhile_eq (start_addr : Int64) (ds : List (Directive × Nat))
+    (p : (Int64 × Directive × Nat) → Bool) {x : Int64 × Directive × Nat} {xs : List (Int64 × Directive × Nat)}
+    (h : (Executable.withAddresses (start_addr, ds)).dropWhile p = x :: xs) :
+    p x = false ∧ ∃ ds', x :: xs = Executable.withAddresses (x.1, ds') := by
+  induction ds generalizing start_addr with
+  | nil =>
+    rw [Executable.withAddresses] at h
+    contradiction
+  | cons head tail ih =>
+    obtain ⟨d, sz⟩ := head
+    rw [Executable.withAddresses] at h
+    simp only [List.dropWhile_cons] at h
+    split at h
+    · exact ih (start_addr + .ofNat sz) h
+    · rename_i hp
+      injection h with hx hxs
+      subst hx hxs
+      refine ⟨Bool.eq_false_iff.mpr hp, (d, sz) :: tail, ?_⟩
+      rw [Executable.withAddresses]
+
+theorem withAddresses_takeWhile_foldl (start_addr : Int64) (ds : List (Directive × Nat))
+    (p : (Int64 × Directive × Nat) → Bool) {y : Int64 × Directive × Nat} {ys : List (Int64 × Directive × Nat)}
+    (h : (Executable.withAddresses (start_addr, ds)).dropWhile p = y :: ys) :
+    (((Executable.withAddresses (start_addr, ds)).takeWhile p).map (·.2)).foldl
+      (fun a (_, sz) => a + .ofNat sz) start_addr = y.1 := by
+  induction ds generalizing start_addr with
+  | nil =>
+    rw [Executable.withAddresses] at h
+    contradiction
+  | cons head tail ih =>
+    obtain ⟨d, sz⟩ := head
+    rw [Executable.withAddresses] at h ⊢
+    simp only [List.dropWhile_cons, List.takeWhile_cons] at h ⊢
+    split at h
+    · rename_i hp
+      simp [hp]
+      exact ih (start_addr + .ofNat sz) h
+    · rename_i hp
+      simp [hp]
+      injection h with hy _
+      rw [← hy]
+
+def Executable.WellFormed (e : Executable) : Prop :=
+  ∀ a y ys,
+    (e.withAddresses.dropWhile (·.1 ≠ a)).dropWhile (·.1 = a) = y :: ys →
+    e.withAddresses.dropWhile (·.1 ≠ y.1) = y :: ys
+
+theorem eventually_step [Layout] (e: Executable) (hwf : e.WellFormed) (st: MachineState) (post: @Post MachineState):
+    straightlineStep e st post →
+    Eventually (step1 e) post st
+    := by
   intro h
   let _ : Labels := e.labels
-  obtain ⟨s, pc⟩ := st
+  let s := st.1
+  let pc := st.2
+  apply step_cps (step1 e) post (s, pc)
   dsimp [step1, straightlineStep, Executable.step, Executable.straightline] at *
-  have hprefix := directivesAtFromPrefix e pc
-  rw [hprefix]
-  have h_step := Directives.interp_step_all (e.directivesAtAddress pc) s pc
-    (cont := fun pc' s' => Directives.interp (e.directivesFromAddress pc') s' pc' (fun pc s => Effects.done (s, pc)))
-    (post₁ := fun s' => (Directives.interp (e.directivesFromAddress s'.2) s'.1 s'.2 (fun pc s => Effects.done (s, pc))).All post)
-    (post₂ := post)
-    (hcont := fun pc' s' h => h)
-    h
-  apply Directives.interp_append (e.directivesAtAddress pc) _ s pc (fun pc s => Effects.done (s, pc))
-  · intro pc' s' h_jmp
-    dsimp [Effects.All]
-    sorry
-  · apply Directives.interp_mono (e.directivesAtAddress pc) s pc _ h_step
-    intro pc' s' h_cont
-    sorry
+  rw [directivesAtFromPrefix e pc] at h
+  apply Directives.interp_split (e.directivesAtAddress pc) _ s pc
+    (fun pc' s' => Effects.done (s', pc'))
+    (fun pc' s' => Effects.done (s', pc'))
+    (fun pc' s' hp => Eventually.done (s', pc') hp)
+    _ h
+  intro s' h_after
+  dsimp [Effects.All]
+  generalize h_drop : (e.withAddresses.dropWhile (·.1 ≠ pc)).dropWhile (·.1 = pc) = after_pc at h_after
+  cases after_pc with
+  | nil =>
+    dsimp [Directives.interp, Effects.All] at h_after
+    exact Eventually.done _ h_after
+  | cons y ys =>
+    have h_starts_ne : e.withAddresses.dropWhile (·.1 ≠ pc) ≠ [] := by
+      intro h_nil
+      rw [h_nil] at h_drop
+      contradiction
+    obtain ⟨x, xs, h_starts⟩ := List.exists_cons_of_ne_nil h_starts_ne
+    have h_starts' : (Executable.withAddresses (e.1, e.2)).dropWhile (·.1 ≠ pc) = x :: xs := h_starts
+    obtain ⟨hx_eq, ds', h_ds'⟩ := withAddresses_dropWhile_eq e.1 e.2 (·.1 ≠ pc) h_starts'
+    have hx_pc : x.1 = pc := by simpa using hx_eq
+    rw [hx_pc] at h_ds'
+    have h_fold : (e.directivesAtAddress pc).foldl (fun p (_, sz) => p + .ofNat sz) pc = y.1 := by
+      dsimp [Executable.directivesAtAddress]
+      rw [h_starts, h_ds'] at h_drop ⊢
+      exact withAddresses_takeWhile_foldl pc ds' (·.1 = pc) h_drop
+    rw [h_fold] at h_after ⊢
+    have h_next_from : e.withAddresses.dropWhile (·.1 ≠ y.1) = y :: ys := hwf pc y ys h_drop
+    have h_straightline_next : straightlineStep e (s', y.1) post := by
+      dsimp [straightlineStep, Executable.straightline, Executable.directivesFromAddress]
+      rw [h_next_from]
+      exact h_after
+    have h_len : (e.withAddresses.dropWhile (·.1 ≠ y.1)).length < (e.withAddresses.dropWhile (·.1 ≠ pc)).length := by
+      rw [h_next_from]
+      have h_split := List.takeWhile_append_dropWhile (p := (·.1 = pc)) (l := e.withAddresses.dropWhile (·.1 ≠ pc))
+      have h_len_eq := congrArg List.length h_split
+      rw [List.length_append, h_drop] at h_len_eq
+      have h_take_pos : 0 < ((e.withAddresses.dropWhile (·.1 ≠ pc)).takeWhile (·.1 = pc)).length := by
+        rw [h_starts, List.takeWhile_cons]
+        simp [hx_pc]
+      omega
+    exact eventually_step e hwf (s', y.1) post h_straightline_next
+termination_by (e.withAddresses.dropWhile (·.1 ≠ st.2)).length
+decreasing_by exact h_len
+

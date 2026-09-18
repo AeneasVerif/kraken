@@ -704,15 +704,10 @@ def Layout.apply (l : Layout) (prog : Program) : Executable :=
   (l.start, prog.mapIdx (fun i d => (d, l.size i)))
 instance : CoeFun Layout (fun _ => Program → Executable) where coe := Layout.apply
 
--- Returns each directive paired with its start address and size.
--- TODO: tail-recursive version for efficiency?
-def Executable.withAddresses (e : Executable): List (Int64 × Directive × Nat) :=
-  let (start_addr, ds) := e
-  match ds with
-  | [] => []
-  | (instr, instr_sz) :: ds =>
-    (start_addr, instr, instr_sz) :: Executable.withAddresses (start_addr + .ofNat instr_sz, ds)
-termination_by e.2
+def Executable.withAddresses (e : Executable)  : List (Int64 × Directive × Nat) :=
+  let (_, withAddresses) :=
+    e.2.foldl (fun (currAddr, acc) (d, z) => (currAddr + .ofNat z, (currAddr, d, z) :: acc)) (e.1, [])
+  withAddresses.reverse
 
 @[reducible]
 def Executable.labels (e : Executable) : Labels :=
