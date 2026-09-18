@@ -110,7 +110,7 @@ theorem p3_correct [layout: Layout] (s: MachineData):
     sym =>
     -- kstep 3
     -- tactic =>
-    -- apply reg_dec_loop
+    -- apply tailrec_loop
     -- intros
 
     sorry
@@ -124,7 +124,7 @@ theorem p3_correct [layout: Layout] (s: MachineData):
     clear h_rip
     simp
     -- Loop invariant introduction
-    apply reg_dec_loop p3 _ _ (fun i s => s.rip = 1 ∧ s.regs.rbx.toNat = i ∧ i ≤ initial.regs.rbx.toNat ∧ s.regs.rdx.toNat = 2^(2^(initial.regs.rbx.toNat - i))) initial.regs.rbx.toNat
+    apply tailrec_loop p3 _ _ (fun i _ s => s.1.rip = 1 ∧ s.1.regs.rbx.toNat = i ∧ i ≤ initial.regs.rbx.toNat ∧ s.1.regs.rdx.toNat = 2^(2^(initial.regs.rbx.toNat - i))) (fun _ _ s => post s) (fun a b => a < b) Nat.lt_wfRel.2 initial.regs.rbx.toNat ()
     constructor
     . simp
     . constructor

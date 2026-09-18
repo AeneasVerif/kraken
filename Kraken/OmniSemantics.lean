@@ -37,22 +37,47 @@ theorem eventually_weaken {State : Type} (trans : State → Post → Prop) (p q 
   := by
     exact fun hp => eventually_trans trans p q initial hp fun s hs => .done s (h s hs)
 
--- A loop down to 0
-theorem reg_dec_loop {State : Type} (trans : State → Post → Prop) (post : Post) (initial : State) (invariant : Nat → Post) (n : Nat) :
-  -- if:
-  -- invariant holds before entering the loop
-  invariant n initial ∧
-  -- final iteration allows proving `post`
-  (∀ state, invariant 0 state → Eventually trans post state) ∧
-  -- while iterating, we eventually re-establish the invariant
-  (∀ state k, k ≠ 0 → invariant k state → Eventually trans (invariant (k - 1)) state) →
-  -- then: we can prove the post
-  Eventually trans post initial
-  := by
-    rintro ⟨hinv, hzero, hnz⟩
-    if h : n = 0 then
-      exact hzero initial (h ▸ hinv)
-    else
-      exact eventually_trans trans (invariant (n - 1)) post initial
-        (hnz initial n h hinv) fun s hs =>
-          reg_dec_loop trans post s invariant (n - 1) ⟨hs, hzero, hnz⟩
+
+
+-- Tailrec-style loop rule
+-- Adapted from: https://github.com/mit-plv/bedrock2/blob/8ec2c459bbf16d6cf2baa7d433ae211a243b1011/bedrock2/src/bedrock2/Loops.v#L48
+-- This version moves the choice inside the Eventually postcondition.
+theorem tailrec_loop {State Measure Ghost : Type}
+  (trans : State → Post → Prop) (post : Post) (initial : State)
+  (P Q : Measure → Ghost → Post)
+  (lt : Measure → Measure → Prop)
+  (Hwf : WellFounded lt)
+  (v0 : Measure) (g0 : Ghost) :
+  P v0 g0 initial →
+  (∀ v g state, P v g state →
+    Eventually trans (fun mid_s =>
+      (Q v g mid_s) ∨
+      (∃ v' g', P v' g' mid_s ∧ lt v' v ∧ (∀ t_s, Q v' g' t_s → Q v g t_s))
+    ) state) →
+  (∀ state, Q v0 g0 state → post state) →
+  Eventually trans post initial := by
+  intro hP hbody hpost
+  have h_general : ∀ v g state, P v g state → (∀ t_s, Q v g t_s → Q v0 g0 t_s) → Eventually trans post state := by
+    intro v
+    induction v using Hwf.induction with
+    | h v ih =>
+      intro g state hP_state hQ_impl
+      have hstep := hbody v g state hP_state
+      apply eventually_trans trans _ post state hstep
+      intro mid_state h_mid
+      match h_mid with
+      | .inl hQ =>
+        apply Eventually.done
+        apply hpost
+        apply hQ_impl
+        apply hQ
+      | .inr ⟨v', ⟨g', ⟨hP_mid, hlt, hQ_impl'⟩⟩⟩ =>
+        apply ih v' hlt g' mid_state hP_mid
+        intro t_s hQ_t
+        apply hQ_impl
+        apply hQ_impl'
+        apply hQ_t
+  apply h_general v0 g0 initial hP
+  intro t_s hQ_t
+  apply hQ_t
+
