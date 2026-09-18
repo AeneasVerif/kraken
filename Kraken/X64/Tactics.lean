@@ -6,10 +6,10 @@ theorem Executable.withAddresses_map_snd (ds : List (Directive × Nat)) (a : Int
     (Executable.withAddresses (a, ds)).map (·.2) = ds := by
   induction ds generalizing a with
   | nil =>
-    unfold Executable.withAddresses
+    rw [Executable.withAddresses_nil]
     rfl
   | cons d ds ih =>
-    unfold Executable.withAddresses
+    rw [Executable.withAddresses_cons]
     dsimp
     rw [ih (a + .ofNat d.2)]
 
@@ -18,10 +18,10 @@ theorem Executable.withAddresses_dropWhile_start (ds : List (Directive × Nat)) 
       Executable.withAddresses (a, ds) := by
   cases ds with
   | nil =>
-    unfold Executable.withAddresses
+    rw [Executable.withAddresses_nil]
     rfl
   | cons d ds =>
-    unfold Executable.withAddresses
+    rw [Executable.withAddresses_cons]
     simp [List.dropWhile]
 
 theorem Executable.directivesFromStart [layout : Layout] prog :
