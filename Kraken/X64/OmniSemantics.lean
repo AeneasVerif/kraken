@@ -583,60 +583,25 @@ theorem eventually_step_cps_of_sum_lt [Layout] (e : Executable)
     Eventually (step1 e) post st :=
   eventually_step_cps e (e.wellFormed_of_sum_lt hsum) st post
 
-theorem eventually_straightline_to_step1 [Layout] (e : Executable) (hwf : e.WellFormed)
-    (st : MachineState) (post : @Post MachineState)
-    (h : Eventually (straightlineStep e) post st) :
-    Eventually (step1 e) post st := by
-  induction h with
-  | done initial hp => exact Eventually.done initial hp
-  | step initial mid_p hstep _ ih =>
-    exact eventually_trans (step1 e) mid_p post initial (eventually_step e hwf initial mid_p hstep) ih
-
 theorem straightlineStep_mono [Layout] (e : Executable) (st : MachineState)
-    {p q : @Post MachineState} (hpq : ∀ s, p s → q s)
-    (h : straightlineStep e st p) : straightlineStep e st q := by
-  let _ : Labels := Executable.labels e
-  exact Directives.interp_mono (e.directivesFromAddress st.2) st.1 st.2
-    (ret₁ := fun pc s => Effects.done (s, pc))
-    (ret₂ := fun pc s => Effects.done (s, pc))
-    (fun pc s h' => hpq (s, pc) h') h
+    {p q : @Post MachineState} (hpq : ∀ s, p s → q s) :
+    straightlineStep e st p → straightlineStep e st q :=
+  let _ := e.labels
+  Directives.interp_mono _ _ _ (fun _ _ => hpq _)
 
-theorem tailrec_loop_step {State Measure Ghost : Type}
-    (trans : State → Post → Prop)
-    (trans_mono : ∀ s {p q : Post}, (∀ x, p x → q x) → trans s p → trans s q)
-    (post : Post) (initial : State)
-    (P Q : Measure → Ghost → Post)
-    (lt : Measure → Measure → Prop)
-    (Hwf : WellFounded lt)
-    (v0 : Measure) (g0 : Ghost)
-    (hP : P v0 g0 initial)
-    (hbody : ∀ v g state, P v g state →
-      trans state (fun mid_s =>
-        (Q v g mid_s) ∨
-        (∃ v' g', P v' g' mid_s ∧ lt v' v ∧ (∀ t_s, Q v' g' t_s → Q v g t_s))))
-    (hpost : ∀ state, Q v0 g0 state → post state) :
-    trans initial (fun mid => Eventually trans post mid) := by
-  apply trans_mono initial _ (hbody v0 g0 initial hP)
-  intro mid_s h_mid
-  rcases h_mid with hQ | ⟨v', g', hP_mid, _, hQ_impl⟩
-  · exact Eventually.done mid_s (hpost mid_s hQ)
-  · exact tailrec_loop trans post mid_s P Q lt Hwf v' g' hP_mid
-      (fun v g st hP_st => step_cps trans _ st (trans_mono st (fun m hm => Eventually.done m hm) (hbody v g st hP_st)))
-      (fun st hQ_st => hpost st (hQ_impl st hQ_st))
-
-theorem tailrec_loop_straightline [Layout] (e : Executable) (post : @Post MachineState) (initial : MachineState)
-    (P : Nat → @Post MachineState) (v0 : Nat)
-    (hP : P v0 initial)
+theorem tailrec_loop_straightline [Layout] (e : Executable) (hwf : e.WellFormed)
+    (post : @Post MachineState) (initial : MachineState)
+    (P : Nat → @Post MachineState) (v0 : Nat) (hP : P v0 initial)
     (hbody : ∀ v state, P v state →
-      straightlineStep e state (fun mid_s =>
-        post mid_s ∨ ∃ v', P v' mid_s ∧ v' < v)) :
-    straightlineStep e initial (fun mid => Eventually (straightlineStep e) post mid) := by
-  apply tailrec_loop_step (straightlineStep e) (fun s {_ _} hpq h => straightlineStep_mono e s hpq h)
-    post initial (fun v (_ : Unit) s => P v s) (fun _ _ s => post s) (· < ·) Nat.lt_wfRel.wf v0 () hP
-  · intro v _ state hP_st
-    apply straightlineStep_mono e state _ (hbody v state hP_st)
-    rintro mid_s (hpost | ⟨v', hP', hlt⟩)
-    · exact Or.inl hpost
-    · exact Or.inr ⟨v', (), hP', hlt, fun _ h => h⟩
-  · exact fun _ h => h
+      straightlineStep e state (fun mid_s => post mid_s ∨ ∃ v', P v' mid_s ∧ v' < v)) :
+    straightlineStep e initial (fun mid => Eventually (step1 e) post mid) := by
+  refine straightlineStep_mono e initial ?_ (hbody v0 initial hP)
+  rintro mid_s (hpost | ⟨v', hP', _⟩)
+  · exact .done mid_s hpost
+  · refine tailrec_loop (step1 e) post mid_s (fun v () => P v) (fun _ _ => post)
+      (· < ·) Nat.lt_wfRel.wf v' () hP' (fun v _ st hst => eventually_step e hwf st _ ?_) (fun _ => id)
+    refine straightlineStep_mono e st ?_ (hbody v st hst)
+    rintro s (hp | ⟨v'', hp', hlt⟩)
+    · exact .inl hp
+    · exact .inr ⟨v'', (), hp', hlt, fun _ => id⟩
 

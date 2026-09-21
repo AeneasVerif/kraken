@@ -171,8 +171,7 @@ theorem p3_correct [layout: Layout] (h : (layout p3).WellFormed)
   have h_from_start : (layout p3).directivesFromAddress pc_start =
       ((p3.mapIdx (fun i d => (d, layout.size i))).drop 2) :=
     h.directivesFromAddress_drop2 hsz
-  apply eventually_straightline_to_step1 (layout p3) h
-  apply step_cps
+  apply eventually_step_cps (layout p3) h
   kprologue p3 with s
   sym =>
   kstep 2
@@ -181,7 +180,7 @@ theorem p3_correct [layout: Layout] (h : (layout p3).WellFormed)
   rw [← h_from_start]
   change straightlineStep (layout p3) (_, pc_start) _
   dsimp only [p3_spec] at hb ⊢
-  apply tailrec_loop_straightline (layout p3)
+  apply tailrec_loop_straightline (layout p3) h
     (fun s' => s'.1.regs.rdx.toNat = 2 ^ (2 ^ rbx.toNat) ∧ s'.1.regs.rax = 0)
     (_, pc_start)
     (fun v st =>
