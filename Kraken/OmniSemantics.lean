@@ -2,6 +2,7 @@
 Common Kraken Temporal Logic and OmniSemantics.
 -/
 
+import Kraken.Layout
 import Lean
 
 abbrev Post {State : Type} := State → Prop
@@ -316,4 +317,162 @@ elab "#gen_mono " ids:ident+ : command => do
     genMonoFor fnName
 
 end MonoGen
+
+class OmniSemantics (Directive : Type) (MachineData : Type) (Effects : outParam (Type 1)) [Kraken.Layout Directive] where
+  All : (MachineData × Int64 → Prop) → Effects → Prop
+  done : MachineData × Int64 → Effects
+  step : Kraken.Executable Directive → MachineData × Int64 → (MachineData × Int64 → Effects) → Effects
+  straightline : Kraken.Executable Directive → MachineData × Int64 → (MachineData × Int64 → Effects) → Effects
+  interpDirectives : Kraken.Executable Directive → List (Directive × Nat) → MachineData → Int64 → (Int64 → MachineData → Effects) → Effects
+  interpDirective : Kraken.Executable Directive → Directive → MachineData → Std.Rco Int64 → (MachineData → Effects) → (Int64 → MachineData → Effects) → Effects
+  all_done : ∀ post st, All post (done st) = post st := by intros; rfl
+  step_eq : ∀ e st ret, step e st ret = interpDirectives e (e.directivesAtAddress st.2) st.1 st.2 (fun pc s => ret (s, pc)) := by intros; rfl
+  straightline_eq : ∀ e st ret, straightline e st ret = interpDirectives e (e.directivesFromAddress st.2) st.1 st.2 (fun pc s => ret (s, pc)) := by intros; rfl
+  interp_nil : ∀ e s pc ret, interpDirectives e [] s pc ret = ret pc s := by intros; rfl
+  interp_cons : ∀ e d sz ds s pc ret,
+    interpDirectives e ((d, sz) :: ds) s pc ret =
+      interpDirective e d s (.mk pc (pc + Int64.ofNat sz)) (fun s' => interpDirectives e ds s' (pc + Int64.ofNat sz) ret) ret := by intros; rfl
+  interpDirective_mono : ∀ e d s p {next₁ next₂ : MachineData → Effects} {jmp₁ jmp₂ : Int64 → MachineData → Effects} {post₁ post₂},
+    (∀ s', All post₁ (next₁ s') → All post₂ (next₂ s')) →
+    (∀ pc' s', All post₁ (jmp₁ pc' s') → All post₂ (jmp₂ pc' s')) →
+    All post₁ (interpDirective e d s p next₁ jmp₁) →
+    All post₂ (interpDirective e d s p next₂ jmp₂)
+
+namespace OmniSemantics
+
+variable {Directive MachineData : Type} {Effects : Type 1} [Kraken.Layout Directive] [os : OmniSemantics Directive MachineData Effects]
+
+def step1 (e : Kraken.Executable Directive) (s : MachineData × Int64) (post : @Post (MachineData × Int64)) : Prop :=
+  os.All post (os.step e s os.done)
+
+def straightlineStep (e : Kraken.Executable Directive) (s : MachineData × Int64) (post : @Post (MachineData × Int64)) : Prop :=
+  os.All post (os.straightline e s os.done)
+
+theorem interpDirectives_mono (e : Kraken.Executable Directive)
+    (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
+    {ret₁ ret₂ : Int64 → MachineData → Effects}
+    {post₁ post₂ : MachineData × Int64 → Prop}
+    (hret : ∀ pc' s', os.All post₁ (ret₁ pc' s') → os.All post₂ (ret₂ pc' s'))
+    (h : os.All post₁ (os.interpDirectives e ds s pc ret₁)) :
+    os.All post₂ (os.interpDirectives e ds s pc ret₂) := by
+  induction ds generalizing s pc with
+  | nil =>
+    rw [os.interp_nil] at h ⊢
+    exact hret pc s h
+  | cons head tail ih =>
+    obtain ⟨d, sz⟩ := head
+    rw [os.interp_cons] at h ⊢
+    exact os.interpDirective_mono e d s (.mk pc (pc + Int64.ofNat sz))
+      (fun s' => ih s' (pc + Int64.ofNat sz)) hret h
+
+theorem interpDirectives_split (e : Kraken.Executable Directive)
+    (ds1 ds2 : List (Directive × Nat)) (s : MachineData) (pc : Int64)
+    (ret₁ ret₂ : Int64 → MachineData → Effects)
+    {post₁ post₂ : MachineData × Int64 → Prop}
+    (hjmp : ∀ pc' s', os.All post₁ (ret₁ pc' s') → os.All post₂ (ret₂ pc' s'))
+    (hnext : ∀ s',
+      os.All post₁ (os.interpDirectives e ds2 s' (ds1.foldl (fun p (_, sz) => p + Int64.ofNat sz) pc) ret₁) →
+      os.All post₂ (ret₂ (ds1.foldl (fun p (_, sz) => p + Int64.ofNat sz) pc) s'))
+    (h : os.All post₁ (os.interpDirectives e (ds1 ++ ds2) s pc ret₁)) :
+    os.All post₂ (os.interpDirectives e ds1 s pc ret₂) := by
+  induction ds1 generalizing s pc with
+  | nil =>
+    rw [os.interp_nil, List.nil_append] at *
+    exact hnext s h
+  | cons head tail ih =>
+    obtain ⟨d, sz⟩ := head
+    rw [List.cons_append, os.interp_cons] at h
+    rw [os.interp_cons]
+    exact os.interpDirective_mono e d s (.mk pc (pc + Int64.ofNat sz))
+      (fun s' => ih s' (pc + Int64.ofNat sz) hnext) hjmp h
+
+theorem eventually_step (e : Kraken.Executable Directive) (hwf : e.WellFormed)
+    (st : MachineData × Int64) (post : @Post (MachineData × Int64)) :
+    straightlineStep e st post →
+    Eventually (step1 e) post st := by
+  intro h
+  let s := st.1
+  let pc := st.2
+  apply step_cps (step1 e) post (s, pc)
+  dsimp [step1, straightlineStep] at *
+  rw [os.step_eq, os.straightline_eq] at *
+  rw [Kraken.directivesAtFromPrefix e pc] at h
+  apply interpDirectives_split e (e.directivesAtAddress pc) _ s pc
+    (fun pc' s' => os.done (s', pc'))
+    (fun pc' s' => os.done (s', pc'))
+    (fun pc' s' hp => by rw [os.all_done] at hp ⊢; exact Eventually.done (s', pc') hp)
+    _ h
+  intro s' h_after
+  rw [os.all_done]
+  generalize h_drop : (e.withAddresses.dropWhile (·.1 ≠ pc)).dropWhile (·.1 = pc) = after_pc at h_after
+  cases after_pc with
+  | nil =>
+    rw [List.map_nil, os.interp_nil, os.all_done] at h_after
+    exact Eventually.done _ h_after
+  | cons y ys =>
+    have h_starts_ne : e.withAddresses.dropWhile (·.1 ≠ pc) ≠ [] := by
+      intro h_nil; rw [h_nil] at h_drop; contradiction
+    obtain ⟨x, xs, h_starts⟩ := List.exists_cons_of_ne_nil h_starts_ne
+    have h_starts' : (Kraken.Executable.withAddresses (e.1, e.2)).dropWhile (·.1 ≠ pc) = x :: xs := h_starts
+    obtain ⟨hx_eq, ds', h_ds'⟩ := Kraken.withAddresses_dropWhile_eq e.1 e.2 (·.1 ≠ pc) h_starts'
+    have hx_pc : x.1 = pc := by simpa using hx_eq
+    rw [hx_pc] at h_ds'
+    have h_fold : (e.directivesAtAddress pc).foldl (fun p (_, sz) => p + .ofNat sz) pc = y.1 := by
+      dsimp [Kraken.Executable.directivesAtAddress]
+      rw [h_starts, h_ds'] at h_drop ⊢
+      exact Kraken.withAddresses_takeWhile_foldl pc ds' (·.1 = pc) h_drop
+    rw [h_fold] at h_after ⊢
+    have h_next_from : e.withAddresses.dropWhile (·.1 ≠ y.1) = y :: ys := hwf pc y ys h_drop
+    have h_straightline_next : straightlineStep e (s', y.1) post := by
+      dsimp [straightlineStep]
+      rw [os.straightline_eq]
+      dsimp [Kraken.Executable.directivesFromAddress]
+      rw [h_next_from]
+      exact h_after
+    have h_len : (e.withAddresses.dropWhile (·.1 ≠ y.1)).length < (e.withAddresses.dropWhile (·.1 ≠ pc)).length := by
+      rw [h_next_from]
+      have h_split := List.takeWhile_append_dropWhile (p := (·.1 = pc)) (l := e.withAddresses.dropWhile (·.1 ≠ pc))
+      have h_len_eq := congrArg List.length h_split
+      rw [List.length_append, h_drop] at h_len_eq
+      have h_take_pos : 0 < ((e.withAddresses.dropWhile (·.1 ≠ pc)).takeWhile (·.1 = pc)).length := by
+        rw [h_starts, List.takeWhile_cons]
+        simp [hx_pc]
+      omega
+    exact eventually_step e hwf (s', y.1) post h_straightline_next
+termination_by (e.withAddresses.dropWhile (·.1 ≠ st.2)).length
+decreasing_by exact h_len
+
+theorem eventually_step_cps (e : Kraken.Executable Directive) (hwf : e.WellFormed)
+    (st : MachineData × Int64) (post : @Post (MachineData × Int64)) :
+    straightlineStep e st (fun mid => Eventually (step1 e) post mid) →
+    Eventually (step1 e) post st := by
+  intro h
+  exact eventually_trans (step1 e) (fun mid => Eventually (step1 e) post mid) post st
+    (eventually_step e hwf st _ h) (fun _ => id)
+
+theorem straightlineStep_mono (e : Kraken.Executable Directive) (st : MachineData × Int64)
+    {p q : @Post (MachineData × Int64)} (hpq : ∀ s, p s → q s) :
+    straightlineStep e st p → straightlineStep e st q := by
+  dsimp [straightlineStep]
+  rw [os.straightline_eq]
+  exact interpDirectives_mono e _ _ _ (fun pc' s' h => by rw [os.all_done] at h ⊢; exact hpq (s', pc') h)
+
+theorem tailrec_loop_straightline (e : Kraken.Executable Directive) (hwf : e.WellFormed)
+    (post : @Post (MachineData × Int64)) (initial : MachineData × Int64)
+    (P : Nat → @Post (MachineData × Int64)) (v0 : Nat) (hP : P v0 initial)
+    (hbody : ∀ v state, P v state →
+      straightlineStep e state (fun mid_s => post mid_s ∨ ∃ v', P v' mid_s ∧ v' < v)) :
+    straightlineStep e initial (fun mid => Eventually (step1 e) post mid) := by
+  refine straightlineStep_mono e initial ?_ (hbody v0 initial hP)
+  rintro mid_s (hpost | ⟨v', hP', _⟩)
+  · exact .done mid_s hpost
+  · refine tailrec_loop (step1 e) post mid_s (fun v () => P v) (fun _ _ => post)
+      (· < ·) Nat.lt_wfRel.wf v' () hP' (fun v _ st hst => eventually_step e hwf st _ ?_) (fun _ => id)
+    refine straightlineStep_mono e st ?_ (hbody v st hst)
+    rintro s (hp | ⟨v'', hp', hlt⟩)
+    · exact .inl hp
+    · exact .inr ⟨v'', (), hp', hlt, fun _ => id⟩
+
+end OmniSemantics
+
 

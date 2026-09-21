@@ -60,26 +60,41 @@ theorem Effects.All_dite {c : Prop} [Decidable c] {t₁ t₂ : c → Effects} {e
   Instr.interp
   Directive.interp
 
-theorem Directives.interp_mono [Labels]
-    (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
-    {ret₁ ret₂ : Int64 → MachineData → Effects}
-    {post₁ post₂ : MachineState → Prop}
-    (hret : ∀ pc' s', (ret₁ pc' s').All post₁ → (ret₂ pc' s').All post₂)
-    (h : (Directives.interp ds s pc ret₁).All post₁) :
-    (Directives.interp ds s pc ret₂).All post₂ := by
-  induction ds generalizing s pc with
-  | nil =>
-    exact hret pc s h
-  | cons head tail ih =>
-    obtain ⟨d, sz⟩ := head
-    dsimp [Directives.interp] at *
-    exact Directive.interp_mono d s (.mk pc (pc + .ofNat sz))
-      (fun s' => ih s' (pc + .ofNat sz))
-      hret
-      h
+instance [Layout] : OmniSemantics Directive MachineData Effects where
+  All := Effects.All
+  done := Effects.done
+  step := Executable.step
+  straightline := Executable.straightline
+  interpDirectives e := let _ := Executable.labels e; Directives.interp
+  interpDirective e := let _ := Executable.labels e; Directive.interp
+  interpDirective_mono e := let _ := Executable.labels e; Directive.interp_mono
 
 def step1 [Layout] (e: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
   (Executable.step e s .done).All post
 
 def straightlineStep [Layout] (e: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
   (Executable.straightline e s .done).All post
+
+theorem eventually_step [Layout] (e: Executable) (hwf : e.WellFormed) (st: MachineState) (post: @Post MachineState) :
+    straightlineStep e st post → Eventually (step1 e) post st :=
+  OmniSemantics.eventually_step e hwf st post
+
+theorem eventually_step_cps [Layout] (e : Executable) (hwf : e.WellFormed)
+    (st : MachineState) (post : @Post MachineState) :
+    straightlineStep e st (fun mid => Eventually (step1 e) post mid) →
+    Eventually (step1 e) post st :=
+  OmniSemantics.eventually_step_cps e hwf st post
+
+theorem straightlineStep_mono [Layout] (e : Executable) (st : MachineState)
+    {p q : @Post MachineState} (hpq : ∀ s, p s → q s) :
+    straightlineStep e st p → straightlineStep e st q :=
+  OmniSemantics.straightlineStep_mono e st hpq
+
+theorem tailrec_loop_straightline [Layout] (e : Executable) (hwf : e.WellFormed)
+    (post : @Post MachineState) (initial : MachineState)
+    (P : Nat → @Post MachineState) (v0 : Nat) (hP : P v0 initial)
+    (hbody : ∀ v state, P v state →
+      straightlineStep e state (fun mid_s => post mid_s ∨ ∃ v', P v' mid_s ∧ v' < v)) :
+    straightlineStep e initial (fun mid => Eventually (step1 e) post mid) :=
+  OmniSemantics.tailrec_loop_straightline e hwf post initial P v0 hP hbody
+
