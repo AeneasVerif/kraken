@@ -505,13 +505,10 @@ theorem Directives.interp_split [Labels]
       hjmp
       h
 
-private theorem eventually_step_aux [Layout] (e : Executable)
-    (hdrop : ∀ a y ys,
-      (e.withAddresses.dropWhile (·.1 ≠ a)).dropWhile (·.1 = a) = y :: ys →
-      e.withAddresses.dropWhile (·.1 ≠ y.1) = y :: ys)
-    (st : MachineState) (post : @Post MachineState) :
+theorem eventually_step [Layout] (e: Executable) (hwf : e.WellFormed) (st: MachineState) (post: @Post MachineState):
     straightlineStep e st post →
-    Eventually (step1 e) post st := by
+    Eventually (step1 e) post st
+    := by
   intro h
   let _ : Labels := Executable.labels e
   let s := st.1
@@ -546,7 +543,7 @@ private theorem eventually_step_aux [Layout] (e : Executable)
       rw [h_starts, h_ds'] at h_drop ⊢
       exact Kraken.withAddresses_takeWhile_foldl pc ds' (·.1 = pc) h_drop
     rw [h_fold] at h_after ⊢
-    have h_next_from : e.withAddresses.dropWhile (·.1 ≠ y.1) = y :: ys := hdrop pc y ys h_drop
+    have h_next_from : e.withAddresses.dropWhile (·.1 ≠ y.1) = y :: ys := hwf pc y ys h_drop
     have h_straightline_next : straightlineStep e (s', y.1) post := by
       dsimp [straightlineStep, Executable.straightline, Kraken.Executable.directivesFromAddress]
       rw [h_next_from]
@@ -560,21 +557,16 @@ private theorem eventually_step_aux [Layout] (e : Executable)
         rw [h_starts, List.takeWhile_cons]
         simp [hx_pc]
       omega
-    exact eventually_step_aux e hdrop (s', y.1) post h_straightline_next
+    exact eventually_step e hwf (s', y.1) post h_straightline_next
 termination_by (e.withAddresses.dropWhile (·.1 ≠ st.2)).length
 decreasing_by exact h_len
-
-theorem eventually_step [Layout] (e: Executable) (hwf : e.WellFormed) (st: MachineState) (post: @Post MachineState):
-    straightlineStep e st post →
-    Eventually (step1 e) post st :=
-  eventually_step_aux e hwf.dropWhile_after st post
 
 theorem eventually_step_of_sum_lt [Layout] (e : Executable)
     (hsum : (e.2.map (·.2)).sum < 2 ^ 64)
     (st : MachineState) (post : @Post MachineState) :
     straightlineStep e st post →
     Eventually (step1 e) post st :=
-  eventually_step_aux e (e.dropWhile_after_of_sum_lt hsum) st post
+  eventually_step e (e.wellFormed_of_sum_lt hsum) st post
 
 theorem eventually_step_cps [Layout] (e : Executable) (hwf : e.WellFormed)
     (st : MachineState) (post : @Post MachineState) :
@@ -588,10 +580,8 @@ theorem eventually_step_cps_of_sum_lt [Layout] (e : Executable)
     (hsum : (e.2.map (·.2)).sum < 2 ^ 64)
     (st : MachineState) (post : @Post MachineState) :
     straightlineStep e st (fun mid => Eventually (step1 e) post mid) →
-    Eventually (step1 e) post st := by
-  intro h
-  exact eventually_trans (step1 e) (fun mid => Eventually (step1 e) post mid) post st
-    (eventually_step_of_sum_lt e hsum st _ h) (fun _ => id)
+    Eventually (step1 e) post st :=
+  eventually_step_cps e (e.wellFormed_of_sum_lt hsum) st post
 
 theorem eventually_straightline_to_step1 [Layout] (e : Executable) (hwf : e.WellFormed)
     (st : MachineState) (post : @Post MachineState)

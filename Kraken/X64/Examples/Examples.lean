@@ -161,21 +161,16 @@ private theorem uint64_ofInt_nat_toNat {m : Nat} (hm : m < 2 ^ 64) :
     rfl
 
 set_option maxHeartbeats 4000000 in
-theorem p3_correct [layout: Layout] (h : (layout p3).WellFormed) (s : MachineData)
+theorem p3_correct [layout: Layout] (h : (layout p3).WellFormed)
+    (hsz : Int64.ofNat (layout.size 1) ≠ 0) (s : MachineData)
     (hrax : s.regs.rax = 0) (hb : p3_spec s < 2^64) :
     Eventually (step1 (layout p3))
       (fun s' => s'.1.regs.rdx.toNat = p3_spec s ∧ s'.1.regs.rax = 0)
       (s, layout.start) := by
-  let : Inhabited Directive := ⟨.label ""⟩
   let pc_start := layout.start + Int64.ofNat (layout.size 0) + Int64.ofNat (layout.size 1)
   have h_from_start : (layout p3).directivesFromAddress pc_start =
       ((p3.mapIdx (fun i d => (d, layout.size i))).drop 2) :=
-    Kraken.Executable.directivesFromAddress_of_split (layout p3) h
-      [ (layout.start, p3[0]!, layout.size 0),
-        (layout.start + Int64.ofNat (layout.size 0), p3[1]!, layout.size 1) ]
-      (pc_start, p3[2]!, layout.size 2)
-      _
-      rfl
+    h.directivesFromAddress_drop2 hsz
   apply eventually_straightline_to_step1 (layout p3) h
   apply step_cps
   kprologue p3 with s
