@@ -17,416 +17,274 @@ import Kraken.X64.Semantics
   | .require_write_access _ _ cont => (cont ()).All post
   | .require_exec_access _ cont => (cont ()).All post
 
-theorem MachineData.load_mono {s : MachineData} {addr : BitVec 64} {w : Width}
-    {ret₁ ret₂ : w.type → MachineData → Effects} {post₁ post₂ : MachineState → Prop}
-    (hret : ∀ v s', (ret₁ v s').All post₁ → (ret₂ v s').All post₂)
-    (h : (s.load addr w ret₁).All post₁) :
-    (s.load addr w ret₂).All post₂ := by
-  dsimp [MachineData.load, Effects.All] at *
-  split at h
-  · exact hret _ _ h
-  · contradiction
+theorem Effects.All_of_false {_e₁ e₂ : Effects} {_post₁ post₂ : MachineState → Prop}
+    (h : False) : e₂.All post₂ := False.elim h
 
-theorem MachineData.loadAvx_mono {s : MachineData} {addr : BitVec 64} {w : AvxWidth}
-    {ret₁ ret₂ : w.type → MachineData → Effects} {checkAlign : Bool} {post₁ post₂ : MachineState → Prop}
-    (hret : ∀ v s', (ret₁ v s').All post₁ → (ret₂ v s').All post₂)
-    (h : (s.loadAvx addr w ret₁ checkAlign).All post₁) :
-    (s.loadAvx addr w ret₂ checkAlign).All post₂ := by
-  if halign : (checkAlign && !isAligned w.bytes addr) = true then
-    simp [MachineData.loadAvx, halign, Effects.All] at h
-  else
-    simp only [MachineData.loadAvx, halign, Bool.false_eq_true, ↓reduceIte, Effects.All] at h ⊢
-    split at h
-    · exact hret _ _ h
-    · contradiction
+theorem Effects.All_undefined {α : Type} [NondetSupportingType α]
+    {cont₁ cont₂ : α → Effects} {post₁ post₂ : MachineState → Prop}
+    (hcont : ∀ v, (cont₁ v).All post₁ → (cont₂ v).All post₂)
+    (h : (@Effects.undefined α _ cont₁).All post₁) :
+    (@Effects.undefined α _ cont₂).All post₂ :=
+  fun v => hcont v (h v)
 
-theorem MachineData.store_mono {s : MachineData} {addr : BitVec 64} {w : Width} {v : w.type}
-    {ret₁ ret₂ : MachineData → Effects} {post₁ post₂ : MachineState → Prop}
-    (hret : ∀ s', (ret₁ s').All post₁ → (ret₂ s').All post₂)
-    (h : (s.store addr v ret₁).All post₁) :
-    (s.store addr v ret₂).All post₂ := by
-  dsimp [MachineData.store, Effects.All] at *
-  split at h
-  · exact hret _ h
-  · contradiction
+theorem Effects.All_ite {c : Prop} [Decidable c] {t₁ t₂ e₁ e₂ : Effects} {post₁ post₂ : MachineState → Prop}
+    (ht : t₁.All post₁ → t₂.All post₂) (he : e₁.All post₁ → e₂.All post₂) :
+    (if c then t₁ else e₁).All post₁ → (if c then t₂ else e₂).All post₂ := by
+  split
+  · exact ht
+  · exact he
 
-theorem MachineData.storeAvx_mono {s : MachineData} {addr : BitVec 64} {w : AvxWidth} {v : w.type}
-    {ret₁ ret₂ : MachineData → Effects} {checkAlign : Bool} {post₁ post₂ : MachineState → Prop}
-    (hret : ∀ s', (ret₁ s').All post₁ → (ret₂ s').All post₂)
-    (h : (s.storeAvx addr v ret₁ checkAlign).All post₁) :
-    (s.storeAvx addr v ret₂ checkAlign).All post₂ := by
-  if halign : (checkAlign && !isAligned w.bytes addr) = true then
-    simp [MachineData.storeAvx, halign, Effects.All] at h
-  else
-    simp only [MachineData.storeAvx, halign, Bool.false_eq_true, ↓reduceIte, Effects.All] at h ⊢
-    split at h
-    · exact hret _ h
-    · contradiction
+theorem Effects.All_dite {c : Prop} [Decidable c] {t₁ t₂ : c → Effects} {e₁ e₂ : ¬c → Effects} {post₁ post₂ : MachineState → Prop}
+    (ht : ∀ h, (t₁ h).All post₁ → (t₂ h).All post₂) (he : ∀ h, (e₁ h).All post₁ → (e₂ h).All post₂) :
+    (if h : c then t₁ h else e₁ h).All post₁ → (if h : c then t₂ h else e₂ h).All post₂ := by
+  split
+  · exact ht ‹_›
+  · exact he ‹_›
 
-theorem Reg.interp_mono {w : Width}
-    (r : Reg w) (s : MachineData) (p : Std.Rco Int64)
-    {ret₁ ret₂ : w.type → MachineData → Effects} {post₁ post₂ : MachineState → Prop}
-    (hret : ∀ v s', (ret₁ v s').All post₁ → (ret₂ v s').All post₂)
-    (h : (r.interp s p ret₁).All post₁) :
-    (r.interp s p ret₂).All post₂ :=
-  hret _ _ h
+section MonoGen
+open Lean Meta Elab Command
 
-theorem RegOrMem.interp_mono {w : Width} [Labels] [AddressSize]
-    (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64)
-    {ret₁ ret₂ : w.type → MachineData → Effects} {post₁ post₂ : MachineState → Prop}
-    (hret : ∀ v s', (ret₁ v s').All post₁ → (ret₂ v s').All post₂)
-    (h : (o.interp s p ret₁).All post₁) :
-    (o.interp s p ret₂).All post₂ := by
-  cases o with
-  | reg r => exact hret _ _ h
-  | mem a => exact MachineData.load_mono hret h
+structure MonoEntry where
+  monoName : Name
+  numParams : Nat
+  isContParam : Array Bool
+  deriving Inhabited
 
-theorem AvxRegOrMem.interp_mono {w : AvxWidth} [Labels] [AddressSize]
-    (o : AvxRegOrMem w) (s : MachineData) (p : Std.Rco Int64)
-    {ret₁ ret₂ : w.type → MachineData → Effects} {checkAlign : Bool} {post₁ post₂ : MachineState → Prop}
-    (hret : ∀ v s', (ret₁ v s').All post₁ → (ret₂ v s').All post₂)
-    (h : (o.interp s p ret₁ checkAlign).All post₁) :
-    (o.interp s p ret₂ checkAlign).All post₂ := by
-  cases o with
-  | avx r => exact hret _ _ h
-  | mem a => exact MachineData.loadAvx_mono hret h
+private def stripOptParam (t : Expr) : Expr :=
+  if t.isOptParam then t.getArg! 0 else t
 
-theorem AvxOperand.interp_mono {aw : AvxWidth} [Labels] [AddressSize]
-    (o : AvxOperand aw) (s : MachineData) (p : Std.Rco Int64)
-    {ret₁ ret₂ : aw.type → MachineData → Effects} {checkAlign : Bool} {post₁ post₂ : MachineState → Prop}
-    (hret : ∀ v s', (ret₁ v s').All post₁ → (ret₂ v s').All post₂)
-    (h : (o.interp s p ret₁ checkAlign).All post₁) :
-    (o.interp s p ret₂ checkAlign).All post₂ := by
-  cases o with
-  | regOrMem rm => exact AvxRegOrMem.interp_mono rm s p hret h
+private def isContType (t : Expr) : MetaM Bool :=
+  forallTelescope (stripOptParam t) fun _ body =>
+    return body.isConstOf ``Effects
 
-theorem Operand.interp_mono {w : Width} [Labels] [AddressSize]
-    (o : Operand w) (s : MachineData) (p : Std.Rco Int64)
-    {ret₁ ret₂ : w.type → MachineData → Effects} {post₁ post₂ : MachineState → Prop}
-    (hret : ∀ v s', (ret₁ v s').All post₁ → (ret₂ v s').All post₂)
-    (h : (o.interp s p ret₁).All post₁) :
-    (o.interp s p ret₂).All post₂ := by
-  cases o with
-  | regOrMem rm => exact RegOrMem.interp_mono rm s p hret h
-  | imm i => exact hret _ _ h
+private def getMonoEntry? (fnName : Name) : MetaM (Option MonoEntry) := do
+  let monoName := fnName.appendAfter "_mono"
+  unless (← getEnv).contains monoName do return none
+  let .defnInfo cinfo ← getConstInfo fnName | return none
+  lambdaTelescope cinfo.value fun xs _ => do
+    let isContParam ← xs.mapM fun x => do isContType (← x.fvarId!.getDecl).type
+    return some { monoName, numParams := xs.size, isContParam }
 
-theorem RelRegOrMem.interp_mono [Labels] [AddressSize]
-    (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64)
-    {ret₁ ret₂ : BitVec 64 → MachineData → Effects} {post₁ post₂ : MachineState → Prop}
-    (hret : ∀ v s', (ret₁ v s').All post₁ → (ret₂ v s').All post₂)
-    (h : (o.interp s p ret₁).All post₁) :
-    (o.interp s p ret₂).All post₂ := by
-  cases o with
-  | rel c => exact hret _ _ h
-  | reg r => exact hret _ _ h
-  | mem a => exact MachineData.load_mono hret h
+private partial def proveMono (post₁ post₂ : Expr)
+    (contMap : Std.HashMap FVarId (Expr × Expr × Expr))
+    (e : Expr) : MetaM Expr := do
+  let replaceConts (which : Bool) (ex : Expr) : Expr :=
+    ex.replace fun sub =>
+      if sub.isFVar then
+        match contMap[sub.fvarId!]? with
+        | some (c1, c2, _) => some (if which then c2 else c1)
+        | none => none
+      else none
+  let e := e.consumeMData
+  if e.isHeadBetaTarget then
+    return ← proveMono post₁ post₂ contMap e.headBeta
+  match e with
+  | .letE name type val body nonDep =>
+    withLetDecl name type val (nondep := nonDep) fun x => do
+      let prf ← proveMono post₁ post₂ contMap (body.instantiate1 x)
+      return .letE name type val (prf.abstract #[x]) nonDep
+  | _ =>
+    if let some ma ← matchMatcherApp? e (alsoCasesOn := true) then
+      let some ma₁ ← matchMatcherApp? (replaceConts false e) (alsoCasesOn := true) | unreachable!
+      let some ma₂ ← matchMatcherApp? (replaceConts true e) (alsoCasesOn := true) | unreachable!
+      let levels := match ma.uElimPos? with
+        | some pos => ma.matcherLevels.set! pos Level.zero
+        | none     => ma.matcherLevels
+      let newMotive ← forallBoundedTelescope (← inferType ma₁.motive) (some ma.discrs.size) fun xs _ => do
+        let e₁_xs := { ma₁ with discrs := xs }.toExpr
+        let e₂_xs := { ma₂ with discrs := xs }.toExpr
+        let goal ← mkArrow (mkApp2 (mkConst ``Effects.All) post₁ e₁_xs) (mkApp2 (mkConst ``Effects.All) post₂ e₂_xs)
+        mkLambdaFVars xs goal
+      let discrTy ← whnf (← inferType ma.discrs[0]!)
+      if let .inductInfo indInfo ← getConstInfo discrTy.getAppFn.constName! then
+        if ma.alts.size < indInfo.numCtors then
+          let indLevels := discrTy.getAppFn.constLevels!
+          let indParams := discrTy.getAppArgs.take indInfo.numParams
+          let mut ctorAlts := #[]
+          for ctorName in indInfo.ctors do
+            let ctorInfo ← getConstInfoCtor ctorName
+            let ctorFn := mkAppN (mkConst ctorName indLevels) indParams
+            let ctorAlt ← forallBoundedTelescope (← inferType ctorFn) (some ctorInfo.numFields) fun fieldVars _ => do
+              let ctorApp := mkAppN ctorFn fieldVars
+              let reduced ← whnfCore ({ ma with discrs := #[ctorApp] }.toExpr)
+              let prf ← proveMono post₁ post₂ contMap reduced
+              mkLambdaFVars fieldVars prf
+            ctorAlts := ctorAlts.push ctorAlt
+          let casesOnFn := mkConst (indInfo.name ++ `casesOn) (Level.zero :: indLevels)
+          return mkAppN casesOnFn (indParams ++ #[newMotive, ma.discrs[0]!] ++ ctorAlts)
+      let mut newAlts := #[]
+      for i in [:ma.alts.size] do
+        let alt := ma.alts[i]!
+        let numParams := ma.altNumParams[i]!
+        let newAlt ← forallBoundedTelescope (← inferType alt) (some numParams) fun patVars _ => do
+          let altPrf ← proveMono post₁ post₂ contMap (mkAppN (alt.beta patVars) ma.remaining).headBeta
+          mkLambdaFVars patVars altPrf
+        newAlts := newAlts.push newAlt
+      return { ma₁ with matcherLevels := levels, motive := newMotive, alts := newAlts, remaining := #[] }.toExpr
+    let fn := e.getAppFn
+    let args := e.getAppArgs
+    if fn.isFVar then
+      if let some (_, _, hc) := contMap[fn.fvarId!]? then
+        return mkAppN hc args
+    if fn.isConstOf ``Effects.unimplemented || fn.isConstOf ``Effects.gp_unaligned ||
+       fn.isConstOf ``Effects.nonmem_load || fn.isConstOf ``Effects.nonmem_store then
+      return mkApp4 (mkConst ``Effects.All_of_false) (replaceConts false e) (replaceConts true e) post₁ post₂
+    if fn.isConstOf ``Effects.require_read_access || fn.isConstOf ``Effects.require_write_access then
+      return ← proveMono post₁ post₂ contMap (mkApp args[2]! (mkConst ``Unit.unit)).headBeta
+    if fn.isConstOf ``Effects.require_exec_access then
+      return ← proveMono post₁ post₂ contMap (mkApp args[1]! (mkConst ``Unit.unit)).headBeta
+    if fn.isConstOf ``Effects.undefined then
+      let α := args[0]!
+      let inst := args[1]!
+      let cont := args[2]!
+      let hcont ← withLocalDeclD `v α fun v => do
+        let prf ← proveMono post₁ post₂ contMap (mkApp cont v).headBeta
+        mkLambdaFVars #[v] prf
+      return mkAppN (mkConst ``Effects.All_undefined)
+        #[α, inst, replaceConts false cont, replaceConts true cont, post₁, post₂, hcont]
+    if fn.isConstOf ``ite && args.size == 5 then
+      let c := args[1]!
+      let inst := args[2]!
+      let t := args[3]!
+      let el := args[4]!
+      let ht ← proveMono post₁ post₂ contMap t
+      let he ← proveMono post₁ post₂ contMap el
+      return mkAppN (mkConst ``Effects.All_ite)
+        #[c, inst, replaceConts false t, replaceConts true t, replaceConts false el, replaceConts true el, post₁, post₂, ht, he]
+    if fn.isConstOf ``dite && args.size == 5 then
+      let c := args[1]!
+      let inst := args[2]!
+      let t := args[3]!
+      let el := args[4]!
+      let ht ← withLocalDeclD `h c fun h => do
+        mkLambdaFVars #[h] (← proveMono post₁ post₂ contMap (mkApp t h).headBeta)
+      let he ← withLocalDeclD `h (mkNot c) fun h => do
+        mkLambdaFVars #[h] (← proveMono post₁ post₂ contMap (mkApp el h).headBeta)
+      return mkAppN (mkConst ``Effects.All_dite)
+        #[c, inst, replaceConts false t, replaceConts true t, replaceConts false el, replaceConts true el, post₁, post₂, ht, he]
+    if fn.isConst then
+      if let some entry ← getMonoEntry? fn.constName! then
+        if args.size == entry.numParams then
+          let mut regArgs := #[]
+          let mut contPairArgs := #[]
+          let mut contHypArgs := #[]
+          for i in [:args.size] do
+            let arg := args[i]!
+            if entry.isContParam[i]! then
+              contPairArgs := contPairArgs.push (replaceConts false arg)
+              contPairArgs := contPairArgs.push (replaceConts true arg)
+              let hArg ← forallTelescope (← inferType arg) fun as _ => do
+                let subPrf ← proveMono post₁ post₂ contMap (mkAppN arg as).headBeta
+                mkLambdaFVars as subPrf
+              contHypArgs := contHypArgs.push hArg
+            else
+              regArgs := regArgs.push arg
+          let allArgs := regArgs ++ contPairArgs ++ #[post₁, post₂] ++ contHypArgs
+          return mkAppN (mkConst entry.monoName fn.constLevels!) allArgs
+      if let .defnInfo info ← getConstInfo fn.constName! then
+        let e' := (info.value.instantiateLevelParams info.levelParams fn.constLevels!).beta args
+        return ← proveMono post₁ post₂ contMap e'
+    throwError "proveMono: unsupported expression:\n{e}"
 
-theorem MachineData.set_mono {w : Width} [Labels] [AddressSize]
-    (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64)
-    {ret₁ ret₂ : MachineData → Effects} {post₁ post₂ : MachineState → Prop}
-    (hret : ∀ s', (ret₁ s').All post₁ → (ret₂ s').All post₂)
-    (h : (s.set d v p ret₁).All post₁) :
-    (s.set d v p ret₂).All post₂ := by
-  cases d with
-  | reg r => exact hret _ h
-  | mem a => exact MachineData.store_mono hret h
+def genMonoFor (fnName : Name) : CommandElabM Unit := do
+  let monoName := fnName.appendAfter "_mono"
+  liftTermElabM do
+    let cinfo ← getConstInfoDefn fnName
+    let bInfos ← forallTelescope cinfo.type fun xs _ =>
+      xs.mapM fun x => do return (← x.fvarId!.getDecl).binderInfo
+    lambdaTelescope cinfo.value fun xs body => do
+      let mut lctx ← getLCtx
+      let mut isContParam : Array Bool := #[]
+      let mut actualRegFVars : Array Expr := #[]
+      let mut contOrig : Array (FVarId × Name × Expr) := #[]
+      for i in [:xs.size] do
+        let x := xs[i]!
+        let decl ← x.fvarId!.getDecl
+        let ty := stripOptParam decl.type
+        let bi := bInfos.getD i decl.binderInfo
+        lctx := lctx.modifyLocalDecl x.fvarId! fun d => d.setType ty |>.setBinderInfo bi
+        let isCont ← isContType ty
+        isContParam := isContParam.push isCont
+        if isCont then
+          contOrig := contOrig.push (x.fvarId!, decl.userName, ty)
+        else
+          actualRegFVars := actualRegFVars.push x
+      withLCtx lctx (← getLocalInstances) do
+        let rec buildContPairs (j : Nat) (cPairs : Array Expr)
+            (cTriples : Array (FVarId × Expr × Expr)) : MetaM (Expr × Expr) := do
+          if h2 : j < contOrig.size then
+            let (origId, uname, ty) := contOrig[j]
+            withLocalDecl (uname.appendAfter "₁") .implicit ty fun c1 =>
+            withLocalDecl (uname.appendAfter "₂") .implicit ty fun c2 =>
+              buildContPairs (j + 1) (cPairs.push c1 |>.push c2) (cTriples.push (origId, c1, c2))
+          else
+            let postTy ← mkArrow (mkConst ``MachineState) (mkSort Level.zero)
+            withLocalDecl `post₁ .implicit postTy fun post₁ =>
+            withLocalDecl `post₂ .implicit postTy fun post₂ => do
+              let rec buildContHyps (k : Nat) (hyps : Array Expr)
+                  (contMap : Std.HashMap FVarId (Expr × Expr × Expr)) : MetaM (Expr × Expr) := do
+                if h3 : k < cTriples.size then
+                  let (origId, c1, c2) := cTriples[k]
+                  let (_, uname, ty) := contOrig[k]!
+                  let hypTy ← forallTelescope ty fun as _ => do
+                    let lhs := mkApp2 (mkConst ``Effects.All) post₁ (mkAppN c1 as)
+                    let rhs := mkApp2 (mkConst ``Effects.All) post₂ (mkAppN c2 as)
+                    mkForallFVars as (← mkArrow lhs rhs)
+                  withLocalDeclD (Name.mkSimple ("h" ++ uname.toString)) hypTy fun hc =>
+                    buildContHyps (k + 1) (hyps.push hc) (contMap.insert origId (c1, c2, hc))
+                else
+                  let mut args₁ := #[]
+                  let mut args₂ := #[]
+                  for idx in [:xs.size] do
+                    if let some (c1, c2, _) := contMap[xs[idx]!.fvarId!]? then
+                      args₁ := args₁.push c1
+                      args₂ := args₂.push c2
+                    else
+                      args₁ := args₁.push xs[idx]!
+                      args₂ := args₂.push xs[idx]!
+                  let lvls := cinfo.levelParams.map mkLevelParam
+                  let app₁ := mkAppN (mkConst fnName lvls) args₁
+                  let app₂ := mkAppN (mkConst fnName lvls) args₂
+                  let goalTy ← mkArrow (mkApp2 (mkConst ``Effects.All) post₁ app₁) (mkApp2 (mkConst ``Effects.All) post₂ app₂)
+                  let prf ← proveMono post₁ post₂ contMap body
+                  let allVars := actualRegFVars ++ cPairs ++ #[post₁, post₂] ++ hyps
+                  let thmTy ← mkForallFVars allVars goalTy
+                  let thmVal ← mkLambdaFVars allVars prf
+                  return (thmTy, thmVal)
+              buildContHyps 0 #[] {}
+        let (thmTy, thmVal) ← buildContPairs 0 #[] #[]
+        addAndCompile (.thmDecl {
+          name := monoName
+          levelParams := cinfo.levelParams
+          type := thmTy
+          value := thmVal
+        })
 
-theorem MachineData.setAvx_mono {aw : AvxWidth} [Labels] [AddressSize]
-    (s : MachineData) (d : AvxDst aw) (v : aw.type) (p : Std.Rco Int64)
-    {ret₁ ret₂ : MachineData → Effects} {checkAlign : Bool} {post₁ post₂ : MachineState → Prop}
-    (hret : ∀ s', (ret₁ s').All post₁ → (ret₂ s').All post₂)
-    (h : (s.setAvx d v p ret₁ checkAlign).All post₁) :
-    (s.setAvx d v p ret₂ checkAlign).All post₂ := by
-  cases d with
-  | avx r => exact hret _ h
-  | mem a => exact MachineData.storeAvx_mono hret h
+elab "#gen_mono " ids:ident+ : command => do
+  for id in ids do
+    let fnName ← resolveGlobalConstNoOverload id
+    genMonoFor fnName
 
-theorem MachineData.setAvxLegacy_mono {w : AvxWidth} [Labels] [AddressSize]
-    (s : MachineData) (d : AvxDst w) (v : w.type) (p : Std.Rco Int64)
-    {ret₁ ret₂ : MachineData → Effects} {checkAlign : Bool} {post₁ post₂ : MachineState → Prop}
-    (hret : ∀ s', (ret₁ s').All post₁ → (ret₂ s').All post₂)
-    (h : (s.setAvxLegacy d v p ret₁ checkAlign).All post₁) :
-    (s.setAvxLegacy d v p ret₂ checkAlign).All post₂ := by
-  cases d with
-  | avx r => exact hret _ h
-  | mem a => exact MachineData.storeAvx_mono hret h
+end MonoGen
 
-theorem AvxOperation.interp_mono [Labels] [AddressSize] {w : AvxWidth}
-    (i : AvxOperation w) (p : Std.Rco Int64) (s : MachineData)
-    {next₁ next₂ : MachineData → Effects} {post₁ post₂ : MachineState → Prop}
-    (hnext : ∀ s', (next₁ s').All post₁ → (next₂ s').All post₂)
-    (h : (AvxOperation.interp i p s next₁).All post₁) :
-    (AvxOperation.interp i p s next₂).All post₂ := by
-  dsimp [AvxOperation.interp] at *
-  cases i with
-  | movups dst src =>
-    exact AvxRegOrMem.interp_mono src s p (fun val s' => MachineData.setAvxLegacy_mono s' dst val p hnext) h
-  | vmovups dst src =>
-    exact AvxRegOrMem.interp_mono src s p (fun val s' => MachineData.setAvx_mono s' dst val p hnext) h
-  | movaps dst src =>
-    exact AvxRegOrMem.interp_mono src s p (fun val s' => MachineData.setAvxLegacy_mono s' dst val p hnext) h
-  | subps dst src =>
-    exact AvxRegOrMem.interp_mono src s p (fun a s' =>
-      AvxRegOrMem.interp_mono dst s' p (fun b s'' =>
-        MachineData.setAvxLegacy_mono s'' dst _ p hnext)) h
-  | addps dst src =>
-    exact AvxRegOrMem.interp_mono src s p (fun a s' =>
-      AvxRegOrMem.interp_mono dst s' p (fun b s'' =>
-        MachineData.setAvxLegacy_mono s'' dst _ p hnext)) h
-
-set_option maxHeartbeats 2000000 in
-theorem Operation.interp_mono [Labels] [AddressSize] {w : Width}
-    (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
-    {next₁ next₂ : MachineData → Effects}
-    {jmp₁ jmp₂ : Int64 → MachineData → Effects}
-    {post₁ post₂ : MachineState → Prop}
-    (hnext : ∀ s', (next₁ s').All post₁ → (next₂ s').All post₂)
-    (hjmp : ∀ pc' s', (jmp₁ pc' s').All post₁ → (jmp₂ pc' s').All post₂)
-    (h : (Operation.interp i p s next₁ jmp₁).All post₁) :
-    (Operation.interp i p s next₂ jmp₂).All post₂ := by
-  dsimp [Operation.interp] at *
-  cases i with
-  | mov dst src =>
-    exact Operand.interp_mono src s p (fun val s' => MachineData.set_mono s' dst val p hnext) h
-  | movsx dst src =>
-    exact RegOrMem.interp_mono src s p (fun val s' => MachineData.set_mono s' dst _ p hnext) h
-  | movzx dst src =>
-    exact RegOrMem.interp_mono src s p (fun val s' => MachineData.set_mono s' dst _ p hnext) h
-  | push src =>
-    exact Operand.interp_mono src s p (fun v s' => MachineData.store_mono hnext) h
-  | pop dst =>
-    exact MachineData.load_mono (fun val s' => MachineData.set_mono _ dst val p hnext) h
-  | setcc cc dst =>
-    exact MachineData.set_mono s dst _ p hnext h
-  | cmovcc cc dst src =>
-    exact RegOrMem.interp_mono src s p (fun src' s' => hnext _) h
-  | lea dst src =>
-    exact hnext _ h
-  | add dst src =>
-    exact Operand.interp_mono src s p (fun a s' => RegOrMem.interp_mono dst s' p (fun b s'' => MachineData.set_mono _ dst _ p hnext)) h
-  | adc dst src =>
-    exact Operand.interp_mono src s p (fun a s' => RegOrMem.interp_mono dst s' p (fun b s'' => MachineData.set_mono _ dst _ p hnext)) h
-  | adcx dst src =>
-    exact RegOrMem.interp_mono src s p (fun a s' => Reg.interp_mono dst s' p (fun b s'' => hnext _)) h
-  | adox dst src =>
-    exact RegOrMem.interp_mono src s p (fun a s' => Reg.interp_mono dst s' p (fun b s'' => hnext _)) h
-  | inc dst =>
-    exact RegOrMem.interp_mono dst s p (fun a s' => MachineData.set_mono _ dst _ p hnext) h
-  | dec dst =>
-    exact RegOrMem.interp_mono dst s p (fun a s' => MachineData.set_mono _ dst _ p hnext) h
-  | neg dst =>
-    exact RegOrMem.interp_mono dst s p (fun a s' => MachineData.set_mono _ dst _ p hnext) h
-  | sub dst src =>
-    exact Operand.interp_mono src s p (fun a s' => RegOrMem.interp_mono dst s' p (fun b s'' => MachineData.set_mono _ dst _ p hnext)) h
-  | sbb dst src =>
-    exact Operand.interp_mono src s p (fun a s' => RegOrMem.interp_mono dst s' p (fun b s'' => MachineData.set_mono _ dst _ p hnext)) h
-  | cmp a b =>
-    exact RegOrMem.interp_mono a s p (fun a' s' => Operand.interp_mono b s' p (fun b' s'' => hnext _)) h
-  | mul src =>
-    apply RegOrMem.interp_mono src s p _ h; intro b s' h_inner sf zf af pf
-    exact hnext _ (h_inner sf zf af pf)
-  | mulx r_hi r_lo src1 =>
-    exact RegOrMem.interp_mono src1 s p (fun a s' => hnext _) h
-  | imul1 src =>
-    apply RegOrMem.interp_mono src s p _ h; intro b s' h_inner sf zf af pf
-    exact hnext _ (h_inner sf zf af pf)
-  | imul dst src1 src2 =>
-    apply RegOrMem.interp_mono src1 s p _ h; intro a s'
-    apply Operand.interp_mono src2 s' p; intro b s''
-    apply MachineData.set_mono _ _ _ p; intro s''' h_inner sf zf af pf
-    exact hnext _ (h_inner sf zf af pf)
-  | test a b =>
-    apply RegOrMem.interp_mono a s p _ h; intro a' s'
-    apply Operand.interp_mono b s' p; intro b' s'' h_inner af
-    exact hnext _ (h_inner af)
-  | and dst src =>
-    apply RegOrMem.interp_mono dst s p _ h; intro a s'
-    apply Operand.interp_mono src s' p; intro b s'' h_inner af
-    exact MachineData.set_mono _ dst _ p hnext (h_inner af)
-  | or dst src =>
-    apply RegOrMem.interp_mono dst s p _ h; intro a s'
-    apply Operand.interp_mono src s' p; intro b s'' h_inner af
-    exact MachineData.set_mono _ dst _ p hnext (h_inner af)
-  | xor dst src =>
-    apply RegOrMem.interp_mono dst s p _ h; intro a s'
-    apply Operand.interp_mono src s' p; intro b s'' h_inner af
-    exact MachineData.set_mono _ dst _ p hnext (h_inner af)
-  | not dst =>
-    exact RegOrMem.interp_mono dst s p (fun a s' => MachineData.set_mono _ dst _ p hnext) h
-  | shl dst count =>
-    apply RegOrMem.interp_mono dst s p _ h; intro a s' h_inner
-    if h0 : (count.interpMasked s' p w == 0) = true then
-      simp [h0] at *; exact hnext _ h_inner
-    else
-      simp [h0] at *; intro af
-      have h_inner' : Effects.All _ _ := h_inner af
-      if hbits : count.interpMasked s' p w < w.bits then
-        simp [hbits] at *
-        split at h_inner' <;> split <;> try contradiction
-        · exact MachineData.set_mono _ dst _ p hnext h_inner'
-        · intro of; exact MachineData.set_mono _ dst _ p hnext (h_inner' of)
-      else
-        simp [hbits] at *; intro cf
-        have h_inner'' : Effects.All _ _ := h_inner' cf
-        split at h_inner'' <;> split <;> try contradiction
-        · exact MachineData.set_mono _ dst _ p hnext h_inner''
-        · intro of; exact MachineData.set_mono _ dst _ p hnext (h_inner'' of)
-  | shr dst count =>
-    apply RegOrMem.interp_mono dst s p _ h; intro a s' h_inner
-    if h0 : (count.interpMasked s' p w == 0) = true then
-      simp [h0] at *; exact hnext _ h_inner
-    else
-      simp [h0] at *; intro af
-      have h_inner' : Effects.All _ _ := h_inner af
-      if hbits : count.interpMasked s' p w < w.bits then
-        simp [hbits] at *
-        split at h_inner' <;> split <;> try contradiction
-        · exact MachineData.set_mono _ dst _ p hnext h_inner'
-        · intro of; exact MachineData.set_mono _ dst _ p hnext (h_inner' of)
-      else
-        simp [hbits] at *; intro cf
-        have h_inner'' : Effects.All _ _ := h_inner' cf
-        split at h_inner'' <;> split <;> try contradiction
-        · exact MachineData.set_mono _ dst _ p hnext h_inner''
-        · intro of; exact MachineData.set_mono _ dst _ p hnext (h_inner'' of)
-  | sar dst count =>
-    apply RegOrMem.interp_mono dst s p _ h; intro a s' h_inner
-    if h0 : (count.interpMasked s' p w == 0) = true then
-      simp [h0] at *; exact hnext _ h_inner
-    else
-      simp [h0] at *; intro af
-      have h_inner' : Effects.All _ _ := h_inner af
-      if hbits : count.interpMasked s' p w < w.bits then
-        simp [hbits] at *
-        split at h_inner' <;> split <;> try contradiction
-        · exact MachineData.set_mono _ dst _ p hnext h_inner'
-        · intro of; exact MachineData.set_mono _ dst _ p hnext (h_inner' of)
-      else
-        simp [hbits] at *; intro cf
-        have h_inner'' : Effects.All _ _ := h_inner' cf
-        split at h_inner'' <;> split <;> try contradiction
-        · exact MachineData.set_mono _ dst _ p hnext h_inner''
-        · intro of; exact MachineData.set_mono _ dst _ p hnext (h_inner'' of)
-  | shrd dst src count =>
-    apply RegOrMem.interp_mono dst s p _ h; intro a s'
-    apply Reg.interp_mono src s' p; intro b s'' h_inner
-    if h0 : (count.interpMasked s'' p w == 0) = true then
-      simp [h0] at *; exact hnext _ h_inner
-    else
-      simp [h0] at *
-      if h64 : count.interpMasked s'' p w ≥ w.bits then
-        simp [h64] at *; intro status; exact MachineData.set_mono _ dst _ p hnext (h_inner status)
-      else
-        simp [h64] at *; intro af
-        have h_inner' : Effects.All _ _ := h_inner af
-        split at h_inner' <;> split <;> try contradiction
-        · exact MachineData.set_mono _ dst _ p hnext h_inner'
-        · intro of; exact MachineData.set_mono _ dst _ p hnext (h_inner' of)
-  | shld dst src count =>
-    apply RegOrMem.interp_mono dst s p _ h; intro a s'
-    apply Reg.interp_mono src s' p; intro b s'' h_inner
-    if h0 : (count.interpMasked s'' p w == 0) = true then
-      simp [h0] at *; exact hnext _ h_inner
-    else
-      simp [h0] at *
-      if h64 : count.interpMasked s'' p w ≥ w.bits then
-        simp [h64] at *; intro status; exact MachineData.set_mono _ dst _ p hnext (h_inner status)
-      else
-        simp [h64] at *; intro af
-        have h_inner' : Effects.All _ _ := h_inner af
-        split at h_inner' <;> split <;> try contradiction
-        · exact MachineData.set_mono _ dst _ p hnext h_inner'
-        · intro of; exact MachineData.set_mono _ dst _ p hnext (h_inner' of)
-  | rol dst count =>
-    apply RegOrMem.interp_mono dst s p _ h; intro a s' h_inner
-    if h0 : (count.interpMasked s' p w == 0) = true then
-      simp [h0] at *; exact hnext _ h_inner
-    else
-      simp [h0] at *
-      split at h_inner <;> split <;> try contradiction
-      · exact MachineData.set_mono _ dst _ p hnext h_inner
-      · intro of; exact MachineData.set_mono _ dst _ p hnext (h_inner of)
-  | ror dst count =>
-    apply RegOrMem.interp_mono dst s p _ h; intro a s' h_inner
-    if h0 : (count.interpMasked s' p w == 0) = true then
-      simp [h0] at *; exact hnext _ h_inner
-    else
-      simp [h0] at *
-      split at h_inner <;> split <;> try contradiction
-      · exact MachineData.set_mono _ dst _ p hnext h_inner
-      · intro of; exact MachineData.set_mono _ dst _ p hnext (h_inner of)
-  | rcr dst count =>
-    apply RegOrMem.interp_mono dst s p _ h; intro a s' h_inner
-    if h0 : (count.interpMasked s' p w == 0) = true then
-      simp [h0] at *; exact hnext _ h_inner
-    else
-      simp [h0] at *
-      split at h_inner <;> split <;> try contradiction
-      · exact MachineData.set_mono _ dst _ p hnext h_inner
-      · intro of; exact MachineData.set_mono _ dst _ p hnext (h_inner of)
-  | rcl dst count =>
-    apply RegOrMem.interp_mono dst s p _ h; intro a s' h_inner
-    if h0 : (count.interpMasked s' p w == 0) = true then
-      simp [h0] at *; exact hnext _ h_inner
-    else
-      simp [h0] at *
-      split at h_inner <;> split <;> try contradiction
-      · exact MachineData.set_mono _ dst _ p hnext h_inner
-      · intro of; exact MachineData.set_mono _ dst _ p hnext (h_inner of)
-  | bswap dst =>
-    dsimp [Operation.interp] at *
-    split at h
-    · exact hnext _ h
-    · exact hnext _ h
-    · intro v; exact hnext _ (h v)
-  | jcc cc l =>
-    dsimp [Operation.interp] at *; split at h <;> split <;> try contradiction
-    · exact hjmp _ _ h
-    · exact hnext _ h
-  | jmp tgt =>
-    exact RelRegOrMem.interp_mono tgt s p (fun a s' => hjmp (.ofBitVec a) s') h
-  | call tgt =>
-    exact RelRegOrMem.interp_mono tgt s p (fun a s' => MachineData.store_mono (fun s'' => hjmp (.ofBitVec a) s'')) h
-  | ret =>
-    exact MachineData.load_mono (fun ra s' => hjmp (.ofBitVec ra) _) h
-  | nop _ | nopalign _ _ =>
-    exact hnext _ h
-
-theorem Instr.interp_mono [Labels]
-    (i : Instr) (s : MachineData) (p : Std.Rco Int64)
-    {next₁ next₂ : MachineData → Effects}
-    {jmp₁ jmp₂ : Int64 → MachineData → Effects}
-    {post₁ post₂ : MachineState → Prop}
-    (hnext : ∀ s', (next₁ s').All post₁ → (next₂ s').All post₂)
-    (hjmp : ∀ pc' s', (jmp₁ pc' s').All post₁ → (jmp₂ pc' s').All post₂)
-    (h : (Instr.interp i s p next₁ jmp₁).All post₁) :
-    (Instr.interp i s p next₂ jmp₂).All post₂ := by
-  cases i with
-  | regular addr_sz op_sz op =>
-    dsimp [Instr.interp, Effects.All] at *
-    let _ : AddressSize := ⟨addr_sz⟩
-    exact Operation.interp_mono op p s hnext hjmp h
-  | avx addr_sz op_sz op =>
-    dsimp [Instr.interp, Effects.All] at *
-    let _ : AddressSize := ⟨addr_sz⟩
-    exact AvxOperation.interp_mono op p s hnext h
-
-theorem Directive.interp_mono [Labels]
-    (d : Directive) (s : MachineData) (p : Std.Rco Int64)
-    {next₁ next₂ : MachineData → Effects}
-    {jmp₁ jmp₂ : Int64 → MachineData → Effects}
-    {post₁ post₂ : MachineState → Prop}
-    (hnext : ∀ s', (next₁ s').All post₁ → (next₂ s').All post₂)
-    (hjmp : ∀ pc' s', (jmp₁ pc' s').All post₁ → (jmp₂ pc' s').All post₂)
-    (h : (Directive.interp d s p next₁ jmp₁).All post₁) :
-    (Directive.interp d s p next₂ jmp₂).All post₂ := by
-  cases d with
-  | label _ =>
-    exact hnext s h
-  | instr i =>
-    exact Instr.interp_mono i s p hnext hjmp h
-  | byteArray _ =>
-    contradiction
+#gen_mono
+  Reg.interp
+  MachineData.load
+  MachineData.loadAvx
+  MachineData.store
+  MachineData.storeAvx
+  RegOrMem.interp
+  AvxRegOrMem.interp
+  MachineData.set
+  MachineData.setAvx
+  MachineData.setAvxLegacy
+  Operand.interp
+  AvxOperand.interp
+  RelRegOrMem.interp
+  AvxOperation.interp
+  Operation.interp
+  Instr.interp
+  Directive.interp
 
 theorem Directives.interp_mono [Labels]
     (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
