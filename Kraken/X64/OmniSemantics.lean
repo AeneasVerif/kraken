@@ -446,42 +446,11 @@ theorem Directives.interp_mono [Labels]
       hret
       h
 
-theorem Directives.interp_step_all [Labels]
-    (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
-    (cont : Int64 → MachineData → Effects)
-    (post₁ post₂ : MachineState → Prop)
-    (hcont : ∀ pc' s', post₁ (s', pc') → (cont pc' s').All post₂)
-    (h : (Directives.interp ds s pc (fun pc' s' => Effects.done (s', pc'))).All post₁) :
-    (Directives.interp ds s pc cont).All post₂ := by
-  apply Directives.interp_mono ds s pc (fun pc' s' (h_ret : (Effects.done (s', pc')).All post₁) => by
-    dsimp [Effects.All] at h_ret
-    exact hcont pc' s' h_ret) h
-
 def step1 [Layout] (e: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
   (Executable.step e s .done).All post
 
 def straightlineStep [Layout] (e: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
   (Executable.straightline e s .done).All post
-
-theorem Directives.interp_append [Labels]
-    (ds1 ds2 : List (Directive × Nat)) (s : MachineData) (pc : Int64)
-    (ret : Int64 → MachineData → Effects)
-    {post : MachineState → Prop}
-    (hjmp : ∀ pc' s', (Directives.interp ds2 s' pc' ret).All post → (ret pc' s').All post)
-    (h : (Directives.interp ds1 s pc (fun pc' s' => Directives.interp ds2 s' pc' ret)).All post) :
-    (Directives.interp (ds1 ++ ds2) s pc ret).All post := by
-  induction ds1 generalizing s pc with
-  | nil =>
-    dsimp [Directives.interp] at *
-    exact h
-  | cons head tail ih =>
-    obtain ⟨d, sz⟩ := head
-    dsimp [Directives.interp] at *
-    apply Directive.interp_mono (jmp₁ := fun pc' s' => Directives.interp ds2 s' pc' ret) (jmp₂ := ret)
-      d s (.mk pc (pc + .ofNat sz))
-      (fun s' => ih s' (pc + .ofNat sz))
-      hjmp
-      h
 
 theorem Directives.interp_split [Labels]
     (ds1 ds2 : List (Directive × Nat)) (s : MachineData) (pc : Int64)
@@ -561,13 +530,6 @@ theorem eventually_step [Layout] (e: Executable) (hwf : e.WellFormed) (st: Machi
 termination_by (e.withAddresses.dropWhile (·.1 ≠ st.2)).length
 decreasing_by exact h_len
 
-theorem eventually_step_of_sum_lt [Layout] (e : Executable)
-    (hsum : (e.2.map (·.2)).sum < 2 ^ 64)
-    (st : MachineState) (post : @Post MachineState) :
-    straightlineStep e st post →
-    Eventually (step1 e) post st :=
-  eventually_step e (e.wellFormed_of_sum_lt hsum) st post
-
 theorem eventually_step_cps [Layout] (e : Executable) (hwf : e.WellFormed)
     (st : MachineState) (post : @Post MachineState) :
     straightlineStep e st (fun mid => Eventually (step1 e) post mid) →
@@ -576,12 +538,6 @@ theorem eventually_step_cps [Layout] (e : Executable) (hwf : e.WellFormed)
   exact eventually_trans (step1 e) (fun mid => Eventually (step1 e) post mid) post st
     (eventually_step e hwf st _ h) (fun _ => id)
 
-theorem eventually_step_cps_of_sum_lt [Layout] (e : Executable)
-    (hsum : (e.2.map (·.2)).sum < 2 ^ 64)
-    (st : MachineState) (post : @Post MachineState) :
-    straightlineStep e st (fun mid => Eventually (step1 e) post mid) →
-    Eventually (step1 e) post st :=
-  eventually_step_cps e (e.wellFormed_of_sum_lt hsum) st post
 
 theorem straightlineStep_mono [Layout] (e : Executable) (st : MachineState)
     {p q : @Post MachineState} (hpq : ∀ s, p s → q s) :
