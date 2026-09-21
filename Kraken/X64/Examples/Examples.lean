@@ -20,6 +20,32 @@ import Kraken.X64.Sep
 
 open Kraken.X64.Parser
 
+attribute [ksimp]
+  BitVec.add_zero
+  BitVec.sub_zero
+  BitVec.ofInt_add
+  BitVec.ofInt_ofNat
+  BitVec.ofInt_toInt
+  BitVec.ofNat_uInt64ToNat
+  BitVec.reduceOfInt
+  BitVec.setWidth_eq
+  Int.add_zero
+  Int.reduceBmod
+  Int.reduceNeg
+  Int64.reduceToInt
+  Int64.toInt_neg
+  Nat.reducePow
+  Nat.shiftRight_zero
+  Nat.sub_zero
+  UInt64.ofBitVec_add
+  UInt64.ofBitVec_ofNat
+  UInt64.ofBitVec_sub
+  UInt64.ofBitVec_toBitVec
+  UInt64.sub_add_cancel
+  UInt64.toBitVec_ofNat
+  UInt64.toBitVec_sub
+  UInt64.toNat_toBitVec
+
 --------------------------------------------------------------------------------
 
 def p1 := parse("start: mov $1, %rax")
@@ -98,102 +124,130 @@ _end:
 
 def p3_spec (s: MachineData): Nat := 2^(2^s.regs.rbx.toNat)
 
+private theorem int64_rel_jmp_target (u tgt : Int64) :
+    Int64.ofBitVec (u + (tgt - u)).toBitVec = tgt := by
+  apply Int64.toBitVec_inj.mp
+  simp only [Int64.toBitVec_ofBitVec, Int64.toBitVec_add, Int64.toBitVec_sub]
+  bv_decide
+
+private theorem uint64_sub_one_toNat {v : Nat} (hv0 : v ≠ 0) (hv_lt : v < 2 ^ 64) :
+    (UInt64.ofBitVec (BitVec.ofNat 64 v - 1#64)).toNat = v - 1 := by
+  simp only [UInt64.toNat_ofBitVec, BitVec.toNat_sub, BitVec.toNat_ofNat]
+  rw [Nat.mod_eq_of_lt hv_lt]
+  omega
+
+private theorem p3_pow_step {n v : Nat} (hv0 : v ≠ 0) (hle : v ≤ n) (hb : 2 ^ 2 ^ n < 2 ^ 64) :
+    2 ^ 2 ^ (n - v) * 2 ^ 2 ^ (n - v) = 2 ^ 2 ^ (n - (v - 1)) ∧
+    2 ^ 2 ^ (n - (v - 1)) < 2 ^ 64 := by
+  have h_sub : n - v + 1 = n - (v - 1) := by omega
+  have h_eq : 2 ^ 2 ^ (n - v) * 2 ^ 2 ^ (n - v) = 2 ^ 2 ^ (n - (v - 1)) := by
+    rw [← Nat.pow_add, ← Nat.two_mul, Nat.mul_comm 2 (2 ^ (n - v)), ← Nat.pow_succ, Nat.succ_eq_add_one, h_sub]
+  have h_le_n : n - (v - 1) ≤ n := by omega
+  have h_mono : 2 ^ 2 ^ (n - (v - 1)) ≤ 2 ^ 2 ^ n :=
+    Nat.pow_le_pow_right (by decide) (Nat.pow_le_pow_right (by decide) h_le_n)
+  exact ⟨h_eq, Nat.lt_of_le_of_lt h_mono hb⟩
+
+private theorem uint64_ofInt_nat_toNat {m : Nat} (hm : m < 2 ^ 64) :
+    (UInt64.ofBitVec (BitVec.ofInt 64 (Int.ofNat m))).toNat = m ∧
+    UInt64.ofBitVec (BitVec.ofInt 64 ((Int.ofNat m) >>> 64)) = 0 := by
+  have h_bv : BitVec.ofInt 64 (Int.ofNat m) = BitVec.ofNat 64 m := BitVec.ofInt_ofNat 64 m
+  have h_shift : (Int.ofNat m) >>> (64 : Nat) = 0 := by
+    change Int.ofNat (m >>> 64) = 0
+    rw [Nat.shiftRight_eq_div_pow, Nat.div_eq_of_lt hm]
+    rfl
+  refine ⟨?_, ?_⟩
+  · simp only [h_bv, UInt64.toNat_ofBitVec, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hm]
+  · rw [h_shift]
+    rfl
+
 set_option maxHeartbeats 4000000 in
-theorem p3_correct [layout: Layout] (s: MachineData):
-    p3_spec s < 2^64 →
-    Eventually (straightlineStep (layout p3)) (fun s => s.1.regs.rdx.toNat = p3_spec s.1 ∧ s.1.regs.rax = 0) (s, layout.start) :=
-  by
-    intros h_bounds
-    apply step_cps
-    kprologue p3 with s
-
-    sym =>
-    -- kstep 3
-    -- tactic =>
-    -- apply tailrec_loop
-    -- intros
-
-    sorry
-
-/-     intros h_bounds h_rip
-    simp [p3]
-    -- First step sets rdx = 2
-    apply step_cps
-    step_one
-    rw [h_rip]
-    clear h_rip
+theorem p3_correct [layout: Layout] (h : (layout p3).WellFormed) (s : MachineData)
+    (hrax : s.regs.rax = 0) (hb : p3_spec s < 2^64) :
+    Eventually (step1 (layout p3))
+      (fun s' => s'.1.regs.rdx.toNat = p3_spec s ∧ s'.1.regs.rax = 0)
+      (s, layout.start) := by
+  let : Inhabited Directive := ⟨.label ""⟩
+  let pc_start := layout.start + Int64.ofNat (layout.size 0) + Int64.ofNat (layout.size 1)
+  have h_from_start : (layout p3).directivesFromAddress pc_start =
+      ((p3.mapIdx (fun i d => (d, layout.size i))).drop 2) :=
+    Kraken.Executable.directivesFromAddress_of_split (layout p3) h
+      [ (layout.start, p3[0]!, layout.size 0),
+        (layout.start + Int64.ofNat (layout.size 0), p3[1]!, layout.size 1) ]
+      (pc_start, p3[2]!, layout.size 2)
+      _
+      rfl
+  apply eventually_straightline_to_step1 (layout p3) h
+  apply step_cps
+  kprologue p3 with s
+  sym =>
+  kstep 2
+  tactic =>
+  change Effects.All _ (@Directives.interp (Executable.labels (layout p3)) ((p3.mapIdx (fun i d => (d, layout.size i))).drop 2) _ pc_start (fun pc s => Effects.done (s, pc)))
+  rw [← h_from_start]
+  change straightlineStep (layout p3) (_, pc_start) _
+  dsimp only [p3_spec] at hb ⊢
+  apply tailrec_loop_straightline (layout p3)
+    (fun s' => s'.1.regs.rdx.toNat = 2 ^ (2 ^ rbx.toNat) ∧ s'.1.regs.rax = 0)
+    (_, pc_start)
+    (fun v st =>
+      st.2 = pc_start ∧
+      st.1.regs.rbx.toNat = v ∧
+      v ≤ rbx.toNat ∧
+      st.1.regs.rdx.toNat = 2 ^ (2 ^ (rbx.toNat - v)) ∧
+      st.1.regs.rax = 0)
+    rbx.toNat
+  · refine ⟨rfl, rfl, Nat.le_refl _, ?_, hrax⟩
     simp
-    -- Loop invariant introduction
-    apply tailrec_loop p3 _ _ (fun i _ s => s.1.rip = 1 ∧ s.1.regs.rbx.toNat = i ∧ i ≤ initial.regs.rbx.toNat ∧ s.1.regs.rdx.toNat = 2^(2^(initial.regs.rbx.toNat - i))) (fun _ _ s => post s) (fun a b => a < b) Nat.lt_wfRel.2 initial.regs.rbx.toNat ()
-    constructor
-    . simp
-    . constructor
-      -- Invariant at index 0 ==> post
-      . intros state inv
-        rcases inv with ⟨ h_rip, h_rbx_zero, h_rbx_le, h_inv ⟩
-        -- Step through a few program steps
-        simp [p3]
-        apply step_cps
-        step_one
-        rw [h_rip]
-        simp
-        apply step_cps
-        step_one
-        have : state.regs.rbx.toNat = 0 := by grind
-        simp [this]
-        apply step_cps
-        step_one
-        apply eventually.done
-        simp
-        -- Now functional correctness for initial invariant
-        simp [p3_spec]
-        grind
-      -- Invariant preserved
-      . intro state k h_k_nonzero inv
-        rcases inv with ⟨ h_rip, h_rbx_is_k, h_rbx_le, h_inv ⟩
-        simp [p3]
-        apply step_cps
-        step_one
-        rw [h_rip]
-        simp
-        apply step_cps
-        step_one
-        have h_k_ne : k ≠ 0 := by grind
-        -- state.regs.rbx.toNat = k and toNat < 2^64 for UInt64
-        have h_k_lt : k < 2^64 := h_rbx_is_k ▸ (state.regs.rbx.toNat_lt)
-        -- Simplify all the Int64.toUInt64 terms
-        simp_all only [ne_eq, not_false_eq_true]
-        -- Prove the if-condition is false: UInt64.ofInt ↑k ≠ 0 when k ≠ 0
-        have h_cond : UInt64.ofInt (k : Int) ≠ 0 := UInt64_ofInt_natCast_ne_zero k h_k_lt h_k_ne
-        rw [if_neg h_cond]
-        apply step_cps
-        step_one
-        apply step_cps
-        step_one
-        apply step_cps
-        step_one
-        apply eventually.done
-        -- Goals for invariant preservation
-        constructor
-        . simp -- back to correct address
-        . match h_state:state.regs.rbx, h_init:initial.regs.rbx with
-          | ⟨v_s⟩, ⟨v_i⟩ =>
-            have h_k_lt : k < 2^64 := h_rbx_is_k ▸ (by rw [h_state]; exact v_s.isLt)
-            have h_init_lt : v_i.toNat < 2^64 := v_i.isLt
-            simp [h_state, h_init, p3_spec, Reg.width, UInt64.ofInt, UInt64.ofNat, UInt64.toNat_ofNat] at *
-            constructor
-            . omega
-            . constructor
-              . omega
-              . rw [h_inv]
-                have h_vi_k : v_i.toNat - (k - 1) = (v_i.toNat - k) + 1 := by omega
-                rw [h_vi_k, Nat.mod_eq_of_lt]
-                . rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_succ]
-                . apply Nat.lt_of_le_of_lt _ h_bounds
-                  rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_succ]
-                  apply Nat.pow_le_pow_right (by decide)
-                  apply Nat.pow_le_pow_right (by decide)
-                  omega -/
+    rfl
+  · intro v state ⟨hpc, hrbx, hle, hrdx, hrax_st⟩
+    obtain ⟨⟨⟨rax', rbx', rcx', rdx', rsi', rdi', rsp', rbp', r8', r9', r10', r11', r12', r13', r14', r15'⟩, zmms', flags', mem'⟩, pc'⟩ := state
+    dsimp only at hpc hrbx hrdx hrax_st
+    subst hpc
+    dsimp only [straightlineStep, Executable.straightline]
+    rw [h_from_start]
+    delta p3
+    simp [List.mapIdx, List.mapIdx.go]
+    sym =>
+    kstep
+    tactic =>
+    rename_i v_sub status
+    have hv_lt : v < 2 ^ 64 := hrbx ▸ rbx'.toBitVec.isLt
+    have hv_sub : v_sub = BitVec.ofNat 64 v := by simp [v_sub, ← hrbx]
+    by_cases hv0 : v = 0
+    · have h_cond : (v_sub == BitVec.zero 64) = true := by rw [hv_sub, hv0]; rfl
+      simp only [h_cond, ↓reduceIte, Effects.All]
+      exact Or.inl ⟨by rw [hrdx, hv0, Nat.sub_zero], hrax_st⟩
+    · have h_cond : (v_sub == BitVec.zero 64) = false := by
+        rw [hv_sub]
+        apply Bool.eq_false_iff.mpr
+        intro h_eq
+        have h_nat := congrArg BitVec.toNat ( beq_iff_eq.mp h_eq )
+        simp only [BitVec.toNat_ofNat, BitVec.zero, Nat.mod_eq_of_lt hv_lt] at h_nat
+        exact hv0 h_nat
+      simp only [h_cond, Bool.false_eq_true, ↓reduceIte]
+      sym =>
+      kstep
+      tactic =>
+      rename_i b_mul v_mul s_lo s_hi v_dec status_dec
+      have hrdx_lt : 2 ^ 2 ^ (rbx.toNat - v) < 18446744073709551616 := hrdx ▸ rdx'.toBitVec.isLt
+      have hb_mul : b_mul = rdx'.toBitVec := by simp [b_mul]
+      obtain ⟨h_pow_eq, h_pow_lt⟩ := p3_pow_step hv0 hle hb
+      have hv_mul : v_mul = Int.ofNat (2 ^ 2 ^ (rbx.toNat - (v - 1))) := by
+        simp [v_mul, hb_mul, BitVec.unsigned, hrdx, Nat.mod_eq_of_lt hrdx_lt]
+        exact_mod_cast h_pow_eq
+      have hv_dec : v_dec = BitVec.ofNat 64 v - 1#64 := by
+        have hv_lt' : v < 18446744073709551616 := hv_lt
+        simp [v_dec, hv_sub, Nat.mod_eq_of_lt hv_lt']
+      obtain ⟨h_rdx_next, h_rax_next⟩ := uint64_ofInt_nat_toNat h_pow_lt
+      refine Or.inr ⟨v - 1, ⟨?_, ?_, by omega, ?_, ?_⟩, by omega⟩
+      · rw [int64_rel_jmp_target]
+        rfl
+      · rw [hv_dec]
+        exact uint64_sub_one_toNat hv0 hv_lt
+      · rw [hv_mul]
+        exact h_rdx_next
+      · rw [hv_mul]
+        exact h_rax_next
 
 def p4 := eval% parse("start: mov $2, %rax
 dec %rax")
@@ -241,31 +295,6 @@ set_option maxHeartbeats 1000000
 set_option pp.rawOnError true
 /- set_option pp.coercions false -/
 /- set_option pp.all true -/
-
-attribute [ksimp]
-  BitVec.add_zero
-  BitVec.ofInt_add
-  BitVec.ofInt_ofNat
-  BitVec.ofInt_toInt
-  BitVec.ofNat_uInt64ToNat
-  BitVec.reduceOfInt
-  BitVec.setWidth_eq
-  Int.add_zero
-  Int.reduceBmod
-  Int.reduceNeg
-  Int64.reduceToInt
-  Int64.toInt_neg
-  Nat.reducePow
-  Nat.shiftRight_zero
-  Nat.sub_zero
-  UInt64.ofBitVec_add
-  UInt64.ofBitVec_ofNat
-  UInt64.ofBitVec_sub
-  UInt64.ofBitVec_toBitVec
-  UInt64.sub_add_cancel
-  UInt64.toBitVec_ofNat
-  UInt64.toBitVec_sub
-  UInt64.toNat_toBitVec
 
 theorem p6_correct [layout : Layout] (hwf : (layout p6).WellFormed) (s₀ : MachineData)
     (stack : List UInt8) (h_len : stack.length = 8) (R : DataMem → Prop)

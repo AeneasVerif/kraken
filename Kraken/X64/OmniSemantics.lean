@@ -505,10 +505,13 @@ theorem Directives.interp_split [Labels]
       hjmp
       h
 
-theorem eventually_step [Layout] (e: Executable) (hwf : e.WellFormed) (st: MachineState) (post: @Post MachineState):
+private theorem eventually_step_aux [Layout] (e : Executable)
+    (hdrop : ∀ a y ys,
+      (e.withAddresses.dropWhile (·.1 ≠ a)).dropWhile (·.1 = a) = y :: ys →
+      e.withAddresses.dropWhile (·.1 ≠ y.1) = y :: ys)
+    (st : MachineState) (post : @Post MachineState) :
     straightlineStep e st post →
-    Eventually (step1 e) post st
-    := by
+    Eventually (step1 e) post st := by
   intro h
   let _ : Labels := Executable.labels e
   let s := st.1
@@ -543,7 +546,7 @@ theorem eventually_step [Layout] (e: Executable) (hwf : e.WellFormed) (st: Machi
       rw [h_starts, h_ds'] at h_drop ⊢
       exact Kraken.withAddresses_takeWhile_foldl pc ds' (·.1 = pc) h_drop
     rw [h_fold] at h_after ⊢
-    have h_next_from : e.withAddresses.dropWhile (·.1 ≠ y.1) = y :: ys := hwf pc y ys h_drop
+    have h_next_from : e.withAddresses.dropWhile (·.1 ≠ y.1) = y :: ys := hdrop pc y ys h_drop
     have h_straightline_next : straightlineStep e (s', y.1) post := by
       dsimp [straightlineStep, Executable.straightline, Kraken.Executable.directivesFromAddress]
       rw [h_next_from]
@@ -557,16 +560,21 @@ theorem eventually_step [Layout] (e: Executable) (hwf : e.WellFormed) (st: Machi
         rw [h_starts, List.takeWhile_cons]
         simp [hx_pc]
       omega
-    exact eventually_step e hwf (s', y.1) post h_straightline_next
+    exact eventually_step_aux e hdrop (s', y.1) post h_straightline_next
 termination_by (e.withAddresses.dropWhile (·.1 ≠ st.2)).length
 decreasing_by exact h_len
+
+theorem eventually_step [Layout] (e: Executable) (hwf : e.WellFormed) (st: MachineState) (post: @Post MachineState):
+    straightlineStep e st post →
+    Eventually (step1 e) post st :=
+  eventually_step_aux e hwf.dropWhile_after st post
 
 theorem eventually_step_of_sum_lt [Layout] (e : Executable)
     (hsum : (e.2.map (·.2)).sum < 2 ^ 64)
     (st : MachineState) (post : @Post MachineState) :
     straightlineStep e st post →
     Eventually (step1 e) post st :=
-  eventually_step e (e.wellFormed_of_sum_lt hsum) st post
+  eventually_step_aux e (e.dropWhile_after_of_sum_lt hsum) st post
 
 theorem eventually_step_cps [Layout] (e : Executable) (hwf : e.WellFormed)
     (st : MachineState) (post : @Post MachineState) :
@@ -580,5 +588,78 @@ theorem eventually_step_cps_of_sum_lt [Layout] (e : Executable)
     (hsum : (e.2.map (·.2)).sum < 2 ^ 64)
     (st : MachineState) (post : @Post MachineState) :
     straightlineStep e st (fun mid => Eventually (step1 e) post mid) →
-    Eventually (step1 e) post st :=
-  eventually_step_cps e (e.wellFormed_of_sum_lt hsum) st post
+    Eventually (step1 e) post st := by
+  intro h
+  exact eventually_trans (step1 e) (fun mid => Eventually (step1 e) post mid) post st
+    (eventually_step_of_sum_lt e hsum st _ h) (fun _ => id)
+
+theorem eventually_straightline_to_step1 [Layout] (e : Executable) (hwf : e.WellFormed)
+    (st : MachineState) (post : @Post MachineState)
+    (h : Eventually (straightlineStep e) post st) :
+    Eventually (step1 e) post st := by
+  induction h with
+  | done initial hp => exact Eventually.done initial hp
+  | step initial mid_p hstep _ ih =>
+    exact eventually_trans (step1 e) mid_p post initial (eventually_step e hwf initial mid_p hstep) ih
+
+theorem straightlineStep_mono [Layout] (e : Executable) (st : MachineState)
+    {p q : @Post MachineState} (hpq : ∀ s, p s → q s)
+    (h : straightlineStep e st p) : straightlineStep e st q := by
+  let _ : Labels := Executable.labels e
+  exact Directives.interp_mono (e.directivesFromAddress st.2) st.1 st.2
+    (ret₁ := fun pc s => Effects.done (s, pc))
+    (ret₂ := fun pc s => Effects.done (s, pc))
+    (fun pc s h' => hpq (s, pc) h') h
+
+theorem straightlineStep_of_eventually [Layout] (e : Executable) (st : MachineState)
+    {post' post : @Post MachineState}
+    (hnot : ¬ post' st)
+    (himp : ∀ s, post' s → post s)
+    (hev : Eventually (straightlineStep e) post' st) :
+    straightlineStep e st (fun mid => Eventually (straightlineStep e) post mid) := by
+  cases hev with
+  | done _ hp => exact absurd hp hnot
+  | step _ mid_p ht hcont =>
+    exact straightlineStep_mono e st
+      (fun mid hmid => eventually_weaken (straightlineStep e) post' post mid himp (hcont mid hmid))
+      ht
+
+theorem tailrec_loop_step {State Measure Ghost : Type}
+    (trans : State → Post → Prop)
+    (trans_mono : ∀ s {p q : Post}, (∀ x, p x → q x) → trans s p → trans s q)
+    (post : Post) (initial : State)
+    (P Q : Measure → Ghost → Post)
+    (lt : Measure → Measure → Prop)
+    (Hwf : WellFounded lt)
+    (v0 : Measure) (g0 : Ghost)
+    (hP : P v0 g0 initial)
+    (hbody : ∀ v g state, P v g state →
+      trans state (fun mid_s =>
+        (Q v g mid_s) ∨
+        (∃ v' g', P v' g' mid_s ∧ lt v' v ∧ (∀ t_s, Q v' g' t_s → Q v g t_s))))
+    (hpost : ∀ state, Q v0 g0 state → post state) :
+    trans initial (fun mid => Eventually trans post mid) := by
+  apply trans_mono initial _ (hbody v0 g0 initial hP)
+  intro mid_s h_mid
+  rcases h_mid with hQ | ⟨v', g', hP_mid, _, hQ_impl⟩
+  · exact Eventually.done mid_s (hpost mid_s hQ)
+  · exact tailrec_loop trans post mid_s P Q lt Hwf v' g' hP_mid
+      (fun v g st hP_st => step_cps trans _ st (trans_mono st (fun m hm => Eventually.done m hm) (hbody v g st hP_st)))
+      (fun st hQ_st => hpost st (hQ_impl st hQ_st))
+
+theorem tailrec_loop_straightline [Layout] (e : Executable) (post : @Post MachineState) (initial : MachineState)
+    (P : Nat → @Post MachineState) (v0 : Nat)
+    (hP : P v0 initial)
+    (hbody : ∀ v state, P v state →
+      straightlineStep e state (fun mid_s =>
+        post mid_s ∨ ∃ v', P v' mid_s ∧ v' < v)) :
+    straightlineStep e initial (fun mid => Eventually (straightlineStep e) post mid) := by
+  apply tailrec_loop_step (straightlineStep e) (fun s {_ _} hpq h => straightlineStep_mono e s hpq h)
+    post initial (fun v (_ : Unit) s => P v s) (fun _ _ s => post s) (· < ·) Nat.lt_wfRel.wf v0 () hP
+  · intro v _ state hP_st
+    apply straightlineStep_mono e state _ (hbody v state hP_st)
+    rintro mid_s (hpost | ⟨v', hP', hlt⟩)
+    · exact Or.inl hpost
+    · exact Or.inr ⟨v', (), hP', hlt, fun _ h => h⟩
+  · exact fun _ h => h
+

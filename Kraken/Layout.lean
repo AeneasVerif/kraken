@@ -131,9 +131,29 @@ theorem withAddresses_takeWhile_foldl {Directive : Type} (start_addr : Int64) (d
       rw [← hy]
 
 def Executable.WellFormed {Directive : Type} (e : Executable Directive) : Prop :=
-  ∀ a y ys,
-    (e.withAddresses.dropWhile (·.1 ≠ a)).dropWhile (·.1 = a) = y :: ys →
-    e.withAddresses.dropWhile (·.1 ≠ y.1) = y :: ys
+  ∀ pre x suf,
+    e.withAddresses = pre ++ x :: suf →
+    e.withAddresses.dropWhile (·.1 ≠ x.1) = x :: suf
+
+theorem Executable.WellFormed.dropWhile_after {Directive : Type} {e : Executable Directive}
+    (hwf : e.WellFormed) (a : Int64) (y : Int64 × Directive × Nat) (ys : List (Int64 × Directive × Nat))
+    (h : (e.withAddresses.dropWhile (·.1 ≠ a)).dropWhile (·.1 = a) = y :: ys) :
+    e.withAddresses.dropWhile (·.1 ≠ y.1) = y :: ys := by
+  have h1 := List.takeWhile_append_dropWhile (p := (·.1 ≠ a)) (l := e.withAddresses)
+  have h2 := List.takeWhile_append_dropWhile (p := (·.1 = a)) (l := e.withAddresses.dropWhile (·.1 ≠ a))
+  rw [h] at h2
+  have hsplit : e.withAddresses =
+      (e.withAddresses.takeWhile (·.1 ≠ a) ++ (e.withAddresses.dropWhile (·.1 ≠ a)).takeWhile (·.1 = a)) ++ y :: ys := by
+    rw [List.append_assoc, h2, h1]
+  exact hwf _ y ys hsplit
+
+theorem Executable.directivesFromAddress_of_split {Directive : Type} (e : Executable Directive)
+    (hwf : e.WellFormed) (pre : List (Int64 × Directive × Nat))
+    (x : Int64 × Directive × Nat) (suf : List (Int64 × Directive × Nat))
+    (hsplit : e.withAddresses = pre ++ x :: suf) :
+    e.directivesFromAddress x.1 = (x :: suf).map (·.2) := by
+  dsimp [Executable.directivesFromAddress]
+  rw [hwf pre x suf hsplit]
 
 private theorem int64_add_ofNat_assoc (a : Int64) (m n : Nat) :
     a + Int64.ofNat m + Int64.ofNat n = a + Int64.ofNat (m + n) := by
@@ -146,6 +166,71 @@ private theorem int64_add_ofNat_ne_self (a : Int64) {k : Nat} (hk_pos : 0 < k) (
     congrArg (fun x : Int64 => (x.toBitVec - a.toBitVec).toNat) h
   simp at hbv
   omega
+
+private theorem withAddresses_split_offset {Directive : Type} (start_addr : Int64) (ds : List (Directive × Nat))
+    (pre : List (Int64 × Directive × Nat)) (x : Int64 × Directive × Nat) (suf : List (Int64 × Directive × Nat))
+    (hpos : ∀ d ∈ ds, 0 < d.2)
+    (h : Executable.withAddresses (start_addr, ds) = pre ++ x :: suf) :
+    pre = [] ∧ x.1 = start_addr ∨ ∃ k, 0 < k ∧ k ≤ (ds.map (·.2)).sum ∧ x.1 = start_addr + Int64.ofNat k := by
+  induction ds generalizing start_addr pre with
+  | nil =>
+    rw [Executable.withAddresses_nil] at h
+    cases pre <;> contradiction
+  | cons hd tl ih =>
+    obtain ⟨d, sz⟩ := hd
+    rw [Executable.withAddresses_cons] at h
+    cases pre with
+    | nil =>
+      injection h with hx _
+      subst hx
+      exact Or.inl ⟨rfl, rfl⟩
+    | cons p ps =>
+      injection h with hp htl
+      have hsz_pos : 0 < sz := hpos (d, sz) (List.mem_cons_self ..)
+      have hpos_tl : ∀ d' ∈ tl, 0 < d'.2 := fun d' hd' => hpos d' (List.mem_cons_of_mem _ hd')
+      rcases ih (start_addr + Int64.ofNat sz) ps hpos_tl htl with ⟨_, hx⟩ | ⟨k', _, hk'_le, hx⟩
+      · refine Or.inr ⟨sz, hsz_pos, ?_, hx⟩
+        simp only [List.map_cons, List.sum_cons]; omega
+      · refine Or.inr ⟨sz + k', by omega, ?_, ?_⟩
+        · simp only [List.map_cons, List.sum_cons]; omega
+        · rw [hx, int64_add_ofNat_assoc]
+
+theorem Executable.wellFormed_of_sum_lt {Directive : Type} (e : Executable Directive)
+    (hpos : ∀ d ∈ e.2, 0 < d.2)
+    (hsum : (e.2.map (·.2)).sum < 2 ^ 64) :
+    e.WellFormed := by
+  obtain ⟨start_addr, ds⟩ := e
+  intro pre x suf h
+  induction ds generalizing start_addr pre with
+  | nil =>
+    rw [Executable.withAddresses_nil] at h
+    cases pre <;> contradiction
+  | cons hd tl ih =>
+    obtain ⟨d, sz⟩ := hd
+    simp only [List.map_cons, List.sum_cons] at hsum
+    have hsum_tl : (tl.map (·.2)).sum < 2 ^ 64 := by omega
+    have hpos_tl : ∀ d' ∈ tl, 0 < d'.2 := fun d' hd' => hpos d' (List.mem_cons_of_mem _ hd')
+    cases pre with
+    | nil =>
+      rw [Executable.withAddresses_cons] at h
+      injection h with hx hsuf
+      subst hx hsuf
+      rw [Executable.withAddresses_cons, List.dropWhile_cons]
+      simp
+    | cons p ps =>
+      have h' := h
+      rw [Executable.withAddresses_cons] at h'
+      injection h' with hp htl
+      rcases withAddresses_split_offset start_addr ((d, sz) :: tl) (p :: ps) x suf hpos h with ⟨h_nil, _⟩ | ⟨k, hk_pos, hk_le, hx⟩
+      · contradiction
+      · simp only [List.map_cons, List.sum_cons] at hk_le
+        have hk_lt : k < 2 ^ 64 := by omega
+        have h_ne : (start_addr ≠ x.1) = True := eq_true (by
+          rw [hx]
+          exact Ne.symm (int64_add_ofNat_ne_self start_addr hk_pos hk_lt))
+        rw [Executable.withAddresses_cons, List.dropWhile_cons]
+        simp only [decide_eq_true_eq, h_ne, ↓reduceIte]
+        exact ih (start_addr + Int64.ofNat sz) hpos_tl hsum_tl ps htl
 
 private theorem withAddresses_dropWhile_eq_offset {Directive : Type} (cur a : Int64) (ds : List (Directive × Nat))
     {y : Int64 × Directive × Nat} {ys : List (Int64 × Directive × Nat)}
@@ -206,9 +291,11 @@ private theorem withAddresses_dropWhile_offset {Directive : Type} (start_addr a 
         | succ n => omega
       exact ⟨k, hk_pos, hk_le, hy⟩
 
-theorem Executable.wellFormed_of_sum_lt {Directive : Type} (e : Executable Directive)
+theorem Executable.dropWhile_after_of_sum_lt {Directive : Type} (e : Executable Directive)
     (hsum : (e.2.map (·.2)).sum < 2 ^ 64) :
-    e.WellFormed := by
+    ∀ a y ys,
+      (e.withAddresses.dropWhile (·.1 ≠ a)).dropWhile (·.1 = a) = y :: ys →
+      e.withAddresses.dropWhile (·.1 ≠ y.1) = y :: ys := by
   obtain ⟨start_addr, ds⟩ := e
   intro a y ys h
   induction ds generalizing start_addr with
