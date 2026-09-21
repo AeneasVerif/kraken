@@ -601,19 +601,6 @@ theorem straightlineStep_mono [Layout] (e : Executable) (st : MachineState)
     (ret₂ := fun pc s => Effects.done (s, pc))
     (fun pc s h' => hpq (s, pc) h') h
 
-theorem straightlineStep_of_eventually [Layout] (e : Executable) (st : MachineState)
-    {post' post : @Post MachineState}
-    (hnot : ¬ post' st)
-    (himp : ∀ s, post' s → post s)
-    (hev : Eventually (straightlineStep e) post' st) :
-    straightlineStep e st (fun mid => Eventually (straightlineStep e) post mid) := by
-  cases hev with
-  | done _ hp => exact absurd hp hnot
-  | step _ mid_p ht hcont =>
-    exact straightlineStep_mono e st
-      (fun mid hmid => eventually_weaken (straightlineStep e) post' post mid himp (hcont mid hmid))
-      ht
-
 theorem tailrec_loop_step {State Measure Ghost : Type}
     (trans : State → Post → Prop)
     (trans_mono : ∀ s {p q : Post}, (∀ x, p x → q x) → trans s p → trans s q)
