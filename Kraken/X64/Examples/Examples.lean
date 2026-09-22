@@ -74,6 +74,7 @@ example [layout : Layout] (s : MachineData): Eventually (straightlineStep (layou
   kstep
   tactic =>
   apply Eventually.done
+  dsimp only
   bv_decide
 
 -- Example 3, more sophisticated
@@ -269,6 +270,7 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   tactic =>
   apply Eventually.done
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
+  simp (config := { zetaDelta := true }) only [show (OfNat.ofNat 8 : UInt64) = 8 from rfl]
   bv_decide
 
 -- def bigp := parseFile("./ecc-secp521r1-modp.S")

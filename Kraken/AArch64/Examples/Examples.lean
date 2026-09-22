@@ -69,6 +69,8 @@ theorem arith_shift_correct [layout : Layout] (d : MachineData) :
       s'.1.regs.getRegOrZr .X3 = 3 * (d.regs.getRegOrZr .X1 + 42)) := by
   kprologue arith_shift with d
   sym => kstep; tactic =>
+  simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl,
+    show (Int64.toInt 0).toNat = 0 from rfl]
   bv_decide
 
 -- Example 4: Stepping through control flow (branch not taken)
@@ -92,6 +94,7 @@ theorem p4_correct [layout : Layout] (d : MachineData) :
   simp [this]
   sym => kstep; tactic =>
   apply Eventually.done
+  simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl]
   bv_decide
 
 -- Example 5: Storing and loading registers to/from memory
