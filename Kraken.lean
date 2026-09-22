@@ -16,3 +16,5 @@ import Kraken.X64.Sep
 import Kraken.X64.Registers
 import Kraken.MProp
 import Kraken.SepWP
+import Kraken.SepSpecs
+import Kraken.SepFrameProc
