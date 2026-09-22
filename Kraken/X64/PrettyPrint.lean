@@ -49,25 +49,47 @@ private def layoutIndex? (e : Expr) : Option Nat :=
   | Kraken.Layout.size _ _ i => natLit? i
   | _ => none
 
-/-- Evaluates a *closed* expression of type `α` and renders it with `ToString`.
-Returns `none` if the term is open or cannot be evaluated (it mentions `sorry`, an
-axiom, a constant without executable code, ...) so that callers can fall back to
-ordinary delaboration instead of failing to pretty print the whole goal. This
-is unsafe because of Meta.evalExpr. -/
-private unsafe def evalToStringImpl (α : Type) [ToString α] (typeName : Name) (e : Expr) :
-    MetaM (Option String) := do
+/-- Renders a *closed* `Directive` expression as assembly text by running the
+compiled `ToString Directive` instance on it. Returns `none` if the term is open or
+cannot be evaluated (it mentions `sorry`, an axiom, a constant without executable
+code, ...) so that callers can fall back to ordinary delaboration instead of failing
+to pretty print the whole goal.
+
+Why this is `unsafe`: a listing is only useful if it shows exactly the text the
+backend emits, i.e. the pretty printer has to run the compiled `ToString` instance,
+and the only way to run compiled code on an `Expr` is `Meta.evalExpr'`. That
+function compiles `e` into a temporary definition, runs the generated machine code,
+and `unsafeCast`s the result to the type it is given. The only check it performs is
+that the inferred type of `e` is the constant `typeName`; nothing connects that name
+to the Lean type, so an inconsistent pair yields a value with the wrong runtime
+representation -- a segfault rather than an exception. That is why this function is
+specialized to `Directive` rather than taking the type as a parameter: the pair is
+fixed here, so no caller can get it wrong. (Running compiled code can also diverge
+or perform arbitrary `IO`.)
+
+Reducing `toString d` in the elaborator instead (`whnf`/`Meta.reduce`) would be
+safe, but it does not work in general, because it needs every definition on the
+print path to be definitionally reducible. Instruction directives happen to be
+(`toString (Directive.instr ..) = "mov rax, 1"` is provable by `rfl`), but
+`Directive.byteArray` prints via `ByteArray.toList`, which core defines by
+well-founded recursion, so reduction gets stuck there. That leaves re-implementing
+`ToString Directive` at the `Expr` level, i.e. a second copy of the assembly
+printer that can silently drift from the real one.
+
+The unsafety is contained the way core does it for tactic configuration
+elaboration (see `Lean.Elab.Tactic.Config`): `directiveStrImpl` is the only `unsafe`
+definition here and it is reachable only through the safe `directiveStr?` below,
+whose logical model is "the pretty printer learned nothing". Only pretty printing
+consumes the result, so a wrong or missing answer can never affect a proof. -/
+private unsafe def directiveStrImpl (e : Expr) : MetaM (Option String) := do
   if e.hasFVar || e.hasMVar then return none
   try
-    return some (toString (← Meta.evalExpr' α typeName e))
+    return some (toString (← Meta.evalExpr' Directive ``Directive e))
   catch _ =>
     return none
 
-@[implemented_by evalToStringImpl]
-private def evalToString? (α : Type) [ToString α] (_typeName : Name) (_e : Expr) :
-    MetaM (Option String) := return none
-
-private def directiveStr? (e : Expr) : MetaM (Option String) :=
-  evalToString? Directive ``Directive e
+@[implemented_by directiveStrImpl]
+private def directiveStr? (_e : Expr) : MetaM (Option String) := return none
 
 /-- Renders `e` on a single line using the ordinary pretty printer. -/
 private def ppOneLine (e : Expr) : MetaM String := do
