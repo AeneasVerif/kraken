@@ -16,3 +16,5 @@ public import Kraken.X64.Parser
 public import Kraken.X64.Semantics
 public import Kraken.X64.Sep
 public import Kraken.X64.Registers
+public import Kraken.MProp
+public import Kraken.SepWP
