@@ -20,3 +20,4 @@ public import Kraken.MProp
 public import Kraken.SepWP
 public import Kraken.SepSpecs
 public import Kraken.SepFrameProc
+import Kraken.X64.Examples.SepAluMem
