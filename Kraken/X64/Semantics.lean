@@ -70,13 +70,15 @@ structure Reg64s where
   r15 : UInt64 := 0
   deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr
 
-@[kstep] def Reg64s.get64 (s : Reg64s) (r : Reg64) : Width.W64.type := UInt64.toBitVec (match r with
+/-- Typed at `BitVec 64` rather than `Width.W64.type`, so the width index is always
+the literal `64`: `grind` and `bv_decide` split atoms whose index is spelled differently. -/
+@[kstep] def Reg64s.get64 (s : Reg64s) (r : Reg64) : BitVec 64 := UInt64.toBitVec (match r with
   | .rax => s.rax | .rbx => s.rbx | .rcx => s.rcx | .rdx => s.rdx
   | .rsi => s.rsi | .rdi => s.rdi | .rsp => s.rsp | .rbp => s.rbp
   | .r8  => s.r8  | .r9  => s.r9  | .r10 => s.r10 | .r11 => s.r11
   | .r12 => s.r12 | .r13 => s.r13 | .r14 => s.r14 | .r15 => s.r15)
 
-@[kstep] def Reg64s.set64 (regs : Reg64s) (r : Reg64) (v : Width.W64.type) : Reg64s :=
+@[kstep] def Reg64s.set64 (regs : Reg64s) (r : Reg64) (v : BitVec 64) : Reg64s :=
   let  v := UInt64.ofBitVec v
   match r with
   | .rax => { regs with rax := v } | .rbx => { regs with rbx := v }
