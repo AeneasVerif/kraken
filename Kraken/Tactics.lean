@@ -414,7 +414,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
       pure state
 
     let (keepGoingSpec, goal) ←
-      match getMatch specTree goalState with
+      match Sym.getMatch (← getMCtx) specTree goalState with
       | #[ thmName ] =>
         logInfo m!"Found a spec lemma: {thmName}"
         let (goal, subGoals) ← rwTarget goal false (mkConst thmName)

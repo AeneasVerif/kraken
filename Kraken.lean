@@ -13,3 +13,9 @@ import Kraken.X64.OmniSemantics
 import Kraken.X64.Parser
 import Kraken.X64.Semantics
 import Kraken.X64.Sep
+import Kraken.X64.Registers
+import Kraken.MProp
+import Kraken.SepWP
+import Kraken.SepSpecs
+import Kraken.SepFrameProc
+import Kraken.X64.Examples.SepAluMem
