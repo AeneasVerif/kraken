@@ -1,10 +1,13 @@
+module
+
 import Kraken.X64.Syntax
 import Kraken.X64.Semantics
 import Kraken.X64.OmniSemantics
-import Kraken.X64.PrintIntel
-import Lean
-import Lean.PrettyPrinter.Delaborator
-import Lean.Elab.Term
+meta import Lean
+public meta import Kraken.X64.PrintIntel
+public meta import Lean.PrettyPrinter
+public meta import Lean.Meta.Eval
+meta import Lean.Elab.Term
 
 open Lean
 open Lean.Meta
@@ -23,6 +26,8 @@ register_option pp.kraken.asm : Bool := {
 -- delaborators below can emit nicely formatted listings.
 syntax (name := asmSym) "[asm|" ppIndent((ppLine term)*) "]" : term
 syntax (name := asmLayoutSym) "[asm_layout|" ppIndent((ppLine term)*) "]" : term
+
+public meta section
 
 /-- `true` when the listing pretty printer should be used. -/
 private def asmPPEnabled : DelabM Bool := do
@@ -174,3 +179,5 @@ def delabProgramList : Delab := do
     | none => return listing
     | some tail => `($listing ++ $tail)
   | _ => failure
+
+end

@@ -1,13 +1,15 @@
+module
+
 /-
 Common Kraken Proof Tactics.
 
 Core tactics and theorems for stepping through Kraken assembly proofs.
 -/
 
-import Kraken.Attribute
+public import Kraken.Attribute
 import Kraken.Layout
-import Lean
-import Std
+
+public meta section
 
 open Lean Meta Elab Tactic Kraken
 
