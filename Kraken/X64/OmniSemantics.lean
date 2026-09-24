@@ -474,7 +474,17 @@ theorem Directives.interp_split [Labels]
       hjmp
       h
 
-theorem eventually_step [Layout] (e: Executable) (hwf : e.WellFormed) (st: MachineState) (post: @Post MachineState):
+theorem eventually_step [Layout] (e : Executable) (st : MachineState) (post : @Post MachineState) :
+    step1 e st post →
+    Eventually (step1 e) post st :=
+  fun h => .step st post h Eventually.done
+
+theorem eventually_step_cps [Layout] (e : Executable) (st : MachineState) (post : @Post MachineState) :
+    step1 e st (fun mid => Eventually (step1 e) post mid) →
+    Eventually (step1 e) post st :=
+  step_cps (step1 e) post st
+
+theorem eventually_straightlineStep [Layout] (e: Executable) (hwf : e.WellFormed) (st: MachineState) (post: @Post MachineState):
     straightlineStep e st post →
     Eventually (step1 e) post st
     := by
@@ -526,17 +536,17 @@ theorem eventually_step [Layout] (e: Executable) (hwf : e.WellFormed) (st: Machi
         rw [h_starts, List.takeWhile_cons]
         simp [hx_pc]
       omega
-    exact eventually_step e hwf (s', y.1) post h_straightline_next
+    exact eventually_straightlineStep e hwf (s', y.1) post h_straightline_next
 termination_by (e.withAddresses.dropWhile (·.1 ≠ st.2)).length
 decreasing_by exact h_len
 
-theorem eventually_step_cps [Layout] (e : Executable) (hwf : e.WellFormed)
+theorem eventually_straightlineStep_cps [Layout] (e : Executable) (hwf : e.WellFormed)
     (st : MachineState) (post : @Post MachineState) :
     straightlineStep e st (fun mid => Eventually (step1 e) post mid) →
     Eventually (step1 e) post st := by
   intro h
   exact eventually_trans (step1 e) (fun mid => Eventually (step1 e) post mid) post st
-    (eventually_step e hwf st _ h) (fun _ => id)
+    (eventually_straightlineStep e hwf st _ h) (fun _ => id)
 
 
 theorem straightlineStep_mono [Layout] (e : Executable) (st : MachineState)
@@ -555,7 +565,7 @@ theorem tailrec_loop_straightline [Layout] (e : Executable) (hwf : e.WellFormed)
   rintro mid_s (hpost | ⟨v', hP', _⟩)
   · exact .done mid_s hpost
   · refine tailrec_loop (step1 e) post mid_s (fun v () => P v) (fun _ _ => post)
-      (· < ·) Nat.lt_wfRel.wf v' () hP' (fun v _ st hst => eventually_step e hwf st _ ?_) (fun _ => id)
+      (· < ·) Nat.lt_wfRel.wf v' () hP' (fun v _ st hst => eventually_straightlineStep e hwf st _ ?_) (fun _ => id)
     refine straightlineStep_mono e st ?_ (hbody v st hst)
     rintro s (hp | ⟨v'', hp', hlt⟩)
     · exact .inl hp

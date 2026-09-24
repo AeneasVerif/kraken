@@ -53,7 +53,7 @@ def p1 := parse("start: mov $1, %rax")
 -- Super-simple example to debug tactics
 example [layout : Layout] (hwf : (layout p1).WellFormed) s :
     Eventually (step1 (layout p1)) (fun s => s.1.regs.rax = 1) (s, layout.start) := by
-  apply eventually_step (layout p1) hwf
+  apply eventually_straightlineStep (layout p1) hwf
   kprologue p1 with s
   sym => kstep; tactic =>
   decide
@@ -73,7 +73,7 @@ theorem swap_correct [layout : Layout] (hwf : (layout swap).WellFormed) (d : Mac
           s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
           s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
       (d, layout.start) := by
-  apply eventually_step_cps (layout swap) hwf
+  apply eventually_straightlineStep_cps (layout swap) hwf
   kprologue swap with d
   sym => kstep; tactic =>
   apply Eventually.done
@@ -90,7 +90,7 @@ start:
 -- Example 2: stepping through both straightline and control instructions
 example [layout : Layout] (hwf : (layout p2).WellFormed) (s : MachineData) :
     Eventually (step1 (layout p2)) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
-  apply eventually_step_cps (layout p2) hwf
+  apply eventually_straightlineStep_cps (layout p2) hwf
   kprologue p2 with s
   sym =>
   kstep
@@ -171,15 +171,14 @@ theorem p3_correct [layout: Layout] (h : (layout p3).WellFormed)
   have h_from_start : (layout p3).directivesFromAddress pc_start =
       ((p3.mapIdx (fun i d => (d, layout.size i))).drop 2) :=
     h.directivesFromAddress_drop2 hsz
-  apply eventually_step_cps (layout p3) h
+  simp [p3, List.mapIdx, List.mapIdx.go] at h_from_start
+  apply eventually_straightlineStep_cps (layout p3) h
   kprologue p3 with s
   sym =>
   kstep 2
   tactic =>
-  change Effects.All _ (@Directives.interp (Executable.labels (layout p3)) ((p3.mapIdx (fun i d => (d, layout.size i))).drop 2) _ pc_start (fun pc s => Effects.done (s, pc)))
   rw [← h_from_start]
-  change straightlineStep (layout p3) (_, pc_start) _
-  dsimp only [p3_spec] at hb ⊢
+  dsimp only [p3_spec] at hb
   apply tailrec_loop_straightline (layout p3) h
     (fun s' => s'.1.regs.rdx.toNat = 2 ^ (2 ^ rbx.toNat) ∧ s'.1.regs.rax = 0)
     (_, pc_start)
@@ -197,10 +196,9 @@ theorem p3_correct [layout: Layout] (h : (layout p3).WellFormed)
     obtain ⟨⟨⟨rax', rbx', rcx', rdx', rsi', rdi', rsp', rbp', r8', r9', r10', r11', r12', r13', r14', r15'⟩, zmms', flags', mem'⟩, pc'⟩ := state
     dsimp only at hpc hrbx hrdx hrax_st
     subst hpc
+    delta p3
     dsimp only [straightlineStep, Executable.straightline]
     rw [h_from_start]
-    delta p3
-    simp [List.mapIdx, List.mapIdx.go]
     sym =>
     kstep
     tactic =>
@@ -252,7 +250,7 @@ example [layout : Layout] (hwf : (layout p4).WellFormed) s :
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
   -- refined state in the hypotheses, not the goal.
-  apply eventually_step (layout p4) hwf
+  apply eventually_straightlineStep (layout p4) hwf
   kprologue p4 with s
   sym =>
   kstep
@@ -276,7 +274,7 @@ example [layout : Layout] (hwf : (layout p5).WellFormed) s :
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
   -- refined state in the hypotheses, not the goal.
-  apply eventually_step (layout p5) hwf
+  apply eventually_straightlineStep (layout p5) hwf
   kprologue p5 with s
   sym => kstep; tactic =>
   bv_decide
@@ -296,7 +294,7 @@ theorem p6_correct [layout : Layout] (hwf : (layout p6).WellFormed) (s₀ : Mach
     Eventually (step1 (layout p6))
       (fun s' => s'.1.regs.rax = s₀.regs.rax ∧ s'.1.regs.rsp = s₀.regs.rsp)
       (s₀, layout.start) := by
-  apply eventually_step_cps (layout p6) hwf
+  apply eventually_straightlineStep_cps (layout p6) hwf
   kprologue p6 with s₀
   have h_bs : stack.length = 8 := h_len
   have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
@@ -353,7 +351,7 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (hwf : (layout move_2_regs
         s'.1.regs.r13 = s₀.regs.rcx ∧
         s'.1.regs.rdi = s₀.regs.rdi)
       (s₀, layout.start) := by
-  apply eventually_step_cps (layout move_2_regs_to_heap) hwf
+  apply eventually_straightlineStep_cps (layout move_2_regs_to_heap) hwf
   kprologue move_2_regs_to_heap with s₀
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
   have h_bs2 : v2.toBytes.length = 8 := UInt64.toBytes_length v2
@@ -400,7 +398,7 @@ theorem sib_example_correct [layout : Layout] (hwf : (layout sib_example).WellFo
     Eventually (step1 (layout sib_example))
       (fun s' => s'.1.regs.rax = 42)
       (s₀, layout.start) := by
-  apply eventually_step_cps (layout sib_example) hwf
+  apply eventually_straightlineStep_cps (layout sib_example) hwf
   kprologue sib_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   simp at h_mem
@@ -430,7 +428,7 @@ theorem alu_mem_example_correct [layout : Layout] (hwf : (layout alu_mem_example
     Eventually (step1 (layout alu_mem_example))
       (fun s' => s'.1.regs.rcx = 142)
       (s₀, layout.start) := by
-  apply eventually_step_cps (layout alu_mem_example) hwf
+  apply eventually_straightlineStep_cps (layout alu_mem_example) hwf
   kprologue alu_mem_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   have h_mem1 := Mem.storeInt_sep (rdx.toBitVec + 136#64) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
@@ -468,7 +466,7 @@ theorem dynamic_stack_example_correct [layout : Layout] (hwf : (layout dynamic_s
     Eventually (step1 (layout dynamic_stack_example))
       (fun s' => s'.1.regs.rax = 42 ∧ s'.1.regs.rbx = 99 ∧ s'.1.regs.rsp = s₀.regs.rsp)
       (s₀, layout.start) := by
-  apply eventually_step_cps (layout dynamic_stack_example) hwf
+  apply eventually_straightlineStep_cps (layout dynamic_stack_example) hwf
   kprologue dynamic_stack_example with s₀
   have h_bs : stack.length = 1024 := lstack
   have h_take_drop : stack = stack.take 1016 ++ stack.drop 1016 := by exact (List.take_append_drop 1016 stack).symm
