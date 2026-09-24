@@ -560,7 +560,8 @@ theorem tailrec_loop_straightline [Layout] (e : Executable) (hwf : e.WellFormed)
     (P : Nat → @Post MachineState) (v0 : Nat) (hP : P v0 initial)
     (hbody : ∀ v state, P v state →
       straightlineStep e state (fun mid_s => post mid_s ∨ ∃ v', P v' mid_s ∧ v' < v)) :
-    straightlineStep e initial (fun mid => Eventually (step1 e) post mid) := by
+    Eventually (step1 e) post initial := by
+  apply eventually_straightlineStep_cps e hwf
   refine straightlineStep_mono e initial ?_ (hbody v0 initial hP)
   rintro mid_s (hpost | ⟨v', hP', _⟩)
   · exact .done mid_s hpost

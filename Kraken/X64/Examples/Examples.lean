@@ -13,6 +13,7 @@ For tactics, see Kraken/Tactics.lean.
 import Kraken.Eval
 import Kraken.SeparationTactics
 import Kraken.Tactics
+import Kraken.Layout
 import Kraken.X64.OmniSemantics
 import Kraken.X64.Parser
 import Kraken.X64.PrettyPrint
@@ -51,13 +52,18 @@ attribute [ksimp]
 
 def p1 := parse("start: mov $1, %rax")
 
+set_option pp.kraken.asm false
+
 -- Super-simple example to debug tactics
 example [layout : Layout] (hwf : (layout p1).WellFormed) s :
     Eventually (step1 (layout p1)) (fun s => s.1.regs.rax = 1) (s, layout.start) := by
-  apply eventually_straightlineStep (layout p1) hwf
   kprologue p1 with s
-  sym => kstep; tactic =>
-  decide
+  sym => kstep ( debug := true ); tactic =>
+  dsimp [straightlineStep,Executable.straightline]
+  rw [Kraken.Executable.directivesFromStart]
+  simp [List.mapIdx, List.mapIdx.go]
+  apply Eventually.done
+  rfl
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
   /- simp [MachineData.setReg,Reg64s.set,Reg64s.set64,ConstExpr.interp] -/
   /- simp [Width.bits] -/
@@ -74,7 +80,6 @@ theorem swap_correct [layout : Layout] (hwf : (layout swap).WellFormed) (d : Mac
           s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
           s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
       (d, layout.start) := by
-  apply eventually_straightlineStep_cps (layout swap) hwf
   kprologue swap with d
   sym => kstep; tactic =>
   apply Eventually.done
@@ -91,7 +96,6 @@ start:
 -- Example 2: stepping through both straightline and control instructions
 example [layout : Layout] (hwf : (layout p2).WellFormed) (s : MachineData) :
     Eventually (step1 (layout p2)) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
-  apply eventually_straightlineStep_cps (layout p2) hwf
   kprologue p2 with s
   sym =>
   kstep
@@ -163,6 +167,7 @@ private theorem uint64_ofInt_nat_toNat {m : Nat} (hm : m < 2 ^ 64) :
 
 set_option maxHeartbeats 4000000 in
 theorem p3_correct [layout: Layout] (h : (layout p3).WellFormed)
+    (hsz0 : Int64.ofNat (layout.size 0) ≠ 0)
     (hsz : Int64.ofNat (layout.size 1) ≠ 0) (s : MachineData)
     (hrax : s.regs.rax = 0) (hb : p3_spec s < 2^64) :
     Eventually (step1 (layout p3))
@@ -173,12 +178,10 @@ theorem p3_correct [layout: Layout] (h : (layout p3).WellFormed)
       ((p3.mapIdx (fun i d => (d, layout.size i))).drop 2) :=
     h.directivesFromAddress_drop2 hsz
   simp [p3, List.mapIdx, List.mapIdx.go] at h_from_start
-  apply eventually_straightlineStep_cps (layout p3) h
   kprologue p3 with s
   sym =>
   kstep 2
   tactic =>
-  rw [← h_from_start]
   dsimp only [p3_spec] at hb
   apply tailrec_loop_straightline (layout p3) h
     (fun s' => s'.1.regs.rdx.toNat = 2 ^ (2 ^ rbx.toNat) ∧ s'.1.regs.rax = 0)
@@ -251,13 +254,13 @@ example [layout : Layout] (hwf : (layout p4).WellFormed) s :
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
   -- refined state in the hypotheses, not the goal.
-  apply eventually_straightlineStep (layout p4) hwf
   kprologue p4 with s
   sym =>
   kstep
   -- intros
   tactic =>
-  decide
+  apply Eventually.done
+  rfl
 
 /- Examples -/
 
@@ -275,9 +278,9 @@ example [layout : Layout] (hwf : (layout p5).WellFormed) s :
   -- Refine the state to make registers apparent -- note that `cases` consumes
   -- the hypothesis, and substitutes it, so we make a copy of it to have a
   -- refined state in the hypotheses, not the goal.
-  apply eventually_straightlineStep (layout p5) hwf
   kprologue p5 with s
   sym => kstep; tactic =>
+  apply Eventually.done
   bv_decide
 
 def p6 := parse("push %rax
@@ -295,7 +298,6 @@ theorem p6_correct [layout : Layout] (hwf : (layout p6).WellFormed) (s₀ : Mach
     Eventually (step1 (layout p6))
       (fun s' => s'.1.regs.rax = s₀.regs.rax ∧ s'.1.regs.rsp = s₀.regs.rsp)
       (s₀, layout.start) := by
-  apply eventually_straightlineStep_cps (layout p6) hwf
   kprologue p6 with s₀
   have h_bs : stack.length = 8 := h_len
   have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
@@ -352,7 +354,6 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (hwf : (layout move_2_regs
         s'.1.regs.r13 = s₀.regs.rcx ∧
         s'.1.regs.rdi = s₀.regs.rdi)
       (s₀, layout.start) := by
-  apply eventually_straightlineStep_cps (layout move_2_regs_to_heap) hwf
   kprologue move_2_regs_to_heap with s₀
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
   have h_bs2 : v2.toBytes.length = 8 := UInt64.toBytes_length v2
@@ -399,7 +400,6 @@ theorem sib_example_correct [layout : Layout] (hwf : (layout sib_example).WellFo
     Eventually (step1 (layout sib_example))
       (fun s' => s'.1.regs.rax = 42)
       (s₀, layout.start) := by
-  apply eventually_straightlineStep_cps (layout sib_example) hwf
   kprologue sib_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   simp at h_mem
@@ -429,7 +429,6 @@ theorem alu_mem_example_correct [layout : Layout] (hwf : (layout alu_mem_example
     Eventually (step1 (layout alu_mem_example))
       (fun s' => s'.1.regs.rcx = 142)
       (s₀, layout.start) := by
-  apply eventually_straightlineStep_cps (layout alu_mem_example) hwf
   kprologue alu_mem_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   have h_mem1 := Mem.storeInt_sep (rdx.toBitVec + 136#64) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
@@ -467,7 +466,6 @@ theorem dynamic_stack_example_correct [layout : Layout] (hwf : (layout dynamic_s
     Eventually (step1 (layout dynamic_stack_example))
       (fun s' => s'.1.regs.rax = 42 ∧ s'.1.regs.rbx = 99 ∧ s'.1.regs.rsp = s₀.regs.rsp)
       (s₀, layout.start) := by
-  apply eventually_straightlineStep_cps (layout dynamic_stack_example) hwf
   kprologue dynamic_stack_example with s₀
   have h_bs : stack.length = 1024 := lstack
   have h_take_drop : stack = stack.take 1016 ++ stack.drop 1016 := by exact (List.take_append_drop 1016 stack).symm

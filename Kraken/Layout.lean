@@ -80,6 +80,24 @@ theorem Executable.directivesFromStart {Directive : Type} [layout : Layout Direc
   rw [Executable.withAddresses_dropWhile_start]
   rw [Executable.withAddresses_map_snd]
 
+theorem Executable.directivesAtAddress_eq {Directive : Type} [layout : Layout Directive] (prog : List Directive) (a : Int64) :
+    (layout prog).directivesAtAddress a =
+      (((Executable.withAddresses (layout.start, prog.mapIdx (fun i d => (d, layout.size i)))).dropWhile (·.1 ≠ a)).takeWhile (·.1 = a)).map (·.2) :=
+  rfl
+
+@[simp] theorem Int64.add_right_eq_self (a b : Int64) : (a + b = a) ↔ b = 0 := by
+  grind
+
+@[simp] theorem Int64.self_eq_add_right (a b : Int64) : (a = a + b) ↔ b = 0 := by
+  rw [eq_comm, Int64.add_right_eq_self]
+
+@[simp] theorem Int64.add_add_eq_add (a b c : Int64) : (a + b + c = a + b) ↔ c = 0 :=
+  Int64.add_right_eq_self (a + b) c
+
+@[simp] theorem Int64.add_eq_add_add (a b c : Int64) : (a + b = a + b + c) ↔ c = 0 :=
+  Int64.self_eq_add_right (a + b) c
+
+
 theorem directivesAtFromPrefix {Directive : Type} (e: Executable Directive) (a: Int64):
   let starts_at_a := e.withAddresses.dropWhile (·.1 ≠ a)
   e.directivesFromAddress a = e.directivesAtAddress a ++ (starts_at_a.dropWhile (·.1 = a)).map (·.2)

@@ -6,6 +6,8 @@ Core tactics and theorems for stepping through Kraken assembly proofs.
 
 import Kraken.Attribute
 import Kraken.Layout
+import Kraken.OmniSemantics
+import Kraken.X64.OmniSemantics
 import Lean
 import Std
 
@@ -78,17 +80,13 @@ elab_rules : tactic
           `(rcasesPat| $id:ident)
       let statePat ← `(rcasesPat| ⟨$[$statePats],*⟩)
 
-      let straightlineStepId := mkIdent `straightlineStep
-      let execStraightlineId := mkIdent `Executable.straightline
+      let eventuallyId := mkIdent `Eventually
 
       evalTactic (← `(tactic|
         (let ss := $s
-         change ($straightlineStepId:ident _ (ss, _) _)
+         change ($eventuallyId:ident _ _ (ss, _))
          obtain $statePat:rcasesPat := $s
-         delta $p
-         dsimp only [$straightlineStepId:ident, $execStraightlineId:ident]
-         rw [Executable.directivesFromStart]
-         simp [List.mapIdx, List.mapIdx.go])))
+         delta $p)))
 
 --------------------------------------------------------------------------------
 
@@ -132,7 +130,7 @@ partial def peelArgsLets (args : Array Expr) (i : Nat) (peeled : Array Expr) (fv
   else
     k peeled fvars
 
-def kdeltaBetaOnly (targets: List Name) (maxInstrCount : Option (IO.Ref Nat)) : DSimproc := fun e => do
+def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
   -- This focuses on application nodes.
   unless e.isApp && targets.any e.getAppFn'.isConstOf do return .rfl
 
@@ -147,12 +145,6 @@ def kdeltaBetaOnly (targets: List Name) (maxInstrCount : Option (IO.Ref Nat)) : 
   peelArgsLets args 0 #[] #[] fun (args : Array Expr) (fvars : Array Expr) => do
 
     if f.isConstOf `Effects.All && args[1]!.isApp && args[1]!.getAppFn'.isConstOf `Directives.interp then
-      -- We optionally track how many times we've hit Directives.interp -- this tracks how
-      -- many instructions we've stepped through.
-      if (← maxInstrCount.mapM (·.get)) = .some 0 then
-        return .rfl
-      maxInstrCount.forM (fun r => r.modify (· - 1))
-
       -- Finding a node of the form `Effects.All ... (Directives.interp ...)`
       -- means that we are ready to step through. We manually force reduction of
       -- Directives.interp (since it is *not* is our list of targets), then let
@@ -332,15 +324,10 @@ partial def evalSymKStep : Grind.GrindTactic :=
     )
     pure { goal with mvarId }
 
-  -- Apply the debug gimmick. We actually *do* expect the goal to be in this form (see comment in
-  -- kdeltaBetaOnly).
-  let goal ← insertGimmick goal
-
   let env ← getEnv
 
   let declsForDSimp := (kstepExtension.getState env).toList
-  let maxInstrCount ← maxSteps?.mapM (IO.mkRef ·)
-  let kdsimpDecls := kdeltaBetaOnly declsForDSimp maxInstrCount
+  let kdsimpDecls := kdeltaBetaOnly declsForDSimp
 
   -- https://lean-lang.org/doc/api/Lean/Meta/Sym/Simp/SimpM.html
   -- note the "contextual ite handling" --> are we doing this?
@@ -520,19 +507,34 @@ partial def evalSymKStep : Grind.GrindTactic :=
     else
       pure (goal, [])
 
-  let (goal, subGoals) ← go goal
+  let eventuallyStraightlineRule ← mkBackwardRuleFromDecl ``eventually_straightlineStep_cps
 
-  -- Remove the gimmick debug marker.
-  let goal ← removeGimmick goal
+  match maxSteps? with
+  | .some maxSteps => failure
+  | .none =>
+      let .goals [subGoal, mvarId] ← Grind.liftGrindM (eventuallyStraightlineRule.apply goal.mvarId) | failure
+      -- well-formedness, an assumption somewhere
+      subGoal.assumption
+      let goal := { goal with mvarId }
 
-  logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
+      -- Apply the debug gimmick. We actually *do* expect the goal to be in this form (see comment in
+      -- kdeltaBetaOnly).
+      let goal ← insertGimmick goal
 
-  if let .some r := maxInstrCount then
-    let remaining ← r.get
-    if remaining > 0 then
-      throwError m!"kstep could not step through the remaining {remaining} steps"
+      let (goal, subGoals) ← go goal
 
-  Grind.setGoals (subGoals ++ [ goal ])
+      -- Remove the gimmick debug marker.
+      let goal ← removeGimmick goal
+
+      logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
+
+      Grind.setGoals (subGoals ++ [ goal ])
+
+--   if let .some r := maxInstrCount then
+--     let remaining ← r.get
+--     if remaining > 0 then
+--       throwError m!"kstep could not step through the remaining {remaining} steps"
+
 
 syntax (name := symRotateRight) "rotate_right" (ppSpace num)? : grind
 
