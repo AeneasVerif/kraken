@@ -337,4 +337,162 @@ theorem Executable.wellFormed_of_sum_lt {Directive : Type} (e : Executable Direc
           rw [h, List.dropWhile_cons]
           simp
 
+@[simp] def takeAtAddressWith {Directive : Type} (isZero : Directive → Bool) : List (Directive × Nat) → List (Directive × Nat)
+  | [] => []
+  | (d, sz) :: ds =>
+    if isZero d then
+      (d, sz) :: takeAtAddressWith isZero ds
+    else
+      [(d, sz)]
+
+theorem withAddresses_takeWhile_eq {Directive : Type} (isZero : Directive → Bool)
+    (a : Int64) (ds : List (Directive × Nat))
+    (hvalid : ∀ p ∈ ds, if isZero p.1 then p.2 = 0 else Int64.ofNat p.2 ≠ 0) :
+    ((Executable.withAddresses (a, ds)).takeWhile (·.1 = a)).map (·.2) =
+      takeAtAddressWith isZero ds := by
+  induction ds generalizing a with
+  | nil =>
+    rw [Executable.withAddresses_nil]
+    rfl
+  | cons head tail ih =>
+    obtain ⟨d, sz⟩ := head
+    have hhead := hvalid (d, sz) (List.mem_cons_self ..)
+    have htail : ∀ p ∈ tail, if isZero p.1 then p.2 = 0 else Int64.ofNat p.2 ≠ 0 :=
+      fun p hp => hvalid p (List.mem_cons_of_mem _ hp)
+    rw [Executable.withAddresses_cons, List.takeWhile_cons]
+    simp only [decide_true, ↓reduceIte, List.map_cons, takeAtAddressWith]
+    cases h_zero : isZero d
+    · simp only [h_zero, Bool.false_eq_true, ↓reduceIte] at hhead ⊢
+      congr 1
+      cases tail with
+      | nil =>
+        rw [Executable.withAddresses_nil]
+        rfl
+      | cons hd2 tl2 =>
+        obtain ⟨d2, sz2⟩ := hd2
+        rw [Executable.withAddresses_cons, List.takeWhile_cons]
+        simp [hhead]
+    · simp only [h_zero, ↓reduceIte] at hhead ⊢
+      subst hhead
+      simp [ih a htail]
+
+private theorem sum_take_succ {Directive : Type} (ds : List (Directive × Nat)) (k : Nat) (hk : k < ds.length) :
+    (((ds.take (k + 1)).map (fun (_, sz) => Int64.ofNat sz)).sum) =
+      (((ds.take k).map (fun (_, sz) => Int64.ofNat sz)).sum) + Int64.ofNat ds[k].2 := by
+  rw [List.take_add_one, List.getElem?_eq_getElem hk, Option.toList_some, List.map_append, List.sum_append]
+  simp
+
+private theorem withAddresses_dropWhile_eq_invariant {Directive : Type} (isZero : Directive → Bool)
+    (start_addr : Int64) (ds : List (Directive × Nat))
+    (hwf : Executable.WellFormed (start_addr, ds))
+    (hvalid : ∀ p ∈ ds, if isZero p.1 then p.2 = 0 else Int64.ofNat p.2 ≠ 0)
+    (k : Nat) (hk : k < ds.length) :
+    let a_k := start_addr + ((ds.take k).map (fun (_, sz) => Int64.ofNat sz)).sum
+    ((Executable.withAddresses (start_addr, ds)).dropWhile (·.1 ≠ a_k)).dropWhile (·.1 = a_k) =
+      (Executable.withAddresses (a_k, ds.drop k)).dropWhile (·.1 = a_k) ∧
+    ((k = 0 ∨ ∃ hlt : k - 1 < ds.length, isZero ds[k - 1].1 = false) →
+      (Executable.withAddresses (start_addr, ds)).dropWhile (·.1 ≠ a_k) =
+        Executable.withAddresses (a_k, ds.drop k)) := by
+  induction k with
+  | zero =>
+    dsimp only
+    simp only [List.take_zero, List.map_nil, List.sum_nil, Int64.add_zero, List.drop_zero]
+    have h0 := Executable.withAddresses_dropWhile_start ds start_addr
+    exact ⟨congrArg (List.dropWhile (·.1 = start_addr)) h0, fun _ => h0⟩
+  | succ k ih =>
+    have hk_lt : k < ds.length := Nat.lt_of_succ_lt hk
+    obtain ⟨ih_inv, _⟩ := ih hk_lt
+    let a_k := start_addr + ((ds.take k).map (fun (_, sz) => Int64.ofNat sz)).sum
+    let a_next := start_addr + ((ds.take (k + 1)).map (fun (_, sz) => Int64.ofNat sz)).sum
+    have ha_next : a_next = a_k + Int64.ofNat ds[k].2 := by
+      dsimp [a_next, a_k]
+      rw [sum_take_succ ds k hk_lt, Int64.add_assoc]
+    have h_drop_k : ds.drop k = (ds[k].1, ds[k].2) :: ds.drop (k + 1) :=
+      List.drop_eq_getElem_cons hk_lt
+    have h_mem_k : ds[k] ∈ ds := List.getElem_mem hk_lt
+    have hvalid_k := hvalid ds[k] h_mem_k
+    cases h_zero : isZero ds[k].1
+    · simp only [h_zero, Bool.false_eq_true, ↓reduceIte] at hvalid_k
+      have h_rhs : (Executable.withAddresses (a_k, ds.drop k)).dropWhile (·.1 = a_k) =
+          Executable.withAddresses (a_next, ds.drop (k + 1)) := by
+        rw [h_drop_k, Executable.withAddresses_cons, List.dropWhile_cons]
+        simp only [decide_true, ↓reduceIte, ← ha_next]
+        cases h_rem : ds.drop (k + 1) with
+        | nil =>
+          rw [Executable.withAddresses_nil]
+          rfl
+        | cons hd2 tl2 =>
+          obtain ⟨d2, sz2⟩ := hd2
+          rw [Executable.withAddresses_cons, List.dropWhile_cons]
+          simp [ha_next, hvalid_k]
+      have h_step_eq : (Executable.withAddresses (start_addr, ds)).dropWhile (·.1 ≠ a_next) =
+          Executable.withAddresses (a_next, ds.drop (k + 1)) := by
+        have h_drop_eq : ((Executable.withAddresses (start_addr, ds)).dropWhile (·.1 ≠ a_k)).dropWhile (·.1 = a_k) =
+            Executable.withAddresses (a_next, ds.drop (k + 1)) := by
+          exact ih_inv.trans h_rhs
+        cases h_rem : ds.drop (k + 1) with
+        | nil =>
+          have h_len := congrArg List.length h_rem
+          simp at h_len
+          omega
+        | cons hd2 tl2 =>
+          obtain ⟨d2, sz2⟩ := hd2
+          rw [h_rem] at h_drop_eq
+          rw [Executable.withAddresses_cons] at h_drop_eq ⊢
+          exact hwf a_k (a_next, d2, sz2) (Executable.withAddresses (a_next + Int64.ofNat sz2, tl2)) h_drop_eq
+      exact ⟨congrArg (List.dropWhile (·.1 = a_next)) h_step_eq, fun _ => h_step_eq⟩
+    · simp only [h_zero, ↓reduceIte] at hvalid_k
+      have ha_eq : a_next = a_k := by
+        rw [ha_next, hvalid_k]
+        simp
+      have h_rhs : (Executable.withAddresses (a_k, ds.drop k)).dropWhile (·.1 = a_k) =
+          (Executable.withAddresses (a_next, ds.drop (k + 1))).dropWhile (·.1 = a_next) := by
+        rw [h_drop_k, Executable.withAddresses_cons, List.dropWhile_cons]
+        simp [← ha_next, ha_eq]
+      refine ⟨?_, ?_⟩
+      · change ((Executable.withAddresses (start_addr, ds)).dropWhile (·.1 ≠ a_next)).dropWhile (·.1 = a_next) =
+          (Executable.withAddresses (a_next, ds.drop (k + 1))).dropWhile (·.1 = a_next)
+        have ih_inv' : ((Executable.withAddresses (start_addr, ds)).dropWhile (·.1 ≠ a_k)).dropWhile (·.1 = a_k) =
+            (Executable.withAddresses (a_k, ds.drop k)).dropWhile (·.1 = a_k) := ih_inv
+        rw [ha_eq]
+        rw [ha_eq] at h_rhs
+        exact ih_inv'.trans h_rhs
+      · rintro (h_zero_eq | ⟨_, h_false⟩)
+        · omega
+        · simp [h_zero] at h_false
+
+theorem Executable.directivesAtAddress_after {Directive : Type} [layout : Layout Directive]
+    (isZero : Directive → Bool) (prog : List Directive)
+    (hwf : (layout prog).WellFormed)
+    (hvalid : ∀ p ∈ (layout prog).2, if isZero p.1 then p.2 = 0 else Int64.ofNat p.2 ≠ 0)
+    (n : Nat) (hn : n < prog.length)
+    (hprev : n = 0 ∨ ∃ hlt : n - 1 < prog.length, isZero prog[n - 1] = false) :
+    let ds := prog.mapIdx (fun i d => (d, layout.size i))
+    let len := ((ds.take n).map (fun (_, sz) => Int64.ofNat sz)).sum
+    (layout prog).directivesAtAddress (layout.start + len) =
+      takeAtAddressWith isZero (ds.drop n) := by
+  dsimp [Executable.directivesAtAddress, Layout.apply]
+  let ds := prog.mapIdx (fun i d => (d, layout.size i))
+  have h_len : ds.length = prog.length := List.length_mapIdx
+  have hn_ds : n < ds.length := h_len.symm ▸ hn
+  have hprev_ds : n = 0 ∨ ∃ hlt : n - 1 < ds.length, isZero ds[n - 1].1 = false := by
+    rcases hprev with rfl | ⟨hlt, hz⟩
+    · exact Or.inl rfl
+    · refine Or.inr ⟨h_len.symm ▸ hlt, ?_⟩
+      simpa [ds] using hz
+  have h_drop := (withAddresses_dropWhile_eq_invariant isZero layout.start ds hwf hvalid n hn_ds).2 hprev_ds
+  rw [h_drop]
+  apply withAddresses_takeWhile_eq isZero _ (ds.drop n)
+  intro p hp
+  exact hvalid p (List.mem_of_mem_drop hp)
+
+theorem Executable.directivesAtStart_of_valid {Directive : Type} [layout : Layout Directive]
+    (isZero : Directive → Bool) (prog : List Directive)
+    (hvalid : ∀ p ∈ (layout prog).2, if isZero p.1 then p.2 = 0 else Int64.ofNat p.2 ≠ 0) :
+    (layout prog).directivesAtAddress layout.start =
+      takeAtAddressWith isZero (prog.mapIdx (fun i d => (d, layout.size i))) := by
+  dsimp [Executable.directivesAtAddress, Layout.apply]
+  rw [Executable.withAddresses_dropWhile_start]
+  exact withAddresses_takeWhile_eq isZero layout.start _ hvalid
+
 end Kraken

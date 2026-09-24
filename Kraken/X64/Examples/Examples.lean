@@ -52,16 +52,11 @@ attribute [ksimp]
 
 def p1 := parse("start: mov $1, %rax")
 
-set_option pp.kraken.asm false
-
 -- Super-simple example to debug tactics
 example [layout : Layout] (hwf : (layout p1).WellFormed) s :
     Eventually (step1 (layout p1)) (fun s => s.1.regs.rax = 1) (s, layout.start) := by
   kprologue p1 with s
   sym => kstep ( debug := true ); tactic =>
-  dsimp [straightlineStep,Executable.straightline]
-  rw [Kraken.Executable.directivesFromStart]
-  simp [List.mapIdx, List.mapIdx.go]
   apply Eventually.done
   rfl
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
@@ -167,20 +162,25 @@ private theorem uint64_ofInt_nat_toNat {m : Nat} (hm : m < 2 ^ 64) :
 
 set_option maxHeartbeats 4000000 in
 theorem p3_correct [layout: Layout] (h : (layout p3).WellFormed)
-    (hsz0 : Int64.ofNat (layout.size 0) ≠ 0)
-    (hsz : Int64.ofNat (layout.size 1) ≠ 0) (s : MachineData)
+    (hlayout : layout.Valid p3) (s : MachineData)
     (hrax : s.regs.rax = 0) (hb : p3_spec s < 2^64) :
     Eventually (step1 (layout p3))
       (fun s' => s'.1.regs.rdx.toNat = p3_spec s ∧ s'.1.regs.rax = 0)
       (s, layout.start) := by
   let pc_start := layout.start + Int64.ofNat (layout.size 0) + Int64.ofNat (layout.size 1)
+  have hsz : Int64.ofNat (layout.size 1) ≠ 0 := (hlayout 1 (by decide)).2
   have h_from_start : (layout p3).directivesFromAddress pc_start =
       ((p3.mapIdx (fun i d => (d, layout.size i))).drop 2) :=
     h.directivesFromAddress_drop2 hsz
   simp [p3, List.mapIdx, List.mapIdx.go] at h_from_start
   kprologue p3 with s
+  delta p3 at h hlayout
+  apply eventually_step_cps
+  dsimp [step1,Executable.step]
+  rw [← Int64.add_zero layout.start, Executable.directivesAtAddress_add _ h hlayout 0]
+  simp [List.mapIdx, List.mapIdx.go, takeAtAddress]
   sym =>
-  kstep 2
+  kstep
   tactic =>
   dsimp only [p3_spec] at hb
   apply tailrec_loop_straightline (layout p3) h

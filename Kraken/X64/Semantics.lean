@@ -780,6 +780,66 @@ def Directives.interp [Labels]
 
 abbrev Layout := Kraken.Layout Directive
 
+@[simp] def Directive.isZeroSize : Directive → Bool
+  | .label _ => true
+  | .byteArray bs => bs.size == 0
+  | .instr _ => false
+
+def Layout.Valid (layout : Layout) (prog : Program) : Prop :=
+  ∀ i (_ : i < prog.length),
+    match prog[i] with
+    | .label _ => layout.size i = 0
+    | .byteArray bs => layout.size i = bs.size ∧ (bs.size ≠ 0 → Int64.ofNat bs.size ≠ 0)
+    | .instr _ => layout.size i ≠ 0 ∧ Int64.ofNat (layout.size i) ≠ 0
+
+theorem Layout.Valid.validSizes {layout : Layout} {prog : Program} (hlayout : layout.Valid prog) :
+    ∀ p ∈ (layout prog).2, if Directive.isZeroSize p.1 then p.2 = 0 else Int64.ofNat p.2 ≠ 0 := by
+  intro p hp
+  dsimp [Kraken.Layout.apply] at hp
+  rw [List.mem_iff_getElem] at hp
+  obtain ⟨i, hi, hp_eq⟩ := hp
+  have hi_prog : i < prog.length := by simpa using hi
+  have hp_val : (prog.mapIdx (fun i d => (d, layout.size i)))[i] = (prog[i], layout.size i) := by
+    simp
+  rw [hp_val] at hp_eq
+  rcases p with ⟨d, sz⟩
+  injection hp_eq with hd hsz
+  have h := hlayout i hi_prog
+  subst hd hsz
+  cases h_d : prog[i] with
+  | label l =>
+    rw [h_d] at h
+    simp [Directive.isZeroSize, h]
+  | byteArray bs =>
+    rw [h_d] at h
+    obtain ⟨h_sz, h_nz⟩ := h
+    by_cases hbs : bs.size = 0
+    · simp [Directive.isZeroSize, hbs, h_sz]
+    · simp [Directive.isZeroSize, hbs, h_sz, h_nz hbs]
+  | instr ins =>
+    rw [h_d] at h
+    simp [Directive.isZeroSize, h.2]
+
+abbrev takeAtAddress : List (Directive × Nat) → List (Directive × Nat) :=
+  Kraken.takeAtAddressWith Directive.isZeroSize
+
+theorem Executable.directivesAtAddress_add [layout : Layout] (prog : Program)
+    (hwf : (layout prog).WellFormed) (hlayout : layout.Valid prog)
+    (n : Nat) {len : Int64}
+    (hlen : len = (((prog.mapIdx (fun i d => (d, layout.size i))).take n).map (fun (_, sz) => Int64.ofNat sz)).sum := by rfl)
+    (hn : n < prog.length := by decide)
+    (hprev : n = 0 ∨ ∃ hlt : n - 1 < prog.length, Directive.isZeroSize prog[n - 1] = false := by decide) :
+    (layout prog).directivesAtAddress (layout.start + len) =
+      takeAtAddress ((prog.mapIdx (fun i d => (d, layout.size i))).drop n) := by
+  subst hlen
+  exact Kraken.Executable.directivesAtAddress_after Directive.isZeroSize prog hwf hlayout.validSizes n hn hprev
+
+theorem Executable.directivesAtStart [layout : Layout] (prog : Program)
+    (hlayout : layout.Valid prog) :
+    (layout prog).directivesAtAddress layout.start =
+      takeAtAddress (prog.mapIdx (fun i d => (d, layout.size i))) :=
+  Kraken.Executable.directivesAtStart_of_valid Directive.isZeroSize prog hlayout.validSizes
+
 @[reducible]
 def Executable.labels (e : Executable) : Labels :=
   { label l := (e.withAddresses.findSome?

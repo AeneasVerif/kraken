@@ -507,15 +507,47 @@ partial def evalSymKStep : Grind.GrindTactic :=
     else
       pure (goal, [])
 
+  let adHocSimp (decls : List Name) (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal := do
+    let mut initTheorems : Sym.Simp.Theorems := {}
+    for decl in decls do
+      initTheorems := initTheorems.insert (← Sym.Simp.mkTheoremFromDecl decl)
+    let initSimpMethods : Sym.Simp.Methods := {
+      post := Sym.Simp.evalGround >> initTheorems.rewrite
+    }
+    Grind.liftGrindM $ do
+      match ← Sym.simpGoal goal.mvarId initSimpMethods with
+      | .goal mvarId => pure { goal with mvarId }
+      | _ => throwError "unexpected"
+
   let eventuallyStraightlineRule ← mkBackwardRuleFromDecl ``eventually_straightlineStep_cps
 
   match maxSteps? with
   | .some maxSteps => failure
   | .none =>
-      let .goals [subGoal, mvarId] ← Grind.liftGrindM (eventuallyStraightlineRule.apply goal.mvarId) | failure
-      -- well-formedness, an assumption somewhere
-      subGoal.assumption
-      let goal := { goal with mvarId }
+      let goal ← if (← goal.mvarId.getType).consumeMData.isAppOf ``Eventually then
+        goal.withContext do
+          -- apply eventuallyStraightlineStep_cps
+          let [subGoal, mvarId] ← goal.mvarId.apply (← mkConstWithFreshMVarLevels ``eventually_straightlineStep_cps) | failure
+          -- subgoal for well-formedness: an assumption
+          subGoal.withContext subGoal.assumption
+          let target' ← Grind.liftSymM <| Sym.preprocessExpr (← mvarId.getType)
+          let mvarId ← mvarId.replaceTargetDefEq target'
+          let goal := { goal with mvarId }
+
+          -- Administrative steps:
+          --  dsimp [straightlineStep,Executable.straightline]
+          --  rw [Kraken.Executable.directivesFromStart]
+          --  simp [List.mapIdx, List.mapIdx.go]
+          let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM $
+            Sym.dsimp
+              (methods := {
+                pre := kdeltaBetaOnly [`straightlineStep, `Executable.straightline] >> kdsimpProj >> kbeta })
+              (← goal.mvarId.getType))
+          let goal := { goal with mvarId }
+
+          adHocSimp [``Kraken.Executable.directivesFromStart, ``List.mapIdx_nil, ``List.mapIdx_cons] goal
+      else
+        pure goal
 
       -- Apply the debug gimmick. We actually *do* expect the goal to be in this form (see comment in
       -- kdeltaBetaOnly).
