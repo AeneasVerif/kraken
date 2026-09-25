@@ -555,20 +555,16 @@ theorem straightlineStep_mono [Layout] (e : Executable) (st : MachineState)
   let _ := e.labels
   Directives.interp_mono _ _ _ (fun _ _ => hpq _)
 
-theorem tailrec_loop_straightline [Layout] (e : Executable) (hwf : e.WellFormed)
+theorem tailrec_loop_straightline [Layout] (e : Executable) (_hwf : e.WellFormed)
     (post : @Post MachineState) (initial : MachineState)
     (P : Nat → @Post MachineState) (v0 : Nat) (hP : P v0 initial)
     (hbody : ∀ v state, P v state →
-      straightlineStep e state (fun mid_s => post mid_s ∨ ∃ v', P v' mid_s ∧ v' < v)) :
+      Eventually (step1 e) (fun mid_s => post mid_s ∨ ∃ v', P v' mid_s ∧ v' < v) state) :
     Eventually (step1 e) post initial := by
-  apply eventually_straightlineStep_cps e hwf
-  refine straightlineStep_mono e initial ?_ (hbody v0 initial hP)
-  rintro mid_s (hpost | ⟨v', hP', _⟩)
-  · exact .done mid_s hpost
-  · refine tailrec_loop (step1 e) post mid_s (fun v () => P v) (fun _ _ => post)
-      (· < ·) Nat.lt_wfRel.wf v' () hP' (fun v _ st hst => eventually_straightlineStep e hwf st _ ?_) (fun _ => id)
-    refine straightlineStep_mono e st ?_ (hbody v st hst)
-    rintro s (hp | ⟨v'', hp', hlt⟩)
-    · exact .inl hp
-    · exact .inr ⟨v'', (), hp', hlt, fun _ => id⟩
+  refine tailrec_loop (step1 e) post initial (fun v () => P v) (fun _ _ => post)
+    (· < ·) Nat.lt_wfRel.wf v0 () hP (fun v _ st hst => ?_) (fun _ => id)
+  refine eventually_weaken (step1 e) _ _ st ?_ (hbody v st hst)
+  rintro s (hp | ⟨v'', hp', hlt⟩)
+  · exact .inl hp
+  · exact .inr ⟨v'', (), hp', hlt, fun _ => id⟩
 

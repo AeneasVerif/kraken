@@ -331,7 +331,17 @@ partial def evalSymKStep : Grind.GrindTactic :=
 
   -- https://lean-lang.org/doc/api/Lean/Meta/Sym/Simp/SimpM.html
   -- note the "contextual ite handling" --> are we doing this?
-  let simpTheorems ← ksimpExt.getTheorems
+  let simpTheorems ← goal.withContext do
+    let mut simpTheorems ← ksimpExt.getTheorems
+    for decl in [``Bool.false_eq_true, ``eq_self, ``_root_.ite_true, ``_root_.ite_false] do
+      simpTheorems := simpTheorems.insert (← Sym.Simp.mkTheoremFromDecl decl)
+    for ldecl in ← getLCtx do
+      if !ldecl.isImplementationDetail then
+        try
+          simpTheorems := simpTheorems.insert (← Sym.Simp.mkTheoremFromExpr ldecl.toExpr)
+        catch _ =>
+          pure ()
+    pure simpTheorems
   let simpMethods: Sym.Simp.Methods := { post := Sym.Simp.evalGround >> simpTheorems.rewrite }
 
   let specLemmas := (kspecExtension.getState env).toList
@@ -349,6 +359,11 @@ partial def evalSymKStep : Grind.GrindTactic :=
       | .goal _ goal => pure goal
     pure (← insertGimmick goal)
 
+  let kzeta : DSimproc := fun e => do
+    match e with
+    | .letE _ _ v b _ => return .step (b.instantiate1 v)
+    | _ => return .rfl
+
   -- MAIN LOOP
   let rec go (goal: Grind.Goal): Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
     -- STEP 1: dsimp
@@ -357,7 +372,8 @@ partial def evalSymKStep : Grind.GrindTactic :=
         Sym.dsimp
           (config := { maxSteps := 1000000 })
           (methods := {
-            pre := klog >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta })
+            pre := klog >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta >> kzeta,
+            post := evalGround >> kdsimpMatch >> kdsimpProj >> kbeta >> kzeta })
           (← goal.mvarId.getType))
       introsIf ({ goal with mvarId })
 
@@ -407,13 +423,29 @@ partial def evalSymKStep : Grind.GrindTactic :=
         let (goal, subGoals) ← rwTarget goal false (mkConst thmName)
         logInfo m!"{subGoals.length} subgoals generated"
 
+        let kzeta : DSimproc := fun e => do
+          match e with
+          | .letE _ _ v b _ => return .step (b.instantiate1 v)
+          | _ => return .rfl
+
         let subGoals ← subGoals.mapM fun (subGoal: Grind.Goal) => do
           -- Try simp -- who knows, one might get lucky
-          let simpResult ← Grind.liftGrindM (Sym.simpGoal subGoal.mvarId simpMethods)
-          match simpResult with
-          | .noProgress => pure subGoal
-          | .goal mvarId => pure { subGoal with mvarId }
-          | .closed => pure subGoal
+          let mut subGoal := subGoal
+          for _ in [:3] do
+            let mvarId ← subGoal.mvarId.replaceTargetDefEq (← Grind.liftGrindM $
+              Sym.dsimp
+                (config := { maxSteps := 1000000 })
+                (methods := {
+                  pre := evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta >> kzeta,
+                  post := evalGround >> kdsimpMatch >> kdsimpProj >> kbeta })
+                (← subGoal.mvarId.getType))
+            subGoal := { subGoal with mvarId }
+            let simpResult ← Grind.liftGrindM (Sym.simpGoal subGoal.mvarId simpMethods)
+            match simpResult with
+            | .noProgress => break
+            | .goal mvarId => subGoal := { subGoal with mvarId }
+            | .closed => break
+          pure subGoal
 
         -- Found a spec lemma, which will generate subgoals; for now, subgoals (if not solved
         -- already!) are solved via `exact` (which may pick any hypothesis in the context, beware),
@@ -431,6 +463,9 @@ partial def evalSymKStep : Grind.GrindTactic :=
             let .some e ← getExprMVarAssignment? subGoal.mvarId | throwError "oh noes"
             logInfo m!"Solved by exact: {t} by {e}"
             return true
+
+          if (← subGoal.mvarId.getType).getAppFn.isConstOf `Std.ExtHashMap.sep then
+            return false
 
           -- Solvable with refl, maybe.
           try
@@ -507,47 +542,122 @@ partial def evalSymKStep : Grind.GrindTactic :=
     else
       pure (goal, [])
 
-  let adHocSimp (decls : List Name) (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal := do
-    let mut initTheorems : Sym.Simp.Theorems := {}
-    for decl in decls do
-      initTheorems := initTheorems.insert (← Sym.Simp.mkTheoremFromDecl decl)
-    let initSimpMethods : Sym.Simp.Methods := {
-      post := Sym.Simp.evalGround >> initTheorems.rewrite
-    }
-    Grind.liftGrindM $ do
-      match ← Sym.simpGoal goal.mvarId initSimpMethods with
-      | .goal mvarId => pure { goal with mvarId }
-      | _ => throwError "unexpected"
+  let skipEventuallyDSimp : DSimproc := fun e => do
+    if e.isAppOf ``Eventually then return .rfl (done := true) else return .rfl
 
-  let eventuallyStraightlineRule ← mkBackwardRuleFromDecl ``eventually_straightlineStep_cps
+  let skipEventuallySimp : Sym.Simp.Simproc := fun e => do
+    if e.isAppOf ``Eventually then return .rfl (done := true) else return .rfl
+
+  let adHocSimp (decls : List Name) (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal :=
+    goal.withContext do
+      let mut initTheorems : Sym.Simp.Theorems := {}
+      for decl in decls do
+        initTheorems := initTheorems.insert (← Sym.Simp.mkTheoremFromDecl decl)
+      for ldecl in ← getLCtx do
+        if !ldecl.isImplementationDetail then
+          try
+            initTheorems := initTheorems.insert (← Sym.Simp.mkTheoremFromExpr ldecl.toExpr)
+          catch _ =>
+            pure ()
+      let initSimpMethods : Sym.Simp.Methods := {
+        pre := skipEventuallySimp,
+        post := Sym.Simp.evalGround >> initTheorems.rewrite
+      }
+      let mut goal := goal
+      for _ in [:20] do
+        let simpRes ← Grind.liftGrindM <| Sym.simpGoal goal.mvarId initSimpMethods
+        match simpRes with
+        | .goal mvarId =>
+          let mvarId ← mvarId.replaceTargetDefEq (← Grind.liftGrindM $
+            Sym.dsimp (methods := {
+              pre := skipEventuallyDSimp >> evalGround >> kdsimpProj >> kbeta,
+              post := evalGround >> kdsimpProj >> kbeta }) (← mvarId.getType))
+          goal := { goal with mvarId }
+        | .noProgress => break
+        | _ => throwError "unexpected"
+      pure goal
+
+  unless (← goal.mvarId.getType).consumeMData.isAppOf ``Eventually do
+    throwError "kstep: expected goal to be of the form Eventually"
 
   match maxSteps? with
-  | .some maxSteps => failure
-  | .none =>
-      let goal ← if (← goal.mvarId.getType).consumeMData.isAppOf ``Eventually then
-        goal.withContext do
-          -- apply eventuallyStraightlineStep_cps
-          let [subGoal, mvarId] ← goal.mvarId.apply (← mkConstWithFreshMVarLevels ``eventually_straightlineStep_cps) | failure
-          -- subgoal for well-formedness: an assumption
-          subGoal.withContext subGoal.assumption
+  | .some maxSteps =>
+      let mut goal := goal
+      let mut allSubGoals : List Grind.Goal := []
+      for _ in [:maxSteps] do
+        unless (← goal.mvarId.getType).consumeMData.isAppOf ``Eventually do
+          throwError "kstep: expected goal to be of the form Eventually"
+        goal ← goal.withContext do
+          let [mvarId] ← goal.mvarId.apply (← mkConstWithFreshMVarLevels ``eventually_step_cps) | failure
           let target' ← Grind.liftSymM <| Sym.preprocessExpr (← mvarId.getType)
           let mvarId ← mvarId.replaceTargetDefEq target'
           let goal := { goal with mvarId }
 
-          -- Administrative steps:
-          --  dsimp [straightlineStep,Executable.straightline]
-          --  rw [Kraken.Executable.directivesFromStart]
-          --  simp [List.mapIdx, List.mapIdx.go]
           let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM $
             Sym.dsimp
               (methods := {
-                pre := kdeltaBetaOnly [`straightlineStep, `Executable.straightline] >> kdsimpProj >> kbeta })
+                pre := skipEventuallyDSimp >> kdeltaBetaOnly [`step1, `Executable.step] >> kdsimpProj >> kbeta })
               (← goal.mvarId.getType))
           let goal := { goal with mvarId }
 
-          adHocSimp [``Kraken.Executable.directivesFromStart, ``List.mapIdx_nil, ``List.mapIdx_cons] goal
-      else
-        pure goal
+          adHocSimp [
+            ``Kraken.Executable.directivesAtAddress_eq,
+            ``Kraken.Executable.withAddresses_cons,
+            ``Kraken.Executable.withAddresses_nil,
+            ``List.mapIdx_nil,
+            ``List.mapIdx_cons,
+            ``List.dropWhile_cons,
+            ``List.dropWhile_nil,
+            ``List.takeWhile_cons,
+            ``List.takeWhile_nil,
+            ``List.map_cons,
+            ``List.map_nil,
+            ``Kraken.Int64.add_right_eq_self,
+            ``Kraken.Int64.self_eq_add_right,
+            ``Kraken.Int64.add_add_eq_add,
+            ``Kraken.Int64.add_eq_add_add,
+            ``eq_self,
+            ``ne_eq,
+            ``not_true_eq_false,
+            ``not_false_eq_true,
+            ``decide_true,
+            ``decide_false,
+            ``Bool.false_eq_true,
+            ``Bool.not_true,
+            ``Bool.not_false,
+            ``_root_.ite_true,
+            ``_root_.ite_false
+          ] goal
+
+        let g1 ← insertGimmick goal
+        let (g2, subGoals) ← go g1
+        goal ← removeGimmick g2
+        allSubGoals := allSubGoals ++ subGoals
+
+      logInfo m!"END KSTEP: {allSubGoals.length} sub-goals left"
+      Grind.setGoals (allSubGoals ++ [ goal ])
+  | .none =>
+      let goal ← goal.withContext do
+        -- apply eventually_straightlineStep_cps
+        let [subGoal, mvarId] ← goal.mvarId.apply (← mkConstWithFreshMVarLevels ``eventually_straightlineStep_cps) | failure
+        -- subgoal for well-formedness: an assumption
+        subGoal.withContext subGoal.assumption
+        let target' ← Grind.liftSymM <| Sym.preprocessExpr (← mvarId.getType)
+        let mvarId ← mvarId.replaceTargetDefEq target'
+        let goal := { goal with mvarId }
+
+        -- Administrative steps:
+        --  dsimp [straightlineStep,Executable.straightline]
+        --  rw [Kraken.Executable.directivesFromStart]
+        --  simp [List.mapIdx, List.mapIdx.go]
+        let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM $
+          Sym.dsimp
+            (methods := {
+              pre := kdeltaBetaOnly [`straightlineStep, `Executable.straightline] >> kdsimpProj >> kbeta })
+            (← goal.mvarId.getType))
+        let goal := { goal with mvarId }
+
+        adHocSimp [``Kraken.Executable.directivesFromStart, ``List.mapIdx_nil, ``List.mapIdx_cons] goal
 
       -- Apply the debug gimmick. We actually *do* expect the goal to be in this form (see comment in
       -- kdeltaBetaOnly).
