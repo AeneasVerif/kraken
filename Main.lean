@@ -1,4 +1,6 @@
+module
+
 import Kraken
 
-def main : IO Unit := do
+public def main : IO Unit := do
   IO.println "Hello"

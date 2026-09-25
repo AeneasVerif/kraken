@@ -1,3 +1,5 @@
+module
+
 /-
 Kraken AArch64 - Example Programs
 
@@ -11,6 +13,8 @@ import Kraken.AArch64.Sep
 import Kraken.Eval
 import Kraken.SeparationTactics
 import Kraken.Tactics
+import Std.Tactic.BVDecide
+
 
 open Kraken.AArch64
 open Kraken.AArch64.Parser
@@ -21,14 +25,9 @@ attribute [ksimp]
   BitVec.ofInt_ofNat
   BitVec.ofInt_toInt
   BitVec.ofNat_uInt64ToNat
-  BitVec.reduceOfInt
   BitVec.setWidth_eq
   Int.add_zero
-  Int.reduceBmod
-  Int.reduceNeg
-  Int64.reduceToInt
   Int64.toInt_neg
-  Nat.reducePow
   Nat.shiftRight_zero
   Nat.sub_zero
   UInt64.ofBitVec_add

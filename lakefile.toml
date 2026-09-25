@@ -1,6 +1,7 @@
 name = "Kraken"
 version = "0.1.0"
 defaultTargets = ["Kraken", "KrakenAArch64", "krakenrunner_x64", "krakenrunner_aarch64", "att2intel"]
+requiresModuleSystem = true
 
 [leanOptions]
 autoImplicit = false
