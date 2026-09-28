@@ -823,16 +823,43 @@ theorem Layout.Valid.validSizes {layout : Layout} {prog : Program} (hlayout : la
 abbrev takeAtAddress : List (Directive × Nat) → List (Directive × Nat) :=
   Kraken.takeAtAddressWith Directive.isZeroSize
 
+@[simp] def validSplitIndex (prog : Program) (n : Nat) : Bool :=
+  n < prog.length && (n == 0 || match prog[n - 1]? with | some d => !Directive.isZeroSize d | none => false)
+
+private theorem validSplitIndex_iff {prog : Program} {n : Nat} (h : validSplitIndex prog n = true) :
+    n < prog.length ∧ (n = 0 ∨ ∃ hlt : n - 1 < prog.length, Directive.isZeroSize prog[n - 1] = false) := by
+  simp only [validSplitIndex, Bool.and_eq_true, decide_eq_true_eq, Bool.or_eq_true, beq_iff_eq] at h
+  refine ⟨h.1, ?_⟩
+  rcases h.2 with rfl | h_prev
+  · exact Or.inl rfl
+  · have hlt : n - 1 < prog.length := by omega
+    rw [List.getElem?_eq_getElem hlt] at h_prev
+    simp only [Bool.not_eq_true'] at h_prev
+    exact Or.inr ⟨hlt, h_prev⟩
+
 theorem Executable.directivesAtAddress_add [layout : Layout] (prog : Program)
     (hwf : (layout prog).WellFormed) (hlayout : layout.Valid prog)
-    (n : Nat) {len : Int64}
-    (hlen : len = (((prog.mapIdx (fun i d => (d, layout.size i))).take n).map (fun (_, sz) => Int64.ofNat sz)).sum := by rfl)
-    (hn : n < prog.length := by decide)
-    (hprev : n = 0 ∨ ∃ hlt : n - 1 < prog.length, Directive.isZeroSize prog[n - 1] = false := by decide) :
-    (layout prog).directivesAtAddress (layout.start + len) =
+    (n : Nat) {addr : Int64}
+    (haddr : addr = (List.range n).foldl (fun a i => a + Int64.ofNat (layout.size i)) layout.start := by rfl)
+    (hvalid : validSplitIndex prog n = true := by rfl) :
+    (layout prog).directivesAtAddress addr =
       takeAtAddress ((prog.mapIdx (fun i d => (d, layout.size i))).drop n) := by
-  subst hlen
+  subst haddr
+  obtain ⟨hn, hprev⟩ := validSplitIndex_iff hvalid
+  rw [Kraken.foldl_range_eq_start_add_sum prog n (Nat.le_of_lt hn)]
   exact Kraken.Executable.directivesAtAddress_after Directive.isZeroSize prog hwf hlayout.validSizes n hn hprev
+
+theorem Executable.directivesFromAddress_add [layout : Layout] (prog : Program)
+    (hwf : (layout prog).WellFormed) (hlayout : layout.Valid prog)
+    (n : Nat) {addr : Int64}
+    (haddr : addr = (List.range n).foldl (fun a i => a + Int64.ofNat (layout.size i)) layout.start := by rfl)
+    (hvalid : validSplitIndex prog n = true := by rfl) :
+    (layout prog).directivesFromAddress addr =
+      ((prog.mapIdx (fun i d => (d, layout.size i))).drop n) := by
+  subst haddr
+  obtain ⟨hn, hprev⟩ := validSplitIndex_iff hvalid
+  rw [Kraken.foldl_range_eq_start_add_sum prog n (Nat.le_of_lt hn)]
+  exact Kraken.Executable.directivesFromAddress_after Directive.isZeroSize prog hwf hlayout.validSizes n hn hprev
 
 theorem Executable.directivesAtStart [layout : Layout] (prog : Program)
     (hlayout : layout.Valid prog) :

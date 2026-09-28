@@ -548,17 +548,64 @@ partial def evalSymKStep : Grind.GrindTactic :=
   let skipEventuallySimp : Sym.Simp.Simproc := fun e => do
     if e.isAppOf ``Eventually then return .rfl (done := true) else return .rfl
 
+  let tryQuiet {α} (act : Grind.GrindTacticM α) : Grind.GrindTacticM (Option α) := do
+    let savedMsgs ← Core.getMessageLog
+    try
+      let res ← act
+      if (← Core.getMessageLog).hasErrors then
+        Core.setMessageLog savedMsgs
+        return none
+      return some res
+    catch _ =>
+      Core.setMessageLog savedMsgs
+      return none
+
   let adHocSimp (decls : List Name) (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal :=
     goal.withContext do
       let mut initTheorems : Sym.Simp.Theorems := {}
       for decl in decls do
         initTheorems := initTheorems.insert (← Sym.Simp.mkTheoremFromDecl decl)
-      for ldecl in ← getLCtx do
+      let lctx ← getLCtx
+      for ldecl in lctx do
         if !ldecl.isImplementationDetail then
           try
             initTheorems := initTheorems.insert (← Sym.Simp.mkTheoremFromExpr ldecl.toExpr)
           catch _ =>
             pure ()
+          if ldecl.type.isAppOfArity ``Layout.Valid 2 then
+            let layoutExpr := ldecl.type.getAppArgs[0]!
+            let progExpr := ldecl.type.getAppArgs[1]!
+            let prog' ← match progExpr.constName? with
+              | some _ => pure ((← unfoldDefinition? progExpr true).getD progExpr)
+              | none => pure progExpr
+            let extraThms : Array Sym.Simp.Theorem ← (do
+              let mut acc : Array Sym.Simp.Theorem := #[]
+              let hlayoutType ← mkAppM ``Layout.Valid #[layoutExpr, prog']
+              let hlayout' ← mkExpectedTypeHint ldecl.toExpr hlayoutType
+              let thmStart ← mkAppM ``Executable.directivesAtStart #[prog', hlayout']
+              acc := acc.push (← Sym.Simp.mkTheoremFromExpr thmStart)
+              for ldecl_wf in lctx do
+                if !ldecl_wf.isImplementationDetail && ldecl_wf.type.isAppOfArity ``Kraken.Executable.WellFormed 2 then
+                  let wfApp ← mkAppM ``Kraken.Layout.apply #[layoutExpr, prog']
+                  let hwfType ← mkAppM ``Kraken.Executable.WellFormed #[wfApp]
+                  let hwf' ← mkExpectedTypeHint ldecl_wf.toExpr hwfType
+                  let mut addrExpr ← mkAppOptM ``Kraken.Layout.start #[some (mkConst ``Directive), some layoutExpr]
+                  for n in [1:8] do
+                    let szExpr ← mkAppOptM ``Kraken.Layout.size #[some (mkConst ``Directive), some layoutExpr, some (mkNatLit (n - 1))]
+                    let ofNatExpr ← mkAppM ``Int64.ofNat #[szExpr]
+                    addrExpr ← mkAppM ``HAdd.hAdd #[addrExpr, ofNatExpr]
+                    let validApp ← mkAppM ``validSplitIndex #[prog', mkNatLit n]
+                    if ← isDefEq validApp (mkConst ``true) then
+                      let haddr ← mkEqRefl addrExpr
+                      let hvalid ← mkExpectedTypeHint (← mkEqRefl (mkConst ``true)) (← mkEq validApp (mkConst ``true))
+                      let eAt ← mkAppOptM ``Executable.directivesAtAddress_add #[some layoutExpr, some prog', some hwf', some hlayout', some (mkNatLit n), some addrExpr, some haddr, some hvalid]
+                      acc := acc.push (← Sym.Simp.mkTheoremFromExpr eAt)
+                      let eFrom ← mkAppOptM ``Executable.directivesFromAddress_add #[some layoutExpr, some prog', some hwf', some hlayout', some (mkNatLit n), some addrExpr, some haddr, some hvalid]
+                      acc := acc.push (← Sym.Simp.mkTheoremFromExpr eFrom)
+              pure acc
+            ) <|> pure #[]
+            for t in extraThms do
+              initTheorems := initTheorems.insert t
       let initSimpMethods : Sym.Simp.Methods := {
         pre := skipEventuallySimp,
         post := Sym.Simp.evalGround >> initTheorems.rewrite
@@ -601,30 +648,16 @@ partial def evalSymKStep : Grind.GrindTactic :=
           let goal := { goal with mvarId }
 
           adHocSimp [
-            ``Kraken.Executable.directivesAtAddress_eq,
-            ``Kraken.Executable.withAddresses_cons,
-            ``Kraken.Executable.withAddresses_nil,
+            ``Kraken.takeAtAddressWith.eq_1,
+            ``Kraken.takeAtAddressWith.eq_2,
+            ``Directive.isZeroSize.eq_1,
+            ``Directive.isZeroSize.eq_2,
+            ``Directive.isZeroSize.eq_3,
+            ``List.drop_zero,
+            ``List.drop_succ_cons,
             ``List.mapIdx_nil,
             ``List.mapIdx_cons,
-            ``List.dropWhile_cons,
-            ``List.dropWhile_nil,
-            ``List.takeWhile_cons,
-            ``List.takeWhile_nil,
-            ``List.map_cons,
-            ``List.map_nil,
-            ``Kraken.Int64.add_right_eq_self,
-            ``Kraken.Int64.self_eq_add_right,
-            ``Kraken.Int64.add_add_eq_add,
-            ``Kraken.Int64.add_eq_add_add,
-            ``eq_self,
-            ``ne_eq,
-            ``not_true_eq_false,
-            ``not_false_eq_true,
-            ``decide_true,
-            ``decide_false,
             ``Bool.false_eq_true,
-            ``Bool.not_true,
-            ``Bool.not_false,
             ``_root_.ite_true,
             ``_root_.ite_false
           ] goal
@@ -657,7 +690,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
             (← goal.mvarId.getType))
         let goal := { goal with mvarId }
 
-        adHocSimp [``Kraken.Executable.directivesFromStart, ``List.mapIdx_nil, ``List.mapIdx_cons] goal
+        adHocSimp [``Kraken.Executable.directivesFromStart, ``List.mapIdx_nil, ``List.mapIdx_cons, ``List.drop_zero, ``List.drop_succ_cons] goal
 
       -- Apply the debug gimmick. We actually *do* expect the goal to be in this form (see comment in
       -- kdeltaBetaOnly).

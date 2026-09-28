@@ -89,7 +89,7 @@ theorem Executable.directivesAtAddress_eq {Directive : Type} [layout : Layout Di
   grind
 
 @[simp] theorem Int64.self_eq_add_right (a b : Int64) : (a = a + b) ↔ b = 0 := by
-  rw [eq_comm, Int64.add_right_eq_self]
+  grind
 
 @[simp] theorem Int64.add_add_eq_add (a b c : Int64) : (a + b + c = a + b) ↔ c = 0 :=
   Int64.add_right_eq_self (a + b) c
@@ -152,59 +152,6 @@ def Executable.WellFormed {Directive : Type} (e : Executable Directive) : Prop :
   ∀ a y ys,
     (e.withAddresses.dropWhile (·.1 ≠ a)).dropWhile (·.1 = a) = y :: ys →
     e.withAddresses.dropWhile (·.1 ≠ y.1) = y :: ys
-
-theorem Executable.WellFormed.directivesFromAddress_drop2 {Directive : Type}
-    {a0 : Int64} {d0 d1 d2 : Directive} {sz0 sz1 sz2 : Nat} {rest : List (Directive × Nat)}
-    (hwf : Executable.WellFormed (a0, (d0, sz0) :: (d1, sz1) :: (d2, sz2) :: rest))
-    (hsz1 : Int64.ofNat sz1 ≠ 0) :
-    Executable.directivesFromAddress (a0, (d0, sz0) :: (d1, sz1) :: (d2, sz2) :: rest)
-      (a0 + Int64.ofNat sz0 + Int64.ofNat sz1) = (d2, sz2) :: rest := by
-  let a1 := a0 + Int64.ofNat sz0
-  let a2 := a1 + Int64.ofNat sz1
-  have ha2_ne_a1 : a2 ≠ a1 := by
-    intro h
-    have hbv : (a2.toBitVec - a1.toBitVec).toNat = (a1.toBitVec - a1.toBitVec).toNat :=
-      congrArg (fun x : Int64 => (x.toBitVec - a1.toBitVec).toNat) h
-    dsimp [a2] at hbv
-    simp at hbv
-    have hbv' : (Int64.ofNat sz1).toBitVec.toNat = (0 : Int64).toBitVec.toNat := by
-      simp
-      omega
-    exact hsz1 (Int64.toBitVec_inj.mp (BitVec.eq_of_toNat_eq hbv'))
-  let e : Executable Directive := (a0, (d0, sz0) :: (d1, sz1) :: (d2, sz2) :: rest)
-  let suf := Executable.withAddresses (a2 + Int64.ofNat sz2, rest)
-  have h_wa : e.withAddresses = (a0, d0, sz0) :: (a1, d1, sz1) :: (a2, d2, sz2) :: suf := by
-    dsimp [e, a1, a2, suf]
-    rw [Executable.withAddresses_cons, Executable.withAddresses_cons, Executable.withAddresses_cons]
-  have h_drop_a0 : e.withAddresses.dropWhile (·.1 ≠ a0) =
-      (a0, d0, sz0) :: (a1, d1, sz1) :: (a2, d2, sz2) :: suf := by
-    rw [h_wa, List.dropWhile_cons]
-    simp
-  have h_drop_a2 : e.withAddresses.dropWhile (·.1 ≠ a2) = (a2, d2, sz2) :: suf := by
-    by_cases h10 : a1 = a0
-    · have ha2_ne_a0 : (a2 = a0) = False := eq_false (h10 ▸ ha2_ne_a1)
-      have h_step : (e.withAddresses.dropWhile (·.1 ≠ a0)).dropWhile (·.1 = a0) = (a2, d2, sz2) :: suf := by
-        rw [h_drop_a0, List.dropWhile_cons, List.dropWhile_cons, List.dropWhile_cons]
-        simp [h10, ha2_ne_a0]
-      exact hwf a0 (a2, d2, sz2) suf h_step
-    · have ha1_ne_a0 : (a1 = a0) = False := eq_false h10
-      have h_step1 : (e.withAddresses.dropWhile (·.1 ≠ a0)).dropWhile (·.1 = a0) =
-          (a1, d1, sz1) :: (a2, d2, sz2) :: suf := by
-        rw [h_drop_a0, List.dropWhile_cons, List.dropWhile_cons]
-        simp [ha1_ne_a0]
-      have h_drop_a1 : e.withAddresses.dropWhile (·.1 ≠ a1) =
-          (a1, d1, sz1) :: (a2, d2, sz2) :: suf :=
-        hwf a0 (a1, d1, sz1) ((a2, d2, sz2) :: suf) h_step1
-      have ha2_ne_a1' : (a2 = a1) = False := eq_false ha2_ne_a1
-      have h_step2 : (e.withAddresses.dropWhile (·.1 ≠ a1)).dropWhile (·.1 = a1) = (a2, d2, sz2) :: suf := by
-        rw [h_drop_a1, List.dropWhile_cons, List.dropWhile_cons]
-        simp [ha2_ne_a1']
-      exact hwf a1 (a2, d2, sz2) suf h_step2
-  dsimp [Executable.directivesFromAddress]
-  change (e.withAddresses.dropWhile (·.1 ≠ a2)).map (·.2) = (d2, sz2) :: rest
-  rw [h_drop_a2, List.map_cons]
-  congr 1
-  exact Executable.withAddresses_map_snd rest (a2 + Int64.ofNat sz2)
 
 private theorem int64_add_ofNat_assoc (a : Int64) (m n : Nat) :
     a + Int64.ofNat m + Int64.ofNat n = a + Int64.ofNat (m + n) := by
@@ -485,6 +432,51 @@ theorem Executable.directivesAtAddress_after {Directive : Type} [layout : Layout
   apply withAddresses_takeWhile_eq isZero _ (ds.drop n)
   intro p hp
   exact hvalid p (List.mem_of_mem_drop hp)
+
+theorem Executable.directivesFromAddress_after {Directive : Type} [layout : Layout Directive]
+    (isZero : Directive → Bool) (prog : List Directive)
+    (hwf : (layout prog).WellFormed)
+    (hvalid : ∀ p ∈ (layout prog).2, if isZero p.1 then p.2 = 0 else Int64.ofNat p.2 ≠ 0)
+    (n : Nat) (hn : n < prog.length)
+    (hprev : n = 0 ∨ ∃ hlt : n - 1 < prog.length, isZero prog[n - 1] = false) :
+    let ds := prog.mapIdx (fun i d => (d, layout.size i))
+    let len := ((ds.take n).map (fun (_, sz) => Int64.ofNat sz)).sum
+    (layout prog).directivesFromAddress (layout.start + len) =
+      ds.drop n := by
+  dsimp [Executable.directivesFromAddress, Layout.apply]
+  let ds := prog.mapIdx (fun i d => (d, layout.size i))
+  have h_len : ds.length = prog.length := List.length_mapIdx
+  have hn_ds : n < ds.length := h_len.symm ▸ hn
+  have hprev_ds : n = 0 ∨ ∃ hlt : n - 1 < ds.length, isZero ds[n - 1].1 = false := by
+    rcases hprev with rfl | ⟨hlt, hz⟩
+    · exact Or.inl rfl
+    · refine Or.inr ⟨h_len.symm ▸ hlt, ?_⟩
+      simpa [ds] using hz
+  have h_drop := (withAddresses_dropWhile_eq_invariant isZero layout.start ds hwf hvalid n hn_ds).2 hprev_ds
+  rw [h_drop]
+  exact Executable.withAddresses_map_snd (ds.drop n) _
+
+theorem foldl_range_eq_start_add_sum {Directive : Type} [layout : Layout Directive]
+    (prog : List Directive) (n : Nat) (hn : n ≤ prog.length) :
+    (List.range n).foldl (fun a i => a + Int64.ofNat (layout.size i)) layout.start =
+      layout.start + (((prog.mapIdx (fun i d => (d, layout.size i))).take n).map (fun (_, sz) => Int64.ofNat sz)).sum := by
+  induction n with
+  | zero =>
+    simp
+  | succ k ih =>
+    have hk : k < prog.length := Nat.lt_of_succ_le hn
+    let ds := prog.mapIdx (fun i d => (d, layout.size i))
+    have h_len : ds.length = prog.length := List.length_mapIdx
+    have hk_ds : k < ds.length := h_len.symm ▸ hk
+    rw [List.range_succ, List.foldl_append, List.foldl_cons, List.foldl_nil]
+    rw [ih (Nat.le_of_lt hk)]
+    have h_sum : (((ds.take (k + 1)).map (fun (_, sz) => Int64.ofNat sz)).sum) =
+        (((ds.take k).map (fun (_, sz) => Int64.ofNat sz)).sum) + Int64.ofNat (layout.size k) := by
+      rw [List.take_add_one, List.getElem?_eq_getElem hk_ds, Option.toList_some, List.map_append, List.sum_append]
+      simp [ds]
+    change (layout.start + ((ds.take k).map (fun (_, sz) => Int64.ofNat sz)).sum) + Int64.ofNat (layout.size k) =
+      layout.start + ((ds.take (k + 1)).map (fun (_, sz) => Int64.ofNat sz)).sum
+    rw [h_sum, Int64.add_assoc]
 
 theorem Executable.directivesAtStart_of_valid {Directive : Type} [layout : Layout Directive]
     (isZero : Directive → Bool) (prog : List Directive)

@@ -175,20 +175,15 @@ private theorem uint64_ofInt_nat_toNat {m : Nat} (hm : m < 2 ^ 64) :
 
 set_option maxHeartbeats 4000000 in
 theorem p3_correct [layout: Layout] (h : (layout p3).WellFormed)
-    (hsz0 : Int64.ofNat (layout.size 0) ≠ 0)
-    (hsz : Int64.ofNat (layout.size 1) ≠ 0) (s : MachineData)
+    (hlayout : layout.Valid p3) (s : MachineData)
     (hrax : s.regs.rax = 0) (hb : p3_spec s < 2^64) :
     Eventually (step1 (layout p3))
       (fun s' => s'.1.regs.rdx.toNat = p3_spec s ∧ s'.1.regs.rax = 0)
       (s, layout.start) := by
   let pc_start := layout.start + Int64.ofNat (layout.size 0) + Int64.ofNat (layout.size 1)
-  have h_from_start : (layout p3).directivesFromAddress pc_start =
-      ((p3.mapIdx (fun i d => (d, layout.size i))).drop 2) :=
-    h.directivesFromAddress_drop2 hsz
-  simp [p3, List.mapIdx, List.mapIdx.go] at h_from_start
   kprologue p3 with s
   sym =>
-  kstep 2
+  kstep 1
   tactic =>
   dsimp only [p3_spec] at hb
   apply tailrec_loop_straightline (layout p3) h
@@ -206,7 +201,7 @@ theorem p3_correct [layout: Layout] (h : (layout p3).WellFormed)
     rfl
   · intro v state ⟨hpc, hrbx, hle, hrdx, hrax_st⟩
     obtain ⟨⟨⟨rax', rbx', rcx', rdx', rsi', rdi', rsp', rbp', r8', r9', r10', r11', r12', r13', r14', r15'⟩, zmms', flags', mem'⟩, pc'⟩ := state
-    dsimp only at hpc hrbx hrdx hrax_st
+    dsimp only [pc_start] at hpc hrbx hrdx hrax_st ⊢
     subst hpc
     delta p3 at h ⊢
     have hv_lt : v < 2 ^ 64 := hrbx ▸ rbx'.toBitVec.isLt
