@@ -619,7 +619,8 @@ set_option maxHeartbeats 1000000
   | .shl dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    -- A zero count leaves flags unchanged but still writes dst, zero-extending 32-bit registers.
+    if count == 0 then s.set dst a p next else
     let v := a <<< count
     undefined (λ af =>
     (λ setcf => if count < w.bits then setcf (a <<< (count-1)).msb else undefined setcf) (λ cf =>
@@ -628,7 +629,7 @@ set_option maxHeartbeats 1000000
   | .shr dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let v := a.ushiftRight count
     undefined (λ af =>
     (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
@@ -637,7 +638,7 @@ set_option maxHeartbeats 1000000
   | .sar dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let v := a.sshiftRight count
     undefined (λ af =>
     (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
@@ -647,7 +648,7 @@ set_option maxHeartbeats 1000000
     dst.interp s p (fun a s =>
     src.interp s p (fun b s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let v := (((b.append a) >>> count).take w.bits).setWidth _
     (λ setstatus => if count >= w.bits then undefined setstatus else
       let cf := a.getLsbD (count-1)
@@ -659,7 +660,7 @@ set_option maxHeartbeats 1000000
     dst.interp s p (fun a s =>
     src.interp s p (fun b s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let v := (((a.append b) <<< count).drop w.bits).setWidth _
     (λ setstatus => if count >= w.bits then undefined setstatus else
       let cf := (a <<< (count-1)).msb
@@ -670,7 +671,7 @@ set_option maxHeartbeats 1000000
   | .rol dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let v := a.rotateLeft count
     let cf := v.getLsbD 0
     (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
@@ -678,7 +679,7 @@ set_option maxHeartbeats 1000000
   | .ror dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let v := a.rotateRight count
     let cf := v.msb
     (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
@@ -686,7 +687,7 @@ set_option maxHeartbeats 1000000
   | .rcr dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let t := (BitVec.ofBool s.status.cf ++ a).rotateRight count
     let (cf, v) := (t.msb, t.take w.bits)
     (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
@@ -694,7 +695,7 @@ set_option maxHeartbeats 1000000
   | .rcl dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let t := (BitVec.ofBool s.status.cf ++ a).rotateLeft count
     let (cf, v) := (t.msb, t.take w.bits)
     (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>

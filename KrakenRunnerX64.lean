@@ -181,7 +181,7 @@ def genCandidate : GenM String := do
       let wc ← pick #["w", "l", "q"]
       return s!"cmov{cc} %{← pick (regsByWidth wc)}, %{← pick (regsByWidth wc)}"
   else if cat < 72 then
-    let op ← pick #["shl", "shr", "sar", "rol", "ror", "rcl", "rcr"]
+    let op ← pick #["shl", "shr", "sar", "rol", "ror"]
     match ← nextNat 3 with
     | 0 => return s!"{op}{w} %{dst}"
     | 1 => return s!"{op}{w} %cl, %{dst}"
