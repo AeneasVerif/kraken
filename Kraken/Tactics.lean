@@ -611,11 +611,6 @@ partial def evalSymKStep : Grind.GrindTactic :=
         let (goal, subGoals) ← rwTarget goal false (mkConst thmName)
         logInfo m!"{subGoals.length} subgoals generated"
 
-        let kzeta : DSimproc := fun e => do
-          match e with
-          | .letE _ _ v b _ => return .step (b.instantiate1 v)
-          | _ => return .rfl
-
         let subGoals ← subGoals.mapM fun (subGoal: Grind.Goal) => do
           -- Try simp -- who knows, one might get lucky
           let mut subGoal := subGoal
@@ -624,7 +619,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
               Sym.dsimp
                 (config := { maxSteps := 1000000 })
                 (methods := {
-                  pre := evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta >> kzeta,
+                  pre := evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta >> zeta,
                   post := evalGround >> kdsimpMatch >> kdsimpProj >> kbeta })
                 (← subGoal.mvarId.getType))
             subGoal := { subGoal with mvarId }
