@@ -248,22 +248,119 @@ def kdsimpFindLabel : DSimproc := fun e => do
 
 def kLiftLets : DSimproc := fun e => do
   -- We only lift lets to the top-level (which is always an application of
-  -- Effects.all)
+  -- Effects.All)
   unless e.isApp && e.getAppFn'.isConstOf `Effects.All do return .rfl
+  let e' ← Sym.liftLets e
+  if isSameExpr e e' then return .rfl else return .step e'
 
-  let (es, st) ← ExtractLets.extract #[e] |>.run {} |>.run' {} |>.run { givenNames := [] }
-  unless st.decls.size > 0 do return .rfl
+def zetaFVars (e : Expr) : MetaM Expr :=
+  Meta.transform e (usedLetOnly := true) (pre := fun sub => do
+    let .fvar fvarId := sub.getAppFn | return .continue
+    let some decl ← fvarId.findDecl? | return .continue
+    let some val := decl.value? (allowNondep := true) | return .continue
+    return .visit <| (← instantiateMVars val).beta sub.getAppArgs)
 
-  let e' := Meta.ExtractLets.mkLetDecls st.decls es[0]!
-  let e' ← Sym.share e'
-  /- logInfo m!"liftLets produces {e'}" -/
-  return .step e'
+def kdsimpIteCond : DSimproc := fun e => do
+  let_expr f@ite α c inst a b := e | return .rfl
+  let c' ← zetaFVars c
+  if c' == c then return .rfl
+  let inst' ← zetaFVars inst
+  return .step (← shareCommon (mkApp5 f α c' inst' a b))
+
+def skipEventuallyDSimp : DSimproc := fun e => do
+  if e.isAppOf ``Eventually then return .rfl (done := true) else return .rfl
+
+def skipEventuallySimp : Sym.Simp.Simproc := fun e => do
+  if e.isAppOf ``Eventually then return .rfl (done := true) else return .rfl
+
+def preprocessGoal (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal := do
+  let target' ← Grind.liftSymM <| Sym.preprocessExpr (← goal.mvarId.getType)
+  return { goal with mvarId := ← goal.mvarId.replaceTargetDefEq target' }
+
+def dsimpGoal (goal : Grind.Goal) (methods : Sym.DSimp.Methods) (config : Sym.DSimp.Config := {}) :
+    Grind.GrindTacticM Grind.Goal := do
+  let target' ← Grind.liftGrindM <| Sym.dsimp (config := config) (methods := methods) (← goal.mvarId.getType)
+  return { goal with mvarId := ← goal.mvarId.replaceTargetDefEq target' }
+
+def addDeclsAndLCtxTheorems (thms : Sym.Simp.Theorems) (decls : List Name) : MetaM Sym.Simp.Theorems := do
+  let mut thms := thms
+  for decl in decls do
+    thms := thms.insert (← Sym.Simp.mkTheoremFromDecl decl)
+  for ldecl in ← getLCtx do
+    if !ldecl.isImplementationDetail then
+      try
+        thms := thms.insert (← Sym.Simp.mkTheoremFromExpr ldecl.toExpr)
+      catch _ =>
+        pure ()
+  return thms
+
+def addDirectiveAddressTheorems (thms : Sym.Simp.Theorems) : MetaM Sym.Simp.Theorems := do
+  let mut thms := thms
+  let lctx ← getLCtx
+  for ldecl in lctx do
+    if !ldecl.isImplementationDetail && ldecl.type.isAppOfArity ``Layout.Valid 2 then
+      let layoutExpr := ldecl.type.getAppArgs[0]!
+      let progExpr := ldecl.type.getAppArgs[1]!
+      let hlayout := ldecl.toExpr
+      thms := thms.insert (← Sym.Simp.mkTheoremFromExpr
+        (← mkAppM ``Executable.directivesAtStart #[progExpr, hlayout]))
+      for ldecl_wf in lctx do
+        if !ldecl_wf.isImplementationDetail && ldecl_wf.type.isAppOfArity ``Kraken.Executable.WellFormed 2 then
+          let mut addrExpr ← mkAppOptM ``Kraken.Layout.start #[none, some layoutExpr]
+          for n in [1:8] do
+            let szExpr ← mkAppOptM ``Kraken.Layout.size #[none, some layoutExpr, some (mkNatLit (n - 1))]
+            addrExpr ← mkAppM ``HAdd.hAdd #[addrExpr, ← mkAppM ``Int64.ofNat #[szExpr]]
+            let validApp ← mkAppM ``validSplitIndex #[progExpr, mkNatLit n]
+            if ← isDefEq validApp (mkConst ``true) then
+              let haddr ← mkEqRefl addrExpr
+              let hvalid ← mkEqRefl (mkConst ``true)
+              for thm in [``Executable.directivesAtAddress_add, ``Executable.directivesFromAddress_add] do
+                let e ← mkAppM thm #[progExpr, ldecl_wf.toExpr, hlayout, mkNatLit n, haddr, hvalid]
+                thms := thms.insert (← Sym.Simp.mkTheoremFromExpr e)
+  return thms
+
+def prepStepGoal (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal :=
+  goal.withContext do
+    let goal ← preprocessGoal goal
+    let goal ← dsimpGoal goal {
+      pre := skipEventuallyDSimp >>
+        kdeltaBetaOnly [`step1, `Executable.step, `straightlineStep, `Executable.straightline] >>
+        kdsimpProj >> kbeta
+    }
+    let initTheorems ← addDirectiveAddressTheorems (← addDeclsAndLCtxTheorems {} [
+      ``Kraken.Executable.directivesFromStart,
+      ``Kraken.takeAtAddressWith.eq_1,
+      ``Kraken.takeAtAddressWith.eq_2,
+      ``Directive.isZeroSize.eq_1,
+      ``Directive.isZeroSize.eq_2,
+      ``Directive.isZeroSize.eq_3,
+      ``List.drop_zero,
+      ``List.drop_succ_cons,
+      ``List.mapIdx_nil,
+      ``List.mapIdx_cons,
+      ``Bool.false_eq_true,
+      ``_root_.ite_true,
+      ``_root_.ite_false
+    ])
+    let initSimpMethods : Sym.Simp.Methods := {
+      pre := skipEventuallySimp,
+      post := Sym.Simp.evalGround >> initTheorems.rewrite
+    }
+    let mut goal := goal
+    for _ in [:20] do
+      match ← Grind.liftGrindM <| Sym.simpGoal goal.mvarId initSimpMethods with
+      | .goal mvarId =>
+        goal ← dsimpGoal { goal with mvarId } {
+          pre := skipEventuallyDSimp >> evalGround >> kdsimpProj >> kbeta,
+          post := evalGround >> kdsimpProj >> kbeta
+        }
+      | .noProgress => break
+      | .closed => throwError "unexpected"
+    pure goal
 
 -- FIXME: a copy-paste of the Lean implementation since it's marked as private
 def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
   goal.withContext do
-    let lctx₀ ← getLCtx
-    let localInsts₀ ← getLocalInstances
     let mvarCounterSaved := (← getMCtx).mvarCounter
     let target ← goal.mvarId.getType
     let (eNewRaw, eqProof, mvarIds) ← Term.withSynthesize do
@@ -277,50 +374,24 @@ def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM
       let heqType ← instantiateMVars (← inferType heq)
       let heqType' ← Sym.unfoldReducible heqType
       let heq ← if isSameExpr heqType heqType' then pure heq else mkExpectedTypeHint heq heqType'
-      if target.isLet then
-        let rec rwUnderLets (e : Expr) (fvars : Array Expr) (letInfo : Array (Name × Expr × Expr × Bool)) :
-            MetaM (Expr × Expr × List MVarId) := do
-          match e with
-          | .letE n t v b nondep =>
-            let tInst := t.instantiateRev fvars
-            let vInst := v.instantiateRev fvars
-            withLetDecl n tInst vInst (nondep := false) fun x =>
-              rwUnderLets b (fvars.push x) (letInfo.push (n, t, v, nondep))
-          | _ =>
-            let eInst := e.instantiateRev fvars
-            let tmpMVar ← mkFreshExprMVar eInst
-            let r ← tmpMVar.mvarId!.rewrite eInst heq symm
-            let mctx ← getMCtx
-            let mut outerMVarIds : List MVarId := []
-            for mvarId in r.mvarIds do
-              if !(← mvarId.isAssigned) then
-                let mDecl := mctx.getDecl mvarId
-                if mDecl.index >= mvarCounterSaved then
-                  let mut mType := (← instantiateMVars mDecl.type).abstract fvars
-                  if mType.hasLooseBVars then
-                    for (n, t, v, _) in letInfo.reverse do
-                      mType := .letE n t v mType false
-                  let outerMVar ← mkFreshExprMVarAt lctx₀ localInsts₀ mType mDecl.kind mDecl.userName
-                  mvarId.assign outerMVar
-                  outerMVarIds := outerMVarIds ++ [outerMVar.mvarId!]
-            let mut eNew := (← instantiateMVars r.eNew).abstract fvars
-            let mut eqPrf := (← instantiateMVars r.eqProof).abstract fvars
-            for (n, t, v, nondep) in letInfo.reverse do
-              eNew := .letE n t v eNew nondep
-              eqPrf := .letE n t v eqPrf false
-            return (eNew, eqPrf, outerMVarIds)
-        rwUnderLets target #[] #[]
-      else
-        let r ← goal.mvarId.rewrite target heq symm
+      letTelescope target (preserveNondepLet := false) fun fvars body => do
+        let tmpMVar ← mkFreshExprMVar body (userName := ← goal.mvarId.getTag)
+        let r ← tmpMVar.mvarId!.rewrite body heq symm
         let mctx ← getMCtx
         let mvarIds := r.mvarIds.filter fun mvarId => (mctx.getDecl mvarId |>.index) >= mvarCounterSaved
-        return (r.eNew, r.eqProof, mvarIds)
+        let eNew ← mkLetFVars (usedLetOnly := false) (generalizeNondepLet := false) fvars (← instantiateMVars r.eNew)
+        let eqProof ← mkLetFVars (usedLetOnly := false) (generalizeNondepLet := false) fvars (← instantiateMVars r.eqProof)
+        let mvarIds ← mvarIds.mapM fun mvarId => do
+          let mvarId' := (← instantiateMVars (mkMVar mvarId)).getAppFn.mvarId!
+          mvarId'.setTag (← mvarId.getTag)
+          return mvarId'
+        return (eNew, eqProof, mvarIds)
     let eNew ← Grind.liftSymM <| Sym.preprocessExpr eNewRaw
     let mvarId ← goal.mvarId.replaceTargetEq eNew eqProof
     let mvarIds ← mvarIds.filterM fun mvarId => return !(← mvarId.isAssigned)
-    let sideGoals ← mvarIds.mapM fun mvarId => do
+    let sideGoals ← mvarIds.mapM fun mvarId => mvarId.withContext do
       let target ← mvarId.getType
-      let target' ← Grind.liftSymM <| Sym.preprocessExpr target
+      let target' ← Grind.liftSymM <| Sym.preprocessExpr (← zetaReduce target)
       if isSameExpr target target' then
         -- The metavariable was created by `forallMetaTelescopeReducing` with kind `.natural`;
         -- prevent it from being assigned by unification in later steps.
@@ -330,140 +401,6 @@ def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM
         let mvarId ← mvarId.replaceTargetDefEq target'
         return { goal with mvarId }
     pure ({ goal with mvarId }, sideGoals)
-
--- Workaround for upstream bug in `Lean.Meta.Sym.Simp.toHave` (Have.lean:258 in nightly-2026-09-21),
--- which calls `args[i].betaRev ys` instead of `args[i].betaRev ys.reverse`, reversing the
--- dependencies of any `have` binding that depends on two or more earlier `have` bindings.
-namespace KSimpHave
-open Lean.Meta.Sym
-open Lean.Meta.Sym.Simp
-open Lean.Meta.Sym.Internal
-
-private def consumeForallN (type : Expr) (n : Nat) : Expr :=
-  match n with
-  | 0 => type
-  | n+1 => consumeForallN type.bindingBody! n
-
-private def elimAuxApps (e : Expr) (xs : Array Expr) (varDeps : Array (Array Nat)) : SymM Expr := do
-  let n := xs.size
-  replaceS e fun e offset => do
-    if offset >= e.looseBVarRange then
-      return some e
-    match e.getAppFn with
-    | .bvar idx =>
-      if _h : idx >= offset then
-        if _h : idx < offset + n then
-          let i := n - (idx - offset) - 1
-          let expectedNumArgs := varDeps[i]!.size
-          let numArgs := e.getAppNumArgs
-          if numArgs > expectedNumArgs then
-            return none
-          else
-            return xs[i]
-        else
-          mkBVarS (idx - n)
-      else
-        return some e
-    | _ => return none
-
-private def toHave (e : Expr) (varDeps : Array (Array Nat)) : SymM Expr :=
-  e.withApp fun f args => do
-  if _h : args.size ≠ varDeps.size then unreachable! else
-  let rec go (f : Expr) (xs : Array Expr) (i : Nat) : SymM Expr := do
-    if _h : i < args.size then
-      let .lam n t b _ := f | unreachable!
-      let varPos := varDeps[i]
-      let ys := varPos.map fun i => xs[i]!
-      let type := consumeForallN t varPos.size
-      let val ← share <| args[i].betaRev ys.reverse
-      withLetDecl (nondep := true) n type val fun x => do
-      go b (xs.push (← share x)) (i+1)
-    else
-      let f ← elimAuxApps f xs varDeps
-      let result ← mkLetFVars (generalizeNondepLet := false) (usedLetOnly := false) xs f
-      share result
-  go f #[] 0
-
-private def getUnivs (fType : Expr) : SymM (Array Level × Array Level) := do
-  let rec go (type : Expr) (argUnivs : Array Level) : SymM (Array Level × Array Level) := do
-    match type with
-    | .forallE _ d b _ =>
-      go b (argUnivs.push (← Sym.getLevel d))
-    | _ =>
-      let mut v ← Sym.getLevel type
-      let mut i := argUnivs.size
-      let mut fnUnivs := #[]
-      while i > 0 do
-        i := i - 1
-        let u := argUnivs[i]!
-        v := mkLevelIMax' u v |>.normalize
-        fnUnivs := fnUnivs.push v
-      fnUnivs := fnUnivs.reverse
-      return (argUnivs, fnUnivs)
-  go fType #[]
-
-private def simpBetaApp (e : Expr) (fType : Expr) (fnUnivs argUnivs : Array Level)
-    (simpBody : Sym.Simp.Simproc) : Sym.Simp.SimpM Sym.Simp.Result := do
-  let numArgs := argUnivs.size
-  let mkCongrPrefix (declName : Name) (fType : Expr) (i : Nat) : SymM Expr := do
-    let α := fType.bindingDomain!
-    let β := fType.bindingBody!
-    let u := argUnivs[i]!
-    let v := fnUnivs[i]!
-    return mkApp2 (mkConst declName [u, v]) α β
-  let rec go (e : Expr) (i : Nat) : Sym.Simp.SimpM (Sym.Simp.Result × Expr) := do
-    match e with
-    | .app f a =>
-      let (rf, fType) ← go f (i-1)
-      let r ← match rf, (← Sym.Simp.simp a) with
-        | .rfl _ cd₁, .rfl _ cd₂ =>
-          pure (mkRflResultCD (cd₁ || cd₂))
-        | .step f' hf _ cd₁, .rfl _ cd₂ =>
-          let e' ← mkAppS f' a
-          let h := mkApp4 (← mkCongrPrefix ``congrFun' fType i) f f' hf a
-          pure <| .step e' h (contextDependent := cd₁ || cd₂)
-        | .rfl _ cd₁, .step a' ha _ cd₂ =>
-          let e' ← mkAppS f a'
-          let h := mkApp4 (← mkCongrPrefix ``congrArg fType i) a a' f ha
-          pure <| .step e' h (contextDependent := cd₁ || cd₂)
-        | .step f' hf _ cd₁, .step a' ha _ cd₂ =>
-          let e' ← mkAppS f' a'
-          let h := mkApp6 (← mkCongrPrefix ``congr fType i) f f' a a' hf ha
-          pure <| .step e' h (contextDependent := cd₁ || cd₂)
-      return (r, fType.bindingBody!)
-    | .lam .. => return (← simpBody e, fType)
-    | _ => unreachable!
-  return (← go e (numArgs - 1)).1
-
-public def ksimpLet : Sym.Simp.Simproc := fun e₁ => do
-  let .letE _ _ _ _ true := e₁ | return .rfl
-  let r ← toBetaApp e₁
-  let e₂ := r.e
-  let (argUnivs, fnUnivs) ← getUnivs r.fType
-  let res : Sym.Simp.Result ← match (← simpBetaApp e₂ r.fType fnUnivs argUnivs simpLambda) with
-    | .rfl _ cd =>
-      let e₂' ← zetaUnused e₁
-      if isSameExpr e₁ e₂' then
-        pure (mkRflResultCD cd)
-      else
-        let h := mkApp2 (mkConst ``Eq.refl [r.u]) r.α e₂'
-        pure (.step e₂' h (contextDependent := cd))
-    | .step e₃ h _ cd =>
-      let h₁ := mkApp6 (mkConst ``Eq.trans [r.u]) r.α e₁ e₂ e₃ r.h h
-      let e₄ ← toHave e₃ r.varDeps
-      let eq := mkApp3 (mkConst ``Eq [r.u]) r.α e₃ e₄
-      let h₂ := mkExpectedPropHint (mkApp2 (mkConst ``Eq.refl [r.u]) r.α e₃) eq
-      let h := mkApp6 (mkConst ``Eq.trans [r.u]) r.α e₁ e₃ e₄ h₁ h₂
-      let e₅ ← zetaUnused e₄
-      if isSameExpr e₄ e₅ then
-        pure (.step e₄ h (contextDependent := cd))
-      else
-        let h := mkApp6 (mkConst ``Eq.trans [r.u]) r.α e₁ e₄ e₅ h
-          (mkApp2 (mkConst ``Eq.refl [r.u]) r.α e₅)
-        pure (.step e₅ h (contextDependent := cd))
-  return res.markAsDone
-
-end KSimpHave
 
 @[grind_tactic symKStep]
 partial def evalSymKStep : Grind.GrindTactic :=
@@ -483,18 +420,9 @@ partial def evalSymKStep : Grind.GrindTactic :=
   -- https://lean-lang.org/doc/api/Lean/Meta/Sym/Simp/SimpM.html
   -- note the "contextual ite handling" --> are we doing this?
   let simpTheorems ← goal.withContext do
-    let mut simpTheorems ← ksimpExt.getTheorems
-    for decl in [``Bool.false_eq_true, ``eq_self, ``_root_.ite_true, ``_root_.ite_false] do
-      simpTheorems := simpTheorems.insert (← Sym.Simp.mkTheoremFromDecl decl)
-    for ldecl in ← getLCtx do
-      if !ldecl.isImplementationDetail then
-        try
-          simpTheorems := simpTheorems.insert (← Sym.Simp.mkTheoremFromExpr ldecl.toExpr)
-        catch _ =>
-          pure ()
-    pure simpTheorems
+    addDeclsAndLCtxTheorems (← ksimpExt.getTheorems)
+      [``Bool.false_eq_true, ``eq_self, ``_root_.ite_true, ``_root_.ite_false]
   let simpMethods: Sym.Simp.Methods := {
-    pre := KSimpHave.ksimpLet,
     post := Sym.Simp.evalGround >> simpTheorems.rewrite
   }
 
@@ -505,71 +433,18 @@ partial def evalSymKStep : Grind.GrindTactic :=
     pure (insertPattern specTree pat name)
   ) {}
 
-  let zetaFVars (e : Expr) : MetaM Expr :=
-    Meta.transform e (usedLetOnly := true) (pre := fun sub => do
-      let .fvar fvarId := sub.getAppFn | return .continue
-      let some decl ← fvarId.findDecl? | return .continue
-      let some val := decl.value? (allowNondep := true) | return .continue
-      return .visit <| (← instantiateMVars val).beta sub.getAppArgs)
-
-  let kdsimpIteCond : DSimproc := fun e => do
-    let_expr f@ite α c inst a b := e | return .rfl
-    let c' ← zetaFVars c
-    if c' == c then return .rfl
-    let inst' ← zetaFVars inst
-    return .step (← shareCommon (mkApp5 f α c' inst' a b))
-
-  let rec liftLetsUnderForall (e : Expr) : SymM Expr := do
-    let e ← Sym.liftLets e
-    let rec go (e : Expr) (fvars : Array Expr) : SymM Expr := do
-      match e with
-      | .letE n t v b _ =>
-        let tInst ← Sym.instantiateRevBetaS t fvars
-        let vInst ← Sym.instantiateRevBetaS v fvars
-        withLetDecl n tInst vInst (nondep := false) fun x =>
-          go b (fvars.push x)
-      | .forallE n d b bi =>
-        let dInst ← Sym.instantiateRevBetaS d fvars
-        withLocalDecl n bi dInst fun x => do
-          let bInst ← Sym.instantiateRevBetaS b (fvars.push x)
-          let bLifted ← liftLetsUnderForall bInst
-          let res ← mkForallFVars #[x] bLifted
-          let res ← mkLetFVars (generalizeNondepLet := false) (usedLetOnly := false) fvars res
-          Sym.shareCommon res
-      | _ =>
-        if fvars.isEmpty then
-          return e
-        else
-          let eInst ← Sym.instantiateRevBetaS e fvars
-          let eInst ← Sym.dsimp
-            (config := { maxSteps := 1000000, instances := true })
-            (methods := {
-              pre := evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kdsimpIteCond >> kbeta,
-              post := evalGround >> kdsimpMatch >> kdsimpProj >> kdsimpFindLabel >> kbeta })
-            eInst
-          let res ← mkLetFVars (generalizeNondepLet := false) (usedLetOnly := false) fvars eInst
-          Sym.shareCommon res
-    if e.isLet || e.isForall then
-      go e #[]
-    else
-      return e
+  let dsimpMethods : Sym.DSimp.Methods := {
+    pre := evalGround >> kLiftLets >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kdsimpIteCond >> kbeta,
+    post := evalGround >> kdsimpMatch >> kdsimpProj >> kdsimpFindLabel >> kbeta
+  }
 
   -- MAIN LOOP
   let rec go (goal: Grind.Goal): Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
     -- STEP 1: dsimp
     let goal ← do
-      let target ← Grind.liftGrindM $
-        Sym.dsimp
-          (config := { maxSteps := 1000000, instances := true })
-          (methods := {
-            pre := evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kdsimpIteCond >> kbeta,
-            post := evalGround >> kdsimpMatch >> kdsimpProj >> kdsimpFindLabel >> kbeta })
-          (← goal.mvarId.getType)
-      let target ← Grind.liftGrindM <| do
-        let target ← liftLetsUnderForall target
-        Sym.letToHave target
-      let mvarId ← goal.mvarId.replaceTargetDefEq target
-      pure { goal with mvarId }
+      let goal ← dsimpGoal goal dsimpMethods { maxSteps := 1000000 }
+      let target ← Grind.liftSymM (Sym.liftLets (← goal.mvarId.getType) >>= Sym.letToHave)
+      pure { goal with mvarId := ← goal.mvarId.replaceTargetDefEq target }
 
     if config.debug then
       let t ← goal.mvarId.getType
@@ -611,24 +486,14 @@ partial def evalSymKStep : Grind.GrindTactic :=
         let (goal, subGoals) ← rwTarget goal false (mkConst thmName)
         logInfo m!"{subGoals.length} subgoals generated"
 
-        let subGoals ← subGoals.mapM fun (subGoal: Grind.Goal) => do
+        let subGoals ← subGoals.mapM fun (subGoal: Grind.Goal) => subGoal.withContext do
           -- Try simp -- who knows, one might get lucky
-          let mut subGoal := subGoal
-          for _ in [:3] do
-            let mvarId ← subGoal.mvarId.replaceTargetDefEq (← Grind.liftGrindM $
-              Sym.dsimp
-                (config := { maxSteps := 1000000 })
-                (methods := {
-                  pre := evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta >> zeta,
-                  post := evalGround >> kdsimpMatch >> kdsimpProj >> kbeta })
-                (← subGoal.mvarId.getType))
-            subGoal := { subGoal with mvarId }
-            let simpResult ← Grind.liftGrindM (Sym.simpGoal subGoal.mvarId simpMethods)
-            match simpResult with
-            | .noProgress => break
-            | .goal mvarId => subGoal := { subGoal with mvarId }
-            | .closed => break
-          pure subGoal
+          let subGoal ← dsimpGoal subGoal dsimpMethods { maxSteps := 1000000 }
+          let simpResult ← Grind.liftGrindM (Sym.simpGoal subGoal.mvarId simpMethods)
+          match simpResult with
+          | .noProgress => pure subGoal
+          | .goal mvarId => pure { subGoal with mvarId }
+          | .closed => pure subGoal
 
         -- Found a spec lemma, which will generate subgoals; for now, subgoals (if not solved
         -- already!) are solved via `exact` (which may pick any hypothesis in the context, beware),
@@ -730,88 +595,6 @@ partial def evalSymKStep : Grind.GrindTactic :=
     else
       pure (goal, [])
 
-  let skipEventuallyDSimp : DSimproc := fun e => do
-    if e.isAppOf ``Eventually then return .rfl (done := true) else return .rfl
-
-  let skipEventuallySimp : Sym.Simp.Simproc := fun e => do
-    if e.isAppOf ``Eventually then return .rfl (done := true) else return .rfl
-
-  let tryQuiet {α} (act : Grind.GrindTacticM α) : Grind.GrindTacticM (Option α) := do
-    let savedMsgs ← Core.getMessageLog
-    try
-      let res ← act
-      if (← Core.getMessageLog).hasErrors then
-        Core.setMessageLog savedMsgs
-        return none
-      return some res
-    catch _ =>
-      Core.setMessageLog savedMsgs
-      return none
-
-  let adHocSimp (decls : List Name) (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal :=
-    goal.withContext do
-      let mut initTheorems : Sym.Simp.Theorems := {}
-      for decl in decls do
-        initTheorems := initTheorems.insert (← Sym.Simp.mkTheoremFromDecl decl)
-      let lctx ← getLCtx
-      for ldecl in lctx do
-        if !ldecl.isImplementationDetail then
-          try
-            initTheorems := initTheorems.insert (← Sym.Simp.mkTheoremFromExpr ldecl.toExpr)
-          catch _ =>
-            pure ()
-          if ldecl.type.isAppOfArity ``Layout.Valid 2 then
-            let layoutExpr := ldecl.type.getAppArgs[0]!
-            let progExpr := ldecl.type.getAppArgs[1]!
-            let prog' ← match progExpr.constName? with
-              | some _ => pure ((← unfoldDefinition? progExpr true).getD progExpr)
-              | none => pure progExpr
-            let extraThms : Array Sym.Simp.Theorem ← (do
-              let mut acc : Array Sym.Simp.Theorem := #[]
-              let hlayoutType ← mkAppM ``Layout.Valid #[layoutExpr, prog']
-              let hlayout' ← mkExpectedTypeHint ldecl.toExpr hlayoutType
-              let thmStart ← mkAppM ``Executable.directivesAtStart #[prog', hlayout']
-              acc := acc.push (← Sym.Simp.mkTheoremFromExpr thmStart)
-              for ldecl_wf in lctx do
-                if !ldecl_wf.isImplementationDetail && ldecl_wf.type.isAppOfArity ``Kraken.Executable.WellFormed 2 then
-                  let wfApp ← mkAppM ``Kraken.Layout.apply #[layoutExpr, prog']
-                  let hwfType ← mkAppM ``Kraken.Executable.WellFormed #[wfApp]
-                  let hwf' ← mkExpectedTypeHint ldecl_wf.toExpr hwfType
-                  let mut addrExpr ← mkAppOptM ``Kraken.Layout.start #[some (mkConst ``Directive), some layoutExpr]
-                  for n in [1:8] do
-                    let szExpr ← mkAppOptM ``Kraken.Layout.size #[some (mkConst ``Directive), some layoutExpr, some (mkNatLit (n - 1))]
-                    let ofNatExpr ← mkAppM ``Int64.ofNat #[szExpr]
-                    addrExpr ← mkAppM ``HAdd.hAdd #[addrExpr, ofNatExpr]
-                    let validApp ← mkAppM ``validSplitIndex #[prog', mkNatLit n]
-                    if ← isDefEq validApp (mkConst ``true) then
-                      let haddr ← mkEqRefl addrExpr
-                      let hvalid ← mkExpectedTypeHint (← mkEqRefl (mkConst ``true)) (← mkEq validApp (mkConst ``true))
-                      let eAt ← mkAppOptM ``Executable.directivesAtAddress_add #[some layoutExpr, some prog', some hwf', some hlayout', some (mkNatLit n), some addrExpr, some haddr, some hvalid]
-                      acc := acc.push (← Sym.Simp.mkTheoremFromExpr eAt)
-                      let eFrom ← mkAppOptM ``Executable.directivesFromAddress_add #[some layoutExpr, some prog', some hwf', some hlayout', some (mkNatLit n), some addrExpr, some haddr, some hvalid]
-                      acc := acc.push (← Sym.Simp.mkTheoremFromExpr eFrom)
-              pure acc
-            ) <|> pure #[]
-            for t in extraThms do
-              initTheorems := initTheorems.insert t
-      let initSimpMethods : Sym.Simp.Methods := {
-        pre := skipEventuallySimp,
-        post := Sym.Simp.evalGround >> initTheorems.rewrite
-      }
-      let mut goal := goal
-      for _ in [:20] do
-        let simpRes ← Grind.liftGrindM <| Sym.simpGoal goal.mvarId initSimpMethods
-        match simpRes with
-        | .goal mvarId =>
-          let mvarId ← mvarId.replaceTargetDefEq (← Grind.liftGrindM $
-            Sym.dsimp (methods := {
-              pre := skipEventuallyDSimp >> evalGround >> kdsimpProj >> kbeta,
-              post := evalGround >> kdsimpProj >> kbeta }) (← mvarId.getType))
-          goal := { goal with mvarId }
-        | .noProgress => break
-        | _ => throwError "unexpected"
-      pure goal
-
   unless (← goal.mvarId.getType).consumeMData.isAppOf ``Eventually do
     throwError "kstep: expected goal to be of the form Eventually"
 
@@ -822,34 +605,9 @@ partial def evalSymKStep : Grind.GrindTactic :=
       for _ in [:maxSteps] do
         unless (← goal.mvarId.getType).consumeMData.isAppOf ``Eventually do
           throwError "kstep: expected goal to be of the form Eventually"
-        goal ← goal.withContext do
-          let [mvarId] ← goal.mvarId.apply (← mkConstWithFreshMVarLevels ``eventually_step_cps) | failure
-          let target' ← Grind.liftSymM <| Sym.preprocessExpr (← mvarId.getType)
-          let mvarId ← mvarId.replaceTargetDefEq target'
-          let goal := { goal with mvarId }
-
-          let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM $
-            Sym.dsimp
-              (methods := {
-                pre := skipEventuallyDSimp >> kdeltaBetaOnly [`step1, `Executable.step] >> kdsimpProj >> kbeta })
-              (← goal.mvarId.getType))
-          let goal := { goal with mvarId }
-
-          adHocSimp [
-            ``Kraken.takeAtAddressWith.eq_1,
-            ``Kraken.takeAtAddressWith.eq_2,
-            ``Directive.isZeroSize.eq_1,
-            ``Directive.isZeroSize.eq_2,
-            ``Directive.isZeroSize.eq_3,
-            ``List.drop_zero,
-            ``List.drop_succ_cons,
-            ``List.mapIdx_nil,
-            ``List.mapIdx_cons,
-            ``Bool.false_eq_true,
-            ``_root_.ite_true,
-            ``_root_.ite_false
-          ] goal
-
+        let [mvarId] ← goal.withContext <|
+          goal.mvarId.apply (← mkConstWithFreshMVarLevels ``eventually_step_cps) | failure
+        goal ← prepStepGoal { goal with mvarId }
         let (g, subGoals) ← go goal
         goal := g
         allSubGoals := allSubGoals ++ subGoals
@@ -857,38 +615,14 @@ partial def evalSymKStep : Grind.GrindTactic :=
       logInfo m!"END KSTEP: {allSubGoals.length} sub-goals left"
       Grind.setGoals (allSubGoals ++ [ goal ])
   | .none =>
-      let goal ← goal.withContext do
-        -- apply eventually_straightlineStep_cps
-        let [subGoal, mvarId] ← goal.mvarId.apply (← mkConstWithFreshMVarLevels ``eventually_straightlineStep_cps) | failure
-        -- subgoal for well-formedness: an assumption
-        subGoal.withContext subGoal.assumption
-        let target' ← Grind.liftSymM <| Sym.preprocessExpr (← mvarId.getType)
-        let mvarId ← mvarId.replaceTargetDefEq target'
-        let goal := { goal with mvarId }
-
-        -- Administrative steps:
-        --  dsimp [straightlineStep,Executable.straightline]
-        --  rw [Kraken.Executable.directivesFromStart]
-        --  simp [List.mapIdx, List.mapIdx.go]
-        let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM $
-          Sym.dsimp
-            (methods := {
-              pre := kdeltaBetaOnly [`straightlineStep, `Executable.straightline] >> kdsimpProj >> kbeta })
-            (← goal.mvarId.getType))
-        let goal := { goal with mvarId }
-
-        adHocSimp [``Kraken.Executable.directivesFromStart, ``List.mapIdx_nil, ``List.mapIdx_cons, ``List.drop_zero, ``List.drop_succ_cons] goal
-
+      let [subGoal, mvarId] ← goal.withContext <|
+        goal.mvarId.apply (← mkConstWithFreshMVarLevels ``eventually_straightlineStep_cps) | failure
+      subGoal.withContext subGoal.assumption
+      let goal ← prepStepGoal { goal with mvarId }
       let (goal, subGoals) ← go goal
 
       logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
-
       Grind.setGoals (subGoals ++ [ goal ])
-
---   if let .some r := maxInstrCount then
---     let remaining ← r.get
---     if remaining > 0 then
---       throwError m!"kstep could not step through the remaining {remaining} steps"
 
 
 syntax (name := symRotateRight) "rotate_right" (ppSpace num)? : grind
