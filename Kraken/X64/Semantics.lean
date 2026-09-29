@@ -884,12 +884,10 @@ def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directiv
 abbrev MachineState := MachineData × Int64
 
 def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
-  let := Executable.labels e
-  Directives.interp (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
+  @Directives.interp (Executable.labels e) (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
 def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
-  let := Executable.labels e
-  Directives.interp (e.directivesFromAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
+  @Directives.interp (Executable.labels e) (e.directivesFromAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
 
 -- -- Concrete evaluators for expedient testing
 

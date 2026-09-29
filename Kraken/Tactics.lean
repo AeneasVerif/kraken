@@ -9,6 +9,7 @@ Core tactics and theorems for stepping through Kraken assembly proofs.
 public import Kraken.Attribute
 import Kraken.Layout
 import Kraken.OmniSemantics
+public import Kraken.SeparationTactics
 import Kraken.X64.OmniSemantics
 
 public meta section
@@ -88,7 +89,7 @@ elab_rules : tactic
         (let ss := $s
          change ($eventuallyId:ident _ _ (ss, _))
          obtain $statePat:rcasesPat := $s
-         delta $p)))
+         delta $p at *)))
 
 --------------------------------------------------------------------------------
 
@@ -222,16 +223,28 @@ def kbeta: DSimproc := fun e => do
 def kdsimpProj : DSimproc := fun e => do
   let f := e.getAppFn
   let .const declName _ := f | return .rfl
-  let some _projInfo ← getProjectionFnInfo? declName | return .rfl
-  let reduceProjCont? (e? : Option Expr) : DSimpM Result := do
-    match e? with
-    | none   => return .rfl
-    | some e =>
-      match (← reduceProj? e.getAppFn) with
-      | some f => return .step (← shareCommon (mkAppN f e.getAppArgs))
-      | none   => return .rfl
-  -- TODO: special support for instances?
-  reduceProjCont? (← unfoldDefinition? e)
+  let some projInfo ← getProjectionFnInfo? declName | return .rfl
+  if projInfo.fromClass && declName != ``Labels.label then
+    return .rfl
+  let args := e.getAppArgs
+  if h : projInfo.numParams < args.size then
+    let major := args[projInfo.numParams]
+    if let some f ← withDefault (reduceProj? (mkProj declName.getPrefix projInfo.i major)) then
+      return .step (← shareCommon (mkAppN f (args.extract (projInfo.numParams + 1) args.size)))
+  return .rfl
+
+def kdsimpFindLabel : DSimproc := fun e => do
+  let_expr Option.getD _ opt _ := e | return .rfl
+  unless opt.isAppOf ``List.findSome? do return .rfl
+  let opt' ← withTransparency .all (whnf opt)
+  let_expr Option.some _ val := opt' | return .rfl
+  let val' ← Meta.transform val (pre := fun sub => do
+    if sub.isAppOfArity ``Kraken.Layout.size 3 then
+      let args := sub.getAppArgs
+      let idx' ← withTransparency .all (reduce args[2]!)
+      return .done (mkAppN sub.getAppFn (args.set! 2 idx'))
+    return .continue)
+  return .step (← share val')
 
 def kLiftLets : DSimproc := fun e => do
   -- We only lift lets to the top-level (which is always an application of
@@ -510,10 +523,10 @@ partial def evalSymKStep : Grind.GrindTactic :=
     let e ← Sym.liftLets e
     let rec go (e : Expr) (fvars : Array Expr) : SymM Expr := do
       match e with
-      | .letE n t v b nondep =>
+      | .letE n t v b _ =>
         let tInst ← Sym.instantiateRevBetaS t fvars
         let vInst ← Sym.instantiateRevBetaS v fvars
-        withLetDecl n tInst vInst (nondep := nondep) fun x =>
+        withLetDecl n tInst vInst (nondep := false) fun x =>
           go b (fvars.push x)
       | .forallE n d b bi =>
         let dInst ← Sym.instantiateRevBetaS d fvars
@@ -528,6 +541,12 @@ partial def evalSymKStep : Grind.GrindTactic :=
           return e
         else
           let eInst ← Sym.instantiateRevBetaS e fvars
+          let eInst ← Sym.dsimp
+            (config := { maxSteps := 1000000, instances := true })
+            (methods := {
+              pre := evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kdsimpIteCond >> kbeta,
+              post := evalGround >> kdsimpMatch >> kdsimpProj >> kdsimpFindLabel >> kbeta })
+            eInst
           let res ← mkLetFVars (generalizeNondepLet := false) (usedLetOnly := false) fvars eInst
           Sym.shareCommon res
     if e.isLet || e.isForall then
@@ -543,10 +562,10 @@ partial def evalSymKStep : Grind.GrindTactic :=
         Sym.dsimp
           (config := { maxSteps := 1000000, instances := true })
           (methods := {
-            pre := evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta,
-            post := evalGround >> kdsimpMatch >> kdsimpProj >> kdsimpIteCond >> kbeta })
+            pre := evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kdsimpIteCond >> kbeta,
+            post := evalGround >> kdsimpMatch >> kdsimpProj >> kdsimpFindLabel >> kbeta })
           (← goal.mvarId.getType)
-      let target ← Grind.liftSymM <| do
+      let target ← Grind.liftGrindM <| do
         let target ← liftLetsUnderForall target
         Sym.letToHave target
       let mvarId ← goal.mvarId.replaceTargetDefEq target
@@ -634,6 +653,11 @@ partial def evalSymKStep : Grind.GrindTactic :=
             return true
 
           if (← subGoal.mvarId.getType).getAppFn.isConstOf `Std.ExtHashMap.sep then
+            if ← Kraken.Tactic.solveSepGoal subGoal.mvarId then
+              let t ← subGoal.mvarId.getType
+              let .some e ← getExprMVarAssignment? subGoal.mvarId | throwError "oh noes"
+              logInfo m!"Solved by ecancel: {t} by {e}"
+              return true
             return false
 
           -- Solvable with refl, maybe.

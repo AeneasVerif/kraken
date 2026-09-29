@@ -41,16 +41,16 @@ def Mem.storeInt {w} (m : Mem w) (a : BitVec w) (n : Nat) (v : Int) : Mem w :=
   storeBytes m a (Int.toBytes n v)
 
 
-@[expose] def UInt64.At {w} (val : UInt64) (a : BitVec w) : Mem w :=
+@[reducible, expose] def UInt64.At {w} (val : UInt64) (a : BitVec w) : Mem w :=
   val.toBytes.At a
 
-@[expose] def UInt32.At {w} (val : UInt32) (a : BitVec w) : Mem w :=
+@[reducible, expose] def UInt32.At {w} (val : UInt32) (a : BitVec w) : Mem w :=
   val.toBytes.At a
 
-@[expose] def UInt16.At {w} (val : UInt16) (a : BitVec w) : Mem w :=
+@[reducible, expose] def UInt16.At {w} (val : UInt16) (a : BitVec w) : Mem w :=
   val.toBytes.At a
 
-@[expose] def UInt8.At {w} (val : UInt8) (a : BitVec w) : Mem w :=
+@[reducible, expose] def UInt8.At {w} (val : UInt8) (a : BitVec w) : Mem w :=
   val.toBytes.At a
 
 
