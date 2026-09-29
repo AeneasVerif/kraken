@@ -212,6 +212,14 @@ def BitVec.toFloat32 (v : BitVec 32) : Float32 :=
 def Float32.toBitVec (f : Float32) : BitVec 32 :=
   UInt32.toBitVec (Float32.toBits f)
 
+/-- An SSE single-precision operation on one lane: a NaN operand propagates (quieted, the first
+operand winning), and an invalid operation gives the default NaN ("QNaN floating-point
+indefinite"). Lean's `Float32` would instead canonicalize every NaN to `0x7fc00000`. -/
+def sseBinOp (op : Float32 → Float32 → Float32) (a b : BitVec 32) : BitVec 32 :=
+  if a.toFloat32.isNaN then a ||| 0x400000#32
+  else if b.toFloat32.isNaN then b ||| 0x400000#32
+  else let r := op a.toFloat32 b.toFloat32; if r.isNaN then 0xffc00000#32 else r.toBitVec
+
 structure StatusFlags where
   cf : Bool
   pf : Bool
@@ -655,7 +663,9 @@ set_option maxHeartbeats 1000000
       undefined (λ af =>
       (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
       setstatus (.from_result v { cf, af, of})))) (λ status =>
-    { s with status }.set dst v p next)))
+    -- The result is undefined if the count exceeds the operand size (only possible for 16 bits).
+    (λ setv => if count > w.bits then undefined setv else setv v) (λ v =>
+    { s with status }.set dst v p next))))
   | .shld dst src count =>
     dst.interp s p (fun a s =>
     src.interp s p (fun b s =>
@@ -667,7 +677,8 @@ set_option maxHeartbeats 1000000
       undefined (λ af =>
       (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
       setstatus (.from_result v { cf, af, of})))) (λ status =>
-    { s with status }.set dst v p next)))
+    (λ setv => if count > w.bits then undefined setv else setv v) (λ v =>
+    { s with status }.set dst v p next))))
   | .rol dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
@@ -742,21 +753,11 @@ match i with
   | .subps dst src =>
     src.interp s p (checkAlign := true) (fun a s =>
     dst.interp s p (fun b s =>
-      let v := BitVec.packedBinOp 32 (fun dst_chunk src_chunk =>
-        let f_dst := BitVec.toFloat32 dst_chunk
-        let f_src := BitVec.toFloat32 src_chunk
-        Float32.toBitVec (f_dst - f_src)
-      ) b a
-      s.setAvxLegacy dst v p next))
+      s.setAvxLegacy dst (BitVec.packedBinOp 32 (sseBinOp (· - ·)) b a) p next))
   | .addps dst src =>
     src.interp s p (checkAlign := true) (fun a s =>
     dst.interp s p (fun b s =>
-      let v := BitVec.packedBinOp 32 (fun dst_chunk src_chunk =>
-        let f_dst := BitVec.toFloat32 dst_chunk
-        let f_src := BitVec.toFloat32 src_chunk
-        Float32.toBitVec (f_dst + f_src)
-      ) b a
-      s.setAvxLegacy dst v p next))
+      s.setAvxLegacy dst (BitVec.packedBinOp 32 (sseBinOp (· + ·)) b a) p next))
 
 @[kstep]
 def Instr.interp [Labels]
