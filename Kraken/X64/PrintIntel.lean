@@ -1,4 +1,8 @@
-import Kraken.X64.Syntax
+module
+
+public import Kraken.X64.Syntax
+
+public section
 /-!
 # IntelPrinter
 This file prints Kraken-supported x64 assembly in Intel syntax.

@@ -1,3 +1,5 @@
+module
+
 /-
   Parser Tests - Extracted from Parser.lean
   Uses #guard_msgs to verify parser output against expected results.

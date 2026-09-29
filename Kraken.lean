@@ -1,3 +1,5 @@
+module
+
 /-
 Kraken - x86_64 Assembly Interpreter
 
@@ -7,9 +9,9 @@ Compatible with Lean 4.22.0+.
 For experimental features (SymM tactics), see kraken-experimental/.
 -/
 
-import Kraken.Tactics
+public import Kraken.Tactics
 import Kraken.X64.Examples.Examples
-import Kraken.X64.OmniSemantics
-import Kraken.X64.Parser
-import Kraken.X64.Semantics
-import Kraken.X64.Sep
+public import Kraken.X64.OmniSemantics
+public import Kraken.X64.Parser
+public import Kraken.X64.Semantics
+public import Kraken.X64.Sep

@@ -1,10 +1,12 @@
+module
+
 -- Parses AT&T syntax assembly into Kraken's Lean format and then prints it as Intel syntax.
 import Kraken.X64.Parser
 import Kraken.X64.PrintIntel
 
 open Kraken.X64.Parser
 
-def main (args : List String) : IO UInt32 := do
+public def main (args : List String) : IO UInt32 := do
   if args.isEmpty then
     IO.eprintln "Usage: att2intel <assembly.S>"
     return 1

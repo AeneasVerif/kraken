@@ -1,7 +1,11 @@
+module
+
 import Kraken.Attribute
-import Kraken.Layout
-import Lean
-import Std
+public import Kraken.Layout
+public import Lean.ToExpr
+meta import Lean.Elab.Deriving.ToExpr
+
+@[expose] public section
 
 /--
 Memory access width.

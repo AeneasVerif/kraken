@@ -1,3 +1,7 @@
+module
+
+@[expose] public section
+
 /-
 Common Kraken executable layout.
 -/

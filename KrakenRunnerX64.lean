@@ -1,3 +1,5 @@
+module
+
 /-
 KrakenRunnerX64 - Run assembly instructions through Kraken Semantics and obtain results as json.
 
@@ -82,7 +84,7 @@ def runKraken (asmCode : String)
   let initState: MachineState := ({regs := initRegs, dmem := initStack}, prog.fakeLayout.labels.label _start)
   prog.fakeLayout.eval initState (finishCriterion prog)
 
-def main (args : List String) : IO UInt32 := do
+public def main (args : List String) : IO UInt32 := do
   if args.isEmpty then return 1
 
   let asmCode ← IO.FS.readFile args[0]!

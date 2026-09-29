@@ -1,3 +1,5 @@
+module
+
 /-
   KrakenAArch64 - AArch64 Assembly Interpreter
 
@@ -5,8 +7,8 @@
 -/
 
 import Kraken.AArch64.Examples.Examples
-import Kraken.AArch64.OmniSemantics
-import Kraken.AArch64.Parser
-import Kraken.AArch64.Semantics
-import Kraken.AArch64.Sep
-import Kraken.Tactics
+public import Kraken.AArch64.OmniSemantics
+public import Kraken.AArch64.Parser
+public import Kraken.AArch64.Semantics
+public import Kraken.AArch64.Sep
+public import Kraken.Tactics

@@ -1,3 +1,5 @@
+module
+
 import Kraken.Tactics
 import Kraken.X64.OmniSemantics
 import Kraken.X64.Semantics

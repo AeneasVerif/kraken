@@ -1,10 +1,14 @@
+module
+
 /-
 Omnisemantics for AArch64.
 -/
 
-import Kraken.AArch64.Semantics
+public import Kraken.AArch64.Semantics
 import Kraken.Attribute
-import Kraken.OmniSemantics
+public import Kraken.OmniSemantics
+
+@[expose] public section
 
 @[kstep] def Effects.All (post : MachineState → Prop) : Effects → Prop
   | .done a => post a

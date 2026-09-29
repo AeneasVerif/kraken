@@ -1,3 +1,5 @@
+module
+
 /-
 Kraken - Example Programs
 
@@ -14,6 +16,7 @@ import Kraken.Eval
 import Kraken.SeparationTactics
 import Kraken.Tactics
 import Kraken.Layout
+import Std.Tactic.BVDecide
 import Kraken.X64.OmniSemantics
 import Kraken.X64.Parser
 import Kraken.X64.PrettyPrint
@@ -31,15 +34,11 @@ attribute [ksimp]
   BitVec.ofInt_toInt
   BitVec.ofNat_toNat
   BitVec.ofNat_uInt64ToNat
-  BitVec.reduceOfInt
   BitVec.setWidth_eq
   BitVec.xor_self
+  BitVec.zero_eq
   Int.add_zero
-  Int.reduceBmod
-  Int.reduceNeg
-  Int64.reduceToInt
   Int64.toInt_neg
-  Nat.reducePow
   Nat.shiftRight_zero
   Nat.sub_zero
   UInt64.ofBitVec_add
@@ -99,6 +98,7 @@ theorem swap_correct [layout : Layout] (hwf : (layout swap).WellFormed) (d : Mac
       (d, layout.start) := by
   kprologue swap with d
   sym => kstep; tactic =>
+  intros
   apply Eventually.done
   grind
 
@@ -117,6 +117,7 @@ example [layout : Layout] (hwf : (layout p2).WellFormed) (s : MachineData) :
   sym =>
   kstep
   tactic =>
+  intros
   apply Eventually.done
   rfl
 
@@ -212,11 +213,11 @@ theorem p3_correct [layout: Layout] (h : (layout p3).WellFormed)
       tactic =>
       apply Eventually.done
       exact Or.inl ⟨by simp [hrdx], rfl⟩
-    · have h_cond : (BitVec.ofNat 64 v == BitVec.zero 64) = false := by
+    · have h_cond : (BitVec.ofNat 64 v == 0#64) = false := by
         apply Bool.eq_false_iff.mpr
         intro h_eq
         have h_nat := congrArg BitVec.toNat ( beq_iff_eq.mp h_eq )
-        simp only [BitVec.toNat_ofNat, BitVec.zero, Nat.mod_eq_of_lt hv_lt] at h_nat
+        simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hv_lt] at h_nat
         exact hv0 h_nat
       sym =>
       kstep
@@ -276,6 +277,7 @@ example [layout : Layout] (hwf : (layout p5).WellFormed) s :
   kprologue p5 with s
   sym => kstep; tactic =>
   apply Eventually.done
+  dsimp only
   bv_decide
 
 def p6 := parse("push %rax
@@ -301,6 +303,7 @@ theorem p6_correct [layout : Layout] (hwf : (layout p6).WellFormed) (s₀ : Mach
   tactic =>
   apply Eventually.done
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
+  simp (config := { zetaDelta := true }) only [show (OfNat.ofNat 8 : UInt64) = 8 from rfl]
   bv_decide
 
 -- def bigp := parseFile("./ecc-secp521r1-modp.S")

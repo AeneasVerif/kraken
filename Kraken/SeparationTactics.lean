@@ -1,6 +1,10 @@
+module
+
 import Kraken.Separation
-import Lean.Elab.Tactic
-import Lean.Meta.Tactic.AC
+public meta import Lean.Elab.Tactic
+public meta import Lean.Meta.Tactic.AC
+
+public meta section
 
 open Lean Elab Tactic Meta
 

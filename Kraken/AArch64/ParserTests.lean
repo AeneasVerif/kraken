@@ -1,3 +1,5 @@
+module
+
 /-
   ParserAArch64 Tests
   Uses #guard_msgs to verify AArch64 parser output against expected results.

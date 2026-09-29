@@ -1,15 +1,17 @@
+module
+
 /-
 Common Kraken Proof Tactics.
 
 Core tactics and theorems for stepping through Kraken assembly proofs.
 -/
 
-import Kraken.Attribute
+public import Kraken.Attribute
 import Kraken.Layout
 import Kraken.OmniSemantics
 import Kraken.X64.OmniSemantics
-import Lean
-import Std
+
+public meta section
 
 open Lean Meta Elab Tactic Kraken
 
@@ -270,8 +272,11 @@ def kLiftLets : DSimproc := fun e => do
 -- FIXME: a copy-paste of the Lean implementation since it's marked as private
 def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
   goal.withContext do
+    let lctx₀ ← getLCtx
+    let localInsts₀ ← getLocalInstances
     let mvarCounterSaved := (← getMCtx).mvarCounter
-    let r ← Term.withSynthesize do
+    let target ← goal.mvarId.getType
+    let (eNewRaw, eqProof, mvarIds) ← Term.withSynthesize do
       let heq := term
       /-
       The target is in `sym` normal form (e.g., reducible constants have been unfolded), but the
@@ -282,11 +287,49 @@ def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM
       let heqType ← instantiateMVars (← inferType heq)
       let heqType' ← Sym.unfoldReducible heqType
       let heq ← if isSameExpr heqType heqType' then pure heq else mkExpectedTypeHint heq heqType'
-      goal.mvarId.rewrite (← goal.mvarId.getType) heq symm
-    let mctx ← getMCtx
-    let mvarIds := r.mvarIds.filter fun mvarId => (mctx.getDecl mvarId |>.index) >= mvarCounterSaved
-    let eNew ← Grind.liftSymM <| Sym.preprocessExpr r.eNew
-    let mvarId ← goal.mvarId.replaceTargetEq eNew r.eqProof
+      if let some inner := target.app1? ``gimmickId then
+        let rec rwUnderLets (e : Expr) (fvars : Array Expr) (letInfo : Array (Name × Expr × Expr × Bool)) :
+            MetaM (Expr × Expr × List MVarId) := do
+          match e with
+          | .letE n t v b nondep =>
+            let tInst := t.instantiateRev fvars
+            let vInst := v.instantiateRev fvars
+            withLetDecl n tInst vInst (nondep := false) fun x =>
+              rwUnderLets b (fvars.push x) (letInfo.push (n, t, v, nondep))
+          | _ =>
+            let eInst := e.instantiateRev fvars
+            let tmpMVar ← mkFreshExprMVar eInst
+            let r ← tmpMVar.mvarId!.rewrite eInst heq symm
+            let mctx ← getMCtx
+            let mut outerMVarIds : List MVarId := []
+            for mvarId in r.mvarIds do
+              if !(← mvarId.isAssigned) then
+                let mDecl := mctx.getDecl mvarId
+                if mDecl.index >= mvarCounterSaved then
+                  let mut mType := (← instantiateMVars mDecl.type).abstract fvars
+                  if mType.hasLooseBVars then
+                    for (n, t, v, _) in letInfo.reverse do
+                      mType := .letE n t v mType false
+                  let outerMVar ← mkFreshExprMVarAt lctx₀ localInsts₀ mType mDecl.kind mDecl.userName
+                  mvarId.assign outerMVar
+                  outerMVarIds := outerMVarIds ++ [outerMVar.mvarId!]
+            let mut eNew := (← instantiateMVars r.eNew).abstract fvars
+            let mut eqPrf := (← instantiateMVars r.eqProof).abstract fvars
+            for (n, t, v, nondep) in letInfo.reverse do
+              eNew := .letE n t v eNew nondep
+              eqPrf := .letE n t v eqPrf false
+            let propSort := mkSort Level.zero
+            let eqProofGimmick := mkApp6 (mkConst ``congrArg [Level.one, Level.one])
+              propSort propSort inner eNew (mkConst ``gimmickId) eqPrf
+            return (mkApp (mkConst ``gimmickId) eNew, eqProofGimmick, outerMVarIds)
+        rwUnderLets inner #[] #[]
+      else
+        let r ← goal.mvarId.rewrite target heq symm
+        let mctx ← getMCtx
+        let mvarIds := r.mvarIds.filter fun mvarId => (mctx.getDecl mvarId |>.index) >= mvarCounterSaved
+        return (r.eNew, r.eqProof, mvarIds)
+    let eNew ← Grind.liftSymM <| Sym.preprocessExpr eNewRaw
+    let mvarId ← goal.mvarId.replaceTargetEq eNew eqProof
     let mvarIds ← mvarIds.filterM fun mvarId => return !(← mvarId.isAssigned)
     let sideGoals ← mvarIds.mapM fun mvarId => do
       let target ← mvarId.getType
@@ -300,6 +343,140 @@ def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM
         let mvarId ← mvarId.replaceTargetDefEq target'
         return { goal with mvarId }
     pure ({ goal with mvarId }, sideGoals)
+
+-- Workaround for upstream bug in `Lean.Meta.Sym.Simp.toHave` (Have.lean:258 in nightly-2026-09-21),
+-- which calls `args[i].betaRev ys` instead of `args[i].betaRev ys.reverse`, reversing the
+-- dependencies of any `have` binding that depends on two or more earlier `have` bindings.
+namespace KSimpHave
+open Lean.Meta.Sym
+open Lean.Meta.Sym.Simp
+open Lean.Meta.Sym.Internal
+
+private def consumeForallN (type : Expr) (n : Nat) : Expr :=
+  match n with
+  | 0 => type
+  | n+1 => consumeForallN type.bindingBody! n
+
+private def elimAuxApps (e : Expr) (xs : Array Expr) (varDeps : Array (Array Nat)) : SymM Expr := do
+  let n := xs.size
+  replaceS e fun e offset => do
+    if offset >= e.looseBVarRange then
+      return some e
+    match e.getAppFn with
+    | .bvar idx =>
+      if _h : idx >= offset then
+        if _h : idx < offset + n then
+          let i := n - (idx - offset) - 1
+          let expectedNumArgs := varDeps[i]!.size
+          let numArgs := e.getAppNumArgs
+          if numArgs > expectedNumArgs then
+            return none
+          else
+            return xs[i]
+        else
+          mkBVarS (idx - n)
+      else
+        return some e
+    | _ => return none
+
+private def toHave (e : Expr) (varDeps : Array (Array Nat)) : SymM Expr :=
+  e.withApp fun f args => do
+  if _h : args.size ≠ varDeps.size then unreachable! else
+  let rec go (f : Expr) (xs : Array Expr) (i : Nat) : SymM Expr := do
+    if _h : i < args.size then
+      let .lam n t b _ := f | unreachable!
+      let varPos := varDeps[i]
+      let ys := varPos.map fun i => xs[i]!
+      let type := consumeForallN t varPos.size
+      let val ← share <| args[i].betaRev ys.reverse
+      withLetDecl (nondep := true) n type val fun x => do
+      go b (xs.push (← share x)) (i+1)
+    else
+      let f ← elimAuxApps f xs varDeps
+      let result ← mkLetFVars (generalizeNondepLet := false) (usedLetOnly := false) xs f
+      share result
+  go f #[] 0
+
+private def getUnivs (fType : Expr) : SymM (Array Level × Array Level) := do
+  let rec go (type : Expr) (argUnivs : Array Level) : SymM (Array Level × Array Level) := do
+    match type with
+    | .forallE _ d b _ =>
+      go b (argUnivs.push (← Sym.getLevel d))
+    | _ =>
+      let mut v ← Sym.getLevel type
+      let mut i := argUnivs.size
+      let mut fnUnivs := #[]
+      while i > 0 do
+        i := i - 1
+        let u := argUnivs[i]!
+        v := mkLevelIMax' u v |>.normalize
+        fnUnivs := fnUnivs.push v
+      fnUnivs := fnUnivs.reverse
+      return (argUnivs, fnUnivs)
+  go fType #[]
+
+private def simpBetaApp (e : Expr) (fType : Expr) (fnUnivs argUnivs : Array Level)
+    (simpBody : Sym.Simp.Simproc) : Sym.Simp.SimpM Sym.Simp.Result := do
+  let numArgs := argUnivs.size
+  let mkCongrPrefix (declName : Name) (fType : Expr) (i : Nat) : SymM Expr := do
+    let α := fType.bindingDomain!
+    let β := fType.bindingBody!
+    let u := argUnivs[i]!
+    let v := fnUnivs[i]!
+    return mkApp2 (mkConst declName [u, v]) α β
+  let rec go (e : Expr) (i : Nat) : Sym.Simp.SimpM (Sym.Simp.Result × Expr) := do
+    match e with
+    | .app f a =>
+      let (rf, fType) ← go f (i-1)
+      let r ← match rf, (← Sym.Simp.simp a) with
+        | .rfl _ cd₁, .rfl _ cd₂ =>
+          pure (mkRflResultCD (cd₁ || cd₂))
+        | .step f' hf _ cd₁, .rfl _ cd₂ =>
+          let e' ← mkAppS f' a
+          let h := mkApp4 (← mkCongrPrefix ``congrFun' fType i) f f' hf a
+          pure <| .step e' h (contextDependent := cd₁ || cd₂)
+        | .rfl _ cd₁, .step a' ha _ cd₂ =>
+          let e' ← mkAppS f a'
+          let h := mkApp4 (← mkCongrPrefix ``congrArg fType i) a a' f ha
+          pure <| .step e' h (contextDependent := cd₁ || cd₂)
+        | .step f' hf _ cd₁, .step a' ha _ cd₂ =>
+          let e' ← mkAppS f' a'
+          let h := mkApp6 (← mkCongrPrefix ``congr fType i) f f' a a' hf ha
+          pure <| .step e' h (contextDependent := cd₁ || cd₂)
+      return (r, fType.bindingBody!)
+    | .lam .. => return (← simpBody e, fType)
+    | _ => unreachable!
+  return (← go e (numArgs - 1)).1
+
+public def ksimpLet : Sym.Simp.Simproc := fun e₁ => do
+  let .letE _ _ _ _ true := e₁ | return .rfl
+  let r ← toBetaApp e₁
+  let e₂ := r.e
+  let (argUnivs, fnUnivs) ← getUnivs r.fType
+  let res : Sym.Simp.Result ← match (← simpBetaApp e₂ r.fType fnUnivs argUnivs simpLambda) with
+    | .rfl _ cd =>
+      let e₂' ← zetaUnused e₁
+      if isSameExpr e₁ e₂' then
+        pure (mkRflResultCD cd)
+      else
+        let h := mkApp2 (mkConst ``Eq.refl [r.u]) r.α e₂'
+        pure (.step e₂' h (contextDependent := cd))
+    | .step e₃ h _ cd =>
+      let h₁ := mkApp6 (mkConst ``Eq.trans [r.u]) r.α e₁ e₂ e₃ r.h h
+      let e₄ ← toHave e₃ r.varDeps
+      let eq := mkApp3 (mkConst ``Eq [r.u]) r.α e₃ e₄
+      let h₂ := mkExpectedPropHint (mkApp2 (mkConst ``Eq.refl [r.u]) r.α e₃) eq
+      let h := mkApp6 (mkConst ``Eq.trans [r.u]) r.α e₁ e₃ e₄ h₁ h₂
+      let e₅ ← zetaUnused e₄
+      if isSameExpr e₄ e₅ then
+        pure (.step e₄ h (contextDependent := cd))
+      else
+        let h := mkApp6 (mkConst ``Eq.trans [r.u]) r.α e₁ e₄ e₅ h
+          (mkApp2 (mkConst ``Eq.refl [r.u]) r.α e₅)
+        pure (.step e₅ h (contextDependent := cd))
+  return res.markAsDone
+
+end KSimpHave
 
 @[grind_tactic symKStep]
 partial def evalSymKStep : Grind.GrindTactic :=
@@ -342,7 +519,10 @@ partial def evalSymKStep : Grind.GrindTactic :=
         catch _ =>
           pure ()
     pure simpTheorems
-  let simpMethods: Sym.Simp.Methods := { post := Sym.Simp.evalGround >> simpTheorems.rewrite }
+  let simpMethods: Sym.Simp.Methods := {
+    pre := KSimpHave.ksimpLet,
+    post := Sym.Simp.evalGround >> simpTheorems.rewrite
+  }
 
   let specLemmas := (kspecExtension.getState env).toList
   let specTree: DiscrTree Name ← specLemmas.foldlM (fun specTree name => do
@@ -351,40 +531,71 @@ partial def evalSymKStep : Grind.GrindTactic :=
     pure (insertPattern specTree pat name)
   ) {}
 
-  -- TODO: remove once we have lift_lets
-  let introsIf (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
-    let goal ← removeGimmick goal
-    let goal ← match ← Grind.liftGrindM (goal.intros #[]) with
-      | Grind.IntrosResult.failed => pure goal
-      | .goal _ goal => pure goal
-    pure (← insertGimmick goal)
+  let zetaFVars (e : Expr) : MetaM Expr :=
+    Meta.transform e (usedLetOnly := true) (pre := fun sub => do
+      let .fvar fvarId := sub.getAppFn | return .continue
+      let some decl ← fvarId.findDecl? | return .continue
+      let some val := decl.value? (allowNondep := true) | return .continue
+      return .visit <| (← instantiateMVars val).beta sub.getAppArgs)
 
-  let kzeta : DSimproc := fun e => do
-    match e with
-    | .letE _ _ v b _ => return .step (b.instantiate1 v)
-    | _ => return .rfl
+  let kdsimpIteCond : DSimproc := fun e => do
+    let_expr f@ite α c inst a b := e | return .rfl
+    let c' ← zetaFVars c
+    if c' == c then return .rfl
+    let inst' ← zetaFVars inst
+    return .step (← shareCommon (mkApp5 f α c' inst' a b))
+
+  let rec liftLetsUnderForall (e : Expr) : SymM Expr := do
+    let e ← Sym.liftLets e
+    let rec go (e : Expr) (fvars : Array Expr) : SymM Expr := do
+      match e with
+      | .letE n t v b nondep =>
+        let tInst ← Sym.instantiateRevBetaS t fvars
+        let vInst ← Sym.instantiateRevBetaS v fvars
+        withLetDecl n tInst vInst (nondep := nondep) fun x =>
+          go b (fvars.push x)
+      | .forallE n d b bi =>
+        let dInst ← Sym.instantiateRevBetaS d fvars
+        withLocalDecl n bi dInst fun x => do
+          let bInst ← Sym.instantiateRevBetaS b (fvars.push x)
+          let bLifted ← liftLetsUnderForall bInst
+          let res ← mkForallFVars #[x] bLifted
+          let res ← mkLetFVars (generalizeNondepLet := false) (usedLetOnly := false) fvars res
+          Sym.shareCommon res
+      | _ =>
+        if fvars.isEmpty then
+          return e
+        else
+          let eInst ← Sym.instantiateRevBetaS e fvars
+          let res ← mkLetFVars (generalizeNondepLet := false) (usedLetOnly := false) fvars eInst
+          Sym.shareCommon res
+    if e.isLet || e.isForall then
+      go e #[]
+    else
+      return e
 
   -- MAIN LOOP
   let rec go (goal: Grind.Goal): Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
     -- STEP 1: dsimp
     let goal ← do
-      let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM $
+      let target ← Grind.liftGrindM $
         Sym.dsimp
-          (config := { maxSteps := 1000000 })
+          (config := { maxSteps := 1000000, instances := true })
           (methods := {
-            pre := klog >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta >> kzeta,
-            post := evalGround >> kdsimpMatch >> kdsimpProj >> kbeta >> kzeta })
-          (← goal.mvarId.getType))
-      introsIf ({ goal with mvarId })
+            pre := klog >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta,
+            post := evalGround >> kdsimpMatch >> kdsimpProj >> kdsimpIteCond >> kbeta })
+          (← goal.mvarId.getType)
+      let_expr gimmickId inner := target | throwError "missing gimmick"
+      let target ← Grind.liftSymM <| do
+        let inner ← liftLetsUnderForall inner
+        let inner ← Sym.letToHave inner
+        Sym.Internal.mkAppS target.appFn! inner
+      let mvarId ← goal.mvarId.replaceTargetDefEq target
+      pure { goal with mvarId }
 
     if config.debug then
       let t ← goal.mvarId.getType
-      logInfo m!"MAIN LOOP, after step 1: {goal.mvarId}"
-
-    -- TEMPORARY: trying to simplify binders in the goal
-    /- let goal ← Meta.letToHave goal -/
-    /- let goal ← Grind.liftGrindM $ shareCommon goal -/
-    /- let mvarId ← mvarId.replaceTargetDefEq goal -/
+      logInfo m!"MAIN LOOP, after step 1: {t}"
 
     -- STEP 2: simp
     let (keepGoingSimp, goal) ← Grind.liftGrindM $ do
@@ -405,6 +616,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
       let rec getEffectsState (e : Expr) : Option Expr :=
         match e with
         | .letE _ _ _ body _ => getEffectsState body
+        | .forallE _ _ body _ => getEffectsState body
         | .mdata _ e => getEffectsState e
         | _ =>
           if e.isApp && e.getAppFn.isConstOf `Effects.All && e.getAppArgs.size == 2 then
@@ -417,7 +629,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
       pure state
 
     let (keepGoingSpec, goal) ←
-      match getMatch specTree goalState with
+      match Sym.getMatch (← getMCtx) specTree goalState with
       | #[ thmName ] =>
         logInfo m!"Found a spec lemma: {thmName}"
         let (goal, subGoals) ← rwTarget goal false (mkConst thmName)

@@ -1,3 +1,5 @@
+module
+
 /-
 Kraken AArch64 - Example Programs
 
@@ -11,6 +13,8 @@ import Kraken.AArch64.Sep
 import Kraken.Eval
 import Kraken.SeparationTactics
 import Kraken.Tactics
+import Std.Tactic.BVDecide
+
 
 open Kraken.AArch64
 open Kraken.AArch64.Parser
@@ -21,14 +25,9 @@ attribute [ksimp]
   BitVec.ofInt_ofNat
   BitVec.ofInt_toInt
   BitVec.ofNat_uInt64ToNat
-  BitVec.reduceOfInt
   BitVec.setWidth_eq
   Int.add_zero
-  Int.reduceBmod
-  Int.reduceNeg
-  Int64.reduceToInt
   Int64.toInt_neg
-  Nat.reducePow
   Nat.shiftRight_zero
   Nat.sub_zero
   UInt64.ofBitVec_add
@@ -73,6 +72,8 @@ theorem arith_shift_correct [layout : Layout] (d : MachineData) :
   kprologue arith_shift with d
   sym => kstep; tactic =>
   apply Eventually.done
+  simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl,
+    show (Int64.toInt 0).toNat = 0 from rfl]
   bv_decide
 
 -- Example 4: Stepping through control flow (branch not taken)
@@ -95,6 +96,7 @@ theorem p4_correct [layout : Layout] (d : MachineData) :
   simp [this]
   sym => kstep; tactic =>
   apply Eventually.done
+  simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl]
   bv_decide
 
 -- Example 5: Storing and loading registers to/from memory

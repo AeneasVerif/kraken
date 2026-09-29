@@ -1,8 +1,14 @@
-import Kraken.AArch64.Syntax
+module
+
+public import Kraken.AArch64.Syntax
+meta import Kraken.AArch64.Syntax
 import Kraken.Attribute
-import Kraken.Mem
-import Lean
-import Std
+public import Kraken.Mem
+meta import Kraken.Mem
+public import Lean.ToExpr
+meta import Lean.Elab.Deriving.ToExpr
+
+@[expose] public section
 
 -- injective coercions only
 attribute [-instance] BitVec.instNatCast
