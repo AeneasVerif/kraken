@@ -189,31 +189,8 @@ def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
         -- Really nothing to do here.
         return .rfl
 
-def gimmickId (p: Prop): Prop := p
-
-theorem gimmick {p: Prop} (h: gimmickId p): p := by
-  simp [gimmickId] at h
-  assumption
-
-theorem gimmickInv {p: Prop} (h: p): gimmickId p := by
-  simp [gimmickId]
-  assumption
-
 -- Enable with `set_option trace.Kraken.kstep true`.
 initialize registerTraceClass `Kraken.kstep
-
--- Debugging the reduction steps: to easily have a marker that tells us when we've hit the top-level
--- term, we assume prior to running `kstep`, the user does `apply gimmick`. (This also avoids having
--- to reason about whether we're at the top-level term or not -- we never are.)
-def klog : DSimproc := fun e => do
-  -- Trace every top-level term to show the various states of the dsimp
-  -- call.
-  let s := (← get).numSteps
-  /- if s = 789 then -/
-  /-   return .rfl (done := true) -/
-  if e.isApp && e.getAppFn'.isConstOf ``gimmickId then
-    trace[Kraken.kstep] "step {s} visiting\n{e.getAppRevArgs[0]!}"
-  return .rfl
 
 structure KStepConfig where
   debug := false
@@ -287,7 +264,7 @@ def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM
       let heqType ← instantiateMVars (← inferType heq)
       let heqType' ← Sym.unfoldReducible heqType
       let heq ← if isSameExpr heqType heqType' then pure heq else mkExpectedTypeHint heq heqType'
-      if let some inner := target.app1? ``gimmickId then
+      if target.isLet then
         let rec rwUnderLets (e : Expr) (fvars : Array Expr) (letInfo : Array (Name × Expr × Expr × Bool)) :
             MetaM (Expr × Expr × List MVarId) := do
           match e with
@@ -318,11 +295,8 @@ def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM
             for (n, t, v, nondep) in letInfo.reverse do
               eNew := .letE n t v eNew nondep
               eqPrf := .letE n t v eqPrf false
-            let propSort := mkSort Level.zero
-            let eqProofGimmick := mkApp6 (mkConst ``congrArg [Level.one, Level.one])
-              propSort propSort inner eNew (mkConst ``gimmickId) eqPrf
-            return (mkApp (mkConst ``gimmickId) eNew, eqProofGimmick, outerMVarIds)
-        rwUnderLets inner #[] #[]
+            return (eNew, eqPrf, outerMVarIds)
+        rwUnderLets target #[] #[]
       else
         let r ← goal.mvarId.rewrite target heq symm
         let mctx ← getMCtx
@@ -488,19 +462,6 @@ partial def evalSymKStep : Grind.GrindTactic :=
   -- we only ever use `goal` and never let-bind mvarId.
   let goal : Grind.Goal ← Grind.getMainGoal
 
-  let gimmickRule ← mkBackwardRuleFromDecl ``gimmick
-  let insertGimmick (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
-    let .goals [mvarId] ← Grind.liftGrindM (gimmickRule.apply goal.mvarId) | failure
-    pure { goal with mvarId }
-
-  let gimmickRule ← mkBackwardRuleFromDecl ``gimmickInv
-  let removeGimmick (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
-    let mvarId ← Grind.liftGrindM (do
-      let .goals [mvarId] ← gimmickRule.apply goal.mvarId | failure
-      pure mvarId
-    )
-    pure { goal with mvarId }
-
   let env ← getEnv
 
   let declsForDSimp := (kstepExtension.getState env).toList
@@ -582,14 +543,12 @@ partial def evalSymKStep : Grind.GrindTactic :=
         Sym.dsimp
           (config := { maxSteps := 1000000, instances := true })
           (methods := {
-            pre := klog >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta,
+            pre := evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta,
             post := evalGround >> kdsimpMatch >> kdsimpProj >> kdsimpIteCond >> kbeta })
           (← goal.mvarId.getType)
-      let_expr gimmickId inner := target | throwError "missing gimmick"
       let target ← Grind.liftSymM <| do
-        let inner ← liftLetsUnderForall inner
-        let inner ← Sym.letToHave inner
-        Sym.Internal.mkAppS target.appFn! inner
+        let target ← liftLetsUnderForall target
+        Sym.letToHave target
       let mvarId ← goal.mvarId.replaceTargetDefEq target
       pure { goal with mvarId }
 
@@ -610,9 +569,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
 
     -- STEP 3: spec lemmas
     let goalState ← do
-      let goalT ← goal.mvarId.getType
-      let_expr gimmickId goalT' := goalT | throwError "missing gimmick"
-      let goalT' ← instantiateMVars goalT'
+      let goalT ← instantiateMVars (← goal.mvarId.getType)
       let rec getEffectsState (e : Expr) : Option Expr :=
         match e with
         | .letE _ _ _ body _ => getEffectsState body
@@ -625,7 +582,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
             none
       -- No more Effects.All in the goal -- return to the user (we might be done,
       -- or realistically, we might need to debug).
-      let some state := getEffectsState goalT' | return (goal, [])
+      let some state := getEffectsState goalT | return (goal, [])
       pure state
 
     let (keepGoingSpec, goal) ←
@@ -874,9 +831,8 @@ partial def evalSymKStep : Grind.GrindTactic :=
             ``_root_.ite_false
           ] goal
 
-        let g1 ← insertGimmick goal
-        let (g2, subGoals) ← go g1
-        goal ← removeGimmick g2
+        let (g, subGoals) ← go goal
+        goal := g
         allSubGoals := allSubGoals ++ subGoals
 
       logInfo m!"END KSTEP: {allSubGoals.length} sub-goals left"
@@ -904,14 +860,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
 
         adHocSimp [``Kraken.Executable.directivesFromStart, ``List.mapIdx_nil, ``List.mapIdx_cons, ``List.drop_zero, ``List.drop_succ_cons] goal
 
-      -- Apply the debug gimmick. We actually *do* expect the goal to be in this form (see comment in
-      -- kdeltaBetaOnly).
-      let goal ← insertGimmick goal
-
       let (goal, subGoals) ← go goal
-
-      -- Remove the gimmick debug marker.
-      let goal ← removeGimmick goal
 
       logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
 
