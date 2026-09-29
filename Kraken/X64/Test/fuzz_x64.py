@@ -15,6 +15,7 @@ from asm_tests import KRAKEN_RUNNER, REGS, SAFE_YMMS, ExecutionState, compare_st
 YMM_BASE = (len(REGS) + 1) * 8  # GPRs, then rflags, then ymms
 STATE_BYTES = YMM_BASE + 32 * len(SAFE_YMMS)
 ZERO_GPRS = "\n    ".join(f"movq $0, %{r}" for r in REGS if r != "rsp")
+STACK = 0x7ffecafee200  # Kraken's initial rsp (`stackLocation`); [rsp - 800, rsp) is mapped
 
 
 def kraken(*args, inp=None):
@@ -29,9 +30,10 @@ def hardware_asm(seqs):
         out = f"_final_states + {idx * STATE_BYTES}"
         saves = [f"movq %{r}, {out} + {i * 8}(%rip)" for i, r in enumerate(REGS)]
         saves += [f"vmovups %{y}, {out} + {YMM_BASE + i * 32}(%rip)" for i, y in enumerate(SAFE_YMMS)]
-        saves += ["pushfq", "popq %rax", f"movq %rax, {out} + {len(REGS) * 8}(%rip)"]
+        # The sequence may have moved rsp.
+        saves += [f"movq ${STACK}, %rsp", "pushfq", "popq %rax", f"movq %rax, {out} + {len(REGS) * 8}(%rip)"]
         blocks.append(f"""
-    movq _aligned_rsp(%rip), %rsp
+    movq ${STACK}, %rsp
     pushq $0
     popfq
     leaq -800(%rsp), %rdi
@@ -46,12 +48,11 @@ def hardware_asm(seqs):
     return f"""
 .bss
 _final_states: .space {total}
-_aligned_rsp: .space 8
+.section .stack, "aw", @nobits  # Kraken's stack [STACK - 800, STACK), placed by ld
+.space 800
 .text
 .globl _start
 _start:
-    andq $-256, %rsp
-    movq %rsp, _aligned_rsp(%rip)
 {"".join(blocks)}
     movq $1, %rax
     movq $1, %rdi
@@ -69,7 +70,7 @@ def run_hardware(seqs):
         src, obj, exe = (Path(tmp) / f"batch.{ext}" for ext in ("S", "o", "bin"))
         src.write_text(hardware_asm(seqs))
         subprocess.run(["as", "-o", obj, src], check=True)
-        subprocess.run(["ld", "-o", exe, obj], check=True)
+        subprocess.run(["ld", f"--section-start=.stack={STACK - 800:#x}", "-o", exe, obj], check=True)
         raw = subprocess.run([exe], check=True, capture_output=True, timeout=30).stdout
     return [parse_raw_state(raw[i * STATE_BYTES:(i + 1) * STATE_BYTES]) for i in range(len(seqs))]
 
@@ -97,6 +98,8 @@ def main():
         preds = kraken("--batch", inp=json.dumps(seqs).encode())
         for i, (seq, hw, k) in enumerate(zip(seqs, run_hardware(seqs), preds, strict=True)):
             diffs = compare_states(hw, ExecutionState(**k["state"]), []) if k["ok"] else [f"Kraken: {k['error']}"]
+            if k["ok"] and (hr := hw.regs["rsp"]) != (kr := k["state"]["regs"].get("rsp", 0)):  # compare_states skips rsp
+                diffs.append(f"rsp: x86={hr:#x}, kraken={kr:#x}")
             if diffs:
                 failures += 1
                 print(f"\n[FAIL] seed={seed} seq={i}:\n{seq}\n" + "\n".join(diffs))

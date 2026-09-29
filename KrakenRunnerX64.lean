@@ -7,8 +7,7 @@ At this point this expects a file only containing a list of assembly instruction
 
 Usage: krakenrunner_x64 <assembly.S>
        krakenrunner_x64 --generate <seed> <count> <length>  (random sequences that Kraken deems deterministic)
-       krakenrunner_x64 --batch < sequences.json              (predict final states for a JSON array of sequences;
-                                                               they must not depend on rsp's value)
+       krakenrunner_x64 --batch < sequences.json              (predict final states for a JSON array of sequences)
 
 Arguments:
 - assembly.S: Assembly source file
@@ -20,8 +19,10 @@ Output:
 
 import Kraken.Mem
 import Kraken.X64.Parser
+import Kraken.X64.PrintATT
 import Kraken.X64.Semantics
 import Lean.Data.Json
+public meta import Lean.Elab.Term
 
 open Lean
 
@@ -49,7 +50,7 @@ def summarize (s : MachineData) : StateSummary :=
   let z := s.zmms
   let f := s.status
   { regs := [("rax", r.rax), ("rbx", r.rbx), ("rcx", r.rcx), ("rdx", r.rdx),
-             ("rsi", r.rsi), ("rdi", r.rdi), ("rbp", r.rbp), ("r8", r.r8),
+             ("rsi", r.rsi), ("rdi", r.rdi), ("rsp", r.rsp), ("rbp", r.rbp), ("r8", r.r8),
              ("r9", r.r9), ("r10", r.r10), ("r11", r.r11), ("r12", r.r12),
              ("r13", r.r13), ("r14", r.r14), ("r15", r.r15)],
     zmms := [("zmm0", z.zmm0), ("zmm1", z.zmm1), ("zmm2", z.zmm2), ("zmm3", z.zmm3),
@@ -73,7 +74,7 @@ def stackSize := 800
 -- when we allocate stack memory using arithmetic instructions (which would happen
 -- if the stack were at 0), and fixing the last byte of the address at 0 means that
 -- we will match PF for these operations (providing that we also align rsp on
--- hardware).
+-- hardware; fuzz_x64.py uses exactly this rsp).
 def stackLocation: UInt64 := 0x7ffecafee200
 def initStack : DataMem := (List.replicate stackSize 0xff).At (stackLocation - stackSize)
 def initData : MachineData := {regs := {rsp := stackLocation}, dmem := initStack}
@@ -128,7 +129,6 @@ def stepDeterministic (d : MachineData) (mask : Nat) (asmCode : String) : Option
     let s0 ← outs[0]?
     if outs.any ({ · with status := s0.status } != s0) then failure
     (d, mask) := (s0, outs.foldl (fun acc s => acc ||| (s.status.toMask ^^^ s0.status.toMask)) 0)
-  if d.regs.rsp != stackLocation then failure
   return (d, mask)
 
 def predict (asmCode : String) : Json :=
@@ -136,108 +136,104 @@ def predict (asmCode : String) : Json :=
   | some (s, 0) => Json.mkObj [("ok", toJson true), ("state", toJson (summarize s))]
   | _ => Json.mkObj [("ok", toJson false), ("error", toJson "unparseable, faulting, jumping, or non-deterministic")]
 
-/-! ## Random instruction sequence generation -/
+/-! ## Random instruction sequence generation
 
-abbrev GenM := StateM StdGen
+Candidate instructions are random `Instr`s: `gen_ctors%` derives generators from the constructors
+in Syntax.lean, so every instruction form is covered without being listed here; the hand-written
+instances only choose operand values. Each `--generate` prints 5000 of them with `ATT.instr` and keeps
+those `as` accepts (`genPool`, `assemblable`); every slot of a sequence then draws from that pool
+until Semantics.lean deems the candidate deterministic in the current state (`stepDeterministic`). -/
+
+abbrev GenM := OptionT (StateM StdGen)
 def nextNat (n : Nat) : GenM Nat := modifyGet (randNat · 0 (n - 1))
-def pick {α : Type} [Inhabited α] (xs : Array α) : GenM α := do return xs[← nextNat xs.size]!
+def oneOf {α : Type} (xs : Array (GenM α)) : GenM α := do xs.getD (← nextNat xs.size) failure
+def pick {α : Type} (xs : Array α) : GenM α := oneOf (xs.map pure)
 
-def regsQ := #["rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"]
-def regsByWidth : String → Array String
-  | "b" => #["al", "bl", "cl", "dl", "sil", "dil", "bpl", "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b"]
-  | "w" => #["ax", "bx", "cx", "dx", "si", "di", "bp", "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w"]
-  | "l" => #["eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"]
-  | _ => regsQ
+class Gen (α : Type) where gen : GenM α
+export Gen (gen)
 
-def randImm (w : String) : GenM Int := do
-  let bits := if w == "b" then 8 else if w == "w" then 16 else 32
-  let interesting := #[0, 1, -1, 2, -2, 7, 8, 15, 16, 31, 32, 63, 64, 127, -128, 255, 32767, -32768,
-    65535, 2147483647, -2147483648, 0x55555555].filter fun (i : Int) => -2 ^ (bits - 1) ≤ i && i < 2 ^ bits
-  if (← nextNat 10) < 7 then pick interesting else return (← nextNat (2 ^ bits)) - 2 ^ (bits - 1)
+open Elab Term in
+/-- Picks a constructor of inductive type `T` uniformly (inferring `T`'s parameters) and draws each
+of its fields from `gen`. -/
+elab "gen_ctors% " t:ident : term <= ty => do
+  let alts ← (← getConstInfoInduct (← realizeGlobalConstNoOverload t)).ctors.toArray.mapM fun c => do
+    let info ← getConstInfoCtor c
+    let hole ← `(_)
+    let field ← `((← gen))
+    `(do return @$(mkIdent c) $(.replicate info.numParams hole)* $(.replicate info.numFields field)*)
+  elabTerm (← `(oneOf #[$alts,*])) ty
 
-def genMovabs : GenM String := do return s!"movabsq ${← nextNat (2 ^ 64)}, %{← pick regsQ}"
+instance {α : Type} [Gen α] : Gen (Option α) := ⟨gen_ctors% Option⟩
+instance : Gen Width := ⟨gen_ctors% Width⟩
+instance : Gen AvxWidth := ⟨gen_ctors% AvxWidth⟩
+instance : Gen RegMm := ⟨gen_ctors% RegMm⟩
+instance : Gen Reg64 := ⟨gen_ctors% Reg64⟩
+instance : Gen CondCode := ⟨gen_ctors% CondCode⟩
+instance : Gen AddrIndex := ⟨gen_ctors% AddrIndex⟩
 
-def genCandidate : GenM String := do
-  let cat ← nextNat 100
-  let w ← pick #["b", "w", "l", "q"]
-  let dst ← pick (regsByWidth w)
-  let src ← pick (regsByWidth w)
-  if cat < 24 then
-    let op ← pick #["add", "sub", "adc", "sbb", "and", "or", "xor", "cmp", "test"]
-    if (← nextNat 10) < 4 then return s!"{op}{w} ${← randImm w}, %{dst}"
-    else return s!"{op}{w} %{src}, %{dst}"
-  else if cat < 32 then
-    return s!"{← pick #["inc", "dec", "neg", "not"]}{w} %{dst}"
-  else if cat < 42 then
-    if w == "q" && (← nextNat 2) == 0 then genMovabs
-    else return s!"mov{w} ${← randImm w}, %{dst}"
-  else if cat < 50 then
-    let (ws, wd) ← pick #[("b", "w"), ("b", "l"), ("b", "q"), ("w", "l"), ("w", "q")]
-    return s!"{← pick #["movs", "movz"]}{ws}{wd} %{← pick (regsByWidth ws)}, %{← pick (regsByWidth wd)}"
-  else if cat < 58 then
-    let cc ← pick #["z", "nz", "b", "ae", "a", "be", "l", "le"]
-    if (← nextNat 2) == 0 then return s!"set{cc} %{← pick (regsByWidth "b")}"
-    else
-      let wc ← pick #["w", "l", "q"]
-      return s!"cmov{cc} %{← pick (regsByWidth wc)}, %{← pick (regsByWidth wc)}"
-  else if cat < 72 then
-    let op ← pick #["shl", "shr", "sar", "rol", "ror"]
-    match ← nextNat 3 with
-    | 0 => return s!"{op}{w} %{dst}"
-    | 1 => return s!"{op}{w} %cl, %{dst}"
-    | _ => return s!"{op}{w} ${← pick #[1, 2, 3, 4, 7, 8, 15, 16, 31]}, %{dst}"
-  else if cat < 76 then
-    let ws ← pick #["w", "l", "q"]
-    let cnt ← pick (if ws == "w" then #[1, 2, 7, 15] else #[1, 2, 7, 15, 31])
-    return s!"{← pick #["shld", "shrd"]}{ws} ${cnt}, %{← pick (regsByWidth ws)}, %{← pick (regsByWidth ws)}"
-  else if cat < 82 then
-    match w, ← nextNat 4 with
-    | _, 0 => return s!"mul{w} %{src}"
-    | "b", _ | _, 1 => return s!"imul{w} %{src}"
-    | _, 2 => return s!"imul{w} %{src}, %{dst}"
-    | _, _ => return s!"imul{w} ${← randImm w}, %{src}, %{dst}"
-  else if cat < 86 then
-    let wm ← pick #["l", "q"]
-    let (r1, r2, r3) := (← pick (regsByWidth wm), ← pick (regsByWidth wm), ← pick (regsByWidth wm))
-    if (← nextNat 3) == 0 then return s!"mulx{wm} %{r1}, %{r2}, %{r3}"
-    else return s!"{← pick #["adcx", "adox"]}{wm} %{r1}, %{r2}"
-  else if cat < 90 then
-    let wl ← pick #["w", "l", "q"]
-    let idx ← if (← nextNat 2) == 0 then pure "" else pure s!", %{← pick regsQ}, {← pick #[1, 2, 4, 8]}"
-    return s!"lea{wl} {(← nextNat 256 : Int) - 128}(%{← pick regsQ}{idx}), %{← pick (regsByWidth wl)}"
-  else if cat < 92 then
-    let wb ← pick #["l", "q"]
-    return s!"bswap{wb} %{← pick (regsByWidth wb)}"
-  else if cat < 96 then
-    -- Stay within Kraken's stack mapping [rsp - 800, rsp).
-    let mem := s!"{-512 + 8 * (← nextNat 56 : Int)}(%rsp)"
-    match ← nextNat 3 with
-    | 0 => return s!"mov{w} %{dst}, {mem}"
-    | 1 => return s!"mov{w} {mem}, %{dst}"
-    | _ => return s!"{← pick #["add", "sub", "xor", "and", "or"]}{w} %{dst}, {mem}"
-  else if cat < 98 then
-    return s!"pushq %{← pick regsQ}\n    popq %{← pick regsQ}"
-  else
-    -- Store two finite floats to an aligned stack slot, then load/compute with them.
-    let disp := -512 + 32 * (← nextNat 14 : Int)
-    let rTmp ← pick regsQ
-    let fBits : Array Nat := #[0x00000000, 0x80000000, 0x3F800000, 0xBF800000, 0x40000000, 0x40400000, 0x3F000000, 0x42280000]
-    let (i1, i2) := (← nextNat 16, ← nextNat 16)
-    let setup := s!"movabsq ${(← pick fBits) <<< 32 ||| (← pick fBits)}, %{rTmp}\n    movq %{rTmp}, {disp}(%rsp)\n    movq %{rTmp}, {disp + 8}(%rsp)"
-    match ← nextNat 5 with
-    | 0 => return s!"{setup}\n    movups {disp}(%rsp), %xmm{i1}"
-    | 1 => return s!"{setup}\n    vmovups {disp}(%rsp), %xmm{i1}"
-    | 2 => return s!"{setup}\n    movq %{rTmp}, {disp + 16}(%rsp)\n    movq %{rTmp}, {disp + 24}(%rsp)\n    vmovups {disp}(%rsp), %ymm{i1}"
-    | 3 => return s!"{setup}\n    movaps {disp}(%rsp), %xmm{i1}\n    addps %xmm{i1}, %xmm{i2}"
-    | _ => return s!"{setup}\n    movaps {disp}(%rsp), %xmm{i1}\n    subps %xmm{i1}, %xmm{i2}"
+-- No labels (for `jcc`), nop lengths or alignments; other control flow is rejected by
+-- `stepDeterministic`.
+instance : Gen String := ⟨failure⟩
+instance : Gen Nat := ⟨failure⟩
+-- Small values (below 2^3), the boundaries of each width, and uniformly random values of each width.
+instance : Gen Int64 where gen := do
+  let n : Int := 2 ^ (← pick #[3, 8, 16, 32, 64])
+  return .ofInt (← pick #[0, 1, -1, n / 2 - 1, -(n / 2), n - 1, (← nextNat n.toNat)])
+-- Code addresses differ between Kraken's layout and the hardware binary, so no labels, nor
+-- `before/after_current_instruction`, nor rip-relative addressing.
+instance : Gen ConstExpr := ⟨.int64 <$> gen⟩
+instance : Gen RegOrRip := ⟨.reg <$> gen⟩
+-- Indexed families, which `gen_ctors%` can't handle.
+instance {w} : Gen (Reg w) where gen := match w with
+  | .W8 => oneOf #[(.low · .W8) <$> gen, pick #[.ah, .bh, .ch, .dh]] | w => (.low · w) <$> gen
+instance {w} : Gen (AvxReg w) where gen := match w with
+  | .W128 => .xmm <$> gen | .W256 => .ymm <$> gen | .W512 => .zmm <$> gen
+-- Half of all addresses are slots in Kraken's stack mapping [rsp - 800, rsp) (usable when the
+-- instruction's address size is 64 bits).
+instance : Gen AddrExpr := ⟨oneOf #[gen_ctors% AddrExpr,
+  return { base := some (.reg .rsp), idx := none, disp := .int64 (.ofInt (-1 - (← nextNat stackSize))) }]⟩
 
--- Four random register initializations followed by `length` instructions, each drawn until
--- `stepDeterministic` accepts one. A final `add` makes all flags defined.
-def genSequence (length : Nat) : GenM String := do
+instance : Gen ShiftCountExpr := ⟨gen_ctors% ShiftCountExpr⟩
+instance : Gen RelRegOrMem := ⟨gen_ctors% RelRegOrMem⟩
+instance {w} : Gen (RegOrMem w) := ⟨gen_ctors% RegOrMem⟩
+instance {w} : Gen (Operand w) := ⟨gen_ctors% Operand⟩
+instance {w} : Gen (AvxRegOrMem w) := ⟨gen_ctors% AvxRegOrMem⟩
+instance {w} : Gen (Operation w) := ⟨gen_ctors% Operation⟩
+instance {w} : Gen (AvxOperation w) := ⟨gen_ctors% AvxOperation⟩
+instance : Gen Instr := ⟨gen_ctors% Instr⟩
+
+/-- The candidates that `as` assembles without errors or warnings. APX is excluded because the
+hardware lacks it (e.g. `imul %edx, %r12d, %edi`), AVX-512 because the harness only observes
+ymm0-15. -/
+def assemblable (cands : Array String) : IO (Array String) := IO.FS.withTempFile fun h path => do
+  h.putStr ("\n".intercalate cands.toList ++ "\n"); h.flush
+  let out ← IO.Process.output { cmd := "as", args := #["-march=+noapx_f+noavx512f", "-o", "/dev/null", path.toString] }
+  let pfx := path.toString ++ ":"
+  let bad := out.stderr.splitOn "\n" |>.filterMap fun l =>
+    (l.dropPrefix? pfx).bind (·.takeWhile Char.isDigit |>.toString.toNat?)
+  if out.exitCode != 0 && bad.isEmpty then throw (.userError out.stderr)
+  return cands.zipIdx.filterMap fun (c, i) => if bad.contains (i + 1) then none else some c
+
+def genPool (n : Nat) : StateM StdGen (Array String) :=
+  (Array.range n).filterMapM fun _ => (Kraken.X64.ATT.instr <$> gen).run
+
+-- Loads a random 64-bit value into a register other than rsp.
+def genSeed : GenM String := do
+  let r ← gen; guard (r != Reg64.rsp)
+  let r := Kraken.X64.ATT.reg (.low r .W64)
+  let movabs := s!"movabsq ${← nextNat (2 ^ 64)}, {r}"
+  if ← pick #[true, false] then return movabs
+  -- Also copy it into one of xmm0-15 via the stack; they start zeroed, so SSE ops would
+  -- otherwise see only zeros.
+  return s!"{movabs}\nmovq {r}, -16(%rsp)\nmovq {r}, -8(%rsp)\nmovups -16(%rsp), %xmm{← nextNat 16}"
+
+-- Four random register initializations (`genSeed`) followed by `length` instructions from `pool`, each drawn
+-- until `stepDeterministic` accepts one. A final `add` makes all flags defined.
+def genSequence (pool : Array String) (length : Nat) : StateM StdGen String := do
   let mut (d, mask, lines) := (initData, 0, #[])
   for i in [0 : 4 + length] do
     for _ in [0 : 200] do
-      let cand ← if i < 4 then genMovabs else genCandidate
+      let some cand ← (if i < 4 then genSeed else pick pool).run | continue
       if let some (d', mask') := stepDeterministic d mask cand then
         (d, mask, lines) := (d', mask', lines.push cand)
         break
@@ -247,8 +243,10 @@ def genSequence (length : Nat) : GenM String := do
 public def main (args : List String) : IO UInt32 := do
   match args with
   | ["--generate", seed, count, length] =>
-    let gen := (List.range count.toNat!).mapM fun _ => genSequence length.toNat!
-    IO.println (toJson (gen.run' (mkStdGen seed.toNat!)).run).compress
+    let (pool, g) := (genPool 5000).run (mkStdGen seed.toNat!)
+    let pool ← assemblable pool
+    let gen := (List.range count.toNat!).mapM fun _ => genSequence pool length.toNat!
+    IO.println (toJson (gen.run' g).run).compress
     return 0
   | ["--batch"] =>
     let raw ← (← IO.getStdin).readToEnd
