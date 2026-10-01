@@ -744,24 +744,15 @@ def parseInstr : Parser Instr := do
 
   | "movsx" =>
     -- Must be a register otherwise lacking type info
-    let ⟨ w_src, src ⟩ ← parseRegW; parseComma
-    let ⟨ w_dst, dst ⟩ ← parseRegW
-    match w_src, w_dst with
-    | .W8, .W16 | .W8, .W32 | .W8, .W64
-    | .W16, .W32 | .W16, .W64
-    | .W32, .W64 =>
-      pure (toInstr .none (.movsx (.reg dst) (.reg src)))
-    | _, _ => fail "operand size mismatch for movsx"
+    let ⟨ _w_src, src ⟩ ← parseRegW; parseComma
+    let ⟨ _w_dst, dst ⟩ ← parseRegW
+    pure (toInstr .none (.movsx (.reg dst) (.reg src)))
 
   | "movzx" =>
     -- Must be a register otherwise lacking type info
-    let ⟨ w_src, src ⟩ ← parseRegW; parseComma
-    let ⟨ w_dst, dst ⟩ ← parseRegW
-    match w_src, w_dst with
-    | .W8, .W16 | .W8, .W32 | .W8, .W64
-    | .W16, .W32 | .W16, .W64 =>
-      pure (toInstr .none (.movzx (.reg dst) (.reg src)))
-    | _, _ => fail "operand size mismatch for movzx"
+    let ⟨ _w_src, src ⟩ ← parseRegW; parseComma
+    let ⟨ _w_dst, dst ⟩ ← parseRegW
+    pure (toInstr .none (.movzx (.reg dst) (.reg src)))
 
   | "movsbw" | "movsbl" | "movsbq" | "movswl" | "movswq" | "movslq" =>
     let w_dst ← instrWidth mn
