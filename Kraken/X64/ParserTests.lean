@@ -30,6 +30,20 @@ info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64
 -- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .mov (.Reg (.low .rax .W64)) (.imm 42) }]
 
 /--
+info: [Directive.instr
+    (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑1234605616436508552))] : List Directive
+-/
+#guard_msgs in
+#check parse("movabs $0x1122334455667788, %rax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑1234605616436508552))] : List Directive
+-/
+#guard_msgs in
+#check parse("movabsq $0x1122334455667788, %rax")
+
+/--
 info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑0))] : List Directive
 -/
 #guard_msgs in
@@ -171,6 +185,38 @@ error: line 1: type mismatch in memory addressing operands: base ({w1}) and inde
 /-- error: line 1: can't have two memory operands -/
 #guard_msgs in
 #check parse("mov (%rax), (%rax)")
+
+/-- error: line 1: invalid operands for movabs -/
+#guard_msgs in
+#check parse("movabs $1, %eax")
+
+/-- error: line 1: invalid operands for movabs -/
+#guard_msgs in
+#check parse("movabsl $1, %eax")
+
+/-- error: line 1: invalid operands for movabs -/
+#guard_msgs in
+#check parse("movabs %rax, %rbx")
+
+/-- error: line 1: invalid operands for movabs -/
+#guard_msgs in
+#check parse("movabsq %rax, %rbx")
+
+/-- error: line 1: invalid operands for movabs -/
+#guard_msgs in
+#check parse("movabs (%rax), %rax")
+
+/-- error: line 1: invalid operands for movabs -/
+#guard_msgs in
+#check parse("movabsq (%rax), %rax")
+
+/-- error: line 1: invalid operands for movabs -/
+#guard_msgs in
+#check parse("movabs %rax, (%rax)")
+
+/-- error: line 1: invalid operands for movabs -/
+#guard_msgs in
+#check parse("movabsq %rax, (%rax)")
 
 /-- error: line 1: high byte register cannot be used for an addrexpr -/
 #guard_msgs in
