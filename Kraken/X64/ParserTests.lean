@@ -117,6 +117,125 @@ info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64
 #guard_msgs in
 #check parse("movq $0xff, %rax")
 
+section imm_range
+-- Immediates must fit the field they are encoded in, as checked by GNU as.
+
+-- 64-bit operations (other than mov to a register) take a sign-extended imm32.
+/-- error: line 1: immediate 2147483648 does not fit in the 32-bit immediate field -/
+#guard_msgs in
+#check parse("addq $0x80000000, %rax")
+
+/-- error: line 1: immediate -2147483649 does not fit in the 32-bit immediate field -/
+#guard_msgs in
+#check parse("subq $-0x80000001, %rax")
+
+/-- error: line 1: immediate 4294967295 does not fit in the 32-bit immediate field -/
+#guard_msgs in
+#check parse("andq $0xffffffff, %rax")
+
+/-- error: line 1: immediate 2147483648 does not fit in the 32-bit immediate field -/
+#guard_msgs in
+#check parse("cmpq $0x80000000, (%rax)")
+
+/-- error: line 1: immediate 2147483648 does not fit in the 32-bit immediate field -/
+#guard_msgs in
+#check parse("test $0x80000000, %rax")
+
+/-- error: line 1: immediate 2147483648 does not fit in the 32-bit immediate field -/
+#guard_msgs in
+#check parse("movq $0x80000000, (%rax)")
+
+/-- error: line 1: immediate 4886718345 does not fit in the 32-bit immediate field -/
+#guard_msgs in
+#check parse("pushq $0x123456789")
+
+/-- error: line 1: immediate 2147483648 does not fit in the 32-bit immediate field -/
+#guard_msgs in
+#check parse("imulq $0x80000000, %rax, %rax")
+
+-- Shift counts are an unsigned imm8 (rotate counts may also be a signed imm8).
+/-- error: line 1: immediate 256 does not fit in the 8-bit immediate field -/
+#guard_msgs in
+#check parse("shlq $256, %rax")
+
+/-- error: line 1: immediate -1 does not fit in the 8-bit immediate field -/
+#guard_msgs in
+#check parse("shrl $-1, %eax")
+
+/-- error: line 1: immediate 256 does not fit in the 8-bit immediate field -/
+#guard_msgs in
+#check parse("sar $256, %ax")
+
+/-- error: line 1: immediate -129 does not fit in the 8-bit immediate field -/
+#guard_msgs in
+#check parse("rolw $-129, %ax")
+
+/-- error: line 1: immediate 256 does not fit in the 8-bit immediate field -/
+#guard_msgs in
+#check parse("shldq $256, %rbx, %rax")
+
+-- Valid neighbours: sign-extended imm32 bounds, movabs, and full-width fields
+-- (which as truncates, and so does `Operand.interp`).
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64 (Operation.add ↑(low Reg64.rax Width.W64) ↑↑(-2147483648)))] : List Directive
+-/
+#guard_msgs in
+#check parse("addq $0xffffffff80000000, %rax")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑2147483647))] : List Directive
+-/
+#guard_msgs in
+#check parse("pushq $0x7fffffff")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑4886718345))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq $0x123456789, %rax")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W32 (Operation.add ↑(low Reg64.rax Width.W32) ↑↑4294967296))] : List Directive
+-/
+#guard_msgs in
+#check parse("addl $0x100000000, %eax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.shl (↑(low Reg64.rax Width.W64)) (ShiftCountExpr.imm8 ↑255)))] : List Directive
+-/
+#guard_msgs in
+#check parse("shlq $255, %rax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.ror (↑(low Reg64.rax Width.W64)) (ShiftCountExpr.imm8 ↑(-128))))] : List Directive
+-/
+#guard_msgs in
+#check parse("rorq $-128, %rax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W8
+      (Operation.shl (↑(low Reg64.rax Width.W8)) (ShiftCountExpr.imm8 ↑300)))] : List Directive
+-/
+#guard_msgs in
+#check parse("shlb $300, %al")
+
+-- as reads an operand-sized unsigned value as signed, so this is `rolw $-1`.
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W16
+      (Operation.rol (↑(low Reg64.rax Width.W16)) (ShiftCountExpr.imm8 ↑65535)))] : List Directive
+-/
+#guard_msgs in
+#check parse("rolw $0xffff, %ax")
+
+end imm_range
+
 -- Test: mulx instruction
 /--
 info: [Directive.instr
