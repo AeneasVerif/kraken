@@ -127,3 +127,96 @@ theorem List.At_append {w} (bs1 bs2 : List UInt8) (a : BitVec w)
       rw [BitVec.toNat_sub_of_le h_le]
       rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
     simp only [h_bs1, Option.or_none, h_idx]
+
+/-! ## Load after store
+
+A store writes the bytes a load at the same address and width reads back, a
+second store at that address and width replaces the first, and a store of the
+bytes already there changes nothing. Together they say what a stack slot does
+across a push and the pop that undoes it. -/
+
+private theorem List.mapM_loop_id_some {α : Type} (xs : List α) (acc : List α) :
+    List.mapM.loop id (xs.map some) acc = some (acc.reverse ++ xs) := by
+  induction xs generalizing acc with
+  | nil => simp [List.mapM.loop]
+  | cons x xs ih => simp [List.mapM.loop, ih (x :: acc)]
+
+theorem List.allSome_map_some {α : Type} (l : List α) : List.allSome (l.map some) = some l := by
+  dsimp [List.allSome, List.mapM]
+  rw [List.mapM_loop_id_some l []]
+  simp
+
+/-- A list of options that reads as `some xs` is `xs` under `some`. -/
+theorem List.allSome_eq_map_some {α : Type} :
+    ∀ {l : List (Option α)} {xs : List α}, l.allSome = some xs → l = xs.map some := by
+  intro l
+  induction l with
+  | nil => intro xs h; simp [List.allSome] at h; simp [← h]
+  | cons o l ih =>
+    intro xs h
+    cases o with
+    | none => simp [List.allSome] at h
+    | some a =>
+      simp only [List.allSome, List.mapM_cons, id, Option.bind_some] at h
+      cases hl : (l.mapM id) with
+      | none => rw [hl] at h; exact absurd h (by simp)
+      | some ys =>
+        rw [hl] at h
+        obtain rfl : xs = a :: ys := (Option.some.inj h).symm
+        simp [ih hl]
+
+theorem List.map_range_getElem? {α : Type} (l : List α) :
+    (List.range l.length).map (fun i => l[i]?) = l.map some := by
+  apply List.ext_getElem
+  · simp
+  · intro n h1 h2
+    simp only [List.length_map, List.length_range] at h1
+    simp [List.getElem_map, h1]
+
+/-- A load reads back the bytes the store at that address wrote. -/
+theorem Mem.loadBytes_storeBytes {w} (m : Mem w) (a : BitVec w) (bs : List UInt8)
+    (hw : bs.length ≤ 2 ^ w) :
+    (m.storeBytes a bs).loadBytes a bs.length = some bs := by
+  have hget : ∀ i, i < bs.length →
+      (m.storeBytes a bs).get? (a + .ofNat w i) = bs[i]? := by
+    intro i hi
+    have hlt : i < 2 ^ w := Nat.lt_of_lt_of_le hi hw
+    have hbs : (bs.At a).get? (a + .ofNat w i) = bs[i]? := get?_At_idx bs a i hlt hw
+    rw [Mem.storeBytes, get?_eq_getElem?, ExtHashMap.union_eq, ExtHashMap.getElem?_union,
+      ← get?_eq_getElem?, hbs, List.getElem?_eq_getElem hi]
+    rfl
+  rw [Mem.loadBytes, show (List.range bs.length).map
+      (fun i => (m.storeBytes a bs).get? (a + .ofNat w i))
+    = (List.range bs.length).map (fun i => bs[i]?) from
+      List.map_congr_left (fun i hi => hget i (List.mem_range.mp hi)),
+    List.map_range_getElem?, List.allSome_map_some]
+
+/-- A load reads back the value the store at that address and width wrote,
+narrowed to that width. -/
+theorem Mem.loadInt_storeInt {w} (m : Mem w) (a : BitVec w) (n : Nat) (v : Int)
+    (hw : n ≤ 2 ^ w) :
+    (m.storeInt a n v).loadInt a n = some (Int.ofBytes (Int.toBytes n v)) := by
+  have hlen : (Int.toBytes n v).length = n := Int.toBytes_length n v
+  have hbytes := Mem.loadBytes_storeBytes m a (Int.toBytes n v) (by omega)
+  rw [hlen] at hbytes
+  rw [Mem.storeInt, Mem.loadInt, hbytes]
+  rfl
+
+/-- The later store at an address and width is the one that counts. -/
+theorem Mem.storeBytes_storeBytes {w} (m : Mem w) (a : BitVec w) (bs₁ bs₂ : List UInt8)
+    (hlen : bs₁.length = bs₂.length) :
+    (m.storeBytes a bs₁).storeBytes a bs₂ = m.storeBytes a bs₂ := by
+  apply ExtHashMap.ext_getElem?
+  intro k
+  have hmem : k ∈ bs₁.At a ↔ k ∈ bs₂.At a := by
+    rw [mem_At_iff, mem_At_iff, hlen]
+  simp only [Mem.storeBytes, ExtHashMap.union_eq, ExtHashMap.getElem?_union]
+  cases h₂ : (bs₂.At a)[k]? with
+  | some x => rfl
+  | none =>
+    have hnot₂ : ¬ k ∈ bs₂.At a := by
+      intro hk
+      rw [ExtHashMap.getElem?_eq_some_getElem hk] at h₂
+      cases h₂
+    rw [ExtHashMap.getElem?_eq_none (fun hk => hnot₂ (hmem.mp hk))]
+    rfl
