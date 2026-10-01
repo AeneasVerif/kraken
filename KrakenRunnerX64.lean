@@ -73,8 +73,8 @@ def stackSize := 800
 -- help us avoid disagreements with the actual machine: we will avoid over/underflow
 -- when we allocate stack memory using arithmetic instructions (which would happen
 -- if the stack were at 0), and fixing the last byte of the address at 0 means that
--- we will match PF for these operations (providing that we also align rsp on
--- hardware; fuzz_x64.py uses exactly this rsp).
+-- we will match PF for these operations. The hardware harness (`reset_state` in
+-- Kraken/X64/Test/asm_tests.py) runs with exactly this rsp and stack mapping.
 def stackLocation: UInt64 := 0x7ffecafee200
 def initStack : DataMem := (List.replicate stackSize 0xff).At (stackLocation - stackSize)
 def initData : MachineData := {regs := {rsp := stackLocation}, dmem := initStack}

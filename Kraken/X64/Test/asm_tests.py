@@ -24,6 +24,19 @@ SAFE_YMMS = [f"ymm{i}" for i in range(16)]
 # Maps each flag to its bit in the EFLAGS register.
 FLAG_MAP = {"cf": 0, "pf": 2, "af": 4, "zf": 6, "sf": 7, "of": 11}
 TIMEOUT_SECONDS = 50
+# Kraken's initial rsp and its stack mapping [STACK - STACK_SIZE, STACK), filled with 0xff
+# (`stackLocation`, `stackSize` and `initStack` in KrakenRunnerX64.lean). The low byte of STACK
+# is 0, so PF of rsp arithmetic (e.g. `subq $8, %rsp`) is predictable.
+STACK = 0x7ffecafee200
+STACK_SIZE = 800
+# The dumped machine state: GPRs, rflags, then ymms (see `parse_raw_state`).
+YMM_BASE = (len(REGS) + 1) * 8
+STATE_BYTES = YMM_BASE + 32 * len(SAFE_YMMS)
+# A section for Kraken's stack. Linking with LD_STACK places it at [STACK - STACK_SIZE, STACK), so
+# the binary has exactly Kraken's stack mapping and can use Kraken's absolute rsp.
+STACK_SECTION = f""".section .stack, "aw", @nobits
+.space {STACK_SIZE}"""
+LD_STACK = f"--section-start=.stack={STACK - STACK_SIZE:#x}"
 
 class Color:
     GREEN = "\033[92m"
@@ -32,49 +45,45 @@ class Color:
     BOLD = "\033[1m"
     RESET = "\033[0m"
 
-def get_boilerplate(instruction_text: str) -> str:
-  reg_count = len(REGS)
-  ymm_count = len(SAFE_YMMS)
-  # We move all base registers + the eflags register into memory, so as to dump it later to stdout.
-  # nb: we only read the YMM values since ZMMs are not widely supported
-  total_bytes = (reg_count + 1) * 8 + ymm_count * 32
-  ymm_base = (reg_count + 1) * 8
-
-  moves = "\n    ".join([f"movq %{reg}, _final_state + {i*8}(%rip)" for i, reg in enumerate(REGS)])
-  ymm_moves = "\n    ".join([f"vmovups %{ymm}, _final_state + {ymm_base + i * 32}(%rip)" for i, ymm in enumerate(SAFE_YMMS)])
-
+def reset_state() -> str:
+  """Assembly that sets up Kraken's initial state (`initData` in KrakenRunnerX64.lean): rsp = STACK,
+  rflags = 0, the stack filled with 0xff, and all other GPRs and ymm registers zero."""
+  zero_gprs = "\n    ".join(f"movq $0, %{r}" for r in REGS if r != "rsp")
   return f"""
-.data
-.align 8
-_final_state: .space {total_bytes}
-_old_rsp: .quad 0
+    movq ${STACK}, %rsp
+    pushq $0
+    popfq                       # rflags = 0
+    leaq -{STACK_SIZE}(%rsp), %rdi
+    movb $0xff, %al
+    movq ${STACK_SIZE}, %rcx
+    rep stosb                   # memset(rdi, al, rcx)
+    vzeroall
+    {zero_gprs}
+"""
 
+def save_state(out: str) -> str:
+  """Assembly that stores the machine state (STATE_BYTES bytes) at `out`, in the layout
+  `parse_raw_state` reads. Clobbers rax and rsp."""
+  saves = [f"movq %{r}, {out} + {i * 8}(%rip)" for i, r in enumerate(REGS)]
+  saves += [f"vmovups %{y}, {out} + {YMM_BASE + i * 32}(%rip)" for i, y in enumerate(SAFE_YMMS)]
+  # rflags can only be read via the stack, and the code may have moved rsp.
+  saves += [f"movq ${STACK}, %rsp", "pushfq", "popq %rax", f"movq %rax, {out} + {len(REGS) * 8}(%rip)"]
+  return "\n    " + "\n    ".join(saves) + "\n"
+
+def get_boilerplate(instruction_text: str) -> str:
+  return f"""
+.bss
+_final_state: .space {STATE_BYTES}
+{STACK_SECTION}
 .text
 .globl _start
 _start:
-    # We start at an arbitrary 16B-aligned stack pointer. This makes it
-    # difficult to match the value of PF in the simulator if any computation
-    # is done using rsp (common for cleaning up the stack frame). Since PF
-    # is computed only on the lower 8 bits, if we 256B-align rsp, we can
-    # predict the value of PF (since we can choose rsp in the simulator).
-    movq %rsp, _old_rsp(%rip)   # Save the old rsp.
-    pushfq                      # We have to transfer rflags on the stack.
-    popq %rax                   # Save rflags in rax.
-    andq $-256, %rsp            # 256B-align rsp.
-    pushq %rax                  # Prepare to restore rflags (after xorl stomps them).
-    xorl %eax, %eax             # Zero rax (implicitly zero-extended dword op).
-    popfq                       # Restore rflags + stack alignment.
-
+{reset_state()}
 # --- Test Code Start ---
 {instruction_text}
 # --- Test Code End ---
-    movq _old_rsp(%rip), %rsp   # Restore the old stack pointer.
-    {moves}
-    {ymm_moves}
-    pushfq
-    popq %rax
-    movq %rax, _final_state + {reg_count * 8}(%rip)
-{write_and_exit("_final_state", total_bytes)}"""
+{save_state("_final_state")}
+{write_and_exit("_final_state", STATE_BYTES)}"""
 
 def write_and_exit(buf: str, nbytes: int) -> str:
   """Assembly that writes the `nbytes` bytes at label `buf` to stdout, then exits with status 0.
@@ -124,7 +133,7 @@ def run_real_x86(asm_path: Path) -> Tuple[Optional[ExecutionState], Optional[str
 
         try:
             subprocess.run(["as", "-o", str(obj_file), str(s_file)], check=True, capture_output=True)
-            subprocess.run(["ld", "-o", str(bin_file), str(obj_file)], check=True, capture_output=True)
+            subprocess.run(["ld", LD_STACK, "-o", str(bin_file), str(obj_file)], check=True, capture_output=True)
             res = subprocess.run([str(bin_file)], check=True, capture_output=True, timeout=TIMEOUT_SECONDS)
             return parse_raw_state(res.stdout), None
         except subprocess.CalledProcessError as e:
@@ -157,7 +166,7 @@ def get_undefined_flags(path: Path) -> List[str]:
 
 def compare_states(real: ExecutionState, kraken: ExecutionState, undefined_flags: List[str]) -> List[str]:
     diffs = []
-    for r in [r for r in REGS if r != "rsp"]:
+    for r in REGS:
         rv, kv = real.regs.get(r, 0), kraken.regs.get(r, 0)
         if rv != kv:
             diffs.append(f"{r}: x86={rv:#x} ({rv}), kraken={kv:#x} ({kv})")
