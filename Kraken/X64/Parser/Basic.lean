@@ -772,10 +772,13 @@ def parseInstr : Parser Instr := do
 
   | "lea" =>
     let ( addr_w, src ) ← parseMemory; parseComma
-    let ⟨ _w, dst ⟩ ← parseRegW
-    pure (toInstr (some addr_w) (.lea dst src))
+    let ⟨ w, dst ⟩ ← parseRegW
+    if w = .W8 then
+      fail "invalid operand width for lea"
+    else
+      pure (toInstr (some addr_w) (.lea dst src))
 
-  | "leaq" | "leal" | "leaw" | "leab" =>
+  | "leaq" | "leal" | "leaw" =>
     let w2 ← instrWidth mn
     let ( addr_w, src ) ← parseMemory; parseComma
     let ⟨ w, dst ⟩ ← parseRegW
@@ -888,7 +891,10 @@ def parseInstr : Parser Instr := do
 
   | "shld" =>
     let cnt ← parseShiftExpr; parseComma
-    commaSeparated .none parseRegA parseRegOrMem (fun dst src => .shld dst src cnt)
+    let instr ← commaSeparated .none parseRegA parseRegOrMem (fun dst src => .shld dst src cnt)
+    match instr with
+    | .regular _ .W8 _ => fail "invalid operand width for shld"
+    | _ => pure instr
 
   | "shldq" | "shldl" | "shldw" =>
     let w ← instrWidth mn
@@ -897,7 +903,10 @@ def parseInstr : Parser Instr := do
 
   | "shrd" =>
     let cnt ← parseShiftExpr; parseComma
-    commaSeparated .none parseRegA parseRegOrMem (fun dst src => .shrd dst src cnt)
+    let instr ← commaSeparated .none parseRegA parseRegOrMem (fun dst src => .shrd dst src cnt)
+    match instr with
+    | .regular _ .W8 _ => fail "invalid operand width for shrd"
+    | _ => pure instr
 
   | "shrdq" | "shrdl" | "shrdw" =>
     let w ← instrWidth mn
