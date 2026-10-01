@@ -274,59 +274,59 @@ error: line 1: type mismatch in memory addressing operands: base ({w1}) and inde
 #guard_msgs in
 #check parse("movq %rax, %rbx garbage")
 
-/-- error: line 1: expected register or memory operand, got ( -/
+/-- error: line 1: unexpected trailing characters on line -/
 #guard_msgs in
 #check parse("imul %eax, (%rbx)")
 
-/-- error: line 1: expected register or memory operand, got ( -/
+/-- error: line 1: expected register or memory operand, got $ -/
 #guard_msgs in
 #check parse("imull $5, (%rbx)")
 
-/-- error: line 1: expected register or memory operand, got ( -/
+/-- error: line 1: expected register or memory operand, got $ -/
 #guard_msgs in
 #check parse("imul $5, (%rbx)")
 
-/-- error: line 1: expected register or memory operand, got ( -/
+/-- error: line 1: unexpected trailing characters on line -/
 #guard_msgs in
 #check parse("imull %edx, (%rbx), %r11d")
 
-/-- error: line 1: expected immediate -/
+/-- error: line 1: unexpected trailing characters on line -/
 #guard_msgs in
 #check parse("imull %eax, %ebx, %ecx")
 
-/-- error: line 1: expected immediate -/
+/-- error: line 1: unexpected trailing characters on line -/
 #guard_msgs in
 #check parse("imul %eax, %ebx, %ecx")
 
-/-- error: line 1: 8-bit imul only supports 1 operand -/
+/-- error: line 1: unexpected trailing characters on line -/
 #guard_msgs in
 #check parse("imulb %al, %bl")
 
-/-- error: line 1: 8-bit imul only supports 1 operand -/
+/-- error: line 1: unexpected trailing characters on line -/
 #guard_msgs in
 #check parse("imul %al, %bl")
 
-/-- error: line 1: 8-bit imul only supports 1 operand -/
+/-- error: line 1: expected register or memory operand, got $ -/
 #guard_msgs in
 #check parse("imulb $5, %al")
 
-/-- error: line 1: 8-bit imul only supports 1 operand -/
+/-- error: line 1: expected register or memory operand, got $ -/
 #guard_msgs in
 #check parse("imul $5, %al")
 
-/-- error: line 1: 8-bit imul only supports 1 operand -/
+/-- error: line 1: expected register or memory operand, got $ -/
 #guard_msgs in
 #check parse("imulb $5, %al, %bl")
 
-/-- error: line 1: 8-bit imul only supports 1 operand -/
+/-- error: line 1: expected register or memory operand, got $ -/
 #guard_msgs in
 #check parse("imul $5, %al, %bl")
 
-/-- error: line 1: 8-bit imul only supports 1 operand -/
+/-- error: line 1: unexpected trailing characters on line -/
 #guard_msgs in
 #check parse("imulb (%rax), %al")
 
-/-- error: line 1: 8-bit imul only supports 1 operand -/
+/-- error: line 1: missing type annotation -/
 #guard_msgs in
 #check parse("imul (%rax), %al")
 

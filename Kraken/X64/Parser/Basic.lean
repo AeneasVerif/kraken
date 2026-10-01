@@ -388,6 +388,14 @@ def parseImm w : Parser (Operand w) := do
     | _ => parseLabel
   pure (.imm i)
 
+/-- Parse an immediate operand only. -/
+def parseImmOnly : Parser ConstExpr := do
+  skipHWs
+  let c ← peek!
+  match c with
+  | '$' => parseInt64
+  | _ => fail "expected immediate"
+
 /-- Parse any operand: register, immediate, or memory. -/
 def parseOperand: Parser (MaybeAddrWidth × MaybeOpWidth Operand) := do
   skipHWs
@@ -666,19 +674,19 @@ def parseInstr : Parser Instr := do
 
   | "imul" =>
     (attempt do
-      let src1 ← parseOperand; parseComma;
-      (attempt do
-        let src2 ← parseRegOrMem; parseComma
-        let (addr_w2, ⟨ w, src2, dst ⟩) ← ascribeOrInfer src2 parseRegA
-        let (addr_w1, src1) := src1
-        let src1 ← ascribe w src1
-        let addr_w ← mergeAddrWidths addr_w1 addr_w2
-        pure (toInstr addr_w (.imul (.some dst) src2 src1)))
-      <|> (do
-        let (addr_w, ⟨_w, src1, src2 ⟩) ← ascribeOrInfer src1 parseRegOrMem
-        pure (toInstr addr_w (.imul .none src2 src1))
-      )
-    ) <|> (do
+      let imm ← parseImmOnly; parseComma
+      let src2 ← parseRegOrMem; parseComma
+      let (addr_w, ⟨ w, src2, dst ⟩) ← ascribeOrInfer src2 parseRegA
+      if w == .W8 then fail "8-bit imul only supports 1 operand"
+      pure (toInstr addr_w (.imul (.some dst) src2 (.imm imm)))
+    ) <|>
+    (attempt do
+      let src1 ← parseOperand; parseComma
+      let (addr_w, ⟨ w, src1, dst ⟩) ← ascribeOrInfer src1 parseRegA
+      if w == .W8 then fail "8-bit imul only supports 1 operand"
+      pure (toInstr addr_w (.imul .none dst src1))
+    ) <|>
+    (do
       let (addr_w, src) ← parseRegOrMem
       let ⟨_w, src ⟩ ← assertW src
       pure (toInstr addr_w (.imul1 src))
@@ -687,18 +695,17 @@ def parseInstr : Parser Instr := do
   | "imulq" | "imull" | "imulw" | "imulb" =>
     let w ← instrWidth mn
     (attempt do
-      let (addr_w1, src1) ← parseOperandAO w; parseComma
-      (attempt do
-        let (addr_w2, src2) ← parseRegOrMemAO w; parseComma
-        let dst ← parseRegO w
-        let addr_w ← mergeAddrWidths addr_w1 addr_w2
-        pure (toInstr addr_w (.imul (.some dst) src2 src1))
-      ) <|>
-      (do
-        let (addr_w2, src2) ← parseRegOrMemAO w
-        let addr_w ← mergeAddrWidths addr_w1 addr_w2
-        pure (toInstr addr_w (.imul none src2 src1))
-      )
+      if w == .W8 then fail "8-bit imul only supports 1 operand"
+      let imm ← parseImmOnly; parseComma
+      let (addr_w, src2) ← parseRegOrMemAO w; parseComma
+      let dst ← parseRegO w
+      pure (toInstr addr_w (.imul (.some dst) src2 (.imm imm)))
+    ) <|>
+    (attempt do
+      if w == .W8 then fail "8-bit imul only supports 1 operand"
+      let (addr_w, src1) ← parseOperandAO w; parseComma
+      let dst ← parseRegO w
+      pure (toInstr addr_w (.imul none dst src1))
     ) <|>
     (do
       let (addr_w, src) ← parseRegOrMemAO w
