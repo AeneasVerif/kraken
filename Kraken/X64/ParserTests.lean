@@ -156,11 +156,108 @@ info: [Directive.instr
 #guard_msgs in
 #check parse("leaq 16(%ebp, %ecx, 4), %rax")
 
+
+-- Valid 16-bit, 32-bit, 64-bit LEA forms
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W16
+      (Operation.lea (low Reg64.rax Width.W16)
+        { base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check parse("leaw (%rax), %ax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W16
+      (Operation.lea (low Reg64.rax Width.W16)
+        { base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check parse("lea (%rax), %ax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W32
+      (Operation.lea (low Reg64.rax Width.W32)
+        { base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check parse("leal (%rax), %eax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W32
+      (Operation.lea (low Reg64.rax Width.W32)
+        { base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check parse("lea (%rax), %eax")
+
+-- Valid 16-bit, 32-bit, 64-bit SHLD and SHRD forms
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W16
+      (Operation.shld (↑(low Reg64.rbx Width.W16)) (low Reg64.rax Width.W16)
+        (ShiftCountExpr.imm8 ↑1)))] : List Directive
+-/
+#guard_msgs in
+#check parse("shldw $1, %ax, %bx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W32
+      (Operation.shld (↑(low Reg64.rbx Width.W32)) (low Reg64.rax Width.W32)
+        (ShiftCountExpr.imm8 ↑1)))] : List Directive
+-/
+#guard_msgs in
+#check parse("shld $1, %eax, %ebx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.shrd (↑(low Reg64.rbx Width.W64)) (low Reg64.rax Width.W64) ShiftCountExpr.cl))] : List Directive
+-/
+#guard_msgs in
+#check parse("shrdq %cl, %rax, %rbx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W16
+      (Operation.shrd (↑(low Reg64.rbx Width.W16)) (low Reg64.rax Width.W16) ShiftCountExpr.cl))] : List Directive
+-/
+#guard_msgs in
+#check parse("shrd %cl, %ax, %bx")
+
 section error_reporting
 
 /-- error: line 1: unknown register: unlikely -/
 #guard_msgs in
 #check parse("xorq %rax, %unlikely")
+
+/-- error: line 1: unsupported instruction: leab -/
+#guard_msgs in
+#check parse("leab (%rax), %al")
+
+/-- error: line 1: invalid operand width for lea -/
+#guard_msgs in
+#check parse("lea (%rax), %al")
+
+/-- error: line 1: unsupported instruction: shldb -/
+#guard_msgs in
+#check parse("shldb %cl, %al, %bl")
+
+/-- error: line 1: invalid operand width for shld -/
+#guard_msgs in
+#check parse("shld %cl, %al, %al")
+
+/-- error: line 1: unsupported instruction: shrdb -/
+#guard_msgs in
+#check parse("shrdb $1, %al, (%rax)")
+
+/-- error: line 1: invalid operand width for shrd -/
+#guard_msgs in
+#check parse("shrd %cl, %al, %al")
 
 /--
 error: line 1: type mismatch in memory addressing operands: base ({w1}) and index ({w2}) have different widths
