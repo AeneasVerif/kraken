@@ -1,0 +1,11 @@
+movq $0x123456789, %rax
+movl $0x10, %ecx
+leaq 0x7fffffff(%rax), %rbx
+leaq -0x80000000(%rax), %rdx
+leaq 0xffffffff80000000(%rax), %rsi
+leaq 0xffffffffffffffff(%rax,%rcx,8), %rdi
+leaq 0xffffffff(%eax), %r8
+leaq -0x80000001(%eax,%ecx,2), %r9
+leaq 0x100000000(%eax), %r10
+leaq -1(%ecx,%eax,8), %r11
+leaq (%rcx,%r12), %r12

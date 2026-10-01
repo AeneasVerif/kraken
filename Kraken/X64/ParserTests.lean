@@ -58,6 +58,56 @@ info: [Directive.instr
 #check parse("movq 8(%rsp), %rax")
 -- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .mov (.Reg (.low .rax .W64)) (.mem .rsp .none 1 8) }]
 
+-- Test: displacements at the edges of the signed 32-bit range (accepted by `as`)
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rbx Width.W64)
+        ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := none, disp := ↑2147483647 }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq 0x7fffffff(%rax), %rbx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rbx Width.W64)
+        ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := none, disp := ↑(-2147483648) }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq -0x80000000(%rax), %rbx")
+
+-- `as` accepts 64-bit values that are sign-extended 32-bit displacements.
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rbx Width.W64)
+        ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := none, disp := ↑(-2147483648) }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq 0xffffffff80000000(%rax), %rbx")
+
+-- With 32-bit addressing, `as` truncates the displacement to 32 bits.
+/--
+info: [Directive.instr
+    (regular Width.W32 Width.W64
+      (Operation.mov ↑(low Reg64.rbx Width.W64)
+        ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := none, disp := ↑4294967295 }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq 0xffffffff(%eax), %rbx")
+
+-- Test: %rsp is a valid base (just not a valid index)
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rbx Width.W64)
+        ↑↑{ base := some (RegOrRip.reg Reg64.rsp),
+              idx := some { reg := Reg64.rax, scale := Width.W8 } }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq (%rsp, %rax), %rbx")
+
 -- Test: Memory operand with index and scale
 /--
 info: [Directive.instr
@@ -202,6 +252,66 @@ error: line 1: type mismatch in memory addressing operands: base ({w1}) and inde
 /-- error: line 1: invalid scale 3, must be 1, 2, 4, or 8 -/
 #guard_msgs in
 #check parse("movq (%rax, %rcx, 3), %rbx")
+
+-- as: Error: 0x80000000 out of range of signed 32bit displacement
+/-- error: line 1: displacement 2147483648 out of range of signed 32-bit displacement -/
+#guard_msgs in
+#check parse("movq 0x80000000(%rax), %rbx")
+
+-- as: Error: 0xffffffff7fffffff out of range of signed 32bit displacement
+/-- error: line 1: displacement -2147483649 out of range of signed 32-bit displacement -/
+#guard_msgs in
+#check parse("movq -0x80000001(%rax), %rbx")
+
+-- as: Error: 0x100000000 out of range of signed 32bit displacement
+/-- error: line 1: displacement 4294967296 out of range of signed 32-bit displacement -/
+#guard_msgs in
+#check parse("movq 0x100000000(%rax), %rbx")
+
+-- as: Error: 0xffffffff out of range of signed 32bit displacement
+/-- error: line 1: displacement 4294967295 out of range of signed 32-bit displacement -/
+#guard_msgs in
+#check parse("movq 0xffffffff(%rip), %rbx")
+
+-- as: Error: missing or invalid displacement expression `0x10000000000000000'
+/-- error: line 1: displacement 18446744073709551616 out of 64-bit range -/
+#guard_msgs in
+#check parse("movq 0x10000000000000000(%eax), %rbx")
+
+-- as: Error: `(%rax,%rsp)' is not a valid base/index expression
+/-- error: line 1: stack pointer cannot be used as an index register -/
+#guard_msgs in
+#check parse("movq (%rax, %rsp), %rbx")
+
+-- as: Error: `(%rsp,%rsp)' is not a valid base/index expression
+/-- error: line 1: stack pointer cannot be used as an index register -/
+#guard_msgs in
+#check parse("movq (%rsp, %rsp), %rbx")
+
+-- as: Error: `(%eax,%esp)' is not a valid base/index expression
+/-- error: line 1: stack pointer cannot be used as an index register -/
+#guard_msgs in
+#check parse("movq (%eax, %esp), %rbx")
+
+-- as: Error: `8(%rip,%rax)' is not a valid base/index expression
+/-- error: line 1: %rip-relative addressing cannot use an index register -/
+#guard_msgs in
+#check parse("movq 8(%rip, %rax), %rbx")
+
+-- as: Error: `(%rax,%rip)' is not a valid base/index expression
+/-- error: line 1: unknown register: rip -/
+#guard_msgs in
+#check parse("movq (%rax, %rip), %rbx")
+
+-- as: Error: `(%ax)' is not a valid base/index expression
+/-- error: line 1: w16 registers cannot be used for an addrexpr -/
+#guard_msgs in
+#check parse("movq (%ax), %rbx")
+
+-- as: Error: `(%al)' is not a valid base/index expression
+/-- error: line 1: w8 registers cannot be used for an addrexpr -/
+#guard_msgs in
+#check parse("movq (%al), %rbx")
 
 /-- error: line 1: unexpected trailing characters on line -/
 #guard_msgs in
