@@ -734,13 +734,19 @@ def parseInstr : Parser Instr := do
     let ( addr_w, dst ) ← parseRegOrMemAO w
     pure (toInstr addr_w (.inc dst))
 
-  | "mov" | "movabs" =>
+  | "mov" =>
     commaSeparated .none parseOperand parseRegOrMem .mov
 
-  | "movq" | "movl" | "movw" | "movb"
-  | "movabsq" | "movabsl" | "movabsw" | "movabsb" =>
+  | "movq" | "movl" | "movw" | "movb" =>
     let w ← instrWidth mn
     commaSeparated w parseOperand parseRegOrMem .mov
+
+  | "movabs" | "movabsq" =>
+    skipHWs
+    if (← peek?) != some '$' then fail "invalid operands for movabs"
+    let src ← parseImm .W64; parseComma
+    let dst ← parseRegO .W64
+    pure (toInstr .none (.mov (.reg dst) src))
 
   | "movsx" =>
     -- Must be a register otherwise lacking type info

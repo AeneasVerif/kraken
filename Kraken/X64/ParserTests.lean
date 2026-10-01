@@ -186,11 +186,11 @@ error: line 1: type mismatch in memory addressing operands: base ({w1}) and inde
 #guard_msgs in
 #check parse("mov (%rax), (%rax)")
 
-/-- error: line 1: invalid operands for movabs -/
+/-- error: line 1: type error: w64 != w32 -/
 #guard_msgs in
 #check parse("movabs $1, %eax")
 
-/-- error: line 1: invalid operands for movabs -/
+/-- error: line 1: unsupported instruction: movabsl -/
 #guard_msgs in
 #check parse("movabsl $1, %eax")
 
