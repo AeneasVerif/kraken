@@ -153,8 +153,7 @@ def parseHexOrDec : Parser Int := do
     let c ← peek!
     if c == '0' then do
       skip
-      let c2 ← peek!
-      if c2 == 'x' || c2 == 'X' then do
+      if (← peek?) matches some 'x' | some 'X' then do
         skip
         let digits ← many1 hexDigit
         pure (digits.foldl (fun acc d => acc * 16 + hexVal d) 0)
