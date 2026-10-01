@@ -651,10 +651,10 @@ set_option maxHeartbeats 1000000
     let count := count.interpMasked s p w
     if count == 0 then s.set dst a p next else
     let v := a.sshiftRight count
+    let cf := (a.sshiftRight (count-1)).getLsbD 0
     undefined (λ af =>
-    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
     (λ setof => if count == 1 then setof false else undefined setof) (λ of =>
-    { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
+    { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next)))
   | .shrd dst src count =>
     dst.interp s p (fun a s =>
     src.interp s p (fun b s =>
