@@ -29,6 +29,24 @@ info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64
 #check parse("movq $42, %rax")
 -- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .mov (.Reg (.low .rax .W64)) (.imm 42) }]
 
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑0))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq $0, %rax")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑0))] : List Directive
+-/
+#guard_msgs in
+#check parse("pushq $0x0")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑0))] : List Directive
+-/
+#guard_msgs in
+#check parse("pushq $0")
+
 -- Test: Memory operand with displacement
 /--
 info: [Directive.instr
