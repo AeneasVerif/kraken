@@ -18,3 +18,4 @@ public import Kraken.X64.Sep
 public import Kraken.X64.Registers
 public import Kraken.ProgramRun
 public import Kraken.KVCGen
+public import Kraken.StateWP
