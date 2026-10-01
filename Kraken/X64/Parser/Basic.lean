@@ -328,7 +328,7 @@ def parseLabel : Parser ConstExpr := do
 def parseMemory : Parser (Width × AddrExpr) := do
   skipHWs
   -- Optional displacement; TODO: parse ConstExpr generally
-  let disp ← (do let i ← parseInt; pure (.int64 (Int64.ofInt i))) <|> parseLabel <|> pure (.int64 0)
+  let disp ← (Sum.inr <$> parseInt) <|> (Sum.inl <$> parseLabel) <|> pure (.inr 0)
   skipHWs
   let _ ← pchar '('
 
@@ -371,6 +371,29 @@ def parseMemory : Parser (Width × AddrExpr) := do
     | w1, .none =>
       .pure w1
   let idx := Option.map (fun (_, idx) => ⟨idx, scale⟩) idx
+
+  -- Reject what cannot be encoded, matching `as`: there is no 16-bit (or
+  -- 8-bit) addressing in 64-bit mode, %rsp cannot be an index (that SIB
+  -- encoding means "no index"), %rip-relative addressing has no SIB byte, and
+  -- the displacement is at most 32 bits, sign-extended under 64-bit
+  -- addressing (with 32-bit addressing, `as` truncates it).
+  if w != .W64 && w != .W32 then
+    fail s!"{w} registers cannot be used for an addrexpr"
+  if idx.any (·.reg == .rsp) then
+    fail "stack pointer cannot be used as an index register"
+  if base == .rip && idx.isSome then
+    fail "%rip-relative addressing cannot use an index register"
+  let disp ← match disp with
+    | .inl l => pure l
+    | .inr i =>
+      -- Like `as`, wrap to 64 bits, so e.g. 0xffffffff80000000 is -2^31.
+      let d := Int64.ofInt i
+      if i.natAbs >= 2^64 then
+        fail s!"displacement {i} out of 64-bit range"
+      else if w == .W64 && (d.toInt < -2^31 || d.toInt >= 2^31) then
+        fail s!"displacement {i} out of range of signed 32-bit displacement"
+      else
+        pure (.int64 d)
 
   -- Handle rip-relative addressing (like parseRelRegOrMem below).
   let disp := match base, disp with
