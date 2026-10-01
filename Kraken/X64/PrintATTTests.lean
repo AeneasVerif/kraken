@@ -28,7 +28,8 @@ def corpus : List String := [
   "movq sym, %rax", "movq 8(%rsp), %rax", "movq %rax, -16(%rbp,%rcx,8)",
   "movb $1, (%eax)", "movl %eax, 4(%r8d,%r9d,2)", "movq (%rax,%rbx), %rcx",
   "movq 8(%rip), %rax", "movsx %al, %ecx", "movzx %bx, %rdx", "movsbq %al, %rax",
-  "movzwl %cx, %edx", "pushq %rbx", "pushq $7", "pushw (%rsp)", "popq %rax", "popq 8(%rsp)",
+  "movzwl %cx, %edx", "movsbl (%rsp), %ecx", "movzwq 8(%rax), %rdx", "movslq (%rax), %rbx",
+  "movsxd %eax, %rbx", "pushq %rbx", "pushq $7", "pushw (%rsp)", "popq %rax", "popq 8(%rsp)",
   "sete %al", "setnz 3(%rsp)", "setb %dh", "setae %bl", "seta %cl", "setbe %al",
   "setl %al", "setle %al", "cmovz %rax, %rbx", "cmovl (%rsp), %ecx",
   -- arithmetic

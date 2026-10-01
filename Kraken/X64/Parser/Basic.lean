@@ -744,31 +744,45 @@ def parseInstr : Parser Instr := do
 
   | "movsx" =>
     -- Must be a register otherwise lacking type info
-    let ⟨ _w_src, src ⟩ ← parseRegW; parseComma
-    let ⟨ _w_dst, dst ⟩ ← parseRegW
-    pure (toInstr .none (.movsx (.reg dst) (.reg src)))
+    let ⟨ w_src, src ⟩ ← parseRegW; parseComma
+    let ⟨ w_dst, dst ⟩ ← parseRegW
+    match w_src, w_dst with
+    | .W8, .W16 | .W8, .W32 | .W8, .W64
+    | .W16, .W32 | .W16, .W64
+    | .W32, .W64 =>
+      pure (toInstr .none (.movsx (.reg dst) (.reg src)))
+    | _, _ => fail "operand size mismatch for movsx"
 
   | "movzx" =>
     -- Must be a register otherwise lacking type info
-    let ⟨ _w_src, src ⟩ ← parseRegW; parseComma
-    let ⟨ _w_dst, dst ⟩ ← parseRegW
-    pure (toInstr .none (.movzx (.reg dst) (.reg src)))
+    let ⟨ w_src, src ⟩ ← parseRegW; parseComma
+    let ⟨ w_dst, dst ⟩ ← parseRegW
+    match w_src, w_dst with
+    | .W8, .W16 | .W8, .W32 | .W8, .W64
+    | .W16, .W32 | .W16, .W64 =>
+      pure (toInstr .none (.movzx (.reg dst) (.reg src)))
+    | _, _ => fail "operand size mismatch for movzx"
 
-  | "movsbw" | "movsbl" | "movsbq" | "movswl" | "movswq" =>
+  | "movsbw" | "movsbl" | "movsbq" | "movswl" | "movswq" | "movslq" =>
     let w_dst ← instrWidth mn
     let c_src ← String.Pos.Raw.get? mn (.mk (mn.length - 2))
     let w_src ← Char.toWidth c_src
-    let src ← parseRegO w_src; parseComma
+    let ( addr_w, src ) ← parseRegOrMemAO w_src; parseComma
     let dst ← parseRegO w_dst
-    pure (toInstr .none (.movsx (.reg dst) (.reg src)))
+    pure (toInstr addr_w (.movsx (.reg dst) src))
+
+  | "movsxd" =>
+    let ( addr_w, src ) ← parseRegOrMemAO .W32; parseComma
+    let dst ← parseRegO .W64
+    pure (toInstr addr_w (.movsx (.reg dst) src))
 
   | "movzbw" | "movzbl" | "movzbq" | "movzwl" | "movzwq" =>
     let w_dst ← instrWidth mn
     let c_src ← String.Pos.Raw.get? mn (.mk (mn.length - 2))
     let w_src ← Char.toWidth c_src
-    let src ← parseRegO w_src; parseComma
+    let ( addr_w, src ) ← parseRegOrMemAO w_src; parseComma
     let dst ← parseRegO w_dst
-    pure (toInstr .none (.movzx (.reg dst) (.reg src)))
+    pure (toInstr addr_w (.movzx (.reg dst) src))
 
   | "lea" =>
     let ( addr_w, src ) ← parseMemory; parseComma

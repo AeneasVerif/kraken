@@ -70,8 +70,9 @@ def operation {w} (aw : Width) (op : Operation w) : String :=
   let two (mn a b : String) := s!"{mn}{s} {a}, {b}"
   match op with
   | .mov d x => two "mov" (operand aw x) (rm aw d)
-  | .movsx d x => s!"movsx {rm aw x}, {rm aw d}"
-  | .movzx d x => s!"movzx {rm aw x}, {rm aw d}"
+  -- Suffixed (`movsbl`, `movzwq`, `movslq`, ...), which also allows a memory source.
+  | .movsx (w' := w') d x => s!"movs{suffix w'}{s} {rm aw x}, {rm aw d}"
+  | .movzx (w' := w') d x => s!"movz{suffix w'}{s} {rm aw x}, {rm aw d}"
   | .push x => one "push" (operand aw x)
   | .pop d => one "pop" (rm aw d)
   | .setcc cc d => s!"set{cc} {rm aw d}"
