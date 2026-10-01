@@ -405,7 +405,8 @@ match d with
   match o with
   | regOrMem rm => rm.interp s p ret
   | .imm v => ret ((v.interp p).toBitVec.truncate _) s
-  -- we rely on assemblers erroring out on too-large immediates in uniform ops
+  -- the parser rejects immediates that do not fit their field (`checkImms`);
+  -- those in a field as wide as the operand are truncated, as GNU as does
 
 def AvxOperand.interp {aw} [Labels] [AddressSize]
   (o : AvxOperand aw) (s : MachineData) (p : Std.Rco Int64)

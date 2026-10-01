@@ -1028,6 +1028,46 @@ def parseInstr : Parser Instr := do
       fail s!"unsupported instruction: {mnemonic}"
 
 -- ============================================================================
+-- Immediate Range Checking
+-- ============================================================================
+
+/-- Check that an immediate fits the field of at most `bits` bits it is encoded
+  in, which holds a `signed` and/or `unsigned` value (like GNU as's `Imm8S` and
+  `Imm8`) that is extended to the operand width `w`. Like GNU as, we reject
+  out-of-range values, unless the field is as wide as the operand: as then
+  truncates the value (with a warning), and so does `Operand.interp`. Symbolic
+  immediates are left to the linker. -/
+def checkImm (w : Width) (bits : Nat) (signed unsigned : Bool) : ConstExpr → Parser Unit
+  | .int64 v =>
+    let v := v.toInt
+    let fits (v : Int) := (signed && -(2 ^ (bits - 1)) ≤ v && v < 2 ^ (bits - 1))
+      || (unsigned && 0 ≤ v && v < 2 ^ bits)
+    -- as also reads a value that fits the operand (or, for narrower operands,
+    -- 32 bits) unsigned as signed: `rolw $0xffff` is `rolw $-1`
+    let fitsSigned (n : Nat) := 0 ≤ v && v < 2 ^ n && fits (v.bmod (2 ^ n))
+    let ok := fits v || fitsSigned w.bits || (w.bits < 32 && fitsSigned 32)
+    if bits < w.bits && !ok then
+      fail s!"immediate {v} does not fit in the {bits}-bit immediate field"
+    else
+      pure ()
+  | _ => pure ()
+
+/-- Check the immediates of `op` against the fields they are encoded in: at most
+  a sign-extended imm32 (except for `mov` to a register, i.e. movabs), and an
+  unsigned imm8 for shift counts, which rotates also accept signed. -/
+def checkImms {w} : Operation w → Parser Unit
+  | .mov (.reg _) _ => pure ()
+  | .mov _ (.imm e) | .push (.imm e) | .add _ (.imm e) | .adc _ (.imm e)
+  | .sub _ (.imm e) | .sbb _ (.imm e) | .cmp _ (.imm e) | .test _ (.imm e)
+  | .and _ (.imm e) | .or _ (.imm e) | .xor _ (.imm e) | .imul _ _ (.imm e) =>
+    checkImm w 32 true false e
+  | .shl _ (.imm8 e) | .shr _ (.imm8 e) | .sar _ (.imm8 e) | .rcl _ (.imm8 e)
+  | .rcr _ (.imm8 e) | .shld _ _ (.imm8 e) | .shrd _ _ (.imm8 e) =>
+    checkImm w 8 false true e
+  | .rol _ (.imm8 e) | .ror _ (.imm8 e) => checkImm w 8 true true e
+  | _ => pure ()
+
+-- ============================================================================
 -- Label Parsing
 -- ============================================================================
 
@@ -1076,6 +1116,7 @@ def parseOptionalInstr : Parser (Option Directive) := do
     pure none
   else
     let i ← parseAlign <|> parseInstr
+    if let .regular _ _ op := i then checkImms op
     pure (some (Directive.instr i))
 
 def checkLineEnd : Parser Unit := do
