@@ -10,12 +10,16 @@ import tempfile
 import time
 from pathlib import Path
 
-from asm_tests import KRAKEN_RUNNER, REGS, SAFE_YMMS, ExecutionState, compare_states, parse_raw_state
+from asm_tests import (KRAKEN_RUNNER, REGS, SAFE_YMMS, ExecutionState, compare_states, parse_raw_state,
+                       write_and_exit)
 
 YMM_BASE = (len(REGS) + 1) * 8  # GPRs, then rflags, then ymms
 STATE_BYTES = YMM_BASE + 32 * len(SAFE_YMMS)
 ZERO_GPRS = "\n    ".join(f"movq $0, %{r}" for r in REGS if r != "rsp")
-STACK = 0x7ffecafee200  # Kraken's initial rsp (`stackLocation`); [rsp - 800, rsp) is mapped
+# Kraken's initial rsp and its stack mapping [STACK - STACK_SIZE, STACK), filled with 0xff
+# (`stackLocation`, `stackSize` and `initStack` in KrakenRunnerX64.lean).
+STACK = 0x7ffecafee200
+STACK_SIZE = 800
 
 
 def kraken(*args, inp=None):
@@ -24,45 +28,42 @@ def kraken(*args, inp=None):
 
 
 def hardware_asm(seqs):
-    """One binary running every sequence from the same initial state as Kraken, dumping each final state."""
+    """One binary that runs every sequence from Kraken's initial state (`initData`) and writes each
+    final state to stdout, in the layout `parse_raw_state` reads."""
     blocks = []
     for idx, seq in enumerate(seqs):
         out = f"_final_states + {idx * STATE_BYTES}"
         saves = [f"movq %{r}, {out} + {i * 8}(%rip)" for i, r in enumerate(REGS)]
         saves += [f"vmovups %{y}, {out} + {YMM_BASE + i * 32}(%rip)" for i, y in enumerate(SAFE_YMMS)]
-        # The sequence may have moved rsp.
+        # rflags can only be read via the stack, and the sequence may have moved rsp.
         saves += [f"movq ${STACK}, %rsp", "pushfq", "popq %rax", f"movq %rax, {out} + {len(REGS) * 8}(%rip)"]
         blocks.append(f"""
+    # Reset to Kraken's initial state: rsp = STACK, rflags = 0, the stack filled with 0xff, and all
+    # other GPRs and ymm registers zero.
     movq ${STACK}, %rsp
     pushq $0
-    popfq
-    leaq -800(%rsp), %rdi
+    popfq                       # rflags = 0
+    leaq -{STACK_SIZE}(%rsp), %rdi
     movb $0xff, %al
-    movq $800, %rcx
-    rep stosb
+    movq ${STACK_SIZE}, %rcx
+    rep stosb                   # memset(rdi, al, rcx)
     vzeroall
     {ZERO_GPRS}
 {seq}
+    # Save the final state: GPRs, ymm registers, rflags.
     """ + "\n    ".join(saves))
     total = STATE_BYTES * len(seqs)
     return f"""
 .bss
 _final_states: .space {total}
-.section .stack, "aw", @nobits  # Kraken's stack [STACK - 800, STACK), placed by ld
-.space 800
+# Kraken's stack; `run_hardware` has ld place it at [STACK - STACK_SIZE, STACK).
+.section .stack, "aw", @nobits
+.space {STACK_SIZE}
 .text
 .globl _start
 _start:
 {"".join(blocks)}
-    movq $1, %rax
-    movq $1, %rdi
-    leaq _final_states(%rip), %rsi
-    movq ${total}, %rdx
-    syscall
-    movq $60, %rax
-    xorq %rdi, %rdi
-    syscall
-"""
+{write_and_exit("_final_states", total)}"""
 
 
 def run_hardware(seqs):
@@ -70,7 +71,9 @@ def run_hardware(seqs):
         src, obj, exe = (Path(tmp) / f"batch.{ext}" for ext in ("S", "o", "bin"))
         src.write_text(hardware_asm(seqs))
         subprocess.run(["as", "-o", obj, src], check=True)
-        subprocess.run(["ld", f"--section-start=.stack={STACK - 800:#x}", "-o", exe, obj], check=True)
+        # `--section-start` maps the `.stack` section at a fixed address, giving the binary exactly
+        # Kraken's stack, so rsp (and anything computed from it, e.g. PF of `subq $8, %rsp`) matches.
+        subprocess.run(["ld", f"--section-start=.stack={STACK - STACK_SIZE:#x}", "-o", exe, obj], check=True)
         raw = subprocess.run([exe], check=True, capture_output=True, timeout=30).stdout
     return [parse_raw_state(raw[i * STATE_BYTES:(i + 1) * STATE_BYTES]) for i in range(len(seqs))]
 
@@ -81,14 +84,7 @@ def main():
     p.add_argument("--batches", type=int, default=5)
     p.add_argument("--batch-size", type=int, default=100)
     p.add_argument("--length", type=int, default=12)
-    p.add_argument("--hardware", type=argparse.FileType(), metavar="JSON",
-                   help="only run a JSON array of sequences ('-' for stdin) on hardware")
     args = p.parse_args()
-
-    if args.hardware:
-        seqs = json.load(args.hardware)
-        print(json.dumps([vars(s) for s in run_hardware(seqs)]))
-        return 0
 
     failures = total = 0
     start = time.perf_counter()

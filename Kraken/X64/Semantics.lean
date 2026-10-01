@@ -214,7 +214,10 @@ def Float32.toBitVec (f : Float32) : BitVec 32 :=
 
 /-- An SSE single-precision operation on one lane: a NaN operand propagates (quieted, the first
 operand winning), and an invalid operation gives the default NaN ("QNaN floating-point
-indefinite"). Lean's `Float32` would instead canonicalize every NaN to `0x7fc00000`. -/
+indefinite"). In binary32, `0x400000` is bit 22, the most significant fraction bit, which makes a
+NaN quiet; `0xffc00000` (sign set, exponent all ones, fraction `100…0`) is the default NaN.
+Lean's `Float32` can't express this: its logical model has a single NaN (all NaNs are equal), so
+every NaN result reads back as `0x7fc00000`. -/
 def sseBinOp (op : Float32 → Float32 → Float32) (a b : BitVec 32) : BitVec 32 :=
   if a.toFloat32.isNaN then a ||| 0x400000#32
   else if b.toFloat32.isNaN then b ||| 0x400000#32

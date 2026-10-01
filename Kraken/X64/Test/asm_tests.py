@@ -74,17 +74,19 @@ _start:
     pushfq
     popq %rax
     movq %rax, _final_state + {reg_count * 8}(%rip)
+{write_and_exit("_final_state", total_bytes)}"""
 
-    # print syscall: arguments are 1 (syscall number), 1 (stdout), address of _final_state, and length of _final_state
-    # See e.g. https://x64.syscall.sh/ for syscall table.
-    movq $1, %rax
-    movq $1, %rdi
-    leaq _final_state(%rip), %rsi
-    movq ${total_bytes}, %rdx
+def write_and_exit(buf: str, nbytes: int) -> str:
+  """Assembly that writes the `nbytes` bytes at label `buf` to stdout, then exits with status 0.
+  Linux syscall numbers: write = 1, exit = 60 (see e.g. https://x64.syscall.sh/)."""
+  return f"""
+    movq $1, %rax               # write(
+    movq $1, %rdi               #   stdout,
+    leaq {buf}(%rip), %rsi      #   buf,
+    movq ${nbytes}, %rdx        #   nbytes)
     syscall
-
-    movq $60, %rax
-    xorq %rdi, %rdi
+    movq $60, %rax              # exit(
+    xorq %rdi, %rdi             #   0)
     syscall
 """
 
