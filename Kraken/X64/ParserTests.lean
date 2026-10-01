@@ -47,6 +47,65 @@ info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑0))] :
 #guard_msgs in
 #check parse("pushq $0")
 
+-- Test: push and pop instructions
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑(low Reg64.rax Width.W64)))] : List Directive
+-/
+#guard_msgs in
+#check parse("push %rax")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W16 (Operation.push ↑↑(low Reg64.rax Width.W16)))] : List Directive
+-/
+#guard_msgs in
+#check parse("pushw %ax")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑(low Reg64.rax Width.W64)))] : List Directive
+-/
+#guard_msgs in
+#check parse("pushq %rax")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑1))] : List Directive
+-/
+#guard_msgs in
+#check parse("push $1")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.push ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check parse("push (%rax)")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.pop ↑(low Reg64.rax Width.W64)))] : List Directive
+-/
+#guard_msgs in
+#check parse("pop %rax")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W16 (Operation.pop ↑(low Reg64.rax Width.W16)))] : List Directive
+-/
+#guard_msgs in
+#check parse("popw %ax")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.pop ↑(low Reg64.rax Width.W64)))] : List Directive
+-/
+#guard_msgs in
+#check parse("popq %rax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.pop ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check parse("pop (%rax)")
+
 -- Test: Memory operand with displacement
 /--
 info: [Directive.instr
@@ -194,6 +253,46 @@ error: line 1: type mismatch in memory addressing operands: base ({w1}) and inde
   addq %rax
   cmpq $10, %rax
 ")
+
+/-- error: line 1: invalid instruction suffix for 'push' -/
+#guard_msgs in
+#check parse("pushl %eax")
+
+/-- error: line 1: invalid instruction suffix for 'push' -/
+#guard_msgs in
+#check parse("pushb %al")
+
+/-- error: line 1: invalid instruction suffix for 'pop' -/
+#guard_msgs in
+#check parse("popl %eax")
+
+/-- error: line 1: invalid instruction suffix for 'pop' -/
+#guard_msgs in
+#check parse("popb %al")
+
+/-- error: line 1: type error: w64 != w32 -/
+#guard_msgs in
+#check parse("push %eax")
+
+/-- error: line 1: type error: w64 != w32 -/
+#guard_msgs in
+#check parse("pop %eax")
+
+/-- error: line 1: type error: w64 != w8 -/
+#guard_msgs in
+#check parse("push %al")
+
+/-- error: line 1: type error: w64 != w8 -/
+#guard_msgs in
+#check parse("pop %al")
+
+/-- error: line 1: invalid instruction suffix for 'push' -/
+#guard_msgs in
+#check parse("pushl (%rax)")
+
+/-- error: line 1: invalid instruction suffix for 'pop' -/
+#guard_msgs in
+#check parse("popl (%rax)")
 
 /-- error: line 1: type error: w64 != w32 -/
 #guard_msgs in
