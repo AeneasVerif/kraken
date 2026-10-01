@@ -126,6 +126,73 @@ info: [Directive.instr
 #guard_msgs in
 #check parse("mulxq %r8, %r9, %r10")
 
+-- Test: imul valid forms
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.imul1 ↑(low Reg64.rax Width.W64)))] : List Directive
+-/
+#guard_msgs in
+#check parse("imul %rax")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W8 (Operation.imul1 ↑(low Reg64.rax Width.W8)))] : List Directive
+-/
+#guard_msgs in
+#check parse("imul %al")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.imul none ↑(low Reg64.rbx Width.W64) ↑↑(low Reg64.rax Width.W64)))] : List Directive
+-/
+#guard_msgs in
+#check parse("imul %rax, %rbx")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.imul none ↑(low Reg64.rax Width.W64) ↑↑5))] : List Directive
+-/
+#guard_msgs in
+#check parse("imul $5, %rax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.imul (some ↑(low Reg64.rbx Width.W64)) ↑(low Reg64.rax Width.W64) ↑↑5))] : List Directive
+-/
+#guard_msgs in
+#check parse("imul $5, %rax, %rbx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.imul none ↑(low Reg64.rbx Width.W64) ↑↑(low Reg64.rax Width.W64)))] : List Directive
+-/
+#guard_msgs in
+#check parse("imulq %rax, %rbx")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.imul none ↑(low Reg64.rbx Width.W64) ↑↑5))] : List Directive
+-/
+#guard_msgs in
+#check parse("imulq $5, %rbx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.imul (some ↑(low Reg64.rbx Width.W64)) ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }
+        ↑↑5))] : List Directive
+-/
+#guard_msgs in
+#check parse("imulq $5, (%rax), %rbx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.imul none ↑(low Reg64.rax Width.W64)
+        ↑↑{ base := some (RegOrRip.reg Reg64.rsi), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check parse("imul (%rsi), %rax")
+
 -- Test: xor for zeroing
 /--
 info: [Directive.instr
@@ -206,6 +273,62 @@ error: line 1: type mismatch in memory addressing operands: base ({w1}) and inde
 /-- error: line 1: unexpected trailing characters on line -/
 #guard_msgs in
 #check parse("movq %rax, %rbx garbage")
+
+/-- error: line 1: expected register or memory operand, got ( -/
+#guard_msgs in
+#check parse("imul %eax, (%rbx)")
+
+/-- error: line 1: expected register or memory operand, got ( -/
+#guard_msgs in
+#check parse("imull $5, (%rbx)")
+
+/-- error: line 1: expected register or memory operand, got ( -/
+#guard_msgs in
+#check parse("imul $5, (%rbx)")
+
+/-- error: line 1: expected register or memory operand, got ( -/
+#guard_msgs in
+#check parse("imull %edx, (%rbx), %r11d")
+
+/-- error: line 1: expected immediate -/
+#guard_msgs in
+#check parse("imull %eax, %ebx, %ecx")
+
+/-- error: line 1: expected immediate -/
+#guard_msgs in
+#check parse("imul %eax, %ebx, %ecx")
+
+/-- error: line 1: 8-bit imul only supports 1 operand -/
+#guard_msgs in
+#check parse("imulb %al, %bl")
+
+/-- error: line 1: 8-bit imul only supports 1 operand -/
+#guard_msgs in
+#check parse("imul %al, %bl")
+
+/-- error: line 1: 8-bit imul only supports 1 operand -/
+#guard_msgs in
+#check parse("imulb $5, %al")
+
+/-- error: line 1: 8-bit imul only supports 1 operand -/
+#guard_msgs in
+#check parse("imul $5, %al")
+
+/-- error: line 1: 8-bit imul only supports 1 operand -/
+#guard_msgs in
+#check parse("imulb $5, %al, %bl")
+
+/-- error: line 1: 8-bit imul only supports 1 operand -/
+#guard_msgs in
+#check parse("imul $5, %al, %bl")
+
+/-- error: line 1: 8-bit imul only supports 1 operand -/
+#guard_msgs in
+#check parse("imulb (%rax), %al")
+
+/-- error: line 1: 8-bit imul only supports 1 operand -/
+#guard_msgs in
+#check parse("imul (%rax), %al")
 
 end error_reporting
 
