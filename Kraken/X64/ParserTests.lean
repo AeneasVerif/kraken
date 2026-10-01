@@ -87,6 +87,134 @@ info: [Directive.instr (regular Width.W64 Width.W64 (Operation.jcc CondCode.nz "
 #check parse("jnz loop")
 -- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .jcc .nz "loop" }]
 
+-- Symbol operands, as in GNU as: a bare symbol is a memory operand at that
+-- absolute address (a load, not the address), `$sym` is the symbol's address
+-- as an immediate, and `sym(%rip)` / `sym(%reg)` are memory operands with a
+-- symbolic displacement.
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑{ base := none, idx := none, disp := ↑"sym" }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq sym, %rax")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑"sym"))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq $sym, %rax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑((↑"sym").add ↑8)))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq $sym+8, %rax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rax Width.W64)
+        ↑↑{ base := some RegOrRip.rip, idx := none,
+              disp := (↑"sym").sub ConstExpr.after_current_instruction }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq sym(%rip), %rax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rax Width.W64)
+        ↑↑{ base := some RegOrRip.rip, idx := none,
+              disp := ((↑"sym").add ↑8).sub ConstExpr.after_current_instruction }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq sym+8(%rip), %rax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rbx Width.W64)
+        ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := none, disp := ↑"sym" }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq sym(%rax), %rbx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rbx Width.W64)
+        ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := some { reg := Reg64.rcx, scale := Width.W32 },
+              disp := (↑"sym").sub ↑8 }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq sym-8(%rax,%rcx,4), %rbx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.add ↑{ base := none, idx := none, disp := ↑"sym" } ↑↑(low Reg64.rax Width.W64)))] : List Directive
+-/
+#guard_msgs in
+#check parse("addq %rax, sym")
+
+/--
+info: [Directive.instr
+    (avx Width.W64 AvxWidth.W128
+      (AvxOperation.movups ↑(AvxReg.xmm RegMm.mm0)
+        ↑{ base := some RegOrRip.rip, idx := none,
+            disp := (↑"sym").sub ConstExpr.after_current_instruction }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movups sym(%rip), %xmm0")
+
+-- Neighbouring forms that already worked: lea, branch targets, numeric
+-- RIP-relative offsets.
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.lea (low Reg64.rax Width.W64)
+        { base := some RegOrRip.rip, idx := none,
+          disp := (↑"sym").sub ConstExpr.after_current_instruction }))] : List Directive
+-/
+#guard_msgs in
+#check parse("leaq sym(%rip), %rax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.lea (low Reg64.rax Width.W64)
+        { base := some (RegOrRip.reg Reg64.rax), idx := none, disp := ↑"sym" }))] : List Directive
+-/
+#guard_msgs in
+#check parse("leaq sym(%rax), %rax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.jmp (RelRegOrMem.rel ((↑"sym").sub ConstExpr.after_current_instruction))))] : List Directive
+-/
+#guard_msgs in
+#check parse("jmp sym")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.call (RelRegOrMem.rel ((↑"sym").sub ConstExpr.after_current_instruction))))] : List Directive
+-/
+#guard_msgs in
+#check parse("call sym")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rax Width.W64)
+        ↑↑{ base := some RegOrRip.rip, idx := none, disp := ↑8 }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq 8(%rip), %rax")
+
 -- Test: Multi-line program
 /--
 info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑0)), Directive.label "loop",
