@@ -99,7 +99,9 @@ instance {w} : ToString (AvxRegOrMem w) where toString rm := rm.toStr
 
 def Operand.toStr {w} (op : Operand w) (addr_w : Width := .W64) : String := match op with
   | .regOrMem rm => rm.toStr addr_w
-  | .imm v => toString v
+  | .imm (.int64 i) => toString i
+  -- In Intel syntax a bare symbol is a memory operand; its address needs OFFSET
+  | .imm v => s!"OFFSET {v}"
 instance {w} : ToString (Operand w) where toString op := op.toStr
 
 def AvxOperand.toStr {w} (op : AvxOperand w) (addr_w : Width := .W64) : String := match op with

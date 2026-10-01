@@ -215,6 +215,24 @@ info: [Directive.instr
 #guard_msgs in
 #check parse("movq 8(%rip), %rax")
 
+-- Like a bare symbol, a bare number is a memory operand at that absolute
+-- address (`as`: `mov 0x1,%rax`, `xor %rax,0x1`).
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑{ base := none, idx := none, disp := ↑1 }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movq 1, %rax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.xor ↑{ base := none, idx := none, disp := ↑1 } ↑↑(low Reg64.rax Width.W64)))] : List Directive
+-/
+#guard_msgs in
+#check parse("xorq %rax, 1")
+
 -- Test: Multi-line program
 /--
 info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑0)), Directive.label "loop",
@@ -308,9 +326,17 @@ error: line 1: type mismatch in memory addressing operands: base ({w1}) and inde
 #guard_msgs in
 #check parse("addq %rax")
 
-/-- error: line 1: unexpected end of input -/
+/-- error: line 1: expected register or memory operand, got $ -/
 #guard_msgs in
-#check parse("xorq %rax, 1")
+#check parse("xorq %rax, $1")
+
+/-- error: line 1: can't have two memory operands -/
+#guard_msgs in
+#check parse("movq sym, sym2")
+
+/-- error: line 1: absolute branch targets are not supported -/
+#guard_msgs in
+#check parse("jmp 0x10")
 
 /-- error: line 1: unexpected end of input -/
 #guard_msgs in
@@ -336,16 +362,5 @@ error: line 1: type mismatch in memory addressing operands: base ({w1}) and inde
 #check parse("movq %rax, %rbx garbage")
 
 end error_reporting
-
-section broken
-
--- TODO: Support absolute memory addressing (bare displacements) and add reliable integration tests for it.
--- Currently, the parser requires '(' after displacement, so this fails to parse with "expected: '('".
--- Also, testing this on real x86 is tricky because we need a guaranteed mapped addresses.
-/-- error: line 1: expected: '(' -/
-#guard_msgs in
-#check parse("movq 1, %rax")
-
-end broken
 
 end Tests

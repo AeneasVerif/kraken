@@ -317,6 +317,23 @@ def parseLabel : Parser ConstExpr := do
   let n ← parseLabelRaw
   pure (.label n)
 
+/-- Parse a symbolic constant: a label, optionally offset by a constant, e.g.
+  `sym`, `sym+8`, `.L0-4`. -/
+def parseSymExpr : Parser ConstExpr := do
+  let l ← parseLabel
+  (attempt do
+    skipHWs
+    let op ← pchar '+' <|> pchar '-'
+    skipHWs
+    let i := ConstExpr.int64 (Int64.ofInt (← parseHexOrDec))
+    pure (if op == '+' then .add l i else .sub l i)
+  ) <|> pure l
+
+/-- Parse an immediate operand: an integer (see `parseInt64`), or `$sym` /
+  `$sym+8`, which denotes the address of the symbol (not its contents). -/
+def parseImmediate : Parser ConstExpr :=
+  attempt (pchar '$' *> parseSymExpr) <|> parseInt64
+
 /-- Parse a memory operand (a.k.a. "address expression"): disp(%base),
   (%base,%idx,scale), etc. Just like `as`, we enforce consistency at the level
   of operands. For instance, we also error out on this:
@@ -324,12 +341,23 @@ def parseLabel : Parser ConstExpr := do
   test3.S:1:13: error: base register is 64-bit, but index register is not
   movq %rax, (%rcx, %ebx)
               ^
+
+  A displacement without any registers (`sym`, `sym+8`, `0x10`) denotes the
+  memory at that absolute address -- like `as`, we never read a bare symbol as
+  an immediate (that requires `$sym`).
 -/
 def parseMemory : Parser (Width × AddrExpr) := do
   skipHWs
   -- Optional displacement; TODO: parse ConstExpr generally
-  let disp ← (do let i ← parseInt; pure (.int64 (Int64.ofInt i))) <|> parseLabel <|> pure (.int64 0)
+  let disp? ← (do let i ← parseInt; pure (some (.int64 (Int64.ofInt i))))
+    <|> (some <$> parseSymExpr) <|> pure none
   skipHWs
+  if (← peek?) != some '(' then
+    -- Absolute addressing (no registers): default 64-bit address size.
+    match disp? with
+    | some disp => return (.W64, { base := none, idx := none, disp })
+    | none => fail "expected memory operand"
+  let disp := disp?.getD (.int64 0)
   let _ ← pchar '('
 
   skipHWs
@@ -373,19 +401,18 @@ def parseMemory : Parser (Width × AddrExpr) := do
   let idx := Option.map (fun (_, idx) => ⟨idx, scale⟩) idx
 
   -- Handle rip-relative addressing (like parseRelRegOrMem below).
+  -- A symbolic displacement names the target address itself, while a numeric
+  -- one is an offset from the next instruction.
   let disp := match base, disp with
-    | .rip, .label l => .sub (.label l) .after_current_instruction
+    | .rip, .int64 _ => disp
+    | .rip, _ => .sub disp .after_current_instruction
     | _, _ => disp
 
   pure (w, { base, idx, disp })
 
 def parseImm w : Parser (Operand w) := do
   skipHWs
-  let c ← peek!
-  let i ←
-    match c with
-    | '$' => parseInt64
-    | _ => parseLabel
+  let i ← parseImmediate
   pure (.imm i)
 
 /-- Parse any operand: register, immediate, or memory. -/
@@ -397,15 +424,11 @@ def parseOperand: Parser (MaybeAddrWidth × MaybeOpWidth Operand) := do
     let ⟨ w, r ⟩ ← parseRegW
     pure (.none, ⟨ w, .reg r ⟩)
   | '$' =>
-    let i ← parseInt64
+    let i ← parseImmediate
     pure (.none, ⟨ .none, .imm i ⟩)
   | _ =>
-    if c == '(' || c == '-' || c.isDigit then
-      let (w, m) ← parseMemory
-      pure (w, ⟨ .none, .mem m ⟩)
-    else
-      let i ← parseLabel
-      pure (.none, ⟨ .none, .imm i ⟩)
+    let (w, m) ← parseMemory
+    pure (w, ⟨ .none, .mem m ⟩)
 
 /-- Parse a register or memory operand (not immediate). -/
 def parseRegOrMem: Parser (MaybeAddrWidth × MaybeOpWidth RegOrMem) := do
@@ -414,7 +437,7 @@ def parseRegOrMem: Parser (MaybeAddrWidth × MaybeOpWidth RegOrMem) := do
   if c == '%' then
     let ⟨ w, r ⟩ ← parseRegW
     pure (.none, ⟨ .some w, .reg r ⟩)
-  else if c == '(' || c == '-' || c.isDigit then
+  else if c != '$' then
     let (w, m) ← parseMemory
     pure (w, ⟨ .none, .mem m ⟩)
   else
@@ -426,7 +449,7 @@ def parseAvxRegOrMem: Parser (MaybeAddrWidth × MaybeAvxOpWidth AvxRegOrMem) := 
   if c == '%' then
     let ⟨ w, r ⟩ ← parseAvxRegW
     pure (.none, ⟨ .some w, .avx r ⟩)
-  else if c == '(' || c == '-' || c.isDigit then
+  else if c != '$' then
     let (w, m) ← parseMemory
     pure (w, ⟨ .none, .mem m ⟩)
   else
@@ -448,6 +471,10 @@ def parseRelRegOrMem: Parser (MaybeAddrWidth × RelRegOrMem) := do
     pure (.none, (.rel (.sub e .after_current_instruction)))
   ) <|> (do
     let (w, m) ← parseMemory
+    -- Without registers (`jmp 0x10`), `as` assembles a direct branch to that
+    -- absolute address, not an indirect one through memory.
+    if m.base.isNone && m.idx.isNone then
+      fail "absolute branch targets are not supported"
     pure (w, (.mem m))
   )
 
