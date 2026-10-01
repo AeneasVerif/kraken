@@ -212,6 +212,17 @@ def BitVec.toFloat32 (v : BitVec 32) : Float32 :=
 def Float32.toBitVec (f : Float32) : BitVec 32 :=
   UInt32.toBitVec (Float32.toBits f)
 
+/-- An SSE single-precision operation on one lane: a NaN operand propagates (quieted, the first
+operand winning), and an invalid operation gives the default NaN ("QNaN floating-point
+indefinite"). In binary32, `0x400000` is bit 22, the most significant fraction bit, which makes a
+NaN quiet; `0xffc00000` (sign set, exponent all ones, fraction `100…0`) is the default NaN.
+Lean's `Float32` can't express this: its logical model has a single NaN (all NaNs are equal), so
+every NaN result reads back as `0x7fc00000`. -/
+def sseBinOp (op : Float32 → Float32 → Float32) (a b : BitVec 32) : BitVec 32 :=
+  if a.toFloat32.isNaN then a ||| 0x400000#32
+  else if b.toFloat32.isNaN then b ||| 0x400000#32
+  else let r := op a.toFloat32 b.toFloat32; if r.isNaN then 0xffc00000#32 else r.toBitVec
+
 structure StatusFlags where
   cf : Bool
   pf : Bool
@@ -619,7 +630,8 @@ set_option maxHeartbeats 1000000
   | .shl dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    -- A zero count leaves flags unchanged but still writes dst, zero-extending 32-bit registers.
+    if count == 0 then s.set dst a p next else
     let v := a <<< count
     undefined (λ af =>
     (λ setcf => if count < w.bits then setcf (a <<< (count-1)).msb else undefined setcf) (λ cf =>
@@ -628,7 +640,7 @@ set_option maxHeartbeats 1000000
   | .shr dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let v := a.ushiftRight count
     undefined (λ af =>
     (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
@@ -637,7 +649,7 @@ set_option maxHeartbeats 1000000
   | .sar dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let v := a.sshiftRight count
     undefined (λ af =>
     (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
@@ -647,30 +659,33 @@ set_option maxHeartbeats 1000000
     dst.interp s p (fun a s =>
     src.interp s p (fun b s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let v := (((b.append a) >>> count).take w.bits).setWidth _
     (λ setstatus => if count >= w.bits then undefined setstatus else
       let cf := a.getLsbD (count-1)
       undefined (λ af =>
       (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
       setstatus (.from_result v { cf, af, of})))) (λ status =>
-    { s with status }.set dst v p next)))
+    -- The result is undefined if the count exceeds the operand size (only possible for 16 bits).
+    (λ setv => if count > w.bits then undefined setv else setv v) (λ v =>
+    { s with status }.set dst v p next))))
   | .shld dst src count =>
     dst.interp s p (fun a s =>
     src.interp s p (fun b s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let v := (((a.append b) <<< count).drop w.bits).setWidth _
     (λ setstatus => if count >= w.bits then undefined setstatus else
       let cf := (a <<< (count-1)).msb
       undefined (λ af =>
       (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
       setstatus (.from_result v { cf, af, of})))) (λ status =>
-    { s with status }.set dst v p next)))
+    (λ setv => if count > w.bits then undefined setv else setv v) (λ v =>
+    { s with status }.set dst v p next))))
   | .rol dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let v := a.rotateLeft count
     let cf := v.getLsbD 0
     (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
@@ -678,7 +693,7 @@ set_option maxHeartbeats 1000000
   | .ror dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let v := a.rotateRight count
     let cf := v.msb
     (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
@@ -686,7 +701,7 @@ set_option maxHeartbeats 1000000
   | .rcr dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let t := (BitVec.ofBool s.status.cf ++ a).rotateRight count
     let (cf, v) := (t.msb, t.take w.bits)
     (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
@@ -694,7 +709,7 @@ set_option maxHeartbeats 1000000
   | .rcl dst count =>
     dst.interp s p (fun a s =>
     let count := count.interpMasked s p w
-    if count == 0 then next s else
+    if count == 0 then s.set dst a p next else
     let t := (BitVec.ofBool s.status.cf ++ a).rotateLeft count
     let (cf, v) := (t.msb, t.take w.bits)
     (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
@@ -741,21 +756,11 @@ match i with
   | .subps dst src =>
     src.interp s p (checkAlign := true) (fun a s =>
     dst.interp s p (fun b s =>
-      let v := BitVec.packedBinOp 32 (fun dst_chunk src_chunk =>
-        let f_dst := BitVec.toFloat32 dst_chunk
-        let f_src := BitVec.toFloat32 src_chunk
-        Float32.toBitVec (f_dst - f_src)
-      ) b a
-      s.setAvxLegacy dst v p next))
+      s.setAvxLegacy dst (BitVec.packedBinOp 32 (sseBinOp (· - ·)) b a) p next))
   | .addps dst src =>
     src.interp s p (checkAlign := true) (fun a s =>
     dst.interp s p (fun b s =>
-      let v := BitVec.packedBinOp 32 (fun dst_chunk src_chunk =>
-        let f_dst := BitVec.toFloat32 dst_chunk
-        let f_src := BitVec.toFloat32 src_chunk
-        Float32.toBitVec (f_dst + f_src)
-      ) b a
-      s.setAvxLegacy dst v p next))
+      s.setAvxLegacy dst (BitVec.packedBinOp 32 (sseBinOp (· + ·)) b a) p next))
 
 @[kstep]
 def Instr.interp [Labels]

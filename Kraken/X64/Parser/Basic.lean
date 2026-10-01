@@ -725,6 +725,16 @@ def parseInstr : Parser Instr := do
     let ( addr_w, dst ) ← parseRegOrMemAO w
     pure (toInstr addr_w (.dec dst))
 
+  | "inc" =>
+    let ( addr_w, dst ) ← parseRegOrMem
+    let ⟨ _w, dst ⟩ ← assertW dst
+    pure (toInstr addr_w (.inc dst))
+
+  | "incq" | "incl" | "incw" | "incb" =>
+    let w ← instrWidth mn
+    let ( addr_w, dst ) ← parseRegOrMemAO w
+    pure (toInstr addr_w (.inc dst))
+
   | "mov" | "movabs" =>
     commaSeparated .none parseOperand parseRegOrMem .mov
 
@@ -735,13 +745,13 @@ def parseInstr : Parser Instr := do
 
   | "movsx" =>
     -- Must be a register otherwise lacking type info
-    let ⟨ _w_src, src ⟩ ← parseRegW
+    let ⟨ _w_src, src ⟩ ← parseRegW; parseComma
     let ⟨ _w_dst, dst ⟩ ← parseRegW
     pure (toInstr .none (.movsx (.reg dst) (.reg src)))
 
   | "movzx" =>
     -- Must be a register otherwise lacking type info
-    let ⟨ _w_src, src ⟩ ← parseRegW
+    let ⟨ _w_src, src ⟩ ← parseRegW; parseComma
     let ⟨ _w_dst, dst ⟩ ← parseRegW
     pure (toInstr .none (.movzx (.reg dst) (.reg src)))
 
@@ -919,6 +929,30 @@ def parseInstr : Parser Instr := do
     let cnt ← parseOptionalShiftAndComma
     let ( addr_w, dst ) ← parseRegOrMemAO w
     pure (toInstr addr_w (.ror dst cnt))
+
+  | "rcl" =>
+    let cnt ← parseOptionalShiftAndComma
+    let ( addr_w, dst ) ← parseRegOrMem
+    let ⟨ _w, dst ⟩ ← assertW dst
+    pure (toInstr addr_w (.rcl dst cnt))
+
+  | "rclq" | "rcll" | "rclw" | "rclb" =>
+    let w ← instrWidth mn
+    let cnt ← parseOptionalShiftAndComma
+    let ( addr_w, dst ) ← parseRegOrMemAO w
+    pure (toInstr addr_w (.rcl dst cnt))
+
+  | "rcr" =>
+    let cnt ← parseOptionalShiftAndComma
+    let ( addr_w, dst ) ← parseRegOrMem
+    let ⟨ _w, dst ⟩ ← assertW dst
+    pure (toInstr addr_w (.rcr dst cnt))
+
+  | "rcrq" | "rcrl" | "rcrw" | "rcrb" =>
+    let w ← instrWidth mn
+    let cnt ← parseOptionalShiftAndComma
+    let ( addr_w, dst ) ← parseRegOrMemAO w
+    pure (toInstr addr_w (.rcr dst cnt))
 
   -- Byte swap
   | "bswap" =>
