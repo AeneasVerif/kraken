@@ -968,28 +968,23 @@ def parseInstr : Parser Instr := do
 
   -- Stack operations
   | "push" =>
-    let ( addr_w, src ) ← parseOperandAO .W64
-    pure (toInstr addr_w (.push src))
+    let ( addr_w, src ) ← parseOperand
+    -- Without a register to give the width (`push $1`, `push (%rax)`), push is 64-bit.
+    pure (toInstr addr_w (.push (← ascribe (src.1.getD .W64) src)))
 
-  | "pushq" | "pushw" =>
+  | "pushq" | "pushl" | "pushw" | "pushb" =>
     let w ← instrWidth mn
     let ( addr_w, src ) ← parseOperandAO w
     pure (toInstr addr_w (.push src))
 
-  | "pushl" | "pushb" =>
-    fail "invalid instruction suffix for 'push'"
-
   | "pop" =>
-    let ( addr_w, dst ) ← parseRegOrMemAO .W64
-    pure (toInstr addr_w (.pop dst))
+    let ( addr_w, dst) ← parseRegOrMem
+    pure (toInstr addr_w (.pop (← ascribe (dst.1.getD .W64) dst)))
 
-  | "popq" | "popw" =>
+  | "popq" | "popl" | "popw" | "popb" =>
     let w ← instrWidth mn
     let ( addr_w, dst ) ← parseRegOrMemAO w
     pure (toInstr addr_w (.pop dst))
-
-  | "popl" | "popb" =>
-    fail "invalid instruction suffix for 'pop'"
 
   | "ret" | "retq" =>
     pure (toInstr .none (w := .W64) .ret)
