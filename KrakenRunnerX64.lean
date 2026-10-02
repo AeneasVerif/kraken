@@ -238,9 +238,12 @@ def assemblable (cands : Array String) : IO (Array String) := IO.FS.withTempFile
   if out.exitCode != 0 && bad.isEmpty then throw (.userError out.stderr)
   return cands.zipIdx.filterMap fun (c, i) => if bad.contains (i + 1) then none else some c
 
-set_option maxHeartbeats 4000000 in
+/-- One random instruction in AT&T syntax. A separate definition so that the `Instr` generator,
+which grows with every opcode family, is compiled once rather than specialized into `genPool`. -/
+def genInstr : StateM StdGen (Option String) := (Kraken.X64.ATT.instr <$> gen).run
+
 def genPool (n : Nat) : StateM StdGen (Array String) :=
-  (Array.range n).filterMapM fun _ => (Kraken.X64.ATT.instr <$> gen).run
+  (Array.range n).filterMapM fun _ => genInstr
 
 -- Initializes a register other than rsp.
 def genSeed : GenM String := do
