@@ -21,6 +21,7 @@ def Int.toBytes (n : Nat) (v : Int) : List UInt8 :=
   | 0 => []
   | n' + 1 => ((v.take 8).toNat.toUInt8) :: Int.toBytes n' (v / 256)
 
+@[grind =]
 theorem Int.toBytes_length (n : Nat) (v : Int) : (Int.toBytes n v).length = n := by
   induction n generalizing v <;> simp [Int.toBytes, *]
 
@@ -29,30 +30,35 @@ def Nat.toBytes (n : Nat) (v : Nat) : List UInt8 :=
   | 0 => []
   | n' + 1 => (v.take 8).toUInt8 :: Nat.toBytes n' (v / 256)
 
+@[grind =]
 theorem Nat.toBytes_length (n : Nat) (v : Nat) : (Nat.toBytes n v).length = n := by
   induction n generalizing v <;> simp [Nat.toBytes, *]
 
 def UInt8.toBytes (val : UInt8) : List UInt8 :=
   Int.toBytes 1 val.toBitVec.toInt
 
+@[grind =]
 theorem UInt8.toBytes_length (val : UInt8) : val.toBytes.length = 1 := by
   simp [toBytes, Int.toBytes_length]
 
 def UInt16.toBytes (val : UInt16) : List UInt8 :=
   Int.toBytes 2 val.toBitVec.toInt
 
+@[grind =]
 theorem UInt16.toBytes_length (val : UInt16) : val.toBytes.length = 2 := by
   simp [toBytes, Int.toBytes_length]
 
 def UInt32.toBytes (val : UInt32) : List UInt8 :=
   Int.toBytes 4 val.toBitVec.toInt
 
+@[grind =]
 theorem UInt32.toBytes_length (val : UInt32) : val.toBytes.length = 4 := by
   simp [toBytes, Int.toBytes_length]
 
 def UInt64.toBytes (val : UInt64) : List UInt8 :=
   Int.toBytes 8 val.toBitVec.toInt
 
+@[grind =]
 theorem UInt64.toBytes_length (val : UInt64) : val.toBytes.length = 8 := by
   simp [toBytes, Int.toBytes_length]
 
@@ -76,6 +82,7 @@ private theorem emod_mul_add_div (v : Int) (M : Int) (d : Int) (hM : M > 0) (hd 
 
 theorem Int.ofBytes_cons (b : UInt8) (bs : List UInt8) : Int.ofBytes (b :: bs) = Int.ofBytes bs * 256 + b.toNat := rfl
 
+@[grind =]
 theorem ofBytes_toBytes (n : Nat) (v : Int) : Int.ofBytes (Int.toBytes n v) = v.take (8 * n) := by
   induction n generalizing v with
   | zero =>
@@ -104,10 +111,16 @@ private theorem pow_256_eq_pow_2 (n : Nat) (w : Nat) (h : w = 8 * n) : (256 : In
   subst w
   rw [show (256 : Int) = 2 ^ 8 by decide, ← Int.pow_mul]
 
+@[grind =]
 theorem BitVec.ofInt_ofBytes_toBytes (w : Nat) (n : Nat) (h_wn : w = 8 * n) (val : BitVec w) :
     BitVec.ofInt w (Int.ofBytes (Int.toBytes n val.toInt)) = val := by
   rw [ofBytes_toBytes, show 8 * n = w from h_wn.symm, Int.take, BitVec.ofInt_emod_self]
   exact BitVec.ofInt_toInt
+
+@[grind =]
+theorem BitVec.ofInt_ofBytes_toBytes_64 (v : Int) :
+    BitVec.ofInt 64 (Int.ofBytes (Int.toBytes 8 v)) = BitVec.ofInt 64 v := by
+  rw [ofBytes_toBytes, Int.take, BitVec.ofInt_emod_self]
 
 theorem Int.ofBytes_ge_zero (bs : List UInt8) : 0 <= Int.ofBytes bs := by
   induction bs with

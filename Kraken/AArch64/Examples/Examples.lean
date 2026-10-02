@@ -48,12 +48,14 @@ def swap : Program := parseAArch64("
   eor x0, x0, x1")
 
 theorem swap_correct [layout : Layout] (d : MachineData) :
-    straightlineStep (layout swap) (d, layout.start)
+    Eventually (straightlineStep (layout swap))
     (fun s' =>
         s'.1.regs.getRegOrZr .X0 = d.regs.getRegOrZr .X1 ∧
-        s'.1.regs.getRegOrZr .X1 = d.regs.getRegOrZr .X0) := by
+        s'.1.regs.getRegOrZr .X1 = d.regs.getRegOrZr .X0)
+    (d, layout.start) := by
   kprologue swap with d
   sym => kstep; tactic =>
+  apply Eventually.done
   grind
 
 -- Example 3: Multi-instruction arithmetic and shift pipeline
@@ -64,10 +66,12 @@ def arith_shift : Program := parseAArch64("
 ")
 
 theorem arith_shift_correct [layout : Layout] (d : MachineData) :
-    straightlineStep (layout arith_shift) (d, layout.start) (fun s' =>
-      s'.1.regs.getRegOrZr .X3 = 3 * (d.regs.getRegOrZr .X1 + 42)) := by
+    Eventually (straightlineStep (layout arith_shift)) (fun s' =>
+      s'.1.regs.getRegOrZr .X3 = 3 * (d.regs.getRegOrZr .X1 + 42))
+    (d, layout.start) := by
   kprologue arith_shift with d
   sym => kstep; tactic =>
+  apply Eventually.done
   simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl,
     show (Int64.toInt 0).toNat = 0 from rfl]
   bv_decide
@@ -85,7 +89,6 @@ theorem p4_correct [layout : Layout] (d : MachineData) :
     Eventually (straightlineStep (layout controlflow))
       (fun s' => s'.1.regs.X1 = 42)
       (d, layout.start) := by
-  apply step_cps
   kprologue controlflow with d
   sym => kstep; tactic =>
   rename_i v v1
@@ -117,7 +120,6 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
         s'.1.regs.X4 = s₀.regs.X1 ∧
         s'.1.regs.X2 = s₀.regs.X2)
       (s₀, layout.start) := by
-  apply step_cps
   kprologue move_2_regs_to_heap with s₀
 
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
@@ -161,7 +163,6 @@ theorem reg_offset_example_correct [layout : Layout] (s₀ : MachineData)
     Eventually (straightlineStep (layout reg_offset_example))
       (fun s' => s'.1.regs.X3 = 42)
       (s₀, layout.start) := by
-  apply step_cps
   kprologue reg_offset_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   simp at h_mem
