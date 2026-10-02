@@ -15,6 +15,7 @@ runtime and `meta` phases.
 
 public import Kraken.X64.Syntax
 import Std.Internal.Parsec.String
+import Kraken.X64.PrintATT
 
 namespace Kraken.X64.Parser
 
@@ -518,18 +519,29 @@ def parseOperandAO := parseAO parseOperand
 def parseRegOrMemAO := parseAO parseRegOrMem
 
 -- TODO: why is the dot notation not working here?
-def Char.toWidth (c: Char): Parser Width :=
+def Char.toWidth? (c: Char): Option Width :=
   match c with
-  | 'b' => pure .W8
-  | 'w' => pure .W16
-  | 'l' => pure .W32
-  | 'q' => pure .W64
-  | _ => fail "impossible: unknown suffix"
+  | 'b' => some .W8
+  | 'w' => some .W16
+  | 'l' => some .W32
+  | 'q' => some .W64
+  | _ => none
+
+def Char.toWidth (c: Char): Parser Width :=
+  match Char.toWidth? c with
+  | some w => pure w
+  | none => fail "impossible: unknown suffix"
 
 def instrWidth (s: String): Parser Width :=
   match s.back? with
   | .none => fail "impossible: empty instruction"
   | .some c => Char.toWidth c
+
+/-- Strip a width suffix ('b', 'w', 'l', 'q') from `mn` if present. -/
+def splitWidthSuffix (mn : String) : String × Option Width :=
+  match mn.back?.bind Char.toWidth? with
+  | some w => ((mn.dropEnd 1).copy, some w)
+  | none => (mn, none)
 
 def commaSeparated {T1 T2} (op_w: Option Width) (p1: Parser (MaybeAddrWidth × MaybeOpWidth T1)) (p2: Parser (MaybeAddrWidth × MaybeOpWidth T2))
   (mk: {op_w: Width} → T2 op_w → T1 op_w → Operation op_w): Parser Instr := do
@@ -571,12 +583,90 @@ def Option.toParser {T} (self: Option T): Parser T :=
 
 instance {T} : Coe (Option T) (Parser T) where coe := Option.toParser
 
-/-- Parse an instruction mnemonic and its operands.
+def parseBinaryRegOrMem (op_w : Option Width) : Parser (MaybeAddrWidth × Σ w, RegOrMem w × RegOrMem w) := do
+  match op_w with
+  | some w =>
+    let (addr_w1, a) ← parseAO parseRegOrMem w
+    parseComma
+    let (addr_w2, b) ← parseAO parseRegOrMem w
+    let addr_w ← mergeAddrWidths addr_w1 addr_w2
+    pure (addr_w, ⟨w, a, b⟩)
+  | none =>
+    let a ← parseRegOrMem; parseComma
+    ascribeOrInfer a parseRegOrMem
+
+-- [G5: parseXchg]
+
+def parseUnaryRegOrMem (op_w : Option Width) : Parser (MaybeAddrWidth × Σ w, RegOrMem w) := do
+  match op_w with
+  | some w =>
+    let (addr_w, src) ← parseRegOrMemAO w
+    pure (addr_w, ⟨w, src⟩)
+  | none =>
+    let (addr_w, src) ← parseRegOrMem
+    let ⟨w, src⟩ ← assertW src
+    pure (addr_w, ⟨w, src⟩)
+
+-- [G7: parseMovbe]
+
+/-- The family opcode named `mn`, or named `mn` without a width suffix, together with that width. -/
+def lookupSized (α) [Mnemonic α] (mn : String) : Option (α × Option Width) :=
+  (Mnemonic.ofName? mn).map (·, none) <|> do
+    let (stem, some w) := splitWidthSuffix mn | none
+    return (← Mnemonic.ofName? stem, some w)
+
+-- [G10: stringOp?]
+
+/-- `$imm` immediate operand (used for imm8 counts and bit offsets). -/
+def parseImm8 (_lo : Int := 0) : Parser ConstExpr := do
+  skipHWs; let _ ← pchar '$'; let v ← parseInt
+  pure (.int64 (.ofInt v))
+
+-- [G4: parseBitOffset]
+
+-- SIMD operand and pseudo-op helpers
+-- [SIMD: parser helpers]
+
+/-- The parsers for the operands of the family opcodes (see Kraken/X64/Ops) named `mn`. A mnemonic
+may belong to several families with different operand shapes. -/
+def familyParsers (mn : String) : Array (Parser Instr) := Id.run do
+  -- The base name of a `v` form.
+  let v := if mn.startsWith "v" then (mn.drop 1).copy else ""
+  let mut ps : Array (Parser Instr) := #[]
+  -- [G12: HintOp / MemHintOp]
+  pure ()
+  -- [G9: NullaryOp]
+  pure ()
+  -- [G2: GprUnOp]
+  pure ()
+  -- [G3: GprBinOp]
+  pure ()
+  -- [G4: BitTestOp]
+  if v == "" then ps := ps
+  -- [SIMD: familyParsers]
+  return ps
+
+/-- The parser for the operands of a family opcode named `mn`, if any: the first family whose
+operand shape matches. -/
+def parseFamily? (mn : String) : Option (Parser Instr) :=
+  let ps := familyParsers mn
+  ps.back?.map fun last => ps.pop.foldr (fun p acc => attempt p <|> acc) (attempt last)
+
+set_option linter.constructorNameAsVariable false in
+/-- Parse the operands of the instructions not in a family, named `mn` (lowercase `mnemonic`).
     AT&T syntax: src, dst (reversed from Intel). -/
-def parseInstr : Parser Instr := do
-  skipHWs
-  let mnemonic ← parseName
-  let mn := mnemonic.toLower
+def parseExplicit (mnemonic mn : String) (rep : RepPrefix := .none) : Parser Instr := do
+  -- [G10: stringOp? dispatch]
+  if rep != .none then
+    fail "rep prefixes apply only to string instructions"
+  let (stem, w?) := splitWidthSuffix mn
+  match stem, w? with
+  -- [G6: div/idiv]
+  | "", some _ => unreachable!
+  -- [G5: xadd/cmpxchg/xchg]
+  | "", none => unreachable!
+  -- [G7: movbe/crc32/rorx]
+  | _, _ =>
   -- Match on full mnemonic name (no suffix stripping)
   match mn with
   -- Arithmetic (two-operand: src, dst) - 64-bit
@@ -1026,6 +1116,39 @@ def parseInstr : Parser Instr := do
       commaSeparated .none parseRegOrMem parseRegA (.cmovcc cc)
     else
       fail s!"unsupported instruction: {mnemonic}"
+
+/-- Whether `instr` names a register only EVEX can encode (`%zmm*`, `%xmm16`-`%xmm31`,
+`%ymm16`-`%ymm31`) without being an EVEX form of the model (`SimdMov.evex`). Read off the
+canonical AT&T text. -/
+def hasEvexOnlyReg (instr : Instr) : Bool :=
+  let evex := match instr with | .avx _ _ (.vmovups _ _) => true | _ => false
+  let regs := ((ATT.instr instr).splitToList fun c => !c.isAlphanum && c != '%').filter (·.startsWith "%")
+  !evex && regs.any fun r => r.startsWith "%zmm" ||
+    (r.startsWith "%xmm" || r.startsWith "%ymm") && (r.drop 4).copy.toNat?.any (· ≥ 16)
+
+/-- Parse an instruction mnemonic and its operands. A mnemonic may name both an explicit
+instruction and family opcodes (e.g. `movq`); the first whose operands parse wins. -/
+def parseInstr : Parser Instr := do
+  skipHWs
+  let rawMnemonic ← parseName
+  -- The `lock` prefix doesn't change single-threaded semantics.
+  let mut mnemonic ← if rawMnemonic.toLower == "lock" then (do skipHWs; parseName) else pure rawMnemonic
+  let repPfx := match mnemonic.toLower with
+    | "rep" => .rep
+    | "repe" | "repz" => .repe
+    | "repne" | "repnz" => .repne
+    | _ => .none
+  if repPfx != .none then skipHWs; mnemonic ← parseName
+  let mn := mnemonic.toLower
+  let instr ← if repPfx != .none then
+    parseExplicit mnemonic mn repPfx
+  else
+    match parseFamily? mn with
+    | some p => attempt p <|> parseExplicit mnemonic mn repPfx
+    | none => parseExplicit mnemonic mn repPfx
+  if hasEvexOnlyReg instr then
+    fail "unsupported EVEX-only register (%zmm, %xmm16-31 or %ymm16-31)"
+  return instr
 
 -- ============================================================================
 -- Label Parsing

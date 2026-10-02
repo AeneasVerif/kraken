@@ -51,13 +51,14 @@ def main():
     p.add_argument("--batches", type=int, default=5)
     p.add_argument("--batch-size", type=int, default=100)
     p.add_argument("--length", type=int, default=12)
+    p.add_argument("--only", default="", help="comma-separated mnemonic prefixes to draw instructions from")
     args = p.parse_args()
 
     failures = total = 0
     start = time.perf_counter()
     for b in range(args.batches):
         seed = args.seed + b
-        seqs = kraken("--generate", seed, args.batch_size, args.length)
+        seqs = kraken("--generate", seed, args.batch_size, args.length, *filter(None, args.only.split(",")))
         preds = kraken("--batch", inp=json.dumps(seqs).encode())
         for i, (seq, hw, k) in enumerate(zip(seqs, run_hardware(seqs), preds, strict=True)):
             diffs = compare_states(hw, ExecutionState(**k["state"]), []) if k["ok"] else [f"Kraken: {k['error']}"]

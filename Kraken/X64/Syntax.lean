@@ -2,6 +2,15 @@ module
 
 import Kraken.Attribute
 public import Kraken.Layout
+public import Kraken.X64.Mnemonic
+public import Kraken.X64.Ops.Hint
+-- [G2: Ops.GprUn]
+
+-- [G3: Ops.GprBin]
+
+-- [G4: Ops.BitTest]
+
+-- [S1: Ops.Simd]
 public import Lean.ToExpr
 meta import Lean.Elab.Deriving.ToExpr
 
@@ -16,6 +25,12 @@ namespace Width
 @[kstep, simp, reducible] def bits : Width → Nat | W8 => 8 | W16 => 16 | W32 => 32 | W64 => 64
 @[kstep, simp, reducible] def bytes : Width → Nat | W8 => 1 | W16 => 2 | W32 => 4 | W64 => 8
 @[kstep] abbrev bytesv (w : Width) {n} : BitVec n := BitVec.ofNat n w.bytes
+/-- The width of `n` bits, if there is one (no fallback, so callers must handle other sizes). -/
+@[simp, reducible] def ofBits? : Nat → Option Width
+  | 8 => some .W8 | 16 => some .W16 | 32 => some .W32 | 64 => some .W64 | _ => none
+/-- The width of `n` bytes, if there is one (no fallback, so callers must handle other sizes). -/
+@[simp, reducible] def ofBytes? : Nat → Option Width
+  | 1 => some .W8 | 2 => some .W16 | 4 => some .W32 | 8 => some .W64 | _ => none
 @[kstep] abbrev type (w : Width) : Type := BitVec w.bits
 instance {w : Width} : Coe Bool w.type where coe := fun b : Bool => BitVec.ofNat _ b.toNat
 end Width
@@ -185,6 +200,15 @@ inductive ShiftCountExpr | cl | imm8 (v : ConstExpr)
 
 inductive RelRegOrMem | rel (_ : ConstExpr) | reg (r : Reg .W64) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+
+inductive RepPrefix | none | rep | repe | repne
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+
+def RepPrefix.toStrPrefix : RepPrefix → String
+  | .none => ""
+  | .rep => "rep "
+  | .repe => "repe "
+  | .repne => "repne "
 
 inductive Operation (w : Width)
   -- Data movement

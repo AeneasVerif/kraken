@@ -6,7 +6,8 @@ KrakenRunnerX64 - Run assembly instructions through Kraken Semantics and obtain 
 At this point this expects a file only containing a list of assembly instructions, no data block or similar.
 
 Usage: krakenrunner_x64 <assembly.S>
-       krakenrunner_x64 --generate <seed> <count> <length>  (random sequences that Kraken deems deterministic)
+       krakenrunner_x64 --generate <seed> <count> <length> [prefix...]  (random sequences that Kraken deems
+        deterministic, optionally drawing only instructions starting with one of the prefixes)
        krakenrunner_x64 --batch < sequences.json              (predict final states for a JSON array of sequences)
 
 Arguments:
@@ -160,9 +161,10 @@ def predict (asmCode : String) : Json :=
 
 Candidate instructions are random `Instr`s: `gen_ctors%` derives generators from the constructors
 in Syntax.lean, so every instruction form is covered without being listed here; the hand-written
-instances only choose operand values. Each `--generate` prints 5000 of them with `ATT.instr` and keeps
-those `as` accepts (`genPool`, `assemblable`); every slot of a sequence then draws from that pool
-until Semantics.lean deems the candidate deterministic in the current state (`stepDeterministic`). -/
+instances only choose operand values. Each `--generate` draws candidates (5000 unfiltered, 200000
+with prefix filter) with `ATT.instr` and keeps those `as` accepts (`genPool`, `assemblable`); every
+slot of a sequence then draws from that pool until Semantics.lean deems the candidate deterministic
+in the current state (`stepDeterministic`). -/
 
 abbrev GenM := OptionT (StateM StdGen)
 def nextNat (n : Nat) : GenM Nat := modifyGet (randNat · 0 (n - 1))
@@ -190,6 +192,8 @@ instance : Gen RegMm := ⟨gen_ctors% RegMm⟩
 instance : Gen Reg64 := ⟨gen_ctors% Reg64⟩
 instance : Gen CondCode := ⟨gen_ctors% CondCode⟩
 instance : Gen AddrIndex := ⟨gen_ctors% AddrIndex⟩
+-- Opcode families: uniformly over their opcodes.
+instance {α : Type} [Mnemonic α] : Gen α := ⟨(·.1) <$> pick Mnemonic.names⟩
 
 -- No labels (for `jcc`), nop lengths or alignments; other control flow is rejected by
 -- `stepDeterministic`.
@@ -234,18 +238,25 @@ def assemblable (cands : Array String) : IO (Array String) := IO.FS.withTempFile
   if out.exitCode != 0 && bad.isEmpty then throw (.userError out.stderr)
   return cands.zipIdx.filterMap fun (c, i) => if bad.contains (i + 1) then none else some c
 
+set_option maxHeartbeats 4000000 in
 def genPool (n : Nat) : StateM StdGen (Array String) :=
   (Array.range n).filterMapM fun _ => (Kraken.X64.ATT.instr <$> gen).run
 
--- Loads a random 64-bit value into a register other than rsp.
+-- Initializes a register other than rsp.
 def genSeed : GenM String := do
   let r ← gen; guard (r != Reg64.rsp)
   let r := Kraken.X64.ATT.reg (.low r .W64)
-  let movabs := s!"movabsq ${← nextNat (2 ^ 64)}, {r}"
-  if ← pick #[true, false] then return movabs
-  -- Also copy it into one of xmm0-15 via the stack; they start zeroed, so SSE ops would
-  -- otherwise see only zeros.
-  return s!"{movabs}\nmovq {r}, -16(%rsp)\nmovq {r}, -8(%rsp)\nmovups -16(%rsp), %xmm{← nextNat 16}"
+  let movabs : GenM String := do return s!"movabsq ${← nextNat (2 ^ 64)}, {r}"
+  oneOf #[movabs,
+    -- An address in the stack mapping, for memory operands.
+    do return s!"leaq -{(← nextNat (stackSize - 300)) + 300}(%rsp), {r}",
+    -- A small count (for rep, loop, and shifts by %cl).
+    do return s!"movq ${← nextNat 16}, {r}",
+    -- Also copy a random value into one of xmm0-15 via the stack; they start zeroed, so SSE ops
+    -- would otherwise see only zeros.
+    do
+      let m ← movabs
+      return s!"{m}\nmovq {r}, -16(%rsp)\nmovq {r}, -8(%rsp)\nmovups -16(%rsp), %xmm{← nextNat 16}"]
 
 -- Four random register initializations (`genSeed`) followed by `length` instructions from `pool`, each drawn
 -- until `stepDeterministic` accepts one. A final `add` makes all flags defined.
@@ -262,9 +273,12 @@ def genSequence (pool : Array String) (length : Nat) : StateM StdGen String := d
 
 public def main (args : List String) : IO UInt32 := do
   match args with
-  | ["--generate", seed, count, length] =>
-    let (pool, g) := (genPool 5000).run (mkStdGen seed.toNat!)
-    let pool ← assemblable pool
+  | "--generate" :: seed :: count :: length :: only =>
+    -- Draw more candidates when only instructions starting with one of `only` are wanted.
+    let (pool, g) := (genPool (if only.isEmpty then 5000 else 200000)).run (mkStdGen seed.toNat!)
+    -- Deduplicated, so that forms with few operand choices (e.g. `vzeroall`) don't dominate.
+    let pool := (pool.filter fun l => only.isEmpty || only.any fun o => l.startsWith o).qsort (· < ·)
+    let pool ← assemblable pool.toList.eraseReps.toArray
     let gen := (List.range count.toNat!).mapM fun _ => genSequence pool length.toNat!
     IO.println (toJson (gen.run' g).run).compress
     return 0

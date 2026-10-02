@@ -72,6 +72,11 @@ def corpus : List String := [
       unless roundtrips (stripDirectives (← IO.FS.readFile f.path)) do
         throw <| .userError s!"{f.path} does not round-trip"
 
+/-- The mnemonics of family `α` for which one of `forms` doesn't round-trip. -/
+def failing (α) [Mnemonic α] (forms : α → String → List String) : List String :=
+  (Mnemonic.names (α := α)).toList.filterMap fun (op, mn) =>
+    if (forms op mn).all roundtrips then none else some mn
+
 /-- Programs the parser rejects. -/
 def rejected : List String := [
   -- `rep` prefixes only apply to string instructions.
