@@ -71,3 +71,15 @@ def corpus : List String := [
     if f.path.extension == some "S" then
       unless roundtrips (stripDirectives (← IO.FS.readFile f.path)) do
         throw <| .userError s!"{f.path} does not round-trip"
+
+/-- Programs the parser rejects. -/
+def rejected : List String := [
+  -- `rep` prefixes only apply to string instructions.
+  "rep addq %rax, %rbx", "rep nop", "rep ret",
+  -- EVEX-only registers: the model has no EVEX forms except `vmovups`
+  "movups %xmm16, %xmm1"
+]
+
+/-- info: [] -/
+#guard_msgs in
+#eval rejected.filter (parse · matches .ok _)
