@@ -415,9 +415,14 @@ match o with
 
 @[kstep]
 def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
-  | .z  => s.zf | .nz => !s.zf | .c  => s.cf | .nc => !s.cf
-  | .a  => !s.cf && !s.zf | .be => s.cf || s.zf
-  | .l => s.sf != s.of | .le => (s.sf != s.of) || s.zf
+  | .o  => s.of | .no => !s.of
+  | .c  => s.cf | .nc => !s.cf
+  | .z  => s.zf | .nz => !s.zf
+  | .be => s.cf || s.zf | .a  => !s.cf && !s.zf
+  | .s  => s.sf | .ns => !s.sf
+  | .p  => s.pf | .np => !s.pf
+  | .l  => s.sf != s.of | .ge => s.sf == s.of
+  | .le => (s.sf != s.of) || s.zf | .g  => !s.zf && (s.sf == s.of)
 
 @[kstep] def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
   | .cl => s.regs.rcx.toBitVec.take 8
