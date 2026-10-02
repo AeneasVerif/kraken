@@ -794,6 +794,11 @@ def parseInstr : Parser Instr := do
     let dst ← parseRegO w_dst
     pure (toInstr addr_w (.movsx (.reg dst) src))
 
+  -- https://www.felixcloutier.com/x86/movsx:movsxd lists `MOVSXD r16, r/m16`,
+  -- `MOVSXD r32, r/m32`, and `MOVSXD r64, r/m32` (Intel operand order). In AT&T
+  -- mode clang rejects `movsxd` altogether (in favour of `movslq`), while GNU as
+  -- requires the source operand to be 32-bit `r/m32`; here we parse the 32-to-64
+  -- `MOVSXD r64, r/m32` case (`movslq`).
   | "movsxd" =>
     let ( addr_w, src ) ← parseRegOrMemAO .W32; parseComma
     let dst ← parseRegO .W64
