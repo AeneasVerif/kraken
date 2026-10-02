@@ -661,7 +661,7 @@ set_option maxHeartbeats 1000000
     let count := count.interpMasked s p w
     if count == 0 then s.set dst a p next else
     let v := (((b.append a) >>> count).take w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined setstatus else
+    (λ setstatus => if count > w.bits then undefined setstatus else
       let cf := a.getLsbD (count-1)
       undefined (λ af =>
       (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
@@ -675,7 +675,7 @@ set_option maxHeartbeats 1000000
     let count := count.interpMasked s p w
     if count == 0 then s.set dst a p next else
     let v := (((a.append b) <<< count).drop w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined setstatus else
+    (λ setstatus => if count > w.bits then undefined setstatus else
       let cf := (a <<< (count-1)).msb
       undefined (λ af =>
       (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
