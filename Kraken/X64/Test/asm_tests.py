@@ -22,7 +22,7 @@ ZMMS = [f"zmm{i}" for i in range(32)]
 # ymm16..31 are only available on AVX512(VL), but we'll assume we have AVX2.
 SAFE_YMMS = [f"ymm{i}" for i in range(16)]
 # Maps each flag to its bit in the EFLAGS register.
-FLAG_MAP = {"cf": 0, "pf": 2, "af": 4, "zf": 6, "sf": 7, "of": 11}
+FLAG_MAP = {"cf": 0, "pf": 2, "af": 4, "zf": 6, "sf": 7, "of": 11, "df": 10}
 TIMEOUT_SECONDS = 50
 # Kraken's initial rsp and its stack mapping [STACK - STACK_SIZE, STACK), filled with 0xff
 # (`stackLocation`, `stackSize` and `initStack` in KrakenRunnerX64.lean). The low byte of STACK
