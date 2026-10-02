@@ -72,6 +72,9 @@ def operation {w} (aw : Width) (op : Operation w) : String :=
   let two (mn a b : String) := s!"{mn}{s} {a}, {b}"
   match op with
   | .mov d x => two "mov" (operand aw x) (rm aw d)
+  -- A memory source needs the suffixed form (`movsbl`, `movzwq`, `movslq`, ...) for its width.
+  | .movsx (w' := w') d x@(.mem _) => s!"movs{suffix w'}{s} {rm aw x}, {rm aw d}"
+  | .movzx (w' := w') d x@(.mem _) => s!"movz{suffix w'}{s} {rm aw x}, {rm aw d}"
   | .movsx d x => s!"movsx {rm aw x}, {rm aw d}"
   | .movzx d x => s!"movzx {rm aw x}, {rm aw d}"
   | .push x => one "push" (operand aw x)

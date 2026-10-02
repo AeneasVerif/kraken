@@ -105,6 +105,68 @@ info: [Directive.instr
 #check parse("movq (%rsi, %r15, 8), %rax")
 -- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .mov (.Reg (.low .rax .W64)) (.mem .rsi (some .r15) 8 0) }]
 
+-- Test: movsx/movzx with a memory source, movslq and movsxd
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W16
+      (Operation.movsx ↑(low Reg64.rbx Width.W16)
+        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movsbw (%rax), %bx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W32
+      (Operation.movsx ↑(low Reg64.rbx Width.W32)
+        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movsbl (%rax), %ebx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.movsx ↑(low Reg64.rbx Width.W64)
+        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movslq (%rax), %rbx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.movsx ↑(low Reg64.rbx Width.W64) ↑(low Reg64.rax Width.W32)))] : List Directive
+-/
+#guard_msgs in
+#check parse("movslq %eax, %rbx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.movsx ↑(low Reg64.rbx Width.W64)
+        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movsxd (%rax), %rbx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.movsx ↑(low Reg64.rbx Width.W64) ↑(low Reg64.rax Width.W32)))] : List Directive
+-/
+#guard_msgs in
+#check parse("movsxd %eax, %rbx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W32
+      (Operation.movzx ↑(low Reg64.rbx Width.W32)
+        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check parse("movzbl (%rax), %ebx")
+
 -- Test: Labeled instruction
 /--
 info: [Directive.label "loop",
