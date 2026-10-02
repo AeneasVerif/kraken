@@ -1,4 +1,4 @@
-# Test newly added x86 condition codes: o, no, s, ns, p, np, ge, g
+# Test x86 condition codes: o, no, s, ns, p, np, ge, g
 # Tests both true and false outcomes using setcc and cmovcc into distinct registers.
 
 # Initialize registers with baseline values so cmov false leaves them untouched
