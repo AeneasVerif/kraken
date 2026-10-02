@@ -62,7 +62,7 @@ def summarize (s : MachineData) : StateSummary :=
              ("zmm24", z.zmm24), ("zmm25", z.zmm25), ("zmm26", z.zmm26), ("zmm27", z.zmm27),
              ("zmm28", z.zmm28), ("zmm29", z.zmm29), ("zmm30", z.zmm30), ("zmm31", z.zmm31)],
     flags := [("cf", f.cf), ("pf", f.pf), ("af", f.af),
-              ("zf", f.zf), ("sf", f.sf), ("of", f.of)] }
+              ("zf", f.zf), ("sf", f.sf), ("of", f.of), ("df", f.df)] }
 
 def _start: String := "_start"
 def _end: String := "_end"
@@ -88,6 +88,8 @@ def runKraken (asmCode : String)
   let initState: MachineState := (initData, prog.fakeLayout.labels.label _start)
   prog.fakeLayout.eval initState (finishCriterion prog)
 
+def numStatusFlags : Nat := 7
+
 /-! ## Determinism checking, with Semantics.lean in the loop
 
 `Executable.eval` produces *one* possible behavior, resolving each `undefined` choice to an
@@ -95,10 +97,10 @@ arbitrary value (a hash of the registers). The fuzzer instead needs to know whet
 result is predictable at all, i.e. whether it is the same for *every* resolution of the `undefined`
 choices; it discards sequences for which it isn't. -/
 
-/-- The six status flag values as bits, in the layout of `NondetSupportingType.from_hash`
-(cf, pf, af, zf, sf, of = bits 0..5). -/
+/-- The seven status flag values as bits, in the layout of `NondetSupportingType.from_hash`
+(cf, pf, af, zf, sf, of, df = bits 0..6). -/
 def StatusFlags.toBits (f : StatusFlags) : Nat :=
-  f.cf.toNat ||| f.pf.toNat <<< 1 ||| f.af.toNat <<< 2 ||| f.zf.toNat <<< 3 ||| f.sf.toNat <<< 4 ||| f.of.toNat <<< 5
+  f.cf.toNat ||| f.pf.toNat <<< 1 ||| f.af.toNat <<< 2 ||| f.zf.toNat <<< 3 ||| f.sf.toNat <<< 4 ||| f.of.toNat <<< 5 ||| f.df.toNat <<< 6
 
 /-- Which status flags are currently undefined, i.e. may hold either value, as a mask in the
 `StatusFlags.toBits` layout. -/
@@ -110,8 +112,9 @@ def UndefFlags.none : UndefFlags := ⟨0⟩
 
 /-- Every assignment of the status flags that agrees with `f` on the defined flags. -/
 def UndefFlags.completions (u : UndefFlags) (f : StatusFlags) : List StatusFlags :=
-  (List.range 64).filter (fun m => m &&& u.mask == m) |>.map fun m =>
-    NondetSupportingType.from_hash (f.toBits &&& (63 ^^^ u.mask) ||| m).toUInt64
+  (List.range (2^numStatusFlags)).filter (fun m => m &&& u.mask == m) |>.map fun m =>
+    let b := f.toBits &&& ((2^numStatusFlags - 1) ^^^ u.mask) ||| m
+    { (NondetSupportingType.from_hash b.toUInt64 : StatusFlags) with df := b.testBit 6 }
 
 /-- The flags on which any of `fs` differs from `f`. -/
 def UndefFlags.disagreeing (f : StatusFlags) (fs : Array StatusFlags) : UndefFlags :=
