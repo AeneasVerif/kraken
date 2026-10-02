@@ -169,7 +169,7 @@ info: [Directive.instr
 #guard_msgs in
 #check parse("movups sym(%rip), %xmm0")
 
--- Neighbouring forms that already worked: lea, branch targets, numeric
+-- Neighbouring forms: lea, branch targets, numeric
 -- RIP-relative offsets.
 /--
 info: [Directive.instr
