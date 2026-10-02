@@ -794,11 +794,15 @@ def parseInstr : Parser Instr := do
     let dst ← parseRegO w_dst
     pure (toInstr addr_w (.movsx (.reg dst) src))
 
-  -- https://www.felixcloutier.com/x86/movsx:movsxd lists `MOVSXD r16, r/m16`,
-  -- `MOVSXD r32, r/m32`, and `MOVSXD r64, r/m32` (Intel operand order). In AT&T
-  -- mode clang rejects `movsxd` altogether (in favour of `movslq`), while GNU as
-  -- requires the source operand to be 32-bit `r/m32`; here we parse the 32-to-64
-  -- `MOVSXD r64, r/m32` case (`movslq`).
+  -- Intel SDM Vol. 2B ("MOVSX/MOVSXD") lists `MOVSXD r64, r/m32` (`REX.W + 63 /r`,
+  -- AT&T `movslq`) alongside discouraged non-`REX.W` `MOVSXD r32, r/m32` and
+  -- `MOVSXD r16, r/m16` forms, whereas AMD64 APM Vol. 3 ("MOVSXD") always gives a
+  -- 32-bit `reg/mem32` source. Per the GNU `as` manual (§9.16.4.2, §9.16.16) and
+  -- binutils `opcodes/i386-opc.tbl`, default (`-mamd64`) `as` always requires a
+  -- 32-bit `r/m32` source (`movsxd %ax, …` is only accepted under `-mintel64`),
+  -- while LLVM (`X86InstrExtension.td` `MOVSX64rr32`/`rm32`) restricts `movsxd` to
+  -- Intel syntax and marks the 16/32-bit destination encodings disassembler-only.
+  -- Here we parse the 32-to-64 `MOVSXD r64, r/m32` case (`movslq`).
   | "movsxd" =>
     let ( addr_w, src ) ← parseRegOrMemAO .W32; parseComma
     let dst ← parseRegO .W64
