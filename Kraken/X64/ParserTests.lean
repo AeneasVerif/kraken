@@ -47,6 +47,41 @@ info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑0))] :
 #guard_msgs in
 #check parse("pushq $0")
 
+-- Test: unsuffixed push and pop take their width from a register, else 64 bits
+/--
+info: [Directive.instr (regular Width.W64 Width.W16 (Operation.push ↑↑(low Reg64.rax Width.W16)))] : List Directive
+-/
+#guard_msgs in
+#check parse("push %ax")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑1))] : List Directive
+-/
+#guard_msgs in
+#check parse("push $1")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.push ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check parse("push (%rax)")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W16 (Operation.pop ↑(low Reg64.rax Width.W16)))] : List Directive
+-/
+#guard_msgs in
+#check parse("pop %ax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.pop ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check parse("pop (%rax)")
+
 -- Test: Memory operand with displacement
 /--
 info: [Directive.instr

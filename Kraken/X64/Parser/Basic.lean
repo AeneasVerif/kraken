@@ -1001,8 +1001,8 @@ def parseInstr : Parser Instr := do
   -- Stack operations
   | "push" =>
     let ( addr_w, src ) ← parseOperand
-    let ⟨ _w, src ⟩ ← assertW src
-    pure (toInstr addr_w (.push src))
+    -- Without a register to give the width (`push $1`, `push (%rax)`), push is 64-bit.
+    pure (toInstr addr_w (.push (← ascribe (src.1.getD .W64) src)))
 
   | "pushq" | "pushl" | "pushw" | "pushb" =>
     let w ← instrWidth mn
@@ -1011,8 +1011,7 @@ def parseInstr : Parser Instr := do
 
   | "pop" =>
     let ( addr_w, dst) ← parseRegOrMem
-    let ⟨ _w, dst ⟩ ← assertW dst
-    pure (toInstr addr_w (.pop dst))
+    pure (toInstr addr_w (.pop (← ascribe (dst.1.getD .W64) dst)))
 
   | "popq" | "popl" | "popw" | "popb" =>
     let w ← instrWidth mn
