@@ -25,7 +25,8 @@ def corpus : List String := [
   -- data movement, all widths and operand kinds
   "movq $42, %rax", "movl $-1, %r9d", "movw %ax, %r15w", "movb %ah, %sil",
   "movabsq $0xFFFFFFFFFFFFFFFF, %rdx", "movq $-9223372036854775808, %rdx",
-  "movq sym, %rax", "movq 8(%rsp), %rax", "movq %rax, -16(%rbp,%rcx,8)",
+  "movq sym, %rax", "movq $sym+8, %rax", "movq sym-4(%rax), %rcx", "addq 16, %rax", "pushq sym",
+  "movq 8(%rsp), %rax", "movq %rax, -16(%rbp,%rcx,8)",
   "movb $1, (%eax)", "movl %eax, 4(%r8d,%r9d,2)", "movq (%rax,%rbx), %rcx",
   "movq 8(%rip), %rax", "movsx %al, %ecx", "movzx %bx, %rdx", "movsbq %al, %rax",
   "movzwl %cx, %edx", "pushq %rbx", "pushq $7", "pushw (%rsp)", "popq %rax", "popq 8(%rsp)",
