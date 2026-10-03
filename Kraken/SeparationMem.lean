@@ -100,7 +100,7 @@ theorem storeBytes_sep {w : Nat} (a : BitVec w) (n : Nat) (_bs bs : List UInt8)
   rw [union_union_override (_bs.At a) m2 (bs.At a) (by
     intro k hk; rw [mem_At_samerange _bs bs a (by omega)]; exact hk)]
   rw [sep_comm]
-  exact ⟨m2, bs.At a, rfl, disjoint_symm (disjoint_Atsame_l_same_r _bs bs a m2 h_inter (by omega)), hR, rfl⟩
+  exact ⟨m2, bs.At a, rfl, inter_eq_empty_comm.mp (disjoint_Atsame_l_same_r _bs bs a m2 h_inter (by omega)), hR, rfl⟩
 
 theorem loadInt_sep {w : Nat} (bs : List UInt8) (a : BitVec w) (n : Nat) (R : Mem w → Prop) (m : Mem w)
     (Hsep : m =⋆ Eq (bs.At a) ⋆ R)

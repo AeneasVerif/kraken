@@ -17,16 +17,6 @@ notation:70 m " =⋆ " P => P m
 
 def emp : ExtHashMap key value → Prop := fun m => m = ∅
 
-omit [LawfulBEq key] in
-theorem disjoint_symm {m1 m2 : ExtHashMap key value} (h : m1.inter m2 = ∅) :
-    m2.inter m1 = ∅ := by
-  simpa only [eq_empty_iff_forall_not_mem, inter_eq, mem_inter_iff, and_comm] using h
-
-omit [LawfulBEq key] in
-private theorem disjoint_symm_iff {m1 m2 : ExtHashMap key value} :
-    (m1.inter m2 = ∅) = (m2.inter m1 = ∅) :=
-  propext ⟨disjoint_symm, disjoint_symm⟩
-
 theorem union_comm_of_disjoint (m1 m2 : ExtHashMap key value) (h_disj : m1.inter m2 = ∅) :
     m1.union m2 = m2.union m1 := by
   apply ExtHashMap.ext_getElem?
@@ -54,14 +44,15 @@ private theorem disjoint_union_l (a b c : ExtHashMap key value) :
 omit [LawfulBEq key] in
 private theorem disjoint_union_r (a b c : ExtHashMap key value) :
     (a.inter (b.union c) = ∅) = (a.inter b = ∅ ∧ a.inter c = ∅) := by
-  rw [disjoint_symm_iff]
+  rw [inter_eq, inter_eq_empty_comm, ← inter_eq]
   rw [disjoint_union_l]
-  rw [disjoint_symm_iff (m1:=b), disjoint_symm_iff (m1:=c)]
+  rw [inter_eq, inter_eq_empty_comm (m₁ := b), inter_eq, inter_eq_empty_comm (m₁ := c)]
+  rfl
 
 theorem sep_comm (p q : ExtHashMap key value → Prop) : p ⋆ q = q ⋆ p := by
   have h (p q : ExtHashMap key value → Prop) (m) (h : (p ⋆ q) m) : (q ⋆ p) m := by
     have ⟨a, b, h_union, h_inter, hp, hq⟩ := h
-    refine ⟨b, a, by rw [← h_union, union_comm_of_disjoint a b h_inter], disjoint_symm h_inter, hq, hp⟩
+    refine ⟨b, a, by rw [← h_union, union_comm_of_disjoint a b h_inter], inter_eq_empty_comm.mp h_inter, hq, hp⟩
   funext m
   exact propext ⟨h p q m, h q p m⟩
 
