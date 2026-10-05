@@ -38,3 +38,13 @@ jobs:
       - name: Install AArch64 cross-assembler and QEMU
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user
       - run: python3 Kraken/AArch64/Test/asm_tests.py Kraken/AArch64/Test/asm
+
+  run-aarch64-fuzzer:
+    name: Run AArch64 differential fuzzer (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+      - name: Install AArch64 cross-assembler and QEMU
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user
+      - run: python3 Kraken/AArch64/Test/fuzz_aarch64.py --batches 10 --batch-size 100 --seed 1

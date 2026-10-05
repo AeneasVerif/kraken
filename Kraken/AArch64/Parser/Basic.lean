@@ -552,8 +552,8 @@ Validate a 26-bit signed word offset for unconditional branch (`B` / `BL`):
 -/
 def checkBOffset (offset : Int64) : Except String Unit :=
   let val := offset.toInt
-  if val < -0x8000000 || val > 0x7fffffc then
-    .error s!"b offset {intToHexStr val} out of range [-0x8000000, 0x7fffffc]"
+  if val < -0x8000000 || val > 0x7fffffc || val % 4 != 0 then
+    .error s!"b offset {intToHexStr val} out of range [-0x8000000, 0x7fffffc] or not a multiple of 4"
   else .ok ()
 
 /--
@@ -562,8 +562,8 @@ Validate a 19-bit signed word offset for conditional branch (`B.cond`):
 -/
 def checkBCondOffset (offset : Int64) : Except String Unit :=
   let val := offset.toInt
-  if val < -0x100000 || val > 0xffffc then
-    .error s!"b.cond offset {intToHexStr val} out of range [-0x100000, 0xffffc]"
+  if val < -0x100000 || val > 0xffffc || val % 4 != 0 then
+    .error s!"b.cond offset {intToHexStr val} out of range [-0x100000, 0xffffc] or not a multiple of 4"
   else .ok ()
 
 /--
@@ -578,12 +578,12 @@ def checkCbzOffset (instrName : String) (offset : Int64) : Except String Unit :=
 
 /--
 Validate a 14-bit signed word offset for test-bit-and-branch (`TBZ` / `TBNZ`):
-- Must be in `[-0x8000, 0x7fc]` (`±32 KB`) and a multiple of 4.
+- Must be in `[-0x8000, 0x7ffc]` (`±32 KB`) and a multiple of 4.
 -/
 def checkTbzOffset (instrName : String) (offset : Int64) : Except String Unit :=
   let val := offset.toInt
-  if val < -0x8000 || val > 0x7fc || val % 4 != 0 then
-    .error s!"{instrName} offset {intToHexStr val} out of range [-0x8000, 0x7fc] or not a multiple of 4"
+  if val < -0x8000 || val > 0x7ffc || val % 4 != 0 then
+    .error s!"{instrName} offset {intToHexStr val} out of range [-0x8000, 0x7ffc] or not a multiple of 4"
   else .ok ()
 
 /--
@@ -649,12 +649,12 @@ def checkLdrStrRegisters {w : RegWidth} (reg : RegOrZr w) (mem : AddrExpr) : Exc
 
 /--
 Validate architectural constraints for `LDP` and `STP` instructions:
-1. For `LDP`, `rt1` and `rt2` cannot be identical unless they are `XZR`/`WZR`.
+1. For `LDP`, `rt1` and `rt2` cannot be identical (including `XZR`/`WZR`).
 2. If writeback (`!` pre-index or post-index) is used, the base register (`Rn`)
    cannot be one of the transfer registers (`rt1` or `rt2`).
 -/
 def checkLdpStpRegisters {w : RegWidth} (isLdp : Bool) (reg1 : RegOrZr w) (reg2 : RegOrZr w) (mem : AddrExpr) : Except String Unit := do
-  if isLdp && reg1 == reg2 && (RegOrZr.toXReg? reg1).isSome then
+  if isLdp && reg1 == reg2 then
     throw "unpredictable: identical destination registers in ldp instruction"
   checkLdrStrRegisters reg1 mem
   checkLdrStrRegisters reg2 mem
@@ -783,18 +783,24 @@ def parseUnscaledAddr : Parser UnscaledAddrExpr := do
 /--
 Parse a memory source operand for `LDR`:
 - Standard address expression (`[base, ...]`).
-- PC-relative literal pool constant (`=const_expr`).
+- PC-relative literal pool constant (`=const_expr`), when `allowPool = true`.
 - PC-relative symbol label (`label`).
 -/
-def parseAddrOrLit (w : RegWidth) (allowUnscaled : Bool := false) (scale : Nat := w.bytes) : Parser AddrOrLit := do
+def parseAddrOrLit (w : RegWidth) (allowUnscaled : Bool := false) (scale : Nat := w.bytes) (allowPool : Bool := true) : Parser AddrOrLit := do
   skipHWs
   let c ← peek!
   if c == '[' then do
     let m ← parseAddr w allowUnscaled scale
     pure (.addr m)
   else if c == '=' then do
+    if !allowPool then
+      fail "literal pool (=expr) is not supported for ldrsw"
     skip
     let e ← parseConstExpr
+    if w == .W32 then
+      if let .int64 imm := e then
+        if imm.toInt < -0x80000000 || imm.toInt > 0xffffffff then
+          fail s!"literal pool immediate {imm.toInt} too large for 32-bit register"
     pure (.lit (.pool { expr := e }))
   else do
     let l ← parseLabelRaw
@@ -863,24 +869,33 @@ def parseExtendAmount : Parser ExtendAmount := do
 
 /--
 Validate and map an arithmetic extension mnemonic (`UXTB`, `SXTB`, `UXTH`,
-`SXTH`, `UXTW`, `SXTW`, `UXTX`, `SXTX`, `LSL`).
-- Maps `LSL` to `UXTX` for `.W64` and `UXTW` for `.W32`.
+`SXTH`, `UXTW`, `SXTW`, `UXTX`, `SXTX`, `LSL`), checking register width compatibility:
+- In 32-bit instructions (`instrW = .W32`), the extended register must be 32-bit (`regW = .W32`).
+- In 64-bit instructions (`instrW = .W64`), `UXTX`/`SXTX`/`LSL` require a 64-bit register (`Xn`),
+  while `UXTB`/`SXTB`/`UXTH`/`SXTH`/`UXTW`/`SXTW` require a 32-bit register (`Wn`).
 -/
-def getExtendType (extName : String) (w : RegWidth) : Except String ExtendType :=
-  match extName.toLower with
-  | "uxtb" => .ok ExtendType.UXTB
-  | "sxtb" => .ok ExtendType.SXTB
-  | "uxth" => .ok ExtendType.UXTH
-  | "sxth" => .ok ExtendType.SXTH
-  | "uxtw" => .ok ExtendType.UXTW
-  | "sxtw" => .ok ExtendType.SXTW
-  | "uxtx" => .ok ExtendType.UXTX
-  | "sxtx" => .ok ExtendType.SXTX
-  | "lsl" =>
-    match w with
-    | .W64 => .ok ExtendType.UXTX
-    | .W32 => .ok ExtendType.UXTW
-  | _ => .error s!"unknown extension type: {extName}"
+def getExtendType (extName : String) (instrW : RegWidth) (regW : RegWidth) : Except String ExtendType := do
+  let ty ← match extName.toLower with
+    | "uxtb" => .ok ExtendType.UXTB
+    | "sxtb" => .ok ExtendType.SXTB
+    | "uxth" => .ok ExtendType.UXTH
+    | "sxth" => .ok ExtendType.SXTH
+    | "uxtw" => .ok ExtendType.UXTW
+    | "sxtw" => .ok ExtendType.SXTW
+    | "uxtx" => .ok ExtendType.UXTX
+    | "sxtx" => .ok ExtendType.SXTX
+    | "lsl" =>
+      match instrW with
+      | .W64 => .ok ExtendType.UXTX
+      | .W32 => .ok ExtendType.UXTW
+    | _ => .error s!"unknown extension type: {extName}"
+  match instrW, ty, regW with
+  | .W32, _, .W64 => .error "32-bit extended register instruction requires a 32-bit register (Wn)"
+  | .W64, .UXTX, .W32 | .W64, .SXTX, .W32 => .error s!"{extName.toUpper} extension requires a 64-bit register (Xn)"
+  | .W64, .UXTB, .W64 | .W64, .SXTB, .W64
+  | .W64, .UXTH, .W64 | .W64, .SXTH, .W64
+  | .W64, .UXTW, .W64 | .W64, .SXTW, .W64 => .error s!"{extName.toUpper} extension requires a 32-bit register (Wn)"
+  | _, _, _ => .ok ty
 
 /--
 Parse the second source operand of an `ADD_e` instruction
@@ -889,7 +904,7 @@ Parse the second source operand of an `ADD_e` instruction
 1. **Immediate operand**: `#imm` or `#imm, lsl #12` (or a relocation modifier
    `:lo12:label` with no shift).
 2. **Extended/shifted register operand**: `Rm` or `Rm, ext #amount`
-   (e.g. `x2, uxtw #2` or `x2, lsl #2`).
+   (e.g. `w2, uxtw #2` or `x2, lsl #2`).
 -/
 def parseExtOrImmReg (w : RegWidth) : Parser ExtOrImmReg := do
   skipHWs
@@ -924,7 +939,7 @@ def parseExtOrImmReg (w : RegWidth) : Parser ExtOrImmReg := do
         liftExcept (checkArithmeticImmediate imm)
       | _ => pure ()
       pure (.imm { imm := expr, shift := ImmShift.S0 })
-  -- Case 2: Extended or shifted register operand (e.g. `x2`, `x2, uxtw #2`, or `x2, lsl #2`)
+  -- Case 2: Extended or shifted register operand (e.g. `x2`, `w2, uxtw #2`, or `x2, lsl #2`)
   else do
     let regW ← parseRegOrZrW
     skipHWs
@@ -933,10 +948,12 @@ def parseExtOrImmReg (w : RegWidth) : Parser ExtOrImmReg := do
       skip
       skipHWs
       let extName ← parseName
-      let extType ← liftExcept (getExtendType extName w)
+      let extType ← liftExcept (getExtendType extName w regW.w)
       let amount ← parseExtendAmount
       pure (.ext { reg := regW, ext := { type := extType, amount := amount } })
     else do
+      if regW.w != w then
+        fail s!"expected {w} register, got {regW.w}"
       let extType := match regW.w with
         | .W64 => ExtendType.UXTX
         | .W32 => ExtendType.UXTW
@@ -1091,7 +1108,7 @@ def parseArithFlags (instrName : String)
     let src1Sp ← op2.toRegOrSp
     let op3 ← parseExtOrImmReg w
     pure ⟨w, mkE dstZr src1Sp op3⟩
-  else if op1W.2.isXzr || op2.isXzr then
+  else if op2.isXzr then
     let dstZr ← op1W.2.toRegOrZr
     let src1Zr ← op2.toRegOrZr
     let shiftOp ← parseShiftRegExpr w
@@ -1547,7 +1564,7 @@ Parse signed-extend 32-bit load into 64-bit register with automatic unscaled fal
 def parseLdrsw : Parser Instr := do
   let dst ← parseRegOrZr .W64
   parseComma
-  let src ← parseAddrOrLit .W32 true 4
+  let src ← parseAddrOrLit .W32 true 4 false
   if let .addr mem := src then
     liftExcept (checkLdrStrRegisters dst mem)
   if addrOrLitNeedsUnscaled src 4 then
@@ -1856,9 +1873,11 @@ Parse sign-extend and zero-extend alias instructions (`SXTB`, `SXTH`, `SXTW`, `U
 -/
 def parseExtendInstr (mk : {w : RegWidth} → RegOrZr w → RegOrZr w → Nat → Nat → Operation w) (imms : Nat) : Parser Instr := do
   let dstW ← parseRegOrZrW
+  if imms == 31 && dstW.w != .W64 then
+    fail "expected w64 register, got w32"
   parseComma
-  let srcW ← parseRegOrZrW
-  let src : RegOrZr dstW.w := match srcW.reg with
+  let src32 ← parseRegOrZr .W32
+  let src : RegOrZr dstW.w := match src32 with
     | .low r _ => .low r dstW.w
   pure ⟨dstW.w, mk dstW.reg src 0 imms⟩
 

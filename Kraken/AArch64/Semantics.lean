@@ -272,12 +272,10 @@ def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64)
   shifted
 
 @[kstep] def ExtRegExpr.interp (er : ExtRegExpr) (s : Reg64s) (_ : Std.Rco Int64) :=
-  let base := s.getRegOrZr er.reg.reg
-  (base.take RegWidth.W64.bits).apply_extend er.ext
+  (s.getRegOrZr64 er.reg.reg.base).apply_extend er.ext
 
 @[kstep] def MemExtRegExpr.interp (er : MemExtRegExpr) (s : Reg64s) (_ : Std.Rco Int64) :=
-  let base := s.getRegOrZr er.reg.reg
-  (base.take RegWidth.W64.bits).apply_mem_extend er.ext
+  (s.getRegOrZr64 er.reg.reg.base).apply_mem_extend er.ext
 
 @[kstep] def ExtOrImmReg.interp [Labels] {w : RegWidth} (expr : ExtOrImmReg) (s : Reg64s) (p : Std.Rco Int64) : w.type :=
   match expr with
