@@ -786,21 +786,35 @@ def parseInstr : Parser Instr := do
     let ⟨ _w_dst, dst ⟩ ← parseRegW
     pure (toInstr .none (.movzx (.reg dst) (.reg src)))
 
-  | "movsbw" | "movsbl" | "movsbq" | "movswl" | "movswq" =>
+  | "movsbw" | "movsbl" | "movsbq" | "movswl" | "movswq" | "movslq" =>
     let w_dst ← instrWidth mn
     let c_src ← String.Pos.Raw.get? mn (.mk (mn.length - 2))
     let w_src ← Char.toWidth c_src
-    let src ← parseRegO w_src; parseComma
+    let ( addr_w, src ) ← parseRegOrMemAO w_src; parseComma
     let dst ← parseRegO w_dst
-    pure (toInstr .none (.movsx (.reg dst) (.reg src)))
+    pure (toInstr addr_w (.movsx (.reg dst) src))
+
+  -- Intel SDM Vol. 2B ("MOVSX/MOVSXD") lists `MOVSXD r64, r/m32` (`REX.W + 63 /r`,
+  -- AT&T `movslq`) alongside discouraged non-`REX.W` `MOVSXD r32, r/m32` and
+  -- `MOVSXD r16, r/m16` forms, whereas AMD64 APM Vol. 3 ("MOVSXD") always gives a
+  -- 32-bit `reg/mem32` source. Per the GNU `as` manual (§9.16.4.2, §9.16.16) and
+  -- binutils `opcodes/i386-opc.tbl`, default (`-mamd64`) `as` always requires a
+  -- 32-bit `r/m32` source (`movsxd %ax, …` is only accepted under `-mintel64`),
+  -- while LLVM (`X86InstrExtension.td` `MOVSX64rr32`/`rm32`) restricts `movsxd` to
+  -- Intel syntax and marks the 16/32-bit destination encodings disassembler-only.
+  -- Here we parse the 32-to-64 `MOVSXD r64, r/m32` case (`movslq`).
+  | "movsxd" =>
+    let ( addr_w, src ) ← parseRegOrMemAO .W32; parseComma
+    let dst ← parseRegO .W64
+    pure (toInstr addr_w (.movsx (.reg dst) src))
 
   | "movzbw" | "movzbl" | "movzbq" | "movzwl" | "movzwq" =>
     let w_dst ← instrWidth mn
     let c_src ← String.Pos.Raw.get? mn (.mk (mn.length - 2))
     let w_src ← Char.toWidth c_src
-    let src ← parseRegO w_src; parseComma
+    let ( addr_w, src ) ← parseRegOrMemAO w_src; parseComma
     let dst ← parseRegO w_dst
-    pure (toInstr .none (.movzx (.reg dst) (.reg src)))
+    pure (toInstr addr_w (.movzx (.reg dst) src))
 
   | "lea" =>
     let ( addr_w, src ) ← parseMemory; parseComma
