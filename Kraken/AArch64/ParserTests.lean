@@ -1896,6 +1896,34 @@ section error_reporting
 #guard_msgs in
 #check parseAArch64("stp x0, x1, [x0, #16]!")
 
+/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+#guard_msgs in
+#check parseAArch64("ldr x0, [x0, #16]!")
+
+/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+#guard_msgs in
+#check parseAArch64("ldr w0, [x0], #4")
+
+/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+#guard_msgs in
+#check parseAArch64("str x0, [x0, #16]!")
+
+/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+#guard_msgs in
+#check parseAArch64("str w0, [x0], #4")
+
+/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+#guard_msgs in
+#check parseAArch64("ldrb w0, [x0, #1]!")
+
+/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+#guard_msgs in
+#check parseAArch64("strb w0, [x0], #1")
+
+/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+#guard_msgs in
+#check parseAArch64("ldrsw x0, [x0, #4]!")
+
 /-- error: line 1: adr offset 0x200000 out of range [-0x100000, 0xfffff] -/
 #guard_msgs in
 #check parseAArch64("adr x0, #0x200000")

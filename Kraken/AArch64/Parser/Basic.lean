@@ -634,6 +634,20 @@ def checkArithmeticImmediate (imm : Int64) : Except String Unit :=
   else .ok ()
 
 /--
+Validate architectural constraints for single-register load/store instructions
+(`LDR`, `STR`, `LDRB`, `STRB`, `LDRH`, `STRH`, `LDRSB`, `LDRSH`, `LDRSW`):
+- If writeback (`!` pre-index or post-index) is used, the base register (`Rn`)
+  cannot be the transfer register (`Rt`).
+-/
+def checkLdrStrRegisters {w : RegWidth} (reg : RegOrZr w) (mem : AddrExpr) : Except String Unit := do
+  let hasWriteback := match mem.off with | .imm i => i.index.isSome | _ => false
+  if hasWriteback then
+    if let some baseReg := RegOrSp.toXReg? mem.base then
+      if RegOrZr.toXReg? reg == some baseReg then
+        throw "unpredictable: writeback base register is also a transfer register"
+  pure ()
+
+/--
 Validate architectural constraints for `LDP` and `STP` instructions:
 1. For `LDP`, `rt1` and `rt2` cannot be identical unless they are `XZR`/`WZR`.
 2. If writeback (`!` pre-index or post-index) is used, the base register (`Rn`)
@@ -642,12 +656,8 @@ Validate architectural constraints for `LDP` and `STP` instructions:
 def checkLdpStpRegisters {w : RegWidth} (isLdp : Bool) (reg1 : RegOrZr w) (reg2 : RegOrZr w) (mem : AddrExpr) : Except String Unit := do
   if isLdp && reg1 == reg2 && (RegOrZr.toXReg? reg1).isSome then
     throw "unpredictable: identical destination registers in ldp instruction"
-  let hasWriteback := match mem.off with | .imm i => i.index.isSome | _ => false
-  if hasWriteback then
-    if let some baseReg := RegOrSp.toXReg? mem.base then
-      if RegOrZr.toXReg? reg1 == some baseReg || RegOrZr.toXReg? reg2 == some baseReg then
-        throw "unpredictable: writeback base register is also a transfer register"
-  pure ()
+  checkLdrStrRegisters reg1 mem
+  checkLdrStrRegisters reg2 mem
 
 -- ============================================================================
 -- Operand Parsing
@@ -1410,6 +1420,8 @@ def parseLdr : Parser Instr := do
   let w := dstW.w
   parseComma
   let src ← parseAddrOrLit w true
+  if let .addr mem := src then
+    liftExcept (checkLdrStrRegisters dstW.reg mem)
   if addrOrLitNeedsUnscaled src w.bytes then
     match addrOrLitToUnscaled src with
     | some uoff => pure ⟨w, .LDUR dstW.reg uoff⟩
@@ -1425,6 +1437,7 @@ def parseStr : Parser Instr := do
   let w := srcW.w
   parseComma
   let dst ← parseAddr w true
+  liftExcept (checkLdrStrRegisters srcW.reg dst)
   if addrExprNeedsUnscaled dst w.bytes then
     match addrExprToUnscaled dst with
     | some uoff => pure ⟨w, .STUR srcW.reg uoff⟩
@@ -1462,6 +1475,7 @@ def parseLoadFixed (w : RegWidth) (scale : Nat)
   let dst ← checkWidth w dstW.w dstW.reg
   parseComma
   let src ← parseAddr w true scale
+  liftExcept (checkLdrStrRegisters dst src)
   if addrExprNeedsUnscaled src scale then
     match addrExprToUnscaled src with
     | some uoff => pure ⟨w, mkUnscaled dst uoff⟩
@@ -1490,6 +1504,7 @@ def parseStoreFixed (w : RegWidth) (scale : Nat)
   let src ← checkWidth w srcW.w srcW.reg
   parseComma
   let dst ← parseAddr w true scale
+  liftExcept (checkLdrStrRegisters src dst)
   if addrExprNeedsUnscaled dst scale then
     match addrExprToUnscaled dst with
     | some uoff => pure ⟨w, mkUnscaled src uoff⟩
@@ -1518,6 +1533,7 @@ def parseLoadSigned (scale : Nat)
   let w := dstW.w
   parseComma
   let src ← parseAddr w true scale
+  liftExcept (checkLdrStrRegisters dstW.reg src)
   if addrExprNeedsUnscaled src scale then
     match addrExprToUnscaled src with
     | some uoff => pure ⟨w, mkUnscaled dstW.reg uoff⟩
@@ -1532,6 +1548,8 @@ def parseLdrsw : Parser Instr := do
   let dst ← parseRegOrZr .W64
   parseComma
   let src ← parseAddrOrLit .W32 true 4
+  if let .addr mem := src then
+    liftExcept (checkLdrStrRegisters dst mem)
   if addrOrLitNeedsUnscaled src 4 then
     match addrOrLitToUnscaled src with
     | some uoff => pure ⟨.W64, .LDURSW dst uoff⟩
