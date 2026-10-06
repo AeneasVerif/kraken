@@ -26,11 +26,37 @@ public theorem addrOf_succ (e : Kraken.Executable Directive) {n : Nat} {d : Dire
 
 end Kraken.Executable
 
+/-
+# Weakest precondition of a fragment of a linked program
+
+A linked program defines a transition system over the machine states.
+
+`LinkedProgram.step` below encodes the must-predecessor relation of the transition system.
+Given a set of successor machine states `P`, `LinkedProgram.step st P` holds iff
+`∀ st', (st ⤳ st') → st' ∈ P`.
+This definition is expressed in terms of `Directive.interp`, which is considered ground truth.
+
+`Program.wp` packages up the predecessor relation into a notion of weakest precondition, independent
+of particular linking decisions. This definition is the bridge to `Std.WP` and thus `vcgen`.
+The definition of `wp` works by
+1. taking the least fixpoint of the predecessor relation via `Eventually`
+   (equivalent notions of `lfp` exist) so that it applies to a sequence
+   of directives, and crucially
+2. considering every possible way in which the sequence of directives
+   may be linked into the final `LinkedProgram`.
+   Only properties can be proved that hold for *all possible linking positions* of the ambient program.
+   The ambient program is a parameter to be able to express function calls compositionally.
+
+Side note: Cousot calls `LinkedProgram.step` the "dual preimage property transformer" in his
+2021 book "Principles of Abstract Interpretation", as a starting point for theory exploration.
+-/
+
 public class LinkedProgram where
   exe : Executable
 
 public instance [LinkedProgram] : Labels := Executable.labels LinkedProgram.exe
 
+/-- The predecessor relation of the transition system induced by the linked program. -/
 @[expose] public def LinkedProgram.step [LinkedProgram] (st : MachineState) (P : MachineState → Prop) : Prop :=
   ∃ j d z, LinkedProgram.exe.2[j]? = some (d, z) ∧ st.2 = LinkedProgram.exe.addrOf j ∧
     ∀ (R : MachineState → Prop) (next : MachineData → Effects)
@@ -38,11 +64,16 @@ public instance [LinkedProgram] : Labels := Executable.labels LinkedProgram.exe
       (∀ s', P (s', LinkedProgram.exe.addrOf (j + 1)) → (next s').All R) →
       (∀ a s', P (s', a) → (jmp a s').All R) →
       (d.interp st.1 ⟨LinkedProgram.exe.addrOf j, LinkedProgram.exe.addrOf (j + 1)⟩ next jmp).All R
+    -- The AI helpfully simplified the `∀ R, ...` to
+    --   ∀ R next jmp, (P ⊆ next⁻¹(All R)) → (P ⊆ jmp⁻¹(All R)) → (d.interp s … next jmp).All R
+    -- which highlights the predecessor nature under the CPS encoding rather nicely.
+    -- SG hopes that adjusting `Directive.interp` could make this definition simpler.
 
 @[expose] public def Program.LinkedAt [LinkedProgram] (p : Program) (k : Nat) : Prop :=
   p <+: (LinkedProgram.exe.2.map (·.1)).drop k ∧
   ∀ i l, p[i]? = some (Directive.label l) → label l = LinkedProgram.exe.addrOf (k + i)
 
+/-- Weakest precondition of a fragment embedded in a linked program. -/
 @[expose] public def Program.wp [LinkedProgram] (p : Program) (Q : MachineData → Prop)
     (E : Int64 → MachineData → Prop) (s : MachineData) : Prop :=
   ∀ k, p.LinkedAt k →
