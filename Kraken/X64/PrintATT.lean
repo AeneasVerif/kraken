@@ -25,6 +25,8 @@ def avxReg {w} (r : AvxReg w) : String := "%" ++ toString r
 def const : ConstExpr → String
   | .label l => l
   | .int64 i => toString i
+  | .add a b => s!"{const a}+{const b}"
+  | .sub a b => s!"{const a}-{const b}"
   | e => toString e
 
 def addr (aw : Width) (a : AddrExpr) : String :=
@@ -39,7 +41,8 @@ def addr (aw : Width) (a : AddrExpr) : String :=
   let idx := match a.idx with
     | some ⟨r, s⟩ => s!",{reg (.low r aw)},{s.bytes}"
     | none => ""
-  s!"{disp}({base}{idx})"
+  -- Without registers, the displacement alone is an absolute address.
+  if a.base.isNone && a.idx.isNone then const a.disp else s!"{disp}({base}{idx})"
 
 def rm {w} (aw : Width) : RegOrMem w → String
   | .reg r => reg r
@@ -51,7 +54,6 @@ def avxRm {w} (aw : Width) : AvxRegOrMem w → String
 
 def operand {w} (aw : Width) : Operand w → String
   | .regOrMem x => rm aw x
-  | .imm (.label l) => l
   | .imm e => "$" ++ const e
 
 def count : ShiftCountExpr → String
@@ -70,6 +72,9 @@ def operation {w} (aw : Width) (op : Operation w) : String :=
   let two (mn a b : String) := s!"{mn}{s} {a}, {b}"
   match op with
   | .mov d x => two "mov" (operand aw x) (rm aw d)
+  -- A memory source needs the suffixed form (`movsbl`, `movzwq`, `movslq`, ...) for its width.
+  | .movsx (w' := w') d x@(.mem _) => s!"movs{suffix w'}{s} {rm aw x}, {rm aw d}"
+  | .movzx (w' := w') d x@(.mem _) => s!"movz{suffix w'}{s} {rm aw x}, {rm aw d}"
   | .movsx d x => s!"movsx {rm aw x}, {rm aw d}"
   | .movzx d x => s!"movzx {rm aw x}, {rm aw d}"
   | .push x => one "push" (operand aw x)
