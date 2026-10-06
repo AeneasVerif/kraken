@@ -136,7 +136,7 @@ public theorem label_addrOf (e : Kraken.Executable Directive) (l : Label) (n : N
         simpa using this
       simp [hd]
 
-@[expose] public def _root_.Directive.Inert (d : Directive) : Prop :=
+public def _root_.Directive.Inert (d : Directive) : Prop :=
   ∀ [Labels] s p (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects),
     d.interp s p next jmp = next s
 
