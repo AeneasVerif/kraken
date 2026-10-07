@@ -271,6 +271,46 @@ inductive Directive
   deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
 
 abbrev Program := List Directive
+
+/-- The label that a directive introduces, if it is a label. -/
+def Directive.label? : Directive → Option Label
+  | .label l => some l
+  | _ => none
+
+/-- The labels of the text, in order. -/
+def Program.labels (p : Program) : List Label := p.filterMap Directive.label?
+
+@[simp] theorem Program.labels_nil : Program.labels [] = [] := rfl
+
+@[simp] theorem Program.labels_cons_label (l : Label) (p : Program) :
+    Program.labels (.label l :: p) = l :: Program.labels p := rfl
+
+@[simp] theorem Program.labels_cons_instr (i : Instr) (p : Program) :
+    Program.labels (.instr i :: p) = Program.labels p := rfl
+
+@[simp] theorem Program.labels_cons_byteArray (a : ByteArray) (p : Program) :
+    Program.labels (.byteArray a :: p) = Program.labels p := rfl
+
+theorem Program.labels_append (a b : Program) :
+    Program.labels (a ++ b) = Program.labels a ++ Program.labels b :=
+  List.filterMap_append
+
+theorem Program.mem_labels {p : Program} {l : Label} : l ∈ Program.labels p ↔ Directive.label l ∈ p := by
+  rw [Program.labels, List.mem_filterMap]
+  constructor
+  · rintro ⟨d, hd, hl⟩
+    cases d <;> simp_all [Directive.label?]
+  · exact fun h => ⟨_, h, rfl⟩
+
+theorem Program.eq_of_getElem?_label {P : Program} (hnd : (Program.labels P).Nodup) {i j : Nat}
+    {l : Label} (hi : P[i]? = some (.label l)) (hj : P[j]? = some (.label l)) : i = j := by
+  induction P generalizing i j with
+  | nil => simp at hi
+  | cons d P ih =>
+    cases i <;> cases j <;> cases d <;>
+      grind [Program.labels_cons_label, Program.labels_cons_instr, Program.labels_cons_byteArray,
+        Program.mem_labels, List.mem_of_getElem?]
+
 abbrev Executable := Kraken.Executable Directive
 
 namespace Reg

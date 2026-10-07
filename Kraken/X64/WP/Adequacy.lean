@@ -44,44 +44,59 @@ private theorem dropWhile_eq_drop_of {α} {p : α → Bool} {l : List α} {j : N
       exact ih (fun k hk c hc => hprior (k+1) (by omega) c (by simpa using hc))
         (fun c hc => hhead c (by simpa using hc))
 
-public theorem directivesFromAddress_addrOf_first (e : Kraken.Executable Directive) (j n : Nat)
+private theorem getElem?_withAddresses_eq (e : Kraken.Executable Directive) (k : Nat) :
+    (Kraken.Executable.withAddresses (e.1, e.2))[k]? = e.2[k]?.map (fun dz => (e.addrOf k, dz)) := by
+  rw [getElem?_withAddresses_pair]
+  rfl
+
+private theorem takeWhile_eq_take_of {α} {p : α → Bool} {l : List α} {n : Nat}
+    (hprior : ∀ k, k < n → ∀ c, l[k]? = some c → p c = true)
+    (hhead : ∀ c, l[n]? = some c → p c = false) :
+    l.takeWhile p = l.take n := by
+  induction l generalizing n with
+  | nil => simp
+  | cons x xs ih =>
+    cases n with
+    | zero => simp [hhead x rfl]
+    | succ m =>
+      rw [List.takeWhile_cons_of_pos (hprior 0 (Nat.succ_pos m) x rfl), List.take_succ_cons,
+        ih (n := m) (fun k hk c hc => hprior (k+1) (by omega) c (by simpa using hc))
+          (fun c hc => hhead c (by simpa using hc))]
+
+private theorem withAddresses_dropWhile_addrOf (e : Kraken.Executable Directive) (j n : Nat)
     (hj : e.addrOf j = e.addrOf n)
     (hfresh : ∀ k, k < j → e.addrOf k ≠ e.addrOf n) :
-    e.directivesFromAddress (e.addrOf n) = e.2.drop j := by
-  show ((Kraken.Executable.withAddresses (e.1, e.2)).dropWhile
-      (·.1 ≠ e.addrOf n)).map (·.2) = e.2.drop j
+    (Kraken.Executable.withAddresses (e.1, e.2)).dropWhile (·.1 ≠ e.addrOf n)
+      = (Kraken.Executable.withAddresses (e.1, e.2)).drop j := by
   have hlen : (Kraken.Executable.withAddresses (e.1, e.2)).length = e.2.length := by
     conv => lhs; rw [show (Kraken.Executable.withAddresses (e.1, e.2)).length
       = ((Kraken.Executable.withAddresses (e.1, e.2)).map (·.2)).length by simp]
     rw [withAddresses_map_snd e.2 e.1]
-  have hdw : (Kraken.Executable.withAddresses (e.1, e.2)).dropWhile (·.1 ≠ e.addrOf n)
-      = (Kraken.Executable.withAddresses (e.1, e.2)).drop j := by
-    apply dropWhile_eq_drop_of
-    · intro k hk c hc
-      have hklt : k < e.2.length := by
-        have hbound : k < (Kraken.Executable.withAddresses (e.1, e.2)).length := by
-          by_cases h : k < (Kraken.Executable.withAddresses (e.1, e.2)).length
-          · exact h
-          · rw [List.getElem?_eq_none (by omega)] at hc; cases hc
-        omega
-      have := getElem?_withAddresses e k hklt
-      rw [hc] at this
-      simp only [Option.map_some, Option.some.injEq] at this
-      have hne : c.1 ≠ e.addrOf n := this ▸ hfresh k hk
-      simpa using hne
-    · intro c hc
-      have hjlt : j < e.2.length := by
-        have hbound : j < (Kraken.Executable.withAddresses (e.1, e.2)).length := by
-          by_cases h : j < (Kraken.Executable.withAddresses (e.1, e.2)).length
-          · exact h
-          · rw [List.getElem?_eq_none (by omega)] at hc; cases hc
-        omega
-      have := getElem?_withAddresses e j hjlt
-      rw [hc] at this
-      simp only [Option.map_some, Option.some.injEq] at this
-      have heq : c.1 = e.addrOf n := this ▸ hj
-      simpa using heq
-  rw [hdw, List.map_drop, withAddresses_map_snd e.2 e.1]
+  apply dropWhile_eq_drop_of
+  · intro k hk c hc
+    have hklt : k < e.2.length := by
+      have hbound : k < (Kraken.Executable.withAddresses (e.1, e.2)).length := by
+        by_cases h : k < (Kraken.Executable.withAddresses (e.1, e.2)).length
+        · exact h
+        · rw [List.getElem?_eq_none (by omega)] at hc; cases hc
+      omega
+    have := getElem?_withAddresses e k hklt
+    rw [hc] at this
+    simp only [Option.map_some, Option.some.injEq] at this
+    have hne : c.1 ≠ e.addrOf n := this ▸ hfresh k hk
+    simpa using hne
+  · intro c hc
+    have hjlt : j < e.2.length := by
+      have hbound : j < (Kraken.Executable.withAddresses (e.1, e.2)).length := by
+        by_cases h : j < (Kraken.Executable.withAddresses (e.1, e.2)).length
+        · exact h
+        · rw [List.getElem?_eq_none (by omega)] at hc; cases hc
+      omega
+    have := getElem?_withAddresses e j hjlt
+    rw [hc] at this
+    simp only [Option.map_some, Option.some.injEq] at this
+    have heq : c.1 = e.addrOf n := this ▸ hj
+    simpa using heq
 
 private theorem findSome?_eq_of {α β} {f : α → Option β} {l : List α} :
     ∀ {n : Nat} {b : β}, l[n]?.bind f = some b →
@@ -136,29 +151,6 @@ public theorem label_addrOf (e : Kraken.Executable Directive) (l : Label) (n : N
         simpa using this
       simp [hd]
 
-public def _root_.Directive.Inert (d : Directive) : Prop :=
-  ∀ [Labels] s p (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects),
-    d.interp s p next jmp = next s
-
-public class Assembled (e : Kraken.Executable Directive) : Prop where
-  label_size : ∀ (i : Nat) l z, e.2[i]? = some (Directive.label l, z) → z = 0
-  zero_inert : ∀ (i : Nat) d, e.2[i]? = some (d, 0) → d.Inert
-  no_wrap : (e.2.map (·.2)).sum < 2 ^ 64
-  labels_unique : ∀ (i j : Nat) l z z', e.2[i]? = some (Directive.label l, z) →
-    e.2[j]? = some (Directive.label l, z') → i = j
-
-private theorem sum_map_take_mono {α} (f : α → Nat) (l : List α) {k n : Nat} (h : k ≤ n) :
-    ((l.take k).map f).sum ≤ ((l.take n).map f).sum := by
-  grind [List.take_append_drop]
-grind_pattern sum_map_take_mono => ((l.take k).map f).sum, ((l.take n).map f).sum
-
-public theorem sizeBefore_eq_of_addrOf_eq (e : Kraken.Executable Directive) [hv : Assembled e] {k n : Nat}
-    (heq : e.addrOf k = e.addrOf n) : e.sizeBefore k = e.sizeBefore n := by
-  have : e.sizeBefore k ≤ (e.2.map (·.2)).sum := by grind [sizeBefore, List.take_append_drop]
-  have : e.sizeBefore n ≤ (e.2.map (·.2)).sum := by grind [sizeBefore, List.take_append_drop]
-  have := hv.no_wrap
-  grind [addrOf]
-
 public theorem _root_.Nat.exists_least_le {P : Nat → Prop} {n : Nat} (h : P n) :
     ∃ j, j ≤ n ∧ P j ∧ ∀ k, k < j → ¬P k := by
   induction n using Nat.strongRecOn with
@@ -169,32 +161,7 @@ public theorem _root_.Nat.exists_least_le {P : Nat → Prop} {n : Nat} (h : P n)
       exact ⟨j, by omega, hPj, hmin⟩
     · exact ⟨n, Nat.le_refl n, h, fun k hk hPk => hb ⟨k, hk, hPk⟩⟩
 
-public theorem zero_between_of_addrOf_eq (e : Kraken.Executable Directive) [hv : Assembled e]
-    {j k n : Nat} (hjk : j ≤ k) (hkn : k < n) (hn : n ≤ e.2.length)
-    (heq : e.addrOf j = e.addrOf n) :
-    ∃ d, e.2[k]? = some (d, 0) := by
-  obtain ⟨⟨d, z⟩, hdz⟩ : ∃ dz, e.2[k]? = some dz := ⟨_, List.getElem?_eq_getElem (by omega)⟩
-  have := sizeBefore_eq_of_addrOf_eq e heq
-  have : e.sizeBefore (k + 1) ≤ e.sizeBefore n := by grind [sizeBefore]
-  exact ⟨d, by grind [sizeBefore, List.take_add_one]⟩
-
-public theorem exists_cut (e : Kraken.Executable Directive) [Assembled e] {n : Nat} (hn : n ≤ e.2.length) :
-    ∃ j, j ≤ n ∧ e.directivesFromAddress (e.addrOf n) = e.2.drop j
-      ∧ ∀ m, j ≤ m → m < n → ∃ d, e.2[m]? = some (d, 0) := by
-  obtain ⟨j, hjn, hj, hmin⟩ :=
-    Nat.exists_least_le (P := fun k => e.addrOf k = e.addrOf n) rfl
-  exact ⟨j, hjn, directivesFromAddress_addrOf_first e j n hj hmin,
-    fun m hjm hmn => zero_between_of_addrOf_eq e hjm hmn hn hj⟩
-
 end Kraken.Executable
-
-public theorem straightlineStep_eq_interp [Layout] (e : Executable) (st : MachineState)
-    (post : MachineState → Prop) :
-    straightlineStep e st post
-      = (@Directives.interp (Executable.labels e) (e.directivesFromAddress st.2) st.1 st.2
-          fun pc s => .done (s, pc)).All post := by
-  unfold straightlineStep Executable.straightline
-  rfl
 
 public theorem Directives.interp_inert_append [Labels] {pre rest : List (Directive × Nat)}
     (hpre : ∀ c ∈ pre, c.2 = 0 ∧ c.1.Inert) (s : MachineData) (pc : Int64)
@@ -212,121 +179,179 @@ public theorem Directives.interp_inert_append [Labels] {pre rest : List (Directi
     rw [hinert]
     exact ih (fun c hc => hpre c (List.mem_cons_of_mem _ hc))
 
-public theorem Executable.inert_between (e : Executable) [hv : Kraken.Executable.Assembled e]
-    {j j' : Nat} (hjj : j ≤ j') (hj' : j' ≤ e.2.length)
-    (hzero : ∀ m, j ≤ m → m < j' → ∃ d, e.2[m]? = some (d, 0)) :
-    ∀ c ∈ (e.2.drop j).take (j' - j), c.2 = 0 ∧ c.1.Inert := by
-  intro c hc
-  obtain ⟨m, hm, rfl⟩ := List.getElem_of_mem hc
-  have := hzero (j + m) (by grind) (by grind)
-  grind [hv.zero_inert]
-
-public theorem Executable.drop_split (e : Executable) {j j' : Nat} (hjj : j ≤ j') :
-    e.2.drop j = (e.2.drop j).take (j' - j) ++ e.2.drop j' := by
-  conv => lhs; rw [← List.take_append_drop (j' - j) (e.2.drop j)]
-  rw [List.drop_drop, show j + (j' - j) = j' by omega]
-
-public theorem LinkedProgram.eventually_straightlineStep [Layout] {e : Executable}
-    [hv : Kraken.Executable.Assembled e] {B post : MachineState → Prop}
-    (hB : ∀ st, B st → st.2 = e.addrOf e.2.length ∧ ∀ pc, post (st.1, pc))
-    {st : MachineState} (h : @Eventually _ (@LinkedProgram.step ⟨e⟩) B st) :
-    Eventually (straightlineStep e) post st := by
-  letI : Labels := Executable.labels e
-  let G := Eventually (straightlineStep e) post
-  let Burst := fun (j : Nat) (s : MachineData) =>
-    (Directives.interp (e.2.drop j) s (e.addrOf j) fun pc s => .done (s, pc)).All G
-  have hsame : ∀ j j' s, j ≤ j' → j' ≤ e.2.length → e.addrOf j = e.addrOf j' →
-      Burst j s = Burst j' s := by
-    intro j j' s hjj hj' heq
-    show (Directives.interp _ _ _ _).All G = (Directives.interp _ _ _ _).All G
-    rw [Executable.drop_split e hjj, Directives.interp_inert_append
-      (Executable.inert_between e hjj hj' fun m hjm hmj' =>
-        Kraken.Executable.zero_between_of_addrOf_eq e hjm hmj' hj' heq), heq]
-  have hplaced : ∀ j s, j ≤ e.2.length → Burst j s → G (s, e.addrOf j) := by
-    intro j s hj hb
-    refine Eventually.step _ _ ?_ fun _ h => h
-    obtain ⟨j₀, hj₀, hdir, hzero⟩ := Kraken.Executable.exists_cut e hj
-    rw [straightlineStep_eq_interp]
-    dsimp only
-    rw [hdir, Executable.drop_split e hj₀,
-      Directives.interp_inert_append (Executable.inert_between e hj₀ hj hzero)]
-    exact hb
-  have key : ∀ st, @Eventually _ (@LinkedProgram.step ⟨e⟩) B st →
-      G st ∧ ∀ j, j ≤ e.2.length → st.2 = e.addrOf j → Burst j st.1 := by
-    intro st h
-    induction h with
-    | done st hb =>
-      obtain ⟨s, a⟩ := st
-      obtain ⟨hend, hpost⟩ := hB _ hb
-      dsimp only at hend hpost
-      refine ⟨Eventually.done _ (hpost a), fun j hj hja => ?_⟩
-      dsimp only at hja
-      show Burst j s
-      rw [hsame j e.2.length s hj (Nat.le_refl _) (hja.symm.trans hend)]
-      show (Directives.interp (e.2.drop e.2.length) _ _ _).All G
-      rw [List.drop_length]
-      exact Eventually.done _ (hpost _)
-    | step st P hstep _ ih =>
-      obtain ⟨j₀, d, z, hcell, hst, hall⟩ := hstep
-      obtain ⟨s, a⟩ := st
-      dsimp only at hst hall ⊢
-      subst hst
-      replace hcell : e.2[j₀]? = some (d, z) := hcell
-      obtain ⟨hlt, hget⟩ := List.getElem?_eq_some_iff.mp hcell
-      have hb0 : Burst j₀ s := by
-        show (Directives.interp (e.2.drop j₀) s (e.addrOf j₀) _).All G
-        rw [List.drop_eq_getElem_cons hlt, hget]
-        simp only [Directives.interp]
-        rw [← Kraken.Executable.addrOf_succ _ hcell]
-        exact hall G _ _ (fun s' hp => (ih _ hp).2 (j₀ + 1) hlt rfl)
-          (fun a' s' hp => (ih _ hp).1)
-      refine ⟨hplaced j₀ s (Nat.le_of_lt hlt) hb0, fun j hj hja => ?_⟩
-      rcases Nat.le_total j j₀ with hle | hle
-      · rw [hsame j j₀ s hle (Nat.le_of_lt hlt) hja.symm]
-        exact hb0
-      · rw [← hsame j₀ j s hle hj hja]
-        exact hb0
-  exact (key st h).1
-
 public theorem Layout.apply_getElem? [layout : Layout] (p : Program) (i : Nat) :
     (layout p).2[i]? = (p[i]?).map (fun d => (d, Kraken.Layout.size Directive i)) := by
   simp [Kraken.Layout.apply, List.getElem?_mapIdx]
 
-public theorem Layout.text {layout : Layout} {p : Program} : (layout p).2.map (·.1) = p :=
-  List.ext_getElem (by simp [Kraken.Layout.apply]) (by simp [Kraken.Layout.apply])
+public theorem Layout.length_apply [layout : Layout] (p : Program) : (layout p).2.length = p.length := by
+  simp [Kraken.Layout.apply]
 
-public theorem Program.linkedAt_layout [layout : Layout] {p : Program}
-    [hv : Kraken.Executable.Assembled (layout p)] :
-    @Program.LinkedAt ⟨layout p⟩ p 0 := by
-  refine ⟨?_, fun i l hi => ?_⟩
-  · show p <+: ((layout p).2.map (·.1)).drop 0
-    rw [Layout.text, List.drop_zero]
-    exact List.prefix_refl _
-  · show (Executable.labels (layout p)).label l = (layout p).addrOf (0 + i)
-    rw [Nat.zero_add]
-    have hlay : (layout p).2[i]? = some (Directive.label l, Kraken.Layout.size Directive i) := by
-      rw [Layout.apply_getElem?, hi]; rfl
-    refine Kraken.Executable.label_addrOf (layout p) l i ?_ ?_
-    · rw [hlay, hv.label_size i l _ hlay]
-    · intro dz hdz heq
-      obtain ⟨k, hk, hkdz⟩ := List.getElem_of_mem hdz
-      rw [List.length_take] at hk
-      have hcell : (layout p).2[k]? = some (Directive.label l, dz.2) := by
-        rw [← heq, List.getElem?_eq_getElem (by omega), ← hkdz, List.getElem_take]
-      exact absurd (hv.labels_unique k i l _ _ hcell hlay) (by omega)
+section
+variable [Host] [layout : Layout] [hv : Layout.Valid]
 
-public theorem Program.straightline_of_wp [layout : Layout] {p : Program}
-    [Kraken.Executable.Assembled (layout p)] {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
-    {post : MachineState → Prop} (h : @Program.wp ⟨layout p⟩ p Q E s)
-    (hQ : ∀ s', Q s' → ∀ pc, post (s', pc)) (hE : ∀ a s', ¬ E a s') :
-    Eventually (straightlineStep (layout p)) post (s, layout.start) := by
-  have := LinkedProgram.eventually_straightlineStep (e := layout p) (post := post) ?_
-    (h 0 Program.linkedAt_layout)
-  · change Eventually _ _ (s, (layout p).addrOf 0) at this
-    rwa [Kraken.Executable.addrOf_zero] at this
-  · rintro ⟨s', a⟩ (⟨ha, hq⟩ | he)
-    · refine ⟨?_, hQ s' hq⟩
-      rw [ha, Nat.zero_add]
-      congr 1
-      simp [Kraken.Layout.apply]
-    · exact absurd he (hE _ _)
+private theorem Host.inert_of_cell {m : Nat} {d : Directive}
+    (h : (layout Host.prog).2[m]? = some (d, 0)) : d.Inert := by
+  rw [Layout.apply_getElem?] at h
+  obtain ⟨d', hd', heq⟩ := Option.map_eq_some_iff.mp h
+  simp only [Prod.mk.injEq] at heq
+  obtain ⟨rfl, hz⟩ := heq
+  exact hv.zero_inert m d' hd' hz
+
+private theorem Host.zero_between {j m n : Nat} (hjm : j ≤ m) (hmn : m < n) (hn : n ≤ Host.prog.length)
+    (heq : (layout Host.prog).addrOf j = (layout Host.prog).addrOf n) :
+    ∃ d, (layout Host.prog).2[m]? = some (d, 0) := by
+  refine ⟨Host.prog[m], ?_⟩
+  rw [Layout.apply_getElem?, List.getElem?_eq_getElem (by omega), hv.fits j n m hjm hmn hn heq]
+  rfl
+
+private theorem Host.inert_between {j j' : Nat}
+    (hzero : ∀ m, j ≤ m → m < j' → ∃ d, (layout Host.prog).2[m]? = some (d, 0)) :
+    ∀ c ∈ ((layout Host.prog).2.drop j).take (j' - j), c.2 = 0 ∧ c.1.Inert := by
+  intro c hc
+  obtain ⟨m, hm, rfl⟩ := List.getElem_of_mem hc
+  have := hzero (j + m) (by grind) (by grind)
+  grind [Host.inert_of_cell]
+
+public theorem Host.directivesAtAddress_addrOf {k : Nat} {d : Directive} {z : Nat}
+    (hd : (layout Host.prog).2[k]? = some (d, z)) (hz : 0 < z) :
+    ∃ pre, (layout Host.prog).directivesAtAddress ((layout Host.prog).addrOf k) = pre ++ [(d, z)] ∧
+      ∀ c ∈ pre, c.2 = 0 ∧ c.1.Inert := by
+  have hk : k < Host.prog.length := by
+    rw [← Layout.length_apply]; exact (List.getElem?_eq_some_iff.mp hd).1
+  obtain ⟨j, hjk, hj, hmin⟩ :=
+    Nat.exists_least_le (P := fun i => (layout Host.prog).addrOf i = (layout Host.prog).addrOf k) rfl
+  have hzero : ∀ m, j ≤ m → m < k → ∃ d, (layout Host.prog).2[m]? = some (d, 0) :=
+    fun m hjm hmk => Host.zero_between hjm hmk (Nat.le_of_lt hk) hj
+  have haddr' : ∀ i, j + i ≤ k → (layout Host.prog).addrOf (j + i) = (layout Host.prog).addrOf k := by
+    intro i
+    induction i with
+    | zero => exact fun _ => hj
+    | succ i ih =>
+      intro hik
+      obtain ⟨d', hd'⟩ := hzero (j + i) (by omega) (by omega)
+      rw [← Nat.add_assoc, Kraken.Executable.addrOf_succ _ hd', ih (by omega)]
+      simp
+  have haddr : ∀ m, j ≤ m → m ≤ k → (layout Host.prog).addrOf m = (layout Host.prog).addrOf k :=
+    fun m hjm hmk => by simpa [Nat.add_sub_cancel' hjm] using haddr' (m - j) (by omega)
+  have hnext : (layout Host.prog).addrOf (k + 1) ≠ (layout Host.prog).addrOf k := by
+    intro h
+    have hsz := hv.fits k (k + 1) k (Nat.le_refl _) (Nat.lt_succ_self _) (by omega) h.symm
+    have hd' := hd
+    rw [Layout.apply_getElem?] at hd'
+    obtain ⟨d', -, heq⟩ := Option.map_eq_some_iff.mp hd'
+    simp only [Prod.mk.injEq] at heq
+    omega
+  refine ⟨((layout Host.prog).2.drop j).take (k - j), ?_, Host.inert_between hzero⟩
+  show (((Kraken.Executable.withAddresses ((layout Host.prog).1, (layout Host.prog).2)).dropWhile
+    (·.1 ≠ (layout Host.prog).addrOf k)).takeWhile (·.1 = (layout Host.prog).addrOf k)).map (·.2) = _
+  rw [Kraken.Executable.withAddresses_dropWhile_addrOf _ j k hj hmin,
+    Kraken.Executable.takeWhile_eq_take_of (n := k - j + 1)]
+  · rw [List.map_take, List.map_drop, Kraken.Executable.withAddresses_map_snd, List.take_add_one,
+      List.getElem?_drop, Nat.add_sub_cancel' hjk, hd]
+    rfl
+  · intro m hm c hc
+    rw [List.getElem?_drop, Kraken.Executable.getElem?_withAddresses_eq] at hc
+    obtain ⟨dz, -, rfl⟩ := Option.map_eq_some_iff.mp hc
+    simpa using haddr (j + m) (by omega) (by omega)
+  · intro c hc
+    rw [List.getElem?_drop, Kraken.Executable.getElem?_withAddresses_eq,
+      show j + (k - j + 1) = k + 1 by omega] at hc
+    obtain ⟨dz, -, rfl⟩ := Option.map_eq_some_iff.mp hc
+    simpa using hnext
+
+public theorem Host.fetch?_addrOf {k : Nat} {d : Directive} {z : Nat}
+    (hd : (layout Host.prog).2[k]? = some (d, z)) (hz : 0 < z) :
+    (layout Host.prog).fetch? ((layout Host.prog).addrOf k) = some (d, z) := by
+  obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd hz
+  unfold Kraken.Executable.fetch?
+  rw [hat, List.find?_append, List.find?_eq_none.mpr fun c hc => by simp [(hpre c hc).1]]
+  simp [hz]
+
+public theorem Host.eventually_directive {k : Nat} {d : Directive} {p : Program}
+    (hdp : (d :: p).IsInfixAt Host.prog k) {B : MachineState → Prop} {s : MachineData}
+    (h : (d.interp s ⟨(layout Host.prog).addrOf k, (layout Host.prog).addrOf (k + 1)⟩
+      (fun s' => .done (s', (layout Host.prog).addrOf (k + 1))) (fun a s' => .done (s', a))).All B) :
+    Eventually Host.step B (s, (layout Host.prog).addrOf k) := by
+  have hd : (layout Host.prog).2[k]? = some (d, Kraken.Layout.size Directive k) := by
+    rw [Layout.apply_getElem?, hdp.cons.1]
+    rfl
+  rcases Nat.eq_zero_or_pos (Kraken.Layout.size Directive k) with h0 | hz
+  · rw [h0] at hd
+    rw [Host.inert_of_cell hd, Kraken.Executable.addrOf_succ _ hd] at h
+    have h0' : (layout Host.prog).addrOf k + Int64.ofNat 0 = (layout Host.prog).addrOf k := by simp
+    simp only [Effects.All, h0'] at h
+    exact Eventually.done _ h
+  · refine Eventually.step _ B ?_ fun _ hb => Eventually.done _ hb
+    unfold Host.step
+    rw [Host.fetch?_addrOf hd hz]
+    dsimp only
+    rw [← Kraken.Executable.addrOf_succ _ hd]
+    exact h
+
+public theorem Host.step1_of_step {st : MachineState} {P : MachineState → Prop}
+    (h : Host.step st P) : step1 (layout Host.prog) st P := by
+  obtain ⟨s, a⟩ := st
+  unfold Host.step at h
+  split at h
+  · exact h.elim
+  rename_i d z hinstr
+  have hmem := List.mem_of_find?_eq_some hinstr
+  have hz : 0 < z := by simpa using List.find?_some hinstr
+  obtain ⟨x, hx, hxdz⟩ := List.mem_map.mp hmem
+  have hxa : x.1 = a := by simpa using List.all_eq_true.mp List.all_takeWhile x hx
+  obtain ⟨k, hk⟩ := List.mem_iff_getElem?.mp
+    ((List.dropWhile_sublist _).subset (List.takeWhile_sublist _ |>.subset hx))
+  rw [Kraken.Executable.getElem?_withAddresses_eq] at hk
+  obtain ⟨dz, hdz, rfl⟩ := Option.map_eq_some_iff.mp hk
+  dsimp only at hxa hxdz
+  subst hxa hxdz
+  obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hdz hz
+  unfold step1 Executable.step
+  dsimp only
+  rw [hat, Directives.interp_inert_append hpre]
+  exact h
+
+public theorem Host.eventually_step1 {st : MachineState} {P : MachineState → Prop}
+    (h : Eventually Host.step P st) : Eventually (step1 (layout Host.prog)) P st := by
+  induction h with
+  | done st hp => exact Eventually.done _ hp
+  | step st Q hstep _ ih => exact Eventually.step _ Q (Host.step1_of_step hstep) ih
+
+public theorem Host.label_eq {p : Program} {k i : Nat} {l : Label}
+    (hp : p.IsInfixAt Host.prog k) (hi : p[i]? = some (.label l)) :
+    label l = (layout Host.prog).addrOf (k + i) := by
+  obtain ⟨hlt, hpi⟩ := List.getElem?_eq_some_iff.mp hi
+  have hP : Host.prog[k + i]? = some (.label l) := by
+    rw [List.isInfixAt_iff_getElem?.mp hp i hlt, hpi]
+  have hcell : (layout Host.prog).2[k + i]? = some (.label l, 0) := by
+    rw [Layout.apply_getElem?, hP, hv.label_size _ l hP]
+    rfl
+  refine Kraken.Executable.label_addrOf (layout Host.prog) l (k + i) hcell ?_
+  intro dz hdz heq
+  obtain ⟨m, hm, hmdz⟩ := List.getElem_of_mem hdz
+  rw [List.length_take] at hm
+  have h1 : (layout Host.prog).2[m]? = some dz := by
+    rw [List.getElem?_eq_getElem (by omega), ← hmdz, List.getElem_take]
+  rw [Layout.apply_getElem?] at h1
+  obtain ⟨d', hd', rfl⟩ := Option.map_eq_some_iff.mp h1
+  dsimp only at heq
+  subst heq
+  exact absurd (Program.eq_of_getElem?_label Host.labels_nodup hd' hP) (by omega)
+
+end
+
+/-- The address at which the first occurrence of `p` in the host program starts. -/
+public def Host.startAddr [Host] [layout : Layout] {p : Program} (h : p <:+: Host.prog) : Int64 :=
+  (layout Host.prog).addrOf (p.infixIdx Host.prog h)
+
+export Host (startAddr)
+
+public theorem Program.step1_of_wp [Host] [layout : Layout] [Layout.Valid] {p : Program}
+    {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
+    {post : MachineState → Prop} (h : p <:+: Host.prog) (hwp : p.wp Q E s)
+    (hQ : ∀ s', Q s' → ∀ pc, post (s', pc)) (hE : ∀ a s', E a s' → post (s', a)) :
+    Eventually (step1 (layout Host.prog)) post (s, startAddr h) := by
+  refine eventually_weaken _ _ _ _ ?_ (Host.eventually_step1 (hwp _ (List.isInfixAt_infixIdx h)))
+  rintro ⟨s', a⟩ (⟨-, hq⟩ | he)
+  · exact hQ s' hq a
+  · exact hE a s' he
