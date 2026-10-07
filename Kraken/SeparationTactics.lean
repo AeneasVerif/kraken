@@ -41,11 +41,16 @@ private def reduceProjectionApp (e : Expr) : MetaM Expr := do
   let some fn ← reduceProj? unfolded.getAppFn | return e
   return mkAppN fn unfolded.getAppArgs
 
+private def isNakedMVar : Expr → Bool
+  | .mvar _ => true
+  | _ => false
+
 -- fuel: bound definitional unfolding to avoid expensive general reduction.
 private partial def matchClosed (lhs rhs : Expr) (fuel : Nat := 2) : MetaM Bool := do
-  let lhs ← reduceProjectionApp lhs
-  let rhs ← reduceProjectionApp rhs
+  let lhs ← instantiateMVars (← reduceProjectionApp lhs)
+  let rhs ← instantiateMVars (← reduceProjectionApp rhs)
   if lhs == rhs then return true
+  if isNakedMVar lhs || isNakedMVar rhs then return ← isDefEq lhs rhs
   if lhs.getAppFn == rhs.getAppFn then
     let lhsArgs := lhs.getAppArgs
     let rhsArgs := rhs.getAppArgs
@@ -60,14 +65,8 @@ private partial def matchClosed (lhs rhs : Expr) (fuel : Nat := 2) : MetaM Bool 
     if ← matchClosed lhs rhs (fuel - 1) then return true
   return false
 
-private def matchAtom (lhs rhs : Expr) : MetaM Bool := do
-  if lhs == rhs then return true
-  if lhs.hasExprMVar || rhs.hasExprMVar then isDefEq lhs rhs
-  else matchClosed lhs rhs
-
-private def isNakedMVar : Expr → Bool
-  | .mvar _ => true
-  | _ => false
+private def matchAtom (lhs rhs : Expr) : MetaM Bool :=
+  matchClosed lhs rhs
 
 -- Closed clauses can be cancelled greedily: unlike clauses containing
 -- metavariables, matching them cannot constrain a later cancellation choice.
@@ -170,16 +169,11 @@ private def solveFromHypothesis (target : Expr) (localDecl : LocalDecl) : MetaM 
   let hFunEq ← mkAppM ``congrFun #[hSeps, hypArg]
   return some (← mkAppM ``Eq.mp #[hFunEq, localDecl.toExpr])
 
-syntax (name := ecancel) "ecancel" : tactic
-
-@[tactic ecancel]
-def evalEcancel : Tactic :=
-  fun _stx : Syntax => withMainContext do
-  let goal ← getMainGoal
+public def solveSepGoal (goal : MVarId) : MetaM Bool := goal.withContext do
   let target ← goal.getType
   -- Existential witnesses introduced by tactics are synthetic-opaque goals;
   -- `ecancel` intentionally instantiates them as part of cancellation.
-  let solved ← withConfig (fun config => { config with assignSyntheticOpaque := true }) do
+  withConfig (fun config => { config with assignSyntheticOpaque := true }) do
     if target.isAppOfArity ``Eq 3 then
       let args := target.getAppArgs
       if let some proof ← solveSepEq args[1]! args[2]! then
@@ -191,6 +185,13 @@ def evalEcancel : Tactic :=
           goal.assign proof
           return true
     return false
-  unless solved do
-    throwError "ecancel: could not automatically solve goal {target}"
+
+syntax (name := ecancel) "ecancel" : tactic
+
+@[tactic ecancel]
+def evalEcancel : Tactic :=
+  fun _stx : Syntax => withMainContext do
+  let goal ← getMainGoal
+  unless ← solveSepGoal goal do
+    throwError "ecancel: could not automatically solve goal {← goal.getType}"
 end Kraken.Tactic

@@ -15,6 +15,8 @@ For tactics, see Kraken/Tactics.lean.
 import Kraken.Eval
 import Kraken.SeparationTactics
 import Kraken.Tactics
+public import Kraken.ToBytes
+import Kraken.Layout
 import Std.Tactic.BVDecide
 import Kraken.X64.OmniSemantics
 import Kraken.X64.Parser
@@ -24,36 +26,76 @@ import Kraken.X64.Sep
 
 open Kraken.X64.Parser
 
+attribute [grind =] Int64.toBitVec_ofBitVec
+
+attribute [ksimp]
+  BitVec.add_zero
+  BitVec.sub_zero
+  BitVec.ofInt_add
+  BitVec.ofInt_int64ToInt
+  BitVec.ofInt_ofBytes_toBytes_64
+  BitVec.ofInt_ofNat
+  BitVec.ofInt_toInt
+  BitVec.ofNat_toNat
+  BitVec.ofNat_uInt64ToNat
+  BitVec.setWidth_eq
+  BitVec.xor_self
+  BitVec.zero_eq
+  Int.add_zero
+  Int64.toInt_neg
+  Nat.shiftRight_zero
+  Nat.sub_zero
+  UInt64.ofBitVec_add
+  UInt64.ofBitVec_ofNat
+  UInt64.ofBitVec_sub
+  UInt64.ofBitVec_toBitVec
+  UInt64.sub_add_cancel
+  UInt64.toBitVec_ofNat
+  UInt64.toBitVec_sub
+  UInt64.toNat_toBitVec
+
+@[ksimp]
+theorem setWidth_add_address_size_W64 (a b : BitVec (AddressSize.mk Width.W64).address_size.bits) :
+    BitVec.setWidth 64 (a + b) = BitVec.setWidth 64 a + BitVec.setWidth 64 b := rfl
+
+@[ksimp]
+theorem setWidth_ofInt_address_size_W64 (i : Int) :
+    BitVec.setWidth 64 (BitVec.ofInt (AddressSize.mk Width.W64).address_size.bits i) = BitVec.ofInt 64 i := rfl
+
+@[ksimp]
+theorem setWidth_ofNat_address_size_W64 (n : Nat) :
+    BitVec.setWidth 64 (BitVec.ofNat (AddressSize.mk Width.W64).address_size.bits n) = BitVec.ofNat 64 n := rfl
+
+@[ksimp]
+theorem toInt_ofNat_address_size_W64 (n : Nat) :
+    (BitVec.ofNat (AddressSize.mk Width.W64).address_size.bits n).toInt = (BitVec.ofNat 64 n).toInt := rfl
+
+@[ksimp]
+theorem natCast_8 : ((8 : Nat) : Int) = (8 : Int) := rfl
+
 --------------------------------------------------------------------------------
 
 def p1 := parse("start: mov $1, %rax")
 
 -- Super-simple example to debug tactics
-example [layout : Layout] s : straightlineStep (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+example [layout : Layout] (hwf : (layout p1).WellFormed) s :
+    Eventually (step1 (layout p1)) (fun s => s.1.regs.rax = 1) (s, layout.start) := by
   kprologue p1 with s
-  sym => kstep; tactic =>
-  decide
-  /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
-  /- simp [MachineData.setReg,Reg64s.set,Reg64s.set64,ConstExpr.interp] -/
-  /- simp [Width.bits] -/
-  /- simp [p1,step1,eval1,fetch,Instr.is_ctrl,strt1,eval_operand,eval_imm,set_reg_or_mem,next,MachineState.setReg,Registers.set] -/
+  sym => kstep ( debug := true ); tactic => apply Eventually.done; grind
 
 def swap : Program := parse("
   xor %rbx, %rax
   xor %rax, %rbx
   xor %rbx, %rax")
 
-theorem swap_correct [layout : Layout] (d : MachineData) :
-      Eventually (straightlineStep (layout swap))
+theorem swap_correct [layout : Layout] (hwf : (layout swap).WellFormed) (d : MachineData) :
+      Eventually (step1 (layout swap))
       (fun s' =>
           s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
           s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
       (d, layout.start) := by
-  apply step_cps
   kprologue swap with d
-  sym => kstep; tactic =>
-  apply Eventually.done
-  grind
+  sym => kstep; tactic => intros; apply Eventually.done; grind
 
 -- Stepping demo. Ideally, this demo should be without the first .mov
 def p2 : Program := parse("
@@ -64,26 +106,12 @@ start:
   mov $2, %rax")
 
 -- Example 2: stepping through both straightline and control instructions
-example [layout : Layout] (s : MachineData): Eventually (straightlineStep (layout p2)) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
-  apply step_cps
+example [layout : Layout] (hwf : (layout p2).WellFormed) (s : MachineData) :
+    Eventually (step1 (layout p2)) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
   kprologue p2 with s
-  sym =>
-  kstep
-  tactic =>
-  -- TODO: would be nice to have these simp steps be part of kstep
-  rename_i v v1 status
-  have: v = 0 := by grind
-  simp [this]
-  sym =>
-  kstep
-  tactic =>
-  apply Eventually.done
-  dsimp only
-  bv_decide
+  sym => kstep; tactic => intros; apply Eventually.done; grind
 
 -- Example 3, more sophisticated
-
--- TODO: restore p3
 
 def p3: Program := parse("
 init:
@@ -98,116 +126,68 @@ _end:
   nop
 ")
 
+@[grind =]
 def p3_spec (s: MachineData): Nat := 2^(2^s.regs.rbx.toNat)
 
-set_option maxHeartbeats 4000000 in
-theorem p3_correct [layout: Layout] (s: MachineData):
-    p3_spec s < 2^64 →
-    Eventually (straightlineStep (layout p3)) (fun s => s.1.regs.rdx.toNat = p3_spec s.1 ∧ s.1.regs.rax = 0) (s, layout.start) :=
-  by
-    intros h_bounds
-    apply step_cps
-    kprologue p3 with s
+@[ksimp, grind =]
+private theorem int64_rel_jmp_target (u tgt : Int64) :
+    Int64.ofBitVec (u + (tgt - u)).toBitVec = tgt := by
+  grind
 
-    sym =>
-    -- kstep 3
-    -- tactic =>
-    -- apply reg_dec_loop
-    -- intros
+private theorem p3_pow_step {n v : Nat} (hv0 : v ≠ 0) (hle : v ≤ n) (hb : 2 ^ 2 ^ n < 2 ^ 64) :
+    let prod := (BitVec.ofNat 64 (2 ^ 2 ^ (n - v))).unsigned * (BitVec.ofNat 64 (2 ^ 2 ^ (n - v))).unsigned
+    (UInt64.ofBitVec (BitVec.ofNat 64 v - 1#64)).toNat = v - 1 ∧
+    v - 1 ≤ n ∧
+    v - 1 < v ∧
+    (UInt64.ofBitVec (BitVec.ofInt 64 prod)).toNat = 2 ^ 2 ^ (n - (v - 1)) ∧
+    UInt64.ofBitVec (BitVec.ofInt 64 (prod >>> 64)) = 0 := by
+  have : n < 6 := by
+    have := fun (h : 6 ≤ n) => Nat.pow_le_pow_right (by decide : 0 < 2) (Nat.pow_le_pow_right (by decide : 0 < 2) h)
+    grind
+  rcases (by grind : (n = 1 ∨ n = 2 ∨ n = 3 ∨ n = 4 ∨ n = 5) ∧ (v = 1 ∨ v = 2 ∨ v = 3 ∨ v = 4 ∨ v = 5)) with
+    ⟨rfl | rfl | rfl | rfl | rfl, rfl | rfl | rfl | rfl | rfl⟩ <;> (first | decide | grind)
 
-    sorry
+grind_pattern p3_pow_step =>
+  (BitVec.ofNat 64 (2 ^ 2 ^ (n - v))).unsigned * (BitVec.ofNat 64 (2 ^ 2 ^ (n - v))).unsigned
 
-/-     intros h_bounds h_rip
-    simp [p3]
-    -- First step sets rdx = 2
-    apply step_cps
-    step_one
-    rw [h_rip]
-    clear h_rip
-    simp
-    -- Loop invariant introduction
-    apply reg_dec_loop p3 _ _ (fun i s => s.rip = 1 ∧ s.regs.rbx.toNat = i ∧ i ≤ initial.regs.rbx.toNat ∧ s.regs.rdx.toNat = 2^(2^(initial.regs.rbx.toNat - i))) initial.regs.rbx.toNat
-    constructor
-    . simp
-    . constructor
-      -- Invariant at index 0 ==> post
-      . intros state inv
-        rcases inv with ⟨ h_rip, h_rbx_zero, h_rbx_le, h_inv ⟩
-        -- Step through a few program steps
-        simp [p3]
-        apply step_cps
-        step_one
-        rw [h_rip]
-        simp
-        apply step_cps
-        step_one
-        have : state.regs.rbx.toNat = 0 := by grind
-        simp [this]
-        apply step_cps
-        step_one
-        apply eventually.done
-        simp
-        -- Now functional correctness for initial invariant
-        simp [p3_spec]
-        grind
-      -- Invariant preserved
-      . intro state k h_k_nonzero inv
-        rcases inv with ⟨ h_rip, h_rbx_is_k, h_rbx_le, h_inv ⟩
-        simp [p3]
-        apply step_cps
-        step_one
-        rw [h_rip]
-        simp
-        apply step_cps
-        step_one
-        have h_k_ne : k ≠ 0 := by grind
-        -- state.regs.rbx.toNat = k and toNat < 2^64 for UInt64
-        have h_k_lt : k < 2^64 := h_rbx_is_k ▸ (state.regs.rbx.toNat_lt)
-        -- Simplify all the Int64.toUInt64 terms
-        simp_all only [ne_eq, not_false_eq_true]
-        -- Prove the if-condition is false: UInt64.ofInt ↑k ≠ 0 when k ≠ 0
-        have h_cond : UInt64.ofInt (k : Int) ≠ 0 := UInt64_ofInt_natCast_ne_zero k h_k_lt h_k_ne
-        rw [if_neg h_cond]
-        apply step_cps
-        step_one
-        apply step_cps
-        step_one
-        apply step_cps
-        step_one
-        apply eventually.done
-        -- Goals for invariant preservation
-        constructor
-        . simp -- back to correct address
-        . match h_state:state.regs.rbx, h_init:initial.regs.rbx with
-          | ⟨v_s⟩, ⟨v_i⟩ =>
-            have h_k_lt : k < 2^64 := h_rbx_is_k ▸ (by rw [h_state]; exact v_s.isLt)
-            have h_init_lt : v_i.toNat < 2^64 := v_i.isLt
-            simp [h_state, h_init, p3_spec, Reg.width, UInt64.ofInt, UInt64.ofNat, UInt64.toNat_ofNat] at *
-            constructor
-            . omega
-            . constructor
-              . omega
-              . rw [h_inv]
-                have h_vi_k : v_i.toNat - (k - 1) = (v_i.toNat - k) + 1 := by omega
-                rw [h_vi_k, Nat.mod_eq_of_lt]
-                . rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_succ]
-                . apply Nat.lt_of_le_of_lt _ h_bounds
-                  rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_succ]
-                  apply Nat.pow_le_pow_right (by decide)
-                  apply Nat.pow_le_pow_right (by decide)
-                  omega -/
+theorem p3_correct [layout: Layout] (h : (layout p3).WellFormed)
+    (hlayout : layout.Valid p3) (s : MachineData)
+    (hrax : s.regs.rax = 0) (hb : p3_spec s < 2^64) :
+    Eventually (step1 (layout p3))
+      (fun s' => s'.1.regs.rdx.toNat = p3_spec s ∧ s'.1.regs.rax = 0)
+      (s, layout.start) := by
+  let pc_start := layout.start + Int64.ofNat (layout.size 0) + Int64.ofNat (layout.size 1)
+  kprologue p3 with s
+  sym =>
+  kstep 1
+  tactic =>
+  apply tailrec_loop_straightline _ h
+    (fun s' => s'.1.regs.rdx.toNat = 2 ^ (2 ^ rbx.toNat) ∧ s'.1.regs.rax = 0)
+    (_, pc_start)
+    (fun v st =>
+      st.2 = pc_start ∧
+      st.1.regs.rbx.toNat = v ∧
+      v ≤ rbx.toNat ∧
+      st.1.regs.rdx.toNat = 2 ^ (2 ^ (rbx.toNat - v)) ∧
+      st.1.regs.rax = 0)
+    rbx.toNat
+  · grind
+  · rintro v ⟨⟨⟨rax', rbx', rcx', rdx', rsi', rdi', rsp', rbp', r8', r9', r10', r11', r12', r13', r14', r15'⟩, zmms', flags', mem'⟩, pc'⟩ ⟨rfl, hrbx, hle, hrdx, hrax_st⟩
+    dsimp only [pc_start] at *
+    by_cases hv0 : v = 0
+    · subst hv0
+      sym => kstep; tactic => apply Eventually.done; grind
+    · have h_cond : (BitVec.ofNat 64 v == 0#64) = false := by grind
+      sym => kstep; tactic => apply Eventually.done; grind
 
 def p4 := eval% parse("start: mov $2, %rax
 dec %rax")
 
 -- Super-simple example to debug tactics
-example [layout : Layout] s : straightlineStep (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
+example [layout : Layout] (hwf : (layout p4).WellFormed) s :
+    Eventually (step1 (layout p4)) (fun s => s.1.regs.rax = 1) (s, layout.start) := by
   kprologue p4 with s
-  sym =>
-  kstep
-  -- intros
-  tactic =>
-  decide
+  sym => kstep; tactic => apply Eventually.done; grind
 
 /- Examples -/
 
@@ -220,10 +200,10 @@ set_option maxHeartbeats 1000000
 set_option pp.rawOnError true
 /- set_option pp.all true -/
 
-example [layout : Layout] s : straightlineStep (layout p5) (s, layout.start) (fun s => s.1.regs.rax = 0) := by
+example [layout : Layout] (hwf : (layout p5).WellFormed) s :
+    Eventually (step1 (layout p5)) (fun s => s.1.regs.rax = 0) (s, layout.start) := by
   kprologue p5 with s
-  sym => kstep; tactic =>
-  bv_decide
+  sym => kstep; tactic => apply Eventually.done; grind
 
 def p6 := parse("push %rax
 mov $0, %rax
@@ -234,43 +214,15 @@ set_option pp.rawOnError true
 /- set_option pp.coercions false -/
 /- set_option pp.all true -/
 
-attribute [ksimp]
-  BitVec.add_zero
-  BitVec.ofInt_add
-  BitVec.ofInt_ofNat
-  BitVec.ofInt_toInt
-  BitVec.ofNat_uInt64ToNat
-  BitVec.setWidth_eq
-  Int.add_zero
-  Int64.toInt_neg
-  Nat.shiftRight_zero
-  Nat.sub_zero
-  UInt64.ofBitVec_add
-  UInt64.ofBitVec_ofNat
-  UInt64.ofBitVec_sub
-  UInt64.ofBitVec_toBitVec
-  UInt64.sub_add_cancel
-  UInt64.toBitVec_ofNat
-  UInt64.toBitVec_sub
-  UInt64.toNat_toBitVec
-
-theorem p6_correct [layout : Layout] (s₀ : MachineData)
+theorem p6_correct [layout : Layout] (hwf : (layout p6).WellFormed) (s₀ : MachineData)
     (stack : List UInt8) (h_len : stack.length = 8) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (stack.At (s₀.regs.rsp.toBitVec - 8#64)) ⋆ R) :
-    Eventually (straightlineStep (layout p6))
+    Eventually (step1 (layout p6))
       (fun s' => s'.1.regs.rax = s₀.regs.rax ∧ s'.1.regs.rsp = s₀.regs.rsp)
       (s₀, layout.start) := by
-  apply step_cps
   kprologue p6 with s₀
-  have h_bs : stack.length = 8 := h_len
-  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
-  sym =>
-  kstep
-  tactic =>
-  apply Eventually.done
-  rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
-  simp (config := { zetaDelta := true }) only [show (OfNat.ofNat 8 : UInt64) = 8 from rfl]
-  bv_decide
+  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_len⟩ rax.toBitVec.toInt
+  sym => kstep; tactic => apply Eventually.done; grind
 
 -- def bigp := parseFile("./ecc-secp521r1-modp.S")
 
@@ -308,48 +260,20 @@ def move_2_regs_to_heap := parse("
     movq 8(%rdi), %r13
 ")
 
-theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
+theorem move_2_regs_to_heap_correct [layout : Layout] (hwf : (layout move_2_regs_to_heap).WellFormed) (s₀ : MachineData)
   (v1 v2 : UInt64)
   (R : DataMem → Prop)
   (h_mem : s₀.dmem =⋆ Eq (v1.At s₀.regs.rdi.toBitVec) ⋆ Eq (v2.At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ R)
-  : Eventually (straightlineStep (layout move_2_regs_to_heap))
+  : Eventually (step1 (layout move_2_regs_to_heap))
       (fun s' =>
         s'.1.regs.r12 = s₀.regs.rax ∧
         s'.1.regs.r13 = s₀.regs.rcx ∧
         s'.1.regs.rdi = s₀.regs.rdi)
       (s₀, layout.start) := by
-  apply step_cps
   kprologue move_2_regs_to_heap with s₀
-
-  have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
-  have h_bs2 : v2.toBytes.length = 8 := UInt64.toBytes_length v2
-  have h_mem1 := Mem.storeInt_sep rdi.toBitVec 8 v1.toBytes (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ R) mem ⟨by ecancel, h_bs1⟩ rax.toBitVec.toInt
-  have h_mem1' : (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
-  have h_mem2 := Mem.storeInt_sep (rdi.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ rcx.toBitVec.toInt
-  have h_mem2' : (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ (Eq ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
-  have h_mem2'' : (Eq ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
-  simp at h_mem
-  sym =>
-  -- TODO: these would be prime examples for cancellation!
-  -- TODO: the kstep tactic is supposed to apply `exact`, but `exact` only applies after `simp`, so
-  -- clearly, stuff is missing from the simp-set in `kstep`
-  kstep
-  case h_mem => tactic => simp; ecancel
-  case h_len => exact h_bs1
-  kstep
-  case h_mem => tactic => simp; exact h_mem1'
-  case h_len => exact h_bs2
-  kstep
-  case h_mem => tactic => simp; exact h_mem2'
-  case h_len => tactic => rfl
-  kstep
-  case h_mem => tactic => simp; exact h_mem2''
-  case h_len => tactic => rfl
-  kstep
-  tactic =>
-  apply Eventually.done
-  rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
-  exact ⟨rfl, rfl, rfl⟩
+  have h_mem1 := Mem.storeInt_sep rdi.toBitVec 8 v1.toBytes (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ R) mem ⟨by ecancel, by grind⟩ rax.toBitVec.toInt
+  have h_mem2 := Mem.storeInt_sep (rdi.toBitVec + 8#64) 8 v2.toBytes (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi.toBitVec) ⋆ R) _ ⟨by ecancel, by grind⟩ rcx.toBitVec.toInt
+  sym => kstep; tactic => apply Eventually.done; grind
 
 def sib_example := parse("
     movq $42, %rax
@@ -360,28 +284,15 @@ def sib_example := parse("
 
 -- FIXME: I had to replace `s₀.regs.r15.toBitVec * 8#64` with `BitVec.ofInt 64
 -- (s₀.regs.r15.toBitVec.toInt * 8)` to make the example go through. Why?
-theorem sib_example_correct [layout : Layout] (s₀ : MachineData)
+theorem sib_example_correct [layout : Layout] (hwf : (layout sib_example).WellFormed) (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdi.toBitVec + BitVec.ofInt 64 (s₀.regs.r15.toBitVec.toInt * 8))) ⋆ R) :
-    Eventually (straightlineStep (layout sib_example))
+    Eventually (step1 (layout sib_example))
       (fun s' => s'.1.regs.rax = 42)
       (s₀, layout.start) := by
-  apply step_cps
   kprologue sib_example with s₀
-  have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
-  simp at h_mem
-  have h_mem' := Mem.storeInt_sep (rdi.toBitVec + BitVec.ofInt 64 (r15.toBitVec.toInt * 8)) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
-  sym =>
-  kstep
-  case h_mem => tactic => simp; exact h_mem
-  case h_len => exact h_bs
-  kstep
-  case h_mem => tactic => simp; exact h_mem'
-  case h_len => exact by decide
-  kstep
-  tactic =>
-  apply Eventually.done
-  rfl
+  have h_mem' := Mem.storeInt_sep (rdi.toBitVec + BitVec.ofInt 64 (r15.toBitVec.toInt * 8)) 8 v.toBytes R mem ⟨h_mem, by grind⟩ 42
+  sym => kstep; tactic => apply Eventually.done; grind
 
 def alu_mem_example := parse("
     movq $42, %rax
@@ -390,30 +301,15 @@ def alu_mem_example := parse("
     addq 136(%rdx), %rcx
 ")
 
-theorem alu_mem_example_correct [layout : Layout] (s₀ : MachineData)
+theorem alu_mem_example_correct [layout : Layout] (hwf : (layout alu_mem_example).WellFormed) (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdx.toBitVec + 136#64)) ⋆ R) :
-    Eventually (straightlineStep (layout alu_mem_example))
+    Eventually (step1 (layout alu_mem_example))
       (fun s' => s'.1.regs.rcx = 142)
       (s₀, layout.start) := by
-  apply step_cps
   kprologue alu_mem_example with s₀
-  have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
-  have h_mem1 := Mem.storeInt_sep (rdx.toBitVec + 136#64) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
-  sym =>
-  kstep
-  case h_mem => tactic => simp; exact h_mem
-  case h_len => exact h_bs
-  kstep
-  case h_mem => tactic => simp; exact h_mem1
-  case h_len => exact Int.toBytes_length 8 _
-  kstep
-  tactic =>
-  apply Eventually.done
-  dsimp [UInt64.toBitVec]
-  change (100 : UInt64) + { toBitVec := BitVec.ofInt 64 (Int.ofBytes (Int.toBytes 8 (42#64).toInt)) } = (142 : UInt64)
-  rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
-  rfl
+  have h_mem1 := Mem.storeInt_sep (rdx.toBitVec + 136#64) 8 v.toBytes R mem ⟨h_mem, by grind⟩ 42
+  sym => kstep; tactic => apply Eventually.done; grind
 
 def dynamic_stack_example := parse("
     movq $99, -8(%rsp)
@@ -427,43 +323,27 @@ def dynamic_stack_example := parse("
     movq -8(%rsp), %rbx
 ")
 
-theorem dynamic_stack_example_correct [layout : Layout] (s₀ : MachineData)
+theorem dynamic_stack_example_correct [layout : Layout] (hwf : (layout dynamic_stack_example).WellFormed) (s₀ : MachineData)
     (stack : List UInt8) (lstack : stack.length = 1024) R
     (h : s₀.regs.r9.toNat + s₀.regs.r15.toNat < 125)
     (h_mem : s₀.dmem =⋆ Eq (stack.At (s₀.regs.rsp.toBitVec - 1024)) ⋆ R) :
-    Eventually (straightlineStep (layout dynamic_stack_example))
+    Eventually (step1 (layout dynamic_stack_example))
       (fun s' => s'.1.regs.rax = 42 ∧ s'.1.regs.rbx = 99 ∧ s'.1.regs.rsp = s₀.regs.rsp)
       (s₀, layout.start) := by
-  apply step_cps
   kprologue dynamic_stack_example with s₀
-  have h_bs : stack.length = 1024 := lstack
-  have h_take_drop : stack = stack.take 1016 ++ stack.drop 1016 := by exact (List.take_append_drop 1016 stack).symm
-  rw [h_take_drop] at h_mem
-  have h_len_take : (stack.take 1016).length = 1016 := by
-    rw [List.length_take]
-    rw [h_bs]
-    rfl
-  have h_len_drop : (stack.drop 1016).length = 8 := by
-    rw [List.length_drop]
-    rw [h_bs]
-  have h_At_append := Mem.At_append_sep (w := 64) (stack.take 1016) (stack.drop 1016) (rsp.toBitVec - 1024#64) (by
-    rw [h_len_take, h_len_drop]
-    decide)
+  rw [(List.take_append_drop 1016 stack).symm] at h_mem
+  have h_At_append := Mem.At_append_sep (w := 64) (stack.take 1016) (stack.drop 1016) (rsp.toBitVec - 1024#64) (by grind)
   change (Eq ((stack.take 1016 ++ stack.drop 1016).At (rsp.toBitVec - 1024#64)) ⋆ R) mem at h_mem
-  rw [h_At_append] at h_mem
-  rw [sep_assoc] at h_mem
-  have h_addr_eq : rsp.toBitVec - 1024#64 + BitVec.ofNat 64 (stack.take 1016).length = rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8) := by
-    rw [h_len_take]
-    change rsp.toBitVec - 1024#64 + 1016#64 = rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)
-    bv_decide
-  rw [h_addr_eq] at h_mem
-  replace h_mem : (Eq ((stack.drop 1016).At (rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8))) ⋆ (Eq ((stack.take 1016).At (rsp.toBitVec - 1024#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem
-  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)) 8 (stack.drop 1016) (Eq ((stack.take 1016).At (rsp.toBitVec - 1024#64)) ⋆ R) mem ⟨h_mem, h_len_drop⟩ 99
+  have h_addr_eq : rsp.toBitVec - 1024#64 + BitVec.ofNat 64 (stack.take 1016).length = rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8) := by grind
+  rw [h_At_append, h_addr_eq] at h_mem
+  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)) 8 (stack.drop 1016) (Eq ((stack.take 1016).At (rsp.toBitVec - 1024#64)) ⋆ R) mem ⟨by ecancel, by grind⟩ 99
 
   sym =>
   kstep
-  case h_mem => tactic => simp; exact h_mem
-  case h_len => exact h_len_drop
+  case bs => exact []
+  case R => exact R
+  case h_mem => tactic => sorry
+  case h_len => tactic => sorry
   sorry
   -- kstep
   -- tactic => sorry
