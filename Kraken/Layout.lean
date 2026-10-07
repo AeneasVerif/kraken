@@ -18,6 +18,8 @@ class Layout (Directive : Type) where
 def Layout.apply {Directive : Type} (l : Layout Directive) (prog : List Directive) : Executable Directive :=
   (l.start, prog.mapIdx (fun i d => (d, l.size i)))
 
+-- TODO: Why not just define a top-level function `def layout [Layout] := layout.apply` (with apply inlined)?
+-- Coercions are certainly an antipattern, and such a def wouldn't require to bind `[layout : Layout]` all the time.
 instance {Directive : Type} : CoeFun (Layout Directive) (fun _ => List Directive → Executable Directive) where
   coe := Layout.apply
 

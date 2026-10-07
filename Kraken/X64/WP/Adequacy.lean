@@ -271,7 +271,7 @@ public theorem Host.eventually_directive {k : Nat} {d : Directive} {p : Program}
     (hdp : (d :: p).IsInfixAt Host.prog k) {B : MachineState → Prop} {s : MachineData}
     (h : (d.interp s ⟨(layout Host.prog).addrOf k, (layout Host.prog).addrOf (k + 1)⟩
       (fun s' => .done (s', (layout Host.prog).addrOf (k + 1))) (fun a s' => .done (s', a))).All B) :
-    Eventually Host.step B (s, (layout Host.prog).addrOf k) := by
+    Eventually (layout Host.prog).step' B (s, (layout Host.prog).addrOf k) := by
   have hd : (layout Host.prog).2[k]? = some (d, Kraken.Layout.size Directive k) := by
     rw [Layout.apply_getElem?, hdp.cons.1]
     rfl
@@ -282,16 +282,16 @@ public theorem Host.eventually_directive {k : Nat} {d : Directive} {p : Program}
     simp only [Effects.All, h0'] at h
     exact Eventually.done _ h
   · refine Eventually.step _ B ?_ fun _ hb => Eventually.done _ hb
-    unfold Host.step
+    unfold Kraken.Executable.step'
     rw [Host.fetch?_addrOf hd hz]
     dsimp only
     rw [← Kraken.Executable.addrOf_succ _ hd]
     exact h
 
 public theorem Host.step1_of_step {st : MachineState} {P : MachineState → Prop}
-    (h : Host.step st P) : step1 (layout Host.prog) st P := by
+    (h : (layout Host.prog).step' st P) : step1 (layout Host.prog) st P := by
   obtain ⟨s, a⟩ := st
-  unfold Host.step at h
+  unfold Kraken.Executable.step' at h
   split at h
   · exact h.elim
   rename_i d z hinstr
@@ -312,7 +312,7 @@ public theorem Host.step1_of_step {st : MachineState} {P : MachineState → Prop
   exact h
 
 public theorem Host.eventually_step1 {st : MachineState} {P : MachineState → Prop}
-    (h : Eventually Host.step P st) : Eventually (step1 (layout Host.prog)) P st := by
+    (h : Eventually (layout Host.prog).step' P st) : Eventually (step1 (layout Host.prog)) P st := by
   induction h with
   | done st hp => exact Eventually.done _ hp
   | step st Q hstep _ ih => exact Eventually.step _ Q (Host.step1_of_step hstep) ih

@@ -6,7 +6,13 @@ universe u
 
 namespace List
 
-def IsInfixAt {α : Type u} (l₁ l₂ : List α) (k : Nat) : Prop := l₁ <+: l₂.drop k
+/--
+The first list is a contiguous sub-list of the second list.
+
+In other words, `IsInfixAt l₁ l₂ k` means that there exist lists `s : List α` and `t : List α` such that
+`l₂` has the form `s ++ l₁ ++ t` and `s` has length `k`.
+-/
+def IsInfixAt {α : Type u} (l₁ l₂ : List α) (k : Nat) : Prop := l₁.IsPrefix (l₂.drop k)
 
 variable {α : Type u} {l₁ l₂ a b : List α} {d : α} {k : Nat}
 
