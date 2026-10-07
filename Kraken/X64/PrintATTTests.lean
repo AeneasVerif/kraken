@@ -32,7 +32,9 @@ def corpus : List String := [
   "movzwl %cx, %edx", "movsbl (%rsp), %ecx", "movzwq 8(%rax), %rdx", "movslq (%rax), %rbx",
   "movsxd %eax, %rbx", "pushq %rbx", "pushq $7", "pushw (%rsp)", "popq %rax", "popq 8(%rsp)",
   "sete %al", "setnz 3(%rsp)", "setb %dh", "setae %bl", "seta %cl", "setbe %al",
-  "setl %al", "setle %al", "cmovz %rax, %rbx", "cmovl (%rsp), %ecx",
+  "setl %al", "setle %al", "seto %al", "setno %al", "sets %al", "setns %al",
+  "setp %al", "setnp %al", "setge %al", "setg %al",
+  "cmovz %rax, %rbx", "cmovl (%rsp), %ecx", "cmovge %rax, %rbx", "cmovg (%rsp), %ecx",
   -- arithmetic
   "leaq 8(%rax,%rbx,4), %rcx", "leal (%eax), %ecx", "lea sym(%rip), %rax",
   "addq $1, %rax", "addb %al, (%rsp)", "adcl (%rsp), %eax", "adcx %rax, %rbx",
@@ -61,6 +63,8 @@ def corpus : List String := [
 /-- info: [] -/
 #guard_msgs in
 #eval corpus.filter (!roundtrips ·)
+
+#guard ["cmove %ax, %bx", "cmovzl %eax, %ebx", "cmovnew %ax, %bx", "cmovnel %eax, %ebx", "cmovneq %rax, %rbx"].all roundtrips
 
 -- Printed form is canonical AT&T.
 #guard match parse "movq %rax, -16(%rbp,%rcx,8)\nfoo: imul $3, 8(%eax), %ebx\njne foo\nnop" with
