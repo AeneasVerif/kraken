@@ -20,6 +20,14 @@ KRAKEN_RUNNER_AARCH64 = BIN_DIR / "krakenrunner_aarch64"
 REGS = [f"x{i}" for i in range(31)] + ["sp"]
 FLAG_MAP = {"n": 31, "z": 30, "c": 29, "v": 28}
 TIMEOUT_SECONDS = 50
+# Kraken's initial sp and its stack mapping [STACK - STACK_SIZE, STACK), filled with 0xff
+# (`stackLocation`, `stackSize` and `initStack` in KrakenRunnerAArch64.lean).
+STACK = 0xcafe200
+STACK_SIZE = 800
+STATE_BYTES = (len(REGS) + 1) * 8
+STACK_SECTION = f""".section .stack, "aw", @nobits
+.space {STACK_SIZE}"""
+LD_STACK = f"--section-start=.stack={STACK - STACK_SIZE:#x}"
 
 class Color:
     GREEN = "\033[92m"
@@ -32,132 +40,90 @@ def generate_random_regs(rng: random.Random) -> Dict[str, int]:
     init_regs = {}
     for r in REGS:
         if r == "sp":
-            init_regs[r] = 0
+            init_regs[r] = STACK
         else:
             init_regs[r] = rng.randint(0, (1 << 64) - 1)
     return init_regs
 
-def get_boilerplate(instruction_text: str) -> str:
+def reset_state() -> str:
+    """Assembly that sets up Kraken's initial state (`initData` in KrakenRunnerAArch64.lean): sp = STACK,
+    nzcv = 0, the stack filled with 0xff, and all other GPRs zero."""
+    zero_gprs = "\n    ".join(f"mov x{i}, #0" for i in range(31))
     return f"""
-.data
+    ldr x0, ={STACK}
+    mov sp, x0
+    sub x0, x0, #{STACK_SIZE}
+    mov x1, #-1
+    mov x2, #{STACK_SIZE // 16}
+1:  stp x1, x1, [x0], #16
+    subs x2, x2, #1
+    b.ne 1b
+    msr nzcv, xzr
+    {zero_gprs}
+"""
+
+def save_state(out: str) -> str:
+    """Assembly that stores the machine state (STATE_BYTES bytes) at `out`, in the layout
+    `parse_raw_state` reads. Clobbers x0, x1, x2, and tpidr_el0."""
+    saves = [
+        "msr tpidr_el0, x0",
+        f"ldr x0, ={out}",
+        "str x1, [x0, #8]",
+    ]
+    saves += [f"stp x{i}, x{i + 1}, [x0, #{i * 8}]" for i in range(2, 30, 2)]
+    saves += [
+        "str x30, [x0, #240]",
+        "mrs x1, tpidr_el0",
+        "str x1, [x0, #0]",
+        "mov x1, sp",
+        "mrs x2, nzcv",
+        "stp x1, x2, [x0, #248]",
+    ]
+    return "\n    " + "\n    ".join(saves) + "\n"
+
+def write_and_exit(buf: str, nbytes: int) -> str:
+    """Assembly that writes the `nbytes` bytes at label `buf` to stdout, then exits with status 0."""
+    return f"""
+    mov x0, #1          // stdout
+    ldr x1, ={buf}
+    ldr x2, ={nbytes}
+    mov x8, #64         // __NR_write
+    svc #0
+    mov x0, #0
+    mov x8, #93         // __NR_exit
+    svc #0
+"""
+
+def get_boilerplate(instruction_text: str) -> str:
+    load_gprs = "\n    ".join(f"ldr x{i}, [x0, #{i * 8}]" for i in range(1, 31))
+    return f"""
+.bss
 .align 8
 _init_state: .space 248
-_final_state: .space 264
+_final_state: .space {STATE_BYTES}
+{STACK_SECTION}
 
 .text
 .globl _start
 _start:
+{reset_state()}
     # Read 248 bytes (31 x 8 bytes) of initial register values from stdin
     mov x0, #0          // stdin (fd 0)
-    adrp x1, _init_state
-    add x1, x1, :lo12:_init_state
+    ldr x1, =_init_state
     mov x2, #248        // length 31 * 8
     mov x8, #63         // __NR_read on arm64
     svc #0
 
     # Load initial register values into x1..x30, then x0
-    adrp x0, _init_state
-    add x0, x0, :lo12:_init_state
-    ldr x1, [x0, #8]
-    ldr x2, [x0, #16]
-    ldr x3, [x0, #24]
-    ldr x4, [x0, #32]
-    ldr x5, [x0, #40]
-    ldr x6, [x0, #48]
-    ldr x7, [x0, #56]
-    ldr x8, [x0, #64]
-    ldr x9, [x0, #72]
-    ldr x10, [x0, #80]
-    ldr x11, [x0, #88]
-    ldr x12, [x0, #96]
-    ldr x13, [x0, #104]
-    ldr x14, [x0, #112]
-    ldr x15, [x0, #120]
-    ldr x16, [x0, #128]
-    ldr x17, [x0, #136]
-    ldr x18, [x0, #144]
-    ldr x19, [x0, #152]
-    ldr x20, [x0, #160]
-    ldr x21, [x0, #168]
-    ldr x22, [x0, #176]
-    ldr x23, [x0, #184]
-    ldr x24, [x0, #192]
-    ldr x25, [x0, #200]
-    ldr x26, [x0, #208]
-    ldr x27, [x0, #216]
-    ldr x28, [x0, #224]
-    ldr x29, [x0, #232]
-    ldr x30, [x0, #240]
+    ldr x0, =_init_state
+    {load_gprs}
     ldr x0, [x0, #0]
 
 # --- Test Code Start ---
 {instruction_text}
 # --- Test Code End ---
-    # 1. Back up test's x0 into tpidr_el0 (EL0 read/write register)
-    msr tpidr_el0, x0
-
-    # 2. Get address of _final_state into x0
-    adrp x0, _final_state
-    add x0, x0, :lo12:_final_state
-
-    # 3. Store x1 at _final_state[8] so x1 can be used as a scratch register
-    str x1, [x0, #8]
-
-    # 4. Read test's condition flags (NZCV) into x1 and store at _final_state[256]
-    mrs x1, nzcv
-    str x1, [x0, #256]
-
-    # 5. Store registers x2 through x30
-    str x2, [x0, #16]
-    str x3, [x0, #24]
-    str x4, [x0, #32]
-    str x5, [x0, #40]
-    str x6, [x0, #48]
-    str x7, [x0, #56]
-    str x8, [x0, #64]
-    str x9, [x0, #72]
-    str x10, [x0, #80]
-    str x11, [x0, #88]
-    str x12, [x0, #96]
-    str x13, [x0, #104]
-    str x14, [x0, #112]
-    str x15, [x0, #120]
-    str x16, [x0, #128]
-    str x17, [x0, #136]
-    str x18, [x0, #144]
-    str x19, [x0, #152]
-    str x20, [x0, #160]
-    str x21, [x0, #168]
-    str x22, [x0, #176]
-    str x23, [x0, #184]
-    str x24, [x0, #192]
-    str x25, [x0, #200]
-    str x26, [x0, #208]
-    str x27, [x0, #216]
-    str x28, [x0, #224]
-    str x29, [x0, #232]
-    str x30, [x0, #240]
-
-    # 6. Save SP at _final_state[248]
-    mov x1, sp
-    str x1, [x0, #248]
-
-    # 7. Restore test's original x0 from tpidr_el0 and save to _final_state[0]
-    mrs x1, tpidr_el0
-    str x1, [x0, #0]
-
-    # 8. Linux sys_write(1, _final_state, 264)
-    mov x0, #1          // stdout
-    adrp x1, _final_state
-    add x1, x1, :lo12:_final_state
-    mov x2, #264        // size
-    mov x8, #64         // __NR_write
-    svc #0
-
-    # 9. Linux sys_exit(0)
-    mov x0, #0
-    mov x8, #93         // __NR_exit
-    svc #0
+{save_state("_final_state")}
+{write_and_exit("_final_state", STATE_BYTES)}
 """
 
 @dataclass
@@ -225,7 +191,7 @@ def compile_test_binary(asm_path: Path, tmp_dir: Path) -> Tuple[Optional[Path], 
 
     try:
         subprocess.run(as_cmd + ["-o", str(obj_file), str(s_file)], check=True, capture_output=True)
-        subprocess.run(ld_cmd + ["-o", str(bin_file), str(obj_file)], check=True, capture_output=True)
+        subprocess.run(ld_cmd + [LD_STACK, "-o", str(bin_file), str(obj_file)], check=True, capture_output=True)
         return bin_file, None
     except subprocess.CalledProcessError as e:
         err = (e.stderr or b"").decode(errors="replace").replace(str(tmp_dir), "...").strip()
@@ -269,7 +235,7 @@ def get_undefined_flags(path: Path) -> List[str]:
 
 def compare_states(real: ExecutionState, kraken: ExecutionState, undefined_flags: List[str]) -> List[str]:
     diffs = []
-    for r in [r for r in REGS if r != "sp"]:
+    for r in REGS:
         rv, kv = real.regs[r], kraken.regs[r]
         if rv != kv:
             diffs.append(f"{r}: QEMU={rv:#x} ({rv}), kraken={kv:#x} ({kv})")

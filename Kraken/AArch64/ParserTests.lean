@@ -2016,11 +2016,11 @@ section error_reporting
 #guard_msgs in
 #check parseAArch64("b.invalid main")
 
-/-- error: line 1: b offset 0x8000004 out of range [-0x8000000, 0x7fffffc] -/
+/-- error: line 1: b offset 0x8000004 out of range [-0x8000000, 0x7fffffc] or not a multiple of 4 -/
 #guard_msgs in
 #check parseAArch64("b #0x8000004")
 
-/-- error: line 1: b.cond offset 0x100000 out of range [-0x100000, 0xffffc] -/
+/-- error: line 1: b.cond offset 0x100000 out of range [-0x100000, 0xffffc] or not a multiple of 4 -/
 #guard_msgs in
 #check parseAArch64("b.eq #0x100000")
 
@@ -2028,9 +2028,49 @@ section error_reporting
 #guard_msgs in
 #check parseAArch64("cbz x0, #0x200000")
 
-/-- error: line 1: tbz offset 0x10000 out of range [-0x8000, 0x7fc] or not a multiple of 4 -/
+/-- error: line 1: tbz offset 0x10000 out of range [-0x8000, 0x7ffc] or not a multiple of 4 -/
 #guard_msgs in
 #check parseAArch64("tbz x0, #10, #0x10000")
+
+/-- error: line 1: b offset 0x1 out of range [-0x8000000, 0x7fffffc] or not a multiple of 4 -/
+#guard_msgs in
+#check parseAArch64("b #1")
+
+/-- error: line 1: b.cond offset 0x3 out of range [-0x100000, 0xffffc] or not a multiple of 4 -/
+#guard_msgs in
+#check parseAArch64("b.eq #3")
+
+/-- error: line 1: 32-bit extended register instruction requires a 32-bit register (Wn) -/
+#guard_msgs in
+#check parseAArch64("add w0, wsp, x1, uxtb #1")
+
+/-- error: line 1: UXTB extension requires a 32-bit register (Wn) -/
+#guard_msgs in
+#check parseAArch64("add x0, sp, x1, uxtb #1")
+
+/-- error: line 1: UXTX extension requires a 64-bit register (Xn) -/
+#guard_msgs in
+#check parseAArch64("add x0, sp, w1, uxtx #1")
+
+/-- error: line 1: expected w32 register, got w64 -/
+#guard_msgs in
+#check parseAArch64("sxtb x0, x1")
+
+/-- error: line 1: expected w64 register, got w32 -/
+#guard_msgs in
+#check parseAArch64("sxtw w0, w1")
+
+/-- error: line 1: unpredictable: identical destination registers in ldp instruction -/
+#guard_msgs in
+#check parseAArch64("ldp xzr, xzr, [x0]")
+
+/-- error: line 1: literal pool (=expr) is not supported for ldrsw -/
+#guard_msgs in
+#check parseAArch64("ldrsw x0, =0")
+
+/-- error: line 1: literal pool immediate 4294967296 too large for 32-bit register -/
+#guard_msgs in
+#check parseAArch64("ldr w0, =0x100000000")
 
 /-- error: line 1: unexpected trailing characters on line -/
 #guard_msgs in
