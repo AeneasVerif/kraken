@@ -17,14 +17,13 @@ Output:
   See StateSummary for format.
 -/
 
-import Kraken.Mem
+import Kraken.Fuzzer
+meta import Kraken.Fuzzer
 import Kraken.X64.Parser
 import Kraken.X64.PrintATT
 import Kraken.X64.Semantics
-import Lean.Data.Json
-public meta import Lean.Elab.Term
 
-open Lean
+open Lean Kraken.Fuzzer
 
 -- TODO Add memory, for now we only track and compare registers and flags.
 structure StateSummary where
@@ -64,58 +63,32 @@ def summarize (s : MachineData) : StateSummary :=
     flags := [("cf", f.cf), ("pf", f.pf), ("af", f.af),
               ("zf", f.zf), ("sf", f.sf), ("of", f.of)] }
 
-def _start: String := "_start"
-def _end: String := "_end"
-
--- Give the program a stack of 800B initially, mapped at a plausible place.
-def stackSize := 800
 -- Place the stack somewhere high in memory, aligned to 256 bytes. This will
 -- help us avoid disagreements with the actual machine: we will avoid over/underflow
 -- when we allocate stack memory using arithmetic instructions (which would happen
 -- if the stack were at 0), and fixing the last byte of the address at 0 means that
 -- we will match PF for these operations. The hardware harness (`reset_state` in
 -- Kraken/X64/Test/asm_tests.py) runs with exactly this rsp and stack mapping.
-def stackLocation: UInt64 := 0x7ffecafee200
-def initStack : DataMem := (List.replicate stackSize 0xff).At (stackLocation - stackSize)
-def initData : MachineData := {regs := {rsp := stackLocation}, dmem := initStack}
+def stackLocation : UInt64 := 0x7ffecafee200
+def initData : MachineData := {regs := {rsp := stackLocation}, dmem := initStack stackLocation}
 
-def finishCriterion (p: Program) (s: MachineState): Bool :=
+def finishCriterion (p : Program) (s : MachineState) : Bool :=
   s.2 = p.fakeLayout.labels.label _end
 
 def runKraken (asmCode : String)
     : Except String MachineState := do
   let prog ← Kraken.X64.Parser.parse (_start ++ ":" ++ asmCode ++ "\n" ++ _end ++ ":")
-  let initState: MachineState := (initData, prog.fakeLayout.labels.label _start)
+  let initState : MachineState := (initData, prog.fakeLayout.labels.label _start)
   prog.fakeLayout.eval initState (finishCriterion prog)
 
-/-! ## Determinism checking, with Semantics.lean in the loop
-
-`Executable.eval` produces *one* possible behavior, resolving each `undefined` choice to an
-arbitrary value (a hash of the registers). The fuzzer instead needs to know whether the hardware's
-result is predictable at all, i.e. whether it is the same for *every* resolution of the `undefined`
-choices; it discards sequences for which it isn't. -/
+/-! ## Fuzzer instantiation -/
 
 /-- The six status flag values as bits, in the layout of `NondetSupportingType.from_hash`
 (cf, pf, af, zf, sf, of = bits 0..5). -/
-def StatusFlags.toBits (f : StatusFlags) : Nat :=
-  f.cf.toNat ||| f.pf.toNat <<< 1 ||| f.af.toNat <<< 2 ||| f.zf.toNat <<< 3 ||| f.sf.toNat <<< 4 ||| f.of.toNat <<< 5
-
-/-- Which status flags are currently undefined, i.e. may hold either value, as a mask in the
-`StatusFlags.toBits` layout. -/
-structure UndefFlags where
-  mask : Nat
-  deriving BEq
-
-def UndefFlags.none : UndefFlags := ⟨0⟩
-
-/-- Every assignment of the status flags that agrees with `f` on the defined flags. -/
-def UndefFlags.completions (u : UndefFlags) (f : StatusFlags) : List StatusFlags :=
-  (List.range 64).filter (fun m => m &&& u.mask == m) |>.map fun m =>
-    NondetSupportingType.from_hash (f.toBits &&& (63 ^^^ u.mask) ||| m).toUInt64
-
-/-- The flags on which any of `fs` differs from `f`. -/
-def UndefFlags.disagreeing (f : StatusFlags) (fs : Array StatusFlags) : UndefFlags :=
-  ⟨fs.foldl (fun acc g => acc ||| (g.toBits ^^^ f.toBits)) 0⟩
+instance : StatusFlagBits StatusFlags where
+  numBits := 6
+  toBits f := f.cf.toNat ||| f.pf.toNat <<< 1 ||| f.af.toNat <<< 2 ||| f.zf.toNat <<< 3 ||| f.sf.toNat <<< 4 ||| f.of.toNat <<< 5
+  ofBits := NondetSupportingType.from_hash
 
 -- Runs `Effects` to completion, resolving every `undefined` choice with `h`. Also returns
 -- whether any `undefined` choice was made.
@@ -125,65 +98,6 @@ partial def evalEffects (h : UInt64) (sawUndef : Bool) : Effects → Option (Mac
   | @Effects.undefined _ t cont => evalEffects h true (cont (t.from_hash h))
   | _ => none
 
-/-- Executes `asmCode` (straight-line, no jumps) from `d`, where the flags in `u` are currently
-undefined. Each instruction is run under every assignment of the undefined flags, and, if it makes
-`undefined` choices, with those resolved once to all-zeros and once to all-ones. Fails unless
-registers and memory agree across all runs; returns the resulting state and the flags that disagree.
-
-Resolving to all-zeros and all-ones makes every bit of an `undefined` value differ between the two
-runs. That suffices to expose any dependence on it because Semantics.lean only ever stores an
-undefined choice directly into a flag, all flags, or a register, never computes with it. -/
-def stepDeterministic (d : MachineData) (u : UndefFlags) (asmCode : String) : Option (MachineData × UndefFlags) := do
-  let exe := (← (Kraken.X64.Parser.parse asmCode).toOption).fakeLayout
-  let := exe.labels
-  let mut (d, u) := (d, u)
-  for (pc, dir, sz) in exe.withAddresses do
-    let p : Std.Rco Int64 := .mk pc (pc + .ofNat sz)
-    let run (status : StatusFlags) (h : UInt64) : Option (MachineData × Bool) :=
-      evalEffects h false (dir.interp { d with status } p (fun s => .done (s, p.upper)) (fun _ _ => .unimplemented "jump"))
-    let mut outs : Array MachineData := #[]
-    for status in u.completions d.status do
-      let (s, sawUndef) ← run status 0
-      outs := outs.push s
-      if sawUndef then outs := outs.push (← run status (-1)).1
-    let s0 ← outs[0]?
-    if outs.any ({ · with status := s0.status } != s0) then failure
-    (d, u) := (s0, .disagreeing s0.status (outs.map (·.status)))
-  return (d, u)
-
-def predict (asmCode : String) : Json :=
-  match stepDeterministic initData .none asmCode with
-  | some (s, ⟨0⟩) => Json.mkObj [("ok", toJson true), ("state", toJson (summarize s))]
-  | _ => Json.mkObj [("ok", toJson false), ("error", toJson "unparseable, faulting, jumping, or non-deterministic")]
-
-/-! ## Random instruction sequence generation
-
-Candidate instructions are random `Instr`s: `gen_ctors%` derives generators from the constructors
-in Syntax.lean, so every instruction form is covered without being listed here; the hand-written
-instances only choose operand values. Each `--generate` prints 5000 of them with `ATT.instr` and keeps
-those `as` accepts (`genPool`, `assemblable`); every slot of a sequence then draws from that pool
-until Semantics.lean deems the candidate deterministic in the current state (`stepDeterministic`). -/
-
-abbrev GenM := OptionT (StateM StdGen)
-def nextNat (n : Nat) : GenM Nat := modifyGet (randNat · 0 (n - 1))
-def oneOf {α : Type} (xs : Array (GenM α)) : GenM α := do xs.getD (← nextNat xs.size) failure
-def pick {α : Type} (xs : Array α) : GenM α := oneOf (xs.map pure)
-
-class Gen (α : Type) where gen : GenM α
-export Gen (gen)
-
-open Elab Term in
-/-- Picks a constructor of inductive type `T` uniformly (inferring `T`'s parameters) and draws each
-of its fields from `gen`. -/
-elab "gen_ctors% " t:ident : term <= ty => do
-  let alts ← (← getConstInfoInduct (← realizeGlobalConstNoOverload t)).ctors.toArray.mapM fun c => do
-    let info ← getConstInfoCtor c
-    let hole ← `(_)
-    let field ← `((← gen))
-    `(do return @$(mkIdent c) $(.replicate info.numParams hole)* $(.replicate info.numFields field)*)
-  elabTerm (← `(oneOf #[$alts,*])) ty
-
-instance {α : Type} [Gen α] : Gen (Option α) := ⟨gen_ctors% Option⟩
 instance : Gen Width := ⟨gen_ctors% Width⟩
 instance : Gen AvxWidth := ⟨gen_ctors% AvxWidth⟩
 instance : Gen RegMm := ⟨gen_ctors% RegMm⟩
@@ -191,14 +105,9 @@ instance : Gen Reg64 := ⟨gen_ctors% Reg64⟩
 instance : Gen CondCode := ⟨gen_ctors% CondCode⟩
 instance : Gen AddrIndex := ⟨gen_ctors% AddrIndex⟩
 
--- No labels (for `jcc`), nop lengths or alignments; other control flow is rejected by
--- `stepDeterministic`.
-instance : Gen String := ⟨failure⟩
+-- No nop lengths or alignments; other control flow is rejected by `stepDeterministic`.
 instance : Gen Nat := ⟨failure⟩
--- Small values (below 2^3), the boundaries of each width, and uniformly random values of each width.
-instance : Gen Int64 where gen := do
-  let n : Int := 2 ^ (← pick #[3, 8, 16, 32, 64])
-  return .ofInt (← pick #[0, 1, -1, n / 2 - 1, -(n / 2), n - 1, (← nextNat n.toNat)])
+instance : Gen Int64 := ⟨genInt64 #[3, 8, 16, 32, 64]⟩
 -- Code addresses differ between Kraken's layout and the hardware binary, so no labels, nor
 -- `before/after_current_instruction`, nor rip-relative addressing.
 instance : Gen ConstExpr := ⟨.int64 <$> gen⟩
@@ -222,21 +131,6 @@ instance {w} : Gen (Operation w) := ⟨gen_ctors% Operation⟩
 instance {w} : Gen (AvxOperation w) := ⟨gen_ctors% AvxOperation⟩
 instance : Gen Instr := ⟨gen_ctors% Instr⟩
 
-/-- The candidates that `as` assembles without errors or warnings. APX is excluded because the
-hardware lacks it (e.g. `imul %edx, %r12d, %edi`), AVX-512 because the harness only observes
-ymm0-15. -/
-def assemblable (cands : Array String) : IO (Array String) := IO.FS.withTempFile fun h path => do
-  h.putStr ("\n".intercalate cands.toList ++ "\n"); h.flush
-  let out ← IO.Process.output { cmd := "as", args := #["-march=+noapx_f+noavx512f", "-o", "/dev/null", path.toString] }
-  let pfx := path.toString ++ ":"
-  let bad := out.stderr.splitOn "\n" |>.filterMap fun l =>
-    (l.dropPrefix? pfx).bind (·.takeWhile Char.isDigit |>.toString.toNat?)
-  if out.exitCode != 0 && bad.isEmpty then throw (.userError out.stderr)
-  return cands.zipIdx.filterMap fun (c, i) => if bad.contains (i + 1) then none else some c
-
-def genPool (n : Nat) : StateM StdGen (Array String) :=
-  (Array.range n).filterMapM fun _ => (Kraken.X64.ATT.instr <$> gen).run
-
 -- Loads a random 64-bit value into a register other than rsp.
 def genSeed : GenM String := do
   let r ← gen; guard (r != Reg64.rsp)
@@ -247,33 +141,25 @@ def genSeed : GenM String := do
   -- otherwise see only zeros.
   return s!"{movabs}\nmovq {r}, -16(%rsp)\nmovq {r}, -8(%rsp)\nmovups -16(%rsp), %xmm{← nextNat 16}"
 
--- Four random register initializations (`genSeed`) followed by `length` instructions from `pool`, each drawn
--- until `stepDeterministic` accepts one. A final `add` makes all flags defined.
-def genSequence (pool : Array String) (length : Nat) : StateM StdGen String := do
-  let mut (d, undef, lines) := (initData, UndefFlags.none, #[])
-  for i in [0 : 4 + length] do
-    for _ in [0 : 200] do
-      let some cand ← (if i < 4 then genSeed else pick pool).run | continue
-      if let some (d', undef') := stepDeterministic d undef cand then
-        (d, undef, lines) := (d', undef', lines.push cand)
-        break
-  if undef != .none then lines := lines.push "addq %rax, %rax"
-  return "\n".intercalate lines.toList
+-- APX is excluded because the hardware lacks it (e.g. `imul %edx, %r12d, %edi`), AVX-512 because
+-- the harness only observes ymm0-15.
+def fuzzConfig : FuzzConfig MachineData StatusFlags StateSummary where
+  initData := initData
+  getStatus := (·.status)
+  setStatus s status := { s with status }
+  parseSteps asmCode := do
+    let exe := (← (Kraken.X64.Parser.parse asmCode).toOption).fakeLayout
+    let := exe.labels
+    return exe.withAddresses.map fun (pc, dir, sz) =>
+      (pc, (fun s p h => evalEffects h false (dir.interp s p (fun s => .done (s, p.upper)) (fun _ _ => .unimplemented "jump"))), sz)
+  summarize := summarize
+  genInstr := Kraken.X64.ATT.instr <$> gen
+  runAssembler path := IO.Process.output { cmd := "as", args := #["-march=+noapx_f+noavx512f", "-o", "/dev/null", path.toString] }
+  genSeed := genSeed
+  defineAllFlagsInstr := "addq %rax, %rax"
 
 public def main (args : List String) : IO UInt32 := do
-  match args with
-  | ["--generate", seed, count, length] =>
-    let (pool, g) := (genPool 5000).run (mkStdGen seed.toNat!)
-    let pool ← assemblable pool
-    let gen := (List.range count.toNat!).mapM fun _ => genSequence pool length.toNat!
-    IO.println (toJson (gen.run' g).run).compress
-    return 0
-  | ["--batch"] =>
-    let raw ← (← IO.getStdin).readToEnd
-    let seqs ← IO.ofExcept (Json.parse raw >>= fromJson? (α := Array String))
-    IO.println (toJson (seqs.map predict)).compress
-    return 0
-  | _ => pure ()
+  if let some code ← fuzzConfig.handleCli? args then return code
 
   if args.isEmpty then return 1
 

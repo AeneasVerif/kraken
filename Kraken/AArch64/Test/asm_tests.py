@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Tuple
 
 BIN_DIR = Path(__file__).resolve().parent.parent.parent.parent / ".lake/build/bin"
 KRAKEN_RUNNER_AARCH64 = BIN_DIR / "krakenrunner_aarch64"
+KRAKEN_RUNNER = KRAKEN_RUNNER_AARCH64
 
 REGS = [f"x{i}" for i in range(31)] + ["sp"]
 FLAG_MAP = {"n": 31, "z": 30, "c": 29, "v": 28}
