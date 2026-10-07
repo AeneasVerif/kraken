@@ -39,7 +39,6 @@ def Executable.directivesFromAddress {Directive : Type} (e : Executable Directiv
   let starts_at_a := e.withAddresses.dropWhile (·.1 ≠ a)
   starts_at_a.map (·.2)
 
-/-- The first directive of nonzero size at address `a`, with its size. -/
 def Executable.fetch? {Directive : Type} (e : Executable Directive) (a : Int64) : Option (Directive × Nat) :=
   (e.directivesAtAddress a).find? (0 < ·.2)
 

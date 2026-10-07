@@ -340,7 +340,6 @@ public theorem Host.label_eq {p : Program} {k i : Nat} {l : Label}
 
 end
 
-/-- The address at which the first occurrence of `p` in the host program starts. -/
 public def Host.startAddr [Host] [layout : Layout] {p : Program} (h : p <:+: Host.prog) : Int64 :=
   (layout Host.prog).addrOf (p.infixIdx Host.prog h)
 

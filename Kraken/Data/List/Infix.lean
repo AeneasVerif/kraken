@@ -2,15 +2,10 @@ module
 
 @[expose] public section
 
-/-!
-`List.IsInfixAt l₁ l₂ k` refines `List.IsInfix l₁ l₂` by the index `k` at which `l₁` starts in `l₂`.
--/
-
 universe u
 
 namespace List
 
-/-- `l₁` occurs in `l₂` starting at index `k`. -/
 def IsInfixAt {α : Type u} (l₁ l₂ : List α) (k : Nat) : Prop := l₁ <+: l₂.drop k
 
 variable {α : Type u} {l₁ l₂ a b : List α} {d : α} {k : Nat}
@@ -61,7 +56,6 @@ theorem exists_isPrefixOf_drop [DecidableEq α] (h : l₁ <:+: l₂) :
     rw [hnil]
     exact nil_prefix
 
-/-- The first index at which `l₁` occurs in `l₂`. -/
 def infixIdx [DecidableEq α] (l₁ l₂ : List α) (h : l₁ <:+: l₂) : Nat :=
   ((range (l₂.length + 1)).find? fun k => l₁.isPrefixOf (l₂.drop k)).get
     (find?_isSome.mpr (exists_isPrefixOf_drop h))

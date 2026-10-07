@@ -272,7 +272,6 @@ inductive Directive
 
 abbrev Program := List Directive
 
-/-- The label that a directive introduces, if it is a label. -/
 def Directive.label? : Directive → Option Label
   | .label l => some l
   | _ => none
