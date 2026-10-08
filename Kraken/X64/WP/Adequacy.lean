@@ -12,16 +12,13 @@ public theorem Host.step1_of_step {st : MachineState} {P : MachineState → Prop
   split at h
   · exact h.elim
   rename_i d z hinstr
-  have hmem := List.mem_of_find?_eq_some hinstr
   have hz : 0 < z := by simpa using List.find?_some hinstr
-  obtain ⟨x, hx, hxdz⟩ := List.mem_map.mp hmem
-  have hxa : x.1 = a := by simpa using List.all_eq_true.mp List.all_takeWhile x hx
-  obtain ⟨k, hk⟩ := List.mem_iff_getElem?.mp
-    ((List.dropWhile_sublist _).subset (List.takeWhile_sublist _ |>.subset hx))
-  rw [Kraken.Executable.getElem?_withAddresses_eq] at hk
-  obtain ⟨dz, hdz, rfl⟩ := Option.map_eq_some_iff.mp hk
-  dsimp only at hxa hxdz
-  subst hxa hxdz
+  obtain ⟨k, hdz, rfl⟩ : ∃ k, Host.exe.2[k]? = some (d, z) ∧ a = Host.exe.addrOf k := by
+    obtain ⟨x, hx, hxdz⟩ := List.mem_map.mp (List.mem_of_find?_eq_some hinstr)
+    obtain ⟨k, hk⟩ := List.mem_iff_getElem?.mp
+      ((List.dropWhile_sublist _).subset (List.takeWhile_sublist _ |>.subset hx))
+    have := List.all_eq_true.mp List.all_takeWhile x hx
+    grind [Kraken.Executable.getElem?_withAddresses_eq]
   obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hdz hz
   unfold step1 Executable.step
   change (Directives.interp (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k) _).All P

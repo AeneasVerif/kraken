@@ -45,36 +45,18 @@ namespace Kraken.Executable
 
 public theorem label_addrOf (e : Kraken.Executable Directive) (l : Label) (n : Nat)
     (hn : e.2[n]? = some (.label l, 0))
-    (hfirst : ∀ dz ∈ e.2.take n, dz.1 ≠ Directive.label l) :
+    (hfirst : ∀ k z, k < n → e.2[k]? ≠ some (.label l, z)) :
     (_root_.Executable.labels e).label l = e.addrOf n := by
-  replace hfirst : ∀ k, k < n → e.2[k]?.map (·.1) ≠ some (Directive.label l) := by
-    intro k hk hcontra
-    obtain ⟨dz, hdz⟩ : ∃ dz, e.2[k]? = some dz := by
-      rcases h : e.2[k]? with _ | dz
-      · rw [h] at hcontra; simp at hcontra
-      · exact ⟨dz, rfl⟩
-    rw [hdz] at hcontra
-    refine hfirst dz (List.mem_iff_getElem?.mpr ⟨k, ?_⟩) (by simpa using hcontra)
-    rw [List.getElem?_take_of_lt hk, hdz]
   show (e.withAddresses.findSome? _).getD (-1) = e.addrOf n
-  rw [findSome?_eq_of (n := n) ?hit ?miss]
-  · exact rfl
-  case hit =>
-    show ((Kraken.Executable.withAddresses (e.1, e.2))[n]?.bind _) = some (e.addrOf n)
-    rw [getElem?_withAddresses_pair, hn]
-    show some (e.addrOf n, Directive.label l, 0) >>= _ = some (e.addrOf n)
-    simp
-  case miss =>
-    intro k hk
-    show ((Kraken.Executable.withAddresses (e.1, e.2))[k]?.bind _) = none
-    rw [getElem?_withAddresses_pair]
-    rcases hm : e.2[k]? with _ | ⟨d, z⟩
-    · simp
-    · have hd : d ≠ .label l := by
-        have := hfirst k hk
-        rw [hm] at this
-        simpa using this
-      simp [hd]
+  rw [findSome?_eq_of (n := n)]
+  · rfl
+  · show ((Kraken.Executable.withAddresses (e.1, e.2))[n]?.bind _) = _
+    simp [getElem?_withAddresses_eq, hn, addrOf]
+  · intro k hk
+    show ((Kraken.Executable.withAddresses (e.1, e.2))[k]?.bind _) = _
+    rcases hm : e.2[k]? with _ | ⟨d, z⟩ <;> simp only [getElem?_withAddresses_eq, hm] <;> simp
+    rintro rfl
+    exact hfirst k z hk hm
 
 end Kraken.Executable
 
@@ -160,25 +142,20 @@ public theorem Host.directivesAtAddress_addrOf {k : Nat} {d : Directive} {z : Na
     exists_least_le (P := fun i => Host.exe.addrOf i = Host.exe.addrOf k) rfl
   have hzero : ∀ m, j ≤ m → m < k → ∃ d, Host.exe.2[m]? = some (d, 0) :=
     fun m hjm hmk => Host.zero_between hjm hmk (Nat.le_of_lt hk) hj
-  have haddr' : ∀ i, j + i ≤ k → Host.exe.addrOf (j + i) = Host.exe.addrOf k := by
-    intro i
-    induction i with
-    | zero => exact fun _ => hj
-    | succ i ih =>
-      intro hik
-      obtain ⟨d', hd'⟩ := hzero (j + i) (by omega) (by omega)
-      rw [← Nat.add_assoc, Kraken.Executable.addrOf_succ _ hd', ih (by omega)]
-      simp
-  have haddr : ∀ m, j ≤ m → m ≤ k → Host.exe.addrOf m = Host.exe.addrOf k :=
-    fun m hjm hmk => by simpa [Nat.add_sub_cancel' hjm] using haddr' (m - j) (by omega)
-  have hnext : Host.exe.addrOf (k + 1) ≠ Host.exe.addrOf k := by
-    intro h
-    have hsz := hv.fits k (k + 1) k (Nat.le_refl _) (Nat.lt_succ_self _) (by omega) h.symm
-    have hd' := hd
-    rw [Host.exe_getElem?] at hd'
-    obtain ⟨d', -, heq⟩ := Option.map_eq_some_iff.mp hd'
-    simp only [Prod.mk.injEq] at heq
-    omega
+  have haddr : ∀ m, j ≤ m → m ≤ k → Host.exe.addrOf m = Host.exe.addrOf k := by
+    intro m
+    induction m with
+    | zero => grind
+    | succ m ih =>
+      intro hjm hmk
+      by_cases hjm' : j = m + 1
+      · grind
+      · obtain ⟨d', hd'⟩ := hzero m (by omega) (by omega)
+        rw [Kraken.Executable.addrOf_succ _ hd', ih (by omega) (by omega)]
+        simp
+  have hnext : Host.exe.addrOf (k + 1) ≠ Host.exe.addrOf k := fun h => by
+    have := hv.fits k (k + 1) k (Nat.le_refl _) (Nat.lt_succ_self _) (by omega) h.symm
+    grind [Host.exe_getElem?]
   refine ⟨(Host.exe.2.drop j).take (k - j), ?_, Host.inert_between hzero⟩
   show (((Kraken.Executable.withAddresses (Host.exe.1, Host.exe.2)).dropWhile
     (·.1 ≠ Host.exe.addrOf k)).takeWhile (·.1 = Host.exe.addrOf k)).map (·.2) = _
@@ -188,14 +165,10 @@ public theorem Host.directivesAtAddress_addrOf {k : Nat} {d : Directive} {z : Na
       List.getElem?_drop, Nat.add_sub_cancel' hjk, hd]
     rfl
   · intro m hm c hc
-    rw [List.getElem?_drop, Kraken.Executable.getElem?_withAddresses_eq] at hc
-    obtain ⟨dz, -, rfl⟩ := Option.map_eq_some_iff.mp hc
-    simpa using haddr (j + m) (by omega) (by omega)
+    have := haddr (j + m) (by omega) (by omega)
+    grind [Kraken.Executable.getElem?_withAddresses_eq]
   · intro c hc
-    rw [List.getElem?_drop, Kraken.Executable.getElem?_withAddresses_eq,
-      show j + (k - j + 1) = k + 1 by omega] at hc
-    obtain ⟨dz, -, rfl⟩ := Option.map_eq_some_iff.mp hc
-    simpa using hnext
+    grind [Kraken.Executable.getElem?_withAddresses_eq]
 
 public theorem Host.fetch?_addrOf {k : Nat} {d : Directive} {z : Nat}
     (hd : Host.exe.2[k]? = some (d, z)) (hz : 0 < z) :
@@ -214,16 +187,11 @@ public theorem Host.label_eq {p : Program} {k i : Nat} {l : Label}
   have hdir : Host.exe.2[k + i]? = some (.label l, 0) := by
     rw [Host.exe_getElem?, hP, hv.label_size _ l hP]
     rfl
-  refine Kraken.Executable.label_addrOf Host.exe l (k + i) hdir ?_
-  intro dz hdz heq
-  obtain ⟨m, hm, hmdz⟩ := List.getElem_of_mem hdz
-  rw [List.length_take] at hm
-  have h1 : Host.exe.2[m]? = some dz := by
-    rw [List.getElem?_eq_getElem (by omega), ← hmdz, List.getElem_take]
-  rw [Host.exe_getElem?] at h1
-  obtain ⟨d', hd', rfl⟩ := Option.map_eq_some_iff.mp h1
-  dsimp only at heq
-  subst heq
+  refine Kraken.Executable.label_addrOf Host.exe l (k + i) hdir fun m z hm hdm => ?_
+  rw [Host.exe_getElem?] at hdm
+  obtain ⟨d', hd', heq⟩ := Option.map_eq_some_iff.mp hdm
+  simp only [Prod.mk.injEq] at heq
+  rw [heq.1] at hd'
   exact absurd (Program.eq_of_getElem?_label Host.labels_nodup hd' hP) (by omega)
 
 end
