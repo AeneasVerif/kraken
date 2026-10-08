@@ -65,7 +65,7 @@ public theorem Program.wp_cons [Host] [Layout] {d : Directive} {p : Program} {Q 
 section
 variable [Host] [Layout] [hv : Layout.Valid]
 
-public theorem Host.eventually_directive {k : Nat} {d : Directive} {p : Program}
+public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     (hdp : (d :: p).IsInfixAt Host.prog k) {post : @Post MachineState} {s : MachineData}
     (h : (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
       (fun s' => .done (s', Host.addrOf (k + 1))) (fun a s' => .done (s', a))).All post) :

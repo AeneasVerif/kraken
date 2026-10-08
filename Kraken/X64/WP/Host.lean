@@ -4,9 +4,6 @@ public import Kraken.X64.Semantics
 public import Kraken.X64.Inert
 public import Kraken.Data.List.Infix
 
--- TODO: I think the below isn't really x64 specific and should maybe go into the Kraken namespace?!
--- Although there is no definition `Kraken.Program`. I'm just confused.
-
 private theorem findSome?_eq_of {α β : Type _} {f : α → Option β} {l : List α} :
     ∀ {n : Nat} {b : β}, l[n]?.bind f = some b →
       (∀ k, k < n → l[k]?.bind f = none) → l.findSome? f = some b := by
