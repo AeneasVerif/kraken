@@ -127,3 +127,44 @@ theorem List.At_append {w} (bs1 bs2 : List UInt8) (a : BitVec w)
       rw [BitVec.toNat_sub_of_le h_le]
       rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
     simp only [h_bs1, Option.or_none, h_idx]
+
+private theorem List.mapM_loop_id_some {α : Type} (xs : List α) (acc : List α) :
+    List.mapM.loop id (xs.map some) acc = some (acc.reverse ++ xs) := by
+  induction xs generalizing acc <;> simp_all [List.mapM.loop]
+
+theorem List.allSome_map_some {α : Type} (l : List α) : List.allSome (l.map some) = some l :=
+  List.mapM_loop_id_some l []
+
+theorem List.map_range_getElem? {α : Type} (l : List α) :
+    (List.range l.length).map (fun i => l[i]?) = l.map some := by
+  apply List.ext_getElem
+  · simp
+  · intro n h1 h2
+    simp only [List.length_map, List.length_range] at h1
+    simp [List.getElem_map, h1]
+
+theorem Mem.loadBytes_storeBytes {w} (m : Mem w) (a : BitVec w) (bs : List UInt8)
+    (hw : bs.length ≤ 2 ^ w) :
+    (m.storeBytes a bs).loadBytes a bs.length = some bs := by
+  have hget : ∀ i, i < bs.length →
+      (m.storeBytes a bs).get? (a + .ofNat w i) = bs[i]? := by
+    intro i hi
+    have hlt : i < 2 ^ w := Nat.lt_of_lt_of_le hi hw
+    have hbs : (bs.At a).get? (a + .ofNat w i) = bs[i]? := get?_At_idx bs a i hlt hw
+    rw [Mem.storeBytes, get?_eq_getElem?, ExtHashMap.union_eq, ExtHashMap.getElem?_union,
+      ← get?_eq_getElem?, hbs, List.getElem?_eq_getElem hi]
+    rfl
+  rw [Mem.loadBytes, show (List.range bs.length).map
+      (fun i => (m.storeBytes a bs).get? (a + .ofNat w i))
+    = (List.range bs.length).map (fun i => bs[i]?) from
+      List.map_congr_left (fun i hi => hget i (List.mem_range.mp hi)),
+    List.map_range_getElem?, List.allSome_map_some]
+
+theorem Mem.loadInt_storeInt {w} (m : Mem w) (a : BitVec w) (n : Nat) (v : Int)
+    (hw : n ≤ 2 ^ w) :
+    (m.storeInt a n v).loadInt a n = some (Int.ofBytes (Int.toBytes n v)) := by
+  have hlen : (Int.toBytes n v).length = n := Int.toBytes_length n v
+  have hbytes := Mem.loadBytes_storeBytes m a (Int.toBytes n v) (by omega)
+  rw [hlen] at hbytes
+  rw [Mem.storeInt, Mem.loadInt, hbytes]
+  rfl
