@@ -83,8 +83,13 @@ theorem directivesAtFromPrefix {Directive : Type} (e: Executable Directive) (a: 
     (Int64.ofNat a).toBitVec = OfNat.ofNat a := by
   rw [Int64.toBitVec_ofNat']; rfl
 
+/-- The sum of sizes of the first `n` directives of `e`. -/
 def Executable.sizeBefore {Directive : Type} (e : Executable Directive) (n : Nat) : Nat := ((e.2.take n).map (·.2)).sum
 
+/--
+The address of the `n`-th directive of `e`: the start address of `e` plus the sum of sizes of the
+first `n` directives.
+-/
 def Executable.addrOf {Directive : Type} (e : Executable Directive) (n : Nat) : Int64 := e.1 + .ofNat (e.sizeBefore n)
 
 @[simp] theorem Executable.addrOf_zero {Directive : Type} (e : Executable Directive) : e.addrOf 0 = e.1 := by
@@ -99,10 +104,6 @@ theorem Executable.addrOf_succ {Directive : Type} (e : Executable Directive) {n 
     (hd : e.2[n]? = some (d, z)) : e.addrOf (n + 1) = e.addrOf n + .ofNat z := by
   grind [addrOf, sizeBefore, List.take_add_one]
 
-/--
-If `ds` is linked at address `a`, then its `k`-th directive is at address `a` + the sum of all
-directive sizes before then.
--/
 theorem Executable.getElem?_withAddresses_pair {Directive : Type} :
     ∀ (ds : List (Directive × Nat)) (a : Int64) (k : Nat),
       (Kraken.Executable.withAddresses (a, ds))[k]?

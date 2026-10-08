@@ -6,28 +6,21 @@ public import Kraken.X64.WP.Step
 /-
 # Weakest precondition of a fragment of a host program
 
-An executable defines a transition system over the machine states.
+`Program.wp p Q E s` is the weakest precondition of the fragment `p` in the ambient `Host` program,
+laid out by the ambient `Layout`. This definition is the bridge to `Std.WP` and thus `vcgen`.
 
-`Executable.step'` below encodes the must-predecessor relation of the transition system.
-Given a set of successor machine states `post`, `exe.step' st post` holds iff
-`∀ st', (st ⤳[exe] st') → st' ∈ post`.
-This definition is expressed in terms of `Directive.interp`, which is considered ground truth.
+The definition of `wp` works by
+1. laying out the `Host` into an `Executable`, which in turn induces a transition system via
+   `Executable.step'`,
+2. taking the least fixpoint of `X ↦ post ∪ step' X` via `Eventually step'`, the set of pre states
+   which inevitably reach the postcondition, and crucially,
+3. considering every possible way in which the fragment `p` may occur in the `Host` program.
+   Only properties can be proved that hold for *all possible infix positions* of the fragment `p`.
+   This ensures proof modularity.
 
-`Program.wp` packages up the `Executable`-induced predecessor relation into a notion of weakest
-precondition on `Program` fragments occurring in a particular `Host` program, given a particular
-`Layout` decision. Typical use universally quantifies over both `Host` and `Layout` and constrains
-only where necessary.
-
-This definition is the bridge to `Std.WP` and thus `vcgen`. The definition of `wp` works by
-1. taking the least fixpoint of the predecessor relation via `Eventually`
-   (equivalent notions of `lfp` exist) so that it applies to a sequence
-   of directives, and crucially
-2. considering every possible way in which the sequence of directives
-   may occur in the host program.
-   Only properties can be proved that hold for *all possible infix positions* of the `Program` fragment.
-   The host program is a parameter to be able to express function calls compositionally.
-   It is an instance implicit parameter so that uses refer implicitly to an ambient host program
-   without users needing to specify it explicitly everywhere.
+The `Host` program and `Layout` is a parameter to be able to reason compositionally about function
+calls. It is an instance implicit parameter so that uses refer implicitly to an ambient host program
+without users needing to specify it explicitly everywhere.
 
 Side note: Cousot calls `Executable.step'` the "dual preimage property transformer" in his
 2021 book "Principles of Abstract Interpretation", as a starting point for theory exploration.
