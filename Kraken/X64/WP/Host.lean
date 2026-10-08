@@ -189,6 +189,6 @@ public theorem Host.label_eq {p : Program} {k i : Nat} {l : Label}
   obtain ⟨d', hd', heq⟩ := Option.map_eq_some_iff.mp hdm
   simp only [Prod.mk.injEq] at heq
   rw [heq.1] at hd'
-  exact absurd (Program.eq_of_getElem?_label Host.labels_nodup hd' hP) (by omega)
+  exact absurd (Host.labels_nodup.eq_of_getElem?_label hd' hP) (by omega)
 
 end

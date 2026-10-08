@@ -301,7 +301,7 @@ theorem Program.mem_labels {p : Program} {l : Label} : l ∈ Program.labels p �
     cases d <;> simp_all [Directive.label?]
   · exact fun h => ⟨_, h, rfl⟩
 
-theorem Program.eq_of_getElem?_label {P : Program} (hnd : (Program.labels P).Nodup) {i j : Nat}
+theorem List.Nodup.eq_of_getElem?_label {P : Program} (hnd : (Program.labels P).Nodup) {i j : Nat}
     {l : Label} (hi : P[i]? = some (.label l)) (hj : P[j]? = some (.label l)) : i = j := by
   induction P generalizing i j with
   | nil => simp at hi
