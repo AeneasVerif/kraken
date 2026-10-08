@@ -33,14 +33,21 @@ public theorem Host.eventually_step1 {st : MachineState} {post : @Post MachineSt
 
 end
 
-public theorem Program.step1_of_wp [Host] [Layout] [Layout.Valid] {p : Program}
+public theorem Program.step1_of_wp_at [Host] [Layout] [Layout.Valid] {p : Program}
     {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
-    {post : @Post MachineState} (h : p.IsInfix Host.prog) (hwp : p.wp Q E s)
-    (hQ : ∀ s', Q s' → post (s', endAddr h)) (hE : ∀ a s', E a s' → post (s', a)) :
-    Eventually (step1 Host.exe) post (s, startAddr h) := by
-  refine eventually_weaken _ _ _ _ ?_ (Host.eventually_step1 (hwp _ (List.isInfixAt_infixIdx h)))
+    {post : @Post MachineState} {k : Nat} (hk : p.IsInfixAt Host.prog k) (hwp : p.wp Q E s)
+    (hQ : ∀ s', Q s' → post (s', Host.addrOf (k + p.length))) (hE : ∀ a s', E a s' → post (s', a)) :
+    Eventually (step1 Host.exe) post (s, Host.addrOf k) := by
+  refine eventually_weaken _ _ _ _ ?_ (Host.eventually_step1 (hwp k hk))
   rintro ⟨s', a⟩ (⟨ha, hq⟩ | he)
   · dsimp only at ha
     rw [ha]
     exact hQ s' hq
   · exact hE a s' he
+
+public theorem Program.step1_of_wp [Host] [Layout] [Layout.Valid] {p : Program}
+    {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
+    {post : @Post MachineState} (h : p.IsInfix Host.prog) (hwp : p.wp Q E s)
+    (hQ : ∀ s', Q s' → post (s', endAddr h)) (hE : ∀ a s', E a s' → post (s', a)) :
+    Eventually (step1 Host.exe) post (s, startAddr h) :=
+  Program.step1_of_wp_at (List.isInfixAt_infixIdx h) hwp hQ hE
