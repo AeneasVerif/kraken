@@ -5,8 +5,8 @@ public import Kraken.X64.WP.Basic
 section
 variable [Host] [Layout] [hv : Layout.Valid]
 
-public theorem Host.step1_of_step {st : MachineState} {P : MachineState → Prop}
-    (h : Host.exe.step' st P) : step1 Host.exe st P := by
+public theorem Host.step1_of_step {st : MachineState} {post : @Post MachineState}
+    (h : Host.exe.step' st post) : step1 Host.exe st post := by
   obtain ⟨s, a⟩ := st
   unfold Kraken.Executable.step' at h
   split at h
@@ -21,12 +21,12 @@ public theorem Host.step1_of_step {st : MachineState} {P : MachineState → Prop
     grind [Kraken.Executable.getElem?_withAddresses_eq]
   obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hdz hz
   unfold step1 Executable.step
-  change (Directives.interp (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k) _).All P
+  change (Directives.interp (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k) _).All post
   rw [hat, Directives.interp_inert_append hpre]
   exact h
 
-public theorem Host.eventually_step1 {st : MachineState} {P : MachineState → Prop}
-    (h : Eventually Host.exe.step' P st) : Eventually (step1 Host.exe) P st := by
+public theorem Host.eventually_step1 {st : MachineState} {post : @Post MachineState}
+    (h : Eventually Host.exe.step' post st) : Eventually (step1 Host.exe) post st := by
   induction h with
   | done st hp => exact Eventually.done _ hp
   | step st Q hstep _ ih => exact Eventually.step _ Q (Host.step1_of_step hstep) ih
@@ -35,7 +35,7 @@ end
 
 public theorem Program.step1_of_wp [Host] [Layout] [Layout.Valid] {p : Program}
     {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
-    {post : MachineState → Prop} (h : p.IsInfix Host.prog) (hwp : p.wp Q E s)
+    {post : @Post MachineState} (h : p.IsInfix Host.prog) (hwp : p.wp Q E s)
     (hQ : ∀ s', Q s' → post (s', endAddr h)) (hE : ∀ a s', E a s' → post (s', a)) :
     Eventually (step1 Host.exe) post (s, startAddr h) := by
   refine eventually_weaken _ _ _ _ ?_ (Host.eventually_step1 (hwp _ (List.isInfixAt_infixIdx h)))

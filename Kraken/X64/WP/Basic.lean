@@ -66,10 +66,10 @@ section
 variable [Host] [Layout] [hv : Layout.Valid]
 
 public theorem Host.eventually_directive {k : Nat} {d : Directive} {p : Program}
-    (hdp : (d :: p).IsInfixAt Host.prog k) {B : MachineState → Prop} {s : MachineData}
+    (hdp : (d :: p).IsInfixAt Host.prog k) {post : @Post MachineState} {s : MachineData}
     (h : (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
-      (fun s' => .done (s', Host.addrOf (k + 1))) (fun a s' => .done (s', a))).All B) :
-    Eventually Host.exe.step' B (s, Host.addrOf k) := by
+      (fun s' => .done (s', Host.addrOf (k + 1))) (fun a s' => .done (s', a))).All post) :
+    Eventually Host.exe.step' post (s, Host.addrOf k) := by
   have hd : Host.exe.2[k]? = some (d, Kraken.Layout.size Directive k) := by
     rw [Host.exe_getElem?, hdp.cons.1]
     rfl
@@ -80,7 +80,7 @@ public theorem Host.eventually_directive {k : Nat} {d : Directive} {p : Program}
     have h0' : Host.addrOf k + Int64.ofNat 0 = Host.addrOf k := by simp
     simp only [Effects.All, h0'] at h
     exact Eventually.done _ h
-  · refine Eventually.step _ B ?_ fun _ hb => Eventually.done _ hb
+  · refine Eventually.step _ post ?_ fun _ hb => Eventually.done _ hb
     unfold Kraken.Executable.step'
     rw [Host.fetch?_addrOf hd hz]
     exact h
