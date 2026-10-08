@@ -21,9 +21,6 @@ The definition of `wp` works by
 The `Host` program and `Layout` is a parameter to be able to reason compositionally about function
 calls. It is an instance implicit parameter so that uses refer implicitly to an ambient host program
 without users needing to specify it explicitly everywhere.
-
-Side note: Cousot calls `Executable.step'` the "dual preimage property transformer" in his
-2021 book "Principles of Abstract Interpretation", as a starting point for theory exploration.
 -/
 
 /-- Weakest precondition of a `Program` fragment embedded in a host program. -/
