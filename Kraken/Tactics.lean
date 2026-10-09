@@ -198,6 +198,7 @@ structure KStepConfig where
 declare_term_config_elab elabKStepConfig KStepConfig
 
 syntax (name := symKStep) "kstep" optConfig (ppSpace num)? : grind
+syntax (name := tacKStep) "kstep" optConfig (ppSpace num)? : tactic
 
 def kdsimpMatch: DSimproc := fun e => do
   let some e' ← reduceRecMatcher? e | return .rfl
@@ -615,15 +616,25 @@ def evalSymKStepCore (config : KStepConfig) (maxSteps? : Option Nat) : Grind.Gri
       logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
       Grind.setGoals (subGoals ++ [ goal ])
 
+private def parseKStepArgs (stx : Syntax) : TermElabM (KStepConfig × Option Nat) := do
+  let config ← elabKStepConfig stx[1]
+  let maxSteps? := if stx[2].isNone then none else some stx[2][0].toNat
+  return (config, maxSteps?)
+
 @[grind_tactic symKStep]
 partial def evalSymKStep : Grind.GrindTactic :=
   fun stx : Syntax => do
-  let cfg := stx[1]
-  let config ← elabKStepConfig cfg
-  let maxSteps? : Option Nat := if stx[2].isNone then none else some stx[2][0].toNat
+  let (config, maxSteps?) ← parseKStepArgs stx
   -- A `sym` tactic operates over a pair of the grind state and an MVarId. To avoid scope mistakes,
   -- we only ever use `goal` and never let-bind mvarId.
   evalSymKStepCore config maxSteps?
+
+@[tactic tacKStep]
+partial def evalTacKStep : Tactic :=
+  fun stx : Syntax => withMainContext do
+  let (config, maxSteps?) ← parseKStepArgs stx
+  let (_, st) ← (evalSymKStepCore config maxSteps?).runAtGoal (← getMainGoal) (← Grind.mkDefaultParams {}) (sym := true)
+  replaceMainGoal (st.goals.map (·.mvarId))
 
 syntax (name := symRotateRight) "rotate_right" (ppSpace num)? : grind
 
