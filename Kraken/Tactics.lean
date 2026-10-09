@@ -133,9 +133,9 @@ partial def peelArgsLets (args : Array Expr) (i : Nat) (peeled : Array Expr) (fv
   else
     k peeled fvars
 
-def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
+def kdeltaBetaOnly (isTarget: Name → Bool) : DSimproc := fun e => do
   -- This focuses on application nodes.
-  unless e.isApp && targets.any e.getAppFn'.isConstOf do return .rfl
+  unless e.isApp && isTarget e.getAppFn'.constName do return .rfl
 
   let f := e.getAppFn'
   let args := e.getAppArgs
@@ -323,7 +323,7 @@ def prepStepGoal (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal :=
     let goal ← preprocessGoal goal
     let goal ← dsimpGoal goal {
       pre := skipEventuallyDSimp >>
-        kdeltaBetaOnly [`step1, `Executable.step, `straightlineStep, `Executable.straightline] >>
+        kdeltaBetaOnly ([`step1, `Executable.step, `straightlineStep, `Executable.straightline].contains) >>
         kdsimpProj >> kbeta
     }
     let initTheorems ← addDirectiveAddressTheorems (← addDeclsAndLCtxTheorems {} [
@@ -401,9 +401,8 @@ def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM
         return { goal with mvarId }
     pure ({ goal with mvarId }, sideGoals)
 
-def dsimpMethods (env : Environment) : Sym.DSimp.Methods :=
-  let declsForDSimp := (kstepExtension.getState env).toList
-  let kdsimpDecls := kdeltaBetaOnly declsForDSimp
+def mkDSimpMethods (env : Environment) : Sym.DSimp.Methods :=
+    let kdsimpDecls := kdeltaBetaOnly (kstepExtension.isTagged env)
   {
     pre := evalGround >> kLiftLets >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kdsimpIteCond >> kbeta,
     post := evalGround >> kdsimpMatch >> kdsimpProj >> kdsimpFindLabel >> kbeta
@@ -415,7 +414,7 @@ partial def kstepLoop
     (specTree : DiscrTree Name)
     (goal : Grind.Goal) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
   -- STEP 1: dsimp
-  let methods := dsimpMethods (←getEnv)
+  let methods := mkDSimpMethods (←getEnv)
   let goal ← do
     let goal ← dsimpGoal goal methods { maxSteps := 1000000 }
     let target ← Grind.liftSymM (Sym.liftLets (← goal.mvarId.getType) >>= Sym.letToHave)
@@ -586,7 +585,6 @@ def evalSymKStepCore (config : KStepConfig) (maxSteps? : Option Nat) : Grind.Gri
     let (pat, _) ← mkEqPatternFromDecl name
     pure (insertPattern specTree pat name)
   ) {}
-
 
   unless (← goal.mvarId.getType).consumeMData.isAppOf ``Eventually do
     throwError "kstep: expected goal to be of the form Eventually"
