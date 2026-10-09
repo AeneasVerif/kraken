@@ -6,13 +6,18 @@ public meta section
 
 open Lean
 
-initialize kstepExtension : TagDeclarationExtension ← mkTagDeclarationExtension
+initialize kstepExtension : SimpleScopedEnvExtension Name NameSet ←
+  registerSimpleScopedEnvExtension {
+    addEntry := fun s n => s.insert n
+    initial := {}
+  }
+
 
 initialize registerBuiltinAttribute {
   name := `kstep
   descr := "declarations to be reduced in the goal as part of the kstep tactic"
   add := fun declName _stx _kind => do
-    modifyEnv fun env => kstepExtension.tag env declName
+    modifyEnv fun env => kstepExtension.addEntry env declName
 }
 
 initialize kspecExtension : SimpleScopedEnvExtension Name NameSet ←
