@@ -358,6 +358,7 @@ def prepStepGoal (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal :=
       | .closed => throwError "unexpected"
     pure goal
 
+
 -- FIXME: a copy-paste of the Lean implementation since it's marked as private
 def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
   goal.withContext do
@@ -403,7 +404,7 @@ def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM
     pure ({ goal with mvarId }, sideGoals)
 
 def mkDSimpMethods (env : Environment) : Sym.DSimp.Methods :=
-    let kdsimpDecls := kdeltaBetaOnly (kstepExtension.isTagged env)
+  let kdsimpDecls := kdeltaBetaOnly (kstepExtension.isTagged env)
   {
     pre := evalGround >> kLiftLets >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kdsimpIteCond >> kbeta,
     post := evalGround >> kdsimpMatch >> kdsimpProj >> kdsimpFindLabel >> kbeta
@@ -420,7 +421,6 @@ def mkSimpMethodsFor (goal : MVarId) : MetaM Sym.Simp.Methods := do
 
 partial def kstepLoop
     (config : KStepConfig)
-        (specTree : DiscrTree Name)
     (goal : Grind.Goal) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
   -- STEP 1: dsimp
   let methods := mkDSimpMethods (←getEnv)
@@ -433,7 +433,7 @@ partial def kstepLoop
     logInfo m!"MAIN LOOP, after step 1: {t}"
 
   -- STEP 2: simp
-let simpMethods ← mkSimpMethodsFor goal.mvarId
+  let simpMethods ← mkSimpMethodsFor goal.mvarId
   let (keepGoingSimp, goal) ← Grind.liftGrindM $ do
     let simpResult ← Sym.simpGoal goal.mvarId simpMethods
     match simpResult with
@@ -454,11 +454,12 @@ let simpMethods ← mkSimpMethodsFor goal.mvarId
       | .mdata _ e => getEffectsState e
       | mkApp2 (.const ``Effects.All _) _ state => some state
       | _ => none
-            -- No more Effects.All in the goal -- return to the user (we might be done,
+    -- No more Effects.All in the goal -- return to the user (we might be done,
     -- or realistically, we might need to debug).
     let some state := getEffectsState goalT | return (goal, [])
     pure state
 
+  let specTree := kspecExtension.getState (← getEnv)
   let (keepGoingSpec, goal) ←
     match Sym.getMatch (← getMCtx) specTree goalState with
     | #[ thmName ] =>
@@ -571,24 +572,15 @@ let simpMethods ← mkSimpMethodsFor goal.mvarId
   logInfo m!"kstep: keepGoing = {keepGoingSimp}"
 
   if keepGoingSimp || keepGoingSpec then
-    kstepLoop config specTree goal
+    kstepLoop config goal
   else
     pure (goal, [])
 
 def evalSymKStepCore (config : KStepConfig) (maxSteps? : Option Nat) : Grind.GrindTacticM Unit := do
   let goal : Grind.Goal ← Grind.getMainGoal
 
-  let env ← getEnv
-
   -- https://lean-lang.org/doc/api/Lean/Meta/Sym/Simp/SimpM.html
   -- note the "contextual ite handling" --> are we doing this?
-  
-  let specLemmas := (kspecExtension.getState env).toList
-  let specTree: DiscrTree Name ← specLemmas.foldlM (fun specTree name => do
-    -- NOTE: hardcoding left-to-right order, for now
-    let (pat, _) ← mkEqPatternFromDecl name
-    pure (insertPattern specTree pat name)
-  ) {}
 
   unless (← goal.mvarId.getType).consumeMData.isAppOf ``Eventually do
     throwError "kstep: expected goal to be of the form Eventually"
@@ -603,7 +595,7 @@ def evalSymKStepCore (config : KStepConfig) (maxSteps? : Option Nat) : Grind.Gri
         let [mvarId] ← goal.withContext <|
           goal.mvarId.apply (← mkConstWithFreshMVarLevels ``eventually_step_cps) | failure
         goal ← prepStepGoal { goal with mvarId }
-        let (g, subGoals) ← kstepLoop config specTree goal
+        let (g, subGoals) ← kstepLoop config goal
         goal := g
         allSubGoals := allSubGoals ++ subGoals
 
@@ -614,7 +606,7 @@ def evalSymKStepCore (config : KStepConfig) (maxSteps? : Option Nat) : Grind.Gri
         goal.mvarId.apply (← mkConstWithFreshMVarLevels ``eventually_straightlineStep_cps) | failure
       subGoal.withContext subGoal.assumption
       let goal ← prepStepGoal { goal with mvarId }
-      let (goal, subGoals) ← kstepLoop config specTree goal
+      let (goal, subGoals) ← kstepLoop config goal
 
       logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
       Grind.setGoals (subGoals ++ [ goal ])
