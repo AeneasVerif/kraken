@@ -287,36 +287,35 @@ def addDeclsAndLCtxTheorems (thms : Sym.Simp.Theorems) (decls : List Name) : Met
   for decl in decls do
     thms := thms.insert (← Sym.Simp.mkTheoremFromDecl decl)
   for ldecl in ← getLCtx do
-    if !ldecl.isImplementationDetail then
-      try
-        thms := thms.insert (← Sym.Simp.mkTheoremFromExpr ldecl.toExpr)
-      catch _ =>
-        pure ()
+    unless !ldecl.isImplementationDetail do continue
+    try
+      thms := thms.insert (← Sym.Simp.mkTheoremFromExpr ldecl.toExpr)
+    catch _ =>
+      pure ()
   return thms
 
 def addDirectiveAddressTheorems (thms : Sym.Simp.Theorems) : MetaM Sym.Simp.Theorems := do
   let mut thms := thms
   let lctx ← getLCtx
+  let lctx := ForIn.toArray lctx |>.filter (not ·.isImplementationDetail)
   for ldecl in lctx do
-    if !ldecl.isImplementationDetail && ldecl.type.isAppOfArity ``Layout.Valid 2 then
-      let layoutExpr := ldecl.type.getAppArgs[0]!
-      let progExpr := ldecl.type.getAppArgs[1]!
-      let hlayout := ldecl.toExpr
-      thms := thms.insert (← Sym.Simp.mkTheoremFromExpr
-        (← mkAppM ``Executable.directivesAtStart #[progExpr, hlayout]))
-      for ldecl_wf in lctx do
-        if !ldecl_wf.isImplementationDetail && ldecl_wf.type.isAppOfArity ``Kraken.Executable.WellFormed 2 then
-          let mut addrExpr ← mkAppOptM ``Kraken.Layout.start #[none, some layoutExpr]
-          for n in [1:8] do
-            let szExpr ← mkAppOptM ``Kraken.Layout.size #[none, some layoutExpr, some (mkNatLit (n - 1))]
-            addrExpr ← mkAppM ``HAdd.hAdd #[addrExpr, ← mkAppM ``Int64.ofNat #[szExpr]]
-            let validApp ← mkAppM ``validSplitIndex #[progExpr, mkNatLit n]
-            if ← isDefEq validApp (mkConst ``true) then
-              let haddr ← mkEqRefl addrExpr
-              let hvalid ← mkEqRefl (mkConst ``true)
-              for thm in [``Executable.directivesAtAddress_add, ``Executable.directivesFromAddress_add] do
-                let e ← mkAppM thm #[progExpr, ldecl_wf.toExpr, hlayout, mkNatLit n, haddr, hvalid]
-                thms := thms.insert (← Sym.Simp.mkTheoremFromExpr e)
+    let mkApp2 (.const ``Layout.Valid _) layoutExpr progExpr := ldecl.type | continue
+    let hlayout := ldecl.toExpr
+    thms := thms.insert (← Sym.Simp.mkTheoremFromExpr
+      (← mkAppM ``Executable.directivesAtStart #[progExpr, hlayout]))
+    for ldecl_wf in lctx do
+      let mkApp2 (.const ``Kraken.Executable.WellFormed _) _ _ := ldecl_wf.type | continue
+      let mut addrExpr ← mkAppOptM ``Kraken.Layout.start #[none, some layoutExpr]
+      for n in [1:8] do
+        let szExpr ← mkAppOptM ``Kraken.Layout.size #[none, some layoutExpr, some (mkNatLit (n - 1))]
+        addrExpr ← mkAppM ``HAdd.hAdd #[addrExpr, ← mkAppM ``Int64.ofNat #[szExpr]]
+        let validApp ← mkAppM ``validSplitIndex #[progExpr, mkNatLit n]
+        if ← isDefEq validApp (mkConst ``true) then
+          let haddr ← mkEqRefl addrExpr
+          let hvalid ← mkEqRefl (mkConst ``true)
+          for thm in [``Executable.directivesAtAddress_add, ``Executable.directivesFromAddress_add] do
+            let e ← mkAppM thm #[progExpr, ldecl_wf.toExpr, hlayout, mkNatLit n, haddr, hvalid]
+            thms := thms.insert (← Sym.Simp.mkTheoremFromExpr e)
   return thms
 
 def prepStepGoal (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal :=
@@ -402,20 +401,175 @@ def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM
         return { goal with mvarId }
     pure ({ goal with mvarId }, sideGoals)
 
-@[grind_tactic symKStep]
-partial def evalSymKStep : Grind.GrindTactic :=
-  fun stx : Syntax => do
-  let cfg := stx[1]
-  let config ← elabKStepConfig cfg
-  let maxSteps? : Option Nat := if stx[2].isNone then none else some stx[2][0].toNat
-  -- A `sym` tactic operates over a pair of the grind state and an MVarId. To avoid scope mistakes,
-  -- we only ever use `goal` and never let-bind mvarId.
+def dsimpMethods (env : Environment) : Sym.DSimp.Methods :=
+  let declsForDSimp := (kstepExtension.getState env).toList
+  let kdsimpDecls := kdeltaBetaOnly declsForDSimp
+  {
+    pre := evalGround >> kLiftLets >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kdsimpIteCond >> kbeta,
+    post := evalGround >> kdsimpMatch >> kdsimpProj >> kdsimpFindLabel >> kbeta
+  }
+
+partial def kstepLoop
+    (config : KStepConfig)
+    (simpMethods : Sym.Simp.Methods)
+    (specTree : DiscrTree Name)
+    (goal : Grind.Goal) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
+  -- STEP 1: dsimp
+  let methods := dsimpMethods (←getEnv)
+  let goal ← do
+    let goal ← dsimpGoal goal methods { maxSteps := 1000000 }
+    let target ← Grind.liftSymM (Sym.liftLets (← goal.mvarId.getType) >>= Sym.letToHave)
+    pure { goal with mvarId := ← goal.mvarId.replaceTargetDefEq target }
+  if config.debug then
+    let t ← goal.mvarId.getType
+    logInfo m!"MAIN LOOP, after step 1: {t}"
+
+  -- STEP 2: simp
+  let (keepGoingSimp, goal) ← Grind.liftGrindM $ do
+    let simpResult ← Sym.simpGoal goal.mvarId simpMethods
+    match simpResult with
+    | .noProgress => pure (false, goal)
+    | .goal mvarId => pure (true, { goal with mvarId })
+    | .closed => throwError "unexpected"
+  if config.debug then
+    let t ← goal.mvarId.getType
+    logInfo m!"MAIN LOOP, after step 2: {t}"
+
+  -- STEP 3: spec lemmas
+  let goalState ← do
+    let goalT ← instantiateMVars (← goal.mvarId.getType)
+    let rec getEffectsState (e : Expr) : Option Expr :=
+      match e with
+      | .letE _ _ _ body _ => getEffectsState body
+      | .forallE _ _ body _ => getEffectsState body
+      | .mdata _ e => getEffectsState e
+      | mkApp2 (.const ``Effects.All _) _ state => some state
+      | _ => none
+            -- No more Effects.All in the goal -- return to the user (we might be done,
+    -- or realistically, we might need to debug).
+    let some state := getEffectsState goalT | return (goal, [])
+    pure state
+
+  let (keepGoingSpec, goal) ←
+    match Sym.getMatch (← getMCtx) specTree goalState with
+    | #[ thmName ] =>
+      logInfo m!"Found a spec lemma: {thmName}"
+      let (goal, subGoals) ← rwTarget goal false (mkConst thmName)
+      logInfo m!"{subGoals.length} subgoals generated"
+
+      let subGoals ← subGoals.mapM fun (subGoal: Grind.Goal) => subGoal.withContext do
+        -- Try simp -- who knows, one might get lucky
+        let subGoal ← dsimpGoal subGoal methods { maxSteps := 1000000 }
+        let simpResult ← Grind.liftGrindM (Sym.simpGoal subGoal.mvarId simpMethods)
+        match simpResult with
+        | .noProgress => pure subGoal
+        | .goal mvarId => pure { subGoal with mvarId }
+        | .closed => pure subGoal
+
+      -- Found a spec lemma, which will generate subgoals; for now, subgoals (if not solved
+      -- already!) are solved via `exact` (which may pick any hypothesis in the context, beware),
+      -- or grind.
+      let solveIfNotAlready: Grind.Goal → Grind.GrindTacticM Bool := fun subGoal => do
+        -- Already solved this subgoal; skip
+        if ← subGoal.mvarId.isAssigned then
+          let t ← subGoal.mvarId.getType
+          logInfo m!"Already solved: {t}"
+          return false
+
+        -- Solvable with exact; we made progress
+        if ← withReducible subGoal.mvarId.assumptionCore then
+          let t ← subGoal.mvarId.getType
+          let .some e ← getExprMVarAssignment? subGoal.mvarId | throwError "oh noes"
+          logInfo m!"Solved by exact: {t} by {e}"
+          return true
+
+        if (← subGoal.mvarId.getType).getAppFn.isConstOf `Std.ExtHashMap.sep then
+          if ← Kraken.Tactic.solveSepGoal subGoal.mvarId then
+            let t ← subGoal.mvarId.getType
+            let .some e ← getExprMVarAssignment? subGoal.mvarId | throwError "oh noes"
+            logInfo m!"Solved by ecancel: {t} by {e}"
+            return true
+          return false
+
+        -- Solvable with refl, maybe.
+        try
+          subGoal.mvarId.refl
+          let t ← subGoal.mvarId.getType
+          logInfo m!"Solved by refl: {t}"
+          return true
+        catch _ => pure ()
+
+        -- Try solving with grind, roll back state otherwise (we don't want to
+        -- return the failed Grind state).
+        try
+          let subGoal ← Grind.liftGrindM subGoal.internalizeAll
+          let t ← subGoal.mvarId.getType
+          match ← Grind.liftGrindM subGoal.grind with
+          | .closed =>
+              logInfo m!"Solved by grind: {t}"
+              return true
+          | .failed _ =>
+              logInfo m!"NOT solved by grind: {t}"
+              throwError "catch me"
+        catch _ =>
+          return false
+
+      -- For this reason, we try to be intentional about the order in which we solve subgoals:
+      -- solving the ⋆ separation logic predicate first allows making sensible decisions about
+      -- metavariables, rather than picking any random hypothesis in the context
+      let starGoal ← subGoals.findM? (fun g => do
+        let t ← g.mvarId.getType
+        if t.getAppFn.isConstOf `Std.ExtHashMap.sep then
+          logInfo m!"Found sep goal: {t}"
+          return true
+        else
+          return false
+      )
+
+      -- If we couldn't solve the ⋆ goal, we are likely going to make bad
+      -- decisions and instantiate metavariables randomly. Abort.
+      if let some g := starGoal then
+        let solved ← solveIfNotAlready g
+        if not solved then
+          return (goal, subGoals)
+
+      -- Then, we repeatedly visit subgoals until we make no progress.
+      while ← (
+        subGoals.foldlM (fun progress subGoal => do
+          let r ← solveIfNotAlready subGoal
+          pure (r || progress)
+        ) false
+      ) do pure ()
+
+      -- Unsolved goals left? Return control to the user
+      let unsolvedGoals ← subGoals.filterMapM fun (g: Grind.Goal) => do
+        if ← g.mvarId.isAssigned then
+          return none
+        else
+          return some g
+      unsolvedGoals.forM fun mvarId => do
+        let t ← mvarId.mvarId.getType
+        logInfo m!"Unsolved goal: {t}"
+      if unsolvedGoals.length > 0 then
+        return (goal, unsolvedGoals)
+
+      pure (true, goal)
+    | #[] =>
+      pure (false, goal)
+    | _ =>
+      throwError "TODO"
+
+  logInfo m!"kstep: keepGoing = {keepGoingSimp}"
+
+  if keepGoingSimp || keepGoingSpec then
+    kstepLoop config simpMethods specTree goal
+  else
+    pure (goal, [])
+
+def evalSymKStepCore (config : KStepConfig) (maxSteps? : Option Nat) : Grind.GrindTacticM Unit := do
   let goal : Grind.Goal ← Grind.getMainGoal
 
   let env ← getEnv
-
-  let declsForDSimp := (kstepExtension.getState env).toList
-  let kdsimpDecls := kdeltaBetaOnly declsForDSimp
 
   -- https://lean-lang.org/doc/api/Lean/Meta/Sym/Simp/SimpM.html
   -- note the "contextual ite handling" --> are we doing this?
@@ -433,167 +587,6 @@ partial def evalSymKStep : Grind.GrindTactic :=
     pure (insertPattern specTree pat name)
   ) {}
 
-  let dsimpMethods : Sym.DSimp.Methods := {
-    pre := evalGround >> kLiftLets >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kdsimpIteCond >> kbeta,
-    post := evalGround >> kdsimpMatch >> kdsimpProj >> kdsimpFindLabel >> kbeta
-  }
-
-  -- MAIN LOOP
-  let rec go (goal: Grind.Goal): Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
-    -- STEP 1: dsimp
-    let goal ← do
-      let goal ← dsimpGoal goal dsimpMethods { maxSteps := 1000000 }
-      let target ← Grind.liftSymM (Sym.liftLets (← goal.mvarId.getType) >>= Sym.letToHave)
-      pure { goal with mvarId := ← goal.mvarId.replaceTargetDefEq target }
-
-    if config.debug then
-      let t ← goal.mvarId.getType
-      logInfo m!"MAIN LOOP, after step 1: {t}"
-
-    -- STEP 2: simp
-    let (keepGoingSimp, goal) ← Grind.liftGrindM $ do
-      let simpResult ← Sym.simpGoal goal.mvarId simpMethods
-      match simpResult with
-      | .noProgress => pure (false, goal)
-      | .goal mvarId => pure (true, { goal with mvarId })
-      | .closed => throwError "unexpected"
-    if config.debug then
-      let t ← goal.mvarId.getType
-      logInfo m!"MAIN LOOP, after step 2: {t}"
-
-    -- STEP 3: spec lemmas
-    let goalState ← do
-      let goalT ← instantiateMVars (← goal.mvarId.getType)
-      let rec getEffectsState (e : Expr) : Option Expr :=
-        match e with
-        | .letE _ _ _ body _ => getEffectsState body
-        | .forallE _ _ body _ => getEffectsState body
-        | .mdata _ e => getEffectsState e
-        | _ =>
-          if e.isApp && e.getAppFn.isConstOf `Effects.All && e.getAppArgs.size == 2 then
-            some e.getAppArgs[1]!
-          else
-            none
-      -- No more Effects.All in the goal -- return to the user (we might be done,
-      -- or realistically, we might need to debug).
-      let some state := getEffectsState goalT | return (goal, [])
-      pure state
-
-    let (keepGoingSpec, goal) ←
-      match Sym.getMatch (← getMCtx) specTree goalState with
-      | #[ thmName ] =>
-        logInfo m!"Found a spec lemma: {thmName}"
-        let (goal, subGoals) ← rwTarget goal false (mkConst thmName)
-        logInfo m!"{subGoals.length} subgoals generated"
-
-        let subGoals ← subGoals.mapM fun (subGoal: Grind.Goal) => subGoal.withContext do
-          -- Try simp -- who knows, one might get lucky
-          let subGoal ← dsimpGoal subGoal dsimpMethods { maxSteps := 1000000 }
-          let simpResult ← Grind.liftGrindM (Sym.simpGoal subGoal.mvarId simpMethods)
-          match simpResult with
-          | .noProgress => pure subGoal
-          | .goal mvarId => pure { subGoal with mvarId }
-          | .closed => pure subGoal
-
-        -- Found a spec lemma, which will generate subgoals; for now, subgoals (if not solved
-        -- already!) are solved via `exact` (which may pick any hypothesis in the context, beware),
-        -- or grind.
-        let solveIfNotAlready: Grind.Goal → Grind.GrindTacticM Bool := fun subGoal => do
-          -- Already solved this subgoal; skip
-          if ← subGoal.mvarId.isAssigned then
-            let t ← subGoal.mvarId.getType
-            logInfo m!"Already solved: {t}"
-            return false
-
-          -- Solvable with exact; we made progress
-          if ← withReducible subGoal.mvarId.assumptionCore then
-            let t ← subGoal.mvarId.getType
-            let .some e ← getExprMVarAssignment? subGoal.mvarId | throwError "oh noes"
-            logInfo m!"Solved by exact: {t} by {e}"
-            return true
-
-          if (← subGoal.mvarId.getType).getAppFn.isConstOf `Std.ExtHashMap.sep then
-            if ← Kraken.Tactic.solveSepGoal subGoal.mvarId then
-              let t ← subGoal.mvarId.getType
-              let .some e ← getExprMVarAssignment? subGoal.mvarId | throwError "oh noes"
-              logInfo m!"Solved by ecancel: {t} by {e}"
-              return true
-            return false
-
-          -- Solvable with refl, maybe.
-          try
-            subGoal.mvarId.refl
-            let t ← subGoal.mvarId.getType
-            logInfo m!"Solved by refl: {t}"
-            return true
-          catch _ => pure ()
-
-          -- Try solving with grind, roll back state otherwise (we don't want to
-          -- return the failed Grind state).
-          try
-            let subGoal ← Grind.liftGrindM subGoal.internalizeAll
-            let t ← subGoal.mvarId.getType
-            match ← Grind.liftGrindM subGoal.grind with
-            | .closed =>
-                logInfo m!"Solved by grind: {t}"
-                return true
-            | .failed _ =>
-                logInfo m!"NOT solved by grind: {t}"
-                throwError "catch me"
-          catch _ =>
-            return false
-
-        -- For this reason, we try to be intentional about the order in which we solve subgoals:
-        -- solving the ⋆ separation logic predicate first allows making sensible decisions about
-        -- metavariables, rather than picking any random hypothesis in the context
-        let starGoal ← subGoals.findM? (fun g => do
-          let t ← g.mvarId.getType
-          if t.getAppFn.isConstOf `Std.ExtHashMap.sep then
-            logInfo m!"Found sep goal: {t}"
-            return true
-          else
-            return false
-        )
-
-        -- If we couldn't solve the ⋆ goal, we are likely going to make bad
-        -- decisions and instantiate metavariables randomly. Abort.
-        if let some g := starGoal then
-          let solved ← solveIfNotAlready g
-          if not solved then
-            return (goal, subGoals)
-
-        -- Then, we repeatedly visit subgoals until we make no progress.
-        while ← (
-          subGoals.foldlM (fun progress subGoal => do
-            let r ← solveIfNotAlready subGoal
-            pure (r || progress)
-          ) false
-        ) do pure ()
-
-        -- Unsolved goals left? Return control to the user
-        let unsolvedGoals ← subGoals.filterMapM fun (g: Grind.Goal) => do
-          if ← g.mvarId.isAssigned then
-            return none
-          else
-            return some g
-        unsolvedGoals.forM fun mvarId => do
-          let t ← mvarId.mvarId.getType
-          logInfo m!"Unsolved goal: {t}"
-        if unsolvedGoals.length > 0 then
-          return (goal, unsolvedGoals)
-
-        pure (true, goal)
-      | #[] =>
-        pure (false, goal)
-      | _ =>
-        throwError "TODO"
-
-    logInfo m!"kstep: keepGoing = {keepGoingSimp}"
-
-    if keepGoingSimp || keepGoingSpec then
-      go goal
-    else
-      pure (goal, [])
 
   unless (← goal.mvarId.getType).consumeMData.isAppOf ``Eventually do
     throwError "kstep: expected goal to be of the form Eventually"
@@ -608,7 +601,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
         let [mvarId] ← goal.withContext <|
           goal.mvarId.apply (← mkConstWithFreshMVarLevels ``eventually_step_cps) | failure
         goal ← prepStepGoal { goal with mvarId }
-        let (g, subGoals) ← go goal
+        let (g, subGoals) ← kstepLoop config simpMethods specTree goal
         goal := g
         allSubGoals := allSubGoals ++ subGoals
 
@@ -619,11 +612,20 @@ partial def evalSymKStep : Grind.GrindTactic :=
         goal.mvarId.apply (← mkConstWithFreshMVarLevels ``eventually_straightlineStep_cps) | failure
       subGoal.withContext subGoal.assumption
       let goal ← prepStepGoal { goal with mvarId }
-      let (goal, subGoals) ← go goal
+      let (goal, subGoals) ← kstepLoop config simpMethods specTree goal
 
       logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
       Grind.setGoals (subGoals ++ [ goal ])
 
+@[grind_tactic symKStep]
+partial def evalSymKStep : Grind.GrindTactic :=
+  fun stx : Syntax => do
+  let cfg := stx[1]
+  let config ← elabKStepConfig cfg
+  let maxSteps? : Option Nat := if stx[2].isNone then none else some stx[2][0].toNat
+  -- A `sym` tactic operates over a pair of the grind state and an MVarId. To avoid scope mistakes,
+  -- we only ever use `goal` and never let-bind mvarId.
+  evalSymKStepCore config maxSteps?
 
 syntax (name := symRotateRight) "rotate_right" (ppSpace num)? : grind
 
