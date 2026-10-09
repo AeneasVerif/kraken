@@ -410,10 +410,18 @@ def dsimpMethods (env : Environment) : Sym.DSimp.Methods :=
     post := evalGround >> kdsimpMatch >> kdsimpProj >> kdsimpFindLabel >> kbeta
   }
 
+def mkSimpMethodsFor (goal : MVarId) : MetaM Sym.Simp.Methods := do
+  let simpTheorems ← goal.withContext do
+    addDeclsAndLCtxTheorems (← ksimpExt.getTheorems)
+      [``Bool.false_eq_true, ``eq_self, ``_root_.ite_true, ``_root_.ite_false]
+  let simpMethods: Sym.Simp.Methods := {
+    post := Sym.Simp.evalGround >> simpTheorems.rewrite
+  }
+  return simpMethods
+
 partial def kstepLoop
     (config : KStepConfig)
-    (simpMethods : Sym.Simp.Methods)
-    (specTree : DiscrTree Name)
+        (specTree : DiscrTree Name)
     (goal : Grind.Goal) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
   -- STEP 1: dsimp
   let methods := dsimpMethods (←getEnv)
@@ -426,6 +434,7 @@ partial def kstepLoop
     logInfo m!"MAIN LOOP, after step 1: {t}"
 
   -- STEP 2: simp
+let simpMethods ← mkSimpMethodsFor goal.mvarId
   let (keepGoingSimp, goal) ← Grind.liftGrindM $ do
     let simpResult ← Sym.simpGoal goal.mvarId simpMethods
     match simpResult with
@@ -563,7 +572,7 @@ partial def kstepLoop
   logInfo m!"kstep: keepGoing = {keepGoingSimp}"
 
   if keepGoingSimp || keepGoingSpec then
-    kstepLoop config simpMethods specTree goal
+    kstepLoop config specTree goal
   else
     pure (goal, [])
 
@@ -574,13 +583,7 @@ def evalSymKStepCore (config : KStepConfig) (maxSteps? : Option Nat) : Grind.Gri
 
   -- https://lean-lang.org/doc/api/Lean/Meta/Sym/Simp/SimpM.html
   -- note the "contextual ite handling" --> are we doing this?
-  let simpTheorems ← goal.withContext do
-    addDeclsAndLCtxTheorems (← ksimpExt.getTheorems)
-      [``Bool.false_eq_true, ``eq_self, ``_root_.ite_true, ``_root_.ite_false]
-  let simpMethods: Sym.Simp.Methods := {
-    post := Sym.Simp.evalGround >> simpTheorems.rewrite
-  }
-
+  
   let specLemmas := (kspecExtension.getState env).toList
   let specTree: DiscrTree Name ← specLemmas.foldlM (fun specTree name => do
     -- NOTE: hardcoding left-to-right order, for now
@@ -602,7 +605,7 @@ def evalSymKStepCore (config : KStepConfig) (maxSteps? : Option Nat) : Grind.Gri
         let [mvarId] ← goal.withContext <|
           goal.mvarId.apply (← mkConstWithFreshMVarLevels ``eventually_step_cps) | failure
         goal ← prepStepGoal { goal with mvarId }
-        let (g, subGoals) ← kstepLoop config simpMethods specTree goal
+        let (g, subGoals) ← kstepLoop config specTree goal
         goal := g
         allSubGoals := allSubGoals ++ subGoals
 
@@ -613,7 +616,7 @@ def evalSymKStepCore (config : KStepConfig) (maxSteps? : Option Nat) : Grind.Gri
         goal.mvarId.apply (← mkConstWithFreshMVarLevels ``eventually_straightlineStep_cps) | failure
       subGoal.withContext subGoal.assumption
       let goal ← prepStepGoal { goal with mvarId }
-      let (goal, subGoals) ← kstepLoop config simpMethods specTree goal
+      let (goal, subGoals) ← kstepLoop config specTree goal
 
       logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
       Grind.setGoals (subGoals ++ [ goal ])
