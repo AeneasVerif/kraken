@@ -6,12 +6,7 @@ public meta section
 
 open Lean
 
-initialize kstepExtension : SimpleScopedEnvExtension Name NameSet ←
-  registerSimpleScopedEnvExtension {
-    name := `kstepExtension
-    addEntry := fun s n => s.insert n
-    initial := {}
-  }
+initialize kstepExtension : TagDeclarationExtension ← mkTagDeclarationExtension
 
 initialize registerBuiltinAttribute {
   name := `kstep
@@ -20,12 +15,7 @@ initialize registerBuiltinAttribute {
     modifyEnv fun env => kstepExtension.addEntry env declName
 }
 
-initialize kspecExtension : SimpleScopedEnvExtension Name NameSet ←
-  registerSimpleScopedEnvExtension {
-    name := `kspecExtension
-    addEntry := fun s n => s.insert n
-    initial := {}
-  }
+initialize kspecExtension : TagDeclarationExtension ← mkTagDeclarationExtension
 
 initialize registerBuiltinAttribute {
   name := `kspec
