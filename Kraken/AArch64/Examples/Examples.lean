@@ -42,10 +42,11 @@ attribute [ksimp]
 --------------------------------------------------------------------------------
 
 -- Register swap example using XOR
-def swap : Program := parseAArch64("
+def swap : Program := [aarch64|
   eor x0, x0, x1
   eor x1, x0, x1
-  eor x0, x0, x1")
+  eor x0, x0, x1
+]
 
 theorem swap_correct [layout : Layout] (d : MachineData) :
     straightlineStep (layout swap) (d, layout.start)
@@ -57,11 +58,11 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
   grind
 
 -- Example 3: Multi-instruction arithmetic and shift pipeline
-def arith_shift : Program := parseAArch64("
+def arith_shift : Program := [aarch64|
   add x0, x1, #42
   lsl x2, x0, #2
   sub x3, x2, x0
-")
+]
 
 theorem arith_shift_correct [layout : Layout] (d : MachineData) :
     straightlineStep (layout arith_shift) (d, layout.start) (fun s' =>
@@ -73,13 +74,13 @@ theorem arith_shift_correct [layout : Layout] (d : MachineData) :
   bv_decide
 
 -- Example 4: Stepping through control flow (branch not taken)
-def controlflow : Program := parseAArch64("
+def controlflow : Program := [aarch64|
 start:
   mov x0, #1
   eor x0, x0, x0
   cbnz x0, start
   mov x1, #42
-")
+]
 
 theorem p4_correct [layout : Layout] (d : MachineData) :
     Eventually (straightlineStep (layout controlflow))
@@ -100,12 +101,12 @@ theorem p4_correct [layout : Layout] (d : MachineData) :
 open Std
 open Std.ExtHashMap
 
-def move_2_regs_to_heap : Program := parseAArch64("
+def move_2_regs_to_heap : Program := [aarch64|
     str x0, [x2]
     str x1, [x2, #8]
     ldr x3, [x2]
     ldr x4, [x2, #8]
-")
+]
 
 theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
     (v1 v2 : UInt64)
@@ -148,12 +149,12 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   exact ⟨rfl, rfl, rfl⟩
 
 -- Example 6: Memory access with shifted register offset [x1, x2, lsl #3]
-def reg_offset_example : Program := parseAArch64("
+def reg_offset_example : Program := [aarch64|
     mov x0, #42
     str x0, [x1, x2, lsl #3]
     mov x0, #0
     ldr x3, [x1, x2, lsl #3]
-")
+]
 
 theorem reg_offset_example_correct [layout : Layout] (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)

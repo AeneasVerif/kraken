@@ -26,7 +26,7 @@ open Kraken.X64.Parser
 
 --------------------------------------------------------------------------------
 
-def p1 := parse("start: mov $1, %rax")
+def p1 := [x64| start: mov $1, %rax ]
 
 -- Super-simple example to debug tactics
 example [layout : Layout] s : straightlineStep (layout p1) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
@@ -38,10 +38,10 @@ example [layout : Layout] s : straightlineStep (layout p1) (s, layout.start) (fu
   /- simp [Width.bits] -/
   /- simp [p1,step1,eval1,fetch,Instr.is_ctrl,strt1,eval_operand,eval_imm,set_reg_or_mem,next,MachineState.setReg,Registers.set] -/
 
-def swap : Program := parse("
+def swap : Program := [x64|
   xor %rbx, %rax
   xor %rax, %rbx
-  xor %rbx, %rax")
+  xor %rbx, %rax]
 
 theorem swap_correct [layout : Layout] (d : MachineData) :
       Eventually (straightlineStep (layout swap))
@@ -56,12 +56,12 @@ theorem swap_correct [layout : Layout] (d : MachineData) :
   grind
 
 -- Stepping demo. Ideally, this demo should be without the first .mov
-def p2 : Program := parse("
+def p2 : Program := [x64|
 start:
   mov $1, %rax
   xor %rax, %rax
   jnz start
-  mov $2, %rax")
+  mov $2, %rax]
 
 -- Example 2: stepping through both straightline and control instructions
 example [layout : Layout] (s : MachineData): Eventually (straightlineStep (layout p2)) (fun s => s.1.regs.rax = 2) (s, layout.start) := by
@@ -85,18 +85,17 @@ example [layout : Layout] (s : MachineData): Eventually (straightlineStep (layou
 
 -- TODO: restore p3
 
-def p3: Program := parse("
+def p3: Program := [x64|
 init:
-  mov $2, %rdx             # rdx: current result = 2
+  mov $2, %rdx             -- rdx: current result = 2
 start:
-  sub $0, %rbx             # TEST: zf = (rbx == 0)
-  jz _end                 # end loop if rbx == 0 (a.k.a. « while rbx >= 0 »)
-  mulx %rdx, %rdx, %rax    # BODY: rdx := rdx * rdx
-  sub $1, %rbx              # rbx -= 1
-  jmp start               # go back to test & loop body
+  sub $0, %rbx             -- TEST: zf = (rbx == 0)
+  jz _end                 -- end loop if rbx == 0 (a.k.a. « while rbx >= 0 »)
+  mulx %rdx, %rdx, %rax    -- BODY: rdx := rdx * rdx
+  sub $1, %rbx              -- rbx -= 1
+  jmp start               -- go back to test & loop body
 _end:
-  nop
-")
+  nop]
 
 def p3_spec (s: MachineData): Nat := 2^(2^s.regs.rbx.toNat)
 
@@ -197,8 +196,8 @@ theorem p3_correct [layout: Layout] (s: MachineData):
                   apply Nat.pow_le_pow_right (by decide)
                   omega -/
 
-def p4 := eval% parse("start: mov $2, %rax
-dec %rax")
+def p4 := eval% [x64|start: mov $2, %rax
+dec %rax]
 
 -- Super-simple example to debug tactics
 example [layout : Layout] s : straightlineStep (layout p4) (s, layout.start) (fun s => s.1.regs.rax = 1) := by
@@ -211,10 +210,10 @@ example [layout : Layout] s : straightlineStep (layout p4) (s, layout.start) (fu
 
 /- Examples -/
 
-def p5 := parse("start: mov $2, %rax
+def p5 := [x64|start: mov $2, %rax
 dec %rax
 start2:
-dec %rax")
+dec %rax]
 
 set_option maxHeartbeats 1000000
 set_option pp.rawOnError true
@@ -225,9 +224,9 @@ example [layout : Layout] s : straightlineStep (layout p5) (s, layout.start) (fu
   sym => kstep; tactic =>
   bv_decide
 
-def p6 := parse("push %rax
+def p6 := [x64|push %rax
 mov $0, %rax
-pop %rax")
+pop %rax]
 
 set_option maxHeartbeats 1000000
 set_option pp.rawOnError true
@@ -301,12 +300,12 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
 open Std
 open Std.ExtHashMap
 
-def move_2_regs_to_heap := parse("
+def move_2_regs_to_heap := [x64|
     movq %rax, (%rdi)
     movq %rcx, 8(%rdi)
     movq (%rdi), %r12
     movq 8(%rdi), %r13
-")
+]
 
 theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   (v1 v2 : UInt64)
@@ -351,12 +350,11 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
   exact ⟨rfl, rfl, rfl⟩
 
-def sib_example := parse("
+def sib_example := [x64|
     movq $42, %rax
     movq %rax, (%rdi, %r15, 8)
     movq $0, %rax
-    movq (%rdi, %r15, 8), %rax
-")
+    movq (%rdi, %r15, 8), %rax]
 
 -- FIXME: I had to replace `s₀.regs.r15.toBitVec * 8#64` with `BitVec.ofInt 64
 -- (s₀.regs.r15.toBitVec.toInt * 8)` to make the example go through. Why?
@@ -383,12 +381,11 @@ theorem sib_example_correct [layout : Layout] (s₀ : MachineData)
   apply Eventually.done
   rfl
 
-def alu_mem_example := parse("
+def alu_mem_example := [x64|
     movq $42, %rax
     movq %rax, 136(%rdx)
     movq $100, %rcx
-    addq 136(%rdx), %rcx
-")
+    addq 136(%rdx), %rcx]
 
 theorem alu_mem_example_correct [layout : Layout] (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
@@ -415,7 +412,7 @@ theorem alu_mem_example_correct [layout : Layout] (s₀ : MachineData)
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
   rfl
 
-def dynamic_stack_example := parse("
+def dynamic_stack_example := [x64|
     movq $99, -8(%rsp)
     movq %rsp, %rbp
     leaq -1024(%rsp, %r9, 8), %rsp
@@ -424,8 +421,7 @@ def dynamic_stack_example := parse("
     movq $0, %rax
     movq 16(%rsp, %r15, 8), %rax
     movq %rbp, %rsp
-    movq -8(%rsp), %rbx
-")
+    movq -8(%rsp), %rbx]
 
 theorem dynamic_stack_example_correct [layout : Layout] (s₀ : MachineData)
     (stack : List UInt8) (lstack : stack.length = 1024) R

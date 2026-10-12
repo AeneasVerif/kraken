@@ -1320,27 +1320,6 @@ def elabAArch64 (input : String) : TermElabM Lean.Expr := do
 elab "[aarch64|" p:aarch64_prog "]" : term =>
   elabProgSyntax p
 
-/-- Compile-time unquoted `parse(...)` elaborator using the `aarch64_prog` syntax category. -/
-scoped elab "parse(" p:aarch64_prog ")" : term =>
-  elabProgSyntax p
-
-/-- Compile-time string literal `parse("...")` elaborator powered by `elabAArch64` (`runParserCategory`). -/
-scoped elab "parse(" s:str ")" : term =>
-  withRef s (elabAArch64 s.getString)
-
-/-- Compile-time unquoted `parseAArch64(...)` elaborator using the `aarch64_prog` syntax category. -/
-elab "parseAArch64(" p:aarch64_prog ")" : term =>
-  elabProgSyntax p
-
-/-- Compile-time string literal `parseAArch64("...")` elaborator powered by `elabAArch64` (`runParserCategory`). -/
-elab "parseAArch64(" s:str ")" : term =>
-  withRef s (elabAArch64 s.getString)
-
-/-- Read a file at elaboration time and return its contents as a string literal. -/
-elab "fileAsStringAArch64(" path:str ")" : term => do
-  let contents ← IO.FS.readFile path.getString
-  return mkStrLit contents
-
 /-- Read an AArch64 assembly file at elaboration time, strip directives, parse via `elabAArch64`,
     and elaborate the resulting syntax into a Kraken `Program`. -/
 elab "include_aarch64 " path:str : term => do
