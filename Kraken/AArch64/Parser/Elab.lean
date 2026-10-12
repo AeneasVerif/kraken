@@ -928,23 +928,6 @@ end
 /-- Inline unquoted AArch64 assembly block macro/elaborator (`[aarch64| ... ]`). -/
 elab "[aarch64|" p:aarch64_prog "]" : term => elabProgram p
 
-/-- Inline unquoted AArch64 assembly block macro/elaborator (`parse( ... )`). -/
-scoped elab "parse(" p:aarch64_prog ")" : term => elabProgram p
-
-/-- Compile-time AArch64 string parser/elaborator (`parse("...")`). -/
-scoped elab "parse(" s:str ")" : term => withRef s <| elabAArch64 s.getString
-
-/-- Inline unquoted AArch64 assembly block macro/elaborator (`parseAArch64( ... )`). -/
-elab "parseAArch64(" p:aarch64_prog ")" : term => elabProgram p
-
-/-- Compile-time AArch64 string parser/elaborator (`parseAArch64("...")`). -/
-elab "parseAArch64(" s:str ")" : term => withRef s <| elabAArch64 s.getString
-
-/-- Read a file at elaboration time and return its contents as a string literal. -/
-elab "fileAsStringAArch64(" path:str ")" : term => do
-  let contents ← IO.FS.readFile path.getString
-  return mkStrLit contents
-
 /-- Read an AArch64 assembly file, strip assembler directives, parse via `runParserCategory`,
     and elaborate into a Kraken `Program`. -/
 elab "include_aarch64 " path:str : term => do
