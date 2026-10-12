@@ -22,8 +22,12 @@ public theorem Host.step1_of_step {st : MachineState} {post : @Post MachineState
   obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hdz hz
   unfold step1 Executable.step
   change (Directives.interp (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k) _).All post
-  rw [hat, Directives.interp_inert_append hpre]
-  exact h
+  have hinert : ∀ c ∈ pre, c.2 = 0 ∧ c.1.Inert := fun c hc =>
+    have hz := hpre c hc
+    have hmem := Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc)
+    ⟨hz, Host.inert_of_size_zero (hz ▸ hmem)⟩
+  rw [hat]
+  exact (Directives.interp_inert_append hinert _ _ _ _).mpr h
 
 public theorem Host.eventually_step1 {st : MachineState} {post : @Post MachineState}
     (h : Eventually Host.exe.step' post st) : Eventually (step1 Host.exe) post st := by
