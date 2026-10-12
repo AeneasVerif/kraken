@@ -5,7 +5,10 @@ module
   Uses #guard_msgs to verify AArch64 parser output against expected results.
 -/
 
-import Kraken.AArch64.Parser
+public import Lean
+public meta import Lean
+public import Kraken.AArch64.Parser
+public meta import Kraken.AArch64.Parser
 
 section Tests
 open Kraken hiding Directive
@@ -23,8 +26,8 @@ info: [Directive.instr
         Operation.LDR (↑↑XReg.X0 RegWidth.W64)
           ↑{ base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑0, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldr x0, [sp]")
+#guard_msgs in
+#check [aarch64| ldr x0, [sp] ]
 
 -- Test: STR 32-bit with unsigned scaled immediate offset
 /--
@@ -34,8 +37,8 @@ info: [Directive.instr
         Operation.STR (↑↑XReg.X0 RegWidth.W32)
           { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑8, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("str w0, [x1, #8]")
+#guard_msgs in
+#check [aarch64| str w0, [x1, #8] ]
 
 -- Test: LDR 64-bit with pre-indexed immediate offset
 /--
@@ -45,8 +48,8 @@ info: [Directive.instr
         Operation.LDR (↑↑XReg.X1 RegWidth.W64)
           ↑{ base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑(-16), index := some Index.Pre } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldr x1, [sp, #-16]!")
+#guard_msgs in
+#check [aarch64| ldr x1, [sp, #-16]! ]
 
 -- Test: STR 64-bit with post-indexed immediate offset
 /--
@@ -56,8 +59,8 @@ info: [Directive.instr
         Operation.STR (↑↑XReg.X2 RegWidth.W64)
           { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑16, index := some Index.Post } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("str x2, [x1], #16")
+#guard_msgs in
+#check [aarch64| str x2, [x1], #16 ]
 
 -- Test: LDR 64-bit with register offset, extension, and shift
 /--
@@ -70,8 +73,8 @@ info: [Directive.instr
                 ↑{ reg := { w := RegWidth.W64, reg := ↑↑XReg.X2 RegWidth.W64 },
                     ext := { type := MemExtendType.UXTX, amount := MemExtendAmount.E3 } } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldr x0, [x1, x2, lsl #3]")
+#guard_msgs in
+#check [aarch64| ldr x0, [x1, x2, lsl #3] ]
 
 -- Test: LDUR 64-bit unscaled immediate offset
 /--
@@ -80,8 +83,8 @@ info: [Directive.instr
       operation :=
         Operation.LDUR (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-8) } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldur x0, [x1, #-8]")
+#guard_msgs in
+#check [aarch64| ldur x0, [x1, #-8] ]
 
 -- Test: STUR 32-bit unscaled immediate offset
 /--
@@ -90,8 +93,8 @@ info: [Directive.instr
       operation :=
         Operation.STUR (↑↑XReg.X2 RegWidth.W32) { base := ↑↑XReg.X3 RegWidth.W64, imm := ↑13 } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("stur w2, [x3, #13]")
+#guard_msgs in
+#check [aarch64| stur w2, [x3, #13] ]
 
 -- Test: LDR automatic conversion to LDUR for negative unscaled offset
 /--
@@ -100,8 +103,8 @@ info: [Directive.instr
       operation :=
         Operation.LDUR (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-8) } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldr x0, [x1, #-8]")
+#guard_msgs in
+#check [aarch64| ldr x0, [x1, #-8] ]
 
 -- Test: LDR automatic conversion to LDUR for unaligned unscaled offset
 /--
@@ -110,8 +113,8 @@ info: [Directive.instr
       operation :=
         Operation.LDUR (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑13 } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldr x0, [x1, #13]")
+#guard_msgs in
+#check [aarch64| ldr x0, [x1, #13] ]
 
 -- Test: LDP 64-bit load pair with signed immediate offset
 /--
@@ -121,8 +124,8 @@ info: [Directive.instr
         Operation.LDP (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑16, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldp x0, x1, [sp, #16]")
+#guard_msgs in
+#check [aarch64| ldp x0, x1, [sp, #16] ]
 
 -- Test: STP 32-bit store pair with pre-indexed offset
 /--
@@ -132,8 +135,8 @@ info: [Directive.instr
         Operation.STP (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32)
           { base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑(-32), index := some Index.Pre } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("stp w0, w1, [sp, #-32]!")
+#guard_msgs in
+#check [aarch64| stp w0, w1, [sp, #-32]! ]
 
 -- Test: STP 64-bit store pair with zero registers and post-indexed offset
 /--
@@ -143,8 +146,8 @@ info: [Directive.instr
         Operation.STP (↑XRegOrXzr.XZR RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64)
           { base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑32, index := some Index.Post } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("stp xzr, xzr, [sp], #32")
+#guard_msgs in
+#check [aarch64| stp xzr, xzr, [sp], #32 ]
 
 -- Test: LDRB 32-bit with unsigned offset
 /--
@@ -154,8 +157,8 @@ info: [Directive.instr
         Operation.LDRB (↑↑XReg.X0 RegWidth.W32)
           { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑5, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldrb w0, [x1, #5]")
+#guard_msgs in
+#check [aarch64| ldrb w0, [x1, #5] ]
 
 -- Test: LDURB 32-bit with negative unscaled offset
 /--
@@ -164,8 +167,8 @@ info: [Directive.instr
       operation :=
         Operation.LDURB (↑↑XReg.X0 RegWidth.W32) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-5) } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldurb w0, [x1, #-5]")
+#guard_msgs in
+#check [aarch64| ldurb w0, [x1, #-5] ]
 
 -- Test: STRB 32-bit with unsigned offset
 /--
@@ -175,8 +178,8 @@ info: [Directive.instr
         Operation.STRB (↑↑XReg.X0 RegWidth.W32)
           { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑10, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("strb w0, [x1, #10]")
+#guard_msgs in
+#check [aarch64| strb w0, [x1, #10] ]
 
 -- Test: STURB 32-bit with negative unscaled offset
 /--
@@ -185,8 +188,8 @@ info: [Directive.instr
       operation :=
         Operation.STURB (↑↑XReg.X0 RegWidth.W32) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-10) } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("sturb w0, [x1, #-10]")
+#guard_msgs in
+#check [aarch64| sturb w0, [x1, #-10] ]
 
 -- Test: LDRSB 32-bit destination with unsigned offset
 /--
@@ -196,8 +199,8 @@ info: [Directive.instr
         Operation.LDRSB (↑↑XReg.X0 RegWidth.W32)
           { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑5, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldrsb w0, [x1, #5]")
+#guard_msgs in
+#check [aarch64| ldrsb w0, [x1, #5] ]
 
 -- Test: LDRSB 64-bit destination with unsigned offset
 /--
@@ -207,8 +210,8 @@ info: [Directive.instr
         Operation.LDRSB (↑↑XReg.X0 RegWidth.W64)
           { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑5, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldrsb x0, [x1, #5]")
+#guard_msgs in
+#check [aarch64| ldrsb x0, [x1, #5] ]
 
 -- Test: LDURSB 64-bit destination with negative unscaled offset
 /--
@@ -217,8 +220,8 @@ info: [Directive.instr
       operation :=
         Operation.LDURSB (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-5) } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldursb x0, [x1, #-5]")
+#guard_msgs in
+#check [aarch64| ldursb x0, [x1, #-5] ]
 
 -- Test: LDRH 32-bit with unsigned offset
 /--
@@ -228,8 +231,8 @@ info: [Directive.instr
         Operation.LDRH (↑↑XReg.X0 RegWidth.W32)
           { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑6, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldrh w0, [x1, #6]")
+#guard_msgs in
+#check [aarch64| ldrh w0, [x1, #6] ]
 
 -- Test: LDURH 32-bit with negative unscaled offset
 /--
@@ -238,8 +241,8 @@ info: [Directive.instr
       operation :=
         Operation.LDURH (↑↑XReg.X0 RegWidth.W32) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-6) } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldurh w0, [x1, #-6]")
+#guard_msgs in
+#check [aarch64| ldurh w0, [x1, #-6] ]
 
 -- Test: STRH 32-bit with unsigned offset
 /--
@@ -249,8 +252,8 @@ info: [Directive.instr
         Operation.STRH (↑↑XReg.X0 RegWidth.W32)
           { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑8, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("strh w0, [x1, #8]")
+#guard_msgs in
+#check [aarch64| strh w0, [x1, #8] ]
 
 -- Test: STURH 32-bit with negative unscaled offset
 /--
@@ -259,8 +262,8 @@ info: [Directive.instr
       operation :=
         Operation.STURH (↑↑XReg.X0 RegWidth.W32) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-8) } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("sturh w0, [x1, #-8]")
+#guard_msgs in
+#check [aarch64| sturh w0, [x1, #-8] ]
 
 -- Test: LDRSH 32-bit destination with unsigned offset
 /--
@@ -270,8 +273,8 @@ info: [Directive.instr
         Operation.LDRSH (↑↑XReg.X0 RegWidth.W32)
           { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑6, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldrsh w0, [x1, #6]")
+#guard_msgs in
+#check [aarch64| ldrsh w0, [x1, #6] ]
 
 -- Test: LDRSH 64-bit destination with unsigned offset
 /--
@@ -281,8 +284,8 @@ info: [Directive.instr
         Operation.LDRSH (↑↑XReg.X0 RegWidth.W64)
           { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑6, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldrsh x0, [x1, #6]")
+#guard_msgs in
+#check [aarch64| ldrsh x0, [x1, #6] ]
 
 -- Test: LDURSH 64-bit destination with negative unscaled offset
 /--
@@ -291,8 +294,8 @@ info: [Directive.instr
       operation :=
         Operation.LDURSH (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-6) } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldursh x0, [x1, #-6]")
+#guard_msgs in
+#check [aarch64| ldursh x0, [x1, #-6] ]
 
 -- Test: LDRSW 64-bit destination with unsigned offset
 /--
@@ -302,8 +305,8 @@ info: [Directive.instr
         Operation.LDRSW (↑↑XReg.X0 RegWidth.W64)
           ↑{ base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑8, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldrsw x0, [x1, #8]")
+#guard_msgs in
+#check [aarch64| ldrsw x0, [x1, #8] ]
 
 -- Test: LDURSW 64-bit destination with negative unscaled offset
 /--
@@ -312,8 +315,8 @@ info: [Directive.instr
       operation :=
         Operation.LDURSW (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-8) } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldursw x0, [x1, #-8]")
+#guard_msgs in
+#check [aarch64| ldursw x0, [x1, #-8] ]
 
 -- Test: LDPSW 64-bit load pair with signed immediate offset
 /--
@@ -323,8 +326,8 @@ info: [Directive.instr
         Operation.LDPSW (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑8, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldpsw x0, x1, [sp, #8]")
+#guard_msgs in
+#check [aarch64| ldpsw x0, x1, [sp, #8] ]
 
 -- ============================================================================
 -- 2. Arithmetic Instructions (ADD, ADDS, SUB, SUBS, CMP, CMN, NEG, NEGS)
@@ -338,8 +341,8 @@ info: [Directive.instr
         Operation.ADD_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           ↑{ imm := ↑42, shift := ImmShift.S0 } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("add x0, x1, #42")
+#guard_msgs in
+#check [aarch64| add x0, x1, #42 ]
 
 -- Test: ADD_e with immediate and shift 12
 /--
@@ -349,8 +352,8 @@ info: [Directive.instr
         Operation.ADD_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           ↑{ imm := ↑42, shift := ImmShift.S12 } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("add x0, x1, #42, lsl #12")
+#guard_msgs in
+#check [aarch64| add x0, x1, #42, lsl #12 ]
 
 -- Test: ADD_e with SP operands
 /--
@@ -360,8 +363,8 @@ info: [Directive.instr
         Operation.ADD_e (↑XRegOrSp.SP RegWidth.W64) (↑XRegOrSp.SP RegWidth.W64)
           ↑{ imm := ↑16, shift := ImmShift.S0 } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("add sp, sp, #16")
+#guard_msgs in
+#check [aarch64| add sp, sp, #16 ]
 
 -- Test: ADD_e with binary immediate literal (#0b1010)
 /--
@@ -371,8 +374,8 @@ info: [Directive.instr
         Operation.ADD_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           ↑{ imm := ↑10, shift := ImmShift.S0 } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("add x0, x1, #0b1010")
+#guard_msgs in
+#check [aarch64| add x0, x1, #0b1010 ]
 
 -- Test: ADD_s with shifted register operand
 /--
@@ -382,8 +385,8 @@ info: [Directive.instr
         Operation.ADD_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { reg := ↑↑XReg.X2 RegWidth.W64, amount := 2, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("add x0, x1, x2, lsl #2")
+#guard_msgs in
+#check [aarch64| add x0, x1, x2, lsl #2 ]
 
 -- Test: ADD_s with XZR destination
 /--
@@ -393,8 +396,8 @@ info: [Directive.instr
         Operation.ADD_s (↑XRegOrXzr.XZR RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("add xzr, x1, x2")
+#guard_msgs in
+#check [aarch64| add xzr, x1, x2 ]
 
 -- Test: ADD_e with extended register operand
 /--
@@ -405,8 +408,8 @@ info: [Directive.instr
           ↑{ reg := { w := RegWidth.W32, reg := ↑↑XReg.X2 RegWidth.W32 },
               ext := { type := ExtendType.UXTW, amount := ExtendAmount.E2 } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("add x0, x1, w2, uxtw #2")
+#guard_msgs in
+#check [aarch64| add x0, x1, w2, uxtw #2 ]
 
 -- Test: ADDS_e with immediate operand
 /--
@@ -416,8 +419,8 @@ info: [Directive.instr
         Operation.ADDS_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           ↑{ imm := ↑42, shift := ImmShift.S0 } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("adds x0, x1, #42")
+#guard_msgs in
+#check [aarch64| adds x0, x1, #42 ]
 
 -- Test: ADDS_s with shifted register operand
 /--
@@ -427,8 +430,8 @@ info: [Directive.instr
         Operation.ADDS_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { reg := ↑↑XReg.X2 RegWidth.W64, amount := 2, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("adds x0, x1, x2, lsl #2")
+#guard_msgs in
+#check [aarch64| adds x0, x1, x2, lsl #2 ]
 
 -- Test: CMN alias for ADDS XZR, Xn, #imm
 /--
@@ -438,8 +441,8 @@ info: [Directive.instr
         Operation.ADDS_e (↑XRegOrXzr.XZR RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           ↑{ imm := ↑10, shift := ImmShift.S0 } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("cmn x1, #10")
+#guard_msgs in
+#check [aarch64| cmn x1, #10 ]
 
 -- Test: SUB_e with immediate operand
 /--
@@ -449,8 +452,8 @@ info: [Directive.instr
         Operation.SUB_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           ↑{ imm := ↑5, shift := ImmShift.S0 } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("sub x0, x1, #5")
+#guard_msgs in
+#check [aarch64| sub x0, x1, #5 ]
 
 -- Test: SUBS_e with immediate operand
 /--
@@ -460,8 +463,8 @@ info: [Directive.instr
         Operation.SUBS_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           ↑{ imm := ↑5, shift := ImmShift.S0 } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("subs x0, x1, #5")
+#guard_msgs in
+#check [aarch64| subs x0, x1, #5 ]
 
 -- Test: CMP alias for SUBS XZR, Xn, Xm
 /--
@@ -471,8 +474,8 @@ info: [Directive.instr
         Operation.SUBS_s (↑XRegOrXzr.XZR RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("cmp x1, x2")
+#guard_msgs in
+#check [aarch64| cmp x1, x2 ]
 
 -- Test: NEG alias for SUB Xd, XZR, Xm
 /--
@@ -482,8 +485,8 @@ info: [Directive.instr
         Operation.SUB_s (↑↑XReg.X0 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64)
           { reg := ↑↑XReg.X1 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("neg x0, x1")
+#guard_msgs in
+#check [aarch64| neg x0, x1 ]
 
 -- Test: NEGS alias for SUBS Xd, XZR, Xm
 /--
@@ -493,8 +496,8 @@ info: [Directive.instr
         Operation.SUBS_s (↑↑XReg.X0 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64)
           { reg := ↑↑XReg.X1 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("negs x0, x1")
+#guard_msgs in
+#check [aarch64| negs x0, x1 ]
 
 -- ============================================================================
 -- 3. Carry Arithmetic (ADC, ADCS, SBC, SBCS)
@@ -507,8 +510,8 @@ info: [Directive.instr
       operation :=
         Operation.ADC (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("adc x0, x1, x2")
+#guard_msgs in
+#check [aarch64| adc x0, x1, x2 ]
 
 -- Test: ADCS 32-bit add with carry and set flags
 /--
@@ -517,8 +520,8 @@ info: [Directive.instr
       operation :=
         Operation.ADCS (↑↑XReg.X3 RegWidth.W32) (↑↑XReg.X4 RegWidth.W32) (↑↑XReg.X5 RegWidth.W32) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("adcs w3, w4, w5")
+#guard_msgs in
+#check [aarch64| adcs w3, w4, w5 ]
 
 -- Test: SBC 64-bit subtract with carry
 /--
@@ -527,8 +530,8 @@ info: [Directive.instr
       operation :=
         Operation.SBC (↑↑XReg.X6 RegWidth.W64) (↑↑XReg.X7 RegWidth.W64) (↑↑XReg.X8 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("sbc x6, x7, x8")
+#guard_msgs in
+#check [aarch64| sbc x6, x7, x8 ]
 
 -- Test: SBCS 32-bit subtract with carry and set flags
 /--
@@ -537,8 +540,8 @@ info: [Directive.instr
       operation :=
         Operation.SBCS (↑↑XReg.X9 RegWidth.W32) (↑↑XReg.X10 RegWidth.W32) (↑↑XReg.X11 RegWidth.W32) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("sbcs w9, w10, w11")
+#guard_msgs in
+#check [aarch64| sbcs w9, w10, w11 ]
 
 -- ============================================================================
 -- 4. Multiply & Divide Instructions (MADD, MSUB, MUL, MNEG, SMULH, UMULH, SMULL, UMULL, SMADDL, UMADDL, SMSUBL, UMSUBL, SDIV, UDIV)
@@ -552,8 +555,8 @@ info: [Directive.instr
         Operation.MADD (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
           (↑↑XReg.X3 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("madd x0, x1, x2, x3")
+#guard_msgs in
+#check [aarch64| madd x0, x1, x2, x3 ]
 
 -- Test: MADD 32-bit multiply-add
 /--
@@ -563,8 +566,8 @@ info: [Directive.instr
         Operation.MADD (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
           (↑↑XReg.X3 RegWidth.W32) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("madd w0, w1, w2, w3")
+#guard_msgs in
+#check [aarch64| madd w0, w1, w2, w3 ]
 
 -- Test: MUL 64-bit alias for MADD Xd, Xn, Xm, XZR
 /--
@@ -574,8 +577,8 @@ info: [Directive.instr
         Operation.MADD (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
           (↑XRegOrXzr.XZR RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("mul x0, x1, x2")
+#guard_msgs in
+#check [aarch64| mul x0, x1, x2 ]
 
 -- Test: MUL 32-bit alias for MADD Wd, Wn, Wm, WZR
 /--
@@ -585,8 +588,8 @@ info: [Directive.instr
         Operation.MADD (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
           (↑XRegOrXzr.XZR RegWidth.W32) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("mul w0, w1, w2")
+#guard_msgs in
+#check [aarch64| mul w0, w1, w2 ]
 
 -- Test: MSUB 64-bit multiply-subtract
 /--
@@ -596,8 +599,8 @@ info: [Directive.instr
         Operation.MSUB (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
           (↑↑XReg.X3 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("msub x0, x1, x2, x3")
+#guard_msgs in
+#check [aarch64| msub x0, x1, x2, x3 ]
 
 -- Test: MSUB 32-bit multiply-subtract
 /--
@@ -607,8 +610,8 @@ info: [Directive.instr
         Operation.MSUB (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
           (↑↑XReg.X3 RegWidth.W32) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("msub w0, w1, w2, w3")
+#guard_msgs in
+#check [aarch64| msub w0, w1, w2, w3 ]
 
 -- Test: MNEG 64-bit alias for MSUB Xd, Xn, Xm, XZR
 /--
@@ -618,8 +621,8 @@ info: [Directive.instr
         Operation.MSUB (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
           (↑XRegOrXzr.XZR RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("mneg x0, x1, x2")
+#guard_msgs in
+#check [aarch64| mneg x0, x1, x2 ]
 
 -- Test: MNEG 32-bit alias for MSUB Wd, Wn, Wm, WZR
 /--
@@ -629,8 +632,8 @@ info: [Directive.instr
         Operation.MSUB (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
           (↑XRegOrXzr.XZR RegWidth.W32) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("mneg w0, w1, w2")
+#guard_msgs in
+#check [aarch64| mneg w0, w1, w2 ]
 
 -- Test: SMULH signed multiply high 64-bit
 /--
@@ -639,8 +642,8 @@ info: [Directive.instr
       operation :=
         Operation.SMULH (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("smulh x0, x1, x2")
+#guard_msgs in
+#check [aarch64| smulh x0, x1, x2 ]
 
 -- Test: UMULH unsigned multiply high 64-bit
 /--
@@ -649,8 +652,8 @@ info: [Directive.instr
       operation :=
         Operation.UMULH (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("umulh x0, x1, x2")
+#guard_msgs in
+#check [aarch64| umulh x0, x1, x2 ]
 
 -- Test: SDIV
 /--
@@ -659,8 +662,8 @@ info: [Directive.instr
       operation :=
         Operation.SDIV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("sdiv x0, x1, x2")
+#guard_msgs in
+#check [aarch64| sdiv x0, x1, x2 ]
 
 -- Test: UDIV
 /--
@@ -669,8 +672,8 @@ info: [Directive.instr
       operation :=
         Operation.UDIV (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("udiv w0, w1, w2")
+#guard_msgs in
+#check [aarch64| udiv w0, w1, w2 ]
 
 -- Test: SMULL
 /--
@@ -680,8 +683,8 @@ info: [Directive.instr
         Operation.SMADDL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
           (↑XRegOrXzr.XZR RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("smull x0, w1, w2")
+#guard_msgs in
+#check [aarch64| smull x0, w1, w2 ]
 
 -- Test: UMULL
 /--
@@ -691,8 +694,8 @@ info: [Directive.instr
         Operation.UMADDL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
           (↑XRegOrXzr.XZR RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("umull x0, w1, w2")
+#guard_msgs in
+#check [aarch64| umull x0, w1, w2 ]
 
 -- Test: SMNEGL
 /--
@@ -702,8 +705,8 @@ info: [Directive.instr
         Operation.SMSUBL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
           (↑XRegOrXzr.XZR RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("smnegl x0, w1, w2")
+#guard_msgs in
+#check [aarch64| smnegl x0, w1, w2 ]
 
 -- Test: UMNEGL
 /--
@@ -713,8 +716,8 @@ info: [Directive.instr
         Operation.UMSUBL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
           (↑XRegOrXzr.XZR RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("umnegl x0, w1, w2")
+#guard_msgs in
+#check [aarch64| umnegl x0, w1, w2 ]
 
 -- Test: SMADDL
 /--
@@ -724,8 +727,8 @@ info: [Directive.instr
         Operation.SMADDL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
           (↑↑XReg.X3 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("smaddl x0, w1, w2, x3")
+#guard_msgs in
+#check [aarch64| smaddl x0, w1, w2, x3 ]
 
 -- Test: UMADDL
 /--
@@ -735,8 +738,8 @@ info: [Directive.instr
         Operation.UMADDL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
           (↑↑XReg.X3 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("umaddl x0, w1, w2, x3")
+#guard_msgs in
+#check [aarch64| umaddl x0, w1, w2, x3 ]
 
 -- Test: SMSUBL
 /--
@@ -746,8 +749,8 @@ info: [Directive.instr
         Operation.SMSUBL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
           (↑↑XReg.X3 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("smsubl x0, w1, w2, x3")
+#guard_msgs in
+#check [aarch64| smsubl x0, w1, w2, x3 ]
 
 -- Test: UMSUBL
 /--
@@ -757,8 +760,8 @@ info: [Directive.instr
         Operation.UMSUBL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
           (↑↑XReg.X3 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("umsubl x0, w1, w2, x3")
+#guard_msgs in
+#check [aarch64| umsubl x0, w1, w2, x3 ]
 
 -- ============================================================================
 -- 5. Logical Instructions (AND, ANDS, TST, ORR, ORN, EOR, BIC, EON, BICS)
@@ -772,8 +775,8 @@ info: [Directive.instr
         Operation.AND_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { reg := ↑↑XReg.X2 RegWidth.W64, amount := 4, shift := ShiftType.LSR } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("and x0, x1, x2, lsr #4")
+#guard_msgs in
+#check [aarch64| and x0, x1, x2, lsr #4 ]
 
 -- Test: AND_i with immediate bitmask
 /--
@@ -781,8 +784,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.AND_i (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) ↑255 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("and x0, x1, #255")
+#guard_msgs in
+#check [aarch64| and x0, x1, #255 ]
 
 -- Test: ANDS_s 64-bit register logical AND with flags
 /--
@@ -792,8 +795,8 @@ info: [Directive.instr
         Operation.ANDS_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ands x0, x1, x2")
+#guard_msgs in
+#check [aarch64| ands x0, x1, x2 ]
 
 -- Test: ANDS_i 32-bit immediate bitmask with flags
 /--
@@ -801,8 +804,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.ANDS_i (↑↑XReg.X5 RegWidth.W32) (↑↑XReg.X6 RegWidth.W32) ↑255 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ands w5, w6, #255")
+#guard_msgs in
+#check [aarch64| ands w5, w6, #255 ]
 
 -- Test: TST register alias for ANDS XZR, Xn, Xm
 /--
@@ -812,8 +815,8 @@ info: [Directive.instr
         Operation.ANDS_s (↑XRegOrXzr.XZR RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("tst x1, x2")
+#guard_msgs in
+#check [aarch64| tst x1, x2 ]
 
 -- Test: TST immediate alias for ANDS XZR, Xn, #imm
 /--
@@ -821,8 +824,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.ANDS_i (↑XRegOrXzr.XZR RegWidth.W64) (↑↑XReg.X7 RegWidth.W64) ↑255 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("tst x7, #255")
+#guard_msgs in
+#check [aarch64| tst x7, #255 ]
 
 -- Test: ORR_s 32-bit without shift
 /--
@@ -832,8 +835,8 @@ info: [Directive.instr
         Operation.ORR_s (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32)
           { reg := ↑↑XReg.X2 RegWidth.W32, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("orr w0, w1, w2")
+#guard_msgs in
+#check [aarch64| orr w0, w1, w2 ]
 
 -- Test: ORR_i 32-bit immediate bitmask
 /--
@@ -841,8 +844,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.ORR_i (↑↑XReg.X2 RegWidth.W32) (↑↑XReg.X3 RegWidth.W32) ↑255 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("orr w2, w3, #255")
+#guard_msgs in
+#check [aarch64| orr w2, w3, #255 ]
 
 -- Test: ORR_s with ROR shift
 /--
@@ -852,8 +855,8 @@ info: [Directive.instr
         Operation.ORR_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { reg := ↑↑XReg.X2 RegWidth.W64, amount := 4, shift := ShiftType.ROR } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("orr x0, x1, x2, ror #4")
+#guard_msgs in
+#check [aarch64| orr x0, x1, x2, ror #4 ]
 
 -- Test: ORN_s 64-bit logical OR NOT
 /--
@@ -863,8 +866,8 @@ info: [Directive.instr
         Operation.ORN_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("orn x0, x1, x2")
+#guard_msgs in
+#check [aarch64| orn x0, x1, x2 ]
 
 -- Test: EOR_s 64-bit logical XOR
 /--
@@ -874,8 +877,8 @@ info: [Directive.instr
         Operation.EOR_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("eor x0, x1, x2")
+#guard_msgs in
+#check [aarch64| eor x0, x1, x2 ]
 
 -- Test: EOR_i 64-bit immediate bitmask with SP destination
 /--
@@ -883,8 +886,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.EOR_i (↑XRegOrSp.SP RegWidth.W64) (↑↑XReg.X4 RegWidth.W64) ↑255 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("eor sp, x4, #255")
+#guard_msgs in
+#check [aarch64| eor sp, x4, #255 ]
 
 -- Test: BIC_s 64-bit bit clear
 /--
@@ -894,8 +897,8 @@ info: [Directive.instr
         Operation.BIC_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("bic x0, x1, x2")
+#guard_msgs in
+#check [aarch64| bic x0, x1, x2 ]
 
 -- Test: EON_s 64-bit logical XOR NOT
 /--
@@ -905,8 +908,8 @@ info: [Directive.instr
         Operation.EON_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("eon x0, x1, x2")
+#guard_msgs in
+#check [aarch64| eon x0, x1, x2 ]
 
 -- Test: BICS_s 64-bit logical AND NOT setting flags
 /--
@@ -916,8 +919,8 @@ info: [Directive.instr
         Operation.BICS_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("bics x0, x1, x2")
+#guard_msgs in
+#check [aarch64| bics x0, x1, x2 ]
 
 -- ============================================================================
 -- 6. Move & Move Wide Immediate Family (MOV, MVN, MOVZ, MOVK, MOVN)
@@ -931,8 +934,8 @@ info: [Directive.instr
         Operation.ORR_s (↑↑XReg.X0 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64)
           { reg := ↑↑XReg.X1 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("mov x0, x1")
+#guard_msgs in
+#check [aarch64| mov x0, x1 ]
 
 -- Test: MOV SP alias for ADD SP, Xn, #0
 /--
@@ -942,8 +945,8 @@ info: [Directive.instr
         Operation.ADD_e (↑XRegOrSp.SP RegWidth.W64) (↑↑XReg.X0 RegWidth.W64)
           ↑{ imm := ↑0, shift := ImmShift.S0 } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("mov sp, x0")
+#guard_msgs in
+#check [aarch64| mov sp, x0 ]
 
 -- Test: MVN register alias for ORN Xd, XZR, Xm
 /--
@@ -953,8 +956,8 @@ info: [Directive.instr
         Operation.ORN_s (↑↑XReg.X2 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64)
           { reg := ↑↑XReg.X3 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("mvn x2, x3")
+#guard_msgs in
+#check [aarch64| mvn x2, x3 ]
 
 -- Test: MOVZ move wide with zeroes (LSL #16)
 /--
@@ -962,8 +965,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.MOVZ (↑↑XReg.X0 RegWidth.W64) (↑1234) MovShift.LSL16 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("movz x0, #1234, lsl #16")
+#guard_msgs in
+#check [aarch64| movz x0, #1234, lsl #16 ]
 
 -- Test: MOVK move wide with keep (LSL #0)
 /--
@@ -971,8 +974,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.MOVK (↑↑XReg.X1 RegWidth.W32) (↑5678) MovShift.LSL0 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("movk w1, #5678, lsl #0")
+#guard_msgs in
+#check [aarch64| movk w1, #5678, lsl #0 ]
 
 -- Test: MOVN move wide with NOT (LSL #48)
 /--
@@ -980,8 +983,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.MOVN (↑↑XReg.X2 RegWidth.W64) (↑65535) MovShift.LSL48 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("movn x2, #65535, lsl #48")
+#guard_msgs in
+#check [aarch64| movn x2, #65535, lsl #48 ]
 
 -- Test: MOV immediate Priority 1 -> MOVZ (#0)
 /--
@@ -989,8 +992,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.MOVZ (↑↑XReg.X0 RegWidth.W64) (↑0) MovShift.LSL0 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("mov x0, #0")
+#guard_msgs in
+#check [aarch64| mov x0, #0 ]
 
 -- Test: MOV immediate Priority 1 -> MOVZ shifted (#0x12340000)
 /--
@@ -998,8 +1001,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.MOVZ (↑↑XReg.X1 RegWidth.W64) (↑4660) MovShift.LSL16 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("mov x1, #0x12340000")
+#guard_msgs in
+#check [aarch64| mov x1, #0x12340000 ]
 
 -- Test: MOV immediate Priority 2 -> MOVN 64-bit (#0xfffffffffffffffe)
 /--
@@ -1007,8 +1010,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.MOVN (↑↑XReg.X2 RegWidth.W64) (↑1) MovShift.LSL0 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("mov x2, #0xfffffffffffffffe")
+#guard_msgs in
+#check [aarch64| mov x2, #0xfffffffffffffffe ]
 
 -- Test: MOV immediate Priority 2 -> MOVN 32-bit (#0xffffffff)
 /--
@@ -1016,8 +1019,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.MOVN (↑↑XReg.X3 RegWidth.W32) (↑0) MovShift.LSL0 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("mov w3, #0xffffffff")
+#guard_msgs in
+#check [aarch64| mov w3, #0xffffffff ]
 
 -- Test: MOV immediate Priority 3 -> ORR_i bitmask (#0x0101010101010101)
 /--
@@ -1026,8 +1029,8 @@ info: [Directive.instr
       operation :=
         Operation.ORR_i (↑↑XReg.X4 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64) ↑72340172838076673 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("mov x4, #0x0101010101010101")
+#guard_msgs in
+#check [aarch64| mov x4, #0x0101010101010101 ]
 
 -- Test: MOV immediate negative 64-bit alias (#-1)
 /--
@@ -1035,8 +1038,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.MOVN (↑↑XReg.X5 RegWidth.W64) (↑0) MovShift.LSL0 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("mov x5, #-1")
+#guard_msgs in
+#check [aarch64| mov x5, #-1 ]
 
 -- Test: MOV immediate negative 32-bit alias (#-5)
 /--
@@ -1044,8 +1047,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.MOVN (↑↑XReg.X6 RegWidth.W32) (↑4) MovShift.LSL0 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("mov w6, #-5")
+#guard_msgs in
+#check [aarch64| mov w6, #-5 ]
 
 -- ============================================================================
 -- 7. Shifts, Rotates, and Bit Manipulation (LSL, LSR, ASR, ROR, LSLV, LSRV, ASRV, RORV, BFM, SBFM, UBFM, UBFX, SBFX, BFXIL, BFI, SBFIZ, UBFIZ, SXTW, CLZ, CLS, RBIT, REV, REV16, REV32, REV64, EXTR)
@@ -1058,8 +1061,8 @@ info: [Directive.instr
       operation :=
         Operation.LSLV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("lsl x0, x1, x2")
+#guard_msgs in
+#check [aarch64| lsl x0, x1, x2 ]
 
 -- Test: LSLV explicit mnemonic 32-bit
 /--
@@ -1068,8 +1071,8 @@ info: [Directive.instr
       operation :=
         Operation.LSLV (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("lslv w0, w1, w2")
+#guard_msgs in
+#check [aarch64| lslv w0, w1, w2 ]
 
 -- Test: LSR register shift right (alias for LSRV)
 /--
@@ -1078,8 +1081,8 @@ info: [Directive.instr
       operation :=
         Operation.LSRV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("lsr x0, x1, x2")
+#guard_msgs in
+#check [aarch64| lsr x0, x1, x2 ]
 
 -- Test: ASR arithmetic shift right (alias for ASRV)
 /--
@@ -1088,8 +1091,8 @@ info: [Directive.instr
       operation :=
         Operation.ASRV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("asr x0, x1, x2")
+#guard_msgs in
+#check [aarch64| asr x0, x1, x2 ]
 
 -- Test: ROR rotate right (alias for RORV)
 /--
@@ -1098,8 +1101,8 @@ info: [Directive.instr
       operation :=
         Operation.RORV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ror x0, x1, x2")
+#guard_msgs in
+#check [aarch64| ror x0, x1, x2 ]
 
 -- Test: UBFX
 /--
@@ -1107,8 +1110,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 4 11 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ubfx w0, w1, #4, #8")
+#guard_msgs in
+#check [aarch64| ubfx w0, w1, #4, #8 ]
 
 -- Test: SXTW
 /--
@@ -1116,8 +1119,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 0 31 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("sxtw x0, w1")
+#guard_msgs in
+#check [aarch64| sxtw x0, w1 ]
 
 -- Test: CLZ
 /--
@@ -1125,8 +1128,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.CLZ (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("clz w0, w1")
+#guard_msgs in
+#check [aarch64| clz w0, w1 ]
 
 -- Test: REV
 /--
@@ -1134,8 +1137,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.REV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("rev x0, x1")
+#guard_msgs in
+#check [aarch64| rev x0, x1 ]
 
 -- Test: SBFX
 /--
@@ -1143,8 +1146,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 0 15 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("sbfx x0, x1, #0, #16")
+#guard_msgs in
+#check [aarch64| sbfx x0, x1, #0, #16 ]
 
 -- Test: BFXIL
 /--
@@ -1152,8 +1155,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.BFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 4 11 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("bfxil w0, w1, #4, #8")
+#guard_msgs in
+#check [aarch64| bfxil w0, w1, #4, #8 ]
 
 -- Test: BFI
 /--
@@ -1161,8 +1164,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.BFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 24 7 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("bfi w0, w1, #8, #8")
+#guard_msgs in
+#check [aarch64| bfi w0, w1, #8, #8 ]
 
 -- Test: SBFIZ
 /--
@@ -1170,8 +1173,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 28 7 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("sbfiz w0, w1, #4, #8")
+#guard_msgs in
+#check [aarch64| sbfiz w0, w1, #4, #8 ]
 
 -- Test: UBFIZ
 /--
@@ -1179,8 +1182,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 28 7 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ubfiz w0, w1, #4, #8")
+#guard_msgs in
+#check [aarch64| ubfiz w0, w1, #4, #8 ]
 
 -- Test: SXTB
 /--
@@ -1188,8 +1191,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 7 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("sxtb w0, w1")
+#guard_msgs in
+#check [aarch64| sxtb w0, w1 ]
 
 -- Test: SXTH
 /--
@@ -1197,8 +1200,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 15 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("sxth w0, w1")
+#guard_msgs in
+#check [aarch64| sxth w0, w1 ]
 
 -- Test: UXTB
 /--
@@ -1206,8 +1209,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 7 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("uxtb w0, w1")
+#guard_msgs in
+#check [aarch64| uxtb w0, w1 ]
 
 -- Test: UXTH
 /--
@@ -1215,8 +1218,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 15 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("uxth w0, w1")
+#guard_msgs in
+#check [aarch64| uxth w0, w1 ]
 
 -- Test: UXTW
 /--
@@ -1224,8 +1227,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 0 31 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("uxtw x0, w1")
+#guard_msgs in
+#check [aarch64| uxtw x0, w1 ]
 
 -- Test: LSL imm
 /--
@@ -1233,8 +1236,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 60 59 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("lsl x0, x1, #4")
+#guard_msgs in
+#check [aarch64| lsl x0, x1, #4 ]
 
 -- Test: LSR imm
 /--
@@ -1242,8 +1245,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 4 31 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("lsr w0, w1, #4")
+#guard_msgs in
+#check [aarch64| lsr w0, w1, #4 ]
 
 -- Test: ASR imm
 /--
@@ -1251,8 +1254,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 4 63 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("asr x0, x1, #4")
+#guard_msgs in
+#check [aarch64| asr x0, x1, #4 ]
 
 -- Test: ROR imm
 /--
@@ -1261,8 +1264,8 @@ info: [Directive.instr
       operation :=
         Operation.EXTR (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 4 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ror w0, w1, #4")
+#guard_msgs in
+#check [aarch64| ror w0, w1, #4 ]
 
 -- Test: CLS
 /--
@@ -1270,8 +1273,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.CLS (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("cls x0, x1")
+#guard_msgs in
+#check [aarch64| cls x0, x1 ]
 
 -- Test: RBIT
 /--
@@ -1279,8 +1282,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.RBIT (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("rbit w0, w1")
+#guard_msgs in
+#check [aarch64| rbit w0, w1 ]
 
 -- Test: REV16
 /--
@@ -1288,8 +1291,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.REV16 (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("rev16 w0, w1")
+#guard_msgs in
+#check [aarch64| rev16 w0, w1 ]
 
 -- Test: REV32
 /--
@@ -1297,8 +1300,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.REV32 (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("rev32 x0, x1")
+#guard_msgs in
+#check [aarch64| rev32 x0, x1 ]
 
 -- Test: REV64
 /--
@@ -1306,8 +1309,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.REV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("rev64 x0, x1")
+#guard_msgs in
+#check [aarch64| rev64 x0, x1 ]
 
 -- Test: EXTR
 /--
@@ -1316,8 +1319,8 @@ info: [Directive.instr
       operation :=
         Operation.EXTR (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32) 8 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("extr w0, w1, w2, #8")
+#guard_msgs in
+#check [aarch64| extr w0, w1, w2, #8 ]
 
 -- ============================================================================
 -- 8. Conditional Select & Compare Instructions (CSEL, CSINC, CSINV, CSNEG, CSET, CSETM, CINC, CINV, CNEG, CCMP, CCMN)
@@ -1331,8 +1334,8 @@ info: [Directive.instr
         Operation.CSEL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
           CondCode.EQ }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("csel x0, x1, x2, eq")
+#guard_msgs in
+#check [aarch64| csel x0, x1, x2, eq ]
 
 -- Test: CSINC conditional select increment
 /--
@@ -1342,8 +1345,8 @@ info: [Directive.instr
         Operation.CSINC (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
           CondCode.CS }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("csinc x0, x1, x2, cs")
+#guard_msgs in
+#check [aarch64| csinc x0, x1, x2, cs ]
 
 -- Test: CSINV conditional select invert
 /--
@@ -1353,8 +1356,8 @@ info: [Directive.instr
         Operation.CSINV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
           CondCode.EQ }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("csinv x0, x1, x2, eq")
+#guard_msgs in
+#check [aarch64| csinv x0, x1, x2, eq ]
 
 -- Test: CSNEG conditional select negate
 /--
@@ -1364,8 +1367,8 @@ info: [Directive.instr
         Operation.CSNEG (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
           CondCode.MI }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("csneg x0, x1, x2, mi")
+#guard_msgs in
+#check [aarch64| csneg x0, x1, x2, mi ]
 
 -- Test: CSET alias for CSINC Xd, XZR, XZR, invert(cond)
 /--
@@ -1375,8 +1378,8 @@ info: [Directive.instr
         Operation.CSINC (↑↑XReg.X0 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64)
           CondCode.NE }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("cset x0, eq")
+#guard_msgs in
+#check [aarch64| cset x0, eq ]
 
 -- Test: CSETM alias for CSINV Xd, XZR, XZR, invert(cond)
 /--
@@ -1386,8 +1389,8 @@ info: [Directive.instr
         Operation.CSINV (↑↑XReg.X3 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64)
           CondCode.EQ }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("csetm x3, ne")
+#guard_msgs in
+#check [aarch64| csetm x3, ne ]
 
 -- Test: CINC alias for CSINC Wd, Wn, Wn, invert(cond)
 /--
@@ -1397,8 +1400,8 @@ info: [Directive.instr
         Operation.CSINC (↑↑XReg.X4 RegWidth.W32) (↑↑XReg.X5 RegWidth.W32) (↑↑XReg.X5 RegWidth.W32)
           CondCode.CS }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("cinc w4, w5, lo")
+#guard_msgs in
+#check [aarch64| cinc w4, w5, lo ]
 
 -- Test: CINV alias for CSINV Xd, Xn, Xn, invert(cond)
 /--
@@ -1408,8 +1411,8 @@ info: [Directive.instr
         Operation.CSINV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           CondCode.MI }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("cinv x0, x1, pl")
+#guard_msgs in
+#check [aarch64| cinv x0, x1, pl ]
 
 -- Test: CNEG alias for CSNEG Wd, Wn, Wn, invert(cond)
 /--
@@ -1419,8 +1422,8 @@ info: [Directive.instr
         Operation.CSNEG (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32)
           CondCode.LE }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("cneg w0, w1, gt")
+#guard_msgs in
+#check [aarch64| cneg w0, w1, gt ]
 
 -- Test: CCMP reg
 /--
@@ -1429,8 +1432,8 @@ info: [Directive.instr
       operation :=
         Operation.CCMP_reg (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 4 CondCode.EQ }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ccmp x0, x1, #4, eq")
+#guard_msgs in
+#check [aarch64| ccmp x0, x1, #4, eq ]
 
 -- Test: CCMP imm
 /--
@@ -1438,8 +1441,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.CCMP_imm (↑↑XReg.X0 RegWidth.W64) 10 2 CondCode.NE }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ccmp x0, #10, #2, ne")
+#guard_msgs in
+#check [aarch64| ccmp x0, #10, #2, ne ]
 
 -- Test: CCMN reg
 /--
@@ -1448,8 +1451,8 @@ info: [Directive.instr
       operation :=
         Operation.CCMN_reg (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 CondCode.EQ }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ccmn w0, w1, #0, eq")
+#guard_msgs in
+#check [aarch64| ccmn w0, w1, #0, eq ]
 
 -- Test: CCMN imm
 /--
@@ -1457,8 +1460,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.CCMN_imm (↑↑XReg.X0 RegWidth.W32) 1 0 CondCode.NE }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ccmn w0, #1, #0, ne")
+#guard_msgs in
+#check [aarch64| ccmn w0, #1, #0, ne ]
 
 -- ============================================================================
 -- 9. PC-Relative Addressing & Relocation Modifiers (ADR, ADRP, :lo12:, :pg_hi21:)
@@ -1469,32 +1472,32 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64, operation := Operation.ADR (↑↑XReg.X0 RegWidth.W64) ↑"main" }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("adr x0, main")
+#guard_msgs in
+#check [aarch64| adr x0, main ]
 
 -- Test: ADR with immediate offset
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64, operation := Operation.ADR (↑↑XReg.X1 RegWidth.W64) ↑4096 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("adr x1, #4096")
+#guard_msgs in
+#check [aarch64| adr x1, #4096 ]
 
 -- Test: ADRP with label
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64, operation := Operation.ADRP (↑↑XReg.X0 RegWidth.W64) ↑"main" }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("adrp x0, main")
+#guard_msgs in
+#check [aarch64| adrp x0, main ]
 
 -- Test: ADRP with immediate offset
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64, operation := Operation.ADRP (↑↑XReg.X1 RegWidth.W64) ↑16384 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("adrp x1, #0x4000")
+#guard_msgs in
+#check [aarch64| adrp x1, #0x4000 ]
 
 -- Test: ADRP with :pg_hi21: relocation modifier
 /--
@@ -1502,8 +1505,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation := Operation.ADRP (↑↑XReg.X0 RegWidth.W64) (↑"main").pg_hi21 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("adrp x0, :pg_hi21:main")
+#guard_msgs in
+#check [aarch64| adrp x0, :pg_hi21:main ]
 
 -- Test: ADD_e with :lo12: relocation modifier on label
 /--
@@ -1513,8 +1516,8 @@ info: [Directive.instr
         Operation.ADD_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X0 RegWidth.W64)
           ↑{ imm := (↑"main").lo12, shift := ImmShift.S0 } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("add x0, x0, :lo12:main")
+#guard_msgs in
+#check [aarch64| add x0, x0, :lo12:main ]
 
 -- Test: LDR with #:lo12: relocation modifier on memory offset
 /--
@@ -1524,8 +1527,8 @@ info: [Directive.instr
         Operation.LDR (↑↑XReg.X1 RegWidth.W64)
           ↑{ base := ↑↑XReg.X0 RegWidth.W64, off := ↑{ imm := (↑"main").lo12, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ldr x1, [x0, #:lo12:main]")
+#guard_msgs in
+#check [aarch64| ldr x1, [x0, #:lo12:main] ]
 
 -- ============================================================================
 -- 10. Control Flow Instructions (B, B.cond, BL, BLR, BR, RET, CBZ, CBNZ, TBZ, TBNZ)
@@ -1535,114 +1538,114 @@ info: [Directive.instr
 /--
 info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B ↑"main" }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("b main")
+#guard_msgs in
+#check [aarch64| b main ]
 
 -- Test: B unconditional branch with immediate offset
 /--
 info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B ↑16 }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("b #16")
+#guard_msgs in
+#check [aarch64| b #16 ]
 
 -- Test: B.eq conditional branch with dotted syntax
 /--
 info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B_cond CondCode.EQ ↑"loop" }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("b.eq loop")
+#guard_msgs in
+#check [aarch64| b.eq loop ]
 
 -- Test: B.ne conditional branch with dotted syntax
 /--
 info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B_cond CondCode.NE ↑"exit" }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("b.ne exit")
+#guard_msgs in
+#check [aarch64| b.ne exit ]
 
 -- Test: BEQ conditional branch with undotted syntax
 /--
 info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B_cond CondCode.EQ ↑"loop" }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("beq loop")
+#guard_msgs in
+#check [aarch64| beq loop ]
 
 -- Test: BNE conditional branch with undotted syntax
 /--
 info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B_cond CondCode.NE ↑"exit" }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("bne exit")
+#guard_msgs in
+#check [aarch64| bne exit ]
 
 -- Test: BL branch with link
 /--
 info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.BL ↑"foo" }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("bl foo")
+#guard_msgs in
+#check [aarch64| bl foo ]
 
 -- Test: BLR branch with link to register
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64, operation := Operation.BLR (↑↑XReg.X16 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("blr x16")
+#guard_msgs in
+#check [aarch64| blr x16 ]
 
 -- Test: BR branch to register
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64, operation := Operation.BR (↑↑XReg.X30 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("br x30")
+#guard_msgs in
+#check [aarch64| br x30 ]
 
 -- Test: RET return without operand (defaults to X30)
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64, operation := Operation.RET (↑↑XReg.X30 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ret")
+#guard_msgs in
+#check [aarch64| ret ]
 
 -- Test: RET return with explicit register (X19)
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64, operation := Operation.RET (↑↑XReg.X19 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ret x19")
+#guard_msgs in
+#check [aarch64| ret x19 ]
 
 -- Test: RET return with LR alias
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64, operation := Operation.RET (↑↑XReg.X30 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ret lr")
+#guard_msgs in
+#check [aarch64| ret lr ]
 
 -- Test: CBZ compare and branch if zero 64-bit
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64, operation := Operation.CBZ (↑↑XReg.X0 RegWidth.W64) ↑"target" }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("cbz x0, target")
+#guard_msgs in
+#check [aarch64| cbz x0, target ]
 
 -- Test: CBNZ compare and branch if non-zero 32-bit
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32, operation := Operation.CBNZ (↑↑XReg.X1 RegWidth.W32) ↑"loop" }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("cbnz w1, loop")
+#guard_msgs in
+#check [aarch64| cbnz w1, loop ]
 
 -- Test: TBZ test bit and branch if zero 64-bit
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64, operation := Operation.TBZ (↑↑XReg.X2 RegWidth.W64) 5 ↑"label" }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("tbz x2, #5, label")
+#guard_msgs in
+#check [aarch64| tbz x2, #5, label ]
 
 -- Test: TBNZ test bit and branch if non-zero 32-bit
 /--
@@ -1650,8 +1653,8 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation := Operation.TBNZ (↑↑XReg.X3 RegWidth.W32) 31 ↑"exit" }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("tbnz w3, #31, exit")
+#guard_msgs in
+#check [aarch64| tbnz w3, #31, exit ]
 
 -- ============================================================================
 -- 11. Miscellaneous & Directives (NOP, Labels, Comments)
@@ -1661,8 +1664,8 @@ info: [Directive.instr
 /--
 info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.NOP }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("nop")
+#guard_msgs in
+#check [aarch64| nop ]
 
 -- Test: Label definition with instruction on a single line
 /--
@@ -1673,21 +1676,25 @@ info: [Directive.label "main",
         Operation.LDR (↑↑XReg.X1 RegWidth.W64)
           ↑{ base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑0, index := none } } }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("main: ldr x1, [sp]")
+#guard_msgs in
+#check [aarch64| main: ldr x1, [sp] ]
 
 -- Test: Instruction followed by line comment
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64, operation := Operation.RET (↑↑XReg.X30 RegWidth.W64) }] : List Directive
 -/
-#guard_msgs (whitespace := lax) in
-#check parseAArch64("ret // return to caller")
+#guard_msgs in
+#check [aarch64|
+  ret -- return to caller
+]
 
 -- ============================================================================
 -- 12. Error Reporting
 -- ============================================================================
 section error_reporting
+
+local elab "elabAArch64% " s:str : term => elabAArch64 s.getString
 
 --
 -- Register Constraints & Aliasing Errors
@@ -1695,91 +1702,91 @@ section error_reporting
 
 /-- error: <input>:1:4: expected aarch64_reg -/
 #guard_msgs in
-#check parseAArch64("ldr x31, [sp]")
+#check elabAArch64% "ldr x31, [sp]"
 
 /-- error: expected w64 register, got w32 -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [w1]")
+#check [aarch64| ldr x0, [w1] ]
 
 /-- error: requires 32-bit registers (got 64-bit) -/
 #guard_msgs in
-#check parseAArch64("ldrb x0, [x1]")
+#check [aarch64| ldrb x0, [x1] ]
 
 /-- error: requires 32-bit registers (got 64-bit) -/
 #guard_msgs in
-#check parseAArch64("strb x0, [x1]")
+#check [aarch64| strb x0, [x1] ]
 
 /-- error: requires 32-bit registers (got 64-bit) -/
 #guard_msgs in
-#check parseAArch64("ldrh x0, [x1]")
+#check [aarch64| ldrh x0, [x1] ]
 
 /-- error: requires 32-bit registers (got 64-bit) -/
 #guard_msgs in
-#check parseAArch64("strh x0, [x1]")
+#check [aarch64| strh x0, [x1] ]
 
 /-- error: xzr/wzr not allowed here (sp/wsp expected) -/
 #guard_msgs in
-#check parseAArch64("add xzr, x1, #42")
+#check [aarch64| add xzr, x1, #42 ]
 
 /-- error: expected w64 register, got w32 -/
 #guard_msgs in
-#check parseAArch64("adr w0, main")
+#check [aarch64| adr w0, main ]
 
 /-- error: expected w64 register, got w32 -/
 #guard_msgs in
-#check parseAArch64("adrp w0, main")
+#check [aarch64| adrp w0, main ]
 
 /-- error: expected w64 register, got w32 -/
 #guard_msgs in
-#check parseAArch64("br w0")
+#check [aarch64| br w0 ]
 
 /-- error: expected w64 register, got w32 -/
 #guard_msgs in
-#check parseAArch64("ret w0")
+#check [aarch64| ret w0 ]
 
 /-- error: UXTW extension requires a 32-bit index register (Wn) -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [sp, x1, uxtw]")
+#check [aarch64| ldr x0, [sp, x1, uxtw] ]
 
 /-- error: SXTX extension requires a 64-bit index register (Xn) -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [sp, w1, sxtx]")
+#check [aarch64| ldr x0, [sp, w1, sxtx] ]
 
 /-- error: <input>:1:8: expected aarch64_reg -/
 #guard_msgs in
-#check parseAArch64("add w0, wlr, #1")
+#check elabAArch64% "add w0, wlr, #1"
 
 /-- error: <input>:1:14: expected numeral -/
 #guard_msgs in
-#check parseAArch64("ldr x1, [sp, -#16]!")
+#check elabAArch64% "ldr x1, [sp, -#16]!"
 
 /-- error: <input>:1:13: expected numeral -/
 #guard_msgs in
-#check parseAArch64("add x0, x1, -#16")
+#check elabAArch64% "add x0, x1, -#16"
 
 /-- error: <input>:1:15: expected numeral -/
 #guard_msgs in
-#check parseAArch64("ldur x0, [x1, -#8]")
+#check elabAArch64% "ldur x0, [x1, -#8]"
 
 /-- error: sp/wsp not allowed here (xzr/wzr expected) -/
 #guard_msgs in
-#check parseAArch64("adds sp, x1, #0")
+#check [aarch64| adds sp, x1, #0 ]
 
 /-- error: xzr/wzr not allowed here (sp/wsp expected) -/
 #guard_msgs in
-#check parseAArch64("add x0, xzr, #1")
+#check [aarch64| add x0, xzr, #1 ]
 
 /-- error: SXTW extension requires a 32-bit index register (Wn) -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [x1, x2, sxtw]")
+#check [aarch64| ldr x0, [x1, x2, sxtw] ]
 
 /-- error: UXTX extension requires a 64-bit index register (Xn) -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [x1, w2, uxtx]")
+#check [aarch64| ldr x0, [x1, w2, uxtx] ]
 
 /-- error: <input>:1:8: expected aarch64_reg -/
 #guard_msgs in
-#check parseAArch64("add sp, badreg, #1")
+#check elabAArch64% "add sp, badreg, #1"
 
 --
 -- Immediate Values & Range Bounds Errors
@@ -1787,75 +1794,75 @@ section error_reporting
 
 /-- error: immediate 5000 out of range [0, 4095] -/
 #guard_msgs in
-#check parseAArch64("add x0, x1, #5000")
+#check [aarch64| add x0, x1, #5000 ]
 
 /-- error: invalid immediate shift 1 (must be 0 or 12) -/
 #guard_msgs in
-#check parseAArch64("add x0, x1, #10, lsl #1")
+#check [aarch64| add x0, x1, #10, lsl #1 ]
 
 /-- error: relocation modifiers and labels cannot be shifted with lsl in immediate operands -/
 #guard_msgs in
-#check parseAArch64("add x1, x1, :lo12:main, lsl #12")
+#check [aarch64| add x1, x1, :lo12:main, lsl #12 ]
 
 /-- error: relocation modifiers and labels cannot be shifted with lsl in immediate operands -/
 #guard_msgs in
-#check parseAArch64("add x1, x1, :lo12:main, lsl #0")
+#check [aarch64| add x1, x1, :lo12:main, lsl #0 ]
 
 /-- error: tbz bit position 32 out of range [0, 31] for 32-bit instruction -/
 #guard_msgs in
-#check parseAArch64("tbz w0, #32, target")
+#check [aarch64| tbz w0, #32, target ]
 
 /-- error: invalid logical immediate: 0x1f4 -/
 #guard_msgs in
-#check parseAArch64("and x0, x1, #500")
+#check [aarch64| and x0, x1, #500 ]
 
 /-- error: invalid logical immediate: 0x0 -/
 #guard_msgs in
-#check parseAArch64("orr x0, x1, #0")
+#check [aarch64| orr x0, x1, #0 ]
 
 /-- error: invalid logical immediate: -0x1 -/
 #guard_msgs in
-#check parseAArch64("eor x0, x1, #-1")
+#check [aarch64| eor x0, x1, #-1 ]
 
 /-- error: ccmp/ccmn immediate 32 out of range [0, 31] -/
 #guard_msgs in
-#check parseAArch64("ccmp x0, #32, #0, eq")
+#check [aarch64| ccmp x0, #32, #0, eq ]
 
 /-- error: nzcv immediate 16 out of range [0, 15] -/
 #guard_msgs in
-#check parseAArch64("ccmp x0, x1, #16, eq")
+#check [aarch64| ccmp x0, x1, #16, eq ]
 
 /-- error: integer 18446744073709551616 out of 64-bit range -/
 #guard_msgs in
-#check parseAArch64("mov x0, #0x10000000000000000")
+#check [aarch64| mov x0, #0x10000000000000000 ]
 
 /-- error: expected non-negative immediate, got -1 -/
 #guard_msgs in
-#check parseAArch64("ubfm x0, x1, #-1, #0")
+#check [aarch64| ubfm x0, x1, #-1, #0 ]
 
 /-- error: immediate cannot be moved by a single instruction (requires MOVZ/MOVK sequence) -/
 #guard_msgs in
-#check parseAArch64("mov x0, #0x123456")
+#check [aarch64| mov x0, #0x123456 ]
 
 /-- error: move wide immediate 65536 out of range [0, 65535] -/
 #guard_msgs in
-#check parseAArch64("movz x0, #65536")
+#check [aarch64| movz x0, #65536 ]
 
 /-- error: bitfield extract bounds invalid: lsb=0, width=65, w=64 -/
 #guard_msgs in
-#check parseAArch64("ubfx x0, x1, #0, #65")
+#check [aarch64| ubfx x0, x1, #0, #65 ]
 
 /-- error: expected immediate offset in unscaled address operand -/
 #guard_msgs in
-#check parseAArch64("ldur x0, [x1, x2]")
+#check [aarch64| ldur x0, [x1, x2] ]
 
 /-- error: expected lsl for immediate shift, got asr -/
 #guard_msgs in
-#check parseAArch64("add x0, x1, #10, asr #0")
+#check [aarch64| add x0, x1, #10, asr #0 ]
 
 /-- error: shift immediate 32 out of range [0, 31] -/
 #guard_msgs in
-#check parseAArch64("lsl w0, w1, #32")
+#check [aarch64| lsl w0, w1, #32 ]
 
 --
 -- Memory Addressing, Offset Bounds & Alignment Errors
@@ -1863,103 +1870,103 @@ section error_reporting
 
 /-- error: pre-indexed offset 300 out of range [-256, 255] -/
 #guard_msgs in
-#check parseAArch64("ldr x1, [sp, #300]!")
+#check [aarch64| ldr x1, [sp, #300]! ]
 
 /-- error: post-indexed offset -300 out of range [-256, 255] -/
 #guard_msgs in
-#check parseAArch64("str x2, [x1], #-300")
+#check [aarch64| str x2, [x1], #-300 ]
 
 /-- error: offset 257 is neither a valid scaled offset [0, 32760] (multiple of 8) nor a valid unscaled offset [-256, 255] -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [x1, #257]")
+#check [aarch64| ldr x0, [x1, #257] ]
 
 /-- error: pair offset 600 out of range [-512, 504] or not a multiple of 8 -/
 #guard_msgs in
-#check parseAArch64("ldp x0, x1, [sp, #600]")
+#check [aarch64| ldp x0, x1, [sp, #600] ]
 
 /-- error: pair offset 13 out of range [-512, 504] or not a multiple of 8 -/
 #guard_msgs in
-#check parseAArch64("ldp x0, x1, [sp, #13]")
+#check [aarch64| ldp x0, x1, [sp, #13] ]
 
 /-- error: register offsets are not supported for ldp/stp instructions -/
 #guard_msgs in
-#check parseAArch64("ldp x0, x1, [sp, x2]")
+#check [aarch64| ldp x0, x1, [sp, x2] ]
 
 /-- error: unpredictable: identical destination registers in ldp instruction -/
 #guard_msgs in
-#check parseAArch64("ldp x0, x0, [sp, #16]")
+#check [aarch64| ldp x0, x0, [sp, #16] ]
 
 /-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
-#check parseAArch64("ldp x0, x1, [x0, #16]!")
+#check [aarch64| ldp x0, x1, [x0, #16]! ]
 
 /-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
-#check parseAArch64("stp x0, x1, [x0, #16]!")
+#check [aarch64| stp x0, x1, [x0, #16]! ]
 
 /-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [x0, #16]!")
+#check [aarch64| ldr x0, [x0, #16]! ]
 
 /-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
-#check parseAArch64("ldr w0, [x0], #4")
+#check [aarch64| ldr w0, [x0], #4 ]
 
 /-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
-#check parseAArch64("str x0, [x0, #16]!")
+#check [aarch64| str x0, [x0, #16]! ]
 
 /-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
-#check parseAArch64("str w0, [x0], #4")
+#check [aarch64| str w0, [x0], #4 ]
 
 /-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
-#check parseAArch64("ldrb w0, [x0, #1]!")
+#check [aarch64| ldrb w0, [x0, #1]! ]
 
 /-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
-#check parseAArch64("strb w0, [x0], #1")
+#check [aarch64| strb w0, [x0], #1 ]
 
 /-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
-#check parseAArch64("ldrsw x0, [x0, #4]!")
+#check [aarch64| ldrsw x0, [x0, #4]! ]
 
 /-- error: adr offset 0x200000 out of range [-0x100000, 0xfffff] -/
 #guard_msgs in
-#check parseAArch64("adr x0, #0x200000")
+#check [aarch64| adr x0, #0x200000 ]
 
 /-- error: adrp offset 0x1004 not page aligned (must be multiple of 0x1000) -/
 #guard_msgs in
-#check parseAArch64("adrp x0, #0x1004")
+#check [aarch64| adrp x0, #0x1004 ]
 
 /-- error: adrp offset 0x200000000 out of range [-0x100000000, 0xfffff000] -/
 #guard_msgs in
-#check parseAArch64("adrp x0, #0x200000000")
+#check [aarch64| adrp x0, #0x200000000 ]
 
 /-- error: offset 32768 is neither a valid scaled offset [0, 32760] (multiple of 8) nor a valid unscaled offset [-256, 255] -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [x1, #32768]")
+#check [aarch64| ldr x0, [x1, #32768] ]
 
 /-- error: unscaled offset -300 out of range [-256, 255] -/
 #guard_msgs in
-#check parseAArch64("ldur x0, [x1, #-300]")
+#check [aarch64| ldur x0, [x1, #-300] ]
 
 /-- error: <input>:1:12: expected ',' or ']' -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [x1 x2]")
+#check elabAArch64% "ldr x0, [x1 x2]"
 
 /-- error: <input>:1:16: expected ',' or ']' -/
 #guard_msgs in
-#check parseAArch64("ldp x0, x1, [x2 x3]")
+#check elabAArch64% "ldp x0, x1, [x2 x3]"
 
 /-- error: <input>:1:13: expected ',' or ']' -/
 #guard_msgs in
-#check parseAArch64("ldur x0, [x1 x2]")
+#check elabAArch64% "ldur x0, [x1 x2]"
 
 /-- error: <input>:1:16: expected ']' -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [x1, x2 x3]")
+#check elabAArch64% "ldr x0, [x1, x2 x3]"
 
 --
 -- Shifts, Extensions & Relocation Modifier Errors
@@ -1967,43 +1974,43 @@ section error_reporting
 
 /-- error: invalid memory extension shift amount 1 for width w64 -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [x1, x2, lsl #1]")
+#check [aarch64| ldr x0, [x1, x2, lsl #1] ]
 
 /-- error: invalid memory extension shift amount 1 for width w32 -/
 #guard_msgs in
-#check parseAArch64("ldrb w0, [x1, x2, lsl #1]")
+#check [aarch64| ldrb w0, [x1, x2, lsl #1] ]
 
 /-- error: invalid memory extension shift amount 2 for width w32 -/
 #guard_msgs in
-#check parseAArch64("ldrh w0, [x1, x2, lsl #2]")
+#check [aarch64| ldrh w0, [x1, x2, lsl #2] ]
 
 /-- error: shift amount 65 out of range [0, 63] for 64-bit instruction -/
 #guard_msgs in
-#check parseAArch64("add x0, x1, x2, lsl #65")
+#check [aarch64| add x0, x1, x2, lsl #65 ]
 
 /-- error: shift amount 33 out of range [0, 31] for 32-bit instruction -/
 #guard_msgs in
-#check parseAArch64("add w0, w1, w2, lsl #33")
+#check [aarch64| add w0, w1, w2, lsl #33 ]
 
 /-- error: arithmetic instructions do not support ROR shift -/
 #guard_msgs in
-#check parseAArch64("add x0, x1, x2, ror #4")
+#check [aarch64| add x0, x1, x2, ror #4 ]
 
 /-- error: sp/wsp not allowed here (xzr/wzr expected) -/
 #guard_msgs in
-#check parseAArch64("and sp, x1, x2")
+#check [aarch64| and sp, x1, x2 ]
 
 /-- error: <input>:1:17: expected aarch64_modifier_kind -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [x1, w2, badext]")
+#check elabAArch64% "ldr x0, [x1, w2, badext]"
 
 /-- error: arithmetic instructions do not support ROR shift -/
 #guard_msgs in
-#check parseAArch64("add x0, x1, x2, ror #1")
+#check [aarch64| add x0, x1, x2, ror #1 ]
 
 /-- error: <input>:1:16: expected aarch64_modifier_kind -/
 #guard_msgs in
-#check parseAArch64("orr x0, x1, x2, badshift #1")
+#check elabAArch64% "orr x0, x1, x2, badshift #1"
 
 --
 -- Control Flow & General Parser Syntax Errors
@@ -2011,114 +2018,112 @@ section error_reporting
 
 /-- error: <input>:1:4: unexpected element -/
 #guard_msgs in
-#check parseAArch64("nop extra_tokens")
+#check elabAArch64% "nop extra_tokens"
 
 /-- error: <input>:1:0: expected end of input -/
 #guard_msgs in
-#check parseAArch64("b.invalid main")
+#check elabAArch64% "b.invalid main"
 
 /-- error: b offset 0x8000004 out of range [-0x8000000, 0x7fffffc] or not a multiple of 4 -/
 #guard_msgs in
-#check parseAArch64("b #0x8000004")
+#check [aarch64| b #0x8000004 ]
 
 /-- error: b.cond offset 0x100000 out of range [-0x100000, 0xffffc] or not a multiple of 4 -/
 #guard_msgs in
-#check parseAArch64("b.eq #0x100000")
+#check [aarch64| b.eq #0x100000 ]
 
 /-- error: cbz offset 0x200000 out of range [-0x100000, 0xffffc] or not a multiple of 4 -/
 #guard_msgs in
-#check parseAArch64("cbz x0, #0x200000")
+#check [aarch64| cbz x0, #0x200000 ]
 
 /-- error: tbz offset 0x10000 out of range [-0x8000, 0x7ffc] or not a multiple of 4 -/
 #guard_msgs in
-#check parseAArch64("tbz x0, #10, #0x10000")
+#check [aarch64| tbz x0, #10, #0x10000 ]
 
 /-- error: b offset 0x1 out of range [-0x8000000, 0x7fffffc] or not a multiple of 4 -/
 #guard_msgs in
-#check parseAArch64("b #1")
+#check [aarch64| b #1 ]
 
 /-- error: b.cond offset 0x3 out of range [-0x100000, 0xffffc] or not a multiple of 4 -/
 #guard_msgs in
-#check parseAArch64("b.eq #3")
+#check [aarch64| b.eq #3 ]
 
 /-- error: 32-bit extended register instruction requires a 32-bit register (Wn) -/
 #guard_msgs in
-#check parseAArch64("add w0, wsp, x1, uxtb #1")
+#check [aarch64| add w0, wsp, x1, uxtb #1 ]
 
 /-- error: UXTB extension requires a 32-bit register (Wn) -/
 #guard_msgs in
-#check parseAArch64("add x0, sp, x1, uxtb #1")
+#check [aarch64| add x0, sp, x1, uxtb #1 ]
 
 /-- error: UXTX extension requires a 64-bit register (Xn) -/
 #guard_msgs in
-#check parseAArch64("add x0, sp, w1, uxtx #1")
+#check [aarch64| add x0, sp, w1, uxtx #1 ]
 
 /-- error: expected w32 register, got w64 -/
 #guard_msgs in
-#check parseAArch64("sxtb x0, x1")
+#check [aarch64| sxtb x0, x1 ]
 
 /-- error: requires 64-bit registers (got 32-bit) -/
 #guard_msgs in
-#check parseAArch64("sxtw w0, w1")
+#check [aarch64| sxtw w0, w1 ]
 
 /-- error: unpredictable: identical destination registers in ldp instruction -/
 #guard_msgs in
-#check parseAArch64("ldp xzr, xzr, [x0]")
+#check [aarch64| ldp xzr, xzr, [x0] ]
 
 /-- error: literal pool (=expr) is not supported for ldrsw -/
 #guard_msgs in
-#check parseAArch64("ldrsw x0, =0")
+#check [aarch64| ldrsw x0, =0 ]
 
 /-- error: literal pool immediate 4294967296 out of range [-2147483648, 2147483647] -/
 #guard_msgs in
-#check parseAArch64("ldr w0, =0x100000000")
+#check [aarch64| ldr w0, =0x100000000 ]
 
 /-- error: <input>:1:15: expected end of input -/
 #guard_msgs in
-#check parseAArch64("add x0, x1, #1 # comment")
+#check elabAArch64% "add x0, x1, #1 # comment"
 
 /-- error: <input>:1:16: expected end of input -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [x1, x2]!")
+#check elabAArch64% "ldr x0, [x1, x2]!"
 
 /-- error: pre-indexed / post-indexed offsets must be constant numeric immediates -/
 #guard_msgs in
-#check parseAArch64("ldr x0, [x1, foo]!")
+#check [aarch64| ldr x0, [x1, foo]! ]
 
 /-- error: only lsl shift supported for move wide -/
 #guard_msgs in
-#check parseAArch64("movz x0, #1, asr #0")
+#check [aarch64| movz x0, #1, asr #0 ]
 
 /-- error: invalid move wide shift amount 32 for width w32 -/
 #guard_msgs in
-#check parseAArch64("movz w0, #1, lsl #32")
+#check [aarch64| movz w0, #1, lsl #32 ]
 
 /-- error: <input>:1:10: unexpected end of input; expected ',' -/
 #guard_msgs in
-#check parseAArch64("add x0, x1")
+#check elabAArch64% "add x0, x1"
 
 /-- error: <input>:1:17: expected aarch64_cond -/
 #guard_msgs in
-#check parseAArch64("csel x0, x1, x2, invalid")
+#check elabAArch64% "csel x0, x1, x2, invalid"
 
 /-- error: <input>:1:0: expected end of input -/
 #guard_msgs in
-#check parseAArch64("foobar x0, x1")
+#check elabAArch64% "foobar x0, x1"
 
 end error_reporting
 
 section syntax_cat_and_include_aarch64
+
+local elab "elabAArch64% " s:str : term => elabAArch64 s.getString
 
 theorem test_aarch64_syntax_cat :
   [aarch64|
     main:
       add x0, x0, #1
       ret
-  ] = parseAArch64(
-    "main:
-      add x0, x0, #1
-      ret"
-  ) := rfl
+  ] = elabAArch64% "main:\n  add x0, x0, #1\n  ret" := rfl
 
 theorem test_include_aarch64_nop :
   include_aarch64 "Kraken/AArch64/Test/asm/test_nop.S" =
