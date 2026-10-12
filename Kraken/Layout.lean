@@ -102,14 +102,22 @@ def Executable.addrOf {Directive : Type} (e : Executable Directive) (n : Nat) : 
 @[simp] theorem Executable.addrOf_zero {Directive : Type} (e : Executable Directive) : e.addrOf 0 = e.1 := by
   grind [sizeBefore, addrOf]
 
-theorem Executable.sizeBefore_succ {Directive : Type} (e : Executable Directive) {n : Nat} {d : Directive} {z : Nat}
-    (hd : e.2[n]? = some (d, z)) :
-    e.sizeBefore (n + 1) = e.sizeBefore n + z := by
-  grind [sizeBefore, List.take_add_one]
+@[grind →] theorem Executable.sizeBefore_succ {Directive : Type} (e : Executable Directive) {n : Nat}
+    {d : Directive} {z : Nat} (hd : e.2[n]? = some (d, z)) : e.sizeBefore (n + 1) = e.sizeBefore n + z := by
+  simp [sizeBefore, List.take_add_one, hd]
+
+theorem Executable.sizeBefore_add {Directive : Type} (e : Executable Directive) (j i : Nat) :
+    e.sizeBefore (j + i) = e.sizeBefore j + (((e.2.drop j).take i).map (·.2)).sum := by
+  simp [sizeBefore, List.take_add]
+
+theorem Executable.sizeBefore_mono {Directive : Type} (e : Executable Directive) {j k : Nat}
+    (h : j ≤ k) : e.sizeBefore j ≤ e.sizeBefore k := by
+  obtain ⟨i, rfl⟩ := Nat.exists_eq_add_of_le h
+  simp [sizeBefore_add]
 
 theorem Executable.addrOf_succ {Directive : Type} (e : Executable Directive) {n : Nat} {d : Directive} {z : Nat}
     (hd : e.2[n]? = some (d, z)) : e.addrOf (n + 1) = e.addrOf n + .ofNat z := by
-  grind [addrOf, sizeBefore, List.take_add_one]
+  grind [addrOf]
 
 theorem Executable.getElem?_withAddresses_pair {Directive : Type} :
     ∀ (ds : List (Directive × Nat)) (a : Int64) (k : Nat),

@@ -74,9 +74,8 @@ public class Layout.Valid [Host] [Layout] : Prop where
   label_size : ∀ i l, Host.prog[i]? = some (.label l) → Kraken.Layout.size Directive i = 0
   /-- Any directive that occupies zero space in the executable must be semantically inert. -/
   zero_inert : ∀ i d, Host.prog[i]? = some d → Kraken.Layout.size Directive i = 0 → d.Inert
-  /-- The laid out executable fits into 2^64 bytes of address space. -/
-  fits : ∀ j k m, j ≤ m → m < k → k ≤ Host.prog.length →
-    Host.addrOf j = Host.addrOf k → Kraken.Layout.size Directive m = 0
+  /-- Two directives at the same address have the same offset in the executable. -/
+  addr_determines_offset : ∀ j k, Host.addrOf j = Host.addrOf k → Host.exe.sizeBefore j = Host.exe.sizeBefore k
 
 @[expose] public def Host.startAddr [Host] [Layout] {p : Program} (h : p.IsInfix Host.prog) : Int64 :=
   Host.addrOf (p.infixIdx Host.prog h)
@@ -114,47 +113,23 @@ public theorem Host.inert_of_size_zero {d : Directive} (h : (d, 0) ∈ Host.exe.
   obtain ⟨m, hm⟩ := List.mem_iff_getElem?.mp h
   grind [Host.exe_getElem?, Layout.Valid.zero_inert]
 
-private theorem Host.zero_between {j m n : Nat} (hjm : j ≤ m) (hmn : m < n) (hn : n ≤ Host.prog.length)
-    (heq : Host.addrOf j = Host.addrOf n) :
-    ∃ d, Host.exe.2[m]? = some (d, 0) := by
-  refine ⟨Host.prog[m], ?_⟩
-  rw [Host.exe_getElem?, List.getElem?_eq_getElem (by omega), hv.fits j n m hjm hmn hn heq]
-  rfl
-
-omit hv in
-private theorem Host.size_zero_between {j j' : Nat}
-    (hzero : ∀ m, j ≤ m → m < j' → ∃ d, Host.exe.2[m]? = some (d, 0)) :
-    ∀ c ∈ (Host.exe.2.drop j).take (j' - j), c.2 = 0 := by
-  intro c hc
-  obtain ⟨m, hm, rfl⟩ := List.getElem_of_mem hc
-  have := hzero (j + m) (by grind) (by grind)
-  grind
-
 public theorem Host.directivesAtAddress_addrOf {k : Nat} {d : Directive} {z : Nat}
     (hd : Host.exe.2[k]? = some (d, z)) (hz : 0 < z) :
     ∃ pre, Host.exe.directivesAtAddress (Host.addrOf k) = pre ++ [(d, z)] ∧
       ∀ c ∈ pre, c.2 = 0 := by
-  have hk : k < Host.prog.length := by
-    rw [← Host.length_exe]; exact (List.getElem?_eq_some_iff.mp hd).1
   obtain ⟨j, hjk, hj, hmin⟩ :=
     exists_least_le (P := fun i => Host.exe.addrOf i = Host.exe.addrOf k) rfl
-  have hzero : ∀ m, j ≤ m → m < k → ∃ d, Host.exe.2[m]? = some (d, 0) :=
-    fun m hjm hmk => Host.zero_between hjm hmk (Nat.le_of_lt hk) hj
-  have haddr : ∀ m, j ≤ m → m ≤ k → Host.exe.addrOf m = Host.exe.addrOf k := by
-    intro m
-    induction m with
-    | zero => grind
-    | succ m ih =>
-      intro hjm hmk
-      by_cases hjm' : j = m + 1
-      · grind
-      · obtain ⟨d', hd'⟩ := hzero m (by omega) (by omega)
-        rw [Kraken.Executable.addrOf_succ _ hd', ih (by omega) (by omega)]
-        simp
+  have hsize := hv.addr_determines_offset j k hj
+  have hpre : ∀ c ∈ (Host.exe.2.drop j).take (k - j), c.2 = 0 := by
+    have := Host.exe.sizeBefore_add j (k - j)
+    rw [Nat.add_sub_cancel' hjk] at this
+    have hsum : (((Host.exe.2.drop j).take (k - j)).map (·.2)).sum = 0 := by omega
+    exact fun c hc => List.sum_eq_zero_iff_forall_eq_nat.mp hsum _ (List.mem_map_of_mem hc)
+  have haddr : ∀ m, j ≤ m → m ≤ k → Host.exe.addrOf m = Host.exe.addrOf k := fun m hjm hmk => by
+    grind [Kraken.Executable.addrOf, Host.exe.sizeBefore_mono hjm, Host.exe.sizeBefore_mono hmk]
   have hnext : Host.exe.addrOf (k + 1) ≠ Host.exe.addrOf k := fun h => by
-    have := hv.fits k (k + 1) k (Nat.le_refl _) (Nat.lt_succ_self _) (by omega) h.symm
-    grind [Host.exe_getElem?]
-  refine ⟨(Host.exe.2.drop j).take (k - j), ?_, Host.size_zero_between hzero⟩
+    grind [hv.addr_determines_offset (k + 1) k h]
+  refine ⟨(Host.exe.2.drop j).take (k - j), ?_, hpre⟩
   show (((Kraken.Executable.withAddresses (Host.exe.1, Host.exe.2)).dropWhile
     (·.1 ≠ Host.exe.addrOf k)).takeWhile (·.1 = Host.exe.addrOf k)).map (·.2) = _
   rw [Kraken.Executable.withAddresses_dropWhile_addrOf _ j k hj hmin,
