@@ -110,8 +110,8 @@ public theorem Host.addrOf_succ [Host] [Layout] {k : Nat} {d : Directive} (hd : 
 section
 variable [Host] [Layout] [hv : Layout.Valid]
 
-public theorem Host.inert_of_size_zero {m : Nat} {d : Directive}
-    (h : Host.exe.2[m]? = some (d, 0)) : d.Inert := by
+public theorem Host.inert_of_size_zero {d : Directive} (h : (d, 0) ∈ Host.exe.2) : d.Inert := by
+  obtain ⟨m, hm⟩ := List.mem_iff_getElem?.mp h
   grind [Host.exe_getElem?, Layout.Valid.zero_inert]
 
 private theorem Host.zero_between {j m n : Nat} (hjm : j ≤ m) (hmn : m < n) (hn : n ≤ Host.prog.length)
@@ -121,18 +121,19 @@ private theorem Host.zero_between {j m n : Nat} (hjm : j ≤ m) (hmn : m < n) (h
   rw [Host.exe_getElem?, List.getElem?_eq_getElem (by omega), hv.fits j n m hjm hmn hn heq]
   rfl
 
-private theorem Host.inert_between {j j' : Nat}
+omit hv in
+private theorem Host.size_zero_between {j j' : Nat}
     (hzero : ∀ m, j ≤ m → m < j' → ∃ d, Host.exe.2[m]? = some (d, 0)) :
-    ∀ c ∈ (Host.exe.2.drop j).take (j' - j), c.2 = 0 ∧ c.1.Inert := by
+    ∀ c ∈ (Host.exe.2.drop j).take (j' - j), c.2 = 0 := by
   intro c hc
   obtain ⟨m, hm, rfl⟩ := List.getElem_of_mem hc
   have := hzero (j + m) (by grind) (by grind)
-  grind [Host.inert_of_size_zero]
+  grind
 
 public theorem Host.directivesAtAddress_addrOf {k : Nat} {d : Directive} {z : Nat}
     (hd : Host.exe.2[k]? = some (d, z)) (hz : 0 < z) :
     ∃ pre, Host.exe.directivesAtAddress (Host.addrOf k) = pre ++ [(d, z)] ∧
-      ∀ c ∈ pre, c.2 = 0 ∧ c.1.Inert := by
+      ∀ c ∈ pre, c.2 = 0 := by
   have hk : k < Host.prog.length := by
     rw [← Host.length_exe]; exact (List.getElem?_eq_some_iff.mp hd).1
   obtain ⟨j, hjk, hj, hmin⟩ :=
@@ -153,7 +154,7 @@ public theorem Host.directivesAtAddress_addrOf {k : Nat} {d : Directive} {z : Na
   have hnext : Host.exe.addrOf (k + 1) ≠ Host.exe.addrOf k := fun h => by
     have := hv.fits k (k + 1) k (Nat.le_refl _) (Nat.lt_succ_self _) (by omega) h.symm
     grind [Host.exe_getElem?]
-  refine ⟨(Host.exe.2.drop j).take (k - j), ?_, Host.inert_between hzero⟩
+  refine ⟨(Host.exe.2.drop j).take (k - j), ?_, Host.size_zero_between hzero⟩
   show (((Kraken.Executable.withAddresses (Host.exe.1, Host.exe.2)).dropWhile
     (·.1 ≠ Host.exe.addrOf k)).takeWhile (·.1 = Host.exe.addrOf k)).map (·.2) = _
   rw [Kraken.Executable.withAddresses_dropWhile_addrOf _ j k hj hmin,
@@ -172,7 +173,7 @@ public theorem Host.fetch?_addrOf {k : Nat} {d : Directive} {z : Nat}
     Host.exe.fetch? (Host.addrOf k) = some (d, z) := by
   obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd hz
   unfold Kraken.Executable.fetch?
-  rw [hat, List.find?_append, List.find?_eq_none.mpr fun c hc => by simp [(hpre c hc).1]]
+  rw [hat, List.find?_append, List.find?_eq_none.mpr fun c hc => by simp [hpre c hc]]
   simp [hz]
 
 public theorem Host.label_eq {p : Program} {k i : Nat} {l : Label}

@@ -66,7 +66,7 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
   rw [Host.addrOf_succ hdp.cons.1] at h
   rcases Nat.eq_zero_or_pos (Kraken.Layout.size Directive k) with h0 | hz
   · rw [h0] at hd h
-    rw [Host.inert_of_size_zero hd] at h
+    rw [Host.inert_of_size_zero (List.mem_of_getElem? hd)] at h
     have h0' : Host.addrOf k + Int64.ofNat 0 = Host.addrOf k := by simp
     simp only [Effects.All, h0'] at h
     exact Eventually.done _ h

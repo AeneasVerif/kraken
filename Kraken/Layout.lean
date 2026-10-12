@@ -79,6 +79,13 @@ theorem directivesAtFromPrefix {Directive : Type} (e: Executable Directive) (a: 
   rw [← List.map_append]
   rw [List.takeWhile_append_dropWhile]
 
+theorem Executable.mem_of_mem_directivesAtAddress {Directive : Type} {e : Executable Directive}
+    {a : Int64} {c : Directive × Nat} (h : c ∈ e.directivesAtAddress a) : c ∈ e.2 := by
+  obtain ⟨x, hx, rfl⟩ := List.mem_map.mp h
+  rw [← Executable.withAddresses_map_snd e.2 e.1]
+  exact List.mem_map_of_mem
+    ((List.dropWhile_sublist _).subset ((List.takeWhile_sublist _).subset hx))
+
 @[grind hom] theorem Int64.toBitVec_ofNat_grind (a : Nat) :
     (Int64.ofNat a).toBitVec = OfNat.ofNat a := by
   rw [Int64.toBitVec_ofNat']; rfl
