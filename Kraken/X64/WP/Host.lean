@@ -24,25 +24,33 @@ private theorem exists_least_le {P : Nat → Prop} {n : Nat} (h : P n) :
 
 public class Host where
   prog : Program
-
-@[expose] public def Host.exe [Host] [layout : Layout] : Executable := layout Host.prog
-
-@[expose] public def Host.addrOf [Host] [Layout] (k : Nat) : Int64 := Host.exe.addrOf k
-
-public instance [Host] [Layout] : Labels := Executable.labels Host.exe
-
-/-- A set of abstract assumptions about the `Layout` of a `Host` program that most specs need and
-that every reasonable assembler satisfies. -/
-public class Layout.Valid [Host] [Layout] : Prop where
+  layout : Layout
   /-- Any directive that occupies zero space in the executable must be semantically inert. -/
-  zero_inert : ∀ i d, Host.prog[i]? = some d → Kraken.Layout.size Directive i = 0 → d.Inert
+  zero_inert : ∀ i d, prog[i]? = some d → @Kraken.Layout.size _ layout i = 0 → d.Inert
   /-- Two directives at the same address have the same offset in the executable. -/
-  addr_determines_offset : ∀ j k, Host.addrOf j = Host.addrOf k → Host.exe.sizeBefore j = Host.exe.sizeBefore k
+  addr_determines_offset : ∀ j k, (layout.apply prog).addrOf j = (layout.apply prog).addrOf k →
+    (layout.apply prog).sizeBefore j = (layout.apply prog).sizeBefore k
 
-@[expose] public def Host.startAddr [Host] [Layout] {p : Program} (h : p.IsInfix Host.prog) : Int64 :=
+public instance [Host] : Layout := Host.layout
+
+@[expose] public def Host.exe [Host] : Executable := Host.layout.apply Host.prog
+
+@[expose] public def Host.addrOf [Host] (k : Nat) : Int64 := Host.exe.addrOf k
+
+public instance [Host] : Labels := Executable.labels Host.exe
+
+public theorem Host.sizeBefore_eq_of_addrOf_eq [Host] {j k : Nat} (h : Host.addrOf j = Host.addrOf k) :
+    Host.exe.sizeBefore j = Host.exe.sizeBefore k :=
+  Host.addr_determines_offset j k h
+
+public theorem Host.inert_of_getElem? [Host] {i : Nat} {d : Directive} (h : Host.prog[i]? = some d)
+    (hz : Kraken.Layout.size Directive i = 0) : d.Inert :=
+  Host.zero_inert i d h hz
+
+@[expose] public def Host.startAddr [Host] {p : Program} (h : p.IsInfix Host.prog) : Int64 :=
   Host.addrOf (p.infixIdx Host.prog h)
 
-@[expose] public def Host.endAddr [Host] [Layout] {p : Program} (h : p.IsInfix Host.prog) : Int64 :=
+@[expose] public def Host.endAddr [Host] {p : Program} (h : p.IsInfix Host.prog) : Int64 :=
   Host.addrOf (p.infixIdx Host.prog h + p.length)
 
 export Host (startAddr endAddr)
@@ -51,20 +59,20 @@ public theorem Layout.apply_getElem? [layout : Layout] (p : Program) (i : Nat) :
     (layout p).2[i]? = (p[i]?).map (fun d => (d, Kraken.Layout.size Directive i)) := by
   simp [Kraken.Layout.apply, List.getElem?_mapIdx]
 
-public theorem Host.exe_getElem? [Host] [Layout] (i : Nat) :
+public theorem Host.exe_getElem? [Host] (i : Nat) :
     Host.exe.2[i]? = Host.prog[i]?.map (fun d => (d, Kraken.Layout.size Directive i)) :=
   Layout.apply_getElem? _ _
 
-public theorem Host.addrOf_succ [Host] [Layout] {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d) :
+public theorem Host.addrOf_succ [Host] {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d) :
     Host.addrOf (k + 1) = Host.addrOf k + .ofNat (Kraken.Layout.size Directive k) :=
   Kraken.Executable.addrOf_succ _ (by rw [Host.exe_getElem?, hd]; rfl)
 
 section
-variable [Host] [Layout] [hv : Layout.Valid]
+variable [Host]
 
 public theorem Host.inert_of_size_zero {d : Directive} (h : (d, 0) ∈ Host.exe.2) : d.Inert := by
   obtain ⟨m, hm⟩ := List.mem_iff_getElem?.mp h
-  grind [Host.exe_getElem?, Layout.Valid.zero_inert]
+  grind [Host.exe_getElem?, Host.inert_of_getElem?]
 
 public theorem Host.directivesAtAddress_addrOf {k : Nat} {d : Directive} {z : Nat}
     (hd : Host.exe.2[k]? = some (d, z)) (hz : 0 < z) :
@@ -72,7 +80,7 @@ public theorem Host.directivesAtAddress_addrOf {k : Nat} {d : Directive} {z : Na
       ∀ c ∈ pre, c.2 = 0 := by
   obtain ⟨j, hjk, hj, hmin⟩ :=
     exists_least_le (P := fun i => Host.exe.addrOf i = Host.exe.addrOf k) rfl
-  have hsize := hv.addr_determines_offset j k hj
+  have hsize := Host.sizeBefore_eq_of_addrOf_eq hj
   have hpre : ∀ c ∈ (Host.exe.2.drop j).take (k - j), c.2 = 0 := by
     have := Host.exe.sizeBefore_add j (k - j)
     rw [Nat.add_sub_cancel' hjk] at this
@@ -81,7 +89,7 @@ public theorem Host.directivesAtAddress_addrOf {k : Nat} {d : Directive} {z : Na
   have haddr : ∀ m, j ≤ m → m ≤ k → Host.exe.addrOf m = Host.exe.addrOf k := fun m hjm hmk => by
     grind [Kraken.Executable.addrOf, Host.exe.sizeBefore_mono hjm, Host.exe.sizeBefore_mono hmk]
   have hnext : Host.exe.addrOf (k + 1) ≠ Host.exe.addrOf k := fun h => by
-    grind [hv.addr_determines_offset (k + 1) k h]
+    grind [Host.sizeBefore_eq_of_addrOf_eq h]
   refine ⟨(Host.exe.2.drop j).take (k - j), ?_, hpre⟩
   show (((Kraken.Executable.withAddresses (Host.exe.1, Host.exe.2)).dropWhile
     (·.1 ≠ Host.exe.addrOf k)).takeWhile (·.1 = Host.exe.addrOf k)).map (·.2) = _

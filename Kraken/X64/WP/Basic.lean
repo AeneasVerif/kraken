@@ -23,20 +23,20 @@ without users needing to specify it explicitly everywhere.
 -/
 
 /-- Weakest precondition of a `Program` fragment embedded in a host program. -/
-@[expose] public def Program.wp [Host] [Layout] (p : Program) (Q : MachineData → Prop)
+@[expose] public def Program.wp [Host] (p : Program) (Q : MachineData → Prop)
     (E : Int64 → MachineData → Prop) (s : MachineData) : Prop :=
   ∀ k, p.IsInfixAt Host.prog k →
     Eventually (step1 Host.exe)
       (fun st => (st.2 = Host.addrOf (k + p.length) ∧ Q st.1) ∨ E st.2 st.1)
       (s, Host.addrOf k)
 
-public theorem Program.wp_mono [Host] [Layout] {p : Program} {Q₁ Q₂ : MachineData → Prop}
+public theorem Program.wp_mono [Host] {p : Program} {Q₁ Q₂ : MachineData → Prop}
     {E₁ E₂ : Int64 → MachineData → Prop} (hQ : ∀ s, Q₁ s → Q₂ s) (hE : ∀ a s, E₁ a s → E₂ a s)
     {s : MachineData} (h : Program.wp p Q₁ E₁ s) : Program.wp p Q₂ E₂ s :=
   fun k hk => eventually_trans _ _ _ _ (h k hk) fun _ hb => Eventually.done _ <|
     hb.imp (fun ⟨ha, hq⟩ => ⟨ha, hQ _ hq⟩) (hE _ _)
 
-public theorem Program.wp_cons [Host] [Layout] {d : Directive} {p : Program} {Q : MachineData → Prop}
+public theorem Program.wp_cons [Host] {d : Directive} {p : Program} {Q : MachineData → Prop}
     {E : Int64 → MachineData → Prop} {s : MachineData}
     (h : Program.wp [d] (fun s' => Program.wp p Q E s') E s) : Program.wp (d :: p) Q E s := by
   intro k hk
@@ -52,7 +52,7 @@ public theorem Program.wp_cons [Host] [Layout] {d : Directive} {p : Program} {Q 
   · exact Eventually.done _ (Or.inr hE)
 
 section
-variable [Host] [Layout] [hv : Layout.Valid]
+variable [Host]
 
 public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     (hdp : (d :: p).IsInfixAt Host.prog k) {post : @Post MachineState} {s : MachineData}
@@ -81,7 +81,7 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
 
 end
 
-public theorem Program.step1_of_wp_at [Host] [Layout] {p : Program}
+public theorem Program.step1_of_wp_at [Host] {p : Program}
     {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
     {post : @Post MachineState} {k : Nat} (hk : p.IsInfixAt Host.prog k) (hwp : p.wp Q E s)
     (hQ : ∀ s', Q s' → post (s', Host.addrOf (k + p.length))) (hE : ∀ a s', E a s' → post (s', a)) :
@@ -93,7 +93,7 @@ public theorem Program.step1_of_wp_at [Host] [Layout] {p : Program}
     exact hQ s' hq
   · exact hE a s' he
 
-public theorem Program.step1_of_wp [Host] [Layout] {p : Program}
+public theorem Program.step1_of_wp [Host] {p : Program}
     {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
     {post : @Post MachineState} (h : p.IsInfix Host.prog) (hwp : p.wp Q E s)
     (hQ : ∀ s', Q s' → post (s', endAddr h)) (hE : ∀ a s', E a s' → post (s', a)) :
