@@ -1,7 +1,6 @@
 module
 
 public import Kraken.X64.WP.Host
-public import Kraken.X64.WP.Step
 
 /-
 # Weakest precondition of a fragment of a host program
@@ -11,8 +10,8 @@ laid out by the ambient `Layout`. This definition is the bridge to `Std.WP` and 
 
 The definition of `wp` works by
 1. laying out the `Host` into an `Executable`, which in turn induces a transition system via
-   `Executable.step'`,
-2. taking the least fixpoint of `X ↦ post ∪ step' X` via `Eventually step'`, the set of pre states
+   `step1`,
+2. taking the least fixpoint of `X ↦ post ∪ step1 X` via `Eventually step1`, the set of pre states
    which inevitably reach the postcondition, and crucially,
 3. considering every possible way in which the fragment `p` may occur in the `Host` program.
    Only properties can be proved that hold for *all possible infix positions* of the fragment `p`.
@@ -27,7 +26,7 @@ without users needing to specify it explicitly everywhere.
 @[expose] public def Program.wp [Host] [Layout] (p : Program) (Q : MachineData → Prop)
     (E : Int64 → MachineData → Prop) (s : MachineData) : Prop :=
   ∀ k, p.IsInfixAt Host.prog k →
-    Eventually Host.exe.step'
+    Eventually (step1 Host.exe)
       (fun st => (st.2 = Host.addrOf (k + p.length) ∧ Q st.1) ∨ E st.2 st.1)
       (s, Host.addrOf k)
 
@@ -59,7 +58,7 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     (hdp : (d :: p).IsInfixAt Host.prog k) {post : @Post MachineState} {s : MachineData}
     (h : (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
       (fun s' => .done (s', Host.addrOf (k + 1))) (fun a s' => .done (s', a))).All post) :
-    Eventually Host.exe.step' post (s, Host.addrOf k) := by
+    Eventually (step1 Host.exe) post (s, Host.addrOf k) := by
   have hd : Host.exe.2[k]? = some (d, Kraken.Layout.size Directive k) := by
     rw [Host.exe_getElem?, hdp.cons.1]
     rfl
@@ -71,8 +70,32 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     simp only [Effects.All, h0'] at h
     exact Eventually.done _ h
   · refine Eventually.step _ post ?_ fun _ hb => Eventually.done _ hb
-    unfold Kraken.Executable.step'
-    rw [Host.fetch?_addrOf hd hz]
-    exact h
+    obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd hz
+    have hinert : ∀ c ∈ pre, c.2 = 0 ∧ c.1.Inert := fun c hc =>
+      ⟨hpre c hc, Host.inert_of_size_zero (hpre c hc ▸
+        Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc))⟩
+    unfold step1 Executable.step
+    change (Directives.interp (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k) _).All post
+    rw [hat]
+    exact (Directives.interp_inert_append hinert _ _ _ _).mpr h
 
 end
+
+public theorem Program.step1_of_wp_at [Host] [Layout] {p : Program}
+    {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
+    {post : @Post MachineState} {k : Nat} (hk : p.IsInfixAt Host.prog k) (hwp : p.wp Q E s)
+    (hQ : ∀ s', Q s' → post (s', Host.addrOf (k + p.length))) (hE : ∀ a s', E a s' → post (s', a)) :
+    Eventually (step1 Host.exe) post (s, Host.addrOf k) := by
+  refine eventually_weaken _ _ _ _ ?_ (hwp k hk)
+  rintro ⟨s', a⟩ (⟨ha, hq⟩ | he)
+  · dsimp only at ha
+    rw [ha]
+    exact hQ s' hq
+  · exact hE a s' he
+
+public theorem Program.step1_of_wp [Host] [Layout] {p : Program}
+    {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
+    {post : @Post MachineState} (h : p.IsInfix Host.prog) (hwp : p.wp Q E s)
+    (hQ : ∀ s', Q s' → post (s', endAddr h)) (hE : ∀ a s', E a s' → post (s', a)) :
+    Eventually (step1 Host.exe) post (s, startAddr h) :=
+  Program.step1_of_wp_at (List.isInfixAt_infixIdx h) hwp hQ hE
