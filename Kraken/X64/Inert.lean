@@ -8,7 +8,7 @@ public import Kraken.X64.OmniSemantics
 `d` is inert if it falls through with the same machine state and no observable effect.
 
 Presently, labels and no-op instructions like `nop` and `mov %rax, %rax` are inert.
-Once `.byteArray` is implemented, it will be inert as well.
+Once `.byteArray` is implemented, an empty `.byteArray` will be inert as well.
 -/
 def Directive.Inert (d : Directive) : Prop :=
   ∀ [Labels] s p (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) post,

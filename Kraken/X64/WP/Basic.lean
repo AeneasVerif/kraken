@@ -5,20 +5,21 @@ public import Kraken.X64.WP.Host
 /-
 # Weakest precondition of a fragment of a host program
 
-`Program.wp p Q E s` is the weakest precondition of the fragment `p` in the ambient `Host` program,
-laid out by the ambient `Layout`. This definition is the bridge to `Std.WP` and thus `vcgen`.
+`Program.wp p Q E s` is the weakest precondition of the fragment `p` in the ambient, laid out `Host`
+program.
+This definition is the bridge to `Std.WP` and thus `vcgen`.
 
 The definition of `wp` works by
-1. laying out the `Host` into an `Executable`, which in turn induces a transition system via
-   `step1`,
+1. considering the weakest precondition `step1 Host.exe` of a single instruction in the laid out
+   executable,
 2. taking the least fixpoint of `X ↦ post ∪ step1 X` via `Eventually step1`, the set of pre states
    which inevitably reach the postcondition, and crucially,
 3. considering every possible way in which the fragment `p` may occur in the `Host` program.
    Only properties can be proved that hold for *all possible infix positions* of the fragment `p`.
    This ensures proof modularity.
 
-The `Host` program and `Layout` is a parameter to be able to reason compositionally about function
-calls. It is an instance implicit parameter so that uses refer implicitly to an ambient host program
+The `Host` program is a parameter to be able to reason compositionally about function calls.
+It is an instance implicit parameter so that uses refer implicitly to an ambient host program
 without users needing to specify it explicitly everywhere.
 -/
 
