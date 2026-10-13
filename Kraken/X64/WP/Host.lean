@@ -143,14 +143,6 @@ public theorem Host.directivesAtAddress_addrOf {k : Nat} {d : Directive} {z : Na
   · intro c hc
     grind [Kraken.Executable.getElem?_withAddresses_eq]
 
-public theorem Host.fetch?_addrOf {k : Nat} {d : Directive} {z : Nat}
-    (hd : Host.exe.2[k]? = some (d, z)) (hz : 0 < z) :
-    Host.exe.fetch? (Host.addrOf k) = some (d, z) := by
-  obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd hz
-  unfold Kraken.Executable.fetch?
-  rw [hat, List.find?_append, List.find?_eq_none.mpr fun c hc => by simp [hpre c hc]]
-  simp [hz]
-
 public theorem Host.label_eq {p : Program} {k i : Nat} {l : Label}
     (hp : p.IsInfixAt Host.prog k) (hi : p[i]? = some (.label l)) :
     label l = Host.addrOf (k + i) := by
