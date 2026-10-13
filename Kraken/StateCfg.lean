@@ -198,7 +198,7 @@ theorem cfg {p p' : Program} {l₀ : Label}
     conv at hdrop => rhs; rw [hfl]
     simpa [List.head?_drop] using congrArg List.head? hdrop
   have key : ∀ x : Label × MachineData, (Program.blockAt p x.1).isSome → T x.1 x.2 →
-      Eventually Host.exe.step' B
+      Eventually (step1 Host.exe) B
         (x.2, Host.addrOf (k + (p.length - (Program.fromLabel p x.1).length))) := by
     intro x
     induction x using (measure (Program.cfgMeasure p var)).wf.induction with
