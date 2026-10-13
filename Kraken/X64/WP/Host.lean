@@ -4,22 +4,6 @@ public import Kraken.X64.Semantics
 public import Kraken.X64.Inert
 public import Kraken.Data.List.Infix
 
-private theorem findSome?_eq_of {α β : Type _} {f : α → Option β} {l : List α} :
-    ∀ {n : Nat} {b : β}, l[n]?.bind f = some b →
-      (∀ k, k < n → l[k]?.bind f = none) → l.findSome? f = some b := by
-  induction l with
-  | nil => intro n b hn _; simp at hn
-  | cons x xs ih =>
-    intro n b hn hlt
-    cases n with
-    | zero =>
-      simp only [List.getElem?_cons_zero, Option.bind_some] at hn
-      simp [hn]
-    | succ m =>
-      have h0 : f x = none := by simpa using hlt 0 (Nat.succ_pos m)
-      rw [List.findSome?_cons, h0,
-        ih (by simpa using hn) (fun k hk => by simpa using hlt (k + 1) (by omega))]
-
 private theorem takeWhile_eq_take_of {α : Type _} {p : α → Bool} {l : List α} {n : Nat}
     (hprior : ∀ k, k < n → ∀ c, l[k]? = some c → p c = true)
     (hhead : ∀ c, l[n]? = some c → p c = false) :
@@ -38,28 +22,8 @@ private theorem exists_least_le {P : Nat → Prop} {n : Nat} (h : P n) :
   induction n using Nat.strongRecOn with
   | ind n ih => grind
 
-namespace Kraken.Executable
-
-public theorem label_addrOf (e : Kraken.Executable Directive) (l : Label) (n : Nat)
-    (hn : e.2[n]? = some (.label l, 0))
-    (hfirst : ∀ k z, k < n → e.2[k]? ≠ some (.label l, z)) :
-    (_root_.Executable.labels e).label l = e.addrOf n := by
-  show (e.withAddresses.findSome? _).getD (-1) = e.addrOf n
-  rw [findSome?_eq_of (n := n)]
-  · rfl
-  · show ((Kraken.Executable.withAddresses (e.1, e.2))[n]?.bind _) = _
-    simp [getElem?_withAddresses_eq, hn, addrOf]
-  · intro k hk
-    show ((Kraken.Executable.withAddresses (e.1, e.2))[k]?.bind _) = _
-    rcases hm : e.2[k]? with _ | ⟨d, z⟩ <;> simp only [getElem?_withAddresses_eq, hm] <;> simp
-    rintro rfl
-    exact hfirst k z hk hm
-
-end Kraken.Executable
-
 public class Host where
   prog : Program
-  labels_nodup : (Program.labels prog).Nodup
 
 @[expose] public def Host.exe [Host] [layout : Layout] : Executable := layout Host.prog
 
@@ -70,8 +34,6 @@ public instance [Host] [Layout] : Labels := Executable.labels Host.exe
 /-- A set of abstract assumptions about the `Layout` of a `Host` program that most specs need and
 that every reasonable assembler satisfies. -/
 public class Layout.Valid [Host] [Layout] : Prop where
-  /-- Labels have size zero. -/
-  label_size : ∀ i l, Host.prog[i]? = some (.label l) → Kraken.Layout.size Directive i = 0
   /-- Any directive that occupies zero space in the executable must be semantically inert. -/
   zero_inert : ∀ i d, Host.prog[i]? = some d → Kraken.Layout.size Directive i = 0 → d.Inert
   /-- Two directives at the same address have the same offset in the executable. -/
@@ -89,18 +51,9 @@ public theorem Layout.apply_getElem? [layout : Layout] (p : Program) (i : Nat) :
     (layout p).2[i]? = (p[i]?).map (fun d => (d, Kraken.Layout.size Directive i)) := by
   simp [Kraken.Layout.apply, List.getElem?_mapIdx]
 
-public theorem Layout.length_apply [layout : Layout] (p : Program) : (layout p).2.length = p.length := by
-  simp [Kraken.Layout.apply]
-
 public theorem Host.exe_getElem? [Host] [Layout] (i : Nat) :
     Host.exe.2[i]? = Host.prog[i]?.map (fun d => (d, Kraken.Layout.size Directive i)) :=
   Layout.apply_getElem? _ _
-
-public theorem Host.length_exe [Host] [Layout] : Host.exe.2.length = Host.prog.length :=
-  Layout.length_apply _
-
-public theorem Host.addrOf_zero [Host] [Layout] : Host.addrOf 0 = Kraken.Layout.start Directive := by
-  simp [Host.addrOf, Host.exe, Kraken.Layout.apply]
 
 public theorem Host.addrOf_succ [Host] [Layout] {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d) :
     Host.addrOf (k + 1) = Host.addrOf k + .ofNat (Kraken.Layout.size Directive k) :=
@@ -142,21 +95,5 @@ public theorem Host.directivesAtAddress_addrOf {k : Nat} {d : Directive} {z : Na
     grind [Kraken.Executable.getElem?_withAddresses_eq]
   · intro c hc
     grind [Kraken.Executable.getElem?_withAddresses_eq]
-
-public theorem Host.label_eq {p : Program} {k i : Nat} {l : Label}
-    (hp : p.IsInfixAt Host.prog k) (hi : p[i]? = some (.label l)) :
-    label l = Host.addrOf (k + i) := by
-  obtain ⟨hlt, hpi⟩ := List.getElem?_eq_some_iff.mp hi
-  have hP : Host.prog[k + i]? = some (.label l) := by
-    rw [List.isInfixAt_iff_getElem?.mp hp i hlt, hpi]
-  have hdir : Host.exe.2[k + i]? = some (.label l, 0) := by
-    rw [Host.exe_getElem?, hP, hv.label_size _ l hP]
-    rfl
-  refine Kraken.Executable.label_addrOf Host.exe l (k + i) hdir fun m z hm hdm => ?_
-  rw [Host.exe_getElem?] at hdm
-  obtain ⟨d', hd', heq⟩ := Option.map_eq_some_iff.mp hdm
-  simp only [Prod.mk.injEq] at heq
-  rw [heq.1] at hd'
-  exact absurd (Host.labels_nodup.eq_of_getElem?_label hd' hP) (by omega)
 
 end

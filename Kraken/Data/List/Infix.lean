@@ -28,8 +28,6 @@ theorem isInfix_iff_exists_isInfixAt : l₁ <:+: l₂ ↔ ∃ k, l₁.IsInfixAt 
   obtain ⟨k, -, h⟩ := infix_iff_getElem?.mp h
   exact ⟨k, isInfixAt_iff_getElem?.mpr fun i hi => by rw [Nat.add_comm]; exact h i hi⟩
 
-theorem nil_isInfixAt (l : List α) (k : Nat) : ([] : List α).IsInfixAt l k := nil_prefix
-
 theorem IsInfixAt.cons (h : (d :: l₁).IsInfixAt l₂ k) : l₂[k]? = some d ∧ l₁.IsInfixAt l₂ (k + 1) := by
   have hk : k < l₂.length := by
     have := h.length_le; grind
@@ -42,13 +40,6 @@ theorem IsInfixAt.append (h : (a ++ b).IsInfixAt l₂ k) :
   obtain ⟨t, ht⟩ := h
   refine ⟨⟨b ++ t, by rw [← ht, append_assoc]⟩, ⟨t, ?_⟩⟩
   rw [← drop_drop, ← ht, append_assoc, drop_left]
-
-theorem IsInfixAt.drop (h : l₁.IsInfixAt l₂ k) (m : Nat) : (l₁.drop m).IsInfixAt l₂ (k + m) := by
-  by_cases hm : m ≤ l₁.length
-  · have h' := (IsInfixAt.append (a := l₁.take m) (b := l₁.drop m) (by rwa [take_append_drop])).2
-    rwa [length_take_of_le hm] at h'
-  · rw [drop_eq_nil_of_le (show l₁.length ≤ m by omega)]
-    exact nil_isInfixAt _ _
 
 theorem exists_isPrefixOf_drop [DecidableEq α] (h : l₁ <:+: l₂) :
     ∃ k, k ∈ range (l₂.length + 1) ∧ l₁.isPrefixOf (l₂.drop k) := by
