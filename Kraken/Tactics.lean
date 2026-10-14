@@ -85,7 +85,7 @@ elab_rules : tactic
 
       evalTactic (← `(tactic|
         (let ss := $s
-         change ($straightlineStepId:ident _ (ss, _) _)
+         change ($straightlineStepId:ident _ ⟨ss, _⟩ _)
          obtain $statePat:rcasesPat := $s
          delta $p
          dsimp only [$straightlineStepId:ident, $execStraightlineId:ident]

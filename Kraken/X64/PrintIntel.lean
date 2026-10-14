@@ -99,7 +99,9 @@ instance {w} : ToString (AvxRegOrMem w) where toString rm := rm.toStr
 
 def Operand.toStr {w} (op : Operand w) (addr_w : Width := .W64) : String := match op with
   | .regOrMem rm => rm.toStr addr_w
-  | .imm v => toString v
+  | .imm (.int64 i) => toString i
+  -- In Intel syntax a bare symbol is a memory operand; its address needs OFFSET
+  | .imm v => s!"OFFSET {v}"
 instance {w} : ToString (Operand w) where toString op := op.toStr
 
 def AvxOperand.toStr {w} (op : AvxOperand w) (addr_w : Width := .W64) : String := match op with
@@ -123,7 +125,10 @@ instance : ToString ShiftCountExpr where toString
 
 def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := match op with
   | .mov dst src => s!"mov {dst.toStr addr_w}, {src.toStr addr_w}"
-  | .movsx dst src => s!"movsx {dst.toStr addr_w}, {src.toStr addr_w}"
+  | @Operation.movsx _ w' dst src =>
+    -- Intel spells the 32-to-64-bit form `movsxd` (opcode 63 /r, AT&T `movslq`).
+    let m := if w == .W64 && w' == .W32 then "movsxd" else "movsx"
+    s!"{m} {dst.toStr addr_w}, {src.toStr addr_w}"
   | .movzx dst src => s!"movzx {dst.toStr addr_w}, {src.toStr addr_w}"
   | .push src => s!"push {src.toStr addr_w}"
   | .pop dst => s!"pop {dst.toStr addr_w}"
