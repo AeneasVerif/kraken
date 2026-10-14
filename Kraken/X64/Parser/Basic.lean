@@ -1035,12 +1035,12 @@ def parseInstr : Parser Instr := do
       let rest := (mn.drop 4).copy
       -- First try parsing condition code directly (e.g. "l" for cmovl, "ge" for cmovge).
       -- If that fails or if a width suffix was given, strip the suffix ('w', 'l', 'q') and retry.
-      let (cc, w?) ← do 
+      let (cc, w?) ← do
         if let some cc := parseCondCode? rest then
           pure (cc, none)
         else
-          let w := match rest.back? with
-            | some 'b' => .W8 | some 'w' => .W16 | some 'l' => .W32 | some 'q' => .W64
+          let w ← do match rest.back? with
+            | some 'b' => pure .W8 | some 'w' => pure .W16 | some 'l' => pure .W32 | some 'q' => pure .W64
             | _ => fail s!"unknown cmov condition code: {rest}"
           let cc ← parseCondCode (rest.dropEnd 1).copy
           pure (cc, some w)
