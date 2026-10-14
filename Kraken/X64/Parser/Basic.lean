@@ -1035,17 +1035,15 @@ def parseInstr : Parser Instr := do
       let rest := (mn.drop 4).copy
       -- First try parsing condition code directly (e.g. "l" for cmovl, "ge" for cmovge).
       -- If that fails or if a width suffix was given, strip the suffix ('w', 'l', 'q') and retry.
-      let (cc, w?) ← match parseCondCode? rest with
-        | some cc => pure (cc, none)
-        | none =>
-          let w? := match rest.back? with
-            | some 'b' => some .W8 | some 'w' => some .W16 | some 'l' => some .W32 | some 'q' => some .W64
-            | _ => none
-          match w? with
-          | some w =>
-            let cc ← parseCondCode (rest.dropEnd 1).copy
-            pure (cc, some w)
-          | none => fail s!"unknown cmov condition code: {rest}"
+      let (cc, w?) ← do 
+        if let some cc := parseCondCode? rest then
+          pure (cc, none)
+        else
+          let w := match rest.back? with
+            | some 'b' => .W8 | some 'w' => .W16 | some 'l' => .W32 | some 'q' => .W64
+            | _ => fail s!"unknown cmov condition code: {rest}"
+          let cc ← parseCondCode (rest.dropEnd 1).copy
+          pure (cc, some w)
       commaSeparated w? parseRegOrMem parseRegA (.cmovcc cc)
     else
       fail s!"unsupported instruction: {mnemonic}"
