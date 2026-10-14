@@ -124,7 +124,10 @@ instance : ToString ShiftCountExpr where toString
 
 def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := match op with
   | .mov dst src => s!"mov {dst.toStr addr_w}, {src.toStr addr_w}"
-  | .movsx dst src => s!"movsx {dst.toStr addr_w}, {src.toStr addr_w}"
+  | @Operation.movsx _ w' dst src =>
+    -- Intel spells the 32-to-64-bit form `movsxd` (opcode 63 /r, AT&T `movslq`).
+    let m := if w == .W64 && w' == .W32 then "movsxd" else "movsx"
+    s!"{m} {dst.toStr addr_w}, {src.toStr addr_w}"
   | .movzx dst src => s!"movzx {dst.toStr addr_w}, {src.toStr addr_w}"
   | .push src => s!"push {src.toStr addr_w}"
   | .pop dst => s!"pop {dst.toStr addr_w}"
