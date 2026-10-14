@@ -31,7 +31,8 @@ def Mem.loadInt {w} (m : Mem w) (a : BitVec w) (n : Nat) : Option Int :=
 
 -- JP: can't use the Mem abbreviation here because it resolves to List.Mem (the
 -- predicate)
-def List.At {w} (bs : List UInt8) (a : BitVec w) : ExtHashMap (BitVec w) UInt8 :=
+-- FL: Maybe using `_root_.` is a better compromise?
+def List.At {w} (bs : List UInt8) (a : BitVec w) : _root_.Mem w :=
   .ofList (bs.mapIdx (fun i b => (a + .ofNat w i, b)))
 
 def Mem.storeBytes {w} (m : Mem w) (a : BitVec w) (bs : List UInt8) : Mem w :=
