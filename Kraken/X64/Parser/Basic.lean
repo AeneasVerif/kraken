@@ -585,6 +585,10 @@ def Option.toParser {T} (self: Option T): Parser T :=
 
 instance {T} : Coe (Option T) (Parser T) where coe := Option.toParser
 
+def parseWidthSuffix : Char → Option Width
+  | 'b' => pure .W8 | 'w' => pure .W16 | 'l' => pure .W32 | 'q' => pure .W64
+  | _ =>  none
+
 /-- Parse an instruction mnemonic and its operands.
     AT&T syntax: src, dst (reversed from Intel). -/
 def parseInstr : Parser Instr := do
@@ -1039,9 +1043,8 @@ def parseInstr : Parser Instr := do
         if let some cc := parseCondCode? rest then
           pure (cc, none)
         else
-          let w ← do match rest.back? with
-            | some 'b' => pure .W8 | some 'w' => pure .W16 | some 'l' => pure .W32 | some 'q' => pure .W64
-            | _ => fail s!"unknown cmov condition code: {rest}"
+          let some w := rest.back? >>= parseWidthSuffix
+            | fail s!"unknown cmov condition code: {rest}"
           let cc ← parseCondCode (rest.dropEnd 1).copy
           pure (cc, some w)
       commaSeparated w? parseRegOrMem parseRegA (.cmovcc cc)
