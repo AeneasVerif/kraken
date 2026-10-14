@@ -87,7 +87,7 @@ def runKraken (asmCode : String) (initRegs : Reg64s := initData.regs)
   let stripped := Kraken.AArch64.Parser.stripDirectives (_start ++ ":\n" ++ asmCode ++ "\n" ++ _end ++ ":\n")
   let prog ← Kraken.AArch64.Parser.parse stripped
   let layout := Program.fakeLayout prog
-  let initState: MachineState := ({regs := initRegs, dmem := initStack}, layout.labels.label _start)
+  let initState: MachineState := ⟨{regs := initRegs, dmem := initStack}, layout.labels.label _start⟩
   layout.eval initState (finishCriterion prog)
 
 /-! ## Determinism checking, with Semantics.lean in the loop
@@ -122,7 +122,7 @@ def UndefFlags.disagreeing (f : StatusFlags) (fs : Array StatusFlags) : UndefFla
 -- Runs `Effects` to completion, resolving every `undefined` choice with `h`. Also returns
 -- whether any `undefined` choice was made.
 partial def evalEffects (h : UInt64) (sawUndef : Bool) : Effects → Option (MachineData × Bool)
-  | .done (s, _) => some (s, sawUndef)
+  | .done st => some (st.data, sawUndef)
   | .require_read_access _ _ ok | .require_write_access _ _ ok | .require_exec_access _ ok => evalEffects h sawUndef (ok ())
   | @Effects.undefined _ t cont => evalEffects h true (cont (t.from_hash h))
   | _ => none
@@ -136,10 +136,10 @@ def stepDeterministic (d : MachineData) (u : UndefFlags) (asmCode : String) : Op
   let exe := Program.fakeLayout (← (Kraken.AArch64.Parser.parse asmCode).toOption)
   let := exe.labels
   let mut (d, u) := (d, u)
-  for (pc, dir, sz) in exe.withAddresses do
+  for {addr := pc, directive, size} in exe.withAddresses do
     let run (status : StatusFlags) (pc : Int64) (h : UInt64) : Option (MachineData × Bool) :=
-      let p : Std.Rco Int64 := .mk pc (pc + .ofNat sz)
-      evalEffects h false (dir.interp { d with status } p (fun s => .done (s, p.upper)) (fun _ _ => .unimplemented "jump"))
+      let p : Std.Rco Int64 := .mk pc (pc + .ofNat size)
+      evalEffects h false (directive.interp { d with status } p (fun s => .done ⟨s, p.upper⟩) (fun _ _ => .unimplemented "jump"))
     let mut outs : Array MachineData := #[(← run d.status (pc + 0x1000) 0).1]
     for status in u.completions d.status do
       let (s, sawUndef) ← run status pc 0
@@ -312,8 +312,8 @@ public def main (args : List String) : IO UInt32 := do
         return (1 : UInt32)
 
   match runKraken asmCode initRegs with
-  | .ok (state, _) =>
-      IO.println (toJson (summarize state)).compress
+  | .ok {data, ..} =>
+      IO.println (toJson (summarize data)).compress
       return (0 : UInt32)
   | .error e =>
       IO.eprintln s!"Kraken Semantic Error: {e}"

@@ -85,7 +85,7 @@ def finishCriterion (p: Program) (s: MachineState): Bool :=
 def runKraken (asmCode : String)
     : Except String MachineState := do
   let prog ← Kraken.X64.Parser.parse (_start ++ ":" ++ asmCode ++ "\n" ++ _end ++ ":")
-  let initState: MachineState := (initData, prog.fakeLayout.labels.label _start)
+  let initState: MachineState := ⟨initData, prog.fakeLayout.labels.label _start⟩
   prog.fakeLayout.eval initState (finishCriterion prog)
 
 /-! ## Determinism checking, with Semantics.lean in the loop
@@ -120,7 +120,7 @@ def UndefFlags.disagreeing (f : StatusFlags) (fs : Array StatusFlags) : UndefFla
 -- Runs `Effects` to completion, resolving every `undefined` choice with `h`. Also returns
 -- whether any `undefined` choice was made.
 partial def evalEffects (h : UInt64) (sawUndef : Bool) : Effects → Option (MachineData × Bool)
-  | .done (s, _) => some (s, sawUndef)
+  | .done st => some (st.data, sawUndef)
   | .require_read_access _ _ ok | .require_write_access _ _ ok | .require_exec_access _ ok => evalEffects h sawUndef (ok ())
   | @Effects.undefined _ t cont => evalEffects h true (cont (t.from_hash h))
   | _ => none
@@ -137,10 +137,10 @@ def stepDeterministic (d : MachineData) (u : UndefFlags) (asmCode : String) : Op
   let exe := (← (Kraken.X64.Parser.parse asmCode).toOption).fakeLayout
   let := exe.labels
   let mut (d, u) := (d, u)
-  for (pc, dir, sz) in exe.withAddresses do
-    let p : Std.Rco Int64 := .mk pc (pc + .ofNat sz)
+  for {addr := pc, directive, size} in exe.withAddresses do
+    let p : Std.Rco Int64 := pc...<(pc + .ofNat size)
     let run (status : StatusFlags) (h : UInt64) : Option (MachineData × Bool) :=
-      evalEffects h false (dir.interp { d with status } p (fun s => .done (s, p.upper)) (fun _ _ => .unimplemented "jump"))
+      evalEffects h false (directive.interp { d with status } p (fun s => .done ⟨s, p.upper⟩) (fun _ _ => .unimplemented "jump"))
     let mut outs : Array MachineData := #[]
     for status in u.completions d.status do
       let (s, sawUndef) ← run status 0
@@ -280,8 +280,8 @@ public def main (args : List String) : IO UInt32 := do
   let asmCode ← IO.FS.readFile args[0]!
 
   match runKraken asmCode with
-  | .ok (state, _) =>
-      IO.println (toJson (summarize state)).compress
+  | .ok {data, ..} =>
+      IO.println (toJson (summarize data)).compress
       return 0
   | .error e =>
       IO.eprintln s!"Kraken Semantic Error: {e}"
