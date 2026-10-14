@@ -133,9 +133,9 @@ partial def peelArgsLets (args : Array Expr) (i : Nat) (peeled : Array Expr) (fv
   else
     k peeled fvars
 
-def kdeltaBetaOnly (targets: List Name) : DSimproc := fun e => do
+def kdeltaBetaOnly (isTarget: Name → Bool) : DSimproc := fun e => do
   -- This focuses on application nodes.
-  unless e.isApp && targets.any e.getAppFn'.isConstOf do return .rfl
+  unless e.isApp && isTarget e.getAppFn'.constName do return .rfl
 
   let f := e.getAppFn'
   let args := e.getAppArgs
@@ -324,7 +324,7 @@ def prepStepGoal (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal :=
     let goal ← preprocessGoal goal
     let goal ← dsimpGoal goal {
       pre := skipEventuallyDSimp >>
-        kdeltaBetaOnly [`step1, `Executable.step, `straightlineStep, `Executable.straightline] >>
+        kdeltaBetaOnly [`step1, `Executable.step, `straightlineStep, `Executable.straightline].contains >>
         kdsimpProj >> kbeta
     }
     let initTheorems ← addDirectiveAddressTheorems (← addDeclsAndLCtxTheorems {} [
@@ -404,7 +404,7 @@ def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM
     pure ({ goal with mvarId }, sideGoals)
 
 def mkDSimpMethods (env : Environment) : Sym.DSimp.Methods :=
-  let kdsimpDecls := kdeltaBetaOnly (kstepExtension.getState env).toList
+  let kdsimpDecls := kdeltaBetaOnly (kstepExtension.getState env).contains
   {
     pre := evalGround >> kLiftLets >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kdsimpIteCond >> kbeta,
     post := evalGround >> kdsimpMatch >> kdsimpProj >> kdsimpFindLabel >> kbeta
@@ -423,7 +423,7 @@ partial def kstepLoop
     (config : KStepConfig)
     (goal : Grind.Goal) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
   -- STEP 1: dsimp
-  let methods := dsimpMethods (←getEnv)
+  let methods := mkDSimpMethods (←getEnv)
   let goal ← do
     let goal ← dsimpGoal goal methods { maxSteps := 1000000 }
     let target ← Grind.liftSymM (Sym.liftLets (← goal.mvarId.getType) >>= Sym.letToHave)
