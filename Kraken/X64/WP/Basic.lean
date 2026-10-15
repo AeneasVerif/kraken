@@ -82,6 +82,11 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
 
 end
 
+/--
+Soundness of `Program.wp`: if `p` is a fragment of a `Host` program at index `k` and `p.wp Q E s`
+holds, then `p` eventually reaches the postcondition `Q` at the fall-through address or the error
+condition `E` from the initial state `s`.
+-/
 public theorem Program.step1_of_wp_at [Host] {p : Program}
     {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
     {post : @Post MachineState} {k : Nat} (hk : p.IsInfixAt Host.prog k) (hwp : p.wp Q E s)
@@ -94,6 +99,12 @@ public theorem Program.step1_of_wp_at [Host] {p : Program}
     exact hQ s' hq
   · exact hE a s' he
 
+/--
+Soundness of `Program.wp`, cf. `Program.step1_of_wp_at`. In comparison to `Program.step1_of_wp_at`,
+this theorem asserts a fact about the first occurrence of the fragment in the `Host` program, rather
+than the occurrence at a specific index `k`. When there is only a single occurrence of the fragment,
+it has the same meaning as `Program.step1_of_wp_at` and is a bit simpler to read.
+-/
 public theorem Program.step1_of_wp [Host] {p : Program}
     {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
     {post : @Post MachineState} (h : p.IsInfix Host.prog) (hwp : p.wp Q E s)
