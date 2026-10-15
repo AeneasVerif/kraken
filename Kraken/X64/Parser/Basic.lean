@@ -499,18 +499,32 @@ def parseShiftExpr: Parser ShiftCountExpr := do
 -- Condition Code Parsing
 -- ============================================================================
 
+/-- Parse a condition code from a string slice, returning `none` if not recognized. -/
+def parseCondCode? (suffix : String.Slice) : Option CondCode :=
+  match suffix.copy.toLower with
+  | "o" => some .o
+  | "no" => some .no
+  | "b" | "c" | "nae" => some .b
+  | "ae" | "nc" | "nb" => some .ae
+  | "z" | "e" => some .z
+  | "nz" | "ne" => some .nz
+  | "be" | "na" => some .be
+  | "a" | "nbe" => some .a
+  | "s" => some .s
+  | "ns" => some .ns
+  | "p" | "pe" => some .p
+  | "np" | "po" => some .np
+  | "l" | "nge" => some .l
+  | "ge" | "nl" => some .ge
+  | "le" | "ng" => some .le
+  | "g" | "nle" => some .g
+  | _ => none
+
 /-- Parse a condition code from a conditional jump mnemonic suffix. -/
 def parseCondCode (suffix : String.Slice) : Parser CondCode :=
-  match suffix.copy.toLower with
-  | "z" | "e" => .pure .z
-  | "nz" | "ne" => .pure .nz
-  | "b" | "c" | "nae" => .pure .b
-  | "ae" | "nc" | "nb" => .pure .ae
-  | "a" | "nbe" => .pure .a
-  | "be" | "na" => .pure .be
-  | "l" | "nge" => .pure .l
-  | "le" | "ng" => .pure .le
-  | _ => .fail s!"unknown condition code: {suffix}"
+  match parseCondCode? suffix with
+  | some cc => .pure cc
+  | none => .fail s!"unknown condition code: {suffix}"
 
 -- ============================================================================
 -- Instruction Parsing
@@ -602,6 +616,10 @@ def Option.toParser {T} (self: Option T): Parser T :=
   | .none => fail "empty option"
 
 instance {T} : Coe (Option T) (Parser T) where coe := Option.toParser
+
+def parseWidthSuffix : Char → Option Width
+  | 'b' => pure .W8 | 'w' => pure .W16 | 'l' => pure .W32 | 'q' => pure .W64
+  | _ =>  none
 
 /-- Parse an instruction mnemonic and its operands.
     AT&T syntax: src, dst (reversed from Intel). -/
@@ -1063,12 +1081,18 @@ def parseInstr : Parser Instr := do
       let (addr_w, dst) ← parseRegOrMemAO .W8
       pure (toInstr addr_w (.setcc cc dst))
     else if mn.startsWith "cmov" then
-      -- TODO: are the suffixed variants really used here? do we truly need to
-      -- handle cmovzb and the like? how many are there? we could conceivably
-      -- just ignore it on the basis that the assembler will bail if there is
-      -- something inconsistent like .cmovzb %rax %rbx
-      let cc ← parseCondCode (mn.drop 4)
-      commaSeparated .none parseRegOrMem parseRegA (.cmovcc cc)
+      let rest := (mn.drop 4).copy
+      -- First try parsing condition code directly (e.g. "l" for cmovl, "ge" for cmovge).
+      -- If that fails or if a width suffix was given, strip the suffix ('w', 'l', 'q') and retry.
+      let (cc, w?) ← do
+        if let some cc := parseCondCode? rest then
+          pure (cc, none)
+        else
+          let some w := rest.back? >>= parseWidthSuffix
+            | fail s!"unknown cmov condition code: {rest}"
+          let cc ← parseCondCode (rest.dropEnd 1).copy
+          pure (cc, some w)
+      commaSeparated w? parseRegOrMem parseRegA (.cmovcc cc)
     else
       fail s!"unsupported instruction: {mnemonic}"
 

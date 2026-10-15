@@ -260,8 +260,12 @@ instance (w : AvxWidth) : NondetSupportingType w.type := .avx_bitvec w
 instance : NondetSupportingType Bool := .bool
 instance : NondetSupportingType StatusFlags := .statusFlags
 
+structure MachineState where
+  data : MachineData
+  pc : Int64
+
 inductive Effects
-  | done (a : MachineData × Int64)
+  | done (a : MachineState)
   | unimplemented (msg : String)
   | gp_unaligned (addr : BitVec 64) (w : Nat)
   -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
@@ -415,9 +419,14 @@ match o with
 
 @[kstep]
 def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
-  | .z  => s.zf | .nz => !s.zf | .c  => s.cf | .nc => !s.cf
-  | .a  => !s.cf && !s.zf | .be => s.cf || s.zf
-  | .l => s.sf != s.of | .le => (s.sf != s.of) || s.zf
+  | .o  => s.of | .no => !s.of
+  | .c  => s.cf | .nc => !s.cf
+  | .z  => s.zf | .nz => !s.zf
+  | .be => s.cf || s.zf | .a  => !s.cf && !s.zf
+  | .s  => s.sf | .ns => !s.sf
+  | .p  => s.pf | .np => !s.pf
+  | .l  => s.sf != s.of | .ge => s.sf == s.of
+  | .le => (s.sf != s.of) || s.zf | .g  => !s.zf && (s.sf == s.of)
 
 @[kstep] def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
   | .cl => s.regs.rcx.toBitVec.take 8
@@ -783,12 +792,12 @@ def Instr.interp [Labels]
   | .byteArray _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
 
 def Directives.interp [Labels]
-  (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
+  (ds : List (Kraken.Sized Directive)) (s : MachineData) (pc : Int64)
   (ret : Int64 → MachineData → Effects) : Effects :=
   match ds with
   | [] => ret pc s
-  | (d, sz) :: ds =>
-    d.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
+  | {directive, size := sz} :: ds =>
+    directive.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
     interp ds s (pc+.ofNat sz) ret))
 
 abbrev Layout := Kraken.Layout Directive
@@ -796,20 +805,18 @@ abbrev Layout := Kraken.Layout Directive
 @[reducible]
 def Executable.labels (e : Executable) : Labels :=
   { label l := (e.withAddresses.findSome?
-      (fun (p, d, _) => if d = .label l then .some p else .none)).getD (-1) }
+      (fun {directive, addr, ..} => if directive = .label l then .some addr else .none)).getD (-1) }
 
-def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directive × Nat) :=
-  e.2.dropWhile (·.1 != .label l)
-
-abbrev MachineState := MachineData × Int64
+def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Kraken.Sized Directive) :=
+  e.program.dropWhile (·.directive != .label l)
 
 def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
   let := Executable.labels e
-  Directives.interp (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
+  Directives.interp (e.directivesAtAddress s.pc) s.data s.pc (fun pc s => ret ⟨s, pc⟩)
 
 def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
   let := Executable.labels e
-  Directives.interp (e.directivesFromAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
+  Directives.interp (e.directivesFromAddress s.pc) s.data s.pc (fun pc s => ret ⟨s, pc⟩)
 
 -- -- Concrete evaluators for expedient testing
 
@@ -853,4 +860,4 @@ abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
     .instr (.regular .W64 .W64 .ret) ]
   let start := (Executable.labels exe).label "main"
   let data : MachineData := { dmem := Mem.storeInt {} 0x100 8 0x1337, regs := {rsp := 0x100} }
-  (Executable.eval exe (data, start) (fun (_, pc) => pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)
+  (Executable.eval exe {data, pc := start} (fun st => st.pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)

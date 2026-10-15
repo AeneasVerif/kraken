@@ -28,8 +28,8 @@ without users needing to specify it explicitly everywhere.
     (E : Int64 → MachineData → Prop) (s : MachineData) : Prop :=
   ∀ k, p.IsInfixAt Host.prog k →
     Eventually (step1 Host.exe)
-      (fun st => (st.2 = Host.addrOf (k + p.length) ∧ Q st.1) ∨ E st.2 st.1)
-      (s, Host.addrOf k)
+      (fun st => (st.pc = Host.addrOf (k + p.length) ∧ Q st.data) ∨ E st.pc st.data)
+      ⟨s, Host.addrOf k⟩
 
 public theorem Program.wp_mono [Host] {p : Program} {Q₁ Q₂ : MachineData → Prop}
     {E₁ E₂ : Int64 → MachineData → Prop} (hQ : ∀ s, Q₁ s → Q₂ s) (hE : ∀ a s, E₁ a s → E₂ a s)
@@ -58,9 +58,9 @@ variable [Host]
 public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     (hdp : (d :: p).IsInfixAt Host.prog k) {post : @Post MachineState} {s : MachineData}
     (h : (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
-      (fun s' => .done (s', Host.addrOf (k + 1))) (fun a s' => .done (s', a))).All post) :
-    Eventually (step1 Host.exe) post (s, Host.addrOf k) := by
-  have hd : Host.exe.2[k]? = some (d, Kraken.Layout.size Directive k) := by
+      (fun s' => .done ⟨s', Host.addrOf (k + 1)⟩) (fun a s' => .done ⟨s', a⟩)).All post) :
+    Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ := by
+  have hd : Host.exe.program[k]? = some {directive := d, size := Kraken.Layout.size Directive k} := by
     rw [Host.exe_getElem?, hdp.cons.1]
     rfl
   rw [Host.addrOf_succ hdp.cons.1] at h
@@ -72,7 +72,7 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     exact Eventually.done _ h
   · refine Eventually.step _ post ?_ fun _ hb => Eventually.done _ hb
     obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd hz
-    have hinert : ∀ c ∈ pre, c.2 = 0 ∧ c.1.Inert := fun c hc =>
+    have hinert : ∀ c ∈ pre, c.size = 0 ∧ c.directive.Inert := fun c hc =>
       ⟨hpre c hc, Host.inert_of_size_zero (hpre c hc ▸
         Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc))⟩
     unfold step1 Executable.step
@@ -90,8 +90,8 @@ condition `E` from the initial state `s`.
 public theorem Program.step1_of_wp_at [Host] {p : Program}
     {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
     {post : @Post MachineState} {k : Nat} (hk : p.IsInfixAt Host.prog k) (hwp : p.wp Q E s)
-    (hQ : ∀ s', Q s' → post (s', Host.addrOf (k + p.length))) (hE : ∀ a s', E a s' → post (s', a)) :
-    Eventually (step1 Host.exe) post (s, Host.addrOf k) := by
+    (hQ : ∀ s', Q s' → post ⟨s', Host.addrOf (k + p.length)⟩) (hE : ∀ a s', E a s' → post ⟨s', a⟩) :
+    Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ := by
   refine eventually_weaken _ _ _ _ ?_ (hwp k hk)
   rintro ⟨s', a⟩ (⟨ha, hq⟩ | he)
   · dsimp only at ha
@@ -108,6 +108,6 @@ it has the same meaning as `Program.step1_of_wp_at` and is a bit simpler to read
 public theorem Program.step1_of_wp [Host] {p : Program}
     {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
     {post : @Post MachineState} (h : p.IsInfix Host.prog) (hwp : p.wp Q E s)
-    (hQ : ∀ s', Q s' → post (s', endAddr h)) (hE : ∀ a s', E a s' → post (s', a)) :
-    Eventually (step1 Host.exe) post (s, startAddr h) :=
+    (hQ : ∀ s', Q s' → post ⟨s', endAddr h⟩) (hE : ∀ a s', E a s' → post ⟨s', a⟩) :
+    Eventually (step1 Host.exe) post ⟨s, startAddr h⟩ :=
   Program.step1_of_wp_at (List.isInfixAt_infixIdx h) hwp hQ hE

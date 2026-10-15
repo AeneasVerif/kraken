@@ -56,47 +56,47 @@ public theorem Host.inert_of_getElem? [Host] {i : Nat} {d : Directive} (h : Host
 export Host (startAddr endAddr)
 
 public theorem Layout.apply_getElem? [layout : Layout] (p : Program) (i : Nat) :
-    (layout p).2[i]? = (p[i]?).map (fun d => (d, Kraken.Layout.size Directive i)) := by
+    (layout p).program[i]? = (p[i]?).map (fun d => {directive := d, size := Kraken.Layout.size Directive i}) := by
   simp [Kraken.Layout.apply, List.getElem?_mapIdx]
 
 public theorem Host.exe_getElem? [Host] (i : Nat) :
-    Host.exe.2[i]? = Host.prog[i]?.map (fun d => (d, Kraken.Layout.size Directive i)) :=
+    Host.exe.program[i]? = Host.prog[i]?.map (fun d => {directive := d, size := Kraken.Layout.size Directive i}) :=
   Layout.apply_getElem? _ _
 
 public theorem Host.addrOf_succ [Host] {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d) :
     Host.addrOf (k + 1) = Host.addrOf k + .ofNat (Kraken.Layout.size Directive k) :=
-  Kraken.Executable.addrOf_succ _ (by rw [Host.exe_getElem?, hd]; rfl)
+  Kraken.Executable.addrOf_succ _ (c := {directive := d, size := Kraken.Layout.size Directive k}) (by rw [Host.exe_getElem?, hd]; rfl)
 
 section
 variable [Host]
 
-public theorem Host.inert_of_size_zero {d : Directive} (h : (d, 0) ∈ Host.exe.2) : d.Inert := by
+public theorem Host.inert_of_size_zero {d : Directive} (h : {directive := d, size := 0} ∈ Host.exe.program) : d.Inert := by
   obtain ⟨m, hm⟩ := List.mem_iff_getElem?.mp h
   grind [Host.exe_getElem?, Host.inert_of_getElem?]
 
-public theorem Host.directivesAtAddress_addrOf {k : Nat} {d : Directive} {z : Nat}
-    (hd : Host.exe.2[k]? = some (d, z)) (hz : 0 < z) :
-    ∃ pre, Host.exe.directivesAtAddress (Host.addrOf k) = pre ++ [(d, z)] ∧
-      ∀ c ∈ pre, c.2 = 0 := by
+public theorem Host.directivesAtAddress_addrOf {k : Nat} {c : Kraken.Sized Directive}
+    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) :
+    ∃ pre, Host.exe.directivesAtAddress (Host.addrOf k) = pre ++ [c] ∧
+      ∀ c ∈ pre, c.size = 0 := by
   obtain ⟨j, hjk, hj, hmin⟩ :=
     exists_least_le (P := fun i => Host.exe.addrOf i = Host.exe.addrOf k) rfl
   have hsize := Host.sizeBefore_eq_of_addrOf_eq hj
-  have hpre : ∀ c ∈ (Host.exe.2.drop j).take (k - j), c.2 = 0 := by
+  have hpre : ∀ c ∈ (Host.exe.program.drop j).take (k - j), c.size = 0 := by
     have := Host.exe.sizeBefore_add j (k - j)
     rw [Nat.add_sub_cancel' hjk] at this
-    have hsum : (((Host.exe.2.drop j).take (k - j)).map (·.2)).sum = 0 := by omega
+    have hsum : (((Host.exe.program.drop j).take (k - j)).map (·.size)).sum = 0 := by omega
     exact fun c hc => List.sum_eq_zero_iff_forall_eq_nat.mp hsum _ (List.mem_map_of_mem hc)
   have haddr : ∀ m, j ≤ m → m ≤ k → Host.exe.addrOf m = Host.exe.addrOf k := fun m hjm hmk => by
     grind [Kraken.Executable.addrOf, Host.exe.sizeBefore_mono hjm, Host.exe.sizeBefore_mono hmk]
   have hnext : Host.exe.addrOf (k + 1) ≠ Host.exe.addrOf k := fun h => by
     grind [Host.sizeBefore_eq_of_addrOf_eq h]
-  refine ⟨(Host.exe.2.drop j).take (k - j), ?_, hpre⟩
-  show (((Kraken.Executable.withAddresses (Host.exe.1, Host.exe.2)).dropWhile
-    (·.1 ≠ Host.exe.addrOf k)).takeWhile (·.1 = Host.exe.addrOf k)).map (·.2) = _
+  refine ⟨(Host.exe.program.drop j).take (k - j), ?_, hpre⟩
+  show ((Host.exe.withAddresses.dropWhile
+    (·.addr ≠ Host.exe.addrOf k)).takeWhile (·.addr = Host.exe.addrOf k)).map (·.toSized) = _
   rw [Kraken.Executable.withAddresses_dropWhile_addrOf _ j k hj hmin,
     takeWhile_eq_take_of (n := k - j + 1)]
   · rw [List.map_take, List.map_drop, Kraken.Executable.withAddresses_map_snd, List.take_add_one,
-      List.getElem?_drop, Nat.add_sub_cancel' hjk, hd]
+      List.getElem?_drop, Nat.add_sub_cancel' hjk, hc]
     rfl
   · intro m hm c hc
     have := haddr (j + m) (by omega) (by omega)
