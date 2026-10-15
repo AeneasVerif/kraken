@@ -23,13 +23,13 @@ public theorem Int64.add_sub_self_left (a b : Int64) : a + (b - a) = b := by
 
 namespace Program.WP
 
-public scoped instance instWP [Host] : WP Program Unit (MachineData → Prop) (Int64 → MachineData → Prop) where
+public instance [Host] : WP Program Unit (MachineData → Prop) (Int64 → MachineData → Prop) where
   trans q := ⟨fun Q E s => Program.wp q (Q ()) E s⟩
   trans_monotone _ := fun _ _ _ _ hE hQ _ h => Program.wp_mono (hQ ()) hE h
 
-public scoped instance [Host] : WP Directive Unit (MachineData → Prop) (Int64 → MachineData → Prop) where
-  trans d := WP.trans (self := instWP) [d]
-  trans_monotone d := WP.trans_monotone (self := instWP) [d]
+public instance [Host] : WP Directive Unit (MachineData → Prop) (Int64 → MachineData → Prop) where
+  trans d := WP.trans ([d] : Program)
+  trans_monotone d := WP.trans_monotone ([d] : Program)
 
 public theorem triple_directive [Host] {d : Directive} {P : MachineData → Prop}
     {Q : Unit → MachineData → Prop} {E : Int64 → MachineData → Prop} :
