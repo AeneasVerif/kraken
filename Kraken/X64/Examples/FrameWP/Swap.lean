@@ -22,9 +22,9 @@ def swap : Program := parse("
   xor %rax, %rbx
   xor %rbx, %rax")
 
-theorem swap_spec [Host] (a b : BitVec 64) :
+theorem swap_spec [Host] [BlockEntries] [Embeds swap] (a b : BitVec 64) :
     ⦃ fun r _ _ => ⌜r.get Reg.rax = a ∧ r.get Reg.rbx = b⌝ ⊓ MProp.emp ⦄
-      swap
+      frag% swap
     ⦃ fun _ r _ _ => ⌜r.get Reg.rax = b ∧ r.get Reg.rbx = a⌝ ⦄ := by
   kvcgen64 [swap] with finish
 
@@ -33,7 +33,7 @@ theorem swap_spec [Host] (a b : BitVec 64) :
 `swap_spec` read back as the judgment of the baseline example `swap_correct`,
 over the same program text. -/
 
-theorem swap_correct [Host] [layout : _root_.Layout] (hp : swap.IsInfix Host.prog) (d : MachineData) :
+theorem swap_correct [Host] (hp : swap.IsInfix Host.prog) (d : MachineData) :
       Eventually (step1 Host.exe)
       (fun s' =>
           s'.data.regs.get Reg.rax = d.regs.get Reg.rbx ∧

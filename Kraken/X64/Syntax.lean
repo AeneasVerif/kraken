@@ -279,15 +279,15 @@ def Directive.label? : Directive → Option Label
 /-- The labels of the text, in order. -/
 def Program.labels (p : Program) : List Label := p.filterMap Directive.label?
 
-@[simp] theorem Program.labels_nil : Program.labels [] = [] := rfl
+@[simp, grind =] theorem Program.labels_nil : Program.labels [] = [] := rfl
 
-@[simp] theorem Program.labels_cons_label (l : Label) (p : Program) :
+@[simp, grind =] theorem Program.labels_cons_label (l : Label) (p : Program) :
     Program.labels (.label l :: p) = l :: Program.labels p := rfl
 
-@[simp] theorem Program.labels_cons_instr (i : Instr) (p : Program) :
+@[simp, grind =] theorem Program.labels_cons_instr (i : Instr) (p : Program) :
     Program.labels (.instr i :: p) = Program.labels p := rfl
 
-@[simp] theorem Program.labels_cons_byteArray (a : ByteArray) (p : Program) :
+@[simp, grind =] theorem Program.labels_cons_byteArray (a : ByteArray) (p : Program) :
     Program.labels (.byteArray a :: p) = Program.labels p := rfl
 
 theorem Program.labels_append (a b : Program) :

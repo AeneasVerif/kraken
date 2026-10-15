@@ -22,9 +22,9 @@ attribute [local grind =] Int.toBytes_length UInt64.toBytes_length BitVec.ofInt_
 
 namespace Sep
 
-@[spec] theorem alu_mem_correct [Host] (v : UInt64) :
+@[spec] theorem alu_mem_correct [Host] [BlockEntries] [Embeds alu_mem_example] (v : UInt64) :
     ⦃ fun r _ _ => v.AtM (r.rdx.toBitVec + 136#64) ⦄
-      alu_mem_example
+      frag% alu_mem_example
     ⦃ fun _ r _ _ => ⌜r.rcx = 142⌝ ⊓ (Int.toBytes 8 42).AtM (r.rdx.toBitVec + 136#64) ⦄ := by
   kvcgen64 [alu_mem_example] with finish
 
@@ -54,9 +54,9 @@ def reg_block : Program := parse("
   movq $9, %r9
 ")
 
-theorem reg_block_correct [Host] :
+theorem reg_block_correct [Host] [BlockEntries] [Embeds reg_block] :
     ⦃ fun _ _ _ => MProp.emp ⦄
-      reg_block
+      frag% reg_block
     ⦃ fun _ r _ _ => ⌜r.rax = 1 ∧ r.rbx = 2 ∧ r.rcx = 3 ∧ r.rdx = 4 ∧ r.rsi = 5 ∧ r.rdi = 6
         ∧ r.rbp = 7 ∧ r.r8 = 8 ∧ r.r9 = 9⌝ ⦄ := by
   kvcgen64 [reg_block] with finish

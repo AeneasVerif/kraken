@@ -23,9 +23,9 @@ def p6 := parse("push %rax
 mov $0, %rax
 pop %rax")
 
-theorem p6_spec [Host] (stack : List UInt8) (h_len : stack.length = 8) (a sp : UInt64) :
+theorem p6_spec [Host] [BlockEntries] [Embeds p6] (stack : List UInt8) (h_len : stack.length = 8) (a sp : UInt64) :
     ⦃ fun r _ _ => ⌜r.rax = a ∧ r.rsp = sp⌝ ⊓ stack.AtM (r.rsp.toBitVec - 8#64) ⦄
-      p6
+      frag% p6
     ⦃ fun _ r _ _ => ⌜r.rax = a ∧ r.rsp = sp⌝ ⦄ := by
   kvcgen64 [p6] with finish
 
@@ -34,7 +34,7 @@ theorem p6_spec [Host] (stack : List UInt8) (h_len : stack.length = 8) (a sp : U
 `p6_spec` read back as the judgment of the baseline example `p6_correct`,
 over the same program text. -/
 
-theorem p6_correct [Host] [layout : _root_.Layout] (hp : p6.IsInfix Host.prog) (s₀ : MachineData)
+theorem p6_correct [Host] (hp : p6.IsInfix Host.prog) (s₀ : MachineData)
     (stack : List UInt8) (h_len : stack.length = 8) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (stack.At (s₀.regs.rsp.toBitVec - 8#64)) ⋆ R) :
     Eventually (step1 Host.exe)

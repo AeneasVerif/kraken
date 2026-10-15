@@ -117,54 +117,13 @@ grind_pattern Modifies.Agree.reg => m.Agree s s', s'.regs.get64 r
   · intro h r hr
     cases r <;> simp_all
 
-open Program.WP in
-/-- Calling `f` from a state that satisfies `Pre` returns with `Post`, and keeps the registers
-outside `m`. -/
-abbrev CallSpec [Host] (f : Label) (Pre : MachineData → Prop)
-    (Post : MachineData → MachineData → Prop) (m : Modifies) : Prop :=
-  ∀ asz osz (Q : Unit → MachineData → Prop) (E : Int64 → MachineData → Prop),
-    ⦃ fun s => ((Mem.loadInt s.dmem (s.regs.get64 .rsp - 8#64) 8).isSome = true) ⊓ Pre s
-        ⊓ (∀ s', Post s s' → m.Agree s s' → Q () s') ⦄
-      Directive.instr (.regular asz osz (.call (.rel (.sub (.label f) .after_current_instruction))))
-    ⦃ Q; E ⦄
-
 namespace Program.WP
 
 /- A jump exit of `cfg` asks where its target sits in the list of labels of the program,
 `["start", ".loop", …]`. With `Program.WP` open, `grind`'s normalizer answers by evaluation. -/
 attribute [scoped grind norm] List.idxOf_cons List.contains_cons
 
-variable [Host]
-
-/-- A callee's body triple, linked in the program, is its call spec. -/
-theorem callSpec_of_triple {P body rest : Program} {k : Nat} (hP : P.IsInfixAt Host.prog k)
-    {f : Label} {Pre : MachineData → Prop} {Post : MachineData → MachineData → Prop}
-    {m : Modifies} (hat : Program.fromLabel P f = Directive.label f :: (body ++ rest))
-    (hbody : ∀ s ra, ⦃ fun t => t = s.pushRa ra ∧ Pre s ⦄ (Directive.label f :: body)
-      ⦃ (fun _ _ => False); fun a t => a = ra ∧ Post s t ∧ m.Agree s t ⦄) :
-    CallSpec f Pre Post m := by
-  intro asz osz Q E
-  have hl := Program.drop_fromLabel P f ▸ hP.drop (P.length - (Program.fromLabel P f).length)
-  generalize k + (P.length - (Program.fromLabel P f).length) = j at hl
-  rw [hat] at hl
-  obtain ⟨hbody', -⟩ := List.IsInfixAt.append (a := Directive.label f :: body) hl
-  refine triple_directive.mpr ⟨fun s hpre => ?_⟩
-  simp only [meet_prop_eq_and] at hpre
-  obtain ⟨⟨hmapped, hpre⟩, hcont⟩ := hpre
-  obtain ⟨i, hload⟩ := Option.isSome_iff_exists.mp hmapped
-  intro k' hs
-  refine eventually_trans _
-    (fun st => st = ⟨s.pushRa (Host.addrOf (k' + 1)), Host.addrOf j⟩) _ _
-    (Host.eventually_of_interp hs ?_) ?_
-  · simp only [Directive.interp, Instr.interp, Operation.interp, RelRegOrMem.interp,
-      ConstExpr.interp, MachineData.store, hload, Effects.All]
-    rw [Int64.ofBitVec_toBitVec, Int64.add_sub_self_left, Host.label_eq (i := 0) hl rfl, Nat.add_zero]
-    rfl
-  · rintro _ rfl
-    refine eventually_trans _ _ _ _ ((hbody s _).1 _ ⟨rfl, hpre⟩ j hbody') ?_
-    rintro ⟨t, a⟩ (⟨_, h⟩ | ⟨ha, hpost, hagree⟩)
-    · exact h.elim
-    · exact Eventually.done _ (Or.inl ⟨ha, hcont t hpost hagree⟩)
+variable [Host] [BlockEntries] [FunDecls]
 
 /-! ## The control-flow rule -/
 
@@ -173,22 +132,24 @@ theorem callSpec_of_triple {P body rest : Program} {k : Nat} (hP : P.IsInfixAt H
 `n`. It falls into the next block with the entry there and the variant not increased, or, as the
 last block, falls through the end of `p` with `Qend`. A jump either reaches a block of `p` along
 `Program.EdgeLt`, or leaves `p` with `Ext`. -/
-theorem cfg {p p' : Program} {l₀ : Label}
+theorem cfg {p p' : Program} {l₀ : Label} [H : Embeds p]
     (T : Label → MachineData → Prop) (var : Label → MachineData → Nat)
     (Qend : MachineData → Prop) (Ext : Int64 → MachineData → Prop)
-    (hblocks : ∀ l blk, Program.blockAt p l = some blk → ∀ n : Nat, ∀ k, p.IsInfixAt Host.prog k →
+    (hentries : ∀ l ∈ Program.labels p, l ∈ BlockEntries.labels)
+    (hblocks : ∀ l blk, Program.blockAt p l = some blk → ∀ n : Nat, ∀ (_ : Embeds blk.body),
       ⦃ fun s => T l s ∧ var l s = n ⦄
-        blk.body
-      ⦃ (match blk.next with
-         | some l' => fun _ s => T l' s ∧ var l' s ≤ n
-         | none => fun _ s => Qend s);
-        fun a s => (∃ l', label l' = a
-          ∧ (Program.blockAt p l').isSome ∧ T l' s ∧ Program.EdgeLt p var l n l' s) ∨ Ext a s ⦄)
-    (hp : p = Directive.label l₀ :: p' := by rfl) (hnd : (Program.labels p).Nodup := by decide) :
-    ⦃ fun s => T l₀ s ⦄ p ⦃ fun _ s => Qend s; Ext ⦄ := by
-  refine ⟨fun s hT k hlink => ?_⟩
-  let B := fun st : MachineState =>
-    (st.pc = Host.addrOf (k + p.length) ∧ Qend st.data) ∨ Ext st.pc st.data
+        frag% blk.body
+      ⦃ fun _ s => (match blk.next with
+          | some l' => T l' s ∧ var l' s ≤ n
+          | none => Qend s) ∨ Program.JumpTo p T var l n (frag% blk.body).endAddr s;
+        fun a s => Program.JumpTo p T var l n a s ∨ (Ext a s ∧ ∀ l' ∈ Program.labels p, label l' ≠ a) ⦄)
+    (hp : p = Directive.label l₀ :: p' := by rfl) (hnd : (Program.labels p).Nodup := by decide)
+    (hfun : ∀ a, p.Entry a → FunDecls.at a = none := by intros; rfl) :
+    ⦃ fun s => T l₀ s ⦄ frag% p ⦃ fun _ s => Qend s; Ext ⦄ := by
+  refine ⟨fun s hT => ?_⟩
+  show @Program.wp _ _ _ p H (fun s => Qend s) Ext s
+  rw [Program.wp_eq]
+  have hlink := H.embedding.isInfixAt
   have hK : ∀ l, Program.blockIdx p l ≤ (Program.view p).2.length := Program.blockIdx_le p
   have hcellOf : ∀ l, Program.fromLabel p l ≠ [] →
       p[p.length - (Program.fromLabel p l).length]? = some (Directive.label l) := by
@@ -197,15 +158,48 @@ theorem cfg {p p' : Program} {l₀ : Label}
     obtain ⟨t, rest, -, hfl, -, -⟩ := Program.fromLabel_split hnd hne
     conv at hdrop => rhs; rw [hfl]
     simpa [List.head?_drop] using congrArg List.head? hdrop
+  have hne_of : ∀ l', (Program.blockAt p l').isSome → Program.fromLabel p l' ≠ [] := by
+    intro l' hsome'
+    obtain ⟨blk', hblk'⟩ := Option.isSome_iff_exists.mp hsome'
+    rw [Program.fromLabel_block hnd hblk']
+    exact List.cons_ne_nil _ _
+  have hentry : ∀ l', (Program.blockAt p l').isSome → p.Entry (label l') := fun l' hsome' =>
+    ⟨l', hentries l' (Program.mem_labels.mpr (List.mem_of_getElem? (hcellOf l' (hne_of l' hsome')))),
+      Program.mem_labels.mpr (List.mem_of_getElem? (hcellOf l' (hne_of l' hsome'))), rfl⟩
   have key : ∀ x : Label × MachineData, (Program.blockAt p x.1).isSome → T x.1 x.2 →
-      Eventually (step1 Host.exe) B
-        ⟨x.2, Host.addrOf (k + (p.length - (Program.fromLabel p x.1).length))⟩ := by
+      Run p.step (fun st st' => p.Edge st.pc st'.pc) (·.pc = Host.addrOf (H.embedding.start + p.length))
+        (Qend ·.data) (fun st => Ext st.pc st.data)
+        ⟨x.2, Host.addrOf (H.embedding.start + (p.length - (Program.fromLabel p x.1).length))⟩ := by
     intro x
     induction x using (measure (Program.cfgMeasure p var)).wf.induction with
     | _ x ih =>
       obtain ⟨l, s⟩ := x
       intro hsome hT
       dsimp only at hsome hT ⊢
+      have jump : ∀ l' s', (Program.blockAt p l').isSome → T l' s' →
+          Program.cfgMeasure p var (l', s') < Program.cfgMeasure p var (l, s) →
+          Run p.step (fun st st' => p.Edge st.pc st'.pc) (·.pc = Host.addrOf (H.embedding.start + p.length))
+        (Qend ·.data) (fun st => Ext st.pc st.data)
+            ⟨s', label l'⟩ := by
+        intro l' s' hsome' hT' hlt
+        rw [Host.label_eq hlink (hcellOf l' (hne_of l' hsome'))]
+        exact ih (l', s') hlt hsome' hT'
+      have edge : ∀ l' s', Program.EdgeLt p var l (var l s) l' s' →
+          Program.cfgMeasure p var (l', s') < Program.cfgMeasure p var (l, s) := by
+        intro l' s' hedge
+        have hK' := hK l'
+        unfold Program.cfgMeasure
+        dsimp only
+        rcases hedge with hlt | ⟨heq, hij⟩
+        · have hmul : (var l' s' + 1) * ((Program.view p).2.length + 1)
+              ≤ var l s * ((Program.view p).2.length + 1) :=
+            Nat.mul_le_mul_right _ hlt
+          have hsucc : (var l' s' + 1) * ((Program.view p).2.length + 1)
+              = var l' s' * ((Program.view p).2.length + 1)
+                + ((Program.view p).2.length + 1) := Nat.succ_mul _ _
+          omega
+        · rw [heq]
+          omega
       obtain ⟨blk, hblk⟩ := Option.isSome_iff_exists.mp hsome
       have htext := Program.fromLabel_block hnd hblk
       have hlen := congrArg List.length htext
@@ -215,66 +209,59 @@ theorem cfg {p p' : Program} {l₀ : Label}
         have := congrArg List.length hdrop
         simp only [List.length_drop] at this
         omega
-      have hl := hdrop ▸ hlink.drop (p.length - (Program.fromLabel p l).length)
-      generalize hi : p.length - (Program.fromLabel p l).length = i at hdrop hl
-      rw [htext] at hl
-      obtain ⟨hlab, hrest⟩ := List.IsInfixAt.append (a := [Directive.label l]) hl
-      obtain ⟨hbody, -⟩ := List.IsInfixAt.append hrest
-      refine eventually_trans _ (fun st => st = ⟨s, Host.addrOf (k + i + 1)⟩) _ _
-        (Host.eventually_of_interp hlab (by simp only [Directive.interp, Effects.All])) ?_
-      rintro _ rfl
-      refine eventually_trans _ _ _ _ ((hblocks l blk hblk (var l s) k hlink).1 s ⟨hT, rfl⟩
-        (k + i + 1) hbody) ?_
-      rintro ⟨s', a⟩ (⟨hend, hq⟩ | hE)
-      · dsimp only at hend hq
-        subst hend
-        cases hn : blk.next with
-        | none =>
-          rw [hn] at hq hlen
-          refine Eventually.done _ (Or.inl ⟨?_, hq⟩)
-          simp only [Option.elim, List.length_nil] at hlen
-          show Host.addrOf (k + i + 1 + blk.body.length) = _
-          rw [show k + i + 1 + blk.body.length = k + p.length by omega]
-        | some l' =>
-          rw [hn] at hq hlen
-          obtain ⟨hT', hvar⟩ := hq
-          obtain ⟨hsome', hidx'⟩ := Program.blockAt_next hnd hblk hn
-          simp only [Option.elim] at hlen
-          rw [show k + i + 1 + blk.body.length
-            = k + (p.length - (Program.fromLabel p l').length) by omega]
-          refine ih (l', s') ?_ hsome' hT'
-          have hK' := hK l'
-          show Program.cfgMeasure p var (l', s') < Program.cfgMeasure p var (l, s)
-          unfold Program.cfgMeasure
-          dsimp only
-          have hmul : var l' s' * ((Program.view p).2.length + 1)
-              ≤ var l s * ((Program.view p).2.length + 1) :=
-            Nat.mul_le_mul_right _ hvar
-          omega
-      · rcases hE with ⟨l', hlab', hsome', hT', hedge⟩ | hext
-        · dsimp only at hlab'
-          subst hlab'
-          have hne : Program.fromLabel p l' ≠ [] := by
-            obtain ⟨blk', hblk'⟩ := Option.isSome_iff_exists.mp hsome'
-            rw [Program.fromLabel_block hnd hblk']
-            exact List.cons_ne_nil _ _
-          rw [Host.label_eq hlink (hcellOf l' hne)]
-          refine ih (l', s') ?_ hsome' hT'
-          have hK' := hK l'
-          show Program.cfgMeasure p var (l', s') < Program.cfgMeasure p var (l, s)
-          unfold Program.cfgMeasure
-          dsimp only
-          rcases hedge with hlt | ⟨heq, hij⟩
-          · have hmul : (var l' s' + 1) * ((Program.view p).2.length + 1)
+      generalize hi : p.length - (Program.fromLabel p l).length = i at hdrop ⊢
+      rw [htext] at hdrop
+      have hbody : blk.body.IsInfixAt p (i + 1) :=
+        ⟨blk.next.elim [] (Program.fromLabel p), by rw [← List.drop_drop, hdrop]; rfl⟩
+      have hpi : p[i]? = some (.label l) := by
+        have h0 := congrArg (·[0]?) hdrop
+        simpa only [List.getElem?_drop, Nat.add_zero, List.getElem?_cons_zero] using h0
+      have hlab : Host.prog[H.embedding.start + i]? = some (.label l) := by
+        obtain ⟨hlt, heq⟩ := List.getElem?_eq_some_iff.mp hpi
+        rw [List.isInfixAt_iff_getElem?.mp hlink i hlt, heq]
+      have haddr : Host.addrOf (H.embedding.start + (i + 1)) = Host.addrOf (H.embedding.start + i) := by
+        rw [← Nat.add_assoc, Host.addrOf_succ hlab, Host.label_size _ _ hlab]; simp
+      rw [← haddr]
+      refine Program.run_infix (o := i + 1) hbody (by omega) (fun a ha _ => hfun a ha)
+        (Q' := fun s' => (match blk.next with
+          | some l' => T l' s' ∧ var l' s' ≤ var l s
+          | none => Qend s') ∨
+            Program.JumpTo p T var l (var l s) (@Fragment.mk _ blk.body (H.ofIsInfixAt hbody)).endAddr s')
+        (E' := fun a s' => Program.JumpTo p T var l (var l s) a s' ∨
+          (Ext a s' ∧ ∀ l' ∈ Program.labels p, label l' ≠ a))
+        ((hblocks l blk hblk (var l s) (H.ofIsInfixAt hbody)).1 s ⟨hT, rfl⟩) ?_ ?_
+      · rintro s' (hnext | ⟨l', hl', hsome', hT', hedge⟩)
+        · cases hn : blk.next with
+          | none =>
+            simp only [hn] at hnext hlen
+            refine Run.done ?_ hnext
+            show Host.addrOf (H.embedding.start + (i + 1) + blk.body.length) = _
+            congr 1
+            simp only [Option.elim, List.length_nil] at hlen
+            omega
+          | some l' =>
+            simp only [hn] at hnext hlen
+            obtain ⟨hT', hvar⟩ := hnext
+            obtain ⟨hsome', hidx'⟩ := Program.blockAt_next hnd hblk hn
+            simp only [Option.elim] at hlen
+            rw [show H.embedding.start + (i + 1) + blk.body.length
+              = H.embedding.start + (p.length - (Program.fromLabel p l').length) by omega]
+            refine ih (l', s') ?_ hsome' hT'
+            have hK' := hK l'
+            show Program.cfgMeasure p var (l', s') < Program.cfgMeasure p var (l, s)
+            unfold Program.cfgMeasure
+            dsimp only
+            have hmul : var l' s' * ((Program.view p).2.length + 1)
                 ≤ var l s * ((Program.view p).2.length + 1) :=
-              Nat.mul_le_mul_right _ hlt
-            have hsucc : (var l' s' + 1) * ((Program.view p).2.length + 1)
-                = var l' s' * ((Program.view p).2.length + 1)
-                  + ((Program.view p).2.length + 1) := Nat.succ_mul _ _
+              Nat.mul_le_mul_right _ hvar
             omega
-          · rw [heq]
-            omega
-        · exact Eventually.done _ (Or.inr hext)
+        · have hend : Host.addrOf (H.embedding.start + (i + 1) + blk.body.length) = label l' := hl'.symm
+          rw [hend]
+          exact jump l' s' hsome' hT' (edge l' s' hedge)
+      · rintro a s' (⟨l', hl', hsome', hT', hedge⟩ | ⟨hext, hnot⟩)
+        · subst hl'
+          exact ⟨fun _ => jump l' s' hsome' hT' (edge l' s' hedge), fun hne => absurd (hentry l' hsome') hne⟩
+        · exact ⟨fun ⟨l'', _, hl'', hla⟩ => absurd hla (hnot l'' hl''), fun _ => hext⟩
   have h0 : (Program.blockAt p l₀).isSome := by
     rw [hp]
     show (Program.blockAtAux (Program.view (Directive.label l₀ :: p')).2 l₀).isSome = true
@@ -292,20 +279,21 @@ theorem cfg {p p' : Program} {l₀ : Label}
   rwa [hfl, Nat.sub_self, Nat.add_zero] at this
 
 /-- `cfg` at one state, in the goal form of `vcgen`. -/
-theorem cfg_wp {p p' : Program} {l₀ : Label}
+theorem cfg_wp {p p' : Program} {l₀ : Label} {H : Embeds p}
     (T : Label → MachineData → Prop) (var : Label → MachineData → Nat)
     (Qend : MachineData → Prop) (Ext : Int64 → MachineData → Prop)
-    (hblocks : ∀ l blk, Program.blockAt p l = some blk → ∀ n : Nat, ∀ k, p.IsInfixAt Host.prog k →
+    (hentries : ∀ l ∈ Program.labels p, l ∈ BlockEntries.labels)
+    (hblocks : ∀ l blk, Program.blockAt p l = some blk → ∀ n : Nat, ∀ (_ : Embeds blk.body),
       ⦃ fun s => T l s ∧ var l s = n ⦄
-        blk.body
-      ⦃ (match blk.next with
-         | some l' => fun _ s => T l' s ∧ var l' s ≤ n
-         | none => fun _ s => Qend s);
-        fun a s => (∃ l', label l' = a
-          ∧ (Program.blockAt p l').isSome ∧ T l' s ∧ Program.EdgeLt p var l n l' s) ∨ Ext a s ⦄)
+        frag% blk.body
+      ⦃ fun _ s => (match blk.next with
+          | some l' => T l' s ∧ var l' s ≤ n
+          | none => Qend s) ∨ Program.JumpTo p T var l n (frag% blk.body).endAddr s;
+        fun a s => Program.JumpTo p T var l n a s ∨ (Ext a s ∧ ∀ l' ∈ Program.labels p, label l' ≠ a) ⦄)
     (s : MachineData) (hT : T l₀ s)
-    (hp : p = Directive.label l₀ :: p' := by rfl) (hnd : (Program.labels p).Nodup := by decide) :
-    ⊤ ⊑ WP.wp p (fun _ s => Qend s) Ext s :=
-  fun _ => (cfg T var Qend Ext hblocks hp hnd).1 s hT
+    (hp : p = Directive.label l₀ :: p' := by rfl) (hnd : (Program.labels p).Nodup := by decide)
+    (hfun : ∀ a, p.Entry a → FunDecls.at a = none := by intros; rfl) :
+    ⊤ ⊑ WP.wp (@Fragment.mk _ p H) (fun _ s => Qend s) Ext s :=
+  fun _ => (cfg (H := H) T var Qend Ext hentries hblocks hp hnd hfun).1 s hT
 
 end Program.WP

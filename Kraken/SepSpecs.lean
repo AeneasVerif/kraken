@@ -33,15 +33,8 @@ theorem MProp.sep_left_comm {w : Nat} (P Q R : MProp w) :
 
 namespace Program.FrameWP
 
-variable [Host] {Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64}
+variable [Host] [BlockEntries] [FunDecls] {Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64}
   {E : Int64 → Reg64s → RegZmms → StatusFlags → MProp 64}
-
-/-- The empty program: its wp is the postcondition. -/
-@[spec] theorem nil_spec :
-    ⦃ fun rg z f => Q () rg z f ⦄ ([] : Program) ⦃ Q; E ⦄ := by
-  refine sep_intro fun F s hpre => ?_
-  intro k _
-  exact Eventually.done _ (Or.inl ⟨rfl, hpre⟩)
 
 /-! ## Register instructions
 
@@ -49,16 +42,16 @@ A register instruction owns no memory: its spec carries the schematic post
 to the updated registers and flags. -/
 
 /-- Load an immediate into a 64-bit register. -/
-@[spec] theorem mov_reg_imm_spec (asz : Width) (r : Reg64) (i : Int64) :
+@[spec] theorem mov_reg_imm_spec (asz : Width) (r : Reg64) (i : Int64)
+    [Embeds [Directive.instr (.regular asz .W64 (.mov (.reg (.low r .W64)) (.imm (.int64 i))))]] :
     ⦃ fun rg z f => Q () (rg.set64 r (BitVec.setWidth 64 i.toBitVec)) z f ⦄
-      Directive.instr (.regular asz .W64 (.mov (.reg (.low r .W64)) (.imm (.int64 i))))
+      DirectiveAt.mk (Directive.instr (.regular asz .W64 (.mov (.reg (.low r .W64)) (.imm (.int64 i)))))
     ⦃ Q ⦄ := by
   refine triple_directive.mpr (sep_intro fun F s hpre => ?_)
-  intro k hs
-  refine Host.eventually_of_interp hs ?_
+  refine Program.wp_single ?_
   simp only [Directive.interp, Instr.interp, Operation.interp, Operand.interp,
-    MachineData.set, MachineData.setReg, Reg64s.set_low_W64, Effects.All]
-  exact Or.inl ⟨rfl, hpre⟩
+    MachineData.set, MachineData.setReg, Reg64s.set_low_W64, Effects.All, Cls, ite_true]
+  exact hpre
 
 /-! ## Memory instructions
 
@@ -68,14 +61,17 @@ leaves it, at the registers and flags it produces. -/
 
 /-- Store a 64-bit register at `disp(base)`. -/
 @[spec] theorem mov_store_reg_spec (b : Reg64) (d : Int64) (rs : Reg64)
-    (bs : List UInt8) (hlen : bs.length = 8) :
+    (bs : List UInt8) (hlen : bs.length = 8)
+    [Embeds [Directive.instr (.regular .W64 .W64
+          (.mov (.mem ⟨some (.reg b), none, .int64 d⟩)
+            (.regOrMem (.reg (.low rs .W64)))))]] :
     ⦃ fun r z f =>
         ⌜(Int.toBytes 8 (r.get64 rs).toInt).AtM (r.get64 b + BitVec.ofInt 64 d.toInt)
             ⊑ Q () r z f⌝
           ⊓ bs.AtM (r.get64 b + BitVec.ofInt 64 d.toInt) ⦄
-      Directive.instr (.regular .W64 .W64
+      DirectiveAt.mk (Directive.instr (.regular .W64 .W64
           (.mov (.mem ⟨some (.reg b), none, .int64 d⟩)
-            (.regOrMem (.reg (.low rs .W64)))))
+            (.regOrMem (.reg (.low rs .W64))))))
     ⦃ Q ⦄ := by
   refine triple_directive.mpr (sep_intro fun F s hpre => ?_)
   obtain ⟨mf, mm, hunion, hinter, hF, hM⟩ := (MProp.get_sep_apply_iff _ _ _).mp hpre
@@ -87,19 +83,21 @@ leaves it, at the registers and flags it produces. -/
         Std.ExtHashMap.disjoint_symm hinter, hbs, hF⟩
   have hload := Mem.loadInt_eq_of_AtM hown hlen (by decide)
   have hstore := Mem.get_AtM_sep_storeInt hown hlen (s.regs.get64 rs).toInt
-  intro k hs
-  refine Host.eventually_of_interp hs ?_
+  refine Program.wp_single ?_
   simp only [Directive.interp, Instr.interp, Operation.interp, Operand.interp,
     RegOrMem.interp, MachineData.set, MachineData.store, Reg64s.get_low_W64,
-    AddrExpr.zeroExtend_interp_base_disp, hload, Effects.All]
-  refine Or.inl ⟨rfl, ?_⟩
+    AddrExpr.zeroExtend_interp_base_disp, hload, Effects.All, Cls, ite_true]
+  refine ?_
   rw [MProp.sep_comm] at hstore
   exact (MProp.le_def _ _).mp (MProp.sep_mono_right F hpost) _ hstore
 
 /-- Add the 64-bit word at `disp(base)` to a register. The slot is unchanged;
 the post holds at the new register and flags. -/
 @[spec] theorem add_reg_mem_spec (rd b : Reg64) (d : Int64)
-    (bs : List UInt8) (hlen : bs.length = 8) :
+    (bs : List UInt8) (hlen : bs.length = 8)
+    [Embeds [Directive.instr (.regular .W64 .W64
+          (.add (.reg (.low rd .W64))
+            (.regOrMem (.mem ⟨some (.reg b), none, .int64 d⟩))))]] :
     ⦃ fun rg z _ =>
         let a := BitVec.ofInt 64 (Int.ofBytes bs)
         let bv := rg.get64 rd
@@ -111,9 +109,9 @@ the post holds at the new register and flags. -/
                     af := (v.take 4).unsigned != (a.take 4).unsigned + (bv.take 4).unsigned,
                     of := v.signed != a.signed + bv.signed })⌝
           ⊓ bs.AtM (rg.get64 b + BitVec.ofInt 64 d.toInt) ⦄
-      Directive.instr (.regular .W64 .W64
+      DirectiveAt.mk (Directive.instr (.regular .W64 .W64
           (.add (.reg (.low rd .W64))
-            (.regOrMem (.mem ⟨some (.reg b), none, .int64 d⟩))))
+            (.regOrMem (.mem ⟨some (.reg b), none, .int64 d⟩)))))
     ⦃ Q ⦄ := by
   refine triple_directive.mpr (sep_intro fun F s hpre => ?_)
   obtain ⟨mf, mm, hunion, hinter, hF, hM⟩ := (MProp.get_sep_apply_iff _ _ _).mp hpre
@@ -124,13 +122,12 @@ the post holds at the new register and flags. -/
       ⟨mm, mf, by rw [← hunion]; exact (Std.ExtHashMap.union_comm_of_disjoint mf mm hinter).symm,
         Std.ExtHashMap.disjoint_symm hinter, hbs, hF⟩
   have hload := Mem.loadInt_eq_of_AtM hown hlen (by decide)
-  intro k hs
-  refine Host.eventually_of_interp hs ?_
+  refine Program.wp_single ?_
   simp only [Directive.interp, Instr.interp, Operation.interp, Operand.interp,
     RegOrMem.interp, MachineData.load, MachineData.set, MachineData.setReg,
     Reg64s.get_low_W64, Reg64s.set_low_W64, AddrExpr.zeroExtend_interp_base_disp,
-    hload, Effects.All]
-  refine Or.inl ⟨rfl, ?_⟩
+    hload, Effects.All, Cls, ite_true]
+  refine ?_
   rw [MProp.sep_comm] at hown
   exact (MProp.le_def _ _).mp (MProp.sep_mono_right F hpost) _ hown
 
@@ -138,57 +135,62 @@ the post holds at the new register and flags. -/
 /-! ## More instructions -/
 
 /-- Copy a 64-bit register. -/
-@[spec] theorem mov_reg_reg_spec (rd rs : Reg64) :
+@[spec] theorem mov_reg_reg_spec (rd rs : Reg64)
+    [Embeds [Directive.instr (.regular .W64 .W64
+          (.mov (.reg (.low rd .W64)) (.regOrMem (.reg (.low rs .W64)))))]] :
     ⦃ fun rg z f => Q () (rg.set64 rd (rg.get64 rs)) z f ⦄
-      Directive.instr (.regular .W64 .W64
-          (.mov (.reg (.low rd .W64)) (.regOrMem (.reg (.low rs .W64)))))
+      DirectiveAt.mk (Directive.instr (.regular .W64 .W64
+          (.mov (.reg (.low rd .W64)) (.regOrMem (.reg (.low rs .W64))))))
     ⦃ Q ⦄ := by
   refine triple_directive.mpr (sep_intro fun F s hpre => ?_)
-  intro k hs
-  refine Host.eventually_of_interp hs ?_
+  refine Program.wp_single ?_
   simp only [Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp,
     MachineData.set, MachineData.setReg, Reg64s.get_low_W64, Reg64s.set_low_W64,
-    Effects.All]
-  exact Or.inl ⟨rfl, hpre⟩
+    Effects.All, Cls, ite_true]
+  exact hpre
 
 /-- Exclusive-or of two 64-bit registers; the adjust flag is unspecified. -/
-@[spec] theorem xor_reg_reg_spec (asz : Width) (rd rs : Reg64) :
+@[spec] theorem xor_reg_reg_spec (asz : Width) (rd rs : Reg64)
+    [Embeds [Directive.instr (.regular asz .W64
+          (.xor (.reg (.low rd .W64)) (.regOrMem (.reg (.low rs .W64)))))]] :
     ⦃ fun rg z _ => ⨅ af : Bool, Q () (rg.set64 rd (rg.get64 rd ^^^ rg.get64 rs)) z
         (StatusFlags.from_result (rg.get64 rd ^^^ rg.get64 rs) { cf := false, of := false, af }) ⦄
-      Directive.instr (.regular asz .W64
-          (.xor (.reg (.low rd .W64)) (.regOrMem (.reg (.low rs .W64)))))
+      DirectiveAt.mk (Directive.instr (.regular asz .W64
+          (.xor (.reg (.low rd .W64)) (.regOrMem (.reg (.low rs .W64))))))
     ⦃ Q ⦄ := by
   refine triple_directive.mpr (sep_intro fun F s hpre => ?_)
-  intro k hs
-  refine Host.eventually_of_interp hs ?_
+  refine Program.wp_single ?_
   simp only [Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp,
     MachineData.set, MachineData.setReg, Reg64s.get_low_W64, Reg64s.set_low_W64,
-    Effects.All]
+    Effects.All, Cls, ite_true]
   intro af
-  exact Or.inl ⟨rfl, ((MProp.le_def _ _).mp (MProp.sep_mono_right F (iInf_le _ af)) _ hpre)⟩
+  exact (MProp.le_def _ _).mp (MProp.sep_mono_right F (iInf_le _ af)) _ hpre
 
 /-- Load the address `disp(base, index, 8)` into a register. -/
-@[spec] theorem lea_sib_spec (rd b i : Reg64) (d : Int64) :
+@[spec] theorem lea_sib_spec (rd b i : Reg64) (d : Int64)
+    [Embeds [Directive.instr (.regular .W64 .W64
+          (.lea (.low rd .W64) ⟨some (.reg b), some ⟨i, .W64⟩, .int64 d⟩))]] :
     ⦃ fun rg z f => Q () (rg.set64 rd (rg.get64 b + rg.get64 i * 8 + BitVec.ofInt 64 d.toInt)) z f ⦄
-      Directive.instr (.regular .W64 .W64
-          (.lea (.low rd .W64) ⟨some (.reg b), some ⟨i, .W64⟩, .int64 d⟩))
+      DirectiveAt.mk (Directive.instr (.regular .W64 .W64
+          (.lea (.low rd .W64) ⟨some (.reg b), some ⟨i, .W64⟩, .int64 d⟩)))
     ⦃ Q ⦄ := by
   refine triple_directive.mpr (sep_intro fun F s hpre => ?_)
-  intro k hs
-  refine Host.eventually_of_interp hs ?_
+  refine Program.wp_single ?_
   simp only [Directive.interp, Instr.interp, Operation.interp, MachineData.setReg,
-    Reg64s.set_low_W64, AddrExpr.zeroExtend_interp_sib, Effects.All]
-  exact Or.inl ⟨rfl, hpre⟩
+    Reg64s.set_low_W64, AddrExpr.zeroExtend_interp_sib, Effects.All, Cls, ite_true]
+  exact hpre
 
 /-- Store an immediate at `disp(base)`. -/
 @[spec] theorem mov_store_imm_spec (b : Reg64) (d : Int64) (i : Int64)
-    (bs : List UInt8) (hlen : bs.length = 8) :
+    (bs : List UInt8) (hlen : bs.length = 8)
+    [Embeds [Directive.instr (.regular .W64 .W64
+          (.mov (.mem ⟨some (.reg b), none, .int64 d⟩) (.imm (.int64 i))))]] :
     ⦃ fun r z f =>
         ⌜(Int.toBytes 8 (BitVec.setWidth 64 i.toBitVec).toInt).AtM
             (r.get64 b + BitVec.ofInt 64 d.toInt) ⊑ Q () r z f⌝
           ⊓ bs.AtM (r.get64 b + BitVec.ofInt 64 d.toInt) ⦄
-      Directive.instr (.regular .W64 .W64
-          (.mov (.mem ⟨some (.reg b), none, .int64 d⟩) (.imm (.int64 i))))
+      DirectiveAt.mk (Directive.instr (.regular .W64 .W64
+          (.mov (.mem ⟨some (.reg b), none, .int64 d⟩) (.imm (.int64 i)))))
     ⦃ Q ⦄ := by
   refine triple_directive.mpr (sep_intro fun F s hpre => ?_)
   obtain ⟨mf, mm, hunion, hinter, hF, hM⟩ := (MProp.get_sep_apply_iff _ _ _).mp hpre
@@ -199,26 +201,28 @@ the post holds at the new register and flags. -/
       ⟨mm, mf, by rw [← hunion]; exact (Std.ExtHashMap.union_comm_of_disjoint mf mm hinter).symm,
         Std.ExtHashMap.disjoint_symm hinter, hbs, hF⟩
   have hload := Mem.loadInt_eq_of_AtM hown hlen (by decide)
-  intro k hs
-  refine Host.eventually_of_interp hs ?_
+  refine Program.wp_single ?_
   simp only [Directive.interp, Instr.interp, Operation.interp, Operand.interp, ConstExpr.interp,
     RegOrMem.interp, MachineData.set, MachineData.store,
-    AddrExpr.zeroExtend_interp_base_disp, hload, Effects.All]
-  refine Or.inl ⟨rfl, ?_⟩
+    AddrExpr.zeroExtend_interp_base_disp, hload, Effects.All, Cls, ite_true]
+  refine ?_
   have hstore := Mem.get_AtM_sep_storeInt hown hlen ((BitVec.setWidth 64 i.toBitVec).toInt)
   rw [MProp.sep_comm] at hstore
   exact (MProp.le_def _ _).mp (MProp.sep_mono_right F hpost) _ hstore
 
 /-- Store a 64-bit register at `disp(base, index, 8)`. -/
 @[spec] theorem mov_store_reg_sib_spec (b i : Reg64) (d : Int64) (rs : Reg64)
-    (bs : List UInt8) (hlen : bs.length = 8) :
+    (bs : List UInt8) (hlen : bs.length = 8)
+    [Embeds [Directive.instr (.regular .W64 .W64
+          (.mov (.mem ⟨some (.reg b), some ⟨i, .W64⟩, .int64 d⟩)
+            (.regOrMem (.reg (.low rs .W64)))))]] :
     ⦃ fun r z f =>
         ⌜(Int.toBytes 8 (r.get64 rs).toInt).AtM
             (r.get64 b + r.get64 i * 8 + BitVec.ofInt 64 d.toInt) ⊑ Q () r z f⌝
           ⊓ bs.AtM (r.get64 b + r.get64 i * 8 + BitVec.ofInt 64 d.toInt) ⦄
-      Directive.instr (.regular .W64 .W64
+      DirectiveAt.mk (Directive.instr (.regular .W64 .W64
           (.mov (.mem ⟨some (.reg b), some ⟨i, .W64⟩, .int64 d⟩)
-            (.regOrMem (.reg (.low rs .W64)))))
+            (.regOrMem (.reg (.low rs .W64))))))
     ⦃ Q ⦄ := by
   refine triple_directive.mpr (sep_intro fun F s hpre => ?_)
   obtain ⟨mf, mm, hunion, hinter, hF, hM⟩ := (MProp.get_sep_apply_iff _ _ _).mp hpre
@@ -229,25 +233,26 @@ the post holds at the new register and flags. -/
       ⟨mm, mf, by rw [← hunion]; exact (Std.ExtHashMap.union_comm_of_disjoint mf mm hinter).symm,
         Std.ExtHashMap.disjoint_symm hinter, hbs, hF⟩
   have hload := Mem.loadInt_eq_of_AtM hown hlen (by decide)
-  intro k hs
-  refine Host.eventually_of_interp hs ?_
+  refine Program.wp_single ?_
   simp only [Directive.interp, Instr.interp, Operation.interp, Operand.interp,
     RegOrMem.interp, MachineData.set, MachineData.store, Reg64s.get_low_W64,
-    AddrExpr.zeroExtend_interp_sib, hload, Effects.All]
-  refine Or.inl ⟨rfl, ?_⟩
+    AddrExpr.zeroExtend_interp_sib, hload, Effects.All, Cls, ite_true]
+  refine ?_
   have hstore := Mem.get_AtM_sep_storeInt hown hlen ((s.regs.get64 rs).toInt)
   rw [MProp.sep_comm] at hstore
   exact (MProp.le_def _ _).mp (MProp.sep_mono_right F hpost) _ hstore
 
 /-- Load the 64-bit value at `disp(base)` into a register. -/
 @[spec] theorem mov_reg_mem_spec (rd b : Reg64) (d : Int64)
-    (bs : List UInt8) (hlen : bs.length = 8) :
+    (bs : List UInt8) (hlen : bs.length = 8)
+    [Embeds [Directive.instr (.regular .W64 .W64
+          (.mov (.reg (.low rd .W64)) (.regOrMem (.mem ⟨some (.reg b), none, .int64 d⟩))))]] :
     ⦃ fun rg z f =>
         ⌜bs.AtM (rg.get64 b + BitVec.ofInt 64 d.toInt)
             ⊑ Q () (rg.set64 rd (BitVec.ofInt 64 (Int.ofBytes bs))) z f⌝
           ⊓ bs.AtM (rg.get64 b + BitVec.ofInt 64 d.toInt) ⦄
-      Directive.instr (.regular .W64 .W64
-          (.mov (.reg (.low rd .W64)) (.regOrMem (.mem ⟨some (.reg b), none, .int64 d⟩))))
+      DirectiveAt.mk (Directive.instr (.regular .W64 .W64
+          (.mov (.reg (.low rd .W64)) (.regOrMem (.mem ⟨some (.reg b), none, .int64 d⟩)))))
     ⦃ Q ⦄ := by
   refine triple_directive.mpr (sep_intro fun F s hpre => ?_)
   obtain ⟨mf, mm, hunion, hinter, hF, hM⟩ := (MProp.get_sep_apply_iff _ _ _).mp hpre
@@ -258,25 +263,27 @@ the post holds at the new register and flags. -/
       ⟨mm, mf, by rw [← hunion]; exact (Std.ExtHashMap.union_comm_of_disjoint mf mm hinter).symm,
         Std.ExtHashMap.disjoint_symm hinter, hbs, hF⟩
   have hload := Mem.loadInt_eq_of_AtM hown hlen (by decide)
-  intro k hs
-  refine Host.eventually_of_interp hs ?_
+  refine Program.wp_single ?_
   simp only [Directive.interp, Instr.interp, Operation.interp, Operand.interp,
     RegOrMem.interp, MachineData.load, MachineData.set, MachineData.setReg,
-    Reg64s.set_low_W64, AddrExpr.zeroExtend_interp_base_disp, hload, Effects.All]
-  refine Or.inl ⟨rfl, ?_⟩
+    Reg64s.set_low_W64, AddrExpr.zeroExtend_interp_base_disp, hload, Effects.All, Cls, ite_true]
+  refine ?_
   rw [MProp.sep_comm] at hown
   exact (MProp.le_def _ _).mp (MProp.sep_mono_right F hpost) _ hown
 
 /-- Load the 64-bit value at `disp(base, index, 8)` into a register. -/
 @[spec] theorem mov_reg_mem_sib_spec (rd b i : Reg64) (d : Int64)
-    (bs : List UInt8) (hlen : bs.length = 8) :
+    (bs : List UInt8) (hlen : bs.length = 8)
+    [Embeds [Directive.instr (.regular .W64 .W64
+          (.mov (.reg (.low rd .W64))
+            (.regOrMem (.mem ⟨some (.reg b), some ⟨i, .W64⟩, .int64 d⟩))))]] :
     ⦃ fun rg z f =>
         ⌜bs.AtM (rg.get64 b + rg.get64 i * 8 + BitVec.ofInt 64 d.toInt)
             ⊑ Q () (rg.set64 rd (BitVec.ofInt 64 (Int.ofBytes bs))) z f⌝
           ⊓ bs.AtM (rg.get64 b + rg.get64 i * 8 + BitVec.ofInt 64 d.toInt) ⦄
-      Directive.instr (.regular .W64 .W64
+      DirectiveAt.mk (Directive.instr (.regular .W64 .W64
           (.mov (.reg (.low rd .W64))
-            (.regOrMem (.mem ⟨some (.reg b), some ⟨i, .W64⟩, .int64 d⟩))))
+            (.regOrMem (.mem ⟨some (.reg b), some ⟨i, .W64⟩, .int64 d⟩)))))
     ⦃ Q ⦄ := by
   refine triple_directive.mpr (sep_intro fun F s hpre => ?_)
   obtain ⟨mf, mm, hunion, hinter, hF, hM⟩ := (MProp.get_sep_apply_iff _ _ _).mp hpre
@@ -287,12 +294,11 @@ the post holds at the new register and flags. -/
       ⟨mm, mf, by rw [← hunion]; exact (Std.ExtHashMap.union_comm_of_disjoint mf mm hinter).symm,
         Std.ExtHashMap.disjoint_symm hinter, hbs, hF⟩
   have hload := Mem.loadInt_eq_of_AtM hown hlen (by decide)
-  intro k hs
-  refine Host.eventually_of_interp hs ?_
+  refine Program.wp_single ?_
   simp only [Directive.interp, Instr.interp, Operation.interp, Operand.interp,
     RegOrMem.interp, MachineData.load, MachineData.set, MachineData.setReg,
-    Reg64s.set_low_W64, AddrExpr.zeroExtend_interp_sib, hload, Effects.All]
-  refine Or.inl ⟨rfl, ?_⟩
+    Reg64s.set_low_W64, AddrExpr.zeroExtend_interp_sib, hload, Effects.All, Cls, ite_true]
+  refine ?_
   rw [MProp.sep_comm] at hown
   exact (MProp.le_def _ _).mp (MProp.sep_mono_right F hpost) _ hown
 
@@ -302,12 +308,13 @@ the post holds at the new register and flags. -/
 slot at the stack pointer and reads it. Both move the stack pointer by eight. -/
 
 /-- Push a 64-bit register. -/
-@[spec] theorem push_reg_spec (rs : Reg64) (bs : List UInt8) (hlen : bs.length = 8) :
+@[spec] theorem push_reg_spec (rs : Reg64) (bs : List UInt8) (hlen : bs.length = 8)
+    [Embeds [Directive.instr (.regular .W64 .W64 (.push (.regOrMem (.reg (.low rs .W64)))))]] :
     ⦃ fun r z f =>
         ⌜(Int.toBytes 8 (r.get64 rs).toInt).AtM (r.get64 .rsp - 8#64)
             ⊑ Q () (r.set64 .rsp (r.get64 .rsp - 8#64)) z f⌝
           ⊓ bs.AtM (r.get64 .rsp - 8#64) ⦄
-      Directive.instr (.regular .W64 .W64 (.push (.regOrMem (.reg (.low rs .W64)))))
+      DirectiveAt.mk (Directive.instr (.regular .W64 .W64 (.push (.regOrMem (.reg (.low rs .W64))))))
     ⦃ Q ⦄ := by
   refine triple_directive.mpr (sep_intro fun F s hpre => ?_)
   obtain ⟨mf, mm, hunion, hinter, hF, hM⟩ := (MProp.get_sep_apply_iff _ _ _).mp hpre
@@ -318,23 +325,23 @@ slot at the stack pointer and reads it. Both move the stack pointer by eight. -/
       ⟨mm, mf, by rw [← hunion]; exact (Std.ExtHashMap.union_comm_of_disjoint mf mm hinter).symm,
         Std.ExtHashMap.disjoint_symm hinter, hbs, hF⟩
   have hload := Mem.loadInt_eq_of_AtM hown hlen (by decide)
-  intro k hs
-  refine Host.eventually_of_interp hs ?_
+  refine Program.wp_single ?_
   simp only [Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp,
-    MachineData.store, Reg64s.get_low_W64, Width.bytesv_W64, hload, Effects.All]
-  refine Or.inl ⟨rfl, ?_⟩
+    MachineData.store, Reg64s.get_low_W64, Width.bytesv_W64, hload, Effects.All, Cls, ite_true]
+  refine ?_
   have hstore := Mem.get_AtM_sep_storeInt hown hlen ((s.regs.get64 rs).toInt)
   rw [MProp.sep_comm] at hstore
   exact (MProp.le_def _ _).mp (MProp.sep_mono_right F hpost) _ hstore
 
 /-- Pop into a 64-bit register. -/
-@[spec] theorem pop_reg_spec (rd : Reg64) (bs : List UInt8) (hlen : bs.length = 8) :
+@[spec] theorem pop_reg_spec (rd : Reg64) (bs : List UInt8) (hlen : bs.length = 8)
+    [Embeds [Directive.instr (.regular .W64 .W64 (.pop (.reg (.low rd .W64))))]] :
     ⦃ fun r z f =>
         ⌜bs.AtM (r.get64 .rsp)
             ⊑ Q () ((r.set64 .rsp (r.get64 .rsp + 8#64)).set64 rd
                 (BitVec.ofInt 64 (Int.ofBytes bs))) z f⌝
           ⊓ bs.AtM (r.get64 .rsp) ⦄
-      Directive.instr (.regular .W64 .W64 (.pop (.reg (.low rd .W64))))
+      DirectiveAt.mk (Directive.instr (.regular .W64 .W64 (.pop (.reg (.low rd .W64)))))
     ⦃ Q ⦄ := by
   refine triple_directive.mpr (sep_intro fun F s hpre => ?_)
   obtain ⟨mf, mm, hunion, hinter, hF, hM⟩ := (MProp.get_sep_apply_iff _ _ _).mp hpre
@@ -345,11 +352,10 @@ slot at the stack pointer and reads it. Both move the stack pointer by eight. -/
       ⟨mm, mf, by rw [← hunion]; exact (Std.ExtHashMap.union_comm_of_disjoint mf mm hinter).symm,
         Std.ExtHashMap.disjoint_symm hinter, hbs, hF⟩
   have hload := Mem.loadInt_eq_of_AtM hown hlen (by decide)
-  intro k hs
-  refine Host.eventually_of_interp hs ?_
+  refine Program.wp_single ?_
   simp only [Directive.interp, Instr.interp, Operation.interp, MachineData.load, MachineData.set,
-    MachineData.setReg, Reg64s.set_low_W64, Width.bytesv_W64, hload, Effects.All]
-  refine Or.inl ⟨rfl, ?_⟩
+    MachineData.setReg, Reg64s.set_low_W64, Width.bytesv_W64, hload, Effects.All, Cls, ite_true]
+  refine ?_
   rw [MProp.sep_comm] at hown
   exact (MProp.le_def _ _).mp (MProp.sep_mono_right F hpost) _ hown
 

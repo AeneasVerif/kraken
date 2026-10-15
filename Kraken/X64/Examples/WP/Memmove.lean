@@ -114,7 +114,7 @@ private abbrev mm_table (P : Prop) (bs : List UInt8) (R₂ : DataMem → Prop)
   | _, _ => False
 
 /-- The contract of `memmove`, in every linked program. -/
-theorem memmove_spec [Host] (bs : List UInt8) (R₁ R₂ : DataMem → Prop)
+theorem memmove_spec [Host] [BlockEntries] [Embeds memmove] (bs : List UInt8) (R₁ R₂ : DataMem → Prop)
     (s : MachineData) (ra : Int64) :
     ⦃ fun t => t = s.pushRa ra
       ∧ (bs.length = (s.regs.get64 .rdx).toNat
@@ -122,7 +122,7 @@ theorem memmove_spec [Host] (bs : List UInt8) (R₁ R₂ : DataMem → Prop)
         ∧ (s.regs.get64 .rdi).toNat + bs.length < 2 ^ 64
         ∧ (s.dmem =⋆ Mem.Bytes (s.regs.get64 .rsi) bs ⋆ Mem.Blocks [(s.regs.get64 .rsp - 8#64, 8)] ⋆ R₁)
         ∧ s.dmem =⋆ Mem.Blocks [(s.regs.get64 .rsp - 8#64, 8), (s.regs.get64 .rdi, bs.length)] ⋆ R₂) ⦄
-      memmove
+      frag% memmove
     ⦃ (fun _ _ => False); fun a t => a = ra
       ∧ (t.dmem =⋆ Mem.Blocks [(s.regs.get64 .rsp - 8#64, 8)] ⋆ Mem.Bytes (s.regs.get64 .rdi) bs ⋆ R₂)
       ∧ mmMod.Agree s t ⦄ := by

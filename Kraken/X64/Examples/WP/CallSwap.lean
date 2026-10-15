@@ -44,9 +44,9 @@ private abbrev pswap_table (d : MachineData) (R : DataMem → Prop) : Label → 
       ∧ s.regs.get64 .rsp = d.regs.get64 .rsp
   | _, _ => False
 
-private theorem pswap_body_spec [Host] (R : DataMem → Prop) (s : MachineData) (ra : Int64) :
+private theorem pswap_body_spec [Host] [BlockEntries] [Embeds pswap.body] (R : DataMem → Prop) (s : MachineData) (ra : Int64) :
     ⦃ fun t => t = s.pushRa ra ∧ s.dmem =⋆ Mem.Blocks [(s.regs.get64 .rsp - 8#64, 8)] ⋆ R ⦄
-      pswap.body
+      frag% pswap.body
     ⦃ (fun _ _ => False); fun a s' => a = ra
       ∧ (s'.regs.get64 .rax = s.regs.get64 .rbx ∧ s'.regs.get64 .rbx = s.regs.get64 .rax
         ∧ s'.dmem =⋆ Mem.Blocks [(s.regs.get64 .rsp - 8#64, 8)] ⋆ R)

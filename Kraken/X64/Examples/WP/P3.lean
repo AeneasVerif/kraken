@@ -55,8 +55,10 @@ theorem p3_correct [Host] (hp : p3.IsInfix Host.prog)
     Eventually (step1 Host.exe)
       (fun s => s.data.regs.rdx.toNat = p3_spec d ∧ s.data.regs.rax = 0) ⟨d, startAddr hp⟩ := by
   simp only [p3_spec] at h_bounds ⊢
+  letI := BlockEntries.ofLabels (Program.labels p3)
   apply Program.WP.step1_of_wp hp
-  refine Program.WP.cfg_wp (p3_table d) (fun _ s => s.regs.rbx.toNat) _ ⊥ ?_ d rfl
+  refine Program.WP.cfg_wp (p3_table d) (fun _ s => s.regs.rbx.toNat) _ ⊥
+    (fun _ => BlockEntries.mem_ofLabels) ?_ d rfl
   cfg_cases [p3]
   all_goals kvcgen64 with finish
 

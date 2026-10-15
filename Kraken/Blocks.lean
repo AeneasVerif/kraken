@@ -412,6 +412,10 @@ abbrev Program.EdgeLt (p : Program) (var : Label → MachineData → Nat)
     (l : Label) (n : Nat) (l' : Label) (s : MachineData) : Prop :=
   var l' s < n ∨ (var l' s = n ∧ Program.blockIdx p l < Program.blockIdx p l')
 
+abbrev Program.JumpTo [Labels] (p : Program) (T : Label → MachineData → Prop)
+    (var : Label → MachineData → Nat) (l : Label) (n : Nat) (a : Int64) (s : MachineData) : Prop :=
+  ∃ l', label l' = a ∧ (Program.blockAt p l').isSome ∧ T l' s ∧ Program.EdgeLt p var l n l' s
+
 /-- The block a block falls into: it is mapped, and it sits one position
 later in the text. -/
 theorem Program.blockAt_next {p : Program} (hnd : (Program.labels p).Nodup)
@@ -529,7 +533,8 @@ macro "cfg_cases" "[" ids:Lean.Parser.Tactic.simpLemma,* "]" : tactic =>
      all_goals subst_vars
      all_goals simp only [Option.some.injEq, reduceCtorEq] at hblk
      all_goals subst hblk
-     all_goals simp only [Program.EdgeLt, Program.isSome_blockAt, Program.blockIdx_eq_view,
-       hlabels]
+     all_goals simp only [Program.JumpTo, Program.EdgeLt, Program.isSome_blockAt,
+       Program.blockIdx_eq_view, hlabels]
      all_goals clear hlabels
-     all_goals try (intro _ _; exact triple_of_dead fun _ h => h.1)))
+     all_goals intro _
+     all_goals try exact triple_of_dead fun _ h => h.1))

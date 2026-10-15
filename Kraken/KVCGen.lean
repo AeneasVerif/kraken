@@ -12,6 +12,7 @@ separation wp use it.
 -/
 public import Kraken.X64.Registers
 public import Std.Tactic.Do.Syntax
+public meta import Lean.Elab.Tactic
 
 public section
 
@@ -20,6 +21,23 @@ adjacent literals to `evalGround`. -/
 theorem BitVec.add_assoc_rev {w : Nat} (a b c : BitVec w) : a + (b + c) = a + b + c :=
   (BitVec.add_assoc a b c).symm
 
+theorem MachineState.data_mk (d : MachineData) (pc : Int64) : (⟨d, pc⟩ : MachineState).data = d := rfl
+
+open Lean Meta Elab Tactic in
+elab "kunfold" ids:(ppSpace colGt ident)* : tactic => do
+  for id in ids do
+    let [c] ← (try resolveGlobalConst id catch _ => pure []) | continue
+    liftMetaTactic1 fun goal => do
+      let tgt ← instantiateMVars (← goal.getType)
+      let tgt' ← Meta.transform tgt (post := fun e => do
+        unless e.isAppOfArity `Fragment.mk 3 && (e.getArg! 1).isConstOf c do return .continue
+        let some v ← unfoldDefinition? (e.getArg! 1) | return .continue
+        let d := e.getArg! 1
+        let h ← mkExpectedTypeHint (← mkEqRefl d) (← mkEq d v)
+        let inst ← mkAppOptM `Embeds.cast #[e.getArg! 0, d, v, h, e.getArg! 2]
+        return .done (mkAppN e.getAppFn #[e.getArg! 0, v, inst]))
+      goal.change tgt'
+
 /-- `vcgen` with the register state folded. -/
 syntax (name := kvcgen64) "kvcgen64" (" [" ident,* "]")? (" with " vcgenDischarge)? : tactic
 
@@ -27,7 +45,7 @@ macro_rules
   | `(tactic| kvcgen64 $[[$ids,*]]? $[with $d]?) => do
     let lemmas ← (ids.map (·.getElems) |>.getD #[]).mapM fun i =>
       `(Lean.Parser.Tactic.simpLemma| $i:ident)
-    `(tactic| vcgen [$lemmas,*] simplifying_assumptions [
+    `(tactic| kunfold $(ids.map (·.getElems) |>.getD #[])* ; vcgen [$lemmas,*] simplifying_assumptions [
         Reg64s.set64_rax,
         Reg64s.set64_rbx,
         Reg64s.set64_rcx,
@@ -92,6 +110,7 @@ macro_rules
         Reg64s.r14_mk,
         Reg64s.r15_mk,
         UInt64.toBitVec_ofBitVec,
+        MachineState.data_mk,
         MachineData.regs_mk,
         MachineData.zmms_mk,
         MachineData.status_mk,
