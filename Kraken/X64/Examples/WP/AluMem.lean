@@ -6,7 +6,6 @@ import Kraken.X64.Examples.Examples
 
 open Std.WP
 open Lean.Order
-open scoped Program.WP
 
 set_option experimental.vcgen true
 
