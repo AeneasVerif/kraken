@@ -173,7 +173,7 @@ attribute [coe] AvxOperand.regOrMem
 abbrev AvxOperand.avx {w} (r : AvxReg w) : AvxOperand w := regOrMem (.avx r)
 abbrev AvxOperand.mem {w} (m : AddrExpr) : AvxOperand w := regOrMem (.mem m)
 
-inductive CondCode | z | nz | c | nc | a | be | l | le
+inductive CondCode | o | no | c | nc | z | nz | be | a | s | ns | p | np | l | ge | le | g
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 abbrev CondCode.e := CondCode.z
 abbrev CondCode.ne := CondCode.nz
@@ -309,6 +309,7 @@ theorem List.Nodup.eq_of_getElem?_label {P : Program} (hnd : (Program.labels P).
     cases i <;> cases j <;> cases d <;>
       grind [Program.labels_cons_label, Program.labels_cons_instr, Program.labels_cons_byteArray,
         Program.mem_labels, List.mem_of_getElem?]
+
 
 abbrev Executable := Kraken.Executable Directive
 

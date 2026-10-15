@@ -22,19 +22,19 @@ attribute [local grind =] Int.toBytes_length UInt64.toBytes_length BitVec.ofInt_
 
 namespace Sep
 
-@[spec] theorem alu_mem_correct [Host] [Layout] [Layout.Valid] (v : UInt64) :
+@[spec] theorem alu_mem_correct [Host] (v : UInt64) :
     ⦃ fun r _ _ => v.AtM (r.rdx.toBitVec + 136#64) ⦄
       alu_mem_example
     ⦃ fun _ r _ _ => ⌜r.rcx = 142⌝ ⊓ (Int.toBytes 8 42).AtM (r.rdx.toBitVec + 136#64) ⦄ := by
   kvcgen64 [alu_mem_example] with finish
 
 /-- The statement of the baseline's `alu_mem_example_correct`. -/
-theorem alu_mem_example_correct [Host] [layout : Layout] [Layout.Valid] (hp : alu_mem_example.IsInfix Host.prog) (s₀ : MachineData)
+theorem alu_mem_example_correct [Host] (hp : alu_mem_example.IsInfix Host.prog) (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdx.toBitVec + 136#64)) ⋆ R) :
     Eventually (step1 Host.exe)
-      (fun s' => s'.1.regs.rcx = 142)
-      (s₀, startAddr hp) := by
+      (fun s' => s'.data.regs.rcx = 142)
+      ⟨s₀, startAddr hp⟩ := by
   apply Program.FrameWP.step1_of_wp hp (UInt64.get_AtM_sep h_mem)
   kvcgen64 with finish
 
@@ -54,7 +54,7 @@ def reg_block : Program := parse("
   movq $9, %r9
 ")
 
-theorem reg_block_correct [Host] [Layout] [Layout.Valid] :
+theorem reg_block_correct [Host] :
     ⦃ fun _ _ _ => MProp.emp ⦄
       reg_block
     ⦃ fun _ r _ _ => ⌜r.rax = 1 ∧ r.rbx = 2 ∧ r.rcx = 3 ∧ r.rdx = 4 ∧ r.rsi = 5 ∧ r.rdi = 6

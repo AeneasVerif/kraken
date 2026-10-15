@@ -49,7 +49,7 @@ instance (F : MProp 64) : PreservesSup (frameOp F) :=
 
 /-- The run, read at the separation assertion language: the memory is
 curried out of `MachineData`. -/
-@[instance_reducible] def base [Host] [Layout] [Layout.Valid] :
+@[instance_reducible] def base [Host] :
     WP Program Unit (Reg64s → RegZmms → StatusFlags → MProp 64)
       (Int64 → Reg64s → RegZmms → StatusFlags → MProp 64) where
   trans q := ⟨fun Q E regs zmms flags => MProp.mk fun mem =>
@@ -66,7 +66,7 @@ curried out of `MachineData`. -/
       (fun a s' => (MProp.le_def _ _).mp (hE a s'.regs s'.zmms s'.status) s'.dmem) h
 
 /-- The run read back out of the base transformer. -/
-theorem get_base_apply [Host] [Layout] [Layout.Valid] (q : Program)
+theorem get_base_apply [Host] (q : Program)
     (Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64)
     (E : Int64 → Reg64s → RegZmms → StatusFlags → MProp 64)
     (regs : Reg64s) (zmms : RegZmms) (flags : StatusFlags) (mem : Mem 64) :
@@ -77,14 +77,14 @@ theorem get_base_apply [Host] [Layout] [Layout.Valid] (q : Program)
 
 /-- Triples of the separation examples: the frame rule internalized on both
 channels over the run. -/
-noncomputable scoped instance instWP [Host] [Layout] [Layout.Valid] :
+noncomputable scoped instance instWP [Host] :
     WP Program Unit (Reg64s → RegZmms → StatusFlags → MProp 64)
       (Int64 → Reg64s → RegZmms → StatusFlags → MProp 64) :=
   WP.withFrameClosure frameOp base
 
 /-- Prove a separation triple: the run validates it under an arbitrary memory
 frame, held across the fall-through and across every exit. -/
-theorem sep_intro [Host] [Layout] [Layout.Valid] {q : Program}
+theorem sep_intro [Host] {q : Program}
     {P : Reg64s → RegZmms → StatusFlags → MProp 64}
     {Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64}
     {E : Int64 → Reg64s → RegZmms → StatusFlags → MProp 64}
@@ -101,7 +101,7 @@ theorem sep_intro [Host] [Layout] [Layout.Valid] {q : Program}
 /-- Consume a separation triple's wp under a frame: the run of the framed
 pre- and postconditions follows, which is how a spec's proof enters the run
 of the tail. The dual of `sep_intro`. -/
-theorem sep_elim [Host] [Layout] [Layout.Valid] {q : Program} {F : MProp 64}
+theorem sep_elim [Host] {q : Program} {F : MProp 64}
     {Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64}
     {E : Int64 → Reg64s → RegZmms → StatusFlags → MProp 64} {s : MachineData}
     (h : (F ∗ WP.wp (self := instWP) q Q E s.regs s.zmms s.status).get s.dmem) :
@@ -116,7 +116,7 @@ theorem sep_elim [Host] [Layout] [Layout.Valid] {q : Program} {F : MProp 64}
 interpretation is a frame closure, and `∗` composes resources by `sep_assoc`.
 This is the fact the frame inference of `vcgen` discharges per spec
 application. -/
-theorem frames [Host] [Layout] [Layout.Valid] (q : Program) (F : MProp 64) : WP.Frames frameOp q F := by
+theorem frames [Host] (q : Program) (F : MProp 64) : WP.Frames frameOp q F := by
   refine WP.frames_of_frameClosure frameOp MProp.sep ?_ ?_ ⟨fun q => base.trans q, fun _ => rfl⟩
   · intro r r' a
     funext regs zmms flags
@@ -128,13 +128,13 @@ theorem frames [Host] [Layout] [Layout.Valid] (q : Program) (F : MProp 64) : WP.
     exact MProp.sep_assoc r r' (E a regs zmms flags)
 
 /-- Triples of one directive: the interpretation of the singleton program. -/
-noncomputable scoped instance [Host] [Layout] [Layout.Valid] :
+noncomputable scoped instance [Host] :
     WP Directive Unit (Reg64s → RegZmms → StatusFlags → MProp 64)
       (Int64 → Reg64s → RegZmms → StatusFlags → MProp 64) where
   trans d := WP.trans (self := instWP) [d]
   trans_monotone d := WP.trans_monotone (self := instWP) [d]
 
-theorem triple_directive [Host] [Layout] [Layout.Valid] {d : Directive}
+theorem triple_directive [Host] {d : Directive}
     {P : Reg64s → RegZmms → StatusFlags → MProp 64}
     {Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64}
     {E : Int64 → Reg64s → RegZmms → StatusFlags → MProp 64} :
@@ -144,7 +144,7 @@ theorem triple_directive [Host] [Layout] [Layout.Valid] {d : Directive}
 /-- Chaining: a program runs its first directive with the wp of the rest as
 the post. Every instruction spec is a triple of one directive; this rule is
 where `vcgen` sequences them. -/
-@[spec] theorem cons_spec [Host] [Layout] [Layout.Valid] (d : Directive) (p : Program)
+@[spec] theorem cons_spec [Host] (d : Directive) (p : Program)
     {Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64}
     {E : Int64 → Reg64s → RegZmms → StatusFlags → MProp 64} :
     ⦃ WP.wp d (fun _ => WP.wp p Q E) E ⦄ (d :: p) ⦃ Q; E ⦄ := by
@@ -155,7 +155,7 @@ where `vcgen` sequences them. -/
 
 /-- The frame fact of one directive: what the frame inference of `vcgen`
 discharges per spec application. -/
-@[grind .] theorem frames_directive [Host] [Layout] [Layout.Valid] (d : Directive) (F : MProp 64) :
+@[grind .] theorem frames_directive [Host] (d : Directive) (F : MProp 64) :
     WP.Frames frameOp d F :=
   ⟨(frames [d] F).op_wp_le_wp_op⟩
 
@@ -172,14 +172,14 @@ eventually ends in `post`. The entailment is asked in every linked program. The 
 valid executable. -/
 
 open Program.FrameWP in
-theorem Program.FrameWP.step1_of_wp [Host] [Layout] [Layout.Valid] {p : Program}
+theorem Program.FrameWP.step1_of_wp [Host] {p : Program}
     (hp : p.IsInfix Host.prog) {s : MachineData}
     {post : @Post MachineState} {footprint frame : MProp 64}
     (hmem : (footprint ∗ frame).get s.dmem)
     (ht : footprint ⊑ WP.wp p
-      (fun _ r z f => frame -∗ MProp.mk fun m => ∀ pc, post (⟨r, z, f, m⟩, pc))
+      (fun _ r z f => frame -∗ MProp.mk fun m => ∀ pc, post ⟨⟨r, z, f, m⟩, pc⟩)
       ⊥ s.regs s.zmms s.status) :
-    Eventually (step1 Host.exe) post (s, startAddr hp) := by
+    Eventually (step1 Host.exe) post ⟨s, startAddr hp⟩ := by
   rw [MProp.sep_comm] at hmem
   refine Program.step1_of_wp hp (sep_elim ((MProp.le_def _ _).mp
     (MProp.sep_mono_right _ ht) _ hmem)) (fun s' hq => ?_) (fun a s' he => ?_)

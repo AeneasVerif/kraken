@@ -44,10 +44,7 @@ private abbrev pswap_table (d : MachineData) (R : DataMem → Prop) : Label → 
       ∧ s.regs.get64 .rsp = d.regs.get64 .rsp
   | _, _ => False
 
-variable [layout : Layout]
-
-omit layout in
-private theorem pswap_body_spec [Host] [Layout] [Layout.Valid] (R : DataMem → Prop) (s : MachineData) (ra : Int64) :
+private theorem pswap_body_spec [Host] (R : DataMem → Prop) (s : MachineData) (ra : Int64) :
     ⦃ fun t => t = s.pushRa ra ∧ s.dmem =⋆ Mem.Blocks [(s.regs.get64 .rsp - 8#64, 8)] ⋆ R ⦄
       pswap.body
     ⦃ (fun _ _ => False); fun a s' => a = ra
@@ -56,14 +53,14 @@ private theorem pswap_body_spec [Host] [Layout] [Layout.Valid] (R : DataMem → 
       ∧ swapMod.Agree s s' ⦄ := by
   kvcgen64 with finish
 
-theorem pswap_correct [Host] [Layout.Valid] (hp : pswap.IsInfix Host.prog)
+theorem pswap_correct [Host] (hp : pswap.IsInfix Host.prog)
     (d : MachineData) (R : DataMem → Prop)
     (hmem : d.dmem =⋆ Mem.Blocks [(d.regs.get64 .rsp - 8#64, 8)] ⋆ R) :
     Eventually (step1 Host.exe)
-      (fun s => s.1.regs.get64 .rax = d.regs.get64 .rax
-        ∧ s.1.regs.get64 .rbx = d.regs.get64 .rbx
-        ∧ s.1.regs.get64 .rsp = d.regs.get64 .rsp)
-      (d, startAddr hp) := by
+      (fun s => s.data.regs.get64 .rax = d.regs.get64 .rax
+        ∧ s.data.regs.get64 .rbx = d.regs.get64 .rbx
+        ∧ s.data.regs.get64 .rsp = d.regs.get64 .rsp)
+      ⟨d, startAddr hp⟩ := by
   apply Program.WP.step1_of_wp hp
   refine Program.WP.cfg_wp (l₀ := "start") (pswap_table d R) (fun _ _ => 0) _ ⊥ ?_ d ⟨rfl, hmem⟩
   cfg_cases [pswap]

@@ -28,7 +28,7 @@ def move_2_regs_to_heap : Program := parse("
     movq 8(%rdi), %r13
 ")
 
-theorem move_2_regs_to_heap_spec [Host] [Layout] [Layout.Valid] (v1 v2 : UInt64) (a c d : UInt64) :
+theorem move_2_regs_to_heap_spec [Host] (v1 v2 : UInt64) (a c d : UInt64) :
     ⦃ fun r _ _ => ⌜r.rax = a ∧ r.rcx = c ∧ r.rdi = d⌝
         ⊓ (v1.AtM r.rdi.toBitVec ∗ v2.AtM (r.rdi.toBitVec + 8#64)) ⦄
       move_2_regs_to_heap
@@ -40,15 +40,15 @@ theorem move_2_regs_to_heap_spec [Host] [Layout] [Layout.Valid] (v1 v2 : UInt64)
 `move_2_regs_to_heap_spec` read back as the judgment of the baseline example
 `move_2_regs_to_heap_correct`, over the same program text. -/
 
-theorem move_2_regs_to_heap_correct [Host] [layout : _root_.Layout] [Layout.Valid] (hp : move_2_regs_to_heap.IsInfix Host.prog) (s₀ : MachineData)
+theorem move_2_regs_to_heap_correct [Host] [layout : _root_.Layout] (hp : move_2_regs_to_heap.IsInfix Host.prog) (s₀ : MachineData)
   (v1 v2 : UInt64)
   (R : DataMem → Prop)
   (h_mem : s₀.dmem =⋆ Eq (v1.At s₀.regs.rdi.toBitVec) ⋆ Eq (v2.At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ R)
   : Eventually (step1 Host.exe)
       (fun s' =>
-        s'.1.regs.r12 = s₀.regs.rax ∧
-        s'.1.regs.r13 = s₀.regs.rcx ∧
-        s'.1.regs.rdi = s₀.regs.rdi)
-      (s₀, startAddr hp) := by
+        s'.data.regs.r12 = s₀.regs.rax ∧
+        s'.data.regs.r13 = s₀.regs.rcx ∧
+        s'.data.regs.rdi = s₀.regs.rdi)
+      ⟨s₀, startAddr hp⟩ := by
   apply Program.FrameWP.step1_of_wp hp (UInt64.get_AtM_sep_AtM_sep h_mem)
   kvcgen64 [move_2_regs_to_heap] with finish

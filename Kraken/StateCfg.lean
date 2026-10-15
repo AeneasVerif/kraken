@@ -120,7 +120,7 @@ grind_pattern Modifies.Agree.reg => m.Agree s s', s'.regs.get64 r
 open Program.WP in
 /-- Calling `f` from a state that satisfies `Pre` returns with `Post`, and keeps the registers
 outside `m`. -/
-abbrev CallSpec [Host] [Layout] [Layout.Valid] (f : Label) (Pre : MachineData → Prop)
+abbrev CallSpec [Host] (f : Label) (Pre : MachineData → Prop)
     (Post : MachineData → MachineData → Prop) (m : Modifies) : Prop :=
   ∀ asz osz (Q : Unit → MachineData → Prop) (E : Int64 → MachineData → Prop),
     ⦃ fun s => ((Mem.loadInt s.dmem (s.regs.get64 .rsp - 8#64) 8).isSome = true) ⊓ Pre s
@@ -134,7 +134,7 @@ namespace Program.WP
 `["start", ".loop", …]`. With `Program.WP` open, `grind`'s normalizer answers by evaluation. -/
 attribute [scoped grind norm] List.idxOf_cons List.contains_cons
 
-variable [layout : Layout] [Host] [Layout.Valid]
+variable [Host]
 
 /-- A callee's body triple, linked in the program, is its call spec. -/
 theorem callSpec_of_triple {P body rest : Program} {k : Nat} (hP : P.IsInfixAt Host.prog k)
@@ -154,7 +154,7 @@ theorem callSpec_of_triple {P body rest : Program} {k : Nat} (hP : P.IsInfixAt H
   obtain ⟨i, hload⟩ := Option.isSome_iff_exists.mp hmapped
   intro k' hs
   refine eventually_trans _
-    (fun st => st = (s.pushRa (Host.addrOf (k' + 1)), Host.addrOf j)) _ _
+    (fun st => st = ⟨s.pushRa (Host.addrOf (k' + 1)), Host.addrOf j⟩) _ _
     (Host.eventually_of_interp hs ?_) ?_
   · simp only [Directive.interp, Instr.interp, Operation.interp, RelRegOrMem.interp,
       ConstExpr.interp, MachineData.store, hload, Effects.All]
@@ -188,7 +188,7 @@ theorem cfg {p p' : Program} {l₀ : Label}
     ⦃ fun s => T l₀ s ⦄ p ⦃ fun _ s => Qend s; Ext ⦄ := by
   refine ⟨fun s hT k hlink => ?_⟩
   let B := fun st : MachineState =>
-    (st.2 = Host.addrOf (k + p.length) ∧ Qend st.1) ∨ Ext st.2 st.1
+    (st.pc = Host.addrOf (k + p.length) ∧ Qend st.data) ∨ Ext st.pc st.data
   have hK : ∀ l, Program.blockIdx p l ≤ (Program.view p).2.length := Program.blockIdx_le p
   have hcellOf : ∀ l, Program.fromLabel p l ≠ [] →
       p[p.length - (Program.fromLabel p l).length]? = some (Directive.label l) := by
@@ -199,7 +199,7 @@ theorem cfg {p p' : Program} {l₀ : Label}
     simpa [List.head?_drop] using congrArg List.head? hdrop
   have key : ∀ x : Label × MachineData, (Program.blockAt p x.1).isSome → T x.1 x.2 →
       Eventually (step1 Host.exe) B
-        (x.2, Host.addrOf (k + (p.length - (Program.fromLabel p x.1).length))) := by
+        ⟨x.2, Host.addrOf (k + (p.length - (Program.fromLabel p x.1).length))⟩ := by
     intro x
     induction x using (measure (Program.cfgMeasure p var)).wf.induction with
     | _ x ih =>
@@ -220,7 +220,7 @@ theorem cfg {p p' : Program} {l₀ : Label}
       rw [htext] at hl
       obtain ⟨hlab, hrest⟩ := List.IsInfixAt.append (a := [Directive.label l]) hl
       obtain ⟨hbody, -⟩ := List.IsInfixAt.append hrest
-      refine eventually_trans _ (fun st => st = (s, Host.addrOf (k + i + 1))) _ _
+      refine eventually_trans _ (fun st => st = ⟨s, Host.addrOf (k + i + 1)⟩) _ _
         (Host.eventually_of_interp hlab (by simp only [Directive.interp, Effects.All])) ?_
       rintro _ rfl
       refine eventually_trans _ _ _ _ ((hblocks l blk hblk (var l s) k hlink).1 s ⟨hT, rfl⟩

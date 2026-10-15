@@ -8,7 +8,13 @@ Common Kraken executable layout.
 
 namespace Kraken
 
-abbrev Executable (Directive : Type) := Int64 × List (Directive × Nat)
+structure Sized (Directive : Type) where
+  directive : Directive
+  size : Nat
+
+structure Executable (Directive : Type) where
+  startAddr : Int64
+  program : List (Sized Directive)
 
 -- JP: why is `size` not `Directive → Nat`?
 class Layout (Directive : Type) where
@@ -16,70 +22,56 @@ class Layout (Directive : Type) where
   size : Nat → Nat
 
 def Layout.apply {Directive : Type} (l : Layout Directive) (prog : List Directive) : Executable Directive :=
-  (l.start, prog.mapIdx (fun i d => (d, l.size i)))
+  {startAddr := l.start, program := prog.mapIdx (fun i directive => {directive, size := l.size i})}
 
--- TODO: Why not just define a top-level function `def layout [Layout] := layout.apply` (with apply inlined)?
--- Coercions are certainly an antipattern, and such a def wouldn't require to bind `[layout : Layout]` all the time.
 instance {Directive : Type} : CoeFun (Layout Directive) (fun _ => List Directive → Executable Directive) where
   coe := Layout.apply
 
+structure Addressable (Directive : Type) extends Sized Directive where (addr : Int64)
+
 -- Returns each directive paired with its start address and size.
 -- TODO: tail-recursive version for efficiency?
-def Executable.withAddresses {Directive : Type} (e : Executable Directive) : List (Int64 × Directive × Nat) :=
-  let (start_addr, ds) := e
-  match ds with
+def Executable.withAddresses {Directive : Type} (e : Executable Directive) : List (Addressable Directive) :=
+  let {startAddr, program} := e
+  match program with
   | [] => []
-  | (instr, instr_sz) :: ds =>
-    (start_addr, instr, instr_sz) :: Executable.withAddresses (start_addr + .ofNat instr_sz, ds)
+  | instr :: program =>
+    {instr with addr := startAddr} :: Executable.withAddresses {startAddr := startAddr + .ofNat instr.size, program}
 termination_by e.2
 
-def Executable.directivesAtAddress {Directive : Type} (e : Executable Directive) (a : Int64) : List (Directive × Nat) :=
-  let starts_at_a := e.withAddresses.dropWhile (·.1 ≠ a)
-  (starts_at_a.takeWhile (·.1 = a)).map (·.2)
+def Executable.directivesAtAddress {Directive : Type} (e : Executable Directive) (a : Int64) : List (Sized Directive) :=
+  let starts_at_a := e.withAddresses.dropWhile (·.addr ≠ a)
+  (starts_at_a.takeWhile (·.addr = a)).map (·.toSized)
 
-def Executable.directivesFromAddress {Directive : Type} (e : Executable Directive) (a : Int64) : List (Directive × Nat) :=
-  let starts_at_a := e.withAddresses.dropWhile (·.1 ≠ a)
-  starts_at_a.map (·.2)
+def Executable.directivesFromAddress {Directive : Type} (e : Executable Directive) (a : Int64) : List (Sized Directive) :=
+  let starts_at_a := e.withAddresses.dropWhile (·.addr ≠ a)
+  starts_at_a.map (·.toSized)
 
-theorem Executable.withAddresses_map_snd {Directive : Type} (ds : List (Directive × Nat)) (a : Int64) :
-    (Executable.withAddresses (a, ds)).map (·.2) = ds := by
-  induction ds generalizing a with
-  | nil =>
-    rw [Executable.withAddresses]
-    rfl
-  | cons d ds ih =>
-    rw [Executable.withAddresses]
-    simp [ih]
+theorem Executable.withAddresses_map_snd {Directive : Type} (program : List (Sized Directive)) (startAddr : Int64) :
+    (Executable.withAddresses {startAddr, program}).map (·.toSized) = program := by
+  induction program generalizing startAddr <;> grind [Executable.withAddresses]
 
-theorem Executable.withAddresses_dropWhile_start {Directive : Type} (ds : List (Directive × Nat)) (a : Int64) :
-    (Executable.withAddresses (a, ds)).dropWhile (fun x => x.1 ≠ a) =
-      Executable.withAddresses (a, ds) := by
-  cases ds with
-  | nil =>
-    rw [Executable.withAddresses]
-    rfl
-  | cons d ds =>
-    rw [Executable.withAddresses]
-    simp [List.dropWhile]
+theorem Executable.withAddresses_dropWhile_start {Directive : Type} (program : List (Sized Directive)) (startAddr : Int64) :
+    (Executable.withAddresses {startAddr, program}).dropWhile (fun x => x.addr ≠ startAddr) =
+      Executable.withAddresses {startAddr, program} := by
+  cases program <;> grind [Executable.withAddresses, List.dropWhile_cons, List.dropWhile_nil]
 
 theorem Executable.directivesFromStart {Directive : Type} [layout : Layout Directive] (prog : List Directive) :
     (layout prog).directivesFromAddress layout.start =
-      prog.mapIdx (fun i d => (d, layout.size i)) := by
-  dsimp [Executable.directivesFromAddress, Layout.apply]
-  rw [Executable.withAddresses_dropWhile_start]
-  rw [Executable.withAddresses_map_snd]
+      prog.mapIdx (fun i directive => {directive, size := layout.size i}) := by
+  grind [Executable.withAddresses_dropWhile_start, Executable.withAddresses_map_snd, Executable.directivesFromAddress, Layout.apply]
 
 theorem directivesAtFromPrefix {Directive : Type} (e: Executable Directive) (a: Int64):
   ∃ rest, e.directivesFromAddress a = e.directivesAtAddress a ++ rest := by
   dsimp [Executable.directivesFromAddress, Executable.directivesAtAddress]
-  refine ⟨((e.withAddresses.dropWhile (·.1 ≠ a)).dropWhile (·.1 = a)).map (·.2), ?_⟩
+  refine ⟨((e.withAddresses.dropWhile (·.addr ≠ a)).dropWhile (·.addr = a)).map (·.toSized), ?_⟩
   rw [← List.map_append]
   rw [List.takeWhile_append_dropWhile]
 
 theorem Executable.mem_of_mem_directivesAtAddress {Directive : Type} {e : Executable Directive}
-    {a : Int64} {c : Directive × Nat} (h : c ∈ e.directivesAtAddress a) : c ∈ e.2 := by
+    {a : Int64} {c : Sized Directive} (h : c ∈ e.directivesAtAddress a) : c ∈ e.program := by
   obtain ⟨x, hx, rfl⟩ := List.mem_map.mp h
-  rw [← Executable.withAddresses_map_snd e.2 e.1]
+  rw [← Executable.withAddresses_map_snd e.program e.startAddr]
   exact List.mem_map_of_mem
     ((List.dropWhile_sublist _).subset ((List.takeWhile_sublist _).subset hx))
 
@@ -88,23 +80,25 @@ theorem Executable.mem_of_mem_directivesAtAddress {Directive : Type} {e : Execut
   rw [Int64.toBitVec_ofNat']; rfl
 
 /-- The sum of sizes of the first `n` directives of `e`. -/
-def Executable.sizeBefore {Directive : Type} (e : Executable Directive) (n : Nat) : Nat := ((e.2.take n).map (·.2)).sum
+def Executable.sizeBefore {Directive : Type} (e : Executable Directive) (n : Nat) : Nat :=
+  ((e.program.take n).map (·.size)).sum
 
 /--
 The address of the `n`-th directive of `e`: the start address of `e` plus the sum of sizes of the
 first `n` directives.
 -/
-def Executable.addrOf {Directive : Type} (e : Executable Directive) (n : Nat) : Int64 := e.1 + .ofNat (e.sizeBefore n)
+def Executable.addrOf {Directive : Type} (e : Executable Directive) (n : Nat) : Int64 :=
+  e.startAddr + .ofNat (e.sizeBefore n)
 
-@[simp] theorem Executable.addrOf_zero {Directive : Type} (e : Executable Directive) : e.addrOf 0 = e.1 := by
+@[simp] theorem Executable.addrOf_zero {Directive : Type} (e : Executable Directive) : e.addrOf 0 = e.startAddr := by
   grind [sizeBefore, addrOf]
 
 @[grind →] theorem Executable.sizeBefore_succ {Directive : Type} (e : Executable Directive) {n : Nat}
-    {d : Directive} {z : Nat} (hd : e.2[n]? = some (d, z)) : e.sizeBefore (n + 1) = e.sizeBefore n + z := by
-  simp [sizeBefore, List.take_add_one, hd]
+    {c : Sized Directive} (hc : e.program[n]? = some c) : e.sizeBefore (n + 1) = e.sizeBefore n + c.size := by
+  simp [sizeBefore, List.take_add_one, hc]
 
 theorem Executable.sizeBefore_add {Directive : Type} (e : Executable Directive) (j i : Nat) :
-    e.sizeBefore (j + i) = e.sizeBefore j + (((e.2.drop j).take i).map (·.2)).sum := by
+    e.sizeBefore (j + i) = e.sizeBefore j + (((e.program.drop j).take i).map (·.size)).sum := by
   simp [sizeBefore, List.take_add]
 
 theorem Executable.sizeBefore_mono {Directive : Type} (e : Executable Directive) {j k : Nat}
@@ -112,29 +106,30 @@ theorem Executable.sizeBefore_mono {Directive : Type} (e : Executable Directive)
   obtain ⟨i, rfl⟩ := Nat.exists_eq_add_of_le h
   simp [sizeBefore_add]
 
-theorem Executable.addrOf_succ {Directive : Type} (e : Executable Directive) {n : Nat} {d : Directive} {z : Nat}
-    (hd : e.2[n]? = some (d, z)) : e.addrOf (n + 1) = e.addrOf n + .ofNat z := by
+theorem Executable.addrOf_succ {Directive : Type} (e : Executable Directive) {n : Nat} {c : Sized Directive}
+    (hc : e.program[n]? = some c) : e.addrOf (n + 1) = e.addrOf n + .ofNat c.size := by
   grind [addrOf]
 
-theorem Executable.getElem?_withAddresses_pair {Directive : Type} :
-    ∀ (ds : List (Directive × Nat)) (a : Int64) (k : Nat),
-      (Kraken.Executable.withAddresses (a, ds))[k]?
-        = ds[k]?.map (fun dz => (Executable.addrOf (a, ds) k, dz))
-  | [], a, k => by rw [Kraken.Executable.withAddresses]; simp
-  | (d, z) :: ds, a, 0 => by
-    rw [Kraken.Executable.withAddresses]
+theorem Executable.getElem?_withAddresses_mk {Directive : Type} :
+    ∀ (program : List (Sized Directive)) (startAddr : Int64) (k : Nat),
+      (Executable.withAddresses {startAddr, program})[k]?
+        = program[k]?.map (fun c => {c with addr := Executable.addrOf {startAddr, program} k})
+  | [], a, k => by rw [Executable.withAddresses]; simp
+  | c :: program, a, 0 => by
+    rw [Executable.withAddresses]
     simp
-  | (d, z) :: ds, a, k + 1 => by
-    rw [Kraken.Executable.withAddresses]
-    simp only [List.getElem?_cons_succ, getElem?_withAddresses_pair ds _ k]
+  | c :: program, a, k + 1 => by
+    rw [Executable.withAddresses]
+    simp only [List.getElem?_cons_succ, getElem?_withAddresses_mk program _ k]
     congr 2
-    funext dz
+    funext c'
     simp only [addrOf, sizeBefore, List.take_succ_cons, List.map_cons, List.sum_cons]
     grind
 
 theorem Executable.getElem?_withAddresses_eq {Directive : Type} (e : Executable Directive) (k : Nat) :
-    (Kraken.Executable.withAddresses (e.1, e.2))[k]? = e.2[k]?.map (fun dz => (e.addrOf k, dz)) :=
-  getElem?_withAddresses_pair e.2 e.1 k
+    e.withAddresses[k]? = e.program[k]?.map (fun c => {c with addr := e.addrOf k}) :=
+  getElem?_withAddresses_mk e.program e.startAddr k
+
 
 private theorem dropWhile_eq_drop_of {α : Type _} {p : α → Bool} {l : List α} {j : Nat}
     (hprior : ∀ k, k < j → ∀ c, l[k]? = some c → p c = true)
@@ -152,8 +147,8 @@ private theorem dropWhile_eq_drop_of {α : Type _} {p : α → Bool} {l : List �
 theorem Executable.withAddresses_dropWhile_addrOf {Directive : Type} (e : Executable Directive) (j n : Nat)
     (hj : e.addrOf j = e.addrOf n)
     (hfresh : ∀ k, k < j → e.addrOf k ≠ e.addrOf n) :
-    (Kraken.Executable.withAddresses (e.1, e.2)).dropWhile (·.1 ≠ e.addrOf n)
-      = (Kraken.Executable.withAddresses (e.1, e.2)).drop j := by
+    e.withAddresses.dropWhile (·.addr ≠ e.addrOf n)
+      = e.withAddresses.drop j := by
   apply dropWhile_eq_drop_of
   · intro k hk c hc
     rw [Executable.getElem?_withAddresses_eq] at hc

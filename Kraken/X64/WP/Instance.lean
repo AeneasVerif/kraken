@@ -23,20 +23,20 @@ public theorem Int64.add_sub_self_left (a b : Int64) : a + (b - a) = b := by
 
 namespace Program.WP
 
-public scoped instance instWP [Host] [Layout] [Layout.Valid] : WP Program Unit (MachineData → Prop) (Int64 → MachineData → Prop) where
+public scoped instance instWP [Host] : WP Program Unit (MachineData → Prop) (Int64 → MachineData → Prop) where
   trans q := ⟨fun Q E s => Program.wp q (Q ()) E s⟩
   trans_monotone _ := fun _ _ _ _ hE hQ _ h => Program.wp_mono (hQ ()) hE h
 
-public scoped instance [Host] [Layout] [Layout.Valid] : WP Directive Unit (MachineData → Prop) (Int64 → MachineData → Prop) where
+public scoped instance [Host] : WP Directive Unit (MachineData → Prop) (Int64 → MachineData → Prop) where
   trans d := WP.trans (self := instWP) [d]
   trans_monotone d := WP.trans_monotone (self := instWP) [d]
 
-public theorem triple_directive [Host] [Layout] [Layout.Valid] {d : Directive} {P : MachineData → Prop}
+public theorem triple_directive [Host] {d : Directive} {P : MachineData → Prop}
     {Q : Unit → MachineData → Prop} {E : Int64 → MachineData → Prop} :
     (⦃ P ⦄ d ⦃ Q; E ⦄) ↔ (⦃ P ⦄ [d] ⦃ Q; E ⦄) :=
   ⟨fun h => ⟨h.1⟩, fun h => ⟨h.1⟩⟩
 
-variable [Host] [Layout] [Layout.Valid] {Q : Unit → MachineData → Prop} {E : Int64 → MachineData → Prop}
+variable [Host] {Q : Unit → MachineData → Prop} {E : Int64 → MachineData → Prop}
 
 @[spec] public theorem nil_spec : ⦃ fun s => Q () s ⦄ ([] : Program) ⦃ Q; E ⦄ := by
   refine ⟨fun s hpre => ?_⟩
@@ -369,18 +369,18 @@ end Program.WP
 
 namespace Program.WP
 
-public theorem step1_of_wp [Host] [Layout] [Layout.Valid] {p : Program} {s : MachineData}
+public theorem step1_of_wp [Host] {p : Program} {s : MachineData}
     {post : @Post MachineState} (hp : p.IsInfix Host.prog)
-    (h : ⊤ ⊑ WP.wp p (fun _ s' => ∀ pc, post (s', pc)) ⊥ s) :
-    Eventually (step1 Host.exe) post (s, startAddr hp) :=
-  Program.step1_of_wp (Q := fun s' => ∀ pc, post (s', pc))
+    (h : ⊤ ⊑ WP.wp p (fun _ s' => ∀ pc, post ⟨s', pc⟩) ⊥ s) :
+    Eventually (step1 Host.exe) post ⟨s, startAddr hp⟩ :=
+  Program.step1_of_wp (Q := fun s' => ∀ pc, post ⟨s', pc⟩)
     (E := (⊥ : Int64 → MachineData → Prop)) hp (of_top_le_prop h) (fun _ hq => hq _)
     (fun a s' hE => ((bot_le (α := Int64 → MachineData → Prop) fun _ _ => False) a s' hE).elim)
 
-public theorem step1_of_triple [Host] [Layout] [Layout.Valid] {p : Program}
+public theorem step1_of_triple [Host] {p : Program}
     {P : MachineData → Prop} {s : MachineData} {post : @Post MachineState} (hp : p.IsInfix Host.prog)
-    (h : ⦃ P ⦄ p ⦃ fun _ s' => ∀ pc, post (s', pc); ⊥ ⦄) (hs : P s) :
-    Eventually (step1 Host.exe) post (s, startAddr hp) :=
+    (h : ⦃ P ⦄ p ⦃ fun _ s' => ∀ pc, post ⟨s', pc⟩; ⊥ ⦄) (hs : P s) :
+    Eventually (step1 Host.exe) post ⟨s, startAddr hp⟩ :=
   step1_of_wp hp (fun _ => h.1 s hs)
 
 end Program.WP

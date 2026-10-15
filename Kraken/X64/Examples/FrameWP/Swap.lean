@@ -22,7 +22,7 @@ def swap : Program := parse("
   xor %rax, %rbx
   xor %rbx, %rax")
 
-theorem swap_spec [Host] [Layout] [Layout.Valid] (a b : BitVec 64) :
+theorem swap_spec [Host] (a b : BitVec 64) :
     ⦃ fun r _ _ => ⌜r.get Reg.rax = a ∧ r.get Reg.rbx = b⌝ ⊓ MProp.emp ⦄
       swap
     ⦃ fun _ r _ _ => ⌜r.get Reg.rax = b ∧ r.get Reg.rbx = a⌝ ⦄ := by
@@ -33,12 +33,12 @@ theorem swap_spec [Host] [Layout] [Layout.Valid] (a b : BitVec 64) :
 `swap_spec` read back as the judgment of the baseline example `swap_correct`,
 over the same program text. -/
 
-theorem swap_correct [Host] [layout : _root_.Layout] [Layout.Valid] (hp : swap.IsInfix Host.prog) (d : MachineData) :
+theorem swap_correct [Host] [layout : _root_.Layout] (hp : swap.IsInfix Host.prog) (d : MachineData) :
       Eventually (step1 Host.exe)
       (fun s' =>
-          s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
-          s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
-      (d, startAddr hp) := by
+          s'.data.regs.get Reg.rax = d.regs.get Reg.rbx ∧
+          s'.data.regs.get Reg.rbx = d.regs.get Reg.rax)
+      ⟨d, startAddr hp⟩ := by
   apply Program.FrameWP.step1_of_wp hp (footprint := MProp.emp)
     (frame := MProp.mk fun _ => True) (by rw [MProp.emp_sep, MProp.get_mk]; trivial)
   kvcgen64 [swap] with finish
