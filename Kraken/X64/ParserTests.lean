@@ -401,63 +401,97 @@ info: [Directive.instr
 
 section error_reporting
 
-/-- error: line 1: unknown register: unlikely -/
+/-- error: <input>:1:11: identifier; expected x64_imm or x64_reg -/
 #guard_msgs in
 #check parse("xorq %rax, %unlikely")
 
 /--
-error: line 1: type mismatch in memory addressing operands: base ({w1}) and index ({w2}) have different widths
+error: type mismatch in memory addressing operands: base (w64) and index (w32) have different widths
 -/
 #guard_msgs in
 #check parse("mov (%rax, %ebx)")
 
-/-- error: line 1: can't have two memory operands -/
+/-- error: can't have two memory operands -/
 #guard_msgs in
 #check parse("mov (%rax), (%rax)")
 
-/-- error: line 1: high byte register cannot be used for an addrexpr -/
+/-- error: high byte register cannot be used for an addrexpr -/
 #guard_msgs in
 #check parse("mov $2, (%ah)")
 
-/-- error: line 1: unexpected end of input -/
+/-- error: expected 2 operands, got 1 -/
 #guard_msgs in
 #check parse("addq %rax")
 
-/-- error: line 1: expected register or memory operand, got $ -/
+/-- error: expected register or memory operand, got $ -/
 #guard_msgs in
 #check parse("xorq %rax, $1")
 
-/-- error: line 1: can't have two memory operands -/
+/-- error: can't have two memory operands -/
 #guard_msgs in
 #check parse("movq sym, sym2")
 
-/-- error: line 1: absolute branch targets are not supported -/
+/-- error: absolute branch targets are not supported -/
 #guard_msgs in
 #check parse("jmp 0x10")
 
-/-- error: line 1: unexpected end of input -/
+/-- error: expected 2 operands, got 0 -/
 #guard_msgs in
 #check parse("addq")
 
-/-- error: line 2: unexpected end of input -/
+/-- error: expected 2 operands, got 1 -/
 #guard_msgs in
 #check parse("
   addq %rax
   cmpq $10, %rax
 ")
 
-/-- error: line 1: type error: w64 != w32 -/
+/-- error: type error: w64 != w32 -/
 #guard_msgs in
 #check parse("movq %eax, %rbx")
 
-/-- error: line 1: invalid scale 3, must be 1, 2, 4, or 8 -/
+/-- error: invalid scale 3, must be 1, 2, 4, or 8 -/
 #guard_msgs in
 #check parse("movq (%rax, %rcx, 3), %rbx")
 
-/-- error: line 1: unexpected trailing characters on line -/
+/-- error: <input>:1:16: unexpected element; expected ';' -/
 #guard_msgs in
 #check parse("movq %rax, %rbx garbage")
 
 end error_reporting
+
+section syntax_cat_and_include
+
+/--
+info: [Directive.label "loop", Directive.instr (regular Width.W64 Width.W64 (Operation.add ↑(low Reg64.rax Width.W64) ↑↑1)),
+  Directive.instr (regular Width.W64 Width.W64 (Operation.jcc CondCode.nz "loop"))] : List Directive
+-/
+#guard_msgs in
+#check [x64|
+  loop:
+    addq $1, %rax
+    jnz loop
+]
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.nop 1))] : List Directive
+-/
+#guard_msgs in
+#check include_x64 "Kraken/X64/Test/asm/test_nop.S"
+
+/--
+info: [Directive.label "aa.1.aa.1",
+  Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.jmp
+        (RelRegOrMem.rel ((↑".L.str.1.llvm.12345").sub ConstExpr.after_current_instruction))))] : List Directive
+-/
+#guard_msgs in
+#check [x64|
+  aa.1.aa.1:
+    jmp .L.str.1.llvm.12345
+]
+
+end syntax_cat_and_include
 
 end Tests
