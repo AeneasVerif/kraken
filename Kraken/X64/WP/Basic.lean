@@ -191,16 +191,6 @@ public structure Fragment [Host] where
   prog : Program
   [embeds : Embeds prog]
 
-public meta section
-
-macro "frag% " e:term:max : term => `((Fragment.mk $e : Fragment))
-
-@[app_unexpander Fragment.mk] def Fragment.unexpandMk : Lean.PrettyPrinter.Unexpander
-  | `($_ $p) => `(frag% $p)
-  | _ => throw ()
-
-end
-
 section
 variable [Host]
 

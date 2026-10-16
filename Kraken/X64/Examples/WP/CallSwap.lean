@@ -76,9 +76,9 @@ theorem pswap_correct [Host] (hp : pswap.IsInfix Host.prog)
   have hsp : swap.IsInfixAt pswap 4 := ⟨_, rfl⟩
   have hsw : swap.IsInfixAt Host.prog (k + 4) := List.IsInfixAt.trans hsp hk
   letI : Embeds swap := ⟨⟨k + 4, hsw⟩⟩
-  letI : FunDecls := ⟨[frag% swap]⟩
-  have hstart : (frag% swap).startAddr = label "swap" := (Host.label_eq (i := 0) hsw rfl).symm
-  have hg : FunDecls.at (label "swap") = some (frag% swap) := by
+  letI : FunDecls := ⟨[Fragment.mk swap]⟩
+  have hstart : (Fragment.mk swap).startAddr = label "swap" := (Host.label_eq (i := 0) hsw rfl).symm
+  have hg : FunDecls.at (label "swap") = some (Fragment.mk swap) := by
     show List.find? _ [_] = _
     simp [hstart]
   have hcall := Program.WP.callSpec_of_triple hg

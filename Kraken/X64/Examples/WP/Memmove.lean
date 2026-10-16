@@ -164,9 +164,9 @@ theorem memmove_correct [Host] (hp : memmoveProg.IsInfix Host.prog)
   have hmp : memmove.IsInfixAt memmoveProg 3 := ⟨_, rfl⟩
   have hmm : memmove.IsInfixAt Host.prog (k + 3) := List.IsInfixAt.trans hmp hk
   letI : Embeds memmove := ⟨⟨k + 3, hmm⟩⟩
-  letI : FunDecls := ⟨[frag% memmove]⟩
-  have hstart : (frag% memmove).startAddr = label "memmove" := (Host.label_eq (i := 0) hmm rfl).symm
-  have hg : FunDecls.at (label "memmove") = some (frag% memmove) := by
+  letI : FunDecls := ⟨[Fragment.mk memmove]⟩
+  have hstart : (Fragment.mk memmove).startAddr = label "memmove" := (Host.label_eq (i := 0) hmm rfl).symm
+  have hg : FunDecls.at (label "memmove") = some (Fragment.mk memmove) := by
     show List.find? _ [_] = _
     simp [hstart]
   have hcall := Program.WP.callSpec_of_triple hg
