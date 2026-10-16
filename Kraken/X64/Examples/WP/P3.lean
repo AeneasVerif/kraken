@@ -44,8 +44,8 @@ private abbrev p3_table (d : MachineData) : Label → MachineData → Prop
   | "init", s => s = d
   | "start", s =>
       s.regs.rdx.toNat = 2 ^ 2 ^ (d.regs.rbx.toNat - s.regs.rbx.toNat)
-      ∧ s.regs.rbx.toNat ≤ d.regs.rbx.toNat ∧ s.regs.rax = 0
-  | "_end", s => s.regs.rdx.toNat = 2 ^ 2 ^ d.regs.rbx.toNat ∧ s.regs.rax = 0
+      ∧ s.regs.rbx.toNat ≤ d.regs.rbx.toNat ∧ s.regs.rax = 0 ∧ s.regs.rsp = d.regs.rsp
+  | "_end", s => s.regs.rdx.toNat = 2 ^ 2 ^ d.regs.rbx.toNat ∧ s.regs.rax = 0 ∧ s.regs.rsp = d.regs.rsp
   | _, _ => False
 
 /-- The baseline's `p3_correct`, for a start state with `rax = 0` and a valid
@@ -58,7 +58,12 @@ theorem p3_correct [Host] (hp : p3.IsInfix Host.prog)
   letI := BlockEntries.ofLabels (Program.labels p3)
   apply Program.WP.step1_of_wp hp
   refine Program.WP.cfg_wp (p3_table d) (fun _ s => s.regs.rbx.toNat) _ ⊥
-    (fun _ => BlockEntries.mem_ofLabels) ?_ d rfl
+    (fun _ => BlockEntries.mem_ofLabels) ?_ ?_ d rfl
+  · intro s₀ l t h₀ ht
+    apply MachineData.stackAtOrBelow_of_rsp_eq
+    subst h₀
+    unfold p3_table at ht
+    split at ht <;> grind
   cfg_cases [p3]
   all_goals kvcgen64 with finish
 

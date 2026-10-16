@@ -23,9 +23,9 @@ def p6 := parse("push %rax
 mov $0, %rax
 pop %rax")
 
-theorem p6_spec [Host] [BlockEntries] [Embeds p6] (stack : List UInt8) (h_len : stack.length = 8) (a sp : UInt64) :
+theorem p6_spec [Host] [BlockEntries] (stack : List UInt8) (h_len : stack.length = 8) (a sp : UInt64) :
     ⦃ fun r _ _ => ⌜r.rax = a ∧ r.rsp = sp⌝ ⊓ stack.AtM (r.rsp.toBitVec - 8#64) ⦄
-      frag% p6
+      p6
     ⦃ fun _ r _ _ => ⌜r.rax = a ∧ r.rsp = sp⌝ ⦄ := by
   kvcgen64 [p6] with finish
 

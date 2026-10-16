@@ -12,9 +12,9 @@ set_option experimental.vcgen true
 
 namespace State.Jumps
 
-example [Host] (l : Label) [Embeds [Directive.label l]] (Q : Unit → MachineData → Prop)
+example [Host] (l : Label) (Q : Unit → MachineData → Prop)
     (E : Int64 → MachineData → Prop) (s : MachineData) (hq : Q () s) :
-    WP.wp (frag% [Directive.label l]) Q E s := by
+    WP.wp ([Directive.label l]) Q E s := by
   vcgen
   exact hq
 
@@ -23,8 +23,8 @@ def jmpNext : Program := parse("
 next:
   mov $2, %rax")
 
-example [Host] [Embeds jmpNext] :
-    ⦃ fun _ => True ⦄ frag% jmpNext ⦃ fun _ s => s.regs.get64 .rax = 2; fun a _ => a = label "next" ⦄ := by
+example [Host] :
+    ⦃ fun _ => True ⦄ jmpNext ⦃ fun _ s => s.regs.get64 .rax = 2; fun a _ => a = label "next" ⦄ := by
   kvcgen64 [jmpNext] with finish
 
 def decMid : Program := parse("
@@ -33,8 +33,8 @@ top:
   jnz top
   mov $1, %rax")
 
-example [Host] [Embeds decMid] :
-    ⦃ fun _ => True ⦄ frag% decMid ⦃ fun _ s => s.regs.get64 .rcx = 0; fun a _ => a = label "top" ⦄ := by
+example [Host] :
+    ⦃ fun _ => True ⦄ decMid ⦃ fun _ s => s.regs.get64 .rcx = 0; fun a _ => a = label "top" ⦄ := by
   kvcgen64 [decMid] with finish
 
 def jmpOver : Program := parse("
@@ -43,8 +43,8 @@ def jmpOver : Program := parse("
 done:
   mov $2, %rax")
 
-example [Host] [Embeds jmpOver] :
-    ⦃ fun s => s.regs.get64 .rbx = 0 ⦄ frag% jmpOver
+example [Host] :
+    ⦃ fun s => s.regs.get64 .rbx = 0 ⦄ jmpOver
     ⦃ fun _ s => s.regs.get64 .rbx = 0; fun a s => a = label "done" ∧ s.regs.get64 .rbx = 0 ⦄ := by
   kvcgen64 [jmpOver] with finish
 
@@ -54,8 +54,8 @@ a:
 b:
   mov $2, %rax")
 
-example [Host] [Embeds jmpGap] :
-    ⦃ fun _ => True ⦄ frag% jmpGap ⦃ fun _ s => s.regs.get64 .rax = 2; fun _ _ => False ⦄ := by
+example [Host] :
+    ⦃ fun _ => True ⦄ jmpGap ⦃ fun _ s => s.regs.get64 .rax = 2; fun a _ => a = label "b" ⦄ := by
   kvcgen64 [jmpGap] with finish
 
 def jccOver : Program := parse("
@@ -65,8 +65,8 @@ def jccOver : Program := parse("
 done:
   mov $2, %rax")
 
-example [Host] [Embeds jccOver] :
-    ⦃ fun s => s.regs.get64 .rbx = 0 ⦄ frag% jccOver
+example [Host] :
+    ⦃ fun s => s.regs.get64 .rbx = 0 ⦄ jccOver
     ⦃ fun _ s => s.regs.get64 .rax = 2; fun a s => a = label "done" ∧ s.regs.get64 .rbx = 0 ⦄ := by
   kvcgen64 [jccOver] with finish
 
@@ -79,8 +79,9 @@ example [Host] (hp : countdown.IsInfix Host.prog) (s : MachineData) (h : 0 < s.r
     Eventually (step1 Host.exe) (fun st => st.data.regs.rcx = 0) ⟨s, startAddr hp⟩ := by
   letI := BlockEntries.ofLabels (Program.labels countdown)
   apply Program.WP.step1_of_wp hp
-  refine Program.WP.cfg_wp (fun _ s => 0 < s.regs.rcx.toNat) (fun _ s => s.regs.rcx.toNat) _ ⊥
-    (fun _ => BlockEntries.mem_ofLabels) ?_ s h
+  refine Program.WP.cfg_wp (fun _ t => 0 < t.regs.rcx.toNat ∧ t.regs.rsp = s.regs.rsp)
+    (fun _ t => t.regs.rcx.toNat) _ ⊥ (fun _ => BlockEntries.mem_ofLabels)
+    (fun _ _ _ h₀ ht => MachineData.stackAtOrBelow_of_rsp_eq (by grind)) ?_ s ⟨h, rfl⟩
   cfg_cases [countdown]
   all_goals kvcgen64 with finish
 
@@ -96,8 +97,9 @@ example [Host] (hp : skip.IsInfix Host.prog) (s : MachineData) :
     Eventually (step1 Host.exe) (fun st => st.data.regs.rax = 2) ⟨s, startAddr hp⟩ := by
   letI := BlockEntries.ofLabels (Program.labels skip)
   apply Program.WP.step1_of_wp hp
-  refine Program.WP.cfg_wp (fun _ _ => True) (fun _ _ => 0) _ ⊥
-    (fun _ => BlockEntries.mem_ofLabels) ?_ s trivial
+  refine Program.WP.cfg_wp (fun _ t => t.regs.rsp = s.regs.rsp) (fun _ _ => 0) _ ⊥
+    (fun _ => BlockEntries.mem_ofLabels)
+    (fun _ _ _ h₀ ht => MachineData.stackAtOrBelow_of_rsp_eq (by grind)) ?_ s rfl
   cfg_cases [skip]
   all_goals kvcgen64 with finish
 

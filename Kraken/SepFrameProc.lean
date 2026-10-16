@@ -11,7 +11,7 @@ the remainder to the frame, and proves the split by one AC equation.
 `Program.FrameWP.frames_directive` is the frame-rule side goal.
 
 Every instruction spec is a triple of one directive, so the procedure is
-keyed on `DirectiveAt`: that is where `vcgen` applies a spec with a footprint.
+keyed on `Directive`: that is where `vcgen` applies a spec with a footprint.
 -/
 public import Kraken.SepSpecs
 public import Kraken.SepCancel
@@ -154,7 +154,7 @@ meta def sepFrameProc : FrameInferenceProc := fun i =>
 
 /-- Active under `open scoped Program.FrameWP`, together with the instance. -/
 @[scoped frameproc] meta def sepFP : FrameProc where
-  prog := ``DirectiveAt
+  prog := ``Directive
   opHead := ``Program.FrameWP.frameOp
   mkOpAppM := fun _ => pure (mkConst ``Program.FrameWP.frameOp)
   mkResourceTy := fun _ => pure (mkApp (mkConst ``MProp) (mkNatLit 64))
@@ -175,27 +175,27 @@ open Kraken.X64.Parser
 
 attribute [local grind .] Lean.Order.PartialOrder.rel_refl
 
-example [Host] [BlockEntries] [FunDecls] [Embeds parse("movq %rax, 136(%rdx)\nmovq $1, %rbx")] (bs : List UInt8) (hlen : bs.length = 8) :
+example [Host] [BlockEntries] [FunDecls] (bs : List UInt8) (hlen : bs.length = 8) :
     ⦃ fun r z f => bs.AtM (r.get64 .rdx + BitVec.ofInt 64 (136 : Int64).toInt) ⦄
-      frag% parse("movq %rax, 136(%rdx)\nmovq $1, %rbx")
+      parse("movq %rax, 136(%rdx)\nmovq $1, %rbx")
     ⦃ fun _ r z f => (Int.toBytes 8 (r.get64 .rax).toInt).AtM
         (r.get64 .rdx + BitVec.ofInt 64 (136 : Int64).toInt) ⦄ := by
   kvcgen64 with finish
 
-example [Host] [BlockEntries] [FunDecls] [Embeds parse("movq %rax, 136(%rdx)\nmovq %rbx, 144(%rdx)")] (bs cs : List UInt8) (hb : bs.length = 8) (hc : cs.length = 8) :
+example [Host] [BlockEntries] [FunDecls] (bs cs : List UInt8) (hb : bs.length = 8) (hc : cs.length = 8) :
     ⦃ fun r z f => bs.AtM (r.get64 .rdx + BitVec.ofInt 64 (136 : Int64).toInt)
         ∗ cs.AtM (r.get64 .rdx + BitVec.ofInt 64 (144 : Int64).toInt) ⦄
-      frag% parse("movq %rax, 136(%rdx)\nmovq %rbx, 144(%rdx)")
+      parse("movq %rax, 136(%rdx)\nmovq %rbx, 144(%rdx)")
     ⦃ fun _ r z f => (Int.toBytes 8 (r.get64 .rax).toInt).AtM
           (r.get64 .rdx + BitVec.ofInt 64 (136 : Int64).toInt)
         ∗ (Int.toBytes 8 (r.get64 .rbx).toInt).AtM
           (r.get64 .rdx + BitVec.ofInt 64 (144 : Int64).toInt) ⦄ := by
   kvcgen64 with finish
 
-example [Host] [BlockEntries] [FunDecls] [Embeds parse("movq %rax, 136(%rdx)\naddq 144(%rdx), %rbx")] (bs cs : List UInt8) (hb : bs.length = 8) (hc : cs.length = 8) :
+example [Host] [BlockEntries] [FunDecls] (bs cs : List UInt8) (hb : bs.length = 8) (hc : cs.length = 8) :
     ⦃ fun r z f => bs.AtM (r.get64 .rdx + BitVec.ofInt 64 (136 : Int64).toInt)
         ∗ cs.AtM (r.get64 .rdx + BitVec.ofInt 64 (144 : Int64).toInt) ⦄
-      frag% parse("movq %rax, 136(%rdx)\naddq 144(%rdx), %rbx")
+      parse("movq %rax, 136(%rdx)\naddq 144(%rdx), %rbx")
     ⦃ fun _ r z f => (Int.toBytes 8 (r.get64 .rax).toInt).AtM
           (r.get64 .rdx + BitVec.ofInt 64 (136 : Int64).toInt)
         ∗ cs.AtM (r.get64 .rdx + BitVec.ofInt 64 (144 : Int64).toInt) ⦄ := by

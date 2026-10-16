@@ -25,9 +25,9 @@ def sib_example : Program := parse("
     movq (%rdi, %r15, 8), %rax
 ")
 
-theorem sib_correct [Host] [BlockEntries] [Embeds sib_example] (v : UInt64) :
+theorem sib_correct [Host] [BlockEntries] (v : UInt64) :
     ⦃ fun r _ _ => v.AtM (r.rdi.toBitVec + BitVec.ofInt 64 (r.r15.toBitVec.toInt * 8)) ⦄
-      frag% sib_example
+      sib_example
     ⦃ fun _ r _ _ => ⌜r.rax = 42⌝ ⦄ := by
   kvcgen64 [sib_example] with finish
 

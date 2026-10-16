@@ -536,5 +536,4 @@ macro "cfg_cases" "[" ids:Lean.Parser.Tactic.simpLemma,* "]" : tactic =>
      all_goals simp only [Program.JumpTo, Program.EdgeLt, Program.isSome_blockAt,
        Program.blockIdx_eq_view, hlabels]
      all_goals clear hlabels
-     all_goals intro _
      all_goals try exact triple_of_dead fun _ h => h.1))

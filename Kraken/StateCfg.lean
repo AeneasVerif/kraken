@@ -125,30 +125,82 @@ attribute [scoped grind norm] List.idxOf_cons List.contains_cons
 
 variable [Host] [BlockEntries] [FunDecls]
 
+abbrev CallSpec (f : Label) (Pre : MachineData → Prop) (Post : MachineData → MachineData → Prop)
+    (m : Modifies) : Prop :=
+  ∀ asz osz (Q : Unit → MachineData → Prop) (E : Int64 → MachineData → Prop),
+    ⦃ fun s => (Mem.loadInt s.dmem (s.regs.get64 .rsp - 8#64) 8).isSome = true ∧ Pre s
+        ∧ (∀ s', Post s s' → m.Agree s s' → Q () s') ⦄
+      (Directive.instr (.regular asz osz (.call (.rel (.sub (.label f) .after_current_instruction)))))
+    ⦃ Q; E ⦄
+
+theorem MachineData.stackBelow_pushRa (s : MachineData) (ra : Int64) : (s.pushRa ra).StackBelow s := by
+  simp only [MachineData.StackBelow, MachineData.pushRa, Reg64s.set64_rsp, Reg64s.get64_rsp,
+    Int64.toBitVec_ofBitVec]
+  generalize s.regs.rsp.toBitVec = x
+  rw [show x - (x - 8#64) = 8#64 by bv_omega]
+  decide
+
+theorem callSpec_of_triple {f : Label} {g : Fragment} (hg : FunDecls.at (label f) = some g)
+    {Pre : MachineData → Prop} {Post : MachineData → MachineData → Prop} {m : Modifies}
+    (hbody : ∀ s ra, ⦃ fun t => t = s.pushRa ra ∧ Pre s ⦄ g.prog
+      ⦃ (fun _ _ => False); fun a t => a = ra ∧ Post s t ∧ m.Agree s t ⦄) :
+    CallSpec f Pre Post m := by
+  intro asz osz Q E
+  refine ⟨fun s ⟨hmapped, hpre, hcont⟩ => Program.wp_single fun h _ _ _ _ hj => ?_⟩
+  obtain ⟨i, hload⟩ := Option.isSome_iff_exists.mp hmapped
+  simp only [Directive.interp, Instr.interp, Operation.interp, RelRegOrMem.interp,
+    ConstExpr.interp, MachineData.store, hload, Effects.All]
+  rw [Int64.ofBitVec_toBitVec, Int64.add_sub_self_left]
+  refine hj (label f) (s.pushRa h.embedding.endAddr) ?_
+  unfold Executable.StepOut
+  simp only [hg, Option.map_some, MachineData.stackBelow_pushRa, ite_true]
+  have hk := h.embedding.isInfixAt
+  have hd := Host.exe_getElem? h.embedding.start
+  rw [hk.cons.1, Option.map_some] at hd
+  have hz : 0 < Kraken.Layout.size Directive h.embedding.start :=
+    Host.instr_size_pos _ _ hk.cons.1 (by rintro ⟨⟩)
+  have hft : Host.exe.fallthrough h.embedding.startAddr = h.embedding.endAddr :=
+    Host.fallthrough_addrOf hd hz
+  rw [hft]
+  refine Program.wp_mono (fun _ h => h) ?_ ((hbody s h.embedding.endAddr).1 _ ⟨rfl, hpre⟩)
+  rintro u ⟨hpc, hpost, hagree⟩
+  simp only [hpc, ite_true]
+  exact ⟨by trivial, hcont _ hpost hagree⟩
+
 /-! ## The control-flow rule -/
+
+theorem Program.blockAt_noInternal {p : Program} {l : Label} {blk : Program.Block}
+    (h : Program.blockAt p l = some blk) (a : Int64) : ¬ blk.body.InternalTarget a := by
+  rintro ⟨l', -, hl', -⟩
+  obtain ⟨-, i, hi, -⟩ := Program.blockAtAux_spec h
+  have hfree := (Program.view_free p).2 _ (List.mem_of_getElem? hi) (.label l') (Program.mem_labels.mp hl')
+  simp [Directive.isLabel] at hfree
 
 /-- The control-flow rule: one table `T`, one variant `var`, one triple per block of
 `Program.blockAt`. Each block is entered with its table entry and the variant snapshotted as
 `n`. It falls into the next block with the entry there and the variant not increased, or, as the
 last block, falls through the end of `p` with `Qend`. A jump either reaches a block of `p` along
-`Program.EdgeLt`, or leaves `p` with `Ext`. -/
-theorem cfg {p p' : Program} {l₀ : Label} [H : Embeds p]
+`Program.EdgeLt`, or leaves `p` with `Ext`; a jump to a label of `p` leaves only once the stack
+shrank below the start. Every table entry keeps the stack at or below the start. -/
+theorem cfg {p p' : Program} {l₀ : Label}
     (T : Label → MachineData → Prop) (var : Label → MachineData → Nat)
     (Qend : MachineData → Prop) (Ext : Int64 → MachineData → Prop)
     (hentries : ∀ l ∈ Program.labels p, l ∈ BlockEntries.labels)
-    (hblocks : ∀ l blk, Program.blockAt p l = some blk → ∀ n : Nat, ∀ (_ : Embeds blk.body),
+    (hstack : ∀ s₀ l s, T l₀ s₀ → T l s → s.StackAtOrBelow s₀)
+    (hblocks : ∀ l blk, Program.blockAt p l = some blk → ∀ n : Nat,
       ⦃ fun s => T l s ∧ var l s = n ⦄
-        frag% blk.body
-      ⦃ fun _ s => (match blk.next with
+        blk.body
+      ⦃ fun _ s => match blk.next with
           | some l' => T l' s ∧ var l' s ≤ n
-          | none => Qend s) ∨ Program.JumpTo p T var l n (frag% blk.body).endAddr s;
-        fun a s => Program.JumpTo p T var l n a s ∨ (Ext a s ∧ ∀ l' ∈ Program.labels p, label l' ≠ a) ⦄)
-    (hp : p = Directive.label l₀ :: p' := by rfl) (hnd : (Program.labels p).Nodup := by decide)
-    (hfun : ∀ a, p.Entry a → FunDecls.at a = none := by intros; rfl) :
-    ⦃ fun s => T l₀ s ⦄ frag% p ⦃ fun _ s => Qend s; Ext ⦄ := by
-  refine ⟨fun s hT => ?_⟩
-  show @Program.wp _ _ _ p H (fun s => Qend s) Ext s
+          | none => Qend s;
+        fun a s => Program.JumpTo p T var l n a s ∨
+          (Ext a s ∧ ∀ l' ∈ Program.labels p, label l' = a → ∀ s₀, T l₀ s₀ → s₀.StackBelow s) ⦄)
+    (hp : p = Directive.label l₀ :: p' := by rfl) (hnd : (Program.labels p).Nodup := by decide) :
+    ⦃ fun s => T l₀ s ⦄ p ⦃ fun _ s => Qend s; Ext ⦄ := by
+  refine ⟨fun s₀ hT₀ => ?_⟩
+  show Program.wp p (fun st => Qend st.data) (fun st => Ext st.pc st.data) s₀
   rw [Program.wp_eq]
+  intro H
   have hlink := H.embedding.isInfixAt
   have hK : ∀ l, Program.blockIdx p l ≤ (Program.view p).2.length := Program.blockIdx_le p
   have hcellOf : ∀ l, Program.fromLabel p l ≠ [] →
@@ -163,12 +215,14 @@ theorem cfg {p p' : Program} {l₀ : Label} [H : Embeds p]
     obtain ⟨blk', hblk'⟩ := Option.isSome_iff_exists.mp hsome'
     rw [Program.fromLabel_block hnd hblk']
     exact List.cons_ne_nil _ _
-  have hentry : ∀ l', (Program.blockAt p l').isSome → p.Entry (label l') := fun l' hsome' =>
+  have hentry : ∀ l', (Program.blockAt p l').isSome → p.InternalTarget (label l') := fun l' hsome' =>
     ⟨l', hentries l' (Program.mem_labels.mpr (List.mem_of_getElem? (hcellOf l' (hne_of l' hsome')))),
       Program.mem_labels.mpr (List.mem_of_getElem? (hcellOf l' (hne_of l' hsome'))), rfl⟩
   have key : ∀ x : Label × MachineData, (Program.blockAt p x.1).isSome → T x.1 x.2 →
-      Run p.step (fun st st' => p.Edge st.pc st'.pc) (·.pc = Host.addrOf (H.embedding.start + p.length))
-        (Qend ·.data) (fun st => Ext st.pc st.data)
+      While (·.pc ≠ H.embedding.endAddr)
+        (fun «continue» => Host.exe.StepOver (fun a => (FunDecls.at a).map fun f => f.prog.wp (fun _ => False))
+          «continue» (p.ContinueOnInternalExit s₀ «continue» fun st => Ext st.pc st.data))
+        (fun st => Qend st.data)
         ⟨x.2, Host.addrOf (H.embedding.start + (p.length - (Program.fromLabel p x.1).length))⟩ := by
     intro x
     induction x using (measure (Program.cfgMeasure p var)).wf.induction with
@@ -178,9 +232,10 @@ theorem cfg {p p' : Program} {l₀ : Label} [H : Embeds p]
       dsimp only at hsome hT ⊢
       have jump : ∀ l' s', (Program.blockAt p l').isSome → T l' s' →
           Program.cfgMeasure p var (l', s') < Program.cfgMeasure p var (l, s) →
-          Run p.step (fun st st' => p.Edge st.pc st'.pc) (·.pc = Host.addrOf (H.embedding.start + p.length))
-        (Qend ·.data) (fun st => Ext st.pc st.data)
-            ⟨s', label l'⟩ := by
+          While (·.pc ≠ H.embedding.endAddr)
+            (fun «continue» => Host.exe.StepOver (fun a => (FunDecls.at a).map fun f => f.prog.wp (fun _ => False))
+              «continue» (p.ContinueOnInternalExit s₀ «continue» fun st => Ext st.pc st.data))
+            (fun st => Qend st.data) ⟨s', label l'⟩ := by
         intro l' s' hsome' hT' hlt
         rw [Host.label_eq hlink (hcellOf l' (hne_of l' hsome'))]
         exact ih (l', s') hlt hsome' hT'
@@ -222,46 +277,49 @@ theorem cfg {p p' : Program} {l₀ : Label} [H : Embeds p]
       have haddr : Host.addrOf (H.embedding.start + (i + 1)) = Host.addrOf (H.embedding.start + i) := by
         rw [← Nat.add_assoc, Host.addrOf_succ hlab, Host.label_size _ _ hlab]; simp
       rw [← haddr]
-      refine Program.run_infix (o := i + 1) hbody (by omega) (fun a ha _ => hfun a ha)
-        (Q' := fun s' => (match blk.next with
-          | some l' => T l' s' ∧ var l' s' ≤ var l s
-          | none => Qend s') ∨
-            Program.JumpTo p T var l (var l s) (@Fragment.mk _ blk.body (H.ofIsInfixAt hbody)).endAddr s')
-        (E' := fun a s' => Program.JumpTo p T var l (var l s) a s' ∨
-          (Ext a s' ∧ ∀ l' ∈ Program.labels p, label l' ≠ a))
-        ((hblocks l blk hblk (var l s) (H.ofIsInfixAt hbody)).1 s ⟨hT, rfl⟩) ?_ ?_
-      · rintro s' (hnext | ⟨l', hl', hsome', hT', hedge⟩)
-        · cases hn : blk.next with
-          | none =>
-            simp only [hn] at hnext hlen
-            refine Run.done ?_ hnext
-            show Host.addrOf (H.embedding.start + (i + 1) + blk.body.length) = _
+      refine Program.run_infix (o := i + 1) hbody (by omega) (Program.blockAt_noInternal hblk)
+        ((hblocks l blk hblk (var l s)).1 s ⟨hT, rfl⟩) ?_ ?_
+      · intro st hpc hnext
+        cases hn : blk.next with
+        | none =>
+          simp only [hn] at hnext hlen
+          refine While.stop ?_ hnext
+          show ¬ st.pc ≠ Host.addrOf (H.embedding.start + p.length)
+          rw [hpc]
+          simp only [Option.elim, List.length_nil] at hlen
+          intro hne
+          exact hne (by congr 1; omega)
+        | some l' =>
+          simp only [hn] at hnext hlen
+          obtain ⟨hT', hvar⟩ := hnext
+          obtain ⟨hsome', hidx'⟩ := Program.blockAt_next hnd hblk hn
+          simp only [Option.elim] at hlen
+          have hst : st = ⟨st.data, Host.addrOf (H.embedding.start + (p.length - (Program.fromLabel p l').length))⟩ := by
+            cases st
+            simp only [MachineState.mk.injEq, true_and] at hpc ⊢
+            rw [hpc]
             congr 1
-            simp only [Option.elim, List.length_nil] at hlen
             omega
-          | some l' =>
-            simp only [hn] at hnext hlen
-            obtain ⟨hT', hvar⟩ := hnext
-            obtain ⟨hsome', hidx'⟩ := Program.blockAt_next hnd hblk hn
-            simp only [Option.elim] at hlen
-            rw [show H.embedding.start + (i + 1) + blk.body.length
-              = H.embedding.start + (p.length - (Program.fromLabel p l').length) by omega]
-            refine ih (l', s') ?_ hsome' hT'
-            have hK' := hK l'
-            show Program.cfgMeasure p var (l', s') < Program.cfgMeasure p var (l, s)
-            unfold Program.cfgMeasure
-            dsimp only
-            have hmul : var l' s' * ((Program.view p).2.length + 1)
-                ≤ var l s * ((Program.view p).2.length + 1) :=
-              Nat.mul_le_mul_right _ hvar
-            omega
-        · have hend : Host.addrOf (H.embedding.start + (i + 1) + blk.body.length) = label l' := hl'.symm
-          rw [hend]
-          exact jump l' s' hsome' hT' (edge l' s' hedge)
-      · rintro a s' (⟨l', hl', hsome', hT', hedge⟩ | ⟨hext, hnot⟩)
+          rw [hst]
+          refine ih (l', st.data) ?_ hsome' hT'
+          have hK' := hK l'
+          show Program.cfgMeasure p var (l', st.data) < Program.cfgMeasure p var (l, s)
+          unfold Program.cfgMeasure
+          dsimp only
+          have hmul : var l' st.data * ((Program.view p).2.length + 1)
+              ≤ var l s * ((Program.view p).2.length + 1) :=
+            Nat.mul_le_mul_right _ hvar
+          omega
+      · rintro ⟨s', a⟩ (⟨l', hl', hsome', hT', hedge⟩ | ⟨hext, hnot⟩)
         · subst hl'
-          exact ⟨fun _ => jump l' s' hsome' hT' (edge l' s' hedge), fun hne => absurd (hentry l' hsome') hne⟩
-        · exact ⟨fun ⟨l'', _, hl'', hla⟩ => absurd hla (hnot l'' hl''), fun _ => hext⟩
+          unfold Program.ContinueOnInternalExit
+          rw [if_pos ⟨hentry l' hsome', hstack s₀ l' s' hT₀ hT'⟩]
+          exact jump l' s' hsome' hT' (edge l' s' hedge)
+        · unfold Program.ContinueOnInternalExit
+          rw [if_neg]
+          · exact hext
+          · rintro ⟨⟨l'', -, hl'', hla⟩, hown⟩
+            exact hown (hnot l'' hl'' hla s₀ hT₀)
   have h0 : (Program.blockAt p l₀).isSome := by
     rw [hp]
     show (Program.blockAtAux (Program.view (Directive.label l₀ :: p')).2 l₀).isSome = true
@@ -275,25 +333,26 @@ theorem cfg {p p' : Program} {l₀ : Label} [H : Embeds p]
       exact (List.nodup_cons.mp hnd').1 hmem
     rw [hp]
     simp [hnot]
-  have := key (l₀, s) h0 hT
+  have := key (l₀, s₀) h0 hT₀
   rwa [hfl, Nat.sub_self, Nat.add_zero] at this
 
 /-- `cfg` at one state, in the goal form of `vcgen`. -/
-theorem cfg_wp {p p' : Program} {l₀ : Label} {H : Embeds p}
+theorem cfg_wp {p p' : Program} {l₀ : Label}
     (T : Label → MachineData → Prop) (var : Label → MachineData → Nat)
     (Qend : MachineData → Prop) (Ext : Int64 → MachineData → Prop)
     (hentries : ∀ l ∈ Program.labels p, l ∈ BlockEntries.labels)
-    (hblocks : ∀ l blk, Program.blockAt p l = some blk → ∀ n : Nat, ∀ (_ : Embeds blk.body),
+    (hstack : ∀ s₀ l s, T l₀ s₀ → T l s → s.StackAtOrBelow s₀)
+    (hblocks : ∀ l blk, Program.blockAt p l = some blk → ∀ n : Nat,
       ⦃ fun s => T l s ∧ var l s = n ⦄
-        frag% blk.body
-      ⦃ fun _ s => (match blk.next with
+        blk.body
+      ⦃ fun _ s => match blk.next with
           | some l' => T l' s ∧ var l' s ≤ n
-          | none => Qend s) ∨ Program.JumpTo p T var l n (frag% blk.body).endAddr s;
-        fun a s => Program.JumpTo p T var l n a s ∨ (Ext a s ∧ ∀ l' ∈ Program.labels p, label l' ≠ a) ⦄)
+          | none => Qend s;
+        fun a s => Program.JumpTo p T var l n a s ∨
+          (Ext a s ∧ ∀ l' ∈ Program.labels p, label l' = a → ∀ s₀, T l₀ s₀ → s₀.StackBelow s) ⦄)
     (s : MachineData) (hT : T l₀ s)
-    (hp : p = Directive.label l₀ :: p' := by rfl) (hnd : (Program.labels p).Nodup := by decide)
-    (hfun : ∀ a, p.Entry a → FunDecls.at a = none := by intros; rfl) :
-    ⊤ ⊑ WP.wp (@Fragment.mk _ p H) (fun _ s => Qend s) Ext s :=
-  fun _ => (cfg (H := H) T var Qend Ext hentries hblocks hp hnd hfun).1 s hT
+    (hp : p = Directive.label l₀ :: p' := by rfl) (hnd : (Program.labels p).Nodup := by decide) :
+    ⊤ ⊑ WP.wp p (fun _ s => Qend s) Ext s :=
+  fun _ => (cfg T var Qend Ext hentries hstack hblocks hp hnd).1 s hT
 
 end Program.WP

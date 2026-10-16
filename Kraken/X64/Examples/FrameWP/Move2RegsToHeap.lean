@@ -28,10 +28,10 @@ def move_2_regs_to_heap : Program := parse("
     movq 8(%rdi), %r13
 ")
 
-theorem move_2_regs_to_heap_spec [Host] [BlockEntries] [Embeds move_2_regs_to_heap] (v1 v2 : UInt64) (a c d : UInt64) :
+theorem move_2_regs_to_heap_spec [Host] [BlockEntries] (v1 v2 : UInt64) (a c d : UInt64) :
     ⦃ fun r _ _ => ⌜r.rax = a ∧ r.rcx = c ∧ r.rdi = d⌝
         ⊓ (v1.AtM r.rdi.toBitVec ∗ v2.AtM (r.rdi.toBitVec + 8#64)) ⦄
-      frag% move_2_regs_to_heap
+      move_2_regs_to_heap
     ⦃ fun _ r _ _ => ⌜r.r12 = a ∧ r.r13 = c ∧ r.rdi = d⌝ ⦄ := by
   kvcgen64 [move_2_regs_to_heap] with finish
 
