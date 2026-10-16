@@ -31,6 +31,20 @@ public scoped instance [Host] [BlockEntries] [FunDecls] : WP Directive Unit (Mac
   trans d := WP.trans (self := instWP) [d]
   trans_monotone d := WP.trans_monotone (self := instWP) [d]
 
+public scoped instance [Host] [BlockEntries] [FunDecls] (p : Program) : WPConjunctive p where
+  wp_meet_wp_le Q₁ Q₂ E₁ E₂ s h := by
+    simp only [meet_apply, meet_prop_eq_and] at h
+    show Program.wp p (fun st => (Q₁ ⊓ Q₂) () st.data) (fun st => (E₁ ⊓ E₂) st.pc st.data) s
+    exact Program.wp_mono (fun _ h => by simpa only [meet_apply, meet_prop_eq_and] using h)
+      (fun _ h => by simpa only [meet_apply, meet_prop_eq_and] using h) (Program.wp_and h.1 h.2)
+
+public scoped instance [Host] [BlockEntries] [FunDecls] (d : Directive) : WPConjunctive d where
+  wp_meet_wp_le Q₁ Q₂ E₁ E₂ s h := by
+    simp only [meet_apply, meet_prop_eq_and] at h
+    show Program.wp [d] (fun st => (Q₁ ⊓ Q₂) () st.data) (fun st => (E₁ ⊓ E₂) st.pc st.data) s
+    exact Program.wp_mono (fun _ h => by simpa only [meet_apply, meet_prop_eq_and] using h)
+      (fun _ h => by simpa only [meet_apply, meet_prop_eq_and] using h) (Program.wp_and h.1 h.2)
+
 variable [Host] [BlockEntries] [FunDecls] {Q : Unit → MachineData → Prop} {E : Int64 → MachineData → Prop}
 
 @[spec] public theorem nil_spec : ⦃ fun s => Q () s ⦄ ([] : Program) ⦃ Q; E ⦄ :=
