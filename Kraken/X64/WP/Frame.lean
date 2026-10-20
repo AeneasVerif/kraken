@@ -116,7 +116,7 @@ theorem sep_elim [Host] [FunDecls] {q : Program} {F : MProp 64}
 interpretation is a frame closure, and `∗` composes resources by `sep_assoc`.
 This is the fact the frame inference of `vcgen` discharges per spec
 application. -/
-theorem frames [Host] [FunDecls] (q : Program) (F : MProp 64) : WP.Frames frameOp q F := by
+theorem frames [Host] [FunDecls] (q : Program) (F : MProp 64) (P) : WP.Frames frameOp q F P := by
   refine WP.frames_of_frameClosure frameOp MProp.sep ?_ ?_ ⟨fun q => base.trans q, fun _ => rfl⟩
   · intro r r' a
     funext regs zmms flags
@@ -162,9 +162,9 @@ where `vcgen` sequences them. -/
 
 /-- The frame fact of one directive: what the frame inference of `vcgen`
 discharges per spec application. -/
-@[grind .] theorem frames_directive [Host] [FunDecls] (d : Directive) (F : MProp 64) :
-    WP.Frames frameOp d F :=
-  ⟨(frames [d] F).op_wp_le_wp_op⟩
+@[grind .] theorem frames_directive [Host] [FunDecls] (d : Directive) (F : MProp 64) (P) :
+    WP.Frames frameOp d F P :=
+  ⟨(frames [d] F P).op_wp_le_wp_op⟩
 
 end Program.FrameWP
 
