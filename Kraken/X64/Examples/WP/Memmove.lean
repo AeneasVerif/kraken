@@ -4,8 +4,8 @@ module
 A caller that moves a byte range onto an overlapping range through a call to `memmove`, after
 Erbsen et al., "Foundational Integration Verification of a Cryptographic Server" (PLDI 2024,
 §2.3). `memmove_spec` proves the callee on its own: the source holds the bytes `bs`, the
-destination is an owned block, and on return the destination owns `bs` and the frame `R₂` is
-unchanged. The source can overlap the destination. `memmove_correct` proves the caller from the
+destination is mapped, and on return the destination holds `bs` and the memory outside the
+destination and the return slot is unchanged. The source can overlap the destination. `memmove_correct` proves the caller from the
 resulting `CallSpec` alone.
 -/
 public import Kraken.StateCfg
@@ -63,8 +63,10 @@ done:
   nop
 ")
 
-/-- `memmove` clobbers `rax`, `rsi`, `rdi` and `rdx`. -/
-abbrev mmMod : Modifies := ⟨[.rax, .rsi, .rdi, .rdx]⟩
+/-- `memmove` clobbers `rax`, `rsi`, `rdi`, `rdx`, the destination and its return slot. -/
+abbrev mmMod (s : MachineData) : Modifies :=
+  ⟨[.rax, .rsi, .rdi, .rdx],
+    [(s.regs.get64 .rdi, (s.regs.get64 .rdx).toNat), (s.regs.get64 .rsp - 8#64, 8)]⟩
 
 /-! ## The callee -/
 
@@ -79,96 +81,93 @@ private abbrev MMKeep (s t : MachineData) : Prop :=
 
 /-- In `fwd`, `rdx` bytes remain. The bytes below them are copied, and the source above them
 is unread. -/
-private abbrev MMFwd (bs : List UInt8) (R₂ : DataMem → Prop) (s : MachineData) (ra : Int64)
+private abbrev MMFwd (bs : List UInt8) (s : MachineData) (ra : Int64)
     (t : MachineData) : Prop :=
   (s.regs.get64 .rdi).toNat ≤ (s.regs.get64 .rsi).toNat ∧ (t.regs.get64 .rdx).toNat ≤ bs.length
     ∧ t.regs.get64 .rsi = s.regs.get64 .rsi + .ofNat 64 (bs.length - (t.regs.get64 .rdx).toNat)
     ∧ t.regs.get64 .rdi = s.regs.get64 .rdi + .ofNat 64 (bs.length - (t.regs.get64 .rdx).toNat)
     ∧ t.regs.get64 .rsp = s.regs.get64 .rsp - 8#64 ∧ MMKeep s t
-    ∧ (t.dmem =⋆ Mem.Bytes (s.regs.get64 .rsp - 8#64) (Int.toBytes 8 ra.toBitVec.toInt)
-        ⋆ Mem.Blocks [(s.regs.get64 .rdi, bs.length)] ⋆ R₂)
+    ∧ Mem.Contains t.dmem (s.regs.get64 .rsp - 8#64) (Int.toBytes 8 ra.toBitVec.toInt)
+    ∧ Mem.Mapped [(s.regs.get64 .rsp - 8#64, 8), (s.regs.get64 .rdi, bs.length)] t.dmem
+    ∧ Mem.UnchangedOutside (mmMod s).mem s.dmem t.dmem
     ∧ Mem.Contains t.dmem (s.regs.get64 .rdi) (bs.take (bs.length - (t.regs.get64 .rdx).toNat))
     ∧ Mem.Contains t.dmem (t.regs.get64 .rsi) (bs.drop (bs.length - (t.regs.get64 .rdx).toNat))
 
 /-- In `bwd`, `rdx` bytes remain. The bytes above them are copied, and the source below them is
 unread. -/
-private abbrev MMBwd (bs : List UInt8) (R₂ : DataMem → Prop) (s : MachineData) (ra : Int64)
+private abbrev MMBwd (bs : List UInt8) (s : MachineData) (ra : Int64)
     (t : MachineData) : Prop :=
   (s.regs.get64 .rsi).toNat < (s.regs.get64 .rdi).toNat ∧ (t.regs.get64 .rdx).toNat ≤ bs.length
     ∧ t.regs.get64 .rsi = s.regs.get64 .rsi + t.regs.get64 .rdx
     ∧ t.regs.get64 .rdi = s.regs.get64 .rdi + t.regs.get64 .rdx
     ∧ t.regs.get64 .rsp = s.regs.get64 .rsp - 8#64 ∧ MMKeep s t
-    ∧ (t.dmem =⋆ Mem.Bytes (s.regs.get64 .rsp - 8#64) (Int.toBytes 8 ra.toBitVec.toInt)
-        ⋆ Mem.Blocks [(s.regs.get64 .rdi, bs.length)] ⋆ R₂)
+    ∧ Mem.Contains t.dmem (s.regs.get64 .rsp - 8#64) (Int.toBytes 8 ra.toBitVec.toInt)
+    ∧ Mem.Mapped [(s.regs.get64 .rsp - 8#64, 8), (s.regs.get64 .rdi, bs.length)] t.dmem
+    ∧ Mem.UnchangedOutside (mmMod s).mem s.dmem t.dmem
     ∧ Mem.Contains t.dmem (t.regs.get64 .rdi) (bs.drop (t.regs.get64 .rdx).toNat)
     ∧ Mem.Contains t.dmem (s.regs.get64 .rsi) (bs.take (t.regs.get64 .rdx).toNat)
 
-/-- The callee's table, for a call from `s` that returns to `ra`, with arguments `P`. -/
-private abbrev mm_table (P : Prop) (bs : List UInt8) (R₂ : DataMem → Prop)
-    (s : MachineData) (ra : Int64) : CfgLabel → MachineData → Prop
-  | .entry, t | .label "memmove", t => t = s.pushRa ra ∧ P
-  | .label "bwd", t => P ∧ MMBwd bs R₂ s ra t
-  | .label "bdone", t => P ∧ MMBwd bs R₂ s ra t ∧ t.regs.get64 .rdx = 0
-  | .label "fwd", t => P ∧ MMFwd bs R₂ s ra t
-  | .label "fdone", t => P ∧ MMFwd bs R₂ s ra t ∧ t.regs.get64 .rdx = 0
-  | _, _ => False
-
 /-- The contract of `memmove`, in every linked program. -/
-theorem memmove_spec [Host] [FunDecls] (bs : List UInt8) (R₁ R₂ : DataMem → Prop)
-    (s : MachineData) (ra : Int64) :
+theorem memmove_spec [Host] [FunDecls] (bs : List UInt8) (s : MachineData) (ra : Int64) :
     ⦃ fun t => t = s.pushRa ra
       ∧ (bs.length = (s.regs.get64 .rdx).toNat
         ∧ (s.regs.get64 .rsi).toNat + bs.length < 2 ^ 64
         ∧ (s.regs.get64 .rdi).toNat + bs.length < 2 ^ 64
-        ∧ (s.dmem =⋆ Mem.Bytes (s.regs.get64 .rsi) bs ⋆ Mem.Blocks [(s.regs.get64 .rsp - 8#64, 8)] ⋆ R₁)
-        ∧ s.dmem =⋆ Mem.Blocks [(s.regs.get64 .rsp - 8#64, 8), (s.regs.get64 .rdi, bs.length)] ⋆ R₂) ⦄
+        ∧ Mem.Contains s.dmem (s.regs.get64 .rsi) bs
+        ∧ Mem.Mapped [(s.regs.get64 .rsp - 8#64, 8), (s.regs.get64 .rdi, bs.length)] s.dmem
+        ∧ Mem.Blocks.Disjoint [(s.regs.get64 .rsi, bs.length), (s.regs.get64 .rdi, bs.length)]
+            [(s.regs.get64 .rsp - 8#64, 8)]) ⦄
       memmove
     ⦃ (fun _ _ => False); fun a t => a = ra
-      ∧ (t.dmem =⋆ Mem.Blocks [(s.regs.get64 .rsp - 8#64, 8)] ⋆ Mem.Bytes (s.regs.get64 .rdi) bs ⋆ R₂)
-      ∧ mmMod.Agree s t ⦄ := by
-  refine ⟨fun s₀ ⟨h₀, hP⟩ => ?_⟩
+      ∧ Mem.Contains t.dmem (s.regs.get64 .rdi) bs
+      ∧ (mmMod s).Agree s t ⦄ := by
+  refine ⟨fun s₀ ⟨h₀, _⟩ => ?_⟩
   subst h₀
-  refine Program.WP.cfg (mm_table _ bs R₂ s ra) (fun _ t => (t.regs.get64 .rdx).toNat) ?_ ⟨rfl, hP⟩
+  refine Program.WP.cfg (fun
+      | .entry, t | .label "memmove", t => t = s.pushRa ra
+      | .label "bwd", t => MMBwd bs s ra t
+      | .label "bdone", t => MMBwd bs s ra t ∧ t.regs.get64 .rdx = 0
+      | .label "fwd", t => MMFwd bs s ra t
+      | .label "fdone", t => MMFwd bs s ra t ∧ t.regs.get64 .rdx = 0
+      | _, _ => False)
+    (fun _ t => (t.regs.get64 .rdx).toNat) ?_ rfl
   cfg_cases
   all_goals kvcgen64 with finish
 
 /-! ## The caller -/
 
-/-- The caller's table: `start` holds the arguments, `done` the moved bytes. The blocks of the
-callee are entered only by the call. -/
-private abbrev mp_table (d : MachineData) (bs : List UInt8) (R₂ : DataMem → Prop) :
-    CfgLabel → MachineData → Prop
-  | .entry, s | .label "start", s => s = d
-  | .label "done", s => s.regs.get64 .rsp = d.regs.get64 .rsp ∧ s.dmem =⋆ Mem.Blocks [(d.regs.get64 .rsp - 8#64, 8)]
-      ⋆ Mem.Bytes (d.regs.get64 .rdi) bs ⋆ R₂
-  | .exit, s => s.dmem =⋆ Mem.Blocks [(d.regs.get64 .rsp - 8#64, 8)] ⋆ Mem.Bytes (d.regs.get64 .rdi) bs ⋆ R₂
-  | _, _ => False
-
 theorem memmove_correct [Host] (hp : memmoveProg.IsInfix Host.prog)
-    (d : MachineData) (bs : List UInt8) (R₁ R₂ : DataMem → Prop)
+    (d : MachineData) (bs : List UInt8)
     (hn : bs.length = (d.regs.get64 .rdx).toNat)
     (hsrc : (d.regs.get64 .rsi).toNat + bs.length < 2 ^ 64)
     (hdst : (d.regs.get64 .rdi).toNat + bs.length < 2 ^ 64)
-    (h₁ : d.dmem =⋆ Mem.Bytes (d.regs.get64 .rsi) bs ⋆ Mem.Blocks [(d.regs.get64 .rsp - 8#64, 8)] ⋆ R₁)
-    (h₂ : d.dmem =⋆ Mem.Blocks [(d.regs.get64 .rsp - 8#64, 8), (d.regs.get64 .rdi, bs.length)] ⋆ R₂) :
+    (hbs : Mem.Contains d.dmem (d.regs.get64 .rsi) bs)
+    (hmap : Mem.Mapped [(d.regs.get64 .rsp - 8#64, 8), (d.regs.get64 .rdi, bs.length)] d.dmem)
+    (hdisj : Mem.Blocks.Disjoint [(d.regs.get64 .rsi, bs.length), (d.regs.get64 .rdi, bs.length)]
+      [(d.regs.get64 .rsp - 8#64, 8)]) :
     Eventually (step1 Host.exe)
-      (fun st => st.data.dmem =⋆ Mem.Blocks [(d.regs.get64 .rsp - 8#64, 8)]
-        ⋆ Mem.Bytes (d.regs.get64 .rdi) bs ⋆ R₂)
+      (fun st => Mem.Contains st.data.dmem (d.regs.get64 .rdi) bs
+        ∧ Mem.UnchangedOutside (mmMod d).mem d.dmem st.data.dmem)
       ⟨d, startAddr hp⟩ := by
   have hk := List.isInfixAt_infixIdx hp
   generalize memmoveProg.infixIdx Host.prog hp = k at hk
-  have hmp : memmove.IsInfixAt memmoveProg 3 := ⟨_, rfl⟩
-  have hmm : memmove.IsInfixAt Host.prog (k + 3) := List.IsInfixAt.trans hmp hk
+  have hmm : memmove.IsInfixAt Host.prog (k + 3) :=
+    List.IsInfixAt.trans (⟨_, rfl⟩ : memmove.IsInfixAt memmoveProg 3) hk
   letI : Embeds memmove := ⟨⟨k + 3, hmm⟩⟩
   letI : FunDecls := ⟨[Fragment.mk memmove]⟩
   have hstart : (Fragment.mk memmove).startAddr = label "memmove" := (Host.label_eq (i := 0) hmm rfl).symm
   have hg : FunDecls.at (label "memmove") = some (Fragment.mk memmove) := by
     show List.find? _ [_] = _
     simp [hstart]
-  have hcall := Program.WP.callSpec_of_triple hg
-    (memmove_spec bs R₁ R₂)
+  have hcall := Program.WP.callSpec_of_triple hg (memmove_spec bs)
   apply Program.WP.step1_of_wp hp
-  refine Program.WP.cfg (mp_table d bs R₂) (fun _ _ => 0) ?_ rfl
+  refine Program.WP.cfg (fun
+      | .entry, s | .label "start", s => s = d
+      | .label "done", s => s.regs.get64 .rsp = d.regs.get64 .rsp ∧ Mem.Contains s.dmem (d.regs.get64 .rdi) bs
+          ∧ Mem.UnchangedOutside (mmMod d).mem d.dmem s.dmem
+      | .exit, s => Mem.Contains s.dmem (d.regs.get64 .rdi) bs ∧ Mem.UnchangedOutside (mmMod d).mem d.dmem s.dmem
+      | _, _ => False)
+    (fun _ _ => 0) ?_ rfl
   cfg_cases
   all_goals kvcgen64 [hcall] with finish
 

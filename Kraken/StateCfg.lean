@@ -9,6 +9,7 @@ edges between labelled blocks. A call steps by the callee's `CallSpec`, which
 -/
 public import Kraken.X64.WP.Instance
 public import Kraken.Blocks
+public import Kraken.SeparationMem
 
 @[expose] public section
 
@@ -87,21 +88,22 @@ def MachineData.pushRa (s : MachineData) (ra : Int64) : MachineData :=
     Mem.loadInt_storeInt _ _ _ _ (by decide : 8 ≤ 2 ^ 64), Option.map_some,
     BitVec.ofInt_ofBytes_toBytes 64 8 rfl, Int64.ofBitVec_toBitVec]
 
-/-- The registers a callee may change. -/
+/-- The registers and memory blocks a callee may change. -/
 structure Modifies where
   regs : List Reg64
+  mem : List (BitVec 64 × Nat)
 
-/-- `s'` agrees with `s` on the registers outside `m`. -/
+/-- `s'` agrees with `s` on the registers and the memory outside `m`. -/
 def Modifies.Agree (m : Modifies) (s s' : MachineData) : Prop :=
-  ∀ r, r ∉ m.regs → s'.regs.get64 r = s.regs.get64 r
+  (∀ r, r ∉ m.regs → s'.regs.get64 r = s.regs.get64 r) ∧ Mem.UnchangedOutside m.mem s.dmem s'.dmem
 
 theorem Modifies.Agree.reg {m : Modifies} {s s' : MachineData} (h : m.Agree s s') (r : Reg64)
-    (hr : r ∉ m.regs) : s'.regs.get64 r = s.regs.get64 r := h r hr
+    (hr : r ∉ m.regs) : s'.regs.get64 r = s.regs.get64 r := h.1 r hr
 grind_pattern Modifies.Agree.reg => m.Agree s s', s'.regs.get64 r
 
 @[grind =] theorem Modifies.agree_iff (m : Modifies) (s s' : MachineData) :
     m.Agree s s' ↔
-      (.rax ∈ m.regs ∨ s'.regs.get64 .rax = s.regs.get64 .rax)
+      ((.rax ∈ m.regs ∨ s'.regs.get64 .rax = s.regs.get64 .rax)
       ∧ (.rbx ∈ m.regs ∨ s'.regs.get64 .rbx = s.regs.get64 .rbx)
       ∧ (.rcx ∈ m.regs ∨ s'.regs.get64 .rcx = s.regs.get64 .rcx)
       ∧ (.rdx ∈ m.regs ∨ s'.regs.get64 .rdx = s.regs.get64 .rdx)
@@ -116,9 +118,10 @@ grind_pattern Modifies.Agree.reg => m.Agree s s', s'.regs.get64 r
       ∧ (.r12 ∈ m.regs ∨ s'.regs.get64 .r12 = s.regs.get64 .r12)
       ∧ (.r13 ∈ m.regs ∨ s'.regs.get64 .r13 = s.regs.get64 .r13)
       ∧ (.r14 ∈ m.regs ∨ s'.regs.get64 .r14 = s.regs.get64 .r14)
-      ∧ (.r15 ∈ m.regs ∨ s'.regs.get64 .r15 = s.regs.get64 .r15) := by
-  constructor
-  · intro h
+      ∧ (.r15 ∈ m.regs ∨ s'.regs.get64 .r15 = s.regs.get64 .r15))
+      ∧ Mem.UnchangedOutside m.mem s.dmem s'.dmem := by
+  refine and_congr_left' ⟨fun h => ?_, fun h r hr => ?_⟩
+  ·
     exact ⟨Classical.or_iff_not_imp_left.mpr (h _), Classical.or_iff_not_imp_left.mpr (h _),
       Classical.or_iff_not_imp_left.mpr (h _), Classical.or_iff_not_imp_left.mpr (h _),
       Classical.or_iff_not_imp_left.mpr (h _), Classical.or_iff_not_imp_left.mpr (h _),
@@ -127,18 +130,17 @@ grind_pattern Modifies.Agree.reg => m.Agree s s', s'.regs.get64 r
       Classical.or_iff_not_imp_left.mpr (h _), Classical.or_iff_not_imp_left.mpr (h _),
       Classical.or_iff_not_imp_left.mpr (h _), Classical.or_iff_not_imp_left.mpr (h _),
       Classical.or_iff_not_imp_left.mpr (h _), Classical.or_iff_not_imp_left.mpr (h _)⟩
-  · intro h r hr
-    cases r <;> simp_all
+  · cases r <;> simp_all
 
 namespace Program.WP
 
 variable [Host] [FunDecls]
 
 abbrev CallSpec (f : Label) (Pre : MachineData → Prop) (Post : MachineData → MachineData → Prop)
-    (m : Modifies) : Prop :=
+    (m : MachineData → Modifies) : Prop :=
   ∀ asz osz (Q : Unit → MachineData → Prop) (E : Int64 → MachineData → Prop),
     ⦃ fun s => (Mem.loadInt s.dmem (s.regs.get64 .rsp - 8#64) 8).isSome = true ∧ Pre s
-        ∧ (∀ s', Post s s' → m.Agree s s' → Q () s') ⦄
+        ∧ (∀ s', Post s s' → (m s).Agree s s' → Q () s') ⦄
       (Directive.instr (.regular asz osz (.call (.rel (.sub (.label f) .after_current_instruction)))))
     ⦃ Q; E ⦄
 
@@ -150,9 +152,9 @@ theorem MachineData.stackBelow_pushRa (s : MachineData) (ra : Int64) : (s.pushRa
   decide
 
 theorem callSpec_of_triple {f : Label} {g : Fragment} (hg : FunDecls.at (label f) = some g)
-    {Pre : MachineData → Prop} {Post : MachineData → MachineData → Prop} {m : Modifies}
+    {Pre : MachineData → Prop} {Post : MachineData → MachineData → Prop} {m : MachineData → Modifies}
     (hbody : ∀ s ra, ⦃ fun t => t = s.pushRa ra ∧ Pre s ⦄ g.prog
-      ⦃ (fun _ _ => False); fun a t => a = ra ∧ Post s t ∧ m.Agree s t ⦄) :
+      ⦃ (fun _ _ => False); fun a t => a = ra ∧ Post s t ∧ (m s).Agree s t ⦄) :
     CallSpec f Pre Post m := by
   intro asz osz Q E
   refine ⟨fun s ⟨hmapped, hpre, hcont⟩ => Program.wp_single fun h _ _ _ _ hj => ?_⟩

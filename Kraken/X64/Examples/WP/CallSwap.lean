@@ -31,36 +31,28 @@ done:
   nop
 ")
 
-/-- `swap` clobbers `rax` and `rbx`. -/
-private abbrev swapMod : Modifies := ⟨[.rax, .rbx]⟩
+/-- `swap` clobbers `rax`, `rbx` and its return slot. -/
+private abbrev swapMod (s : MachineData) : Modifies := ⟨[.rax, .rbx], [(s.regs.get64 .rsp - 8#64, 8)]⟩
 
-private abbrev swap_table (P : Prop) (s : MachineData) (ra : Int64) : CfgLabel → MachineData → Prop
-  | .entry, t | .label "swap", t => t = s.pushRa ra ∧ P
-  | _, _ => False
-
-theorem swap_spec [Host] [FunDecls] (R : DataMem → Prop)
-    (s : MachineData) (ra : Int64) :
-    ⦃ fun t => t = s.pushRa ra ∧ s.dmem =⋆ Mem.Blocks [(s.regs.get64 .rsp - 8#64, 8)] ⋆ R ⦄
+theorem swap_spec [Host] [FunDecls] (s : MachineData) (ra : Int64) :
+    ⦃ fun t => t = s.pushRa ra ∧ Mem.Mapped [(s.regs.get64 .rsp - 8#64, 8)] s.dmem ⦄
       swap
     ⦃ (fun _ _ => False); fun a s' => a = ra
       ∧ (s'.regs.get64 .rax = s.regs.get64 .rbx ∧ s'.regs.get64 .rbx = s.regs.get64 .rax
-        ∧ s'.dmem =⋆ Mem.Blocks [(s.regs.get64 .rsp - 8#64, 8)] ⋆ R)
-      ∧ swapMod.Agree s s' ⦄ := by
-  refine ⟨fun s₀ ⟨h₀, hP⟩ => ?_⟩
+        ∧ Mem.Mapped [(s.regs.get64 .rsp - 8#64, 8)] s'.dmem)
+      ∧ (swapMod s).Agree s s' ⦄ := by
+  refine ⟨fun s₀ ⟨h₀, _⟩ => ?_⟩
   subst h₀
-  refine Program.WP.cfg (swap_table _ s ra) (fun _ _ => 0) ?_ ⟨rfl, hP⟩
+  refine Program.WP.cfg (fun
+      | .entry, t | .label "swap", t => t = s.pushRa ra
+      | _, _ => False)
+    (fun _ _ => 0) ?_ rfl
   cfg_cases
   all_goals kvcgen64 with finish
 
-private abbrev pswap_table (d : MachineData) (R : DataMem → Prop) : CfgLabel → MachineData → Prop
-  | .entry, s | .label "start", s => s = d ∧ d.dmem =⋆ Mem.Blocks [(d.regs.get64 .rsp - 8#64, 8)] ⋆ R
-  | .label "done", s | .exit, s => s.regs.get64 .rax = d.regs.get64 .rax ∧ s.regs.get64 .rbx = d.regs.get64 .rbx
-      ∧ s.regs.get64 .rsp = d.regs.get64 .rsp
-  | _, _ => False
-
 theorem pswap_correct [Host] (hp : pswap.IsInfix Host.prog)
-    (d : MachineData) (R : DataMem → Prop)
-    (hmem : d.dmem =⋆ Mem.Blocks [(d.regs.get64 .rsp - 8#64, 8)] ⋆ R) :
+    (d : MachineData)
+    (hmem : Mem.Mapped [(d.regs.get64 .rsp - 8#64, 8)] d.dmem) :
     Eventually (step1 Host.exe)
       (fun s => s.data.regs.get64 .rax = d.regs.get64 .rax
         ∧ s.data.regs.get64 .rbx = d.regs.get64 .rbx
@@ -77,9 +69,14 @@ theorem pswap_correct [Host] (hp : pswap.IsInfix Host.prog)
     show List.find? _ [_] = _
     simp [hstart]
   have hcall := Program.WP.callSpec_of_triple hg
-    (swap_spec R)
+    swap_spec
   apply Program.WP.step1_of_wp hp
-  refine Program.WP.cfg (pswap_table d R) (fun _ _ => 0) ?_ ⟨rfl, hmem⟩
+  refine Program.WP.cfg (fun
+      | .entry, s | .label "start", s => s = d
+      | .label "done", s | .exit, s => s.regs.get64 .rax = d.regs.get64 .rax
+          ∧ s.regs.get64 .rbx = d.regs.get64 .rbx ∧ s.regs.get64 .rsp = d.regs.get64 .rsp
+      | _, _ => False)
+    (fun _ _ => 0) ?_ rfl
   cfg_cases
   all_goals kvcgen64 [hcall] with finish
 
