@@ -1186,40 +1186,4 @@ public def parse (input: String) : Except String Program := do
   ) ((1 : Nat), [])
   pure lines.reverse.flatten
 
--- ============================================================================
--- Assembly Preprocessing (Directive Stripping)
--- ============================================================================
--- These delete code that is not presently handled by Kraken. This is useful
--- for running on code without needing to modify it to delete things we do not
--- model. These are used in file parsing.
-
-private def directiveKeywords : List String :=
-  ["file", "text", "data", "p2align", "balign",
-   "globl", "global", "type", "size", "section",
-   "weak", "hidden", "protected", "internal", "ident",
-   "cfi_startproc", "cfi_endproc", "cfi_def_cfa",
-   "cfi_offset", "cfi_adjust_cfa_offset", "cfi_def_cfa_offset",
-   "cfi_def_cfa_register", "cfi_restore", "cfi_remember_state",
-   "cfi_restore_state"]
-
-private def extractDirectiveName (s : String) : String :=
-  let rest := s.drop 1
-  let nameStr := (rest.takeWhile (fun c => c != ' ' && c != '\t' && c != ',' && c != ':')).toString
-  nameStr.toLower
-
-private def keepLine (line : String) : Bool :=
-  let stripped := (line.trimAsciiStart).toString
-  if stripped.isEmpty || stripped.startsWith "#" then true
-  else if !stripped.startsWith "." then true
-  else
-    let dirName := extractDirectiveName stripped
-    if stripped.any (· == ':') then true
-    else if directiveKeywords.contains dirName then false
-    else false
-
-public def stripDirectives (content : String) : String :=
-  let lines := content.splitOn "\n"
-  let kept := lines.filter keepLine
-  "\n".intercalate kept
-
 end Kraken.X64.Parser
