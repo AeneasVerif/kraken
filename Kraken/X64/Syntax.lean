@@ -271,6 +271,7 @@ inductive Directive
   deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
 
 abbrev Program := List Directive
+
 abbrev Executable := Kraken.Executable Directive
 
 namespace Reg
