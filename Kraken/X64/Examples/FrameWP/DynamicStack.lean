@@ -34,7 +34,7 @@ def dynamic_stack : Program := parse("
 attribute [local grind ←] Lean.Order.le_ofProp MProp.SliceBound.intro MProp.le_mk_of
 attribute [local grind =] Int.toBytes_length BitVec.ofInt_ofBytes_toBytes List.length_take List.length_drop
 
-theorem dynamic_stack_correct [Host] [BlockEntries] (stack : List UInt8) (lstack : stack.length = 1024)
+theorem dynamic_stack_correct [Host] (stack : List UInt8) (lstack : stack.length = 1024)
     (rsp₀ : UInt64) :
     ⦃ fun r z f => ⌜r.rsp = rsp₀ ∧ r.r9.toNat + r.r15.toNat < 125⌝
         ⊓ stack.AtM (r.rsp.toBitVec - 1024#64) ⦄

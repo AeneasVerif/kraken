@@ -44,3 +44,5 @@ import Kraken.X64.Examples.WP.CallSwap
 import Kraken.X64.Examples.WP.Memmove
 import Kraken.X64.Examples.WP.Jumps
 import Kraken.X64.Examples.WP.Surprises
+import Kraken.X64.Examples.WP.EventuallySurprises
+import Kraken.X64.Examples.WP.PushPopLoop

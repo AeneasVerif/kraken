@@ -33,7 +33,7 @@ theorem MProp.sep_left_comm {w : Nat} (P Q R : MProp w) :
 
 namespace Program.FrameWP
 
-variable [Host] [BlockEntries] [FunDecls] {Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64}
+variable [Host] [FunDecls] {Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64}
   {E : Int64 → Reg64s → RegZmms → StatusFlags → MProp 64}
 
 /-! ## Register instructions

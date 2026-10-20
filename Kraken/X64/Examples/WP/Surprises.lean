@@ -20,30 +20,13 @@ postcondition does not hold. Each example proves the triple that does hold,
 which shows where the run of the fragment exits.
 
 The three rules behind the examples:
-* A jump continues only at an internal target: a label of the fragment in
-  `BlockEntries.labels`.
+* A jump continues only at an internal target: a label of the fragment.
 * A jump continues only while the run owns the stack: the stack pointer is
   at or below the stack pointer at the start of the run.
 * A jump is a call only if its own step makes the stack deeper.
 -/
 
 namespace State.Surprises
-
-/-! ## A1: a jump to the next instruction exits
-
-The machine jumps to `next`, executes `mov`, and ends with `rax = 2`. The
-default `BlockEntries` is empty, so `next` is no internal target. The jump
-leaves the fragment at `label "next"`, and the run never falls off its end.
-The triple `⦃ True ⦄ jmpNext ⦃ rax = 2; False ⦄` therefore fails. -/
-
-def jmpNext : Program := parse("
-  jmp next
-next:
-  mov $2, %rax")
-
-example [Host] :
-    ⦃ fun _ => True ⦄ jmpNext ⦃ fun _ _ => False; fun a _ => a = label "next" ⦄ := by
-  kvcgen64 [jmpNext] with finish
 
 /-! ## B1: a loop that releases stack above its start
 
@@ -61,18 +44,16 @@ drain:
   dec %rcx
   jnz drain")
 
-section
-local instance : BlockEntries := BlockEntries.ofLabels (Program.labels drain)
-
-example [Host] (s : MachineData) (hc : s.regs.rcx.toNat = 2) :
-    ⊤ ⊑ WP.wp drain (fun _ _ => False) (fun a t => a = label "drain" ∧ t.regs.rcx.toNat = 1) s := by
-  refine Program.WP.cfg_wp (l₀ := "drain") (fun _ t => t = s) (fun _ _ => 0) _ _
-    (fun _ => BlockEntries.mem_ofLabels)
-    (fun _ _ _ h₀ ht => by subst h₀; subst ht; exact MachineData.stackAtOrBelow_of_rsp_eq rfl) ?_ s rfl
-  cfg_cases [drain]
-  all_goals kvcgen64 with finish
-
-end
+example [Host] [FunDecls] (s : MachineData) (hc : s.regs.rcx.toNat = 2) :
+    WP.wp drain (fun _ _ => False) (fun a t => a = label "drain" ∧ t.regs.rcx.toNat = 1) s := by
+  refine Program.WP.cfg
+    (fun b t => match b with
+      | .exit => False
+      | _ => t = s)
+    (fun _ _ => 0) ?_ rfl
+  cfg_cases
+  all_goals kvcgen64
+  all_goals first | (apply Program.Intercept.exit; grind) | grind
 
 /-! ## C1: a call made by hand is a jump
 
@@ -86,7 +67,7 @@ def manualCall : Program := parse("
   sub $8, %rsp
   jmp f")
 
-example [Host] [BlockEntries] [FunDecls] [NotEntry "f"] :
+example [Host] [FunDecls] :
     ⦃ fun _ => True ⦄ manualCall ⦃ fun _ _ => False; fun a _ => a = label "f" ⦄ := by
   kvcgen64 [manualCall] with finish
 
@@ -100,7 +81,7 @@ def tailCall : Program := parse("
   mov $1, %rax
   jmp f")
 
-example [Host] [BlockEntries] [FunDecls] :
+example [Host] [FunDecls] :
     ⦃ fun _ => True ⦄ tailCall ⦃ fun _ _ => False; fun a s => a = label "f" ∧ s.regs.rax = 1 ⦄ := by
   kvcgen64 [tailCall] with finish
 

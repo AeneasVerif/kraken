@@ -175,14 +175,14 @@ open Kraken.X64.Parser
 
 attribute [local grind .] Lean.Order.PartialOrder.rel_refl
 
-example [Host] [BlockEntries] [FunDecls] (bs : List UInt8) (hlen : bs.length = 8) :
+example [Host] [FunDecls] (bs : List UInt8) (hlen : bs.length = 8) :
     ⦃ fun r z f => bs.AtM (r.get64 .rdx + BitVec.ofInt 64 (136 : Int64).toInt) ⦄
       parse("movq %rax, 136(%rdx)\nmovq $1, %rbx")
     ⦃ fun _ r z f => (Int.toBytes 8 (r.get64 .rax).toInt).AtM
         (r.get64 .rdx + BitVec.ofInt 64 (136 : Int64).toInt) ⦄ := by
   kvcgen64 with finish
 
-example [Host] [BlockEntries] [FunDecls] (bs cs : List UInt8) (hb : bs.length = 8) (hc : cs.length = 8) :
+example [Host] [FunDecls] (bs cs : List UInt8) (hb : bs.length = 8) (hc : cs.length = 8) :
     ⦃ fun r z f => bs.AtM (r.get64 .rdx + BitVec.ofInt 64 (136 : Int64).toInt)
         ∗ cs.AtM (r.get64 .rdx + BitVec.ofInt 64 (144 : Int64).toInt) ⦄
       parse("movq %rax, 136(%rdx)\nmovq %rbx, 144(%rdx)")
@@ -192,7 +192,7 @@ example [Host] [BlockEntries] [FunDecls] (bs cs : List UInt8) (hb : bs.length = 
           (r.get64 .rdx + BitVec.ofInt 64 (144 : Int64).toInt) ⦄ := by
   kvcgen64 with finish
 
-example [Host] [BlockEntries] [FunDecls] (bs cs : List UInt8) (hb : bs.length = 8) (hc : cs.length = 8) :
+example [Host] [FunDecls] (bs cs : List UInt8) (hb : bs.length = 8) (hc : cs.length = 8) :
     ⦃ fun r z f => bs.AtM (r.get64 .rdx + BitVec.ofInt 64 (136 : Int64).toInt)
         ∗ cs.AtM (r.get64 .rdx + BitVec.ofInt 64 (144 : Int64).toInt) ⦄
       parse("movq %rax, 136(%rdx)\naddq 144(%rdx), %rbx")

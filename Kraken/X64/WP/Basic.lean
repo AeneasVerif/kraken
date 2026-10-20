@@ -2,7 +2,6 @@ module
 
 public import Kraken.X64.WP.Host
 public import Kraken.X64.WP.Step
-public import Std.Data.ExtHashSet
 
 /-
 # Weakest precondition of a fragment of a host program
@@ -60,6 +59,17 @@ public theorem While.and {body₁ body₂ : (σ → Prop) → σ → Prop} {done
     | step _ U₂ ht₂ hr₂ =>
       exact Eventually.step _ (fun z => U₁ z ∧ U₂ z) ⟨ht₁.1, hb _ _ _ ht₁.1 ht₁.2 ht₂.2⟩
         fun z ⟨hz₁, hz₂⟩ => ih z hz₁ (hr₂ z hz₂)
+
+public theorem While.not_of_inv (Inv : σ → Prop) (hdone : ∀ y, Inv y → ¬ cond y → ¬ done y)
+    (hstep : ∀ U y, Inv y → cond y → body U y → ∃ z, U z ∧ Inv z) {x : σ} (hx : Inv x) :
+    ¬ While cond body done x := by
+  intro h
+  unfold While at h
+  induction h with
+  | done y h => exact hdone y hx h.1 h.2
+  | step y U ht _ ih =>
+    obtain ⟨z, hz, hiz⟩ := hstep U y hx ht.1 ht.2
+    exact ih z hz hiz
 
 open Lean.Order in
 @[partial_fixpoint_monotone] public theorem While.monotone {α : Type} [PartialOrder α] {init : σ}
@@ -134,58 +144,16 @@ public abbrev Embeds.ofIsInfixAt [Host] {p q : Program} (hq : Embeds q) {i : Nat
 public abbrev Embeds.ofIsInfix [Host] {p : Program} (h : p.IsInfix Host.prog) : Embeds p :=
   ⟨⟨p.infixIdx Host.prog h, List.isInfixAt_infixIdx h⟩⟩
 
-public class BlockEntries where
-  labels : Std.ExtHashSet Label
+public class NoLabels (p : Program) : Prop where
+  out : p.labels = []
 
-public instance : BlockEntries := ⟨∅⟩
+public instance : NoLabels [] := ⟨rfl⟩
 
-@[simp, grind =] public theorem BlockEntries.labels_empty : (BlockEntries.labels : Std.ExtHashSet Label) = ∅ := rfl
-
-attribute [grind .] Std.ExtHashSet.not_mem_empty
-
-@[expose] public def BlockEntries.ofLabels (ls : List Label) : BlockEntries := ⟨Std.ExtHashSet.ofList ls⟩
-
-public theorem BlockEntries.mem_ofLabels {ls : List Label} {l : Label} (h : l ∈ ls) :
-    l ∈ (BlockEntries.ofLabels ls).labels :=
-  Std.ExtHashSet.mem_ofList.mpr (List.contains_iff_mem.mpr h)
-
-@[expose] public def Program.NoEntries [BlockEntries] (p : Program) : Prop :=
-  ∀ l ∈ p.labels, l ∉ BlockEntries.labels
-
-@[simp, grind =] public theorem Program.noEntries_nil [BlockEntries] : Program.NoEntries [] ↔ True := by
-  simp [Program.NoEntries]
-
-@[simp, grind =] public theorem Program.noEntries_cons_instr [BlockEntries] (i : Instr) (p : Program) :
-    Program.NoEntries (.instr i :: p) ↔ Program.NoEntries p := by
-  simp [Program.NoEntries]
-
-@[simp, grind =] public theorem Program.noEntries_cons_byteArray [BlockEntries] (a : ByteArray) (p : Program) :
-    Program.NoEntries (.byteArray a :: p) ↔ Program.NoEntries p := by
-  simp [Program.NoEntries]
-
-@[simp, grind =] public theorem Program.noEntries_cons_label [BlockEntries] (l : Label) (p : Program) :
-    Program.NoEntries (.label l :: p) ↔ l ∉ BlockEntries.labels ∧ Program.NoEntries p := by
-  simp [Program.NoEntries]
-
-public class NotEntry [BlockEntries] (l : Label) : Prop where
-  out : l ∉ BlockEntries.labels
-
-public instance {l : Label} : @NotEntry ⟨∅⟩ l := ⟨Std.ExtHashSet.not_mem_empty⟩
-
-public class NoEntries [BlockEntries] (p : Program) : Prop where
-  out : Program.NoEntries p
-
-public instance [BlockEntries] : NoEntries [] := ⟨by simp⟩
-
-public instance [BlockEntries] {i : Instr} {p : Program} [h : NoEntries p] : NoEntries (.instr i :: p) :=
+public instance {i : Instr} {p : Program} [h : NoLabels p] : NoLabels (.instr i :: p) :=
   ⟨by simpa using h.out⟩
 
-public instance [BlockEntries] {l : Label} {p : Program} [h : NoEntries p] [hl : NotEntry l] :
-    NoEntries (.label l :: p) :=
-  ⟨by simpa using ⟨hl.out, h.out⟩⟩
-
-@[expose] public def Program.InternalTarget [Host] [BlockEntries] (p : Program) (a : Int64) : Prop :=
-  ∃ l ∈ BlockEntries.labels, l ∈ p.labels ∧ label l = a
+@[expose] public def Program.InternalTarget [Host] (p : Program) (a : Int64) : Prop :=
+  ∃ l ∈ p.labels, label l = a
 
 public structure Fragment [Host] where
   prog : Program
@@ -219,12 +187,12 @@ public theorem FunDecls.startAddr_of_at [Host] [FunDecls] {a : Int64} {f : Fragm
   simpa using List.find?_some h
 
 open Classical in
-@[expose] public def Program.ContinueOnInternalExit [Host] [BlockEntries] (p : Program) (s : MachineData)
+@[expose] public def Program.ContinueOnInternalExit [Host] (p : Program) (s : MachineData)
     («continue» exit : MachineState → Prop) (st : MachineState) : Prop :=
   if p.InternalTarget st.pc ∧ st.data.StackAtOrBelow s then «continue» st else exit st
 
 /-- Weakest precondition of a `Program` fragment of the host program. -/
-public def Program.wp [Host] [BlockEntries] [FunDecls] (p : Program) (done exit : MachineState → Prop)
+public def Program.wp [Host] [FunDecls] (p : Program) (done exit : MachineState → Prop)
     (s : MachineData) : Prop :=
   let callee a := (FunDecls.at a).map fun f => f.prog.wp (fun _ => False)
   ∀ [h : Embeds p],
@@ -234,7 +202,7 @@ public def Program.wp [Host] [BlockEntries] [FunDecls] (p : Program) (done exit 
 inductive_fixpoint
 
 section
-variable [Host] [BlockEntries] [FunDecls]
+variable [Host] [FunDecls]
 
 public theorem Program.wp_eq {p : Program} {done exit : MachineState → Prop} {s : MachineData} :
     p.wp done exit s = ∀ [h : Embeds p], While (·.pc ≠ h.embedding.endAddr)
@@ -268,9 +236,9 @@ public theorem Program.continueOnInternalExit_of_noInternal {p : Program} (h : �
   funext fun u => by simp [Program.ContinueOnInternalExit, h]
 
 omit [FunDecls] in
-public theorem Program.noInternal_of_noEntries {p : Program} (hN : Program.NoEntries p) (a : Int64) :
+public theorem Program.noInternal_of_noLabels {p : Program} (hN : p.labels = []) (a : Int64) :
     ¬ p.InternalTarget a :=
-  fun ⟨l, hl, hp, _⟩ => hN l hp hl
+  fun ⟨l, hl, _⟩ => by simp [hN] at hl
 
 public theorem Program.wp_mono {p : Program} {done₁ done₂ exit₁ exit₂ : MachineState → Prop}
     (hd : ∀ u, done₁ u → done₂ u) (he : ∀ u, exit₁ u → exit₂ u) {s : MachineData}
@@ -396,10 +364,46 @@ public theorem Host.stepIn_addrOf {k : Nat} {c : Kraken.Sized Directive}
   rw [← hsucc]
   exact h (fun s' hn => hr _ hn) (fun a s' hj' => hj _ hj')
 
+public theorem Host.interp_addrOf {k : Nat} {c : Kraken.Sized Directive}
+    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) (s : MachineData)
+    (ret jmp : MachineState → Effects) (P : MachineState → Prop) :
+    (@Directives.interp Host.exe.labels (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k)
+        (fun a s => ret ⟨s, a⟩) (fun a s => jmp ⟨s, a⟩)).All P ↔
+      (c.directive.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩ (fun s' => ret ⟨s', Host.addrOf (k + 1)⟩)
+        (fun a s' => jmp ⟨s', a⟩)).All P := by
+  obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hc hz
+  have hinert : ∀ c ∈ pre, c.size = 0 ∧ c.directive.Inert := fun c hc =>
+    ⟨hpre c hc, Host.inert_of_size_zero (hpre c hc ▸
+      Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc))⟩
+  have hk : Host.prog[k]? = some c.directive := by
+    rw [Host.exe_getElem?] at hc; grind
+  have hzk : Kraken.Layout.size Directive k = c.size := by
+    rw [Host.exe_getElem?] at hc; grind
+  have hsucc : Host.addrOf (k + 1) = Host.addrOf k + .ofNat c.size := by rw [Host.addrOf_succ hk, hzk]
+  rw [hat, Directives.interp_inert_append hinert s _ _ P (fun a s => jmp ⟨s, a⟩)]
+  obtain ⟨d, z⟩ := c
+  simp only [Directives.interp] at hsucc ⊢
+  rw [← hsucc]
+
+public theorem Host.stepIn_elim {k : Nat} {c : Kraken.Sized Directive}
+    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) {s : MachineData} {next jump : MachineState → Prop}
+    (h : Host.exe.StepIn next jump ⟨s, Host.addrOf k⟩) {P : MachineState → Prop} {ret jmp : MachineState → Effects}
+    (hr : ∀ st, next st → (ret st).All P) (hj : ∀ st, jump st → (jmp st).All P) :
+    (c.directive.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩ (fun s' => ret ⟨s', Host.addrOf (k + 1)⟩)
+      (fun a s' => jmp ⟨s', a⟩)).All P :=
+  (Host.interp_addrOf hc hz s ret jmp P).mp (h hr hj)
+
+public theorem Host.step1_addrOf {k : Nat} {c : Kraken.Sized Directive}
+    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) {s : MachineData} {P : MachineState → Prop}
+    (h : (c.directive.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩ (fun s' => .done ⟨s', Host.addrOf (k + 1)⟩)
+      (fun a s' => .done ⟨s', a⟩)).All P) :
+    step1 Host.exe ⟨s, Host.addrOf k⟩ P :=
+  (Host.interp_addrOf hc hz s .done .done P).mpr h
+
 end
 
 section
-variable [Host] [BlockEntries] [FunDecls]
+variable [Host] [FunDecls]
 
 public theorem Program.wp_nil {done exit : MachineState → Prop} {s : MachineData} (hd : ∀ pc, done ⟨s, pc⟩) :
     Program.wp [] done exit s := by
@@ -479,16 +483,14 @@ public theorem Host.addrOf_ne_of_le {j e f : Nat} (hje : j ≤ e) (hef : e ≤ f
 end
 
 section
-variable [Host] [BlockEntries] [FunDecls]
+variable [Host] [FunDecls]
 
 public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : MachineState → Prop} {s : MachineData}
-    (hN : Program.NoEntries (d :: p)) (hw : Program.wp [d] (fun st => p.wp done exit st.data) exit s) :
+    (hN : Program.labels (d :: p) = []) (hw : Program.wp [d] (fun st => p.wp done exit st.data) exit s) :
     Program.wp (d :: p) done exit s := by
-  have nd := Program.noInternal_of_noEntries (p := [d]) fun l hl =>
-    hN l (by cases d <;> simp_all [Program.labels_cons_label])
-  have np := Program.noInternal_of_noEntries (p := p) fun l hl =>
-    hN l (by cases d <;> simp_all [Program.labels_cons_label])
-  have ndp := Program.noInternal_of_noEntries hN
+  have nd := Program.noInternal_of_noLabels (p := [d]) (by cases d <;> simp_all)
+  have np := Program.noInternal_of_noLabels (p := p) (by cases d <;> simp_all)
+  have ndp := Program.noInternal_of_noLabels hN
   rw [Program.wp_eq] at hw ⊢
   intro H
   have hk := H.embedding.isInfixAt
@@ -533,7 +535,7 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
 end
 
 section
-variable [Host] [BlockEntries] [FunDecls]
+variable [Host] [FunDecls]
 
 public theorem Program.wp_single {d : Directive} {done exit : MachineState → Prop} {s : MachineData}
     (hw : ∀ (h : Embeds [d]) ⦃P : MachineState → Prop⦄ ⦃next : MachineData → Effects⦄
@@ -566,7 +568,8 @@ public theorem Program.wp_single {d : Directive} {done exit : MachineState → P
       simp [hend, ha, Embedding.startAddr]
     rw [this]
     exact hq rfl
-  · have nd := Program.noInternal_of_noEntries (p := [d]) fun l hl => by
+  · have nd : ∀ a, ¬ Program.InternalTarget [d] a := by
+      rintro a ⟨l, hl, -⟩
       cases d with
       | label l' => exact absurd (Host.label_size _ l' hdk) (by omega)
       | _ => simp at hl
@@ -579,19 +582,20 @@ public theorem Program.wp_single {d : Directive} {done exit : MachineState → P
 
 public theorem Program.step1_of_wp {p : Program} [h : Embeds p] {done exit : MachineState → Prop}
     {s : MachineData} {post : MachineState → Prop} (hw : p.wp done exit s)
-    (hd : ∀ u, done u → post u) (he : ∀ u, exit u → post u) :
+    (hd : ∀ u, u.pc = h.embedding.endAddr → done u → post u) (he : ∀ u, exit u → post u) :
     Eventually (step1 Host.exe) post ⟨s, h.embedding.startAddr⟩ := by
   refine Program.wp.induct
     (fun p done exit s => ∀ (h : Embeds p) (post : MachineState → Prop),
-      (∀ u, done u → Eventually (step1 Host.exe) post u) → (∀ u, exit u → Eventually (step1 Host.exe) post u) →
+      (∀ u, u.pc = h.embedding.endAddr → done u → Eventually (step1 Host.exe) post u) →
+      (∀ u, exit u → Eventually (step1 Host.exe) post u) →
       Eventually (step1 Host.exe) post ⟨s, h.embedding.startAddr⟩)
-    ?_ p done exit s hw h post (fun u h => .done _ (hd u h)) (fun u h => .done _ (he u h))
+    ?_ p done exit s hw h post (fun u hu h => .done _ (hd u hu h)) (fun u h => .done _ (he u h))
   intro p done exit s hw h post hd he
   have hw := @hw h
   unfold While at hw
   generalize (⟨s, h.embedding.startAddr⟩ : MachineState) = x at hw ⊢
   induction hw with
-  | done y hy => exact hd y hy.2
+  | done y hy => exact hd y (Classical.not_not.mp hy.1) hy.2
   | step y next ht _ ih =>
     have hcie : ∀ u, p.ContinueOnInternalExit s next exit u → Eventually (step1 Host.exe) post u := fun u hu => by
       unfold Program.ContinueOnInternalExit at hu
@@ -607,7 +611,7 @@ public theorem Program.step1_of_wp {p : Program} [h : Embeds p] {done exit : Mac
     | some f =>
       simp only [hf, Option.map_some] at hst
       split at hst
-      · have := hst f.embeds (Eventually (step1 Host.exe) post) (fun _ h => h.elim) fun u hu => by
+      · have := hst f.embeds (Eventually (step1 Host.exe) post) (fun _ _ h => h.elim) fun u hu => by
           split at hu
           · exact .done _ (ih u hu)
           · exact .done _ (hcie u hu)
@@ -619,7 +623,7 @@ public theorem Program.step1_of_wp {p : Program} [h : Embeds p] {done exit : Mac
 end
 
 section
-variable [Host] [BlockEntries] [FunDecls]
+variable [Host] [FunDecls]
 
 public theorem Program.run_infix {p q : Program} [Hp : Embeds p] {o : Nat} (hq : q.IsInfixAt p o)
     (hlenq : o + q.length ≤ p.length) (hq₀ : ∀ a, ¬ q.InternalTarget a) {s₀ : MachineData}

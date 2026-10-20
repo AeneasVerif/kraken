@@ -105,17 +105,17 @@ private abbrev MMBwd (bs : List UInt8) (R₂ : DataMem → Prop) (s : MachineDat
 
 /-- The callee's table, for a call from `s` that returns to `ra`, with arguments `P`. -/
 private abbrev mm_table (P : Prop) (bs : List UInt8) (R₂ : DataMem → Prop)
-    (s : MachineData) (ra : Int64) : Label → MachineData → Prop
-  | "memmove", t => t = s.pushRa ra ∧ P
-  | "bwd", t => P ∧ MMBwd bs R₂ s ra t
-  | "bdone", t => P ∧ MMBwd bs R₂ s ra t ∧ t.regs.get64 .rdx = 0
-  | "fwd", t => P ∧ MMFwd bs R₂ s ra t
-  | "fdone", t => P ∧ MMFwd bs R₂ s ra t ∧ t.regs.get64 .rdx = 0
+    (s : MachineData) (ra : Int64) : CfgLabel → MachineData → Prop
+  | .entry, t | .label "memmove", t => t = s.pushRa ra ∧ P
+  | .label "bwd", t => P ∧ MMBwd bs R₂ s ra t
+  | .label "bdone", t => P ∧ MMBwd bs R₂ s ra t ∧ t.regs.get64 .rdx = 0
+  | .label "fwd", t => P ∧ MMFwd bs R₂ s ra t
+  | .label "fdone", t => P ∧ MMFwd bs R₂ s ra t ∧ t.regs.get64 .rdx = 0
   | _, _ => False
 
 /-- The contract of `memmove`, in every linked program. -/
-theorem memmove_spec [Host] [BlockEntries] [FunDecls] (bs : List UInt8) (R₁ R₂ : DataMem → Prop)
-    (hent : ∀ l ∈ Program.labels memmove, l ∈ BlockEntries.labels) (s : MachineData) (ra : Int64) :
+theorem memmove_spec [Host] [FunDecls] (bs : List UInt8) (R₁ R₂ : DataMem → Prop)
+    (s : MachineData) (ra : Int64) :
     ⦃ fun t => t = s.pushRa ra
       ∧ (bs.length = (s.regs.get64 .rdx).toNat
         ∧ (s.regs.get64 .rsi).toNat + bs.length < 2 ^ 64
@@ -126,14 +126,10 @@ theorem memmove_spec [Host] [BlockEntries] [FunDecls] (bs : List UInt8) (R₁ R�
     ⦃ (fun _ _ => False); fun a t => a = ra
       ∧ (t.dmem =⋆ Mem.Blocks [(s.regs.get64 .rsp - 8#64, 8)] ⋆ Mem.Bytes (s.regs.get64 .rdi) bs ⋆ R₂)
       ∧ mmMod.Agree s t ⦄ := by
-  refine Program.WP.cfg (p := memmove) (mm_table ?_ bs R₂ s ra) (fun _ t => (t.regs.get64 .rdx).toNat)
-    (fun _ => False) _ hent ?_ ?_
-  · intro s₀ l t h₀ ht
-    apply MachineData.stackAtOrBelow_of_rsp_eq
-    obtain ⟨rfl, -⟩ := h₀
-    unfold mm_table at ht
-    split at ht <;> grind
-  cfg_cases [memmove]
+  refine ⟨fun s₀ ⟨h₀, hP⟩ => ?_⟩
+  subst h₀
+  refine Program.WP.cfg (mm_table _ bs R₂ s ra) (fun _ t => (t.regs.get64 .rdx).toNat) ?_ ⟨rfl, hP⟩
+  cfg_cases
   all_goals kvcgen64 with finish
 
 /-! ## The caller -/
@@ -141,10 +137,11 @@ theorem memmove_spec [Host] [BlockEntries] [FunDecls] (bs : List UInt8) (R₁ R�
 /-- The caller's table: `start` holds the arguments, `done` the moved bytes. The blocks of the
 callee are entered only by the call. -/
 private abbrev mp_table (d : MachineData) (bs : List UInt8) (R₂ : DataMem → Prop) :
-    Label → MachineData → Prop
-  | "start", s => s = d
-  | "done", s => s.regs.get64 .rsp = d.regs.get64 .rsp ∧ s.dmem =⋆ Mem.Blocks [(d.regs.get64 .rsp - 8#64, 8)]
+    CfgLabel → MachineData → Prop
+  | .entry, s | .label "start", s => s = d
+  | .label "done", s => s.regs.get64 .rsp = d.regs.get64 .rsp ∧ s.dmem =⋆ Mem.Blocks [(d.regs.get64 .rsp - 8#64, 8)]
       ⋆ Mem.Bytes (d.regs.get64 .rdi) bs ⋆ R₂
+  | .exit, s => s.dmem =⋆ Mem.Blocks [(d.regs.get64 .rsp - 8#64, 8)] ⋆ Mem.Bytes (d.regs.get64 .rdi) bs ⋆ R₂
   | _, _ => False
 
 theorem memmove_correct [Host] (hp : memmoveProg.IsInfix Host.prog)
@@ -158,7 +155,6 @@ theorem memmove_correct [Host] (hp : memmoveProg.IsInfix Host.prog)
       (fun st => st.data.dmem =⋆ Mem.Blocks [(d.regs.get64 .rsp - 8#64, 8)]
         ⋆ Mem.Bytes (d.regs.get64 .rdi) bs ⋆ R₂)
       ⟨d, startAddr hp⟩ := by
-  letI := BlockEntries.ofLabels (Program.labels memmoveProg)
   have hk := List.isInfixAt_infixIdx hp
   generalize memmoveProg.infixIdx Host.prog hp = k at hk
   have hmp : memmove.IsInfixAt memmoveProg 3 := ⟨_, rfl⟩
@@ -170,18 +166,10 @@ theorem memmove_correct [Host] (hp : memmoveProg.IsInfix Host.prog)
     show List.find? _ [_] = _
     simp [hstart]
   have hcall := Program.WP.callSpec_of_triple hg
-    (memmove_spec bs R₁ R₂ fun _ h => BlockEntries.mem_ofLabels
-      (Program.mem_labels.mpr (hmp.isInfix.subset (Program.mem_labels.mp h))))
+    (memmove_spec bs R₁ R₂)
   apply Program.WP.step1_of_wp hp
-  refine Program.WP.cfg_wp (l₀ := "start") (mp_table d bs R₂) (fun _ _ => 0) _ ⊥
-    (fun _ => BlockEntries.mem_ofLabels) ?_ ?_ d rfl
-  · intro s₀ l t h₀ ht
-    apply MachineData.stackAtOrBelow_of_rsp_eq
-    subst h₀
-    unfold mp_table at ht
-    split at ht <;> grind
-  cfg_cases [memmoveProg, memmove]
-  · kvcgen64 [hcall] with finish
-  · kvcgen64 with finish
+  refine Program.WP.cfg (mp_table d bs R₂) (fun _ _ => 0) ?_ rfl
+  cfg_cases
+  all_goals kvcgen64 [hcall] with finish
 
 end State

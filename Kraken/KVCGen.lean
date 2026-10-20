@@ -26,10 +26,19 @@ theorem MachineState.data_mk (d : MachineData) (pc : Int64) : (⟨d, pc⟩ : Mac
 /-- `vcgen` with the register state folded. -/
 syntax (name := kvcgen64) "kvcgen64" (" [" ident,* "]")? (" with " vcgenDischarge)? : tactic
 
+syntax (name := cfgExit) "cfg_exit" : grind
+
+macro_rules
+  | `(grind| cfg_exit) => `(grind| skip)
+
 macro_rules
   | `(tactic| kvcgen64 $[[$ids,*]]? $[with $d]?) => do
     let lemmas ← (ids.map (·.getElems) |>.getD #[]).mapM fun i =>
       `(Lean.Parser.Tactic.simpLemma| $i:ident)
+    let d ← d.mapM fun (d₀ : Lean.TSyntax `vcgenDischarge) => match d₀ with
+      | `(vcgenDischarge| $g:grind) =>
+        `(vcgenDischarge| (cfg_exit; $g:grind))
+      | _ => pure d₀
     `(tactic| vcgen [$lemmas,*] simplifying_assumptions [
         Reg64s.set64_rax,
         Reg64s.set64_rbx,

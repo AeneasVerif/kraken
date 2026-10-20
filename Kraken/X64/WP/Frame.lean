@@ -49,7 +49,7 @@ instance (F : MProp 64) : PreservesSup (frameOp F) :=
 
 /-- The run, read at the separation assertion language: the memory is
 curried out of `MachineData`. -/
-@[instance_reducible] def base [Host] [BlockEntries] [FunDecls] :
+@[instance_reducible] def base [Host] [FunDecls] :
     WP Program Unit (Reg64s → RegZmms → StatusFlags → MProp 64)
       (Int64 → Reg64s → RegZmms → StatusFlags → MProp 64) where
   trans q := ⟨fun Q E regs zmms flags => MProp.mk fun mem =>
@@ -66,7 +66,7 @@ curried out of `MachineData`. -/
       (fun s' => (MProp.le_def _ _).mp (hE s'.pc s'.data.regs s'.data.zmms s'.data.status) s'.data.dmem) h
 
 /-- The run read back out of the base transformer. -/
-theorem get_base_apply [Host] [BlockEntries] [FunDecls] (q : Program)
+theorem get_base_apply [Host] [FunDecls] (q : Program)
     (Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64)
     (E : Int64 → Reg64s → RegZmms → StatusFlags → MProp 64)
     (regs : Reg64s) (zmms : RegZmms) (flags : StatusFlags) (mem : Mem 64) :
@@ -77,14 +77,14 @@ theorem get_base_apply [Host] [BlockEntries] [FunDecls] (q : Program)
 
 /-- Triples of the separation examples: the frame rule internalized on both
 channels over the run. -/
-noncomputable scoped instance instWP [Host] [BlockEntries] [FunDecls] :
+noncomputable scoped instance instWP [Host] [FunDecls] :
     WP Program Unit (Reg64s → RegZmms → StatusFlags → MProp 64)
       (Int64 → Reg64s → RegZmms → StatusFlags → MProp 64) :=
   WP.withFrameClosure frameOp base
 
 /-- Prove a separation triple: the run validates it under an arbitrary memory
 frame, held across the fall-through and across every exit. -/
-theorem sep_intro [Host] [BlockEntries] [FunDecls] {q : Program}
+theorem sep_intro [Host] [FunDecls] {q : Program}
     {P : Reg64s → RegZmms → StatusFlags → MProp 64}
     {Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64}
     {E : Int64 → Reg64s → RegZmms → StatusFlags → MProp 64}
@@ -101,7 +101,7 @@ theorem sep_intro [Host] [BlockEntries] [FunDecls] {q : Program}
 /-- Consume a separation triple's wp under a frame: the run of the framed
 pre- and postconditions follows, which is how a spec's proof enters the run
 of the tail. The dual of `sep_intro`. -/
-theorem sep_elim [Host] [BlockEntries] [FunDecls] {q : Program} {F : MProp 64}
+theorem sep_elim [Host] [FunDecls] {q : Program} {F : MProp 64}
     {Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64}
     {E : Int64 → Reg64s → RegZmms → StatusFlags → MProp 64} {s : MachineData}
     (h : (F ∗ WP.wp (self := instWP) q Q E s.regs s.zmms s.status).get s.dmem) :
@@ -116,7 +116,7 @@ theorem sep_elim [Host] [BlockEntries] [FunDecls] {q : Program} {F : MProp 64}
 interpretation is a frame closure, and `∗` composes resources by `sep_assoc`.
 This is the fact the frame inference of `vcgen` discharges per spec
 application. -/
-theorem frames [Host] [BlockEntries] [FunDecls] (q : Program) (F : MProp 64) : WP.Frames frameOp q F := by
+theorem frames [Host] [FunDecls] (q : Program) (F : MProp 64) : WP.Frames frameOp q F := by
   refine WP.frames_of_frameClosure frameOp MProp.sep ?_ ?_ ⟨fun q => base.trans q, fun _ => rfl⟩
   · intro r r' a
     funext regs zmms flags
@@ -128,13 +128,13 @@ theorem frames [Host] [BlockEntries] [FunDecls] (q : Program) (F : MProp 64) : W
     exact MProp.sep_assoc r r' (E a regs zmms flags)
 
 /-- Triples of one directive: the interpretation of the singleton program. -/
-noncomputable scoped instance [Host] [BlockEntries] [FunDecls] :
+noncomputable scoped instance [Host] [FunDecls] :
     WP Directive Unit (Reg64s → RegZmms → StatusFlags → MProp 64)
       (Int64 → Reg64s → RegZmms → StatusFlags → MProp 64) where
   trans d := WP.trans (self := instWP) [d]
   trans_monotone d := WP.trans_monotone (self := instWP) [d]
 
-theorem triple_directive [Host] [BlockEntries] [FunDecls] {d : Directive}
+theorem triple_directive [Host] [FunDecls] {d : Directive}
     {P : Reg64s → RegZmms → StatusFlags → MProp 64}
     {Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64}
     {E : Int64 → Reg64s → RegZmms → StatusFlags → MProp 64} :
@@ -144,8 +144,8 @@ theorem triple_directive [Host] [BlockEntries] [FunDecls] {d : Directive}
 /-- Chaining: a program runs its first directive with the wp of the rest as
 the post. Every instruction spec is a triple of one directive; this rule is
 where `vcgen` sequences them. -/
-@[spec] theorem cons_spec [Host] [BlockEntries] [FunDecls] (d : Directive) (p : Program)
-    [hN : _root_.NoEntries (d :: p)]
+@[spec] theorem cons_spec [Host] [FunDecls] (d : Directive) (p : Program)
+    [hN : NoLabels (d :: p)]
     {Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64}
     {E : Int64 → Reg64s → RegZmms → StatusFlags → MProp 64} :
     ⦃ WP.wp d (fun _ => WP.wp p Q E) E ⦄ (d :: p) ⦃ Q; E ⦄ := by
@@ -154,7 +154,7 @@ where `vcgen` sequences them. -/
   exact Program.wp_cons hN.out (Program.wp_mono (fun s' hs' => sep_elim (q := p) hs') (fun _ h => h) h1)
 
 /-- The empty program: its wp is the postcondition. -/
-@[spec] theorem nil_spec [Host] [BlockEntries] [FunDecls]
+@[spec] theorem nil_spec [Host] [FunDecls]
     {Q : Unit → Reg64s → RegZmms → StatusFlags → MProp 64}
     {E : Int64 → Reg64s → RegZmms → StatusFlags → MProp 64} :
     ⦃ fun rg z f => Q () rg z f ⦄ ([] : Program) ⦃ Q; E ⦄ :=
@@ -162,7 +162,7 @@ where `vcgen` sequences them. -/
 
 /-- The frame fact of one directive: what the frame inference of `vcgen`
 discharges per spec application. -/
-@[grind .] theorem frames_directive [Host] [BlockEntries] [FunDecls] (d : Directive) (F : MProp 64) :
+@[grind .] theorem frames_directive [Host] [FunDecls] (d : Directive) (F : MProp 64) :
     WP.Frames frameOp d F :=
   ⟨(frames [d] F).op_wp_le_wp_op⟩
 
@@ -174,34 +174,36 @@ The wp of a program with no exits is a run of the laid-out program. Take a
 state `s` whose memory satisfies `footprint` next to `frame`. If `footprint`
 entails the wp of the program at `s`'s registers, vector registers and flags,
 for the postcondition that gives `frame` back and asks `post` of the whole
-final state at every pc, then the run from `s` at the layout's start
+final state at the end address, then the run from `s` at the layout's start
 eventually ends in `post`. The entailment is asked in every linked program. The laid-out program is a
 valid executable. -/
 
 open Program.FrameWP in
-theorem Program.FrameWP.step1_of_wp_at [Host] [BlockEntries] [FunDecls] {p : Program} [h : Embeds p]
+theorem Program.FrameWP.step1_of_wp_at [Host] [FunDecls] {p : Program} [h : Embeds p]
     {s : MachineData} {post : @Post MachineState} {footprint frame : MProp 64}
     (hmem : (footprint ∗ frame).get s.dmem)
     (ht : footprint ⊑ WP.wp p
-      (fun _ r z f => frame -∗ MProp.mk fun m => ∀ pc, post ⟨⟨r, z, f, m⟩, pc⟩)
+      (fun _ r z f => frame -∗ MProp.mk fun m => post ⟨⟨r, z, f, m⟩, h.embedding.endAddr⟩)
       ⊥ s.regs s.zmms s.status) :
     Eventually (step1 Host.exe) post ⟨s, Host.addrOf h.embedding.start⟩ := by
   rw [MProp.sep_comm] at hmem
   have hw := sep_elim (q := p) (F := frame) ((MProp.le_def _ _).mp (MProp.sep_mono_right _ ht) _ hmem)
-  refine Program.step1_of_wp hw (fun s' hq => ?_) (fun s' he => ?_)
+  refine Program.step1_of_wp hw (fun ⟨d, pc⟩ hu hq => ?_) (fun s' he => ?_)
   · have h := (MProp.le_def _ _).mp (MProp.sep_wand_elim _ _) _ hq
     rw [MProp.get_mk] at h
-    exact h _
+    dsimp only at hu
+    subst hu
+    exact h
   · exact (MProp.of_get_sep he
       ((bot_le (fun _ _ _ _ => (⌜False⌝ : MProp 64))) s'.pc s'.data.regs s'.data.zmms s'.data.status)).elim
 
 open Program.FrameWP in
-theorem Program.FrameWP.step1_of_wp [Host] [BlockEntries] [FunDecls] {p : Program}
+theorem Program.FrameWP.step1_of_wp [Host] [FunDecls] {p : Program}
     (hp : p.IsInfix Host.prog) {s : MachineData}
     {post : @Post MachineState} {footprint frame : MProp 64}
     (hmem : (footprint ∗ frame).get s.dmem)
     (ht : footprint ⊑ WP.wp p
-      (fun _ r z f => frame -∗ MProp.mk fun m => ∀ pc, post ⟨⟨r, z, f, m⟩, pc⟩)
+      (fun _ r z f => frame -∗ MProp.mk fun m => post ⟨⟨r, z, f, m⟩, endAddr hp⟩)
       ⊥ s.regs s.zmms s.status) :
     Eventually (step1 Host.exe) post ⟨s, startAddr hp⟩ :=
-  @Program.FrameWP.step1_of_wp_at _ _ _ p (Embeds.ofIsInfix hp) s post footprint frame hmem ht
+  @Program.FrameWP.step1_of_wp_at _ _ p (Embeds.ofIsInfix hp) s post footprint frame hmem ht

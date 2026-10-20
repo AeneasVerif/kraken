@@ -23,34 +23,34 @@ public theorem Int64.add_sub_self_left (a b : Int64) : a + (b - a) = b := by
 
 namespace Program.WP
 
-public scoped instance instWP [Host] [BlockEntries] [FunDecls] : WP Program Unit (MachineData → Prop) (Int64 → MachineData → Prop) where
+public scoped instance instWP [Host] [FunDecls] : WP Program Unit (MachineData → Prop) (Int64 → MachineData → Prop) where
   trans p := ⟨fun Q E s => Program.wp p (fun st => Q () st.data) (fun st => E st.pc st.data) s⟩
   trans_monotone p := fun _ _ _ _ hE hQ _ h => Program.wp_mono (fun st => hQ () st.data) (fun st => hE st.pc st.data) h
 
-public scoped instance [Host] [BlockEntries] [FunDecls] : WP Directive Unit (MachineData → Prop) (Int64 → MachineData → Prop) where
+public scoped instance [Host] [FunDecls] : WP Directive Unit (MachineData → Prop) (Int64 → MachineData → Prop) where
   trans d := WP.trans (self := instWP) [d]
   trans_monotone d := WP.trans_monotone (self := instWP) [d]
 
-public scoped instance [Host] [BlockEntries] [FunDecls] (p : Program) : WPConjunctive p where
+public scoped instance [Host] [FunDecls] (p : Program) : WPConjunctive p where
   wp_meet_wp_le Q₁ Q₂ E₁ E₂ s h := by
     simp only [meet_apply, meet_prop_eq_and] at h
     show Program.wp p (fun st => (Q₁ ⊓ Q₂) () st.data) (fun st => (E₁ ⊓ E₂) st.pc st.data) s
     exact Program.wp_mono (fun _ h => by simpa only [meet_apply, meet_prop_eq_and] using h)
       (fun _ h => by simpa only [meet_apply, meet_prop_eq_and] using h) (Program.wp_and h.1 h.2)
 
-public scoped instance [Host] [BlockEntries] [FunDecls] (d : Directive) : WPConjunctive d where
+public scoped instance [Host] [FunDecls] (d : Directive) : WPConjunctive d where
   wp_meet_wp_le Q₁ Q₂ E₁ E₂ s h := by
     simp only [meet_apply, meet_prop_eq_and] at h
     show Program.wp [d] (fun st => (Q₁ ⊓ Q₂) () st.data) (fun st => (E₁ ⊓ E₂) st.pc st.data) s
     exact Program.wp_mono (fun _ h => by simpa only [meet_apply, meet_prop_eq_and] using h)
       (fun _ h => by simpa only [meet_apply, meet_prop_eq_and] using h) (Program.wp_and h.1 h.2)
 
-variable [Host] [BlockEntries] [FunDecls] {Q : Unit → MachineData → Prop} {E : Int64 → MachineData → Prop}
+variable [Host] [FunDecls] {Q : Unit → MachineData → Prop} {E : Int64 → MachineData → Prop}
 
 @[spec] public theorem nil_spec : ⦃ fun s => Q () s ⦄ ([] : Program) ⦃ Q; E ⦄ :=
   ⟨fun _ hq => Program.wp_nil fun _ => hq⟩
 
-@[spec] public theorem cons_spec (d : Directive) (p : Program) [hN : _root_.NoEntries (d :: p)] :
+@[spec] public theorem cons_spec (d : Directive) (p : Program) [hN : NoLabels (d :: p)] :
     ⦃ WP.wp d (fun _ => WP.wp p Q E) E ⦄ (d :: p) ⦃ Q; E ⦄ :=
   ⟨fun _ hw => Program.wp_cons hN.out hw⟩
 
@@ -334,6 +334,35 @@ public theorem MachineData.not_stackBelow_pop (s : MachineData) :
       rw [Executable.StepOut.of_not_below_data (MachineData.not_stackBelow_self s)]
       exact hjmp hc⟩
 
+@[spec] public theorem push_reg_spec (rs : Reg64) :
+    ⦃ fun s => (Mem.loadInt s.dmem (s.regs.get64 .rsp - 8#64) 8).isSome = true
+        ∧ Q () { s with regs := s.regs.set64 .rsp (s.regs.get64 .rsp - 8#64),
+                        dmem := Mem.storeInt s.dmem (s.regs.get64 .rsp - 8#64) 8 (s.regs.get64 rs).toInt } ⦄
+      (Directive.instr (.regular .W64 .W64 (.push (.regOrMem (.reg (.low rs .W64))))))
+    ⦃ Q; E ⦄ := by
+  refine ⟨fun s hpre => ?_⟩
+  obtain ⟨hmapped, hpre⟩ := hpre
+  obtain ⟨i, hload⟩ := Option.isSome_iff_exists.mp hmapped
+  refine Program.wp_single fun _ _ _ _ hn _ => ?_
+  simp only [Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp,
+    MachineData.store, Reg64s.get_low_W64, Width.bytes, hload, Effects.All]
+  exact hn _ hpre
+
+@[spec] public theorem pop_reg_spec (rd : Reg64) :
+    ⦃ fun s => (Mem.loadInt s.dmem (s.regs.get64 .rsp) 8).isSome = true
+        ∧ Q () { s with
+            regs := (s.regs.set64 .rsp (s.regs.get64 .rsp + 8#64)).set64 rd
+              (BitVec.ofInt 64 (Mem.loadInt s.dmem (s.regs.get64 .rsp) 8).get!) } ⦄
+      (Directive.instr (.regular .W64 .W64 (.pop (.reg (.low rd .W64)))))
+    ⦃ Q; E ⦄ := by
+  refine ⟨fun s hpre => ?_⟩
+  obtain ⟨hmapped, hpre⟩ := hpre
+  obtain ⟨i, hload⟩ := Option.isSome_iff_exists.mp hmapped
+  refine Program.wp_single fun _ _ _ _ hn _ => ?_
+  simp only [Directive.interp, Instr.interp, Operation.interp, MachineData.load, MachineData.set,
+    MachineData.setReg, Reg64s.set_low_W64, Width.bytes, hload, Effects.All]
+  exact hn _ (by rwa [hload, Option.get!_some] at hpre)
+
 @[spec] public theorem ret_spec (asz osz : Width) :
     ⦃ fun s => s.retAddr.isSome = true
         ∧ E s.retAddr.get! { s with regs := s.regs.set64 .rsp (s.regs.get64 .rsp + 8#64) } ⦄
@@ -360,16 +389,16 @@ end Program.WP
 
 namespace Program.WP
 
-public theorem step1_of_wp_at [Host] [BlockEntries] [FunDecls] {p : Program} [h : Embeds p] {s : MachineData}
-    {post : @Post MachineState} (hw : ⊤ ⊑ WP.wp p (fun _ s' => ∀ pc, post ⟨s', pc⟩) ⊥ s) :
+public theorem step1_of_wp_at [Host] [FunDecls] {p : Program} [h : Embeds p] {s : MachineData}
+    {post : @Post MachineState} (hw : WP.wp p (fun _ s' => post ⟨s', h.embedding.endAddr⟩) ⊥ s) :
     Eventually (step1 Host.exe) post ⟨s, Host.addrOf h.embedding.start⟩ :=
-  Program.step1_of_wp (of_top_le_prop hw) (fun u hq => hq u.pc)
+  Program.step1_of_wp hw (fun ⟨_, _⟩ hu hq => by subst hu; exact hq)
     (fun u hE => ((bot_le (α := Int64 → MachineData → Prop) fun _ _ => False) u.pc u.data hE).elim)
 
-public theorem step1_of_wp [Host] [BlockEntries] [FunDecls] {p : Program} {s : MachineData}
+public theorem step1_of_wp [Host] [FunDecls] {p : Program} {s : MachineData}
     {post : @Post MachineState} (hp : p.IsInfix Host.prog)
-    (hw : ⊤ ⊑ WP.wp p (fun _ s' => ∀ pc, post ⟨s', pc⟩) ⊥ s) :
+    (hw : WP.wp p (fun _ s' => post ⟨s', endAddr hp⟩) ⊥ s) :
     Eventually (step1 Host.exe) post ⟨s, startAddr hp⟩ :=
-  @step1_of_wp_at _ _ _ p (Embeds.ofIsInfix hp) s post hw
+  @step1_of_wp_at _ _ p (Embeds.ofIsInfix hp) s post hw
 
 end Program.WP

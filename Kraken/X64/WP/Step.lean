@@ -333,7 +333,7 @@ end Executable.StepIn
 -- the stack pointer of `s'` lies at or below that of the reference state `s`
 public abbrev MachineData.StackAtOrBelow (s' s : MachineData) : Prop := ¬ s.StackBelow s'
 
-@[grind <=] public theorem MachineData.stackBelow_of_add_eight {s s' : MachineData}
+@[grind ←] public theorem MachineData.stackBelow_of_add_eight {s s' : MachineData}
     (h : s'.regs.get64 .rsp + 8#64 = s.regs.get64 .rsp) : s'.StackBelow s := by
   show 0 < (s.regs.get64 .rsp - s'.regs.get64 .rsp).toInt
   rw [← h]
@@ -341,11 +341,19 @@ public abbrev MachineData.StackAtOrBelow (s' s : MachineData) : Prop := ¬ s.Sta
   rw [show x + 8#64 - x = 8#64 by bv_omega]
   decide
 
-public theorem MachineData.stackAtOrBelow_of_rsp_eq {s s' : MachineData}
+@[grind ←] public theorem MachineData.stackAtOrBelow_of_rsp_eq {s s' : MachineData}
     (h : s'.regs.get64 .rsp = s.regs.get64 .rsp) : s'.StackAtOrBelow s := by
   show ¬ 0 < (s'.regs.get64 .rsp - s.regs.get64 .rsp).toInt
   rw [h]
   simp
+
+@[grind ←] public theorem MachineData.stackAtOrBelow_of_toNat_lt {s s' : MachineData}
+    (h : (s.regs.get64 .rsp - s'.regs.get64 .rsp).toNat < 2 ^ 63) : s'.StackAtOrBelow s := by
+  show ¬ 0 < (s'.regs.get64 .rsp - s.regs.get64 .rsp).toInt
+  generalize s.regs.get64 .rsp = a at h
+  generalize s'.regs.get64 .rsp = b at h
+  rw [BitVec.toInt_eq_toNat_cond]
+  split <;> bv_omega
 
 open Classical in
 @[expose] public def Executable.StepOut (e : Executable)

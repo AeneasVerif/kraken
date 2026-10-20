@@ -40,12 +40,13 @@ namespace State
 
 /-- The machine at each label of `p3`, for a run that started on `d`. At
 `start` it is the loop invariant. -/
-private abbrev p3_table (d : MachineData) : Label → MachineData → Prop
-  | "init", s => s = d
-  | "start", s =>
+private abbrev p3_table (d : MachineData) : CfgLabel → MachineData → Prop
+  | .entry, s | .label "init", s => s = d
+  | .label "start", s =>
       s.regs.rdx.toNat = 2 ^ 2 ^ (d.regs.rbx.toNat - s.regs.rbx.toNat)
       ∧ s.regs.rbx.toNat ≤ d.regs.rbx.toNat ∧ s.regs.rax = 0 ∧ s.regs.rsp = d.regs.rsp
-  | "_end", s => s.regs.rdx.toNat = 2 ^ 2 ^ d.regs.rbx.toNat ∧ s.regs.rax = 0 ∧ s.regs.rsp = d.regs.rsp
+  | .label "_end", s => s.regs.rdx.toNat = 2 ^ 2 ^ d.regs.rbx.toNat ∧ s.regs.rax = 0 ∧ s.regs.rsp = d.regs.rsp
+  | .exit, s => s.regs.rdx.toNat = 2 ^ 2 ^ d.regs.rbx.toNat ∧ s.regs.rax = 0
   | _, _ => False
 
 /-- The baseline's `p3_correct`, for a start state with `rax = 0` and a valid
@@ -55,16 +56,9 @@ theorem p3_correct [Host] (hp : p3.IsInfix Host.prog)
     Eventually (step1 Host.exe)
       (fun s => s.data.regs.rdx.toNat = p3_spec d ∧ s.data.regs.rax = 0) ⟨d, startAddr hp⟩ := by
   simp only [p3_spec] at h_bounds ⊢
-  letI := BlockEntries.ofLabels (Program.labels p3)
   apply Program.WP.step1_of_wp hp
-  refine Program.WP.cfg_wp (p3_table d) (fun _ s => s.regs.rbx.toNat) _ ⊥
-    (fun _ => BlockEntries.mem_ofLabels) ?_ ?_ d rfl
-  · intro s₀ l t h₀ ht
-    apply MachineData.stackAtOrBelow_of_rsp_eq
-    subst h₀
-    unfold p3_table at ht
-    split at ht <;> grind
-  cfg_cases [p3]
+  refine Program.WP.cfg (p3_table d) (fun _ s => s.regs.rbx.toNat) ?_ rfl
+  cfg_cases
   all_goals kvcgen64 with finish
 
 end State
