@@ -1692,91 +1692,91 @@ section error_reporting
 -- Register Constraints & Aliasing Errors
 --
 
-/-- error: line 1: unknown register or xzr: x31 -/
+/-- error: <input>:1:4: expected aarch64_reg -/
 #guard_msgs in
 #check parseAArch64("ldr x31, [sp]")
 
-/-- error: line 1: expected w64 register, got w32 -/
+/-- error: expected w64 register, got w32 -/
 #guard_msgs in
 #check parseAArch64("ldr x0, [w1]")
 
-/-- error: line 1: expected w32 register, got w64 -/
+/-- error: requires 32-bit registers (got 64-bit) -/
 #guard_msgs in
 #check parseAArch64("ldrb x0, [x1]")
 
-/-- error: line 1: expected w32 register, got w64 -/
+/-- error: requires 32-bit registers (got 64-bit) -/
 #guard_msgs in
 #check parseAArch64("strb x0, [x1]")
 
-/-- error: line 1: expected w32 register, got w64 -/
+/-- error: requires 32-bit registers (got 64-bit) -/
 #guard_msgs in
 #check parseAArch64("ldrh x0, [x1]")
 
-/-- error: line 1: expected w32 register, got w64 -/
+/-- error: requires 32-bit registers (got 64-bit) -/
 #guard_msgs in
 #check parseAArch64("strh x0, [x1]")
 
-/-- error: line 1: condition not satisfied -/
+/-- error: xzr/wzr not allowed here (sp/wsp expected) -/
 #guard_msgs in
 #check parseAArch64("add xzr, x1, #42")
 
-/-- error: line 1: expected w64 register, got w32 -/
+/-- error: expected w64 register, got w32 -/
 #guard_msgs in
 #check parseAArch64("adr w0, main")
 
-/-- error: line 1: expected w64 register, got w32 -/
+/-- error: expected w64 register, got w32 -/
 #guard_msgs in
 #check parseAArch64("adrp w0, main")
 
-/-- error: line 1: expected w64 register, got w32 -/
+/-- error: expected w64 register, got w32 -/
 #guard_msgs in
 #check parseAArch64("br w0")
 
-/-- error: line 1: expected w64 register, got w32 -/
+/-- error: expected w64 register, got w32 -/
 #guard_msgs in
 #check parseAArch64("ret w0")
 
-/-- error: line 1: UXTW extension requires a 32-bit index register (Wn) -/
+/-- error: UXTW extension requires a 32-bit index register (Wn) -/
 #guard_msgs in
 #check parseAArch64("ldr x0, [sp, x1, uxtw]")
 
-/-- error: line 1: SXTX extension requires a 64-bit index register (Xn) -/
+/-- error: SXTX extension requires a 64-bit index register (Xn) -/
 #guard_msgs in
 #check parseAArch64("ldr x0, [sp, w1, sxtx]")
 
-/-- error: line 1: unknown register, sp, or xzr: wlr -/
+/-- error: <input>:1:8: expected aarch64_reg -/
 #guard_msgs in
 #check parseAArch64("add w0, wlr, #1")
 
-/-- error: line 1: condition not satisfied -/
+/-- error: <input>:1:14: expected numeral -/
 #guard_msgs in
 #check parseAArch64("ldr x1, [sp, -#16]!")
 
-/-- error: line 1: condition not satisfied -/
+/-- error: <input>:1:13: expected numeral -/
 #guard_msgs in
 #check parseAArch64("add x0, x1, -#16")
 
-/-- error: line 1: condition not satisfied -/
+/-- error: <input>:1:15: expected numeral -/
 #guard_msgs in
 #check parseAArch64("ldur x0, [x1, -#8]")
 
-/-- error: line 1: SP/WSP is not allowed as destination of adds -/
+/-- error: sp/wsp not allowed here (xzr/wzr expected) -/
 #guard_msgs in
 #check parseAArch64("adds sp, x1, #0")
 
-/-- error: line 1: condition not satisfied -/
+/-- error: xzr/wzr not allowed here (sp/wsp expected) -/
 #guard_msgs in
 #check parseAArch64("add x0, xzr, #1")
 
-/-- error: line 1: SXTW extension requires a 32-bit index register (Wn) -/
+/-- error: SXTW extension requires a 32-bit index register (Wn) -/
 #guard_msgs in
 #check parseAArch64("ldr x0, [x1, x2, sxtw]")
 
-/-- error: line 1: UXTX extension requires a 64-bit index register (Xn) -/
+/-- error: UXTX extension requires a 64-bit index register (Xn) -/
 #guard_msgs in
 #check parseAArch64("ldr x0, [x1, w2, uxtx]")
 
-/-- error: line 1: unknown register, sp, or xzr: badreg -/
+/-- error: <input>:1:8: expected aarch64_reg -/
 #guard_msgs in
 #check parseAArch64("add sp, badreg, #1")
 
@@ -1784,75 +1784,75 @@ section error_reporting
 -- Immediate Values & Range Bounds Errors
 --
 
-/-- error: line 1: immediate 5000 out of range [0, 4095] -/
+/-- error: immediate 5000 out of range [0, 4095] -/
 #guard_msgs in
 #check parseAArch64("add x0, x1, #5000")
 
-/-- error: line 1: invalid immediate shift for add: 1 (must be 0 or 12) -/
+/-- error: invalid immediate shift 1 (must be 0 or 12) -/
 #guard_msgs in
 #check parseAArch64("add x0, x1, #10, lsl #1")
 
-/-- error: line 1: relocation modifiers and labels cannot be shifted with lsl in immediate operands -/
+/-- error: relocation modifiers and labels cannot be shifted with lsl in immediate operands -/
 #guard_msgs in
 #check parseAArch64("add x1, x1, :lo12:main, lsl #12")
 
-/-- error: line 1: relocation modifiers and labels cannot be shifted with lsl in immediate operands -/
+/-- error: relocation modifiers and labels cannot be shifted with lsl in immediate operands -/
 #guard_msgs in
 #check parseAArch64("add x1, x1, :lo12:main, lsl #0")
 
-/-- error: line 1: tbz bit position 32 out of range [0, 31] for 32-bit instruction -/
+/-- error: tbz bit position 32 out of range [0, 31] for 32-bit instruction -/
 #guard_msgs in
 #check parseAArch64("tbz w0, #32, target")
 
-/-- error: line 1: invalid logical immediate: 0x1f4 -/
+/-- error: invalid logical immediate: 0x1f4 -/
 #guard_msgs in
 #check parseAArch64("and x0, x1, #500")
 
-/-- error: line 1: invalid logical immediate: 0x0 -/
+/-- error: invalid logical immediate: 0x0 -/
 #guard_msgs in
 #check parseAArch64("orr x0, x1, #0")
 
-/-- error: line 1: invalid logical immediate: -0x1 -/
+/-- error: invalid logical immediate: -0x1 -/
 #guard_msgs in
 #check parseAArch64("eor x0, x1, #-1")
 
-/-- error: line 1: ccmp/ccmn immediate 32 out of range [0, 31] -/
+/-- error: ccmp/ccmn immediate 32 out of range [0, 31] -/
 #guard_msgs in
 #check parseAArch64("ccmp x0, #32, #0, eq")
 
-/-- error: line 1: nzcv immediate 16 out of range [0, 15] -/
+/-- error: nzcv immediate 16 out of range [0, 15] -/
 #guard_msgs in
 #check parseAArch64("ccmp x0, x1, #16, eq")
 
-/-- error: line 1: immediate 18446744073709551616 out of 64-bit range -/
+/-- error: integer 18446744073709551616 out of 64-bit range -/
 #guard_msgs in
 #check parseAArch64("mov x0, #0x10000000000000000")
 
-/-- error: line 1: expected non-negative immediate, got -1 -/
+/-- error: expected non-negative immediate, got -1 -/
 #guard_msgs in
 #check parseAArch64("ubfm x0, x1, #-1, #0")
 
-/-- error: line 1: immediate cannot be moved by a single instruction (requires MOVZ/MOVK sequence) -/
+/-- error: immediate cannot be moved by a single instruction (requires MOVZ/MOVK sequence) -/
 #guard_msgs in
 #check parseAArch64("mov x0, #0x123456")
 
-/-- error: line 1: move wide immediate 65536 out of range [0, 65535] -/
+/-- error: move wide immediate 65536 out of range [0, 65535] -/
 #guard_msgs in
 #check parseAArch64("movz x0, #65536")
 
-/-- error: line 1: bitfield extract bounds invalid: lsb=0, width=65, w=64 -/
+/-- error: bitfield extract bounds invalid: lsb=0, width=65, w=64 -/
 #guard_msgs in
 #check parseAArch64("ubfx x0, x1, #0, #65")
 
-/-- error: line 1: expected immediate offset in unscaled address operand -/
+/-- error: expected immediate offset in unscaled address operand -/
 #guard_msgs in
 #check parseAArch64("ldur x0, [x1, x2]")
 
-/-- error: line 1: expected lsl for immediate shift, got asr -/
+/-- error: expected lsl for immediate shift, got asr -/
 #guard_msgs in
 #check parseAArch64("add x0, x1, #10, asr #0")
 
-/-- error: line 1: shift immediate 32 out of range [0, 31] -/
+/-- error: shift immediate 32 out of range [0, 31] -/
 #guard_msgs in
 #check parseAArch64("lsl w0, w1, #32")
 
@@ -1860,103 +1860,103 @@ section error_reporting
 -- Memory Addressing, Offset Bounds & Alignment Errors
 --
 
-/-- error: line 1: pre-indexed offset 300 out of range [-256, 255] -/
+/-- error: pre-indexed offset 300 out of range [-256, 255] -/
 #guard_msgs in
 #check parseAArch64("ldr x1, [sp, #300]!")
 
-/-- error: line 1: post-indexed offset -300 out of range [-256, 255] -/
+/-- error: post-indexed offset -300 out of range [-256, 255] -/
 #guard_msgs in
 #check parseAArch64("str x2, [x1], #-300")
 
-/-- error: line 1: offset 257 is neither a valid scaled offset [0, 32760] (multiple of 8) nor a valid unscaled offset [-256, 255] -/
+/-- error: offset 257 is neither a valid scaled offset [0, 32760] (multiple of 8) nor a valid unscaled offset [-256, 255] -/
 #guard_msgs in
 #check parseAArch64("ldr x0, [x1, #257]")
 
-/-- error: line 1: pair offset 600 out of range [-512, 504] or not a multiple of 8 -/
+/-- error: pair offset 600 out of range [-512, 504] or not a multiple of 8 -/
 #guard_msgs in
 #check parseAArch64("ldp x0, x1, [sp, #600]")
 
-/-- error: line 1: pair offset 13 out of range [-512, 504] or not a multiple of 8 -/
+/-- error: pair offset 13 out of range [-512, 504] or not a multiple of 8 -/
 #guard_msgs in
 #check parseAArch64("ldp x0, x1, [sp, #13]")
 
-/-- error: line 1: register offsets are not supported for ldp/stp instructions -/
+/-- error: register offsets are not supported for ldp/stp instructions -/
 #guard_msgs in
 #check parseAArch64("ldp x0, x1, [sp, x2]")
 
-/-- error: line 1: unpredictable: identical destination registers in ldp instruction -/
+/-- error: unpredictable: identical destination registers in ldp instruction -/
 #guard_msgs in
 #check parseAArch64("ldp x0, x0, [sp, #16]")
 
-/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+/-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
 #check parseAArch64("ldp x0, x1, [x0, #16]!")
 
-/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+/-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
 #check parseAArch64("stp x0, x1, [x0, #16]!")
 
-/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+/-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
 #check parseAArch64("ldr x0, [x0, #16]!")
 
-/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+/-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
 #check parseAArch64("ldr w0, [x0], #4")
 
-/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+/-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
 #check parseAArch64("str x0, [x0, #16]!")
 
-/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+/-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
 #check parseAArch64("str w0, [x0], #4")
 
-/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+/-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
 #check parseAArch64("ldrb w0, [x0, #1]!")
 
-/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+/-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
 #check parseAArch64("strb w0, [x0], #1")
 
-/-- error: line 1: unpredictable: writeback base register is also a transfer register -/
+/-- error: unpredictable: writeback base register is also a transfer register -/
 #guard_msgs in
 #check parseAArch64("ldrsw x0, [x0, #4]!")
 
-/-- error: line 1: adr offset 0x200000 out of range [-0x100000, 0xfffff] -/
+/-- error: adr offset 0x200000 out of range [-0x100000, 0xfffff] -/
 #guard_msgs in
 #check parseAArch64("adr x0, #0x200000")
 
-/-- error: line 1: adrp offset 0x1004 not page aligned (must be multiple of 0x1000) -/
+/-- error: adrp offset 0x1004 not page aligned (must be multiple of 0x1000) -/
 #guard_msgs in
 #check parseAArch64("adrp x0, #0x1004")
 
-/-- error: line 1: adrp offset 0x200000000 out of range [-0x100000000, 0xfffff000] -/
+/-- error: adrp offset 0x200000000 out of range [-0x100000000, 0xfffff000] -/
 #guard_msgs in
 #check parseAArch64("adrp x0, #0x200000000")
 
-/-- error: line 1: offset 32768 is neither a valid scaled offset [0, 32760] (multiple of 8) nor a valid unscaled offset [-256, 255] -/
+/-- error: offset 32768 is neither a valid scaled offset [0, 32760] (multiple of 8) nor a valid unscaled offset [-256, 255] -/
 #guard_msgs in
 #check parseAArch64("ldr x0, [x1, #32768]")
 
-/-- error: line 1: unscaled offset -300 out of range [-256, 255] -/
+/-- error: unscaled offset -300 out of range [-256, 255] -/
 #guard_msgs in
 #check parseAArch64("ldur x0, [x1, #-300]")
 
-/-- error: line 1: expected ',' or ']' after base register in memory operand, got x -/
+/-- error: <input>:1:12: expected ',' or ']' -/
 #guard_msgs in
 #check parseAArch64("ldr x0, [x1 x2]")
 
-/-- error: line 1: expected ',' or ']' after base register in pair memory operand, got x -/
+/-- error: <input>:1:16: expected ',' or ']' -/
 #guard_msgs in
 #check parseAArch64("ldp x0, x1, [x2 x3]")
 
-/-- error: line 1: expected ',' or ']' after base register in unscaled address operand, got x -/
+/-- error: <input>:1:13: expected ',' or ']' -/
 #guard_msgs in
 #check parseAArch64("ldur x0, [x1 x2]")
 
-/-- error: line 1: expected ',' or ']' after index register in memory operand, got x -/
+/-- error: <input>:1:16: expected ']' -/
 #guard_msgs in
 #check parseAArch64("ldr x0, [x1, x2 x3]")
 
@@ -1964,43 +1964,43 @@ section error_reporting
 -- Shifts, Extensions & Relocation Modifier Errors
 --
 
-/-- error: line 1: invalid memory extension shift amount 1 for width w64 -/
+/-- error: invalid memory extension shift amount 1 for width w64 -/
 #guard_msgs in
 #check parseAArch64("ldr x0, [x1, x2, lsl #1]")
 
-/-- error: line 1: invalid memory extension shift amount 1 for width w32 -/
+/-- error: invalid memory extension shift amount 1 for width w32 -/
 #guard_msgs in
 #check parseAArch64("ldrb w0, [x1, x2, lsl #1]")
 
-/-- error: line 1: invalid memory extension shift amount 2 for width w32 -/
+/-- error: invalid memory extension shift amount 2 for width w32 -/
 #guard_msgs in
 #check parseAArch64("ldrh w0, [x1, x2, lsl #2]")
 
-/-- error: line 1: invalid extend amount: 65 -/
+/-- error: shift amount 65 out of range [0, 63] for 64-bit instruction -/
 #guard_msgs in
 #check parseAArch64("add x0, x1, x2, lsl #65")
 
-/-- error: line 1: invalid extend amount: 33 -/
+/-- error: shift amount 33 out of range [0, 31] for 32-bit instruction -/
 #guard_msgs in
 #check parseAArch64("add w0, w1, w2, lsl #33")
 
-/-- error: line 1: unknown extension type: ror -/
+/-- error: arithmetic instructions do not support ROR shift -/
 #guard_msgs in
 #check parseAArch64("add x0, x1, x2, ror #4")
 
-/-- error: line 1: sp/wsp not allowed in shifted register instruction (xzr expected) -/
+/-- error: sp/wsp not allowed here (xzr/wzr expected) -/
 #guard_msgs in
 #check parseAArch64("and sp, x1, x2")
 
-/-- error: line 1: unknown memory extension type: badext -/
+/-- error: <input>:1:17: expected aarch64_modifier_kind -/
 #guard_msgs in
 #check parseAArch64("ldr x0, [x1, w2, badext]")
 
-/-- error: line 1: unknown extension type: ror -/
+/-- error: arithmetic instructions do not support ROR shift -/
 #guard_msgs in
 #check parseAArch64("add x0, x1, x2, ror #1")
 
-/-- error: line 1: unknown shift type: badshift -/
+/-- error: <input>:1:16: expected aarch64_modifier_kind -/
 #guard_msgs in
 #check parseAArch64("orr x0, x1, x2, badshift #1")
 
@@ -2008,98 +2008,130 @@ section error_reporting
 -- Control Flow & General Parser Syntax Errors
 --
 
-/-- error: line 1: unexpected trailing characters on line -/
+/-- error: <input>:1:4: unexpected element -/
 #guard_msgs in
 #check parseAArch64("nop extra_tokens")
 
-/-- error: line 1: unknown condition code in branch instruction: b.invalid -/
+/-- error: <input>:1:0: expected end of input -/
 #guard_msgs in
 #check parseAArch64("b.invalid main")
 
-/-- error: line 1: b offset 0x8000004 out of range [-0x8000000, 0x7fffffc] or not a multiple of 4 -/
+/-- error: b offset 0x8000004 out of range [-0x8000000, 0x7fffffc] or not a multiple of 4 -/
 #guard_msgs in
 #check parseAArch64("b #0x8000004")
 
-/-- error: line 1: b.cond offset 0x100000 out of range [-0x100000, 0xffffc] or not a multiple of 4 -/
+/-- error: b.cond offset 0x100000 out of range [-0x100000, 0xffffc] or not a multiple of 4 -/
 #guard_msgs in
 #check parseAArch64("b.eq #0x100000")
 
-/-- error: line 1: cbz offset 0x200000 out of range [-0x100000, 0xffffc] or not a multiple of 4 -/
+/-- error: cbz offset 0x200000 out of range [-0x100000, 0xffffc] or not a multiple of 4 -/
 #guard_msgs in
 #check parseAArch64("cbz x0, #0x200000")
 
-/-- error: line 1: tbz offset 0x10000 out of range [-0x8000, 0x7ffc] or not a multiple of 4 -/
+/-- error: tbz offset 0x10000 out of range [-0x8000, 0x7ffc] or not a multiple of 4 -/
 #guard_msgs in
 #check parseAArch64("tbz x0, #10, #0x10000")
 
-/-- error: line 1: b offset 0x1 out of range [-0x8000000, 0x7fffffc] or not a multiple of 4 -/
+/-- error: b offset 0x1 out of range [-0x8000000, 0x7fffffc] or not a multiple of 4 -/
 #guard_msgs in
 #check parseAArch64("b #1")
 
-/-- error: line 1: b.cond offset 0x3 out of range [-0x100000, 0xffffc] or not a multiple of 4 -/
+/-- error: b.cond offset 0x3 out of range [-0x100000, 0xffffc] or not a multiple of 4 -/
 #guard_msgs in
 #check parseAArch64("b.eq #3")
 
-/-- error: line 1: 32-bit extended register instruction requires a 32-bit register (Wn) -/
+/-- error: 32-bit extended register instruction requires a 32-bit register (Wn) -/
 #guard_msgs in
 #check parseAArch64("add w0, wsp, x1, uxtb #1")
 
-/-- error: line 1: UXTB extension requires a 32-bit register (Wn) -/
+/-- error: UXTB extension requires a 32-bit register (Wn) -/
 #guard_msgs in
 #check parseAArch64("add x0, sp, x1, uxtb #1")
 
-/-- error: line 1: UXTX extension requires a 64-bit register (Xn) -/
+/-- error: UXTX extension requires a 64-bit register (Xn) -/
 #guard_msgs in
 #check parseAArch64("add x0, sp, w1, uxtx #1")
 
-/-- error: line 1: expected w32 register, got w64 -/
+/-- error: expected w32 register, got w64 -/
 #guard_msgs in
 #check parseAArch64("sxtb x0, x1")
 
-/-- error: line 1: expected w64 register, got w32 -/
+/-- error: requires 64-bit registers (got 32-bit) -/
 #guard_msgs in
 #check parseAArch64("sxtw w0, w1")
 
-/-- error: line 1: unpredictable: identical destination registers in ldp instruction -/
+/-- error: unpredictable: identical destination registers in ldp instruction -/
 #guard_msgs in
 #check parseAArch64("ldp xzr, xzr, [x0]")
 
-/-- error: line 1: literal pool (=expr) is not supported for ldrsw -/
+/-- error: literal pool (=expr) is not supported for ldrsw -/
 #guard_msgs in
 #check parseAArch64("ldrsw x0, =0")
 
-/-- error: line 1: literal pool immediate 4294967296 too large for 32-bit register -/
+/-- error: literal pool immediate 4294967296 too large for 32-bit register -/
 #guard_msgs in
 #check parseAArch64("ldr w0, =0x100000000")
 
-/-- error: line 1: unexpected trailing characters on line -/
+/-- error: <input>:1:15: expected end of input -/
 #guard_msgs in
 #check parseAArch64("add x0, x1, #1 # comment")
 
-/-- error: line 1: unexpected trailing characters on line -/
+/-- error: <input>:1:16: expected end of input -/
 #guard_msgs in
 #check parseAArch64("ldr x0, [x1, x2]!")
 
-/-- error: line 1: unexpected trailing characters on line -/
+/-- error: pre-indexed / post-indexed offsets must be constant numeric immediates -/
+#guard_msgs in
+#check parseAArch64("ldr x0, [x1, foo]!")
+
+/-- error: only lsl shift supported for move wide -/
 #guard_msgs in
 #check parseAArch64("movz x0, #1, asr #0")
 
-/-- error: line 1: unexpected trailing characters on line -/
+/-- error: invalid move wide shift amount 32 for width w32 -/
 #guard_msgs in
 #check parseAArch64("movz w0, #1, lsl #32")
 
-/-- error: line 1: unexpected end of input -/
+/-- error: <input>:1:10: unexpected end of input; expected ',' -/
 #guard_msgs in
 #check parseAArch64("add x0, x1")
 
-/-- error: line 1: unknown condition code: invalid -/
+/-- error: <input>:1:17: expected aarch64_cond -/
 #guard_msgs in
 #check parseAArch64("csel x0, x1, x2, invalid")
 
-/-- error: line 1: unsupported instruction: foobar -/
+/-- error: <input>:1:0: expected end of input -/
 #guard_msgs in
 #check parseAArch64("foobar x0, x1")
 
 end error_reporting
+
+section syntax_cat_and_include_aarch64
+
+theorem test_aarch64_syntax_cat :
+  [aarch64|
+    main:
+      add x0, x0, #1
+      ret
+  ] = parseAArch64(
+    "main:
+      add x0, x0, #1
+      ret"
+  ) := rfl
+
+theorem test_include_aarch64_nop :
+  include_aarch64 "Kraken/AArch64/Test/asm/test_nop.S" =
+  [Directive.instr ⟨.W64, .NOP⟩] := rfl
+
+theorem test_aarch64_complex_labels :
+  [aarch64|
+    aa.1.aa.1:
+      b .L.str.1.llvm.12345
+  ] = [
+    Directive.label "aa.1.aa.1",
+    Directive.instr ⟨.W64, .B (↑".L.str.1.llvm.12345")⟩
+  ] := rfl
+
+end syntax_cat_and_include_aarch64
 
 end Tests
