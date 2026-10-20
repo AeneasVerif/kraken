@@ -220,12 +220,12 @@ def parseRegOrZr (w : RegWidth) : Parser (RegOrZr w) := do
 A generic parsed register (`gpr`, `sp`, or `xzr`) before instruction-specific
 context validation resolves index 31.
 -/
-inductive AnyReg (w : RegWidth)
+public inductive AnyReg (w : RegWidth)
   | gpr (r : XReg) : AnyReg w
   | sp : AnyReg w
   | xzr : AnyReg w
 
-abbrev AnyRegW := (w : RegWidth) × AnyReg w
+public abbrev AnyRegW := (w : RegWidth) × AnyReg w
 
 /-- Parse any valid register name and return its width and `AnyReg` variant. -/
 def parseAnyRegW : Parser AnyRegW := do
@@ -258,11 +258,11 @@ def AnyReg.toRegOrZr {w : RegWidth} : AnyReg w → Parser (RegOrZr w)
   | .xzr => pure (.low .XZR w)
   | .sp => fail "sp/wsp not allowed in shifted register instruction (xzr expected)"
 
-def AnyReg.isSp {w : RegWidth} : AnyReg w → Bool
+public def AnyReg.isSp {w : RegWidth} : AnyReg w → Bool
   | .sp => true
   | _ => false
 
-def AnyReg.isXzr {w : RegWidth} : AnyReg w → Bool
+public def AnyReg.isXzr {w : RegWidth} : AnyReg w → Bool
   | .xzr => true
   | _ => false
 
@@ -289,6 +289,8 @@ def liftExcept {α : Type} (res : Except String α) : Parser α :=
   match res with
   | .ok a => pure a
   | .error msg => fail msg
+
+public section
 
 /--
 Validate a memory extension shift amount (`0` or log2 of access size in bytes).
@@ -659,6 +661,8 @@ def checkLdpStpRegisters {w : RegWidth} (isLdp : Bool) (reg1 : RegOrZr w) (reg2 
   checkLdrStrRegisters reg1 mem
   checkLdrStrRegisters reg2 mem
 
+end
+
 -- ============================================================================
 -- Operand Parsing
 -- ============================================================================
@@ -874,7 +878,7 @@ Validate and map an arithmetic extension mnemonic (`UXTB`, `SXTB`, `UXTH`,
 - In 64-bit instructions (`instrW = .W64`), `UXTX`/`SXTX`/`LSL` require a 64-bit register (`Xn`),
   while `UXTB`/`SXTB`/`UXTH`/`SXTH`/`UXTW`/`SXTW` require a 32-bit register (`Wn`).
 -/
-def getExtendType (extName : String) (instrW : RegWidth) (regW : RegWidth) : Except String ExtendType := do
+public def getExtendType (extName : String) (instrW : RegWidth) (regW : RegWidth) : Except String ExtendType := do
   let ty ← match extName.toLower with
     | "uxtb" => .ok ExtendType.UXTB
     | "sxtb" => .ok ExtendType.SXTB
@@ -1020,7 +1024,7 @@ def parseOptionalOperand {α : Type} (p : Parser α) (defaultVal : α) : Parser 
 -- Condition Code Parsing
 -- ============================================================================
 
-def parseCondCode (s : String) : Option CondCode :=
+public def parseCondCode (s : String) : Option CondCode :=
   match s.toLower with
   | "eq" => some .EQ
   | "ne" => some .NE
@@ -1319,7 +1323,7 @@ instruction.
 - If that fails, tries `MOVZ` on the bitwise NOT (`~~~val`), which maps to `MOVN`.
 - Returns `(isMovn, imm16, shift)`.
 -/
-def tryMovzOrMovn (w : RegWidth) (val : BitVec w.bits) : Option (Bool × Int64 × MovShift w) :=
+public def tryMovzOrMovn (w : RegWidth) (val : BitVec w.bits) : Option (Bool × Int64 × MovShift w) :=
   match tryMovz w val with
   | some (imm16, shift) => some (false, imm16, shift)
   | none =>
