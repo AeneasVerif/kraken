@@ -2161,49 +2161,4 @@ public def parse (input: String) : Except String Program := do
   ) ((1 : Nat), [])
   pure lines.reverse.flatten
 
--- ============================================================================
--- Assembly Preprocessing (Directive Stripping)
--- ============================================================================
-
-private def directiveKeywords : List String :=
-  -- Architecture & CPU
-  ["file", "text", "data", "bss", "rodata", "tbss", "tdata",
-   "arch", "arch_extension", "cpu", "fpu", "eabi_attribute", "syntax",
-   "tlsdesccall", "inst", "req", "unreq", "variant_pcs",
-   -- Alignment & Layout
-   "p2align", "balign", "align", "org", "previous", "pushsection", "popsection", "subsection",
-   -- Symbol Binding & Visibility
-   "globl", "global", "local", "type", "size", "section", "comm", "lcomm",
-   "weak", "hidden", "protected", "internal", "ident", "set", "equ", "equiv",
-   -- Call Frame Information (DWARF / PAC / BTI)
-   "cfi_startproc", "cfi_endproc", "cfi_def_cfa", "cfi_sections", "cfi_personality", "cfi_lsda",
-   "cfi_offset", "cfi_adjust_cfa_offset", "cfi_def_cfa_offset", "cfi_def_cfa_register",
-   "cfi_restore", "cfi_remember_state", "cfi_restore_state", "cfi_return_column",
-   "cfi_signal_frame", "cfi_window_save", "cfi_escape", "cfi_val_offset", "cfi_register",
-   "cfi_same_value", "cfi_undefined", "cfi_rel_offset", "cfi_b_key_frame", "cfi_negate_ra_state",
-   -- Data Emission & Buffers
-   "byte", "2byte", "4byte", "8byte", "short", "int", "long", "word", "hword",
-   "xword", "dword", "quad", "single", "double", "ascii", "asciz", "string",
-   "zero", "space", "skip", "fill"]
-
-private def extractDirectiveName (s : String) : String :=
-  let rest := s.drop 1
-  let nameStr := (rest.takeWhile (fun c => c != ' ' && c != '\t' && c != ',' && c != ':')).toString
-  nameStr.toLower
-
-private def keepLine (line : String) : Bool :=
-  let stripped := (line.trimAsciiStart).toString
-  if stripped.isEmpty || stripped.startsWith "#" || stripped.startsWith "//" then true
-  else if !stripped.startsWith "." then true
-  else
-    let dirName := extractDirectiveName stripped
-    if stripped.any (· == ':') then true
-    else if directiveKeywords.contains dirName then false
-    else false
-
-public def stripDirectives (content : String) : String :=
-  let lines := content.splitOn "\n"
-  let kept := lines.filter keepLine
-  "\n".intercalate kept
-
 end Kraken.AArch64.Parser
