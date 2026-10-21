@@ -256,6 +256,13 @@ inductive AvxOperation (w : AvxWidth)
   | pshufd (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   | palignr (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   | pblendw (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  -- AVX-512 integer operations, without write-masking
+  | vmovdqu32 (_ : AvxDst w) (src : AvxRegOrMem w)
+  | vmovdqa32 (_ : AvxDst w) (src : AvxRegOrMem w)
+  | vpaddd (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vprord (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  | vpsrld (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  | vpternlogd (_ : AvxDst w) (src2 src3 : AvxRegOrMem w) (imm : ConstExpr)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 inductive Instr

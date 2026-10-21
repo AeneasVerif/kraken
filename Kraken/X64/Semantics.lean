@@ -238,6 +238,20 @@ def BitVec.alignBytes {w : Nat} (hi lo : BitVec w) (imm : BitVec 8) : BitVec w :
 def BitVec.blendWords {w : Nat} (a b : BitVec w) (imm : BitVec 8) : BitVec w :=
   BitVec.ofLanes w 16 fun i => if imm.getLsbD (i % 8) then b.lane 16 i else a.lane 16 i
 
+/-- Each lane of `c` bits of `a`, mapped by `f`. -/
+def BitVec.mapLanes {w : Nat} (c : Nat) (f : BitVec c → BitVec c) (a : BitVec w) : BitVec w :=
+  BitVec.ofLanes w c fun i => f (a.lane c i)
+
+/-- Any bitwise function of three vectors, given by its truth table.
+
+Bit `4x + 2y + z` of `imm` is the output for input bits `x` of `a`, `y` of `b`, and `z` of `c`. -/
+def BitVec.ternaryLogic {w : Nat} (a b c : BitVec w) (imm : BitVec 8) : BitVec w :=
+  let pick (bit : Bool) (v : BitVec w) := if bit then v else ~~~v
+  (List.range 8).foldl (fun acc k =>
+    if imm.getLsbD k then
+      acc ||| (pick (k / 4 % 2 == 1) a &&& pick (k / 2 % 2 == 1) b &&& pick (k % 2 == 1) c)
+    else acc) 0#w
+
 def BitVec.toFloat32 (v : BitVec 32) : Float32 :=
   Float32.ofBits (UInt32.ofBitVec v)
 
@@ -826,6 +840,28 @@ match i with
     src.interp s p (checkAlign := true) (fun b s =>
     dst.interp s p (fun a s =>
       s.setAvxLegacy dst (a.blendWords b ((imm.interp p).toBitVec.take 8)) p next))
+  -- VEX and EVEX forms clear the destination's bits above the operation width.
+  | .vmovdqu32 dst src => src.interp s p (fun val s => s.setAvx dst val p next)
+  | .vmovdqa32 dst src =>
+    src.interp s p (checkAlign := true)
+      (fun val s => s.setAvx dst val p (checkAlign := true) next)
+  | .vpaddd dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (BitVec.packedBinOp 32 (· + ·) a b) p next))
+  | .vprord dst src imm =>
+    src.interp s p (fun a s =>
+      let count := ((imm.interp p).toBitVec.take 8).toNat % 32
+      s.setAvx dst (a.mapLanes 32 (·.rotateRight count)) p next)
+  | .vpsrld dst src imm =>
+    src.interp s p (fun a s =>
+      let count := ((imm.interp p).toBitVec.take 8).toNat
+      s.setAvx dst (a.mapLanes 32 (fun x => if count < 32 then x >>> count else 0#32)) p next)
+  | .vpternlogd dst src2 src3 imm =>
+    src3.interp s p (fun c s =>
+    src2.interp s p (fun b s =>
+    dst.interp s p (fun a s =>
+      s.setAvx dst (BitVec.ternaryLogic a b c ((imm.interp p).toBitVec.take 8)) p next)))
 
 @[kstep]
 def Instr.interp [Labels]

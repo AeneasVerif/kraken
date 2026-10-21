@@ -187,6 +187,12 @@ def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : Stri
   | .pshufd dst src imm => s!"pshufd {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
   | .palignr dst src imm => s!"palignr {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
   | .pblendw dst src imm => s!"pblendw {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .vmovdqu32 dst src => s!"vmovdqu32 {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vmovdqa32 dst src => s!"vmovdqa32 {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vpaddd dst a b => s!"vpaddd {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vprord dst src imm => s!"vprord {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .vpsrld dst src imm => s!"vpsrld {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .vpternlogd dst b c imm => s!"vpternlogd {dst.toStr addr_w}, {b.toStr addr_w}, {c.toStr addr_w}, {imm}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
 instance : ToString Instr where
