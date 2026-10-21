@@ -621,6 +621,15 @@ def parseWidthSuffix : Char → Option Width
   | 'b' => pure .W8 | 'w' => pure .W16 | 'l' => pure .W32 | 'q' => pure .W64
   | _ =>  none
 
+/-- A string move or store, named with its width suffix, once or repeated. -/
+def stringInstr (mn : String) (rep : Bool) : Parser Instr := do
+  let some w := parseWidthSuffix (String.Pos.Raw.get mn (.mk (mn.length - 1)))
+    | fail s!"expected a string instruction, got {mn}"
+  if mn.length != 5 then fail s!"expected a string instruction, got {mn}"
+  else if mn.startsWith "movs" then pure (toInstr .none (w := w) (.movs rep))
+  else if mn.startsWith "stos" then pure (toInstr .none (w := w) (.stos rep))
+  else fail s!"expected a string instruction, got {mn}"
+
 /-- Parse an instruction mnemonic and its operands.
     AT&T syntax: src, dst (reversed from Intel). -/
 def parseInstr : Parser Instr := do
@@ -1049,6 +1058,14 @@ def parseInstr : Parser Instr := do
     let w ← instrWidth mn
     let ( addr_w, dst ) ← parseRegOrMemAO w
     pure (toInstr addr_w (.pop dst))
+
+  | "movsb" | "movsw" | "movsl" | "movsq" | "stosb" | "stosw" | "stosl" | "stosq" =>
+    stringInstr mn false
+
+  | "rep" =>
+    skipHWs
+    let mn ← parseName
+    stringInstr mn.toLower true
 
   | "ret" | "retq" =>
     pure (toInstr .none (w := .W64) .ret)

@@ -35,6 +35,7 @@ def corpus : List String := [
   "setl %al", "setle %al", "seto %al", "setno %al", "sets %al", "setns %al",
   "setp %al", "setnp %al", "setge %al", "setg %al",
   "cmovz %rax, %rbx", "cmovl (%rsp), %ecx", "cmovge %rax, %rbx", "cmovg (%rsp), %ecx",
+  "movsb", "movsq", "rep movsb", "rep movsl", "stosw", "rep stosb", "rep stosq",
   -- arithmetic
   "leaq 8(%rax,%rbx,4), %rcx", "leal (%eax), %ecx", "lea sym(%rip), %rax",
   "addq $1, %rax", "addb %al, (%rsp)", "adcl (%rsp), %eax", "adcx %rax, %rbx",
