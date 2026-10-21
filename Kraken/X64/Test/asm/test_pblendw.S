@@ -14,5 +14,8 @@ movdqa 16(%rsp), %xmm1
 pblendw $0xf0, %xmm1, %xmm0
 movdqa 0(%rsp), %xmm2
 pblendw $0x5a, 16(%rsp), %xmm2
+# A negative immediate is its low byte: -128 takes word 7 only.
+movdqa 0(%rsp), %xmm3
+pblendw $-128, %xmm1, %xmm3
 
 addq $0x20, %rsp

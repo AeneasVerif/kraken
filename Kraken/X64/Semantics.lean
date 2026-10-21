@@ -223,20 +223,20 @@ def BitVec.shuffleBytes {w : Nat} (a m : BitVec w) : BitVec w :=
     if index.msb then 0#8 else a.lane 8 (16 * (i / 16) + index.toNat % 16)
 
 /-- Dwords of `a` picked by `imm`, within each 16-byte block: dword `i` takes bits `2i` and `2i + 1`. -/
-def BitVec.shuffleDwords {w : Nat} (a : BitVec w) (imm : Nat) : BitVec w :=
-  BitVec.ofLanes w 32 fun i => a.lane 32 (4 * (i / 4) + (imm >>> (2 * (i % 4))) % 4)
+def BitVec.shuffleDwords {w : Nat} (a : BitVec w) (imm : BitVec 8) : BitVec w :=
+  BitVec.ofLanes w 32 fun i => a.lane 32 (4 * (i / 4) + (imm.toNat >>> (2 * (i % 4))) % 4)
 
 /-- Within each 16-byte block, `hi` above `lo`, shifted right by `imm` bytes, keeping the low 16. -/
-def BitVec.alignBytes {w : Nat} (hi lo : BitVec w) (imm : Nat) : BitVec w :=
+def BitVec.alignBytes {w : Nat} (hi lo : BitVec w) (imm : BitVec 8) : BitVec w :=
   BitVec.ofLanes w 8 fun i =>
-    let j := i % 16 + imm
+    let j := i % 16 + imm.toNat
     if j < 16 then lo.lane 8 (16 * (i / 16) + j)
     else if j < 32 then hi.lane 8 (16 * (i / 16) + j - 16)
     else 0#8
 
 /-- Words from `b` where bit `i mod 8` of `imm` is set, and from `a` elsewhere. -/
-def BitVec.blendWords {w : Nat} (a b : BitVec w) (imm : Nat) : BitVec w :=
-  BitVec.ofLanes w 16 fun i => if (imm >>> (i % 8)) % 2 == 1 then b.lane 16 i else a.lane 16 i
+def BitVec.blendWords {w : Nat} (a b : BitVec w) (imm : BitVec 8) : BitVec w :=
+  BitVec.ofLanes w 16 fun i => if imm.getLsbD (i % 8) then b.lane 16 i else a.lane 16 i
 
 def BitVec.toFloat32 (v : BitVec 32) : Float32 :=
   Float32.ofBits (UInt32.ofBitVec v)
@@ -459,10 +459,6 @@ def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
   | .p  => s.pf | .np => !s.pf
   | .l  => s.sf != s.of | .ge => s.sf == s.of
   | .le => (s.sf != s.of) || s.zf | .g  => !s.zf && (s.sf == s.of)
-
-/-- An 8-bit immediate's value. -/
-@[kstep] def ConstExpr.interpImm8 [Labels] (c : ConstExpr) (p : Std.Rco Int64) : Nat :=
-  ((c.interp p).toBitVec.take 8).toNat
 
 @[kstep] def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
   | .cl => s.regs.rcx.toBitVec.take 8
@@ -821,15 +817,15 @@ match i with
       s.setAvxLegacy dst (a.shuffleBytes m) p next))
   | .pshufd dst src imm =>
     src.interp s p (checkAlign := true) (fun a s =>
-      s.setAvxLegacy dst (a.shuffleDwords (imm.interpImm8 p)) p next)
+      s.setAvxLegacy dst (a.shuffleDwords ((imm.interp p).toBitVec.take 8)) p next)
   | .palignr dst src imm =>
     src.interp s p (checkAlign := true) (fun lo s =>
     dst.interp s p (fun hi s =>
-      s.setAvxLegacy dst (hi.alignBytes lo (imm.interpImm8 p)) p next))
+      s.setAvxLegacy dst (hi.alignBytes lo ((imm.interp p).toBitVec.take 8)) p next))
   | .pblendw dst src imm =>
     src.interp s p (checkAlign := true) (fun b s =>
     dst.interp s p (fun a s =>
-      s.setAvxLegacy dst (a.blendWords b (imm.interpImm8 p)) p next))
+      s.setAvxLegacy dst (a.blendWords b ((imm.interp p).toBitVec.take 8)) p next))
 
 @[kstep]
 def Instr.interp [Labels]

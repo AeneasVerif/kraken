@@ -12,5 +12,7 @@ pshufd $0x1b, %xmm0, %xmm1
 pshufd $0xb1, %xmm0, %xmm2
 pshufd $0x0e, 0(%rsp), %xmm3
 pshufd $0x00, %xmm0, %xmm4
+# A negative immediate is its low byte: -1 picks dword 3 everywhere.
+pshufd $-1, %xmm0, %xmm5
 
 addq $0x10, %rsp
