@@ -93,7 +93,7 @@ public theorem Program.wp_mono {p : Program} {done₁ done₂ exit₁ exit₂ : 
   rw [Program.wp_eq]
   intro H
   refine While.mono (fun U y _ hy => ?_) (fun y _ h => hd y h) (hw H)
-  refine Executable.StepOver.mono_map FunDecls.at ?_ (fun _ h => h)
+  refine Executable.StepOver.mono_map FunDecls.at ?_ (fun _ _ h => h)
     (fun u hu => Program.continueAtOwnLabel_mono (fun _ h => h) he hu) hy
   exact fun _ _ _ _ hR hm => hm _ _ (fun _ h => h.elim) hR
 
@@ -125,31 +125,30 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
     have hft : Host.exe.fallthrough y.pc = Host.addrOf (H.start + 1) := by
       rw [hy]; exact Host.fallthrough_addrOf hd hz
     refine Executable.StepOver.mono_map FunDecls.at ?_
-      (fun u ⟨hu, hpc⟩ => ⟨hu, fun hne => absurd (hpc.trans hft) hne⟩) (fun _ h => h)
-      (Executable.StepOver.restrict hb)
+      (fun u hpc hu => ⟨hu, fun hne => absurd (hpc.trans hft) hne⟩) (fun _ h => h) hb
     exact fun _ _ _ _ hR h => Program.wp_mono (fun _ h => h) hR h
   · rw [Program.wp_eq] at hst
     have hst := hst H.tail
     simp only [Program.continueAtOwnLabel_of_not_isLabelAddr np] at hst
     rwa [show H.tail.startAddr = st.pc by grind, show H.tail.endAddr = H.endAddr by grind] at hst
 
-public theorem Program.wp_single {d : Directive} {done exit : MachineState → Prop} {s : MachineData}
+public theorem Program.wp_single {d : Directive} {done exit : MachineState → Prop} {s₀ : MachineData}
     (hw : ∀ (h : Embedding [d]) ⦃P : MachineState → Prop⦄ ⦃next : MachineData → Effects⦄
         ⦃jmp : Int64 → MachineData → Effects⦄,
-      (∀ s', done ⟨s', h.endAddr⟩ → (next s').All P) →
-      (∀ a s', Host.exe.StepOut (fun a => (FunDecls.at a).map fun f => f.prog.wp (fun _ => False))
-        ⟨s, h.startAddr⟩ (fun u => u.pc = h.endAddr ∧ done u) exit ⟨s', a⟩ →
-          (jmp a s').All P) →
-      (d.interp s ⟨h.startAddr, h.endAddr⟩ next jmp).All P) :
-    Program.wp [d] done exit s := by
+      (∀ s₁, done ⟨s₁, h.endAddr⟩ → (next s₁).All P) →
+      (∀ a s₁, Host.exe.StepOut (fun a => (FunDecls.at a).map fun f => f.prog.wp (fun _ => False))
+        ⟨s₀, h.startAddr⟩ (fun u => u.pc = h.endAddr ∧ done u) exit ⟨s₁, a⟩ →
+          (jmp a s₁).All P) →
+      (d.interp s₀ ⟨h.startAddr, h.endAddr⟩ next jmp).All P) :
+    Program.wp [d] done exit s₀ := by
   rw [Program.wp_eq]
   intro h
   have hw := hw h
   have hdk : Host.prog[h.start]? = some d := h.isInfixAt.cons.1
   have hend : h.endAddr = Host.addrOf (h.start + 1) := rfl
   rcases Nat.eq_zero_or_pos (Kraken.Layout.size Directive h.start) with h0 | hz
-  · have hq := (Host.inert_of_getElem? hdk h0 s _ (fun s' => .done ⟨s', 0⟩)
-      (fun _ s' => .done ⟨s', 1⟩) (fun st => st.pc = 0 → done ⟨st.data, h.endAddr⟩)).mp
+  · have hq := (Host.inert_of_getElem? hdk h0 s₀ _ (fun s₁ => .done ⟨s₁, 0⟩)
+      (fun _ s₁ => .done ⟨s₁, 1⟩) (fun st => st.pc = 0 → done ⟨st.data, h.endAddr⟩)).mp
       (@hw (fun st => st.pc = 0 → done ⟨st.data, h.endAddr⟩) _ _ (fun _ hq _ => hq)
         fun _ _ _ h => by simp at h)
     have ha : h.startAddr = h.endAddr := by grind
@@ -165,7 +164,7 @@ public theorem Program.wp_single {d : Directive} {done exit : MachineState → P
     refine While.step («continue» := fun u => u.pc = h.endAddr ∧ done u) (by grind) ?_
       fun u hu => While.stop (by simp [hu.1]) hu.2
     exact Host.stepIn_addrOf hdk hz fun P n j hn hj =>
-      hw (fun s' hd' => hn s' ⟨hend, hd'⟩) fun a s' h' => hj a s' h'
+      hw (fun s₁ hd' => hn s₁ ⟨hend, hd'⟩) fun a s₁ h' => hj a s₁ h'
 
 public theorem Program.step1_of_wp {p : Program} (h : Embedding p) {done exit : MachineState → Prop}
     {s : MachineData} {post : MachineState → Prop} (hw : p.wp done exit s)
@@ -188,9 +187,9 @@ public theorem Program.step1_of_wp {p : Program} (h : Embedding p) {done exit : 
       split at hu
       · exact ih u hu
       · exact he u hu
-    refine Eventually.step y _ (Executable.StepIn.all ht.2 (fun u hu => ih u hu) fun st' hst => ?_) fun _ h => h
+    refine Eventually.step y _ (Executable.StepIn.all ht.2 (fun u hu => ih u hu) fun st₁ hst => ?_) fun _ h => h
     unfold Executable.StepOut at hst
-    cases hf : FunDecls.at st'.pc with
+    cases hf : FunDecls.at st₁.pc with
     | none =>
       simp only [hf, Option.map_none] at hst
       exact hcal _ hst
@@ -201,7 +200,7 @@ public theorem Program.step1_of_wp {p : Program} (h : Embedding p) {done exit : 
           split at hu
           · exact .done _ (ih u hu)
           · exact .done _ (hcal u hu)
-        have hstart : f.embedding.startAddr = st'.pc := FunDecls.startAddr_of_at hf
+        have hstart : f.embedding.startAddr = st₁.pc := FunDecls.startAddr_of_at hf
         rw [hstart] at this
         exact eventually_trans _ _ _ _ this fun _ h => h
       · exact hcal _ hst
