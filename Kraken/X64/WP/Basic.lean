@@ -6,14 +6,33 @@ public import Kraken.X64.WP.Step
 /-
 # Weakest precondition of a fragment of a host program
 
-`Program.wp p done exit s` is the weakest precondition of the fragment `p` in the ambient `Host`
-program, for every embedding of `p`.
+`Program.wp p done exit s` is the weakest precondition of the fragment `p` in the ambient, laid out
+`Host` program, where `done` is the postcondition at the end address of `p` and `exit` is the
+postcondition at every other address where control leaves `p`.
 This definition is the bridge to `Std.WP` and thus `vcgen`.
 
-The run of `p` is a `While` loop over `Executable.StepOver`, which steps over calls to the functions in
-`FunDecls`. A fall-through successor continues the loop. A jump successor continues the loop at an
-internal target of `p` while the run still owns the stack, and leaves the loop with `exit` otherwise.
-The loop stops at the end address of `p`, where `done` must hold.
+The definition of `wp` works by
+1. Considering the weakest precondition `Executable.StepOver` of a single directive in the laid out
+   executable.
+   * Fall-through continues the loop.
+   * A jump to a label `f` in `FunDecls` that pushes onto the stack is a call (cf. `Executable.StepOut`).
+     `StepOver` steps over the call and applies the weakest precondition of `f`.
+   * Any other jump continues the loop if its target is inside `p` and the stack pointer is at or
+     below its value in `s`. Otherwise it leaves `p` and must satisfy `exit`.
+2. Taking the least fixpoint of step 1 via `While`, the set of pre states which inevitably
+   reach the end address of `p` in a state that satisfies `done`.
+3. Considering every possible way in which the fragment `p` may occur in the `Host` program.
+   Only properties can be proved that hold for *all possible embeddings* `Embeds p` of the
+   fragment `p`. This ensures proof modularity.
+
+`Program.wp` is an inductive fixpoint, because step 1 uses `wp` of the functions in `FunDecls`.
+
+The `Host` program is a parameter to be able to reason compositionally about function calls.
+It is an instance implicit parameter so that uses refer implicitly to an ambient host program
+without users needing to specify it explicitly everywhere.
+
+The `FunDecls` instance influences which jumps are considered as calls for `StepOver`.
+Undeclared functions are just regular jumps and exit if jumping outside the fragment `p`  .
 -/
 
 @[expose] public def While {σ : Type} (cond : σ → Prop) (body : (σ → Prop) → σ → Prop) (done : σ → Prop) :
