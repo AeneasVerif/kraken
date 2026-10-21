@@ -112,47 +112,26 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
   have ndp := Program.not_isLabelAddr_of_labels_eq_nil hN
   rw [Program.wp_eq] at hw ⊢
   intro H
-  have hk := H.isInfixAt
-  have hw := hw (H.ofIsInfixAt (List.isInfixAt_cons_head d p))
+  have hd := H.isInfixAt.cons.1
+  have hw := hw H.head
   simp only [Program.continueAtOwnLabel_of_not_isLabelAddr nd] at hw
   simp only [Program.continueAtOwnLabel_of_not_isLabelAddr ndp]
-  have hd : Host.exe.program[H.start]? =
-      some {directive := d, size := Kraken.Layout.size Directive H.start} := by
-    rw [Host.exe_getElem?, hk.cons.1]; rfl
   refine While.split (fun y => y.pc ≠ Host.addrOf (H.start + 1) → y.pc = Host.addrOf H.start)
     (fun y hI hc => ?_) (fun U y hI hc hb => ?_) (fun _ => rfl) (While.mono (fun U y _ hb => hb) (fun st hc hst => ?_) hw)
+  · have := hI hc
+    grind
   · have hy := hI hc
-    rw [hy]
-    show Host.addrOf H.start ≠ Host.addrOf (H.start + (p.length + 1))
-    rw [show H.start + (p.length + 1) = H.start + 1 + p.length by omega]
-    exact Host.addrOf_ne_of_succ_ne (hy ▸ hc)
-  · have hy := hI hc
-    have hz : 0 < Kraken.Layout.size Directive H.start := by
-      refine Nat.pos_of_ne_zero fun h0 => hc ?_
-      rw [hy]; show _ = Host.addrOf (H.start + 0 + 1)
-      rw [Host.addrOf_succ hk.cons.1, h0]; simp
+    have hz : 0 < Kraken.Layout.size Directive H.start := by grind
     have hft : Host.exe.fallthrough y.pc = Host.addrOf (H.start + 1) := by
       rw [hy]; exact Host.fallthrough_addrOf hd hz
     refine Executable.StepOver.mono_map FunDecls.at ?_
       (fun u ⟨hu, hpc⟩ => ⟨hu, fun hne => absurd (hpc.trans hft) hne⟩) (fun _ h => h)
       (Executable.StepOver.restrict hb)
     exact fun _ _ _ _ hR h => Program.wp_mono (fun _ h => h) hR h
-  · have hpc : st.pc = Host.addrOf (H.start + 1) := by
-      have := Classical.not_not.mp hc
-      change st.pc = Host.addrOf (H.start + 0 + 1) at this
-      simpa using this
-    rw [Program.wp_eq] at hst
-    have hst := hst (H.ofIsInfixAt (List.isInfixAt_cons_tail d p))
+  · rw [Program.wp_eq] at hst
+    have hst := hst H.tail
     simp only [Program.continueAtOwnLabel_of_not_isLabelAddr np] at hst
-    have hstart : (H.ofIsInfixAt (List.isInfixAt_cons_tail d p)).startAddr = st.pc := by
-      show Host.addrOf (H.start + 1) = st.pc
-      exact hpc.symm
-    have hend : (H.ofIsInfixAt (List.isInfixAt_cons_tail d p)).endAddr = H.endAddr := by
-      show Host.addrOf (H.start + 1 + p.length) = Host.addrOf (H.start + (p.length + 1))
-      congr 1
-      omega
-    rw [hstart, hend] at hst
-    exact hst
+    rwa [show H.tail.startAddr = st.pc by grind, show H.tail.endAddr = H.endAddr by grind] at hst
 
 public theorem Program.wp_single {d : Directive} {done exit : MachineState → Prop} {s : MachineData}
     (hw : ∀ (h : Embedding [d]) ⦃P : MachineState → Prop⦄ ⦃next : MachineData → Effects⦄
@@ -165,25 +144,17 @@ public theorem Program.wp_single {d : Directive} {done exit : MachineState → P
     Program.wp [d] done exit s := by
   rw [Program.wp_eq]
   intro h
-  have hk := h.isInfixAt
   have hw := hw h
-  have hdk : Host.prog[h.start]? = some d := hk.cons.1
-  have hd : Host.exe.program[h.start]? =
-      some {directive := d, size := Kraken.Layout.size Directive h.start} := by
-    rw [Host.exe_getElem?, hdk]; rfl
+  have hdk : Host.prog[h.start]? = some d := h.isInfixAt.cons.1
   have hend : h.endAddr = Host.addrOf (h.start + 1) := rfl
   rcases Nat.eq_zero_or_pos (Kraken.Layout.size Directive h.start) with h0 | hz
-  · have ha : Host.addrOf (h.start + 1) = Host.addrOf h.start := by
-      rw [Host.addrOf_succ hdk, h0]; simp
-    rw [h0] at hd
-    have hq := (Host.inert_of_size_zero (List.mem_of_getElem? hd) s _ (fun s' => .done ⟨s', 0⟩)
+  · have hq := (Host.inert_of_getElem? hdk h0 s _ (fun s' => .done ⟨s', 0⟩)
       (fun _ s' => .done ⟨s', 1⟩) (fun st => st.pc = 0 → done ⟨st.data, h.endAddr⟩)).mp
       (@hw (fun st => st.pc = 0 → done ⟨st.data, h.endAddr⟩) _ _ (fun _ hq _ => hq)
         fun _ _ _ h => by simp at h)
-    refine While.stop (by simp [hend, ha, Embedding.startAddr]) ?_
-    have : (⟨s, h.startAddr⟩ : MachineState) = ⟨s, h.endAddr⟩ := by
-      simp [hend, ha, Embedding.startAddr]
-    rw [this]
+    have ha : h.startAddr = h.endAddr := by grind
+    refine While.stop (by simp [ha]) ?_
+    rw [ha]
     exact hq rfl
   · have nd : ∀ a, ¬ Program.IsLabelAddr [d] a := by
       rintro a ⟨l, hl, -⟩
@@ -191,10 +162,9 @@ public theorem Program.wp_single {d : Directive} {done exit : MachineState → P
       | label l' => exact absurd (Host.label_size _ l' hdk) (by omega)
       | _ => simp at hl
     simp only [Program.continueAtOwnLabel_of_not_isLabelAddr nd]
-    refine While.step («continue» := fun u => u.pc = h.endAddr ∧ done u)
-      (Host.addrOf_succ_ne hd hz ∘ fun h' => h'.trans hend) ?_
+    refine While.step («continue» := fun u => u.pc = h.endAddr ∧ done u) (by grind) ?_
       fun u hu => While.stop (by simp [hu.1]) hu.2
-    exact Host.stepIn_addrOf hd hz fun P n j hn hj =>
+    exact Host.stepIn_addrOf hdk hz fun P n j hn hj =>
       hw (fun s' hd' => hn s' ⟨hend, hd'⟩) fun a s' h' => hj a s' h'
 
 public theorem Program.step1_of_wp {p : Program} (h : Embedding p) {done exit : MachineState → Prop}

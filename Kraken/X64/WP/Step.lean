@@ -39,42 +39,6 @@ if `wp_f R st'.data` holds, where `R` is `next` at `e.fallthrough st.pc` and `ju
 can apply `StepOver` to its own weakest precondition in an inductive fixpoint.
 -/
 
-@[expose] public def Directives.endAddr (ds : List (Kraken.Sized Directive)) (pc : Int64) : Int64 :=
-  match ds with
-  | [] => pc
-  | c :: ds => Directives.endAddr ds (pc + .ofNat c.size)
-
-public theorem Directives.endAddr_append (ds ds' : List (Kraken.Sized Directive)) (pc : Int64) :
-    Directives.endAddr (ds ++ ds') pc = Directives.endAddr ds' (Directives.endAddr ds pc) := by
-  induction ds generalizing pc with
-  | nil => rfl
-  | cons c ds ih => exact ih _
-
-public theorem Directives.endAddr_of_size_zero {ds : List (Kraken.Sized Directive)} (h : ∀ c ∈ ds, c.size = 0)
-    (pc : Int64) : Directives.endAddr ds pc = pc := by
-  induction ds generalizing pc with
-  | nil => rfl
-  | cons c ds ih =>
-    have hc : pc + Int64.ofNat c.size = pc := by rw [h c List.mem_cons_self]; simp
-    simp only [Directives.endAddr, hc]
-    exact ih (fun c' hc' => h c' (List.mem_cons_of_mem _ hc')) pc
-
-public theorem Directives.interp_ret_congr [Labels] (ds : List (Kraken.Sized Directive)) (s : MachineData)
-    (pc : Int64) {ret ret' jmp : Int64 → MachineData → Effects}
-    (h : ∀ s, ret (Directives.endAddr ds pc) s = ret' (Directives.endAddr ds pc) s) :
-    Directives.interp ds s pc ret jmp = Directives.interp ds s pc ret' jmp := by
-  induction ds generalizing s pc with
-  | nil => exact h s
-  | cons c ds ih =>
-    obtain ⟨d, z⟩ := c
-    simp only [Directives.interp]
-    congr 1
-    funext s'
-    exact ih s' _ h
-
-@[expose] public def Executable.fallthrough (e : Executable) (a : Int64) : Int64 :=
-  Directives.endAddr (e.directivesAtAddress a) a
-
 @[expose] public def Executable.StepIn (e : Executable) (next jump : MachineState → Prop) (st : MachineState) : Prop :=
   let := e.labels
   ∀ ⦃P : MachineState → Prop⦄ ⦃ret jmp : MachineState → Effects⦄,
@@ -238,39 +202,20 @@ end Executable
 section
 variable [Host]
 
-public theorem Host.fallthrough_addrOf {k : Nat} {c : Kraken.Sized Directive}
-    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) :
-    Host.exe.fallthrough (Host.addrOf k) = Host.addrOf (k + 1) := by
-  obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hc hz
-  have hk : Host.prog[k]? = some c.directive := by
-    rw [Host.exe_getElem?] at hc; grind
-  have hzk : Kraken.Layout.size Directive k = c.size := by
-    rw [Host.exe_getElem?] at hc; grind
-  unfold Executable.fallthrough
-  rw [hat, Directives.endAddr_append, Directives.endAddr_of_size_zero hpre, Host.addrOf_succ hk, hzk]
-  rfl
-
-public theorem Host.stepIn_addrOf {k : Nat} {c : Kraken.Sized Directive}
-    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) {s : MachineData} {next jump : MachineState → Prop}
+public theorem Host.stepIn_addrOf {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d)
+    (hz : 0 < Kraken.Layout.size Directive k) {s : MachineData} {next jump : MachineState → Prop}
     (h : ∀ ⦃P : MachineState → Prop⦄ ⦃n : MachineData → Effects⦄ ⦃j : Int64 → MachineData → Effects⦄,
       (∀ s', next ⟨s', Host.addrOf (k + 1)⟩ → (n s').All P) → (∀ a s', jump ⟨s', a⟩ → (j a s').All P) →
-      (c.directive.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩ n j).All P) :
+      (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩ n j).All P) :
     Host.exe.StepIn next jump ⟨s, Host.addrOf k⟩ := by
   intro P r j hr hj
-  obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hc hz
+  obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd hz
   have hinert : ∀ c ∈ pre, c.size = 0 ∧ c.directive.Inert := fun c hc =>
     ⟨hpre c hc, Host.inert_of_size_zero (hpre c hc ▸
       Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc))⟩
-  have hk : Host.prog[k]? = some c.directive := by
-    rw [Host.exe_getElem?] at hc; grind
-  have hzk : Kraken.Layout.size Directive k = c.size := by
-    rw [Host.exe_getElem?] at hc; grind
-  have hsucc : Host.addrOf (k + 1) = Host.addrOf k + .ofNat c.size := by rw [Host.addrOf_succ hk, hzk]
   change (@Directives.interp Host.exe.labels (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k) _ _).All P
   rw [hat, Directives.interp_inert_append hinert s _ _ P (fun a s => j ⟨s, a⟩)]
-  obtain ⟨d, z⟩ := c
-  simp only [Directives.interp] at hsucc ⊢
-  rw [← hsucc]
+  simp only [Directives.interp]
+  rw [← Host.addrOf_succ hd]
   exact h (fun s' hn => hr _ hn) (fun a s' hj' => hj _ hj')
-
 end
