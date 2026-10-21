@@ -35,7 +35,7 @@ The `FunDecls` instance influences which jumps are considered as calls for `Step
 Undeclared functions are regular jumps and exit if jumping outside the fragment `p`.
 -/
 
-@[expose] public def Program.IsLabelAddr [Host] (p : Program) (a : Int64) : Prop :=
+public def Program.IsLabelAddr [Host] (p : Program) (a : Int64) : Prop :=
   ∃ l ∈ p.labels, label l = a
 
 open Classical in
@@ -64,7 +64,7 @@ public theorem Program.wp_eq {p : Program} {done exit : MachineState → Prop} {
   rw [Program.wp]
 
 omit [FunDecls] in
-public theorem Program.continueAtOwnLabel_mono {p : Program} {s : MachineData}
+theorem Program.continueAtOwnLabel_mono {p : Program} {s : MachineData}
     {c₁ c₂ e₁ e₂ : MachineState → Prop} (hc : ∀ u, c₁ u → c₂ u) (he : ∀ u, e₁ u → e₂ u) {u : MachineState}
     (h : p.ContinueAtOwnLabel s c₁ e₁ u) : p.ContinueAtOwnLabel s c₂ e₂ u := by
   unfold Program.ContinueAtOwnLabel at h ⊢
@@ -73,12 +73,12 @@ public theorem Program.continueAtOwnLabel_mono {p : Program} {s : MachineData}
   · rw [ite_eq_right hcond] at h ⊢; exact he _ h
 
 omit [FunDecls] in
-public theorem Program.continueAtOwnLabel_of_not_isLabelAddr {p : Program} (h : ∀ a, ¬ p.IsLabelAddr a)
+theorem Program.continueAtOwnLabel_of_not_isLabelAddr {p : Program} (h : ∀ a, ¬ p.IsLabelAddr a)
     {s : MachineData} {c e : MachineState → Prop} : p.ContinueAtOwnLabel s c e = e :=
   funext fun u => by simp [Program.ContinueAtOwnLabel, h]
 
 omit [FunDecls] in
-public theorem Program.not_isLabelAddr_of_labels_eq_nil {p : Program} (hN : p.labels = []) (a : Int64) :
+theorem Program.not_isLabelAddr_of_labels_eq_nil {p : Program} (hN : p.labels = []) (a : Int64) :
     ¬ p.IsLabelAddr a :=
   fun ⟨l, hl, _⟩ => by simp [hN] at hl
 

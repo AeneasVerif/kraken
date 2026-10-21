@@ -102,7 +102,7 @@ namespace Executable
 variable {e : Executable} {st₀ : MachineState}
   {funs funs₁ funs₂ : Int64 → Option ((MachineState → Prop) → MachineData → Prop)}
 
-public theorem StepOut.mono_map {β : Type} (o : Int64 → Option β)
+theorem StepOut.mono_map {β : Type} (o : Int64 → Option β)
     {g₁ g₂ : β → (MachineState → Prop) → MachineData → Prop}
     (hg : ∀ b R₁ R₂ s, (∀ u, R₁ u → R₂ u) → g₁ b R₁ s → g₂ b R₂ s)
     {next₁ next₂ jump₁ jump₂ : MachineState → Prop}
@@ -136,7 +136,7 @@ public theorem StepOver.mono_map {β : Type} (o : Int64 → Option β)
     e.StepOver (fun a => (o a).map g₂) next₂ jump₂ st₀ :=
   StepIn.mono h hn fun _ => StepOut.mono_map o hg hn hj
 
-public theorem StepOver.of_callee {next jump : MachineState → Prop}
+theorem StepOver.of_funs {next jump : MachineState → Prop}
     (hc : ∀ a, Option.Rel (fun wp₁ wp₂ => ∀ R s, wp₁ R s → wp₂ R s) (funs₁ a) (funs₂ a))
     (h : e.StepOver funs₁ next jump st₀) : e.StepOver funs₂ next jump st₀ := by
   refine StepIn.mono h (fun _ _ h => h) fun st₁ h => ?_
@@ -157,7 +157,7 @@ open Lean.Order in
     (g : α → β → (MachineState → Prop) → MachineData → ImplicationOrder) (hg : monotone g) :
     @monotone _ _ _ ImplicationOrder.instOrder (fun x => e.StepOver (fun a => (o a).map (g x)) next jump st₀) := by
   intro x y hxy hx
-  refine StepOver.of_callee (fun a => ?_) hx
+  refine StepOver.of_funs (fun a => ?_) hx
   cases o a with
   | none => exact Option.Rel.none
   | some b => exact Option.Rel.some fun R s h => hg _ _ hxy b R s h

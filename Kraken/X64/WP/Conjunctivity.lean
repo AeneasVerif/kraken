@@ -6,7 +6,7 @@ namespace Executable
 variable {e : Executable} {st₀ : MachineState}
 
 open Classical in
-public theorem StepIn.and {next₁ next₂ jump₁ jump₂ : MachineState → Prop} (h₁ : e.StepIn next₁ jump₁ st₀)
+theorem StepIn.and {next₁ next₂ jump₁ jump₂ : MachineState → Prop} (h₁ : e.StepIn next₁ jump₁ st₀)
     (h₂ : e.StepIn next₂ jump₂ st₀) :
     e.StepIn (fun u => next₁ u ∧ next₂ u) (fun u => jump₁ u ∧ jump₂ u) st₀ := by
   intro P r j hr hj
@@ -25,7 +25,7 @@ public theorem StepIn.and {next₁ next₂ jump₁ jump₂ : MachineState → Pr
   · exact hr _ ⟨(hprobe _).mp e₁, (hprobe _).mp e₂⟩
   · exact hj _ ⟨(hprobe _).mp e₁, (hprobe _).mp e₂⟩
 
-public theorem StepOut.and_map {β : Type} (o : Int64 → Option β)
+theorem StepOut.and_map {β : Type} (o : Int64 → Option β)
     {g₁ g₂ g : β → (MachineState → Prop) → MachineData → Prop}
     (hg : ∀ b R₁ R₂ R s, (∀ u, R₁ u → R₂ u → R u) → g₁ b R₁ s → g₂ b R₂ s → g b R s)
     {next₁ next₂ next jump₁ jump₂ jump : MachineState → Prop}
@@ -51,7 +51,7 @@ public theorem StepOut.and_map {β : Type} (o : Int64 → Option β)
     · simp only [hb, ite_false] at h₁ h₂ ⊢
       exact hj _ h₁ h₂
 
-public theorem StepOver.and_map {β : Type} (o : Int64 → Option β)
+theorem StepOver.and_map {β : Type} (o : Int64 → Option β)
     {g₁ g₂ g : β → (MachineState → Prop) → MachineData → Prop}
     (hg : ∀ b R₁ R₂ R s, (∀ u, R₁ u → R₂ u → R u) → g₁ b R₁ s → g₂ b R₂ s → g b R s)
     {next₁ next₂ next jump₁ jump₂ jump : MachineState → Prop}
@@ -68,7 +68,7 @@ section
 variable [Host] [FunDecls]
 
 omit [FunDecls] in
-public theorem Program.continueAtOwnLabel_and {p : Program} {s : MachineData}
+theorem Program.continueAtOwnLabel_and {p : Program} {s : MachineData}
     {c₁ c₂ e₁ e₂ : MachineState → Prop} {u : MachineState}
     (h₁ : p.ContinueAtOwnLabel s c₁ e₁ u) (h₂ : p.ContinueAtOwnLabel s c₂ e₂ u) :
     p.ContinueAtOwnLabel s (fun u => c₁ u ∧ c₂ u) (fun u => e₁ u ∧ e₂ u) u := by
