@@ -122,8 +122,8 @@ public abbrev MachineData.StackAtOrBelow (s' s : MachineData) : Prop := ¬ s.Sta
     (h : s'.regs.get64 .rsp + 8#64 = s.regs.get64 .rsp) : s'.StackBelow s := by
   show 0 < (s.regs.get64 .rsp - s'.regs.get64 .rsp).toInt
   rw [← h]
-  obtain ⟨x, hx⟩ : ∃ x : BitVec 64, s'.regs.get64 .rsp = x := ⟨_, rfl⟩
-  rw [hx, show x + 8#64 - x = 8#64 by clear h hx; bv_omega]
+  simp only [Width.type, Width.bits]
+  rw [show ∀ x : BitVec 64, x + 8#64 - x = 8#64 by intro x; bv_omega]
   decide
 
 @[grind ←] public theorem MachineData.stackAtOrBelow_of_rsp_eq {s s' : MachineData}
@@ -135,12 +135,7 @@ public abbrev MachineData.StackAtOrBelow (s' s : MachineData) : Prop := ¬ s.Sta
 @[grind ←] public theorem MachineData.stackAtOrBelow_of_toNat_lt {s s' : MachineData}
     (h : (s.regs.get64 .rsp - s'.regs.get64 .rsp).toNat < 2 ^ 63) : s'.StackAtOrBelow s := by
   show ¬ 0 < (s'.regs.get64 .rsp - s.regs.get64 .rsp).toInt
-  obtain ⟨a, ha⟩ : ∃ a : BitVec 64, s.regs.get64 .rsp = a := ⟨_, rfl⟩
-  obtain ⟨b, hb⟩ : ∃ b : BitVec 64, s'.regs.get64 .rsp = b := ⟨_, rfl⟩
-  rw [ha, hb] at h ⊢
-  clear ha hb
-  change (a - b : BitVec 64).toNat < 2 ^ 63 at h
-  change ¬ 0 < (b - a : BitVec 64).toInt
+  simp only [Width.type, Width.bits] at h ⊢
   rw [BitVec.toInt_eq_toNat_cond]
   split <;> bv_omega
 
