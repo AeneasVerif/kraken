@@ -266,6 +266,13 @@ inductive AvxOperation (w : AvxWidth)
   | vmovOut (n : Width) (_ : Dst n) (src : AvxReg w)
   | vmovq (_ : AvxReg w) (src : AvxReg w)
   | vzeroupper
+  -- AVX-512 integer operations, without write-masking
+  | vmovdqu32 (_ : AvxDst w) (src : AvxRegOrMem w)
+  | vmovdqa32 (_ : AvxDst w) (src : AvxRegOrMem w)
+  | vpaddd (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vprord (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  | vpsrld (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  | vpternlogd (_ : AvxDst w) (src2 src3 : AvxRegOrMem w) (imm : ConstExpr)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 inductive Instr
