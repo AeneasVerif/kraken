@@ -37,7 +37,7 @@ The `FunDecls` instance influences which jumps are considered as calls for `Step
 Undeclared functions are regular jumps and exit if jumping outside the fragment `p`.
 -/
 
-@[expose] public def Program.InternalTarget [Host] (p : Program) (a : Int64) : Prop :=
+@[expose] public def Program.IsLabelAddr [Host] (p : Program) (a : Int64) : Prop :=
   ∃ l ∈ p.labels, label l = a
 
 public class FunDecls [Host] where
@@ -51,9 +51,9 @@ public theorem FunDecls.startAddr_of_at [Host] [FunDecls] {a : Int64} {f : (p : 
   simpa using List.find?_some h
 
 open Classical in
-@[expose] public def Program.ContinueOnInternalExit [Host] (p : Program) (s : MachineData)
+@[expose] public def Program.ContinueAtOwnLabel [Host] (p : Program) (s : MachineData)
     («continue» exit : MachineState → Prop) (st : MachineState) : Prop :=
-  if p.InternalTarget st.pc ∧ st.data.StackAtOrBelow s then «continue» st else exit st
+  if p.IsLabelAddr st.pc ∧ st.data.StackAtOrBelow s then «continue» st else exit st
 
 /-- Weakest precondition of a `Program` fragment of the host program. -/
 public def Program.wp [Host] [FunDecls] (p : Program) (done exit : MachineState → Prop)
@@ -61,7 +61,7 @@ public def Program.wp [Host] [FunDecls] (p : Program) (done exit : MachineState 
   let callee a := (FunDecls.at a).map fun f => f.1.wp (fun _ => False)
   ∀ h : Embedding p,
     While (·.pc ≠ h.endAddr)
-      (fun «continue» => Host.exe.StepOver callee «continue» (p.ContinueOnInternalExit s «continue» exit))
+      (fun «continue» => Host.exe.StepOver callee «continue» (p.ContinueAtOwnLabel s «continue» exit))
       done ⟨s, h.startAddr⟩
 inductive_fixpoint
 
@@ -71,37 +71,37 @@ variable [Host] [FunDecls]
 public theorem Program.wp_eq {p : Program} {done exit : MachineState → Prop} {s : MachineData} :
     p.wp done exit s = ∀ h : Embedding p, While (·.pc ≠ h.endAddr)
       (fun «continue» => Host.exe.StepOver (fun a => (FunDecls.at a).map fun f => f.1.wp (fun _ => False))
-        «continue» (p.ContinueOnInternalExit s «continue» exit))
+        «continue» (p.ContinueAtOwnLabel s «continue» exit))
       done ⟨s, h.startAddr⟩ := by
   rw [Program.wp]
 
 omit [FunDecls] in
-public theorem Program.continueOnInternalExit_mono {p : Program} {s : MachineData}
+public theorem Program.continueAtOwnLabel_mono {p : Program} {s : MachineData}
     {c₁ c₂ e₁ e₂ : MachineState → Prop} (hc : ∀ u, c₁ u → c₂ u) (he : ∀ u, e₁ u → e₂ u) {u : MachineState}
-    (h : p.ContinueOnInternalExit s c₁ e₁ u) : p.ContinueOnInternalExit s c₂ e₂ u := by
-  unfold Program.ContinueOnInternalExit at h ⊢
-  by_cases hcond : p.InternalTarget u.pc ∧ u.data.StackAtOrBelow s
+    (h : p.ContinueAtOwnLabel s c₁ e₁ u) : p.ContinueAtOwnLabel s c₂ e₂ u := by
+  unfold Program.ContinueAtOwnLabel at h ⊢
+  by_cases hcond : p.IsLabelAddr u.pc ∧ u.data.StackAtOrBelow s
   · rw [ite_eq_left hcond] at h ⊢; exact hc _ h
   · rw [ite_eq_right hcond] at h ⊢; exact he _ h
 
 omit [FunDecls] in
-public theorem Program.continueOnInternalExit_and {p : Program} {s : MachineData}
+public theorem Program.continueAtOwnLabel_and {p : Program} {s : MachineData}
     {c₁ c₂ e₁ e₂ : MachineState → Prop} {u : MachineState}
-    (h₁ : p.ContinueOnInternalExit s c₁ e₁ u) (h₂ : p.ContinueOnInternalExit s c₂ e₂ u) :
-    p.ContinueOnInternalExit s (fun u => c₁ u ∧ c₂ u) (fun u => e₁ u ∧ e₂ u) u := by
-  unfold Program.ContinueOnInternalExit at h₁ h₂ ⊢
-  by_cases hcond : p.InternalTarget u.pc ∧ u.data.StackAtOrBelow s
+    (h₁ : p.ContinueAtOwnLabel s c₁ e₁ u) (h₂ : p.ContinueAtOwnLabel s c₂ e₂ u) :
+    p.ContinueAtOwnLabel s (fun u => c₁ u ∧ c₂ u) (fun u => e₁ u ∧ e₂ u) u := by
+  unfold Program.ContinueAtOwnLabel at h₁ h₂ ⊢
+  by_cases hcond : p.IsLabelAddr u.pc ∧ u.data.StackAtOrBelow s
   · rw [ite_eq_left hcond] at h₁ h₂ ⊢; exact ⟨h₁, h₂⟩
   · rw [ite_eq_right hcond] at h₁ h₂ ⊢; exact ⟨h₁, h₂⟩
 
 omit [FunDecls] in
-public theorem Program.continueOnInternalExit_of_noInternal {p : Program} (h : ∀ a, ¬ p.InternalTarget a)
-    {s : MachineData} {c e : MachineState → Prop} : p.ContinueOnInternalExit s c e = e :=
-  funext fun u => by simp [Program.ContinueOnInternalExit, h]
+public theorem Program.continueAtOwnLabel_of_not_isLabelAddr {p : Program} (h : ∀ a, ¬ p.IsLabelAddr a)
+    {s : MachineData} {c e : MachineState → Prop} : p.ContinueAtOwnLabel s c e = e :=
+  funext fun u => by simp [Program.ContinueAtOwnLabel, h]
 
 omit [FunDecls] in
-public theorem Program.noInternal_of_noLabels {p : Program} (hN : p.labels = []) (a : Int64) :
-    ¬ p.InternalTarget a :=
+public theorem Program.not_isLabelAddr_of_labels_eq_nil {p : Program} (hN : p.labels = []) (a : Int64) :
+    ¬ p.IsLabelAddr a :=
   fun ⟨l, hl, _⟩ => by simp [hN] at hl
 
 public theorem Program.wp_mono {p : Program} {done₁ done₂ exit₁ exit₂ : MachineState → Prop}
@@ -115,7 +115,7 @@ public theorem Program.wp_mono {p : Program} {done₁ done₂ exit₁ exit₂ : 
   rw [Program.wp_eq]
   intro H
   refine While.imp (fun U y _ hy => Executable.StepOver.imp ?_ hy (fun _ h => h)
-    fun u hu => Program.continueOnInternalExit_mono (fun _ h => h) he hu) (fun y _ h => hd y h) (hw H)
+    fun u hu => Program.continueAtOwnLabel_mono (fun _ h => h) he hu) (fun y _ h => hd y h) (hw H)
   intro a
   dsimp only
   cases FunDecls.at a with
@@ -147,7 +147,7 @@ public theorem Program.wp_and {p : Program} {done₁ done₂ exit₁ exit₂ : M
   cases hf : FunDecls.at st'.pc with
   | none =>
     simp only [hf, Option.map_none] at h₁ h₂ ⊢
-    exact Program.continueOnInternalExit_and h₁ h₂
+    exact Program.continueAtOwnLabel_and h₁ h₂
   | some f =>
     simp only [hf, Option.map_some] at h₁ h₂ ⊢
     by_cases hb : st'.data.StackBelow y.data
@@ -157,9 +157,9 @@ public theorem Program.wp_and {p : Program} {done₁ done₂ exit₁ exit₂ : M
       · simp only [hu, ite_true] at a b ⊢
         exact ⟨a, b⟩
       · simp only [hu, ite_false] at a b ⊢
-        exact Program.continueOnInternalExit_and a b
+        exact Program.continueAtOwnLabel_and a b
     · simp only [hb, ite_false] at h₁ h₂ ⊢
-      exact Program.continueOnInternalExit_and h₁ h₂
+      exact Program.continueAtOwnLabel_and h₁ h₂
 
 end
 
@@ -230,15 +230,15 @@ public theorem Program.wp_nil {done exit : MachineState → Prop} {s : MachineDa
 public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : MachineState → Prop} {s : MachineData}
     (hN : Program.labels (d :: p) = []) (hw : Program.wp [d] (fun st => p.wp done exit st.data) exit s) :
     Program.wp (d :: p) done exit s := by
-  have nd := Program.noInternal_of_noLabels (p := [d]) (by cases d <;> simp_all)
-  have np := Program.noInternal_of_noLabels (p := p) (by cases d <;> simp_all)
-  have ndp := Program.noInternal_of_noLabels hN
+  have nd := Program.not_isLabelAddr_of_labels_eq_nil (p := [d]) (by cases d <;> simp_all)
+  have np := Program.not_isLabelAddr_of_labels_eq_nil (p := p) (by cases d <;> simp_all)
+  have ndp := Program.not_isLabelAddr_of_labels_eq_nil hN
   rw [Program.wp_eq] at hw ⊢
   intro H
   have hk := H.isInfixAt
   have hw := hw (H.ofIsInfixAt (List.isInfixAt_cons_head d p))
-  simp only [Program.continueOnInternalExit_of_noInternal nd] at hw
-  simp only [Program.continueOnInternalExit_of_noInternal ndp]
+  simp only [Program.continueAtOwnLabel_of_not_isLabelAddr nd] at hw
+  simp only [Program.continueAtOwnLabel_of_not_isLabelAddr ndp]
   have hd : Host.exe.program[H.start]? =
       some {directive := d, size := Kraken.Layout.size Directive H.start} := by
     rw [Host.exe_getElem?, hk.cons.1]; rfl
@@ -264,7 +264,7 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
       simpa using this
     rw [Program.wp_eq] at hst
     have hst := hst (H.ofIsInfixAt (List.isInfixAt_cons_tail d p))
-    simp only [Program.continueOnInternalExit_of_noInternal np] at hst
+    simp only [Program.continueAtOwnLabel_of_not_isLabelAddr np] at hst
     have hstart : (H.ofIsInfixAt (List.isInfixAt_cons_tail d p)).startAddr = st.pc := by
       show Host.addrOf (H.start + 1) = st.pc
       exact hpc.symm
@@ -310,12 +310,12 @@ public theorem Program.wp_single {d : Directive} {done exit : MachineState → P
       simp [hend, ha, Embedding.startAddr]
     rw [this]
     exact hq rfl
-  · have nd : ∀ a, ¬ Program.InternalTarget [d] a := by
+  · have nd : ∀ a, ¬ Program.IsLabelAddr [d] a := by
       rintro a ⟨l, hl, -⟩
       cases d with
       | label l' => exact absurd (Host.label_size _ l' hdk) (by omega)
       | _ => simp at hl
-    simp only [Program.continueOnInternalExit_of_noInternal nd]
+    simp only [Program.continueAtOwnLabel_of_not_isLabelAddr nd]
     refine While.step («continue» := fun u => u.pc = h.endAddr ∧ done u)
       (Host.addrOf_succ_ne hd hz ∘ fun h' => h'.trans hend) ?_
       fun u hu => While.stop (by simp [hu.1]) hu.2
@@ -338,8 +338,8 @@ public theorem Program.step1_of_wp {p : Program} (h : Embedding p) {done exit : 
   induction hw with
   | done y hy => exact hd y (Classical.not_not.mp hy.1) hy.2
   | step y next ht _ ih =>
-    have hcie : ∀ u, p.ContinueOnInternalExit s next exit u → Eventually (step1 Host.exe) post u := fun u hu => by
-      unfold Program.ContinueOnInternalExit at hu
+    have hcal : ∀ u, p.ContinueAtOwnLabel s next exit u → Eventually (step1 Host.exe) post u := fun u hu => by
+      unfold Program.ContinueAtOwnLabel at hu
       split at hu
       · exact ih u hu
       · exact he u hu
@@ -348,17 +348,17 @@ public theorem Program.step1_of_wp {p : Program} (h : Embedding p) {done exit : 
     cases hf : FunDecls.at st'.pc with
     | none =>
       simp only [hf, Option.map_none] at hst
-      exact hcie _ hst
+      exact hcal _ hst
     | some f =>
       simp only [hf, Option.map_some] at hst
       split at hst
       · have := hst f.2 (Eventually (step1 Host.exe) post) (fun _ _ h => h.elim) fun u hu => by
           split at hu
           · exact .done _ (ih u hu)
-          · exact .done _ (hcie u hu)
+          · exact .done _ (hcal u hu)
         have hstart : f.2.startAddr = st'.pc := FunDecls.startAddr_of_at hf
         rw [hstart] at this
         exact eventually_trans _ _ _ _ this fun _ h => h
-      · exact hcie _ hst
+      · exact hcal _ hst
 
 end
