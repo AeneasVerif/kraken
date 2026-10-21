@@ -272,6 +272,24 @@ inductive Directive
 
 abbrev Program := List Directive
 
+def Directive.label? : Directive → Option Label
+  | .label l => some l
+  | _ => none
+
+/-- The labels of the text, in order. -/
+def Program.labels (p : Program) : List Label := p.filterMap Directive.label?
+
+@[simp, grind =] theorem Program.labels_nil : Program.labels [] = [] := rfl
+
+@[simp, grind =] theorem Program.labels_cons_label (l : Label) (p : Program) :
+    Program.labels (.label l :: p) = l :: Program.labels p := rfl
+
+@[simp, grind =] theorem Program.labels_cons_instr (i : Instr) (p : Program) :
+    Program.labels (.instr i :: p) = Program.labels p := rfl
+
+@[simp, grind =] theorem Program.labels_cons_byteArray (a : ByteArray) (p : Program) :
+    Program.labels (.byteArray a :: p) = Program.labels p := rfl
+
 abbrev Executable := Kraken.Executable Directive
 
 namespace Reg

@@ -25,6 +25,8 @@ private theorem exists_least_le {P : Nat → Prop} {n : Nat} (h : P n) :
 public class Host where
   prog : Program
   layout : Layout
+  /-- Labels have size zero. -/
+  label_size : ∀ i l, prog[i]? = some (.label l) → @Kraken.Layout.size _ layout i = 0
   /-- Any directive that occupies zero space in the executable must be semantically inert. -/
   zero_inert : ∀ i d, prog[i]? = some d → @Kraken.Layout.size _ layout i = 0 → d.Inert
   /-- Two directives at the same address have the same offset in the executable. -/
