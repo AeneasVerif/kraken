@@ -2,10 +2,14 @@ module
 
 public import Kraken.OmniSemantics
 
--- `wp` of a while loop as a least fixpoint (Dijkstra 1975), in the style of omnisemantics (Charguéraud et al., TOPLAS 2023)
+/--
+The weakest precondition of a while loop as a least fixpoint.
+Introduction forms are `While.stop` and `While.step`.
+It is equivalent to `Eventually` with a stop condition, cf. `While.iff_eventually`.
+-/
 public def While {σ : Type} (cond : σ → Prop) (body : (σ → Prop) → σ → Prop) (done : σ → Prop) (x : σ) :
     Prop :=
-  (cond x ∧ ∃ U, body U x ∧ ∀ y, U y → While cond body done y) ∨ (¬ cond x ∧ done x)
+  (cond x ∧ ∃ «continue», body «continue» x ∧ ∀ y, «continue» y → While cond body done y) ∨ (¬ cond x ∧ done x)
 inductive_fixpoint
 
 section
@@ -20,7 +24,7 @@ public theorem While.step {x : σ} {«continue» : σ → Prop} (hc : cond x) (h
 
 public theorem While.iff_eventually {x : σ} :
     While cond body done x ↔
-      Eventually (fun st U => cond st ∧ body U st) (fun st => ¬ cond st ∧ done st) x := by
+      Eventually (fun st «continue» => cond st ∧ body «continue» st) (fun st => ¬ cond st ∧ done st) x := by
   constructor
   · intro h
     refine While.induct cond body done _ (fun y hy => ?_) x h
@@ -40,7 +44,11 @@ public theorem While.imp {body₂ : (σ → Prop) → σ → Prop} {done₂ : σ
   · exact While.step hc (hb U y hc hbU) hU
   · exact While.stop hc (hd y hc hdy)
 
-public theorem While.seq {cond₂ : σ → Prop} (I : σ → Prop) (hcond : ∀ y, I y → cond y → cond₂ y)
+/--
+Splits `while cond₂ do body` at the first state where a stronger condition `cond` fails:
+`while cond do body; while cond₂ do body ⊑ while cond₂ do body`.
+-/
+public theorem While.split {cond₂ : σ → Prop} (I : σ → Prop) (hcond : ∀ y, I y → cond y → cond₂ y)
     (hI : ∀ U y, I y → cond y → body U y → body (fun z => U z ∧ I z) y) {x : σ} (hx : I x)
     (h : While cond body (While cond₂ body done) x) : While cond₂ body done x := by
   refine While.induct cond body (While cond₂ body done) (fun y => I y → While cond₂ body done y)

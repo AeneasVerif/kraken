@@ -322,7 +322,7 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
   have hd : Host.exe.program[H.start]? =
       some {directive := d, size := Kraken.Layout.size Directive H.start} := by
     rw [Host.exe_getElem?, hk.cons.1]; rfl
-  refine While.seq (fun y => y.pc ≠ Host.addrOf (H.start + 1) → y.pc = Host.addrOf H.start)
+  refine While.split (fun y => y.pc ≠ Host.addrOf (H.start + 1) → y.pc = Host.addrOf H.start)
     (fun y hI hc => ?_) (fun U y hI hc hb => ?_) (fun _ => rfl) (While.imp (fun U y _ hb => hb) (fun st hc hst => ?_) hw)
   · have hy := hI hc
     rw [hy]
