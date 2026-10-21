@@ -60,15 +60,15 @@ public theorem bind {β : Type} {F : (α → Effects) → Effects} {G : α → (
 @[natural] public theorem ite {c : Prop} [Decidable c] {F G : (α → Effects) → Effects} (hF : Natural F) (hG : Natural G) :
     Natural (fun k => if c then F k else G k) := by
   by_cases hc : c
-  · rw [show (fun k => if c then F k else G k) = F from funext fun _ => if_pos hc]; exact hF
-  · rw [show (fun k => if c then F k else G k) = G from funext fun _ => if_neg hc]; exact hG
+  · rw [show (fun k => if c then F k else G k) = F from funext fun _ => ite_eq_left hc]; exact hF
+  · rw [show (fun k => if c then F k else G k) = G from funext fun _ => ite_eq_right hc]; exact hG
 
 @[natural] public theorem dite {c : Prop} [Decidable c] {F : c → (α → Effects) → Effects} {G : ¬ c → (α → Effects) → Effects}
     (hF : ∀ h, Natural (F h)) (hG : ∀ h, Natural (G h)) :
     Natural (fun k => if h : c then F h k else G h k) := by
   by_cases hc : c
-  · rw [show (fun k => if h : c then F h k else G h k) = F hc from funext fun _ => dif_pos hc]; exact hF hc
-  · rw [show (fun k => if h : c then F h k else G h k) = G hc from funext fun _ => dif_neg hc]; exact hG hc
+  · rw [show (fun k => if h : c then F h k else G h k) = F hc from funext fun _ => dite_eq_left hc]; exact hF hc
+  · rw [show (fun k => if h : c then F h k else G h k) = G hc from funext fun _ => dite_eq_right hc]; exact hG hc
 
 end Natural
 
@@ -175,6 +175,7 @@ variable [Labels] [AddressSize]
   · exact MachineData.load_natural h
 
 
+omit [Labels] [AddressSize] in
 @[natural] public theorem Reg.interp_natural {w} {r : Reg w} {s : MachineData} {p : Std.Rco Int64}
     {G : w.type → MachineData → (α → Effects) → Effects} (h : ∀ v s, Natural (G v s)) :
     Natural (fun k => r.interp s p (fun v s => G v s k)) := h _ _
