@@ -59,7 +59,11 @@ def corpus : List String := [
   "movups %xmm0, %xmm1", "vmovups (%rsp), %ymm2", "vmovups %zmm31, 64(%rsp)",
   "movaps %xmm3, %xmm4", "addps (%rax), %xmm5", "subps %xmm6, %xmm7",
   "movdqu (%rsp), %xmm0", "movdqa %xmm1, 16(%rsp)", "paddd (%rax), %xmm2", "pshufb %xmm3, %xmm4",
-  "pshufd $0x1b, %xmm5, %xmm6", "palignr $8, (%rsp), %xmm7", "pblendw $0xf0, %xmm8, %xmm9"
+  "pshufd $0x1b, %xmm5, %xmm6", "palignr $8, (%rsp), %xmm7", "pblendw $0xf0, %xmm8, %xmm9",
+  "vmovdqu (%rsp), %xmm0", "vmovdqu %ymm1, 32(%rsp)", "vmovdqu %ymm2, %ymm3",
+  "vmovd %eax, %xmm4", "vmovd 4(%rsp), %xmm5", "vmovd %xmm6, %r9d", "vmovd %xmm7, (%rsp)",
+  "vmovq %rax, %xmm8", "vmovq 8(%rsp), %xmm9", "vmovq %xmm10, %rbx", "vmovq %xmm11, (%rsp)",
+  "vmovq %xmm12, %xmm13", "vzeroupper"
 ]
 
 /-- info: [] -/

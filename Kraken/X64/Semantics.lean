@@ -176,6 +176,11 @@ def RegZmms.set (s : RegZmms) {w} (r : AvxReg w) (v : w.type) : RegZmms := match
   | .ymm r => s.set512 r (v.zeroExtend _)
   | .xmm r => s.set512 r (v.zeroExtend _)
 
+/-- The registers with every bit from 128 up cleared in registers 0 to 15. -/
+def RegZmms.zeroUpper (s : RegZmms) : RegZmms :=
+  [RegMm.mm0, .mm1, .mm2, .mm3, .mm4, .mm5, .mm6, .mm7, .mm8, .mm9, .mm10, .mm11, .mm12, .mm13,
+    .mm14, .mm15].foldl (fun s r => s.set512 r (((s.get512 r).take 128).zeroExtend 512)) s
+
 def RegZmms.setLegacy (s : RegZmms) {w} (r : AvxReg w) (v : w.type) : RegZmms := match r with
   | .zmm r => s.set512 r v  -- impossible
   | .ymm r => s.set512 r ((s.get512 r).replaceLow v)  -- impossible
@@ -826,6 +831,11 @@ match i with
     src.interp s p (checkAlign := true) (fun b s =>
     dst.interp s p (fun a s =>
       s.setAvxLegacy dst (a.blendWords b ((imm.interp p).toBitVec.take 8)) p next))
+  | .vmovdqu dst src => src.interp s p (fun val s => s.setAvx dst val p next)
+  | .vmovIn _ dst src => src.interp s p (fun v s => next (s.setAvxReg dst (v.zeroExtend _)))
+  | .vmovOut n dst src => s.set dst ((s.zmms.get src).take n.bits) p next
+  | .vmovq dst src => next (s.setAvxReg dst (((s.zmms.get src).take 64).zeroExtend _))
+  | .vzeroupper => next { s with zmms := s.zmms.zeroUpper }
 
 @[kstep]
 def Instr.interp [Labels]
