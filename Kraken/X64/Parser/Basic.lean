@@ -920,6 +920,27 @@ def parseInstr : Parser Instr := do
     let imm ← (skipHWs *> parseImmediate); parseComma
     commaSeparatedAvx3 (fun d x y => .vpternlogd d x y imm)
 
+  | "vpshufb" =>
+    commaSeparatedAvx3 .vpshufb
+
+  | "vshufps" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx3 (fun d x y => .vshufps d x y imm)
+
+  | "vpermi2q" =>
+    commaSeparatedAvx3 .vpermi2q
+
+  | "vpermi2d" =>
+    commaSeparatedAvx3 .vpermi2d
+
+  | "vinserti64x4" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    let (addr_w1, src2) ← parseAvxAO parseAvxRegOrMem .W256; parseComma
+    let (addr_w2, src1) ← parseAvxAO parseAvxRegOrMem .W512; parseComma
+    let (addr_w3, dst) ← parseAvxAO parseAvxRegOrMem .W512
+    let addr_w ← mergeAddrWidths addr_w1 (← mergeAddrWidths addr_w2 addr_w3)
+    pure (toAvxInstr addr_w (AvxOperation.vinserti64x4 dst src1 src2 imm))
+
   -- Bitwise - 64-bit
   | "xor" =>
     commaSeparated .none parseOperand parseRegOrMem .xor

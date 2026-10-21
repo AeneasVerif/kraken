@@ -263,6 +263,11 @@ inductive AvxOperation (w : AvxWidth)
   | vprord (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   | vpsrld (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   | vpternlogd (_ : AvxDst w) (src2 src3 : AvxRegOrMem w) (imm : ConstExpr)
+  | vpshufb (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vshufps (_ : AvxDst w) (src1 src2 : AvxRegOrMem w) (imm : ConstExpr)
+  | vpermi2q (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vpermi2d (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vinserti64x4 (_ : AvxDst w) (src1 : AvxRegOrMem w) (src2 : AvxRegOrMem .W256) (imm : ConstExpr)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 inductive Instr
