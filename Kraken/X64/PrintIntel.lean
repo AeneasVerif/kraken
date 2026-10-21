@@ -180,6 +180,25 @@ def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : Stri
   | .movaps dst src => s!"movaps {dst.toStr addr_w}, {src.toStr addr_w}"
   | .subps dst src => s!"subps {dst.toStr addr_w}, {src.toStr addr_w}"
   | .addps dst src => s!"addps {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .movdqu dst src => s!"movdqu {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .movdqa dst src => s!"movdqa {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .paddd dst src => s!"paddd {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .pshufb dst src => s!"pshufb {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .pshufd dst src imm => s!"pshufd {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .palignr dst src imm => s!"palignr {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .pblendw dst src imm => s!"pblendw {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .vmovdqu32 dst src => s!"vmovdqu32 {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vmovdqa32 dst src => s!"vmovdqa32 {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vpaddd dst a b => s!"vpaddd {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vprord dst src imm => s!"vprord {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .vpsrld dst src imm => s!"vpsrld {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .vpternlogd dst b c imm => s!"vpternlogd {dst.toStr addr_w}, {b.toStr addr_w}, {c.toStr addr_w}, {imm}"
+  | .vpshufb dst a b => s!"vpshufb {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vshufps dst a b imm => s!"vshufps {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}, {imm}"
+  | .vpermi2q dst a b => s!"vpermi2q {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vpermi2d dst a b => s!"vpermi2d {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vinserti64x4 dst a b imm =>
+    s!"vinserti64x4 {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}, {imm}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
 instance : ToString Instr where
