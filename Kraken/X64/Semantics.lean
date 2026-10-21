@@ -238,6 +238,66 @@ def BitVec.alignBytes {w : Nat} (hi lo : BitVec w) (imm : BitVec 8) : BitVec w :
 def BitVec.blendWords {w : Nat} (a b : BitVec w) (imm : BitVec 8) : BitVec w :=
   BitVec.ofLanes w 16 fun i => if imm.getLsbD (i % 8) then b.lane 16 i else a.lane 16 i
 
+namespace Sha256
+
+/-- The round mixing of the first working word. -/
+def bigSigma0 (x : BitVec 32) : BitVec 32 := x.rotateRight 2 ^^^ x.rotateRight 13 ^^^ x.rotateRight 22
+
+/-- The round mixing of the fifth working word. -/
+def bigSigma1 (x : BitVec 32) : BitVec 32 := x.rotateRight 6 ^^^ x.rotateRight 11 ^^^ x.rotateRight 25
+
+/-- The message-schedule mixing of the word fifteen places back. -/
+def sigma0 (x : BitVec 32) : BitVec 32 := x.rotateRight 7 ^^^ x.rotateRight 18 ^^^ x >>> 3
+
+/-- The message-schedule mixing of the word two places back. -/
+def sigma1 (x : BitVec 32) : BitVec 32 := x.rotateRight 17 ^^^ x.rotateRight 19 ^^^ x >>> 10
+
+/-- Bit by bit, `y` where `x` is set and `z` elsewhere. -/
+def ch (x y z : BitVec 32) : BitVec 32 := (x &&& y) ^^^ (~~~x &&& z)
+
+/-- Bit by bit, the value at least two of the three words agree on. -/
+def maj (x y z : BitVec 32) : BitVec 32 := (x &&& y) ^^^ (x &&& z) ^^^ (y &&& z)
+
+/-- The eight working words. -/
+structure State where
+  (a b c d e f g h : BitVec 32)
+
+/-- One round, with the message word already added to its round constant. -/
+def State.round (s : State) (wk : BitVec 32) : State :=
+  let t := ch s.e s.f s.g + bigSigma1 s.e + wk + s.h
+  ⟨t + maj s.a s.b s.c + bigSigma0 s.a, s.a, s.b, s.c, t + s.d, s.e, s.f, s.g⟩
+
+/-- Two rounds, the state split as `sha256rnds2` holds it.
+
+The source holds A, B, E, F and the destination C, D, G, H, from the top dword down.
+The result holds the new A, the previous A, the new E, and the previous E, from the top down. -/
+def rounds2 (cdgh abef wk : BitVec 128) : BitVec 128 :=
+  let s : State := ⟨abef.lane 32 3, abef.lane 32 2, cdgh.lane 32 3, cdgh.lane 32 2,
+    abef.lane 32 1, abef.lane 32 0, cdgh.lane 32 1, cdgh.lane 32 0⟩
+  let s1 := s.round (wk.lane 32 0)
+  let s2 := s1.round (wk.lane 32 1)
+  BitVec.ofLanes 128 32 fun | 0 => s1.e | 1 => s2.e | 2 => s1.a | _ => s2.a
+
+/-- The first half of four schedule steps: each word plus the mixing of the next one.
+
+The destination holds words 0 to 3, and the source's low dword holds word 4. -/
+def msg1 (w0123 w4 : BitVec 128) : BitVec 128 :=
+  BitVec.ofLanes 128 32 fun i =>
+    w0123.lane 32 i + sigma0 (if i < 3 then w0123.lane 32 (i + 1) else w4.lane 32 0)
+
+/-- The second half of four schedule steps.
+
+The destination holds the partial sums, and the source's two top dwords hold words 14 and 15.
+Each new word feeds the one two places later. -/
+def msg2 (sums w : BitVec 128) : BitVec 128 :=
+  let w16 := sums.lane 32 0 + sigma1 (w.lane 32 2)
+  let w17 := sums.lane 32 1 + sigma1 (w.lane 32 3)
+  let w18 := sums.lane 32 2 + sigma1 w16
+  let w19 := sums.lane 32 3 + sigma1 w17
+  BitVec.ofLanes 128 32 fun | 0 => w16 | 1 => w17 | 2 => w18 | _ => w19
+
+end Sha256
+
 def BitVec.toFloat32 (v : BitVec 32) : Float32 :=
   Float32.ofBits (UInt32.ofBitVec v)
 
@@ -826,6 +886,21 @@ match i with
     src.interp s p (checkAlign := true) (fun b s =>
     dst.interp s p (fun a s =>
       s.setAvxLegacy dst (a.blendWords b ((imm.interp p).toBitVec.take 8)) p next))
+  -- The SHA instructions read and write the low 128 bits only.
+  | .sha256rnds2 dst src =>
+    src.interp s p (checkAlign := true) (fun abef s =>
+    dst.interp s p (fun cdgh s =>
+      let wk := s.zmms.get (AvxReg.xmm .mm0)
+      let r := Sha256.rounds2 (cdgh.setWidth 128) (abef.setWidth 128) wk
+      s.setAvxLegacy dst (r.setWidth _) p next))
+  | .sha256msg1 dst src =>
+    src.interp s p (checkAlign := true) (fun w4 s =>
+    dst.interp s p (fun w0123 s =>
+      s.setAvxLegacy dst ((Sha256.msg1 (w0123.setWidth 128) (w4.setWidth 128)).setWidth _) p next))
+  | .sha256msg2 dst src =>
+    src.interp s p (checkAlign := true) (fun w s =>
+    dst.interp s p (fun sums s =>
+      s.setAvxLegacy dst ((Sha256.msg2 (sums.setWidth 128) (w.setWidth 128)).setWidth _) p next))
 
 @[kstep]
 def Instr.interp [Labels]
