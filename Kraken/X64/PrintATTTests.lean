@@ -57,7 +57,11 @@ def corpus : List String := [
   "a:\nb: ret\n\nc:",
   -- AVX
   "movups %xmm0, %xmm1", "vmovups (%rsp), %ymm2", "vmovups %zmm31, 64(%rsp)",
-  "movaps %xmm3, %xmm4", "addps (%rax), %xmm5", "subps %xmm6, %xmm7"
+  "movaps %xmm3, %xmm4", "addps (%rax), %xmm5", "subps %xmm6, %xmm7",
+  "movdqu (%rsp), %xmm0", "movdqa %xmm1, 16(%rsp)", "paddd (%rax), %xmm2", "pshufb %xmm3, %xmm4",
+  "pshufd $0x1b, %xmm5, %xmm6", "palignr $8, (%rsp), %xmm7", "pblendw $0xf0, %xmm8, %xmm9",
+  "sha256rnds2 %xmm0, %xmm2, %xmm1", "sha256rnds2 (%rax), %xmm3", "sha256rnds2 %xmm0, %xmm4", "sha256msg1 %xmm4, %xmm5",
+  "sha256msg2 16(%rsp), %xmm6"
 ]
 
 /-- info: [] -/

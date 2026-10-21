@@ -863,6 +863,46 @@ def parseInstr : Parser Instr := do
   | "subps" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .subps
 
+  | "movdqu" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .movdqu
+
+  | "movdqa" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .movdqa
+
+  | "paddd" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .paddd
+
+  | "pshufb" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pshufb
+
+  | "pshufd" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .pshufd d x imm)
+
+  | "palignr" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .palignr d x imm)
+
+  -- The explicit form names the implicit xmm0 first, as `as` prints it.
+  | "sha256rnds2" =>
+    attempt (do
+      skipHWs
+      match ← parseAvxRegW with
+      | ⟨ .W128, .xmm .mm0 ⟩ => parseComma
+      | _ => fail "the implicit operand of sha256rnds2 is %xmm0"
+      commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .sha256rnds2)
+    <|> commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .sha256rnds2
+
+  | "sha256msg1" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .sha256msg1
+
+  | "sha256msg2" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .sha256msg2
+
+  | "pblendw" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .pblendw d x imm)
+
   -- Bitwise - 64-bit
   | "xor" =>
     commaSeparated .none parseOperand parseRegOrMem .xor
