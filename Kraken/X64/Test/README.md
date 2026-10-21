@@ -24,6 +24,17 @@ mulq %rbx
 ```
 Note: Always consult the [instruction manual](https://www.felixcloutier.com/x86/) to identify which flags are architecturally undefined for a given instruction.
 
+### Vector registers
+
+On a host with AVX-512F, the runner compares all of `zmm0` to `zmm31`.
+
+On other hosts it compares `ymm0` to `ymm15`.
+
+A test that needs AVX-512 says so on one of its comment lines, and is skipped on hosts without it:
+```
+# Requires: avx512f
+```
+
 ## Running Tests
 
 Ensure you have `binutils` (specifically `as` and `ld`) installed. Currently, the test suite is verified on **Ubuntu (latest)**; other platforms may produce incompatible results.
