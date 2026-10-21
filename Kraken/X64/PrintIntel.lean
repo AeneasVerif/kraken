@@ -203,6 +203,9 @@ def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : Stri
   | .vmovOut n dst src => s!"{vmovName n} {dst.toStr addr_w}, {src}"
   | .vmovq dst src => s!"vmovq {dst}, {src}"
   | .vzeroupper => "vzeroupper"
+  | .sha256rnds2 dst src => s!"sha256rnds2 {dst.toStr addr_w}, {src.toStr addr_w}, xmm0"
+  | .sha256msg1 dst src => s!"sha256msg1 {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .sha256msg2 dst src => s!"sha256msg2 {dst.toStr addr_w}, {src.toStr addr_w}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
 instance : ToString Instr where
