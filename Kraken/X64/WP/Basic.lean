@@ -37,58 +37,14 @@ The `FunDecls` instance influences which jumps are considered as calls for `Step
 Undeclared functions are regular jumps and exit if jumping outside the fragment `p`.
 -/
 
-public theorem Effects.All_mono {P₁ P₂ : MachineState → Prop} {e : Effects}
-    (h : ∀ st, P₁ st → P₂ st) (h₁ : e.All P₁) : e.All P₂ := by
-  induction e with
-  | done a => exact h _ h₁
-  | unimplemented | gp_unaligned | nonmem_load | nonmem_store => exact h₁
-  | undefined ret ih => exact fun v => ih v (h₁ v)
-  | require_read_access _ _ ok ih => exact ih () h₁
-  | require_write_access _ _ ok ih => exact ih () h₁
-  | require_exec_access _ ok ih => exact ih () h₁
-
-public theorem step1_mono [Layout] {e : Executable} {x : MachineState} {P₁ P₂ : MachineState → Prop}
-    (h : ∀ st, P₁ st → P₂ st) (h₁ : step1 e x P₁) : step1 e x P₂ :=
-  Effects.All_mono h h₁
-
-public theorem Effects.All_and {P₁ P₂ : MachineState → Prop} {e : Effects}
-    (h₁ : e.All P₁) (h₂ : e.All P₂) : e.All fun st => P₁ st ∧ P₂ st := by
-  induction e with
-  | done a => exact ⟨h₁, h₂⟩
-  | unimplemented | gp_unaligned | nonmem_load | nonmem_store => exact h₁
-  | undefined ret ih => exact fun v => ih v (h₁ v) (h₂ v)
-  | require_read_access _ _ ok ih => exact ih () h₁ h₂
-  | require_write_access _ _ ok ih => exact ih () h₁ h₂
-  | require_exec_access _ ok ih => exact ih () h₁ h₂
-
-open Lean.Order in
-@[partial_fixpoint_monotone] public theorem step1_monotone [Layout] {α : Type} [PartialOrder α]
-    {e : Executable} {st : MachineState} (f : α → MachineState → ImplicationOrder) (h : monotone f) :
-    @monotone _ _ _ ImplicationOrder.instOrder (fun x => step1 e st (f x)) :=
-  fun _ _ hxy => Effects.All_mono fun st' => h _ _ hxy st'
-
-
-public class NoLabels (p : Program) : Prop where
-  out : p.labels = []
-
-public instance : NoLabels [] := ⟨rfl⟩
-
-public instance {i : Instr} {p : Program} [h : NoLabels p] : NoLabels (.instr i :: p) :=
-  ⟨by simpa using h.out⟩
-
 @[expose] public def Program.InternalTarget [Host] (p : Program) (a : Int64) : Prop :=
   ∃ l ∈ p.labels, label l = a
 
 public class FunDecls [Host] where
   funs : List ((p : Program) × Embedding p)
 
-public instance [Host] : FunDecls := ⟨[]⟩
-
 @[expose] public def FunDecls.at [Host] [FunDecls] (a : Int64) : Option ((p : Program) × Embedding p) :=
   FunDecls.funs.find? (·.2.startAddr == a)
-
-@[simp, grind =] public theorem FunDecls.at_default [Host] (a : Int64) :
-    (FunDecls.at a : Option ((p : Program) × Embedding p)) = none := rfl
 
 public theorem FunDecls.startAddr_of_at [Host] [FunDecls] {a : Int64} {f : (p : Program) × Embedding p}
     (h : FunDecls.at a = some f) : f.2.startAddr = a := by
@@ -259,42 +215,6 @@ public theorem Host.stepIn_addrOf {k : Nat} {c : Kraken.Sized Directive}
   simp only [Directives.interp] at hsucc ⊢
   rw [← hsucc]
   exact h (fun s' hn => hr _ hn) (fun a s' hj' => hj _ hj')
-
-public theorem Host.interp_addrOf {k : Nat} {c : Kraken.Sized Directive}
-    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) (s : MachineData)
-    (ret jmp : MachineState → Effects) (P : MachineState → Prop) :
-    (@Directives.interp Host.exe.labels (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k)
-        (fun a s => ret ⟨s, a⟩) (fun a s => jmp ⟨s, a⟩)).All P ↔
-      (c.directive.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩ (fun s' => ret ⟨s', Host.addrOf (k + 1)⟩)
-        (fun a s' => jmp ⟨s', a⟩)).All P := by
-  obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hc hz
-  have hinert : ∀ c ∈ pre, c.size = 0 ∧ c.directive.Inert := fun c hc =>
-    ⟨hpre c hc, Host.inert_of_size_zero (hpre c hc ▸
-      Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc))⟩
-  have hk : Host.prog[k]? = some c.directive := by
-    rw [Host.exe_getElem?] at hc; grind
-  have hzk : Kraken.Layout.size Directive k = c.size := by
-    rw [Host.exe_getElem?] at hc; grind
-  have hsucc : Host.addrOf (k + 1) = Host.addrOf k + .ofNat c.size := by rw [Host.addrOf_succ hk, hzk]
-  rw [hat, Directives.interp_inert_append hinert s _ _ P (fun a s => jmp ⟨s, a⟩)]
-  obtain ⟨d, z⟩ := c
-  simp only [Directives.interp] at hsucc ⊢
-  rw [← hsucc]
-
-public theorem Host.stepIn_elim {k : Nat} {c : Kraken.Sized Directive}
-    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) {s : MachineData} {next jump : MachineState → Prop}
-    (h : Host.exe.StepIn next jump ⟨s, Host.addrOf k⟩) {P : MachineState → Prop} {ret jmp : MachineState → Effects}
-    (hr : ∀ st, next st → (ret st).All P) (hj : ∀ st, jump st → (jmp st).All P) :
-    (c.directive.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩ (fun s' => ret ⟨s', Host.addrOf (k + 1)⟩)
-      (fun a s' => jmp ⟨s', a⟩)).All P :=
-  (Host.interp_addrOf hc hz s ret jmp P).mp (h hr hj)
-
-public theorem Host.step1_addrOf {k : Nat} {c : Kraken.Sized Directive}
-    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) {s : MachineData} {P : MachineState → Prop}
-    (h : (c.directive.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩ (fun s' => .done ⟨s', Host.addrOf (k + 1)⟩)
-      (fun a s' => .done ⟨s', a⟩)).All P) :
-    step1 Host.exe ⟨s, Host.addrOf k⟩ P :=
-  (Host.interp_addrOf hc hz s .done .done P).mpr h
 
 end
 

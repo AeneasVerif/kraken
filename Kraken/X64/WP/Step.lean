@@ -118,27 +118,6 @@ end Executable.StepIn
 -- the stack pointer of `s'` lies at or below that of the reference state `s`
 public abbrev MachineData.StackAtOrBelow (s' s : MachineData) : Prop := ¬ s.StackBelow s'
 
-@[grind ←] public theorem MachineData.stackBelow_of_add_eight {s s' : MachineData}
-    (h : s'.regs.get64 .rsp + 8#64 = s.regs.get64 .rsp) : s'.StackBelow s := by
-  show 0 < (s.regs.get64 .rsp - s'.regs.get64 .rsp).toInt
-  rw [← h]
-  simp only [Width.type, Width.bits]
-  rw [show ∀ x : BitVec 64, x + 8#64 - x = 8#64 by intro x; bv_omega]
-  decide
-
-@[grind ←] public theorem MachineData.stackAtOrBelow_of_rsp_eq {s s' : MachineData}
-    (h : s'.regs.get64 .rsp = s.regs.get64 .rsp) : s'.StackAtOrBelow s := by
-  show ¬ 0 < (s'.regs.get64 .rsp - s.regs.get64 .rsp).toInt
-  rw [h]
-  simp
-
-@[grind ←] public theorem MachineData.stackAtOrBelow_of_toNat_lt {s s' : MachineData}
-    (h : (s.regs.get64 .rsp - s'.regs.get64 .rsp).toNat < 2 ^ 63) : s'.StackAtOrBelow s := by
-  show ¬ 0 < (s'.regs.get64 .rsp - s.regs.get64 .rsp).toInt
-  simp only [Width.type, Width.bits] at h ⊢
-  rw [BitVec.toInt_eq_toNat_cond]
-  split <;> bv_omega
-
 open Classical in
 @[expose] public def Executable.StepOut (e : Executable)
     (callee : Int64 → Option ((MachineState → Prop) → MachineData → Prop))
@@ -164,16 +143,6 @@ open Classical in
 namespace Executable
 variable {e : Executable} {st : MachineState}
   {callee callee₁ callee₂ : Int64 → Option ((MachineState → Prop) → MachineData → Prop)}
-
-public theorem StepOut.of_not_below {next jump : MachineState → Prop} {st' : MachineState}
-    (h : ¬ st'.data.StackBelow st.data) : e.StepOut callee st next jump st' ↔ jump st' := by
-  unfold StepOut
-  split <;> simp [h]
-
-public theorem StepOut.of_not_below_data {next jump : MachineState → Prop} {s s' : MachineData} {pc a : Int64}
-    (h : ¬ s'.StackBelow s) :
-    e.StepOut callee ⟨s, pc⟩ next jump ⟨s', a⟩ ↔ jump ⟨s', a⟩ :=
-  StepOut.of_not_below (st := ⟨s, pc⟩) (st' := ⟨s', a⟩) h
 
 public theorem StepOut.imp (hc : CalleeLe callee₁ callee₂) {next₁ next₂ jump₁ jump₂ : MachineState → Prop}
     (hn : ∀ u, next₁ u → next₂ u) (hj : ∀ u, jump₁ u → jump₂ u) {st' : MachineState}
