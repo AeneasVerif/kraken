@@ -1,30 +1,67 @@
 module
 
 public import Kraken.X64.Natural
+public import Kraken.X64.WP.Host
 
-@[expose] public def Directives.endPc (ds : List (Kraken.Sized Directive)) (pc : Int64) : Int64 :=
+/-! # Weakest precondition of a single step over a call
+
+Imagine a debugger like `gdb`. It comes with 3 sorts of stepping operations:
+* step inside: execute a single instruction and follow its control flow. If it's a call instruction,
+  *step inside* the callee.
+* step outside: execute all instructions until a return *steps outside* the current stack frame.
+* step over: step inside. When the instruction was a call, then step outside afterwards. Thus,
+  *step over* a call instruction.
+
+The definitions `Executable.StepIn`, `Executable.StepOut` and `Executable.StepOver` in this module
+implement a notion of weakest precondition based on this intuition and `Directives.interp` that is
+*conjunctive* (cf. `Executable.StepIn.and`).
+
+`Executable.StepOver e callee next jump st` is the weakest precondition of the directives at
+address `st.pc` of the executable `e`. `next` is the postcondition when control falls through to
+`e.fallthrough st.pc`, and `jump` is the postcondition at every other target.
+`callee a = some wp` declares a function at address `a` with weakest precondition `wp`.
+
+The definition of `StepOver` works by
+1. Considering the weakest precondition `Executable.StepIn` of the directives at `st.pc`.
+   Fall-through must satisfy `next`, and a jump must satisfy `jump`.
+2. Deciding for each jump target `st'` whether the jump is a call, via `Executable.StepOut`.
+   * If `callee st'.pc = some wp` and the stack pointer of `st'` is below its value in `st`, then
+     the jump is a call. `wp` must hold at `st'`. A return to `e.fallthrough st.pc` must satisfy
+     `next`, and a return to any other address must satisfy `jump`.
+   * Any other jump must satisfy `jump`.
+
+For example, let `call f` be the directive at `st.pc`, with `callee (label f) = some wp_f`.
+`call f` pushes the return address and jumps to the state `st'` with `st'.pc = label f`.
+The stack pointer of `st'` is below its value in `st`, so `StepOver e callee next jump st` holds
+if `wp_f R st'.data` holds, where `R` is `next` at `e.fallthrough st.pc` and `jump` elsewhere.
+
+`StepOver` is monotone in `callee` (cf. `Executable.StepOver.monotone_map_fun`), so `Program.wp`
+can apply `StepOver` to its own weakest precondition in an inductive fixpoint.
+-/
+
+@[expose] public def Directives.endAddr (ds : List (Kraken.Sized Directive)) (pc : Int64) : Int64 :=
   match ds with
   | [] => pc
-  | c :: ds => Directives.endPc ds (pc + .ofNat c.size)
+  | c :: ds => Directives.endAddr ds (pc + .ofNat c.size)
 
-public theorem Directives.endPc_append (ds ds' : List (Kraken.Sized Directive)) (pc : Int64) :
-    Directives.endPc (ds ++ ds') pc = Directives.endPc ds' (Directives.endPc ds pc) := by
+public theorem Directives.endAddr_append (ds ds' : List (Kraken.Sized Directive)) (pc : Int64) :
+    Directives.endAddr (ds ++ ds') pc = Directives.endAddr ds' (Directives.endAddr ds pc) := by
   induction ds generalizing pc with
   | nil => rfl
   | cons c ds ih => exact ih _
 
-public theorem Directives.endPc_of_size_zero {ds : List (Kraken.Sized Directive)} (h : ∀ c ∈ ds, c.size = 0)
-    (pc : Int64) : Directives.endPc ds pc = pc := by
+public theorem Directives.endAddr_of_size_zero {ds : List (Kraken.Sized Directive)} (h : ∀ c ∈ ds, c.size = 0)
+    (pc : Int64) : Directives.endAddr ds pc = pc := by
   induction ds generalizing pc with
   | nil => rfl
   | cons c ds ih =>
     have hc : pc + Int64.ofNat c.size = pc := by rw [h c List.mem_cons_self]; simp
-    simp only [Directives.endPc, hc]
+    simp only [Directives.endAddr, hc]
     exact ih (fun c' hc' => h c' (List.mem_cons_of_mem _ hc')) pc
 
 public theorem Directives.interp_ret_congr [Labels] (ds : List (Kraken.Sized Directive)) (s : MachineData)
     (pc : Int64) {ret ret' jmp : Int64 → MachineData → Effects}
-    (h : ∀ s, ret (Directives.endPc ds pc) s = ret' (Directives.endPc ds pc) s) :
+    (h : ∀ s, ret (Directives.endAddr ds pc) s = ret' (Directives.endAddr ds pc) s) :
     Directives.interp ds s pc ret jmp = Directives.interp ds s pc ret' jmp := by
   induction ds generalizing s pc with
   | nil => exact h s
@@ -36,7 +73,7 @@ public theorem Directives.interp_ret_congr [Labels] (ds : List (Kraken.Sized Dir
     exact ih s' _ h
 
 @[expose] public def Executable.fallthrough (e : Executable) (a : Int64) : Int64 :=
-  Directives.endPc (e.directivesAtAddress a) a
+  Directives.endAddr (e.directivesAtAddress a) a
 
 @[expose] public def Executable.StepIn (e : Executable) (next jump : MachineState → Prop) (st : MachineState) : Prop :=
   let := e.labels
@@ -51,26 +88,6 @@ variable {e : Executable} {st : MachineState}
 public theorem mono {next₁ next₂ jump₁ jump₂ : MachineState → Prop} (h : e.StepIn next₁ jump₁ st)
     (hn : ∀ u, next₁ u → next₂ u) (hj : ∀ u, jump₁ u → jump₂ u) : e.StepIn next₂ jump₂ st :=
   fun _ _ _ hr hk => h (fun u h => hr u (hn u h)) (fun u h => hk u (hj u h))
-
-open Classical in
-public theorem and {next₁ next₂ jump₁ jump₂ : MachineState → Prop} (h₁ : e.StepIn next₁ jump₁ st)
-    (h₂ : e.StepIn next₂ jump₂ st) :
-    e.StepIn (fun u => next₁ u ∧ next₂ u) (fun u => jump₁ u ∧ jump₂ u) st := by
-  intro P r j hr hj
-  let probe : Prop → Effects := fun c => if c then .done st else .unimplemented ""
-  have hprobe : ∀ c, (probe c).All (fun _ => True) ↔ c := fun c => by
-    by_cases hc : c <;> simp [probe, hc, Effects.All]
-  have t₁ := @h₁ (fun _ => True) (fun u => probe (next₁ u)) (fun u => probe (jump₁ u))
-    (fun _ h => (hprobe _).mpr h) (fun _ h => (hprobe _).mpr h)
-  have t₂ := @h₂ (fun _ => True) (fun u => probe (next₂ u)) (fun u => probe (jump₂ u))
-    (fun _ h => (hprobe _).mpr h) (fun _ h => (hprobe _).mpr h)
-  refine @Directives.interp_natural e.labels (e.directivesAtAddress st.pc) st.data st.pc _ _ P
-    (Sum.elim (fun x => probe (next₁ ⟨x.2, x.1⟩)) (fun x => probe (jump₁ ⟨x.2, x.1⟩)))
-    (Sum.elim (fun x => probe (next₂ ⟨x.2, x.1⟩)) (fun x => probe (jump₂ ⟨x.2, x.1⟩)))
-    (Sum.elim (fun x => r ⟨x.2, x.1⟩) (fun x => j ⟨x.2, x.1⟩)) ?_ t₁ t₂
-  rintro (⟨a, s⟩ | ⟨a, s⟩) e₁ e₂
-  · exact hr _ ⟨(hprobe _).mp e₁, (hprobe _).mp e₂⟩
-  · exact hj _ ⟨(hprobe _).mp e₁, (hprobe _).mp e₂⟩
 
 open Classical in
 public theorem restrict {next jump : MachineState → Prop} (h : e.StepIn next jump st) :
@@ -134,34 +151,43 @@ open Classical in
     (next jump : MachineState → Prop) (st : MachineState) : Prop :=
   e.StepIn next (e.StepOut callee st next jump) st
 
--- `callee₂` asks no more than `callee₁` at every address, for a weaker exit post
-@[expose] public def Executable.CalleeLe (callee₁ callee₂ : Int64 → Option ((MachineState → Prop) → MachineData → Prop)) :
-    Prop :=
-  ∀ a, Option.Rel (fun wp₁ wp₂ => ∀ (R₁ R₂ : MachineState → Prop) s, (∀ u, R₁ u → R₂ u) → wp₁ R₁ s → wp₂ R₂ s)
-    (callee₁ a) (callee₂ a)
-
 namespace Executable
 variable {e : Executable} {st : MachineState}
   {callee callee₁ callee₂ : Int64 → Option ((MachineState → Prop) → MachineData → Prop)}
 
-public theorem StepOut.imp (hc : CalleeLe callee₁ callee₂) {next₁ next₂ jump₁ jump₂ : MachineState → Prop}
+public theorem StepOut.mono_map {β : Type} (o : Int64 → Option β)
+    {g₁ g₂ : β → (MachineState → Prop) → MachineData → Prop}
+    (hg : ∀ b R₁ R₂ s, (∀ u, R₁ u → R₂ u) → g₁ b R₁ s → g₂ b R₂ s)
+    {next₁ next₂ jump₁ jump₂ : MachineState → Prop}
     (hn : ∀ u, next₁ u → next₂ u) (hj : ∀ u, jump₁ u → jump₂ u) {st' : MachineState}
-    (h : e.StepOut callee₁ st next₁ jump₁ st') : e.StepOut callee₂ st next₂ jump₂ st' := by
+    (h : e.StepOut (fun a => (o a).map g₁) st next₁ jump₁ st') :
+    e.StepOut (fun a => (o a).map g₂) st next₂ jump₂ st' := by
   unfold StepOut at h ⊢
-  have hca := hc st'.pc
-  revert h
-  cases h₁ : callee₁ st'.pc <;> cases h₂ : callee₂ st'.pc <;> rw [h₁, h₂] at hca <;> cases hca
-  · exact hj _
-  · rename_i wp₁ wp₂ hw
-    dsimp only
-    split
-    · exact hw _ _ _ fun u => by split <;> simp_all
-    · exact hj _
+  cases ho : o st'.pc with
+  | none =>
+    simp only [ho, Option.map_none] at h ⊢
+    exact hj _ h
+  | some b =>
+    simp only [ho, Option.map_some] at h ⊢
+    by_cases hb : st'.data.StackBelow st.data
+    · simp only [hb, ite_true] at h ⊢
+      refine hg b _ _ _ (fun u a => ?_) h
+      by_cases hu : u.pc = e.fallthrough st.pc
+      · simp only [hu, ite_true] at a ⊢
+        exact hn _ a
+      · simp only [hu, ite_false] at a ⊢
+        exact hj _ a
+    · simp only [hb, ite_false] at h ⊢
+      exact hj _ h
 
-public theorem StepOver.imp (hc : CalleeLe callee₁ callee₂) {next₁ next₂ jump₁ jump₂ : MachineState → Prop}
-    (h : e.StepOver callee₁ next₁ jump₁ st) (hn : ∀ u, next₁ u → next₂ u) (hj : ∀ u, jump₁ u → jump₂ u) :
-    e.StepOver callee₂ next₂ jump₂ st :=
-  StepIn.mono h hn fun _ => StepOut.imp hc hn hj
+public theorem StepOver.mono_map {β : Type} (o : Int64 → Option β)
+    {g₁ g₂ : β → (MachineState → Prop) → MachineData → Prop}
+    (hg : ∀ b R₁ R₂ s, (∀ u, R₁ u → R₂ u) → g₁ b R₁ s → g₂ b R₂ s)
+    {next₁ next₂ jump₁ jump₂ : MachineState → Prop}
+    (hn : ∀ u, next₁ u → next₂ u) (hj : ∀ u, jump₁ u → jump₂ u)
+    (h : e.StepOver (fun a => (o a).map g₁) next₁ jump₁ st) :
+    e.StepOver (fun a => (o a).map g₂) next₂ jump₂ st :=
+  StepIn.mono h hn fun _ => StepOut.mono_map o hg hn hj
 
 public theorem StepOver.restrict {next jump : MachineState → Prop} (h : e.StepOver callee next jump st) :
     e.StepOver callee (fun u => next u ∧ u.pc = e.fallthrough st.pc) jump st := by
@@ -208,3 +234,43 @@ open Lean.Order in
   fun _ _ hxy st => StepOver.monotone_map (st := st) o g hg _ _ hxy
 
 end Executable
+
+section
+variable [Host]
+
+public theorem Host.fallthrough_addrOf {k : Nat} {c : Kraken.Sized Directive}
+    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) :
+    Host.exe.fallthrough (Host.addrOf k) = Host.addrOf (k + 1) := by
+  obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hc hz
+  have hk : Host.prog[k]? = some c.directive := by
+    rw [Host.exe_getElem?] at hc; grind
+  have hzk : Kraken.Layout.size Directive k = c.size := by
+    rw [Host.exe_getElem?] at hc; grind
+  unfold Executable.fallthrough
+  rw [hat, Directives.endAddr_append, Directives.endAddr_of_size_zero hpre, Host.addrOf_succ hk, hzk]
+  rfl
+
+public theorem Host.stepIn_addrOf {k : Nat} {c : Kraken.Sized Directive}
+    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) {s : MachineData} {next jump : MachineState → Prop}
+    (h : ∀ ⦃P : MachineState → Prop⦄ ⦃n : MachineData → Effects⦄ ⦃j : Int64 → MachineData → Effects⦄,
+      (∀ s', next ⟨s', Host.addrOf (k + 1)⟩ → (n s').All P) → (∀ a s', jump ⟨s', a⟩ → (j a s').All P) →
+      (c.directive.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩ n j).All P) :
+    Host.exe.StepIn next jump ⟨s, Host.addrOf k⟩ := by
+  intro P r j hr hj
+  obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hc hz
+  have hinert : ∀ c ∈ pre, c.size = 0 ∧ c.directive.Inert := fun c hc =>
+    ⟨hpre c hc, Host.inert_of_size_zero (hpre c hc ▸
+      Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc))⟩
+  have hk : Host.prog[k]? = some c.directive := by
+    rw [Host.exe_getElem?] at hc; grind
+  have hzk : Kraken.Layout.size Directive k = c.size := by
+    rw [Host.exe_getElem?] at hc; grind
+  have hsucc : Host.addrOf (k + 1) = Host.addrOf k + .ofNat c.size := by rw [Host.addrOf_succ hk, hzk]
+  change (@Directives.interp Host.exe.labels (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k) _ _).All P
+  rw [hat, Directives.interp_inert_append hinert s _ _ P (fun a s => j ⟨s, a⟩)]
+  obtain ⟨d, z⟩ := c
+  simp only [Directives.interp] at hsucc ⊢
+  rw [← hsucc]
+  exact h (fun s' hn => hr _ hn) (fun a s' hj' => hj _ hj')
+
+end

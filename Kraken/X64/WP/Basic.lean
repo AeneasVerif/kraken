@@ -2,7 +2,6 @@ module
 
 public import Kraken.X64.WP.Host
 public import Kraken.X64.WP.Step
-public import Kraken.X64.WP.Embedding
 public import Kraken.While
 
 /-! # Weakest precondition of a fragment of a host program
@@ -39,16 +38,6 @@ Undeclared functions are regular jumps and exit if jumping outside the fragment 
 @[expose] public def Program.IsLabelAddr [Host] (p : Program) (a : Int64) : Prop :=
   ∃ l ∈ p.labels, label l = a
 
-public class FunDecls [Host] where
-  funs : List ((p : Program) × Embedding p)
-
-@[expose] public def FunDecls.at [Host] [FunDecls] (a : Int64) : Option ((p : Program) × Embedding p) :=
-  FunDecls.funs.find? (·.2.startAddr == a)
-
-public theorem FunDecls.startAddr_of_at [Host] [FunDecls] {a : Int64} {f : (p : Program) × Embedding p}
-    (h : FunDecls.at a = some f) : f.2.startAddr = a := by
-  simpa using List.find?_some h
-
 open Classical in
 @[expose] public def Program.ContinueAtOwnLabel [Host] (p : Program) (s : MachineData)
     («continue» exit : MachineState → Prop) (st : MachineState) : Prop :=
@@ -57,7 +46,7 @@ open Classical in
 /-- Weakest precondition of a `Program` fragment of the host program. -/
 public def Program.wp [Host] [FunDecls] (p : Program) (done exit : MachineState → Prop)
     (s : MachineData) : Prop :=
-  let callee a := (FunDecls.at a).map fun f => f.1.wp (fun _ => False)
+  let callee a := (FunDecls.at a).map fun f => f.prog.wp (fun _ => False)
   ∀ h : Embedding p,
     While (·.pc ≠ h.endAddr)
       (fun «continue» => Host.exe.StepOver callee «continue» (p.ContinueAtOwnLabel s «continue» exit))
@@ -69,7 +58,7 @@ variable [Host] [FunDecls]
 
 public theorem Program.wp_eq {p : Program} {done exit : MachineState → Prop} {s : MachineData} :
     p.wp done exit s = ∀ h : Embedding p, While (·.pc ≠ h.endAddr)
-      (fun «continue» => Host.exe.StepOver (fun a => (FunDecls.at a).map fun f => f.1.wp (fun _ => False))
+      (fun «continue» => Host.exe.StepOver (fun a => (FunDecls.at a).map fun f => f.prog.wp (fun _ => False))
         «continue» (p.ContinueAtOwnLabel s «continue» exit))
       done ⟨s, h.startAddr⟩ := by
   rw [Program.wp]
@@ -82,16 +71,6 @@ public theorem Program.continueAtOwnLabel_mono {p : Program} {s : MachineData}
   by_cases hcond : p.IsLabelAddr u.pc ∧ u.data.StackAtOrBelow s
   · rw [ite_eq_left hcond] at h ⊢; exact hc _ h
   · rw [ite_eq_right hcond] at h ⊢; exact he _ h
-
-omit [FunDecls] in
-public theorem Program.continueAtOwnLabel_and {p : Program} {s : MachineData}
-    {c₁ c₂ e₁ e₂ : MachineState → Prop} {u : MachineState}
-    (h₁ : p.ContinueAtOwnLabel s c₁ e₁ u) (h₂ : p.ContinueAtOwnLabel s c₂ e₂ u) :
-    p.ContinueAtOwnLabel s (fun u => c₁ u ∧ c₂ u) (fun u => e₁ u ∧ e₂ u) u := by
-  unfold Program.ContinueAtOwnLabel at h₁ h₂ ⊢
-  by_cases hcond : p.IsLabelAddr u.pc ∧ u.data.StackAtOrBelow s
-  · rw [ite_eq_left hcond] at h₁ h₂ ⊢; exact ⟨h₁, h₂⟩
-  · rw [ite_eq_right hcond] at h₁ h₂ ⊢; exact ⟨h₁, h₂⟩
 
 omit [FunDecls] in
 public theorem Program.continueAtOwnLabel_of_not_isLabelAddr {p : Program} (h : ∀ a, ¬ p.IsLabelAddr a)
@@ -113,112 +92,11 @@ public theorem Program.wp_mono {p : Program} {done₁ done₂ exit₁ exit₂ : 
   intro p done exit s hw done' exit' hd he
   rw [Program.wp_eq]
   intro H
-  refine While.imp (fun U y _ hy => Executable.StepOver.imp ?_ hy (fun _ h => h)
-    fun u hu => Program.continueAtOwnLabel_mono (fun _ h => h) he hu) (fun y _ h => hd y h) (hw H)
-  intro a
-  dsimp only
-  cases FunDecls.at a with
-  | none => exact Option.Rel.none
-  | some f => exact Option.Rel.some fun R₁ R₂ s hR hm => hm _ _ (fun _ h => h.elim) hR
+  refine While.mono (fun U y _ hy => ?_) (fun y _ h => hd y h) (hw H)
+  refine Executable.StepOver.mono_map FunDecls.at ?_ (fun _ h => h)
+    (fun u hu => Program.continueAtOwnLabel_mono (fun _ h => h) he hu) hy
+  exact fun _ _ _ _ hR hm => hm _ _ (fun _ h => h.elim) hR
 
-public theorem Program.callee_le :
-    Executable.CalleeLe (fun a => (FunDecls.at a).map fun f => f.1.wp (fun _ => False))
-      (fun a => (FunDecls.at a).map fun f => f.1.wp (fun _ => False)) := by
-  intro a
-  dsimp only
-  cases FunDecls.at a with
-  | none => exact Option.Rel.none
-  | some f => exact Option.Rel.some fun R₁ R₂ s hR hm => Program.wp_mono (fun _ h => h) hR hm
-
-public theorem Program.wp_and {p : Program} {done₁ done₂ exit₁ exit₂ : MachineState → Prop} {s : MachineData}
-    (h₁ : p.wp done₁ exit₁ s) (h₂ : p.wp done₂ exit₂ s) :
-    p.wp (fun u => done₁ u ∧ done₂ u) (fun u => exit₁ u ∧ exit₂ u) s := by
-  refine Program.wp.induct
-    (fun p done exit s => ∀ done' exit' : MachineState → Prop, p.wp done' exit' s →
-      p.wp (fun u => done u ∧ done' u) (fun u => exit u ∧ exit' u) s)
-    ?_ p done₁ exit₁ s h₁ done₂ exit₂ h₂
-  intro p done exit s hw done' exit' hw'
-  rw [Program.wp_eq] at hw' ⊢
-  intro H
-  refine While.and (fun U V y _ hU hV => ?_) (hw H) (hw' H)
-  refine Executable.StepIn.mono (Executable.StepIn.and hU hV) (fun _ h => h) fun st' ⟨h₁, h₂⟩ => ?_
-  unfold Executable.StepOut at h₁ h₂ ⊢
-  cases hf : FunDecls.at st'.pc with
-  | none =>
-    simp only [hf, Option.map_none] at h₁ h₂ ⊢
-    exact Program.continueAtOwnLabel_and h₁ h₂
-  | some f =>
-    simp only [hf, Option.map_some] at h₁ h₂ ⊢
-    by_cases hb : st'.data.StackBelow y.data
-    · simp only [hb, ite_true] at h₁ h₂ ⊢
-      refine Program.wp_mono (fun _ h => h.1) (fun u ⟨a, b⟩ => ?_) (h₁ _ _ h₂)
-      by_cases hu : u.pc = Host.exe.fallthrough y.pc
-      · simp only [hu, ite_true] at a b ⊢
-        exact ⟨a, b⟩
-      · simp only [hu, ite_false] at a b ⊢
-        exact Program.continueAtOwnLabel_and a b
-    · simp only [hb, ite_false] at h₁ h₂ ⊢
-      exact Program.continueAtOwnLabel_and h₁ h₂
-
-end
-
-section
-variable [Host]
-
-public theorem Host.addrOf_ne_of_succ_ne {k n : Nat} (h : Host.addrOf k ≠ Host.addrOf (k + 1)) :
-    Host.addrOf k ≠ Host.addrOf (k + 1 + n) := by
-  intro he
-  have h₁ := Host.sizeBefore_eq_of_addrOf_eq he
-  have h₂ := Host.exe.sizeBefore_mono (show k + 1 ≤ k + 1 + n by omega)
-  have h₃ := Host.exe.sizeBefore_mono (show k ≤ k + 1 by omega)
-  exact h (by simp only [Host.addrOf, Kraken.Executable.addrOf]; congr 2; omega)
-
-public theorem Host.addrOf_succ_ne {k : Nat} {c : Kraken.Sized Directive}
-    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) : Host.addrOf k ≠ Host.addrOf (k + 1) := by
-  intro h
-  have := Host.sizeBefore_eq_of_addrOf_eq h
-  have := Host.exe.sizeBefore_succ (n := k) hc
-  omega
-
-public theorem Host.fallthrough_addrOf {k : Nat} {c : Kraken.Sized Directive}
-    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) :
-    Host.exe.fallthrough (Host.addrOf k) = Host.addrOf (k + 1) := by
-  obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hc hz
-  have hk : Host.prog[k]? = some c.directive := by
-    rw [Host.exe_getElem?] at hc; grind
-  have hzk : Kraken.Layout.size Directive k = c.size := by
-    rw [Host.exe_getElem?] at hc; grind
-  unfold Executable.fallthrough
-  rw [hat, Directives.endPc_append, Directives.endPc_of_size_zero hpre, Host.addrOf_succ hk, hzk]
-  rfl
-
-public theorem Host.stepIn_addrOf {k : Nat} {c : Kraken.Sized Directive}
-    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) {s : MachineData} {next jump : MachineState → Prop}
-    (h : ∀ ⦃P : MachineState → Prop⦄ ⦃n : MachineData → Effects⦄ ⦃j : Int64 → MachineData → Effects⦄,
-      (∀ s', next ⟨s', Host.addrOf (k + 1)⟩ → (n s').All P) → (∀ a s', jump ⟨s', a⟩ → (j a s').All P) →
-      (c.directive.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩ n j).All P) :
-    Host.exe.StepIn next jump ⟨s, Host.addrOf k⟩ := by
-  intro P r j hr hj
-  obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hc hz
-  have hinert : ∀ c ∈ pre, c.size = 0 ∧ c.directive.Inert := fun c hc =>
-    ⟨hpre c hc, Host.inert_of_size_zero (hpre c hc ▸
-      Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc))⟩
-  have hk : Host.prog[k]? = some c.directive := by
-    rw [Host.exe_getElem?] at hc; grind
-  have hzk : Kraken.Layout.size Directive k = c.size := by
-    rw [Host.exe_getElem?] at hc; grind
-  have hsucc : Host.addrOf (k + 1) = Host.addrOf k + .ofNat c.size := by rw [Host.addrOf_succ hk, hzk]
-  change (@Directives.interp Host.exe.labels (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k) _ _).All P
-  rw [hat, Directives.interp_inert_append hinert s _ _ P (fun a s => j ⟨s, a⟩)]
-  obtain ⟨d, z⟩ := c
-  simp only [Directives.interp] at hsucc ⊢
-  rw [← hsucc]
-  exact h (fun s' hn => hr _ hn) (fun a s' hj' => hj _ hj')
-
-end
-
-section
-variable [Host] [FunDecls]
 
 public theorem Program.wp_nil {done exit : MachineState → Prop} {s : MachineData} (hd : ∀ pc, done ⟨s, pc⟩) :
     Program.wp [] done exit s := by
@@ -242,7 +120,7 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
       some {directive := d, size := Kraken.Layout.size Directive H.start} := by
     rw [Host.exe_getElem?, hk.cons.1]; rfl
   refine While.split (fun y => y.pc ≠ Host.addrOf (H.start + 1) → y.pc = Host.addrOf H.start)
-    (fun y hI hc => ?_) (fun U y hI hc hb => ?_) (fun _ => rfl) (While.imp (fun U y _ hb => hb) (fun st hc hst => ?_) hw)
+    (fun y hI hc => ?_) (fun U y hI hc hb => ?_) (fun _ => rfl) (While.mono (fun U y _ hb => hb) (fun st hc hst => ?_) hw)
   · have hy := hI hc
     rw [hy]
     show Host.addrOf H.start ≠ Host.addrOf (H.start + (p.length + 1))
@@ -255,8 +133,10 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
       rw [Host.addrOf_succ hk.cons.1, h0]; simp
     have hft : Host.exe.fallthrough y.pc = Host.addrOf (H.start + 1) := by
       rw [hy]; exact Host.fallthrough_addrOf hd hz
-    exact Executable.StepOver.imp Program.callee_le (Executable.StepOver.restrict hb)
-      (fun u ⟨hu, hpc⟩ => ⟨hu, fun hne => absurd (hpc.trans hft) hne⟩) fun _ h => h
+    refine Executable.StepOver.mono_map FunDecls.at ?_
+      (fun u ⟨hu, hpc⟩ => ⟨hu, fun hne => absurd (hpc.trans hft) hne⟩) (fun _ h => h)
+      (Executable.StepOver.restrict hb)
+    exact fun _ _ _ _ hR h => Program.wp_mono (fun _ h => h) hR h
   · have hpc : st.pc = Host.addrOf (H.start + 1) := by
       have := Classical.not_not.mp hc
       change st.pc = Host.addrOf (H.start + 0 + 1) at this
@@ -273,16 +153,12 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
       omega
     rw [hstart, hend] at hst
     exact hst
-end
-
-section
-variable [Host] [FunDecls]
 
 public theorem Program.wp_single {d : Directive} {done exit : MachineState → Prop} {s : MachineData}
     (hw : ∀ (h : Embedding [d]) ⦃P : MachineState → Prop⦄ ⦃next : MachineData → Effects⦄
         ⦃jmp : Int64 → MachineData → Effects⦄,
       (∀ s', done ⟨s', h.endAddr⟩ → (next s').All P) →
-      (∀ a s', Host.exe.StepOut (fun a => (FunDecls.at a).map fun f => f.1.wp (fun _ => False))
+      (∀ a s', Host.exe.StepOut (fun a => (FunDecls.at a).map fun f => f.prog.wp (fun _ => False))
         ⟨s, h.startAddr⟩ (fun u => u.pc = h.endAddr ∧ done u) exit ⟨s', a⟩ →
           (jmp a s').All P) →
       (d.interp s ⟨h.startAddr, h.endAddr⟩ next jmp).All P) :
@@ -351,11 +227,11 @@ public theorem Program.step1_of_wp {p : Program} (h : Embedding p) {done exit : 
     | some f =>
       simp only [hf, Option.map_some] at hst
       split at hst
-      · have := hst f.2 (Eventually (step1 Host.exe) post) (fun _ _ h => h.elim) fun u hu => by
+      · have := hst f.embedding (Eventually (step1 Host.exe) post) (fun _ _ h => h.elim) fun u hu => by
           split at hu
           · exact .done _ (ih u hu)
           · exact .done _ (hcal u hu)
-        have hstart : f.2.startAddr = st'.pc := FunDecls.startAddr_of_at hf
+        have hstart : f.embedding.startAddr = st'.pc := FunDecls.startAddr_of_at hf
         rw [hstart] at this
         exact eventually_trans _ _ _ _ this fun _ h => h
       · exact hcal _ hst

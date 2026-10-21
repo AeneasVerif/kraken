@@ -72,6 +72,21 @@ public theorem Host.addrOf_succ [Host] {k : Nat} {d : Directive} (hd : Host.prog
 section
 variable [Host]
 
+public theorem Host.addrOf_ne_of_succ_ne {k n : Nat} (h : Host.addrOf k ≠ Host.addrOf (k + 1)) :
+    Host.addrOf k ≠ Host.addrOf (k + 1 + n) := by
+  intro he
+  have h₁ := Host.sizeBefore_eq_of_addrOf_eq he
+  have h₂ := Host.exe.sizeBefore_mono (show k + 1 ≤ k + 1 + n by omega)
+  have h₃ := Host.exe.sizeBefore_mono (show k ≤ k + 1 by omega)
+  exact h (by simp only [Host.addrOf, Kraken.Executable.addrOf]; congr 2; omega)
+
+public theorem Host.addrOf_succ_ne {k : Nat} {c : Kraken.Sized Directive}
+    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) : Host.addrOf k ≠ Host.addrOf (k + 1) := by
+  intro h
+  have := Host.sizeBefore_eq_of_addrOf_eq h
+  have := Host.exe.sizeBefore_succ (n := k) hc
+  omega
+
 public theorem Host.inert_of_size_zero {d : Directive} (h : {directive := d, size := 0} ∈ Host.exe.program) : d.Inert := by
   obtain ⟨m, hm⟩ := List.mem_iff_getElem?.mp h
   grind [Host.exe_getElem?, Host.inert_of_getElem?]
@@ -107,3 +122,35 @@ public theorem Host.directivesAtAddress_addrOf {k : Nat} {c : Kraken.Sized Direc
     grind [Kraken.Executable.getElem?_withAddresses_eq]
 
 end
+
+public structure Embedding [Host] (p : Program) where
+  start : Nat
+  isInfixAt : p.IsInfixAt Host.prog start
+
+section
+variable [Host]
+
+@[expose] public def Embedding.ofIsInfixAt {p q : Program} (e : Embedding q) {i : Nat}
+    (h : p.IsInfixAt q i) : Embedding p :=
+  ⟨e.start + i, List.IsInfixAt.trans h e.isInfixAt⟩
+
+@[expose] public def Embedding.startAddr {p : Program} (e : Embedding p) : Int64 := Host.addrOf e.start
+
+@[expose] public def Embedding.endAddr {p : Program} (e : Embedding p) : Int64 :=
+  Host.addrOf (e.start + p.length)
+
+end
+
+public structure Fragment [Host] where
+  prog : Program
+  embedding : Embedding prog
+
+public class FunDecls [Host] where
+  funs : List Fragment
+
+@[expose] public def FunDecls.at [Host] [FunDecls] (a : Int64) : Option Fragment :=
+  FunDecls.funs.find? (·.embedding.startAddr == a)
+
+public theorem FunDecls.startAddr_of_at [Host] [FunDecls] {a : Int64} {f : Fragment}
+    (h : FunDecls.at a = some f) : f.embedding.startAddr = a := by
+  simpa using List.find?_some h

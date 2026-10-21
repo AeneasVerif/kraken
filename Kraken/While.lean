@@ -36,7 +36,7 @@ public theorem While.iff_eventually {x : σ} :
     | done y hd => exact While.stop hd.1 hd.2
     | step y U ht _ ih => exact While.step ht.1 ht.2 ih
 
-public theorem While.imp {body₂ : (σ → Prop) → σ → Prop} {done₂ : σ → Prop}
+public theorem While.mono {body₂ : (σ → Prop) → σ → Prop} {done₂ : σ → Prop}
     (hb : ∀ U y, cond y → body U y → body₂ U y) (hd : ∀ y, ¬ cond y → done y → done₂ y) {x : σ}
     (h : While cond body done x) : While cond body₂ done₂ x := by
   refine While.induct cond body done _ (fun y hy => ?_) x h
