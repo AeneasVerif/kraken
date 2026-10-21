@@ -5,8 +5,7 @@ public import Kraken.X64.WP.Step
 public import Kraken.X64.WP.Embedding
 public import Kraken.While
 
-/-
-# Weakest precondition of a fragment of a host program
+/-! # Weakest precondition of a fragment of a host program
 
 `Program.wp p done exit s` is the weakest precondition of the fragment `p` in the ambient, laid out
 `Host` program, where `done` is the postcondition at the end address of `p` and `exit` is the
@@ -19,8 +18,8 @@ The definition of `wp` works by
    * Fall-through continues the loop.
    * A jump to a label `f` in `FunDecls` that pushes onto the stack is a call (cf. `Executable.StepOut`).
      `StepOver` steps over the call and applies the weakest precondition of `f`.
-   * Any other jump continues the loop if its target is the address of a label in `p` and the
-     stack pointer is at or below its value in `s`. Otherwise it leaves `p` and must satisfy `exit`.
+   * Any other jump continues the loop if it targets a label in `p` and the stack pointer is at or
+     below its value in `s`. Otherwise it leaves `p` and must satisfy `exit`.
 2. Taking the least fixpoint of step 1 via `While`, the set of pre states which inevitably
    reach the end address of `p` in a state that satisfies `done`.
 3. Considering every possible way in which the fragment `p` may occur in the `Host` program.
