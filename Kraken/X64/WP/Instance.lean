@@ -204,6 +204,31 @@ local macro "run_step" : tactic =>
   run_step
   exact hn _ hpre
 
+@[spec] public theorem mov_reg_reg_spec (asz : Width) (rd rs : Reg64) :
+    ⦃ fun s => Q () { s with regs := s.regs.set64 rd (s.regs.get64 rs) } ⦄
+      (Directive.instr (.regular asz .W64 (.mov (.reg (.low rd .W64)) (.regOrMem (.reg (.low rs .W64))))))
+    ⦃ Q; E ⦄ := by
+  refine ⟨fun s hpre => ?_⟩
+  refine Program.wp_single fun _ _ _ _ hn _ => ?_
+  run_step
+  exact hn _ hpre
+
+@[spec] public theorem lea_rip_label_spec (rd : Reg64) (l : Label) :
+    ⦃ fun s => Q () { s with regs := s.regs.set64 rd (label l).toBitVec } ⦄
+      (Directive.instr (.regular .W64 .W64 (.lea (.low rd .W64)
+        { base := some .rip, idx := none, disp := .sub (.label l) .after_current_instruction })))
+    ⦃ Q; E ⦄ := by
+  refine ⟨fun s hpre => ?_⟩
+  refine Program.wp_single fun _ _ _ _ hn _ => ?_
+  run_step
+  simp only [AddrExpr.interp, ConstExpr.interp, Int.add_zero]
+  rw [show BitVec.zeroExtend Width.W64.bits (BitVec.ofInt Width.W64.bits
+      (Embeds.embedding.endAddr.toInt + (label l - Embeds.embedding.endAddr).toInt)) = (label l).toBitVec by
+    simp only [Int64.toInt, BitVec.ofInt_add, BitVec.ofInt_toInt, Int64.toBitVec_sub]
+    show BitVec.setWidth 64 _ = _
+    rw [BitVec.setWidth_eq, BitVec.add_comm, BitVec.sub_add_cancel]]
+  exact hn _ hpre
+
 @[spec] public theorem cmp_reg_reg_spec (asz : Width) (ra rb : Reg64) :
     ⦃ fun s =>
         let a := s.regs.get64 ra
@@ -319,6 +344,18 @@ public theorem MachineData.not_stackBelow_pop (s : MachineData) :
     run_step
     rw [Int64.ofBitVec_toBitVec, Int64.add_sub_self_left]
     refine hj (label l) s ?_
+    rw [Executable.StepOut.of_not_below_data (MachineData.not_stackBelow_self s)]
+    exact hq⟩
+
+attribute [grind =] Int64.ofBitVec_toBitVec
+
+@[spec] public theorem jmp_reg_spec (asz osz : Width) (r : Reg64) :
+    ⦃ fun s => E (Int64.ofBitVec (s.regs.get64 r)) s ⦄
+      (Directive.instr (.regular asz osz (.jmp (.reg (.low r .W64)))))
+    ⦃ Q; E ⦄ :=
+  ⟨fun s hq => Program.wp_single fun _ _ _ _ _ hj => by
+    run_step
+    refine hj _ s ?_
     rw [Executable.StepOut.of_not_below_data (MachineData.not_stackBelow_self s)]
     exact hq⟩
 

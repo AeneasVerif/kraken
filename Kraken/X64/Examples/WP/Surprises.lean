@@ -52,8 +52,7 @@ example [Host] [FunDecls] (s : MachineData) (hc : s.regs.rcx.toNat = 2) :
       | _ => t = s)
     (fun _ _ => 0) ?_ rfl
   cfg_cases
-  all_goals kvcgen64
-  all_goals first | (apply Program.Intercept.exit; grind) | grind
+  all_goals kvcgen64 with finish
 
 /-! ## C1: a call made by hand is a jump
 

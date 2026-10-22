@@ -191,16 +191,20 @@ def Program.Intercept [Host] (ls : List Label) (s₀ : MachineData)
 
 section
 variable [Host] {ls : List Label} {s₀ s : MachineData} {I' : CfgLabel → Nat → Unit → MachineData → Prop}
-  {E : Int64 → MachineData → Prop}
+  {E : Int64 → MachineData → Prop} {a : Int64}
 
-theorem Program.Intercept.continue {i : Nat} {l : Label} (hl : ls[i]? = some l)
-    (h : s.StackAtOrBelow s₀ ∧ I' (.label l) (i + 1) () s) :
+theorem Program.Intercept.intro_label {i : Nat} {l : Label} (hl : ls[i]? = some l)
+    (h : (s.StackAtOrBelow s₀ ∧ I' (.label l) (i + 1) () s) ∨ (E (label l) s ∧ s₀.StackBelow s)) :
     Program.Intercept ls s₀ I' E (label l) s :=
-  Or.inl ⟨i, l, hl, rfl, h⟩
+  h.imp (fun h => ⟨i, l, hl, rfl, h⟩) (fun ⟨hE, hb⟩ => ⟨hE, fun _ _ _ => hb⟩)
 
-theorem Program.Intercept.exit {a : Int64} (h : E a s ∧ ∀ l ∈ ls, label l = a → s₀.StackBelow s) :
-    Program.Intercept ls s₀ I' E a s :=
-  Or.inr h
+theorem Program.Intercept.intro
+    (h : (s.StackAtOrBelow s₀ ∧ ∃ l, label l = a ∧ l ∈ ls ∧ I' (.label l) (ls.idxOf l + 1) () s)
+      ∨ (E a s ∧ ∀ l ∈ ls, label l = a → s₀.StackBelow s)) :
+    Program.Intercept ls s₀ I' E a s := by
+  refine h.imp (fun ⟨hs, l, ha, hl, h⟩ => ?_) id
+  have hi := List.idxOf_lt_length_of_mem hl
+  exact ⟨_, l, by rw [List.getElem?_eq_getElem hi, List.getElem_idxOf hi], ha, hs, h⟩
 
 theorem List.getElem?_cons_succ_of {α} {a b : α} {l : List α} {i : Nat} (h : l[i]? = some b) :
     (a :: l)[i + 1]? = some b :=
@@ -209,10 +213,10 @@ theorem List.getElem?_cons_succ_of {α} {a b : α} {l : List α} {i : Nat} (h : 
 macro_rules
   | `(grind| cfg_exit) =>
     `(grind| first
-      ((apply Program.Intercept.continue);
+      ((apply Program.Intercept.intro_label);
         (repeat ((fail_if_success (apply List.getElem?_cons_zero)); (apply List.getElem?_cons_succ_of)));
         (apply List.getElem?_cons_zero))
-      (apply Program.Intercept.exit)
+      (apply Program.Intercept.intro)
       (skip))
 
 theorem Program.Intercept.dispatch {p : Program} {C X : MachineState → Prop} {d : MachineData} {a : Int64}

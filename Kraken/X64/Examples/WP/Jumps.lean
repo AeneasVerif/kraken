@@ -145,4 +145,65 @@ example [Host] (hp : skip.IsInfix Host.prog) (s : MachineData) :
   cfg_cases
   all_goals kvcgen64 with finish
 
+def fnReuse : Program := parse("
+entry:
+  mov %r8, %rdi
+  mov %r9, %rsi
+  leaq cont1(%rip), %rcx
+  jmp add
+cont1:
+  mov %rax, %rdi
+  mov %rax, %rsi
+  leaq cont2(%rip), %rcx
+  jmp add
+add:
+  mov %rdi, %rax
+  add %rsi, %rax
+  jmp %rcx
+cont2:
+")
+
+example [Host] (hp : fnReuse.IsInfix Host.prog) (s : MachineData) :
+    Eventually (step1 Host.exe) (fun st => st.data.regs.rax = 2 * (s.regs.r8 + s.regs.r9))
+      ⟨s, startAddr hp⟩ := by
+  have hk := List.isInfixAt_infixIdx hp
+  generalize fnReuse.infixIdx Host.prog hp = k at hk
+  have hne : label "cont1" ≠ label "cont2" := by
+    rw [Host.label_eq hk (i := 5) rfl, Host.label_eq hk (i := 14) rfl]
+    exact Host.addrOf_ne (m := k + 6) (List.isInfixAt_iff_getElem?.mp hk 6 (by decide))
+      (by rintro ⟨⟩) (by omega) (by omega)
+  apply Program.WP.step1_of_wp hp
+  refine Program.WP.cfg
+    (fun b t => match b with
+      | .entry | .label "entry" => t = s
+      | .label "cont1" => t.regs.rsp = s.regs.rsp ∧ t.regs.rax = s.regs.r8 + s.regs.r9
+      | .label "add" => t.regs.rsp = s.regs.rsp
+          ∧ ((Int64.ofBitVec (t.regs.get64 .rcx) = label "cont1" ∧ t.regs.rdi = s.regs.r8 ∧ t.regs.rsi = s.regs.r9)
+            ∨ (Int64.ofBitVec (t.regs.get64 .rcx) = label "cont2" ∧ t.regs.rdi = s.regs.r8 + s.regs.r9
+              ∧ t.regs.rsi = s.regs.r8 + s.regs.r9))
+      | .label "cont2" | .exit => t.regs.rax = 2 * (s.regs.r8 + s.regs.r9)
+      | _ => False)
+    (fun l t => if l = "entry" ∨ (l = "add" ∧ Int64.ofBitVec (t.regs.get64 .rcx) = label "cont1") then 1 else 0) ?_ rfl
+  cfg_cases
+  all_goals kvcgen64 with finish
+
+def retJump : Program := parse("
+  leaq target(%rip), %rax
+  push %rax
+  ret
+target:
+  mov $1, %rbx
+")
+
+example [Host] [FunDecls] (s : MachineData) (hm : Mem.Mapped [(s.regs.get64 .rsp - 8#64, 8)] s.dmem) :
+    WP.wp retJump (fun _ t => t.regs.get64 .rbx = 1) (fun _ _ => False) s := by
+  refine Program.WP.cfg
+    (fun b t => match b with
+      | .entry => t = s
+      | .label _ => t.regs.get64 .rsp = s.regs.get64 .rsp
+      | .exit => t.regs.get64 .rbx = 1)
+    (fun _ _ => 0) ?_ rfl
+  cfg_cases
+  all_goals kvcgen64 with finish
+
 end State.Jumps
