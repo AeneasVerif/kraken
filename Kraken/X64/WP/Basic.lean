@@ -54,10 +54,10 @@ of `p` for the first time in a state that satisfies `done`, or leaves `p` in a s
 -/
 public def Program.wp [Host] [FunDecls] (p : Program) (done exit : MachineState → Prop)
     (s : MachineData) : Prop :=
-  let callee a := (FunDecls.at a).map fun f => f.prog.wp (fun _ => False)
+  let funs a := (FunDecls.at a).map fun f => f.prog.wp (fun _ => False)
   ∀ h : Embedding p,
     While (·.pc ≠ h.endAddr)
-      (fun «continue» => Host.exe.StepOver callee «continue» (p.ContinueAtOwnLabel s «continue» exit))
+      (fun «continue» => Host.exe.StepOver funs «continue» (p.ContinueAtOwnLabel s «continue» exit))
       done { data := s, pc := h.startAddr }
 inductive_fixpoint
 

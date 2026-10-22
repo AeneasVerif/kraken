@@ -4,14 +4,14 @@ public import Kraken.X64.OmniSemantics
 import Kraken.Attribute
 
 /-
-`Natural F` relates three runs of the CPS functional `F` that differ only in their continuations.
-The proofs below use only the continuation, the `Effects` constructors, `ite`, `dite`, `match` on
-data and the CPS helpers. So the same proofs show the property for every relation
-`R : (ι → Effects) → Prop` on an indexed tuple of trees that is closed under each `Effects`
-constructor, applied componentwise with the same non-continuation arguments:
-`(∀ x, R fun i => k i x) → R fun i => F (k i)`.
-`Natural` is the instance `ι := Fin 3`, `R e := (e 0).All P₁ → (e 1).All P₂ → (e 2).All P`.
-For that general form, each closure lemma becomes one closure field of `R`.
+`Natural F` says that `F k` is one fixed `Effects` tree with the continuation `k` at its leaves.
+So `(F k₁).All P₁`, `(F k₂).All P₂` and `(F k).All P` check the same inner nodes and differ only in
+the leaves `k₁ x`, `k₂ x` and `k x`. Thus, if `(k₁ x).All P₁ → (k₂ x).All P₂ → (k x).All P` holds at
+each leaf `x`, then `(F k₁).All P₁ → (F k₂).All P₂ → (F k).All P` holds as well.
+`Executable.StepIn.and` uses this to combine two runs with different continuations into one run.
+
+The proofs follow the syntax of `F`: each `@[natural]` lemma states that one `Effects` constructor
+or helper preserves `Natural`, and `simp [natural]` composes them along a definition, like `fun_prop`.
 -/
 @[expose] public def Natural {α : Type} (F : (α → Effects) → Effects) : Prop :=
   ∀ ⦃P₁ P₂ P : MachineState → Prop⦄ ⦃k₁ k₂ k : α → Effects⦄,
