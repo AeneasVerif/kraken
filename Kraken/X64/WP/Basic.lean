@@ -15,12 +15,15 @@ The definition of `wp` works by
 1. Considering the weakest precondition `Executable.StepOver` of a single directive in the laid out
    executable.
    * Fall-through continues the loop.
-   * A jump to a label `f` in `FunDecls` that pushes onto the stack is a call (cf. `Executable.StepOut`).
-     `StepOver` steps over the call and applies the weakest precondition of `f`.
+   * A jump to a label `f` starting a fragment of `FunDecls` after pushing onto the stack is a call
+     (cf. `Executable.StepOut`). `StepOver` steps over the call and applies the weakest precondition
+     of `f`.
    * Any other jump continues the loop if it targets a label in `p` and the stack pointer is at or
      below its value in `s`. Otherwise it leaves `p` and must satisfy `exit`.
-2. Taking the least fixpoint of step 1 via `While`, the set of pre states which inevitably
-   reach the end address of `p` in a state that satisfies `done`.
+2. Taking the least fixpoint of step 1 via `While`.
+   A state `st` satisfies the fixpoint iff every execution from `st` terminates in one of two ways.
+   Either it reaches the end address of `p` for the first time in a state that satisfies `done`,
+   or it leaves `p` in a state that satisfies `exit`.
 3. Considering every possible way in which the fragment `p` may occur in the `Host` program.
    Only properties can be proved that hold for *all possible embeddings* `Embedding p` of the
    fragment `p`. This ensures proof modularity.
@@ -43,14 +46,19 @@ open Classical in
     («continue» exit : MachineState → Prop) (st : MachineState) : Prop :=
   if p.IsLabelAddr st.pc ∧ st.data.StackAtOrBelow s then «continue» st else exit st
 
-/-- Weakest precondition of a `Program` fragment of the host program. -/
+/--
+Weakest precondition of a `Program` fragment of the host program.
+`p.wp done exit s` holds if every execution of `p` from `s` at the start of `p` reaches the end
+of `p` for the first time in a state that satisfies `done`, or leaves `p` in a state that satisfies
+`exit`.
+-/
 public def Program.wp [Host] [FunDecls] (p : Program) (done exit : MachineState → Prop)
     (s : MachineData) : Prop :=
   let callee a := (FunDecls.at a).map fun f => f.prog.wp (fun _ => False)
   ∀ h : Embedding p,
     While (·.pc ≠ h.endAddr)
       (fun «continue» => Host.exe.StepOver callee «continue» (p.ContinueAtOwnLabel s «continue» exit))
-      done ⟨s, h.startAddr⟩
+      done { data := s, pc := h.startAddr }
 inductive_fixpoint
 
 section
@@ -60,7 +68,7 @@ public theorem Program.wp_eq {p : Program} {done exit : MachineState → Prop} {
     p.wp done exit s = ∀ h : Embedding p, While (·.pc ≠ h.endAddr)
       (fun «continue» => Host.exe.StepOver (fun a => (FunDecls.at a).map fun f => f.prog.wp (fun _ => False))
         «continue» (p.ContinueAtOwnLabel s «continue» exit))
-      done ⟨s, h.startAddr⟩ := by
+      done { data := s, pc := h.startAddr } := by
   rw [Program.wp]
 
 omit [FunDecls] in
@@ -98,7 +106,8 @@ public theorem Program.wp_mono {p : Program} {done₁ done₂ exit₁ exit₂ : 
   exact fun _ _ _ _ hR hm => hm _ _ (fun _ h => h.elim) hR
 
 
-public theorem Program.wp_nil {done exit : MachineState → Prop} {s : MachineData} (hd : ∀ pc, done ⟨s, pc⟩) :
+public theorem Program.wp_nil {done exit : MachineState → Prop} {s : MachineData}
+    (hd : ∀ pc, done { data := s, pc := pc }) :
     Program.wp [] done exit s := by
   rw [Program.wp_eq]
   intro h
@@ -135,9 +144,10 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
 public theorem Program.wp_single {d : Directive} {done exit : MachineState → Prop} {s₀ : MachineData}
     (hw : ∀ (h : Embedding [d]) ⦃P : MachineState → Prop⦄ ⦃next : MachineData → Effects⦄
         ⦃jmp : Int64 → MachineData → Effects⦄,
-      (∀ s₁, done ⟨s₁, h.endAddr⟩ → (next s₁).All P) →
+      (∀ s₁, done { data := s₁, pc := h.endAddr } → (next s₁).All P) →
       (∀ a s₁, Host.exe.StepOut (fun a => (FunDecls.at a).map fun f => f.prog.wp (fun _ => False))
-        ⟨s₀, h.startAddr⟩ (fun u => u.pc = h.endAddr ∧ done u) exit ⟨s₁, a⟩ →
+        { data := s₀, pc := h.startAddr } (fun u => u.pc = h.endAddr ∧ done u) exit
+        { data := s₁, pc := a } →
           (jmp a s₁).All P) →
       (d.interp s₀ ⟨h.startAddr, h.endAddr⟩ next jmp).All P) :
     Program.wp [d] done exit s₀ := by
@@ -147,9 +157,10 @@ public theorem Program.wp_single {d : Directive} {done exit : MachineState → P
   have hdk : Host.prog[h.start]? = some d := h.isInfixAt.cons.1
   have hend : h.endAddr = Host.addrOf (h.start + 1) := rfl
   rcases Nat.eq_zero_or_pos (Kraken.Layout.size Directive h.start) with h0 | hz
-  · have hq := (Host.inert_of_getElem? hdk h0 s₀ _ (fun s₁ => .done ⟨s₁, 0⟩)
-      (fun _ s₁ => .done ⟨s₁, 1⟩) (fun st => st.pc = 0 → done ⟨st.data, h.endAddr⟩)).mp
-      (@hw (fun st => st.pc = 0 → done ⟨st.data, h.endAddr⟩) _ _ (fun _ hq _ => hq)
+  · have hq := (Host.inert_of_getElem? hdk h0 s₀ _ (fun s₁ => .done { data := s₁, pc := 0 })
+      (fun _ s₁ => .done { data := s₁, pc := 1 })
+      (fun st => st.pc = 0 → done { data := st.data, pc := h.endAddr })).mp
+      (@hw (fun st => st.pc = 0 → done { data := st.data, pc := h.endAddr }) _ _ (fun _ hq _ => hq)
         fun _ _ _ h => by simp at h)
     have ha : h.startAddr = h.endAddr := by grind
     refine While.stop (by simp [ha]) ?_
@@ -169,16 +180,16 @@ public theorem Program.wp_single {d : Directive} {done exit : MachineState → P
 public theorem Program.step1_of_wp {p : Program} (h : Embedding p) {done exit : MachineState → Prop}
     {s : MachineData} {post : MachineState → Prop} (hw : p.wp done exit s)
     (hd : ∀ u, u.pc = h.endAddr → done u → post u) (he : ∀ u, exit u → post u) :
-    Eventually (step1 Host.exe) post ⟨s, h.startAddr⟩ := by
+    Eventually (step1 Host.exe) post { data := s, pc := h.startAddr } := by
   refine Program.wp.induct
     (fun p done exit s => ∀ (h : Embedding p) (post : MachineState → Prop),
       (∀ u, u.pc = h.endAddr → done u → Eventually (step1 Host.exe) post u) →
       (∀ u, exit u → Eventually (step1 Host.exe) post u) →
-      Eventually (step1 Host.exe) post ⟨s, h.startAddr⟩)
+      Eventually (step1 Host.exe) post { data := s, pc := h.startAddr })
     ?_ p done exit s hw h post (fun u hu h => .done _ (hd u hu h)) (fun u h => .done _ (he u h))
   intro p done exit s hw h post hd he
   have hw := While.iff_eventually.mp (hw h)
-  generalize (⟨s, h.startAddr⟩ : MachineState) = x at hw ⊢
+  generalize ({ data := s, pc := h.startAddr } : MachineState) = x at hw ⊢
   induction hw with
   | done y hy => exact hd y (Classical.not_not.mp hy.1) hy.2
   | step y next ht _ ih =>

@@ -3,23 +3,23 @@ module
 public import Kraken.X64.Natural
 public import Kraken.X64.WP.Host
 
-/-! # Weakest precondition of a single step over a call
+/-! # Weakest precondition of a single debugger step
 
 Imagine a debugger like `gdb`. It comes with 3 sorts of stepping operations:
-* step inside: execute a single instruction and follow its control flow. If it's a call instruction,
+* step inside: Execute a single instruction and follow its control flow. If it's a call instruction,
   *step inside* the callee.
-* step outside: execute all instructions until a return *steps outside* the current stack frame.
-* step over: step inside. When the instruction was a call, then step outside afterwards. Thus,
-  *step over* a call instruction.
+* step outside: Execute all instructions until a return *steps outside* the current stack frame.
+* step over: Step inside. When the instruction was a call, then step outside afterwards. Thus,
+  *step over* any single instruction, including call instructions.
 
 The definitions `Executable.StepIn`, `Executable.StepOut` and `Executable.StepOver` in this module
 implement a notion of weakest precondition based on this intuition and `Directives.interp` that is
-*conjunctive* (cf. `Executable.StepIn.and`).
+*conjunctive* (cf. `Program.wp_and`).
 -/
 
 /--
-`Executable.StepIn e funs next jump st` defines the weakest precondition of the non-inert directive
-at `st.pc` in `e`. Fall-through states must satisfy `next`; a post-jump states must satisfy `jump`.
+`Executable.StepIn e next jump st` defines the weakest precondition of the non-inert directive
+at `st.pc` in `e`. Fall-through states must satisfy `next`; post-jump states must satisfy `jump`.
 A call is regarded as a jump, so this definition *steps into* called functions.
 
 In contrast to the very similar definition `Executable.step1`, this definition distinguishes
@@ -28,9 +28,10 @@ fall-through from jumps.
 @[expose] public def Executable.StepIn (e : Executable) (next jump : MachineState → Prop) (st₀ : MachineState) : Prop :=
   haveI := e.labels
   ∀ ⦃P : MachineState → Prop⦄ ⦃ret : MachineData → Effects⦄ ⦃jmp : MachineState → Effects⦄,
-    (∀ s, next ⟨s, e.fallthrough st₀.pc⟩ → (ret s).All P) → (∀ st₁, jump st₁ → (jmp st₁).All P) →
+    (∀ s, next { data := s, pc := e.fallthrough st₀.pc } → (ret s).All P) →
+    (∀ st₁, jump st₁ → (jmp st₁).All P) →
       (Directives.interp (e.directivesAtAddress st₀.pc) st₀.data st₀.pc (fun _ s => ret s)
-        (fun a s => jmp ⟨s, a⟩)).All P
+        (fun a s => jmp { data := s, pc := a })).All P
 
 namespace Executable.StepIn
 variable {e : Executable} {st : MachineState}
@@ -44,9 +45,10 @@ public theorem all [Layout] {next jump post : MachineState → Prop} (h : e.Step
     (hn : ∀ u, next u → post u) (hj : ∀ u, jump u → post u) : step1 e st post := by
   unfold step1 Executable.step
   change (@Directives.interp e.labels (e.directivesAtAddress st.pc) st.data st.pc
-    (fun a s => Effects.done ⟨s, a⟩) (fun a s => Effects.done ⟨s, a⟩)).All post
-  rw [@Directives.interp_ret_congr e.labels _ _ _ _ (fun _ s => Effects.done ⟨s, e.fallthrough st.pc⟩) _
-    (fun _ => rfl)]
+    (fun a s => Effects.done { data := s, pc := a })
+    (fun a s => Effects.done { data := s, pc := a })).All post
+  rw [@Directives.interp_ret_congr e.labels _ _ _ _
+    (fun _ s => Effects.done { data := s, pc := e.fallthrough st.pc }) _ (fun _ => rfl)]
   exact h (fun _ h => hn _ h) (fun _ h => hj _ h)
 
 open Lean.Order in
@@ -57,11 +59,11 @@ open Lean.Order in
 
 end Executable.StepIn
 
-/-- the stack pointer of `s₁` lies below that of the reference state `s₀`. -/
+/-- The stack pointer of `s₁` lies below that of the reference state `s₀`. -/
 @[expose] public def MachineData.StackBelow (s₁ s₀ : MachineData) : Prop :=
   0 < (s₀.regs.get64 .rsp - s₁.regs.get64 .rsp).toInt
 
-/-- the stack pointer of `s₁` lies at or below that of the reference state `s₀`. -/
+/-- The stack pointer of `s₁` lies at or below that of the reference state `s₀`. -/
 public abbrev MachineData.StackAtOrBelow (s₁ s₀ : MachineData) : Prop := ¬ s₀.StackBelow s₁
 
 open Classical in
@@ -71,11 +73,14 @@ open Classical in
 
 The jump is considered a call iff
 * `funs st₁.pc = some wp`,
-* the stack pointer of `st₁` is below that of `st₀`, and
-* the callee `wp` runs to a state `st₂` in which `st₂.pc = e.fallthrough st₀.pc` is the instruction
-  after `st₀.pc`.
-In this case, `next st₂` must hold and the effect is that of *stepping out* of the callee state at
-`st₁` back into the caller at `st₂`.
+* the stack pointer of `st₁` is below that of `st₀`.
+
+In this case, the callee's activation is traced through `wp`, ending in a state `st₂`. Two cases:
+* Return: If `st₂.pc = e.fallthrough st₀.pc`, then the callee returned to the instruction after
+  `st₀.pc`. In this case, `next st₂` must hold and the effect is that of *stepping out* of the
+  callee state at `st₁` back into the caller at `st₂`.
+* Jump: Otherwise, `jump st₂` must hold, treating any jump of the callee like a jump of the call
+  instruction.
 -/
 @[expose] public def Executable.StepOut (e : Executable)
     (funs : Int64 → Option ((MachineState → Prop) → MachineData → Prop))
@@ -178,9 +183,10 @@ variable [Host]
 public theorem Host.stepIn_addrOf {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d)
     (hz : 0 < Kraken.Layout.size Directive k) {s₀ : MachineData} {next jump : MachineState → Prop}
     (h : ∀ ⦃P : MachineState → Prop⦄ ⦃n : MachineData → Effects⦄ ⦃j : Int64 → MachineData → Effects⦄,
-      (∀ s₁, next ⟨s₁, Host.addrOf (k + 1)⟩ → (n s₁).All P) → (∀ a s₁, jump ⟨s₁, a⟩ → (j a s₁).All P) →
+      (∀ s₁, next { data := s₁, pc := Host.addrOf (k + 1) } → (n s₁).All P) →
+      (∀ a s₁, jump { data := s₁, pc := a } → (j a s₁).All P) →
       (d.interp s₀ ⟨Host.addrOf k, Host.addrOf (k + 1)⟩ n j).All P) :
-    Host.exe.StepIn next jump ⟨s₀, Host.addrOf k⟩ := by
+    Host.exe.StepIn next jump { data := s₀, pc := Host.addrOf k } := by
   intro P r j hr hj
   obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd hz
   have hinert : ∀ c ∈ pre, c.size = 0 ∧ c.directive.Inert := fun c hc =>
@@ -188,7 +194,7 @@ public theorem Host.stepIn_addrOf {k : Nat} {d : Directive} (hd : Host.prog[k]? 
       Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc))⟩
   change (@Directives.interp Host.exe.labels (Host.exe.directivesAtAddress (Host.addrOf k)) s₀ (Host.addrOf k) _ _).All P
   rw [Host.fallthrough_addrOf hd hz] at hr
-  rw [hat, Directives.interp_inert_append hinert s₀ _ _ P (fun a s₀ => j ⟨s₀, a⟩)]
+  rw [hat, Directives.interp_inert_append hinert s₀ _ _ P (fun a s₀ => j { data := s₀, pc := a })]
   simp only [Directives.interp]
   rw [← Host.addrOf_succ hd]
   exact h (fun s₁ hn => hr _ hn) (fun a s₁ hj' => hj _ hj')
