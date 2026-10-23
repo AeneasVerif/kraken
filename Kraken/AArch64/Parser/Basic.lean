@@ -220,12 +220,12 @@ def parseRegOrZr (w : RegWidth) : Parser (RegOrZr w) := do
 A generic parsed register (`gpr`, `sp`, or `xzr`) before instruction-specific
 context validation resolves index 31.
 -/
-inductive AnyReg (w : RegWidth)
+public inductive AnyReg (w : RegWidth)
   | gpr (r : XReg) : AnyReg w
   | sp : AnyReg w
   | xzr : AnyReg w
 
-abbrev AnyRegW := (w : RegWidth) × AnyReg w
+public abbrev AnyRegW := (w : RegWidth) × AnyReg w
 
 /-- Parse any valid register name and return its width and `AnyReg` variant. -/
 def parseAnyRegW : Parser AnyRegW := do
@@ -258,11 +258,11 @@ def AnyReg.toRegOrZr {w : RegWidth} : AnyReg w → Parser (RegOrZr w)
   | .xzr => pure (.low .XZR w)
   | .sp => fail "sp/wsp not allowed in shifted register instruction (xzr expected)"
 
-def AnyReg.isSp {w : RegWidth} : AnyReg w → Bool
+public def AnyReg.isSp {w : RegWidth} : AnyReg w → Bool
   | .sp => true
   | _ => false
 
-def AnyReg.isXzr {w : RegWidth} : AnyReg w → Bool
+public def AnyReg.isXzr {w : RegWidth} : AnyReg w → Bool
   | .xzr => true
   | _ => false
 
@@ -289,6 +289,8 @@ def liftExcept {α : Type} (res : Except String α) : Parser α :=
   match res with
   | .ok a => pure a
   | .error msg => fail msg
+
+public section
 
 /--
 Validate a memory extension shift amount (`0` or log2 of access size in bytes).
@@ -659,6 +661,8 @@ def checkLdpStpRegisters {w : RegWidth} (isLdp : Bool) (reg1 : RegOrZr w) (reg2 
   checkLdrStrRegisters reg1 mem
   checkLdrStrRegisters reg2 mem
 
+end
+
 -- ============================================================================
 -- Operand Parsing
 -- ============================================================================
@@ -874,7 +878,7 @@ Validate and map an arithmetic extension mnemonic (`UXTB`, `SXTB`, `UXTH`,
 - In 64-bit instructions (`instrW = .W64`), `UXTX`/`SXTX`/`LSL` require a 64-bit register (`Xn`),
   while `UXTB`/`SXTB`/`UXTH`/`SXTH`/`UXTW`/`SXTW` require a 32-bit register (`Wn`).
 -/
-def getExtendType (extName : String) (instrW : RegWidth) (regW : RegWidth) : Except String ExtendType := do
+public def getExtendType (extName : String) (instrW : RegWidth) (regW : RegWidth) : Except String ExtendType := do
   let ty ← match extName.toLower with
     | "uxtb" => .ok ExtendType.UXTB
     | "sxtb" => .ok ExtendType.SXTB
@@ -1020,7 +1024,7 @@ def parseOptionalOperand {α : Type} (p : Parser α) (defaultVal : α) : Parser 
 -- Condition Code Parsing
 -- ============================================================================
 
-def parseCondCode (s : String) : Option CondCode :=
+public def parseCondCode (s : String) : Option CondCode :=
   match s.toLower with
   | "eq" => some .EQ
   | "ne" => some .NE
@@ -1319,7 +1323,7 @@ instruction.
 - If that fails, tries `MOVZ` on the bitwise NOT (`~~~val`), which maps to `MOVN`.
 - Returns `(isMovn, imm16, shift)`.
 -/
-def tryMovzOrMovn (w : RegWidth) (val : BitVec w.bits) : Option (Bool × Int64 × MovShift w) :=
+public def tryMovzOrMovn (w : RegWidth) (val : BitVec w.bits) : Option (Bool × Int64 × MovShift w) :=
   match tryMovz w val with
   | some (imm16, shift) => some (false, imm16, shift)
   | none =>
@@ -2156,50 +2160,5 @@ public def parse (input: String) : Except String Program := do
     | .error msg => .error s!"line {lineNum}: {msg}"
   ) ((1 : Nat), [])
   pure lines.reverse.flatten
-
--- ============================================================================
--- Assembly Preprocessing (Directive Stripping)
--- ============================================================================
-
-private def directiveKeywords : List String :=
-  -- Architecture & CPU
-  ["file", "text", "data", "bss", "rodata", "tbss", "tdata",
-   "arch", "arch_extension", "cpu", "fpu", "eabi_attribute", "syntax",
-   "tlsdesccall", "inst", "req", "unreq", "variant_pcs",
-   -- Alignment & Layout
-   "p2align", "balign", "align", "org", "previous", "pushsection", "popsection", "subsection",
-   -- Symbol Binding & Visibility
-   "globl", "global", "local", "type", "size", "section", "comm", "lcomm",
-   "weak", "hidden", "protected", "internal", "ident", "set", "equ", "equiv",
-   -- Call Frame Information (DWARF / PAC / BTI)
-   "cfi_startproc", "cfi_endproc", "cfi_def_cfa", "cfi_sections", "cfi_personality", "cfi_lsda",
-   "cfi_offset", "cfi_adjust_cfa_offset", "cfi_def_cfa_offset", "cfi_def_cfa_register",
-   "cfi_restore", "cfi_remember_state", "cfi_restore_state", "cfi_return_column",
-   "cfi_signal_frame", "cfi_window_save", "cfi_escape", "cfi_val_offset", "cfi_register",
-   "cfi_same_value", "cfi_undefined", "cfi_rel_offset", "cfi_b_key_frame", "cfi_negate_ra_state",
-   -- Data Emission & Buffers
-   "byte", "2byte", "4byte", "8byte", "short", "int", "long", "word", "hword",
-   "xword", "dword", "quad", "single", "double", "ascii", "asciz", "string",
-   "zero", "space", "skip", "fill"]
-
-private def extractDirectiveName (s : String) : String :=
-  let rest := s.drop 1
-  let nameStr := (rest.takeWhile (fun c => c != ' ' && c != '\t' && c != ',' && c != ':')).toString
-  nameStr.toLower
-
-private def keepLine (line : String) : Bool :=
-  let stripped := (line.trimAsciiStart).toString
-  if stripped.isEmpty || stripped.startsWith "#" || stripped.startsWith "//" then true
-  else if !stripped.startsWith "." then true
-  else
-    let dirName := extractDirectiveName stripped
-    if stripped.any (· == ':') then true
-    else if directiveKeywords.contains dirName then false
-    else false
-
-public def stripDirectives (content : String) : String :=
-  let lines := content.splitOn "\n"
-  let kept := lines.filter keepLine
-  "\n".intercalate kept
 
 end Kraken.AArch64.Parser

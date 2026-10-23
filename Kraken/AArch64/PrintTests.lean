@@ -10,7 +10,7 @@ meta import Kraken.AArch64.Parser
 import Kraken.AArch64.Print
 meta import Kraken.AArch64.Print
 
-open Kraken.AArch64 Kraken.AArch64.Parser
+open Kraken.AArch64 Kraken.AArch64.Parser Kraken.Parser
 
 /-- `s` parses, and printing the result then re-parsing gives the same program. -/
 def roundtrips (s : String) : Bool :=
