@@ -28,7 +28,7 @@ fall-through from jumps.
 @[expose] public def Executable.StepIn (e : Executable) (next jump : MachineState → Prop) (st₀ : MachineState) : Prop :=
   haveI := e.labels
   ∀ (P : MachineState → Prop) (ret : MachineData → Effects) (jmp : MachineState → Effects),
-    (∀ s, next { data := s, pc := e.fallthrough st₀.pc } → (ret s).All P) →
+    (∀ s, next { data := s, pc := e.nextAddr st₀.pc } → (ret s).All P) →
     (∀ st₁, jump st₁ → (jmp st₁).All P) →
       (Directives.interp (e.directivesAtAddress st₀.pc) st₀.data st₀.pc (fun _ s => ret s)
         (fun a s => jmp { data := s, pc := a })).All P
@@ -37,7 +37,7 @@ namespace Executable.StepIn
 variable {e : Executable} {st : MachineState}
 
 public theorem mono {next₁ next₂ jump₁ jump₂ : MachineState → Prop} (h : e.StepIn next₁ jump₁ st)
-    (hn : ∀ u, u.pc = e.fallthrough st.pc → next₁ u → next₂ u) (hj : ∀ u, jump₁ u → jump₂ u) :
+    (hn : ∀ u, u.pc = e.nextAddr st.pc → next₁ u → next₂ u) (hj : ∀ u, jump₁ u → jump₂ u) :
     e.StepIn next₂ jump₂ st :=
   fun _ _ _ hr hk => h _ _ _ (fun s h => hr s (hn _ rfl h)) (fun u h => hk u (hj u h))
 
@@ -48,7 +48,7 @@ public theorem all [Layout] {next jump post : MachineState → Prop} (h : e.Step
     (fun a s => Effects.done { data := s, pc := a })
     (fun a s => Effects.done { data := s, pc := a })).All post
   rw [@Directives.interp_ret_congr e.labels _ _ _ _
-    (fun _ s => Effects.done { data := s, pc := e.fallthrough st.pc }) _ (fun _ => rfl)]
+    (fun _ s => Effects.done { data := s, pc := e.nextAddr st.pc }) _ (fun _ => rfl)]
   exact h _ _ _ (fun _ h => hn _ h) (fun _ h => hj _ h)
 
 open Lean.Order in
@@ -76,7 +76,7 @@ The jump is considered a call iff
 * the stack pointer of `st₁` is below that of `st₀`.
 
 In this case, the callee's activation is traced through `wp`, ending in a state `st₂`. Two cases:
-* Return: If `st₂.pc = e.fallthrough st₀.pc`, then the callee returned to the instruction after
+* Return: If `st₂.pc = e.nextAddr st₀.pc`, then the callee returned to the instruction after
   `st₀.pc`. In this case, `next st₂` must hold and the effect is that of *stepping out* of the
   callee state at `st₁` back into the caller at `st₂`.
 * Jump: Otherwise, `jump st₂` must hold, treating any jump of the callee like a jump of the call
@@ -88,7 +88,7 @@ In this case, the callee's activation is traced through `wp`, ending in a state 
   match funs st₁.pc with
   | some wp =>
     if st₁.data.StackBelow st₀.data then
-      wp (fun st₂ => if st₂.pc = e.fallthrough st₀.pc then next st₂ else jump st₂) st₁.data
+      wp (fun st₂ => if st₂.pc = e.nextAddr st₀.pc then next st₂ else jump st₂) st₁.data
     else jump st₁
   | none => jump st₁
 
@@ -111,7 +111,7 @@ theorem StepOut.mono_map {β : Type} (o : Int64 → Option β)
     {g₁ g₂ : β → (MachineState → Prop) → MachineData → Prop}
     (hg : ∀ b R₁ R₂ s, (∀ u, R₁ u → R₂ u) → g₁ b R₁ s → g₂ b R₂ s)
     {next₁ next₂ jump₁ jump₂ : MachineState → Prop}
-    (hn : ∀ u, u.pc = e.fallthrough st₀.pc → next₁ u → next₂ u) (hj : ∀ u, jump₁ u → jump₂ u)
+    (hn : ∀ u, u.pc = e.nextAddr st₀.pc → next₁ u → next₂ u) (hj : ∀ u, jump₁ u → jump₂ u)
     {st₁ : MachineState} (h : e.StepOut (fun a => (o a).map g₁) st₀ next₁ jump₁ st₁) :
     e.StepOut (fun a => (o a).map g₂) st₀ next₂ jump₂ st₁ := by
   unfold StepOut at h ⊢
@@ -124,7 +124,7 @@ theorem StepOut.mono_map {β : Type} (o : Int64 → Option β)
     by_cases hb : st₁.data.StackBelow st₀.data
     · simp only [hb, ite_true] at h ⊢
       refine hg b _ _ _ (fun u a => ?_) h
-      by_cases hu : u.pc = e.fallthrough st₀.pc
+      by_cases hu : u.pc = e.nextAddr st₀.pc
       · simp only [hu, ite_true] at a ⊢
         exact hn _ hu a
       · simp only [hu, ite_false] at a ⊢
@@ -136,7 +136,7 @@ public theorem StepOver.mono_map {β : Type} (o : Int64 → Option β)
     {g₁ g₂ : β → (MachineState → Prop) → MachineData → Prop}
     (hg : ∀ b R₁ R₂ s, (∀ u, R₁ u → R₂ u) → g₁ b R₁ s → g₂ b R₂ s)
     {next₁ next₂ jump₁ jump₂ : MachineState → Prop}
-    (hn : ∀ u, u.pc = e.fallthrough st₀.pc → next₁ u → next₂ u) (hj : ∀ u, jump₁ u → jump₂ u)
+    (hn : ∀ u, u.pc = e.nextAddr st₀.pc → next₁ u → next₂ u) (hj : ∀ u, jump₁ u → jump₂ u)
     (h : e.StepOver (fun a => (o a).map g₁) next₁ jump₁ st₀) :
     e.StepOver (fun a => (o a).map g₂) next₂ jump₂ st₀ :=
   StepIn.mono h hn fun _ => StepOut.mono_map o hg hn hj
@@ -193,7 +193,7 @@ public theorem Host.stepIn_addrOf {k : Nat} {d : Directive} (hd : Host.prog[k]? 
     ⟨hpre c hc, Host.inert_of_size_zero (hpre c hc ▸
       Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc))⟩
   change (@Directives.interp Host.exe.labels (Host.exe.directivesAtAddress (Host.addrOf k)) s₀ (Host.addrOf k) _ _).All P
-  rw [Host.fallthrough_addrOf hd hz] at hr
+  rw [Host.nextAddr_addrOf hd hz] at hr
   rw [hat, Directives.interp_inert_append hinert s₀ _ _ P (fun a s₀ => j { data := s₀, pc := a })]
   simp only [Directives.interp]
   rw [← Host.addrOf_succ hd]

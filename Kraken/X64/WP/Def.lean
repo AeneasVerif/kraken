@@ -131,8 +131,8 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
     grind
   · have hy := hI hc
     have hz : 0 < Kraken.Layout.size Directive H.start := by grind
-    have hft : Host.exe.fallthrough y.pc = Host.addrOf (H.start + 1) := by
-      rw [hy]; exact Host.fallthrough_addrOf hd hz
+    have hft : Host.exe.nextAddr y.pc = Host.addrOf (H.start + 1) := by
+      rw [hy]; exact Host.nextAddr_addrOf hd hz
     refine Executable.StepOver.mono_map FunDecls.at ?_
       (fun u hpc hu => ⟨hu, fun hne => absurd (hpc.trans hft) hne⟩) (fun _ h => h) hb
     exact fun _ _ _ _ hR h => Program.wp_mono (fun _ h => h) hR h

@@ -13,16 +13,16 @@ theorem StepIn.and {next₁ next₂ jump₁ jump₂ : MachineState → Prop} (h�
   let probe : Prop → Effects := fun c => if c then .done st₀ else .unimplemented ""
   have hprobe : ∀ c, (probe c).All (fun _ => True) ↔ c := fun c => by
     by_cases hc : c <;> simp [probe, hc, Effects.All]
-  have t₁ := @h₁ (fun _ => True) (fun s => probe (next₁ { data := s, pc := e.fallthrough st₀.pc }))
+  have t₁ := @h₁ (fun _ => True) (fun s => probe (next₁ { data := s, pc := e.nextAddr st₀.pc }))
     (fun u => probe (jump₁ u))
     (fun _ h => (hprobe _).mpr h) (fun _ h => (hprobe _).mpr h)
-  have t₂ := @h₂ (fun _ => True) (fun s => probe (next₂ { data := s, pc := e.fallthrough st₀.pc }))
+  have t₂ := @h₂ (fun _ => True) (fun s => probe (next₂ { data := s, pc := e.nextAddr st₀.pc }))
     (fun u => probe (jump₂ u))
     (fun _ h => (hprobe _).mpr h) (fun _ h => (hprobe _).mpr h)
   refine @Directives.interp_natural e.labels (e.directivesAtAddress st₀.pc) st₀.data st₀.pc _ _ P
-    (Sum.elim (fun x => probe (next₁ { data := x.2, pc := e.fallthrough st₀.pc }))
+    (Sum.elim (fun x => probe (next₁ { data := x.2, pc := e.nextAddr st₀.pc }))
       (fun x => probe (jump₁ { data := x.2, pc := x.1 })))
-    (Sum.elim (fun x => probe (next₂ { data := x.2, pc := e.fallthrough st₀.pc }))
+    (Sum.elim (fun x => probe (next₂ { data := x.2, pc := e.nextAddr st₀.pc }))
       (fun x => probe (jump₂ { data := x.2, pc := x.1 })))
     (Sum.elim (fun x => r x.2) (fun x => j { data := x.2, pc := x.1 })) ?_ t₁ t₂
   rintro (⟨a, s⟩ | ⟨a, s⟩) e₁ e₂
@@ -47,7 +47,7 @@ theorem StepOut.and_map {β : Type} (o : Int64 → Option β)
     by_cases hb : st₁.data.StackBelow st₀.data
     · simp only [hb, ite_true] at h₁ h₂ ⊢
       refine hg b _ _ _ _ (fun u a b => ?_) h₁ h₂
-      by_cases hu : u.pc = e.fallthrough st₀.pc
+      by_cases hu : u.pc = e.nextAddr st₀.pc
       · simp only [hu, ite_true] at a b ⊢
         exact hn _ a b
       · simp only [hu, ite_false] at a b ⊢

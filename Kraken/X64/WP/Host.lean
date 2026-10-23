@@ -110,14 +110,14 @@ public theorem Host.directivesAtAddress_addrOf {k : Nat} {d : Directive} (hd : H
     grind [Kraken.Executable.getElem?_withAddresses_eq]
 
 
-public theorem Host.fallthrough_addrOf {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d)
+public theorem Host.nextAddr_addrOf {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d)
     (hz : 0 < Kraken.Layout.size Directive k) :
-    Host.exe.fallthrough (Host.addrOf k) = Host.addrOf (k + 1) := by
+    Host.exe.nextAddr (Host.addrOf k) = Host.addrOf (k + 1) := by
   obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd hz
   have hpre0 : (pre.map (·.size)).sum = 0 := List.sum_eq_zero_iff_forall_eq_nat.mpr fun n hn => by
     obtain ⟨c, hc, rfl⟩ := List.mem_map.mp hn
     exact hpre c hc
-  rw [Kraken.Executable.fallthrough, hat, List.map_append, List.sum_append, hpre0, Host.addrOf_succ hd]
+  rw [Kraken.Executable.nextAddr, hat, List.map_append, List.sum_append, hpre0, Host.addrOf_succ hd]
   simp
 end
 
