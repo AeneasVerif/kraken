@@ -14,7 +14,7 @@ The proofs follow the syntax of `F`: each `@[natural]` lemma states that one `Ef
 or helper preserves `Natural`, and `simp [natural]` composes them along a definition, like `fun_prop`.
 -/
 @[expose] public def Natural {α : Type} (F : (α → Effects) → Effects) : Prop :=
-  ∀ ⦃P₁ P₂ P : MachineState → Prop⦄ ⦃k₁ k₂ k : α → Effects⦄,
+  ∀ (P₁ P₂ P : MachineState → Prop) (k₁ k₂ k : α → Effects),
     (∀ x, (k₁ x).All P₁ → (k₂ x).All P₂ → (k x).All P) →
     (F k₁).All P₁ → (F k₂).All P₂ → (F k).All P
 
@@ -25,7 +25,7 @@ variable {α : Type}
 
 theorem bind {β : Type} {F : (α → Effects) → Effects} {G : α → (β → Effects) → Effects}
     (hF : Natural F) (hG : ∀ x, Natural (G x)) : Natural (fun k => F (fun x => G x k)) :=
-  fun _ _ _ _ _ _ hk => hF fun x => hG x hk
+  fun _ _ _ _ _ _ hk => hF _ _ _ _ _ _ fun x => hG x _ _ _ _ _ _ hk
 
 @[natural] theorem unimplemented (m : String) : Natural (fun _ : α → Effects => Effects.unimplemented m) :=
   fun _ _ _ _ _ _ _ h => h.elim
@@ -35,7 +35,7 @@ theorem bind {β : Type} {F : (α → Effects) → Effects} {G : α → (β → 
 
 @[natural] theorem undefined {β : Type} [NondetSupportingType β] {G : β → (α → Effects) → Effects}
     (h : ∀ v, Natural (G v)) : Natural (fun k => Effects.undefined (fun v => G v k)) :=
-  fun _ _ _ _ _ _ hk h₁ h₂ v => h v hk (h₁ v) (h₂ v)
+  fun _ _ _ _ _ _ hk h₁ h₂ v => h v _ _ _ _ _ _ hk (h₁ v) (h₂ v)
 
 @[natural] theorem nonmem_load {dm : DataMem} {a : BitVec 64} {w : Width} {G : w.type → DataMem → (α → Effects) → Effects} :
     Natural (fun k => Effects.nonmem_load dm a w (fun v d => G v d k)) :=
@@ -47,15 +47,15 @@ theorem bind {β : Type} {F : (α → Effects) → Effects} {G : α → (β → 
 
 @[natural] theorem require_read_access {a : BitVec 64} {w : Width} {G : Unit → (α → Effects) → Effects}
     (h : ∀ u, Natural (G u)) : Natural (fun k => Effects.require_read_access a w (fun u => G u k)) :=
-  fun _ _ _ _ _ _ hk h₁ h₂ => h () hk h₁ h₂
+  fun _ _ _ _ _ _ hk h₁ h₂ => h () _ _ _ _ _ _ hk h₁ h₂
 
 @[natural] theorem require_write_access {a : BitVec 64} {w : Width} {G : Unit → (α → Effects) → Effects}
     (h : ∀ u, Natural (G u)) : Natural (fun k => Effects.require_write_access a w (fun u => G u k)) :=
-  fun _ _ _ _ _ _ hk h₁ h₂ => h () hk h₁ h₂
+  fun _ _ _ _ _ _ hk h₁ h₂ => h () _ _ _ _ _ _ hk h₁ h₂
 
 @[natural] theorem require_exec_access {r : Std.Rco Int64} {G : Unit → (α → Effects) → Effects}
     (h : ∀ u, Natural (G u)) : Natural (fun k => Effects.require_exec_access r (fun u => G u k)) :=
-  fun _ _ _ _ _ _ hk h₁ h₂ => h () hk h₁ h₂
+  fun _ _ _ _ _ _ hk h₁ h₂ => h () _ _ _ _ _ _ hk h₁ h₂
 
 @[natural] theorem ite {c : Prop} [Decidable c] {F G : (α → Effects) → Effects} (hF : Natural F) (hG : Natural G) :
     Natural (fun k => if c then F k else G k) := by

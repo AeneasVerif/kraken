@@ -142,8 +142,8 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
     rwa [show H.tail.startAddr = st.pc by grind, show H.tail.endAddr = H.endAddr by grind] at hst
 
 public theorem Program.wp_single {d : Directive} {done exit : MachineState → Prop} {s₀ : MachineData}
-    (hw : ∀ (h : Embedding [d]) ⦃P : MachineState → Prop⦄ ⦃next : MachineData → Effects⦄
-        ⦃jmp : Int64 → MachineData → Effects⦄,
+    (hw : ∀ (h : Embedding [d]) (P : MachineState → Prop) (next : MachineData → Effects)
+        (jmp : Int64 → MachineData → Effects),
       (∀ s₁, done { data := s₁, pc := h.endAddr } → (next s₁).All P) →
       (∀ a s₁, Host.exe.StepOut (fun a => (FunDecls.at a).map fun f => f.prog.wp (fun _ => False))
         { data := s₀, pc := h.startAddr } (fun u => u.pc = h.endAddr ∧ done u) exit
@@ -175,7 +175,7 @@ public theorem Program.wp_single {d : Directive} {done exit : MachineState → P
     refine While.step («continue» := fun u => u.pc = h.endAddr ∧ done u) (by grind) ?_
       fun u hu => While.stop (by simp [hu.1]) hu.2
     exact Host.stepIn_addrOf hdk hz fun P n j hn hj =>
-      hw (fun s₁ hd' => hn s₁ ⟨hend, hd'⟩) fun a s₁ h' => hj a s₁ h'
+      hw _ _ _ (fun s₁ hd' => hn s₁ ⟨hend, hd'⟩) fun a s₁ h' => hj a s₁ h'
 
 public theorem Program.step1_of_wp {p : Program} (h : Embedding p) {done exit : MachineState → Prop}
     {s : MachineData} {post : MachineState → Prop} (hw : p.wp done exit s)

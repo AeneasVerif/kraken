@@ -27,7 +27,7 @@ fall-through from jumps.
 -/
 @[expose] public def Executable.StepIn (e : Executable) (next jump : MachineState → Prop) (st₀ : MachineState) : Prop :=
   haveI := e.labels
-  ∀ ⦃P : MachineState → Prop⦄ ⦃ret : MachineData → Effects⦄ ⦃jmp : MachineState → Effects⦄,
+  ∀ (P : MachineState → Prop) (ret : MachineData → Effects) (jmp : MachineState → Effects),
     (∀ s, next { data := s, pc := e.fallthrough st₀.pc } → (ret s).All P) →
     (∀ st₁, jump st₁ → (jmp st₁).All P) →
       (Directives.interp (e.directivesAtAddress st₀.pc) st₀.data st₀.pc (fun _ s => ret s)
@@ -39,7 +39,7 @@ variable {e : Executable} {st : MachineState}
 public theorem mono {next₁ next₂ jump₁ jump₂ : MachineState → Prop} (h : e.StepIn next₁ jump₁ st)
     (hn : ∀ u, u.pc = e.fallthrough st.pc → next₁ u → next₂ u) (hj : ∀ u, jump₁ u → jump₂ u) :
     e.StepIn next₂ jump₂ st :=
-  fun _ _ _ hr hk => h (fun s h => hr s (hn _ rfl h)) (fun u h => hk u (hj u h))
+  fun _ _ _ hr hk => h _ _ _ (fun s h => hr s (hn _ rfl h)) (fun u h => hk u (hj u h))
 
 public theorem all [Layout] {next jump post : MachineState → Prop} (h : e.StepIn next jump st)
     (hn : ∀ u, next u → post u) (hj : ∀ u, jump u → post u) : step1 e st post := by
@@ -49,7 +49,7 @@ public theorem all [Layout] {next jump post : MachineState → Prop} (h : e.Step
     (fun a s => Effects.done { data := s, pc := a })).All post
   rw [@Directives.interp_ret_congr e.labels _ _ _ _
     (fun _ s => Effects.done { data := s, pc := e.fallthrough st.pc }) _ (fun _ => rfl)]
-  exact h (fun _ h => hn _ h) (fun _ h => hj _ h)
+  exact h _ _ _ (fun _ h => hn _ h) (fun _ h => hj _ h)
 
 open Lean.Order in
 @[partial_fixpoint_monotone] public theorem monotone {α : Type} [PartialOrder α] {next : MachineState → Prop}
@@ -182,7 +182,7 @@ variable [Host]
 
 public theorem Host.stepIn_addrOf {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d)
     (hz : 0 < Kraken.Layout.size Directive k) {s₀ : MachineData} {next jump : MachineState → Prop}
-    (h : ∀ ⦃P : MachineState → Prop⦄ ⦃n : MachineData → Effects⦄ ⦃j : Int64 → MachineData → Effects⦄,
+    (h : ∀ (P : MachineState → Prop) (n : MachineData → Effects) (j : Int64 → MachineData → Effects),
       (∀ s₁, next { data := s₁, pc := Host.addrOf (k + 1) } → (n s₁).All P) →
       (∀ a s₁, jump { data := s₁, pc := a } → (j a s₁).All P) →
       (d.interp s₀ ⟨Host.addrOf k, Host.addrOf (k + 1)⟩ n j).All P) :
@@ -197,5 +197,5 @@ public theorem Host.stepIn_addrOf {k : Nat} {d : Directive} (hd : Host.prog[k]? 
   rw [hat, Directives.interp_inert_append hinert s₀ _ _ P (fun a s₀ => j { data := s₀, pc := a })]
   simp only [Directives.interp]
   rw [← Host.addrOf_succ hd]
-  exact h (fun s₁ hn => hr _ hn) (fun a s₁ hj' => hj _ hj')
+  exact h _ _ _ (fun s₁ hn => hr _ hn) (fun a s₁ hj' => hj _ hj')
 end
