@@ -62,4 +62,18 @@ theorem isInfixAt_infixIdx [DecidableEq α] (h : l₁ <:+: l₂) : l₁.IsInfixA
     (Option.some_get (find?_isSome.mpr (exists_isPrefixOf_drop h))).symm
   exact isPrefixOf_iff_prefix.mp hp
 
+theorem IsInfixAt.trans {l₃ : List α} {i j : Nat}
+    (h₁ : l₁.IsInfixAt l₂ i) (h₂ : l₂.IsInfixAt l₃ j) : l₁.IsInfixAt l₃ (j + i) := by
+  rw [isInfixAt_iff_getElem?] at *
+  intro n hn
+  have := h₁ n hn
+  have := h₂ (i + n) (by grind [getElem?_eq_some_iff])
+  grind
+
+theorem isInfixAt_cons_head (d : α) (p : List α) : [d].IsInfixAt (d :: p) 0 :=
+  ⟨p, rfl⟩
+
+theorem isInfixAt_cons_tail (d : α) (p : List α) : p.IsInfixAt (d :: p) 1 :=
+  ⟨[], append_nil p⟩
+
 end List
