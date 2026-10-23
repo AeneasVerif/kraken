@@ -401,63 +401,178 @@ info: [Directive.instr
 
 section error_reporting
 
-/-- error: line 1: unknown register: unlikely -/
+/-- error: <input>:1:12: expected x64_reg_name -/
 #guard_msgs in
 #check parse("xorq %rax, %unlikely")
 
-/--
-error: line 1: type mismatch in memory addressing operands: base ({w1}) and index ({w2}) have different widths
--/
+/-- error: type error: w64 != w32 -/
 #guard_msgs in
-#check parse("mov (%rax, %ebx)")
+#check parse("mov (%rax, %ebx), %rax")
 
-/-- error: line 1: can't have two memory operands -/
+/-- error: can't have two memory operands -/
 #guard_msgs in
 #check parse("mov (%rax), (%rax)")
 
-/-- error: line 1: high byte register cannot be used for an addrexpr -/
+/-- error: high byte register cannot be used for an addrexpr -/
 #guard_msgs in
 #check parse("mov $2, (%ah)")
 
-/-- error: line 1: unexpected end of input -/
+/-- error: <input>:1:9: unexpected end of input; expected ',' -/
 #guard_msgs in
 #check parse("addq %rax")
 
-/-- error: line 1: expected register or memory operand, got $ -/
+/-- error: expected register or memory operand, got $ -/
 #guard_msgs in
 #check parse("xorq %rax, $1")
 
-/-- error: line 1: can't have two memory operands -/
+/-- error: can't have two memory operands -/
 #guard_msgs in
 #check parse("movq sym, sym2")
 
-/-- error: line 1: absolute branch targets are not supported -/
+/-- error: absolute branch targets are not supported -/
 #guard_msgs in
 #check parse("jmp 0x10")
 
-/-- error: line 1: unexpected end of input -/
+/-- error: <input>:1:4: unexpected end of input -/
 #guard_msgs in
 #check parse("addq")
 
-/-- error: line 2: unexpected end of input -/
+/-- error: <input>:3:2: expected ',' -/
 #guard_msgs in
 #check parse("
   addq %rax
   cmpq $10, %rax
 ")
 
-/-- error: line 1: type error: w64 != w32 -/
+/-- error: type error: w64 != w32 -/
 #guard_msgs in
 #check parse("movq %eax, %rbx")
 
-/-- error: line 1: invalid scale 3, must be 1, 2, 4, or 8 -/
+/-- error: invalid scale 3, must be 1, 2, 4, or 8 -/
 #guard_msgs in
 #check parse("movq (%rax, %rcx, 3), %rbx")
 
-/-- error: line 1: unexpected trailing characters on line -/
+/-- error: <input>:1:16: unexpected element; expected ';' -/
 #guard_msgs in
 #check parse("movq %rax, %rbx garbage")
 
 end error_reporting
+
+section syntax_cat_and_include
+
+/--
+info: [Directive.label "loop", Directive.instr (regular Width.W64 Width.W64 (Operation.add ↑(low Reg64.rax Width.W64) ↑↑1)),
+  Directive.instr (regular Width.W64 Width.W64 (Operation.jcc CondCode.nz "loop"))] : List Directive
+-/
+#guard_msgs in
+#check [x64|
+  loop:
+    addq $1, %rax
+    jnz loop
+]
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.nop 1))] : List Directive
+-/
+#guard_msgs in
+#check include_x64 "Kraken/X64/Test/asm/test_nop.S"
+
+/--
+info: [Directive.label "aa.1.aa.1",
+  Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.jmp
+        (RelRegOrMem.rel ((↑".L.str.1.llvm.12345").sub ConstExpr.after_current_instruction))))] : List Directive
+-/
+#guard_msgs in
+#check [x64|
+  aa.1.aa.1:
+    jmp .L.str.1.llvm.12345
+]
+
+end syntax_cat_and_include
+
+section antiquotations
+
+variable {w : Width} (r : Reg w) (q : Reg .W64) (r64 : Reg64) (v : AvxReg .W256)
+
+-- Test: an antiquoted register decides the width of its instruction, which may be a variable
+/-- info: [Directive.instr (regular Width.W64 w (Operation.add ↑r ↑↑2))] : List Directive -/
+#guard_msgs in
+#check [x64| add $2, %❰r❱ ]
+
+-- Test: antiquoted and concrete registers unify
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑q ↑↑(low Reg64.rax Width.W64)))] : List Directive
+-/
+#guard_msgs in
+#check [x64| mov %rax, %❰q❱ ]
+
+-- Test: a width suffix must agree with the antiquoted register's width
+/--
+error: Type mismatch
+  r
+has type
+  Reg w
+but is expected to have type
+  Reg Width.W64
+-/
+#guard_msgs in
+#check [x64| addq $1, %❰r❱ ]
+
+/-- error: type error: w != w32 -/
+#guard_msgs in
+#check [x64| add %❰r❱, %eax ]
+
+-- Test: in address positions, antiquotations denote `Reg64`
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rcx Width.W64)
+        ↑↑{ base := some (RegOrRip.reg r64), idx := some { reg := Reg64.rax, scale := Width.W32 },
+              disp := ↑8 }))] : List Directive
+-/
+#guard_msgs in
+#check [x64| mov 8(%❰r64❱, %rax, 4), %rcx ]
+
+-- Test: AVX registers
+/--
+info: [Directive.instr
+    (avx Width.W64 AvxWidth.W256
+      (AvxOperation.vmovups ↑v ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+-/
+#guard_msgs in
+#check [x64| vmovups (%rax), %❰v❱ ]
+
+-- Test: a width that no operand or suffix determines is an error
+/-- error: could not infer operand width -/
+#guard_msgs in
+#check [x64| add $1, (%rax) ]
+
+-- Test: the source of a widening move must be narrower than its destination
+/-- error: source width w64 must be narrower than destination width w16 -/
+#guard_msgs in
+#check [x64| movsx %rax, %bx ]
+
+-- Test: antiquotations for operands, instructions and directives
+variable (o : Operand .W32) (rm : RegOrMem w) (av : AvxRegOrMem .W128) (i : Instr) (d : Directive)
+
+/-- info: [Directive.instr (regular Width.W64 Width.W32 (Operation.add (↑(low Reg64.rax Width.W32)) o))] : List Directive -/
+#guard_msgs in
+#check [x64| add ❰o❱, %eax ]
+
+/-- info: [Directive.instr (regular Width.W64 w (Operation.inc rm))] : List Directive -/
+#guard_msgs in
+#check [x64| inc ❰rm❱ ]
+
+/-- info: [Directive.instr (avx Width.W64 AvxWidth.W128 (AvxOperation.movaps (↑(AvxReg.xmm RegMm.mm1)) av))] : List Directive -/
+#guard_msgs in
+#check [x64| movaps ❰av❱, %xmm1 ]
+
+/-- info: [Directive.instr i, d, Directive.instr (regular Width.W64 Width.W64 Operation.ret)] : List Directive -/
+#guard_msgs in
+#check [x64| ❰i❱; ❰d❱; ret ]
+
+end antiquotations
 
 end Tests
