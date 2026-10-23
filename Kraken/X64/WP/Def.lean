@@ -12,15 +12,15 @@ postcondition at every other address where control leaves `p`.
 This definition is the bridge to `Std.WP` and thus `vcgen`.
 
 The definition of `wp` works by
-1. Considering the weakest precondition `Executable.StepOver` of a single directive in the laid out
-   executable.
-   * Fall-through continues the loop.
+1. Repeatedly considering the weakest precondition `Executable.StepOver` of a single directive in
+   the laid out executable.
+   * Fall-through repeats step 1.
    * A jump to a label `f` starting a fragment of `FunDecls` after pushing onto the stack is a call
      (cf. `Executable.StepOut`). `StepOver` steps over the call and applies the weakest precondition
      of `f`.
-   * Any other jump continues the loop if it targets a label in `p` and the stack pointer is at or
+   * Any other jump repeats step 1 if it targets a label in `p` and the stack pointer is at or
      below its value in `s`. Otherwise it leaves `p` and must satisfy `exit`.
-2. Taking the least fixpoint of step 1 via `While`.
+2. Taking the least fixpoint of step 1 via `While`, implementing "repeat" above.
    A state `st` satisfies the fixpoint iff every execution from `st` terminates in one of two ways.
    Either it reaches the end address of `p` for the first time in a state that satisfies `done`,
    or it leaves `p` in a state that satisfies `exit`.
