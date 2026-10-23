@@ -47,10 +47,10 @@ theorem StepOut.and_map {β : Type} (o : Int64 → Option β)
     by_cases hb : st₁.data.StackBelow st₀.data
     · simp only [hb, ite_true] at h₁ h₂ ⊢
       refine hg b _ _ _ _ (fun u a b => ?_) h₁ h₂
-      by_cases hu : u.pc = e.nextAddr st₀.pc
-      · simp only [hu, ite_true] at a b ⊢
+      by_cases hu : u.pc = e.nextAddr st₀.pc ∧ ¬ u.data.StackBelow st₀.data
+      · rw [ite_eq_left hu] at a b ⊢
         exact hn _ a b
-      · simp only [hu, ite_false] at a b ⊢
+      · rw [ite_eq_right hu] at a b ⊢
         exact hj _ a b
     · simp only [hb, ite_false] at h₁ h₂ ⊢
       exact hj _ h₁ h₂

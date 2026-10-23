@@ -69,18 +69,20 @@ public abbrev MachineData.StackAtOrBelow (s₁ s₀ : MachineData) : Prop := ¬ 
 open Classical in
 /--
 `Executable.StepOut e funs st₀ next jump st₁` defines the weakest precondition of the jump from
-`st₀` to `st₁`. If the jump is not a call (cf. below), then `jump st₁` must hold.
+`st₀` to `st₁`.
 
-The jump is considered a call iff
-* `funs st₁.pc = some wp`,
-* the stack pointer of `st₁` is below that of `st₀`.
-
-In this case, the callee's activation is traced through `wp`, ending in a state `st₂`. Two cases:
-* Return: If `st₂.pc = e.nextAddr st₀.pc`, then the callee returned to the instruction after
-  `st₀.pc`. In this case, `next st₂` must hold and the effect is that of *stepping out* of the
-  callee state at `st₁` back into the caller at `st₂`.
+The jump is a call iff `funs st₁.pc = some wp` and the stack pointer of `st₁` lies (strictly) below
+that of `st₀`. For example, `call f` pushes the return address and jumps to the start of `f`.
+The callee's execution from `st₁` is then given by the existing `wp` of `f`, ending in a state `st₂`:
+* Return: If `st₂.pc = e.nextAddr st₀.pc` and the stack pointer of `st₂` is not below that of
+  `st₀`, then the callee returned to the instruction after `st₀.pc`. In this case, `next st₂` must
+  hold and the effect is that of *stepping out* of the callee state at `st₁` back into the caller
+  at `st₂`.
 * Jump: Otherwise, `jump st₂` must hold, treating any jump of the callee like a jump of the call
   instruction.
+
+Every other jump must satisfy `jump st₁`. For example, the tail call `jmp f` leaves the stack
+pointer unchanged, so `StepOut` treats it as a jump.
 -/
 @[expose] public def Executable.StepOut (e : Executable)
     (funs : Int64 → Option ((MachineState → Prop) → MachineData → Prop))
@@ -88,7 +90,9 @@ In this case, the callee's activation is traced through `wp`, ending in a state 
   match funs st₁.pc with
   | some wp =>
     if st₁.data.StackBelow st₀.data then
-      wp (fun st₂ => if st₂.pc = e.nextAddr st₀.pc then next st₂ else jump st₂) st₁.data
+      wp (fun st₂ =>
+        if st₂.pc = e.nextAddr st₀.pc ∧ ¬ st₂.data.StackBelow st₀.data
+        then next st₂ else jump st₂) st₁.data
     else jump st₁
   | none => jump st₁
 
@@ -124,10 +128,10 @@ theorem StepOut.mono_map {β : Type} (o : Int64 → Option β)
     by_cases hb : st₁.data.StackBelow st₀.data
     · simp only [hb, ite_true] at h ⊢
       refine hg b _ _ _ (fun u a => ?_) h
-      by_cases hu : u.pc = e.nextAddr st₀.pc
-      · simp only [hu, ite_true] at a ⊢
-        exact hn _ hu a
-      · simp only [hu, ite_false] at a ⊢
+      by_cases hu : u.pc = e.nextAddr st₀.pc ∧ ¬ u.data.StackBelow st₀.data
+      · rw [ite_eq_left hu] at a ⊢
+        exact hn _ hu.1 a
+      · rw [ite_eq_right hu] at a ⊢
         exact hj _ a
     · simp only [hb, ite_false] at h ⊢
       exact hj _ h
