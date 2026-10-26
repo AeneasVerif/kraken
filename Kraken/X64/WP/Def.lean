@@ -52,7 +52,7 @@ Weakest precondition of a `Program` fragment of the host program.
 of `p` for the first time in a state that satisfies `done`, or leaves `p` in a state that satisfies
 `exit`.
 -/
-public def Program.wp [Host] [FunDecls] (p : Program) (done exit : MachineState → Prop)
+@[expose] public def Program.wp [Host] [FunDecls] (p : Program) (done exit : MachineState → Prop)
     (s : MachineData) : Prop :=
   let funs a := (FunDecls.at a).map fun f => f.prog.wp (fun _ => False)
   ∀ h : Embedding p,
@@ -63,13 +63,6 @@ inductive_fixpoint
 
 section
 variable [Host] [FunDecls]
-
-public theorem Program.wp_eq {p : Program} {done exit : MachineState → Prop} {s : MachineData} :
-    p.wp done exit s = ∀ h : Embedding p, While (·.pc ≠ h.endAddr)
-      (fun «continue» => Host.exe.StepOver (fun a => (FunDecls.at a).map fun f => f.prog.wp (fun _ => False))
-        «continue» (p.ContinueAtOwnLabel s «continue» exit))
-      done { data := s, pc := h.startAddr } := by
-  rw [Program.wp]
 
 omit [FunDecls] in
 theorem Program.continueAtOwnLabel_mono {p : Program} {s : MachineData}
@@ -98,7 +91,7 @@ public theorem Program.wp_mono {p : Program} {done₁ done₂ exit₁ exit₂ : 
       (∀ u, exit u → exit' u) → p.wp done' exit' s)
     ?_ p done₁ exit₁ s h done₂ exit₂ hd he
   intro p done exit s hw done' exit' hd he
-  rw [Program.wp_eq]
+  rw [Program.wp]
   intro H
   refine While.mono (fun U y _ hy => ?_) (fun y _ h => hd y h) (hw H)
   refine Executable.StepOver.mono_map FunDecls.at ?_ (fun _ _ h => h)
@@ -109,7 +102,7 @@ public theorem Program.wp_mono {p : Program} {done₁ done₂ exit₁ exit₂ : 
 public theorem Program.wp_nil {done exit : MachineState → Prop} {s : MachineData}
     (hd : ∀ pc, done { data := s, pc := pc }) :
     Program.wp [] done exit s := by
-  rw [Program.wp_eq]
+  rw [Program.wp]
   intro h
   exact While.stop (by simp [Embedding.endAddr, Embedding.startAddr]) (hd _)
 
@@ -119,7 +112,7 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
   have nd := Program.not_isLabelAddr_of_labels_eq_nil (p := [d]) (by cases d <;> simp_all)
   have np := Program.not_isLabelAddr_of_labels_eq_nil (p := p) (by cases d <;> simp_all)
   have ndp := Program.not_isLabelAddr_of_labels_eq_nil hN
-  rw [Program.wp_eq] at hw ⊢
+  rw [Program.wp] at hw ⊢
   intro H
   have hd := H.isInfixAt.cons.1
   have hw := hw H.head
@@ -136,7 +129,7 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
     refine Executable.StepOver.mono_map FunDecls.at ?_
       (fun u hpc hu => ⟨hu, fun hne => absurd (hpc.trans hft) hne⟩) (fun _ h => h) hb
     exact fun _ _ _ _ hR h => Program.wp_mono (fun _ h => h) hR h
-  · rw [Program.wp_eq] at hst
+  · rw [Program.wp] at hst
     have hst := hst H.tail
     simp only [Program.continueAtOwnLabel_of_not_isLabelAddr np] at hst
     rwa [show H.tail.startAddr = st.pc by grind, show H.tail.endAddr = H.endAddr by grind] at hst
@@ -151,7 +144,7 @@ public theorem Program.wp_single {d : Directive} {done exit : MachineState → P
           (jmp a s₁).All P) →
       (d.interp s₀ ⟨h.startAddr, h.endAddr⟩ next jmp).All P) :
     Program.wp [d] done exit s₀ := by
-  rw [Program.wp_eq]
+  rw [Program.wp]
   intro h
   have hw := hw h
   have hdk : Host.prog[h.start]? = some d := h.isInfixAt.cons.1

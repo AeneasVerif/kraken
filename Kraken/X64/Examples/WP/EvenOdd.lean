@@ -186,7 +186,7 @@ theorem body_spec (hlab : ∀ i l, Host.prog[i]? = some (.label l) → label l =
     (hrq : (rq + 1) % 2 = r) (base : BitVec 64) (sz n : Nat)
     (ih : ∀ s ra, (s.regs.get64 .rdi).toNat < n → Spec q base sz rq s ra)
     (s : MachineData) (ra : Int64) (hn : (s.regs.get64 .rdi).toNat = n) : Spec (body f z g c) base sz r s ra := by
-  rintro ⟨hsz, hsz', hmap⟩; rw [Program.wp_eq]; intro H
+  rintro ⟨hsz, hsz', hmap⟩; rw [Program.wp]; intro H
   have hload0 : ∃ v, Mem.loadInt (s.pushRa ra).dmem ((s.pushRa ra).regs.get64 .rsp) 8 = some v ∧
       Int64.ofBitVec (BitVec.ofInt 64 v) = ra := by
     rs; exact ⟨_, loadInt_storeInt .., by rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, Int64.ofBitVec_toBitVec]⟩

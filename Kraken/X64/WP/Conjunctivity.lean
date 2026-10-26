@@ -89,7 +89,7 @@ public theorem Program.wp_and {p : Program} {done₁ done₂ exit₁ exit₂ : M
       p.wp (fun u => done u ∧ done' u) (fun u => exit u ∧ exit' u) s)
     ?_ p done₁ exit₁ s h₁ done₂ exit₂ h₂
   intro p done exit s hw done' exit' hw'
-  rw [Program.wp_eq] at hw' ⊢
+  rw [Program.wp] at hw' ⊢
   intro H
   refine While.and (fun U V y _ hU hV => ?_) (hw H) (hw' H)
   refine Executable.StepOver.and_map FunDecls.at ?_ (fun _ h₁ h₂ => ⟨h₁, h₂⟩)
