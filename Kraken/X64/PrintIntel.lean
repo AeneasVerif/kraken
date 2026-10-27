@@ -123,6 +123,9 @@ instance : ToString ShiftCountExpr where toString
   | .cl => "cl"
   | .imm8 v => ToString.toString v
 
+/-- The width letter Intel syntax gives a string instruction. -/
+def stringSuffix : Width → String | .W8 => "b" | .W16 => "w" | .W32 => "d" | .W64 => "q"
+
 def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := match op with
   | .mov dst src => s!"mov {dst.toStr addr_w}, {src.toStr addr_w}"
   | @Operation.movsx _ w' dst src =>
@@ -132,6 +135,8 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .movzx dst src => s!"movzx {dst.toStr addr_w}, {src.toStr addr_w}"
   | .push src => s!"push {src.toStr addr_w}"
   | .pop dst => s!"pop {dst.toStr addr_w}"
+  | .movs rep => s!"{if rep then "rep " else ""}movs{stringSuffix w}"
+  | .stos rep => s!"{if rep then "rep " else ""}stos{stringSuffix w}"
   | .setcc cc dst => s!"set{cc} {dst.toStr addr_w}"
   | .cmovcc cc dst src => s!"cmov{cc} {dst}, {src.toStr addr_w}"
   | .lea dst src => s!"lea {dst}, {src.toStr addr_w}"
