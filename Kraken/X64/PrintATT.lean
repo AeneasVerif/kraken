@@ -134,7 +134,7 @@ def instr : Instr → String
   | .regular aw _ op => operation aw op
   | .avx aw _ op => avxOperation aw op
 
-def directive : Directive → String
+def directive : _root_.Directive → String
   | .instr i => instr i
   | .label l => s!"{l}:"
   | d@(.byteArray _) => toString d
@@ -142,5 +142,5 @@ def directive : Directive → String
 end Kraken.X64.ATT
 
 /-- Print a program in AT&T syntax, one directive per line. -/
-def Kraken.X64.toATT (p : Program) : String :=
+def Kraken.X64.toATT (p : _root_.Program) : String :=
   "\n".intercalate (p.map ATT.directive)

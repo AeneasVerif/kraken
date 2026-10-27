@@ -150,7 +150,7 @@ def fuzzConfig : FuzzConfig MachineData StatusFlags StateSummary where
   parseSteps asmCode := do
     let exe := (← (Kraken.X64.Parser.parse asmCode).toOption).fakeLayout
     let := exe.labels
-    return exe.withAddresses.map fun d =>
+    return exe.withAddresses.map fun d : Kraken.Addressable Directive =>
       { d with directive := fun s p h => evalEffects h false (d.directive.interp s p (fun s => .done ⟨s, p.upper⟩) (fun _ _ => .unimplemented "jump")) }
   summarize := summarize
   genInstr := Kraken.X64.ATT.instr <$> gen

@@ -479,17 +479,11 @@ structure Instr where
   operation : Operation operation_size
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
-instance : Repr ByteArray where reprPrec _ _ := "<opaque byte array>"
-
-deriving instance Lean.ToExpr for ByteArray
-inductive Directive
-  | instr (_ : Instr)
-  | label (_ : Label)
-  | byteArray (_ : ByteArray)
-  deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
+abbrev Directive := Kraken.Directive Instr
 
 abbrev Program := List Directive
-abbrev Executable := Kraken.Executable Directive
+
+abbrev Executable := Kraken.Executable Instr
 
 namespace RegOrSp
 @[match_pattern] abbrev X0 := low (.reg .X0) .W64

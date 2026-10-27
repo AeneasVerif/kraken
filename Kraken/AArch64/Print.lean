@@ -203,7 +203,7 @@ def operation {w} (op : Operation w) : String :=
 
 def instr (i : Instr) : String := operation i.operation
 
-def directive : Directive → String
+def directive : _root_.Directive → String
   | .instr i => instr i
   | .label l => s!"{l}:"
   | .byteArray bs => ".byte " ++ ", ".intercalate (bs.toList.map toString)
@@ -214,5 +214,5 @@ instance : ToString Instr := ⟨Kraken.AArch64.Print.instr⟩
 instance : ToString Directive := ⟨Kraken.AArch64.Print.directive⟩
 
 /-- Print a program in AArch64 assembly syntax, one directive per line. -/
-def Kraken.AArch64.print (p : Program) : String :=
+def Kraken.AArch64.print (p : _root_.Program) : String :=
   "\n".intercalate (p.map Print.directive)
