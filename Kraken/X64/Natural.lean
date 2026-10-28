@@ -217,17 +217,3 @@ public theorem Directives.interp_natural [Labels] (ds : List (Kraken.Sized Direc
         rcases x with s' | x
         · exact ih s' _
         · exact Natural.cont _
-
-public theorem Directives.interp_ret_congr [Labels] (ds : List (Kraken.Sized Directive)) (s : MachineData)
-    (pc : Int64) {ret ret' jmp : Int64 → MachineData → Effects}
-    (h : ∀ s, ret (pc + .ofNat (ds.map (·.size)).sum) s = ret' (pc + .ofNat (ds.map (·.size)).sum) s) :
-    Directives.interp ds s pc ret jmp = Directives.interp ds s pc ret' jmp := by
-  induction ds generalizing s pc with
-  | nil => simpa [Directives.interp] using h s
-  | cons c ds ih =>
-    obtain ⟨d, z⟩ := c
-    simp only [Directives.interp]
-    congr 1
-    funext s'
-    refine ih s' _ fun s => ?_
-    simpa only [List.map_cons, List.sum_cons, Int64.ofNat_add, Int64.add_assoc] using h s
