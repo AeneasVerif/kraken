@@ -452,7 +452,7 @@ section error_reporting
 #guard_msgs in
 #check parse("movq (%rax, %rcx, 3), %rbx")
 
-/-- error: <input>:1:16: unexpected element; expected ';' -/
+/-- error: <input>:1:16: expected end of input -/
 #guard_msgs in
 #check parse("movq %rax, %rbx garbage")
 

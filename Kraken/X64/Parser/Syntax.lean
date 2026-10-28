@@ -385,12 +385,9 @@ syntax "❰" term "❱" : x64_instr
 
 /-- X64 directive (label declaration, instruction, or Lean term antiquotation). -/
 declare_syntax_cat x64_directive (behavior := both)
-syntax atomic(x64_ident ":") : x64_directive
-syntax atomic(x64_ident ":" ";") : x64_directive
-syntax x64_instr ";" : x64_directive
-syntax withPosition(x64_instr notFollowedBy(lineEq (x64_ident <|> "," <|> x64_operand))) : x64_directive
-syntax "❰" term "❱" ";" : x64_directive
-syntax "❰" term "❱" : x64_directive
+syntax atomic(x64_ident ":") ";"? : x64_directive
+syntax x64_instr ";"? : x64_directive
+syntax "❰" term "❱" ";"? : x64_directive
 
 /-- X64 assembly program (sequence of directives). -/
 declare_syntax_cat x64_prog (behavior := both)
