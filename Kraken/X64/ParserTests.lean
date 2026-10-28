@@ -452,9 +452,17 @@ section error_reporting
 #guard_msgs in
 #check parse("movq (%rax, %rcx, 3), %rbx")
 
-/-- error: <input>:1:16: expected end of input -/
+/-- error: <input>:1:16: unexpected element; expected ';' -/
 #guard_msgs in
 #check parse("movq %rax, %rbx garbage")
+
+/-- error: <input>:1:9: unexpected element; expected ';' -/
+#guard_msgs in
+#check parse("shlq %rcx, %rax")
+
+/-- error: <input>:1:0: expected end of input -/
+#guard_msgs in
+#check parse("foo\n:")
 
 end error_reporting
 
@@ -555,7 +563,7 @@ info: [Directive.instr
 #check [x64| movsx %rax, %bx ]
 
 -- Test: antiquotations for operands, instructions and directives
-variable (o : Operand .W32) (rm : RegOrMem w) (av : AvxRegOrMem .W128) (i : Instr) (d : Directive)
+variable (o : Operand .W32) (rm : RegOrMem w) (av : AvxRegOrMem .W128) (rt : RelRegOrMem) (i : Instr) (d : Directive)
 
 /-- info: [Directive.instr (regular Width.W64 Width.W32 (Operation.add (↑(low Reg64.rax Width.W32)) o))] : List Directive -/
 #guard_msgs in
@@ -569,9 +577,17 @@ variable (o : Operand .W32) (rm : RegOrMem w) (av : AvxRegOrMem .W128) (i : Inst
 #guard_msgs in
 #check [x64| movaps ❰av❱, %xmm1 ]
 
+/-- info: [Directive.instr (regular Width.W64 Width.W64 (Operation.jmp rt))] : List Directive -/
+#guard_msgs in
+#check [x64| jmp ❰rt❱ ]
+
 /-- info: [Directive.instr i, d, Directive.instr (regular Width.W64 Width.W64 Operation.ret)] : List Directive -/
 #guard_msgs in
-#check [x64| ❰i❱; ❰d❱; ret ]
+#check [x64| ❰.instr i❱; ❰d❱; ret ]
+
+/-- info: [Directive.label "foo", Directive.instr (regular Width.W64 Width.W64 Operation.ret)] : List Directive -/
+#guard_msgs in
+#check [x64| ❰.label "foo"❱; ❰.instr <| .regular .W64 .W64 .ret❱ ]
 
 end antiquotations
 

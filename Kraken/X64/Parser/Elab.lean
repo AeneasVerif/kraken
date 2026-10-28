@@ -408,6 +408,8 @@ def elabRelTarget (stx : TSyntax `x64_operand) : X64ElabM Expr := withRef stx do
     throwError "absolute branch targets are not supported"
   | `(x64_operand| $m:x64_mem) =>
     return mkApp (mkConst ``RelRegOrMem.mem) (← elabMem m)
+  | `(x64_operand| ❰ $t ❱) =>
+    elabAntiquot t (mkConst ``RelRegOrMem)
   | _ => throwError "invalid branch target operand"
 
 /-- Evaluate an `x64_shift_count` (`$imm` or `%cl`) into a `ShiftCountExpr`. -/
@@ -541,7 +543,6 @@ def elabShdOp (stx : TSyntax `x64_shd_op) : TermElabM Expr := withRef stx do
     so that an operand disagreeing with the suffix is reported against the suffix. -/
 def elabInstr (stx : TSyntax `x64_instr) : X64ElabM Expr := withRef stx do
   match stx with
-  | `(x64_instr| ❰ $t ❱) => elabAntiquot t (mkConst ``Instr)
   | `(x64_instr| .align $align:num $[, $pad?:num]?) =>
     mkClosedInstr (.nopalign align.getNat (pad?.map (·.getNat)))
   | `(x64_instr| $op:x64_bin_op $src:x64_operand, $dst:x64_operand) =>
@@ -695,15 +696,12 @@ def elabDirective (stx : TSyntax `x64_directive) : TermElabM Expr := withRef stx
   match stx with
   | `(x64_directive| $lbl:x64_ident : $[;]?) =>
     let name ← getAsmIdent lbl
-    pure (Lean.toExpr (Directive.label name))
-  | `(x64_directive| $ins:x64_instr $[;]?) =>
+    return (Lean.toExpr (Directive.label name))
+  | `(x64_directive| $ins:x64_instr ;)
+  | `(x64_directive| $ins:x64_instr) =>
     return mkApp (mkConst ``Directive.instr) (← (elabInstr ins).run')
   | `(x64_directive| ❰ $t ❱ $[;]?) =>
-    -- A statement-level antiquotation shadows the instruction-level one, so accept an `Instr` here too.
-    let e ← withoutErrToSorry <| withSynthesize <| elabTerm t none
-    if ← isDefEq (← inferType e) (mkConst ``Instr) then
-      return mkApp (mkConst ``Directive.instr) e
-    ensureHasType (mkConst ``Directive) e
+    elabAntiquot t (mkConst ``Directive)
   | _ => throwError "invalid assembly directive"
 
 /-- Elaborate an `x64_prog` syntax node into a `Lean.Expr` of type `Program` (`List Directive`). -/
