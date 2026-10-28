@@ -45,6 +45,12 @@ def getAsmIdent (stx : Syntax) : Elab.TermElabM String := withRef stx do
   | .node _ _ #[.atom _ s] => pure s
   | _ => throwError "expected assembly identifier"
 
+/-- Whether `s` is a valid assembly identifier token (`[a-zA-Z_.][a-zA-Z0-9_.]*`). -/
+def isAsmIdent (s : String) : Bool :=
+  match s.toList with
+  | c :: cs => (c.isAlpha || c == '_' || c == '.') && cs.all (fun c => c.isAlphanum || c == '_' || c == '.')
+  | [] => false
+
 end
 
 -- ============================================================================

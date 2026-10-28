@@ -121,6 +121,16 @@ def getAffixedSuffix (stx : Syntax) : TermElabM String := do
   let (_, _, sfx) ← splitAffixed stx
   return sfx
 
+-- NOTE: We should use `mkAffixed` in the elab_rules above, if we have it already.
+/-- Construct a syntax node of category `cat` (declared in namespace `ns`) for the affixed keyword
+    `pre ++ stem ++ sfx`. -/
+def mkAffixed (ns cat : Name) (pre stem sfx : String) : TSyntax cat :=
+  let kind := ((ns ++ cat).str "affixed").str s!"{pre}|{stem}|{sfx}"
+  ⟨Syntax.node .none kind #[Syntax.atom .none (pre ++ stem ++ sfx)]⟩
+
+def mkSuffixed (ns cat : Name) (stem sfx : String) : TSyntax cat :=
+  mkAffixed ns cat "" stem sfx
+
 end
 
 end Kraken
