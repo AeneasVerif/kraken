@@ -723,8 +723,9 @@ public def elabX64 (s : String) : TermElabM Expr :=
 
 end
 
-/-- Inline unquoted X64 assembly block macro/elaborator (`[x64| ... ]`). -/
-elab "[x64|" p:x64_prog "]" : term => elabProgram p
+/-- Inline unquoted X64 assembly block elaborator (`[x64| ... ]`). -/
+elab_rules : term
+  | `([x64| $p:x64_prog]) => elabProgram p
 
 /-- Inline unquoted X64 assembly block macro/elaborator (`parse( ... )`). -/
 elab "parse(" p:x64_prog ")" : term => elabProgram p
