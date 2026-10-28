@@ -38,3 +38,5 @@ open Lean.Meta
 
 initialize ksimpExt : Sym.Simp.SymSimpExtension ←
   Sym.Simp.registerSymSimpAttr `ksimp "simp theorems used by kstep"
+
+register_simp_attr natural

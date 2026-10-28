@@ -16,8 +16,9 @@ def Directive.Inert (d : Directive) : Prop :=
 
 theorem Directives.interp_inert_append [Labels] {pre rest : List (Kraken.Sized Directive)}
     (hpre : ∀ c ∈ pre, c.size = 0 ∧ c.directive.Inert) (s : MachineData) (pc : Int64)
-    (ret : Int64 → MachineData → Effects) (post : @Post MachineState) :
-    (Directives.interp (pre ++ rest) s pc ret).All post ↔ (Directives.interp rest s pc ret).All post := by
+    (ret : Int64 → MachineData → Effects) (post : @Post MachineState)
+    (jmp : Int64 → MachineData → Effects := ret) :
+    (Directives.interp (pre ++ rest) s pc ret jmp).All post ↔ (Directives.interp rest s pc ret jmp).All post := by
   induction pre generalizing s with
   | nil => rfl
   | cons c pre ih =>

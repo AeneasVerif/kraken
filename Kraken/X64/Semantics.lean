@@ -793,12 +793,12 @@ def Instr.interp [Labels]
 
 def Directives.interp [Labels]
   (ds : List (Kraken.Sized Directive)) (s : MachineData) (pc : Int64)
-  (ret : Int64 → MachineData → Effects) : Effects :=
+  (ret : Int64 → MachineData → Effects) (jmp : Int64 → MachineData → Effects := ret) : Effects :=
   match ds with
   | [] => ret pc s
   | {directive, size := sz} :: ds =>
-    directive.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
-    interp ds s (pc+.ofNat sz) ret))
+    directive.interp s (.mk pc (pc+.ofNat sz)) (jmp:=jmp) (next := (fun s =>
+    interp ds s (pc+.ofNat sz) ret jmp))
 
 abbrev Layout := Kraken.Layout Directive
 

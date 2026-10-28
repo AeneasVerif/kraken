@@ -25,6 +25,8 @@ private theorem exists_least_le {P : Nat → Prop} {n : Nat} (h : P n) :
 public class Host where
   prog : Program
   layout : Layout
+  /-- Labels have size zero. -/
+  label_size : ∀ i l, prog[i]? = some (.label l) → @Kraken.Layout.size _ layout i = 0
   /-- Any directive that occupies zero space in the executable must be semantically inert. -/
   zero_inert : ∀ i d, prog[i]? = some d → @Kraken.Layout.size _ layout i = 0 → d.Inert
   /-- Two directives at the same address have the same offset in the executable. -/
@@ -39,7 +41,7 @@ public instance [Host] : Layout := Host.layout
 
 public instance [Host] : Labels := Executable.labels Host.exe
 
-public theorem Host.sizeBefore_eq_of_addrOf_eq [Host] {j k : Nat} (h : Host.addrOf j = Host.addrOf k) :
+@[grind →] public theorem Host.sizeBefore_eq_of_addrOf_eq [Host] {j k : Nat} (h : Host.addrOf j = Host.addrOf k) :
     Host.exe.sizeBefore j = Host.exe.sizeBefore k :=
   Host.addr_determines_offset j k h
 
@@ -47,21 +49,9 @@ public theorem Host.inert_of_getElem? [Host] {i : Nat} {d : Directive} (h : Host
     (hz : Kraken.Layout.size Directive i = 0) : d.Inert :=
   Host.zero_inert i d h hz
 
-@[expose] public def Host.startAddr [Host] {p : Program} (h : p.IsInfix Host.prog) : Int64 :=
-  Host.addrOf (p.infixIdx Host.prog h)
-
-@[expose] public def Host.endAddr [Host] {p : Program} (h : p.IsInfix Host.prog) : Int64 :=
-  Host.addrOf (p.infixIdx Host.prog h + p.length)
-
-export Host (startAddr endAddr)
-
-public theorem Layout.apply_getElem? [layout : Layout] (p : Program) (i : Nat) :
-    (layout p).program[i]? = (p[i]?).map (fun d => {directive := d, size := Kraken.Layout.size Directive i}) := by
-  simp [Kraken.Layout.apply, List.getElem?_mapIdx]
-
-public theorem Host.exe_getElem? [Host] (i : Nat) :
-    Host.exe.program[i]? = Host.prog[i]?.map (fun d => {directive := d, size := Kraken.Layout.size Directive i}) :=
-  Layout.apply_getElem? _ _
+@[simp] public theorem Host.exe_getElem? [Host] (i : Nat) :
+    Host.exe.program[i]? = Host.prog[i]?.map (fun d => {directive := d, size := Kraken.Layout.size Directive i}) := by
+  simp [Host.exe, Kraken.Layout.apply, List.getElem?_mapIdx]
 
 public theorem Host.addrOf_succ [Host] {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d) :
     Host.addrOf (k + 1) = Host.addrOf k + .ofNat (Kraken.Layout.size Directive k) :=
@@ -70,14 +60,29 @@ public theorem Host.addrOf_succ [Host] {k : Nat} {d : Directive} (hd : Host.prog
 section
 variable [Host]
 
+@[grind =] public theorem Host.addrOf_def (k : Nat) :
+    Host.addrOf k = Host.exe.startAddr + .ofNat (Host.exe.sizeBefore k) := rfl
+
+@[grind →] public theorem Host.sizeBefore_succ {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d) :
+    Host.exe.sizeBefore (k + 1) = Host.exe.sizeBefore k + Kraken.Layout.size Directive k :=
+  Host.exe.sizeBefore_succ (c := {directive := d, size := Kraken.Layout.size Directive k})
+    (by rw [Host.exe_getElem?, hd]; rfl)
+
+public theorem Host.sizeBefore_mono {j k : Nat} (h : j ≤ k) : Host.exe.sizeBefore j ≤ Host.exe.sizeBefore k :=
+  Host.exe.sizeBefore_mono h
+
+grind_pattern Host.sizeBefore_mono => Host.exe.sizeBefore j, Host.exe.sizeBefore k
+
 public theorem Host.inert_of_size_zero {d : Directive} (h : {directive := d, size := 0} ∈ Host.exe.program) : d.Inert := by
   obtain ⟨m, hm⟩ := List.mem_iff_getElem?.mp h
   grind [Host.exe_getElem?, Host.inert_of_getElem?]
 
-public theorem Host.directivesAtAddress_addrOf {k : Nat} {c : Kraken.Sized Directive}
-    (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) :
-    ∃ pre, Host.exe.directivesAtAddress (Host.addrOf k) = pre ++ [c] ∧
-      ∀ c ∈ pre, c.size = 0 := by
+public theorem Host.directivesAtAddress_addrOf {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d)
+    (hz : 0 < Kraken.Layout.size Directive k) :
+    ∃ pre, Host.exe.directivesAtAddress (Host.addrOf k) =
+      pre ++ [{directive := d, size := Kraken.Layout.size Directive k}] ∧ ∀ c ∈ pre, c.size = 0 := by
+  have hc : Host.exe.program[k]? = some {directive := d, size := Kraken.Layout.size Directive k} := by
+    rw [Host.exe_getElem?, hd]; rfl
   obtain ⟨j, hjk, hj, hmin⟩ :=
     exists_least_le (P := fun i => Host.exe.addrOf i = Host.exe.addrOf k) rfl
   have hsize := Host.sizeBefore_eq_of_addrOf_eq hj
@@ -104,4 +109,60 @@ public theorem Host.directivesAtAddress_addrOf {k : Nat} {c : Kraken.Sized Direc
   · intro c hc
     grind [Kraken.Executable.getElem?_withAddresses_eq]
 
+
+public theorem Host.nextAddr_addrOf {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d)
+    (hz : 0 < Kraken.Layout.size Directive k) :
+    Host.exe.nextAddr (Host.addrOf k) = Host.addrOf (k + 1) := by
+  obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd hz
+  have hpre0 : (pre.map (·.size)).sum = 0 := List.sum_eq_zero_iff_forall_eq_nat.mpr fun n hn => by
+    obtain ⟨c, hc, rfl⟩ := List.mem_map.mp hn
+    exact hpre c hc
+  rw [Kraken.Executable.nextAddr, hat, List.map_append, List.sum_append, hpre0, Host.addrOf_succ hd]
+  simp
 end
+
+public structure Embedding [Host] (p : Program) where
+  start : Nat
+  isInfixAt : p.IsInfixAt Host.prog start
+
+section
+variable [Host]
+
+@[expose] public def Embedding.startAddr {p : Program} (e : Embedding p) : Int64 := Host.addrOf e.start
+
+@[expose] public def Embedding.endAddr {p : Program} (e : Embedding p) : Int64 :=
+  Host.addrOf (e.start + p.length)
+
+
+@[grind =] public theorem Embedding.startAddr_def {p : Program} (e : Embedding p) :
+    e.startAddr = Host.addrOf e.start := rfl
+
+@[grind =] public theorem Embedding.endAddr_def {p : Program} (e : Embedding p) :
+    e.endAddr = Host.addrOf (e.start + p.length) := rfl
+
+@[expose] public def Embedding.head {d : Directive} {p : Program} (e : Embedding (d :: p)) : Embedding [d] :=
+  ⟨e.start, List.IsInfixAt.trans (List.isInfixAt_cons_head d p) e.isInfixAt⟩
+
+@[expose] public def Embedding.tail {d : Directive} {p : Program} (e : Embedding (d :: p)) : Embedding p :=
+  ⟨e.start + 1, List.IsInfixAt.trans (List.isInfixAt_cons_tail d p) e.isInfixAt⟩
+
+@[simp, grind norm] public theorem Embedding.head_start {d : Directive} {p : Program} (e : Embedding (d :: p)) :
+    e.head.start = e.start := rfl
+
+@[simp, grind norm] public theorem Embedding.tail_start {d : Directive} {p : Program} (e : Embedding (d :: p)) :
+    e.tail.start = e.start + 1 := rfl
+end
+
+public structure Fragment [Host] where
+  prog : Program
+  embedding : Embedding prog
+
+public class FunDecls [Host] where
+  funs : List Fragment
+
+@[expose] public def FunDecls.at [Host] [FunDecls] (a : Int64) : Option Fragment :=
+  FunDecls.funs.find? (·.embedding.startAddr == a)
+
+public theorem FunDecls.startAddr_of_at [Host] [FunDecls] {a : Int64} {f : Fragment}
+    (h : FunDecls.at a = some f) : f.embedding.startAddr = a := by
+  simpa using List.find?_some h
