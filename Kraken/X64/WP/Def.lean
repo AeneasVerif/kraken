@@ -2,7 +2,7 @@ module
 
 public import Kraken.X64.WP.Host
 public import Kraken.X64.WP.Step
-public import Kraken.While
+public import Kraken.Until
 
 /-! # Weakest precondition of a fragment of a host program
 
@@ -20,7 +20,7 @@ The definition of `wp` works by
      of `f`.
    * Any other jump repeats step 1 if it targets a label in `p` and the stack pointer is at or
      below its value in `s`. Otherwise it leaves `p` and must satisfy `exit`.
-2. Taking the least fixpoint of step 1 via `While`, implementing "repeat" above.
+2. Taking the least fixpoint of step 1 via `Until`, implementing "repeat" above.
    A state `st` satisfies the fixpoint iff every execution from `st` terminates in one of two ways.
    Either it reaches the end address of `p` for the first time in a state that satisfies `done`,
    or it leaves `p` in a state that satisfies `exit`.
@@ -56,7 +56,7 @@ of `p` for the first time in a state that satisfies `done`, or leaves `p` in a s
     (s : MachineData) : Prop :=
   let funs a := (FunDecls.at a).map fun f => f.prog.wp (fun _ => False)
   ∀ h : Embedding p,
-    While (·.pc ≠ h.endAddr)
+    Until (·.pc ≠ h.endAddr)
       (fun «continue» => Host.exe.StepOver funs «continue» (p.ContinueAtOwnLabel s «continue» exit))
       done { data := s, pc := h.startAddr }
 inductive_fixpoint
@@ -93,7 +93,7 @@ public theorem Program.wp_mono {p : Program} {done₁ done₂ exit₁ exit₂ : 
   intro p done exit s hw done' exit' hd he
   rw [Program.wp]
   intro H
-  refine While.mono (fun U y _ hy => ?_) (fun y _ h => hd y h) (hw H)
+  refine Until.mono (fun U y _ hy => ?_) (fun y _ h => hd y h) (hw H)
   refine Executable.StepOver.mono_map FunDecls.at ?_ (fun _ _ h => h)
     (fun u hu => Program.continueAtOwnLabel_mono (fun _ h => h) he hu) hy
   exact fun _ _ _ _ hR hm => hm _ _ (fun _ h => h.elim) hR
@@ -104,7 +104,7 @@ public theorem Program.wp_nil {done exit : MachineState → Prop} {s : MachineDa
     Program.wp [] done exit s := by
   rw [Program.wp]
   intro h
-  exact While.stop (by simp [Embedding.endAddr, Embedding.startAddr]) (hd _)
+  exact Until.stop (by simp [Embedding.endAddr, Embedding.startAddr]) (hd _)
 
 public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : MachineState → Prop} {s : MachineData}
     (hN : Program.labels (d :: p) = []) (hw : Program.wp [d] (fun st => p.wp done exit st.data) exit s) :
@@ -118,8 +118,8 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
   have hw := hw H.head
   simp only [Program.continueAtOwnLabel_of_not_isLabelAddr nd] at hw
   simp only [Program.continueAtOwnLabel_of_not_isLabelAddr ndp]
-  refine While.split (fun y => y.pc ≠ Host.addrOf (H.start + 1) → y.pc = Host.addrOf H.start)
-    (fun y hI hc => ?_) (fun U y hI hc hb => ?_) (fun _ => rfl) (While.mono (fun U y _ hb => hb) (fun st hc hst => ?_) hw)
+  refine Until.split (fun y => y.pc ≠ Host.addrOf (H.start + 1) → y.pc = Host.addrOf H.start)
+    (fun y hI hc => ?_) (fun U y hI hc hb => ?_) (fun _ => rfl) (Until.mono (fun U y _ hb => hb) (fun st hc hst => ?_) hw)
   · have := hI hc
     grind
   · have hy := hI hc
@@ -156,7 +156,7 @@ public theorem Program.wp_single {d : Directive} {done exit : MachineState → P
       (@hw (fun st => st.pc = 0 → done { data := st.data, pc := h.endAddr }) _ _ (fun _ hq _ => hq)
         fun _ _ _ h => by simp at h)
     have ha : h.startAddr = h.endAddr := by grind
-    refine While.stop (by simp [ha]) ?_
+    refine Until.stop (by simp [ha]) ?_
     rw [ha]
     exact hq rfl
   · have nd : ∀ a, ¬ Program.IsLabelAddr [d] a := by
@@ -165,8 +165,8 @@ public theorem Program.wp_single {d : Directive} {done exit : MachineState → P
       | label l' => exact absurd (Host.label_size _ l' hdk) (by omega)
       | _ => simp at hl
     simp only [Program.continueAtOwnLabel_of_not_isLabelAddr nd]
-    refine While.step («continue» := fun u => u.pc = h.endAddr ∧ done u) (by grind) ?_
-      fun u hu => While.stop (by simp [hu.1]) hu.2
+    refine Until.step («continue» := fun u => u.pc = h.endAddr ∧ done u) (by grind) ?_
+      fun u hu => Until.stop (by simp [hu.1]) hu.2
     exact Host.stepIn_addrOf hdk hz fun P n j hn hj =>
       hw _ _ _ (fun s₁ hd' => hn s₁ ⟨hend, hd'⟩) fun a s₁ h' => hj a s₁ h'
 
@@ -181,7 +181,7 @@ public theorem Program.step1_of_wp {p : Program} (h : Embedding p) {done exit : 
       Eventually (step1 Host.exe) post { data := s, pc := h.startAddr })
     ?_ p done exit s hw h post (fun u hu h => .done _ (hd u hu h)) (fun u h => .done _ (he u h))
   intro p done exit s hw h post hd he
-  have hw := While.iff_eventually.mp (hw h)
+  have hw := Until.iff_eventually.mp (hw h)
   generalize ({ data := s, pc := h.startAddr } : MachineState) = x at hw ⊢
   induction hw with
   | done y hy => exact hd y (Classical.not_not.mp hy.1) hy.2

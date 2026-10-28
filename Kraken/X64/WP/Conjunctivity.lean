@@ -91,7 +91,7 @@ public theorem Program.wp_and {p : Program} {done₁ done₂ exit₁ exit₂ : M
   intro p done exit s hw done' exit' hw'
   rw [Program.wp] at hw' ⊢
   intro H
-  refine While.and (fun U V y _ hU hV => ?_) (hw H) (hw' H)
+  refine Until.and (fun U V y _ hU hV => ?_) (hw H) (hw' H)
   refine Executable.StepOver.and_map FunDecls.at ?_ (fun _ h₁ h₂ => ⟨h₁, h₂⟩)
     (fun _ h₁ h₂ => Program.continueAtOwnLabel_and h₁ h₂) hU hV
   exact fun _ _ _ _ _ hR h₁ h₂ => Program.wp_mono (fun _ h => h.1) (fun u h => hR u h.1 h.2) (h₁ _ _ h₂)

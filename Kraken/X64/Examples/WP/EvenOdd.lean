@@ -117,7 +117,7 @@ theorem stepOut_of_not_below {pc a : Int64} {t t' : MachineData} {funs} {next ju
 variable [FunDecls] (hpos : ∀ i ins, Host.prog[i]? = some (.instr ins) → 0 < Kraken.Layout.size Directive i)
 
 abbrev Loop (p : Program) (H : Embedding p) (done exit : MachineState → Prop) (s₀ : MachineData) :=
-  While (·.pc ≠ H.endAddr) (fun c => Host.exe.StepOver (fun a => (FunDecls.at a).map fun f =>
+  Until (·.pc ≠ H.endAddr) (fun c => Host.exe.StepOver (fun a => (FunDecls.at a).map fun f =>
     f.prog.wp (fun _ => False)) c (p.ContinueAtOwnLabel s₀ c exit)) done
 
 include hpos
@@ -134,7 +134,7 @@ theorem loop_step {p : Program} {H : Embedding p} {done exit : MachineState → 
   have hk := prog_at (H := H) hi
   have := Host.sizeBefore_mono (show H.start + i + 1 ≤ H.start + p.length by
     have := (List.getElem?_eq_some_iff.mp hi).1; omega)
-  refine While.step (fun he => ?_) (Host.stepIn_addrOf hk (hpos _ _ hk) h) fun _ h => h
+  refine Until.step (fun he => ?_) (Host.stepIn_addrOf hk (hpos _ _ hk) h) fun _ h => h
   have := Host.sizeBefore_eq_of_addrOf_eq he; have := Host.sizeBefore_succ hk; have := hpos _ _ hk; omega
 
 theorem ret_exit {p : Program} {H : Embedding p} {done exit : MachineState → Prop} {s₀ t : MachineData}
