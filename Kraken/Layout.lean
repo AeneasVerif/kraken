@@ -1,5 +1,6 @@
 module
 
+public import Kraken.PNat
 public import Lean.ToExpr
 
 @[expose] public section
@@ -16,15 +17,15 @@ instance : Repr ByteArray where reprPrec _ _ := "<opaque byte array>"
 
 deriving instance Lean.ToExpr for ByteArray
 
-inductive Directive (Instr Const : Type)
+inductive Directive (Instr Const : Type) where
   | instr (_ : Instr)
   | label (_ : Label)
-  | byteArray (_ : ByteArray)
+  | byteArray (arr : ByteArray)
   /-- A data word of `bytes` bytes whose value is a symbolic constant, e.g. a label or a
   difference of labels (a relocation). It is never executed. Jump tables (`.long .Lcase - .Ltable`)
   and pointer tables (`.quad fn`) are the typical uses. -/
   | word (bytes : Nat) (e : Const)
-  deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
+  deriving DecidableEq, Repr, Hashable, BEq, Lean.ToExpr
 
 structure Sized Directive where
   directive : Directive
@@ -39,12 +40,12 @@ structure Executable (Instr Const : Type) where
 -- JP: why is `size` not `Directive → Nat`?
 class Layout (Instr Const : Type) where
   start : Int64 -- NOTE: Why is `start` a `Int64`?
-  instrSize : Instr → Nat → Nat
+  instrSize : Nat → PNat
 
 variable {Instr Const : Type}
 
 def Layout.size [l : Layout Instr Const] : Directive Instr Const → Nat → Nat
-  | .instr i, idx => l.instrSize i idx
+  | .instr _, idx => l.instrSize idx
   | .label _, _ => 0
   | .byteArray arr, _ => arr.size
   | .word bytes _, _ => bytes

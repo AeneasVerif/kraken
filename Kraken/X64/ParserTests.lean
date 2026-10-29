@@ -559,6 +559,10 @@ info: ⸨prog|
 #guard_msgs in
 #check include_x64 "Kraken/X64/Test/asm/test_nop.S"
 
+/-- error: nop length must be positive -/
+#guard_msgs in
+#check ⸨prog| nop 0 ⸩
+
 /--
 info: ⸨prog|
   aa.1.aa.1:
