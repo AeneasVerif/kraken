@@ -234,7 +234,7 @@ inductive Operation (w : Width)
   | jmp (target : RelRegOrMem)
   | call (target : RelRegOrMem)
   | ret
-  | nop (length : Nat)
+  | nop (length : PNat)
   -- TODO: optiona third argument, with the caveat that `.align 16,,0` is valid
   -- syntax
   | nopalign (alignment : Nat) (pad : Option Nat)

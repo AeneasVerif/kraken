@@ -789,7 +789,7 @@ def Instr.interp [Labels]
   match d with
   | .label _ => next s
   | .instr i => i.interp s p next jmp
-  | .byteArray _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
+  | .byteArray _ _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
 
 def Directives.interp [Labels]
   (ds : List (Kraken.Sized Directive)) (s : MachineData) (pc : Int64)
@@ -835,10 +835,10 @@ where
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
     | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
 
-def Instr.fakeSize (hashOfProgram : UInt64) (i : Instr) : Nat :=
+def Instr.fakeSize (hashOfProgram : UInt64) (i : Instr) : PNat :=
   match i with
-  | .regular _ _ (.nop sz) => sz -- may be zero
-  | i => (1 + hash (hashOfProgram, i) % 15).toNat
+  | .regular _ _ (.nop sz) => sz
+  | i => .ofNat (1 + (hash (hashOfProgram, i) % 15).toNat)
 
 def Program.fakeLayout (prog : Program) : Executable :=
   let h := hash prog;

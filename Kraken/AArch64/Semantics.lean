@@ -946,7 +946,7 @@ set_option maxHeartbeats 1000000
   match d with
   | .label _ => next s
   | .instr i => i.interp s p next jmp
-  | .byteArray _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
+  | .byteArray _ _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
 
 def Directives.interp [Labels]
   (ds : List (Kraken.Sized Directive)) (s : MachineData) (pc : Int64)
@@ -992,7 +992,7 @@ where
     | .unaligned_sp sp => .error s!"SP={sp} (is not 16-byte aligned)"
     | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
 
-def Instr.fakeSize (_ : Instr) : Nat := 4
+def Instr.fakeSize (_ : Instr) : PNat := .ofNat 4
 
 def Program.fakeLayout (prog : Program) : Executable :=
   let h := hash prog;

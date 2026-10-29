@@ -25,8 +25,6 @@ private theorem exists_least_le {P : Nat → Prop} {n : Nat} (h : P n) :
 public class Host where
   prog : Program
   layout : Layout
-  /-- Any directive that occupies zero space in the executable must be semantically inert. -/
-  zero_inert : ∀ i (d : Directive), prog[i]? = some d → @Kraken.Layout.size _ layout d i = 0 → d.Inert
   /-- Two directives at the same address have the same offset in the executable. -/
   addr_determines_offset : ∀ j k, (layout.apply prog).addrOf j = (layout.apply prog).addrOf k →
     (layout.apply prog).sizeBefore j = (layout.apply prog).sizeBefore k
@@ -43,9 +41,14 @@ public theorem Host.sizeBefore_eq_of_addrOf_eq [Host] {j k : Nat} (h : Host.addr
     Host.exe.sizeBefore j = Host.exe.sizeBefore k :=
   Host.addr_determines_offset j k h
 
-public theorem Host.inert_of_getElem? [Host] {i : Nat} {d : Directive} (h : Host.prog[i]? = some d)
+public theorem Layout.inert_of_size_eq_zero [Layout] {i : Nat} {d : Directive}
+    (hz : Kraken.Layout.size d i = 0) : d.Inert := by
+  obtain ⟨l, rfl⟩ := (Kraken.Layout.size_eq_zero_iff d i).mp hz
+  exact Directive.inert_label l
+
+public theorem Host.inert_of_getElem? [Host] {i : Nat} {d : Directive} (_h : Host.prog[i]? = some d)
     (hz : Kraken.Layout.size d i = 0) : d.Inert :=
-  Host.zero_inert i d h hz
+  Layout.inert_of_size_eq_zero hz
 
 @[expose] public def Host.startAddr [Host] {p : Program} (h : p.IsInfix Host.prog) : Int64 :=
   Host.addrOf (p.infixIdx Host.prog h)

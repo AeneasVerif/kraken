@@ -14,6 +14,9 @@ def Directive.Inert (d : Directive) : Prop :=
   ∀ [Labels] s p (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) post,
     (d.interp s p next jmp).All post ↔ (next s).All post
 
+@[simp] theorem Directive.inert_label (l : Label) : Directive.Inert (.label l) :=
+  fun _ _ _ _ _ => Iff.rfl
+
 theorem Directives.interp_inert_append [Labels] {pre rest : List (Kraken.Sized Directive)}
     (hpre : ∀ c ∈ pre, c.size = 0 ∧ c.directive.Inert) (s : MachineData) (pc : Int64)
     (ret : Int64 → MachineData → Effects) (post : @Post MachineState) :
