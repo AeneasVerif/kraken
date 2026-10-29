@@ -1140,7 +1140,10 @@ def skipSpaceAndCheckLineEnd : Parser Bool := do
   | some _ =>
     pure false
 
-def parseOptionalInstr : Parser (Option Directive) := do
+-- NOTE TO ROBOT: `Kraken` is open because we are under the `Kraken.*` namespace.
+-- However, I would like `Directive` to resolve to the `_root_.Directive` definition
+-- instead of `Kraken.Directive`. Is there a way to do this?
+def parseOptionalInstr : Parser (Option _root_.Directive) := do
   if (← skipSpaceAndCheckLineEnd) then
     pure none
   else
@@ -1155,7 +1158,7 @@ def checkLineEnd : Parser Unit := do
 
 /-- Parse a single line: optional label, followed by optional instruction or directive.
     Returns a list of directives found on the line. -/
-def parseLine : Parser (List Directive) := do
+def parseLine : Parser (List _root_.Directive) := do
   skipHWs
   let labels ← many (attempt do
     let l ← parseLabelDecl
@@ -1177,10 +1180,10 @@ instance {T1} : Coe (ParseResult (List T1) (Sigma String.Pos)) (Except String (L
   | .error _ .eof => .error "unexpected end of input"
   | .error _ (.other msg) => .error msg
 
-public def parse (input: String) : Except String Program := do
+public def parse (input: String) : Except String _root_.Program := do
   let rawLines := (input.splitOn "\n")
   let (_, lines) ← rawLines.foldlM (fun (lineNum, acc) x => do
-    match (parseLine ⟨ x, x.startPos ⟩ : Except String (List Directive)) with
+    match (parseLine ⟨ x, x.startPos ⟩ : Except String (List _root_.Directive)) with
     | .ok v => pure (lineNum + 1, v :: acc)
     | .error msg => .error s!"line {lineNum}: {msg}"
   ) ((1 : Nat), [])

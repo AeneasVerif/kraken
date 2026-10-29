@@ -10,76 +10,76 @@ import Kraken.X64.Parser
 section Tests
 open Kraken.X64.Parser
 
-open Instr Operand Reg
+open Instr Operand Reg Kraken
 
 -- Test: Simple instruction
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
-      (Operation.add ↑(low Reg64.rbx Width.W64) ↑↑(low Reg64.rax Width.W64)))] : List Directive
+      (Operation.add ↑(low Reg64.rbx Width.W64) ↑↑(low Reg64.rax Width.W64)))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("addq %rax, %rbx")
 
 -- Test: Immediate operand
 /--
-info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑42))] : List Directive
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑42))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movq $42, %rax")
 -- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .mov (.Reg (.low .rax .W64)) (.imm 42) }]
 
 /--
-info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑0))] : List Directive
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑0))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movq $0, %rax")
 
 /--
-info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑0))] : List Directive
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑0))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("pushq $0x0")
 
 /--
-info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑0))] : List Directive
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑0))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("pushq $0")
 
 -- Test: unsuffixed push and pop take their width from a register, else 64 bits
 /--
-info: [Directive.instr (regular Width.W64 Width.W16 (Operation.push ↑↑(low Reg64.rax Width.W16)))] : List Directive
+info: [Directive.instr (regular Width.W64 Width.W16 (Operation.push ↑↑(low Reg64.rax Width.W16)))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("push %ax")
 
 /--
-info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑1))] : List Directive
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑1))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("push $1")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
-      (Operation.push ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+      (Operation.push ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("push (%rax)")
 
 /--
-info: [Directive.instr (regular Width.W64 Width.W16 (Operation.pop ↑(low Reg64.rax Width.W16)))] : List Directive
+info: [Directive.instr (regular Width.W64 Width.W16 (Operation.pop ↑(low Reg64.rax Width.W16)))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("pop %ax")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
-      (Operation.pop ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+      (Operation.pop ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("pop (%rax)")
 
 -- Test: Memory operand with displacement
@@ -87,9 +87,9 @@ info: [Directive.instr
 info: [Directive.instr
     (regular Width.W64 Width.W64
       (Operation.mov ↑(low Reg64.rax Width.W64)
-        ↑↑{ base := some (RegOrRip.reg Reg64.rsp), idx := none, disp := ↑8 }))] : List Directive
+        ↑↑{ base := some (RegOrRip.reg Reg64.rsp), idx := none, disp := ↑8 }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movq 8(%rsp), %rax")
 -- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .mov (.Reg (.low .rax .W64)) (.mem .rsp .none 1 8) }]
 
@@ -99,9 +99,9 @@ info: [Directive.instr
     (regular Width.W64 Width.W64
       (Operation.mov ↑(low Reg64.rax Width.W64)
         ↑↑{ base := some (RegOrRip.reg Reg64.rsi),
-              idx := some { reg := Reg64.r15, scale := Width.W64 } }))] : List Directive
+              idx := some { reg := Reg64.r15, scale := Width.W64 } }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movq (%rsi, %r15, 8), %rax")
 -- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .mov (.Reg (.low .rax .W64)) (.mem .rsi (some .r15) 8 0) }]
 
@@ -110,77 +110,77 @@ info: [Directive.instr
 info: [Directive.instr
     (regular Width.W64 Width.W16
       (Operation.movsx ↑(low Reg64.rbx Width.W16)
-        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movsbw (%rax), %bx")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W32
       (Operation.movsx ↑(low Reg64.rbx Width.W32)
-        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movsbl (%rax), %ebx")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
       (Operation.movsx ↑(low Reg64.rbx Width.W64)
-        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movslq (%rax), %rbx")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
-      (Operation.movsx ↑(low Reg64.rbx Width.W64) ↑(low Reg64.rax Width.W32)))] : List Directive
+      (Operation.movsx ↑(low Reg64.rbx Width.W64) ↑(low Reg64.rax Width.W32)))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movslq %eax, %rbx")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
       (Operation.movsx ↑(low Reg64.rbx Width.W64)
-        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movsxd (%rax), %rbx")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
-      (Operation.movsx ↑(low Reg64.rbx Width.W64) ↑(low Reg64.rax Width.W32)))] : List Directive
+      (Operation.movsx ↑(low Reg64.rbx Width.W64) ↑(low Reg64.rax Width.W32)))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movsxd %eax, %rbx")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W32
       (Operation.movzx ↑(low Reg64.rbx Width.W32)
-        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+        ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movzbl (%rax), %ebx")
 
 -- Test: Labeled instruction
 /--
 info: [Directive.label "loop",
-  Directive.instr (regular Width.W64 Width.W64 (Operation.add ↑(low Reg64.rcx Width.W64) ↑↑1))] : List Directive
+  Directive.instr (regular Width.W64 Width.W64 (Operation.add ↑(low Reg64.rcx Width.W64) ↑↑1))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("loop: addq $1, %rcx")
 -- Expected: [.Label "loop", .Instr { address_size := .W64, operation_size := .W64, operation := .add (.Reg (.low .rcx .W64)) (.imm 1) }]
 
 -- Test: Conditional jump
 /--
-info: [Directive.instr (regular Width.W64 Width.W64 (Operation.jcc CondCode.nz "loop"))] : List Directive
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.jcc CondCode.nz "loop"))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("jnz loop")
 -- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .jcc .nz "loop" }]
 
@@ -191,22 +191,22 @@ info: [Directive.instr (regular Width.W64 Width.W64 (Operation.jcc CondCode.nz "
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
-      (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑{ base := none, idx := none, disp := ↑"sym" }))] : List Directive
+      (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑{ base := none, idx := none, disp := ↑"sym" }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movq sym, %rax")
 
 /--
-info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑"sym"))] : List Directive
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑"sym"))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movq $sym, %rax")
 
 /--
 info: [Directive.instr
-    (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑((↑"sym").add ↑8)))] : List Directive
+    (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑((↑"sym").add ↑8)))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movq $sym+8, %rax")
 
 /--
@@ -214,9 +214,9 @@ info: [Directive.instr
     (regular Width.W64 Width.W64
       (Operation.mov ↑(low Reg64.rax Width.W64)
         ↑↑{ base := some RegOrRip.rip, idx := none,
-              disp := (↑"sym").sub ConstExpr.after_current_instruction }))] : List Directive
+              disp := (↑"sym").sub ConstExpr.after_current_instruction }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movq sym(%rip), %rax")
 
 /--
@@ -224,18 +224,18 @@ info: [Directive.instr
     (regular Width.W64 Width.W64
       (Operation.mov ↑(low Reg64.rax Width.W64)
         ↑↑{ base := some RegOrRip.rip, idx := none,
-              disp := ((↑"sym").add ↑8).sub ConstExpr.after_current_instruction }))] : List Directive
+              disp := ((↑"sym").add ↑8).sub ConstExpr.after_current_instruction }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movq sym+8(%rip), %rax")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
       (Operation.mov ↑(low Reg64.rbx Width.W64)
-        ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := none, disp := ↑"sym" }))] : List Directive
+        ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := none, disp := ↑"sym" }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movq sym(%rax), %rbx")
 
 /--
@@ -243,17 +243,17 @@ info: [Directive.instr
     (regular Width.W64 Width.W64
       (Operation.mov ↑(low Reg64.rbx Width.W64)
         ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := some { reg := Reg64.rcx, scale := Width.W32 },
-              disp := (↑"sym").sub ↑8 }))] : List Directive
+              disp := (↑"sym").sub ↑8 }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movq sym-8(%rax,%rcx,4), %rbx")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
-      (Operation.add ↑{ base := none, idx := none, disp := ↑"sym" } ↑↑(low Reg64.rax Width.W64)))] : List Directive
+      (Operation.add ↑{ base := none, idx := none, disp := ↑"sym" } ↑↑(low Reg64.rax Width.W64)))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("addq %rax, sym")
 
 /--
@@ -261,9 +261,9 @@ info: [Directive.instr
     (avx Width.W64 AvxWidth.W128
       (AvxOperation.movups ↑(AvxReg.xmm RegMm.mm0)
         ↑{ base := some RegOrRip.rip, idx := none,
-            disp := (↑"sym").sub ConstExpr.after_current_instruction }))] : List Directive
+            disp := (↑"sym").sub ConstExpr.after_current_instruction }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movups sym(%rip), %xmm0")
 
 -- Neighbouring forms: lea, branch targets, numeric
@@ -273,43 +273,43 @@ info: [Directive.instr
     (regular Width.W64 Width.W64
       (Operation.lea (low Reg64.rax Width.W64)
         { base := some RegOrRip.rip, idx := none,
-          disp := (↑"sym").sub ConstExpr.after_current_instruction }))] : List Directive
+          disp := (↑"sym").sub ConstExpr.after_current_instruction }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("leaq sym(%rip), %rax")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
       (Operation.lea (low Reg64.rax Width.W64)
-        { base := some (RegOrRip.reg Reg64.rax), idx := none, disp := ↑"sym" }))] : List Directive
+        { base := some (RegOrRip.reg Reg64.rax), idx := none, disp := ↑"sym" }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("leaq sym(%rax), %rax")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
-      (Operation.jmp (RelRegOrMem.rel ((↑"sym").sub ConstExpr.after_current_instruction))))] : List Directive
+      (Operation.jmp (RelRegOrMem.rel ((↑"sym").sub ConstExpr.after_current_instruction))))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("jmp sym")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
-      (Operation.call (RelRegOrMem.rel ((↑"sym").sub ConstExpr.after_current_instruction))))] : List Directive
+      (Operation.call (RelRegOrMem.rel ((↑"sym").sub ConstExpr.after_current_instruction))))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("call sym")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
       (Operation.mov ↑(low Reg64.rax Width.W64)
-        ↑↑{ base := some RegOrRip.rip, idx := none, disp := ↑8 }))] : List Directive
+        ↑↑{ base := some RegOrRip.rip, idx := none, disp := ↑8 }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movq 8(%rip), %rax")
 
 -- Like a bare symbol, a bare number is a memory operand at that absolute
@@ -317,17 +317,17 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
-      (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑{ base := none, idx := none, disp := ↑1 }))] : List Directive
+      (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑{ base := none, idx := none, disp := ↑1 }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movq 1, %rax")
 
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
-      (Operation.xor ↑{ base := none, idx := none, disp := ↑1 } ↑↑(low Reg64.rax Width.W64)))] : List Directive
+      (Operation.xor ↑{ base := none, idx := none, disp := ↑1 } ↑↑(low Reg64.rax Width.W64)))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("xorq %rax, 1")
 
 -- Test: Multi-line program
@@ -335,9 +335,9 @@ info: [Directive.instr
 info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑0)), Directive.label "loop",
   Directive.instr (regular Width.W64 Width.W64 (Operation.add ↑(low Reg64.rax Width.W64) ↑↑1)),
   Directive.instr (regular Width.W64 Width.W64 (Operation.cmp ↑(low Reg64.rax Width.W64) ↑↑10)),
-  Directive.instr (regular Width.W64 Width.W64 (Operation.jcc CondCode.nz "loop"))] : List Directive
+  Directive.instr (regular Width.W64 Width.W64 (Operation.jcc CondCode.nz "loop"))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("
   movq $0, %rax
 loop:
@@ -348,34 +348,34 @@ loop:
 
 -- Test: Negative immediate
 /--
-info: [Directive.instr (regular Width.W64 Width.W64 (Operation.add ↑(low Reg64.rax Width.W64) ↑↑(-1)))] : List Directive
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.add ↑(low Reg64.rax Width.W64) ↑↑(-1)))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("addq $-1, %rax")
 
 -- Test: Hex immediate
 /--
-info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑255))] : List Directive
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑255))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("movq $0xff, %rax")
 
 -- Test: mulx instruction
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
-      (Operation.mulx (low Reg64.r10 Width.W64) (low Reg64.r9 Width.W64) ↑(low Reg64.r8 Width.W64)))] : List Directive
+      (Operation.mulx (low Reg64.r10 Width.W64) (low Reg64.r9 Width.W64) ↑(low Reg64.r8 Width.W64)))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("mulxq %r8, %r9, %r10")
 
 -- Test: xor for zeroing
 /--
 info: [Directive.instr
     (regular Width.W64 Width.W64
-      (Operation.xor ↑(low Reg64.rax Width.W64) ↑↑(low Reg64.rax Width.W64)))] : List Directive
+      (Operation.xor ↑(low Reg64.rax Width.W64) ↑↑(low Reg64.rax Width.W64)))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("xorq %rax, %rax")
 
 -- Test: lea with complex addressing
@@ -384,9 +384,9 @@ info: [Directive.instr
     (regular Width.W64 Width.W64
       (Operation.lea (low Reg64.rax Width.W64)
         { base := some (RegOrRip.reg Reg64.rbp), idx := some { reg := Reg64.rcx, scale := Width.W32 },
-          disp := ↑16 }))] : List Directive
+          disp := ↑16 }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("leaq 16(%rbp, %rcx, 4), %rax")
 
 /--
@@ -394,9 +394,9 @@ info: [Directive.instr
     (regular Width.W32 Width.W64
       (Operation.lea (low Reg64.rax Width.W64)
         { base := some (RegOrRip.reg Reg64.rbp), idx := some { reg := Reg64.rcx, scale := Width.W32 },
-          disp := ↑16 }))] : List Directive
+          disp := ↑16 }))] : List _root_.Directive
 -/
-#guard_msgs in
+#guard_msgs (whitespace := lax) in
 #check parse("leaq 16(%ebp, %ecx, 4), %rax")
 
 section error_reporting
@@ -470,7 +470,7 @@ section syntax_cat_and_include
 
 /--
 info: [Directive.label "loop", Directive.instr (regular Width.W64 Width.W64 (Operation.add ↑(low Reg64.rax Width.W64) ↑↑1)),
-  Directive.instr (regular Width.W64 Width.W64 (Operation.jcc CondCode.nz "loop"))] : List Directive
+  Directive.instr (regular Width.W64 Width.W64 (Operation.jcc CondCode.nz "loop"))] : List _root_.Directive
 -/
 #guard_msgs in
 #check [x64|
@@ -480,7 +480,7 @@ info: [Directive.label "loop", Directive.instr (regular Width.W64 Width.W64 (Ope
 ]
 
 /--
-info: [Directive.instr (regular Width.W64 Width.W64 (Operation.nop 1))] : List Directive
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.nop 1))] : List _root_.Directive
 -/
 #guard_msgs in
 #check include_x64 "Kraken/X64/Test/asm/test_nop.S"
@@ -490,7 +490,7 @@ info: [Directive.label "aa.1.aa.1",
   Directive.instr
     (regular Width.W64 Width.W64
       (Operation.jmp
-        (RelRegOrMem.rel ((↑".L.str.1.llvm.12345").sub ConstExpr.after_current_instruction))))] : List Directive
+        (RelRegOrMem.rel ((↑".L.str.1.llvm.12345").sub ConstExpr.after_current_instruction))))] : List _root_.Directive
 -/
 #guard_msgs in
 #check [x64|
@@ -505,13 +505,13 @@ section antiquotations
 variable {w : Width} (r : Reg w) (q : Reg .W64) (r64 : Reg64) (v : AvxReg .W256)
 
 -- Test: an antiquoted register decides the width of its instruction, which may be a variable
-/-- info: [Directive.instr (regular Width.W64 w (Operation.add ↑r ↑↑2))] : List Directive -/
+/-- info: [Directive.instr (regular Width.W64 w (Operation.add ↑r ↑↑2))] : List _root_.Directive -/
 #guard_msgs in
 #check [x64| add $2, %❰r❱ ]
 
 -- Test: antiquoted and concrete registers unify
 /--
-info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑q ↑↑(low Reg64.rax Width.W64)))] : List Directive
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑q ↑↑(low Reg64.rax Width.W64)))] : List _root_.Directive
 -/
 #guard_msgs in
 #check [x64| mov %rax, %❰q❱ ]
@@ -538,7 +538,7 @@ info: [Directive.instr
     (regular Width.W64 Width.W64
       (Operation.mov ↑(low Reg64.rcx Width.W64)
         ↑↑{ base := some (RegOrRip.reg r64), idx := some { reg := Reg64.rax, scale := Width.W32 },
-              disp := ↑8 }))] : List Directive
+              disp := ↑8 }))] : List _root_.Directive
 -/
 #guard_msgs in
 #check [x64| mov 8(%❰r64❱, %rax, 4), %rcx ]
@@ -547,7 +547,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     (avx Width.W64 AvxWidth.W256
-      (AvxOperation.vmovups ↑v ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List Directive
+      (AvxOperation.vmovups ↑v ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List _root_.Directive
 -/
 #guard_msgs in
 #check [x64| vmovups (%rax), %❰v❱ ]
@@ -565,27 +565,30 @@ info: [Directive.instr
 -- Test: antiquotations for operands, instructions and directives
 variable (o : Operand .W32) (rm : RegOrMem w) (av : AvxRegOrMem .W128) (rt : RelRegOrMem) (i : Instr) (d : Directive)
 
-/-- info: [Directive.instr (regular Width.W64 Width.W32 (Operation.add (↑(low Reg64.rax Width.W32)) o))] : List Directive -/
+/-- info: [Directive.instr (regular Width.W64 Width.W32 (Operation.add (↑(low Reg64.rax Width.W32)) o))] : List _root_.Directive -/
 #guard_msgs in
 #check [x64| add ❰o❱, %eax ]
 
-/-- info: [Directive.instr (regular Width.W64 w (Operation.inc rm))] : List Directive -/
+/-- info: [Directive.instr (regular Width.W64 w (Operation.inc rm))] : List _root_.Directive -/
 #guard_msgs in
 #check [x64| inc ❰rm❱ ]
 
-/-- info: [Directive.instr (avx Width.W64 AvxWidth.W128 (AvxOperation.movaps (↑(AvxReg.xmm RegMm.mm1)) av))] : List Directive -/
+/--
+info: [Directive.instr
+    (avx Width.W64 AvxWidth.W128 (AvxOperation.movaps (↑(AvxReg.xmm RegMm.mm1)) av))] : List _root_.Directive
+-/
 #guard_msgs in
 #check [x64| movaps ❰av❱, %xmm1 ]
 
-/-- info: [Directive.instr (regular Width.W64 Width.W64 (Operation.jmp rt))] : List Directive -/
+/-- info: [Directive.instr (regular Width.W64 Width.W64 (Operation.jmp rt))] : List _root_.Directive -/
 #guard_msgs in
 #check [x64| jmp ❰rt❱ ]
 
-/-- info: [Directive.instr i, d, Directive.instr (regular Width.W64 Width.W64 Operation.ret)] : List Directive -/
+/-- info: [Directive.instr i, d, Directive.instr (regular Width.W64 Width.W64 Operation.ret)] : List _root_.Directive -/
 #guard_msgs in
 #check [x64| ❰.instr i❱; ❰d❱; ret ]
 
-/-- info: [Directive.label "foo", Directive.instr (regular Width.W64 Width.W64 Operation.ret)] : List Directive -/
+/-- info: [Directive.label "foo", Directive.instr (regular Width.W64 Width.W64 Operation.ret)] : List _root_.Directive -/
 #guard_msgs in
 #check [x64| ❰.label "foo"❱; ❰.instr <| .regular .W64 .W64 .ret❱ ]
 

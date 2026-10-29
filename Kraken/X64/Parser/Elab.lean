@@ -696,12 +696,12 @@ def elabDirective (stx : TSyntax `x64_directive) : TermElabM Expr := withRef stx
   match stx with
   | `(x64_directive| $lbl:x64_ident : $[;]?) =>
     let name ← getAsmIdent lbl
-    return (Lean.toExpr (Directive.label name))
+    return (Lean.toExpr (Kraken.Directive.label name : _root_.Directive))
   | `(x64_directive| $ins:x64_instr ;)
   | `(x64_directive| $ins:x64_instr) =>
-    return mkApp (mkConst ``Directive.instr) (← (elabInstr ins).run')
+    return mkApp2 (mkConst ``Kraken.Directive.instr) (mkConst ``Instr) (← (elabInstr ins).run')
   | `(x64_directive| ❰ $t ❱ $[;]?) =>
-    elabAntiquot t (mkConst ``Directive)
+    elabAntiquot t (mkConst ``_root_.Directive)
   | _ => throwError "invalid assembly directive"
 
 /-- Elaborate an `x64_prog` syntax node into a `Lean.Expr` of type `Program` (`List Directive`). -/
@@ -709,7 +709,7 @@ def elabProgram (stx : TSyntax `x64_prog) : TermElabM Expr := withRef stx do
   match stx with
   | `(x64_prog| $dirs:x64_directive*) =>
     let dirExprs ← dirs.mapM elabDirective
-    mkListLit (mkConst ``Directive) dirExprs.toList
+    mkListLit (mkConst ``_root_.Directive) dirExprs.toList
   | _ => throwError "invalid assembly program"
 
 -- ============================================================================
