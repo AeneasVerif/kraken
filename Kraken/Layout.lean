@@ -1,5 +1,6 @@
 module
 
+public import Kraken.PNat
 public import Lean.ToExpr
 
 @[expose] public section
@@ -16,11 +17,39 @@ instance : Repr ByteArray where reprPrec _ _ := "<opaque byte array>"
 
 deriving instance Lean.ToExpr for ByteArray
 
-inductive Directive (Instr : Type)
+inductive Directive (Instr : Type) where
   | instr (_ : Instr)
   | label (_ : Label)
-  | byteArray (_ : ByteArray)
-  deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
+  | byteArray (arr : ByteArray) (nonempty : 0 < arr.size)
+  deriving DecidableEq, Repr, Hashable
+
+instance {Instr : Type} [BEq Instr] : BEq (Directive Instr) where
+  beq
+  | .instr a, .instr b => a == b
+  | .label a, .label b => a == b
+  | .byteArray a _, .byteArray b _ => a == b
+  | _, _ => false
+
+instance {Instr : Type} [BEq Instr] [LawfulBEq Instr] : LawfulBEq (Directive Instr) where
+  rfl {a} := by cases a <;> dsimp [BEq.beq] <;> simp [ByteArray.beq]
+  eq_of_beq {a} {b} h := by
+    -- TODO: Make more efficient
+    cases a <;> cases b <;> dsimp [BEq.beq] at h <;> simp [ByteArray.beq] at h <;> simp_all
+    cases ‹ByteArray› <;> cases ‹ByteArray› <;> simp_all
+
+open Lean ToExpr in
+instance {Instr : Type} [Lean.ToExpr Instr] : Lean.ToExpr (Directive Instr) where
+  toTypeExpr := mkApp (mkConst ``Directive) (toTypeExpr Instr)
+  toExpr
+  | .instr instr => mkApp2 (mkConst ``Directive.instr) (toTypeExpr Instr) (toExpr instr)
+  | .label a => mkApp2 (mkConst ``Directive.label) (toTypeExpr Instr) (toExpr a)
+  | .byteArray arr _ =>
+    -- NOTE: Test, make pretty too, if possible
+    let proof := mkApp (mkConst ``Nat.zero_lt_succ) (mkRawNatLit (arr.size - 1))
+    mkApp3 (mkConst ``Directive.byteArray) (toTypeExpr Instr) (toExpr arr) proof
+  -- NOTE: Shouldn't there be a generic `toExpr` for all propositions? Clearly, if I have a piece of
+  -- evidence of some fact, it should be fine to reflect it in the meta level (even if as `lcProof`)
+  -- Are there downsides to this approach?
 
 structure Sized Directive where
   directive : Directive
@@ -34,13 +63,28 @@ structure Executable (Instr : Type) where
 
 -- JP: why is `size` not `Directive → Nat`?
 class Layout (Instr : Type) where
-  start : Int64
-  size : Nat → Nat
+  start : Int64 -- NOTE: Why is `start` a `Int64`?
+  instrSize : Instr → Nat → PNat
+
+def Layout.size {Instr : Type} [l : Layout Instr] : Directive Instr → Nat → Nat
+  | .instr i , idx => l.instrSize i idx
+  | .label _, _ => 0
+  | .byteArray arr _, _ => arr.size
+
+@[simp] theorem Layout.size_eq_zero_iff {Instr : Type} [Layout Instr] (d : Directive Instr) (idx : Nat) :
+    Layout.size d idx = 0 ↔ ∃ lbl, d = .label lbl := by
+  cases d with
+  | instr i =>
+    have := (Layout.instrSize i idx).property
+    simp only [Layout.size, reduceCtorEq, exists_false, iff_false]; omega
+  | label lbl => simp [Layout.size]
+  | byteArray arr h =>
+    simp only [Layout.size, reduceCtorEq, exists_false, iff_false]; omega
 
 variable {Instr : Type}
 
 def Layout.apply (l : Layout Instr) (prog : Program Instr) : Executable Instr :=
-  {startAddr := l.start, program := prog.mapIdx (fun i directive => {directive, size := l.size i})}
+  {startAddr := l.start, program := prog.mapIdx fun idx directive  => {directive, size := l.size directive idx}}
 
 -- NOTE: We write `List (Kraken.Directive Instr)` here, and not `Kraken.Program Instr`, because architecture
 -- specific `Program` types are written as `List Directive` which desugar to `List (Kraken.Directive Instr)`,
@@ -82,7 +126,7 @@ theorem Executable.withAddresses_dropWhile_start {Instr : Type} (program : List 
 
 theorem Executable.directivesFromStart {Instr : Type} [layout : Layout Instr] (prog : Program Instr) :
     (layout prog).directivesFromAddress layout.start =
-      prog.mapIdx (fun i directive => {directive, size := layout.size i}) := by
+      prog.mapIdx (fun i directive => {directive, size := layout.size directive i}) := by
   grind [Executable.withAddresses_dropWhile_start, Executable.withAddresses_map_snd, Executable.directivesFromAddress, Layout.apply]
 
 theorem directivesAtFromPrefix {Instr : Type} (e: Executable Instr) (a: Int64):

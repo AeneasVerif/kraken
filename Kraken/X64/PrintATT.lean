@@ -116,8 +116,8 @@ def operation {w} (aw : Width) (op : Operation w) : String :=
   | .jmp t => s!"jmp {target aw t}"
   | .call t => s!"call {target aw t}"
   | .ret => "ret"
-  | .nop 1 => "nop"
-  | .nop n => s!"nop {n}"
+  | .nop ⟨1, _⟩ => "nop"
+  | .nop ⟨n, _⟩ => s!"nop {n}"
   | .nopalign a none => s!".align {a}"
   | .nopalign a (some p) => s!".align {a}, {p}"
 
@@ -137,7 +137,7 @@ def instr : Instr → String
 def directive : _root_.Directive → String
   | .instr i => instr i
   | .label l => s!"{l}:"
-  | d@(.byteArray _) => toString d
+  | d@(.byteArray _ _) => toString d
 
 end Kraken.X64.ATT
 

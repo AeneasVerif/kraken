@@ -206,7 +206,7 @@ def instr (i : Instr) : String := operation i.operation
 def directive : _root_.Directive → String
   | .instr i => instr i
   | .label l => s!"{l}:"
-  | .byteArray bs => ".byte " ++ ", ".intercalate (bs.toList.map toString)
+  | .byteArray bs _ => ".byte " ++ ", ".intercalate (bs.toList.map toString)
 
 end Kraken.AArch64.Print
 
