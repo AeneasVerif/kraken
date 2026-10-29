@@ -34,13 +34,18 @@ structure Executable (Instr : Type) where
 
 -- JP: why is `size` not `Directive → Nat`?
 class Layout (Instr : Type) where
-  start : Int64
-  size : Nat → Nat
+  start : Int64 -- NOTE: Why is `start` a `Int64`?
+  instrSize : Instr → Nat → Nat
+
+def Layout.size {Instr : Type} [l : Layout Instr] : Directive Instr → Nat → Nat
+  | .instr i , idx => l.instrSize i idx
+  | .label _, _ => 0
+  | .byteArray arr, _ => arr.size
 
 variable {Instr : Type}
 
 def Layout.apply (l : Layout Instr) (prog : Program Instr) : Executable Instr :=
-  {startAddr := l.start, program := prog.mapIdx (fun i directive => {directive, size := l.size i})}
+  {startAddr := l.start, program := prog.mapIdx fun idx directive  => {directive, size := l.size directive idx}}
 
 -- NOTE: We write `List (Kraken.Directive Instr)` here, and not `Kraken.Program Instr`, because architecture
 -- specific `Program` types are written as `List Directive` which desugar to `List (Kraken.Directive Instr)`,
@@ -82,7 +87,7 @@ theorem Executable.withAddresses_dropWhile_start {Instr : Type} (program : List 
 
 theorem Executable.directivesFromStart {Instr : Type} [layout : Layout Instr] (prog : Program Instr) :
     (layout prog).directivesFromAddress layout.start =
-      prog.mapIdx (fun i directive => {directive, size := layout.size i}) := by
+      prog.mapIdx (fun i directive => {directive, size := layout.size directive i}) := by
   grind [Executable.withAddresses_dropWhile_start, Executable.withAddresses_map_snd, Executable.directivesFromAddress, Layout.apply]
 
 theorem directivesAtFromPrefix {Instr : Type} (e: Executable Instr) (a: Int64):

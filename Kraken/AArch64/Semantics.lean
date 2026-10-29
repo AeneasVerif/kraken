@@ -992,16 +992,11 @@ where
     | .unaligned_sp sp => .error s!"SP={sp} (is not 16-byte aligned)"
     | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
 
-def Directive.fakeSize (d : Directive) : Nat :=
-  match d with
-  | .instr _ => 4
-  | .label _ => 0
-  | .byteArray bs => bs.size
+def Instr.fakeSize (_ : Instr) : Nat := 4
 
 def Program.fakeLayout (prog : Program) : Executable :=
-  let : Inhabited Directive := .mk (.byteArray (.mk #[]))
   let h := hash prog;
-  let layout : Layout := { start := h.toInt64<<<16, size i := prog[i]!.fakeSize }
+  let layout : Layout := { start := h.toInt64<<<16, instrSize i _ := i.fakeSize }
   layout prog
 
 abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)

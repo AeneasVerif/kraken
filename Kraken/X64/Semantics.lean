@@ -835,17 +835,14 @@ where
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
     | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
 
-def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
-  match d with
-  | .label _ => 0
-  | .instr (.regular _ _ (.nop sz)) => sz -- may be zero
-  | .instr i => (1 + hash (hashOfProgram, i) % 15).toNat
-  | .byteArray bs => bs.size
+def Instr.fakeSize (hashOfProgram : UInt64) (i : Instr) : Nat :=
+  match i with
+  | .regular _ _ (.nop sz) => sz -- may be zero
+  | i => (1 + hash (hashOfProgram, i) % 15).toNat
 
 def Program.fakeLayout (prog : Program) : Executable :=
-  let : Inhabited Directive := .mk (.byteArray (.mk #[]))
   let h := hash prog;
-  let layout : Layout := { start := h.toInt64<<<16, size i := prog[i]!.fakeSize h }
+  let layout : Layout := { start := h.toInt64<<<16, instrSize i _ := i.fakeSize h }
   layout prog
 
 abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
