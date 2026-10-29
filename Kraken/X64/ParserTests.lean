@@ -485,6 +485,10 @@ info: [Directive.instr (regular Width.W64 Width.W64 (Operation.nop 1))] : List _
 #guard_msgs in
 #check include_x64 "Kraken/X64/Test/asm/test_nop.S"
 
+/-- error: nop length must be positive -/
+#guard_msgs in
+#check [x64| nop 0 ]
+
 /--
 info: [Directive.label "aa.1.aa.1",
   Directive.instr

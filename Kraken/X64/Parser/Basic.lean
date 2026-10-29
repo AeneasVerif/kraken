@@ -1066,7 +1066,10 @@ def parseInstr : Parser Instr := do
     (do
       skipHWs
       let sz ← parseHexOrDec
-      pure (toInstr .none (w := .W64) (.nop sz.toNat))
+      if 0 < sz.toNat then
+        pure (toInstr .none (w := .W64) (.nop sz.toNat))
+      else
+        fail "nop length must be positive"
     ) <|> (pure (toInstr .none (w := .W64) (.nop 1)))
 
   -- Control flow - conditional jumps

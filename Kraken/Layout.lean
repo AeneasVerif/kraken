@@ -1,5 +1,6 @@
 module
 
+public import Kraken.PNat
 public import Lean.ToExpr
 
 @[expose] public section
@@ -16,11 +17,11 @@ instance : Repr ByteArray where reprPrec _ _ := "<opaque byte array>"
 
 deriving instance Lean.ToExpr for ByteArray
 
-inductive Directive (Instr : Type)
+inductive Directive (Instr : Type) where
   | instr (_ : Instr)
   | label (_ : Label)
-  | byteArray (_ : ByteArray)
-  deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
+  | byteArray (arr : ByteArray)
+  deriving DecidableEq, Repr, Hashable, BEq, Lean.ToExpr
 
 structure Sized Directive where
   directive : Directive
@@ -35,10 +36,10 @@ structure Executable (Instr : Type) where
 -- JP: why is `size` not `Directive → Nat`?
 class Layout (Instr : Type) where
   start : Int64 -- NOTE: Why is `start` a `Int64`?
-  instrSize : Instr → Nat → Nat
+  instrSize : Nat → PNat
 
 def Layout.size {Instr : Type} [l : Layout Instr] : Directive Instr → Nat → Nat
-  | .instr i , idx => l.instrSize i idx
+  | .instr _ , idx => l.instrSize idx
   | .label _, _ => 0
   | .byteArray arr, _ => arr.size
 
