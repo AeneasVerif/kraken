@@ -57,7 +57,15 @@ def corpus : List String := [
   "a:\nb: ret\n\nc:",
   -- AVX
   "movups %xmm0, %xmm1", "vmovups (%rsp), %ymm2", "vmovups %zmm31, 64(%rsp)",
-  "movaps %xmm3, %xmm4", "addps (%rax), %xmm5", "subps %xmm6, %xmm7"
+  "movaps %xmm3, %xmm4", "addps (%rax), %xmm5", "subps %xmm6, %xmm7",
+  "movdqu (%rsp), %xmm0", "movdqa %xmm1, 16(%rsp)", "paddd (%rax), %xmm2", "pshufb %xmm3, %xmm4",
+  "pshufd $0x1b, %xmm5, %xmm6", "palignr $8, (%rsp), %xmm7", "pblendw $0xf0, %xmm8, %xmm9",
+  "vmovdqu32 (%rsp), %zmm0", "vmovdqa32 %zmm1, 64(%rsp)", "vpaddd %zmm2, %zmm3, %zmm4",
+  "vpaddd (%rax), %ymm5, %ymm6", "vprord $7, %zmm7, %zmm8", "vpsrld $3, %xmm9, %xmm10",
+  "vpternlogd $0xca, %zmm11, %zmm12, %zmm13", "vpternlogd $0x96, 64(%rsp), %zmm14, %zmm31",
+  "vpshufb %zmm0, %zmm1, %zmm2", "vpshufb (%rax), %ymm3, %ymm4", "vshufps $0x44, %zmm5, %zmm6, %zmm7",
+  "vshufps $0xdd, 64(%rsp), %xmm8, %xmm9", "vpermi2q %zmm10, %zmm11, %zmm12", "vpermi2d (%rsp), %zmm13, %zmm24",
+  "vinserti64x4 $1, %ymm14, %zmm15, %zmm16", "vinserti64x4 $0, 32(%rsp), %zmm17, %zmm18"
 ]
 
 /-- info: [] -/

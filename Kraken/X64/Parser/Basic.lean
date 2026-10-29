@@ -605,6 +605,18 @@ def commaSeparatedAvx {T1 T2} (op_w: Option AvxWidth) (p1: Parser (MaybeAddrWidt
     let addr_w ← mergeAddrWidths addr_w1 addr_w2
     pure (toAvxInstr addr_w (mk dst src))
 
+/-- Three AVX operands of one width, in AT&T order: the second source, the first source, then the
+destination. -/
+def commaSeparatedAvx3
+    (mk: {op_w: AvxWidth} → AvxRegOrMem op_w → AvxRegOrMem op_w → AvxRegOrMem op_w → AvxOperation op_w) :
+    Parser Instr := do
+  let src2 ← parseAvxRegOrMem; parseComma
+  let src1 ← parseAvxRegOrMem; parseComma
+  let (addr_w1, ⟨ w, src2, src1 ⟩) ← ascribeOrInferAvx src2 (pure src1)
+  let (addr_w2, dst) ← parseAvxAO parseAvxRegOrMem w
+  let addr_w ← mergeAddrWidths addr_w1 addr_w2
+  pure (toAvxInstr addr_w (mk dst src1 src2))
+
 def assertW {T} (v: MaybeOpWidth T): Parser (Σ w: Width, T w) :=
   match v with
   | ⟨ .none, _ ⟩ => fail "missing type annotation"
@@ -862,6 +874,72 @@ def parseInstr : Parser Instr := do
 
   | "subps" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .subps
+
+  | "movdqu" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .movdqu
+
+  | "movdqa" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .movdqa
+
+  | "paddd" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .paddd
+
+  | "pshufb" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pshufb
+
+  | "pshufd" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .pshufd d x imm)
+
+  | "palignr" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .palignr d x imm)
+
+  | "pblendw" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .pblendw d x imm)
+
+  | "vmovdqu32" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovdqu32
+
+  | "vmovdqa32" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovdqa32
+
+  | "vpaddd" =>
+    commaSeparatedAvx3 .vpaddd
+
+  | "vprord" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .vprord d x imm)
+
+  | "vpsrld" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .vpsrld d x imm)
+
+  | "vpternlogd" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx3 (fun d x y => .vpternlogd d x y imm)
+
+  | "vpshufb" =>
+    commaSeparatedAvx3 .vpshufb
+
+  | "vshufps" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx3 (fun d x y => .vshufps d x y imm)
+
+  | "vpermi2q" =>
+    commaSeparatedAvx3 .vpermi2q
+
+  | "vpermi2d" =>
+    commaSeparatedAvx3 .vpermi2d
+
+  | "vinserti64x4" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    let (addr_w1, src2) ← parseAvxAO parseAvxRegOrMem .W256; parseComma
+    let (addr_w2, src1) ← parseAvxAO parseAvxRegOrMem .W512; parseComma
+    let (addr_w3, dst) ← parseAvxAO parseAvxRegOrMem .W512
+    let addr_w ← mergeAddrWidths addr_w1 (← mergeAddrWidths addr_w2 addr_w3)
+    pure (toAvxInstr addr_w (AvxOperation.vinserti64x4 dst src1 src2 imm))
 
   -- Bitwise - 64-bit
   | "xor" =>
