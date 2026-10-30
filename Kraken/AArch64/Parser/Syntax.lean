@@ -31,11 +31,19 @@ syntax &"sp" : aarch64_reg
 syntax &"wsp" : aarch64_reg
 /-- Link register (alias of `x30`). -/
 syntax &"lr" : aarch64_reg
+/-- Antiquotation of a register (`RegOrZr w`, or `RegOrSp w` where register 31 is the stack pointer). -/
+syntax "❰" term "❱" : aarch64_reg
 
 /-- AArch64 assembly identifier other than a register name (`main`, `.LBB0_1`, `aa.1.aa.1`,
     `.L.str.1.llvm.12345`). -/
 declare_syntax_cat aarch64_ident
 syntax notFollowedBy(aarch64_reg) asmIdentToken : aarch64_ident
+
+/-- AArch64 label, declared (`main:`) or referred to by a relocation (`:lo12:main`). -/
+declare_syntax_cat aarch64_label
+syntax aarch64_ident : aarch64_label
+/-- Antiquotation of a label (`Label`). -/
+syntax "❰" term "❱" : aarch64_label
 
 /-- AArch64 integer literal with optional sign (`16`, `-8`, `+8`, `0x10`). -/
 declare_syntax_cat aarch64_int
@@ -46,18 +54,25 @@ syntax "+" num : aarch64_int
 /-- AArch64 integer immediate: integer literal with optional `#` prefix (`#16`, `16`, `#-8`). -/
 declare_syntax_cat aarch64_imm
 syntax "#"? aarch64_int : aarch64_imm
+/-- Antiquotation of an integer immediate (`Nat` or `Int64`, as the operand requires). -/
+syntax "#" "❰" term "❱" : aarch64_imm
 
-/-- AArch64 constant expression: integer immediate, relocation modifier applied to a symbol
+/-- AArch64 constant expression: integer immediate, relocation modifier applied to a label
     (`:lo12:sym`, `#:pg_hi21:sym`), or symbol. -/
 declare_syntax_cat aarch64_const
 syntax aarch64_imm : aarch64_const
-syntax "#"? ":" aarch64_ident ":" aarch64_ident : aarch64_const
+syntax "#"? ":" aarch64_ident ":" aarch64_label : aarch64_const
 syntax aarch64_ident : aarch64_const
+/-- Antiquotation of a constant expression (`ConstExpr`, into which a `Label` is coerced). Where a
+    register may also stand (a flexible source, `[Xn, ❰t❱]`), the parse is ambiguous and the elaborator
+    decides by the type of `t`. -/
+syntax "❰" term "❱" : aarch64_const
 
 declare_affixes signedness
   | /-- Signed. -/   "s"
   | /-- Unsigned. -/ "u"
 
+-- NOTE: If `shift_kind` is only used to instantiate two syntax categories, maybe it shouldn't be an `affix` set?
 declare_affixes shift_kind
   | /-- Logical shift left. -/      "lsl"
   | /-- Logical shift right. -/     "lsr"
@@ -92,6 +107,8 @@ syntax "[" aarch64_reg "," aarch64_const "]" "!" : aarch64_mem
 syntax withPosition("[" aarch64_reg "]" "," lineEq aarch64_const) : aarch64_mem
 /-- Register offset with optional extend (`[Xn, Xm]`, `[Xn, Xm, lsl #3]`, `[Xn, Wm, uxtw #2]`). -/
 syntax "[" aarch64_reg "," aarch64_reg ("," aarch64_modifier)? "]" : aarch64_mem
+/-- Antiquotation of a memory operand (`AddrExpr`, or `UnscaledAddrExpr` for `ldur`/`stur`). -/
+syntax "❰" term "❱" : aarch64_mem
 
 /-- PC-relative load source: literal pool constant (`=expr`) or label. -/
 declare_syntax_cat aarch64_lit
@@ -137,6 +154,8 @@ declare_affixes cond
 /-- Condition code operand. -/
 declare_syntax_cat aarch64_cond (behavior := both)
 syntax_affixed (suffixes := cond) : aarch64_cond
+/-- Antiquotation of a condition code (`CondCode`). -/
+syntax "❰" term "❱" : aarch64_cond
 
 -- ============================================================================
 -- Instruction Suffix Sets & Mnemonic Categories
@@ -437,16 +456,18 @@ syntax withPosition(aarch64_cbz_op lineEq aarch64_reg "," lineEq aarch64_const) 
 syntax withPosition(aarch64_tbz_op lineEq aarch64_reg "," lineEq aarch64_imm "," lineEq aarch64_const) : aarch64_instr
 syntax withPosition(aarch64_bcond_op lineEq aarch64_const) : aarch64_instr
 syntax &"nop" : aarch64_instr
-syntax "${" term "}" : aarch64_instr
 
 /-- AArch64 directive (label declaration, instruction, or Lean term antiquotation). -/
-declare_syntax_cat aarch64_directive
-syntax atomic(aarch64_ident ":") : aarch64_directive
+declare_syntax_cat aarch64_directive (behavior := both)
+/-- Label declaration (`main:`, `❰lbl❱:`). -/
+syntax atomic(aarch64_label ":") : aarch64_directive
+/-- Instruction, alone on its line. -/
 syntax withPosition(aarch64_instr notFollowedBy(lineEq (aarch64_ident <|> "," <|> aarch64_imm))) : aarch64_directive
-syntax "${" term "}" : aarch64_directive
+/-- Antiquotation of a directive (`Directive`). -/
+syntax "❰" term "❱" : aarch64_directive
 
 /-- AArch64 assembly program (sequence of directives). -/
-declare_syntax_cat aarch64_prog
+declare_syntax_cat aarch64_prog (behavior := both)
 syntax aarch64_directive* : aarch64_prog
 
 end Kraken.AArch64.Parser
