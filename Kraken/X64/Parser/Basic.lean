@@ -863,6 +863,30 @@ def parseInstr : Parser Instr := do
   | "subps" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .subps
 
+  | "movdqu" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .movdqu
+
+  | "movdqa" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .movdqa
+
+  | "paddd" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .paddd
+
+  | "pshufb" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pshufb
+
+  | "pshufd" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .pshufd d x imm)
+
+  | "palignr" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .palignr d x imm)
+
+  | "pblendw" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .pblendw d x imm)
+
   -- Bitwise - 64-bit
   | "xor" =>
     commaSeparated .none parseOperand parseRegOrMem .xor

@@ -206,6 +206,38 @@ def BitVec.packedBinOp {w : Nat} (c : Nat) (op : BitVec c → BitVec c → BitVe
 termination_by w
 decreasing_by omega
 
+/-- Lane `i` of `v`, cut into lanes of `c` bits from the least significant end. -/
+def BitVec.lane {w : Nat} (c i : Nat) (v : BitVec w) : BitVec c :=
+  v.extractLsb' (c * i) c
+
+/-- The vector of width `w` whose lane `i` of `c` bits is `f i`. -/
+def BitVec.ofLanes (w c : Nat) (f : Nat → BitVec c) : BitVec w :=
+  (List.range (w / c)).foldl (fun acc i => acc ||| ((f i).setWidth w <<< (c * i))) 0#w
+
+/-- Bytes of `a` picked by the bytes of `m`, within each 16-byte block.
+
+An index byte with its top bit set picks zero; otherwise its low four bits pick a byte. -/
+def BitVec.shuffleBytes {w : Nat} (a m : BitVec w) : BitVec w :=
+  BitVec.ofLanes w 8 fun i =>
+    let index := m.lane 8 i
+    if index.msb then 0#8 else a.lane 8 (16 * (i / 16) + index.toNat % 16)
+
+/-- Dwords of `a` picked by `imm`, within each 16-byte block: dword `i` takes bits `2i` and `2i + 1`. -/
+def BitVec.shuffleDwords {w : Nat} (a : BitVec w) (imm : BitVec 8) : BitVec w :=
+  BitVec.ofLanes w 32 fun i => a.lane 32 (4 * (i / 4) + (imm.toNat >>> (2 * (i % 4))) % 4)
+
+/-- Within each 16-byte block, `hi` above `lo`, shifted right by `imm` bytes, keeping the low 16. -/
+def BitVec.alignBytes {w : Nat} (hi lo : BitVec w) (imm : BitVec 8) : BitVec w :=
+  BitVec.ofLanes w 8 fun i =>
+    let j := i % 16 + imm.toNat
+    if j < 16 then lo.lane 8 (16 * (i / 16) + j)
+    else if j < 32 then hi.lane 8 (16 * (i / 16) + j - 16)
+    else 0#8
+
+/-- Words from `b` where bit `i mod 8` of `imm` is set, and from `a` elsewhere. -/
+def BitVec.blendWords {w : Nat} (a b : BitVec w) (imm : BitVec 8) : BitVec w :=
+  BitVec.ofLanes w 16 fun i => if imm.getLsbD (i % 8) then b.lane 16 i else a.lane 16 i
+
 def BitVec.toFloat32 (v : BitVec 32) : Float32 :=
   Float32.ofBits (UInt32.ofBitVec v)
 
@@ -770,6 +802,30 @@ match i with
     src.interp s p (checkAlign := true) (fun a s =>
     dst.interp s p (fun b s =>
       s.setAvxLegacy dst (BitVec.packedBinOp 32 (sseBinOp (· + ·)) b a) p next))
+  -- Legacy SSE memory operands must be 16-byte aligned, except for `movdqu`.
+  | .movdqu dst src => src.interp s p (fun val s => s.setAvxLegacy dst val p next)
+  | .movdqa dst src =>
+    src.interp s p (checkAlign := true)
+      (fun val s => s.setAvxLegacy dst val p (checkAlign := true) next)
+  | .paddd dst src =>
+    src.interp s p (checkAlign := true) (fun a s =>
+    dst.interp s p (fun b s =>
+      s.setAvxLegacy dst (BitVec.packedBinOp 32 (· + ·) b a) p next))
+  | .pshufb dst src =>
+    src.interp s p (checkAlign := true) (fun m s =>
+    dst.interp s p (fun a s =>
+      s.setAvxLegacy dst (a.shuffleBytes m) p next))
+  | .pshufd dst src imm =>
+    src.interp s p (checkAlign := true) (fun a s =>
+      s.setAvxLegacy dst (a.shuffleDwords ((imm.interp p).toBitVec.take 8)) p next)
+  | .palignr dst src imm =>
+    src.interp s p (checkAlign := true) (fun lo s =>
+    dst.interp s p (fun hi s =>
+      s.setAvxLegacy dst (hi.alignBytes lo ((imm.interp p).toBitVec.take 8)) p next))
+  | .pblendw dst src imm =>
+    src.interp s p (checkAlign := true) (fun b s =>
+    dst.interp s p (fun a s =>
+      s.setAvxLegacy dst (a.blendWords b ((imm.interp p).toBitVec.take 8)) p next))
 
 @[kstep]
 def Instr.interp [Labels]
