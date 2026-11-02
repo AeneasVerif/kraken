@@ -48,7 +48,7 @@ def swap : Program := parseAArch64("
   eor x0, x0, x1")
 
 theorem swap_correct [layout : Layout] (d : MachineData) :
-    straightlineStep (layout swap) (d, layout.start)
+    straightlineStep (layout swap) ⟨d, layout.start⟩
     (fun s' =>
         s'.1.regs.getRegOrZr .X0 = d.regs.getRegOrZr .X1 ∧
         s'.1.regs.getRegOrZr .X1 = d.regs.getRegOrZr .X0) := by
@@ -64,7 +64,7 @@ def arith_shift : Program := parseAArch64("
 ")
 
 theorem arith_shift_correct [layout : Layout] (d : MachineData) :
-    straightlineStep (layout arith_shift) (d, layout.start) (fun s' =>
+    straightlineStep (layout arith_shift) ⟨d, layout.start⟩ (fun s' =>
       s'.1.regs.getRegOrZr .X3 = 3 * (d.regs.getRegOrZr .X1 + 42)) := by
   kprologue arith_shift with d
   sym => kstep; tactic =>
@@ -84,7 +84,7 @@ start:
 theorem p4_correct [layout : Layout] (d : MachineData) :
     Eventually (straightlineStep (layout controlflow))
       (fun s' => s'.1.regs.X1 = 42)
-      (d, layout.start) := by
+      ⟨d, layout.start⟩ := by
   apply step_cps
   kprologue controlflow with d
   sym => kstep; tactic =>
@@ -116,7 +116,7 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
         s'.1.regs.X3 = s₀.regs.X0 ∧
         s'.1.regs.X4 = s₀.regs.X1 ∧
         s'.1.regs.X2 = s₀.regs.X2)
-      (s₀, layout.start) := by
+      ⟨s₀, layout.start⟩ := by
   apply step_cps
   kprologue move_2_regs_to_heap with s₀
 
@@ -160,7 +160,7 @@ theorem reg_offset_example_correct [layout : Layout] (s₀ : MachineData)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.X1.toBitVec + BitVec.ofInt 64 (s₀.regs.X2.toBitVec.toNat <<< 3))) ⋆ R) :
     Eventually (straightlineStep (layout reg_offset_example))
       (fun s' => s'.1.regs.X3 = 42)
-      (s₀, layout.start) := by
+      ⟨s₀, layout.start⟩ := by
   apply step_cps
   kprologue reg_offset_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v

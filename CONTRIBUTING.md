@@ -26,3 +26,32 @@ Here are some common but easy-to-forget considerations to look out for:
 - When computing immediates during assembly,
   is there overflow, at what width, and is it signed or unsigned?
 - Can the instruction trap, or raise an exception, or fault?
+
+Please also flag any aspects of a change or issue that you are not confident about.
+
+## Automatically generated content
+
+Use of automated tooling to generate code or text must be disclosed fully and specifically:
+describe the workflow used and which parts of the change it produced (briefly if possible).
+Generated prose must be explicitly marked, so no reader has to guess whether text is human or machine.
+
+- In **GitHub text** (PR descriptions, review/issue comments),
+  wrap generated text in a `<details>` block:
+
+      <details>
+      <summary>generated explanation</summary>
+      This test used to fail because foo ate the bar.
+      </details>
+
+- Generated **source-code comments** can be added by exception only.
+  Prefer a human summary of the context and references needed to regenerate the longer comment.
+  Any exception must be specifically requested during code review.
+
+Authors must review, understand, and be ready to defend every change themselves before opening a PR.
+A human reply must get a human reply; automated review/issue conversation is not allowed.
+
+Be especially wary of machine-generated abstractions and definition factoring.
+Prefer to check in a more pedestrian, concrete approach first,
+and introduce the abstraction only once the right interface is clear to humans.
+
+For informative context, see [Chromium AI Coding Policy](https://chromium.googlesource.com/chromium/src/+/main/agents/ai_policy.md), [Contributing to mathlib](https://leanprover-community.github.io/contribute/index.html), [Kaashoek & Zeldovich xv6-AI § 9](https://arxiv.org/abs/2609.04043)

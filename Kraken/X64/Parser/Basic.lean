@@ -288,11 +288,10 @@ def parseRegOrRipW : Parser (Width × RegOrRip) := do
 -- Operand Parsing
 -- ============================================================================
 
-/-- Parse an immediate operand: $42, $-17, $0xff.
+/-- Parse an integer that fits in 64 bits: 42, -17, 0xff.
     Accepts any 64-bit value (0 to 2^64-1) as a bit pattern.
-    Values like $0xFFFFFFFFFFFFFFFF are interpreted as -1 in two's complement. -/
-def parseInt64 : Parser ConstExpr := do
-  let _ ← pchar '$'
+    Values like 0xFFFFFFFFFFFFFFFF are interpreted as -1 in two's complement. -/
+def parseInt64Raw : Parser ConstExpr := do
   let v ← parseInt
   -- JP: why not simply Int64.ofInt? Would that not implement the behavior
   -- below?
@@ -301,7 +300,7 @@ def parseInt64 : Parser ConstExpr := do
   -- Negative values: must be >= Int64.min (-2^63)
   -- Positive values: must be < 2^64 (allows unsigned representation like 0xFFFFFFFFFFFFFFFF)
   if v < -9223372036854775808 || v >= 18446744073709551616 then
-    fail s!"immediate {v} out of 64-bit range"
+    fail s!"integer {v} out of 64-bit range"
   -- Convert to Int64: values > Int64.max are reinterpreted as negative (two's complement)
   let i64 := if v > 9223372036854775807 then
     -- Reinterpret large positive value as negative two's complement
@@ -310,12 +309,32 @@ def parseInt64 : Parser ConstExpr := do
     Int64.ofInt v
   pure (.int64 i64)
 
+/-- Parse an immediate integer operand: $42, $-17, $0xff (see `parseInt64Raw`). -/
+def parseInt64 : Parser ConstExpr := pchar '$' *> parseInt64Raw
+
 -- parseName allows for dots
 def parseLabelRaw : Parser Label := parseName
 
 def parseLabel : Parser ConstExpr := do
   let n ← parseLabelRaw
   pure (.label n)
+
+/-- Parse a symbolic constant: a label, optionally offset by a constant, e.g.
+  `sym`, `sym+8`, `.L0-4`. -/
+def parseSymExpr : Parser ConstExpr := do
+  let l ← parseLabel
+  (attempt do
+    skipHWs
+    let op ← pchar '+' <|> pchar '-'
+    let i ← parseInt64Raw
+    pure (if op == '+' then .add l i else .sub l i)
+  ) <|> pure l
+
+/-- Parse an immediate operand: `$` followed by an integer (see `parseInt64Raw`)
+  or by a symbolic constant (`$sym`, `$sym+8`), which denotes the address of the
+  symbol (not its contents). -/
+def parseImmediate : Parser ConstExpr :=
+  pchar '$' *> (parseInt64Raw <|> parseSymExpr)
 
 /-- Parse a memory operand (a.k.a. "address expression"): disp(%base),
   (%base,%idx,scale), etc. Just like `as`, we enforce consistency at the level
@@ -324,68 +343,81 @@ def parseLabel : Parser ConstExpr := do
   test3.S:1:13: error: base register is 64-bit, but index register is not
   movq %rax, (%rcx, %ebx)
               ^
+
+  A displacement without any registers (`sym`, `sym+8`, `0x10`) denotes the
+  memory at that absolute address -- like `as`, we never read a bare symbol as
+  an immediate (that requires `$sym`).
 -/
 def parseMemory : Parser (Width × AddrExpr) := do
   skipHWs
-  -- Optional displacement; TODO: parse ConstExpr generally
-  let disp ← (do let i ← parseInt; pure (.int64 (Int64.ofInt i))) <|> parseLabel <|> pure (.int64 0)
+  -- Optional displacement
+  let disp? ← optional (parseInt64Raw <|> parseSymExpr)
   skipHWs
-  let _ ← pchar '('
+  (do
+    let _ ← pchar '('
+    let disp := disp?.getD (.int64 0)
 
-  skipHWs
-  let (w1, base) ← parseRegOrRipW
-  -- Check for index register
-  let idx ← (do
     skipHWs
-    let _ ← pchar ','
+    let (w1, base) ← parseRegOrRipW
+    -- Check for index register
+    let idx ← (do
+      skipHWs
+      let _ ← pchar ','
+      skipHWs
+      let r ← parseLowReg
+      pure (some r)) <|> pure none
+    -- Check for scale
+    let scale ← match idx with
+      | some _ => (do
+          skipHWs
+          let _ ← pchar ','
+          skipHWs
+          let s ← parseInt
+          pure s.toNat) <|> pure 1
+      | none => pure 1
+    let scale ← match scale with
+                | 1 => pure Width.W8
+                | 2 => pure Width.W16
+                | 4 => pure Width.W32
+                | 8 => pure Width.W64
+                | s => fail s!"invalid scale {s}, must be 1, 2, 4, or 8"
+    -- JP: this is slightly inexact, in that we allow parsing a scale without an
+    -- index, but not a big deal
     skipHWs
-    let r ← parseLowReg
-    pure (some r)) <|> pure none
-  -- Check for scale
-  let scale ← match idx with
-    | some _ => (do
-        skipHWs
-        let _ ← pchar ','
-        skipHWs
-        let s ← parseInt
-        pure s.toNat) <|> pure 1
-    | none => pure 1
-  let scale ← match scale with
-              | 1 => pure Width.W8
-              | 2 => pure Width.W16
-              | 4 => pure Width.W32
-              | 8 => pure Width.W64
-              | s => fail s!"invalid scale {s}, must be 1, 2, 4, or 8"
-  -- JP: this is slightly inexact, in that we allow parsing a scale without an
-  -- index, but not a big deal
-  skipHWs
-  let _ ← pchar ')'
-  -- Some adapters between the parsed components and the expected dependent
-  -- pairs:
-  let w ← match w1, idx with
-    | w1, .some (w2, _) =>
-      if w1 ≠ w2 then
-        fail "type mismatch in memory addressing operands: base ({w1}) and index ({w2}) have different widths"
-      else
+    let _ ← pchar ')'
+    -- Some adapters between the parsed components and the expected dependent
+    -- pairs:
+    let w ← match w1, idx with
+      | w1, .some (w2, _) =>
+        if w1 ≠ w2 then
+          fail "type mismatch in memory addressing operands: base ({w1}) and index ({w2}) have different widths"
+        else
+          .pure w1
+      | w1, .none =>
         .pure w1
-    | w1, .none =>
-      .pure w1
-  let idx := Option.map (fun (_, idx) => ⟨idx, scale⟩) idx
+    let idx := Option.map (fun (_, idx) => ⟨idx, scale⟩) idx
 
-  -- Handle rip-relative addressing (like parseRelRegOrMem below).
-  let disp := match base, disp with
-    | .rip, .label l => .sub (.label l) .after_current_instruction
-    | _, _ => disp
+    -- Handle rip-relative addressing (like parseRelRegOrMem below). For a %rip
+    -- base, `AddrExpr.interp` adds the address of the next instruction. A
+    -- numeric displacement is already relative to it (`8(%rip)`), but a
+    -- symbolic one names the target itself (`sym(%rip)`), so we subtract that
+    -- address, as `as` does when encoding it.
+    let disp := match base, disp with
+      | .rip, .int64 _ => disp
+      | .rip, _ => .sub disp .after_current_instruction
+      | _, _ => disp
 
-  pure (w, { base, idx, disp })
+    pure (w, { base, idx, disp })
+  ) <|> (do
+    -- No registers: the displacement alone is the absolute address, with the
+    -- default 64-bit address size.
+    let some disp := disp? | fail "expected memory operand"
+    pure (.W64, { base := none, idx := none, disp })
+  )
 
 def parseImm w : Parser (Operand w) := do
   skipHWs
-  let c ← peek!
-  let i ←
-    match c with
-    | '$' => parseInt64
-    | _ => parseLabel
+  let i ← parseImmediate
   pure (.imm i)
 
 /-- Parse any operand: register, immediate, or memory. -/
@@ -397,15 +429,11 @@ def parseOperand: Parser (MaybeAddrWidth × MaybeOpWidth Operand) := do
     let ⟨ w, r ⟩ ← parseRegW
     pure (.none, ⟨ w, .reg r ⟩)
   | '$' =>
-    let i ← parseInt64
+    let i ← parseImmediate
     pure (.none, ⟨ .none, .imm i ⟩)
   | _ =>
-    if c == '(' || c == '-' || c.isDigit then
-      let (w, m) ← parseMemory
-      pure (w, ⟨ .none, .mem m ⟩)
-    else
-      let i ← parseLabel
-      pure (.none, ⟨ .none, .imm i ⟩)
+    let (w, m) ← parseMemory
+    pure (w, ⟨ .none, .mem m ⟩)
 
 /-- Parse a register or memory operand (not immediate). -/
 def parseRegOrMem: Parser (MaybeAddrWidth × MaybeOpWidth RegOrMem) := do
@@ -414,7 +442,7 @@ def parseRegOrMem: Parser (MaybeAddrWidth × MaybeOpWidth RegOrMem) := do
   if c == '%' then
     let ⟨ w, r ⟩ ← parseRegW
     pure (.none, ⟨ .some w, .reg r ⟩)
-  else if c == '(' || c == '-' || c.isDigit then
+  else if c != '$' then
     let (w, m) ← parseMemory
     pure (w, ⟨ .none, .mem m ⟩)
   else
@@ -426,7 +454,7 @@ def parseAvxRegOrMem: Parser (MaybeAddrWidth × MaybeAvxOpWidth AvxRegOrMem) := 
   if c == '%' then
     let ⟨ w, r ⟩ ← parseAvxRegW
     pure (.none, ⟨ .some w, .avx r ⟩)
-  else if c == '(' || c == '-' || c.isDigit then
+  else if c != '$' then
     let (w, m) ← parseMemory
     pure (w, ⟨ .none, .mem m ⟩)
   else
@@ -448,6 +476,10 @@ def parseRelRegOrMem: Parser (MaybeAddrWidth × RelRegOrMem) := do
     pure (.none, (.rel (.sub e .after_current_instruction)))
   ) <|> (do
     let (w, m) ← parseMemory
+    -- Without registers (`jmp 0x10`), `as` assembles a direct branch to that
+    -- absolute address, not an indirect one through memory.
+    if m.base.isNone && m.idx.isNone then
+      fail "absolute branch targets are not supported"
     pure (w, (.mem m))
   )
 
@@ -467,18 +499,32 @@ def parseShiftExpr: Parser ShiftCountExpr := do
 -- Condition Code Parsing
 -- ============================================================================
 
+/-- Parse a condition code from a string slice, returning `none` if not recognized. -/
+def parseCondCode? (suffix : String.Slice) : Option CondCode :=
+  match suffix.copy.toLower with
+  | "o" => some .o
+  | "no" => some .no
+  | "b" | "c" | "nae" => some .b
+  | "ae" | "nc" | "nb" => some .ae
+  | "z" | "e" => some .z
+  | "nz" | "ne" => some .nz
+  | "be" | "na" => some .be
+  | "a" | "nbe" => some .a
+  | "s" => some .s
+  | "ns" => some .ns
+  | "p" | "pe" => some .p
+  | "np" | "po" => some .np
+  | "l" | "nge" => some .l
+  | "ge" | "nl" => some .ge
+  | "le" | "ng" => some .le
+  | "g" | "nle" => some .g
+  | _ => none
+
 /-- Parse a condition code from a conditional jump mnemonic suffix. -/
 def parseCondCode (suffix : String.Slice) : Parser CondCode :=
-  match suffix.copy.toLower with
-  | "z" | "e" => .pure .z
-  | "nz" | "ne" => .pure .nz
-  | "b" | "c" | "nae" => .pure .b
-  | "ae" | "nc" | "nb" => .pure .ae
-  | "a" | "nbe" => .pure .a
-  | "be" | "na" => .pure .be
-  | "l" | "nge" => .pure .l
-  | "le" | "ng" => .pure .le
-  | _ => .fail s!"unknown condition code: {suffix}"
+  match parseCondCode? suffix with
+  | some cc => .pure cc
+  | none => .fail s!"unknown condition code: {suffix}"
 
 -- ============================================================================
 -- Instruction Parsing
@@ -570,6 +616,10 @@ def Option.toParser {T} (self: Option T): Parser T :=
   | .none => fail "empty option"
 
 instance {T} : Coe (Option T) (Parser T) where coe := Option.toParser
+
+def parseWidthSuffix : Char → Option Width
+  | 'b' => pure .W8 | 'w' => pure .W16 | 'l' => pure .W32 | 'q' => pure .W64
+  | _ =>  none
 
 /-- Parse an instruction mnemonic and its operands.
     AT&T syntax: src, dst (reversed from Intel). -/
@@ -754,21 +804,35 @@ def parseInstr : Parser Instr := do
     let ⟨ _w_dst, dst ⟩ ← parseRegW
     pure (toInstr .none (.movzx (.reg dst) (.reg src)))
 
-  | "movsbw" | "movsbl" | "movsbq" | "movswl" | "movswq" =>
+  | "movsbw" | "movsbl" | "movsbq" | "movswl" | "movswq" | "movslq" =>
     let w_dst ← instrWidth mn
     let c_src ← String.Pos.Raw.get? mn (.mk (mn.length - 2))
     let w_src ← Char.toWidth c_src
-    let src ← parseRegO w_src; parseComma
+    let ( addr_w, src ) ← parseRegOrMemAO w_src; parseComma
     let dst ← parseRegO w_dst
-    pure (toInstr .none (.movsx (.reg dst) (.reg src)))
+    pure (toInstr addr_w (.movsx (.reg dst) src))
+
+  -- Intel SDM Vol. 2B ("MOVSX/MOVSXD") lists `MOVSXD r64, r/m32` (`REX.W + 63 /r`,
+  -- AT&T `movslq`) alongside discouraged non-`REX.W` `MOVSXD r32, r/m32` and
+  -- `MOVSXD r16, r/m16` forms, whereas AMD64 APM Vol. 3 ("MOVSXD") always gives a
+  -- 32-bit `reg/mem32` source. Per the GNU `as` manual (§9.16.4.2, §9.16.16) and
+  -- binutils `opcodes/i386-opc.tbl`, default (`-mamd64`) `as` always requires a
+  -- 32-bit `r/m32` source (`movsxd %ax, …` is only accepted under `-mintel64`),
+  -- while LLVM (`X86InstrExtension.td` `MOVSX64rr32`/`rm32`) restricts `movsxd` to
+  -- Intel syntax and marks the 16/32-bit destination encodings disassembler-only.
+  -- Here we parse the 32-to-64 `MOVSXD r64, r/m32` case (`movslq`).
+  | "movsxd" =>
+    let ( addr_w, src ) ← parseRegOrMemAO .W32; parseComma
+    let dst ← parseRegO .W64
+    pure (toInstr addr_w (.movsx (.reg dst) src))
 
   | "movzbw" | "movzbl" | "movzbq" | "movzwl" | "movzwq" =>
     let w_dst ← instrWidth mn
     let c_src ← String.Pos.Raw.get? mn (.mk (mn.length - 2))
     let w_src ← Char.toWidth c_src
-    let src ← parseRegO w_src; parseComma
+    let ( addr_w, src ) ← parseRegOrMemAO w_src; parseComma
     let dst ← parseRegO w_dst
-    pure (toInstr .none (.movzx (.reg dst) (.reg src)))
+    pure (toInstr addr_w (.movzx (.reg dst) src))
 
   | "lea" =>
     let ( addr_w, src ) ← parseMemory; parseComma
@@ -969,8 +1033,8 @@ def parseInstr : Parser Instr := do
   -- Stack operations
   | "push" =>
     let ( addr_w, src ) ← parseOperand
-    let ⟨ _w, src ⟩ ← assertW src
-    pure (toInstr addr_w (.push src))
+    -- Without a register to give the width (`push $1`, `push (%rax)`), push is 64-bit.
+    pure (toInstr addr_w (.push (← ascribe (src.1.getD .W64) src)))
 
   | "pushq" | "pushl" | "pushw" | "pushb" =>
     let w ← instrWidth mn
@@ -979,8 +1043,7 @@ def parseInstr : Parser Instr := do
 
   | "pop" =>
     let ( addr_w, dst) ← parseRegOrMem
-    let ⟨ _w, dst ⟩ ← assertW dst
-    pure (toInstr addr_w (.pop dst))
+    pure (toInstr addr_w (.pop (← ascribe (dst.1.getD .W64) dst)))
 
   | "popq" | "popl" | "popw" | "popb" =>
     let w ← instrWidth mn
@@ -1018,12 +1081,18 @@ def parseInstr : Parser Instr := do
       let (addr_w, dst) ← parseRegOrMemAO .W8
       pure (toInstr addr_w (.setcc cc dst))
     else if mn.startsWith "cmov" then
-      -- TODO: are the suffixed variants really used here? do we truly need to
-      -- handle cmovzb and the like? how many are there? we could conceivably
-      -- just ignore it on the basis that the assembler will bail if there is
-      -- something inconsistent like .cmovzb %rax %rbx
-      let cc ← parseCondCode (mn.drop 4)
-      commaSeparated .none parseRegOrMem parseRegA (.cmovcc cc)
+      let rest := (mn.drop 4).copy
+      -- First try parsing condition code directly (e.g. "l" for cmovl, "ge" for cmovge).
+      -- If that fails or if a width suffix was given, strip the suffix ('w', 'l', 'q') and retry.
+      let (cc, w?) ← do
+        if let some cc := parseCondCode? rest then
+          pure (cc, none)
+        else
+          let some w := rest.back? >>= parseWidthSuffix
+            | fail s!"unknown cmov condition code: {rest}"
+          let cc ← parseCondCode (rest.dropEnd 1).copy
+          pure (cc, some w)
+      commaSeparated w? parseRegOrMem parseRegA (.cmovcc cc)
     else
       fail s!"unsupported instruction: {mnemonic}"
 
@@ -1071,7 +1140,10 @@ def skipSpaceAndCheckLineEnd : Parser Bool := do
   | some _ =>
     pure false
 
-def parseOptionalInstr : Parser (Option Directive) := do
+-- NOTE TO ROBOT: `Kraken` is open because we are under the `Kraken.*` namespace.
+-- However, I would like `Directive` to resolve to the `_root_.Directive` definition
+-- instead of `Kraken.Directive`. Is there a way to do this?
+def parseOptionalInstr : Parser (Option _root_.Directive) := do
   if (← skipSpaceAndCheckLineEnd) then
     pure none
   else
@@ -1086,7 +1158,7 @@ def checkLineEnd : Parser Unit := do
 
 /-- Parse a single line: optional label, followed by optional instruction or directive.
     Returns a list of directives found on the line. -/
-def parseLine : Parser (List Directive) := do
+def parseLine : Parser (List _root_.Directive) := do
   skipHWs
   let labels ← many (attempt do
     let l ← parseLabelDecl
@@ -1108,49 +1180,13 @@ instance {T1} : Coe (ParseResult (List T1) (Sigma String.Pos)) (Except String (L
   | .error _ .eof => .error "unexpected end of input"
   | .error _ (.other msg) => .error msg
 
-public def parse (input: String) : Except String Program := do
+public def parse (input: String) : Except String _root_.Program := do
   let rawLines := (input.splitOn "\n")
   let (_, lines) ← rawLines.foldlM (fun (lineNum, acc) x => do
-    match (parseLine ⟨ x, x.startPos ⟩ : Except String (List Directive)) with
+    match (parseLine ⟨ x, x.startPos ⟩ : Except String (List _root_.Directive)) with
     | .ok v => pure (lineNum + 1, v :: acc)
     | .error msg => .error s!"line {lineNum}: {msg}"
   ) ((1 : Nat), [])
   pure lines.reverse.flatten
-
--- ============================================================================
--- Assembly Preprocessing (Directive Stripping)
--- ============================================================================
--- These delete code that is not presently handled by Kraken. This is useful
--- for running on code without needing to modify it to delete things we do not
--- model. These are used in file parsing.
-
-private def directiveKeywords : List String :=
-  ["file", "text", "data", "p2align", "balign",
-   "globl", "global", "type", "size", "section",
-   "weak", "hidden", "protected", "internal", "ident",
-   "cfi_startproc", "cfi_endproc", "cfi_def_cfa",
-   "cfi_offset", "cfi_adjust_cfa_offset", "cfi_def_cfa_offset",
-   "cfi_def_cfa_register", "cfi_restore", "cfi_remember_state",
-   "cfi_restore_state"]
-
-private def extractDirectiveName (s : String) : String :=
-  let rest := s.drop 1
-  let nameStr := (rest.takeWhile (fun c => c != ' ' && c != '\t' && c != ',' && c != ':')).toString
-  nameStr.toLower
-
-private def keepLine (line : String) : Bool :=
-  let stripped := (line.trimAsciiStart).toString
-  if stripped.isEmpty || stripped.startsWith "#" then true
-  else if !stripped.startsWith "." then true
-  else
-    let dirName := extractDirectiveName stripped
-    if stripped.any (· == ':') then true
-    else if directiveKeywords.contains dirName then false
-    else false
-
-public def stripDirectives (content : String) : String :=
-  let lines := content.splitOn "\n"
-  let kept := lines.filter keepLine
-  "\n".intercalate kept
 
 end Kraken.X64.Parser

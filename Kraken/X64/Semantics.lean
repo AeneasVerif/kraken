@@ -260,8 +260,12 @@ instance (w : AvxWidth) : NondetSupportingType w.type := .avx_bitvec w
 instance : NondetSupportingType Bool := .bool
 instance : NondetSupportingType StatusFlags := .statusFlags
 
+structure MachineState where
+  data : MachineData
+  pc : Int64
+
 inductive Effects
-  | done (a : MachineData × Int64)
+  | done (a : MachineState)
   | unimplemented (msg : String)
   | gp_unaligned (addr : BitVec 64) (w : Nat)
   -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
@@ -270,10 +274,21 @@ inductive Effects
   | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : Width) (ret : w.type → DataMem → Effects)
   | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : Width} (v : w.type) (ret: DataMem → Effects)
   | undefined {α : Type} [NondetSupportingType α] (ret : α → Effects)
-  | require_read_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
-  | require_write_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
+  | require_read_access (span : Std.Rco Nat) (ok : Unit → Effects)
+  | require_write_access (span : Std.Rco Nat) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
+
+def require_access (access : Std.Rco Nat → (Unit → Effects) → Effects)
+    (addr : BitVec 64) (bytes : Nat) (ok : Unit → Effects) : Effects :=
+  let start := addr.toNat
+  let stop := start + bytes
+  if UInt64.size ≤ bytes then
+    access ⟨0, UInt64.size⟩ ok
+  else if stop ≤ UInt64.size then
+    access ⟨start, stop⟩ ok
+  else
+    access ⟨start, UInt64.size⟩ fun () => access ⟨0, stop - UInt64.size⟩ ok
 
 -- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
 -- value are present for uniformity with RegOrMem.interp
@@ -296,7 +311,7 @@ export Effects (unimplemented nonmem_load nonmem_store undefined require_read_ac
 def MachineData.load
   (s : MachineData) (addr : BitVec 64) (w : Width)
   (ret : w.type → MachineData → Effects): Effects :=
-  require_read_access addr w (fun _unit =>
+  require_access require_read_access addr w.bytes (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
     | .some i => ret (.ofInt _ i) s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
@@ -305,14 +320,6 @@ def MachineData.load
 -- (addr &&& BitVec.ofNat 64 (bytes - 1)) == 0#64
 def isAligned (bytes : Nat) (addr : BitVec 64) : Bool :=
   addr.toNat % bytes == 0
-
-/-- Checks `access` (`require_read_access` or `require_write_access`) for each of `chunks`
-consecutive 8-byte chunks starting at `addr`. -/
-def require_access_chunks (access : BitVec 64 → Width → (Unit → Effects) → Effects)
-    (addr : BitVec 64) (chunks : Nat) (ok : Unit → Effects) : Effects :=
-  match chunks with
-  | 0 => ok ()
-  | chunks + 1 => access addr .W64 fun () => require_access_chunks access (addr + 8) chunks ok
 
 -- Legacy SSE instructions are generally stricter about alignment requirements,
 -- while AVX (VEX-encoded) instructions can mostly deal with unaligned
@@ -324,13 +331,13 @@ def MachineData.loadAvx
   if checkAlign && !(isAligned w.bytes addr) then
     .gp_unaligned addr w.bytes
   else
-    require_access_chunks require_read_access addr (w.bytes / 8) (fun _unit =>
+    require_access require_read_access addr w.bytes (fun _unit =>
       match Mem.loadInt s.dmem addr w.bytes with
       | .some i => ret (.ofInt _ i) s
       | .none => unimplemented "AVX nonmem load not supported")
 
 def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Effects) : Effects :=
-  require_write_access addr w (fun _unit =>
+  require_access require_write_access addr w.bytes (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
     | .some _ =>
         ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
@@ -340,7 +347,7 @@ def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v 
   if checkAlign && !(isAligned w.bytes addr) then
     .gp_unaligned addr w.bytes
   else
-    require_access_chunks require_write_access addr (w.bytes / 8) (fun _unit =>
+    require_access require_write_access addr w.bytes (fun _unit =>
       match Mem.loadInt s.dmem addr w.bytes with
       | .some _ =>
           ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
@@ -423,9 +430,14 @@ match o with
 
 @[kstep]
 def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
-  | .z  => s.zf | .nz => !s.zf | .c  => s.cf | .nc => !s.cf
-  | .a  => !s.cf && !s.zf | .be => s.cf || s.zf
-  | .l => s.sf != s.of | .le => (s.sf != s.of) || s.zf
+  | .o  => s.of | .no => !s.of
+  | .c  => s.cf | .nc => !s.cf
+  | .z  => s.zf | .nz => !s.zf
+  | .be => s.cf || s.zf | .a  => !s.cf && !s.zf
+  | .s  => s.sf | .ns => !s.sf
+  | .p  => s.pf | .np => !s.pf
+  | .l  => s.sf != s.of | .ge => s.sf == s.of
+  | .le => (s.sf != s.of) || s.zf | .g  => !s.zf && (s.sf == s.of)
 
 @[kstep] def ShiftCountExpr.interp [Labels] (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) := match c with
   | .cl => s.regs.rcx.toBitVec.take 8
@@ -659,17 +671,17 @@ set_option maxHeartbeats 1000000
     let count := count.interpMasked s p w
     if count == 0 then s.set dst a p next else
     let v := a.sshiftRight count
+    let cf := (a.sshiftRight (count-1)).getLsbD 0
     undefined (λ af =>
-    (λ setcf => if count < w.bits then setcf (a.getLsbD (count-1)) else undefined setcf) (λ cf =>
     (λ setof => if count == 1 then setof false else undefined setof) (λ of =>
-    { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next))))
+    { s with status := .from_result v { s.status with cf, af, of } }.set dst v p next)))
   | .shrd dst src count =>
     dst.interp s p (fun a s =>
     src.interp s p (fun b s =>
     let count := count.interpMasked s p w
     if count == 0 then s.set dst a p next else
     let v := (((b.append a) >>> count).take w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined setstatus else
+    (λ setstatus => if count > w.bits then undefined setstatus else
       let cf := a.getLsbD (count-1)
       undefined (λ af =>
       (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
@@ -683,7 +695,7 @@ set_option maxHeartbeats 1000000
     let count := count.interpMasked s p w
     if count == 0 then s.set dst a p next else
     let v := (((a.append b) <<< count).drop w.bits).setWidth _
-    (λ setstatus => if count >= w.bits then undefined setstatus else
+    (λ setstatus => if count > w.bits then undefined setstatus else
       let cf := (a <<< (count-1)).msb
       undefined (λ af =>
       (λ setof => if count == 1 then setof (v.msb != a.msb) else undefined setof) (λ of =>
@@ -791,33 +803,31 @@ def Instr.interp [Labels]
   | .byteArray _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
 
 def Directives.interp [Labels]
-  (ds : List (Directive × Nat)) (s : MachineData) (pc : Int64)
+  (ds : List (Kraken.Sized Directive)) (s : MachineData) (pc : Int64)
   (ret : Int64 → MachineData → Effects) : Effects :=
   match ds with
   | [] => ret pc s
-  | (d, sz) :: ds =>
-    d.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
+  | {directive, size := sz} :: ds =>
+    directive.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
     interp ds s (pc+.ofNat sz) ret))
 
-abbrev Layout := Kraken.Layout Directive
+abbrev Layout := Kraken.Layout Instr
 
 @[reducible]
 def Executable.labels (e : Executable) : Labels :=
   { label l := (e.withAddresses.findSome?
-      (fun (p, d, _) => if d = .label l then .some p else .none)).getD (-1) }
+      (fun {directive, addr, ..} => if directive = .label l then .some addr else .none)).getD (-1) }
 
-def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Directive × Nat) :=
-  e.2.dropWhile (·.1 != .label l)
-
-abbrev MachineState := MachineData × Int64
+def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Kraken.Sized Directive) :=
+  e.program.dropWhile (·.directive != .label l)
 
 def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
   let := Executable.labels e
-  Directives.interp (e.directivesAtAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
+  Directives.interp (e.directivesAtAddress s.pc) s.data s.pc (fun pc s => ret ⟨s, pc⟩)
 
 def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
   let := Executable.labels e
-  Directives.interp (e.directivesFromAddress s.2) s.1 s.2 (fun pc s => ret (s, pc))
+  Directives.interp (e.directivesFromAddress s.pc) s.data s.pc (fun pc s => ret ⟨s, pc⟩)
 
 -- -- Concrete evaluators for expedient testing
 
@@ -829,8 +839,8 @@ where
     | .done s => eval e s until_
     | .unimplemented msg => .error msg
     | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
-    | .require_read_access _ _ ok => handleEffects (ok ())
-    | .require_write_access _ _ ok => handleEffects (ok ())
+    | .require_read_access _ ok => handleEffects (ok ())
+    | .require_write_access _ ok => handleEffects (ok ())
     | .require_exec_access _ ok => handleEffects (ok ())
     | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
@@ -861,4 +871,4 @@ abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
     .instr (.regular .W64 .W64 .ret) ]
   let start := (Executable.labels exe).label "main"
   let data : MachineData := { dmem := Mem.storeInt {} 0x100 8 0x1337, regs := {rsp := 0x100} }
-  (Executable.eval exe (data, start) (fun (_, pc) => pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)
+  (Executable.eval exe {data, pc := start} (fun st => st.pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)
