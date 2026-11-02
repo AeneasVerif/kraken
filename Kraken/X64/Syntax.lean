@@ -1,5 +1,6 @@
 module
 
+public import Kraken.X64.Ops.Flags
 import Kraken.Attribute
 public import Kraken.Layout
 public import Lean.ToExpr
