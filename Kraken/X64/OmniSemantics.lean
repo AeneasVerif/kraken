@@ -21,21 +21,17 @@ public import Kraken.X64.Semantics
   | .require_write_access _ cont => (cont ()).All post
   | .require_exec_access _ cont => (cont ()).All post
 
-@[ksimp] theorem Effects.All_require_read_access (addr : BitVec 64) (bytes : Nat)
+@[ksimp] theorem Effects.All_require_read_access (addr : BitVec 64) (bytes : UInt64)
     (ok : Unit → Effects) (post : MachineState → Prop) :
     (require_access require_read_access addr bytes ok).All post = (ok ()).All post := by
   dsimp only [require_access]
-  split
-  · rfl
-  · split <;> rfl
+  split <;> rfl
 
-@[ksimp] theorem Effects.All_require_write_access (addr : BitVec 64) (bytes : Nat)
+@[ksimp] theorem Effects.All_require_write_access (addr : BitVec 64) (bytes : UInt64)
     (ok : Unit → Effects) (post : MachineState → Prop) :
     (require_access require_write_access addr bytes ok).All post = (ok ()).All post := by
   dsimp only [require_access]
-  split
-  · rfl
-  · split <;> rfl
+  split <;> rfl
 
 def step1 [Layout] (e: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
   (Executable.step e s .done).All post

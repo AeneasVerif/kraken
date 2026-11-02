@@ -264,6 +264,8 @@ structure MachineState where
   data : MachineData
   pc : Int64
 
+abbrev AddressBound := Fin (UInt64.size + 1)
+
 inductive Effects
   | done (a : MachineState)
   | unimplemented (msg : String)
@@ -274,21 +276,20 @@ inductive Effects
   | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : Width) (ret : w.type → DataMem → Effects)
   | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : Width} (v : w.type) (ret: DataMem → Effects)
   | undefined {α : Type} [NondetSupportingType α] (ret : α → Effects)
-  | require_read_access (span : Std.Rco Nat) (ok : Unit → Effects)
-  | require_write_access (span : Std.Rco Nat) (ok : Unit → Effects)
+  | require_read_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
+  | require_write_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
 
-def require_access (access : Std.Rco Nat → (Unit → Effects) → Effects)
-    (addr : BitVec 64) (bytes : Nat) (ok : Unit → Effects) : Effects :=
-  let start := addr.toNat
-  let stop := start + bytes
-  if UInt64.size ≤ bytes then
-    access ⟨0, UInt64.size⟩ ok
-  else if stop ≤ UInt64.size then
-    access ⟨start, stop⟩ ok
+def require_access (access : Std.Rco AddressBound → (Unit → Effects) → Effects)
+    (addr : BitVec 64) (bytes : UInt64) (ok : Unit → Effects) : Effects :=
+  let start : AddressBound := addr.toFin.castSucc
+  let stop := start.val + bytes.toNat
+  if h : stop ≤ UInt64.size then
+    access ⟨start, ⟨stop, Nat.lt_succ_of_le h⟩⟩ ok
   else
-    access ⟨start, UInt64.size⟩ fun () => access ⟨0, stop - UInt64.size⟩ ok
+    access ⟨start, Fin.last UInt64.size⟩ fun () =>
+      access ⟨0, ⟨stop - UInt64.size, by have := bytes.toNat_lt_size; omega⟩⟩ ok
 
 -- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
 -- value are present for uniformity with RegOrMem.interp
@@ -311,7 +312,7 @@ def require_access (access : Std.Rco Nat → (Unit → Effects) → Effects)
 def MachineData.load
   (s : MachineData) (addr : BitVec 64) (w : Width)
   (ret : w.type → MachineData → Effects): Effects :=
-  require_access require_read_access addr w.bytes (fun _unit =>
+  require_access require_read_access addr (UInt64.ofNat w.bytes) (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
     | .some i => ret (.ofInt _ i) s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
@@ -331,13 +332,13 @@ def MachineData.loadAvx
   if checkAlign && !(isAligned w.bytes addr) then
     .gp_unaligned addr w.bytes
   else
-    require_access require_read_access addr w.bytes (fun _unit =>
+    require_access require_read_access addr (UInt64.ofNat w.bytes) (fun _unit =>
       match Mem.loadInt s.dmem addr w.bytes with
       | .some i => ret (.ofInt _ i) s
       | .none => unimplemented "AVX nonmem load not supported")
 
 def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Effects) : Effects :=
-  require_access require_write_access addr w.bytes (fun _unit =>
+  require_access require_write_access addr (UInt64.ofNat w.bytes) (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
     | .some _ =>
         ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
@@ -347,7 +348,7 @@ def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v 
   if checkAlign && !(isAligned w.bytes addr) then
     .gp_unaligned addr w.bytes
   else
-    require_access require_write_access addr w.bytes (fun _unit =>
+    require_access require_write_access addr (UInt64.ofNat w.bytes) (fun _unit =>
       match Mem.loadInt s.dmem addr w.bytes with
       | .some _ =>
           ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }

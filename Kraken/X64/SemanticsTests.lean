@@ -8,8 +8,8 @@ meta import Kraken.X64.Semantics
 private partial def accessChecks :
     Effects → Option (List (Nat × Nat) × List (Nat × Nat))
   | .done _ => some ([], [])
-  | .require_read_access p ok => (accessChecks (ok ())).map fun (rs, ws) => ((p.lower, p.upper) :: rs, ws)
-  | .require_write_access p ok => (accessChecks (ok ())).map fun (rs, ws) => (rs, (p.lower, p.upper) :: ws)
+  | .require_read_access p ok => (accessChecks (ok ())).map fun (rs, ws) => ((p.lower.val, p.upper.val) :: rs, ws)
+  | .require_write_access p ok => (accessChecks (ok ())).map fun (rs, ws) => (rs, (p.lower.val, p.upper.val) :: ws)
   | _ => none
 
 /-- 64 bytes of data memory at `0x1000`. -/
