@@ -6,3 +6,5 @@ public import Kraken.AArch64.Parser.Syntax
 public meta import Kraken.AArch64.Parser.Syntax
 public import Kraken.AArch64.Parser.Elab
 public meta import Kraken.AArch64.Parser.Elab
+public import Kraken.AArch64.Parser.Delab
+public meta import Kraken.AArch64.Parser.Delab

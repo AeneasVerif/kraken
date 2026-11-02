@@ -95,18 +95,18 @@ syntax_affixed (prefixes := signedness) (suffixes := ext_width_x) "xt" : aarch64
 
 /-- Shift or extend modifier with optional amount (`lsl #2`, `uxtw`, `sxtw #3`). -/
 declare_syntax_cat aarch64_modifier
-syntax aarch64_modifier_kind (aarch64_imm)? : aarch64_modifier
+syntax aarch64_modifier_kind (ppSpace aarch64_imm)? : aarch64_modifier
 
 /-- AArch64 memory addressing operand. -/
 declare_syntax_cat aarch64_mem
 /-- Base register with optional immediate offset (`[Xn]`, `[Xn, #imm]`). -/
-syntax "[" aarch64_reg ("," aarch64_const)? "]" : aarch64_mem
+syntax "[" aarch64_reg (", " aarch64_const)? "]" : aarch64_mem
 /-- Pre-indexed immediate offset with writeback (`[Xn, #imm]!`). -/
-syntax "[" aarch64_reg "," aarch64_const "]" "!" : aarch64_mem
+syntax "[" aarch64_reg ", " aarch64_const "]" "!" : aarch64_mem
 /-- Post-indexed immediate offset with writeback (`[Xn], #imm`). -/
-syntax withPosition("[" aarch64_reg "]" "," lineEq aarch64_const) : aarch64_mem
+syntax withPosition("[" aarch64_reg "]" ", " lineEq aarch64_const) : aarch64_mem
 /-- Register offset with optional extend (`[Xn, Xm]`, `[Xn, Xm, lsl #3]`, `[Xn, Wm, uxtw #2]`). -/
-syntax "[" aarch64_reg "," aarch64_reg ("," aarch64_modifier)? "]" : aarch64_mem
+syntax "[" aarch64_reg ", " aarch64_reg (", " aarch64_modifier)? "]" : aarch64_mem
 /-- Antiquotation of a memory operand (`AddrExpr`, or `UnscaledAddrExpr` for `ldur`/`stur`). -/
 syntax "❰" term "❱" : aarch64_mem
 
@@ -123,8 +123,8 @@ syntax aarch64_lit : aarch64_load_src
 /-- Flexible source operand: constant (`#imm`, `:lo12:sym`), optionally shifted constant
     (`#imm, lsl #12`), or register with optional shift/extend (`Rm`, `Rm, lsl #2`, `Wm, uxtw #2`). -/
 declare_syntax_cat aarch64_src
-syntax aarch64_const ("," aarch64_modifier)? : aarch64_src
-syntax aarch64_reg ("," aarch64_modifier)? : aarch64_src
+syntax aarch64_const (", " aarch64_modifier)? : aarch64_src
+syntax aarch64_reg (", " aarch64_modifier)? : aarch64_src
 
 /-- Register or integer immediate operand. -/
 declare_syntax_cat aarch64_reg_or_imm
@@ -423,38 +423,38 @@ syntax_affixed (suffixes := cond) "b" : aarch64_bcond_op
 
 /-- AArch64 instruction statement with instruction-specific arity and operand categories. -/
 declare_syntax_cat aarch64_instr (behavior := both)
-syntax withPosition(aarch64_ldr_op lineEq aarch64_reg "," lineEq aarch64_load_src) : aarch64_instr
-syntax withPosition(aarch64_ldur_op lineEq aarch64_reg "," lineEq aarch64_mem) : aarch64_instr
-syntax withPosition(aarch64_str_op lineEq aarch64_reg "," lineEq aarch64_mem) : aarch64_instr
-syntax withPosition(aarch64_stur_op lineEq aarch64_reg "," lineEq aarch64_mem) : aarch64_instr
-syntax withPosition(aarch64_pair_op lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_mem) : aarch64_instr
-syntax withPosition(aarch64_arith_op lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_src) : aarch64_instr
-syntax withPosition(aarch64_cmp_op lineEq aarch64_reg "," lineEq aarch64_src) : aarch64_instr
-syntax withPosition(aarch64_unary_op lineEq aarch64_reg "," lineEq aarch64_src) : aarch64_instr
-syntax withPosition(aarch64_logic_op lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_src) : aarch64_instr
-syntax withPosition(&"tst" lineEq aarch64_reg "," lineEq aarch64_src) : aarch64_instr
-syntax withPosition(aarch64_rrr_op lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_reg) : aarch64_instr
-syntax withPosition(aarch64_madd_op lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_reg) : aarch64_instr
-syntax withPosition(aarch64_maddl_op lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_reg) : aarch64_instr
-syntax withPosition(aarch64_mull_op lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_reg) : aarch64_instr
-syntax withPosition(aarch64_rr_op lineEq aarch64_reg "," lineEq aarch64_reg) : aarch64_instr
-syntax withPosition(aarch64_extend_op lineEq aarch64_reg "," lineEq aarch64_reg) : aarch64_instr
-syntax withPosition(aarch64_shift_op lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_reg_or_imm) : aarch64_instr
-syntax withPosition(&"extr" lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_imm) : aarch64_instr
-syntax withPosition(aarch64_bitfield_op lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_imm "," lineEq aarch64_imm) : aarch64_instr
-syntax withPosition(aarch64_csel_op lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_cond) : aarch64_instr
-syntax withPosition(aarch64_cinc_op lineEq aarch64_reg "," lineEq aarch64_reg "," lineEq aarch64_cond) : aarch64_instr
-syntax withPosition(aarch64_cset_op lineEq aarch64_reg "," lineEq aarch64_cond) : aarch64_instr
-syntax withPosition(aarch64_ccmp_op lineEq aarch64_reg "," lineEq aarch64_reg_or_imm "," lineEq aarch64_imm "," lineEq aarch64_cond) : aarch64_instr
-syntax withPosition(&"mov" lineEq aarch64_reg "," lineEq aarch64_reg_or_imm) : aarch64_instr
-syntax withPosition(aarch64_movw_op lineEq aarch64_reg "," lineEq aarch64_const ("," lineEq aarch64_modifier)?) : aarch64_instr
-syntax withPosition(aarch64_adr_op lineEq aarch64_reg "," lineEq aarch64_const) : aarch64_instr
-syntax withPosition(aarch64_b_op lineEq aarch64_const) : aarch64_instr
-syntax withPosition(aarch64_br_op lineEq aarch64_reg) : aarch64_instr
-syntax withPosition(&"ret" (lineEq aarch64_reg)?) : aarch64_instr
-syntax withPosition(aarch64_cbz_op lineEq aarch64_reg "," lineEq aarch64_const) : aarch64_instr
-syntax withPosition(aarch64_tbz_op lineEq aarch64_reg "," lineEq aarch64_imm "," lineEq aarch64_const) : aarch64_instr
-syntax withPosition(aarch64_bcond_op lineEq aarch64_const) : aarch64_instr
+syntax withPosition(aarch64_ldr_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_load_src) : aarch64_instr
+syntax withPosition(aarch64_ldur_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_mem) : aarch64_instr
+syntax withPosition(aarch64_str_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_mem) : aarch64_instr
+syntax withPosition(aarch64_stur_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_mem) : aarch64_instr
+syntax withPosition(aarch64_pair_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_mem) : aarch64_instr
+syntax withPosition(aarch64_arith_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_src) : aarch64_instr
+syntax withPosition(aarch64_cmp_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_src) : aarch64_instr
+syntax withPosition(aarch64_unary_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_src) : aarch64_instr
+syntax withPosition(aarch64_logic_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_src) : aarch64_instr
+syntax withPosition(&"tst" ppSpace lineEq aarch64_reg ", " lineEq aarch64_src) : aarch64_instr
+syntax withPosition(aarch64_rrr_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_reg) : aarch64_instr
+syntax withPosition(aarch64_madd_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_reg) : aarch64_instr
+syntax withPosition(aarch64_maddl_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_reg) : aarch64_instr
+syntax withPosition(aarch64_mull_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_reg) : aarch64_instr
+syntax withPosition(aarch64_rr_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg) : aarch64_instr
+syntax withPosition(aarch64_extend_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg) : aarch64_instr
+syntax withPosition(aarch64_shift_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_reg_or_imm) : aarch64_instr
+syntax withPosition(&"extr" ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_imm) : aarch64_instr
+syntax withPosition(aarch64_bitfield_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_imm ", " lineEq aarch64_imm) : aarch64_instr
+syntax withPosition(aarch64_csel_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_cond) : aarch64_instr
+syntax withPosition(aarch64_cinc_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg ", " lineEq aarch64_cond) : aarch64_instr
+syntax withPosition(aarch64_cset_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_cond) : aarch64_instr
+syntax withPosition(aarch64_ccmp_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg_or_imm ", " lineEq aarch64_imm ", " lineEq aarch64_cond) : aarch64_instr
+syntax withPosition(&"mov" ppSpace lineEq aarch64_reg ", " lineEq aarch64_reg_or_imm) : aarch64_instr
+syntax withPosition(aarch64_movw_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_const (", " lineEq aarch64_modifier)?) : aarch64_instr
+syntax withPosition(aarch64_adr_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_const) : aarch64_instr
+syntax withPosition(aarch64_b_op ppSpace lineEq aarch64_const) : aarch64_instr
+syntax withPosition(aarch64_br_op ppSpace lineEq aarch64_reg) : aarch64_instr
+syntax withPosition(&"ret" (ppSpace lineEq aarch64_reg)?) : aarch64_instr
+syntax withPosition(aarch64_cbz_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_const) : aarch64_instr
+syntax withPosition(aarch64_tbz_op ppSpace lineEq aarch64_reg ", " lineEq aarch64_imm ", " lineEq aarch64_const) : aarch64_instr
+syntax withPosition(aarch64_bcond_op ppSpace lineEq aarch64_const) : aarch64_instr
 syntax &"nop" : aarch64_instr
 
 /-- AArch64 directive (label declaration, instruction, or Lean term antiquotation). -/
@@ -466,8 +466,17 @@ syntax withPosition(aarch64_instr notFollowedBy(lineEq (aarch64_ident <|> "," <|
 /-- Antiquotation of a directive (`Directive`). -/
 syntax "❰" term "❱" : aarch64_directive
 
+/-- Embedding of directives -/
+syntax "⸨dir| " aarch64_directive " ⸩" : term
+
+/-- Embedding of sized directives -/
+syntax "⸨dir " term "| " aarch64_directive " ⸩" : term
+
 /-- AArch64 assembly program (sequence of directives). -/
 declare_syntax_cat aarch64_prog (behavior := both)
-syntax aarch64_directive* : aarch64_prog
+syntax ppDedent((ppLine aarch64_directive)*) : aarch64_prog
+
+/-- Inline unquoted AArch64 assembly block (`⸨prog| ...⸩`). -/
+syntax "⸨prog|" aarch64_prog "⸩" : term
 
 end Kraken.AArch64.Parser
