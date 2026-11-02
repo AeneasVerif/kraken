@@ -1,6 +1,7 @@
 name = "Kraken"
 version = "0.1.0"
-defaultTargets = ["Kraken", "krakenrunner"]
+defaultTargets = ["Kraken", "KrakenAArch64", "krakenrunner_x64", "krakenrunner_aarch64", "att2intel"]
+requiresModuleSystem = true
 
 [leanOptions]
 autoImplicit = false
@@ -10,6 +11,17 @@ relaxedAutoImplicit = false
 name = "Kraken"
 globs = ["Kraken.*"]  # TODO: move the tests out of `Kraken`
 
+[[lean_lib]]
+name = "KrakenAArch64"
+
 [[lean_exe]]
-name = "krakenrunner"
-root = "KrakenRunner"
+name = "krakenrunner_x64"
+root = "KrakenRunnerX64"
+
+[[lean_exe]]
+name = "krakenrunner_aarch64"
+root = "KrakenRunnerAArch64"
+
+[[lean_exe]]
+name = "att2intel"
+root = "Att2Intel"
