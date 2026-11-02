@@ -281,6 +281,7 @@ inductive Effects
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
 
+-- Splits the interval in two halves in case of overflow
 def require_access (access : Std.Rco AddressBound → (Unit → Effects) → Effects)
     (addr : BitVec 64) (bytes : UInt64) (ok : Unit → Effects) : Effects :=
   let start : AddressBound := addr.toFin.castSucc
