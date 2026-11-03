@@ -16,48 +16,52 @@ instance : Repr ByteArray where reprPrec _ _ := "<opaque byte array>"
 
 deriving instance Lean.ToExpr for ByteArray
 
-inductive Directive (Instr : Type)
+inductive Directive (Instr Const : Type)
   | instr (_ : Instr)
   | label (_ : Label)
   | byteArray (_ : ByteArray)
+  /-- A data word of `bytes` bytes whose value is a symbolic constant, e.g. a label or a
+  difference of labels (a relocation). It is never executed. Jump tables (`.long .Lcase - .Ltable`)
+  and pointer tables (`.quad fn`) are the typical uses. -/
+  | word (bytes : Nat) (e : Const)
   deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
 
 structure Sized Directive where
   directive : Directive
   size : Nat
 
-abbrev Program Instr := List (Directive Instr)
+abbrev Program Instr Const := List (Directive Instr Const)
 
-structure Executable (Instr : Type) where
+structure Executable (Instr Const : Type) where
   startAddr : Int64
-  program : List (Sized (Directive Instr))
+  program : List (Sized (Directive Instr Const))
 
 -- JP: why is `size` not `Directive → Nat`?
-class Layout (Instr : Type) where
+class Layout (Instr Const : Type) where
   start : Int64
   size : Nat → Nat
 
-variable {Instr : Type}
+variable {Instr Const : Type}
 
-def Layout.apply (l : Layout Instr) (prog : Program Instr) : Executable Instr :=
+def Layout.apply (l : Layout Instr Const) (prog : Program Instr Const) : Executable Instr Const :=
   {startAddr := l.start, program := prog.mapIdx (fun i directive => {directive, size := l.size i})}
 
--- NOTE: We write `List (Kraken.Directive Instr)` here, and not `Kraken.Program Instr`, because architecture
--- specific `Program` types are written as `List Directive` which desugar to `List (Kraken.Directive Instr)`,
+-- NOTE: We write `List (Kraken.Directive Instr Const)` here, and not `Kraken.Program Instr Const`, because architecture
+-- specific `Program` types are written as `List Directive` which desugar to `List (Kraken.Directive Instr Const)`,
 -- and so otherwise the typeclass synthesis algorithm would not find this instance.
 -- Architecture specific programs are written as `List Directive` for architecture-specific `Directive`
--- instead of `Kraken.Directive Instr` so that `ls[i].foo` searches for `Directive.foo` first, instead of
+-- instead of `Kraken.Directive Instr Const` so that `ls[i].foo` searches for `Directive.foo` first, instead of
 -- going directly to `Kraken.Directive.foo` (which contains less information)
-instance : CoeFun (Layout Instr) (fun _ => List (Directive Instr) → Executable Instr) where
+instance : CoeFun (Layout Instr Const) (fun _ => List (Directive Instr Const) → Executable Instr Const) where
   coe := Layout.apply
 
 structure Addressable (Directive : Type) extends Sized Directive where (addr : Int64)
 
-variable (e : Executable Instr) (program : List (Sized (Directive Instr))) {c : Sized (Directive Instr)}
+variable (e : Executable Instr Const) (program : List (Sized (Directive Instr Const))) {c : Sized (Directive Instr Const)}
 
 -- Returns each directive paired with its start address and size.
 -- TODO: tail-recursive version for efficiency?
-def Executable.withAddresses (e : Executable Instr) : List (Addressable (Directive Instr)) :=
+def Executable.withAddresses (e : Executable Instr Const) : List (Addressable (Directive Instr Const)) :=
   let {startAddr, program} := e
   match program with
   | [] => []
@@ -65,11 +69,11 @@ def Executable.withAddresses (e : Executable Instr) : List (Addressable (Directi
     {instr with addr := startAddr} :: Executable.withAddresses {startAddr := startAddr + .ofNat instr.size, program}
 termination_by e.2
 
-def Executable.directivesAtAddress (a : Int64) : List (Sized (Directive Instr)) :=
+def Executable.directivesAtAddress (a : Int64) : List (Sized (Directive Instr Const)) :=
   let starts_at_a := e.withAddresses.dropWhile (·.addr ≠ a)
   (starts_at_a.takeWhile (·.addr = a)).map (·.toSized)
 
-def Executable.directivesFromAddress (a : Int64) : List (Sized (Directive Instr)) :=
+def Executable.directivesFromAddress (a : Int64) : List (Sized (Directive Instr Const)) :=
   let starts_at_a := e.withAddresses.dropWhile (·.addr ≠ a)
   starts_at_a.map (·.toSized)
 
@@ -82,7 +86,7 @@ theorem Executable.withAddresses_dropWhile_start (startAddr : Int64) :
       Executable.withAddresses {startAddr, program} := by
   cases program <;> grind [Executable.withAddresses, List.dropWhile_cons, List.dropWhile_nil]
 
-theorem Executable.directivesFromStart [layout : Layout Instr] (prog : Program Instr) :
+theorem Executable.directivesFromStart [layout : Layout Instr Const] (prog : Program Instr Const) :
     (layout prog).directivesFromAddress layout.start =
       prog.mapIdx (fun i directive => {directive, size := layout.size i}) := by
   grind [Executable.withAddresses_dropWhile_start, Executable.withAddresses_map_snd, Executable.directivesFromAddress, Layout.apply]
@@ -138,7 +142,7 @@ theorem Executable.addrOf_succ {n : Nat}
   grind [addrOf]
 
 theorem Executable.getElem?_withAddresses_mk :
-    ∀ (program : List (Sized (Directive Instr))) (startAddr : Int64) (k : Nat),
+    ∀ (program : List (Sized (Directive Instr Const))) (startAddr : Int64) (k : Nat),
       (Executable.withAddresses {startAddr, program})[k]?
         = program[k]?.map (fun c => {c with addr := Executable.addrOf {startAddr, program} k})
   | [], a, k => by rw [Executable.withAddresses]; simp

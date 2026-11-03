@@ -319,14 +319,15 @@ def parseLabel : Parser ConstExpr := do
   let n ← parseLabelRaw
   pure (.label n)
 
-/-- Parse a symbolic constant: a label, optionally offset by a constant, e.g.
-  `sym`, `sym+8`, `.L0-4`. -/
+/-- Parse a symbolic constant: a label, optionally offset by a constant or by another label, e.g.
+  `sym`, `sym+8`, `.L0-4`, `.Lcase0-.Ltable`. -/
 def parseSymExpr : Parser ConstExpr := do
   let l ← parseLabel
   (attempt do
     skipHWs
     let op ← pchar '+' <|> pchar '-'
-    let i ← parseInt64Raw
+    skipHWs
+    let i ← parseInt64Raw <|> parseLabel
     pure (if op == '+' then .add l i else .sub l i)
   ) <|> pure l
 
@@ -1195,6 +1196,15 @@ def skipSpaceAndCheckLineEnd : Parser Bool := do
   | some _ =>
     pure false
 
+/-- Parse a data word: `.short`, `.long` or `.quad` followed by an integer or a symbolic
+constant (`sym`, `sym+8`, `.Lcase0-.Ltable`). The value stays symbolic. -/
+def parseDataWord : Parser _root_.Directive := do
+  let bytes ← (attempt (pstring ".short" *> pure 2)) <|>
+    (attempt (pstring ".long" *> pure 4)) <|> (pstring ".quad" *> pure 8)
+  skipHWs
+  let e ← parseInt64Raw <|> parseSymExpr
+  pure (.word bytes e)
+
 -- NOTE TO ROBOT: `Kraken` is open because we are under the `Kraken.*` namespace.
 -- However, I would like `Directive` to resolve to the `_root_.Directive` definition
 -- instead of `Kraken.Directive`. Is there a way to do this?
@@ -1202,8 +1212,8 @@ def parseOptionalInstr : Parser (Option _root_.Directive) := do
   if (← skipSpaceAndCheckLineEnd) then
     pure none
   else
-    let i ← parseAlign <|> parseInstr
-    pure (some (Directive.instr i))
+    let d ← parseDataWord <|> (Directive.instr <$> (parseAlign <|> parseInstr))
+    pure (some d)
 
 def checkLineEnd : Parser Unit := do
   if (← skipSpaceAndCheckLineEnd) then
