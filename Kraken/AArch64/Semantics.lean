@@ -5,6 +5,7 @@ meta import Kraken.AArch64.Syntax
 import Kraken.Attribute
 public import Kraken.Mem
 meta import Kraken.Mem
+public import Kraken.PNat
 public import Lean.ToExpr
 meta import Lean.Elab.Deriving.ToExpr
 
@@ -946,7 +947,9 @@ set_option maxHeartbeats 1000000
   match d with
   | .label _ => next s
   | .instr i => i.interp s p next jmp
-  | .byteArray _ _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
+  | .byteArray bs =>
+    if bs.isEmpty then next s
+    else .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
 
 def Directives.interp [Labels]
   (ds : List (Kraken.Sized Directive)) (s : MachineData) (pc : Int64)

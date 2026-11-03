@@ -789,7 +789,9 @@ def Instr.interp [Labels]
   match d with
   | .label _ => next s
   | .instr i => i.interp s p next jmp
-  | .byteArray _ _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
+  | .byteArray bs =>
+    if bs.isEmpty then next s
+    else .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
 
 def Directives.interp [Labels]
   (ds : List (Kraken.Sized Directive)) (s : MachineData) (pc : Int64)

@@ -137,7 +137,7 @@ def instr : Instr → String
 def directive : _root_.Directive → String
   | .instr i => instr i
   | .label l => s!"{l}:"
-  | d@(.byteArray _ _) => toString d
+  | d@(.byteArray _) => toString d
 
 end Kraken.X64.ATT
 

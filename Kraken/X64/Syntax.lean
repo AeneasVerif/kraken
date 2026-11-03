@@ -2,6 +2,7 @@ module
 
 import Kraken.Attribute
 public import Kraken.Layout
+public import Kraken.PNat
 public import Lean.ToExpr
 meta import Lean.Elab.Deriving.ToExpr
 

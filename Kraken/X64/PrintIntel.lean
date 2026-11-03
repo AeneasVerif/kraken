@@ -191,4 +191,4 @@ instance : ToString Directive where
   toString
   | .instr i => ToString.toString i
   | .label l => s!"{l}:"
-  | .byteArray bs _ => ".byte "++", ".intercalate (bs.toList.map (fun b => s!"{b}"))
+  | .byteArray bs => ".byte "++", ".intercalate (bs.toList.map (fun b => s!"{b}"))

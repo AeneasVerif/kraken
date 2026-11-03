@@ -43,8 +43,15 @@ public theorem Host.sizeBefore_eq_of_addrOf_eq [Host] {j k : Nat} (h : Host.addr
 
 public theorem Layout.inert_of_size_eq_zero [Layout] {i : Nat} {d : Directive}
     (hz : Kraken.Layout.size d i = 0) : d.Inert := by
-  obtain ⟨l, rfl⟩ := (Kraken.Layout.size_eq_zero_iff d i).mp hz
-  exact Directive.inert_label l
+  cases d with
+  | instr inst =>
+    have := (Kraken.Layout.instrSize inst i).property
+    simp [Kraken.Layout.size] at hz
+    omega
+  | label l => exact Directive.inert_label l
+  | byteArray bs =>
+    simp [Kraken.Layout.size] at hz
+    exact Directive.inert_byteArray_of_isEmpty (by simp [ByteArray.isEmpty, hz])
 
 public theorem Host.inert_of_getElem? [Host] {i : Nat} {d : Directive} (_h : Host.prog[i]? = some d)
     (hz : Kraken.Layout.size d i = 0) : d.Inert :=
