@@ -1,5 +1,7 @@
 /.lake
 .vimsession
+/tool/sde
+/tool/sde-external-*
 # Build artifacts from test runs
 *.o
 asm-tests/test
