@@ -105,6 +105,23 @@ info: [Directive.instr
 #check parse("movq (%rsi, %r15, 8), %rax")
 -- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .mov (.Reg (.low .rax .W64)) (.mem .rsi (some .r15) 8 0) }]
 
+-- Test: a leading 0 marks an octal number, as in GNU as
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑27))] : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check parse("movq $033, %rax")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rax Width.W64)
+        ↑↑{ base := some (RegOrRip.reg Reg64.rsi), idx := some { reg := Reg64.r15, scale := Width.W64 },
+              disp := ↑(-8) }))] : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check parse("movq -010(%rsi, %r15, 010), %rax")
+
 -- Test: movsx/movzx with a memory source, movslq and movsxd
 /--
 info: [Directive.instr
