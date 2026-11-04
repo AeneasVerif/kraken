@@ -62,7 +62,7 @@ def run_fuzzer(asm_tests, as_cmd, ld_cmd, emu_cmd=(), description=None):
         hw_states = run_hardware(asm_tests, seqs, as_cmd, ld_cmd, emu_cmd)
         for i, (seq, hw, k) in enumerate(zip(seqs, hw_states, preds, strict=True)):
             diffs = (
-                asm_tests.compare_states(hw, asm_tests.ExecutionState(**k["state"]), [], "native")
+                asm_tests.compare_states(hw, asm_tests.ExecutionState(**k["state"]), [])
                 if k["ok"]
                 else [f"Kraken: {k['error']}"]
             )
