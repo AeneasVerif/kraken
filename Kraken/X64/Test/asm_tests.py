@@ -149,7 +149,7 @@ def assemble_and_link(asm_path: Path, tmp: Path) -> Path:
         err = re.sub(r":(\d+):", lambda m: f":{int(m.group(1)) - prologue_len}:", err)
         raise AssembleAndLinkError(f"x86 toolchain error:\n{err}") from e
 
-def run_x86(bin_file: Path, runner: Tuple[str, ...] = (), reference_name: str = "native"
+def run_x86(bin_file: Path, runner: Tuple[str, ...] = (), reference_name: str
             ) -> Tuple[Optional[ExecutionState], Optional[str]]:
     try:
         res = subprocess.run([*runner, str(bin_file)], check=True,
@@ -269,17 +269,13 @@ def test_roundtrip(asm_path: Path) -> Tuple[bool, str]:
             return False, f"assembler failed: {' '.join(str(x) for x in e.cmd)}\n{err_msg}"
     return True, ""
 
-def test_file(path: Path, *, sde_only: bool = False) -> Tuple[bool, str]:
+def test_file(path: Path, *) -> Tuple[bool, str]:
     print(f"{path.name:50}", end="", flush=True)
 
     references = []
-    if NATIVE_X64 and not sde_only:
-        references.append(("native", ()))
+    references.append(("native", ()))
     if SDE_RUNNER:
         references.append(("SDE", (SDE_RUNNER, "--")))
-    if not references:
-        print(f"[{Color.RED}ERROR{Color.RESET}]")
-        return False, "No execution reference is available."
 
     roundtrip_success, roundtrip_err = test_roundtrip(path)
     if not roundtrip_success:
@@ -315,13 +311,12 @@ def test_file(path: Path, *, sde_only: bool = False) -> Tuple[bool, str]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compare Kraken with native x86_64 and Intel SDE.")
     parser.add_argument("target", type=Path, help="assembly file or directory")
-    parser.add_argument("--require-sde", action="store_true", help="fail if SDE is unavailable")
-    parser.add_argument("--sde-only", action="store_true", help="require SDE and skip native execution")
+    parser.add_argument("--skip-sde", action="store_true", help="do not fail if SDE is unavailable")
     args = parser.parse_args()
-    if (args.require_sde or args.sde_only) and not SDE_RUNNER:
+    if not NATIVE_X64:
+        parser.error("Incorrect architecture: please use qemu to run this script in an x64 environment")
+    if not SDE_RUNNER and not args.skip_sde:
         parser.error("SDE is required; run bash tool/get-sde.sh or put sde64 on PATH.")
-    if not NATIVE_X64 and not SDE_RUNNER:
-        parser.error("Neither native Linux x86_64 execution nor SDE is available.")
 
     if not KRAKEN_RUNNER.exists():
         print(f"{Color.RED}Error: Kraken runner not found at {KRAKEN_RUNNER}{Color.RESET}")
@@ -344,7 +339,7 @@ if __name__ == "__main__":
 
     errors = []
     for f in files:
-        success, report = test_file(f, sde_only=args.sde_only)
+        success, report = test_file(f)
         if not success:
             errors.append((f.name, report))
 
