@@ -94,7 +94,7 @@ instance : StatusFlagBits StatusFlags where
 -- whether any `undefined` choice was made.
 partial def evalEffects (h : UInt64) (sawUndef : Bool) : Effects → Option (MachineData × Bool)
   | .done st => some (st.data, sawUndef)
-  | .require_read_access _ _ ok | .require_write_access _ _ ok | .require_exec_access _ ok => evalEffects h sawUndef (ok ())
+  | .require_read_access _ ok | .require_write_access _ ok | .require_exec_access _ ok => evalEffects h sawUndef (ok ())
   | @Effects.undefined _ t cont => evalEffects h true (cont (t.from_hash h))
   | _ => none
 
@@ -150,7 +150,7 @@ def fuzzConfig : FuzzConfig MachineData StatusFlags StateSummary where
   parseSteps asmCode := do
     let exe := (← (Kraken.X64.Parser.parse asmCode).toOption).fakeLayout
     let := exe.labels
-    return exe.withAddresses.map fun d =>
+    return exe.withAddresses.map fun d : Kraken.Addressable Directive =>
       { d with directive := fun s p h => evalEffects h false (d.directive.interp s p (fun s => .done ⟨s, p.upper⟩) (fun _ _ => .unimplemented "jump")) }
   summarize := summarize
   genInstr := Kraken.X64.ATT.instr <$> gen

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import os
+import platform
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -11,9 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-BIN_DIR = Path(__file__).resolve().parent.parent.parent.parent / ".lake/build/bin"
+PROJECT_DIR = Path(__file__).resolve().parent.parent.parent.parent
+BIN_DIR = PROJECT_DIR / ".lake/build/bin"
 KRAKEN_RUNNER = BIN_DIR / "krakenrunner_x64"
 ATT2INTEL = BIN_DIR / "att2intel"
+SDE_RUNNER = shutil.which(str(PROJECT_DIR / "tool/sde/sde64")) or shutil.which("sde64")
+NATIVE_X64 = platform.system() == "Linux" and platform.machine().lower() in ("x86_64", "amd64")
 
 REGS = ["rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rsp", "rbp",
         "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"]
@@ -106,7 +112,7 @@ def write_and_exit(buf: str, nbytes: int) -> str:
 @dataclass
 class ExecutionState:
     regs: Dict[str, int]
-    zmms: Dict[str, int]
+    zmms: Dict[str, str]
     flags: Dict[str, bool]
 
 def parse_raw_state(raw_bytes: bytes) -> ExecutionState:
@@ -125,26 +131,38 @@ def parse_raw_state(raw_bytes: bytes) -> ExecutionState:
         flags={name: bool(rflags & (1 << bit)) for name, bit in FLAG_MAP.items()}
     )
 
-def run_real_x86(asm_path: Path) -> Tuple[Optional[ExecutionState], Optional[str]]:
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp = Path(tmp_dir)
-        s_file = tmp / asm_path.name
-        obj_file = tmp / f"{asm_path.stem}.o"
-        bin_file = tmp / f"{asm_path.stem}.bin"
+class AssembleAndLinkError(Exception):
+    pass
 
-        full_source = get_boilerplate(asm_path.read_text())
+def assemble_and_link(asm_path: Path, tmp: Path) -> Path:
+    s_file = tmp / asm_path.name
+    obj_file = tmp / f"{asm_path.stem}.o"
+    bin_file = tmp / f"{asm_path.stem}.bin"
+    full_source = get_boilerplate(asm_path.read_text())
+    try:
         s_file.write_text(full_source)
+        subprocess.run(["as", "-o", str(obj_file), str(s_file)],
+                       check=True, capture_output=True, timeout=TIMEOUT_SECONDS)
+        subprocess.run(["ld", LD_STACK, "-o", str(bin_file), str(obj_file)],
+                       check=True, capture_output=True, timeout=TIMEOUT_SECONDS)
+        return bin_file
+    except (OSError, subprocess.SubprocessError) as e:
+        stderr = (getattr(e, "stderr", None) or b"").decode(errors="replace").strip()
+        err = f"{e}\n{stderr}".strip().replace(str(tmp), "...")
+        prologue_len = full_source.split("# --- Test Code Start ---")[0].count("\n") + 1
+        err = re.sub(r":(\d+):", lambda m: f":{int(m.group(1)) - prologue_len}:", err)
+        raise AssembleAndLinkError(f"x86 toolchain error:\n{err}") from e
 
-        try:
-            subprocess.run(["as", "-o", str(obj_file), str(s_file)], check=True, capture_output=True)
-            subprocess.run(["ld", LD_STACK, "-o", str(bin_file), str(obj_file)], check=True, capture_output=True)
-            res = subprocess.run([str(bin_file)], check=True, capture_output=True, timeout=TIMEOUT_SECONDS)
-            return parse_raw_state(res.stdout), None
-        except subprocess.CalledProcessError as e:
-            err = (e.stderr or b"").decode(errors="replace").replace(str(tmp), "...").strip()
-            prologue_len = full_source.split("# --- Test Code Start ---")[0].count("\n") + 1
-            line_nr_adjusted_err = re.sub(r":(\d+):", lambda m: f":{int(m.group(1)) - prologue_len}:", err)
-            return None, f"x86 Error ({e.cmd[0]}):\n{line_nr_adjusted_err}"
+def run_x86(bin_file: Path, runner: Tuple[str, ...], reference_name: str
+            ) -> Tuple[Optional[ExecutionState], Optional[str]]:
+    try:
+        res = subprocess.run([*runner, str(bin_file)], check=True,
+                             capture_output=True, timeout=TIMEOUT_SECONDS)
+        return parse_raw_state(res.stdout), None
+    except (OSError, subprocess.SubprocessError, struct.error) as e:
+        stderr = (getattr(e, "stderr", None) or b"").decode(errors="replace").strip()
+        return None, f"{reference_name} Error: {e}\nStderr:\n{stderr}"
+
 def run_kraken(path: Path) -> Tuple[Optional[ExecutionState], Optional[str]]:
     try:
         res = subprocess.run([KRAKEN_RUNNER, path], capture_output=True, check=True, timeout=TIMEOUT_SECONDS)
@@ -172,21 +190,22 @@ def get_undefined_flags(path: Path) -> List[str]:
 def requires_avx512(path: Path) -> bool:
     return "# Requires: avx512f" in path.read_text().splitlines()
 
-def compare_states(real: ExecutionState, kraken: ExecutionState, undefined_flags: List[str]) -> List[str]:
+def compare_states(real: ExecutionState, kraken: ExecutionState, undefined_flags: List[str],
+                   reference_name: str) -> List[str]:
     diffs = []
     for r in REGS:
         rv, kv = real.regs.get(r, 0), kraken.regs.get(r, 0)
         if rv != kv:
-            diffs.append(f"{r}: x86={rv:#x} ({rv}), kraken={kv:#x} ({kv})")
+            diffs.append(f"{r}: {reference_name}={rv:#x} ({rv}), kraken={kv:#x} ({kv})")
 
     for r in ZMMS:
         rv, kv = real.zmms.get(r, '0'), kraken.zmms.get(r, '0')
         if rv != kv:
-            diffs.append(f"{r}: x86={rv}, kraken={kv}")
+            diffs.append(f"{r}: {reference_name}={rv}, kraken={kv}")
 
     for f in [f for f in FLAG_MAP if not f in undefined_flags]:
         if real.flags[f] != kraken.flags[f]:
-            diffs.append(f"flag {f}: x86={real.flags[f]} | kraken={kraken.flags[f]}")
+            diffs.append(f"flag {f}: {reference_name}={real.flags[f]} | kraken={kraken.flags[f]}")
     return diffs
 
 
@@ -261,6 +280,11 @@ def test_roundtrip(asm_path: Path) -> Tuple[bool, str]:
 def test_file(path: Path) -> Tuple[bool, str]:
     print(f"{path.name:50}", end="", flush=True)
 
+    references = []
+    references.append(("native", ()))
+    if SDE_RUNNER:
+        references.append(("SDE", (SDE_RUNNER, "--")))
+
     roundtrip_success, roundtrip_err = test_roundtrip(path)
     if not roundtrip_success:
         print(f"[{Color.RED}ROUNDTRIP FAIL{Color.RESET}]")
@@ -270,23 +294,42 @@ def test_file(path: Path) -> Tuple[bool, str]:
         print(f"[{Color.CYAN}SKIP{Color.RESET}] (needs AVX-512F)")
         return True, ""
 
-    real, real_err = run_real_x86(path)
     kraken, kraken_err = run_kraken(path)
 
-    if real_err or kraken_err:
+    if kraken_err:
         print(f"[{Color.RED}CRASH{Color.RESET}]")
-        return False, real_err or kraken_err
+        return False, kraken_err
 
     undefined_flags = get_undefined_flags(path)
-    diffs = compare_states(real, kraken, undefined_flags)
-    if diffs:
-        print(f"[{Color.RED}FAIL{Color.RESET}]")
-        return False, "\n".join(diffs)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_file = assemble_and_link(path, Path(tmp))
+            for name, runner in references:
+                real, real_err = run_x86(bin_file, runner, name)
+                if real_err:
+                    print(f"[{Color.RED}CRASH{Color.RESET}]")
+                    return False, real_err
+                diffs = compare_states(real, kraken, undefined_flags, name)
+                if diffs:
+                    print(f"[{Color.RED}FAIL{Color.RESET}]")
+                    return False, "\n".join(diffs)
+    except AssembleAndLinkError as e:
+        print(f"[{Color.RED}INVALID{Color.RESET}]")
+        return False, str(e)
 
     print(f"[{Color.GREEN}PASS{Color.RESET}]")
     return True, ""
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Compare Kraken with native x86_64 and Intel SDE.")
+    parser.add_argument("target", type=Path, help="assembly file or directory")
+    parser.add_argument("--skip-sde", action="store_true", help="do not fail if SDE is unavailable")
+    args = parser.parse_args()
+    if not NATIVE_X64:
+        parser.error("Incorrect architecture: please use qemu to run this script in an x64 environment")
+    if not SDE_RUNNER and not args.skip_sde:
+        parser.error("SDE is required; run bash tool/get-sde.sh or put sde64 on PATH.")
+
     if not KRAKEN_RUNNER.exists():
         print(f"{Color.RED}Error: Kraken runner not found at {KRAKEN_RUNNER}{Color.RESET}")
         print(f"\nTo build it, run the following from the project root:")
@@ -299,11 +342,7 @@ if __name__ == "__main__":
         print(f"  {Color.GREEN}lake build att2intel{Color.RESET}\n")
         sys.exit(1)
 
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <file.S or dir>")
-        sys.exit(1)
-
-    target = Path(sys.argv[1]).resolve()
+    target = args.target.resolve()
     files = sorted(target.rglob("*.S")) if target.is_dir() else ([target] if target.exists() else [])
 
     if not files:

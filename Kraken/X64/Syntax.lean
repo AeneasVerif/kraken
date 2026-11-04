@@ -248,6 +248,14 @@ inductive AvxOperation (w : AvxWidth)
   | movaps (_ : AvxDst w) (src : AvxRegOrMem w)
   | subps (_ : AvxDst w) (src : AvxRegOrMem w)
   | addps (_ : AvxDst w) (src : AvxRegOrMem w)
+  -- SSE2, SSSE3, and SSE4.1 integer operations
+  | movdqu (_ : AvxDst w) (src : AvxRegOrMem w)
+  | movdqa (_ : AvxDst w) (src : AvxRegOrMem w)
+  | paddd (_ : AvxDst w) (src : AvxRegOrMem w)
+  | pshufb (_ : AvxDst w) (src : AvxRegOrMem w)
+  | pshufd (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  | palignr (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  | pblendw (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 inductive Instr
@@ -261,18 +269,11 @@ instance [AddressSize] {w : Width} : CoeOut (Operation w) Instr where
 instance [AddressSize] {w : AvxWidth} : CoeOut (AvxOperation w) Instr where
   coe op := Instr.avx address_size w op
 
-instance : Repr ByteArray where reprPrec _ _ := "<opaque byte array>"
-
-deriving instance Lean.ToExpr for ByteArray
-inductive Directive
-  | instr (_ : Instr)
-  | label (_ : Label)
-  | byteArray (_ : ByteArray)
-  deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
+abbrev Directive := Kraken.Directive Instr
 
 abbrev Program := List Directive
 
-abbrev Executable := Kraken.Executable Directive
+abbrev Executable := Kraken.Executable Instr
 
 namespace Reg
 @[match_pattern] abbrev rax := low .rax .W64

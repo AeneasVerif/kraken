@@ -180,6 +180,13 @@ def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : Stri
   | .movaps dst src => s!"movaps {dst.toStr addr_w}, {src.toStr addr_w}"
   | .subps dst src => s!"subps {dst.toStr addr_w}, {src.toStr addr_w}"
   | .addps dst src => s!"addps {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .movdqu dst src => s!"movdqu {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .movdqa dst src => s!"movdqa {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .paddd dst src => s!"paddd {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .pshufb dst src => s!"pshufb {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .pshufd dst src imm => s!"pshufd {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .palignr dst src imm => s!"palignr {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .pblendw dst src imm => s!"pblendw {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
 instance : ToString Instr where

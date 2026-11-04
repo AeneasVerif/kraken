@@ -206,6 +206,38 @@ def BitVec.packedBinOp {w : Nat} (c : Nat) (op : BitVec c → BitVec c → BitVe
 termination_by w
 decreasing_by omega
 
+/-- Lane `i` of `v`, cut into lanes of `c` bits from the least significant end. -/
+def BitVec.lane {w : Nat} (c i : Nat) (v : BitVec w) : BitVec c :=
+  v.extractLsb' (c * i) c
+
+/-- The vector of width `w` whose lane `i` of `c` bits is `f i`. -/
+def BitVec.ofLanes (w c : Nat) (f : Nat → BitVec c) : BitVec w :=
+  (List.range (w / c)).foldl (fun acc i => acc ||| ((f i).setWidth w <<< (c * i))) 0#w
+
+/-- Bytes of `a` picked by the bytes of `m`, within each 16-byte block.
+
+An index byte with its top bit set picks zero; otherwise its low four bits pick a byte. -/
+def BitVec.shuffleBytes {w : Nat} (a m : BitVec w) : BitVec w :=
+  BitVec.ofLanes w 8 fun i =>
+    let index := m.lane 8 i
+    if index.msb then 0#8 else a.lane 8 (16 * (i / 16) + index.toNat % 16)
+
+/-- Dwords of `a` picked by `imm`, within each 16-byte block: dword `i` takes bits `2i` and `2i + 1`. -/
+def BitVec.shuffleDwords {w : Nat} (a : BitVec w) (imm : BitVec 8) : BitVec w :=
+  BitVec.ofLanes w 32 fun i => a.lane 32 (4 * (i / 4) + (imm.toNat >>> (2 * (i % 4))) % 4)
+
+/-- Within each 16-byte block, `hi` above `lo`, shifted right by `imm` bytes, keeping the low 16. -/
+def BitVec.alignBytes {w : Nat} (hi lo : BitVec w) (imm : BitVec 8) : BitVec w :=
+  BitVec.ofLanes w 8 fun i =>
+    let j := i % 16 + imm.toNat
+    if j < 16 then lo.lane 8 (16 * (i / 16) + j)
+    else if j < 32 then hi.lane 8 (16 * (i / 16) + j - 16)
+    else 0#8
+
+/-- Words from `b` where bit `i mod 8` of `imm` is set, and from `a` elsewhere. -/
+def BitVec.blendWords {w : Nat} (a b : BitVec w) (imm : BitVec 8) : BitVec w :=
+  BitVec.ofLanes w 16 fun i => if imm.getLsbD (i % 8) then b.lane 16 i else a.lane 16 i
+
 def BitVec.toFloat32 (v : BitVec 32) : Float32 :=
   Float32.ofBits (UInt32.ofBitVec v)
 
@@ -264,6 +296,8 @@ structure MachineState where
   data : MachineData
   pc : Int64
 
+abbrev AddressBound := Fin (UInt64.size + 1)
+
 inductive Effects
   | done (a : MachineState)
   | unimplemented (msg : String)
@@ -274,10 +308,21 @@ inductive Effects
   | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : Width) (ret : w.type → DataMem → Effects)
   | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : Width} (v : w.type) (ret: DataMem → Effects)
   | undefined {α : Type} [NondetSupportingType α] (ret : α → Effects)
-  | require_read_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
-  | require_write_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
+  | require_read_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
+  | require_write_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
+
+-- Splits the interval in two halves in case of overflow
+def require_access (access : Std.Rco AddressBound → (Unit → Effects) → Effects)
+    (addr : BitVec 64) (bytes : UInt64) (ok : Unit → Effects) : Effects :=
+  let start : AddressBound := addr.toFin.castSucc
+  let stop := start.val + bytes.toNat
+  if h : stop ≤ UInt64.size then
+    access ⟨start, ⟨stop, Nat.lt_succ_of_le h⟩⟩ ok
+  else
+    access ⟨start, Fin.last UInt64.size⟩ fun () =>
+      access ⟨0, ⟨stop - UInt64.size, by have := bytes.toNat_lt_size; omega⟩⟩ ok
 
 -- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
 -- value are present for uniformity with RegOrMem.interp
@@ -300,7 +345,7 @@ export Effects (unimplemented nonmem_load nonmem_store undefined require_read_ac
 def MachineData.load
   (s : MachineData) (addr : BitVec 64) (w : Width)
   (ret : w.type → MachineData → Effects): Effects :=
-  require_read_access addr w (fun _unit =>
+  require_access require_read_access addr (UInt64.ofNat w.bytes) (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
     | .some i => ret (.ofInt _ i) s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
@@ -320,13 +365,13 @@ def MachineData.loadAvx
   if checkAlign && !(isAligned w.bytes addr) then
     .gp_unaligned addr w.bytes
   else
-    require_read_access addr .W64 (fun _unit =>
-  match Mem.loadInt s.dmem addr w.bytes with
+    require_access require_read_access addr (UInt64.ofNat w.bytes) (fun _unit =>
+      match Mem.loadInt s.dmem addr w.bytes with
       | .some i => ret (.ofInt _ i) s
       | .none => unimplemented "AVX nonmem load not supported")
 
 def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Effects) : Effects :=
-  require_write_access addr w (fun _unit =>
+  require_access require_write_access addr (UInt64.ofNat w.bytes) (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
     | .some _ =>
         ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
@@ -336,8 +381,8 @@ def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v 
   if checkAlign && !(isAligned w.bytes addr) then
     .gp_unaligned addr w.bytes
   else
-    require_write_access addr .W64 (fun _unit =>
-  match Mem.loadInt s.dmem addr w.bytes with
+    require_access require_write_access addr (UInt64.ofNat w.bytes) (fun _unit =>
+      match Mem.loadInt s.dmem addr w.bytes with
       | .some _ =>
           ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
       | .none => unimplemented "AVX nonmem store not supported")
@@ -770,6 +815,30 @@ match i with
     src.interp s p (checkAlign := true) (fun a s =>
     dst.interp s p (fun b s =>
       s.setAvxLegacy dst (BitVec.packedBinOp 32 (sseBinOp (· + ·)) b a) p next))
+  -- Legacy SSE memory operands must be 16-byte aligned, except for `movdqu`.
+  | .movdqu dst src => src.interp s p (fun val s => s.setAvxLegacy dst val p next)
+  | .movdqa dst src =>
+    src.interp s p (checkAlign := true)
+      (fun val s => s.setAvxLegacy dst val p (checkAlign := true) next)
+  | .paddd dst src =>
+    src.interp s p (checkAlign := true) (fun a s =>
+    dst.interp s p (fun b s =>
+      s.setAvxLegacy dst (BitVec.packedBinOp 32 (· + ·) b a) p next))
+  | .pshufb dst src =>
+    src.interp s p (checkAlign := true) (fun m s =>
+    dst.interp s p (fun a s =>
+      s.setAvxLegacy dst (a.shuffleBytes m) p next))
+  | .pshufd dst src imm =>
+    src.interp s p (checkAlign := true) (fun a s =>
+      s.setAvxLegacy dst (a.shuffleDwords ((imm.interp p).toBitVec.take 8)) p next)
+  | .palignr dst src imm =>
+    src.interp s p (checkAlign := true) (fun lo s =>
+    dst.interp s p (fun hi s =>
+      s.setAvxLegacy dst (hi.alignBytes lo ((imm.interp p).toBitVec.take 8)) p next))
+  | .pblendw dst src imm =>
+    src.interp s p (checkAlign := true) (fun b s =>
+    dst.interp s p (fun a s =>
+      s.setAvxLegacy dst (a.blendWords b ((imm.interp p).toBitVec.take 8)) p next))
 
 @[kstep]
 def Instr.interp [Labels]
@@ -800,7 +869,7 @@ def Directives.interp [Labels]
     directive.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
     interp ds s (pc+.ofNat sz) ret))
 
-abbrev Layout := Kraken.Layout Directive
+abbrev Layout := Kraken.Layout Instr
 
 @[reducible]
 def Executable.labels (e : Executable) : Labels :=
@@ -828,8 +897,8 @@ where
     | .done s => eval e s until_
     | .unimplemented msg => .error msg
     | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
-    | .require_read_access _ _ ok => handleEffects (ok ())
-    | .require_write_access _ _ ok => handleEffects (ok ())
+    | .require_read_access _ ok => handleEffects (ok ())
+    | .require_write_access _ ok => handleEffects (ok ())
     | .require_exec_access _ ok => handleEffects (ok ())
     | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"

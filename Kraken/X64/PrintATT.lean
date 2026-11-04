@@ -129,12 +129,19 @@ def avxOperation {w} (aw : Width) (op : AvxOperation w) : String :=
   | .movaps d x => two "movaps" d x
   | .subps d x => two "subps" d x
   | .addps d x => two "addps" d x
+  | .movdqu d x => two "movdqu" d x
+  | .movdqa d x => two "movdqa" d x
+  | .paddd d x => two "paddd" d x
+  | .pshufb d x => two "pshufb" d x
+  | .pshufd d x i => s!"pshufd ${const i}, {avxRm aw x}, {avxRm aw d}"
+  | .palignr d x i => s!"palignr ${const i}, {avxRm aw x}, {avxRm aw d}"
+  | .pblendw d x i => s!"pblendw ${const i}, {avxRm aw x}, {avxRm aw d}"
 
 def instr : Instr → String
   | .regular aw _ op => operation aw op
   | .avx aw _ op => avxOperation aw op
 
-def directive : Directive → String
+def directive : _root_.Directive → String
   | .instr i => instr i
   | .label l => s!"{l}:"
   | d@(.byteArray _) => toString d
@@ -142,5 +149,5 @@ def directive : Directive → String
 end Kraken.X64.ATT
 
 /-- Print a program in AT&T syntax, one directive per line. -/
-def Kraken.X64.toATT (p : Program) : String :=
+def Kraken.X64.toATT (p : _root_.Program) : String :=
   "\n".intercalate (p.map ATT.directive)
