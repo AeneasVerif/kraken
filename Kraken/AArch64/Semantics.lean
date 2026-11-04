@@ -957,7 +957,7 @@ def Directives.interp [Labels]
     directive.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
     interp ds s (pc+.ofNat sz) ret))
 
-abbrev Layout := Kraken.Layout Directive
+abbrev Layout := Kraken.Layout Instr
 
 @[reducible]
 def Executable.labels (e : Executable) : Labels :=

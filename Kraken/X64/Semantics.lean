@@ -356,6 +356,8 @@ structure MachineState where
   data : MachineData
   pc : Int64
 
+abbrev AddressBound := Fin (UInt64.size + 1)
+
 inductive Effects
   | done (a : MachineState)
   | unimplemented (msg : String)
@@ -366,10 +368,21 @@ inductive Effects
   | nonmem_load (dmem : DataMem) (addr : BitVec 64) (w : Width) (ret : w.type → DataMem → Effects)
   | nonmem_store (dmem : DataMem) (addr : BitVec 64) {w : Width} (v : w.type) (ret: DataMem → Effects)
   | undefined {α : Type} [NondetSupportingType α] (ret : α → Effects)
-  | require_read_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
-  | require_write_access (addr : BitVec 64) (w : Width) (ok : Unit → Effects)
+  | require_read_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
+  | require_write_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
+
+-- Splits the interval in two halves in case of overflow
+def require_access (access : Std.Rco AddressBound → (Unit → Effects) → Effects)
+    (addr : BitVec 64) (bytes : UInt64) (ok : Unit → Effects) : Effects :=
+  let start : AddressBound := addr.toFin.castSucc
+  let stop := start.val + bytes.toNat
+  if h : stop ≤ UInt64.size then
+    access ⟨start, ⟨stop, Nat.lt_succ_of_le h⟩⟩ ok
+  else
+    access ⟨start, Fin.last UInt64.size⟩ fun () =>
+      access ⟨0, ⟨stop - UInt64.size, by have := bytes.toNat_lt_size; omega⟩⟩ ok
 
 -- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
 -- value are present for uniformity with RegOrMem.interp
@@ -392,7 +405,7 @@ export Effects (unimplemented nonmem_load nonmem_store undefined require_read_ac
 def MachineData.load
   (s : MachineData) (addr : BitVec 64) (w : Width)
   (ret : w.type → MachineData → Effects): Effects :=
-  require_read_access addr w (fun _unit =>
+  require_access require_read_access addr (UInt64.ofNat w.bytes) (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
     | .some i => ret (.ofInt _ i) s
     | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
@@ -412,13 +425,13 @@ def MachineData.loadAvx
   if checkAlign && !(isAligned w.bytes addr) then
     .gp_unaligned addr w.bytes
   else
-    require_read_access addr .W64 (fun _unit =>
-  match Mem.loadInt s.dmem addr w.bytes with
+    require_access require_read_access addr (UInt64.ofNat w.bytes) (fun _unit =>
+      match Mem.loadInt s.dmem addr w.bytes with
       | .some i => ret (.ofInt _ i) s
       | .none => unimplemented "AVX nonmem load not supported")
 
 def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.type) (ret: MachineData → Effects) : Effects :=
-  require_write_access addr w (fun _unit =>
+  require_access require_write_access addr (UInt64.ofNat w.bytes) (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
     | .some _ =>
         ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
@@ -428,8 +441,8 @@ def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v 
   if checkAlign && !(isAligned w.bytes addr) then
     .gp_unaligned addr w.bytes
   else
-    require_write_access addr .W64 (fun _unit =>
-  match Mem.loadInt s.dmem addr w.bytes with
+    require_access require_write_access addr (UInt64.ofNat w.bytes) (fun _unit =>
+      match Mem.loadInt s.dmem addr w.bytes with
       | .some _ =>
           ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
       | .none => unimplemented "AVX nonmem store not supported")
@@ -931,7 +944,7 @@ def Directives.interp [Labels]
     directive.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
     interp ds s (pc+.ofNat sz) ret))
 
-abbrev Layout := Kraken.Layout Directive
+abbrev Layout := Kraken.Layout Instr
 
 @[reducible]
 def Executable.labels (e : Executable) : Labels :=
@@ -959,8 +972,8 @@ where
     | .done s => eval e s until_
     | .unimplemented msg => .error msg
     | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
-    | .require_read_access _ _ ok => handleEffects (ok ())
-    | .require_write_access _ _ ok => handleEffects (ok ())
+    | .require_read_access _ ok => handleEffects (ok ())
+    | .require_write_access _ ok => handleEffects (ok ())
     | .require_exec_access _ ok => handleEffects (ok ())
     | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
