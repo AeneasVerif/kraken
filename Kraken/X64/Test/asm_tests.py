@@ -191,7 +191,7 @@ def requires_avx512(path: Path) -> bool:
     return "# Requires: avx512f" in path.read_text().splitlines()
 
 def compare_states(real: ExecutionState, kraken: ExecutionState, undefined_flags: List[str],
-                   reference_name: str) -> List[str]:
+                   reference_name: str = "native") -> List[str]:
     diffs = []
     for r in REGS:
         rv, kv = real.regs.get(r, 0), kraken.regs.get(r, 0)
