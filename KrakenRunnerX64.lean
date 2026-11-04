@@ -61,7 +61,7 @@ def summarize (s : MachineData) : StateSummary :=
              ("zmm24", z.zmm24), ("zmm25", z.zmm25), ("zmm26", z.zmm26), ("zmm27", z.zmm27),
              ("zmm28", z.zmm28), ("zmm29", z.zmm29), ("zmm30", z.zmm30), ("zmm31", z.zmm31)],
     flags := [("cf", f.cf), ("pf", f.pf), ("af", f.af),
-              ("zf", f.zf), ("sf", f.sf), ("of", f.of)] }
+              ("zf", f.zf), ("sf", f.sf), ("of", f.of), ("df", f.df)] }
 
 -- Place the stack somewhere high in memory, aligned to 256 bytes. This will
 -- help us avoid disagreements with the actual machine: we will avoid over/underflow
@@ -83,12 +83,12 @@ def runKraken (asmCode : String)
 
 /-! ## Fuzzer instantiation -/
 
-/-- The six status flag values as bits, in the layout of `NondetSupportingType.from_hash`
-(cf, pf, af, zf, sf, of = bits 0..5). -/
+/-- The seven status flag values as bits, in the layout of `NondetSupportingType.from_hash`
+(cf, pf, af, zf, sf, of, df = bits 0..6). -/
 instance : StatusFlagBits StatusFlags where
-  numBits := 6
-  toBits f := f.cf.toNat ||| f.pf.toNat <<< 1 ||| f.af.toNat <<< 2 ||| f.zf.toNat <<< 3 ||| f.sf.toNat <<< 4 ||| f.of.toNat <<< 5
-  ofBits := NondetSupportingType.from_hash
+  numBits := 7
+  toBits f := f.cf.toNat ||| f.pf.toNat <<< 1 ||| f.af.toNat <<< 2 ||| f.zf.toNat <<< 3 ||| f.sf.toNat <<< 4 ||| f.of.toNat <<< 5 ||| f.df.toNat <<< 6
+  ofBits b := { (NondetSupportingType.from_hash b : StatusFlags) with df := b.toNat.testBit 6 }
 
 -- Runs `Effects` to completion, resolving every `undefined` choice with `h`. Also returns
 -- whether any `undefined` choice was made.
