@@ -248,6 +248,21 @@ inductive AvxOperation (w : AvxWidth)
   | movaps (_ : AvxDst w) (src : AvxRegOrMem w)
   | subps (_ : AvxDst w) (src : AvxRegOrMem w)
   | addps (_ : AvxDst w) (src : AvxRegOrMem w)
+  -- SSE2, SSSE3, and SSE4.1 integer operations
+  | movdqu (_ : AvxDst w) (src : AvxRegOrMem w)
+  | movdqa (_ : AvxDst w) (src : AvxRegOrMem w)
+  | paddd (_ : AvxDst w) (src : AvxRegOrMem w)
+  | pshufb (_ : AvxDst w) (src : AvxRegOrMem w)
+  | pshufd (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  | palignr (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  | pblendw (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  -- VEX moves, which clear every bit above what they write
+  | vmovdqu (_ : AvxDst w) (src : AvxRegOrMem w)
+  -- `vmovd` when `n` is 32 bits, `vmovq` when it is 64
+  | vmovIn (n : Width) (_ : AvxReg w) (src : RegOrMem n)
+  | vmovOut (n : Width) (_ : Dst n) (src : AvxReg w)
+  | vmovq (_ : AvxReg w) (src : AvxReg w)
+  | vzeroupper
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 inductive Instr
