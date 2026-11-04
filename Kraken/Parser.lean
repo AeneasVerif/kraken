@@ -49,6 +49,16 @@ def getAsmIdent (stx : Syntax) : Elab.TermElabM String := withRef stx do
   | .node _ _ #[.atom _ s] => pure s
   | _ => throwError "expected assembly identifier"
 
+/-- The value of a `num` literal as GNU as reads it (https://sourceware.org/binutils/docs/as/Integers.html).
+    Careful: Unlike Lean, GNU as reads `033` as octal. -/
+def getAsmNat (n : TSyntax `num) : Nat :=
+  match (n.raw.isLit? numLitKind).map String.toList with
+  | some ('0' :: digits@(_ :: _)) =>
+    if digits.all (fun c => '0' ≤ c && c ≤ '7') then
+      digits.foldl (fun acc c => 8 * acc + (c.toNat - '0'.toNat)) 0
+    else n.getNat
+  | _ => n.getNat
+
 /-- Whether `s` is a valid assembly identifier token (`[a-zA-Z_.][a-zA-Z0-9_.]*`). -/
 def isAsmIdent (s : String) : Bool :=
   match s.toList with

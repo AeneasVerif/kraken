@@ -162,18 +162,18 @@ def elabConstExpr (stx : TSyntax `x64_const) : TermElabM Expr := withRef stx do
   | `(x64_const| ❰ $t ❱) => elabAntiquot t (mkConst ``ConstExpr)
   | `(x64_const| +$n:num)
   | `(x64_const| $n:num) =>
-    let i ← Int64.ofNatNoOverflow n.getNat
+    let i ← Int64.ofNatNoOverflow (getAsmNat n)
     pure (toExpr (ConstExpr.int64 i))
   | `(x64_const| -$n:num) =>
-    let i ← Int64.ofIntNoOverflow (-(Int.ofNat n.getNat))
+    let i ← Int64.ofIntNoOverflow (-(Int.ofNat (getAsmNat n)))
     pure (toExpr (ConstExpr.int64 i))
   | `(x64_const| $id:x64_ident + $n:num) =>
     let s ← elabConstExprIdent id
-    let i ← withRef n <| Int64.ofNatNoOverflow n.getNat
+    let i ← withRef n <| Int64.ofNatNoOverflow (getAsmNat n)
     pure (mkApp2 (mkConst ``ConstExpr.add) s (toExpr (ConstExpr.int64 i)))
   | `(x64_const| $id:x64_ident - $n:num) =>
     let s ← elabConstExprIdent id
-    let i ← withRef n <| Int64.ofNatNoOverflow n.getNat
+    let i ← withRef n <| Int64.ofNatNoOverflow (getAsmNat n)
     pure (mkApp2 (mkConst ``ConstExpr.sub) s (toExpr (ConstExpr.int64 i)))
   | `(x64_const| $a:x64_ident - $b:x64_ident) =>
     pure (mkApp2 (mkConst ``ConstExpr.sub) (← elabConstExprIdent a) (← elabConstExprIdent b))
@@ -341,7 +341,7 @@ def elabRegOrRip (stx : TSyntax `x64_reg_or_rip) : X64ElabM Expr := withRef stx 
 
 /-- Evaluate a numeric memory index scale (`1`, `2`, `4`, or `8`) into its corresponding `Width`. -/
 def evalScale (stx : TSyntax `num) : X64ElabM Width := withRef stx do
-  match stx.getNat with
+  match getAsmNat stx with
   | 1 => pure .W8
   | 2 => pure .W16
   | 4 => pure .W32
@@ -406,11 +406,11 @@ def elabOperand (stx : TSyntax `x64_operand) : X64ElabM Expr := withRef stx do
   -- `$sym ± n` / `$sym - b`: the left operand is the `$sym` antiquotation node (see the grammar).
   | `(x64_operand| $sym:x64_operand + $n:num) =>
     let s ← getAntiquotSym sym.raw
-    let i ← withRef n <| Int64.ofNatNoOverflow n.getNat
+    let i ← withRef n <| Int64.ofNatNoOverflow (getAsmNat n)
     imm (toExpr (ConstExpr.add (.label s) (.int64 i)))
   | `(x64_operand| $sym:x64_operand - $n:num) =>
     let s ← getAntiquotSym sym.raw
-    let i ← withRef n <| Int64.ofNatNoOverflow n.getNat
+    let i ← withRef n <| Int64.ofNatNoOverflow (getAsmNat n)
     imm (toExpr (ConstExpr.sub (.label s) (.int64 i)))
   | `(x64_operand| $sym:x64_operand - $b:x64_ident) =>
     let s := toExpr (ConstExpr.label (← getAntiquotSym sym.raw))
@@ -626,7 +626,7 @@ def elabShdOp : String → TermElabM Expr
 def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
   match stx with
   | `(x64_instr| .align $align:num $[, $pad?:num]?) =>
-    mkClosedInstr (.nopalign align.getNat (pad?.map (·.getNat)))
+    mkClosedInstr (.nopalign (getAsmNat align) (pad?.map getAsmNat))
   | `(x64_instr| $op:x64_bin_op $src:x64_operand, $dst:x64_operand) =>
     let (stem, width?) ← splitWidthSuffixed op
     mkRegularInstr (width? := width?) do
@@ -838,7 +838,7 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       mkAppWidth mk #[target]
   | `(x64_instr| nop) =>
     mkClosedInstr (.nop 1)
-  | `(x64_instr| nop $sz:num) => mkClosedInstr (.nop sz.getNat)
+  | `(x64_instr| nop $sz:num) => mkClosedInstr (.nop (getAsmNat sz))
   | `(x64_instr| $op:x64_jcc_op $lbl:x64_ident) =>
     mkRegularInstr (width? := some .W64) do
       let mk := mkConst ``Operation.jcc
