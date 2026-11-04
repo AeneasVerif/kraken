@@ -149,7 +149,7 @@ def assemble_and_link(asm_path: Path, tmp: Path) -> Path:
         err = re.sub(r":(\d+):", lambda m: f":{int(m.group(1)) - prologue_len}:", err)
         raise AssembleAndLinkError(f"x86 toolchain error:\n{err}") from e
 
-def run_x86(bin_file: Path, runner: Tuple[str, ...] = (), reference_name: str
+def run_x86(bin_file: Path, runner: Tuple[str, ...], reference_name: str
             ) -> Tuple[Optional[ExecutionState], Optional[str]]:
     try:
         res = subprocess.run([*runner, str(bin_file)], check=True,
@@ -269,7 +269,7 @@ def test_roundtrip(asm_path: Path) -> Tuple[bool, str]:
             return False, f"assembler failed: {' '.join(str(x) for x in e.cmd)}\n{err_msg}"
     return True, ""
 
-def test_file(path: Path, *) -> Tuple[bool, str]:
+def test_file(path: Path) -> Tuple[bool, str]:
     print(f"{path.name:50}", end="", flush=True)
 
     references = []
