@@ -12,24 +12,25 @@ Presently, labels, empty byte arrays, empty alignment padding, and no-op instruc
 and `mov %rax, %rax` are inert.
 -/
 def Directive.Inert (d : Directive) : Prop :=
-  ∀ [Labels] s (pc : Int64) (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) post,
-    (d.interp s ⟨pc, pc⟩ next jmp).All post ↔ (next s).All post
+  ∀ (labels : Labels) s (pc : Int64) (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) post,
+    (d.interp labels s ⟨pc, pc⟩ next jmp).All post ↔ (next s).All post
 
 theorem Layout.inert_of_mem (l : Layout) {p : Program} {c : Kraken.Sized Directive}
     (hc : c ∈ (l p).program) (h : c.size = 0) : c.directive.Inert := by
   obtain ⟨i, _, rfl⟩ := List.mem_mapIdx.mp hc
   generalize p[i] = d at h ⊢; cases d with
   | instr _ => exact absurd h (Nat.ne_of_gt (l.instrSize i).property)
-  | label _ | nopalign _ => exact fun _ _ _ _ _ => Iff.rfl
-  | align _ _ => intro _ _ _ _ _ _; simp [Directive.interp]
+  | label _ | nopalign _ => exact fun _ _ _ _ _ _ => Iff.rfl
+  | align _ _ => intro _ _ _ _ _ _; simp [Directive.interp, Directive.labels, Labels.guard]
   | byteArray b =>
     intro _ _ _ _ _ _
-    simp [Directive.interp, ByteArray.isEmpty, show b.size = 0 from h]
+    simp [Directive.interp, Directive.labels, Labels.guard, ByteArray.isEmpty, show b.size = 0 from h]
 
-theorem Directives.interp_inert_append [Labels] {pre rest : List (Kraken.Sized Directive)}
+theorem Directives.interp_inert_append (labels : Labels) {pre rest : List (Kraken.Sized Directive)}
     (hpre : ∀ c ∈ pre, c.size = 0 ∧ c.directive.Inert) (s : MachineData) (pc : Int64)
     (ret : Int64 → MachineData → Effects) (post : @Post MachineState) :
-    (Directives.interp (pre ++ rest) s pc ret).All post ↔ (Directives.interp rest s pc ret).All post := by
+    (Directives.interp labels (pre ++ rest) s pc ret).All post ↔
+      (Directives.interp labels rest s pc ret).All post := by
   induction pre generalizing s with
   | nil => rfl
   | cons c pre ih =>

@@ -81,6 +81,43 @@ example [layout : Layout] (s : MachineData): Eventually (straightlineStep (layou
   dsimp only
   bv_decide
 
+def pjmp : Program := parse("
+start:
+  mov $1, %rax
+  jmp _end
+  mov $2, %rax
+_end:
+  nop")
+
+example [layout : Layout] (s : MachineData) :
+    straightlineStep (layout pjmp) ⟨s, layout.start⟩ (fun s' => s'.1.regs.rax = 1 ∧
+      s'.pc = layout.start + .ofNat (layout.instrSize 1) + .ofNat (layout.instrSize 2) +
+        .ofNat (layout.instrSize 3)) := by
+  kprologue pjmp with s
+  sym => kstep; tactic =>
+  refine ⟨rfl, ?_⟩
+  simp
+  rw [Int64.add_comm, Int64.add_sub_cancel]
+
+def pjz : Program := parse("
+start:
+  mov $1, %rax
+  sub $1, %rax
+  jz done
+  mov $2, %rax
+done:
+  nop")
+
+example [layout : Layout] (s : MachineData) :
+    straightlineStep (layout pjz) ⟨s, layout.start⟩ (fun s => s.1.regs.rax = 0) := by
+  kprologue pjz with s
+  sym => kstep; tactic =>
+  rename_i v status
+  have : v = 0 := by grind
+  simp [this]
+  sym => kstep; tactic =>
+  rfl
+
 -- Example 3, more sophisticated
 
 -- TODO: restore p3

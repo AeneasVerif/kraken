@@ -341,3 +341,50 @@ namespace Reg
 @[match_pattern] abbrev r14b := low .r14 .W8
 @[match_pattern] abbrev r15b := low .r15 .W8
 end Reg
+
+@[kstep] def ConstExpr.labels : ConstExpr → List Label
+  | .label l => [l]
+  | .int64 _ | .before_current_instruction | .after_current_instruction => []
+  | .add a b | .sub a b => a.labels ++ b.labels
+
+@[kstep] def AddrExpr.labels (a : AddrExpr) : List Label := a.disp.labels
+@[kstep] def RegOrMem.labels {w} : RegOrMem w → List Label | .reg _ => [] | .mem a => a.labels
+@[kstep] def AvxRegOrMem.labels {w} : AvxRegOrMem w → List Label | .avx _ => [] | .mem a => a.labels
+@[kstep] def Operand.labels {w} : Operand w → List Label | .regOrMem o => o.labels | .imm c => c.labels
+@[kstep] def AvxOperand.labels {w} : AvxOperand w → List Label | .regOrMem o => o.labels
+@[kstep] def ShiftCountExpr.labels : ShiftCountExpr → List Label | .cl => [] | .imm8 c => c.labels
+@[kstep] def RelRegOrMem.labels : RelRegOrMem → List Label
+  | .rel c => c.labels | .reg _ => [] | .mem a => a.labels
+
+@[kstep] def Operation.labels {w} : Operation w → List Label
+  | .mov d o | .add d o | .adc d o | .sub d o | .sbb d o | .and d o | .or d o | .xor d o
+  | .cmp d o | .test d o => d.labels ++ o.labels
+  | .movsx d m | .movzx d m => d.labels ++ m.labels
+  | .push o => o.labels
+  | .pop d | .setcc _ d | .inc d | .dec d | .neg d | .mul d | .imul1 d | .not d => d.labels
+  | .cmovcc _ _ m | .adcx _ m | .adox _ m | .mulx _ _ m => m.labels
+  | .imul d m o => (d.map RegOrMem.labels).getD [] ++ m.labels ++ o.labels
+  | .lea _ a => a.labels
+  | .shl d c | .shr d c | .sar d c | .rol d c | .ror d c | .rcl d c | .rcr d c
+  | .shld d _ c | .shrd d _ c => d.labels ++ c.labels
+  | .bswap _ | .ret | .nop _ => []
+  | .jcc _ l => [l]
+  | .jmp t | .call t => t.labels
+
+@[kstep] def AvxOperation.labels {w} : AvxOperation w → List Label
+  | .movups d m | .vmovups d m | .movaps d m | .subps d m | .addps d m
+  | .movdqu d m | .movdqa d m | .paddd d m | .pshufb d m => d.labels ++ m.labels
+  | .pshufd d m i | .palignr d m i | .pblendw d m i => d.labels ++ m.labels ++ i.labels
+
+@[kstep] def Directive.labels : Directive → List Label
+  | .instr (.regular _ _ op) => op.labels
+  | .instr (.avx _ _ op) => op.labels
+  | .label _ | .byteArray _ | .align .. | .nopalign _ => []
+
+def Program.definedLabels (p : Program) : List Label :=
+  p.filterMap fun | .label l => some l | _ => none
+
+@[simp] theorem Program.mem_definedLabels {p : Program} {l : Label} :
+    l ∈ p.definedLabels ↔ .label l ∈ p := by
+  simp only [Program.definedLabels, List.mem_filterMap]
+  grind

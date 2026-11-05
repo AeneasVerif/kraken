@@ -73,12 +73,13 @@ def stackLocation : UInt64 := 0x7ffecafee200
 def initData : MachineData := {regs := {rsp := stackLocation}, dmem := initStack stackLocation}
 
 def finishCriterion (p : Program) (s : MachineState) : Bool :=
-  s.pc = p.fakeLayout.labels.label _end
+  p.fakeLayout.labels _end == some s.pc
 
 def runKraken (asmCode : String)
     : Except String MachineState := do
   let prog ← Kraken.X64.Parser.parse (_start ++ ":" ++ asmCode ++ "\n" ++ _end ++ ":")
-  let initState : MachineState := ⟨initData, prog.fakeLayout.labels.label _start⟩
+  let some start := prog.fakeLayout.labels _start | throw s!"undefined label {_start}"
+  let initState : MachineState := ⟨initData, start⟩
   prog.fakeLayout.eval initState (finishCriterion prog)
 
 /-! ## Fuzzer instantiation -/
@@ -149,9 +150,8 @@ def fuzzConfig : FuzzConfig MachineData StatusFlags StateSummary where
   setStatus s status := { s with status }
   parseSteps asmCode := do
     let exe := (← (Kraken.X64.Parser.parse asmCode).toOption).fakeLayout
-    let := exe.labels
     return exe.withAddresses.map fun d : Kraken.Addressable Directive =>
-      { d with directive := fun s p h => evalEffects h false (d.directive.interp s p (fun s => .done ⟨s, p.upper⟩) (fun _ _ => .unimplemented "jump")) }
+      { d with directive := fun s p h => evalEffects h false (d.directive.interp exe.labels s p (fun s => .done ⟨s, p.upper⟩) (fun _ _ => .unimplemented "jump")) }
   summarize := summarize
   genInstr := Kraken.X64.ATT.instr <$> gen
   runAssembler path := IO.Process.output { cmd := "as", args := #["-march=+noapx_f+noavx512f", "-o", "/dev/null", path.toString] }

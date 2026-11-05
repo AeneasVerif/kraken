@@ -57,7 +57,7 @@ variable [Host]
 
 public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     (hdp : (d :: p).IsInfixAt Host.prog k) {post : @Post MachineState} {s : MachineData}
-    (h : (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
+    (h : (d.interp Host.exe.labels s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
       (fun s' => .done ⟨s', Host.addrOf (k + 1)⟩) (fun a s' => .done ⟨s', a⟩)).All post) :
     Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ := by
   have hd : Host.exe.program[k]? = some {directive := d, size := Host.layout.size d k : Kraken.Sized Directive} := by
@@ -77,9 +77,9 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
       ⟨hpre c hc, Host.inert_of_size_zero (hpre c hc ▸
         Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc))⟩
     unfold step1 Executable.step
-    change (Directives.interp (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k) _).All post
+    change (Directives.interp Host.exe.labels (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k) _).All post
     rw [hat]
-    exact (Directives.interp_inert_append hinert _ _ _ _).mpr h
+    exact (Directives.interp_inert_append _ hinert _ _ _ _).mpr h
 
 end
 

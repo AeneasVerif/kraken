@@ -595,3 +595,12 @@ info: [Directive.instr
 end antiquotations
 
 end Tests
+
+#guard (parse("jmp foo")).flatMap Directive.labels == ["foo"]
+#guard (parse("jz foo")).flatMap Directive.labels == ["foo"]
+#guard (parse("call foo")).flatMap Directive.labels == ["foo"]
+#guard (parse("lea foo(%rip), %rax")).flatMap Directive.labels == ["foo"]
+#guard (parse("movq $foo, %rax")).flatMap Directive.labels == ["foo"]
+#guard (parse("movq foo+8(%rip), %rax")).flatMap Directive.labels == ["foo"]
+#guard (parse("addq %rax, bar(%rip)")).flatMap Directive.labels == ["bar"]
+#guard (parse("foo: movq %rax, %rbx")).flatMap Directive.labels == []

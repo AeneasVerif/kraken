@@ -64,16 +64,21 @@ structure Addressable (Directive : Type) extends Sized Directive where (addr : I
 -- Returns each directive paired with its start address and size.
 -- TODO: tail-recursive version for efficiency?
 def Executable.withAddresses {Instr : Type} (e : Executable Instr) : List (Addressable (Directive Instr)) :=
-  let {startAddr, program} := e
-  match program with
+  go e.startAddr e.program
+where go (startAddr : Int64) : List (Sized (Directive Instr)) → List (Addressable (Directive Instr))
   | [] => []
-  | instr :: program =>
-    {instr with addr := startAddr} :: Executable.withAddresses {startAddr := startAddr + .ofNat instr.size, program}
-termination_by e.2
+  | instr :: program => {instr with addr := startAddr} :: go (startAddr + .ofNat instr.size) program
+
+@[simp] theorem Executable.withAddresses_nil {Instr : Type} (a : Int64) :
+    Executable.withAddresses (Instr := Instr) ⟨a, []⟩ = [] := rfl
+
+@[simp] theorem Executable.withAddresses_cons {Instr : Type} (a : Int64) (c : Sized (Directive Instr))
+    (cs : List (Sized (Directive Instr))) :
+    Executable.withAddresses ⟨a, c :: cs⟩ =
+      {c with addr := a} :: Executable.withAddresses ⟨a + .ofNat c.size, cs⟩ := rfl
 
 def Executable.directivesAtAddress {Instr : Type} (e : Executable Instr) (a : Int64) : List (Sized (Directive Instr)) :=
-  let starts_at_a := e.withAddresses.dropWhile (·.addr ≠ a)
-  (starts_at_a.takeWhile (·.addr = a)).map (·.toSized)
+  (e.withAddresses.filter (·.addr = a)).map (·.toSized)
 
 def Executable.directivesFromAddress {Instr : Type} (e : Executable Instr) (a : Int64) : List (Sized (Directive Instr)) :=
   let starts_at_a := e.withAddresses.dropWhile (·.addr ≠ a)
@@ -81,31 +86,23 @@ def Executable.directivesFromAddress {Instr : Type} (e : Executable Instr) (a : 
 
 theorem Executable.withAddresses_map_snd {Instr : Type} (program : List (Sized (Directive Instr))) (startAddr : Int64) :
     (Executable.withAddresses {startAddr, program}).map (·.toSized) = program := by
-  induction program generalizing startAddr <;> grind [Executable.withAddresses]
+  induction program generalizing startAddr <;> simp_all
 
 theorem Executable.withAddresses_dropWhile_start {Instr : Type} (program : List (Sized (Directive Instr))) (startAddr : Int64) :
     (Executable.withAddresses {startAddr, program}).dropWhile (fun x => x.addr ≠ startAddr) =
       Executable.withAddresses {startAddr, program} := by
-  cases program <;> grind [Executable.withAddresses, List.dropWhile_cons, List.dropWhile_nil]
+  cases program <;> simp
 
 theorem Executable.directivesFromStart {Instr : Type} [layout : Layout Instr] (prog : Program Instr) :
     (layout prog).directivesFromAddress layout.start =
       prog.mapIdx (fun i directive => {directive, size := layout.size directive i}) := by
   grind [Executable.withAddresses_dropWhile_start, Executable.withAddresses_map_snd, Executable.directivesFromAddress, Layout.apply]
 
-theorem directivesAtFromPrefix {Instr : Type} (e: Executable Instr) (a: Int64):
-  ∃ rest, e.directivesFromAddress a = e.directivesAtAddress a ++ rest := by
-  dsimp [Executable.directivesFromAddress, Executable.directivesAtAddress]
-  refine ⟨((e.withAddresses.dropWhile (·.addr ≠ a)).dropWhile (·.addr = a)).map (·.toSized), ?_⟩
-  rw [← List.map_append]
-  rw [List.takeWhile_append_dropWhile]
-
 theorem Executable.mem_of_mem_directivesAtAddress {Instr : Type} {e : Executable Instr}
     {a : Int64} {c : Sized (Directive Instr)} (h : c ∈ e.directivesAtAddress a) : c ∈ e.program := by
   obtain ⟨x, hx, rfl⟩ := List.mem_map.mp h
   rw [← Executable.withAddresses_map_snd e.program e.startAddr]
-  exact List.mem_map_of_mem
-    ((List.dropWhile_sublist _).subset ((List.takeWhile_sublist _).subset hx))
+  exact List.mem_map_of_mem (List.mem_filter.mp hx).1
 
 @[grind hom] theorem Int64.toBitVec_ofNat_grind (a : Nat) :
     (Int64.ofNat a).toBitVec = OfNat.ofNat a := by
@@ -146,13 +143,10 @@ theorem Executable.getElem?_withAddresses_mk {Instr : Type} :
     ∀ (program : List (Sized (Directive Instr))) (startAddr : Int64) (k : Nat),
       (Executable.withAddresses {startAddr, program})[k]?
         = program[k]?.map (fun c => {c with addr := Executable.addrOf {startAddr, program} k})
-  | [], a, k => by rw [Executable.withAddresses]; simp
-  | c :: program, a, 0 => by
-    rw [Executable.withAddresses]
-    simp
+  | [], a, k => by simp
+  | c :: program, a, 0 => by simp
   | c :: program, a, k + 1 => by
-    rw [Executable.withAddresses]
-    simp only [List.getElem?_cons_succ, getElem?_withAddresses_mk program _ k]
+    simp only [withAddresses_cons, List.getElem?_cons_succ, getElem?_withAddresses_mk program _ k]
     congr 2
     funext c'
     simp only [addrOf, sizeBefore, List.take_succ_cons, List.map_cons, List.sum_cons]
@@ -163,32 +157,53 @@ theorem Executable.getElem?_withAddresses_eq {Instr : Type} (e : Executable Inst
   getElem?_withAddresses_mk e.program e.startAddr k
 
 
-private theorem dropWhile_eq_drop_of {α : Type _} {p : α → Bool} {l : List α} {j : Nat}
-    (hprior : ∀ k, k < j → ∀ c, l[k]? = some c → p c = true)
-    (hhead : ∀ c, l[j]? = some c → p c = false) :
-    l.dropWhile p = l.drop j := by
-  rw [List.dropWhile_eq_drop_findIdx_not]
-  by_cases hj : j < l.length
-  · rw [(List.findIdx_eq hj).mpr ⟨by simp [hhead _ (List.getElem?_eq_getElem hj)],
-      fun k hk => by simp [hprior k hk _ (List.getElem?_eq_getElem (by omega))]⟩]
-  · rw [List.drop_eq_nil_of_le (Nat.le_of_not_lt hj), List.drop_eq_nil_iff]
-    refine Nat.le_of_eq (List.findIdx_eq_length.mpr fun x hx => ?_).symm
-    obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hx
-    simp [hprior i (by omega) _ (List.getElem?_eq_getElem hi)]
+theorem Executable.directivesAtAddress_addrOf {Instr : Type} (e : Executable Instr)
+    (hinj : ∀ j k, e.addrOf j = e.addrOf k → e.sizeBefore j = e.sizeBefore k)
+    {k : Nat} {c : Sized (Directive Instr)} (hc : e.program[k]? = some c) (hz : 0 < c.size) :
+    ∃ pre : List (Sized (Directive Instr)), e.directivesAtAddress (e.addrOf k) = pre ++ [c] ∧
+      ∀ c ∈ pre, c.size = 0 := by
+  have hat : ∀ j x, e.withAddresses[j]? = some x → x.addr = e.addrOf j ∧ e.program[j]? = some x.toSized := by
+    grind [Executable.getElem?_withAddresses_eq]
+  obtain ⟨hklt, hkx⟩ := List.getElem?_eq_some_iff.mp
+    (by simp [Executable.getElem?_withAddresses_eq, hc] : e.withAddresses[k]? = some {c with addr := e.addrOf k})
+  refine ⟨((e.withAddresses.take k).filter (·.addr = e.addrOf k)).map (·.toSized), ?_, ?_⟩
+  · have hdrop : (e.withAddresses.drop (k + 1)).filter (·.addr = e.addrOf k) = [] :=
+      List.filter_eq_nil_iff.mpr fun x hx hxa => by
+        obtain ⟨i, hi⟩ := List.mem_iff_getElem?.mp hx
+        have := hinj _ _ ((hat _ _ (List.getElem?_drop .. ▸ hi)).1.symm.trans (of_decide_eq_true hxa))
+        have := e.sizeBefore_mono (Nat.le_add_right (k + 1) i)
+        have := e.sizeBefore_succ hc
+        omega
+    unfold Executable.directivesAtAddress
+    conv => lhs; rw [← List.take_append_drop k e.withAddresses, List.drop_eq_getElem_cons hklt, hkx]
+    simp [hdrop]
+  · intro c' hc'
+    obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hc'
+    obtain ⟨hxt, hxa⟩ := List.mem_filter.mp hx
+    obtain ⟨i, hi⟩ := List.mem_iff_getElem?.mp hxt
+    obtain ⟨hilt, hi⟩ : i + 1 ≤ k ∧ e.withAddresses[i]? = some x := by grind
+    obtain ⟨ha, hp⟩ := hat _ _ hi
+    have := hinj _ _ (ha.symm.trans (of_decide_eq_true hxa))
+    have := e.sizeBefore_succ hp
+    have := e.sizeBefore_mono hilt
+    omega
 
-theorem Executable.withAddresses_dropWhile_addrOf {Instr : Type} (e : Executable Instr) (j n : Nat)
-    (hj : e.addrOf j = e.addrOf n)
-    (hfresh : ∀ k, k < j → e.addrOf k ≠ e.addrOf n) :
-    e.withAddresses.dropWhile (·.addr ≠ e.addrOf n)
-      = e.withAddresses.drop j := by
-  apply dropWhile_eq_drop_of
-  · intro k hk c hc
-    rw [Executable.getElem?_withAddresses_eq] at hc
-    obtain ⟨dz, -, rfl⟩ := Option.map_eq_some_iff.mp hc
-    simpa using hfresh k hk
-  · intro c hc
-    rw [Executable.getElem?_withAddresses_eq] at hc
-    obtain ⟨dz, -, rfl⟩ := Option.map_eq_some_iff.mp hc
-    simpa using hj
+theorem Executable.exists_of_mem_directivesAtAddress {Instr : Type} {e : Executable Instr}
+    {a : Int64} {c : Sized (Directive Instr)} (h : c ∈ e.directivesAtAddress a) :
+    ∃ k, e.program[k]? = some c ∧ e.addrOf k = a := by
+  obtain ⟨x, hx, rfl⟩ := List.mem_map.mp h
+  obtain ⟨k, _⟩ := List.mem_iff_getElem?.mp (List.mem_filter.mp hx).1
+  grind [Executable.getElem?_withAddresses_eq]
+
+theorem Executable.sizeBefore_eq_of_addrOf_eq {Instr : Type} (e : Executable Instr)
+    (hfit : (e.program.map (·.size)).sum < 2 ^ 64) {j k : Nat} (h : e.addrOf j = e.addrOf k) :
+    e.sizeBefore j = e.sizeBefore k := by
+  have hle : ∀ n, e.sizeBefore n ≤ (e.program.map (·.size)).sum := fun n => by
+    grind [Executable.sizeBefore, List.take_append_drop]
+  have := hle j
+  have := hle k
+  have h' := congrArg Int64.toBitVec h
+  simp only [Executable.addrOf, Int64.toBitVec_add, Int64.toBitVec_ofNat_grind] at h'
+  bv_omega
 
 end Kraken

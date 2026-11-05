@@ -11,6 +11,7 @@ For experimental features (SymM tactics), see kraken-experimental/.
 
 public import Kraken.Tactics
 import Kraken.X64.Examples.Examples
+public import Kraken.X64.Concat
 public import Kraken.X64.OmniSemantics
 public import Kraken.X64.Parser
 public import Kraken.X64.Semantics
