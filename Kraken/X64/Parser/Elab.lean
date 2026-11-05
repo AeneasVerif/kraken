@@ -543,8 +543,6 @@ def elabShdOp (stx : TSyntax `x64_shd_op) : TermElabM Expr := withRef stx do
     so that an operand disagreeing with the suffix is reported against the suffix. -/
 def elabInstr (stx : TSyntax `x64_instr) : X64ElabM Expr := withRef stx do
   match stx with
-  | `(x64_instr| .align $align:num $[, $pad?:num]?) =>
-    mkClosedInstr (.nopalign align.getNat (pad?.map (·.getNat)))
   | `(x64_instr| $op:x64_bin_op $src:x64_operand, $dst:x64_operand) =>
     let mk ← elabBinOp op
     setSuffixWidth op
@@ -697,6 +695,10 @@ def elabDirective (stx : TSyntax `x64_directive) : TermElabM Expr := withRef stx
   | `(x64_directive| $lbl:x64_ident : $[;]?) =>
     let name ← getAsmIdent lbl
     return (Lean.toExpr (Kraken.Directive.label name : _root_.Directive))
+  | `(x64_directive| .align $align:num $[;]?) =>
+    return (Lean.toExpr (Kraken.Directive.nopalign align.getNat : _root_.Directive))
+  | `(x64_directive| .align $align:num, $fill:num $[;]?) =>
+    return (Lean.toExpr (Kraken.Directive.align align.getNat fill.getNat : _root_.Directive))
   | `(x64_directive| $ins:x64_instr ;)
   | `(x64_directive| $ins:x64_instr) =>
     return mkApp2 (mkConst ``Kraken.Directive.instr) (mkConst ``Instr) (← (elabInstr ins).run')

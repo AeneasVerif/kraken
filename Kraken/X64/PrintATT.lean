@@ -118,8 +118,6 @@ def operation {w} (aw : Width) (op : Operation w) : String :=
   | .ret => "ret"
   | .nop 1 => "nop"
   | .nop n => s!"nop {n}"
-  | .nopalign a none => s!".align {a}"
-  | .nopalign a (some p) => s!".align {a}, {p}"
 
 def avxOperation {w} (aw : Width) (op : AvxOperation w) : String :=
   let two (mn : String) {w} (d x : AvxRegOrMem w) := s!"{mn} {avxRm aw x}, {avxRm aw d}"
@@ -144,7 +142,7 @@ def instr : Instr → String
 def directive : _root_.Directive → String
   | .instr i => instr i
   | .label l => s!"{l}:"
-  | d@(.byteArray _) => toString d
+  | d@(.byteArray _) | d@(.align ..) | d@(.nopalign _) => toString d
 
 end Kraken.X64.ATT
 

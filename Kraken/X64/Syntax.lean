@@ -235,9 +235,6 @@ inductive Operation (w : Width)
   | call (target : RelRegOrMem)
   | ret
   | nop (length : Nat)
-  -- TODO: optiona third argument, with the caveat that `.align 16,,0` is valid
-  -- syntax
-  | nopalign (alignment : Nat) (pad : Option Nat)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 -- The non-v* variants take SSE registers only.

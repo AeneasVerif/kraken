@@ -170,8 +170,6 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .call tgt => s!"call {tgt.toStr addr_w}"
   | .ret => "ret"
   | .nop n => s!".nops {n}"
-  | .nopalign a none => s!".align {a}"
-  | .nopalign a (some p) => s!".align {a}, {p}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
 def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : String := match op with
@@ -199,3 +197,5 @@ instance : ToString Directive where
   | .instr i => ToString.toString i
   | .label l => s!"{l}:"
   | .byteArray bs => ".byte "++", ".intercalate (bs.toList.map (fun b => s!"{b}"))
+  | .nopalign a => s!".align {a}"
+  | .align a f => s!".align {a}, {f}"

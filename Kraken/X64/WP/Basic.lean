@@ -60,15 +60,16 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     (h : (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
       (fun s' => .done ⟨s', Host.addrOf (k + 1)⟩) (fun a s' => .done ⟨s', a⟩)).All post) :
     Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ := by
-  have hd : Host.exe.program[k]? = some {directive := d, size := Kraken.Layout.size Instr k : Kraken.Sized Directive} := by
+  have hd : Host.exe.program[k]? = some {directive := d, size := Host.layout.size d k : Kraken.Sized Directive} := by
     rw [Host.exe_getElem?, hdp.cons.1]
     rfl
   rw [Host.addrOf_succ hdp.cons.1] at h
-  rcases Nat.eq_zero_or_pos (Kraken.Layout.size Instr k) with h0 | hz
+  rcases Nat.eq_zero_or_pos (Host.layout.size d k) with h0 | hz
   · rw [h0] at hd h
-    rw [Host.inert_of_size_zero (List.mem_of_getElem? hd)] at h
     have h0' : Host.addrOf k + Int64.ofNat 0 = Host.addrOf k := by simp
-    simp only [Effects.All, h0'] at h
+    simp only [h0'] at h
+    rw [Host.inert_of_size_zero (List.mem_of_getElem? hd)] at h
+    simp only [Effects.All] at h
     exact Eventually.done _ h
   · refine Eventually.step _ post ?_ fun _ hb => Eventually.done _ hb
     obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd hz

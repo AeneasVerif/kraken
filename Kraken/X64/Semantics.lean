@@ -311,6 +311,7 @@ inductive Effects
   | require_read_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_write_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
+  | padding_executed (addr : Int64)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
 
 -- Splits the interval in two halves in case of overflow
@@ -794,7 +795,7 @@ set_option maxHeartbeats 1000000
     let rsp := s.regs.get64 .rsp
     s.load rsp .W64 (fun ra s =>
     jmp (.ofBitVec ra) { s with regs := s.regs.set64 .rsp (rsp + 8) })
-  | nop _ | nopalign _ _ => next s
+  | nop _ => next s
 
 -- AVX Operations Interpreter
 def AvxOperation.interp [Labels] [address_size : AddressSize]
@@ -858,7 +859,10 @@ def Instr.interp [Labels]
   match d with
   | .label _ => next s
   | .instr i => i.interp s p next jmp
-  | .byteArray _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
+  | .byteArray b =>
+    if b.isEmpty then next s else .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
+  | .align .. => bif p.lower == p.upper then next s else .padding_executed p.lower
+  | .nopalign _ => require_exec_access p fun _ => next s
 
 def Directives.interp [Labels]
   (ds : List (Kraken.Sized Directive)) (s : MachineData) (pc : Int64)
@@ -902,19 +906,21 @@ where
     | .require_exec_access _ ok => handleEffects (ok ())
     | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
+    | .padding_executed addr => .error s!"Executed alignment padding at {repr addr}"
     | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
 
-def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
-  match d with
-  | .label _ => 0
-  | .instr (.regular _ _ (.nop sz)) => sz -- may be zero
+def Directive.fakeSize (hashOfProgram : UInt64) : Directive → Nat
+  | .instr (.regular _ _ (.nop sz)) => max 1 sz
   | .instr i => (1 + hash (hashOfProgram, i) % 15).toNat
-  | .byteArray bs => bs.size
+  | _ => 1
 
 def Program.fakeLayout (prog : Program) : Executable :=
   let : Inhabited Directive := .mk (.byteArray (.mk #[]))
   let h := hash prog;
-  let layout : Layout := { start := h.toInt64<<<16, size i := prog[i]!.fakeSize h }
+  let layout : Layout :=
+    { start := h.toInt64<<<16
+      instrSize i := ⟨max 1 (prog[i]!.fakeSize h), Nat.lt_of_lt_of_le Nat.zero_lt_one (Nat.le_max_left ..)⟩
+      alignSize _ := 0 }
   layout prog
 
 abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)

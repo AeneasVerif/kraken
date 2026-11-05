@@ -13,6 +13,7 @@ public import Kraken.X64.Semantics
 @[kstep] def Effects.All (post : MachineState → Prop) : Effects → Prop
   | .done a => post a
   | .unimplemented _ => False
+  | .padding_executed _ => False
   | .gp_unaligned .. => False
   | .nonmem_load .. => False
   | .nonmem_store .. => False
