@@ -389,11 +389,17 @@ syntax x64_instr ";" : x64_directive
 syntax withPosition(x64_instr notFollowedBy(lineEq (x64_ident <|> "," <|> x64_operand))) : x64_directive
 syntax "❰" term "❱" ";"? : x64_directive
 
+/-- Embedding of directives -/
+syntax "⸨dir| " x64_directive " ⸩" : term
+
+/-- Embedding of sized directives -/
+syntax "⸨dir" term "| " x64_directive " ⸩" : term
+
 /-- X64 assembly program (sequence of directives). -/
 declare_syntax_cat x64_prog (behavior := both)
 syntax ppDedent((ppLine x64_directive)*) : x64_prog
 
 /-- Inline unquoted X64 assembly block (`[x64| ... ]`). -/
-syntax "[x64|" x64_prog "]" : term
+syntax "⸨prog|" x64_prog "⸩" : term
 
 end Kraken.X64.Parser

@@ -768,6 +768,20 @@ private partial def delabDirectiveListSpine :
   | _ =>
     return (#[], some (← delab))
 
+@[app_delab Directive.instr, app_delab Directive.label, app_delab Directive.byteArray]
+def delabDirective' : Delab := do
+  if ← getPPOption getPPExplicit then failure
+  let stx ← delabDirective
+  `(⸨dir| $stx ⸩)
+
+@[app_unexpander Kraken.Sized.mk]
+def sizedUnexpander : Unexpander
+  | `($_ $dir $sz) => do
+    let `(⸨dir| $dir⸩) := dir | throw ()
+    let `(Kraken.Layout.size $_ $i) := sz | throw ()
+    `(⸨dir $i | $dir ⸩)
+  | _ => throw ()
+
 /-- Delaborate a non-empty `List Directive` (`Program`) into an `[x64| ... ]` block (or `[x64| ... ] ++ tail`
     when the list ends in an open tail). -/
 @[app_delab List.cons]
@@ -778,11 +792,27 @@ def delabProgram : Delab := do
   | mkApp3 (.const ``List.cons _) (mkApp (.const ``Kraken.Directive _) _) _ _ =>
     let (dirs, tail?) ← delabDirectiveListSpine
     let prog ← `(x64_prog| $dirs:x64_directive*)
-    let listing ← annotateTermInfo (← `([x64| $prog:x64_prog]))
+    let listing ← annotateTermInfo (← `(⸨prog| $prog:x64_prog⸩))
     match tail? with
     | none => return listing
     | some tail => `($listing ++ $tail)
   | _ => failure
+
+-- /-- Delaborate a non-empty `List Directive` (`Program`) into an `[x64| ... ]` block (or `[x64| ... ] ++ tail`
+--     when the list ends in an open tail). -/
+-- @[app_delab List.cons]
+-- def delabSizedProgram : Delab := do
+--   if ← getPPOption getPPExplicit then failure
+--   match ←getExpr with
+--   | mkApp3 (.const ``List.cons _) (mkApp (.const ``Sized _) (.const ``_root_.Directive _)) _ _
+--   | mkApp3 (.const ``List.cons _) (mkApp (.const ``Sized _) (mkApp (.const ``Kraken.Directive _) _)) _ _ =>
+--     let (dirs, tail?) ← delabDirectiveListSpine
+--     let prog ← `(x64_prog| $dirs:x64_directive*)
+--     let listing ← annotateTermInfo (← `([x64| $prog:x64_prog]))
+--     match tail? with
+--     | none => return listing
+--     | some tail => `($listing ++ $tail)
+--   | _ => failure
 
 end
 

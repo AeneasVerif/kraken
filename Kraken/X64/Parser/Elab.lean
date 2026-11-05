@@ -725,7 +725,14 @@ end
 
 /-- Inline unquoted X64 assembly block elaborator (`[x64| ... ]`). -/
 elab_rules : term
-  | `([x64| $p:x64_prog]) => elabProgram p
+  | `(⸨dir| $d:x64_directive⸩) => elabDirective d
+
+macro "⸨dir" n:term "|" dir:x64_directive "⸩" : term =>
+  `({directive := ⸨dir| $dir⸩, size := Layout.size Instr $n})
+
+/-- Inline unquoted X64 assembly block elaborator (`[x64| ... ]`). -/
+elab_rules : term
+  | `(⸨prog| $p:x64_prog⸩) => elabProgram p
 
 /-- Inline unquoted X64 assembly block macro/elaborator (`parse( ... )`). -/
 elab "parse(" p:x64_prog ")" : term => elabProgram p
