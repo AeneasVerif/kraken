@@ -95,8 +95,8 @@ def handleEffects (ds : IncrementerState) (es : Effects)
   | .done ms => ok (.mk ms ds)
   | .unimplemented msg => .error msg
   | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
-  | .require_read_access _ _ cont => handleEffects ds (cont ()) ok
-  | .require_write_access _ _ cont => handleEffects ds (cont ()) ok
+  | .require_read_access _ cont => handleEffects ds (cont ()) ok
+  | .require_write_access _ cont => handleEffects ds (cont ()) ok
   | .require_exec_access _ cont => handleEffects ds (cont ()) ok
   | .nonmem_load dmem addr w cont => do
     match h: w with

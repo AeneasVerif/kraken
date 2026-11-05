@@ -114,7 +114,7 @@ theorem stepOut_of_not_below {pc a : Int64} {t t' : MachineData} {funs} {next ju
     (hb : ¬ t'.StackBelow t) (h : jump ⟨t', a⟩) : Host.exe.StepOut funs ⟨t, pc⟩ next jump ⟨t', a⟩ := by
   unfold Executable.StepOut; split <;> simp_all
 
-variable [FunDecls] (hpos : ∀ i ins, Host.prog[i]? = some (.instr ins) → 0 < Kraken.Layout.size Directive i)
+variable [FunDecls] (hpos : ∀ i ins, Host.prog[i]? = some (.instr ins) → 0 < Kraken.Layout.size Instr i)
 
 abbrev Loop (p : Program) (H : Embedding p) (done exit : MachineState → Prop) (s₀ : MachineData) :=
   Until (·.pc ≠ H.endAddr) (fun c => Host.exe.StepOver (fun a => (FunDecls.at a).map fun f =>
@@ -129,7 +129,7 @@ theorem loop_step {p : Program} {H : Embedding p} {done exit : MachineState → 
       (∀ a t', Host.exe.StepOut (fun a => (FunDecls.at a).map fun f => f.prog.wp (fun _ => False))
         ⟨t, Host.addrOf (H.start + i)⟩ (Loop p H done exit s₀)
           (p.ContinueAtOwnLabel s₀ (Loop p H done exit s₀) exit) ⟨t', a⟩ → (jmp a t').All P) →
-      ((Directive.instr ins).interp t ⟨Host.addrOf (H.start + i), Host.addrOf (H.start + (i + 1))⟩ n jmp).All P) :
+      (Directive.interp (.instr ins) t ⟨Host.addrOf (H.start + i), Host.addrOf (H.start + (i + 1))⟩ n jmp).All P) :
     Loop p H done exit s₀ ⟨t, Host.addrOf (H.start + i)⟩ := by
   have hk := prog_at (H := H) hi
   have := Host.sizeBefore_mono (show H.start + i + 1 ≤ H.start + p.length by
@@ -145,7 +145,7 @@ theorem ret_exit {p : Program} {H : Embedding p} {done exit : MachineState → P
     Loop p H done exit s₀ ⟨t, Host.addrOf (H.start + i)⟩ := by
   refine loop_step hpos hi fun P n j _ hj => ?_
   obtain ⟨v, hv, hra⟩ := hload
-  simp only [Directive.interp, Instr.interp, Operation.interp, MachineData.load, hv, Effects.All, hra]
+  simp only [Directive.interp, Instr.interp, Operation.interp, MachineData.load, Effects.All_require_read_access, hv, Effects.All, hra]
   refine hj ra _ (stepOut_of_not_below (by stk) ?_)
   rwa [Program.ContinueAtOwnLabel, ite_eq_right fun h => h.2 (by stk)]
 
@@ -162,7 +162,7 @@ theorem call_step {p q : Program} {H : Embedding p} {Hq : Embedding q} {done exi
   refine loop_step hpos hi fun P n j _ hj => ?_
   obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp hmapped
   simp only [Directive.interp, Instr.interp, Operation.interp, RelRegOrMem.interp, ConstExpr.interp,
-    MachineData.store, hv, Effects.All]
+    MachineData.store, Effects.All_require_write_access, hv, Effects.All]
   rw [Int64.ofBitVec_toBitVec, Int64.add_comm, Int64.sub_add_cancel]
   refine hj (label g) (t.pushRa _) ?_
   have hk := prog_at (H := H) hi

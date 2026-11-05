@@ -199,7 +199,7 @@ section
 variable [Host]
 
 public theorem Host.stepIn_addrOf {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d)
-    (hz : 0 < Kraken.Layout.size Directive k) {s₀ : MachineData} {next jump : MachineState → Prop}
+    (hz : 0 < Kraken.Layout.size Instr k) {s₀ : MachineData} {next jump : MachineState → Prop}
     (h : ∀ (P : MachineState → Prop) (n : MachineData → Effects) (j : Int64 → MachineData → Effects),
       (∀ s₁, next { data := s₁, pc := Host.addrOf (k + 1) } → (n s₁).All P) →
       (∀ a s₁, jump { data := s₁, pc := a } → (j a s₁).All P) →

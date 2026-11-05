@@ -261,14 +261,7 @@ instance [AddressSize] {w : Width} : CoeOut (Operation w) Instr where
 instance [AddressSize] {w : AvxWidth} : CoeOut (AvxOperation w) Instr where
   coe op := Instr.avx address_size w op
 
-instance : Repr ByteArray where reprPrec _ _ := "<opaque byte array>"
-
-deriving instance Lean.ToExpr for ByteArray
-inductive Directive
-  | instr (_ : Instr)
-  | label (_ : Label)
-  | byteArray (_ : ByteArray)
-  deriving BEq, DecidableEq, Repr, Hashable, Lean.ToExpr
+abbrev Directive := Kraken.Directive Instr
 
 abbrev Program := List Directive
 
@@ -290,7 +283,7 @@ def Program.labels (p : Program) : List Label := p.filterMap Directive.label?
 @[simp, grind =] theorem Program.labels_cons_byteArray (a : ByteArray) (p : Program) :
     Program.labels (.byteArray a :: p) = Program.labels p := rfl
 
-abbrev Executable := Kraken.Executable Directive
+abbrev Executable := Kraken.Executable Instr
 
 namespace Reg
 @[match_pattern] abbrev rax := low .rax .W64

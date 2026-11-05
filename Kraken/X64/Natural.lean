@@ -45,12 +45,12 @@ theorem bind {β : Type} {F : (α → Effects) → Effects} {G : α → (β → 
     Natural (fun k => Effects.nonmem_store dm a v (fun d => G d k)) :=
   fun _ _ _ _ _ _ _ h => h.elim
 
-@[natural] theorem require_read_access {a : BitVec 64} {w : Width} {G : Unit → (α → Effects) → Effects}
-    (h : ∀ u, Natural (G u)) : Natural (fun k => Effects.require_read_access a w (fun u => G u k)) :=
+@[natural] theorem require_read_access {r : Std.Rco AddressBound} {G : Unit → (α → Effects) → Effects}
+    (h : ∀ u, Natural (G u)) : Natural (fun k => Effects.require_read_access r (fun u => G u k)) :=
   fun _ _ _ _ _ _ hk h₁ h₂ => h () _ _ _ _ _ _ hk h₁ h₂
 
-@[natural] theorem require_write_access {a : BitVec 64} {w : Width} {G : Unit → (α → Effects) → Effects}
-    (h : ∀ u, Natural (G u)) : Natural (fun k => Effects.require_write_access a w (fun u => G u k)) :=
+@[natural] theorem require_write_access {r : Std.Rco AddressBound} {G : Unit → (α → Effects) → Effects}
+    (h : ∀ u, Natural (G u)) : Natural (fun k => Effects.require_write_access r (fun u => G u k)) :=
   fun _ _ _ _ _ _ hk h₁ h₂ => h () _ _ _ _ _ _ hk h₁ h₂
 
 @[natural] theorem require_exec_access {r : Std.Rco Int64} {G : Unit → (α → Effects) → Effects}
@@ -70,6 +70,13 @@ theorem bind {β : Type} {F : (α → Effects) → Effects} {G : α → (β → 
   · rw [show (fun k => if h : c then F h k else G h k) = F hc from funext fun _ => dite_eq_left hc]; exact hF hc
   · rw [show (fun k => if h : c then F h k else G h k) = G hc from funext fun _ => dite_eq_right hc]; exact hG hc
 
+theorem require_access {acc : Std.Rco AddressBound → (Unit → Effects) → Effects}
+    (hacc : ∀ r (G : Unit → (α → Effects) → Effects), (∀ u, Natural (G u)) → Natural (fun k => acc r (fun u => G u k)))
+    {a : BitVec 64} {b : UInt64} {G : Unit → (α → Effects) → Effects} (h : ∀ u, Natural (G u)) :
+    Natural (fun k => _root_.require_access acc a b (fun u => G u k)) := by
+  unfold _root_.require_access
+  exact Natural.dite (fun _ => hacc _ _ h) (fun _ => hacc _ _ fun _ => hacc _ _ h)
+
 end Natural
 
 variable {α : Type}
@@ -78,7 +85,7 @@ variable {α : Type}
     {G : w.type → MachineData → (α → Effects) → Effects} (h : ∀ v s, Natural (G v s)) :
     Natural (fun k => s.load a w (fun v s => G v s k)) := by
   unfold MachineData.load
-  refine Natural.require_read_access fun _ => ?_
+  refine Natural.require_access (fun _ _ => Natural.require_read_access) fun _ => ?_
   split
   · exact h _ _
   · exact Natural.nonmem_load
@@ -87,7 +94,7 @@ variable {α : Type}
     {G : MachineData → (α → Effects) → Effects} (h : ∀ s, Natural (G s)) :
     Natural (fun k => s.store a v (fun s => G s k)) := by
   unfold MachineData.store
-  refine Natural.require_write_access fun _ => ?_
+  refine Natural.require_access (fun _ _ => Natural.require_write_access) fun _ => ?_
   split
   · exact h _
   · exact Natural.nonmem_store
@@ -97,7 +104,7 @@ variable {α : Type}
     {G : w.type → MachineData → (α → Effects) → Effects} (h : ∀ v s, Natural (G v s)) :
     Natural (fun k => s.loadAvx a w (fun v s => G v s k) ca) := by
   unfold MachineData.loadAvx
-  refine Natural.ite (Natural.gp_unaligned _ _) (Natural.require_read_access fun _ => ?_)
+  refine Natural.ite (Natural.gp_unaligned _ _) (Natural.require_access (fun _ _ => Natural.require_read_access) fun _ => ?_)
   split
   · exact h _ _
   · exact Natural.unimplemented _
@@ -106,7 +113,7 @@ variable {α : Type}
     {G : MachineData → (α → Effects) → Effects} (h : ∀ s, Natural (G s)) :
     Natural (fun k => s.storeAvx a v (fun s => G s k) ca) := by
   unfold MachineData.storeAvx
-  refine Natural.ite (Natural.gp_unaligned _ _) (Natural.require_write_access fun _ => ?_)
+  refine Natural.ite (Natural.gp_unaligned _ _) (Natural.require_access (fun _ _ => Natural.require_write_access) fun _ => ?_)
   split
   · exact h _
   · exact Natural.unimplemented _

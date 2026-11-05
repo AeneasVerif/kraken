@@ -2094,7 +2094,7 @@ def parseLabelDecl : Parser Label := do
 Parse an optional instruction on the current line, returning `none` if at
 line end or comment.
 -/
-def parseOptionalInstr : Parser (Option Directive) := do
+def parseOptionalInstr : Parser (Option _root_.Directive) := do
   if (← isAtLineEndOrComment) then
     pure none
   else
@@ -2120,7 +2120,7 @@ Parse a single assembly line:
 - Returns the list of AST directives (`Directive.label`, `Directive.instr`)
   found on the line.
 -/
-def parseLine : Parser (List Directive) := do
+def parseLine : Parser (List _root_.Directive) := do
   skipHWs
   let c? ← peek?
   if c? == some '#' || c? == some '/' then
@@ -2148,10 +2148,10 @@ instance {T1} : Coe (ParseResult (List T1) (Sigma String.Pos)) (Except String (L
   | .error _ .eof => .error "unexpected end of input"
   | .error _ (.other msg) => .error msg
 
-public def parse (input: String) : Except String Program := do
+public def parse (input: String) : Except String _root_.Program := do
   let rawLines := (input.splitOn "\n")
   let (_, lines) ← rawLines.foldlM (fun (lineNum, acc) x => do
-    match (parseLine ⟨ x, x.startPos ⟩ : Except String (List Directive)) with
+    match (parseLine ⟨ x, x.startPos ⟩ : Except String (List _root_.Directive)) with
     | .ok v => pure (lineNum + 1, v :: acc)
     | .error msg => .error s!"line {lineNum}: {msg}"
   ) ((1 : Nat), [])

@@ -123,7 +123,7 @@ public theorem Program.wp_cons {d : Directive} {p : Program} {done exit : Machin
   · have := hI hc
     grind
   · have hy := hI hc
-    have hz : 0 < Kraken.Layout.size Directive H.start := by grind
+    have hz : 0 < Kraken.Layout.size Instr H.start := by grind
     have hft : Host.exe.nextAddr y.pc = Host.addrOf (H.start + 1) := by
       rw [hy]; exact Host.nextAddr_addrOf hd hz
     refine Executable.StepOver.mono_map FunDecls.at ?_
@@ -149,7 +149,7 @@ public theorem Program.wp_single {d : Directive} {done exit : MachineState → P
   have hw := hw h
   have hdk : Host.prog[h.start]? = some d := h.isInfixAt.cons.1
   have hend : h.endAddr = Host.addrOf (h.start + 1) := rfl
-  rcases Nat.eq_zero_or_pos (Kraken.Layout.size Directive h.start) with h0 | hz
+  rcases Nat.eq_zero_or_pos (Kraken.Layout.size Instr h.start) with h0 | hz
   · have hq := (Host.inert_of_getElem? hdk h0 s₀ _ (fun s₁ => .done { data := s₁, pc := 0 })
       (fun _ s₁ => .done { data := s₁, pc := 1 })
       (fun st => st.pc = 0 → done { data := st.data, pc := h.endAddr })).mp
