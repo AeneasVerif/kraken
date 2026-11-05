@@ -734,24 +734,22 @@ def delabInstr : DelabM (TSyntax `x64_instr) := do
 -- Directive & Program Delaboration
 -- ============================================================================
 
-/-- Delaborate a `Directive` into an `x64_directive`, falling back to `❰t❱` for open or non-canonical terms. -/
-def delabDirective : DelabM (TSyntax `x64_directive) := do
+/-- Delaborate a `Directive` into concrete assembly syntax, failing on open or unsupported terms. -/
+private def delabDirectiveCore : DelabM (TSyntax `x64_directive) := do
   match_expr ← getExpr with
   | Directive.label _ _ =>
-    try
-      let lbl ← withAppArg delabIdent
-      annotateStx (← `(x64_directive| $lbl:x64_ident :))
-    catch _ =>
-      let t ← delab
-      annotateStx (← `(x64_directive| ❰ $t ❱))
+    let lbl ← withAppArg delabIdent
+    annotateStx (← `(x64_directive| $lbl:x64_ident :))
   | Directive.instr _ _ =>
-    try
-      let ins ← withAppArg delabInstr
-      annotateStx (← `(x64_directive| $ins:x64_instr))
-    catch _ =>
-      let t ← delab
-      annotateStx (← `(x64_directive| ❰ $t ❱))
-  | _ =>
+    let ins ← withAppArg delabInstr
+    annotateStx (← `(x64_directive| $ins:x64_instr))
+  | _ => failure
+
+/-- Delaborate a `Directive` into an `x64_directive`, falling back to `❰t❱` for open or non-canonical terms. -/
+def delabDirective : DelabM (TSyntax `x64_directive) := do
+  try
+    delabDirectiveCore
+  catch _ =>
     let t ← delab
     annotateStx (← `(x64_directive| ❰ $t ❱))
 
@@ -771,7 +769,7 @@ private partial def delabDirectiveListSpine :
 @[app_delab Directive.instr, app_delab Directive.label, app_delab Directive.byteArray]
 def delabDirective' : Delab := do
   if ← getPPOption getPPExplicit then failure
-  let stx ← delabDirective
+  let stx ← delabDirectiveCore
   `(⸨dir| $stx ⸩)
 
 @[app_unexpander Kraken.Sized.mk]
