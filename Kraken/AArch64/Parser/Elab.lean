@@ -1350,9 +1350,11 @@ public def elabAArch64 (input : String) : TermElabM Expr :=
   elabCategory `aarch64_prog elabProgram (replaceAArch64Comments input)
 
 end
+/-- Inline unquoted AArch64 assembly directive macro/elaborator (`[aarch64| ... ]`). -/
+elab "⸨dir| " d:aarch64_directive " ⸩" : term => elabDirective d
 
 /-- Inline unquoted AArch64 assembly block macro/elaborator (`[aarch64| ... ]`). -/
-elab "[aarch64|" p:aarch64_prog "]" : term => elabProgram p
+elab "⸨prog| " p:aarch64_prog " ⸩" : term => elabProgram p
 
 /-- Inline unquoted AArch64 assembly block macro/elaborator (`parse( ... )`). -/
 scoped elab "parse(" p:aarch64_prog ")" : term => elabProgram p

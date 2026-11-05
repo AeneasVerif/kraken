@@ -2110,25 +2110,35 @@ end error_reporting
 section syntax_cat_and_include_aarch64
 
 theorem test_aarch64_syntax_cat :
-  [aarch64|
+  ⸨prog|
     main:
       add x0, x0, #1
       ret
-  ] = parseAArch64(
+  ⸩ = parseAArch64(
     "main:
       add x0, x0, #1
       ret"
   ) := rfl
+
+/--
+info: Directive.instr
+  { operation_size := RegWidth.W64,
+    operation :=
+      Operation.ADD_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X0 RegWidth.W64)
+        ↑{ imm := ↑1, shift := ImmShift.S0 } } : Kraken.Directive Instr
+-/
+#guard_msgs in
+#check ⸨dir| add x0, x0, #1 ⸩
 
 theorem test_include_aarch64_nop :
   include_aarch64 "Kraken/AArch64/Test/asm/test_nop.S" =
   [Directive.instr ⟨.W64, .NOP⟩] := rfl
 
 theorem test_aarch64_complex_labels :
-  [aarch64|
+  ⸨prog|
     aa.1.aa.1:
       b .L.str.1.llvm.12345
-  ] = [
+  ⸩ = [
     Directive.label "aa.1.aa.1",
     Directive.instr ⟨.W64, .B (↑".L.str.1.llvm.12345")⟩
   ] := rfl
@@ -2149,7 +2159,7 @@ info: [Directive.instr
     { operation_size := w, operation := Operation.ADD_e rsp rsp ↑{ imm := ↑2, shift := ImmShift.S0 } }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64| add ❰rsp❱, ❰rsp❱, #2 ]
+#check ⸨prog| add ❰rsp❱, ❰rsp❱, #2 ⸩
 
 /--
 info: [Directive.instr
@@ -2157,7 +2167,7 @@ info: [Directive.instr
       operation := Operation.ADD_s r r { reg := r, amount := 2, shift := ShiftType.LSL } }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64| add ❰r❱, ❰r❱, ❰r❱, lsl #2 ]
+#check ⸨prog| add ❰r❱, ❰r❱, ❰r❱, lsl #2 ⸩
 
 -- Test: antiquoted and concrete registers unify
 /--
@@ -2168,14 +2178,14 @@ info: [Directive.instr
           { reg := ↑↑XReg.X0 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64| mov ❰x❱, x0 ]
+#check ⸨prog| mov ❰x❱, x0 ⸩
 
 theorem test_antiquot_polymorphic_reg :
   let rPoly : ∀ {w}, RegOrZr w := .low (.reg .X3) _
-  [aarch64|
+  ⸨prog|
     add ❰rPoly❱, x1, x2
     add w0, ❰rPoly❱, w2
-  ] = [
+  ⸩ = [
     Directive.instr ⟨.W64, .ADD_s .X3 .X1 (RegOrZr.X2 : ShiftRegExpr .W64)⟩,
     Directive.instr ⟨.W32, .ADD_s .W0 .W3 (RegOrZr.W2 : ShiftRegExpr .W32)⟩
   ] := rfl
@@ -2183,19 +2193,19 @@ theorem test_antiquot_polymorphic_reg :
 -- Test: width mismatches with antiquotations
 /-- error: expected w register, got w32 -/
 #guard_msgs in
-#check [aarch64| add ❰r❱, w0, w1 ]
+#check ⸨prog| add ❰r❱, w0, w1 ⸩
 
 /-- error: requires 32-bit registers (got w) -/
 #guard_msgs in
-#check [aarch64| ldrb ❰r❱, [x0] ]
+#check ⸨prog| ldrb ❰r❱, [x0] ⸩
 
 /-- error: requires 32-bit registers (got 64-bit) -/
 #guard_msgs in
-#check [aarch64| ldrb ❰x❱, [x0] ]
+#check ⸨prog| ldrb ❰x❱, [x0] ⸩
 
 /-- error: requires 64-bit registers (got 32-bit) -/
 #guard_msgs in
-#check [aarch64| sxtw ❰wReg❱, w1 ]
+#check ⸨prog| sxtw ❰wReg❱, w1 ⸩
 
 /--
 error: Type mismatch
@@ -2206,7 +2216,7 @@ but is expected to have type
   RegOrZr RegWidth.W32
 -/
 #guard_msgs in
-#check [aarch64| sxtb x0, ❰x❱ ]
+#check ⸨prog| sxtb x0, ❰x❱ ⸩
 
 -- Test: memory base and index register antiquotations
 /--
@@ -2220,19 +2230,19 @@ info: [Directive.instr
                     ext := { type := MemExtendType.UXTW, amount := MemExtendAmount.E3 } } } }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64| ldr x0, [❰sp64❱, ❰wReg❱, uxtw #3] ]
+#check ⸨prog| ldr x0, [❰sp64❱, ❰wReg❱, uxtw #3] ⸩
 
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64, operation := Operation.LDUR x { base := sp64, imm := ↑(-8) } }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64| ldr ❰x❱, [❰sp64❱, #-8] ]
+#check ⸨prog| ldr ❰x❱, [❰sp64❱, #-8] ⸩
 
 -- Test: a concrete offset is scaled by the access size, which a variable width leaves undetermined
 /-- error: could not infer operand width -/
 #guard_msgs in
-#check [aarch64| ldr ❰r❱, [❰sp64❱, #-8] ]
+#check ⸨prog| ldr ❰r❱, [❰sp64❱, #-8] ⸩
 
 -- Test: immediate and constant antiquotations (`#❰...❱`)
 /--
@@ -2243,7 +2253,7 @@ info: [Directive.instr
           ↑{ imm := ↑k, shift := ImmShift.S12 } }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64| add x0, x1, #❰k❱, lsl #12 ]
+#check ⸨prog| add x0, x1, #❰k❱, lsl #12 ⸩
 
 /--
 info: [Directive.instr
@@ -2253,7 +2263,7 @@ info: [Directive.instr
           { reg := ↑↑XReg.X2 RegWidth.W64, amount := sh, shift := ShiftType.LSL } }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64| add x0, x1, x2, lsl #❰sh❱ ]
+#check ⸨prog| add x0, x1, x2, lsl #❰sh❱ ⸩
 
 /--
 info: [Directive.instr
@@ -2263,17 +2273,17 @@ info: [Directive.instr
           ↑{ base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑k, index := some Index.Pre } } }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64| ldr x0, [x1, #❰k❱]! ]
+#check ⸨prog| ldr x0, [x1, #❰k❱]! ⸩
 
 /-- info: [Directive.instr { operation_size := w, operation := Operation.UBFM r r n m }] : List Directive -/
 #guard_msgs in
-#check [aarch64| ubfm ❰r❱, ❰r❱, #❰n❱, #❰m❱ ]
+#check ⸨prog| ubfm ❰r❱, ❰r❱, #❰n❱, #❰m❱ ⸩
 
 /--
 info: [Directive.instr { operation_size := w, operation := Operation.TBZ r n ↑k }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64| tbz ❰r❱, #❰n❱, #❰k❱ ]
+#check ⸨prog| tbz ❰r❱, #❰n❱, #❰k❱ ⸩
 
 -- Test: memory, condition code, and directive antiquotations
 /--
@@ -2283,11 +2293,11 @@ info: [Directive.instr { operation_size := w, operation := Operation.LDR r ↑ad
     { operation_size := RegWidth.W64, operation := Operation.LDP (↑↑XReg.X0 RegWidth.W64) x addr }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64|
+#check ⸨prog|
   ldr ❰r❱, ❰addr❱
   ldur ❰r❱, ❰uaddr❱
   ldp x0, ❰x❱, ❰addr❱
-]
+⸩
 
 /--
 info: [Directive.instr { operation_size := w, operation := Operation.CSEL r r r cc },
@@ -2297,12 +2307,12 @@ info: [Directive.instr { operation_size := w, operation := Operation.CSEL r r r 
   Directive.instr { operation_size := w, operation := Operation.CCMP_imm r n m cc }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64|
+#check ⸨prog|
   csel ❰r❱, ❰r❱, ❰r❱, ❰cc❱
   cinc ❰r❱, ❰r❱, ❰cc❱
   cset ❰r❱, ❰cc❱
   ccmp ❰r❱, #❰n❱, #❰m❱, ❰cc❱
-]
+⸩
 
 /--
 info: [Directive.instr i, d,
@@ -2310,11 +2320,11 @@ info: [Directive.instr i, d,
     { operation_size := RegWidth.W64, operation := Operation.RET (↑↑XReg.X30 RegWidth.W64) }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64|
+#check ⸨prog|
   ❰.instr i❱
   ❰d❱
   ret
-]
+⸩
 
 -- Test: an immediate antiquotation denotes an integer, even where a constant expression is expected
 /--
@@ -2326,10 +2336,10 @@ but is expected to have type
   Int64
 -/
 #guard_msgs in
-#check [aarch64|
+#check ⸨prog|
 ❰.label lbl❱
   b #❰lbl❱
-]
+⸩
 
 -- Test: constant expression antiquotations
 variable (c : ConstExpr)
@@ -2345,13 +2355,13 @@ info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.
       operation := Operation.LDR (↑↑XReg.X0 RegWidth.W64) ↑↑{ expr := c } }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64|
+#check ⸨prog|
   b ❰lbl❱
   adr x0, ❰c❱
   cbz x0, ❰c❱
   movz x0, ❰c❱, lsl #16
   ldr x0, =❰c❱
-]
+⸩
 
 -- Test: in a flexible source and after the base of a memory operand, `❰t❱` may be a register or a
 -- constant expression, decided by its type
@@ -2371,10 +2381,10 @@ info: [Directive.instr
                     ext := { type := MemExtendType.UXTX, amount := MemExtendAmount.E0 } } } }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64|
+#check ⸨prog|
   add x0, x1, ❰x❱
   ldr x0, [x1, ❰x❱]
-]
+⸩
 
 /--
 info: [Directive.instr
@@ -2398,17 +2408,17 @@ info: [Directive.instr
         Operation.LDUR (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := c } }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64|
+#check ⸨prog|
   add x0, x1, ❰c❱
   and x0, x1, ❰c❱
   tst x0, ❰lbl❱
   ldr x0, [x1, ❰c❱]
   ldur x0, [x1, ❰c❱]
-]
+⸩
 
 /-- error: relocation modifiers and labels cannot be shifted with lsl in immediate operands -/
 #guard_msgs in
-#check [aarch64| add x0, x1, ❰c❱, lsl #12 ]
+#check ⸨prog| add x0, x1, ❰c❱, lsl #12 ⸩
 
 -- Test: an antiquotation that is not a register is elaborated as a constant expression
 /--
@@ -2420,12 +2430,12 @@ but is expected to have type
   ConstExpr
 -/
 #guard_msgs in
-#check [aarch64| add x0, x1, ❰true❱ ]
+#check ⸨prog| add x0, x1, ❰true❱ ⸩
 
 -- Test: pre/post-indexed offsets must be numeric
 /-- error: pre-indexed / post-indexed offsets must be constant numeric immediates -/
 #guard_msgs in
-#check [aarch64| ldr x0, [x1], ❰c❱ ]
+#check ⸨prog| ldr x0, [x1], ❰c❱ ⸩
 
 -- Test: label antiquotations, in label declarations and relocations
 /--
@@ -2440,12 +2450,12 @@ info: [Directive.label lbl,
   Directive.instr { operation_size := RegWidth.W64, operation := Operation.B ↑lbl }] : List Directive
 -/
 #guard_msgs in
-#check [aarch64|
+#check ⸨prog|
   ❰lbl❱:
   adrp x0, :pg_hi21:❰lbl❱
   add x0, x0, :lo12:❰lbl❱
   b ❰lbl❱
-]
+⸩
 
 end antiquotations
 
