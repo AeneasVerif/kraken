@@ -592,6 +592,136 @@ info: [Directive.instr
 #guard_msgs in
 #check [x64| ❰.label "foo"❱; ❰.instr <| .regular .W64 .W64 .ret❱ ]
 
+-- Test: label antiquotations (`x64_ident`)
+variable (lbl : Kraken.Label)
+
+/-- info: [Directive.label lbl, Directive.instr (regular Width.W64 Width.W64 Operation.ret)] : List _root_.Directive -/
+#guard_msgs in
+#check [x64| ❰lbl❱: ret ]
+
+/-- info: [Directive.instr (regular Width.W64 Width.W64 (Operation.jcc CondCode.z lbl))] : List _root_.Directive -/
+#guard_msgs in
+#check [x64| jz ❰lbl❱ ]
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑lbl))] : List _root_.Directive
+-/
+#guard_msgs in
+#check [x64| movq $❰lbl❱, %rax ]
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑((↑lbl).add ↑8)))] : List _root_.Directive
+-/
+#guard_msgs in
+#check [x64| movq $❰lbl❱+8, %rax ]
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑((↑lbl).sub ↑8)))] : List _root_.Directive
+-/
+#guard_msgs in
+#check [x64| movq $❰lbl❱-8, %rax ]
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.lea (low Reg64.rax Width.W64)
+        { base := some RegOrRip.rip, idx := none,
+          disp := (↑lbl).sub ConstExpr.after_current_instruction }))] : List _root_.Directive
+-/
+#guard_msgs in
+#check [x64| leaq ❰lbl❱(%rip), %rax ]
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rax Width.W64)
+        ↑↑{ base := some RegOrRip.rip, idx := none,
+              disp := ((↑lbl).add ↑8).sub ConstExpr.after_current_instruction }))] : List _root_.Directive
+-/
+#guard_msgs in
+#check [x64| movq ❰lbl❱+8(%rip), %rax ]
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rdx Width.W64)
+        ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := some { reg := Reg64.rcx, scale := Width.W32 },
+              disp := (↑lbl).sub ↑8 }))] : List _root_.Directive
+-/
+#guard_msgs in
+#check [x64| movq ❰lbl❱-8(%rax, %rcx, 4), %rdx ]
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rax Width.W64)
+        ↑↑{ base := none, idx := none, disp := (↑lbl).add ↑8 }))] : List _root_.Directive
+-/
+#guard_msgs in
+#check [x64| movq ❰lbl❱+8, %rax ]
+
+/--
+error: Type mismatch
+  r
+has type
+  Reg w
+but is expected to have type
+  Kraken.Label
+-/
+#guard_msgs in
+#check [x64| jz ❰r❱ ]
+
+-- Test: `Int64` / `ConstExpr` antiquotations (`x64_const` and `x64_operand`)
+variable (imm : Int64) (ce : ConstExpr)
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑imm))] : List _root_.Directive
+-/
+#guard_msgs in
+#check [x64| mov $❰imm❱, %rax ]
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑imm))] : List _root_.Directive
+-/
+#guard_msgs in
+#check [x64| mov ❰imm❱, %rax ]
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W32 (Operation.mov ↑(low Reg64.rax Width.W32) ↑↑imm))] : List _root_.Directive
+-/
+#guard_msgs in
+#check [x64| mov ❰imm❱, %eax ]
+
+/-- info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑imm))] : List _root_.Directive -/
+#guard_msgs in
+#check [x64| push ❰imm❱ ]
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rax Width.W64)
+        ↑↑{ base := some (RegOrRip.reg Reg64.rsp), idx := none, disp := ↑imm }))] : List _root_.Directive
+-/
+#guard_msgs in
+#check [x64| movq ❰imm❱(%rsp), %rax ]
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rax Width.W64)
+        ↑↑{ base := some RegOrRip.rip, idx := none, disp := ↑imm }))] : List _root_.Directive
+-/
+#guard_msgs in
+#check [x64| movq ❰imm❱(%rip), %rax ]
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑ce))] : List _root_.Directive
+-/
+#guard_msgs in
+#check [x64| mov $❰ce❱, %rax ]
+
 end antiquotations
 
 end Tests

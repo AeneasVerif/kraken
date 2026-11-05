@@ -14,6 +14,8 @@ namespace Kraken.X64.Parser
 /-- X64 assembly identifier (`main`, `and`, `.LBB0_1`, `aa.1.aa.1`, `.L.str.1.llvm.12345`). -/
 declare_syntax_cat x64_ident
 syntax asmIdentToken : x64_ident
+/-- Label antiquotation -/
+syntax (priority := low) "❰" term "❱" : x64_ident
 
 /-- X64 constant expression (signed or unsigned integer, symbol with `+` or `-` offset). -/
 declare_syntax_cat x64_const
@@ -23,6 +25,8 @@ syntax "+" num : x64_const
 syntax x64_ident "+" num : x64_const
 syntax x64_ident "-" num : x64_const
 syntax x64_ident : x64_const
+/-- Constant expression antiquotation -/
+syntax (priority := default - 1) "❰" term "❱" : x64_const
 
 /-- X64 general-purpose register name (`rax`..`r15`, `eax`..`r15d`, `ax`..`r15w`, `al`..`r15b`, `ah`..`dh`). -/
 declare_syntax_cat x64_reg_name (behavior := both)
