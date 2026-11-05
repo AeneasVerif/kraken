@@ -86,11 +86,139 @@ theorem Executable.directivesFromStart {Instr : Type} [layout : Layout Instr] (p
   grind [Executable.withAddresses_dropWhile_start, Executable.withAddresses_map_snd, Executable.directivesFromAddress, Layout.apply]
 
 theorem directivesAtFromPrefix {Instr : Type} (e: Executable Instr) (a: Int64):
-  ∃ rest, e.directivesFromAddress a = e.directivesAtAddress a ++ rest := by
+  let starts_at_a := e.withAddresses.dropWhile (·.addr ≠ a)
+  e.directivesFromAddress a = e.directivesAtAddress a ++ (starts_at_a.dropWhile (·.addr = a)).map (·.toSized) := by
   dsimp [Executable.directivesFromAddress, Executable.directivesAtAddress]
-  refine ⟨((e.withAddresses.dropWhile (·.addr ≠ a)).dropWhile (·.addr = a)).map (·.toSized), ?_⟩
   rw [← List.map_append]
   rw [List.takeWhile_append_dropWhile]
+
+/-- Total byte size of the executable. -/
+def Executable.size {Instr : Type} (e : Executable Instr) : Nat :=
+  (e.program.map (·.size)).sum
+
+/-- An executable is well-formed if its total byte size fits in the 64-bit address space. -/
+def Executable.WellFormed {Instr : Type} (e : Executable Instr) : Prop :=
+  e.size < UInt64.size
+
+instance {Instr : Type} (e : Executable Instr) : Decidable e.WellFormed :=
+  inferInstanceAs (Decidable (e.size < UInt64.size))
+
+@[grind hom] theorem Int64.toBitVec_ofNat_grind (a : Nat) :
+    (Int64.ofNat a).toBitVec = OfNat.ofNat a := by
+  rw [Int64.toBitVec_ofNat']; rfl
+
+private theorem add_ofNat_ne_self (a : Int64) {n : Nat} (hpos : 0 < n) (hlt : n < UInt64.size) :
+    a + .ofNat n ≠ a := by
+  grind
+
+private theorem add_ofNat_add (a : Int64) (m n : Nat) :
+    a + .ofNat m + .ofNat n = a + .ofNat (m + n) := by
+  grind
+
+private theorem withAddresses_dropWhile_WellFormed {Instr : Type}
+    (program : List (Sized (Directive Instr))) (startAddr a : Int64)
+    (hwf : (program.map (·.size)).sum < UInt64.size)
+    {y : Addressable (Directive Instr)} {ys : List (Addressable (Directive Instr))}
+    (h : ((Executable.withAddresses {startAddr, program}).dropWhile (·.addr ≠ a)).dropWhile (·.addr = a) = y :: ys) :
+    (Executable.withAddresses {startAddr, program}).dropWhile (·.addr ≠ y.addr) = y :: ys ∧
+    (Executable.directivesAtAddress {startAddr, program} a).foldl (fun p d => p + .ofNat d.size) a = y.addr ∧
+    0 < (((Executable.withAddresses {startAddr, program}).dropWhile (·.addr ≠ a)).takeWhile (·.addr = a)).length ∧
+    ∃ offset, 0 < offset ∧ offset ≤ (program.map (·.size)).sum ∧ y.addr = startAddr + .ofNat offset := by
+  induction program generalizing startAddr with
+  | nil =>
+    rw [Executable.withAddresses] at h
+    contradiction
+  | cons c rest ih =>
+    simp only [List.map_cons, List.sum_cons] at hwf ⊢
+    by_cases ha : startAddr = a
+    · subst ha
+      have hpos_take : 0 < (((Executable.withAddresses {startAddr, program := c :: rest}).dropWhile (·.addr ≠ startAddr)).takeWhile (·.addr = startAddr)).length := by
+        rw [Executable.withAddresses_dropWhile_start, Executable.withAddresses]
+        simp
+      rw [Executable.withAddresses_dropWhile_start, Executable.withAddresses] at h
+      simp only [List.dropWhile_cons, decide_true, ↓reduceIte] at h
+      by_cases hc : c.size = 0
+      · have ha0 : startAddr + .ofNat c.size = startAddr := by simp [hc]
+        rw [ha0, ← Executable.withAddresses_dropWhile_start rest startAddr] at h
+        obtain ⟨hdrop, hfold, _, offset, hpos, hle, hy⟩ := ih startAddr (by omega) h
+        have hne : startAddr ≠ y.addr := by
+          rw [hy]; exact Ne.symm (add_ofNat_ne_self startAddr hpos (by omega))
+        refine ⟨?_, ?_, hpos_take, offset, hpos, by omega, hy⟩
+        · rw [Executable.withAddresses]
+          simp only [List.dropWhile_cons, ne_eq, hne, not_false_eq_true, decide_true, ↓reduceIte, ha0]
+          exact hdrop
+        · dsimp [Executable.directivesAtAddress] at hfold ⊢
+          rw [Executable.withAddresses_dropWhile_start, Executable.withAddresses]
+          simp only [List.takeWhile_cons, decide_true, ↓reduceIte, List.map_cons, List.foldl_cons, ha0]
+          rw [← Executable.withAddresses_dropWhile_start rest startAddr]
+          exact hfold
+      · have hpos : 0 < c.size := Nat.pos_of_ne_zero hc
+        have hne : startAddr + .ofNat c.size ≠ startAddr := add_ofNat_ne_self startAddr hpos (by omega)
+        cases rest with
+        | nil => rw [Executable.withAddresses] at h; contradiction
+        | cons d rest' =>
+          rw [Executable.withAddresses] at h
+          simp only [List.dropWhile_cons, hne, decide_false, Bool.false_eq_true, ↓reduceIte] at h
+          injection h with hy hys
+          have hy_addr : y.addr = startAddr + .ofNat c.size := by rw [← hy]
+          refine ⟨?_, ?_, hpos_take, c.size, hpos, by omega, hy_addr⟩
+          · rw [Executable.withAddresses]
+            simp only [List.dropWhile_cons, ne_eq, hy_addr, hne.symm, not_false_eq_true, decide_true, ↓reduceIte]
+            rw [Executable.withAddresses_dropWhile_start, Executable.withAddresses, hy, hys]
+          · dsimp [Executable.directivesAtAddress]
+            rw [Executable.withAddresses_dropWhile_start, Executable.withAddresses]
+            simp only [List.takeWhile_cons, decide_true, ↓reduceIte]
+            rw [Executable.withAddresses]
+            simp [hne, hy_addr]
+    · rw [Executable.withAddresses] at h
+      simp only [List.dropWhile_cons, ne_eq, ha, not_false_eq_true, decide_true, ↓reduceIte] at h
+      obtain ⟨hdrop, hfold, hpos_take, offset', hpos', hle', hy⟩ := ih (startAddr + .ofNat c.size) (by omega) h
+      rw [add_ofNat_add] at hy
+      have hne : startAddr ≠ y.addr := by
+        rw [hy]; exact Ne.symm (add_ofNat_ne_self startAddr (by omega) (by omega))
+      refine ⟨?_, ?_, ?_, c.size + offset', by omega, by omega, hy⟩
+      · rw [Executable.withAddresses]
+        simp only [List.dropWhile_cons, ne_eq, hne, not_false_eq_true, decide_true, ↓reduceIte]
+        exact hdrop
+      · dsimp [Executable.directivesAtAddress] at hfold ⊢
+        rw [Executable.withAddresses]
+        simp only [List.dropWhile_cons, ha, not_false_eq_true, decide_true, ↓reduceIte]
+        exact hfold
+      · rw [Executable.withAddresses]
+        simp only [List.dropWhile_cons, ne_eq, ha, not_false_eq_true, decide_true, ↓reduceIte]
+        exact hpos_take
+
+theorem Executable.WellFormed.directivesFromAddress_split {Instr : Type}
+    {e : Executable Instr} (hwf : e.WellFormed) (pc : Int64) :
+    let at_pc := e.directivesAtAddress pc
+    let pc' := at_pc.foldl (fun p d => p + .ofNat d.size) pc
+    e.directivesFromAddress pc = at_pc ∨
+    (e.directivesFromAddress pc = at_pc ++ e.directivesFromAddress pc' ∧
+     (e.withAddresses.dropWhile (·.addr ≠ pc')).length <
+       (e.withAddresses.dropWhile (·.addr ≠ pc)).length) := by
+  rcases e with ⟨startAddr, program⟩
+  dsimp only
+  have h_prefix := directivesAtFromPrefix {startAddr, program} pc
+  dsimp only at h_prefix
+  generalize h_drop : ((Executable.withAddresses {startAddr, program}).dropWhile (·.addr ≠ pc)).dropWhile (·.addr = pc) = after_pc at h_prefix
+  cases after_pc with
+  | nil =>
+    left
+    simpa using h_prefix
+  | cons y ys =>
+    right
+    obtain ⟨h_next_from, h_fold, h_take_pos, _⟩ := withAddresses_dropWhile_WellFormed program startAddr pc hwf h_drop
+    rw [h_fold]
+    refine ⟨?_, ?_⟩
+    · rw [h_prefix]
+      dsimp [Executable.directivesFromAddress]
+      rw [h_next_from]
+    · rw [h_next_from]
+      have h_split := List.takeWhile_append_dropWhile (p := (·.addr = pc))
+        (l := (Executable.withAddresses {startAddr, program}).dropWhile (·.addr ≠ pc))
+      have h_len_eq := congrArg List.length h_split
+      rw [List.length_append, h_drop] at h_len_eq
+      omega
 
 theorem Executable.mem_of_mem_directivesAtAddress {Instr : Type} {e : Executable Instr}
     {a : Int64} {c : Sized (Directive Instr)} (h : c ∈ e.directivesAtAddress a) : c ∈ e.program := by
@@ -98,10 +226,6 @@ theorem Executable.mem_of_mem_directivesAtAddress {Instr : Type} {e : Executable
   rw [← Executable.withAddresses_map_snd e.program e.startAddr]
   exact List.mem_map_of_mem
     ((List.dropWhile_sublist _).subset ((List.takeWhile_sublist _).subset hx))
-
-@[grind hom] theorem Int64.toBitVec_ofNat_grind (a : Nat) :
-    (Int64.ofNat a).toBitVec = OfNat.ofNat a := by
-  rw [Int64.toBitVec_ofNat']; rfl
 
 /-- The sum of sizes of the first `n` directives of `e`. -/
 def Executable.sizeBefore {Instr : Type} (e : Executable Instr) (n : Nat) : Nat :=

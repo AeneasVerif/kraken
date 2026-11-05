@@ -93,6 +93,7 @@ def handleEffects (ds : IncrementerState) (es : Effects)
     Except String SystemState :=
   match es with
   | .done ms => ok (.mk ms ds)
+  | .next _ => .error "unexpected .next"
   | .unimplemented msg => .error msg
   | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
   | .require_read_access _ cont => handleEffects ds (cont ()) ok
@@ -125,5 +126,5 @@ def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
     if device's_turn then
       eval_schedule rest e { s with deviceState := s.deviceState.internal_step }
     else
-      handleEffects s.deviceState (Executable.step e s.machineState .done) (eval_schedule rest e)
+      handleEffects s.deviceState (Executable.step e s.machineState) (eval_schedule rest e)
   | .nil => .ok s
