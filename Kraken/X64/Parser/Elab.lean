@@ -675,8 +675,9 @@ def elabInstr (stx : TSyntax `x64_instr) : X64ElabM Expr := withRef stx do
     mkRegularInstr (← mkAppWidth mk #[target])
   | `(x64_instr| nop) =>
     mkClosedInstr (.nop 1)
-  | `(x64_instr| nop $sz:num) =>
-    mkClosedInstr (.nop sz.getNat)
+  | `(x64_instr| nop $sz:num) => match sz.getNat with
+    | 0 => throwErrorAt sz "nop length must be positive"
+    | sz@(_+1) => mkClosedInstr (.nop (.ofNat sz))
   | `(x64_instr| $op:x64_jcc_op $lbl:x64_ident) =>
     let cc ← evalCondCodeSuffix op
     let target ← getAsmIdent lbl

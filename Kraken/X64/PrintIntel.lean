@@ -169,7 +169,7 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .jmp tgt => s!"jmp {tgt.toStr addr_w}"
   | .call tgt => s!"call {tgt.toStr addr_w}"
   | .ret => "ret"
-  | .nop n => s!".nops {n}"
+  | .nop ⟨n, _⟩ => s!".nops {n}"
   | .nopalign a none => s!".align {a}"
   | .nopalign a (some p) => s!".align {a}, {p}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
