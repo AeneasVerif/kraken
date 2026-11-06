@@ -1,8 +1,5 @@
 module
 
--- The reference semantics are taken from https://www.felixcloutier.com/x86/,
--- which itself is just extracted from https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
-
 import Kraken.Attribute
 public import Kraken.Layout
 public import Kraken.Mem
