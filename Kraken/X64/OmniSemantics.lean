@@ -104,20 +104,20 @@ private theorem eventually_step_aux [Layout] (e : Executable) (hwf : e.WellForme
 termination_by ds.length
 decreasing_by exact h_len
 
-theorem eventually_step [Layout] (e : Executable) (hwf : e.WellFormed)
-    (s : MachineData) (post : @Post MachineState) :
+theorem eventually_step [Layout] {e : Executable} (hwf : e.WellFormed)
+    {s : MachineData} {post : @Post MachineState} :
     (letI := Executable.labels e
      Directives.interp e.program s e.startAddr).All post →
     Eventually (step1 e) post ⟨s, e.startAddr⟩ :=
   eventually_step_aux e hwf e.program s e.startAddr post
     (Kraken.Executable.withAddresses_dropWhile_start e.program e.startAddr)
 
-theorem eventually_step_cps [Layout] (e : Executable) (hwf : e.WellFormed)
-    (s : MachineData) (post : @Post MachineState) :
+theorem eventually_step_cps [Layout] {e : Executable} (hwf : e.WellFormed)
+    {s : MachineData} {post : @Post MachineState} :
     (letI := Executable.labels e
      Directives.interp e.program s e.startAddr).All
       (fun mid => Eventually (step1 e) post mid) →
     Eventually (step1 e) post ⟨s, e.startAddr⟩ := by
   intro h
   exact eventually_trans (step1 e) (fun mid => Eventually (step1 e) post mid) post ⟨s, e.startAddr⟩
-    (eventually_step e hwf s _ h) (fun _ => id)
+    (eventually_step hwf h) (fun _ => id)

@@ -57,7 +57,7 @@ variable [Host]
 
 public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     (hdp : (d :: p).IsInfixAt Host.prog k) {post : @Post MachineState} {s : MachineData}
-    (h : ((d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩ .next (fun a s' => .done ⟨s', a⟩)).bind
+    (h : ((d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩ (next := .next) (jmp := fun a s' => .done ⟨s', a⟩)).bind
       (fun s' => .done ⟨s', Host.addrOf (k + 1)⟩)).All post) :
     Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ := by
   have hd : Host.exe.program[k]? = some {directive := d, size := Kraken.Layout.size Instr k : Kraken.Sized Directive} := by

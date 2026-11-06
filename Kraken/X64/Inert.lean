@@ -12,7 +12,7 @@ Once `.byteArray` is implemented, an empty `.byteArray` will be inert as well.
 -/
 def Directive.Inert (d : Directive) : Prop :=
   ∀ [Labels] s p (next : MachineData → Effects) post,
-    ((d.interp s p .next (fun a s' => .done ⟨s', a⟩)).bind next).All post ↔ (next s).All post
+    ((d.interp s p (next := .next) (jmp := fun a s' => .done ⟨s', a⟩)).bind next).All post ↔ (next s).All post
 
 theorem Directives.interp_inert_append [Labels] {pre rest : List (Kraken.Sized Directive)}
     (hpre : ∀ c ∈ pre, c.size = 0 ∧ c.directive.Inert) (s : MachineData) (pc : Int64)

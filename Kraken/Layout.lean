@@ -99,6 +99,15 @@ private theorem add_ofNat_add (a : Int64) (m n : Nat) :
     a + .ofNat m + .ofNat n = a + .ofNat (m + n) := by
   grind
 
+/--
+Given a well-formed program (whose total byte size is `< 2^64`), if dropping directives up to
+address `a` and then dropping all directives at address `a` leaves `y :: ys`, then:
+1. No earlier directive in the program has address `y.addr` (so dropping while `addr ≠ y.addr`
+   from the start of `withAddresses` lands on `y :: ys`).
+2. `y :: ys` is the `withAddresses` layout of the remaining directives starting at `y.addr`.
+3. `y.addr` equals `a` plus the sum of sizes of the directives at `a` (`directivesAtAddress a`).
+4. `y.addr` is at a positive byte offset `0 < offset ≤ total_size` from `startAddr`.
+-/
 private theorem withAddresses_dropWhile_WellFormed {Instr : Type}
     (program : List (Sized (Directive Instr))) (startAddr a : Int64)
     (hwf : (program.map (·.size)).sum < UInt64.size)
@@ -171,6 +180,12 @@ private theorem withAddresses_dropWhile_WellFormed {Instr : Type}
         simp only [List.dropWhile_cons, ha, not_false_eq_true, decide_true, ↓reduceIte]
         exact hfold
 
+/--
+In a well-formed executable `e`, if the directives starting at `pc` correspond to suffix `ds`, then
+either `ds` consists solely of the directives at `pc` (`e.directivesAtAddress pc`), or `ds` splits
+into `e.directivesAtAddress pc ++ ds'` where `ds'` is a strictly shorter suffix starting at the
+next address `pc'`.
+-/
 theorem Executable.WellFormed.step_split {Instr : Type}
     {e : Executable Instr} (hwf : e.WellFormed) {pc : Int64} {ds : List (Sized (Directive Instr))}
     (h_at : e.withAddresses.dropWhile (·.addr ≠ pc) = Executable.withAddresses {startAddr := pc, program := ds}) :

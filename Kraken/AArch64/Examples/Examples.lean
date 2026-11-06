@@ -53,7 +53,7 @@ theorem swap_correct [layout : Layout] (hwf : (layout swap).WellFormed) (d : Mac
         s'.1.regs.getRegOrZr .X0 = d.regs.getRegOrZr .X1 ∧
         s'.1.regs.getRegOrZr .X1 = d.regs.getRegOrZr .X0)
       ⟨d, layout.start⟩ := by
-  apply eventually_step (layout swap) hwf
+  apply eventually_step hwf
   kprologue swap with d
   sym => kstep; tactic =>
   grind
@@ -69,7 +69,7 @@ theorem arith_shift_correct [layout : Layout] (hwf : (layout arith_shift).WellFo
     Eventually (step1 (layout arith_shift))
       (fun s' => s'.1.regs.getRegOrZr .X3 = 3 * (d.regs.getRegOrZr .X1 + 42))
       ⟨d, layout.start⟩ := by
-  apply eventually_step (layout arith_shift) hwf
+  apply eventually_step hwf
   kprologue arith_shift with d
   sym => kstep; tactic =>
   simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl,
@@ -89,7 +89,7 @@ theorem p4_correct [layout : Layout] (hwf : (layout controlflow).WellFormed) (d 
     Eventually (step1 (layout controlflow))
       (fun s' => s'.1.regs.X1 = 42)
       ⟨d, layout.start⟩ := by
-  apply eventually_step_cps (layout controlflow) hwf
+  apply eventually_step_cps hwf
   kprologue controlflow with d
   sym => kstep; tactic =>
   rename_i v v1
@@ -121,7 +121,7 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (hwf : (layout move_2_regs
         s'.1.regs.X4 = s₀.regs.X1 ∧
         s'.1.regs.X2 = s₀.regs.X2)
       ⟨s₀, layout.start⟩ := by
-  apply eventually_step_cps (layout move_2_regs_to_heap) hwf
+  apply eventually_step_cps hwf
   kprologue move_2_regs_to_heap with s₀
 
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
@@ -165,7 +165,7 @@ theorem reg_offset_example_correct [layout : Layout] (hwf : (layout reg_offset_e
     Eventually (step1 (layout reg_offset_example))
       (fun s' => s'.1.regs.X3 = 42)
       ⟨s₀, layout.start⟩ := by
-  apply eventually_step_cps (layout reg_offset_example) hwf
+  apply eventually_step_cps hwf
   kprologue reg_offset_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   simp at h_mem

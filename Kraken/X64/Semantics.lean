@@ -879,7 +879,7 @@ def Directives.interp [Labels]
   match ds with
   | [] => .done ⟨s, pc⟩
   | {directive, size := sz} :: ds =>
-    (directive.interp s (.mk pc (pc+.ofNat sz)) .next (fun a s' => .done ⟨s', a⟩)).bind
+    (directive.interp s (.mk pc (pc+.ofNat sz)) (next := .next) (jmp := fun a s' => .done ⟨s', a⟩)).bind
       (fun s => interp ds s (pc+.ofNat sz))
 
 abbrev Layout := Kraken.Layout Instr
