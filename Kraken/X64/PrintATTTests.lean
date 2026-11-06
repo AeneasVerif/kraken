@@ -50,6 +50,9 @@ def corpus : List String := [
   "shrw $2, %ax", "sarl %cl, %eax", "shldq $4, %rax, %rbx", "shrd %cl, %ax, (%rsp)",
   "rolq $1, %rax", "rorb %cl, %al", "rclq $1, %rax", "rcrl %cl, (%rsp)",
   "bswap %eax", "bswapq %rax",
+  "tzcnt %rax, %rbx", "tzcntl (%rsp), %eax", "lzcnt %rcx, %rdx", "bsr %eax, %ecx",
+  "popcnt %rax, %rbx", "btcq $3, %rax", "btcl %eax, (%rsp)", "xchgq %rax, (%rsp)",
+  "rorx $7, %rax, %rbx", "shlx %rcx, (%rsp), %rax", "shrx %ecx, %eax, %edx", "sarx %rcx, %rax, %rbx",
   -- control flow
   "foo:\n  jmp foo", "je foo", "jne .L1", "jb foo", "jae foo", "ja foo", "jbe foo",
   "jl foo", "jle foo", "call foo", "call %rax", "jmp %rax",
@@ -57,7 +60,9 @@ def corpus : List String := [
   "a:\nb: ret\n\nc:",
   -- AVX
   "movups %xmm0, %xmm1", "vmovups (%rsp), %ymm2", "vmovups %zmm31, 64(%rsp)",
-  "movaps %xmm3, %xmm4", "addps (%rax), %xmm5", "subps %xmm6, %xmm7",
+  "movaps %xmm3, %xmm4", "vmovaps %ymm0, %ymm1",
+  "vmovdqa %ymm3, %ymm4", "vmovdqu (%rsp), %zmm6",
+  "addps (%rax), %xmm5", "subps %xmm6, %xmm7", "vzeroupper",
   "movdqu (%rsp), %xmm0", "movdqa %xmm1, 16(%rsp)", "paddd (%rax), %xmm2", "pshufb %xmm3, %xmm4",
   "pshufd $0x1b, %xmm5, %xmm6", "palignr $8, (%rsp), %xmm7", "pblendw $0xf0, %xmm8, %xmm9"
 ]
