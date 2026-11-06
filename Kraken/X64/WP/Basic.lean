@@ -1,5 +1,6 @@
 module
 
+public import Kraken.X64.OmniSemantics
 public import Kraken.X64.WP.Host
 
 /-
@@ -59,26 +60,8 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     (hdp : (d :: p).IsInfixAt Host.prog k) {post : @Post MachineState} {s : MachineData}
     (h : (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
       (fun s' => .done ⟨s', Host.addrOf (k + 1)⟩) (fun a s' => .done ⟨s', a⟩)).All post) :
-    Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ := by
-  have hd : Host.exe.program[k]? = some {directive := d, size := Kraken.Layout.size d k : Kraken.Sized Directive} := by
-    rw [Host.exe_getElem?, hdp.cons.1]
-    rfl
-  rw [Host.addrOf_succ hdp.cons.1] at h
-  rcases Nat.eq_zero_or_pos (Kraken.Layout.size d k) with h0 | hz
-  · rw [h0] at hd h
-    rw [Host.inert_of_size_zero (List.mem_of_getElem? hd)] at h
-    have h0' : Host.addrOf k + Int64.ofNat 0 = Host.addrOf k := by simp
-    simp only [Effects.All, h0'] at h
-    exact Eventually.done _ h
-  · refine Eventually.step _ post ?_ fun _ hb => Eventually.done _ hb
-    obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd hz
-    have hinert : ∀ c ∈ pre, c.size = 0 ∧ c.directive.Inert := fun c hc =>
-      ⟨hpre c hc, Host.inert_of_size_zero (hpre c hc ▸
-        Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc))⟩
-    unfold step1 Executable.step
-    change (Directives.interp (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k) _).All post
-    rw [hat]
-    exact (Directives.interp_inert_append hinert _ _ _ _).mpr h
+    Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ :=
+  _root_.eventually_of_interp Host.addr_determines_offset hdp.cons.1 h
 
 end
 

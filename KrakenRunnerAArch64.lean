@@ -72,17 +72,14 @@ def parseInitRegs (jsonStr : String) : Except String Reg64s := do
     X28 := getVal "x28", X29 := getVal "x29", X30 := getVal "x30", SP := getVal "sp" stackLocation
   }
 
-def finishCriterion (prog : Program) (s : MachineState) : Bool :=
-  let layout := Program.fakeLayout prog
-  s.pc = layout.labels.label _end
-
 def runKraken (asmCode : String) (initRegs : Reg64s := initData.regs)
     : Except String MachineState := do
   let stripped := Kraken.AArch64.Parser.stripDirectives (_start ++ ":\n" ++ asmCode ++ "\n" ++ _end ++ ":\n")
   let prog ← Kraken.AArch64.Parser.parse stripped
-  let layout := Program.fakeLayout prog
-  let initState : MachineState := ⟨{regs := initRegs, dmem := initStack stackLocation}, layout.labels.label _start⟩
-  layout.eval initState (finishCriterion prog)
+  let exe := Program.fakeLayout prog
+  let endPc := exe.labels.label _end
+  let initState : MachineState := ⟨{regs := initRegs, dmem := initStack stackLocation}, exe.labels.label _start⟩
+  exe.eval initState (·.pc = endPc)
 
 /-! ## Fuzzer instantiation -/
 
