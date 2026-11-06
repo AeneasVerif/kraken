@@ -187,6 +187,9 @@ def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : Stri
   | .pshufd dst src imm => s!"pshufd {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
   | .palignr dst src imm => s!"palignr {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
   | .pblendw dst src imm => s!"pblendw {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .sha256rnds2 dst src => s!"sha256rnds2 {dst.toStr addr_w}, {src.toStr addr_w}, xmm0"
+  | .sha256msg1 dst src => s!"sha256msg1 {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .sha256msg2 dst src => s!"sha256msg2 {dst.toStr addr_w}, {src.toStr addr_w}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
 instance : ToString Instr where
