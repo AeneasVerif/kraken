@@ -20,7 +20,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.LDR (↑↑XReg.X0 RegWidth.W64)
-          ↑{ base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑0, index := none } } }] : List (Kraken.Directive Instr)
+          ↑{ base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑0, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldr x0, [sp]")
@@ -31,7 +31,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.STR (↑↑XReg.X0 RegWidth.W32)
-          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑8, index := none } } }] : List (Kraken.Directive Instr)
+          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑8, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("str w0, [x1, #8]")
@@ -42,7 +42,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.LDR (↑↑XReg.X1 RegWidth.W64)
-          ↑{ base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑(-16), index := some Index.Pre } } }] : List (Kraken.Directive Instr)
+          ↑{ base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑(-16), index := some Index.Pre } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldr x1, [sp, #-16]!")
@@ -53,7 +53,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.STR (↑↑XReg.X2 RegWidth.W64)
-          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑16, index := some Index.Post } } }] : List (Kraken.Directive Instr)
+          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑16, index := some Index.Post } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("str x2, [x1], #16")
@@ -67,7 +67,7 @@ info: [Directive.instr
           ↑{ base := ↑↑XReg.X1 RegWidth.W64,
               off :=
                 ↑{ reg := { w := RegWidth.W64, reg := ↑↑XReg.X2 RegWidth.W64 },
-                    ext := { type := MemExtendType.UXTX, amount := MemExtendAmount.E3 } } } }] : List (Kraken.Directive Instr)
+                    ext := { type := MemExtendType.UXTX, amount := MemExtendAmount.E3 } } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldr x0, [x1, x2, lsl #3]")
@@ -77,7 +77,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.LDUR (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-8) } }] : List (Kraken.Directive Instr)
+        Operation.LDUR (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-8) } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldur x0, [x1, #-8]")
@@ -87,7 +87,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
-        Operation.STUR (↑↑XReg.X2 RegWidth.W32) { base := ↑↑XReg.X3 RegWidth.W64, imm := ↑13 } }] : List (Kraken.Directive Instr)
+        Operation.STUR (↑↑XReg.X2 RegWidth.W32) { base := ↑↑XReg.X3 RegWidth.W64, imm := ↑13 } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("stur w2, [x3, #13]")
@@ -97,7 +97,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.LDUR (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-8) } }] : List (Kraken.Directive Instr)
+        Operation.LDUR (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-8) } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldr x0, [x1, #-8]")
@@ -107,7 +107,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.LDUR (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑13 } }] : List (Kraken.Directive Instr)
+        Operation.LDUR (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑13 } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldr x0, [x1, #13]")
@@ -118,7 +118,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.LDP (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑16, index := none } } }] : List (Kraken.Directive Instr)
+          { base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑16, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldp x0, x1, [sp, #16]")
@@ -129,7 +129,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.STP (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32)
-          { base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑(-32), index := some Index.Pre } } }] : List (Kraken.Directive Instr)
+          { base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑(-32), index := some Index.Pre } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("stp w0, w1, [sp, #-32]!")
@@ -140,7 +140,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.STP (↑XRegOrXzr.XZR RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64)
-          { base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑32, index := some Index.Post } } }] : List (Kraken.Directive Instr)
+          { base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑32, index := some Index.Post } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("stp xzr, xzr, [sp], #32")
@@ -151,7 +151,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.LDRB (↑↑XReg.X0 RegWidth.W32)
-          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑5, index := none } } }] : List (Kraken.Directive Instr)
+          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑5, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldrb w0, [x1, #5]")
@@ -161,7 +161,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
-        Operation.LDURB (↑↑XReg.X0 RegWidth.W32) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-5) } }] : List (Kraken.Directive Instr)
+        Operation.LDURB (↑↑XReg.X0 RegWidth.W32) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-5) } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldurb w0, [x1, #-5]")
@@ -172,7 +172,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.STRB (↑↑XReg.X0 RegWidth.W32)
-          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑10, index := none } } }] : List (Kraken.Directive Instr)
+          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑10, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("strb w0, [x1, #10]")
@@ -182,7 +182,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
-        Operation.STURB (↑↑XReg.X0 RegWidth.W32) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-10) } }] : List (Kraken.Directive Instr)
+        Operation.STURB (↑↑XReg.X0 RegWidth.W32) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-10) } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("sturb w0, [x1, #-10]")
@@ -193,7 +193,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.LDRSB (↑↑XReg.X0 RegWidth.W32)
-          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑5, index := none } } }] : List (Kraken.Directive Instr)
+          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑5, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldrsb w0, [x1, #5]")
@@ -204,7 +204,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.LDRSB (↑↑XReg.X0 RegWidth.W64)
-          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑5, index := none } } }] : List (Kraken.Directive Instr)
+          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑5, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldrsb x0, [x1, #5]")
@@ -214,7 +214,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.LDURSB (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-5) } }] : List (Kraken.Directive Instr)
+        Operation.LDURSB (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-5) } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldursb x0, [x1, #-5]")
@@ -225,7 +225,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.LDRH (↑↑XReg.X0 RegWidth.W32)
-          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑6, index := none } } }] : List (Kraken.Directive Instr)
+          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑6, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldrh w0, [x1, #6]")
@@ -235,7 +235,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
-        Operation.LDURH (↑↑XReg.X0 RegWidth.W32) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-6) } }] : List (Kraken.Directive Instr)
+        Operation.LDURH (↑↑XReg.X0 RegWidth.W32) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-6) } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldurh w0, [x1, #-6]")
@@ -246,7 +246,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.STRH (↑↑XReg.X0 RegWidth.W32)
-          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑8, index := none } } }] : List (Kraken.Directive Instr)
+          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑8, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("strh w0, [x1, #8]")
@@ -256,7 +256,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
-        Operation.STURH (↑↑XReg.X0 RegWidth.W32) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-8) } }] : List (Kraken.Directive Instr)
+        Operation.STURH (↑↑XReg.X0 RegWidth.W32) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-8) } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("sturh w0, [x1, #-8]")
@@ -267,7 +267,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.LDRSH (↑↑XReg.X0 RegWidth.W32)
-          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑6, index := none } } }] : List (Kraken.Directive Instr)
+          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑6, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldrsh w0, [x1, #6]")
@@ -278,7 +278,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.LDRSH (↑↑XReg.X0 RegWidth.W64)
-          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑6, index := none } } }] : List (Kraken.Directive Instr)
+          { base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑6, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldrsh x0, [x1, #6]")
@@ -288,7 +288,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.LDURSH (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-6) } }] : List (Kraken.Directive Instr)
+        Operation.LDURSH (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-6) } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldursh x0, [x1, #-6]")
@@ -299,7 +299,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.LDRSW (↑↑XReg.X0 RegWidth.W64)
-          ↑{ base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑8, index := none } } }] : List (Kraken.Directive Instr)
+          ↑{ base := ↑↑XReg.X1 RegWidth.W64, off := ↑{ imm := ↑8, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldrsw x0, [x1, #8]")
@@ -309,7 +309,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.LDURSW (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-8) } }] : List (Kraken.Directive Instr)
+        Operation.LDURSW (↑↑XReg.X0 RegWidth.W64) { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-8) } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldursw x0, [x1, #-8]")
@@ -320,7 +320,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.LDPSW (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑8, index := none } } }] : List (Kraken.Directive Instr)
+          { base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑8, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldpsw x0, x1, [sp, #8]")
@@ -335,7 +335,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ADD_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          ↑{ imm := ↑42, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr)
+          ↑{ imm := ↑42, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("add x0, x1, #42")
@@ -346,7 +346,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ADD_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          ↑{ imm := ↑42, shift := ImmShift.S12 } }] : List (Kraken.Directive Instr)
+          ↑{ imm := ↑42, shift := ImmShift.S12 } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("add x0, x1, #42, lsl #12")
@@ -357,7 +357,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ADD_e (↑XRegOrSp.SP RegWidth.W64) (↑XRegOrSp.SP RegWidth.W64)
-          ↑{ imm := ↑16, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr)
+          ↑{ imm := ↑16, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("add sp, sp, #16")
@@ -368,7 +368,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ADD_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          ↑{ imm := ↑10, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr)
+          ↑{ imm := ↑10, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("add x0, x1, #0b1010")
@@ -379,7 +379,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ADD_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 2, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 2, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("add x0, x1, x2, lsl #2")
@@ -390,7 +390,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ADD_s (↑XRegOrXzr.XZR RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("add xzr, x1, x2")
@@ -402,7 +402,7 @@ info: [Directive.instr
       operation :=
         Operation.ADD_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
           ↑{ reg := { w := RegWidth.W32, reg := ↑↑XReg.X2 RegWidth.W32 },
-              ext := { type := ExtendType.UXTW, amount := ExtendAmount.E2 } } }] : List (Kraken.Directive Instr)
+              ext := { type := ExtendType.UXTW, amount := ExtendAmount.E2 } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("add x0, x1, w2, uxtw #2")
@@ -413,7 +413,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ADDS_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          ↑{ imm := ↑42, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr)
+          ↑{ imm := ↑42, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("adds x0, x1, #42")
@@ -424,7 +424,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ADDS_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 2, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 2, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("adds x0, x1, x2, lsl #2")
@@ -435,7 +435,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ADDS_e (↑XRegOrXzr.XZR RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          ↑{ imm := ↑10, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr)
+          ↑{ imm := ↑10, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("cmn x1, #10")
@@ -446,7 +446,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.SUB_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          ↑{ imm := ↑5, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr)
+          ↑{ imm := ↑5, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("sub x0, x1, #5")
@@ -457,7 +457,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.SUBS_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          ↑{ imm := ↑5, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr)
+          ↑{ imm := ↑5, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("subs x0, x1, #5")
@@ -468,7 +468,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.SUBS_s (↑XRegOrXzr.XZR RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("cmp x1, x2")
@@ -479,7 +479,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.SUB_s (↑↑XReg.X0 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64)
-          { reg := ↑↑XReg.X1 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X1 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("neg x0, x1")
@@ -490,7 +490,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.SUBS_s (↑↑XReg.X0 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64)
-          { reg := ↑↑XReg.X1 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X1 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("negs x0, x1")
@@ -504,7 +504,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.ADC (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr)
+        Operation.ADC (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("adc x0, x1, x2")
@@ -514,7 +514,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
-        Operation.ADCS (↑↑XReg.X3 RegWidth.W32) (↑↑XReg.X4 RegWidth.W32) (↑↑XReg.X5 RegWidth.W32) }] : List (Kraken.Directive Instr)
+        Operation.ADCS (↑↑XReg.X3 RegWidth.W32) (↑↑XReg.X4 RegWidth.W32) (↑↑XReg.X5 RegWidth.W32) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("adcs w3, w4, w5")
@@ -524,7 +524,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.SBC (↑↑XReg.X6 RegWidth.W64) (↑↑XReg.X7 RegWidth.W64) (↑↑XReg.X8 RegWidth.W64) }] : List (Kraken.Directive Instr)
+        Operation.SBC (↑↑XReg.X6 RegWidth.W64) (↑↑XReg.X7 RegWidth.W64) (↑↑XReg.X8 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("sbc x6, x7, x8")
@@ -534,7 +534,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
-        Operation.SBCS (↑↑XReg.X9 RegWidth.W32) (↑↑XReg.X10 RegWidth.W32) (↑↑XReg.X11 RegWidth.W32) }] : List (Kraken.Directive Instr)
+        Operation.SBCS (↑↑XReg.X9 RegWidth.W32) (↑↑XReg.X10 RegWidth.W32) (↑↑XReg.X11 RegWidth.W32) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("sbcs w9, w10, w11")
@@ -549,7 +549,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.MADD (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
-          (↑↑XReg.X3 RegWidth.W64) }] : List (Kraken.Directive Instr)
+          (↑↑XReg.X3 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("madd x0, x1, x2, x3")
@@ -560,7 +560,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.MADD (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
-          (↑↑XReg.X3 RegWidth.W32) }] : List (Kraken.Directive Instr)
+          (↑↑XReg.X3 RegWidth.W32) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("madd w0, w1, w2, w3")
@@ -571,7 +571,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.MADD (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
-          (↑XRegOrXzr.XZR RegWidth.W64) }] : List (Kraken.Directive Instr)
+          (↑XRegOrXzr.XZR RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("mul x0, x1, x2")
@@ -582,7 +582,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.MADD (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
-          (↑XRegOrXzr.XZR RegWidth.W32) }] : List (Kraken.Directive Instr)
+          (↑XRegOrXzr.XZR RegWidth.W32) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("mul w0, w1, w2")
@@ -593,7 +593,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.MSUB (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
-          (↑↑XReg.X3 RegWidth.W64) }] : List (Kraken.Directive Instr)
+          (↑↑XReg.X3 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("msub x0, x1, x2, x3")
@@ -604,7 +604,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.MSUB (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
-          (↑↑XReg.X3 RegWidth.W32) }] : List (Kraken.Directive Instr)
+          (↑↑XReg.X3 RegWidth.W32) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("msub w0, w1, w2, w3")
@@ -615,7 +615,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.MSUB (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
-          (↑XRegOrXzr.XZR RegWidth.W64) }] : List (Kraken.Directive Instr)
+          (↑XRegOrXzr.XZR RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("mneg x0, x1, x2")
@@ -626,7 +626,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.MSUB (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
-          (↑XRegOrXzr.XZR RegWidth.W32) }] : List (Kraken.Directive Instr)
+          (↑XRegOrXzr.XZR RegWidth.W32) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("mneg w0, w1, w2")
@@ -636,7 +636,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.SMULH (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr)
+        Operation.SMULH (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("smulh x0, x1, x2")
@@ -646,7 +646,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.UMULH (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr)
+        Operation.UMULH (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("umulh x0, x1, x2")
@@ -656,7 +656,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.SDIV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr)
+        Operation.SDIV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("sdiv x0, x1, x2")
@@ -666,7 +666,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
-        Operation.UDIV (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32) }] : List (Kraken.Directive Instr)
+        Operation.UDIV (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("udiv w0, w1, w2")
@@ -677,7 +677,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.SMADDL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
-          (↑XRegOrXzr.XZR RegWidth.W64) }] : List (Kraken.Directive Instr)
+          (↑XRegOrXzr.XZR RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("smull x0, w1, w2")
@@ -688,7 +688,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.UMADDL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
-          (↑XRegOrXzr.XZR RegWidth.W64) }] : List (Kraken.Directive Instr)
+          (↑XRegOrXzr.XZR RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("umull x0, w1, w2")
@@ -699,7 +699,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.SMSUBL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
-          (↑XRegOrXzr.XZR RegWidth.W64) }] : List (Kraken.Directive Instr)
+          (↑XRegOrXzr.XZR RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("smnegl x0, w1, w2")
@@ -710,7 +710,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.UMSUBL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
-          (↑XRegOrXzr.XZR RegWidth.W64) }] : List (Kraken.Directive Instr)
+          (↑XRegOrXzr.XZR RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("umnegl x0, w1, w2")
@@ -721,7 +721,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.SMADDL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
-          (↑↑XReg.X3 RegWidth.W64) }] : List (Kraken.Directive Instr)
+          (↑↑XReg.X3 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("smaddl x0, w1, w2, x3")
@@ -732,7 +732,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.UMADDL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
-          (↑↑XReg.X3 RegWidth.W64) }] : List (Kraken.Directive Instr)
+          (↑↑XReg.X3 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("umaddl x0, w1, w2, x3")
@@ -743,7 +743,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.SMSUBL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
-          (↑↑XReg.X3 RegWidth.W64) }] : List (Kraken.Directive Instr)
+          (↑↑XReg.X3 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("smsubl x0, w1, w2, x3")
@@ -754,7 +754,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.UMSUBL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32)
-          (↑↑XReg.X3 RegWidth.W64) }] : List (Kraken.Directive Instr)
+          (↑↑XReg.X3 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("umsubl x0, w1, w2, x3")
@@ -769,7 +769,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.AND_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 4, shift := ShiftType.LSR } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 4, shift := ShiftType.LSR } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("and x0, x1, x2, lsr #4")
@@ -778,7 +778,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.AND_i (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) ↑255 }] : List (Kraken.Directive Instr)
+      operation := Operation.AND_i (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) ↑255 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("and x0, x1, #255")
@@ -789,7 +789,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ANDS_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ands x0, x1, x2")
@@ -798,7 +798,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.ANDS_i (↑↑XReg.X5 RegWidth.W32) (↑↑XReg.X6 RegWidth.W32) ↑255 }] : List (Kraken.Directive Instr)
+      operation := Operation.ANDS_i (↑↑XReg.X5 RegWidth.W32) (↑↑XReg.X6 RegWidth.W32) ↑255 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ands w5, w6, #255")
@@ -809,7 +809,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ANDS_s (↑XRegOrXzr.XZR RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("tst x1, x2")
@@ -818,7 +818,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.ANDS_i (↑XRegOrXzr.XZR RegWidth.W64) (↑↑XReg.X7 RegWidth.W64) ↑255 }] : List (Kraken.Directive Instr)
+      operation := Operation.ANDS_i (↑XRegOrXzr.XZR RegWidth.W64) (↑↑XReg.X7 RegWidth.W64) ↑255 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("tst x7, #255")
@@ -829,7 +829,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.ORR_s (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32)
-          { reg := ↑↑XReg.X2 RegWidth.W32, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X2 RegWidth.W32, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("orr w0, w1, w2")
@@ -838,7 +838,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.ORR_i (↑↑XReg.X2 RegWidth.W32) (↑↑XReg.X3 RegWidth.W32) ↑255 }] : List (Kraken.Directive Instr)
+      operation := Operation.ORR_i (↑↑XReg.X2 RegWidth.W32) (↑↑XReg.X3 RegWidth.W32) ↑255 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("orr w2, w3, #255")
@@ -849,7 +849,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ORR_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 4, shift := ShiftType.ROR } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 4, shift := ShiftType.ROR } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("orr x0, x1, x2, ror #4")
@@ -860,7 +860,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ORN_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("orn x0, x1, x2")
@@ -871,7 +871,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.EOR_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("eor x0, x1, x2")
@@ -880,7 +880,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.EOR_i (↑XRegOrSp.SP RegWidth.W64) (↑↑XReg.X4 RegWidth.W64) ↑255 }] : List (Kraken.Directive Instr)
+      operation := Operation.EOR_i (↑XRegOrSp.SP RegWidth.W64) (↑↑XReg.X4 RegWidth.W64) ↑255 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("eor sp, x4, #255")
@@ -891,7 +891,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.BIC_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("bic x0, x1, x2")
@@ -902,7 +902,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.EON_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("eon x0, x1, x2")
@@ -913,7 +913,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.BICS_s (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X2 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("bics x0, x1, x2")
@@ -928,7 +928,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ORR_s (↑↑XReg.X0 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64)
-          { reg := ↑↑XReg.X1 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X1 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("mov x0, x1")
@@ -939,7 +939,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ADD_e (↑XRegOrSp.SP RegWidth.W64) (↑↑XReg.X0 RegWidth.W64)
-          ↑{ imm := ↑0, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr)
+          ↑{ imm := ↑0, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("mov sp, x0")
@@ -950,7 +950,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ORN_s (↑↑XReg.X2 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64)
-          { reg := ↑↑XReg.X3 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr)
+          { reg := ↑↑XReg.X3 RegWidth.W64, amount := 0, shift := ShiftType.LSL } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("mvn x2, x3")
@@ -959,7 +959,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.MOVZ (↑↑XReg.X0 RegWidth.W64) (↑1234) MovShift.LSL16 }] : List (Kraken.Directive Instr)
+      operation := Operation.MOVZ (↑↑XReg.X0 RegWidth.W64) (↑1234) MovShift.LSL16 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("movz x0, #1234, lsl #16")
@@ -968,7 +968,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.MOVK (↑↑XReg.X1 RegWidth.W32) (↑5678) MovShift.LSL0 }] : List (Kraken.Directive Instr)
+      operation := Operation.MOVK (↑↑XReg.X1 RegWidth.W32) (↑5678) MovShift.LSL0 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("movk w1, #5678, lsl #0")
@@ -977,7 +977,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.MOVN (↑↑XReg.X2 RegWidth.W64) (↑65535) MovShift.LSL48 }] : List (Kraken.Directive Instr)
+      operation := Operation.MOVN (↑↑XReg.X2 RegWidth.W64) (↑65535) MovShift.LSL48 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("movn x2, #65535, lsl #48")
@@ -986,7 +986,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.MOVZ (↑↑XReg.X0 RegWidth.W64) (↑0) MovShift.LSL0 }] : List (Kraken.Directive Instr)
+      operation := Operation.MOVZ (↑↑XReg.X0 RegWidth.W64) (↑0) MovShift.LSL0 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("mov x0, #0")
@@ -995,7 +995,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.MOVZ (↑↑XReg.X1 RegWidth.W64) (↑4660) MovShift.LSL16 }] : List (Kraken.Directive Instr)
+      operation := Operation.MOVZ (↑↑XReg.X1 RegWidth.W64) (↑4660) MovShift.LSL16 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("mov x1, #0x12340000")
@@ -1004,7 +1004,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.MOVN (↑↑XReg.X2 RegWidth.W64) (↑1) MovShift.LSL0 }] : List (Kraken.Directive Instr)
+      operation := Operation.MOVN (↑↑XReg.X2 RegWidth.W64) (↑1) MovShift.LSL0 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("mov x2, #0xfffffffffffffffe")
@@ -1013,7 +1013,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.MOVN (↑↑XReg.X3 RegWidth.W32) (↑0) MovShift.LSL0 }] : List (Kraken.Directive Instr)
+      operation := Operation.MOVN (↑↑XReg.X3 RegWidth.W32) (↑0) MovShift.LSL0 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("mov w3, #0xffffffff")
@@ -1023,7 +1023,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.ORR_i (↑↑XReg.X4 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64) ↑72340172838076673 }] : List (Kraken.Directive Instr)
+        Operation.ORR_i (↑↑XReg.X4 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64) ↑72340172838076673 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("mov x4, #0x0101010101010101")
@@ -1032,7 +1032,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.MOVN (↑↑XReg.X5 RegWidth.W64) (↑0) MovShift.LSL0 }] : List (Kraken.Directive Instr)
+      operation := Operation.MOVN (↑↑XReg.X5 RegWidth.W64) (↑0) MovShift.LSL0 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("mov x5, #-1")
@@ -1041,7 +1041,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.MOVN (↑↑XReg.X6 RegWidth.W32) (↑4) MovShift.LSL0 }] : List (Kraken.Directive Instr)
+      operation := Operation.MOVN (↑↑XReg.X6 RegWidth.W32) (↑4) MovShift.LSL0 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("mov w6, #-5")
@@ -1055,7 +1055,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.LSLV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr)
+        Operation.LSLV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("lsl x0, x1, x2")
@@ -1065,7 +1065,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
-        Operation.LSLV (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32) }] : List (Kraken.Directive Instr)
+        Operation.LSLV (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("lslv w0, w1, w2")
@@ -1075,7 +1075,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.LSRV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr)
+        Operation.LSRV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("lsr x0, x1, x2")
@@ -1085,7 +1085,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.ASRV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr)
+        Operation.ASRV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("asr x0, x1, x2")
@@ -1095,7 +1095,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.RORV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr)
+        Operation.RORV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ror x0, x1, x2")
@@ -1104,7 +1104,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 4 11 }] : List (Kraken.Directive Instr)
+      operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 4 11 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ubfx w0, w1, #4, #8")
@@ -1113,7 +1113,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 0 31 }] : List (Kraken.Directive Instr)
+      operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 0 31 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("sxtw x0, w1")
@@ -1122,7 +1122,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.CLZ (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) }] : List (Kraken.Directive Instr)
+      operation := Operation.CLZ (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("clz w0, w1")
@@ -1131,7 +1131,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.REV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) }] : List (Kraken.Directive Instr)
+      operation := Operation.REV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("rev x0, x1")
@@ -1140,7 +1140,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 0 15 }] : List (Kraken.Directive Instr)
+      operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 0 15 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("sbfx x0, x1, #0, #16")
@@ -1149,7 +1149,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.BFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 4 11 }] : List (Kraken.Directive Instr)
+      operation := Operation.BFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 4 11 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("bfxil w0, w1, #4, #8")
@@ -1158,7 +1158,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.BFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 24 7 }] : List (Kraken.Directive Instr)
+      operation := Operation.BFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 24 7 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("bfi w0, w1, #8, #8")
@@ -1167,7 +1167,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 28 7 }] : List (Kraken.Directive Instr)
+      operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 28 7 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("sbfiz w0, w1, #4, #8")
@@ -1176,7 +1176,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 28 7 }] : List (Kraken.Directive Instr)
+      operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 28 7 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ubfiz w0, w1, #4, #8")
@@ -1185,7 +1185,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 7 }] : List (Kraken.Directive Instr)
+      operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 7 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("sxtb w0, w1")
@@ -1194,7 +1194,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 15 }] : List (Kraken.Directive Instr)
+      operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 15 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("sxth w0, w1")
@@ -1203,7 +1203,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 7 }] : List (Kraken.Directive Instr)
+      operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 7 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("uxtb w0, w1")
@@ -1212,7 +1212,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 15 }] : List (Kraken.Directive Instr)
+      operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 15 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("uxth w0, w1")
@@ -1221,7 +1221,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 0 31 }] : List (Kraken.Directive Instr)
+      operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 0 31 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("uxtw x0, w1")
@@ -1230,7 +1230,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 60 59 }] : List (Kraken.Directive Instr)
+      operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 60 59 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("lsl x0, x1, #4")
@@ -1239,7 +1239,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 4 31 }] : List (Kraken.Directive Instr)
+      operation := Operation.UBFM (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 4 31 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("lsr w0, w1, #4")
@@ -1248,7 +1248,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 4 63 }] : List (Kraken.Directive Instr)
+      operation := Operation.SBFM (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 4 63 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("asr x0, x1, #4")
@@ -1258,7 +1258,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
-        Operation.EXTR (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 4 }] : List (Kraken.Directive Instr)
+        Operation.EXTR (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 4 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ror w0, w1, #4")
@@ -1267,7 +1267,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.CLS (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) }] : List (Kraken.Directive Instr)
+      operation := Operation.CLS (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("cls x0, x1")
@@ -1276,7 +1276,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.RBIT (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) }] : List (Kraken.Directive Instr)
+      operation := Operation.RBIT (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("rbit w0, w1")
@@ -1285,7 +1285,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.REV16 (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) }] : List (Kraken.Directive Instr)
+      operation := Operation.REV16 (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("rev16 w0, w1")
@@ -1294,7 +1294,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.REV32 (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) }] : List (Kraken.Directive Instr)
+      operation := Operation.REV32 (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("rev32 x0, x1")
@@ -1303,7 +1303,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.REV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) }] : List (Kraken.Directive Instr)
+      operation := Operation.REV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("rev64 x0, x1")
@@ -1313,7 +1313,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
-        Operation.EXTR (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32) 8 }] : List (Kraken.Directive Instr)
+        Operation.EXTR (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X2 RegWidth.W32) 8 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("extr w0, w1, w2, #8")
@@ -1328,7 +1328,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.CSEL (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
-          CondCode.EQ }] : List (Kraken.Directive Instr)
+          CondCode.EQ }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("csel x0, x1, x2, eq")
@@ -1339,7 +1339,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.CSINC (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
-          CondCode.CS }] : List (Kraken.Directive Instr)
+          CondCode.CS }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("csinc x0, x1, x2, cs")
@@ -1350,7 +1350,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.CSINV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
-          CondCode.EQ }] : List (Kraken.Directive Instr)
+          CondCode.EQ }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("csinv x0, x1, x2, eq")
@@ -1361,7 +1361,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.CSNEG (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X2 RegWidth.W64)
-          CondCode.MI }] : List (Kraken.Directive Instr)
+          CondCode.MI }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("csneg x0, x1, x2, mi")
@@ -1372,7 +1372,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.CSINC (↑↑XReg.X0 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64)
-          CondCode.NE }] : List (Kraken.Directive Instr)
+          CondCode.NE }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("cset x0, eq")
@@ -1383,7 +1383,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.CSINV (↑↑XReg.X3 RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64) (↑XRegOrXzr.XZR RegWidth.W64)
-          CondCode.EQ }] : List (Kraken.Directive Instr)
+          CondCode.EQ }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("csetm x3, ne")
@@ -1394,7 +1394,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.CSINC (↑↑XReg.X4 RegWidth.W32) (↑↑XReg.X5 RegWidth.W32) (↑↑XReg.X5 RegWidth.W32)
-          CondCode.CS }] : List (Kraken.Directive Instr)
+          CondCode.CS }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("cinc w4, w5, lo")
@@ -1405,7 +1405,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.CSINV (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
-          CondCode.MI }] : List (Kraken.Directive Instr)
+          CondCode.MI }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("cinv x0, x1, pl")
@@ -1416,7 +1416,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
         Operation.CSNEG (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32)
-          CondCode.LE }] : List (Kraken.Directive Instr)
+          CondCode.LE }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("cneg w0, w1, gt")
@@ -1426,7 +1426,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
-        Operation.CCMP_reg (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 4 CondCode.EQ }] : List (Kraken.Directive Instr)
+        Operation.CCMP_reg (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64) 4 CondCode.EQ }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ccmp x0, x1, #4, eq")
@@ -1435,7 +1435,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.CCMP_imm (↑↑XReg.X0 RegWidth.W64) 10 2 CondCode.NE }] : List (Kraken.Directive Instr)
+      operation := Operation.CCMP_imm (↑↑XReg.X0 RegWidth.W64) 10 2 CondCode.NE }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ccmp x0, #10, #2, ne")
@@ -1445,7 +1445,7 @@ info: [Directive.instr
 info: [Directive.instr
     { operation_size := RegWidth.W32,
       operation :=
-        Operation.CCMN_reg (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 CondCode.EQ }] : List (Kraken.Directive Instr)
+        Operation.CCMN_reg (↑↑XReg.X0 RegWidth.W32) (↑↑XReg.X1 RegWidth.W32) 0 CondCode.EQ }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ccmn w0, w1, #0, eq")
@@ -1454,7 +1454,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.CCMN_imm (↑↑XReg.X0 RegWidth.W32) 1 0 CondCode.NE }] : List (Kraken.Directive Instr)
+      operation := Operation.CCMN_imm (↑↑XReg.X0 RegWidth.W32) 1 0 CondCode.NE }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ccmn w0, #1, #0, ne")
@@ -1466,7 +1466,7 @@ info: [Directive.instr
 -- Test: ADR with label
 /--
 info: [Directive.instr
-    { operation_size := RegWidth.W64, operation := Operation.ADR (↑↑XReg.X0 RegWidth.W64) ↑"main" }] : List (Kraken.Directive Instr)
+    { operation_size := RegWidth.W64, operation := Operation.ADR (↑↑XReg.X0 RegWidth.W64) ↑"main" }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("adr x0, main")
@@ -1474,7 +1474,7 @@ info: [Directive.instr
 -- Test: ADR with immediate offset
 /--
 info: [Directive.instr
-    { operation_size := RegWidth.W64, operation := Operation.ADR (↑↑XReg.X1 RegWidth.W64) ↑4096 }] : List (Kraken.Directive Instr)
+    { operation_size := RegWidth.W64, operation := Operation.ADR (↑↑XReg.X1 RegWidth.W64) ↑4096 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("adr x1, #4096")
@@ -1482,7 +1482,7 @@ info: [Directive.instr
 -- Test: ADRP with label
 /--
 info: [Directive.instr
-    { operation_size := RegWidth.W64, operation := Operation.ADRP (↑↑XReg.X0 RegWidth.W64) ↑"main" }] : List (Kraken.Directive Instr)
+    { operation_size := RegWidth.W64, operation := Operation.ADRP (↑↑XReg.X0 RegWidth.W64) ↑"main" }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("adrp x0, main")
@@ -1490,7 +1490,7 @@ info: [Directive.instr
 -- Test: ADRP with immediate offset
 /--
 info: [Directive.instr
-    { operation_size := RegWidth.W64, operation := Operation.ADRP (↑↑XReg.X1 RegWidth.W64) ↑16384 }] : List (Kraken.Directive Instr)
+    { operation_size := RegWidth.W64, operation := Operation.ADRP (↑↑XReg.X1 RegWidth.W64) ↑16384 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("adrp x1, #0x4000")
@@ -1499,7 +1499,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W64,
-      operation := Operation.ADRP (↑↑XReg.X0 RegWidth.W64) (↑"main").pg_hi21 }] : List (Kraken.Directive Instr)
+      operation := Operation.ADRP (↑↑XReg.X0 RegWidth.W64) (↑"main").pg_hi21 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("adrp x0, :pg_hi21:main")
@@ -1510,7 +1510,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.ADD_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X0 RegWidth.W64)
-          ↑{ imm := (↑"main").lo12, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr)
+          ↑{ imm := (↑"main").lo12, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("add x0, x0, :lo12:main")
@@ -1521,7 +1521,7 @@ info: [Directive.instr
     { operation_size := RegWidth.W64,
       operation :=
         Operation.LDR (↑↑XReg.X1 RegWidth.W64)
-          ↑{ base := ↑↑XReg.X0 RegWidth.W64, off := ↑{ imm := (↑"main").lo12, index := none } } }] : List (Kraken.Directive Instr)
+          ↑{ base := ↑↑XReg.X0 RegWidth.W64, off := ↑{ imm := (↑"main").lo12, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ldr x1, [x0, #:lo12:main]")
@@ -1532,49 +1532,49 @@ info: [Directive.instr
 
 -- Test: B unconditional branch with label
 /--
-info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B ↑"main" }] : List (Kraken.Directive Instr)
+info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B ↑"main" }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("b main")
 
 -- Test: B unconditional branch with immediate offset
 /--
-info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B ↑16 }] : List (Kraken.Directive Instr)
+info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B ↑16 }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("b #16")
 
 -- Test: B.eq conditional branch with dotted syntax
 /--
-info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B_cond CondCode.EQ ↑"loop" }] : List (Kraken.Directive Instr)
+info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B_cond CondCode.EQ ↑"loop" }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("b.eq loop")
 
 -- Test: B.ne conditional branch with dotted syntax
 /--
-info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B_cond CondCode.NE ↑"exit" }] : List (Kraken.Directive Instr)
+info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B_cond CondCode.NE ↑"exit" }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("b.ne exit")
 
 -- Test: BEQ conditional branch with undotted syntax
 /--
-info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B_cond CondCode.EQ ↑"loop" }] : List (Kraken.Directive Instr)
+info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B_cond CondCode.EQ ↑"loop" }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("beq loop")
 
 -- Test: BNE conditional branch with undotted syntax
 /--
-info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B_cond CondCode.NE ↑"exit" }] : List (Kraken.Directive Instr)
+info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.B_cond CondCode.NE ↑"exit" }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("bne exit")
 
 -- Test: BL branch with link
 /--
-info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.BL ↑"foo" }] : List (Kraken.Directive Instr)
+info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.BL ↑"foo" }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("bl foo")
@@ -1582,7 +1582,7 @@ info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.
 -- Test: BLR branch with link to register
 /--
 info: [Directive.instr
-    { operation_size := RegWidth.W64, operation := Operation.BLR (↑↑XReg.X16 RegWidth.W64) }] : List (Kraken.Directive Instr)
+    { operation_size := RegWidth.W64, operation := Operation.BLR (↑↑XReg.X16 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("blr x16")
@@ -1590,7 +1590,7 @@ info: [Directive.instr
 -- Test: BR branch to register
 /--
 info: [Directive.instr
-    { operation_size := RegWidth.W64, operation := Operation.BR (↑↑XReg.X30 RegWidth.W64) }] : List (Kraken.Directive Instr)
+    { operation_size := RegWidth.W64, operation := Operation.BR (↑↑XReg.X30 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("br x30")
@@ -1598,7 +1598,7 @@ info: [Directive.instr
 -- Test: RET return without operand (defaults to X30)
 /--
 info: [Directive.instr
-    { operation_size := RegWidth.W64, operation := Operation.RET (↑↑XReg.X30 RegWidth.W64) }] : List (Kraken.Directive Instr)
+    { operation_size := RegWidth.W64, operation := Operation.RET (↑↑XReg.X30 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ret")
@@ -1606,7 +1606,7 @@ info: [Directive.instr
 -- Test: RET return with explicit register (X19)
 /--
 info: [Directive.instr
-    { operation_size := RegWidth.W64, operation := Operation.RET (↑↑XReg.X19 RegWidth.W64) }] : List (Kraken.Directive Instr)
+    { operation_size := RegWidth.W64, operation := Operation.RET (↑↑XReg.X19 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ret x19")
@@ -1614,7 +1614,7 @@ info: [Directive.instr
 -- Test: RET return with LR alias
 /--
 info: [Directive.instr
-    { operation_size := RegWidth.W64, operation := Operation.RET (↑↑XReg.X30 RegWidth.W64) }] : List (Kraken.Directive Instr)
+    { operation_size := RegWidth.W64, operation := Operation.RET (↑↑XReg.X30 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ret lr")
@@ -1622,7 +1622,7 @@ info: [Directive.instr
 -- Test: CBZ compare and branch if zero 64-bit
 /--
 info: [Directive.instr
-    { operation_size := RegWidth.W64, operation := Operation.CBZ (↑↑XReg.X0 RegWidth.W64) ↑"target" }] : List (Kraken.Directive Instr)
+    { operation_size := RegWidth.W64, operation := Operation.CBZ (↑↑XReg.X0 RegWidth.W64) ↑"target" }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("cbz x0, target")
@@ -1630,7 +1630,7 @@ info: [Directive.instr
 -- Test: CBNZ compare and branch if non-zero 32-bit
 /--
 info: [Directive.instr
-    { operation_size := RegWidth.W32, operation := Operation.CBNZ (↑↑XReg.X1 RegWidth.W32) ↑"loop" }] : List (Kraken.Directive Instr)
+    { operation_size := RegWidth.W32, operation := Operation.CBNZ (↑↑XReg.X1 RegWidth.W32) ↑"loop" }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("cbnz w1, loop")
@@ -1638,7 +1638,7 @@ info: [Directive.instr
 -- Test: TBZ test bit and branch if zero 64-bit
 /--
 info: [Directive.instr
-    { operation_size := RegWidth.W64, operation := Operation.TBZ (↑↑XReg.X2 RegWidth.W64) 5 ↑"label" }] : List (Kraken.Directive Instr)
+    { operation_size := RegWidth.W64, operation := Operation.TBZ (↑↑XReg.X2 RegWidth.W64) 5 ↑"label" }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("tbz x2, #5, label")
@@ -1647,7 +1647,7 @@ info: [Directive.instr
 /--
 info: [Directive.instr
     { operation_size := RegWidth.W32,
-      operation := Operation.TBNZ (↑↑XReg.X3 RegWidth.W32) 31 ↑"exit" }] : List (Kraken.Directive Instr)
+      operation := Operation.TBNZ (↑↑XReg.X3 RegWidth.W32) 31 ↑"exit" }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("tbnz w3, #31, exit")
@@ -1658,7 +1658,7 @@ info: [Directive.instr
 
 -- Test: NOP no-operation
 /--
-info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.NOP }] : List (Kraken.Directive Instr)
+info: [Directive.instr { operation_size := RegWidth.W64, operation := Operation.NOP }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("nop")
@@ -1670,7 +1670,7 @@ info: [Directive.label "main",
     { operation_size := RegWidth.W64,
       operation :=
         Operation.LDR (↑↑XReg.X1 RegWidth.W64)
-          ↑{ base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑0, index := none } } }] : List (Kraken.Directive Instr)
+          ↑{ base := ↑XRegOrSp.SP RegWidth.W64, off := ↑{ imm := ↑0, index := none } } }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("main: ldr x1, [sp]")
@@ -1678,7 +1678,7 @@ info: [Directive.label "main",
 -- Test: Instruction followed by line comment
 /--
 info: [Directive.instr
-    { operation_size := RegWidth.W64, operation := Operation.RET (↑↑XReg.X30 RegWidth.W64) }] : List (Kraken.Directive Instr)
+    { operation_size := RegWidth.W64, operation := Operation.RET (↑↑XReg.X30 RegWidth.W64) }] : List (Kraken.Directive Instr ConstExpr)
 -/
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("ret // return to caller")

@@ -145,6 +145,7 @@ def directive : _root_.Directive → String
   | .instr i => instr i
   | .label l => s!"{l}:"
   | d@(.byteArray _) => toString d
+  | .word n e => s!"{dataWordDirective n} {const e}"
 
 end Kraken.X64.ATT
 

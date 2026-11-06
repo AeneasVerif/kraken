@@ -699,7 +699,7 @@ def elabDirective (stx : TSyntax `x64_directive) : TermElabM Expr := withRef stx
     return (Lean.toExpr (Kraken.Directive.label name : _root_.Directive))
   | `(x64_directive| $ins:x64_instr ;)
   | `(x64_directive| $ins:x64_instr) =>
-    return mkApp2 (mkConst ``Kraken.Directive.instr) (mkConst ``Instr) (← (elabInstr ins).run')
+    return mkApp3 (mkConst ``Kraken.Directive.instr) (mkConst ``Instr) (mkConst ``ConstExpr) (← (elabInstr ins).run')
   | `(x64_directive| ❰ $t ❱ $[;]?) =>
     elabAntiquot t (mkConst ``_root_.Directive)
   | _ => throwError "invalid assembly directive"

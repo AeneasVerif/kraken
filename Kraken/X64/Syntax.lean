@@ -269,11 +269,11 @@ instance [AddressSize] {w : Width} : CoeOut (Operation w) Instr where
 instance [AddressSize] {w : AvxWidth} : CoeOut (AvxOperation w) Instr where
   coe op := Instr.avx address_size w op
 
-abbrev Directive := Kraken.Directive Instr
+abbrev Directive := Kraken.Directive Instr ConstExpr
 
 abbrev Program := List Directive
 
-abbrev Executable := Kraken.Executable Instr
+abbrev Executable := Kraken.Executable Instr ConstExpr
 
 namespace Reg
 @[match_pattern] abbrev rax := low .rax .W64
