@@ -86,12 +86,10 @@ elab_rules : tactic
 
       evalTactic (← `(tactic|
         (let ss := $s
-         dsimp only
          change ($effectsAllId:ident _ (@$directivesInterpId:ident ($execLabelsId:ident _) _ ss _))
          obtain $statePat:rcasesPat := $s
          delta $p
-         rw [Executable.directivesFromStart]
-         simp [List.mapIdx, List.mapIdx.go])))
+         simp [Layout.apply, List.mapIdx, List.mapIdx.go])))
 
 --------------------------------------------------------------------------------
 

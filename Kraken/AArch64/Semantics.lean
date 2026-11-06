@@ -1027,7 +1027,7 @@ abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
     .instr ⟨.W64, .LDR .X2 (.addr { base := .SP, off := 0 })⟩]
   let start := (Executable.labels exe).label "main"
   let data : MachineData := { dmem := Mem.storeInt {} 0x100 8 42, regs := {SP := 0x100} }
-  (Executable.eval exe {data, pc := start} (fun st => (exe.directivesFromAddress st.pc).isEmpty)).bind (fun s => .ok s.1.regs.X2)
+  (Executable.eval exe {data, pc := start} (fun st => (exe.directivesAtAddress st.pc).isEmpty)).bind (fun s => .ok s.1.regs.X2)
 
 /-- info: Except.ok (42, 264) -/
 #guard_msgs in
@@ -1037,7 +1037,7 @@ abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
     .instr ⟨.W64, .LDR .X1 (.addr { base := .SP, off := .imm { imm := 8, index := some .Pre } })⟩ ]
   let start := (Executable.labels exe).label "main"
   let data : MachineData := { dmem := Mem.storeInt {} 0x108 8 42, regs := { SP := 0x100 } }
-  (Executable.eval exe {data, pc := start} (fun st => (exe.directivesFromAddress st.pc).isEmpty)).bind (fun s => .ok (s.1.regs.X1, s.1.regs.SP))
+  (Executable.eval exe {data, pc := start} (fun st => (exe.directivesAtAddress st.pc).isEmpty)).bind (fun s => .ok (s.1.regs.X1, s.1.regs.SP))
 
 /-- info: Except.ok (42, 264) -/
 #guard_msgs in
@@ -1047,7 +1047,7 @@ abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
     .instr ⟨.W64, .STR .X1 { base := .SP, off := .imm { imm := 8, index := some .Post } }⟩ ]
   let start := (Executable.labels exe).label "main"
   let data : MachineData := { dmem := Mem.storeInt {} 0x100 8 0, regs := { SP := 0x100, X1 := 42 } }
-  (Executable.eval exe {data, pc := start} (fun st => (exe.directivesFromAddress st.pc).isEmpty)).bind (fun s =>
+  (Executable.eval exe {data, pc := start} (fun st => (exe.directivesAtAddress st.pc).isEmpty)).bind (fun s =>
     match Mem.loadInt s.1.dmem 0x100 8 with
     | some v => .ok (v, s.1.regs.SP)
     | none => .error "Memory store failed"

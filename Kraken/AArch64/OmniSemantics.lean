@@ -51,16 +51,17 @@ theorem Directives.interp_split [Labels]
     rw [Directives.interp]
     exact Effects.bind_mono _ (fun s' => ih s' (pc + Int64.ofNat d.size) hnext) hdone h
 
-theorem eventually_step [Layout] (e: Executable) (hwf : e.WellFormed) (st: MachineState) (post: @Post MachineState) :
+private theorem eventually_step_aux [Layout] (e : Executable) (hwf : e.WellFormed)
+    (ds : List (Kraken.Sized Directive)) (s : MachineData) (pc : Int64) (post : @Post MachineState)
+    (h_at : e.withAddresses.dropWhile (·.addr ≠ pc) = Kraken.Executable.withAddresses {startAddr := pc, program := ds}) :
     (letI := Executable.labels e
-     Directives.interp (e.directivesFromAddress st.pc) st.data st.pc).All post →
-    Eventually (step1 e) post st := by
-  rcases st with ⟨s, pc⟩
+     Directives.interp ds s pc).All post →
+    Eventually (step1 e) post ⟨s, pc⟩ := by
   intro h
   apply step_cps (step1 e) post ⟨s, pc⟩
   dsimp [step1, Executable.step] at *
   letI := Executable.labels e
-  rcases hwf.directivesFromAddress_split pc with h_end | ⟨h_split, h_len⟩
+  rcases hwf.step_split h_at with h_end | ⟨ds', h_split, h_len, h_at'⟩
   · rw [h_end, ← List.append_nil (e.directivesAtAddress pc)] at h
     apply Directives.interp_split (e.directivesAtAddress pc) [] s pc
       (post₁ := post) (post₂ := fun mid => Eventually (step1 e) post mid)
@@ -69,20 +70,28 @@ theorem eventually_step [Layout] (e: Executable) (hwf : e.WellFormed) (st: Machi
     rw [Directives.interp] at h_after
     exact Eventually.done _ h_after
   · rw [h_split] at h
-    apply Directives.interp_split (e.directivesAtAddress pc) _ s pc
+    apply Directives.interp_split (e.directivesAtAddress pc) ds' s pc
       (post₁ := post) (post₂ := fun mid => Eventually (step1 e) post mid)
       (fun st' hp => Eventually.done st' hp) _ h
     intro s' h_after
-    exact eventually_step e hwf ⟨s', _⟩ post h_after
-termination_by (e.withAddresses.dropWhile (·.addr ≠ st.pc)).length
+    exact eventually_step_aux e hwf ds' s' _ post h_at' h_after
+termination_by ds.length
 decreasing_by exact h_len
 
-theorem eventually_step_cps [Layout] (e : Executable) (hwf : e.WellFormed)
-    (st : MachineState) (post : @Post MachineState) :
+theorem eventually_step [Layout] (e : Executable) (hwf : e.WellFormed)
+    (s : MachineData) (post : @Post MachineState) :
     (letI := Executable.labels e
-     Directives.interp (e.directivesFromAddress st.pc) st.data st.pc).All
+     Directives.interp e.program s e.startAddr).All post →
+    Eventually (step1 e) post ⟨s, e.startAddr⟩ :=
+  eventually_step_aux e hwf e.program s e.startAddr post
+    (Kraken.Executable.withAddresses_dropWhile_start e.program e.startAddr)
+
+theorem eventually_step_cps [Layout] (e : Executable) (hwf : e.WellFormed)
+    (s : MachineData) (post : @Post MachineState) :
+    (letI := Executable.labels e
+     Directives.interp e.program s e.startAddr).All
       (fun mid => Eventually (step1 e) post mid) →
-    Eventually (step1 e) post st := by
+    Eventually (step1 e) post ⟨s, e.startAddr⟩ := by
   intro h
-  exact eventually_trans (step1 e) (fun mid => Eventually (step1 e) post mid) post st
-    (eventually_step e hwf st _ h) (fun _ => id)
+  exact eventually_trans (step1 e) (fun mid => Eventually (step1 e) post mid) post ⟨s, e.startAddr⟩
+    (eventually_step e hwf s _ h) (fun _ => id)
