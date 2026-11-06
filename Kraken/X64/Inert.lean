@@ -11,13 +11,13 @@ Presently, labels and no-op instructions like `nop` and `mov %rax, %rax` are ine
 Once `.byteArray` is implemented, an empty `.byteArray` will be inert as well.
 -/
 def Directive.Inert (d : Directive) : Prop :=
-  ∀ [Labels] s p (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) post,
-    (d.interp s p next jmp).All post ↔ (next s).All post
+  ∀ [Labels] s p (next : MachineData → Effects) post,
+    ((d.interp s p (next := .next) (jmp := fun a s' => .done ⟨s', a⟩)).bind next).All post ↔ (next s).All post
 
 theorem Directives.interp_inert_append [Labels] {pre rest : List (Kraken.Sized Directive)}
     (hpre : ∀ c ∈ pre, c.size = 0 ∧ c.directive.Inert) (s : MachineData) (pc : Int64)
-    (ret : Int64 → MachineData → Effects) (post : @Post MachineState) :
-    (Directives.interp (pre ++ rest) s pc ret).All post ↔ (Directives.interp rest s pc ret).All post := by
+    (post : @Post MachineState) :
+    (Directives.interp (pre ++ rest) s pc).All post ↔ (Directives.interp rest s pc).All post := by
   induction pre generalizing s with
   | nil => rfl
   | cons c pre ih =>

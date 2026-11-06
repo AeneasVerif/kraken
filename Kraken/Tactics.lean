@@ -80,40 +80,20 @@ elab_rules : tactic
           `(rcasesPat| $id:ident)
       let statePat ← `(rcasesPat| ⟨$[$statePats],*⟩)
 
-      let straightlineStepId := mkIdent `straightlineStep
-      let execStraightlineId := mkIdent `Executable.straightline
+      let effectsAllId := mkIdent `Effects.All
+      let directivesInterpId := mkIdent `Directives.interp
+      let execLabelsId := mkIdent `Executable.labels
 
       evalTactic (← `(tactic|
         (let ss := $s
-         change ($straightlineStepId:ident _ ⟨ss, _⟩ _)
+         change ($effectsAllId:ident _ (@$directivesInterpId:ident ($execLabelsId:ident _) _ ss _))
          obtain $statePat:rcasesPat := $s
          delta $p
-         dsimp only [$straightlineStepId:ident, $execStraightlineId:ident]
-         rw [Executable.directivesFromStart]
-         simp [List.mapIdx, List.mapIdx.go])))
+         simp [Layout.apply, List.mapIdx, List.mapIdx.go])))
 
 --------------------------------------------------------------------------------
 
 open Sym Sym.DSimp
-
-partial def peelLambdaLets (f : Expr) (args : Array Expr) (fvars : Array Expr) (k : Expr → Array Expr → DSimpM Result) : DSimpM Result := do
-  -- (fun y => let x = e1 in e2) () ~~> let x = e1 in (fun y => e2) ()
-  match f with
-  | .lam binderName binderType body binderInfo =>
-    match body with
-    | .letE letName letType letVal letBody _ =>
-      if !letType.hasLooseBVar 0 && !letVal.hasLooseBVar 0 then
-        withLetDecl letName letType letVal fun fvarLet => do
-          -- substitute open variable x for 0 in e2, shifting all other variables by 1
-          let instBody : Expr := letBody.instantiate1 fvarLet
-          -- meaning we can close in DeBruijn directly
-          let newLambda := .lam binderName binderType instBody binderInfo
-          -- and add our open variable to the list of variables to be folded over
-          peelLambdaLets newLambda args (fvars.push fvarLet) k
-      else
-        k (mkAppN f args) fvars
-    | _ => k (mkAppN f args) fvars
-  | _ => k (mkAppN f args) fvars
 
 partial def peelLets (e : Expr) (fvars : Array Expr) (k : Expr → Array Expr → DSimpM Result) : DSimpM Result := do
   match e with
@@ -122,7 +102,8 @@ partial def peelLets (e : Expr) (fvars : Array Expr) (k : Expr → Array Expr �
       peelLets (body.instantiate1 fvar) (fvars.push fvar) k
   | _ =>
     if e.isApp && e.getAppFn.isLambda then
-      peelLambdaLets e.getAppFn e.getAppArgs fvars k
+      let e' ← betaRevS e.getAppFn e.getAppRevArgs
+      peelLets e' fvars k
     else
       k e fvars
 
@@ -401,13 +382,18 @@ partial def evalSymKStep : Grind.GrindTactic :=
       let goalT ← goal.mvarId.getType
       let_expr gimmickId goalT' := goalT | throwError "missing gimmick"
       let goalT' ← instantiateMVars goalT'
+      let rec peelBind (e : Expr) : Expr :=
+        if e.isApp && e.getAppFn.isConstOf `Effects.bind && e.getAppArgs.size == 2 then
+          peelBind e.getAppArgs[0]!
+        else
+          e
       let rec getEffectsState (e : Expr) : Option Expr :=
         match e with
         | .letE _ _ _ body _ => getEffectsState body
         | .mdata _ e => getEffectsState e
         | _ =>
           if e.isApp && e.getAppFn.isConstOf `Effects.All && e.getAppArgs.size == 2 then
-            some e.getAppArgs[1]!
+            some (peelBind e.getAppArgs[1]!)
           else
             none
       -- No more Effects.All in the goal -- return to the user (we might be done,

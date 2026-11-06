@@ -300,6 +300,7 @@ abbrev AddressBound := Fin (UInt64.size + 1)
 
 inductive Effects
   | done (a : MachineState)
+  | next (s : MachineData)
   | unimplemented (msg : String)
   | gp_unaligned (addr : BitVec 64) (w : Nat)
   -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
@@ -312,6 +313,19 @@ inductive Effects
   | require_write_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
+
+@[kstep] def Effects.bind (eff : Effects) (k : MachineData → Effects) : Effects :=
+  match eff with
+  | .done st => .done st
+  | .next s => k s
+  | .unimplemented msg => .unimplemented msg
+  | .gp_unaligned addr w => .gp_unaligned addr w
+  | .nonmem_load dmem addr w ret => .nonmem_load dmem addr w (fun v m => (ret v m).bind k)
+  | .nonmem_store dmem addr v ret => .nonmem_store dmem addr v (fun m => (ret m).bind k)
+  | @Effects.undefined _ _ ret => @Effects.undefined _ _ (fun v => (ret v).bind k)
+  | .require_read_access span ok => .require_read_access span (fun u => (ok u).bind k)
+  | .require_write_access span ok => .require_write_access span (fun u => (ok u).bind k)
+  | .require_exec_access p ok => .require_exec_access p (fun u => (ok u).bind k)
 
 -- Splits the interval in two halves in case of overflow
 def require_access (access : Std.Rco AddressBound → (Unit → Effects) → Effects)
@@ -861,13 +875,12 @@ def Instr.interp [Labels]
   | .byteArray _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
 
 def Directives.interp [Labels]
-  (ds : List (Kraken.Sized Directive)) (s : MachineData) (pc : Int64)
-  (ret : Int64 → MachineData → Effects) : Effects :=
+  (ds : List (Kraken.Sized Directive)) (s : MachineData) (pc : Int64) : Effects :=
   match ds with
-  | [] => ret pc s
+  | [] => .done ⟨s, pc⟩
   | {directive, size := sz} :: ds =>
-    directive.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
-    interp ds s (pc+.ofNat sz) ret))
+    (directive.interp s (.mk pc (pc+.ofNat sz)) (next := .next) (jmp := fun a s' => .done ⟨s', a⟩)).bind
+      (fun s => interp ds s (pc+.ofNat sz))
 
 abbrev Layout := Kraken.Layout Instr
 
@@ -879,22 +892,19 @@ def Executable.labels (e : Executable) : Labels :=
 def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Kraken.Sized Directive) :=
   e.program.dropWhile (·.directive != .label l)
 
-def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
+def Executable.step (e : Executable) (s : MachineState) : Effects :=
   let := Executable.labels e
-  Directives.interp (e.directivesAtAddress s.pc) s.data s.pc (fun pc s => ret ⟨s, pc⟩)
-
-def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
-  let := Executable.labels e
-  Directives.interp (e.directivesFromAddress s.pc) s.data s.pc (fun pc s => ret ⟨s, pc⟩)
+  Directives.interp (e.directivesAtAddress s.pc) s.data s.pc
 
 -- -- Concrete evaluators for expedient testing
 
 partial def Executable.eval (e : Executable) (s : MachineState) (until_ : MachineState → Bool) : Except String (MachineState) :=
-  if until_ s then .ok s else handleEffects (Executable.straightline e s .done)
+  if until_ s then .ok s else handleEffects (Executable.step e s)
 where
   handleEffects es :=
     match es with
     | .done s => eval e s until_
+    | .next _ => .error "unexpected .next"
     | .unimplemented msg => .error msg
     | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
     | .require_read_access _ ok => handleEffects (ok ())
