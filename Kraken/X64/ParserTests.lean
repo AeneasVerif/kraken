@@ -6,6 +6,9 @@ module
 -/
 
 import Kraken.X64.Parser
+meta import Kraken.X64.Parser
+import Kraken.X64.PrintATT
+meta import Kraken.X64.PrintATT
 
 section Tests
 open Kraken.X64.Parser
@@ -399,7 +402,86 @@ info: [Directive.instr
 #guard_msgs (whitespace := lax) in
 #check parse("leaq 16(%ebp, %ecx, 4), %rax")
 
+section data_words
+
+/-- info: [Directive.word 4 ((↑"end").sub ↑"start")] : List _root_.Directive -/
+#guard_msgs (whitespace := lax) in
+#check parse(".long end - start")
+
+/-- info: [Directive.word 8 ↑"sym"] : List _root_.Directive -/
+#guard_msgs (whitespace := lax) in
+#check parse(".quad sym")
+
+/-- info: [Directive.word 2 ↑7] : List _root_.Directive -/
+#guard_msgs (whitespace := lax) in
+#check parse(".short 7")
+
+/-- info: [Directive.word 4 ((↑"sym").add ↑8)] : List _root_.Directive -/
+#guard_msgs (whitespace := lax) in
+#check parse(".long sym+8")
+
+/-- info: [Directive.word 8 ↑(-1)] : List _root_.Directive -/
+#guard_msgs (whitespace := lax) in
+#check parse(".quad -1")
+
+/-- info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑((↑"b").sub ↑"a")))] : List _root_.Directive -/
+#guard_msgs (whitespace := lax) in
+#check parse("movq $b-a, %rax")
+
+-- A label that begins with a directive word is still a label.
+/--
+info: [Directive.label ".longest", Directive.instr (regular Width.W64 Width.W64 (Operation.nop 1))] : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check parse(".longest:\n  nop")
+
+-- The jump table of clang's `sel` (as in `PrintATTTests.jumpTable`) elaborates to the same words as
+-- the combinator parser produces.
+#guard (parse("
+sel:
+  cmpl $2, %edi
+  ja .Ldefault
+  movl %edi, %eax
+  leaq .LJTI0_0(%rip), %rcx
+  movslq (%rcx,%rax,4), %rax
+  addq %rcx, %rax
+  jmp %rax
+.Lcase0:
+  movl $10, %eax
+  ret
+.Lcase1:
+  movl $20, %eax
+  ret
+.Lcase2:
+  movl $30, %eax
+  ret
+.Ldefault:
+  xorl %eax, %eax
+  ret
+  .align 4
+.LJTI0_0:
+  .long .Lcase0 - .LJTI0_0
+  .long .Lcase1 - .LJTI0_0
+  .long .Lcase2 - .LJTI0_0
+") : Program).drop 22 ==
+  [0, 1, 2].map (fun k => .word 4 (.sub (.label s!".Lcase{k}") (.label ".LJTI0_0")))
+
+/-- Printing `p` in AT&T syntax and reading it back with the combinator parser gives `p`. -/
+def agreesWithCombinatorParser (p : Program) : Bool :=
+  match Kraken.X64.Parser.parse (Kraken.X64.toATT p) with
+  | .ok p' => p' == p
+  | .error _ => false
+
+#guard [parse(".long end - start"), parse(".quad sym"), parse(".short 7"), parse(".long sym+8"),
+  parse(".quad -1"), parse("movq $b-a, %rax"), parse(".longest:\n  nop")].all agreesWithCombinatorParser
+
+end data_words
+
 section error_reporting
+
+/-- error: <input>:1:5: unexpected end of input -/
+#guard_msgs in
+#check parse(".long")
 
 /-- error: <input>:1:12: expected x64_reg_name -/
 #guard_msgs in

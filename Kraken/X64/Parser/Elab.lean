@@ -153,6 +153,8 @@ def evalConstExpr (stx : TSyntax `x64_const) : TermElabM ConstExpr := withRef st
     let s ← getAsmIdent id
     let i ← withRef n <| Int64.ofNatNoOverflow n.getNat
     pure (.sub (.label s) (.int64 i))
+  | `(x64_const| $a:x64_ident - $b:x64_ident) =>
+    pure (.sub (.label (← getAsmIdent a)) (.label (← getAsmIdent b)))
   | `(x64_const| $id:x64_ident) =>
     let s ← getAsmIdent id
     pure (.label s)
@@ -382,6 +384,8 @@ def elabOperand (stx : TSyntax `x64_operand) : X64ElabM Expr := withRef stx do
     let s ← getAntiquotSym sym.raw
     let i ← withRef n <| Int64.ofNatNoOverflow n.getNat
     imm (.sub (.label s) (.int64 i))
+  | `(x64_operand| $sym:x64_operand - $b:x64_ident) =>
+    imm (.sub (.label (← getAntiquotSym sym.raw)) (.label (← getAsmIdent b)))
   | _ => throwError "invalid operand"
 
 /-- Elaborate an `x64_avx_operand` into an `Expr` of type `AvxRegOrMem w`. -/
@@ -697,6 +701,8 @@ where
 
 /-- Elaborate an `x64_directive` syntax node into a `Lean.Expr` of type `Directive`. -/
 def elabDirective (stx : TSyntax `x64_directive) : TermElabM Expr := withRef stx do
+  let word (n : Nat) (c : TSyntax `x64_const) : TermElabM Expr := do
+    return Lean.toExpr (Kraken.Directive.word n (← evalConstExpr c) : _root_.Directive)
   match stx with
   | `(x64_directive| $lbl:x64_ident : $[;]?) =>
     let name ← getAsmIdent lbl
@@ -704,6 +710,9 @@ def elabDirective (stx : TSyntax `x64_directive) : TermElabM Expr := withRef stx
   | `(x64_directive| $ins:x64_instr ;)
   | `(x64_directive| $ins:x64_instr) =>
     return mkApp3 (mkConst ``Kraken.Directive.instr) (mkConst ``Instr) (mkConst ``ConstExpr) (← (elabInstr ins).run')
+  | `(x64_directive| .short $c:x64_const $[;]?) => word 2 c
+  | `(x64_directive| .long $c:x64_const $[;]?) => word 4 c
+  | `(x64_directive| .quad $c:x64_const $[;]?) => word 8 c
   | `(x64_directive| ❰ $t ❱ $[;]?) =>
     elabAntiquot t (mkConst ``_root_.Directive)
   | _ => throwError "invalid assembly directive"
