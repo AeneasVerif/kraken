@@ -351,7 +351,6 @@ syntax_affixed (suffixes := cc) "j" : x64_jcc_op
 
 /-- X64 instruction statement with instruction-specific arity and operand categories. -/
 declare_syntax_cat x64_instr (behavior := both)
-syntax withPosition(".align" lineEq num ("," lineEq num)?) : x64_instr
 syntax withPosition(x64_bin_op lineEq x64_operand "," lineEq x64_operand) : x64_instr
 syntax withPosition(x64_rm_reg_op lineEq x64_operand "," lineEq x64_reg) : x64_instr
 syntax withPosition(x64_cmov_op lineEq x64_operand "," lineEq x64_reg) : x64_instr
@@ -385,6 +384,7 @@ syntax withPosition(x64_jcc_op lineEq x64_ident) : x64_instr
 /-- X64 directive (label declaration, instruction, or Lean term antiquotation). -/
 declare_syntax_cat x64_directive (behavior := both)
 syntax withPosition(atomic(x64_ident lineEq ":")) ";"? : x64_directive
+syntax withPosition(".align" lineEq num ("," lineEq num)?) ";"? : x64_directive
 syntax x64_instr ";" : x64_directive
 syntax withPosition(x64_instr notFollowedBy(lineEq (x64_ident <|> "," <|> x64_operand))) : x64_directive
 syntax "❰" term "❱" ";"? : x64_directive

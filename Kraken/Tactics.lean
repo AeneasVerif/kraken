@@ -368,7 +368,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
   let rec go (goal: Grind.Goal): Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
     -- STEP 1: dsimp
     let goal ← do
-      let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM $
+      let mvarId ← goal.mvarId.replaceTargetDefEq (← goal.mvarId.withContext <| Grind.liftGrindM $
         Sym.dsimp
           (config := { maxSteps := 1000000 })
           (methods := {

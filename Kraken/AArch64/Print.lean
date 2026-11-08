@@ -207,6 +207,8 @@ def directive : _root_.Directive → String
   | .instr i => instr i
   | .label l => s!"{l}:"
   | .byteArray bs => ".byte " ++ ", ".intercalate (bs.toList.map toString)
+  | .nopalign a => s!".align {a}"
+  | .align a f => s!".align {a}, {f}"
 
 end Kraken.AArch64.Print
 

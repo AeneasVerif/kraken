@@ -180,6 +180,7 @@ inductive Effects
   | require_read_access (addr : BitVec 64) (w : MemWidth) (ok : Unit → Effects)
   | require_write_access (addr : BitVec 64) (w : MemWidth) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
+  | padding_executed (addr : Int64)
   | unaligned_sp {w : RegWidth} (sp : w.type)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
 
@@ -947,6 +948,8 @@ set_option maxHeartbeats 1000000
   | .label _ => next s
   | .instr i => i.interp s p next jmp
   | .byteArray _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
+  | .align .. => bif p.lower == p.upper then next s else .padding_executed p.lower
+  | .nopalign _ => require_exec_access p fun _ => next s
 
 def Directives.interp [Labels]
   (ds : List (Kraken.Sized Directive)) (s : MachineData) (pc : Int64)
@@ -989,19 +992,14 @@ where
     | .require_exec_access _ ok => handleEffects (ok ())
     | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
+    | .padding_executed addr => .error s!"Executed alignment padding at {repr addr}"
     | .unaligned_sp sp => .error s!"SP={sp} (is not 16-byte aligned)"
     | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
 
-def Directive.fakeSize (d : Directive) : Nat :=
-  match d with
-  | .instr _ => 4
-  | .label _ => 0
-  | .byteArray bs => bs.size
-
 def Program.fakeLayout (prog : Program) : Executable :=
-  let : Inhabited Directive := .mk (.byteArray (.mk #[]))
   let h := hash prog;
-  let layout : Layout := { start := h.toInt64<<<16, size i := prog[i]!.fakeSize }
+  let layout : Layout :=
+    { start := h.toInt64<<<16, instrSize _ := ⟨4, by decide⟩, alignSize _ := 0 }
   layout prog
 
 abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)

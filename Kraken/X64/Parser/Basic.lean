@@ -1138,18 +1138,20 @@ def parseLabelDecl : Parser Label := do
 -- Line and Program Parsing
 -- ============================================================================
 
-def parseAlign : Parser Instr := do
+def parseAlign : Parser _root_.Directive := do
   let _ ← pstring ".align"
   skipHWs
   let alignment ← parseHexOrDec
-  let pad ← (do
+  let fill ← (do
     skipHWs
     let _ ← parseComma
     skipHWs
     let pad ← parseHexOrDec
     pure (some pad.toNat)
   ) <|> pure none
-  pure (toInstr .none (w := .W64) (.nopalign alignment.toNat pad))
+  pure (match fill with
+    | some f => Directive.align alignment.toNat f
+    | none => Directive.nopalign alignment.toNat)
 
 def skipSpaceAndCheckLineEnd : Parser Bool := do
   skipHWs
@@ -1171,8 +1173,7 @@ def parseOptionalInstr : Parser (Option _root_.Directive) := do
   if (← skipSpaceAndCheckLineEnd) then
     pure none
   else
-    let i ← parseAlign <|> parseInstr
-    pure (some (Directive.instr i))
+    pure (some (← parseAlign <|> (Directive.instr <$> parseInstr)))
 
 def checkLineEnd : Parser Unit := do
   if (← skipSpaceAndCheckLineEnd) then

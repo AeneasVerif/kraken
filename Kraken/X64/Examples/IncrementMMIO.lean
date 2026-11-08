@@ -94,6 +94,7 @@ def handleEffects (ds : IncrementerState) (es : Effects)
   match es with
   | .done ms => ok (.mk ms ds)
   | .unimplemented msg => .error msg
+  | .padding_executed addr => .error s!"Executed alignment padding at {repr addr}"
   | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
   | .require_read_access _ cont => handleEffects ds (cont ()) ok
   | .require_write_access _ cont => handleEffects ds (cont ()) ok
@@ -117,6 +118,7 @@ def handleEffects (ds : IncrementerState) (es : Effects)
         | .none => .error s!"nonmem_store at unmapped address {repr addr}"
       | _ => .error s!"nonmem_store of width other than 4 bytes"
   | @Effects.undefined _ t cont => handleEffects ds (cont (t.from_hash (hash ds))) ok
+  | .undefined_label l => .error s!"Undefined label {l}"
 
 def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
     : Except String SystemState :=
@@ -125,5 +127,5 @@ def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
     if device's_turn then
       eval_schedule rest e { s with deviceState := s.deviceState.internal_step }
     else
-      handleEffects s.deviceState (Executable.step e s.machineState .done) (eval_schedule rest e)
+      handleEffects s.deviceState (e.step e.labels s.machineState .done) (eval_schedule rest e)
   | .nil => .ok s
