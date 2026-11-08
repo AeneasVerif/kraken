@@ -12,15 +12,17 @@ For semantics, see Kraken/Semantics.lean.
 For tactics, see Kraken/Tactics.lean.
 -/
 
-import Kraken.Eval
-import Kraken.SeparationTactics
-import Kraken.Tactics
-import Std.Tactic.BVDecide
-import Kraken.X64.OmniSemantics
-import Kraken.X64.Parser
-import Kraken.X64.PrettyPrint
-import Kraken.X64.Semantics
-import Kraken.X64.Sep
+public import Kraken.Eval
+public import Kraken.SeparationTactics
+public import Kraken.Tactics
+public import Std.Tactic.BVDecide
+public import Kraken.X64.OmniSemantics
+public import Kraken.X64.Parser
+public import Kraken.X64.PrettyPrint
+public import Kraken.X64.Semantics
+public import Kraken.X64.Sep
+
+@[expose] public section
 
 open Kraken.X64.Parser
 
