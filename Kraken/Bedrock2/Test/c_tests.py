@@ -15,11 +15,17 @@ BIN = PROJECT_DIR / ".lake/build/bin/bedrock2c"
 BASE_FLAGS = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function",
               "-Wno-tautological-compare", "-Wno-type-limits", "-fstrict-aliasing",
               "-fno-sanitize-recover=all", "-ftrivial-auto-var-init=pattern"]
-SANITIZERS = "undefined,address"
+SANITIZER_SETS = ["undefined,address", "undefined"]
 COMPILERS = ["gcc", "clang"]
 ARCHS = ["-m64", "-m32"]
 OPTS = [["-O0"], ["-O3", "-flto"]]
 ENV = dict(os.environ, ASAN_OPTIONS="detect_leaks=0", UBSAN_OPTIONS="print_stacktrace=1")
+XFAIL = [
+    ("same_slot", "clang", lambda cfg: cfg["opt"][0] in ("-O2", "-O3") and "address" not in cfg["san"],
+     "https://github.com/llvm/llvm-project/issues/45725"),
+]
+XFAIL_C_RETS = {"same_slot": [1]}
+OK_STATUSES = ("PASS", "XFAIL", "XPASS")
 PROBE = "#include <stdio.h>\nint main(void) { printf(\"ok\\n\"); return 0; }\n"
 
 
@@ -42,18 +48,25 @@ def run(cmd, timeout, **kw):
                           env=ENV, **kw)
 
 
-def probe_sanitizers(cc, arch, tmp):
+def probe_sanitizer(cc, arch, san, tmp):
     src = tmp / "probe.c"
     src.write_text(PROBE)
-    for san in [SANITIZERS, "undefined"]:
-        exe = tmp / f"probe-{cc}{arch}-{san.replace(',', '_')}"
-        try:
-            r = run([cc, arch, *BASE_FLAGS, f"-fsanitize={san}", str(src), "-o", str(exe)], 120)
-            if r.returncode == 0 and run([str(exe)], 30).stdout == "ok\n":
-                return san
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-    return None
+    exe = tmp / f"probe-{cc}{arch}-{san.replace(',', '_')}"
+    try:
+        r = run([cc, arch, *BASE_FLAGS, f"-fsanitize={san}", str(src), "-o", str(exe)], 120)
+        return r.returncode == 0 and run([str(exe)], 30).stdout == "ok\n"
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def apply_xfail(case, cfg, status, detail):
+    for xcase, xcc, pred, ref in XFAIL:
+        if xcase == case and xcc == cfg["cc"] and pred(cfg):
+            if status == "MISMATCH":
+                return "XFAIL", f"{ref} {detail}"
+            if status == "PASS":
+                return "XPASS", ref
+    return status, detail
 
 
 def compare(case, cfg, c_out, replay_out):
@@ -68,6 +81,8 @@ def compare(case, cfg, c_out, replay_out):
     diffs = [k for k in ("rets", "final") if c_out.get(k) != replay_out.get(k)]
     if diffs:
         detail = "; ".join(f"{k}: C={c_out.get(k)} Lean={replay_out.get(k)}" for k in diffs)
+        if case in XFAIL_C_RETS and (diffs != ["rets"] or c_out.get("rets") != XFAIL_C_RETS[case]):
+            return "FAIL", f"unexpected mismatch: {detail}"
         return "MISMATCH", detail
     return "PASS", ""
 
@@ -89,7 +104,7 @@ def run_one(exe_cmd, case, src, cfg, tmp):
         r = run([*exe_cmd, "replay", case], 300, input=r.stdout)
         if r.returncode != 0:
             return "FAIL", f"replay exited {r.returncode}: {r.stderr.strip()[:2000]}"
-        return compare(case, cfg, c_out, json.loads(r.stdout))
+        return apply_xfail(case, cfg, *compare(case, cfg, c_out, json.loads(r.stdout)))
     except subprocess.TimeoutExpired as e:
         return "FAIL", f"timeout: {e.cmd}"
     except (OSError, json.JSONDecodeError) as e:
@@ -127,15 +142,17 @@ def main():
             results.append(("*", cc, "FAIL", f"compiler {cc} not found"))
             continue
         for arch in ARCHS:
-            san = probe_sanitizers(cc, arch, tmp)
-            if san is None:
-                results.append(("*", f"{cc}{arch}", "FAIL", "cannot build a sanitized program"))
-                continue
-            if san != SANITIZERS:
-                notes.append(f"{cc} {arch}: AddressSanitizer unavailable, using -fsanitize={san}")
-            for opt in OPTS:
-                configs.append({"cc": cc, "arch": arch, "opt": opt, "san": san,
-                                "name": f"{cc}{arch}{''.join(opt)}"})
+            for san in SANITIZER_SETS:
+                if not probe_sanitizer(cc, arch, san, tmp):
+                    if "address" in san:
+                        notes.append(f"{cc} {arch}: AddressSanitizer unavailable, skipping -fsanitize={san}")
+                    else:
+                        results.append(("*", f"{cc}{arch}", "FAIL", f"cannot build with -fsanitize={san}"))
+                    continue
+                tag = "asan" if "address" in san else "ubsan"
+                for opt in OPTS:
+                    configs.append({"cc": cc, "arch": arch, "opt": opt, "san": san,
+                                    "name": f"{cc}{arch}{''.join(opt)}-{tag}"})
 
     srcs = {}
     for case in cases:
@@ -159,7 +176,8 @@ def main():
     results.sort(key=lambda x: (x[0], x[1]))
     for case, name, status, detail in results:
         if status != "PASS":
-            print(f"{status:8} {case} [{name}] {detail}")
+            label = "WARNING XPASS" if status == "XPASS" else status
+            print(f"{label:8} {case} [{name}] {detail}")
     for note in notes:
         print(f"NOTE: {note}")
     counts = {}
@@ -168,13 +186,13 @@ def main():
     print(f"{len(srcs)} cases x {len(configs)} configs: " +
           ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
     for cfg in configs:
-        n = sum(1 for _, name, s, _ in results if name == cfg["name"] and s == "PASS")
-        print(f"  {cfg['name']:24} -fsanitize={cfg['san']:18} {n}/{len(srcs)} passed")
+        n = sum(1 for _, name, s, _ in results if name == cfg["name"] and s in OK_STATUSES)
+        print(f"  {cfg['name']:30} -fsanitize={cfg['san']:18} {n}/{len(srcs)} ok")
     if args.keep:
         print(f"artifacts kept in {tmp}")
     else:
         shutil.rmtree(tmp, ignore_errors=True)
-    return 0 if results and all(s == "PASS" for _, _, s, _ in results) else 1
+    return 0 if results and all(s in OK_STATUSES for _, _, s, _ in results) else 1
 
 
 if __name__ == "__main__":

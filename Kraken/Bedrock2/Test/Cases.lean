@@ -4,6 +4,7 @@ public import Kraken.Bedrock2.Syntax
 public import Kraken.Bedrock2.Test.Examples.Swap
 public import Kraken.Bedrock2.Test.Examples.SetBytes
 public import Kraken.Bedrock2.Test.Examples.Stackalloc
+public import Kraken.Bedrock2.Test.Examples.StackSlotReuse
 import Kraken.Bedrock2.Notation
 meta import Kraken.Bedrock2.Notation
 
@@ -174,7 +175,9 @@ def cases : List Case := [
   { name := "signed", funcs := [signed], entry := "signed_ops", args := [.word (-100), .word 7] },
   { name := "signed_var_shift", funcs := [signed], entry := "signed_ops",
     args := [.word 0x7fffffff, .word 0x123] },
-  { name := "fib", funcs := [fib], entry := "fib", args := [.word 15] }
+  { name := "fib", funcs := [fib], entry := "fib", args := [.word 15] },
+  { name := "same_slot", funcs := [Examples.same_slot, Examples.addrs], entry := "same_slot",
+    args := [] }
 ]
 
 end Kraken.Bedrock2.Test
