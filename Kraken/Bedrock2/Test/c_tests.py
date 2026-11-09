@@ -13,7 +13,8 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 BIN = PROJECT_DIR / ".lake/build/bin/bedrock2c"
 BASE_FLAGS = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function",
-              "-fstrict-aliasing", "-fno-sanitize-recover=all", "-ftrivial-auto-var-init=pattern"]
+              "-Wno-tautological-compare", "-Wno-type-limits", "-fstrict-aliasing",
+              "-fno-sanitize-recover=all", "-ftrivial-auto-var-init=pattern"]
 SANITIZERS = "undefined,address"
 COMPILERS = ["gcc", "clang"]
 ARCHS = ["-m64", "-m32"]

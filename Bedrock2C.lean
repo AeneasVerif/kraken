@@ -1,14 +1,17 @@
 module
 
 import Kraken.Bedrock2.Test.Cases
+import Kraken.Bedrock2.Test.Matrix
 import Kraken.Bedrock2.CPrinter
 import Kraken.Bedrock2.Interp
 import Lean.Data.Json
 
 open Lean Kraken.Bedrock2 Kraken.Bedrock2.Test
 
+def corpus : List Case := cases ++ matrixCases
+
 def findCase (name : String) : Except String Case :=
-  match cases.find? (·.name == name) with
+  match corpus.find? (·.name == name) with
   | some c => pure c
   | none => throw s!"unknown case '{name}'"
 
@@ -167,7 +170,7 @@ public def main (args : List String) : IO UInt32 := do
   try
     match args with
     | ["list"] =>
-      for c in cases do IO.println c.name
+      for c in corpus do IO.println c.name
       return 0
     | ["emit", name] =>
       IO.print (← orFail (findCase name >>= cDriver))
