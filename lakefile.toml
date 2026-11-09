@@ -1,6 +1,6 @@
 name = "Kraken"
 version = "0.1.0"
-defaultTargets = ["Kraken", "KrakenAArch64", "KrakenBedrock2", "krakenrunner_x64", "krakenrunner_aarch64", "att2intel"]
+defaultTargets = ["Kraken", "KrakenAArch64", "KrakenBedrock2", "krakenrunner_x64", "krakenrunner_aarch64", "att2intel", "bedrock2c"]
 requiresModuleSystem = true
 
 [leanOptions]
@@ -28,3 +28,7 @@ root = "KrakenRunnerAArch64"
 [[lean_exe]]
 name = "att2intel"
 root = "Att2Intel"
+
+[[lean_exe]]
+name = "bedrock2c"
+root = "Bedrock2C"
