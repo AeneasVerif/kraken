@@ -21,7 +21,7 @@ movq %rax, 40(%rsp)
 movdqa 32(%rsp), %xmm0
 movdqa 0(%rsp), %xmm2
 movdqa 16(%rsp), %xmm1
-sha256rnds2 %xmm0, %xmm2, %xmm1
+sha256rnds2 %xmm2, %xmm1
 movdqa 16(%rsp), %xmm3
 sha256rnds2 0(%rsp), %xmm3
 
