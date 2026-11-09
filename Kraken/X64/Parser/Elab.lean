@@ -890,18 +890,6 @@ elab_rules : term <= expectedType?
   | `(⸨reg| $r:x64_avx_reg ⸩) => elabEmbedding AvxWidth (elabAvxReg r) expectedType?
   | `(⸨const| $c:x64_const ⸩) => do ensureHasType expectedType? (← elabConstExpr c)
 
-/-- Inline unquoted X64 assembly block macro/elaborator (`parse( ... )`). -/
-elab "parse(" p:x64_prog ")" : term => elabProgram p
-
-/-- Compile-time X64 string parser/elaborator (`parse("...")`). -/
-elab "parse(" s:str ")" : term => do
-  withRef s <| elabX64 s.getString
-
-/-- Read a file at elaboration time and return its contents as a string literal. -/
-elab "fileAsString(" path:str ")" : term => do
-  let contents ← IO.FS.readFile path.getString
-  return mkStrLit contents
-
 /-- Read an X64 assembly file, strip assembler directives, parse via `runParserCategory`,
     and elaborate into a Kraken `Program`. -/
 elab "include_x64" path:str : term => do
