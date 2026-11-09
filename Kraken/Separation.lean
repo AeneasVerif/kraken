@@ -111,6 +111,12 @@ theorem emp_sep (p : ExtHashMap key value → Prop) : emp ⋆ p = p := by
 theorem sep_emp (p : ExtHashMap key value → Prop) : p ⋆ emp = p := by
   rw [sep_comm, emp_sep]
 
+omit [LawfulBEq key] in
+theorem sep_mono {P P' Q Q' : ExtHashMap key value → Prop} (hP : ∀ m, P m → P' m)
+    (hQ : ∀ m, Q m → Q' m) {m : ExtHashMap key value} (h : (P ⋆ Q) m) : (P' ⋆ Q') m := by
+  obtain ⟨a, b, hu, hd, ha, hb⟩ := h
+  exact ⟨a, b, hu, hd, hP a ha, hQ b hb⟩
+
 instance : Std.Commutative (sep : (ExtHashMap key value → Prop) → _) := ⟨sep_comm⟩
 instance : Std.Associative (sep : (ExtHashMap key value → Prop) → _) := ⟨sep_assoc⟩
 instance : Std.LawfulIdentity (sep : (ExtHashMap key value → Prop) → _) emp where
