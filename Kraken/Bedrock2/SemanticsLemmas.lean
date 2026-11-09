@@ -65,6 +65,27 @@ theorem Exec.weaken {c t m l} {post1 post2 : Trace w → Mem w → Locals w → 
     obtain ⟨l', hl', hp⟩ := hk _ _ hm
     exact ⟨l', hl', fun m' hm' => himpl _ _ _ (hp m' hm')⟩
 
+theorem Exec.budget_mono {c t m l post B'} (h : Exec ext e B c t m l post) (hB : B ≤ B') :
+    Exec ext e B' c t m l post := by
+  induction h generalizing B' with
+  | skip _ _ _ _ _ hp => exact .skip _ _ _ _ _ hp
+  | set _ _ _ _ _ _ _ _ hv hp => exact .set _ _ _ _ _ _ _ _ hv hp
+  | unset _ _ _ _ _ _ hp => exact .unset _ _ _ _ _ _ hp
+  | store _ _ _ _ _ _ _ _ _ _ _ ha hv hs hp => exact .store _ _ _ _ _ _ _ _ _ _ _ ha hv hs hp
+  | stackalloc _ _ _ _ _ _ _ _ hn _ ih =>
+    exact .stackalloc _ _ _ _ _ _ _ _ (by omega) fun a ms mc ha hs => ih a ms mc ha hs (by omega)
+  | if_true _ _ _ _ _ _ _ _ _ hv hnz _ ih => exact .if_true _ _ _ _ _ _ _ _ _ hv hnz (ih hB)
+  | if_false _ _ _ _ _ _ _ _ _ hv hz _ ih => exact .if_false _ _ _ _ _ _ _ _ _ hv hz (ih hB)
+  | seq _ _ _ _ _ _ _ _ _ _ ih1 ih2 =>
+    exact .seq _ _ _ _ _ _ _ _ (ih1 hB) fun _ _ _ hm => ih2 _ _ _ hm hB
+  | while_false _ _ _ _ _ _ _ _ hv hz hp => exact .while_false _ _ _ _ _ _ _ _ hv hz hp
+  | while_true _ _ _ _ _ _ _ _ _ hv hnz _ _ ih1 ih2 =>
+    exact .while_true _ _ _ _ _ _ _ _ _ hv hnz (ih1 hB) fun _ _ _ hm => ih2 _ _ _ hm hB
+  | call _ _ _ _ _ _ _ _ _ _ _ _ hf ha hl _ hk ih =>
+    exact .call _ _ _ _ _ _ _ _ _ _ _ _ hf ha hl (ih hB) hk
+  | interact _ _ _ _ _ _ _ _ _ _ _ _ hs ha hx hk =>
+    exact .interact _ _ _ _ _ _ _ _ _ _ _ _ hs ha hx hk
+
 theorem Exec.seq_cps {c1 c2 t m l post} :
     Exec ext e B c1 t m l (fun t' m' l' => Exec ext e B c2 t' m' l' post) →
     Exec ext e B (.seq c1 c2) t m l post :=
@@ -251,6 +272,11 @@ theorem call.extend_env {e1 e2 : Env} (hext : e2.Extends e1) {fname t m args pos
     (h : call ext e1 B fname t m args post) : call ext e2 B fname t m args post :=
   let ⟨f, hf, l, hl, hb⟩ := h
   ⟨f, hext _ _ hf, l, hl, hb.extend_env hext⟩
+
+theorem call.budget_mono {fname t m args post B'} (h : call ext e B fname t m args post)
+    (hB : B ≤ B') : call ext e B' fname t m args post :=
+  let ⟨f, hf, l, hl, hb⟩ := h
+  ⟨f, hf, l, hl, hb.budget_mono hB⟩
 
 theorem Exec.call_cps {binds fname arges t m l post args} :
     evalArgs m l arges = some args →

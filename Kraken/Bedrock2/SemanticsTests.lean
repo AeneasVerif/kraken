@@ -1,6 +1,7 @@
 module
 
 import Kraken.Bedrock2.Semantics
+import Kraken.Bedrock2.NonVacuity
 meta import Kraken.Bedrock2.Semantics
 
 open Std Kraken.Bedrock2
@@ -40,3 +41,14 @@ private def m8 : Mem 32 := [1, 2, 3, 4, 5, 6, 7, 8].At 0x100
 #guard (store? .two m8 0x107 0).isNone
 #guard ((store? .one m8 0x107 0x1ff).map (·.loadBytes 0x100 8)) =
   some (some [1, 2, 3, 4, 5, 6, 7, 0xff])
+
+example {ext : ExtSpec 32} {e : Env} {t : Trace 32} {m : Mem 32} {l : Locals 32}
+    {post : Trace 32 → Mem 32 → Locals 32 → Prop} :
+    ¬ Exec ext e 3 (.stackalloc "x" 4 .skip) t m l post := by
+  intro h
+  cases h
+  omega
+
+example {ext : ExtSpec 64} (hext : ext.Responsive) {e : Env} {B : Nat} {c : Cmd} {t : Trace 64}
+    {l : Locals 64} (hB : B < 2 ^ 64) : ¬ Exec ext e B c t ∅ l fun _ _ _ => False :=
+  fun h => let ⟨_, _, _, h⟩ := h.nonvacuous_of_empty hext hB; h
