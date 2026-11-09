@@ -82,65 +82,66 @@ def getMany (l : Locals w) (ks : List String) : Option (List (BitVec w)) :=
   ks.mapM l.get?
 
 inductive Exec (ext : ExtSpec w) (e : Env) :
-    Cmd → Trace w → Mem w → Locals w → (Trace w → Mem w → Locals w → Prop) → Prop
-  | skip t m l post :
+    Nat → Cmd → Trace w → Mem w → Locals w → (Trace w → Mem w → Locals w → Prop) → Prop
+  | skip B t m l post :
       post t m l →
-      Exec ext e .skip t m l post
-  | set x ex t m l post v :
+      Exec ext e B .skip t m l post
+  | set x ex B t m l post v :
       ex.eval m l = some v →
       post t m (l.insert x v) →
-      Exec ext e (.set x ex) t m l post
-  | unset x t m l post :
+      Exec ext e B (.set x ex) t m l post
+  | unset x B t m l post :
       post t m (l.erase x) →
-      Exec ext e (.unset x) t m l post
-  | store sz ea ev t m l post a v m' :
+      Exec ext e B (.unset x) t m l post
+  | store sz ea ev B t m l post a v m' :
       ea.eval m l = some a →
       ev.eval m l = some v →
       store? sz m a v = some m' →
       post t m' l →
-      Exec ext e (.store sz ea ev) t m l post
-  | stackalloc x n body t mSmall l post :
+      Exec ext e B (.store sz ea ev) t m l post
+  | stackalloc x n body B t mSmall l post :
+      n ≤ B →
       (∀ a mStack mCombined, anybytes a n mStack → split mCombined mSmall mStack →
-        Exec ext e body t mCombined (l.insert x a) fun t' mCombined' l' =>
+        Exec ext e (B - n) body t mCombined (l.insert x a) fun t' mCombined' l' =>
           ∃ mSmall' mStack', anybytes a n mStack' ∧ split mCombined' mSmall' mStack' ∧
             post t' mSmall' l') →
-      Exec ext e (.stackalloc x n body) t mSmall l post
-  | if_true t m l ec c1 c2 post v :
+      Exec ext e B (.stackalloc x n body) t mSmall l post
+  | if_true B t m l ec c1 c2 post v :
       ec.eval m l = some v →
       v ≠ 0 →
-      Exec ext e c1 t m l post →
-      Exec ext e (.cond ec c1 c2) t m l post
-  | if_false t m l ec c1 c2 post v :
+      Exec ext e B c1 t m l post →
+      Exec ext e B (.cond ec c1 c2) t m l post
+  | if_false B t m l ec c1 c2 post v :
       ec.eval m l = some v →
       v = 0 →
-      Exec ext e c2 t m l post →
-      Exec ext e (.cond ec c1 c2) t m l post
-  | seq c1 c2 t m l post mid :
-      Exec ext e c1 t m l mid →
-      (∀ t' m' l', mid t' m' l' → Exec ext e c2 t' m' l' post) →
-      Exec ext e (.seq c1 c2) t m l post
-  | while_false ec c t m l post v :
+      Exec ext e B c2 t m l post →
+      Exec ext e B (.cond ec c1 c2) t m l post
+  | seq c1 c2 B t m l post mid :
+      Exec ext e B c1 t m l mid →
+      (∀ t' m' l', mid t' m' l' → Exec ext e B c2 t' m' l' post) →
+      Exec ext e B (.seq c1 c2) t m l post
+  | while_false ec c B t m l post v :
       ec.eval m l = some v →
       v = 0 →
       post t m l →
-      Exec ext e (.while ec c) t m l post
-  | while_true ec c t m l post v mid :
+      Exec ext e B (.while ec c) t m l post
+  | while_true ec c B t m l post v mid :
       ec.eval m l = some v →
       v ≠ 0 →
-      Exec ext e c t m l mid →
-      (∀ t' m' l', mid t' m' l' → Exec ext e (.while ec c) t' m' l' post) →
-      Exec ext e (.while ec c) t m l post
-  | call binds fname arges t m l post f args lf mid :
+      Exec ext e B c t m l mid →
+      (∀ t' m' l', mid t' m' l' → Exec ext e B (.while ec c) t' m' l' post) →
+      Exec ext e B (.while ec c) t m l post
+  | call binds fname arges B t m l post f args lf mid :
       e.lookup fname = some f →
       evalArgs m l arges = some args →
       putManyZip f.params args ∅ = some lf →
-      Exec ext e f.body t m lf mid →
+      Exec ext e B f.body t m lf mid →
       (∀ t' m' st1, mid t' m' st1 →
         ∃ retvs, getMany st1 f.rets = some retvs ∧
         ∃ l', putManyZip binds retvs l = some l' ∧
         post t' m' l') →
-      Exec ext e (.call binds fname arges) t m l post
-  | interact binds action arges args t m l post mKeep mGive mid :
+      Exec ext e B (.call binds fname arges) t m l post
+  | interact binds action arges args B t m l post mKeep mGive mid :
       split m mKeep mGive →
       evalArgs m l arges = some args →
       ext t mGive action args mid →
@@ -148,6 +149,6 @@ inductive Exec (ext : ExtSpec w) (e : Env) :
         ∃ l', putManyZip binds resvals l = some l' ∧
         ∀ m', split m' mKeep mReceive →
         post (((mGive, action, args), (mReceive, resvals)) :: t) m' l') →
-      Exec ext e (.interact binds action arges) t m l post
+      Exec ext e B (.interact binds action arges) t m l post
 
 end Kraken.Bedrock2

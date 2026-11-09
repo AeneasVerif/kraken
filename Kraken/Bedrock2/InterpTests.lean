@@ -49,8 +49,8 @@ private def callDivmod : Cmd := .call ["x", "y"] "divmod" [lit 17, lit 5]
 #guard (run32 callDivmod).isNone
 #guard (run32 (.call ["x"] "divmod" [lit 17, lit 5]) (e := divmodEnv)).isNone
 
-private theorem divmod_call {ext : ExtSpec 32} (t : Trace 32) (m : Mem 32) (a b : BitVec 32) :
-    call ext divmodEnv "divmod" t m [a, b] fun t' m' rets =>
+private theorem divmod_call {ext : ExtSpec 32} {B : Nat} (t : Trace 32) (m : Mem 32) (a b : BitVec 32) :
+    call ext divmodEnv B "divmod" t m [a, b] fun t' m' rets =>
       t' = t ∧ m' = m ∧ rets = [interpBinop .divu a b, a % b] := by
   refine call.of_body rfl (by simp; rfl) (.seq_cps (.set_cps (v := interpBinop .divu a b) ?_
     (.set_cps (v := interpBinop .remu a b) ?_ ?_))) <;>
@@ -61,7 +61,7 @@ private theorem callDivmod_run {fill : UInt8} {fuel : Nat} {o : List (BitVec 32)
     r.2.2.1.get? "x" = some 3 ∧ r.2.2.1.get? "y" = some 2 := by
   obtain ⟨t', m', l', o'⟩ := r
   obtain ⟨rets, hl, -, -, rfl⟩ := run_of_call (Handler.ok_none fun _ _ _ _ _ => False)
-    (divmod_call [] ∅ 17 5) (by rfl) hr
+    (divmod_call (B := 0) [] ∅ 17 5) (by rfl) hr
   simp [interpBinop] at hl
   simp [← hl]
 

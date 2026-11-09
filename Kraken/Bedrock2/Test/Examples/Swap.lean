@@ -23,12 +23,12 @@ def swap_swap := bedrock2:(fn swap_swap(a, b) {
   swap(a, b)
 })
 
-theorem swap_ok {w : Nat} (hw : w = 32 ∨ w = 64) {ext : ExtSpec w} {e : Env}
+theorem swap_ok {w : Nat} (hw : w = 32 ∨ w = 64) {ext : ExtSpec w} {e : Env} {B : Nat}
     (he : e.lookup (swap w).1 = some (swap w).2)
     {t : Trace w} {m : Mem w} {pa pb : BitVec w} {bsa bsb : List UInt8} {R : Mem w → Prop}
     (hla : bsa.length = w / 8) (hlb : bsb.length = w / 8)
     (hm : m =⋆ Eq (bsa.At pa) ⋆ Eq (bsb.At pb) ⋆ R) :
-    call ext e (swap w).1 t m [pa, pb] fun t' m' rets =>
+    call ext e B (swap w).1 t m [pa, pb] fun t' m' rets =>
       rets = [] ∧ t' = t ∧ (m' =⋆ Eq (bsb.At pa) ⋆ Eq (bsa.At pb) ⋆ R) := by
   refine call.of_body he (by simp [swap]; rfl) ?_
   have hmA : m =⋆ Eq (bsa.At pa) ⋆ (Eq (bsb.At pb) ⋆ R) := by rwa [← sep_assoc]
@@ -49,13 +49,13 @@ theorem swap_ok {w : Nat} (hw : w = 32 ∨ w = 64) {ext : ExtSpec w} {e : Env}
   rw [← hlb', toBytes_toNat_ofInt_ofBytes (by omega), ← sep_assoc] at hm2
   exact ⟨[], rfl, rfl, rfl, hm2⟩
 
-theorem swap_swap_ok {w : Nat} (hw : w = 32 ∨ w = 64) {ext : ExtSpec w} {e : Env}
+theorem swap_swap_ok {w : Nat} (hw : w = 32 ∨ w = 64) {ext : ExtSpec w} {e : Env} {B : Nat}
     (he : e.lookup (swap w).1 = some (swap w).2)
     (he' : e.lookup swap_swap.1 = some swap_swap.2)
     {t : Trace w} {m : Mem w} {pa pb : BitVec w} {bsa bsb : List UInt8} {R : Mem w → Prop}
     (hla : bsa.length = w / 8) (hlb : bsb.length = w / 8)
     (hm : m =⋆ Eq (bsa.At pa) ⋆ Eq (bsb.At pb) ⋆ R) :
-    call ext e swap_swap.1 t m [pa, pb] fun t' m' rets =>
+    call ext e B swap_swap.1 t m [pa, pb] fun t' m' rets =>
       rets = [] ∧ t' = t ∧ (m' =⋆ Eq (bsa.At pa) ⋆ Eq (bsb.At pb) ⋆ R) := by
   refine call.of_body he' (by simp [swap_swap]; rfl) ?_
   refine Exec.seq_cps (Exec.call_cps (args := [pa, pb]) (by simp [evalArgs, Expr.eval])

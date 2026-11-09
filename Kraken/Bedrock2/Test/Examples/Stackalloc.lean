@@ -19,14 +19,14 @@ def stackalloc_set_bytes := bedrock2:(fn stackalloc_set_bytes(x) -> (r) {
 })
 
 theorem stackalloc_set_bytes_ok {w : Nat} (hw : w = 32 ∨ w = 64) {ext : ExtSpec w}
-    {e : Env}
+    {e : Env} {B : Nat} (hB : 16 ≤ B)
     (he : e.lookup set_bytes.1 = some set_bytes.2)
     (he' : e.lookup stackalloc_set_bytes.1 = some stackalloc_set_bytes.2)
     {t : Trace w} {m : Mem w} {x : BitVec w} :
-    call ext e stackalloc_set_bytes.1 t m [x] fun t' m' rets =>
+    call ext e B stackalloc_set_bytes.1 t m [x] fun t' m' rets =>
       t' = t ∧ m' = m ∧ rets = [x &&& 0xff] := by
   refine call.of_body he' (by simp [stackalloc_set_bytes]; rfl) ?_
-  refine Exec.stackalloc_cps fun a _ mC ⟨bs, hbs, hlen, _⟩ hsplit => ?_
+  refine Exec.stackalloc_cps hB fun a _ mC ⟨bs, hbs, hlen, _⟩ hsplit => ?_
   subst hbs
   have hC : mC =⋆ Eq (bs.At a) ⋆ Eq m := by rwa [split_iff_sep, sep_comm] at hsplit
   have h16 : (BitVec.ofInt w 16).toNat = 16 := by obtain rfl | rfl := hw <;> decide

@@ -18,11 +18,11 @@ def set_bytes := bedrock2:(fn set_bytes(p, n, v) {
   }
 })
 
-theorem set_bytes_ok {w : Nat} {ext : ExtSpec w} {e : Env}
+theorem set_bytes_ok {w : Nat} {ext : ExtSpec w} {e : Env} {B : Nat}
     (he : e.lookup set_bytes.1 = some set_bytes.2)
     {t : Trace w} {m : Mem w} {p n v : BitVec w} {bs : List UInt8} {R : Mem w → Prop}
     (hl : bs.length = n.toNat) (hm : m =⋆ Eq (bs.At p) ⋆ R) :
-    call ext e set_bytes.1 t m [p, n, v] fun t' m' rets =>
+    call ext e B set_bytes.1 t m [p, n, v] fun t' m' rets =>
       rets = [] ∧ t' = t ∧ (m' =⋆ Eq ((List.replicate n.toNat v.toNat.toUInt8).At p) ⋆ R) := by
   refine call.of_body he (by simp [set_bytes]; rfl) ?_
   refine Exec.tailrec (Measure := Nat) (Ghost := List UInt8 × BitVec w × (Mem w → Prop))

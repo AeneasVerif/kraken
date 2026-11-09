@@ -34,11 +34,11 @@ private theorem bitcopy_step {w : Nat} (hw : w = 32 ∨ w = 64) (a bv : BitVec w
   obtain rfl | rfl := hw <;> bv_decide
 
 theorem bitcopy_store_ok {w : Nat} (hw : w = 32 ∨ w = 64) {ext : ExtSpec w} {e : Env}
-    (he : e.lookup bitcopy_store.1 = some bitcopy_store.2)
+    {B : Nat} (hB : 8 ≤ B) (he : e.lookup bitcopy_store.1 = some bitcopy_store.2)
     {t : Trace w} {m : Mem w} :
-    call ext e bitcopy_store.1 t m [] fun t' m' rets => t' = t ∧ m' = m ∧ rets = [15] := by
+    call ext e B bitcopy_store.1 t m [] fun t' m' rets => t' = t ∧ m' = m ∧ rets = [15] := by
   refine call.of_body he (putManyZip_nil _) ?_
-  refine Exec.stackalloc_cps fun a _ mC ⟨bs, hbs, hlen, _⟩ hsplit => ?_
+  refine Exec.stackalloc_cps hB fun a _ mC ⟨bs, hbs, hlen, _⟩ hsplit => ?_
   subst hbs
   have h8 : AccessSize.eight.bytes ≤ 2 ^ w := by obtain rfl | rfl := hw <;> decide
   have hshamt : shamt (1#w) = 1 := by obtain rfl | rfl := hw <;> decide
@@ -65,7 +65,7 @@ theorem bitcopy_store_ok {w : Nat} (hw : w = 32 ∨ w = 64) {ext : ExtSpec w} {e
     · refine Exec.cond_cps (v := a &&& (1#w <<< k)) (by simp [Expr.eval, interpBinop, hx, hb])
         (fun hand => Exec.set_cps (by simp [Expr.eval, interpBinop, hi, hb]; rfl)
           ⟨rfl, rfl, by simp [hx], by simp [hb], by simpa using hset hand⟩)
-        fun hand => .skip _ _ _ _ ⟨rfl, rfl, hx, hb, by rwa [← hskip hand]⟩
+        fun hand => .skip _ _ _ _ _ ⟨rfl, rfl, hx, hb, by rwa [← hskip hand]⟩
     · rintro _ _ l'' ⟨rfl, rfl, hx', hb', hi'⟩
       refine Exec.set_cps (v := (1#w <<< k) <<< 1)
         (by simp [Expr.eval, interpBinop, hb', hshamt]) ?_

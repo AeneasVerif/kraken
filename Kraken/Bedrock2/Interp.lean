@@ -96,17 +96,17 @@ private theorem filter_of_split {m mKeep mGive : Mem w} (h : split m mKeep mGive
   cases mKeep[k]? <;> cases mGive[k]? <;> simp
 
 theorem run_of_exec {ext : ExtSpec w} {handler : Handler w} (hh : Handler.Ok ext handler)
-    {e : Env} {c : Cmd} {t : Trace w} {m : Mem w} {l : Locals w}
-    {post : Trace w → Mem w → Locals w → Prop} (h : Exec ext e c t m l post)
+    {e : Env} {B : Nat} {c : Cmd} {t : Trace w} {m : Mem w} {l : Locals w}
+    {post : Trace w → Mem w → Locals w → Prop} (h : Exec ext e B c t m l post)
     {fill : UInt8} {fuel : Nat} {o : List (BitVec w)} {t' : Trace w} {m' : Mem w} {l' : Locals w}
     {o' : List (BitVec w)} (hr : run e fill fuel c t m l o handler = some (t', m', l', o')) :
     post t' m' l' := by
   induction h generalizing fuel o t' m' l' o' with
-  | skip _ _ _ _ hp => simp_all [run]
-  | set _ _ _ _ _ _ _ hv hp => simp_all [run]
-  | unset _ _ _ _ _ hp => simp_all [run]
-  | store _ _ _ _ _ _ _ _ _ _ ha hv hs hp => simp_all [run]
-  | stackalloc x n body t mSmall l post _ ih =>
+  | skip _ _ _ _ _ hp => simp_all [run]
+  | set _ _ _ _ _ _ _ _ hv hp => simp_all [run]
+  | unset _ _ _ _ _ _ hp => simp_all [run]
+  | store _ _ _ _ _ _ _ _ _ _ _ ha hv hs hp => simp_all [run]
+  | stackalloc x n body B t mSmall l post _ _ ih =>
     cases o with
     | nil => simp [run] at hr
     | cons a o =>
@@ -129,15 +129,15 @@ theorem run_of_exec {ext : ExtSpec w} {handler : Handler w} (hh : Handler.Ok ext
         rw [Bool.eq_iff_iff, contains_iff_mem, contains_iff_mem, mem_At_iff, mem_At_iff,
           List.length_replicate, hbl]
       simpa only [hkey, filter_of_split hsplit] using hp
-  | if_true _ _ _ _ _ _ _ _ hv hnz _ ih => simp_all [run]; exact ih hr
-  | if_false _ _ _ _ _ _ _ _ hv hz _ ih => simp_all [run]; exact ih hr
-  | seq _ _ _ _ _ _ _ _ _ ih1 ih2 =>
+  | if_true _ _ _ _ _ _ _ _ _ hv hnz _ ih => simp_all [run]; exact ih hr
+  | if_false _ _ _ _ _ _ _ _ _ hv hz _ ih => simp_all [run]; exact ih hr
+  | seq _ _ _ _ _ _ _ _ _ _ ih1 ih2 =>
     simp only [run, Option.bind_eq_bind, Option.bind_eq_some_iff] at hr
     obtain ⟨⟨t1, m1, l1, o1⟩, h1, h2⟩ := hr
     exact ih2 _ _ _ (ih1 h1) h2
-  | while_false _ _ _ _ _ _ _ hv hz hp =>
+  | while_false _ _ _ _ _ _ _ _ hv hz hp =>
     cases fuel <;> simp_all [run]
-  | while_true _ _ _ _ _ _ _ _ hv hnz _ _ ih1 ih2 =>
+  | while_true _ _ _ _ _ _ _ _ _ hv hnz _ _ ih1 ih2 =>
     cases fuel with
     | zero => simp [run] at hr
     | succ fuel =>
@@ -145,7 +145,7 @@ theorem run_of_exec {ext : ExtSpec w} {handler : Handler w} (hh : Handler.Ok ext
         Option.bind_eq_some_iff] at hr
       obtain ⟨⟨t1, m1, l1, o1⟩, h1, h2⟩ := hr
       exact ih2 _ _ _ (ih1 h1) h2
-  | call _ _ _ _ _ _ _ _ _ _ _ hf ha hl _ hk ih =>
+  | call _ _ _ _ _ _ _ _ _ _ _ _ hf ha hl _ hk ih =>
     cases fuel with
     | zero => simp [run] at hr
     | succ fuel =>
@@ -156,7 +156,7 @@ theorem run_of_exec {ext : ExtSpec w} {handler : Handler w} (hh : Handler.Ok ext
       obtain ⟨rv, hrv, l3, hl3, hp⟩ := hk _ _ _ (ih h1)
       cases hrv.symm.trans hrets; cases hl3.symm.trans hl2
       exact hp
-  | interact _ _ _ _ _ _ _ _ mKeep _ _ hs ha hx hk =>
+  | interact _ _ _ _ _ _ _ _ _ mKeep _ _ hs ha hx hk =>
     simp only [run, ha, Option.bind_eq_bind, Option.bind_some, Option.bind_eq_some_iff] at hr
     obtain ⟨⟨g, r, rets⟩, hhd, hr⟩ := hr
     obtain ⟨rfl, hmid⟩ := hh _ _ _ _ _ _ _ _ _ _ hs hx hhd
@@ -168,8 +168,8 @@ theorem run_of_exec {ext : ExtSpec w} {handler : Handler w} (hh : Handler.Ok ext
     exact hp _ ⟨rfl, isEmpty_iff.mp hemp⟩
 
 theorem run_body_of_call {ext : ExtSpec w} {handler : Handler w} (hh : Handler.Ok ext handler)
-    {e : Env} {fname : String} {t : Trace w} {m : Mem w} {args : List (BitVec w)}
-    {post : Trace w → Mem w → List (BitVec w) → Prop} (h : call ext e fname t m args post)
+    {e : Env} {B : Nat} {fname : String} {t : Trace w} {m : Mem w} {args : List (BitVec w)}
+    {post : Trace w → Mem w → List (BitVec w) → Prop} (h : call ext e B fname t m args post)
     {f : Func} (hf : e.lookup fname = some f) {lf : Locals w}
     (hl : putManyZip f.params args ∅ = some lf)
     {fill : UInt8} {fuel : Nat} {o : List (BitVec w)} {t' : Trace w} {m' : Mem w} {l' : Locals w}
@@ -180,8 +180,8 @@ theorem run_body_of_call {ext : ExtSpec w} {handler : Handler w} (hh : Handler.O
   exact run_of_exec hh hb hr
 
 theorem run_of_call {ext : ExtSpec w} {handler : Handler w} (hh : Handler.Ok ext handler)
-    {e : Env} {fname : String} {t : Trace w} {m : Mem w} {args : List (BitVec w)}
-    {post : Trace w → Mem w → List (BitVec w) → Prop} (h : call ext e fname t m args post)
+    {e : Env} {B : Nat} {fname : String} {t : Trace w} {m : Mem w} {args : List (BitVec w)}
+    {post : Trace w → Mem w → List (BitVec w) → Prop} (h : call ext e B fname t m args post)
     {binds : List String} {arges : List Expr} {l : Locals w} (ha : evalArgs m l arges = some args)
     {fill : UInt8} {fuel : Nat} {o : List (BitVec w)} {t' : Trace w} {m' : Mem w} {l' : Locals w}
     {o' : List (BitVec w)}
