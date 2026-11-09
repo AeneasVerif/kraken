@@ -267,6 +267,7 @@ structure MachineData where -- does not include code or program position
   regs : Reg64s := {}
   zmms : RegZmms := {}
   status : StatusFlags := .mk false false false false false false
+  df : Bool := false  -- Direction flag (RFLAGS bit 10)
   dmem : DataMem := ∅
   deriving Repr, BEq, DecidableEq
 
@@ -791,6 +792,8 @@ set_option maxHeartbeats 1000000
     let rsp := s.regs.get64 .rsp
     s.load rsp .W64 (fun ra s =>
     jmp (.ofBitVec ra) { s with regs := s.regs.set64 .rsp (rsp + 8) })
+  | .cld => next { s with df := false }
+  | .std => next { s with df := true }
   | nop _ | nopalign _ _ => next s
 
 -- AVX Operations Interpreter

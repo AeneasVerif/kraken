@@ -374,6 +374,8 @@ syntax withPosition(x64_push_op lineEq x64_operand) : x64_instr
 syntax withPosition(x64_pop_op lineEq x64_operand) : x64_instr
 syntax &"ret"  : x64_instr
 syntax &"retq" : x64_instr
+syntax &"cld"  : x64_instr
+syntax &"std"  : x64_instr
 syntax withPosition(&"call"  lineEq x64_operand) : x64_instr
 syntax withPosition(&"callq" lineEq x64_operand) : x64_instr
 syntax withPosition(&"jmp"   lineEq x64_operand) : x64_instr

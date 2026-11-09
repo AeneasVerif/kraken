@@ -52,3 +52,22 @@ private def wrapping : MachineData :=
   some ([(0xfffffffffffffff8, UInt64.size), (0, 8)], [])
 #guard accessChecks (wrapping.storeAvx (w := .W128) 0xfffffffffffffff8 0 fun s => .done ⟨s, 0⟩) ==
   some ([], [(0xfffffffffffffff8, UInt64.size), (0, 8)])
+
+/-! `cld`/`std` write only the direction flag. -/
+
+private def runOp (op : Operation .W64) (s : MachineData) : Option MachineData :=
+  let : Labels := ⟨fun _ => 0⟩
+  let : AddressSize := ⟨.W64⟩
+  match op.interp ⟨0, 1⟩ s (fun s => .done ⟨s, 1⟩) (fun _ _ => .unimplemented "jump") with
+  | .done st => some st.data
+  | _ => none
+
+/-- A state with every status flag set and some register and memory contents. -/
+private def busy : MachineData :=
+  { s with regs := { rax := 7 }, status := .mk true true true true true true }
+
+#guard runOp .std busy == some { busy with df := true }
+#guard runOp .cld { busy with df := true } == some busy
+#guard runOp .cld busy == some busy
+#guard (runOp .std busy >>= runOp .std) == some { busy with df := true }
+#guard (runOp .std busy >>= runOp .cld) == some busy

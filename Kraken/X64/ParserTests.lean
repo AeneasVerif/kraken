@@ -594,4 +594,20 @@ info: [Directive.instr
 
 end antiquotations
 
+-- Test: flag control instructions (`cld`/`std`), string parser and `[x64| ]` syntax
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 Operation.cld),
+  Directive.instr (regular Width.W64 Width.W64 Operation.std)] : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check parse("cld\nstd")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 Operation.cld),
+  Directive.instr (regular Width.W64 Width.W64 Operation.std)] : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check [x64| cld; std ]
+
 end Tests
+
