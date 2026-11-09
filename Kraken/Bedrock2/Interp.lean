@@ -82,7 +82,7 @@ def run (e : Env) (fill : UInt8) (fuel : Nat) (c : Cmd) (t : Trace w) (m : Mem w
     else none
 termination_by (fuel, c)
 
-private theorem filter_of_split {m mKeep mGive : Mem w} (h : split m mKeep mGive) :
+theorem filter_of_split {m mKeep mGive : Mem w} (h : split m mKeep mGive) :
     m.filter (fun k _ => !mGive.contains k) = mKeep := by
   obtain ⟨rfl, hi⟩ := h
   have hi := eq_empty_iff_forall_not_mem.mp hi

@@ -52,3 +52,8 @@ example {ext : ExtSpec 32} {e : Env} {t : Trace 32} {m : Mem 32} {l : Locals 32}
 example {ext : ExtSpec 64} (hext : ext.Responsive) {e : Env} {B : Nat} {c : Cmd} {t : Trace 64}
     {l : Locals 64} (hB : B < 2 ^ 64) : ¬ Exec ext e B c t ∅ l fun _ _ _ => False :=
   fun h => let ⟨_, _, _, h⟩ := h.nonvacuous_of_empty hext hB; h
+
+example : ExtSpec.Responsive (w := 64) fun _ _ _ _ _ => False := fun _ _ _ _ _ h => h.elim
+
+example : Handler.Complete (w := 64) (fun _ _ _ _ _ => False) fun _ _ _ _ => none :=
+  fun _ _ _ _ _ _ _ _ h => h.elim

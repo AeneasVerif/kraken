@@ -1,6 +1,6 @@
 module
 
-public import Kraken.Bedrock2.SemanticsLemmas
+public import Kraken.Bedrock2.Interp
 import all Kraken.Mem
 
 @[expose] public section
@@ -186,5 +186,142 @@ theorem Exec.nonvacuous_of_size (hext : ext.Responsive) {B : Nat} {c : Cmd} {t :
     ∃ t' m' l', post t' m' l' :=
   let ⟨_, _, hwrap, hfree⟩ := exists_block_of_size hsz
   h.nonvacuous hext hwrap hfree
+
+def Handler.Complete (ext : ExtSpec w) (handler : Handler w) : Prop :=
+  ∀ t m mKeep mGive a args mid, split m mKeep mGive → ext t mGive a args mid →
+    ∃ mReceive rets, handler t m a args = some (mGive, mReceive, rets) ∧
+      ∀ k, k ∈ mReceive → k ∈ mGive
+
+theorem Exec.exists_run {handler : Handler w} (hh : Handler.Ok ext handler)
+    (hc : Handler.Complete ext handler) (fill : UInt8) {B : Nat} {c : Cmd} {t : Trace w}
+    {m : Mem w} {l : Locals w} {post : Trace w → Mem w → Locals w → Prop}
+    (h : Exec ext e B c t m l post) {base : BitVec w} (hfree : FreeBlock m base B) :
+    ∃ F o t' m' l', (∀ fuel, F ≤ fuel → ∀ s,
+        run e fill fuel c t m l (o ++ s) handler = some (t', m', l', s)) ∧
+      (∀ a ∈ o, ∃ i ≤ B, a = base + .ofNat w i) ∧ ∀ k, k ∈ m' → k ∈ m := by
+  induction h generalizing base with
+  | skip _ t m l =>
+    exact ⟨0, [], t, m, l, fun _ _ _ => by simp [run], by simp, fun _ => id⟩
+  | set x _ _ t m l _ v hv _ =>
+    exact ⟨0, [], t, m, l.insert x v, fun _ _ _ => by simp [run, hv], by simp, fun _ => id⟩
+  | unset x _ t m l =>
+    exact ⟨0, [], t, m, l.erase x, fun _ _ _ => by simp [run], by simp, fun _ => id⟩
+  | store _ _ _ _ t _ l _ _ _ m' ha hv hs _ =>
+    exact ⟨0, [], t, m', l, fun _ _ _ => by simp [run, ha, hv, hs], by simp,
+      fun _ => mem_of_store? hs⟩
+  | stackalloc x n body B t mSmall l post hn hbody ih =>
+    have hBw := hfree.1
+    obtain ⟨hany, hd, hfree'⟩ := hfree.stackalloc fill hn
+    obtain ⟨F, o, t1, m1, l1, hrun, hor, hsub⟩ := ih _ _ _ hany (split_union hd) hfree'
+    obtain ⟨mS', mSt', ⟨bs, rfl, hbl, -⟩, hsp', -⟩ :=
+      run_of_exec hh (hbody _ _ _ hany (split_union hd)) (hrun F (Nat.le_refl _) [])
+    have hc1 : n ≤ 2 ^ w ∧ (List.range n).all
+        (fun i => !mSmall.contains (base + .ofNat w (B - n) + .ofNat w i)) = true := by
+      refine ⟨by omega, ?_⟩
+      simp only [List.all_eq_true, List.mem_range, Bool.not_eq_eq_eq_not, Bool.not_true,
+        Bool.eq_false_iff, ne_eq, contains_iff_mem]
+      exact fun i hi hk => hd _ hk ((mem_At_iff _ _ _).2 ⟨i, by simp [hi], rfl⟩)
+    have hc2 : (List.range n).all
+        (fun i => m1.contains (base + .ofNat w (B - n) + .ofNat w i)) = true := by
+      simp only [List.all_eq_true, List.mem_range, contains_iff_mem]
+      exact fun i hi => (mem_of_split hsp').2 (.inr ((mem_At_iff _ _ _).2 ⟨i, by omega, rfl⟩))
+    refine ⟨F, (base + .ofNat w (B - n)) :: o, t1,
+      m1.filter fun k _ => !((List.replicate n fill).At (base + .ofNat w (B - n))).contains k, l1,
+      fun fuel hF s => ?_, ?_, fun k hk => ?_⟩
+    · simp only [run, List.cons_append, hc1, and_self, ite_true, hrun fuel hF s,
+        Option.bind_eq_bind, Option.bind_some, hc2, ite_true]
+    · intro a ha
+      rcases List.mem_cons.mp ha with rfl | ha
+      · exact ⟨B - n, by omega, rfl⟩
+      · obtain ⟨i, hi, rfl⟩ := hor a ha
+        exact ⟨i, by omega, rfl⟩
+    · rw [mem_filter] at hk
+      obtain ⟨hk1, hk2⟩ := hk
+      rcases (mem_of_split (split_union hd)).1 (hsub k hk1) with h | h
+      · exact h
+      · rw [getKey_eq] at hk2
+        simp only [Bool.not_eq_eq_eq_not, Bool.not_true] at hk2
+        rw [← contains_iff_mem, hk2] at h
+        exact absurd h Bool.false_ne_true
+  | if_true _ _ _ _ _ _ _ _ _ hv hnz _ ih =>
+    obtain ⟨F, o, t', m', l', hr, ho, hs⟩ := ih hfree
+    exact ⟨F, o, t', m', l', fun fuel hF s => by
+      simp only [run, hv, hnz, Option.bind_eq_bind, Option.bind_some, ne_eq, not_false_eq_true,
+        ite_true, hr fuel hF s], ho, hs⟩
+  | if_false _ _ _ _ _ _ _ _ _ hv hz _ ih =>
+    obtain ⟨F, o, t', m', l', hr, ho, hs⟩ := ih hfree
+    exact ⟨F, o, t', m', l', fun fuel hF s => by simp [run, hv, hz, hr fuel hF s], ho, hs⟩
+  | seq _ _ _ _ _ _ _ _ h1 _ ih1 ih2 =>
+    obtain ⟨F1, o1, _, _, _, hr1, ho1, hs1⟩ := ih1 hfree
+    have hmid := run_of_exec hh h1 (hr1 F1 (Nat.le_refl _) [])
+    obtain ⟨F2, o2, t2, m2, l2, hr2, ho2, hs2⟩ := ih2 _ _ _ hmid (hfree.mono hs1)
+    refine ⟨max F1 F2, o1 ++ o2, t2, m2, l2, fun fuel hF s => ?_,
+      fun a ha => (List.mem_append.mp ha).elim (ho1 a) (ho2 a), fun k hk => hs1 k (hs2 k hk)⟩
+    simp only [run, List.append_assoc, hr1 fuel (by omega) (o2 ++ s), Option.bind_eq_bind,
+      Option.bind_some]
+    exact hr2 fuel (by omega) s
+  | while_false _ _ _ t m l _ _ hv hz _ =>
+    refine ⟨1, [], t, m, l, fun fuel hF s => ?_, by simp, fun _ => id⟩
+    obtain ⟨fuel, rfl⟩ : ∃ f, fuel = f + 1 := ⟨fuel - 1, by omega⟩
+    simp [run, hv, hz]
+  | while_true _ _ _ _ _ _ _ _ _ hv hnz h1 _ ih1 ih2 =>
+    obtain ⟨F1, o1, _, _, _, hr1, ho1, hs1⟩ := ih1 hfree
+    have hmid := run_of_exec hh h1 (hr1 F1 (Nat.le_refl _) [])
+    obtain ⟨F2, o2, t2, m2, l2, hr2, ho2, hs2⟩ := ih2 _ _ _ hmid (hfree.mono hs1)
+    refine ⟨max F1 F2 + 1, o1 ++ o2, t2, m2, l2, fun fuel hF s => ?_,
+      fun a ha => (List.mem_append.mp ha).elim (ho1 a) (ho2 a), fun k hk => hs1 k (hs2 k hk)⟩
+    obtain ⟨fuel, rfl⟩ : ∃ f, fuel = f + 1 := ⟨fuel - 1, by omega⟩
+    simp only [run, hv, hnz, List.append_assoc, hr1 fuel (by omega) (o2 ++ s),
+      Option.bind_eq_bind, Option.bind_some, ne_eq, not_false_eq_true, ite_true]
+    exact hr2 fuel (by omega) s
+  | call _ _ _ _ _ _ _ _ _ _ _ _ hf ha hl hb hk ih =>
+    obtain ⟨F, o, t1, m1, l1, hr, ho, hs⟩ := ih hfree
+    obtain ⟨rv, hrv, l', hl', -⟩ := hk _ _ _ (run_of_exec hh hb (hr F (Nat.le_refl _) []))
+    refine ⟨F + 1, o, t1, m1, l', fun fuel hF s => ?_, ho, hs⟩
+    obtain ⟨fuel, rfl⟩ : ∃ f, fuel = f + 1 := ⟨fuel - 1, by omega⟩
+    simp [run, hf, ha, hl, hr fuel (by omega) s, hrv, hl']
+  | interact _ action _ args _ t _ _ _ mKeep mGive _ hs ha hx hk =>
+    obtain ⟨mR, rets, hhd, hR⟩ := hc _ _ _ _ _ _ _ hs hx
+    obtain ⟨-, hmid⟩ := hh _ _ _ _ _ _ _ _ _ _ hs hx hhd
+    obtain ⟨l', hl', -⟩ := hk _ _ hmid
+    have hd : ∀ k, k ∈ mKeep → k ∉ mR := fun k hk hkR => not_mem_of_split hs hk (hR k hkR)
+    have hemp : mKeep ∩ mR = ∅ := inter_eq.symm.trans (split_union hd).2
+    exact ⟨0, [], ((mGive, action, args), (mR, rets)) :: t, mKeep.union mR, l',
+      fun _ _ _ => by simp [run, ha, hhd, filter_of_split hs, hemp, hl'], by simp, fun k hk =>
+        ((mem_of_split (split_union hd)).1 hk).elim
+          (fun hk => (mem_of_split hs).2 (.inl hk)) (fun hk => (mem_of_split hs).2 (.inr (hR k hk)))⟩
+
+theorem Exec.exists_run_post {handler : Handler w} (hh : Handler.Ok ext handler)
+    (hc : Handler.Complete ext handler) (fill : UInt8) {B : Nat} {c : Cmd} {t : Trace w}
+    {m : Mem w} {l : Locals w} {post : Trace w → Mem w → Locals w → Prop}
+    (h : Exec ext e B c t m l post) {base : BitVec w} (hfree : FreeBlock m base B) :
+    ∃ fuel o t' m' l', run e fill fuel c t m l o handler = some (t', m', l', []) ∧
+      post t' m' l' ∧ ∀ a ∈ o, ∃ i ≤ B, a = base + .ofNat w i := by
+  obtain ⟨F, o, t', m', l', hr, ho, -⟩ := h.exists_run hh hc fill hfree
+  have hr := hr F (Nat.le_refl _) []
+  rw [List.append_nil] at hr
+  exact ⟨F, o, t', m', l', hr, run_of_exec hh h hr, ho⟩
+
+theorem Exec.exists_run_of_block {handler : Handler w} (hh : Handler.Ok ext handler)
+    (hc : Handler.Complete ext handler) (fill : UInt8) {B : Nat} {c : Cmd} {t : Trace w}
+    {m : Mem w} {l : Locals w} {post : Trace w → Mem w → Locals w → Prop}
+    (h : Exec ext e B c t m l post) {base : Nat} (hbase : 0 < base) (hwrap : base + B < 2 ^ w)
+    (hfree : ∀ a : BitVec w, base ≤ a.toNat → a.toNat < base + B → a ∉ m) :
+    ∃ fuel o t' m' l', run e fill fuel c t m l o handler = some (t', m', l', []) ∧
+      post t' m' l' ∧ ∀ a ∈ o, a ≠ 0 ∧ base ≤ a.toNat ∧ a.toNat ≤ base + B := by
+  have htoNat : ∀ i ≤ B, (BitVec.ofNat w base + .ofNat w i).toNat = base + i := by
+    intro i hi
+    simp only [BitVec.toNat_add, BitVec.toNat_ofNat, Nat.add_mod_mod, Nat.mod_add_mod]
+    exact Nat.mod_eq_of_lt (by omega)
+  obtain ⟨fuel, o, t', m', l', hr, hp, ho⟩ := h.exists_run_post hh hc fill
+    (base := .ofNat w base) ⟨by omega, fun i hi => hfree _ (by rw [htoNat i (by omega)]; omega)
+      (by rw [htoNat i (by omega)]; omega)⟩
+  refine ⟨fuel, o, t', m', l', hr, hp, fun a ha => ?_⟩
+  obtain ⟨i, hi, rfl⟩ := ho a ha
+  refine ⟨fun h0 => ?_, by rw [htoNat i hi]; omega, by rw [htoNat i hi]; omega⟩
+  have := congrArg BitVec.toNat h0
+  rw [htoNat i hi] at this
+  simp at this
+  omega
 
 end Kraken.Bedrock2
