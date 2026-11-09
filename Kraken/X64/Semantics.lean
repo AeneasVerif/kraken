@@ -243,16 +243,16 @@ def BitVec.blendWords {w : Nat} (a b : BitVec w) (imm : BitVec 8) : BitVec w :=
 namespace Sha256
 
 /-- The round mixing of the first working word. -/
-def bigSigma0 (x : BitVec 32) : BitVec 32 := x.rotateRight 2 ^^^ x.rotateRight 13 ^^^ x.rotateRight 22
+def «Σ₀» (x : BitVec 32) : BitVec 32 := x.rotateRight 2 ^^^ x.rotateRight 13 ^^^ x.rotateRight 22
 
 /-- The round mixing of the fifth working word. -/
-def bigSigma1 (x : BitVec 32) : BitVec 32 := x.rotateRight 6 ^^^ x.rotateRight 11 ^^^ x.rotateRight 25
+def «Σ₁» (x : BitVec 32) : BitVec 32 := x.rotateRight 6 ^^^ x.rotateRight 11 ^^^ x.rotateRight 25
 
 /-- The message-schedule mixing of the word fifteen places back. -/
-def sigma0 (x : BitVec 32) : BitVec 32 := x.rotateRight 7 ^^^ x.rotateRight 18 ^^^ x >>> 3
+def σ₀ (x : BitVec 32) : BitVec 32 := x.rotateRight 7 ^^^ x.rotateRight 18 ^^^ x >>> 3
 
 /-- The message-schedule mixing of the word two places back. -/
-def sigma1 (x : BitVec 32) : BitVec 32 := x.rotateRight 17 ^^^ x.rotateRight 19 ^^^ x >>> 10
+def σ₁ (x : BitVec 32) : BitVec 32 := x.rotateRight 17 ^^^ x.rotateRight 19 ^^^ x >>> 10
 
 /-- Bit by bit, `y` where `x` is set and `z` elsewhere. -/
 def ch (x y z : BitVec 32) : BitVec 32 := (x &&& y) ^^^ (~~~x &&& z)
@@ -266,8 +266,8 @@ structure State where
 
 /-- One round, with the message word already added to its round constant. -/
 def State.round (s : State) (wk : BitVec 32) : State :=
-  let t := ch s.e s.f s.g + bigSigma1 s.e + wk + s.h
-  ⟨t + maj s.a s.b s.c + bigSigma0 s.a, s.a, s.b, s.c, t + s.d, s.e, s.f, s.g⟩
+  let t := ch s.e s.f s.g + «Σ₁» s.e + wk + s.h
+  ⟨t + maj s.a s.b s.c + «Σ₀» s.a, s.a, s.b, s.c, t + s.d, s.e, s.f, s.g⟩
 
 /-- Two rounds, the state split as `sha256rnds2` holds it.
 
@@ -285,17 +285,17 @@ def rounds2 (cdgh abef wk : BitVec 128) : BitVec 128 :=
 The destination holds words 0 to 3, and the source's low dword holds word 4. -/
 def msg1 (w0123 w4 : BitVec 128) : BitVec 128 :=
   BitVec.ofLanes 128 32 fun i =>
-    w0123.lane 32 i + sigma0 (if i < 3 then w0123.lane 32 (i + 1) else w4.lane 32 0)
+    w0123.lane 32 i + σ₀ (if i < 3 then w0123.lane 32 (i + 1) else w4.lane 32 0)
 
 /-- The second half of four schedule steps.
 
 The destination holds the partial sums, and the source's two top dwords hold words 14 and 15.
 Each new word feeds the one two places later. -/
 def msg2 (sums w : BitVec 128) : BitVec 128 :=
-  let w16 := sums.lane 32 0 + sigma1 (w.lane 32 2)
-  let w17 := sums.lane 32 1 + sigma1 (w.lane 32 3)
-  let w18 := sums.lane 32 2 + sigma1 w16
-  let w19 := sums.lane 32 3 + sigma1 w17
+  let w16 := sums.lane 32 0 + σ₁ (w.lane 32 2)
+  let w17 := sums.lane 32 1 + σ₁ (w.lane 32 3)
+  let w18 := sums.lane 32 2 + σ₁ w16
+  let w19 := sums.lane 32 3 + σ₁ w17
   BitVec.ofLanes 128 32 fun | 0 => w16 | 1 => w17 | 2 => w18 | _ => w19
 
 end Sha256
