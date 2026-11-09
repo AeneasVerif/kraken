@@ -1199,8 +1199,7 @@ def skipSpaceAndCheckLineEnd : Parser Bool := do
 /-- Parse a data word: `.short`, `.long` or `.quad` followed by an integer or a symbolic
 constant (`sym`, `sym+8`, `.Lcase0-.Ltable`). The value stays symbolic. -/
 def parseDataWord : Parser _root_.Directive := do
-  let bytes ← (attempt (pstring ".short" *> pure 2)) <|>
-    (attempt (pstring ".long" *> pure 4)) <|> (pstring ".quad" *> pure 8)
+  let bytes ← (pstring ".short" *> pure 2) <|> (pstring ".long" *> pure 4) <|> (pstring ".quad" *> pure 8)
   skipHWs
   let e ← parseInt64Raw <|> parseSymExpr
   pure (.word bytes e)
