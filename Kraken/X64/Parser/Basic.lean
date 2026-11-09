@@ -1192,7 +1192,10 @@ def skipSpaceAndCheckLineEnd : Parser Bool := do
   | some _ =>
     pure false
 
-def parseOptionalInstr : Parser (Option Directive) := do
+-- NOTE TO ROBOT: `Kraken` is open because we are under the `Kraken.*` namespace.
+-- However, I would like `Directive` to resolve to the `_root_.Directive` definition
+-- instead of `Kraken.Directive`. Is there a way to do this?
+def parseOptionalInstr : Parser (Option _root_.Directive) := do
   if (← skipSpaceAndCheckLineEnd) then
     pure none
   else
@@ -1207,7 +1210,7 @@ def checkLineEnd : Parser Unit := do
 
 /-- Parse a single line: optional label, followed by optional instruction or directive.
     Returns a list of directives found on the line. -/
-def parseLine : Parser (List Directive) := do
+def parseLine : Parser (List _root_.Directive) := do
   skipHWs
   let labels ← many (attempt do
     let l ← parseLabelDecl
@@ -1229,49 +1232,13 @@ instance {T1} : Coe (ParseResult (List T1) (Sigma String.Pos)) (Except String (L
   | .error _ .eof => .error "unexpected end of input"
   | .error _ (.other msg) => .error msg
 
-public def parse (input: String) : Except String Program := do
+public def parse (input: String) : Except String _root_.Program := do
   let rawLines := (input.splitOn "\n")
   let (_, lines) ← rawLines.foldlM (fun (lineNum, acc) x => do
-    match (parseLine ⟨ x, x.startPos ⟩ : Except String (List Directive)) with
+    match (parseLine ⟨ x, x.startPos ⟩ : Except String (List _root_.Directive)) with
     | .ok v => pure (lineNum + 1, v :: acc)
     | .error msg => .error s!"line {lineNum}: {msg}"
   ) ((1 : Nat), [])
   pure lines.reverse.flatten
-
--- ============================================================================
--- Assembly Preprocessing (Directive Stripping)
--- ============================================================================
--- These delete code that is not presently handled by Kraken. This is useful
--- for running on code without needing to modify it to delete things we do not
--- model. These are used in file parsing.
-
-private def directiveKeywords : List String :=
-  ["file", "text", "data", "p2align", "balign",
-   "globl", "global", "type", "size", "section",
-   "weak", "hidden", "protected", "internal", "ident",
-   "cfi_startproc", "cfi_endproc", "cfi_def_cfa",
-   "cfi_offset", "cfi_adjust_cfa_offset", "cfi_def_cfa_offset",
-   "cfi_def_cfa_register", "cfi_restore", "cfi_remember_state",
-   "cfi_restore_state"]
-
-private def extractDirectiveName (s : String) : String :=
-  let rest := s.drop 1
-  let nameStr := (rest.takeWhile (fun c => c != ' ' && c != '\t' && c != ',' && c != ':')).toString
-  nameStr.toLower
-
-private def keepLine (line : String) : Bool :=
-  let stripped := (line.trimAsciiStart).toString
-  if stripped.isEmpty || stripped.startsWith "#" then true
-  else if !stripped.startsWith "." then true
-  else
-    let dirName := extractDirectiveName stripped
-    if stripped.any (· == ':') then true
-    else if directiveKeywords.contains dirName then false
-    else false
-
-public def stripDirectives (content : String) : String :=
-  let lines := content.splitOn "\n"
-  let kept := lines.filter keepLine
-  "\n".intercalate kept
 
 end Kraken.X64.Parser

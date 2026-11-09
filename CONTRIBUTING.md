@@ -2,7 +2,11 @@
 
 ## Reviewing semantics
 
-All changes to semantics should be thoroughly checked against the [Intel SDM](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2b-manual.pdf)
+All changes to semantics should be thoroughly checked against the
+[Intel SDM](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html)
+([online preview](https://intel.github.io/SDM/sdm.html))
+or the [Arm ARM](https://developer.arm.com/documentation/ddi0487/latest/)
+([A64 ISA](https://developer.arm.com/documentation/ddi0602/latest/))
 by two maintainers.
 As a maintainer proposing a change,
 please review your own edits
