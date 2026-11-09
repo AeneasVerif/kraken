@@ -13,6 +13,7 @@ def cPrelude (testHooks : Bool := false) : String :=
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
+#include <limits.h>
 
 #define BR_WORD_MAX UINTPTR_MAX
 typedef uintptr_t br_word_t;
@@ -22,6 +23,17 @@ static_assert(sizeof(br_word_t) == sizeof(br_signed_t), "signed size");
 static_assert(UINTPTR_MAX <= BR_WORD_MAX, "pointer fits in int");
 static_assert(~(br_signed_t)0 == -(br_signed_t)1, "two's complement");
 static_assert(sizeof(br_word_t) <= 8, "word fits in 64 bits");
+static_assert(UINTPTR_MAX >= UINT_MAX, "no promotion to int");
+static_assert(UINT_MAX >= 0xffffffff, "int has at least 32 bits");
+static_assert(BR_WORD_MAX == UINT32_MAX ? sizeof(br_word_t) == 4 :
+              BR_WORD_MAX == UINT64_MAX && sizeof(br_word_t) == 8, "word is 32 or 64 bits");
+static_assert(_Generic((uint8_t)0, unsigned char: 1, default: 0), "uint8_t is unsigned char");
+static_assert((br_signed_t)BR_WORD_MAX == -1, "modular conversion to signed");
+static_assert(((br_signed_t)-1 >> 1) == -1, "arithmetic right shift");
+
+#if defined(linux) || defined(unix)
+  #error "compile with -std=c11 or later (not gnu*)"
+#endif
 
 #if __STDC_VERSION__ >= 202311L && __has_include(<stdbit.h>)
   #include <stdbit.h>
