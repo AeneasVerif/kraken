@@ -229,6 +229,9 @@ inductive Operation (w : Width)
   | rcl  (_ : Dst w) (_ : ShiftCountExpr)
   | rcr  (_ : Dst w) (_ : ShiftCountExpr)
   | bswap  (dst : Reg w) -- (_ : w = .W32 ∨ w = .W64)
+  -- Flag control
+  | cld
+  | std
   -- Control flow
   | jcc (cc : CondCode) (target : Label)
   | jmp (target : RelRegOrMem)

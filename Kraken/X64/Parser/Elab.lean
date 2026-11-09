@@ -663,6 +663,10 @@ def elabInstr (stx : TSyntax `x64_instr) : X64ElabM Expr := withRef stx do
     mkRegularInstr (← mkAppWidth mk #[dst]) (ifUndetermined := some .W64)
   | `(x64_instr| ret) | `(x64_instr| retq) =>
     mkClosedInstr .ret
+  | `(x64_instr| cld) =>
+    mkClosedInstr .cld
+  | `(x64_instr| std) =>
+    mkClosedInstr .std
   | `(x64_instr| call $target:x64_operand) | `(x64_instr| callq $target:x64_operand) =>
     let mk := mkConst ``Operation.call
     setOperandWidth (toExpr Width.W64)

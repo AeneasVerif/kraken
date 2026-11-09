@@ -61,7 +61,7 @@ def summarize (s : MachineData) : StateSummary :=
              ("zmm24", z.zmm24), ("zmm25", z.zmm25), ("zmm26", z.zmm26), ("zmm27", z.zmm27),
              ("zmm28", z.zmm28), ("zmm29", z.zmm29), ("zmm30", z.zmm30), ("zmm31", z.zmm31)],
     flags := [("cf", f.cf), ("pf", f.pf), ("af", f.af),
-              ("zf", f.zf), ("sf", f.sf), ("of", f.of)] }
+              ("zf", f.zf), ("sf", f.sf), ("of", f.of), ("df", s.df)] }
 
 -- Place the stack somewhere high in memory, aligned to 256 bytes. This will
 -- help us avoid disagreements with the actual machine: we will avoid over/underflow

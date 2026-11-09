@@ -1105,6 +1105,9 @@ def parseInstr : Parser Instr := do
   | "ret" | "retq" =>
     pure (toInstr .none (w := .W64) .ret)
 
+  | "cld" => pure (toInstr .none (w := .W64) .cld)
+  | "std" => pure (toInstr .none (w := .W64) .std)
+
   | "call" | "callq" =>
     let ( addr_w, target ) ← parseRelRegOrMem
     pure (toInstr addr_w (w := .W64) (.call target))
