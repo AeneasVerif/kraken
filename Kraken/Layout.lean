@@ -71,6 +71,9 @@ def Executable.directivesFromAddress {Instr : Type} (e : Executable Instr) (a : 
   let starts_at_a := e.withAddresses.dropWhile (·.addr ≠ a)
   starts_at_a.map (·.toSized)
 
+def Executable.nextAddr {Instr : Type} (e : Executable Instr) (a : Int64) : Int64 :=
+  a + .ofNat ((e.directivesAtAddress a).map (·.size)).sum
+
 theorem Executable.withAddresses_map_snd {Instr : Type} (program : List (Sized (Directive Instr))) (startAddr : Int64) :
     (Executable.withAddresses {startAddr, program}).map (·.toSized) = program := by
   induction program generalizing startAddr <;> grind [Executable.withAddresses]
