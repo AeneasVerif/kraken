@@ -947,6 +947,7 @@ set_option maxHeartbeats 1000000
   | .label _ => next s
   | .instr i => i.interp s p next jmp
   | .byteArray _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
+  | .word _ _ => .unimplemented s!"Unimplemented: execution reached data word at {p.1}"
 
 def Directives.interp [Labels]
   (ds : List (Kraken.Sized Directive)) (s : MachineData) (pc : Int64)
@@ -957,7 +958,7 @@ def Directives.interp [Labels]
     directive.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
     interp ds s (pc+.ofNat sz) ret))
 
-abbrev Layout := Kraken.Layout Instr
+abbrev Layout := Kraken.Layout Instr ConstExpr
 
 @[reducible]
 def Executable.labels (e : Executable) : Labels :=
@@ -997,6 +998,7 @@ def Directive.fakeSize (d : Directive) : Nat :=
   | .instr _ => 4
   | .label _ => 0
   | .byteArray bs => bs.size
+  | .word bytes _ => bytes
 
 def Program.fakeLayout (prog : Program) : Executable :=
   let : Inhabited Directive := .mk (.byteArray (.mk #[]))

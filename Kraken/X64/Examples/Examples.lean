@@ -20,6 +20,7 @@ import Kraken.X64.OmniSemantics
 import Kraken.X64.Parser
 import Kraken.X64.PrettyPrint
 import Kraken.X64.Semantics
+meta import Kraken.X64.Semantics
 import Kraken.X64.Sep
 
 open Kraken.X64.Parser
@@ -271,6 +272,65 @@ theorem p6_correct [layout : Layout] (s₀ : MachineData)
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
   simp (config := { zetaDelta := true }) only [show (OfNat.ofNat 8 : UInt64) = 8 from rfl]
   bv_decide
+
+-- A data word whose value is a label difference. `jmp done` keeps execution off the word.
+def p7 : Program := parse("
+start:
+  nop 5
+  nop 3
+end:
+  movl size(%rip), %eax
+  jmp done
+size:
+  .long end - start
+done:
+")
+
+/--
+`p7` loads the word at `size`, whose value is the label difference `end - start`, kept symbolic.
+The hypothesis `h_mem` says the loader put that value in memory: nothing in this framework links
+the program text to memory yet, so it is assumed.
+-/
+theorem p7_correct [layout : Layout] (s₀ : MachineData) (R : DataMem → Prop)
+    (h_mem : letI := Executable.labels (layout p7)
+      s₀.dmem =⋆ Eq ((Int.toBytes 4 (label "end" - label "start").toInt).At (label "size").toBitVec) ⋆ R) :
+    Eventually (straightlineStep (layout p7))
+      (fun s' => letI := Executable.labels (layout p7)
+        s'.1.regs.rax = UInt64.ofBitVec (((label "end" - label "start").toBitVec.setWidth 32).setWidth 64))
+      ⟨s₀, layout.start⟩ := by
+  have h_addr (X Y : Int64) :
+      (BitVec.ofInt 64 X.toInt + BitVec.ofInt 64 0 + BitVec.ofInt 64 (Y - X).toInt).setWidth 64
+        = Y.toBitVec := by
+    simp only [BitVec.setWidth_eq, Int64.toInt, BitVec.ofInt_toInt, Int64.toBitVec_sub]
+    grind
+  have h_val (v : Int64) :
+      BitVec.ofInt 32 (Int.ofBytes (Int.toBytes 4 v.toInt)) = v.toBitVec.setWidth 32 := by
+    rw [ofBytes_toBytes, Int.take, show 8 * 4 = 32 from rfl, Int64.toInt,
+      ← BitVec.signExtend_eq_setWidth_of_le _ (by decide)]
+    simp [BitVec.ofInt, BitVec.signExtend]
+  apply step_cps
+  kprologue p7 with s₀
+  sym =>
+  kstep
+  case h_mem => tactic => dsimp only; rw [h_addr]; exact h_mem
+  case h_len => exact Int.toBytes_length 4 _
+  kstep
+  tactic =>
+  apply Eventually.done
+  simp only [h_val, Int64.toBitVec_sub]
+  rfl
+
+-- The same run under `fakeLayout`, where the nops take 5 + 3 bytes. The eval plays the loader: it
+-- stores the word's value at `size`.
+/-- info: Except.ok 8 -/
+#guard_msgs in
+#eval
+  let exe := p7.fakeLayout
+  let := exe.labels
+  let word : Int64 := label "end" - label "start"
+  let data : MachineData := { dmem := Mem.storeInt {} (label "size").toBitVec 4 word.toInt }
+  (Executable.eval exe {data, pc := label "start"} (fun st => st.pc = label "done")).bind
+    (fun s => .ok s.1.regs.rax)
 
 -- def bigp := parseFile("./ecc-secp521r1-modp.S")
 

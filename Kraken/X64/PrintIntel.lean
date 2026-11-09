@@ -68,6 +68,12 @@ def ConstExpr.toStr : ConstExpr → String
   | .sub e1 e2 => s!"({e1.toStr} - {e2.toStr})"
 instance : ToString ConstExpr where toString := ConstExpr.toStr
 
+/-- The assembler directive for a data word of `bytes` bytes. Sizes without a dedicated directive
+use the GNU `.<n>byte` spelling. -/
+def dataWordDirective : Nat → String
+  | 1 => ".byte" | 2 => ".short" | 4 => ".long" | 8 => ".quad"
+  | n => s!".{n}byte"
+
 def AddrExpr.toStr (a : AddrExpr) (addr_w : Width := .W64) : String :=
   let dispStr := match a.base, a.disp with
     -- Unwrap RIP-relative displacements back to just the label for printing
@@ -209,3 +215,4 @@ instance : ToString Directive where
   | .instr i => ToString.toString i
   | .label l => s!"{l}:"
   | .byteArray bs => ".byte "++", ".intercalate (bs.toList.map (fun b => s!"{b}"))
+  | .word n e => s!"{dataWordDirective n} {e}"

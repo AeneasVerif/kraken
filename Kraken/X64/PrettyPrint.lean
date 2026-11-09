@@ -51,7 +51,7 @@ private def natLit? (e : Expr) : Option Nat := e.nat? <|> e.rawNatLit?
 program with `layout.size i`, so this recovers the directive's index. -/
 private def layoutIndex? (e : Expr) : Option Nat :=
   match_expr e with
-  | Kraken.Layout.size _ _ i => natLit? i
+  | Kraken.Layout.size _ _ _ i => natLit? i
   | _ => none
 
 /-- Renders a *closed* `Directive` expression as assembly text by running the

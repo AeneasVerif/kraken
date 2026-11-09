@@ -22,6 +22,7 @@ syntax "-" num : x64_const
 syntax "+" num : x64_const
 syntax x64_ident "+" num : x64_const
 syntax x64_ident "-" num : x64_const
+syntax x64_ident "-" x64_ident : x64_const
 syntax x64_ident : x64_const
 
 /-- X64 general-purpose register name (`rax`..`r15`, `eax`..`r15d`, `ax`..`r15w`, `al`..`r15b`, `ah`..`dh`). -/
@@ -148,11 +149,12 @@ declare_syntax_cat x64_operand
 syntax x64_reg_or_mem : x64_operand
 syntax x64_imm : x64_operand
 syntax "❰" term "❱" : x64_operand
-/-- Symbolic immediate with an offset (`$sym+8`, `$sym-8`). Lean parses `$sym` as an antiquotation node
-    of this category rather than as an `x64_imm`, so the offset has to be attached here instead of in
+/-- Symbolic immediate with an offset (`$sym+8`, `$sym-8`, `$b-a`). Lean parses `$sym` as an antiquotation
+    node of this category rather than as an `x64_imm`, so the offset has to be attached here instead of in
     `x64_const`; the elaborator requires the left operand to be such a `$sym` node. -/
 syntax x64_operand "+" num : x64_operand
 syntax x64_operand "-" num : x64_operand
+syntax x64_operand "-" x64_ident : x64_operand
 
 /-- X64 AVX instruction operand (AVX register or memory). -/
 declare_syntax_cat x64_avx_operand
@@ -390,6 +392,10 @@ syntax withPosition(atomic(x64_ident lineEq ":")) ";"? : x64_directive
 syntax x64_instr ";" : x64_directive
 syntax withPosition(x64_instr notFollowedBy(lineEq (x64_ident <|> "," <|> x64_operand))) : x64_directive
 syntax "❰" term "❱" ";"? : x64_directive
+/-- Data word: `.short`, `.long` or `.quad` followed by a constant. -/
+syntax withPosition(".short" lineEq x64_const) ";"? : x64_directive
+syntax withPosition(".long"  lineEq x64_const) ";"? : x64_directive
+syntax withPosition(".quad"  lineEq x64_const) ";"? : x64_directive
 
 /-- X64 assembly program (sequence of directives). -/
 declare_syntax_cat x64_prog (behavior := both)
