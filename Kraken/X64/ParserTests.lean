@@ -555,11 +555,11 @@ info: [Directive.label "loop", Directive.instr (regular Width.W64 Width.W64 (Ope
   Directive.instr (regular Width.W64 Width.W64 (Operation.jcc CondCode.nz "loop"))] : List _root_.Directive
 -/
 #guard_msgs in
-#check [x64|
+#check ⸨prog|
   loop:
     addq $1, %rax
     jnz loop
-]
+⸩
 
 /--
 info: [Directive.instr (regular Width.W64 Width.W64 (Operation.nop 1))] : List _root_.Directive
@@ -575,10 +575,25 @@ info: [Directive.label "aa.1.aa.1",
         (RelRegOrMem.rel ((↑".L.str.1.llvm.12345").sub ConstExpr.after_current_instruction))))] : List _root_.Directive
 -/
 #guard_msgs in
-#check [x64|
+#check ⸨prog|
   aa.1.aa.1:
     jmp .L.str.1.llvm.12345
-]
+⸩
+
+/--
+info: Directive.instr
+  (regular Width.W64 Width.W64 (Operation.add ↑(low Reg64.rax Width.W64) ↑↑1)) : Kraken.Directive Instr ConstExpr
+-/
+#guard_msgs in
+#check ⸨dir| addq $1, %rax ⸩
+
+/--
+info: { directive := Directive.instr (regular Width.W64 Width.W64 (Operation.add ↑(low Reg64.rax Width.W64) ↑↑1)),
+  size := Layout.size Instr ConstExpr 1 } : Sized _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+variable [Kraken.Layout Instr ConstExpr] in
+#check ⸨dir 1 | addq $1, %rax ⸩
 
 end syntax_cat_and_include
 
@@ -589,14 +604,14 @@ variable {w : Width} (r : Reg w) (q : Reg .W64) (r64 : Reg64) (v : AvxReg .W256)
 -- Test: an antiquoted register decides the width of its instruction, which may be a variable
 /-- info: [Directive.instr (regular Width.W64 w (Operation.add ↑r ↑↑2))] : List _root_.Directive -/
 #guard_msgs in
-#check [x64| add $2, %❰r❱ ]
+#check ⸨prog| add $2, %❰r❱ ⸩
 
 -- Test: antiquoted and concrete registers unify
 /--
 info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑q ↑↑(low Reg64.rax Width.W64)))] : List _root_.Directive
 -/
 #guard_msgs in
-#check [x64| mov %rax, %❰q❱ ]
+#check ⸨prog| mov %rax, %❰q❱ ⸩
 
 -- Test: a width suffix must agree with the antiquoted register's width
 /--
@@ -608,11 +623,11 @@ but is expected to have type
   Reg Width.W64
 -/
 #guard_msgs in
-#check [x64| addq $1, %❰r❱ ]
+#check ⸨prog| addq $1, %❰r❱ ⸩
 
 /-- error: type error: w != w32 -/
 #guard_msgs in
-#check [x64| add %❰r❱, %eax ]
+#check ⸨prog| add %❰r❱, %eax ⸩
 
 -- Test: in address positions, antiquotations denote `Reg64`
 /--
@@ -623,7 +638,7 @@ info: [Directive.instr
               disp := ↑8 }))] : List _root_.Directive
 -/
 #guard_msgs in
-#check [x64| mov 8(%❰r64❱, %rax, 4), %rcx ]
+#check ⸨prog| mov 8(%❰r64❱, %rax, 4), %rcx ⸩
 
 -- Test: AVX registers
 /--
@@ -632,51 +647,185 @@ info: [Directive.instr
       (AvxOperation.vmovups ↑v ↑{ base := some (RegOrRip.reg Reg64.rax), idx := none }))] : List _root_.Directive
 -/
 #guard_msgs in
-#check [x64| vmovups (%rax), %❰v❱ ]
+#check ⸨prog| vmovups (%rax), %❰v❱ ⸩
 
 -- Test: a width that no operand or suffix determines is an error
 /-- error: could not infer operand width -/
 #guard_msgs in
-#check [x64| add $1, (%rax) ]
+#check ⸨prog| add $1, (%rax) ⸩
 
 -- Test: the source of a widening move must be narrower than its destination
 /-- error: source width w64 must be narrower than destination width w16 -/
 #guard_msgs in
-#check [x64| movsx %rax, %bx ]
+#check ⸨prog| movsx %rax, %bx ⸩
 
 -- Test: antiquotations for operands, instructions and directives
 variable (o : Operand .W32) (rm : RegOrMem w) (av : AvxRegOrMem .W128) (rt : RelRegOrMem) (i : Instr) (d : Directive)
 
 /-- info: [Directive.instr (regular Width.W64 Width.W32 (Operation.add (↑(low Reg64.rax Width.W32)) o))] : List _root_.Directive -/
 #guard_msgs in
-#check [x64| add ❰o❱, %eax ]
+#check ⸨prog| add ❰o❱, %eax ⸩
 
 /-- info: [Directive.instr (regular Width.W64 w (Operation.inc rm))] : List _root_.Directive -/
 #guard_msgs in
-#check [x64| inc ❰rm❱ ]
+#check ⸨prog| inc ❰rm❱ ⸩
 
 /--
 info: [Directive.instr
     (avx Width.W64 AvxWidth.W128 (AvxOperation.movaps (↑(AvxReg.xmm RegMm.mm1)) av))] : List _root_.Directive
 -/
 #guard_msgs in
-#check [x64| movaps ❰av❱, %xmm1 ]
+#check ⸨prog| movaps ❰av❱, %xmm1 ⸩
 
 /-- info: [Directive.instr (regular Width.W64 Width.W64 (Operation.jmp rt))] : List _root_.Directive -/
 #guard_msgs in
-#check [x64| jmp ❰rt❱ ]
+#check ⸨prog| jmp ❰rt❱ ⸩
 
 /-- info: [Directive.instr i, d, Directive.instr (regular Width.W64 Width.W64 Operation.ret)] : List _root_.Directive -/
 #guard_msgs in
-#check [x64| ❰.instr i❱; ❰d❱; ret ]
+#check ⸨prog| ❰.instr i❱; ❰d❱; ret ⸩
 
 /-- info: [Directive.label "foo", Directive.instr (regular Width.W64 Width.W64 Operation.ret)] : List _root_.Directive -/
 #guard_msgs in
-#check [x64| ❰.label "foo"❱; ❰.instr <| .regular .W64 .W64 .ret❱ ]
+#check ⸨prog| ❰.label "foo"❱; ❰.instr <| .regular .W64 .W64 .ret❱ ⸩
+
+-- Test: label antiquotations (`x64_ident`)
+variable (lbl : Kraken.Label)
+
+/-- info: [Directive.label lbl, Directive.instr (regular Width.W64 Width.W64 Operation.ret)] : List _root_.Directive -/
+#guard_msgs in
+#check ⸨prog| ❰lbl❱: ret ⸩
+
+/-- info: [Directive.instr (regular Width.W64 Width.W64 (Operation.jcc CondCode.z lbl))] : List _root_.Directive -/
+#guard_msgs in
+#check ⸨prog| jz ❰lbl❱ ⸩
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑lbl))] : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog| movq $❰lbl❱, %rax ⸩
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑((↑lbl).add ↑8)))] : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog| movq $❰lbl❱+8, %rax ⸩
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑((↑lbl).sub ↑8)))] : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog| movq $❰lbl❱-8, %rax ⸩
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.lea (low Reg64.rax Width.W64)
+        { base := some RegOrRip.rip, idx := none,
+          disp := (↑lbl).sub ConstExpr.after_current_instruction }))] : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog| leaq ❰lbl❱(%rip), %rax ⸩
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rax Width.W64)
+        ↑↑{ base := some RegOrRip.rip, idx := none,
+              disp := ((↑lbl).add ↑8).sub ConstExpr.after_current_instruction }))] : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog| movq ❰lbl❱+8(%rip), %rax ⸩
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rdx Width.W64)
+        ↑↑{ base := some (RegOrRip.reg Reg64.rax), idx := some { reg := Reg64.rcx, scale := Width.W32 },
+              disp := (↑lbl).sub ↑8 }))] : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog| movq ❰lbl❱-8(%rax, %rcx, 4), %rdx ⸩
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rax Width.W64)
+        ↑↑{ base := none, idx := none, disp := (↑lbl).add ↑8 }))] : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog| movq ❰lbl❱+8, %rax ⸩
+
+/-- info: [Directive.word 4 ((↑lbl).sub ↑"start")] : List _root_.Directive -/
+#guard_msgs in
+#check ⸨prog| .long ❰lbl❱ - start ⸩
+
+/--
+error: Type mismatch
+  r
+has type
+  Reg w
+but is expected to have type
+  Kraken.Label
+-/
+#guard_msgs in
+#check ⸨prog| jz ❰r❱ ⸩
+
+-- Test: `Int64` / `ConstExpr` antiquotations (`x64_const` and `x64_operand`)
+variable (imm : Int64) (ce : ConstExpr)
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑imm))] : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog| mov $❰imm❱, %rax ⸩
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑↑imm))] : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog| mov ❰imm❱, %rax ⸩
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W32 (Operation.mov ↑(low Reg64.rax Width.W32) ↑↑imm))] : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog| mov ❰imm❱, %eax ⸩
+
+/-- info: [Directive.instr (regular Width.W64 Width.W64 (Operation.push ↑↑imm))] : List _root_.Directive -/
+#guard_msgs in
+#check ⸨prog| push ❰imm❱ ⸩
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rax Width.W64)
+        ↑↑{ base := some (RegOrRip.reg Reg64.rsp), idx := none, disp := ↑imm }))] : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog| movq ❰imm❱(%rsp), %rax ⸩
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.mov ↑(low Reg64.rax Width.W64)
+        ↑↑{ base := some RegOrRip.rip, idx := none, disp := ↑imm }))] : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog| movq ❰imm❱(%rip), %rax ⸩
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.mov ↑(low Reg64.rax Width.W64) ↑ce))] : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog| mov $❰ce❱, %rax ⸩
 
 end antiquotations
 
--- Test: flag control instructions (`cld`/`std`), string parser and `[x64| ]` syntax
+-- Test: flag control instructions (`cld`/`std`), string parser and `⸨prog| ⸩` syntax
 /--
 info: [Directive.instr (regular Width.W64 Width.W64 Operation.cld),
   Directive.instr (regular Width.W64 Width.W64 Operation.std)] : List _root_.Directive
@@ -689,7 +838,22 @@ info: [Directive.instr (regular Width.W64 Width.W64 Operation.cld),
   Directive.instr (regular Width.W64 Width.W64 Operation.std)] : List _root_.Directive
 -/
 #guard_msgs (whitespace := lax) in
-#check [x64| cld; std ]
+#check ⸨prog| cld; std ⸩
+
+section sse_and_vex
+
+#guard [
+  parse("movdqu (%rsp), %xmm0\nmovdqa %xmm1, 16(%rsp)\npaddd (%rax), %xmm2\npshufb %xmm3, %xmm4"),
+  parse("pshufd $0x1b, %xmm5, %xmm6\npalignr $8, (%rsp), %xmm7\npblendw $0xf0, %xmm8, %xmm9"),
+  parse("vmovdqu (%rsp), %ymm0\nvmovd %eax, %xmm0\nvmovd %xmm1, 16(%rsp)\nvmovq %rax, %xmm0\nvmovq %xmm3, %xmm2\nvmovq %xmm1, 24(%rsp)\nvzeroupper"),
+  parse("seto %al\nsetno %bl\nsets %cl\nsetns %dl\nsetp %sil\nsetnp %dil\nsetge %r8b\nsetg %r9b")
+].all agreesWithCombinatorParser
+
+/-- error: vmovd takes no two xmm operands -/
+#guard_msgs in
+#check ⸨prog| vmovd %xmm0, %xmm1 ⸩
+
+end sse_and_vex
 
 end Tests
 
