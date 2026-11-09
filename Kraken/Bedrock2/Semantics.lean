@@ -1,6 +1,9 @@
 module
 
 -- Ported from bedrock2/src/bedrock2/Semantics.v at mit-plv/bedrock2@757f17c6083bf8d43b5293a0db545c8d0aa32a13
+--GEN: Deliberate differences from Rocq: access sizes are one/two/four/eight (no word-sized access;
+--GEN: `eight` truncates on load and zero-extends on store when w < 64), `stackalloc` has no
+--GEN: divisibility side condition, and `Env` is an association list.
 
 public import Kraken.Bedrock2.Memory
 
