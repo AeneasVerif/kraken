@@ -22,6 +22,8 @@ def Handler.Ok (ext : ExtSpec w) (handler : Handler w) : Prop :=
 theorem Handler.ok_none (ext : ExtSpec w) : Handler.Ok ext fun _ _ _ _ => none :=
   fun _ _ _ _ _ _ _ _ _ _ _ _ h => nomatch h
 
+--GEN: Stackalloc addresses are taken from the oracle list `o` in allocation order. The
+--GEN: differential tests replay the addresses logged by the compiled C program.
 abbrev RunResult (w : Nat) := Trace w × Mem w × Locals w × List (BitVec w)
 
 def run (e : Env) (fill : UInt8) (fuel : Nat) (c : Cmd) (t : Trace w) (m : Mem w) (l : Locals w)
