@@ -174,6 +174,9 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .nopalign a (some p) => s!".align {a}, {p}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
+/-- The mnemonic of a move between a vector register and 32 or 64 bits elsewhere. -/
+def vmovName (n : Width) : String := if n == .W32 then "vmovd" else "vmovq"
+
 def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : String := match op with
   | .movups dst src => s!"movups {dst.toStr addr_w}, {src.toStr addr_w}"
   | .vmovups dst src => s!"vmovups {dst.toStr addr_w}, {src.toStr addr_w}"
@@ -187,6 +190,11 @@ def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : Stri
   | .pshufd dst src imm => s!"pshufd {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
   | .palignr dst src imm => s!"palignr {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
   | .pblendw dst src imm => s!"pblendw {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .vmovdqu dst src => s!"vmovdqu {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vmovIn n dst src => s!"{vmovName n} {dst}, {src.toStr addr_w}"
+  | .vmovOut n dst src => s!"{vmovName n} {dst.toStr addr_w}, {src}"
+  | .vmovq dst src => s!"vmovq {dst}, {src}"
+  | .vzeroupper => "vzeroupper"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
 instance : ToString Instr where

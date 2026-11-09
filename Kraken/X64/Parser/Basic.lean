@@ -540,6 +540,13 @@ def toAvxInstr (addr : MaybeAddrWidth) {w : AvxWidth} (op : AvxOperation w) : In
   let _ : AddressSize := { address_size := addr.getD .W64 }
   ↑op
 
+/-- Parse an xmm register. -/
+def parseXmm : Parser (AvxReg .W128) := do
+  skipHWs
+  match ← parseAvxRegW with
+  | ⟨ .W128, r ⟩ => pure r
+  | _ => fail "expected an xmm register"
+
 /-- Parse a comma separator. -/
 def parseComma : Parser Unit := do
   skipHWs
@@ -886,6 +893,27 @@ def parseInstr : Parser Instr := do
   | "pblendw" =>
     let imm ← (skipHWs *> parseImmediate); parseComma
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .pblendw d x imm)
+
+  | "vmovdqu" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovdqu
+
+  | "vmovd" | "vmovq" =>
+    let n : Width := if mn == "vmovd" then .W32 else .W64
+    -- An xmm source goes out to a register or memory, or to another xmm for `vmovq`.
+    (attempt do
+      let src ← parseXmm; parseComma
+      (attempt do
+        if n != .W64 then fail "vmovd takes no two xmm operands"
+        let dst ← parseXmm
+        pure (toAvxInstr .none (.vmovq dst src))) <|> (do
+        let (addr_w, dst) ← parseRegOrMemAO n
+        pure (toAvxInstr addr_w (.vmovOut n dst src)))) <|> (do
+    let (addr_w, src) ← parseRegOrMemAO n; parseComma
+    let dst ← parseXmm
+    pure (toAvxInstr addr_w (.vmovIn n dst src)))
+
+  | "vzeroupper" =>
+    pure (toAvxInstr .none (w := .W128) .vzeroupper)
 
   -- Bitwise - 64-bit
   | "xor" =>
