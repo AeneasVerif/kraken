@@ -5,6 +5,7 @@ import Kraken.Bedrock2.Test.Matrix
 import Kraken.Bedrock2.CPrinter
 import Kraken.Bedrock2.Test.Run
 import Kraken.Bedrock2.Test.Gen
+import Kraken.Bedrock2.Test.COnly
 import Lean.Data.Json
 
 open Lean Kraken.Bedrock2 Kraken.Bedrock2.Test
@@ -119,7 +120,7 @@ partial def readAll (s : IO.FS.Stream) (acc : String := "") : IO String := do
 
 def usage : String :=
   "usage: bedrock2c list | gen <seed> <count> | show <case> | emit <case> [--out file.c] | " ++
-    "replay <case> < c_output.json"
+    "replay <case> < c_output.json | conly-list | conly <name> --out file.c"
 
 def orFail {α} (r : Except String α) : IO α :=
   match r with
@@ -156,6 +157,15 @@ public def main (args : List String) : IO UInt32 := do
       let c ← orFail (findCase name)
       let j ← orFail (Json.parse (← readAll (← IO.getStdin)))
       IO.println (← orFail (replay c j)).compress
+      return 0
+    | ["conly-list"] =>
+      for (name, run, _) in cOnlyPrograms do
+        IO.println s!"{name} {if run then "run" else "compile"}"
+      return 0
+    | ["conly", name, "--out", file] =>
+      let some (_, _, src) := cOnlyPrograms.find? (·.1 == name)
+        | throw (IO.userError s!"unknown C-only program '{name}'")
+      IO.FS.writeFile file (← orFail src)
       return 0
     | _ =>
       IO.eprintln usage

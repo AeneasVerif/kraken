@@ -123,6 +123,26 @@ def run_one(exe_cmd, case, src, cfg, tmp):
         return "FAIL", str(e), art
 
 
+def run_conly(exe_cmd, name, mode, src, cfg, tmp):
+    exe = tmp / f"conly-{name}-{cfg['name']}"
+    flags = [cfg["arch"], *BASE_FLAGS, *CC_FLAGS.get(cfg["cc"], []), *cfg["opt"]]
+    if cfg["san"]:
+        flags.append(f"-fsanitize={cfg['san']}")
+    try:
+        if mode == "compile":
+            r = run([cfg["cc"], *flags, "-c", str(src), "-o", str(exe) + ".o"], 300)
+            return ("PASS", "") if r.returncode == 0 else ("FAIL", f"compile: {r.stderr.strip()[:2000]}")
+        r = run([cfg["cc"], *flags, str(src), "-o", str(exe)], 300)
+        if r.returncode != 0:
+            return "FAIL", f"compile: {r.stderr.strip()[:2000]}"
+        r = run([str(exe)], 300)
+        return ("PASS", "") if r.returncode == 0 else ("FAIL", f"run exited {r.returncode}: {r.stderr.strip()[:2000]}")
+    except subprocess.TimeoutExpired as e:
+        return "FAIL", f"timeout: {e.cmd}"
+    except OSError as e:
+        return "FAIL", str(e)
+
+
 def save_failure(exe_cmd, root, case, name, src, art):
     d = Path(root) / case
     (d / name).mkdir(parents=True, exist_ok=True)
@@ -147,6 +167,7 @@ def main():
     ap.add_argument("--no-corpus", action="store_true")
     ap.add_argument("--config-filter", default="")
     ap.add_argument("--save-failures", metavar="DIR")
+    ap.add_argument("--no-conly", action="store_true")
     args = ap.parse_args()
 
     exe_cmd = bedrock2c_cmd(args.bedrock2c)
@@ -206,7 +227,23 @@ def main():
         else:
             srcs[case] = src
 
+    conly = {}
+    if not (args.no_conly or args.cases or args.no_corpus):
+        r = run([*exe_cmd, "conly-list"], 300)
+        for name, mode in (line.split() for line in r.stdout.splitlines() if line.strip()):
+            src = tmp / f"conly-{name}.c"
+            r = run([*exe_cmd, "conly", name, "--out", str(src)], 300)
+            if r.returncode != 0:
+                results.append((f"conly:{name}", "emit", "FAIL", r.stderr.strip()))
+            else:
+                conly[name] = (mode, src)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        cfuts = {pool.submit(run_conly, exe_cmd, name, mode, src, cfg, tmp): (f"conly:{name}", cfg["name"])
+                 for name, (mode, src) in conly.items() for cfg in configs}
+        for fut in concurrent.futures.as_completed(cfuts):
+            case, name = cfuts[fut]
+            results.append((case, name, *fut.result()))
         futs = {pool.submit(run_one, exe_cmd, case, src, cfg, tmp): (case, cfg["name"])
                 for case, src in srcs.items() for cfg in configs}
         for fut in concurrent.futures.as_completed(futs):
@@ -226,11 +263,11 @@ def main():
     counts = {}
     for _, _, status, _ in results:
         counts[status] = counts.get(status, 0) + 1
-    print(f"{len(srcs)} cases x {len(configs)} configs: " +
+    print(f"{len(srcs)} cases + {len(conly)} C-only programs x {len(configs)} configs: " +
           ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
     for cfg in configs:
         n = sum(1 for _, name, s, _ in results if name == cfg["name"] and s in OK_STATUSES)
-        print(f"  {cfg['name']:30} -fsanitize={cfg['san']:18} {n}/{len(srcs)} ok")
+        print(f"  {cfg['name']:30} -fsanitize={cfg['san']:18} {n}/{len(srcs) + len(conly)} ok")
     if args.save_failures and any(s not in OK_STATUSES for _, _, s, _ in results):
         print(f"failing programs saved to {args.save_failures}")
     if args.keep:
