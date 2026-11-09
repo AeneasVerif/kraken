@@ -422,6 +422,22 @@ def evalShiftCount (stx : TSyntax `x64_shift_count) : TermElabM ShiftCountExpr :
   | `(x64_shift_count| $imm:x64_imm) => return .imm8 (← evalConstExpr (← getImmConst imm))
   | _ => throwError "expected immediate or %cl shift count"
 
+/-- Evaluate an immediate `x64_operand` (`$imm`, `$sym`, `$sym ± n`) into a `ConstExpr`. -/
+def evalImmOperand (stx : TSyntax `x64_operand) : TermElabM ConstExpr := withRef stx do
+  if stx.raw.isAntiquot then
+    return .label (← getAntiquotSym stx.raw)
+  else match stx with
+  | `(x64_operand| $i:x64_imm) => evalConstExpr (← getImmConst i)
+  | `(x64_operand| $sym:x64_operand + $n:num) =>
+    let s ← getAntiquotSym sym.raw
+    let i ← withRef n <| Int64.ofNatNoOverflow n.getNat
+    return .add (.label s) (.int64 i)
+  | `(x64_operand| $sym:x64_operand - $n:num) =>
+    let s ← getAntiquotSym sym.raw
+    let i ← withRef n <| Int64.ofNatNoOverflow n.getNat
+    return .sub (.label s) (.int64 i)
+  | _ => throwError "expected immediate operand"
+
 -- ============================================================================
 -- Mnemonic Suffixes & Constructors
 -- ============================================================================
@@ -467,14 +483,19 @@ def elabBinOp (stx : TSyntax `x64_bin_op) : TermElabM Expr := withRef stx do
   | "or"             => pure (mkConst ``Operation.or)
   | "cmp"            => pure (mkConst ``Operation.cmp)
   | "test"           => pure (mkConst ``Operation.test)
+  | "btc"            => pure (mkConst ``Operation.btc)
   | stem             => throwError "invalid binary instruction mnemonic '{stem}'"
 
 /-- The `Operation` constructor of an `x64_rm_reg_op`. -/
 def elabRmRegOp (stx : TSyntax `x64_rm_reg_op) : TermElabM Expr := withRef stx do
   match (← splitSuffixed stx).1 with
-  | "adcx" => pure (mkConst ``Operation.adcx)
-  | "adox" => pure (mkConst ``Operation.adox)
-  | stem   => throwError "invalid carry-chain mnemonic '{stem}'"
+  | "adcx"   => pure (mkConst ``Operation.adcx)
+  | "adox"   => pure (mkConst ``Operation.adox)
+  | "tzcnt"  => pure (mkConst ``Operation.tzcnt)
+  | "lzcnt"  => pure (mkConst ``Operation.lzcnt)
+  | "bsr"    => pure (mkConst ``Operation.bsr)
+  | "popcnt" => pure (mkConst ``Operation.popcnt)
+  | stem     => throwError "invalid carry-chain or bit-scan mnemonic '{stem}'"
 
 /-- The `Operation` constructor of an `x64_unary_op`. -/
 def elabUnaryOp (stx : TSyntax `x64_unary_op) : TermElabM Expr := withRef stx do
@@ -507,12 +528,23 @@ def elabExtMovOp (stx : TSyntax `x64_ext_mov_op) : TermElabM (Expr × Width × W
 def elabAvxOp (stx : TSyntax `x64_avx_op) : TermElabM Expr := withRef stx do
   let (stem, sfx) ← splitSuffixed stx
   match stem, sfx with
-  | "movu",  "ps" => pure (mkConst ``AvxOperation.movups)
-  | "vmovu", "ps" => pure (mkConst ``AvxOperation.vmovups)
-  | "mova",  "ps" => pure (mkConst ``AvxOperation.movaps)
-  | "add",   "ps" => pure (mkConst ``AvxOperation.addps)
-  | "sub",   "ps" => pure (mkConst ``AvxOperation.subps)
-  | _, _          => throwError "invalid AVX mnemonic"
+  | "movu",    "ps" => pure (mkConst ``AvxOperation.movups)
+  | "vmovu",   "ps" => pure (mkConst ``AvxOperation.vmovups)
+  | "mova",    "ps" => pure (mkConst ``AvxOperation.movaps)
+  | "vmova",   "ps" => pure (mkConst ``AvxOperation.vmovaps)
+  | "vmovdqa", _    => pure (mkConst ``AvxOperation.vmovdqa)
+  | "vmovdqu", _    => pure (mkConst ``AvxOperation.vmovdqu)
+  | "add",     "ps" => pure (mkConst ``AvxOperation.addps)
+  | "sub",     "ps" => pure (mkConst ``AvxOperation.subps)
+  | _, _            => throwError "invalid AVX mnemonic"
+
+/-- The `Operation` constructor of an `x64_bmi2_shift_op`. -/
+def elabBmi2ShiftOp (stx : TSyntax `x64_bmi2_shift_op) : TermElabM Expr := withRef stx do
+  match (← splitSuffixed stx).1 with
+  | "shlx" => pure (mkConst ``Operation.shlx)
+  | "shrx" => pure (mkConst ``Operation.shrx)
+  | "sarx" => pure (mkConst ``Operation.sarx)
+  | stem   => throwError "invalid BMI2 shift mnemonic '{stem}'"
 
 /-- The `Operation` constructor of an `x64_shift_op`. -/
 def elabShiftOp (stx : TSyntax `x64_shift_op) : TermElabM Expr := withRef stx do
@@ -628,6 +660,35 @@ def elabInstr (stx : TSyntax `x64_instr) : X64ElabM Expr := withRef stx do
     let src ← elabAvxRegOrMem src
     let dst ← elabAvxRegOrMem dst
     mkAvxInstr (← mkAppWidth mk #[dst, src])
+  | `(x64_instr| vzeroupper) =>
+    pure (toExpr (Instr.avx .W64 .W256 .vzeroupper))
+  | `(x64_instr| $op:x64_xchg_op $op1:x64_operand, $op2:x64_operand) =>
+    let mk := mkConst ``Operation.xchg
+    setSuffixWidth op
+    if let `(x64_operand| $r1:x64_reg) := op1 then
+      let src ← elabReg r1
+      let dst ← elabRegOrMemOperand op2
+      mkRegularInstr (← mkAppWidth mk #[dst, src])
+    else if let `(x64_operand| $r2:x64_reg) := op2 then
+      let dst ← elabRegOrMemOperand op1
+      let src ← elabReg r2
+      mkRegularInstr (← mkAppWidth mk #[dst, src])
+    else
+      throwError "expected at least one register operand for xchg"
+  | `(x64_instr| $op:x64_rorx_op $imm:x64_operand, $src:x64_operand, $dst:x64_reg) =>
+    let mk := mkConst ``Operation.rorx
+    setSuffixWidth op
+    let imm ← evalImmOperand imm
+    let src ← elabRegOrMemOperand src
+    let dst ← elabReg dst
+    mkRegularInstr (← mkAppWidth mk #[dst, src, toExpr imm])
+  | `(x64_instr| $op:x64_bmi2_shift_op $cnt:x64_reg, $src:x64_operand, $dst:x64_reg) =>
+    let mk ← elabBmi2ShiftOp op
+    setSuffixWidth op
+    let cnt ← elabReg cnt
+    let src ← elabRegOrMemOperand src
+    let dst ← elabReg dst
+    mkRegularInstr (← mkAppWidth mk #[dst, src, cnt])
   | `(x64_instr| $op:x64_shift_op $dst:x64_operand) =>
     let mk ← elabShiftOp op
     setSuffixWidth op

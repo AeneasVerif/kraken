@@ -1099,14 +1099,12 @@ def parseInstr : Parser Instr := do
     (commaSeparated w parseRegOrMem parseRegA (fun src dst => .xchg dst src))
 
   | "rorx" =>
-    skipHWs
-    let imm ← parseInt64; parseComma
+    let imm ← (skipHWs *> parseImmediate); parseComma
     commaSeparated .none parseRegOrMem parseRegA (fun dst src => .rorx dst src imm)
 
   | "rorxq" | "rorxl" =>
     let w ← instrWidth mn
-    skipHWs
-    let imm ← parseInt64; parseComma
+    let imm ← (skipHWs *> parseImmediate); parseComma
     commaSeparated w parseRegOrMem parseRegA (fun dst src => .rorx dst src imm)
 
   | "shlx" =>

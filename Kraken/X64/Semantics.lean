@@ -512,33 +512,8 @@ structure StatusFlags.from_result.Remaining where
   of : Bool
   deriving Repr, BEq, DecidableEq
 
--- TEMPORARY: definitions stolen from Lean 4.28's standard library, but with a
--- different name so that this file builds with both 4.27 and 4.28
-namespace BitVec
-def cpopNatRec_ {w} (x : BitVec w) (pos acc : Nat) : Nat :=
-  match pos with
-  | 0 => acc
-  | n + 1 => x.cpopNatRec_ n (acc + (x.getLsbD n).toNat)
-
-def cpop_ {w} (x : BitVec w) : BitVec w := BitVec.ofNat w (cpopNatRec_ x w 0)
-
-def ctzNatRec_ {w} (x : BitVec w) (rem : Nat) : Nat :=
-  match rem with
-  | 0 => w
-  | n + 1 => if x.getLsbD (w - 1 - n) then w - 1 - n else ctzNatRec_ x n
-
-def ctz_ {w} (x : BitVec w) : BitVec w := BitVec.ofNat w (ctzNatRec_ x w)
-
-def clzNatRec_ {w} (x : BitVec w) (rem : Nat) : Nat :=
-  match rem with
-  | 0 => w
-  | n + 1 => if x.getLsbD n then w - 1 - n else clzNatRec_ x n
-
-def clz_ {w} (x : BitVec w) : BitVec w := BitVec.ofNat w (clzNatRec_ x w)
-end BitVec
-
 @[kstep] def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
-  { pf := (result.take 8).cpop_ % 2 == BitVec.zero _
+  { pf := (result.take 8).cpop % 2 == BitVec.zero _
     zf := result == BitVec.zero _
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
 
@@ -814,27 +789,27 @@ set_option maxHeartbeats 1000000
     | _ => undefined (fun v => next (s.setReg dst v))
   | .tzcnt dst src =>
     src.interp s p (fun a s =>
-    let v := a.ctz_
+    let v := a.ctz
     let cf := a == 0
     let zf := v == 0
-    undefined (fun of => undefined (fun sf => undefined (fun pf => undefined (fun af =>
-    next { (s.setReg dst v) with status := { cf, pf, af, zf, sf, of } })))))
+    undefined (fun (status : StatusFlags) =>
+    next { (s.setReg dst v) with status := { status with cf, zf } }))
   | .lzcnt dst src =>
     src.interp s p (fun a s =>
-    let v := a.clz_
+    let v := a.clz
     let cf := a == 0
     let zf := v == 0
-    undefined (fun of => undefined (fun sf => undefined (fun pf => undefined (fun af =>
-    next { (s.setReg dst v) with status := { cf, pf, af, zf, sf, of } })))))
+    undefined (fun (status : StatusFlags) =>
+    next { (s.setReg dst v) with status := { status with cf, zf } }))
   | .bsr dst src =>
     src.interp s p (fun a s =>
-    undefined (fun v_undef => undefined (fun (status : StatusFlags) =>
+    undefined (fun (status : StatusFlags) =>
     let zf := a == 0
-    let v := if zf then v_undef else BitVec.ofNat w.bits (w.bits - 1) - a.clz_
-    next { (s.setReg dst v) with status := { status with zf } })))
+    let s := if zf then s else s.setReg dst (BitVec.ofNat w.bits (w.bits - 1) - a.clz)
+    next { s with status := { status with zf } }))
   | .popcnt dst src =>
     src.interp s p (fun a s =>
-    let v := a.cpop_
+    let v := a.cpop
     let zf := a == 0
     next { (s.setReg dst v) with status := { cf := false, pf := false, af := false, zf, sf := false, of := false } })
   | .btc dst src =>
@@ -842,13 +817,12 @@ set_option maxHeartbeats 1000000
     let toggle (a : w.type) (bitIdx : Nat) (setDst : w.type → (MachineData → Effects) → Effects) :=
       let cf := a.getLsbD bitIdx
       let v := a ^^^ (BitVec.ofNat w.bits 1 <<< bitIdx)
-      undefined (fun of => undefined (fun sf => undefined (fun af => undefined (fun pf =>
-      setDst v (fun s => next { s with status := { s.status with cf, pf, af, sf, of } })))))
+      undefined (fun (status : StatusFlags) =>
+      setDst v (fun s => next { s with status := { status with cf, zf := s.status.zf } }))
     match dst, src with
     | .mem a, .regOrMem (.reg _) =>
-      let baseAddr := (a.interp s.regs p).zeroExtend 64
       let wordOff := b.toInt.fdiv w.bits * w.bytes
-      let effAddr := baseAddr + BitVec.ofInt 64 wordOff
+      let effAddr := (a.interp s.regs p + BitVec.ofInt address_size.address_size.bits wordOff).zeroExtend 64
       s.load effAddr w (fun val s =>
         toggle val (b.toInt.fmod w.bits).toNat (fun v ret => s.store effAddr v ret))
     | _, _ =>

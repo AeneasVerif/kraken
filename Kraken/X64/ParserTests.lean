@@ -498,6 +498,56 @@ info: [Directive.label "aa.1.aa.1",
     jmp .L.str.1.llvm.12345
 ]
 
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.tzcnt (low Reg64.rbx Width.W64) ↑(low Reg64.rax Width.W64))),
+  Directive.instr (regular Width.W64 Width.W64 (Operation.lzcnt (low Reg64.rcx Width.W64) ↑(low Reg64.rax Width.W64))),
+  Directive.instr (regular Width.W64 Width.W32 (Operation.bsr (low Reg64.rcx Width.W32) ↑(low Reg64.rax Width.W32))),
+  Directive.instr (regular Width.W64 Width.W64 (Operation.popcnt (low Reg64.rbx Width.W64) ↑(low Reg64.rax Width.W64))),
+  Directive.instr (regular Width.W64 Width.W64 (Operation.btc ↑(low Reg64.rax Width.W64) ↑↑3)),
+  Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.xchg (↑{ base := some (RegOrRip.reg Reg64.rsp), idx := none }) (low Reg64.rax Width.W64))),
+  Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.xchg (↑{ base := some (RegOrRip.reg Reg64.rsp), idx := none }) (low Reg64.rax Width.W64))),
+  Directive.instr
+    (regular Width.W64 Width.W64 (Operation.rorx (low Reg64.rbx Width.W64) ↑(low Reg64.rax Width.W64) ↑7)),
+  Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.shlx (low Reg64.rax Width.W64) (↑{ base := some (RegOrRip.reg Reg64.rsp), idx := none })
+        (low Reg64.rcx Width.W64))),
+  Directive.instr
+    (regular Width.W64 Width.W32
+      (Operation.shrx (low Reg64.rdx Width.W32) (↑(low Reg64.rax Width.W32)) (low Reg64.rcx Width.W32))),
+  Directive.instr
+    (regular Width.W64 Width.W64
+      (Operation.sarx (low Reg64.rbx Width.W64) (↑(low Reg64.rax Width.W64)) (low Reg64.rcx Width.W64))),
+  Directive.instr (avx Width.W64 AvxWidth.W256 (AvxOperation.vmovaps ↑(AvxReg.ymm RegMm.mm1) ↑(AvxReg.ymm RegMm.mm0))),
+  Directive.instr (avx Width.W64 AvxWidth.W256 (AvxOperation.vmovdqa ↑(AvxReg.ymm RegMm.mm4) ↑(AvxReg.ymm RegMm.mm3))),
+  Directive.instr
+    (avx Width.W64 AvxWidth.W512
+      (AvxOperation.vmovdqu ↑(AvxReg.zmm RegMm.mm6) ↑{ base := some (RegOrRip.reg Reg64.rsp), idx := none })),
+  Directive.instr (avx Width.W64 AvxWidth.W256 AvxOperation.vzeroupper)] : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check [x64|
+  tzcnt %rax, %rbx
+  lzcnt %rax, %rcx
+  bsr %eax, %ecx
+  popcnt %rax, %rbx
+  btcq $3, %rax
+  xchgq %rax, (%rsp)
+  xchgq (%rsp), %rax
+  rorx $7, %rax, %rbx
+  shlx %rcx, (%rsp), %rax
+  shrx %ecx, %eax, %edx
+  sarx %rcx, %rax, %rbx
+  vmovaps %ymm0, %ymm1
+  vmovdqa %ymm3, %ymm4
+  vmovdqu (%rsp), %zmm6
+  vzeroupper
+]
+
 end syntax_cat_and_include
 
 section antiquotations
