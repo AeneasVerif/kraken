@@ -4,6 +4,7 @@ import argparse
 import concurrent.futures
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -14,7 +15,11 @@ PROJECT_DIR = Path(__file__).resolve().parents[3]
 BIN = PROJECT_DIR / ".lake/build/bin/bedrock2c"
 BASE_FLAGS = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function",
               "-Wno-tautological-compare", "-Wno-type-limits", "-fstrict-aliasing",
-              "-fno-sanitize-recover=all", "-ftrivial-auto-var-init=pattern"]
+              "-fno-sanitize-recover=all", "-ftrivial-auto-var-init=pattern", "-U_FORTIFY_SOURCE"]
+CC_FLAGS = {
+    "gcc": ["-Wno-bool-compare", "-Wno-bool-operation", "-Wno-int-in-bool-context"],
+    "clang": ["-Wno-bool-operation", "-Wno-int-in-bool-context"],
+}
 SANITIZER_SETS = ["undefined,address", "undefined"]
 COMPILERS = ["gcc", "clang"]
 ARCHS = ["-m64", "-m32"]
@@ -53,7 +58,8 @@ def probe_sanitizer(cc, arch, san, tmp):
     src.write_text(PROBE)
     exe = tmp / f"probe-{cc}{arch}-{san.replace(',', '_')}"
     try:
-        r = run([cc, arch, *BASE_FLAGS, f"-fsanitize={san}", str(src), "-o", str(exe)], 120)
+        r = run([cc, arch, *BASE_FLAGS, *CC_FLAGS.get(cc, []), f"-fsanitize={san}", str(src), "-o", str(exe)],
+                120)
         return r.returncode == 0 and run([str(exe)], 30).stdout == "ok\n"
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -90,25 +96,43 @@ def compare(case, cfg, c_out, replay_out):
 def run_one(exe_cmd, case, src, cfg, tmp):
     tag = f"{case}-{cfg['name']}"
     exe = tmp / tag
-    flags = [cfg["arch"], *BASE_FLAGS, *cfg["opt"]]
+    flags = [cfg["arch"], *BASE_FLAGS, *CC_FLAGS.get(cfg["cc"], []), *cfg["opt"]]
     if cfg["san"]:
         flags.append(f"-fsanitize={cfg['san']}")
+    art = {"flags.txt": " ".join([cfg["cc"], *flags]) + "\n"}
     try:
         r = run([cfg["cc"], *flags, str(src), "-o", str(exe)], 300)
+        art["compile.txt"] = r.stderr
         if r.returncode != 0:
-            return "FAIL", f"compile: {r.stderr.strip()[:2000]}"
+            return "FAIL", f"compile: {r.stderr.strip()[:2000]}", art
         r = run([str(exe)], 60)
+        art["c_output.json"], art["c_stderr.txt"] = r.stdout, r.stderr
         if r.returncode != 0:
-            return "FAIL", f"run exited {r.returncode}: {r.stderr.strip()[:2000]}"
+            return "FAIL", f"run exited {r.returncode}: {r.stderr.strip()[:2000]}", art
         c_out = json.loads(r.stdout)
         r = run([*exe_cmd, "replay", case], 300, input=r.stdout)
+        art["replay.json"], art["replay_stderr.txt"] = r.stdout, r.stderr
         if r.returncode != 0:
-            return "FAIL", f"replay exited {r.returncode}: {r.stderr.strip()[:2000]}"
-        return apply_xfail(case, cfg, *compare(case, cfg, c_out, json.loads(r.stdout)))
+            return "FAIL", f"replay exited {r.returncode}: {r.stderr.strip()[:2000]}", art
+        return (*apply_xfail(case, cfg, *compare(case, cfg, c_out, json.loads(r.stdout))), art)
     except subprocess.TimeoutExpired as e:
-        return "FAIL", f"timeout: {e.cmd}"
+        return "FAIL", f"timeout: {e.cmd}", art
     except (OSError, json.JSONDecodeError) as e:
-        return "FAIL", str(e)
+        return "FAIL", str(e), art
+
+
+def save_failure(exe_cmd, root, case, name, src, art):
+    d = Path(root) / case
+    (d / name).mkdir(parents=True, exist_ok=True)
+    if src is not None and src.exists():
+        shutil.copy(src, d / f"{case}.c")
+    try:
+        r = run([*exe_cmd, "show", case], 300)
+        (d / "case.txt").write_text(r.stdout + r.stderr)
+    except subprocess.TimeoutExpired:
+        pass
+    for fname, text in art.items():
+        (d / name / fname).write_text(text or "")
 
 
 def main():
@@ -117,6 +141,10 @@ def main():
     ap.add_argument("--bedrock2c")
     ap.add_argument("-j", "--jobs", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--gen", nargs=2, type=int, metavar=("SEED", "COUNT"))
+    ap.add_argument("--no-corpus", action="store_true")
+    ap.add_argument("--config-filter", default="")
+    ap.add_argument("--save-failures", metavar="DIR")
     args = ap.parse_args()
 
     exe_cmd = bedrock2c_cmd(args.bedrock2c)
@@ -127,8 +155,14 @@ def main():
         print(f"bedrock2c list failed: {r.stderr}")
         return 1
     all_cases = r.stdout.split()
-    cases = args.cases or all_cases
-    unknown = [c for c in cases if c not in all_cases]
+    cases = args.cases or ([] if args.no_corpus else all_cases)
+    if args.gen:
+        r = run([*exe_cmd, "gen", str(args.gen[0]), str(args.gen[1])], 1800)
+        if r.returncode != 0:
+            print(f"bedrock2c gen failed: {r.stderr}")
+            return 1
+        cases = cases + r.stdout.split()
+    unknown = [c for c in cases if c not in all_cases and not c.startswith("gen_")]
     if unknown:
         print(f"unknown cases: {unknown}")
         return 1
@@ -151,8 +185,9 @@ def main():
                     continue
                 tag = "asan" if "address" in san else "ubsan"
                 for opt in OPTS:
-                    configs.append({"cc": cc, "arch": arch, "opt": opt, "san": san,
-                                    "name": f"{cc}{arch}{''.join(opt)}-{tag}"})
+                    name = f"{cc}{arch}{''.join(opt)}-{tag}"
+                    if re.search(args.config_filter, name):
+                        configs.append({"cc": cc, "arch": arch, "opt": opt, "san": san, "name": name})
 
     srcs = {}
     for case in cases:
@@ -163,6 +198,9 @@ def main():
             r = None
         if r is None or r.returncode != 0:
             results.append((case, "emit", "FAIL", r.stderr.strip() if r else "timeout"))
+            if args.save_failures:
+                save_failure(exe_cmd, args.save_failures, case, "emit", None,
+                             {"emit_stderr.txt": r.stderr if r else "timeout"})
         else:
             srcs[case] = src
 
@@ -171,7 +209,10 @@ def main():
                 for case, src in srcs.items() for cfg in configs}
         for fut in concurrent.futures.as_completed(futs):
             case, name = futs[fut]
-            results.append((case, name, *fut.result()))
+            status, detail, art = fut.result()
+            results.append((case, name, status, detail))
+            if args.save_failures and status not in OK_STATUSES:
+                save_failure(exe_cmd, args.save_failures, case, name, srcs[case], art)
 
     results.sort(key=lambda x: (x[0], x[1]))
     for case, name, status, detail in results:
@@ -188,6 +229,8 @@ def main():
     for cfg in configs:
         n = sum(1 for _, name, s, _ in results if name == cfg["name"] and s in OK_STATUSES)
         print(f"  {cfg['name']:30} -fsanitize={cfg['san']:18} {n}/{len(srcs)} ok")
+    if args.save_failures and any(s not in OK_STATUSES for _, _, s, _ in results):
+        print(f"failing programs saved to {args.save_failures}")
     if args.keep:
         print(f"artifacts kept in {tmp}")
     else:

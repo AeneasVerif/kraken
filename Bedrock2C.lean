@@ -3,7 +3,8 @@ module
 import Kraken.Bedrock2.Test.Cases
 import Kraken.Bedrock2.Test.Matrix
 import Kraken.Bedrock2.CPrinter
-import Kraken.Bedrock2.Interp
+import Kraken.Bedrock2.Test.Run
+import Kraken.Bedrock2.Test.Gen
 import Lean.Data.Json
 
 open Lean Kraken.Bedrock2 Kraken.Bedrock2.Test
@@ -11,9 +12,13 @@ open Lean Kraken.Bedrock2 Kraken.Bedrock2.Test
 def corpus : List Case := cases ++ matrixCases
 
 def findCase (name : String) : Except String Case :=
-  match corpus.find? (·.name == name) with
-  | some c => pure c
-  | none => throw s!"unknown case '{name}'"
+  match corpus.find? (·.name == name), name.splitOn "_" with
+  | some c, _ => pure c
+  | none, ["gen", seed, i] =>
+    match seed.toNat?, i.toNat? with
+    | some seed, some i => Gen.genCase seed i
+    | _, _ => throw s!"unknown case '{name}'"
+  | none, _ => throw s!"unknown case '{name}'"
 
 def cArgs : List Arg → Nat → List String
   | [], _ => []
@@ -84,54 +89,8 @@ def cDriver (c : Case) : Except String String := do
     "  return 0;\n",
     "}\n"]
 
-structure Obs where
-  rets : List Nat
-  final : List (List UInt8)
-  deriving BEq
-
-def Obs.toJson (o : Obs) : List (String × Json) :=
+def obsJson (o : Obs) : List (String × Json) :=
   [("rets", Lean.toJson o.rets), ("final", Lean.toJson (o.final.map (·.map (·.toNat))))]
-
-def argVals (w : Nat) : List Arg → List Nat → Option (List (BitVec w))
-  | [], _ => some []
-  | .word v :: as, ad => (BitVec.ofInt w v :: ·) <$> argVals w as ad
-  | .buf _ :: as, a :: ad => (BitVec.ofNat w a :: ·) <$> argVals w as ad
-  | .buf _ :: _, [] => none
-
-def runCase (w : Nat) (c : Case) (addrs : List Nat) (o : List Nat) (fill : UInt8) :
-    Except String Obs := do
-  let some f := c.funcs.lookup c.entry | throw s!"entry function '{c.entry}' not found"
-  let bufs := c.buffers.zip addrs
-  if bufs.length != addrs.length || bufs.length != c.buffers.length then
-    throw "buffer count mismatch"
-  let m0 : Mem w := bufs.foldl (fun m (bs, a) => m.union (bs.At (BitVec.ofNat w a))) ∅
-  let some args := argVals w c.args addrs | throw "buffer count mismatch"
-  let some lf := putManyZip f.params args ∅ | throw "wrong number of arguments"
-  let some (_, m, l, rest) := run c.funcs fill c.fuel f.body [] m0 lf (o.map (BitVec.ofNat w))
-    | throw "interpreter got stuck"
-  if !rest.isEmpty then throw s!"{rest.length} logged stackallocs were not used"
-  let some rets := getMany l f.rets | throw "return variable unset"
-  let some final := bufs.mapM (fun (bs, a) => m.loadBytes (BitVec.ofNat w a) bs.length)
-    | throw "buffer missing from final memory"
-  return ⟨rets.map (·.toNat), final⟩
-
-def alignDown (a : Nat) : Nat := a / 0x1000 * 0x1000
-def alignUp (a : Nat) : Nat := (a + 0xfff) / 0x1000 * 0x1000
-
-def perturb (w : Nat) (bufs stk : List (Nat × Nat)) : Option (List Nat) :=
-  match stk.map (·.1) with
-  | [] => some []
-  | s :: ss =>
-    let sLo := alignDown (ss.foldl min s)
-    let sHi := alignUp (stk.foldl (fun h (a, n) => max h (a + max n 1)) 0)
-    let all := bufs ++ stk
-    let allLo := alignDown (all.foldl (fun l (a, _) => min l a) s)
-    let allHi := alignUp (all.foldl (fun h (a, n) => max h (a + max n 1)) 0)
-    let span := sHi - sLo
-    let move (base : Nat) := stk.map fun (a, _) => a - sLo + base
-    if allHi + 0x10000 + span ≤ 2 ^ w then some (move (allHi + 0x10000))
-    else if span + 0x20000 ≤ allLo then some (move (allLo - 0x10000 - span))
-    else none
 
 def replay (c : Case) (j : Json) : Except String Json := do
   let ws ← j.getObjValAs? Nat "wordsize"
@@ -149,17 +108,18 @@ def replay (c : Case) (j : Json) : Except String Json := do
     let alt := runCase w c addrs o' 0xa5
     match alt with
     | .ok obs' =>
-      if obs' == obs then return Json.mkObj ([("status", Json.str "ok")] ++ obs.toJson)
-      else return Json.mkObj ([("status", Json.str "invalid")] ++ obs.toJson ++ [("perturbed", Json.mkObj obs'.toJson)])
+      if obs' == obs then return Json.mkObj ([("status", Json.str "ok")] ++ obsJson obs)
+      else return Json.mkObj ([("status", Json.str "invalid")] ++ obsJson obs ++ [("perturbed", Json.mkObj (obsJson obs'))])
     | .error e =>
-      return Json.mkObj ([("status", Json.str "invalid")] ++ obs.toJson ++ [("perturbed_error", Json.str e)])
+      return Json.mkObj ([("status", Json.str "invalid")] ++ obsJson obs ++ [("perturbed_error", Json.str e)])
 
 partial def readAll (s : IO.FS.Stream) (acc : String := "") : IO String := do
   let line ← s.getLine
   if line.isEmpty then return acc else readAll s (acc ++ line)
 
 def usage : String :=
-  "usage: bedrock2c list | emit <case> [--out file.c] | replay <case> < c_output.json"
+  "usage: bedrock2c list | gen <seed> <count> | show <case> | emit <case> [--out file.c] | " ++
+    "replay <case> < c_output.json"
 
 def orFail {α} (r : Except String α) : IO α :=
   match r with
@@ -171,6 +131,20 @@ public def main (args : List String) : IO UInt32 := do
     match args with
     | ["list"] =>
       for c in corpus do IO.println c.name
+      return 0
+    | ["gen", seed, count] =>
+      let some seed := seed.toNat? | throw (IO.userError "bad seed")
+      let some count := count.toNat? | throw (IO.userError "bad count")
+      for i in List.range count do
+        IO.println (← orFail (Gen.genCase seed i)).name
+      return 0
+    | ["show", name] =>
+      let c ← orFail (findCase name)
+      IO.println s!"entry := {repr c.entry}"
+      IO.println s!"args := {repr c.args}"
+      IO.println s!"funcs := {repr c.funcs}"
+      if c.funcsAt 32 != c.funcs then IO.println s!"funcsAt 32 := {repr (c.funcsAt 32)}"
+      if c.funcsAt 64 != c.funcs then IO.println s!"funcsAt 64 := {repr (c.funcsAt 64)}"
       return 0
     | ["emit", name] =>
       IO.print (← orFail (findCase name >>= cDriver))
