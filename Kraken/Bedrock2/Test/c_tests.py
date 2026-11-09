@@ -28,8 +28,10 @@ ENV = dict(os.environ, ASAN_OPTIONS="detect_leaks=0", UBSAN_OPTIONS="print_stack
 XFAIL = [
     ("same_slot", "clang", lambda cfg: cfg["opt"][0] in ("-O2", "-O3") and "address" not in cfg["san"],
      "https://github.com/llvm/llvm-project/issues/45725"),
+    ("bitcopy_store", "gcc", lambda cfg: cfg["opt"][0] in ("-O2", "-O3"),
+     "https://gcc.gnu.org/bugzilla/show_bug.cgi?id=65752"),
 ]
-XFAIL_C_RETS = {"same_slot": [1]}
+XFAIL_C_RETS = {"same_slot": [1], "bitcopy_store": [0]}
 OK_STATUSES = ("PASS", "XFAIL", "XPASS")
 PROBE = "#include <stdio.h>\nint main(void) { printf(\"ok\\n\"); return 0; }\n"
 

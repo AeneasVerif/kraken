@@ -5,6 +5,7 @@ public import Kraken.Bedrock2.Test.Examples.Swap
 public import Kraken.Bedrock2.Test.Examples.SetBytes
 public import Kraken.Bedrock2.Test.Examples.Stackalloc
 public import Kraken.Bedrock2.Test.Examples.StackSlotReuse
+public import Kraken.Bedrock2.Test.Examples.BitCopy
 import Kraken.Bedrock2.Notation
 meta import Kraken.Bedrock2.Notation
 
@@ -177,7 +178,8 @@ def cases : List Case := [
     args := [.word 0x7fffffff, .word 0x123] },
   { name := "fib", funcs := [fib], entry := "fib", args := [.word 15] },
   { name := "same_slot", funcs := [Examples.same_slot, Examples.addrs], entry := "same_slot",
-    args := [] }
+    args := [] },
+  { name := "bitcopy_store", funcs := [Examples.bitcopy_store], entry := "bitcopy_store", args := [] }
 ]
 
 end Kraken.Bedrock2.Test
