@@ -339,4 +339,130 @@ theorem phase1_spec {Γ : Env} {Q : Post} {X : XPost} {finish ph2 : Cont}
     wp_unfold
     exact hJ _ _ _ ⟨0, tb, sla0, _, [], tf0, by simp, Nat.zero_le _, rfl, by omega, hm, by simp⟩
 
+/-! ## Phase 2, inner loop -/
+
+/-- The state of the inner loop after `i` literals of the antecedent: no unit yet and everything
+falsified, or a unit literal `unit` that is now true and everything else falsified. -/
+def InnerSt (mv reserve : Nat) (clits : List Val) (curAssign : Assignment) (i : Nat) (unit : Val)
+    (assign : Assignment) (tf : List Val) : Prop :=
+  (unit = 0 ∧ assign = curAssign ∧ reserve + 1 ≤ tf.length ∧
+      ∀ x : Literal Nat, x ∈ (clits.take i).map toLiteral → curAssign.get? x.1 = some !x.2) ∨
+  (unit ≠ 0 ∧ IsValidLit mv unit ∧ assign.get? (toLiteral unit).1 = some (toLiteral unit).2 ∧
+      reserve ≤ tf.length ∧
+      ((curAssign.get? (toLiteral unit).1 = none ∧
+        assign = curAssign.insert (toLiteral unit).1 (toLiteral unit).2) ∨ assign = curAssign) ∧
+      ∀ x : Literal Nat, x ∈ (clits.take i).map toLiteral →
+        x = toLiteral unit ∨ curAssign.get? x.1 = some !x.2)
+
+theorem inner_spec {Γ : Env} {Q : Post} {X : XPost} {fail done : Cont}
+    {vb tb aid als te0 sr : Val} {mv reserve N : Nat} {clits : List Val} {f : CNF Nat}
+    {initAssign curAssign : Assignment} {curTrail curTf : List Val} {R : Mem 64 → Prop} {m : Mem 64}
+    (hvalid : ∀ x ∈ clits, IsValidLit mv x) (hcl : toClause clits ∈ f)
+    (hent : CNF.Entails (f ++ initAssign.toCNF) (f ++ curAssign.toCNF))
+    (hcap : reserve + 1 ≤ curTf.length)
+    (hm : (PState mv vb tb te0 curAssign curTrail curTf N ⋆ (ZeroTermInts als clits ⋆ R)) m)
+    (hfail : ∀ m' te sla assign trail tf,
+      (PState mv vb tb te assign trail tf N ⋆ (ZeroTermInts als clits ⋆ R)) m' →
+      fail [2, aid, te, sr, sla] m')
+    (hdone : ∀ m' unit te sla assign trail tf,
+      (PState mv vb tb te assign trail tf N ⋆ (ZeroTermInts als clits ⋆ R)) m' →
+      ((unit = 0 ∧ reserve + 1 ≤ tf.length ∧ CNF.Unsat (f ++ initAssign.toCNF)) ∨
+       (unit ≠ 0 ∧ reserve ≤ tf.length ∧ CNF.Entails (f ++ initAssign.toCNF) (f ++ assign.toCNF))) →
+      done [unit, te, sla] m')
+    (sla0 : Val) :
+    wp Γ Q X (inner fail done vb aid als te0 sr sla0) [] [] m := by
+  unfold inner
+  have h32 : ∀ x ∈ clits, IsInt32 x := fun x hx => (hvalid x hx).1
+  have hne0 : ∀ x ∈ clits, x ≠ 0 := fun x hx => (hvalid x hx).2.1
+  apply wp_loop (fun r as m => ∃ i unit te sla assign trail tf,
+    as = [als + BitVec.ofNat 64 (4 * i), unit, te, sla] ∧ i ≤ clits.length ∧ r = clits.length - i ∧
+    (PState mv vb tb te assign trail tf N ⋆ (ZeroTermInts als clits ⋆ R)) m ∧
+    InnerSt mv reserve clits curAssign i unit assign tf)
+  · rintro J r as m ⟨i, unit, te, sla, assign, trail, tf, rfl, hi, rfl, hm, hst⟩ ih
+    wp_unfold
+    have hm0 := hm
+    obtain ⟨hte, hcov, htv, hlen, hm⟩ := pstate_sep.1 hm
+    have hld := loadsw_zeroTerm hi h32 (by rw [sep_comm_l] at hm; exact hm)
+    refine ⟨_, hld, fun hnz => ?_, fun hz => ?_⟩
+    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i)] at hnz
+      have hlt := (zeroTermGet_ne_zero_iff hi hne0).1 hnz
+      simp only [zeroTermGet, hlt, ↓reduceDIte]
+      have hlit := hvalid clits[i] (List.getElem_mem hlt)
+      have hcases := evalAssignedLit_cases assign hlit
+      refine assignedLit_spec hlit (by rw [sep_assoc] at hm; exact hm) ?_
+      wp_unfold
+      have hstep : ∀ unit' assign' trail' tf' te' sla' m', (PState mv vb tb te' assign' trail' tf' N ⋆
+          (ZeroTermInts als clits ⋆ R)) m' → InnerSt mv reserve clits curAssign (i + 1) unit' assign' tf' →
+          J [als + BitVec.ofNat 64 (4 * i) + 4, unit', te', sla'] m' := fun _ _ _ _ _ _ _ hm' hst' =>
+        ih _ _ _ (by omega) ⟨i + 1, _, _, _, _, _, _, by rw [ptr4], hlt, rfl, hm', hst'⟩
+      refine ⟨fun hneg => ?_, fun hneg => ?_⟩
+      · -- the literal is false: a conflict with the unit fails, otherwise go on
+        have hfals := hcases.1 hneg
+        rw [show (0 : Val) - clits[i] = -clits[i] by simp]
+        refine ⟨fun _ => hfail m te sla assign trail tf hm0, fun hne => hstep _ _ _ _ _ _ _ hm0 ?_⟩
+        rcases hst with ⟨rfl, rfl, hc, hinv⟩ | ⟨hu, huv, hus, hc, hrel, hinv⟩
+        · exact Or.inl ⟨rfl, rfl, hc, phase2_inner_falsified_unit0 hlt hinv hfals⟩
+        · exact Or.inr ⟨hu, huv, hus, hc, hrel,
+            phase2_inner_falsified_unit_ne0 hlt hlit hus hrel hinv hfals hne⟩
+      · -- the literal is true or unassigned: it becomes the unit (`@setunit`)
+        apply wp_join (fun as m' => as = [] ∧ m' = m ∧ (unit = 0 ∨ unit = clits[i]))
+        · rintro _ _ ⟨rfl, rfl, hu⟩
+          wp_unfold
+          refine ⟨fun hv0 => ?_, fun hv0 => ?_⟩
+          · have hun := (hcases.2.2 ⟨hneg, by rw [hv0]; decide⟩).1
+            rcases hst with ⟨rfl, rfl, hc, hinv⟩ | ⟨hu', _, hus, _, _, _⟩
+            · rcases tf with _ | ⟨t0, tf'⟩
+              · simp at hc
+              refine assignLit_spec hlit rfl hte hcov hm fun m' hte' hcov' hm' => ?_
+              wp_unfold
+              refine hstep _ _ _ _ _ _ _ (pstate_sep.2 ⟨hte', hcov', ?_, ?_, hm'⟩)
+                (Or.inr ⟨hlit.2.1, hlit, Assignment.get?_insert_of_eq rfl, by simp at hc; omega,
+                  Or.inl ⟨hun, rfl⟩, phase2_inner_new_unit hlt hinv⟩)
+              · intro t ht
+                rcases List.mem_append.1 ht with h | h
+                · exact htv t h
+                · rw [List.mem_singleton.1 h]; exact hlit
+              · simp at hlen ⊢; omega
+            · rcases hu with hu | hu
+              · exact absurd hu hu'
+              · rw [hu, hun] at hus; nomatch hus
+          · have hpos : (0 : Val).slt (evalAssignedLit (assignByte assign (toLiteral clits[i]).1)
+                clits[i]) = true := by
+              cases hp : (0 : Val).slt _
+              · exact absurd (hcases.2.2 ⟨hneg, hp⟩).2 hv0
+              · rfl
+            have hsat := hcases.2.1 ⟨hneg, hpos⟩
+            refine hstep _ _ _ _ _ _ _ hm0 ?_
+            rcases hst with ⟨rfl, rfl, hc, hinv⟩ | ⟨hu', huv, hus, hc, hrel, hinv⟩
+            · exact Or.inr ⟨hlit.2.1, hlit, hsat, by omega, Or.inr rfl, phase2_inner_new_unit hlt hinv⟩
+            · rcases hu with hu | rfl
+              · exact absurd hu hu'
+              · exact Or.inr ⟨hu', huv, hus, hc, hrel, phase2_inner_dup_unit hlt rfl hinv⟩
+        · intro K hK
+          wp_unfold
+          have hu32 : IsInt32 unit := by
+            rcases hst with ⟨rfl, _⟩ | ⟨_, huv, _⟩
+            · exact isInt32_zero
+            · exact huv.1
+          rw [truthy_iff _ hu32]
+          refine ⟨fun hu => ⟨fun heq => hK _ _ ⟨rfl, rfl, Or.inr heq⟩,
+            fun _ => hfail m te sla assign trail tf hm0⟩, fun hu => hK _ _ ⟨rfl, rfl, Or.inl ?_⟩⟩
+          simpa using hu
+    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i), Classical.not_not] at hz
+      obtain rfl := (zeroTermGet_eq_zero_iff hi hne0).1 hz
+      rw [InnerSt, List.take_length] at hst
+      rcases hst with ⟨rfl, rfl, hc, hall⟩ | ⟨hu, _, _, hc, hrel, hinv⟩
+      · refine hdone m 0 te sla _ trail tf hm0 (Or.inl ⟨rfl, hc, ?_⟩)
+        exact unsat_of_all_falsified hcl hent fun x hx => by
+          rw [← CNF.Clause.mem_literals_iff, literals_toClause] at hx; exact hall x hx
+      · refine hdone m unit te sla assign trail tf hm0 (Or.inr ⟨hu, hc, ?_⟩)
+        rcases hrel with ⟨_, rfl⟩ | rfl
+        · exact entails_insert_of_unit_prop hcl hent fun x hx => by
+            rw [← CNF.Clause.mem_literals_iff, literals_toClause] at hx; exact hinv x hx
+        · exact hent
+  · intro J hJ
+    wp_unfold
+    exact hJ _ _ _ ⟨0, 0, te0, sla0, curAssign, curTrail, curTf, by simp, Nat.zero_le _, rfl, hm,
+      Or.inl ⟨rfl, rfl, hcap, by simp⟩⟩
+
 end LeanQbe.LratRup
