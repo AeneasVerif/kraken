@@ -2,7 +2,8 @@
 # lean-qbe quality gate. Run from anywhere: scripts/check.sh
 #
 #  1. Builds every library and the executable with warnings as errors (`lake build --wfail`).
-#  2. Fails on any `sorry` (build log, and `sorryAx` in any axiom report).
+#  2. Fails on any `sorry` (build log, and `sorryAx` in any axiom report), and on `bv_decide`,
+#     `native_decide` and friends anywhere in a tracked .lean file (native axioms).
 #  3. Checks import closures: the generic `LeanQbe` root imports neither `Kraken.X64` nor
 #     `Kraken.AArch64`, and every module file under `LeanQbe/` is reachable from its library root
 #     (`LeanQbe/Amd64/*` and `LeanQbe/Examples/Litmus*` from `LeanQbeAmd64`, `LeanQbe/Arm64/*` from `LeanQbeArm64`, the rest from
@@ -35,6 +36,12 @@ tail -n 1 "$TMP/build.log"
 echo "== 2. sorry"
 if grep -n "declaration uses 'sorry'\|declaration uses \`sorry\`\|sorryAx" "$TMP/build.log"; then
   err "sorry in the build"
+fi
+
+echo "== 2b. native-code tactics (their axioms Lean.ofReduceBool etc. fail the bar, even off-headline)"
+if git ls-files -z '*.lean' ':(exclude)Kraken' ':(exclude)Kraken*.lean' ':(exclude)Att2Intel.lean' ':(exclude)Bedrock2C.lean' | xargs -0 grep -nE '\b(bv_decide|native_decide)\b|decide \+native|ofReduceBool|ofReduceNat' 2>/dev/null \
+    | grep -vE '^[^:]+:[0-9]+:\s*--'; then
+  err "native-code tactic in a tracked .lean file"
 fi
 
 echo "== 3. import closures"

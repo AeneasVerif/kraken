@@ -33,3 +33,5 @@ LeanQbe.GvnLemmas LeanQbe.Func.gvn_spec
 LeanQbe.GvnLemmas LeanQbe.Func.gvn_wf
 spike.il.GvnTest LeanQbe.GvnTest.gvn_prog_out
 spike.il.GvnTest LeanQbe.GvnTest.gvn_prog_spec
+LeanQbe.Examples.LitmusCfLemmas LeanQbe.Litmus.nested_fnspec
+LeanQbe.Examples.LitmusCfLemmas LeanQbe.Litmus.evenodd_fnspec
