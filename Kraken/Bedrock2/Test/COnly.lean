@@ -1,6 +1,7 @@
 module
 
 public import Kraken.Bedrock2.CPrinter
+public import Kraken.Bedrock2.Test.LratTrim
 import Kraken.Bedrock2.Notation
 meta import Kraken.Bedrock2.Notation
 
@@ -50,7 +51,12 @@ def stackallocLoopC : Except String String := do
   let m ← cModule [stackallocLoop] []
   return m ++ "\nint main(void) {\n  return (int)stackalloc_loop();\n}\n"
 
+def lratTrimCOnly : Except String String := do
+  return "#include <stdint.h>\n#if UINTPTR_MAX == 0xFFFFFFFFFFFFFFFFu\n" ++ (← lratTrimC) ++
+    "#else\nint _br_lrat_trim_32bit_stub;\n#endif\n"
+
 def cOnlyPrograms : List (String × Bool × Except String String) :=
-  [("typecheck", false, pure typecheckC), ("stackalloc_loop", true, stackallocLoopC)]
+  [("typecheck", false, pure typecheckC), ("stackalloc_loop", true, stackallocLoopC),
+   ("lrat_trim", false, lratTrimCOnly)]
 
 end Kraken.Bedrock2.Test
