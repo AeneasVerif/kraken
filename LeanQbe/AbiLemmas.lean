@@ -34,6 +34,8 @@ theorem sep_mono_r {P Q Q' : Mem 64 → Prop} (h : ∀ x, Q x → Q' x) {M : Mem
   rintro ⟨a, b, hu, hd, ha, hb⟩
   exact ⟨a, b, hu, hd, ha, h b hb⟩
 
+theorem sep_ac' {P Q : Mem 64 → Prop} {M : Mem 64} (e : P = Q) (h : P M) : Q M := e ▸ h
+
 /-! ## Framing the memory operations -/
 
 private theorem allSome_isSome {α : Type} :
@@ -379,6 +381,75 @@ theorem link {h : T.Host} (Γ : Env) (bound : String → Nat) (nX : Nat) :
           (by rw [← List.drop_eq_getElem_cons hk', List.take_append_drop]) (ih (by omega))
   intro f hf
   exact key fs.length (Nat.le_refl _) f (by simpa using hf)
+
+/-- A register kept by `call` (outside `sp :: raRegs ++ scratch`). -/
+private theorem not_mem_call_clob {r : T.Reg} (h1 : r ≠ T.sp) (h2 : r ∉ T.raRegs)
+    (h3 : r ∉ T.scratch) : r ∉ T.sp :: T.raRegs ++ T.scratch := by
+  simp only [List.mem_cons, List.mem_append, not_or]
+  exact ⟨⟨h1, h2⟩, h3⟩
+
+/--
+Calling a function that meets its `FnSpec`: `call sym` at index `k`, with the callee's arguments in
+the argument registers, an entry-aligned stack pointer after the push of the return address, and
+the callee's `n + raBytes` bytes of stack directly below the stack pointer. Continue after the call
+with the results in the result registers, callee-saved registers and the stack pointer as before,
+the same stack footprint (contents arbitrary) and the frame `G` untouched; or, if the callee
+exits, from its call-ready exit state.
+-/
+theorem call_fnspec {h : T.Host} {k : Nat} {sym : String} {spec : Spec} {n nX : Nat}
+    {args : List Val} {m : Mem 64} {Q : Post} {X : XPost} {s : T.MData} {G : Mem 64 → Prop}
+    {post : T.State → Prop}
+    (hc : (T.call sym).IsInfixAt (T.prog h) k) (hf : T.FnSpec h sym spec n nX)
+    (hs : spec args m Q X) (ha : T.ArgsIn args s)
+    (hsp : T.spEntry (T.get s T.sp - BitVec.ofNat 64 T.raBytes)) (hn : n + T.raBytes ≤ 2 ^ 64)
+    (hmem : T.mem s =⋆ Eq m ⋆
+      region (T.get s T.sp - BitVec.ofNat 64 T.raBytes - BitVec.ofNat 64 n) (n + T.raBytes) ⋆ G)
+    (hret : ∀ s' rets m', Q rets m' → T.RetsIn rets s' →
+      (∀ r, r ∈ T.calleeSaved → T.get s' r = T.get s r) → T.get s' T.sp = T.get s T.sp →
+      (T.mem s' =⋆ Eq m' ⋆
+        region (T.get s T.sp - BitVec.ofNat 64 T.raBytes - BitVec.ofNat 64 n) (n + T.raBytes) ⋆
+        G) →
+      Eventually (T.step h) post (T.mkState s' (T.addrOf h (k + (T.call sym).length))))
+    (hexit : ∀ st sym' as m' ra' n' F, X sym' as m' → T.Defined h sym' →
+      T.pc st = T.labelAddr h sym' → T.ArgsIn as (T.data st) →
+      T.spEntry (T.get (T.data st) T.sp) → nX ≤ n' → n' + T.raBytes ≤ 2 ^ 64 →
+      T.raReg (T.data st) ra' →
+      (T.mem (T.data st) =⋆ Eq m' ⋆ T.Entry (T.get (T.data st) T.sp) ra' n' ⋆ F ⋆ G) →
+      post st) :
+    Eventually (T.step h) post (T.mkState s (T.addrOf h k)) := by
+  -- the callee's entry stack pointer
+  obtain ⟨sp1, hsp1⟩ : ∃ sp1, T.get s T.sp - BitVec.ofNat 64 T.raBytes = sp1 := ⟨_, rfl⟩
+  rw [hsp1] at hsp hmem hret
+  have e := region_split (a := sp1 - BitVec.ofNat 64 n) (n1 := n) (n2 := T.raBytes) hn
+  rw [BitVec.sub_add_cancel] at e
+  rw [e] at hmem
+  refine T.call_spec hc (G := Eq m ⋆ region (sp1 - BitVec.ofNat 64 n) n ⋆ G)
+    (by rw [hsp1]; exact sep_ac' (by ac_rfl) hmem) fun s' hs'sp hkeep hra hm' => ?_
+  rw [hsp1] at hs'sp
+  have hargs' : T.ArgsIn args s' := by
+    unfold Target.ArgsIn Target.ValsIn at ha ⊢
+    refine (List.map_congr_left fun r hr => hkeep r ?_).trans ha
+    have hr' := List.mem_of_mem_take hr
+    exact T.not_mem_call_clob (fun he => T.sp_not_argRegs (he ▸ hr'))
+      (fun h' => T.raRegs_not_argRegs r h' hr') (T.argRegs_not_scratch r hr')
+  have hm'' : T.mem s' =⋆ Eq m ⋆ T.Entry (T.get s' T.sp) (T.addrOf h (k + (T.call sym).length)) n ⋆
+      G := by
+    rw [hs'sp] at hm' ⊢
+    simp only [Target.Entry]
+    exact sep_ac' (by ac_rfl) hm'
+  refine eventually_trans _ _ _ _ (hf args m Q X hs s' _ G hargs' hra (by rw [hs'sp]; exact hsp)
+    hm'') ?_
+  rintro st (⟨hpc, rets, m', hQ, hrets, ⟨hcs, hspr⟩, hmx⟩ |
+    ⟨sym', as, m', hX, hdef, hpc, has, hspE, ra', n', F, hnX, hb, hra', hmx⟩)
+  · rw [← T.mk_eta st, hpc]
+    refine hret _ rets m' hQ hrets (fun r hr => ?_) ?_ ?_
+    · rw [hcs r hr]
+      exact hkeep r (T.not_mem_call_clob (fun he => T.sp_not_calleeSaved (he ▸ hr))
+        (fun h' => T.raRegs_not_calleeSaved r h' hr) (T.calleeSaved_not_scratch r hr))
+    · rw [hspr, hs'sp, ← hsp1, BitVec.sub_add_cancel]
+    · rw [hs'sp] at hmx
+      exact hmx
+  · exact .done _ (hexit st sym' as m' ra' n' F hX hdef hpc has hspE hnX hb hra' hmx)
 
 end Target
 
