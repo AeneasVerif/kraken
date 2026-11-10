@@ -26,15 +26,13 @@ namespace Kraken.Bedrock2.Test
 theorem kernelState_load_field {m : Mem 64} {st : BitVec 64} {k : KernelFields}
     {R : Mem 64 → Prop} (hsep : m =⋆ kernelState st k ⋆ R)
     (i : Nat) (hi : i < 20) :
-    load? .eight m (st + BitVec.ofNat 64 (8 * i)) = some (k.toList[i]'(by simpa using hi)) := by
-  unfold kernelState at hsep
-  exact load_word8Array_elem (by simpa using hi) hsep
+    load? .eight m (st + BitVec.ofNat 64 (8 * i)) = some (k.toList[i]'(by simpa using hi)) :=
+  load_word8Array_elem (by simpa using hi) (show m =⋆ word8Array st k.toList ⋆ R from hsep)
 
 theorem kernelState_load_used_begin {m : Mem 64} {st : BitVec 64} {k : KernelFields}
     {R : Mem 64 → Prop} (hsep : m =⋆ kernelState st k ⋆ R) :
     load? .eight m st = some k.used_begin := by
-  have h := kernelState_load_field hsep 0 (by decide)
-  simpa [KernelFields.toList] using h
+  simpa [KernelFields.toList] using kernelState_load_field hsep 0 (by decide)
 
 theorem kernelState_load_antecedents_begin {m : Mem 64} {st : BitVec 64} {k : KernelFields}
     {R : Mem 64 → Prop} (hsep : m =⋆ kernelState st k ⋆ R) :
@@ -132,9 +130,7 @@ def stateSkip (s : State) : State :=
 @[simp] theorem toCNF_ofCNF (f : CNF Nat) :
     (State.ofCNF f).toCNF = f := by
   cases f
-  simp only [State.ofCNF, State.toCNF, CNF.mk.injEq, ← Array.toList_inj,
-    Array.toList_filterMap, Array.toList_map, List.filterMap_map]
-  exact List.filterMap_some
+  simp [State.ofCNF, State.toCNF, ← Array.toList_inj, List.filterMap_map]
 
 /-- One step of `br_check_proof` at proof clause `c`: either add `c` (when checked) or skip it. -/
 def stepState (s : State) (used : Bool) (c : CNF.Clause Nat) : State :=
@@ -197,9 +193,7 @@ theorem entails_stateAt_zero (cnf₀ : CNF Nat) (first_proof_id : Nat) (trimming
     (usedWords : List (BitVec 64)) (clauses : List (CNF.Clause Nat)) (n : Nat) :
     (stateAt cnf₀ first_proof_id trimming usedWords clauses n).formula.size =
       cnf₀.clauses.size + n := by
-  induction n with
-  | zero => simp
-  | succ n ih => simp [stateAt_succ, ih, Nat.add_assoc]
+  induction n <;> simp [*, Nat.add_assoc]
 
 theorem formula_stepState (s : State) (used : Bool) (c : CNF.Clause Nat) :
     (stepState s used c).formula = s.formula.push (if used then some c else none) := by
@@ -211,11 +205,9 @@ theorem getElem?_formula_stateAt_of_lt (cnf₀ : CNF Nat) (first_proof_id : Nat)
     (stateAt cnf₀ first_proof_id trimming usedWords clauses n).formula[j]? =
       some (some cnf₀.clauses[j]) := by
   induction n with
-  | zero =>
-    simp [stateAt_zero, State.ofCNF, hj]
+  | zero => simp [State.ofCNF, hj]
   | succ n ih =>
-    rw [stateAt_succ, formula_stepState, Array.getElem?_push]
-    rw [ite_eq_right_iff.mpr (by rw [formula_size_stateAt]; omega), ih]
+    rw [stateAt_succ, formula_stepState, Array.getElem?_push, ite_eq_right (by simp; omega), ih]
 
 theorem getElem?_formula_stateAt_of_ge (cnf₀ : CNF Nat) (first_proof_id : Nat) (trimming : BitVec 64)
     (usedWords : List (BitVec 64)) (clauses : List (CNF.Clause Nat)) (n : Nat)
@@ -228,33 +220,24 @@ theorem getElem?_formula_stateAt_of_ge (cnf₀ : CNF Nat) (first_proof_id : Nat)
   | zero => omega
   | succ n ih =>
     rw [stateAt_succ, formula_stepState, Array.getElem?_push, formula_size_stateAt]
-    by_cases hkn : k = n
-    · subst hkn
-      simp
-    · rw [ite_eq_right_iff.mpr (by omega), ih (by omega)]
+    split <;> grind
 
 theorem mem_toCNF_of_getElem?_formula {s : State} {j : Nat} {c : CNF.Clause Nat}
     (h : s.formula[j]? = some (some c)) :
     c ∈ s.toCNF.clauses := by
-  simp only [State.toCNF]
-  rw [← Array.mem_toList_iff, Array.toList_filterMap, List.mem_filterMap]
-  refine ⟨some c, ?_, rfl⟩
-  rw [Array.mem_toList_iff]
-  exact Array.mem_of_getElem? h
+  simp only [State.toCNF, ← Array.mem_toList_iff, Array.toList_filterMap, List.mem_filterMap]
+  exact ⟨some c, Array.mem_toList_iff.mpr (Array.mem_of_getElem? h), rfl⟩
 
 theorem entailsClause_toCNF_of_getElem?_formula {s : State} {j : Nat} {c : CNF.Clause Nat}
     (h : s.formula[j]? = some (some c)) :
-    CNF.EntailsClause s.toCNF c := by
-  rw [CNF.entails_clause_def]
-  intro a hsat
-  exact CNF.sat_of_mem hsat (CNF.Internal.mem_iff.mpr (mem_toCNF_of_getElem?_formula h))
+    CNF.EntailsClause s.toCNF c :=
+  fun _ hsat => CNF.sat_of_mem hsat (CNF.Internal.mem_iff.mpr (mem_toCNF_of_getElem?_formula h))
 
 theorem unsat_of_entails_and_entails_empty {cnf₀ f : CNF Nat} {c : CNF.Clause Nat}
     (hent : CNF.Entails cnf₀ f) (hc : CNF.EntailsClause f c) (hempty : c = .empty) :
     cnf₀.Unsat := by
   subst hempty
-  have hf_unsat : f.Unsat := CNF.unsat_of_entails_clause_unsat CNF.Clause.unsat_empty hc
-  exact CNF.unsat_of_entails_unsat hf_unsat hent
+  exact CNF.unsat_of_entails_unsat (CNF.unsat_of_entails_clause_unsat CNF.Clause.unsat_empty hc) hent
 
 /-! ## 3. Bedrock2 `call` Specification for `br_check_clause` -/
 
@@ -281,24 +264,12 @@ structure KernelFields.SameConfig (k k₀ : KernelFields) : Prop where
   checking : k.checking = k₀.checking
   forward : k.forward = k₀.forward
 
-theorem KernelFields.SameConfig.refl (k : KernelFields) : k.SameConfig k where
-  used_begin := rfl
-  antecedents_begin := rfl
-  literals_begin := rfl
-  values_begin := rfl
-  marks_begin := rfl
-  trail_begin := rfl
-  work_begin := rfl
-  empty_clause := rfl
-  first_proof_id := rfl
-  strict := rfl
-  trimming := rfl
-  checking := rfl
-  forward := rfl
+theorem KernelFields.SameConfig.refl (k : KernelFields) : k.SameConfig k := by
+  constructor <;> rfl
 
 theorem KernelFields.SameConfig.bumpCheckStats {k k₀ : KernelFields} (h : k.SameConfig k₀)
-    (w₀ : BitVec 64) : (k.bumpCheckStats w₀).SameConfig k₀ :=
-  ⟨h.1, h.2, h.3, h.4, h.5, h.6, h.7, h.8, h.9, h.10, h.11, h.12, h.13⟩
+    (w₀ : BitVec 64) : (k.bumpCheckStats w₀).SameConfig k₀ := by
+  cases h; constructor <;> assumption
 
 /-- Specification of `br_check_clause`: increments `stat_chk_total` (and `stat_chk_empty` if
 `load4(literals) == 0`), reads `k.strict`, and dispatches to `br_check_clause_non_strictly_by_propagation`
@@ -319,75 +290,44 @@ theorem call_br_check_clause {e : Env} {B : Nat} {t : Trace 64} {m : Mem 64}
   let l₀ : Locals 64 :=
     insertMany ∅ (br_check_clause.2.params.zip [st, id, literals, antecedents])
   refine call.of_body hfn rfl ?_
-  change Exec lratFailExt e B br_check_clause.2.body t m l₀ (fun t' m' l' =>
-    ∃ rets, getMany l' [] = some rets ∧ post t' m' rets)
+  change Exec lratFailExt e B br_check_clause.2.body t m l₀ _
   dsimp only [br_check_clause, Func.body]
-  have hst : l₀["st"]? = some st := by
-    simp [l₀, br_check_clause, insertMany_cons, insertMany_nil]
-  have hlits : l₀["literals"]? = some literals := by
-    simp [l₀, br_check_clause, insertMany_cons, insertMany_nil]
-  -- Step 1: store8(st + 128, load8(st + 128) + 1)
+  have hst : l₀["st"]? = some st := by simp [l₀, br_check_clause, insertMany_cons, insertMany_nil]
+  have hlits : l₀["literals"]? = some literals := by simp [l₀, br_check_clause, insertMany_cons, insertMany_nil]
   refine Exec.seq_cps ?_
-  refine kernelState_store_stat_chk_total (v := k.stat_chk_total + 1) ?_ ?_ hsep (fun m1 hm1 => ?_)
-  · simp [Expr.eval, hst, interpBinop]
-  · simp [Expr.eval, hst, interpBinop]
-    rw [kernelState_load_stat_chk_total hsep]
-    rfl
+  refine kernelState_store_stat_chk_total (v := k.stat_chk_total + 1)
+    (by simp [Expr.eval, hst, interpBinop])
+    (by simp [Expr.eval, hst, interpBinop, kernelState_load_stat_chk_total hsep])
+    hsep fun m1 hm1 => ?_
   let k1 : KernelFields := { k with stat_chk_total := k.stat_chk_total + 1 }
-  -- Step 2: if load4(literals) == 0 { store8(st + 136, load8(st + 136) + 1) }
   refine Exec.seq_cps (c2 := .seq _ _) ?_
   refine Exec.weaken (post1 := fun t2 m2 l2 => t2 = t ∧ l2 = l₀ ∧
-    (m2 =⋆ kernelState st (k.bumpCheckStats w₀) ⋆ (int4 literals w₀ ⋆ R))) ?_ (fun t2 m2 l2 h2 => ?_)
-  · have hm1_int4 : m1 =⋆ int4 literals w₀ ⋆ (kernelState st k1 ⋆ R) := by
-      have h := hm1
-      rw [← sep_assoc, sep_comm (kernelState st k1), sep_assoc] at h
-      exact h
-    have hload4 := load_int4_raw hm1_int4
-    refine Exec.cond_cps (v := if (w₀ &&& 0xffffffff#64) = 0 then 1 else 0) ?_ (fun hnz => ?_) (fun hz => ?_)
-    · simp [Expr.eval, hlits, interpBinop]
-      rw [hload4]
-      rfl
-    · have h0 : (w₀ &&& 0xffffffff#64) = 0#64 := by
-        split at hnz
-        · assumption
-        · contradiction
-      refine kernelState_store_stat_chk_empty (v := k1.stat_chk_empty + 1) ?_ ?_ hm1 (fun m2 hm2 => ⟨rfl, rfl, ?_⟩)
-      · simp [Expr.eval, hst, interpBinop]
-      · simp [Expr.eval, hst, interpBinop]
-        rw [kernelState_load_stat_chk_empty hm1]
-        rfl
-      · simpa [KernelFields.bumpCheckStats, k1, h0] using hm2
-    · have h0 : (w₀ &&& 0xffffffff#64) ≠ 0#64 := by
-        split at hz
-        · contradiction
-        · assumption
-      refine .skip _ _ _ _ _ ⟨rfl, rfl, ?_⟩
-      simpa [KernelFields.bumpCheckStats, k1, h0] using hm1
-  · rcases h2 with ⟨rfl, rfl, hm2⟩
-    let k2 := k.bumpCheckStats w₀
-    -- Step 3: strict = load8(st + 80)
-    refine Exec.seq_cps ?_
-    refine Exec.set_cps (v := k2.strict) ?_ ?_
-    · simp [Expr.eval, hst, interpBinop]
-      exact kernelState_load_strict hm2
-    let l₃ := l₀.insert "strict" k2.strict
-    have hargs : evalArgs m2 l₃ [.var "st", .var "id", .var "literals", .var "antecedents"] =
-        some [st, id, literals, antecedents] := by
-      simp [evalArgs, l₃, l₀, Expr.eval, br_check_clause, insertMany_cons, insertMany_nil]
-    have hk2_strict : k2.strict = k.strict := rfl
-    have hl3_strict : (Expr.var "strict").eval m2 l₃ = some k.strict := by
-      simp [l₃, Expr.eval, hk2_strict]
-    -- Step 4: if strict { br_check_clause_strictly_by_resolution(...) } else { br_check_clause_non_strictly_by_propagation(...) }
+    (m2 =⋆ kernelState st (k.bumpCheckStats w₀) ⋆ (int4 literals w₀ ⋆ R))) ?_ ?_
+  · have hload4 : load? .four m1 literals = some (w₀ &&& 0xffffffff#64) :=
+      load_int4_raw (by rwa [sep_comm_l] at hm1)
+    by_cases h0 : (w₀ &&& 0xffffffff#64) = 0#64
+    · refine .if_true _ _ _ _ _ _ _ _ 1#64
+        (by simp [Expr.eval, hlits, interpBinop, hload4, h0]) (by decide) ?_
+      refine kernelState_store_stat_chk_empty (v := k1.stat_chk_empty + 1)
+        (by simp [Expr.eval, hst, interpBinop])
+        (by simp [Expr.eval, hst, interpBinop, kernelState_load_stat_chk_empty hm1]; rfl)
+        hm1 fun m2 hm2 => ⟨rfl, rfl, by simpa [KernelFields.bumpCheckStats, k1, h0] using hm2⟩
+    · refine .if_false _ _ _ _ _ _ _ _ 0#64
+        (by simp [Expr.eval, hlits, interpBinop, hload4, h0]) rfl ?_
+      exact .skip _ _ _ _ _ ⟨rfl, rfl, by simpa [KernelFields.bumpCheckStats, k1, h0] using hm1⟩
+  · rintro _ m2 _ ⟨rfl, rfl, hm2⟩
+    refine Exec.seq_cps (Exec.set_cps (v := k.strict)
+      (by simp [Expr.eval, hst, interpBinop, kernelState_load_strict hm2]; rfl) ?_)
     have hcall2 := hcall m2 hm2
-    refine Exec.cond_cps hl3_strict (fun hnz => ?_) (fun hz => ?_)
-    · rw [ite_eq_right_iff.mpr fun h => False.elim (hnz h)] at hcall2
-      refine Exec.call_cps hargs (call.weaken hcall2 ?_)
-      rintro t' m' rets ⟨rfl, hpost⟩
-      exact ⟨l₃, putManyZip_nil l₃, [], rfl, hpost⟩
-    · rw [ite_eq_left_iff.mpr fun h => False.elim (h hz)] at hcall2
-      refine Exec.call_cps hargs (call.weaken hcall2 ?_)
-      rintro t' m' rets ⟨rfl, hpost⟩
-      exact ⟨l₃, putManyZip_nil l₃, [], rfl, hpost⟩
+    have hargs : evalArgs m2 (l₀.insert "strict" k.strict)
+        [.var "st", .var "id", .var "literals", .var "antecedents"] =
+        some [st, id, literals, antecedents] := by
+      simp [evalArgs, l₀, Expr.eval, br_check_clause, insertMany_cons, insertMany_nil]
+    refine Exec.cond_cps (v := k.strict) (by simp [Expr.eval]) (fun hnz => ?_) (fun hz => ?_)
+    · simp only [hnz, ↓reduceIte] at hcall2
+      exact Exec.call_cps hargs (hcall2.weaken (by rintro _ _ _ ⟨rfl, hp⟩; exact ⟨_, putManyZip_nil _, _, rfl, hp⟩))
+    · simp only [hz, ↓reduceIte] at hcall2
+      exact Exec.call_cps hargs (hcall2.weaken (by rintro _ _ _ ⟨rfl, hp⟩; exact ⟨_, putManyZip_nil _, _, rfl, hp⟩))
 
 theorem zeroTermInts_split_head (p : BitVec 64) (xs : List (BitVec 64)) :
     ZeroTermInts p xs =
@@ -421,47 +361,32 @@ theorem call_br_check_clause_zeroTerm {e : Env} {B : Nat} {t : Trace 64} {m : Me
 
 theorem sext32_of_isInt32 {v : BitVec 64} (hv : IsInt32 v) :
     (v <<< shamt 32#64).sshiftRight (shamt 32#64) = v := by
-  have hs : shamt 32#64 = 32 := by decide
-  rw [hs]
-  exact hv
+  simpa [shamt] using hv
 
 theorem isInt32_of_toNat_lt {v : BitVec 64} (hv : v.toNat < 2 ^ 31) : IsInt32 v := by
-  unfold IsInt32
   have hlt : v < 0x80000000#64 := by simpa [BitVec.lt_def] using hv
-  revert hlt
-  bv_decide
+  revert hlt; bv_decide
 
 theorem slt_iff_toNat_lt {x y : BitVec 64} (hx : x.toNat < 2 ^ 31) (hy : y.toNat < 2 ^ 31) :
     x.slt y = decide (x.toNat < y.toNat) := by
   have hx' : x < 0x80000000#64 := by simpa [BitVec.lt_def] using hx
   have hy' : y < 0x80000000#64 := by simpa [BitVec.lt_def] using hy
-  have hiff : x.slt y = true ↔ x < y := by
-    revert hx' hy'
-    bv_decide
-  rw [BitVec.lt_def] at hiff
-  cases h : x.slt y <;> simp_all
+  have hiff : x.slt y = decide (x < y) := by revert hx' hy'; bv_decide
+  simpa [BitVec.lt_def] using hiff
 
 theorem toNat_add_one_of_lt {id : BitVec 64} (hid : id.toNat + 1 < 2 ^ 31) :
     (id + 1#64).toNat = id.toNat + 1 := by
-  rw [BitVec.toNat_add]
-  change (id.toNat + 1) % 2 ^ 64 = id.toNat + 1
-  exact Nat.mod_eq_of_lt (by omega)
+  rw [BitVec.toNat_add]; simp; omega
 
 theorem slu_two_eq_ofNat {id : BitVec 64} (hid : id.toNat < 2 ^ 31) :
     id <<< shamt 2#64 = BitVec.ofNat 64 (4 * id.toNat) := by
-  change interpBinop .slu id 2#64 = BitVec.ofNat 64 (4 * id.toNat)
-  apply BitVec.eq_of_toNat_eq
-  rw [unsigned_slu_shamtZ (Or.inr rfl) id (n := 2) (by decide), BitVec.toNat_ofNat]
-  have : id.toNat <<< 2 = 4 * id.toNat := by omega
-  rw [this, Nat.mod_eq_of_lt (by omega)]
+  have _ := hid
+  apply BitVec.eq_of_toNat_eq; simp [shamt, Nat.shiftLeft_eq]; omega
 
 theorem slu_three_eq_ofNat {id : BitVec 64} (hid : id.toNat < 2 ^ 31) :
     id <<< shamt 3#64 = BitVec.ofNat 64 (8 * id.toNat) := by
-  change interpBinop .slu id 3#64 = BitVec.ofNat 64 (8 * id.toNat)
-  apply BitVec.eq_of_toNat_eq
-  rw [unsigned_slu_shamtZ (Or.inr rfl) id (n := 3) (by decide), BitVec.toNat_ofNat]
-  have : id.toNat <<< 3 = 8 * id.toNat := by omega
-  rw [this, Nat.mod_eq_of_lt (by omega)]
+  have _ := hid
+  apply BitVec.eq_of_toNat_eq; simp [shamt, Nat.shiftLeft_eq]; omega
 
 /-! ## 5. Outer Loop & Top-Level Soundness of `br_check_proof` -/
 
@@ -516,19 +441,16 @@ def CheckProofLoopInv (st : BitVec 64) (k₀ : KernelFields)
     (k₀.empty_clause.toNat < id.toNat → cnf₀.Unsat)
 
 private theorem sep_focus_2 {m : Mem 64} {A B R : Mem 64 → Prop}
-    (h : m =⋆ A ⋆ (B ⋆ R)) : ∃ R', m =⋆ B ⋆ R' := by
-  rw [← sep_assoc A B, sep_comm A B, sep_assoc] at h
-  exact ⟨A ⋆ R, h⟩
+    (h : m =⋆ A ⋆ (B ⋆ R)) : ∃ R', m =⋆ B ⋆ R' :=
+  ⟨_, by rwa [sep_comm_l] at h⟩
 
 private theorem sep_focus_3 {m : Mem 64} {A B C R : Mem 64 → Prop}
-    (h : m =⋆ A ⋆ (B ⋆ (C ⋆ R))) : ∃ R', m =⋆ C ⋆ R' := by
-  rw [← sep_assoc B C, sep_comm B C, sep_assoc] at h
-  exact sep_focus_2 h
+    (h : m =⋆ A ⋆ (B ⋆ (C ⋆ R))) : ∃ R', m =⋆ C ⋆ R' :=
+  ⟨_, by rwa [show A ⋆ (B ⋆ (C ⋆ R)) = C ⋆ (A ⋆ (B ⋆ R)) by ac_rfl] at h⟩
 
 private theorem sep_focus_4 {m : Mem 64} {A B C D R : Mem 64 → Prop}
-    (h : m =⋆ A ⋆ (B ⋆ (C ⋆ (D ⋆ R)))) : ∃ R', m =⋆ D ⋆ R' := by
-  rw [← sep_assoc C D, sep_comm C D, sep_assoc] at h
-  exact sep_focus_3 h
+    (h : m =⋆ A ⋆ (B ⋆ (C ⋆ (D ⋆ R)))) : ∃ R', m =⋆ D ⋆ R' :=
+  ⟨_, by rwa [show A ⋆ (B ⋆ (C ⋆ (D ⋆ R))) = D ⋆ (A ⋆ (B ⋆ (C ⋆ R))) by ac_rfl] at h⟩
 
 theorem br_check_proof_loop_ok {e : Env} {B : Nat} {t₀ : Trace 64} {m₀ : Mem 64} {l₀ : Locals 64}
     {st : BitVec 64} {k₀ : KernelFields}
@@ -571,153 +493,86 @@ theorem br_check_proof_loop_ok {e : Env} {B : Nat} {t₀ : Trace 64} {m₀ : Mem
     (CheckProofLoopInv st k₀ usedWords cnf₀ clauses InvMem t₀)
     (k₀.empty_clause.toNat + 1 - k₀.first_proof_id.toNat) hinit ?_
   rintro v t m l ⟨id, k, rfl, hid_lo, hid_hi, rfl, hst, hemp, hfst, htrim, husedb, hlitsb, hanteb, hid, hinv, hent, hunsat⟩
-  have hemp_lt31 : k₀.empty_clause.toNat < 2 ^ 31 := by omega
-  have hid_lt31 : id.toNat < 2 ^ 31 := by omega
   have hslt : k₀.empty_clause.slt id = decide (k₀.empty_clause.toNat < id.toNat) :=
-    slt_iff_toNat_lt hemp_lt31 hid_lt31
-  let condVal : BitVec 64 := if (if k₀.empty_clause.slt id then (1 : BitVec 64) else 0) = 0 then 1 else 0
-  refine ⟨condVal, ?_, ?_, ?_⟩
-  · simp [Expr.eval, hemp, hid, interpBinop, condVal]
-  · intro hnz
-    have hid_le : id.toNat ≤ k₀.empty_clause.toNat := by
-      by_cases hlt : k₀.empty_clause.toNat < id.toNat
-      · simp [condVal, hslt, hlt] at hnz
-      · omega
+    slt_iff_toNat_lt (by omega) (by omega)
+  refine ⟨_, by simp [Expr.eval, hemp, hid, interpBinop]; rfl, fun hnz => ?_, fun hz => ?_⟩
+  · have hid_le : id.toNat ≤ k₀.empty_clause.toNat := by simp [hslt] at hnz; omega
     have hid_used : id.toNat < usedWords.length := Nat.lt_of_le_of_lt hid_le hused_len
     have hid_lits : id.toNat < litsPtrs.length := Nat.lt_of_le_of_lt hid_le hlits_len
     have hid_ante : id.toNat < antePtrs.length := Nat.lt_of_le_of_lt hid_le hante_len
     obtain ⟨_, R, hm_sep⟩ := hInvSep k m hinv
     let uw : BitVec 64 := if k₀.trimming = 0#64 then -1#64 else usedWords[id.toNat]
-    -- Step 1: if trimming { used_where = ... } else { used_where = -1 }
-    refine Exec.seq_cps ?_
-    refine Exec.weaken (post1 := fun t1 m1 l1 =>
-      t₀ = t1 ∧ m = m1 ∧ l1 = l.insert "used_where" uw) ?_ (fun t1 m1 l1 h1 => ?_)
+    refine Exec.seq_cps (Exec.weaken (post1 := fun t1 m1 l1 =>
+      t₀ = t1 ∧ m = m1 ∧ l1 = l.insert "used_where" uw) ?_ ?_)
     · refine Exec.cond_cps (v := k₀.trimming) (by simp [Expr.eval, htrim]) (fun htnz => ?_) (fun htz => ?_)
-      · have huw : uw = usedWords[id.toNat] := ite_eq_right_iff.mpr fun h => False.elim (htnz h)
+      · obtain ⟨R_used, hm_used⟩ := sep_focus_2 hm_sep
         refine Exec.set_cps (v := uw) ?_ ⟨rfl, rfl, rfl⟩
-        rw [huw]
-        obtain ⟨R_used, hm_used⟩ := sep_focus_2 hm_sep
-        refine eval_load4_int4Array_elem hid_used ?_ hm_used (hused_int32 id.toNat hid_used)
-        simp [Expr.eval, husedb, hid, slu_two_eq_ofNat hid_lt31, interpBinop]
-      · have huw : uw = -1#64 := ite_eq_left_iff.mpr fun h => False.elim (h htz)
-        refine Exec.set_cps (v := uw) ?_ ⟨rfl, rfl, rfl⟩
-        rw [huw]
-        rfl
-    · rcases h1 with ⟨rfl, rfl, rfl⟩
+        dsimp only [uw]; rw [ite_eq_right (show k₀.trimming ≠ 0#64 from htnz)]
+        exact eval_load4_int4Array_elem hid_used
+          (by simp [Expr.eval, husedb, hid, interpBinop, slu_two_eq_ofNat (id := id) (by omega)])
+          hm_used (hused_int32 id.toNat hid_used)
+      · exact Exec.set_cps (v := uw) (by simp [Expr.eval, uw, htz]; rfl) ⟨rfl, rfl, rfl⟩
+    · rintro _ _ _ ⟨rfl, rfl, rfl⟩
       let l1 := l.insert "used_where" uw
-      -- Step 2: if used_where { l = ...; a = ...; br_check_clause(st, id, l, a) }
-      refine Exec.seq_cps ?_
-      refine Exec.weaken (post1 := fun t2 m2 l2 =>
+      refine Exec.seq_cps (Exec.weaken (post1 := fun t2 m2 l2 =>
         t₀ = t2 ∧
-        l2["st"]? = some st ∧
-        l2["empty_clause"]? = some k₀.empty_clause ∧
-        l2["first_proof_id"]? = some k₀.first_proof_id ∧
-        l2["trimming"]? = some k₀.trimming ∧
-        l2["used_begin"]? = some k₀.used_begin ∧
-        l2["literals_begin"]? = some k₀.literals_begin ∧
-        l2["antecedents_begin"]? = some k₀.antecedents_begin ∧
-        l2["id"]? = some id ∧
+        (l2["st"]? = some st ∧ l2["empty_clause"]? = some k₀.empty_clause ∧
+         l2["first_proof_id"]? = some k₀.first_proof_id ∧ l2["trimming"]? = some k₀.trimming ∧
+         l2["used_begin"]? = some k₀.used_begin ∧ l2["literals_begin"]? = some k₀.literals_begin ∧
+         l2["antecedents_begin"]? = some k₀.antecedents_begin ∧ l2["id"]? = some id) ∧
         (∃ k', InvMem k' m2) ∧
         CNF.Entails cnf₀
           (stateAt cnf₀ k₀.first_proof_id.toNat k₀.trimming usedWords clauses
             (id.toNat - k₀.first_proof_id.toNat + 1)).toCNF ∧
-        (k₀.empty_clause.toNat < id.toNat + 1 → cnf₀.Unsat)) ?_ (fun t2 m2 l2 h2 => ?_)
+        (k₀.empty_clause.toNat < id.toNat + 1 → cnf₀.Unsat)) ?_ ?_)
       · refine Exec.cond_cps (v := uw) (by simp [Expr.eval]) (fun huw_nz => ?_) (fun huw_z => ?_)
         · have hused_true : isStepUsed k₀.trimming usedWords id.toNat = true := by
             rw [isStepUsed_eq_true_iff hid_used]
-            by_cases ht0 : k₀.trimming = 0#64
-            · exact Or.inl ht0
-            · right
-              have huw_eq : uw = usedWords[id.toNat] := ite_eq_right_iff.mpr fun h => False.elim (ht0 h)
-              rwa [← huw_eq]
-          -- l = load8(literals_begin + (id << 3))
+            by_cases ht0 : k₀.trimming = 0#64 <;> simp_all [uw]
           obtain ⟨R_lits, hm_lits⟩ := sep_focus_3 hm_sep
-          refine Exec.seq_cps ?_
-          refine Exec.set_cps (v := litsPtrs[id.toNat]) ?_ ?_
-          · refine eval_load_word8Array_elem hid_lits ?_ hm_lits
-            simp [Expr.eval, hlitsb, hid, ← bitVec_ofNat_eight_mul_toNat, interpBinop]
+          refine Exec.seq_cps (Exec.set_cps (v := litsPtrs[id.toNat])
+            (eval_load_word8Array_elem hid_lits
+              (by simp [Expr.eval, hlitsb, hid, ← bitVec_ofNat_eight_mul_toNat, interpBinop])
+              hm_lits) ?_)
           let l_l := l1.insert "l" litsPtrs[id.toNat]
-          -- a = load8(antecedents_begin + (id << 3))
           obtain ⟨R_ante, hm_ante⟩ := sep_focus_4 hm_sep
-          refine Exec.seq_cps ?_
-          refine Exec.set_cps (v := antePtrs[id.toNat]) ?_ ?_
-          · refine eval_load_word8Array_elem hid_ante ?_ hm_ante
-            simp [Expr.eval, hanteb, hid, ← bitVec_ofNat_eight_mul_toNat, interpBinop]
+          refine Exec.seq_cps (Exec.set_cps (v := antePtrs[id.toNat])
+            (eval_load_word8Array_elem hid_ante
+              (by simp [Expr.eval, hanteb, hid, ← bitVec_ofNat_eight_mul_toNat, interpBinop])
+              hm_ante) ?_)
           let l_a := l_l.insert "a" antePtrs[id.toNat]
-          -- br_check_clause(st, id, l, a)
-          have hargs : evalArgs m l_a [.var "st", .var "id", .var "l", .var "a"] =
-              some [st, id, litsPtrs[id.toNat], antePtrs[id.toNat]] := by
-            simp [evalArgs, l_a, l_l, l1, Expr.eval, hst, hid]
-          refine Exec.call_cps hargs (call.weaken (hstep id hid_lo hid_le hused_true k m hinv hent) ?_)
+          refine Exec.call_cps
+            (by simp [evalArgs, Expr.eval, hst, hid])
+            ((hstep id hid_lo hid_le hused_true k m hinv hent).weaken ?_)
           rintro t' m' rets ⟨rfl, rfl, hk', hc⟩
-          refine ⟨l_a, putManyZip_nil l_a, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, hk', ?_, ?_⟩
-          · simp [l_a, l_l, l1, hst]
-          · simp [l_a, l_l, l1, hemp]
-          · simp [l_a, l_l, l1, hfst]
-          · simp [l_a, l_l, l1, htrim]
-          · simp [l_a, l_l, l1, husedb]
-          · simp [l_a, l_l, l1, hlitsb]
-          · simp [l_a, l_l, l1, hanteb]
-          · simp [l_a, l_l, l1, hid]
-          · have hidx : k₀.first_proof_id.toNat + (id.toNat - k₀.first_proof_id.toNat) = id.toNat := by omega
-            rw [stateAt_succ, hidx, hused_true]
+          refine ⟨l_a, putManyZip_nil l_a, rfl, ?_, hk', ?_, ?_⟩
+          · simp [l_a, l_l, l1, hst, hemp, hfst, htrim, husedb, hlitsb, hanteb, hid]
+          · rw [stateAt_succ, show k₀.first_proof_id.toNat + (id.toNat - k₀.first_proof_id.toNat) = id.toNat by omega, hused_true]
             exact entails_stepState_of_used hent hc
-          · intro hlt_succ
-            have heq_emp : id.toNat = k₀.empty_clause.toNat := by omega
-            have hc_emp : clauseAt clauses id.toNat = .empty := by rw [heq_emp, hempty_clause]
-            exact unsat_of_entails_and_entails_empty hent hc hc_emp
+          · exact fun _ => unsat_of_entails_and_entails_empty hent hc
+              (by rwa [show id.toNat = k₀.empty_clause.toNat by omega])
         · have hused_false : isStepUsed k₀.trimming usedWords id.toNat = false := by
-            rw [Bool.eq_false_iff]
-            intro htrue
-            rw [isStepUsed_eq_true_iff hid_used] at htrue
+            rw [Bool.eq_false_iff, ne_eq, isStepUsed_eq_true_iff hid_used]
             by_cases ht0 : k₀.trimming = 0#64
-            · have : uw = -1#64 := ite_eq_left_iff.mpr fun h => False.elim (h ht0)
-              rw [this] at huw_z
-              contradiction
-            · have huw_eq : uw = usedWords[id.toNat] := ite_eq_right_iff.mpr fun h => False.elim (ht0 h)
-              rcases htrue with h1 | h2
-              · exact ht0 h1
-              · exact h2 (huw_eq.symm.trans huw_z)
-          refine .skip _ _ _ _ _ ⟨rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨k, hinv⟩, ?_, ?_⟩
-          · simp [hst]
-          · simp [hemp]
-          · simp [hfst]
-          · simp [htrim]
-          · simp [husedb]
-          · simp [hlitsb]
-          · simp [hanteb]
-          · simp [hid]
-          · have hidx : k₀.first_proof_id.toNat + (id.toNat - k₀.first_proof_id.toNat) = id.toNat := by omega
-            rw [stateAt_succ, hidx, hused_false]
+            · simp [uw, ht0] at huw_z
+            · have : k₀.trimming ≠ 0 := by simpa using ht0
+              simp_all [uw]
+          refine .skip _ _ _ _ _ ⟨rfl, ?_, ⟨k, hinv⟩, ?_, ?_⟩
+          · simp [hst, hemp, hfst, htrim, husedb, hlitsb, hanteb, hid]
+          · rw [stateAt_succ, show k₀.first_proof_id.toNat + (id.toNat - k₀.first_proof_id.toNat) = id.toNat by omega, hused_false]
             exact entails_stepState_of_unused _ hent
-          · intro hlt_succ
-            have heq_emp : id.toNat = k₀.empty_clause.toNat := by omega
-            rw [heq_emp, hempty_used] at hused_false
-            contradiction
-      · rcases h2 with ⟨rfl, hst2, hemp2, hfst2, htrim2, husedb2, hlitsb2, hanteb2, hid2, ⟨k', hinv2⟩, hent2, hunsat2⟩
-        -- Step 3: id = id + 1
-        refine Exec.set_cps (v := id + 1#64) (by simp [Expr.eval, hid2, interpBinop]) ?_
+          · exact fun _ => by
+              rw [show id.toNat = k₀.empty_clause.toNat by omega] at hused_false
+              simp [hempty_used] at hused_false
+      · rintro _ m2 l2 ⟨rfl, hloc, ⟨k', hinv2⟩, hent2, hunsat2⟩
+        refine Exec.set_cps (v := id + 1#64) (by simp [Expr.eval, hloc, interpBinop]) ?_
         have hid1_toNat : (id + 1#64).toNat = id.toNat + 1 := toNat_add_one_of_lt (by omega)
-        have hsub : (id + 1#64).toNat - k₀.first_proof_id.toNat = id.toNat - k₀.first_proof_id.toNat + 1 := by
-          rw [hid1_toNat]; omega
         refine ⟨k₀.empty_clause.toNat + 1 - (id + 1#64).toNat,
           ⟨id + 1#64, k', rfl, by omega, by omega, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, hinv2,
-            by rwa [hsub], by rw [hid1_toNat]; exact hunsat2⟩,
-          by omega⟩
-        · simp [hst2]
-        · simp [hemp2]
-        · simp [hfst2]
-        · simp [htrim2]
-        · simp [husedb2]
-        · simp [hlitsb2]
-        · simp [hanteb2]
-        · simp
-  · intro hz
-    have hlt : k₀.empty_clause.toNat < id.toNat := by
-      by_cases h : k₀.empty_clause.toNat < id.toNat
-      · exact h
-      · simp [condVal, hslt, h] at hz
-    exact ⟨rfl, ⟨k, hinv⟩, hunsat hlt⟩
+            by rwa [show (id + 1#64).toNat - k₀.first_proof_id.toNat = id.toNat - k₀.first_proof_id.toNat + 1 by rw [hid1_toNat]; omega],
+            by rwa [hid1_toNat]⟩,
+          by omega⟩ <;> simp [hloc]
+  · exact ⟨rfl, ⟨k, hinv⟩, hunsat (by simp [hslt] at hz; exact hz)⟩
 
 /-- Top-level `call` specification for `br_check_proof`: when `checking ≠ 0`, `forward = 0`,
 `0 < first_proof_id ≤ empty_clause`, `empty_clause` is marked used (or `trimming = 0`), and
@@ -764,93 +619,41 @@ theorem call_br_check_proof {e : Env} {B : Nat} {t₀ : Trace 64} {m₀ : Mem 64
       (fun t' m' rets => t' = t₀ ∧ rets = [] ∧ (∃ k', InvMem k' m') ∧ cnf₀.Unsat) := by
   let l₀ : Locals 64 := insertMany ∅ (br_check_proof.2.params.zip [st])
   refine call.of_body hfn rfl ?_
-  change Exec lratFailExt e B br_check_proof.2.body t₀ m₀ l₀ (fun t' m' l' =>
-    ∃ rets, getMany l' [] = some rets ∧ t' = t₀ ∧ rets = [] ∧ (∃ k', InvMem k' m') ∧ cnf₀.Unsat)
+  change Exec lratFailExt e B br_check_proof.2.body t₀ m₀ l₀ _
   dsimp only [br_check_proof, Func.body]
   obtain ⟨_, R₀, hm₀⟩ := hInvSep k₀ m₀ hInvInit
-  have hst₀ : l₀["st"]? = some st := by
-    simp [l₀, br_check_proof, insertMany_cons, insertMany_nil]
-  have hemp32 : IsInt32 k₀.empty_clause := isInt32_of_toNat_lt (by omega)
-  have hfst32 : IsInt32 k₀.first_proof_id := isInt32_of_toNat_lt (by omega)
-  have hemp_ne : k₀.empty_clause ≠ 0 :=
-    fun h0 => Nat.ne_of_gt (Nat.lt_of_lt_of_le hfst_pos hfst_le) (by rw [h0]; rfl)
-  have hfst_ne : k₀.first_proof_id ≠ 0 :=
-    fun h0 => Nat.ne_of_gt hfst_pos (by rw [h0]; rfl)
-  -- checking = load8(st + 96)
-  refine Exec.seq_cps ?_
-  refine Exec.set_cps (v := k₀.checking) ?_ ?_
-  · simp [Expr.eval, hst₀, interpBinop]
-    exact kernelState_load_checking hm₀
-  let l1 := l₀.insert "checking" k₀.checking
-  -- forward = load8(st + 104)
-  refine Exec.seq_cps ?_
-  refine Exec.set_cps (v := k₀.forward) ?_ ?_
-  · simp [Expr.eval, hst₀, interpBinop]
-    exact kernelState_load_forward hm₀
-  let l2 := l1.insert "forward" k₀.forward
-  -- empty_clause = (load8(st + 64) << 32) .>> 32
-  refine Exec.seq_cps ?_
-  refine Exec.set_cps (v := k₀.empty_clause) ?_ ?_
-  · simp [Expr.eval, hst₀, interpBinop, kernelState_load_empty_clause hm₀, sext32_of_isInt32 hemp32]
-  let l3 := l2.insert "empty_clause" k₀.empty_clause
-  -- first_proof_id = (load8(st + 72) << 32) .>> 32
-  refine Exec.seq_cps ?_
-  refine Exec.set_cps (v := k₀.first_proof_id) ?_ ?_
-  · simp [Expr.eval, hst₀, interpBinop, kernelState_load_first_proof_id hm₀, sext32_of_isInt32 hfst32]
-  let l4 := l3.insert "first_proof_id" k₀.first_proof_id
-  -- if checking
+  have hst₀ : l₀["st"]? = some st := by simp [l₀, br_check_proof, insertMany_cons, insertMany_nil]
+  have hemp_ne : k₀.empty_clause ≠ 0 := fun h0 => by simp [h0] at hfst_le; omega
+  have hfst_ne : k₀.first_proof_id ≠ 0 := fun h0 => by simp [h0] at hfst_pos
+  refine Exec.seq_cps (Exec.set_cps (v := k₀.checking)
+    (by simp [Expr.eval, hst₀, interpBinop]; exact kernelState_load_checking hm₀) ?_)
+  refine Exec.seq_cps (Exec.set_cps (v := k₀.forward)
+    (by simp [Expr.eval, hst₀, interpBinop]; exact kernelState_load_forward hm₀) ?_)
+  refine Exec.seq_cps (Exec.set_cps (v := k₀.empty_clause)
+    (by simp [Expr.eval, hst₀, interpBinop, kernelState_load_empty_clause hm₀,
+      sext32_of_isInt32 (isInt32_of_toNat_lt (v := k₀.empty_clause) (by omega))]) ?_)
+  refine Exec.seq_cps (Exec.set_cps (v := k₀.first_proof_id)
+    (by simp [Expr.eval, hst₀, interpBinop, kernelState_load_first_proof_id hm₀,
+      sext32_of_isInt32 (isInt32_of_toNat_lt (v := k₀.first_proof_id) (by omega))]) ?_)
   refine .if_true _ _ _ _ _ _ _ _ k₀.checking (by simp [Expr.eval]) hchecking ?_
-  -- if forward == 0
   refine .if_true _ _ _ _ _ _ _ _ 1#64 (by simp [Expr.eval, interpBinop, hforward]) (by decide) ?_
-  -- if empty_clause
   refine .if_true _ _ _ _ _ _ _ _ k₀.empty_clause (by simp [Expr.eval]) hemp_ne ?_
-  -- if first_proof_id
   refine .if_true _ _ _ _ _ _ _ _ k₀.first_proof_id (by simp [Expr.eval]) hfst_ne ?_
-  -- trimming = load8(st + 88)
-  refine Exec.seq_cps ?_
-  refine Exec.set_cps (v := k₀.trimming) ?_ ?_
-  · simp [Expr.eval, hst₀, interpBinop]
-    exact kernelState_load_trimming hm₀
-  let l5 := l4.insert "trimming" k₀.trimming
-  -- used_begin = load8(st)
-  refine Exec.seq_cps ?_
-  refine Exec.set_cps (v := k₀.used_begin) ?_ ?_
-  · simp [Expr.eval, hst₀]
-    exact kernelState_load_used_begin hm₀
-  let l6 := l5.insert "used_begin" k₀.used_begin
-  -- literals_begin = load8(st + 16)
-  refine Exec.seq_cps ?_
-  refine Exec.set_cps (v := k₀.literals_begin) ?_ ?_
-  · simp [Expr.eval, hst₀, interpBinop]
-    exact kernelState_load_literals_begin hm₀
-  let l7 := l6.insert "literals_begin" k₀.literals_begin
-  -- antecedents_begin = load8(st + 8)
-  refine Exec.seq_cps ?_
-  refine Exec.set_cps (v := k₀.antecedents_begin) ?_ ?_
-  · simp [Expr.eval, hst₀, interpBinop]
-    exact kernelState_load_antecedents_begin hm₀
-  let l8 := l7.insert "antecedents_begin" k₀.antecedents_begin
-  -- id = first_proof_id
-  refine Exec.seq_cps ?_
-  refine Exec.set_cps (v := k₀.first_proof_id) (by simp [Expr.eval]) ?_
-  let l9 := l8.insert "id" k₀.first_proof_id
-  -- while (empty_clause .< id) == 0 { ... }
+  refine Exec.seq_cps (Exec.set_cps (v := k₀.trimming)
+    (by simp [Expr.eval, hst₀, interpBinop]; exact kernelState_load_trimming hm₀) ?_)
+  refine Exec.seq_cps (Exec.set_cps (v := k₀.used_begin)
+    (by simp [Expr.eval, hst₀]; exact kernelState_load_used_begin hm₀) ?_)
+  refine Exec.seq_cps (Exec.set_cps (v := k₀.literals_begin)
+    (by simp [Expr.eval, hst₀, interpBinop]; exact kernelState_load_literals_begin hm₀) ?_)
+  refine Exec.seq_cps (Exec.set_cps (v := k₀.antecedents_begin)
+    (by simp [Expr.eval, hst₀, interpBinop]; exact kernelState_load_antecedents_begin hm₀) ?_)
+  refine Exec.seq_cps (Exec.set_cps (v := k₀.first_proof_id) (by simp [Expr.eval]) ?_)
   refine (br_check_proof_loop_ok hfst_le hemp_lt hused_len hused_int32 hlits_len hante_len
     hempty_used hempty_clause hInvSep hstep ?_).weaken ?_
-  · refine ⟨k₀.first_proof_id, k₀, rfl, Nat.le_refl _, by omega, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
-      hInvInit, ?_, fun hlt => by omega⟩
-    · simp [hst₀]
-    · simp
-    · simp
-    · simp
-    · simp
-    · simp
-    · simp
-    · simp
-    · rw [Nat.sub_self]
-      exact entails_stateAt_zero cnf₀ k₀.first_proof_id.toNat k₀.trimming usedWords clauses
-  · rintro t' m' _ ⟨rfl, hk', hunsat⟩
-    exact ⟨[], rfl, rfl, rfl, hk', hunsat⟩
+  · refine ⟨k₀.first_proof_id, k₀, rfl, Nat.le_refl _, by omega, rfl,
+      ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, hInvInit, by rw [Nat.sub_self]; exact entails_stateAt_zero _ _ _ _ _,
+      fun _ => by omega⟩ <;> (simp; try exact hst₀)
+  · exact fun _ _ _ ⟨rfl, hk', hunsat⟩ => ⟨[], rfl, rfl, rfl, hk', hunsat⟩
 
 /-- Combined specification for `br_check_proof` and `br_check_clause`: reduces `br_check_proof`
 directly to the specifications of `br_check_clause_strictly_by_resolution` (when `k₀.strict ≠ 0`)
@@ -927,14 +730,10 @@ theorem call_br_check_proof_of_subcheckers {e : Env} {B : Nat} {t₀ : Trace 64}
   rw [hc_eq]
   refine call_br_check_clause_zeroTerm hfn_clause hm_cl (fun m₁ hm₁ => ?_)
   by_cases hkz : k.strict = 0
-  · rw [ite_eq_left_iff.mpr fun h => False.elim (h hkz)]
-    refine call.weaken (hrup (hcfg.strict ▸ hkz) m₁ hm₁) ?_
-    rintro t' m' rets ⟨rfl, rfl, hk', hc⟩
-    exact ⟨rfl, rfl, rfl, hk', hc⟩
-  · rw [ite_eq_right_iff.mpr fun h => False.elim (hkz h)]
-    refine call.weaken (hstrict (hcfg.strict ▸ hkz) m₁ hm₁) ?_
-    rintro t' m' rets ⟨rfl, rfl, hk', hc⟩
-    exact ⟨rfl, rfl, rfl, hk', hc⟩
+  · rw [ite_eq_left hkz]
+    exact (hrup (hcfg.strict ▸ hkz) m₁ hm₁).weaken fun _ _ _ ⟨rfl, rfl, hk', hc⟩ => ⟨rfl, rfl, rfl, hk', hc⟩
+  · rw [ite_eq_right hkz]
+    exact (hstrict (hcfg.strict ▸ hkz) m₁ hm₁).weaken fun _ _ _ ⟨rfl, rfl, hk', hc⟩ => ⟨rfl, rfl, rfl, hk', hc⟩
 
 /-- Option A (`k₀.strict = 0`) specialization of `call_br_check_proof_of_subcheckers`:
 only requires `br_check_clause_non_strictly_by_propagation`. -/
@@ -992,9 +791,9 @@ theorem call_br_check_proof_non_strict {e : Env} {B : Nat} {t₀ : Trace 64} {m�
     hemp_lt hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause hInvInit hInvSep ?_
   intro id hid_lo hid_hi hused
   obtain ⟨hc_eq, hcl⟩ := hInvClause id hid_lo hid_hi hused
-  refine ⟨hc_eq, fun k m hinv => ?_⟩
-  obtain ⟨R_cl, hm_cl, hrup⟩ := hcl k m hinv
-  exact ⟨R_cl, hm_cl, fun hne => False.elim (hne hstrict0), fun _ => hrup⟩
+  exact ⟨hc_eq, fun k m hinv =>
+    let ⟨R_cl, hm_cl, hrup⟩ := hcl k m hinv
+    ⟨R_cl, hm_cl, fun hne => absurd hstrict0 hne, fun _ => hrup⟩⟩
 
 /-- Option B (`k₀.strict ≠ 0`) specialization of `call_br_check_proof_of_subcheckers`:
 only requires `br_check_clause_strictly_by_resolution`. -/
@@ -1052,9 +851,9 @@ theorem call_br_check_proof_strict {e : Env} {B : Nat} {t₀ : Trace 64} {m₀ :
     hemp_lt hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause hInvInit hInvSep ?_
   intro id hid_lo hid_hi hused
   obtain ⟨hc_eq, hcl⟩ := hInvClause id hid_lo hid_hi hused
-  refine ⟨hc_eq, fun k m hinv => ?_⟩
-  obtain ⟨R_cl, hm_cl, hstrict⟩ := hcl k m hinv
-  exact ⟨R_cl, hm_cl, fun _ => hstrict, fun h0 => False.elim (hstrict_ne h0)⟩
+  exact ⟨hc_eq, fun k m hinv =>
+    let ⟨R_cl, hm_cl, hstrict⟩ := hcl k m hinv
+    ⟨R_cl, hm_cl, fun _ => hstrict, fun h0 => absurd h0 hstrict_ne⟩⟩
 
 /-- Corollary via `run_body_of_call (Handler.ok_none lratFailExt)`: any terminating `Interp.run`
 execution of `br_check_proof` (under the standard handler that rejects `lrat_fail`) guarantees
@@ -1077,11 +876,11 @@ theorem br_check_proof_run_unsat {e : Env} {B : Nat} {t₀ t' : Trace 64} {m₀ 
 
 theorem sep_rearrange_clause (RW KS Z RL : Mem 64 → Prop) :
     (RW ⋆ (KS ⋆ (Z ⋆ RL))) = (KS ⋆ (Z ⋆ (RW ⋆ RL))) := by
-  rw [sep_comm_l RW KS (Z ⋆ RL), sep_comm_l RW Z RL]
+  ac_rfl
 
 theorem sep_rearrange_arrays (RW KS U L A R : Mem 64 → Prop) :
     (RW ⋆ (KS ⋆ (U ⋆ (L ⋆ (A ⋆ R))))) = (KS ⋆ (U ⋆ (L ⋆ (A ⋆ (RW ⋆ R))))) := by
-  rw [sep_comm_l RW KS, sep_comm_l RW U, sep_comm_l RW L, sep_comm_l RW A]
+  ac_rfl
 
 /-- Concrete `call` specification for `br_check_clause` in non-strict mode (`k.strict = 0`),
 combining `call_br_check_clause_zeroTerm` and `br_check_clause_non_strictly_by_propagation_ok`. -/
@@ -1120,25 +919,14 @@ theorem call_br_check_clause_rup {e : Env} {B : Nat} {t : Trace 64} {m : Mem 64}
       post t m' []) :
     call lratFailExt e B br_check_clause.1 t m [st, id, literals, antecedents] post := by
   obtain ⟨R_lits, hP_lits⟩ := hlits_ro
-  have hsep_z : m =⋆ kernelState st k ⋆
-      (ZeroTermInts literals lits ⋆
-        ((byte1Array k.values_begin (assignBytes max_var Assignment.empty) ⋆
-          int4Array k.trail_begin trail_free0) ⋆ R_lits)) := by
-    have h := hsep
-    rw [hP_lits, sep_rearrange_clause] at h
-    exact h
-  refine call_br_check_clause_zeroTerm hfn_clause hsep_z (fun m₁ hm₁ => ?_)
+  refine call_br_check_clause_zeroTerm hfn_clause
+    (by rwa [hP_lits, sep_rearrange_clause] at hsep) fun m₁ hm₁ => ?_
   rw [ite_eq_left hstrict0]
+  rw [← sep_rearrange_clause, ← hP_lits] at hm₁
   let k1 := k.bumpCheckStats ((lits ++ [0])[0]'(by simp))
-  have hm₁_rup : m₁ =⋆ (byte1Array k1.values_begin (assignBytes max_var Assignment.empty) ⋆
-      int4Array k1.trail_begin trail_free0) ⋆
-    (kernelState st k1 ⋆ P_ro) := by
-    have h := hm₁
-    rw [← sep_rearrange_clause, ← hP_lits] at h
-    exact h
   exact br_check_clause_non_strictly_by_propagation_ok (k := k1) hfn_rup hk_trail hct
-    ⟨R_lits, hP_lits⟩ haids_ro hlits_valid haids_valid hcap htrail_len hm₁_rup
-    (fun m' sr sla trail_all hlen hm' hent => ⟨rfl, hpost m' sr sla trail_all hlen hm' hent⟩)
+    ⟨R_lits, hP_lits⟩ haids_ro hlits_valid haids_valid hcap htrail_len hm₁
+    fun m' sr sla trail_all hlen hm' hent => ⟨rfl, hpost m' sr sla trail_all hlen hm' hent⟩
 
 /-- Memory invariant maintained across iterations of `br_check_proof` in RUP mode (`strict = 0`). -/
 def RupMemInv (max_var trail_cap : Nat) (st : BitVec 64) (k₀ : KernelFields)
@@ -1210,56 +998,24 @@ theorem call_br_check_proof_rup {e : Env} {B : Nat} {t₀ : Trace 64} {m₀ : Me
     hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause
     ⟨KernelFields.SameConfig.refl k₀, hk_trail, trail_free0, rfl, hsep0⟩ ?_ ?_
   · rintro k m ⟨hcfg, _, trail_free, _, hm⟩
-    refine ⟨hcfg, ?_⟩
     obtain ⟨R_arr, hP⟩ := hP_arrays
-    refine ⟨(byte1Array k₀.values_begin (assignBytes max_var Assignment.empty) ⋆
-        int4Array k₀.trail_begin trail_free) ⋆ R_arr, ?_⟩
-    have h := hm
-    rw [hP, sep_rearrange_arrays] at h
-    exact h
+    exact ⟨hcfg, _, by rwa [hP, sep_rearrange_arrays] at hm⟩
   · intro id hid_lo hid_hi hused
     obtain ⟨hc_eq, hct, ⟨R_lits, hP_lits⟩, haids_ro, hlits_valid, haids_valid, hcap⟩ :=
       hsteps id hid_lo hid_hi hused
-    refine ⟨hc_eq, ?_⟩
-    rintro k m ⟨hcfg, hk_te, trail_free, htf_len, hm⟩
-    refine ⟨(byte1Array k₀.values_begin (assignBytes max_var Assignment.empty) ⋆
-        int4Array k₀.trail_begin trail_free) ⋆ R_lits, ?_, ?_⟩
-    · have h := hm
-      rw [hP_lits, sep_rearrange_clause] at h
-      exact h
-    · intro m₁ hm₁
-      let k1 := k.bumpCheckStats (((litsTable.getD id.toNat []) ++ [0])[0]'(by simp))
-      have hk1_cfg : k1.SameConfig k₀ := hcfg.bumpCheckStats _
-      have hk1_te : k1.trail_end = k1.trail_begin := by
-        show k.trail_end = k.trail_begin
-        rw [hk_te, hcfg.trail_begin]
-      have hm₁_rup : m₁ =⋆ (byte1Array k1.values_begin (assignBytes max_var Assignment.empty) ⋆
-          int4Array k1.trail_begin trail_free) ⋆
-        (kernelState st k1 ⋆ P_ro) := by
-        have h := hm₁
-        rw [← sep_rearrange_clause, ← hP_lits, ← hk1_cfg.values_begin, ← hk1_cfg.trail_begin] at h
-        exact h
-      have hct1 : ClauseTable max_var k1.literals_begin (litsPtrs.take id.toNat)
-          (stateAt cnf₀ k₀.first_proof_id.toNat k₀.trimming usedWords clauses
-            (id.toNat - k₀.first_proof_id.toNat)).formula P_ro := by
-        rwa [hk1_cfg.literals_begin]
-      refine br_check_clause_non_strictly_by_propagation_ok hfn_rup hk1_te hct1
-        ⟨R_lits, hP_lits⟩ haids_ro hlits_valid haids_valid
-        (htf_len ▸ hcap) (htf_len ▸ htrail_len) hm₁_rup ?_
-      intro m' sr sla trail_all hlen_all hm' hent_cl
-      let k' : KernelFields :=
-        { k1 with
-          trail_end := k1.trail_begin
-          stat_resolved := sr
-          stat_lit_assigned := sla }
-      have hk'_cfg : k'.SameConfig k₀ :=
-        ⟨hk1_cfg.1, hk1_cfg.2, hk1_cfg.3, hk1_cfg.4, hk1_cfg.5, hk1_cfg.6, hk1_cfg.7,
-         hk1_cfg.8, hk1_cfg.9, hk1_cfg.10, hk1_cfg.11, hk1_cfg.12, hk1_cfg.13⟩
-      change m' =⋆ (byte1Array k1.values_begin (assignBytes max_var Assignment.empty) ⋆
-          int4Array k1.trail_begin trail_all) ⋆
-        (kernelState st k' ⋆ P_ro) at hm'
-      rw [hk1_cfg.values_begin, hk1_cfg.trail_begin] at hm'
-      exact ⟨rfl, rfl, ⟨k', hk'_cfg, hk1_cfg.trail_begin, trail_all, hlen_all.trans htf_len, hm'⟩, hent_cl⟩
+    refine ⟨hc_eq, fun k m ⟨hcfg, hk_te, trail_free, htf_len, hm⟩ =>
+      ⟨_, by rwa [hP_lits, sep_rearrange_clause] at hm, fun m₁ hm₁ => ?_⟩⟩
+    let k1 := k.bumpCheckStats (((litsTable.getD id.toNat []) ++ [0])[0]'(by simp))
+    have hk1_cfg : k1.SameConfig k₀ := hcfg.bumpCheckStats _
+    rw [← sep_rearrange_clause, ← hP_lits, ← hk1_cfg.values_begin, ← hk1_cfg.trail_begin] at hm₁
+    refine br_check_clause_non_strictly_by_propagation_ok (k := k1) hfn_rup
+      (by simp [k1, KernelFields.bumpCheckStats, hk_te, hcfg.trail_begin])
+      (by rwa [hk1_cfg.literals_begin]) ⟨R_lits, hP_lits⟩ haids_ro hlits_valid haids_valid
+      (htf_len ▸ hcap) (htf_len ▸ htrail_len) hm₁
+      fun m' sr sla trail_all hlen_all hm' hent_cl =>
+        ⟨rfl, rfl, ⟨{ k1 with trail_end := k1.trail_begin, stat_resolved := sr, stat_lit_assigned := sla },
+          by cases hk1_cfg; constructor <;> assumption, hk1_cfg.trail_begin,
+          trail_all, hlen_all.trans htf_len, by rwa [← hk1_cfg.values_begin, ← hk1_cfg.trail_begin]⟩, hent_cl⟩
 
 /-- End-to-end `Interp.run` soundness corollary for Option A (`k₀.strict = 0`):
 any terminating execution of `br_check_proof` (under the standard handler that rejects `lrat_fail`)
@@ -1368,23 +1124,14 @@ theorem call_br_check_clause_strict {e : Env} {B : Nat} {t : Trace 64} {m : Mem 
         post t m' []) :
     call lratFailExt e B br_check_clause.1 t m [st, id, literals, antecedents] post := by
   obtain ⟨R_lits, hP_lits⟩ := hsub_lits
-  have hsep_z : m =⋆ kernelState st k ⋆
-      (ZeroTermInts literals clause_lits ⋆
-        (byte1Array k.marks_begin (List.replicate n 0) ⋆ R_lits)) := by
-    have h := hmem
-    rw [hP_lits, sep_rearrange_clause] at h
-    exact h
-  refine call_br_check_clause_zeroTerm hfn_clause hsep_z (fun m₁ hm₁ => ?_)
+  refine call_br_check_clause_zeroTerm hfn_clause
+    (by rwa [hP_lits, sep_rearrange_clause] at hmem) fun m₁ hm₁ => ?_
   rw [ite_eq_right hstrict_ne]
+  rw [← sep_rearrange_clause, ← hP_lits] at hm₁
   let k1 := k.bumpCheckStats ((clause_lits ++ [0])[0]'(by simp))
-  have hm₁_strict : m₁ =⋆ byte1Array k1.marks_begin (List.replicate n 0) ⋆
-      (kernelState st k1 ⋆ P_ro) := by
-    have h := hm₁
-    rw [← sep_rearrange_clause, ← hP_lits] at h
-    exact h
   exact call_br_check_clause_strictly_by_resolution (k := k1) hfn_strict hlen hn_bound
-    hants_bound hants_int hants_valid hclause_valid hm₁_strict hsub_ants ⟨R_lits, hP_lits⟩
-    (fun hent m' hm' => ⟨rfl, hpost hent m' hm'⟩)
+    hants_bound hants_int hants_valid hclause_valid hm₁ hsub_ants ⟨R_lits, hP_lits⟩
+    fun hent m' hm' => ⟨rfl, hpost hent m' hm'⟩
 
 /-- Memory invariant maintained across iterations of `br_check_proof` in strict resolution mode (`strict ≠ 0`). -/
 def StrictMemInv (n : Nat) (st : BitVec 64) (k₀ : KernelFields)
@@ -1448,48 +1195,21 @@ theorem call_br_check_proof_resolution {e : Env} {B : Nat} {t₀ : Trace 64} {m�
     hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause
     ⟨KernelFields.SameConfig.refl k₀, hsep0⟩ ?_ ?_
   · rintro k m ⟨hcfg, hm⟩
-    refine ⟨hcfg, ?_⟩
     obtain ⟨R_arr, hP⟩ := hP_arrays
-    refine ⟨byte1Array k₀.marks_begin (List.replicate n 0) ⋆ R_arr, ?_⟩
-    have h := hm
-    rw [hP, sep_rearrange_arrays] at h
-    exact h
+    exact ⟨hcfg, _, by rwa [hP, sep_rearrange_arrays] at hm⟩
   · intro id hid_lo hid_hi hused
     obtain ⟨hc_eq, hants_bound, hants_int, hants_valid, hlits_valid, ⟨R_lits, hP_lits⟩, hsub_ants⟩ :=
       hsteps id hid_lo hid_hi hused
-    refine ⟨hc_eq, ?_⟩
-    rintro k m ⟨hcfg, hm⟩
-    refine ⟨byte1Array k₀.marks_begin (List.replicate n 0) ⋆ R_lits, ?_, ?_⟩
-    · have h := hm
-      rw [hP_lits, sep_rearrange_clause] at h
-      exact h
-    · intro m₁ hm₁
-      let k1 := k.bumpCheckStats (((litsTable.getD id.toNat []) ++ [0])[0]'(by simp))
-      have hk1_cfg : k1.SameConfig k₀ := hcfg.bumpCheckStats _
-      have hm₁_strict : m₁ =⋆ byte1Array k1.marks_begin (List.replicate n 0) ⋆
-          (kernelState st k1 ⋆ P_ro) := by
-        have h := hm₁
-        rw [← sep_rearrange_clause, ← hP_lits, ← hk1_cfg.marks_begin] at h
-        exact h
-      have hants_valid1 : ∀ aid ∈ anteTable.getD id.toNat [], aid.slt 0 = false →
-          ValidAntecedent max_var
-            (stateAt cnf₀ k₀.first_proof_id.toNat k₀.trimming usedWords clauses
-              (id.toNat - k₀.first_proof_id.toNat)).toCNF
-            k1.literals_begin P_ro aid := by
-        rw [hk1_cfg.literals_begin]
-        exact hants_valid
-      refine call_br_check_clause_strictly_by_resolution (k := k1) hfn_strict hlen hn_bound
-        hants_bound hants_int hants_valid1 hlits_valid hm₁_strict hsub_ants ⟨R_lits, hP_lits⟩ ?_
-      intro hent_cl m' hm'
-      let k' : KernelFields :=
-        { k1 with stat_resolved := k1.stat_resolved + BitVec.ofNat 64 (anteTable.getD id.toNat []).length }
-      have hk'_cfg : k'.SameConfig k₀ :=
-        ⟨hk1_cfg.1, hk1_cfg.2, hk1_cfg.3, hk1_cfg.4, hk1_cfg.5, hk1_cfg.6, hk1_cfg.7,
-         hk1_cfg.8, hk1_cfg.9, hk1_cfg.10, hk1_cfg.11, hk1_cfg.12, hk1_cfg.13⟩
-      change m' =⋆ byte1Array k1.marks_begin (List.replicate n 0) ⋆
-          (kernelState st k' ⋆ P_ro) at hm'
-      rw [hk1_cfg.marks_begin] at hm'
-      exact ⟨rfl, rfl, ⟨k', hk'_cfg, hm'⟩, hent_cl⟩
+    refine ⟨hc_eq, fun k m ⟨hcfg, hm⟩ =>
+      ⟨_, by rwa [hP_lits, sep_rearrange_clause] at hm, fun m₁ hm₁ => ?_⟩⟩
+    let k1 := k.bumpCheckStats (((litsTable.getD id.toNat []) ++ [0])[0]'(by simp))
+    have hk1_cfg : k1.SameConfig k₀ := hcfg.bumpCheckStats _
+    rw [← sep_rearrange_clause, ← hP_lits, ← hk1_cfg.marks_begin] at hm₁
+    refine call_br_check_clause_strictly_by_resolution (k := k1) hfn_strict hlen hn_bound
+      hants_bound hants_int (by rwa [hk1_cfg.literals_begin]) hlits_valid hm₁ hsub_ants ⟨R_lits, hP_lits⟩
+      fun hent_cl m' hm' =>
+        ⟨rfl, rfl, ⟨{ k1 with stat_resolved := k1.stat_resolved + BitVec.ofNat 64 (anteTable.getD id.toNat []).length },
+          by cases hk1_cfg; constructor <;> assumption, by rwa [← hk1_cfg.marks_begin]⟩, hent_cl⟩
 
 /-- End-to-end `Interp.run` soundness corollary for Option B (`k₀.strict ≠ 0`):
 any terminating execution of `br_check_proof` in strict resolution mode
@@ -1634,19 +1354,17 @@ theorem call_br_check_proof_full {e : Env} {B : Nat} {t₀ : Trace 64} {m₀ : M
         cnf₀.Unsat) := by
   by_cases hstrict0 : k₀.strict = 0
   · obtain ⟨hk_trail, htrail_len, hsep0, hsteps⟩ := hrup_case hstrict0
-    refine call.weaken
-      (call_br_check_proof_rup (litsTable := litsTable) (anteTable := anteTable)
-        hfn_proof hfn_clause hfn_rup hstrict0 hchecking hforward hk_trail hfst_pos hfst_le hemp_lt
-        hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause htrail_len hP_arrays hsep0 hsteps) ?_
-    rintro t' m' rets ⟨rfl, rfl, ⟨k', hk'⟩, hunsat⟩
-    exact ⟨rfl, rfl, ⟨k', by rw [FullMemInv, ite_eq_left hstrict0]; exact hk'⟩, hunsat⟩
+    refine (call_br_check_proof_rup (litsTable := litsTable) (anteTable := anteTable)
+      hfn_proof hfn_clause hfn_rup hstrict0 hchecking hforward hk_trail hfst_pos hfst_le hemp_lt
+      hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause htrail_len hP_arrays hsep0 hsteps).weaken ?_
+    rintro _ _ _ ⟨rfl, rfl, ⟨k', hk'⟩, hunsat⟩
+    exact ⟨rfl, rfl, ⟨k', by simpa [FullMemInv, ite_eq_left (by simpa using hstrict0)] using hk'⟩, hunsat⟩
   · obtain ⟨hlen, hn_bound, hsep0, hsteps⟩ := hstrict_case hstrict0
-    refine call.weaken
-      (call_br_check_proof_resolution (litsTable := litsTable) (anteTable := anteTable)
-        hfn_proof hfn_clause hfn_strict hstrict0 hchecking hforward hfst_pos hfst_le hemp_lt
-        hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause hlen hn_bound hP_arrays hsep0 hsteps) ?_
-    rintro t' m' rets ⟨rfl, rfl, ⟨k', hk'⟩, hunsat⟩
-    exact ⟨rfl, rfl, ⟨k', by rw [FullMemInv, ite_eq_right hstrict0]; exact hk'⟩, hunsat⟩
+    refine (call_br_check_proof_resolution (litsTable := litsTable) (anteTable := anteTable)
+      hfn_proof hfn_clause hfn_strict hstrict0 hchecking hforward hfst_pos hfst_le hemp_lt
+      hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause hlen hn_bound hP_arrays hsep0 hsteps).weaken ?_
+    rintro _ _ _ ⟨rfl, rfl, ⟨k', hk'⟩, hunsat⟩
+    exact ⟨rfl, rfl, ⟨k', by simpa [FullMemInv, ite_eq_right (by simpa using hstrict0)] using hk'⟩, hunsat⟩
 
 /-- Unified end-to-end `Interp.run` soundness corollary for `br_check_proof` covering both
 `k₀.strict = 0` (Option A) and `k₀.strict ≠ 0` (Option B). -/
