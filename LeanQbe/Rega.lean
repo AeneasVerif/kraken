@@ -65,8 +65,15 @@ structure St (I : Isa) where
 /-- Result: code, next fresh name, next fresh label. -/
 abbrev Res (I : Isa) := Except String (List I.Directive × Nat × Nat)
 
+/-- Decimal digits of `n`, prepended to `acc`. (`Nat.toDigits` does not reduce by `rfl` in modules.) -/
+def natDigits : Nat → Nat → List Char → List Char
+  | 0, _, acc => acc
+  | fuel + 1, n, acc =>
+    let acc := Char.ofNat (48 + n % 10) :: acc
+    if n < 10 then acc else natDigits fuel (n / 10) acc
+
 /-- Assembly name of label number `n` in function `fn`. -/
-def lname (fn : String) (n : Nat) : String := fn ++ ".L" ++ toString n
+def lname (fn : String) (n : Nat) : String := fn ++ ".L" ++ String.ofList (natDigits (n + 1) n [])
 
 /-- A register holding name `x`, if any. -/
 def lookup (R : SymRegs I) (x : Nat) : Option I.Reg :=
@@ -147,22 +154,35 @@ def blocked (R : SymRegs I) (pending : SymRegs I) (d : I.Reg) : Bool :=
     | .var y => R.all (fun p => p.1 != .var y || decide (p.2 = d)) && R.any (fun p => p.1 == .var y)
     | .imm _ => false
 
-/-- Sequentialise the moves into `tgts`. Untrusted: `lower` checks the outcome. -/
+/-- Sequentialise the moves into `tgts`. Untrusted: `lower` checks the outcome. Register-to-register
+moves go first, in an order that never overwrites the last copy of a value still needed; a cycle is
+broken by copying one register into a free scratch register; constants are loaded last. -/
 def pmoveAux : Nat → SymRegs I → SymRegs I → List (Move I) → List (Move I)
   | 0, _, _, acc => acc.reverse
   | fuel + 1, R, pending, acc =>
     match pending.filter (fun t => decide (t ∉ R)) with
     | [] => acc.reverse
     | pend =>
-      match pend.find? (fun t => !blocked R pend t.2) with
-      | some (a, d) =>
+      let isVar : Arg Nat × I.Reg → Bool := fun t => match t.1 with | .var _ => true | .imm _ => false
+      let step (a : Arg Nat) (d : I.Reg) : List (Move I) :=
         match srcOf R a with
         | some src => pmoveAux fuel (movSym (d, src) R) pend ((d, src) :: acc)
         | none => acc.reverse
-      | none => acc.reverse
+      match pend.find? (fun t => isVar t && !blocked R pend t.2) with
+      | some (a, d) => step a d
+      | none =>
+        match pend.find? isVar with
+        | some (_, d) =>
+          match I.scratch.find? (fun t => !blocked R pend t) with
+          | some tmp => pmoveAux fuel (movSym (tmp, .var d) R) pend ((tmp, .var d) :: acc)
+          | none => acc.reverse
+        | none =>
+          match pend.head? with
+          | some (a, d) => step a d
+          | none => acc.reverse
 
 def pmove (R : SymRegs I) (tgts : SymRegs I) : List (Move I) :=
-  pmoveAux (tgts.length + 1) R tgts []
+  pmoveAux (2 * tgts.length + 2) R tgts []
 
 /-- Move into `tgts`, then check that every target holds. Returns the move code. -/
 def shuffle (R : SymRegs I) (tgts : SymRegs I) : Option (List I.Directive) :=

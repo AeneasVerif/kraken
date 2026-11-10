@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.Main
 public import LeanQbe.Examples.Litmus
+public import LeanQbe.Examples.LitmusCf
 public import Kraken.X64.PrintATT
 
 /-!
@@ -14,7 +15,9 @@ open LeanQbe
 
 /-- Built-in programs: name, units. -/
 def programs : List (String × List (FnHints Amd64.isa)) :=
-  [("tracer", [⟨Litmus.tracer, Litmus.tracerHints⟩])]
+  [("tracer", [⟨Litmus.tracer, Litmus.tracerHints⟩])] ++
+  ([Litmus.ifelse, Litmus.sumto, Litmus.evenodd, Litmus.nested, Litmus.swap].map fun f =>
+    (f.name, [⟨f, Spill.hints Amd64.isa f⟩]))
 
 /-- GNU as text for x64: `.text`, a `.globl` per function, then Kraken's AT&T printer. -/
 def emitAsm (us : List (FnHints Amd64.isa)) (code : List Amd64.isa.Directive) : String :=
