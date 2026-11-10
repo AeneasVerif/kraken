@@ -153,6 +153,23 @@ public theorem Host.label_eq_addrOf [Host] {l : Label} {k : Nat}
       have hne : d ≠ .label l := fun h => hfirst j hj (by rw [hd, h])
       simp [hne]
 
+/-- A label that the host program does not define resolves to `-1`. -/
+public theorem Host.label_undefined [Host] {l : Label}
+    (h : ∀ i : Nat, Host.prog[i]? ≠ some (.label l)) : Labels.label l = -1 := by
+  show (Host.exe.withAddresses.findSome? _).getD (-1) = -1
+  rw [List.findSome?_eq_none_iff.mpr]
+  · rfl
+  intro x hx
+  obtain ⟨i, hi⟩ := List.mem_iff_getElem?.mp hx
+  rw [Kraken.Executable.getElem?_withAddresses_eq, Host.exe_getElem?] at hi
+  cases hd : Host.prog[i]? with
+  | none => simp [hd] at hi
+  | some d =>
+    simp only [hd, Option.map_some, Option.some.injEq] at hi
+    subst hi
+    have hne : d ≠ .label l := fun e => h i (by rw [hd, e])
+    simp [hne]
+
 /-- No label is defined twice in the host program. `Host` does not provide this. -/
 @[expose] public def Host.LabelsUnique [Host] : Prop :=
   ∀ (i j : Nat) (l : Label),
