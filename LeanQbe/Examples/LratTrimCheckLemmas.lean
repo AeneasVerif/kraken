@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.Examples.LratTrim
 public import LeanQbe.Examples.LratRupLemmas
+public import LeanQbe.Examples.LratTrimStrictLemmas
 public import Kraken.SeparationTactics
 import all Kraken.Mem
 import all Kraken.Separation
@@ -408,10 +409,54 @@ theorem checkProof_correct (Γ : Env)
       by omega, hinv₀,
       by rw [Nat.sub_self]; exact entails_stateAt_zero _ _ _ _ _, fun _ => by omega⟩
 
-/-! ## Well-formedness -/
+/-! ## Well-formedness and module-linking glue -/
 
 theorem checkClause_wf : Func.Wf checkClause := by wf_tac
 theorem checkProof_wf : Func.Wf checkProof := by wf_tac
+theorem trimProof_wf : Func.Wf trimProof := by
+  unfold trimProof markUsed trimInner; wf_tac
+
+/-- Combined contract of `br_check_clause` (`strict = 0` or `strict ≠ 0`). -/
+def checkClauseSpec : Spec := fun args m Q X =>
+  checkClauseRupSpec args m Q X ∨ checkClauseStrictSpec args m Q X
+
+theorem checkClause_correct (Γ : Env)
+    (hrup : ∀ args m Q X, LratRup.checkRupSpec args m Q X →
+      Γ "br_check_clause_non_strictly_by_propagation" args m Q X)
+    (hstrict : ∀ args m Q X, strictSpec args m Q X →
+      Γ "br_check_clause_strictly_by_resolution" args m Q X) :
+    ∀ args m Q X, checkClauseSpec args m Q X → Func.spec Γ checkClause args m Q X :=
+  fun args m Q X h => h.elim (checkClause_rup_correct Γ hrup args m Q X)
+    (checkClause_strict_correct Γ hstrict args m Q X)
+
+/-- The 4 verified checker functions in callee-first order for `compile_correct`. -/
+def lratCheckFns : List Fn :=
+  [⟨"br_check_clause_non_strictly_by_propagation", LratRup.checkRup⟩,
+   ⟨"br_check_clause_strictly_by_resolution", strictCheck⟩,
+   ⟨"br_check_clause", checkClause⟩,
+   ⟨"br_check_proof", checkProof⟩]
+
+/-- Environment mapping each of the 4 LRAT checker functions to its contract. -/
+def lratEnv : Env := fun g =>
+  if g = "br_check_clause_non_strictly_by_propagation" then LratRup.checkRupSpec
+  else if g = "br_check_clause_strictly_by_resolution" then strictSpec
+  else if g = "br_check_clause" then checkClauseSpec
+  else checkProofSpec
+
+/-- One-step linking glue for `compile_correct` over `lratCheckFns` and `lratEnv`. -/
+theorem lratEnv_step :
+    (∀ args m Q X, lratEnv "br_check_clause_non_strictly_by_propagation" args m Q X →
+      Func.spec lratEnv LratRup.checkRup args m Q X) ∧
+    (∀ args m Q X, lratEnv "br_check_clause_strictly_by_resolution" args m Q X →
+      Func.spec lratEnv strictCheck args m Q X) ∧
+    (∀ args m Q X, lratEnv "br_check_clause" args m Q X →
+      Func.spec lratEnv checkClause args m Q X) ∧
+    (∀ args m Q X, lratEnv "br_check_proof" args m Q X →
+      Func.spec lratEnv checkProof args m Q X) :=
+  ⟨LratRup.checkRup_correct lratEnv,
+   strictCheck_correct lratEnv,
+   checkClause_correct lratEnv (fun _ _ _ _ h => h) (fun _ _ _ _ h => h),
+   checkProof_correct lratEnv (fun _ _ _ _ h => h)⟩
 
 /-! ## Non-vacuity -/
 
