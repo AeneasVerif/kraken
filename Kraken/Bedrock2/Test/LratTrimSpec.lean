@@ -36,16 +36,13 @@ theorem exec_lrat_fail {e : Env} {B : Nat} {arges : List Expr} {args : List (Bit
     {t : Trace 64} {m : Mem 64} {l : Locals 64} {post : Trace 64 → Mem 64 → Locals 64 → Prop}
     (ha : evalArgs m l arges = some args) :
     Exec lratFailExt e B (.interact [] "lrat_fail" arges) t m l post := by
-  refine .interact [] "lrat_fail" arges args B t m l post m ∅ (fun _ _ => False) ?_ ha ⟨rfl, rfl⟩ ?_
-  · constructor
-    · apply ExtHashMap.ext_getElem?
-      intro k
-      simp only [ExtHashMap.union_eq, ExtHashMap.getElem?_union,
-        ExtHashMap.getElem?_eq_none ExtHashMap.not_mem_empty, Option.none_or]
-    · apply ExtHashMap.eq_empty_iff_forall_not_mem.mpr
-      intro k hk
-      exact ExtHashMap.not_mem_empty (ExtHashMap.mem_inter_iff.mp hk).2
-  · rintro _ _ ⟨⟩
+  refine .interact [] "lrat_fail" arges args B t m l post m ∅ (fun _ _ => False) ?_ ha ⟨rfl, rfl⟩
+    (by rintro _ _ ⟨⟩)
+  refine ⟨?_, ExtHashMap.eq_empty_iff_forall_not_mem.mpr fun k hk =>
+    ExtHashMap.not_mem_empty (ExtHashMap.mem_inter_iff.mp hk).2⟩
+  apply ExtHashMap.ext_getElem?
+  intro k
+  simp [ExtHashMap.union_eq, ExtHashMap.getElem?_union]
 
 /-! ## 2. Scalar Memory Cells (`word8`, `int4`, `byte1`) & Signed BitVec Helpers -/
 
@@ -81,11 +78,8 @@ theorem load_word8 {m : Mem 64} {a v : BitVec 64} {R : Mem 64 → Prop}
     (hsep : m =⋆ word8 a v ⋆ R) :
     load? .eight m a = some v := by
   have h := load?_sep (sz := .eight) hsep (Int.toBytes_length 8 v.toNat) (by decide)
-  rw [ofBytes_toBytes] at h
-  have hlt := v.isLt
-  have hmod : ((v.toNat : Int).take (8 * 8)) = v.toNat :=
-    Int.emod_eq_of_lt (Int.natCast_nonneg _) (by omega)
-  simpa [hmod] using h
+  simpa [show ((v.toNat : Int).take (8 * 8)) = v.toNat from
+    Int.emod_eq_of_lt (Int.natCast_nonneg _) (by have := v.isLt; omega)] using h
 
 theorem store_word8 {e : Env} {B : Nat} {ea ev : Expr} {t : Trace 64} {m : Mem 64} {l : Locals 64}
     {post : Trace 64 → Mem 64 → Locals 64 → Prop} {a v0 v : BitVec 64} {R : Mem 64 → Prop}
@@ -99,24 +93,14 @@ theorem load_int4_raw {m : Mem 64} {a v : BitVec 64} {R : Mem 64 → Prop}
     (hsep : m =⋆ int4 a v ⋆ R) :
     load? .four m a = some (v &&& 0xffffffff#64) := by
   have h := load?_sep (sz := .four) hsep (Int.toBytes_length 4 v.toNat) (by decide)
-  rw [ofBytes_toBytes] at h
-  have hmod : BitVec.ofInt 64 ((v.toNat : Int).take (8 * 4)) = v &&& 0xffffffff#64 := by
-    change BitVec.ofInt 64 ((v.toNat : Int) % ((2 ^ 32 : Nat) : Int)) = _
-    rw [← Int.natCast_emod, BitVec.ofInt_natCast]
-    apply BitVec.eq_of_toNat_eq
-    have h1 : (0xffffffff#64 : BitVec 64).toNat = 2 ^ 32 - 1 := by decide
-    have h2 := Nat.and_two_pow_sub_one_eq_mod v.toNat 32
-    simp only [BitVec.toNat_ofNat, BitVec.toNat_and, h1, h2]
-    omega
-  simpa [hmod] using h
+  have := Nat.and_two_pow_sub_one_eq_mod v.toNat 32
+  simpa [show BitVec.ofInt 64 ((v.toNat : Int).take (8 * 4)) = v &&& 0xffffffff#64 from
+    BitVec.eq_of_toNat_eq (by simp [Int.take]; grind)] using h
 
 private theorem sext32_mask (v : BitVec 64) :
     interpBinop .srs (interpBinop .slu (v &&& 0xffffffff#64) 32#64) 32#64 =
       (v <<< 32).sshiftRight 32 := by
-  change (((v &&& 0xffffffff#64) <<< shamt 32#64).sshiftRight (shamt 32#64)) = _
-  have hs : shamt 32#64 = 32 := by decide
-  rw [hs]
-  bv_decide
+  simp [interpBinop, shamt]; bv_decide
 
 /-- Evaluating `(load4(ea) << 32) .>> 32` on `m =⋆ int4 a v ⋆ R` when `IsInt32 v`. -/
 theorem eval_load4_sext {m : Mem 64} {l : Locals 64} {ea : Expr} {a v : BitVec 64}
@@ -137,16 +121,12 @@ theorem load_byte1_raw {m : Mem 64} {a v : BitVec 64} {R : Mem 64 → Prop}
     load? .one m a = some (v &&& 0xff#64) := by
   have h := load?_sep (sz := .one) hsep (Int.toBytes_length 1 v.toNat) (by decide)
   have h1 : Int.toBytes 1 (v.toNat : Int) = [v.toNat.toUInt8] := toBytes_one v
-  rw [h1, ofInt_ofBytes_byte (by decide)] at h
-  exact h
+  rwa [h1, ofInt_ofBytes_byte (by decide)] at h
 
 private theorem sext8_mask (v : BitVec 64) :
     interpBinop .srs (interpBinop .slu (v &&& 0xff#64) 56#64) 56#64 =
       (v <<< 56).sshiftRight 56 := by
-  change (((v &&& 0xff#64) <<< shamt 56#64).sshiftRight (shamt 56#64)) = _
-  have hs : shamt 56#64 = 56 := by decide
-  rw [hs]
-  bv_decide
+  simp [interpBinop, shamt]; bv_decide
 
 /-- Evaluating `(load1(ea) << 56) .>> 56` on `m =⋆ byte1 a v ⋆ R` when `IsInt8 v`. -/
 theorem eval_load1_sext {m : Mem 64} {l : Locals 64} {ea : Expr} {a v : BitVec 64}
@@ -194,9 +174,8 @@ theorem word8Array_append (a : BitVec 64) (xs ys : List (BitVec 64)) :
   induction xs generalizing a with
   | nil => simp [emp_sep]
   | cons x xs ih =>
-    have hadd : a + 8 + BitVec.ofNat 64 (8 * xs.length) = a + BitVec.ofNat 64 (8 * (xs.length + 1)) := by
-      apply BitVec.eq_of_toNat_eq; simp [BitVec.toNat_add]; omega
-    rw [List.cons_append, word8Array_cons, word8Array_cons, ih (a + 8), ← sep_assoc, hadd, List.length_cons]
+    rw [List.cons_append, word8Array_cons, word8Array_cons, ih, ← sep_assoc, List.length_cons]
+    congr 2; exact BitVec.eq_of_toNat_eq (by grind)
 
 theorem int4Array_append (a : BitVec 64) (xs ys : List (BitVec 64)) :
     int4Array a (xs ++ ys) =
@@ -204,9 +183,8 @@ theorem int4Array_append (a : BitVec 64) (xs ys : List (BitVec 64)) :
   induction xs generalizing a with
   | nil => simp [emp_sep]
   | cons x xs ih =>
-    have hadd : a + 4 + BitVec.ofNat 64 (4 * xs.length) = a + BitVec.ofNat 64 (4 * (xs.length + 1)) := by
-      apply BitVec.eq_of_toNat_eq; simp [BitVec.toNat_add]; omega
-    rw [List.cons_append, int4Array_cons, int4Array_cons, ih (a + 4), ← sep_assoc, hadd, List.length_cons]
+    rw [List.cons_append, int4Array_cons, int4Array_cons, ih, ← sep_assoc, List.length_cons]
+    congr 2; exact BitVec.eq_of_toNat_eq (by grind)
 
 theorem byte1Array_append (a : BitVec 64) (xs ys : List (BitVec 64)) :
     byte1Array a (xs ++ ys) =
@@ -214,75 +192,59 @@ theorem byte1Array_append (a : BitVec 64) (xs ys : List (BitVec 64)) :
   induction xs generalizing a with
   | nil => simp [emp_sep]
   | cons x xs ih =>
-    have hadd : a + 1 + BitVec.ofNat 64 xs.length = a + BitVec.ofNat 64 (xs.length + 1) := by
-      apply BitVec.eq_of_toNat_eq; simp [BitVec.toNat_add]; omega
-    rw [List.cons_append, byte1Array_cons, byte1Array_cons, ih (a + 1), ← sep_assoc, hadd, List.length_cons]
+    rw [List.cons_append, byte1Array_cons, byte1Array_cons, ih, ← sep_assoc, List.length_cons]
+    congr 2; exact BitVec.eq_of_toNat_eq (by grind)
 
 theorem word8Array_focus (a : BitVec 64) (xs : List (BitVec 64)) {i : Nat} (hi : i < xs.length) :
     word8Array a xs =
       (word8 (a + BitVec.ofNat 64 (8 * i)) xs[i] ⋆
         (word8Array a (xs.take i) ⋆
           word8Array (a + BitVec.ofNat 64 (8 * i) + 8) (xs.drop (i + 1)))) := by
-  have hsplit : xs = xs.take i ++ xs[i] :: xs.drop (i + 1) := by
-    rw [← List.drop_eq_getElem_cons hi, List.take_append_drop]
-  conv => lhs; rw [hsplit]
-  rw [word8Array_append, word8Array_cons]
-  have hlen : (xs.take i).length = i := List.length_take_of_le (Nat.le_of_lt hi)
-  rw [hlen, ← sep_assoc, sep_comm (word8Array a (xs.take i)), sep_assoc]
+  conv => lhs; rw [← List.take_append_drop i xs, List.drop_eq_getElem_cons hi]
+  rw [word8Array_append, word8Array_cons, List.length_take_of_le (Nat.le_of_lt hi),
+    ← sep_assoc, sep_comm (word8Array a (xs.take i)), sep_assoc]
 
 theorem int4Array_focus (a : BitVec 64) (xs : List (BitVec 64)) {i : Nat} (hi : i < xs.length) :
     int4Array a xs =
       (int4 (a + BitVec.ofNat 64 (4 * i)) xs[i] ⋆
         (int4Array a (xs.take i) ⋆
           int4Array (a + BitVec.ofNat 64 (4 * i) + 4) (xs.drop (i + 1)))) := by
-  have hsplit : xs = xs.take i ++ xs[i] :: xs.drop (i + 1) := by
-    rw [← List.drop_eq_getElem_cons hi, List.take_append_drop]
-  conv => lhs; rw [hsplit]
-  rw [int4Array_append, int4Array_cons]
-  have hlen : (xs.take i).length = i := List.length_take_of_le (Nat.le_of_lt hi)
-  rw [hlen, ← sep_assoc, sep_comm (int4Array a (xs.take i)), sep_assoc]
+  conv => lhs; rw [← List.take_append_drop i xs, List.drop_eq_getElem_cons hi]
+  rw [int4Array_append, int4Array_cons, List.length_take_of_le (Nat.le_of_lt hi),
+    ← sep_assoc, sep_comm (int4Array a (xs.take i)), sep_assoc]
 
 theorem int4Array_set (a : BitVec 64) (xs : List (BitVec 64)) {i : Nat} (hi : i < xs.length) (v : BitVec 64) :
     int4Array a (xs.set i v) =
       (int4 (a + BitVec.ofNat 64 (4 * i)) v ⋆
         (int4Array a (xs.take i) ⋆
           int4Array (a + BitVec.ofNat 64 (4 * i) + 4) (xs.drop (i + 1)))) := by
-  have hi' : i < (xs.set i v).length := by simp [hi]
-  rw [int4Array_focus a (xs.set i v) hi']
-  simp [List.getElem_set_self, List.take_set_of_le (Nat.le_refl i),
-    List.drop_set_of_lt (Nat.lt_succ_self i)]
+  rw [int4Array_focus a (xs.set i v) (i := i) (by simp [hi])]
+  simp [List.take_set_of_le (Nat.le_refl i), List.drop_set_of_lt (Nat.lt_succ_self i)]
 
 theorem byte1Array_focus (a : BitVec 64) (xs : List (BitVec 64)) {i : Nat} (hi : i < xs.length) :
     byte1Array a xs =
       (byte1 (a + BitVec.ofNat 64 i) xs[i] ⋆
         (byte1Array a (xs.take i) ⋆
           byte1Array (a + BitVec.ofNat 64 i + 1) (xs.drop (i + 1)))) := by
-  have hsplit : xs = xs.take i ++ xs[i] :: xs.drop (i + 1) := by
-    rw [← List.drop_eq_getElem_cons hi, List.take_append_drop]
-  conv => lhs; rw [hsplit]
-  rw [byte1Array_append, byte1Array_cons]
-  have hlen : (xs.take i).length = i := List.length_take_of_le (Nat.le_of_lt hi)
-  rw [hlen, ← sep_assoc, sep_comm (byte1Array a (xs.take i)), sep_assoc]
+  conv => lhs; rw [← List.take_append_drop i xs, List.drop_eq_getElem_cons hi]
+  rw [byte1Array_append, byte1Array_cons, List.length_take_of_le (Nat.le_of_lt hi),
+    ← sep_assoc, sep_comm (byte1Array a (xs.take i)), sep_assoc]
 
 theorem byte1Array_set (a : BitVec 64) (xs : List (BitVec 64)) {i : Nat} (hi : i < xs.length) (v : BitVec 64) :
     byte1Array a (xs.set i v) =
       (byte1 (a + BitVec.ofNat 64 i) v ⋆
         (byte1Array a (xs.take i) ⋆
           byte1Array (a + BitVec.ofNat 64 i + 1) (xs.drop (i + 1)))) := by
-  have hi' : i < (xs.set i v).length := by simp [hi]
-  rw [byte1Array_focus a (xs.set i v) hi']
-  simp [List.getElem_set_self, List.take_set_of_le (Nat.le_refl i),
-    List.drop_set_of_lt (Nat.lt_succ_self i)]
+  rw [byte1Array_focus a (xs.set i v) (i := i) (by simp [hi])]
+  simp [List.take_set_of_le (Nat.le_refl i), List.drop_set_of_lt (Nat.lt_succ_self i)]
 
 theorem word8Array_set (a : BitVec 64) (xs : List (BitVec 64)) {i : Nat} (hi : i < xs.length) (v : BitVec 64) :
     word8Array a (xs.set i v) =
       (word8 (a + BitVec.ofNat 64 (8 * i)) v ⋆
         (word8Array a (xs.take i) ⋆
           word8Array (a + BitVec.ofNat 64 (8 * i) + 8) (xs.drop (i + 1)))) := by
-  have hi' : i < (xs.set i v).length := by simp [hi]
-  rw [word8Array_focus a (xs.set i v) hi']
-  simp [List.getElem_set_self, List.take_set_of_le (Nat.le_refl i),
-    List.drop_set_of_lt (Nat.lt_succ_self i)]
+  rw [word8Array_focus a (xs.set i v) (i := i) (by simp [hi])]
+  simp [List.take_set_of_le (Nat.le_refl i), List.drop_set_of_lt (Nat.lt_succ_self i)]
 
 theorem load_word8Array_elem {m : Mem 64} {a : BitVec 64} {xs : List (BitVec 64)}
     {i : Nat} {R : Mem 64 → Prop} (hi : i < xs.length) (hsep : m =⋆ word8Array a xs ⋆ R) :
@@ -305,9 +267,8 @@ theorem store_word8Array_elem {e : Env} {B : Nat} {ea ev : Expr} {t : Trace 64} 
     (hpost : ∀ m', (m' =⋆ word8Array a (xs.set i v) ⋆ R) → post t m' l) :
     Exec lratFailExt e B (.store .eight ea ev) t m l post := by
   rw [word8Array_focus a xs hi, sep_assoc] at hsep
-  exact store_word8 ha hv hsep fun m' hm' => by
-    rw [← sep_assoc, ← word8Array_set a xs hi v] at hm'
-    exact hpost m' hm'
+  exact store_word8 ha hv hsep fun m' hm' =>
+    hpost m' (by rwa [← sep_assoc, ← word8Array_set a xs hi v] at hm')
 
 theorem eval_load4_int4Array_elem {m : Mem 64} {l : Locals 64} {ea : Expr}
     {a : BitVec 64} {xs : List (BitVec 64)} {i : Nat} {R : Mem 64 → Prop}
@@ -325,9 +286,8 @@ theorem store_int4Array_elem {e : Env} {B : Nat} {ea ev : Expr} {t : Trace 64} {
     (hpost : ∀ m', (m' =⋆ int4Array a (xs.set i v) ⋆ R) → post t m' l) :
     Exec lratFailExt e B (.store .four ea ev) t m l post := by
   rw [int4Array_focus a xs hi, sep_assoc] at hsep
-  exact store_int4 ha hv hsep fun m' hm' => by
-    rw [← sep_assoc, ← int4Array_set a xs hi v] at hm'
-    exact hpost m' hm'
+  exact store_int4 ha hv hsep fun m' hm' =>
+    hpost m' (by rwa [← sep_assoc, ← int4Array_set a xs hi v] at hm')
 
 theorem eval_load1_byte1Array_elem {m : Mem 64} {l : Locals 64} {ea : Expr}
     {a : BitVec 64} {xs : List (BitVec 64)} {i : Nat} {R : Mem 64 → Prop}
@@ -345,9 +305,8 @@ theorem store_byte1Array_elem {e : Env} {B : Nat} {ea ev : Expr} {t : Trace 64} 
     (hpost : ∀ m', (m' =⋆ byte1Array a (xs.set i v) ⋆ R) → post t m' l) :
     Exec lratFailExt e B (.store .one ea ev) t m l post := by
   rw [byte1Array_focus a xs hi, sep_assoc] at hsep
-  exact store_byte1 ha hv hsep fun m' hm' => by
-    rw [← sep_assoc, ← byte1Array_set a xs hi v] at hm'
-    exact hpost m' hm'
+  exact store_byte1 ha hv hsep fun m' hm' =>
+    hpost m' (by rwa [← sep_assoc, ← byte1Array_set a xs hi v] at hm')
 
 /-- A 0-terminated 32-bit integer array at address `p` containing `xs ++ [0]`. -/
 def ZeroTermInts (p : BitVec 64) (xs : List (BitVec 64)) : Mem 64 → Prop :=
@@ -371,13 +330,9 @@ theorem zeroTermInts_focus_elem (p : BitVec 64) (xs : List (BitVec 64)) {i : Nat
         (int4Array p (xs.take i) ⋆
           ZeroTermInts (p + BitVec.ofNat 64 (4 * i) + 4) (xs.drop (i + 1)))) := by
   unfold ZeroTermInts
-  have hi' : i < (xs ++ [0]).length := by simp; omega
-  rw [int4Array_focus p (xs ++ [0]) hi']
-  have hget : (xs ++ [0])[i] = xs[i] := List.getElem_append_left hi
-  have htake : (xs ++ [0]).take i = xs.take i := List.take_append_of_le_length (Nat.le_of_lt hi)
-  have hdrop : (xs ++ [0]).drop (i + 1) = xs.drop (i + 1) ++ [0] :=
-    List.drop_append_of_le_length (Nat.succ_le_of_lt hi)
-  rw [hget, htake, hdrop]
+  rw [int4Array_focus p (xs ++ [0]) (i := i) (by simp; omega)]
+  rw [List.getElem_append_left hi, List.take_append_of_le_length (Nat.le_of_lt hi),
+    List.drop_append_of_le_length (Nat.succ_le_of_lt hi)]
 
 theorem zeroTermInts_focus_end (p : BitVec 64) (xs : List (BitVec 64)) :
     ZeroTermInts p xs =
@@ -469,34 +424,22 @@ def toClause (lits : List (BitVec 64)) : CNF.Clause Nat :=
 theorem bvAbs_pos {max_var : Nat} {lit : BitVec 64} (h : IsValidLit max_var lit) :
     0 < (bvAbs lit).toNat := by
   obtain ⟨h32, hne, _, _⟩ := h
-  unfold IsInt32 at h32
-  unfold bvAbs
-  have : (if lit.slt 0 then -lit else lit) ≠ 0 := by
-    revert h32 hne; bv_decide
-  exact Nat.pos_of_ne_zero (fun h0 => this (BitVec.eq_of_toNat_eq h0))
+  rw [← BitVec.toNat_zero (w := 64), ← BitVec.lt_def]
+  unfold bvAbs IsInt32 at *
+  bv_decide
 
 theorem bvAbs_neg {max_var : Nat} {lit : BitVec 64} (h : IsValidLit max_var lit) :
     bvAbs (-lit) = bvAbs lit := by
-  obtain ⟨h32, hne, hle, hmax⟩ := h
-  unfold IsInt32 at h32
-  unfold bvAbs at hle ⊢
-  have hnotmin : lit ≠ 0xffffffff80000000#64 := by
-    rintro rfl
-    have : (if (0xffffffff80000000#64 : BitVec 64).slt 0 then -0xffffffff80000000#64 else 0xffffffff80000000#64).toNat = 2 ^ 31 := by decide
-    omega
-  revert h32 hne hnotmin
+  have hlt : bvAbs lit < 0x80000000#64 := by simp [BitVec.lt_def]; have := h.2.2; omega
+  obtain ⟨h32, hne, _⟩ := h
+  unfold bvAbs IsInt32 at *
   bv_decide
 
 theorem neg_slt_zero {max_var : Nat} {lit : BitVec 64} (h : IsValidLit max_var lit) :
     (-lit).slt 0 = !lit.slt 0 := by
-  obtain ⟨h32, hne, hle, hmax⟩ := h
-  unfold IsInt32 at h32
-  unfold bvAbs at hle
-  have hnotmin : lit ≠ 0xffffffff80000000#64 := by
-    rintro rfl
-    have : (if (0xffffffff80000000#64 : BitVec 64).slt 0 then -0xffffffff80000000#64 else 0xffffffff80000000#64).toNat = 2 ^ 31 := by decide
-    omega
-  revert h32 hne hnotmin
+  have hlt : bvAbs lit < 0x80000000#64 := by simp [BitVec.lt_def]; have := h.2.2; omega
+  obtain ⟨h32, hne, _⟩ := h
+  unfold bvAbs IsInt32 at *
   bv_decide
 
 @[simp] theorem toLiteral_neg {max_var : Nat} {lit : BitVec 64} (h : IsValidLit max_var lit) :
@@ -505,24 +448,18 @@ theorem neg_slt_zero {max_var : Nat} {lit : BitVec 64} (h : IsValidLit max_var l
 
 theorem toLiteral_inj {l1 l2 : BitVec 64} :
     toLiteral l1 = toLiteral l2 ↔ l1 = l2 := by
-  constructor
-  · intro heq
-    have habs : (bvAbs l1).toNat = (bvAbs l2).toNat := congrArg Prod.fst heq
-    have hsign : (!l1.slt 0) = (!l2.slt 0) := congrArg Prod.snd heq
-    have habs' : bvAbs l1 = bvAbs l2 := BitVec.eq_of_toNat_eq habs
-    unfold bvAbs at habs'
-    revert habs' hsign
-    bv_decide
-  · rintro rfl; rfl
+  refine ⟨fun h => ?_, fun h => h ▸ rfl⟩
+  have habs : bvAbs l1 = bvAbs l2 := BitVec.eq_of_toNat_eq (congrArg Prod.fst h)
+  have hsign : (!l1.slt 0) = (!l2.slt 0) := congrArg Prod.snd h
+  unfold bvAbs at habs
+  bv_decide
 
 theorem bvSignByte_eq {lit : BitVec 64} :
     bvSignByte lit = if lit.slt 0 then -1 else 1 := by
-  unfold bvSignByte
-  bv_decide
+  unfold bvSignByte; bv_decide
 
 theorem isInt8_bvSignByte (lit : BitVec 64) : IsInt8 (bvSignByte lit) := by
-  unfold bvSignByte IsInt8
-  bv_decide
+  unfold bvSignByte IsInt8; bv_decide
 
 /-- Byte value stored at `values_begin + i` for atom `i` under `assign : Internal.Assignment`. -/
 def assignByte (assign : Assignment) (i : Nat) : BitVec 64 :=
@@ -533,12 +470,10 @@ def assignByte (assign : Assignment) (i : Nat) : BitVec 64 :=
   | some false => -1
 
 theorem isInt8_assignByte (assign : Assignment) (i : Nat) : IsInt8 (assignByte assign i) := by
-  unfold assignByte
+  simp only [assignByte]
   split
   · decide
-  · cases assign.get? i with
-    | none => decide
-    | some b => cases b <;> decide
+  · rcases assign.get? i with _ | ⟨_ | _⟩ <;> decide
 
 /-- The list of `max_var + 1` bytes at `values_begin[0 .. max_var]` representing `assign`. -/
 def assignBytes (max_var : Nat) (assign : Assignment) : List (BitVec 64) :=
@@ -556,32 +491,23 @@ def assignBytes (max_var : Nat) (assign : Assignment) : List (BitVec 64) :=
 @[simp] theorem assignBytes_empty (max_var : Nat) :
     assignBytes max_var Assignment.empty = List.replicate (max_var + 1) 0 := by
   apply List.ext_getElem (by simp)
-  intro i h1 h2
-  rw [getElem_assignBytes _ _ (by simpa using h2), List.getElem_replicate]
-  unfold assignByte
-  split
-  · rfl
-  · simp
+  intro i _ hi
+  simp [assignBytes, assignByte]
 
 theorem assignBytes_set_insert (max_var : Nat) (assign : Assignment) {lit : BitVec 64}
     (hlit : IsValidLit max_var lit) :
     (assignBytes max_var assign).set (toLiteral lit).1 (bvSignByte lit) =
       assignBytes max_var (assign.insert (toLiteral lit).1 (toLiteral lit).2) := by
   have hpos := bvAbs_pos hlit
-  have hle := hlit.2.2.1
   apply List.ext_getElem (by simp)
-  intro i h1 h2
-  rw [getElem_assignBytes _ _ (by simpa using h2)]
-  by_cases hi : i = (toLiteral lit).1
-  · subst hi
-    rw [List.getElem_set_self]
-    simp only [toLiteral, assignByte, Nat.ne_of_gt hpos, ↓reduceIte,
-      Assignment.get?_insert_of_eq rfl, bvSignByte_eq]
+  intro i _ hi
+  rw [getElem_assignBytes _ _ (by simpa using hi)]
+  by_cases heq : i = (toLiteral lit).1
+  · subst heq
+    simp [toLiteral, assignByte, Nat.ne_of_gt hpos, Assignment.get?_insert_of_eq rfl, bvSignByte_eq]
     cases lit.slt 0 <;> rfl
-  · rw [List.getElem_set_ne (Ne.symm hi), getElem_assignBytes _ _ (by simpa using h2)]
-    by_cases h0 : i = 0
-    · simp [assignByte, h0]
-    · simp [assignByte, h0, Assignment.get?_insert_of_ne (Ne.symm hi)]
+  · rw [List.getElem_set_ne (Ne.symm heq), getElem_assignBytes _ _ (by simpa using hi)]
+    by_cases h0 : i = 0 <;> simp [assignByte, h0, Assignment.get?_insert_of_ne (Ne.symm heq)]
 
 /-- Value computed by `inline_assigned_literal` (`if lit < 0 then -b else b`) on `b = assignByte assign atom`. -/
 def evalAssignedLit (b lit : BitVec 64) : BitVec 64 :=
@@ -595,14 +521,9 @@ theorem evalAssignedLit_spec {max_var : Nat} (assign : Assignment) {lit : BitVec
     | some pol =>
       if pol == (toLiteral lit).2 then v = 1 ∧ (0#64).slt v = true ∧ v.slt 0 = false
       else v = -1 ∧ v.slt 0 = true ∧ (0#64).slt v = false := by
-  have hpos := bvAbs_pos hlit
-  dsimp only
-  simp only [assignByte, toLiteral, Nat.ne_of_gt hpos, ↓reduceIte, evalAssignedLit]
-  cases assign.get? (bvAbs lit).toNat with
-  | none =>
-    cases lit.slt 0 <;> decide
-  | some pol =>
-    cases pol <;> cases lit.slt 0 <;> decide
+  have hpos := Nat.ne_of_gt (bvAbs_pos hlit)
+  simp only [assignByte, toLiteral, evalAssignedLit, hpos, ↓reduceIte]
+  rcases assign.get? (bvAbs lit).toNat with _ | ⟨_ | _⟩ <;> cases lit.slt 0 <;> decide
 
 /-! ## 6. Trail Clearing (`inline_backtrack`) & Marks Array (`br_check_clause_strictly_by_resolution`) -/
 
@@ -629,18 +550,13 @@ theorem getElem?_clearTrailBytes (bs : List (BitVec 64)) (trail : List (BitVec 6
   induction trail generalizing bs with
   | nil => simp [List.getElem?_eq_getElem hi]
   | cons t ts ih =>
-    rw [clearTrailBytes_cons, ih (bs.set (bvAbs t).toNat 0) (by simp [hi])]
+    rw [clearTrailBytes_cons, ih _ (by simp [hi])]
     apply congrArg some
-    have hor : (∃ tlit ∈ t :: ts, (bvAbs tlit).toNat = i) ↔
-        ((bvAbs t).toNat = i ∨ ∃ tlit ∈ ts, (bvAbs tlit).toNat = i) := by
-      simp [List.mem_cons, or_and_right, exists_or]
-    simp only [hor]
     by_cases hex : ∃ tlit ∈ ts, (bvAbs tlit).toNat = i
-    · simp only [hex, or_true, ↓reduceIte]
+    · simp [hex]
     · by_cases ht : (bvAbs t).toNat = i
-      · subst ht
-        simp only [hex, true_or, ↓reduceIte, List.getElem_set_self]
-      · simp only [hex, ht, or_self, ↓reduceIte, List.getElem_set_ne ht]
+      · subst ht; simp [hex, List.getElem_set_self]
+      · simp [hex, ht, List.getElem_set_ne ht]
 
 theorem getElem_clearTrailBytes (bs : List (BitVec 64)) (trail : List (BitVec 64))
     {i : Nat} (hi : i < bs.length) :
@@ -656,12 +572,9 @@ theorem clearTrailBytes_eq_replicate_zero {bs : List (BitVec 64)} {trail : List 
     (hcov : ∀ (i : Nat) (hi : i < bs.length), bs[i] ≠ 0 → ∃ tlit ∈ trail, (bvAbs tlit).toNat = i) :
     clearTrailBytes bs trail = List.replicate bs.length 0 := by
   apply List.ext_getElem (by simp)
-  intro i h1 h2
-  rw [getElem_clearTrailBytes bs trail (by simpa using h2), List.getElem_replicate]
-  split
-  · rfl
-  · next hnot =>
-    exact Classical.byContradiction fun hne => hnot (hcov i (by simpa using h2) hne)
+  intro i _ hi
+  rw [getElem_clearTrailBytes bs trail (by simpa using hi), List.getElem_replicate]
+  split <;> grind
 
 /-- Invariant relating the trail of assigned literals `trail` to `assign : Assignment`:
 every atom assigned in `assign` appears in `trail`. -/
@@ -669,13 +582,11 @@ def TrailCoversAssign (max_var : Nat) (assign : Assignment) (trail : List (BitVe
   ∀ i : Nat, i < max_var + 1 → assignByte assign i ≠ 0 → ∃ tlit ∈ trail, (bvAbs tlit).toNat = i
 
 @[simp] theorem assignByte_empty (i : Nat) : assignByte Assignment.empty i = 0 := by
-  unfold assignByte
-  split <;> simp
+  unfold assignByte; split <;> simp
 
 theorem trailCoversAssign_empty (max_var : Nat) :
     TrailCoversAssign max_var Assignment.empty [] := by
-  intro i _ hne
-  exact False.elim (hne (assignByte_empty i))
+  grind [TrailCoversAssign, assignByte_empty]
 
 theorem trailCoversAssign_insert {max_var : Nat} {assign : Assignment} {trail : List (BitVec 64)}
     (lit : BitVec 64) (hcov : TrailCoversAssign max_var assign trail) :
@@ -683,25 +594,16 @@ theorem trailCoversAssign_insert {max_var : Nat} {assign : Assignment} {trail : 
   intro i hi hne
   by_cases heq : i = (toLiteral lit).1
   · exact ⟨lit, by simp, heq.symm⟩
-  · have hne' : assignByte assign i ≠ 0 := by
-      intro h0
-      apply hne
-      by_cases hi0 : i = 0
-      · simp [assignByte, hi0]
-      · simp [assignByte, hi0, Assignment.get?_insert_of_ne (Ne.symm heq)] at h0 ⊢
-        exact h0
-    obtain ⟨tlit, hmem, habs⟩ := hcov i hi hne'
-    exact ⟨tlit, List.mem_append_left _ hmem, habs⟩
+  · obtain ⟨tlit, hmem, habs⟩ := hcov i hi (by
+      by_cases hi0 : i = 0 <;> simp_all [assignByte, Assignment.get?_insert_of_ne (Ne.symm heq)])
+    exact ⟨tlit, by simp [hmem], habs⟩
 
 theorem clearTrailBytes_assignBytes {max_var : Nat} {assign : Assignment} {trail : List (BitVec 64)}
     (hcov : TrailCoversAssign max_var assign trail) :
     clearTrailBytes (assignBytes max_var assign) trail = assignBytes max_var Assignment.empty := by
   rw [assignBytes_empty, clearTrailBytes_eq_replicate_zero]
   · simp
-  · intro i hi hne
-    rw [length_assignBytes] at hi
-    rw [getElem_assignBytes max_var assign hi] at hne
-    exact hcov i hi hne
+  · grind [length_assignBytes, getElem_assignBytes, TrailCoversAssign]
 
 /-- Combined memory predicate for `values_begin` (`max_var + 1` bytes) and `trail_begin` (`trail ++ trail_free`). -/
 def ValuesTrail (max_var : Nat) (values_begin trail_begin trail_end : BitVec 64)
