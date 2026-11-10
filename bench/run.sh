@@ -11,7 +11,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 OUT="${OUT:-$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-bench.XXXXXX")}"
+mkdir -p "$OUT"
 QBE_SRC="${QBE_SRC:-$ROOT/qbe}"
+[ -d "$QBE_SRC" ] || QBE_SRC="/usr/local/google/home/andreser/lean-qbe/qbe"
 
 echo "== 1. Dumping QBE IL and lean-qbe x64 assembly into $OUT"
 timeout 600 lake env lean --run bench/DumpBench.lean "$OUT"
