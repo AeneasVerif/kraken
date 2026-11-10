@@ -160,4 +160,15 @@ theorem union_nonvacuous :
   ⟨0x1000, 1, 2, 4, id, emp, rfl, by rw [sep_emp]; exact uf_init 0x1000 (by decide),
     by decide, by decide, fun _ h => ⟨rfl, h⟩⟩
 
+/-- `findSpec` is satisfiable, and on fresh singletons `find` returns its argument. -/
+theorem find_nonvacuous :
+    findSpec [0x1000, 3] ((bytes64 (init 4)).At 0x1000)
+      (fun rs m' => rs = [3] ∧ (uf 0x1000 4 id ⋆ emp) m') (fun _ _ _ => False) :=
+  ⟨0x1000, 3, 4, id, emp, rfl, by rw [sep_emp]; exact uf_init 0x1000 (by decide),
+    by decide, fun _ h => ⟨rfl, h⟩⟩
+
+/-- After `union 1 2` on singletons, 1 and 2 share a class and 0 does not join it. -/
+theorem merge_init_1_2 : merge id 1 2 1 = merge id 1 2 2 ∧ merge id 1 2 0 ≠ merge id 1 2 1 := by
+  decide
+
 end LeanQbe.UnionFind

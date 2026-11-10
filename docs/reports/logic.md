@@ -8,7 +8,7 @@ Owner: `logic`. Files: `LeanQbe/Logic/{Mem,MemLemmas,Rules}.lean`, `LeanQbe/Nota
 | Milestone | State |
 |---|---|
 | L1 notation + logic | done: builds with `--wfail`, no `sorry` |
-| L2 union-find | done: `find` (path halving, a join-point loop), `union` (calls `$find`), `unionInline` (macro), total correctness against a functional model, non-vacuity, `Func.Wf` for all three |
+| L2 union-find | done, specs accepted by reviewer (#34): `find` (path halving, a join-point loop), `union` (calls `$find`), `unionInline` (macro), total correctness against a functional model, non-vacuity (`uf_init`, `find_nonvacuous`, `union_nonvacuous`, `merge_init_1_2`), `Func.Wf` for all three |
 
 Axioms of `find_correct`, `union_correct`, `unionInline_correct`, `union_nonvacuous`, `wp_loop`:
 `propext, Classical.choice, Quot.sound`.
