@@ -13,6 +13,7 @@ Owner: `rega`. Files: `LeanQbe/{Rega,RegaLemmas,Main,MainLemmas}.lean`, `LeanQbe
 | R2, E3 half: the same skeleton in E3, the D8 comparison | done (`spike/e3/`, written by helper `e3`; see below) |
 | R3: calls, exits, stack spills, prologue/epilogue, oracle, module linking, 4-way litmus | done: `lower_correct`, `lowerFn_correct`, `compileFn_correct`, `compile_correct`, `callinc` / `twice` / `spill10` / `sumcall` checked 4 ways |
 | Step 5 (x64): linked `[find, union]` Union-Find end to end on Kraken x64 | done: `uf_module_fnspec`, `find_x64_correct`, `union_x64_correct`, `find_x64_nonvacuous`, `union_x64_nonvacuous`, `test/uf_main.c` |
+| Step 7 (x64): linked `lratCheckFns` LRAT-trim checker end to end on Kraken x64 | done: `lrat_module_compile`, `lrat_module_fnspec`, `checkProof_x64_correct`, `checkProof_x64_nonvacuous`, `test/lrat_trim_main.c` (24/24 PASS in `test/run.sh`) |
 
 ## What exists
 
@@ -86,15 +87,15 @@ recursion over the PHOAS term at `V := Nat, L := Nat`.
 - `compile_correct` proves module-level linking for `compile T.toIsa fs = .ok code` over an acyclic
   list of functions `fs` (callees first).
 
-### Litmus & Step 5 Union-Find (`LeanQbe/Examples/Litmus*.lean`, `test/`)
+### Litmus, Step 5 Union-Find, and Step 7 LRAT-trim (`LeanQbe/Examples/Litmus*.lean`, `test/`)
 
-All 11 litmus suites (`tracer`, `ifelse`, `sumto`, `evenodd`, `nested`, `swap`, `callinc`, `twice`,
-`spill10`, `sumcall`, `uf`) pass all four checks:
+All 12 litmus suites (`tracer`, `ifelse`, `sumto`, `evenodd`, `nested`, `swap`, `callinc`, `twice`,
+`spill10`, `sumcall`, `uf`, `lrat_trim`) pass all four checks:
 1. Kernel evaluation (`*_compile` and `*_module_compile` by `kernel_rfl` against Kraken-parsed
    assembly literals).
 2. Native execution (`test/run.sh`: `leanqbe <name>` → `cc` with `test/<name>_main.c` → run).
 3. Stock QBE differential run (`test/run.sh`: `leanqbe --il <name>` → stock `qbe` → `cc` → run):
-   22/22 PASS.
+   24/24 PASS.
 4. `scripts/check.sh` (zero warnings, zero `sorry`, standard 3 axioms on all headline theorems).
 
 Closed Kraken-x64-only end-to-end theorems + concrete non-vacuity instances:
@@ -104,6 +105,7 @@ Closed Kraken-x64-only end-to-end theorems + concrete non-vacuity instances:
 - `twice_module_fnspec`, `twice_correct`, `twice_nonvacuous_exit` (2-function module with exit propagation through call)
 - `spill10_fnspec`, `spill10_correct`, `spill10_nonvacuous` (6 stack spill slots, 56-byte frame)
 - `uf_module_fnspec`, `find_x64_correct`, `union_x64_correct`, `find_x64_nonvacuous`, `union_x64_nonvacuous` (`LeanQbe/Examples/LitmusUf.lean`: linked `[find, union]` module where `union` calls `find` twice and spills `p`, `y`, `rx` across the calls)
+- `lrat_module_compile`, `lrat_module_fnspec`, `checkProof_x64_correct`, `checkProof_x64_nonvacuous` (`LeanQbe/Examples/LitmusLrat.lean`: linked 4-function LRAT checker module `[checkRup, strictCheck, checkClause, checkProof]` with 59, 37, 4, and 7 spill slots and 584-byte total stack bound, concluding `cnf₀.Unsat` on normal return or exit to `"lrat_fail"`)
 
 ## D8 and D9 evidence (R2)
 

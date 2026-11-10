@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.Examples.Litmus
+public import LeanQbe.Examples.LitmusLrat
 public import LeanQbe.Examples.UnionFindLemmas
 public import LeanQbe.MainLemmas
 import all Kraken.Separation
@@ -18,16 +19,6 @@ checks the emitted x64 assembly in the kernel (`kernel_rfl`), links the module v
 -/
 
 set_option autoImplicit false
-
-open Lean Elab Tactic Meta in
-elab "kernel_rfl" : tactic => do
-  let goal ← getMainGoal
-  let tgt ← instantiateMVars (← goal.getType)
-  let some (α, lhs, _) := tgt.eq?
-    | throwError "kernel_rfl: goal is not an equality{indentExpr tgt}"
-  let u ← getLevel α
-  goal.assign (mkApp2 (mkConst ``Eq.refl [u]) α lhs)
-  replaceMainGoal []
 
 @[expose] public section
 

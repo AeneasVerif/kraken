@@ -4,6 +4,7 @@ public import LeanQbe.Main
 public import LeanQbe.Examples.Litmus
 public import LeanQbe.Examples.LitmusCf
 public import LeanQbe.Examples.UnionFind
+public import LeanQbe.Examples.LratTrim
 public import Kraken.X64.PrintATT
 public import LeanQbe.Print
 
@@ -22,7 +23,8 @@ def programs : List (String × List Fn) :=
   [("callinc", [Litmus.inc, Litmus.callinc]),
    ("twice", [Litmus.check, Litmus.twice]),
    ("sumcall", [Litmus.inc, Litmus.sumcall]),
-   ("uf", [⟨"find", UnionFind.find⟩, ⟨"union", UnionFind.union⟩])]
+   ("uf", [⟨"find", UnionFind.find⟩, ⟨"union", UnionFind.union⟩]),
+   ("lrat_trim", LratTrim.lratTrimFns)]
 
 /-- GNU as text for x64: `.text`, a `.globl` per function, then Kraken's AT&T printer. -/
 def emitAsm (fs : List Fn) (code : List Amd64.isa.Directive) : String :=

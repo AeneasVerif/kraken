@@ -9,6 +9,7 @@ public import LeanQbe.WPLemmas
 public import LeanQbe.MainLemmas
 public import LeanQbe.Examples.Litmus
 public import LeanQbe.Examples.LitmusUf
+public import LeanQbe.Examples.LitmusLrat
 import all Kraken.Separation
 import all Kraken.Mem
 
@@ -23,18 +24,6 @@ theorems and concrete non-vacuity instances.
 -/
 
 set_option autoImplicit false
-
-open Lean Elab Tactic Meta in
-/-- Close `lhs = rhs` with `Eq.refl lhs`, checked by the kernel only (the elaborator's `isDefEq`
-gives up on the mid-end's table lookups). From Spike A. -/
-elab "kernel_rfl" : tactic => do
-  let goal ← getMainGoal
-  let tgt ← instantiateMVars (← goal.getType)
-  let some (α, lhs, _) := tgt.eq?
-    | throwError "kernel_rfl: goal is not an equality{indentExpr tgt}"
-  let u ← getLevel α
-  goal.assign (mkApp2 (mkConst ``Eq.refl [u]) α lhs)
-  replaceMainGoal []
 
 @[expose] public section
 
