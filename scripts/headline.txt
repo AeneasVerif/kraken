@@ -38,3 +38,5 @@ LeanQbe.Examples.LitmusCfLemmas LeanQbe.Litmus.evenodd_fnspec
 LeanQbe.OptLemmas LeanQbe.Func.opt_spec
 LeanQbe.OptLemmas LeanQbe.Func.opt_wf
 spike.il.OptTest LeanQbe.OptTest.opt_prog_out
+LeanQbe.MainLemmas LeanQbe.compileFn_correct
+LeanQbe.Examples.LitmusCfLemmas LeanQbe.Litmus.sumto_correct

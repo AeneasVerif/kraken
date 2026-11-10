@@ -27,6 +27,7 @@ public import LeanQbe.Examples.LratRupLemmas
 public import LeanQbe.Rega
 public import LeanQbe.RegaLemmas
 public import LeanQbe.Main
+public import LeanQbe.MainLemmas
 public import LeanQbe.Live
 public import LeanQbe.Spill
 
