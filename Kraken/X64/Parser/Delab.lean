@@ -903,6 +903,80 @@ def delabProgram : Delab := do
     | some tail => `($listing ++ $tail)
   | _ => failure
 
+-- ============================================================================
+-- Standalone Embeddings (`⸨instr|`, `⸨operand|`, `⸨mem|`, `⸨reg|`, `⸨const|`)
+-- ============================================================================
+
+/-! Values that are not part of a larger directive or program delaborate to their standalone embedding.
+These delaborators only fire on closed (canonical) values, so that the fallback to `❰t❱` of the
+delaborators they reuse, which delaborates the same expression again, is never reached. -/
+
+/-- `⸨instr| ... ⸩` for an `Instr`. -/
+@[app_delab Instr.regular, app_delab Instr.avx]
+def delabInstrEmbedding : Delab := do
+  if ← getPPOption getPPExplicit then failure
+  let i ← delabInstr
+  annotateTermInfo (← `(⸨instr| $i ⸩))
+
+/-- `⸨operand| ... ⸩` for an `Operand w` that is a register, a memory operand at 64-bit address width, or
+    an immediate. -/
+@[app_delab Operand.regOrMem, app_delab Operand.imm]
+def delabOperandEmbedding : Delab := do
+  if ← getPPOption getPPExplicit then failure
+  let act : X64DelabM (TSyntax `x64_operand) := do
+    match_expr ← getExpr with
+    | Operand.regOrMem _ _ =>
+      let rm ← withAppArg (delabRegOrMem .W64)
+      `(x64_operand| $rm:x64_reg_or_mem)
+    | Operand.imm _ _ =>
+      let imm := mkImm (← withAppArg delabConstExpr)
+      `(x64_operand| $imm:x64_imm)
+    | _ => failure
+  let o ← act.run' {}
+  annotateTermInfo (← `(⸨operand| $o ⸩))
+
+/-- `⸨mem| ... ⸩` for an `AddrExpr`, whose registers are printed at 64-bit address width (the width that
+    `⸨mem| ... ⸩` elaborates them at). -/
+@[app_delab AddrExpr.mk]
+def delabAddrExprEmbedding : Delab := do
+  if ← getPPOption getPPExplicit then failure
+  let m ← (delabMem .W64).run' {}
+  annotateTermInfo (← `(⸨mem| $m ⸩))
+
+/-- `⸨reg| ... ⸩` for a concrete `Reg w` or `AvxReg w`. -/
+@[app_delab Reg.low, app_delab Reg.ah, app_delab Reg.bh, app_delab Reg.ch, app_delab Reg.dh,
+  app_delab AvxReg.xmm, app_delab AvxReg.ymm, app_delab AvxReg.zmm]
+def delabRegEmbedding : Delab := do
+  if ← getPPOption getPPExplicit then failure
+  let e ← getExpr
+  if (evalReg? e).isSome then
+    let r ← delabReg
+    annotateTermInfo (← `(⸨reg| $r:x64_reg ⸩))
+  else if (evalAvxReg? e).isSome then
+    let r ← delabAvxReg
+    annotateTermInfo (← `(⸨reg| $r:x64_avx_reg ⸩))
+  else failure
+
+/-- Whether `delabConstExpr` delaborates the `ConstExpr` `e` without falling back to `❰t❱` at its root:
+    integer literals, labels that are identifiers, and the sums and differences of `x64_const`. -/
+private def isConcreteConstExpr (e : Expr) : Bool :=
+  let isInt (e : Expr) := e.isAppOfArity ``ConstExpr.int64 1 && (evalInt64? e.appArg!).isSome
+  let isLabel (e : Expr) := e.isAppOfArity ``ConstExpr.label 1
+  match_expr e with
+  | ConstExpr.int64 _ => isInt e
+  | ConstExpr.label lbl => if let .lit (.strVal s) := lbl then isAsmIdent s else false
+  | ConstExpr.add a b => isLabel a && isInt b
+  | ConstExpr.sub a b => isLabel a && (isInt b || isLabel b)
+  | _ => false
+
+/-- `⸨const| ... ⸩` for a `ConstExpr` written in `x64_const`. -/
+@[app_delab ConstExpr.int64, app_delab ConstExpr.label, app_delab ConstExpr.add, app_delab ConstExpr.sub]
+def delabConstExprEmbedding : Delab := do
+  if ← getPPOption getPPExplicit then failure
+  unless isConcreteConstExpr (← getExpr) do failure
+  let c ← delabConstExpr
+  annotateTermInfo (← `(⸨const| $c ⸩))
+
 end
 
 end Kraken.X64.Parser
