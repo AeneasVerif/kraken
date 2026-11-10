@@ -52,3 +52,5 @@ LeanQbe.Arm64.UnionFind LeanQbe.Arm64.UnionFind.find_arm64_correct
 LeanQbe.Arm64.UnionFind LeanQbe.Arm64.UnionFind.unionInline_arm64_correct
 LeanQbe.Arm64.UnionFind LeanQbe.Arm64.UnionFind.find_arm64_nonvacuous
 LeanQbe.Arm64.UnionFind LeanQbe.Arm64.UnionFind.unionInline_arm64_nonvacuous
+LeanQbe.Examples.LratTrimStrictLemmas LeanQbe.LratTrim.strictCheck_correct
+LeanQbe.Examples.LratTrimStrictLemmas LeanQbe.LratTrim.strictCheck_nonvacuous
