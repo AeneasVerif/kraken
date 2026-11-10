@@ -46,3 +46,5 @@ LeanQbe.Arm64.Tracer LeanQbe.Arm64.Tracer.tracer_nonvacuous
 LeanQbe.FlatLemmas LeanQbe.denote_wf
 LeanQbe.FlatLemmas LeanQbe.Func.wf_of_reify
 spike.il.ReifyTest LeanQbe.ReifyTest.evenOdd_wf'
+LeanQbe.Arm64.Litmus LeanQbe.Arm64.Litmus.sumto_correct
+LeanQbe.Arm64.Litmus LeanQbe.Arm64.Litmus.sumto_nonvacuous
