@@ -1,3 +1,12 @@
+# build output
+.lake/
+# untouched upstream QBE checkout, read-only reference
+/qbe/
+# the user's notes (not part of the repository)
+/think*.txt
+/design-log.md
+/lean-qbe-search.md
+# from Kraken
 /.lake
 .vimsession
 /tool/sde

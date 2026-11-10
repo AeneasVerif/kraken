@@ -1,0 +1,7 @@
+# Headline theorems for the axiom audit of scripts/check.sh.
+# One per line: <module to import> <fully qualified constant>. Ask `core` on the board to add yours.
+# Modules of different architectures are audited in separate files.
+spike.e1.E1 E1.wp_mono
+spike.e1.E1 E1.evenOdd_correct
+spike.k.SpikeK SpikeK.countdown_wp
+spike.k.SpikeKAArch64 SpikeKA64.eventually_bCond

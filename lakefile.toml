@@ -1,11 +1,36 @@
-name = "Kraken"
+name = "LeanQbe"
 version = "0.1.0"
-defaultTargets = ["Kraken", "KrakenAArch64", "KrakenBedrock2", "krakenrunner_x64", "krakenrunner_aarch64", "att2intel", "bedrock2c"]
+defaultTargets = ["LeanQbe", "LeanQbeAmd64", "LeanQbeArm64", "Spike", "leanqbe"]
 requiresModuleSystem = true
 
 [leanOptions]
 autoImplicit = false
 relaxedAutoImplicit = false
+
+# Generic: must never import Kraken.X64 or Kraken.AArch64 (directly or transitively).
+[[lean_lib]]
+name = "LeanQbe"
+
+# x64 instance (imports Kraken.X64). Root: LeanQbeAmd64.lean.
+[[lean_lib]]
+name = "LeanQbeAmd64"
+
+# AArch64 instance (imports Kraken.AArch64). Root: LeanQbeArm64.lean.
+[[lean_lib]]
+name = "LeanQbeArm64"
+
+# Regression spikes. Every module under spike/ is built; each module has its own import closure,
+# so x64 and AArch64 spikes may live in this one library as long as no module imports both.
+[[lean_lib]]
+name = "Spike"
+globs = ["spike.+"]
+
+[[lean_exe]]
+name = "leanqbe"
+root = "Main"
+
+# Kraken (same repository). Not in defaultTargets: build explicitly with
+# `lake build Kraken KrakenAArch64 ...` when needed.
 
 [[lean_lib]]
 name = "Kraken"
