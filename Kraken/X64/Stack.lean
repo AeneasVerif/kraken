@@ -1,6 +1,7 @@
 module
 
 public import Kraken.SeparationMem
+public import Kraken.X64.Semantics
 import all Kraken.Separation
 import all Kraken.Mem
 
@@ -13,15 +14,18 @@ The memory a procedure specification talks about at a call, in the separation lo
 * `RetCell ra a`: the 8 bytes at `a` hold the return address `ra`, as `call` wrote them
   (`[rsp]` on entry, under every x64 convention);
 * `Owned n a`: `n` bytes at `a` the procedure owns but knows nothing about;
-* `Reserve d r`: `d` bytes of free stack just below `r`, not wrapping past address `0`: the
-  procedure's *stack reservation* (Bedrock's `reserving` clause). The caller supplies it, the
-  procedure may use it, and it comes back as owned bytes. It is exact, not "at least";
+* `Reserve d r`: the `d` bytes of free stack just below `r`: the procedure's *stack reservation*
+  (Bedrock's `reserving` clause). The caller supplies it, the procedure may use it, and it comes
+  back as owned bytes. It is exact, not "at least";
 * `Shadow r`: the 32 bytes above the return address at `r` that the Windows x64 convention hands
   to the callee (`[rsp + 8, rsp + 40)` on entry).
 
-Kraken has no faulting model, so stack exhaustion cannot be a runtime error; the reservation in the
-precondition is the only sound treatment, and the no-wrap bound in `Reserve` is what keeps a caller
-near address `0` from handing out bytes at the top of memory.
+Kraken has no faulting model, so stack exhaustion cannot be a runtime error: a procedure that uses
+stack asks for it in its precondition. Addresses wrap modulo `2^64`, so `Reserve d r` with
+`d > r.toNat` would be bytes at the top of memory; the conventions' `CallPre` rules that out with
+an explicit bound, which the cells themselves do not carry.
+
+`EntryAligned` is the alignment rule both conventions share.
 
 The cells are `Eq (bs.At a)` with explicit byte lists (`Kraken.SeparationMem`); `Owned` hides the
 list existentially, and `Owned.elim`/`Owned.intro` open and close it at a load or store.
@@ -32,7 +36,7 @@ public section
 open Std
 open Std.ExtHashMap
 
-namespace Kraken.Stack
+namespace Kraken.X64.Stack
 
 /-! ## Cells -/
 
@@ -86,88 +90,26 @@ theorem Owned.split (i j : Nat) (a : BitVec 64) (h : i + j ≤ 2 ^ 64) :
     rw [← hAt] at h3
     exact h3.symm
 
-/-! ## The reservation -/
+/-! ## The reservation and the shadow space -/
 
-/-- A pure fact on the right of a separating conjunction. -/
-private theorem sep_pure_r {P Q : Mem 64 → Prop} {φ : Prop} :
-    (P ⋆ fun m => φ ∧ Q m) = fun m => φ ∧ (P ⋆ Q) m := by
-  funext m; apply propext; constructor
-  · rintro ⟨a, b, h1, h2, ha, hφ, hb⟩; exact ⟨hφ, a, b, h1, h2, ha, hb⟩
-  · rintro ⟨hφ, a, b, h1, h2, ha, hb⟩; exact ⟨a, b, h1, h2, ha, hφ, hb⟩
+/-- `d` bytes of free stack just below `r`. -/
+abbrev Reserve (d : Nat) (r : BitVec 64) : Mem 64 → Prop := Owned d (r - .ofNat 64 d)
 
-/-- `d` bytes of free stack just below `r`, not wrapping past address `0`. A `def`, so that it moves
-as one cell until it is split. -/
-@[expose] def Reserve (d : Nat) (r : BitVec 64) : Mem 64 → Prop :=
-  fun m => d ≤ r.toNat ∧ Owned d (r - .ofNat 64 d) m
+theorem Reserve.zero (r : BitVec 64) : Reserve 0 r = emp := Owned.zero _
 
-theorem Reserve.le_head {d : Nat} {r : BitVec 64} {K : Mem 64 → Prop} {m : Mem 64}
-    (h : m =⋆ Reserve d r ⋆ K) : d ≤ r.toNat := by
-  obtain ⟨_, _, _, _, h1, _⟩ := h; exact h1.1
-
-/-- The bound of a reservation second in a tree, behind one cell (the return address). -/
-theorem Reserve.le_second {d : Nat} {r : BitVec 64} {X K : Mem 64 → Prop} {m : Mem 64}
-    (h : m =⋆ X ⋆ (Reserve d r ⋆ K)) : d ≤ r.toNat := by
-  obtain ⟨_, _, _, _, _, h2⟩ := h; exact Reserve.le_head h2
-
-/-- The bound of a reservation third in a tree (behind the return address and the shadow space). -/
-theorem Reserve.le_third {d : Nat} {r : BitVec 64} {X Y K : Mem 64 → Prop} {m : Mem 64}
-    (h : m =⋆ X ⋆ (Y ⋆ (Reserve d r ⋆ K))) : d ≤ r.toNat := by
-  obtain ⟨_, _, _, _, _, h2⟩ := h; exact Reserve.le_second h2
-
-theorem Reserve.zero (r : BitVec 64) : Reserve 0 r = emp := by
-  funext m
-  simp [Reserve, Owned.zero, Nat.zero_le]
-
-/-- A reservation is its block once the bound is known. -/
-theorem Reserve_eq (d : Nat) (r : BitVec 64) (h : d ≤ r.toNat) :
-    Reserve d r = Owned d (r - .ofNat 64 d) := by
-  funext m; exact propext ⟨fun h' => h'.2, fun h' => ⟨h, h'⟩⟩
-
-/-- The reservation, with `a` bytes carved off its top: the rest is a smaller reservation `a` bytes
-lower. Used at a procedure's entry (its own bytes off the top), at a call (the return-address slot
-off what is left), and in reverse at its exit. The carved bytes do not carry the bound, hence `h`. -/
-theorem Reserve_split (a d : Nat) (r : BitVec 64) (h : a ≤ r.toNat) :
-    Reserve (a + d) r = Owned a (r - .ofNat 64 a) ⋆ Reserve d (r - .ofNat 64 a) := by
-  have hr : (r - BitVec.ofNat 64 a).toNat = r.toNat - a := by
-    rw [BitVec.toNat_sub_of_le (by simp [BitVec.le_def]; have := r.isLt; omega)]
-    have := r.isLt
-    simp; omega
-  unfold Reserve
-  rw [sep_pure_r, hr]
-  funext m; apply propext
-  have e1 : r - BitVec.ofNat 64 (a + d) + BitVec.ofNat 64 d = r - BitVec.ofNat 64 a := by
-    bv_omega
-  have e2 : r - BitVec.ofNat 64 a - BitVec.ofNat 64 d = r - BitVec.ofNat 64 (a + d) := by
-    bv_omega
-  have hsplit : ∀ (_ : a + d ≤ 2 ^ 64), Owned (a + d) (r - BitVec.ofNat 64 (a + d)) =
-      Owned a (r - BitVec.ofNat 64 a) ⋆ Owned d (r - BitVec.ofNat 64 a - BitVec.ofNat 64 d) := by
-    intro hw
-    rw [Nat.add_comm a d, Owned.split d a _ (by omega), sep_comm, Nat.add_comm d a, e1, e2]
-  constructor
-  · rintro ⟨h1, h2⟩
-    exact ⟨by omega, by rw [← hsplit (by have := r.isLt; omega)]; exact h2⟩
-  · rintro ⟨h1, h2⟩
-    exact ⟨by omega, by rw [hsplit (by have := r.isLt; omega)]; exact h2⟩
-
-/-! ## The Windows x64 shadow space -/
-
-/-- The 32 bytes above the return-address slot at `r`, not wrapping past the top of memory. -/
-@[expose] def Shadow (r : BitVec 64) : Mem 64 → Prop :=
-  fun m => r.toNat + 40 ≤ 2 ^ 64 ∧ Owned 32 (r + 8) m
-
-theorem Shadow_eq (r : BitVec 64) (h : r.toNat + 40 ≤ 2 ^ 64) : Shadow r = Owned 32 (r + 8) := by
-  funext m; exact propext ⟨fun h' => h'.2, fun h' => ⟨h, h'⟩⟩
-
-/-- The bound of a shadow space second in a tree, behind one cell (the return address). -/
-theorem Shadow.le_second {r : BitVec 64} {X K : Mem 64 → Prop} {m : Mem 64}
-    (h : m =⋆ X ⋆ (Shadow r ⋆ K)) : r.toNat + 40 ≤ 2 ^ 64 := by
-  obtain ⟨_, _, _, _, _, _, _, _, _, ⟨h1, _⟩, _⟩ := h; exact h1
+/-- The 32 bytes above the return-address slot at `r` (the Windows x64 shadow space). -/
+abbrev Shadow (r : BitVec 64) : Mem 64 → Prop := Owned 32 (r + 8)
 
 /-- The shadow space as the home slot of the first argument (`[rsp + 8]`) and the other three. -/
-theorem Shadow_split (r : BitVec 64) (h : r.toNat + 40 ≤ 2 ^ 64) :
-    Shadow r = Owned 8 (r + 8) ⋆ Owned 24 (r + 16) := by
-  rw [Shadow_eq r h, show (32 : Nat) = 8 + 24 from rfl, Owned.split 8 24 _ (by omega)]
+theorem Shadow_split (r : BitVec 64) : Shadow r = Owned 8 (r + 8) ⋆ Owned 24 (r + 16) := by
+  rw [Shadow, show (32 : Nat) = 8 + 24 from rfl, Owned.split 8 24 _ (by omega)]
   congr 2
   bv_omega
 
-end Kraken.Stack
+/-! ## Alignment -/
+
+/-- The stack is aligned at a call: `rsp + 8` is a multiple of 16 on entry. Shared by SysV and
+Windows x64. -/
+abbrev EntryAligned (t : MachineData) : Prop := (t.regs.get64 .rsp).toNat % 16 = 8
+
+end Kraken.X64.Stack

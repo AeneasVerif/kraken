@@ -22,14 +22,9 @@ public section
 syntax (name := runStep) "run_step " ident (" [" Lean.Parser.Tactic.simpLemma,* "]")? : tactic
 
 macro_rules
-  | `(tactic| run_step $h:ident) => `(tactic|
-      (refine Host.run_cons $h ?_
-       simp only [Directive.interp, Instr.interp, Effects.All, Operation.interp, Operand.interp,
-         RegOrMem.interp, MachineData.set, MachineData.setReg, Reg64s.get_low64, Reg64s.set_low64,
-         ConstExpr.interp, Reg64s.get64_set64_self]))
-  | `(tactic| run_step $h:ident [$extra,*]) => do
+  | `(tactic| run_step $h:ident $[[$extra,*]]?) => do
     let extra : Lean.Syntax.TSepArray [`Lean.Parser.Tactic.simpStar, `Lean.Parser.Tactic.simpErase,
-      `Lean.Parser.Tactic.simpLemma] "," := ⟨extra.elemsAndSeps⟩
+      `Lean.Parser.Tactic.simpLemma] "," := ⟨(extra.map (·.elemsAndSeps)).getD #[]⟩
     `(tactic|
       (refine Host.run_cons $h ?_
        simp only [Directive.interp, Instr.interp, Effects.All, Operation.interp, Operand.interp,

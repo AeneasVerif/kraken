@@ -13,9 +13,10 @@ entered at `entry` in a state `t` with `Pre x ra t` reaches the address `ra` in 
 
 Nothing in `ProcSpec` mentions the stack or any register: how `ra` is handed over and what the
 callee must preserve is part of `Pre` and `Post`, and is fixed by a *calling convention*
-(`Kraken.SysV`, `Kraken.Win64`). The one convention-independent fact about the x64 `call`
+(`Kraken.X64.SysV`, `Kraken.X64.Win64`). The one convention-independent fact about the x64 `call`
 instruction is `MachineData.pushRa`: it stores the return address below `rsp` and moves `rsp`.
-`ProcSpec.wp_call` is the rule that uses a callee's `ProcSpec` at a `call` site of a fragment.
+`ProcSpec.wp_call` is the rule that uses a callee's `ProcSpec`, stated at its label, at a `call`
+site of a fragment.
 -/
 
 public section
@@ -62,14 +63,13 @@ memory are as they were. -/
 section
 variable [Host]
 
-/-- A direct `call f` in a fragment, through the callee's specification: if the return-address
-slot below `rsp` is mapped, the callee's precondition holds at the pushed state for the return
-address `ra` (the address behind the `call`, wherever the fragment is placed), and the callee's
-postcondition implies `Q`, then the fragment `[call f]` reaches its end with `Q`. -/
+/-- A direct `call f` in a fragment, through the specification of the procedure at `f`: if the
+return-address slot below `rsp` is mapped, the callee's precondition holds at the pushed state for
+the return address `ra` (the address behind the `call`, wherever the fragment is placed), and the
+callee's postcondition implies `Q`, then the fragment `[call f]` reaches its end with `Q`. -/
 theorem Kraken.Executable.ProcSpec.wp_call {α : Type} {Pre : α → Int64 → MachineData → Prop}
-    {Post : α → Int64 → MachineData → MachineData → Prop} {f : Label} {entry : Int64}
-    (hspec : Host.exe.ProcSpec entry Pre Post) (hlab : label f = entry)
-    {asz osz : Width} (x : α) {Q : MachineData → Prop} {E : Int64 → MachineData → Prop}
+    {Post : α → Int64 → MachineData → MachineData → Prop} {f : Label}
+    (hspec : Host.exe.ProcSpec (label f) Pre Post) {asz osz : Width} (x : α) {Q : MachineData → Prop} {E : Int64 → MachineData → Prop}
     {s : MachineData}
     (hslot : (Mem.loadInt s.dmem (s.regs.get64 .rsp - 8) 8).isSome)
     (hpre : ∀ ra, Pre x ra (s.pushRa ra))
@@ -84,8 +84,8 @@ theorem Kraken.Executable.ProcSpec.wp_call {α : Type} {Pre : α → Int64 → M
   refine Effects.All_store hslot ?_
   simp only [Effects.All]
   have htarget : Int64.ofBitVec (Host.addrOf (k + 1) + (label f - Host.addrOf (k + 1))).toBitVec
-      = entry := by
-    rw [Int64.ofBitVec_toBitVec, Int64.add_comm, Int64.sub_add_cancel, hlab]
+      = label f := by
+    rw [Int64.ofBitVec_toBitVec, Int64.add_comm, Int64.sub_add_cancel]
   rw [htarget]
   refine eventually_weaken _ _ _ _ ?_ (hspec x (Host.addrOf (k + 1)) _ (hpre _))
   rintro ⟨s', pc⟩ ⟨hpc, hp⟩
@@ -96,19 +96,17 @@ memory, the form a caller's own frame usually provides. The callee's preconditio
 that the slot holds the return address and the rest of the memory is unchanged. -/
 theorem Kraken.Executable.ProcSpec.wp_call_owned {α : Type}
     {Pre : α → Int64 → MachineData → Prop} {Post : α → Int64 → MachineData → MachineData → Prop}
-    {f : Label} {entry : Int64}
-    (hspec : Host.exe.ProcSpec entry Pre Post) (hlab : label f = entry)
-    {asz osz : Width} (x : α) {Q : MachineData → Prop} {E : Int64 → MachineData → Prop}
+    {f : Label} (hspec : Host.exe.ProcSpec (label f) Pre Post) {asz osz : Width} (x : α) {Q : MachineData → Prop} {E : Int64 → MachineData → Prop}
     {s : MachineData} {R : Mem 64 → Prop}
-    (hmem : s.dmem =⋆ Kraken.Stack.Owned 8 (s.regs.get64 .rsp - 8) ⋆ R)
-    (hpre : ∀ ra, ((s.pushRa ra).dmem =⋆ Kraken.Stack.RetCell ra (s.regs.get64 .rsp - 8) ⋆ R) →
+    (hmem : s.dmem =⋆ Kraken.X64.Stack.Owned 8 (s.regs.get64 .rsp - 8) ⋆ R)
+    (hpre : ∀ ra, ((s.pushRa ra).dmem =⋆ Kraken.X64.Stack.RetCell ra (s.regs.get64 .rsp - 8) ⋆ R) →
       Pre x ra (s.pushRa ra))
     (hpost : ∀ ra s', Post x ra (s.pushRa ra) s' → Q s') :
     Program.wp
       [.instr (.regular asz osz (.call (.rel (.sub (.label f) .after_current_instruction))))]
       Q E s := by
-  obtain ⟨bs, hbs, hmem⟩ := Kraken.Stack.Owned.elim hmem
-  refine hspec.wp_call hlab x ?_ (fun ra => hpre ra (Mem.storeInt_sep _ 8 bs R _ ⟨hmem, hbs⟩ _))
+  obtain ⟨bs, hbs, hmem⟩ := Kraken.X64.Stack.Owned.elim hmem
+  refine hspec.wp_call x ?_ (fun ra => hpre ra (Mem.storeInt_sep _ 8 bs R _ ⟨hmem, hbs⟩ _))
     hpost
   rw [Mem.loadInt_sep bs _ 8 R _ hmem hbs (by decide)]; rfl
 

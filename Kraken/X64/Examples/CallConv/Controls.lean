@@ -1,19 +1,19 @@
 module
 
 public import Kraken.X64.WP.Call
-public import Kraken.Win64
+public import Kraken.X64.Win64
 
 /-!
 # Why the side conditions are there
 
-The calling-convention specifications carry side conditions: the alignment of `rsp`, and the no-wrap
-bound of `Reserve`. These facts show that each one is needed: without it, a proof in
-`CallConv.Win64Spill` or `CallConv.Win64Inc` would go through for code that faults, or for a
-precondition that cannot hold.
+The calling-convention preconditions carry side conditions: the alignment of `rsp`, and the bound
+`d ≤ rsp.toNat` on the reservation. These facts show that each one is needed: without it, a proof in
+`CallConv.Win64Spill` would go through for code that faults, or `Reserve` would describe memory at
+the top of the address space.
 -/
 
-open Kraken.Stack
-open Kraken.Win64
+open Kraken.X64.Stack
+open Kraken.X64.Win64
 
 namespace CallConv.Controls
 
@@ -29,12 +29,9 @@ example (r : BitVec 64) (h : r.toNat % 16 = 8) : isAligned AvxWidth.W128.bytes (
   show (r - 16).toNat % 16 ≠ 0
   bv_omega
 
--- (2) The caller's own alignment matters: `CallConv.Win64Inc.caller_spec` assumes `rsp + 8`
--- aligned on entry; from an aligned `rsp` instead, the callee would not be entered aligned.
-example : ¬ ∀ r : BitVec 64, r.toNat % 16 = 0 → (r - 48).toNat % 16 = 8 := by
-  intro h; have := h 0 (by decide); revert this; decide
-
--- (3) `Reserve_split` needs the no-wrap bound: at `r = 0` an 8-byte reservation is false.
-example (m : Mem 64) : ¬ Reserve 8 0 m := fun h => absurd h.1 (by decide)
+-- (2) `Reserve` itself does not prevent wrap-around: at `rsp = 0` an 8-byte reservation is the top
+-- 8 bytes of the address space, not memory below the stack pointer. The `d ≤ rsp.toNat` conjunct of
+-- `CallPre` rules this out.
+example : Reserve 8 0 = Owned 8 (.ofNat 64 (2 ^ 64 - 8)) := rfl
 
 end CallConv.Controls
