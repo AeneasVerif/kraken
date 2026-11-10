@@ -73,19 +73,21 @@ def extName (s : Sz) (sg : Bool) : String :=
   | .w, true => "extsw" | .w, false => "extuw"
   | .l, _ => "copy"
 
-/-- `%v{x} =l rhs`, where `rhs` is computed at class `k`: for `w`, through a temporary and `extuw`. -/
-def assign (x : Nat) (k : Cls) (rhs : String) : M Unit :=
-  match k with
-  | .l => ins s!"{var x} =l {rhs}"
-  | .w => do
-    ins s!"{var x}_w =w {rhs}"
+/-- Print `%v{x} = op`. A class-`w` operation is computed into a temporary and zero-extended:
+`bin` at class `w` (QBE's 32-bit operation), `ext` at class `l` (QBE has no `extsw` at class `w`), and
+`copy` at class `w` is `extuw` itself. Comparisons yield `0`/`1` and are printed at class `l`. -/
+def letOp (x : Nat) : Op Nat → M Unit
+  | .bin .l o a b => ins s!"{var x} =l {o.name} {arg a}, {arg b}"
+  | .bin .w o a b => do
+    ins s!"{var x}_w =w {o.name} {arg a}, {arg b}"
     ins s!"{var x} =l extuw {var x}_w"
-
-def opRhs : Op Nat → Cls × String
-  | .bin k o a b => (k, s!"{o.name} {arg a}, {arg b}")
-  | .cmp k o a b => (.l, s!"c{o.name}{k.name} {arg a}, {arg b}")
-  | .ext k s sg a => (k, s!"{extName s sg} {arg a}")
-  | .copy k a => (k, s!"copy {arg a}")
+  | .cmp k o a b => ins s!"{var x} =l c{o.name}{k.name} {arg a}, {arg b}"
+  | .ext .l s sg a => ins s!"{var x} =l {extName s sg} {arg a}"
+  | .ext .w s sg a => do
+    ins s!"{var x}_l =l {extName s sg} {arg a}"
+    ins s!"{var x} =l extuw {var x}_l"
+  | .copy .l a => ins s!"{var x} =l copy {arg a}"
+  | .copy .w a => ins s!"{var x} =l extuw {arg a}"
 
 def setRet (n : Nat) : M Unit := do
   if n > 1 then throw s!"ret with {n} results: stock QBE returns at most one value"
@@ -127,8 +129,7 @@ def go (mode : Mode) : Expr Nat Nat → M Unit
   | .let_ op k => do
     flush mode
     let x ← freshVar
-    let (c, rhs) := opRhs op
-    assign x c rhs
+    letOp x op
     go .body (k x)
   | .load c s sg a k => do
     flush mode

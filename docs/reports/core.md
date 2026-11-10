@@ -22,3 +22,31 @@ Owner: `core`. Files: `lakefile.toml`, `lean-toolchain`, `.gitignore`, library r
   changes only: `module` headers, `@[expose] public section`, and in `spike/a/Core.lean`
   `public meta import Lean` + `meta partial def nfData` (helpers of an `elab` must be `meta`).
 - Timing: full `scripts/check.sh` on a warm Kraken build, about 5 s.
+
+## C1: the IR interface (done, 7c8dc63; review requested)
+
+- `LeanQbe/Ops.lean`: `Val`, `Cls`, `Sz`, `BinOp`, `CmpOp`, `Arg V = var | imm`, pure `Op V`
+  (`bin`, `cmp`, `ext`, `copy`), `Op.eval : Op Val → Option Val`; memory on Kraken `Mem 64`:
+  `loadVal`, `storeOk`, `storeMem` (definitionally Kraken's `Mem.loadInt` / `Mem.storeInt` at that width).
+- `LeanQbe/IL.lean`: E1 `Expr V L` + `load`, `store`, `call f args k`, `exit f args`, multi-result `ret`.
+- `LeanQbe/WP.lean`: `wp Γ Q X e args acc m` with callee contracts `Γ : Sym → Spec` (call: `∃ P E` so
+  `wp_mono` needs nothing about `Γ`), exit postcondition `X` (D5), `jnz` on `Truthy c := lo32 c ≠ 0`
+  (QBE uses the argument at class `w`).
+- `LeanQbe/Wf.lean`: `ArgRel`, `OpRel`, `Wf G D e₁ e₂`, `Func.Wf`, tactic `wf_tac`.
+- Lemmas: `wp_mono`, `Func.spec_mono`, `closed_param`, `forall_args_nil`, `wp_call_of_spec`, `Wf.weaken`.
+- `spike/il/Smoke.lean`: tracer function (wp + Wf), even/odd join points, call + exit example.
+- Design choices on request of `logic`: `∃` forms (not `match`) for `Op.wp`, `load`, `storeOk`; user simp set
+  then needs `Option.some.injEq, exists_eq_left'`.
+
+## C2: printer (done)
+
+- `LeanQbe/Print.lean`: `Print.fn`, `Print.module` at `V := Nat`, `L := Nat`. Every value at class `l`;
+  class-`w` operations computed at `w` (or `l` for `ext`) and zero-extended with `extuw`; block parameters
+  through temporaries `%L{ℓ}_p{i}` assigned at the jump (QBE builds SSA from multiply-assigned temps);
+  `exit` = `call` + `hlt`; more than one result (ret or call) is rejected (stock QBE has one).
+- `scripts/qbe_difftest.sh` + `scripts/QbeDiff.lean`: differential test. 86 one-instruction functions
+  (13 binops × 2 classes, 10 comparisons × 2, 8 extensions × 2, copy × 2, 6 with immediates, 16 store/load
+  round trips) × 25 test vectors each (pairs for binary ops) where `Op.eval` is defined, plus the smoke
+  functions: **38950 results, all equal to `Op.eval`, on amd64 (native) and arm64 (qemu)**. About 15 s.
+  First run found one printer bug (QBE rejects `extsw` at class `w`), no semantic mismatch.
+- `spike/il/PrintTest.lean`: `#guard` regression of the printed tracer and of the junk rejections.
