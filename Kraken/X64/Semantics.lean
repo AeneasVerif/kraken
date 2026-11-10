@@ -299,6 +299,8 @@ inductive Effects
   | done (a : MachineState)
   | unimplemented (msg : String)
   | gp_unaligned (addr : BitVec 64) (w : Nat)
+  -- #DE: division by zero, or a quotient too large for its destination
+  | divide_error
   -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
   -- for instance, MMIO reads/writes at certain device register addresses might change what
   -- data memory the process logically owns vs what memory is owned by devices
@@ -659,6 +661,27 @@ set_option maxHeartbeats 1000000
     let cf := v.signed != a.signed * b.signed
     undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
     next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))))
+  -- The dividend is ah:al for 8 bits and rdx:rax (dx:ax, edx:eax) otherwise. The quotient goes
+  -- to al (rax), the remainder to ah (rdx); all flags are undefined.
+  | .div src =>
+    src.interp s p (fun b s =>
+    let n := if w == .W8 then (s.regs.get (.low .rax .W16)).toNat
+      else (s.regs.get (.low .rdx w) ++ s.regs.get (.low .rax w)).toNat
+    let (q, r) := (n / b.toNat, n % b.toNat)
+    if b == 0 || 2 ^ w.bits ≤ q then .divide_error else
+    let s := if w == .W8 then s.setReg (.low .rax .W16) (BitVec.ofNat 8 r ++ BitVec.ofNat 8 q)
+      else (s.setReg (.low .rax w) (.ofNat _ q)).setReg (.low .rdx w) (.ofNat _ r)
+    undefined (λ (status : StatusFlags) => next { s with status }))
+  -- The quotient is rounded towards zero; the remainder has the sign of the dividend.
+  | .idiv src =>
+    src.interp s p (fun b s =>
+    let n := if w == .W8 then (s.regs.get (.low .rax .W16)).toInt
+      else (s.regs.get (.low .rdx w) ++ s.regs.get (.low .rax w)).toInt
+    let (q, r) := (n.tdiv b.toInt, n.tmod b.toInt)
+    if b == 0 || q < -2 ^ (w.bits - 1) || 2 ^ (w.bits - 1) ≤ q then .divide_error else
+    let s := if w == .W8 then s.setReg (.low .rax .W16) (BitVec.ofInt 8 r ++ BitVec.ofInt 8 q)
+      else (s.setReg (.low .rax w) (.ofInt _ q)).setReg (.low .rdx w) (.ofInt _ r)
+    undefined (λ (status : StatusFlags) => next { s with status }))
 -- Bitwise
   | .test a b =>
     a.interp s p (fun a s =>
@@ -894,6 +917,7 @@ where
     | .done s => eval e s until_
     | .unimplemented msg => .error msg
     | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
+    | .divide_error => .error "#DE: Divide error"
     | .require_read_access _ ok => handleEffects (ok ())
     | .require_write_access _ ok => handleEffects (ok ())
     | .require_exec_access _ ok => handleEffects (ok ())

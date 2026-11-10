@@ -369,6 +369,27 @@ info: [Directive.instr
 #guard_msgs (whitespace := lax) in
 #check parse("mulxq %r8, %r9, %r10")
 
+-- Test: div and idiv, width from the suffix or the register
+/--
+info: [Directive.instr (regular Width.W64 Width.W64 (Operation.div ↑(low Reg64.rcx Width.W64)))] : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check parse("divq %rcx")
+
+/--
+info: [Directive.instr
+    (regular Width.W64 Width.W8
+      (Operation.idiv ↑{ base := some (RegOrRip.reg Reg64.rsp), idx := none, disp := ↑8 }))] : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check parse("idivb 8(%rsp)")
+
+/--
+info: [Directive.instr (regular Width.W64 Width.W16 (Operation.idiv ↑(low Reg64.r9 Width.W16)))] : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check parse("idiv %r9w")
+
 -- Test: xor for zeroing
 /--
 info: [Directive.instr

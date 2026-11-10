@@ -480,6 +480,8 @@ def elabRmRegOp (stx : TSyntax `x64_rm_reg_op) : TermElabM Expr := withRef stx d
 def elabUnaryOp (stx : TSyntax `x64_unary_op) : TermElabM Expr := withRef stx do
   match (← splitSuffixed stx).1 with
   | "mul" => pure (mkConst ``Operation.mul)
+  | "div" => pure (mkConst ``Operation.div)
+  | "idiv" => pure (mkConst ``Operation.idiv)
   | "neg" => pure (mkConst ``Operation.neg)
   | "dec" => pure (mkConst ``Operation.dec)
   | "inc" => pure (mkConst ``Operation.inc)

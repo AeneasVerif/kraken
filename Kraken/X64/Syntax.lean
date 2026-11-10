@@ -213,6 +213,9 @@ inductive Operation (w : Width)
   -- syntax level `imul` instruction, where imul1 is the 1-operand case
   | imul1 (src : RegOrMem w)
   | imul (_ : Option (Dst w)) (src1 : RegOrMem w) (src2 : Operand w)
+  -- div and idiv divide ah:al (8 bits), dx:ax, edx:eax or rdx:rax by src
+  | div  (src : RegOrMem w)
+  | idiv (src : RegOrMem w)
   -- Bitwise
   | test (a : RegOrMem w) (b : Operand w)
   | and  (_ : Dst w) (src : Operand w)
