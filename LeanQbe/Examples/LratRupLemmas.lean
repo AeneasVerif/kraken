@@ -119,6 +119,11 @@ theorem storel_word8Array {a : Val} {xs : List Val} {i : Nat} (v : Val) {R : Mem
   obtain ⟨h1, h2⟩ := store_word8 v h
   exact ⟨h1, by rwa [word8Array_set a xs hi, sep_assoc]⟩
 
+theorem loadsw_int4Array {a : Val} {xs : List Val} {i : Nat} {R : Mem 64 → Prop} {m : Mem 64}
+    (hi : i < xs.length) (h32 : IsInt32 xs[i]) (h : (int4Array a xs ⋆ R) m) :
+    loadVal m .l .w true (a + BitVec.ofNat 64 (4 * i)) = some xs[i] := by
+  rw [int4Array_focus a xs hi, sep_assoc] at h; exact loadsw_int4 h h32
+
 theorem loadsw_zeroTerm {p : Val} {xs : List Val} {i : Nat} {R : Mem 64 → Prop} {m : Mem 64}
     (hi : i ≤ xs.length) (h32 : ∀ x ∈ xs, IsInt32 x) (h : (ZeroTermInts p xs ⋆ R) m) :
     loadVal m .l .w true (p + BitVec.ofNat 64 (4 * i)) = some (zeroTermGet xs i) := by
@@ -129,5 +134,209 @@ theorem loadsw_zeroTerm {p : Val} {xs : List Val} {i : Nat} {R : Mem 64 → Prop
   · obtain rfl : i = xs.length := by omega
     rw [zeroTermInts_focus_end p xs, sep_assoc] at h
     exact loadsw_int4 h isInt32_zero
+
+/-! ## The inline helpers -/
+
+theorem assignedLit_spec {Γ : Env} {Q : Post} {X : XPost} {vb lit : Val} {mv : Nat}
+    {assign : Assignment} {R : Mem 64 → Prop} {m : Mem 64} {k : Val → Val → Expr Val Cont}
+    (hlit : IsValidLit mv lit) (hm : (byte1Array vb (assignBytes mv assign) ⋆ R) m)
+    (hk : wp Γ Q X (k (bvAbs lit) (evalAssignedLit (assignByte assign (toLiteral lit).1) lit)) [] [] m) :
+    wp Γ Q X (assignedLit vb lit k) [] [] m := by
+  unfold assignedLit
+  wp_unfold
+  simp only [abs_eq, negif_eq]
+  have hi' : (bvAbs lit).toNat < mv + 1 := by have := hlit.2.2.1; omega
+  have hi : (bvAbs lit).toNat < (assignBytes mv assign).length := by simpa using hi'
+  refine ⟨_, ?_, hk⟩
+  rw [← ofNat_bvAbs_toNat lit, loadsb_byte1Array hi
+    (by rw [getElem_assignBytes _ _ hi']; exact isInt8_assignByte _ _) hm, getElem_assignBytes _ _ hi']
+  rfl
+
+theorem sep_cast {P P' : Mem 64 → Prop} {m : Mem 64} (h : P m) (e : P = P') : P' m := e ▸ h
+
+theorem assignLit_spec {Γ : Env} {Q : Post} {X : XPost} {vb tb te sla wlit idx : Val} {mv : Nat}
+    {assign : Assignment} {trail : List Val} {t0 : Val} {tf : List Val} {R : Mem 64 → Prop}
+    {m : Mem 64} {k : Val → Val → Expr Val Cont}
+    (hwlit : IsValidLit mv wlit) (hidx : idx = bvAbs wlit)
+    (hte : te = tb + BitVec.ofNat 64 (4 * trail.length))
+    (hcov : TrailCoversAssign mv assign trail)
+    (hm : ((byte1Array vb (assignBytes mv assign) ⋆ int4Array tb (trail ++ t0 :: tf)) ⋆ R) m)
+    (hk : ∀ m', te + 4 = tb + BitVec.ofNat 64 (4 * (trail ++ [wlit]).length) →
+      TrailCoversAssign mv (assign.insert (toLiteral wlit).1 (toLiteral wlit).2) (trail ++ [wlit]) →
+      ((byte1Array vb (assignBytes mv (assign.insert (toLiteral wlit).1 (toLiteral wlit).2)) ⋆
+        int4Array tb ((trail ++ [wlit]) ++ tf)) ⋆ R) m' →
+      wp Γ Q X (k (te + 4) (sla + 1)) [] [] m') :
+    wp Γ Q X (assignLit vb te sla wlit idx k) [] [] m := by
+  unfold assignLit; subst hidx hte
+  wp_unfold
+  rw [show (BitVec.sshiftRight wlit 63 ||| 1) = bvSignByte wlit from rfl]
+  have hi : (toLiteral wlit).1 < (assignBytes mv assign).length := by
+    simp [toLiteral]; have := hwlit.2.2.1; omega
+  rw [sep_assoc] at hm
+  have ⟨ok1, hm1⟩ := storeb_byte1Array (bvSignByte wlit) hi hm
+  rw [assignBytes_set_insert mv assign hwlit, sep_comm_l] at hm1
+  have ⟨ok2, hm2⟩ := storew_int4Array (i := trail.length) wlit (by simp) hm1
+  rw [show (trail ++ t0 :: tf).set trail.length wlit = (trail ++ [wlit]) ++ tf by
+    simp [List.set_append_right]] at hm2
+  have ha : vb + bvAbs wlit = vb + BitVec.ofNat 64 (toLiteral wlit).1 := by
+    simp [toLiteral]
+  rw [ha]
+  refine ⟨ok1, ok2, hk _ ?_ (trailCoversAssign_insert wlit hcov) (sep_cast hm2 (by ac_rfl))⟩
+  rw [List.length_append, List.length_singleton]
+  exact BitVec.eq_of_toNat_eq (by simp [BitVec.toNat_add]; omega)
+
+theorem flush_spec {Γ : Env} {Q : Post} {X : XPost} {st te sr sla : Val} {k : KernelFields}
+    {R : Mem 64 → Prop} {m : Mem 64} {kc : Expr Val Cont}
+    (hm : (kernelState st k ⋆ R) m)
+    (hk : ∀ m', (kernelState st
+        { k with trail_end := te, stat_resolved := sr, stat_lit_assigned := sla } ⋆ R) m' →
+      wp Γ Q X kc [] [] m') :
+    wp Γ Q X (flush st te sr sla kc) [] [] m := by
+  unfold flush; unfold kernelState at hm hk
+  wp_unfold
+  have ⟨ok1, hm1⟩ := storel_word8Array (i := 6) te (by simp [KernelFields.toList]) hm
+  have ⟨ok2, hm2⟩ := storel_word8Array (i := 18) sr (by simp [KernelFields.toList]) hm1
+  have ⟨ok3, hm3⟩ := storel_word8Array (i := 19) sla (by simp [KernelFields.toList]) hm2
+  exact ⟨ok1, ok2, ok3, hk _ hm3⟩
+
+theorem backtrack_spec {Γ : Env} {Q : Post} {X : XPost} {vb tb te : Val} {mv : Nat}
+    {assign : Assignment} {trail tf : List Val} {R : Mem 64 → Prop} {m : Mem 64} {kc : Expr Val Cont}
+    (hte : te = tb + BitVec.ofNat 64 (4 * trail.length))
+    (hvalid : ∀ t ∈ trail, IsValidLit mv t) (hlen : 4 * trail.length < 2 ^ 64)
+    (hcov : TrailCoversAssign mv assign trail)
+    (hm : ((byte1Array vb (assignBytes mv assign) ⋆ int4Array tb (trail ++ tf)) ⋆ R) m)
+    (hk : ∀ m', ((byte1Array vb (assignBytes mv Assignment.empty) ⋆ int4Array tb (trail ++ tf)) ⋆ R) m' →
+      wp Γ Q X kc [] [] m') :
+    wp Γ Q X (backtrack vb tb te kc) [] [] m := by
+  unfold backtrack
+  apply wp_loop (fun r as m => ∃ i, i ≤ trail.length ∧ r = trail.length - i ∧
+    as = [tb + BitVec.ofNat 64 (4 * i)] ∧
+    ((byte1Array vb (clearTrailBytes (assignBytes mv assign) (trail.take i)) ⋆
+      int4Array tb (trail ++ tf)) ⋆ R) m)
+  · rintro J r as m ⟨i, hi, rfl, rfl, hm⟩ ih
+    wp_unfold
+    refine ⟨fun heq => ?_, fun hne => ?_⟩
+    · obtain rfl : i = trail.length := by
+        rw [hte] at heq
+        have := congrArg (fun x => (x - tb).toNat) heq
+        simp [BitVec.add_comm tb, Nat.mod_eq_of_lt (by omega : 4 * i < 2 ^ 64),
+          Nat.mod_eq_of_lt hlen] at this
+        omega
+      rw [List.take_length, clearTrailBytes_assignBytes hcov] at hm
+      exact hk m hm
+    · have hlt : i < trail.length := by
+        rcases Nat.eq_or_lt_of_le hi with rfl | h
+        · exact absurd hte.symm hne
+        · exact h
+      have hv := hvalid trail[i] (List.getElem_mem hlt)
+      have hget : (trail ++ tf)[i]'(by simp; omega) = trail[i] := List.getElem_append_left hlt
+      rw [sep_assoc, sep_comm_l] at hm
+      have hld := loadsw_int4Array (i := i) (by simp; omega) (by rw [hget]; exact hv.1) hm
+      rw [hget] at hld
+      refine ⟨_, hld, ?_⟩
+      rw [abs_eq, ← ofNat_bvAbs_toNat]
+      rw [sep_comm_l] at hm
+      have hidx : (bvAbs trail[i]).toNat < (clearTrailBytes (assignBytes mv assign) (trail.take i)).length := by
+        simp; have := hv.2.2.1; omega
+      have ⟨ok, hm1⟩ := storeb_byte1Array 0 hidx hm
+      rw [clearTrailBytes_take_succ _ trail hlt] at hm1
+      refine ⟨ok, ih _ _ _ (by omega) ⟨i + 1, hlt, rfl, ?_, by rwa [sep_assoc]⟩⟩
+      simp [ptr_step_4]
+  · intro J hJ
+    wp_unfold
+    exact hJ _ _ _ ⟨0, Nat.zero_le _, rfl, by simp, by simpa using hm⟩
+
+/-! ## Propagation state -/
+
+/-- The values array represents `assign`, the trail array holds `trail` and then the free space
+`tf` (total length `N`), and `te` points just after `trail`. -/
+def PState (mv : Nat) (vb tb te : Val) (assign : Assignment) (trail tf : List Val) (N : Nat) :
+    Mem 64 → Prop := fun m =>
+  te = tb + BitVec.ofNat 64 (4 * trail.length) ∧ TrailCoversAssign mv assign trail ∧
+    (∀ t ∈ trail, IsValidLit mv t) ∧ trail.length + tf.length = N ∧
+    (byte1Array vb (assignBytes mv assign) ⋆ int4Array tb (trail ++ tf)) m
+
+theorem pstate_sep {mv : Nat} {vb tb te : Val} {assign : Assignment} {trail tf : List Val} {N : Nat}
+    {F : Mem 64 → Prop} {m : Mem 64} :
+    (PState mv vb tb te assign trail tf N ⋆ F) m ↔
+      te = tb + BitVec.ofNat 64 (4 * trail.length) ∧ TrailCoversAssign mv assign trail ∧
+      (∀ t ∈ trail, IsValidLit mv t) ∧ trail.length + tf.length = N ∧
+      ((byte1Array vb (assignBytes mv assign) ⋆ int4Array tb (trail ++ tf)) ⋆ F) m := by
+  unfold PState; simp only [sep_pure_l]
+
+theorem zeroTermGet_isInt32 {xs : List Val} (h32 : ∀ x ∈ xs, IsInt32 x) (i : Nat) :
+    IsInt32 (zeroTermGet xs i) := by
+  unfold zeroTermGet; split
+  · exact h32 _ (List.getElem_mem _)
+  · exact isInt32_zero
+
+theorem ptr4 (p : Val) (i : Nat) :
+    p + BitVec.ofNat 64 (4 * i) + 4 = p + BitVec.ofNat 64 (4 * (i + 1)) :=
+  BitVec.eq_of_toNat_eq (by simp [BitVec.toNat_add]; omega)
+
+/-! ## Phase 1 -/
+
+theorem phase1_spec {Γ : Env} {Q : Post} {X : XPost} {finish ph2 : Cont}
+    {vb tb lits sr : Val} {mv reserve : Nat} {ls tf0 : List Val} {R : Mem 64 → Prop} {m : Mem 64}
+    (hvalid : ∀ x ∈ ls, IsValidLit mv x) (hcap : reserve + ls.length ≤ tf0.length)
+    (hm : (PState mv vb tb tb Assignment.empty [] tf0 tf0.length ⋆ (ZeroTermInts lits ls ⋆ R)) m)
+    (hfin : ∀ m' te sla assign trail tf,
+      (PState mv vb tb te assign trail tf tf0.length ⋆ (ZeroTermInts lits ls ⋆ R)) m' →
+      reserve ≤ tf.length →
+      (∃ atom pol, (atom, pol) ∈ toClause ls ∧ (atom, !pol) ∈ toClause ls) → finish [te, sr, sla] m')
+    (hph2 : ∀ m' te sla assign trail tf,
+      (PState mv vb tb te assign trail tf tf0.length ⋆ (ZeroTermInts lits ls ⋆ R)) m' →
+      reserve ≤ tf.length →
+      (∀ x : Literal Nat, x ∈ toClause ls ↔ assign.get? x.1 = some !x.2) → ph2 [te, sla] m')
+    (sla0 : Val) :
+    wp Γ Q X (phase1 finish ph2 vb lits tb sr sla0) [] [] m := by
+  unfold phase1
+  have h32 : ∀ x ∈ ls, IsInt32 x := fun x hx => (hvalid x hx).1
+  have hne0 : ∀ x ∈ ls, x ≠ 0 := fun x hx => (hvalid x hx).2.1
+  apply wp_loop (fun r as m => ∃ i te sla assign trail tf,
+    as = [lits + BitVec.ofNat 64 (4 * i), te, sla] ∧ i ≤ ls.length ∧ r = ls.length - i ∧
+    reserve + (ls.length - i) ≤ tf.length ∧
+    (PState mv vb tb te assign trail tf tf0.length ⋆ (ZeroTermInts lits ls ⋆ R)) m ∧
+    ∀ x : Literal Nat, x ∈ (ls.take i).map toLiteral ↔ assign.get? x.1 = some !x.2)
+  · rintro J r as m ⟨i, te, sla, assign, trail, tf, rfl, hi, rfl, hcap, hm, hinv⟩ ih
+    wp_unfold
+    obtain ⟨hte, hcov, htv, hlen, hm⟩ := pstate_sep.1 hm
+    have hld := loadsw_zeroTerm hi h32 (by rw [sep_comm_l] at hm; exact hm)
+    refine ⟨_, hld, fun hnz => ?_, fun hz => ?_⟩
+    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i)] at hnz
+      have hlt := (zeroTermGet_ne_zero_iff hi hne0).1 hnz
+      simp only [zeroTermGet, hlt, ↓reduceDIte]
+      have hlit := hvalid ls[i] (List.getElem_mem hlt)
+      have hcases := evalAssignedLit_cases assign hlit
+      refine assignedLit_spec hlit (by rw [sep_assoc] at hm; exact hm) ?_
+      wp_unfold
+      refine ⟨fun hneg => ih _ _ _ (by omega) ⟨i + 1, te, sla, assign, trail, tf, by rw [ptr4], hlt,
+          rfl, by omega, pstate_sep.2 ⟨hte, hcov, htv, hlen, hm⟩,
+          phase1_step_already_falsified hlt hinv (hcases.1 hneg)⟩,
+        fun hneg => ⟨fun hpos => hfin m te sla assign trail tf (pstate_sep.2 ⟨hte, hcov, htv, hlen, hm⟩)
+          (by omega) (phase1_step_tautology hlt hinv (hcases.2.1 ⟨hneg, hpos⟩)), fun hpos => ?_⟩⟩
+      have hun := hcases.2.2 ⟨hneg, hpos⟩
+      rw [show (0 : Val) - ls[i] = -ls[i] by simp]
+      rcases tf with _ | ⟨t0, tf'⟩
+      · simp at hcap; omega
+      refine assignLit_spec (isValidLit_neg hlit) (bvAbs_neg hlit).symm hte hcov hm
+        fun m' hte' hcov' hm' => ?_
+      wp_unfold
+      refine ih _ _ _ (by omega) ⟨i + 1, _, _, _, _, tf', by rw [ptr4], hlt, rfl,
+        by simp at hcap; omega, pstate_sep.2 ⟨hte', hcov', ?_, ?_, hm'⟩,
+        phase1_step_insert hlt hlit hinv hun.1⟩
+      · intro t ht
+        rcases List.mem_append.1 ht with h | h
+        · exact htv t h
+        · rw [List.mem_singleton.1 h]; exact isValidLit_neg hlit
+      · simp at hlen ⊢; omega
+    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i), Classical.not_not] at hz
+      obtain rfl := (zeroTermGet_eq_zero_iff hi hne0).1 hz
+      rw [List.take_length] at hinv
+      exact hph2 m te sla assign trail tf (pstate_sep.2 ⟨hte, hcov, htv, hlen, hm⟩) (by omega)
+        fun x => by rw [← CNF.Clause.mem_literals_iff, literals_toClause, hinv x]
+  · intro J hJ
+    wp_unfold
+    exact hJ _ _ _ ⟨0, tb, sla0, _, [], tf0, by simp, Nat.zero_le _, rfl, by omega, hm, by simp⟩
 
 end LeanQbe.LratRup

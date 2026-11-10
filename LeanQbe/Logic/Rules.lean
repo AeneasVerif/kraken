@@ -50,7 +50,7 @@ theorem wp_join {Γ : Env} {Q : Post} {X : XPost} {b : Expr Val Cont} {rest : Co
   cases b <;> decide
 
 /-- Address arithmetic: `shl x, 3` is `8 * x`. -/
-@[simp] theorem shl_three (x : Val) : x <<< ((3 : Val).toNat % 64) = BitVec.ofNat 64 (8 * x.toNat) := by
+@[simp] theorem shl_three (x : Val) : x <<< 3 = BitVec.ofNat 64 (8 * x.toNat) := by
   apply BitVec.eq_of_toNat_eq; simp [BitVec.toNat_shiftLeft]; omega
 
 /-- Unfold `wp` over straight-line code and evaluate the pure operations. Leaves `∃ v, loadVal … = some
@@ -59,6 +59,6 @@ macro "wp_unfold" : tactic =>
   `(tactic| simp only [LeanQbe.wp, LeanQbe.Op.wp, LeanQbe.Op.eval, LeanQbe.BinOp.eval,
     LeanQbe.CmpOp.eval, LeanQbe.Arg.val, List.map, true_and, Option.some.injEq, exists_eq_left',
     LeanQbe.truthy_boolVal, beq_iff_eq, bne_iff_ne, ne_eq, decide_eq_true_eq, Bool.not_eq_true,
-    beq_eq_false_iff_ne, LeanQbe.shl_three])
+    beq_eq_false_iff_ne, BitVec.reduceToNat, Nat.reduceMod, LeanQbe.shl_three])
 
 end LeanQbe
