@@ -367,7 +367,8 @@ theorem inner_spec {Γ : Env} {Q : Post} {X : XPost} {fail done : Cont}
     (hdone : ∀ m' unit te sla assign trail tf,
       (PState mv vb tb te assign trail tf N ⋆ (ZeroTermInts als clits ⋆ R)) m' →
       ((unit = 0 ∧ reserve + 1 ≤ tf.length ∧ CNF.Unsat (f ++ initAssign.toCNF)) ∨
-       (unit ≠ 0 ∧ reserve ≤ tf.length ∧ CNF.Entails (f ++ initAssign.toCNF) (f ++ assign.toCNF))) →
+       (unit ≠ 0 ∧ IsInt32 unit ∧ reserve ≤ tf.length ∧
+        CNF.Entails (f ++ initAssign.toCNF) (f ++ assign.toCNF))) →
       done [unit, te, sla] m')
     (sla0 : Val) :
     wp Γ Q X (inner fail done vb aid als te0 sr sla0) [] [] m := by
@@ -451,11 +452,11 @@ theorem inner_spec {Γ : Env} {Q : Post} {X : XPost} {fail done : Cont}
     · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i), Classical.not_not] at hz
       obtain rfl := (zeroTermGet_eq_zero_iff hi hne0).1 hz
       rw [InnerSt, List.take_length] at hst
-      rcases hst with ⟨rfl, rfl, hc, hall⟩ | ⟨hu, _, _, hc, hrel, hinv⟩
+      rcases hst with ⟨rfl, rfl, hc, hall⟩ | ⟨hu, huv, _, hc, hrel, hinv⟩
       · refine hdone m 0 te sla _ trail tf hm0 (Or.inl ⟨rfl, hc, ?_⟩)
         exact unsat_of_all_falsified hcl hent fun x hx => by
           rw [← CNF.Clause.mem_literals_iff, literals_toClause] at hx; exact hall x hx
-      · refine hdone m unit te sla assign trail tf hm0 (Or.inr ⟨hu, hc, ?_⟩)
+      · refine hdone m unit te sla assign trail tf hm0 (Or.inr ⟨hu, huv.1, hc, ?_⟩)
         rcases hrel with ⟨_, rfl⟩ | rfl
         · exact entails_insert_of_unit_prop hcl hent fun x hx => by
             rw [← CNF.Clause.mem_literals_iff, literals_toClause] at hx; exact hinv x hx
@@ -464,5 +465,85 @@ theorem inner_spec {Γ : Env} {Q : Post} {X : XPost} {fail done : Cont}
     wp_unfold
     exact hJ _ _ _ ⟨0, 0, te0, sla0, curAssign, curTrail, curTf, by simp, Nat.zero_le _, rfl, hm,
       Or.inl ⟨rfl, rfl, hcap, by simp⟩⟩
+
+/-! ## Phase 2, outer loop -/
+
+theorem phase2_spec {Γ : Env} {Q : Post} {X : XPost} {fail finish : Cont}
+    {lb vb tb ants te0 sr0 : Val} {mv N : Nat} {lit_ptrs aids : List Val} {s : State}
+    {initAssign assign0 : Assignment} {trail0 tf0 : List Val} {P_ro R : Mem 64 → Prop} {m : Mem 64}
+    (hct : ClauseTable mv lb lit_ptrs s.formula P_ro)
+    (haids_ro : ∃ R_aids, P_ro = (ZeroTermInts ants aids ⋆ R_aids))
+    (haids_valid : ∀ aid ∈ aids, IsInt32 aid ∧ aid ≠ 0 ∧
+      (aid.slt 0 = false → ∃ h : aid.toNat < lit_ptrs.length, lit_ptrs[aid.toNat] ≠ 0))
+    (hcap0 : aids.length ≤ tf0.length)
+    (hent0 : CNF.Entails (s.toCNF ++ initAssign.toCNF) (s.toCNF ++ assign0.toCNF))
+    (hm : (PState mv vb tb te0 assign0 trail0 tf0 N ⋆ (R ⋆ P_ro)) m)
+    (hfail : ∀ m' code aid te sr sla assign trail tf,
+      (PState mv vb tb te assign trail tf N ⋆ (R ⋆ P_ro)) m' → fail [code, aid, te, sr, sla] m')
+    (hfin : ∀ m' te sr sla assign trail tf,
+      (PState mv vb tb te assign trail tf N ⋆ (R ⋆ P_ro)) m' →
+      CNF.Unsat (s.toCNF ++ initAssign.toCNF) → finish [te, sr, sla] m')
+    (sla0 : Val) :
+    wp Γ Q X (phase2 fail finish lb vb ants te0 sr0 sla0) [] [] m := by
+  unfold phase2
+  obtain ⟨R_aids, hP_aids⟩ := haids_ro
+  have h32 : ∀ x ∈ aids, IsInt32 x := fun x hx => (haids_valid x hx).1
+  have hne0 : ∀ x ∈ aids, x ≠ 0 := fun x hx => (haids_valid x hx).2.1
+  apply wp_loop (fun r as m => ∃ j te sr sla assign trail tf,
+    as = [ants + BitVec.ofNat 64 (4 * j), te, sr, sla] ∧ j ≤ aids.length ∧ r = aids.length - j ∧
+    aids.length - j ≤ tf.length ∧ (PState mv vb tb te assign trail tf N ⋆ (R ⋆ P_ro)) m ∧
+    CNF.Entails (s.toCNF ++ initAssign.toCNF) (s.toCNF ++ assign.toCNF))
+  · rintro J r as m ⟨j, te, sr, sla, assign, trail, tf, rfl, hj, rfl, hcap, hm, hent⟩ ih
+    wp_unfold
+    have hld := loadsw_zeroTerm (p := ants) (R := PState mv vb tb te assign trail tf N ⋆ (R ⋆ R_aids))
+      hj h32 (by rw [hP_aids] at hm; exact sep_cast hm (by ac_rfl))
+    refine ⟨_, hld, fun hnz => ?_, fun hz => ?_⟩
+    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 j)] at hnz
+      have hlt := (zeroTermGet_ne_zero_iff hj hne0).1 hnz
+      simp only [zeroTermGet, hlt, ↓reduceDIte]
+      obtain ⟨_, _, hpos⟩ := haids_valid aids[j] (List.getElem_mem hlt)
+      refine ⟨fun _ => hfail m _ _ _ _ _ _ _ _ hm, fun hneg => ?_⟩
+      obtain ⟨hal, hptr⟩ := hpos (by simpa using hneg)
+      obtain ⟨R1, hP1⟩ := hct.1
+      refine ⟨_, loadl_word8Array (a := lb) (R := PState mv vb tb te assign trail tf N ⋆ (R ⋆ R1)) hal
+        (by rw [hP1] at hm; exact sep_cast hm (by ac_rfl)), ?_⟩
+      have haid0 : 0 < aids[j].toNat := by
+        rcases Nat.eq_zero_or_pos aids[j].toNat with h | h
+        · exact absurd (BitVec.eq_of_toNat_eq (by simpa using h)) (hne0 _ (List.getElem_mem hlt))
+        · exact h
+      obtain ⟨clits, R2, hP2, hcl_valid, hcl_get⟩ := hct.2 aids[j].toNat hal haid0 hptr
+      have hcl := mem_toCNF_of_formula_getElem? hcl_get
+      apply wp_join (fun as m' => ∃ unit te2 sla2 assign' trail' tf', as = [unit, te2, sla2] ∧
+        (PState mv vb tb te2 assign' trail' tf' N ⋆ (R ⋆ P_ro)) m' ∧
+        ((unit = 0 ∧ CNF.Unsat (s.toCNF ++ initAssign.toCNF)) ∨
+         (unit ≠ 0 ∧ IsInt32 unit ∧ aids.length - (j + 1) ≤ tf'.length ∧
+          CNF.Entails (s.toCNF ++ initAssign.toCNF) (s.toCNF ++ assign'.toCNF))))
+      · rintro _ m' ⟨unit, te2, sla2, assign', trail', tf', rfl, hm', hres⟩
+        wp_unfold
+        rcases hres with ⟨rfl, hunsat⟩ | ⟨hu, hu32, hc', hent'⟩
+        · refine ⟨fun h => absurd h (by decide), fun _ => hfin _ _ _ _ _ _ _ hm' hunsat⟩
+        · rw [truthy_iff _ hu32]
+          refine ⟨fun _ => ih _ _ _ (by omega) ⟨j + 1, _, _, _, _, _, _, by rw [ptr4], hlt, rfl, hc',
+            hm', hent'⟩, fun h => absurd hu h⟩
+      · intro K hK
+        have hm2 : (PState mv vb tb te assign trail tf N ⋆ (ZeroTermInts lit_ptrs[aids[j].toNat] clits ⋆
+            (R ⋆ R2))) m := by rw [hP2] at hm; exact sep_cast hm (by ac_rfl)
+        have back : ∀ te' assign' trail' tf' m', (PState mv vb tb te' assign' trail' tf' N ⋆
+            (ZeroTermInts lit_ptrs[aids[j].toNat] clits ⋆ (R ⋆ R2))) m' →
+            (PState mv vb tb te' assign' trail' tf' N ⋆ (R ⋆ P_ro)) m' := fun _ _ _ _ _ h => by
+          rw [hP2]; exact sep_cast h (by ac_rfl)
+        refine inner_spec (reserve := aids.length - (j + 1)) hcl_valid hcl hent (by omega) hm2
+          (fun m' te' sla' assign' trail' tf' h => hfail _ _ _ _ _ _ _ _ _ (back _ _ _ _ _ h))
+          (fun m' unit te' sla' assign' trail' tf' h hres => hK _ _ ⟨unit, te', sla', assign', trail',
+            tf', rfl, back _ _ _ _ _ h, ?_⟩) sla
+        rcases hres with ⟨hu, _, hunsat⟩ | hres
+        · exact Or.inl ⟨hu, hunsat⟩
+        · exact Or.inr hres
+    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 j), Classical.not_not] at hz
+      exact hfail m _ _ _ _ _ _ _ _ hm
+  · intro J hJ
+    wp_unfold
+    exact hJ _ _ _ ⟨0, te0, sr0, sla0, assign0, trail0, tf0, by simp, Nat.zero_le _, rfl, by omega,
+      hm, hent0⟩
 
 end LeanQbe.LratRup
