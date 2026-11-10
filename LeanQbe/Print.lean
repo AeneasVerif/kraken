@@ -16,7 +16,8 @@ Translation of the constructs QBE does not have:
   `jump ℓ(args)` assigns those temporaries first. QBE accepts temporaries defined more than once and
   builds SSA itself. Arguments never mention `%L…` temporaries (block bodies copy them into fresh
   `%v…` first), so the assignments are a correct parallel move.
-* `jnz` branches get fresh blocks `@j{n}`. The entry block is `@start`.
+* `jnz c` branches get fresh blocks `@j{n}`, and tests `%c{n} =w cnew c, 0` (see `go`). The entry
+  block is `@start`.
 * `exit $f(args)` is `call $f(args)` followed by `hlt`.
 * At most one result: `ret` and the continuation of `call` with more than one value are rejected,
   as are junk shapes (`param` in the middle of a body, `block` with no pending label).
@@ -151,7 +152,10 @@ def go (mode : Mode) : Expr Nat Nat → M Unit
     flush mode
     let jt ← freshJ
     let je ← freshJ
-    ins s!"jnz {arg c}, @j{jt}, @j{je}"
+    -- `jnz` tests the low 32 bits (`Truthy`), but stock QBE on amd64 reuses the flags of a 64-bit
+    -- operation that defined `c` in the same block; an explicit `cnew` makes every target agree.
+    ins s!"%c{jt} =w cnew {arg c}, 0"
+    ins s!"jnz %c{jt}, @j{jt}, @j{je}"
     emit s!"@j{jt}"
     go .body t
     emit s!"@j{je}"
