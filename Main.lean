@@ -4,10 +4,12 @@ public import LeanQbe.Main
 public import LeanQbe.Examples.Litmus
 public import LeanQbe.Examples.LitmusCf
 public import Kraken.X64.PrintATT
+public import LeanQbe.Print
 
 /-!
 `leanqbe` command-line driver (x64). Version 0: `leanqbe <program>` prints GNU assembler input for
-one of the built-in litmus programs (`leanqbe --list` lists them). A parser for QBE IL text comes
+one of the built-in litmus programs, `leanqbe --il <program>` its QBE IL text (for stock QBE),
+`leanqbe --list` lists them. A parser for QBE IL text comes
 in step 3.
 -/
 
@@ -28,6 +30,19 @@ public def main (args : List String) : IO UInt32 := do
   | ["--list"] =>
     for (n, _) in programs do IO.println n
     return 0
+  | ["--il", name] =>
+    match programs.find? (·.1 == name) with
+    | none =>
+      IO.eprintln s!"leanqbe: unknown program {name} (try --list)"
+      return 2
+    | some (_, fs) =>
+      match Print.module fs with
+      | .ok t =>
+        IO.println t
+        return 0
+      | .error e =>
+        IO.eprintln s!"leanqbe: {e}"
+        return 1
   | [name] =>
     match programs.find? (·.1 == name) with
     | none =>
@@ -42,5 +57,5 @@ public def main (args : List String) : IO UInt32 := do
         IO.eprintln s!"leanqbe: {e}"
         return 1
   | _ =>
-    IO.eprintln "usage: leanqbe <program> | --list"
+    IO.eprintln "usage: leanqbe <program> | leanqbe --il <program> | leanqbe --list"
     return 2
