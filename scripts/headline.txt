@@ -76,3 +76,7 @@ LeanQbe.Examples.LitmusUf LeanQbe.Litmus.find_x64_correct
 LeanQbe.Examples.LitmusUf LeanQbe.Litmus.union_x64_correct
 LeanQbe.Examples.LitmusUf LeanQbe.Litmus.find_x64_nonvacuous
 LeanQbe.Examples.LitmusUf LeanQbe.Litmus.union_x64_nonvacuous
+LeanQbe.Examples.LitmusLrat LeanQbe.Litmus.lrat_module_compile
+LeanQbe.Examples.LitmusLrat LeanQbe.Litmus.lrat_module_fnspec
+LeanQbe.Examples.LitmusLrat LeanQbe.Litmus.checkProof_x64_correct
+LeanQbe.Examples.LitmusLrat LeanQbe.Litmus.checkProof_x64_nonvacuous
