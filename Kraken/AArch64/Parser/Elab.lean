@@ -633,8 +633,8 @@ def gpr? : Expr → Option Expr
 def evalInt (stx : TSyntax `aarch64_int) : TermElabM Int := withRef stx do
   match stx with
   | `(aarch64_int| $n:num)
-  | `(aarch64_int| +$n:num) => pure n.getNat
-  | `(aarch64_int| -$n:num) => pure (-n.getNat)
+  | `(aarch64_int| +$n:num) => pure (getAsmNat n)
+  | `(aarch64_int| -$n:num) => pure (-(getAsmNat n))
   | _ => throwError "expected integer literal"
 
 /-- Evaluate a concrete `aarch64_imm` into a signed integer. -/
