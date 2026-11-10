@@ -145,7 +145,7 @@ theorem isValidLit_neg {max_var : Nat} {lit : BitVec 64} (h : IsValidLit max_var
   have hnotmin : lit ≠ 0xffffffff80000000#64 := by
     rintro rfl; simp [bvAbs] at hle; omega
   refine ⟨?_, ?_, (bvAbs_neg ⟨h32, hne, hle, hmax⟩) ▸ hle, hmax⟩ <;>
-    · unfold IsInt32 at *; revert h32 hne hnotmin; bv_decide
+    · unfold IsInt32 at *; grind
 
 theorem ofNat_bvAbs_toNat (lit : BitVec 64) :
     BitVec.ofNat 64 (bvAbs lit).toNat = bvAbs lit :=
@@ -925,9 +925,7 @@ theorem exec_rup_phase2_inner_loop {e : Env} {B : Nat} {t : Trace 64} {m : Mem 6
 
 @[simp] theorem shamt_3_mul_8 (aid : BitVec 64) :
     aid <<< shamt 3#64 = BitVec.ofNat 64 (8 * aid.toNat) := by
-  rw [shamt_3, show BitVec.ofNat 64 (8 * aid.toNat) = 8#64 * aid from
-    BitVec.eq_of_toNat_eq (by simp [BitVec.toNat_mul])]
-  bv_decide
+  rw [shamt_3]; grind
 
 /-- The Phase 2 outer `while aid` loop of `br_check_clause_non_strictly_by_propagation`. -/
 def rup_phase2_outer_loop : Cmd := bedrock2_cmd:(
@@ -953,7 +951,7 @@ def rup_phase2_outer_loop : Cmd := bedrock2_cmd:(
 )
 
 private theorem bv64_slu3 (x : BitVec 64) : x <<< 3 = BitVec.ofNat 64 (8 * x.toNat) := by
-  rw [BitVec.ofNat_mul, BitVec.ofNat_toNat]; bv_decide
+  grind
 
 theorem exec_rup_phase2_outer_loop {e : Env} {B : Nat} {t : Trace 64} {m : Mem 64} {l : Locals 64}
     {post : Trace 64 → Mem 64 → Locals 64 → Prop}
