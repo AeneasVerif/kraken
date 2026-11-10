@@ -31,6 +31,7 @@ replayed rather than rebuilt (166 jobs, 0.15 s).
 | K2 | `4952311` | AArch64 counterparts (below) |
 | K2+ | `d0d005e` | `Host.label_undefined` (undefined labels resolve to -1), x64 and AArch64 |
 | K3 | `6aa97bf` | x64 `div` and `idiv` (all widths, reg/mem, `#DE` fault, hardware tests) |
+| K3+ | `89d18c6` | x64 parser: all condition-code suffixes (`ge`/`nl`, `g`/`nle`, `o`/`no`, `s`/`ns`, `p`/`pe`/`np`/`po`) |
 
 ## K1: x64 lemmas (commit `1fc7dfb`)
 
@@ -140,7 +141,29 @@ Added by helper `krakendiv` in `kraken/lean-qbe-dev` and fast-forwarded to the c
 - Note on bit-scan instructions (`tzcnt`, `lzcnt`, `bsr`, `popcnt`): upstream PR #216 (`fb94f20`,
   `b304cbf`) already implements them; we did not duplicate it since QBE's IL has no bit-scan ops.
 
+## Step 5 (part 1): Union-Find end to end on AArch64 (lean-qbe commit `1b51e20`)
+
+`LeanQbe/Arm64/UnionFind.lean` (imported by `LeanQbeArm64.lean`) compiles `UnionFind.find` (with path
+halving) and `UnionFind.unionInline` through `compileFn Arm64.isa`, checks the emitted AArch64
+assembly by `kernel_rfl`, and connects `compileFn_correct` with `UnionFind.find_correct` and
+`UnionFind.unionInline_correct` to prove end-to-end theorems stated solely in terms of Kraken's
+AArch64 operational semantics (`step1`) and the functional partition model (`uf`, `merge`):
+
+- `find_arm64_correct`: in any `[Host]` containing `findCode` at `k₀` under `Host.LabelsUnique`, from
+  `x0 = p`, `x1 = x` (`x.toNat < n`), `x30 = ra`, `sp` 16-byte aligned, and `dmem =⋆ uf p n rep ⋆ R`,
+  execution reaches `ra` with `x0 = rep x`, `x19`–`x29` and `sp` restored, and `dmem =⋆ uf p n rep ⋆ R`.
+- `unionInline_arm64_correct`: in any `[Host]` containing `unionInlineCode` at `k₀` under
+  `Host.LabelsUnique`, from `x0 = p`, `x1 = x`, `x2 = y` (`x, y < n`), `x30 = ra`, `sp` 16-byte
+  aligned, and `dmem =⋆ uf p n rep ⋆ R`, execution reaches `ra` with `x19`–`x29` and `sp` restored,
+  and `dmem =⋆ uf p n (merge rep x y) ⋆ R`.
+- `find_arm64_nonvacuous` and `unionInline_arm64_nonvacuous`: concrete host `ufHost` containing both
+  `findCode ++ unionInlineCode` and concrete initial states on `uf_init` (`init 4` at `0x2000`),
+  proving `find(0x2000, 3)` returns `3` and `unionInline(0x2000, 1, 2)` merges `1` and `2` while
+  keeping `0` distinct.
+- `test/arm64/unionfind_main.c`: C driver linked with both our compiled AArch64 assembly and stock
+  QBE `-t arm64` output via `test/arm64/run.sh` (14/14 PASS under `qemu-aarch64`).
+
 ## Next
 
-- Regenerate `LitmusCode.lean` and extend `LeanQbe/Arm64/Litmus*.lean` when `rega`'s R3 (calls, exits,
-  spills, linking) and union-find (step 5) land.
+- Regenerate `LitmusCode.lean` and add the two-function linked `find` + `union` end-to-end theorem on
+  AArch64 once `rega`'s R3 (calls, exits, spills, linking) lands.
