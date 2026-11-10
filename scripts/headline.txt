@@ -40,3 +40,6 @@ LeanQbe.OptLemmas LeanQbe.Func.opt_wf
 spike.il.OptTest LeanQbe.OptTest.opt_prog_out
 LeanQbe.MainLemmas LeanQbe.compileFn_correct
 LeanQbe.Examples.LitmusCfLemmas LeanQbe.Litmus.sumto_correct
+LeanQbe.Arm64.Abi LeanQbe.Arm64.target
+LeanQbe.Arm64.Tracer LeanQbe.Arm64.Tracer.tracer_correct
+LeanQbe.Arm64.Tracer LeanQbe.Arm64.Tracer.tracer_nonvacuous
