@@ -649,8 +649,8 @@ structure MemFacts (T : Target) : Prop where
     LeanQbe.storeOk M sz a
   store : ∀ (F : Mem 64 → Prop) (M m : Mem 64) sz a v, (M =⋆ Eq m ⋆ F) → LeanQbe.storeOk m sz a →
     (storeMem M sz a v =⋆ Eq (storeMem m sz a v) ⋆ F)
-  exit : ∀ (M m : Mem 64) sp ra n (R : Mem 64 → Prop), (M =⋆ Eq m ⋆ (T.Entry sp ra n ⋆ R)) →
-    (M =⋆ Eq m ⋆ T.Exit sp n ⋆ R)
+  exit : ∀ (M m : Mem 64) sp ra n (R : Mem 64 → Prop), n + T.raBytes ≤ 2 ^ 64 →
+    (M =⋆ Eq m ⋆ (T.Entry sp ra n ⋆ R)) → (M =⋆ Eq m ⋆ T.Exit sp n ⋆ R)
 
 theorem valsIn_keep {regs : List T.Reg} {vs : List Val} {s s' : T.MData}
     (hk : ∀ r, r ∈ regs → T.get s' r = T.get s r) (h : T.ValsIn regs vs s) : T.ValsIn regs vs s' := by
@@ -661,7 +661,7 @@ theorem valsIn_keep {regs : List T.Reg} {vs : List Val} {s s' : T.MData}
 theorem lowerFn_correct (h : T.Host) (hints : Hints T.toIsa) (f : Fn) (Γ : Env) (n : Nat)
     (code : List T.Directive) (k₀ : Nat)
     (hlow : lowerFn hints f = .ok code) (hcode : code.IsInfixAt (T.prog h) k₀)
-    (hu : T.LabelsUnique h) (hwf : Func.Wf f.body) (hsp : T.sp ∉ T.retRegs)
+    (hu : T.LabelsUnique h) (hwf : Func.Wf f.body) (hn : n + T.raBytes ≤ 2 ^ 64)
     (mf : MemFacts T) :
     T.FnSpec h f.name (Func.spec Γ f.body) n := by
   intro args m Q X hspec s ra R hargs hra _ hmem
@@ -695,14 +695,14 @@ theorem lowerFn_correct (h : T.Host) (hints : Hints T.toIsa) (f : Fn) (Γ : Env)
     · rw [T.data_mk]
       refine valsIn_keep (fun r hr => hs'' r ?_) hrets
       simp only [List.mem_cons, not_or]
-      exact ⟨fun e => hsp (e ▸ hr), T.retRegs_not_scratch r hr⟩
+      exact ⟨fun e => T.sp_not_retRegs (e ▸ hr), T.retRegs_not_scratch r hr⟩
     · intro r hr
       rw [T.data_mk, hs'' r ?_]
       · exact hI.2 r (T.calleeSaved_not_allocatable r hr) (T.calleeSaved_not_scratch r hr)
       simp only [List.mem_cons, not_or]
       exact ⟨fun e => T.sp_not_calleeSaved (e ▸ hr), T.calleeSaved_not_scratch r hr⟩
     · rw [T.data_mk, hsp'', hsp']
-    · rw [T.data_mk, hm'']; exact mf.exit _ _ _ _ _ _ hI.1
+    · rw [T.data_mk, hm'']; exact mf.exit _ _ _ _ _ _ hn hI.1
   · simp at hlow
 
 end Rega
