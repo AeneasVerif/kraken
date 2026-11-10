@@ -222,7 +222,12 @@ def br_check_clause_non_strictly_by_propagation := bedrock2:(fn br_check_clause_
       lit = (load4(l) << 32) .>> 32;
       while lit {
         %❰inline_assigned_literal❱;
-        if (val .< 0) == 0 {
+        if val .< 0 {
+          if unit == -lit {
+            %❰flush_prop_state❱;
+            interact lrat_fail(2, id, aid, 0, 0)
+          }
+        } else {
           if unit {
             if (unit == lit) == 0 {
               %❰flush_prop_state❱;
@@ -318,6 +323,9 @@ def br_check_clause_strictly_by_resolution := bedrock2:(fn br_check_clause_stric
     }
   };
   store8(st + 144, stat_resolved);
+  if first {
+    interact lrat_fail(3, id, 0, 0, 0)
+  };
   l = literals;
   lit = (load4(l) << 32) .>> 32;
   while lit {
