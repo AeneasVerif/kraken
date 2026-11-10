@@ -16,8 +16,9 @@ and is writing `spike/frames/FramesProof.lean`.
 | x64 instance of v1 | done, no sorry |
 | Linking: `FnSpec.of_spec`, `mono_exit`, `mono_stack`, `link` (acyclic) | done (`AbiLemmas.lean`) |
 | A1: frames/calls/exits by hand (`spike/frames/`) | done: `g_spec`, `abort_spec` (abi), `f_spec` + three concrete instances (memframe, a0d1e6b) |
-| x64 `Isel` (all integer ops Kraken x64 supports) | in progress (helper x64isel) |
-| `Target.call_fnspec` (call + callee FnSpec, for R3) | in progress (memframe) |
+| x64 `Isel` (all integer ops Kraken x64 supports) | done (`c778f4d`, helper x64isel; div/rem on Kraken `6aa97bf` in progress) |
+| `Target.call_fnspec` (call + callee FnSpec, for R3) | done (`42d1ad3`, helper memframe) |
+| Plan step 6: `bench/` harness + QBE pass ablation | done (`bench/run.sh`, `bench/uf_bench.c`, `bench/lrat_bench.c`) |
 
 ## What exists
 
@@ -133,13 +134,73 @@ satisfiable).
 - Reviewer #22.1 (exit symbols identified by address) is resolved (reviewer #60.2): `Defined h
   sym'` excludes undefined symbols (which resolve to -1), and two defined labels at one address
   denote the same code.
-- Known gap (reviewer #22.3, #75.4): `Restored` covers general-purpose registers only. Today that
-  is complete for Kraken's models (see decision 6), but AArch64 d8–d15 or x64 DF/MXCSR would need
-  a field if Kraken models them.
+- Known gap (reviewer #22.3, #75.4, coordinator #119.1): `Restored` covers general-purpose registers
+  only. Checked both `Kraken/X64/Semantics.lean` and `Kraken/AArch64/Semantics.lean`: x64's
+  `MachineData` has only `regs`, caller-saved `zmms` (`zmm0`–`zmm31`), `status` (`cf,pf,af,zf,sf,of`),
+  and `dmem` (no `DF`, `MXCSR`, or `x87` control word); AArch64's `MachineData` has only `regs`
+  (`X0`–`X30`, `SP`), `status` (`n,z,c,v`), and `dmem` (no SIMD/FP `d8`–`d15`). A `Frozen : MData →
+  MData → Prop` field on `Target` would therefore instantiate to `fun _ _ => True` on both
+  `Amd64.target` and `Arm64.target` today while touching ~40 places across 6 workers' files, so we
+  skip it per #119.1.
 - Calls happen only at `sp = sp0 - frameSize ns`: nothing may push between prologue and call.
-- More x64 operations (cmp, ext, mul, shifts, other load/store widths) when rega needs them.
+
+## Plan step 6: Benchmarks and QBE pass ablation (`bench/`)
+
+`bench/run.sh` builds an instrumented copy of stock QBE in `/tmp` (with runtime environment switches
+to disable one optimization pass at a time), dumps our PHOAS programs (`UnionFind` and all 5
+functions of `LratTrim.lratTrimFns`) to QBE IL (`uf.ssa`, `lrat_trim.ssa`) and x64 assembly
+(`uf_leaf.s`), links against C drivers (`bench/uf_bench.c`, `bench/lrat_bench.c`), verifies
+identical output hashes across all compilers, and reports the median of 5 runs:
+
+- **Union-Find (`uf_bench.c`)**: $N = 65536$ elements, 40 rounds; each round performs $N/2$ random
+  unions (`uf_union` calling `find`, or `unionInline` with `find` inlined twice) followed by $2N$
+  random `find` queries with path halving.
+- **LRAT-trim (`lrat_bench.c`)**: synthetic 2000-variable, 4009-clause unsatisfiable formula + LRAT
+  proof valid simultaneously for `br_trim_proof` (with unused CNF and proof clauses),
+  `br_check_proof` in RUP mode (`strict = 0`), and `br_check_proof` in strict backward resolution
+  mode (`strict = 1`), run for 150 rounds (`LRAT (full)` = `trim_proof + check_proof(rup) +
+  check_proof(strict)`; `LRAT (rup)` = `br_check_clause_non_strictly_by_propagation` alone).
+
+| Compiler / Variant | UF (call) ms | UF (inline) ms | UF insns | LRAT (full) ms | LRAT (rup) ms | LRAT insns | Hash check |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `gcc -O2` (C) | 68.20 | 66.70 | — | 19.38 | 8.07 | — | `0xd88e09b152cc8e5a` / `0x0000092c781efeb6` |
+| `clang -O2` (C) | 68.67 | 67.02 | — | 20.58 | 9.12 | — | `0xd88e09b152cc8e5a` / `0x0000092c781efeb6` |
+| **stock QBE (all passes)** | **81.69** | **76.94** | **77** | **31.42** | **13.34** | **644** | `0xd88e09b152cc8e5a` / `0x0000092c781efeb6` |
+| QBE `-isel-addr` (no addressing modes) | 82.66 | 79.83 | 91 (+18%) | 35.10 (+11.7%) | 14.56 (+9.1%) | 736 (+14%) | match |
+| QBE `-copy` (no copy/phi propagation) | 79.27 | 76.86 | 82 (+6%) | 34.63 (+10.2%) | 14.70 (+10.2%) | 773 (+20%) | match |
+| QBE `-rega-coalesce` (no reg hints) | 79.40 | 76.77 | 87 (+13%) | 33.30 (+6.0%) | 13.44 (+0.7%) | 677 (+5%) | match |
+| QBE `-fold` (no constant folding) | 79.22 | 77.20 | 77 (0%) | 31.24 (-0.6%) | 13.19 (-1.1%) | 644 (0%) | match |
+| QBE `-simpl` (no pow2 div/rem simpl) | 79.37 | 76.76 | 77 (0%) | 31.33 (-0.3%) | 13.22 (-0.9%) | 644 (0%) | match |
+| QBE `-gvn/gcm` (no CSE / GCM sinking) | 80.95 | 79.28 | 83 (+8%) | 29.45 (-6.3%) | 12.47 (-6.5%) | 646 (+0.3%) | match |
+| QBE `-all-opt` (all 6 disabled) | 81.79 | 80.85 | 95 (+23%) | 42.83 (+36.3%) | 19.84 (+48.7%) | 806 (+25%) | match |
+| **lean-qbe (x64)** | *(awaiting R3)* | **85.51** | **113** | *(awaiting R3)* | *(awaiting R3)* | — | `0xd88e09b152cc8e5a` |
+
+### Ranking of passes and takeaways for `lean-qbe`
+
+1. **Instruction selection (`isel` addressing modes and direct operand use) ranks #1** (+11.7%
+   runtime and +92 instructions on LRAT when disabled in QBE; on Union-Find, `lean-qbe` runs in
+   85.51 ms vs stock QBE's 76.94 ms — within 11% — while emitting 113 instructions vs QBE's 50 for
+   `find + unionInline`). Inspecting `uf_leaf.s` shows the 63 extra instructions come entirely from
+   local snippet expansions inside `Amd64/Isel.lean`:
+   - immediate shifts (`shl %x, 3`) routed through `%cl` (6 instructions instead of 2);
+   - two-address scratch bouncing (`mov a,%r11; mov b,%r10; op %r10,%r11; mov %r11,rd` = 4
+     instructions instead of 1–2 when `rd` is not `rb`);
+   - `store` bouncing register values through `%r11` (2 instructions instead of 1).
+   All three are local to `Amd64/{Isel,IselLemmas}.lean` and need no change to `Target` or `Rega`.
+2. **Copy propagation (`copy`) ranks #2** (+10.2% runtime and +129 instructions on LRAT when
+   disabled in QBE), mostly by eliminating the copies introduced around join-point parameters.
+   `LeanQbe/Fold.lean` already implements `copy.l` propagation inside lexical scope.
+3. **Register-allocator coalescing (`rega` hints) ranks #3** (+6.0% runtime and +33 instructions on
+   LRAT). In our architecture this lives entirely in the untrusted oracle (`Spill.lean`), requiring
+   zero proof work.
+4. **Constant folding (`fold`) and `simpl` have ~0% effect** on hand-written / macro-expanded IL
+   that does not contain constant-on-constant arithmetic or unsigned division by powers of two.
+5. **GVN + GCM (`-gvn/gcm`) helps slightly on Union-Find** (-2.9% runtime, -6 instructions) **but
+   slightly hurts on LRAT** (+6.3% runtime when enabled, because GCM's aggressive instruction
+   sinking moves address computations across loop back-edges). This confirms plan section 6's
+   expectation: `Gcm` is low priority and should not be ported before `Isel` and oracle coalescing.
 
 ## Measurements
 
 - `lake build LeanQbe.Amd64.TargLemmas`: about 1.1 s. `Abi.lean` 0.6 s.
-- `TargLemmas.lean` 430 lines, of which the `Target` instance is about 70.
+- `Amd64/{Targ,TargLemmas,Isel,IselLemmas}.lean`: 101 + 425 + 240 + 750 lines (`Target` instance ~70 lines).
