@@ -29,6 +29,7 @@ replayed rather than rebuilt (166 jobs, 0.15 s).
 | K0 | `ae789b6` | worktrees created, builds clean |
 | K1 | `1fc7dfb` | x64 generic lemmas from Spike K (below) |
 | K2 | `4952311` | AArch64 counterparts (below) |
+| K2+ | `d0d005e` | `Host.label_undefined` (undefined labels resolve to -1), x64 and AArch64 |
 
 ## K1: x64 lemmas (commit `1fc7dfb`)
 
@@ -75,6 +76,41 @@ Note: with expected type `Kraken.Directive Instr` (e.g. the parser's output type
 `.bTo` etc. do not resolve; write `Directive.bTo`. With expected type `Directive` (e.g. `Host.prog[i]?`)
 they do.
 
+## Arm64: the AArch64 `Target` instance (plan step 2d), lean-qbe commits `76a9d73`, `86d31fb`
+
+`LeanQbe.Arm64.target : Target` implements Target **v1** (abi's 4684edf: op/load/store snippets, jnz on
+`Truthy`, frames, calls, tail jumps) on Kraken AArch64, with no `sorry` and standard axioms only.
+`timeout 900 lake build --wfail LeanQbeArm64` builds it.
+
+| File | Content |
+|---|---|
+| `Arm64/Targ.lean` | registers (`XRegOrSp`), register sets, `mov` (= `add rd, rs, #0`, valid for `sp`), `movi` (literal pool `ldr x, =c`), `jmp` (`b`), `jnz` (`cbnz w_r`, i.e. QBE's low-32-bit test), `ret`, frame snippets |
+| `Arm64/Isel.lean` | `op`, `load`, `store` snippets and `isa`. Class `w` ops use the 32-bit instruction forms, which match QBE's `lo32`/`zext32` exactly; immediates go to x16/x17 |
+| `Arm64/TargLemmas.lean` | `Runs c s s'` (straight-line code falls through from `s` to `s'` in every host) with `nil/append/single/cons`; moves, constants, operands, loads and stores at every width/sign/class, `jmp`, `jnz`, `ret` |
+| `Arm64/IselLemmas.lean` | `op_runs` for every `bin`/`cmp`/`ext`/`copy` at both classes (written by helper `arm64-isel`) |
+| `Arm64/FrameLemmas.lean` | `sub/add sp`, `str/ldr [sp, #o]` with the alignment check, prologue, epilogue, slots, `bl`, `b` |
+| `Arm64/Abi.lean` | the instance |
+| `Arm64/Tracer.lean` | the tracer through `lowerFn_correct`: lowers to `add x0,x0,x1; str x0,[x2]; ret` by `rfl`; `tracer_correct` (Kraken AArch64 notions only, any host containing the code with unique labels) and `tracer_nonvacuous` (a concrete state meeting every premise) |
+
+Register roles: scratch x16/x17; allocatable x0-x15; arguments x0-x7; results x0/x1; callee-saved
+x19-x29; return address in x30 (`raRegs = [x30]`, `raBytes = 0`, `RetAddr` = empty region); x18 unused.
+Frame: `frameSize ns = 8ns+8` rounded up to 16; `sub sp,sp,#F; str x30,[sp,#8ns]` and the mirror
+image; `Saved` = the saved-x30 word plus padding.
+
+Executed: the printed tracer assembly assembles with `aarch64-linux-gnu-gcc` and returns the right sum
+and stores it, for 5 vectors under `qemu-aarch64` (harness in my scratch folder, `arm64run/`).
+
+Findings:
+
+- `bv_decide` adds `Lean.ofReduceBool`; all bit-level facts are proved with `ext` + `simp` + `omega`
+  instead. 64-bit constants via `movz`/`movk` needed mask reasoning; the literal pool (`ldr x, =c`,
+  which Kraken models as returning `c`) avoids it and is one instruction.
+- Kraken faults (`unaligned_sp`) on `sp`-based accesses when `sp % 16 ≠ 0`; Target v1 got `spOk` for this.
+- `prologue_spec` needs `frameSize ns ≤ 2^64` to split the frame region; Target v1 got that premise.
+- Known limits (assembly-time, loud): frames ≥ 4096 bytes (`sub sp` immediate), and branch ranges.
+- `⋆` is left-associative (`p ⋆ q ⋆ r = (p ⋆ q) ⋆ r`); `ac_rfl` works for rearranging.
+
 ## Next
 
-- Then `LeanQbe/Arm64/` (the AArch64 `Target` instance, plan step 2d).
+- Use the Arm64 target for more of rega's litmus programs (control flow, frames, calls) once they
+  are generic in the target.
