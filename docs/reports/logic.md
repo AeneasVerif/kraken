@@ -8,7 +8,7 @@ Owner: `logic`. Files: `LeanQbe/Logic/{Mem,MemLemmas,Rules}.lean`, `LeanQbe/Nota
 | Milestone | State |
 |---|---|
 | L1 notation + logic | done: builds with `--wfail`, no `sorry` |
-| L3 RUP check (step 7 pulled forward) | done, proof complete, spec awaiting review: `checkRup` = Kraken's `br_check_clause_non_strictly_by_propagation` in QBE notation, proved against the Bedrock2 spec; non-vacuity; `Func.Wf` |
+| L3 RUP check (step 7 pulled forward) | done, spec accepted by reviewer (#104): `checkRup` = Kraken's `br_check_clause_non_strictly_by_propagation` in QBE notation, proved against the Bedrock2 spec; non-vacuity; `Func.Wf` |
 | L2 union-find | done, specs accepted by reviewer (#34): `find` (path halving, a join-point loop), `union` (calls `$find`), `unionInline` (macro), total correctness against a functional model, non-vacuity (`uf_init`, `find_nonvacuous`, `union_nonvacuous`, `merge_init_1_2`), `Func.Wf` for all three |
 
 Axioms of `find_correct`, `union_correct`, `unionInline_correct`, `union_nonvacuous`, `wp_loop`:
@@ -130,12 +130,19 @@ and `checkRup_nonvacuous`: the standard three. `checkRup_wf` uses no axioms.
 | phase 2 outer loop | ≈ 200 | 80 |
 | main theorem | ≈ 220 | 73 |
 | state predicate `PState`, misc | | 28 |
-| non-vacuity (concrete memory) | none | 104 |
+| non-vacuity (concrete memory) + accepts-tautology | none | 104 + 75 |
 | **total** | **1347** | **725** (620 without non-vacuity) |
 | check time (wall / user, this machine) | 3.7 s / 9.6 s | 1.75 s / 5.1 s |
 
 The program-specific proof is about 45 % of Bedrock2's. Bedrock2's figure is 1347 − 220 reused lines;
 ours is 620 − 107 lines of bridging.
+
+**Inherited weakness, and a completeness data point.** As the reviewer noted (#104), the spec,
+like Bedrock2's, is also met by a function that always exits to `lrat_fail`, so it does not show that
+valid clauses are accepted. `checkRup_accepts_tautology` is a first data point the other way, and
+Bedrock2's development has none. On the tautology `[1, -1]` in concrete memory, `checkRup` returns
+with exit postcondition `False`, so it provably does not fail. The proof (≈ 75 lines) reuses the
+loop lemmas and makes `@fail` and `@ph2` unreachable (no assignment falsifies a tautology).
 
 **What was easier, and why.**
 1. *No locals.* Every Bedrock2 loop invariant carries 5 to 10 `l'["x"]? = some v` facts plus an
