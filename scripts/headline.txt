@@ -12,3 +12,8 @@ spike.il.Smoke LeanQbe.Smoke.tracer_correct
 spike.il.Smoke LeanQbe.Smoke.tracer_wf
 spike.il.Smoke LeanQbe.Smoke.evenOdd_correct
 spike.il.Smoke LeanQbe.Smoke.caller_correct
+LeanQbe.Amd64.TargLemmas LeanQbe.Amd64.target
+LeanQbe.Examples.UnionFindLemmas LeanQbe.UnionFind.find_correct
+LeanQbe.Examples.UnionFindLemmas LeanQbe.UnionFind.union_correct
+LeanQbe.Examples.UnionFindLemmas LeanQbe.UnionFind.unionInline_correct
+LeanQbe.Examples.UnionFindLemmas LeanQbe.UnionFind.union_nonvacuous
