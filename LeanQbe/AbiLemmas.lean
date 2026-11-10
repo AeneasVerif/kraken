@@ -134,6 +134,48 @@ theorem storeMem_frame {m M : Mem 64} {F : Mem 64 → Prop} (hM : (Eq m ⋆ F) M
   have hmap := fun j (hj : j < sz.bytes) => Mem.mem_of_loadBytes hbs hj
   cases sz <;> exact Mem.storeInt_frame hM hmap _
 
+/-! ## Regions and words -/
+
+/-- The 8 bytes at `a` hold `v` (little endian), as an x64 or AArch64 64-bit store leaves them. -/
+def word (a v : Val) : Mem 64 → Prop := Eq ((Int.toBytes 8 v.toInt).At a)
+
+theorem word_region {a v : Val} {f : Mem 64} (h : word a v f) : region a 8 f :=
+  ⟨Int.toBytes 8 v.toInt, Int.toBytes_length _ _, h.symm⟩
+
+/-- A region in a separating conjunction has concrete bytes. -/
+theorem region_sep_elim {a : BitVec 64} {n : Nat} {F : Mem 64 → Prop} {M : Mem 64}
+    (h : (region a n ⋆ F) M) : ∃ bs : List UInt8, bs.length = n ∧ (Eq (bs.At a) ⋆ F) M := by
+  obtain ⟨f1, f2, hu, hd, ⟨bs, hl, rfl⟩, hF⟩ := h
+  exact ⟨bs, hl, _, f2, hu, hd, rfl, hF⟩
+
+theorem region_split {a : BitVec 64} {n1 n2 : Nat} (h : n1 + n2 ≤ 2 ^ 64) :
+    region a (n1 + n2) = region a n1 ⋆ region (a + BitVec.ofNat 64 n1) n2 := by
+  funext f
+  apply propext
+  constructor
+  · rintro ⟨bs, hl, rfl⟩
+    have e := Mem.At_append_sep (bs.take n1) (bs.drop n1) a (by simp; omega)
+    rw [List.take_append_drop, List.length_take, Nat.min_eq_left (by omega)] at e
+    obtain ⟨f1, f2, hu, hd, h1, h2⟩ := (congrFun e (bs.At a)).mp rfl
+    exact ⟨f1, f2, hu, hd, ⟨_, by simp; omega, h1.symm⟩, ⟨_, by simp; omega, h2.symm⟩⟩
+  · rintro ⟨f1, f2, hu, hd, ⟨bs1, hl1, rfl⟩, ⟨bs2, hl2, rfl⟩⟩
+    have e := Mem.At_append_sep bs1 bs2 a (by omega)
+    rw [hl1] at e
+    exact ⟨bs1 ++ bs2, by simp; omega, ((congrFun e f).mpr ⟨_, _, hu, hd, rfl, rfl⟩).symm⟩
+
+theorem region_zero {a : BitVec 64} : region a 0 = ExtHashMap.emp := by
+  funext f
+  apply propext
+  constructor
+  · rintro ⟨bs, hl, rfl⟩
+    rw [List.length_eq_zero_iff] at hl
+    subst hl
+    simp [ExtHashMap.emp, List.At]
+  · intro hf
+    refine ⟨[], rfl, ?_⟩
+    simp [ExtHashMap.emp] at hf
+    simp [hf, List.At]
+
 /-! ## Stack footprints -/
 
 namespace Target
