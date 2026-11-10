@@ -2,12 +2,12 @@ import LeanQbeArm64
 import LeanQbe.Main
 import LeanQbe.Print
 import LeanQbe.Examples.LitmusProgs
+import LeanQbe.Examples.LratTrim
 
 /-!
-AArch64 assembly and QBE IL emitter for the litmus and union-find programs (not a module; run with
-`lake env lean --run test/arm64/Emit.lean [--il] <name>`). Compiles with `compileFn Arm64.isa` (or
-`compile Arm64.isa` for multi-function targets like `unionfind`) and prints with Kraken's AArch64
-printer.
+AArch64 assembly and QBE IL emitter for the litmus, union-find, and LRAT-trim programs (not a
+module; run with `lake env lean --run test/arm64/Emit.lean [--il] <name>`). Compiles with
+`compile Arm64.isa` and prints with Kraken's AArch64 printer.
 -/
 
 open LeanQbe
@@ -19,7 +19,13 @@ def suites : List (String × List Fn) :=
    ("evenodd", [Litmus.evenodd]),
    ("nested", [Litmus.nested]),
    ("swap", [Litmus.swap]),
-   ("unionfind", [Arm64.UnionFind.findFn, Arm64.UnionFind.unionInlineFn])]
+   ("spill10", [Litmus.spill10]),
+   ("callinc", [Litmus.inc, Litmus.callinc]),
+   ("twice", [Litmus.check, Litmus.twice]),
+   ("sumcall", [Litmus.inc, Litmus.sumcall]),
+   ("uf", [Arm64.UnionFind.findFn, Arm64.UnionFind.unionFn]),
+   ("unionfind", [Arm64.UnionFind.findFn, Arm64.UnionFind.unionInlineFn]),
+   ("lrat_trim", LratTrim.lratTrimFns)]
 
 def emitAsm (fs : List Fn) (code : List Arm64.isa.Directive) : String :=
   let hdr := ".text\n" ++ String.join (fs.map fun f => s!".globl {f.name}\n") ++ ".p2align 2\n"

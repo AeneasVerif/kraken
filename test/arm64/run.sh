@@ -11,7 +11,7 @@ cd "$ROOT"
 OUT="${OUT:-$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-arm64.XXXXXX")}"
 CC="${CC_AARCH64:-aarch64-linux-gnu-gcc}"
 RUN="qemu-aarch64 -L /usr/aarch64-linux-gnu"
-timeout 1800 lake build LeanQbeArm64 LeanQbe.Main LeanQbe.Print LeanQbe.Examples.LitmusProgs >"$OUT/build.log" 2>&1 || { tail -20 "$OUT/build.log"; exit 1; }
+timeout 1800 lake build LeanQbeArm64 LeanQbe.Main LeanQbe.Print LeanQbe.Examples.LitmusProgs LeanQbe.Examples.LratTrim >"$OUT/build.log" 2>&1 || { tail -20 "$OUT/build.log"; exit 1; }
 if [ -z "${NOQBE:-}" ] && [ -z "${QBE:-}" ]; then
   QBE_SRC="${QBE_SRC:-/usr/local/google/home/andreser/lean-qbe/qbe}"
   rm -rf "$OUT/qbe-src" && cp -r "$QBE_SRC" "$OUT/qbe-src"
