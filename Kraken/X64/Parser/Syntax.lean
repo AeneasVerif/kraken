@@ -250,6 +250,10 @@ syntax_affixed (suffixes := cc) "cmov" : x64_cmov_op
 declare_syntax_cat x64_unary_op (behavior := both)
 /-- Unsigned multiply (`%rdx:%rax ← %rax * src`). -/
 syntax_affixed (suffixes := bwlq) "mul" : x64_unary_op
+/-- Unsigned divide (`%rax ← %rdx:%rax / src`, `%rdx ← %rdx:%rax % src`). -/
+syntax_affixed (suffixes := bwlq) "div" : x64_unary_op
+/-- Signed divide (`%rax ← %rdx:%rax / src`, `%rdx ← %rdx:%rax % src`, rounding towards zero). -/
+syntax_affixed (suffixes := bwlq) "idiv" : x64_unary_op
 /-- Two's complement negation (`dst ← -dst`). -/
 syntax_affixed (suffixes := bwlq) "neg" : x64_unary_op
 /-- Decrement by 1 (`dst ← dst - 1`). -/

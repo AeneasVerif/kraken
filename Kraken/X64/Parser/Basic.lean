@@ -754,6 +754,16 @@ def parseInstr : Parser Instr := do
       let (addr_w, src) ← parseRegOrMemAO w
       pure (toInstr addr_w (.imul1 src))
     )
+  | "div" | "idiv" =>
+    let ( addr_w, src ) ← parseRegOrMem
+    let ⟨ _w, src ⟩ ← assertW src
+    pure (toInstr addr_w (if mn == "div" then .div src else .idiv src))
+
+  | "divq" | "divl" | "divw" | "divb" | "idivq" | "idivl" | "idivw" | "idivb" =>
+    let w ← instrWidth mn
+    let ( addr_w, src ) ← parseRegOrMemAO w
+    pure (toInstr addr_w (if mn.startsWith "div" then .div src else .idiv src))
+
   | "neg" =>
     let ( addr_w, dst) ← parseRegOrMem
     let ⟨ _w, dst ⟩ ← assertW dst
