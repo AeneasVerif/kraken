@@ -738,3 +738,81 @@ end
 #print axioms lower_correct
 
 end RegaSkel
+
+/-! ## Concrete toy instance (trivial semantics) and the even/odd group -/
+
+namespace RegaSkel
+namespace Toy
+
+deriving instance Repr for Op
+
+inductive Dir
+  | label (s : String)
+  | jmp (s : String)
+  | mov (d r : Nat)
+  | op (o : Op Nat) (d : Nat)
+  | store (a v : Nat)
+  | jz (r : Nat) (s : String)
+  | ret
+  deriving Repr
+
+def toy : Target where
+  Reg := Nat
+  Dir := Dir
+  MData := Unit
+  get _ _ := 0
+  mem _ _ := none
+  alloc := [0, 1, 2, 3, 4, 5, 6, 7]
+  scratch := [8]
+  resRegs := [0]
+  argRegs := [0]
+  Host := Unit
+  prog _ := []
+  Ev _ _ _ _ := True
+  label := Dir.label
+  jmp := Dir.jmp
+  movS d r := [Dir.mov d r]
+  opS o d := [Dir.op o d]
+  storeS a v := [Dir.store a v]
+  jzS r l := [Dir.jz r l]
+  retS := [Dir.ret]
+  ev_label := by intros; trivial
+  ev_jmp := by intros; trivial
+  ev_mov := by intros; trivial
+  ev_op := by intros; trivial
+  ev_store := by intros; trivial
+  ev_jz := by intros; trivial
+  ev_ret := by intros; trivial
+
+/-- Every variable in its own register; every label entered with `zero one m1` live in
+`r1 r2 r3` and its parameter in `r4`. -/
+def hints : Hints toy where
+  dest v := some v
+  entry _ := ⟨[(1, (1 : Nat)), (2, (2 : Nat)), (3, (3 : Nat))], [(4 : Nat)]⟩
+
+def evenOdd (V L : Type) : Expr V L :=
+  .param fun n =>
+  .let_ (.const 0) fun zero =>
+  .let_ (.const 1) fun one =>
+  .let_ (.const (-1)) fun m1 =>
+  .label fun even => .label fun odd =>
+  .block (.param fun x => .jnz x (.let_ (.add x m1) fun x' => .jump odd [x']) (.ret [one]))
+  (.block (.param fun x => .jnz x (.let_ (.add x m1) fun x' => .jump even [x']) (.ret [zero]))
+  (.jump even [n]))
+
+open Dir in
+/-- Expected output (from `#eval`). Labels are written `lname k` so that `rfl` never has to
+compute with `String`. -/
+def evenOddCode : List toy.Dir :=
+  [op (.const 0) 1, op (.const 1) 2, op (.const (-1)) 3, mov 4 0, jmp (lname 0),
+   label (lname 1), jz 4 (lname 2), op (.add 4 3) 5, mov 4 5, jmp (lname 0),
+   label (lname 2), mov 0 1, ret,
+   label (lname 0), jz 4 (lname 3), op (.add 4 3) 7, mov 4 7, jmp (lname 1),
+   label (lname 3), mov 0 2, ret]
+
+theorem evenOdd_lower :
+    lower hints (evenOdd Nat Nat) ⟨0, 0, [], toy.argRegs, []⟩ = .ok (evenOddCode, 8, 4) := by
+  rfl
+
+end Toy
+end RegaSkel
