@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.Arm64.TargLemmas
 public import LeanQbe.AbiLemmas
+import Kraken.AArch64.Parser
 
 /-!
 # AArch64 frame lemmas (Target v1): prologue, epilogue, slots, call, tail jump
@@ -300,5 +301,19 @@ theorem eventually_tailJmp {k : Nat} {sym : Label} {s : MachineData}
   exact hk
 
 end
+
+section ParserChecks
+open Kraken.AArch64.Parser
+
+example : prologue 1 = parseAArch64("sub sp, sp, #16
+str x30, [sp, #8]") := rfl
+example : epilogue 1 = parseAArch64("ldr x30, [sp, #8]
+add sp, sp, #16") := rfl
+example : slotSt 0 (.reg .X3) = parseAArch64("str x3, [sp]") := rfl
+example : slotLd (.reg .X3) 0 = parseAArch64("ldr x3, [sp]") := rfl
+example : call "f" = parseAArch64("bl f") := rfl
+example : tailJmp "f" = parseAArch64("b f") := rfl
+
+end ParserChecks
 
 end LeanQbe.Arm64
