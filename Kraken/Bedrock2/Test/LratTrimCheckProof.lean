@@ -1,6 +1,7 @@
 module
 
 public import Kraken.Bedrock2.Test.LratTrimSpec
+public import Kraken.Bedrock2.Test.LratTrimRupProof
 import Std.Tactic.BVDecide
 meta import Std.Tactic.BVDecide.Reflect
 import all Std.Sat.CNF.Entails
@@ -633,14 +634,14 @@ theorem br_check_proof_loop_ok {e : Env} {B : Nat} {t₀ : Trace 64} {m₀ : Mem
           refine Exec.seq_cps ?_
           refine Exec.set_cps (v := litsPtrs[id.toNat]) ?_ ?_
           · refine eval_load_word8Array_elem hid_lits ?_ hm_lits
-            simp [Expr.eval, hlitsb, hid, slu_three_eq_ofNat hid_lt31, interpBinop]
+            simp [Expr.eval, hlitsb, hid, interpBinop]
           let l_l := l1.insert "l" litsPtrs[id.toNat]
           -- a = load8(antecedents_begin + (id << 3))
           obtain ⟨R_ante, hm_ante⟩ := sep_focus_4 hm_sep
           refine Exec.seq_cps ?_
           refine Exec.set_cps (v := antePtrs[id.toNat]) ?_ ?_
           · refine eval_load_word8Array_elem hid_ante ?_ hm_ante
-            simp [Expr.eval, hanteb, hid, slu_three_eq_ofNat hid_lt31, interpBinop]
+            simp [Expr.eval, hanteb, hid, interpBinop]
           let l_a := l_l.insert "a" antePtrs[id.toNat]
           -- br_check_clause(st, id, l, a)
           have hargs : evalArgs m l_a [.var "st", .var "id", .var "l", .var "a"] =
@@ -1070,5 +1071,253 @@ theorem br_check_proof_run_unsat {e : Env} {B : Nat} {t₀ t' : Trace 64} {m₀ 
   obtain ⟨rets, _, hp, _, hunsat⟩ :=
     run_body_of_call (Handler.ok_none lratFailExt) hcall hfn hlf hrun
   exact ⟨hp, hunsat⟩
+
+/-! ## 6. Option A Integration: End-to-End Non-Strict (RUP) Soundness (`strict = 0`) -/
+
+theorem sep_rearrange_clause (RW KS Z RL : Mem 64 → Prop) :
+    (RW ⋆ (KS ⋆ (Z ⋆ RL))) = (KS ⋆ (Z ⋆ (RW ⋆ RL))) := by
+  rw [sep_comm_l RW KS (Z ⋆ RL), sep_comm_l RW Z RL]
+
+theorem sep_rearrange_arrays (RW KS U L A R : Mem 64 → Prop) :
+    (RW ⋆ (KS ⋆ (U ⋆ (L ⋆ (A ⋆ R))))) = (KS ⋆ (U ⋆ (L ⋆ (A ⋆ (RW ⋆ R))))) := by
+  rw [sep_comm_l RW KS, sep_comm_l RW U, sep_comm_l RW L, sep_comm_l RW A]
+
+/-- Concrete `call` specification for `br_check_clause` in non-strict mode (`k.strict = 0`),
+combining `call_br_check_clause_zeroTerm` and `br_check_clause_non_strictly_by_propagation_ok`. -/
+theorem call_br_check_clause_rup {e : Env} {B : Nat} {t : Trace 64} {m : Mem 64}
+    {post : Trace 64 → Mem 64 → List (BitVec 64) → Prop}
+    {max_var : Nat} {st id literals antecedents : BitVec 64}
+    {k : KernelFields} {lits aids lit_ptrs trail_free0 : List (BitVec 64)}
+    {s : State} {P_ro : Mem 64 → Prop}
+    (hfn_clause : e.lookup br_check_clause.1 = some br_check_clause.2)
+    (hfn_rup : e.lookup br_check_clause_non_strictly_by_propagation.1 =
+      some br_check_clause_non_strictly_by_propagation.2)
+    (hstrict0 : k.strict = 0)
+    (hk_trail : k.trail_end = k.trail_begin)
+    (hct : ClauseTable max_var k.literals_begin lit_ptrs s.formula P_ro)
+    (hlits_ro : ∃ R_lits, P_ro = (ZeroTermInts literals lits ⋆ R_lits))
+    (haids_ro : ∃ R_aids, P_ro = (ZeroTermInts antecedents aids ⋆ R_aids))
+    (hlits_valid : ∀ x ∈ lits, IsValidLit max_var x)
+    (haids_valid : ∀ aid ∈ aids, IsInt32 aid ∧ aid ≠ 0 ∧
+      (aid.slt 0 = false → ∃ h : aid.toNat < lit_ptrs.length, lit_ptrs[aid.toNat] ≠ 0))
+    (hcap : lits.length + aids.length ≤ trail_free0.length)
+    (htrail_len : 4 * trail_free0.length < 2 ^ 64)
+    (hsep : m =⋆ (byte1Array k.values_begin (assignBytes max_var Assignment.empty) ⋆
+        int4Array k.trail_begin trail_free0) ⋆
+      (kernelState st k ⋆ P_ro))
+    (hpost : ∀ m' (stat_resolved stat_lit_assigned : BitVec 64)
+        (trail_all : List (BitVec 64)),
+      trail_all.length = trail_free0.length →
+      (m' =⋆ (byte1Array k.values_begin (assignBytes max_var Assignment.empty) ⋆
+          int4Array k.trail_begin trail_all) ⋆
+        (kernelState st
+          { (k.bumpCheckStats ((lits ++ [0])[0]'(by simp))) with
+            trail_end := k.trail_begin
+            stat_resolved := stat_resolved
+            stat_lit_assigned := stat_lit_assigned } ⋆ P_ro)) →
+      CNF.EntailsClause s.toCNF (toClause lits) →
+      post t m' []) :
+    call lratFailExt e B br_check_clause.1 t m [st, id, literals, antecedents] post := by
+  obtain ⟨R_lits, hP_lits⟩ := hlits_ro
+  have hsep_z : m =⋆ kernelState st k ⋆
+      (ZeroTermInts literals lits ⋆
+        ((byte1Array k.values_begin (assignBytes max_var Assignment.empty) ⋆
+          int4Array k.trail_begin trail_free0) ⋆ R_lits)) := by
+    have h := hsep
+    rw [hP_lits, sep_rearrange_clause] at h
+    exact h
+  refine call_br_check_clause_zeroTerm hfn_clause hsep_z (fun m₁ hm₁ => ?_)
+  rw [ite_eq_left hstrict0]
+  let k1 := k.bumpCheckStats ((lits ++ [0])[0]'(by simp))
+  have hm₁_rup : m₁ =⋆ (byte1Array k1.values_begin (assignBytes max_var Assignment.empty) ⋆
+      int4Array k1.trail_begin trail_free0) ⋆
+    (kernelState st k1 ⋆ P_ro) := by
+    have h := hm₁
+    rw [← sep_rearrange_clause, ← hP_lits] at h
+    exact h
+  exact br_check_clause_non_strictly_by_propagation_ok (k := k1) hfn_rup hk_trail hct
+    ⟨R_lits, hP_lits⟩ haids_ro hlits_valid haids_valid hcap htrail_len hm₁_rup
+    (fun m' sr sla trail_all hlen hm' hent => ⟨rfl, hpost m' sr sla trail_all hlen hm' hent⟩)
+
+/-- Memory invariant maintained across iterations of `br_check_proof` in RUP mode (`strict = 0`). -/
+def RupMemInv (max_var trail_cap : Nat) (st : BitVec 64) (k₀ : KernelFields)
+    (P_ro : Mem 64 → Prop) (k : KernelFields) (m : Mem 64) : Prop :=
+  k.SameConfig k₀ ∧
+  k.trail_end = k₀.trail_begin ∧
+  ∃ trail_free : List (BitVec 64),
+    trail_free.length = trail_cap ∧
+    (m =⋆ (byte1Array k₀.values_begin (assignBytes max_var Assignment.empty) ⋆
+        int4Array k₀.trail_begin trail_free) ⋆
+      (kernelState st k ⋆ P_ro))
+
+/-- End-to-end `call` soundness theorem for `br_check_proof` in Option A (`k₀.strict = 0`),
+connecting `br_check_proof`, `br_check_clause`, and `br_check_clause_non_strictly_by_propagation_ok`
+to `Std.Sat.CNF.Unsat cnf₀`. -/
+theorem call_br_check_proof_rup {e : Env} {B : Nat} {t₀ : Trace 64} {m₀ : Mem 64}
+    {max_var : Nat} {st : BitVec 64} {k₀ : KernelFields}
+    {usedWords litsPtrs antePtrs trail_free0 : List (BitVec 64)}
+    {cnf₀ : CNF Nat} {clauses : List (CNF.Clause Nat)}
+    {litsTable anteTable : List (List (BitVec 64))}
+    {P_ro : Mem 64 → Prop}
+    (hfn_proof : e.lookup br_check_proof.1 = some br_check_proof.2)
+    (hfn_clause : e.lookup br_check_clause.1 = some br_check_clause.2)
+    (hfn_rup : e.lookup br_check_clause_non_strictly_by_propagation.1 =
+      some br_check_clause_non_strictly_by_propagation.2)
+    (hstrict0 : k₀.strict = 0)
+    (hchecking : k₀.checking ≠ 0)
+    (hforward : k₀.forward = 0)
+    (hk_trail : k₀.trail_end = k₀.trail_begin)
+    (hfst_pos : 0 < k₀.first_proof_id.toNat)
+    (hfst_le : k₀.first_proof_id.toNat ≤ k₀.empty_clause.toNat)
+    (hemp_lt : k₀.empty_clause.toNat + 1 < 2 ^ 31)
+    (hused_len : k₀.empty_clause.toNat < usedWords.length)
+    (hused_int32 : ∀ i (hi : i < usedWords.length), IsInt32 usedWords[i])
+    (hlits_len : k₀.empty_clause.toNat < litsPtrs.length)
+    (hante_len : k₀.empty_clause.toNat < antePtrs.length)
+    (hempty_used : isStepUsed k₀.trimming usedWords k₀.empty_clause.toNat = true)
+    (hempty_clause : clauseAt clauses k₀.empty_clause.toNat = .empty)
+    (htrail_len : 4 * trail_free0.length < 2 ^ 64)
+    (hP_arrays : ∃ R_arr, P_ro = (int4Array k₀.used_begin usedWords ⋆
+      (word8Array k₀.literals_begin litsPtrs ⋆ (word8Array k₀.antecedents_begin antePtrs ⋆ R_arr))))
+    (hsep0 : m₀ =⋆ (byte1Array k₀.values_begin (assignBytes max_var Assignment.empty) ⋆
+        int4Array k₀.trail_begin trail_free0) ⋆
+      (kernelState st k₀ ⋆ P_ro))
+    (hsteps : ∀ (id : BitVec 64) (_hid_lo : k₀.first_proof_id.toNat ≤ id.toNat)
+        (hid_hi : id.toNat ≤ k₀.empty_clause.toNat),
+      isStepUsed k₀.trimming usedWords id.toNat = true →
+      let lits := litsTable.getD id.toNat []
+      let aids := anteTable.getD id.toNat []
+      let s := stateAt cnf₀ k₀.first_proof_id.toNat k₀.trimming usedWords clauses
+        (id.toNat - k₀.first_proof_id.toNat)
+      clauseAt clauses id.toNat = toClause lits ∧
+      ClauseTable max_var k₀.literals_begin (litsPtrs.take id.toNat) s.formula P_ro ∧
+      (∃ R_lits, P_ro = (ZeroTermInts (litsPtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hlits_len)) lits ⋆ R_lits)) ∧
+      (∃ R_aids, P_ro = (ZeroTermInts (antePtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hante_len)) aids ⋆ R_aids)) ∧
+      (∀ x ∈ lits, IsValidLit max_var x) ∧
+      (∀ aid ∈ aids, IsInt32 aid ∧ aid ≠ 0 ∧
+        (aid.slt 0 = false →
+          ∃ h : aid.toNat < (litsPtrs.take id.toNat).length, (litsPtrs.take id.toNat)[aid.toNat] ≠ 0)) ∧
+      lits.length + aids.length ≤ trail_free0.length) :
+    call lratFailExt e B br_check_proof.1 t₀ m₀ [st]
+      (fun t' m' rets =>
+        t' = t₀ ∧ rets = [] ∧
+        (∃ k', RupMemInv max_var trail_free0.length st k₀ P_ro k' m') ∧
+        cnf₀.Unsat) := by
+  refine call_br_check_proof_non_strict (litsTable := litsTable)
+    (InvMem := RupMemInv max_var trail_free0.length st k₀ P_ro)
+    hfn_proof hfn_clause hstrict0 hchecking hforward hfst_pos hfst_le hemp_lt
+    hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause
+    ⟨KernelFields.SameConfig.refl k₀, hk_trail, trail_free0, rfl, hsep0⟩ ?_ ?_
+  · rintro k m ⟨hcfg, _, trail_free, _, hm⟩
+    refine ⟨hcfg, ?_⟩
+    obtain ⟨R_arr, hP⟩ := hP_arrays
+    refine ⟨(byte1Array k₀.values_begin (assignBytes max_var Assignment.empty) ⋆
+        int4Array k₀.trail_begin trail_free) ⋆ R_arr, ?_⟩
+    have h := hm
+    rw [hP, sep_rearrange_arrays] at h
+    exact h
+  · intro id hid_lo hid_hi hused
+    obtain ⟨hc_eq, hct, ⟨R_lits, hP_lits⟩, haids_ro, hlits_valid, haids_valid, hcap⟩ :=
+      hsteps id hid_lo hid_hi hused
+    refine ⟨hc_eq, ?_⟩
+    rintro k m ⟨hcfg, hk_te, trail_free, htf_len, hm⟩
+    refine ⟨(byte1Array k₀.values_begin (assignBytes max_var Assignment.empty) ⋆
+        int4Array k₀.trail_begin trail_free) ⋆ R_lits, ?_, ?_⟩
+    · have h := hm
+      rw [hP_lits, sep_rearrange_clause] at h
+      exact h
+    · intro m₁ hm₁
+      let k1 := k.bumpCheckStats (((litsTable.getD id.toNat []) ++ [0])[0]'(by simp))
+      have hk1_cfg : k1.SameConfig k₀ := hcfg.bumpCheckStats _
+      have hk1_te : k1.trail_end = k1.trail_begin := by
+        show k.trail_end = k.trail_begin
+        rw [hk_te, hcfg.trail_begin]
+      have hm₁_rup : m₁ =⋆ (byte1Array k1.values_begin (assignBytes max_var Assignment.empty) ⋆
+          int4Array k1.trail_begin trail_free) ⋆
+        (kernelState st k1 ⋆ P_ro) := by
+        have h := hm₁
+        rw [← sep_rearrange_clause, ← hP_lits, ← hk1_cfg.values_begin, ← hk1_cfg.trail_begin] at h
+        exact h
+      have hct1 : ClauseTable max_var k1.literals_begin (litsPtrs.take id.toNat)
+          (stateAt cnf₀ k₀.first_proof_id.toNat k₀.trimming usedWords clauses
+            (id.toNat - k₀.first_proof_id.toNat)).formula P_ro := by
+        rwa [hk1_cfg.literals_begin]
+      refine br_check_clause_non_strictly_by_propagation_ok hfn_rup hk1_te hct1
+        ⟨R_lits, hP_lits⟩ haids_ro hlits_valid haids_valid
+        (htf_len ▸ hcap) (htf_len ▸ htrail_len) hm₁_rup ?_
+      intro m' sr sla trail_all hlen_all hm' hent_cl
+      let k' : KernelFields :=
+        { k1 with
+          trail_end := k1.trail_begin
+          stat_resolved := sr
+          stat_lit_assigned := sla }
+      have hk'_cfg : k'.SameConfig k₀ :=
+        ⟨hk1_cfg.1, hk1_cfg.2, hk1_cfg.3, hk1_cfg.4, hk1_cfg.5, hk1_cfg.6, hk1_cfg.7,
+         hk1_cfg.8, hk1_cfg.9, hk1_cfg.10, hk1_cfg.11, hk1_cfg.12, hk1_cfg.13⟩
+      change m' =⋆ (byte1Array k1.values_begin (assignBytes max_var Assignment.empty) ⋆
+          int4Array k1.trail_begin trail_all) ⋆
+        (kernelState st k' ⋆ P_ro) at hm'
+      rw [hk1_cfg.values_begin, hk1_cfg.trail_begin] at hm'
+      exact ⟨rfl, rfl, ⟨k', hk'_cfg, hk1_cfg.trail_begin, trail_all, hlen_all.trans htf_len, hm'⟩, hent_cl⟩
+
+/-- End-to-end `Interp.run` soundness corollary for Option A (`k₀.strict = 0`):
+any terminating execution of `br_check_proof` (under the standard handler that rejects `lrat_fail`)
+guarantees `cnf₀.Unsat` (`Std.Sat.CNF.Unsat cnf₀`). -/
+theorem br_check_proof_rup_run_unsat {e : Env} {t₀ t' : Trace 64} {m₀ m' : Mem 64}
+    {max_var : Nat} {st : BitVec 64} {k₀ : KernelFields}
+    {usedWords litsPtrs antePtrs trail_free0 : List (BitVec 64)}
+    {cnf₀ : CNF Nat} {clauses : List (CNF.Clause Nat)}
+    {litsTable anteTable : List (List (BitVec 64))}
+    {P_ro : Mem 64 → Prop}
+    {lf l' : Locals 64} {fill : UInt8} {fuel : Nat} {o o' : List (BitVec 64)}
+    (hfn_proof : e.lookup br_check_proof.1 = some br_check_proof.2)
+    (hfn_clause : e.lookup br_check_clause.1 = some br_check_clause.2)
+    (hfn_rup : e.lookup br_check_clause_non_strictly_by_propagation.1 =
+      some br_check_clause_non_strictly_by_propagation.2)
+    (hstrict0 : k₀.strict = 0)
+    (hchecking : k₀.checking ≠ 0)
+    (hforward : k₀.forward = 0)
+    (hk_trail : k₀.trail_end = k₀.trail_begin)
+    (hfst_pos : 0 < k₀.first_proof_id.toNat)
+    (hfst_le : k₀.first_proof_id.toNat ≤ k₀.empty_clause.toNat)
+    (hemp_lt : k₀.empty_clause.toNat + 1 < 2 ^ 31)
+    (hused_len : k₀.empty_clause.toNat < usedWords.length)
+    (hused_int32 : ∀ i (hi : i < usedWords.length), IsInt32 usedWords[i])
+    (hlits_len : k₀.empty_clause.toNat < litsPtrs.length)
+    (hante_len : k₀.empty_clause.toNat < antePtrs.length)
+    (hempty_used : isStepUsed k₀.trimming usedWords k₀.empty_clause.toNat = true)
+    (hempty_clause : clauseAt clauses k₀.empty_clause.toNat = .empty)
+    (htrail_len : 4 * trail_free0.length < 2 ^ 64)
+    (hP_arrays : ∃ R_arr, P_ro = (int4Array k₀.used_begin usedWords ⋆
+      (word8Array k₀.literals_begin litsPtrs ⋆ (word8Array k₀.antecedents_begin antePtrs ⋆ R_arr))))
+    (hsep0 : m₀ =⋆ (byte1Array k₀.values_begin (assignBytes max_var Assignment.empty) ⋆
+        int4Array k₀.trail_begin trail_free0) ⋆
+      (kernelState st k₀ ⋆ P_ro))
+    (hsteps : ∀ (id : BitVec 64) (_hid_lo : k₀.first_proof_id.toNat ≤ id.toNat)
+        (hid_hi : id.toNat ≤ k₀.empty_clause.toNat),
+      isStepUsed k₀.trimming usedWords id.toNat = true →
+      let lits := litsTable.getD id.toNat []
+      let aids := anteTable.getD id.toNat []
+      let s := stateAt cnf₀ k₀.first_proof_id.toNat k₀.trimming usedWords clauses
+        (id.toNat - k₀.first_proof_id.toNat)
+      clauseAt clauses id.toNat = toClause lits ∧
+      ClauseTable max_var k₀.literals_begin (litsPtrs.take id.toNat) s.formula P_ro ∧
+      (∃ R_lits, P_ro = (ZeroTermInts (litsPtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hlits_len)) lits ⋆ R_lits)) ∧
+      (∃ R_aids, P_ro = (ZeroTermInts (antePtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hante_len)) aids ⋆ R_aids)) ∧
+      (∀ x ∈ lits, IsValidLit max_var x) ∧
+      (∀ aid ∈ aids, IsInt32 aid ∧ aid ≠ 0 ∧
+        (aid.slt 0 = false →
+          ∃ h : aid.toNat < (litsPtrs.take id.toNat).length, (litsPtrs.take id.toNat)[aid.toNat] ≠ 0)) ∧
+      lits.length + aids.length ≤ trail_free0.length)
+    (hlf : putManyZip br_check_proof.2.params [st] ∅ = some lf)
+    (hrun : run e fill fuel br_check_proof.2.body t₀ m₀ lf o (fun _ _ _ _ => none) =
+      some (t', m', l', o')) :
+    cnf₀.Unsat := by
+  have hcall := call_br_check_proof_rup (B := 0) (t₀ := t₀) (litsTable := litsTable) (anteTable := anteTable)
+    hfn_proof hfn_clause hfn_rup hstrict0 hchecking hforward hk_trail hfst_pos hfst_le hemp_lt
+    hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause htrail_len hP_arrays hsep0 hsteps
+  obtain ⟨_, _, _, _, _, hunsat⟩ :=
+    run_body_of_call (Handler.ok_none lratFailExt) hcall hfn_proof hlf hrun
+  exact hunsat
 
 end Kraken.Bedrock2.Test
