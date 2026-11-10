@@ -48,3 +48,7 @@ LeanQbe.FlatLemmas LeanQbe.Func.wf_of_reify
 spike.il.ReifyTest LeanQbe.ReifyTest.evenOdd_wf'
 LeanQbe.Arm64.Litmus LeanQbe.Arm64.Litmus.sumto_correct
 LeanQbe.Arm64.Litmus LeanQbe.Arm64.Litmus.sumto_nonvacuous
+LeanQbe.Arm64.UnionFind LeanQbe.Arm64.UnionFind.find_arm64_correct
+LeanQbe.Arm64.UnionFind LeanQbe.Arm64.UnionFind.unionInline_arm64_correct
+LeanQbe.Arm64.UnionFind LeanQbe.Arm64.UnionFind.find_arm64_nonvacuous
+LeanQbe.Arm64.UnionFind LeanQbe.Arm64.UnionFind.unionInline_arm64_nonvacuous
