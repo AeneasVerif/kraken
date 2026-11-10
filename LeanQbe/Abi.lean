@@ -51,6 +51,9 @@ namespace LeanQbe
 def region (a : BitVec 64) (n : Nat) : Mem 64 → Prop :=
   fun f => ∃ bs : List UInt8, bs.length = n ∧ f = bs.At a
 
+/-- The 8 bytes at `a` hold `v` (little endian), as an x64 or AArch64 64-bit store leaves them. -/
+def word (a v : Val) : Mem 64 → Prop := Eq ((Int.toBytes 8 v.toInt).At a)
+
 /-- The executable part of a target: registers, register sets and snippets. -/
 structure Isa where
   /-- General-purpose registers. -/
@@ -88,6 +91,24 @@ structure Isa where
   jnz : Reg → String → List Directive
   /-- `ret`: return to the caller. -/
   ret : List Directive
+  /-- Registers the return-address convention uses besides memory (x64: none; AArch64: `x30`).
+  Never allocated, never argument, result or callee-saved registers. -/
+  raRegs : List Reg
+  /-- Bytes `prologue ns` allocates below the entry stack pointer, for `ns` spill slots. -/
+  frameSize : Nat → Nat
+  /-- Allocate a frame with `ns` slots; slot `i` is at `sp + 8 i` afterwards. Saves what the
+  return-address convention needs. -/
+  prologue : Nat → List Directive
+  /-- Free the frame of `prologue ns`, restoring what the return-address convention needs. -/
+  epilogue : Nat → List Directive
+  /-- `slotSt i r`: slot `i` := `r`. -/
+  slotSt : Nat → Reg → List Directive
+  /-- `slotLd rd i`: `rd` := slot `i`. -/
+  slotLd : Reg → Nat → List Directive
+  /-- `call sym`. -/
+  call : String → List Directive
+  /-- `tailJmp sym`: jump to the function `sym` (for `exit`). -/
+  tailJmp : String → List Directive
 
 attribute [instance] Isa.decEq
 
@@ -142,6 +163,13 @@ structure Target extends Isa where
   raReg : MData → Addr → Prop
   /-- Stack pointer condition on entry to a function (x64: `sp + 8 ≡ 0 mod 16`). -/
   spEntry : Val → Prop
+  /-- The frame overhead after `prologue ns` with entry stack pointer `sp`: what the
+  return-address convention keeps (x64: the return address above `sp`; AArch64: the saved `x30`)
+  and padding; everything of `RetAddr sp ra ⋆ region (sp - frameSize ns) (frameSize ns)` but the
+  slots. -/
+  Saved : Val → Addr → Nat → Mem 64 → Prop
+  /-- Stack pointer condition for stack accesses inside a frame (x64: `True`; AArch64: 16-aligned). -/
+  spOk : Val → Prop
 
   /- Register-set facts the generic proofs rely on. -/
   sp_not_scratch : sp ∉ scratch
@@ -159,6 +187,21 @@ structure Target extends Isa where
   /-- The register part of the return address lives outside allocatable and scratch registers. -/
   raReg_congr : ∀ s s' ra, (∀ r, r ∉ allocatable → r ∉ scratch → get s' r = get s r) →
     raReg s ra → raReg s' ra
+  /-- The register part of the return address lives in `raRegs`. -/
+  raReg_of_raRegs : ∀ s s' ra, (∀ r, r ∈ raRegs → get s' r = get s r) → raReg s ra → raReg s' ra
+  raRegs_not_allocatable : ∀ r, r ∈ raRegs → r ∉ allocatable
+  raRegs_not_scratch : ∀ r, r ∈ raRegs → r ∉ scratch
+  raRegs_not_calleeSaved : ∀ r, r ∈ raRegs → r ∉ calleeSaved
+  raRegs_not_argRegs : ∀ r, r ∈ raRegs → r ∉ argRegs
+  raRegs_not_retRegs : ∀ r, r ∈ raRegs → r ∉ retRegs
+  sp_not_raRegs : sp ∉ raRegs
+  /-- The slots fit in the frame. -/
+  slots_le_frameSize : ∀ ns, 8 * ns ≤ frameSize ns
+  /-- Inside a frame the stack pointer is fine for stack accesses. -/
+  spOk_frame : ∀ sp ns, spEntry sp → spOk (sp - BitVec.ofNat 64 (frameSize ns))
+  /-- The frame keeps calls aligned. -/
+  spEntry_call : ∀ sp ns, spEntry sp →
+    spEntry (sp - BitVec.ofNat 64 (frameSize ns) - BitVec.ofNat 64 raBytes)
 
   /- Labels. -/
   /-- A label resolves to its first definition. -/
@@ -215,6 +258,58 @@ structure Target extends Isa where
       (Truthy (get s r) → Eventually (step h) post (mkState s' (addrOf h j))) ∧
       (¬ Truthy (get s r) →
         Eventually (step h) post (mkState s' (addrOf h (k + (jnz r l).length))))) →
+    Eventually (step h) post (mkState s (addrOf h k))
+  prologue_spec : ∀ {h : Host} {k ns : Nat} {s : MData} {ra : Addr} {G : Mem 64 → Prop}
+      {post : State → Prop},
+    (prologue ns).IsInfixAt (prog h) k → raReg s ra → spEntry (get s sp) →
+    frameSize ns + raBytes ≤ 2 ^ 64 →
+    (mem s =⋆ RetAddr (get s sp) ra ⋆
+      region (get s sp - BitVec.ofNat 64 (frameSize ns)) (frameSize ns) ⋆ G) →
+    (∀ s', get s' sp = get s sp - BitVec.ofNat 64 (frameSize ns) →
+      (∀ r, r ∉ sp :: raRegs ++ scratch → get s' r = get s r) →
+      (mem s' =⋆ Saved (get s sp) ra ns ⋆
+        region (get s sp - BitVec.ofNat 64 (frameSize ns)) (8 * ns) ⋆ G) →
+      Eventually (step h) post (mkState s' (addrOf h (k + (prologue ns).length)))) →
+    Eventually (step h) post (mkState s (addrOf h k))
+  epilogue_spec : ∀ {h : Host} {k ns : Nat} {s : MData} {ra : Addr} {G : Mem 64 → Prop}
+      {post : State → Prop},
+    (epilogue ns).IsInfixAt (prog h) k → spOk (get s sp) →
+    (mem s =⋆ Saved (get s sp + BitVec.ofNat 64 (frameSize ns)) ra ns ⋆ G) →
+    (∀ s', get s' sp = get s sp + BitVec.ofNat 64 (frameSize ns) → raReg s' ra →
+      (∀ r, r ∉ sp :: raRegs ++ scratch → get s' r = get s r) →
+      (mem s' =⋆ RetAddr (get s sp + BitVec.ofNat 64 (frameSize ns)) ra ⋆
+        region (get s sp + BitVec.ofNat 64 (8 * ns)) (frameSize ns - 8 * ns) ⋆ G) →
+      Eventually (step h) post (mkState s' (addrOf h (k + (epilogue ns).length)))) →
+    Eventually (step h) post (mkState s (addrOf h k))
+  slotSt_spec : ∀ {h : Host} {k i : Nat} {r : Reg} {s : MData} {G : Mem 64 → Prop}
+      {post : State → Prop},
+    (slotSt i r).IsInfixAt (prog h) k → r ∉ scratch → spOk (get s sp) →
+    (mem s =⋆ region (get s sp + BitVec.ofNat 64 (8 * i)) 8 ⋆ G) →
+    (∀ s', (∀ r, r ∉ scratch → get s' r = get s r) →
+      (mem s' =⋆ word (get s sp + BitVec.ofNat 64 (8 * i)) (get s r) ⋆ G) →
+      Eventually (step h) post (mkState s' (addrOf h (k + (slotSt i r).length)))) →
+    Eventually (step h) post (mkState s (addrOf h k))
+  slotLd_spec : ∀ {h : Host} {k i : Nat} {rd : Reg} {v : Val} {s : MData} {G : Mem 64 → Prop}
+      {post : State → Prop},
+    (slotLd rd i).IsInfixAt (prog h) k → spOk (get s sp) →
+    (mem s =⋆ word (get s sp + BitVec.ofNat 64 (8 * i)) v ⋆ G) →
+    (∀ s', get s' rd = v → (∀ r, r ∉ rd :: scratch → get s' r = get s r) → mem s' = mem s →
+      Eventually (step h) post (mkState s' (addrOf h (k + (slotLd rd i).length)))) →
+    Eventually (step h) post (mkState s (addrOf h k))
+  call_spec : ∀ {h : Host} {k : Nat} {sym : String} {s : MData} {G : Mem 64 → Prop}
+      {post : State → Prop},
+    (call sym).IsInfixAt (prog h) k →
+    (mem s =⋆ region (get s sp - BitVec.ofNat 64 raBytes) raBytes ⋆ G) →
+    (∀ s', get s' sp = get s sp - BitVec.ofNat 64 raBytes →
+      (∀ r, r ∉ sp :: raRegs ++ scratch → get s' r = get s r) →
+      raReg s' (addrOf h (k + (call sym).length)) →
+      (mem s' =⋆ RetAddr (get s' sp) (addrOf h (k + (call sym).length)) ⋆ G) →
+      Eventually (step h) post (mkState s' (labelAddr h sym))) →
+    Eventually (step h) post (mkState s (addrOf h k))
+  tailJmp_spec : ∀ {h : Host} {k : Nat} {sym : String} {s : MData} {post : State → Prop},
+    (tailJmp sym).IsInfixAt (prog h) k →
+    (∀ s', (∀ r, r ∉ scratch → get s' r = get s r) → mem s' = mem s →
+      Eventually (step h) post (mkState s' (labelAddr h sym))) →
     Eventually (step h) post (mkState s (addrOf h k))
   /-- `ret` with the return address `ra` where the convention keeps it (`RetAddr`, `raReg`). -/
   ret_spec : ∀ {h : Host} {k : Nat} {s : MData} {ra : Addr} {R : Mem 64 → Prop}
@@ -278,7 +373,7 @@ namespace Target
 variable (T : Target)
 
 /--
-Function contract, version 0 (plan section 2.4).
+Function contract, version 1 (plan section 2.4, settled in step 2b).
 
 In host `h`, the code at label `sym` implements `spec` using at most `n` bytes of stack below the
 entry stack pointer: for every call satisfying `spec`, from any machine data `s` with
@@ -293,11 +388,17 @@ execution starting at `sym` eventually either
 * reaches `ra` with results in the result registers, callee-saved registers and the stack pointer
   restored, and memory split into the new source memory `m'`, the same stack footprint (contents
   arbitrary), and the untouched frame `R`; or
-* reaches the label of an exit symbol `sym'` with its arguments in the argument registers, the
-  same memory split.
+* exits: reaches the label of a defined symbol `sym'` in a state from which `sym'` could be
+  *called*: arguments in the argument registers, an entry-aligned stack pointer, some return
+  address `ra'` where the convention keeps it, some stack region `Entry sp' ra' n'` below the stack
+  pointer, the new source memory `m'`, and the untouched frame `R` (plus some other memory `F`,
+  e.g. the frames of the functions the exit happened in). So an exit target can be given an
+  `FnSpec` itself (decision D5). An exit cannot be stated relative to the function's own entry
+  (same stack pointer and return address) because a callee's exit happens inside the caller's
+  frame.
 
-Open in version 0 (settled in step 2b): the stack pointer and alignment at an exit, more results
-than result registers, and how stack bounds of callees add up (`FnSpec` of a non-leaf function).
+Stack bounds add up: a function with a frame of `frameSize ns` bytes that calls functions with
+bounds `n_i` has bound `frameSize ns + raBytes + max n_i`.
 -/
 def FnSpec (h : T.Host) (sym : String) (spec : Spec) (n : Nat) : Prop :=
   ∀ args m Q X, spec args m Q X →
@@ -310,8 +411,9 @@ def FnSpec (h : T.Host) (sym : String) (spec : Spec) (n : Nat) : Prop :=
           T.Restored s (T.data st) ∧
           (T.mem (T.data st) =⋆ Eq m' ⋆ T.Exit (T.get s T.sp) n ⋆ R)) ∨
         (∃ sym' as m', X sym' as m' ∧ T.Defined h sym' ∧ T.pc st = T.labelAddr h sym' ∧
-          T.ArgsIn as (T.data st) ∧
-          (T.mem (T.data st) =⋆ Eq m' ⋆ T.Exit (T.get s T.sp) n ⋆ R)))
+          T.ArgsIn as (T.data st) ∧ T.spEntry (T.get (T.data st) T.sp) ∧
+          ∃ (ra' : T.Addr) (n' : Nat) (F : Mem 64 → Prop), T.raReg (T.data st) ra' ∧
+            (T.mem (T.data st) =⋆ Eq m' ⋆ T.Entry (T.get (T.data st) T.sp) ra' n' ⋆ F ⋆ R)))
       (T.mkState s (T.labelAddr h sym))
 
 end Target

@@ -136,9 +136,6 @@ theorem storeMem_frame {m M : Mem 64} {F : Mem 64 → Prop} (hM : (Eq m ⋆ F) M
 
 /-! ## Regions and words -/
 
-/-- The 8 bytes at `a` hold `v` (little endian), as an x64 or AArch64 64-bit store leaves them. -/
-def word (a v : Val) : Mem 64 → Prop := Eq ((Int.toBytes 8 v.toInt).At a)
-
 theorem word_region {a v : Val} {f : Mem 64} (h : word a v f) : region a 8 f :=
   ⟨Int.toBytes 8 v.toInt, Int.toBytes_length _ _, h.symm⟩
 
