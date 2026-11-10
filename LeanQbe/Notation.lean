@@ -15,6 +15,7 @@ follows QBE's IL text (`qbe/doc/il.txt`):
 %r =l call $f(%a, 1)      call $g(%a)              exit $abort(%a)       hlt
 jmp @loop(%x)             jnz %c, @t, @f(%y)       jnz %c, { … }, { … }  ret %x, %y
 @loop(%x, %y) { … }       -- a join point; consecutive ones form one mutually recursive group
+{ … }                     -- a nested scope as the tail (ends the group: nest instead of grouping)
 %r <- f(%a, %b)           -- a Lean function as a macro: `f a b fun r => …`
 ⟨e⟩                       -- splice a Lean term: `Arg V` as an operand, `Expr V L` as a tail
 ```
@@ -77,6 +78,9 @@ syntax "@" noWs ident "(" qbe_param,* ")" " {" qbe_stmt* "}" : qbe_stmt
 syntax "%" noWs ident " <- " ident "(" qbe_param,* ")" : qbe_stmt
 /-- Splice a Lean term of type `Expr V L` as the tail. -/
 syntax "⟨" term "⟩" : qbe_stmt
+/-- A nested scope as the tail: ends the current join-point group, so that the groups declared
+inside are nested in it (one block per group keeps `wp_loop` / `wp_join` applicable). -/
+syntax "{" qbe_stmt* "}" : qbe_stmt
 
 meta def expandArg : TSyntax `qbe_arg → MacroM Term
   | `(qbe_arg| %$x:ident) => `(LeanQbe.Arg.var $x)
@@ -220,6 +224,7 @@ meta partial def expandStmts : List (TSyntax `qbe_stmt) → MacroM Term
       | `(qbe_stmt| exit $f($as,*)) => `(LeanQbe.Expr.exit $(← symName f) $(← expandArgs as))
       | `(qbe_stmt| hlt) => `(LeanQbe.Expr.hlt)
       | `(qbe_stmt| ⟨$e⟩) => pure e
+      | `(qbe_stmt| { $ss* }) => expandStmts ss.toList
       | _ => Macro.throwUnsupported
 end
 

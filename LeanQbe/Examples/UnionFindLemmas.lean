@@ -59,6 +59,11 @@ theorem Forest.link {n : Nat} {parent : List Val} {rep : Val → Val} {rank : Va
 theorem merge_self {rep : Val → Val} {x y : Val} (h : rep x = rep y) : merge rep x y = rep := by
   funext i; unfold merge; split <;> simp_all
 
+/-- Unpack (or repack) `uf` inside a frame. -/
+theorem uf_sep {p : Val} {n : Nat} {rep : Val → Val} {R : Mem 64 → Prop} {m : Mem 64} :
+    (uf p n rep ⋆ R) m ↔ ∃ parent rank, Forest n parent rep rank ∧ (array64 p parent ⋆ R) m := by
+  unfold uf; simp only [sep_ex_l, sep_pure_l]
+
 /-! ## Programs -/
 
 theorem findK_spec {Γ : Env} {Q : Post} {X : XPost} {p x : Val} {n : Nat} {rep : Val → Val}
@@ -66,8 +71,7 @@ theorem findK_spec {Γ : Env} {Q : Post} {X : XPost} {p x : Val} {n : Nat} {rep 
     (hm : (uf p n rep ⋆ R) m) (hx : x.toNat < n)
     (hk : ∀ m', (uf p n rep ⋆ R) m' → wp Γ Q X (k (rep x)) [] [] m') :
     wp Γ Q X (findK p x k) [] [] m := by
-  unfold uf at hm hk; simp only [sep_ex_l, sep_pure_l] at hm hk
-  obtain ⟨parent, rank, hf, hm⟩ := hm
+  obtain ⟨parent, rank, hf, hm⟩ := uf_sep.1 hm
   apply wp_loop (fun r as m => ∃ y parent, as = [y] ∧ y.toNat < n ∧ rep y = rep x ∧ rank y = r ∧
     Forest n parent rep rank ∧ (array64 p parent ⋆ R) m)
   · rintro J r as m ⟨y, parent, rfl, hy, hrep, rfl, hf, hm⟩ ih
@@ -76,7 +80,7 @@ theorem findK_spec {Γ : Env} {Q : Post} {X : XPost} {p x : Val} {n : Nat} {rep 
     refine ⟨_, loadVal_array64 hyl hm, fun hroot => ?_, fun hnr => ?_⟩
     · rw [pa_eq_getElem hyl] at hroot
       rw [show y = rep x from hrep ▸ (hf.root_rep y hy hroot).symm]
-      exact hk m ⟨parent, rank, hf, hm⟩
+      exact hk m (uf_sep.2 ⟨parent, rank, hf, hm⟩)
     · rw [pa_eq_getElem hyl] at hnr ⊢
       have hpy := hf.closed y hy
       have hpl : (pa parent y).toNat < parent.length := hf.len ▸ hpy
@@ -111,11 +115,10 @@ theorem link_spec {Γ : Env} {Q : Post} {X : XPost} {p x y : Val} {n : Nat} {rep
     }) [] [] m := by
   wp_unfold
   refine ⟨fun heq => hQ m (by rwa [merge_self heq]), fun hne => ?_⟩
-  unfold uf at hm hQ; simp only [sep_ex_l, sep_pure_l] at hm hQ
-  obtain ⟨parent, rank, hf, hm⟩ := hm
+  obtain ⟨parent, rank, hf, hm⟩ := uf_sep.1 hm
   have hl : (rep x).toNat < parent.length := hf.len ▸ hf.rep_lt x hx
   obtain ⟨hok, hm'⟩ := store_array64 (rep y) hl hm
-  exact ⟨hok, hQ _ ⟨_, _, hf.link hx hy hne, hm'⟩⟩
+  exact ⟨hok, hQ _ (uf_sep.2 ⟨_, _, hf.link hx hy hne, hm'⟩)⟩
 
 theorem union_correct (Γ : Env) (hfind : ∀ args m Q X, findSpec args m Q X → Γ "find" args m Q X) :
     ∀ args m Q X, unionSpec args m Q X → Func.spec Γ union args m Q X := by
