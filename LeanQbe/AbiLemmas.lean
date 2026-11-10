@@ -173,6 +173,77 @@ theorem region_zero {a : BitVec 64} : region a 0 = ExtHashMap.emp := by
     simp [ExtHashMap.emp] at hf
     simp [hf, List.At]
 
+
+/-! ## Words and slots -/
+
+theorem toBytes_ofInt_ofBytes {bs : List UInt8} (hl : bs.length = 8) :
+    Int.toBytes 8 (BitVec.ofInt 64 (Int.ofBytes bs)).toInt = bs := by
+  rw [← Int.toBytes_emod]
+  have h1 : ((BitVec.ofInt 64 (Int.ofBytes bs)).toInt).take (8 * 8) =
+      (Int.ofBytes bs).take (8 * 8) := by
+    simp only [Int.take, BitVec.toInt_ofInt]
+    exact Int.bmod_emod
+  rw [h1, Int.toBytes_emod, ← hl]
+  exact Int.toBytes_ofBytes_all bs
+
+/-- Owned 8 bytes always hold some word. -/
+theorem region_word {a : Val} {f : Mem 64} : region a 8 f ↔ ∃ v, word a v f :=
+  ⟨fun ⟨bs, hl, hf⟩ => ⟨BitVec.ofInt 64 (Int.ofBytes bs), by
+      show (Int.toBytes 8 _).At a = f
+      rw [toBytes_ofInt_ofBytes hl]; exact hf.symm⟩,
+   fun ⟨_, h⟩ => word_region h⟩
+
+theorem slots_nil {a : Val} : slots a [] = ExtHashMap.emp := rfl
+
+theorem slots_cons {a v : Val} {vs : List Val} : slots a (v :: vs) = word a v ⋆ slots (a + 8#64) vs :=
+  rfl
+
+theorem slots_append {a : Val} (σ₁ σ₂ : List Val) :
+    slots a (σ₁ ++ σ₂) = slots a σ₁ ⋆ slots (a + BitVec.ofNat 64 (8 * σ₁.length)) σ₂ := by
+  induction σ₁ generalizing a with
+  | nil => simp [slots_nil, ExtHashMap.emp_sep]
+  | cons v vs ih =>
+    have e : a + 8#64 + BitVec.ofNat 64 (8 * vs.length) =
+        a + BitVec.ofNat 64 (8 * (v :: vs).length) := by
+      simp only [List.length_cons]
+      rw [BitVec.add_assoc]
+      congr 1
+      apply BitVec.eq_of_toNat_eq
+      simp only [BitVec.toNat_add, BitVec.toNat_ofNat]
+      omega
+    rw [List.cons_append, slots_cons, slots_cons, ih, e, ExtHashMap.sep_assoc]
+
+/-- Slot `i` of `σ` in isolation. -/
+theorem slots_get {a : Val} (σ : List Val) (i : Nat) (hi : i < σ.length) :
+    slots a σ = slots a (σ.take i) ⋆
+      (word (a + BitVec.ofNat 64 (8 * i)) σ[i] ⋆
+        slots (a + BitVec.ofNat 64 (8 * i) + 8#64) (σ.drop (i + 1))) := by
+  conv => lhs; rw [← List.take_append_drop i σ, List.drop_eq_getElem_cons hi]
+  rw [slots_append, slots_cons, List.length_take_of_le (by omega)]
+
+/-- Slots are owned memory. -/
+theorem slots_region {a : Val} {σ : List Val} {f : Mem 64} (hσ : 8 * σ.length ≤ 2 ^ 64)
+    (h : slots a σ f) : region a (8 * σ.length) f := by
+  induction σ generalizing a f with
+  | nil => show region a 0 f; rw [region_zero]; exact h
+  | cons v vs ih =>
+    have e : 8 * (v :: vs).length = 8 + 8 * vs.length := by simp; omega
+    rw [e, region_split (by simp at hσ; omega)]
+    exact sep_mono (fun _ => word_region) (sep_mono_r (fun _ => ih (by simp at hσ; omega)) h)
+
+/-- Owned memory holds some slots. -/
+theorem region_slots {a : Val} {n : Nat} {f : Mem 64} (hn : 8 * n ≤ 2 ^ 64)
+    (h : region a (8 * n) f) : ∃ σ : List Val, σ.length = n ∧ slots a σ f := by
+  induction n generalizing a f with
+  | zero => exact ⟨[], rfl, by rw [region_zero] at h; exact h⟩
+  | succ n ih =>
+    have e : 8 * (n + 1) = 8 + 8 * n := by omega
+    rw [e, region_split (by omega)] at h
+    obtain ⟨f1, f2, hu, hd, h1, h2⟩ := h
+    obtain ⟨v, hv⟩ := region_word.mp h1
+    obtain ⟨σ, hl, hσ⟩ := ih (by omega) h2
+    exact ⟨v :: σ, by simp [hl], f1, f2, hu, hd, hv, hσ⟩
+
 /-! ## Stack footprints -/
 
 namespace Target

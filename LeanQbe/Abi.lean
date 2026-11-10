@@ -54,6 +54,11 @@ def region (a : BitVec 64) (n : Nat) : Mem 64 → Prop :=
 /-- The 8 bytes at `a` hold `v` (little endian), as an x64 or AArch64 64-bit store leaves them. -/
 def word (a v : Val) : Mem 64 → Prop := Eq ((Int.toBytes 8 v.toInt).At a)
 
+/-- Consecutive 8-byte words `vs` from address `a` on (spill slots). -/
+def slots (a : Val) : List Val → Mem 64 → Prop
+  | [] => Std.ExtHashMap.emp
+  | v :: vs => word a v ⋆ slots (a + 8#64) vs
+
 /-- The executable part of a target: registers, register sets and snippets. -/
 structure Isa where
   /-- General-purpose registers. -/
@@ -273,7 +278,7 @@ structure Target extends Isa where
     Eventually (step h) post (mkState s (addrOf h k))
   epilogue_spec : ∀ {h : Host} {k ns : Nat} {s : MData} {ra : Addr} {G : Mem 64 → Prop}
       {post : State → Prop},
-    (epilogue ns).IsInfixAt (prog h) k → spOk (get s sp) →
+    (epilogue ns).IsInfixAt (prog h) k → spOk (get s sp) → frameSize ns + raBytes ≤ 2 ^ 64 →
     (mem s =⋆ Saved (get s sp + BitVec.ofNat 64 (frameSize ns)) ra ns ⋆ G) →
     (∀ s', get s' sp = get s sp + BitVec.ofNat 64 (frameSize ns) → raReg s' ra →
       (∀ r, r ∉ sp :: raRegs ++ scratch → get s' r = get s r) →
@@ -393,14 +398,17 @@ execution starting at `sym` eventually either
   address `ra'` where the convention keeps it, some stack region `Entry sp' ra' n'` below the stack
   pointer, the new source memory `m'`, and the untouched frame `R` (plus some other memory `F`,
   e.g. the frames of the functions the exit happened in). So an exit target can be given an
-  `FnSpec` itself (decision D5). An exit cannot be stated relative to the function's own entry
+  `FnSpec` itself (decision D5). The stack left to the exit target is at least `nX` bytes
+  (reviewer #60.1: with `n' = 0` allowed, real exit targets such as C's `abort` could not be
+  used); this composes because a callee's exit has `n' ≥ nX` by its own `FnSpec … nX`, and an own
+  exit after the epilogue has `n' = n`, so a function that exits needs `nX ≤ n`. An exit cannot be stated relative to the function's own entry
   (same stack pointer and return address) because a callee's exit happens inside the caller's
   frame.
 
 Stack bounds add up: a function with a frame of `frameSize ns` bytes that calls functions with
 bounds `n_i` has bound `frameSize ns + raBytes + max n_i`.
 -/
-def FnSpec (h : T.Host) (sym : String) (spec : Spec) (n : Nat) : Prop :=
+def FnSpec (h : T.Host) (sym : String) (spec : Spec) (n : Nat) (nX : Nat := 0) : Prop :=
   ∀ args m Q X, spec args m Q X →
   ∀ (s : T.MData) (ra : T.Addr) (R : Mem 64 → Prop),
     T.ArgsIn args s → T.raReg s ra → T.spEntry (T.get s T.sp) →
@@ -412,7 +420,7 @@ def FnSpec (h : T.Host) (sym : String) (spec : Spec) (n : Nat) : Prop :=
           (T.mem (T.data st) =⋆ Eq m' ⋆ T.Exit (T.get s T.sp) n ⋆ R)) ∨
         (∃ sym' as m', X sym' as m' ∧ T.Defined h sym' ∧ T.pc st = T.labelAddr h sym' ∧
           T.ArgsIn as (T.data st) ∧ T.spEntry (T.get (T.data st) T.sp) ∧
-          ∃ (ra' : T.Addr) (n' : Nat) (F : Mem 64 → Prop), T.raReg (T.data st) ra' ∧
+          ∃ (ra' : T.Addr) (n' : Nat) (F : Mem 64 → Prop), nX ≤ n' ∧ T.raReg (T.data st) ra' ∧
             (T.mem (T.data st) =⋆ Eq m' ⋆ T.Entry (T.get (T.data st) T.sp) ra' n' ⋆ F ⋆ R)))
       (T.mkState s (T.labelAddr h sym))
 
