@@ -364,15 +364,11 @@ theorem sext32_of_isInt32 {v : BitVec 64} (hv : IsInt32 v) :
   simpa [shamt] using hv
 
 theorem isInt32_of_toNat_lt {v : BitVec 64} (hv : v.toNat < 2 ^ 31) : IsInt32 v := by
-  have hlt : v < 0x80000000#64 := by simpa [BitVec.lt_def] using hv
-  revert hlt; bv_decide
+  unfold IsInt32; grind
 
 theorem slt_iff_toNat_lt {x y : BitVec 64} (hx : x.toNat < 2 ^ 31) (hy : y.toNat < 2 ^ 31) :
     x.slt y = decide (x.toNat < y.toNat) := by
-  have hx' : x < 0x80000000#64 := by simpa [BitVec.lt_def] using hx
-  have hy' : y < 0x80000000#64 := by simpa [BitVec.lt_def] using hy
-  have hiff : x.slt y = decide (x < y) := by revert hx' hy'; bv_decide
-  simpa [BitVec.lt_def] using hiff
+  grind
 
 theorem toNat_add_one_of_lt {id : BitVec 64} (hid : id.toNat + 1 < 2 ^ 31) :
     (id + 1#64).toNat = id.toNat + 1 := by

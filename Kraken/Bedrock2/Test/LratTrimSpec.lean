@@ -100,7 +100,7 @@ theorem load_int4_raw {m : Mem 64} {a v : BitVec 64} {R : Mem 64 → Prop}
 private theorem sext32_mask (v : BitVec 64) :
     interpBinop .srs (interpBinop .slu (v &&& 0xffffffff#64) 32#64) 32#64 =
       (v <<< 32).sshiftRight 32 := by
-  simp [interpBinop, shamt]; bv_decide
+  simp [interpBinop, shamt]; grind
 
 /-- Evaluating `(load4(ea) << 32) .>> 32` on `m =⋆ int4 a v ⋆ R` when `IsInt32 v`. -/
 theorem eval_load4_sext {m : Mem 64} {l : Locals 64} {ea : Expr} {a v : BitVec 64}
@@ -126,7 +126,7 @@ theorem load_byte1_raw {m : Mem 64} {a v : BitVec 64} {R : Mem 64 → Prop}
 private theorem sext8_mask (v : BitVec 64) :
     interpBinop .srs (interpBinop .slu (v &&& 0xff#64) 56#64) 56#64 =
       (v <<< 56).sshiftRight 56 := by
-  simp [interpBinop, shamt]; bv_decide
+  simp [interpBinop, shamt]; grind
 
 /-- Evaluating `(load1(ea) << 56) .>> 56` on `m =⋆ byte1 a v ⋆ R` when `IsInt8 v`. -/
 theorem eval_load1_sext {m : Mem 64} {l : Locals 64} {ea : Expr} {a v : BitVec 64}
@@ -423,24 +423,18 @@ def toClause (lits : List (BitVec 64)) : CNF.Clause Nat :=
 
 theorem bvAbs_pos {max_var : Nat} {lit : BitVec 64} (h : IsValidLit max_var lit) :
     0 < (bvAbs lit).toNat := by
-  obtain ⟨h32, hne, _, _⟩ := h
-  rw [← BitVec.toNat_zero (w := 64), ← BitVec.lt_def]
-  unfold bvAbs IsInt32 at *
-  bv_decide
+  unfold IsValidLit bvAbs IsInt32 at *
+  grind
 
 theorem bvAbs_neg {max_var : Nat} {lit : BitVec 64} (h : IsValidLit max_var lit) :
     bvAbs (-lit) = bvAbs lit := by
-  have hlt : bvAbs lit < 0x80000000#64 := by simp [BitVec.lt_def]; have := h.2.2; omega
-  obtain ⟨h32, hne, _⟩ := h
-  unfold bvAbs IsInt32 at *
-  bv_decide
+  unfold IsValidLit bvAbs IsInt32 at *
+  grind
 
 theorem neg_slt_zero {max_var : Nat} {lit : BitVec 64} (h : IsValidLit max_var lit) :
     (-lit).slt 0 = !lit.slt 0 := by
-  have hlt : bvAbs lit < 0x80000000#64 := by simp [BitVec.lt_def]; have := h.2.2; omega
-  obtain ⟨h32, hne, _⟩ := h
-  unfold bvAbs IsInt32 at *
-  bv_decide
+  unfold IsValidLit bvAbs IsInt32 at *
+  grind
 
 @[simp] theorem toLiteral_neg {max_var : Nat} {lit : BitVec 64} (h : IsValidLit max_var lit) :
     toLiteral (-lit) = ((toLiteral lit).1, !(toLiteral lit).2) := by
@@ -449,17 +443,20 @@ theorem neg_slt_zero {max_var : Nat} {lit : BitVec 64} (h : IsValidLit max_var l
 theorem toLiteral_inj {l1 l2 : BitVec 64} :
     toLiteral l1 = toLiteral l2 ↔ l1 = l2 := by
   refine ⟨fun h => ?_, fun h => h ▸ rfl⟩
-  have habs : bvAbs l1 = bvAbs l2 := BitVec.eq_of_toNat_eq (congrArg Prod.fst h)
-  have hsign : (!l1.slt 0) = (!l2.slt 0) := congrArg Prod.snd h
-  unfold bvAbs at habs
-  bv_decide
+  unfold toLiteral bvAbs at h
+  grind
 
 theorem bvSignByte_eq {lit : BitVec 64} :
     bvSignByte lit = if lit.slt 0 then -1 else 1 := by
-  unfold bvSignByte; bv_decide
+  have h : lit.sshiftRight 63 = if lit.slt 0 then -1 else 0 := by
+    apply BitVec.eq_of_toInt_eq
+    simp only [BitVec.toInt_sshiftRight, BitVec.slt]
+    split <;> simp <;> grind
+  unfold bvSignByte
+  rw [h]; split <;> decide
 
 theorem isInt8_bvSignByte (lit : BitVec 64) : IsInt8 (bvSignByte lit) := by
-  unfold bvSignByte IsInt8; bv_decide
+  rw [bvSignByte_eq]; split <;> decide
 
 /-- Byte value stored at `values_begin + i` for atom `i` under `assign : Internal.Assignment`. -/
 def assignByte (assign : Assignment) (i : Nat) : BitVec 64 :=

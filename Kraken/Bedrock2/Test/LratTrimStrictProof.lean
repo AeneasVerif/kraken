@@ -168,7 +168,7 @@ theorem ofNat_add_one (n : Nat) :
 
 theorem ofNat_sub_one_of_succ {n n' : Nat} (h : n' + 1 = n) :
     BitVec.ofNat 64 n - 1 = BitVec.ofNat 64 n' := by
-  subst h; rw [← ofNat_add_one]; bv_decide
+  subst h; grind
 
 /-- Soundness of the first antecedent (`first = 1`) in `br_check_clause_strictly_by_resolution`:
 if `unit = 0`, every literal of `c` is marked in `marks` with its polarity, so `Clause.Sat a c → MarksSat a marks`. -/
@@ -852,8 +852,7 @@ theorem ValidAntecedent.mono {max_var : Nat} {f : CNF Nat} {literals_begin : Bit
 
 theorem bitVec_ofNat_eight_mul_toNat (aid : BitVec 64) :
     BitVec.ofNat 64 (8 * aid.toNat) = aid <<< 3 := by
-  rw [show BitVec.ofNat 64 (8 * aid.toNat) = 8#64 * aid from BitVec.eq_of_toNat_eq (by simp)]
-  bv_decide
+  grind
 
 theorem ClauseTable.validAntecedent {max_var : Nat} {f : CNF Nat} {literals_begin : BitVec 64}
     {lit_ptrs : List (BitVec 64)} {clauses : Array (Option (CNF.Clause Nat))}
@@ -925,9 +924,7 @@ theorem eval_outer_cond_true {m : Mem 64} {l : Locals 64} {ant_ptr aid : BitVec 
 theorem add_four_mul_succ_sub_four (ant_ptr : BitVec 64) (n : Nat) :
     ant_ptr + BitVec.ofNat 64 (4 * (n + 1)) - 4#64 =
       ant_ptr + BitVec.ofNat 64 (4 * n) := by
-  have h : BitVec.ofNat 64 (4 * (n + 1)) = BitVec.ofNat 64 (4 * n) + 4#64 :=
-    BitVec.eq_of_toNat_eq (by simp [BitVec.toNat_add, Nat.mul_add])
-  rw [h]; generalize BitVec.ofNat 64 (4 * n) = d; bv_decide
+  grind
 
 theorem list_reverseRecOn {α : Type _} {motive : List α → Prop} (xs : List α)
     (nil : motive [])
