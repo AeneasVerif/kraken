@@ -397,6 +397,8 @@ def target : Target where
   sp_not_calleeSaved := by decide
   argRegs_not_scratch := by decide
   retRegs_not_scratch := by decide
+  sp_not_retRegs := by decide
+  sp_not_argRegs := by decide
   retAddr_region _ ra _ h := ⟨ra.toUInt64.toBytes, UInt64.toBytes_length _, h.symm⟩
   raReg_congr _ _ _ _ _ := trivial
   labelAddr_eq {h} {_} {_} hk hfirst := letI := h; Host.label_eq_addrOf hk hfirst

@@ -152,6 +152,8 @@ structure Target extends Isa where
   sp_not_calleeSaved : sp ∉ calleeSaved
   argRegs_not_scratch : ∀ r, r ∈ argRegs → r ∉ scratch
   retRegs_not_scratch : ∀ r, r ∈ retRegs → r ∉ scratch
+  sp_not_retRegs : sp ∉ retRegs
+  sp_not_argRegs : sp ∉ argRegs
   /-- The return address occupies exactly `raBytes` bytes at the stack pointer. -/
   retAddr_region : ∀ a ra f, RetAddr a ra f → region a raBytes f
   /-- The register part of the return address lives outside allocatable and scratch registers. -/
