@@ -668,8 +668,8 @@ theorem valsIn_keep {regs : List T.Reg} {vs : List Val} {s s' : T.MData}
 theorem lowerFn_correct (h : T.Host) (hints : Hints T.toIsa) (f : Fn) (Γ : Env) (n : Nat)
     (code : List T.Directive) (k₀ : Nat)
     (hlow : lowerFn hints f = .ok code) (hcode : code.IsInfixAt (T.prog h) k₀)
-    (hu : T.LabelsUnique h) (hwf : Func.Wf f.body) (hn : n + T.raBytes ≤ 2 ^ 64) :
-    T.FnSpec h f.name (Func.spec Γ f.body) n := by
+    (hu : T.LabelsUnique h) (hwf : Func.Wf f.body) (hn : n + T.raBytes ≤ 2 ^ 64) (nX : Nat) :
+    T.FnSpec h f.name (Func.spec Γ f.body) n nX := by
   have mf := memFacts T
   intro args m Q X hspec s ra R hargs hra _ hmem
   unfold lowerFn at hlow

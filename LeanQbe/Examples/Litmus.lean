@@ -50,9 +50,9 @@ variable [hh : Host]
 
 /-- The generic theorem, instantiated: the compiled tracer meets its `wp` as a `FnSpec`. -/
 theorem tracer_fnspec (k₀ : Nat) (hc : tracerCode.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    (Γ : Env) : Amd64.target.FnSpec hh "tracer" (Func.spec Γ tracer.body) 0 :=
+    (Γ : Env) (nX : Nat) : Amd64.target.FnSpec hh "tracer" (Func.spec Γ tracer.body) 0 nX :=
   lowerFn_correct (T := Amd64.target) hh tracerHints tracer Γ 0 tracerCode k₀ tracer_lower hc hu
-    tracer_wf (by decide)
+    tracer_wf (by decide) nX
 
 /-- The tracer on Kraken x64 (decision D11): only Kraken notions in the statement. In every host
 that contains `tracerCode` at index `k₀` and defines no label twice: called with `a b p` in
@@ -84,7 +84,7 @@ theorem tracer_correct (k₀ : Nat) (hc : tracerCode.IsInfixAt Host.prog k₀)
       Amd64.target.Entry (Amd64.target.get s Amd64.target.sp) ra 0 ⋆ R := by
     simp only [Target.Entry, region_zero, Std.ExtHashMap.emp_sep]
     exact hmem
-  have h := tracer_fnspec k₀ hc hu _ [a, b, p] m Q X hwp s ra R hargs trivial hsp hmem'
+  have h := tracer_fnspec k₀ hc hu _ 0 [a, b, p] m Q X hwp s ra R hargs trivial hsp hmem'
   have hlab : Amd64.target.labelAddr hh "tracer" = Host.addrOf k₀ :=
     labelAddr_of_unique (T := Amd64.target) hu hc.cons.1
   rw [hlab] at h

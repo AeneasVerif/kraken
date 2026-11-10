@@ -43,9 +43,9 @@ theorem ifelse_lower : lowerFn (Spill.hints Amd64.isa ifelse) ifelse = .ok ifels
 theorem ifelse_wf : Func.Wf ifelse.body := by unfold ifelse; wf_tac
 
 theorem ifelse_fnspec [hh : Host] (k₀ : Nat) (hc : ifelseCode.IsInfixAt Host.prog k₀)
-    (hu : Host.LabelsUnique) (Γ : Env) :
-    Amd64.target.FnSpec hh "ifelse" (Func.spec Γ ifelse.body) 0 :=
-  lowerFn_correct (T := Amd64.target) hh _ ifelse Γ 0 ifelseCode k₀ ifelse_lower hc hu ifelse_wf (by decide)
+    (hu : Host.LabelsUnique) (Γ : Env) (nX : Nat) :
+    Amd64.target.FnSpec hh "ifelse" (Func.spec Γ ifelse.body) 0 nX :=
+  lowerFn_correct (T := Amd64.target) hh _ ifelse Γ 0 ifelseCode k₀ ifelse_lower hc hu ifelse_wf (by decide) nX
 
 def sumtoCode : Program := parse("sumto:
   movq %rdi, %rax
@@ -72,9 +72,9 @@ theorem sumto_lower : lowerFn (Spill.hints Amd64.isa sumto) sumto = .ok sumtoCod
 theorem sumto_wf : Func.Wf sumto.body := by unfold sumto; wf_tac
 
 theorem sumto_fnspec [hh : Host] (k₀ : Nat) (hc : sumtoCode.IsInfixAt Host.prog k₀)
-    (hu : Host.LabelsUnique) (Γ : Env) :
-    Amd64.target.FnSpec hh "sumto" (Func.spec Γ sumto.body) 0 :=
-  lowerFn_correct (T := Amd64.target) hh _ sumto Γ 0 sumtoCode k₀ sumto_lower hc hu sumto_wf (by decide)
+    (hu : Host.LabelsUnique) (Γ : Env) (nX : Nat) :
+    Amd64.target.FnSpec hh "sumto" (Func.spec Γ sumto.body) 0 nX :=
+  lowerFn_correct (T := Amd64.target) hh _ sumto Γ 0 sumtoCode k₀ sumto_lower hc hu sumto_wf (by decide) nX
 
 def evenoddCode : Program := parse("evenodd:
   movq %rdi, %rax
@@ -107,9 +107,9 @@ theorem evenodd_lower : lowerFn (Spill.hints Amd64.isa evenodd) evenodd = .ok ev
 theorem evenodd_wf : Func.Wf evenodd.body := by unfold evenodd; wf_tac
 
 theorem evenodd_fnspec [hh : Host] (k₀ : Nat) (hc : evenoddCode.IsInfixAt Host.prog k₀)
-    (hu : Host.LabelsUnique) (Γ : Env) :
-    Amd64.target.FnSpec hh "evenodd" (Func.spec Γ evenodd.body) 0 :=
-  lowerFn_correct (T := Amd64.target) hh _ evenodd Γ 0 evenoddCode k₀ evenodd_lower hc hu evenodd_wf (by decide)
+    (hu : Host.LabelsUnique) (Γ : Env) (nX : Nat) :
+    Amd64.target.FnSpec hh "evenodd" (Func.spec Γ evenodd.body) 0 nX :=
+  lowerFn_correct (T := Amd64.target) hh _ evenodd Γ 0 evenoddCode k₀ evenodd_lower hc hu evenodd_wf (by decide) nX
 
 def nestedCode : Program := parse("nested:
   movq %rdi, %rax
@@ -153,9 +153,9 @@ theorem nested_lower : lowerFn (Spill.hints Amd64.isa nested) nested = .ok neste
 theorem nested_wf : Func.Wf nested.body := by unfold nested; wf_tac
 
 theorem nested_fnspec [hh : Host] (k₀ : Nat) (hc : nestedCode.IsInfixAt Host.prog k₀)
-    (hu : Host.LabelsUnique) (Γ : Env) :
-    Amd64.target.FnSpec hh "nested" (Func.spec Γ nested.body) 0 :=
-  lowerFn_correct (T := Amd64.target) hh _ nested Γ 0 nestedCode k₀ nested_lower hc hu nested_wf (by decide)
+    (hu : Host.LabelsUnique) (Γ : Env) (nX : Nat) :
+    Amd64.target.FnSpec hh "nested" (Func.spec Γ nested.body) 0 nX :=
+  lowerFn_correct (T := Amd64.target) hh _ nested Γ 0 nestedCode k₀ nested_lower hc hu nested_wf (by decide) nX
 
 def swapCode : Program := parse("swap:
   movq %rdi, %rax
@@ -181,9 +181,9 @@ theorem swap_lower : lowerFn (Spill.hints Amd64.isa swap) swap = .ok swapCode :=
 theorem swap_wf : Func.Wf swap.body := by unfold swap; wf_tac
 
 theorem swap_fnspec [hh : Host] (k₀ : Nat) (hc : swapCode.IsInfixAt Host.prog k₀)
-    (hu : Host.LabelsUnique) (Γ : Env) :
-    Amd64.target.FnSpec hh "swap" (Func.spec Γ swap.body) 0 :=
-  lowerFn_correct (T := Amd64.target) hh _ swap Γ 0 swapCode k₀ swap_lower hc hu swap_wf (by decide)
+    (hu : Host.LabelsUnique) (Γ : Env) (nX : Nat) :
+    Amd64.target.FnSpec hh "swap" (Func.spec Γ swap.body) 0 nX :=
+  lowerFn_correct (T := Amd64.target) hh _ swap Γ 0 swapCode k₀ swap_lower hc hu swap_wf (by decide) nX
 
 /-! ## A loop end to end: `sumto` on Kraken x64 -/
 
@@ -248,7 +248,7 @@ theorem sumto_correct [Host] (k₀ : Nat) (hc : sumtoCode.IsInfixAt Host.prog k�
       Amd64.target.Entry (Amd64.target.get s Amd64.target.sp) ra 0 ⋆ R := by
     simp only [Target.Entry, region_zero, Std.ExtHashMap.emp_sep, hE]
     exact hmem
-  have h := sumto_fnspec k₀ hc hu (fun _ _ _ _ _ => False) [n] ∅ _ _
+  have h := sumto_fnspec k₀ hc hu (fun _ _ _ _ _ => False) 0 [n] ∅ _ _
     (sumto_spec _ n hn ∅) s ra R hargs trivial hsp hmem'
   have hlab : Amd64.target.labelAddr _ "sumto" = Host.addrOf k₀ :=
     labelAddr_of_unique (T := Amd64.target) hu hc.cons.1
