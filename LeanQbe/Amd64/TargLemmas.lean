@@ -200,7 +200,7 @@ theorem eventually_ret {k : Nat} {s : MachineData} {ra : Int64} {R : DataMem →
     (hc : ret.IsInfixAt Host.prog k)
     (hmem : s.dmem =⋆ Eq (ra.toUInt64.At (s.regs.get64 .rsp)) ⋆ R)
     (hk : Eventually (step1 Host.exe) post
-      ⟨{ s with regs := { s.regs with rsp := s.regs.rsp + 8 } }, ra⟩) :
+      ⟨{ s with regs := s.regs.set64 .rsp (s.regs.get64 .rsp + 8#64) }, ra⟩) :
     Run k s post :=
   Host.eventually_ret (List.isInfixAt_singleton.mp hc) hmem hk
 
@@ -362,12 +362,8 @@ def hostStep (h : Host) : MachineState → (MachineState → Prop) → Prop :=
 def hostLabel (h : Host) (l : Label) : Int64 :=
   letI := h; Labels.label l
 
-theorem keeps_rsp_add8 (s : MachineData) (r : Reg64) (hr : r ≠ .rsp) :
-    ({ s.regs with rsp := s.regs.rsp + 8 } : Reg64s).get64 r = s.regs.get64 r :=
-  Reg64s.get64_set64_of_ne s.regs .rsp r (s.regs.rsp + 8).toBitVec (Ne.symm hr)
-
 /-- Kraken x64 as a `Target`. -/
-def target : Target where
+@[reducible] def target : Target where
   toIsa := isa
   MData := MachineData
   Addr := Int64
@@ -389,16 +385,16 @@ def target : Target where
   RetAddr sp ra := Eq (ra.toUInt64.At sp)
   raReg _ _ := True
   spEntry sp := (sp + 8#64).toNat % 16 = 0
-  sp_not_scratch := by decide
-  sp_not_allocatable := by decide
-  scratch_not_allocatable := by decide
-  calleeSaved_not_scratch := by decide
-  calleeSaved_not_allocatable := by decide
-  sp_not_calleeSaved := by decide
-  argRegs_not_scratch := by decide
-  retRegs_not_scratch := by decide
-  sp_not_retRegs := by decide
-  sp_not_argRegs := by decide
+  sp_not_scratch := by simp
+  sp_not_allocatable := by simp
+  scratch_not_allocatable := by simp
+  calleeSaved_not_scratch := by simp
+  calleeSaved_not_allocatable := by simp
+  sp_not_calleeSaved := by simp
+  argRegs_not_scratch := by simp
+  retRegs_not_scratch := by simp
+  sp_not_retRegs := by simp
+  sp_not_argRegs := by simp
   retAddr_region _ ra _ h := ⟨ra.toUInt64.toBytes, UInt64.toBytes_length _, h.symm⟩
   raReg_congr _ _ _ _ _ := trivial
   labelAddr_eq {h} {_} {_} hk hfirst := letI := h; Host.label_eq_addrOf hk hfirst
@@ -420,8 +416,7 @@ def target : Target where
   ret_spec {h} {_} {s} {_} {_} {_} hc _ hmem hk := by
     letI := h
     refine eventually_ret hc hmem (hk _ (fun r hr => ?_) ?_ rfl)
-    · exact keeps_rsp_add8 s r fun he => hr (he ▸ List.mem_cons_self)
-    · show (s.regs.rsp + 8).toBitVec = s.regs.rsp.toBitVec + BitVec.ofNat 64 8
-      simp
+    · exact Reg64s.get64_set64_of_ne _ _ _ _ fun he => hr (he ▸ List.mem_cons_self)
+    · exact Reg64s.get64_set64_same s.regs .rsp _
 
 end LeanQbe.Amd64

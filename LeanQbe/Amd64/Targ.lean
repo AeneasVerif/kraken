@@ -144,7 +144,7 @@ def jmpD (l : String) : Directive :=
   ins (.jmp (.rel (.sub (.label l) .after_current_instruction)))
 
 /-- The x64 instruction set as seen by the lowering. -/
-def isa : Isa where
+@[reducible] def isa : Isa where
   Reg := Reg64
   Directive := Directive
   label := .label
