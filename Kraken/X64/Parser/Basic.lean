@@ -140,6 +140,9 @@ def skipHWsAndComments : Parser Unit := do
 /-- Parse a single decimal digit. -/
 def digit : Parser Char := satisfy fun c => c >= '0' && c <= '9'
 
+/-- Parse a single octal digit. -/
+def octDigit : Parser Char := satisfy fun c => c >= '0' && c <= '7'
+
 /-- Parse a single hex digit. -/
 def hexDigit : Parser Char := satisfy fun c =>
   (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
@@ -149,7 +152,9 @@ def hexVal (c : Char) : Int :=
     else if c >= 'a' && c <= 'f' then c.toNat - 'a'.toNat + 10
     else c.toNat - 'A'.toNat + 10
 
-def parseHexOrDec : Parser Int := do
+/-- Parse an unsigned integer: hex (`0x1b`), octal (`033`) or decimal (`27`), as in GNU as
+    (https://sourceware.org/binutils/docs/as/Integers.html). -/
+def parseNumber : Parser Int := do
     let c ← peek!
     if c == '0' then do
       skip
@@ -158,18 +163,17 @@ def parseHexOrDec : Parser Int := do
         let digits ← many1 hexDigit
         pure (digits.foldl (fun acc d => acc * 16 + hexVal d) 0)
       else do
-        let rest ← many digit
-        let allDigits := #['0'] ++ rest
-        pure (allDigits.foldl (fun acc d => acc * 10 + (d.toNat - '0'.toNat)) 0)
+        let digits ← many octDigit
+        pure (digits.foldl (fun acc d => acc * 8 + (d.toNat - '0'.toNat)) 0)
     else do
       let digits ← many1 digit
       pure (digits.foldl (fun acc d => acc * 10 + (d.toNat - '0'.toNat)) 0)
 
-/-- Parse a signed integer (decimal or hex). -/
+/-- Parse a signed integer (see `parseNumber`). -/
 def parseInt : Parser Int := do
   skipHWs
   let neg ← (pchar '-' *> pure true) <|> pure false
-  let val ← parseHexOrDec
+  let val ← parseNumber
   pure (if neg then -val else val)
 
 /-- Parse a name (identifier or label). -/
@@ -1121,7 +1125,7 @@ def parseInstr : Parser Instr := do
   | "nop" =>
     (do
       skipHWs
-      let sz ← parseHexOrDec
+      let sz ← parseNumber
       pure (toInstr .none (w := .W64) (.nop sz.toNat))
     ) <|> (pure (toInstr .none (w := .W64) (.nop 1)))
 
@@ -1173,12 +1177,12 @@ def parseLabelDecl : Parser Label := do
 def parseAlign : Parser Instr := do
   let _ ← pstring ".align"
   skipHWs
-  let alignment ← parseHexOrDec
+  let alignment ← parseNumber
   let pad ← (do
     skipHWs
     let _ ← parseComma
     skipHWs
-    let pad ← parseHexOrDec
+    let pad ← parseNumber
     pure (some pad.toNat)
   ) <|> pure none
   pure (toInstr .none (w := .W64) (.nopalign alignment.toNat pad))

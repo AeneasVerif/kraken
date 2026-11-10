@@ -135,23 +135,33 @@ def elabAntiquot (t : Term) (ty : Expr) : TermElabM Expr :=
 -- Constant Expression Evaluation
 -- ============================================================================
 
+/-- The value of a `num` literal as GNU as reads it (https://sourceware.org/binutils/docs/as/Integers.html).
+    Careful: Unlike Lean, GNU as reads `033` as octal. -/
+def getAsmNat (n : TSyntax `num) : Nat :=
+  match (n.raw.isLit? numLitKind).map String.toList with
+  | some ('0' :: digits@(_ :: _)) =>
+    if digits.all (fun c => '0' ≤ c && c ≤ '7') then
+      digits.foldl (fun acc c => 8 * acc + (c.toNat - '0'.toNat)) 0
+    else n.getNat
+  | _ => n.getNat
+
 /-- Evaluate an `x64_const` syntax node into a `ConstExpr`. -/
 def evalConstExpr (stx : TSyntax `x64_const) : TermElabM ConstExpr := withRef stx do
   match stx with
   | `(x64_const| +$n:num)
   | `(x64_const| $n:num) =>
-    let i ← Int64.ofNatNoOverflow n.getNat
+    let i ← Int64.ofNatNoOverflow (getAsmNat n)
     pure (.int64 i)
   | `(x64_const| -$n:num) =>
-    let i ← Int64.ofIntNoOverflow (-(Int.ofNat n.getNat))
+    let i ← Int64.ofIntNoOverflow (-(Int.ofNat (getAsmNat n)))
     pure (.int64 i)
   | `(x64_const| $id:x64_ident + $n:num) =>
     let s ← getAsmIdent id
-    let i ← withRef n <| Int64.ofNatNoOverflow n.getNat
+    let i ← withRef n <| Int64.ofNatNoOverflow (getAsmNat n)
     pure (.add (.label s) (.int64 i))
   | `(x64_const| $id:x64_ident - $n:num) =>
     let s ← getAsmIdent id
-    let i ← withRef n <| Int64.ofNatNoOverflow n.getNat
+    let i ← withRef n <| Int64.ofNatNoOverflow (getAsmNat n)
     pure (.sub (.label s) (.int64 i))
   | `(x64_const| $a:x64_ident - $b:x64_ident) =>
     pure (.sub (.label (← getAsmIdent a)) (.label (← getAsmIdent b)))
@@ -306,7 +316,7 @@ def elabRegOrRip (stx : TSyntax `x64_reg_or_rip) : X64ElabM Expr := withRef stx 
 
 /-- Evaluate a numeric memory index scale (`1`, `2`, `4`, or `8`) into its corresponding `Width`. -/
 def evalScale (stx : TSyntax `num) : X64ElabM Width := withRef stx do
-  match stx.getNat with
+  match getAsmNat stx with
   | 1 => pure .W8
   | 2 => pure .W16
   | 4 => pure .W32
@@ -378,11 +388,11 @@ def elabOperand (stx : TSyntax `x64_operand) : X64ElabM Expr := withRef stx do
   -- `$sym ± n`: the left operand is the `$sym` antiquotation node (see the grammar).
   | `(x64_operand| $sym:x64_operand + $n:num) =>
     let s ← getAntiquotSym sym.raw
-    let i ← withRef n <| Int64.ofNatNoOverflow n.getNat
+    let i ← withRef n <| Int64.ofNatNoOverflow (getAsmNat n)
     imm (.add (.label s) (.int64 i))
   | `(x64_operand| $sym:x64_operand - $n:num) =>
     let s ← getAntiquotSym sym.raw
-    let i ← withRef n <| Int64.ofNatNoOverflow n.getNat
+    let i ← withRef n <| Int64.ofNatNoOverflow (getAsmNat n)
     imm (.sub (.label s) (.int64 i))
   | `(x64_operand| $sym:x64_operand - $b:x64_ident) =>
     imm (.sub (.label (← getAntiquotSym sym.raw)) (.label (← getAsmIdent b)))
@@ -548,7 +558,7 @@ def elabShdOp (stx : TSyntax `x64_shd_op) : TermElabM Expr := withRef stx do
 def elabInstr (stx : TSyntax `x64_instr) : X64ElabM Expr := withRef stx do
   match stx with
   | `(x64_instr| .align $align:num $[, $pad?:num]?) =>
-    mkClosedInstr (.nopalign align.getNat (pad?.map (·.getNat)))
+    mkClosedInstr (.nopalign (getAsmNat align) (pad?.map getAsmNat))
   | `(x64_instr| $op:x64_bin_op $src:x64_operand, $dst:x64_operand) =>
     let mk ← elabBinOp op
     setSuffixWidth op
@@ -684,7 +694,7 @@ def elabInstr (stx : TSyntax `x64_instr) : X64ElabM Expr := withRef stx do
   | `(x64_instr| nop) =>
     mkClosedInstr (.nop 1)
   | `(x64_instr| nop $sz:num) =>
-    mkClosedInstr (.nop sz.getNat)
+    mkClosedInstr (.nop (getAsmNat sz))
   | `(x64_instr| $op:x64_jcc_op $lbl:x64_ident) =>
     let cc ← evalCondCodeSuffix op
     let target ← getAsmIdent lbl

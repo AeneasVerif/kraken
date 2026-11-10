@@ -42,6 +42,9 @@ def skipFullLineComment : Parser Unit :=
 /-- Parse a single decimal digit. -/
 def digit : Parser Char := satisfy fun c => c >= '0' && c <= '9'
 
+/-- Parse a single octal digit. -/
+def octDigit : Parser Char := satisfy fun c => c >= '0' && c <= '7'
+
 /-- Parse a single hex digit. -/
 def hexDigit : Parser Char := satisfy fun c =>
   (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
@@ -67,6 +70,13 @@ def parseBin : Parser Int := do
   let digits ← many1 binDigit
   pure (digits.foldl (fun acc d => acc * 2 + (d.toNat - '0'.toNat)) 0)
 
+/-- Parse an unsigned octal integer literal: a leading `0` (e.g. `033`), as in GNU as
+    (https://sourceware.org/binutils/docs/as/Integers.html). Also parses a lone `0`. -/
+def parseOct : Parser Int := do
+  let _ ← pchar '0'
+  let digits ← many octDigit
+  pure (digits.foldl (fun acc d => acc * 8 + (d.toNat - '0'.toNat)) 0)
+
 /-- Parse an unsigned decimal integer literal (e.g. `4096`). -/
 def parseDec : Parser Int := do
   let digits ← many1 digit
@@ -74,9 +84,9 @@ def parseDec : Parser Int := do
 
 /--
 Parse an unsigned integer literal in hexadecimal (`0x...`), binary (`0b...`),
-or decimal format.
+octal (`0...`), or decimal format.
 -/
-def parseNumber : Parser Int := attempt parseHex <|> attempt parseBin <|> parseDec
+def parseNumber : Parser Int := attempt parseHex <|> attempt parseBin <|> parseOct <|> parseDec
 
 /--
 Parse a signed integer literal (hex, binary, or decimal) with an optional
