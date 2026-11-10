@@ -29,3 +29,6 @@ theorem Directives.interp_inert_append [Labels] {pre rest : List (Kraken.Sized D
     simp only [List.cons_append, Directives.interp, h0]
     rw [hinert]
     exact ih (fun c hc => hpre c (List.mem_cons_of_mem _ hc)) s
+
+/-- Labels are inert, so a layout may give them size zero. -/
+theorem Directive.inert_label (l : Label) : Directive.Inert (.label l) := fun _ _ _ _ _ => Iff.rfl

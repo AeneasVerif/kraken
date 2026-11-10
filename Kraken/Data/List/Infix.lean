@@ -41,6 +41,12 @@ theorem IsInfixAt.append (h : (a ++ b).IsInfixAt l₂ k) :
   refine ⟨⟨b ++ t, by rw [← ht, append_assoc]⟩, ⟨t, ?_⟩⟩
   rw [← drop_drop, ← ht, append_assoc, drop_left]
 
+theorem isInfixAt_singleton : [d].IsInfixAt l₂ k ↔ l₂[k]? = some d := by
+  rw [isInfixAt_iff_getElem?]
+  refine ⟨fun h => by simpa using h 0 (by simp), fun h i hi => ?_⟩
+  obtain rfl : i = 0 := by simpa using hi
+  simpa using h
+
 theorem exists_isPrefixOf_drop [DecidableEq α] (h : l₁ <:+: l₂) :
     ∃ k, k ∈ range (l₂.length + 1) ∧ l₁.isPrefixOf (l₂.drop k) := by
   obtain ⟨k, hk⟩ := isInfix_iff_exists_isInfixAt.mp h

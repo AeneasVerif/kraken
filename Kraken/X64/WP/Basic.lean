@@ -111,3 +111,90 @@ public theorem Program.step1_of_wp [Host] {p : Program}
     (hQ : ∀ s', Q s' → post ⟨s', endAddr h⟩) (hE : ∀ a s', E a s' → post ⟨s', a⟩) :
     Eventually (step1 Host.exe) post ⟨s, startAddr h⟩ :=
   Program.step1_of_wp_at (List.isInfixAt_infixIdx h) hwp hQ hE
+
+/-! ## Step lemmas indexed by a position of the host program -/
+
+section
+variable [Host]
+
+/--
+To run from the `i`-th directive `d` of the host program, it suffices that every outcome of
+interpreting `d` (fall-through to `Host.addrOf (i + 1)` or a jump) eventually reaches `post`.
+This is `Host.eventually_of_interp` in continuation-passing form.
+-/
+public theorem Host.eventually_of_interp_cps {i : Nat} {d : Directive} {post : @Post MachineState}
+    {s : MachineData} (hi : Host.prog[i]? = some d)
+    (h : (d.interp s ⟨Host.addrOf i, Host.addrOf (i + 1)⟩
+      (fun s' => .done ⟨s', Host.addrOf (i + 1)⟩) (fun a s' => .done ⟨s', a⟩)).All
+        (fun st => Eventually (step1 Host.exe) post st)) :
+    Eventually (step1 Host.exe) post ⟨s, Host.addrOf i⟩ :=
+  eventually_trans _ _ _ _
+    (Host.eventually_of_interp (p := []) (List.isInfixAt_singleton.mpr hi) h) (fun _ h => h)
+
+/--
+One step at a directive of positive size is exactly the interpretation of that directive. This is
+the converse of `Host.eventually_of_interp`, needed to show that some state is *not* reached.
+-/
+public theorem Host.step1_iff_interp {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d)
+    (hz : 0 < Kraken.Layout.size Instr k) {post : @Post MachineState} {s : MachineData} :
+    step1 Host.exe ⟨s, Host.addrOf k⟩ post ↔
+      (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
+        (fun s' => .done ⟨s', Host.addrOf (k + 1)⟩) (fun a s' => .done ⟨s', a⟩)).All post := by
+  have hd' : Host.exe.program[k]? =
+      some { directive := d, size := Kraken.Layout.size Instr k : Kraken.Sized Directive } := by
+    rw [Host.exe_getElem?, hd]
+    rfl
+  obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd' hz
+  have hinert : ∀ c ∈ pre, c.size = 0 ∧ c.directive.Inert := fun c hc =>
+    ⟨hpre c hc, Host.inert_of_size_zero (hpre c hc ▸
+      Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc))⟩
+  rw [Host.addrOf_succ hd]
+  unfold step1 Executable.step
+  change (Directives.interp (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k)
+    _).All post ↔ _
+  rw [hat]
+  exact Directives.interp_inert_append hinert _ _ _ _
+
+/-- Labels are skipped, whatever size the layout gives them. -/
+public theorem Host.eventually_label {i : Nat} {l : Label} {post : @Post MachineState}
+    {s : MachineData} (hi : Host.prog[i]? = some (.label l))
+    (h : Eventually (step1 Host.exe) post ⟨s, Host.addrOf (i + 1)⟩) :
+    Eventually (step1 Host.exe) post ⟨s, Host.addrOf i⟩ :=
+  Host.eventually_of_interp_cps hi h
+
+end
+
+/-! ## Sequencing rules for `Program.wp` -/
+
+public theorem Program.wp_nil [Host] {Q : MachineData → Prop} {E : Int64 → MachineData → Prop}
+    {s : MachineData} (h : Q s) : Program.wp [] Q E s :=
+  fun _ _ => .done _ (Or.inl ⟨rfl, h⟩)
+
+/-- `Program.wp` of a single directive, by interpreting it at every position where it occurs. -/
+public theorem Program.wp_singleton [Host] {d : Directive} {Q : MachineData → Prop}
+    {E : Int64 → MachineData → Prop} {s : MachineData}
+    (h : ∀ k, Host.prog[k]? = some d →
+      (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
+        (fun s' => .done ⟨s', Host.addrOf (k + 1)⟩) (fun a s' => .done ⟨s', a⟩)).All
+          (fun st => (st.pc = Host.addrOf (k + 1) ∧ Q st.data) ∨ E st.pc st.data)) :
+    Program.wp [d] Q E s :=
+  fun k hk => Host.eventually_of_interp hk (h k (List.isInfixAt_singleton.mp hk))
+
+public theorem Program.wp_label [Host] {l : Label} {Q : MachineData → Prop}
+    {E : Int64 → MachineData → Prop} {s : MachineData} (h : Q s) : Program.wp [.label l] Q E s :=
+  fun _ hk => Host.eventually_label (List.isInfixAt_singleton.mp hk) (.done _ (Or.inl ⟨rfl, h⟩))
+
+public theorem Program.wp_append [Host] {p q : Program} {Q : MachineData → Prop}
+    {E : Int64 → MachineData → Prop} {s : MachineData}
+    (h : Program.wp p (fun s' => Program.wp q Q E s') E s) : Program.wp (p ++ q) Q E s := by
+  intro k hk
+  obtain ⟨hp, hq⟩ := List.IsInfixAt.append hk
+  refine eventually_trans _ _ _ _ (h k hp) ?_
+  rintro ⟨s', a⟩ (⟨ha, hrun⟩ | hE)
+  · dsimp only at ha hrun
+    subst ha
+    refine eventually_trans _ _ _ _ (hrun (k + p.length) hq) fun _ hb => Eventually.done _ ?_
+    rcases hb with ⟨hend, hq'⟩ | hE
+    · exact Or.inl ⟨by rw [hend, List.length_append, Nat.add_assoc], hq'⟩
+    · exact Or.inr hE
+  · exact Eventually.done _ (Or.inr hE)

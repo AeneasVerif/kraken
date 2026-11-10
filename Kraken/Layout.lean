@@ -134,6 +134,25 @@ theorem Executable.addrOf_succ {Instr : Type} (e : Executable Instr) {n : Nat} {
     (hc : e.program[n]? = some c) : e.addrOf (n + 1) = e.addrOf n + .ofNat c.size := by
   grind [addrOf]
 
+theorem Executable.sizeBefore_le_total {Instr : Type} (e : Executable Instr) (j : Nat) :
+    e.sizeBefore j ≤ e.sizeBefore e.program.length := by
+  rcases Nat.le_total j e.program.length with h | h
+  · exact e.sizeBefore_mono h
+  · simp [sizeBefore, List.take_of_length_le h]
+
+/--
+If the whole executable is smaller than `2 ^ 64` bytes, then directives at the same address have the
+same offset. This discharges `Host.addr_determines_offset` for concrete executables.
+-/
+theorem Executable.sizeBefore_eq_of_addrOf_eq {Instr : Type} (e : Executable Instr)
+    (hsmall : e.sizeBefore e.program.length < 2 ^ 64) {j k : Nat}
+    (h : e.addrOf j = e.addrOf k) : e.sizeBefore j = e.sizeBefore k := by
+  have hj := e.sizeBefore_le_total j
+  have hk := e.sizeBefore_le_total k
+  have h' := congrArg (fun x => x.toBitVec.toNat) ((Int64.add_right_inj _).mp h)
+  simp only [Int64.toBitVec_ofNat', BitVec.toNat_ofNat] at h'
+  omega
+
 theorem Executable.getElem?_withAddresses_mk {Instr : Type} :
     ∀ (program : List (Sized (Directive Instr))) (startAddr : Int64) (k : Nat),
       (Executable.withAddresses {startAddr, program})[k]?

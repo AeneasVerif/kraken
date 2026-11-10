@@ -105,3 +105,113 @@ public theorem Host.directivesAtAddress_addrOf {k : Nat} {c : Kraken.Sized Direc
     grind [Kraken.Executable.getElem?_withAddresses_eq]
 
 end
+
+/-! ## Label resolution -/
+
+private theorem findSome?_eq_of_getElem? {α β : Type _} {f : α → Option β} {l : List α} {k : Nat}
+    {a : α} {b : β} (hk : l[k]? = some a) (hf : f a = some b)
+    (hprior : ∀ j, j < k → ∀ c, l[j]? = some c → f c = none) :
+    l.findSome? f = some b := by
+  induction l generalizing k with
+  | nil => simp at hk
+  | cons x xs ih =>
+    cases k with
+    | zero =>
+      simp only [List.getElem?_cons_zero, Option.some.injEq] at hk
+      subst hk
+      simp [hf]
+    | succ k =>
+      rw [List.findSome?_cons, hprior 0 (Nat.succ_pos k) x (by simp)]
+      exact ih (by simpa using hk) (fun j hj c hc => hprior (j + 1) (by omega) c (by simpa using hc))
+
+/--
+Labels resolve to their first definition: if the `k`-th directive of the host program is `.label l`
+and no earlier directive is, then `l` resolves to `Host.addrOf k`.
+
+`Host` does not require labels to be unique, and the hypothesis `hfirst` cannot be dropped: a jump
+to a label that is defined twice goes to the first definition.
+-/
+public theorem Host.label_eq_addrOf [Host] {l : Label} {k : Nat}
+    (hk : Host.prog[k]? = some (.label l))
+    (hfirst : ∀ j, j < k → Host.prog[j]? ≠ some (.label l)) :
+    Labels.label l = Host.addrOf k := by
+  show (Host.exe.withAddresses.findSome? _).getD (-1) = Host.addrOf k
+  rw [findSome?_eq_of_getElem? (k := k)
+    (a := { directive := .label l, size := Kraken.Layout.size Instr k, addr := Host.exe.addrOf k })
+    (b := Host.exe.addrOf k)]
+  · rfl
+  · rw [Kraken.Executable.getElem?_withAddresses_eq, Host.exe_getElem?, hk]
+    rfl
+  · simp
+  · intro j hj c hc
+    rw [Kraken.Executable.getElem?_withAddresses_eq, Host.exe_getElem?] at hc
+    cases hd : Host.prog[j]? with
+    | none => simp [hd] at hc
+    | some d =>
+      simp only [hd, Option.map_some, Option.some.injEq] at hc
+      subst hc
+      have hne : d ≠ .label l := fun h => hfirst j hj (by rw [hd, h])
+      simp [hne]
+
+/-- No label is defined twice in the host program. `Host` does not provide this. -/
+@[expose] public def Host.LabelsUnique [Host] : Prop :=
+  ∀ (i j : Nat) (l : Label),
+    Host.prog[i]? = some (.label l) → Host.prog[j]? = some (.label l) → i = j
+
+/-- Under `LabelsUnique`, every definition of a label is its first definition. -/
+public theorem Host.LabelsUnique.first [Host] (hu : Host.LabelsUnique) {l : Label} {k : Nat}
+    (hk : Host.prog[k]? = some (.label l)) : ∀ j, j < k → Host.prog[j]? ≠ some (.label l) :=
+  fun j hj h => Nat.ne_of_lt hj (hu j k l h hk)
+
+public theorem Host.label_eq_addrOf_of_unique [Host] (hu : Host.LabelsUnique) {l : Label} {k : Nat}
+    (hk : Host.prog[k]? = some (.label l)) : Labels.label l = Host.addrOf k :=
+  Host.label_eq_addrOf hk (hu.first hk)
+
+/-- The labels defined by a program, in order. `LabelsUnique` holds if this list has no duplicates. -/
+@[expose] public def Program.definedLabels (p : Program) : List Label :=
+  p.filterMap fun | .label l => some l | _ => none
+
+private theorem eq_of_nodup_definedLabels {p : Program} (h : (Program.definedLabels p).Nodup) :
+    ∀ (i j : Nat) (l : Label), p[i]? = some (.label l) → p[j]? = some (.label l) → i = j := by
+  induction p with
+  | nil => simp
+  | cons d p ih =>
+    have hmem : ∀ {j : Nat} {l : Label}, p[j]? = some (.label l : Directive) → l ∈ (Program.definedLabels p) := fun hj =>
+      List.mem_filterMap.mpr ⟨_, List.mem_of_getElem? hj, rfl⟩
+    have htail : (Program.definedLabels p).Nodup := by
+      cases d <;> simp_all [Program.definedLabels]
+    intro i j l hi hj
+    cases i <;> cases j
+    · rfl
+    · simp only [List.getElem?_cons_zero, Option.some.injEq, List.getElem?_cons_succ] at hi hj
+      subst hi
+      simp only [Program.definedLabels, List.filterMap_cons, List.nodup_cons] at h
+      exact absurd (hmem hj) h.1
+    · simp only [List.getElem?_cons_zero, Option.some.injEq, List.getElem?_cons_succ] at hi hj
+      subst hj
+      simp only [Program.definedLabels, List.filterMap_cons, List.nodup_cons] at h
+      exact absurd (hmem hi) h.1
+    · simp only [List.getElem?_cons_succ] at hi hj
+      rw [ih htail _ _ _ hi hj]
+
+/-- A decidable sufficient condition for `LabelsUnique`, for concrete hosts. -/
+public theorem Host.labelsUnique_of_nodup [Host] (h : (Program.definedLabels Host.prog).Nodup) :
+    Host.LabelsUnique :=
+  eq_of_nodup_definedLabels h
+
+/-! ## Concrete hosts -/
+
+/--
+A `Host` from a program and a layout that gives size zero only to labels and keeps the executable
+below `2 ^ 64` bytes. For concrete programs both side conditions are decidable.
+-/
+@[reducible, expose] public def Host.ofLayout (prog : Program) (layout : Layout)
+    (hzero : ∀ i d, prog[i]? = some d → @Kraken.Layout.size _ layout i = 0 → ∃ l, d = .label l)
+    (hsmall : (layout.apply prog).sizeBefore prog.length < 2 ^ 64) : Host where
+  prog := prog
+  layout := layout
+  zero_inert i d hd hz := by
+    obtain ⟨l, rfl⟩ := hzero i d hd hz
+    exact @Directive.inert_label l
+  addr_determines_offset _ _ h :=
+    Kraken.Executable.sizeBefore_eq_of_addrOf_eq _ (by simpa [Kraken.Layout.apply] using hsmall) h
