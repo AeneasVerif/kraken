@@ -167,3 +167,34 @@ Findings and fixes:
   varargs, thread-locals, own data, no driver), each skipped with the reason.
 - Next step (needs rega's R3 calls and x64isel's operations): compile the parsed functions with
   `compileFn` instead of stock QBE, for a third opinion on our backend.
+
+## Algebraic simplifications and strength reductions in `Fold` (done)
+
+Extended `LeanQbe/Fold.lean` (249 lines) and `LeanQbe/FoldLemmas.lean` (580 lines) while keeping
+`Func.fold_spec` and `Func.fold_wf` intact (standard 3 axioms, check time ~1 s):
+
+- **Key-carrying PHOAS instantiation (`FVal V = Arg V × FKey`)**: each bound variable carries its
+  replacement operand `Arg V` and a symbolic key `FKey = Arg Nat` so that `a.fkey == b.fkey` detects
+  equal variables without `DecidableEq V`. Identity eliminations preserve both `.fout` and `.fkey`, so
+  equality propagates through chains of simplified operations.
+- **Instruction elimination (`Op.simpAct : Op (FVal V) → Option SimpAct`)**:
+  - constant folding when all operands are immediate and `Op.eval` is defined;
+  - `copy .l a → a` and redundant 64-bit extension `ext .l .l sg a → a`;
+  - annihilators at `.w` and `.l`: `mul a 0 → 0`, `mul 0 b → 0`, `and a 0 → 0`, `and 0 b → 0`;
+  - self-annihilators at `.w` and `.l`: `sub x x → 0`, `xor x x → 0`;
+  - self-identities at `.l`: `and .l x x → x`, `or .l x x → x`;
+  - identities at `.l`: `add x 0`, `add 0 x`, `sub x 0`, `mul x 1`, `mul 1 x`, `or x 0`, `or 0 x`,
+    `xor x 0`, `xor 0 x`, `and x (-1)`, `and (-1) x`, `shl/shr/sar x 0 → x`;
+  - self-comparisons at `.w` and `.l`: `eq/sle/sge/ule/uge x x → 1`, `ne/slt/sgt/ult/ugt x x → 0`.
+  Factoring the result through `SimpAct = imm c | fst | snd` (independent of `V`) keeps the `Wf`
+  preservation lemma `OpRel.simpAct_eq` a 10-line equality proof and keeps the `.let_` case of `fold_wp`
+  and `fold_wf` at two branches regardless of how many rules `binAct`/`cmpAct`/`extAct`/`copyAct` have.
+- **Operation rewriting (`Op.rewrite : Op V → Op V`)**:
+  - power-of-two multiply strength reduction: `mul x (2^m) → shl x m` and `mul (2^m) x → shl x m`
+    at `.l` (`m < 64`) and `.w` (`m < 32`), proved via `BitVec.shiftLeft_eq_mul_twoPow`;
+  - class-`w` identity rules (`add.w x 0`, `sub.w x 0`, `mul.w x 1`, `or.w x 0`, `xor.w x 0`,
+    `and.w x (-1)`, `shl/shr/sar.w x 0`) → `copy .w x`;
+  - redundant 32-bit extensions (`ext .w .w sg a`, `ext .w .l sg a`, `ext .l .w false a`) → `copy .w a`.
+- **Tests (`spike/il/FoldTest.lean`)**: `algProg_fold_out` checks by elaborator `rfl` that a 24-instruction
+  program exercising every identity, annihilator, self-rule, chained key propagation into `ceql` + `jnz`,
+  `mul _ 8 → shl _ 3`, `mul.w 4 _ → shl.w _ 2`, and `extuw → copy.w` folds to 3 instructions.
