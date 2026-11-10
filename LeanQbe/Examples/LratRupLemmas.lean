@@ -5,6 +5,7 @@ public import LeanQbe.Logic.MemLemmas
 public import LeanQbe.Logic.Rules
 public import Kraken.Bedrock2.Test.LratTrimRupProof
 public import Kraken.SeparationTactics
+public import LeanQbe.Wf
 
 /-!
 # The RUP check: correctness
@@ -545,5 +546,80 @@ theorem phase2_spec {Γ : Env} {Q : Post} {X : XPost} {fail finish : Cont}
     wp_unfold
     exact hJ _ _ _ ⟨0, te0, sr0, sla0, assign0, trail0, tf0, by simp, Nat.zero_le _, rfl, by omega,
       hm, hent0⟩
+
+/-! ## The function -/
+
+theorem loadl_kfield {st : Val} {k : KernelFields} {R : Mem 64 → Prop} {m : Mem 64} (i : Nat)
+    (hi : i < 20) (h : (kernelState st k ⋆ R) m) {a : Val} (ha : a = st + BitVec.ofNat 64 (8 * i)) :
+    loadVal m .l .l true a = some (k.toList[i]'(by simpa [KernelFields.toList] using hi)) := by
+  subst ha; exact loadl_word8Array _ h
+
+theorem checkRup_correct (Γ : Env) :
+    ∀ args m Q X, checkRupSpec args m Q X → Func.spec Γ checkRup args m Q X := by
+  rintro _ m Q X ⟨st, id, literals, antecedents, mv, k, lits, aids, lit_ptrs, tf0, s, P_ro, rfl,
+    hk_trail, hct, ⟨R_lits, hP_lits⟩, haids_ro, hlits_valid, haids_valid, hcap, htf_len, hsep, hQ, hX⟩
+  unfold checkRup Func.spec
+  wp_unfold
+  have hks : (kernelState st k ⋆ (byte1Array k.values_begin (assignBytes mv Assignment.empty) ⋆
+      int4Array k.trail_begin tf0 ⋆ P_ro)) m := sep_cast hsep (by ac_rfl)
+  refine ⟨_, loadl_kfield 2 (by decide) hks rfl, _, loadl_kfield 3 (by decide) hks rfl,
+    _, loadl_kfield 5 (by decide) hks rfl, _, loadl_kfield 6 (by decide) hks rfl,
+    _, loadl_kfield 18 (by decide) hks rfl, _, loadl_kfield 19 (by decide) hks rfl, ?_⟩
+  simp only [KernelFields.toList, List.getElem_cons_succ, List.getElem_cons_zero, hk_trail]
+  -- `@fail`: flush, then exit
+  apply wp_join (fun as m => ∃ code aid te sr sla, as = [code, aid, te, sr, sla] ∧
+    ∃ F k', (kernelState st k' ⋆ F) m)
+  · rintro _ m ⟨code, aid, te, sr, sla, rfl, F, k', hm⟩
+    wp_unfold
+    exact flush_spec hm fun _ _ => by wp_unfold; exact hX _ _
+  intro Jfail hJfail
+  have toFail : ∀ code aid te sr sla assign trail tf m', (PState mv k.values_begin k.trail_begin te
+      assign trail tf tf0.length ⋆ (kernelState st k ⋆ P_ro)) m' → Jfail [code, aid, te, sr, sla] m' :=
+    fun code aid te sr sla assign trail tf _ h => hJfail _ _ ⟨code, aid, te, sr, sla, rfl,
+      PState mv k.values_begin k.trail_begin te assign trail tf tf0.length ⋆ P_ro, k,
+      sep_cast h (by ac_rfl)⟩
+  -- `@finish`: backtrack, flush, return
+  apply wp_join (fun as m => ∃ te sr sla assign trail tf, as = [te, sr, sla] ∧
+    (PState mv k.values_begin k.trail_begin te assign trail tf tf0.length ⋆
+      (kernelState st k ⋆ P_ro)) m ∧ CNF.EntailsClause s.toCNF (toClause lits))
+  · rintro _ m ⟨te, sr, sla, assign, trail, tf, rfl, hm, hentc⟩
+    wp_unfold
+    obtain ⟨hte, hcov, htv, hlen, hm⟩ := pstate_sep.1 hm
+    refine backtrack_spec hte htv (by omega) hcov hm fun m1 hm1 => ?_
+    refine flush_spec (k := k) (R := (byte1Array k.values_begin (assignBytes mv Assignment.empty) ⋆
+      int4Array k.trail_begin (trail ++ tf)) ⋆ P_ro) (sep_cast hm1 (by ac_rfl)) fun m2 hm2 => ?_
+    wp_unfold
+    exact hQ m2 sr sla (trail ++ tf) (by simp [hlen]) (sep_cast hm2 (by ac_rfl)) hentc
+  intro Jfin hJfin
+  -- `@ph2`: phase 2 from the negated clause
+  apply wp_join (fun as m => ∃ te sla assign trail tf, as = [te, sla] ∧
+    (PState mv k.values_begin k.trail_begin te assign trail tf tf0.length ⋆
+      (kernelState st k ⋆ P_ro)) m ∧ aids.length ≤ tf.length ∧
+    ∀ x : Literal Nat, x ∈ toClause lits ↔ assign.get? x.1 = some !x.2)
+  · rintro _ m ⟨te, sla, assign, trail, tf, rfl, hm, hc, hiff⟩
+    wp_unfold
+    exact phase2_spec (initAssign := assign) hct haids_ro haids_valid hc (CNF.entails_refl _) hm
+      (fun _ code aid te sr sla _ _ _ h => toFail code aid te sr sla _ _ _ _ h)
+      (fun _ te sr sla assign' trail' tf' h hunsat => hJfin _ _ ⟨te, sr, sla, assign', trail', tf', rfl,
+        h, entailsClause_of_unsat_of_iff_falsified hiff hunsat⟩) sla
+  intro Jph2 hJph2
+  -- phase 1
+  have back : ∀ te assign trail tf m', (PState mv k.values_begin k.trail_begin te assign trail tf
+      tf0.length ⋆ (ZeroTermInts literals lits ⋆ (kernelState st k ⋆ R_lits))) m' →
+      (PState mv k.values_begin k.trail_begin te assign trail tf tf0.length ⋆
+        (kernelState st k ⋆ P_ro)) m' := fun _ _ _ _ _ h => by
+    rw [hP_lits]; exact sep_cast h (by ac_rfl)
+  have hm1 : (PState mv k.values_begin k.trail_begin k.trail_begin Assignment.empty [] tf0 tf0.length ⋆
+      (ZeroTermInts literals lits ⋆ (kernelState st k ⋆ R_lits))) m := by
+    refine pstate_sep.2 ⟨by simp, trailCoversAssign_empty mv, by simp, by simp, ?_⟩
+    rw [List.nil_append]; rw [hP_lits] at hsep; exact sep_cast hsep (by ac_rfl)
+  exact phase1_spec (reserve := aids.length) hlits_valid (by omega) hm1
+    (fun _ te sla assign trail tf h _ htaut => hJfin _ _ ⟨te, _, sla, assign, trail, tf, rfl, back _ _ _ _ _ h,
+      entailsClause_of_tautology htaut⟩)
+    (fun _ te sla assign trail tf h hc hiff => hJph2 _ _ ⟨te, sla, assign, trail, tf, rfl,
+      back _ _ _ _ _ h, hc, hiff⟩) _
+
+theorem checkRup_wf : Func.Wf checkRup := by
+  unfold checkRup phase1 phase2 inner backtrack flush assignedLit assignLit; wf_tac
 
 end LeanQbe.LratRup

@@ -1,6 +1,8 @@
 module
 
 public import LeanQbe.Notation
+public import LeanQbe.WP
+public import Kraken.Bedrock2.Test.LratTrimSpec
 
 /-!
 # The RUP check of lrat-trim, in QBE notation (plan step 7, pulled forward)
@@ -193,5 +195,40 @@ def checkRup : Func := fun _ _ => qbe(%st, %id, %literals, %antecedents) {
     }
   }
 }
+
+/-! ## Contract
+
+The precondition and the return postcondition are those of Kraken's
+`br_check_clause_non_strictly_by_propagation_ok` (`LratTrimRupProof.lean`), over the same model and
+memory predicates (`Kraken.Bedrock2.Test`). Bedrock2's `lrat_fail` is an external call whose
+specification accepts any postcondition; here it is `exit $lrat_fail(…)`, so the exit postcondition
+must accept every exit to `lrat_fail` (and only to it: no other exit is possible).
+-/
+
+open Std.Sat Std.Tactic.BVDecide.LRAT.Internal Kraken.Bedrock2.Test in
+/-- If `checkRup(st, id, literals, antecedents)` returns, the clause is entailed by the formula, the
+values array is cleared and the trail is empty again (its contents may have changed). -/
+def checkRupSpec : Spec := fun args m Q X =>
+  ∃ (st id literals antecedents : Val) (mv : Nat) (k : KernelFields)
+    (lits aids lit_ptrs tf0 : List Val) (s : State) (P_ro : Mem 64 → Prop),
+    args = [st, id, literals, antecedents] ∧
+    k.trail_end = k.trail_begin ∧
+    ClauseTable mv k.literals_begin lit_ptrs s.formula P_ro ∧
+    (∃ R, P_ro = (ZeroTermInts literals lits ⋆ R)) ∧
+    (∃ R, P_ro = (ZeroTermInts antecedents aids ⋆ R)) ∧
+    (∀ x ∈ lits, IsValidLit mv x) ∧
+    (∀ aid ∈ aids, IsInt32 aid ∧ aid ≠ 0 ∧
+      (aid.slt 0 = false → ∃ h : aid.toNat < lit_ptrs.length, lit_ptrs[aid.toNat] ≠ 0)) ∧
+    lits.length + aids.length ≤ tf0.length ∧
+    4 * tf0.length < 2 ^ 64 ∧
+    ((byte1Array k.values_begin (assignBytes mv Assignment.empty) ⋆ int4Array k.trail_begin tf0) ⋆
+      (kernelState st k ⋆ P_ro)) m ∧
+    (∀ m' (stat_resolved stat_lit_assigned : Val) (trail_all : List Val),
+      trail_all.length = tf0.length →
+      ((byte1Array k.values_begin (assignBytes mv Assignment.empty) ⋆ int4Array k.trail_begin trail_all) ⋆
+        (kernelState st
+          { k with trail_end := k.trail_begin, stat_resolved, stat_lit_assigned } ⋆ P_ro)) m' →
+      CNF.EntailsClause s.toCNF (toClause lits) → Q [] m') ∧
+    (∀ as m', X "lrat_fail" as m')
 
 end LeanQbe.LratRup
