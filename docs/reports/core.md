@@ -77,3 +77,32 @@ Owner: `core`. Files: `lakefile.toml`, `lean-toolchain`, `.gitignore`, library r
   `simp only [fold]` (rewrote as `if n = 0 then match …`), (2) `simp only [Arg.val]` turning `.val` into a
   `match` that blocks later rewrites (use definitional `have` instead), (3) name resolution inside
   `theorem Func.x` picking `Func.y` over the root `y`.
+
+## Step 2e, part 2: common-subexpression elimination (done, c146d07)
+
+- `LeanQbe/Gvn.lean` (73 lines): `gvn n next tbl : Expr (Arg V × Key) L → Expr V L`. Input variables carry
+  their replacement operand and a key (`Arg Nat`: a counter-assigned name, because variables of an
+  arbitrary `V` cannot be compared). The table maps key-level operations to earlier results and is passed
+  down the term, so lexical scope = the operations executed on every path to here. Loads, parameters and
+  call results get fresh keys. Same pending-label rule as `fold`.
+- `LeanQbe/GvnLemmas.lean` (448 lines, under 1 s): `gvn_wp` with the invariant "a valuation `ρ` of the keys
+  below the counter; every variable's operand and key evaluate to the source value; every table entry
+  evaluates to its operand" (plus "keys below the counter", so extending `ρ` at the counter is harmless);
+  `gvn_wf` with "both instantiations compute the same keys and the same table shape"; `Func.gvn_spec`,
+  `Func.gvn_wf`.
+- `spike/il/GvnTest.lean`: a repeated `add` before and inside a branch is replaced, loads are kept (kernel
+  `rfl`), `Wf`, a contract through `gvn_spec`.
+- Finding: the elaborator's `rfl` fails on `Func.gvn prog = …` even for a two-instruction program, while
+  the kernel accepts it at once (and rejects a wrong right-hand side). The test uses Spike A's
+  `kernel_rfl` (hand `Eq.refl` to the kernel). Same pitfall family as Spike A's.
+
+## Step 2e verdict (plan risk 5)
+
+PHOAS-to-PHOAS passes are cheap in Lean for this IR. Both passes went through on the first design except
+for one semantic point (junk shapes, see Fold). Effort: about one hour for Fold+Copy, under an hour for
+CSE; proof sizes 316 and 448 lines, of which the `wp` and `Wf` inductions are about 170 and 250, and all
+proofs check in under a second. What made it cheap: `Wf` as one inductive predicate (induction on it gives
+every case with both terms in hand), `wp` monotone without hypotheses, and choosing the input
+instantiation (`Arg V`, `Arg V × Key`) so that the analysis result is just the variable. Not done: global
+value numbering across join points (needs dominance information at block entries), folding of branches
+on values known only through the table.
