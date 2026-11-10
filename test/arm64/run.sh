@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# AArch64 litmus tests. For each test/<name>_main.c whose function the Arm64 emitter knows:
+# AArch64 litmus and union-find tests. For each test/*_main.c and test/arm64/*_main.c:
 #  1. ours: emit <name>.s with test/arm64/Emit.lean (Arm64.isa), cross-assemble with the harness,
 #     run under qemu-aarch64;
-#  2. stock QBE: print <name>.ssa with `leanqbe --il`, compile with stock QBE `-t arm64`, run.
+#  2. stock QBE: print <name>.ssa with `Emit.lean --il`, compile with stock QBE `-t arm64`, run.
 # Stock QBE is built from a copy of the reference checkout (never inside it) unless $QBE is set;
 # set NOQBE=1 to skip step 2. Exit code 0 iff every run exits 0. Everything under timeout.
 set -uo pipefail
@@ -11,9 +11,7 @@ cd "$ROOT"
 OUT="${OUT:-$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-arm64.XXXXXX")}"
 CC="${CC_AARCH64:-aarch64-linux-gnu-gcc}"
 RUN="qemu-aarch64 -L /usr/aarch64-linux-gnu"
-TARGETS="LeanQbeArm64 LeanQbe.Main LeanQbe.Examples.LitmusProgs"
-[ -z "${NOQBE:-}" ] && TARGETS="$TARGETS leanqbe"
-timeout 1800 lake build $TARGETS >"$OUT/build.log" 2>&1 || { tail -20 "$OUT/build.log"; exit 1; }
+timeout 1800 lake build LeanQbeArm64 LeanQbe.Main LeanQbe.Print LeanQbe.Examples.LitmusProgs >"$OUT/build.log" 2>&1 || { tail -20 "$OUT/build.log"; exit 1; }
 if [ -z "${NOQBE:-}" ] && [ -z "${QBE:-}" ]; then
   QBE_SRC="${QBE_SRC:-/usr/local/google/home/andreser/lean-qbe/qbe}"
   rm -rf "$OUT/qbe-src" && cp -r "$QBE_SRC" "$OUT/qbe-src"
@@ -26,16 +24,17 @@ fail=0
 run() { # $1 = label, $2 = binary
   if timeout 60 $RUN "$2" >"$2.out" 2>&1; then echo "PASS $1"; else echo "FAIL $1: run"; cat "$2.out"; fail=1; fi
 }
-for h in test/*_main.c; do
+for h in test/*_main.c test/arm64/*_main.c; do
+  [ -f "$h" ] || continue
   name="$(basename "$h" _main.c)"
   if ! timeout 300 lake env lean --run test/arm64/Emit.lean "$name" >"$OUT/$name.s" 2>"$OUT/$name.emit.err"; then
-    if grep -q "unknown function" "$OUT/$name.emit.err"; then echo "SKIP $name (not in the Arm64 emitter)"; continue; fi
+    if grep -q "unknown suite" "$OUT/$name.emit.err"; then echo "SKIP $name (not in the Arm64 emitter)"; continue; fi
     echo "FAIL $name (arm64): emit"; cat "$OUT/$name.emit.err"; fail=1; continue
   fi
   if link "$OUT/$name" "$h" "$OUT/$name.s"; then run "$name (arm64)" "$OUT/$name"
   else echo "FAIL $name (arm64): assemble or link"; fail=1; fi
   if [ -z "${NOQBE:-}" ]; then
-    if timeout 60 .lake/build/bin/leanqbe --il "$name" >"$OUT/$name.ssa" &&
+    if timeout 300 lake env lean --run test/arm64/Emit.lean --il "$name" >"$OUT/$name.ssa" &&
        timeout 60 "$QBE" -t arm64 -o "$OUT/$name.qbe.s" "$OUT/$name.ssa" &&
        link "$OUT/$name.qbe" "$h" "$OUT/$name.qbe.s"; then
       run "$name (stock qbe arm64)" "$OUT/$name.qbe"

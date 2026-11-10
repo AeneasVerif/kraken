@@ -9,5 +9,6 @@ public import LeanQbe.Arm64.Abi
 public import LeanQbe.Arm64.Tracer
 public import LeanQbe.Arm64.LitmusCode
 public import LeanQbe.Arm64.Litmus
+public import LeanQbe.Arm64.UnionFind
 
 /-! Root of the AArch64 library: imports `Kraken.AArch64` through `LeanQbe.Arm64.*`. -/
