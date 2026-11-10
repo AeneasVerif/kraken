@@ -7,6 +7,8 @@ public import LeanQbe.WP
 public import LeanQbe.WPLemmas
 public import LeanQbe.Wf
 public import LeanQbe.WfLemmas
+public import LeanQbe.Flat
+public import LeanQbe.FlatLemmas
 public import LeanQbe.Print
 public import LeanQbe.Fold
 public import LeanQbe.FoldLemmas
