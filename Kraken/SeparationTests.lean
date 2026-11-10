@@ -58,9 +58,9 @@ error: Application type mismatch: The argument
 has type
   (Eq (UInt64.At 0 addr) ⋆ (Eq (v.At (addr + 8#64)) ⋆ R)) m
 but is expected to have type
-  (Eq (v.At (addr + 8#64)) ⋆ ?m.54) m
+  (Eq (v.At (addr + 8#64)) ⋆ ?m.46) m
 in the application
-  Exists.intro ?m.54 h
+  Exists.intro ?m.46 h
 
 Note: The following definitions were not unfolded because their definition is not exposed:
   List.At ↦ 4

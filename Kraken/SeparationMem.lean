@@ -83,7 +83,7 @@ theorem loadBytes_sep {w : Nat} (bs : List UInt8) (a : BitVec w) (n : Nat) (R : 
   rw [Mem.loadBytes]
   rw [show (List.range n).map (fun i => ((bs.At a).union m2).get? (a + BitVec.ofNat w i)) =
            (List.range n).map (fun i => if h : i < n then some (bs.get ⟨i, Hl ▸ h⟩) else none) by
-    apply List.map_congr_left; intro i hi; rw [List.mem_range] at hi; rw [dif_pos hi]; exact h_get i hi]
+    apply List.map_congr_left; intro i hi; rw [List.mem_range] at hi; rw [dite_eq_left hi]; exact h_get i hi]
   cases Hl
   rw [List.range_get_eq_map_some]
   rw [List.allSome_map_some]
