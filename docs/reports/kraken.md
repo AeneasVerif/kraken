@@ -30,6 +30,7 @@ replayed rather than rebuilt (166 jobs, 0.15 s).
 | K1 | `1fc7dfb` | x64 generic lemmas from Spike K (below) |
 | K2 | `4952311` | AArch64 counterparts (below) |
 | K2+ | `d0d005e` | `Host.label_undefined` (undefined labels resolve to -1), x64 and AArch64 |
+| K3 | `6aa97bf` | x64 `div` and `idiv` (all widths, reg/mem, `#DE` fault, hardware tests) |
 
 ## K1: x64 lemmas (commit `1fc7dfb`)
 
@@ -122,8 +123,24 @@ mid-end `Func.opt`, first-fit allocation oracle `Spill.hints`, verified lowering
 | `LeanQbe/Arm64/Litmus.lean` | `sumto_correct`: end-to-end theorem on Kraken AArch64 (`x0 = n < 2^32`, `x30 = ra`, `sp` 16-aligned, `dmem =⋆ R` → `pc = ra`, `x0 = tri n.toNat`, `x19`–`x29` and `sp` preserved, `dmem =⋆ R`), generic in `[Host]` and `k₀` under `LabelsUnique`; `sumto_nonvacuous` (concrete host and state, `x0 = 3` → `pc = 0x1234 ∧ x0 = 6`) |
 | `test/arm64/Emit.lean`, `GenLitmus.lean`, `run.sh` | AArch64 emitter, code/proof generator, and test runner (`test/arm64/run.sh`: 12/12 PASS — 6 programs × our AArch64 assembly and stock QBE `-t arm64` on `leanqbe --il`, cross-assembled with `aarch64-linux-gnu-gcc` and run under `qemu-aarch64` against `test/*_main.c`) |
 
+## K3: x64 `div` and `idiv` in Kraken (commit `6aa97bf`)
+
+Added by helper `krakendiv` in `kraken/lean-qbe-dev` and fast-forwarded to the consumer:
+
+- `Operation.div` and `Operation.idiv (src : RegOrMem w)` across all widths (8, 16, 32, 64 bits):
+  divides `ah:al` (8-bit) or `dx:ax` / `edx:eax` / `rdx:rax` by `src`, writes quotient to `al`/`rax`
+  and remainder to `ah`/`rdx` (zero-extending 32-bit results), and leaves status flags `undefined`.
+  `idiv` truncates toward zero (`Int.tdiv`/`Int.tmod`).
+- `#DE` (division by zero, or quotient overflow including `INT_MIN / -1`) is modelled via a new fault
+  constructor `Effects.divide_error` (`Effects.All` maps it to `False`, matching QBE's undefined
+  division semantics).
+- Parser (string and `x64` syntax), AT&T and Intel printers, round-trip and `#DE` unit tests, plus
+  hardware differential tests `Kraken/X64/Test/asm/test_{div,idiv}.S`: `asm_tests.py --skip-sde`
+  passes 52/52 natively, and `fuzz_x64.py` passes 6,000 random sequences with 0 failures.
+- Note on bit-scan instructions (`tzcnt`, `lzcnt`, `bsr`, `popcnt`): upstream PR #216 (`fb94f20`,
+  `b304cbf`) already implements them; we did not duplicate it since QBE's IL has no bit-scan ops.
+
 ## Next
 
-- Upstream x64 `div`/`idiv` (and bit-scan instructions) into Kraken (`krakendiv` helper in progress).
 - Regenerate `LitmusCode.lean` and extend `LeanQbe/Arm64/Litmus*.lean` when `rega`'s R3 (calls, exits,
   spills, linking) and union-find (step 5) land.
