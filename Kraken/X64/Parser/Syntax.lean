@@ -457,4 +457,22 @@ syntax ppDedent((ppLine x64_directive)*) : x64_prog
 /-- Inline unquoted X64 assembly block (`⸨prog| ...⸩`). -/
 syntax "⸨prog|" x64_prog "⸩" : term
 
+/-- Embedding of instructions (`⸨instr| addq %rax, %rbx ⸩ : Instr`). -/
+syntax "⸨instr| " x64_instr " ⸩" : term
+
+/-- Embedding of operands (`⸨operand| $1 ⸩ : Operand w`). -/
+syntax "⸨operand| " x64_operand " ⸩" : term
+
+/-- Embedding of memory operands (`⸨mem| 8(%rax, %rbx, 4) ⸩ : AddrExpr`). -/
+syntax "⸨mem| " x64_mem " ⸩" : term
+
+/-- Embedding of general-purpose registers (`⸨reg| %eax ⸩ : Reg .W32`). -/
+syntax "⸨reg| " x64_reg " ⸩" : term
+
+/-- Embedding of AVX registers (`⸨reg| %xmm0 ⸩ : AvxReg .W128`). -/
+syntax "⸨reg| " x64_avx_reg " ⸩" : term
+
+/-- Embedding of constant expressions (`⸨const| lbl+8 ⸩ : ConstExpr`). -/
+syntax "⸨const| " x64_const " ⸩" : term
+
 end Kraken.X64.Parser

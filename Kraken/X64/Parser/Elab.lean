@@ -840,6 +840,23 @@ def elabProgram (stx : TSyntax `x64_prog) : TermElabM Expr := withRef stx do
 public def elabX64 (s : String) : TermElabM Expr :=
   elabCategory `x64_prog elabProgram (replaceLineComments "#" s)
 
+-- ============================================================================
+-- Standalone Embeddings (`⸨instr|`, `⸨operand|`, `⸨mem|`, `⸨reg|`, `⸨const|`)
+-- ============================================================================
+
+/-- Elaborate a standalone operand-level embedding via `body`, against the expected type. When
+    `widthIndexed`, the result is indexed by an operation width of type `W` (`Reg w`, `AvxReg w`,
+    `Operand w`), determined by its registers, by the type of an antiquotation, or else by the expected
+    type; if none of these determines it, elaboration fails. -/
+def elabEmbedding (W : Type) [ToExpr W] (body : X64ElabM Expr) (expectedType? : Option Expr)
+    (widthIndexed := true) : TermElabM Expr := do
+  let w ← mkFreshExprMVar (toTypeExpr W)
+  let e ← StateRefT'.run' body { operandWidth := w }
+  let e ← ensureHasType expectedType? e
+  if widthIndexed && (← instantiateMVars w).isMVar then
+    throwError "could not infer operand width, consider adding a type ascription"
+  instantiateMVars e
+
 end
 
 /-- Inline unquoted X64 assembly directive elaborator (`⸨dir| ... ⸩`). -/
@@ -853,6 +870,25 @@ macro_rules
 /-- Inline unquoted X64 assembly block elaborator (`⸨prog| ...⸩`). -/
 elab_rules : term
   | `(⸨prog| $p:x64_prog⸩) => elabProgram p
+
+/-- Standalone embeddings of the elements of a program:
+    * `⸨instr| ... ⸩ : Instr`
+    * `⸨operand| ... ⸩ : Operand w`
+    * `⸨mem| ... ⸩ : AddrExpr`. An `AddrExpr` only holds 64-bit registers: the address width that the
+      registers of a memory operand determine (`0(%eax)` is a 32-bit address) is part of the
+      instruction (`Instr.regular`), so it is dropped here, and `⸨mem| 0(%eax) ⸩ = ⸨mem| 0(%rax) ⸩`.
+    * `⸨reg| ... ⸩ : Reg w` for general-purpose registers and `AvxReg w` for AVX registers
+    * `⸨const| ... ⸩ : ConstExpr`
+
+    Width-indexed results take their width from their registers, from the type of an antiquotation, or
+    else from the expected type (`(⸨operand| $1 ⸩ : Operand .W64)`). -/
+elab_rules : term <= expectedType?
+  | `(⸨instr| $i:x64_instr ⸩) => do ensureHasType expectedType? (← elabInstr i)
+  | `(⸨operand| $o:x64_operand ⸩) => elabEmbedding Width (elabOperand o) expectedType?
+  | `(⸨mem| $m:x64_mem ⸩) => elabEmbedding Width (elabMem m) expectedType? (widthIndexed := false)
+  | `(⸨reg| $r:x64_reg ⸩) => elabEmbedding Width (elabReg r) expectedType?
+  | `(⸨reg| $r:x64_avx_reg ⸩) => elabEmbedding AvxWidth (elabAvxReg r) expectedType?
+  | `(⸨const| $c:x64_const ⸩) => do ensureHasType expectedType? (← elabConstExpr c)
 
 /-- Inline unquoted X64 assembly block macro/elaborator (`parse( ... )`). -/
 elab "parse(" p:x64_prog ")" : term => elabProgram p
