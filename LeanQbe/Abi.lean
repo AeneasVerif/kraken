@@ -420,7 +420,8 @@ def FnSpec (h : T.Host) (sym : String) (spec : Spec) (n nX : Nat) : Prop :=
           (T.mem (T.data st) =⋆ Eq m' ⋆ T.Exit (T.get s T.sp) n ⋆ R)) ∨
         (∃ sym' as m', X sym' as m' ∧ T.Defined h sym' ∧ T.pc st = T.labelAddr h sym' ∧
           T.ArgsIn as (T.data st) ∧ T.spEntry (T.get (T.data st) T.sp) ∧
-          ∃ (ra' : T.Addr) (n' : Nat) (F : Mem 64 → Prop), nX ≤ n' ∧ T.raReg (T.data st) ra' ∧
+          ∃ (ra' : T.Addr) (n' : Nat) (F : Mem 64 → Prop), nX ≤ n' ∧ n' + T.raBytes ≤ 2 ^ 64 ∧
+            T.raReg (T.data st) ra' ∧
             (T.mem (T.data st) =⋆ Eq m' ⋆ T.Entry (T.get (T.data st) T.sp) ra' n' ⋆ F ⋆ R)))
       (T.mkState s (T.labelAddr h sym))
 

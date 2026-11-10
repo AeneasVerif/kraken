@@ -256,7 +256,7 @@ theorem g_spec (h : Host) (k : Nat) (hc : gCode.IsInfixAt (@Host.prog h) k)
     intro hf
     refine eventually_jmpD_any h3 (.done _ (Or.inr ?_))
     refine ⟨"abort", [a], m, hXa (by simpa [hs1, ha] using hf), hab, rfl, ?_, ?_, ra, n, ExtHashMap.emp,
-      hX, trivial, ?_⟩
+      hX, hn, trivial, ?_⟩
     · show ([Reg64.rdi, .rsi, .rdx, .rcx, .r8, .r9].take 1).map (Reg64s.get64 s1.regs) = [a]
       simp [hs1, ha]
     · show (s1.regs.get64 .rsp + 8#64).toNat % 16 = 0

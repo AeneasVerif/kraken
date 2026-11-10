@@ -297,9 +297,9 @@ theorem FnSpec.mono_exit {h : T.Host} {sym : String} {spec : Spec} {n nX nX' : N
     (hf : T.FnSpec h sym spec n nX) (hX : nX' ≤ nX) : T.FnSpec h sym spec n nX' := by
   intro args m Q X hspec s ra R ha hr hsp hmem
   refine eventually_weaken _ _ _ _ ?_ (hf args m Q X hspec s ra R ha hr hsp hmem)
-  rintro st (hret | ⟨sym', as, m', hX', hd, hpc, has, hsp', ra', n', F, hn', hra', hm'⟩)
+  rintro st (hret | ⟨sym', as, m', hX', hd, hpc, has, hsp', ra', n', F, hn', hb', hra', hm'⟩)
   · exact Or.inl hret
-  · exact Or.inr ⟨sym', as, m', hX', hd, hpc, has, hsp', ra', n', F, by omega, hra', hm'⟩
+  · exact Or.inr ⟨sym', as, m', hX', hd, hpc, has, hsp', ra', n', F, by omega, hb', hra', hm'⟩
 
 /-- A contract with a larger stack bound: the extra stack is part of the caller's frame. -/
 theorem FnSpec.mono_stack {h : T.Host} {sym : String} {spec : Spec} {n n' nX : Nat}
@@ -329,7 +329,7 @@ theorem FnSpec.mono_stack {h : T.Host} {sym : String} {spec : Spec} {n n' nX : N
     exact this ▸ hmem
   refine eventually_weaken _ _ _ _ ?_ (hf args m Q X hspec s ra _ ha hr hsp hmem')
   rintro st (⟨hpc, rets, m', hQ, hrets, hres, hm⟩ |
-    ⟨sym', as, m', hX', hd, hpc, has, hsp', ra', n'', F, hn'', hra', hm⟩)
+    ⟨sym', as, m', hX', hd, hpc, has, hsp', ra', n'', F, hn'', hb'', hra', hm⟩)
   · refine Or.inl ⟨hpc, rets, m', hQ, hrets, hres, ?_⟩
     have hsplit' : T.Exit (T.get s T.sp) n' =
         region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n) ⋆ T.Exit (T.get s T.sp) n := by
@@ -344,7 +344,7 @@ theorem FnSpec.mono_stack {h : T.Host} {sym : String} {spec : Spec} {n n' nX : N
       rw [hsplit']; ac_rfl
     exact this ▸ hm
   · refine Or.inr ⟨sym', as, m', hX', hd, hpc, has, hsp', ra', n'', F ⋆
-      region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n), hn'', hra', ?_⟩
+      region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n), hn'', hb'', hra', ?_⟩
     have : (Eq m' ⋆ T.Entry (T.get (T.data st) T.sp) ra' n'' ⋆ F ⋆
           (region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n) ⋆ R)) =
         (Eq m' ⋆ T.Entry (T.get (T.data st) T.sp) ra' n'' ⋆
