@@ -80,3 +80,16 @@ LeanQbe.Examples.LitmusLrat LeanQbe.Litmus.lrat_module_compile
 LeanQbe.Examples.LitmusLrat LeanQbe.Litmus.lrat_module_fnspec
 LeanQbe.Examples.LitmusLrat LeanQbe.Litmus.checkProof_x64_correct
 LeanQbe.Examples.LitmusLrat LeanQbe.Litmus.checkProof_x64_nonvacuous
+LeanQbe.Arm64.Litmus LeanQbe.Arm64.Litmus.callinc_correct
+LeanQbe.Arm64.Litmus LeanQbe.Arm64.Litmus.callinc_nonvacuous
+LeanQbe.Arm64.Litmus LeanQbe.Arm64.Litmus.twice_correct
+LeanQbe.Arm64.Litmus LeanQbe.Arm64.Litmus.twice_nonvacuous_exit
+LeanQbe.Arm64.Litmus LeanQbe.Arm64.Litmus.spill10_correct
+LeanQbe.Arm64.Litmus LeanQbe.Arm64.Litmus.spill10_nonvacuous
+LeanQbe.Arm64.UnionFind LeanQbe.Arm64.UnionFind.uf_module_fnspec
+LeanQbe.Arm64.UnionFind LeanQbe.Arm64.UnionFind.union_arm64_correct
+LeanQbe.Arm64.UnionFind LeanQbe.Arm64.UnionFind.union_arm64_nonvacuous
+LeanQbe.Arm64.LratTrim LeanQbe.Arm64.LratTrim.lrat_module_compile
+LeanQbe.Arm64.LratTrim LeanQbe.Arm64.LratTrim.lrat_module_fnspec
+LeanQbe.Arm64.LratTrim LeanQbe.Arm64.LratTrim.checkProof_arm64_correct
+LeanQbe.Arm64.LratTrim LeanQbe.Arm64.LratTrim.checkProof_arm64_nonvacuous
