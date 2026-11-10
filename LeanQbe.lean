@@ -12,6 +12,8 @@ public import LeanQbe.Fold
 public import LeanQbe.FoldLemmas
 public import LeanQbe.Gvn
 public import LeanQbe.GvnLemmas
+public import LeanQbe.Opt
+public import LeanQbe.OptLemmas
 public import LeanQbe.Abi
 public import LeanQbe.AbiLemmas
 public import LeanQbe.Notation
