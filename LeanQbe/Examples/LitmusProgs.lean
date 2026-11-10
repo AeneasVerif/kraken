@@ -91,4 +91,73 @@ def swap : Fn where
           (.ret [.var x]))
       (.jump loop [.var n, .var a, .var b])
 
+/-! ## Calls, exits, spills (plan step 3) -/
+
+/-- `inc(a) = a + 1` (a leaf callee). -/
+def inc : Fn where
+  name := "inc"
+  body := fun _ _ => .param fun a => .let_ (.bin .l .add (.var a) (.imm 1)) fun x => .ret [.var x]
+
+/-- `callinc(a, b) = inc(a) + b`: `b` is live across the call. -/
+def callinc : Fn where
+  name := "callinc"
+  body := fun _ _ => .param fun a => .param fun b =>
+    .call "inc" [.var a] <| .param fun r =>
+    .let_ (.bin .l .add (.var r) (.var b)) fun x => .ret [.var x]
+
+/-- `check(a)`: exits to `fail(a)` if the low 32 bits of `a` are zero, else returns `a`. -/
+def check : Fn where
+  name := "check"
+  body := fun _ _ => .param fun a => .jnz (.var a) (.ret [.var a]) (.exit "fail" [.var a])
+
+/-- `twice(a, b) = check(a) + check(b)`: an exit in either call propagates. -/
+def twice : Fn where
+  name := "twice"
+  body := fun _ _ => .param fun a => .param fun b =>
+    .call "check" [.var a] <| .param fun x =>
+    .call "check" [.var b] <| .param fun y =>
+    .let_ (.bin .l .add (.var x) (.var y)) fun z => .ret [.var z]
+
+/-- Ten values live at once (more than x64's seven allocatable registers), plus `b`:
+`spill10(a, b) = (a+1) ^ (a+2) ^ … ^ (a+10) ^ b` with every `a+i` computed before the first `^`. -/
+def spill10 : Fn where
+  name := "spill10"
+  body := fun _ _ => .param fun a => .param fun b =>
+    .let_ (.bin .l .add (.var a) (.imm 1)) fun x1 =>
+    .let_ (.bin .l .add (.var a) (.imm 2)) fun x2 =>
+    .let_ (.bin .l .add (.var a) (.imm 3)) fun x3 =>
+    .let_ (.bin .l .add (.var a) (.imm 4)) fun x4 =>
+    .let_ (.bin .l .add (.var a) (.imm 5)) fun x5 =>
+    .let_ (.bin .l .add (.var a) (.imm 6)) fun x6 =>
+    .let_ (.bin .l .add (.var a) (.imm 7)) fun x7 =>
+    .let_ (.bin .l .add (.var a) (.imm 8)) fun x8 =>
+    .let_ (.bin .l .add (.var a) (.imm 9)) fun x9 =>
+    .let_ (.bin .l .add (.var a) (.imm 10)) fun x10 =>
+    .let_ (.bin .l .xor (.var x1) (.var x2)) fun y1 =>
+    .let_ (.bin .l .xor (.var y1) (.var x3)) fun y2 =>
+    .let_ (.bin .l .xor (.var y2) (.var x4)) fun y3 =>
+    .let_ (.bin .l .xor (.var y3) (.var x5)) fun y4 =>
+    .let_ (.bin .l .xor (.var y4) (.var x6)) fun y5 =>
+    .let_ (.bin .l .xor (.var y5) (.var x7)) fun y6 =>
+    .let_ (.bin .l .xor (.var y6) (.var x8)) fun y7 =>
+    .let_ (.bin .l .xor (.var y7) (.var x9)) fun y8 =>
+    .let_ (.bin .l .xor (.var y8) (.var x10)) fun y9 =>
+    .let_ (.bin .l .xor (.var y9) (.var b)) fun y10 =>
+    .ret [.var y10]
+
+/-- A loop with a call in its body: `sumcall(n, b) = Σ_{i=1..n} inc(i) + b` (`b` and the running sum
+live across the call). -/
+def sumcall : Fn where
+  name := "sumcall"
+  body := fun _ _ => .param fun n => .param fun b =>
+    .label fun loop =>
+    .block (.param fun i => .param fun s =>
+        .jnz (.var i)
+          (.call "inc" [.var i] <| .param fun r =>
+           .let_ (.bin .l .add (.var s) (.var r)) fun s' =>
+           .let_ (.bin .l .sub (.var i) (.imm 1)) fun i' =>
+           .jump loop [.var i', .var s'])
+          (.let_ (.bin .l .add (.var s) (.var b)) fun t => .ret [.var t]))
+      (.jump loop [.var n, .imm 0])
+
 end LeanQbe.Litmus

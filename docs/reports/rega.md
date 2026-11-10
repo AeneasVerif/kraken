@@ -1,132 +1,117 @@
 # rega: verified lowering, pipeline, litmus tests
 
-Owner: `rega`. Files: `LeanQbe/{Rega,RegaLemmas,Main}.lean`, `Main.lean` (CLI), `LeanQbe/Examples/Litmus*.lean`,
-`test/`, later `LeanQbe/{Live,Spill,Cfg}.lean` and `spike/e3/`.
+Owner: `rega`. Files: `LeanQbe/{Rega,RegaLemmas,Main,MainLemmas}.lean`, `LeanQbe/{Live,Spill}.lean`,
+`Main.lean` (CLI), `LeanQbe/Examples/Litmus*.lean`, `test/`, `spike/e3/`.
 
 ## Status
 
 | Milestone | State |
 |---|---|
 | Proof skeleton against a mock target (E1) | done, scratch only (not in the repo), no sorry |
-| R1: `lower` for param/let/store/ret, generic proof, x64 tracer | done: no hypotheses left (`memFacts` from AbiLemmas), generic-host Kraken-only theorem plus non-vacuity |
-| R1 extras | `lower` already covers load, jnz, jump, join-point groups (R2's E1 half) |
+| R1: `lower` for param/let/store/ret, generic proof, x64 tracer | done: generic-host Kraken-only theorem plus non-vacuity |
 | R2, E1 half: control-flow litmus, oracle, pipeline | done: five programs checked by kernel `rfl`, with FnSpec instances and native runs; `sumto` end to end with a loop proof |
-| R2, E3 half: the same skeleton in E3, the D8 comparison | done (spike/e3/, written by helper `e3`; see below) |
-| R3: calls, exits, spills, oracle | not started |
+| R2, E3 half: the same skeleton in E3, the D8 comparison | done (`spike/e3/`, written by helper `e3`; see below) |
+| R3: calls, exits, stack spills, prologue/epilogue, oracle, module linking, 4-way litmus | done: `lower_correct`, `lowerFn_correct`, `compileFn_correct`, `compile_correct`, `callinc` / `twice` / `spill10` / `sumcall` checked 4 ways |
+| Step 5 (x64): linked `[find, union]` Union-Find end to end on Kraken x64 | done: `uf_module_fnspec`, `find_x64_correct`, `union_x64_correct`, `find_x64_nonvacuous`, `union_x64_nonvacuous`, `test/uf_main.c` |
 
 ## What exists
 
 ### `LeanQbe/Rega.lean` (executable, imports no lemmas)
 
-`lower (h : Hints I) (fn : String) : Expr Nat Nat → St I → Except String (List I.Directive × Nat × Nat)`,
-a single structural recursion. Its state:
+`lower (h : Hints I) (E : Ext) (fn : String) : Expr Nat Nat → St I → Res I`, one structural
+recursion over the PHOAS term at `V := Nat, L := Nat`.
 
-- `nv`, `nl`: the next fresh name and label. They are threaded through the recursion, so names and
-  labels are unique within a function and the oracle can key its hints by them.
-- `R : List (Arg Nat × Reg)`: the symbolic register file. `(.var x, r)` means that `r` holds name `x`;
-  `(.imm c, r)` means that `r` holds `c`. It is a relation rather than a map (`Name → Option Loc` in
-  the plan): a value can sit in several registers, which `jump l(x, x)` needs, and constants can be
-  tracked, which `ret 0` and immediate jump arguments need.
-- `PL`: the registers of the parameters still to be bound (the argument registers at function entry,
-  the entry map's `ploc` at a block).
-- `pend`: the labels declared and not yet defined. It mirrors `wp`'s `acc` exactly, and `let`, `param`
-  and the other constructors reset it to `[]` just as `wp` does.
-
-Hints: `dest : Nat → Option Reg` (a register per name) and `entry : Nat → Entry` (per label:
-`live : List (Arg Nat × Reg)` and `ploc : List Reg`). Moves at `jump`/`ret` come from an untrusted
-parallel-move pass (`pmove`), are executed symbolically (`execMoves`, whose destinations must be
-allocatable) and are then checked against the targets. There are dynamic checks: operands must not
-be in scratch registers, entry-map registers must not be scratch, a destination must be
-allocatable, and arities must match.
-
-Layout: `rest ++ [label ℓ] ++ body` for a block; `jnz c ℓ ++ else ++ [label ℓ] ++ then` for a
-conditional; `jnz` on an immediate lowers only the taken branch. `call` and `exit` return an error
-until step 3.
+- **Locations (`Loc I`)**: `.reg r` (an allocatable or scratch register) or `.slot i` (spill slot
+  `i < h.nslots` of the current stack frame).
+- **Symbolic location file (`R : List (Arg Nat × Loc I)`)**: a relation between values/constants and
+  locations. `clob d R` removes `d` and all scratch registers while keeping spill slots; `slotsOnly R`
+  (used after `call`) drops all register entries and keeps only `.slot i` entries.
+- **Moves (`Move I`)**: `.mov d s`, `.movi d c`, `.ld d i` (`slotLd`), `.st i s` (`slotSt`), checked
+  by `Move.ok h.nslots` and executed symbolically by `execMoves`.
+- **Hints (`Hints I`)**: `dest : Nat → Option Reg`, `entry : Nat → Entry I` (`live : SymRegs I`
+  allowing both registers and slots, `ploc : List Reg`), `pre : Nat → List (Move I)` (spills,
+  reloads and copies emitted before instruction number `ip`), and `nslots : Nat`.
+- **Untrusted parallel moves (`pmove`, `shuffle`)**: handles register-to-register, slot-to-register
+  (`.ld`), register-to-slot (`.st`), and constant-to-register (`.movi`) moves at `call`, `jump`,
+  `ret`, and `exit`, breaking register cycles via a scratch register and checking that every target
+  entry holds in the resulting `SymRegs`.
+- **Frame & calls/exits**: `lowerFn` emits `label f.name :: (prologue h.nslots ++ c)`. `ret` emits
+  `epilogue h.nslots ++ ret`; `exit g as` shuffles arguments into `argRegs` and emits
+  `epilogue h.nslots ++ tailJmp g`; `call g as k` shuffles arguments into `argRegs`, emits
+  `call g`, filters `R` with `slotsOnly`, and binds continuation parameters from `retRegs`.
 
 ### `LeanQbe/RegaLemmas.lean`
 
-- `lower_correct`: one induction on `Wf G D e₁ e₂`, about 250 lines. Its invariants:
-  `Agree G R s` (every entry holds its name's value or its constant), `Inv F s₀ m s`
-  (`mem s =⋆ Eq m ⋆ F` and the registers that are neither allocatable nor scratch are unchanged
-  since entry), and `ValsIn PL args`.
-  The join point for label `ℓ` is
-  `LabJ G ℓ as m := ∃ k, prog[k] = label ℓ ∧ ∀ s, Agree G (entry ℓ).live s → ValsIn (entry ℓ).ploc as s → Inv F s₀ m s → Run h k s post`.
-  `label` instantiates the source's `∀ J` with it, `block` proves it closed at its own index
-  `k + |rest|`, and `jump` uses it after the checked moves. `DOk G D` says that every `(J, ℓ) ∈ D`
-  is a `LabJ G' ℓ` for some `G' ⊆ G`. The main lemma takes the `ret` step and the memory facts as
-  hypotheses (`Hyps`), so the induction never mentions frames or the return address.
-- `lowerFn_correct`: `lowerFn hints f = .ok code` placed in host `h`, `LabelsUnique h`,
-  `Func.Wf f.body`, `n + raBytes ≤ 2^64` and `MemFacts T` give
-  `T.FnSpec h f.name (Func.spec Γ f.body) n`. It proves `ret` from `ret_spec`, which needs
-  the RetAddr rearrangement, `Restored`, `RetsIn` and the Entry-to-Exit step.
-
-The plan's paper argument held. There is no three-way `Wf`, no liveness, no dominance, and no
-machine-level loop induction. The direct lowering (D9) works so far, and the `toFlat` fallback is
-not needed.
-
-### `LeanQbe/Examples/Litmus.lean` (x64)
-
-- `tracer` (`x = add a b; storel x, p; ret x`) and its hints (`x ↦ rax`).
-- `tracer_lower : lowerFn tracerHints tracer = .ok tracerCode` by `rfl`. `tracerCode` is written as
-  AT&T text and parsed by Kraken's `parse(...)`, so the check compares the compiler's output with
-  assembly as the parser reads it.
-- `host`: `Host.ofLayout tracerCode` with labels of size 0 and instructions of size 4. Label
-  uniqueness is decided.
-- `tracer_correct`: a statement about Kraken only (`step1 Host.exe`, `regs.get64`, `dmem`,
-  `Mem.loadInt/storeInt`, `⋆`), for every `[Host]` that contains `tracerCode` at some `k₀` and
-  satisfies `Host.LabelsUnique` (generic in the layout, D2). The concrete `host` is one instance.
-- `tracer_nonvacuous`: a concrete state (`rsp = 0x7008`, `p = 0x7010`, return address
-  `0x1234`, `R = emp`) that meets every premise; the run ends at `0x1234` with `rax = 42`.
+- `lower_correct`: one induction on `Wf G D e₁ e₂` against `Target` v1 (`Abi.lean`, `AbiLemmas.lean`).
+  - `Agree G R s σ`: every `(a, .reg r) ∈ R` holds `a`'s value in `T.get s r`, and every
+    `(a, .slot i) ∈ R` holds `a`'s value in `σ[i]?`.
+  - `Inv hints s₀ ra n Rf m s σ`: `σ.length = hints.nslots`, `T.get s T.sp = base hints s₀`
+    (`sp₀ - frameSize nslots`), callee-saved registers equal to `s₀`, and
+    `T.mem s =⋆ Eq m ⋆ (slots (base hints s₀) σ ⋆ T.Saved (T.get s₀ T.sp) ra hints.nslots ⋆ region (sp₀ - n) (n - frame hints) ⋆ Rf)`.
+  - `call` uses `callee_split` to split off `region (base - raBytes - bound g) (bound g + raBytes)`
+    from the stack reserve below the frame, applies `T.call_fnspec` with the caller's `slots`,
+    `Saved`, and remaining stack reserve framed into `G`, restores `Inv` on normal return using
+    `Agree.slotsOnly`, and propagates callee exits by absorbing the caller's frame into the
+    existential `F` of `FnPost`'s exit disjunct.
+  - `ret` and `exit` run `epilogue_ok` (`frame_close` converts `slots` back to `region` via
+    `slots_region` and merges the frame and reserve back into `T.Entry sp₀ ra n`) followed by
+    `T.ret_spec` or `T.tailJmp_spec`.
+- `lowerFn_correct`: steps past `label f.name` and `prologue hints.nslots`, splits `T.Entry sp₀ ra n`
+  into the frame and callee reserve, converts the raw frame region into initial spill slots `σ` via
+  `region_slots`, and applies `lower_correct` to conclude `T.FnSpec h f.name (Func.spec Γ f.body) n nX`.
 
 ### Oracle: `LeanQbe/Live.lean`, `LeanQbe/Spill.lean` (untrusted, no lemmas)
 
-- `Live.toTree` replays `lower`'s traversal to get a first-order tree with the same name and label
-  numbering. `liveLabels` computes the live-in set of each join point by fixpoint iteration over the
-  jumps; `liveIn` gives the live set of each subterm.
-- `Spill.hints I f`: first fit. Each name gets one register for its whole life, chosen at its
-  definition and avoiding the registers of values live there. Block parameters avoid the live-in
-  registers of their label. Entry maps are the live-in sets with the chosen registers. There is no
-  spilling yet: running out of registers is a compile error.
-- `Rega.pmove` (also untrusted): register moves first, in an order that never overwrites the last
-  copy of a needed value; a cycle is broken through a free scratch register (`execMoves` accepts
-  scratch destinations); constants are loaded last.
+- `Live.toTree` replays `lower`'s exact `(nv, nl, ip)` numbering and traversal order. `liveLabels`
+  computes join-point live-in sets by fixpoint; `liveIn` computes live sets at each node; `acrossCalls`
+  collects names live across any `call` (live into the continuation other than its result `param`s).
+- `Spill.hints I f` assigns each live name a permanent home (`.reg r` or `.slot i`):
+  - A name gets a spill slot if it is in `acrossCalls`, if `≥ allocatable.length - 2` live-out names
+    already have register homes (keeping 2 allocatable registers free as reload/destination
+    temporaries), or if it is live into a block whose live-in register homes plus block parameters
+    would exhaust `allocatable`.
+  - Spilled definitions (`let_`, `load`, and function/call-result/block `param`s) are stored to their
+    slots in the `pre` moves of the following instruction (stores first), and reloaded into free
+    allocatable registers in the `pre` moves of instructions that read them.
+  - Compiles all 12 litmus functions, `UnionFind` (`find`, `union`, `unionInline`), `LratRup`, and
+    all 5 functions of `LratTrim` (`strictCheck` 35 slots, `checkClause` 4 slots, `checkProof` 7
+    slots, `trimProof` 33 slots).
 
-### Pipeline: `LeanQbe/Main.lean`, `LeanQbe/MainLemmas.lean`
+### Pipeline & linking: `LeanQbe/Main.lean`, `LeanQbe/MainLemmas.lean`
 
-`compileFn I f := lowerFn (Spill.hints I f.opt) f.opt`, where `Func.opt` is core's verified mid-end
-(fold, CSE, fold). `compileFn_correct` gives `T.FnSpec h f.name (Func.spec Γ f.body) n nX` for the
-*source* function, via `Func.opt_wf`, `Func.opt_spec` and `FnSpec.of_spec`.
+- `Fn.ext` extracts `callees` and `exits` from `f.body`; `compileFn I f` runs `Func.opt`,
+  `Spill.hints`, and `Rega.lowerFn`.
+- `compileFn_correct` and `compileFn_leaf_correct` lift `lowerFn_correct` through `Func.opt_wf` and
+  `Func.opt_spec`.
+- `compile_correct` proves module-level linking for `compile T.toIsa fs = .ok code` over an acyclic
+  list of functions `fs` (callees first).
 
-### Control-flow litmus: `LeanQbe/Examples/LitmusCf.lean`, `LitmusCfLemmas.lean`
+### Litmus & Step 5 Union-Find (`LeanQbe/Examples/Litmus*.lean`, `test/`)
 
-`ifelse`, `sumto` (counting loop), `evenodd` (two mutually recursive join points), `nested` (two
-nested loops; `m` and `k` stay live across both, `i` across the inner one), `swap` (the loop swaps
-its parameters, which forces a move cycle through `r10`). For each program:
-- `…_lower : lowerFn (Spill.hints Amd64.isa f) f = .ok fCode` by `rfl` (the kernel runs the oracle
-  and `lower`), where `fCode` is assembly text parsed by Kraken's `parse(...)`;
-- `…_compile : compileFn Amd64.isa f = .ok fCode` by `kernel_rfl` (the elaborator's `rfl` gives
-  up on the mid-end's table lookups; the kernel does not);
-- `…_wf` by `wf_tac`, and `…_fnspec` (`lowerFn_correct` in every x64 host that contains the code).
+All 11 litmus suites (`tracer`, `ifelse`, `sumto`, `evenodd`, `nested`, `swap`, `callinc`, `twice`,
+`spill10`, `sumcall`, `uf`) pass all four checks:
+1. Kernel evaluation (`*_compile` and `*_module_compile` by `kernel_rfl` against Kraken-parsed
+   assembly literals).
+2. Native execution (`test/run.sh`: `leanqbe <name>` → `cc` with `test/<name>_main.c` → run).
+3. Stock QBE differential run (`test/run.sh`: `leanqbe --il <name>` → stock `qbe` → `cc` → run):
+   22/22 PASS.
+4. `scripts/check.sh` (zero warnings, zero `sorry`, standard 3 axioms on all headline theorems).
 
-`sumto_spec` is the source contract (`rax = 1 + … + n` for `n < 2^32`), proved by induction over the
-loop counter. `sumto_correct` is a Kraken-only theorem about the binary the pipeline emits, for every
-host that contains it.
-
-### CLI and tests
-
-`lake build leanqbe; .lake/build/bin/leanqbe <name>` prints GNU as input, compiled by `compileFn`.
-`test/run.sh` builds the CLI, then for each `test/<name>_main.c` emits, assembles, links and runs.
-All six programs (tracer plus the five control-flow programs) pass against C reference
-implementations, including edge vectors (`0x100000000` for jnz's 32-bit test, overflow).
+Closed Kraken-x64-only end-to-end theorems + concrete non-vacuity instances:
+- `tracer_correct`, `tracer_nonvacuous` (`LeanQbe/Examples/Litmus.lean`)
+- `sumto_correct`, `sumto_nonvacuous` (`LeanQbe/Examples/LitmusCfLemmas.lean`)
+- `callinc_module_fnspec`, `callinc_correct`, `callinc_nonvacuous` (2-function module with spill across call)
+- `twice_module_fnspec`, `twice_correct`, `twice_nonvacuous_exit` (2-function module with exit propagation through call)
+- `spill10_fnspec`, `spill10_correct`, `spill10_nonvacuous` (6 stack spill slots, 56-byte frame)
+- `uf_module_fnspec`, `find_x64_correct`, `union_x64_correct`, `find_x64_nonvacuous`, `union_x64_nonvacuous` (`LeanQbe/Examples/LitmusUf.lean`: linked `[find, union]` module where `union` calls `find` twice and spills `p`, `y`, `rx` across the calls)
 
 ## D8 and D9 evidence (R2)
 
-**D9 (direct lowering from PHOAS) holds.** The proof closed in E1, against the real IL and Target,
-for straight-line code, branches, loops, irreducible groups and nested loops. It needs a two-way
-`Wf`, no liveness argument and no machine-level loop induction. The `toFlat` fallback is not needed.
+**D9 (direct lowering from PHOAS) holds** through calls, exits, and stack spills (`RegaLemmas.lean`,
+1250 lines total). The `toFlat` fallback is not needed.
 
-**D8 (E1 against E3)** compares the same lowering proof against the same mock target (spike/e3/,
-full table in spike/e3/README.md):
+**D8 (E1 against E3)** compares the same lowering proof against the same mock target (`spike/e3/`,
+full table in `spike/e3/README.md`):
 
 | | E1 | E3 |
 |---|---|---|
@@ -135,22 +120,3 @@ full table in spike/e3/README.md):
 | `Wf` | 19 lines | 36 lines |
 | elaboration / kernel of the main lemma | 1.04 s / 28 ms | 1.28 s / about 61 ms |
 | even/odd `lower … = .ok` by `rfl` | works (62 ms; kernel only 24 ms) | works (65 ms; kernel only 25 ms) |
-
-Both encodings work and cost about the same; E3's advantage is that ill-formed terms cannot be
-written, so the junk lines disappear. My recommendation: keep E1 for the lowering. Everything else
-is built on it (core's Fold/Gvn, logic's notation and proofs, Print), the junk cost is small and
-local, and switching would mean redoing those passes for no gain in the lowering.
-
-## Measured
-
-- Module-system pitfall: `toString (n : Nat)` and `Nat.toDigits` do not reduce by `rfl` inside a
-  `module` file, although a non-module scratch check passes. `lname` uses its own `natDigits`.
-
-- `lake build LeanQbe.RegaLemmas`: about 2 s. `LeanQbe.Examples.Litmus` with `rfl`: about 1.4 s.
-- The mock skeleton (E1 IR plus mock target, everything in one file) checks in under 2 s.
-
-## Open
-
-- The E3 comparison (helper `e3`), then the R2 milestone post.
-- R3 (after gate G1): calls, exits and spills on Target v1 (`slots`, `prologue`, `call`,
-  `tailJmp`), the stock-QBE comparison on the printed IL, and the four-way check per litmus test.

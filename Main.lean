@@ -3,22 +3,26 @@ module
 public import LeanQbe.Main
 public import LeanQbe.Examples.Litmus
 public import LeanQbe.Examples.LitmusCf
+public import LeanQbe.Examples.UnionFind
 public import Kraken.X64.PrintATT
 public import LeanQbe.Print
 
 /-!
-`leanqbe` command-line driver (x64). Version 0: `leanqbe <program>` prints GNU assembler input for
-one of the built-in litmus programs, `leanqbe --il <program>` its QBE IL text (for stock QBE),
-`leanqbe --list` lists them. A parser for QBE IL text comes
-in step 3.
+`leanqbe` command-line driver (x64): `leanqbe <program>` prints GNU assembler input for one of the
+built-in litmus programs or modules, `leanqbe --il <program>` its QBE IL text (for stock QBE),
+`leanqbe --list` lists them.
 -/
 
 open LeanQbe
 
-/-- Built-in programs: name, functions. -/
+/-- Built-in programs and multi-function modules: name, functions (callees first). -/
 def programs : List (String × List Fn) :=
-  [Litmus.tracer, Litmus.ifelse, Litmus.sumto, Litmus.evenodd, Litmus.nested, Litmus.swap].map
-    fun f => (f.name, [f])
+  ([Litmus.tracer, Litmus.ifelse, Litmus.sumto, Litmus.evenodd, Litmus.nested, Litmus.swap,
+    Litmus.spill10].map fun f => (f.name, [f])) ++
+  [("callinc", [Litmus.inc, Litmus.callinc]),
+   ("twice", [Litmus.check, Litmus.twice]),
+   ("sumcall", [Litmus.inc, Litmus.sumcall]),
+   ("uf", [⟨"find", UnionFind.find⟩, ⟨"union", UnionFind.union⟩])]
 
 /-- GNU as text for x64: `.text`, a `.globl` per function, then Kraken's AT&T printer. -/
 def emitAsm (fs : List Fn) (code : List Amd64.isa.Directive) : String :=
