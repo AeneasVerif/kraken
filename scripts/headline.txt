@@ -59,3 +59,6 @@ LeanQbe.Examples.LratTrimCheckLemmas LeanQbe.LratTrim.checkClause_strict_correct
 LeanQbe.Examples.LratTrimCheckLemmas LeanQbe.LratTrim.checkProof_correct
 spike.il.FoldTest LeanQbe.FoldTest.algProg_fold_out
 spike.il.FoldTest LeanQbe.FoldTest.algProg_fold_wf
+LeanQbe.Examples.LratTrimCheckLemmas LeanQbe.LratTrim.checkClause_rup_nonvacuous
+LeanQbe.Examples.LratTrimCheckLemmas LeanQbe.LratTrim.checkClause_strict_nonvacuous
+LeanQbe.Examples.LratTrimCheckLemmas LeanQbe.LratTrim.checkProof_nonvacuous
