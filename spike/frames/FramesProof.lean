@@ -4,7 +4,16 @@ public import spike.frames.Frames
 public import LeanQbe.Amd64.FrameLemmas
 
 /-!
-# Spike A1: `f` meets `FnSpec1`, with the stack bounds adding up
+# Spike A1: `f` meets `FnSpec` v1, and non-vacuity
+
+* `f_spec`: from `g`'s `FnSpec … n nX`, `f` meets `FnSpec … (32 + n) nX` (frame 24 bytes, + 8 for
+  g's return address). The entry region is split into g's region, g's return-address slot, the
+  spill slot, padding and the rbx save slot (`regions_entry`); `g`'s exit is propagated with f's
+  frame folded into the exit frame; f's own exit is call-ready with f's entry stack.
+* Non-vacuity in a concrete host `fCode ++ gCode ++ abortCode`, with `g_spec`, `f_spec`,
+  `abort_spec` linked (`n = 8`, `nX = 8`): `f_returns` (`f(1, 2) = 5`), `f_exits_in_g` (`f(0, 2)`:
+  `g` exits to `abort(0)`), `f_exits_itself` (`f(1, -3)`: `f` exits to `abort(1)`); each exit state
+  is fed into `abort`'s `FnSpec` (`AbortsWith`). Statements are Kraken-level (`step1 Host.exe`).
 -/
 
 @[expose] public section
@@ -366,6 +375,203 @@ theorem f_spec (h : Host) (k : Nat) (hc : fCode.IsInfixAt (@Host.prog h) k)
     · show (Eq m ⋆ target.Entry (s13.regs.get64 .rsp) ra (32 + n) ⋆ ExtHashMap.emp ⋆ R) s13.dmem
       rw [hm13', hsp13, ExtHashMap.sep_emp]
       exact hmEntry
+
+/-! ## Non-vacuity: a concrete host with `f`, `g` and `abort` -/
+
+/-- An entry stack of `n` bytes with return address `ra` keeps only the return address as the
+callee's entry footprint (`n = 0`), the `n` bytes go to the frame. Used to feed an exit state to
+the exit target's `FnSpec` without knowing a bound on the exit stack. -/
+theorem entry_zero {m M : Mem 64} {sp : BitVec 64} {ra : Int64} {n : Nat} {F R : Mem 64 → Prop}
+    (h : (Eq m ⋆ target.Entry sp ra n ⋆ F ⋆ R) M) :
+    (Eq m ⋆ target.Entry sp ra 0 ⋆ (region (sp - BitVec.ofNat 64 n) n ⋆ F ⋆ R)) M := by
+  have h' : (Eq m ⋆ (region (sp - BitVec.ofNat 64 n) n ⋆ Eq (ra.toUInt64.At sp)) ⋆ F ⋆ R) M := h
+  show (Eq m ⋆ (region (sp - BitVec.ofNat 64 0) 0 ⋆ Eq (ra.toUInt64.At sp)) ⋆
+    (region (sp - BitVec.ofNat 64 n) n ⋆ F ⋆ R)) M
+  rw [region_zero, ExtHashMap.emp_sep]
+  exact sep_ac (by ac_rfl) h'
+
+/-- The host program: `f`, `g`, `abort`. Labels at 0 (`f`), 15 (`f.ret`), 19 (`g`), 23 (`g.ok`),
+29 (`abort`). -/
+def prog : Program := fCode ++ gCode ++ abortCode
+
+/-- Labels take no space, every instruction 4 bytes (any positive sizes would do). -/
+@[instance_reducible] def layout : Layout :=
+  { start := 0x1000, size := fun i => if i = 0 ∨ i = 15 ∨ i = 19 ∨ i = 23 ∨ i = 29 then 0 else 4 }
+
+abbrev host : Host :=
+  .ofLayout prog layout
+    (fun i d hd hz => by
+      have hz' : (if i = 0 ∨ i = 15 ∨ i = 19 ∨ i = 23 ∨ i = 29 then 0 else 4) = 0 := hz
+      have hi : i = 0 ∨ i = 15 ∨ i = 19 ∨ i = 23 ∨ i = 29 := by
+        by_cases h : i = 0 ∨ i = 15 ∨ i = 19 ∨ i = 23 ∨ i = 29
+        · exact h
+        · simp [h] at hz'
+      rcases hi with rfl | rfl | rfl | rfl | rfl
+      · exact ⟨"f", (Option.some.inj (hd.symm.trans (rfl : prog[0]? = some (.label "f"))))⟩
+      · exact ⟨"f.ret",
+          (Option.some.inj (hd.symm.trans (rfl : prog[15]? = some (.label "f.ret"))))⟩
+      · exact ⟨"g", (Option.some.inj (hd.symm.trans (rfl : prog[19]? = some (.label "g"))))⟩
+      · exact ⟨"g.ok",
+          (Option.some.inj (hd.symm.trans (rfl : prog[23]? = some (.label "g.ok"))))⟩
+      · exact ⟨"abort",
+          (Option.some.inj (hd.symm.trans (rfl : prog[29]? = some (.label "abort"))))⟩)
+    (by decide)
+
+section Concrete
+
+attribute [local instance] host
+
+theorem host_unique : Host.LabelsUnique := Host.labelsUnique_of_nodup (by decide)
+
+theorem host_prog : ((fCode ++ gCode) ++ abortCode).IsInfixAt Host.prog 0 := List.prefix_refl _
+
+theorem host_f : fCode.IsInfixAt Host.prog 0 := host_prog.append.1.append.1
+
+theorem host_g : gCode.IsInfixAt Host.prog 19 := host_prog.append.1.append.2
+
+theorem host_abort : abortCode.IsInfixAt Host.prog 29 := host_prog.append.2
+
+theorem host_defined : target.Defined host "abort" := ⟨29, rfl⟩
+
+/-- `g` within 8 bytes, leaving 8 to its exit target. -/
+theorem host_g_spec : target.FnSpec host "g" gSpec 8 8 :=
+  g_spec host 19 host_g host_unique host_defined 8 8 (Nat.le_refl _) (by decide)
+
+/-- `f` within `32 + 8` bytes, leaving 8 to its exit target. -/
+theorem host_f_spec : target.FnSpec host "f" fSpec 40 8 :=
+  f_spec host 0 host_f host_unique host_defined 8 8 (by decide) (by decide) host_g_spec
+
+theorem host_abort_spec : target.FnSpec host "abort" abortSpec 0 0 :=
+  abort_spec host 29 host_abort host_unique 0 0 (by decide)
+
+/-- The caller's return address. -/
+def raF : Int64 := 0x1234
+def z40 : List UInt8 := List.replicate 40 0
+def z8 : List UInt8 := List.replicate 8 0
+/-- The source memory: 8 zero bytes at `0x8000`. -/
+def m0 : Mem 64 := z8.At 0x8000#64
+/-- 40 free bytes below `rsp = 0x7ff8`, the return address at `rsp`, then the source memory. -/
+def dmem0 : Mem 64 := (z40 ++ (raF.toUInt64.toBytes ++ z8)).At 0x7fd0#64
+
+/-- A start state with `rdi`, `rsi` as given. -/
+def st0 (a b : UInt64) : MachineData := { regs := { rdi := a, rsi := b, rsp := 0x7ff8 }, dmem := dmem0 }
+
+theorem dmem0_split :
+    (Eq m0 ⋆ target.Entry 0x7ff8#64 raF 40 ⋆ ExtHashMap.emp) dmem0 := by
+  have hl : raF.toUInt64.toBytes.length = 8 := UInt64.toBytes_length _
+  have e1 := Mem.At_append_sep z40 (raF.toUInt64.toBytes ++ z8) 0x7fd0#64
+    (by simp [z40, z8, hl])
+  have e2 := Mem.At_append_sep raF.toUInt64.toBytes z8 0x7ff8#64 (by simp [z8, hl])
+  have l40 : z40.length = 40 := by simp [z40]
+  rw [l40, show (0x7fd0#64 + BitVec.ofNat 64 40) = 0x7ff8#64 from rfl, e2, hl,
+    show (0x7ff8#64 + BitVec.ofNat 64 8) = 0x8000#64 from rfl] at e1
+  have h : (Eq (z40.At 0x7fd0#64) ⋆ (Eq (raF.toUInt64.toBytes.At 0x7ff8#64) ⋆
+      Eq (z8.At 0x8000#64))) dmem0 := (congrFun e1 dmem0).mp rfl
+  have h2 : (region 0x7fd0#64 40 ⋆ (Eq (raF.toUInt64.toBytes.At 0x7ff8#64) ⋆
+      Eq (z8.At 0x8000#64))) dmem0 := sep_mono (fun _ hx => ⟨z40, l40, hx.symm⟩) h
+  show (Eq (z8.At 0x8000#64) ⋆ (region (0x7ff8#64 - BitVec.ofNat 64 40) 40 ⋆
+    Eq (raF.toUInt64.toBytes.At 0x7ff8#64)) ⋆ ExtHashMap.emp) dmem0
+  rw [ExtHashMap.sep_emp, show 0x7ff8#64 - BitVec.ofNat 64 40 = 0x7fd0#64 from rfl]
+  exact sep_ac (by ac_rfl) h2
+
+/-- Running `f` from its label in the concrete host, for arguments `a`, `b`. -/
+theorem run_f (a b : UInt64) (Q : Post) (X : XPost) (hs : fSpec [a.toBitVec, b.toBitVec] m0 Q X) :
+    Eventually (step1 Host.exe)
+      (fun st =>
+        (st.pc = raF ∧ ∃ rets m', Q rets m' ∧ target.RetsIn rets st.data ∧
+          target.Restored (st0 a b) st.data ∧
+          (st.data.dmem =⋆ Eq m' ⋆ target.Exit 0x7ff8#64 40 ⋆ ExtHashMap.emp)) ∨
+        (∃ sym' as m', X sym' as m' ∧ target.Defined host sym' ∧ st.pc = Labels.label sym' ∧
+          target.ArgsIn as st.data ∧ target.spEntry (st.data.regs.get64 .rsp) ∧
+          ∃ (ra' : Int64) (n' : Nat) (F : Mem 64 → Prop), 8 ≤ n' ∧ True ∧
+            (st.data.dmem =⋆ Eq m' ⋆ target.Entry (st.data.regs.get64 .rsp) ra' n' ⋆ F ⋆
+              ExtHashMap.emp)))
+      ⟨st0 a b, Host.addrOf 0⟩ := by
+  have h := host_f_spec [a.toBitVec, b.toBitVec] m0 Q X hs (st0 a b) raF ExtHashMap.emp rfl
+    trivial (show ((0x7ff8 : UInt64).toBitVec + 8#64).toNat % 16 = 0 by decide) dmem0_split
+  rw [show Host.addrOf 0 = Labels.label "f" from
+    (Host.label_eq_addrOf_of_unique host_unique (k := 0) rfl).symm]
+  exact h
+
+/-- Return branch: `f(1, 2)` returns `5` to `raF`, with `rsp` popped, the source memory intact and
+the 48-byte stack footprint (contents arbitrary) handed back. -/
+theorem f_returns :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = raF ∧ st.data.regs.get64 .rax = 5 ∧
+        st.data.regs.get64 .rsp = 0x8000#64 ∧
+        (st.data.dmem =⋆ Eq m0 ⋆ (fun f => ∃ bs : List UInt8, bs.length = 48 ∧ f = bs.At 0x7fd0#64) ⋆
+          ExtHashMap.emp))
+      ⟨st0 1 2, Host.addrOf 0⟩ := by
+  have hs : fSpec [(1 : UInt64).toBitVec, (2 : UInt64).toBitVec] m0
+      (fun rets m' => rets = [5] ∧ m' = m0) (fun _ _ _ => False) :=
+    ⟨1, 2, rfl, fun h => absurd (by decide) h, fun _ => ⟨fun _ => ⟨rfl, rfl⟩, fun h => absurd (by decide) h⟩⟩
+  refine eventually_weaken _ _ _ _ ?_ (run_f 1 2 _ _ hs)
+  rintro st (⟨hpc, rets, m', ⟨rfl, rfl⟩, hrets, ⟨-, hsp⟩, hm⟩ | ⟨_, _, _, hF, _⟩)
+  · refine ⟨hpc, ?_, ?_, hm⟩
+    · simpa [Target.RetsIn, Target.ValsIn] using hrets
+    · exact hsp
+  · exact hF.elim
+
+/-- What an exit to `abort(a)` yields, fed to `abort`'s `FnSpec`: the machine is at `abort` with `a`
+in `rdi` and a return address `ra'` on the stack, and `abort` returns to `ra'` with the source
+memory intact. -/
+def AbortsWith (a : Val) (st : MachineState) : Prop :=
+  st.pc = Labels.label "abort" ∧ st.data.regs.get64 .rdi = a ∧
+  ∃ ra' : Int64, (st.data.dmem =⋆ Eq (ra'.toUInt64.At (st.data.regs.get64 .rsp)) ⋆ fun _ => True) ∧
+    Eventually (step1 Host.exe) (fun st' => st'.pc = ra' ∧ (st'.data.dmem =⋆ Eq m0 ⋆ fun _ => True))
+      st
+
+theorem abortsWith_of_exit {a : Val} {st : MachineState} {sym' : String} {as : List Val}
+    {m' : Mem 64} (hX : sym' = "abort" ∧ as = [a] ∧ m' = m0) (hpc : st.pc = Labels.label sym')
+    (hargs : target.ArgsIn as st.data) (hspE : target.spEntry (st.data.regs.get64 .rsp))
+    {ra' : Int64} {n' : Nat} {F : Mem 64 → Prop}
+    (hm : st.data.dmem =⋆ Eq m' ⋆ target.Entry (st.data.regs.get64 .rsp) ra' n' ⋆ F ⋆
+      ExtHashMap.emp) :
+    AbortsWith a st := by
+  obtain ⟨rfl, rfl, rfl⟩ := hX
+  obtain ⟨d, pc⟩ := st
+  change pc = _ at hpc
+  subst hpc
+  refine ⟨rfl, by simpa [Target.ArgsIn, Target.ValsIn] using hargs, ra', ?_, ?_⟩
+  · have h' : (Eq m0 ⋆ (region (d.regs.get64 .rsp - BitVec.ofNat 64 n') n' ⋆
+        Eq (ra'.toUInt64.At (d.regs.get64 .rsp))) ⋆ F ⋆ ExtHashMap.emp) d.dmem := hm
+    have h'' : (Eq (ra'.toUInt64.At (d.regs.get64 .rsp)) ⋆ (Eq m0 ⋆
+        region (d.regs.get64 .rsp - BitVec.ofNat 64 n') n' ⋆ F ⋆ ExtHashMap.emp)) d.dmem :=
+      sep_ac (by ac_rfl) h'
+    exact sep_mono_r (fun _ _ => trivial) h''
+  · have h := host_abort_spec [a] m0 (fun rets m'' => rets = [] ∧ m'' = m0) (fun _ _ _ => False)
+      ⟨a, rfl, rfl, rfl⟩ d ra' _ hargs trivial hspE (entry_zero hm)
+    refine eventually_weaken _ _ _ _ ?_ h
+    rintro st' (⟨hpc', rets, m'', ⟨-, rfl⟩, -, -, hm'⟩ | ⟨_, _, _, hF, _⟩)
+    · refine ⟨hpc', ?_⟩
+      rw [ExtHashMap.sep_assoc] at hm'
+      exact sep_mono_r (fun _ _ => trivial) hm'
+    · exact hF.elim
+
+/-- Exit propagated through the callee: `f(0, 2)` calls `g(0)`, which exits to `abort(0)`. -/
+theorem f_exits_in_g :
+    Eventually (step1 Host.exe) (AbortsWith 0) ⟨st0 0 2, Host.addrOf 0⟩ := by
+  have hs : fSpec [(0 : UInt64).toBitVec, (2 : UInt64).toBitVec] m0 (fun _ _ => False)
+      (fun sym as m' => sym = "abort" ∧ as = [0] ∧ m' = m0) :=
+    ⟨0, 2, rfl, fun _ => ⟨rfl, rfl, rfl⟩, fun h => absurd h (by decide)⟩
+  refine eventually_weaken _ _ _ _ ?_ (run_f 0 2 _ _ hs)
+  rintro st (⟨_, _, _, hF, _⟩ | ⟨sym', as, m', hX, -, hpc, hargs, hspE, ra', n', F, -, -, hm⟩)
+  · exact hF.elim
+  · exact abortsWith_of_exit hX hpc hargs hspE hm
+
+/-- `f`'s own exit: `f(1, -3)` computes `fVal 1 (-3) = 0` and exits to `abort(1)`. -/
+theorem f_exits_itself :
+    Eventually (step1 Host.exe) (AbortsWith 1) ⟨st0 1 0xFFFFFFFFFFFFFFFD, Host.addrOf 0⟩ := by
+  have hs : fSpec [(1 : UInt64).toBitVec, (0xFFFFFFFFFFFFFFFD : UInt64).toBitVec] m0
+      (fun _ _ => False) (fun sym as m' => sym = "abort" ∧ as = [1] ∧ m' = m0) :=
+    ⟨1, 0xFFFFFFFFFFFFFFFD#64, rfl, fun h => absurd (by decide) h,
+      fun _ => ⟨fun h => absurd h (by decide), fun _ => ⟨rfl, rfl, rfl⟩⟩⟩
+  refine eventually_weaken _ _ _ _ ?_ (run_f 1 0xFFFFFFFFFFFFFFFD _ _ hs)
+  rintro st (⟨_, _, _, hF, _⟩ | ⟨sym', as, m', hX, -, hpc, hargs, hspE, ra', n', F, -, -, hm⟩)
+  · exact hF.elim
+  · exact abortsWith_of_exit hX hpc hargs hspE hm
+
+end Concrete
 
 end Frames
 
