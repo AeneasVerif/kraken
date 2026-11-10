@@ -479,4 +479,19 @@ syntax ppDedent((ppLine aarch64_directive)*) : aarch64_prog
 /-- Inline unquoted AArch64 assembly block (`⸨prog| ...⸩`). -/
 syntax "⸨prog|" aarch64_prog "⸩" : term
 
+/-- Embedding of instructions (`⸨instr| add x0, x1, #1 ⸩ : Instr`). -/
+syntax "⸨instr| " aarch64_instr " ⸩" : term
+
+/-- Embedding of memory operands (`⸨mem| [x0, #8] ⸩ : AddrExpr`, or `UnscaledAddrExpr` when expected). -/
+syntax "⸨mem| " aarch64_mem " ⸩" : term
+
+/-- Embedding of registers (`⸨reg| w0 ⸩ : RegOrZr .W32`, `⸨reg| sp ⸩ : RegOrSp .W64`). -/
+syntax "⸨reg| " aarch64_reg " ⸩" : term
+
+/-- Embedding of constant expressions (`⸨const| :lo12:sym ⸩ : ConstExpr`). -/
+syntax "⸨const| " aarch64_const " ⸩" : term
+
+/-- Embedding of condition codes (`⸨cc| eq ⸩ : CondCode`). -/
+syntax "⸨cc| " aarch64_cond " ⸩" : term
+
 end Kraken.AArch64.Parser

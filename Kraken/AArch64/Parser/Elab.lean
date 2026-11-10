@@ -71,6 +71,13 @@ register interpretations, the elaborator disambiguates as follows:
   Bare `❰t❱` denotes `ConstExpr` in `aarch64_const`, `Label` in `aarch64_label` (label declarations
   `❰lbl❱:` and relocations `:lo12:❰lbl❱` / `:pg_hi21:❰lbl❱`), `CondCode` in `aarch64_cond`, and `Directive`
   in `aarch64_directive`.
+* **Standalone embeddings** (`⸨instr|`, `⸨mem|`, `⸨reg|`, `⸨const|`, `⸨cc|`): these follow the rules
+  above, except where no instruction determines the type, in which case the expected type does:
+  - `⸨reg| ❰t❱ ⸩` elaborates `t` at `RegOrZr w`, or at `RegOrSp w` if that is the expected type (as is a
+    concrete register, `sp`/`wsp` always being `RegOrSp w`).
+  - `⸨mem| ❰t❱ ⸩` elaborates `t` at `AddrExpr`, or at `UnscaledAddrExpr` if that is the expected type.
+    In `⸨mem| [Xn, ❰t❱] ⸩`, the register or constant expression reading is chosen by the type of `t` as
+    in instructions (`resolveRegOrConstChoice`).
 -/
 
 namespace Kraken.AArch64.Parser
@@ -1400,6 +1407,59 @@ private def replaceAArch64Comments (input : String) : String :=
 public def elabAArch64 (input : String) : TermElabM Expr :=
   elabCategory `aarch64_prog elabProgram (replaceAArch64Comments input)
 
+-- ============================================================================
+-- Standalone Embeddings (`⸨instr|`, `⸨mem|`, `⸨reg|`, `⸨const|`, `⸨cc|`)
+-- ============================================================================
+
+/-- Whether the type `ty?` is known to be (reducible to) an application of the type constructor `n`. -/
+def isAppOfType (n : Name) (ty? : Option Expr) : MetaM Bool := do
+  let some ty := ty? | return false
+  return (← whnfR (← instantiateMVars ty)).isAppOf n
+
+/-- Elaborate a memory operand that belongs to no particular load/store into an `Expr` of type `AddrExpr`.
+    Unlike in `elabMemAccess`, the size of the memory access is unknown: immediate offsets are neither
+    validated against it nor switched to the unscaled encoding, and the amount of the shift of a register
+    offset (`[Xn, Xm, lsl #3]`) is taken to be the logarithm of the access size it scales by. -/
+def elabAddrExpr (stx : TSyntax `aarch64_mem) : AArch64ElabM Expr := withRef stx do
+  match stx with
+  | `(aarch64_mem| [$b:aarch64_reg $[, $off?:aarch64_const]?]) =>
+    let base ← elabBaseReg b
+    let imm ← match off? with
+      | some off => elabConst off
+      | none     => pure zeroOffset
+    return mkAddrExpr base (mkImmAddrOff imm none)
+  | `(aarch64_mem| [$b:aarch64_reg, $off:aarch64_const]!) =>
+    let base ← elabBaseReg b
+    return mkAddrExpr base (mkImmAddrOff (← elabIndexedOffset off "pre-indexed") (some .Pre))
+  | `(aarch64_mem| [$b:aarch64_reg], $off:aarch64_const) =>
+    let base ← elabBaseReg b
+    return mkAddrExpr base (mkImmAddrOff (← elabIndexedOffset off "post-indexed") (some .Post))
+  | `(aarch64_mem| [$b:aarch64_reg, $rm:aarch64_reg $[, $mod?:aarch64_modifier]?]) =>
+    let base ← elabBaseReg b
+    let amount ← match mod? with
+      | some m => (← evalModifier m).evalAmount
+      | none   => pure 0
+    -- Only the access size and transfer width of the operation are used, to validate the shift amount.
+    let op : MemOp := { scaled := mkConst ``Unit.unit, unscaled := mkConst ``Unit.unit,
+                        width? := some .W64, scale? := some (2 ^ amount) }
+    return mkAddrExpr base (← elabRegOffset op rm mod?)
+  | `(aarch64_mem| ❰ $t ❱) =>
+    elabAntiquot t (mkConst ``AddrExpr)
+  | _ => throwError "invalid memory operand"
+
+/-- Elaborate a standalone operand-level embedding via `body`, against the expected type. When
+    `widthIndexed`, the result is indexed by an operand width (`RegOrZr w`, `RegOrSp w`), determined by a
+    concrete register, by the type of an antiquotation, or else by the expected type; if none of these
+    determines it, elaboration fails. -/
+def elabEmbedding (body : AArch64ElabM Expr) (expectedType? : Option Expr) (widthIndexed := true) :
+    TermElabM Expr := do
+  let w ← mkFreshExprMVar (toTypeExpr RegWidth)
+  let e ← StateRefT'.run' body { operandWidth := w }
+  let e ← ensureHasType expectedType? e
+  if widthIndexed && (← instantiateMVars w).isMVar then
+    throwError "could not infer register width, consider adding a type ascription"
+  instantiateMVars e
+
 end
 
 /-- Inline unquoted AArch64 assembly directive elaborator (`⸨dir| ... ⸩`). -/
@@ -1413,6 +1473,32 @@ macro_rules
 /-- Inline unquoted AArch64 assembly block elaborator (`⸨prog| ...⸩`). -/
 elab_rules : term
   | `(⸨prog| $p:aarch64_prog⸩) => elabProgram p
+
+/-- Standalone embeddings of the elements of a program:
+    * `⸨instr| ... ⸩ : Instr`
+    * `⸨mem| ... ⸩ : AddrExpr`, or `UnscaledAddrExpr` (`ldur`/`stur` operands) when that is the expected
+      type. See `elabAddrExpr` for how an `AddrExpr` is elaborated without knowing its access size.
+    * `⸨reg| ... ⸩ : RegOrZr w`, or `RegOrSp w` for `sp`/`wsp` or when that is the expected type
+    * `⸨const| ... ⸩ : ConstExpr`
+    * `⸨cc| ... ⸩ : CondCode`
+
+    Registers take their width from their name, from the type of an antiquotation, or else from the
+    expected type. -/
+elab_rules : term <= expectedType?
+  | `(⸨instr| $i:aarch64_instr ⸩) => do
+    let i ← i.raw.replaceM resolveRegOrConstChoice
+    ensureHasType expectedType? (← (elabInstr ⟨i⟩).run')
+  | `(⸨mem| $m:aarch64_mem ⸩) => do
+    let m : TSyntax `aarch64_mem := ⟨← m.raw.replaceM resolveRegOrConstChoice⟩
+    if ← isAppOfType ``UnscaledAddrExpr expectedType? then
+      elabEmbedding (elabUnscaledMem m) expectedType? (widthIndexed := false)
+    else
+      elabEmbedding (elabAddrExpr m) expectedType? (widthIndexed := false)
+  | `(⸨reg| $r:aarch64_reg ⸩) => do
+    let sp := isSpSyntax r || (← isAppOfType ``RegOrSp expectedType?)
+    elabEmbedding (elabReg r sp) expectedType?
+  | `(⸨const| $c:aarch64_const ⸩) => do ensureHasType expectedType? (← elabConst c)
+  | `(⸨cc| $c:aarch64_cond ⸩) => do ensureHasType expectedType? (← elabCond c)
 
 /-- Inline unquoted AArch64 assembly block macro/elaborator (`parse( ... )`). -/
 scoped elab "parse(" p:aarch64_prog ")" : term => elabProgram p
