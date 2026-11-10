@@ -1,7 +1,7 @@
 # logic: program logic, notation, union-find (plan step 2c)
 
 Owner: `logic`. Files: `LeanQbe/Logic/{Mem,MemLemmas,Rules}.lean`, `LeanQbe/Notation.lean`,
-`LeanQbe/Examples/{UnionFind,UnionFindLemmas,LratRup,LratRupLemmas,LratTrim,LratTrimStrictLemmas,LratTrimCheckLemmas}.lean`.
+`LeanQbe/Examples/{UnionFind,UnionFindLemmas,LratRup,LratRupLemmas,LratTrim,LratTrimStrictLemmas,LratTrimCheckLemmas,LratBytes,LratBytesSpec,LratBytesDimacsLemmas,LratBytesRupLemmas,LratBytesCheckLemmas,LratBytesLemmas}.lean`.
 
 ## Status
 
@@ -11,14 +11,16 @@ Owner: `logic`. Files: `LeanQbe/Logic/{Mem,MemLemmas,Rules}.lean`, `LeanQbe/Nota
 | L2 union-find | done, specs accepted by reviewer (#34): `find` (path halving, a join-point loop), `union` (calls `$find`), `unionInline` (macro), total correctness against a functional model, non-vacuity (`uf_init`, `find_nonvacuous`, `union_nonvacuous`, `merge_init_1_2`), `Func.Wf` for all three |
 | L3 RUP check (step 7) | done, spec accepted by reviewer (#104): `checkRup` = Kraken's `br_check_clause_non_strictly_by_propagation` in QBE notation, proved against the Bedrock2 spec; non-vacuity (`checkRup_nonvacuous`) + completeness (`checkRup_accepts_tautology`); `Func.Wf` |
 | L4 Full LRAT-trim (step 7) | done, specs accepted by reviewer (#145, #155): all 5 `lrat-trim.c` functions ported (`checkRup`, `strictCheck`, `checkClause`, `checkProof`, `trimProof`), differential-tested bit-for-bit against Bedrock2 C on x64 and arm64 (#153), and proved (`strictCheck_correct`, `checkClause_rup_correct`, `checkClause_strict_correct`, `checkProof_correct`) with concrete-memory non-vacuity (`strictCheck_nonvacuous`, `checkClause_rup_nonvacuous`, `checkClause_strict_nonvacuous`, `checkProof_nonvacuous`) and `Func.Wf` |
+| L5 Untrusted-bytes LRAT checker | done, TCB & spec accepted by reviewer (#203), 5-way differential/guard-page tested (#202): 6-function module `lratBytesFns` (`lrat_check_bytes`, `exits = []`, zero input validity preconditions) over raw ASCII DIMACS + Binary LRAT bytes + uninitialized `region work_ptr work_len`; proved (`lratBytesFns_wf`, `lratBytesExactEnv_sound`, `lratBytesEnv_sound`, `parseDimacs_encodeDimacs`, `lratCheckBytes_encoded_correct`, `nvBytesCnf_unsat`, `lratBytesAcceptEnv_sound`, `lratBytesRejectEnv_sound`, `lratCheckBytes_accepts_nonvacuous`, `lratCheckBytes_rejects_nonvacuous`) |
 | Risk 8 elaboration scaling | done (#125, #144, #149): replaced macro expansion with a direct de-Bruijn `Expr` elaborator in `Notation.lean` and added `qbe_def` (bypasses `addPreDefinitions`/codegen): 4000-insn function elaborates + kernel-checks in **103 ms** (wall **0.59 s**), down from **> 120 s timeout** |
 
 Axioms of `find_correct`, `union_correct`, `unionInline_correct`, `union_nonvacuous`, `checkRup_correct`,
 `checkRup_nonvacuous`, `checkRup_accepts_tautology`, `strictCheck_correct`, `strictCheck_nonvacuous`,
 `checkClause_rup_correct`, `checkClause_strict_correct`, `checkProof_correct`, `checkProof_nonvacuous`,
-`wp_loop`: `propext, Classical.choice, Quot.sound`.
+`lratBytesEnv_sound`, `lratBytesExactEnv_sound`, `parseDimacs_encodeDimacs`, `nvBytesCnf_unsat`,
+`lratBytesAcceptEnv_sound`, `lratBytesRejectEnv_sound`, `wp_loop`: `propext, Classical.choice, Quot.sound`.
 
-Check: `timeout 900 lake build --wfail LeanQbe.Notation LeanQbe.Examples.UnionFindLemmas LeanQbe.Examples.LratRupLemmas LeanQbe.Examples.LratTrimStrictLemmas LeanQbe.Examples.LratTrimCheckLemmas`.
+Check: `timeout 900 lake build --wfail LeanQbe.Notation LeanQbe.Examples.UnionFindLemmas LeanQbe.Examples.LratRupLemmas LeanQbe.Examples.LratTrimStrictLemmas LeanQbe.Examples.LratTrimCheckLemmas LeanQbe.Examples.LratBytesLemmas`.
 
 ## What exists
 
@@ -255,3 +257,53 @@ Two bottlenecks caused quadratic scaling in `def`:
 2. **Lean's `def` post-elaboration pipeline** (`addPreDefinitions` / `abstractNestedProofs` taking 6.1 s
    and `LCNF mono` codegen taking 3.5 s at $N = 4000$): bypassed by `qbe_def`, which elaborates the term
    and calls `addDecl (.defnDecl ...)` directly in the kernel (23.9 ms kernel typecheck at $N = 4000$).
+
+## L5: Untrusted-bytes ASCII DIMACS + Binary LRAT proof checker (`lrat_check_bytes`)
+
+Unlike L3/L4 (which port Bedrock2's `lrat-trim.c` over a pre-parsed in-memory `kernelState` and abort on
+invalid proofs via `exit $lrat_fail`), L5 builds a **total, standalone byte-level proof checker**
+`lrat_check_bytes(cnf_ptr, cnf_len, prf_ptr, prf_len, work_ptr, work_len) -> 0 | 1` with **`exits = []`**
+and **zero structural preconditions** on `cnfBytes`, `prfBytes`, or `work`:
+
+- **Precondition**: `((Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len) ⋆ R_mem) m`
+  with only 64-bit slice non-wraparound (`ptr.toNat + len < 2 ^ 64`).
+- **Postcondition (`lratCheckBytesSpec`)**: returns `[r]` (`X` unconstrained, instantiated to `False`) with
+  `r = 0 ∨ r = 1`, `r = 1 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat`, and memory restored to
+  `((Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len) ⋆ R_mem) m'`.
+- **Encoder round-trip (`parseDimacs_encodeDimacs`)**: for any `ValidDimacsCnf cnf` (`cnfMaxVar cnf < 2^28`,
+  `cnf.clauses.size < 2^28`, positive variables `1 ≤ l.1`), `parseDimacs (encodeDimacs cnf) = some cnf`,
+  yielding `lratCheckBytes_encoded_correct` where `parseDimacs` disappears completely from the conclusion
+  (`r = 1 → cnf.Unsat`).
+
+### Architecture and proof decomposition
+
+To keep every function $\le 6$ arguments (fitting System V x86-64 `rdi..r9` and AAPCS64 `x0..x5` without
+stack arguments) and compile cleanly in $< 2\text{ s}$ via `kernel_rfl`, `lratBytesFns` splits into 6
+acyclic functions sharing an 80-byte workspace header at `work_ptr` once `work_len ≥ 128`:
+
+| File | Lines | Contents |
+|---|---:|---|
+| `LratBytes.lean` | 949 | `parseDimacs` (~100 lines, 100% structurally recursive), `encodeDimacs`, `encodeLrat`, 6 QBE functions (`lb_parse_dimacs_header`, `lb_parse_dimacs_body`, `lb_read_add_lits`, `lb_rup_check`, `lb_check_prf`, `lrat_check_bytes`), `lratCheckBytesSpec`, `nvBytesCnf`, `nvDimacsBytes`, `nvLratAcceptBytes`, `nvLratRejectBytes` |
+| `LratBytesSpec.lean` | 727 | `lratBytesFns_wf` (`wf_reify`), `loadub_At`, `region` ↔ `byte1Array`/`int4Array`/`word8Array` bridges, pure mirror `runLratCheckBytes`, `WorkCfg`, `TableRel`, `WorkState`, `WorkState.to_region`, per-function contracts |
+| `LratBytesDimacsLemmas.lean` | 1982 | `lbParseDimacsHeader_correct`, `lbParseDimacsBody_correct`, `parseBodyPure_sound`, `ValidDimacsCnf`, `parseDimacs_encodeDimacs` |
+| `LratBytesRupLemmas.lean` | 1923 | `readLeb128_spec`, `lbReadAddLits_correct` (zig-zag decoding + pool arena allocation), `lbRupCheck_correct` (RUP phase 1 + phase 2 + trail backtrack), `rupCheckPure_sound` |
+| `LratBytesCheckLemmas.lean` | 2066 | `TableSound`, `initClauseTable_sound`, `checkPrfAux_sound_of`, `runLratCheckBytes_sound_of`, `lbCheckPrf_correct_of` (`'a'`/`'d'` loop + empty-clause termination), `lratCheckBytes_exact_of` (workspace partitioning, zeroing loops, full call-chain composition) |
+| `LratBytesLemmas.lean` | 458 | `runLratCheckBytes_sound`, `lratBytesExactEnv_sound`, `lratBytesEnv_sound`, `lratCheckBytes_encoded_correct`, `nvBytesCnf_unsat`, `lratBytesAcceptEnv_sound`, `lratBytesRejectEnv_sound`, `lratCheckBytes_accepts_nonvacuous`, `lratCheckBytes_rejects_nonvacuous` |
+
+### Proof-engineering notes
+
+1. **Two-layer refinement via `runLratCheckBytes`.** Every QBE function is proved to refine a total,
+   structurally recursive pure mirror (`lratCheckBytesExactSpec`: `r = if runLratCheckBytes ... then 1 else 0`).
+   This yields both soundness (`lratBytesEnv_sound` via `runLratCheckBytes_sound`) and exact executable
+   completeness on concrete inputs (`nvAccept_run` and `nvReject_run` by `rfl`, proving `nvBytesCnf_unsat`
+   and inhabiting both `r = 1` and `r = 0` without loop unrolling).
+2. **Zero-cleanup rejection via `region`.** Because the workspace starts and finishes as `region work_ptr work_len`,
+   every reject branch (`ret 0` on malformed DIMACS, 5+-byte/truncated LEB128, `-0`, RAT hint, out-of-range
+   variable/clause ID, pool exhaustion, or RUP non-conflict) collapses `WorkState` (plus any modified
+   `values`/`trail`/pool slices) back to `region c.hdr c.activeBytes` in one step (`WorkState.to_region`),
+   requiring backtracking only after a succeeding non-empty RUP step.
+3. **`Std.Sat.CNF.Clause` module opacity.** Under Lean 4's `module` system, `CNF.Clause.ofLiterals` is
+   encapsulated across module boundaries (`CNF.Clause.literals_ofLiterals` is `@[simp]`, not defeq).
+   `LratBytesLemmas.lean` exports `nvDimacsBytes_eq` and `@[simp]` length lemmas (`nvDimacsBytes_length`,
+   `nvLratAcceptBytes_length`, `nvLratRejectBytes_length`) so downstream x86-64 and AArch64 machine proofs
+   discharge slice bounds by `simp` without needing `import all Std.Sat.CNF.Basic`.
