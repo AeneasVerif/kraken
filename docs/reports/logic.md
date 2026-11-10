@@ -226,6 +226,16 @@ arguments, kernel-state counters, `used`, `marks`, and `values` as `Kraken.Bedro
 | total proof file lines (incl. 5 concrete-byte non-vacuity + tautology theorems) | **4135** (0 non-vacuity) | 792 + 447 + 524 = **1763** | **2.35× shorter** |
 | total check time (wall / user) | 8.44 s / 17.62 s | 5.97 s / 11.80 s | **1.41× faster** |
 
+**Module linking and accepting UNSAT witness (`LratTrimCheckLemmas.lean`).**
+- `lratCheckFns`, `lratCheckFns_wf`, `lratEnv`, and `lratEnv_sound` package the 4-function checker call
+  graph (`checkRup`, `strictCheck`, `checkClause`, `checkProof`) for `compileModule` / `compile_sound`.
+- To demonstrate that the return branch (`cnf₀.Unsat`, without reaching `lrat_fail`) is inhabited end-to-end
+  (#177), `nvAcceptBytes` (274 concrete bytes at `0x1000`) encodes `nvAcceptCnf = [[1], [-1]]` together with
+  its 1-step resolution proof of the empty clause (`antecedents = [1, 2]`, `empty_clause = 3`). `nvAccept_pre`
+  proves `CheckProofPre` for `nvAcceptCnf` on `nvAcceptBytes.At 0x1000`, and `lratAcceptEnv_sound` +
+  `checkProof_accepts_nonvacuous` step `checkProof → checkClause → strictCheck` via bounded loop unrolling
+  (`wp_unroll`) with exit postcondition `X = fun _ _ _ => False`, concluding `nvAcceptCnf.Unsat` unconditionally.
+
 ## Risk 8: Elaboration scaling (`elab_rules` + `qbe_def`)
 
 Benchmark: single function with $N$ sequential `%x_i =l add ...` instructions (`Big{250,1000,2000,4000}.lean`):
