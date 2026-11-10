@@ -28,6 +28,7 @@ replayed rather than rebuilt (166 jobs, 0.15 s).
 |---|---|---|
 | K0 | `ae789b6` | worktrees created, builds clean |
 | K1 | `1fc7dfb` | x64 generic lemmas from Spike K (below) |
+| K2 | `4952311` | AArch64 counterparts (below) |
 
 ## K1: x64 lemmas (commit `1fc7dfb`)
 
@@ -52,7 +53,28 @@ Not upstreamed (they are compiler-shaped, not Kraken-shaped): `doWhile`, `ifThen
 The lean-qbe regression spike `spike/k/SpikeK.lean` still checks against the new Kraken (its names live
 in namespace `SpikeK`).
 
+## K2: AArch64 (commit `4952311`)
+
+`Kraken/AArch64/{Inert,WP/Host,WP/Basic}.lean` are verbatim copies of the x64 files *including the
+K1 additions* (label resolution, `LabelsUnique`, `Host.ofLayout`, CPS step lemma, `wp` rules); only
+the import lines differ. This confirms Spike K's finding that these files are
+architecture-independent. Duplication: 31 + 241 + 197 lines. Making Kraken architecture-generic would
+remove it but is out of scope (plan 2.6).
+
+| File | Lemmas |
+|---|---|
+| `Kraken/AArch64/WP/Control.lean` (new) | encodings `Directive.bTo`, `bCondTo`, `blTo`, `ret` (to `x30`), `cbzTo`, `cbnzTo` (any width); `Host.eventually_b`, `eventually_bCond`, `eventually_bCond_taken`, `eventually_bCond_fallthrough`, `eventually_bl` (`x30 := addrOf (i+1)`), `eventually_ret` (`s.regs.X30 = ra.toUInt64`), `eventually_cbz`, `eventually_cbnz` |
+| `Kraken/AArch64/Regs.lean` (new) | `Reg64s.getXReg_setXReg_same/_of_ne`, `getXReg_setXReg`, `setXReg_setXReg_same/_comm`, `setXReg_getXReg_self`, `SP_setXReg`, normal forms for `getRegOrZr`/`setRegOrZr` (`x`, `w`, `xzr`) and `getRegOrSp`/`setRegOrSp` (`x`, `sp`) |
+| `Kraken/AArch64/Sep.lean` | `store_All_of_sep`, `load_All_of_sep` |
+| `Kraken/AArch64/WPTests.lean` (new) | parser encodings by `rfl`; concrete host where `bl f; b e; f: ret; e:` provably runs to the end |
+
+`KrakenAArch64.lean` now imports `Regs` and `WP`. Axioms as for K1. lean-qbe's `spike/k/SpikeKAArch64.lean`
+still checks (it does not import the new modules, so its root-namespace copies do not clash).
+
+Note: with expected type `Kraken.Directive Instr` (e.g. the parser's output type) the dot forms
+`.bTo` etc. do not resolve; write `Directive.bTo`. With expected type `Directive` (e.g. `Host.prog[i]?`)
+they do.
+
 ## Next
 
-- K2: AArch64 `Inert`, `WP/Host`, `WP/Basic`, `WP` plus `b`, `b.cond`, `bl`, `ret`, `cbz` step lemmas.
 - Then `LeanQbe/Arm64/` (the AArch64 `Target` instance, plan step 2d).
