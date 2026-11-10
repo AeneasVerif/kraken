@@ -13,7 +13,7 @@ public import LeanQbe.Amd64.FrameLemmas
 * Non-vacuity in a concrete host `fCode ++ gCode ++ abortCode`, with `g_spec`, `f_spec`,
   `abort_spec` linked (`n = 8`, `nX = 8`): `f_returns` (`f(1, 2) = 5`), `f_exits_in_g` (`f(0, 2)`:
   `g` exits to `abort(0)`), `f_exits_itself` (`f(1, -3)`: `f` exits to `abort(1)`); each exit state
-  is fed into `abort`'s `FnSpec` (`AbortsWith`). Statements are Kraken-level (`step1 Host.exe`).
+  is fed into `abort`'s `FnSpec` at `n = nX = 8` (`entry_shrink`, `AbortsWith`). Statements are Kraken-level (`step1 Host.exe`).
 -/
 
 @[expose] public section
@@ -256,10 +256,10 @@ theorem f_spec (h : Host) (k : Nat) (hc : fCode.IsInfixAt (@Host.prog h) k)
   rintro ⟨s6, pc⟩ (hst | hst)
   rotate_left
   · -- g exits: propagate, with f's frame folded into the exit frame
-    obtain ⟨sym', as, m', hX', hdef, hpc, hargs', hspE'', ra', n', F, hnX, hra', hm'⟩ := hst
+    obtain ⟨sym', as, m', hX', hdef, hpc, hargs', hspE'', ra', n', F, hnX, hb, hra', hm'⟩ := hst
     refine .done _ (Or.inr ⟨sym', as, m', hX', hdef, hpc, hargs', hspE'', ra', n',
       F ⋆ (word (sp - 24#64) b ⋆ (region (sp - 16#64) 8 ⋆ (word (sp - 8#64) w ⋆
-        Eq (ra.toUInt64.At sp)))), hnX, hra', sep_ac (by ac_rfl) hm'⟩)
+        Eq (ra.toUInt64.At sp)))), hnX, hb, hra', sep_ac (by ac_rfl) hm'⟩)
   obtain ⟨hpc, rets, m', ⟨hta, rfl, hmm⟩, hrets, ⟨hcs6, hsp6⟩, hm6⟩ := hst
   subst m'
   obtain ⟨hT, hNT⟩ := hTa hta
@@ -365,7 +365,7 @@ theorem f_spec (h : Host) (k : Nat) (hc : fCode.IsInfixAt (@Host.prog h) k)
     have hsp13 : s13.regs.get64 .rsp = sp := by
       rw [hs13, get64_set64_ne' (by decide), Reg64s.get64_set64_same, hsp12, a6]
     refine eventually_jmpD_any h14 (.done _ (Or.inr ⟨"abort", [a], m, hNT hntr, hab, rfl, ?_,
-      ?_, ra, 32 + n, ExtHashMap.emp, hX, trivial, ?_⟩))
+      ?_, ra, 32 + n, ExtHashMap.emp, hX, (show 32 + n + 8 ≤ 2 ^ 64 by omega), trivial, ?_⟩))
     · show [s13.regs.get64 .rdi] = [a]
       rw [hs13, get64_set64_ne' (by decide), get64_set64_ne' (by decide), hs12,
         get64_set64_ne' (by decide), hs11, Reg64s.get64_set64_same, hs10,
@@ -378,16 +378,20 @@ theorem f_spec (h : Host) (k : Nat) (hc : fCode.IsInfixAt (@Host.prog h) k)
 
 /-! ## Non-vacuity: a concrete host with `f`, `g` and `abort` -/
 
-/-- An entry stack of `n` bytes with return address `ra` keeps only the return address as the
-callee's entry footprint (`n = 0`), the `n` bytes go to the frame. Used to feed an exit state to
-the exit target's `FnSpec` without knowing a bound on the exit stack. -/
-theorem entry_zero {m M : Mem 64} {sp : BitVec 64} {ra : Int64} {n : Nat} {F R : Mem 64 → Prop}
-    (h : (Eq m ⋆ target.Entry sp ra n ⋆ F ⋆ R) M) :
-    (Eq m ⋆ target.Entry sp ra 0 ⋆ (region (sp - BitVec.ofNat 64 n) n ⋆ F ⋆ R)) M := by
-  have h' : (Eq m ⋆ (region (sp - BitVec.ofNat 64 n) n ⋆ Eq (ra.toUInt64.At sp)) ⋆ F ⋆ R) M := h
-  show (Eq m ⋆ (region (sp - BitVec.ofNat 64 0) 0 ⋆ Eq (ra.toUInt64.At sp)) ⋆
-    (region (sp - BitVec.ofNat 64 n) n ⋆ F ⋆ R)) M
-  rw [region_zero, ExtHashMap.emp_sep]
+/-- An entry stack of `n'` bytes with `nX ≤ n'` contains an entry stack of `nX` bytes; the rest
+goes to the frame. Used to feed an exit state to the exit target's `FnSpec` at `n = nX`. -/
+theorem entry_shrink {m M : Mem 64} {sp : BitVec 64} {ra : Int64} {n' nX : Nat}
+    {F R : Mem 64 → Prop} (hX : nX ≤ n') (hb : n' + 8 ≤ 2 ^ 64)
+    (h : (Eq m ⋆ target.Entry sp ra n' ⋆ F ⋆ R) M) :
+    (Eq m ⋆ target.Entry sp ra nX ⋆
+      (region (sp - BitVec.ofNat 64 n') (n' - nX) ⋆ F ⋆ R)) M := by
+  have h' : (Eq m ⋆ (region (sp - BitVec.ofNat 64 n') n' ⋆ Eq (ra.toUInt64.At sp)) ⋆ F ⋆ R) M := h
+  have e := region_split (a := sp - BitVec.ofNat 64 n') (n1 := n' - nX) (n2 := nX) (by omega)
+  rw [Nat.sub_add_cancel hX, show sp - BitVec.ofNat 64 n' + BitVec.ofNat 64 (n' - nX) =
+    sp - BitVec.ofNat 64 nX by bv_omega] at e
+  rw [e] at h'
+  show (Eq m ⋆ (region (sp - BitVec.ofNat 64 nX) nX ⋆ Eq (ra.toUInt64.At sp)) ⋆
+    (region (sp - BitVec.ofNat 64 n') (n' - nX) ⋆ F ⋆ R)) M
   exact sep_ac (by ac_rfl) h'
 
 /-- The host program: `f`, `g`, `abort`. Labels at 0 (`f`), 15 (`f.ret`), 19 (`g`), 23 (`g.ok`),
@@ -441,8 +445,8 @@ theorem host_g_spec : target.FnSpec host "g" gSpec 8 8 :=
 theorem host_f_spec : target.FnSpec host "f" fSpec 40 8 :=
   f_spec host 0 host_f host_unique host_defined 8 8 (by decide) (by decide) host_g_spec
 
-theorem host_abort_spec : target.FnSpec host "abort" abortSpec 0 0 :=
-  abort_spec host 29 host_abort host_unique 0 0 (by decide)
+theorem host_abort_spec : target.FnSpec host "abort" abortSpec 8 8 :=
+  abort_spec host 29 host_abort host_unique 8 8 (by decide)
 
 /-- The caller's return address. -/
 def raF : Int64 := 0x1234
@@ -483,7 +487,7 @@ theorem run_f (a b : UInt64) (Q : Post) (X : XPost) (hs : fSpec [a.toBitVec, b.t
           (st.data.dmem =⋆ Eq m' ⋆ target.Exit 0x7ff8#64 40 ⋆ ExtHashMap.emp)) ∨
         (∃ sym' as m', X sym' as m' ∧ target.Defined host sym' ∧ st.pc = Labels.label sym' ∧
           target.ArgsIn as st.data ∧ target.spEntry (st.data.regs.get64 .rsp) ∧
-          ∃ (ra' : Int64) (n' : Nat) (F : Mem 64 → Prop), 8 ≤ n' ∧ True ∧
+          ∃ (ra' : Int64) (n' : Nat) (F : Mem 64 → Prop), 8 ≤ n' ∧ n' + 8 ≤ 2 ^ 64 ∧ True ∧
             (st.data.dmem =⋆ Eq m' ⋆ target.Entry (st.data.regs.get64 .rsp) ra' n' ⋆ F ⋆
               ExtHashMap.emp)))
       ⟨st0 a b, Host.addrOf 0⟩ := by
@@ -524,7 +528,7 @@ def AbortsWith (a : Val) (st : MachineState) : Prop :=
 theorem abortsWith_of_exit {a : Val} {st : MachineState} {sym' : String} {as : List Val}
     {m' : Mem 64} (hX : sym' = "abort" ∧ as = [a] ∧ m' = m0) (hpc : st.pc = Labels.label sym')
     (hargs : target.ArgsIn as st.data) (hspE : target.spEntry (st.data.regs.get64 .rsp))
-    {ra' : Int64} {n' : Nat} {F : Mem 64 → Prop}
+    {ra' : Int64} {n' : Nat} {F : Mem 64 → Prop} (h8 : 8 ≤ n') (hb : n' + 8 ≤ 2 ^ 64)
     (hm : st.data.dmem =⋆ Eq m' ⋆ target.Entry (st.data.regs.get64 .rsp) ra' n' ⋆ F ⋆
       ExtHashMap.emp) :
     AbortsWith a st := by
@@ -540,7 +544,7 @@ theorem abortsWith_of_exit {a : Val} {st : MachineState} {sym' : String} {as : L
       sep_ac (by ac_rfl) h'
     exact sep_mono_r (fun _ _ => trivial) h''
   · have h := host_abort_spec [a] m0 (fun rets m'' => rets = [] ∧ m'' = m0) (fun _ _ _ => False)
-      ⟨a, rfl, rfl, rfl⟩ d ra' _ hargs trivial hspE (entry_zero hm)
+      ⟨a, rfl, rfl, rfl⟩ d ra' _ hargs trivial hspE (entry_shrink h8 hb hm)
     refine eventually_weaken _ _ _ _ ?_ h
     rintro st' (⟨hpc', rets, m'', ⟨-, rfl⟩, -, -, hm'⟩ | ⟨_, _, _, hF, _⟩)
     · refine ⟨hpc', ?_⟩
@@ -555,9 +559,9 @@ theorem f_exits_in_g :
       (fun sym as m' => sym = "abort" ∧ as = [0] ∧ m' = m0) :=
     ⟨0, 2, rfl, fun _ => ⟨rfl, rfl, rfl⟩, fun h => absurd h (by decide)⟩
   refine eventually_weaken _ _ _ _ ?_ (run_f 0 2 _ _ hs)
-  rintro st (⟨_, _, _, hF, _⟩ | ⟨sym', as, m', hX, -, hpc, hargs, hspE, ra', n', F, -, -, hm⟩)
+  rintro st (⟨_, _, _, hF, _⟩ | ⟨sym', as, m', hX, -, hpc, hargs, hspE, ra', n', F, h8, hb, -, hm⟩)
   · exact hF.elim
-  · exact abortsWith_of_exit hX hpc hargs hspE hm
+  · exact abortsWith_of_exit hX hpc hargs hspE h8 hb hm
 
 /-- `f`'s own exit: `f(1, -3)` computes `fVal 1 (-3) = 0` and exits to `abort(1)`. -/
 theorem f_exits_itself :
@@ -567,9 +571,9 @@ theorem f_exits_itself :
     ⟨1, 0xFFFFFFFFFFFFFFFD#64, rfl, fun h => absurd (by decide) h,
       fun _ => ⟨fun h => absurd h (by decide), fun _ => ⟨rfl, rfl, rfl⟩⟩⟩
   refine eventually_weaken _ _ _ _ ?_ (run_f 1 0xFFFFFFFFFFFFFFFD _ _ hs)
-  rintro st (⟨_, _, _, hF, _⟩ | ⟨sym', as, m', hX, -, hpc, hargs, hspE, ra', n', F, -, -, hm⟩)
+  rintro st (⟨_, _, _, hF, _⟩ | ⟨sym', as, m', hX, -, hpc, hargs, hspE, ra', n', F, h8, hb, -, hm⟩)
   · exact hF.elim
-  · exact abortsWith_of_exit hX hpc hargs hspE hm
+  · exact abortsWith_of_exit hX hpc hargs hspE h8 hb hm
 
 end Concrete
 
