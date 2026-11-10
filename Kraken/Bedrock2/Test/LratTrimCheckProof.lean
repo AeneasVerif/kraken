@@ -2,6 +2,7 @@ module
 
 public import Kraken.Bedrock2.Test.LratTrimSpec
 public import Kraken.Bedrock2.Test.LratTrimRupProof
+public import Kraken.Bedrock2.Test.LratTrimStrictProof
 import Std.Tactic.BVDecide
 meta import Std.Tactic.BVDecide.Reflect
 import all Std.Sat.CNF.Entails
@@ -634,14 +635,14 @@ theorem br_check_proof_loop_ok {e : Env} {B : Nat} {t₀ : Trace 64} {m₀ : Mem
           refine Exec.seq_cps ?_
           refine Exec.set_cps (v := litsPtrs[id.toNat]) ?_ ?_
           · refine eval_load_word8Array_elem hid_lits ?_ hm_lits
-            simp [Expr.eval, hlitsb, hid, interpBinop]
+            simp [Expr.eval, hlitsb, hid, ← bitVec_ofNat_eight_mul_toNat, interpBinop]
           let l_l := l1.insert "l" litsPtrs[id.toNat]
           -- a = load8(antecedents_begin + (id << 3))
           obtain ⟨R_ante, hm_ante⟩ := sep_focus_4 hm_sep
           refine Exec.seq_cps ?_
           refine Exec.set_cps (v := antePtrs[id.toNat]) ?_ ?_
           · refine eval_load_word8Array_elem hid_ante ?_ hm_ante
-            simp [Expr.eval, hanteb, hid, interpBinop]
+            simp [Expr.eval, hanteb, hid, ← bitVec_ofNat_eight_mul_toNat, interpBinop]
           let l_a := l_l.insert "a" antePtrs[id.toNat]
           -- br_check_clause(st, id, l, a)
           have hargs : evalArgs m l_a [.var "st", .var "id", .var "l", .var "a"] =
@@ -1316,6 +1317,414 @@ theorem br_check_proof_rup_run_unsat {e : Env} {t₀ t' : Trace 64} {m₀ m' : M
   have hcall := call_br_check_proof_rup (B := 0) (t₀ := t₀) (litsTable := litsTable) (anteTable := anteTable)
     hfn_proof hfn_clause hfn_rup hstrict0 hchecking hforward hk_trail hfst_pos hfst_le hemp_lt
     hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause htrail_len hP_arrays hsep0 hsteps
+  obtain ⟨_, _, _, _, _, hunsat⟩ :=
+    run_body_of_call (Handler.ok_none lratFailExt) hcall hfn_proof hlf hrun
+  exact hunsat
+
+/-! ## 7. Option B & Unified Integration: Strict Resolution (`strict ≠ 0`) and Full Soundness -/
+
+/-- Bridge lemma connecting `ClauseTable` on `s.formula` and `entailsClause_toCNF_of_getElem?_formula`
+directly to `ValidAntecedent max_var s.toCNF literals_begin P_ro aid`. -/
+theorem validAntecedent_of_clauseTable {max_var : Nat} {s : State} {literals_begin : BitVec 64}
+    {lit_ptrs : List (BitVec 64)} {P_ro : Mem 64 → Prop} {aid : BitVec 64}
+    (hct : ClauseTable max_var literals_begin lit_ptrs s.formula P_ro)
+    (hnontaut : ∀ (j : Nat) (c : CNF.Clause Nat), s.formula[j]? = some (some c) → ClauseNonTautological c)
+    (hne0 : aid ≠ 0)
+    (haid : aid.toNat < lit_ptrs.length)
+    (hptr : lit_ptrs[aid.toNat] ≠ 0) :
+    ValidAntecedent max_var s.toCNF literals_begin P_ro aid := by
+  have hpos : 0 < aid.toNat :=
+    Nat.pos_of_ne_zero fun h0 => hne0 (BitVec.eq_of_toNat_eq h0)
+  exact hct.validAntecedent ⟨emp, (sep_emp P_ro).symm⟩ haid hpos hptr
+    (fun c hc => ⟨hnontaut (aid.toNat - 1) c hc, entailsClause_toCNF_of_getElem?_formula hc⟩)
+
+/-- Concrete `call` specification for `br_check_clause` in strict resolution mode (`k.strict ≠ 0`),
+combining `call_br_check_clause_zeroTerm` and `call_br_check_clause_strictly_by_resolution`. -/
+theorem call_br_check_clause_strict {e : Env} {B : Nat} {t : Trace 64} {m : Mem 64}
+    {post : Trace 64 → Mem 64 → List (BitVec 64) → Prop}
+    {max_var n : Nat} {f : CNF Nat}
+    {st id literals antecedents : BitVec 64} {k : KernelFields}
+    {clause_lits ants : List (BitVec 64)} {P_ro : Mem 64 → Prop}
+    (hfn_clause : e.lookup br_check_clause.1 = some br_check_clause.2)
+    (hfn_strict : e.lookup br_check_clause_strictly_by_resolution.1 =
+      some br_check_clause_strictly_by_resolution.2)
+    (hstrict_ne : k.strict ≠ 0)
+    (hlen : max_var < n)
+    (hn_bound : n < 2 ^ 64)
+    (hants_bound : 4 * ants.length < 2 ^ 64)
+    (hants_int : ∀ x ∈ ants, IsInt32 x ∧ x ≠ 0)
+    (hants_valid : ∀ aid ∈ ants, aid.slt 0 = false →
+      ValidAntecedent max_var f k.literals_begin P_ro aid)
+    (hclause_valid : ∀ x ∈ clause_lits, IsValidLit max_var x)
+    (hmem : m =⋆ byte1Array k.marks_begin (List.replicate n 0) ⋆ (kernelState st k ⋆ P_ro))
+    (hsub_ants : ∃ R', P_ro = (ZeroTermInts antecedents ants ⋆ R'))
+    (hsub_lits : ∃ R', P_ro = (ZeroTermInts literals clause_lits ⋆ R'))
+    (hpost : CNF.EntailsClause f (toClause clause_lits) →
+      ∀ m',
+        (m' =⋆ byte1Array k.marks_begin (List.replicate n 0) ⋆
+          (kernelState st
+            { (k.bumpCheckStats ((clause_lits ++ [0])[0]'(by simp))) with
+              stat_resolved := k.stat_resolved + BitVec.ofNat 64 ants.length } ⋆ P_ro)) →
+        post t m' []) :
+    call lratFailExt e B br_check_clause.1 t m [st, id, literals, antecedents] post := by
+  obtain ⟨R_lits, hP_lits⟩ := hsub_lits
+  have hsep_z : m =⋆ kernelState st k ⋆
+      (ZeroTermInts literals clause_lits ⋆
+        (byte1Array k.marks_begin (List.replicate n 0) ⋆ R_lits)) := by
+    have h := hmem
+    rw [hP_lits, sep_rearrange_clause] at h
+    exact h
+  refine call_br_check_clause_zeroTerm hfn_clause hsep_z (fun m₁ hm₁ => ?_)
+  rw [ite_eq_right hstrict_ne]
+  let k1 := k.bumpCheckStats ((clause_lits ++ [0])[0]'(by simp))
+  have hm₁_strict : m₁ =⋆ byte1Array k1.marks_begin (List.replicate n 0) ⋆
+      (kernelState st k1 ⋆ P_ro) := by
+    have h := hm₁
+    rw [← sep_rearrange_clause, ← hP_lits] at h
+    exact h
+  exact call_br_check_clause_strictly_by_resolution (k := k1) hfn_strict hlen hn_bound
+    hants_bound hants_int hants_valid hclause_valid hm₁_strict hsub_ants ⟨R_lits, hP_lits⟩
+    (fun hent m' hm' => ⟨rfl, hpost hent m' hm'⟩)
+
+/-- Memory invariant maintained across iterations of `br_check_proof` in strict resolution mode (`strict ≠ 0`). -/
+def StrictMemInv (n : Nat) (st : BitVec 64) (k₀ : KernelFields)
+    (P_ro : Mem 64 → Prop) (k : KernelFields) (m : Mem 64) : Prop :=
+  k.SameConfig k₀ ∧
+  (m =⋆ byte1Array k₀.marks_begin (List.replicate n 0) ⋆ (kernelState st k ⋆ P_ro))
+
+/-- End-to-end `call` soundness theorem for `br_check_proof` in Option B (`k₀.strict ≠ 0`),
+connecting `br_check_proof`, `br_check_clause`, and `call_br_check_clause_strictly_by_resolution`
+to `Std.Sat.CNF.Unsat cnf₀`. -/
+theorem call_br_check_proof_resolution {e : Env} {B : Nat} {t₀ : Trace 64} {m₀ : Mem 64}
+    {max_var n : Nat} {st : BitVec 64} {k₀ : KernelFields}
+    {usedWords litsPtrs antePtrs : List (BitVec 64)}
+    {cnf₀ : CNF Nat} {clauses : List (CNF.Clause Nat)}
+    {litsTable anteTable : List (List (BitVec 64))}
+    {P_ro : Mem 64 → Prop}
+    (hfn_proof : e.lookup br_check_proof.1 = some br_check_proof.2)
+    (hfn_clause : e.lookup br_check_clause.1 = some br_check_clause.2)
+    (hfn_strict : e.lookup br_check_clause_strictly_by_resolution.1 =
+      some br_check_clause_strictly_by_resolution.2)
+    (hstrict_ne : k₀.strict ≠ 0)
+    (hchecking : k₀.checking ≠ 0)
+    (hforward : k₀.forward = 0)
+    (hfst_pos : 0 < k₀.first_proof_id.toNat)
+    (hfst_le : k₀.first_proof_id.toNat ≤ k₀.empty_clause.toNat)
+    (hemp_lt : k₀.empty_clause.toNat + 1 < 2 ^ 31)
+    (hused_len : k₀.empty_clause.toNat < usedWords.length)
+    (hused_int32 : ∀ i (hi : i < usedWords.length), IsInt32 usedWords[i])
+    (hlits_len : k₀.empty_clause.toNat < litsPtrs.length)
+    (hante_len : k₀.empty_clause.toNat < antePtrs.length)
+    (hempty_used : isStepUsed k₀.trimming usedWords k₀.empty_clause.toNat = true)
+    (hempty_clause : clauseAt clauses k₀.empty_clause.toNat = .empty)
+    (hlen : max_var < n)
+    (hn_bound : n < 2 ^ 64)
+    (hP_arrays : ∃ R_arr, P_ro = (int4Array k₀.used_begin usedWords ⋆
+      (word8Array k₀.literals_begin litsPtrs ⋆ (word8Array k₀.antecedents_begin antePtrs ⋆ R_arr))))
+    (hsep0 : m₀ =⋆ byte1Array k₀.marks_begin (List.replicate n 0) ⋆ (kernelState st k₀ ⋆ P_ro))
+    (hsteps : ∀ (id : BitVec 64) (_hid_lo : k₀.first_proof_id.toNat ≤ id.toNat)
+        (hid_hi : id.toNat ≤ k₀.empty_clause.toNat),
+      isStepUsed k₀.trimming usedWords id.toNat = true →
+      let lits := litsTable.getD id.toNat []
+      let ants := anteTable.getD id.toNat []
+      let s := stateAt cnf₀ k₀.first_proof_id.toNat k₀.trimming usedWords clauses
+        (id.toNat - k₀.first_proof_id.toNat)
+      clauseAt clauses id.toNat = toClause lits ∧
+      4 * ants.length < 2 ^ 64 ∧
+      (∀ x ∈ ants, IsInt32 x ∧ x ≠ 0) ∧
+      (∀ aid ∈ ants, aid.slt 0 = false →
+        ValidAntecedent max_var s.toCNF k₀.literals_begin P_ro aid) ∧
+      (∀ x ∈ lits, IsValidLit max_var x) ∧
+      (∃ R_lits, P_ro = (ZeroTermInts (litsPtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hlits_len)) lits ⋆ R_lits)) ∧
+      (∃ R_ants, P_ro = (ZeroTermInts (antePtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hante_len)) ants ⋆ R_ants))) :
+    call lratFailExt e B br_check_proof.1 t₀ m₀ [st]
+      (fun t' m' rets =>
+        t' = t₀ ∧ rets = [] ∧
+        (∃ k', StrictMemInv n st k₀ P_ro k' m') ∧
+        cnf₀.Unsat) := by
+  refine call_br_check_proof_strict (litsTable := litsTable)
+    (InvMem := StrictMemInv n st k₀ P_ro)
+    hfn_proof hfn_clause hstrict_ne hchecking hforward hfst_pos hfst_le hemp_lt
+    hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause
+    ⟨KernelFields.SameConfig.refl k₀, hsep0⟩ ?_ ?_
+  · rintro k m ⟨hcfg, hm⟩
+    refine ⟨hcfg, ?_⟩
+    obtain ⟨R_arr, hP⟩ := hP_arrays
+    refine ⟨byte1Array k₀.marks_begin (List.replicate n 0) ⋆ R_arr, ?_⟩
+    have h := hm
+    rw [hP, sep_rearrange_arrays] at h
+    exact h
+  · intro id hid_lo hid_hi hused
+    obtain ⟨hc_eq, hants_bound, hants_int, hants_valid, hlits_valid, ⟨R_lits, hP_lits⟩, hsub_ants⟩ :=
+      hsteps id hid_lo hid_hi hused
+    refine ⟨hc_eq, ?_⟩
+    rintro k m ⟨hcfg, hm⟩
+    refine ⟨byte1Array k₀.marks_begin (List.replicate n 0) ⋆ R_lits, ?_, ?_⟩
+    · have h := hm
+      rw [hP_lits, sep_rearrange_clause] at h
+      exact h
+    · intro m₁ hm₁
+      let k1 := k.bumpCheckStats (((litsTable.getD id.toNat []) ++ [0])[0]'(by simp))
+      have hk1_cfg : k1.SameConfig k₀ := hcfg.bumpCheckStats _
+      have hm₁_strict : m₁ =⋆ byte1Array k1.marks_begin (List.replicate n 0) ⋆
+          (kernelState st k1 ⋆ P_ro) := by
+        have h := hm₁
+        rw [← sep_rearrange_clause, ← hP_lits, ← hk1_cfg.marks_begin] at h
+        exact h
+      have hants_valid1 : ∀ aid ∈ anteTable.getD id.toNat [], aid.slt 0 = false →
+          ValidAntecedent max_var
+            (stateAt cnf₀ k₀.first_proof_id.toNat k₀.trimming usedWords clauses
+              (id.toNat - k₀.first_proof_id.toNat)).toCNF
+            k1.literals_begin P_ro aid := by
+        rw [hk1_cfg.literals_begin]
+        exact hants_valid
+      refine call_br_check_clause_strictly_by_resolution (k := k1) hfn_strict hlen hn_bound
+        hants_bound hants_int hants_valid1 hlits_valid hm₁_strict hsub_ants ⟨R_lits, hP_lits⟩ ?_
+      intro hent_cl m' hm'
+      let k' : KernelFields :=
+        { k1 with stat_resolved := k1.stat_resolved + BitVec.ofNat 64 (anteTable.getD id.toNat []).length }
+      have hk'_cfg : k'.SameConfig k₀ :=
+        ⟨hk1_cfg.1, hk1_cfg.2, hk1_cfg.3, hk1_cfg.4, hk1_cfg.5, hk1_cfg.6, hk1_cfg.7,
+         hk1_cfg.8, hk1_cfg.9, hk1_cfg.10, hk1_cfg.11, hk1_cfg.12, hk1_cfg.13⟩
+      change m' =⋆ byte1Array k1.marks_begin (List.replicate n 0) ⋆
+          (kernelState st k' ⋆ P_ro) at hm'
+      rw [hk1_cfg.marks_begin] at hm'
+      exact ⟨rfl, rfl, ⟨k', hk'_cfg, hm'⟩, hent_cl⟩
+
+/-- End-to-end `Interp.run` soundness corollary for Option B (`k₀.strict ≠ 0`):
+any terminating execution of `br_check_proof` in strict resolution mode
+guarantees `cnf₀.Unsat` (`Std.Sat.CNF.Unsat cnf₀`). -/
+theorem br_check_proof_strict_run_unsat {e : Env} {t₀ t' : Trace 64} {m₀ m' : Mem 64}
+    {max_var n : Nat} {st : BitVec 64} {k₀ : KernelFields}
+    {usedWords litsPtrs antePtrs : List (BitVec 64)}
+    {cnf₀ : CNF Nat} {clauses : List (CNF.Clause Nat)}
+    {litsTable anteTable : List (List (BitVec 64))}
+    {P_ro : Mem 64 → Prop}
+    {lf l' : Locals 64} {fill : UInt8} {fuel : Nat} {o o' : List (BitVec 64)}
+    (hfn_proof : e.lookup br_check_proof.1 = some br_check_proof.2)
+    (hfn_clause : e.lookup br_check_clause.1 = some br_check_clause.2)
+    (hfn_strict : e.lookup br_check_clause_strictly_by_resolution.1 =
+      some br_check_clause_strictly_by_resolution.2)
+    (hstrict_ne : k₀.strict ≠ 0)
+    (hchecking : k₀.checking ≠ 0)
+    (hforward : k₀.forward = 0)
+    (hfst_pos : 0 < k₀.first_proof_id.toNat)
+    (hfst_le : k₀.first_proof_id.toNat ≤ k₀.empty_clause.toNat)
+    (hemp_lt : k₀.empty_clause.toNat + 1 < 2 ^ 31)
+    (hused_len : k₀.empty_clause.toNat < usedWords.length)
+    (hused_int32 : ∀ i (hi : i < usedWords.length), IsInt32 usedWords[i])
+    (hlits_len : k₀.empty_clause.toNat < litsPtrs.length)
+    (hante_len : k₀.empty_clause.toNat < antePtrs.length)
+    (hempty_used : isStepUsed k₀.trimming usedWords k₀.empty_clause.toNat = true)
+    (hempty_clause : clauseAt clauses k₀.empty_clause.toNat = .empty)
+    (hlen : max_var < n)
+    (hn_bound : n < 2 ^ 64)
+    (hP_arrays : ∃ R_arr, P_ro = (int4Array k₀.used_begin usedWords ⋆
+      (word8Array k₀.literals_begin litsPtrs ⋆ (word8Array k₀.antecedents_begin antePtrs ⋆ R_arr))))
+    (hsep0 : m₀ =⋆ byte1Array k₀.marks_begin (List.replicate n 0) ⋆ (kernelState st k₀ ⋆ P_ro))
+    (hsteps : ∀ (id : BitVec 64) (_hid_lo : k₀.first_proof_id.toNat ≤ id.toNat)
+        (hid_hi : id.toNat ≤ k₀.empty_clause.toNat),
+      isStepUsed k₀.trimming usedWords id.toNat = true →
+      let lits := litsTable.getD id.toNat []
+      let ants := anteTable.getD id.toNat []
+      let s := stateAt cnf₀ k₀.first_proof_id.toNat k₀.trimming usedWords clauses
+        (id.toNat - k₀.first_proof_id.toNat)
+      clauseAt clauses id.toNat = toClause lits ∧
+      4 * ants.length < 2 ^ 64 ∧
+      (∀ x ∈ ants, IsInt32 x ∧ x ≠ 0) ∧
+      (∀ aid ∈ ants, aid.slt 0 = false →
+        ValidAntecedent max_var s.toCNF k₀.literals_begin P_ro aid) ∧
+      (∀ x ∈ lits, IsValidLit max_var x) ∧
+      (∃ R_lits, P_ro = (ZeroTermInts (litsPtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hlits_len)) lits ⋆ R_lits)) ∧
+      (∃ R_ants, P_ro = (ZeroTermInts (antePtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hante_len)) ants ⋆ R_ants)))
+    (hlf : putManyZip br_check_proof.2.params [st] ∅ = some lf)
+    (hrun : run e fill fuel br_check_proof.2.body t₀ m₀ lf o (fun _ _ _ _ => none) =
+      some (t', m', l', o')) :
+    cnf₀.Unsat := by
+  have hcall := call_br_check_proof_resolution (B := 0) (t₀ := t₀)
+    (litsTable := litsTable) (anteTable := anteTable)
+    hfn_proof hfn_clause hfn_strict hstrict_ne hchecking hforward hfst_pos hfst_le hemp_lt
+    hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause hlen hn_bound
+    hP_arrays hsep0 hsteps
+  obtain ⟨_, _, _, _, _, hunsat⟩ :=
+    run_body_of_call (Handler.ok_none lratFailExt) hcall hfn_proof hlf hrun
+  exact hunsat
+
+/-- Unified memory invariant for `br_check_proof` supporting both `k₀.strict = 0` (Option A: RUP)
+and `k₀.strict ≠ 0` (Option B: strict resolution). -/
+def FullMemInv (max_var n trail_cap : Nat) (st : BitVec 64) (k₀ : KernelFields)
+    (P_ro : Mem 64 → Prop) (k : KernelFields) (m : Mem 64) : Prop :=
+  if k₀.strict = 0 then
+    RupMemInv max_var trail_cap st k₀ P_ro k m
+  else
+    StrictMemInv n st k₀ P_ro k m
+
+/-- Unified end-to-end `call` soundness theorem for `br_check_proof` covering both
+`k₀.strict = 0` (Option A: RUP propagation) and `k₀.strict ≠ 0` (Option B: strict resolution). -/
+theorem call_br_check_proof_full {e : Env} {B : Nat} {t₀ : Trace 64} {m₀ : Mem 64}
+    {max_var n : Nat} {st : BitVec 64} {k₀ : KernelFields}
+    {usedWords litsPtrs antePtrs trail_free0 : List (BitVec 64)}
+    {cnf₀ : CNF Nat} {clauses : List (CNF.Clause Nat)}
+    {litsTable anteTable : List (List (BitVec 64))}
+    {P_ro : Mem 64 → Prop}
+    (hfn_proof : e.lookup br_check_proof.1 = some br_check_proof.2)
+    (hfn_clause : e.lookup br_check_clause.1 = some br_check_clause.2)
+    (hfn_rup : e.lookup br_check_clause_non_strictly_by_propagation.1 =
+      some br_check_clause_non_strictly_by_propagation.2)
+    (hfn_strict : e.lookup br_check_clause_strictly_by_resolution.1 =
+      some br_check_clause_strictly_by_resolution.2)
+    (hchecking : k₀.checking ≠ 0)
+    (hforward : k₀.forward = 0)
+    (hfst_pos : 0 < k₀.first_proof_id.toNat)
+    (hfst_le : k₀.first_proof_id.toNat ≤ k₀.empty_clause.toNat)
+    (hemp_lt : k₀.empty_clause.toNat + 1 < 2 ^ 31)
+    (hused_len : k₀.empty_clause.toNat < usedWords.length)
+    (hused_int32 : ∀ i (hi : i < usedWords.length), IsInt32 usedWords[i])
+    (hlits_len : k₀.empty_clause.toNat < litsPtrs.length)
+    (hante_len : k₀.empty_clause.toNat < antePtrs.length)
+    (hempty_used : isStepUsed k₀.trimming usedWords k₀.empty_clause.toNat = true)
+    (hempty_clause : clauseAt clauses k₀.empty_clause.toNat = .empty)
+    (hP_arrays : ∃ R_arr, P_ro = (int4Array k₀.used_begin usedWords ⋆
+      (word8Array k₀.literals_begin litsPtrs ⋆ (word8Array k₀.antecedents_begin antePtrs ⋆ R_arr))))
+    (hrup_case : k₀.strict = 0 →
+      k₀.trail_end = k₀.trail_begin ∧
+      4 * trail_free0.length < 2 ^ 64 ∧
+      (m₀ =⋆ (byte1Array k₀.values_begin (assignBytes max_var Assignment.empty) ⋆
+          int4Array k₀.trail_begin trail_free0) ⋆
+        (kernelState st k₀ ⋆ P_ro)) ∧
+      (∀ (id : BitVec 64) (_hid_lo : k₀.first_proof_id.toNat ≤ id.toNat)
+          (hid_hi : id.toNat ≤ k₀.empty_clause.toNat),
+        isStepUsed k₀.trimming usedWords id.toNat = true →
+        let lits := litsTable.getD id.toNat []
+        let aids := anteTable.getD id.toNat []
+        let s := stateAt cnf₀ k₀.first_proof_id.toNat k₀.trimming usedWords clauses
+          (id.toNat - k₀.first_proof_id.toNat)
+        clauseAt clauses id.toNat = toClause lits ∧
+        ClauseTable max_var k₀.literals_begin (litsPtrs.take id.toNat) s.formula P_ro ∧
+        (∃ R_lits, P_ro = (ZeroTermInts (litsPtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hlits_len)) lits ⋆ R_lits)) ∧
+        (∃ R_aids, P_ro = (ZeroTermInts (antePtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hante_len)) aids ⋆ R_aids)) ∧
+        (∀ x ∈ lits, IsValidLit max_var x) ∧
+        (∀ aid ∈ aids, IsInt32 aid ∧ aid ≠ 0 ∧
+          (aid.slt 0 = false →
+            ∃ h : aid.toNat < (litsPtrs.take id.toNat).length, (litsPtrs.take id.toNat)[aid.toNat] ≠ 0)) ∧
+        lits.length + aids.length ≤ trail_free0.length))
+    (hstrict_case : k₀.strict ≠ 0 →
+      max_var < n ∧
+      n < 2 ^ 64 ∧
+      (m₀ =⋆ byte1Array k₀.marks_begin (List.replicate n 0) ⋆ (kernelState st k₀ ⋆ P_ro)) ∧
+      (∀ (id : BitVec 64) (_hid_lo : k₀.first_proof_id.toNat ≤ id.toNat)
+          (hid_hi : id.toNat ≤ k₀.empty_clause.toNat),
+        isStepUsed k₀.trimming usedWords id.toNat = true →
+        let lits := litsTable.getD id.toNat []
+        let ants := anteTable.getD id.toNat []
+        let s := stateAt cnf₀ k₀.first_proof_id.toNat k₀.trimming usedWords clauses
+          (id.toNat - k₀.first_proof_id.toNat)
+        clauseAt clauses id.toNat = toClause lits ∧
+        4 * ants.length < 2 ^ 64 ∧
+        (∀ x ∈ ants, IsInt32 x ∧ x ≠ 0) ∧
+        (∀ aid ∈ ants, aid.slt 0 = false →
+          ValidAntecedent max_var s.toCNF k₀.literals_begin P_ro aid) ∧
+        (∀ x ∈ lits, IsValidLit max_var x) ∧
+        (∃ R_lits, P_ro = (ZeroTermInts (litsPtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hlits_len)) lits ⋆ R_lits)) ∧
+        (∃ R_ants, P_ro = (ZeroTermInts (antePtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hante_len)) ants ⋆ R_ants)))) :
+    call lratFailExt e B br_check_proof.1 t₀ m₀ [st]
+      (fun t' m' rets =>
+        t' = t₀ ∧ rets = [] ∧
+        (∃ k', FullMemInv max_var n trail_free0.length st k₀ P_ro k' m') ∧
+        cnf₀.Unsat) := by
+  by_cases hstrict0 : k₀.strict = 0
+  · obtain ⟨hk_trail, htrail_len, hsep0, hsteps⟩ := hrup_case hstrict0
+    refine call.weaken
+      (call_br_check_proof_rup (litsTable := litsTable) (anteTable := anteTable)
+        hfn_proof hfn_clause hfn_rup hstrict0 hchecking hforward hk_trail hfst_pos hfst_le hemp_lt
+        hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause htrail_len hP_arrays hsep0 hsteps) ?_
+    rintro t' m' rets ⟨rfl, rfl, ⟨k', hk'⟩, hunsat⟩
+    exact ⟨rfl, rfl, ⟨k', by rw [FullMemInv, ite_eq_left hstrict0]; exact hk'⟩, hunsat⟩
+  · obtain ⟨hlen, hn_bound, hsep0, hsteps⟩ := hstrict_case hstrict0
+    refine call.weaken
+      (call_br_check_proof_resolution (litsTable := litsTable) (anteTable := anteTable)
+        hfn_proof hfn_clause hfn_strict hstrict0 hchecking hforward hfst_pos hfst_le hemp_lt
+        hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause hlen hn_bound hP_arrays hsep0 hsteps) ?_
+    rintro t' m' rets ⟨rfl, rfl, ⟨k', hk'⟩, hunsat⟩
+    exact ⟨rfl, rfl, ⟨k', by rw [FullMemInv, ite_eq_right hstrict0]; exact hk'⟩, hunsat⟩
+
+/-- Unified end-to-end `Interp.run` soundness corollary for `br_check_proof` covering both
+`k₀.strict = 0` (Option A) and `k₀.strict ≠ 0` (Option B). -/
+theorem br_check_proof_full_run_unsat {e : Env} {t₀ t' : Trace 64} {m₀ m' : Mem 64}
+    {max_var n : Nat} {st : BitVec 64} {k₀ : KernelFields}
+    {usedWords litsPtrs antePtrs trail_free0 : List (BitVec 64)}
+    {cnf₀ : CNF Nat} {clauses : List (CNF.Clause Nat)}
+    {litsTable anteTable : List (List (BitVec 64))}
+    {P_ro : Mem 64 → Prop}
+    {lf l' : Locals 64} {fill : UInt8} {fuel : Nat} {o o' : List (BitVec 64)}
+    (hfn_proof : e.lookup br_check_proof.1 = some br_check_proof.2)
+    (hfn_clause : e.lookup br_check_clause.1 = some br_check_clause.2)
+    (hfn_rup : e.lookup br_check_clause_non_strictly_by_propagation.1 =
+      some br_check_clause_non_strictly_by_propagation.2)
+    (hfn_strict : e.lookup br_check_clause_strictly_by_resolution.1 =
+      some br_check_clause_strictly_by_resolution.2)
+    (hchecking : k₀.checking ≠ 0)
+    (hforward : k₀.forward = 0)
+    (hfst_pos : 0 < k₀.first_proof_id.toNat)
+    (hfst_le : k₀.first_proof_id.toNat ≤ k₀.empty_clause.toNat)
+    (hemp_lt : k₀.empty_clause.toNat + 1 < 2 ^ 31)
+    (hused_len : k₀.empty_clause.toNat < usedWords.length)
+    (hused_int32 : ∀ i (hi : i < usedWords.length), IsInt32 usedWords[i])
+    (hlits_len : k₀.empty_clause.toNat < litsPtrs.length)
+    (hante_len : k₀.empty_clause.toNat < antePtrs.length)
+    (hempty_used : isStepUsed k₀.trimming usedWords k₀.empty_clause.toNat = true)
+    (hempty_clause : clauseAt clauses k₀.empty_clause.toNat = .empty)
+    (hP_arrays : ∃ R_arr, P_ro = (int4Array k₀.used_begin usedWords ⋆
+      (word8Array k₀.literals_begin litsPtrs ⋆ (word8Array k₀.antecedents_begin antePtrs ⋆ R_arr))))
+    (hrup_case : k₀.strict = 0 →
+      k₀.trail_end = k₀.trail_begin ∧
+      4 * trail_free0.length < 2 ^ 64 ∧
+      (m₀ =⋆ (byte1Array k₀.values_begin (assignBytes max_var Assignment.empty) ⋆
+          int4Array k₀.trail_begin trail_free0) ⋆
+        (kernelState st k₀ ⋆ P_ro)) ∧
+      (∀ (id : BitVec 64) (_hid_lo : k₀.first_proof_id.toNat ≤ id.toNat)
+          (hid_hi : id.toNat ≤ k₀.empty_clause.toNat),
+        isStepUsed k₀.trimming usedWords id.toNat = true →
+        let lits := litsTable.getD id.toNat []
+        let aids := anteTable.getD id.toNat []
+        let s := stateAt cnf₀ k₀.first_proof_id.toNat k₀.trimming usedWords clauses
+          (id.toNat - k₀.first_proof_id.toNat)
+        clauseAt clauses id.toNat = toClause lits ∧
+        ClauseTable max_var k₀.literals_begin (litsPtrs.take id.toNat) s.formula P_ro ∧
+        (∃ R_lits, P_ro = (ZeroTermInts (litsPtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hlits_len)) lits ⋆ R_lits)) ∧
+        (∃ R_aids, P_ro = (ZeroTermInts (antePtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hante_len)) aids ⋆ R_aids)) ∧
+        (∀ x ∈ lits, IsValidLit max_var x) ∧
+        (∀ aid ∈ aids, IsInt32 aid ∧ aid ≠ 0 ∧
+          (aid.slt 0 = false →
+            ∃ h : aid.toNat < (litsPtrs.take id.toNat).length, (litsPtrs.take id.toNat)[aid.toNat] ≠ 0)) ∧
+        lits.length + aids.length ≤ trail_free0.length))
+    (hstrict_case : k₀.strict ≠ 0 →
+      max_var < n ∧
+      n < 2 ^ 64 ∧
+      (m₀ =⋆ byte1Array k₀.marks_begin (List.replicate n 0) ⋆ (kernelState st k₀ ⋆ P_ro)) ∧
+      (∀ (id : BitVec 64) (_hid_lo : k₀.first_proof_id.toNat ≤ id.toNat)
+          (hid_hi : id.toNat ≤ k₀.empty_clause.toNat),
+        isStepUsed k₀.trimming usedWords id.toNat = true →
+        let lits := litsTable.getD id.toNat []
+        let ants := anteTable.getD id.toNat []
+        let s := stateAt cnf₀ k₀.first_proof_id.toNat k₀.trimming usedWords clauses
+          (id.toNat - k₀.first_proof_id.toNat)
+        clauseAt clauses id.toNat = toClause lits ∧
+        4 * ants.length < 2 ^ 64 ∧
+        (∀ x ∈ ants, IsInt32 x ∧ x ≠ 0) ∧
+        (∀ aid ∈ ants, aid.slt 0 = false →
+          ValidAntecedent max_var s.toCNF k₀.literals_begin P_ro aid) ∧
+        (∀ x ∈ lits, IsValidLit max_var x) ∧
+        (∃ R_lits, P_ro = (ZeroTermInts (litsPtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hlits_len)) lits ⋆ R_lits)) ∧
+        (∃ R_ants, P_ro = (ZeroTermInts (antePtrs[id.toNat]'(Nat.lt_of_le_of_lt hid_hi hante_len)) ants ⋆ R_ants))))
+    (hlf : putManyZip br_check_proof.2.params [st] ∅ = some lf)
+    (hrun : run e fill fuel br_check_proof.2.body t₀ m₀ lf o (fun _ _ _ _ => none) =
+      some (t', m', l', o')) :
+    cnf₀.Unsat := by
+  have hcall := call_br_check_proof_full (B := 0) (t₀ := t₀) (max_var := max_var) (n := n)
+    (trail_free0 := trail_free0) (litsTable := litsTable) (anteTable := anteTable)
+    hfn_proof hfn_clause hfn_rup hfn_strict hchecking hforward hfst_pos hfst_le hemp_lt
+    hused_len hused_int32 hlits_len hante_len hempty_used hempty_clause hP_arrays hrup_case hstrict_case
   obtain ⟨_, _, _, _, _, hunsat⟩ :=
     run_body_of_call (Handler.ok_none lratFailExt) hcall hfn_proof hlf hrun
   exact hunsat
