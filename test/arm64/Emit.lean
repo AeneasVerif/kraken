@@ -1,4 +1,6 @@
 import LeanQbeArm64
+import LeanQbe.Main
+import LeanQbe.Examples.LitmusProgs
 
 /-!
 AArch64 assembly emitter for the litmus programs (not a module; run with
@@ -8,7 +10,8 @@ AArch64 assembly emitter for the litmus programs (not a module; run with
 
 open LeanQbe
 
-def progs : List Fn := [Arm64.Tracer.tracer]
+def progs : List Fn :=
+  [Litmus.tracer, Litmus.ifelse, Litmus.sumto, Litmus.evenodd, Litmus.nested, Litmus.swap]
 
 def emitAsm (fs : List Fn) (code : List Arm64.isa.Directive) : String :=
   let hdr := ".text\n" ++ String.join (fs.map fun f => s!".globl {f.name}\n") ++ ".p2align 2\n"
