@@ -1,13 +1,14 @@
 # logic: program logic, notation, union-find (plan step 2c)
 
 Owner: `logic`. Files: `LeanQbe/Logic/{Mem,MemLemmas,Rules}.lean`, `LeanQbe/Notation.lean`,
-`LeanQbe/Examples/{UnionFind,UnionFindLemmas}.lean`.
+`LeanQbe/Examples/{UnionFind,UnionFindLemmas,LratRup,LratRupLemmas}.lean`.
 
 ## Status
 
 | Milestone | State |
 |---|---|
 | L1 notation + logic | done: builds with `--wfail`, no `sorry` |
+| L3 RUP check (step 7 pulled forward) | done, proof complete, spec awaiting review: `checkRup` = Kraken's `br_check_clause_non_strictly_by_propagation` in QBE notation, proved against the Bedrock2 spec; non-vacuity; `Func.Wf` |
 | L2 union-find | done, specs accepted by reviewer (#34): `find` (path halving, a join-point loop), `union` (calls `$find`), `unionInline` (macro), total correctness against a functional model, non-vacuity (`uf_init`, `find_nonvacuous`, `union_nonvacuous`, `merge_init_1_2`), `Func.Wf` for all three |
 
 Axioms of `find_correct`, `union_correct`, `unionInline_correct`, `union_nonvacuous`, `wp_loop`:
@@ -95,6 +96,80 @@ there is no locals reasoning at all.
 7. **Not needed, so not built:** a frame rule (specs thread `⋆ R` themselves), `ecancel` (one array
    in the frame), a rule for multi-block groups (`Smoke.evenOdd` uses the raw closure hypotheses),
    a `wp` for `ret` inside a macro.
+
+## L3: the RUP check, compared with Bedrock2
+
+Files: `Examples/LratRup.lean` (program + `checkRupSpec`), `Examples/LratRupLemmas.lean` (proof).
+Check: `timeout 900 lake build --wfail LeanQbe.Examples.LratRupLemmas`. Axioms of `checkRup_correct`
+and `checkRup_nonvacuous`: the standard three. `checkRup_wf` uses no axioms.
+
+**Same function, same spec.**
+- The program is `br_check_clause_non_strictly_by_propagation` with its inline helpers, on the same
+  memory layout.
+- `checkRupSpec` has the hypotheses and the return postcondition of Kraken's
+  `br_check_clause_non_strictly_by_propagation_ok`, over the *imported* Bedrock2 model and memory
+  predicates (`ClauseTable`, `ZeroTermInts`, `kernelState`, `assignBytes`, …).
+- `lrat_fail` is `exit $lrat_fail(…)`, so the exit postcondition must accept exits to `lrat_fail`.
+  That is the analogue of Bedrock2's `lratFailExt`, which accepts any postcondition.
+- The pure RUP lemmas (`phase1_step_*`, `phase2_inner_*`, `entails_insert_of_unit_prop`, …) are
+  reused from `LratTrimRupProof.lean` unchanged.
+- Idiomatic QBE changes: Bedrock2's `checked` flag and its `lit = 0` / `aid = 0` loop exits become
+  jumps to the continuations `@finish` / `@ph2` / `@fail`; mutable locals become join-point
+  parameters; `abs` and the conditional negation are branch-free (`(x xor s) - s`, `s = x sar 63`);
+  `(load4 << 32) .>> 32` is `loadsw`.
+
+| part | Bedrock2 `LratTrimRupProof.lean` | lean-qbe `LratRupLemmas.lean` |
+|---|---|---|
+| reused pure RUP and model lemmas | ≈ 220 | 0 (imported) |
+| bit-level facts | ≈ 30 (sec. 2) | 32 |
+| memory bridging (QBE loads/stores on Kraken's `byte1`/`int4`/`word8` arrays) | in `LratTrimSpec` | 76 |
+| helpers: assigned/assign literal, flush | ≈ 120 | 64 |
+| backtrack loop | ≈ 74 | 47 |
+| phase 1 loop | ≈ 160 | 65 |
+| phase 2 inner loop | ≈ 230 | 127 |
+| phase 2 outer loop | ≈ 200 | 80 |
+| main theorem | ≈ 220 | 73 |
+| state predicate `PState`, misc | | 28 |
+| non-vacuity (concrete memory) | none | 104 |
+| **total** | **1347** | **725** (620 without non-vacuity) |
+| check time (wall / user, this machine) | 3.7 s / 9.6 s | 1.75 s / 5.1 s |
+
+The program-specific proof is about 45 % of Bedrock2's. Bedrock2's figure is 1347 − 220 reused lines;
+ours is 620 − 107 lines of bridging.
+
+**What was easier, and why.**
+1. *No locals.* Every Bedrock2 loop invariant carries 5 to 10 `l'["x"]? = some v` facts plus an
+   "every other local is unchanged" clause (a 7-way `≠` chain). Every step re-establishes them with
+   `local_pres` and `simp [h1.symm, …]`. In PHOAS the loop-carried state is the join point's parameter
+   list and everything else is a Lean variable in scope, so there is no frame reasoning on variables at
+   all. This is the largest single saving.
+2. *Breaks are jumps.* Without the `checked` flag, the invariants lose their
+   `checked = 0 ∧ … ∨ checked = 1 ∧ …` disjunctions. The phase-1 invariant has none, and the outer loop
+   has one where Bedrock2 has two.
+3. *Loops are lemmas over their exits.* Each loop lemma takes the continuation predicates of the
+   labels it may jump to as hypotheses (`hfin`, `hph2`, `hfail`, `hdone`). The main theorem
+   instantiates them with `wp_join`, which makes the composition 73 lines.
+4. *`wp_unfold`* turns each basic block into one readable goal with existentials for loads and
+   `storeOk ∧` for stores.
+
+**What was harder.**
+1. *`jnz` tests the low 32 bits* (QBE semantics, decided by core). Branching on a loaded literal
+   needs `IsInt32` (`truthy_iff`). Writing `cnel %x, 0` first would have avoided it.
+2. *Separation re-association is still manual*: `sep_assoc`, `sep_comm_l`, and
+   `sep_cast h (by ac_rfl)` with an explicit frame. Kraken's `ecancel` fails when the frame
+   metavariable is delayed-assigned (inside `have … := f (by ecancel)`). That happens about 15 times.
+3. *Logic changes made during L3.*
+   - `wp_unfold` used to unfold through join-point groups, which made nested `@setunit` goals
+     unreadable. It now rewrites with per-construct lemmas (`wp_let`, `wp_load`, …) and stops at
+     `label`, calls and macros.
+   - Generic any-width load/store lemmas went into `Logic/MemLemmas.lean`.
+   - The notation's words (`ret`, `exit`, `call`, …) had become global keywords, which broke
+     `.ret` and Kraken's `Directive.ret` in importers. They are now non-reserved; only `qbe` is
+     reserved.
+
+**Elaboration (plan risk 8).** The 234-line program file elaborates in 0.38 s (eight definitions, the
+largest ~30 statements), and `Func.Wf` by `wf_tac` takes under 0.1 s. Nothing quadratic is visible at
+this size.
 
 ## Next
 
