@@ -16,7 +16,8 @@ follows QBE's IL text (`qbe/doc/il.txt`):
 jmp @loop(%x)             jnz %c, @t, @f(%y)       jnz %c, { … }, { … }  ret %x, %y
 @loop(%x, %y) { … }       -- a join point; consecutive ones form one mutually recursive group
 { … }                     -- a nested scope as the tail (ends the group: nest instead of grouping)
-%r <- f(%a, %b)           -- a Lean function as a macro: `f a b fun r => …`
+%r, %s <- f(%a, @l)       -- a Lean function as a macro: `f a l fun r s => …`
+use f(%a)                 -- a macro whose continuation takes no values: `f a (…)`
 ⟨e⟩                       -- splice a Lean term: `Arg V` as an operand, `Expr V L` as a tail
 ```
 
@@ -36,13 +37,18 @@ public section
 
 namespace LeanQbe.Notation
 
+/- Every word of the notation except `qbe` is a non-reserved symbol (`&"ret"`), so that importing this file does
+not turn `ret`, `exit`, `call`, `hlt`, ... into keywords elsewhere (`Expr.ret`, Kraken's `Directive.ret`). -/
+
 open Lean
 
 declare_syntax_cat qbe_arg
 declare_syntax_cat qbe_param
 declare_syntax_cat qbe_sym
 declare_syntax_cat qbe_target
-declare_syntax_cat qbe_stmt
+declare_syntax_cat qbe_stmt (behavior := both)
+declare_syntax_cat qbe_marg
+declare_syntax_cat qbe_store (behavior := both)
 
 /-- An operand: `%x`, a numeral, or `⟨t⟩` with `t : Arg V`. -/
 syntax "%" noWs ident : qbe_arg
@@ -53,6 +59,11 @@ syntax "⟨" term "⟩" : qbe_arg
 /-- A bound name `%x`. -/
 syntax "%" noWs ident : qbe_param
 
+/-- An argument of a Lean macro: a value `%x`, a label `@l`, or a Lean term `⟨t⟩`. -/
+syntax "%" noWs ident : qbe_marg
+syntax "@" noWs ident : qbe_marg
+syntax "⟨" term "⟩" : qbe_marg
+
 /-- A global symbol `$f`. -/
 syntax "$" noWs ident : qbe_sym
 
@@ -62,20 +73,26 @@ syntax "{" qbe_stmt* "}" : qbe_target
 
 /-- `%x =k op a, b` (also `load…`, `call $f(…)`). -/
 syntax "%" noWs ident " =" noWs ident ident qbe_arg,* : qbe_stmt
-syntax "%" noWs ident " =" noWs ident "call " qbe_sym "(" qbe_arg,* ")" : qbe_stmt
+syntax "%" noWs ident " =" noWs ident &"call " qbe_sym "(" qbe_arg,* ")" : qbe_stmt
 /-- `store{l,w,h,b} v, a`. -/
-syntax ident qbe_arg ", " qbe_arg : qbe_stmt
+syntax qbe_store qbe_arg ", " qbe_arg : qbe_stmt
+syntax &"storel" : qbe_store
+syntax &"storew" : qbe_store
+syntax &"storeh" : qbe_store
+syntax &"storeb" : qbe_store
 /-- A call without results. -/
-syntax "call " qbe_sym "(" qbe_arg,* ")" : qbe_stmt
-syntax "exit " qbe_sym "(" qbe_arg,* ")" : qbe_stmt
-syntax "jmp " "@" noWs ident ("(" qbe_arg,* ")")? : qbe_stmt
-syntax "jnz " qbe_arg ", " qbe_target ", " qbe_target : qbe_stmt
-syntax "ret" (ppSpace qbe_arg),* : qbe_stmt
-syntax "hlt" : qbe_stmt
+syntax &"call " qbe_sym "(" qbe_arg,* ")" : qbe_stmt
+syntax &"exit " qbe_sym "(" qbe_arg,* ")" : qbe_stmt
+syntax &"jmp " "@" noWs ident ("(" qbe_arg,* ")")? : qbe_stmt
+syntax &"jnz " qbe_arg ", " qbe_target ", " qbe_target : qbe_stmt
+syntax &"ret" (ppSpace qbe_arg),* : qbe_stmt
+syntax &"hlt" : qbe_stmt
 /-- A join point. Consecutive ones form one group. -/
 syntax "@" noWs ident "(" qbe_param,* ")" " {" qbe_stmt* "}" : qbe_stmt
-/-- A Lean function as a macro, in continuation-passing style. -/
-syntax "%" noWs ident " <- " ident "(" qbe_param,* ")" : qbe_stmt
+/-- A Lean function as a macro, in continuation-passing style: `%r, %s <- f(%a, @l)` is
+`f a l fun r s => …`, and `use f(%a)` is `f a (…)` (a macro whose continuation takes no values). -/
+syntax qbe_param,+ " <- " ident "(" qbe_marg,* ")" : qbe_stmt
+syntax &"use " ident "(" qbe_marg,* ")" : qbe_stmt
 /-- Splice a Lean term of type `Expr V L` as the tail. -/
 syntax "⟨" term "⟩" : qbe_stmt
 /-- A nested scope as the tail: ends the current join-point group, so that the groups declared
@@ -92,6 +109,12 @@ meta def expandArg : TSyntax `qbe_arg → MacroM Term
 meta def expandArgs (as : Syntax.TSepArray `qbe_arg ",") : MacroM Term := do
   let as ← as.getElems.mapM expandArg
   `([$as,*])
+
+meta def expandMarg : TSyntax `qbe_marg → MacroM Term
+  | `(qbe_marg| %$x:ident) => pure x
+  | `(qbe_marg| @$l:ident) => pure l
+  | `(qbe_marg| ⟨$t⟩) => pure t
+  | _ => Macro.throwUnsupported
 
 meta def paramIdent : TSyntax `qbe_param → MacroM Ident
   | `(qbe_param| %$x:ident) => pure x
@@ -181,17 +204,21 @@ meta partial def expandStmts : List (TSyntax `qbe_stmt) → MacroM Term
           (LeanQbe.Expr.param fun $x => $(← expandStmts rest)))
     | `(qbe_stmt| %$x:ident =$k:ident $op:ident $as,*) =>
       expandLet x k op (← as.getElems.mapM expandArg) (← expandStmts rest)
-    | `(qbe_stmt| $st:ident $v, $a) =>
-      let sz ← match st.getId.toString with
+    | `(qbe_stmt| $st:qbe_store $v, $a) =>
+      let sz ← match st.raw[0].getAtomVal with
         | "storel" => pure `l | "storew" => pure `w | "storeh" => pure `h | "storeb" => pure `b
         | n => Macro.throwErrorAt st s!"qbe: unknown statement {n}"
       `(LeanQbe.Expr.store $(mkIdent (`LeanQbe.Sz ++ sz)) $(← expandArg v) $(← expandArg a)
           $(← expandStmts rest))
-    | `(qbe_stmt| call $f($as,*)) =>
+    | `(qbe_stmt| call $f:qbe_sym($as,*)) =>
       `(LeanQbe.Expr.call $(← symName f) $(← expandArgs as) $(← expandStmts rest))
-    | `(qbe_stmt| %$x:ident <- $f:ident ( $ys,* )) => do
-      let ys ← ys.getElems.mapM paramIdent
-      `($f $ys* fun $x => $(← expandStmts rest))
+    | `(qbe_stmt| $xs:qbe_param,* <- $f:ident ( $ys,* )) => do
+      let xs ← xs.getElems.mapM paramIdent
+      let ys ← ys.getElems.mapM expandMarg
+      `($f $ys* fun $xs* => $(← expandStmts rest))
+    | `(qbe_stmt| use $f:ident ( $ys,* )) => do
+      let ys ← ys.getElems.mapM expandMarg
+      `($f $ys* $(← expandStmts rest))
     | `(qbe_stmt| @$_:ident ( $_,* ) { $_* }) =>
       let rec collect : List (TSyntax `qbe_stmt) →
           Array (Ident × Array (TSyntax `qbe_param) × Array (TSyntax `qbe_stmt)) →

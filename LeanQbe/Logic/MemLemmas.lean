@@ -93,6 +93,42 @@ theorem store_array64 {a : Val} {xs : List Val} {i : Nat} (v : Val) {R : Mem 64 
   obtain ⟨h1, h2⟩ := store_cell64 v h
   exact ⟨h1, by rwa [array64_set a xs hi, sep_assoc]⟩
 
+/-! ## Any width: `Int.toBytes n x` cells (Kraken's `byte1` / `int4` / `word8` are instances) -/
+
+theorem setWidth_toInt_take (v : Val) (w : Nat) :
+    (v.setWidth w).toInt.take w = (v.toNat : Int).take w := by
+  simp only [Int.take, BitVec.toInt_emod_two_pow, BitVec.toNat_setWidth]
+  push_cast; rfl
+
+/-- The value `storeMem` writes, as Kraken's `storeInt` argument. -/
+theorem storeMem_eq (m : Mem 64) (s : Sz) (a v : Val) :
+    ∃ y : Int, storeMem m s a v = m.storeInt a s.bytes y ∧
+      y.take (8 * s.bytes) = (v.toNat : Int).take (8 * s.bytes) := by
+  cases s
+  · exact ⟨_, rfl, setWidth_toInt_take v 8⟩
+  · exact ⟨_, rfl, setWidth_toInt_take v 16⟩
+  · exact ⟨_, rfl, setWidth_toInt_take v 32⟩
+  · refine ⟨_, rfl, ?_⟩
+    simp only [Sz.bytes, Int.take, BitVec.toInt_emod_two_pow]
+    have := v.isLt
+    exact (Int.emod_eq_of_lt (by omega) (by omega)).symm
+
+theorem loadVal_toBytes {s : Sz} {a : Val} {x : Int} {k : Cls} {sg : Bool} {R : Mem 64 → Prop}
+    {m : Mem 64} (h : (Eq ((Int.toBytes s.bytes x).At a) ⋆ R) m) :
+    loadVal m k s sg a = some (k.trunc (s.extend sg (BitVec.ofInt 64 (x.take (8 * s.bytes))))) := by
+  have hb : s.bytes ≤ 2 ^ 64 := by cases s <;> decide
+  simp only [loadVal, Mem.loadInt_sep _ a _ R m h (Int.toBytes_length _ _) hb, Option.map_some,
+    ofBytes_toBytes]
+
+theorem store_toBytes {s : Sz} {a : Val} {x : Int} (v : Val) {R : Mem 64 → Prop} {m : Mem 64}
+    (h : (Eq ((Int.toBytes s.bytes x).At a) ⋆ R) m) :
+    storeOk m s a ∧ (Eq ((Int.toBytes s.bytes v.toNat).At a) ⋆ R) (storeMem m s a v) := by
+  have hb : s.bytes ≤ 2 ^ 64 := by cases s <;> decide
+  obtain ⟨y, hy, ht⟩ := storeMem_eq m s a v
+  refine ⟨⟨_, Mem.loadInt_sep _ a _ R m h (Int.toBytes_length _ _) hb⟩, ?_⟩
+  rw [hy, ← Int.toBytes_emod, ← ht, Int.toBytes_emod]
+  exact Mem.storeInt_sep a _ _ R m ⟨h, Int.toBytes_length _ _⟩ y
+
 /-! ## Satisfiability -/
 
 /-- The bytes of `xs`, 8 per word, little-endian. -/
