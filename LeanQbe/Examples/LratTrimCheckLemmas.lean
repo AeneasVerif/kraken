@@ -5,6 +5,7 @@ public import LeanQbe.Examples.LratRupLemmas
 public import Kraken.SeparationTactics
 import all Kraken.Mem
 import all Kraken.Separation
+import all Std.Sat.CNF.Basic
 
 /-!
 # Clause and proof checking (`checkClause`, `checkProof`): correctness
@@ -411,5 +412,113 @@ theorem checkProof_correct (Γ : Env)
 
 theorem checkClause_wf : Func.Wf checkClause := by wf_tac
 theorem checkProof_wf : Func.Wf checkProof := by wf_tac
+
+/-! ## Non-vacuity -/
+
+theorem checkClause_rup_nonvacuous :
+    checkClauseRupSpec [0x1000, 7, 0x10aa, 0x10b6] (nvBytes.At 0x1000)
+      (fun rs _ => rs = []) (fun f _ _ => f = "lrat_fail") :=
+  ⟨0x1000, 7, 0x10aa, 0x10b6, 1, nvK, [1, -1], [], [], [0, 0], ⟨#[]⟩,
+    ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 [], rfl, rfl, rfl,
+    ⟨⟨_, by rw [word8Array_nil, emp_sep]⟩, fun _ h => absurd h (by simp)⟩,
+    ⟨_, rfl⟩, ⟨_, sep_comm _ _⟩,
+    by intro x hx; simp at hx; rcases hx with rfl | rfl <;> (unfold IsValidLit bvAbs; decide),
+    by simp, by decide, by decide, nv_mem, fun _ _ _ _ _ _ _ => rfl, fun _ _ => rfl⟩
+
+def nvCheckK : KernelFields :=
+  { nvK with
+    used_begin := 0x10a2
+    antecedents_begin := 0x10ba
+    literals_begin := 0x10aa
+    marks_begin := 0x10a0
+    empty_clause := 1
+    first_proof_id := 1
+    strict := 1
+    trimming := 0
+    checking := 1
+    forward := 0 }
+
+def nvCheckBytes : List UInt8 :=
+  bytesN 8 nvCheckK.toList ++
+    (bytesN 1 [0, 0] ++
+      (bytesN 4 [1, 1] ++
+        (bytesN 8 [0, 0x10ca] ++
+          (bytesN 8 [0, 0x10ce] ++
+            (bytesN 4 [0] ++ bytesN 4 [0])))))
+
+def nvCheckPro : Mem 64 → Prop :=
+  int4Array 0x10a2 [1, 1] ⋆
+    (word8Array 0x10aa [0, 0x10ca] ⋆
+      (word8Array 0x10ba [0, 0x10ce] ⋆
+        (ZeroTermInts 0x10ca [] ⋆ ZeroTermInts 0x10ce [])))
+
+theorem nvCheck_pre :
+    CheckProofPre 1 2 0x1000 nvCheckK [1, 1] [0, 0x10ca] [0, 0x10ce] [] .empty
+      [.empty, .empty] [[], []] [[], []] nvCheckPro (nvCheckBytes.At 0x1000) := by
+  refine {
+    hchecking := by decide
+    hforward := by decide
+    hfst_pos := by decide
+    hfst_le := by decide
+    hemp_lt := by decide
+    hused_len := by decide
+    hused_int32 := by decide
+    hlits_len := by decide
+    hante_len := by decide
+    hempty_used := rfl
+    hempty_clause := rfl
+    hP_arrays := ⟨ZeroTermInts 0x10ca [] ⋆ ZeroTermInts 0x10ce [], rfl⟩
+    hrup_case := fun h => absurd h (by decide)
+    hstrict_case := fun _ => ⟨by decide, by decide, ?_, ?_⟩
+  }
+  · unfold kernelState nvCheckPro ZeroTermInts
+    rw [show List.replicate 2 (0 : Val) = [0, 0] from rfl,
+      byte1Array_eq _ _ (by simp), word8Array_eq _ _ (by simp [KernelFields.toList]),
+      int4Array_eq _ _ (by simp), word8Array_eq _ _ (by simp), word8Array_eq _ _ (by simp),
+      int4Array_eq _ _ (by simp), int4Array_eq _ _ (by simp)]
+    have e : Eq (nvCheckBytes.At (0x1000 : Val)) =
+        (Eq ((bytesN 8 nvCheckK.toList).At (0x1000 : Val)) ⋆
+          (Eq ((bytesN 1 [0, 0]).At (0x10a0 : Val)) ⋆
+            (Eq ((bytesN 4 [1, 1]).At (0x10a2 : Val)) ⋆
+              (Eq ((bytesN 8 [0, 0x10ca]).At (0x10aa : Val)) ⋆
+                (Eq ((bytesN 8 [0, 0x10ce]).At (0x10ba : Val)) ⋆
+                  (Eq ((bytesN 4 [0]).At (0x10ca : Val)) ⋆
+                    Eq ((bytesN 4 [0]).At (0x10ce : Val)))))))) := by
+      unfold nvCheckBytes
+      rw [eq_append_At _ _ _ (by simp [bytesN_length, KernelFields.toList]),
+        eq_append_At _ _ _ (by simp [bytesN_length]),
+        eq_append_At _ _ _ (by simp [bytesN_length]),
+        eq_append_At _ _ _ (by simp [bytesN_length]),
+        eq_append_At _ _ _ (by simp [bytesN_length]),
+        eq_append_At _ _ _ (by simp [bytesN_length])]
+      simp only [bytesN_length, KernelFields.toList, List.length_cons, List.length_nil]
+      rfl
+    exact sep_cast (show Eq (nvCheckBytes.At (0x1000 : Val)) _ from rfl) (e.trans (by ac_rfl))
+  · intro id hlo hhi _
+    have hid : id.toNat = 1 := by change 1 ≤ id.toNat at hlo; change id.toNat ≤ 1 at hhi; omega
+    simp only [hid, List.getD, List.getElem?_cons_succ, List.getElem?_cons_zero, Option.getD_some,
+      List.getElem_cons_succ, List.getElem_cons_zero]
+    refine ⟨rfl, by decide, by simp, by simp, by simp,
+      ⟨int4Array 0x10a2 [1, 1] ⋆ (word8Array 0x10aa [0, 0x10ca] ⋆
+        (word8Array 0x10ba [0, 0x10ce] ⋆ ZeroTermInts 0x10ce [])), by dsimp [nvCheckPro]; ac_rfl⟩,
+      ⟨int4Array 0x10a2 [1, 1] ⋆ (word8Array 0x10aa [0, 0x10ca] ⋆
+        (word8Array 0x10ba [0, 0x10ce] ⋆ ZeroTermInts 0x10ca [])), by dsimp [nvCheckPro]; ac_rfl⟩⟩
+
+theorem checkClause_strict_nonvacuous :
+    checkClauseStrictSpec [0x1000, 1, 0x10ca, 0x10ce] (nvCheckBytes.At 0x1000)
+      (fun rs _ => rs = []) (fun f _ _ => f = "lrat_fail") := by
+  obtain ⟨hlen, hn_bound, hmem, hsteps⟩ := nvCheck_pre.hstrict_case (by decide)
+  obtain ⟨_, hants_b, hants_i, hants_v, hlits_v, hsub_lits, hsub_ants⟩ :=
+    hsteps 1 (by decide) (by decide) rfl
+  exact ⟨0x1000, 1, 0x10ca, 0x10ce, 1, 2, _, nvCheckK, [], [], nvCheckPro, rfl, by decide,
+    hlen, hn_bound, hants_b, hants_i, hants_v, hlits_v, hmem, hsub_ants, hsub_lits,
+    fun _ _ _ => rfl, fun _ _ => rfl⟩
+
+theorem checkProof_nonvacuous :
+    checkProofSpec [0x1000] (nvCheckBytes.At 0x1000)
+      (fun rs _ => rs = []) (fun f _ _ => f = "lrat_fail") :=
+  ⟨1, 2, 0x1000, nvCheckK, [1, 1], [0, 0x10ca], [0, 0x10ce], [], .empty,
+    [.empty, .empty], [[], []], [[], []], nvCheckPro, rfl, nvCheck_pre,
+    fun _ _ _ => rfl, fun _ _ => rfl⟩
 
 end LeanQbe.LratTrim

@@ -1,20 +1,24 @@
 # logic: program logic, notation, union-find (plan step 2c)
 
 Owner: `logic`. Files: `LeanQbe/Logic/{Mem,MemLemmas,Rules}.lean`, `LeanQbe/Notation.lean`,
-`LeanQbe/Examples/{UnionFind,UnionFindLemmas,LratRup,LratRupLemmas}.lean`.
+`LeanQbe/Examples/{UnionFind,UnionFindLemmas,LratRup,LratRupLemmas,LratTrim,LratTrimStrictLemmas,LratTrimCheckLemmas}.lean`.
 
 ## Status
 
 | Milestone | State |
 |---|---|
-| L1 notation + logic | done: builds with `--wfail`, no `sorry` |
-| L3 RUP check (step 7 pulled forward) | done, spec accepted by reviewer (#104): `checkRup` = Kraken's `br_check_clause_non_strictly_by_propagation` in QBE notation, proved against the Bedrock2 spec; non-vacuity; `Func.Wf` |
+| L1 notation + logic | done: `Notation.lean` (direct `Expr` elaborator + `qbe_def` command), `Logic/{Mem,MemLemmas,Rules}.lean`; builds with `--wfail`, no `sorry` |
 | L2 union-find | done, specs accepted by reviewer (#34): `find` (path halving, a join-point loop), `union` (calls `$find`), `unionInline` (macro), total correctness against a functional model, non-vacuity (`uf_init`, `find_nonvacuous`, `union_nonvacuous`, `merge_init_1_2`), `Func.Wf` for all three |
+| L3 RUP check (step 7) | done, spec accepted by reviewer (#104): `checkRup` = Kraken's `br_check_clause_non_strictly_by_propagation` in QBE notation, proved against the Bedrock2 spec; non-vacuity (`checkRup_nonvacuous`) + completeness (`checkRup_accepts_tautology`); `Func.Wf` |
+| L4 Full LRAT-trim (step 7) | done, specs accepted by reviewer (#145, #155): all 5 `lrat-trim.c` functions ported (`checkRup`, `strictCheck`, `checkClause`, `checkProof`, `trimProof`), differential-tested bit-for-bit against Bedrock2 C on x64 and arm64 (#153), and proved (`strictCheck_correct`, `checkClause_rup_correct`, `checkClause_strict_correct`, `checkProof_correct`) with concrete-memory non-vacuity (`strictCheck_nonvacuous`, `checkClause_rup_nonvacuous`, `checkClause_strict_nonvacuous`, `checkProof_nonvacuous`) and `Func.Wf` |
+| Risk 8 elaboration scaling | done (#125, #144, #149): replaced macro expansion with a direct de-Bruijn `Expr` elaborator in `Notation.lean` and added `qbe_def` (bypasses `addPreDefinitions`/codegen): 4000-insn function elaborates + kernel-checks in **103 ms** (wall **0.59 s**), down from **> 120 s timeout** |
 
-Axioms of `find_correct`, `union_correct`, `unionInline_correct`, `union_nonvacuous`, `wp_loop`:
-`propext, Classical.choice, Quot.sound`.
+Axioms of `find_correct`, `union_correct`, `unionInline_correct`, `union_nonvacuous`, `checkRup_correct`,
+`checkRup_nonvacuous`, `checkRup_accepts_tautology`, `strictCheck_correct`, `strictCheck_nonvacuous`,
+`checkClause_rup_correct`, `checkClause_strict_correct`, `checkProof_correct`, `checkProof_nonvacuous`,
+`wp_loop`: `propext, Classical.choice, Quot.sound`.
 
-Check: `timeout 900 lake build --wfail LeanQbe.Examples.UnionFindLemmas LeanQbe.Notation`.
+Check: `timeout 900 lake build --wfail LeanQbe.Notation LeanQbe.Examples.UnionFindLemmas LeanQbe.Examples.LratRupLemmas LeanQbe.Examples.LratTrimStrictLemmas LeanQbe.Examples.LratTrimCheckLemmas`.
 
 ## What exists
 
@@ -174,13 +178,70 @@ loop lemmas and makes `@fail` and `@ph2` unreachable (no assignment falsifies a 
      `.ret` and Kraken's `Directive.ret` in importers. They are now non-reserved; only `qbe` is
      reserved.
 
-**Elaboration (plan risk 8).** The 234-line program file elaborates in 0.38 s (eight definitions, the
-largest ~30 statements), and `Func.Wf` by `wf_tac` takes under 0.1 s. Nothing quadratic is visible at
-this size.
+## L4: Full LRAT-trim (`strictCheck`, `checkClause`, `checkProof`, `trimProof`) compared with Bedrock2
 
-## Next
+Files: `Examples/LratTrim.lean` (549 lines: all remaining `lrat-trim.c` functions + `lratTrimFns` +
+specs), `Examples/LratTrimStrictLemmas.lean` (447 lines), `Examples/LratTrimCheckLemmas.lean` (524 lines).
+Differential check (#138, #153): `Print.module LratTrim.lratTrimFns` (811 lines of QBE IL) compiled
+with stock QBE on `amd64_sysv` and `arm64` produces bit-for-bit identical exit codes, `lrat_fail`
+arguments, kernel-state counters, `used`, `marks`, and `values` as `Kraken.Bedrock2.Test.lratTrimC`
+(`gcc -O2`) across all 12 test cases.
 
-- If the reviewer asks: a `Spec`-level linking corollary (`Γ` with `find` and `union` together).
-- Step 5 needs `findSpec`/`unionSpec` to compose with `FnSpec`. Their shape (`args m Q X`,
-  monotone) was chosen for that.
-- A delaborator, so that goals print in QBE syntax (not started).
+### `strictCheck` (`br_check_clause_strictly_by_resolution`)
+
+| part | Bedrock2 `LratTrimStrictProof.lean` | lean-qbe `LratTrimStrictLemmas.lean` | ratio |
+|---|---:|---:|---:|
+| reused pure resolution & model lemmas | ≈ 496 | 0 (imported) | — |
+| small program/framing helpers | 56 | 24 | 2.33× |
+| loop 1 (`strictScan_spec` vs `strict_loop1_ok`) | 56 | 37 | 1.51× |
+| loop 2 inner (`strictInner_spec` vs `strict_inner_loop_ok`) | 202 | 76 | 2.66× |
+| loop 2 outer (`strictOuter_spec` vs `strict_outer_loop_ok`) | 200 | 104 | 1.92× |
+| loop 3 (`strictFinal_spec` vs `strict_loop3_ok`) | 113 | 58 | 1.95× |
+| top-level (`strictCheck_correct` + `_wf` vs §8) | 219 | 86 | 2.55× |
+| non-vacuity (`strictCheck_nonvacuous`, concrete bytes) | 0 | 30 | — |
+| **program-specific proof** | **846** | **385** | **2.20×** (45.5 %) |
+| **total file** | **1342** | **447** (417 without non-vacuity) | **3.00×** |
+| check time (wall / user) | 3.07 s / 4.69 s | 1.46 s / 2.66 s | **2.10×** |
+
+### `checkClause` and `checkProof` (`br_check_clause`, `br_check_proof`)
+
+| part | Bedrock2 `LratTrimCheckProof.lean` | lean-qbe `LratTrimCheckLemmas.lean` | ratio |
+|---|---:|---:|---:|
+| reused pure state/entailment lemmas | ≈ 253 | 0 (imported) | — |
+| field/memory accessors (`loaduw_int4`, `loadsw_kfield`, `storel_stat_chk_*`) | 86 | 63 | 1.37× |
+| `checkClause` (`checkClause_step`, `_rup_correct`, `_strict_correct`) | 165 | 84 | 1.96× |
+| `checkProof` (`fullMemInv_*`, `checkProof_correct`) | 942 | 234 | **4.03×** |
+| well-formedness (`checkClause_wf`, `checkProof_wf`) | 0 | 6 | — |
+| non-vacuity (`checkClause_rup_nonvacuous`, `checkClause_strict_nonvacuous`, `checkProof_nonvacuous`) | 0 | 108 | — |
+| **program-specific proof** | **1193** | **381** | **3.13×** (31.9 %) |
+| **total file** | **1446** | **524** (415 without non-vacuity) | **2.76×** (3.48× w/o NV) |
+| check time (wall / user) | 1.67 s / 3.33 s | 2.69 s / 3.64 s (w/o NV; 2.76 s w/ NV) | — |
+
+### Combined LRAT-trim proof summary (all 3 files)
+
+| metric | Bedrock2 (`Rup` + `Strict` + `Check`) | lean-qbe (`LratRup` + `Strict` + `Check`) | ratio |
+|---|---:|---:|---:|
+| program-specific proof lines | 1127 + 846 + 1193 = **3166** | 513 + 385 + 381 = **1279** | **2.48× shorter** (40.4 %) |
+| total proof file lines (excl. concrete-byte non-vacuity) | 1347 + 1342 + 1446 = **4135** | 620 + 417 + 415 = **1452** | **2.85× shorter** (35.1 %) |
+| total proof file lines (incl. 5 concrete-byte non-vacuity + tautology theorems) | **4135** (0 non-vacuity) | 792 + 447 + 524 = **1763** | **2.35× shorter** |
+| total check time (wall / user) | 8.44 s / 17.62 s | 5.97 s / 11.80 s | **1.41× faster** |
+
+## Risk 8: Elaboration scaling (`elab_rules` + `qbe_def`)
+
+Benchmark: single function with $N$ sequential `%x_i =l add ...` instructions (`Big{250,1000,2000,4000}.lean`):
+
+| $N$ (insns) | old `macro_rules` + `def` | new `elab_rules` + `def` | `elab_rules` + `noncomputable def` | `elab_rules` + `qbe_def` (wall / user) | `qbe_def` breakdown (parse + elab + kernel) |
+|---:|---:|---:|---:|---:|---:|
+| 250 | 0.69 s | 0.44 s | 0.41 s | **0.40 s** / 0.21 s | 3.6 ms + 2.1 ms + 1.7 ms = **7.4 ms** |
+| 1000 | 7.30 s | 0.90 s | 0.72 s | **0.44 s** / 0.25 s | 15.1 ms + 3.1 ms + 5.3 ms = **23.5 ms** |
+| 2000 | 32.0 s | 2.66 s | 1.92 s | **0.47 s** / 0.27 s | 30.2 ms + 6.3 ms + 11.3 ms = **47.8 ms** |
+| 4000 | > 120 s (timeout) | 10.67 s | 6.48 s | **0.59 s** / 0.37 s | 63.0 ms + 13.7 ms + 23.9 ms = **100.6 ms** |
+
+Two bottlenecks caused quadratic scaling in `def`:
+1. **Nested `fun` term elaboration** (`macro_rules` expanding each statement to `Expr.let_ ... fun x => ...`):
+   replaced in `Notation.lean` (`7b0044b`) by a direct `elab_rules : term <= expectedType` elaborator that
+   tracks a `NameMap Nat` binder environment and constructs `Lean.Expr` nodes with de Bruijn `.bvar`s in
+   $O(N)$ time (13.7 ms at $N = 4000$).
+2. **Lean's `def` post-elaboration pipeline** (`addPreDefinitions` / `abstractNestedProofs` taking 6.1 s
+   and `LCNF mono` codegen taking 3.5 s at $N = 4000$): bypassed by `qbe_def`, which elaborates the term
+   and calls `addDecl (.defnDecl ...)` directly in the kernel (23.9 ms kernel typecheck at $N = 4000$).

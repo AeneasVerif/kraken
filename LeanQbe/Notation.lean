@@ -3,6 +3,7 @@ module
 public import LeanQbe.IL
 public meta import Lean.Elab.Term
 public meta import Lean.Elab.SyntheticMVars
+public meta import Lean.Elab.Command
 
 /-!
 # QBE-flavoured notation for the IL
@@ -41,7 +42,7 @@ namespace LeanQbe.Notation
 /- Every word of the notation except `qbe` is a non-reserved symbol (`&"ret"`), so that importing this file does
 not turn `ret`, `exit`, `call`, `hlt`, ... into keywords elsewhere (`Expr.ret`, Kraken's `Directive.ret`). -/
 
-open Lean Elab Term Meta
+open Lean Elab Command Term Meta
 
 declare_syntax_cat qbe_arg
 declare_syntax_cat qbe_param
@@ -367,12 +368,20 @@ meta partial def elabCont (ctx : Ctx) (xs : List Ident) (rest : List (TSyntax `q
     return mkLam ctx x.getId b
 end
 
-/-- The instantiation `V`, `L` of the expected type `Expr V L`. -/
-meta def expectedCtx (ty : Lean.Expr) : TermElabM Ctx := do
+/-- Run `k` with the PHOAS instantiation `V`, `L` of the expected type `Expr V L` or `Func`. -/
+meta def withExpectedCtx (ty : Lean.Expr) (k : Ctx → TermElabM Lean.Expr) : TermElabM Lean.Expr := do
   let ty ← whnfR (← instantiateMVars ty)
-  unless ty.isAppOfArity ``LeanQbe.Expr 2 do
-    throwError "qbe: expected type{indentExpr ty}\nis not `LeanQbe.Expr V L`"
-  return { V := ty.appFn!.appArg!, L := ty.appArg!, depth := 0, names := {}, levels := {} }
+  if ty.isAppOfArity ``LeanQbe.Expr 2 then
+    k { V := ty.appFn!.appArg!, L := ty.appArg!, depth := 0, names := {}, levels := {} }
+  else
+    let ty ← whnf ty
+    if ty.isForall then
+      withLocalDecl `V .implicit (.sort 1) fun V =>
+      withLocalDecl `L .implicit (.sort 1) fun L => do
+        let e ← k { V, L, depth := 0, names := {}, levels := {} }
+        mkLambdaFVars #[V, L] e
+    else
+      throwError "qbe: expected type{indentExpr ty}\nis not `LeanQbe.Expr V L` or `LeanQbe.Func`"
 
 /-- A code fragment. -/
 syntax "qbe " "{" qbe_stmt* "}" : term
@@ -380,10 +389,34 @@ syntax "qbe " "{" qbe_stmt* "}" : term
 syntax "qbe" "(" qbe_param,* ")" " {" qbe_stmt* "}" : term
 
 elab_rules : term <= expectedType
-  | `(qbe { $ss* }) => do
-    elabStmts (← expectedCtx expectedType) ss.toList
-  | `(qbe( $xs,* ) { $ss* }) => do
-    let ctx ← expectedCtx expectedType
-    elabParams ctx (← xs.getElems.toList.mapM paramIdent) fun ctx => elabStmts ctx ss.toList
+  | `(qbe { $ss* }) =>
+    withExpectedCtx expectedType fun ctx => elabStmts ctx ss.toList
+  | `(qbe( $xs,* ) { $ss* }) =>
+    withExpectedCtx expectedType fun ctx => do
+      elabParams ctx (← xs.getElems.toList.mapM paramIdent) fun ctx => elabStmts ctx ss.toList
+
+/-- Define a QBE program directly in the kernel, bypassing `addPreDefinitions`, the equation
+compiler, and code generation (which are quadratic in binder depth on large PHOAS terms; plan
+risk 8). If `: ty` is omitted, the type defaults to `LeanQbe.Func`. -/
+syntax (docComment)? "qbe_def " ident (" : " term)? " := " term : command
+
+elab_rules : command
+  | `($[$doc:docComment]? qbe_def $id:ident $[: $ty:term]? := $val:term) => do
+    let name := (← getCurrNamespace) ++ id.getId
+    liftTermElabM do
+      let t ← match ty with
+        | some ty => elabType ty
+        | none => pure (.const ``LeanQbe.Func [])
+      let e ← elabTermEnsuringType val t
+      synthesizeSyntheticMVarsNoPostponing
+      let t ← instantiateMVars t
+      let e ← instantiateMVars e
+      addDecl (.defnDecl {
+        name, levelParams := [], type := t, value := e,
+        hints := .regular 0, safety := .safe, all := [name]
+      })
+      enableRealizationsForConst name
+      if let some doc := doc then
+        addDocStringCore name (← getDocStringText doc)
 
 end LeanQbe.Notation
