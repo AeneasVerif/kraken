@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.RegaLemmas
+public import LeanQbe.Examples.LitmusProgsLemmas
 public import LeanQbe.Amd64.TargLemmas
 public import Kraken.X64.PrintATT
 public import Kraken.X64.Parser
@@ -14,14 +15,6 @@ set_option autoImplicit false
 namespace LeanQbe.Litmus
 
 open LeanQbe Rega Amd64
-
-/-- The tracer function (plan step 1): `x = add a b; storel x, p; ret x`. -/
-def tracer : Fn where
-  name := "tracer"
-  body := fun _ _ =>
-    .param fun a => .param fun b => .param fun p =>
-    .let_ (.bin .l .add (.var a) (.var b)) fun x =>
-    .store .l (.var x) (.var p) (.ret [.var x])
 
 /-- Trivial hints: `x` (name 3) goes to `rax`. -/
 def tracerHints : Hints Amd64.isa where
@@ -39,9 +32,6 @@ def tracerCode : Program := parse("tracer:
   ret")
 
 theorem tracer_lower : lowerFn tracerHints tracer = .ok tracerCode := by rfl
-
-theorem tracer_wf : Func.Wf tracer.body := by
-  unfold tracer; wf_tac
 
 /-! ## The tracer in any host that contains it (generic in the layout, decision D2) -/
 
