@@ -17,3 +17,4 @@ LeanQbe.Examples.UnionFindLemmas LeanQbe.UnionFind.find_correct
 LeanQbe.Examples.UnionFindLemmas LeanQbe.UnionFind.union_correct
 LeanQbe.Examples.UnionFindLemmas LeanQbe.UnionFind.unionInline_correct
 LeanQbe.Examples.UnionFindLemmas LeanQbe.UnionFind.union_nonvacuous
+spike.il.Smoke LeanQbe.Smoke.spin_false

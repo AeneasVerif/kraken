@@ -92,8 +92,9 @@ def caller : Func := fun _ _ =>
 
 theorem caller_wf : Func.Wf caller := by wf_tac
 
-/-- `g` returns its argument plus one, without touching memory. -/
-def gSpec : Spec := fun args m Q _ => ∀ a, args = [a] → Q [a + 1] m
+/-- `g` returns its argument plus one, without touching memory. External specs must be strict
+(`∃ a, args = [a] ∧ …`): a spec that holds vacuously at a wrong arity would let a caller derive anything. -/
+def gSpec : Spec := fun args m Q _ => ∃ a, args = [a] ∧ Q [a + 1] m
 
 theorem caller_correct (Γ : Env) (hg : Γ "g" = gSpec) (a : Val) (m : Mem 64) :
     Func.spec Γ caller [a] m (fun r m' => r = [a + 1] ∧ m' = m)
@@ -101,9 +102,17 @@ theorem caller_correct (Γ : Env) (hg : Γ "g" = gSpec) (a : Val) (m : Mem 64) :
   simp only [Func.spec, caller, wp_param_cons]
   refine wp_call_of_spec ?_
   rw [hg]
-  intro x hx
-  simp only [List.map, Arg.val, List.cons.injEq, and_true] at hx
-  subst hx
+  refine ⟨a, rfl, ?_⟩
   simp [wp, Truthy]
+
+/-! ## Non-vacuity of `wp` (from the review): a self-loop satisfies no postcondition -/
+
+def spin : Func := fun _ _ => .label fun l => .block (.jump l []) (.jump l [])
+
+theorem spin_false (Γ : Env) (Q : Post) (X : XPost) (m : Mem 64) :
+    ¬ Func.spec Γ spin [] m Q X := by
+  intro h
+  simp only [Func.spec, spin, wp, List.nil_append, List.map, true_and] at h
+  exact h (fun _ _ => False) (fun _ _ hf => hf.2) |>.elim
 
 end LeanQbe.Smoke
