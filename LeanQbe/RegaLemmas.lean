@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.Rega
 public import LeanQbe.Wf
+public import LeanQbe.AbiLemmas
 
 /-!
 # Correctness of `Rega.lower`
@@ -641,7 +642,7 @@ variable {T : Target}
 
 /-! ## Functions -/
 
-/-- Memory facts about frames, used by `lowerFn_correct`. (To be discharged by `AbiLemmas`.) -/
+/-- Memory facts about frames, used by `lowerFn_correct`; they hold for every target (`memFacts`). -/
 structure MemFacts (T : Target) : Prop where
   load : ∀ (F : Mem 64 → Prop) (M m : Mem 64) cl sz sg a v, (M =⋆ Eq m ⋆ F) →
     loadVal m cl sz sg a = some v → loadVal M cl sz sg a = some v
@@ -652,6 +653,10 @@ structure MemFacts (T : Target) : Prop where
   exit : ∀ (M m : Mem 64) sp ra n (R : Mem 64 → Prop), n + T.raBytes ≤ 2 ^ 64 →
     (M =⋆ Eq m ⋆ (T.Entry sp ra n ⋆ R)) → (M =⋆ Eq m ⋆ T.Exit sp n ⋆ R)
 
+theorem memFacts (T : Target) : MemFacts T :=
+  ⟨fun _ _ _ _ _ _ _ _ hM h => loadVal_frame hM h, fun _ _ _ _ _ hM h => storeOk_frame hM h,
+    fun _ _ _ _ _ _ hM h => storeMem_frame hM h _, fun _ _ _ _ _ _ hn => T.exit_of_entry_assoc hn⟩
+
 theorem valsIn_keep {regs : List T.Reg} {vs : List Val} {s s' : T.MData}
     (hk : ∀ r, r ∈ regs → T.get s' r = T.get s r) (h : T.ValsIn regs vs s) : T.ValsIn regs vs s' := by
   unfold Target.ValsIn at h ⊢
@@ -661,9 +666,9 @@ theorem valsIn_keep {regs : List T.Reg} {vs : List Val} {s s' : T.MData}
 theorem lowerFn_correct (h : T.Host) (hints : Hints T.toIsa) (f : Fn) (Γ : Env) (n : Nat)
     (code : List T.Directive) (k₀ : Nat)
     (hlow : lowerFn hints f = .ok code) (hcode : code.IsInfixAt (T.prog h) k₀)
-    (hu : T.LabelsUnique h) (hwf : Func.Wf f.body) (hn : n + T.raBytes ≤ 2 ^ 64)
-    (mf : MemFacts T) :
+    (hu : T.LabelsUnique h) (hwf : Func.Wf f.body) (hn : n + T.raBytes ≤ 2 ^ 64) :
     T.FnSpec h f.name (Func.spec Γ f.body) n := by
+  have mf := memFacts T
   intro args m Q X hspec s ra R hargs hra _ hmem
   unfold lowerFn at hlow
   split at hlow

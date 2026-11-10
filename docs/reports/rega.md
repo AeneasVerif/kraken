@@ -8,7 +8,7 @@ Owner: `rega`. Files: `LeanQbe/{Rega,RegaLemmas,Main}.lean`, `Main.lean` (CLI), 
 | Milestone | State |
 |---|---|
 | Proof skeleton against a mock target (E1) | done, scratch only (not in the repo), no sorry |
-| R1: `lower` for param/let/store/ret, generic proof, x64 tracer | proved; `MemFacts` is still a hypothesis (memframe is proving it in `AbiLemmas`) |
+| R1: `lower` for param/let/store/ret, generic proof, x64 tracer | done: no hypotheses left (`memFacts` from AbiLemmas), generic-host Kraken-only theorem plus non-vacuity |
 | R1 extras | `lower` already covers load, jnz, jump, join-point groups (R2's E1 half) |
 | R2: litmus programs for control flow, the E3 comparison | next |
 | R3: calls, exits, spills, oracle | not started |
@@ -72,7 +72,10 @@ not needed.
 - `host`: `Host.ofLayout tracerCode` with labels of size 0 and instructions of size 4. Label
   uniqueness is decided.
 - `tracer_correct`: a statement about Kraken only (`step1 Host.exe`, `regs.get64`, `dmem`,
-  `Mem.loadInt/storeInt`, `⋆`). It currently still takes `mf : MemFacts Amd64.target`.
+  `Mem.loadInt/storeInt`, `⋆`), for every `[Host]` that contains `tracerCode` at some `k₀` and
+  satisfies `Host.LabelsUnique` (generic in the layout, D2). The concrete `host` is one instance.
+- `tracer_nonvacuous`: a concrete state (`rsp = 0x7008`, `p = 0x7010`, return address
+  `0x1234`, `R = emp`) that meets every premise; the run ends at `0x1234` with `rax = 42`.
 
 ### CLI and tests
 
@@ -87,7 +90,5 @@ vectors, including overflow.
 
 ## Open
 
-- `MemFacts` from AbiLemmas (memframe), then `tracer_correct` without hypotheses.
-- A non-vacuity instance for `tracer_correct`: a concrete state that meets all premises.
 - R2: litmus programs for if/else, a counting loop, even/odd and nested loops, then the E3 skeleton
   and the comparison.
