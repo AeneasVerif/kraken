@@ -616,3 +616,24 @@ info: [Directive.instr
 end antiquotations
 
 end Tests
+
+example : parse("setge %al
+  setg %bl
+  setnl %cl
+  setnle %dl
+  seto %r8b
+  setno %r9b
+  sets %r10b
+  setns %r11b
+  setp %r12b
+  setnp %r13b") =
+  [.instr (.regular .W64 .W8 (.setcc .ge (.reg (.low .rax .W8)))),
+   .instr (.regular .W64 .W8 (.setcc .g (.reg (.low .rbx .W8)))),
+   .instr (.regular .W64 .W8 (.setcc .ge (.reg (.low .rcx .W8)))),
+   .instr (.regular .W64 .W8 (.setcc .g (.reg (.low .rdx .W8)))),
+   .instr (.regular .W64 .W8 (.setcc .o (.reg (.low .r8 .W8)))),
+   .instr (.regular .W64 .W8 (.setcc .no (.reg (.low .r9 .W8)))),
+   .instr (.regular .W64 .W8 (.setcc .s (.reg (.low .r10 .W8)))),
+   .instr (.regular .W64 .W8 (.setcc .ns (.reg (.low .r11 .W8)))),
+   .instr (.regular .W64 .W8 (.setcc .p (.reg (.low .r12 .W8)))),
+   .instr (.regular .W64 .W8 (.setcc .np (.reg (.low .r13 .W8))))] := rfl
