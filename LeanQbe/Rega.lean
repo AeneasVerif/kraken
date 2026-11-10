@@ -121,10 +121,12 @@ def movSym : Move I → SymRegs I → SymRegs I
         R.filter (fun p => decide (p.2 ≠ d))
   | (d, .imm c), R => (.imm c, d) :: clob (some d) R
 
-/-- Execute moves symbolically; every destination must be allocatable. -/
+/-- Execute moves symbolically; every destination must be allocatable or scratch (a scratch
+register may hold a temporary that breaks a cycle). -/
 def execMoves : List (Move I) → SymRegs I → Option (SymRegs I)
   | [], R => some R
-  | mv :: mvs, R => if mv.1 ∈ I.allocatable then execMoves mvs (movSym mv R) else none
+  | mv :: mvs, R =>
+    if mv.1 ∈ I.allocatable ∨ mv.1 ∈ I.scratch then execMoves mvs (movSym mv R) else none
 
 def movesCode : List (Move I) → List I.Directive
   | [] => []

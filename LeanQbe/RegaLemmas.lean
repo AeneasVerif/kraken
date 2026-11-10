@@ -203,13 +203,13 @@ theorem Inv.regs {F : Mem 64 → Prop} {s₀ s s' : T.MData} {m : Mem 64} (hI : 
   ⟨hm ▸ hI.1, fun r h1 h2 => (hs r h1 h2).trans (hI.2 r h1 h2)⟩
 
 /-- Writing an allocatable register `d` and the scratch registers preserves `Keep`. -/
-theorem keeps_dest {s s' : T.MData} {d : T.Reg} (hd : d ∈ T.allocatable)
+theorem keeps_dest {s s' : T.MData} {d : T.Reg} (hd : d ∈ T.allocatable ∨ d ∈ T.scratch)
     (hs : ∀ r, r ∉ d :: T.scratch → T.get s' r = T.get s r) :
     ∀ r, r ∉ T.allocatable → r ∉ T.scratch → T.get s' r = T.get s r := by
   intro r h1 h2
   refine hs r ?_
   simp only [List.mem_cons, not_or]
-  exact ⟨fun e => h1 (e ▸ hd), h2⟩
+  exact ⟨fun e => hd.elim (fun h => h1 (e ▸ h)) (fun h => h2 (e ▸ h)), h2⟩
 
 theorem keeps_dest' {s s' : T.MData} {d : T.Reg}
     (hs : ∀ r, r ∉ d :: T.scratch → T.get s' r = T.get s r) :
@@ -252,7 +252,9 @@ theorem moves_ok {G : List (Val × Nat)} {m : Mem 64} :
       | var r =>
         refine T.mov_spec (hc.append).1 fun s1 hd1 hs1 hm1 => ?_
         have hs1' : ∀ r', r' ∉ T.allocatable → r' ∉ T.scratch → T.get s1 r' = T.get s r' :=
-          fun r' h1 _ => hs1 r' (by simp only [List.mem_singleton]; exact fun e => h1 (e ▸ hd))
+          fun r' h1 h2 => hs1 r' (by
+            simp only [List.mem_singleton]
+            exact fun e => hd.elim (fun h => h1 (e ▸ h)) (fun h => h2 (e ▸ h)))
         exact moves_ok mvs _ R' _ s1 he (hc.append).2 (hA.movSym_var hs1 hd1)
           (hI.regs hm1 hs1') fun s2 hA2 hI2 => hlen s2 (kont s2 hA2 hI2)
       | imm c =>
@@ -403,7 +405,7 @@ theorem lower_correct (hy : Hyps h Q post F s₀) {G : List (Val × Nat)} {D : L
           refine T.op_spec hc (hcode.append).1 hsc (by rw [e1]; exact hv) fun s' hd' hs' hm' => ?_
           exact (ih' v).2 _ [] [] _ s' (hcode.append).2 (hD.cons _) .nil
             ((hA.clob (keeps_dest' hs')).bindN hG hd') (by simp [Target.ValsIn])
-            (hI.regs hm' (keeps_dest hda hs')) hw
+            (hI.regs hm' (keeps_dest (.inl hda) hs')) hw
         · simp at hl
       · simp at hl
     · simp at hl
@@ -427,7 +429,7 @@ theorem lower_correct (hy : Hyps h Q post F s₀) {G : List (Val × Nat)} {D : L
             (by rw [e1]; exact hy.hload _ _ _ _ _ _ _ hI.1 hv) fun s' hd' hs' hm' => ?_
           exact (ih' v).2 _ [] [] _ s' (hcode.append).2 (hD.cons _) .nil
             ((hA.clob (keeps_dest' hs')).bindN hG hd') (by simp [Target.ValsIn])
-            (hI.regs hm' (keeps_dest hda hs')) hw
+            (hI.regs hm' (keeps_dest (.inl hda) hs')) hw
         · simp at hl
       · simp at hl
     · simp at hl
