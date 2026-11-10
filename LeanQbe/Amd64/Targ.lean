@@ -112,6 +112,37 @@ def jnz (r : Reg64) (l : String) : List Directive :=
 /-- `ret` -/
 def ret : List Directive := [ins .ret]
 
+/-! ## Frame instructions (plan step 2b) -/
+
+/-- `push %r` -/
+def pushD (r : Reg64) : Directive := ins (.push (.reg (q r)))
+
+/-- `pop %r` -/
+def popD (r : Reg64) : Directive := ins (.pop (.reg (q r)))
+
+/-- `sub $c, %rsp` -/
+def subSpD (c : Int64) : Directive := ins (.sub (.reg (q .rsp)) (.imm (.int64 c)))
+
+/-- `add $c, %rsp` -/
+def addSpD (c : Int64) : Directive := ins (.add (.reg (q .rsp)) (.imm (.int64 c)))
+
+/-- `[rsp + off]` -/
+abbrev atSp (off : Int64) : AddrExpr := { base := some (.reg .rsp), idx := none, disp := .int64 off }
+
+/-- `movq %rv, off(%rsp)` -/
+def stSpD (rv : Reg64) (off : Int64) : Directive := ins (.mov (.mem (atSp off)) (.reg (q rv)))
+
+/-- `movq off(%rsp), %rd` -/
+def ldSpD (rd : Reg64) (off : Int64) : Directive := ins (.mov (.reg (q rd)) (.mem (atSp off)))
+
+/-- `call l` (the encoding the parser produces). -/
+def callD (l : String) : Directive :=
+  ins (.call (.rel (.sub (.label l) .after_current_instruction)))
+
+/-- `jmp l` -/
+def jmpD (l : String) : Directive :=
+  ins (.jmp (.rel (.sub (.label l) .after_current_instruction)))
+
 /-- The x64 instruction set as seen by the lowering. -/
 def isa : Isa where
   Reg := Reg64
