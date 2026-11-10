@@ -955,6 +955,120 @@ def delabProgram : Delab := do
     | some tail => `($listing ++ $tail)
   | _ => failure
 
+-- ============================================================================
+-- Standalone Embeddings (`⸨instr|`, `⸨mem|`, `⸨reg|`, `⸨const|`, `⸨cc|`)
+-- ============================================================================
+
+/-! Values that are not part of a larger directive or program delaborate to their standalone embedding.
+These delaborators only fire on closed (canonical) values, so that the fallback to `❰t❱` of the
+delaborators they reuse, which delaborates the same expression again, is never reached. -/
+
+/-- `⸨instr| ... ⸩` for an `Instr`. -/
+@[app_delab Instr.mk]
+def delabInstrEmbedding : Delab := do
+  if ← getPPOption getPPExplicit then failure
+  let i ← delabInstr
+  annotateTermInfo (← `(⸨instr| $i ⸩))
+
+/-- Delaborate an `AddrExpr` into an `aarch64_mem` that `elabAddrExpr` elaborates back to it: unlike in
+    `delabScaledAddr`, there is no access size that immediate offsets must be aligned to, and the amount of
+    a register offset's shift is always printed unless it is the default `[Xn, Xm]`/`[Xn, Wm]`. -/
+private def delabAddrExpr : DelabM (TSyntax `aarch64_mem) := do
+  let_expr AddrExpr.mk _ offExpr := ← getExpr | failure
+  let base ← withNaryArg 0 delabRegOrSp
+  let stx ← match_expr offExpr with
+    | AddrOff.imm immAddrExpr =>
+      let_expr ImmAddrExpr.mk immExpr idxOpt := immAddrExpr | failure
+      match_expr idxOpt with
+      | Option.none _ =>
+        if isZeroConst immExpr then
+          `(aarch64_mem| [$base:aarch64_reg])
+        else
+          let off ← withNaryArg 1 (withAppArg (withNaryArg 0 delabConstExpr))
+          `(aarch64_mem| [$base:aarch64_reg, $off:aarch64_const])
+      | Option.some _ idxExpr =>
+        let imm ← withNaryArg 1 (withAppArg (withNaryArg 0 delabImmConst))
+        let off ← `(aarch64_const| $imm:aarch64_imm)
+        match_expr idxExpr with
+        | Index.Pre  => `(aarch64_mem| [$base:aarch64_reg, $off:aarch64_const]!)
+        | Index.Post => `(aarch64_mem| [$base:aarch64_reg], $off:aarch64_const)
+        | _          => failure
+      | _ => failure
+    | AddrOff.reg memExtExpr =>
+      let_expr MemExtRegExpr.mk _ extExpr := memExtExpr | failure
+      let_expr MemExtend.mk typeExpr amtExpr := extExpr | failure
+      let (regW, rm) ← withNaryArg 1 (withAppArg (withNaryArg 0 delabRegOrZrW))
+      let some ty := evalMemExtendType? typeExpr | failure
+      let some amt := evalMemExtendAmount? amtExpr | failure
+      if amt == 0 && ((regW == .W64 && ty == .UXTX) || (regW == .W32 && ty == .UXTW)) then
+        `(aarch64_mem| [$base:aarch64_reg, $rm:aarch64_reg])
+      else
+        -- An omitted amount (`sxtw`) is `#0`.
+        let mkMod (pre stem sfx : String) : DelabM (TSyntax `aarch64_modifier) := do
+          if amt != 0 then return ← mkModifier pre stem sfx (← mkImmInt amt)
+          let kind := mkAffixed `aarch64_modifier_kind pre stem sfx
+          annotateStx (← `(aarch64_modifier| $kind:aarch64_modifier_kind))
+        let mod ← match regW, ty with
+          | .W64, .UXTX => mkMod "" "" "lsl"
+          | _,    .UXTW => mkMod "u" "xt" "w"
+          | _,    .SXTW => mkMod "s" "xt" "w"
+          | _,    .UXTX => mkMod "u" "xt" "x"
+          | _,    .SXTX => mkMod "s" "xt" "x"
+        `(aarch64_mem| [$base:aarch64_reg, $rm:aarch64_reg, $mod:aarch64_modifier])
+    | _ => failure
+  annotateStx stx
+
+/-- `⸨mem| ... ⸩` for an `AddrExpr` or an `UnscaledAddrExpr`. -/
+@[app_delab AddrExpr.mk, app_delab UnscaledAddrExpr.mk]
+def delabAddrExprEmbedding : Delab := do
+  if ← getPPOption getPPExplicit then failure
+  let e ← getExpr
+  let m ←
+    if e.isAppOfArity ``AddrExpr.mk 2 then delabAddrExpr
+    else if e.isAppOfArity ``UnscaledAddrExpr.mk 2 then delabUnscaledAddr
+    else failure
+  annotateTermInfo (← `(⸨mem| $m ⸩))
+
+/-- `⸨reg| ... ⸩` for a concrete `RegOrZr w` or `RegOrSp w`. -/
+@[app_delab RegOrZr.low, app_delab RegOrSp.low]
+def delabRegEmbedding : Delab := do
+  if ← getPPOption getPPExplicit then failure
+  let e ← getExpr
+  let r ←
+    if (evalRegOrZr? e).isSome then delabRegOrZr
+    else if (evalRegOrSp? e).isSome then delabRegOrSp
+    else failure
+  annotateTermInfo (← `(⸨reg| $r ⸩))
+
+/-- Whether `delabConstExpr` delaborates the `ConstExpr` `e` without falling back to `❰t❱` at its root:
+    integer literals, labels that are identifiers, and relocations of labels. -/
+private def isConcreteConstExpr (e : Expr) : Bool :=
+  match_expr e with
+  | ConstExpr.int64 i => (evalInt64? i).isSome
+  | ConstExpr.label lbl => if let .lit (.strVal s) := lbl then isAsmIdent s && !isRegName s else false
+  | ConstExpr.pg_hi21 inner => inner.isAppOfArity ``ConstExpr.label 1
+  | ConstExpr.lo12 inner => inner.isAppOfArity ``ConstExpr.label 1
+  | _ => false
+
+/-- `⸨const| ... ⸩` for a `ConstExpr` written in `aarch64_const`. -/
+@[app_delab ConstExpr.int64, app_delab ConstExpr.label, app_delab ConstExpr.pg_hi21, app_delab ConstExpr.lo12]
+def delabConstExprEmbedding : Delab := do
+  if ← getPPOption getPPExplicit then failure
+  unless isConcreteConstExpr (← getExpr) do failure
+  let c ← delabConstExpr
+  annotateTermInfo (← `(⸨const| $c ⸩))
+
+/-- `⸨cc| ... ⸩` for a `CondCode`. -/
+@[app_delab CondCode.EQ, app_delab CondCode.NE, app_delab CondCode.CS, app_delab CondCode.CC,
+  app_delab CondCode.MI, app_delab CondCode.PL, app_delab CondCode.VS, app_delab CondCode.VC,
+  app_delab CondCode.HI, app_delab CondCode.LS, app_delab CondCode.GE, app_delab CondCode.LT,
+  app_delab CondCode.GT, app_delab CondCode.LE, app_delab CondCode.AL, app_delab CondCode.NV]
+def delabCondEmbedding : Delab := do
+  if ← getPPOption getPPExplicit then failure
+  unless (evalCondCode? (← getExpr)).isSome do failure
+  let c ← delabCond
+  annotateTermInfo (← `(⸨cc| $c ⸩))
+
 end
 
 end Kraken.AArch64.Parser
