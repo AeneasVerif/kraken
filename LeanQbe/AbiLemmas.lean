@@ -284,6 +284,102 @@ theorem exit_of_entry_assoc {m : Mem 64} {sp : Val} {ra : T.Addr} {n : Nat} {R :
   rw [← ExtHashMap.sep_assoc]
   exact T.exit_of_entry hn
 
+/-! ## Function contracts: weakening and linking -/
+
+/-- A contract for a stronger source spec. -/
+theorem FnSpec.of_spec {h : T.Host} {sym : String} {spec spec' : Spec} {n nX : Nat}
+    (hf : T.FnSpec h sym spec n nX) (hs : ∀ args m Q X, spec' args m Q X → spec args m Q X) :
+    T.FnSpec h sym spec' n nX :=
+  fun args m Q X hspec => hf args m Q X (hs args m Q X hspec)
+
+/-- A contract with a smaller exit stack guarantee. -/
+theorem FnSpec.mono_exit {h : T.Host} {sym : String} {spec : Spec} {n nX nX' : Nat}
+    (hf : T.FnSpec h sym spec n nX) (hX : nX' ≤ nX) : T.FnSpec h sym spec n nX' := by
+  intro args m Q X hspec s ra R ha hr hsp hmem
+  refine eventually_weaken _ _ _ _ ?_ (hf args m Q X hspec s ra R ha hr hsp hmem)
+  rintro st (hret | ⟨sym', as, m', hX', hd, hpc, has, hsp', ra', n', F, hn', hra', hm'⟩)
+  · exact Or.inl hret
+  · exact Or.inr ⟨sym', as, m', hX', hd, hpc, has, hsp', ra', n', F, by omega, hra', hm'⟩
+
+/-- A contract with a larger stack bound: the extra stack is part of the caller's frame. -/
+theorem FnSpec.mono_stack {h : T.Host} {sym : String} {spec : Spec} {n n' nX : Nat}
+    (hf : T.FnSpec h sym spec n nX) (hn : n ≤ n') (hn' : n' + T.raBytes ≤ 2 ^ 64) :
+    T.FnSpec h sym spec n' nX := by
+  intro args m Q X hspec s ra R ha hr hsp hmem
+  -- `region (sp - n') n' = region (sp - n') (n' - n) ⋆ region (sp - n) n`
+  have eaddr : T.get s T.sp - BitVec.ofNat 64 n' + BitVec.ofNat 64 (n' - n) =
+      T.get s T.sp - BitVec.ofNat 64 n := by
+    apply BitVec.eq_of_toNat_eq
+    have := (T.get s T.sp).isLt
+    simp only [BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat]
+    omega
+  have hsplit : region (T.get s T.sp - BitVec.ofNat 64 n') n' =
+      region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n) ⋆
+        region (T.get s T.sp - BitVec.ofNat 64 n) n := by
+    have := region_split (a := T.get s T.sp - BitVec.ofNat 64 n') (n1 := n' - n) (n2 := n)
+      (by omega)
+    rw [Nat.sub_add_cancel hn, eaddr] at this
+    exact this
+  have hmem' : (T.mem s =⋆ Eq m ⋆ T.Entry (T.get s T.sp) ra n ⋆
+      (region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n) ⋆ R)) := by
+    have : (Eq m ⋆ T.Entry (T.get s T.sp) ra n' ⋆ R) =
+        (Eq m ⋆ T.Entry (T.get s T.sp) ra n ⋆
+          (region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n) ⋆ R)) := by
+      simp only [Target.Entry, hsplit]; ac_rfl
+    exact this ▸ hmem
+  refine eventually_weaken _ _ _ _ ?_ (hf args m Q X hspec s ra _ ha hr hsp hmem')
+  rintro st (⟨hpc, rets, m', hQ, hrets, hres, hm⟩ |
+    ⟨sym', as, m', hX', hd, hpc, has, hsp', ra', n'', F, hn'', hra', hm⟩)
+  · refine Or.inl ⟨hpc, rets, m', hQ, hrets, hres, ?_⟩
+    have hsplit' : T.Exit (T.get s T.sp) n' =
+        region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n) ⋆ T.Exit (T.get s T.sp) n := by
+      simp only [Target.Exit]
+      have := region_split (a := T.get s T.sp - BitVec.ofNat 64 n') (n1 := n' - n)
+        (n2 := n + T.raBytes) (by omega)
+      rw [show n' - n + (n + T.raBytes) = n' + T.raBytes by omega, eaddr] at this
+      exact this
+    have : (Eq m' ⋆ T.Exit (T.get s T.sp) n' ⋆ R) =
+        (Eq m' ⋆ T.Exit (T.get s T.sp) n ⋆
+          (region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n) ⋆ R)) := by
+      rw [hsplit']; ac_rfl
+    exact this ▸ hm
+  · refine Or.inr ⟨sym', as, m', hX', hd, hpc, has, hsp', ra', n'', F ⋆
+      region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n), hn'', hra', ?_⟩
+    have : (Eq m' ⋆ T.Entry (T.get (T.data st) T.sp) ra' n'' ⋆ F ⋆
+          (region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n) ⋆ R)) =
+        (Eq m' ⋆ T.Entry (T.get (T.data st) T.sp) ra' n'' ⋆
+          (F ⋆ region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n)) ⋆ R) := by
+      ac_rfl
+    exact this ▸ hm
+
+/--
+Linking (decision D6: acyclic call graph). Functions `fs` listed callees first: if each function's
+contract holds in host `h` as soon as the contracts of the functions before it hold, then all hold.
+The per-function premise is what the compiler theorem gives for a function whose callees are
+earlier in the list (and what hand-written code or an external assumption gives otherwise).
+-/
+theorem link {h : T.Host} (Γ : Env) (bound : String → Nat) (nX : Nat) :
+    ∀ fs : List String,
+      (∀ (pre : List String) (f : String) (post : List String), fs = pre ++ f :: post →
+        (∀ g, g ∈ pre → T.FnSpec h g (Γ g) (bound g) nX) → T.FnSpec h f (Γ f) (bound f) nX) →
+      ∀ f, f ∈ fs → T.FnSpec h f (Γ f) (bound f) nX := by
+  intro fs hstep
+  have key : ∀ k, k ≤ fs.length → ∀ g, g ∈ fs.take k → T.FnSpec h g (Γ g) (bound g) nX := by
+    intro k
+    induction k with
+    | zero => intro _ g hg; simp at hg
+    | succ k ih =>
+      intro hk g hg
+      have hk' : k < fs.length := by omega
+      rw [List.take_add_one, List.getElem?_eq_getElem hk'] at hg
+      simp only [Option.toList_some, List.mem_append, List.mem_singleton] at hg
+      rcases hg with hg | rfl
+      · exact ih (by omega) g hg
+      · exact hstep (fs.take k) fs[k] (fs.drop (k + 1))
+          (by rw [← List.drop_eq_getElem_cons hk', List.take_append_drop]) (ih (by omega))
+  intro f hf
+  exact key fs.length (Nat.le_refl _) f (by simpa using hf)
+
 end Target
 
 end LeanQbe
