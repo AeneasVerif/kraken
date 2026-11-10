@@ -5,6 +5,8 @@ public import LeanQbe.Examples.LitmusCf
 public import LeanQbe.Amd64.TargLemmas
 public import Kraken.X64.Parser
 public import LeanQbe.WPLemmas
+public import LeanQbe.MainLemmas
+public import LeanQbe.Examples.Litmus
 import all Kraken.Separation
 
 /-!
@@ -16,6 +18,18 @@ assembly and parsed by Kraken (`…Code`), checked by `rfl` (the kernel runs the
 -/
 
 set_option autoImplicit false
+
+open Lean Elab Tactic Meta in
+/-- Close `lhs = rhs` with `Eq.refl lhs`, checked by the kernel only (the elaborator's `isDefEq`
+gives up on the mid-end's table lookups). From Spike A. -/
+elab "kernel_rfl" : tactic => do
+  let goal ← getMainGoal
+  let tgt ← instantiateMVars (← goal.getType)
+  let some (α, lhs, _) := tgt.eq?
+    | throwError "kernel_rfl: goal is not an equality{indentExpr tgt}"
+  let u ← getLevel α
+  goal.assign (mkApp2 (mkConst ``Eq.refl [u]) α lhs)
+  replaceMainGoal []
 
 @[expose] public section
 
@@ -185,6 +199,18 @@ theorem swap_fnspec [hh : Host] (k₀ : Nat) (hc : swapCode.IsInfixAt Host.prog 
     Amd64.target.FnSpec hh "swap" (Func.spec Γ swap.body) 0 nX :=
   lowerFn_correct (T := Amd64.target) hh _ swap Γ 0 swapCode k₀ swap_lower hc hu swap_wf (by decide) nX
 
+/-! ## Through the whole pipeline (`compileFn`: mid-end, oracle, lowering)
+
+The mid-end finds nothing to do in these programs, so the pipeline emits the same code; the kernel
+checks it, running `Func.opt`, the oracle and `lower`. -/
+
+theorem sumto_compile : compileFn Amd64.isa sumto = .ok sumtoCode := by kernel_rfl
+theorem nested_compile : compileFn Amd64.isa nested = .ok nestedCode := by kernel_rfl
+theorem evenodd_compile : compileFn Amd64.isa evenodd = .ok evenoddCode := by kernel_rfl
+theorem swap_compile : compileFn Amd64.isa swap = .ok swapCode := by kernel_rfl
+theorem ifelse_compile : compileFn Amd64.isa ifelse = .ok ifelseCode := by kernel_rfl
+theorem tracer_compile : compileFn Amd64.isa tracer = .ok tracerCode := by kernel_rfl
+
 /-! ## A loop end to end: `sumto` on Kraken x64 -/
 
 /-- `1 + 2 + … + i` in 64-bit arithmetic. -/
@@ -225,7 +251,7 @@ theorem sumto_spec (Γ : Env) (n : Val) (hn : n.toNat < 2 ^ 32) (m : Mem 64) :
     refine ih (by omega) _ ?_
     rw [← hs]; simp only [tri]; ac_rfl
 
-/-- `sumto` on Kraken x64, in every host containing its code: called with `n < 2^32` in `rdi` and
+/-- `sumto` compiled by the whole pipeline, on Kraken x64, in every host containing its code: called with `n < 2^32` in `rdi` and
 the return address at `rsp`, it returns to `ra` with `1 + … + n` in `rax`, the callee-saved
 registers intact and `rsp` popped; the return-address slot comes back with arbitrary contents and
 the frame `R` is untouched. -/
@@ -248,9 +274,11 @@ theorem sumto_correct [Host] (k₀ : Nat) (hc : sumtoCode.IsInfixAt Host.prog k�
       Amd64.target.Entry (Amd64.target.get s Amd64.target.sp) ra 0 ⋆ R := by
     simp only [Target.Entry, region_zero, Std.ExtHashMap.emp_sep, hE]
     exact hmem
-  have h := sumto_fnspec k₀ hc hu (fun _ _ _ _ _ => False) 0 [n] ∅ _ _
-    (sumto_spec _ n hn ∅) s ra R hargs trivial hsp hmem'
-  have hlab : Amd64.target.labelAddr _ "sumto" = Host.addrOf k₀ :=
+  -- the whole pipeline: `compileFn` (mid-end, oracle, lowering) and `compileFn_correct`
+  have h := compileFn_correct (T := Amd64.target) _ sumto (fun _ _ _ _ _ => False) 0 0 sumtoCode k₀
+    sumto_compile hc hu sumto_wf (by decide) [n] ∅ _ _ (sumto_spec _ n hn ∅) s ra R hargs trivial
+    hsp hmem'
+  have hlab : Amd64.target.labelAddr _ sumto.name = Host.addrOf k₀ :=
     labelAddr_of_unique (T := Amd64.target) hu hc.cons.1
   rw [hlab] at h
   refine eventually_weaken _ _ _ _ ?_ h

@@ -13,15 +13,14 @@ in step 3.
 
 open LeanQbe
 
-/-- Built-in programs: name, units. -/
-def programs : List (String × List (FnHints Amd64.isa)) :=
-  [("tracer", [⟨Litmus.tracer, Litmus.tracerHints⟩])] ++
-  ([Litmus.ifelse, Litmus.sumto, Litmus.evenodd, Litmus.nested, Litmus.swap].map fun f =>
-    (f.name, [⟨f, Spill.hints Amd64.isa f⟩]))
+/-- Built-in programs: name, functions. -/
+def programs : List (String × List Fn) :=
+  [Litmus.tracer, Litmus.ifelse, Litmus.sumto, Litmus.evenodd, Litmus.nested, Litmus.swap].map
+    fun f => (f.name, [f])
 
 /-- GNU as text for x64: `.text`, a `.globl` per function, then Kraken's AT&T printer. -/
-def emitAsm (us : List (FnHints Amd64.isa)) (code : List Amd64.isa.Directive) : String :=
-  let globls := us.map (fun u => s!".globl {u.fn.name}\n") |>.foldl (· ++ ·) ""
+def emitAsm (fs : List Fn) (code : List Amd64.isa.Directive) : String :=
+  let globls := fs.map (fun f => s!".globl {f.name}\n") |>.foldl (· ++ ·) ""
   ".text\n" ++ globls ++ Kraken.X64.toATT code ++ "\n"
 
 public def main (args : List String) : IO UInt32 := do
@@ -35,7 +34,7 @@ public def main (args : List String) : IO UInt32 := do
       IO.eprintln s!"leanqbe: unknown program {name} (try --list)"
       return 2
     | some (_, us) =>
-      match compile us with
+      match compile Amd64.isa us with
       | .ok code =>
         IO.print (emitAsm us code)
         return 0
