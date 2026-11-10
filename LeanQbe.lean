@@ -8,6 +8,8 @@ public import LeanQbe.WPLemmas
 public import LeanQbe.Wf
 public import LeanQbe.WfLemmas
 public import LeanQbe.Print
+public import LeanQbe.Fold
+public import LeanQbe.FoldLemmas
 public import LeanQbe.Abi
 public import LeanQbe.AbiLemmas
 public import LeanQbe.Notation
@@ -18,5 +20,6 @@ public import LeanQbe.Examples.UnionFind
 public import LeanQbe.Examples.UnionFindLemmas
 public import LeanQbe.Rega
 public import LeanQbe.RegaLemmas
+public import LeanQbe.Main
 
 /-! Root of the generic library. Imports neither `Kraken.X64` nor `Kraken.AArch64`. -/

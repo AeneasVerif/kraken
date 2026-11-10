@@ -20,3 +20,10 @@ LeanQbe.Examples.UnionFindLemmas LeanQbe.UnionFind.union_nonvacuous
 spike.il.Smoke LeanQbe.Smoke.spin_false
 LeanQbe.RegaLemmas LeanQbe.Rega.lowerFn_correct
 LeanQbe.RegaLemmas LeanQbe.Rega.lower_correct
+LeanQbe.Examples.Litmus LeanQbe.Litmus.tracer_correct
+LeanQbe.Examples.Litmus LeanQbe.Litmus.tracer_lower
+LeanQbe.FoldLemmas LeanQbe.fold_wp
+LeanQbe.FoldLemmas LeanQbe.fold_wf
+LeanQbe.FoldLemmas LeanQbe.Func.fold_spec
+LeanQbe.FoldLemmas LeanQbe.Func.fold_wf
+spike.il.FoldTest LeanQbe.FoldTest.prog_fold_spec
