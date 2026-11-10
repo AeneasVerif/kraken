@@ -84,6 +84,14 @@ example : parse("movw %r11w, (%rdx)") = [storeIns .h .rdx] := rfl
 example : parse("movl %r11d, (%rdx)") = [storeIns .w .rdx] := rfl
 example : parse("movq %r11, (%r10)") = [storeIns .l .r10] := rfl
 example : parse("mov $5, %r10; mov %r10, %r11; mov %rdi, %r10") = (movi .r10 5 ++ [argTo .r11 (.var .r10), argTo .r10 (.var .rdi)]) := rfl
+example : parse("mov $0, %rdx; div %r11") = ((divCore .l .udiv).get rfl).1 := rfl
+example : parse("mov $0, %rdx; div %r11") = ((divCore .l .urem).get rfl).1 := rfl
+example : parse("mov $0, %rdx; divl %r11d") = ((divCore .w .udiv).get rfl).1 := rfl
+example : parse("mov $0, %rdx; divl %r11d") = ((divCore .w .urem).get rfl).1 := rfl
+example : parse("mov %rax, %rdx; sar $63, %rdx; idiv %r11") = ((divCore .l .div).get rfl).1 := rfl
+example : parse("mov %rax, %rdx; sar $63, %rdx; idiv %r11") = ((divCore .l .rem).get rfl).1 := rfl
+example : parse("movl %eax, %edx; sarl $31, %edx; idivl %r11d") = ((divCore .w .div).get rfl).1 := rfl
+example : parse("movl %eax, %edx; sarl $31, %edx; idivl %r11d") = ((divCore .w .rem).get rfl).1 := rfl
 end ParserChecks
 
 /-! ## Register file and addresses -/
@@ -147,6 +155,68 @@ theorem ofInt_setWidth (m : Nat) (hm : m = 8 ∨ m = 16 ∨ m = 32) (n : Int) :
   apply BitVec.eq_of_toNat_eq
   simp only [BitVec.toNat_setWidth, BitVec.toNat_ofInt]
   rcases hm with rfl | rfl | rfl <;> simp only [Nat.reducePow] <;> omega
+
+theorem zero_append_toNat {w : Nat} (a : BitVec w) : ((0 : BitVec w) ++ a).toNat = a.toNat := by
+  simp [BitVec.toNat_append]
+
+theorem udiv_lt_two_pow {w : Nat} (a b : BitVec w) : a.toNat / b.toNat < 2 ^ w :=
+  Nat.lt_of_le_of_lt (Nat.div_le_self _ _) a.isLt
+
+theorem sshiftRight_last_eq_signExtend {w : Nat} (a : BitVec w) :
+    (a.sshiftRight (w - 1) ++ a) = a.signExtend (w + w) := by
+  ext i hi
+  simp only [← BitVec.getLsbD_eq_getElem, BitVec.getLsbD_append, BitVec.getLsbD_sshiftRight,
+    BitVec.getLsbD_signExtend]
+  by_cases h1 : i < w
+  · simp [h1, show i < w + w by omega]
+  · by_cases h2 : i = w
+    · subst i
+      simp [show w < w + w by omega, show ¬ (w = 0) by omega, BitVec.msb_eq_getLsbD_last]
+    · simp [h1, show i < w + w by omega, show ¬ (w ≤ i - w) by omega,
+        show ¬ (w - 1 + (i - w) < w) by omega]
+
+theorem sshiftRight_last_append_toInt {w : Nat} (hw : w = 32 ∨ w = 64) (a : BitVec w) :
+    (a.sshiftRight (w - 1) ++ a).toInt = a.toInt := by
+  rw [sshiftRight_last_eq_signExtend]
+  exact BitVec.toInt_signExtend_of_le (by rcases hw with rfl | rfl <;> omega)
+
+theorem tdiv_in_bounds {w : Nat} (hw : w = 32 ∨ w = 64) {a b : BitVec w}
+    (hsd : sdivDefined a b = true) :
+    ¬ (a.toInt.tdiv b.toInt < -2 ^ (w - 1) ∨ 2 ^ (w - 1) ≤ a.toInt.tdiv b.toInt) := by
+  simp only [sdivDefined, Bool.and_eq_true, bne_iff_ne, ne_eq, Bool.not_eq_true',
+    Bool.and_eq_false_iff, beq_eq_false_iff_ne] at hsd
+  obtain ⟨hb0, hmin⟩ := hsd
+  have hmin' : a ≠ BitVec.intMin w ∨ b ≠ -1#w := by
+    rwa [show BitVec.allOnes w = -1#w by rcases hw with rfl | rfl <;> decide] at hmin
+  have hdiv := BitVec.toInt_sdiv_of_ne_or_ne a b hmin'
+  have h1 := BitVec.le_toInt (a.sdiv b)
+  have h2 := BitVec.toInt_lt (x := a.sdiv b)
+  rcases hw with rfl | rfl <;> omega
+
+theorem ofInt_tdiv_eq_sdiv {w : Nat} (hw : w = 32 ∨ w = 64) {a b : BitVec w}
+    (hsd : sdivDefined a b = true) :
+    BitVec.ofInt w (a.toInt.tdiv b.toInt) = a.sdiv b := by
+  simp only [sdivDefined, Bool.and_eq_true, bne_iff_ne, ne_eq, Bool.not_eq_true',
+    Bool.and_eq_false_iff, beq_eq_false_iff_ne] at hsd
+  obtain ⟨_, hmin⟩ := hsd
+  have hmin' : a ≠ BitVec.intMin w ∨ b ≠ -1#w := by
+    rwa [show BitVec.allOnes w = -1#w by rcases hw with rfl | rfl <;> decide] at hmin
+  rw [← BitVec.toInt_sdiv_of_ne_or_ne a b hmin', BitVec.ofInt_toInt]
+
+theorem ofInt_tmod_eq_srem {w : Nat} (a b : BitVec w) :
+    BitVec.ofInt w (a.toInt.tmod b.toInt) = a.srem b := by
+  rw [← BitVec.toInt_srem a b, BitVec.ofInt_toInt]
+
+theorem ofNat_div_eq_udiv {w : Nat} (a b : BitVec w) :
+    BitVec.ofNat w (a.toNat / b.toNat) = a / b := by
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_ofNat, BitVec.toNat_udiv, Nat.mod_eq_of_lt (udiv_lt_two_pow a b)]
+
+theorem ofNat_mod_eq_umod {w : Nat} (a b : BitVec w) :
+    BitVec.ofNat w (a.toNat % b.toNat) = a % b := by
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_ofNat, BitVec.toNat_umod,
+    Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt (Nat.mod_le _ _) a.isLt)]
 
 /-! ## Flags of `cmp` -/
 
@@ -400,6 +470,136 @@ theorem eventually_extD {i : Nat} {k : Cls} {sz : Sz} {sg : Bool} {rd r : Reg64}
     by_cases h1 : j < 8 <;> by_cases h2 : j < 16 <;> by_cases h3 : j < 32 <;> simp [h1, h2, h3] <;>
     omega
 
+theorem eventually_sar63D {i : Nat} {s : MachineData} {post : (MachineState → Prop)}
+    (hi : Host.prog[i]? = some (ins (.sar (.reg (q .rdx)) (.imm8 (.int64 63)))))
+    (hk : ∀ s' : MachineData,
+      s'.regs = s.regs.set64 .rdx ((s.regs.get64 .rdx).sshiftRight 63) → s'.dmem = s.dmem →
+      Run (i + 1) s' post) :
+    Run i s post := by
+  refine Host.eventually_of_interp_cps hi ?_
+  simp only [Directive.interp, Instr.interp, Operation.interp, RegOrMem.interp, MachineData.set,
+    MachineData.setReg, Effects.All, set_q, get_q, ShiftCountExpr.interpMasked,
+    ShiftCountExpr.interp, ConstExpr.interp, BitVec.take]
+  change (undefined fun _ => undefined fun _ => Effects.done _).All _
+  intro _ _
+  exact hk _ rfl rfl
+
+theorem eventually_sar31D {i : Nat} {s : MachineData} {post : (MachineState → Prop)}
+    (hi : Host.prog[i]? = some (ins32 (.sar (.reg (d .rdx)) (.imm8 (.int64 31)))))
+    (hk : ∀ s' : MachineData,
+      s'.regs = s.regs.set64 .rdx (zext32 ((lo32 (s.regs.get64 .rdx)).sshiftRight 31)) →
+      s'.dmem = s.dmem → Run (i + 1) s' post) :
+    Run i s post := by
+  refine Host.eventually_of_interp_cps hi ?_
+  simp only [Directive.interp, Instr.interp, Operation.interp, RegOrMem.interp, MachineData.set,
+    MachineData.setReg, Effects.All, Reg64s.set_low32, Reg64s.get_low32,
+    ShiftCountExpr.interpMasked, ShiftCountExpr.interp, ConstExpr.interp, BitVec.take]
+  change (undefined fun _ => undefined fun _ => Effects.done _).All _
+  intro _ _
+  exact hk _ rfl rfl
+
+theorem eventually_udiv64D {i : Nat} {s : MachineData} {post : (MachineState → Prop)}
+    (hi : Host.prog[i]? = some (ins (.div (.reg (q .r11)))))
+    (rdx0 : s.regs.get64 .rdx = 0) (hb0 : s.regs.get64 .r11 ≠ 0)
+    (hk : ∀ s' : MachineData,
+      s'.regs = (s.regs.set64 .rax (s.regs.get64 .rax / s.regs.get64 .r11)).set64 .rdx
+        (s.regs.get64 .rax % s.regs.get64 .r11) →
+      s'.dmem = s.dmem → Run (i + 1) s' post) :
+    Run i s post := by
+  refine Host.eventually_of_interp_cps hi ?_
+  have hlt := udiv_lt_two_pow (s.regs.get64 .rax) (s.regs.get64 .r11)
+  have hw : (Width.W64 == Width.W8) = false := rfl
+  simp only [Directive.interp, Instr.interp, Operation.interp, RegOrMem.interp, MachineData.setReg,
+    Effects.All, set_q, get_q, hw, Bool.false_eq_true, ite_false, rdx0, zero_append_toNat,
+    Width.bits, ofNat_div_eq_udiv, ofNat_mod_eq_umod]
+  have hcond : ((s.regs.get64 .r11 == 0) ||
+      decide (2 ^ 64 ≤ (s.regs.get64 .rax).toNat / (s.regs.get64 .r11).toNat)) = false := by
+    simp only [Bool.or_eq_false_iff, beq_eq_false_iff_ne, decide_eq_false_iff_not]
+    exact ⟨hb0, Nat.not_le_of_lt hlt⟩
+  simp only [hcond, Bool.false_eq_true, ite_false, Effects.All]
+  intro _
+  exact hk _ rfl rfl
+
+theorem eventually_udiv32D {i : Nat} {s : MachineData} {post : (MachineState → Prop)}
+    (hi : Host.prog[i]? = some (ins32 (.div (.reg (d .r11)))))
+    (rdx0 : lo32 (s.regs.get64 .rdx) = 0) (hb0 : lo32 (s.regs.get64 .r11) ≠ 0)
+    (hk : ∀ s' : MachineData,
+      s'.regs = (s.regs.set64 .rax
+        (zext32 (lo32 (s.regs.get64 .rax) / lo32 (s.regs.get64 .r11)))).set64 .rdx
+        (zext32 (lo32 (s.regs.get64 .rax) % lo32 (s.regs.get64 .r11))) →
+      s'.dmem = s.dmem → Run (i + 1) s' post) :
+    Run i s post := by
+  refine Host.eventually_of_interp_cps hi ?_
+  have hlt := udiv_lt_two_pow (lo32 (s.regs.get64 .rax)) (lo32 (s.regs.get64 .r11))
+  have hw : (Width.W32 == Width.W8) = false := rfl
+  simp only [Directive.interp, Instr.interp, Operation.interp, RegOrMem.interp, MachineData.setReg,
+    Effects.All, Reg64s.set_low32, Reg64s.get_low32, hw, Bool.false_eq_true, ite_false, rdx0,
+    zero_append_toNat, Width.bits, ofNat_div_eq_udiv, ofNat_mod_eq_umod]
+  have hcond : ((lo32 (s.regs.get64 .r11) == 0) ||
+      decide (2 ^ 32 ≤ (lo32 (s.regs.get64 .rax)).toNat / (lo32 (s.regs.get64 .r11)).toNat)) =
+      false := by
+    simp only [Bool.or_eq_false_iff, beq_eq_false_iff_ne, decide_eq_false_iff_not]
+    exact ⟨hb0, Nat.not_le_of_lt hlt⟩
+  simp only [hcond, Bool.false_eq_true, ite_false, Effects.All]
+  intro _
+  exact hk _ rfl rfl
+
+theorem eventually_idiv64D {i : Nat} {s : MachineData} {post : (MachineState → Prop)}
+    (hi : Host.prog[i]? = some (ins (.idiv (.reg (q .r11)))))
+    (hrdx : s.regs.get64 .rdx = (s.regs.get64 .rax).sshiftRight 63)
+    (hsd : sdivDefined (s.regs.get64 .rax) (s.regs.get64 .r11) = true)
+    (hk : ∀ s' : MachineData,
+      s'.regs = (s.regs.set64 .rax ((s.regs.get64 .rax).sdiv (s.regs.get64 .r11))).set64 .rdx
+        ((s.regs.get64 .rax).srem (s.regs.get64 .r11)) →
+      s'.dmem = s.dmem → Run (i + 1) s' post) :
+    Run i s post := by
+  refine Host.eventually_of_interp_cps hi ?_
+  have happ := sshiftRight_last_append_toInt (w := 64) (by simp) (s.regs.get64 .rax)
+  have hbnd := tdiv_in_bounds (w := 64) (by simp) hsd
+  have hb0 : s.regs.get64 .r11 ≠ 0 := by
+    simp only [sdivDefined, Bool.and_eq_true, bne_iff_ne] at hsd; exact hsd.1
+  have hw : (Width.W64 == Width.W8) = false := rfl
+  simp only [Directive.interp, Instr.interp, Operation.interp, RegOrMem.interp, MachineData.setReg,
+    Effects.All, set_q, get_q, hw, Bool.false_eq_true, ite_false, hrdx, happ, Width.bits,
+    ofInt_tdiv_eq_sdiv (by simp) hsd, ofInt_tmod_eq_srem]
+  have hcond : (((s.regs.get64 .r11 == 0) ||
+      decide ((s.regs.get64 .rax).toInt.tdiv (s.regs.get64 .r11).toInt < -2 ^ 63)) ||
+      decide (2 ^ 63 ≤ (s.regs.get64 .rax).toInt.tdiv (s.regs.get64 .r11).toInt)) = false := by
+    simp only [Bool.or_eq_false_iff, beq_eq_false_iff_ne, decide_eq_false_iff_not]
+    exact ⟨⟨hb0, fun h => hbnd (Or.inl h)⟩, fun h => hbnd (Or.inr h)⟩
+  simp only [hcond, Bool.false_eq_true, ite_false, Effects.All]
+  intro _
+  exact hk _ rfl rfl
+
+theorem eventually_idiv32D {i : Nat} {s : MachineData} {post : (MachineState → Prop)}
+    (hi : Host.prog[i]? = some (ins32 (.idiv (.reg (d .r11)))))
+    (hrdx : lo32 (s.regs.get64 .rdx) = (lo32 (s.regs.get64 .rax)).sshiftRight 31)
+    (hsd : sdivDefined (lo32 (s.regs.get64 .rax)) (lo32 (s.regs.get64 .r11)) = true)
+    (hk : ∀ s' : MachineData,
+      s'.regs = (s.regs.set64 .rax
+        (zext32 ((lo32 (s.regs.get64 .rax)).sdiv (lo32 (s.regs.get64 .r11))))).set64 .rdx
+        (zext32 ((lo32 (s.regs.get64 .rax)).srem (lo32 (s.regs.get64 .r11)))) →
+      s'.dmem = s.dmem → Run (i + 1) s' post) :
+    Run i s post := by
+  refine Host.eventually_of_interp_cps hi ?_
+  have happ := sshiftRight_last_append_toInt (w := 32) (by simp) (lo32 (s.regs.get64 .rax))
+  have hbnd := tdiv_in_bounds (w := 32) (by simp) hsd
+  have hb0 : lo32 (s.regs.get64 .r11) ≠ 0 := by
+    simp only [sdivDefined, Bool.and_eq_true, bne_iff_ne] at hsd; exact hsd.1
+  have hw : (Width.W32 == Width.W8) = false := rfl
+  simp only [Directive.interp, Instr.interp, Operation.interp, RegOrMem.interp, MachineData.setReg,
+    Effects.All, Reg64s.set_low32, Reg64s.get_low32, hw, Bool.false_eq_true, ite_false, hrdx, happ,
+    Width.bits, ofInt_tdiv_eq_sdiv (by simp) hsd, ofInt_tmod_eq_srem]
+  have hcond : (((lo32 (s.regs.get64 .r11) == 0) ||
+      decide ((lo32 (s.regs.get64 .rax)).toInt.tdiv (lo32 (s.regs.get64 .r11)).toInt < -2 ^ 31)) ||
+      decide (2 ^ 31 ≤ (lo32 (s.regs.get64 .rax)).toInt.tdiv (lo32 (s.regs.get64 .r11)).toInt)) =
+      false := by
+    simp only [Bool.or_eq_false_iff, beq_eq_false_iff_ne, decide_eq_false_iff_not]
+    exact ⟨⟨hb0, fun h => hbnd (Or.inl h)⟩, fun h => hbnd (Or.inr h)⟩
+  simp only [hcond, Bool.false_eq_true, ite_false, Effects.All]
+  intro _
+  exact hk _ rfl rfl
+
 theorem eventually_storelD {i : Nat} {rv ra : Reg64} {s : MachineData}
     {post : (MachineState → Prop)}
     (hi : Host.prog[i]? = some (storelD rv ra))
@@ -601,6 +801,303 @@ theorem eventually_shift {k : Nat} {kk : Cls} {oo : BinOp} {i : Directive} {a b 
         Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.2.2.1)]
   · rw [hm6, hm5, hm4, hm3, hm2, hm1]
 
+theorem eventually_divCore {k : Nat} {kk : Cls} {oo : BinOp} {core : List Directive} {res : Reg64}
+    {v : Val} {s : MachineData} {post : (MachineState → Prop)}
+    (hd : divCore kk oo = some (core, res)) (hc : core.IsInfixAt Host.prog k)
+    (hv : (Op.bin kk oo (.imm (s.regs.get64 .rax)) (.imm (s.regs.get64 .r11))).eval = some v)
+    (hk : ∀ s' : MachineData, s'.regs.get64 res = v →
+      (∀ r, r ≠ .rax → r ≠ .rdx → s'.regs.get64 r = s.regs.get64 r) → s'.dmem = s.dmem →
+      Run (k + core.length) s' post) :
+    Run k s post := by
+  have keep2 : ∀ (regs0 : Reg64s) (v1 v2 : Val) (r : Reg64),
+      r ≠ .rax → r ≠ .rdx → ((regs0.set64 .rax v1).set64 .rdx v2).get64 r = regs0.get64 r := by
+    intro regs0 v1 v2 r h1 h2
+    rw [Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm h2),
+      Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm h1)]
+  cases kk <;> cases oo <;> simp only [divCore, reduceCtorEq, Option.some.injEq, Prod.mk.injEq] at hd
+  case w.div | w.rem =>
+    obtain ⟨rfl, rfl⟩ := hd
+    simp only [Op.eval, Arg.val, BinOp.eval] at hv
+    by_cases hsd : sdivDefined (lo32 (s.regs.get64 .rax)) (lo32 (s.regs.get64 .r11)) = true
+    · simp only [hsd, ite_true, Option.map_some, Option.some.injEq] at hv
+      subst hv
+      obtain ⟨h0, hc1⟩ := hc.cons
+      obtain ⟨h1, hc2⟩ := hc1.cons
+      obtain ⟨h2, -⟩ := hc2.cons
+      refine eventually_movlD h0 fun s1 hs1 hm1 => ?_
+      refine eventually_sar31D h1 fun s2 hs2 hm2 => ?_
+      have e_rax : s2.regs.get64 .rax = s.regs.get64 .rax := by
+        rw [hs2, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs1,
+          Reg64s.get64_set64_of_ne _ _ _ _ (by decide)]
+      have e_r11 : s2.regs.get64 .r11 = s.regs.get64 .r11 := by
+        rw [hs2, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs1,
+          Reg64s.get64_set64_of_ne _ _ _ _ (by decide)]
+      have e_rdx : lo32 (s2.regs.get64 .rdx) = (lo32 (s2.regs.get64 .rax)).sshiftRight 31 := by
+        rw [e_rax, hs2, Reg64s.get64_set64_same, hs1, Reg64s.get64_set64_same]
+        simp [lo32, zext32, Cls.trunc]
+      refine eventually_idiv32D h2 e_rdx (by rw [e_rax, e_r11]; exact hsd) fun s3 hs3 hm3 =>
+        hk s3 ?_ (fun r h1 h2 => ?_) (by rw [hm3, hm2, hm1])
+      · first
+        | rw [hs3, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), Reg64s.get64_set64_same, e_rax,
+            e_r11]
+        | rw [hs3, Reg64s.get64_set64_same, e_rax, e_r11]
+      · rw [hs3, keep2 _ _ _ r h1 h2, hs2, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm h2), hs1,
+          Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm h2)]
+    · simp only [hsd, Bool.false_eq_true, ite_false, Option.map_none, reduceCtorEq] at hv
+  case l.div | l.rem =>
+    obtain ⟨rfl, rfl⟩ := hd
+    simp only [Op.eval, Arg.val, BinOp.eval] at hv
+    by_cases hsd : sdivDefined (s.regs.get64 .rax) (s.regs.get64 .r11) = true
+    · simp only [hsd, ite_true, Option.some.injEq] at hv
+      subst hv
+      obtain ⟨h0, hc1⟩ := hc.cons
+      obtain ⟨h1, hc2⟩ := hc1.cons
+      obtain ⟨h2, -⟩ := hc2.cons
+      refine eventually_movD h0 fun s1 hs1 hm1 => ?_
+      refine eventually_sar63D h1 fun s2 hs2 hm2 => ?_
+      have e_rax : s2.regs.get64 .rax = s.regs.get64 .rax := by
+        rw [hs2, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs1,
+          Reg64s.get64_set64_of_ne _ _ _ _ (by decide)]
+      have e_r11 : s2.regs.get64 .r11 = s.regs.get64 .r11 := by
+        rw [hs2, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs1,
+          Reg64s.get64_set64_of_ne _ _ _ _ (by decide)]
+      have e_rdx : s2.regs.get64 .rdx = (s2.regs.get64 .rax).sshiftRight 63 := by
+        rw [e_rax, hs2, Reg64s.get64_set64_same, hs1, Reg64s.get64_set64_same]
+      refine eventually_idiv64D h2 e_rdx (by rw [e_rax, e_r11]; exact hsd) fun s3 hs3 hm3 =>
+        hk s3 ?_ (fun r h1 h2 => ?_) (by rw [hm3, hm2, hm1])
+      · first
+        | rw [hs3, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), Reg64s.get64_set64_same, e_rax,
+            e_r11]
+        | rw [hs3, Reg64s.get64_set64_same, e_rax, e_r11]
+      · rw [hs3, keep2 _ _ _ r h1 h2, hs2, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm h2), hs1,
+          Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm h2)]
+    · simp only [hsd, Bool.false_eq_true, ite_false, reduceCtorEq] at hv
+  case w.udiv | w.urem =>
+    obtain ⟨rfl, rfl⟩ := hd
+    simp only [Op.eval, Arg.val, BinOp.eval] at hv
+    by_cases hb0 : lo32 (s.regs.get64 .r11) = 0
+    · simp only [hb0, ite_true, Option.map_none, reduceCtorEq] at hv
+    · simp only [hb0, ite_false, Option.map_some, Option.some.injEq] at hv
+      subst hv
+      obtain ⟨h0, hc1⟩ := hc.cons
+      obtain ⟨h1, -⟩ := hc1.cons
+      refine eventually_moviD h0 fun s1 hs1 hm1 => ?_
+      have e_rax : s1.regs.get64 .rax = s.regs.get64 .rax := by
+        rw [hs1, Reg64s.get64_set64_of_ne _ _ _ _ (by decide)]
+      have e_r11 : s1.regs.get64 .r11 = s.regs.get64 .r11 := by
+        rw [hs1, Reg64s.get64_set64_of_ne _ _ _ _ (by decide)]
+      have e_rdx : lo32 (s1.regs.get64 .rdx) = 0 := by
+        rw [hs1, Reg64s.get64_set64_same]; rfl
+      refine eventually_udiv32D h1 e_rdx (by rw [e_r11]; exact hb0) fun s2 hs2 hm2 =>
+        hk s2 ?_ (fun r h1 h2 => ?_) (by rw [hm2, hm1])
+      · first
+        | rw [hs2, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), Reg64s.get64_set64_same, e_rax,
+            e_r11]
+        | rw [hs2, Reg64s.get64_set64_same, e_rax, e_r11]
+      · rw [hs2, keep2 _ _ _ r h1 h2, hs1, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm h2)]
+  case l.udiv | l.urem =>
+    obtain ⟨rfl, rfl⟩ := hd
+    simp only [Op.eval, Arg.val, BinOp.eval] at hv
+    by_cases hb0 : s.regs.get64 .r11 = 0
+    · simp only [hb0, ite_true, reduceCtorEq] at hv
+    · simp only [hb0, ite_false, Option.some.injEq] at hv
+      subst hv
+      obtain ⟨h0, hc1⟩ := hc.cons
+      obtain ⟨h1, -⟩ := hc1.cons
+      refine eventually_moviD h0 fun s1 hs1 hm1 => ?_
+      have e_rax : s1.regs.get64 .rax = s.regs.get64 .rax := by
+        rw [hs1, Reg64s.get64_set64_of_ne _ _ _ _ (by decide)]
+      have e_r11 : s1.regs.get64 .r11 = s.regs.get64 .r11 := by
+        rw [hs1, Reg64s.get64_set64_of_ne _ _ _ _ (by decide)]
+      have e_rdx : s1.regs.get64 .rdx = 0 := by rw [hs1, Reg64s.get64_set64_same]
+      refine eventually_udiv64D h1 e_rdx (by rw [e_r11]; exact hb0) fun s2 hs2 hm2 =>
+        hk s2 ?_ (fun r h1 h2 => ?_) (by rw [hm2, hm1])
+      · first
+        | rw [hs2, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), Reg64s.get64_set64_same, e_rax,
+            e_r11]
+        | rw [hs2, Reg64s.get64_set64_same, e_rax, e_r11]
+      · rw [hs2, keep2 _ _ _ r h1 h2, hs1, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm h2)]
+
+theorem eventually_divSeq {k : Nat} {kk : Cls} {oo : BinOp} {core c : List Directive} {res rd : Reg64}
+    {a b : Arg Reg64} {v : Val} {s : MachineData} {post : (MachineState → Prop)}
+    (hd : divCore kk oo = some (core, res))
+    (hseq : divSeq rd core res a b = some c)
+    (hc : c.IsInfixAt Host.prog k)
+    (hb : ∀ r, r ∈ b.vars → r ≠ .r10 ∧ r ≠ .r11)
+    (hv : (Op.bin kk oo (.imm (argv s.regs a)) (.imm (argv s.regs b))).eval = some v)
+    (hk : ∀ s' : MachineData, s'.regs.get64 rd = v →
+      (∀ r, r ∉ rd :: scratchRegs → s'.regs.get64 r = s.regs.get64 r) → s'.dmem = s.dmem →
+      Run (k + c.length) s' post) :
+    Run k s post := by
+  by_cases hscr : rd = .r10 ∨ rd = .r11
+  · simp [divSeq, hscr] at hseq
+  · have hrd10 : rd ≠ .r10 := fun he => hscr (Or.inl he)
+    have hrd11 : rd ≠ .r11 := fun he => hscr (Or.inr he)
+    by_cases hrax : rd = .rax
+    · subst hrax
+      simp only [divSeq, hscr, ite_false, ite_true, Option.some.injEq] at hseq
+      subst hseq
+      obtain ⟨h0, hc1⟩ := hc.cons
+      obtain ⟨h1, hc2⟩ := hc1.cons
+      obtain ⟨h2, hc3⟩ := hc2.cons
+      obtain ⟨h3, hc_rest⟩ := hc3.cons
+      obtain ⟨hcore, hpost⟩ := List.IsInfixAt.append hc_rest
+      obtain ⟨hp0, hpost1⟩ := hpost.cons
+      obtain ⟨hp1, -⟩ := hpost1.cons
+      refine eventually_argTo h0 fun s1 hs1 hm1 => ?_
+      refine eventually_argTo h1 fun s2 hs2 hm2 => ?_
+      refine eventually_movD h2 fun s3 hs3 hm3 => ?_
+      refine eventually_movD h3 fun s4 hs4 hm4 => ?_
+      have erax : s4.regs.get64 .rax = argv s.regs a := by
+        rw [hs4, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs3, Reg64s.get64_set64_same, hs2,
+          Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs1, Reg64s.get64_set64_same]
+      have er11 : s4.regs.get64 .r11 = argv s.regs b := by
+        rw [hs4, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs3,
+          Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs2, Reg64s.get64_set64_same]
+        exact argv_congr fun r hr => by
+          rw [hs1, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm (hb r hr).1)]
+      have er10 : s4.regs.get64 .r10 = s.regs.get64 .rdx := by
+        rw [hs4, Reg64s.get64_set64_same, hs3, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs2,
+          Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs1,
+          Reg64s.get64_set64_of_ne _ _ _ _ (by decide)]
+      refine eventually_divCore hd hcore (by rw [erax, er11]; exact hv) fun s5 hv5 hfr5 hm5 => ?_
+      refine eventually_movD hp0 fun s6 hs6 hm6 => ?_
+      refine eventually_movD hp1 fun s7 hs7 hm7 => ?_
+      have := hk s7 ?_ (fun r hr => ?_) (by rw [hm7, hm6, hm5, hm4, hm3, hm2, hm1])
+      · simp only [List.length_cons, List.length_append, List.length_nil] at this; rwa [show k + 1 + 1 + 1 + 1 + core.length + 1 + 1 = k + (core.length + 2 + 1 + 1 + 1 + 1) by omega]
+      · rw [hs7, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs6, Reg64s.get64_set64_same, hv5]
+      · simp only [List.mem_cons, not_or, List.not_mem_nil] at hr
+        rw [hs7, Reg64s.get64_set64]
+        split
+        · next he =>
+          subst he
+          rw [hs6, Reg64s.get64_set64_of_ne _ _ _ _ (by decide),
+            hfr5 .r10 (by decide) (by decide), er10]
+        · next he =>
+          rw [hs6, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.1),
+            hfr5 r hr.1 (Ne.symm he), hs4, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.2.1),
+            hs3, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.1), hs2,
+            Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.2.2.1), hs1,
+            Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.2.1)]
+    · by_cases hrdx : rd = .rdx
+      · subst hrdx
+        simp only [divSeq, reduceCtorEq, or_self, ite_false, ite_true, Option.some.injEq] at hseq
+        subst hseq
+        obtain ⟨h0, hc1⟩ := hc.cons
+        obtain ⟨h1, hc2⟩ := hc1.cons
+        obtain ⟨h2, hc3⟩ := hc2.cons
+        obtain ⟨h3, hc4⟩ := hc3.cons
+        obtain ⟨h4, hc_rest⟩ := hc4.cons
+        obtain ⟨hcore, hpost⟩ := List.IsInfixAt.append hc_rest
+        obtain ⟨hp0, hpost1⟩ := hpost.cons
+        obtain ⟨hp1, -⟩ := hpost1.cons
+        refine eventually_argTo h0 fun s1 hs1 hm1 => ?_
+        refine eventually_argTo h1 fun s2 hs2 hm2 => ?_
+        refine eventually_movD h2 fun s3 hs3 hm3 => ?_
+        refine eventually_movD h3 fun s4 hs4 hm4 => ?_
+        refine eventually_movD h4 fun s5 hs5 hm5 => ?_
+        have erax : s5.regs.get64 .rax = argv s.regs a := by
+          rw [hs5, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs4, Reg64s.get64_set64_same, hs3,
+            Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs2,
+            Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs1, Reg64s.get64_set64_same]
+        have er11 : s5.regs.get64 .r11 = argv s.regs b := by
+          rw [hs5, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs4,
+            Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs3,
+            Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs2, Reg64s.get64_set64_same]
+          exact argv_congr fun r hr => by
+            rw [hs1, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm (hb r hr).1)]
+        have er10 : s5.regs.get64 .r10 = s.regs.get64 .rax := by
+          rw [hs5, Reg64s.get64_set64_same, hs4, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs3,
+            Reg64s.get64_set64_same, hs2, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs1,
+            Reg64s.get64_set64_of_ne _ _ _ _ (by decide)]
+        refine eventually_divCore hd hcore (by rw [erax, er11]; exact hv) fun s6 hv6 hfr6 hm6 => ?_
+        refine eventually_movD hp0 fun s7 hs7 hm7 => ?_
+        refine eventually_movD hp1 fun s8 hs8 hm8 => ?_
+        have := hk s8 ?_ (fun r hr => ?_) (by rw [hm8, hm7, hm6, hm5, hm4, hm3, hm2, hm1])
+        · simp only [List.length_cons, List.length_append, List.length_nil] at this; rwa [show k + 1 + 1 + 1 + 1 + 1 + core.length + 1 + 1 = k + (core.length + 2 + 1 + 1 + 1 + 1 + 1) by omega]
+        · rw [hs8, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs7, Reg64s.get64_set64_same, hv6]
+        · simp only [List.mem_cons, not_or, List.not_mem_nil] at hr
+          rw [hs8, Reg64s.get64_set64]
+          split
+          · next he =>
+            subst he
+            rw [hs7, Reg64s.get64_set64_of_ne _ _ _ _ (by decide),
+              hfr6 .r10 (by decide) (by decide), er10]
+          · next he =>
+            rw [hs7, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.1),
+              hfr6 r (Ne.symm he) hr.1, hs5, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.2.1),
+              hs4, Reg64s.get64_set64_of_ne _ _ _ _ he, hs3,
+              Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.1), hs2,
+              Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.2.2.1), hs1,
+              Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.2.1)]
+      · simp only [divSeq, hscr, hrax, hrdx, ite_false, Option.some.injEq] at hseq
+        subst hseq
+        obtain ⟨h0, hc1⟩ := hc.cons
+        obtain ⟨h1, hc2⟩ := hc1.cons
+        obtain ⟨h2, hc3⟩ := hc2.cons
+        obtain ⟨h3, hc4⟩ := hc3.cons
+        obtain ⟨h4, hc_rest⟩ := hc4.cons
+        obtain ⟨hcore, hpost⟩ := List.IsInfixAt.append hc_rest
+        obtain ⟨hp0, hpost1⟩ := hpost.cons
+        obtain ⟨hp1, hpost2⟩ := hpost1.cons
+        obtain ⟨hp2, hpost3⟩ := hpost2.cons
+        obtain ⟨hp3, -⟩ := hpost3.cons
+        refine eventually_argTo h0 fun s1 hs1 hm1 => ?_
+        refine eventually_argTo h1 fun s2 hs2 hm2 => ?_
+        refine eventually_movD h2 fun s3 hs3 hm3 => ?_
+        refine eventually_movD h3 fun s4 hs4 hm4 => ?_
+        refine eventually_movD h4 fun s5 hs5 hm5 => ?_
+        have erax : s5.regs.get64 .rax = argv s.regs a := by
+          rw [hs5, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs4, Reg64s.get64_set64_same, hs3,
+            Reg64s.get64_set64_of_ne _ _ _ _ hrd10, hs2,
+            Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs1, Reg64s.get64_set64_same]
+        have er11 : s5.regs.get64 .r11 = argv s.regs b := by
+          rw [hs5, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs4,
+            Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs3,
+            Reg64s.get64_set64_of_ne _ _ _ _ hrd11, hs2, Reg64s.get64_set64_same]
+          exact argv_congr fun r hr => by
+            rw [hs1, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm (hb r hr).1)]
+        refine eventually_divCore hd hcore (by rw [erax, er11]; exact hv) fun s6 hv6 hfr6 hm6 => ?_
+        refine eventually_movD hp0 fun s7 hs7 hm7 => ?_
+        refine eventually_movD hp1 fun s8 hs8 hm8 => ?_
+        refine eventually_movD hp2 fun s9 hs9 hm9 => ?_
+        refine eventually_movD hp3 fun s10 hs10 hm10 => ?_
+        have := hk s10 ?_ (fun r hr => ?_)
+          (by rw [hm10, hm9, hm8, hm7, hm6, hm5, hm4, hm3, hm2, hm1])
+        · simp only [List.length_cons, List.length_append, List.length_nil] at this; rwa [show k + 1 + 1 + 1 + 1 + 1 + core.length + 1 + 1 + 1 + 1 = k + (core.length + 4 + 1 + 1 + 1 + 1 + 1) by omega]
+        · rw [hs10, Reg64s.get64_set64_same, hs9, Reg64s.get64_set64_of_ne _ _ _ _ (by decide),
+            hs8, Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs7, Reg64s.get64_set64_same, hv6]
+        · simp only [List.mem_cons, not_or, List.not_mem_nil] at hr
+          rw [hs10, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.1), hs9, Reg64s.get64_set64]
+          split
+          · next he =>
+            subst he
+            rw [hs8, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hrdx), hs7,
+              Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hrd11), hfr6 rd hrax hrdx, hs5,
+              Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hrd10), hs4,
+              Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hrax), hs3, Reg64s.get64_set64_same, hs2,
+              Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs1,
+              Reg64s.get64_set64_of_ne _ _ _ _ (by decide)]
+          · next he_rax =>
+            rw [hs8, Reg64s.get64_set64]
+            split
+            · next he =>
+              subst he
+              rw [hs7, Reg64s.get64_set64_of_ne _ _ _ _ (by decide),
+                hfr6 .r10 (by decide) (by decide), hs5, Reg64s.get64_set64_same, hs4,
+                Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs3,
+                Reg64s.get64_set64_of_ne _ _ _ _ hrdx, hs2,
+                Reg64s.get64_set64_of_ne _ _ _ _ (by decide), hs1,
+                Reg64s.get64_set64_of_ne _ _ _ _ (by decide)]
+            · next he_rdx =>
+              rw [hs7, Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.2.2.1),
+                hfr6 r (Ne.symm he_rax) (Ne.symm he_rdx), hs5,
+                Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.2.1), hs4,
+                Reg64s.get64_set64_of_ne _ _ _ _ he_rax, hs3,
+                Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.1), hs2,
+                Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.2.2.1), hs1,
+                Reg64s.get64_set64_of_ne _ _ _ _ (Ne.symm hr.2.1)]
+
 theorem eventually_op {k : Nat} {o : Op Reg64} {rd : Reg64} {c : List Directive} {v : Val}
     {s : MachineData} {post : (MachineState → Prop)}
     (hop : op o rd = some c) (hc : c.IsInfixAt Host.prog k)
@@ -628,7 +1125,12 @@ theorem eventually_op {k : Nat} {o : Op Reg64} {rd : Reg64} {c : List Directive}
       subst hop
       exact eventually_shift hsh hc hbv hv' hk
     | none =>
-    simp only [op, hsh, Option.map_eq_some_iff] at hop
+    cases hdv : divCore kk oo with
+    | some cr =>
+      simp only [op, hsh, hdv] at hop
+      exact eventually_divSeq hdv hop hc hbv hv' hk
+    | none =>
+    simp only [op, hsh, hdv, Option.map_eq_some_iff] at hop
     obtain ⟨i, hb, rfl⟩ := hop
     obtain ⟨h0, hc1⟩ := hc.cons
     obtain ⟨h1, hc2⟩ := hc1.cons
@@ -778,6 +1280,24 @@ theorem eventually_store {k : Nat} {sz : Sz} {x a : Arg Reg64} {c : List Directi
     · rw [hm3, hm2, hm1, e10, e11']
       rfl
 
+
 end
+/-- `op` succeeds on every IL operation when the destination is not a scratch register. -/
+theorem op_isSome (o : Op Reg64) (rd : Reg64) (hrd : rd ∉ scratchRegs) : (op o rd).isSome = true := by
+  have := ne_of_not_mem_scratch hrd
+  cases o with
+  | bin k bo a b =>
+    cases k <;> cases bo <;> cases rd <;>
+      first | rfl | exact absurd rfl this.1 | exact absurd rfl this.2
+  | cmp k co a b => rfl
+  | ext k s sg a => cases a <;> rfl
+  | copy k a => cases k <;> cases a <;> rfl
+
+/-- `load` succeeds on every class, width, signedness, destination and address. -/
+theorem load_isSome (cl : Cls) (sz : Sz) (sg : Bool) (rd : Reg64) (a : Arg Reg64) :
+    (load cl sz sg rd a).isSome = true := rfl
+
+/-- `store` succeeds on every width, value and address. -/
+theorem store_isSome (sz : Sz) (x a : Arg Reg64) : (store sz x a).isSome = true := rfl
 
 end LeanQbe.Amd64

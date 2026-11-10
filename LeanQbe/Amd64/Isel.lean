@@ -12,16 +12,17 @@ lowering fails), and the directive helpers they are built from. Step lemmas in `
 Supported (operands go through the scratch registers r11, r10, so any destination is allowed;
 operands may be any non-scratch register or an immediate):
 
-* `op`: `copy`, `ext{s,u}{b,h,w}`, `add sub mul and or xor`, `shl shr sar`, and every comparison
-  `c{eq,ne,sle,slt,sge,sgt,ule,ult,uge,ugt}`, at both classes. Shift counts go through `%cl`
-  (`rcx` is saved in `r10` around the shift); comparisons are `cmp` + `setcc` + `movzbl`, with
-  `sge`/`sgt` as `setle`/`setl` on swapped operands (Kraken's parser has no `setge`/`setg`).
+* `op`: every operation of `LeanQbe.Ops` (`copy`, `ext{s,u}{b,h,w,l}`, `add sub mul div rem udiv
+  urem and or xor shl shr sar`, and every comparison `c{eq,ne,sle,slt,sge,sgt,ule,ult,uge,ugt}`),
+  at both classes, for any non-scratch destination register (and any destination except for
+  `div rem udiv urem`, which use `rd` alongside `r10` to save and restore `rax`/`rdx` around the
+  hardware `div`/`idiv` instruction). Shift counts go through `%cl` (`rcx` is saved in `r10`
+  around the shift); comparisons are `cmp` + `setcc` + `movzbl`, with `sge`/`sgt` as `setle`/`setl`
+  on swapped operands.
 * `load`: every width, signedness and class, from a register or an immediate address (through
   `r10`); one `movs*`/`movz*`/`mov` instruction, plus `movl` for a class-`w` load of a long.
 * `store`: every width (`movb`/`movw`/`movl`/`movq` of `r11`'s low bytes) of a register or immediate,
   to a register or immediate address (through `r10`).
-
-Unsupported (`none`): `div rem udiv urem` (Kraken's x64 semantics has no `div`/`idiv`).
 -/
 
 @[expose] public section
@@ -140,12 +141,51 @@ def extD : Cls → Sz → Bool → Reg64 → Reg64 → Directive
   | .l, .l, _, rd, r => movD rd r
   | _, _, _, rd, r => movlD rd r
 
+/-- Prepare `rdx:rax` (`edx:eax`) and divide by `r11` (`r11d`), leaving the result in `rax` (`div`,
+`udiv`) or `rdx` (`rem`, `urem`). -/
+def divCore : Cls → BinOp → Option (List Directive × Reg64)
+  | .l, .udiv => some ([moviD .rdx 0, ins (.div (.reg (q .r11)))], .rax)
+  | .l, .urem => some ([moviD .rdx 0, ins (.div (.reg (q .r11)))], .rdx)
+  | .w, .udiv => some ([moviD .rdx 0, ins32 (.div (.reg (d .r11)))], .rax)
+  | .w, .urem => some ([moviD .rdx 0, ins32 (.div (.reg (d .r11)))], .rdx)
+  | .l, .div =>
+    some ([movD .rdx .rax, ins (.sar (.reg (q .rdx)) (.imm8 (.int64 63))),
+      ins (.idiv (.reg (q .r11)))], .rax)
+  | .l, .rem =>
+    some ([movD .rdx .rax, ins (.sar (.reg (q .rdx)) (.imm8 (.int64 63))),
+      ins (.idiv (.reg (q .r11)))], .rdx)
+  | .w, .div =>
+    some ([movlD .rdx .rax, ins32 (.sar (.reg (d .rdx)) (.imm8 (.int64 31))),
+      ins32 (.idiv (.reg (d .r11)))], .rax)
+  | .w, .rem =>
+    some ([movlD .rdx .rax, ins32 (.sar (.reg (d .rdx)) (.imm8 (.int64 31))),
+      ins32 (.idiv (.reg (d .r11)))], .rdx)
+  | _, _ => none
+
+/-- Save `rax`/`rdx` using `rd` and `r10`, run `divCore`, and restore `rax`/`rdx` (except `rd`).
+Returns `none` if `rd` is a scratch register (the lowering only picks allocatable destinations). -/
+def divSeq (rd : Reg64) (core : List Directive) (res : Reg64) (a b : Arg Reg64) :
+    Option (List Directive) :=
+  if rd = .r10 ∨ rd = .r11 then none
+  else if rd = .rax then
+    some (argTo .r10 a :: argTo .r11 b :: movD .rax .r10 :: movD .r10 .rdx ::
+      (core ++ [movD .rax res, movD .rdx .r10]))
+  else if rd = .rdx then
+    some (argTo .r10 a :: argTo .r11 b :: movD .rdx .rax :: movD .rax .r10 :: movD .r10 .rdx ::
+      (core ++ [movD .rdx res, movD .rax .r10]))
+  else
+    some (argTo .r10 a :: argTo .r11 b :: movD rd .rax :: movD .rax .r10 :: movD .r10 .rdx ::
+      (core ++ [movD .r11 res, movD .rdx .r10, movD .rax rd, movD rd .r11]))
+
 /-- `rd := o`. -/
 def op : Op Reg64 → Reg64 → Option (List Directive)
   | .bin k o a b, rd =>
     match shiftIns k o with
     | some i => some [argTo .r11 a, movD .r10 .rcx, argTo .rcx b, i, movD .rcx .r10, movD rd .r11]
-    | none => (binIns k o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
+    | none =>
+      match divCore k o with
+      | some (core, res) => divSeq rd core res a b
+      | none => (binIns k o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
   | .cmp k o a b, rd =>
     let (x, y) := if (condOf o).1 then (b, a) else (a, b)
     some [argTo .r11 x, argTo .r10 y, cmpIns k, setccD (condOf o).2, movzbD rd]
