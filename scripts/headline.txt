@@ -93,3 +93,6 @@ LeanQbe.Arm64.LratTrim LeanQbe.Arm64.LratTrim.lrat_module_compile
 LeanQbe.Arm64.LratTrim LeanQbe.Arm64.LratTrim.lrat_module_fnspec
 LeanQbe.Arm64.LratTrim LeanQbe.Arm64.LratTrim.checkProof_arm64_correct
 LeanQbe.Arm64.LratTrim LeanQbe.Arm64.LratTrim.checkProof_arm64_nonvacuous
+LeanQbe.Amd64.TargLemmas LeanQbe.Amd64.fastTarget
+LeanQbe.Amd64.IselLemmas LeanQbe.Amd64.fastOp_isSome
+LeanQbe.Amd64.IselLemmas LeanQbe.Amd64.fastStore_isSome
