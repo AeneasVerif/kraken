@@ -5,3 +5,10 @@ spike.e1.E1 E1.wp_mono
 spike.e1.E1 E1.evenOdd_correct
 spike.k.SpikeK SpikeK.countdown_wp
 spike.k.SpikeKAArch64 SpikeKA64.eventually_bCond
+LeanQbe.WPLemmas LeanQbe.wp_mono
+LeanQbe.WPLemmas LeanQbe.Func.spec_mono
+LeanQbe.WfLemmas LeanQbe.Wf.weaken
+spike.il.Smoke LeanQbe.Smoke.tracer_correct
+spike.il.Smoke LeanQbe.Smoke.tracer_wf
+spike.il.Smoke LeanQbe.Smoke.evenOdd_correct
+spike.il.Smoke LeanQbe.Smoke.caller_correct

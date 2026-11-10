@@ -6,7 +6,7 @@
 #  3. Checks import closures: the generic `LeanQbe` root imports neither `Kraken.X64` nor
 #     `Kraken.AArch64`, and every module file under `LeanQbe/` is reachable from its library root
 #     (`LeanQbe/Amd64/*` from `LeanQbeAmd64`, `LeanQbe/Arm64/*` from `LeanQbeArm64`, the rest from
-#     `LeanQbe`), so that step 1 really built it.
+#     `LeanQbe`), so that step 1 really built it. Only files known to git are checked.
 #  4. Axiom audit: `#print axioms` for every theorem listed in scripts/headline.txt, plus every
 #     `#print axioms` already in the build log (spikes). Allowed: propext, Classical.choice, Quot.sound.
 #
@@ -62,7 +62,7 @@ while IFS= read -r f; do
     *) r=LeanQbe ;;
   esac
   grep -qx "$m" "$TMP/closure_$r.txt" || err "$f is not imported by the root $r.lean (so it is not built)"
-done < <(git ls-files --cached --others --exclude-standard 'LeanQbe/*.lean' 'LeanQbe/**/*.lean' | sort -u)
+done < <(git ls-files --cached 'LeanQbe/*.lean' 'LeanQbe/**/*.lean' | sort -u)
 
 echo "== 4. axiom audit"
 # Spikes: every `#print axioms` that the build printed.
