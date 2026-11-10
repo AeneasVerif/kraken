@@ -111,7 +111,7 @@ Closed Kraken-x64-only end-to-end theorems + concrete non-vacuity instances:
 - `twice_module_fnspec`, `twice_correct`, `twice_nonvacuous_exit` (2-function module with exit propagation through call)
 - `spill10_fnspec`, `spill10_correct`, `spill10_nonvacuous` (6 stack spill slots, 56-byte frame)
 - `uf_module_fnspec`, `find_x64_correct`, `union_x64_correct`, `find_x64_nonvacuous`, `union_x64_nonvacuous` (`LeanQbe/Examples/LitmusUf.lean`: linked `[find, union]` module via `compile_sound`, entering at `Labels.label "find"` and `Labels.label "union"`, where `union` calls `find` twice and spills `p`, `y`, `rx` across the calls)
-- `lrat_module_compile`, `lrat_module_fnspec`, `checkProof_x64_correct`, `checkProof_x64_nonvacuous` (`LeanQbe/Examples/LitmusLrat.lean`: linked 4-function LRAT checker module `[checkRup, strictCheck, checkClause, checkProof]` via `compile_sound`, with computed bounds `[472, 296, 520, 584]`, entering at `Labels.label "br_check_proof"` and concluding `cnf₀.Unsat` on normal return or exit to `Labels.label "lrat_fail"`)
+- `lrat_module_compile`, `lrat_module_fnspec`, `checkProof_x64_correct`, `checkProof_x64_nonvacuous`, `checkProof_x64_accepts` (`LeanQbe/Examples/LitmusLrat.lean`: linked 4-function LRAT checker module `[checkRup, strictCheck, checkClause, checkProof]` via `compile_sound`, with computed bounds `[472, 296, 520, 584]`, entering at `Labels.label "br_check_proof"` and concluding `cnf₀.Unsat` on normal return or exit to `Labels.label "lrat_fail"`, plus concrete accepting execution `checkProof_x64_accepts` on `nvAcceptBytes` concluding `st.pc = 0x1234 ∧ nvAcceptCnf.Unsat` with exit postcondition `False`)
 
 ## D8 and D9 evidence (R2)
 

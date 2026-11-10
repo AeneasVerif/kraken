@@ -1153,30 +1153,21 @@ theorem lrat_module_fnspec (k₀ : Nat)
     (hfail : Amd64.target.Defined hh "lrat_fail") :
     ∀ p ∈ lratBounds,
       Amd64.target.Defined hh p.1 ∧
-        Amd64.target.FnSpec hh p.1 (lratEnv p.1) p.2 296 := by
-  refine compile_sound (T := Amd64.target) hh lratEnv [] ["lrat_fail"] 296 lratCheckFns
-    lratCheckCode lratBounds k₀ lrat_module_compile hc hu ?_ ?_ (fun _ h => nomatch h) ?_
-  · intro f hf
-    simp only [lratCheckFns, List.mem_cons] at hf
-    rcases hf with rfl | rfl | rfl | rfl | h
-    · exact checkRup_wf
-    · exact strictCheck_wf
-    · exact checkClause_wf
-    · exact checkProof_wf
-    · nomatch h
-  · intro f hf
-    simp only [lratCheckFns, List.mem_cons] at hf
-    rcases hf with rfl | rfl | rfl | rfl | h
-    · exact lratEnv_step.1
-    · exact lratEnv_step.2.1
-    · exact lratEnv_step.2.2.1
-    · exact lratEnv_step.2.2.2
-    · nomatch h
-  · intro g hg
-    simp only [List.mem_cons] at hg
-    rcases hg with rfl | h
-    · exact hfail
-    · nomatch h
+        Amd64.target.FnSpec hh p.1 (lratEnv p.1) p.2 296 :=
+  compile_sound (T := Amd64.target) hh lratEnv [] ["lrat_fail"] 296 lratCheckFns
+    lratCheckCode lratBounds k₀ lrat_module_compile hc hu lratCheckFns_wf lratEnv_sound
+    (fun _ h => nomatch h) (fun g hg => by simp at hg; subst hg; exact hfail)
+
+/-- Linking `lratCheckFns` against the accepting contracts `lratAcceptEnv` via `compile_sound`. -/
+theorem lrat_module_accepts_fnspec (k₀ : Nat)
+    (hc : lratCheckCode.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    (hfail : Amd64.target.Defined hh "lrat_fail") :
+    ∀ p ∈ lratBounds,
+      Amd64.target.Defined hh p.1 ∧
+        Amd64.target.FnSpec hh p.1 (lratAcceptEnv p.1) p.2 296 :=
+  compile_sound (T := Amd64.target) hh lratAcceptEnv [] ["lrat_fail"] 296 lratCheckFns
+    lratCheckCode lratBounds k₀ lrat_module_compile hc hu lratCheckFns_wf lratAcceptEnv_sound
+    (fun _ h => nomatch h) (fun g hg => by simp at hg; subst hg; exact hfail)
 
 /-- End-to-end correctness of compiled `br_check_proof` on Kraken x64: in every host containing
 `lratCheckCode` at `k₀` and defining `"lrat_fail"` with unique labels, from a state at
@@ -1294,5 +1285,66 @@ theorem checkProof_x64_nonvacuous :
   rintro st (⟨hpc, hunsat, -⟩ | ⟨hpc, -⟩)
   · exact Or.inl ⟨hpc, hunsat⟩
   · exact Or.inr hpc
+
+/-! ## Accepting UNSAT instance: concrete bytes `nvAcceptBytes` (`[[1], [-1]]`), normal return -/
+
+def lratAcceptState0 : MachineData :=
+  { regs := { rdi := 0x1000, rsp := 0x0ff8 },
+    dmem := ((zeros584 ++ raBytes0) ++ nvAcceptBytes).At 0x0db0#64 }
+
+/-- Concrete accepting execution of compiled `br_check_proof` on Kraken x64: on the 2-clause
+unsatisfiable formula `nvAcceptCnf` (`(x₁) ∧ (¬x₁)`) and 1-step LRAT resolution proof encoded in
+`nvAcceptBytes` (which satisfies `CheckProofPre` by `nvAccept_pre`), execution from
+`Labels.label "br_check_proof"` returns normally to `ra = 0x1234` (with exit postcondition `False`)
+and establishes `nvAcceptCnf.Unsat`. -/
+theorem checkProof_x64_accepts :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = 0x1234 ∧ nvAcceptCnf.Unsat)
+      ⟨lratAcceptState0, Labels.label "br_check_proof"⟩ := by
+  have hlen : raBytes0.length = 8 := UInt64.toBytes_length _
+  have h584 : zeros584.length = 584 := List.length_replicate
+  have hnv_len : nvAcceptBytes.length = 274 := nvAcceptBytes_length
+  have hmem : lratAcceptState0.dmem =⋆ Eq (nvAcceptBytes.At 0x1000#64) ⋆
+      ((fun f => ∃ bs : List UInt8, bs.length = 584 ∧ f = bs.At (lratAcceptState0.regs.get64 .rsp - 584#64)) ⋆
+        Eq ((0x1234 : Int64).toUInt64.At (lratAcceptState0.regs.get64 .rsp))) ⋆
+      Std.ExtHashMap.emp := by
+    rw [Std.ExtHashMap.sep_emp, Std.ExtHashMap.sep_comm]
+    have h1 := Mem.At_append_sep (zeros584 ++ raBytes0) nvAcceptBytes 0x0db0#64
+      (by simp [hlen, h584, hnv_len])
+    have e1 : (0x0db0#64 + BitVec.ofNat 64 (zeros584 ++ raBytes0).length) = 0x1000#64 := by
+      simp [h584, hlen]
+    rw [e1] at h1
+    have h2 := Mem.At_append_sep zeros584 raBytes0 0x0db0#64 (by simp [hlen, h584])
+    have e2 : (0x0db0#64 + BitVec.ofNat 64 zeros584.length) = 0x0ff8#64 := by simp [h584]
+    rw [e2] at h2
+    have h0 : (Eq (((zeros584 ++ raBytes0) ++ nvAcceptBytes).At 0x0db0#64)) lratAcceptState0.dmem := rfl
+    rw [h1] at h0
+    refine sep_mono (fun f hf => ?_) h0
+    rw [h2] at hf
+    exact sep_mono (fun f1 hf1 => ⟨zeros584, h584, hf1.symm⟩) hf
+  have hc : lratCheckCode.IsInfixAt Host.prog 0 := by
+    rw [lratHost_prog]; exact ⟨[.label "lrat_fail"], rfl⟩
+  have hfail : Amd64.target.Defined lratHost "lrat_fail" := by
+    refine ⟨lratCheckCode.length, ?_⟩
+    change Host.prog[lratCheckCode.length]? = some (.label "lrat_fail")
+    rw [lratHost_prog, lratProg, List.getElem?_append_right (Nat.le_refl _), Nat.sub_self]
+    rfl
+  have hrdi : lratAcceptState0.regs.get64 .rdi = 0x1000#64 := rfl
+  have hargs : Amd64.target.ArgsIn [0x1000#64] lratAcceptState0 := by
+    simp [Target.ArgsIn, Target.ValsIn, Amd64.target, Amd64.isa, hrdi]
+  have hsp : (lratAcceptState0.regs.get64 .rsp + 8#64).toNat % 16 = 0 :=
+    show (0x0ff8#64 + 8#64).toNat % 16 = 0 by decide
+  have hspec : lratAcceptEnv ("br_check_proof", 584).1 [0x1000#64] (nvAcceptBytes.At 0x1000#64)
+      (fun rs m' => rs = [] ∧ nvAcceptMem nvAcceptK2 Std.ExtHashMap.emp m' ∧ nvAcceptCnf.Unsat)
+      (fun _ _ _ => False) := by
+    simpa [lratAcceptEnv] using checkProof_accepts_nonvacuous
+  have hf := (lrat_module_accepts_fnspec 0 hc lratHost_unique hfail
+      ("br_check_proof", 584) (by simp [lratBounds])).2
+    [0x1000#64] (nvAcceptBytes.At 0x1000#64) _ _ hspec
+    lratAcceptState0 0x1234 Std.ExtHashMap.emp hargs trivial hsp hmem
+  refine eventually_weaken _ _ _ _ ?_ hf
+  rintro st (⟨hpc, _, _, ⟨_, _, hunsat⟩, -⟩ | ⟨_, _, _, hx, _⟩)
+  · exact ⟨hpc, hunsat⟩
+  · exact hx.elim
 
 end LeanQbe.Litmus
