@@ -249,6 +249,41 @@ concrete accepting UNSAT witness on AArch64:
     `(zeros224 ++ nvAcceptBytes).At 0x0f20#64` (CNF `[[1], [-1]]` with a 1-step resolution proof),
     proving `Eventually (step1 Host.exe) (fun st => st.pc = 0x1234 ∧ nvAcceptCnf.Unsat)`.
 
+## Untrusted-Bytes LRAT Checker on Kraken AArch64 (`LeanQbe/Arm64/LratBytes.lean`, #200.5 & #204)
+
+`LeanQbe/Arm64/LratBytes.lean` compiles all six functions in `LeanQbe.LratBytes.lratBytesFns`
+through `compileModule Arm64.isa 0 [] [] 0 lratBytesFns`, checks all 1,579 emitted Kraken AArch64
+directives and per-function stack bounds in the kernel (`lrat_bytes_module_compile` by
+`kernel_rfl`), and links against `LeanQbe.Examples.LratBytesLemmas` via `compile_sound`:
+
+| Function | Stack bound (`lratBytesBounds`) |
+|---|---|
+| `lb_parse_dimacs_header` | 16 B |
+| `lb_parse_dimacs_body` | 16 B |
+| `lb_read_add_lits` | 16 B |
+| `lb_rup_check` | 48 B |
+| `lb_check_prf` | 144 B |
+| `lrat_check_bytes` | 208 B |
+
+- **`lrat_bytes_module_fnspec`**: links all 6 functions against `lratBytesEnv` in any AArch64 `[Host]`
+  with `lratBytesCode.IsInfixAt Host.prog k₀` and `Host.LabelsUnique`.
+- **`lrat_check_bytes_arm64_correct`**: closed Kraken-AArch64 theorem over arbitrary untrusted
+  `cnfBytes`, `prfBytes`, and uninitialized scratch `region work_ptr work_len`: returns to `ra`
+  (`x30`) with `x0 ∈ {0, 1}`, `x0 = 1 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat`,
+  callee-saved `x19`–`x29` and `sp` restored, and all memory frames intact (`exits = []`).
+- **`lrat_check_bytes_arm64_unsat`** (#204 trivial-postcondition corollary): for any
+  `ValidDimacsCnf cnf` encoded via `(encodeDimacs cnf).At cnf_ptr`, arbitrary `prfBytes`, and
+  `region work_ptr work_len`, concludes `st.pc = ra ∧ (x0 = 0 ∨ x0 = 1) ∧ (x0 = 1 → cnf.Unsat)`.
+- **`lrat_check_bytes_arm64_accepts` & `lrat_check_bytes_arm64_rejects`**: concrete machine-level
+  non-vacuity witnesses on `lratBytesHost` (`lratBytesState nvDimacsBytes nvLratAcceptBytes` →
+  `pc = 0x1234 ∧ x0 = 1 ∧ nvBytesCnf.Unsat`; `lratBytesState nvDimacsBytes nvLratRejectBytes` →
+  `pc = 0x1234 ∧ x0 = 0`).
+- **Tests & verification**:
+  - `timeout 300 lake build --wfail LeanQbe.Arm64.LratBytes` clean (0 warnings, 0 `sorry`/native tactics; axioms on all exported theorems strictly `[propext, Classical.choice, Quot.sound]`).
+  - `test/arm64/Emit.lean` + `test/arm64/run.sh`: **28/28 PASS** under `qemu-aarch64` across all 14
+    suites (including `lrat_bytes (arm64)` and `lrat_bytes (stock qbe arm64)` against guard-paged
+    `test/lrat_bytes_main.c`).
+
 ## Next
 
 - Complete any remaining cross-module checks or downstream Arm64 tasks if requested.
