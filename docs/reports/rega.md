@@ -13,7 +13,8 @@ Owner: `rega`. Files: `LeanQbe/{Rega,RegaLemmas,Main,MainLemmas}.lean`, `LeanQbe
 | R2, E3 half: the same skeleton in E3, the D8 comparison | done (`spike/e3/`, written by helper `e3`; see below) |
 | R3: calls, exits, stack spills, prologue/epilogue, oracle, module linking, 4-way litmus | done: `lower_correct`, `lowerFn_correct`, `compileFn_correct`, `compile_correct`, `callinc` / `twice` / `spill10` / `sumcall` checked 4 ways |
 | Step 5 (x64): linked `[find, union]` Union-Find end to end on Kraken x64 | done: `uf_module_fnspec`, `find_x64_correct`, `union_x64_correct`, `find_x64_nonvacuous`, `union_x64_nonvacuous`, `test/uf_main.c` |
-| Step 7 (x64): linked `lratCheckFns` LRAT-trim checker end to end on Kraken x64 | done: `lrat_module_compile`, `lrat_module_fnspec`, `checkProof_x64_correct`, `checkProof_x64_nonvacuous`, `test/lrat_trim_main.c` (24/24 PASS in `test/run.sh`) |
+| Step 7 (x64): linked `lratCheckFns` LRAT-trim checker end to end on Kraken x64 | done: `lrat_module_compile`, `lrat_module_fnspec`, `checkProof_x64_correct`, `checkProof_x64_nonvacuous`, `checkProof_x64_accepts`, `test/lrat_trim_main.c` |
+| Untrusted-bytes LRAT checker (x64): linked 6-fn `lratBytesFns` (`Amd64.fastTarget`) end to end on Kraken x64 | done: `lrat_bytes_module_compile`, `lrat_bytes_module_fnspec`, `lrat_check_bytes_x64_correct`, `lrat_check_bytes_x64_unsat`, `lrat_check_bytes_x64_accepts`, `lrat_check_bytes_x64_rejects`, `test/lrat_bytes_main.c` (26/26 PASS in `test/run.sh`) |
 
 ## What exists
 
@@ -93,15 +94,15 @@ recursion over the PHOAS term at `V := Nat, L := Nat`.
   `Γ f.name → Func.spec Γ f.body`, external callee `FnSpec`s, and exit `Defined`ness to obtain
   `T.Defined h p.1 ∧ T.FnSpec h p.1 (Γ p.1) p.2 nX` for every `p ∈ bounds`.
 
-### Litmus, Step 5 Union-Find, and Step 7 LRAT-trim (`LeanQbe/Examples/Litmus*.lean`, `test/`)
+### Litmus, Step 5 Union-Find, Step 7 LRAT-trim, and Untrusted-Bytes LRAT (`LeanQbe/Examples/Litmus*.lean`, `test/`)
 
-All 12 litmus suites (`tracer`, `ifelse`, `sumto`, `evenodd`, `nested`, `swap`, `callinc`, `twice`,
-`spill10`, `sumcall`, `uf`, `lrat_trim`) pass all four checks:
+All 13 litmus suites (`tracer`, `ifelse`, `sumto`, `evenodd`, `nested`, `swap`, `callinc`, `twice`,
+`spill10`, `sumcall`, `uf`, `lrat_trim`, `lrat_bytes`) pass all four checks:
 1. Kernel evaluation (`*_compile` and `*_module_compile` by `kernel_rfl` against Kraken-parsed
    assembly literals and computed stack bounds).
 2. Native execution (`test/run.sh`: `leanqbe <name>` → `cc` with `test/<name>_main.c` → run).
 3. Stock QBE differential run (`test/run.sh`: `leanqbe --il <name>` → stock `qbe` → `cc` → run):
-   24/24 PASS.
+   26/26 PASS (including `PROT_NONE` guard-paged + `0xAA`-poisoned `test/lrat_bytes_main.c`).
 4. `scripts/check.sh` (zero warnings, zero `sorry`, standard 3 axioms on all headline theorems).
 
 Closed Kraken-x64-only end-to-end theorems + concrete non-vacuity instances:
@@ -112,6 +113,7 @@ Closed Kraken-x64-only end-to-end theorems + concrete non-vacuity instances:
 - `spill10_fnspec`, `spill10_correct`, `spill10_nonvacuous` (6 stack spill slots, 56-byte frame)
 - `uf_module_fnspec`, `find_x64_correct`, `union_x64_correct`, `find_x64_nonvacuous`, `union_x64_nonvacuous` (`LeanQbe/Examples/LitmusUf.lean`: linked `[find, union]` module via `compile_sound`, entering at `Labels.label "find"` and `Labels.label "union"`, where `union` calls `find` twice and spills `p`, `y`, `rx` across the calls)
 - `lrat_module_compile`, `lrat_module_fnspec`, `checkProof_x64_correct`, `checkProof_x64_nonvacuous`, `checkProof_x64_accepts` (`LeanQbe/Examples/LitmusLrat.lean`: linked 4-function LRAT checker module `[checkRup, strictCheck, checkClause, checkProof]` via `compile_sound`, with computed bounds `[472, 296, 520, 584]`, entering at `Labels.label "br_check_proof"` and concluding `cnf₀.Unsat` on normal return or exit to `Labels.label "lrat_fail"`, plus concrete accepting execution `checkProof_x64_accepts` on `nvAcceptBytes` concluding `st.pc = 0x1234 ∧ nvAcceptCnf.Unsat` with exit postcondition `False`)
+- `lrat_bytes_module_compile`, `lrat_bytes_module_fnspec`, `lrat_check_bytes_x64_correct`, `lrat_check_bytes_x64_unsat`, `lrat_check_bytes_x64_accepts`, `lrat_check_bytes_x64_rejects` (`LeanQbe/Examples/LitmusLratBytesCode.lean` + `LeanQbe/Examples/LitmusLratBytes.lean`: linked 6-function untrusted-bytes ASCII DIMACS + Binary LRAT checker module `lratBytesFns` on `Amd64.fastTarget` via `compile_sound`, 2,268 Kraken-parsed x64 directives, computed bounds `[136, 664, 168, 632, 728, 968]`, `exits = []`, proving both full ABI preservation on arbitrary byte buffers (`rax = 1 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat`), the parser-free trivial-postcondition corollary `lrat_check_bytes_x64_unsat` on `(encodeDimacs cnf)` (`st.pc = ra ∧ (rax = 0 ∨ rax = 1) ∧ (rax = 1 → cnf.Unsat)`), and concrete machine-level accepting (`rax = 1 ∧ nvBytesCnf.Unsat`) and rejecting (`rax = 0`) executions in `lratBytesHost`)
 
 ## D8 and D9 evidence (R2)
 

@@ -5,6 +5,7 @@ public import LeanQbe.Examples.Litmus
 public import LeanQbe.Examples.LitmusCf
 public import LeanQbe.Examples.UnionFind
 public import LeanQbe.Examples.LratTrim
+public import LeanQbe.Examples.LratBytes
 public import Kraken.X64.PrintATT
 public import LeanQbe.Print
 
@@ -24,7 +25,8 @@ def programs : List (String × List Fn) :=
    ("twice", [Litmus.check, Litmus.twice]),
    ("sumcall", [Litmus.inc, Litmus.sumcall]),
    ("uf", [⟨"find", UnionFind.find⟩, ⟨"union", UnionFind.union⟩]),
-   ("lrat_trim", LratTrim.lratTrimFns)]
+   ("lrat_trim", LratTrim.lratTrimFns),
+   ("lrat_bytes", LratBytes.lratBytesFns)]
 
 /-- GNU as text for x64: `.text`, a `.globl` per function, then Kraken's AT&T printer. -/
 def emitAsm (fs : List Fn) (code : List Amd64.isa.Directive) : String :=
@@ -55,7 +57,8 @@ public def main (args : List String) : IO UInt32 := do
       IO.eprintln s!"leanqbe: unknown program {name} (try --list)"
       return 2
     | some (_, us) =>
-      match compile Amd64.isa us with
+      let res := if name == "lrat_bytes" then compile Amd64.fastIsa us else compile Amd64.isa us
+      match res with
       | .ok code =>
         IO.print (emitAsm us code)
         return 0
