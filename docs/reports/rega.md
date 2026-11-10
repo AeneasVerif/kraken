@@ -10,7 +10,8 @@ Owner: `rega`. Files: `LeanQbe/{Rega,RegaLemmas,Main}.lean`, `Main.lean` (CLI), 
 | Proof skeleton against a mock target (E1) | done, scratch only (not in the repo), no sorry |
 | R1: `lower` for param/let/store/ret, generic proof, x64 tracer | done: no hypotheses left (`memFacts` from AbiLemmas), generic-host Kraken-only theorem plus non-vacuity |
 | R1 extras | `lower` already covers load, jnz, jump, join-point groups (R2's E1 half) |
-| R2: litmus programs for control flow, the E3 comparison | next |
+| R2, E1 half: control-flow litmus, oracle, pipeline | done: five programs checked by kernel `rfl`, with FnSpec instances and native runs; `sumto` end to end with a loop proof |
+| R2, E3 half: the same skeleton in E3, the D8 comparison | helper `e3` is working on it in spike/e3/ |
 | R3: calls, exits, spills, oracle | not started |
 
 ## What exists
@@ -77,18 +78,57 @@ not needed.
 - `tracer_nonvacuous`: a concrete state (`rsp = 0x7008`, `p = 0x7010`, return address
   `0x1234`, `R = emp`) that meets every premise; the run ends at `0x1234` with `rax = 42`.
 
+### Oracle: `LeanQbe/Live.lean`, `LeanQbe/Spill.lean` (untrusted, no lemmas)
+
+- `Live.toTree` replays `lower`'s traversal to get a first-order tree with the same name and label
+  numbering. `liveLabels` computes the live-in set of each join point by fixpoint iteration over the
+  jumps; `liveIn` gives the live set of each subterm.
+- `Spill.hints I f`: first fit. Each name gets one register for its whole life, chosen at its
+  definition and avoiding the registers of values live there. Block parameters avoid the live-in
+  registers of their label. Entry maps are the live-in sets with the chosen registers. There is no
+  spilling yet: running out of registers is a compile error.
+- `Rega.pmove` (also untrusted): register moves first, in an order that never overwrites the last
+  copy of a needed value; a cycle is broken through a free scratch register (`execMoves` accepts
+  scratch destinations); constants are loaded last.
+
+### Pipeline: `LeanQbe/Main.lean`, `LeanQbe/MainLemmas.lean`
+
+`compileFn I f := lowerFn (Spill.hints I f.opt) f.opt`, where `Func.opt` is core's verified mid-end
+(fold, CSE, fold). `compileFn_correct` gives `T.FnSpec h f.name (Func.spec Γ f.body) n nX` for the
+*source* function, via `Func.opt_wf`, `Func.opt_spec` and `FnSpec.of_spec`.
+
+### Control-flow litmus: `LeanQbe/Examples/LitmusCf.lean`, `LitmusCfLemmas.lean`
+
+`ifelse`, `sumto` (counting loop), `evenodd` (two mutually recursive join points), `nested` (two
+nested loops; `m` and `k` stay live across both, `i` across the inner one), `swap` (the loop swaps
+its parameters, which forces a move cycle through `r10`). For each program:
+- `…_lower : lowerFn (Spill.hints Amd64.isa f) f = .ok fCode` by `rfl` (the kernel runs the oracle
+  and `lower`), where `fCode` is assembly text parsed by Kraken's `parse(...)`;
+- `…_compile : compileFn Amd64.isa f = .ok fCode` by `kernel_rfl` (the elaborator's `rfl` gives
+  up on the mid-end's table lookups; the kernel does not);
+- `…_wf` by `wf_tac`, and `…_fnspec` (`lowerFn_correct` in every x64 host that contains the code).
+
+`sumto_spec` is the source contract (`rax = 1 + … + n` for `n < 2^32`), proved by induction over the
+loop counter. `sumto_correct` is a Kraken-only theorem about the binary the pipeline emits, for every
+host that contains it.
+
 ### CLI and tests
 
-`lake build leanqbe; .lake/build/bin/leanqbe tracer` prints GNU as input. `test/run.sh` builds the
-CLI, then for each `test/<name>_main.c` emits, assembles, links and runs. The tracer passes on 5
-vectors, including overflow.
+`lake build leanqbe; .lake/build/bin/leanqbe <name>` prints GNU as input, compiled by `compileFn`.
+`test/run.sh` builds the CLI, then for each `test/<name>_main.c` emits, assembles, links and runs.
+All six programs (tracer plus the five control-flow programs) pass against C reference
+implementations, including edge vectors (`0x100000000` for jnz's 32-bit test, overflow).
 
 ## Measured
+
+- Module-system pitfall: `toString (n : Nat)` and `Nat.toDigits` do not reduce by `rfl` inside a
+  `module` file, although a non-module scratch check passes. `lname` uses its own `natDigits`.
 
 - `lake build LeanQbe.RegaLemmas`: about 2 s. `LeanQbe.Examples.Litmus` with `rfl`: about 1.4 s.
 - The mock skeleton (E1 IR plus mock target, everything in one file) checks in under 2 s.
 
 ## Open
 
-- R2: litmus programs for if/else, a counting loop, even/odd and nested loops, then the E3 skeleton
-  and the comparison.
+- The E3 comparison (helper `e3`), then the R2 milestone post.
+- R3 (after gate G1): calls, exits and spills on Target v1 (`slots`, `prologue`, `call`,
+  `tailJmp`), the stock-QBE comparison on the printed IL, and the four-way check per litmus test.
