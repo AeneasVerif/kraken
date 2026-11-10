@@ -97,3 +97,8 @@ LeanQbe.Amd64.TargLemmas LeanQbe.Amd64.fastTarget
 LeanQbe.Amd64.IselLemmas LeanQbe.Amd64.fastOp_isSome
 LeanQbe.Amd64.IselLemmas LeanQbe.Amd64.fastStore_isSome
 LeanQbe.MainLemmas LeanQbe.compile_sound
+LeanQbe.Examples.LratTrimCheckLemmas LeanQbe.LratTrim.checkProof_accepts_nonvacuous
+LeanQbe.Arm64.LratTrim LeanQbe.Arm64.LratTrim.lrat_accepts_fnspec
+LeanQbe.Arm64.LratTrim LeanQbe.Arm64.LratTrim.checkProof_arm64_accepts
+LeanQbe.Examples.LitmusLrat LeanQbe.Litmus.lrat_module_accepts_fnspec
+LeanQbe.Examples.LitmusLrat LeanQbe.Litmus.checkProof_x64_accepts
