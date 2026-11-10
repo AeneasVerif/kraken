@@ -27,6 +27,7 @@ public import LeanQbe.Examples.UnionFind
 public import LeanQbe.Examples.UnionFindLemmas
 public import LeanQbe.Examples.LratRup
 public import LeanQbe.Examples.LratRupLemmas
+public import LeanQbe.Examples.LratTrim
 public import LeanQbe.Rega
 public import LeanQbe.RegaLemmas
 public import LeanQbe.Main
