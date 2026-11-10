@@ -373,6 +373,27 @@ info: [Directive.instr
 #guard_msgs (whitespace := lax) in
 #check parseAArch64("add x0, x1, #0b1010")
 
+-- Test: a leading 0 marks an octal number, as in GNU as
+/--
+info: [Directive.instr
+    { operation_size := RegWidth.W64,
+      operation :=
+        Operation.ADD_e (↑↑XReg.X0 RegWidth.W64) (↑↑XReg.X1 RegWidth.W64)
+          ↑{ imm := ↑27, shift := ImmShift.S0 } }] : List (Kraken.Directive Instr)
+-/
+#guard_msgs (whitespace := lax) in
+#check parseAArch64("add x0, x1, #033")
+
+/--
+info: [Directive.instr
+    { operation_size := RegWidth.W64,
+      operation :=
+        Operation.LDUR (↑↑XReg.X0 RegWidth.W64)
+          { base := ↑↑XReg.X1 RegWidth.W64, imm := ↑(-8) } }] : List (Kraken.Directive Instr)
+-/
+#guard_msgs (whitespace := lax) in
+#check parseAArch64("ldr x0, [x1, #-010]")
+
 -- Test: ADD_s with shifted register operand
 /--
 info: [Directive.instr
