@@ -408,7 +408,7 @@ execution starting at `sym` eventually either
 Stack bounds add up: a function with a frame of `frameSize ns` bytes that calls functions with
 bounds `n_i` has bound `frameSize ns + raBytes + max n_i`.
 -/
-def FnSpec (h : T.Host) (sym : String) (spec : Spec) (n : Nat) (nX : Nat := 0) : Prop :=
+def FnSpec (h : T.Host) (sym : String) (spec : Spec) (n nX : Nat) : Prop :=
   ∀ args m Q X, spec args m Q X →
   ∀ (s : T.MData) (ra : T.Addr) (R : Mem 64 → Prop),
     T.ArgsIn args s → T.raReg s ra → T.spEntry (T.get s T.sp) →
