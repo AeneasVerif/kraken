@@ -7,6 +7,8 @@ public import spike.il.Smoke
 
 set_option autoImplicit false
 
+@[expose] public section
+
 namespace LeanQbe.ReifyTest
 
 theorem tracer_wf' : Func.Wf Smoke.tracer := by wf_reify
