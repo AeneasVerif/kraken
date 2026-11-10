@@ -192,7 +192,7 @@ and `LeanQbe/Arm64/{Tracer,LitmusCode,Litmus,UnionFind}.lean` are updated and ex
 
 `LeanQbe/Arm64/LratTrim.lean` (imported by `LeanQbeArm64.lean`) compiles the 4-function verified LRAT
 checker module `LratTrim.lratCheckFns` through `compile Arm64.isa`, checks the emitted AArch64
-assembly (715 directives total) in the kernel (`rup_compile`, `strict_compile`, `clause_compile`,
+assembly (649 directives total) in the kernel (`rup_compile`, `strict_compile`, `clause_compile`,
 `proof_compile`, `lrat_module_compile` by `kernel_rfl`), and links all four contracts via
 `compile_correct` and `lratEnv_step`:
 
@@ -220,7 +220,35 @@ assembly (715 directives total) in the kernel (`rup_compile`, `strict_compile`, 
   `unionfind`) for both our compiled AArch64 assembly and stock QBE `-t arm64`.
 - All headline theorems depend only on `[propext, Classical.choice, Quot.sound]`.
 
+## Arm64 `compile_sound`, Label Entry Points, and Accepting UNSAT Witness (#176, #177, #183)
+
+Updated `LeanQbe/Arm64/{LitmusCode,Litmus,UnionFind,LratTrim}.lean` and `test/arm64/GenLitmus.lean`
+to use `compileModule` + `compile_sound` and `Labels.label` entry/exit points, and added the
+concrete accepting UNSAT witness on AArch64:
+
+- **`LeanQbe/Arm64/LitmusCode.lean` & `Litmus.lean`**:
+  - `callinc_module_compile`, `twice_module_compile`, `sumcall_module_compile` now check
+    `compileModule` pairs `(code, bounds)` via `kernel_rfl`.
+  - `callinc_module_fnspec` and `twice_module_fnspec` link via `compile_sound`.
+  - `sumto_correct`, `callinc_correct`, `twice_correct`, `spill10_correct` (and their non-vacuity
+    theorems) enter at `Labels.label "..."`, and `twice_correct` exits to `Labels.label "fail"`
+    under `target.Defined hh "fail"`.
+- **`LeanQbe/Arm64/UnionFind.lean`**:
+  - `uf_module_compile` & `uf_module_fnspec` check and link via `compileModule`/`compile_sound`
+    (`ufBounds = [("find", 16), ("union", 48)]`); removed the manual `findFn_*`/`unionFn_*` lemmas.
+  - `find_arm64_correct`, `union_arm64_correct`, `unionInline_arm64_correct` (and their
+    non-vacuity theorems) enter at `Labels.label "..."`.
+- **`LeanQbe/Arm64/LratTrim.lean`**:
+  - `lrat_module_compile` (`compileModule isa 0 [] ["lrat_fail"] 80 lratCheckFns`) &
+    `lrat_module_fnspec` (`nX = 80`, using `compile_sound`, `lratCheckFns_wf`, `lratEnv_sound`);
+    removed the manual `rupFn_*`/`strictFn_*`/`clauseFn_*`/`proofFn_*` lemmas.
+  - `checkProof_arm64_correct` and `checkProof_arm64_nonvacuous` enter at
+    `Labels.label "br_check_proof"` and exit to `Labels.label "lrat_fail"` under `target.Defined`.
+  - **`lrat_accepts_fnspec` & `checkProof_arm64_accepts`**: links `lratAcceptEnv` via `compile_sound`
+    and instantiates `@logic`'s `checkProof_accepts_nonvacuous` (`X := fun _ _ _ => False`) on
+    `(zeros224 ++ nvAcceptBytes).At 0x0f20#64` (CNF `[[1], [-1]]` with a 1-step resolution proof),
+    proving `Eventually (step1 Host.exe) (fun st => st.pc = 0x1234 ∧ nvAcceptCnf.Unsat)`.
+
 ## Next
 
-- Add `checkProof_arm64_accepts` (concrete UNSAT accepting instance) and restate via `compile_sound`
-  once `@logic` and `@rega` land the source instance and top-level wrapper (#176, #177).
+- Complete any remaining cross-module checks or downstream Arm64 tasks if requested.

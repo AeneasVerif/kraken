@@ -10,9 +10,9 @@ import all Kraken.Mem
 
 Compiles the two-function Union-Find module `[findFn, unionFn]` (`union` calls `find` twice, with
 `p`, `y`, and `rx` spilled across calls) as well as the inlined variant `unionInlineFn` through the
-full verified pipeline (`compile Arm64.isa` / `compileFn Arm64.isa`), checks the emitted AArch64
-assembly by `kernel_rfl`, links `[findFn, unionFn]` via `compile_correct` (`uf_module_fnspec`), and
-proves Kraken-AArch64-only end-to-end theorems (`find_arm64_correct`, `union_arm64_correct`,
+full verified pipeline (`compileModule Arm64.isa` / `compileFn Arm64.isa`), checks the emitted
+AArch64 assembly by `kernel_rfl`, links `[findFn, unionFn]` via `compile_sound` (`uf_module_fnspec`),
+and proves Kraken-AArch64-only end-to-end theorems (`find_arm64_correct`, `union_arm64_correct`,
 `unionInline_arm64_correct`) and concrete non-vacuity instances (`find_arm64_nonvacuous`,
 `union_arm64_nonvacuous`, `unionInline_arm64_nonvacuous`).
 -/
@@ -136,22 +136,21 @@ def unionInlineCode : Program := parseAArch64("unionInline:
   add sp, sp, #16
   ret")
 
+def ufBounds : List (String × Nat) := [("find", 16), ("union", 48)]
+
 theorem find_compile : compileFn isa findFn = .ok findCode := by kernel_rfl
 theorem union_compile : compileFn isa unionFn = .ok unionCode := by kernel_rfl
 theorem unionInline_compile : compileFn isa unionInlineFn = .ok unionInlineCode := by kernel_rfl
 
 theorem uf_module_compile :
-    compile isa [findFn, unionFn] = .ok (findCode ++ unionCode) := by kernel_rfl
+    compileModule isa 0 [] [] 0 [findFn, unionFn] =
+      .ok (findCode ++ unionCode, ufBounds) := by kernel_rfl
 
 def ufEnv : Env := fun g => if g = "find" then findSpec else unionSpec
-def ufBound : String → Nat := fun g => if g = "find" then 16 else 48
 
 private theorem findFn_nslots : findFn.nslots isa = 0 := by kernel_rfl
 private theorem findFn_callees : findFn.opt.ext.callees = [] := by kernel_rfl
 private theorem findFn_exits : findFn.opt.ext.exits = [] := by kernel_rfl
-private theorem unionFn_nslots : unionFn.nslots isa = 3 := by kernel_rfl
-private theorem unionFn_callees : unionFn.opt.ext.callees = ["find", "find"] := by kernel_rfl
-private theorem unionFn_exits : unionFn.opt.ext.exits = [] := by kernel_rfl
 private theorem unionInlineFn_nslots : unionInlineFn.nslots isa = 0 := by kernel_rfl
 private theorem unionInlineFn_callees : unionInlineFn.opt.ext.callees = [] := by kernel_rfl
 private theorem unionInlineFn_exits : unionInlineFn.opt.ext.exits = [] := by kernel_rfl
@@ -159,34 +158,26 @@ private theorem unionInlineFn_exits : unionInlineFn.opt.ext.exits = [] := by ker
 section Generic
 variable [hh : Host]
 
-/-- Linking `[findFn, unionFn]` via `compile_correct`. -/
+/-- Linking `[findFn, unionFn]` via `compile_sound`. -/
 theorem uf_module_fnspec (k₀ : Nat)
-    (hc : (findCode ++ unionCode).IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) (nX : Nat) :
-    ∀ f ∈ [findFn, unionFn],
-      target.FnSpec hh f.name (ufEnv f.name) (ufBound f.name) nX := by
-  refine compile_correct (T := target) hh ufEnv ufBound nX [findFn, unionFn]
-    (findCode ++ unionCode) k₀ uf_module_compile hc hu ?_
-  intro pre f post heq
-  rcases pre with _ | ⟨f1, _ | ⟨f2, pre⟩⟩
-  · injection heq with hf htl
-    subst hf
-    refine ⟨find_wf, find_correct _, by rw [findFn_nslots]; decide, by decide, ?_, ?_⟩
-    · rw [findFn_callees]; intro _ h; nomatch h
-    · rw [findFn_exits]; intro _ h; nomatch h
-  · injection heq with hf1 htl
-    injection htl with hf _
-    subst hf1 hf
-    refine ⟨union_wf, union_correct _ (fun _ _ _ _ h => h),
-      by rw [unionFn_nslots]; decide, by decide, ?_, ?_⟩
-    · rw [unionFn_callees]
-      intro g hg
-      simp only [List.mem_cons] at hg
-      rcases hg with rfl | rfl | hg
-      · exact ⟨Or.inl (by simp [findFn]), by rw [unionFn_nslots]; decide⟩
-      · exact ⟨Or.inl (by simp [findFn]), by rw [unionFn_nslots]; decide⟩
-      · nomatch hg
-    · rw [unionFn_exits]; intro _ h; nomatch h
-  · simp at heq
+    (hc : (findCode ++ unionCode).IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
+    ∀ p ∈ ufBounds,
+      target.Defined hh p.1 ∧ target.FnSpec hh p.1 (ufEnv p.1) p.2 0 := by
+  refine compile_sound (T := target) hh ufEnv [] [] 0 [findFn, unionFn]
+    (findCode ++ unionCode) ufBounds k₀ uf_module_compile hc hu ?_ ?_
+    (fun _ h => nomatch h) (fun _ h => nomatch h)
+  · intro f hf
+    simp only [List.mem_cons] at hf
+    rcases hf with rfl | rfl | h
+    · exact find_wf
+    · exact union_wf
+    · nomatch h
+  · intro f hf
+    simp only [List.mem_cons] at hf
+    rcases hf with rfl | rfl | h
+    · exact find_correct _
+    · exact union_correct _ (fun _ _ _ _ h => h)
+    · nomatch h
 
 /-- `findCode` alone satisfies `findSpec` as a `Target.FnSpec` in any AArch64 host with unique
 labels. -/
@@ -209,11 +200,11 @@ theorem unionInline_fnspec (k₀ : Nat) (hc : unionInlineCode.IsInfixAt Host.pro
     (unionInline_correct (fun _ _ _ _ _ => False))
 
 /-- End-to-end correctness of compiled `find` on Kraken AArch64: in every host containing
-`findCode ++ unionCode` at `k₀` with unique labels, from a state with `p, x` (`x < n`) in
-`x0, x1`, 16 bytes of stack space below `sp`, return address `ra` in `x30`, 16-byte aligned `sp`,
-and memory `uf p n rep ⋆ ... ⋆ R`, execution eventually reaches `ra` with the canonical
-representative `rep x` in `x0`, callee-saved registers `x19`–`x29` and `sp` restored, and memory
-satisfying `uf p n rep ⋆ ... ⋆ R` (after path halving). -/
+`findCode ++ unionCode` at `k₀` with unique labels, from a state at `Labels.label "find"` with
+`p, x` (`x < n`) in `x0, x1`, 16 bytes of stack space below `sp`, return address `ra` in `x30`,
+16-byte aligned `sp`, and memory `uf p n rep ⋆ ... ⋆ R`, execution eventually reaches `ra` with the
+canonical representative `rep x` in `x0`, callee-saved registers `x19`–`x29` and `sp` restored, and
+memory satisfying `uf p n rep ⋆ ... ⋆ R` (after path halving). -/
 theorem find_arm64_correct (k₀ : Nat)
     (hc : (findCode ++ unionCode).IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (p x : BitVec 64) (n : Nat) (rep : BitVec 64 → BitVec 64) (hx : x.toNat < n)
@@ -229,7 +220,7 @@ theorem find_arm64_correct (k₀ : Nat)
         st.data.regs.SP = s.regs.SP ∧
         (st.data.dmem =⋆ uf p n rep ⋆
           (fun f => ∃ bs : List UInt8, bs.length = 16 ∧ f = bs.At (s.regs.SP.toBitVec - 16#64)) ⋆ R))
-      ⟨s, Host.addrOf k₀⟩ := by
+      ⟨s, Labels.label "find"⟩ := by
   obtain ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, huf, hentry⟩, hrest⟩ := hmem
   let Q : LeanQbe.Post := fun rets m' => rets = [rep x] ∧ (uf p n rep ⋆ Std.ExtHashMap.emp) m'
   let X : XPost := fun _ _ _ => False
@@ -238,14 +229,11 @@ theorem find_arm64_correct (k₀ : Nat)
     ⟨p, x, n, rep, Std.ExtHashMap.emp, rfl, hm, hx, fun _ hm' => ⟨rfl, hm'⟩⟩
   have hargs : target.ArgsIn [p, x] s := by
     simp [Target.ArgsIn, Target.ValsIn, argRegs, get_reg, hp, hxx]
-  have hf := uf_module_fnspec k₀ hc hu 0 findFn (by simp)
+  have hf := (uf_module_fnspec k₀ hc hu ("find", 16) (by simp [ufBounds])).2
     [p, x] m Q X hspec s ra R hargs hra hsp
     (by
       simp only [Target.Entry, region_zero, Std.ExtHashMap.sep_emp]
       exact ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩)
-  have hlab : target.labelAddr hh findFn.name = Host.addrOf k₀ :=
-    labelAddr_of_unique (T := target) hu hc.append.1.cons.1
-  rw [hlab] at hf
   refine eventually_weaken _ _ _ _ ?_ hf
   rintro st (⟨hpc, rets, m', ⟨rfl, huf'⟩, hrets, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx', _⟩)
   · rw [Std.ExtHashMap.sep_emp] at huf'
@@ -258,11 +246,11 @@ theorem find_arm64_correct (k₀ : Nat)
   · exact hx'.elim
 
 /-- End-to-end correctness of compiled `union` (calling `find` twice) on Kraken AArch64: in every
-host containing `findCode ++ unionCode` at `k₀` with unique labels, from a state with `p, x, y`
-(`x, y < n`) in `x0, x1, x2`, 48 bytes of stack space below `sp`, return address `ra` in `x30`,
-16-byte aligned `sp`, and memory `uf p n rep ⋆ ... ⋆ R`, execution eventually reaches `ra` with
-callee-saved registers `x19`–`x29` and `sp` restored, and memory satisfying
-`uf p n (merge rep x y) ⋆ ... ⋆ R`. -/
+host containing `findCode ++ unionCode` at `k₀` with unique labels, from a state at
+`Labels.label "union"` with `p, x, y` (`x, y < n`) in `x0, x1, x2`, 48 bytes of stack space below
+`sp`, return address `ra` in `x30`, 16-byte aligned `sp`, and memory `uf p n rep ⋆ ... ⋆ R`,
+execution eventually reaches `ra` with callee-saved registers `x19`–`x29` and `sp` restored, and
+memory satisfying `uf p n (merge rep x y) ⋆ ... ⋆ R`. -/
 theorem union_arm64_correct (k₀ : Nat)
     (hc : (findCode ++ unionCode).IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (p x y : BitVec 64) (n : Nat) (rep : BitVec 64 → BitVec 64)
@@ -279,7 +267,7 @@ theorem union_arm64_correct (k₀ : Nat)
         st.data.regs.SP = s.regs.SP ∧
         (st.data.dmem =⋆ uf p n (merge rep x y) ⋆
           (fun f => ∃ bs : List UInt8, bs.length = 48 ∧ f = bs.At (s.regs.SP.toBitVec - 48#64)) ⋆ R))
-      ⟨s, Host.addrOf (k₀ + findCode.length)⟩ := by
+      ⟨s, Labels.label "union"⟩ := by
   obtain ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, huf, hentry⟩, hrest⟩ := hmem
   let Q : LeanQbe.Post := fun rets m' => rets = [] ∧ (uf p n (merge rep x y) ⋆ Std.ExtHashMap.emp) m'
   let X : XPost := fun _ _ _ => False
@@ -288,14 +276,11 @@ theorem union_arm64_correct (k₀ : Nat)
     ⟨p, x, y, n, rep, Std.ExtHashMap.emp, rfl, hm, hx, hy, fun _ hm' => ⟨rfl, hm'⟩⟩
   have hargs : target.ArgsIn [p, x, y] s := by
     simp [Target.ArgsIn, Target.ValsIn, argRegs, get_reg, hp, hxx, hyy]
-  have hf := uf_module_fnspec k₀ hc hu 0 unionFn (by simp)
+  have hf := (uf_module_fnspec k₀ hc hu ("union", 48) (by simp [ufBounds])).2
     [p, x, y] m Q X hspec s ra R hargs hra hsp
     (by
       simp only [Target.Entry, region_zero, Std.ExtHashMap.sep_emp]
       exact ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩)
-  have hlab : target.labelAddr hh unionFn.name = Host.addrOf (k₀ + findCode.length) :=
-    labelAddr_of_unique (T := target) hu hc.append.2.cons.1
-  rw [hlab] at hf
   refine eventually_weaken _ _ _ _ ?_ hf
   rintro st (⟨hpc, rets, m', ⟨rfl, huf'⟩, -, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx', _⟩)
   · rw [Std.ExtHashMap.sep_emp] at huf'
@@ -322,7 +307,7 @@ theorem unionInline_arm64_correct (k₀ : Nat) (hc : unionInlineCode.IsInfixAt H
         st.data.regs.SP = s.regs.SP ∧
         (st.data.dmem =⋆ uf p n (merge rep x y) ⋆
           (fun f => ∃ bs : List UInt8, bs.length = 16 ∧ f = bs.At (s.regs.SP.toBitVec - 16#64)) ⋆ R))
-      ⟨s, Host.addrOf k₀⟩ := by
+      ⟨s, Labels.label "unionInline"⟩ := by
   obtain ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, huf, hentry⟩, hrest⟩ := hmem
   let Q : LeanQbe.Post := fun rets m' => rets = [] ∧ (uf p n (merge rep x y) ⋆ Std.ExtHashMap.emp) m'
   let X : XPost := fun _ _ _ => False
@@ -335,9 +320,6 @@ theorem unionInline_arm64_correct (k₀ : Nat) (hc : unionInlineCode.IsInfixAt H
     (by
       simp only [Target.Entry, region_zero, Std.ExtHashMap.sep_emp]
       exact ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩)
-  have hlab : target.labelAddr hh "unionInline" = Host.addrOf k₀ :=
-    labelAddr_of_unique (T := target) hu hc.cons.1
-  rw [hlab] at hf
   refine eventually_weaken _ _ _ _ ?_ hf
   rintro st (⟨hpc, rets, m', ⟨rfl, huf'⟩, -, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx', _⟩)
   · rw [Std.ExtHashMap.sep_emp] at huf'
@@ -392,7 +374,7 @@ theorem find_arm64_nonvacuous :
         (st.data.dmem =⋆ uf 0x7000#64 4 id ⋆
           (fun f => ∃ bs : List UInt8, bs.length = 16 ∧ f = bs.At 0x6ff0#64) ⋆
           Std.ExtHashMap.emp))
-      ⟨findState0, Host.addrOf 0⟩ := by
+      ⟨findState0, Labels.label "find"⟩ := by
   have huflen : ufInitBytes.length = 32 := by decide
   have hm0 : uf 0x7000#64 4 id ufMem0 := uf_init 0x7000#64 (by decide)
   have hmem : findState0.dmem =⋆ uf 0x7000#64 4 id ⋆
@@ -421,7 +403,7 @@ theorem union_arm64_nonvacuous :
           (fun f => ∃ bs : List UInt8, bs.length = 48 ∧ f = bs.At 0x6fd0#64) ⋆
           Std.ExtHashMap.emp) ∧
         merge id 1 2 1 = merge id 1 2 2 ∧ merge id 1 2 0 ≠ merge id 1 2 1)
-      ⟨unionState0, Host.addrOf findCode.length⟩ := by
+      ⟨unionState0, Labels.label "union"⟩ := by
   have huflen : ufInitBytes.length = 32 := by decide
   have hm0 : uf 0x7000#64 4 id ufMem0 := uf_init 0x7000#64 (by decide)
   have hmem : unionState0.dmem =⋆ uf 0x7000#64 4 id ⋆
@@ -448,7 +430,7 @@ theorem unionInline_arm64_nonvacuous :
           (fun f => ∃ bs : List UInt8, bs.length = 16 ∧ f = bs.At 0x6ff0#64) ⋆
           Std.ExtHashMap.emp) ∧
         merge id 1 2 1 = merge id 1 2 2 ∧ merge id 1 2 0 ≠ merge id 1 2 1)
-      ⟨unionInlineState0, Host.addrOf (findCode ++ unionCode).length⟩ := by
+      ⟨unionInlineState0, Labels.label "unionInline"⟩ := by
   have huflen : ufInitBytes.length = 32 := by decide
   have hm0 : uf 0x7000#64 4 id ufMem0 := uf_init 0x7000#64 (by decide)
   have hmem : unionInlineState0.dmem =⋆ uf 0x7000#64 4 id ⋆

@@ -377,13 +377,20 @@ theorem sumcall_nslots : sumcall.nslots isa = 3 := by kernel_rfl
 theorem sumcall_callees : sumcall.opt.ext.callees = ["inc"] := by kernel_rfl
 theorem sumcall_exits : sumcall.opt.ext.exits = [] := by kernel_rfl
 
+def callincBounds : List (String × Nat) := [("inc", 16), ("callinc", 32)]
+def twiceBounds : List (String × Nat) := [("check", 16), ("twice", 48)]
+def sumcallBounds : List (String × Nat) := [("inc", 16), ("sumcall", 48)]
+
 theorem callinc_module_compile :
-    compile isa [inc, callinc] = .ok (incCode ++ callincCode) := by kernel_rfl
+    compileModule isa 0 [] [] 0 [inc, callinc] =
+      .ok (incCode ++ callincCode, callincBounds) := by kernel_rfl
 
 theorem twice_module_compile :
-    compile isa [check, twice] = .ok (checkCode ++ twiceCode) := by kernel_rfl
+    compileModule isa 0 [] ["fail"] 16 [check, twice] =
+      .ok (checkCode ++ twiceCode, twiceBounds) := by kernel_rfl
 
 theorem sumcall_module_compile :
-    compile isa [inc, sumcall] = .ok (incCode ++ sumcallCode) := by kernel_rfl
+    compileModule isa 0 [] [] 0 [inc, sumcall] =
+      .ok (incCode ++ sumcallCode, sumcallBounds) := by kernel_rfl
 
 end LeanQbe.Arm64.Litmus
