@@ -86,13 +86,19 @@ recursion over the PHOAS term at `V := Nat, L := Nat`.
   `Func.opt_spec`.
 - `compile_correct` proves module-level linking for `compile T.toIsa fs = .ok code` over an acyclic
   list of functions `fs` (callees first).
+- `compileModule` and `compile_sound`: `compileModule I raBytes extCallees exits nX fs` compiles an
+  acyclic module and computes and checks all per-function stack bounds `(f.name, b)` automatically
+  inside the compiler. `compile_sound` proves that when `compileModule` returns `.ok (code, bounds)`
+  (checked by `kernel_rfl`), the user only discharges `Func.Wf`, source contracts
+  `Γ f.name → Func.spec Γ f.body`, external callee `FnSpec`s, and exit `Defined`ness to obtain
+  `T.Defined h p.1 ∧ T.FnSpec h p.1 (Γ p.1) p.2 nX` for every `p ∈ bounds`.
 
 ### Litmus, Step 5 Union-Find, and Step 7 LRAT-trim (`LeanQbe/Examples/Litmus*.lean`, `test/`)
 
 All 12 litmus suites (`tracer`, `ifelse`, `sumto`, `evenodd`, `nested`, `swap`, `callinc`, `twice`,
 `spill10`, `sumcall`, `uf`, `lrat_trim`) pass all four checks:
 1. Kernel evaluation (`*_compile` and `*_module_compile` by `kernel_rfl` against Kraken-parsed
-   assembly literals).
+   assembly literals and computed stack bounds).
 2. Native execution (`test/run.sh`: `leanqbe <name>` → `cc` with `test/<name>_main.c` → run).
 3. Stock QBE differential run (`test/run.sh`: `leanqbe --il <name>` → stock `qbe` → `cc` → run):
    24/24 PASS.
@@ -104,8 +110,8 @@ Closed Kraken-x64-only end-to-end theorems + concrete non-vacuity instances:
 - `callinc_module_fnspec`, `callinc_correct`, `callinc_nonvacuous` (2-function module with spill across call)
 - `twice_module_fnspec`, `twice_correct`, `twice_nonvacuous_exit` (2-function module with exit propagation through call)
 - `spill10_fnspec`, `spill10_correct`, `spill10_nonvacuous` (6 stack spill slots, 56-byte frame)
-- `uf_module_fnspec`, `find_x64_correct`, `union_x64_correct`, `find_x64_nonvacuous`, `union_x64_nonvacuous` (`LeanQbe/Examples/LitmusUf.lean`: linked `[find, union]` module where `union` calls `find` twice and spills `p`, `y`, `rx` across the calls)
-- `lrat_module_compile`, `lrat_module_fnspec`, `checkProof_x64_correct`, `checkProof_x64_nonvacuous` (`LeanQbe/Examples/LitmusLrat.lean`: linked 4-function LRAT checker module `[checkRup, strictCheck, checkClause, checkProof]` with 59, 37, 4, and 7 spill slots and 584-byte total stack bound, concluding `cnf₀.Unsat` on normal return or exit to `"lrat_fail"`)
+- `uf_module_fnspec`, `find_x64_correct`, `union_x64_correct`, `find_x64_nonvacuous`, `union_x64_nonvacuous` (`LeanQbe/Examples/LitmusUf.lean`: linked `[find, union]` module via `compile_sound`, entering at `Labels.label "find"` and `Labels.label "union"`, where `union` calls `find` twice and spills `p`, `y`, `rx` across the calls)
+- `lrat_module_compile`, `lrat_module_fnspec`, `checkProof_x64_correct`, `checkProof_x64_nonvacuous` (`LeanQbe/Examples/LitmusLrat.lean`: linked 4-function LRAT checker module `[checkRup, strictCheck, checkClause, checkProof]` via `compile_sound`, with computed bounds `[472, 296, 520, 584]`, entering at `Labels.label "br_check_proof"` and concluding `cnf₀.Unsat` on normal return or exit to `Labels.label "lrat_fail"`)
 
 ## D8 and D9 evidence (R2)
 

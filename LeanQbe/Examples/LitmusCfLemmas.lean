@@ -9,7 +9,6 @@ public import LeanQbe.WPLemmas
 public import LeanQbe.MainLemmas
 public import LeanQbe.Examples.Litmus
 public import LeanQbe.Examples.LitmusUf
-public import LeanQbe.Examples.LitmusLrat
 import all Kraken.Separation
 import all Kraken.Mem
 

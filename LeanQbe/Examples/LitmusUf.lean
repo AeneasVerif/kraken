@@ -1,7 +1,6 @@
 module
 
 public import LeanQbe.Examples.Litmus
-public import LeanQbe.Examples.LitmusLrat
 public import LeanQbe.Examples.UnionFindLemmas
 public import LeanQbe.MainLemmas
 import all Kraken.Separation
@@ -11,11 +10,12 @@ import all Kraken.Mem
 # Union-Find end to end on x64 (plan step 5)
 
 Compiles the two-function Union-Find module `[findFn, unionFn]` (`union` calls `find` twice, with
-`p`, `y`, and `rx` spilled across calls) through the full verified pipeline (`compile Amd64.isa`),
-checks the emitted x64 assembly in the kernel (`kernel_rfl`), links the module via
-`compile_correct` (`uf_module_fnspec`), and proves Kraken-x64-only end-to-end theorems
-(`find_x64_correct`, `union_x64_correct`) and concrete non-vacuity instances
-(`find_x64_nonvacuous`, `union_x64_nonvacuous`).
+`p`, `y`, and `rx` spilled across calls) through `compileModule Amd64.isa`, checks the emitted x64
+assembly and computed stack bounds `[("find", 8), ("union", 40)]` in the kernel (`kernel_rfl`),
+links the module via `compile_sound` (`uf_module_fnspec`), and proves Kraken-x64-only end-to-end
+theorems (`find_x64_correct`, `union_x64_correct`, entering at `Labels.label "find"` and
+`Labels.label "union"`) and concrete non-vacuity instances (`find_x64_nonvacuous`,
+`union_x64_nonvacuous`).
 -/
 
 set_option autoImplicit false
@@ -27,10 +27,10 @@ namespace LeanQbe.Litmus
 open LeanQbe LeanQbe.UnionFind Rega Amd64
 
 /-- `find` packaged as a named function. -/
-def findFn : Fn := ⟨"find", find⟩
+abbrev findFn : Fn := ⟨"find", find⟩
 
 /-- `union` (calling `find` twice) packaged as a named function. -/
-def unionFn : Fn := ⟨"union", union⟩
+abbrev unionFn : Fn := ⟨"union", union⟩
 
 /-- The x64 assembly emitted by `compileFn Amd64.isa findFn`. -/
 def findCode : Program := parse("find:
@@ -112,60 +112,47 @@ def unionCode : Program := parse("union:
   addq $24, %rsp
   ret")
 
+def ufBounds : List (String × Nat) := [("find", 8), ("union", 40)]
+
 theorem find_compile : compileFn Amd64.isa findFn = .ok findCode := by kernel_rfl
 theorem union_compile : compileFn Amd64.isa unionFn = .ok unionCode := by kernel_rfl
 
 theorem uf_module_compile :
-    compile Amd64.isa [findFn, unionFn] = .ok (findCode ++ unionCode) := by kernel_rfl
+    compileModule Amd64.isa 8 [] [] 0 [findFn, unionFn] =
+      .ok (findCode ++ unionCode, ufBounds) := by kernel_rfl
 
 def ufEnv : Env := fun g => if g = "find" then findSpec else unionSpec
-def ufBound : String → Nat := fun g => if g = "find" then 8 else 40
-
-private theorem findFn_nslots : findFn.nslots Amd64.isa = 0 := by kernel_rfl
-private theorem findFn_callees : findFn.opt.ext.callees = [] := by kernel_rfl
-private theorem findFn_exits : findFn.opt.ext.exits = [] := by kernel_rfl
-private theorem unionFn_nslots : unionFn.nslots Amd64.isa = 3 := by kernel_rfl
-private theorem unionFn_callees : unionFn.opt.ext.callees = ["find", "find"] := by kernel_rfl
-private theorem unionFn_exits : unionFn.opt.ext.exits = [] := by kernel_rfl
 
 section Generic
 variable [hh : Host]
 
-/-- Linking `[findFn, unionFn]` via `compile_correct`. -/
+/-- Linking `[findFn, unionFn]` via `compile_sound`. -/
 theorem uf_module_fnspec (k₀ : Nat)
-    (hc : (findCode ++ unionCode).IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) (nX : Nat) :
-    ∀ f ∈ [findFn, unionFn],
-      Amd64.target.FnSpec hh f.name (ufEnv f.name) (ufBound f.name) nX := by
-  refine compile_correct (T := Amd64.target) hh ufEnv ufBound nX [findFn, unionFn]
-    (findCode ++ unionCode) k₀ uf_module_compile hc hu ?_
-  intro pre f post heq
-  rcases pre with _ | ⟨f1, _ | ⟨f2, pre⟩⟩
-  · injection heq with hf htl
-    subst hf
-    refine ⟨find_wf, find_correct _, by rw [findFn_nslots]; decide, by decide, ?_, ?_⟩
-    · rw [findFn_callees]; intro _ h; nomatch h
-    · rw [findFn_exits]; intro _ h; nomatch h
-  · injection heq with hf1 htl
-    injection htl with hf _
-    subst hf1 hf
-    refine ⟨union_wf, union_correct _ (fun _ _ _ _ h => h),
-      by rw [unionFn_nslots]; decide, by decide, ?_, ?_⟩
-    · rw [unionFn_callees]
-      intro g hg
-      simp only [List.mem_cons] at hg
-      rcases hg with rfl | rfl | hg
-      · exact ⟨Or.inl (by simp [findFn]), by rw [unionFn_nslots]; decide⟩
-      · exact ⟨Or.inl (by simp [findFn]), by rw [unionFn_nslots]; decide⟩
-      · nomatch hg
-    · rw [unionFn_exits]; intro _ h; nomatch h
-  · simp at heq
+    (hc : (findCode ++ unionCode).IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
+    ∀ p ∈ ufBounds,
+      Amd64.target.Defined hh p.1 ∧ Amd64.target.FnSpec hh p.1 (ufEnv p.1) p.2 0 := by
+  refine compile_sound (T := Amd64.target) hh ufEnv [] [] 0 [findFn, unionFn]
+    (findCode ++ unionCode) ufBounds k₀ uf_module_compile hc hu ?_ ?_
+    (fun _ h => nomatch h) (fun _ h => nomatch h)
+  · intro f hf
+    simp only [List.mem_cons] at hf
+    rcases hf with rfl | rfl | h
+    · exact find_wf
+    · exact union_wf
+    · nomatch h
+  · intro f hf
+    simp only [List.mem_cons] at hf
+    rcases hf with rfl | rfl | h
+    · exact find_correct _
+    · exact union_correct _ (fun _ _ _ _ h => h)
+    · nomatch h
 
 /-- End-to-end correctness of compiled `find` on Kraken x64: in every host containing
-`findCode ++ unionCode` at `k₀` with unique labels, from a state with `p, x` (`x < n`) in
-`rdi, rsi`, 8 bytes of stack space below `rsp`, return address `ra` at `rsp`, and memory
-`uf p n rep ⋆ ... ⋆ R`, execution eventually reaches `ra` with the canonical representative `rep x`
-in `rax`, callee-saved registers intact, `rsp` popped, and memory satisfying `uf p n rep ⋆ ... ⋆ R`
-(after path halving). -/
+`findCode ++ unionCode` at `k₀` with unique labels, from a state at `Labels.label "find"` with
+`p, x` (`x < n`) in `rdi, rsi`, 8 bytes of stack space below `rsp`, return address `ra` at `rsp`,
+and memory `uf p n rep ⋆ ... ⋆ R`, execution eventually reaches `ra` with the canonical
+representative `rep x` in `rax`, callee-saved registers intact, `rsp` popped, and memory satisfying
+`uf p n rep ⋆ ... ⋆ R` (after path halving). -/
 theorem find_x64_correct (k₀ : Nat)
     (hc : (findCode ++ unionCode).IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (p x : BitVec 64) (n : Nat) (rep : BitVec 64 → BitVec 64) (hx : x.toNat < n)
@@ -181,7 +168,7 @@ theorem find_x64_correct (k₀ : Nat)
         st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
         (st.data.dmem =⋆ uf p n rep ⋆
           (fun f => ∃ bs : List UInt8, bs.length = 16 ∧ f = bs.At (s.regs.get64 .rsp - 8#64)) ⋆ R))
-      ⟨s, Host.addrOf k₀⟩ := by
+      ⟨s, Labels.label "find"⟩ := by
   obtain ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, huf, hentry⟩, hrest⟩ := hmem
   let Q : LeanQbe.Post := fun rets m' => rets = [rep x] ∧ (uf p n rep ⋆ Std.ExtHashMap.emp) m'
   let X : XPost := fun _ _ _ => False
@@ -190,12 +177,9 @@ theorem find_x64_correct (k₀ : Nat)
     ⟨p, x, n, rep, Std.ExtHashMap.emp, rfl, hm, hx, fun _ hm' => ⟨rfl, hm'⟩⟩
   have hargs : Amd64.target.ArgsIn [p, x] s := by
     simp [Target.ArgsIn, Target.ValsIn, Amd64.target, Amd64.isa, hp, hxx]
-  have hf := uf_module_fnspec k₀ hc hu 0 findFn (by simp)
+  have hf := (uf_module_fnspec k₀ hc hu ("find", 8) (by simp [ufBounds])).2
     [p, x] m Q X hspec s ra R hargs trivial hsp
     ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩
-  have hlab : Amd64.target.labelAddr hh findFn.name = Host.addrOf k₀ :=
-    labelAddr_of_unique (T := Amd64.target) hu hc.append.1.cons.1
-  rw [hlab] at hf
   refine eventually_weaken _ _ _ _ ?_ hf
   rintro st (⟨hpc, rets, m', ⟨rfl, huf'⟩, hrets, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx', _⟩)
   · rw [Std.ExtHashMap.sep_emp] at huf'
@@ -204,10 +188,11 @@ theorem find_x64_correct (k₀ : Nat)
   · exact hx'.elim
 
 /-- End-to-end correctness of compiled `union` (calling `find` twice) on Kraken x64: in every host
-containing `findCode ++ unionCode` at `k₀` with unique labels, from a state with `p, x, y`
-(`x, y < n`) in `rdi, rsi, rdx`, 40 bytes of stack space below `rsp`, return address `ra` at `rsp`,
-and memory `uf p n rep ⋆ ... ⋆ R`, execution eventually reaches `ra` with callee-saved registers
-intact, `rsp` popped, and memory satisfying `uf p n (merge rep x y) ⋆ ... ⋆ R`. -/
+containing `findCode ++ unionCode` at `k₀` with unique labels, from a state at
+`Labels.label "union"` with `p, x, y` (`x, y < n`) in `rdi, rsi, rdx`, 40 bytes of stack space
+below `rsp`, return address `ra` at `rsp`, and memory `uf p n rep ⋆ ... ⋆ R`, execution eventually
+reaches `ra` with callee-saved registers intact, `rsp` popped, and memory satisfying
+`uf p n (merge rep x y) ⋆ ... ⋆ R`. -/
 theorem union_x64_correct (k₀ : Nat)
     (hc : (findCode ++ unionCode).IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (p x y : BitVec 64) (n : Nat) (rep : BitVec 64 → BitVec 64)
@@ -224,7 +209,7 @@ theorem union_x64_correct (k₀ : Nat)
         st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
         (st.data.dmem =⋆ uf p n (merge rep x y) ⋆
           (fun f => ∃ bs : List UInt8, bs.length = 48 ∧ f = bs.At (s.regs.get64 .rsp - 40#64)) ⋆ R))
-      ⟨s, Host.addrOf (k₀ + findCode.length)⟩ := by
+      ⟨s, Labels.label "union"⟩ := by
   obtain ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, huf, hentry⟩, hrest⟩ := hmem
   let Q : LeanQbe.Post := fun rets m' => rets = [] ∧ (uf p n (merge rep x y) ⋆ Std.ExtHashMap.emp) m'
   let X : XPost := fun _ _ _ => False
@@ -233,12 +218,9 @@ theorem union_x64_correct (k₀ : Nat)
     ⟨p, x, y, n, rep, Std.ExtHashMap.emp, rfl, hm, hx, hy, fun _ hm' => ⟨rfl, hm'⟩⟩
   have hargs : Amd64.target.ArgsIn [p, x, y] s := by
     simp [Target.ArgsIn, Target.ValsIn, Amd64.target, Amd64.isa, hp, hxx, hyy]
-  have hf := uf_module_fnspec k₀ hc hu 0 unionFn (by simp)
+  have hf := (uf_module_fnspec k₀ hc hu ("union", 40) (by simp [ufBounds])).2
     [p, x, y] m Q X hspec s ra R hargs trivial hsp
     ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩
-  have hlab : Amd64.target.labelAddr hh unionFn.name = Host.addrOf (k₀ + findCode.length) :=
-    labelAddr_of_unique (T := Amd64.target) hu hc.append.2.cons.1
-  rw [hlab] at hf
   refine eventually_weaken _ _ _ _ ?_ hf
   rintro st (⟨hpc, rets, m', ⟨rfl, huf'⟩, -, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx', _⟩)
   · rw [Std.ExtHashMap.sep_emp] at huf'
@@ -277,7 +259,7 @@ theorem find_x64_nonvacuous :
         (st.data.dmem =⋆ uf 0x7010#64 4 id ⋆
           (fun f => ∃ bs : List UInt8, bs.length = 16 ∧ f = bs.At 0x7000#64) ⋆
           Std.ExtHashMap.emp))
-      ⟨findState0, Host.addrOf 0⟩ := by
+      ⟨findState0, Labels.label "find"⟩ := by
   have hlen : raBytes0.length = 8 := UInt64.toBytes_length _
   have huflen : ufInitBytes.length = 32 := by decide
   have hm0 : uf 0x7010#64 4 id ufMem0 := uf_init 0x7010#64 (by decide)
@@ -315,7 +297,7 @@ theorem union_x64_nonvacuous :
           (fun f => ∃ bs : List UInt8, bs.length = 48 ∧ f = bs.At 0x6fe0#64) ⋆
           Std.ExtHashMap.emp) ∧
         merge id 1 2 1 = merge id 1 2 2 ∧ merge id 1 2 0 ≠ merge id 1 2 1)
-      ⟨unionState0, Host.addrOf findCode.length⟩ := by
+      ⟨unionState0, Labels.label "union"⟩ := by
   have hlen : raBytes0.length = 8 := UInt64.toBytes_length _
   have huflen : ufInitBytes.length = 32 := by decide
   have hm0 : uf 0x7010#64 4 id ufMem0 := uf_init 0x7010#64 (by decide)

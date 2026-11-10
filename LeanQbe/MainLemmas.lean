@@ -12,6 +12,8 @@ public import LeanQbe.OptLemmas
   (`Func.opt_spec`), the lowering is `lowerFn_correct`, and `FnSpec` is antitone in the contract.
 * `compileFn_leaf_correct`: specialization of `compileFn_correct` to leaf functions without exits.
 * `compile_correct`: module-level linking for an acyclic list of functions `fs` (callees first).
+* `compile_sound`: top-level module compilation and linking theorem for `compileModule`, which
+  computes and checks all stack bounds inside the compiler.
 -/
 
 set_option autoImplicit false
@@ -89,6 +91,143 @@ theorem compile_correct {T : Target} (h : T.Host) (Γ : Env) (bound : String →
           · exact ⟨Or.inr hf₀, h2⟩
           · exact ⟨Or.inl h1, h2⟩
         · exact ⟨Or.inr h1, h2⟩
+    · simp at hcomp
+    · simp at hcomp
+
+theorem lookupBound_mem {bounds : List (String × Nat)} {g : String} {b : Nat}
+    (h : lookupBound bounds g = some b) : (g, b) ∈ bounds := by
+  unfold lookupBound at h
+  cases hf : bounds.find? (fun p => p.1 == g) with
+  | none => simp [hf] at h
+  | some p =>
+    simp only [hf, Option.map_some, Option.some.injEq] at h
+    have hmem := List.mem_of_find?_eq_some hf
+    have heq : p.1 = g := by simpa using List.find?_some hf
+    rcases p with ⟨_, _⟩
+    simp only at heq h
+    subst heq h
+    exact hmem
+
+theorem calleesBound_spec {F raBytes : Nat} {bounds : List (String × Nat)} :
+    ∀ {gs : List String} {n : Nat},
+    calleesBound F raBytes bounds gs = some n →
+    F ≤ n ∧ ∀ g ∈ gs, ∃ bg, lookupBound bounds g = some bg ∧ F + raBytes + bg ≤ n
+  | [], _, h => by
+    simp only [calleesBound, Option.some.injEq] at h
+    subst h
+    exact ⟨Nat.le_refl _, fun _ hg => nomatch hg⟩
+  | g :: gs, n, h => by
+    unfold calleesBound at h
+    split at h
+    · rename_i bg rest hbg hrest
+      simp only [Option.some.injEq] at h
+      subst h
+      obtain ⟨hF, ih⟩ := calleesBound_spec hrest
+      refine ⟨Nat.le_trans hF (Nat.le_max_right _ _), fun g' hg' => ?_⟩
+      rcases List.mem_cons.mp hg' with rfl | hg'
+      · exact ⟨bg, hbg, Nat.le_max_left _ _⟩
+      · obtain ⟨bg', hmem, hle⟩ := ih g' hg'
+        exact ⟨bg', hmem, Nat.le_trans hle (Nat.le_max_right _ _)⟩
+    · simp at h
+
+theorem checkAndBound_spec {I : Isa} {raBytes : Nat} {exits : List String} {nX : Nat}
+    {bounds : List (String × Nat)} {f : Fn} {b : Nat}
+    (h : checkAndBound I raBytes exits nX bounds f = some b) :
+    I.frameSize (f.nslots I) ≤ b ∧
+    b + raBytes ≤ 2 ^ 64 ∧
+    (∀ g ∈ f.opt.ext.callees,
+      ∃ bg, lookupBound bounds g = some bg ∧ I.frameSize (f.nslots I) + raBytes + bg ≤ b) ∧
+    (∀ g ∈ f.opt.ext.exits, g ∈ exits ∧ nX ≤ b) := by
+  unfold checkAndBound at h
+  cases hn₁ : calleesBound (I.frameSize (f.nslots I)) raBytes bounds f.opt.ext.callees with
+  | none => simp [hn₁] at h
+  | some n₁ =>
+    rw [hn₁] at h
+    dsimp only at h
+    split at h
+    · rename_i hall
+      generalize hn_def : (if f.opt.ext.exits.isEmpty = true then n₁ else Nat.max n₁ nX) = n at h
+      split at h
+      · rename_i h264
+        simp only [Option.some.injEq] at h
+        subst h hn_def
+        obtain ⟨hF, hcallees⟩ := calleesBound_spec hn₁
+        have hle : n₁ ≤ (if f.opt.ext.exits.isEmpty = true then n₁ else Nat.max n₁ nX) := by
+          split
+          · exact Nat.le_refl _
+          · exact Nat.le_max_left _ _
+        refine ⟨Nat.le_trans hF hle, h264, fun g hg => ?_, fun g hg => ?_⟩
+        · obtain ⟨bg, hlk, hbg⟩ := hcallees g hg
+          exact ⟨bg, hlk, Nat.le_trans hbg hle⟩
+        · have hge : g ∈ exits := of_decide_eq_true (List.all_eq_true.mp hall g hg)
+          have hne : f.opt.ext.exits.isEmpty = false := by
+            cases he : f.opt.ext.exits with
+            | nil => rw [he] at hg; nomatch hg
+            | cons _ _ => rfl
+          refine ⟨hge, ?_⟩
+          rw [hne]
+          simp [Nat.le_max_right]
+      · simp at h
+    · simp at h
+
+/-- Top-level compiler-correctness theorem: if `compileModule` succeeds on `fs` producing
+`(code, bounds)`, and `code` is in host `h` with unique labels, then every `(name, b) ∈ bounds`
+is defined in `h` and satisfies its source contract `Γ name` as a `Target.FnSpec` with stack bound `b`. -/
+theorem compile_sound {T : Target} (h : T.Host) (Γ : Env)
+    (extCallees : List (String × Nat)) (exits : List String) (nX : Nat) :
+    ∀ (fs : List Fn) (code : List T.Directive) (bounds : List (String × Nat)) (k₀ : Nat),
+    compileModule T.toIsa T.raBytes extCallees exits nX fs = .ok (code, bounds) →
+    code.IsInfixAt (T.prog h) k₀ →
+    T.LabelsUnique h →
+    (∀ f ∈ fs, Func.Wf f.body) →
+    (∀ f ∈ fs, ∀ args m Q X, Γ f.name args m Q X → Func.spec Γ f.body args m Q X) →
+    (∀ p ∈ extCallees, T.FnSpec h p.1 (Γ p.1) p.2 nX) →
+    (∀ g ∈ exits, T.Defined h g) →
+    ∀ p ∈ bounds, T.Defined h p.1 ∧ T.FnSpec h p.1 (Γ p.1) p.2 nX
+  | [], _, _, _, hcomp, _, _, _, _, _, _, p, hp => by
+    simp only [compileModule, Except.ok.injEq, Prod.mk.injEq] at hcomp
+    rcases hcomp with ⟨_, rfl⟩
+    nomatch hp
+  | f :: fs, code, bounds, k₀, hcomp, hcode, hu, hwf, hspec, hext, hexits, p, hp => by
+    simp only [compileModule] at hcomp
+    split at hcomp
+    · rename_i c b hc hb
+      split at hcomp
+      · rename_i cs bs hrest
+        simp only [Except.ok.injEq, Prod.mk.injEq] at hcomp
+        rcases hcomp with ⟨rfl, rfl⟩
+        obtain ⟨hF, hn, hcallees, hex⟩ := checkAndBound_spec hb
+        let bound : String → Nat := fun g => (lookupBound extCallees g).getD 0
+        have hf_def : T.Defined h f.name := by
+          unfold compileFn Rega.lowerFn at hc
+          split at hc
+          · simp only [Except.ok.injEq] at hc
+            subst hc
+            exact ⟨k₀, hcode.append.1.cons.1⟩
+          · simp at hc
+        have hf_spec : T.FnSpec h f.name (Γ f.name) b nX := by
+          refine Target.FnSpec.of_spec T
+            (compileFn_correct h f Γ bound b nX c k₀ hc hcode.append.1 hu
+              (hwf f List.mem_cons_self) hF hn (fun g hg => ?_) (fun g hg => ?_))
+            (hspec f List.mem_cons_self)
+          · obtain ⟨bg, hlk, hbg⟩ := hcallees g hg
+            have hgb : bound g = bg := by dsimp [bound]; rw [hlk]; rfl
+            rw [hgb]
+            exact ⟨hext (g, bg) (lookupBound_mem hlk), hbg⟩
+          · obtain ⟨hge, hnX⟩ := hex g hg
+            exact ⟨hexits g hge, hnX⟩
+        rcases List.mem_cons.mp hp with rfl | hp
+        · exact ⟨hf_def, hf_spec⟩
+        · exact compile_sound h Γ ((f.name, b) :: extCallees) exits nX fs cs bs (k₀ + c.length)
+            hrest hcode.append.2 hu
+            (fun f' hf' => hwf f' (List.mem_cons_of_mem _ hf'))
+            (fun f' hf' => hspec f' (List.mem_cons_of_mem _ hf'))
+            (fun q hq => by
+              rcases List.mem_cons.mp hq with rfl | hq
+              · exact hf_spec
+              · exact hext q hq)
+            hexits p hp
+      · simp at hcomp
     · simp at hcomp
     · simp at hcomp
 

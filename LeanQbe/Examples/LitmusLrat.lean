@@ -24,16 +24,6 @@ non-vacuity instance `checkProof_x64_nonvacuous`.
 
 set_option autoImplicit false
 
-open Lean Elab Tactic Meta in
-elab "kernel_rfl" : tactic => do
-  let goal ← getMainGoal
-  let tgt ← instantiateMVars (← goal.getType)
-  let some (α, lhs, _) := tgt.eq?
-    | throwError "kernel_rfl: goal is not an equality{indentExpr tgt}"
-  let u ← getLevel α
-  goal.assign (mkApp2 (mkConst ``Eq.refl [u]) α lhs)
-  replaceMainGoal []
-
 @[expose] public section
 
 namespace LeanQbe.Litmus
@@ -1138,109 +1128,67 @@ def proofCode : Program := parse("br_check_proof:
 
 def lratCheckCode : Program := rupCode ++ (strictCode ++ (clauseCode ++ proofCode))
 
+def lratBounds : List (String × Nat) :=
+  [("br_check_clause_non_strictly_by_propagation", 472),
+   ("br_check_clause_strictly_by_resolution", 296),
+   ("br_check_clause", 520),
+   ("br_check_proof", 584)]
+
 theorem rup_compile : compileFn Amd64.isa rupFn = .ok rupCode := by kernel_rfl
 theorem strict_compile : compileFn Amd64.isa strictFn = .ok strictCode := by kernel_rfl
 theorem clause_compile : compileFn Amd64.isa clauseFn = .ok clauseCode := by kernel_rfl
 theorem proof_compile : compileFn Amd64.isa proofFn = .ok proofCode := by kernel_rfl
 
 theorem lrat_module_compile :
-    compile Amd64.isa lratCheckFns = .ok lratCheckCode := by kernel_rfl
-
-def lratBound : String → Nat := fun g =>
-  if g = "br_check_clause_non_strictly_by_propagation" then 472
-  else if g = "br_check_clause_strictly_by_resolution" then 296
-  else if g = "br_check_clause" then 520
-  else 584
-
-private theorem rupFn_nslots : rupFn.nslots Amd64.isa = 59 := by kernel_rfl
-private theorem rupFn_callees : rupFn.opt.ext.callees = [] := by kernel_rfl
-private theorem rupFn_exits : rupFn.opt.ext.exits = ["lrat_fail"] := by kernel_rfl
-
-private theorem strictFn_nslots : strictFn.nslots Amd64.isa = 37 := by kernel_rfl
-private theorem strictFn_callees : strictFn.opt.ext.callees = [] := by kernel_rfl
-private theorem strictFn_exits : strictFn.opt.ext.exits =
-    ["lrat_fail", "lrat_fail", "lrat_fail", "lrat_fail",
-     "lrat_fail", "lrat_fail", "lrat_fail", "lrat_fail"] := by kernel_rfl
-
-private theorem clauseFn_nslots : clauseFn.nslots Amd64.isa = 4 := by kernel_rfl
-private theorem clauseFn_callees : clauseFn.opt.ext.callees =
-    ["br_check_clause_strictly_by_resolution",
-     "br_check_clause_non_strictly_by_propagation"] := by kernel_rfl
-private theorem clauseFn_exits : clauseFn.opt.ext.exits = [] := by kernel_rfl
-
-private theorem proofFn_nslots : proofFn.nslots Amd64.isa = 7 := by kernel_rfl
-private theorem proofFn_callees : proofFn.opt.ext.callees = ["br_check_clause"] := by kernel_rfl
-private theorem proofFn_exits : proofFn.opt.ext.exits = [] := by kernel_rfl
+    compileModule Amd64.isa 8 [] ["lrat_fail"] 296 lratCheckFns =
+      .ok (lratCheckCode, lratBounds) := by kernel_rfl
 
 section Generic
 variable [hh : Host]
 
 /-- Linking `lratCheckFns` (`checkRup`, `strictCheck`, `checkClause`, `checkProof`) via
-`compile_correct` in any x64 host that also defines `"lrat_fail"`. -/
+`compile_sound` in any x64 host that also defines `"lrat_fail"`. -/
 theorem lrat_module_fnspec (k₀ : Nat)
     (hc : lratCheckCode.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (hfail : Amd64.target.Defined hh "lrat_fail") :
-    ∀ f ∈ lratCheckFns,
-      Amd64.target.FnSpec hh f.name (lratEnv f.name) (lratBound f.name) 0 := by
-  refine compile_correct (T := Amd64.target) hh lratEnv lratBound 0 lratCheckFns
-    lratCheckCode k₀ lrat_module_compile hc hu ?_
-  intro pre f post heq
-  rcases pre with _ | ⟨f1, _ | ⟨f2, _ | ⟨f3, _ | ⟨f4, pre⟩⟩⟩⟩
-  · injection heq with hf _
-    subst hf
-    refine ⟨checkRup_wf, lratEnv_step.1, by rw [rupFn_nslots]; decide, by decide, ?_, ?_⟩
-    · rw [rupFn_callees]; intro _ h; nomatch h
-    · rw [rupFn_exits]
-      intro g hg; simp only [List.mem_cons] at hg
-      rcases hg with rfl | hg
-      · exact ⟨hfail, by decide⟩
-      · nomatch hg
-  · injection heq with hf1 h1
-    injection h1 with hf _
-    subst hf1 hf
-    refine ⟨strictCheck_wf, lratEnv_step.2.1, by rw [strictFn_nslots]; decide, by decide, ?_, ?_⟩
-    · rw [strictFn_callees]; intro _ h; nomatch h
-    · rw [strictFn_exits]
-      intro g hg; simp only [List.mem_cons] at hg
-      rcases hg with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | hg
-      all_goals try exact ⟨hfail, by decide⟩
-      nomatch hg
-  · injection heq with hf1 h1
-    injection h1 with hf2 h2
-    injection h2 with hf _
-    subst hf1 hf2 hf
-    refine ⟨checkClause_wf, lratEnv_step.2.2.1, by rw [clauseFn_nslots]; decide, by decide, ?_, ?_⟩
-    · rw [clauseFn_callees]
-      intro g hg; simp only [List.mem_cons] at hg
-      rcases hg with rfl | rfl | hg
-      · exact ⟨Or.inl (by simp), by rw [clauseFn_nslots]; decide⟩
-      · exact ⟨Or.inl (by simp), by rw [clauseFn_nslots]; decide⟩
-      · nomatch hg
-    · rw [clauseFn_exits]; intro _ h; nomatch h
-  · injection heq with hf1 h1
-    injection h1 with hf2 h2
-    injection h2 with hf3 h3
-    injection h3 with hf _
-    subst hf1 hf2 hf3 hf
-    refine ⟨checkProof_wf, lratEnv_step.2.2.2, by rw [proofFn_nslots]; decide, by decide, ?_, ?_⟩
-    · rw [proofFn_callees]
-      intro g hg; simp only [List.mem_cons] at hg
-      rcases hg with rfl | hg
-      · exact ⟨Or.inl (by simp), by rw [proofFn_nslots]; decide⟩
-      · nomatch hg
-    · rw [proofFn_exits]; intro _ h; nomatch h
-  · simp [lratCheckFns] at heq
+    ∀ p ∈ lratBounds,
+      Amd64.target.Defined hh p.1 ∧
+        Amd64.target.FnSpec hh p.1 (lratEnv p.1) p.2 296 := by
+  refine compile_sound (T := Amd64.target) hh lratEnv [] ["lrat_fail"] 296 lratCheckFns
+    lratCheckCode lratBounds k₀ lrat_module_compile hc hu ?_ ?_ (fun _ h => nomatch h) ?_
+  · intro f hf
+    simp only [lratCheckFns, List.mem_cons] at hf
+    rcases hf with rfl | rfl | rfl | rfl | h
+    · exact checkRup_wf
+    · exact strictCheck_wf
+    · exact checkClause_wf
+    · exact checkProof_wf
+    · nomatch h
+  · intro f hf
+    simp only [lratCheckFns, List.mem_cons] at hf
+    rcases hf with rfl | rfl | rfl | rfl | h
+    · exact lratEnv_step.1
+    · exact lratEnv_step.2.1
+    · exact lratEnv_step.2.2.1
+    · exact lratEnv_step.2.2.2
+    · nomatch h
+  · intro g hg
+    simp only [List.mem_cons] at hg
+    rcases hg with rfl | h
+    · exact hfail
+    · nomatch h
 
 /-- End-to-end correctness of compiled `br_check_proof` on Kraken x64: in every host containing
-`lratCheckCode` at `k₀` and `.label "lrat_fail"` at `k_fail` with unique labels, from a state
-meeting `CheckProofPre` for formula `cnf₀` with `st` in `rdi`, 584 bytes of stack space below `rsp`,
-and return address `ra` at `rsp`, execution of `br_check_proof` either:
+`lratCheckCode` at `k₀` and defining `"lrat_fail"` with unique labels, from a state at
+`Labels.label "br_check_proof"` meeting `CheckProofPre` for formula `cnf₀` with `st` in `rdi`,
+584 bytes of stack space below `rsp`, and return address `ra` at `rsp`, execution of
+`br_check_proof` either:
 * returns to `ra` with `cnf₀.Unsat` established, callee-saved registers intact, `rsp` popped, and
   `FullMemInv` preserved in memory; or
-* exits to `"lrat_fail"` at `Host.addrOf k_fail` with a 16-byte aligned entry stack pointer. -/
-theorem checkProof_x64_correct (k₀ k_fail : Nat)
-    (hc : lratCheckCode.IsInfixAt Host.prog k₀)
-    (hfail : Host.prog[k_fail]? = some (.label "lrat_fail")) (hu : Host.LabelsUnique)
+* exits to `"lrat_fail"` at `Labels.label "lrat_fail"` with a 16-byte aligned entry stack pointer. -/
+theorem checkProof_x64_correct (k₀ : Nat)
+    (hc : lratCheckCode.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    (hfail : Amd64.target.Defined hh "lrat_fail")
     {max_var n : Nat} {st_ptr : BitVec 64} {k₀_fields : KernelFields}
     {usedWords litsPtrs antePtrs trail_free0 : List Val} {cnf₀ : CNF Nat}
     {clauses : List (CNF.Clause Nat)} {litsTable anteTable : List (List Val)}
@@ -1261,8 +1209,8 @@ theorem checkProof_x64_correct (k₀ k_fail : Nat)
           ∃ m' k', FullMemInv max_var n trail_free0.length st_ptr k₀_fields P_ro k' m' ∧
             (st.data.dmem =⋆ Eq m' ⋆
               (fun f => ∃ bs : List UInt8, bs.length = 592 ∧ f = bs.At (s.regs.get64 .rsp - 584#64)) ⋆ R)) ∨
-        (st.pc = Host.addrOf k_fail ∧ (st.data.regs.get64 .rsp + 8#64).toNat % 16 = 0))
-      ⟨s, Host.addrOf (k₀ + rupCode.length + strictCode.length + clauseCode.length)⟩ := by
+        (st.pc = Labels.label "lrat_fail" ∧ (st.data.regs.get64 .rsp + 8#64).toNat % 16 = 0))
+      ⟨s, Labels.label "br_check_proof"⟩ := by
   let Q : LeanQbe.Post := fun rets m' =>
     rets = [] ∧ (∃ k', FullMemInv max_var n trail_free0.length st_ptr k₀_fields P_ro k' m') ∧ cnf₀.Unsat
   let X : XPost := fun g _ _ => g = "lrat_fail"
@@ -1272,24 +1220,13 @@ theorem checkProof_x64_correct (k₀ k_fail : Nat)
       fun _ hinv hunsat => ⟨rfl, hinv, hunsat⟩, fun _ _ => rfl⟩
   have hargs : Amd64.target.ArgsIn [st_ptr] s := by
     simp [Target.ArgsIn, Target.ValsIn, Amd64.target, Amd64.isa, hrdi]
-  have hf := lrat_module_fnspec k₀ hc hu ⟨k_fail, hfail⟩ proofFn (by simp [lratCheckFns, proofFn])
+  have hf := (lrat_module_fnspec k₀ hc hu hfail ("br_check_proof", 584) (by simp [lratBounds])).2
     [st_ptr] m Q X hspec s ra R hargs trivial hsp hmem
-  have hproof_infix : proofCode.IsInfixAt Host.prog
-      (k₀ + rupCode.length + strictCode.length + clauseCode.length) := by
-    have h1 := hc.append.2.append.2.append.2
-    simpa only [Nat.add_assoc] using h1
-  have hlab : Amd64.target.labelAddr hh proofFn.name =
-      Host.addrOf (k₀ + rupCode.length + strictCode.length + clauseCode.length) :=
-    labelAddr_of_unique (T := Amd64.target) hu hproof_infix.cons.1
-  have hflab : Amd64.target.labelAddr hh "lrat_fail" = Host.addrOf k_fail :=
-    labelAddr_of_unique (T := Amd64.target) hu hfail
-  rw [hlab] at hf
   refine eventually_weaken _ _ _ _ ?_ hf
   rintro st (⟨hpc, rets, m', ⟨rfl, ⟨k', hinv'⟩, hunsat⟩, -, ⟨hcs, hsp'⟩, hm'⟩ |
     ⟨sym', as', m', rfl, _, hpc, _, hspE, _⟩)
   · exact Or.inl ⟨hpc, hunsat, fun r hr => hcs r hr, hsp', m', k', hinv', hm'⟩
-  · rw [hflab] at hpc
-    exact Or.inr ⟨hpc, hspE⟩
+  · exact Or.inr ⟨hpc, hspE⟩
 
 end Generic
 
@@ -1317,8 +1254,8 @@ theorem checkProof_x64_nonvacuous :
     Eventually (step1 Host.exe)
       (fun st =>
         (st.pc = 0x1234 ∧ (CNF.empty : CNF Nat).Unsat) ∨
-        st.pc = Host.addrOf lratCheckCode.length)
-      ⟨lratState0, Host.addrOf (rupCode.length + strictCode.length + clauseCode.length)⟩ := by
+        st.pc = Labels.label "lrat_fail")
+      ⟨lratState0, Labels.label "br_check_proof"⟩ := by
   have hlen : raBytes0.length = 8 := UInt64.toBytes_length _
   have h584 : zeros584.length = 584 := List.length_replicate
   have hnv_len : nvCheckBytes.length = 210 := by
@@ -1343,15 +1280,16 @@ theorem checkProof_x64_nonvacuous :
     exact sep_mono (fun f1 hf1 => ⟨zeros584, h584, hf1.symm⟩) hf
   have hc : lratCheckCode.IsInfixAt Host.prog 0 := by
     rw [lratHost_prog]; exact ⟨[.label "lrat_fail"], rfl⟩
-  have hfail : Host.prog[lratCheckCode.length]? = some (.label "lrat_fail") := by
+  have hfail : Amd64.target.Defined lratHost "lrat_fail" := by
+    refine ⟨lratCheckCode.length, ?_⟩
+    change Host.prog[lratCheckCode.length]? = some (.label "lrat_fail")
     rw [lratHost_prog, lratProg, List.getElem?_append_right (Nat.le_refl _), Nat.sub_self]
     rfl
   have hrdi : lratState0.regs.get64 .rdi = 0x1000#64 := rfl
   have hsp : (lratState0.regs.get64 .rsp + 8#64).toNat % 16 = 0 :=
     show (0x0ff8#64 + 8#64).toNat % 16 = 0 by decide
-  have h := checkProof_x64_correct 0 lratCheckCode.length hc hfail lratHost_unique nvCheck_pre
+  have h := checkProof_x64_correct 0 hc lratHost_unique hfail nvCheck_pre
     lratState0 0x1234 Std.ExtHashMap.emp hrdi hsp hmem
-  rw [Nat.zero_add] at h
   refine eventually_weaken _ _ _ _ ?_ h
   rintro st (⟨hpc, hunsat, -⟩ | ⟨hpc, -⟩)
   · exact Or.inl ⟨hpc, hunsat⟩
