@@ -451,7 +451,15 @@ def evalCondCodeSuffix (stx : Syntax) : TermElabM CondCode := withRef stx do
   | "a"  | "nbe"        => return .a
   | "be" | "na"         => return .be
   | "l"  | "nge"        => return .l
+  | "ge" | "nl"         => return .ge
   | "le" | "ng"         => return .le
+  | "g"  | "nle"        => return .g
+  | "o"                 => return .o
+  | "no"                => return .no
+  | "s"                 => return .s
+  | "ns"                => return .ns
+  | "p"  | "pe"         => return .p
+  | "np" | "po"         => return .np
   | sfx                 => throwError "invalid condition code '{sfx}'"
 
 /-- The `Operation` constructor of an `x64_bin_op`. -/
