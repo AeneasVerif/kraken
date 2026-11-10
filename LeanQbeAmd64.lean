@@ -2,6 +2,8 @@ module
 
 public import LeanQbe
 public import LeanQbe.Amd64.Targ
+public import LeanQbe.Amd64.Isel
+public import LeanQbe.Amd64.IselLemmas
 public import LeanQbe.Amd64.TargLemmas
 public import LeanQbe.Amd64.FrameLemmas
 public import LeanQbe.Examples.Litmus
