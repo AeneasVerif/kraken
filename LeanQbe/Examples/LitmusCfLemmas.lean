@@ -4,6 +4,8 @@ public import LeanQbe.RegaLemmas
 public import LeanQbe.Examples.LitmusCf
 public import LeanQbe.Amd64.TargLemmas
 public import Kraken.X64.Parser
+public import LeanQbe.WPLemmas
+import all Kraken.Separation
 
 /-!
 # Control-flow litmus programs: kernel evaluation and the instantiated theorem
@@ -182,5 +184,84 @@ theorem swap_fnspec [hh : Host] (k₀ : Nat) (hc : swapCode.IsInfixAt Host.prog 
     (hu : Host.LabelsUnique) (Γ : Env) :
     Amd64.target.FnSpec hh "swap" (Func.spec Γ swap.body) 0 :=
   lowerFn_correct (T := Amd64.target) hh _ swap Γ 0 swapCode k₀ swap_lower hc hu swap_wf (by decide)
+
+/-! ## A loop end to end: `sumto` on Kraken x64 -/
+
+/-- `1 + 2 + … + i` in 64-bit arithmetic. -/
+def tri : Nat → Val
+  | 0 => 0
+  | i + 1 => tri i + BitVec.ofNat 64 (i + 1)
+
+/-- The source-level contract of `sumto`, by induction over the loop counter (the join point is
+universally quantified and constrained only by its closure hypothesis `hloop`). -/
+theorem sumto_spec (Γ : Env) (n : Val) (hn : n.toNat < 2 ^ 32) (m : Mem 64) :
+    Func.spec Γ sumto.body [n] m (fun r m' => r = [tri n.toNat] ∧ m' = m) (fun _ _ _ => False) := by
+  simp only [Func.spec, sumto, wp, Op.wp, Op.eval, BinOp.eval, Arg.val, List.map,
+    closed_param, forall_args_nil, List.nil_append, true_and, Option.some.injEq,
+    exists_eq_left']
+  intro loop hloop
+  suffices h : ∀ k, k ≤ n.toNat → ∀ s, s + tri k = tri n.toNat → loop [BitVec.ofNat 64 k, s] m by
+    simpa using h n.toNat (Nat.le_refl _) 0 (by simp)
+  intro k
+  induction k with
+  | zero =>
+    intro _ s hs
+    refine hloop _ _ _ ⟨fun ht => absurd ht (by decide), fun _ => ⟨?_, rfl⟩⟩
+    simpa [tri] using hs
+  | succ k ih =>
+    intro hk s hs
+    have hk32 : k + 1 < 2 ^ 32 := by omega
+    have ht : Truthy (BitVec.ofNat 64 (k + 1)) := by
+      simp only [Truthy, lo32, ne_eq]
+      intro h0
+      have := congrArg BitVec.toNat h0
+      simp [BitVec.toNat_ofNat] at this
+      omega
+    refine hloop _ _ _ ⟨fun _ => ?_, fun hnt => absurd ht hnt⟩
+    have hsub : BitVec.ofNat 64 (k + 1) - 1 = BitVec.ofNat 64 k := by
+      apply BitVec.eq_of_toNat_eq
+      simp [BitVec.toNat_sub, BitVec.toNat_ofNat]; omega
+    rw [hsub]
+    refine ih (by omega) _ ?_
+    rw [← hs]; simp only [tri]; ac_rfl
+
+/-- `sumto` on Kraken x64, in every host containing its code: called with `n < 2^32` in `rdi` and
+the return address at `rsp`, it returns to `ra` with `1 + … + n` in `rax`, the callee-saved
+registers intact and `rsp` popped; the return-address slot comes back with arbitrary contents and
+the frame `R` is untouched. -/
+theorem sumto_correct [Host] (k₀ : Nat) (hc : sumtoCode.IsInfixAt Host.prog k₀)
+    (hu : Host.LabelsUnique) (n : BitVec 64) (hn : n.toNat < 2 ^ 32)
+    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop) (hrdi : s.regs.get64 .rdi = n)
+    (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
+    (hmem : s.dmem =⋆ Eq (ra.toUInt64.At (s.regs.get64 .rsp)) ⋆ R) :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = ra ∧ st.data.regs.get64 .rax = tri n.toNat ∧
+        (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15], st.data.regs.get64 r = s.regs.get64 r) ∧
+        st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
+        (st.data.dmem =⋆ (fun f => ∃ bs : List UInt8, bs.length = 8 ∧ f = bs.At (s.regs.get64 .rsp)) ⋆ R))
+      ⟨s, Host.addrOf k₀⟩ := by
+  have hE : (Eq (∅ : Mem 64)) = Std.ExtHashMap.emp := by
+    funext x; apply propext; simp [Std.ExtHashMap.emp, eq_comm]
+  have hargs : Amd64.target.ArgsIn [n] s := by
+    simp [Target.ArgsIn, Target.ValsIn, Amd64.target, Amd64.isa, hrdi]
+  have hmem' : Amd64.target.mem s =⋆ Eq ∅ ⋆
+      Amd64.target.Entry (Amd64.target.get s Amd64.target.sp) ra 0 ⋆ R := by
+    simp only [Target.Entry, region_zero, Std.ExtHashMap.emp_sep, hE]
+    exact hmem
+  have h := sumto_fnspec k₀ hc hu (fun _ _ _ _ _ => False) [n] ∅ _ _
+    (sumto_spec _ n hn ∅) s ra R hargs trivial hsp hmem'
+  have hlab : Amd64.target.labelAddr _ "sumto" = Host.addrOf k₀ :=
+    labelAddr_of_unique (T := Amd64.target) hu hc.cons.1
+  rw [hlab] at h
+  refine eventually_weaken _ _ _ _ ?_ h
+  rintro st (⟨hpc, rets, m', ⟨rfl, rfl⟩, hrets, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx, _⟩)
+  · refine ⟨hpc, ?_, fun r hr => hcs r hr, hsp', ?_⟩
+    · simpa [Target.RetsIn, Target.ValsIn, Amd64.target, Amd64.isa] using hrets
+    · have hX : Amd64.target.Exit (Amd64.target.get s Amd64.target.sp) 0 =
+          fun f => ∃ bs : List UInt8, bs.length = 8 ∧ f = bs.At (s.regs.get64 .rsp) := by
+        funext f; simp [Target.Exit, region]
+      rw [hX, hE, Std.ExtHashMap.emp_sep] at hm'
+      exact hm'
+  · exact hx.elim
 
 end LeanQbe.Litmus
