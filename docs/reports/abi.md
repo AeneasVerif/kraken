@@ -12,8 +12,10 @@ and is writing `spike/frames/FramesProof.lean`.
 | `Target` v0.1 (generic `op`/`load`/`store` snippets, `jnz` on `Truthy`, rega #18) | done, reviewed (reviewer #35: snippet specs fine) |
 | x64 instance `Amd64.target` | done, no sorry, std axioms, in headline.txt |
 | `AbiLemmas` (memory framing for rega's `MemFacts`, Entry → Exit) | done (memframe) |
-| A1: frames/calls/exits by hand (`spike/frames/`) | `FnSpec1` candidate stated; `g_spec` proved; `f_spec` + non-vacuity in progress (memframe) |
-| `FnSpec` v1 in `Abi.lean`, prologue/epilogue/slot/call/exit snippets | design below, not yet in `Abi.lean` |
+| `Target` v1 + `FnSpec` v1 (frames, calls, exits) in `Abi.lean` | done; statements accepted by reviewer (#75), final acceptance waits on non-vacuity |
+| x64 instance of v1 | done, no sorry |
+| Linking: `FnSpec.of_spec`, `mono_exit`, `mono_stack`, `link` (acyclic) | done (`AbiLemmas.lean`) |
+| A1: frames/calls/exits by hand (`spike/frames/`) | `g_spec` (leaf with exit) and `abort_spec` (exit stub) proved; `f_spec` (non-leaf) + non-vacuity in progress (memframe) |
 
 ## What exists
 
@@ -34,6 +36,21 @@ and is writing `spike/frames/FramesProof.lean`.
   (`(regs.take vs.length).map (get s) = vs`), `Entry sp ra n = region (sp - n) n ⋆ RetAddr sp ra`,
   `Exit sp n = region (sp - n) (n + raBytes)`, `Restored`, `FnSpec h sym spec n` (v0).
 - `Arg.vars`, `Op.vars`.
+
+### Version 1 additions (frames, calls, exits)
+
+- `Isa`: `raRegs` (registers of the return-address convention: x64 none, AArch64 `x30`),
+  `frameSize ns`, `prologue ns`, `epilogue ns`, `slotSt i r`, `slotLd rd i`, `call sym`,
+  `tailJmp sym`.
+- `Target`: `Saved sp ra ns` (arch frame overhead: what the return-address convention keeps, plus
+  padding), `spOk` (AArch64: 16-aligned for sp-based accesses), facts (raRegs disjoint from every
+  other register set, `8 ns ≤ frameSize ns`, `spOk_frame`, `spEntry_call`, `raReg_of_raRegs`),
+  and a continuation-form spec for each new snippet. `call_spec` continues from `labelAddr h sym`
+  with the return address in place, so the generic proof applies the callee's `FnSpec` there.
+- `FnSpec h sym spec n nX`: the exit branch is a *call-ready* state for the exit symbol with at
+  least `nX` bytes of stack (decision 1 below).
+- Generic `word a v` (8 bytes holding `v`) and `slots a σ` (consecutive words) for spill slots;
+  `region_word`, `slots_append`, `slots_get`, `slots_region`, `region_slots` in AbiLemmas.
 
 ### `LeanQbe/Amd64/` (x64 instance)
 
@@ -60,12 +77,16 @@ Together they give rega's `MemFacts T` for every `T`.
 
 ## Decisions settled by A1 (plan 2.4 open points)
 
-1. **Exit = tail call.** At an `exit @sym(args)` the machine is in a state from which `sym` could be
-   called with the same return address, stack budget and frame: pc at `labelAddr sym`, `sym`
-   defined in the host, arguments in the argument registers, stack pointer and callee-saved
-   registers as on entry, the return address still in place, memory `Eq m' ⋆ Entry sp ra n ⋆ R`.
-   So an exit target can itself be specified by an `FnSpec`, and alignment at the exit is the
-   entry alignment. (`Target.TailCall`, `Target.FnSpec1` in `spike/frames/Frames.lean`.)
+1. **Exit = call-ready state.** At an `exit @sym(args)` the machine is in a state from which `sym`
+   could be called: pc at `labelAddr sym`, `sym` defined in the host, arguments in the argument
+   registers, an entry-aligned stack pointer, some return address `ra'` where the convention keeps
+   it, at least `nX` bytes of stack below the stack pointer (`Entry sp' ra' n'` with `nX ≤ n'`),
+   memory `Eq m' ⋆ Entry sp' ra' n' ⋆ F ⋆ R` with the caller's frame `R` untouched. So an exit
+   target can itself be specified by an `FnSpec`. I first tried "tail call relative to the
+   function's own entry" (same stack pointer, return address and callee-saved registers); it is
+   not compositional, because an exit inside a callee happens in the caller's frame. `nX` is
+   explicit (reviewer #60.1, #75.2): with `n' = 0` allowed, a real exit target such as C's `abort`
+   could not be used. A function that exits itself needs `nX ≤ n`.
 2. **Alignment at calls.** `spEntry` is a precondition of `FnSpec` and is established at every
    call. On x64 the frame size, pushes included, is ≡ 8 mod 16.
 3. **Stack bounds add up.** A function with a frame of `F` bytes calling functions with bounds
@@ -84,15 +105,13 @@ Together they give rega's `MemFacts T` for every `T`.
 
 ## Open
 
-- Reviewer #22.1 (exit symbols identified by address): `Defined h sym'` excludes undefined
-  symbols (which resolve to -1). Two defined labels with no instruction between them still share
-  an address. With exits as tail calls, reaching that address *is* running `sym'`'s code, so the
-  machine-level claim is honest; a final theorem that must tell exit targets apart needs a
-  decidable host hypothesis "these symbols have pairwise distinct addresses". To add with v1.
-- `FnSpec` v1 into `Abi.lean` (replacing v0's exit branch) once `f_spec` closes; coordinate with
-  rega (`lowerFn_correct` proves v0 today, its exit branch is not produced yet).
-- Snippets for v1: prologue/epilogue, slot load/store, call, exit; see the design section once
-  written.
+- Reviewer #22.1 (exit symbols identified by address) is resolved (reviewer #60.2): `Defined h
+  sym'` excludes undefined symbols (which resolve to -1), and two defined labels at one address
+  denote the same code.
+- Known gap (reviewer #22.3, #75.4): `Restored` covers general-purpose registers only. Today that
+  is complete for Kraken's models (see decision 6), but AArch64 d8–d15 or x64 DF/MXCSR would need
+  a field if Kraken models them.
+- Calls happen only at `sp = sp0 - frameSize ns`: nothing may push between prologue and call.
 - More x64 operations (cmp, ext, mul, shifts, other load/store widths) when rega needs them.
 
 ## Measurements
