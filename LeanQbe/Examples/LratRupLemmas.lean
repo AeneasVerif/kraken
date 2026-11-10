@@ -6,6 +6,8 @@ public import LeanQbe.Logic.Rules
 public import Kraken.Bedrock2.Test.LratTrimRupProof
 public import Kraken.SeparationTactics
 public import LeanQbe.Wf
+import all Kraken.Mem
+import all Kraken.Separation
 
 /-!
 # The RUP check: correctness
@@ -621,5 +623,103 @@ theorem checkRup_correct (Γ : Env) :
 
 theorem checkRup_wf : Func.Wf checkRup := by
   unfold checkRup phase1 phase2 inner backtrack flush assignedLit assignLit; wf_tac
+
+/-! ## Non-vacuity -/
+
+/-- `n` bytes per value, little-endian. -/
+def bytesN (n : Nat) (xs : List Val) : List UInt8 := xs.flatMap fun v => Int.toBytes n v.toNat
+
+theorem bytesN_length (n : Nat) (xs : List Val) : (bytesN n xs).length = n * xs.length := by
+  induction xs with
+  | nil => simp [bytesN]
+  | cons x xs ih =>
+    simp only [bytesN, List.flatMap_cons, List.length_append, Int.toBytes_length] at ih ⊢
+    rw [ih, List.length_cons, Nat.mul_succ]; omega
+
+theorem eq_nil_At (a : Val) : (emp : Mem 64 → Prop) = Eq (([] : List UInt8).At a) := by
+  funext m; apply propext; constructor
+  · intro h; rw [h]; apply ExtHashMap.ext_getElem?; intro k; simp [List.At]
+  · intro h; rw [← h]; apply ExtHashMap.ext_getElem?; intro k; simp [List.At]
+
+theorem eq_cons_At {n : Nat} (a v : Val) (bs : List UInt8) (h : n + bs.length ≤ 2 ^ 64) :
+    (Eq ((Int.toBytes n v.toNat).At a) ⋆ Eq (bs.At (a + BitVec.ofNat 64 n))) =
+      Eq ((Int.toBytes n v.toNat ++ bs).At a) := by
+  rw [Mem.At_append_sep _ _ _ (by rw [Int.toBytes_length]; exact h), Int.toBytes_length]
+
+theorem byte1Array_eq (a : Val) (xs : List Val) (h : xs.length ≤ 2 ^ 64) :
+    byte1Array a xs = Eq ((bytesN 1 xs).At a) := by
+  induction xs generalizing a with
+  | nil => exact eq_nil_At a
+  | cons x xs ih =>
+    have hl := bytesN_length 1 xs
+    simp only [byte1Array_cons, bytesN, List.flatMap_cons]
+    rw [ih _ (by simp at h; omega)]
+    exact eq_cons_At (n := 1) a x _ (by simp at h; omega)
+
+theorem int4Array_eq (a : Val) (xs : List Val) (h : 4 * xs.length ≤ 2 ^ 64) :
+    int4Array a xs = Eq ((bytesN 4 xs).At a) := by
+  induction xs generalizing a with
+  | nil => exact eq_nil_At a
+  | cons x xs ih =>
+    have hl := bytesN_length 4 xs
+    simp only [int4Array_cons, bytesN, List.flatMap_cons]
+    rw [ih _ (by simp at h; omega)]
+    exact eq_cons_At (n := 4) a x _ (by simp at h; omega)
+
+theorem word8Array_eq (a : Val) (xs : List Val) (h : 8 * xs.length ≤ 2 ^ 64) :
+    word8Array a xs = Eq ((bytesN 8 xs).At a) := by
+  induction xs generalizing a with
+  | nil => exact eq_nil_At a
+  | cons x xs ih =>
+    have hl := bytesN_length 8 xs
+    simp only [word8Array_cons, bytesN, List.flatMap_cons]
+    rw [ih _ (by simp at h; omega)]
+    exact eq_cons_At (n := 8) a x _ (by simp at h; omega)
+
+theorem eq_append_At (a : Val) (b1 b2 : List UInt8) (h : b1.length + b2.length ≤ 2 ^ 64) :
+    Eq ((b1 ++ b2).At a) = (Eq (b1.At a) ⋆ Eq (b2.At (a + BitVec.ofNat 64 b1.length))) :=
+  Mem.At_append_sep _ _ _ h
+
+/-! ## A concrete instance: the tautology `[1, -1]` -/
+
+def nvK : KernelFields :=
+  { used_begin := 0, antecedents_begin := 0, literals_begin := 0, values_begin := 0x10a0,
+    marks_begin := 0, trail_begin := 0x10a2, trail_end := 0x10a2, work_begin := 0, empty_clause := 0,
+    first_proof_id := 0, strict := 0, trimming := 0, checking := 0, forward := 0,
+    stat_trimmed_cnf := 0, stat_trimmed_prf := 0, stat_chk_total := 0, stat_chk_empty := 0,
+    stat_resolved := 0, stat_lit_assigned := 0 }
+
+def nvBytes : List UInt8 :=
+  bytesN 8 nvK.toList ++ (bytesN 1 [0, 0] ++ (bytesN 4 [0, 0] ++ (bytesN 4 [1, -1, 0] ++ bytesN 4 [0])))
+
+theorem nv_mem : ((byte1Array 0x10a0 (assignBytes 1 Assignment.empty) ⋆ int4Array 0x10a2 [0, 0]) ⋆
+    (kernelState 0x1000 nvK ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 []))) (nvBytes.At 0x1000) := by
+  rw [assignBytes_empty]
+  unfold kernelState ZeroTermInts
+  rw [byte1Array_eq _ _ (by simp), int4Array_eq _ _ (by simp),
+    word8Array_eq _ _ (by simp [KernelFields.toList]), int4Array_eq _ _ (by simp),
+    int4Array_eq _ _ (by simp)]
+  have e : Eq (nvBytes.At (0x1000 : Val)) = (Eq ((bytesN 8 nvK.toList).At (0x1000 : Val)) ⋆
+      (Eq ((bytesN 1 [0, 0]).At (0x10a0 : Val)) ⋆ (Eq ((bytesN 4 [0, 0]).At (0x10a2 : Val)) ⋆
+        (Eq ((bytesN 4 [1, -1, 0]).At (0x10aa : Val)) ⋆ Eq ((bytesN 4 [0]).At (0x10b6 : Val)))))) := by
+    unfold nvBytes
+    rw [eq_append_At _ _ _ (by simp [bytesN_length, KernelFields.toList]),
+      eq_append_At _ _ _ (by simp [bytesN_length]), eq_append_At _ _ _ (by simp [bytesN_length]),
+      eq_append_At _ _ _ (by simp [bytesN_length])]
+    simp only [bytesN_length, KernelFields.toList, List.length_cons, List.length_nil]
+    rfl
+  exact sep_cast (show Eq (nvBytes.At (0x1000 : Val)) _ from rfl) (e.trans (by ac_rfl))
+
+/-- `checkRupSpec` is satisfiable: the tautology `[1, -1]`, no antecedents, a trail of two free
+slots, in the 186 bytes of `nvBytes` at `0x1000`. -/
+theorem checkRup_nonvacuous :
+    checkRupSpec [0x1000, 7, 0x10aa, 0x10b6] (nvBytes.At 0x1000)
+      (fun rs _ => rs = []) (fun f _ _ => f = "lrat_fail") :=
+  ⟨0x1000, 7, 0x10aa, 0x10b6, 1, nvK, [1, -1], [], [], [0, 0], ⟨#[]⟩,
+    ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 [], rfl, rfl,
+    ⟨⟨_, by rw [word8Array_nil, emp_sep]⟩, fun _ h => absurd h (by simp)⟩,
+    ⟨_, rfl⟩, ⟨_, sep_comm _ _⟩,
+    by intro x hx; simp at hx; rcases hx with rfl | rfl <;> (unfold IsValidLit bvAbs; decide),
+    by simp, by decide, by decide, nv_mem, fun _ _ _ _ _ _ _ => rfl, fun _ _ => rfl⟩
 
 end LeanQbe.LratRup
