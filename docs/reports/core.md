@@ -50,3 +50,30 @@ Owner: `core`. Files: `lakefile.toml`, `lean-toolchain`, `.gitignore`, library r
   functions: **38950 results, all equal to `Op.eval`, on amd64 (native) and arm64 (qemu)**. About 15 s.
   First run found one printer bug (QBE rejects `extsw` at class `w`), no semantic mismatch.
 - `spike/il/PrintTest.lean`: `#guard` regression of the printed tracer and of the junk rejections.
+
+### C2 follow-ups
+
+- `checker` found that stock QBE amd64 tests all 64 bits in `jnz` when the condition is a 64-bit
+  flag-setting op in the same block (upstream bug; QBE's doc says 32). The printer now emits
+  `%c =w cnew c, 0` before every `jnz`. Difftest now uses an interpreter oracle (in `scripts/QbeDiff.lean`,
+  built from `Op.eval`, `loadVal`, `storeOk`/`storeMem` on a concrete `Mem 64`, `Truthy`), covers `jnz` on
+  `add.l`, and runs an `exit` path: 46068 results equal on amd64 and arm64 (25b3206, reproduced by checker).
+
+## Step 2e, part 1: constant folding + copy propagation (done, c2482e9)
+
+- `LeanQbe/Fold.lean` (90 lines): `fold n : Expr (Arg V) L → Expr V L`, read at `V' := Arg V` so that
+  substitution is instantiation. Removes constant operations (when defined), `copy.l`, and `jnz` on an
+  immediate. `n` = pending labels (statically known): instructions are only removed where `n = 0`, because
+  removing one between a `label` and its `block` (junk) would change which block defines which label
+  (found while proving; the first version without `n` was not provable).
+- `LeanQbe/FoldLemmas.lean` (316 lines, 0.6 s): `fold_wp` (source `wp` ⇒ output `wp`, by induction on
+  `Wf` between the `Arg Val` and `Val` instantiations with `Good G`: every input variable denotes an
+  operand with the source value), `fold_wf` (`Wf` preserved, for any two instantiations), and
+  `Func.fold_spec`, `Func.fold_wf` for closed functions. About 130 lines are operand/operation lemmas
+  reusable by the next pass, 110 the `wp` induction, 60 the `Wf` induction.
+- `spike/il/FoldTest.lean`: output on a concrete program by `rfl`, its `Wf`, its contract via `fold_spec`.
+- Cost / friction: one afternoon hour. The PHOAS pattern itself was cheap; the friction was
+  (1) Lean's equation lemmas for a `match` on three discriminants with overlapping patterns timed out in
+  `simp only [fold]` (rewrote as `if n = 0 then match …`), (2) `simp only [Arg.val]` turning `.val` into a
+  `match` that blocks later rewrites (use definitional `have` instead), (3) name resolution inside
+  `theorem Func.x` picking `Func.y` over the root `y`.
