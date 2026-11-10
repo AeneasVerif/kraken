@@ -422,4 +422,13 @@ def hostLabel (h : Host) (l : Label) : Int64 :=
     · exact Reg64s.get64_set64_of_ne _ _ _ _ fun he => hr (he ▸ List.mem_cons_self)
     · exact Reg64s.get64_set64_same s.regs .rsp _
 
+/-- `target` with `fastIsa` (`fastOp` and `fastStore`). -/
+def fastTarget : Target :=
+  { target with
+    toIsa := fastIsa
+    op_spec := fun {h} {_} {_} {_} {_} {_} {_} {_} hop hc hvars hv hk => by
+      letI := h; exact eventually_fastOp hop hc hvars hv hk
+    store_spec := fun {h} {_} {_} {_} {_} {_} {_} {_} hop hc hvars hok hk => by
+      letI := h; exact eventually_fastStore hop hc hvars hok hk }
+
 end LeanQbe.Amd64

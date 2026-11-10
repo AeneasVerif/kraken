@@ -151,24 +151,26 @@ for idx in "${!LABELS[@]}"; do
   echo "| $lbl | $ufc | $ufi | $ufi_cnt | $lrf | $lrr | $lri_cnt | $h1 / $h3 |"
 done
 
-if [ -f "$OUT/uf_leaf.s" ]; then
-  timeout 60 gcc -std=c11 -O2 -DUF_NO_CALL bench/uf_bench.c "$OUT/uf_leaf.s" -o "$OUT/uf_leanqbe_leaf"
-  read -r ufi h2 <<<"$(median_ms "$OUT/uf_leanqbe_leaf" inline)"
-  ufi_cnt="$(insns "$OUT/uf_leaf.s")"
-  ufc_str="(awaiting R3)"
-  if [ -f "$OUT/uf.s" ]; then
-    timeout 60 gcc -std=c11 -O2 bench/uf_bench.c "$OUT/uf.s" -o "$OUT/uf_leanqbe"
-    read -r ufc_str _ <<<"$(median_ms "$OUT/uf_leanqbe")"
-    ufi_cnt="$(insns "$OUT/uf.s")"
-  fi
-  lrf_str="(awaiting R3)"
-  lrr_str="(awaiting R3)"
-  lri_cnt="-"
-  if [ -f "$OUT/lrat_trim.s" ]; then
-    timeout 60 gcc -std=c11 -O2 bench/lrat_bench.c "$OUT/lrat_trim.s" -o "$OUT/lrat_leanqbe"
-    read -r lrf_str h3 <<<"$(median_ms "$OUT/lrat_leanqbe")"
-    read -r lrr_str _ <<<"$(median_ms "$OUT/lrat_leanqbe" rup)"
-    lri_cnt="$(insns "$OUT/lrat_trim.s")"
-  fi
-  echo "| **lean-qbe (x64)** | $ufc_str | $ufi | $ufi_cnt | $lrf_str | $lrr_str | $lri_cnt | $h2 |"
+if [ -f "$OUT/uf.s" ] && [ -f "$OUT/lrat_trim.s" ]; then
+  timeout 60 gcc -std=c11 -O2 bench/uf_bench.c "$OUT/uf.s" -o "$OUT/uf_leanqbe"
+  timeout 60 gcc -std=c11 -O2 bench/lrat_bench.c "$OUT/lrat_trim.s" -o "$OUT/lrat_leanqbe"
+  read -r ufc h1 <<<"$(median_ms "$OUT/uf_leanqbe")"
+  read -r ufi _ <<<"$(median_ms "$OUT/uf_leanqbe" inline)"
+  read -r lrf h3 <<<"$(median_ms "$OUT/lrat_leanqbe")"
+  read -r lrr _ <<<"$(median_ms "$OUT/lrat_leanqbe" rup)"
+  ufi_cnt="$(insns "$OUT/uf.s")"
+  lri_cnt="$(insns "$OUT/lrat_trim.s")"
+  echo "| lean-qbe (x64, simple isel) | $ufc | $ufi | $ufi_cnt | $lrf | $lrr | $lri_cnt | $h1 / $h3 |"
+fi
+
+if [ -f "$OUT/uf_fast.s" ] && [ -f "$OUT/lrat_trim_fast.s" ]; then
+  timeout 60 gcc -std=c11 -O2 bench/uf_bench.c "$OUT/uf_fast.s" -o "$OUT/uf_leanqbe_fast"
+  timeout 60 gcc -std=c11 -O2 bench/lrat_bench.c "$OUT/lrat_trim_fast.s" -o "$OUT/lrat_leanqbe_fast"
+  read -r ufc h1 <<<"$(median_ms "$OUT/uf_leanqbe_fast")"
+  read -r ufi _ <<<"$(median_ms "$OUT/uf_leanqbe_fast" inline)"
+  read -r lrf h3 <<<"$(median_ms "$OUT/lrat_leanqbe_fast")"
+  read -r lrr _ <<<"$(median_ms "$OUT/lrat_leanqbe_fast" rup)"
+  ufi_cnt="$(insns "$OUT/uf_fast.s")"
+  lri_cnt="$(insns "$OUT/lrat_trim_fast.s")"
+  echo "| **lean-qbe (x64, fast isel)** | $ufc | $ufi | $ufi_cnt | $lrf | $lrr | $lri_cnt | $h1 / $h3 |"
 fi

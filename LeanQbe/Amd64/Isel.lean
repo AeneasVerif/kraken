@@ -231,4 +231,96 @@ def storeIns : Sz → Reg64 → Directive
 def store (sz : Sz) (x a : Arg Reg64) : Option (List Directive) :=
   some (argTo .r11 x :: (addrIn a).1 ++ [storeIns sz (addrIn a).2])
 
+/-! ## Fast-path instruction selection (`fastOp`, `fastStore`) -/
+
+/-- `sh{l,r}/sar{k} $c, %rd`: shift `rd` by immediate `c` (masked to 5 or 6 bits). -/
+def shiftImmIns : Cls → BinOp → Reg64 → Val → Option Directive
+  | .l, .shl, r, c => some (ins (.shl (.reg (q r)) (.imm8 (.int64 (Int64.ofBitVec c)))))
+  | .l, .shr, r, c => some (ins (.shr (.reg (q r)) (.imm8 (.int64 (Int64.ofBitVec c)))))
+  | .l, .sar, r, c => some (ins (.sar (.reg (q r)) (.imm8 (.int64 (Int64.ofBitVec c)))))
+  | .w, .shl, r, c => some (ins32 (.shl (.reg (d r)) (.imm8 (.int64 (Int64.ofBitVec c)))))
+  | .w, .shr, r, c => some (ins32 (.shr (.reg (d r)) (.imm8 (.int64 (Int64.ofBitVec c)))))
+  | .w, .sar, r, c => some (ins32 (.sar (.reg (d r)) (.imm8 (.int64 (Int64.ofBitVec c)))))
+  | _, _, _, _ => none
+
+/-- `op{k} %rs, %rd`: `rd := rd op rs` at class `k` (class `w` zero-extends). -/
+def binRegIns : Cls → BinOp → Reg64 → Reg64 → Option Directive
+  | .l, .add, rd, rs => some (ins (.add (.reg (q rd)) (.reg (q rs))))
+  | .l, .sub, rd, rs => some (ins (.sub (.reg (q rd)) (.reg (q rs))))
+  | .l, .and, rd, rs => some (ins (.and (.reg (q rd)) (.reg (q rs))))
+  | .l, .or,  rd, rs => some (ins (.or  (.reg (q rd)) (.reg (q rs))))
+  | .l, .xor, rd, rs => some (ins (.xor (.reg (q rd)) (.reg (q rs))))
+  | .l, .mul, rd, rs => some (ins (.imul none (.reg (q rd)) (.reg (q rs))))
+  | .w, .add, rd, rs => some (ins32 (.add (.reg (d rd)) (.reg (d rs))))
+  | .w, .sub, rd, rs => some (ins32 (.sub (.reg (d rd)) (.reg (d rs))))
+  | .w, .and, rd, rs => some (ins32 (.and (.reg (d rd)) (.reg (d rs))))
+  | .w, .or,  rd, rs => some (ins32 (.or  (.reg (d rd)) (.reg (d rs))))
+  | .w, .xor, rd, rs => some (ins32 (.xor (.reg (d rd)) (.reg (d rs))))
+  | .w, .mul, rd, rs => some (ins32 (.imul none (.reg (d rd)) (.reg (d rs))))
+  | _, _, _, _ => none
+
+/-- Whether a binary op in `binRegIns` is commutative (`add`, `and`, `or`, `xor`, `mul`). -/
+def isComm : BinOp → Bool
+  | .add | .and | .or | .xor | .mul => true
+  | _ => false
+
+/-- `cmp{k} %ry, %rx`: flags of `rx - ry` at class `k`. -/
+def cmpRegIns : Cls → Reg64 → Reg64 → Directive
+  | .l, rx, ry => ins (.cmp (.reg (q rx)) (.reg (q ry)))
+  | .w, rx, ry => ins32 (.cmp (.reg (d rx)) (.reg (d ry)))
+
+/-- `mov{b,w,l,q} %rv{b,w,d,}, (%ra)` -/
+def storeRegIns : Sz → Reg64 → Reg64 → Directive
+  | .b, rv, ra => ins8 (.mov (.mem (atReg ra)) (.reg (b8 rv)))
+  | .h, rv, ra => ins16 (.mov (.mem (atReg ra)) (.reg (h16 rv)))
+  | .w, rv, ra => ins32 (.mov (.mem (atReg ra)) (.reg (d rv)))
+  | .l, rv, ra => storelD rv ra
+
+/-- `rd := o` with fast paths for immediate shifts, two-address `bin`, and register `cmp`. -/
+def fastOp : Op Reg64 → Reg64 → Option (List Directive)
+  | .bin k o a b, rd =>
+    match shiftIns k o with
+    | some i =>
+      match b with
+      | .imm c =>
+        match shiftImmIns k o rd c with
+        | some si =>
+          match k, a with
+          | .l, .var ra => if ra = rd then some [si] else some [argTo rd (.var ra), si]
+          | _, _ => some [argTo rd a, si]
+        | none => some [argTo .r11 a, movD .r10 .rcx, argTo .rcx b, i, movD .rcx .r10, movD rd .r11]
+      | .var _ => some [argTo .r11 a, movD .r10 .rcx, argTo .rcx b, i, movD .rcx .r10, movD rd .r11]
+    | none =>
+      match divCore k o with
+      | some (core, res) => divSeq rd core res a b
+      | none =>
+        match k, a, b with
+        | .l, .var ra, .var rb =>
+          if ra = rd then (binRegIns .l o rd rb).map (· :: [])
+          else if isComm o ∧ rb = rd then (binRegIns .l o rd ra).map (· :: [])
+          else if rb ≠ rd then (binRegIns .l o rd rb).map fun i => [movD rd ra, i]
+          else (binIns .l o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
+        | .l, .var ra, .imm cb =>
+          if ra = rd then (binRegIns .l o rd .r10).map fun i => [moviD .r10 cb, i]
+          else (binIns .l o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
+        | _, _, _ => (binIns k o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
+  | .cmp k o a b, rd =>
+    let (x, y) := if (condOf o).1 then (b, a) else (a, b)
+    match x, y with
+    | .var rx, .var ry => some [cmpRegIns k rx ry, setccD (condOf o).2, movzbD rd]
+    | .var rx, .imm cy => some [moviD .r10 cy, cmpRegIns k rx .r10, setccD (condOf o).2, movzbD rd]
+    | .imm cx, .var ry => some [moviD .r10 cx, cmpRegIns k .r10 ry, setccD (condOf o).2, movzbD rd]
+    | _, _ => some [argTo .r11 x, argTo .r10 y, cmpIns k, setccD (condOf o).2, movzbD rd]
+  | .ext k s sg (.var r), rd => some [extD k s sg rd r]
+  | .ext k s sg (.imm c), rd => some [moviD rd (k.trunc (s.extend sg c))]
+  | .copy .l a, rd => some [argTo rd a]
+  | .copy .w (.var r), rd => some [movlD rd r]
+  | .copy .w (.imm c), rd => some [moviD rd (Cls.w.trunc c)]
+
+/-- `store{sz} x, a` with direct register store when `x = .var rv`. -/
+def fastStore (sz : Sz) (x a : Arg Reg64) : Option (List Directive) :=
+  match x with
+  | .var rv => some ((addrIn a).1 ++ [storeRegIns sz rv (addrIn a).2])
+  | .imm _ => some (argTo .r11 x :: (addrIn a).1 ++ [storeIns sz (addrIn a).2])
+
 end LeanQbe.Amd64

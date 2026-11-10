@@ -27,8 +27,17 @@ def main (args : List String) : IO UInt32 := do
   | .error e => IO.eprintln s!"uf_leaf.s note: {e}"
   match compile Amd64.isa ufFns with
   | .ok c => IO.FS.writeFile s!"{outDir}/uf.s" (emitAsm ufFns c)
-  | .error e => IO.eprintln s!"uf.s (awaiting R3 calls): {e}"
+  | .error e => IO.eprintln s!"uf.s error: {e}"
   match compile Amd64.isa LratTrim.lratTrimFns with
   | .ok c => IO.FS.writeFile s!"{outDir}/lrat_trim.s" (emitAsm LratTrim.lratTrimFns c)
-  | .error e => IO.eprintln s!"lrat_trim.s (awaiting R3 calls/exits/spills): {e}"
+  | .error e => IO.eprintln s!"lrat_trim.s error: {e}"
+  match compile Amd64.fastIsa ufLeafFns with
+  | .ok c => IO.FS.writeFile s!"{outDir}/uf_leaf_fast.s" (emitAsm ufLeafFns c)
+  | .error e => IO.eprintln s!"uf_leaf_fast.s error: {e}"
+  match compile Amd64.fastIsa ufFns with
+  | .ok c => IO.FS.writeFile s!"{outDir}/uf_fast.s" (emitAsm ufFns c)
+  | .error e => IO.eprintln s!"uf_fast.s error: {e}"
+  match compile Amd64.fastIsa LratTrim.lratTrimFns with
+  | .ok c => IO.FS.writeFile s!"{outDir}/lrat_trim_fast.s" (emitAsm LratTrim.lratTrimFns c)
+  | .error e => IO.eprintln s!"lrat_trim_fast.s error: {e}"
   return 0
