@@ -12,10 +12,12 @@ and is writing `spike/frames/FramesProof.lean`.
 | `Target` v0.1 (generic `op`/`load`/`store` snippets, `jnz` on `Truthy`, rega #18) | done, reviewed (reviewer #35: snippet specs fine) |
 | x64 instance `Amd64.target` | done, no sorry, std axioms, in headline.txt |
 | `AbiLemmas` (memory framing for rega's `MemFacts`, Entry → Exit) | done (memframe) |
-| `Target` v1 + `FnSpec` v1 (frames, calls, exits) in `Abi.lean` | done; statements accepted by reviewer (#75), final acceptance waits on non-vacuity |
+| `Target` v1 + `FnSpec` v1 (frames, calls, exits) in `Abi.lean` | **accepted and frozen** (reviewer #113, coordinator #114, at db4cf24) |
 | x64 instance of v1 | done, no sorry |
 | Linking: `FnSpec.of_spec`, `mono_exit`, `mono_stack`, `link` (acyclic) | done (`AbiLemmas.lean`) |
-| A1: frames/calls/exits by hand (`spike/frames/`) | `g_spec` (leaf with exit) and `abort_spec` (exit stub) proved; `f_spec` (non-leaf) + non-vacuity in progress (memframe) |
+| A1: frames/calls/exits by hand (`spike/frames/`) | done: `g_spec`, `abort_spec` (abi), `f_spec` + three concrete instances (memframe, a0d1e6b) |
+| x64 `Isel` (all integer ops Kraken x64 supports) | in progress (helper x64isel) |
+| `Target.call_fnspec` (call + callee FnSpec, for R3) | in progress (memframe) |
 
 ## What exists
 
@@ -74,6 +76,29 @@ and is writing `spike/frames/FramesProof.lean`.
 `M =⋆ Eq m ⋆ F` behaves the same on `M` and keeps the frame), `sep_mono(_r)`, `region_split`,
 `region_zero`, `word`, `Target.entry_exit`, `Target.retAddr_of_entry'`, `Target.exit_of_entry`.
 Together they give rega's `MemFacts T` for every `T`.
+
+## A1: the contract checked on hand-written code (`spike/frames/`)
+
+`Frames.lean` (abi) and `FramesProof.lean` (memframe). Every encoding is checked against Kraken's
+parser by `rfl`.
+
+- `g(a)`: leaf; `test %edi,%edi; jnz g.ok; jmp abort; g.ok: rax := rdi + rdi; ret`. Returns `a + a`
+  or exits to `abort(a)`. `g_spec : nX ≤ n → FnSpec h "g" gSpec n nX`.
+- `abort: ret`, an exit target in the host with its own `abort_spec`.
+- `f(a, b)`: `push %rbx; sub $16,%rsp` (24-byte frame, ≡ 8 mod 16), `a` in callee-saved `rbx`
+  across the call, `b` spilled to `(%rsp)`, `call g`, reload, two adds, then `ret` or its own
+  `exit @abort(a)` (epilogue + `jmp abort`). `f_spec (hg : FnSpec h "g" gSpec n nX) (hX : nX ≤ 32 +
+  n) : FnSpec h "f" fSpec (32 + n) nX`: the stack bound adds up (24 + 8 + n), g's exit propagates
+  with f's frame folded into `F`.
+- Non-vacuity on one concrete host (`fCode ++ gCode ++ abortCode`, LabelsUnique by `decide`), with
+  in-host contracts linked rather than assumed and a concrete state built from real bytes:
+  `f_returns` (rax = 5, rsp restored, the 48-byte footprint returned), `f_exits_in_g` (exit inside
+  g, propagated), `f_exits_itself`; each exit state is fed to `abort_spec` with `nX = 8` bytes.
+
+What the spike changed in the contract: the exit branch became a call-ready state (not "tail call
+from our own entry"), gained `nX ≤ n'` (reviewer) and `n' + raBytes ≤ 2^64` (memframe: without
+it the `nX` guarantee cannot be consumed on AArch64, where a region larger than memory is
+satisfiable).
 
 ## Decisions settled by A1 (plan 2.4 open points)
 
