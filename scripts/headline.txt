@@ -62,3 +62,17 @@ spike.il.FoldTest LeanQbe.FoldTest.algProg_fold_wf
 LeanQbe.Examples.LratTrimCheckLemmas LeanQbe.LratTrim.checkClause_rup_nonvacuous
 LeanQbe.Examples.LratTrimCheckLemmas LeanQbe.LratTrim.checkClause_strict_nonvacuous
 LeanQbe.Examples.LratTrimCheckLemmas LeanQbe.LratTrim.checkProof_nonvacuous
+LeanQbe.MainLemmas LeanQbe.compile_correct
+LeanQbe.Examples.LitmusCfLemmas LeanQbe.Litmus.callinc_module_fnspec
+LeanQbe.Examples.LitmusCfLemmas LeanQbe.Litmus.callinc_correct
+LeanQbe.Examples.LitmusCfLemmas LeanQbe.Litmus.callinc_nonvacuous
+LeanQbe.Examples.LitmusCfLemmas LeanQbe.Litmus.twice_module_fnspec
+LeanQbe.Examples.LitmusCfLemmas LeanQbe.Litmus.twice_correct
+LeanQbe.Examples.LitmusCfLemmas LeanQbe.Litmus.twice_nonvacuous_exit
+LeanQbe.Examples.LitmusCfLemmas LeanQbe.Litmus.spill10_correct
+LeanQbe.Examples.LitmusCfLemmas LeanQbe.Litmus.spill10_nonvacuous
+LeanQbe.Examples.LitmusUf LeanQbe.Litmus.uf_module_fnspec
+LeanQbe.Examples.LitmusUf LeanQbe.Litmus.find_x64_correct
+LeanQbe.Examples.LitmusUf LeanQbe.Litmus.union_x64_correct
+LeanQbe.Examples.LitmusUf LeanQbe.Litmus.find_x64_nonvacuous
+LeanQbe.Examples.LitmusUf LeanQbe.Litmus.union_x64_nonvacuous
