@@ -722,4 +722,71 @@ theorem checkRup_nonvacuous :
     by intro x hx; simp at hx; rcases hx with rfl | rfl <;> (unfold IsValidLit bvAbs; decide),
     by simp, by decide, by decide, nv_mem, fun _ _ _ _ _ _ _ => rfl, fun _ _ => rfl⟩
 
+/-- No assignment falsifies both literals of the tautology `[1, -1]`. -/
+theorem not_falsify_taut (assign : Assignment) :
+    ¬ ∀ x : Literal Nat, x ∈ toClause [1, -1] ↔ assign.get? x.1 = some !x.2 := by
+  intro h
+  have h1 := (h (toLiteral 1)).1 (by rw [← CNF.Clause.mem_literals_iff, literals_toClause]; simp)
+  have h2 := (h (toLiteral (-1))).1 (by rw [← CNF.Clause.mem_literals_iff, literals_toClause]; simp)
+  have e1 : toLiteral 1 = (1, true) := by decide
+  have e2 : toLiteral (-1) = (1, false) := by decide
+  rw [e1] at h1; rw [e2] at h2
+  rw [h1] at h2; cases h2
+
+/-- Completeness data point (Bedrock2's spec has none): on the tautology `[1, -1]` the function
+returns, it never exits to `lrat_fail`. -/
+theorem checkRup_accepts_tautology (Γ : Env) :
+    Func.spec Γ checkRup [0x1000, 7, 0x10aa, 0x10b6] (nvBytes.At 0x1000)
+      (fun rs _ => rs = []) (fun _ _ _ => False) := by
+  have hsep := nv_mem
+  rw [assignBytes_empty] at hsep
+  unfold checkRup Func.spec
+  wp_unfold
+  have hks : (kernelState 0x1000 nvK ⋆ (byte1Array 0x10a0 (List.replicate (1 + 1) 0) ⋆
+      int4Array 0x10a2 [0, 0] ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 [])))
+      (nvBytes.At 0x1000) := sep_cast hsep (by ac_rfl)
+  refine ⟨_, loadl_kfield 2 (by decide) hks rfl, _, loadl_kfield 3 (by decide) hks rfl,
+    _, loadl_kfield 5 (by decide) hks rfl, _, loadl_kfield 6 (by decide) hks rfl,
+    _, loadl_kfield 18 (by decide) hks rfl, _, loadl_kfield 19 (by decide) hks rfl, ?_⟩
+  simp only [KernelFields.toList, List.getElem_cons_succ, List.getElem_cons_zero]
+  -- `@fail` is unreachable
+  apply wp_join (fun _ _ => False) (fun _ _ h => h.elim)
+  intro Jfail _
+  -- `@finish`: backtrack, flush, return
+  apply wp_join (fun as m => ∃ te sr sla assign trail tf, as = [te, sr, sla] ∧
+    (PState 1 nvK.values_begin nvK.trail_begin te assign trail tf 2 ⋆
+      (kernelState 0x1000 nvK ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 []))) m)
+  · rintro _ m ⟨te, sr, sla, assign, trail, tf, rfl, hm⟩
+    wp_unfold
+    obtain ⟨hte, hcov, htv, hlen, hm⟩ := pstate_sep.1 hm
+    refine backtrack_spec hte htv (by omega) hcov hm fun m1 hm1 => ?_
+    refine flush_spec (k := nvK) (R := (byte1Array nvK.values_begin (assignBytes 1 Assignment.empty) ⋆
+      int4Array nvK.trail_begin (trail ++ tf)) ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 []))
+      (sep_cast hm1 (by ac_rfl)) fun m2 _ => ?_
+    wp_unfold
+  intro Jfin hJfin
+  -- `@ph2` is unreachable: no assignment falsifies a tautology
+  apply wp_join (fun as m => ∃ te sla assign trail tf, as = [te, sla] ∧
+    (PState 1 nvK.values_begin nvK.trail_begin te assign trail tf 2 ⋆
+      (kernelState 0x1000 nvK ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 []))) m ∧
+    ∀ x : Literal Nat, x ∈ toClause [1, -1] ↔ assign.get? x.1 = some !x.2)
+  · rintro _ _ ⟨_, _, assign, _, _, _, _, hiff⟩
+    exact absurd hiff (not_falsify_taut assign)
+  intro Jph2 hJph2
+  have back : ∀ te assign trail tf m', (PState 1 nvK.values_begin nvK.trail_begin te assign trail tf
+      2 ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ (kernelState 0x1000 nvK ⋆ ZeroTermInts 0x10b6 []))) m' →
+      (PState 1 nvK.values_begin nvK.trail_begin te assign trail tf 2 ⋆
+        (kernelState 0x1000 nvK ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 []))) m' :=
+    fun _ _ _ _ _ h => sep_cast h (by ac_rfl)
+  have hm1 : (PState 1 nvK.values_begin nvK.trail_begin nvK.trail_begin Assignment.empty [] [0, 0] 2 ⋆
+      (ZeroTermInts 0x10aa [1, -1] ⋆ (kernelState 0x1000 nvK ⋆ ZeroTermInts 0x10b6 [])))
+      (nvBytes.At 0x1000) := by
+    refine pstate_sep.2 ⟨by simp, trailCoversAssign_empty 1, by simp, by simp, ?_⟩
+    rw [List.nil_append, assignBytes_empty]; exact sep_cast hsep (by ac_rfl)
+  exact phase1_spec (reserve := 0) (by intro x hx; simp at hx; rcases hx with rfl | rfl <;>
+      (unfold IsValidLit bvAbs; decide)) (by decide) hm1
+    (fun _ te sla assign trail tf h _ _ => hJfin _ _ ⟨te, _, sla, assign, trail, tf, rfl, back _ _ _ _ _ h⟩)
+    (fun _ te sla assign trail tf h _ hiff => hJph2 _ _ ⟨te, sla, assign, trail, tf, rfl,
+      back _ _ _ _ _ h, hiff⟩) _
+
 end LeanQbe.LratRup
