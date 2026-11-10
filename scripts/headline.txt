@@ -27,3 +27,9 @@ LeanQbe.FoldLemmas LeanQbe.fold_wf
 LeanQbe.FoldLemmas LeanQbe.Func.fold_spec
 LeanQbe.FoldLemmas LeanQbe.Func.fold_wf
 spike.il.FoldTest LeanQbe.FoldTest.prog_fold_spec
+LeanQbe.GvnLemmas LeanQbe.gvn_wp
+LeanQbe.GvnLemmas LeanQbe.gvn_wf
+LeanQbe.GvnLemmas LeanQbe.Func.gvn_spec
+LeanQbe.GvnLemmas LeanQbe.Func.gvn_wf
+spike.il.GvnTest LeanQbe.GvnTest.gvn_prog_out
+spike.il.GvnTest LeanQbe.GvnTest.gvn_prog_spec
