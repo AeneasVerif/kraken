@@ -429,20 +429,56 @@ def lowerBlock (temps : List String) (lbls : List String) (blks : Array PBlk) (i
       return .store sz (← e.op v) (← e.op a) (← go rest e)
   go b.ins.toList e
 
+/-- Temporaries referenced by an operand list. -/
+def opsTmps (ops : List POp) : List String :=
+  ops.filterMap fun | .tmp x => some x | _ => none
+
+/-- Temporaries defined in a block (excluding phis). -/
+def blkDefs (b : PBlk) : List String :=
+  b.ins.toList.filterMap fun
+    | .assign x .. => some x | .call (some x) .. => some x | _ => none
+
+/-- Temporaries used in a block (instructions, terminator, and outgoing phi operands). -/
+def blkUses (blks : Array PBlk) (b : PBlk) : List String :=
+  let insU := b.ins.toList.flatMap fun
+    | .assign _ _ _ as => opsTmps as
+    | .call _ _ as => opsTmps as
+    | .store _ v a => opsTmps [v, a]
+  let jmpU := match b.jmp with
+    | .jnz c _ _ => opsTmps [c]
+    | .ret (some o) => opsTmps [o]
+    | _ => []
+  let phiU := blks.toList.flatMap fun tgt =>
+    tgt.phis.filterMap (fun (_, ins) => ins.lookup b.label) |> opsTmps
+  insU ++ jmpU ++ phiU
+
 def lowerFn (f : PFn) : Except String Flat := do
   let p := f.params.length
-  let defs := f.blocks.toList.flatMap fun b =>
-    b.phis.map (·.1) ++ b.ins.toList.filterMap fun
-      | .assign x .. => some x | .call (some x) .. => some x | _ => none
-  let temps := (f.params ++ defs).eraseDups
+  let allPhiDefs := f.blocks.toList.flatMap fun b => b.phis.map (·.1)
+  let allInsDefs := f.blocks.toList.flatMap blkDefs
+  let allDefs := allPhiDefs ++ allInsDefs
+  -- A temporary needs to be carried as a block parameter iff it is not a (single-assigned) function
+  -- parameter and is either a phi, assigned more than once, or used outside the block that defines it.
+  let isCross (t : String) : Bool :=
+    let defCount := (if f.params.contains t then 1 else 0) + (allDefs.filter (· == t)).length
+    if defCount > 1 || allPhiDefs.contains t then true
+    else if f.params.contains t then false
+    else
+      f.blocks.toList.any fun b =>
+        !(blkDefs b).contains t && (blkUses f.blocks b).contains t
+  let temps := (f.params ++ allDefs).eraseDups.filter isCross
   let T := temps.length
   let lbls := f.blocks.toList.map (·.label)
   if lbls.isEmpty then throw s!"function ${f.name} has no blocks"
-  -- every block: T parameters (levels p .. p+T-1), then its body
-  let blockEnv : Env := { vals := temps.zipIdx.map fun (t, j) => (t, .var (p + j)), nv := p + T }
+  let paramBindings := f.params.zipIdx.map fun (t, j) => (t, Arg.var j)
+  let crossBindings := temps.zipIdx.map fun (t, j) => (t, Arg.var (p + j))
+  let blockEnv : Env := { vals := crossBindings ++ paramBindings, nv := p + T }
   let bodies ← (f.blocks.toList.zipIdx).mapM fun (b, i) => lowerBlock temps lbls f.blocks i b blockEnv
   let blocks := bodies.map fun bd => (List.range T).foldr (fun _ acc => Flat.param acc) bd
-  let entryArgs := temps.zipIdx.map fun (_, j) => if j < p then Arg.var j else Arg.imm 0
+  let entryArgs := temps.map fun t =>
+    match paramBindings.lookup t with
+    | some a => a
+    | none => .imm 0
   let group := blocks.foldr (fun b acc => Flat.block b acc) (Flat.jump 0 entryArgs)
   let labelled := lbls.foldr (fun _ acc => Flat.label acc) group
   return (List.range p).foldr (fun _ acc => Flat.param acc) labelled

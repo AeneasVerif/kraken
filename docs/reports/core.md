@@ -165,8 +165,13 @@ Findings and fixes:
   (cmp1, conaddr, copy, cup, eucl, fold1, gvn1, gvn2, isel1, isel3, isel4, isel6, ldhoist, loop, philv,
   prime, rega1, spill1, sum); the other 57 are outside the subset (`alloc*`, floating point, aggregates,
   varargs, thread-locals, own data, no driver), each skipped with the reason.
-- Next step (needs rega's R3 calls and x64isel's operations): compile the parsed functions with
-  `compileFn` instead of stock QBE, for a third opinion on our backend.
+- **Compiled through our own verified `LeanQbe.compile Amd64.isa` pipeline (`Func.opt` + `Spill.hints` + `Rega.lowerFn`)**:
+  `Parse.lowerFn` carries only cross-block temporaries as join-point parameters (keeping block-local
+  definitions local and function parameters in outer lexical scope). **17 of the 19 parsed QBE tests
+  compile through `compile Amd64.isa`, link with QBE's C drivers, and pass natively** (`cmp1`, `conaddr`,
+  `copy`, `cup`, `eucl`, `fold1`, `gvn1`, `gvn2`, `isel1`, `isel3`, `isel4`, `ldhoist`, `loop`, `philv`,
+  `prime`, `rega1`, `sum`; the other 2 exceed D6 register-parameter arity: `isel6` has 9 call arguments,
+  `spill1` has 17 loop phis).
 
 ## Algebraic simplifications and strength reductions in `Fold` (done)
 

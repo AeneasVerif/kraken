@@ -1,15 +1,26 @@
 import LeanQbe.Parse
 import LeanQbe.Print
+import LeanQbe.Main
+import LeanQbe.Amd64.Targ
+import Kraken.X64.PrintATT
 
 /-!
-Feeds QBE's own test programs through our front end: parse each `.ssa` file with `LeanQbe.Parse`, print
-the resulting PHOAS functions back with `LeanQbe.Print`, and write the C driver embedded in the file
-(between `# >>> driver` and `# <<<`). Driven by `scripts/qbe_tests.sh`.
+Feeds QBE's own test programs through our front end and compiler:
+1. parse each `.ssa` file with `LeanQbe.Parse`;
+2. print the resulting PHOAS functions back with `LeanQbe.Print` (for stock QBE);
+3. compile the resulting PHOAS functions with our verified pipeline `LeanQbe.compile Amd64.isa`
+   (`Func.opt` + `Spill.hints` + `Rega.lowerFn`) and print x64 assembly via `Kraken.X64.toATT`;
+4. write the C driver embedded in the file (between `# >>> driver` and `# <<<`).
+Driven by `scripts/qbe_tests.sh`.
 
 Usage: `lake env lean --run scripts/QbeTests.lean <outdir> <file.ssa>…`; prints one status line per file.
 -/
 
 open LeanQbe
+
+def emitAsm (fs : List Fn) (code : List Amd64.isa.Directive) : String :=
+  let globls := fs.map (fun f => s!".globl {f.name}\n") |>.foldl (· ++ ·) ""
+  ".text\n" ++ globls ++ Kraken.X64.toATT code ++ "\n"
 
 def driver (src : String) : Option String := do
   let lines := src.splitOn "\n"
@@ -29,7 +40,8 @@ def main (argv : List String) : IO UInt32 := do
     match Parse.parseFlat src with
     | .error e => IO.println s!"SKIP {base}: {e}"
     | .ok fs =>
-      match Print.module (fs.map Parse.toFn) with
+      let fns := fs.map Parse.toFn
+      match Print.module fns with
       | .error e => IO.println s!"SKIP {base}: print: {e}"
       | .ok il =>
         -- globals used as operands: their addresses come from C getters (`Parse.addrFn`)
@@ -44,5 +56,10 @@ def main (argv : List String) : IO UInt32 := do
           IO.FS.writeFile (dir / s!"{base}_driver.c") d
           IO.FS.writeFile (dir / s!"{base}_addr.c") <| String.join <| globals.map fun g =>
             s!"extern char {g};\nvoid *leanqbe_addr_{g}(void) \{ return &{g}; }\n"
-          IO.println s!"OK {base}: {fs.length} function(s)"
+          match compile Amd64.isa fns with
+          | .ok code =>
+            IO.FS.writeFile (dir / s!"{base}_leanqbe.s") (emitAsm fns code)
+            IO.println s!"OK {base}: {fs.length} function(s) (leanqbe: {code.length} directives)"
+          | .error e =>
+            IO.println s!"OK {base}: {fs.length} function(s) (leanqbe skip: {e})"
   return 0
