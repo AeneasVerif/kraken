@@ -11,7 +11,7 @@ Owner: `rega`. Files: `LeanQbe/{Rega,RegaLemmas,Main}.lean`, `Main.lean` (CLI), 
 | R1: `lower` for param/let/store/ret, generic proof, x64 tracer | done: no hypotheses left (`memFacts` from AbiLemmas), generic-host Kraken-only theorem plus non-vacuity |
 | R1 extras | `lower` already covers load, jnz, jump, join-point groups (R2's E1 half) |
 | R2, E1 half: control-flow litmus, oracle, pipeline | done: five programs checked by kernel `rfl`, with FnSpec instances and native runs; `sumto` end to end with a loop proof |
-| R2, E3 half: the same skeleton in E3, the D8 comparison | helper `e3` is working on it in spike/e3/ |
+| R2, E3 half: the same skeleton in E3, the D8 comparison | done (spike/e3/, written by helper `e3`; see below) |
 | R3: calls, exits, spills, oracle | not started |
 
 ## What exists
@@ -118,6 +118,28 @@ host that contains it.
 `test/run.sh` builds the CLI, then for each `test/<name>_main.c` emits, assembles, links and runs.
 All six programs (tracer plus the five control-flow programs) pass against C reference
 implementations, including edge vectors (`0x100000000` for jnz's 32-bit test, overflow).
+
+## D8 and D9 evidence (R2)
+
+**D9 (direct lowering from PHOAS) holds.** The proof closed in E1, against the real IL and Target,
+for straight-line code, branches, loops, irreducible groups and nested loops. It needs a two-way
+`Wf`, no liveness argument and no machine-level loop induction. The `toFlat` fallback is not needed.
+
+**D8 (E1 against E3)** compares the same lowering proof against the same mock target (spike/e3/,
+full table in spike/e3/README.md):
+
+| | E1 | E3 |
+|---|---|---|
+| main lemma | 215 lines, one `induction hwf` | 214 + 16 lines, three mutual lemmas, no hand-written induction principle needed |
+| junk cases | 3 constructs (`args = []` in 7 cases, block without a pending label, the `acc`/`pend` invariant everywhere), about 14 lines | none |
+| `Wf` | 19 lines | 36 lines |
+| elaboration / kernel of the main lemma | 1.04 s / 28 ms | 1.28 s / about 61 ms |
+| even/odd `lower … = .ok` by `rfl` | works (62 ms; kernel only 24 ms) | works (65 ms; kernel only 25 ms) |
+
+Both encodings work and cost about the same; E3's advantage is that ill-formed terms cannot be
+written, so the junk lines disappear. My recommendation: keep E1 for the lowering. Everything else
+is built on it (core's Fold/Gvn, logic's notation and proofs, Print), the junk cost is small and
+local, and switching would mean redoing those passes for no gain in the lowering.
 
 ## Measured
 
