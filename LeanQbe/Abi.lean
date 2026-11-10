@@ -3,6 +3,7 @@ module
 public import Kraken.OmniSemantics
 public import Kraken.SeparationMem
 public import Kraken.Data.List.Infix
+public import LeanQbe.WP
 
 /-!
 # Target signature and function contract (version 0)
@@ -36,16 +37,15 @@ code at index k of the host  →  side conditions  →
 
 so that the generic lowering proof chains them without knowing any instruction.
 
-Version 0 covers what the step-1 tracer function (`x = add a b; storel x p; ret x`) and simple
-control flow need. Version 1 (plan step 2b) adds frames, calls and exits.
+Version 0.1 covers what the step-1 tracer function (`x = add a b; storel x p; ret x`) and simple
+control flow need: one generic snippet for pure operations, loads and stores (each may return `none`
+for an unsupported case, and the lowering then fails), jumps on `Truthy` as the IL's `jnz`.
+Version 1 (plan step 2b) adds frames, calls and exits.
 -/
 
 @[expose] public section
 
 namespace LeanQbe
-
-/-- Every SSA value is a 64-bit word (decision D3). -/
-abbrev Val := BitVec 64
 
 /-- `n` bytes starting at `a` (wrapping around), with arbitrary contents. -/
 def region (a : BitVec 64) (n : Nat) : Mem 64 → Prop :=
@@ -76,18 +76,32 @@ structure Isa where
   mov : Reg → Reg → List Directive
   /-- `movi rd c`: `rd := c`. -/
   movi : Reg → Val → List Directive
-  /-- `add rd ra rb`: `rd := ra + rb`. -/
-  add : Reg → Reg → Reg → List Directive
-  /-- `storel rv ra`: store the 8 bytes of `rv` at address `ra`. -/
-  storel : Reg → Reg → List Directive
+  /-- `rd := o` for a pure operation `o` on registers and immediates; `none` if unsupported. -/
+  op : Op Reg → Reg → Option (List Directive)
+  /-- `rd := load{s}{sg} a` at class `k`; `none` if unsupported. -/
+  load : Cls → Sz → Bool → Reg → Arg Reg → Option (List Directive)
+  /-- `store{s} v, a`; `none` if unsupported. -/
+  store : Sz → Arg Reg → Arg Reg → Option (List Directive)
   /-- `jmp l`: jump to label `l`. -/
   jmp : String → List Directive
-  /-- `jnz r l`: jump to label `l` if `r ≠ 0`, else fall through. -/
+  /-- `jnz r l`: jump to label `l` if `Truthy r` (low 32 bits nonzero), else fall through. -/
   jnz : Reg → String → List Directive
   /-- `ret`: return to the caller. -/
   ret : List Directive
 
 attribute [instance] Isa.decEq
+
+/-- The variables an operand mentions. -/
+def Arg.vars {V : Type} : Arg V → List V
+  | .var v => [v]
+  | .imm _ => []
+
+/-- The variables an operation mentions. -/
+def Op.vars {V : Type} : Op V → List V
+  | .bin _ _ a b => a.vars ++ b.vars
+  | .cmp _ _ a b => a.vars ++ b.vars
+  | .ext _ _ _ a => a.vars
+  | .copy _ a => a.vars
 
 /--
 A target: an `Isa`, a machine semantics, and one step lemma per snippet.
@@ -158,7 +172,7 @@ structure Target extends Isa where
      after the structure. -/
   mov_spec : ∀ {h : Host} {k : Nat} {rd rs : Reg} {s : MData} {post : State → Prop},
     (mov rd rs).IsInfixAt (prog h) k →
-    (∀ s', get s' rd = get s rs → (∀ r, r ∉ rd :: scratch → get s' r = get s r) →
+    (∀ s', get s' rd = get s rs → (∀ r, r ∉ [rd] → get s' r = get s r) →
       mem s' = mem s → Eventually (step h) post (mkState s' (addrOf h (k + (mov rd rs).length)))) →
     Eventually (step h) post (mkState s (addrOf h k))
   movi_spec : ∀ {h : Host} {k : Nat} {rd : Reg} {c : Val} {s : MData} {post : State → Prop},
@@ -166,17 +180,27 @@ structure Target extends Isa where
     (∀ s', get s' rd = c → (∀ r, r ∉ rd :: scratch → get s' r = get s r) →
       mem s' = mem s → Eventually (step h) post (mkState s' (addrOf h (k + (movi rd c).length)))) →
     Eventually (step h) post (mkState s (addrOf h k))
-  add_spec : ∀ {h : Host} {k : Nat} {rd ra rb : Reg} {s : MData} {post : State → Prop},
-    (add rd ra rb).IsInfixAt (prog h) k → ra ∉ scratch → rb ∉ scratch →
-    (∀ s', get s' rd = get s ra + get s rb → (∀ r, r ∉ rd :: scratch → get s' r = get s r) →
-      mem s' = mem s → Eventually (step h) post (mkState s' (addrOf h (k + (add rd ra rb).length)))) →
+  op_spec : ∀ {h : Host} {k : Nat} {o : Op Reg} {rd : Reg} {c : List Directive} {v : Val}
+      {s : MData} {post : State → Prop},
+    op o rd = some c → c.IsInfixAt (prog h) k → (∀ r, r ∈ o.vars → r ∉ scratch) →
+    (o.map (get s)).eval = some v →
+    (∀ s', get s' rd = v → (∀ r, r ∉ rd :: scratch → get s' r = get s r) →
+      mem s' = mem s → Eventually (step h) post (mkState s' (addrOf h (k + c.length)))) →
     Eventually (step h) post (mkState s (addrOf h k))
-  storel_spec : ∀ {h : Host} {k : Nat} {rv ra : Reg} {s : MData} {post : State → Prop},
-    (storel rv ra).IsInfixAt (prog h) k → rv ∉ scratch → ra ∉ scratch →
-    (∃ v, Mem.loadInt (mem s) (get s ra) 8 = some v) →
+  load_spec : ∀ {h : Host} {k : Nat} {cl : Cls} {sz : Sz} {sg : Bool} {rd : Reg} {a : Arg Reg}
+      {c : List Directive} {v : Val} {s : MData} {post : State → Prop},
+    load cl sz sg rd a = some c → c.IsInfixAt (prog h) k → (∀ r, r ∈ a.vars → r ∉ scratch) →
+    loadVal (mem s) cl sz sg (a.map (get s)).val = some v →
+    (∀ s', get s' rd = v → (∀ r, r ∉ rd :: scratch → get s' r = get s r) →
+      mem s' = mem s → Eventually (step h) post (mkState s' (addrOf h (k + c.length)))) →
+    Eventually (step h) post (mkState s (addrOf h k))
+  store_spec : ∀ {h : Host} {k : Nat} {sz : Sz} {x a : Arg Reg} {c : List Directive}
+      {s : MData} {post : State → Prop},
+    store sz x a = some c → c.IsInfixAt (prog h) k → (∀ r, r ∈ x.vars ++ a.vars → r ∉ scratch) →
+    storeOk (mem s) sz (a.map (get s)).val →
     (∀ s', (∀ r, r ∉ scratch → get s' r = get s r) →
-      mem s' = Mem.storeInt (mem s) (get s ra) 8 (get s rv).toInt →
-      Eventually (step h) post (mkState s' (addrOf h (k + (storel rv ra).length)))) →
+      mem s' = storeMem (mem s) sz (a.map (get s)).val (x.map (get s)).val →
+      Eventually (step h) post (mkState s' (addrOf h (k + c.length)))) →
     Eventually (step h) post (mkState s (addrOf h k))
   jmp_spec : ∀ {h : Host} {k j : Nat} {l : String} {s : MData} {post : State → Prop},
     (jmp l).IsInfixAt (prog h) k → labelAddr h l = addrOf h j →
@@ -186,8 +210,9 @@ structure Target extends Isa where
   jnz_spec : ∀ {h : Host} {k j : Nat} {r : Reg} {l : String} {s : MData} {post : State → Prop},
     (jnz r l).IsInfixAt (prog h) k → labelAddr h l = addrOf h j → r ∉ scratch →
     (∀ s', (∀ r, r ∉ scratch → get s' r = get s r) → mem s' = mem s →
-      (get s r ≠ 0 → Eventually (step h) post (mkState s' (addrOf h j))) ∧
-      (get s r = 0 → Eventually (step h) post (mkState s' (addrOf h (k + (jnz r l).length))))) →
+      (Truthy (get s r) → Eventually (step h) post (mkState s' (addrOf h j))) ∧
+      (¬ Truthy (get s r) →
+        Eventually (step h) post (mkState s' (addrOf h (k + (jnz r l).length))))) →
     Eventually (step h) post (mkState s (addrOf h k))
   /-- `ret` with the return address `ra` where the convention keeps it (`RetAddr`, `raReg`). -/
   ret_spec : ∀ {h : Host} {k : Nat} {s : MData} {ra : Addr} {R : Mem 64 → Prop}
@@ -215,6 +240,10 @@ def LabelsUnique (h : T.Host) : Prop :=
   ∀ (i j : Nat) (l : String),
     (T.prog h)[i]? = some (T.label l) → (T.prog h)[j]? = some (T.label l) → i = j
 
+/-- Label `l` is defined in the host program. (Kraken resolves undefined labels to `-1`.) -/
+def Defined (h : T.Host) (l : String) : Prop :=
+  ∃ k : Nat, (T.prog h)[k]? = some (T.label l)
+
 /-- The values `vs` are in the first `vs.length` registers of `regs`
 (so there are at least that many). -/
 def ValsIn (regs : List T.Reg) (vs : List Val) (s : T.MData) : Prop :=
@@ -241,15 +270,6 @@ def Restored (s s' : T.MData) : Prop :=
   T.get s' T.sp = T.get s T.sp + BitVec.ofNat 64 T.raBytes
 
 end Target
-
-/--
-Source-level specification of a function, the shape of its `wp` (decision D5):
-`spec args m Q X` means: called with `args` and memory `m`, the function either returns results
-`rets` and memory `m'` with `Q rets m'`, or exits to `sym` with arguments `as` and memory `m'` with
-`X sym as m'`.
--/
-abbrev Spec : Type :=
-  List Val → Mem 64 → (List Val → Mem 64 → Prop) → (String → List Val → Mem 64 → Prop) → Prop
 
 namespace Target
 
@@ -287,7 +307,8 @@ def FnSpec (h : T.Host) (sym : String) (spec : Spec) (n : Nat) : Prop :=
         (T.pc st = ra ∧ ∃ rets m', Q rets m' ∧ T.RetsIn rets (T.data st) ∧
           T.Restored s (T.data st) ∧
           (T.mem (T.data st) =⋆ Eq m' ⋆ T.Exit (T.get s T.sp) n ⋆ R)) ∨
-        (∃ sym' as m', X sym' as m' ∧ T.pc st = T.labelAddr h sym' ∧ T.ArgsIn as (T.data st) ∧
+        (∃ sym' as m', X sym' as m' ∧ T.Defined h sym' ∧ T.pc st = T.labelAddr h sym' ∧
+          T.ArgsIn as (T.data st) ∧
           (T.mem (T.data st) =⋆ Eq m' ⋆ T.Exit (T.get s T.sp) n ⋆ R)))
       (T.mkState s (T.labelAddr h sym))
 
