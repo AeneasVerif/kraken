@@ -21,6 +21,8 @@ public import Kraken.X64.Semantics
   | .require_read_access _ cont => (cont ()).All post
   | .require_write_access _ cont => (cont ()).All post
   | .require_exec_access _ cont => (cont ()).All post
+  -- Granted, like the access checks: a stricter environment can refuse.
+  | .require_features _ cont => (cont ()).All post
   | .cpuid _ _ cont => ∀ a b c d, (cont a b c d).All post
   | .xgetbv _ cont => ∀ v, (cont v).All post
 

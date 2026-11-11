@@ -99,6 +99,7 @@ def handleEffects (ds : IncrementerState) (es : Effects)
   | .require_read_access _ cont => handleEffects ds (cont ()) ok
   | .require_write_access _ cont => handleEffects ds (cont ()) ok
   | .require_exec_access _ cont => handleEffects ds (cont ()) ok
+  | .require_features _ cont => handleEffects ds (cont ()) ok
   | .nonmem_load dmem addr w cont => do
     match h: w with
     | .W8 | .W16 | .W64 => throw s!"nonmem_load of width other than 4 bytes"

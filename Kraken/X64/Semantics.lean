@@ -6,6 +6,8 @@ public import Kraken.Mem
 meta import Kraken.Mem
 public import Kraken.X64.Syntax
 meta import Kraken.X64.Syntax
+public import Kraken.X64.Feature
+meta import Kraken.X64.Feature
 public import Lean.ToExpr
 meta import Lean.Elab.Deriving.ToExpr
 
@@ -423,13 +425,15 @@ inductive Effects
   | require_read_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_write_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
+  -- The processor raises #UD if it lacks one of these extensions.
+  | require_features (fs : List Feature) (ok : Unit → Effects)
   -- The processor's answers are the environment's, like a device's: `cpuid` returns eax, ebx,
   -- ecx, edx for a leaf and subleaf, `xgetbv` the extended control register `index`.
   -- Its faults (#UD when CR4.OSXSAVE is clear, #GP for an unsupported index) are the
   -- environment's to raise.
   | cpuid (leaf subleaf : BitVec 32) (ret : BitVec 32 → BitVec 32 → BitVec 32 → BitVec 32 → Effects)
   | xgetbv (index : BitVec 32) (ret : BitVec 64 → Effects)
-export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
+export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access require_features)
 
 -- Splits the interval in two halves in case of overflow
 def require_access (access : Std.Rco AddressBound → (Unit → Effects) → Effects)
@@ -1148,12 +1152,13 @@ def Instr.interp [Labels]
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
   require_exec_access p (fun _unit =>
+  require_features i.features (fun _unit =>
     match i with
       | .regular addr_sz op_sz op =>
           Operation.interp (w := op_sz) (address_size := .mk addr_sz) op p s next jmp
       | .avx addr_sz op_sz op =>
           AvxOperation.interp (w := op_sz) (address_size := .mk addr_sz) op p s next
-  )
+  ))
 
 @[kstep] def Directive.interp [Labels]
   (d : Directive) (s : MachineData) (p : Std.Rco Int64)
@@ -1193,18 +1198,23 @@ def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineSt
 
 -- -- Concrete evaluators for expedient testing
 
-partial def Executable.eval (e : Executable) (s : MachineState) (until_ : MachineState → Bool) : Except String (MachineState) :=
+-- `hasFeature` is the processor's set of extensions, every one by default.
+partial def Executable.eval (e : Executable) (s : MachineState) (until_ : MachineState → Bool)
+    (hasFeature : Feature → Bool := fun _ => true) : Except String (MachineState) :=
   if until_ s then .ok s else handleEffects (Executable.straightline e s .done)
 where
   handleEffects es :=
     match es with
-    | .done s => eval e s until_
+    | .done s => eval e s until_ hasFeature
     | .unimplemented msg => .error msg
     | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
     | .divide_error => .error "#DE: divide error"
     | .require_read_access _ ok => handleEffects (ok ())
     | .require_write_access _ ok => handleEffects (ok ())
     | .require_exec_access _ ok => handleEffects (ok ())
+    | .require_features fs ok => match fs.find? (!hasFeature ·) with
+      | some f => .error s!"#UD: missing {repr f}"
+      | none => handleEffects (ok ())
     | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
     | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
