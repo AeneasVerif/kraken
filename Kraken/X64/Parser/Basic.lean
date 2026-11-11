@@ -911,6 +911,25 @@ def parseInstr : Parser Instr := do
   | "paddd" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .paddd
 
+  | "pxor" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pxor
+
+  | "pand" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pand
+
+  | "pandn" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pandn
+
+  | "psrld" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    let ⟨ _, dst ⟩ ← (skipHWs *> parseAvxRegW)
+    pure (toAvxInstr .none (.psrld (.avx dst) imm))
+
+  | "pslld" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    let ⟨ _, dst ⟩ ← (skipHWs *> parseAvxRegW)
+    pure (toAvxInstr .none (.pslld (.avx dst) imm))
+
   | "pshufb" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pshufb
 

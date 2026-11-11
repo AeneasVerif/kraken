@@ -935,6 +935,27 @@ match i with
     src.interp s p (checkAlign := true) (fun a s =>
     dst.interp s p (fun b s =>
       s.setAvxLegacy dst (BitVec.packedBinOp 32 (· + ·) b a) p next))
+  | .pxor dst src =>
+    src.interp s p (checkAlign := true) (fun a s =>
+    dst.interp s p (fun b s =>
+      s.setAvxLegacy dst (b ^^^ a) p next))
+  | .pand dst src =>
+    src.interp s p (checkAlign := true) (fun a s =>
+    dst.interp s p (fun b s =>
+      s.setAvxLegacy dst (b &&& a) p next))
+  | .pandn dst src =>
+    src.interp s p (checkAlign := true) (fun a s =>
+    dst.interp s p (fun b s =>
+      s.setAvxLegacy dst (~~~b &&& a) p next))
+  -- A count above 31 clears every lane.
+  | .psrld dst imm =>
+    dst.interp s p (fun a s =>
+      let count := ((imm.interp p).toBitVec.take 8).toNat
+      s.setAvxLegacy dst (a.mapLanes 32 (fun x => if count < 32 then x >>> count else 0#32)) p next)
+  | .pslld dst imm =>
+    dst.interp s p (fun a s =>
+      let count := ((imm.interp p).toBitVec.take 8).toNat
+      s.setAvxLegacy dst (a.mapLanes 32 (fun x => if count < 32 then x <<< count else 0#32)) p next)
   | .pshufb dst src =>
     src.interp s p (checkAlign := true) (fun m s =>
     dst.interp s p (fun a s =>

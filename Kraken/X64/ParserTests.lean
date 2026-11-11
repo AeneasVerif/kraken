@@ -905,6 +905,13 @@ palignr $8, (%rsp), %xmm7
 pblendw $0xf0, %xmm8, %xmm9
 ⸩,
   ⸨prog|
+pxor %xmm1, %xmm2
+pand 16(%rsp), %xmm3
+pandn %xmm15, %xmm14
+psrld $7, %xmm4
+pslld $0x20, %xmm15
+⸩,
+  ⸨prog|
 vmovdqu (%rsp), %ymm0
 vmovd %eax, %xmm0
 vmovd %xmm1, 16(%rsp)
@@ -942,6 +949,21 @@ info: ⸨prog|
   vmovq %xmm0, 24(%rsp)
   pshufd $0x1b, %xmm5, %xmm6
   vzeroupper
+⸩
+
+/--
+info: ⸨prog|
+  pxor %xmm1, %xmm2
+  pandn (%rax), %xmm3
+  psrld $7, %xmm4
+  pslld $32, %xmm5⸩ : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog|
+  pxor %xmm1, %xmm2
+  pandn (%rax), %xmm3
+  psrld $7, %xmm4
+  pslld $0x20, %xmm5
 ⸩
 
 variable (rest : List _root_.Directive) in
