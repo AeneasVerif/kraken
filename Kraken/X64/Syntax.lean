@@ -266,6 +266,10 @@ inductive AvxOperation (w : AvxWidth)
   | vmovOut (n : Width) (_ : Dst n) (src : AvxReg w)
   | vmovq (_ : AvxReg w) (src : AvxReg w)
   | vzeroupper
+  -- SHA extensions
+  | sha256rnds2 (_ : AvxDst w) (src : AvxRegOrMem w)  -- reads xmm0 implicitly
+  | sha256msg1 (_ : AvxDst w) (src : AvxRegOrMem w)
+  | sha256msg2 (_ : AvxDst w) (src : AvxRegOrMem w)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 inductive Instr
