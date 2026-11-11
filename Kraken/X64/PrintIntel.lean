@@ -206,6 +206,12 @@ def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : Stri
   | .sha256rnds2 dst src => s!"sha256rnds2 {dst.toStr addr_w}, {src.toStr addr_w}, xmm0"
   | .sha256msg1 dst src => s!"sha256msg1 {dst.toStr addr_w}, {src.toStr addr_w}"
   | .sha256msg2 dst src => s!"sha256msg2 {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vmovdqu32 dst src => s!"vmovdqu32 {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vmovdqa32 dst src => s!"vmovdqa32 {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vpaddd dst a b => s!"vpaddd {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vprord dst src imm => s!"vprord {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .vpsrld dst src imm => s!"vpsrld {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .vpternlogd dst b c imm => s!"vpternlogd {dst.toStr addr_w}, {b.toStr addr_w}, {c.toStr addr_w}, {imm}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
 instance : ToString Instr where

@@ -146,6 +146,12 @@ def avxOperation {w} (aw : Width) (op : AvxOperation w) : String :=
   | .sha256rnds2 d x => s!"sha256rnds2 %xmm0, {avxRm aw x}, {avxRm aw d}"
   | .sha256msg1 d x => two "sha256msg1" d x
   | .sha256msg2 d x => two "sha256msg2" d x
+  | .vmovdqu32 d x => two "vmovdqu32" d x
+  | .vmovdqa32 d x => two "vmovdqa32" d x
+  | .vpaddd d a b => s!"vpaddd {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
+  | .vprord d x i => s!"vprord ${const i}, {avxRm aw x}, {avxRm aw d}"
+  | .vpsrld d x i => s!"vpsrld ${const i}, {avxRm aw x}, {avxRm aw d}"
+  | .vpternlogd d b c i => s!"vpternlogd ${const i}, {avxRm aw c}, {avxRm aw b}, {avxRm aw d}"
 
 def instr : Instr → String
   | .regular aw _ op => operation aw op
