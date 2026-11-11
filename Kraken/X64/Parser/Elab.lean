@@ -902,17 +902,9 @@ def elabEmbedding (W : Type) [ToExpr W] (body : X64ElabM Expr) (expectedType? : 
 
 end
 
-<<<<<<< Updated upstream
 /-- Inline unquoted X64 assembly directive elaborator (`⸨dir| ... ⸩`). -/
 elab_rules : term
   | `(⸨dir| $d:x64_directive⸩) => elabDirective d
-=======
-private unsafe def parseImpl (input : String) : Except String _root_.Program :=
-  Except.mapError toString <| unsafeIO do
-    let env ← getEnvironmentForElabModule `Kraken.X64.Parser.Elab
-    let comp := do evalExpr _root_.Program (mkConst ``_root_.Program) (← elabX64 input)
-    comp.run'.run'.toIO' { fileName := "<input>", fileMap := default } { env }
->>>>>>> Stashed changes
 
 macro_rules
   | `(⸨dir $n | $dir:x64_directive⸩) =>

@@ -435,7 +435,8 @@ syntax withPosition(&"movzx" ppSpace lineEq x64_reg ", " lineEq x64_reg) : x64_i
 syntax withPosition(x64_ext_mov_op ppSpace lineEq x64_operand ", " lineEq x64_reg) : x64_instr
 syntax withPosition(x64_lea_op ppSpace lineEq x64_mem ", " lineEq x64_reg) : x64_instr
 syntax withPosition(x64_avx_op ppSpace lineEq x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
-syntax withPosition(&"sha256rnds2" ppSpace lineEq (atomic(x64_avx_reg ", " notFollowedBy(x64_avx_operand notFollowedBy(","))) lineEq)? x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
+syntax withPosition(&"sha256rnds2" ppSpace lineEq x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
+syntax withPosition(&"sha256rnds2" ppSpace lineEq x64_avx_reg ", "  x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
 syntax withPosition(&"vpaddd" ppSpace lineEq x64_avx_operand ", " lineEq x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
 syntax withPosition(x64_avx_imm_op ppSpace lineEq x64_imm ", " lineEq x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
 syntax withPosition(&"vpternlogd" ppSpace lineEq x64_imm ", " lineEq x64_avx_operand ", " lineEq x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
