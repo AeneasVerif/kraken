@@ -44,7 +44,7 @@ theorem spill_spec {j : Nat} (hj : spill_body.IsInfixAt Host.prog j) :
       (fun (R : Mem 64 → Prop) ra t => CallPre 24 R ra t)
       (fun R ra t s => CallPost 24 R ra t s
         ∧ s.zmms.get (.xmm .mm1) = t.zmms.get (.xmm .mm0)) := by
-  rintro R ra t ⟨hal, hdf, hle, -, hmem⟩
+  rintro R ra t ⟨hal, hdf, hmem⟩
   have h1 := hj.cons.2
   have h2 := h1.cons.2
   have h3 := h2.cons.2

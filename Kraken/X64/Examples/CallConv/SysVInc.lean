@@ -51,7 +51,7 @@ theorem inc_spec {j : Nat} (hj : inc_body.IsInfixAt Host.prog j)
     (hfirst : ∀ i, i < j → Host.prog[i]? ≠ some (.label "sysv_inc")) :
     IncSpec 0 (label "sysv_inc") := by
   rw [Host.label_addrOf hj.cons.1 hfirst]
-  rintro ⟨n, R⟩ ra t ⟨⟨-, hdf, -, hmem⟩, harg⟩
+  rintro ⟨n, R⟩ ra t ⟨⟨-, hdf, hmem⟩, harg⟩
   have h1 := hj.cons.2
   have h2 := h1.cons.2
   have h3 := h2.cons.2
@@ -98,7 +98,7 @@ theorem caller_spec {c : Nat} (hc : caller.IsInfixAt Host.prog c)
     (hinc : IncSpec 0 (label "sysv_inc")) :
     IncSpec 16 (label "sysv_caller") := by
   rw [Host.label_addrOf hc.cons.1 hcfirst]
-  rintro ⟨n, R⟩ ra t ⟨⟨hal, hdf, -, hmem⟩, harg⟩
+  rintro ⟨n, R⟩ ra t ⟨⟨hal, hdf, hmem⟩, harg⟩
   have h1 := hc.cons.2
   have h2 := h1.cons.2
   have h3 := h2.cons.2
@@ -118,7 +118,7 @@ theorem caller_spec {c : Nat} (hc : caller.IsInfixAt Host.prog c)
     (n, RetCell ra (t.regs.get64 .rsp) ⋆ (Owned 8 (t.regs.get64 .rsp - 8) ⋆ R))
     (by simpa only [Reg64s.get64_set64_self, e16]) ?_ ?_
   · intro ra' hpushed
-    refine ⟨⟨?_, by simpa using hdf, by simp, ?_⟩, ?_⟩
+    refine ⟨⟨?_, by simpa using hdf, ?_⟩, ?_⟩
     · simp only [EntryAligned, MachineData.get64_pushRa, ite_true, Reg64s.get64_set64_self, e16]
       exact eal _ hal
     · simpa only [MachineData.get64_pushRa, ite_true, Reserve.zero, emp_sep,

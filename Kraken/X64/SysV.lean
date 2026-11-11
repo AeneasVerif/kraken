@@ -10,7 +10,7 @@ stack and the registers when the code follows the SysV convention, stated once f
 
 * on entry the return address is at `[rsp]` (`RetCell`), `rsp + 8` is 16-byte aligned, the
   direction flag is clear, and the caller has reserved `d` bytes of free stack below it
-  (`Reserve`), not wrapping past address `0`;
+  (`Reserve`);
 * on return `rsp` is 8 above its entry value (the return address popped), the direction flag is
   clear, `rbp`, `rbx` and `r12`–`r15` hold their entry values (`SavedRegs`), and the
   return-address slot and the reservation come back as owned bytes;
@@ -44,9 +44,9 @@ abbrev SavedRegs (t s : MachineData) : Prop :=
 
 /-- The convention's share of a procedure's precondition, with caller's memory `R`: the stack
 aligned, the direction flag clear, the return address on the stack, and `d` bytes reserved below
-it, not wrapping past address `0`. -/
+it. -/
 abbrev CallPre (d : Nat) (R : Mem 64 → Prop) (ra : Int64) (t : MachineData) : Prop :=
-  EntryAligned t ∧ t.df = false ∧ d ≤ (t.regs.get64 .rsp).toNat
+  EntryAligned t ∧ t.df = false
   ∧ (t.dmem =⋆ RetCell ra (t.regs.get64 .rsp) ⋆ (Reserve d (t.regs.get64 .rsp) ⋆ R))
 
 /-- The convention's share of a procedure's postcondition: the return address popped, the direction

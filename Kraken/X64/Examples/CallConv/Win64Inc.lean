@@ -44,7 +44,7 @@ theorem inc_spec {j : Nat} (hj : inc_body.IsInfixAt Host.prog j)
     (hfirst : ∀ i, i < j → Host.prog[i]? ≠ some (.label "win64_inc")) :
     IncSpec 0 (label "win64_inc") := by
   rw [Host.label_addrOf hj.cons.1 hfirst]
-  rintro ⟨n, R⟩ ra t ⟨⟨-, hdf, -, -, hmem⟩, harg⟩
+  rintro ⟨n, R⟩ ra t ⟨⟨-, hdf, hmem⟩, harg⟩
   have h1 := hj.cons.2
   have h2 := h1.cons.2
   have h3 := h2.cons.2
@@ -113,7 +113,7 @@ theorem caller_spec {c : Nat} (hc : caller.IsInfixAt Host.prog c)
     (hinc : IncSpec 0 (label "win64_inc")) :
     IncSpec 48 (label "win64_caller") := by
   rw [Host.label_addrOf hc.cons.1 hcfirst]
-  rintro ⟨n, R⟩ ra t ⟨⟨hal, hdf, hle, -, hmem⟩, harg⟩
+  rintro ⟨n, R⟩ ra t ⟨⟨hal, hdf, hmem⟩, harg⟩
   have h1 := hc.cons.2
   have h2 := h1.cons.2
   have h3 := h2.cons.2
@@ -129,8 +129,6 @@ theorem caller_spec {c : Nat} (hc : caller.IsInfixAt Host.prog c)
   -- the frame arithmetic, for any `r`: `bv_omega` does not go through on the `get64` terms
   have e48 : ∀ r : BitVec 64, r - 40 - 8 = r - 48 := fun _ => by bv_omega
   have eal : ∀ r : BitVec 64, r.toNat % 16 = 8 → (r - 48).toNat % 16 = 8 := fun _ _ => by bv_omega
-  have ebd : ∀ r : BitVec 64, 48 ≤ r.toNat → (r - 48).toNat + 40 ≤ 2 ^ 64 := fun _ _ => by
-    bv_omega
   have eret : ∀ r : BitVec 64, 40 + (r - 48 + 8) = r := fun _ => by bv_omega
   run_step hc
   -- subq $40, %rsp
@@ -142,11 +140,9 @@ theorem caller_spec {c : Nat} (hc : caller.IsInfixAt Host.prog c)
       ⋆ (Owned 8 (t.regs.get64 .rsp - 8) ⋆ R)))
     (by simpa only [Reg64s.get64_set64_self, e48]) ?_ ?_
   · intro ra' hpushed
-    refine ⟨⟨?_, by simpa using hdf, by simp, ?_, ?_⟩, ?_⟩
+    refine ⟨⟨?_, by simpa using hdf, ?_⟩, ?_⟩
     · simp only [EntryAligned, MachineData.get64_pushRa, ite_true, Reg64s.get64_set64_self, e48]
       exact eal _ hal
-    · simp only [MachineData.get64_pushRa, ite_true, Reg64s.get64_set64_self, e48]
-      exact ebd _ hle
     · simpa only [MachineData.get64_pushRa, ite_true, Reserve.zero, emp_sep,
         Reg64s.get64_set64_self, e48] using hpushed
     · simpa only [ArgU64, MachineData.get64_pushRa, reduceCtorEq, ite_false,

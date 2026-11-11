@@ -11,7 +11,7 @@ call rule `ProcSpec.wp_call` are convention-agnostic: only `Pre`/`Post` change.
 * on entry the return address is at `[rsp]` (`RetCell`), `rsp + 8` is 16-byte aligned and the
   direction flag is clear, as under SysV; above it the caller has allocated 32 bytes of *shadow
   space* at `[rsp + 8, rsp + 40)` that the callee may use freely (`Shadow`); below it, `d` reserved
-  bytes (`Reserve`); neither wraps around the address space;
+  bytes (`Reserve`);
 * on return `rsp` is 8 above its entry value, the direction flag is clear, `rbp`, `rbx`, `rdi`,
   `rsi`, `r12`–`r15` hold their entry values, and so do `xmm6`–`xmm15` (`SavedRegs`, `SavedXmm`);
   the slot, the shadow space and the reservation come back as owned bytes;
@@ -56,10 +56,9 @@ abbrev SavedXmm (t s : MachineData) : Prop :=
 
 /-- The convention's share of a procedure's precondition, with caller's memory `R`: the stack
 aligned, the direction flag clear, the return address on the stack, the shadow space above it and
-`d` bytes reserved below, neither wrapping around the address space. -/
+`d` bytes reserved below. -/
 abbrev CallPre (d : Nat) (R : Mem 64 → Prop) (ra : Int64) (t : MachineData) : Prop :=
   EntryAligned t ∧ t.df = false
-  ∧ d ≤ (t.regs.get64 .rsp).toNat ∧ (t.regs.get64 .rsp).toNat + 40 ≤ 2 ^ 64
   ∧ (t.dmem =⋆ RetCell ra (t.regs.get64 .rsp)
       ⋆ (Shadow (t.regs.get64 .rsp) ⋆ (Reserve d (t.regs.get64 .rsp) ⋆ R)))
 
