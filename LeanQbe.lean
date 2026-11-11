@@ -30,6 +30,12 @@ public import LeanQbe.Examples.LratRupLemmas
 public import LeanQbe.Examples.LratTrim
 public import LeanQbe.Examples.LratTrimStrictLemmas
 public import LeanQbe.Examples.LratTrimCheckLemmas
+public import LeanQbe.Examples.LratBytes
+public import LeanQbe.Examples.LratBytesSpec
+public import LeanQbe.Examples.LratBytesDimacsLemmas
+public import LeanQbe.Examples.LratBytesRupLemmas
+public import LeanQbe.Examples.LratBytesCheckLemmas
+public import LeanQbe.Examples.LratBytesLemmas
 public import LeanQbe.Rega
 public import LeanQbe.RegaLemmas
 public import LeanQbe.Main

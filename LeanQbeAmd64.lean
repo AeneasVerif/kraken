@@ -11,6 +11,8 @@ public import LeanQbe.Examples.LitmusCf
 public import LeanQbe.Examples.LitmusCfLemmas
 public import LeanQbe.Examples.LitmusUf
 public import LeanQbe.Examples.LitmusLrat
+public import LeanQbe.Examples.LitmusLratBytesCode
+public import LeanQbe.Examples.LitmusLratBytes
 
 /-! Root of the x64 library: imports `Kraken.X64` through `LeanQbe.Amd64.*` and the x64 litmus
 examples `LeanQbe.Examples.Litmus*`. -/
