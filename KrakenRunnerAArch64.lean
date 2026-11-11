@@ -78,7 +78,7 @@ def finishCriterion (prog : Program) (s : MachineState) : Bool :=
 
 def runKraken (asmCode : String) (initRegs : Reg64s := initData.regs)
     : Except String MachineState := do
-  let stripped := Kraken.AArch64.Parser.stripDirectives (_start ++ ":\n" ++ asmCode ++ "\n" ++ _end ++ ":\n")
+  let stripped := Kraken.Parser.stripDirectives (_start ++ ":\n" ++ asmCode ++ "\n" ++ _end ++ ":\n")
   let prog ← Kraken.AArch64.Parser.parse stripped
   let layout := Program.fakeLayout prog
   let initState : MachineState := ⟨{regs := initRegs, dmem := initStack stackLocation}, layout.labels.label _start⟩
