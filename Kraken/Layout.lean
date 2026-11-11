@@ -1,5 +1,6 @@
 module
 
+import Kraken.ForLean
 public import Kraken.PNat
 public import Lean.ToExpr
 
@@ -52,8 +53,14 @@ def Layout.size {p : Program Instr Const} [l : Layout p] : Directive Instr Const
 
 def Program.size (p : Program Instr Const) [l : Layout p] := p.mapIdx (fun idx d => l.size d idx) |>.sum
 
+def Program.labels (p : Program Instr Const) : List Label := p.filterMap fun
+  | .label l => l
+  | _ => none
+
+-- NOTE: Maybe this should not be a property on `Layout`, but on `Program`...
 class Layout.IsWellFormed (p : Program Instr Const) [Layout p] where
   no_overflow : p.size < 2^64
+  unique_labels : p.labels.Nodup
 
 class abbrev WellFormedLayout (p : Program Instr Const) := Layout p, Layout.IsWellFormed p
 
@@ -63,6 +70,50 @@ def Layout.apply (prog : Program Instr Const) (l : Layout prog) : Executable Ins
 abbrev Program.toExecutable (prog : Program Instr Const) [l : Layout prog] := l.apply prog
 
 abbrev _root_.List.toExecutable (prog : Program Instr Const) [l : Layout prog] := l.apply prog
+
+@[instance_reducible]
+def Layout.drop (p₁ : Program Instr Const) {p₂} [l : Layout (p₁ ++ p₂)] : Layout p₂ where
+  start := l.start + .ofNat (p₁.mapIdx (fun i d => l.size d i) |>.sum)
+  instrSize i := l.instrSize (i + p₁.length)
+
+@[instance_reducible]
+def Layout.take (p₁ : Program Instr Const) {p₂} [l : Layout (p₁ ++ p₂)] : Layout p₁ where
+  start := l.start
+  instrSize i := l.instrSize i
+
+@[simp]
+theorem Layout.size_drop (p₁ : Program Instr Const) {p₂} [l : Layout (p₁ ++ p₂)]
+    (d : Directive Instr Const) (i : Nat) :
+    (l.drop p₁).size d i = l.size d (i + p₁.length) := by
+  cases d <;> rfl
+
+@[simp]
+theorem Layout.size_take (p₁ : Program Instr Const) {p₂} [l : Layout (p₁ ++ p₂)]
+    (d : Directive Instr Const) (i : Nat) :
+    (l.take p₁).size d i = l.size d i := by
+  cases d <;> rfl
+
+theorem Program.size_append (p₁ p₂ : Program Instr Const) [layout : Layout (p₁ ++ p₂)] :
+    letI := layout.take p₁
+    letI := layout.drop p₁
+    (p₁ ++ p₂).size = p₁.size + p₂.size
+    := by
+  simp only [size, Layout.size_take, Layout.size_drop]
+  grind
+
+@[instance_reducible]
+nonrec def WellFormedLayout.drop (p₁ : Program Instr Const) {p₂} [l : WellFormedLayout (p₁ ++ p₂)] :
+    WellFormedLayout p₂ := {l.drop p₁ with
+    no_overflow := Nat.lt_of_add_left_lt <| Program.size_append p₁ p₂ (layout := l.toLayout) ▸ l.no_overflow
+    unique_labels := by grind [Program.labels, l.unique_labels]
+  }
+
+@[instance_reducible]
+nonrec def WellFormedLayout.take (p₁ : Program Instr Const) {p₂} [l : WellFormedLayout (p₁ ++ p₂)] :
+    WellFormedLayout p₁ := {l.take p₁ with
+    no_overflow := Nat.lt_of_add_right_lt <| Program.size_append p₁ p₂ (layout := l.toLayout) ▸ l.no_overflow
+    unique_labels := by grind [Program.labels, l.unique_labels]
+  }
 
 structure Addressable (Directive : Type) extends Sized Directive where (addr : Int64)
 
@@ -291,5 +342,208 @@ theorem Layout.withAddresses_findSome?_label [DecidableEq Instr] [DecidableEq Co
   apply Executable.withAddresses_findSome?_label_mk
   rw [← l.map_directive_apply prog, List.findIdx?_map] at hk
   exact hk
+
+private theorem add_ofNat_add (a : Int64) (b c : Nat) :
+    a + .ofNat b + .ofNat c = a + .ofNat (b + c) := by grind
+
+theorem Executable.withAddresses_eq_mapIdx (e : Executable Instr Const) :
+    e.withAddresses = e.program.mapIdx fun idx c => {c with addr := e.addrOf idx} :=
+  List.ext_getElem? fun k => by
+    simpa [List.getElem?_mapIdx] using e.getElem?_withAddresses_eq k
+
+theorem Program.withAddresses_toExecutable (p : Program Instr Const) [layout : Layout p] :
+    p.toExecutable.withAddresses =
+      p.mapIdx fun idx directive =>
+        {directive, size := layout.size directive idx, addr := p.toExecutable.addrOf idx} :=
+  List.ext_getElem? fun k => by
+    simp [Executable.withAddresses_eq_mapIdx, Program.toExecutable, Layout.apply,
+      List.getElem?_mapIdx, Function.comp_def]
+
+@[simp] theorem Program.map_directive_toExecutable (p : Program Instr Const) [Layout p] :
+    p.toExecutable.program.map (·.directive) = p :=
+  List.ext_getElem? fun k => by
+    simp [Program.toExecutable, Layout.apply, List.getElem?_mapIdx, Function.comp_def]
+
+@[simp] theorem Program.map_directive_withAddresses (p : Program Instr Const) [Layout p] :
+    p.toExecutable.withAddresses.map (·.directive) = p :=
+  List.ext_getElem? fun k => by
+    simp [Program.withAddresses_toExecutable, List.getElem?_mapIdx, Function.comp_def]
+
+private theorem mem_withAddresses_toExecutable (p : Program Instr Const) [layout : Layout p]
+    {x : Addressable (Directive Instr Const)} (hx : x ∈ p.toExecutable.withAddresses) :
+    ∃ i : Fin p.length,
+      x = {directive := p[i], size := layout.size p[i] i, addr := p.toExecutable.addrOf i} ∧
+      p.toExecutable.sizeBefore i + x.size ≤ p.size := by
+  rw [Program.withAddresses_toExecutable] at hx
+  obtain ⟨i, hi, heq⟩ := List.mem_iff_getElem.mp hx
+  simp only [List.length_mapIdx, List.getElem_mapIdx] at hi heq
+  have hc : p.toExecutable.program[i]? = some {directive := p[i], size := layout.size p[i] i} := by
+    simp [Program.toExecutable, Layout.apply, List.getElem?_mapIdx, List.getElem?_eq_getElem hi]
+  refine ⟨⟨i, hi⟩, heq.symm, ?_⟩
+  have hle := p.toExecutable.sizeBefore_succ hc ▸ p.toExecutable.sizeBefore_le (i + 1)
+  rw [Program.map_size_toExecutable_eq] at hle
+  simpa [← heq] using hle
+
+theorem Program.mem_directivesAtAddress (p : Program Instr Const) [layout : Layout p]
+    {a : Int64} {c : Sized (Directive Instr Const)} (h : c ∈ p.toExecutable.directivesAtAddress a) :
+    ∃ i : Fin p.length,
+      c = {directive := p[i], size := layout.size p[i] i} ∧ p.toExecutable.addrOf i = a := by
+  obtain ⟨x, hx, rfl⟩ := List.mem_map.mp h
+  have haddr : x.addr = a := by simpa using List.mem_takeWhile hx
+  obtain ⟨i, rfl, -⟩ := mem_withAddresses_toExecutable p
+    ((List.dropWhile_sublist _).subset ((List.takeWhile_sublist _).subset hx))
+  exact ⟨i, rfl, haddr⟩
+
+theorem Program.toExecutable_append_withAddresses (p₁ p₂ : Program Instr Const)
+    [l : Layout (p₁ ++ p₂)] :
+    letI := l.take p₁; letI := l.drop p₁
+    (p₁ ++ p₂).toExecutable.withAddresses =
+      p₁.toExecutable.withAddresses ++ p₂.toExecutable.withAddresses := by
+  letI := l.take p₁; letI := l.drop p₁
+  have hprog : (p₁ ++ p₂).toExecutable.program =
+      p₁.toExecutable.program ++ p₂.toExecutable.program := by
+    simp only [Layout.apply, List.mapIdx_append]
+    congr 1; simp [Layout.size_drop]
+  have hlen : p₁.toExecutable.program.length = p₁.length := by simp [Layout.apply]
+  rw [Program.withAddresses_toExecutable (p₁ ++ p₂), Program.withAddresses_toExecutable p₁,
+      Program.withAddresses_toExecutable p₂, List.mapIdx_append]
+  congr 1
+  · refine List.ext_getElem? fun i => ?_
+    by_cases hi : i < p₁.length
+    · have hadr : (p₁ ++ p₂).toExecutable.addrOf i = p₁.toExecutable.addrOf i := by
+        rw [Executable.addrOf, Executable.addrOf, Executable.sizeBefore, Executable.sizeBefore,
+            hprog, List.take_append_of_le_length (by omega)]; rfl
+      simp only [List.getElem?_mapIdx, List.getElem?_eq_getElem hi, Option.map_some, hadr, Layout.size_take]
+    · simp [List.getElem?_mapIdx, List.getElem?_eq_none (Nat.le_of_not_lt hi)]
+  · refine List.ext_getElem? fun i => ?_
+    have hadr : (p₁ ++ p₂).toExecutable.addrOf (i + p₁.length) = p₂.toExecutable.addrOf i := by
+      rw [Nat.add_comm, Executable.addrOf, Executable.sizeBefore_add, Executable.sizeBefore,
+          Executable.addrOf, Executable.sizeBefore, hprog, List.take_left' hlen,
+          List.drop_left' hlen, Program.map_size_toExecutable_eq p₁]
+      change l.start + .ofNat (_ + _) = l.start + .ofNat _ + .ofNat _
+      rw [← add_ofNat_add]; simp [Program.size]
+    simp only [List.getElem?_mapIdx, hadr, Layout.size_drop]
+
+theorem Program.directivesAtAddress_take_eq (p₁ p₂ : Program Instr Const)
+    [layout : WellFormedLayout (p₁ ++ p₂)] (pc : Int64)
+    (hpos : letI := layout.take p₁; ∃ c ∈ p₁.toExecutable.directivesAtAddress pc, 0 < c.size) :
+    letI := layout.take p₁
+    (p₁ ++ p₂).toExecutable.directivesAtAddress pc = p₁.toExecutable.directivesAtAddress pc := by
+  letI l₁ : Layout p₁ := layout.toLayout.take p₁
+  letI l₂ : Layout p₂ := layout.toLayout.drop p₁
+  change (p₁ ++ p₂).toExecutable.directivesAtAddress pc = p₁.toExecutable.directivesAtAddress pc
+  obtain ⟨_, hc, hcsz⟩ : ∃ c ∈ p₁.toExecutable.directivesAtAddress pc, 0 < c.size := hpos
+  obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hc
+  have hx_drop : x ∈ p₁.toExecutable.withAddresses.dropWhile (·.addr ≠ pc) :=
+    (List.takeWhile_sublist _).subset hx
+  have hx_addr : x.addr = pc := by simpa using List.mem_takeWhile hx
+  obtain ⟨i₁, hx₁, hi₁⟩ := mem_withAddresses_toExecutable p₁ ((List.dropWhile_sublist _).subset hx_drop)
+  have haddr₁ : x.addr = p₁.toExecutable.addrOf i₁ := congrArg Addressable.addr hx₁
+  have hsum_lt : p₁.size + p₂.size < UInt64.size :=
+    Program.size_append p₁ p₂ (layout := layout.toLayout) ▸ layout.no_overflow
+  have htw₂ : p₂.toExecutable.withAddresses.takeWhile (·.addr = pc) = [] := by
+    cases h : p₂.toExecutable.withAddresses.takeWhile (·.addr = pc) with
+    | nil => rfl
+    | cons y _ =>
+      have hy_mem : y ∈ p₂.toExecutable.withAddresses :=
+        (List.takeWhile_sublist _).subset (h ▸ List.mem_cons_self)
+      have hy_addr : y.addr = pc := by
+        have := List.mem_takeWhile (h ▸ List.mem_cons_self); simpa using this
+      obtain ⟨i₂, hy₂, hi₂⟩ := mem_withAddresses_toExecutable p₂ hy_mem
+      have haddr₂ : y.addr = p₂.toExecutable.addrOf i₂ := congrArg Addressable.addr hy₂
+      have he₂ : p₂.toExecutable.startAddr = p₁.toExecutable.startAddr + .ofNat p₁.size := by
+        change layout.start + .ofNat (p₁.mapIdx (fun i d => layout.size d i) |>.sum) =
+          layout.start + .ofNat p₁.size
+        simp [Program.size, l₁]
+      simp only [Executable.addrOf, he₂, add_ofNat_add] at haddr₁ haddr₂
+      have := Int64.add_ofNat_inj (by omega) (by omega) ((hx_addr ▸ haddr₁).symm.trans (hy_addr ▸ haddr₂))
+      omega
+  have happ : (p₁ ++ p₂).toExecutable.withAddresses =
+      p₁.toExecutable.withAddresses ++ p₂.toExecutable.withAddresses :=
+    Program.toExecutable_append_withAddresses p₁ p₂ (l := layout.toLayout)
+  have hne_emp : (p₁.toExecutable.withAddresses.dropWhile (·.addr ≠ pc)).isEmpty = false :=
+    Bool.eq_false_iff.mpr (mt List.isEmpty_iff.mp (List.ne_nil_of_mem hx_drop))
+  dsimp only [Executable.directivesAtAddress]
+  simp only [happ, List.dropWhile_append, hne_emp, Bool.false_eq_true, ↓reduceIte, List.takeWhile_append]
+  split
+  · rename_i hlen
+    rw [htw₂, List.append_nil, (List.takeWhile_sublist _).eq_of_length hlen]
+  · rfl
+
+theorem Program.directivesAtAddress_drop_eq (p₁ p₂ : Program Instr Const)
+    [layout : WellFormedLayout (p₁ ++ p₂)] (pc : Int64)
+    (hpos : letI := layout.drop p₁; ∃ c ∈ p₂.toExecutable.directivesAtAddress pc, 0 < c.size) :
+    letI := layout.drop p₁
+    ∃ pre, (p₁ ++ p₂).toExecutable.directivesAtAddress pc = pre ++ p₂.toExecutable.directivesAtAddress pc ∧
+      ∀ c ∈ pre, c.size = 0 := by
+  letI l₁ : Layout p₁ := layout.toLayout.take p₁
+  letI l₂ : Layout p₂ := layout.toLayout.drop p₁
+  change ∃ pre, (p₁ ++ p₂).toExecutable.directivesAtAddress pc = pre ++ p₂.toExecutable.directivesAtAddress pc ∧ _
+  obtain ⟨_, hc₀, _⟩ : ∃ c ∈ p₂.toExecutable.directivesAtAddress pc, 0 < c.size := hpos
+  obtain ⟨i₂, _, haddr₂⟩ := Program.mem_directivesAtAddress p₂ hc₀
+  have hi₂ : p₂.toExecutable.sizeBefore i₂ ≤ p₂.size :=
+    Program.map_size_toExecutable_eq p₂ ▸ p₂.toExecutable.sizeBefore_le i₂
+  have hsum_lt : p₁.size + p₂.size < UInt64.size :=
+    Program.size_append p₁ p₂ (layout := layout.toLayout) ▸ layout.no_overflow
+  have he₂ : p₂.toExecutable.startAddr = p₁.toExecutable.startAddr + .ofNat p₁.size := by
+    change layout.start + .ofNat (p₁.mapIdx (fun i d => layout.size d i) |>.sum) =
+      layout.start + .ofNat p₁.size
+    simp [Program.size, l₁]
+  have happ : (p₁ ++ p₂).toExecutable.withAddresses =
+      p₁.toExecutable.withAddresses ++ p₂.toExecutable.withAddresses :=
+    Program.toExecutable_append_withAddresses p₁ p₂ (l := layout.toLayout)
+  let w₁' := p₁.toExecutable.withAddresses.dropWhile (·.addr ≠ pc)
+  cases h_emp : w₁'.isEmpty with
+  | true =>
+    refine ⟨[], ?_, by simp⟩
+    dsimp only [Executable.directivesAtAddress]
+    rw [happ, List.dropWhile_append, h_emp, List.nil_append]; rfl
+  | false =>
+    have hne : w₁' ≠ [] := fun h => by simp [h] at h_emp
+    let j := p₁.toExecutable.withAddresses.findIdx (fun a => !decide (a.addr ≠ pc))
+    have hw₁' : w₁' = p₁.toExecutable.withAddresses.drop j := List.dropWhile_eq_drop_findIdx_not
+    have hj_lt : j < p₁.toExecutable.withAddresses.length :=
+      Classical.byContradiction fun hge => hne (hw₁'.trans (List.drop_eq_nil_of_le (Nat.le_of_not_lt hge)))
+    have hj_addr : p₁.toExecutable.addrOf j = pc := by
+      have hhead : !decide (p₁.toExecutable.withAddresses[j].addr ≠ pc) = true :=
+        List.findIdx_getElem (w := hj_lt)
+      have hget := Executable.getElem?_withAddresses_eq p₁.toExecutable j
+      rw [List.getElem?_eq_getElem hj_lt] at hget
+      obtain ⟨_, -, heq⟩ := Option.map_eq_some_iff.mp hget.symm
+      have : p₁.toExecutable.withAddresses[j].addr = p₁.toExecutable.addrOf j :=
+        congrArg Addressable.addr heq.symm
+      grind
+    simp only [Executable.addrOf, he₂, add_ofNat_add] at hj_addr haddr₂
+    have hj_le : p₁.toExecutable.sizeBefore j ≤ p₁.size :=
+      Program.map_size_toExecutable_eq p₁ ▸ p₁.toExecutable.sizeBefore_le j
+    have hoff_eq : p₁.toExecutable.sizeBefore j = p₁.size + p₂.toExecutable.sizeBefore i₂ :=
+      Int64.add_ofNat_inj (by omega) (by omega) (hj_addr.trans haddr₂.symm)
+    have hpc_e₂ : p₂.toExecutable.startAddr = pc := by
+      rw [← hj_addr, he₂]; congr 1; congr 1; omega
+    have hw₁'_prop : ∀ x ∈ w₁', x.addr = pc ∧ x.size = 0 := by
+      intro x hx
+      rw [hw₁'] at hx
+      obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hx
+      simp only [List.getElem_drop]
+      have hget := Executable.getElem?_withAddresses_eq p₁.toExecutable (j + i)
+      rw [List.getElem?_eq_getElem (by rw [List.length_drop] at hi; omega)] at hget
+      obtain ⟨c, hc, heq⟩ := Option.map_eq_some_iff.mp hget.symm
+      have hmono := p₁.toExecutable.sizeBefore_mono (Nat.le_add_right j i)
+      have hsucc : p₁.toExecutable.sizeBefore (j + i) + c.size ≤ p₁.size :=
+        Program.map_size_toExecutable_eq p₁ ▸
+          (p₁.toExecutable.sizeBefore_succ hc ▸ p₁.toExecutable.sizeBefore_le (j + i + 1))
+      rw [← heq]
+      refine ⟨?_, by dsimp; omega⟩
+      dsimp [Executable.addrOf]
+      rw [← hj_addr]; congr 1; congr 1; omega
+    have hdrop₂ : p₂.toExecutable.withAddresses.dropWhile (·.addr ≠ pc) = p₂.toExecutable.withAddresses := by
+      simpa only [← hpc_e₂, Executable.addrOf_zero, List.drop_zero] using
+        p₂.toExecutable.withAddresses_dropWhile_addrOf 0 0 rfl (by omega)
+    refine ⟨w₁'.map (·.toSized), ?_, fun c hc => ?_⟩
+    · dsimp only [Executable.directivesAtAddress, w₁'] at h_emp ⊢
+      simp only [happ, List.dropWhile_append, h_emp, Bool.false_eq_true, ↓reduceIte, hdrop₂]
+      rw [List.takeWhile_append_of_pos (fun x hx => decide_eq_true (hw₁'_prop x hx).1), List.map_append]
+    · obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hc
+      exact (hw₁'_prop x hx).2
 
 end Kraken
