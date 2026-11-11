@@ -1,7 +1,7 @@
 module
 
 meta import LeanQbe.Print
-meta import spike.il.Smoke
+meta import LeanQbeTest.Smoke
 
 /-! Regression test of `LeanQbe.Print` (the full differential test against stock QBE is
 `scripts/qbe_difftest.sh`). -/

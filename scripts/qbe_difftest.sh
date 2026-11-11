@@ -16,7 +16,7 @@ if [ -z "${QBE:-}" ]; then
   QBE="$W/qbe-src/qbe"
 fi
 cd "$ROOT"
-timeout 300 lake build spike.il.Smoke >/dev/null
+timeout 300 lake build LeanQbeTest.Smoke >/dev/null
 timeout 600 lake env lean --run scripts/QbeDiff.lean "$W/out"
 cd "$W/out"
 timeout 60 "$QBE" -o test.s test.ssa

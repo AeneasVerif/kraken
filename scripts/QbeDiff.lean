@@ -1,5 +1,5 @@
 import LeanQbe
-import spike.il.Smoke
+import LeanQbeTest.Smoke
 
 /-!
 Differential test of `LeanQbe`'s semantics and `LeanQbe.Print` against stock QBE (driven by
@@ -13,7 +13,7 @@ result is computed in Lean by `interp` below, a small fuel-bounded interpreter w
 * every operation, class, width, on 25 test vectors (pairs for binary operations), where defined;
 * store/load round trips at every width, signedness and class, through a real buffer;
 * `jnz` on the result of a 64-bit `add` (the condition is the low 32 bits);
-* the smoke functions of `spike/il/Smoke.lean`, and an `exit` path (run as a separate process).
+* the smoke functions of `LeanQbeTest/Smoke.lean`, and an `exit` path (run as a separate process).
 
 Usage: `lake env lean --run scripts/QbeDiff.lean <outdir>` writes test.ssa, harness.c, expected.txt,
 expected_exit.txt. The pointer argument of memory tests is `bufAddr` in Lean and a real buffer in C;

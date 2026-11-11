@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.FlatLemmas
-public import spike.il.Smoke
+public import LeanQbeTest.Smoke
 
 /-! `wf_reify` on the smoke programs (the scaling measurements are in docs/reports/core.md). -/
 

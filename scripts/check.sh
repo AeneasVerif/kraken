@@ -9,7 +9,8 @@
 #     (`LeanQbe/Amd64/*` and `LeanQbe/Examples/Litmus*` from `LeanQbeAmd64`, `LeanQbe/Arm64/*` from `LeanQbeArm64`, the rest from
 #     `LeanQbe`), so that step 1 really built it. Only files known to git are checked.
 #  4. Axiom audit: `#print axioms` for every theorem listed in scripts/headline.txt, plus every
-#     `#print axioms` already in the build log (spikes). Allowed: propext, Classical.choice, Quot.sound.
+#     `#print axioms` already in the build log (any module that step 1 builds, for example a test
+#     under LeanQbeTest/). Allowed: propext, Classical.choice, Quot.sound.
 #
 # Every command runs under `timeout`. Exit code 0 iff all checks pass.
 set -uo pipefail
@@ -18,7 +19,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 BUILD_TIMEOUT="${BUILD_TIMEOUT:-3600}"
 LEAN_TIMEOUT="${LEAN_TIMEOUT:-600}"
-TARGETS=(LeanQbe LeanQbeAmd64 LeanQbeArm64 Spike leanqbe)
+TARGETS=(LeanQbe LeanQbeAmd64 LeanQbeArm64 LeanQbeTest leanqbe)
 ALLOWED="propext Classical.choice Quot.sound"
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-check.XXXXXX")"
@@ -72,7 +73,7 @@ while IFS= read -r f; do
 done < <(git ls-files --cached 'LeanQbe/*.lean' 'LeanQbe/**/*.lean' | sort -u)
 
 echo "== 4. axiom audit"
-# Spikes: every `#print axioms` that the build printed.
+# Build log: every `#print axioms` that the build printed.
 grep -E "depends on axioms|does not depend on any axioms" "$TMP/build.log" >"$TMP/axioms.txt" || true
 # Headline theorems: lines `<Module> <constant>` in scripts/headline.txt, grouped by module so that
 # x64 and AArch64 modules are never imported together.

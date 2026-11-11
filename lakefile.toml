@@ -1,6 +1,6 @@
 name = "LeanQbe"
 version = "0.1.0"
-defaultTargets = ["LeanQbe", "LeanQbeAmd64", "LeanQbeArm64", "Spike", "leanqbe"]
+defaultTargets = ["LeanQbe", "LeanQbeAmd64", "LeanQbeArm64", "LeanQbeTest", "leanqbe"]
 requiresModuleSystem = true
 
 [leanOptions]
@@ -19,11 +19,12 @@ name = "LeanQbeAmd64"
 [[lean_lib]]
 name = "LeanQbeArm64"
 
-# Regression spikes. Every module under spike/ is built; each module has its own import closure,
-# so x64 and AArch64 spikes may live in this one library as long as no module imports both.
+# Tests: small programs through the fold, gvn, opt, reify and print passes. Every module under
+# LeanQbeTest/ is built (there is no root file LeanQbeTest.lean); each module has its own import
+# closure, so x64 and AArch64 tests may live in this one library as long as no module imports both.
 [[lean_lib]]
-name = "Spike"
-globs = ["spike.+"]
+name = "LeanQbeTest"
+globs = ["LeanQbeTest.+"]
 
 [[lean_exe]]
 name = "leanqbe"
