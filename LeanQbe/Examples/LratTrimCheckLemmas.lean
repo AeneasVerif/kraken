@@ -33,9 +33,7 @@ open LeanQbe.LratRup
 theorem loaduw_int4 {a v : Val} {R : Mem 64 → Prop} {m : Mem 64} (h : (int4 a v ⋆ R) m) :
     loadVal m .l .w false a = some (v &&& 0xffffffff#64) := by
   rw [loadVal_toBytes (s := .w) h]
-  have : BitVec.ofInt 64 ((v.toNat : Int).take 32) = (v.setWidth 32).setWidth 64 := by
-    apply BitVec.eq_of_toNat_eq; simp [Int.take]; omega
-  simp only [Cls.trunc, Sz.extend, Sz.bytes]; rw [this]; congr 1; grind
+  simp only [Cls.trunc, Sz.extend, Sz.bytes]; rw [ofInt_take_toNat v]; congr 1; grind
 
 theorem loaduw_zeroTerm_head {p : Val} {xs : List Val} {R : Mem 64 → Prop} {m : Mem 64}
     (h : (ZeroTermInts p xs ⋆ R) m) :
@@ -108,12 +106,8 @@ theorem checkClause_step {Γ : Env} {Q : Post} {X : XPost} {st id literals antec
   refine ⟨_, loadl_kfield 16 (by decide) hm rfl, ?_⟩
   simp only [KernelFields.toList, List.getElem_cons_succ, List.getElem_cons_zero]
   have ⟨ok1, hm1⟩ := storel_stat_chk_total hm
-  have hm1_z : (ZeroTermInts literals clits ⋆
-      (kernelState st { k with stat_chk_total := k.stat_chk_total + 1 } ⋆ R))
-      (storeMem m .l (st + 128) (k.stat_chk_total + 1)) := by
-    rw [sep_comm_l] at hm1; exact hm1
   let w₀ : Val := (clits ++ [0])[0]'(by simp)
-  refine ⟨ok1, _, loaduw_zeroTerm_head hm1_z, ?_⟩
+  refine ⟨ok1, _, loaduw_zeroTerm_head (by ecancel), ?_⟩
   apply wp_join (fun as m2 => as = [] ∧
     (kernelState st (k.bumpCheckStats w₀) ⋆ (ZeroTermInts literals clits ⋆ R)) m2)
   · rintro _ m2 ⟨rfl, hm2⟩
@@ -361,15 +355,7 @@ theorem checkProof_correct (Γ : Env)
       · have hused_true : isStepUsed k₀.trimming usedWords id.toNat = true := by
           rw [isStepUsed_eq_true_iff hid_used]
           by_cases ht0 : k₀.trimming = 0 <;> simp_all [uw]
-        have hm_lits : (word8Array k₀.literals_begin litsPtrs ⋆
-            (kernelState st k ⋆ (int4Array k₀.used_begin usedWords ⋆
-              (word8Array k₀.antecedents_begin antePtrs ⋆ R)))) m :=
-          sep_cast hm_sep (by ac_rfl)
-        have hm_ante : (word8Array k₀.antecedents_begin antePtrs ⋆
-            (kernelState st k ⋆ (int4Array k₀.used_begin usedWords ⋆
-              (word8Array k₀.literals_begin litsPtrs ⋆ R)))) m :=
-          sep_cast hm_sep (by ac_rfl)
-        refine ⟨_, loadl_word8Array hid_lits hm_lits, _, loadl_word8Array hid_ante hm_ante, ?_⟩
+        refine ⟨_, loadl_word8Array hid_lits (by ecancel), _, loadl_word8Array hid_ante (by ecancel), ?_⟩
         refine wp_call_of_spec (hclause _ _ _ _
           (fullMemInv_checkClause pre hid_lo hid_le hused_true hinv (fun m' hk' hc => ?_) hX))
         wp_unfold
@@ -395,11 +381,7 @@ theorem checkProof_correct (Γ : Env)
       wp_unfold
       refine ⟨fun htnz => ?_, fun htz => ?_⟩
       · rw [shl_two]
-        have hm_used : (int4Array k₀.used_begin usedWords ⋆
-            (kernelState st k ⋆ (word8Array k₀.literals_begin litsPtrs ⋆
-              (word8Array k₀.antecedents_begin antePtrs ⋆ R)))) m :=
-          sep_cast hm_sep (by ac_rfl)
-        refine ⟨_, loadsw_int4Array hid_used (pre.hused_int32 id.toNat hid_used) hm_used, ?_⟩
+        refine ⟨_, loadsw_int4Array hid_used (pre.hused_int32 id.toNat hid_used) (by ecancel), ?_⟩
         exact hJcheck _ _ ⟨congrArg (· :: []) (ite_eq_right htnz).symm, rfl⟩
       · have ht0 : k₀.trimming = 0 := Classical.not_not.1 htz
         exact hJcheck _ _ ⟨congrArg (· :: []) (ite_eq_left ht0).symm, rfl⟩
@@ -535,38 +517,16 @@ theorem nvCheck_pre :
     hrup_case := fun h => absurd h (by decide)
     hstrict_case := fun _ => ⟨by decide, by decide, ?_, ?_⟩
   }
-  · unfold kernelState nvCheckPro ZeroTermInts
-    rw [show List.replicate 2 (0 : Val) = [0, 0] from rfl,
-      byte1Array_eq _ _ (by simp), word8Array_eq _ _ (by simp [KernelFields.toList]),
-      int4Array_eq _ _ (by simp), word8Array_eq _ _ (by simp), word8Array_eq _ _ (by simp),
-      int4Array_eq _ _ (by simp), int4Array_eq _ _ (by simp)]
-    have e : Eq (nvCheckBytes.At (0x1000 : Val)) =
-        (Eq ((bytesN 8 nvCheckK.toList).At (0x1000 : Val)) ⋆
-          (Eq ((bytesN 1 [0, 0]).At (0x10a0 : Val)) ⋆
-            (Eq ((bytesN 4 [1, 1]).At (0x10a2 : Val)) ⋆
-              (Eq ((bytesN 8 [0, 0x10ca]).At (0x10aa : Val)) ⋆
-                (Eq ((bytesN 8 [0, 0x10ce]).At (0x10ba : Val)) ⋆
-                  (Eq ((bytesN 4 [0]).At (0x10ca : Val)) ⋆
-                    Eq ((bytesN 4 [0]).At (0x10ce : Val)))))))) := by
-      unfold nvCheckBytes
-      rw [eq_append_At _ _ _ (by simp [bytesN_length, KernelFields.toList]),
-        eq_append_At _ _ _ (by simp [bytesN_length]),
-        eq_append_At _ _ _ (by simp [bytesN_length]),
-        eq_append_At _ _ _ (by simp [bytesN_length]),
-        eq_append_At _ _ _ (by simp [bytesN_length]),
-        eq_append_At _ _ _ (by simp [bytesN_length])]
-      simp only [bytesN_length, KernelFields.toList, List.length_cons, List.length_nil]
-      rfl
-    exact sep_cast (show Eq (nvCheckBytes.At (0x1000 : Val)) _ from rfl) (e.trans (by ac_rfl))
+  · unfold kernelState nvCheckPro ZeroTermInts nvCheckBytes
+    dsimp only [nvCheckK, nvK]
+    rw [show List.replicate 2 (0 : Val) = [0, 0] from rfl]
+    solve_bytes_at
   · intro id hlo hhi _
     have hid : id.toNat = 1 := by change 1 ≤ id.toNat at hlo; change id.toNat ≤ 1 at hhi; omega
     simp only [hid, List.getD, List.getElem?_cons_succ, List.getElem?_cons_zero, Option.getD_some,
       List.getElem_cons_succ, List.getElem_cons_zero]
     refine ⟨rfl, by decide, by simp, by simp, by simp,
-      ⟨int4Array 0x10a2 [1, 1] ⋆ (word8Array 0x10aa [0, 0x10ca] ⋆
-        (word8Array 0x10ba [0, 0x10ce] ⋆ ZeroTermInts 0x10ce [])), by dsimp [nvCheckPro]; ac_rfl⟩,
-      ⟨int4Array 0x10a2 [1, 1] ⋆ (word8Array 0x10aa [0, 0x10ca] ⋆
-        (word8Array 0x10ba [0, 0x10ce] ⋆ ZeroTermInts 0x10ca [])), by dsimp [nvCheckPro]; ac_rfl⟩⟩
+      ⟨_, by dsimp [nvCheckPro]; ecancel⟩, ⟨_, by dsimp [nvCheckPro]; ecancel⟩⟩
 
 theorem checkClause_strict_nonvacuous :
     checkClauseStrictSpec [0x1000, 1, 0x10ca, 0x10ce] (nvCheckBytes.At 0x1000)
@@ -621,18 +581,16 @@ theorem nvAcceptCnf_unsat : nvAcceptCnf.Unsat := by
   intro a
   rw [Bool.eq_false_iff, ne_eq]
   intro h
-  simp only [nvAcceptCnf, CNF.eval_add, Bool.and_eq_true] at h
-  obtain ⟨h1, h2, _⟩ := h
-  rw [← CNF.Clause.sat_def] at h1 h2
+  simp only [nvAcceptCnf, CNF.eval_add, Bool.and_eq_true, ← CNF.Clause.sat_def] at h
   cases ha : a 1
-  · refine CNF.Clause.not_sat_iff_forall_mem_ne.2 (fun l hl => ?_) h2
-    rw [← CNF.Clause.mem_literals_iff, literals_toClause] at hl
-    obtain rfl : l = (1, true) := (List.mem_singleton.1 hl).trans (by decide)
-    simp [ha]
-  · refine CNF.Clause.not_sat_iff_forall_mem_ne.2 (fun l hl => ?_) h1
-    rw [← CNF.Clause.mem_literals_iff, literals_toClause] at hl
-    obtain rfl : l = (1, false) := (List.mem_singleton.1 hl).trans (by decide)
-    simp [ha]
+  · exact CNF.Clause.not_sat_iff_forall_mem_ne.2 (fun l hl => by
+      rw [← CNF.Clause.mem_literals_iff, literals_toClause] at hl
+      obtain rfl := List.mem_singleton.1 hl
+      rw [show toLiteral 1 = (1, true) by decide]; simp [ha]) h.2.1
+  · exact CNF.Clause.not_sat_iff_forall_mem_ne.2 (fun l hl => by
+      rw [← CNF.Clause.mem_literals_iff, literals_toClause] at hl
+      obtain rfl := List.mem_singleton.1 hl
+      rw [show toLiteral (-1) = (1, false) by decide]; simp [ha]) h.1
 
 def nvAcceptK : KernelFields :=
   { nvK with
@@ -678,33 +636,67 @@ theorem nvAcceptBytes_length : nvAcceptBytes.length = 274 := by
   simp [nvAcceptBytes, bytesN_length, KernelFields.toList]
 
 theorem nvAccept_mem : nvAcceptMem nvAcceptK emp (nvAcceptBytes.At 0x1000) := by
-  unfold nvAcceptMem kernelState nvAcceptRo ZeroTermInts
-  rw [sep_emp, byte1Array_eq _ _ (by simp), word8Array_eq _ _ (by simp [KernelFields.toList]),
-    int4Array_eq _ _ (by simp), word8Array_eq _ _ (by simp), word8Array_eq _ _ (by simp),
-    int4Array_eq _ _ (by simp), int4Array_eq _ _ (by simp), int4Array_eq _ _ (by simp),
-    int4Array_eq _ _ (by simp)]
-  have e : Eq (nvAcceptBytes.At (0x1000 : Val)) =
-      (Eq ((bytesN 8 nvAcceptK.toList).At (0x1000 : Val)) ⋆
-        (Eq ((bytesN 1 [0, 0]).At (0x10a0 : Val)) ⋆
-          (Eq ((bytesN 4 [0, 0, 0, 1]).At (0x10a2 : Val)) ⋆
-            (Eq ((bytesN 8 [0, 0x10f2, 0x10fa, 0x1102]).At (0x10b2 : Val)) ⋆
-              (Eq ((bytesN 8 [0, 0, 0, 0x1106]).At (0x10d2 : Val)) ⋆
-                (Eq ((bytesN 4 [1, 0]).At (0x10f2 : Val)) ⋆
-                  (Eq ((bytesN 4 [-1, 0]).At (0x10fa : Val)) ⋆
-                    (Eq ((bytesN 4 [0]).At (0x1102 : Val)) ⋆
-                      Eq ((bytesN 4 [1, 2, 0]).At (0x1106 : Val)))))))))) := by
-    unfold nvAcceptBytes
-    rw [eq_append_At _ _ _ (by simp [bytesN_length, KernelFields.toList]),
-      eq_append_At _ _ _ (by simp [bytesN_length]),
-      eq_append_At _ _ _ (by simp [bytesN_length]),
-      eq_append_At _ _ _ (by simp [bytesN_length]),
-      eq_append_At _ _ _ (by simp [bytesN_length]),
-      eq_append_At _ _ _ (by simp [bytesN_length]),
-      eq_append_At _ _ _ (by simp [bytesN_length]),
-      eq_append_At _ _ _ (by simp [bytesN_length])]
-    simp only [bytesN_length, KernelFields.toList, List.length_cons, List.length_nil]
-    rfl
-  exact sep_cast (show Eq (nvAcceptBytes.At (0x1000 : Val)) _ from rfl) (e.trans (by ac_rfl))
+  unfold nvAcceptMem kernelState nvAcceptRo ZeroTermInts nvAcceptBytes
+  solve_bytes_at
+
+local macro "wp_step" h:term : tactic =>
+  `(tactic| (refine $h _ _ ?_; dsimp only [wp_param]; wp_unfold))
+
+local macro "branch_t" t:tacticSeq : tactic =>
+  `(tactic| refine ⟨fun _ => by $t, fun hc => by first | exact absurd hc (by decide) | exact absurd (by decide) hc | exact absurd rfl hc⟩)
+
+local macro "branch_f" t:tacticSeq : tactic =>
+  `(tactic| refine ⟨fun hc => absurd hc (by decide), fun _ => by $t⟩)
+
+private theorem ld_w_step {m : Mem 64} {p : Val} {Q : Val → Prop} (a : Val) (i : Nat)
+    {xs : List Val} {R : Mem 64 → Prop} {v : Val}
+    (h : (int4Array a xs ⋆ R) m) (heq : p = a + BitVec.ofNat 64 (4 * i))
+    (hi : xs[i]? = some v) (hv : IsInt32 v) (hk : Q v) :
+    ∃ x, loadVal m .l .w true p = some x ∧ Q x := by
+  have hlt : i < xs.length := Nat.lt_of_not_le fun hge => by
+    simp [List.getElem?_eq_none hge] at hi
+  have hget : xs[i] = v := Option.some.inj (by rwa [List.getElem?_eq_getElem hlt] at hi)
+  exact ⟨v, hget ▸ loadsw_at i hlt (hget ▸ hv) h heq, hk⟩
+
+private theorem ld_l_step {m : Mem 64} {p : Val} {Q : Val → Prop} (a : Val) (i : Nat)
+    {xs : List Val} {R : Mem 64 → Prop} {v : Val}
+    (h : (word8Array a xs ⋆ R) m) (heq : p = a + BitVec.ofNat 64 (8 * i))
+    (hi : xs[i]? = some v) (hk : Q v) :
+    ∃ x, loadVal m .l .l true p = some x ∧ Q x := by
+  have hlt : i < xs.length := Nat.lt_of_not_le fun hge => by
+    simp [List.getElem?_eq_none hge] at hi
+  have hget : xs[i] = v := Option.some.inj (by rwa [List.getElem?_eq_getElem hlt] at hi)
+  exact ⟨v, hget ▸ loadl_at i hlt h heq, hk⟩
+
+private theorem ld_b_step {m : Mem 64} {p : Val} {Q : Val → Prop} (a : Val) (i : Nat)
+    {xs : List Val} {R : Mem 64 → Prop} {v : Val}
+    (h : (byte1Array a xs ⋆ R) m) (heq : p = a + BitVec.ofNat 64 i)
+    (hi : xs[i]? = some v) (hv : IsInt8 v) (hk : Q v) :
+    ∃ x, loadVal m .l .b true p = some x ∧ Q x := by
+  have hlt : i < xs.length := Nat.lt_of_not_le fun hge => by
+    simp [List.getElem?_eq_none hge] at hi
+  have hget : xs[i] = v := Option.some.inj (by rwa [List.getElem?_eq_getElem hlt] at hi)
+  exact ⟨v, hget ▸ loadsb_at i hlt (hget ▸ hv) h heq, hk⟩
+
+local macro "ld_w" a:term "," i:term : tactic =>
+  `(tactic| (apply ld_w_step $a $i
+             · (try dsimp only [nvAcceptMem, nvAcceptRo] at *); ecancel
+             · rfl
+             · rfl
+             · decide))
+
+local macro "ld_l" a:term "," i:term : tactic =>
+  `(tactic| (apply ld_l_step $a $i
+             · (try dsimp only [nvAcceptMem, nvAcceptRo] at *); ecancel
+             · rfl
+             · rfl))
+
+local macro "ld_b" a:term "," i:term : tactic =>
+  `(tactic| (apply ld_b_step $a $i
+             · (try dsimp only [nvAcceptMem, nvAcceptRo] at *); ecancel
+             · rfl
+             · rfl
+             · decide))
 
 theorem strictScan_accepts {Γ : Env} {Q : Post} {X : XPost} {scanned : Cont}
     {R : Mem 64 → Prop} {m : Mem 64}
@@ -713,12 +705,12 @@ theorem strictScan_accepts {Γ : Env} {Q : Post} {X : XPost} {scanned : Cont}
     wp Γ Q X (strictScan 3 scanned 0x1106) [] [] m := by
   unfold strictScan
   apply wp_unroll; intro Jscan hscan; wp_unfold
-  refine hscan _ _ ?_; dsimp only [wp_param]; wp_unfold
-  refine ⟨_, loadsw_at 0 (by decide) (by decide) hm, fun _ => ⟨fun hc => absurd hc (by decide), fun _ => ?_⟩, fun hc => absurd (by decide : Truthy 1) hc⟩
-  refine hscan _ _ ?_; dsimp only [wp_param]; wp_unfold
-  refine ⟨_, loadsw_at 1 (by decide) (by decide) hm, fun _ => ⟨fun hc => absurd hc (by decide), fun _ => ?_⟩, fun hc => absurd (by decide : Truthy 2) hc⟩
-  refine hscan _ _ ?_; dsimp only [wp_param]; wp_unfold
-  exact ⟨_, loadsw_at 2 (by decide) (by decide) hm, fun hc => absurd hc (by decide), fun _ => h⟩
+  wp_step hscan
+  ld_w 0x1106, 0; branch_t { branch_f {
+    wp_step hscan
+    ld_w 0x1106, 1; branch_t { branch_f {
+      wp_step hscan
+      ld_w 0x1106, 2; branch_f { exact h } } } } }
 
 theorem strictInner_ant2 {Γ : Env} {Q : Post} {X : XPost} {done : Cont}
     {st sr : Val} {R : Mem 64 → Prop} {m : Mem 64}
@@ -727,14 +719,15 @@ theorem strictInner_ant2 {Γ : Env} {Q : Post} {X : XPost} {done : Cont}
     wp Γ Q X (strictInner st 3 2 0x10a0 sr done 0x10fa 0) [] [] m := by
   unfold strictInner
   apply wp_unroll; intro Jlp hlp; wp_unfold
-  refine hlp _ _ ?_; dsimp only [wp_param]; wp_unfold
-  have hm_c : (int4Array 0x10fa [-1, 0] ⋆ (byte1Array 0x10a0 [0, 0] ⋆ R)) m := sep_cast hm (by ac_rfl)
-  refine ⟨_, loadsw_at 0 (by decide) (by decide) hm_c, fun _ => ?_, fun hc => absurd (by decide : Truthy (-1)) hc⟩
-  refine ⟨_, loadsb_at 1 (by decide) (by decide) hm, fun _ => ?_, fun hc => absurd rfl hc⟩
-  have ⟨ok, hm'⟩ := storeb_at 1 0x10a1 (-1) (by decide) hm
-  refine ⟨ok, hlp _ _ ?_⟩; dsimp only [wp_param]; wp_unfold
-  have hm'_c : (int4Array 0x10fa [-1, 0] ⋆ (byte1Array 0x10a0 [0, -1] ⋆ R)) _ := sep_cast hm' (by ac_rfl)
-  exact ⟨_, loadsw_at 1 (by decide) (by decide) hm'_c, fun hc => absurd hc (by decide), fun _ => h _ hm'⟩
+  wp_step hlp
+  ld_w 0x10fa, 0; branch_t {
+    ld_b 0x10a0, 1; branch_t {
+      have ⟨ok, hm'⟩ := storeb_at 1 0x10a1 (-1) (by decide) hm
+      rw [show (0x10a0 : Val) + (((-1 : Val) ^^^ BitVec.sshiftRight (-1 : Val) 63) -
+          BitVec.sshiftRight (-1 : Val) 63) = 0x10a1 by decide,
+        show BitVec.sshiftRight (-1 : Val) 63 ||| (1 : Val) = -1 by decide]
+      refine ⟨ok, ?_⟩; wp_step hlp
+      ld_w 0x10fa, 1; branch_f { exact h _ hm' } } }
 
 theorem strictInner_ant1 {Γ : Env} {Q : Post} {X : XPost} {done : Cont}
     {st sr : Val} {R : Mem 64 → Prop} {m : Mem 64}
@@ -743,13 +736,11 @@ theorem strictInner_ant1 {Γ : Env} {Q : Post} {X : XPost} {done : Cont}
     wp Γ Q X (strictInner st 3 1 0x10a0 sr done 0x10f2 1) [] [] m := by
   unfold strictInner
   apply wp_unroll; intro Jlp hlp; wp_unfold
-  refine hlp _ _ ?_; dsimp only [wp_param]; wp_unfold
-  have hm_c : (int4Array 0x10f2 [1, 0] ⋆ (byte1Array 0x10a0 [0, -1] ⋆ R)) m := sep_cast hm (by ac_rfl)
-  refine ⟨_, loadsw_at 0 (by decide) (by decide) hm_c, fun _ => ?_, fun hc => absurd (by decide : Truthy 1) hc⟩
-  refine ⟨_, loadsb_at 1 (by decide) (by decide) hm, fun hc => absurd hc (by decide), fun _ => ?_⟩
-  refine ⟨fun hc => absurd hc (by decide), fun _ => ⟨fun hc => absurd hc (by decide), fun _ => ?_⟩⟩
-  refine hlp _ _ ?_; dsimp only [wp_param]; wp_unfold
-  exact ⟨_, loadsw_at 1 (by decide) (by decide) hm_c, fun hc => absurd hc (by decide), fun _ => h⟩
+  wp_step hlp
+  ld_w 0x10f2, 0; branch_t {
+    ld_b 0x10a0, 1; branch_f { branch_f { branch_f {
+      wp_step hlp
+      ld_w 0x10f2, 1; branch_f { exact h } } } } }
 
 theorem strictOuter_accepts {Γ : Env} {Q : Post} {X : XPost} {resolved : Cont}
     {st sr0 : Val} {R : Mem 64 → Prop} {m : Mem 64}
@@ -761,41 +752,26 @@ theorem strictOuter_accepts {Γ : Env} {Q : Post} {X : XPost} {resolved : Cont}
     wp Γ Q X (strictOuter st 3 0x10b2 0x10a0 0x1106 resolved 0x110e sr0) [] [] m := by
   unfold strictOuter
   apply wp_unroll; intro Jout hout; wp_unfold
-  refine hout _ _ ?_; dsimp only [wp_param]; wp_unfold
-  refine ⟨fun hc => absurd hc (by decide), fun _ => ?_⟩
-  have hm_ants : (int4Array 0x1106 [1, 2, 0] ⋆ (byte1Array 0x10a0 [0, 0] ⋆
-      (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆ (int4Array 0x10f2 [1, 0] ⋆ (int4Array 0x10fa [-1, 0] ⋆ R))))) m :=
-    sep_cast hm (by ac_rfl)
-  have hm_lb : (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆ (byte1Array 0x10a0 [0, 0] ⋆
-      (int4Array 0x10f2 [1, 0] ⋆ (int4Array 0x10fa [-1, 0] ⋆ (int4Array 0x1106 [1, 2, 0] ⋆ R))))) m :=
-    sep_cast hm (by ac_rfl)
-  refine ⟨_, loadsw_at 1 (by decide) (by decide) hm_ants, _, loadl_at 2 (by decide) hm_lb, ?_⟩
-  apply wp_unroll; intro Jdone2 hdone2
-  have hm_in2 : (byte1Array 0x10a0 [0, 0] ⋆ (int4Array 0x10fa [-1, 0] ⋆
-      (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆ (int4Array 0x10f2 [1, 0] ⋆ (int4Array 0x1106 [1, 2, 0] ⋆ R))))) m :=
-    sep_cast hm (by ac_rfl)
-  refine strictInner_ant2 hm_in2 fun m1 hm1 => hdone2 _ _ ?_
-  dsimp only [wp_param]; wp_unfold
-  refine ⟨fun _ => ⟨fun hc => absurd hc (by decide), fun _ => ?_⟩, fun hc => absurd (by decide : Truthy 1) hc⟩
-  refine hout _ _ ?_; dsimp only [wp_param]; wp_unfold
-  refine ⟨fun hc => absurd hc (by decide), fun _ => ?_⟩
-  have hm1_ants : (int4Array 0x1106 [1, 2, 0] ⋆ (byte1Array 0x10a0 [0, -1] ⋆
-      (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆ (int4Array 0x10f2 [1, 0] ⋆ (int4Array 0x10fa [-1, 0] ⋆ R))))) m1 :=
-    sep_cast hm1 (by ac_rfl)
-  have hm1_lb : (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆ (byte1Array 0x10a0 [0, -1] ⋆
-      (int4Array 0x10f2 [1, 0] ⋆ (int4Array 0x10fa [-1, 0] ⋆ (int4Array 0x1106 [1, 2, 0] ⋆ R))))) m1 :=
-    sep_cast hm1 (by ac_rfl)
-  refine ⟨_, loadsw_at 0 (by decide) (by decide) hm1_ants, _, loadl_at 1 (by decide) hm1_lb, ?_⟩
-  apply wp_unroll; intro Jdone1 hdone1
-  have hm_in1 : (byte1Array 0x10a0 [0, -1] ⋆ (int4Array 0x10f2 [1, 0] ⋆
-      (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆ (int4Array 0x10fa [-1, 0] ⋆ (int4Array 0x1106 [1, 2, 0] ⋆ R))))) m1 :=
-    sep_cast hm1 (by ac_rfl)
-  refine strictInner_ant1 hm_in1 (hdone1 _ _ ?_)
-  dsimp only [wp_param]; wp_unfold
-  refine ⟨fun hc => absurd hc (by decide), fun _ => ⟨fun _ => ?_, fun hc => absurd (by decide : Truthy 1) hc⟩⟩
-  have ⟨ok, hm2⟩ := storeb_at 1 0x10a1 0 (by decide) hm_in1
-  refine ⟨ok, hout _ _ ?_⟩; dsimp only [wp_param]; wp_unfold
-  exact ⟨fun _ => h _ (sep_cast hm2 (by ac_rfl)), fun hc => absurd rfl hc⟩
+  wp_step hout
+  branch_f {
+    ld_w 0x1106, 1; ld_l 0x10b2, 2
+    apply wp_unroll; intro Jdone2 hdone2
+    refine strictInner_ant2 (by ecancel) fun m1 hm1 => ?_
+    wp_step hdone2
+    branch_t { branch_f {
+      wp_step hout
+      branch_f {
+        ld_w 0x1106, 0; ld_l 0x10b2, 1
+        apply wp_unroll; intro Jdone1 hdone1
+        refine strictInner_ant1 (by ecancel) (by
+          wp_step hdone1
+          branch_f { branch_t {
+            have ⟨ok, hm2⟩ := storeb_at 1 0x10a1 0 (by decide) hm1
+            dsimp only [List.set] at hm2
+            rw [show (0x10a0 : Val) + (((1 : Val) ^^^ BitVec.sshiftRight (1 : Val) 63) -
+              BitVec.sshiftRight (1 : Val) 63) = 0x10a1 by decide]
+            refine ⟨ok, ?_⟩; wp_step hout
+            branch_t { exact h _ (by ecancel) } } }) } } } }
 
 theorem strictFinal_accepts {Γ : Env} {Q : Post} {X : XPost} {checked : Cont}
     {id mb rsize0 : Val} {R : Mem 64 → Prop} {m : Mem 64}
@@ -803,7 +779,7 @@ theorem strictFinal_accepts {Γ : Env} {Q : Post} {X : XPost} {checked : Cont}
     wp Γ Q X (strictFinal id mb checked 0x1102 rsize0) [] [] m := by
   unfold strictFinal
   apply wp_unroll; intro J hJ; wp_unfold
-  refine hJ _ _ ?_; dsimp only [wp_param]; wp_unfold
+  wp_step hJ
   exact ⟨0, loadsw_at 0 (by decide) (by decide) hm, fun h => absurd h (by decide), fun _ => hchk⟩
 
 def strictAcceptSpec : Spec := fun args m Q _ =>
@@ -816,43 +792,33 @@ theorem strictCheck_accepts (Γ : Env) :
   unfold strictCheck Func.spec
   wp_unfold
   apply wp_unroll; intro Jscan hscan
-  have hm_scan : (int4Array 0x1106 [1, 2, 0] ⋆ (byte1Array 0x10a0 [0, 0] ⋆ (kernelState 0x1000 nvAcceptK1 ⋆
-      (int4Array 0x10a2 [0, 0, 0, 1] ⋆ (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆
-        (word8Array 0x10d2 [0, 0, 0, 0x1106] ⋆ (int4Array 0x10f2 [1, 0] ⋆
-          (int4Array 0x10fa [-1, 0] ⋆ (ZeroTermInts 0x1102 [] ⋆ R))))))))) m := by
-    unfold nvAcceptMem nvAcceptRo at hm; exact sep_cast hm (by ac_rfl)
-  refine strictScan_accepts hm_scan (hscan _ _ ?_)
-  dsimp only [wp_param]; wp_unfold
-  have hks : (kernelState 0x1000 nvAcceptK1 ⋆ (byte1Array 0x10a0 [0, 0] ⋆ (nvAcceptRo ⋆ R))) m := by
-    unfold nvAcceptMem at hm; exact sep_cast hm (by ac_rfl)
-  refine ⟨_, loadl_kfield 2 (by decide) hks rfl, _, loadl_kfield 4 (by decide) hks rfl,
-    _, loadl_kfield 18 (by decide) hks rfl, ?_⟩
-  simp only [KernelFields.toList, nvAcceptK1, nvAcceptK, nvK, List.getElem_cons_succ, List.getElem_cons_zero]
-  apply wp_unroll; intro Jres hres
-  have hm_out : (byte1Array 0x10a0 [0, 0] ⋆ (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆
-      (int4Array 0x10f2 [1, 0] ⋆ (int4Array 0x10fa [-1, 0] ⋆ (int4Array 0x1106 [1, 2, 0] ⋆
-        (kernelState 0x1000 nvAcceptK1 ⋆ (int4Array 0x10a2 [0, 0, 0, 1] ⋆
-          (word8Array 0x10d2 [0, 0, 0, 0x1106] ⋆ (ZeroTermInts 0x1102 [] ⋆ R))))))))) m := by
-    unfold nvAcceptMem nvAcceptRo at hm; exact sep_cast hm (by ac_rfl)
-  refine strictOuter_accepts hm_out fun m1 hm1 => hres _ _ ?_
-  dsimp only [wp_param]; wp_unfold
-  have hm1_ks : (word8Array 0x1000 nvAcceptK1.toList ⋆ (byte1Array 0x10a0 [0, 0] ⋆ (nvAcceptRo ⋆ R))) m1 := by
-    unfold kernelState at hm1; unfold nvAcceptRo; exact sep_cast hm1 (by ac_rfl)
-  have ⟨ok, hm2_ks⟩ := storel_word8Array (i := 18) (0 + 1 + 1) (by simp [KernelFields.toList]) hm1_ks
-  refine ⟨ok, fun hc => absurd hc (by decide), fun _ => ?_⟩
-  apply wp_unroll; intro Jchk hchk
-  have hm2_fin : (ZeroTermInts 0x1102 [] ⋆ (byte1Array 0x10a0 [0, 0] ⋆ (kernelState 0x1000 nvAcceptK2 ⋆
-      (int4Array 0x10a2 [0, 0, 0, 1] ⋆ (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆
-        (word8Array 0x10d2 [0, 0, 0, 0x1106] ⋆ (int4Array 0x10f2 [1, 0] ⋆
-          (int4Array 0x10fa [-1, 0] ⋆ (int4Array 0x1106 [1, 2, 0] ⋆ R)))))))))
-      (storeMem m1 .l (0x1000 + 144) (0 + 1 + 1)) := by
-    unfold nvAcceptRo at hm2_ks; unfold kernelState
-    change (word8Array 0x1000 nvAcceptK2.toList ⋆ _) _ at hm2_ks
-    exact sep_cast hm2_ks (by ac_rfl)
-  refine strictFinal_accepts hm2_fin (hchk _ _ ?_)
-  dsimp only [wp_param]; wp_unfold
-  refine ⟨fun hc => absurd hc (by decide), fun _ => hQ _ ?_⟩
-  unfold nvAcceptMem nvAcceptRo; exact sep_cast hm2_fin (by ac_rfl)
+  refine strictScan_accepts (by dsimp only [nvAcceptMem, nvAcceptRo] at hm; ecancel) (by
+    wp_step hscan
+    have hks : (kernelState 0x1000 nvAcceptK1 ⋆ (byte1Array 0x10a0 [0, 0] ⋆ (nvAcceptRo ⋆ R))) m := by
+      unfold nvAcceptMem at hm; ecancel
+    refine ⟨_, loadl_kfield 2 (by decide) hks rfl, _, loadl_kfield 4 (by decide) hks rfl,
+      _, loadl_kfield 18 (by decide) hks rfl, ?_⟩
+    simp only [KernelFields.toList, nvAcceptK1, nvAcceptK, nvK, List.getElem_cons_succ, List.getElem_cons_zero]
+    apply wp_unroll; intro Jres hres
+    refine strictOuter_accepts (by dsimp only [nvAcceptMem, nvAcceptRo] at hm; ecancel) fun m1 hm1 => ?_
+    wp_step hres
+    have hm1_ks : (word8Array 0x1000 nvAcceptK1.toList ⋆ (byte1Array 0x10a0 [0, 0] ⋆ (nvAcceptRo ⋆ R))) m1 := by
+      unfold kernelState at hm1; unfold nvAcceptRo; ecancel
+    have ⟨ok, hm2_ks⟩ := storel_word8Array (i := 18) (0 + 1 + 1) (by simp [KernelFields.toList]) hm1_ks
+    refine ⟨ok, ?_⟩; branch_f {
+      apply wp_unroll; intro Jchk hchk
+      change (word8Array 0x1000 nvAcceptK2.toList ⋆ _) _ at hm2_ks
+      rw [show (0x1000 : Val) + BitVec.ofNat 64 (8 * 18) = 0x1000 + 144 by decide] at hm2_ks
+      have hm2_fin : (ZeroTermInts 0x1102 [] ⋆ (kernelState 0x1000 nvAcceptK2 ⋆
+          (byte1Array 0x10a0 [0, 0] ⋆ (int4Array 0x10a2 [0, 0, 0, 1] ⋆
+            (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆
+            (word8Array 0x10d2 [0, 0, 0, 0x1106] ⋆ (int4Array 0x10f2 [1, 0] ⋆
+            (int4Array 0x10fa [-1, 0] ⋆ (int4Array 0x1106 [1, 2, 0] ⋆ R)))))))))
+          (storeMem m1 .l (0x1000 + 144) (0 + 1 + 1)) := by
+        unfold kernelState; unfold nvAcceptRo at hm2_ks; ecancel
+      refine strictFinal_accepts hm2_fin (by
+        wp_step hchk
+        branch_f { exact hQ _ (by unfold nvAcceptMem kernelState nvAcceptRo; ecancel) }) })
 
 def checkClauseAcceptSpec : Spec := fun args m Q _ =>
   ∃ R, args = [0x1000, 3, 0x1102, 0x1106] ∧ nvAcceptMem nvAcceptK R m ∧
@@ -863,16 +829,12 @@ theorem checkClause_accepts (Γ : Env)
       Γ "br_check_clause_strictly_by_resolution" args m Q X) :
     ∀ args m Q X, checkClauseAcceptSpec args m Q X → Func.spec Γ checkClause args m Q X := by
   rintro _ m Q X ⟨R, rfl, hm, hQ⟩
-  have hm_z : (kernelState 0x1000 nvAcceptK ⋆ (ZeroTermInts 0x1102 [] ⋆
-      (byte1Array 0x10a0 [0, 0] ⋆ (int4Array 0x10a2 [0, 0, 0, 1] ⋆
-        (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆ (word8Array 0x10d2 [0, 0, 0, 0x1106] ⋆
-          (int4Array 0x10f2 [1, 0] ⋆ (int4Array 0x10fa [-1, 0] ⋆ (int4Array 0x1106 [1, 2, 0] ⋆ R))))))))) m := by
-    unfold nvAcceptMem nvAcceptRo at hm; exact sep_cast hm (by ac_rfl)
-  refine checkClause_step hm_z fun m1 hm1 => ⟨fun _ => ?_, fun h0 => absurd h0 (by decide)⟩
+  refine checkClause_step (by dsimp only [nvAcceptMem, nvAcceptRo, ZeroTermInts] at hm ⊢; ecancel)
+    fun m1 hm1 => ⟨fun _ => ?_, fun h0 => absurd h0 (by decide)⟩
   refine hstrict _ _ _ _ ⟨R, rfl, ?_, fun m2 hm2 => by wp_unfold; exact hQ m2 hm2⟩
   unfold nvAcceptMem nvAcceptRo
   change (kernelState 0x1000 nvAcceptK1 ⋆ _) m1 at hm1
-  exact sep_cast hm1 (by ac_rfl)
+  ecancel
 
 def checkProofAcceptSpec : Spec := fun args m Q _ =>
   ∃ R, args = [0x1000] ∧ nvAcceptMem nvAcceptK R m ∧
@@ -886,7 +848,7 @@ theorem checkProof_accepts (Γ : Env)
   unfold checkProof Func.spec
   wp_unfold
   have hks : (kernelState 0x1000 nvAcceptK ⋆ (byte1Array 0x10a0 [0, 0] ⋆ (nvAcceptRo ⋆ R))) m := by
-    unfold nvAcceptMem at hm; exact sep_cast hm (by ac_rfl)
+    unfold nvAcceptMem at hm; ecancel
   refine ⟨_, loadl_kfield 12 (by decide) hks rfl, _, loadl_kfield 13 (by decide) hks rfl,
     _, loadsw_kfield 8 (by decide) hks rfl (by decide),
     _, loadsw_kfield 9 (by decide) hks rfl (by decide), ?_⟩
@@ -897,28 +859,18 @@ theorem checkProof_accepts (Γ : Env)
     _, loadl_kfield 2 (by decide) hks rfl, _, loadl_kfield 1 (by decide) hks rfl, ?_⟩
   simp only [KernelFields.toList, nvAcceptK, nvK, List.getElem_cons_succ, List.getElem_cons_zero]
   apply wp_unroll; intro Jloop hloop; wp_unfold
-  refine hloop _ _ ?_; dsimp only [wp_param]; wp_unfold
-  refine ⟨fun hc => absurd hc (by decide), fun _ => ?_⟩
-  apply wp_unroll; intro Jnext hnext
-  apply wp_unroll; intro Jchk hchk; wp_unfold
-  refine ⟨fun hc => absurd trivial hc, fun _ => ?_⟩
-  refine hchk _ _ ?_; dsimp only [wp_param]; wp_unfold
-  refine ⟨fun _ => ?_, fun hc => absurd (by decide : Truthy (-1)) hc⟩
-  have hm_lb : (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆ (byte1Array 0x10a0 [0, 0] ⋆
-      (kernelState 0x1000 nvAcceptK ⋆ (int4Array 0x10a2 [0, 0, 0, 1] ⋆
-        (word8Array 0x10d2 [0, 0, 0, 0x1106] ⋆ (int4Array 0x10f2 [1, 0] ⋆
-          (int4Array 0x10fa [-1, 0] ⋆ (ZeroTermInts 0x1102 [] ⋆ (int4Array 0x1106 [1, 2, 0] ⋆ R))))))))) m := by
-    unfold nvAcceptMem nvAcceptRo at hm; exact sep_cast hm (by ac_rfl)
-  have hm_ab : (word8Array 0x10d2 [0, 0, 0, 0x1106] ⋆ (byte1Array 0x10a0 [0, 0] ⋆
-      (kernelState 0x1000 nvAcceptK ⋆ (int4Array 0x10a2 [0, 0, 0, 1] ⋆
-        (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆ (int4Array 0x10f2 [1, 0] ⋆
-          (int4Array 0x10fa [-1, 0] ⋆ (ZeroTermInts 0x1102 [] ⋆ (int4Array 0x1106 [1, 2, 0] ⋆ R))))))))) m := by
-    unfold nvAcceptMem nvAcceptRo at hm; exact sep_cast hm (by ac_rfl)
-  refine ⟨_, loadl_at 3 (by decide) hm_lb, _, loadl_at 3 (by decide) hm_ab, ?_⟩
-  refine wp_call_of_spec (hclause _ _ _ _ ⟨R, rfl, hm, fun m2 hm2 => ?_⟩)
-  wp_unfold; refine hnext _ _ ?_; wp_unfold
-  refine hloop _ _ ?_; dsimp only [wp_param]; wp_unfold
-  exact ⟨fun _ => hQ m2 hm2 nvAcceptCnf_unsat, fun hc => absurd hc (by decide)⟩
+  wp_step hloop
+  branch_f {
+    apply wp_unroll; intro Jnext hnext
+    apply wp_unroll; intro Jchk hchk; wp_unfold
+    branch_f {
+      wp_step hchk
+      branch_t {
+        ld_l 0x10b2, 3; ld_l 0x10d2, 3
+        refine wp_call_of_spec (hclause _ _ _ _ ⟨R, rfl, hm, fun m2 hm2 => ?_⟩)
+        wp_unfold; refine hnext _ _ ?_; wp_unfold
+        wp_step hloop
+        branch_t { exact hQ m2 hm2 nvAcceptCnf_unsat } } } }
 
 /-- Environment mapping the 4 LRAT checker functions to their concrete-accepting contracts. -/
 def lratAcceptEnv : Env := fun g =>
@@ -967,14 +919,8 @@ theorem nvAccept_pre :
     simp only [hid, List.getD, List.getElem?_cons_succ, List.getElem?_cons_zero,
       Option.getD_some, List.getElem_cons_succ, List.getElem_cons_zero]
     refine ⟨rfl, by decide, by intro x hx; simp at hx; rcases hx with rfl | rfl <;> decide, ?_, by simp,
-      ⟨int4Array 0x10a2 [0, 0, 0, 1] ⋆ (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆
-        (word8Array 0x10d2 [0, 0, 0, 0x1106] ⋆ (int4Array 0x10f2 [1, 0] ⋆
-          (int4Array 0x10fa [-1, 0] ⋆ int4Array 0x1106 [1, 2, 0])))), by
-        dsimp [nvAcceptRo, ZeroTermInts]; ac_rfl⟩,
-      ⟨int4Array 0x10a2 [0, 0, 0, 1] ⋆ (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆
-        (word8Array 0x10d2 [0, 0, 0, 0x1106] ⋆ (int4Array 0x10f2 [1, 0] ⋆
-          (int4Array 0x10fa [-1, 0] ⋆ ZeroTermInts 0x1102 [])))), by
-        dsimp [nvAcceptRo, ZeroTermInts]; ac_rfl⟩⟩
+      ⟨_, by dsimp [nvAcceptRo, ZeroTermInts]; ecancel⟩,
+      ⟨_, by dsimp [nvAcceptRo, ZeroTermInts]; ecancel⟩⟩
     intro aid haid _
     simp only [List.mem_cons, List.not_mem_nil, or_false] at haid
     have hw : word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] =
@@ -982,32 +928,19 @@ theorem nvAccept_pre :
       simp [word8Array_cons, word8Array_nil, sep_emp]
     change ValidAntecedent 1 (stateAt nvAcceptCnf 3 0 [0, 0, 0, 1]
       [.empty, toClause [1], toClause [-1], .empty] 0).toCNF 0x10b2 nvAcceptRo aid
-    let roRest := int4Array 0x10a2 [0, 0, 0, 1] ⋆ (word8Array 0x10d2 [0, 0, 0, 0x1106] ⋆
-      (int4Array 0x10f2 [1, 0] ⋆ (int4Array 0x10fa [-1, 0] ⋆
-        (ZeroTermInts 0x1102 [] ⋆ int4Array 0x1106 [1, 2, 0]))))
     rcases haid with rfl | rfl
-    · refine ⟨0x10f2, [1], ⟨word8 0x10b2 0 ⋆ (word8 0x10c2 0x10fa ⋆ (word8 0x10ca 0x1102 ⋆ roRest)), ?_⟩,
-        ⟨int4Array 0x10a2 [0, 0, 0, 1] ⋆ (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆
-          (word8Array 0x10d2 [0, 0, 0, 0x1106] ⋆ (int4Array 0x10fa [-1, 0] ⋆
-            (ZeroTermInts 0x1102 [] ⋆ int4Array 0x1106 [1, 2, 0])))),
-          by dsimp [nvAcceptRo, ZeroTermInts]; ac_rfl⟩, ?_, ?_, ?_⟩
-      · change nvAcceptRo = word8 0x10ba 0x10f2 ⋆ _
-        unfold nvAcceptRo; dsimp only [roRest]; rw [hw]; ac_rfl
-      · intro x hx; rw [List.mem_singleton.1 hx]; unfold IsValidLit bvAbs; decide
-      · rintro atom ⟨h1, h2⟩; rw [literals_toClause] at h1 h2; simp [toLiteral] at h1 h2
-      · exact entailsClause_toCNF_of_getElem?_formula (getElem?_formula_stateAt_of_lt
-          nvAcceptCnf 3 0 [0, 0, 0, 1] [.empty, toClause [1], toClause [-1], .empty] 0 (j := 0) (by decide))
-    · refine ⟨0x10fa, [-1], ⟨word8 0x10b2 0 ⋆ (word8 0x10ba 0x10f2 ⋆ (word8 0x10ca 0x1102 ⋆ roRest)), ?_⟩,
-        ⟨int4Array 0x10a2 [0, 0, 0, 1] ⋆ (word8Array 0x10b2 [0, 0x10f2, 0x10fa, 0x1102] ⋆
-          (word8Array 0x10d2 [0, 0, 0, 0x1106] ⋆ (int4Array 0x10f2 [1, 0] ⋆
-            (ZeroTermInts 0x1102 [] ⋆ int4Array 0x1106 [1, 2, 0])))),
-          by dsimp [nvAcceptRo, ZeroTermInts]; ac_rfl⟩, ?_, ?_, ?_⟩
-      · change nvAcceptRo = word8 0x10c2 0x10fa ⋆ _
-        unfold nvAcceptRo; dsimp only [roRest]; rw [hw]; ac_rfl
-      · intro x hx; rw [List.mem_singleton.1 hx]; unfold IsValidLit bvAbs; decide
-      · rintro atom ⟨h1, h2⟩; rw [literals_toClause] at h1 h2; simp [toLiteral] at h1 h2
-      · exact entailsClause_toCNF_of_getElem?_formula (getElem?_formula_stateAt_of_lt
-          nvAcceptCnf 3 0 [0, 0, 0, 1] [.empty, toClause [1], toClause [-1], .empty] 0 (j := 1) (by decide))
+    · refine ⟨0x10f2, [1], ⟨_, by unfold nvAcceptRo; rw [hw, show (0x10b2 : Val) + (1 : Val) <<< 3 = 0x10ba by decide]; ecancel⟩,
+        ⟨_, by dsimp [nvAcceptRo, ZeroTermInts]; ecancel⟩,
+        by intro x hx; rw [List.mem_singleton.1 hx]; unfold IsValidLit bvAbs; decide,
+        by rintro atom ⟨h1, h2⟩; rw [literals_toClause] at h1 h2; simp [toLiteral] at h1 h2,
+        entailsClause_toCNF_of_getElem?_formula (getElem?_formula_stateAt_of_lt
+          nvAcceptCnf 3 0 [0, 0, 0, 1] [.empty, toClause [1], toClause [-1], .empty] 0 (j := 0) (by decide))⟩
+    · refine ⟨0x10fa, [-1], ⟨_, by unfold nvAcceptRo; rw [hw, show (0x10b2 : Val) + (2 : Val) <<< 3 = 0x10c2 by decide]; ecancel⟩,
+        ⟨_, by dsimp [nvAcceptRo, ZeroTermInts]; ecancel⟩,
+        by intro x hx; rw [List.mem_singleton.1 hx]; unfold IsValidLit bvAbs; decide,
+        by rintro atom ⟨h1, h2⟩; rw [literals_toClause] at h1 h2; simp [toLiteral] at h1 h2,
+        entailsClause_toCNF_of_getElem?_formula (getElem?_formula_stateAt_of_lt
+          nvAcceptCnf 3 0 [0, 0, 0, 1] [.empty, toClause [1], toClause [-1], .empty] 0 (j := 1) (by decide))⟩
 
 theorem checkProof_accepts_nonvacuous :
     checkProofAcceptSpec [0x1000] (nvAcceptBytes.At 0x1000)

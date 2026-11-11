@@ -86,6 +86,54 @@ def cmpIns (w : RegWidth) (o : CmpOp) (d a b : XReg) : List Directive :=
   [ins (.SUBS_s (xzr w) (zr a w) (sh b)),
    ins (w := .W32) (.CSINC (zr d .W32) (xzr .W32) (xzr .W32) (notCondOf o))]
 
+/-- General register viewed as `RegOrSp w` (not stack pointer). -/
+def sp (r : XReg) (w : RegWidth) : RegOrSp w := .low (.reg r) w
+
+/-- 12-bit unsigned immediate encoding for `ADD`/`SUB`/`SUBS` when `(k.trunc c) < 4096`. -/
+def imm12? (k : Cls) (c : Val) : Option ExtOrImmReg :=
+  let v := k.trunc c
+  if v.toNat < 4096 then some (.imm { imm := .int64 (Int64.ofBitVec v), shift := .S0 }) else none
+
+/-- Immediate `add`/`sub` via `ADD (immediate)` / `SUB (immediate)`. -/
+def binImmIns (w : RegWidth) (o : BinOp) (d a : XReg) (ei : ExtOrImmReg) : Option (List Directive) :=
+  match o with
+  | .add => some [ins (.ADD_e (sp d w) (sp a w) ei)]
+  | .sub => some [ins (.SUB_e (sp d w) (sp a w) ei)]
+  | _ => none
+
+/-- Swap operands of a comparison (`a o b ↔ b (swapCmp o) a`). -/
+def swapCmp : CmpOp → CmpOp
+  | .eq => .eq | .ne => .ne
+  | .sle => .sge | .slt => .sgt | .sge => .sle | .sgt => .slt
+  | .ule => .uge | .ult => .ugt | .uge => .ule | .ugt => .ult
+
+/-- `cmp a, #imm; cset w_d, o` at width `w`. -/
+def cmpImmIns (w : RegWidth) (o : CmpOp) (d a : XReg) (ei : ExtOrImmReg) : List Directive :=
+  [ins (.SUBS_e (xzr w) (sp a w) ei),
+   ins (w := .W32) (.CSINC (zr d .W32) (xzr .W32) (xzr .W32) (notCondOf o))]
+
+/-- Fast-path immediate `add`/`sub` when an operand fits in a 12-bit unsigned immediate. -/
+def fastBin? (k : Cls) (bo : BinOp) (d : XReg) : Arg Reg → Arg Reg → Option (List Directive)
+  | .var (.reg ra), .imm cb => do
+    let ei ← imm12? k cb
+    binImmIns (widthOf k) bo d ra ei
+  | .imm ca, .var (.reg rb) =>
+    if bo == .add then do
+      let ei ← imm12? k ca
+      binImmIns (widthOf k) .add d rb ei
+    else none
+  | _, _ => none
+
+/-- Fast-path immediate comparison when one operand fits in a 12-bit unsigned immediate. -/
+def fastCmp? (k : Cls) (co : CmpOp) (d : XReg) : Arg Reg → Arg Reg → Option (List Directive)
+  | .var (.reg ra), .imm cb => do
+    let ei ← imm12? k cb
+    some (cmpImmIns (widthOf k) co d ra ei)
+  | .imm ca, .var (.reg rb) => do
+    let ei ← imm12? k ca
+    some (cmpImmIns (widthOf k) (swapCmp co) d rb ei)
+  | _, _ => none
+
 /-- The index of the top bit of an `s`-sized value, for `sbfm`/`ubfm`. -/
 def topBit : Sz → Nat
   | .b => 7
@@ -107,17 +155,23 @@ def op (o : Op Reg) (rd : Reg) : Option (List Directive) :=
   | .SP => none
   | .reg d =>
     match o with
-    | .bin k bo a b => do
-      let (ca, ra) ← argIn a .X16
-      let (cb, rb) ← argIn b .X17
-      let t ← match bo with
-        | .rem | .urem => remTmp a b
-        | _ => some .X16
-      some (ca ++ cb ++ binIns (widthOf k) bo d ra rb t)
-    | .cmp k co a b => do
-      let (ca, ra) ← argIn a .X16
-      let (cb, rb) ← argIn b .X17
-      some (ca ++ cb ++ cmpIns (widthOf k) co d ra rb)
+    | .bin k bo a b =>
+      match fastBin? k bo d a b with
+      | some ds => some ds
+      | none => do
+        let (ca, ra) ← argIn a .X16
+        let (cb, rb) ← argIn b .X17
+        let t ← match bo with
+          | .rem | .urem => remTmp a b
+          | _ => some .X16
+        some (ca ++ cb ++ binIns (widthOf k) bo d ra rb t)
+    | .cmp k co a b =>
+      match fastCmp? k co d a b with
+      | some ds => some ds
+      | none => do
+        let (ca, ra) ← argIn a .X16
+        let (cb, rb) ← argIn b .X17
+        some (ca ++ cb ++ cmpIns (widthOf k) co d ra rb)
     | .ext k s sg a =>
       match a with
       | .imm c => some (movImm d (k.trunc (s.extend sg c)))
@@ -164,6 +218,24 @@ def store (s : Sz) (x a : Arg Reg) : Option (List Directive) := do
   let (ca, ra) ← argIn a .X16
   some (cx ++ ca ++ storeIns s rx ra)
 
+/-- Fused comparison + conditional branch: `cmp a, b; b.<co> l`. -/
+def jnzCmp (k : Cls) (co : CmpOp) (a b : Arg Reg) (l : String) : Option (List Directive) :=
+  let bcc (c : CmpOp) := ins (w := .W64) (.B_cond (condOf c) (.label l))
+  let fallback : Option (List Directive) := do
+    let (ca, ra) ← argIn a .X16
+    let (cb, rb) ← argIn b .X17
+    some (ca ++ cb ++ [ins (.SUBS_s (xzr (widthOf k)) (zr ra (widthOf k)) (sh rb)), bcc co])
+  match a, b with
+  | .var (.reg ra), .imm cb =>
+    match imm12? k cb with
+    | some ei => some [ins (.SUBS_e (xzr (widthOf k)) (sp ra (widthOf k)) ei), bcc co]
+    | none => fallback
+  | .imm ca, .var (.reg rb) =>
+    match imm12? k ca with
+    | some ei => some [ins (.SUBS_e (xzr (widthOf k)) (sp rb (widthOf k)) ei), bcc (swapCmp co)]
+    | none => fallback
+  | _, _ => fallback
+
 /-- The AArch64 instruction set as seen by the lowering. -/
 @[reducible] def isa : Isa where
   Reg := Reg
@@ -182,6 +254,7 @@ def store (s : Sz) (x a : Arg Reg) : Option (List Directive) := do
   store := store
   jmp := jmp
   jnz := jnz
+  jnzCmp := jnzCmp
   ret := ret
   raRegs := [.reg .X30]
   frameSize := frameSize

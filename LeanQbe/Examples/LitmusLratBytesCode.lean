@@ -38,481 +38,282 @@ abbrev lbCheckPrfFn : Fn := ⟨"lb_check_prf", lbCheckPrf⟩
 abbrev lbCheckBytesFn : Fn := ⟨"lrat_check_bytes", lratCheckBytes⟩
 
 def hdrCode : Program := parse("lb_parse_dimacs_header:
-subq $136, %rsp
+subq $24, %rsp
+movq %rbx, (%rsp)
+movq %rbp, 8(%rsp)
+movq %rdx, %rbp
 movq %rdi, %rax
-jmp lb_parse_dimacs_header.L2
 lb_parse_dimacs_header.L2:
 cmpq %rsi, %rax
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L3
+je lb_parse_dimacs_header.L3
 movzbl (%rax), %ecx
-movq %rax, %r11
-movq $1, %r10
-addq %r10, %r11
-movq %r11, %rdi
-movq $32, %r10
-cmpq %r10, %rcx
+lea 1(%rax), %rdx
+cmpq $32, %rcx
 sete %r11b
-movzx %r11b, %r8d
-movq %r8, (%rsp)
-movq %rcx, %r11
-movq $9, %r10
-subq %r10, %r11
-movq %r11, %r8
-movq %r8, 8(%rsp)
-movq $5, %r10
-cmpq %r10, %r8
+movzx %r11b, %edi
+movq %rcx, %r8
+subq $9, %r8
+cmpq $5, %r8
 setb %r11b
-movzx %r11b, %r8d
-movq %r8, 16(%rsp)
-movq (%rsp), %r9
-orq %r9, %r8
-movq %r8, 24(%rsp)
-testl %r8d, %r8d
+movzx %r11b, %ebx
+orq %rbx, %rdi
+testl %edi, %edi
 jne lb_parse_dimacs_header.L4
-movq $99, %r10
-cmpq %r10, %rcx
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L5
+cmpq $99, %rcx
+je lb_parse_dimacs_header.L5
 jmp lb_parse_dimacs_header.L1
 lb_parse_dimacs_header.L5:
-movq %rdi, %rax
-jmp lb_parse_dimacs_header.L6
+movq %rdx, %rax
 lb_parse_dimacs_header.L6:
 cmpq %rsi, %rax
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L7
+je lb_parse_dimacs_header.L7
 movzbl (%rax), %ecx
-movq $1, %r10
-addq %r10, %rax
-movq $10, %r10
-cmpq %r10, %rcx
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L8
+addq $1, %rax
+cmpq $10, %rcx
+je lb_parse_dimacs_header.L8
 jmp lb_parse_dimacs_header.L6
 lb_parse_dimacs_header.L8:
 jmp lb_parse_dimacs_header.L2
 lb_parse_dimacs_header.L7:
 jmp lb_parse_dimacs_header.L1
 lb_parse_dimacs_header.L4:
-movq %rdi, %rax
+movq %rdx, %rax
 jmp lb_parse_dimacs_header.L2
 lb_parse_dimacs_header.L3:
-jmp lb_parse_dimacs_header.L1
 lb_parse_dimacs_header.L1:
 cmpq %rsi, %rax
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L9
+je lb_parse_dimacs_header.L9
 movzbl (%rax), %ecx
-movq $112, %r10
-cmpq %r10, %rcx
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L10
+cmpq $112, %rcx
+je lb_parse_dimacs_header.L10
 jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L10:
-movq $1, %r10
-addq %r10, %rax
+addq $1, %rax
 cmpq %rsi, %rax
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L11
+je lb_parse_dimacs_header.L11
 movzbl (%rax), %ecx
-movq $32, %r10
-cmpq %r10, %rcx
+cmpq $32, %rcx
 sete %r11b
-movzx %r11b, %edi
-movq $9, %r10
-subq %r10, %rcx
-movq $5, %r10
-cmpq %r10, %rcx
+movzx %r11b, %edx
+subq $9, %rcx
+cmpq $5, %rcx
 setb %r11b
 movzx %r11b, %ecx
-orq %rdi, %rcx
-testl %ecx, %ecx
+orq %rcx, %rdx
+testl %edx, %edx
 jne lb_parse_dimacs_header.L12
 jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L12:
-movq $1, %r10
-addq %r10, %rax
-jmp lb_parse_dimacs_header.L14
+addq $1, %rax
 lb_parse_dimacs_header.L14:
 cmpq %rsi, %rax
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L15
+je lb_parse_dimacs_header.L15
 movzbl (%rax), %ecx
-movq $32, %r10
-cmpq %r10, %rcx
+cmpq $32, %rcx
 sete %r11b
-movzx %r11b, %edi
-movq $9, %r10
-subq %r10, %rcx
-movq $5, %r10
-cmpq %r10, %rcx
+movzx %r11b, %edx
+subq $9, %rcx
+cmpq $5, %rcx
 setb %r11b
 movzx %r11b, %ecx
-orq %rdi, %rcx
-testl %ecx, %ecx
+orq %rcx, %rdx
+testl %edx, %edx
 jne lb_parse_dimacs_header.L16
 jmp lb_parse_dimacs_header.L13
 lb_parse_dimacs_header.L16:
-movq $1, %r10
-addq %r10, %rax
+addq $1, %rax
 jmp lb_parse_dimacs_header.L14
 lb_parse_dimacs_header.L15:
-jmp lb_parse_dimacs_header.L13
 lb_parse_dimacs_header.L13:
 cmpq %rsi, %rax
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L17
+je lb_parse_dimacs_header.L17
 movzbl (%rax), %ecx
-movq $99, %r10
-cmpq %r10, %rcx
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L18
+cmpq $99, %rcx
+je lb_parse_dimacs_header.L18
 jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L18:
-movq %rax, %r11
-movq $1, %r10
-addq %r10, %r11
-movq %r11, %rcx
+lea 1(%rax), %rcx
 cmpq %rsi, %rcx
-sete %r11b
-movzx %r11b, %edi
-testl %edi, %edi
-jne lb_parse_dimacs_header.L19
+je lb_parse_dimacs_header.L19
 movzbl (%rcx), %ecx
-movq $110, %r10
-cmpq %r10, %rcx
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L20
+cmpq $110, %rcx
+je lb_parse_dimacs_header.L20
 jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L20:
-movq %rax, %r11
-movq $2, %r10
-addq %r10, %r11
-movq %r11, %rcx
+lea 2(%rax), %rcx
 cmpq %rsi, %rcx
-sete %r11b
-movzx %r11b, %edi
-testl %edi, %edi
-jne lb_parse_dimacs_header.L21
+je lb_parse_dimacs_header.L21
 movzbl (%rcx), %ecx
-movq $102, %r10
-cmpq %r10, %rcx
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L22
+cmpq $102, %rcx
+je lb_parse_dimacs_header.L22
 jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L22:
-movq $3, %r10
-addq %r10, %rax
+addq $3, %rax
 cmpq %rsi, %rax
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L23
+je lb_parse_dimacs_header.L23
 movzbl (%rax), %ecx
-movq $32, %r10
-cmpq %r10, %rcx
+cmpq $32, %rcx
 sete %r11b
-movzx %r11b, %edi
-movq $9, %r10
-subq %r10, %rcx
-movq $5, %r10
-cmpq %r10, %rcx
+movzx %r11b, %edx
+subq $9, %rcx
+cmpq $5, %rcx
 setb %r11b
 movzx %r11b, %ecx
-orq %rdi, %rcx
-testl %ecx, %ecx
+orq %rcx, %rdx
+testl %edx, %edx
 jne lb_parse_dimacs_header.L24
 jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L24:
-movq $1, %r10
-addq %r10, %rax
-jmp lb_parse_dimacs_header.L26
+addq $1, %rax
 lb_parse_dimacs_header.L26:
 cmpq %rsi, %rax
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L27
+je lb_parse_dimacs_header.L27
 movzbl (%rax), %ecx
-movq $32, %r10
-cmpq %r10, %rcx
+cmpq $32, %rcx
 sete %r11b
-movzx %r11b, %edi
-movq $9, %r10
-subq %r10, %rcx
-movq $5, %r10
-cmpq %r10, %rcx
+movzx %r11b, %edx
+subq $9, %rcx
+cmpq $5, %rcx
 setb %r11b
 movzx %r11b, %ecx
-orq %rdi, %rcx
-testl %ecx, %ecx
+orq %rcx, %rdx
+testl %edx, %edx
 jne lb_parse_dimacs_header.L28
 jmp lb_parse_dimacs_header.L25
 lb_parse_dimacs_header.L28:
-movq $1, %r10
-addq %r10, %rax
+addq $1, %rax
 jmp lb_parse_dimacs_header.L26
 lb_parse_dimacs_header.L27:
-jmp lb_parse_dimacs_header.L25
 lb_parse_dimacs_header.L25:
 cmpq %rsi, %rax
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_header.L29
+je lb_parse_dimacs_header.L29
 movzbl (%rax), %ecx
-movq $48, %r10
-subq %r10, %rcx
-movq $10, %r10
-cmpq %r10, %rcx
-setb %r11b
-movzx %r11b, %edi
-testl %edi, %edi
-jne lb_parse_dimacs_header.L30
+subq $48, %rcx
+cmpq $10, %rcx
+jb lb_parse_dimacs_header.L30
 jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L30:
-movq $1, %r10
-addq %r10, %rax
-jmp lb_parse_dimacs_header.L32
+addq $1, %rax
 lb_parse_dimacs_header.L32:
 cmpq %rsi, %rax
+je lb_parse_dimacs_header.L33
+movzbl (%rax), %edx
+movq %rdx, %rdi
+subq $48, %rdi
+cmpq $10, %rdi
+jb lb_parse_dimacs_header.L34
+cmpq $32, %rdx
 sete %r11b
 movzx %r11b, %edi
-testl %edi, %edi
-jne lb_parse_dimacs_header.L33
-movzbl (%rax), %edi
-movq %rdi, %r11
-movq $48, %r10
-subq %r10, %r11
-movq %r11, %r8
-movq %r8, 32(%rsp)
-movq $10, %r10
-cmpq %r10, %r8
+subq $9, %rdx
+cmpq $5, %rdx
 setb %r11b
-movzx %r11b, %r8d
-movq %r8, 40(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_header.L34
-movq $32, %r10
-cmpq %r10, %rdi
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 48(%rsp)
-movq $9, %r10
-subq %r10, %rdi
-movq $5, %r10
-cmpq %r10, %rdi
-setb %r11b
-movzx %r11b, %edi
-movq 48(%rsp), %r8
-orq %r8, %rdi
+movzx %r11b, %edx
+orq %rdx, %rdi
 testl %edi, %edi
 jne lb_parse_dimacs_header.L35
 jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L35:
-movq %rax, %r10
-movq %rcx, %rax
-movq %r10, %rcx
+movq %rcx, %rbx
 jmp lb_parse_dimacs_header.L31
 lb_parse_dimacs_header.L34:
-movq $10, %r10
-imulq %r10, %rcx
-movq 32(%rsp), %rdi
+imulq $10, %rcx
 addq %rdi, %rcx
-movq $268435456, %r10
-cmpq %r10, %rcx
-setb %r11b
-movzx %r11b, %edi
-testl %edi, %edi
-jne lb_parse_dimacs_header.L36
+cmpq $268435456, %rcx
+jb lb_parse_dimacs_header.L36
 jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L36:
-movq $1, %r10
-addq %r10, %rax
+addq $1, %rax
 jmp lb_parse_dimacs_header.L32
 lb_parse_dimacs_header.L33:
-movq %rax, %r10
-movq %rcx, %rax
-movq %r10, %rcx
-jmp lb_parse_dimacs_header.L31
+movq %rcx, %rbx
 lb_parse_dimacs_header.L31:
-cmpq %rsi, %rcx
+cmpq %rsi, %rax
+je lb_parse_dimacs_header.L37
+movzbl (%rax), %ecx
+cmpq $32, %rcx
 sete %r11b
-movzx %r11b, %edi
-testl %edi, %edi
-jne lb_parse_dimacs_header.L37
-movzbl (%rcx), %edi
-movq $32, %r10
-cmpq %r10, %rdi
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 56(%rsp)
-movq $9, %r10
-subq %r10, %rdi
-movq $5, %r10
-cmpq %r10, %rdi
+movzx %r11b, %edx
+subq $9, %rcx
+cmpq $5, %rcx
 setb %r11b
-movzx %r11b, %edi
-movq 56(%rsp), %r8
-orq %r8, %rdi
-testl %edi, %edi
+movzx %r11b, %ecx
+orq %rcx, %rdx
+testl %edx, %edx
 jne lb_parse_dimacs_header.L38
 jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L38:
-movq $1, %r10
-addq %r10, %rcx
-jmp lb_parse_dimacs_header.L40
+addq $1, %rax
 lb_parse_dimacs_header.L40:
-cmpq %rsi, %rcx
+cmpq %rsi, %rax
+je lb_parse_dimacs_header.L41
+movzbl (%rax), %ecx
+cmpq $32, %rcx
 sete %r11b
-movzx %r11b, %edi
-testl %edi, %edi
-jne lb_parse_dimacs_header.L41
-movzbl (%rcx), %edi
-movq $32, %r10
-cmpq %r10, %rdi
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 64(%rsp)
-movq $9, %r10
-subq %r10, %rdi
-movq $5, %r10
-cmpq %r10, %rdi
+movzx %r11b, %edx
+subq $9, %rcx
+cmpq $5, %rcx
 setb %r11b
-movzx %r11b, %edi
-movq 64(%rsp), %r8
-orq %r8, %rdi
-testl %edi, %edi
+movzx %r11b, %ecx
+orq %rcx, %rdx
+testl %edx, %edx
 jne lb_parse_dimacs_header.L42
 jmp lb_parse_dimacs_header.L39
 lb_parse_dimacs_header.L42:
-movq $1, %r10
-addq %r10, %rcx
+addq $1, %rax
 jmp lb_parse_dimacs_header.L40
 lb_parse_dimacs_header.L41:
-jmp lb_parse_dimacs_header.L39
 lb_parse_dimacs_header.L39:
-cmpq %rsi, %rcx
-sete %r11b
-movzx %r11b, %edi
-testl %edi, %edi
-jne lb_parse_dimacs_header.L43
-movzbl (%rcx), %edi
-movq $48, %r10
-subq %r10, %rdi
-movq $10, %r10
-cmpq %r10, %rdi
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 72(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_header.L44
+cmpq %rsi, %rax
+je lb_parse_dimacs_header.L43
+movzbl (%rax), %ecx
+subq $48, %rcx
+cmpq $10, %rcx
+jb lb_parse_dimacs_header.L44
 jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L44:
-movq $1, %r10
-addq %r10, %rcx
-jmp lb_parse_dimacs_header.L46
+addq $1, %rax
 lb_parse_dimacs_header.L46:
-cmpq %rsi, %rcx
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 80(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_header.L47
-movzbl (%rcx), %r8d
-movq %r8, 88(%rsp)
-movq $48, %r10
-subq %r10, %r8
-movq %r8, 96(%rsp)
-movq $10, %r10
-cmpq %r10, %r8
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 104(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_header.L48
-movq 88(%rsp), %rsi
-movq $32, %r10
-cmpq %r10, %rsi
+cmpq %rsi, %rax
+je lb_parse_dimacs_header.L47
+movzbl (%rax), %edx
+movq %rdx, %rdi
+subq $48, %rdi
+cmpq $10, %rdi
+jb lb_parse_dimacs_header.L48
+cmpq $32, %rdx
 sete %r11b
 movzx %r11b, %esi
-movq 88(%rsp), %r8
-movq $9, %r10
-subq %r10, %r8
-movq %r8, 112(%rsp)
-movq $5, %r10
-cmpq %r10, %r8
+subq $9, %rdx
+cmpq $5, %rdx
 setb %r11b
-movzx %r11b, %r8d
-movq %r8, 120(%rsp)
-orq %r8, %rsi
+movzx %r11b, %edx
+orq %rdx, %rsi
 testl %esi, %esi
 jne lb_parse_dimacs_header.L49
 jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L49:
-movq %rcx, %rsi
-movq %rdi, %rcx
 jmp lb_parse_dimacs_header.L45
 lb_parse_dimacs_header.L48:
-movq $10, %r10
-imulq %r10, %rdi
-movq 96(%rsp), %r8
-addq %r8, %rdi
-movq $268435456, %r10
-cmpq %r10, %rdi
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 128(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_header.L50
+imulq $10, %rcx
+addq %rdi, %rcx
+cmpq $268435456, %rcx
+jb lb_parse_dimacs_header.L50
 jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L50:
-movq $1, %r10
-addq %r10, %rcx
+addq $1, %rax
 jmp lb_parse_dimacs_header.L46
 lb_parse_dimacs_header.L47:
-movq %rcx, %rsi
-movq %rdi, %rcx
-jmp lb_parse_dimacs_header.L45
 lb_parse_dimacs_header.L45:
-movq %rax, (%rdx)
-movq %rdx, %r11
-movq $8, %r10
-addq %r10, %r11
-movq %r11, %rax
-movq %rcx, (%rax)
-movq %rdx, %r11
-movq $72, %r10
-addq %r10, %r11
-movq %r11, %rax
-movq %rsi, (%rax)
+movq %rbx, (%rbp)
+lea 8(%rbp), %rdx
+movq %rcx, (%rdx)
+addq $72, %rbp
+movq %rax, (%rbp)
 movq $1, %rax
-addq $136, %rsp
+movq (%rsp), %rbx
+movq 8(%rsp), %rbp
+addq $24, %rsp
 ret
 lb_parse_dimacs_header.L43:
 jmp lb_parse_dimacs_header.L0
@@ -531,458 +332,208 @@ jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L11:
 jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L9:
-jmp lb_parse_dimacs_header.L0
 lb_parse_dimacs_header.L0:
 movq $0, %rax
-addq $136, %rsp
+movq (%rsp), %rbx
+movq 8(%rsp), %rbp
+addq $24, %rsp
 ret")
 
 def bodyCode : Program := parse("lb_parse_dimacs_body:
-subq $664, %rsp
+subq $72, %rsp
+movq %rbx, 24(%rsp)
+movq %rbp, 32(%rsp)
+movq %r12, 40(%rsp)
+movq %r13, 48(%rsp)
+movq %r14, 56(%rsp)
+movq %r15, 64(%rsp)
+movq (%rsi), %r12
+lea 8(%rsi), %rax
+movq (%rax), %r15
+lea 48(%rsi), %rax
+movq (%rax), %rax
+movq %rax, (%rsp)
+lea 56(%rsi), %rax
+movq (%rax), %rax
+movq %rax, 8(%rsp)
+lea 64(%rsi), %rax
+movq %rax, 16(%rsp)
+movq (%rax), %rbx
+addq $72, %rsi
 movq (%rsi), %rax
-movq %rsi, %r11
-movq $8, %r10
-addq %r10, %r11
-movq %r11, %rcx
-movq (%rcx), %rcx
-movq %rsi, %r11
-movq $48, %r10
-addq %r10, %r11
-movq %r11, %rdx
-movq (%rdx), %rdx
-movq %rsi, %r11
-movq $56, %r10
-addq %r10, %r11
-movq %r11, %r8
-movq %r8, (%rsp)
-movq (%r8), %r8
-movq %r8, 8(%rsp)
-movq %rsi, %r11
-movq $64, %r10
-addq %r10, %r11
-movq %r11, %r8
-movq %r8, 16(%rsp)
-movq (%r8), %r8
-movq %r8, 24(%rsp)
-movq $72, %r10
-addq %r10, %rsi
-movq (%rsi), %rsi
-movq %rsi, %r8
-movq 24(%rsp), %r9
-movq $1, %rsi
-jmp lb_parse_dimacs_body.L1
+movq $1, %rdx
 lb_parse_dimacs_body.L1:
-movq %r8, 32(%rsp)
-movq %r9, 40(%rsp)
-cmpq %rsi, %rcx
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 48(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L2
-movq 32(%rsp), %r8
-jmp lb_parse_dimacs_body.L3
+cmpq %rdx, %r15
+jb lb_parse_dimacs_body.L2
+movq %rax, %rcx
+movq %rbx, %rax
 lb_parse_dimacs_body.L3:
-movq %r8, 56(%rsp)
-movq %r9, 64(%rsp)
-jmp lb_parse_dimacs_body.L5
 lb_parse_dimacs_body.L5:
-movq %r8, 72(%rsp)
-cmpq %rdi, %r8
+cmpq %rdi, %rcx
+je lb_parse_dimacs_body.L6
+movzbl (%rcx), %esi
+lea 1(%rcx), %rbp
+cmpq $32, %rsi
 sete %r11b
-movzx %r11b, %r8d
-movq %r8, 80(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L6
-movq 72(%rsp), %r8
-movzbl (%r8), %r8d
-movq %r8, 88(%rsp)
-movq 72(%rsp), %r8
-movq $1, %r10
-addq %r10, %r8
-movq %r8, 96(%rsp)
-movq 88(%rsp), %r8
-movq $32, %r10
-cmpq %r10, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 104(%rsp)
-movq 88(%rsp), %r8
-movq $9, %r10
-subq %r10, %r8
-movq %r8, 112(%rsp)
-movq $5, %r10
-cmpq %r10, %r8
+movzx %r11b, %r13d
+movq %rsi, %r8
+subq $9, %r8
+cmpq $5, %r8
 setb %r11b
-movzx %r11b, %r8d
-movq %r8, 120(%rsp)
-movq 104(%rsp), %r9
-orq %r9, %r8
-movq %r8, 128(%rsp)
-testl %r8d, %r8d
+movzx %r11b, %r14d
+orq %r14, %r13
+testl %r13d, %r13d
 jne lb_parse_dimacs_body.L7
-movq 88(%rsp), %r8
-movq $99, %r10
-cmpq %r10, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 136(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L8
-movq 72(%rsp), %r8
+cmpq $99, %rsi
+je lb_parse_dimacs_body.L8
 jmp lb_parse_dimacs_body.L4
 lb_parse_dimacs_body.L8:
-movq 96(%rsp), %r8
-jmp lb_parse_dimacs_body.L9
+movq %rbp, %rcx
 lb_parse_dimacs_body.L9:
-movq %r8, 144(%rsp)
-cmpq %rdi, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 152(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L10
-movq 144(%rsp), %r8
-movzbl (%r8), %r8d
-movq %r8, 160(%rsp)
-movq 144(%rsp), %r8
-movq $1, %r10
-addq %r10, %r8
-movq %r8, 168(%rsp)
-movq 160(%rsp), %r8
-movq $10, %r10
-cmpq %r10, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 176(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L11
-movq 168(%rsp), %r8
+cmpq %rdi, %rcx
+je lb_parse_dimacs_body.L10
+movzbl (%rcx), %esi
+addq $1, %rcx
+cmpq $10, %rsi
+je lb_parse_dimacs_body.L11
 jmp lb_parse_dimacs_body.L9
 lb_parse_dimacs_body.L11:
-movq 168(%rsp), %r8
 jmp lb_parse_dimacs_body.L5
 lb_parse_dimacs_body.L10:
-movq 144(%rsp), %r8
 jmp lb_parse_dimacs_body.L4
 lb_parse_dimacs_body.L7:
-movq 96(%rsp), %r8
+movq %rbp, %rcx
 jmp lb_parse_dimacs_body.L5
 lb_parse_dimacs_body.L6:
-movq 72(%rsp), %r8
-jmp lb_parse_dimacs_body.L4
 lb_parse_dimacs_body.L4:
-movq %r8, 184(%rsp)
-cmpq %rdi, %r8
+cmpq %rdi, %rcx
 sete %r11b
-movzx %r11b, %r8d
-movq %r8, 192(%rsp)
-testl %r8d, %r8d
+movzx %r11b, %esi
+testl %esi, %esi
 jne lb_parse_dimacs_body.L12
-movq 64(%rsp), %r8
-movq 8(%rsp), %r9
-cmpq %r9, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 200(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L13
-movq 184(%rsp), %r8
-movzbl (%r8), %r8d
-movq %r8, 208(%rsp)
-movq $45, %r10
-cmpq %r10, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 216(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L14
-movq 192(%rsp), %r8
-testl %r8d, %r8d
+movq 8(%rsp), %r8
+cmpq %r8, %rax
+je lb_parse_dimacs_body.L13
+movzbl (%rcx), %r8d
+cmpq $45, %r8
+je lb_parse_dimacs_body.L14
+testl %esi, %esi
 jne lb_parse_dimacs_body.L15
-movq 184(%rsp), %r8
-movzbl (%r8), %r8d
-movq %r8, 224(%rsp)
-movq $48, %r10
-subq %r10, %r8
-movq %r8, 232(%rsp)
-movq $10, %r10
-cmpq %r10, %r8
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 240(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L16
+movzbl (%rcx), %esi
+subq $48, %rsi
+cmpq $10, %rsi
+jb lb_parse_dimacs_body.L16
 jmp lb_parse_dimacs_body.L0
 lb_parse_dimacs_body.L16:
-movq 184(%rsp), %r8
-movq $1, %r10
-addq %r10, %r8
-movq %r8, 248(%rsp)
-movq 232(%rsp), %r9
-jmp lb_parse_dimacs_body.L18
+addq $1, %rcx
 lb_parse_dimacs_body.L18:
-movq %r8, 256(%rsp)
-movq %r9, 264(%rsp)
-cmpq %rdi, %r8
+cmpq %rdi, %rcx
+je lb_parse_dimacs_body.L19
+movzbl (%rcx), %r8d
+movq %r8, %rbp
+subq $48, %rbp
+cmpq $10, %rbp
+jb lb_parse_dimacs_body.L20
+cmpq $32, %r8
 sete %r11b
-movzx %r11b, %r8d
-movq %r8, 272(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L19
-movq 256(%rsp), %r8
-movzbl (%r8), %r8d
-movq %r8, 280(%rsp)
-movq $48, %r10
-subq %r10, %r8
-movq %r8, 288(%rsp)
-movq $10, %r10
-cmpq %r10, %r8
+movzx %r11b, %ebp
+subq $9, %r8
+cmpq $5, %r8
 setb %r11b
-movzx %r11b, %r8d
-movq %r8, 296(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L20
-movq 280(%rsp), %r8
-movq $32, %r10
-cmpq %r10, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 304(%rsp)
-movq 280(%rsp), %r8
-movq $9, %r10
-subq %r10, %r8
-movq %r8, 312(%rsp)
-movq $5, %r10
-cmpq %r10, %r8
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 320(%rsp)
-movq 304(%rsp), %r9
-orq %r9, %r8
-movq %r8, 328(%rsp)
-testl %r8d, %r8d
+movzx %r11b, %r13d
+orq %r13, %rbp
+testl %ebp, %ebp
 jne lb_parse_dimacs_body.L21
 jmp lb_parse_dimacs_body.L0
 lb_parse_dimacs_body.L21:
-movq 264(%rsp), %r8
-movq 256(%rsp), %r9
 jmp lb_parse_dimacs_body.L17
 lb_parse_dimacs_body.L20:
-movq 264(%rsp), %r8
-movq $10, %r10
-imulq %r10, %r8
-movq %r8, 336(%rsp)
-movq 288(%rsp), %r9
-addq %r9, %r8
-movq %r8, 344(%rsp)
-movq $268435456, %r10
-cmpq %r10, %r8
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 352(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L22
+imulq $10, %rsi
+addq %rbp, %rsi
+cmpq $268435456, %rsi
+jb lb_parse_dimacs_body.L22
 jmp lb_parse_dimacs_body.L0
 lb_parse_dimacs_body.L22:
-movq 256(%rsp), %r8
-movq $1, %r10
-addq %r10, %r8
-movq %r8, 360(%rsp)
-movq 344(%rsp), %r9
+addq $1, %rcx
 jmp lb_parse_dimacs_body.L18
 lb_parse_dimacs_body.L19:
-movq %r9, %r8
-movq 256(%rsp), %r9
-jmp lb_parse_dimacs_body.L17
 lb_parse_dimacs_body.L17:
-movq %r8, 368(%rsp)
-movq %r9, 376(%rsp)
-movq $0, %r10
-cmpq %r10, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 384(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L23
-movq 368(%rsp), %r8
-cmpq %r8, %rax
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 392(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L24
-movq 368(%rsp), %r8
-movq 64(%rsp), %r9
-movl %r8d, (%r9)
-movq 64(%rsp), %r8
-movq $4, %r10
-addq %r10, %r8
-movq %r8, 400(%rsp)
-movq 376(%rsp), %r8
-movq 400(%rsp), %r9
+cmpq $0, %rsi
+je lb_parse_dimacs_body.L23
+cmpq %rsi, %r12
+jb lb_parse_dimacs_body.L24
+movl %esi, (%rax)
+addq $4, %rax
 jmp lb_parse_dimacs_body.L3
 lb_parse_dimacs_body.L24:
 jmp lb_parse_dimacs_body.L0
 lb_parse_dimacs_body.L23:
-movq 64(%rsp), %r8
-movq $0, %r11
-movl %r11d, (%r8)
-movq 64(%rsp), %r8
-movq $4, %r10
-addq %r10, %r8
-movq %r8, 408(%rsp)
-movq %rsi, %r8
-shlq $3, %r8
-movq %r8, 416(%rsp)
-addq %rdx, %r8
-movq %r8, 424(%rsp)
-movq 40(%rsp), %r9
-movq %r9, (%r8)
-movq $1, %r10
-addq %r10, %rsi
-movq 376(%rsp), %r8
-movq 408(%rsp), %r9
+movl $0, (%rax)
+addq $4, %rax
+movq %rdx, %rsi
+shlq $3, %rsi
+movq (%rsp), %r8
+addq %r8, %rsi
+movq %rbx, (%rsi)
+addq $1, %rdx
+movq %rax, %rbx
+movq %rcx, %rax
 jmp lb_parse_dimacs_body.L1
 lb_parse_dimacs_body.L15:
 jmp lb_parse_dimacs_body.L0
 lb_parse_dimacs_body.L14:
-movq 184(%rsp), %r8
-movq $1, %r10
-addq %r10, %r8
-movq %r8, 432(%rsp)
-cmpq %rdi, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 440(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L25
-movq 432(%rsp), %r8
-movzbl (%r8), %r8d
-movq %r8, 448(%rsp)
-movq $48, %r10
-subq %r10, %r8
-movq %r8, 456(%rsp)
-movq $10, %r10
-cmpq %r10, %r8
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 464(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L26
+addq $1, %rcx
+cmpq %rdi, %rcx
+je lb_parse_dimacs_body.L25
+movzbl (%rcx), %esi
+subq $48, %rsi
+cmpq $10, %rsi
+jb lb_parse_dimacs_body.L26
 jmp lb_parse_dimacs_body.L0
 lb_parse_dimacs_body.L26:
-movq 432(%rsp), %r8
-movq $1, %r10
-addq %r10, %r8
-movq %r8, 472(%rsp)
-movq 456(%rsp), %r9
-jmp lb_parse_dimacs_body.L28
+addq $1, %rcx
 lb_parse_dimacs_body.L28:
-movq %r8, 480(%rsp)
-movq %r9, 488(%rsp)
-cmpq %rdi, %r8
+cmpq %rdi, %rcx
+je lb_parse_dimacs_body.L29
+movzbl (%rcx), %r8d
+movq %r8, %rbp
+subq $48, %rbp
+cmpq $10, %rbp
+jb lb_parse_dimacs_body.L30
+cmpq $32, %r8
 sete %r11b
-movzx %r11b, %r8d
-movq %r8, 496(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L29
-movq 480(%rsp), %r8
-movzbl (%r8), %r8d
-movq %r8, 504(%rsp)
-movq $48, %r10
-subq %r10, %r8
-movq %r8, 512(%rsp)
-movq $10, %r10
-cmpq %r10, %r8
+movzx %r11b, %ebp
+subq $9, %r8
+cmpq $5, %r8
 setb %r11b
-movzx %r11b, %r8d
-movq %r8, 520(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L30
-movq 504(%rsp), %r8
-movq $32, %r10
-cmpq %r10, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 528(%rsp)
-movq 504(%rsp), %r8
-movq $9, %r10
-subq %r10, %r8
-movq %r8, 536(%rsp)
-movq $5, %r10
-cmpq %r10, %r8
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 544(%rsp)
-movq 528(%rsp), %r9
-orq %r9, %r8
-movq %r8, 552(%rsp)
-testl %r8d, %r8d
+movzx %r11b, %r13d
+orq %r13, %rbp
+testl %ebp, %ebp
 jne lb_parse_dimacs_body.L31
 jmp lb_parse_dimacs_body.L0
 lb_parse_dimacs_body.L31:
-movq 488(%rsp), %r8
-movq 480(%rsp), %r9
 jmp lb_parse_dimacs_body.L27
 lb_parse_dimacs_body.L30:
-movq 488(%rsp), %r8
-movq $10, %r10
-imulq %r10, %r8
-movq %r8, 560(%rsp)
-movq 512(%rsp), %r9
-addq %r9, %r8
-movq %r8, 568(%rsp)
-movq $268435456, %r10
-cmpq %r10, %r8
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 576(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L32
+imulq $10, %rsi
+addq %rbp, %rsi
+cmpq $268435456, %rsi
+jb lb_parse_dimacs_body.L32
 jmp lb_parse_dimacs_body.L0
 lb_parse_dimacs_body.L32:
-movq 480(%rsp), %r8
-movq $1, %r10
-addq %r10, %r8
-movq %r8, 584(%rsp)
-movq 568(%rsp), %r9
+addq $1, %rcx
 jmp lb_parse_dimacs_body.L28
 lb_parse_dimacs_body.L29:
-movq %r9, %r8
-movq 480(%rsp), %r9
-jmp lb_parse_dimacs_body.L27
 lb_parse_dimacs_body.L27:
-movq %r8, 592(%rsp)
-movq %r9, 600(%rsp)
-movq $0, %r10
-cmpq %r10, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 608(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L33
-movq 592(%rsp), %r8
-cmpq %r8, %rax
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 616(%rsp)
-testl %r8d, %r8d
-jne lb_parse_dimacs_body.L34
-movq 592(%rsp), %r8
+cmpq $0, %rsi
+je lb_parse_dimacs_body.L33
+cmpq %rsi, %r12
+jb lb_parse_dimacs_body.L34
 movq $0, %r11
-movq %r8, %r10
+movq %rsi, %r10
 subq %r10, %r11
-movq %r11, %r8
-movq %r8, 624(%rsp)
-movq 64(%rsp), %r9
-movl %r8d, (%r9)
-movq 64(%rsp), %r8
-movq $4, %r10
-addq %r10, %r8
-movq %r8, 632(%rsp)
-movq 600(%rsp), %r8
-movq 632(%rsp), %r9
+movq %r11, %rsi
+movl %esi, (%rax)
+addq $4, %rax
 jmp lb_parse_dimacs_body.L3
 lb_parse_dimacs_body.L34:
 jmp lb_parse_dimacs_body.L0
@@ -995,61 +546,34 @@ jmp lb_parse_dimacs_body.L0
 lb_parse_dimacs_body.L12:
 jmp lb_parse_dimacs_body.L0
 lb_parse_dimacs_body.L2:
-movq 32(%rsp), %rax
-jmp lb_parse_dimacs_body.L36
 lb_parse_dimacs_body.L36:
 cmpq %rdi, %rax
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_body.L37
+je lb_parse_dimacs_body.L37
 movzbl (%rax), %ecx
-movq %rax, %r11
-movq $1, %r10
-addq %r10, %r11
-movq %r11, %rdx
-movq $32, %r10
-cmpq %r10, %rcx
+lea 1(%rax), %rdx
+cmpq $32, %rcx
 sete %r11b
 movzx %r11b, %esi
-movq %rcx, %r11
-movq $9, %r10
-subq %r10, %r11
-movq %r11, %r8
-movq %r8, 640(%rsp)
-movq $5, %r10
-cmpq %r10, %r8
+movq %rcx, %r8
+subq $9, %r8
+cmpq $5, %r8
 setb %r11b
-movzx %r11b, %r8d
-movq %r8, 648(%rsp)
-orq %r8, %rsi
+movzx %r11b, %ebp
+orq %rbp, %rsi
 testl %esi, %esi
 jne lb_parse_dimacs_body.L38
-movq $99, %r10
-cmpq %r10, %rcx
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_body.L39
+cmpq $99, %rcx
+je lb_parse_dimacs_body.L39
 jmp lb_parse_dimacs_body.L35
 lb_parse_dimacs_body.L39:
 movq %rdx, %rax
-jmp lb_parse_dimacs_body.L40
 lb_parse_dimacs_body.L40:
 cmpq %rdi, %rax
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_body.L41
+je lb_parse_dimacs_body.L41
 movzbl (%rax), %ecx
-movq $1, %r10
-addq %r10, %rax
-movq $10, %r10
-cmpq %r10, %rcx
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_parse_dimacs_body.L42
+addq $1, %rax
+cmpq $10, %rcx
+je lb_parse_dimacs_body.L42
 jmp lb_parse_dimacs_body.L40
 lb_parse_dimacs_body.L42:
 jmp lb_parse_dimacs_body.L36
@@ -1059,861 +583,535 @@ lb_parse_dimacs_body.L38:
 movq %rdx, %rax
 jmp lb_parse_dimacs_body.L36
 lb_parse_dimacs_body.L37:
-jmp lb_parse_dimacs_body.L35
 lb_parse_dimacs_body.L35:
 cmpq %rdi, %rax
-sete %r11b
-movzx %r11b, %eax
-testl %eax, %eax
-jne lb_parse_dimacs_body.L43
+je lb_parse_dimacs_body.L43
 jmp lb_parse_dimacs_body.L0
 lb_parse_dimacs_body.L43:
-movq 40(%rsp), %rax
-movq 16(%rsp), %rcx
-movq %rax, (%rcx)
+movq 16(%rsp), %rax
+movq %rbx, (%rax)
 movq $1, %rax
-addq $664, %rsp
+movq 24(%rsp), %rbx
+movq 32(%rsp), %rbp
+movq 40(%rsp), %r12
+movq 48(%rsp), %r13
+movq 56(%rsp), %r14
+movq 64(%rsp), %r15
+addq $72, %rsp
 ret
 lb_parse_dimacs_body.L0:
 movq $0, %rax
-addq $664, %rsp
+movq 24(%rsp), %rbx
+movq 32(%rsp), %rbp
+movq 40(%rsp), %r12
+movq 48(%rsp), %r13
+movq 56(%rsp), %r14
+movq 64(%rsp), %r15
+addq $72, %rsp
 ret")
 
 def addLitsCode : Program := parse("lb_read_add_lits:
-subq $168, %rsp
-movq (%rdi), %rax
-movq %rdi, %r11
-movq $56, %r10
-addq %r10, %r11
-movq %r11, %rcx
-movq (%rcx), %rcx
-movq %rdi, %r11
-movq $64, %r10
-addq %r10, %r11
-movq %r11, %rdx
-movq (%rdx), %r8
-movq %r8, (%rsp)
-movq $72, %r10
-addq %r10, %rdi
-movq %rdi, 8(%rsp)
-movq (%rdi), %rdi
-jmp lb_read_add_lits.L1
+subq $56, %rsp
+movq %rbx, 8(%rsp)
+movq %rbp, 16(%rsp)
+movq %r12, 24(%rsp)
+movq %r13, 32(%rsp)
+movq %r14, 40(%rsp)
+movq %r15, 48(%rsp)
+movq %rsi, %r14
+movq %rdi, %r13
+movq (%r13), %r15
+lea 56(%r13), %rax
+movq (%rax), %rax
+movq %rax, (%rsp)
+lea 64(%r13), %rbp
+movq (%rbp), %r12
+addq $72, %r13
+movq (%r13), %rcx
+movq %r12, %rax
 lb_read_add_lits.L1:
-movq %r8, 16(%rsp)
-cmpq %rcx, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 24(%rsp)
-testl %r8d, %r8d
-jne lb_read_add_lits.L2
-movq $0, %r8
-movq $0, %r9
-jmp lb_read_add_lits.L4
+movq (%rsp), %rdx
+cmpq %rdx, %rax
+je lb_read_add_lits.L2
+movq $0, %rdi
+movq $0, %rdx
 lb_read_add_lits.L4:
-movq %r8, 32(%rsp)
-movq %r9, 40(%rsp)
-cmpq %rsi, %rdi
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 48(%rsp)
-testl %r8d, %r8d
-jne lb_read_add_lits.L5
-movzbl (%rdi), %r8d
-movq %r8, 56(%rsp)
-movq $1, %r10
-addq %r10, %rdi
-movq 56(%rsp), %r8
-movq $127, %r10
-andq %r10, %r8
-movq %r8, 64(%rsp)
-movq 40(%rsp), %r9
-movq %r8, %r11
+cmpq %r14, %rcx
+je lb_read_add_lits.L5
+movzbl (%rcx), %esi
+addq $1, %rcx
+movq %rsi, %rbx
+andq $127, %rbx
+movq %rbx, %r11
 movq %rcx, %r10
-movq %r9, %rcx
+movq %rdx, %rcx
 shlq %cl, %r11
 movq %r10, %rcx
-movq %r11, %r8
-movq %r8, 72(%rsp)
-movq 32(%rsp), %r9
-orq %r9, %r8
-movq %r8, 80(%rsp)
-movq 56(%rsp), %r8
-movq $128, %r10
-andq %r10, %r8
-movq %r8, 88(%rsp)
-movq $0, %r10
-cmpq %r10, %r8
-setne %r11b
-movzx %r11b, %r8d
-movq %r8, 96(%rsp)
-testl %r8d, %r8d
+movq %r11, %rbx
+orq %rbx, %rdi
+andq $128, %rsi
+cmpq $0, %rsi
 jne lb_read_add_lits.L6
-movq %rdi, %r8
-movq 80(%rsp), %rdi
+movq %rcx, %rsi
+movq %rdi, %rcx
 jmp lb_read_add_lits.L3
 lb_read_add_lits.L6:
-movq 40(%rsp), %r8
-movq $7, %r10
-addq %r10, %r8
-movq %r8, 104(%rsp)
-movq $28, %r10
-cmpq %r10, %r8
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 112(%rsp)
-testl %r8d, %r8d
-jne lb_read_add_lits.L7
+addq $7, %rdx
+cmpq $28, %rdx
+jb lb_read_add_lits.L7
 jmp lb_read_add_lits.L0
 lb_read_add_lits.L7:
-movq 80(%rsp), %r8
-movq 104(%rsp), %r9
 jmp lb_read_add_lits.L4
 lb_read_add_lits.L5:
 jmp lb_read_add_lits.L0
 lb_read_add_lits.L3:
-movq %r8, 120(%rsp)
-movq $0, %r10
-cmpq %r10, %rdi
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 128(%rsp)
-testl %r8d, %r8d
-jne lb_read_add_lits.L8
-movq %rdi, %r8
-shrq $1, %r8
-movq %r8, 136(%rsp)
-movq $0, %r10
-cmpq %r10, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 144(%rsp)
-testl %r8d, %r8d
-jne lb_read_add_lits.L9
-movq 136(%rsp), %r8
-cmpq %r8, %rax
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 152(%rsp)
-testl %r8d, %r8d
-jne lb_read_add_lits.L10
-movq $1, %r10
-andq %r10, %rdi
+cmpq $0, %rcx
+je lb_read_add_lits.L8
+movq %rcx, %rdx
+shrq $1, %rdx
+cmpq $0, %rdx
+je lb_read_add_lits.L9
+cmpq %rdx, %r15
+jb lb_read_add_lits.L10
+andq $1, %rcx
 movq $0, %r11
-movq %rdi, %r10
+movq %rcx, %r10
 subq %r10, %r11
-movq %r11, %rdi
-movq 136(%rsp), %r8
-xorq %rdi, %r8
-movq %r8, 160(%rsp)
-movq %r8, %r11
-movq %rdi, %r10
-subq %r10, %r11
-movq %r11, %rdi
-movq 16(%rsp), %r8
-movl %edi, (%r8)
-movq 16(%rsp), %rdi
-movq $4, %r10
-addq %r10, %rdi
-movq %rdi, %r8
-movq 120(%rsp), %rdi
+movq %r11, %rcx
+xorq %rcx, %rdx
+subq %rcx, %rdx
+movl %edx, (%rax)
+addq $4, %rax
+movq %rsi, %rcx
 jmp lb_read_add_lits.L1
 lb_read_add_lits.L10:
 jmp lb_read_add_lits.L0
 lb_read_add_lits.L9:
 jmp lb_read_add_lits.L0
 lb_read_add_lits.L8:
-movq 16(%rsp), %rax
-movq $0, %r11
-movl %r11d, (%rax)
-movq 16(%rsp), %rax
-movq $4, %r10
-addq %r10, %rax
-movq %rax, (%rdx)
-movq 120(%rsp), %rax
-movq 8(%rsp), %rcx
-movq %rax, (%rcx)
-movq 16(%rsp), %rax
-movq (%rsp), %rcx
-cmpq %rcx, %rax
-sete %r11b
-movzx %r11b, %eax
-testl %eax, %eax
-jne lb_read_add_lits.L11
+movl $0, (%rax)
+lea 4(%rax), %rcx
+movq %rcx, (%rbp)
+movq %rsi, (%r13)
+cmpq %r12, %rax
+je lb_read_add_lits.L11
 movq $1, %rax
-addq $168, %rsp
+movq 8(%rsp), %rbx
+movq 16(%rsp), %rbp
+movq 24(%rsp), %r12
+movq 32(%rsp), %r13
+movq 40(%rsp), %r14
+movq 48(%rsp), %r15
+addq $56, %rsp
 ret
 lb_read_add_lits.L11:
 movq $2, %rax
-addq $168, %rsp
+movq 8(%rsp), %rbx
+movq 16(%rsp), %rbp
+movq 24(%rsp), %r12
+movq 32(%rsp), %r13
+movq 40(%rsp), %r14
+movq 48(%rsp), %r15
+addq $56, %rsp
 ret
 lb_read_add_lits.L2:
-jmp lb_read_add_lits.L0
 lb_read_add_lits.L0:
 movq $0, %rax
-addq $168, %rsp
+movq 8(%rsp), %rbx
+movq 16(%rsp), %rbp
+movq 24(%rsp), %r12
+movq 32(%rsp), %r13
+movq 40(%rsp), %r14
+movq 48(%rsp), %r15
+addq $56, %rsp
 ret")
 
 def rupCheckCode : Program := parse("lb_rup_check:
-subq $632, %rsp
-movq %rdi, %r11
-movq $24, %r10
-addq %r10, %r11
-movq %r11, %rax
+subq $88, %rsp
+movq %rbx, 32(%rsp)
+movq %rbp, 40(%rsp)
+movq %r12, 48(%rsp)
+movq %r13, 56(%rsp)
+movq %r14, 64(%rsp)
+movq %r15, 72(%rsp)
+movq %rcx, %r15
+movq %rsi, %r14
+movq %rdx, %rsi
+lea 24(%rdi), %rax
+movq (%rax), %rbx
+lea 32(%rdi), %rax
 movq (%rax), %rax
-movq %rdi, %r11
-movq $32, %r10
-addq %r10, %r11
-movq %r11, %r8
-movq %r8, (%rsp)
-movq (%r8), %r8
-movq %r8, 8(%rsp)
-movq %rdi, %r11
-movq $40, %r10
-addq %r10, %r11
-movq %r11, %r8
-movq %r8, 16(%rsp)
-movq (%r8), %r8
-movq %r8, 24(%rsp)
-movq %rdi, %r11
-movq $48, %r10
-addq %r10, %r11
-movq %r11, %r8
-movq %r8, 32(%rsp)
-movq (%r8), %r8
-movq %r8, 40(%rsp)
-movq $72, %r10
-addq %r10, %rdi
-movq (%rdi), %r8
-movq %r8, 48(%rsp)
-movq 8(%rsp), %r8
-jmp lb_rup_check.L3
+movq %rax, 16(%rsp)
+lea 40(%rdi), %rax
+movq (%rax), %rax
+movq %rax, (%rsp)
+lea 48(%rdi), %rax
+movq (%rax), %rax
+movq %rax, 8(%rsp)
+addq $72, %rdi
+movq %rdi, 24(%rsp)
+movq (%rdi), %rbp
+movq 16(%rsp), %rax
 lb_rup_check.L3:
-movq %r8, 56(%rsp)
-movslq (%rdx), %r8
-movq %r8, 64(%rsp)
-testl %r8d, %r8d
+movslq (%rsi), %rcx
+testl %ecx, %ecx
 jne lb_rup_check.L4
-movq 48(%rsp), %rdx
-movq 56(%rsp), %r8
 jmp lb_rup_check.L2
 lb_rup_check.L4:
-movq 64(%rsp), %r8
-sarq $63, %r8
-movq %r8, 72(%rsp)
-movq 64(%rsp), %r9
-xorq %r9, %r8
-movq %r8, 80(%rsp)
-movq 72(%rsp), %r9
-subq %r9, %r8
-movq %r8, 88(%rsp)
-addq %rax, %r8
-movq %r8, 96(%rsp)
-movsbq (%r8), %r8
-movq %r8, 104(%rsp)
-movq 72(%rsp), %r9
-xorq %r9, %r8
-movq %r8, 112(%rsp)
-movq 72(%rsp), %r9
-subq %r9, %r8
-movq %r8, 120(%rsp)
-movq $4, %r10
-addq %r10, %rdx
-movq 120(%rsp), %r8
-movq $0, %r10
-cmpq %r10, %r8
-setl %r11b
-movzx %r11b, %r8d
-movq %r8, 128(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L5
-movq 120(%rsp), %r8
-movq $0, %r10
-cmpq %r8, %r10
-setl %r11b
-movzx %r11b, %r8d
-movq %r8, 136(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L6
-movq 64(%rsp), %r8
-movq $0, %r11
-movq %r8, %r10
+movq %rcx, %rdx
+sarq $63, %rdx
+movq %rcx, %rdi
+xorq %rdx, %rdi
+subq %rdx, %rdi
+addq %rbx, %rdi
+movsbq (%rdi), %r12
+xorq %rdx, %r12
+movq %r12, %r11
+movq %rdx, %r10
 subq %r10, %r11
-movq %r11, %r8
-movq %r8, 144(%rsp)
-movq 56(%rsp), %r8
-movq 24(%rsp), %r9
-cmpq %r9, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 152(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L7
-movq 144(%rsp), %r8
-sarq $63, %r8
-movq %r8, 160(%rsp)
-movq $1, %r10
-orq %r10, %r8
-movq %r8, 168(%rsp)
-movq 96(%rsp), %r9
-movb %r8b, (%r9)
-movq 144(%rsp), %r8
-movq 56(%rsp), %r9
-movl %r8d, (%r9)
-movq 56(%rsp), %r8
-movq $4, %r10
-addq %r10, %r8
-movq %r8, 176(%rsp)
+movq %r11, %rdx
+addq $4, %rsi
+cmpq $0, %rdx
+jl lb_rup_check.L5
+movq $0, %r10
+cmpq %rdx, %r10
+jl lb_rup_check.L6
+movq $0, %r11
+movq %rcx, %r10
+subq %r10, %r11
+movq %r11, %rcx
+movq (%rsp), %rdx
+cmpq %rdx, %rax
+je lb_rup_check.L7
+movq %rcx, %rdx
+sarq $63, %rdx
+orq $1, %rdx
+movb %dl, (%rdi)
+movl %ecx, (%rax)
+addq $4, %rax
 jmp lb_rup_check.L3
 lb_rup_check.L7:
 jmp lb_rup_check.L0
 lb_rup_check.L6:
-movq 48(%rsp), %rdx
-movq 56(%rsp), %r8
+movq %rax, %r10
+movq %rbp, %rax
+movq %r10, %rbp
 jmp lb_rup_check.L1
 lb_rup_check.L5:
-movq 56(%rsp), %r8
 jmp lb_rup_check.L3
 lb_rup_check.L2:
-movq %r8, 184(%rsp)
-jmp lb_rup_check.L8
+movq %rax, %rdi
+movq %rbp, %rax
 lb_rup_check.L8:
-movq %r8, 192(%rsp)
-movq $0, %r8
-movq $0, %r9
-jmp lb_rup_check.L10
+movq $0, %rsi
+movq $0, %rcx
 lb_rup_check.L10:
-movq %r8, 200(%rsp)
-movq %r9, 208(%rsp)
-cmpq %rcx, %rdx
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 216(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L11
-movzbl (%rdx), %r8d
-movq %r8, 224(%rsp)
-movq $1, %r10
-addq %r10, %rdx
-movq 224(%rsp), %r8
-movq $127, %r10
-andq %r10, %r8
-movq %r8, 232(%rsp)
-movq 208(%rsp), %r9
-movq %r8, %r11
+cmpq %r15, %rax
+je lb_rup_check.L11
+movzbl (%rax), %edx
+addq $1, %rax
+movq %rdx, %rbp
+andq $127, %rbp
+movq %rbp, %r11
 movq %rcx, %r10
-movq %r9, %rcx
+movq %rcx, %rcx
 shlq %cl, %r11
 movq %r10, %rcx
-movq %r11, %r8
-movq %r8, 240(%rsp)
-movq 200(%rsp), %r9
-orq %r9, %r8
-movq %r8, 248(%rsp)
-movq 224(%rsp), %r8
-movq $128, %r10
-andq %r10, %r8
-movq %r8, 256(%rsp)
-movq $0, %r10
-cmpq %r10, %r8
-setne %r11b
-movzx %r11b, %r8d
-movq %r8, 264(%rsp)
-testl %r8d, %r8d
+movq %r11, %rbp
+orq %rbp, %rsi
+andq $128, %rdx
+cmpq $0, %rdx
 jne lb_rup_check.L12
-movq %rdx, %r8
-movq 248(%rsp), %rdx
+movq %rax, %rbp
+movq %rsi, %rax
 jmp lb_rup_check.L9
 lb_rup_check.L12:
-movq 208(%rsp), %r8
-movq $7, %r10
-addq %r10, %r8
-movq %r8, 272(%rsp)
-movq $28, %r10
-cmpq %r10, %r8
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 280(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L13
+addq $7, %rcx
+cmpq $28, %rcx
+jb lb_rup_check.L13
 jmp lb_rup_check.L0
 lb_rup_check.L13:
-movq 248(%rsp), %r8
-movq 272(%rsp), %r9
 jmp lb_rup_check.L10
 lb_rup_check.L11:
 jmp lb_rup_check.L0
 lb_rup_check.L9:
-movq %r8, 288(%rsp)
-movq $0, %r10
-cmpq %r10, %rdx
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 296(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L14
-movq %rdx, %r11
-movq $1, %r10
-andq %r10, %r11
-movq %r11, %r8
-movq %r8, 304(%rsp)
-movq $0, %r10
-cmpq %r10, %r8
-setne %r11b
-movzx %r11b, %r8d
-movq %r8, 312(%rsp)
-testl %r8d, %r8d
+cmpq $0, %rax
+je lb_rup_check.L14
+movq %rax, %rcx
+andq $1, %rcx
+cmpq $0, %rcx
 jne lb_rup_check.L15
-shrq $1, %rdx
-cmpq %rsi, %rdx
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 320(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L16
+shrq $1, %rax
+cmpq %r14, %rax
+jb lb_rup_check.L16
 jmp lb_rup_check.L0
 lb_rup_check.L16:
-shlq $3, %rdx
-movq 40(%rsp), %r8
-addq %r8, %rdx
-movq (%rdx), %rdx
-movq $0, %r10
-cmpq %r10, %rdx
-setne %r11b
-movzx %r11b, %r8d
-movq %r8, 328(%rsp)
-testl %r8d, %r8d
+shlq $3, %rax
+movq 8(%rsp), %rcx
+addq %rcx, %rax
+movq (%rax), %rax
+cmpq $0, %rax
 jne lb_rup_check.L17
 jmp lb_rup_check.L0
 lb_rup_check.L17:
-movq 192(%rsp), %r9
-movq $0, %r8
-jmp lb_rup_check.L19
+movq %rdi, %rcx
+movq %rax, %rdi
+movq $0, %rdx
 lb_rup_check.L19:
-movq %r8, 336(%rsp)
-movq %r9, 344(%rsp)
-movslq (%rdx), %r8
-movq %r8, 352(%rsp)
-testl %r8d, %r8d
+movslq (%rdi), %rax
+testl %eax, %eax
 jne lb_rup_check.L20
-movq 336(%rsp), %rdx
-movq %r9, %r8
 jmp lb_rup_check.L18
 lb_rup_check.L20:
-movq 352(%rsp), %r8
-sarq $63, %r8
-movq %r8, 360(%rsp)
-movq 352(%rsp), %r9
-xorq %r9, %r8
-movq %r8, 368(%rsp)
-movq 360(%rsp), %r9
-subq %r9, %r8
-movq %r8, 376(%rsp)
-addq %rax, %r8
-movq %r8, 384(%rsp)
-movsbq (%r8), %r8
-movq %r8, 392(%rsp)
-movq 360(%rsp), %r9
-xorq %r9, %r8
-movq %r8, 400(%rsp)
-movq 360(%rsp), %r9
-subq %r9, %r8
-movq %r8, 408(%rsp)
-movq $4, %r10
-addq %r10, %rdx
-movq 408(%rsp), %r8
-movq $0, %r10
-cmpq %r10, %r8
-setl %r11b
-movzx %r11b, %r8d
-movq %r8, 416(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L21
-movq 336(%rsp), %r8
-testl %r8d, %r8d
+movq %rax, %rsi
+sarq $63, %rsi
+movq %rax, %r12
+xorq %rsi, %r12
+subq %rsi, %r12
+addq %rbx, %r12
+movsbq (%r12), %r13
+xorq %rsi, %r13
+subq %rsi, %r13
+addq $4, %rdi
+cmpq $0, %r13
+jl lb_rup_check.L21
+testl %edx, %edx
 jne lb_rup_check.L23
 jmp lb_rup_check.L22
 lb_rup_check.L23:
-movq 336(%rsp), %r8
-movq 352(%rsp), %r9
-cmpq %r9, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 424(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L24
+cmpq %rax, %rdx
+je lb_rup_check.L24
 jmp lb_rup_check.L0
 lb_rup_check.L24:
-jmp lb_rup_check.L22
 lb_rup_check.L22:
-movq 408(%rsp), %r8
-movq $0, %r10
-cmpq %r10, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 432(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L25
-movq 352(%rsp), %r8
-movq 344(%rsp), %r9
+cmpq $0, %r13
+je lb_rup_check.L25
+movq %rax, %rdx
 jmp lb_rup_check.L19
 lb_rup_check.L25:
-movq 344(%rsp), %r8
-movq 24(%rsp), %r9
-cmpq %r9, %r8
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 440(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L26
-movq 360(%rsp), %r8
-movq $1, %r10
-orq %r10, %r8
-movq %r8, 448(%rsp)
-movq 384(%rsp), %r9
-movb %r8b, (%r9)
-movq 352(%rsp), %r8
-movq 344(%rsp), %r9
-movl %r8d, (%r9)
-movq 344(%rsp), %r8
-movq $4, %r10
-addq %r10, %r8
-movq %r8, 456(%rsp)
-movq 352(%rsp), %r8
-movq 456(%rsp), %r9
+movq (%rsp), %rdx
+cmpq %rdx, %rcx
+je lb_rup_check.L26
+orq $1, %rsi
+movb %sil, (%r12)
+movl %eax, (%rcx)
+addq $4, %rcx
+movq %rax, %rdx
 jmp lb_rup_check.L19
 lb_rup_check.L26:
 jmp lb_rup_check.L0
 lb_rup_check.L21:
-movq 352(%rsp), %r8
 movq $0, %r11
-movq %r8, %r10
+movq %rax, %r10
 subq %r10, %r11
-movq %r11, %r8
-movq %r8, 464(%rsp)
-movq 336(%rsp), %r9
-cmpq %r8, %r9
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 472(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L27
-movq %r9, %r8
-movq 344(%rsp), %r9
+movq %r11, %rax
+cmpq %rax, %rdx
+je lb_rup_check.L27
 jmp lb_rup_check.L19
 lb_rup_check.L27:
 jmp lb_rup_check.L0
 lb_rup_check.L18:
-movq %r8, 480(%rsp)
 testl %edx, %edx
 jne lb_rup_check.L28
-movq 288(%rsp), %rdx
+movq %rbp, %rax
+movq %rcx, %rbp
 jmp lb_rup_check.L1
 lb_rup_check.L28:
-movq 288(%rsp), %rdx
+movq %rbp, %rax
+movq %rcx, %rdi
 jmp lb_rup_check.L8
 lb_rup_check.L15:
 jmp lb_rup_check.L0
 lb_rup_check.L14:
 jmp lb_rup_check.L0
 lb_rup_check.L1:
-movq %r8, 488(%rsp)
-jmp lb_rup_check.L29
 lb_rup_check.L29:
-movq $0, %r8
-movq $0, %r9
-jmp lb_rup_check.L31
+movq $0, %rsi
+movq $0, %rcx
 lb_rup_check.L31:
-movq %r8, 496(%rsp)
-movq %r9, 504(%rsp)
-cmpq %rcx, %rdx
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 512(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L32
-movzbl (%rdx), %r8d
-movq %r8, 520(%rsp)
-movq $1, %r10
-addq %r10, %rdx
-movq 520(%rsp), %r8
-movq $127, %r10
-andq %r10, %r8
-movq %r8, 528(%rsp)
-movq 504(%rsp), %r9
-movq %r8, %r11
+cmpq %r15, %rax
+je lb_rup_check.L32
+movzbl (%rax), %edx
+addq $1, %rax
+movq %rdx, %rdi
+andq $127, %rdi
+movq %rdi, %r11
 movq %rcx, %r10
-movq %r9, %rcx
+movq %rcx, %rcx
 shlq %cl, %r11
 movq %r10, %rcx
-movq %r11, %r8
-movq %r8, 536(%rsp)
-movq 496(%rsp), %r9
-orq %r9, %r8
-movq %r8, 544(%rsp)
-movq 520(%rsp), %r8
-movq $128, %r10
-andq %r10, %r8
-movq %r8, 552(%rsp)
-movq $0, %r10
-cmpq %r10, %r8
-setne %r11b
-movzx %r11b, %r8d
-movq %r8, 560(%rsp)
-testl %r8d, %r8d
+movq %r11, %rdi
+orq %rdi, %rsi
+andq $128, %rdx
+cmpq $0, %rdx
 jne lb_rup_check.L33
-movq %rdx, %r8
-movq 544(%rsp), %rdx
+movq %rax, %rcx
+movq %rsi, %rax
 jmp lb_rup_check.L30
 lb_rup_check.L33:
-movq 504(%rsp), %r8
-movq $7, %r10
-addq %r10, %r8
-movq %r8, 568(%rsp)
-movq $28, %r10
-cmpq %r10, %r8
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 576(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L34
+addq $7, %rcx
+cmpq $28, %rcx
+jb lb_rup_check.L34
 jmp lb_rup_check.L0
 lb_rup_check.L34:
-movq 544(%rsp), %r8
-movq 568(%rsp), %r9
 jmp lb_rup_check.L31
 lb_rup_check.L32:
 jmp lb_rup_check.L0
 lb_rup_check.L30:
-movq %r8, 584(%rsp)
-movq $0, %r10
-cmpq %r10, %rdx
-sete %r11b
-movzx %r11b, %r8d
-movq %r8, 592(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L35
-movq %rdx, %r11
-movq $1, %r10
-andq %r10, %r11
-movq %r11, %r8
-movq %r8, 600(%rsp)
-movq $0, %r10
-cmpq %r10, %r8
-setne %r11b
-movzx %r11b, %r8d
-movq %r8, 608(%rsp)
-testl %r8d, %r8d
+cmpq $0, %rax
+je lb_rup_check.L35
+movq %rax, %rdx
+andq $1, %rdx
+cmpq $0, %rdx
 jne lb_rup_check.L36
-shrq $1, %rdx
-cmpq %rsi, %rdx
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 616(%rsp)
-testl %r8d, %r8d
-jne lb_rup_check.L37
+shrq $1, %rax
+cmpq %r14, %rax
+jb lb_rup_check.L37
 jmp lb_rup_check.L0
 lb_rup_check.L37:
-shlq $3, %rdx
-movq 40(%rsp), %r8
-addq %r8, %rdx
-movq (%rdx), %rdx
-movq $0, %r10
-cmpq %r10, %rdx
-setne %r11b
-movzx %r11b, %edx
-testl %edx, %edx
+shlq $3, %rax
+movq 8(%rsp), %rdx
+addq %rdx, %rax
+movq (%rax), %rax
+cmpq $0, %rax
 jne lb_rup_check.L38
 jmp lb_rup_check.L0
 lb_rup_check.L38:
-movq 584(%rsp), %rdx
+movq %rcx, %rax
 jmp lb_rup_check.L29
 lb_rup_check.L36:
 jmp lb_rup_check.L0
 lb_rup_check.L35:
-movq 8(%rsp), %rcx
-jmp lb_rup_check.L39
+movq 16(%rsp), %rax
 lb_rup_check.L39:
-movq 488(%rsp), %rdx
-cmpq %rdx, %rcx
-sete %r11b
-movzx %r11b, %edx
-testl %edx, %edx
-jne lb_rup_check.L40
-movslq (%rcx), %rdx
+cmpq %rbp, %rax
+je lb_rup_check.L40
+movslq (%rax), %rdx
 movq %rdx, %rsi
 sarq $63, %rsi
 xorq %rsi, %rdx
 subq %rsi, %rdx
-addq %rax, %rdx
-movq $0, %r11
-movb %r11b, (%rdx)
-movq $4, %r10
-addq %r10, %rcx
+addq %rbx, %rdx
+movb $0, (%rdx)
+addq $4, %rax
 jmp lb_rup_check.L39
 lb_rup_check.L40:
-movq 584(%rsp), %rax
-movq %rax, (%rdi)
+movq 24(%rsp), %rax
+movq %rcx, (%rax)
 movq $1, %rax
-addq $632, %rsp
+movq 32(%rsp), %rbx
+movq 40(%rsp), %rbp
+movq 48(%rsp), %r12
+movq 56(%rsp), %r13
+movq 64(%rsp), %r14
+movq 72(%rsp), %r15
+addq $88, %rsp
 ret
 lb_rup_check.L0:
 movq $0, %rax
-addq $632, %rsp
+movq 32(%rsp), %rbx
+movq 40(%rsp), %rbp
+movq 48(%rsp), %r12
+movq 56(%rsp), %r13
+movq 64(%rsp), %r14
+movq 72(%rsp), %r15
+addq $88, %rsp
 ret")
 
 def checkPrfCode : Program := parse("lb_check_prf:
 subq $88, %rsp
+movq %rbx, 40(%rsp)
+movq %rbp, 48(%rsp)
+movq %r12, 56(%rsp)
+movq %r13, 64(%rsp)
+movq %r14, 72(%rsp)
+movq %r15, 80(%rsp)
 movq %rdi, (%rsp)
-movq %rsi, 8(%rsp)
-movq %rdi, %r11
-movq $8, %r10
-addq %r10, %r11
-movq %r11, %rax
-movq (%rax), %rax
-movq %rax, 16(%rsp)
-movq (%rsp), %rax
-movq $16, %r10
-addq %r10, %rax
+movq %rsi, %rbx
+lea 8(%rdi), %rax
 movq (%rax), %rax
 movq %rax, 24(%rsp)
 movq (%rsp), %rax
-movq $48, %r10
-addq %r10, %rax
+addq $16, %rax
 movq (%rax), %rax
+movq %rax, 8(%rsp)
+movq (%rsp), %rax
+addq $48, %rax
+movq (%rax), %rax
+movq %rax, 16(%rsp)
+movq (%rsp), %rax
+addq $64, %rax
 movq %rax, 32(%rsp)
 movq (%rsp), %rax
-movq $64, %r10
-addq %r10, %rax
-movq %rax, 40(%rsp)
-movq (%rsp), %rax
-movq $72, %r10
-addq %r10, %rax
-movq %rax, 48(%rsp)
-jmp lb_check_prf.L1
+lea 72(%rax), %r12
 lb_check_prf.L1:
-movq 48(%rsp), %rax
-movq (%rax), %rax
-movq 8(%rsp), %rcx
-cmpq %rcx, %rax
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_check_prf.L2
+movq (%r12), %rax
+cmpq %rbx, %rax
+je lb_check_prf.L2
 movzbl (%rax), %ecx
-movq $1, %r10
-addq %r10, %rax
-movq $97, %r10
-cmpq %r10, %rcx
-sete %r11b
-movzx %r11b, %edx
-testl %edx, %edx
-jne lb_check_prf.L3
-movq $100, %r10
-cmpq %r10, %rcx
-sete %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lb_check_prf.L4
+addq $1, %rax
+cmpq $97, %rcx
+je lb_check_prf.L3
+cmpq $100, %rcx
+je lb_check_prf.L4
 jmp lb_check_prf.L0
 lb_check_prf.L4:
-jmp lb_check_prf.L5
 lb_check_prf.L5:
+movq $0, %rsi
 movq $0, %rcx
-movq $0, %rdx
-jmp lb_check_prf.L7
 lb_check_prf.L7:
-movq 8(%rsp), %rsi
-cmpq %rsi, %rax
-sete %r11b
-movzx %r11b, %esi
-testl %esi, %esi
-jne lb_check_prf.L8
-movzbl (%rax), %esi
-movq $1, %r10
-addq %r10, %rax
-movq %rsi, %r11
-movq $127, %r10
-andq %r10, %r11
-movq %r11, %rdi
+cmpq %rbx, %rax
+je lb_check_prf.L8
+movzbl (%rax), %edx
+addq $1, %rax
+movq %rdx, %rdi
+andq $127, %rdi
 movq %rdi, %r11
 movq %rcx, %r10
-movq %rdx, %rcx
+movq %rcx, %rcx
 shlq %cl, %r11
 movq %r10, %rcx
 movq %r11, %rdi
-orq %rdi, %rcx
-movq $128, %r10
-andq %r10, %rsi
-movq $0, %r10
-cmpq %r10, %rsi
-setne %r11b
-movzx %r11b, %esi
-testl %esi, %esi
+orq %rdi, %rsi
+andq $128, %rdx
+cmpq $0, %rdx
 jne lb_check_prf.L9
-movq %rax, %r10
-movq %rcx, %rax
-movq %r10, %rcx
+movq %rax, %rcx
+movq %rsi, %rax
 jmp lb_check_prf.L6
 lb_check_prf.L9:
-movq $7, %r10
-addq %r10, %rdx
-movq $28, %r10
-cmpq %r10, %rdx
-setb %r11b
-movzx %r11b, %esi
-testl %esi, %esi
-jne lb_check_prf.L10
+addq $7, %rcx
+cmpq $28, %rcx
+jb lb_check_prf.L10
 jmp lb_check_prf.L0
 lb_check_prf.L10:
 jmp lb_check_prf.L7
 lb_check_prf.L8:
 jmp lb_check_prf.L0
 lb_check_prf.L6:
-movq $0, %r10
-cmpq %r10, %rax
-sete %r11b
-movzx %r11b, %edx
-testl %edx, %edx
-jne lb_check_prf.L11
-movq %rax, %r11
-movq $1, %r10
-andq %r10, %r11
-movq %r11, %rdx
-movq $0, %r10
-cmpq %r10, %rdx
-setne %r11b
-movzx %r11b, %edx
-testl %edx, %edx
+cmpq $0, %rax
+je lb_check_prf.L11
+movq %rax, %rdx
+andq $1, %rdx
+cmpq $0, %rdx
 jne lb_check_prf.L12
 shrq $1, %rax
-movq $0, %r10
-cmpq %r10, %rax
-sete %r11b
-movzx %r11b, %edx
-testl %edx, %edx
-jne lb_check_prf.L13
-movq 24(%rsp), %rdx
+cmpq $0, %rax
+je lb_check_prf.L13
+movq 8(%rsp), %rdx
 cmpq %rdx, %rax
-setb %r11b
-movzx %r11b, %edx
-testl %edx, %edx
-jne lb_check_prf.L14
+jb lb_check_prf.L14
 jmp lb_check_prf.L0
 lb_check_prf.L14:
 shlq $3, %rax
-movq 32(%rsp), %rdx
+movq 16(%rsp), %rdx
 addq %rdx, %rax
 movq (%rax), %rdx
-movq $0, %r10
-cmpq %r10, %rdx
-setne %r11b
-movzx %r11b, %edx
-testl %edx, %edx
+cmpq $0, %rdx
 jne lb_check_prf.L15
 jmp lb_check_prf.L0
 lb_check_prf.L15:
-movq $0, %r11
-movq %r11, (%rax)
+movq $0, (%rax)
 movq %rcx, %rax
 jmp lb_check_prf.L5
 lb_check_prf.L13:
@@ -1921,145 +1119,94 @@ jmp lb_check_prf.L0
 lb_check_prf.L12:
 jmp lb_check_prf.L0
 lb_check_prf.L11:
-movq 48(%rsp), %rax
-movq %rcx, (%rax)
+movq %rcx, (%r12)
 jmp lb_check_prf.L1
 lb_check_prf.L3:
+movq $0, %rsi
 movq $0, %rcx
-movq $0, %rdx
-jmp lb_check_prf.L17
 lb_check_prf.L17:
-movq 8(%rsp), %rsi
-cmpq %rsi, %rax
-sete %r11b
-movzx %r11b, %esi
-testl %esi, %esi
-jne lb_check_prf.L18
-movzbl (%rax), %esi
-movq $1, %r10
-addq %r10, %rax
-movq %rsi, %r11
-movq $127, %r10
-andq %r10, %r11
-movq %r11, %rdi
+cmpq %rbx, %rax
+je lb_check_prf.L18
+movzbl (%rax), %edx
+addq $1, %rax
+movq %rdx, %rdi
+andq $127, %rdi
 movq %rdi, %r11
 movq %rcx, %r10
-movq %rdx, %rcx
+movq %rcx, %rcx
 shlq %cl, %r11
 movq %r10, %rcx
 movq %r11, %rdi
-orq %rdi, %rcx
-movq $128, %r10
-andq %r10, %rsi
-movq $0, %r10
-cmpq %r10, %rsi
-setne %r11b
-movzx %r11b, %esi
-testl %esi, %esi
+orq %rdi, %rsi
+andq $128, %rdx
+cmpq $0, %rdx
 jne lb_check_prf.L19
-movq %rax, %r10
-movq %rcx, %rax
-movq %r10, %rcx
 jmp lb_check_prf.L16
 lb_check_prf.L19:
-movq $7, %r10
-addq %r10, %rdx
-movq $28, %r10
-cmpq %r10, %rdx
-setb %r11b
-movzx %r11b, %esi
-testl %esi, %esi
-jne lb_check_prf.L20
+addq $7, %rcx
+cmpq $28, %rcx
+jb lb_check_prf.L20
 jmp lb_check_prf.L0
 lb_check_prf.L20:
 jmp lb_check_prf.L17
 lb_check_prf.L18:
 jmp lb_check_prf.L0
 lb_check_prf.L16:
-movq %rax, %r11
-movq $1, %r10
-andq %r10, %r11
-movq %r11, %rdx
-movq $0, %r10
-cmpq %r10, %rdx
-setne %r11b
-movzx %r11b, %edx
-testl %edx, %edx
+movq %rsi, %rcx
+andq $1, %rcx
+cmpq $0, %rcx
 jne lb_check_prf.L21
-shrq $1, %rax
-movq %rax, 56(%rsp)
-movq 16(%rsp), %rdx
-cmpq %rax, %rdx
-setb %r11b
-movzx %r11b, %eax
-testl %eax, %eax
-jne lb_check_prf.L22
+movq %rsi, %rbp
+shrq $1, %rbp
+movq 24(%rsp), %rcx
+cmpq %rbp, %rcx
+jb lb_check_prf.L22
 jmp lb_check_prf.L0
 lb_check_prf.L22:
-movq 56(%rsp), %rax
-movq 24(%rsp), %rdx
-cmpq %rdx, %rax
-setb %r11b
-movzx %r11b, %eax
-testl %eax, %eax
-jne lb_check_prf.L23
+movq 8(%rsp), %rcx
+cmpq %rcx, %rbp
+jb lb_check_prf.L23
 jmp lb_check_prf.L0
 lb_check_prf.L23:
-movq 56(%rsp), %rax
-shlq $3, %rax
-movq 32(%rsp), %rdx
-addq %rdx, %rax
-movq %rax, 64(%rsp)
-movq (%rax), %rax
-movq $0, %r10
-cmpq %r10, %rax
-setne %r11b
-movzx %r11b, %eax
-testl %eax, %eax
+movq %rbp, %rcx
+shlq $3, %rcx
+movq 16(%rsp), %rdx
+lea (%rdx,%rcx,1), %r13
+movq (%r13), %rcx
+cmpq $0, %rcx
 jne lb_check_prf.L24
-movq 48(%rsp), %rax
-movq %rcx, (%rax)
-movq 40(%rsp), %rax
-movq (%rax), %rax
-movq %rax, 72(%rsp)
+movq %rax, (%r12)
+movq 32(%rsp), %rax
+movq (%rax), %r14
 movq (%rsp), %rdi
-movq 8(%rsp), %rsi
+movq %rbx, %rsi
 call lb_read_add_lits
-movq %rax, 80(%rsp)
-movq $0, %r10
-cmpq %r10, %rax
-setne %r11b
-movzx %r11b, %eax
-testl %eax, %eax
+movq %rax, %r15
+cmpq $0, %r15
 jne lb_check_prf.L25
 jmp lb_check_prf.L0
 lb_check_prf.L25:
 movq (%rsp), %rdi
-movq 56(%rsp), %rsi
-movq 72(%rsp), %rdx
-movq 8(%rsp), %rcx
+movq %rbp, %rsi
+movq %r14, %rdx
+movq %rbx, %rcx
 call lb_rup_check
-movq $0, %r10
-cmpq %r10, %rax
-setne %r11b
-movzx %r11b, %eax
-testl %eax, %eax
+cmpq $0, %rax
 jne lb_check_prf.L26
 jmp lb_check_prf.L0
 lb_check_prf.L26:
-movq 80(%rsp), %rax
-movq $2, %r10
-cmpq %r10, %rax
-sete %r11b
-movzx %r11b, %eax
-testl %eax, %eax
-jne lb_check_prf.L27
-movq 72(%rsp), %rax
-movq 64(%rsp), %rcx
-movq %rax, (%rcx)
+cmpq $2, %r15
+je lb_check_prf.L27
+movq %r14, (%r13)
 jmp lb_check_prf.L1
 lb_check_prf.L27:
 movq $1, %rax
+movq 40(%rsp), %rbx
+movq 48(%rsp), %rbp
+movq 56(%rsp), %r12
+movq 64(%rsp), %r13
+movq 72(%rsp), %r14
+movq 80(%rsp), %r15
 addq $88, %rsp
 ret
 lb_check_prf.L24:
@@ -2067,248 +1214,190 @@ jmp lb_check_prf.L0
 lb_check_prf.L21:
 jmp lb_check_prf.L0
 lb_check_prf.L2:
-jmp lb_check_prf.L0
 lb_check_prf.L0:
 movq $0, %rax
+movq 40(%rsp), %rbx
+movq 48(%rsp), %rbp
+movq 56(%rsp), %r12
+movq 64(%rsp), %r13
+movq 72(%rsp), %r14
+movq 80(%rsp), %r15
 addq $88, %rsp
 ret")
 
 def checkBytesCode : Program := parse("lrat_check_bytes:
-subq $232, %rsp
-movq %rdx, (%rsp)
-movq %rcx, 8(%rsp)
-movq %r8, 16(%rsp)
-movq %r9, 24(%rsp)
-movq $128, %r10
-cmpq %r10, %r9
-setb %r11b
-movzx %r11b, %eax
-testl %eax, %eax
-jne lrat_check_bytes.L0
-movq %rdi, %rax
-addq %rsi, %rax
-movq %rax, 32(%rsp)
-movq (%rsp), %rax
-movq 8(%rsp), %rcx
-addq %rcx, %rax
-movq %rax, 40(%rsp)
-movq 32(%rsp), %rsi
-movq %r8, %rdx
+subq $72, %rsp
+movq %rbx, 24(%rsp)
+movq %rbp, 32(%rsp)
+movq %r12, 40(%rsp)
+movq %r13, 48(%rsp)
+movq %r14, 56(%rsp)
+movq %r15, 64(%rsp)
+movq %r9, %rbp
+movq %r8, %rbx
+movq %rcx, %r13
+movq %rdx, %r12
+cmpq $128, %rbp
+jb lrat_check_bytes.L0
+lea (%rdi,%rsi,1), %r14
+lea (%r12,%r13,1), %rax
+movq %rax, 8(%rsp)
+movq %r14, %rsi
+movq %rbx, %rdx
 call lb_parse_dimacs_header
-movq $0, %r10
-cmpq %r10, %rax
-setne %r11b
-movzx %r11b, %eax
-testl %eax, %eax
+cmpq $0, %rax
 jne lrat_check_bytes.L1
 movq $0, %rax
-addq $232, %rsp
+movq 24(%rsp), %rbx
+movq 32(%rsp), %rbp
+movq 40(%rsp), %r12
+movq 48(%rsp), %r13
+movq 56(%rsp), %r14
+movq 64(%rsp), %r15
+addq $72, %rsp
 ret
 lrat_check_bytes.L1:
-movq 16(%rsp), %rax
+movq (%rbx), %rsi
+lea 8(%rbx), %rax
 movq (%rax), %rax
-movq 16(%rsp), %rcx
-movq $8, %r10
-addq %r10, %rcx
-movq (%rcx), %rcx
-movq %rax, %r11
-movq $1, %r10
-addq %r10, %r11
+lea 1(%rsi), %r8
+lea 8(%rsi), %rcx
+andq $-8, %rcx
+shlq $2, %r8
+lea 7(%r8), %r15
+andq $-8, %r15
+lea (%rcx,%r15,1), %rdx
+addq $80, %rdx
+cmpq %rdx, %rbp
+jb lrat_check_bytes.L2
+movq %rbp, %r11
+movq %rdx, %r10
+subq %r10, %r11
 movq %r11, %rdx
-movq %rax, %r11
-movq $8, %r10
-addq %r10, %r11
-movq %r11, %rsi
-movq $-8, %r10
-andq %r10, %rsi
-shlq $2, %rdx
-movq %rdx, %r11
-movq $7, %r10
-addq %r10, %r11
-movq %r11, %rdi
-movq $-8, %r10
-andq %r10, %rdi
-movq %rsi, %r8
-addq %rdi, %r8
-movq %r8, 48(%rsp)
-movq $80, %r11
-movq %r8, %r10
-addq %r10, %r11
-movq %r11, %r8
-movq %r8, 56(%rsp)
-movq 24(%rsp), %r9
-cmpq %r8, %r9
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 64(%rsp)
-testl %r8d, %r8d
-jne lrat_check_bytes.L2
-movq 24(%rsp), %r8
-movq 56(%rsp), %r9
-subq %r9, %r8
-movq %r8, 72(%rsp)
-shrq $4, %r8
-movq %r8, 80(%rsp)
-movq 8(%rsp), %r8
-movq $268435455, %r10
-andq %r10, %r8
-movq %r8, 88(%rsp)
-addq %rcx, %r8
-movq %r8, 96(%rsp)
-movq $32, %r10
-addq %r10, %r8
-movq %r8, 104(%rsp)
-movq 80(%rsp), %r9
-cmpq %r8, %r9
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 112(%rsp)
-testl %r8d, %r8d
-jne lrat_check_bytes.L4
-movq 104(%rsp), %r8
+movq %rdx, (%rsp)
+shrq $4, %rdx
+andq $268435455, %r13
+lea (%rax,%r13,1), %rbp
+addq $32, %rbp
+cmpq %rbp, %rdx
+jb lrat_check_bytes.L4
+movq %rbp, %rdx
 jmp lrat_check_bytes.L3
 lrat_check_bytes.L4:
-movq %r9, %r8
-jmp lrat_check_bytes.L3
 lrat_check_bytes.L3:
-movq %r8, 120(%rsp)
-cmpq %rcx, %r8
-setbe %r11b
-movzx %r11b, %ecx
-testl %ecx, %ecx
-jne lrat_check_bytes.L5
-movq 16(%rsp), %rcx
-movq $80, %r10
-addq %r10, %rcx
-addq %rcx, %rsi
-addq %rsi, %rdx
-addq %rsi, %rdi
-movq 120(%rsp), %r8
-shlq $3, %r8
-movq %r8, 128(%rsp)
-addq %rdi, %r8
-movq %r8, 136(%rsp)
-movq 72(%rsp), %r8
-movq 128(%rsp), %r9
-subq %r9, %r8
-movq %r8, 144(%rsp)
-movq $-4, %r10
-andq %r10, %r8
-movq %r8, 152(%rsp)
-movq 136(%rsp), %r9
-addq %r9, %r8
-movq %r8, 160(%rsp)
-movq $0, %r8
-jmp lrat_check_bytes.L7
+cmpq %rax, %rdx
+jbe lrat_check_bytes.L5
+lea 80(%rbx), %rdi
+lea (%rdi,%rcx,1), %rbp
+lea (%rbp,%r8,1), %rax
+movq %rax, 16(%rsp)
+lea (%rbp,%r15,1), %r8
+movq %rdx, %rax
+shlq $3, %rax
+lea (%r8,%rax,1), %r13
+movq (%rsp), %rcx
+movq %rcx, %r11
+movq %rax, %r10
+subq %r10, %r11
+movq %r11, %rax
+andq $-4, %rax
+lea (%r13,%rax,1), %r15
+movq $0, %rax
 lrat_check_bytes.L7:
-movq %r8, 168(%rsp)
-cmpq %rax, %r8
-setbe %r11b
-movzx %r11b, %r8d
-movq %r8, 176(%rsp)
-testl %r8d, %r8d
-jne lrat_check_bytes.L8
+cmpq %rsi, %rax
+jbe lrat_check_bytes.L8
 jmp lrat_check_bytes.L6
 lrat_check_bytes.L8:
-movq 168(%rsp), %r8
-addq %rcx, %r8
-movq %r8, 184(%rsp)
-movq $0, %r11
-movb %r11b, (%r8)
-movq 168(%rsp), %r8
-movq $1, %r10
-addq %r10, %r8
-movq %r8, 192(%rsp)
+lea (%rdi,%rax,1), %rcx
+movb $0, (%rcx)
+addq $1, %rax
 jmp lrat_check_bytes.L7
 lrat_check_bytes.L6:
 movq $0, %rax
-jmp lrat_check_bytes.L10
 lrat_check_bytes.L10:
-movq 120(%rsp), %r8
-cmpq %r8, %rax
-setb %r11b
-movzx %r11b, %r8d
-movq %r8, 200(%rsp)
-testl %r8d, %r8d
-jne lrat_check_bytes.L11
+cmpq %rdx, %rax
+jb lrat_check_bytes.L11
 jmp lrat_check_bytes.L9
 lrat_check_bytes.L11:
-movq %rax, %r8
-shlq $3, %r8
-movq %r8, 208(%rsp)
-addq %rdi, %r8
-movq %r8, 216(%rsp)
-movq $0, %r11
-movq %r11, (%r8)
-movq $1, %r10
-addq %r10, %rax
+movq %rax, %rcx
+shlq $3, %rcx
+addq %r8, %rcx
+movq $0, (%rcx)
+addq $1, %rax
 jmp lrat_check_bytes.L10
 lrat_check_bytes.L9:
-movq 16(%rsp), %rax
-movq $16, %r10
-addq %r10, %rax
-movq 120(%rsp), %r8
-movq %r8, (%rax)
-movq 16(%rsp), %rax
-movq $24, %r10
-addq %r10, %rax
-movq %rcx, (%rax)
-movq 16(%rsp), %rax
-movq $32, %r10
-addq %r10, %rax
-movq %rsi, (%rax)
-movq 16(%rsp), %rax
-movq $40, %r10
-addq %r10, %rax
+lea 16(%rbx), %rax
 movq %rdx, (%rax)
-movq 16(%rsp), %rax
-movq $48, %r10
-addq %r10, %rax
+lea 24(%rbx), %rax
 movq %rdi, (%rax)
-movq 16(%rsp), %rax
-movq $56, %r10
-addq %r10, %rax
-movq 160(%rsp), %rcx
+lea 32(%rbx), %rax
+movq %rbp, (%rax)
+lea 40(%rbx), %rax
+movq 16(%rsp), %rcx
 movq %rcx, (%rax)
-movq 16(%rsp), %rax
-movq $64, %r10
-addq %r10, %rax
-movq 136(%rsp), %rcx
-movq %rcx, (%rax)
-movq 32(%rsp), %rdi
-movq 16(%rsp), %rsi
+lea 48(%rbx), %rax
+movq %r8, (%rax)
+lea 56(%rbx), %rax
+movq %r15, (%rax)
+lea 64(%rbx), %rax
+movq %r13, (%rax)
+movq %r14, %rdi
+movq %rbx, %rsi
 call lb_parse_dimacs_body
-movq $0, %r10
-cmpq %r10, %rax
-setne %r11b
-movzx %r11b, %eax
-testl %eax, %eax
+cmpq $0, %rax
 jne lrat_check_bytes.L12
 movq $0, %rax
-addq $232, %rsp
+movq 24(%rsp), %rbx
+movq 32(%rsp), %rbp
+movq 40(%rsp), %r12
+movq 48(%rsp), %r13
+movq 56(%rsp), %r14
+movq 64(%rsp), %r15
+addq $72, %rsp
 ret
 lrat_check_bytes.L12:
-movq 16(%rsp), %rax
-movq $72, %r10
-addq %r10, %rax
-movq (%rsp), %rcx
-movq %rcx, (%rax)
-movq 16(%rsp), %rdi
-movq 40(%rsp), %rsi
+lea 72(%rbx), %rax
+movq %r12, (%rax)
+movq %rbx, %rdi
+movq 8(%rsp), %rsi
 call lb_check_prf
-addq $232, %rsp
+movq 24(%rsp), %rbx
+movq 32(%rsp), %rbp
+movq 40(%rsp), %r12
+movq 48(%rsp), %r13
+movq 56(%rsp), %r14
+movq 64(%rsp), %r15
+addq $72, %rsp
 ret
 lrat_check_bytes.L5:
 movq $0, %rax
-addq $232, %rsp
+movq 24(%rsp), %rbx
+movq 32(%rsp), %rbp
+movq 40(%rsp), %r12
+movq 48(%rsp), %r13
+movq 56(%rsp), %r14
+movq 64(%rsp), %r15
+addq $72, %rsp
 ret
 lrat_check_bytes.L2:
 movq $0, %rax
-addq $232, %rsp
+movq 24(%rsp), %rbx
+movq 32(%rsp), %rbp
+movq 40(%rsp), %r12
+movq 48(%rsp), %r13
+movq 56(%rsp), %r14
+movq 64(%rsp), %r15
+addq $72, %rsp
 ret
 lrat_check_bytes.L0:
 movq $0, %rax
-addq $232, %rsp
+movq 24(%rsp), %rbx
+movq 32(%rsp), %rbp
+movq 40(%rsp), %r12
+movq 48(%rsp), %r13
+movq 56(%rsp), %r14
+movq 64(%rsp), %r15
+addq $72, %rsp
 ret")
 
 
@@ -2316,12 +1405,12 @@ def lratBytesCode : Program :=
   hdrCode ++ (bodyCode ++ (addLitsCode ++ (rupCheckCode ++ (checkPrfCode ++ (checkBytesCode ++ [])))))
 
 def lratBytesBounds : List (String × Nat) :=
-  [("lb_parse_dimacs_header", 136),
-   ("lb_parse_dimacs_body", 664),
-   ("lb_read_add_lits", 168),
-   ("lb_rup_check", 632),
-   ("lb_check_prf", 728),
-   ("lrat_check_bytes", 968)]
+  [("lb_parse_dimacs_header", 24),
+   ("lb_parse_dimacs_body", 72),
+   ("lb_read_add_lits", 56),
+   ("lb_rup_check", 88),
+   ("lb_check_prf", 184),
+   ("lrat_check_bytes", 264)]
 
 theorem lb_hdr_compile : compileFn Amd64.fastIsa lbHdrFn = .ok hdrCode := by kernel_rfl
 theorem lb_body_compile : compileFn Amd64.fastIsa lbBodyFn = .ok bodyCode := by kernel_rfl

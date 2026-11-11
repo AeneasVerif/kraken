@@ -57,8 +57,7 @@ public def main (args : List String) : IO UInt32 := do
       IO.eprintln s!"leanqbe: unknown program {name} (try --list)"
       return 2
     | some (_, us) =>
-      let res := if name == "lrat_bytes" then compile Amd64.fastIsa us else compile Amd64.isa us
-      match res with
+      match compile Amd64.fastIsa us with
       | .ok code =>
         IO.print (emitAsm us code)
         return 0

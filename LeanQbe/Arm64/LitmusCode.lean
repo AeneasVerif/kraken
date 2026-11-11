@@ -60,7 +60,8 @@ def ifelseCode : Program := parseAArch64("ifelse:
   sub sp, sp, #16
   str x30, [sp]
   cbnz w0, ifelse.L0
-  sub x0, x1, x0
+  sub x1, x1, x0
+  add x0, x1, #0
   ldr x30, [sp]
   add sp, sp, #16
   ret
@@ -86,7 +87,6 @@ def sumtoCode : Program := parseAArch64("sumto:
   sub sp, sp, #16
   str x30, [sp]
   ldr x1, =0
-  b sumto.L0
   sumto.L0:
   cbnz w0, sumto.L1
   add x0, x1, #0
@@ -95,8 +95,7 @@ def sumtoCode : Program := parseAArch64("sumto:
   ret
   sumto.L1:
   add x1, x1, x0
-  ldr x17, =1
-  sub x0, x0, x17
+  sub x0, x0, #1
   b sumto.L0")
 
 theorem sumto_compile : compileFn isa sumto = .ok sumtoCode := by kernel_rfl
@@ -122,9 +121,7 @@ def evenoddCode : Program := parseAArch64("evenodd:
   add sp, sp, #16
   ret
   evenodd.L2:
-  ldr x17, =1
-  sub x0, x0, x17
-  b evenodd.L0
+  sub x0, x0, #1
   evenodd.L0:
   cbnz w0, evenodd.L3
   ldr x0, =1
@@ -132,8 +129,7 @@ def evenoddCode : Program := parseAArch64("evenodd:
   add sp, sp, #16
   ret
   evenodd.L3:
-  ldr x17, =1
-  sub x0, x0, x17
+  sub x0, x0, #1
   b evenodd.L1")
 
 theorem evenodd_compile : compileFn isa evenodd = .ok evenoddCode := by kernel_rfl
@@ -151,29 +147,27 @@ theorem evenodd_fnspec [hh : Host] (k₀ : Nat) (hc : evenoddCode.IsInfixAt Host
 def nestedCode : Program := parseAArch64("nested:
   sub sp, sp, #16
   str x30, [sp]
-  ldr x3, =0
-  b nested.L0
+  add x4, x2, #0
+  add x3, x1, #0
+  ldr x1, =0
   nested.L0:
   cbnz w0, nested.L1
-  add x0, x3, #0
+  add x0, x1, #0
   ldr x30, [sp]
   add sp, sp, #16
   ret
   nested.L1:
-  add x4, x3, #0
-  add x3, x1, #0
-  b nested.L2
+  add x2, x1, #0
+  add x1, x3, #0
   nested.L2:
-  cbnz w3, nested.L3
-  ldr x17, =1
-  sub x0, x0, x17
-  add x3, x4, #0
+  cbnz w1, nested.L3
+  sub x0, x0, #1
+  add x1, x2, #0
   b nested.L0
   nested.L3:
-  add x4, x4, x2
-  add x4, x4, x0
-  ldr x17, =1
-  sub x3, x3, x17
+  add x2, x2, x4
+  add x2, x2, x0
+  sub x1, x1, #1
   b nested.L2")
 
 theorem nested_compile : compileFn isa nested = .ok nestedCode := by kernel_rfl
@@ -191,7 +185,6 @@ theorem nested_fnspec [hh : Host] (k₀ : Nat) (hc : nestedCode.IsInfixAt Host.p
 def swapCode : Program := parseAArch64("swap:
   sub sp, sp, #16
   str x30, [sp]
-  b swap.L0
   swap.L0:
   cbnz w0, swap.L1
   add x0, x1, #0
@@ -199,8 +192,7 @@ def swapCode : Program := parseAArch64("swap:
   add sp, sp, #16
   ret
   swap.L1:
-  ldr x17, =1
-  sub x0, x0, x17
+  sub x0, x0, #1
   add x16, x1, #0
   add x1, x2, #0
   add x2, x16, #0
@@ -221,8 +213,7 @@ theorem swap_fnspec [hh : Host] (k₀ : Nat) (hc : swapCode.IsInfixAt Host.prog 
 def incCode : Program := parseAArch64("inc:
   sub sp, sp, #16
   str x30, [sp]
-  ldr x17, =1
-  add x0, x0, x17
+  add x0, x0, #1
   ldr x30, [sp]
   add sp, sp, #16
   ret")
@@ -297,26 +288,16 @@ theorem twice_exits : twice.opt.ext.exits = [] := by kernel_rfl
 def spill10Code : Program := parseAArch64("spill10:
   sub sp, sp, #16
   str x30, [sp]
-  ldr x17, =1
-  add x2, x0, x17
-  ldr x17, =2
-  add x3, x0, x17
-  ldr x17, =3
-  add x4, x0, x17
-  ldr x17, =4
-  add x5, x0, x17
-  ldr x17, =5
-  add x6, x0, x17
-  ldr x17, =6
-  add x7, x0, x17
-  ldr x17, =7
-  add x8, x0, x17
-  ldr x17, =8
-  add x9, x0, x17
-  ldr x17, =9
-  add x10, x0, x17
-  ldr x17, =10
-  add x0, x0, x17
+  add x2, x0, #1
+  add x3, x0, #2
+  add x4, x0, #3
+  add x5, x0, #4
+  add x6, x0, #5
+  add x7, x0, #6
+  add x8, x0, #7
+  add x9, x0, #8
+  add x10, x0, #9
+  add x0, x0, #10
   eor x2, x2, x3
   eor x2, x2, x4
   eor x2, x2, x5
@@ -325,8 +306,9 @@ def spill10Code : Program := parseAArch64("spill10:
   eor x2, x2, x8
   eor x2, x2, x9
   eor x2, x2, x10
-  eor x0, x2, x0
-  eor x0, x0, x1
+  eor x2, x2, x0
+  eor x2, x2, x1
+  add x0, x2, #0
   ldr x30, [sp]
   add sp, sp, #16
   ret")
@@ -346,29 +328,27 @@ theorem spill10_fnspec [hh : Host] (k₀ : Nat) (hc : spill10Code.IsInfixAt Host
 def sumcallCode : Program := parseAArch64("sumcall:
   sub sp, sp, #32
   str x30, [sp, #24]
-  str x1, [sp]
-  ldr x1, =0
-  b sumcall.L0
+  str x19, [sp]
+  str x20, [sp, #8]
+  str x21, [sp, #16]
+  add x21, x1, #0
+  add x19, x0, #0
+  ldr x20, =0
   sumcall.L0:
-  str x0, [sp, #8]
-  str x1, [sp, #16]
-  cbnz w0, sumcall.L1
-  ldr x0, [sp, #16]
-  ldr x1, [sp]
-  add x0, x0, x1
+  cbnz w19, sumcall.L1
+  add x20, x20, x21
+  add x0, x20, #0
+  ldr x19, [sp]
+  ldr x20, [sp, #8]
+  ldr x21, [sp, #16]
   ldr x30, [sp, #24]
   add sp, sp, #32
   ret
   sumcall.L1:
+  add x0, x19, #0
   bl inc
-  ldr x1, [sp, #16]
-  add x0, x1, x0
-  ldr x1, [sp, #8]
-  ldr x17, =1
-  sub x1, x1, x17
-  add x16, x0, #0
-  add x0, x1, #0
-  add x1, x16, #0
+  add x20, x20, x0
+  sub x19, x19, #1
   b sumcall.L0")
 
 theorem sumcall_compile : compileFn isa sumcall = .ok sumcallCode := by kernel_rfl

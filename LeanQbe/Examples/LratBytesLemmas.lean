@@ -103,16 +103,38 @@ theorem lratCheckBytes_correct (Γ : Env)
     lratCheckBytes_exact Γ hParseHeader hParseBody hCheckPrf args m Q X
       (lratCheckBytesExactSpec_of_spec hspec)
 
-/-- Function-specification environment giving `lrat_check_bytes` its exact decision contract
-`lratCheckBytesExactSpec` (`r = if runLratCheckBytes cnfBytes prfBytes work_len then 1 else 0`). -/
-def lratBytesExactEnv : Env
+/-- Parameterized specification environment for `lratBytesFns` with configurable `"lrat_check_bytes"`
+contract `mainSpec`. -/
+abbrev mkLratBytesEnv (mainSpec : Spec) : Env
   | "lb_parse_dimacs_header" => lbParseDimacsHeaderSpec
   | "lb_parse_dimacs_body"   => lbParseDimacsBodySpec
   | "lb_read_add_lits"       => lbReadAddLitsSpec
   | "lb_rup_check"           => lbRupCheckSpec
   | "lb_check_prf"           => lbCheckPrfSpec
-  | "lrat_check_bytes"       => lratCheckBytesExactSpec
+  | "lrat_check_bytes"       => mainSpec
   | _                        => fun _ _ _ _ => False
+
+private theorem mkLratBytesEnv_sound (mainSpec : Spec)
+    (hweaken : ∀ args m Q X, mainSpec args m Q X → lratCheckBytesExactSpec args m Q X) :
+    ∀ f ∈ lratBytesFns, ∀ args m Q X,
+      mkLratBytesEnv mainSpec f.name args m Q X →
+      Func.spec (mkLratBytesEnv mainSpec) f.body args m Q X := by
+  intro f hf args m Q X hspec
+  simp only [lratBytesFns, List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact lbParseDimacsHeader_correct (mkLratBytesEnv mainSpec) args m Q X hspec
+  · exact lbParseDimacsBody_correct (mkLratBytesEnv mainSpec) args m Q X hspec
+  · exact lbReadAddLits_correct (mkLratBytesEnv mainSpec) args m Q X hspec
+  · exact lbRupCheck_correct (mkLratBytesEnv mainSpec) args m Q X hspec
+  · exact lbCheckPrf_correct (mkLratBytesEnv mainSpec)
+      (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) args m Q X hspec
+  · exact lratCheckBytes_exact (mkLratBytesEnv mainSpec)
+      (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) args m Q X
+      (hweaken args m Q X hspec)
+
+/-- Function-specification environment giving `lrat_check_bytes` its exact decision contract
+`lratCheckBytesExactSpec` (`r = if runLratCheckBytes cnfBytes prfBytes work_len then 1 else 0`). -/
+def lratBytesExactEnv : Env := mkLratBytesEnv lratCheckBytesExactSpec
 
 @[simp] theorem lratBytesExactEnv_entry :
     lratBytesExactEnv "lrat_check_bytes" = lratCheckBytesExactSpec := rfl
@@ -120,31 +142,14 @@ def lratBytesExactEnv : Env
 /-- All 6 functions in `lratBytesFns` satisfy their contracts in `lratBytesExactEnv`. -/
 theorem lratBytesExactEnv_sound :
     ∀ f ∈ lratBytesFns, ∀ args m Q X,
-      lratBytesExactEnv f.name args m Q X → Func.spec lratBytesExactEnv f.body args m Q X := by
-  intro f hf args m Q X hspec
-  simp only [lratBytesFns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl
-  · exact lbParseDimacsHeader_correct lratBytesExactEnv args m Q X hspec
-  · exact lbParseDimacsBody_correct lratBytesExactEnv args m Q X hspec
-  · exact lbReadAddLits_correct lratBytesExactEnv args m Q X hspec
-  · exact lbRupCheck_correct lratBytesExactEnv args m Q X hspec
-  · exact lbCheckPrf_correct lratBytesExactEnv
-      (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) args m Q X hspec
-  · exact lratCheckBytes_exact lratBytesExactEnv
-      (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) args m Q X hspec
+      lratBytesExactEnv f.name args m Q X → Func.spec lratBytesExactEnv f.body args m Q X :=
+  mkLratBytesEnv_sound lratCheckBytesExactSpec (fun _ _ _ _ h => h)
 
 /-! ## 3. Top-level soundness environment (`lratBytesEnv`, `lratBytesEnv_sound`) -/
 
 /-- Function-specification environment for `compileModule` / `compile_sound` exposing
 `lratCheckBytesSpec` at `"lrat_check_bytes"`. -/
-def lratBytesEnv : Env
-  | "lb_parse_dimacs_header" => lbParseDimacsHeaderSpec
-  | "lb_parse_dimacs_body"   => lbParseDimacsBodySpec
-  | "lb_read_add_lits"       => lbReadAddLitsSpec
-  | "lb_rup_check"           => lbRupCheckSpec
-  | "lb_check_prf"           => lbCheckPrfSpec
-  | "lrat_check_bytes"       => lratCheckBytesSpec
-  | _                        => fun _ _ _ _ => False
+def lratBytesEnv : Env := mkLratBytesEnv lratCheckBytesSpec
 
 @[simp] theorem lratBytesEnv_entry :
     lratBytesEnv "lrat_check_bytes" = lratCheckBytesSpec := rfl
@@ -152,18 +157,8 @@ def lratBytesEnv : Env
 /-- All 6 functions in `lratBytesFns` satisfy their contracts in `lratBytesEnv`. -/
 theorem lratBytesEnv_sound :
     ∀ f ∈ lratBytesFns, ∀ args m Q X,
-      lratBytesEnv f.name args m Q X → Func.spec lratBytesEnv f.body args m Q X := by
-  intro f hf args m Q X hspec
-  simp only [lratBytesFns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl
-  · exact lbParseDimacsHeader_correct lratBytesEnv args m Q X hspec
-  · exact lbParseDimacsBody_correct lratBytesEnv args m Q X hspec
-  · exact lbReadAddLits_correct lratBytesEnv args m Q X hspec
-  · exact lbRupCheck_correct lratBytesEnv args m Q X hspec
-  · exact lbCheckPrf_correct lratBytesEnv
-      (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) args m Q X hspec
-  · exact lratCheckBytes_correct lratBytesEnv
-      (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) args m Q X hspec
+      lratBytesEnv f.name args m Q X → Func.spec lratBytesEnv f.body args m Q X :=
+  mkLratBytesEnv_sound lratCheckBytesSpec (fun _ _ _ _ => lratCheckBytesExactSpec_of_spec)
 
 /-! ## 4. Trivial-postcondition corollary for encoded `CNF Nat` formulas -/
 
@@ -285,33 +280,15 @@ theorem lratCheckBytesExactSpec_of_accept {args : List Val} {m : Mem 64} {Q : Po
   exact hQ m' nvBytesCnf_unsat hm'
 
 /-- Function environment exposing `lratCheckBytesAcceptSpec` at `"lrat_check_bytes"`. -/
-def lratBytesAcceptEnv : Env
-  | "lb_parse_dimacs_header" => lbParseDimacsHeaderSpec
-  | "lb_parse_dimacs_body"   => lbParseDimacsBodySpec
-  | "lb_read_add_lits"       => lbReadAddLitsSpec
-  | "lb_rup_check"           => lbRupCheckSpec
-  | "lb_check_prf"           => lbCheckPrfSpec
-  | "lrat_check_bytes"       => lratCheckBytesAcceptSpec
-  | _                        => fun _ _ _ _ => False
+def lratBytesAcceptEnv : Env := mkLratBytesEnv lratCheckBytesAcceptSpec
 
 @[simp] theorem lratBytesAcceptEnv_entry :
     lratBytesAcceptEnv "lrat_check_bytes" = lratCheckBytesAcceptSpec := rfl
 
 theorem lratBytesAcceptEnv_sound :
     ∀ f ∈ lratBytesFns, ∀ args m Q X,
-      lratBytesAcceptEnv f.name args m Q X → Func.spec lratBytesAcceptEnv f.body args m Q X := by
-  intro f hf args m Q X hspec
-  simp only [lratBytesFns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl
-  · exact lbParseDimacsHeader_correct lratBytesAcceptEnv args m Q X hspec
-  · exact lbParseDimacsBody_correct lratBytesAcceptEnv args m Q X hspec
-  · exact lbReadAddLits_correct lratBytesAcceptEnv args m Q X hspec
-  · exact lbRupCheck_correct lratBytesAcceptEnv args m Q X hspec
-  · exact lbCheckPrf_correct lratBytesAcceptEnv
-      (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) args m Q X hspec
-  · exact lratCheckBytes_exact lratBytesAcceptEnv
-      (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) args m Q X
-      (lratCheckBytesExactSpec_of_accept hspec)
+      lratBytesAcceptEnv f.name args m Q X → Func.spec lratBytesAcceptEnv f.body args m Q X :=
+  mkLratBytesEnv_sound lratCheckBytesAcceptSpec (fun _ _ _ _ => lratCheckBytesExactSpec_of_accept)
 
 /-- Specialized rejecting contract for `(nvDimacsBytes, nvLratRejectBytes, 512)`:
 returns `r = 0` with `X` unconstrained (`exits = []`). -/
@@ -342,33 +319,15 @@ theorem lratCheckBytesExactSpec_of_reject {args : List Val} {m : Mem 64} {Q : Po
   exact hQ m' hm'
 
 /-- Function environment exposing `lratCheckBytesRejectSpec` at `"lrat_check_bytes"`. -/
-def lratBytesRejectEnv : Env
-  | "lb_parse_dimacs_header" => lbParseDimacsHeaderSpec
-  | "lb_parse_dimacs_body"   => lbParseDimacsBodySpec
-  | "lb_read_add_lits"       => lbReadAddLitsSpec
-  | "lb_rup_check"           => lbRupCheckSpec
-  | "lb_check_prf"           => lbCheckPrfSpec
-  | "lrat_check_bytes"       => lratCheckBytesRejectSpec
-  | _                        => fun _ _ _ _ => False
+def lratBytesRejectEnv : Env := mkLratBytesEnv lratCheckBytesRejectSpec
 
 @[simp] theorem lratBytesRejectEnv_entry :
     lratBytesRejectEnv "lrat_check_bytes" = lratCheckBytesRejectSpec := rfl
 
 theorem lratBytesRejectEnv_sound :
     ∀ f ∈ lratBytesFns, ∀ args m Q X,
-      lratBytesRejectEnv f.name args m Q X → Func.spec lratBytesRejectEnv f.body args m Q X := by
-  intro f hf args m Q X hspec
-  simp only [lratBytesFns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl
-  · exact lbParseDimacsHeader_correct lratBytesRejectEnv args m Q X hspec
-  · exact lbParseDimacsBody_correct lratBytesRejectEnv args m Q X hspec
-  · exact lbReadAddLits_correct lratBytesRejectEnv args m Q X hspec
-  · exact lbRupCheck_correct lratBytesRejectEnv args m Q X hspec
-  · exact lbCheckPrf_correct lratBytesRejectEnv
-      (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) args m Q X hspec
-  · exact lratCheckBytes_exact lratBytesRejectEnv
-      (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) args m Q X
-      (lratCheckBytesExactSpec_of_reject hspec)
+      lratBytesRejectEnv f.name args m Q X → Func.spec lratBytesRejectEnv f.body args m Q X :=
+  mkLratBytesEnv_sound lratCheckBytesRejectSpec (fun _ _ _ _ => lratCheckBytesExactSpec_of_reject)
 
 /-! ## 6. Concrete-memory source-level non-vacuity (`accepts` and `rejects`) -/
 

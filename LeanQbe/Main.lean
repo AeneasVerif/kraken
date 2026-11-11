@@ -47,8 +47,8 @@ def Fn.ext (f : Fn) : Rega.Ext :=
 /-- Hints used by `compileFn`. -/
 def Fn.hints (I : Isa) (f : Fn) : Rega.Hints I := Spill.hints I f.opt
 
-/-- Spill-slot count of the compiled function. -/
-def Fn.nslots (I : Isa) (f : Fn) : Nat := (f.hints I).nslots
+/-- Total 8-byte frame slots of the compiled function (spill slots + saved callee-saved regs). -/
+def Fn.nslots (I : Isa) (f : Fn) : Nat := (f.hints I).totalSlots
 
 /-- Compile one function. -/
 def compileFn (I : Isa) (f : Fn) : Except String (List I.Directive) :=

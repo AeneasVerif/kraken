@@ -38,23 +38,22 @@ def unionInlineFn : Fn := ⟨"unionInline", unionInline⟩
 def findCode : Program := parseAArch64("find:
   sub sp, sp, #16
   str x30, [sp]
-  b find.L0
+  add x3, x0, #0
+  add x0, x1, #0
   find.L0:
   ldr x17, =3
-  lslv x2, x1, x17
-  add x2, x0, x2
-  ldr x3, [x2]
-  subs xzr, x3, x1
-  csinc w4, wzr, wzr, ne
-  cbnz w4, find.L1
+  lslv x1, x0, x17
+  add x1, x3, x1
+  ldr x2, [x1]
+  subs xzr, x2, x0
+  b.eq find.L1
   ldr x17, =3
-  lslv x1, x3, x17
-  add x1, x0, x1
-  ldr x1, [x1]
-  str x1, [x2]
+  lslv x2, x2, x17
+  add x0, x3, x2
+  ldr x0, [x0]
+  str x0, [x1]
   b find.L0
   find.L1:
-  add x0, x1, #0
   ldr x30, [sp]
   add sp, sp, #16
   ret")
@@ -63,27 +62,29 @@ def findCode : Program := parseAArch64("find:
 def unionCode : Program := parseAArch64("union:
   sub sp, sp, #32
   str x30, [sp, #24]
-  str x0, [sp]
-  str x2, [sp, #8]
+  str x19, [sp, #8]
+  str x20, [sp, #16]
+  str x2, [sp]
+  add x19, x0, #0
   bl find
-  str x0, [sp, #16]
-  ldr x0, [sp]
-  ldr x1, [sp, #8]
+  add x20, x0, #0
+  add x0, x19, #0
+  ldr x1, [sp]
   bl find
-  ldr x1, [sp, #16]
-  subs xzr, x1, x0
-  csinc w1, wzr, wzr, ne
-  cbnz w1, union.L0
-  ldr x1, [sp, #16]
+  subs xzr, x20, x0
+  b.eq union.L0
   ldr x17, =3
-  lslv x1, x1, x17
-  ldr x2, [sp]
-  add x1, x2, x1
-  str x0, [x1]
+  lslv x20, x20, x17
+  add x19, x19, x20
+  str x0, [x19]
+  ldr x19, [sp, #8]
+  ldr x20, [sp, #16]
   ldr x30, [sp, #24]
   add sp, sp, #32
   ret
   union.L0:
+  ldr x19, [sp, #8]
+  ldr x20, [sp, #16]
   ldr x30, [sp, #24]
   add sp, sp, #32
   ret")
@@ -92,42 +93,41 @@ def unionCode : Program := parseAArch64("union:
 def unionInlineCode : Program := parseAArch64("unionInline:
   sub sp, sp, #16
   str x30, [sp]
-  b unionInline.L0
+  add x5, x2, #0
+  add x2, x1, #0
+  add x1, x0, #0
   unionInline.L0:
   ldr x17, =3
-  lslv x3, x1, x17
-  add x3, x0, x3
-  ldr x4, [x3]
-  subs xzr, x4, x1
-  csinc w5, wzr, wzr, ne
-  cbnz w5, unionInline.L1
+  lslv x0, x2, x17
+  add x3, x1, x0
+  ldr x0, [x3]
+  subs xzr, x0, x2
+  b.eq unionInline.L1
   ldr x17, =3
-  lslv x1, x4, x17
-  add x1, x0, x1
-  ldr x1, [x1]
-  str x1, [x3]
+  lslv x0, x0, x17
+  add x0, x1, x0
+  ldr x2, [x0]
+  str x2, [x3]
   b unionInline.L0
   unionInline.L1:
-  b unionInline.L2
+  add x0, x5, #0
   unionInline.L2:
   ldr x17, =3
-  lslv x4, x2, x17
-  add x4, x0, x4
+  lslv x4, x0, x17
+  add x4, x1, x4
   ldr x5, [x4]
-  subs xzr, x5, x2
-  csinc w6, wzr, wzr, ne
-  cbnz w6, unionInline.L3
+  subs xzr, x5, x0
+  b.eq unionInline.L3
   ldr x17, =3
-  lslv x2, x5, x17
-  add x2, x0, x2
-  ldr x2, [x2]
-  str x2, [x4]
+  lslv x5, x5, x17
+  add x0, x1, x5
+  ldr x0, [x0]
+  str x0, [x4]
   b unionInline.L2
   unionInline.L3:
-  subs xzr, x1, x2
-  csinc w0, wzr, wzr, ne
-  cbnz w0, unionInline.L4
-  str x2, [x3]
+  subs xzr, x2, x0
+  b.eq unionInline.L4
+  str x0, [x3]
   ldr x30, [sp]
   add sp, sp, #16
   ret

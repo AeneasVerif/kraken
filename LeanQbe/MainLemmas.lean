@@ -201,9 +201,11 @@ theorem compile_sound {T : Target} (h : T.Host) (Γ : Env)
         have hf_def : T.Defined h f.name := by
           unfold compileFn Rega.lowerFn at hc
           split at hc
-          · simp only [Except.ok.injEq] at hc
-            subst hc
-            exact ⟨k₀, hcode.append.1.cons.1⟩
+          · split at hc
+            · simp only [Except.ok.injEq] at hc
+              subst hc
+              exact ⟨k₀, hcode.append.1.cons.1⟩
+            · simp at hc
           · simp at hc
         have hf_spec : T.FnSpec h f.name (Γ f.name) b nX := by
           refine Target.FnSpec.of_spec T

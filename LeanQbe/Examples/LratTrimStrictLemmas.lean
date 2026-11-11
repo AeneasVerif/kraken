@@ -45,11 +45,36 @@ theorem exists_pol_of_ne_zero {marks : List Val} (hwf : MarksWF marks)
   · exact absurd (Option.some.inj h0) hne
   · exact ⟨pol, by rw [List.getElem?_eq_getElem hlt, hpol], Option.some.inj hpol⟩
 
+theorem store_stat_resolved {st v : Val} {k : KernelFields} {P R : Mem 64 → Prop} {m : Mem 64}
+    (h : (P ⋆ (kernelState st k ⋆ R)) m) :
+    storeOk m .l (st + 144) ∧
+      (P ⋆ (kernelState st { k with stat_resolved := v } ⋆ R)) (storeMem m .l (st + 144) v) := by
+  unfold kernelState at h ⊢
+  have hm0 : (word8Array st k.toList ⋆ (P ⋆ R)) m := sep_cast h (by ac_rfl)
+  have ⟨ok, hm⟩ := storel_word8Array (i := 18) v (by simp [KernelFields.toList]) hm0
+  have hset : k.toList.set 18 v = { k with stat_resolved := v }.toList := rfl
+  rw [hset] at hm
+  exact ⟨ok, sep_cast hm (by ac_rfl)⟩
+
 theorem storeOk_stat_resolved {st : Val} {k : KernelFields} {P R : Mem 64 → Prop} {m : Mem 64}
-    (h : (P ⋆ (kernelState st k ⋆ R)) m) : storeOk m .l (st + 144) := by
-  unfold kernelState at h
-  have h' : (word8Array st k.toList ⋆ (P ⋆ R)) m := sep_cast h (by ac_rfl)
-  exact (storel_word8Array (i := 18) 0 (by simp [KernelFields.toList]) h').1
+    (h : (P ⋆ (kernelState st k ⋆ R)) m) : storeOk m .l (st + 144) :=
+  (store_stat_resolved (v := 0) h).1
+
+theorem mpol_eq_of_zero_slt {b mpol : Bool} {lit : Val}
+    (h : (0 : Val).slt (evalAssignedLit (encodePol mpol) lit) = b) :
+    mpol = if b then (toLiteral lit).2 else !(toLiteral lit).2 := by
+  rw [evalAssignedLit_encodePol_eq] at h; generalize (toLiteral lit).2 = p at h ⊢
+  cases b <;> cases mpol <;> cases p <;> revert h <;> decide
+
+theorem mpol_eq_of_eval_slt_false {mpol : Bool} {lit : Val}
+    (h : (evalAssignedLit (encodePol mpol) lit).slt 0 = false) :
+    mpol = (toLiteral lit).2 := by
+  rw [evalAssignedLit_encodePol_eq] at h; generalize (toLiteral lit).2 = p at h ⊢
+  cases mpol <;> cases p <;> revert h <;> decide
+
+private theorem first_eq_zero {first : Val} (h : first = 0 ∨ first = 1) (hf : ¬ Truthy first) :
+    first = 0 :=
+  h.elim id fun h1 => absurd (by subst h1; decide : Truthy first) hf
 
 theorem ptr4_sub (p : Val) (i : Nat) :
     p + BitVec.ofNat 64 (4 * (i + 1)) - 4 = p + BitVec.ofNat 64 (4 * i) := by grind
@@ -72,20 +97,15 @@ theorem strictScan_spec {Γ : Env} {Q : Post} {X : XPost} {scanned : Cont}
     ∀ x ∈ aids.take i, x.slt 0 = false)
   · rintro J r as m' ⟨i, hi, rfl, rfl, rfl, hinv⟩ ih
     wp_unfold
-    refine ⟨_, loadsw_zeroTerm hi h32 hm, fun hnz => ?_, fun hz => ?_⟩
-    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i)] at hnz
-      have hlt := (zeroTermGet_ne_zero_iff hi hne0).1 hnz
-      simp only [zeroTermGet, hlt, ↓reduceDIte]
-      refine ⟨fun _ => hX _ _, fun hneg => ih _ _ _ (by omega)
+    refine zeroTerm_jnz_step hi h32 hne0 hm (fun hlt => ?_) (fun hlen => ?_)
+    · refine ⟨fun _ => hX _ _, fun hneg => ih _ _ _ (by omega)
         ⟨i + 1, hlt, rfl, by rw [ptr4], rfl, ?_⟩⟩
       intro x hx
       rw [List.take_add_one, List.getElem?_eq_getElem hlt] at hx
       rcases List.mem_append.1 hx with h | h
       · exact hinv x h
       · rw [List.mem_singleton.1 h]; exact hneg
-    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i), Classical.not_not] at hz
-      obtain rfl := (zeroTermGet_eq_zero_iff hi hne0).1 hz
-      rw [List.take_length] at hinv
+    · subst hlen; rw [List.take_length] at hinv
       exact hscan hinv
   · intro J hJ
     wp_unfold
@@ -115,18 +135,12 @@ theorem strictInner_spec {Γ : Env} {Q : Post} {X : XPost} {done : Cont}
     (byte1Array mb marks ⋆ (ZeroTermInts als clits ⋆ (kernelState st k ⋆ R))) m')
   · rintro J r as m' ⟨i, marks, unit, rfl, hi, rfl, hinv, hm⟩ ih
     wp_unfold
-    have hld := loadsw_zeroTerm (p := als) (R := byte1Array mb marks ⋆ (kernelState st k ⋆ R))
-      hi h32 (sep_cast hm (by ac_rfl))
-    refine ⟨_, hld, fun hnz => ?_, fun hz => ?_⟩
-    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i)] at hnz
-      have hlt := (zeroTermGet_ne_zero_iff hi hne0).1 hnz
-      simp only [zeroTermGet, hlt, ↓reduceDIte]
-      have hlit := hvalid clits[i] (List.getElem_mem hlt)
+    refine zeroTerm_jnz_step hi h32 hne0 (by ecancel) (fun hlt => ?_) (fun hlen => ?_)
+    · have hlit := hvalid clits[i] (List.getElem_mem hlt)
       have hatom_lt : (toLiteral clits[i]).1 < marks.length := by
         rw [hinv.len_eq]; exact Nat.lt_of_le_of_lt hlit.2.2.1 hlen0
       rw [abs_eq, bvAbs_eq_ofNat_toLiteral_fst]
-      have hld_m := loadsb_byte1Array hatom_lt (hinv.wf.isInt8 hatom_lt) hm
-      refine ⟨_, hld_m, fun hmz => ?_, fun hmz => ?_⟩
+      refine ⟨_, loadsb_byte1Array hatom_lt (hinv.wf.isInt8 hatom_lt) hm, fun hmz => ?_, fun hmz => ?_⟩
       · have hm0 : marks[(toLiteral clits[i]).1]? = some 0 := by
           rw [List.getElem?_eq_getElem hatom_lt, hmz]
         rw [show (clits[i].sshiftRight 63 ||| 1) = encodePol (toLiteral clits[i]).2 by
@@ -138,30 +152,18 @@ theorem strictInner_spec {Γ : Env} {Q : Post} {X : XPost} {done : Cont}
       · obtain ⟨mpol, hmpol, hmark_eq⟩ := exists_pol_of_ne_zero hinv.wf hatom_lt hmz
         rw [negif_eq, hmark_eq]
         refine ⟨fun hpos => ?_, fun hpos => ?_⟩
-        · have hpol_same : mpol = (toLiteral clits[i]).2 := by
-            rw [evalAssignedLit_encodePol_eq] at hpos
-            revert hpos; cases mpol <;> cases (toLiteral clits[i]).2 <;> decide
-          subst hpol_same
+        · obtain rfl := mpol_eq_of_zero_slt hpos
           refine ih _ _ _ (by omega) ⟨i + 1, marks, unit, by rw [ptr4], hlt, rfl, ?_, hm⟩
           rw [map_take_succ _ _ hlt]; exact hinv.step_mark_same hlit hatom_lt hmpol
-        · have hpol_opp : mpol = !(toLiteral clits[i]).2 := by
-            rw [evalAssignedLit_encodePol_eq] at hpos
-            revert hpos; cases mpol <;> cases (toLiteral clits[i]).2 <;> decide
-          subst hpol_opp
-          have hu32 : IsInt32 unit := by
-            rcases hinv.unit_spec with rfl | ⟨hu, _⟩
-            · exact isInt32_zero
-            · exact hu.1
+        · obtain rfl := mpol_eq_of_zero_slt hpos
+          have hu32 : IsInt32 unit := hinv.unit_spec.elim (· ▸ isInt32_zero) (·.1.1)
           rw [truthy_iff _ hu32]
-          refine ⟨fun _ => ⟨storeOk_stat_resolved (k := k) (R := R)
-            (P := byte1Array mb marks ⋆ ZeroTermInts als clits) (sep_cast hm (by ac_rfl)), hX _ _⟩,
-            fun hu0 => ?_⟩
+          refine ⟨fun _ => ⟨storeOk_stat_resolved (P := byte1Array mb marks ⋆ ZeroTermInts als clits) (k := k) (R := R)
+            (sep_cast hm (by ac_rfl)), hX _ _⟩, fun hu0 => ?_⟩
           rw [Classical.not_not] at hu0; subst hu0
           refine ih _ _ _ (by omega) ⟨i + 1, marks, clits[i], by rw [ptr4], hlt, rfl, ?_, hm⟩
           rw [map_take_succ _ _ hlt]; exact hinv.step_mark_opp hlit hatom_lt hmpol
-    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i), Classical.not_not] at hz
-      obtain rfl := (zeroTermGet_eq_zero_iff hi hne0).1 hz
-      rw [List.take_length, ← literals_toClause] at hinv
+    · rw [hlen, List.take_length, ← literals_toClause] at hinv
       exact hdone m' marks unit hinv hm
   · intro J hJ
     wp_unfold
@@ -209,16 +211,16 @@ theorem strictOuter_spec {Γ : Env} {Q : Post} {X : XPost} {resolved : Cont}
         Nat.exists_eq_succ_of_ne_zero fun h0 => hne (by subst h0; simp)
       have hj' : j' < aids.length := hj
       rw [ptr4_sub]
-      have hld_aid := loadsw_zeroTerm (p := ants) (xs := aids) (i := j')
-        (R := byte1Array mb marks ⋆ (kernelState st k ⋆ R_ants))
-        (Nat.le_of_lt hj') h32 (by rw [hR_ants] at hm; exact sep_cast hm (by ac_rfl))
+      have hm_ants : (ZeroTermInts ants aids ⋆ (byte1Array mb marks ⋆ (kernelState st k ⋆ R_ants))) m' := by
+        rw [hR_ants] at hm; ecancel
+      have hld_aid := loadsw_zeroTerm (Nat.le_of_lt hj') h32 hm_ants
       simp only [zeroTermGet, hj', ↓reduceDIte] at hld_aid
       have haid_mem := List.getElem_mem hj'
       obtain ⟨als, clits, ⟨R_als, hR_als⟩, ⟨R_clits, hR_clits⟩, hclits_valid, hclits_nontaut, hclits_ent⟩ :=
         hants_valid aids[j'] haid_mem (hants_pos aids[j'] haid_mem)
       have hld_als := loadl_word8 (a := lb + BitVec.ofNat 64 (8 * aids[j'].toNat)) (v := als) (sg := true)
         (R := byte1Array mb marks ⋆ (kernelState st k ⋆ R_als))
-        (by rw [bitVec_ofNat_eight_mul_toNat]; rw [hR_als] at hm; exact sep_cast hm (by ac_rfl))
+        (by rw [bitVec_ofNat_eight_mul_toNat]; rw [hR_als] at hm; ecancel)
       refine ⟨_, hld_aid, _, hld_als, ?_⟩
       have hsr_step : sr0 + BitVec.ofNat 64 (aids.length - (j' + 1)) + 1 =
           sr0 + BitVec.ofNat 64 (aids.length - j') := by
@@ -230,10 +232,7 @@ theorem strictOuter_spec {Γ : Env} {Q : Post} {X : XPost} {resolved : Cont}
         (byte1Array mb marks1 ⋆ (kernelState st k ⋆ R_ro)) m1)
       · rintro _ m1 ⟨marks1, unit, rfl, hinv1, hm1⟩
         wp_unfold
-        have hu32 : IsInt32 unit := by
-          rcases hinv1.unit_spec with rfl | ⟨hu, _⟩
-          · exact isInt32_zero
-          · exact hu.1
+        have hu32 : IsInt32 unit := hinv1.unit_spec.elim (· ▸ isInt32_zero) (·.1.1)
         rw [truthy_iff _ hu32]
         refine ⟨fun _ => ?_, fun hfirst0 => ?_⟩
         · refine ⟨fun _ => ⟨storeOk_stat_resolved hm1, hX _ _⟩, fun hu0 => ?_⟩
@@ -241,11 +240,7 @@ theorem strictOuter_spec {Γ : Env} {Q : Post} {X : XPost} {resolved : Cont}
           exact ih j' _ _ (Nat.lt_succ_self j') ⟨marks1, 0, Nat.le_of_lt hj', rfl,
             hinv1.len_eq.trans hmlen, hinv1.wf, Or.inl rfl,
             fun _ a hfa => hinv1.finish_first (hclits_ent a hfa), hm1⟩
-        · have hf0 : first = 0 := by
-            rcases hfirst_or with rfl | rfl
-            · rfl
-            · exact absurd (by decide : Truthy 1) hfirst0
-          subst hf0
+        · obtain rfl := first_eq_zero hfirst_or hfirst0
           refine ⟨fun hu_ne => ?_,
             fun _ => ⟨storeOk_stat_resolved hm1, hX _ _⟩⟩
           rcases hinv1.unit_spec with rfl | ⟨hu_valid, _, hu_mark⟩
@@ -261,10 +256,8 @@ theorem strictOuter_spec {Γ : Env} {Q : Post} {X : XPost} {resolved : Cont}
                 (hclits_ent a hfa), hm2⟩⟩
             rw [ofNat_sub_one_of_succ (marksCount_set_zero_of_ne_zero hu_mark (encodePol_ne_zero _))]
       · intro K hK
-        have hm_in : (byte1Array mb marks ⋆ (ZeroTermInts als clits ⋆ (kernelState st k ⋆ R_clits))) m' := by
-          rw [hR_clits] at hm; exact sep_cast hm (by ac_rfl)
-        exact strictInner_spec hwf (by omega) hclits_valid hm_in hX fun m1 marks1 unit hinv1 hm1 =>
-          hK _ _ ⟨marks1, unit, rfl, hinv1, by rw [hR_clits]; exact sep_cast hm1 (by ac_rfl)⟩
+        exact strictInner_spec hwf (by omega) hclits_valid (by rw [hR_clits] at hm; ecancel) hX
+          fun m1 marks1 unit hinv1 hm1 => hK _ _ ⟨marks1, unit, rfl, hinv1, by rw [hR_clits]; ecancel⟩
   · intro J hJ
     wp_unfold
     refine hJ aids.length _ _ ⟨List.replicate n 0, 1, Nat.le_refl _, ?_,
@@ -296,25 +289,16 @@ theorem strictFinal_spec {Γ : Env} {Q : Post} {X : XPost} {checked : Cont}
     (byte1Array mb marks ⋆ (ZeroTermInts lits ls ⋆ R)) m')
   · rintro J r as m' ⟨i, marks, rfl, hi, rfl, hmlen, hwf, hsat, hm⟩ ih
     wp_unfold
-    have hld := loadsw_zeroTerm (p := lits) (R := byte1Array mb marks ⋆ R)
-      hi h32 (sep_cast hm (by ac_rfl))
-    refine ⟨_, hld, fun hnz => ?_, fun hz => ?_⟩
-    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i)] at hnz
-      have hlt := (zeroTermGet_ne_zero_iff hi hne0).1 hnz
-      simp only [zeroTermGet, hlt, ↓reduceDIte]
-      have hlit := hvalid ls[i] (List.getElem_mem hlt)
+    refine zeroTerm_jnz_step hi h32 hne0 (by ecancel) (fun hlt => ?_) (fun hlen => ?_)
+    · have hlit := hvalid ls[i] (List.getElem_mem hlt)
       have hatom_lt : (toLiteral ls[i]).1 < marks.length := by
         rw [hmlen]; exact Nat.lt_of_le_of_lt hlit.2.2.1 hlen0
       rw [abs_eq, bvAbs_eq_ofNat_toLiteral_fst]
-      have hld_m := loadsb_byte1Array hatom_lt (hwf.isInt8 hatom_lt) hm
-      refine ⟨_, hld_m, fun _ => hX _ _, fun hmz => ?_⟩
+      refine ⟨_, loadsb_byte1Array hatom_lt (hwf.isInt8 hatom_lt) hm, fun _ => hX _ _, fun hmz => ?_⟩
       obtain ⟨mpol, hmpol, hmark_eq⟩ := exists_pol_of_ne_zero hwf hatom_lt hmz
       rw [negif_eq, hmark_eq]
       refine ⟨fun _ => hX _ _, fun hneg => ?_⟩
-      have hpol_eq : mpol = (toLiteral ls[i]).2 := by
-        rw [evalAssignedLit_encodePol_eq] at hneg
-        revert hneg; cases mpol <;> cases (toLiteral ls[i]).2 <;> decide
-      subst hpol_eq
+      obtain rfl := mpol_eq_of_eval_slt_false hneg
       have ⟨ok, hm'⟩ := storeb_byte1Array 0 hatom_lt hm
       refine ⟨ok, ih _ _ _ (by omega) ⟨i + 1, _, ?_, hlt, rfl, by simp [hmlen],
         marksWF_set_zero hwf hatom_lt, ?_, hm'⟩⟩
@@ -322,9 +306,7 @@ theorem strictFinal_spec {Γ : Env} {Q : Post} {X : XPost} {checked : Cont}
       · intro a hsa
         refine (hsat a hsa).elim (fun hms => marksSat_clear_step ?_ hmpol hms) Or.inr
         rw [literals_toClause]; exact List.mem_map_of_mem (List.getElem_mem hlt)
-    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i), Classical.not_not] at hz
-      obtain rfl := (zeroTermGet_eq_zero_iff hi hne0).1 hz
-      exact hchk m' marks hmlen hsat hm
+    · exact hchk m' marks hmlen hsat hm
   · intro J hJ
     wp_unfold
     exact hJ _ _ _ ⟨0, marks₀, by simp, Nat.zero_le _, rfl, rfl, hwf0, fun _ => Or.inl, hm⟩
@@ -343,10 +325,8 @@ theorem strictCheck_correct (Γ : Env) :
     m' = m ∧ ∀ x ∈ ants, x.slt 0 = false)
   · rintro _ m ⟨rfl, rfl, hants_pos⟩
     wp_unfold
-    have hks : (kernelState st k ⋆ (byte1Array k.marks_begin (List.replicate n 0) ⋆ R_ro)) m :=
-      sep_cast hsep (by ac_rfl)
-    refine ⟨_, loadl_kfield 2 (by decide) hks rfl, _, loadl_kfield 4 (by decide) hks rfl,
-      _, loadl_kfield 18 (by decide) hks rfl, ?_⟩
+    refine ⟨_, loadl_kfield 2 (by decide) (by ecancel) rfl, _, loadl_kfield 4 (by decide) (by ecancel) rfl,
+      _, loadl_kfield 18 (by decide) (by ecancel) rfl, ?_⟩
     simp only [KernelFields.toList, List.getElem_cons_succ, List.getElem_cons_zero]
     -- `@resolved`: after Loop 2
     apply wp_join (fun as m1 => ∃ marks1 first,
@@ -356,20 +336,9 @@ theorem strictCheck_correct (Γ : Env) :
       (byte1Array k.marks_begin marks1 ⋆ (kernelState st k ⋆ R_ro)) m1)
     · rintro _ m1 ⟨marks1, first, rfl, hlen1, hwf1, hfirst_or, hent1, hm1⟩
       wp_unfold
-      have hm1_ks : (word8Array st k.toList ⋆ (byte1Array k.marks_begin marks1 ⋆ R_ro)) m1 := by
-        unfold kernelState at hm1; exact sep_cast hm1 (by ac_rfl)
-      have ⟨ok, hm2_ks⟩ := storel_word8Array (i := 18)
-        (k.stat_resolved + BitVec.ofNat 64 ants.length) (by simp [KernelFields.toList]) hm1_ks
-      have hm2 : (byte1Array k.marks_begin marks1 ⋆
-          (kernelState st { k with stat_resolved := k.stat_resolved + BitVec.ofNat 64 ants.length } ⋆
-            R_ro)) (storeMem m1 .l (st + 144) (k.stat_resolved + BitVec.ofNat 64 ants.length)) := by
-        unfold kernelState; exact sep_cast hm2_ks (by ac_rfl)
+      have ⟨ok, hm2⟩ := store_stat_resolved (v := k.stat_resolved + BitVec.ofNat 64 ants.length) hm1
       refine ⟨ok, fun _ => hX _ _, fun hfirst0 => ?_⟩
-      have hf0 : first = 0 := by
-        rcases hfirst_or with rfl | rfl
-        · rfl
-        · exact absurd (by decide : Truthy 1) hfirst0
-      have hent_marks1 := hent1 hf0
+      have hent_marks1 := hent1 (first_eq_zero hfirst_or hfirst0)
       -- `@checked`: after Loop 3
       apply wp_join (fun as m3 => ∃ marks2,
         as = [BitVec.ofNat 64 (marksCount marks2)] ∧
@@ -397,20 +366,17 @@ theorem strictCheck_correct (Γ : Env) :
         have hm2_in : (byte1Array k.marks_begin marks1 ⋆ (ZeroTermInts lits_ptr clause_lits ⋆
             (kernelState st { k with stat_resolved := k.stat_resolved + BitVec.ofNat 64 ants.length } ⋆
               R_lits))) (storeMem m1 .l (st + 144) (k.stat_resolved + BitVec.ofNat 64 ants.length)) := by
-          rw [hR_lits] at hm2; exact sep_cast hm2 (by ac_rfl)
+          rw [hR_lits] at hm2; ecancel
         exact strictFinal_spec hwf1 (by omega) hclause_valid hm2_in hX fun m3 marks2 hlen2 hsat2 hm3 =>
-          hK _ _ ⟨marks2, rfl, hlen2.trans hlen1, hsat2,
-            by rw [hR_lits]; exact sep_cast hm3 (by ac_rfl)⟩
+          hK _ _ ⟨marks2, rfl, hlen2.trans hlen1, hsat2, by rw [hR_lits]; ecancel⟩
     · intro K hK
       exact strictOuter_spec hlen hants_bound hants_int hants_pos hants_valid hsub_ants hsep hX
         fun m1 marks1 first hlen1 hwf1 hfo hent1 hm1 =>
           hK _ _ ⟨marks1, first, rfl, hlen1, hwf1, hfo, hent1, hm1⟩
   · intro K hK
     obtain ⟨R_ants, hR_ants⟩ := hsub_ants
-    have hm_scan : (ZeroTermInts ant_ptr ants ⋆
-        (byte1Array k.marks_begin (List.replicate n 0) ⋆ (kernelState st k ⋆ R_ants))) m := by
-      rw [hR_ants] at hsep; exact sep_cast hsep (by ac_rfl)
-    exact strictScan_spec hants_int hm_scan hX fun hpos => hK _ _ ⟨rfl, rfl, hpos⟩
+    exact strictScan_spec (R := byte1Array k.marks_begin (List.replicate n 0) ⋆ (kernelState st k ⋆ R_ants))
+      hants_int (by rw [hR_ants] at hsep; ecancel) hX fun hpos => hK _ _ ⟨rfl, rfl, hpos⟩
 
 theorem strictCheck_wf : Func.Wf strictCheck := by
   unfold strictCheck strictScan strictOuter strictInner strictFinal; wf_tac
@@ -430,18 +396,8 @@ theorem strictCheck_nonvacuous :
     rfl, by decide, by decide, by decide, by simp, by simp,
     by intro x hx; rw [List.mem_singleton.1 hx]; unfold IsValidLit bvAbs; decide,
     ?_, ⟨_, rfl⟩, ⟨ZeroTermInts 0x10aa [], by ac_rfl⟩, fun _ _ _ => rfl, fun _ _ => rfl⟩
-  unfold kernelState ZeroTermInts
-  rw [show List.replicate 2 (0 : Val) = [0, 0] from rfl,
-    byte1Array_eq _ _ (by simp), word8Array_eq _ _ (by simp [KernelFields.toList]),
-    int4Array_eq _ _ (by simp), int4Array_eq _ _ (by simp)]
-  have e : Eq (nvStrictBytes.At (0x1000 : Val)) = (Eq ((bytesN 8 nvStrictK.toList).At (0x1000 : Val)) ⋆
-      (Eq ((bytesN 1 [0, 0]).At (0x10a0 : Val)) ⋆ (Eq ((bytesN 4 [1, 0]).At (0x10a2 : Val)) ⋆
-        Eq ((bytesN 4 [0]).At (0x10aa : Val))))) := by
-    unfold nvStrictBytes
-    rw [eq_append_At _ _ _ (by simp [bytesN_length, KernelFields.toList]),
-      eq_append_At _ _ _ (by simp [bytesN_length]), eq_append_At _ _ _ (by simp [bytesN_length])]
-    simp only [bytesN_length, KernelFields.toList, List.length_cons, List.length_nil]
-    rfl
-  exact sep_cast (show Eq (nvStrictBytes.At (0x1000 : Val)) _ from rfl) (e.trans (by ac_rfl))
+  unfold kernelState ZeroTermInts nvStrictBytes
+  rw [show List.replicate 2 (0 : Val) = [0, 0] from rfl]
+  solve_bytes_at
 
 end LeanQbe.LratTrim

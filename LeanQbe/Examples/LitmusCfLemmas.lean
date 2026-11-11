@@ -37,31 +37,32 @@ def ifelseCode : Program := parse("ifelse:
   movq %rsi, %r11
   movq %rdi, %r10
   subq %r10, %r11
-  movq %r11, %rax
+  movq %r11, %rsi
+  movq %rsi, %rax
   addq $8, %rsp
   ret
   ifelse.L0:
   movq %rdi, %r11
   movq %rsi, %r10
   addq %r10, %r11
-  movq %r11, %rax
+  movq %r11, %rdi
+  movq %rdi, %rax
   addq $8, %rsp
   ret")
 
-theorem ifelse_lower : lowerFn (Spill.hints Amd64.isa ifelse) ⟨[], []⟩ ifelse = .ok ifelseCode := by rfl
+theorem ifelse_lower : lowerFn (Spill.hints Amd64.isa ifelse) ⟨[], []⟩ ifelse = .ok ifelseCode := by kernel_rfl
 
 theorem ifelse_fnspec [hh : Host] (k₀ : Nat) (hc : ifelseCode.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique) (Γ : Env) (nX : Nat) :
     Amd64.target.FnSpec hh "ifelse" (Func.spec Γ ifelse.body) 8 nX :=
   lowerFn_correct (T := Amd64.target) hh _ ⟨[], []⟩ ifelse Γ (fun _ => 0) 8 nX ifelseCode k₀
-    ifelse_lower hc hu ifelse_wf (by decide) (by decide)
+    ifelse_lower hc hu ifelse_wf (of_decide_eq_true (by kernel_rfl)) (by decide)
     (fun _ h => nomatch h) (fun _ h => nomatch h)
 
 def sumtoCode : Program := parse("sumto:
   subq $8, %rsp
   movq %rdi, %rax
   movq $0, %rcx
-  jmp sumto.L0
   sumto.L0:
   testl %eax, %eax
   jne sumto.L1
@@ -79,13 +80,13 @@ def sumtoCode : Program := parse("sumto:
   movq %r11, %rax
   jmp sumto.L0")
 
-theorem sumto_lower : lowerFn (Spill.hints Amd64.isa sumto) ⟨[], []⟩ sumto = .ok sumtoCode := by rfl
+theorem sumto_lower : lowerFn (Spill.hints Amd64.isa sumto) ⟨[], []⟩ sumto = .ok sumtoCode := by kernel_rfl
 
 theorem sumto_fnspec [hh : Host] (k₀ : Nat) (hc : sumtoCode.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique) (Γ : Env) (nX : Nat) :
     Amd64.target.FnSpec hh "sumto" (Func.spec Γ sumto.body) 8 nX :=
   lowerFn_correct (T := Amd64.target) hh _ ⟨[], []⟩ sumto Γ (fun _ => 0) 8 nX sumtoCode k₀
-    sumto_lower hc hu sumto_wf (by decide) (by decide)
+    sumto_lower hc hu sumto_wf (of_decide_eq_true (by kernel_rfl)) (by decide)
     (fun _ h => nomatch h) (fun _ h => nomatch h)
 
 def evenoddCode : Program := parse("evenodd:
@@ -103,7 +104,6 @@ def evenoddCode : Program := parse("evenodd:
   movq $1, %r10
   subq %r10, %r11
   movq %r11, %rax
-  jmp evenodd.L0
   evenodd.L0:
   testl %eax, %eax
   jne evenodd.L3
@@ -117,20 +117,20 @@ def evenoddCode : Program := parse("evenodd:
   movq %r11, %rax
   jmp evenodd.L1")
 
-theorem evenodd_lower : lowerFn (Spill.hints Amd64.isa evenodd) ⟨[], []⟩ evenodd = .ok evenoddCode := by rfl
+theorem evenodd_lower : lowerFn (Spill.hints Amd64.isa evenodd) ⟨[], []⟩ evenodd = .ok evenoddCode := by kernel_rfl
 
 theorem evenodd_fnspec [hh : Host] (k₀ : Nat) (hc : evenoddCode.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique) (Γ : Env) (nX : Nat) :
     Amd64.target.FnSpec hh "evenodd" (Func.spec Γ evenodd.body) 8 nX :=
   lowerFn_correct (T := Amd64.target) hh _ ⟨[], []⟩ evenodd Γ (fun _ => 0) 8 nX evenoddCode k₀
-    evenodd_lower hc hu evenodd_wf (by decide) (by decide)
+    evenodd_lower hc hu evenodd_wf (of_decide_eq_true (by kernel_rfl)) (by decide)
     (fun _ h => nomatch h) (fun _ h => nomatch h)
 
 def nestedCode : Program := parse("nested:
   subq $8, %rsp
   movq %rdi, %rax
+  movq %rdx, %rdi
   movq $0, %rcx
-  jmp nested.L0
   nested.L0:
   testl %eax, %eax
   jne nested.L1
@@ -138,9 +138,8 @@ def nestedCode : Program := parse("nested:
   addq $8, %rsp
   ret
   nested.L1:
-  movq %rcx, %rdi
+  movq %rcx, %rdx
   movq %rsi, %rcx
-  jmp nested.L2
   nested.L2:
   testl %ecx, %ecx
   jne nested.L3
@@ -148,37 +147,36 @@ def nestedCode : Program := parse("nested:
   movq $1, %r10
   subq %r10, %r11
   movq %r11, %rax
-  movq %rdi, %rcx
+  movq %rdx, %rcx
   jmp nested.L0
   nested.L3:
-  movq %rdi, %r11
-  movq %rdx, %r10
+  movq %rdx, %r11
+  movq %rdi, %r10
   addq %r10, %r11
-  movq %r11, %rdi
-  movq %rdi, %r11
+  movq %r11, %rdx
+  movq %rdx, %r11
   movq %rax, %r10
   addq %r10, %r11
-  movq %r11, %rdi
+  movq %r11, %rdx
   movq %rcx, %r11
   movq $1, %r10
   subq %r10, %r11
   movq %r11, %rcx
   jmp nested.L2")
 
-theorem nested_lower : lowerFn (Spill.hints Amd64.isa nested) ⟨[], []⟩ nested = .ok nestedCode := by rfl
+theorem nested_lower : lowerFn (Spill.hints Amd64.isa nested) ⟨[], []⟩ nested = .ok nestedCode := by kernel_rfl
 
 theorem nested_fnspec [hh : Host] (k₀ : Nat) (hc : nestedCode.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique) (Γ : Env) (nX : Nat) :
     Amd64.target.FnSpec hh "nested" (Func.spec Γ nested.body) 8 nX :=
   lowerFn_correct (T := Amd64.target) hh _ ⟨[], []⟩ nested Γ (fun _ => 0) 8 nX nestedCode k₀
-    nested_lower hc hu nested_wf (by decide) (by decide)
+    nested_lower hc hu nested_wf (of_decide_eq_true (by kernel_rfl)) (by decide)
     (fun _ h => nomatch h) (fun _ h => nomatch h)
 
 def swapCode : Program := parse("swap:
   subq $8, %rsp
-  movq %rdi, %rax
   movq %rsi, %rcx
-  jmp swap.L0
+  movq %rdi, %rax
   swap.L0:
   testl %eax, %eax
   jne swap.L1
@@ -195,13 +193,13 @@ def swapCode : Program := parse("swap:
   movq %r10, %rdx
   jmp swap.L0")
 
-theorem swap_lower : lowerFn (Spill.hints Amd64.isa swap) ⟨[], []⟩ swap = .ok swapCode := by rfl
+theorem swap_lower : lowerFn (Spill.hints Amd64.isa swap) ⟨[], []⟩ swap = .ok swapCode := by kernel_rfl
 
 theorem swap_fnspec [hh : Host] (k₀ : Nat) (hc : swapCode.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique) (Γ : Env) (nX : Nat) :
     Amd64.target.FnSpec hh "swap" (Func.spec Γ swap.body) 8 nX :=
   lowerFn_correct (T := Amd64.target) hh _ ⟨[], []⟩ swap Γ (fun _ => 0) 8 nX swapCode k₀
-    swap_lower hc hu swap_wf (by decide) (by decide)
+    swap_lower hc hu swap_wf (of_decide_eq_true (by kernel_rfl)) (by decide)
     (fun _ h => nomatch h) (fun _ h => nomatch h)
 
 /-! ## R3 litmus programs: calls, exits, stack spills -/
@@ -211,7 +209,8 @@ def incCode : Program := parse("inc:
   movq %rdi, %r11
   movq $1, %r10
   addq %r10, %r11
-  movq %r11, %rax
+  movq %r11, %rdi
+  movq %rdi, %rax
   addq $8, %rsp
   ret")
 
@@ -271,42 +270,46 @@ def spill10Code : Program := parse("spill10:
   movq $4, %r10
   addq %r10, %r11
   movq %r11, %r8
-  movq %r8, (%rsp)
   movq %rdi, %r11
   movq $5, %r10
   addq %r10, %r11
-  movq %r11, %r8
-  movq %r8, 8(%rsp)
+  movq %r11, %r9
+  movq %r9, (%rsp)
   movq %rdi, %r11
   movq $6, %r10
   addq %r10, %r11
-  movq %r11, %r8
-  movq %r8, 16(%rsp)
+  movq %r11, %r9
+  movq %r9, 8(%rsp)
   movq %rdi, %r11
   movq $7, %r10
   addq %r10, %r11
-  movq %r11, %r8
-  movq %r8, 24(%rsp)
+  movq %r11, %r9
+  movq %r9, 16(%rsp)
   movq %rdi, %r11
   movq $8, %r10
   addq %r10, %r11
-  movq %r11, %r8
-  movq %r8, 32(%rsp)
+  movq %r11, %r9
+  movq %r9, 24(%rsp)
   movq %rdi, %r11
   movq $9, %r10
   addq %r10, %r11
-  movq %r11, %r8
-  movq %r8, 40(%rsp)
+  movq %r11, %r9
+  movq %r9, 32(%rsp)
   movq %rdi, %r11
   movq $10, %r10
   addq %r10, %r11
   movq %r11, %rdi
+  movq %rdi, 40(%rsp)
   movq %rax, %r11
   movq %rcx, %r10
   xorq %r10, %r11
   movq %r11, %rax
   movq %rax, %r11
   movq %rdx, %r10
+  xorq %r10, %r11
+  movq %r11, %rax
+  movq %rax, %r11
+  movq %r8, %r10
   xorq %r10, %r11
   movq %r11, %rax
   movq (%rsp), %rcx
@@ -340,10 +343,6 @@ def spill10Code : Program := parse("spill10:
   xorq %r10, %r11
   movq %r11, %rax
   movq %rax, %r11
-  movq %rdi, %r10
-  xorq %r10, %r11
-  movq %r11, %rax
-  movq %rax, %r11
   movq %rsi, %r10
   xorq %r10, %r11
   movq %r11, %rax
@@ -352,39 +351,36 @@ def spill10Code : Program := parse("spill10:
 
 def sumcallCode : Program := parse("sumcall:
   subq $24, %rsp
-  movq %rsi, (%rsp)
-  movq %rdi, %rax
-  movq $0, %rcx
-  jmp sumcall.L0
+  movq %rbx, (%rsp)
+  movq %rbp, 8(%rsp)
+  movq %r12, 16(%rsp)
+  movq %rsi, %r12
+  movq %rdi, %rbx
+  movq $0, %rbp
   sumcall.L0:
-  movq %rax, 8(%rsp)
-  movq %rcx, 16(%rsp)
-  testl %eax, %eax
+  testl %ebx, %ebx
   jne sumcall.L1
-  movq 16(%rsp), %rax
-  movq (%rsp), %rcx
-  movq %rax, %r11
-  movq %rcx, %r10
+  movq %rbp, %r11
+  movq %r12, %r10
   addq %r10, %r11
-  movq %r11, %rax
+  movq %r11, %rbp
+  movq %rbp, %rax
+  movq (%rsp), %rbx
+  movq 8(%rsp), %rbp
+  movq 16(%rsp), %r12
   addq $24, %rsp
   ret
   sumcall.L1:
-  movq %rax, %rdi
+  movq %rbx, %rdi
   call inc
-  movq 16(%rsp), %rcx
-  movq %rcx, %r11
+  movq %rbp, %r11
   movq %rax, %r10
   addq %r10, %r11
-  movq %r11, %rax
-  movq 8(%rsp), %rcx
-  movq %rcx, %r11
+  movq %r11, %rbp
+  movq %rbx, %r11
   movq $1, %r10
   subq %r10, %r11
-  movq %r11, %rcx
-  movq %rax, %r10
-  movq %rcx, %rax
-  movq %r10, %rcx
+  movq %r11, %rbx
   jmp sumcall.L0")
 
 /-! ## Through the whole pipeline (`compileFn` and `compile`: mid-end, oracle, lowering) -/
@@ -394,7 +390,19 @@ theorem nested_compile : compileFn Amd64.isa nested = .ok nestedCode := by kerne
 theorem evenodd_compile : compileFn Amd64.isa evenodd = .ok evenoddCode := by kernel_rfl
 theorem swap_compile : compileFn Amd64.isa swap = .ok swapCode := by kernel_rfl
 theorem ifelse_compile : compileFn Amd64.isa ifelse = .ok ifelseCode := by kernel_rfl
-theorem tracer_compile : compileFn Amd64.isa tracer = .ok tracerCode := by kernel_rfl
+def tracerCompiledCode : Program := parse("tracer:
+  subq $8, %rsp
+  movq %rdi, %rax
+  movq %rax, %r11
+  movq %rsi, %r10
+  addq %r10, %r11
+  movq %r11, %rax
+  movq %rax, %r11
+  movq %r11, (%rdx)
+  addq $8, %rsp
+  ret")
+
+theorem tracer_compile : compileFn Amd64.isa tracer = .ok tracerCompiledCode := by kernel_rfl
 theorem inc_compile : compileFn Amd64.isa inc = .ok incCode := by kernel_rfl
 theorem callinc_compile : compileFn Amd64.isa callinc = .ok callincCode := by kernel_rfl
 theorem check_compile : compileFn Amd64.isa check = .ok checkCode := by kernel_rfl

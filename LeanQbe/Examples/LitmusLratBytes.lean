@@ -46,7 +46,7 @@ theorem lrat_bytes_module_fnspec_of (Γ : Env) (k₀ : Nat)
 /-- Lifting any `FnSpec` for `"lrat_check_bytes"` at stack bound `968` and contract
 `lratCheckBytesSpec` to the closed Kraken-x64 statement. -/
 theorem lrat_check_bytes_x64_of_fnspec
-    (hfnspec : Amd64.fastTarget.FnSpec hh "lrat_check_bytes" lratCheckBytesSpec 968 0)
+    (hfnspec : Amd64.fastTarget.FnSpec hh "lrat_check_bytes" lratCheckBytesSpec 264 0)
     (cnf_ptr prf_ptr work_ptr : BitVec 64)
     (cnfBytes prfBytes : List UInt8) (work_len : Nat)
     (hcnf : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
@@ -62,7 +62,7 @@ theorem lrat_check_bytes_x64_of_fnspec
     (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
     (hmem : s.dmem =⋆
       (Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len) ⋆
-      ((fun f => ∃ bs : List UInt8, bs.length = 968 ∧ f = bs.At (s.regs.get64 .rsp - 968#64)) ⋆
+      ((fun f => ∃ bs : List UInt8, bs.length = 264 ∧ f = bs.At (s.regs.get64 .rsp - 264#64)) ⋆
         Eq (ra.toUInt64.At (s.regs.get64 .rsp))) ⋆ R) :
     Eventually (step1 Host.exe)
       (fun st =>
@@ -73,7 +73,7 @@ theorem lrat_check_bytes_x64_of_fnspec
         st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
         (st.data.dmem =⋆
           (Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len) ⋆
-          (fun f => ∃ bs : List UInt8, bs.length = 976 ∧ f = bs.At (s.regs.get64 .rsp - 968#64)) ⋆ R))
+          (fun f => ∃ bs : List UInt8, bs.length = 272 ∧ f = bs.At (s.regs.get64 .rsp - 264#64)) ⋆ R))
       ⟨s, Labels.label "lrat_check_bytes"⟩ := by
   obtain ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, hm_pre, hentry⟩, hrest⟩ := hmem
   let P_mem : Mem 64 → Prop :=
@@ -100,7 +100,7 @@ theorem lrat_check_bytes_x64_of_fnspec
       hrdi, hrsi, hrdx, hrcx, hr8, hr9]
   have hsp' : Amd64.fastTarget.spEntry (Amd64.fastTarget.get s Amd64.fastTarget.sp) := hsp
   have hmem' : Amd64.fastTarget.mem s =⋆ Eq m ⋆
-      Amd64.fastTarget.Entry (Amd64.fastTarget.get s Amd64.fastTarget.sp) ra 968 ⋆ R :=
+      Amd64.fastTarget.Entry (Amd64.fastTarget.get s Amd64.fastTarget.sp) ra 264 ⋆ R :=
     ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩
   have hf := hfnspec
     [cnf_ptr, BitVec.ofNat 64 cnfBytes.length,
@@ -122,7 +122,7 @@ theorem lrat_check_bytes_x64_of_fnspec
 (e.g. `encodeDimacs cnf` via `parseDimacs_encodeDimacs`), `lrat_check_bytes` returns to `ra`
 with `rax ∈ {0, 1}` and `rax = 1 → cnf.Unsat`. -/
 theorem lrat_check_bytes_x64_unsat_of_fnspec
-    (hfnspec : Amd64.fastTarget.FnSpec hh "lrat_check_bytes" lratCheckBytesSpec 968 0)
+    (hfnspec : Amd64.fastTarget.FnSpec hh "lrat_check_bytes" lratCheckBytesSpec 264 0)
     (cnf : CNF Nat) (cnf_ptr prf_ptr work_ptr : BitVec 64)
     (cnfBytes prfBytes : List UInt8) (work_len : Nat)
     (hparse : parseDimacs cnfBytes = some cnf)
@@ -139,7 +139,7 @@ theorem lrat_check_bytes_x64_unsat_of_fnspec
     (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
     (hmem : s.dmem =⋆
       (Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len) ⋆
-      ((fun f => ∃ bs : List UInt8, bs.length = 968 ∧ f = bs.At (s.regs.get64 .rsp - 968#64)) ⋆
+      ((fun f => ∃ bs : List UInt8, bs.length = 264 ∧ f = bs.At (s.regs.get64 .rsp - 264#64)) ⋆
         Eq (ra.toUInt64.At (s.regs.get64 .rsp))) ⋆ R) :
     Eventually (step1 Host.exe)
       (fun st =>
@@ -192,7 +192,7 @@ theorem lrat_check_bytes_x64_correct
     (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
     (hmem : s.dmem =⋆
       (Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len) ⋆
-      ((fun f => ∃ bs : List UInt8, bs.length = 968 ∧ f = bs.At (s.regs.get64 .rsp - 968#64)) ⋆
+      ((fun f => ∃ bs : List UInt8, bs.length = 264 ∧ f = bs.At (s.regs.get64 .rsp - 264#64)) ⋆
         Eq (ra.toUInt64.At (s.regs.get64 .rsp))) ⋆ R) :
     Eventually (step1 Host.exe)
       (fun st =>
@@ -203,10 +203,10 @@ theorem lrat_check_bytes_x64_correct
         st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
         (st.data.dmem =⋆
           (Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len) ⋆
-          (fun f => ∃ bs : List UInt8, bs.length = 976 ∧ f = bs.At (s.regs.get64 .rsp - 968#64)) ⋆ R))
+          (fun f => ∃ bs : List UInt8, bs.length = 272 ∧ f = bs.At (s.regs.get64 .rsp - 264#64)) ⋆ R))
       ⟨s, Labels.label "lrat_check_bytes"⟩ :=
   lrat_check_bytes_x64_of_fnspec
-    (lrat_bytes_module_fnspec k₀ hc hu ("lrat_check_bytes", 968) (by simp [lratBytesBounds])).2
+    (lrat_bytes_module_fnspec k₀ hc hu ("lrat_check_bytes", 264) (by simp [lratBytesBounds])).2
     cnf_ptr prf_ptr work_ptr cnfBytes prfBytes work_len
     hcnf hprf hwork s ra R hrdi hrsi hrdx hrcx hr8 hr9 hsp hmem
 
@@ -233,7 +233,7 @@ theorem lrat_check_bytes_x64_unsat
     (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
     (hmem : s.dmem =⋆
       (Eq ((encodeDimacs cnf).At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len) ⋆
-      ((fun f => ∃ bs : List UInt8, bs.length = 968 ∧ f = bs.At (s.regs.get64 .rsp - 968#64)) ⋆
+      ((fun f => ∃ bs : List UInt8, bs.length = 264 ∧ f = bs.At (s.regs.get64 .rsp - 264#64)) ⋆
         Eq (ra.toUInt64.At (s.regs.get64 .rsp))) ⋆ R) :
     Eventually (step1 Host.exe)
       (fun st =>
@@ -242,7 +242,7 @@ theorem lrat_check_bytes_x64_unsat
         (st.data.regs.get64 .rax = 1 → cnf.Unsat))
       ⟨s, Labels.label "lrat_check_bytes"⟩ :=
   lrat_check_bytes_x64_unsat_of_fnspec
-    (lrat_bytes_module_fnspec k₀ hc hu ("lrat_check_bytes", 968) (by simp [lratBytesBounds])).2
+    (lrat_bytes_module_fnspec k₀ hc hu ("lrat_check_bytes", 264) (by simp [lratBytesBounds])).2
     cnf cnf_ptr prf_ptr work_ptr (encodeDimacs cnf) prfBytes work_len
     (parseDimacs_encodeDimacs hvalid)
     hcnf hprf hwork s ra R hrdi hrsi hrdx hrcx hr8 hr9 hsp hmem
@@ -269,7 +269,7 @@ end Generic
 
 attribute [local instance] lratBytesHost
 
-def zeros968 : List UInt8 := List.replicate 968 0
+def zeros264 : List UInt8 := List.replicate 264 0
 def zeros512 : List UInt8 := List.replicate 512 0
 
 abbrev nvCnfPtr : BitVec 64 := 0x1000#64
@@ -287,7 +287,7 @@ def lratBytesState (cnfBytes prfBytes : List UInt8) : MachineData :=
         r8  := (nvWorkPtr cnfBytes prfBytes).toNat.toUInt64
         r9  := 512
         rsp := 0x0ff8 },
-    dmem := ((zeros968 ++ raBytes0) ++ ((cnfBytes ++ prfBytes) ++ zeros512)).At 0x0c30#64 }
+    dmem := ((zeros264 ++ raBytes0) ++ ((cnfBytes ++ prfBytes) ++ zeros512)).At 0x0ef0#64 }
 
 theorem lratBytesState_mem (cnfBytes prfBytes : List UInt8)
     (hcb : cnfBytes.length ≤ 4096) (hpb : prfBytes.length ≤ 4096) :
@@ -295,21 +295,21 @@ theorem lratBytesState_mem (cnfBytes prfBytes : List UInt8)
       (Eq (cnfBytes.At nvCnfPtr) ⋆
         Eq (prfBytes.At (nvPrfPtr cnfBytes)) ⋆
         region (nvWorkPtr cnfBytes prfBytes) 512) ⋆
-      ((fun f => ∃ bs : List UInt8, bs.length = 968 ∧
-          f = bs.At ((lratBytesState cnfBytes prfBytes).regs.get64 .rsp - 968#64)) ⋆
+      ((fun f => ∃ bs : List UInt8, bs.length = 264 ∧
+          f = bs.At ((lratBytesState cnfBytes prfBytes).regs.get64 .rsp - 264#64)) ⋆
         Eq ((0x1234 : Int64).toUInt64.At ((lratBytesState cnfBytes prfBytes).regs.get64 .rsp))) ⋆
       Std.ExtHashMap.emp := by
   have hra : raBytes0.length = 8 := UInt64.toBytes_length _
-  have h968 : zeros968.length = 968 := List.length_replicate
+  have h264 : zeros264.length = 264 := List.length_replicate
   have h512 : zeros512.length = 512 := List.length_replicate
   have hsp_eq : (lratBytesState cnfBytes prfBytes).regs.get64 .rsp = 0x0ff8#64 := rfl
-  have hsp_sub : (lratBytesState cnfBytes prfBytes).regs.get64 .rsp - 968#64 = 0x0c30#64 := by
+  have hsp_sub : (lratBytesState cnfBytes prfBytes).regs.get64 .rsp - 264#64 = 0x0ef0#64 := by
     rw [hsp_eq]; decide
   rw [hsp_sub, hsp_eq, Std.ExtHashMap.sep_emp]
-  have h1 := Mem.At_append_sep (zeros968 ++ raBytes0) ((cnfBytes ++ prfBytes) ++ zeros512) 0x0c30#64
-    (by simp only [List.length_append, h968, hra, h512]; omega)
-  have e1 : 0x0c30#64 + BitVec.ofNat 64 (zeros968 ++ raBytes0).length = nvCnfPtr := by
-    simp [nvCnfPtr, h968, hra]
+  have h1 := Mem.At_append_sep (zeros264 ++ raBytes0) ((cnfBytes ++ prfBytes) ++ zeros512) 0x0ef0#64
+    (by simp only [List.length_append, h264, hra, h512]; omega)
+  have e1 : 0x0ef0#64 + BitVec.ofNat 64 (zeros264 ++ raBytes0).length = nvCnfPtr := by
+    simp [nvCnfPtr, h264, hra]
   rw [e1] at h1
   have h2 := Mem.At_append_sep (cnfBytes ++ prfBytes) zeros512 nvCnfPtr
     (by simp only [List.length_append, h512]; omega)
@@ -320,11 +320,11 @@ theorem lratBytesState_mem (cnfBytes prfBytes : List UInt8)
     omega
   rw [e2] at h2
   have h3 := Mem.At_append_sep cnfBytes prfBytes nvCnfPtr (by omega)
-  have h4 := Mem.At_append_sep zeros968 raBytes0 0x0c30#64
-    (by simp only [h968, hra]; omega)
-  have e4 : 0x0c30#64 + BitVec.ofNat 64 zeros968.length = 0x0ff8#64 := by simp [h968]
+  have h4 := Mem.At_append_sep zeros264 raBytes0 0x0ef0#64
+    (by simp only [h264, hra]; omega)
+  have e4 : 0x0ef0#64 + BitVec.ofNat 64 zeros264.length = 0x0ff8#64 := by simp [h264]
   rw [e4] at h4
-  have h0 : (Eq (((zeros968 ++ raBytes0) ++ ((cnfBytes ++ prfBytes) ++ zeros512)).At 0x0c30#64))
+  have h0 : (Eq (((zeros264 ++ raBytes0) ++ ((cnfBytes ++ prfBytes) ++ zeros512)).At 0x0ef0#64))
       (lratBytesState cnfBytes prfBytes).dmem := rfl
   rw [h1, Std.ExtHashMap.sep_comm] at h0
   refine sep_mono (fun fL hfL => ?_) (sep_mono_r (fun fR hfR => ?_) h0)
@@ -332,7 +332,7 @@ theorem lratBytesState_mem (cnfBytes prfBytes : List UInt8)
     exact sep_mono (fun fC hfC => by rwa [h3] at hfC)
       (sep_mono_r (fun fW hfW => ⟨zeros512, h512, hfW.symm⟩) hfL)
   · rw [h4] at hfR
-    exact sep_mono (fun fS hfS => ⟨zeros968, h968, hfS.symm⟩) hfR
+    exact sep_mono (fun fS hfS => ⟨zeros264, h264, hfS.symm⟩) hfR
 
 /-- Initial x64 state for the concrete accepting witness `(nvDimacsBytes, nvLratAcceptBytes, 512)`. -/
 def lratBytesAcceptState0 : MachineData :=
@@ -357,7 +357,7 @@ theorem lrat_check_bytes_x64_accepts :
   have hm_emp : (P_mem ⋆ Std.ExtHashMap.emp) m := by
     dsimp [P_mem, cnf_ptr, prf_ptr, work_ptr]; rwa [Std.ExtHashMap.sep_emp]
   have hc : lratBytesCode.IsInfixAt Host.prog 0 := ⟨[], by simp [lratBytesHost_prog]⟩
-  have hspec : lratBytesAcceptEnv ("lrat_check_bytes", 968).1
+  have hspec : lratBytesAcceptEnv ("lrat_check_bytes", 264).1
       [cnf_ptr, BitVec.ofNat 64 nvDimacsBytes.length,
        prf_ptr, BitVec.ofNat 64 nvLratAcceptBytes.length,
        work_ptr, 512#64]
@@ -388,10 +388,10 @@ theorem lrat_check_bytes_x64_accepts :
     show (0x0ff8#64 + 8#64).toNat % 16 = 0 by decide
   have hmem' : Amd64.fastTarget.mem lratBytesAcceptState0 =⋆ Eq m ⋆
       Amd64.fastTarget.Entry (Amd64.fastTarget.get lratBytesAcceptState0 Amd64.fastTarget.sp)
-        (0x1234 : Int64) 968 ⋆ Std.ExtHashMap.emp :=
+        (0x1234 : Int64) 264 ⋆ Std.ExtHashMap.emp :=
     ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩
   have hf := (lrat_bytes_accepts_fnspec 0 hc lratBytesHost_unique
-      ("lrat_check_bytes", 968) (by simp [lratBytesBounds])).2
+      ("lrat_check_bytes", 264) (by simp [lratBytesBounds])).2
     [cnf_ptr, BitVec.ofNat 64 nvDimacsBytes.length,
      prf_ptr, BitVec.ofNat 64 nvLratAcceptBytes.length,
      work_ptr, 512#64] m _ _ hspec
@@ -426,7 +426,7 @@ theorem lrat_check_bytes_x64_rejects :
   have hm_emp : (P_mem ⋆ Std.ExtHashMap.emp) m := by
     dsimp [P_mem, cnf_ptr, prf_ptr, work_ptr]; rwa [Std.ExtHashMap.sep_emp]
   have hc : lratBytesCode.IsInfixAt Host.prog 0 := ⟨[], by simp [lratBytesHost_prog]⟩
-  have hspec : lratBytesRejectEnv ("lrat_check_bytes", 968).1
+  have hspec : lratBytesRejectEnv ("lrat_check_bytes", 264).1
       [cnf_ptr, BitVec.ofNat 64 nvDimacsBytes.length,
        prf_ptr, BitVec.ofNat 64 nvLratRejectBytes.length,
        work_ptr, 512#64]
@@ -457,10 +457,10 @@ theorem lrat_check_bytes_x64_rejects :
     show (0x0ff8#64 + 8#64).toNat % 16 = 0 by decide
   have hmem' : Amd64.fastTarget.mem lratBytesRejectState0 =⋆ Eq m ⋆
       Amd64.fastTarget.Entry (Amd64.fastTarget.get lratBytesRejectState0 Amd64.fastTarget.sp)
-        (0x1234 : Int64) 968 ⋆ Std.ExtHashMap.emp :=
+        (0x1234 : Int64) 264 ⋆ Std.ExtHashMap.emp :=
     ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩
   have hf := (lrat_bytes_rejects_fnspec 0 hc lratBytesHost_unique
-      ("lrat_check_bytes", 968) (by simp [lratBytesBounds])).2
+      ("lrat_check_bytes", 264) (by simp [lratBytesBounds])).2
     [cnf_ptr, BitVec.ofNat 64 nvDimacsBytes.length,
      prf_ptr, BitVec.ofNat 64 nvLratRejectBytes.length,
      work_ptr, 512#64] m _ _ hspec

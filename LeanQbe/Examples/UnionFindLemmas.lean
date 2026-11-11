@@ -87,11 +87,7 @@ theorem findK_spec {Γ : Env} {Q : Post} {X : XPost} {p x : Val} {n : Nat} {rep 
       obtain ⟨hok, hm'⟩ := store_array64 (pa parent (pa parent y)) hyl hm
       refine ⟨_, loadVal_array64 hpl hm, ?_⟩
       rw [pa_eq_getElem hpl]
-      refine ⟨hok, ih _ _ _ ?_ ⟨_, _, rfl, hf.closed _ hpy, ?_, rfl, hf.halve hy hnr, hm'⟩⟩
-      · by_cases h2 : pa parent (pa parent y) = pa parent y
-        · rw [h2]; exact hf.rank_lt _ hy hnr
-        · exact Nat.lt_trans (hf.rank_lt _ hpy h2) (hf.rank_lt _ hy hnr)
-      · rw [hf.rep_pa _ hpy, hf.rep_pa _ hy, hrep]
+      refine ⟨hok, ih _ _ _ (by grind) ⟨_, _, rfl, hf.closed _ hpy, by grind, rfl, hf.halve hy hnr, hm'⟩⟩
   · intro J hJ
     wp_unfold
     exact hJ _ _ _ ⟨x, parent, rfl, hx, rfl, rfl, hf, hm⟩

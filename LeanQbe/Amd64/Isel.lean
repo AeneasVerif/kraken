@@ -276,7 +276,58 @@ def storeRegIns : Sz → Reg64 → Reg64 → Directive
   | .w, rv, ra => ins32 (.mov (.mem (atReg ra)) (.reg (d rv)))
   | .l, rv, ra => storelD rv ra
 
-/-- `rd := o` with fast paths for immediate shifts, two-address `bin`, and register `cmp`. -/
+/-- Whether `c` fits in a signed 32-bit immediate (sign-extended to 64 bits). -/
+def fitsImm32 (c : Val) : Bool := (c.truncate 32).signExtend 64 == c
+
+/-- Signed 32-bit `Int64` value matching `c`'s low 32 bits. -/
+def imm32Val (c : Val) : Int64 := Int64.ofBitVec ((c.truncate 32).signExtend 64)
+
+/-- Immediate operand encoding `imm32Val c` at width `w`. -/
+def imm32Op (w : Width) (c : Val) : Operand w := .imm (.int64 (imm32Val c))
+
+/-- Immediate value truncated to `sz` and sign-extended to 64 bits (always fits without assembler warning). -/
+def storeImmVal (sz : Sz) (c : Val) : Int64 :=
+  match sz with
+  | .b => Int64.ofBitVec ((c.truncate 8).signExtend 64)
+  | .h => Int64.ofBitVec ((c.truncate 16).signExtend 64)
+  | .w => imm32Val c
+  | .l => imm32Val c
+
+/-- `mov{b,w,l,q} $c, (%ra)` -/
+def storeImmIns (sz : Sz) (c : Val) (ra : Reg64) : Directive :=
+  match sz with
+  | .b => ins8  (.mov (.mem (atReg ra)) (.imm (.int64 (storeImmVal .b c))))
+  | .h => ins16 (.mov (.mem (atReg ra)) (.imm (.int64 (storeImmVal .h c))))
+  | .w => ins32 (.mov (.mem (atReg ra)) (.imm (.int64 (storeImmVal .w c))))
+  | .l => ins   (.mov (.mem (atReg ra)) (.imm (.int64 (storeImmVal .l c))))
+
+/-- `op{k} $c, %rd`: `rd := rd op imm32(c)` at class `k`. -/
+def binImmIns : Cls → BinOp → Reg64 → Val → Option Directive
+  | .l, .add, rd, c => some (ins   (.add (.reg (q rd)) (imm32Op .W64 c)))
+  | .l, .sub, rd, c => some (ins   (.sub (.reg (q rd)) (imm32Op .W64 c)))
+  | .l, .and, rd, c => some (ins   (.and (.reg (q rd)) (imm32Op .W64 c)))
+  | .l, .or,  rd, c => some (ins   (.or  (.reg (q rd)) (imm32Op .W64 c)))
+  | .l, .xor, rd, c => some (ins   (.xor (.reg (q rd)) (imm32Op .W64 c)))
+  | .l, .mul, rd, c => some (ins   (.imul none (.reg (q rd)) (imm32Op .W64 c)))
+  | .w, .add, rd, c => some (ins32 (.add (.reg (d rd)) (imm32Op .W32 c)))
+  | .w, .sub, rd, c => some (ins32 (.sub (.reg (d rd)) (imm32Op .W32 c)))
+  | .w, .and, rd, c => some (ins32 (.and (.reg (d rd)) (imm32Op .W32 c)))
+  | .w, .or,  rd, c => some (ins32 (.or  (.reg (d rd)) (imm32Op .W32 c)))
+  | .w, .xor, rd, c => some (ins32 (.xor (.reg (d rd)) (imm32Op .W32 c)))
+  | .w, .mul, rd, c => some (ins32 (.imul none (.reg (d rd)) (imm32Op .W32 c)))
+  | _, _, _, _ => none
+
+/-- `cmp{k} $c, %rx`: flags of `rx - imm32(c)` at class `k`. -/
+def cmpImmIns : Cls → Reg64 → Val → Directive
+  | .l, rx, c => ins   (.cmp (.reg (q rx)) (imm32Op .W64 c))
+  | .w, rx, c => ins32 (.cmp (.reg (d rx)) (imm32Op .W32 c))
+
+/-- Move register at class `k`. -/
+def movK : Cls → Reg64 → Reg64 → Directive
+  | .l => movD
+  | .w => movlD
+
+/-- `rd := o` with fast paths for immediate shifts, immediate ALU/cmp, 3-op `lea`, and 2-address `bin`. -/
 def fastOp : Op Reg64 → Reg64 → Option (List Directive)
   | .bin k o a b, rd =>
     match shiftIns k o with
@@ -285,9 +336,9 @@ def fastOp : Op Reg64 → Reg64 → Option (List Directive)
       | .imm c =>
         match shiftImmIns k o rd c with
         | some si =>
-          match k, a with
-          | .l, .var ra => if ra = rd then some [si] else some [argTo rd (.var ra), si]
-          | _, _ => some [argTo rd a, si]
+          match a with
+          | .var ra => if ra = rd then some [si] else some [argTo rd (.var ra), si]
+          | .imm _ => some [argTo rd a, si]
         | none => some [argTo .r11 a, movD .r10 .rcx, argTo .rcx b, i, movD .rcx .r10, movD rd .r11]
       | .var _ => some [argTo .r11 a, movD .r10 .rcx, argTo .rcx b, i, movD .rcx .r10, movD rd .r11]
     | none =>
@@ -295,20 +346,35 @@ def fastOp : Op Reg64 → Reg64 → Option (List Directive)
       | some (core, res) => divSeq rd core res a b
       | none =>
         match k, a, b with
-        | .l, .var ra, .var rb =>
-          if ra = rd then (binRegIns .l o rd rb).map (· :: [])
-          else if isComm o ∧ rb = rd then (binRegIns .l o rd ra).map (· :: [])
-          else if rb ≠ rd then (binRegIns .l o rd rb).map fun i => [movD rd ra, i]
-          else (binIns .l o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
-        | .l, .var ra, .imm cb =>
-          if ra = rd then (binRegIns .l o rd .r10).map fun i => [moviD .r10 cb, i]
-          else (binIns .l o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
+        | _, .var ra, .var rb =>
+          if ra = rd then (binRegIns k o rd rb).map (· :: [])
+          else if isComm o ∧ rb = rd then (binRegIns k o rd ra).map (· :: [])
+          else if k == .l && o == .add && rb ≠ rd then
+            some [ins (.lea (q rd) { base := some (.reg ra), idx := some ⟨rb, .W8⟩ })]
+          else if rb ≠ rd then (binRegIns k o rd rb).map fun i => [movK k rd ra, i]
+          else (binIns k o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
+        | _, .var ra, .imm cb =>
+          if k == .w || fitsImm32 cb then
+            if ra = rd then (binImmIns k o rd cb).map (· :: [])
+            else if k == .l && o == .add then
+              some [ins (.lea (q rd) { base := some (.reg ra), idx := none, disp := .int64 (imm32Val cb) })]
+            else (binImmIns k o rd cb).map fun i => [movK k rd ra, i]
+          else (binIns k o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
+        | _, .imm ca, .var rb =>
+          if isComm o && (k == .w || fitsImm32 ca) then
+            if rb = rd then (binImmIns k o rd ca).map (· :: [])
+            else if k == .l && o == .add then
+              some [ins (.lea (q rd) { base := some (.reg rb), idx := none, disp := .int64 (imm32Val ca) })]
+            else (binImmIns k o rd ca).map fun i => [movK k rd rb, i]
+          else (binIns k o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
         | _, _, _ => (binIns k o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
   | .cmp k o a b, rd =>
     let (x, y) := if (condOf o).1 then (b, a) else (a, b)
     match x, y with
     | .var rx, .var ry => some [cmpRegIns k rx ry, setccD (condOf o).2, movzbD rd]
-    | .var rx, .imm cy => some [moviD .r10 cy, cmpRegIns k rx .r10, setccD (condOf o).2, movzbD rd]
+    | .var rx, .imm cy =>
+      if k == .w || fitsImm32 cy then some [cmpImmIns k rx cy, setccD (condOf o).2, movzbD rd]
+      else some [moviD .r10 cy, cmpRegIns k rx .r10, setccD (condOf o).2, movzbD rd]
     | .imm cx, .var ry => some [moviD .r10 cx, cmpRegIns k .r10 ry, setccD (condOf o).2, movzbD rd]
     | _, _ => some [argTo .r11 x, argTo .r10 y, cmpIns k, setccD (condOf o).2, movzbD rd]
   | .ext k s sg (.var r), rd => some [extD k s sg rd r]
@@ -317,10 +383,24 @@ def fastOp : Op Reg64 → Reg64 → Option (List Directive)
   | .copy .w (.var r), rd => some [movlD rd r]
   | .copy .w (.imm c), rd => some [moviD rd (Cls.w.trunc c)]
 
-/-- `store{sz} x, a` with direct register store when `x = .var rv`. -/
+/-- `store{sz} x, a` with direct register/imm store. -/
 def fastStore (sz : Sz) (x a : Arg Reg64) : Option (List Directive) :=
   match x with
   | .var rv => some ((addrIn a).1 ++ [storeRegIns sz rv (addrIn a).2])
-  | .imm _ => some (argTo .r11 x :: (addrIn a).1 ++ [storeIns sz (addrIn a).2])
+  | .imm cx =>
+    if sz != .l || fitsImm32 cx then some ((addrIn a).1 ++ [storeImmIns sz cx (addrIn a).2])
+    else some (argTo .r11 x :: (addrIn a).1 ++ [storeIns sz (addrIn a).2])
+
+/-- Fused comparison + conditional branch directly to `l`. -/
+def jnzCmp (k : Cls) (o : CmpOp) (a b : Arg Reg64) (l : String) : Option (List Directive) :=
+  let (x, y) := if (condOf o).1 then (b, a) else (a, b)
+  let j := ins (.jcc (condOf o).2 l)
+  match x, y with
+  | .var rx, .var ry => some [cmpRegIns k rx ry, j]
+  | .var rx, .imm cy =>
+    if k == .w || fitsImm32 cy then some [cmpImmIns k rx cy, j]
+    else some [moviD .r10 cy, cmpRegIns k rx .r10, j]
+  | .imm cx, .var ry => some [moviD .r10 cx, cmpRegIns k .r10 ry, j]
+  | _, _ => some [argTo .r11 x, argTo .r10 y, cmpIns k, j]
 
 end LeanQbe.Amd64

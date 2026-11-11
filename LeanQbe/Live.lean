@@ -91,6 +91,11 @@ def toTree : Expr Nat Nat → Nat → Nat → Nat → List Nat → Tree × Nat �
 
 def Tree.ofFn (f : Fn) : Tree := (toTree (f.body Nat Nat) 0 0 0 []).1
 
+/-- Convert `f` to `Tree`, also returning the variable count `nv`. -/
+def Tree.ofFnWithNv (f : Fn) : Tree × Nat :=
+  let (t, nv, _, _) := toTree (f.body Nat Nat) 0 0 0 []
+  (t, nv)
+
 /-! ### Small set operations on lists -/
 
 def union (a b : List Nat) : List Nat :=
@@ -157,6 +162,31 @@ def acrossCalls (L : LiveMap) : Tree → List Nat
   | .jnz _ _ _ t e => union (acrossCalls L t) (acrossCalls L e)
   | .block _ b rest => union (acrossCalls L b) (acrossCalls L rest)
   | .jump _ _ _ | .ret _ _ | .exit _ _ _ | .stop => []
+
+/-- All jump targets appearing anywhere in a subtree. -/
+def allJumps : Tree → List Nat
+  | .jump _ j _ => [j]
+  | .let_ _ _ _ k | .load _ _ _ k | .store _ _ _ k | .call _ _ _ k | .skip _ k | .param _ k
+  | .label _ k => allJumps k
+  | .jnz _ _ _ t e => union (allJumps t) (allJumps e)
+  | .block _ b rest => union (allJumps b) (allJumps rest)
+  | .ret _ _ | .exit _ _ _ | .stop => []
+
+/-- Labels that lie on some cycle in the block jump graph (loop headers and mutual-loop blocks). -/
+def loopBlocks (t : Tree) : List Nat :=
+  let bs := t.blocks
+  let adj : List (Nat × List Nat) := bs.map fun (l, b) => (l, allJumps b)
+  let succs (l : Nat) : List Nat := ((adj.find? (·.1 == l)).map (·.2)).getD []
+  let canReach (src target : Nat) : Bool :=
+    let rec dfs : Nat → List Nat → List Nat → Bool
+      | 0, _, _ => false
+      | _, [], _ => false
+      | fuel + 1, x :: xs, vis =>
+        if x == target then true
+        else if vis.contains x then dfs fuel xs vis
+        else dfs fuel (succs x ++ xs) (x :: vis)
+    dfs (bs.length * bs.length + bs.length + 1) (succs src) []
+  (bs.filter fun (l, _) => canReach l l).map (·.1)
 
 end Live
 end LeanQbe

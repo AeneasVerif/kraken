@@ -356,6 +356,8 @@ def hostLabel (h : Host) (l : Label) : Int64 :=
   retRegs_not_scratch := by simp
   sp_not_retRegs := by simp
   sp_not_argRegs := by simp
+  calleeSaved_not_argRegs := by simp
+  calleeSaved_not_retRegs := by simp
   retAddr_region _ ra _ h := ⟨ra.toUInt64.toBytes, UInt64.toBytes_length _, h.symm⟩
   raReg_congr _ _ _ _ _ := trivial
   raReg_of_raRegs _ _ _ _ _ := trivial
@@ -422,13 +424,15 @@ def hostLabel (h : Host) (l : Label) : Int64 :=
     · exact Reg64s.get64_set64_of_ne _ _ _ _ fun he => hr (he ▸ List.mem_cons_self)
     · exact Reg64s.get64_set64_same s.regs .rsp _
 
-/-- `target` with `fastIsa` (`fastOp` and `fastStore`). -/
+/-- `target` with `fastIsa` (`fastOp`, `fastStore`, and `jnzCmp`). -/
 def fastTarget : Target :=
   { target with
     toIsa := fastIsa
     op_spec := fun {h} {_} {_} {_} {_} {_} {_} {_} hop hc hvars hv hk => by
       letI := h; exact eventually_fastOp hop hc hvars hv hk
     store_spec := fun {h} {_} {_} {_} {_} {_} {_} {_} hop hc hvars hok hk => by
-      letI := h; exact eventually_fastStore hop hc hvars hok hk }
+      letI := h; exact eventually_fastStore hop hc hvars hok hk
+    jnzCmp_spec := fun {h} {_} {_} {_} {_} {_} {_} {_} {_} {_} {_} {_} hop hc hj hvars hv hk => by
+      letI := h; exact eventually_jnzCmp hop hc hj hvars hv hk }
 
 end LeanQbe.Amd64

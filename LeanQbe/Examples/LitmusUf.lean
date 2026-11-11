@@ -36,7 +36,6 @@ abbrev unionFn : Fn := ⟨"union", union⟩
 def findCode : Program := parse("find:
   subq $8, %rsp
   movq %rsi, %rax
-  jmp find.L0
   find.L0:
   movq %rax, %r11
   movq %rcx, %r10
@@ -61,9 +60,9 @@ def findCode : Program := parse("find:
   movq $3, %rcx
   shlq %cl, %r11
   movq %r10, %rcx
-  movq %r11, %rax
+  movq %r11, %rdx
   movq %rdi, %r11
-  movq %rax, %r10
+  movq %rdx, %r10
   addq %r10, %r11
   movq %r11, %rax
   movq (%rax), %rax
@@ -77,38 +76,41 @@ def findCode : Program := parse("find:
 /-- The x64 assembly emitted by `compileFn Amd64.isa unionFn`. -/
 def unionCode : Program := parse("union:
   subq $24, %rsp
-  movq %rdi, (%rsp)
-  movq %rdx, 8(%rsp)
+  movq %rbx, 8(%rsp)
+  movq %rbp, 16(%rsp)
+  movq %rdx, (%rsp)
+  movq %rdi, %rbx
   call find
-  movq %rax, 16(%rsp)
-  movq (%rsp), %rdi
-  movq 8(%rsp), %rsi
+  movq %rax, %rbp
+  movq %rbx, %rdi
+  movq (%rsp), %rsi
   call find
-  movq 16(%rsp), %rcx
-  movq %rcx, %r11
+  movq %rbp, %r11
   movq %rax, %r10
   cmpq %r10, %r11
   sete %r11b
   movzx %r11b, %ecx
   testl %ecx, %ecx
   jne union.L0
-  movq 16(%rsp), %rcx
-  movq %rcx, %r11
+  movq %rbp, %r11
   movq %rcx, %r10
   movq $3, %rcx
   shlq %cl, %r11
   movq %r10, %rcx
-  movq %r11, %rcx
-  movq (%rsp), %rdx
-  movq %rdx, %r11
-  movq %rcx, %r10
+  movq %r11, %rbp
+  movq %rbx, %r11
+  movq %rbp, %r10
   addq %r10, %r11
-  movq %r11, %rcx
+  movq %r11, %rbx
   movq %rax, %r11
-  movq %r11, (%rcx)
+  movq %r11, (%rbx)
+  movq 8(%rsp), %rbx
+  movq 16(%rsp), %rbp
   addq $24, %rsp
   ret
   union.L0:
+  movq 8(%rsp), %rbx
+  movq 16(%rsp), %rbp
   addq $24, %rsp
   ret")
 

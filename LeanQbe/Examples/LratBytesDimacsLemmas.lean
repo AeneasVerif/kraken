@@ -14,39 +14,9 @@ open Std Std.ExtHashMap Std.Sat
 open Std.Tactic.BVDecide.LRAT.Internal
 open Kraken.Bedrock2.Test
 open LeanQbe.LratRup
+open ProofUtil
 
 /-! ## 1. Pure byte-scanner and `parseNat` helper lemmas -/
-
-private theorem ptr_add_ofNat (base : Val) (a b : Nat) :
-    base + BitVec.ofNat 64 a + BitVec.ofNat 64 b = base + BitVec.ofNat 64 (a + b) :=
-  BitVec.eq_of_toNat_eq (by simp [BitVec.toNat_add]; omega)
-
-private theorem ptr_step_1 (base : Val) (i : Nat) :
-    base + BitVec.ofNat 64 i + 1 = base + BitVec.ofNat 64 (i + 1) :=
-  ptr_add_ofNat base i 1
-
-private theorem cursor_eq_iff {base : Val} {i j : Nat} (hi : i < 2 ^ 64) (hj : j < 2 ^ 64) :
-    base + BitVec.ofNat 64 i = base + BitVec.ofNat 64 j ↔ i = j := by
-  constructor
-  · intro h
-    have h1 : (base + BitVec.ofNat 64 i) - base = (base + BitVec.ofNat 64 j) - base :=
-      congrArg (· - base) h
-    have h2 : BitVec.ofNat 64 i = BitVec.ofNat 64 j := by grind
-    have h3 := congrArg BitVec.toNat h2
-    simpa [Nat.mod_eq_of_lt hi, Nat.mod_eq_of_lt hj] using h3
-  · rintro rfl; rfl
-
-private theorem bv64_u8_eq {b k : UInt8} :
-    BitVec.ofNat 64 b.toNat = BitVec.ofNat 64 k.toNat ↔ b = k := by
-  have hb := b.toNat_lt
-  have hk := k.toNat_lt
-  constructor
-  · intro h
-    have := congrArg BitVec.toNat h
-    simp [Nat.mod_eq_of_lt (by omega : b.toNat < 2 ^ 64),
-          Nat.mod_eq_of_lt (by omega : k.toNat < 2 ^ 64)] at this
-    exact UInt8.eq_of_toBitVec_eq (BitVec.eq_of_toNat_eq this)
-  · rintro rfl; rfl
 
 private theorem boolVal_or (a b : Bool) : boolVal a ||| boolVal b = boolVal (a || b) := by
   cases a <;> cases b <;> decide
@@ -54,74 +24,53 @@ private theorem boolVal_or (a b : Bool) : boolVal a ||| boolVal b = boolVal (a |
 private theorem u8_le_iff_toNat {a b : UInt8} : a ≤ b ↔ a.toNat ≤ b.toNat :=
   UInt8.le_iff_toBitVec_le.trans BitVec.le_def
 
+private theorem u8_sub_ult_eq (lo len : Nat) (hlen : 0 < len) (h : lo + len ≤ 256) (b : UInt8) :
+    (BitVec.ofNat 64 b.toNat - BitVec.ofNat 64 lo).ult (BitVec.ofNat 64 len) =
+      (decide (lo ≤ b.toNat) && decide (b.toNat ≤ lo + len - 1)) := by
+  have hb := b.toNat_lt
+  simp only [BitVec.ult, BitVec.toNat_sub, BitVec.toNat_ofNat,
+    Nat.mod_eq_of_lt (by omega : b.toNat < 2 ^ 64),
+    Nat.mod_eq_of_lt (by omega : lo < 2 ^ 64),
+    Nat.mod_eq_of_lt (by omega : len < 2 ^ 64)]
+  by_cases hlo : lo ≤ b.toNat
+  · have hsub : (2 ^ 64 - lo + b.toNat) % 2 ^ 64 = b.toNat - lo := by
+      rw [show 2 ^ 64 - lo + b.toNat = 2 ^ 64 + (b.toNat - lo) from by omega,
+        Nat.add_mod_left, Nat.mod_eq_of_lt (by omega)]
+    rw [hsub]; by_cases hhi : b.toNat ≤ lo + len - 1 <;> simp [hlo, hhi] <;> omega
+  · have hsub : (2 ^ 64 - lo + b.toNat) % 2 ^ 64 = 2 ^ 64 - lo + b.toNat :=
+      Nat.mod_eq_of_lt (by omega)
+    rw [hsub]; simp [hlo]; omega
+
 private theorem isWsByte_val (b : UInt8) :
     (boolVal (BitVec.ofNat 64 b.toNat == 32) |||
       boolVal ((BitVec.ofNat 64 b.toNat - 9).ult 5)) =
     boolVal (isDimacsWs b) := by
-  rw [boolVal_or]
-  congr 1
-  have hb := b.toNat_lt
-  unfold isDimacsWs
-  have h1 : (BitVec.ofNat 64 b.toNat == (32 : Val)) = (b == 32) := by
-    cases h : b == 32
-    · rw [beq_eq_false_iff_ne] at h ⊢
-      exact fun hc => h (bv64_u8_eq (k := 32) |>.mp hc)
-    · rw [beq_iff_eq] at h ⊢
-      exact bv64_u8_eq (k := 32) |>.mpr h
-  have h2 : ((BitVec.ofNat 64 b.toNat - (9 : Val)).ult (5 : Val)) = (9 ≤ b && b ≤ 13) := by
-    have hle9 : (9 ≤ b) ↔ 9 ≤ b.toNat := u8_le_iff_toNat
-    have hle13 : (b ≤ 13) ↔ b.toNat ≤ 13 := u8_le_iff_toNat
-    have hm : b.toNat % 2 ^ 64 = b.toNat := Nat.mod_eq_of_lt (by omega)
-    simp only [BitVec.ult, BitVec.toNat_sub, BitVec.toNat_ofNat, hm]
-    change decide ((2 ^ 64 - 9 + b.toNat) % 2 ^ 64 < 5) = (decide (9 ≤ b) && decide (b ≤ 13))
-    by_cases h9 : 9 ≤ b.toNat
-    · have hsub : (2 ^ 64 - 9 + b.toNat) % 2 ^ 64 = b.toNat - 9 := by omega
-      rw [hsub]
-      by_cases h13 : b.toNat ≤ 13 <;> simp [hle9, hle13, h9, h13] <;> omega
-    · have hsub : (2 ^ 64 - 9 + b.toNat) % 2 ^ 64 = 2 ^ 64 - 9 + b.toNat := by omega
-      rw [hsub]
-      simp [hle9, h9]; omega
-  rw [h1, h2]
+  rw [boolVal_or]; congr 1; unfold isDimacsWs
+  have h1 : (BitVec.ofNat 64 b.toNat == (32 : Val)) = (b == 32) :=
+    Bool.eq_iff_iff.mpr (by simpa [beq_iff_eq] using (bv64_u8_eq (b := b) (k := 32)))
+  have h2 := u8_sub_ult_eq 9 5 (by decide) (by decide) b
+  simpa [u8_le_iff_toNat] using congr (congrArg (· || ·) h1) h2
 
 private theorem u8_sub48_ult10 (b : UInt8) :
     (BitVec.ofNat 64 b.toNat - (48 : Val)).ult (10 : Val) = isDimacsDigit b := by
-  have hb := b.toNat_lt
   unfold isDimacsDigit
-  have hle48 : (48 ≤ b) ↔ 48 ≤ b.toNat := u8_le_iff_toNat
-  have hle57 : (b ≤ 57) ↔ b.toNat ≤ 57 := u8_le_iff_toNat
-  have hm : b.toNat % 2 ^ 64 = b.toNat := Nat.mod_eq_of_lt (by omega)
-  simp only [BitVec.ult, BitVec.toNat_sub, BitVec.toNat_ofNat, hm]
-  change decide ((2 ^ 64 - 48 + b.toNat) % 2 ^ 64 < 10) = (decide (48 ≤ b) && decide (b ≤ 57))
-  by_cases h48 : 48 ≤ b.toNat
-  · have hsub : (2 ^ 64 - 48 + b.toNat) % 2 ^ 64 = b.toNat - 48 := by omega
-    rw [hsub]
-    by_cases h57 : b.toNat ≤ 57 <;> simp [hle48, hle57, h48, h57] <;> omega
-  · have hsub : (2 ^ 64 - 48 + b.toNat) % 2 ^ 64 = 2 ^ 64 - 48 + b.toNat := by omega
-    rw [hsub]
-    simp [hle48, h48]; omega
+  simpa [u8_le_iff_toNat] using u8_sub_ult_eq 48 10 (by decide) (by decide) b
 
 private theorem digit_bounds {b : UInt8} (hd : isDimacsDigit b = true) :
     48 ≤ b.toNat ∧ b.toNat - 48 < 10 ∧
       BitVec.ofNat 64 b.toNat - (48 : Val) = BitVec.ofNat 64 (b.toNat - 48) := by
   unfold isDimacsDigit at hd
   simp only [Bool.and_eq_true, decide_eq_true_eq, u8_le_iff_toNat] at hd
-  have h1 : 48 ≤ b.toNat := hd.1
-  have h2 : b.toNat ≤ 57 := hd.2
-  refine ⟨h1, by omega, ?_⟩
-  apply BitVec.eq_of_toNat_eq
+  have h48 : (48 : UInt8).toNat = 48 := rfl
+  have h57 : (57 : UInt8).toNat = 57 := rfl
+  rw [h48, h57] at hd
   have hb := b.toNat_lt
-  have hm1 : b.toNat % 2 ^ 64 = b.toNat := Nat.mod_eq_of_lt (by omega)
-  have hm2 : (b.toNat - 48) % 2 ^ 64 = b.toNat - 48 := Nat.mod_eq_of_lt (by omega)
-  simp only [BitVec.toNat_sub, BitVec.toNat_ofNat, hm1, hm2]
-  change (2 ^ 64 - 48 + b.toNat) % 2 ^ 64 = b.toNat - 48
-  omega
+  exact ⟨hd.1, by omega, by simpa using bv_sub_ofNat (a := b.toNat) (b := 48) hd.1 (by omega)⟩
 
 private theorem skipWsCommentsAux_true_cons (c : UInt8) (bs : List UInt8) :
     skipWsCommentsAux true (c :: bs) =
       if c = 10 then skipWsCommentsAux false bs else skipWsCommentsAux true bs := by
-  by_cases h : c = 10
-  · subst h; rfl
-  · simp [skipWsCommentsAux, h]
+  by_cases h : c = 10 <;> simp [skipWsCommentsAux, h]
 
 private theorem skipWsCommentsAux_false_cons (b : UInt8) (bs : List UInt8) :
     skipWsCommentsAux false (b :: bs) =
@@ -129,43 +78,13 @@ private theorem skipWsCommentsAux_false_cons (b : UInt8) (bs : List UInt8) :
       else if b == 99 then skipWsCommentsAux true bs
       else b :: bs := rfl
 
-theorem parseDigitsAux_lt_bound {acc : Nat} {bs : List UInt8} {v : Nat} {rest : List UInt8}
-    (hacc : acc < dimacsBound) (h : parseDigitsAux acc bs = some (v, rest)) :
-    v < dimacsBound := by
-  induction bs generalizing acc with
-  | nil => simp [parseDigitsAux] at h; obtain ⟨rfl, _⟩ := h; exact hacc
-  | cons b bs ih =>
-    simp only [parseDigitsAux] at h
-    split at h
-    · split at h
-      · rename_i hlt
-        exact ih hlt h
-      · nomatch h
-    · split at h
-      · simp at h; obtain ⟨rfl, _⟩ := h; exact hacc
-      · nomatch h
-
-theorem parseNat_lt_bound {bs : List UInt8} {v : Nat} {rest : List UInt8}
-    (h : parseNat bs = some (v, rest)) : v < dimacsBound := by
-  cases bs with
-  | nil => nomatch h
-  | cons b bs =>
-    simp only [parseNat] at h
-    split at h
-    · rename_i hd
-      have ⟨_, hd10, _⟩ := digit_bounds hd
-      exact parseDigitsAux_lt_bound (by unfold dimacsBound; omega) h
-    · nomatch h
-
 /-! ## 2. QBE specifications for `isWsByte`, `skipWsCommentsQbe`, `skipWs1Qbe`, `readDimacsNat` -/
 
 theorem isWsByte_spec {Γ : Env} {Q : Post} {X : XPost} {b : UInt8}
     {k : Val → Expr Val Cont} {m : Mem 64}
     (hk : wp Γ Q X (k (boolVal (isDimacsWs b))) [] [] m) :
     wp Γ Q X (isWsByte (BitVec.ofNat 64 b.toNat) k) [] [] m := by
-  unfold isWsByte
-  wp_unfold
-  rwa [isWsByte_val]
+  unfold isWsByte; wp_unfold; rwa [isWsByte_val]
 
 theorem skipWsCommentsQbe_spec {Γ : Env} {Q : Post} {X : XPost}
     {base : Val} {bs : List UInt8} {i0 : Nat} {R : Mem 64 → Prop} {m : Mem 64}
@@ -180,78 +99,54 @@ theorem skipWsCommentsQbe_spec {Γ : Env} {Q : Post} {X : XPost}
   unfold skipWsCommentsQbe
   apply wp_join (fun as m' => ∃ j, i0 ≤ j ∧ j ≤ bs.length ∧
     bs.drop j = skipWsComments (bs.drop i0) ∧ as = [base + BitVec.ofNat 64 j] ∧ m' = m)
-  · rintro _ m' ⟨j, hj1, hj2, hdrop, rfl, rfl⟩
-    wp_unfold
-    exact hdone j hj1 hj2 hdrop
+  · rintro _ _ ⟨j, hj1, hj2, hdrop, rfl, rfl⟩; wp_unfold; exact hdone j hj1 hj2 hdrop
   intro Jdone hJdone
   apply wp_loop (fun r as m' => ∃ i, i0 ≤ i ∧ i ≤ bs.length ∧ r = bs.length - i ∧
     skipWsCommentsAux false (bs.drop i) = skipWsComments (bs.drop i0) ∧
     as = [base + BitVec.ofNat 64 i] ∧ m' = m)
   · rintro Jswc r as m' ⟨i, hi1, hi2, rfl, hinv, rfl, hm_eq⟩ ih
-    subst hm_eq
+    subst m'
     wp_unfold
-    refine ⟨fun heof => ?_, fun hneof => ?_⟩
-    · have hi_eq : i = bs.length := (cursor_eq_iff (by omega) (by omega)).mp heof
-      subst hi_eq
-      refine hJdone _ _ ⟨bs.length, hi1, Nat.le_refl _, ?_, rfl, rfl⟩
-      simpa [skipWsCommentsAux] using hinv
-    · have hlt : i < bs.length := by
-        rcases Nat.eq_or_lt_of_le hi2 with rfl | h
-        · exact absurd rfl hneof
-        · exact h
-      have hdrop_i : bs.drop i = bs[i] :: bs.drop (i + 1) := List.drop_eq_getElem_cons hlt
-      refine ⟨_, loadub_At hlt (by omega) hm, ?_⟩
-      rw [ptr_step_1]
-      refine isWsByte_spec ?_
-      wp_unfold
-      refine ⟨fun hws => ?_, fun hnws => ?_⟩
-      · refine ih _ _ _ (by omega) ⟨i + 1, by omega, by omega, rfl, ?_, rfl, rfl⟩
-        rw [hdrop_i, skipWsCommentsAux_false_cons] at hinv
-        simpa [hws] using hinv
-      · refine ⟨fun hisc => ?_, fun hnisc => ?_⟩
-        · have hb99 : bs[i] = 99 := (bv64_u8_eq (k := 99)).mp hisc
-          have hinv_c : skipWsCommentsAux true (bs.drop (i + 1)) = skipWsComments (bs.drop i0) := by
-            rw [hdrop_i, skipWsCommentsAux_false_cons, hb99] at hinv
-            have hnw99 : isDimacsWs 99 = false := by decide
-            simpa [hnw99] using hinv
-          apply wp_loop (fun r2 as2 m2 => ∃ k, i + 1 ≤ k ∧ k ≤ bs.length ∧ r2 = bs.length - k ∧
-            skipWsCommentsAux true (bs.drop k) = skipWsComments (bs.drop i0) ∧
-            as2 = [base + BitVec.ofNat 64 k] ∧ m2 = m')
-          · rintro Jskl r2 as2 m2 ⟨k, hk1, hk2, rfl, hinv2, rfl, hm2_eq⟩ ih_skl
-            subst hm2_eq
-            wp_unfold
-            refine ⟨fun hqeof => ?_, fun hnqeof => ?_⟩
-            · have hk_eq : k = bs.length := (cursor_eq_iff (by omega) (by omega)).mp hqeof
-              subst hk_eq
-              refine hJdone _ _ ⟨bs.length, by omega, Nat.le_refl _, ?_, rfl, rfl⟩
-              simpa [skipWsCommentsAux] using hinv2
-            · have hklt : k < bs.length := by
-                rcases Nat.eq_or_lt_of_le hk2 with rfl | h
-                · exact absurd rfl hnqeof
-                · exact h
-              have hdrop_k : bs.drop k = bs[k] :: bs.drop (k + 1) := List.drop_eq_getElem_cons hklt
-              refine ⟨_, loadub_At hklt (by omega) hm, ?_⟩
-              rw [ptr_step_1]
-              refine ⟨fun hisnl => ?_, fun hnisnl => ?_⟩
-              · have hc10 : bs[k] = 10 := (bv64_u8_eq (k := 10)).mp hisnl
-                refine ih _ _ _ (by omega) ⟨k + 1, by omega, by omega, rfl, ?_, rfl, rfl⟩
-                rw [hdrop_k, skipWsCommentsAux_true_cons] at hinv2
-                simpa [hc10] using hinv2
-              · have hc10 : bs[k] ≠ 10 := fun h => hnisnl ((bv64_u8_eq (k := 10)).mpr h)
-                refine ih_skl _ _ _ (by omega) ⟨k + 1, by omega, by omega, rfl, ?_, rfl, rfl⟩
-                rw [hdrop_k, skipWsCommentsAux_true_cons] at hinv2
-                simpa [hc10] using hinv2
-          · intro Jskl hJskl
-            wp_unfold
-            exact hJskl _ _ _ ⟨i + 1, Nat.le_refl _, by omega, rfl, hinv_c, rfl, rfl⟩
-        · have hb99 : (bs[i] == 99) = false :=
-            beq_eq_false_iff_ne.mpr (fun h => hnisc ((bv64_u8_eq (k := 99)).mpr h))
-          refine hJdone _ _ ⟨i, hi1, hi2, ?_, rfl, rfl⟩
-          rw [hdrop_i, skipWsCommentsAux_false_cons, hnws, hb99] at hinv
-          simpa [← hdrop_i] using hinv
-  · intro Jswc hJswc
+    refine cursor_eof_branch hi2 (by omega)
+      (fun heq => by subst heq; exact hJdone _ _ ⟨bs.length, hi1, Nat.le_refl _, by simpa [skipWsCommentsAux] using hinv, rfl, rfl⟩)
+      (fun hlt => ?_)
+    have hdrop_i : bs.drop i = bs[i] :: bs.drop (i + 1) := List.drop_eq_getElem_cons hlt
+    refine ⟨_, loadub_At hlt (by omega) hm, ?_⟩
+    rw [ptr_step_1]
+    refine isWsByte_spec ?_
     wp_unfold
-    exact hJswc _ _ _ ⟨i0, Nat.le_refl _, hi0, rfl, rfl, rfl, rfl⟩
+    refine ⟨fun hws => ih _ _ _ (by omega) ⟨i + 1, by omega, by omega, rfl,
+        by rw [hdrop_i, skipWsCommentsAux_false_cons] at hinv; simpa [hws] using hinv, rfl, rfl⟩,
+      fun hnws => ⟨fun hisc => ?_, fun hnisc => ?_⟩⟩
+    · have hb99 : bs[i] = 99 := (bv64_u8_eq (k := 99)).mp hisc
+      have hinv_c : skipWsCommentsAux true (bs.drop (i + 1)) = skipWsComments (bs.drop i0) := by
+        rw [hdrop_i, skipWsCommentsAux_false_cons, hb99] at hinv
+        simpa [show isDimacsWs 99 = false by decide] using hinv
+      apply wp_loop (fun r2 as2 m2 => ∃ k, i + 1 ≤ k ∧ k ≤ bs.length ∧ r2 = bs.length - k ∧
+        skipWsCommentsAux true (bs.drop k) = skipWsComments (bs.drop i0) ∧
+        as2 = [base + BitVec.ofNat 64 k] ∧ m2 = m)
+      · rintro Jskl r2 as2 m2 ⟨k, hk1, hk2, rfl, hinv2, rfl, hm2_eq⟩ ih_skl
+        subst m2
+        wp_unfold
+        refine cursor_eof_branch hk2 (by omega)
+          (fun hkeq => by subst hkeq; exact hJdone _ _ ⟨bs.length, by omega, Nat.le_refl _, by simpa [skipWsCommentsAux] using hinv2, rfl, rfl⟩)
+          (fun hklt => ?_)
+        have hdrop_k : bs.drop k = bs[k] :: bs.drop (k + 1) := List.drop_eq_getElem_cons hklt
+        refine ⟨_, loadub_At hklt (by omega) hm, ?_⟩
+        rw [ptr_step_1]
+        refine ⟨fun hisnl => ?_, fun hnisnl => ?_⟩
+        · have hc10 : bs[k] = 10 := (bv64_u8_eq (k := 10)).mp hisnl
+          exact ih _ _ _ (by omega) ⟨k + 1, by omega, by omega, rfl,
+            by rw [hdrop_k, skipWsCommentsAux_true_cons] at hinv2; simpa [hc10] using hinv2, rfl, rfl⟩
+        · have hc10 : bs[k] ≠ 10 := fun h => hnisnl ((bv64_u8_eq (k := 10)).mpr h)
+          exact ih_skl _ _ _ (by omega) ⟨k + 1, by omega, by omega, rfl,
+            by rw [hdrop_k, skipWsCommentsAux_true_cons] at hinv2; simpa [hc10] using hinv2, rfl, rfl⟩
+      · intro Jskl hJskl; wp_unfold
+        exact hJskl _ _ _ ⟨i + 1, Nat.le_refl _, by omega, rfl, hinv_c, rfl, rfl⟩
+    · have hb99 : (bs[i] == 99) = false := beq_eq_false_iff_ne.mpr (fun h => hnisc ((bv64_u8_eq (k := 99)).mpr h))
+      refine hJdone _ _ ⟨i, hi1, hi2, ?_, rfl, rfl⟩
+      rw [hdrop_i, skipWsCommentsAux_false_cons, hnws, hb99] at hinv; simpa [← hdrop_i] using hinv
+  · intro Jswc hJswc; wp_unfold; exact hJswc _ _ _ ⟨i0, Nat.le_refl _, hi0, rfl, rfl, rfl, rfl⟩
 
 theorem skipWs1Qbe_spec {Γ : Env} {Q : Post} {X : XPost} {fail : Cont}
     {base : Val} {bs : List UInt8} {i0 : Nat} {R : Mem 64 → Prop} {m : Mem 64}
@@ -265,59 +160,40 @@ theorem skipWs1Qbe_spec {Γ : Env} {Q : Post} {X : XPost} {fail : Cont}
       wp Γ Q X (done (base + BitVec.ofNat 64 j)) [] [] m) :
     wp Γ Q X (skipWs1Qbe fail (base + BitVec.ofNat 64 i0)
       (base + BitVec.ofNat 64 bs.length) done) [] [] m := by
-  unfold skipWs1Qbe
+  unfold skipWs1Qbe; wp_unfold
+  refine cursor_eof_branch hi0 (by omega)
+    (fun heq => by subst heq; exact hfail (by simp [skipWs1]))
+    (fun hlt0 => ?_)
+  have hdrop0 : bs.drop i0 = bs[i0] :: bs.drop (i0 + 1) := List.drop_eq_getElem_cons hlt0
+  refine ⟨_, loadub_At hlt0 (by omega) hm, isWsByte_spec ?_⟩
   wp_unfold
-  refine ⟨fun heof0 => ?_, fun hneof0 => ?_⟩
-  · have hi_eq : i0 = bs.length := (cursor_eq_iff (by omega) (by omega)).mp heof0
-    subst hi_eq
-    exact hfail (by simp [skipWs1])
-  · have hlt0 : i0 < bs.length := by
-      rcases Nat.eq_or_lt_of_le hi0 with rfl | h
-      · exact absurd rfl hneof0
-      · exact h
-    have hdrop0 : bs.drop i0 = bs[i0] :: bs.drop (i0 + 1) := List.drop_eq_getElem_cons hlt0
-    refine ⟨_, loadub_At hlt0 (by omega) hm, isWsByte_spec ?_⟩
+  refine ⟨fun hws0 => ?_, fun hnws0 => hfail (by rw [hdrop0]; simp [skipWs1, hnws0])⟩
+  have hsw1 : skipWs1 (bs.drop i0) = some (skipWs (bs.drop (i0 + 1))) := by
+    rw [hdrop0]; simp [skipWs1, hws0]
+  apply wp_join (fun as m' => ∃ j, i0 < j ∧ j ≤ bs.length ∧
+    bs.drop j = skipWs (bs.drop (i0 + 1)) ∧ as = [base + BitVec.ofNat 64 j] ∧ m' = m)
+  · rintro _ _ ⟨j, hj1, hj2, hdrop, rfl, rfl⟩; wp_unfold; exact hdone j _ hsw1 hj1 hj2 hdrop
+  intro Jdone hJdone
+  apply wp_loop (fun r as m' => ∃ i, i0 < i ∧ i ≤ bs.length ∧ r = bs.length - i ∧
+    skipWs (bs.drop i) = skipWs (bs.drop (i0 + 1)) ∧
+    as = [base + BitVec.ofNat 64 i] ∧ m' = m)
+  · rintro Jsw r as m' ⟨i, hi1, hi2, rfl, hinv, rfl, hm_eq⟩ ih
+    subst m'
     wp_unfold
-    refine ⟨fun hws0 => ?_, fun hnws0 => ?_⟩
-    · have hsw1 : skipWs1 (bs.drop i0) = some (skipWs (bs.drop (i0 + 1))) := by
-        rw [hdrop0]; simp [skipWs1, hws0]
-      apply wp_join (fun as m' => ∃ j, i0 < j ∧ j ≤ bs.length ∧
-        bs.drop j = skipWs (bs.drop (i0 + 1)) ∧ as = [base + BitVec.ofNat 64 j] ∧ m' = m)
-      · rintro _ _ ⟨j, hj1, hj2, hdrop, rfl, rfl⟩
-        wp_unfold
-        exact hdone j _ hsw1 hj1 hj2 hdrop
-      intro Jdone hJdone
-      apply wp_loop (fun r as m' => ∃ i, i0 < i ∧ i ≤ bs.length ∧ r = bs.length - i ∧
-        skipWs (bs.drop i) = skipWs (bs.drop (i0 + 1)) ∧
-        as = [base + BitVec.ofNat 64 i] ∧ m' = m)
-      · rintro Jsw r as m' ⟨i, hi1, hi2, rfl, hinv, rfl, hm_eq⟩ ih
-        subst hm_eq
-        wp_unfold
-        refine ⟨fun heof => ?_, fun hneof => ?_⟩
-        · have hi_eq : i = bs.length := (cursor_eq_iff (by omega) (by omega)).mp heof
-          subst hi_eq
-          refine hJdone _ _ ⟨bs.length, hi1, Nat.le_refl _, ?_, rfl, rfl⟩
-          simpa [skipWs] using hinv
-        · have hlt : i < bs.length := by
-            rcases Nat.eq_or_lt_of_le hi2 with rfl | h
-            · exact absurd rfl hneof
-            · exact h
-          have hdrop_i : bs.drop i = bs[i] :: bs.drop (i + 1) := List.drop_eq_getElem_cons hlt
-          refine ⟨_, loadub_At hlt (by omega) hm, isWsByte_spec ?_⟩
-          wp_unfold
-          refine ⟨fun hws => ?_, fun hnws => ?_⟩
-          · rw [ptr_step_1]
-            refine ih _ _ _ (by omega) ⟨i + 1, by omega, by omega, rfl, ?_, rfl, rfl⟩
-            rw [hdrop_i, skipWs] at hinv
-            simpa [hws] using hinv
-          · refine hJdone _ _ ⟨i, hi1, hi2, ?_, rfl, rfl⟩
-            rw [hdrop_i, skipWs, hnws] at hinv
-            simpa [← hdrop_i] using hinv
-      · intro Jsw hJsw
-        wp_unfold
+    refine cursor_eof_branch hi2 (by omega)
+      (fun heq => by subst heq; exact hJdone _ _ ⟨bs.length, hi1, Nat.le_refl _, by simpa [skipWs] using hinv, rfl, rfl⟩)
+      (fun hlt => ?_)
+    have hdrop_i : bs.drop i = bs[i] :: bs.drop (i + 1) := List.drop_eq_getElem_cons hlt
+    refine ⟨_, loadub_At hlt (by omega) hm, isWsByte_spec ?_⟩
+    wp_unfold
+    refine ⟨fun hws => by
         rw [ptr_step_1]
-        exact hJsw _ _ _ ⟨i0 + 1, by omega, by omega, rfl, rfl, rfl, rfl⟩
-    · exact hfail (by rw [hdrop0]; simp [skipWs1, hnws0])
+        exact ih _ _ _ (by omega) ⟨i + 1, by omega, by omega, rfl,
+          by rw [hdrop_i, skipWs] at hinv; simpa [hws] using hinv, rfl, rfl⟩,
+      fun hnws => hJdone _ _ ⟨i, hi1, hi2,
+        by rw [hdrop_i, skipWs, hnws] at hinv; simpa [← hdrop_i] using hinv, rfl, rfl⟩⟩
+  · intro Jsw hJsw; wp_unfold; rw [ptr_step_1]
+    exact hJsw _ _ _ ⟨i0 + 1, by omega, by omega, rfl, rfl, rfl, rfl⟩
 
 theorem readDimacsNat_spec {Γ : Env} {Q : Post} {X : XPost} {fail : Cont}
     {base : Val} {bs : List UInt8} {i0 : Nat} {R : Mem 64 → Prop} {m : Mem 64}
@@ -331,92 +207,59 @@ theorem readDimacsNat_spec {Γ : Env} {Q : Post} {X : XPost} {fail : Cont}
       wp Γ Q X (done (BitVec.ofNat 64 v) (base + BitVec.ofNat 64 j)) [] [] m) :
     wp Γ Q X (readDimacsNat fail (base + BitVec.ofNat 64 i0)
       (base + BitVec.ofNat 64 bs.length) done) [] [] m := by
-  unfold readDimacsNat
-  wp_unfold
-  refine ⟨fun heof0 => ?_, fun hneof0 => ?_⟩
-  · have hi_eq : i0 = bs.length := (cursor_eq_iff (by omega) (by omega)).mp heof0
-    subst hi_eq
-    exact hfail (by simp [parseNat])
-  · have hlt0 : i0 < bs.length := by
-      rcases Nat.eq_or_lt_of_le hi0 with rfl | h
-      · exact absurd rfl hneof0
-      · exact h
-    have hdrop0 : bs.drop i0 = bs[i0] :: bs.drop (i0 + 1) := List.drop_eq_getElem_cons hlt0
-    refine ⟨_, loadub_At hlt0 (by omega) hm, ?_⟩
+  unfold readDimacsNat; wp_unfold
+  refine cursor_eof_branch hi0 (by omega)
+    (fun heq => by subst heq; exact hfail (by simp [parseNat]))
+    (fun hlt0 => ?_)
+  have hdrop0 : bs.drop i0 = bs[i0] :: bs.drop (i0 + 1) := List.drop_eq_getElem_cons hlt0
+  refine ⟨_, loadub_At hlt0 (by omega) hm, ?_⟩
+  rw [u8_sub48_ult10]
+  refine ⟨fun hd0 => ?_, fun hnd0 => hfail (by rw [hdrop0]; simp [parseNat, hnd0])⟩
+  obtain ⟨_, _, hd0_bv⟩ := digit_bounds hd0
+  have hp0 : parseNat (bs.drop i0) = parseDigitsAux (bs[i0].toNat - 48) (bs.drop (i0 + 1)) := by
+    rw [hdrop0]; simp [parseNat, hd0]
+  apply wp_join (fun as m' => ∃ v j rest,
+    parseNat (bs.drop i0) = some (v, rest) ∧ v < dimacsBound ∧
+    i0 < j ∧ j ≤ bs.length ∧ bs.drop j = rest ∧
+    as = [BitVec.ofNat 64 v, base + BitVec.ofNat 64 j] ∧ m' = m)
+  · rintro _ _ ⟨v, j, rest, hp, hv, hj1, hj2, hdrop, rfl, rfl⟩; wp_unfold; exact hdone v j rest hp hv hj1 hj2 hdrop
+  intro Jdone hJdone
+  apply wp_loop (fun r as m' => ∃ i acc,
+    i0 < i ∧ i ≤ bs.length ∧ r = bs.length - i ∧ acc < dimacsBound ∧
+    parseDigitsAux acc (bs.drop i) = parseNat (bs.drop i0) ∧
+    as = [base + BitVec.ofNat 64 i, BitVec.ofNat 64 acc] ∧ m' = m)
+  · rintro Jpdig r as m' ⟨i, acc, hi1, hi2, rfl, hacc, hinv, rfl, hm_eq⟩ ih
+    subst m'
+    wp_unfold
+    refine cursor_eof_branch hi2 (by omega)
+      (fun heq => by subst heq; exact hJdone _ _ ⟨acc, bs.length, [], by simpa [parseDigitsAux] using hinv.symm, hacc, hi1, Nat.le_refl _, by simp, rfl, rfl⟩)
+      (fun hlt => ?_)
+    have hdrop_i : bs.drop i = bs[i] :: bs.drop (i + 1) := List.drop_eq_getElem_cons hlt
+    refine ⟨_, loadub_At hlt (by omega) hm, ?_⟩
     rw [u8_sub48_ult10]
-    refine ⟨fun hd0 => ?_, fun hnd0 => ?_⟩
-    · obtain ⟨_, hd0_lt, hd0_bv⟩ := digit_bounds hd0
-      have hp0 : parseNat (bs.drop i0) = parseDigitsAux (bs[i0].toNat - 48) (bs.drop (i0 + 1)) := by
-        rw [hdrop0]; simp [parseNat, hd0]
-      apply wp_join (fun as m' => ∃ v j rest,
-        parseNat (bs.drop i0) = some (v, rest) ∧ v < dimacsBound ∧
-        i0 < j ∧ j ≤ bs.length ∧ bs.drop j = rest ∧
-        as = [BitVec.ofNat 64 v, base + BitVec.ofNat 64 j] ∧ m' = m)
-      · rintro _ _ ⟨v, j, rest, hp, hv, hj1, hj2, hdrop, rfl, rfl⟩
-        wp_unfold
-        exact hdone v j rest hp hv hj1 hj2 hdrop
-      intro Jdone hJdone
-      apply wp_loop (fun r as m' => ∃ i acc,
-        i0 < i ∧ i ≤ bs.length ∧ r = bs.length - i ∧ acc < dimacsBound ∧
-        parseDigitsAux acc (bs.drop i) = parseNat (bs.drop i0) ∧
-        as = [base + BitVec.ofNat 64 i, BitVec.ofNat 64 acc] ∧ m' = m)
-      · rintro Jpdig r as m' ⟨i, acc, hi1, hi2, rfl, hacc, hinv, rfl, hm_eq⟩ ih
-        subst hm_eq
-        wp_unfold
-        refine ⟨fun heof => ?_, fun hneof => ?_⟩
-        · have hi_eq : i = bs.length := (cursor_eq_iff (by omega) (by omega)).mp heof
-          subst hi_eq
-          refine hJdone _ _ ⟨acc, bs.length, [], ?_, hacc, hi1, Nat.le_refl _, by simp, rfl, rfl⟩
-          simpa [parseDigitsAux] using hinv.symm
-        · have hlt : i < bs.length := by
-            rcases Nat.eq_or_lt_of_le hi2 with rfl | h
-            · exact absurd rfl hneof
-            · exact h
-          have hdrop_i : bs.drop i = bs[i] :: bs.drop (i + 1) := List.drop_eq_getElem_cons hlt
-          refine ⟨_, loadub_At hlt (by omega) hm, ?_⟩
-          rw [u8_sub48_ult10]
-          refine ⟨fun hd => ?_, fun hnd => ?_⟩
-          · obtain ⟨_, hd_lt, hd_bv⟩ := digit_bounds hd
-            rw [hd_bv]
-            let acc2 := acc * 10 + (bs[i].toNat - 48)
-            have hmul_add : BitVec.ofNat 64 acc * 10 + BitVec.ofNat 64 (bs[i].toNat - 48) =
-                BitVec.ofNat 64 acc2 := by
-              unfold dimacsBound at hacc
-              apply BitVec.eq_of_toNat_eq
-              simp [acc2, BitVec.toNat_add, BitVec.toNat_mul]
-            rw [hmul_add]
-            have hult_bound : (BitVec.ofNat 64 acc2).ult 268435456 = decide (acc2 < dimacsBound) := by
-              unfold dimacsBound at hacc ⊢
-              simp only [BitVec.ult, BitVec.toNat_ofNat]
-              have : acc2 < 2 ^ 64 := by omega
-              rw [Nat.mod_eq_of_lt this]
-              congr 1
-            rw [hult_bound]
-            refine ⟨fun hokb => ?_, fun hnokb => ?_⟩
-            · have hacc2 : acc2 < dimacsBound := of_decide_eq_true hokb
-              rw [ptr_step_1]
-              refine ih _ _ _ (by omega) ⟨i + 1, acc2, by omega, by omega, rfl, hacc2, ?_, rfl, rfl⟩
-              rw [hdrop_i, parseDigitsAux] at hinv
-              simpa [hd, hacc2, acc2] using hinv
-            · have hnacc2 : ¬ acc2 < dimacsBound := of_decide_eq_false hnokb
-              apply hfail
-              rw [← hinv, hdrop_i, parseDigitsAux]
-              simp [hd, hnacc2, acc2]
-          · refine isWsByte_spec ?_
-            wp_unfold
-            refine ⟨fun hws => ?_, fun hnws => ?_⟩
-            · refine hJdone _ _ ⟨acc, i, bs.drop i, ?_, hacc, hi1, hi2, rfl, rfl, rfl⟩
-              rw [← hinv, hdrop_i, parseDigitsAux]
-              simp [hnd, hws]
-            · apply hfail
-              rw [← hinv, hdrop_i, parseDigitsAux]
-              simp [hnd, hnws]
-      · intro Jpdig hJpdig
-        wp_unfold
-        rw [ptr_step_1, hd0_bv]
-        exact hJpdig _ _ _ ⟨i0 + 1, bs[i0].toNat - 48, by omega, by omega, rfl,
-          by unfold dimacsBound; omega, hp0.symm, rfl, rfl⟩
-    · exact hfail (by rw [hdrop0]; simp [parseNat, hnd0])
+    refine ⟨fun hd => ?_, fun hnd => isWsByte_spec (by
+      wp_unfold
+      refine ⟨fun hws => hJdone _ _ ⟨acc, i, bs.drop i, by rw [← hinv, hdrop_i, parseDigitsAux]; simp [hnd, hws], hacc, hi1, hi2, rfl, rfl, rfl⟩,
+        fun hnws => hfail (by rw [← hinv, hdrop_i, parseDigitsAux]; simp [hnd, hnws])⟩)⟩
+    obtain ⟨_, _, hd_bv⟩ := digit_bounds hd
+    rw [hd_bv]
+    let acc2 := acc * 10 + (bs[i].toNat - 48)
+    have hmul_add : BitVec.ofNat 64 acc * 10 + BitVec.ofNat 64 (bs[i].toNat - 48) = BitVec.ofNat 64 acc2 := by
+      unfold dimacsBound at hacc; apply BitVec.eq_of_toNat_eq; simp [acc2, BitVec.toNat_add, BitVec.toNat_mul]
+    rw [hmul_add, show (268435456 : Val) = BitVec.ofNat 64 268435456 from rfl]
+    unfold dimacsBound at hacc
+    refine ult_branch (a := acc2) (b := 268435456) (by omega) (by decide)
+      (fun hokb => by
+        rw [ptr_step_1]
+        have hokb' : acc2 < dimacsBound := hokb
+        exact ih _ _ _ (by omega) ⟨i + 1, acc2, by omega, by omega, rfl, hokb',
+          by rw [hdrop_i, parseDigitsAux] at hinv; simpa [hd, hokb', acc2] using hinv, rfl, rfl⟩)
+      (fun hnokb => hfail (by
+        have hnokb' : ¬ acc2 < dimacsBound := hnokb
+        rw [← hinv, hdrop_i, parseDigitsAux]; simp [hd, hnokb', acc2]))
+  · intro Jpdig hJpdig; wp_unfold; rw [ptr_step_1, hd0_bv]
+    exact hJpdig _ _ _ ⟨i0 + 1, bs[i0].toNat - 48, by omega, by omega, rfl,
+      by unfold dimacsBound; omega, hp0.symm, rfl, rfl⟩
 
 /-! ## 3. Correctness of `lbParseDimacsHeader` -/
 
@@ -427,48 +270,6 @@ private def parseHeaderAfterCnf (bs3 : List UInt8) : Option (Nat × Nat × List 
   let (nc, bs7) ← parseNat bs6
   some (mv, nc, bs7)
 
-private def parseHeaderCnfTag (bs2 : List UInt8) : Option (Nat × Nat × List UInt8) :=
-  match bs2 with
-  | 99 :: 110 :: 102 :: bs3 => parseHeaderAfterCnf bs3
-  | _ => none
-
-private theorem parseHeader_eq (bs : List UInt8) :
-    parseHeader bs =
-      match skipWsComments bs with
-      | 112 :: bs1 => (skipWs1 bs1).bind parseHeaderCnfTag
-      | _ => none := rfl
-
-private theorem parseHeader_of_cons_112 (bs1 : List UInt8) :
-    (match (112 : UInt8) :: bs1 with
-     | 112 :: r => (skipWs1 r).bind parseHeaderCnfTag
-     | _ => none) = (skipWs1 bs1).bind parseHeaderCnfTag := by
-  split <;> grind
-
-private theorem parseHeader_of_cons_ne112 {b : UInt8} (hb : b ≠ 112) (bs1 : List UInt8) :
-    (match b :: bs1 with
-     | 112 :: r => (skipWs1 r).bind parseHeaderCnfTag
-     | _ => none) = none := by
-  split <;> grind
-
-private theorem parseHeaderCnfTag_ok (bs3 : List UInt8) :
-    parseHeaderCnfTag (99 :: 110 :: 102 :: bs3) = parseHeaderAfterCnf bs3 := by
-  unfold parseHeaderCnfTag; split <;> grind
-
-private theorem parseHeaderCnfTag_short0 : parseHeaderCnfTag [] = none := rfl
-private theorem parseHeaderCnfTag_short1 (a : UInt8) : parseHeaderCnfTag [a] = none := by
-  unfold parseHeaderCnfTag; split <;> grind
-private theorem parseHeaderCnfTag_short2 (a b : UInt8) : parseHeaderCnfTag [a, b] = none := by
-  unfold parseHeaderCnfTag; split <;> grind
-private theorem parseHeaderCnfTag_ne0 {a : UInt8} (ha : a ≠ 99) (r : List UInt8) :
-    parseHeaderCnfTag (a :: r) = none := by
-  unfold parseHeaderCnfTag; split <;> grind
-private theorem parseHeaderCnfTag_ne1 (a : UInt8) {b : UInt8} (hb : b ≠ 110) (r : List UInt8) :
-    parseHeaderCnfTag (a :: b :: r) = none := by
-  unfold parseHeaderCnfTag; split <;> grind
-private theorem parseHeaderCnfTag_ne2 (a b : UInt8) {c : UInt8} (hc : c ≠ 102) (r : List UInt8) :
-    parseHeaderCnfTag (a :: b :: c :: r) = none := by
-  unfold parseHeaderCnfTag; split <;> grind
-
 private theorem region80_to_words10 {hdr : Val} {f : Mem 64} (hf : region hdr 80 f) :
     ∃ w0 w1 w2 w3 w4 w5 w6 w7 w8 w9 : Val,
       word8Array hdr [w0, w1, w2, w3, w4, w5, w6, w7, w8, w9] f := by
@@ -477,145 +278,121 @@ private theorem region80_to_words10 {hdr : Val} {f : Mem 64} (hf : region hdr 80
     simp at hlen
   exact ⟨w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, hwa⟩
 
+private theorem expectByte_branch {base : Val} {bs : List UInt8} {i : Nat} {k : UInt8}
+    {R : Mem 64 → Prop} {m : Mem 64} {P Q : Prop}
+    (hbase : base.toNat + bs.length < 2 ^ 64) (hi : i ≤ bs.length) (hm : (Eq (bs.At base) ⋆ R) m)
+    (heof : bs.drop i = [] → Q)
+    (hmatch : ∀ (hlt : i < bs.length), bs[i] = k → P)
+    (hmismatch : ∀ (hlt : i < bs.length), bs[i] ≠ k → Q) :
+    (base + BitVec.ofNat 64 i = base + BitVec.ofNat 64 bs.length → Q) ∧
+    (base + BitVec.ofNat 64 i ≠ base + BitVec.ofNat 64 bs.length →
+      ∃ v, loadVal m .l .b false (base + BitVec.ofNat 64 i) = some v ∧
+        ((v = BitVec.ofNat 64 k.toNat → P) ∧ (v ≠ BitVec.ofNat 64 k.toNat → Q))) :=
+  cursor_eof_branch hi (by omega) (fun heq => heof (by rw [heq]; simp))
+    (fun hlt => ⟨_, loadub_At hlt (by omega) hm,
+      fun heq => hmatch hlt ((bv64_u8_eq (k := k)).mp heq),
+      fun hne => hmismatch hlt (fun h => hne ((bv64_u8_eq (k := k)).mpr h))⟩)
+
 theorem lbParseDimacsHeader_correct (Γ : Env) :
     ∀ args m Q X, lbParseDimacsHeaderSpec args m Q X → Func.spec Γ lbParseDimacsHeader args m Q X := by
   rintro args m Q X ⟨cnf_ptr, hdr, cnfBytes, R, rfl, hcnf, _, hm, hpost⟩
-  unfold lbParseDimacsHeader Func.spec
-  wp_unfold
-  have hm_cnf : (Eq (cnfBytes.At cnf_ptr) ⋆ (region hdr 80 ⋆ R)) m := sep_cast hm (by ac_rfl)
+  unfold lbParseDimacsHeader Func.spec; wp_unfold
+  have hm_cnf : (Eq (cnfBytes.At cnf_ptr) ⋆ (region hdr 80 ⋆ R)) m := sep_ac hm
   apply wp_join (fun as m' => as = [] ∧ m' = m ∧ parseHeader cnfBytes = none)
-  · rintro _ _ ⟨rfl, rfl, hnone⟩
-    wp_unfold
-    apply hpost
-    rw [hnone]
-    exact ⟨rfl, hm⟩
+  · rintro _ _ ⟨rfl, rfl, hnone⟩; wp_unfold; apply hpost; rw [hnone]; exact ⟨rfl, hm⟩
   intro Jfail hJfail
   have hfail_of : parseHeader cnfBytes = none → Jfail [] m := fun h => hJfail [] m ⟨rfl, rfl, h⟩
   conv => arg 4; arg 1; rw [show cnf_ptr = cnf_ptr + BitVec.ofNat 64 0 by simp]
   refine skipWsCommentsQbe_spec (i0 := 0) hcnf (Nat.zero_le _) hm_cnf fun i1 _ hi1 hsw1 => ?_
   simp only [List.drop_zero] at hsw1
   wp_unfold
-  refine ⟨fun heof1 => ?_, fun hneof1 => ?_⟩
-  · have hi1_eq : i1 = cnfBytes.length := (cursor_eq_iff (by omega) (by omega)).mp heof1
-    subst hi1_eq
-    apply hfail_of
-    rw [parseHeader_eq, ← hsw1]; simp
-  · have hlt1 : i1 < cnfBytes.length := by
-      rcases Nat.eq_or_lt_of_le hi1 with rfl | h
-      · exact absurd rfl hneof1
-      · exact h
-    have hd1 : cnfBytes.drop i1 = cnfBytes[i1] :: cnfBytes.drop (i1 + 1) := List.drop_eq_getElem_cons hlt1
-    refine ⟨_, loadub_At hlt1 (by omega) hm_cnf, fun hisp => ?_, fun hnisp => ?_⟩
-    · have hp112 : cnfBytes[i1] = 112 := (bv64_u8_eq (k := 112)).mp hisp
-      have hph1 : parseHeader cnfBytes = (skipWs1 (cnfBytes.drop (i1 + 1))).bind parseHeaderCnfTag := by
-        rw [parseHeader_eq, ← hsw1, hd1, hp112, parseHeader_of_cons_112]
-      rw [ptr_step_1]
-      refine skipWs1Qbe_spec hcnf (by omega) hm_cnf
-        (fun hnone => hfail_of (by rw [hph1, hnone]; rfl))
-        fun i2 bs2 hbs2 _ hi2 hd2 => ?_
-      wp_unfold
-      refine ⟨fun heofc0 => ?_, fun hneofc0 => ?_⟩
-      · have hi2_eq : i2 = cnfBytes.length := (cursor_eq_iff (by omega) (by omega)).mp heofc0
-        subst hi2_eq
-        apply hfail_of
-        have hbs2_nil : bs2 = [] := by rw [← hd2]; simp
-        rw [hph1, hbs2, hbs2_nil]; exact parseHeaderCnfTag_short0
-      · have hlt2 : i2 < cnfBytes.length := by
-          rcases Nat.eq_or_lt_of_le hi2 with rfl | h
-          · exact absurd rfl hneofc0
-          · exact h
-        have hd2_0 : cnfBytes.drop i2 = cnfBytes[i2] :: cnfBytes.drop (i2 + 1) := List.drop_eq_getElem_cons hlt2
-        refine ⟨_, loadub_At hlt2 (by omega) hm_cnf, fun hisc => ?_, fun hnisc => ?_⟩
-        · have hc99 : cnfBytes[i2] = 99 := (bv64_u8_eq (k := 99)).mp hisc
-          rw [ptr_step_1]
-          refine ⟨fun heofc1 => ?_, fun hneofc1 => ?_⟩
-          · have hi2_1 : i2 + 1 = cnfBytes.length := (cursor_eq_iff (by omega) (by omega)).mp heofc1
-            apply hfail_of
-            have hnil : cnfBytes.drop (i2 + 1) = [] := by rw [hi2_1]; simp
-            rw [hph1, hbs2, ← hd2, hd2_0, hc99, hnil]; exact parseHeaderCnfTag_short1 99
-          · have hlt2_1 : i2 + 1 < cnfBytes.length := by
-              rcases Nat.eq_or_lt_of_le (show i2 + 1 ≤ cnfBytes.length by omega) with h | h
-              · exact absurd ((cursor_eq_iff (by omega) (by omega)).mpr h) hneofc1
-              · exact h
-            have hd2_1 : cnfBytes.drop (i2 + 1) = cnfBytes[i2 + 1] :: cnfBytes.drop (i2 + 2) :=
-              List.drop_eq_getElem_cons hlt2_1
-            refine ⟨_, loadub_At hlt2_1 (by omega) hm_cnf, fun hisn => ?_, fun hnisn => ?_⟩
-            · have hn110 : cnfBytes[i2 + 1] = 110 := (bv64_u8_eq (k := 110)).mp hisn
-              rw [show cnf_ptr + BitVec.ofNat 64 i2 + 2 = cnf_ptr + BitVec.ofNat 64 (i2 + 2) from
-                ptr_add_ofNat cnf_ptr i2 2]
-              refine ⟨fun heofc2 => ?_, fun hneofc2 => ?_⟩
-              · have hi2_2 : i2 + 2 = cnfBytes.length := (cursor_eq_iff (by omega) (by omega)).mp heofc2
-                apply hfail_of
-                have hnil : cnfBytes.drop (i2 + 2) = [] := by rw [hi2_2]; simp
-                rw [hph1, hbs2, ← hd2, hd2_0, hc99, hd2_1, hn110, hnil]
-                exact parseHeaderCnfTag_short2 99 110
-              · have hlt2_2 : i2 + 2 < cnfBytes.length := by
-                  rcases Nat.eq_or_lt_of_le (show i2 + 2 ≤ cnfBytes.length by omega) with h | h
-                  · exact absurd ((cursor_eq_iff (by omega) (by omega)).mpr h) hneofc2
-                  · exact h
-                have hd2_2 : cnfBytes.drop (i2 + 2) = cnfBytes[i2 + 2] :: cnfBytes.drop (i2 + 3) :=
-                  List.drop_eq_getElem_cons hlt2_2
-                refine ⟨_, loadub_At hlt2_2 (by omega) hm_cnf, fun hisf => ?_, fun hnisf => ?_⟩
-                · have hf102 : cnfBytes[i2 + 2] = 102 := (bv64_u8_eq (k := 102)).mp hisf
-                  have hph2 : parseHeader cnfBytes = parseHeaderAfterCnf (cnfBytes.drop (i2 + 3)) := by
-                    rw [hph1, hbs2, ← hd2, hd2_0, hc99, hd2_1, hn110, hd2_2, hf102]
-                    exact parseHeaderCnfTag_ok _
-                  rw [show cnf_ptr + BitVec.ofNat 64 i2 + 3 = cnf_ptr + BitVec.ofNat 64 (i2 + 3) from
-                    ptr_add_ofNat cnf_ptr i2 3]
-                  refine skipWs1Qbe_spec hcnf (by omega) hm_cnf
-                    (fun hnone => hfail_of (by rw [hph2]; simp [parseHeaderAfterCnf, hnone]))
-                    fun i3 bs4 hbs4 _ hi3 hd3 => ?_
-                  subst hd3
-                  refine readDimacsNat_spec hcnf hi3 hm_cnf
-                    (fun hnone => hfail_of (by rw [hph2]; simp [parseHeaderAfterCnf, hbs4, hnone]))
-                    fun mv i4 bs5 hbs5 hmv _ hi4 hd4 => ?_
-                  subst hd4
-                  refine skipWs1Qbe_spec hcnf hi4 hm_cnf
-                    (fun hnone => hfail_of (by rw [hph2]; simp [parseHeaderAfterCnf, hbs4, hbs5, hnone]))
-                    fun i5 bs6 hbs6 _ hi5 hd5 => ?_
-                  subst hd5
-                  refine readDimacsNat_spec hcnf hi5 hm_cnf
-                    (fun hnone => hfail_of (by rw [hph2]; simp [parseHeaderAfterCnf, hbs4, hbs5, hbs6, hnone]))
-                    fun nc i6 bs7 hbs7 hnc _ hi6 hd6 => ?_
-                  wp_unfold
-                  have hph_ok : parseHeader cnfBytes = some (mv, nc, bs7) := by
-                    rw [hph2]; simp [parseHeaderAfterCnf, hbs4, hbs5, hbs6, hbs7]
-                  have hm_hdr : (region hdr 80 ⋆ (Eq (cnfBytes.At cnf_ptr) ⋆ R)) m :=
-                    sep_cast hm (by ac_rfl)
-                  obtain ⟨f1, f2, hu, hd_m, hf1, hf2⟩ := hm_hdr
-                  obtain ⟨w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, hwa⟩ := region80_to_words10 hf1
-                  have hm0 : (word8Array hdr [w0, w1, w2, w3, w4, w5, w6, w7, w8, w9] ⋆
-                      (Eq (cnfBytes.At cnf_ptr) ⋆ R)) m := ⟨f1, f2, hu, hd_m, hwa, hf2⟩
-                  have ⟨ok0, hm1⟩ := storel_word8Array (i := 0) (BitVec.ofNat 64 mv) (by simp) hm0
-                  simp only [Nat.mul_zero, BitVec.add_zero, List.set_cons_zero] at ok0 hm1
-                  have ⟨ok1, hm2⟩ := storel_word8Array (i := 1) (BitVec.ofNat 64 nc) (by simp) hm1
-                  have ⟨ok9, hm3⟩ := storel_word8Array (i := 9) (cnf_ptr + BitVec.ofNat 64 i6) (by simp) hm2
-                  refine ⟨ok0, ok1, ok9, ?_⟩
-                  apply hpost
-                  rw [hph_ok]
-                  have hi6_eq : cnfBytes.length - bs7.length = i6 := by
-                    rw [← hd6, List.length_drop]; omega
-                  have hbs7_len : bs7.length ≤ cnfBytes.length := by
-                    rw [← hd6, List.length_drop]; omega
-                  refine ⟨rfl, hmv, hnc, by rw [hi6_eq, hd6], hbs7_len, w2, w3, w4, w5, w6, w7, w8, ?_⟩
-                  rw [hi6_eq]
-                  exact sep_cast hm3 (by simp only [List.set]; ac_rfl)
-                · have hne102 : cnfBytes[i2 + 2] ≠ 102 := fun h => hnisf ((bv64_u8_eq (k := 102)).mpr h)
-                  apply hfail_of
-                  rw [hph1, hbs2, ← hd2, hd2_0, hc99, hd2_1, hn110, hd2_2]
-                  exact parseHeaderCnfTag_ne2 99 110 hne102 _
-            · have hne110 : cnfBytes[i2 + 1] ≠ 110 := fun h => hnisn ((bv64_u8_eq (k := 110)).mpr h)
-              apply hfail_of
-              rw [hph1, hbs2, ← hd2, hd2_0, hc99, hd2_1]
-              exact parseHeaderCnfTag_ne1 99 hne110 _
-        · have hne99 : cnfBytes[i2] ≠ 99 := fun h => hnisc ((bv64_u8_eq (k := 99)).mpr h)
-          apply hfail_of
-          rw [hph1, hbs2, ← hd2, hd2_0]
-          exact parseHeaderCnfTag_ne0 hne99 _
-    · have hne112 : cnfBytes[i1] ≠ 112 := fun h => hnisp ((bv64_u8_eq (k := 112)).mpr h)
-      apply hfail_of
-      rw [parseHeader_eq, ← hsw1, hd1]
-      exact parseHeader_of_cons_ne112 hne112 _
+  refine expectByte_branch (k := 112) hcnf hi1 hm_cnf
+    (fun hnil => hfail_of (by unfold parseHeader; rw [← hsw1, hnil]))
+    (fun hlt1 hp112 => ?_)
+    (fun hlt1 hne112 => hfail_of (by
+      unfold parseHeader; rw [← hsw1, List.drop_eq_getElem_cons hlt1]
+      split
+      · simp_all only [List.cons.injEq, ne_eq, false_and]
+      · rfl))
+  have hd1 := List.drop_eq_getElem_cons hlt1
+  have hph1 : parseHeader cnfBytes =
+      (skipWs1 (cnfBytes.drop (i1 + 1))).bind (fun
+        | 99 :: 110 :: 102 :: bs3 => parseHeaderAfterCnf bs3
+        | _ => none) := by
+    unfold parseHeader; rw [← hsw1, hd1, hp112]; rfl
+  rw [ptr_step_1]
+  refine skipWs1Qbe_spec hcnf (by omega) hm_cnf
+    (fun hnone => hfail_of (by rw [hph1, hnone]; rfl))
+    fun i2 bs2 hbs2 _ hi2 hd2 => ?_
+  wp_unfold
+  refine expectByte_branch (k := 99) hcnf hi2 hm_cnf
+    (fun hnil => hfail_of (by rw [hph1, hbs2, ← hd2, hnil]; rfl))
+    (fun hlt2 hc99 => ?_)
+    (fun hlt2 hne99 => hfail_of (by
+      rw [hph1, hbs2, ← hd2, List.drop_eq_getElem_cons hlt2]
+      dsimp only [Option.bind]
+      split
+      · simp_all only [List.cons.injEq, ne_eq, false_and]
+      · rfl))
+  have hd2_0 := List.drop_eq_getElem_cons hlt2
+  rw [ptr_step_1]
+  refine expectByte_branch (k := 110) hcnf (by omega) hm_cnf
+    (fun hnil => hfail_of (by rw [hph1, hbs2, ← hd2, hd2_0, hc99, hnil]; rfl))
+    (fun hlt2_1 hn110 => ?_)
+    (fun hlt2_1 hne110 => hfail_of (by
+      rw [hph1, hbs2, ← hd2, hd2_0, hc99, List.drop_eq_getElem_cons hlt2_1]
+      dsimp only [Option.bind]
+      split
+      · simp_all only [List.cons.injEq, ne_eq, false_and, and_false]
+      · rfl))
+  have hd2_1 := List.drop_eq_getElem_cons hlt2_1
+  rw [show (2 : Val) = BitVec.ofNat 64 2 from rfl, ptr_add_ofNat]
+  refine expectByte_branch (k := 102) hcnf (by omega) hm_cnf
+    (fun hnil => hfail_of (by rw [hph1, hbs2, ← hd2, hd2_0, hc99, hd2_1, hn110, hnil]; rfl))
+    (fun hlt2_2 hf102 => ?_)
+    (fun hlt2_2 hne102 => hfail_of (by
+      rw [hph1, hbs2, ← hd2, hd2_0, hc99, hd2_1, hn110, List.drop_eq_getElem_cons hlt2_2]
+      dsimp only [Option.bind]
+      split
+      · simp_all only [List.cons.injEq, ne_eq, false_and, and_false]
+      · rfl))
+  have hd2_2 := List.drop_eq_getElem_cons hlt2_2
+  have hph2 : parseHeader cnfBytes = parseHeaderAfterCnf (cnfBytes.drop (i2 + 3)) := by
+    rw [hph1, hbs2, ← hd2, hd2_0, hc99, hd2_1, hn110, hd2_2, hf102]; rfl
+  rw [show (3 : Val) = BitVec.ofNat 64 3 from rfl, ptr_add_ofNat]
+  refine skipWs1Qbe_spec hcnf (by omega) hm_cnf
+    (fun hnone => hfail_of (by rw [hph2]; simp [parseHeaderAfterCnf, hnone]))
+    fun i3 bs4 hbs4 _ hi3 hd3 => ?_
+  subst hd3
+  refine readDimacsNat_spec hcnf hi3 hm_cnf
+    (fun hnone => hfail_of (by rw [hph2]; simp [parseHeaderAfterCnf, hbs4, hnone]))
+    fun mv i4 bs5 hbs5 hmv _ hi4 hd4 => ?_
+  subst hd4
+  refine skipWs1Qbe_spec hcnf hi4 hm_cnf
+    (fun hnone => hfail_of (by rw [hph2]; simp [parseHeaderAfterCnf, hbs4, hbs5, hnone]))
+    fun i5 bs6 hbs6 _ hi5 hd5 => ?_
+  subst hd5
+  refine readDimacsNat_spec hcnf hi5 hm_cnf
+    (fun hnone => hfail_of (by rw [hph2]; simp [parseHeaderAfterCnf, hbs4, hbs5, hbs6, hnone]))
+    fun nc i6 bs7 hbs7 hnc _ hi6 hd6 => ?_
+  wp_unfold
+  have hph_ok : parseHeader cnfBytes = some (mv, nc, bs7) := by
+    rw [hph2]; simp [parseHeaderAfterCnf, hbs4, hbs5, hbs6, hbs7]
+  have hm_re : (region hdr 80 ⋆ (Eq (cnfBytes.At cnf_ptr) ⋆ R)) m := sep_ac hm
+  obtain ⟨f1, f2, hu, hd_m, hf1, hf2⟩ := hm_re
+  obtain ⟨w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, hwa⟩ := region80_to_words10 hf1
+  have hm0 : (word8Array hdr [w0, w1, w2, w3, w4, w5, w6, w7, w8, w9] ⋆
+      (Eq (cnfBytes.At cnf_ptr) ⋆ R)) m := ⟨f1, f2, hu, hd_m, hwa, hf2⟩
+  have ⟨ok0, hm1⟩ := storel_word8Array (i := 0) (BitVec.ofNat 64 mv) (by simp) hm0
+  simp only [Nat.mul_zero, BitVec.add_zero, List.set_cons_zero] at ok0 hm1
+  have ⟨ok1, hm2⟩ := storel_word8Array (i := 1) (BitVec.ofNat 64 nc) (by simp) hm1
+  have ⟨ok9, hm3⟩ := storel_word8Array (i := 9) (cnf_ptr + BitVec.ofNat 64 i6) (by simp) hm2
+  refine ⟨ok0, ok1, ok9, ?_⟩
+  apply hpost; rw [hph_ok]
+  have hi6_eq : cnfBytes.length - bs7.length = i6 := by rw [← hd6, List.length_drop]; omega
+  refine ⟨rfl, hmv, hnc, by rw [hi6_eq, hd6], by rw [← hd6, List.length_drop]; omega,
+    w2, w3, w4, w5, w6, w7, w8, ?_⟩
+  rw [hi6_eq]; exact sep_ac hm3
 
 /-! ## 4. Pure clause/body helpers and `lbParseDimacsBody_correct` -/
 
@@ -737,30 +514,13 @@ theorem parseClausePure_fuel_irrel {f1 f2 mv poolRem : Nat} {acc : List Val} {bs
                 · rfl
                 · exact ih (by omega) (by omega)
 
-private theorem bv64_ofNat_slt_zero {v : Nat} (hv : v < 2 ^ 28) :
-    (BitVec.ofNat 64 v).slt 0#64 = false := by
-  unfold BitVec.slt BitVec.toInt
-  simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : v < 2 ^ 64), decide_eq_false_iff_not]
-  split <;> omega
-
-theorem isValidLit_ofNat {mv v : Nat} (hv1 : 1 ≤ v) (hvm : v ≤ mv) (hmv : mv < dimacsBound) :
-    IsValidLit mv (BitVec.ofNat 64 v) := by
-  unfold dimacsBound at hmv
-  have hslt := bv64_ofNat_slt_zero (v := v) (by omega)
-  refine ⟨?_, ?_, ?_, by omega⟩
-  · unfold IsInt32; grind
-  · intro hz
-    have := congrArg BitVec.toNat hz
-    simp [Nat.mod_eq_of_lt (by omega : v < 2 ^ 64)] at this
-    omega
-  · unfold bvAbs
-    rw [show (0 : BitVec 64) = 0#64 from rfl, hslt]
-    simp [Nat.mod_eq_of_lt (by omega : v < 2 ^ 64), hvm]
-
 theorem toLiteral_ofNat {v : Nat} (_hv1 : 1 ≤ v) (hvb : v < dimacsBound) :
     toLiteral (BitVec.ofNat 64 v) = (v, true) := by
   unfold dimacsBound at hvb
-  have hslt := bv64_ofNat_slt_zero hvb
+  have hslt : (BitVec.ofNat 64 v).slt 0#64 = false := by
+    unfold BitVec.slt BitVec.toInt
+    simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : v < 2 ^ 64), decide_eq_false_iff_not]
+    split <;> omega
   unfold toLiteral bvAbs
   rw [show (0 : BitVec 64) = 0#64 from rfl, hslt]
   simp [Nat.mod_eq_of_lt (by omega : v < 2 ^ 64)]
@@ -770,66 +530,6 @@ theorem toLiteral_neg_ofNat {mv v : Nat} (hv1 : 1 ≤ v) (hvm : v ≤ mv) (hmv :
   have hval := isValidLit_ofNat hv1 hvm hmv
   rw [toLiteral_neg hval, toLiteral_ofNat hv1 (by omega)]
   rfl
-
-private theorem toNat_add_ofNat {a : Val} {k : Nat} (h : a.toNat + k < 2 ^ 64) :
-    (a + BitVec.ofNat 64 k).toNat = a.toNat + k := by
-  simp only [BitVec.toNat_add, BitVec.toNat_ofNat]
-  omega
-
-private theorem workCfg_hfit_eq (c : WorkCfg) :
-    c.hdr.toNat + (80 + c.vBytes + c.tBytes + 8 * c.cap + 4 * c.poolInts) < 2 ^ 64 :=
-  c.hfit
-
-private theorem workCfg_pbase_toNat (c : WorkCfg) :
-    c.pbase.toNat = c.hdr.toNat + 80 + c.vBytes + c.tBytes + 8 * c.cap ∧
-      c.pbase.toNat + 4 * c.poolInts < 2 ^ 64 := by
-  have hfit := workCfg_hfit_eq c
-  have h1 : c.vb.toNat = c.hdr.toNat + 80 := by
-    unfold WorkCfg.vb
-    exact toNat_add_ofNat (a := c.hdr) (k := 80) (by omega)
-  have h2 : c.tb.toNat = c.hdr.toNat + 80 + c.vBytes := by
-    unfold WorkCfg.tb
-    rw [toNat_add_ofNat (by omega), h1]
-  have h3 : c.cb.toNat = c.hdr.toNat + 80 + c.vBytes + c.tBytes := by
-    unfold WorkCfg.cb
-    rw [toNat_add_ofNat (by omega), h2]
-  have h4 : c.pbase.toNat = c.hdr.toNat + 80 + c.vBytes + c.tBytes + 8 * c.cap := by
-    unfold WorkCfg.pbase
-    rw [toNat_add_ofNat (by omega), h3]
-  exact ⟨h4, by omega⟩
-
-private theorem workCfg_pcur_ne_zero (c : WorkCfg) {u : Nat} (hu : u ≤ c.poolInts) :
-    c.pbase + BitVec.ofNat 64 (4 * u) ≠ 0 := by
-  obtain ⟨hpbase, hpfit⟩ := workCfg_pbase_toNat c
-  intro hz
-  have h : (c.pbase + BitVec.ofNat 64 (4 * u)).toNat = 0 := congrArg BitVec.toNat hz
-  rw [toNat_add_ofNat (by omega)] at h
-  omega
-
-private theorem workCfg_wcur_eq_plim_iff (c : WorkCfg) {u : Nat} (hu : u ≤ c.poolInts) :
-    c.pbase + BitVec.ofNat 64 (4 * u) = c.plim ↔ u = c.poolInts := by
-  obtain ⟨_, hpfit⟩ := workCfg_pbase_toNat c
-  unfold WorkCfg.plim
-  rw [cursor_eq_iff (by omega) (by omega)]
-  omega
-
-private theorem sep4_1_front {A B C D : Mem 64 → Prop} : (((A ⋆ B) ⋆ C) ⋆ D) = (A ⋆ (B ⋆ C ⋆ D)) := by ac_rfl
-private theorem sep4_2_front {A B C D : Mem 64 → Prop} : (((A ⋆ B) ⋆ C) ⋆ D) = (B ⋆ (A ⋆ C ⋆ D)) := by ac_rfl
-private theorem sep4_ws_pack {A B C D : Mem 64 → Prop} : (((A ⋆ B) ⋆ C) ⋆ D) = ((B ⋆ (A ⋆ C)) ⋆ D) := by ac_rfl
-private theorem sep4_cb_back {CB BF PZ Rest : Mem 64 → Prop} :
-    (CB ⋆ ((BF ⋆ PZ) ⋆ Rest)) = (((BF ⋆ CB) ⋆ PZ) ⋆ Rest) := by ac_rfl
-private theorem sep5_1_front {A B C D E : Mem 64 → Prop} :
-    ((((A ⋆ B) ⋆ C) ⋆ D) ⋆ E) = (A ⋆ (B ⋆ C ⋆ D ⋆ E)) := by ac_rfl
-private theorem sep5_reg_front {A B C D E : Mem 64 → Prop} :
-    ((((A ⋆ B) ⋆ C) ⋆ D) ⋆ E) = (D ⋆ (A ⋆ B ⋆ C ⋆ E)) := by ac_rfl
-private theorem sep5_zt_bm_front {A B C D E : Mem 64 → Prop} :
-    ((((A ⋆ B) ⋆ C) ⋆ D) ⋆ E) = ((C ⋆ B) ⋆ (A ⋆ D ⋆ E)) := by ac_rfl
-private theorem sep5_bm_back {BM A D E : Mem 64 → Prop} :
-    (BM ⋆ ((A ⋆ D) ⋆ E)) = (((A ⋆ BM) ⋆ D) ⋆ E) := by ac_rfl
-private theorem sep5_cb_front {ZT BF CB PU Rest : Mem 64 → Prop} :
-    ((ZT ⋆ ((BF ⋆ CB) ⋆ PU)) ⋆ Rest) = (CB ⋆ ((BF ⋆ (PU ⋆ ZT)) ⋆ Rest)) := by ac_rfl
-private theorem sep6_reg_back {W R2 A B C E : Mem 64 → Prop} :
-    (W ⋆ (R2 ⋆ (((A ⋆ B) ⋆ C) ⋆ E))) = ((((A ⋆ B) ⋆ (C ⋆ W)) ⋆ R2) ⋆ E) := by ac_rfl
 
 private def BodyFixed (c : WorkCfg) (cur0 : Val) : Mem 64 → Prop :=
   word8Array c.hdr (c.hdrWords c.pbase cur0) ⋆
@@ -862,80 +562,40 @@ private theorem collapse_body_state (c : WorkCfg) {cur0 : Val}
       region (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + accLen))) (4 * rem)) m) :
     region c.hdr c.activeBytes m := by
   unfold BodyMid BodyFixed at hm
-  have hfit := workCfg_hfit_eq c
-  have hmv := c.hmv
-  unfold dimacsBound at hmv
-  have hvb : c.mv + 1 ≤ c.vBytes := by unfold WorkCfg.vBytes; omega
-  have htb : c.tRaw ≤ c.tBytes := by unfold WorkCfg.tBytes; omega
+  have hfit := c.fit_active; have hmv := c.hmv; unfold dimacsBound at hmv; unfold WorkCfg.activeBytes at hfit
   let pcur := c.pbase + BitVec.ofNat 64 (4 * poolUsed)
   let wcur := c.pbase + BitVec.ofNat 64 (4 * (poolUsed + accLen))
-  have r_hdr : ∀ f, word8Array c.hdr (c.hdrWords c.pbase cur0) f → region c.hdr 80 f := fun f hf => by
-    have := word8Array_to_region (by simp [WorkCfg.hdrWords]) hf
-    simpa [WorkCfg.hdrWords] using this
-  have r_val : ∀ f, byte1Array c.vb (assignBytes c.mv Assignment.empty) f →
-      region c.vb (c.mv + 1) f := fun f hf => by
-    have := byte1Array_to_region (by simp; omega) hf
-    simpa using this
-  have r_cb : ∀ f, word8Array c.cb ptrs f → region c.cb (8 * c.cap) f := fun f hf => by
-    have := word8Array_to_region (by rw [hplen]; omega) hf
-    rwa [hplen] at this
-  have r_lits : ∀ f, int4Array pcur lits f → region pcur (4 * accLen) f := fun f hf => by
-    have := int4Array_to_region (by rw [hll]; omega) hf
-    rwa [hll] at this
-  have hm1 : (region c.hdr 80 ⋆
-      region c.vb (c.mv + 1) ⋆
-      region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1)) ⋆
-      region c.tb c.tRaw ⋆
-      region c.tlim (c.tBytes - c.tRaw) ⋆
-      region c.cb (8 * c.cap) ⋆
-      region c.pbase (4 * poolUsed) ⋆
-      region pcur (4 * accLen) ⋆
-      region wcur (4 * rem)) m :=
-    sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2
-      r_hdr r_val) (fun _ h => h)) (fun _ h => h)) (fun _ h => h)) r_cb) hpu) r_lits) (fun _ h => h) m hm
   have hwcur : wcur = pcur + BitVec.ofNat 64 (4 * accLen) := by
-    dsimp [wcur, pcur]
-    rw [ptr_add_ofNat]
-    congr 2; omega
-  have e_ar : (region pcur (4 * accLen) ⋆ region wcur (4 * rem)) = region pcur (4 * (accLen + rem)) := by
-    rw [hwcur]
-    have : 4 * (accLen + rem) = 4 * accLen + 4 * rem := by omega
-    rw [this, region_split (by omega)]
-  have e_pool : (region c.pbase (4 * poolUsed) ⋆ region pcur (4 * (accLen + rem))) =
-      region c.pbase (4 * c.poolInts) := by
-    have : 4 * c.poolInts = 4 * poolUsed + 4 * (accLen + rem) := by omega
-    rw [this, region_split (by omega)]
-  have e_cb : (region c.cb (8 * c.cap) ⋆ region c.pbase (4 * c.poolInts)) =
-      region c.cb (8 * c.cap + 4 * c.poolInts) := by
-    conv => rhs; rw [region_split (by omega)]
-    rfl
-  have e_t : (region c.tb c.tRaw ⋆ region c.tlim (c.tBytes - c.tRaw)) = region c.tb c.tBytes := by
-    have : c.tBytes = c.tRaw + (c.tBytes - c.tRaw) := by omega
-    conv => rhs; rw [this, region_split (by omega)]
-    rfl
-  have e_v : (region c.vb (c.mv + 1) ⋆
-      region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1))) =
-      region c.vb c.vBytes := by
-    have : c.vBytes = (c.mv + 1) + (c.vBytes - (c.mv + 1)) := by omega
-    conv => rhs; rw [this, region_split (by omega)]
-  have e_tcb : (region c.tb c.tBytes ⋆ region c.cb (8 * c.cap + 4 * c.poolInts)) =
-      region c.tb (c.tBytes + (8 * c.cap + 4 * c.poolInts)) := by
-    conv => rhs; rw [region_split (by omega)]
-    rfl
-  have e_vtcb : (region c.vb c.vBytes ⋆ region c.tb (c.tBytes + (8 * c.cap + 4 * c.poolInts))) =
-      region c.vb (c.vBytes + (c.tBytes + (8 * c.cap + 4 * c.poolInts))) := by
-    conv => rhs; rw [region_split (by omega)]
-    rfl
-  have e_all : (region c.hdr 80 ⋆ region c.vb (c.vBytes + (c.tBytes + (8 * c.cap + 4 * c.poolInts)))) =
-      region c.hdr c.activeBytes := by
-    have : c.activeBytes = 80 + (c.vBytes + (c.tBytes + (8 * c.cap + 4 * c.poolInts))) := by
-      unfold WorkCfg.activeBytes; omega
-    conv => rhs; rw [this, region_split (by omega)]
-    rfl
-  simp only [sep_assoc] at hm1
-  rw [e_ar, e_pool, e_cb, ← sep_assoc (region c.tb c.tRaw), e_t, e_tcb,
-      ← sep_assoc (region c.vb (c.mv + 1)), e_v, e_vtcb, e_all] at hm1
-  exact hm1
+    dsimp [wcur, pcur]; rw [ptr_add_ofNat]; congr 2; omega
+  have h4 : ∀ f, (int4Array pcur lits ⋆ region wcur (4 * rem)) f →
+      region pcur (4 * (accLen + rem)) f := fun _ hf => by
+    rw [← region_merge_eq (a := pcur) (n1 := 4 * accLen) (n2 := 4 * rem) (by omega) (by omega), ← hwcur]
+    exact sep_mono (fun _ g => by have := int4Array_to_region (by rw [hll]; omega) g; rwa [hll] at this) hf
+  have hm0 : (word8Array c.hdr (c.hdrWords c.pbase cur0) ⋆
+      (byte1Array c.vb (assignBytes c.mv Assignment.empty) ⋆
+      (region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1)) ⋆
+      (region c.tb c.tRaw ⋆ (region c.tlim (c.tBytes - c.tRaw) ⋆
+      (word8Array c.cb ptrs ⋆ (PoolUsed ⋆ (int4Array pcur lits ⋆ region wcur (4 * rem))))))))) m := by
+    dsimp only [pcur, wcur]; exact sep_ac hm
+  have hm1 : (region c.hdr 80 ⋆
+      (region c.vb (c.mv + 1) ⋆
+      (region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1)) ⋆
+      (region c.tb c.tRaw ⋆ (region c.tlim (c.tBytes - c.tRaw) ⋆
+      (region c.cb (8 * c.cap) ⋆ (region c.pbase (4 * poolUsed) ⋆ region pcur (4 * (accLen + rem))))))))) m :=
+    sep_mono2
+      (fun _ hf => by have := word8Array_to_region (by simp [WorkCfg.hdrWords]) hf; simpa [WorkCfg.hdrWords] using this)
+      (sep_mono2 (fun _ hf => by simpa using byte1Array_to_region (by simp; omega) hf)
+      (sep_mono2 (fun _ h => h) (sep_mono2 (fun _ h => h) (sep_mono2 (fun _ h => h)
+      (sep_mono2 (fun _ hf => by have := word8Array_to_region (by rw [hplen]; omega) hf; rwa [hplen] at this)
+      (sep_mono2 hpu h4)))))) m hm0
+  dsimp only [pcur] at hm1
+  exact workCfg_regions_to_activeBytes c (poolUsedInts := poolUsed) (poolRemInts := accLen + rem)
+    (by omega) (sep_ac hm1)
+
+private theorem sep_mono_mid {A B B' C : Mem 64 → Prop} {m : Mem 64}
+    (h : ∀ f, B f → B' f) (hm : (A ⋆ B ⋆ C) m) : (A ⋆ B' ⋆ C) m := by
+  obtain ⟨f12, f3, hu1, hd1, ⟨f1, f2, hu2, hd2, hA, hB⟩, hC⟩ := hm
+  exact ⟨f12, f3, hu1, hd1, ⟨f1, f2, hu2, hd2, hA, h f2 hB⟩, hC⟩
 
 private theorem bodyMid_finish {c : WorkCfg} {cnf_ptr cur0 : Val} {cnfBytes : List UInt8}
     {poolUsed poolRem : Nat} {ptrs : List Val} {table : List (Option (List Val))}
@@ -952,16 +612,28 @@ private theorem bodyMid_finish {c : WorkCfg} {cnf_ptr cur0 : Val} {cnfBytes : Li
       WorkState c poolUsed poolRem cur0 ptrs table PoolUsed ⋆ R)
       (storeMem m .l (c.hdr + 64) pcur) := by
   intro pcur
-  rw [sep4_2_front] at hm
-  unfold BodyMid BodyFixed at hm
-  simp only [sep_assoc] at hm
-  have ⟨ok_p64, hm_done⟩ := storel_word8Array (i := 8) pcur (by simp [WorkCfg.hdrWords]) hm
+  have hm' : (word8Array c.hdr (c.hdrWords c.pbase cur0) ⋆
+      (byte1Array c.vb (assignBytes c.mv Assignment.empty) ⋆
+       region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1)) ⋆
+       region c.tb c.tRaw ⋆ region c.tlim (c.tBytes - c.tRaw) ⋆
+       word8Array c.cb ptrs ⋆ PoolUsed ⋆
+       region (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) (4 * poolRem) ⋆
+       Eq (cnfBytes.At cnf_ptr) ⋆ R)) m := by
+    unfold BodyMid BodyFixed at hm; exact sep_ac hm
+  have ⟨ok_p64, hm_done⟩ := storel_word8Array (i := 8) pcur (by simp [WorkCfg.hdrWords]) hm'
   have hset : (c.hdrWords c.pbase cur0).set 8 pcur = c.hdrWords pcur cur0 := rfl
   rw [hset] at hm_done
-  simp only [← sep_assoc] at hm_done
-  rw [sep4_ws_pack] at hm_done
-  refine ⟨ok_p64, ?_⟩
-  exact sep_mono (fun _ => sep_mono_r fun _ hws => ⟨hpsum, htr, hpu, hws⟩) hm_done
+  have hm_ws : (Eq (cnfBytes.At cnf_ptr) ⋆
+      (word8Array c.hdr (c.hdrWords pcur cur0) ⋆
+        byte1Array c.vb (assignBytes c.mv Assignment.empty) ⋆
+        region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1)) ⋆
+        region c.tb c.tRaw ⋆ region c.tlim (c.tBytes - c.tRaw) ⋆
+        word8Array c.cb ptrs ⋆ PoolUsed ⋆
+        region pcur (4 * poolRem)) ⋆ R)
+      (storeMem m .l (c.hdr + 64) pcur) := by
+    dsimp only [pcur] at hm_done ⊢; exact sep_ac hm_done
+  exact ⟨ok_p64, sep_mono_mid (B' := WorkState c poolUsed poolRem cur0 ptrs table PoolUsed)
+    (fun _ hws => ⟨hpsum, htr, hpu, hws⟩) hm_ws⟩
 
 private theorem bodyMid_store_clause {c : WorkCfg} {cur0 pcur : Val} {cidNat : Nat}
     {ptrs clits : List Val} {PoolUsed Rest : Mem 64 → Prop} {m : Mem 64}
@@ -971,10 +643,10 @@ private theorem bodyMid_store_clause {c : WorkCfg} {cur0 pcur : Val} {cidNat : N
     (BodyMid c cur0 (ptrs.set cidNat pcur) (PoolUsed ⋆ ZeroTermInts pcur clits) ⋆ Rest)
       (storeMem m .l (c.cb + BitVec.ofNat 64 (8 * cidNat)) pcur) := by
   unfold BodyMid at hm ⊢
-  rw [sep5_cb_front] at hm
-  obtain ⟨ok_slot, hm_slot⟩ := storel_word8Array pcur hcid hm
-  rw [sep4_cb_back] at hm_slot
-  exact ⟨ok_slot, hm_slot⟩
+  have hm' : (word8Array c.cb ptrs ⋆ (ZeroTermInts pcur clits ⋆ BodyFixed c cur0 ⋆ PoolUsed ⋆ Rest)) m :=
+    sep_ac hm
+  obtain ⟨ok_slot, hm_slot⟩ := storel_word8Array pcur hcid hm'
+  exact ⟨ok_slot, sep_ac hm_slot⟩
 
 private theorem initClauseTable_nil {cap : Nat} (hcap : 1 ≤ cap) :
     initClauseTable cap [] = List.replicate cap none := by
@@ -1022,17 +694,6 @@ private theorem tableRel_set {mv cap cid : Nat} {ptrs : List Val}
       refine ⟨hpne, hv, R_i ⋆ ZeroTermInts pcur clits, ?_⟩
       rw [hpu_eq, sep_assoc]
 
-private theorem region_pop_int4 {wcur : Val} {rem : Nat} (hrem : 0 < rem) (hfit : 4 * rem ≤ 2 ^ 64)
-    {f : Mem 64} (hf : region wcur (4 * rem) f) :
-    ∃ v0 : Val, (int4 wcur v0 ⋆ region (wcur + 4) (4 * (rem - 1))) f := by
-  have heq : 4 * rem = 4 + 4 * (rem - 1) := by omega
-  rw [heq, region_split (by omega)] at hf
-  obtain ⟨f1, f2, hu, hd, hf1, hf2⟩ := hf
-  obtain ⟨xs, hlen, hia⟩ := region_to_int4Array 1 (by decide) (by simpa using hf1)
-  rcases xs with _ | ⟨v0, _ | _⟩ <;> simp at hlen
-  simp only [int4Array_cons, int4Array_nil, sep_emp] at hia
-  exact ⟨v0, f1, f2, hu, hd, hia, hf2⟩
-
 private theorem lit_store_raw {wcur : Val} {rem : Nat} (v : Val)
     {CNF BM ARR R : Mem 64 → Prop} {m : Mem 64}
     (hrem : 0 < rem) (hfit : 4 * rem ≤ 2 ^ 64)
@@ -1040,61 +701,158 @@ private theorem lit_store_raw {wcur : Val} {rem : Nat} (v : Val)
     storeOk m .w wcur ∧
     ((CNF ⋆ BM ⋆ (ARR ⋆ int4 wcur v) ⋆ region (wcur + 4) (4 * (rem - 1))) ⋆ R)
       (storeMem m .w wcur v) := by
-  rw [sep5_reg_front] at hm
-  obtain ⟨f_w, f_rest, hu, hd, hf_w, hf_rest⟩ := hm
-  obtain ⟨v0, hv0_cell⟩ := region_pop_int4 hrem hfit hf_w
-  have hm_cell : ((int4 wcur v0 ⋆ region (wcur + 4) (4 * (rem - 1))) ⋆ (CNF ⋆ BM ⋆ ARR ⋆ R)) m :=
-    ⟨f_w, f_rest, hu, hd, hv0_cell, hf_rest⟩
-  rw [sep_assoc] at hm_cell
-  obtain ⟨ok_sw, hm_sw⟩ := store_int4 v hm_cell
-  rw [sep6_reg_back] at hm_sw
-  exact ⟨ok_sw, hm_sw⟩
+  obtain ⟨ok_sw, hm_sw⟩ := region_pop_store_int4 v hrem hfit (sep_ac hm : (region wcur (4 * rem) ⋆ (CNF ⋆ BM ⋆ ARR ⋆ R)) m)
+  exact ⟨ok_sw, sep_ac hm_sw⟩
+
+private theorem lit_fail_collapse (c : WorkCfg) {cnf_ptr cur0 : Val} {cnfBytes : List UInt8}
+    {ptrs lits : List Val} {PoolUsed R : Mem 64 → Prop} {m : Mem 64}
+    {poolUsed accLen rem : Nat}
+    (hplen : ptrs.length = c.cap) (hll : lits.length = accLen)
+    (hpsum : poolUsed + accLen + rem = c.poolInts)
+    (hpu : ∀ f, PoolUsed f → region c.pbase (4 * poolUsed) f)
+    (hm : ((Eq (cnfBytes.At cnf_ptr) ⋆
+      BodyMid c cur0 ptrs PoolUsed ⋆
+      int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) lits ⋆
+      region (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + accLen))) (4 * rem)) ⋆ R) m) :
+    (Eq (cnfBytes.At cnf_ptr) ⋆ region c.hdr c.activeBytes ⋆ R) m := by
+  have hm_re : (Eq (cnfBytes.At cnf_ptr) ⋆
+      (BodyMid c cur0 ptrs PoolUsed ⋆
+        int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) lits ⋆
+        region (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + accLen))) (4 * rem)) ⋆ R) m :=
+    sep_ac hm
+  exact sep_mono_mid (B' := region c.hdr c.activeBytes) (fun _ hm_ws =>
+    collapse_body_state c hplen hll hpsum hpu hm_ws) hm_re
+
+private theorem bodyMid_clause_finish {c : WorkCfg} {cnf_ptr cur0 : Val} {cnfBytes : List UInt8}
+    {cidNat poolUsed accLen rem : Nat} {ptrs acc : List Val}
+    {revClauses : List (List Val)} {PoolUsed R : Mem 64 → Prop} {m : Mem 64}
+    (hcid_lt : cidNat < c.cap) (hrev : revClauses.length = cidNat - 1) (hcid1 : 1 ≤ cidNat)
+    (hacc_len : acc.length = accLen) (hrem_pos : 0 < rem)
+    (hpsum : poolUsed + (accLen + 1) + (rem - 1) = c.poolInts) (hfit : 4 * rem ≤ 2 ^ 64)
+    (htr : TableRel c.mv c.cap ptrs (initClauseTable c.cap revClauses.reverse) PoolUsed)
+    (hpu : ∀ f, PoolUsed f → region c.pbase (4 * poolUsed) f)
+    (hacc_val : ∀ x ∈ acc, IsValidLit c.mv x)
+    (hm : ((Eq (cnfBytes.At cnf_ptr) ⋆
+      BodyMid c cur0 ptrs PoolUsed ⋆
+      int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) acc.reverse ⋆
+      region (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + accLen))) (4 * rem)) ⋆ R) m) :
+    let pcur := c.pbase + BitVec.ofNat 64 (4 * poolUsed)
+    let wcur := c.pbase + BitVec.ofNat 64 (4 * (poolUsed + accLen))
+    let poolUsed' := poolUsed + (accLen + 1)
+    storeOk m .w wcur ∧
+    storeOk (storeMem m .w wcur 0) .l (c.cb + BitVec.ofNat 64 (8 * cidNat)) ∧
+    TableRel c.mv c.cap (ptrs.set cidNat pcur)
+      (initClauseTable c.cap (acc.reverse :: revClauses).reverse)
+      (PoolUsed ⋆ ZeroTermInts pcur acc.reverse) ∧
+    (∀ f, (PoolUsed ⋆ ZeroTermInts pcur acc.reverse) f → region c.pbase (4 * poolUsed') f) ∧
+    ((Eq (cnfBytes.At cnf_ptr) ⋆
+      BodyMid c cur0 (ptrs.set cidNat pcur) (PoolUsed ⋆ ZeroTermInts pcur acc.reverse) ⋆
+      region (c.pbase + BitVec.ofNat 64 (4 * poolUsed')) (4 * (rem - 1))) ⋆ R)
+      (storeMem (storeMem m .w wcur 0) .l (c.cb + BitVec.ofNat 64 (8 * cidNat)) pcur) := by
+  dsimp only
+  subst hacc_len
+  obtain ⟨ok_z, hm_z⟩ := lit_store_raw 0 hrem_pos hfit hm
+  have hwcur_eq : c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length)) =
+      (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) + BitVec.ofNat 64 (4 * acc.reverse.length) := by
+    rw [List.length_reverse, ptr_add_ofNat]; congr 2; omega
+  have hwcur2 : (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) + 4 =
+      c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (acc.length + 1))) := by
+    rw [show (4 : Val) = BitVec.ofNat 64 4 from rfl, ptr_add_ofNat]
+    exact congrArg (c.pbase + BitVec.ofNat 64 ·) (by omega)
+  have hzt : ZeroTermInts (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) acc.reverse =
+      (int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) acc.reverse ⋆
+       int4 (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) 0) := by
+    rw [zeroTermInts_eq_append, ← hwcur_eq]
+  rw [← hzt] at hm_z
+  have hm_z' : ((ZeroTermInts (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) acc.reverse ⋆
+        BodyMid c cur0 ptrs PoolUsed) ⋆
+      (Eq (cnfBytes.At cnf_ptr) ⋆
+        region (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (acc.length + 1)))) (4 * (rem - 1)) ⋆ R))
+      (storeMem m .w (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) 0) := by
+    rw [← hwcur2]; exact sep_ac hm_z
+  obtain ⟨ok_slot, hm_slot⟩ := bodyMid_store_clause (by rw [htr.1]; exact hcid_lt) hm_z'
+  refine ⟨ok_z, ok_slot, ?_, ?_, sep_ac hm_slot⟩
+  · have hcid_eq_len : cidNat = revClauses.reverse.length + 1 := by simp [hrev]; omega
+    rw [List.reverse_cons, ← initClauseTable_set acc.reverse (by simp [hrev]; omega), ← hcid_eq_len]
+    exact tableRel_set htr hcid_lt (c.pcur_ne_zero (by omega))
+      (fun x hx => hacc_val x (List.mem_reverse.mp hx))
+  · intro f ⟨f1, f2, hu_f, hd_f, hf1, hf2⟩
+    have hfa := c.fit_active; unfold WorkCfg.activeBytes at hfa
+    have h4l : 4 * (acc.length + 1) ≤ 2 ^ 64 := by omega
+    rw [show 4 * (poolUsed + (acc.length + 1)) = 4 * poolUsed + 4 * (acc.length + 1) by omega,
+      region_split (by omega)]
+    exact ⟨f1, f2, hu_f, hd_f, hpu f1 hf1, by simpa using zeroTermInts_to_region (by simp; omega) hf2⟩
+
+private theorem bodyMid_lit_store {c : WorkCfg} {cnf_ptr cur0 : Val} {cnfBytes : List UInt8}
+    {poolUsed accLen rem : Nat} {ptrs acc : List Val} {PoolUsed R : Mem 64 → Prop} {m : Mem 64}
+    (lit : Val) (hacc_len : acc.length = accLen) (hrem_pos : 0 < rem)
+    (hfit : 4 * rem ≤ 2 ^ 64)
+    (hm : ((Eq (cnfBytes.At cnf_ptr) ⋆
+      BodyMid c cur0 ptrs PoolUsed ⋆
+      int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) acc.reverse ⋆
+      region (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + accLen))) (4 * rem)) ⋆ R) m) :
+    let wcur := c.pbase + BitVec.ofNat 64 (4 * (poolUsed + accLen))
+    storeOk m .w wcur ∧
+    ((Eq (cnfBytes.At cnf_ptr) ⋆
+      BodyMid c cur0 ptrs PoolUsed ⋆
+      int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) (lit :: acc).reverse ⋆
+      region (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (accLen + 1)))) (4 * (rem - 1))) ⋆ R)
+      (storeMem m .w wcur lit) := by
+  dsimp only; subst hacc_len
+  obtain ⟨ok_sw, hm_sw⟩ := lit_store_raw lit hrem_pos hfit hm
+  have hwcur_eq : c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length)) =
+      (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) + BitVec.ofNat 64 (4 * acc.reverse.length) := by
+    rw [List.length_reverse, ptr_add_ofNat]; congr 2; omega
+  have hwcur2 : (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) + 4 =
+      c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (acc.length + 1))) := by
+    rw [show (4 : Val) = BitVec.ofNat 64 4 from rfl, ptr_add_ofNat]
+    exact congrArg (c.pbase + BitVec.ofNat 64 ·) (by omega)
+  have harr_next : int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) (lit :: acc).reverse =
+      (int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) acc.reverse ⋆
+       int4 (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) lit) := by
+    rw [List.reverse_cons, int4Array_append, int4Array_cons, int4Array_nil, sep_emp, ← hwcur_eq]
+  exact ⟨ok_sw, by rwa [← harr_next, hwcur2] at hm_sw⟩
 
 theorem lbParseDimacsBody_correct (Γ : Env) :
     ∀ args m Q X, lbParseDimacsBodySpec args m Q X → Func.spec Γ lbParseDimacsBody args m Q X := by
   rintro args m Q X ⟨c, cnf_ptr, cnfBytes, idx0, R, rfl, hcnf, hidx0, hm, hpost⟩
-  unfold lbParseDimacsBody Func.spec
-  wp_unfold
+  unfold lbParseDimacsBody Func.spec; wp_unfold
   obtain ⟨f_ab, f_R, hu_top, hd_top, ⟨f_cnf, f_ws, hu_cw, hd_cw, h_cnf, hws0⟩, h_R⟩ := hm
   obtain ⟨_, htr0, _, hm_ws0⟩ := hws0
   dsimp only at hm_ws0
-  have hpbase0 : c.pbase + BitVec.ofNat 64 (4 * 0) = c.pbase := by simp
-  rw [hpbase0] at hm_ws0
+  simp only [Nat.mul_zero, BitVec.ofNat_eq_ofNat, BitVec.add_zero] at hm_ws0
   let cur0 := cnf_ptr + BitVec.ofNat 64 idx0
-  have hm_ws_bm : (BodyMid c cur0 (List.replicate c.cap 0) emp ⋆ region c.pbase (4 * c.poolInts)) f_ws :=
-    hm_ws0
+  have hm_init_raw : ((Eq (cnfBytes.At cnf_ptr) ⋆
+      (word8Array c.hdr (c.hdrWords c.pbase cur0) ⋆
+        byte1Array c.vb (assignBytes c.mv Assignment.empty) ⋆
+        region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1)) ⋆
+        region c.tb c.tRaw ⋆ region c.tlim (c.tBytes - c.tRaw) ⋆
+        word8Array c.cb (List.replicate c.cap 0) ⋆
+        emp ⋆ region c.pbase (4 * c.poolInts))) ⋆ R) m :=
+    ⟨f_ab, f_R, hu_top, hd_top, ⟨f_cnf, f_ws, hu_cw, hd_cw, h_cnf, hm_ws0⟩, h_R⟩
   have hm_init : ((Eq (cnfBytes.At cnf_ptr) ⋆
       BodyMid c cur0 (List.replicate c.cap 0) emp ⋆
       region c.pbase (4 * c.poolInts)) ⋆ R) m := by
-    have h1 : ((Eq (cnfBytes.At cnf_ptr) ⋆
-        (BodyMid c cur0 (List.replicate c.cap 0) emp ⋆ region c.pbase (4 * c.poolInts))) ⋆ R) m :=
-      ⟨f_ab, f_R, hu_top, hd_top, ⟨f_cnf, f_ws, hu_cw, hd_cw, h_cnf, hm_ws_bm⟩, h_R⟩
-    rwa [← sep_assoc (Eq (cnfBytes.At cnf_ptr))] at h1
+    unfold BodyMid BodyFixed; exact sep_ac hm_init_raw
   have hm_bm_front : (BodyMid c cur0 (List.replicate c.cap 0) emp ⋆
-      (Eq (cnfBytes.At cnf_ptr) ⋆ region c.pbase (4 * c.poolInts) ⋆ R)) m := by
-    have h := hm_init; rwa [sep4_2_front] at h
+      (Eq (cnfBytes.At cnf_ptr) ⋆ region c.pbase (4 * c.poolInts) ⋆ R)) m := sep_ac hm_init
   have hld0 := bodyMid_load_hdr (i := 0) (by decide) hm_bm_front
   simp only [Nat.mul_zero, BitVec.add_zero] at hld0
-  have hld1 := bodyMid_load_hdr (i := 1) (by decide) hm_bm_front
-  have hld6 := bodyMid_load_hdr (i := 6) (by decide) hm_bm_front
-  have hld7 := bodyMid_load_hdr (i := 7) (by decide) hm_bm_front
-  have hld8 := bodyMid_load_hdr (i := 8) (by decide) hm_bm_front
-  have hld9 := bodyMid_load_hdr (i := 9) (by decide) hm_bm_front
-  refine ⟨_, hld0, _, hld1, _, hld6, _, hld7, _, hld8, _, hld9, ?_⟩
+  refine ⟨_, hld0, _, bodyMid_load_hdr (i := 1) (by decide) hm_bm_front,
+    _, bodyMid_load_hdr (i := 6) (by decide) hm_bm_front,
+    _, bodyMid_load_hdr (i := 7) (by decide) hm_bm_front,
+    _, bodyMid_load_hdr (i := 8) (by decide) hm_bm_front,
+    _, bodyMid_load_hdr (i := 9) (by decide) hm_bm_front, ?_⟩
   simp only [WorkCfg.hdrWords, List.getElem_cons_succ, List.getElem_cons_zero]
   apply wp_join (fun as m' => as = [] ∧
     parseBodyPure c.mv c.nc c.poolInts [] (cnfBytes.drop idx0) = none ∧
     (Eq (cnfBytes.At cnf_ptr) ⋆ region c.hdr c.activeBytes ⋆ R) m')
-  · rintro _ m' ⟨rfl, hnone, hm'⟩
-    wp_unfold
-    apply hpost
-    rw [hnone]
-    exact ⟨rfl, hm'⟩
+  · rintro _ m' ⟨rfl, hnone, hm'⟩; wp_unfold; apply hpost; rw [hnone]; exact ⟨rfl, hm'⟩
   intro Jfail hJfail
-  have hmv_lt := c.hmv
-  have hnc_lt := c.hnc
-  have hnc_cap := c.hnc_cap
-  obtain ⟨_, hpfit⟩ := workCfg_pbase_toNat c
+  have hmv_lt := c.hmv; have hnc_lt := c.hnc; have hnc_cap := c.hnc_cap
+  have hfit_active := c.fit_active
+  have := c.toNat_vb; have := c.toNat_tb; have := c.toNat_cb; have := c.toNat_pbase
+  unfold WorkCfg.activeBytes at hfit_active
   apply wp_loop (fun r_cl as_cl m_cl =>
     ∃ (cidNat idx poolUsed poolRem : Nat) (revClauses : List (List Val))
       (ptrs : List Val) (PoolUsed : Mem 64 → Prop),
@@ -1115,57 +873,36 @@ theorem lbParseDimacsBody_correct (Γ : Env) :
       ⟨cidNat, idx, poolUsed, poolRem, revClauses, ptrs, PoolUsed,
        hcid1, hcid2, rfl, hrev_len, hidx, hpsum, rfl, hbody_inv, htr, hpu, hm_cl⟩ ih_cl
     wp_unfold
-    have hdone_cmp : (BitVec.ofNat 64 c.nc).ult (BitVec.ofNat 64 cidNat) = decide (c.nc < cidNat) := by
-      unfold dimacsBound at hnc_lt
-      simp only [BitVec.ult, BitVec.toNat_ofNat,
-        Nat.mod_eq_of_lt (by omega : c.nc < 2 ^ 64),
-        Nat.mod_eq_of_lt (by omega : cidNat < 2 ^ 64)]
-    rw [hdone_cmp]
-    refine ⟨fun hdone => ?_, fun hndone => ?_⟩
-    · have hcid_eq : cidNat = c.nc + 1 := by have := of_decide_eq_true hdone; omega
-      subst hcid_eq
-      simp only [Nat.sub_self] at hbody_inv
-      have hm_cnf_cl : (Eq (cnfBytes.At cnf_ptr) ⋆
-          (BodyMid c cur0 ptrs PoolUsed ⋆
-            region (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) (4 * poolRem) ⋆ R)) m_cl := by
-        have h := hm_cl; rwa [sep4_1_front] at h
-      refine skipWsCommentsQbe_spec hcnf hidx hm_cnf_cl fun j _ hj hsw => ?_
+    unfold dimacsBound at hnc_lt
+    refine ult_branch (by omega) (by omega) (fun hdone => ?_) (fun hndone => ?_)
+    · have hcid_eq : cidNat = c.nc + 1 := by omega
+      subst hcid_eq; simp only [Nat.sub_self] at hbody_inv
+      have hm_cl' : (Eq (cnfBytes.At cnf_ptr) ⋆ (BodyMid c cur0 ptrs PoolUsed ⋆
+          region (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) (4 * poolRem) ⋆ R)) m_cl :=
+        sep_ac hm_cl
+      refine skipWsCommentsQbe_spec hcnf hidx hm_cl' fun j _ hj hsw => ?_
       wp_unfold
-      refine ⟨fun heof => ?_, fun hneof => ?_⟩
-      · have hj_eq : j = cnfBytes.length := (cursor_eq_iff (by omega) (by omega)).mp heof
-        subst hj_eq
-        have his_emp : (skipWsComments (cnfBytes.drop idx)).isEmpty = true := by
-          rw [← hsw]; simp
+      refine cursor_eof_branch hj (by omega) (fun hj_eq => ?_) (fun hj_lt => ?_)
+      · subst hj_eq
         have hbody_ok : parseBodyPure c.mv c.nc c.poolInts [] (cnfBytes.drop idx0) =
             some (revClauses.reverse, poolRem) := by
-          rw [← hbody_inv]; simp [parseBodyPure, his_emp]
+          rw [← hbody_inv]; simp [parseBodyPure, show (skipWsComments (cnfBytes.drop idx)).isEmpty = true by rw [← hsw]; simp]
         obtain ⟨ok_p64, hm_done⟩ := bodyMid_finish hpsum htr hpu hm_cl
         refine ⟨ok_p64, ?_⟩
-        apply hpost
-        rw [hbody_ok]
-        have hpu_eq : c.poolInts - poolRem = poolUsed := by omega
-        refine ⟨rfl, by simp [hrev_len], by omega, ptrs, PoolUsed, ?_⟩
-        rwa [hpu_eq]
-      · have hj_lt : j < cnfBytes.length := by
-          rcases Nat.eq_or_lt_of_le hj with rfl | h
-          · exact absurd rfl hneof
-          · exact h
-        have his_emp : (skipWsComments (cnfBytes.drop idx)).isEmpty = false := by
-          rw [← hsw, List.drop_eq_getElem_cons hj_lt]; rfl
-        have hbody_none : parseBodyPure c.mv c.nc c.poolInts [] (cnfBytes.drop idx0) = none := by
-          rw [← hbody_inv]; simp [parseBodyPure, his_emp]
+        apply hpost; rw [hbody_ok]
+        exact ⟨rfl, by simp [hrev_len], by omega, ptrs, PoolUsed, by rwa [show c.poolInts - poolRem = poolUsed by omega]⟩
+      · have hbody_none : parseBodyPure c.mv c.nc c.poolInts [] (cnfBytes.drop idx0) = none := by
+          rw [← hbody_inv]; simp [parseBodyPure, show (skipWsComments (cnfBytes.drop idx)).isEmpty = false by
+            rw [← hsw, List.drop_eq_getElem_cons hj_lt]; rfl]
         refine hJfail [] m_cl ⟨rfl, hbody_none, ?_⟩
         have hm_cl_emp : ((Eq (cnfBytes.At cnf_ptr) ⋆
-            (BodyMid c cur0 ptrs PoolUsed ⋆
-              int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) [] ⋆
-              region (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + 0))) (4 * poolRem))) ⋆ R) m_cl := by
-          simp only [int4Array_nil, sep_emp, Nat.add_zero]
-          rwa [sep_assoc (Eq (cnfBytes.At cnf_ptr))] at hm_cl
-        exact sep_mono (fun _ => sep_mono_r
-          (fun _ hm_ws => collapse_body_state c htr.1 rfl (by omega) hpu hm_ws)) hm_cl_emp
-    · have hcid_le : cidNat ≤ c.nc := by have := of_decide_eq_false hndone; omega
-      have hrem_cls : c.nc + 1 - cidNat = (c.nc - cidNat) + 1 := by omega
-      rw [hrem_cls] at hbody_inv
+            BodyMid c cur0 ptrs PoolUsed ⋆
+            int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) [] ⋆
+            region (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + 0))) (4 * poolRem)) ⋆ R) m_cl := by
+          simp only [int4Array_nil, sep_emp, Nat.add_zero]; exact hm_cl
+        exact lit_fail_collapse c htr.1 rfl (by omega) hpu hm_cl_emp
+    · have hcid_le : cidNat ≤ c.nc := by omega
+      rw [show c.nc + 1 - cidNat = (c.nc - cidNat) + 1 by omega] at hbody_inv
       let pcur := c.pbase + BitVec.ofNat 64 (4 * poolUsed)
       apply wp_loop (fun r_lit as_lit m_lit =>
         ∃ (lidx rem : Nat) (acc : List Val),
@@ -1189,234 +926,133 @@ theorem lbParseDimacsBody_correct (Γ : Env) :
               BodyMid c cur0 ptrs PoolUsed ⋆
               int4Array pcur acc.reverse ⋆
               region (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) (4 * rem)) ⋆ R) m' →
-            Jfail [] m' := fun m' hcl_none hm' => by
-          have hb_none : parseBodyPure c.mv c.nc c.poolInts [] (cnfBytes.drop idx0) = none := by
-            rw [← hbody_inv, parseBodyPure, ← hcl_inv, hcl_none]; rfl
-          have hm'' : ((Eq (cnfBytes.At cnf_ptr) ⋆
-              (BodyMid c cur0 ptrs PoolUsed ⋆
-                int4Array pcur acc.reverse ⋆
-                region (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) (4 * rem))) ⋆ R) m' := by
-            simpa only [sep_assoc] using hm'
-          exact hJfail [] m' ⟨rfl, hb_none,
-            sep_mono (fun _ => sep_mono_r
-              (fun _ hm_ws => collapse_body_state c htr.1 (by simp) hlsum hpu hm_ws)) hm''⟩
+            Jfail [] m' := fun m' hcl_none hm' =>
+          hJfail [] m' ⟨rfl, by rw [← hbody_inv, parseBodyPure, ← hcl_inv, hcl_none]; rfl,
+            lit_fail_collapse c htr.1 (by simp) hlsum hpu hm'⟩
         have hm_cnf_lit : (Eq (cnfBytes.At cnf_ptr) ⋆
             (BodyMid c cur0 ptrs PoolUsed ⋆
               int4Array pcur acc.reverse ⋆
-              region (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) (4 * rem) ⋆ R)) m_lit := by
-          have h := hm_lit; rwa [sep5_1_front] at h
+              region (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) (4 * rem) ⋆ R)) m_lit :=
+          sep_ac hm_lit
         refine skipWsCommentsQbe_spec hcnf hlidx2 hm_cnf_lit fun idx1 _ hidx1 hsw1 => ?_
         wp_unfold
-        refine ⟨fun heof => ?_, fun hneof => ?_⟩
-        · have hi1_eq : idx1 = cnfBytes.length := (cursor_eq_iff (by omega) (by omega)).mp heof
-          subst hi1_eq
-          refine hfail_lit m_lit (parseClausePure_succ_nil (by rw [← hsw1]; simp)) hm_lit
-        · have hlt1 : idx1 < cnfBytes.length := by
-            rcases Nat.eq_or_lt_of_le hidx1 with rfl | h
-            · exact absurd rfl hneof
-            · exact h
-          have hd1 : cnfBytes.drop idx1 = cnfBytes[idx1] :: cnfBytes.drop (idx1 + 1) :=
-            List.drop_eq_getElem_cons hlt1
-          have hsw1' : skipWsComments (cnfBytes.drop lidx) = cnfBytes[idx1] :: cnfBytes.drop (idx1 + 1) := by
-            rw [← hsw1, hd1]
-          refine ⟨fun hfull => ?_, fun hnfull => ?_⟩
-          · have hu_eq : poolUsed + acc.length = c.poolInts :=
-              (workCfg_wcur_eq_plim_iff c (by omega)).mp hfull
-            have hrem0 : rem = 0 := by omega
-            refine hfail_lit m_lit ?_ hm_lit
-            by_cases hb45 : cnfBytes[idx1] = 45
-            · have hsw45 : skipWsComments (cnfBytes.drop lidx) = 45 :: cnfBytes.drop (idx1 + 1) := by
-                rwa [hb45] at hsw1'
-              rw [parseClausePure_succ_45 hsw45]; simp [hrem0]
-            · rw [parseClausePure_succ_pos hsw1' hb45]; simp [hrem0]
-          · have hrem_pos : 0 < rem := by
-              rcases Nat.eq_zero_or_pos rem with rfl | h
-              · exact absurd ((workCfg_wcur_eq_plim_iff c (by omega)).mpr (by omega)) hnfull
-              · exact h
-            let wcur := c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))
-            refine ⟨_, loadub_At hlt1 (by omega) hm_cnf_lit, fun his_neg => ?_, fun hnis_neg => ?_⟩
-            · have hb45 : cnfBytes[idx1] = 45 := (bv64_u8_eq (k := 45)).mp his_neg
-              have hsw45 : skipWsComments (cnfBytes.drop lidx) = 45 :: cnfBytes.drop (idx1 + 1) := by
-                rwa [hb45] at hsw1'
-              rw [ptr_step_1]
-              refine readDimacsNat_spec hcnf (by omega) hm_cnf_lit
-                (fun hnone => hfail_lit m_lit (by
-                  rw [parseClausePure_succ_45 hsw45]; simp [Nat.ne_of_gt hrem_pos, hnone]) hm_lit)
-                fun v idx2 rest' hp_v hv_lt _ hidx2 hd2 => ?_
-              wp_unfold
-              have hv0_iff : BitVec.ofNat 64 v = (0 : Val) ↔ v = 0 := by
-                unfold dimacsBound at hv_lt
-                simpa using cursor_eq_iff (base := 0) (i := v) (j := 0) (by omega) (by decide)
-              refine ⟨fun hvz => ?_, fun hnvz => ?_⟩
-              · have hv0 : v = 0 := hv0_iff.mp hvz
-                refine hfail_lit m_lit ?_ hm_lit
-                rw [parseClausePure_succ_45 hsw45]; simp [Nat.ne_of_gt hrem_pos, hp_v, hv0]
-              · have hv_pos : 1 ≤ v := by have := mt hv0_iff.mpr hnvz; omega
-                have hmv_cmp : (BitVec.ofNat 64 c.mv).ult (BitVec.ofNat 64 v) = decide (c.mv < v) := by
-                  unfold dimacsBound at hmv_lt hv_lt
-                  simp only [BitVec.ult, BitVec.toNat_ofNat,
-                    Nat.mod_eq_of_lt (by omega : c.mv < 2 ^ 64),
-                    Nat.mod_eq_of_lt (by omega : v < 2 ^ 64)]
-                rw [hmv_cmp]
-                refine ⟨fun hvbig => ?_, fun hnvbig => ?_⟩
-                · have hmv_v : c.mv < v := of_decide_eq_true hvbig
-                  refine hfail_lit m_lit ?_ hm_lit
-                  rw [parseClausePure_succ_45 hsw45]; simp [Nat.ne_of_gt hrem_pos, hp_v, hmv_v]
-                · have hv_le : v ≤ c.mv := by have := of_decide_eq_false hnvbig; omega
-                  let nlit : Val := -BitVec.ofNat 64 v
-                  have hnlit_sub : (0 : Val) - BitVec.ofNat 64 v = nlit := BitVec.zero_sub _
-                  rw [hnlit_sub]
-                  have hnlit_val : IsValidLit c.mv nlit :=
-                    isValidLit_neg (isValidLit_ofNat hv_pos hv_le hmv_lt)
-                  obtain ⟨ok_sw, hm_sw⟩ := lit_store_raw nlit hrem_pos (by omega) hm_lit
-                  have hwcur_eq : wcur = pcur + BitVec.ofNat 64 (4 * acc.reverse.length) := by
-                    dsimp [wcur, pcur]; rw [List.length_reverse, ptr_add_ofNat]; congr 2; omega
-                  have harr_next : int4Array pcur (nlit :: acc).reverse =
-                      (int4Array pcur acc.reverse ⋆ int4 wcur nlit) := by
-                    rw [List.reverse_cons, int4Array_append, int4Array_cons, int4Array_nil,
-                        sep_emp, ← hwcur_eq]
-                  have hwcur2 : wcur + 4 = c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (nlit :: acc).length)) := by
-                    change c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length)) + BitVec.ofNat 64 4 =
-                      c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (acc.length + 1)))
-                    rw [ptr_add_ofNat]
-                    exact congrArg (c.pbase + BitVec.ofNat 64 ·) (by omega)
-                  refine ⟨ok_sw, ih_lit _ _ _ (by omega) ⟨idx2, rem - 1, nlit :: acc,
-                    by omega, hidx2, rfl, by simp; omega, by simp; omega, ?_, ?_, ?_, ?_⟩⟩
-                  · intro x hx
-                    rcases List.mem_cons.mp hx with rfl | hx
-                    · exact hnlit_val
-                    · exact hacc_val x hx
-                  · rw [hwcur2]
-                  · rw [← hcl_inv, parseClausePure_succ_45 hsw45]
-                    have h_ne0 : (rem == 0) = false := beq_eq_false_iff_ne.mpr (by omega)
-                    have hv_cond : (v == 0 || decide (c.mv < v)) = false := by simp; omega
-                    simp only [h_ne0, Bool.false_eq_true, ↓reduceIte, hp_v, hv_cond]
-                    rw [← hd2]
-                    exact parseClausePure_fuel_irrel
-                      (by simp only [List.length_drop]; omega)
-                      (by simp only [List.length_drop]; omega)
-                  · rwa [← harr_next, hwcur2] at hm_sw
-            · have hb_ne45 : cnfBytes[idx1] ≠ 45 := fun h => hnis_neg ((bv64_u8_eq (k := 45)).mpr h)
-              refine readDimacsNat_spec hcnf hidx1 hm_cnf_lit
-                (fun hnone => hfail_lit m_lit (by
+        refine cursor_eof_branch hidx1 (by omega)
+          (fun hi1_eq => by subst hi1_eq; exact hfail_lit m_lit (parseClausePure_succ_nil (by rw [← hsw1]; simp)) hm_lit)
+          (fun hlt1 => ?_)
+        have hd1 := List.drop_eq_getElem_cons hlt1
+        have hsw1' : skipWsComments (cnfBytes.drop lidx) = cnfBytes[idx1] :: cnfBytes.drop (idx1 + 1) := by
+          rw [← hsw1, hd1]
+        have hfull_iff : c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length)) = c.plim ↔ rem = 0 := by
+          rw [show poolUsed + acc.length = c.poolInts - rem by omega]
+          exact c.pcur_eq_plim_iff (by omega)
+        refine ⟨fun hfull => ?_, fun hnfull => ?_⟩
+        · have hrem0 := hfull_iff.mp hfull
+          refine hfail_lit m_lit ?_ hm_lit
+          by_cases hb45 : cnfBytes[idx1] = 45
+          · rw [parseClausePure_succ_45 (by rwa [hb45] at hsw1')]; simp [hrem0]
+          · rw [parseClausePure_succ_pos hsw1' hb45]; simp [hrem0]
+        · have hrem_pos : 0 < rem := Nat.pos_of_ne_zero (fun h0 => hnfull (hfull_iff.mpr h0))
+          have hwcur2 : ∀ lit : Val,
+              (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) + 4 =
+                c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (lit :: acc).length)) := fun lit => by
+            rw [show (4 : Val) = BitVec.ofNat 64 4 from rfl, ptr_add_ofNat]
+            exact congrArg (c.pbase + BitVec.ofNat 64 ·) (by rw [List.length_cons]; omega)
+          have hstep_lit : ∀ (lit : Val) {idx2 : Nat} (hidx2 : idx2 ≤ cnfBytes.length) (hlidx : lidx < idx2),
+              IsValidLit c.mv lit →
+              parseClausePure ((cnfBytes.drop idx2).length + 1) c.mv (rem - 1) (lit :: acc) (cnfBytes.drop idx2) =
+                parseClausePure ((cnfBytes.drop idx).length + 1) c.mv poolRem [] (cnfBytes.drop idx) →
+              storeOk m_lit .w (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) ∧
+                Jlit [cnf_ptr + BitVec.ofNat 64 idx2, (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) + 4]
+                  (storeMem m_lit .w (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) lit) :=
+            fun lit idx2 hidx2 hlidx hlit_val hinv' => by
+              obtain ⟨ok_sw, hm_sw⟩ := bodyMid_lit_store lit rfl hrem_pos (by omega) hm_lit
+              exact ⟨ok_sw, ih_lit _ _ _ (by omega) ⟨idx2, rem - 1, lit :: acc,
+                by omega, hidx2, rfl, by simp; omega, by simp; omega,
+                fun x hx => by rcases List.mem_cons.mp hx with rfl | hx; exact hlit_val; exact hacc_val x hx,
+                by rw [hwcur2 lit], hinv', hm_sw⟩⟩
+          refine ⟨_, loadub_At hlt1 (by omega) hm_cnf_lit, fun his_neg => ?_, fun hnis_neg => ?_⟩
+          · have hb45 : cnfBytes[idx1] = 45 := (bv64_u8_eq (k := 45)).mp his_neg
+            have hsw45 : skipWsComments (cnfBytes.drop lidx) = 45 :: cnfBytes.drop (idx1 + 1) := by
+              rwa [hb45] at hsw1'
+            rw [ptr_step_1]
+            refine readDimacsNat_spec hcnf (by omega) hm_cnf_lit
+              (fun hnone => hfail_lit m_lit (by rw [parseClausePure_succ_45 hsw45]; simp [Nat.ne_of_gt hrem_pos, hnone]) hm_lit)
+              fun v idx2 rest' hp_v hv_lt _ hidx2 hd2 => ?_
+            wp_unfold; unfold dimacsBound at hv_lt hmv_lt
+            refine bv_eq_zero_branch (v := v) (by omega)
+              (fun hv0 => hfail_lit m_lit (by rw [parseClausePure_succ_45 hsw45]; simp [Nat.ne_of_gt hrem_pos, hp_v, hv0]) hm_lit)
+              (fun hnvz => ?_)
+            refine ult_branch (a := c.mv) (b := v) (by omega) (by omega)
+              (fun hmv_v => hfail_lit m_lit (by rw [parseClausePure_succ_45 hsw45]; simp [Nat.ne_of_gt hrem_pos, hp_v, hmv_v]) hm_lit)
+              (fun hnvbig => ?_)
+            rw [show (0 : Val) - BitVec.ofNat 64 v = -BitVec.ofNat 64 v from by simp]
+            have hnlit_val : IsValidLit c.mv (-BitVec.ofNat 64 v) :=
+              isValidLit_neg (isValidLit_ofNat (mv := c.mv) (v := v) (by omega) (by omega)
+                (by unfold dimacsBound; omega))
+            have hinv_neg :
+                parseClausePure ((cnfBytes.drop idx2).length + 1) c.mv (rem - 1)
+                  ((-BitVec.ofNat 64 v) :: acc) (cnfBytes.drop idx2) =
+                parseClausePure ((cnfBytes.drop idx).length + 1) c.mv poolRem []
+                  (cnfBytes.drop idx) := by
+              rw [← hcl_inv, parseClausePure_succ_45 hsw45]
+              simp only [beq_eq_false_iff_ne.mpr (by omega : rem ≠ 0),
+                beq_eq_false_iff_ne.mpr hnvz, Bool.false_eq_true, Bool.false_or,
+                decide_eq_false_iff_not.mpr hnvbig, ↓reduceIte, hp_v, ← hd2]
+              exact parseClausePure_fuel_irrel
+                (by simp only [List.length_drop]; omega) (by simp only [List.length_drop]; omega)
+            exact hstep_lit (-BitVec.ofNat 64 v) hidx2 (by omega) hnlit_val hinv_neg
+          · have hb_ne45 : cnfBytes[idx1] ≠ 45 := fun h => hnis_neg ((bv64_u8_eq (k := 45)).mpr h)
+            refine readDimacsNat_spec hcnf hidx1 hm_cnf_lit
+              (fun hnone => hfail_lit m_lit (by
+                rw [parseClausePure_succ_pos hsw1' hb_ne45]; simp [Nat.ne_of_gt hrem_pos, ← hd1, hnone]) hm_lit)
+              fun v idx2 rest' hp_v hv_lt _ hidx2 hd2 => ?_
+            wp_unfold; unfold dimacsBound at hv_lt hmv_lt
+            have hp_v' : parseNat (cnfBytes[idx1] :: cnfBytes.drop (idx1 + 1)) = some (v, rest') := by rwa [← hd1]
+            refine bv_eq_zero_branch (v := v) (by omega)
+              (fun hv0 => ?_)
+              (fun hnvz => ?_)
+            · have hcl_ok : parseClausePure ((cnfBytes.drop idx).length + 1) c.mv poolRem []
+                  (cnfBytes.drop idx) = some (acc.reverse, rem - 1, cnfBytes.drop idx2) := by
+                rw [← hcl_inv, parseClausePure_succ_pos hsw1' hb_ne45]
+                simp only [beq_eq_false_iff_ne.mpr (by omega : rem ≠ 0), Bool.false_eq_true,
+                  ↓reduceIte, hp_v', hv0, beq_self_eq_true, hd2]
+              rw [show (BitVec.ofNat 64 cidNat).toNat = cidNat from Nat.mod_eq_of_lt (by omega)]
+              obtain ⟨ok_z, ok_slot, htr', hpu', hm_slot⟩ := bodyMid_clause_finish (cidNat := cidNat)
+                (by omega) hrev_len hcid1 rfl hrem_pos (by omega) (by omega) htr hpu hacc_val hm_lit
+              refine ⟨ok_z, ok_slot, ih_cl _ _ _ (by omega)
+                ⟨cidNat + 1, idx2, poolUsed + (acc.length + 1), rem - 1, acc.reverse :: revClauses,
+                 ptrs.set cidNat pcur, PoolUsed ⋆ ZeroTermInts pcur acc.reverse,
+                 by omega, by omega, rfl, by simp [hrev_len]; omega, hidx2, by omega,
+                 by rw [show BitVec.ofNat 64 cidNat + (1 : Val) = BitVec.ofNat 64 (cidNat + 1) from
+                      bv_add_ofNat cidNat 1,
+                    hwcur2 0, List.length_cons], ?_, htr', hpu', hm_slot⟩⟩
+              rw [show c.nc + 1 - (cidNat + 1) = c.nc - cidNat by omega, ← hbody_inv, parseBodyPure, hcl_ok]; rfl
+            · refine ult_branch (a := c.mv) (b := v) (by omega) (by omega)
+                (fun hmv_v => hfail_lit m_lit (by
                   rw [parseClausePure_succ_pos hsw1' hb_ne45]
-                  simp [Nat.ne_of_gt hrem_pos, ← hd1, hnone]) hm_lit)
-                fun v idx2 rest' hp_v hv_lt _ hidx2 hd2 => ?_
-              wp_unfold
-              have hp_v' : parseNat (cnfBytes[idx1] :: cnfBytes.drop (idx1 + 1)) = some (v, rest') := by
-                rwa [← hd1]
-              have hv0_iff : BitVec.ofNat 64 v = (0 : Val) ↔ v = 0 := by
-                unfold dimacsBound at hv_lt
-                simpa using cursor_eq_iff (base := 0) (i := v) (j := 0) (by omega) (by decide)
-              refine ⟨fun hvz => ?_, fun hnvz => ?_⟩
-              · have hv0 : v = 0 := hv0_iff.mp hvz
-                have hcl_ok : parseClausePure ((cnfBytes.drop idx).length + 1) c.mv poolRem []
-                    (cnfBytes.drop idx) = some (acc.reverse, rem - 1, cnfBytes.drop idx2) := by
-                  rw [← hcl_inv, parseClausePure_succ_pos hsw1' hb_ne45]
-                  have h_ne0 : (rem == 0) = false := beq_eq_false_iff_ne.mpr (by omega)
-                  simp only [h_ne0, Bool.false_eq_true, ↓reduceIte, hp_v', hv0, beq_self_eq_true, hd2]
-                obtain ⟨ok_z, hm_z⟩ := lit_store_raw 0 hrem_pos (by omega) hm_lit
-                have hwcur_eq : wcur = pcur + BitVec.ofNat 64 (4 * acc.reverse.length) := by
-                  dsimp [wcur, pcur]; rw [List.length_reverse, ptr_add_ofNat]; congr 2; omega
-                have hzt : ZeroTermInts pcur acc.reverse =
-                    (int4Array pcur acc.reverse ⋆ int4 wcur 0) := by
-                  rw [zeroTermInts_eq_append, ← hwcur_eq]
-                let poolUsed' := poolUsed + (acc.length + 1)
-                have hwcur2 : wcur + 4 = c.pbase + BitVec.ofNat 64 (4 * poolUsed') := by
-                  change c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length)) + BitVec.ofNat 64 4 =
-                    c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (acc.length + 1)))
-                  rw [ptr_add_ofNat]
-                  exact congrArg (c.pbase + BitVec.ofNat 64 ·) (by omega)
-                rw [← hzt, sep5_zt_bm_front] at hm_z
-                have hcid_mod : (BitVec.ofNat 64 cidNat).toNat = cidNat := by
-                  unfold dimacsBound at hnc_lt
-                  exact Nat.mod_eq_of_lt (by omega)
-                rw [hcid_mod]
-                have hcid_ptrs : cidNat < ptrs.length := by rw [htr.1]; omega
-                obtain ⟨ok_slot, hm_slot⟩ := bodyMid_store_clause hcid_ptrs hm_z
-                have hcid_step : BitVec.ofNat 64 cidNat + 1 = BitVec.ofNat 64 (cidNat + 1) :=
-                  BitVec.eq_of_toNat_eq (by simp [BitVec.toNat_add])
-                refine ⟨ok_z, ok_slot, ?_⟩
-                refine ih_cl _ _ _ (by omega)
-                  ⟨cidNat + 1, idx2, poolUsed', rem - 1, acc.reverse :: revClauses,
-                   ptrs.set cidNat pcur, PoolUsed ⋆ ZeroTermInts pcur acc.reverse,
-                   by omega, by omega, rfl, by simp [hrev_len]; omega, hidx2, by omega,
-                   by rw [hcid_step, hwcur2], ?_, ?_, ?_, ?_⟩
-                · have hsub_eq : c.nc + 1 - (cidNat + 1) = c.nc - cidNat := by omega
-                  rw [hsub_eq, ← hbody_inv, parseBodyPure, hcl_ok]; rfl
-                · have hrev_app : (acc.reverse :: revClauses).reverse =
-                      revClauses.reverse ++ [acc.reverse] := List.reverse_cons
-                  have hcid_eq_len : cidNat = revClauses.reverse.length + 1 := by
-                    simp [hrev_len]; omega
-                  rw [hrev_app, ← initClauseTable_set acc.reverse (by simp [hrev_len]; omega),
-                      ← hcid_eq_len]
-                  refine tableRel_set htr (by omega) (workCfg_pcur_ne_zero c (by omega)) ?_
-                  intro x hx; exact hacc_val x (List.mem_reverse.mp hx)
-                · intro f hf
-                  obtain ⟨f1, f2, hu_f, hd_f, hf1, hf2⟩ := hf
-                  have hr1 := hpu f1 hf1
-                  have hr2 : region pcur (4 * (acc.length + 1)) f2 := by
-                    have := zeroTermInts_to_region (a := pcur) (xs := acc.reverse)
-                      (by simp; omega) hf2
-                    simpa using this
-                  have hmul_eq : 4 * poolUsed' = 4 * poolUsed + 4 * (acc.length + 1) := by
-                    dsimp [poolUsed']; omega
-                  rw [hmul_eq, region_split (by omega)]
-                  exact ⟨f1, f2, hu_f, hd_f, hr1, hr2⟩
-                · rwa [hwcur2, sep5_bm_back] at hm_slot
-              · have hv_pos : 1 ≤ v := by have := mt hv0_iff.mpr hnvz; omega
-                have hmv_cmp : (BitVec.ofNat 64 c.mv).ult (BitVec.ofNat 64 v) = decide (c.mv < v) := by
-                  unfold dimacsBound at hmv_lt hv_lt
-                  simp only [BitVec.ult, BitVec.toNat_ofNat,
-                    Nat.mod_eq_of_lt (by omega : c.mv < 2 ^ 64),
-                    Nat.mod_eq_of_lt (by omega : v < 2 ^ 64)]
-                rw [hmv_cmp]
-                refine ⟨fun hvbig => ?_, fun hnvbig => ?_⟩
-                · have hmv_v : c.mv < v := of_decide_eq_true hvbig
-                  refine hfail_lit m_lit ?_ hm_lit
-                  rw [parseClausePure_succ_pos hsw1' hb_ne45]
-                  have h_ne0 : (rem == 0) = false := beq_eq_false_iff_ne.mpr (by omega)
-                  have hv_ne0 : (v == 0) = false := beq_eq_false_iff_ne.mpr (by omega)
-                  simp only [h_ne0, hv_ne0, Bool.false_eq_true, ↓reduceIte, hp_v', hmv_v]
-                · have hv_le : v ≤ c.mv := by have := of_decide_eq_false hnvbig; omega
-                  let plit : Val := BitVec.ofNat 64 v
-                  have hplit_val : IsValidLit c.mv plit := isValidLit_ofNat hv_pos hv_le hmv_lt
-                  obtain ⟨ok_sw, hm_sw⟩ := lit_store_raw plit hrem_pos (by omega) hm_lit
-                  have hwcur_eq : wcur = pcur + BitVec.ofNat 64 (4 * acc.reverse.length) := by
-                    dsimp [wcur, pcur]; rw [List.length_reverse, ptr_add_ofNat]; congr 2; omega
-                  have harr_next : int4Array pcur (plit :: acc).reverse =
-                      (int4Array pcur acc.reverse ⋆ int4 wcur plit) := by
-                    rw [List.reverse_cons, int4Array_append, int4Array_cons, int4Array_nil,
-                        sep_emp, ← hwcur_eq]
-                  have hwcur2 : wcur + 4 = c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (plit :: acc).length)) := by
-                    change c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length)) + BitVec.ofNat 64 4 =
-                      c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (acc.length + 1)))
-                    rw [ptr_add_ofNat]
-                    exact congrArg (c.pbase + BitVec.ofNat 64 ·) (by omega)
-                  refine ⟨ok_sw, ih_lit _ _ _ (by omega) ⟨idx2, rem - 1, plit :: acc,
-                    by omega, hidx2, rfl, by simp; omega, by simp; omega, ?_, ?_, ?_, ?_⟩⟩
-                  · intro x hx
-                    rcases List.mem_cons.mp hx with rfl | hx
-                    · exact hplit_val
-                    · exact hacc_val x hx
-                  · rw [hwcur2]
-                  · rw [← hcl_inv, parseClausePure_succ_pos hsw1' hb_ne45]
-                    have h_ne0 : (rem == 0) = false := beq_eq_false_iff_ne.mpr (by omega)
-                    have hv_ne0 : (v == 0) = false := beq_eq_false_iff_ne.mpr (by omega)
-                    simp only [h_ne0, hv_ne0, Bool.false_eq_true, show ¬ c.mv < v by omega, ↓reduceIte, hp_v']
-                    rw [← hd2]
-                    exact parseClausePure_fuel_irrel
-                      (by simp only [List.length_drop]; omega)
-                      (by simp only [List.length_drop]; omega)
-                  · rwa [← harr_next, hwcur2] at hm_sw
-      · intro Jlit hJlit
-        wp_unfold
+                  simp only [beq_eq_false_iff_ne.mpr (by omega : rem ≠ 0),
+                    beq_eq_false_iff_ne.mpr hnvz, Bool.false_eq_true, ↓reduceIte, hp_v', hmv_v]) hm_lit)
+                (fun hnvbig => ?_)
+              have hplit_val : IsValidLit c.mv (BitVec.ofNat 64 v) :=
+                isValidLit_ofNat (mv := c.mv) (v := v) (by omega) (by omega)
+                  (by unfold dimacsBound; omega)
+              have hinv_pos :
+                  parseClausePure ((cnfBytes.drop idx2).length + 1) c.mv (rem - 1)
+                    (BitVec.ofNat 64 v :: acc) (cnfBytes.drop idx2) =
+                  parseClausePure ((cnfBytes.drop idx).length + 1) c.mv poolRem []
+                    (cnfBytes.drop idx) := by
+                rw [← hcl_inv, parseClausePure_succ_pos hsw1' hb_ne45]
+                simp only [beq_eq_false_iff_ne.mpr (by omega : rem ≠ 0),
+                  beq_eq_false_iff_ne.mpr hnvz, Bool.false_eq_true,
+                  hnvbig, ↓reduceIte, hp_v', ← hd2]
+                exact parseClausePure_fuel_irrel
+                  (by simp only [List.length_drop]; omega) (by simp only [List.length_drop]; omega)
+              exact hstep_lit (BitVec.ofNat 64 v) hidx2 (by omega) hplit_val hinv_pos
+      · intro Jlit hJlit; wp_unfold
         refine hJlit _ _ _ ⟨idx, poolRem, [], Nat.le_refl _, hidx, rfl,
           by simpa using hpsum, by simp, by simp, by simp, rfl, ?_⟩
-        simp only [List.reverse_nil, int4Array_nil, sep_emp, List.length_nil, Nat.add_zero]
-        exact hm_cl
-  · intro Jcl hJcl
-    wp_unfold
+        simp only [List.reverse_nil, int4Array_nil, sep_emp, List.length_nil, Nat.add_zero]; exact hm_cl
+  · intro Jcl hJcl; wp_unfold
     refine hJcl _ _ _ ⟨1, idx0, 0, c.poolInts, [], List.replicate c.cap 0, emp,
       Nat.le_refl _, by omega, rfl, rfl, hidx0, by omega, by simp [cur0], by simp,
       by simpa [initClauseTable_nil (by omega : 1 ≤ c.cap)] using htr0,

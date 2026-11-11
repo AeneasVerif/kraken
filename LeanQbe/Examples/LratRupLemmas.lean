@@ -47,17 +47,19 @@ theorem abs_eq (lit : Val) : (lit ^^^ lit.sshiftRight 63) - lit.sshiftRight 63 =
 theorem negif_eq (b lit : Val) : (b ^^^ lit.sshiftRight 63) - lit.sshiftRight 63 = evalAssignedLit b lit := by
   rw [sar63, negif]; rfl
 
+theorem ofInt_take_toNat (v : Val) {w : Nat} :
+    BitVec.ofInt 64 ((v.toNat : Int).take w) = (v.setWidth w).setWidth 64 := by
+  apply BitVec.eq_of_toNat_eq; simp only [Int.take, BitVec.toNat_ofInt, BitVec.toNat_setWidth]
+  rw [show ((2 : Int) ^ w) = ((2 ^ w : Nat) : Int) from by simp,
+    ← Int.natCast_emod, ← Int.natCast_emod, Int.toNat_natCast]
+
 theorem sext8 (v : Val) (h : IsInt8 v) :
     (BitVec.setWidth 8 (BitVec.ofInt 64 ((v.toNat : Int).take 8))).signExtend 64 = v := by
-  have : BitVec.ofInt 64 ((v.toNat : Int).take 8) = (v.setWidth 8).setWidth 64 := by
-    apply BitVec.eq_of_toNat_eq; simp [Int.take]; omega
-  rw [this]; unfold IsInt8 at h; grind
+  rw [ofInt_take_toNat v]; unfold IsInt8 at h; grind
 
 theorem sext32 (v : Val) (h : IsInt32 v) :
     (BitVec.setWidth 32 (BitVec.ofInt 64 ((v.toNat : Int).take 32))).signExtend 64 = v := by
-  have : BitVec.ofInt 64 ((v.toNat : Int).take 32) = (v.setWidth 32).setWidth 64 := by
-    apply BitVec.eq_of_toNat_eq; simp [Int.take]; omega
-  rw [this]; unfold IsInt32 at h; grind
+  rw [ofInt_take_toNat v]; unfold IsInt32 at h; grind
 
 theorem truthy_iff (v : Val) (h : IsInt32 v) : Truthy v ↔ v ≠ 0 := by
   unfold Truthy IsInt32 at *; constructor <;> intro h1 h2 <;> apply h1 <;> grind
@@ -267,11 +269,57 @@ theorem pstate_sep {mv : Nat} {vb tb te : Val} {assign : Assignment} {trail tf :
       ((byte1Array vb (assignBytes mv assign) ⋆ int4Array tb (trail ++ tf)) ⋆ F) m := by
   unfold PState; simp only [sep_pure_l]
 
+theorem assignedLit_pstate {Γ : Env} {Q : Post} {X : XPost} {vb tb te lit : Val}
+    {mv N : Nat} {assign : Assignment} {trail tf : List Val} {R : Mem 64 → Prop} {m : Mem 64}
+    {k : Val → Val → Expr Val Cont} (hlit : IsValidLit mv lit)
+    (hm : (PState mv vb tb te assign trail tf N ⋆ R) m)
+    (hk : wp Γ Q X (k (bvAbs lit) (evalAssignedLit (assignByte assign (toLiteral lit).1) lit)) [] [] m) :
+    wp Γ Q X (assignedLit vb lit k) [] [] m := by
+  have hm' := (pstate_sep.1 hm).2.2.2.2
+  rw [sep_assoc] at hm'
+  exact assignedLit_spec hlit hm' hk
+
+theorem assignLit_pstate {Γ : Env} {Q : Post} {X : XPost} {vb tb te sla wlit idx : Val}
+    {mv N : Nat} {assign : Assignment} {trail tf : List Val} {R : Mem 64 → Prop} {m : Mem 64}
+    {k : Val → Val → Expr Val Cont}
+    (hwlit : IsValidLit mv wlit) (hidx : idx = bvAbs wlit)
+    (hm : (PState mv vb tb te assign trail tf N ⋆ R) m) (hcap : 1 ≤ tf.length)
+    (hk : ∀ m' te' tf', tf'.length + 1 = tf.length →
+      (PState mv vb tb te' (assign.insert (toLiteral wlit).1 (toLiteral wlit).2)
+        (trail ++ [wlit]) tf' N ⋆ R) m' →
+      wp Γ Q X (k te' (sla + 1)) [] [] m') :
+    wp Γ Q X (assignLit vb te sla wlit idx k) [] [] m := by
+  obtain ⟨hte, hcov, htv, hlen, hm⟩ := pstate_sep.1 hm
+  rcases tf with _ | ⟨t0, tf'⟩
+  · simp at hcap
+  refine assignLit_spec hwlit hidx hte hcov hm fun m' hte' hcov' hm' => hk m' _ tf' rfl ?_
+  refine pstate_sep.2 ⟨hte', hcov', ?_, by simp at hlen ⊢; omega, hm'⟩
+  intro t ht
+  rcases List.mem_append.1 ht with h | h
+  · exact htv t h
+  · rw [List.mem_singleton.1 h]; exact hwlit
+
 theorem zeroTermGet_isInt32 {xs : List Val} (h32 : ∀ x ∈ xs, IsInt32 x) (i : Nat) :
     IsInt32 (zeroTermGet xs i) := by
   unfold zeroTermGet; split
   · exact h32 _ (List.getElem_mem _)
   · exact isInt32_zero
+
+theorem zeroTerm_jnz_step {p : Val} {xs : List Val} {i : Nat} {R : Mem 64 → Prop} {m : Mem 64}
+    {T E : Val → Prop}
+    (hi : i ≤ xs.length) (h32 : ∀ x ∈ xs, IsInt32 x) (hne0 : ∀ x ∈ xs, x ≠ 0)
+    (hm : (ZeroTermInts p xs ⋆ R) m)
+    (hnz : ∀ hlt : i < xs.length, T xs[i])
+    (hz : i = xs.length → E 0) :
+    ∃ v, loadVal m .l .w true (p + BitVec.ofNat 64 (4 * i)) = some v ∧
+      ((Truthy v → T v) ∧ (¬ Truthy v → E v)) := by
+  refine ⟨zeroTermGet xs i, loadsw_zeroTerm hi h32 hm, fun h => ?_, fun h => ?_⟩
+  · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i)] at h
+    have hlt := (zeroTermGet_ne_zero_iff hi hne0).1 h
+    simpa [zeroTermGet, hlt] using hnz hlt
+  · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i), Classical.not_not] at h
+    obtain rfl := (zeroTermGet_eq_zero_iff hi hne0).1 h
+    simpa [zeroTermGet] using hz rfl
 
 theorem ptr4 (p : Val) (i : Nat) :
     p + BitVec.ofNat 64 (4 * i) + 4 = p + BitVec.ofNat 64 (4 * (i + 1)) :=
@@ -303,40 +351,24 @@ theorem phase1_spec {Γ : Env} {Q : Post} {X : XPost} {finish ph2 : Cont}
     ∀ x : Literal Nat, x ∈ (ls.take i).map toLiteral ↔ assign.get? x.1 = some !x.2)
   · rintro J r as m ⟨i, te, sla, assign, trail, tf, rfl, hi, rfl, hcap, hm, hinv⟩ ih
     wp_unfold
-    obtain ⟨hte, hcov, htv, hlen, hm⟩ := pstate_sep.1 hm
-    have hld := loadsw_zeroTerm hi h32 (by rw [sep_comm_l] at hm; exact hm)
-    refine ⟨_, hld, fun hnz => ?_, fun hz => ?_⟩
-    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i)] at hnz
-      have hlt := (zeroTermGet_ne_zero_iff hi hne0).1 hnz
-      simp only [zeroTermGet, hlt, ↓reduceDIte]
-      have hlit := hvalid ls[i] (List.getElem_mem hlt)
+    refine zeroTerm_jnz_step hi h32 hne0 (by ecancel) (fun hlt => ?_) (fun heq => ?_)
+    · have hlit := hvalid ls[i] (List.getElem_mem hlt)
       have hcases := evalAssignedLit_cases assign hlit
-      refine assignedLit_spec hlit (by rw [sep_assoc] at hm; exact hm) ?_
+      refine assignedLit_pstate hlit hm ?_
       wp_unfold
       refine ⟨fun hneg => ih _ _ _ (by omega) ⟨i + 1, te, sla, assign, trail, tf, by rw [ptr4], hlt,
-          rfl, by omega, pstate_sep.2 ⟨hte, hcov, htv, hlen, hm⟩,
-          phase1_step_already_falsified hlt hinv (hcases.1 hneg)⟩,
-        fun hneg => ⟨fun hpos => hfin m te sla assign trail tf (pstate_sep.2 ⟨hte, hcov, htv, hlen, hm⟩)
-          (by omega) (phase1_step_tautology hlt hinv (hcases.2.1 ⟨hneg, hpos⟩)), fun hpos => ?_⟩⟩
+          rfl, by omega, hm, phase1_step_already_falsified hlt hinv (hcases.1 hneg)⟩,
+        fun hneg => ⟨fun hpos => hfin m te sla assign trail tf hm (by omega)
+          (phase1_step_tautology hlt hinv (hcases.2.1 ⟨hneg, hpos⟩)), fun hpos => ?_⟩⟩
       have hun := hcases.2.2 ⟨hneg, hpos⟩
       rw [show (0 : Val) - ls[i] = -ls[i] by simp]
-      rcases tf with _ | ⟨t0, tf'⟩
-      · simp at hcap; omega
-      refine assignLit_spec (isValidLit_neg hlit) (bvAbs_neg hlit).symm hte hcov hm
-        fun m' hte' hcov' hm' => ?_
+      refine assignLit_pstate (isValidLit_neg hlit) (bvAbs_neg hlit).symm hm (by omega)
+        fun m' te' tf' htf' hm' => ?_
       wp_unfold
-      refine ih _ _ _ (by omega) ⟨i + 1, _, _, _, _, tf', by rw [ptr4], hlt, rfl,
-        by simp at hcap; omega, pstate_sep.2 ⟨hte', hcov', ?_, ?_, hm'⟩,
+      exact ih _ _ _ (by omega) ⟨i + 1, te', _, _, _, tf', by rw [ptr4], hlt, rfl, by omega, hm',
         phase1_step_insert hlt hlit hinv hun.1⟩
-      · intro t ht
-        rcases List.mem_append.1 ht with h | h
-        · exact htv t h
-        · rw [List.mem_singleton.1 h]; exact isValidLit_neg hlit
-      · simp at hlen ⊢; omega
-    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i), Classical.not_not] at hz
-      obtain rfl := (zeroTermGet_eq_zero_iff hi hne0).1 hz
-      rw [List.take_length] at hinv
-      exact hph2 m te sla assign trail tf (pstate_sep.2 ⟨hte, hcov, htv, hlen, hm⟩) (by omega)
+    · subst heq; rw [List.take_length] at hinv
+      exact hph2 m te sla assign trail tf hm (by omega)
         fun x => by rw [← CNF.Clause.mem_literals_iff, literals_toClause, hinv x]
   · intro J hJ
     wp_unfold
@@ -382,51 +414,38 @@ theorem inner_spec {Γ : Env} {Q : Post} {X : XPost} {fail done : Cont}
     as = [als + BitVec.ofNat 64 (4 * i), unit, te, sla] ∧ i ≤ clits.length ∧ r = clits.length - i ∧
     (PState mv vb tb te assign trail tf N ⋆ (ZeroTermInts als clits ⋆ R)) m ∧
     InnerSt mv reserve clits curAssign i unit assign tf)
-  · rintro J r as m ⟨i, unit, te, sla, assign, trail, tf, rfl, hi, rfl, hm, hst⟩ ih
+  · rintro J r as m' ⟨i, unit, te, sla, assign, trail, tf, rfl, hi, rfl, hm', hst⟩ ih
     wp_unfold
-    have hm0 := hm
-    obtain ⟨hte, hcov, htv, hlen, hm⟩ := pstate_sep.1 hm
-    have hld := loadsw_zeroTerm hi h32 (by rw [sep_comm_l] at hm; exact hm)
-    refine ⟨_, hld, fun hnz => ?_, fun hz => ?_⟩
-    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i)] at hnz
-      have hlt := (zeroTermGet_ne_zero_iff hi hne0).1 hnz
-      simp only [zeroTermGet, hlt, ↓reduceDIte]
-      have hlit := hvalid clits[i] (List.getElem_mem hlt)
+    refine zeroTerm_jnz_step hi h32 hne0 (by ecancel) (fun hlt => ?_) (fun heq => ?_)
+    · have hlit := hvalid clits[i] (List.getElem_mem hlt)
       have hcases := evalAssignedLit_cases assign hlit
-      refine assignedLit_spec hlit (by rw [sep_assoc] at hm; exact hm) ?_
+      refine assignedLit_pstate hlit hm' ?_
       wp_unfold
-      have hstep : ∀ unit' assign' trail' tf' te' sla' m', (PState mv vb tb te' assign' trail' tf' N ⋆
-          (ZeroTermInts als clits ⋆ R)) m' → InnerSt mv reserve clits curAssign (i + 1) unit' assign' tf' →
-          J [als + BitVec.ofNat 64 (4 * i) + 4, unit', te', sla'] m' := fun _ _ _ _ _ _ _ hm' hst' =>
-        ih _ _ _ (by omega) ⟨i + 1, _, _, _, _, _, _, by rw [ptr4], hlt, rfl, hm', hst'⟩
+      have hstep : ∀ unit' assign' trail' tf' te' sla' m'', (PState mv vb tb te' assign' trail' tf' N ⋆
+          (ZeroTermInts als clits ⋆ R)) m'' → InnerSt mv reserve clits curAssign (i + 1) unit' assign' tf' →
+          J [als + BitVec.ofNat 64 (4 * i) + 4, unit', te', sla'] m'' := fun _ _ _ _ _ _ _ hm'' hst' =>
+        ih _ _ _ (by omega) ⟨i + 1, _, _, _, _, _, _, by rw [ptr4], hlt, rfl, hm'', hst'⟩
       refine ⟨fun hneg => ?_, fun hneg => ?_⟩
       · -- the literal is false: a conflict with the unit fails, otherwise go on
         have hfals := hcases.1 hneg
         rw [show (0 : Val) - clits[i] = -clits[i] by simp]
-        refine ⟨fun _ => hfail m te sla assign trail tf hm0, fun hne => hstep _ _ _ _ _ _ _ hm0 ?_⟩
+        refine ⟨fun _ => hfail m' te sla assign trail tf hm', fun hne => hstep _ _ _ _ _ _ _ hm' ?_⟩
         rcases hst with ⟨rfl, rfl, hc, hinv⟩ | ⟨hu, huv, hus, hc, hrel, hinv⟩
         · exact Or.inl ⟨rfl, rfl, hc, phase2_inner_falsified_unit0 hlt hinv hfals⟩
         · exact Or.inr ⟨hu, huv, hus, hc, hrel,
             phase2_inner_falsified_unit_ne0 hlt hlit hus hrel hinv hfals hne⟩
       · -- the literal is true or unassigned: it becomes the unit (`@setunit`)
-        apply wp_join (fun as m' => as = [] ∧ m' = m ∧ (unit = 0 ∨ unit = clits[i]))
+        apply wp_join (fun as m'' => as = [] ∧ m'' = m' ∧ (unit = 0 ∨ unit = clits[i]))
         · rintro _ _ ⟨rfl, rfl, hu⟩
           wp_unfold
           refine ⟨fun hv0 => ?_, fun hv0 => ?_⟩
           · have hun := (hcases.2.2 ⟨hneg, by rw [hv0]; decide⟩).1
             rcases hst with ⟨rfl, rfl, hc, hinv⟩ | ⟨hu', _, hus, _, _, _⟩
-            · rcases tf with _ | ⟨t0, tf'⟩
-              · simp at hc
-              refine assignLit_spec hlit rfl hte hcov hm fun m' hte' hcov' hm' => ?_
+            · refine assignLit_pstate hlit rfl hm' (by omega) fun m'' te' tf' htf' hm'' => ?_
               wp_unfold
-              refine hstep _ _ _ _ _ _ _ (pstate_sep.2 ⟨hte', hcov', ?_, ?_, hm'⟩)
-                (Or.inr ⟨hlit.2.1, hlit, Assignment.get?_insert_of_eq rfl, by simp at hc; omega,
+              exact hstep _ _ _ _ _ _ _ hm''
+                (Or.inr ⟨hlit.2.1, hlit, Assignment.get?_insert_of_eq rfl, by omega,
                   Or.inl ⟨hun, rfl⟩, phase2_inner_new_unit hlt hinv⟩)
-              · intro t ht
-                rcases List.mem_append.1 ht with h | h
-                · exact htv t h
-                · rw [List.mem_singleton.1 h]; exact hlit
-              · simp at hlen ⊢; omega
             · rcases hu with hu | hu
               · exact absurd hu hu'
               · rw [hu, hun] at hus; nomatch hus
@@ -436,7 +455,7 @@ theorem inner_spec {Γ : Env} {Q : Post} {X : XPost} {fail done : Cont}
               · exact absurd (hcases.2.2 ⟨hneg, hp⟩).2 hv0
               · rfl
             have hsat := hcases.2.1 ⟨hneg, hpos⟩
-            refine hstep _ _ _ _ _ _ _ hm0 ?_
+            refine hstep _ _ _ _ _ _ _ hm' ?_
             rcases hst with ⟨rfl, rfl, hc, hinv⟩ | ⟨hu', huv, hus, hc, hrel, hinv⟩
             · exact Or.inr ⟨hlit.2.1, hlit, hsat, by omega, Or.inr rfl, phase2_inner_new_unit hlt hinv⟩
             · rcases hu with hu | rfl
@@ -450,16 +469,14 @@ theorem inner_spec {Γ : Env} {Q : Post} {X : XPost} {fail done : Cont}
             · exact huv.1
           rw [truthy_iff _ hu32]
           refine ⟨fun hu => ⟨fun heq => hK _ _ ⟨rfl, rfl, Or.inr heq⟩,
-            fun _ => hfail m te sla assign trail tf hm0⟩, fun hu => hK _ _ ⟨rfl, rfl, Or.inl ?_⟩⟩
+            fun _ => hfail m' te sla assign trail tf hm'⟩, fun hu => hK _ _ ⟨rfl, rfl, Or.inl ?_⟩⟩
           simpa using hu
-    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i), Classical.not_not] at hz
-      obtain rfl := (zeroTermGet_eq_zero_iff hi hne0).1 hz
-      rw [InnerSt, List.take_length] at hst
+    · subst heq; rw [InnerSt, List.take_length] at hst
       rcases hst with ⟨rfl, rfl, hc, hall⟩ | ⟨hu, huv, _, hc, hrel, hinv⟩
-      · refine hdone m 0 te sla _ trail tf hm0 (Or.inl ⟨rfl, hc, ?_⟩)
+      · refine hdone m' 0 te sla _ trail tf hm' (Or.inl ⟨rfl, hc, ?_⟩)
         exact unsat_of_all_falsified hcl hent fun x hx => by
           rw [← CNF.Clause.mem_literals_iff, literals_toClause] at hx; exact hall x hx
-      · refine hdone m unit te sla assign trail tf hm0 (Or.inr ⟨hu, huv.1, hc, ?_⟩)
+      · refine hdone m' unit te sla assign trail tf hm' (Or.inr ⟨hu, huv.1, hc, ?_⟩)
         rcases hrel with ⟨_, rfl⟩ | rfl
         · exact entails_insert_of_unit_prop hcl hent fun x hx => by
             rw [← CNF.Clause.mem_literals_iff, literals_toClause] at hx; exact hinv x hx
@@ -498,52 +515,46 @@ theorem phase2_spec {Γ : Env} {Q : Post} {X : XPost} {fail finish : Cont}
     CNF.Entails (s.toCNF ++ initAssign.toCNF) (s.toCNF ++ assign.toCNF))
   · rintro J r as m ⟨j, te, sr, sla, assign, trail, tf, rfl, hj, rfl, hcap, hm, hent⟩ ih
     wp_unfold
-    have hld := loadsw_zeroTerm (p := ants) (R := PState mv vb tb te assign trail tf N ⋆ (R ⋆ R_aids))
-      hj h32 (by rw [hP_aids] at hm; exact sep_cast hm (by ac_rfl))
-    refine ⟨_, hld, fun hnz => ?_, fun hz => ?_⟩
-    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 j)] at hnz
-      have hlt := (zeroTermGet_ne_zero_iff hj hne0).1 hnz
-      simp only [zeroTermGet, hlt, ↓reduceDIte]
-      obtain ⟨_, _, hpos⟩ := haids_valid aids[j] (List.getElem_mem hlt)
-      refine ⟨fun _ => hfail m _ _ _ _ _ _ _ _ hm, fun hneg => ?_⟩
-      obtain ⟨hal, hptr⟩ := hpos (by simpa using hneg)
-      obtain ⟨R1, hP1⟩ := hct.1
-      refine ⟨_, loadl_word8Array (a := lb) (R := PState mv vb tb te assign trail tf N ⋆ (R ⋆ R1)) hal
-        (by rw [hP1] at hm; exact sep_cast hm (by ac_rfl)), ?_⟩
-      have haid0 : 0 < aids[j].toNat := by
-        rcases Nat.eq_zero_or_pos aids[j].toNat with h | h
-        · exact absurd (BitVec.eq_of_toNat_eq (by simpa using h)) (hne0 _ (List.getElem_mem hlt))
-        · exact h
-      obtain ⟨clits, R2, hP2, hcl_valid, hcl_get⟩ := hct.2 aids[j].toNat hal haid0 hptr
-      have hcl := mem_toCNF_of_formula_getElem? hcl_get
-      apply wp_join (fun as m' => ∃ unit te2 sla2 assign' trail' tf', as = [unit, te2, sla2] ∧
-        (PState mv vb tb te2 assign' trail' tf' N ⋆ (R ⋆ P_ro)) m' ∧
-        ((unit = 0 ∧ CNF.Unsat (s.toCNF ++ initAssign.toCNF)) ∨
-         (unit ≠ 0 ∧ IsInt32 unit ∧ aids.length - (j + 1) ≤ tf'.length ∧
-          CNF.Entails (s.toCNF ++ initAssign.toCNF) (s.toCNF ++ assign'.toCNF))))
-      · rintro _ m' ⟨unit, te2, sla2, assign', trail', tf', rfl, hm', hres⟩
-        wp_unfold
-        rcases hres with ⟨rfl, hunsat⟩ | ⟨hu, hu32, hc', hent'⟩
-        · refine ⟨fun h => absurd h (by decide), fun _ => hfin _ _ _ _ _ _ _ hm' hunsat⟩
-        · rw [truthy_iff _ hu32]
-          refine ⟨fun _ => ih _ _ _ (by omega) ⟨j + 1, _, _, _, _, _, _, by rw [ptr4], hlt, rfl, hc',
-            hm', hent'⟩, fun h => absurd hu h⟩
-      · intro K hK
-        have hm2 : (PState mv vb tb te assign trail tf N ⋆ (ZeroTermInts lit_ptrs[aids[j].toNat] clits ⋆
-            (R ⋆ R2))) m := by rw [hP2] at hm; exact sep_cast hm (by ac_rfl)
-        have back : ∀ te' assign' trail' tf' m', (PState mv vb tb te' assign' trail' tf' N ⋆
-            (ZeroTermInts lit_ptrs[aids[j].toNat] clits ⋆ (R ⋆ R2))) m' →
-            (PState mv vb tb te' assign' trail' tf' N ⋆ (R ⋆ P_ro)) m' := fun _ _ _ _ _ h => by
-          rw [hP2]; exact sep_cast h (by ac_rfl)
-        refine inner_spec (reserve := aids.length - (j + 1)) hcl_valid hcl hent (by omega) hm2
-          (fun m' te' sla' assign' trail' tf' h => hfail _ _ _ _ _ _ _ _ _ (back _ _ _ _ _ h))
-          (fun m' unit te' sla' assign' trail' tf' h hres => hK _ _ ⟨unit, te', sla', assign', trail',
-            tf', rfl, back _ _ _ _ _ h, ?_⟩) sla
-        rcases hres with ⟨hu, _, hunsat⟩ | hres
-        · exact Or.inl ⟨hu, hunsat⟩
-        · exact Or.inr hres
-    · rw [truthy_iff _ (zeroTermGet_isInt32 h32 j), Classical.not_not] at hz
-      exact hfail m _ _ _ _ _ _ _ _ hm
+    have hma := hm; rw [hP_aids] at hma
+    refine zeroTerm_jnz_step hj h32 hne0 (by ecancel) (fun hlt => ?_)
+      (fun _ => hfail m _ _ _ _ _ _ _ _ hm)
+    obtain ⟨_, _, hpos⟩ := haids_valid aids[j] (List.getElem_mem hlt)
+    refine ⟨fun _ => hfail m _ _ _ _ _ _ _ _ hm, fun hneg => ?_⟩
+    obtain ⟨hal, hptr⟩ := hpos (by simpa using hneg)
+    obtain ⟨R1, hP1⟩ := hct.1
+    have hm1 : (PState mv vb tb te assign trail tf N ⋆ (R ⋆ (word8Array lb lit_ptrs ⋆ R1))) m :=
+      hP1 ▸ hm
+    refine ⟨_, loadl_word8Array (a := lb) hal (by ecancel), ?_⟩
+    have haid0 : 0 < aids[j].toNat := by
+      rcases Nat.eq_zero_or_pos aids[j].toNat with h | h
+      · exact absurd (BitVec.eq_of_toNat_eq (by simpa using h)) (hne0 _ (List.getElem_mem hlt))
+      · exact h
+    obtain ⟨clits, R2, hP2, hcl_valid, hcl_get⟩ := hct.2 aids[j].toNat hal haid0 hptr
+    have hcl := mem_toCNF_of_formula_getElem? hcl_get
+    apply wp_join (fun as m' => ∃ unit te2 sla2 assign' trail' tf', as = [unit, te2, sla2] ∧
+      (PState mv vb tb te2 assign' trail' tf' N ⋆ (R ⋆ P_ro)) m' ∧
+      ((unit = 0 ∧ CNF.Unsat (s.toCNF ++ initAssign.toCNF)) ∨
+       (unit ≠ 0 ∧ IsInt32 unit ∧ aids.length - (j + 1) ≤ tf'.length ∧
+        CNF.Entails (s.toCNF ++ initAssign.toCNF) (s.toCNF ++ assign'.toCNF))))
+    · rintro _ m' ⟨unit, te2, sla2, assign', trail', tf', rfl, hm', hres⟩
+      wp_unfold
+      rcases hres with ⟨rfl, hunsat⟩ | ⟨hu, hu32, hc', hent'⟩
+      · refine ⟨fun h => absurd h (by decide), fun _ => hfin _ _ _ _ _ _ _ hm' hunsat⟩
+      · rw [truthy_iff _ hu32]
+        refine ⟨fun _ => ih _ _ _ (by omega) ⟨j + 1, _, _, _, _, _, _, by rw [ptr4], hlt, rfl, hc',
+          hm', hent'⟩, fun h => absurd hu h⟩
+    · intro K hK
+      have hm2 : (PState mv vb tb te assign trail tf N ⋆ (ZeroTermInts lit_ptrs[aids[j].toNat] clits ⋆
+          (R ⋆ R2))) m := sep_cast (hP2 ▸ hm) (by ac_rfl)
+      have back : ∀ {P : Mem 64 → Prop} {m'}, (P ⋆ (ZeroTermInts lit_ptrs[aids[j].toNat] clits ⋆
+          (R ⋆ R2))) m' → (P ⋆ (R ⋆ P_ro)) m' := fun h => by rw [hP2]; exact sep_cast h (by ac_rfl)
+      refine inner_spec (reserve := aids.length - (j + 1)) hcl_valid hcl hent (by omega) hm2
+        (fun m' te' sla' assign' trail' tf' h => hfail _ _ _ _ _ _ _ _ _ (back h))
+        (fun m' unit te' sla' assign' trail' tf' h hres => hK _ _ ⟨unit, te', sla', assign', trail',
+          tf', rfl, back h, ?_⟩) sla
+      rcases hres with ⟨hu, _, hunsat⟩ | hres
+      · exact Or.inl ⟨hu, hunsat⟩
+      · exact Or.inr hres
   · intro J hJ
     wp_unfold
     exact hJ _ _ _ ⟨0, te0, sr0, sla0, assign0, trail0, tf0, by simp, Nat.zero_le _, rfl, by omega,
@@ -562,11 +573,9 @@ theorem checkRup_correct (Γ : Env) :
     hk_trail, hct, ⟨R_lits, hP_lits⟩, haids_ro, hlits_valid, haids_valid, hcap, htf_len, hsep, hQ, hX⟩
   unfold checkRup Func.spec
   wp_unfold
-  have hks : (kernelState st k ⋆ (byte1Array k.values_begin (assignBytes mv Assignment.empty) ⋆
-      int4Array k.trail_begin tf0 ⋆ P_ro)) m := sep_cast hsep (by ac_rfl)
-  refine ⟨_, loadl_kfield 2 (by decide) hks rfl, _, loadl_kfield 3 (by decide) hks rfl,
-    _, loadl_kfield 5 (by decide) hks rfl, _, loadl_kfield 6 (by decide) hks rfl,
-    _, loadl_kfield 18 (by decide) hks rfl, _, loadl_kfield 19 (by decide) hks rfl, ?_⟩
+  refine ⟨_, loadl_kfield 2 (by decide) (by ecancel) rfl, _, loadl_kfield 3 (by decide) (by ecancel) rfl,
+    _, loadl_kfield 5 (by decide) (by ecancel) rfl, _, loadl_kfield 6 (by decide) (by ecancel) rfl,
+    _, loadl_kfield 18 (by decide) (by ecancel) rfl, _, loadl_kfield 19 (by decide) (by ecancel) rfl, ?_⟩
   simp only [KernelFields.toList, List.getElem_cons_succ, List.getElem_cons_zero, hk_trail]
   -- `@fail`: flush, then exit
   apply wp_join (fun as m => ∃ code aid te sr sla, as = [code, aid, te, sr, sla] ∧
@@ -575,11 +584,6 @@ theorem checkRup_correct (Γ : Env) :
     wp_unfold
     exact flush_spec hm fun _ _ => by wp_unfold; exact hX _ _
   intro Jfail hJfail
-  have toFail : ∀ code aid te sr sla assign trail tf m', (PState mv k.values_begin k.trail_begin te
-      assign trail tf tf0.length ⋆ (kernelState st k ⋆ P_ro)) m' → Jfail [code, aid, te, sr, sla] m' :=
-    fun code aid te sr sla assign trail tf _ h => hJfail _ _ ⟨code, aid, te, sr, sla, rfl,
-      PState mv k.values_begin k.trail_begin te assign trail tf tf0.length ⋆ P_ro, k,
-      sep_cast h (by ac_rfl)⟩
   -- `@finish`: backtrack, flush, return
   apply wp_join (fun as m => ∃ te sr sla assign trail tf, as = [te, sr, sla] ∧
     (PState mv k.values_begin k.trail_begin te assign trail tf tf0.length ⋆
@@ -588,10 +592,9 @@ theorem checkRup_correct (Γ : Env) :
     wp_unfold
     obtain ⟨hte, hcov, htv, hlen, hm⟩ := pstate_sep.1 hm
     refine backtrack_spec hte htv (by omega) hcov hm fun m1 hm1 => ?_
-    refine flush_spec (k := k) (R := (byte1Array k.values_begin (assignBytes mv Assignment.empty) ⋆
-      int4Array k.trail_begin (trail ++ tf)) ⋆ P_ro) (sep_cast hm1 (by ac_rfl)) fun m2 hm2 => ?_
+    refine flush_spec (k := k) (by ecancel) fun m2 hm2 => ?_
     wp_unfold
-    exact hQ m2 sr sla (trail ++ tf) (by simp [hlen]) (sep_cast hm2 (by ac_rfl)) hentc
+    exact hQ m2 sr sla (trail ++ tf) (by simp [hlen]) (by ecancel) hentc
   intro Jfin hJfin
   -- `@ph2`: phase 2 from the negated clause
   apply wp_join (fun as m => ∃ te sla assign trail tf, as = [te, sla] ∧
@@ -601,25 +604,22 @@ theorem checkRup_correct (Γ : Env) :
   · rintro _ m ⟨te, sla, assign, trail, tf, rfl, hm, hc, hiff⟩
     wp_unfold
     exact phase2_spec (initAssign := assign) hct haids_ro haids_valid hc (CNF.entails_refl _) hm
-      (fun _ code aid te sr sla _ _ _ h => toFail code aid te sr sla _ _ _ _ h)
+      (fun _ code aid te sr sla _ _ _ h => hJfail _ _ ⟨code, aid, te, sr, sla, rfl, _, k, sep_cast h (sep_comm_l _ _ _)⟩)
       (fun _ te sr sla assign' trail' tf' h hunsat => hJfin _ _ ⟨te, sr, sla, assign', trail', tf', rfl,
         h, entailsClause_of_unsat_of_iff_falsified hiff hunsat⟩) sla
   intro Jph2 hJph2
   -- phase 1
-  have back : ∀ te assign trail tf m', (PState mv k.values_begin k.trail_begin te assign trail tf
-      tf0.length ⋆ (ZeroTermInts literals lits ⋆ (kernelState st k ⋆ R_lits))) m' →
-      (PState mv k.values_begin k.trail_begin te assign trail tf tf0.length ⋆
-        (kernelState st k ⋆ P_ro)) m' := fun _ _ _ _ _ h => by
-    rw [hP_lits]; exact sep_cast h (by ac_rfl)
+  have back : ∀ {P : Mem 64 → Prop} {m'}, (P ⋆ (ZeroTermInts literals lits ⋆ (kernelState st k ⋆ R_lits))) m' →
+      (P ⋆ (kernelState st k ⋆ P_ro)) m' := fun h => by rw [hP_lits]; ecancel
   have hm1 : (PState mv k.values_begin k.trail_begin k.trail_begin Assignment.empty [] tf0 tf0.length ⋆
-      (ZeroTermInts literals lits ⋆ (kernelState st k ⋆ R_lits))) m := by
-    refine pstate_sep.2 ⟨by simp, trailCoversAssign_empty mv, by simp, by simp, ?_⟩
-    rw [List.nil_append]; rw [hP_lits] at hsep; exact sep_cast hsep (by ac_rfl)
+      (ZeroTermInts literals lits ⋆ (kernelState st k ⋆ R_lits))) m :=
+    pstate_sep.2 ⟨by simp, trailCoversAssign_empty mv, by simp, by simp,
+      by rw [List.nil_append, hP_lits] at *; ecancel⟩
   exact phase1_spec (reserve := aids.length) hlits_valid (by omega) hm1
-    (fun _ te sla assign trail tf h _ htaut => hJfin _ _ ⟨te, _, sla, assign, trail, tf, rfl, back _ _ _ _ _ h,
+    (fun _ te sla assign trail tf h _ htaut => hJfin _ _ ⟨te, _, sla, assign, trail, tf, rfl, back h,
       entailsClause_of_tautology htaut⟩)
     (fun _ te sla assign trail tf h hc hiff => hJph2 _ _ ⟨te, sla, assign, trail, tf, rfl,
-      back _ _ _ _ _ h, hc, hiff⟩) _
+      back h, hc, hiff⟩) _
 
 theorem checkRup_wf : Func.Wf checkRup := by
   unfold checkRup phase1 phase2 inner backtrack flush assignedLit assignLit; wf_tac
@@ -646,39 +646,53 @@ theorem eq_cons_At {n : Nat} (a v : Val) (bs : List UInt8) (h : n + bs.length �
       Eq ((Int.toBytes n v.toNat ++ bs).At a) := by
   rw [Mem.At_append_sep _ _ _ (by rw [Int.toBytes_length]; exact h), Int.toBytes_length]
 
-theorem byte1Array_eq (a : Val) (xs : List Val) (h : xs.length ≤ 2 ^ 64) :
-    byte1Array a xs = Eq ((bytesN 1 xs).At a) := by
+private theorem bytesArray_eq (n : Nat) (arr : Val → List Val → Mem 64 → Prop)
+    (hnil : ∀ a, arr a [] = emp)
+    (hcons : ∀ a x xs, arr a (x :: xs) = (Eq ((Int.toBytes n x.toNat).At a) ⋆ arr (a + BitVec.ofNat 64 n) xs))
+    (a : Val) (xs : List Val) (h : n * xs.length ≤ 2 ^ 64) :
+    arr a xs = Eq ((bytesN n xs).At a) := by
   induction xs generalizing a with
-  | nil => exact eq_nil_At a
+  | nil => rw [hnil, bytesN, List.flatMap_nil, eq_nil_At]
   | cons x xs ih =>
-    have hl := bytesN_length 1 xs
-    simp only [byte1Array_cons, bytesN, List.flatMap_cons]
-    rw [ih _ (by simp at h; omega)]
-    exact eq_cons_At (n := 1) a x _ (by simp at h; omega)
+    have hl := bytesN_length n xs
+    have h' : n * xs.length + n ≤ 2 ^ 64 := Nat.mul_succ n xs.length ▸ h
+    rw [hcons, bytesN, List.flatMap_cons, ih _ (by omega)]
+    exact eq_cons_At a x _ (by omega)
+
+theorem byte1Array_eq (a : Val) (xs : List Val) (h : xs.length ≤ 2 ^ 64) :
+    byte1Array a xs = Eq ((bytesN 1 xs).At a) :=
+  bytesArray_eq 1 byte1Array byte1Array_nil byte1Array_cons a xs (by simpa using h)
 
 theorem int4Array_eq (a : Val) (xs : List Val) (h : 4 * xs.length ≤ 2 ^ 64) :
-    int4Array a xs = Eq ((bytesN 4 xs).At a) := by
-  induction xs generalizing a with
-  | nil => exact eq_nil_At a
-  | cons x xs ih =>
-    have hl := bytesN_length 4 xs
-    simp only [int4Array_cons, bytesN, List.flatMap_cons]
-    rw [ih _ (by simp at h; omega)]
-    exact eq_cons_At (n := 4) a x _ (by simp at h; omega)
+    int4Array a xs = Eq ((bytesN 4 xs).At a) :=
+  bytesArray_eq 4 int4Array int4Array_nil int4Array_cons a xs h
 
 theorem word8Array_eq (a : Val) (xs : List Val) (h : 8 * xs.length ≤ 2 ^ 64) :
-    word8Array a xs = Eq ((bytesN 8 xs).At a) := by
-  induction xs generalizing a with
-  | nil => exact eq_nil_At a
-  | cons x xs ih =>
-    have hl := bytesN_length 8 xs
-    simp only [word8Array_cons, bytesN, List.flatMap_cons]
-    rw [ih _ (by simp at h; omega)]
-    exact eq_cons_At (n := 8) a x _ (by simp at h; omega)
+    word8Array a xs = Eq ((bytesN 8 xs).At a) :=
+  bytesArray_eq 8 word8Array word8Array_nil word8Array_cons a xs h
 
 theorem eq_append_At (a : Val) (b1 b2 : List UInt8) (h : b1.length + b2.length ≤ 2 ^ 64) :
     Eq ((b1 ++ b2).At a) = (Eq (b1.At a) ⋆ Eq (b2.At (a + BitVec.ofNat 64 b1.length))) :=
   Mem.At_append_sep _ _ _ h
+
+theorem mem_at_cast {P : Mem 64 → Prop} {bs : List UInt8} {a : Val}
+    (h : Eq (bs.At a) = P) : P (bs.At a) := h ▸ rfl
+
+theorem KernelFields_toList_length (k : KernelFields) : k.toList.length = 20 := rfl
+
+syntax "solve_bytes_at" : tactic
+macro_rules
+  | `(tactic| solve_bytes_at) => `(tactic| (
+      try simp only [sep_emp]
+      repeat (first
+        | rw [byte1Array_eq _ _ (by simp)]
+        | rw [int4Array_eq _ _ (by simp)]
+        | rw [word8Array_eq _ _ (by simp [KernelFields.toList])])
+      refine mem_at_cast ?_
+      repeat rw [eq_append_At _ _ _ (by simp [bytesN_length, KernelFields_toList_length])]
+      simp only [bytesN_length, KernelFields_toList_length, List.length_cons, List.length_nil,
+        Nat.reduceAdd, Nat.reduceMul, BitVec.reduceAdd, BitVec.ofNat_eq_ofNat]
+      ac_rfl))
 
 /-! ## A concrete instance: the tautology `[1, -1]` -/
 
@@ -695,20 +709,8 @@ def nvBytes : List UInt8 :=
 theorem nv_mem : ((byte1Array 0x10a0 (assignBytes 1 Assignment.empty) ⋆ int4Array 0x10a2 [0, 0]) ⋆
     (kernelState 0x1000 nvK ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 []))) (nvBytes.At 0x1000) := by
   rw [assignBytes_empty]
-  unfold kernelState ZeroTermInts
-  rw [byte1Array_eq _ _ (by simp), int4Array_eq _ _ (by simp),
-    word8Array_eq _ _ (by simp [KernelFields.toList]), int4Array_eq _ _ (by simp),
-    int4Array_eq _ _ (by simp)]
-  have e : Eq (nvBytes.At (0x1000 : Val)) = (Eq ((bytesN 8 nvK.toList).At (0x1000 : Val)) ⋆
-      (Eq ((bytesN 1 [0, 0]).At (0x10a0 : Val)) ⋆ (Eq ((bytesN 4 [0, 0]).At (0x10a2 : Val)) ⋆
-        (Eq ((bytesN 4 [1, -1, 0]).At (0x10aa : Val)) ⋆ Eq ((bytesN 4 [0]).At (0x10b6 : Val)))))) := by
-    unfold nvBytes
-    rw [eq_append_At _ _ _ (by simp [bytesN_length, KernelFields.toList]),
-      eq_append_At _ _ _ (by simp [bytesN_length]), eq_append_At _ _ _ (by simp [bytesN_length]),
-      eq_append_At _ _ _ (by simp [bytesN_length])]
-    simp only [bytesN_length, KernelFields.toList, List.length_cons, List.length_nil]
-    rfl
-  exact sep_cast (show Eq (nvBytes.At (0x1000 : Val)) _ from rfl) (e.trans (by ac_rfl))
+  unfold kernelState ZeroTermInts nvBytes
+  solve_bytes_at
 
 /-- `checkRupSpec` is satisfiable: the tautology `[1, -1]`, no antecedents, a trail of two free
 slots, in the 186 bytes of `nvBytes` at `0x1000`. -/
@@ -742,51 +744,42 @@ theorem checkRup_accepts_tautology (Γ : Env) :
   rw [assignBytes_empty] at hsep
   unfold checkRup Func.spec
   wp_unfold
-  have hks : (kernelState 0x1000 nvK ⋆ (byte1Array 0x10a0 (List.replicate (1 + 1) 0) ⋆
-      int4Array 0x10a2 [0, 0] ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 [])))
-      (nvBytes.At 0x1000) := sep_cast hsep (by ac_rfl)
-  refine ⟨_, loadl_kfield 2 (by decide) hks rfl, _, loadl_kfield 3 (by decide) hks rfl,
-    _, loadl_kfield 5 (by decide) hks rfl, _, loadl_kfield 6 (by decide) hks rfl,
-    _, loadl_kfield 18 (by decide) hks rfl, _, loadl_kfield 19 (by decide) hks rfl, ?_⟩
+  refine ⟨_, loadl_kfield 2 (by decide) (by ecancel) rfl, _, loadl_kfield 3 (by decide) (by ecancel) rfl,
+    _, loadl_kfield 5 (by decide) (by ecancel) rfl, _, loadl_kfield 6 (by decide) (by ecancel) rfl,
+    _, loadl_kfield 18 (by decide) (by ecancel) rfl, _, loadl_kfield 19 (by decide) (by ecancel) rfl, ?_⟩
   simp only [KernelFields.toList, List.getElem_cons_succ, List.getElem_cons_zero]
   -- `@fail` is unreachable
   apply wp_join (fun _ _ => False) (fun _ _ h => h.elim)
   intro Jfail _
   -- `@finish`: backtrack, flush, return
   apply wp_join (fun as m => ∃ te sr sla assign trail tf, as = [te, sr, sla] ∧
-    (PState 1 nvK.values_begin nvK.trail_begin te assign trail tf 2 ⋆
+    (PState 1 nvK.values_begin nvK.trail_begin te assign trail tf ([0, 0] : List Val).length ⋆
       (kernelState 0x1000 nvK ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 []))) m)
   · rintro _ m ⟨te, sr, sla, assign, trail, tf, rfl, hm⟩
     wp_unfold
     obtain ⟨hte, hcov, htv, hlen, hm⟩ := pstate_sep.1 hm
-    refine backtrack_spec hte htv (by omega) hcov hm fun m1 hm1 => ?_
-    refine flush_spec (k := nvK) (R := (byte1Array nvK.values_begin (assignBytes 1 Assignment.empty) ⋆
-      int4Array nvK.trail_begin (trail ++ tf)) ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 []))
-      (sep_cast hm1 (by ac_rfl)) fun m2 _ => ?_
+    refine backtrack_spec hte htv (by simp at hlen; omega) hcov hm fun m1 hm1 => ?_
+    refine flush_spec (k := nvK) (by ecancel) fun m2 _ => ?_
     wp_unfold
   intro Jfin hJfin
   -- `@ph2` is unreachable: no assignment falsifies a tautology
   apply wp_join (fun as m => ∃ te sla assign trail tf, as = [te, sla] ∧
-    (PState 1 nvK.values_begin nvK.trail_begin te assign trail tf 2 ⋆
+    (PState 1 nvK.values_begin nvK.trail_begin te assign trail tf ([0, 0] : List Val).length ⋆
       (kernelState 0x1000 nvK ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 []))) m ∧
     ∀ x : Literal Nat, x ∈ toClause [1, -1] ↔ assign.get? x.1 = some !x.2)
   · rintro _ _ ⟨_, _, assign, _, _, _, _, hiff⟩
     exact absurd hiff (not_falsify_taut assign)
   intro Jph2 hJph2
-  have back : ∀ te assign trail tf m', (PState 1 nvK.values_begin nvK.trail_begin te assign trail tf
-      2 ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ (kernelState 0x1000 nvK ⋆ ZeroTermInts 0x10b6 []))) m' →
-      (PState 1 nvK.values_begin nvK.trail_begin te assign trail tf 2 ⋆
-        (kernelState 0x1000 nvK ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 []))) m' :=
-    fun _ _ _ _ _ h => sep_cast h (by ac_rfl)
-  have hm1 : (PState 1 nvK.values_begin nvK.trail_begin nvK.trail_begin Assignment.empty [] [0, 0] 2 ⋆
+  have hm1 : (PState 1 nvK.values_begin nvK.trail_begin nvK.trail_begin Assignment.empty [] [0, 0]
+      ([0, 0] : List Val).length ⋆
       (ZeroTermInts 0x10aa [1, -1] ⋆ (kernelState 0x1000 nvK ⋆ ZeroTermInts 0x10b6 [])))
-      (nvBytes.At 0x1000) := by
-    refine pstate_sep.2 ⟨by simp, trailCoversAssign_empty 1, by simp, by simp, ?_⟩
-    rw [List.nil_append, assignBytes_empty]; exact sep_cast hsep (by ac_rfl)
+      (nvBytes.At 0x1000) :=
+    pstate_sep.2 ⟨by simp, trailCoversAssign_empty 1, by simp, by simp,
+      by rw [List.nil_append, assignBytes_empty]; ecancel⟩
   exact phase1_spec (reserve := 0) (by intro x hx; simp at hx; rcases hx with rfl | rfl <;>
       (unfold IsValidLit bvAbs; decide)) (by decide) hm1
-    (fun _ te sla assign trail tf h _ _ => hJfin _ _ ⟨te, _, sla, assign, trail, tf, rfl, back _ _ _ _ _ h⟩)
+    (fun _ te sla assign trail tf h _ _ => hJfin _ _ ⟨te, _, sla, assign, trail, tf, rfl, by ecancel⟩)
     (fun _ te sla assign trail tf h _ hiff => hJph2 _ _ ⟨te, sla, assign, trail, tf, rfl,
-      back _ _ _ _ _ h, hiff⟩) _
+      by ecancel, hiff⟩) _
 
 end LeanQbe.LratRup

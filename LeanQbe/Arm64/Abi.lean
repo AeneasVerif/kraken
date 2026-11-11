@@ -66,6 +66,8 @@ theorem x30_not_scratch : (XRegOrSp.reg .X30 : Reg) ∉ scratch := by simp [scra
   retRegs_not_scratch := by simp [retRegs, scratch]
   sp_not_retRegs := by simp [retRegs]
   sp_not_argRegs := by simp [argRegs]
+  calleeSaved_not_argRegs := by simp [calleeSaved, argRegs]
+  calleeSaved_not_retRegs := by simp [calleeSaved, retRegs]
   retAddr_region _ _ _ h := h
   raReg_of_raRegs s s' _ hkeep hra := by
     have h : get s' (.reg .X30) = get s (.reg .X30) := hkeep (.reg .X30) (by simp)
@@ -112,6 +114,8 @@ theorem x30_not_scratch : (XRegOrSp.reg .X30 : Reg) ∉ scratch := by simp [scra
   jmp_spec {h} {_} {_} {_} {s} {_} hc hj hk :=
     letI := h; eventually_jmp hc hj (hk s (fun _ _ => rfl) rfl)
   jnz_spec {h} {_} {_} {_} {_} {_} {_} hc hj _ hk := letI := h; eventually_jnz hc hj hk
+  jnzCmp_spec {h} {_} {_} {_} {_} {_} {_} {_} {_} {_} {_} {_} hop hc hj hvars hv hk :=
+    letI := h; eventually_jnzCmp hop hc hj hvars hv hk
   prologue_spec {h} {_} {_} {_} {_} {_} {_} hc hra hsp hF hmem hk := by
     letI := h
     exact eventually_prologue hc hra hsp (by simpa using hF) hmem hk

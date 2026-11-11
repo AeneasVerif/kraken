@@ -157,12 +157,18 @@ theorem Agree.clob {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s s' : T.MData
     rw [hs r hk.1 hk.2]; exact hA _ _ hx _ hv
   | slot i => exact hA _ _ hx _ hv
 
-theorem Agree.slotsOnly {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s s' : T.MData}
-    {σ : List Val} (hA : Agree G R s σ) : Agree G (Rega.slotsOnly R) s' σ := by
+theorem Agree.afterCall {G : List (Val × Nat)} {saved : List T.Reg} {R : SymRegs T.toIsa}
+    {s s' : T.MData} {σ : List Val} (hA : Agree G R s σ)
+    (hcs : ∀ r ∈ T.calleeSaved, T.get s' r = T.get s r) (hsub : ∀ r ∈ saved, r ∈ T.calleeSaved) :
+    Agree G (Rega.afterCall saved R) s' σ := by
   intro a l hx a₁ hv
-  simp only [Rega.slotsOnly, List.mem_filter] at hx
+  simp only [Rega.afterCall, List.mem_filter] at hx
   cases l with
-  | reg r => simp at hx
+  | reg r =>
+    simp only [decide_eq_true_eq] at hx
+    show T.get s' r = a₁.val
+    rw [hcs r (hsub r hx.2)]
+    exact hA _ _ hx.1 _ hv
   | slot i => exact hA _ _ hx.1 _ hv
 
 theorem _root_.LeanQbe.ArgRel.mono {G G' : List (Val × Nat)} (hG : ∀ p ∈ G, p ∈ G')
@@ -199,6 +205,46 @@ theorem Agree.bindN {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s : T.MData} 
 theorem Agree.mono {G G' : List (Val × Nat)} {R : SymRegs T.toIsa} {s : T.MData} {σ : List Val}
     (hA : Agree G R s σ) (hG : ∀ p ∈ G', p ∈ G) : Agree G' R s σ :=
   fun a l hx a₁ hv => hA a l hx a₁ (hv.mono hG)
+
+theorem Agree.dropVar {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s : T.MData} {σ : List Val}
+    (v : Val) (x : Nat) (hA : Agree G R s σ) :
+    Agree ((v, x) :: G) (R.filter (fun p => p.1 != .var x)) s σ := by
+  intro a l hx a₁ ha
+  simp only [List.mem_filter, bne_iff_ne, ne_eq] at hx
+  exact hA a l hx.1 a₁ (ha.uncons hx.2)
+
+private theorem fuseCmp_some {I : Isa} {h : Hints I} {fn : String} {st : St I} {R : SymRegs I}
+    {op : Op Nat} {e : Expr Nat Nat} {c : List I.Directive}
+    (hf : fuseCmp? h fn st R op e = some c) :
+    ∃ cls co a b t e' a' b',
+      op = .cmp cls co a b ∧ e = .jnz (.var st.nv) t e' ∧
+      (h.pre (st.ip + 1)).isEmpty = true ∧
+      argReg R a = some a' ∧ argReg R b = some b' ∧
+      I.jnzCmp cls co a' b' (lname fn st.nl) = some c := by
+  cases op with
+  | bin _ _ _ _ | ext _ _ _ _ | copy _ _ => simp [fuseCmp?] at hf
+  | cmp cls co a b =>
+    cases e with
+    | param _ | let_ _ _ | load _ _ _ _ _ | store _ _ _ _ | call _ _ _
+    | jump _ _ | ret _ | exit _ _ | hlt | label _ | block _ _ => simp [fuseCmp?] at hf
+    | jnz cx t e' =>
+      cases cx with
+      | imm _ => simp [fuseCmp?] at hf
+      | var x =>
+        dsimp only [fuseCmp?] at hf
+        split at hf
+        · rename_i hc
+          simp only [Bool.and_eq_true, beq_iff_eq] at hc
+          rcases hc with ⟨⟨⟨rfl, _⟩, _⟩, hpre⟩
+          cases ha : argReg R a with
+          | none => simp [ha] at hf
+          | some a' =>
+            cases hb : argReg R b with
+            | none => simp [ha, hb] at hf
+            | some b' =>
+              simp only [ha, hb] at hf
+              exact ⟨cls, co, a, b, t, e', a', b', rfl, rfl, hpre, ha, hb, hf⟩
+        · simp at hf
 
 theorem mem_copyTo {I : Isa} {l d : Loc I} {R : SymRegs I} {a : Arg Nat} {l' : Loc I}
     (h : (a, l') ∈ copyTo l d R) : l' = d ∧ (a, l) ∈ R := by
@@ -298,22 +344,28 @@ theorem Agree.st {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s s' : T.MData} 
 section Frame
 variable (hints : Hints T.toIsa) (s₀ : T.MData) (ra : T.Addr) (n : Nat) (Rf : Mem 64 → Prop)
 
-/-- Bytes of the frame. -/
-abbrev frame : Nat := T.frameSize hints.nslots
+/-- Bytes of the frame (spill slots + saved callee-saved registers). -/
+abbrev frame : Nat := T.frameSize hints.totalSlots
 
 /-- Address of slot 0: the entry stack pointer minus the frame. -/
 abbrev base : Val := T.get s₀ T.sp - BitVec.ofNat 64 (frame hints)
 
-/-- What surrounds the slots: frame overhead, the stack left for callees, the caller's frame. -/
+/-- Saved callee-saved registers at slots `hints.nslots .. hints.nslots + hints.saved.length - 1`. -/
+def csSlots : Mem 64 → Prop :=
+  slots (base hints s₀ + BitVec.ofNat 64 (8 * hints.nslots)) (hints.saved.map (T.get s₀))
+
+/-- What surrounds the slots: saved callee-saved regs, frame overhead, stack left for callees, caller's frame. -/
 def Fr : Mem 64 → Prop :=
-  T.Saved (T.get s₀ T.sp) ra hints.nslots ⋆
-    (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf)
+  csSlots hints s₀ ⋆
+    (T.Saved (T.get s₀ T.sp) ra hints.totalSlots ⋆
+      (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf))
 
 /-- The frame invariant, with source memory `m` and slot contents `σ`. -/
 def Inv (m : Mem 64) (s : T.MData) (σ : List Val) : Prop :=
   σ.length = hints.nslots ∧ T.get s T.sp = base hints s₀ ∧
-  (∀ r, r ∈ T.calleeSaved → T.get s r = T.get s₀ r) ∧
-  (T.mem s =⋆ Eq m ⋆ (slots (base hints s₀) σ ⋆ Fr hints s₀ ra n Rf))
+  (∀ r, r ∈ T.calleeSaved → r ∉ hints.saved → T.get s r = T.get s₀ r) ∧
+  (T.mem s =⋆ Eq m ⋆ (slots (base hints s₀) σ ⋆ Fr hints s₀ ra n Rf)) ∧
+  (∀ r ∈ hints.saved, r ∈ T.calleeSaved) ∧ hints.saved.Nodup
 
 end Frame
 
@@ -322,13 +374,14 @@ variable {hints : Hints T.toIsa} {s₀ : T.MData} {ra : T.Addr} {n : Nat} {Rf : 
 
 theorem Inv.regs {s s' : T.MData} {m : Mem 64} {σ : List Val} (hI : Inv hints s₀ ra n Rf m s σ)
     (hm : T.mem s' = T.mem s)
-    (hs : ∀ r, r ∉ T.allocatable → r ∉ T.scratch → T.get s' r = T.get s r) :
+    (hs : ∀ r, r ∉ T.allocatable → r ∉ hints.saved → r ∉ T.scratch → T.get s' r = T.get s r) :
     Inv hints s₀ ra n Rf m s' σ := by
-  obtain ⟨hl, hsp, hcs, hmem⟩ := hI
-  refine ⟨hl, ?_, fun r hr => ?_, hm ▸ hmem⟩
-  · rw [hs _ T.sp_not_allocatable T.sp_not_scratch]; exact hsp
-  · rw [hs r (T.calleeSaved_not_allocatable r hr) (T.calleeSaved_not_scratch r hr)]
-    exact hcs r hr
+  obtain ⟨hl, hsp, hcs, hmem, hsub, hnd⟩ := hI
+  refine ⟨hl, ?_, fun r hr hns => ?_, hm ▸ hmem, hsub, hnd⟩
+  · rw [hs _ T.sp_not_allocatable (fun h => T.sp_not_calleeSaved (hsub _ h)) T.sp_not_scratch]
+    exact hsp
+  · rw [hs r (T.calleeSaved_not_allocatable r hr) hns (T.calleeSaved_not_scratch r hr)]
+    exact hcs r hr hns
 
 theorem slots_set {a : Val} (σ : List Val) (i : Nat) (hi : i < σ.length) (v : Val) :
     slots a (σ.set i v) = slots a (σ.take i) ⋆
@@ -348,7 +401,7 @@ theorem Inv.slot {s : T.MData} {m : Mem 64} {σ : List Val} (hI : Inv hints s₀
     {i : Nat} (hi : i < σ.length) :
     T.mem s =⋆ word (T.get s T.sp + BitVec.ofNat 64 (8 * i)) σ[i] ⋆
       slotRest hints s₀ ra n Rf m σ i := by
-  obtain ⟨-, hsp, -, hmem⟩ := hI
+  obtain ⟨-, hsp, -, hmem, -, -⟩ := hI
   rw [slots_get σ i hi] at hmem
   rw [hsp]
   unfold slotRest
@@ -360,10 +413,10 @@ theorem Inv.slotSet {s s' : T.MData} {m : Mem 64} {σ : List Val} (hI : Inv hint
       slotRest hints s₀ ra n Rf m σ i)
     (hs : ∀ r, r ∉ T.scratch → T.get s' r = T.get s r) :
     Inv hints s₀ ra n Rf m s' (σ.set i v) := by
-  obtain ⟨hl, hsp, hcs, -⟩ := hI
-  refine ⟨by simp [hl], ?_, fun r hr => ?_, ?_⟩
+  obtain ⟨hl, hsp, hcs, -, hsub, hnd⟩ := hI
+  refine ⟨by simp [hl], ?_, fun r hr hns => ?_, ?_, hsub, hnd⟩
   · rw [hs _ T.sp_not_scratch]; exact hsp
-  · rw [hs r (T.calleeSaved_not_scratch r hr)]; exact hcs r hr
+  · rw [hs r (T.calleeSaved_not_scratch r hr)]; exact hcs r hr hns
   · rw [slots_set σ i hi v]
     rw [hsp] at hmem
     unfold slotRest at hmem
@@ -371,14 +424,19 @@ theorem Inv.slotSet {s s' : T.MData} {m : Mem 64} {σ : List Val} (hI : Inv hint
 
 end
 
-/-- Writing an allocatable or scratch register `d` and the scratch registers. -/
-theorem keeps_dest {s s' : T.MData} {d : T.Reg} (hd : d ∈ T.allocatable ∨ d ∈ T.scratch)
+/-- Writing an allocatable, saved, or scratch register `d` and the scratch registers. -/
+theorem keeps_dest {s s' : T.MData} {saved : List T.Reg} {d : T.Reg}
+    (hd : d ∈ T.allocatable ∨ d ∈ saved ∨ d ∈ T.scratch)
     (hs : ∀ r, r ∉ d :: T.scratch → T.get s' r = T.get s r) :
-    ∀ r, r ∉ T.allocatable → r ∉ T.scratch → T.get s' r = T.get s r := by
-  intro r h1 h2
+    ∀ r, r ∉ T.allocatable → r ∉ saved → r ∉ T.scratch → T.get s' r = T.get s r := by
+  intro r h1 h2 h3
   refine hs r ?_
   simp only [List.mem_cons, not_or]
-  exact ⟨fun e => hd.elim (fun h => h1 (e ▸ h)) (fun h => h2 (e ▸ h)), h2⟩
+  refine ⟨fun e => ?_, h3⟩
+  rcases hd with h | h | h
+  · exact h1 (e ▸ h)
+  · exact h2 (e ▸ h)
+  · exact h3 (e ▸ h)
 
 theorem keeps_dest' {s s' : T.MData} {d : T.Reg}
     (hs : ∀ r, r ∉ d :: T.scratch → T.get s' r = T.get s r) :
@@ -388,13 +446,18 @@ theorem keeps_dest' {s s' : T.MData} {d : T.Reg}
   simp only [List.mem_cons, not_or]
   exact ⟨fun e => h1 (by rw [e]), h2⟩
 
-theorem keeps_one {s s' : T.MData} {d : T.Reg} (hd : d ∈ T.allocatable ∨ d ∈ T.scratch)
+theorem keeps_one {s s' : T.MData} {saved : List T.Reg} {d : T.Reg}
+    (hd : d ∈ T.allocatable ∨ d ∈ saved ∨ d ∈ T.scratch)
     (hs : ∀ r, r ∉ [d] → T.get s' r = T.get s r) :
-    ∀ r, r ∉ T.allocatable → r ∉ T.scratch → T.get s' r = T.get s r := by
-  intro r h1 h2
+    ∀ r, r ∉ T.allocatable → r ∉ saved → r ∉ T.scratch → T.get s' r = T.get s r := by
+  intro r h1 h2 h3
   refine hs r ?_
   simp only [List.mem_singleton]
-  exact fun e => hd.elim (fun h => h1 (e ▸ h)) (fun h => h2 (e ▸ h))
+  intro e
+  rcases hd with h | h | h
+  · exact h1 (e ▸ h)
+  · exact h2 (e ▸ h)
+  · exact h3 (e ▸ h)
 
 /-! ## Labels -/
 
@@ -414,7 +477,7 @@ theorem spOk_of_inv (hspE : T.spEntry (T.get s₀ T.sp)) {m : Mem 64} {s : T.MDa
 
 theorem moves_ok (hspE : T.spEntry (T.get s₀ T.sp)) {G : List (Val × Nat)} {m : Mem 64} :
     ∀ (mvs : List (Move T.toIsa)) (R R' : SymRegs T.toIsa) (k : Nat) (s : T.MData) (σ : List Val),
-    execMoves hints.nslots mvs R = some R' → (movesCode mvs).IsInfixAt (T.prog h) k →
+    execMoves hints.nslots hints.saved mvs R = some R' → (movesCode mvs).IsInfixAt (T.prog h) k →
     Agree G R s σ → Inv hints s₀ ra n Rf m s σ →
     (∀ s' σ', Agree G R' s' σ' → Inv hints s₀ ra n Rf m s' σ' →
       T.Run h (k + (movesCode mvs).length) s' post) →
@@ -461,7 +524,7 @@ def Holds (G : List (Val × Nat)) (tgts : SymRegs T.toIsa) (s : T.MData) (σ : L
 
 theorem shuffle_ok (hspE : T.spEntry (T.get s₀ T.sp)) {G : List (Val × Nat)} {m : Mem 64}
     {R tgts R' : SymRegs T.toIsa} {c : List T.Directive} {k : Nat} {s : T.MData} {σ : List Val}
-    (hs : shuffle hints.nslots R tgts = some (c, R')) (hc : c.IsInfixAt (T.prog h) k)
+    (hs : shuffle hints.nslots hints.saved R tgts = some (c, R')) (hc : c.IsInfixAt (T.prog h) k)
     (hA : Agree G R s σ) (hI : Inv hints s₀ ra n Rf m s σ)
     (kont : ∀ s' σ', Holds G tgts s' σ' → Agree G R' s' σ' → Inv hints s₀ ra n Rf m s' σ' →
       T.Run h (k + c.length) s' post) :
@@ -580,40 +643,119 @@ theorem below_add (hFn : frame hints ≤ n) :
   have := (T.get s₀ T.sp).isLt
   omega
 
+private theorem add_ofNat_8 (x : BitVec 64) (i : Nat) :
+    x + BitVec.ofNat 64 (8 * i) + 8#64 = x + BitVec.ofNat 64 (8 * (i + 1)) := by
+  rw [BitVec.add_assoc, ← BitVec.ofNat_add, Nat.mul_add, Nat.mul_one]
+
+theorem saveCs_ok {h : T.Host} {post : T.State → Prop} {s₀ : T.MData} {G : Mem 64 → Prop} :
+    ∀ (i : Nat) (rs : List T.Reg) (k : Nat) (s : T.MData),
+    (saveCs i rs).IsInfixAt (T.prog h) k → T.spOk (T.get s T.sp) → 8 * rs.length ≤ 2 ^ 64 →
+    (∀ r ∈ rs, r ∈ T.calleeSaved) → (∀ r ∈ rs, T.get s r = T.get s₀ r) →
+    (T.mem s =⋆ region (T.get s T.sp + BitVec.ofNat 64 (8 * i)) (8 * rs.length) ⋆ G) →
+    (∀ s', (∀ r, r ∉ T.scratch → T.get s' r = T.get s r) →
+      (T.mem s' =⋆ slots (T.get s T.sp + BitVec.ofNat 64 (8 * i)) (rs.map (T.get s₀)) ⋆ G) →
+      T.Run h (k + (saveCs i rs).length) s' post) →
+    T.Run h k s post
+  | _, [], _, s, _, _, _, _, _, hmem, kont => by
+    simp only [List.length_nil, Nat.mul_zero, region_zero] at hmem ⊢
+    exact kont s (fun _ _ => rfl) hmem
+  | i, r :: rs, k, s, hc, hsp, hlen, hsub, hvals, hmem, kont => by
+    simp only [saveCs] at hc
+    have hsplit : 8 * (r :: rs).length = 8 + 8 * rs.length := by
+      simp [List.length_cons, Nat.mul_add]; omega
+    have hmem1 : T.mem s =⋆ region (T.get s T.sp + BitVec.ofNat 64 (8 * i)) 8 ⋆
+        (region (T.get s T.sp + BitVec.ofNat 64 (8 * (i + 1))) (8 * rs.length) ⋆ G) := by
+      rw [hsplit, region_split (by rw [← hsplit]; exact hlen), add_ofNat_8] at hmem
+      exact sep_ac' (by ac_rfl) hmem
+    have hr_cs : r ∈ T.calleeSaved := hsub r List.mem_cons_self
+    refine T.slotSt_spec (hc.append).1 (T.calleeSaved_not_scratch r hr_cs) hsp hmem1
+      fun s1 hs1 hm1 => ?_
+    have hsp1 : T.get s1 T.sp = T.get s T.sp := hs1 T.sp T.sp_not_scratch
+    have hmem2 : T.mem s1 =⋆ region (T.get s1 T.sp + BitVec.ofNat 64 (8 * (i + 1))) (8 * rs.length) ⋆
+        (word (T.get s T.sp + BitVec.ofNat 64 (8 * i)) (T.get s₀ r) ⋆ G) := by
+      rw [hvals r List.mem_cons_self] at hm1
+      rw [hsp1]
+      exact sep_ac' (by ac_rfl) hm1
+    refine saveCs_ok (i + 1) rs (k + (T.slotSt i r).length) s1 (hc.append).2 (hsp1 ▸ hsp)
+      (by simp only [List.length_cons, Nat.mul_add] at hlen; omega)
+      (fun q hq => hsub q (List.mem_cons_of_mem _ hq))
+      (fun q hq => (hs1 q (T.calleeSaved_not_scratch q (hsub q (List.mem_cons_of_mem _ hq)))).trans
+        (hvals q (List.mem_cons_of_mem _ hq)))
+      hmem2 fun s' hs' hm' => ?_
+    have hm'_final : T.mem s' =⋆
+        slots (T.get s T.sp + BitVec.ofNat 64 (8 * i)) ((r :: rs).map (T.get s₀)) ⋆ G := by
+      rw [hsp1] at hm'
+      simp only [List.map_cons, slots_cons]
+      rw [add_ofNat_8]
+      exact sep_ac' (by ac_rfl) hm'
+    have hkeep : ∀ q, q ∉ T.scratch → T.get s' q = T.get s q :=
+      fun q hq => (hs' q hq).trans (hs1 q hq)
+    simpa [saveCs, Nat.add_assoc] using kont s' hkeep hm'_final
+
+theorem restoreCs_ok {h : T.Host} {post : T.State → Prop} {s₀ : T.MData} {G : Mem 64 → Prop} :
+    ∀ (i : Nat) (rs : List T.Reg) (k : Nat) (s : T.MData),
+    (restoreCs i rs).IsInfixAt (T.prog h) k → T.spOk (T.get s T.sp) →
+    rs.Nodup → (∀ r ∈ rs, r ∈ T.calleeSaved) →
+    (T.mem s =⋆ slots (T.get s T.sp + BitVec.ofNat 64 (8 * i)) (rs.map (T.get s₀)) ⋆ G) →
+    (∀ s', (∀ r ∈ rs, T.get s' r = T.get s₀ r) →
+      (∀ r, r ∉ rs → r ∉ T.scratch → T.get s' r = T.get s r) →
+      T.mem s' = T.mem s →
+      T.Run h (k + (restoreCs i rs).length) s' post) →
+    T.Run h k s post
+  | _, [], _, s, _, _, _, _, _, kont => by
+    simpa only [restoreCs, List.length_nil, Nat.add_zero] using kont s (fun _ hr => nomatch hr) (fun _ _ _ => rfl) rfl
+  | i, r :: rs, k, s, hc, hsp, hnd, hsub, hmem, kont => by
+    simp only [restoreCs] at hc
+    obtain ⟨hr_notin, hnd_rs⟩ := List.nodup_cons.mp hnd
+    have hr_cs : r ∈ T.calleeSaved := hsub r List.mem_cons_self
+    have hmem1 : T.mem s =⋆ word (T.get s T.sp + BitVec.ofNat 64 (8 * i)) (T.get s₀ r) ⋆
+        (slots (T.get s T.sp + BitVec.ofNat 64 (8 * (i + 1))) (rs.map (T.get s₀)) ⋆ G) := by
+      simp only [List.map_cons, slots_cons] at hmem
+      rw [← add_ofNat_8]
+      exact sep_ac' (by ac_rfl) hmem
+    refine T.slotLd_spec (hc.append).1 hsp hmem1 fun s1 hd1 hs1 hm1 => ?_
+    have hsp1 : T.get s1 T.sp = T.get s T.sp := by
+      refine hs1 T.sp ?_
+      simp only [List.mem_cons, not_or]
+      exact ⟨fun e => T.sp_not_calleeSaved (e ▸ hr_cs), T.sp_not_scratch⟩
+    have hmem2 : T.mem s1 =⋆ slots (T.get s1 T.sp + BitVec.ofNat 64 (8 * (i + 1))) (rs.map (T.get s₀)) ⋆
+        (word (T.get s T.sp + BitVec.ofNat 64 (8 * i)) (T.get s₀ r) ⋆ G) := by
+      rw [hm1, hsp1]
+      exact sep_ac' (by ac_rfl) hmem1
+    refine restoreCs_ok (i + 1) rs (k + (T.slotLd r i).length) s1 (hc.append).2 (hsp1 ▸ hsp)
+      hnd_rs (fun q hq => hsub q (List.mem_cons_of_mem _ hq)) hmem2 fun s' hrest_rs hkeep_rs hm' => ?_
+    have hrest : ∀ q ∈ r :: rs, T.get s' q = T.get s₀ q := by
+      intro q hq
+      rcases List.mem_cons.mp hq with rfl | hq
+      · exact (hkeep_rs q hr_notin (T.calleeSaved_not_scratch q hr_cs)).trans hd1
+      · exact hrest_rs q hq
+    have hkeep : ∀ q, q ∉ r :: rs → q ∉ T.scratch → T.get s' q = T.get s q := by
+      intro q hq1 hq2
+      simp only [List.mem_cons, not_or] at hq1
+      refine (hkeep_rs q hq1.2 hq2).trans (hs1 q ?_)
+      simp only [List.mem_cons, not_or]
+      exact ⟨hq1.1, hq2⟩
+    simpa [restoreCs, Nat.add_assoc] using kont s' hrest hkeep (hm'.trans hm1)
+
 /-- Put the frame back together: what the epilogue leaves is the caller's `Entry` footprint. -/
-theorem frame_close (hy : Hyps h hints E Γ s₀ n nX bound) {m : Mem 64} {σ : List Val}
-    (hσ : σ.length = hints.nslots) {M : Mem 64}
+theorem frame_close (hy : Hyps h hints E Γ s₀ n nX bound) {m : Mem 64} {M : Mem 64}
     (hM : M =⋆ T.RetAddr (T.get s₀ T.sp) ra ⋆
-      region (base hints s₀ + BitVec.ofNat 64 (8 * hints.nslots))
-        (frame hints - 8 * hints.nslots) ⋆
-      (Eq m ⋆ (slots (base hints s₀) σ ⋆
+      region (base hints s₀ + BitVec.ofNat 64 (8 * hints.totalSlots))
+        (frame hints - 8 * hints.totalSlots) ⋆
+      (Eq m ⋆ (region (base hints s₀) (8 * hints.totalSlots) ⋆
         (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf)))) :
     M =⋆ Eq m ⋆ (T.Entry (T.get s₀ T.sp) ra n ⋆ Rf) := by
-  have h8 : 8 * hints.nslots ≤ frame hints := T.slots_le_frameSize _
+  have h8 : 8 * hints.totalSlots ≤ frame hints := T.slots_le_frameSize _
   have hF := hy.frame_bound
   have hFn := hy.frame_le
   have hn := hy.stack_bound
-  -- slots to a region
-  have h1 : M =⋆ slots (base hints s₀) σ ⋆ (T.RetAddr (T.get s₀ T.sp) ra ⋆
-      region (base hints s₀ + BitVec.ofNat 64 (8 * hints.nslots))
-        (frame hints - 8 * hints.nslots) ⋆
-      (Eq m ⋆ (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf))) :=
-    sep_ac' (by ac_rfl) hM
-  have h2 : M =⋆ region (base hints s₀) (8 * hints.nslots) ⋆ (T.RetAddr (T.get s₀ T.sp) ra ⋆
-      region (base hints s₀ + BitVec.ofNat 64 (8 * hints.nslots))
-        (frame hints - 8 * hints.nslots) ⋆
-      (Eq m ⋆ (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf))) := by
-    have := sep_mono (P := slots (base hints s₀) σ)
-      (P' := region (base hints s₀) (8 * σ.length))
-      (fun _ hs => slots_region (by rw [hσ]; omega) hs) h1
-    rwa [hσ] at this
   -- the slots and the padding are the frame
-  have h3 : M =⋆ (region (base hints s₀) (8 * hints.nslots) ⋆
-      region (base hints s₀ + BitVec.ofNat 64 (8 * hints.nslots))
-        (frame hints - 8 * hints.nslots)) ⋆
+  have h3 : M =⋆ (region (base hints s₀) (8 * hints.totalSlots) ⋆
+      region (base hints s₀ + BitVec.ofNat 64 (8 * hints.totalSlots))
+        (frame hints - 8 * hints.totalSlots)) ⋆
       (T.RetAddr (T.get s₀ T.sp) ra ⋆
         (Eq m ⋆ (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf))) :=
-    sep_ac' (by ac_rfl) h2
+    sep_ac' (by ac_rfl) hM
   rw [← region_split (by omega), Nat.add_sub_cancel' h8] at h3
   -- the stack below and the frame are the callee area of `Entry`
   have h4 : M =⋆ (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆
@@ -629,67 +771,152 @@ theorem raReg_keep {s s' : T.MData} {a : T.Addr} (hs : ∀ r, r ∉ T.scratch �
     (h : T.raReg s a) : T.raReg s' a :=
   T.raReg_of_raRegs s s' a (fun r hr => hs r (T.raRegs_not_scratch r hr)) h
 
-/-- The epilogue, from the frame invariant. -/
-theorem epilogue_ok (hy : Hyps h hints E Γ s₀ n nX bound) {k : Nat} {s : T.MData} {m : Mem 64}
-    {σ : List Val} {post : T.State → Prop}
-    (hc : (T.epilogue hints.nslots).IsInfixAt (T.prog h) k) (hI : Inv hints s₀ ra n Rf m s σ)
+/-- Merge spill slots and saved callee-saved register slots into the full slot region. -/
+private theorem slots_merge_cs (hy : Hyps h hints E Γ s₀ n nX bound) {σ : List Val}
+    (hσ : σ.length = hints.nslots) {M : Mem 64} {G : Mem 64 → Prop}
+    (hM : M =⋆ slots (base hints s₀) σ ⋆ (csSlots hints s₀ ⋆ G)) :
+    M =⋆ region (base hints s₀) (8 * hints.totalSlots) ⋆ G := by
+  have h8 : 8 * hints.totalSlots ≤ frame hints := T.slots_le_frameSize _
+  have hF := hy.frame_bound
+  have e : 8 * hints.totalSlots = 8 * hints.nslots + 8 * hints.saved.length := by
+    simp [Hints.totalSlots, Nat.mul_add]
+  have h1 : M =⋆ region (base hints s₀) (8 * hints.nslots) ⋆ (csSlots hints s₀ ⋆ G) := by
+    have := sep_mono (P := slots (base hints s₀) σ)
+      (P' := region (base hints s₀) (8 * σ.length))
+      (fun _ hs => slots_region (by rw [hσ]; omega) hs) hM
+    rwa [hσ] at this
+  have h1' : M =⋆ csSlots hints s₀ ⋆ (region (base hints s₀) (8 * hints.nslots) ⋆ G) :=
+    sep_ac' (by ac_rfl) h1
+  have h2 : M =⋆ region (base hints s₀ + BitVec.ofNat 64 (8 * hints.nslots)) (8 * hints.saved.length) ⋆
+      (region (base hints s₀) (8 * hints.nslots) ⋆ G) := by
+    have := sep_mono (P := csSlots hints s₀)
+      (P' := region (base hints s₀ + BitVec.ofNat 64 (8 * hints.nslots))
+        (8 * (hints.saved.map (T.get s₀)).length))
+      (fun _ hs => slots_region (by simp only [List.length_map]; omega) hs) h1'
+    simpa only [List.length_map] using this
+  have h3 : M =⋆ (region (base hints s₀) (8 * hints.nslots) ⋆
+      region (base hints s₀ + BitVec.ofNat 64 (8 * hints.nslots)) (8 * hints.saved.length)) ⋆ G :=
+    sep_ac' (by ac_rfl) h2
+  rw [← region_split (by omega), ← e] at h3
+  exact h3
+
+/-- The epilogue, from the restored slot region. -/
+theorem epilogue_ok (hy : Hyps h hints E Γ s₀ n nX bound) {post : T.State → Prop}
+    {k : Nat} {s : T.MData} {m : Mem 64}
+    (hc : (T.epilogue hints.totalSlots).IsInfixAt (T.prog h) k)
+    (hsp : T.get s T.sp = base hints s₀)
+    (hmem : T.mem s =⋆ Eq m ⋆ (region (base hints s₀) (8 * hints.totalSlots) ⋆
+      (T.Saved (T.get s₀ T.sp) ra hints.totalSlots ⋆
+        (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf))))
     (kont : ∀ s', T.get s' T.sp = T.get s₀ T.sp → T.raReg s' ra →
       (∀ r, r ∉ T.sp :: T.raRegs ++ T.scratch → T.get s' r = T.get s r) →
       (T.mem s' =⋆ Eq m ⋆ (T.Entry (T.get s₀ T.sp) ra n ⋆ Rf)) →
-      T.Run h (k + (T.epilogue hints.nslots).length) s' post) :
+      T.Run h (k + (T.epilogue hints.totalSlots).length) s' post) :
     T.Run h k s post := by
-  obtain ⟨hσ, hsp, -, hmem⟩ := hI
   have hsp' : T.get s T.sp + BitVec.ofNat 64 (frame hints) = T.get s₀ T.sp := by
     rw [hsp]; exact base_add_frame
   refine T.epilogue_spec hc (by rw [hsp]; exact T.spOk_frame _ _ hy.spE) hy.frame_bound
-    (G := Eq m ⋆ (slots (base hints s₀) σ ⋆
+    (G := Eq m ⋆ (region (base hints s₀) (8 * hints.totalSlots) ⋆
       (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf)))
-    (by rw [hsp']; unfold Fr at hmem; exact sep_ac' (by ac_rfl) hmem)
+    (by rw [hsp']; exact sep_ac' (by ac_rfl) hmem)
     fun s' hsp2 hra hk hm => kont s' (by rw [hsp2, hsp']) hra hk ?_
   rw [hsp', hsp] at hm
-  exact frame_close hy hσ hm
+  exact frame_close hy hm
 
-/-- `epilogue; ret` with the results in place. -/
+/-- `restoreCs; epilogue; ret` with the results in place. -/
 theorem ret_ok (hy : Hyps h hints E Γ s₀ n nX bound) {k : Nat} {s : T.MData} {m : Mem 64}
     {σ : List Val} {rets : List Val}
-    (hc : (T.epilogue hints.nslots ++ T.ret).IsInfixAt (T.prog h) k)
+    (hc : (restoreCs hints.nslots hints.saved ++ T.epilogue hints.totalSlots ++ T.ret).IsInfixAt
+      (T.prog h) k)
     (hI : Inv hints s₀ ra n Rf m s σ) (hrets : T.ValsIn T.retRegs rets s) (hQ : Q rets m) :
     T.Run h k s (FnPost h Q X s₀ ra n nX Rf) := by
-  have hcs := hI.2.2.1
-  refine epilogue_ok hy (hc.append).1 hI fun s2 hsp2 hra2 hk2 hm2 => ?_
+  obtain ⟨hσ, hsp, hcs, hmem, hsub, hnd⟩ := hI
+  unfold Fr at hmem
+  have hmem_cs : T.mem s =⋆ slots (T.get s T.sp + BitVec.ofNat 64 (8 * hints.nslots))
+      (hints.saved.map (T.get s₀)) ⋆
+      (Eq m ⋆ (slots (base hints s₀) σ ⋆ (T.Saved (T.get s₀ T.sp) ra hints.totalSlots ⋆
+        (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf)))) := by
+    rw [hsp]; unfold csSlots at hmem; exact sep_ac' (by ac_rfl) hmem
+  refine restoreCs_ok hints.nslots hints.saved k s (hc.append).1.append.1
+    (by rw [hsp]; exact T.spOk_frame _ _ hy.spE) hnd hsub hmem_cs
+    fun s1 hrest1 hkeep1 hm1 => ?_
+  have hsp1 : T.get s1 T.sp = base hints s₀ := by
+    rw [hkeep1 T.sp (fun hs => T.sp_not_calleeSaved (hsub _ hs)) T.sp_not_scratch, hsp]
+  have hcs1 : ∀ r, r ∈ T.calleeSaved → T.get s1 r = T.get s₀ r := by
+    intro r hr
+    by_cases hrs : r ∈ hints.saved
+    · exact hrest1 r hrs
+    · exact (hkeep1 r hrs (T.calleeSaved_not_scratch r hr)).trans (hcs r hr hrs)
+  have hrets1 : T.ValsIn T.retRegs rets s1 :=
+    valsIn_keep (fun r hr => hkeep1 r (fun hs => T.calleeSaved_not_retRegs r (hsub _ hs) hr)
+      (T.retRegs_not_scratch r hr)) hrets
+  have hmem1 : T.mem s1 =⋆ Eq m ⋆ (region (base hints s₀) (8 * hints.totalSlots) ⋆
+      (T.Saved (T.get s₀ T.sp) ra hints.totalSlots ⋆
+        (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf))) := by
+    rw [hm1]
+    have hm' := slots_merge_cs hy hσ (G := Eq m ⋆ (T.Saved (T.get s₀ T.sp) ra hints.totalSlots ⋆
+        (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf)))
+      (sep_ac' (by ac_rfl) hmem)
+    exact sep_ac' (by ac_rfl) hm'
+  refine epilogue_ok hy (hc.append).1.append.2 hsp1 hmem1 fun s2 hsp2 hra2 hk2 hm2 => ?_
   have hm2' : T.mem s2 =⋆ T.RetAddr (T.get s2 T.sp) ra ⋆
       (Eq m ⋆ (region (T.get s₀ T.sp - BitVec.ofNat 64 n) n ⋆ Rf)) := by
     rw [hsp2]; simp only [Target.Entry] at hm2; exact sep_ac' (by ac_rfl) hm2
-  refine T.ret_spec (hc.append).2 hra2 hm2' fun s3 hk3 hsp3 hm3 => ?_
-  have keep2 : ∀ r, r ≠ T.sp → r ∉ T.raRegs → r ∉ T.scratch → T.get s3 r = T.get s r := by
+  refine T.ret_spec (by simpa only [List.length_append, Nat.add_assoc] using (hc.append).2) hra2 hm2' fun s3 hk3 hsp3 hm3 => ?_
+  have keep2 : ∀ r, r ≠ T.sp → r ∉ T.raRegs → r ∉ T.scratch → T.get s3 r = T.get s1 r := by
     intro r h1 h2 h3
     rw [hk3 r (by simp [h1, h3]), hk2 r (by simp [h1, h2, h3])]
   refine Eventually.done _ (Or.inl ⟨T.pc_mk _ _, rets, m, hQ, ?_, ⟨?_, ?_⟩, ?_⟩)
   · rw [T.data_mk]
     refine valsIn_keep (fun r hr => keep2 r (fun e => T.sp_not_retRegs (e ▸ hr))
-      (fun h' => T.raRegs_not_retRegs r h' hr) (T.retRegs_not_scratch r hr)) hrets
+      (fun h' => T.raRegs_not_retRegs r h' hr) (T.retRegs_not_scratch r hr)) hrets1
   · intro r hr
     rw [T.data_mk, keep2 r (fun e => T.sp_not_calleeSaved (e ▸ hr))
       (fun h' => T.raRegs_not_calleeSaved r h' hr) (T.calleeSaved_not_scratch r hr)]
-    exact hcs r hr
+    exact hcs1 r hr
   · rw [T.data_mk, hsp3, hsp2]
   · rw [T.data_mk, hm3]; exact T.exit_of_entry_assoc hy.stack_bound hm2
 
-/-- `epilogue; tailJmp g` with the arguments in place. -/
+/-- `restoreCs; epilogue; tailJmp g` with the arguments in place. -/
 theorem exit_ok (hy : Hyps h hints E Γ s₀ n nX bound) {k : Nat} {s : T.MData} {m : Mem 64}
     {σ : List Val} {g : String} {as : List Val}
-    (hc : (T.epilogue hints.nslots ++ T.tailJmp g).IsInfixAt (T.prog h) k)
+    (hc : (restoreCs hints.nslots hints.saved ++ T.epilogue hints.totalSlots ++ T.tailJmp g).IsInfixAt
+      (T.prog h) k)
     (hI : Inv hints s₀ ra n Rf m s σ) (hargs : T.ArgsIn as s) (hX : X g as m)
     (hg : g ∈ E.exits) :
     T.Run h k s (FnPost h Q X s₀ ra n nX Rf) := by
-  refine epilogue_ok hy (hc.append).1 hI fun s2 hsp2 hra2 hk2 hm2 => ?_
-  refine T.tailJmp_spec (hc.append).2 fun s3 hk3 hm3 => ?_
+  obtain ⟨hσ, hsp, -, hmem, hsub, hnd⟩ := hI
+  unfold Fr at hmem
+  have hmem_cs : T.mem s =⋆ slots (T.get s T.sp + BitVec.ofNat 64 (8 * hints.nslots))
+      (hints.saved.map (T.get s₀)) ⋆
+      (Eq m ⋆ (slots (base hints s₀) σ ⋆ (T.Saved (T.get s₀ T.sp) ra hints.totalSlots ⋆
+        (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf)))) := by
+    rw [hsp]; unfold csSlots at hmem; exact sep_ac' (by ac_rfl) hmem
+  refine restoreCs_ok hints.nslots hints.saved k s (hc.append).1.append.1
+    (by rw [hsp]; exact T.spOk_frame _ _ hy.spE) hnd hsub hmem_cs
+    fun s1 _ hkeep1 hm1 => ?_
+  have hsp1 : T.get s1 T.sp = base hints s₀ := by
+    rw [hkeep1 T.sp (fun hs => T.sp_not_calleeSaved (hsub _ hs)) T.sp_not_scratch, hsp]
+  have hargs1 : T.ArgsIn as s1 := by
+    unfold Target.ArgsIn at hargs ⊢
+    exact valsIn_keep (fun r hr => hkeep1 r (fun hs => T.calleeSaved_not_argRegs r (hsub _ hs) hr)
+      (T.argRegs_not_scratch r hr)) hargs
+  have hmem1 : T.mem s1 =⋆ Eq m ⋆ (region (base hints s₀) (8 * hints.totalSlots) ⋆
+      (T.Saved (T.get s₀ T.sp) ra hints.totalSlots ⋆
+        (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf))) := by
+    rw [hm1]
+    have hm' := slots_merge_cs hy hσ (G := Eq m ⋆ (T.Saved (T.get s₀ T.sp) ra hints.totalSlots ⋆
+        (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf)))
+      (sep_ac' (by ac_rfl) hmem)
+    exact sep_ac' (by ac_rfl) hm'
+  refine epilogue_ok hy (hc.append).1.append.2 hsp1 hmem1 fun s2 hsp2 hra2 hk2 hm2 => ?_
+  refine T.tailJmp_spec (by simpa only [List.length_append, Nat.add_assoc] using (hc.append).2) fun s3 hk3 hm3 => ?_
   have hsp3 : T.get s3 T.sp = T.get s₀ T.sp := by rw [hk3 _ T.sp_not_scratch, hsp2]
   refine Eventually.done _ (Or.inr ⟨g, as, m, hX, (hy.exits g hg).1, T.pc_mk _ _, ?_, ?_, ra, n,
     Std.ExtHashMap.emp, (hy.exits g hg).2, hy.stack_bound, ?_, ?_⟩)
   · rw [T.data_mk]
-    unfold Target.ArgsIn at hargs ⊢
-    refine valsIn_keep (fun r hr => ?_) hargs
+    unfold Target.ArgsIn at hargs1 ⊢
+    refine valsIn_keep (fun r hr => ?_) hargs1
     rw [hk3 r (T.argRegs_not_scratch r hr), hk2 r ?_]
     simp only [List.mem_cons, List.mem_append, not_or]
     exact ⟨⟨fun e => T.sp_not_argRegs (e ▸ hr), fun h' => T.raRegs_not_argRegs r h' hr⟩,
@@ -735,13 +962,14 @@ variable {hints : Hints T.toIsa} {s₀ : T.MData} {ra : T.Addr} {n : Nat} {Rf : 
 theorem Inv.mem {s s' : T.MData} {m m' : Mem 64} {σ : List Val}
     (hI : Inv hints s₀ ra n Rf m s σ)
     (hm : T.mem s' =⋆ Eq m' ⋆ (slots (base hints s₀) σ ⋆ Fr hints s₀ ra n Rf))
-    (hs : ∀ r, r ∉ T.allocatable → r ∉ T.scratch → T.get s' r = T.get s r) :
+    (hs : ∀ r, r ∉ T.allocatable → r ∉ hints.saved → r ∉ T.scratch → T.get s' r = T.get s r) :
     Inv hints s₀ ra n Rf m' s' σ := by
-  obtain ⟨hl, hsp, hcs, -⟩ := hI
-  refine ⟨hl, ?_, fun r hr => ?_, hm⟩
-  · rw [hs _ T.sp_not_allocatable T.sp_not_scratch]; exact hsp
-  · rw [hs r (T.calleeSaved_not_allocatable r hr) (T.calleeSaved_not_scratch r hr)]
-    exact hcs r hr
+  obtain ⟨hl, hsp, hcs, -, hsub, hnd⟩ := hI
+  refine ⟨hl, ?_, fun r hr hns => ?_, hm, hsub, hnd⟩
+  · rw [hs _ T.sp_not_allocatable (fun h => T.sp_not_calleeSaved (hsub _ h)) T.sp_not_scratch]
+    exact hsp
+  · rw [hs r (T.calleeSaved_not_allocatable r hr) hns (T.calleeSaved_not_scratch r hr)]
+    exact hcs r hr hns
 
 /-- The callee area below the frame: `b + raBytes` bytes right below the stack pointer. -/
 theorem callee_split {b : Nat} (hb : frame hints + T.raBytes + b ≤ n) (hn : n ≤ 2 ^ 64) :
@@ -764,19 +992,36 @@ variable (h : T.Host) (hints : Hints T.toIsa) (E : Ext) (fn : String) (Γ : Env)
   (Q : LeanQbe.Post) (X : XPost) (s₀ : T.MData) (ra : T.Addr) (n nX : Nat) (Rf : Mem 64 → Prop)
   (bound : String → Nat)
 
+def EntryState (h : T.Host) (hints : Hints T.toIsa) (fn : String) (Γ : Env)
+    (Q : LeanQbe.Post) (X : XPost) (s₀ : T.MData) (ra : T.Addr) (n nX : Nat) (Rf : Mem 64 → Prop)
+    (G : List (Val × Nat)) (st : St T.toIsa) (args : List Val) (acc : List Cont)
+    (m : Mem 64) (s : T.MData) (σ : List Val) (e₁ : Expr Val Cont) (k : Nat) :
+    Option (Nat × List T.Directive) → Prop
+  | none => Agree G st.R s σ ∧ T.ValsIn st.PL args s ∧ Inv hints s₀ ra n Rf m s σ ∧ wp Γ Q X e₁ args acc m
+  | some (xf, fc) =>
+    args = [] ∧ acc = [] ∧ st.PL = [] ∧ st.pend = [] ∧ wp Γ Q X e₁ args acc m ∧
+    ∀ (v' : Val), (v', xf) ∈ G → fc.IsInfixAt (T.prog h) k →
+      ∀ (j : Nat), (T.prog h)[j]? = some (T.label (lname fn st.nl)) →
+      (∀ s' σ', Agree G st.R s' σ' → Inv hints s₀ ra n Rf m s' σ' →
+        (Truthy v' → T.Run h (j + 1) s' (FnPost h Q X s₀ ra n nX Rf)) ∧
+        (¬ Truthy v' → T.Run h (k + fc.length) s' (FnPost h Q X s₀ ra n nX Rf))) →
+      T.Run h k s (FnPost h Q X s₀ ra n nX Rf)
+
 /-- Correctness of `lower`, for every term related by `Wf`. -/
 theorem lower_correct (hy : Hyps h hints E Γ s₀ n nX bound) {G : List (Val × Nat)}
     {D : List (Cont × Nat)} {e₁ : Expr Val Cont} {e₂ : Expr Nat Nat} (hwf : Wf G D e₁ e₂) :
-    ∀ (st : St T.toIsa) (code : List T.Directive) (nv' nl' ip' : Nat),
-    lower hints E fn e₂ st = .ok (code, nv', nl', ip') →
+    ∀ (st : St T.toIsa) (code : List T.Directive) (nv' nl' ip' : Nat)
+      (ft : Option Nat) (fused : Option (Nat × List T.Directive)),
+    lower hints E fn e₂ st ft fused = .ok (code, nv', nl', ip') →
     (∀ p ∈ G, p.2 < st.nv) →
     st.nv ≤ nv' ∧
     ∀ (k : Nat) (args : List Val) (acc : List Cont) (m : Mem 64) (s : T.MData) (σ : List Val),
     code.IsInfixAt (T.prog h) k →
+    (∀ ℓf, ft = some ℓf → (T.prog h)[k + code.length]? = some (T.label (lname fn ℓf))) →
     DOk h hints fn Q X s₀ ra n nX Rf G D →
     Forall₂ (fun J ℓ => J = LabJ h hints fn Q X s₀ ra n nX Rf G ℓ) acc st.pend →
-    Agree G st.R s σ → T.ValsIn st.PL args s → Inv hints s₀ ra n Rf m s σ →
-    wp Γ Q X e₁ args acc m → T.Run h k s (FnPost h Q X s₀ ra n nX Rf) := by
+    EntryState h hints fn Γ Q X s₀ ra n nX Rf G st args acc m s σ e₁ k fused →
+    T.Run h k s (FnPost h Q X s₀ ra n nX Rf) := by
   have fresh : ∀ {G : List (Val × Nat)} {n : Nat}, (∀ p ∈ G, p.2 < n) →
       ∀ v, ∀ p ∈ (v, n) :: G, p.2 < n + 1 := by
     intro G n hG v p hp
@@ -787,400 +1032,578 @@ theorem lower_correct (hy : Hyps h hints E Γ s₀ n nX bound) {G : List (Val ×
   have nilR : ∀ {s : T.MData}, T.ValsIn ([] : List T.Reg) [] s := by simp [Target.ValsIn]
   induction hwf with
   | @let_ G D op₁ op₂ k₁ k₂ hop _ ih =>
-    intro st code nv' nl' ip' hl hG
-    simp only [lower] at hl
-    split at hl
-    · simp at hl
-    · rename_i R1 hR1
+    intro st code nv' nl' ip' ft fused hl hG
+    cases fused with
+    | some _ => simp [lower] at hl
+    | none =>
+      simp only [lower, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at hl
       split at hl
-      · rename_i d o hd ho
-        split at hl
-        · rename_i hda
-          split at hl
-          · rename_i c hc
-            obtain ⟨c', hl', rfl⟩ := prepend_ok hl
-            have ih' := fun v => ih v st.nv _ c' nv' nl' ip' hl' (fresh hG v)
-            refine ⟨by have := (ih' 0).1; simp at this; omega, ?_⟩
-            intro k args acc m s σ hcode hD hP hA hR hI hw
-            simp only [wp] at hw
-            obtain ⟨rfl, v, hv, hw⟩ := hw
-            refine moves_ok hy.spE _ st.R R1 k s σ hR1 hcode.append.1.append.1 hA hI
-              fun s1 σ1 hA1 hI1 => ?_
-            obtain ⟨e1, hsc⟩ := opRegs_ok hA1 hop ho
-            refine T.op_spec hc hcode.append.1.append.2 hsc (by rw [e1]; exact hv)
-              fun s' hd' hs' hm' => ?_
-            have := (ih' v).2 _ [] [] _ s' σ1 hcode.append.2 (hD.cons _) .nil
-              ((hA1.clob (keeps_dest' hs')).bindN hG hd') nilR
-              (hI1.regs hm' (keeps_dest (.inl hda) hs')) hw
-            simpa only [Target.Run, List.length_append, Nat.add_assoc] using this
-          · simp at hl
-        · simp at hl
       · simp at hl
-  | @load G D cl sz sg a₁ a₂ k₁ k₂ ha _ ih =>
-    intro st code nv' nl' ip' hl hG
-    simp only [lower] at hl
-    split at hl
-    · simp at hl
-    · rename_i R1 hR1
-      split at hl
-      · rename_i d a' hd ha'
-        split at hl
-        · rename_i hda
-          split at hl
-          · rename_i c hc
-            obtain ⟨c', hl', rfl⟩ := prepend_ok hl
-            have ih' := fun v => ih v st.nv _ c' nv' nl' ip' hl' (fresh hG v)
-            refine ⟨by have := (ih' 0).1; simp at this; omega, ?_⟩
-            intro k args acc m s σ hcode hD hP hA hR hI hw
-            simp only [wp] at hw
-            obtain ⟨rfl, v, hv, hw⟩ := hw
-            refine moves_ok hy.spE _ st.R R1 k s σ hR1 hcode.append.1.append.1 hA hI
-              fun s1 σ1 hA1 hI1 => ?_
-            obtain ⟨e1, hsc⟩ := argReg_ok hA1 ha ha'
-            refine T.load_spec hc hcode.append.1.append.2 hsc
-              (by rw [e1]; exact loadVal_frame hI1.2.2.2 hv)
-              fun s' hd' hs' hm' => ?_
-            have := (ih' v).2 _ [] [] _ s' σ1 hcode.append.2 (hD.cons _) .nil
-              ((hA1.clob (keeps_dest' hs')).bindN hG hd') nilR
-              (hI1.regs hm' (keeps_dest (.inl hda) hs')) hw
-            simpa only [Target.Run, List.length_append, Nat.add_assoc] using this
-          · simp at hl
-        · simp at hl
-      · simp at hl
-  | @store G D sz v₁ v₂ a₁ a₂ k₁ k₂ hv ha _ ih =>
-    intro st code nv' nl' ip' hl hG
-    simp only [lower] at hl
-    split at hl
-    · simp at hl
-    · rename_i R1 hR1
-      split at hl
-      · rename_i v' a' hv' ha'
+      · rename_i R1 hR1
         split at hl
         · rename_i c hc
-          obtain ⟨c', hl', rfl⟩ := prepend_ok hl
-          have ih' := ih _ c' nv' nl' ip' hl' hG
-          refine ⟨ih'.1, ?_⟩
-          intro k args acc m s σ hcode hD hP hA hR hI hw
+          obtain ⟨cls, co, a₂, b₂, t₂, e₂', a', b', rfl, _, _, ha', hb', hjc⟩ := fuseCmp_some hc
+          have ih' := fun v => ih v st.nv _ code nv' nl' ip' ft
+            (some (st.nv, movesCode (hints.pre st.ip) ++ c)) hl (fresh hG v)
+          refine ⟨by have := (ih' 0).1; simp at this; omega, ?_⟩
+          intro k args acc m s σ hcode hft hD hP hes
+          obtain ⟨hA, hR, hI, hw⟩ := hes
           simp only [wp] at hw
-          obtain ⟨rfl, hok, hw⟩ := hw
-          refine moves_ok hy.spE _ st.R R1 k s σ hR1 hcode.append.1.append.1 hA hI
-            fun s1 σ1 hA1 hI1 => ?_
-          obtain ⟨e1, s1v⟩ := argReg_ok hA1 hv hv'
-          obtain ⟨e2, s2v⟩ := argReg_ok hA1 ha ha'
-          refine T.store_spec hc hcode.append.1.append.2
-            (fun r hr => (List.mem_append.mp hr).elim (s1v r) (s2v r))
-            (by rw [e2]; exact storeOk_frame hI1.2.2.2 hok)
-            fun s' hs' hm' => ?_
-          rw [e1, e2] at hm'
-          have := ih'.2 _ [] [] _ s' σ1 hcode.append.2 hD .nil
-            (hA1.clob (fun r _ h2 => hs' r h2)) nilR
-            (hI1.mem (by rw [hm']; exact storeMem_frame hI1.2.2.2 hok _)
-              (fun r _ h2 => hs' r h2)) hw
-          simpa only [Target.Run, List.length_append, Nat.add_assoc] using this
-        · simp at hl
-      · simp at hl
-  | @call G D g as₁ as₂ k₁ k₂ has _ ih =>
-    intro st code nv' nl' ip' hl hG
-    simp only [lower] at hl
-    split at hl
-    · simp at hl
-    · rename_i R1 hR1
+          obtain ⟨rfl, v, hv, hw⟩ := hw
+          cases hop with
+          | cmp _ _ ha₁ hb₁ =>
+            refine (ih' v).2 k [] [] m s σ hcode hft (hD.cons _) .nil ?_
+            refine ⟨rfl, rfl, rfl, rfl, hw, fun v' hv' hfc j hlab hcont => ?_⟩
+            have hveq : v' = v := by
+              simp only [List.mem_cons, Prod.mk.injEq] at hv'
+              rcases hv' with ⟨rfl, -⟩ | hv'
+              · rfl
+              · have := hG _ hv'; omega
+            subst hveq
+            refine moves_ok hy.spE _ st.R R1 k s σ hR1 hfc.append.1 hA hI
+              fun s1 σ1 hA1 hI1 => ?_
+            obtain ⟨ea, hsca⟩ := argReg_ok hA1 ha₁ ha'
+            obtain ⟨eb, hscb⟩ := argReg_ok hA1 hb₁ hb'
+            have hsc : ∀ r, r ∈ a'.vars ++ b'.vars → r ∉ T.scratch := fun r hr =>
+              (List.mem_append.mp hr).elim (hsca r) (hscb r)
+            refine T.jnzCmp_spec hjc hfc.append.2 (labelAddr_of_unique hy.unique hlab) hsc
+              (by rw [ea, eb]; exact hv) fun s' hs' hm' => ⟨fun ht => ?_, fun hf => ?_⟩
+            · refine T.label_spec hlab ?_
+              exact (hcont s' σ1 ((hA1.dropVar _ st.nv).clob (fun r _ h2 => hs' r h2))
+                (hI1.regs hm' (fun r _ _ h2 => hs' r h2))).1 ht
+            · simpa only [Target.Run, List.length_append, Nat.add_assoc] using
+                (hcont s' σ1 ((hA1.dropVar _ st.nv).clob (fun r _ h2 => hs' r h2))
+                  (hI1.regs hm' (fun r _ _ h2 => hs' r h2))).2 hf
+        · split at hl
+          · rename_i d o hd ho
+            split at hl
+            · rename_i hda
+              split at hl
+              · rename_i c hc
+                obtain ⟨c', hl', rfl⟩ := prepend_ok hl
+                have ih' := fun v => ih v st.nv _ c' nv' nl' ip' ft none hl' (fresh hG v)
+                refine ⟨by have := (ih' 0).1; simp at this; omega, ?_⟩
+                intro k args acc m s σ hcode hft hD hP hes
+                obtain ⟨hA, hR, hI, hw⟩ := hes
+                simp only [wp] at hw
+                obtain ⟨rfl, v, hv, hw⟩ := hw
+                refine moves_ok hy.spE _ st.R R1 k s σ hR1 hcode.append.1.append.1 hA hI
+                  fun s1 σ1 hA1 hI1 => ?_
+                obtain ⟨e1, hsc⟩ := opRegs_ok hA1 hop ho
+                refine T.op_spec hc hcode.append.1.append.2 hsc (by rw [e1]; exact hv)
+                  fun s' hd' hs' hm' => ?_
+                have := (ih' v).2 _ [] [] _ s' σ1 hcode.append.2
+                  (fun ℓf hf => by simpa [List.length_append, Nat.add_assoc] using hft ℓf hf)
+                  (hD.cons _) .nil ⟨(hA1.clob (keeps_dest' hs')).bindN hG hd', nilR,
+                    hI1.regs hm' (keeps_dest (hda.elim .inl (fun h => .inr (.inl h))) hs'), hw⟩
+                simpa only [Target.Run, List.length_append, Nat.add_assoc] using this
+              · simp at hl
+            · simp at hl
+          · simp at hl
+  | @load G D cl sz sg a₁ a₂ k₁ k₂ ha _ ih =>
+    intro st code nv' nl' ip' ft fused hl hG
+    cases fused with
+    | some _ => simp [lower] at hl
+    | none =>
+      simp only [lower, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at hl
       split at hl
-      · rename_i hcond
-        obtain ⟨hg, hlen⟩ := hcond
-        split at hl
-        · rename_i c R2 hsh
-          obtain ⟨c', hl', rfl⟩ := prepend_ok hl
-          have ih' := ih _ c' nv' nl' ip' hl' hG
-          refine ⟨ih'.1, ?_⟩
-          intro k args acc m s σ hcode hD hP hA hR hI hw
-          simp only [wp] at hw
-          obtain ⟨rfl, P, E', hspec, hcont, hexit⟩ := hw
-          obtain ⟨hf, hbound⟩ := hy.callees g hg
-          have hn' : n ≤ 2 ^ 64 := by have := hy.stack_bound; omega
-          have hc1 := hcode.append.1
-          refine moves_ok hy.spE _ st.R R1 k s σ hR1 hc1.append.1.append.1 hA hI
-            fun s1 σ1 hA1 hI1 => ?_
-          refine shuffle_ok hy.spE hsh hc1.append.1.append.2 hA1 hI1
-            fun s2 σ2 hT2 hA2 hI2 => ?_
-          have hargs : T.ArgsIn (as₁.map Arg.val) s2 := valsIn_of_holds has hlen hT2
-          have hm2 := hI2.2.2.2
-          unfold Fr at hm2
-          rw [callee_split hbound hn'] at hm2
-          have hcall : (T.call g).IsInfixAt (T.prog h)
-              (k + (movesCode (hints.pre st.ip)).length + c.length) := by
-            simpa only [List.length_append, Nat.add_assoc] using hc1.append.2
-          refine T.call_fnspec hcall hf hspec hargs
-            (by rw [hI2.2.1]; exact T.spEntry_call _ _ hy.spE)
-            (by have := hy.stack_bound; omega)
-            (G := slots (base hints s₀) σ2 ⋆
-              (T.Saved (T.get s₀ T.sp) ra hints.nslots ⋆
-                (region (T.get s₀ T.sp - BitVec.ofNat 64 n)
-                  (n - frame hints - (bound g + T.raBytes)) ⋆ Rf)))
-            (by rw [hI2.2.1]; exact sep_ac' (by ac_rfl) hm2)
-            (fun s' rets m' hP' hrets hcs' hsp' hm' => ?_)
-            (fun st' sym' as' m' ra' n' F hE' hdef hpc has' hspE hnX hb hra' hmx => ?_)
-          · have hI' : Inv hints s₀ ra n Rf m' s' σ2 :=
-              ⟨hI2.1, hsp'.trans hI2.2.1, fun r hr => (hcs' r hr).trans (hI2.2.2.1 r hr), by
-                rw [hI2.2.1] at hm'
-                unfold Fr
-                rw [callee_split hbound hn']
-                exact sep_ac' (by ac_rfl) hm'⟩
-            have := ih'.2 _ rets [] m' s' σ2 hcode.append.2 hD .nil
-              hA2.slotsOnly hrets hI' (hcont rets m' hP')
-            simpa only [Target.Run, List.length_append, Nat.add_assoc] using this
-          · refine Or.inr ⟨sym', as', m', hexit sym' as' m' hE', hdef, hpc, has', hspE, ra', n',
-              F ⋆ (slots (base hints s₀) σ2 ⋆
-                (T.Saved (T.get s₀ T.sp) ra hints.nslots ⋆
-                  region (T.get s₀ T.sp - BitVec.ofNat 64 n)
-                    (n - frame hints - (bound g + T.raBytes)))),
-              hnX, hb, hra', sep_ac' (by ac_rfl) hmx⟩
-        · simp at hl
       · simp at hl
+      · rename_i R1 hR1
+        split at hl
+        · rename_i d a' hd ha'
+          split at hl
+          · rename_i hda
+            split at hl
+            · rename_i c hc
+              obtain ⟨c', hl', rfl⟩ := prepend_ok hl
+              have ih' := fun v => ih v st.nv _ c' nv' nl' ip' ft none hl' (fresh hG v)
+              refine ⟨by have := (ih' 0).1; simp at this; omega, ?_⟩
+              intro k args acc m s σ hcode hft hD hP hes
+              obtain ⟨hA, hR, hI, hw⟩ := hes
+              simp only [wp] at hw
+              obtain ⟨rfl, v, hv, hw⟩ := hw
+              refine moves_ok hy.spE _ st.R R1 k s σ hR1 hcode.append.1.append.1 hA hI
+                fun s1 σ1 hA1 hI1 => ?_
+              obtain ⟨e1, hsc⟩ := argReg_ok hA1 ha ha'
+              refine T.load_spec hc hcode.append.1.append.2 hsc
+                (by rw [e1]; exact loadVal_frame hI1.2.2.2.1 hv)
+                fun s' hd' hs' hm' => ?_
+              have := (ih' v).2 _ [] [] _ s' σ1 hcode.append.2
+                (fun ℓf hf => by simpa [List.length_append, Nat.add_assoc] using hft ℓf hf)
+                (hD.cons _) .nil ⟨(hA1.clob (keeps_dest' hs')).bindN hG hd', nilR,
+                  hI1.regs hm' (keeps_dest (hda.elim .inl (fun h => .inr (.inl h))) hs'), hw⟩
+              simpa only [Target.Run, List.length_append, Nat.add_assoc] using this
+            · simp at hl
+          · simp at hl
+        · simp at hl
+  | @store G D sz v₁ v₂ a₁ a₂ k₁ k₂ hv ha _ ih =>
+    intro st code nv' nl' ip' ft fused hl hG
+    cases fused with
+    | some _ => simp [lower] at hl
+    | none =>
+      simp only [lower, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at hl
+      split at hl
+      · simp at hl
+      · rename_i R1 hR1
+        split at hl
+        · rename_i v' a' hv' ha'
+          split at hl
+          · rename_i c hc
+            obtain ⟨c', hl', rfl⟩ := prepend_ok hl
+            have ih' := ih _ c' nv' nl' ip' ft none hl' hG
+            refine ⟨ih'.1, ?_⟩
+            intro k args acc m s σ hcode hft hD hP hes
+            obtain ⟨hA, hR, hI, hw⟩ := hes
+            simp only [wp] at hw
+            obtain ⟨rfl, hok, hw⟩ := hw
+            refine moves_ok hy.spE _ st.R R1 k s σ hR1 hcode.append.1.append.1 hA hI
+              fun s1 σ1 hA1 hI1 => ?_
+            obtain ⟨e1, s1v⟩ := argReg_ok hA1 hv hv'
+            obtain ⟨e2, s2v⟩ := argReg_ok hA1 ha ha'
+            refine T.store_spec hc hcode.append.1.append.2
+              (fun r hr => (List.mem_append.mp hr).elim (s1v r) (s2v r))
+              (by rw [e2]; exact storeOk_frame hI1.2.2.2.1 hok)
+              fun s' hs' hm' => ?_
+            rw [e1, e2] at hm'
+            have := ih'.2 _ [] [] _ s' σ1 hcode.append.2
+              (fun ℓf hf => by simpa [List.length_append, Nat.add_assoc] using hft ℓf hf)
+              hD .nil ⟨hA1.clob (fun r _ h2 => hs' r h2), nilR,
+                hI1.mem (by rw [hm']; exact storeMem_frame hI1.2.2.2.1 hok _)
+                  (fun r _ _ h2 => hs' r h2), hw⟩
+            simpa only [Target.Run, List.length_append, Nat.add_assoc] using this
+          · simp at hl
+        · simp at hl
+  | @call G D g as₁ as₂ k₁ k₂ has _ ih =>
+    intro st code nv' nl' ip' ft fused hl hG
+    cases fused with
+    | some _ => simp [lower] at hl
+    | none =>
+      simp only [lower, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at hl
+      split at hl
+      · simp at hl
+      · rename_i R1 hR1
+        split at hl
+        · rename_i hcond
+          obtain ⟨hg, hlen⟩ := hcond
+          split at hl
+          · rename_i c R2 hsh
+            obtain ⟨c', hl', rfl⟩ := prepend_ok hl
+            have ih' := ih _ c' nv' nl' ip' ft none hl' hG
+            refine ⟨ih'.1, ?_⟩
+            intro k args acc m s σ hcode hft hD hP hes
+            obtain ⟨hA, hR, hI, hw⟩ := hes
+            simp only [wp] at hw
+            obtain ⟨rfl, P, E', hspec, hcont, hexit⟩ := hw
+            obtain ⟨hf, hbound⟩ := hy.callees g hg
+            have hn' : n ≤ 2 ^ 64 := by have := hy.stack_bound; omega
+            have hc1 := hcode.append.1
+            refine moves_ok hy.spE _ st.R R1 k s σ hR1 hc1.append.1.append.1 hA hI
+              fun s1 σ1 hA1 hI1 => ?_
+            refine shuffle_ok hy.spE hsh hc1.append.1.append.2 hA1 hI1
+              fun s2 σ2 hT2 hA2 hI2 => ?_
+            have hargs : T.ArgsIn (as₁.map Arg.val) s2 := valsIn_of_holds has hlen hT2
+            have hm2 := hI2.2.2.2.1
+            unfold Fr at hm2
+            rw [callee_split hbound hn'] at hm2
+            have hcall : (T.call g).IsInfixAt (T.prog h)
+                (k + (movesCode (hints.pre st.ip)).length + c.length) := by
+              simpa only [List.length_append, Nat.add_assoc] using hc1.append.2
+            refine T.call_fnspec hcall hf hspec hargs
+              (by rw [hI2.2.1]; exact T.spEntry_call _ _ hy.spE)
+              (by have := hy.stack_bound; omega)
+              (G := slots (base hints s₀) σ2 ⋆
+                (csSlots hints s₀ ⋆
+                  (T.Saved (T.get s₀ T.sp) ra hints.totalSlots ⋆
+                    (region (T.get s₀ T.sp - BitVec.ofNat 64 n)
+                      (n - frame hints - (bound g + T.raBytes)) ⋆ Rf))))
+              (by rw [hI2.2.1]; exact sep_ac' (by ac_rfl) hm2)
+              (fun s' rets m' hP' hrets hcs' hsp' hm' => ?_)
+              (fun st' sym' as' m' ra' n' F hE' hdef hpc has' hspE hnX hb hra' hmx => ?_)
+            · have hI' : Inv hints s₀ ra n Rf m' s' σ2 :=
+                ⟨hI2.1, hsp'.trans hI2.2.1, fun r hr hns => (hcs' r hr).trans (hI2.2.2.1 r hr hns),
+                  by
+                    rw [hI2.2.1] at hm'
+                    unfold Fr
+                    rw [callee_split hbound hn']
+                    exact sep_ac' (by ac_rfl) hm',
+                  hI2.2.2.2.2.1, hI2.2.2.2.2.2⟩
+              have := ih'.2 _ rets [] m' s' σ2 hcode.append.2
+                (fun ℓf hf => by simpa [List.length_append, Nat.add_assoc] using hft ℓf hf)
+                hD .nil ⟨hA2.afterCall hcs' hI2.2.2.2.2.1, hrets, hI', hcont rets m' hP'⟩
+              simpa only [Target.Run, List.length_append, Nat.add_assoc] using this
+            · refine Or.inr ⟨sym', as', m', hexit sym' as' m' hE', hdef, hpc, has', hspE, ra', n',
+                F ⋆ (slots (base hints s₀) σ2 ⋆
+                  (csSlots hints s₀ ⋆
+                    (T.Saved (T.get s₀ T.sp) ra hints.totalSlots ⋆
+                      region (T.get s₀ T.sp - BitVec.ofNat 64 n)
+                        (n - frame hints - (bound g + T.raBytes))))),
+                hnX, hb, hra', sep_ac' (by ac_rfl) hmx⟩
+          · simp at hl
+        · simp at hl
   | @jnz G D c₁ c₂ t₁ t₂ e₁ e₂ hc _ _ iht ihe =>
-    intro st code nv' nl' ip' hl hG
+    intro st code nv' nl' ip' ft fused hl hG
     cases hc with
     | imm c =>
-      simp only [lower] at hl
-      split at hl
-      · simp at hl
-      · rename_i R1 hR1
-        obtain ⟨c', hl', rfl⟩ := prepend_ok hl
-        split at hl'
-        · rename_i htr
-          have iht' := iht _ c' nv' nl' ip' hl' hG
-          refine ⟨iht'.1, ?_⟩
-          intro k args acc m s σ hcode hD hP hA hR hI hw
-          simp only [wp] at hw
-          obtain ⟨rfl, hwt, -⟩ := hw
-          refine moves_ok hy.spE _ st.R R1 k s σ hR1 hcode.append.1 hA hI
-            fun s1 σ1 hA1 hI1 => ?_
-          exact iht'.2 _ [] [] m s1 σ1 hcode.append.2 hD .nil hA1 nilR hI1 (hwt htr)
-        · rename_i htr
-          have ihe' := ihe _ c' nv' nl' ip' hl' hG
-          refine ⟨ihe'.1, ?_⟩
-          intro k args acc m s σ hcode hD hP hA hR hI hw
-          simp only [wp] at hw
-          obtain ⟨rfl, -, hwe⟩ := hw
-          refine moves_ok hy.spE _ st.R R1 k s σ hR1 hcode.append.1 hA hI
-            fun s1 σ1 hA1 hI1 => ?_
-          exact ihe'.2 _ [] [] m s1 σ1 hcode.append.2 hD .nil hA1 nilR hI1 (hwe htr)
-    | @var v x hvx =>
-      simp only [lower] at hl
-      split at hl
-      · simp at hl
-      · rename_i R1 hR1
+      cases fused with
+      | some _ => simp [lower] at hl
+      | none =>
+        simp only [lower, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at hl
         split at hl
-        · rename_i rc hrc
+        · simp at hl
+        · rename_i R1 hR1
+          obtain ⟨c', hl', rfl⟩ := prepend_ok hl
+          split at hl'
+          · rename_i htr
+            have iht' := iht _ c' nv' nl' ip' ft none hl' hG
+            refine ⟨iht'.1, ?_⟩
+            intro k args acc m s σ hcode hft hD hP hes
+            obtain ⟨hA, hR, hI, hw⟩ := hes
+            simp only [wp] at hw
+            obtain ⟨rfl, hwt, -⟩ := hw
+            refine moves_ok hy.spE _ st.R R1 k s σ hR1 hcode.append.1 hA hI
+              fun s1 σ1 hA1 hI1 => ?_
+            refine iht'.2 _ [] [] m s1 σ1 hcode.append.2
+              (fun ℓf hf => by simpa [List.length_append, Nat.add_assoc] using hft ℓf hf)
+              hD .nil ⟨hA1, nilR, hI1, hwt htr⟩
+          · rename_i htr
+            have ihe' := ihe _ c' nv' nl' ip' ft none hl' hG
+            refine ⟨ihe'.1, ?_⟩
+            intro k args acc m s σ hcode hft hD hP hes
+            obtain ⟨hA, hR, hI, hw⟩ := hes
+            simp only [wp] at hw
+            obtain ⟨rfl, -, hwe⟩ := hw
+            refine moves_ok hy.spE _ st.R R1 k s σ hR1 hcode.append.1 hA hI
+              fun s1 σ1 hA1 hI1 => ?_
+            refine ihe'.2 _ [] [] m s1 σ1 hcode.append.2
+              (fun ℓf hf => by simpa [List.length_append, Nat.add_assoc] using hft ℓf hf)
+              hD .nil ⟨hA1, nilR, hI1, hwe htr⟩
+    | @var v x hvx =>
+      cases fused with
+      | some p =>
+        obtain ⟨xf, fc⟩ := p
+        simp only [lower] at hl
+        split at hl
+        · rename_i hcond
+          simp only [Bool.and_eq_true, beq_iff_eq] at hcond
+          obtain ⟨rfl, _⟩ := hcond
           split at hl
           · rename_i ce nv1 nl1 ip1 hle
             obtain ⟨c', hl', rfl⟩ := prepend_ok hl
-            have ihe' := ihe _ ce nv1 nl1 ip1 hle hG
-            have iht' := iht _ c' nv' nl' ip' hl'
+            have ihe' := ihe _ ce nv1 nl1 ip1 (some st.nl) none hle hG
+            have iht' := iht _ c' nv' nl' ip' ft none hl'
               (fun p hp => by have := hG p hp; simp at ihe' ⊢; omega)
             refine ⟨by simp at iht' ihe'; omega, ?_⟩
-            intro k args acc m s σ hcode hD hP hA hR hI hw
+            intro k args acc m s σ hcode hft hD hP hes
+            obtain ⟨rfl, rfl, _, _, hw, hrun⟩ := hes
             simp only [wp] at hw
-            obtain ⟨rfl, hwt, hwe⟩ := hw
+            obtain ⟨-, hwt, hwe⟩ := hw
             have hc1 := hcode.append.1
-            refine moves_ok hy.spE _ st.R R1 k s σ hR1 hc1.append.1.append.1.append.1 hA hI
-              fun s1 σ1 hA1 hI1 => ?_
-            obtain ⟨e1, hsc⟩ := argReg_ok hA1 (.var hvx) hrc
-            simp only [Arg.map, Arg.var.injEq] at e1
-            have hlab : (T.prog h)[k + (movesCode (hints.pre st.ip)).length +
-                (T.jnz rc (lname fn st.nl)).length + ce.length]? =
+            have hfc := hc1.append.1.append.1
+            have hlab : (T.prog h)[k + fc.length + ce.length]? =
                 some (T.label (lname fn st.nl)) := by
               have := hc1.append.2
               simpa [Nat.add_assoc] using (List.isInfixAt_singleton.mp this)
-            have hjnz : (T.jnz rc (lname fn st.nl)).IsInfixAt (T.prog h)
-                (k + (movesCode (hints.pre st.ip)).length) := hc1.append.1.append.1.append.2
-            refine T.jnz_spec hjnz (labelAddr_of_unique hy.unique hlab)
-              (hsc rc (by simp [Arg.vars])) fun s' hs' hm' => ⟨fun h0 => ?_, fun h0 => ?_⟩
-            · refine T.label_spec hlab ?_
-              have := iht'.2 _ [] [] m s' σ1 hcode.append.2 hD .nil
-                (hA1.clob (fun r _ h2 => hs' r h2)) nilR
-                (hI1.regs hm' (fun r _ h2 => hs' r h2)) (hwt (by rw [← e1]; exact h0))
+            refine hrun v hvx hfc (k + fc.length + ce.length) hlab fun s' σ' hA' hI' =>
+              ⟨fun ht => ?_, fun hf => ?_⟩
+            · have := iht'.2 _ [] [] m s' σ' hcode.append.2
+                (by
+                  intro ℓf hlf
+                  have h := hft ℓf hlf
+                  simpa only [List.length_append, List.length_singleton, Nat.add_assoc,
+                    Nat.add_comm c'.length 1] using h)
+                hD .nil ⟨hA', nilR, hI', hwt ht⟩
               simpa only [Target.Run, List.length_append, List.length_singleton, Nat.add_assoc]
                 using this
-            · have := ihe'.2 _ [] [] m s' σ1 hc1.append.1.append.2 hD .nil
-                (hA1.clob (fun r _ h2 => hs' r h2)) nilR
-                (hI1.regs hm' (fun r _ h2 => hs' r h2)) (hwe (by rw [← e1]; exact h0))
+            · have := ihe'.2 _ [] [] m s' σ' hc1.append.1.append.2
+                (fun ℓf hlf => by simp only [Option.some.injEq] at hlf; subst hlf; exact hlab)
+                hD .nil ⟨hA', nilR, hI', hwe hf⟩
               simpa only [Target.Run, List.length_append, Nat.add_assoc] using this
           · simp at hl
         · simp at hl
+      | none =>
+        simp only [lower] at hl
+        split at hl
+        · simp at hl
+        · rename_i R1 hR1
+          split at hl
+          · rename_i rc hrc
+            split at hl
+            · rename_i ce nv1 nl1 ip1 hle
+              obtain ⟨c', hl', rfl⟩ := prepend_ok hl
+              have ihe' := ihe _ ce nv1 nl1 ip1 (some st.nl) none hle hG
+              have iht' := iht _ c' nv' nl' ip' ft none hl'
+                (fun p hp => by have := hG p hp; simp at ihe' ⊢; omega)
+              refine ⟨by simp at iht' ihe'; omega, ?_⟩
+              intro k args acc m s σ hcode hft hD hP hes
+              obtain ⟨hA, hR, hI, hw⟩ := hes
+              simp only [wp] at hw
+              obtain ⟨rfl, hwt, hwe⟩ := hw
+              have hc1 := hcode.append.1
+              refine moves_ok hy.spE _ st.R R1 k s σ hR1 hc1.append.1.append.1.append.1 hA hI
+                fun s1 σ1 hA1 hI1 => ?_
+              obtain ⟨e1, hsc⟩ := argReg_ok hA1 (.var hvx) hrc
+              simp only [Arg.map, Arg.var.injEq] at e1
+              have hlab : (T.prog h)[k + (movesCode (hints.pre st.ip)).length +
+                  (T.jnz rc (lname fn st.nl)).length + ce.length]? =
+                  some (T.label (lname fn st.nl)) := by
+                have := hc1.append.2
+                simpa [Nat.add_assoc] using (List.isInfixAt_singleton.mp this)
+              have hjnz : (T.jnz rc (lname fn st.nl)).IsInfixAt (T.prog h)
+                  (k + (movesCode (hints.pre st.ip)).length) := hc1.append.1.append.1.append.2
+              refine T.jnz_spec hjnz (labelAddr_of_unique hy.unique hlab)
+                (hsc rc (by simp [Arg.vars])) fun s' hs' hm' => ⟨fun h0 => ?_, fun h0 => ?_⟩
+              · refine T.label_spec hlab ?_
+                have := iht'.2 _ [] [] m s' σ1 hcode.append.2
+                  (by
+                    intro ℓf hlf
+                    have h := hft ℓf hlf
+                    simpa only [List.length_append, List.length_singleton, Nat.add_assoc,
+                      Nat.add_comm c'.length 1] using h)
+                  hD .nil ⟨hA1.clob (fun r _ h2 => hs' r h2), nilR,
+                    hI1.regs hm' (fun r _ _ h2 => hs' r h2), hwt (by rw [← e1]; exact h0)⟩
+                simpa only [Target.Run, List.length_append, List.length_singleton, Nat.add_assoc]
+                  using this
+              · have := ihe'.2 _ [] [] m s' σ1 hc1.append.1.append.2
+                  (fun ℓf hlf => by
+                    simp only [Option.some.injEq] at hlf; subst hlf
+                    simpa only [List.length_append, Nat.add_assoc] using hlab)
+                  hD .nil ⟨hA1.clob (fun r _ h2 => hs' r h2), nilR,
+                    hI1.regs hm' (fun r _ _ h2 => hs' r h2), hwe (by rw [← e1]; exact h0)⟩
+                simpa only [Target.Run, List.length_append, Nat.add_assoc] using this
+            · simp at hl
+          · simp at hl
   | @jump G D j₁ j₂ as₁ as₂ hj has =>
-    intro st code nv' nl' ip' hl hG
-    simp only [lower] at hl
-    split at hl
-    · simp at hl
-    · rename_i R1 hR1
+    intro st code nv' nl' ip' ft fused hl hG
+    cases fused with
+    | some _ => simp [lower] at hl
+    | none =>
+      simp only [lower, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at hl
       split at hl
-      · rename_i hcond
-        obtain ⟨hlen, hnsc⟩ := hcond
-        simp only [List.all_eq_true] at hnsc
-        split at hl
-        · rename_i c R2 hsh
-          simp only [Except.ok.injEq, Prod.mk.injEq] at hl
-          obtain ⟨rfl, rfl, rfl, rfl⟩ := hl
-          refine ⟨Nat.le_refl _, ?_⟩
-          intro k args acc m s σ hcode hD hP hA hR hI hw
-          simp only [wp] at hw
-          obtain ⟨rfl, hw⟩ := hw
-          obtain ⟨G', hG', rfl⟩ := hD _ _ hj
-          obtain ⟨kℓ, hkℓ, hJ⟩ := hw
-          have hc1 := hcode.append.1
-          refine moves_ok hy.spE _ st.R R1 k s σ hR1 hc1.append.1 hA hI
-            fun s1 σ1 hA1 hI1 => ?_
-          refine shuffle_ok hy.spE hsh hc1.append.2 hA1 hI1
-            fun s2 σ2 ht _ hI2 => ?_
-          have hjmp : (T.jmp (lname fn j₂)).IsInfixAt (T.prog h)
-              (k + (movesCode (hints.pre st.ip)).length + c.length) := by
-            simpa only [List.length_append, Nat.add_assoc] using hcode.append.2
-          refine T.jmp_spec hjmp (labelAddr_of_unique hy.unique hkℓ)
-            fun s' hs' hm' => hJ s' σ2 ?_ ?_ (hI2.regs hm' (fun r _ h2 => hs' r h2))
-          · intro a l hx a₁ hv
-            have hx' := List.mem_append_left (tgtsIn as₂ (hints.entry j₂).ploc) hx
-            have h1 := ht a l hx' a₁ (hv.mono hG')
-            cases l with
-            | reg r =>
-              have hr := of_decide_eq_true (hnsc (a, .reg r) hx')
-              simp only [LocHolds] at h1 ⊢
-              rw [hs' r hr, h1]
-            | slot i => exact h1
-          · refine valsIn_of_holds (σ := σ2) has (by omega) fun a l hx a₁ hv => ?_
-            have hx' := List.mem_append_right (hints.entry j₂).live hx
-            have h1 := ht a l hx' a₁ hv
-            cases l with
-            | reg r =>
-              have hr := of_decide_eq_true (hnsc (a, .reg r) hx')
-              simp only [LocHolds] at h1 ⊢
-              rw [hs' r hr, h1]
-            | slot i => exact h1
-        · simp at hl
       · simp at hl
+      · rename_i R1 hR1
+        split at hl
+        · rename_i hcond
+          obtain ⟨hlen, hnsc⟩ := hcond
+          simp only [List.all_eq_true] at hnsc
+          split at hl
+          · rename_i c R2 hsh
+            simp only [Except.ok.injEq, Prod.mk.injEq] at hl
+            obtain ⟨rfl, rfl, rfl, rfl⟩ := hl
+            refine ⟨Nat.le_refl _, ?_⟩
+            intro k args acc m s σ hcode hft hD hP hes
+            obtain ⟨hA, hR, hI, hw⟩ := hes
+            simp only [wp] at hw
+            obtain ⟨rfl, hw⟩ := hw
+            obtain ⟨G', hG', rfl⟩ := hD _ _ hj
+            obtain ⟨kℓ, hkℓ, hJ⟩ := hw
+            by_cases hftj : (ft == some j₂) = true
+            · simp only [hftj, ite_true, List.append_nil] at hcode ⊢
+              have hft_eq : ft = some j₂ := beq_iff_eq.mp hftj
+              have hlab := hft j₂ hft_eq
+              simp only [hftj, ite_true, List.append_nil, List.length_append, ← Nat.add_assoc]
+                at hlab
+              have hk_eq := hy.unique _ _ _ hlab hkℓ
+              refine moves_ok hy.spE _ st.R R1 k s σ hR1 hcode.append.1 hA hI
+                fun s1 σ1 hA1 hI1 => ?_
+              refine shuffle_ok hy.spE hsh hcode.append.2 hA1 hI1
+                fun s2 σ2 ht _ hI2 => ?_
+              rw [hk_eq]
+              refine hJ s2 σ2 ?_ ?_ hI2
+              · intro a l hx a₁ hv
+                have hx' := List.mem_append_left (tgtsIn as₂ (hints.entry j₂).ploc) hx
+                exact ht a l hx' a₁ (hv.mono hG')
+              · refine valsIn_of_holds (σ := σ2) has (by omega) fun a l hx a₁ hv => ?_
+                have hx' := List.mem_append_right (hints.entry j₂).live hx
+                exact ht a l hx' a₁ hv
+            · simp only [hftj, Bool.false_eq_true, ite_false] at hcode ⊢
+              have hc1 := hcode.append.1
+              refine moves_ok hy.spE _ st.R R1 k s σ hR1 hc1.append.1 hA hI
+                fun s1 σ1 hA1 hI1 => ?_
+              refine shuffle_ok hy.spE hsh hc1.append.2 hA1 hI1
+                fun s2 σ2 ht _ hI2 => ?_
+              have hjmp : (T.jmp (lname fn j₂)).IsInfixAt (T.prog h)
+                  (k + (movesCode (hints.pre st.ip)).length + c.length) := by
+                simpa only [List.length_append, Nat.add_assoc] using hcode.append.2
+              refine T.jmp_spec hjmp (labelAddr_of_unique hy.unique hkℓ)
+                fun s' hs' hm' => hJ s' σ2 ?_ ?_ (hI2.regs hm' (fun r _ _ h2 => hs' r h2))
+              · intro a l hx a₁ hv
+                have hx' := List.mem_append_left (tgtsIn as₂ (hints.entry j₂).ploc) hx
+                have h1 := ht a l hx' a₁ (hv.mono hG')
+                cases l with
+                | reg r =>
+                  have hr := of_decide_eq_true (hnsc (a, .reg r) hx')
+                  simp only [LocHolds] at h1 ⊢
+                  rw [hs' r hr, h1]
+                | slot i => exact h1
+              · refine valsIn_of_holds (σ := σ2) has (by omega) fun a l hx a₁ hv => ?_
+                have hx' := List.mem_append_right (hints.entry j₂).live hx
+                have h1 := ht a l hx' a₁ hv
+                cases l with
+                | reg r =>
+                  have hr := of_decide_eq_true (hnsc (a, .reg r) hx')
+                  simp only [LocHolds] at h1 ⊢
+                  rw [hs' r hr, h1]
+                | slot i => exact h1
+          · simp at hl
+        · simp at hl
   | @ret G D vs₁ vs₂ hvs =>
-    intro st code nv' nl' ip' hl hG
-    simp only [lower] at hl
-    split at hl
-    · simp at hl
-    · rename_i R1 hR1
+    intro st code nv' nl' ip' ft fused hl hG
+    cases fused with
+    | some _ => simp [lower] at hl
+    | none =>
+      simp only [lower, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at hl
       split at hl
-      · rename_i hlen
-        split at hl
-        · rename_i c R2 hsh
-          simp only [Except.ok.injEq, Prod.mk.injEq] at hl
-          obtain ⟨rfl, rfl, rfl, rfl⟩ := hl
-          refine ⟨Nat.le_refl _, ?_⟩
-          intro k args acc m s σ hcode hD hP hA hR hI hw
-          simp only [wp] at hw
-          obtain ⟨rfl, hw⟩ := hw
-          have hc1 := hcode.append.1.append.1
-          refine moves_ok hy.spE _ st.R R1 k s σ hR1 hc1.append.1 hA hI
-            fun s1 σ1 hA1 hI1 => ?_
-          refine shuffle_ok hy.spE hsh hc1.append.2 hA1 hI1
-            fun s2 σ2 ht _ hI2 => ?_
-          have hret_c : (T.epilogue hints.nslots ++ T.ret).IsInfixAt (T.prog h)
-              (k + (movesCode (hints.pre st.ip)).length + c.length) := by
-            rw [List.append_assoc (movesCode (hints.pre st.ip) ++ c)] at hcode
-            simpa only [List.length_append, Nat.add_assoc] using hcode.append.2
-          exact ret_ok hy hret_c hI2 (valsIn_of_holds hvs hlen ht) hw
-        · simp at hl
       · simp at hl
+      · rename_i R1 hR1
+        split at hl
+        · rename_i hlen
+          split at hl
+          · rename_i c R2 hsh
+            simp only [Except.ok.injEq, Prod.mk.injEq] at hl
+            obtain ⟨rfl, rfl, rfl, rfl⟩ := hl
+            refine ⟨Nat.le_refl _, ?_⟩
+            intro k args acc m s σ hcode _ hD hP hes
+            obtain ⟨hA, hR, hI, hw⟩ := hes
+            simp only [wp] at hw
+            obtain ⟨rfl, hw⟩ := hw
+            have hc1 := hcode.append.1.append.1.append.1
+            refine moves_ok hy.spE _ st.R R1 k s σ hR1 hc1.append.1 hA hI
+              fun s1 σ1 hA1 hI1 => ?_
+            refine shuffle_ok hy.spE hsh hc1.append.2 hA1 hI1
+              fun s2 σ2 ht _ hI2 => ?_
+            have hret_c : (restoreCs hints.nslots hints.saved ++ T.epilogue hints.totalSlots ++ T.ret).IsInfixAt
+                (T.prog h) (k + (movesCode (hints.pre st.ip)).length + c.length) := by
+              rw [List.append_assoc (movesCode (hints.pre st.ip) ++ c),
+                List.append_assoc (movesCode (hints.pre st.ip) ++ c)] at hcode
+              simpa only [List.length_append, Nat.add_assoc] using hcode.append.2
+            exact ret_ok hy hret_c hI2 (valsIn_of_holds hvs hlen ht) hw
+          · simp at hl
+        · simp at hl
   | @exit G D g as₁ as₂ has =>
-    intro st code nv' nl' ip' hl hG
-    simp only [lower] at hl
-    split at hl
-    · simp at hl
-    · rename_i R1 hR1
+    intro st code nv' nl' ip' ft fused hl hG
+    cases fused with
+    | some _ => simp [lower] at hl
+    | none =>
+      simp only [lower, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at hl
       split at hl
-      · rename_i hcond
-        obtain ⟨hg, hlen⟩ := hcond
+      · simp at hl
+      · rename_i R1 hR1
         split at hl
-        · rename_i c R2 hsh
-          simp only [Except.ok.injEq, Prod.mk.injEq] at hl
-          obtain ⟨rfl, rfl, rfl, rfl⟩ := hl
-          refine ⟨Nat.le_refl _, ?_⟩
-          intro k args acc m s σ hcode hD hP hA hR hI hw
+        · rename_i hcond
+          obtain ⟨hg, hlen⟩ := hcond
+          split at hl
+          · rename_i c R2 hsh
+            simp only [Except.ok.injEq, Prod.mk.injEq] at hl
+            obtain ⟨rfl, rfl, rfl, rfl⟩ := hl
+            refine ⟨Nat.le_refl _, ?_⟩
+            intro k args acc m s σ hcode _ hD hP hes
+            obtain ⟨hA, hR, hI, hw⟩ := hes
+            simp only [wp] at hw
+            obtain ⟨rfl, hw⟩ := hw
+            have hc1 := hcode.append.1.append.1.append.1
+            refine moves_ok hy.spE _ st.R R1 k s σ hR1 hc1.append.1 hA hI
+              fun s1 σ1 hA1 hI1 => ?_
+            refine shuffle_ok hy.spE hsh hc1.append.2 hA1 hI1
+              fun s2 σ2 ht _ hI2 => ?_
+            have hexit_c : (restoreCs hints.nslots hints.saved ++ T.epilogue hints.totalSlots ++
+                T.tailJmp g).IsInfixAt (T.prog h)
+                (k + (movesCode (hints.pre st.ip)).length + c.length) := by
+              rw [List.append_assoc (movesCode (hints.pre st.ip) ++ c),
+                List.append_assoc (movesCode (hints.pre st.ip) ++ c)] at hcode
+              simpa only [List.length_append, Nat.add_assoc] using hcode.append.2
+            exact exit_ok hy hexit_c hI2 (valsIn_of_holds has hlen ht) hw hg
+          · simp at hl
+        · simp at hl
+  | hlt =>
+    intro st code nv' nl' ip' ft fused hl hG
+    cases fused with
+    | some _ => simp [lower] at hl
+    | none =>
+      simp only [lower, Option.isSome_none, Bool.false_eq_true, ↓reduceIte,
+        Except.ok.injEq, Prod.mk.injEq] at hl
+      obtain ⟨rfl, rfl, rfl, rfl⟩ := hl
+      exact ⟨Nat.le_refl _, fun _ _ _ _ _ _ _ _ _ _ hes => by simp [EntryState, wp] at hes⟩
+  | @param G D f₁ f₂ _ ih =>
+    intro st code nv' nl' ip' ft fused hl hG
+    cases fused with
+    | some _ => simp [lower] at hl
+    | none =>
+      simp only [lower, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at hl
+      split at hl
+      · simp at hl
+      · rename_i r PL hPL
+        refine ⟨by have := (ih 0 st.nv _ code nv' nl' ip' ft none hl (fresh hG 0)).1; simp at this; omega, ?_⟩
+        intro k args acc m s σ hcode hft hD hP hes
+        obtain ⟨hA, hR, hI, hw⟩ := hes
+        rw [hPL] at hR
+        cases args with
+        | nil => simp [wp] at hw
+        | cons a as =>
+          obtain ⟨hra, hR⟩ := valsIn_cons.mp hR
+          simp only [wp] at hw
+          exact (ih a st.nv _ code nv' nl' ip' ft none hl (fresh hG a)).2 k as [] m s σ hcode hft
+            (hD.cons _) .nil ⟨hA.bindN hG hra, hR, hI, hw⟩
+  | @label G D f₁ f₂ _ ih =>
+    intro st code nv' nl' ip' ft fused hl hG
+    cases fused with
+    | some _ => simp [lower] at hl
+    | none =>
+      simp only [lower, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at hl
+      let J := LabJ h hints fn Q X s₀ ra n nX Rf G st.nl
+      have ih' := ih J st.nl _ code nv' nl' ip' ft none hl hG
+      refine ⟨ih'.1, ?_⟩
+      intro k args acc m s σ hcode hft hD hP hes
+      obtain ⟨hA, hR, hI, hw⟩ := hes
+      simp only [wp] at hw
+      obtain ⟨rfl, hw⟩ := hw
+      refine ih'.2 k [] (acc ++ [J]) m s σ hcode hft ?_ (hP.append_single rfl) ⟨hA, hR, hI, hw J⟩
+      intro J' ℓ hJ'
+      simp only [List.mem_cons, Prod.mk.injEq] at hJ'
+      rcases hJ' with ⟨rfl, rfl⟩ | hJ'
+      · exact ⟨G, fun p hp => hp, rfl⟩
+      · exact hD J' ℓ hJ'
+  | @block G D b₁ b₂ r₁ r₂ _ _ ihb ihr =>
+    intro st code nv' nl' ip' ft fused hl hG
+    cases fused with
+    | some _ => simp [lower] at hl
+    | none =>
+      simp only [lower, Option.isSome_none, Bool.false_eq_true, ↓reduceIte] at hl
+      split at hl
+      · simp at hl
+      · rename_i ℓ pend hpend
+        split at hl
+        · rename_i cr nv1 nl1 ip1 hlr
+          obtain ⟨c', hl', rfl⟩ := prepend_ok hl
+          have ihr' := ihr _ cr nv1 nl1 ip1 (some ℓ) none hlr hG
+          have ihb' := ihb _ c' nv' nl' ip' ft none hl'
+            (fun p hp => by have := hG p hp; simp at ihr' ⊢; omega)
+          refine ⟨by simp at ihr' ihb'; omega, ?_⟩
+          intro k args acc m s σ hcode hft hD hP hes
+          obtain ⟨hA, hR, hI, hw⟩ := hes
           simp only [wp] at hw
           obtain ⟨rfl, hw⟩ := hw
-          have hc1 := hcode.append.1.append.1
-          refine moves_ok hy.spE _ st.R R1 k s σ hR1 hc1.append.1 hA hI
-            fun s1 σ1 hA1 hI1 => ?_
-          refine shuffle_ok hy.spE hsh hc1.append.2 hA1 hI1
-            fun s2 σ2 ht _ hI2 => ?_
-          have hexit_c : (T.epilogue hints.nslots ++ T.tailJmp g).IsInfixAt (T.prog h)
-              (k + (movesCode (hints.pre st.ip)).length + c.length) := by
-            rw [List.append_assoc (movesCode (hints.pre st.ip) ++ c)] at hcode
-            simpa only [List.length_append, Nat.add_assoc] using hcode.append.2
-          exact exit_ok hy hexit_c hI2 (valsIn_of_holds has hlen ht) hw hg
+          rw [hpend] at hP
+          cases hP with
+          | @cons J _ acc' _ hJ hP =>
+            simp only at hw
+            have hlab : (T.prog h)[k + cr.length]? = some (T.label (lname fn ℓ)) :=
+              List.isInfixAt_singleton.mp ((hcode.append).1.append).2
+            refine ihr'.2 k [] acc' m s σ ((hcode.append).1.append).1
+              (fun ℓf hlf => by simp only [Option.some.injEq] at hlf; subst hlf; exact hlab)
+              hD hP ⟨hA, hR, hI, hw ?_⟩
+            intro as m' hb
+            rw [hJ]
+            refine ⟨k + cr.length, hlab, fun s' σ' hA' hR' hI' => T.label_spec hlab ?_⟩
+            have := ihb'.2 _ as [] m' s' σ' (hcode.append).2
+              (by
+                intro ℓf hlf
+                have h := hft ℓf hlf
+                simpa only [List.length_append, List.length_singleton, Nat.add_assoc,
+                  Nat.add_comm c'.length 1] using h)
+              hD .nil ⟨hA', hR', hI', hb⟩
+            simpa only [Target.Run, List.length_append, List.length_singleton, Nat.add_assoc]
+              using this
         · simp at hl
-      · simp at hl
-  | hlt =>
-    intro st code nv' nl' ip' hl hG
-    simp only [lower, Except.ok.injEq, Prod.mk.injEq] at hl
-    obtain ⟨rfl, rfl, rfl, rfl⟩ := hl
-    exact ⟨Nat.le_refl _, fun _ _ _ _ _ _ _ _ _ _ _ _ hw => by simp [wp] at hw⟩
-  | @param G D f₁ f₂ _ ih =>
-    intro st code nv' nl' ip' hl hG
-    simp only [lower] at hl
-    split at hl
-    · simp at hl
-    · rename_i r PL hPL
-      refine ⟨by have := (ih 0 st.nv _ code nv' nl' ip' hl (fresh hG 0)).1; simp at this; omega, ?_⟩
-      intro k args acc m s σ hcode hD hP hA hR hI hw
-      rw [hPL] at hR
-      cases args with
-      | nil => simp [wp] at hw
-      | cons a as =>
-        obtain ⟨hra, hR⟩ := valsIn_cons.mp hR
-        simp only [wp] at hw
-        exact (ih a st.nv _ code nv' nl' ip' hl (fresh hG a)).2 k as [] m s σ hcode (hD.cons _) .nil
-          (hA.bindN hG hra) hR hI hw
-  | @label G D f₁ f₂ _ ih =>
-    intro st code nv' nl' ip' hl hG
-    simp only [lower] at hl
-    let J := LabJ h hints fn Q X s₀ ra n nX Rf G st.nl
-    have ih' := ih J st.nl _ code nv' nl' ip' hl hG
-    refine ⟨ih'.1, ?_⟩
-    intro k args acc m s σ hcode hD hP hA hR hI hw
-    simp only [wp] at hw
-    obtain ⟨rfl, hw⟩ := hw
-    refine ih'.2 k [] (acc ++ [J]) m s σ hcode ?_ (hP.append_single rfl) hA hR hI (hw J)
-    intro J' ℓ hJ'
-    simp only [List.mem_cons, Prod.mk.injEq] at hJ'
-    rcases hJ' with ⟨rfl, rfl⟩ | hJ'
-    · exact ⟨G, fun p hp => hp, rfl⟩
-    · exact hD J' ℓ hJ'
-  | @block G D b₁ b₂ r₁ r₂ _ _ ihb ihr =>
-    intro st code nv' nl' ip' hl hG
-    simp only [lower] at hl
-    split at hl
-    · simp at hl
-    · rename_i ℓ pend hpend
-      split at hl
-      · rename_i cr nv1 nl1 ip1 hlr
-        obtain ⟨c', hl', rfl⟩ := prepend_ok hl
-        have ihr' := ihr _ cr nv1 nl1 ip1 hlr hG
-        have ihb' := ihb _ c' nv' nl' ip' hl'
-          (fun p hp => by have := hG p hp; simp at ihr' ⊢; omega)
-        refine ⟨by simp at ihr' ihb'; omega, ?_⟩
-        intro k args acc m s σ hcode hD hP hA hR hI hw
-        simp only [wp] at hw
-        obtain ⟨rfl, hw⟩ := hw
-        rw [hpend] at hP
-        cases hP with
-        | @cons J _ acc' _ hJ hP =>
-          simp only at hw
-          have hlab : (T.prog h)[k + cr.length]? = some (T.label (lname fn ℓ)) :=
-            List.isInfixAt_singleton.mp ((hcode.append).1.append).2
-          refine ihr'.2 k [] acc' m s σ ((hcode.append).1.append).1 hD hP hA hR hI (hw ?_)
-          intro as m' hb
-          rw [hJ]
-          refine ⟨k + cr.length, hlab, fun s' σ' hA' hR' hI' => T.label_spec hlab ?_⟩
-          have := ihb'.2 _ as [] m' s' σ' (hcode.append).2 hD .nil hA' hR' hI' hb
-          simpa only [Target.Run, List.length_append, List.length_singleton, Nat.add_assoc]
-            using this
-      · simp at hl
 
 end Lower
 
@@ -1205,48 +1628,87 @@ theorem lowerFn_correct (h : T.Host) (hints : Hints T.toIsa) (E : Ext) (f : Fn) 
     T.FnSpec h f.name (Func.spec Γ f.body) n nX := by
   unfold lowerFn at hlow
   split at hlow
-  · rename_i c nv' nl' ip' hl
-    simp only [Except.ok.injEq] at hlow
-    subst hlow
-    have hlab := (hcode.cons).1
-    have hpro := (hcode.cons).2.append.1
-    have hc := (hcode.cons).2.append.2
-    intro args m Q X hspec s₀ ra Rf hargs hra hspE hmem
-    rw [labelAddr_of_unique hu hlab]
-    refine T.label_spec hlab ?_
-    have hy : Hyps h hints E Γ s₀ n nX bound :=
-      ⟨hu, hspE, hFn, by omega, hn, hcallees, hexits⟩
-    have e_n : n = n - frame hints + frame hints := by omega
-    have hmem1 : T.mem s₀ =⋆ T.RetAddr (T.get s₀ T.sp) ra ⋆
-        region (base hints s₀) (frame hints) ⋆
-        (Eq m ⋆ (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf)) := by
-      simp only [Target.Entry] at hmem
-      conv at hmem => arg 1; arg 2; arg 1; arg 2; rw [e_n]
-      rw [region_split (by omega), below_add hFn] at hmem
-      exact sep_ac' (by ac_rfl) hmem
-    refine T.prologue_spec hpro hra hspE hy.frame_bound hmem1
-      fun s1 hsp1 hk1 hm1 => ?_
-    have h8 : 8 * hints.nslots ≤ frame hints := T.slots_le_frameSize _
-    have hm1' : (region (base hints s₀) (8 * hints.nslots) ⋆
-        (Eq m ⋆ Fr hints s₀ ra n Rf)) (T.mem s1) := by
-      unfold Fr base frame
-      exact sep_ac' (by ac_rfl) hm1
-    obtain ⟨σ, hσ, hm1''⟩ := region_slots_sep (by omega) hm1'
-    have hargs1 : T.ValsIn T.argRegs args s1 := by
-      refine valsIn_keep (fun r hr => hk1 r ?_) hargs
-      simp only [List.mem_cons, List.mem_append, not_or]
-      exact ⟨⟨fun e => T.sp_not_argRegs (e ▸ hr), fun h' => T.raRegs_not_argRegs r h' hr⟩,
-        T.argRegs_not_scratch r hr⟩
-    have hI1 : Inv hints s₀ ra n Rf m s1 σ := by
-      refine ⟨hσ, hsp1, fun r hr => hk1 r ?_, sep_ac' (by ac_rfl) hm1''⟩
-      simp only [List.mem_cons, List.mem_append, not_or]
-      exact ⟨⟨fun e => T.sp_not_calleeSaved (e ▸ hr), fun h' => T.raRegs_not_calleeSaved r h' hr⟩,
-        T.calleeSaved_not_scratch r hr⟩
-    exact (lower_correct h hints E f.name Γ Q X s₀ ra n nX Rf bound hy
-      (hwf Val Nat Cont Nat) (St.init T.toIsa) c nv' nl' ip' hl (by simp)).2
-      (k₀ + 1 + (T.prologue hints.nslots).length) args [] m s1 σ hc
-      (fun _ _ hJ => by simp at hJ) .nil (fun _ _ hx => by simp [St.init] at hx)
-      hargs1 hI1 hspec
+  · rename_i hsaved
+    obtain ⟨hnd, hsub_b⟩ := hsaved
+    have hsub : ∀ r ∈ hints.saved, r ∈ T.calleeSaved :=
+      fun r hr => of_decide_eq_true (List.all_eq_true.mp hsub_b r hr)
+    split at hlow
+    · rename_i c nv' nl' ip' hl
+      simp only [Except.ok.injEq] at hlow
+      subst hlow
+      have hlab := (hcode.cons).1
+      have hpro := (hcode.cons).2.append.1.append.1
+      have hsave := (hcode.cons).2.append.1.append.2
+      have hc := (hcode.cons).2.append.2
+      intro args m Q X hspec s₀ ra Rf hargs hra hspE hmem
+      rw [labelAddr_of_unique hu hlab]
+      refine T.label_spec hlab ?_
+      have hy : Hyps h hints E Γ s₀ n nX bound :=
+        ⟨hu, hspE, hFn, by omega, hn, hcallees, hexits⟩
+      have e_n : n = n - frame hints + frame hints := by omega
+      have hmem1 : T.mem s₀ =⋆ T.RetAddr (T.get s₀ T.sp) ra ⋆
+          region (base hints s₀) (frame hints) ⋆
+          (Eq m ⋆ (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf)) := by
+        simp only [Target.Entry] at hmem
+        conv at hmem => arg 1; arg 2; arg 1; arg 2; rw [e_n]
+        rw [region_split (by omega), below_add hFn] at hmem
+        exact sep_ac' (by ac_rfl) hmem
+      refine T.prologue_spec hpro hra hspE hy.frame_bound hmem1
+        fun s1 hsp1 hk1 hm1 => ?_
+      have h8 : 8 * hints.totalSlots ≤ frame hints := T.slots_le_frameSize _
+      have he8 : 8 * hints.totalSlots = 8 * hints.nslots + 8 * hints.saved.length := by
+        simp [Hints.totalSlots, Nat.mul_add]
+      have hm1_split : (region (base hints s₀) (8 * hints.nslots) ⋆
+          (region (base hints s₀ + BitVec.ofNat 64 (8 * hints.nslots)) (8 * hints.saved.length) ⋆
+            (Eq m ⋆ (T.Saved (T.get s₀ T.sp) ra hints.totalSlots ⋆
+              (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf)))))
+          (T.mem s1) := by
+        rw [he8, region_split (by omega)] at hm1
+        unfold base frame
+        exact sep_ac' (by ac_rfl) hm1
+      obtain ⟨σ, hσ, hm1''⟩ := region_slots_sep (by omega) hm1_split
+      have hargs1 : T.ValsIn T.argRegs args s1 := by
+        refine valsIn_keep (fun r hr => hk1 r ?_) hargs
+        simp only [List.mem_cons, List.mem_append, not_or]
+        exact ⟨⟨fun e => T.sp_not_argRegs (e ▸ hr), fun h' => T.raRegs_not_argRegs r h' hr⟩,
+          T.argRegs_not_scratch r hr⟩
+      have hcs1 : ∀ r, r ∈ T.calleeSaved → T.get s1 r = T.get s₀ r := by
+        intro r hr
+        refine hk1 r ?_
+        simp only [List.mem_cons, List.mem_append, not_or]
+        exact ⟨⟨fun e => T.sp_not_calleeSaved (e ▸ hr), fun h' => T.raRegs_not_calleeSaved r h' hr⟩,
+          T.calleeSaved_not_scratch r hr⟩
+      have hmem_save : T.mem s1 =⋆
+          region (T.get s1 T.sp + BitVec.ofNat 64 (8 * hints.nslots)) (8 * hints.saved.length) ⋆
+            (Eq m ⋆ (slots (base hints s₀) σ ⋆
+              (T.Saved (T.get s₀ T.sp) ra hints.totalSlots ⋆
+                (region (T.get s₀ T.sp - BitVec.ofNat 64 n) (n - frame hints) ⋆ Rf)))) := by
+        rw [hsp1]
+        exact sep_ac' (by ac_rfl) hm1''
+      refine saveCs_ok hints.nslots hints.saved (k₀ + 1 + (T.prologue hints.totalSlots).length) s1
+        hsave (by rw [hsp1]; exact T.spOk_frame _ _ hspE) (by omega) hsub
+        (fun r hr => hcs1 r (hsub r hr)) hmem_save fun s2 hk2 hm2 => ?_
+      have hsp2 : T.get s2 T.sp = base hints s₀ := by
+        rw [hk2 T.sp T.sp_not_scratch, hsp1]
+      have hargs2 : T.ValsIn T.argRegs args s2 :=
+        valsIn_keep (fun r hr => hk2 r (T.argRegs_not_scratch r hr)) hargs1
+      have hI2 : Inv hints s₀ ra n Rf m s2 σ := by
+        refine ⟨hσ, hsp2, fun r hr _ => (hk2 r (T.calleeSaved_not_scratch r hr)).trans (hcs1 r hr),
+          ?_, hsub, hnd⟩
+        rw [hsp1] at hm2
+        unfold Fr csSlots
+        exact sep_ac' (by ac_rfl) hm2
+      have hc' : c.IsInfixAt (T.prog h)
+          (k₀ + 1 + (T.prologue hints.totalSlots).length + (saveCs hints.nslots hints.saved).length) := by
+        simpa only [List.length_append, Nat.add_assoc] using hc
+      have hrun := (lower_correct h hints E f.name Γ Q X s₀ ra n nX Rf bound hy
+        (hwf Val Nat Cont Nat) (St.init T.toIsa) c nv' nl' ip' none none hl (by simp)).2
+        (k₀ + 1 + (T.prologue hints.totalSlots).length + (saveCs hints.nslots hints.saved).length)
+        args [] m s2 σ hc' (fun _ hf => by simp at hf) (fun _ _ hJ => by simp at hJ) .nil
+        ⟨fun _ _ hx => by simp [St.init] at hx, hargs2, hI2, hspec⟩
+      unfold FnPost at hrun
+      simpa only [Nat.add_assoc] using hrun
+    · simp at hlow
   · simp at hlow
 
 end Rega

@@ -94,6 +94,8 @@ structure Isa where
   jmp : String → List Directive
   /-- `jnz r l`: jump to label `l` if `Truthy r` (low 32 bits nonzero), else fall through. -/
   jnz : Reg → String → List Directive
+  /-- Fused `cmp` + `jnz`: jump to `l` iff `cmp k co a b` evaluates to `1`; `none` falls back to `op` + `jnz`. -/
+  jnzCmp : Cls → CmpOp → Arg Reg → Arg Reg → String → Option (List Directive) := fun _ _ _ _ _ => none
   /-- `ret`: return to the caller. -/
   ret : List Directive
   /-- Registers the return-address convention uses besides memory (x64: none; AArch64: `x30`).
@@ -187,6 +189,8 @@ structure Target extends Isa where
   retRegs_not_scratch : ∀ r, r ∈ retRegs → r ∉ scratch
   sp_not_retRegs : sp ∉ retRegs
   sp_not_argRegs : sp ∉ argRegs
+  calleeSaved_not_argRegs : ∀ r, r ∈ calleeSaved → r ∉ argRegs
+  calleeSaved_not_retRegs : ∀ r, r ∈ calleeSaved → r ∉ retRegs
   /-- The return address occupies exactly `raBytes` bytes at the stack pointer. -/
   retAddr_region : ∀ a ra f, RetAddr a ra f → region a raBytes f
   /-- The register part of the return address lives outside allocatable and scratch registers. -/
@@ -264,6 +268,15 @@ structure Target extends Isa where
       (¬ Truthy (get s r) →
         Eventually (step h) post (mkState s' (addrOf h (k + (jnz r l).length))))) →
     Eventually (step h) post (mkState s (addrOf h k))
+  jnzCmp_spec : ∀ {h : Host} {k j : Nat} {cls : Cls} {co : CmpOp} {a b : Arg Reg} {l : String}
+      {c : List Directive} {v : Val} {s : MData} {post : State → Prop},
+    jnzCmp cls co a b l = some c → c.IsInfixAt (prog h) k → labelAddr h l = addrOf h j →
+    (∀ r, r ∈ a.vars ++ b.vars → r ∉ scratch) →
+    (Op.cmp cls co (a.map (get s)) (b.map (get s))).eval = some v →
+    (∀ s', (∀ r, r ∉ scratch → get s' r = get s r) → mem s' = mem s →
+      (Truthy v → Eventually (step h) post (mkState s' (addrOf h j))) ∧
+      (¬ Truthy v → Eventually (step h) post (mkState s' (addrOf h (k + c.length))))) →
+    Eventually (step h) post (mkState s (addrOf h k)) := by intros; contradiction
   prologue_spec : ∀ {h : Host} {k ns : Nat} {s : MData} {ra : Addr} {G : Mem 64 → Prop}
       {post : State → Prop},
     (prologue ns).IsInfixAt (prog h) k → raReg s ra → spEntry (get s sp) →

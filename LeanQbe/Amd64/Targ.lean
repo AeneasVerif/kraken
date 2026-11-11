@@ -98,8 +98,8 @@ def frameSize (ns : Nat) : Nat := 8 * ns + (if ns % 2 = 0 then 8 else 0)
   call sym := [callD sym]
   tailJmp sym := [jmpD sym]
 
-/-- `isa` with fast-path instruction selection (`fastOp` and `fastStore`). -/
+/-- `isa` with fast-path instruction selection (`fastOp`, `fastStore`, and `jnzCmp`). -/
 @[reducible] def fastIsa : Isa :=
-  { isa with op := fastOp, store := fastStore }
+  { isa with op := fastOp, store := fastStore, jnzCmp := jnzCmp }
 
 end LeanQbe.Amd64
