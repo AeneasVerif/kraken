@@ -23,14 +23,13 @@ public section
 
 namespace CallConv.Win64Spill
 
-def spill_body : Program := parse("
+def spill_body : Program := ⸨prog|
 win64_spill:
   subq $24, %rsp
   movaps %xmm0, (%rsp)
   movaps (%rsp), %xmm1
   addq $24, %rsp
-  ret
-")
+  ret⸩
 
 /-- The procedure's 24-byte reservation: the aligned 16-byte slot and 8 bytes of padding. -/
 theorem reserve24_eq (r : BitVec 64) :

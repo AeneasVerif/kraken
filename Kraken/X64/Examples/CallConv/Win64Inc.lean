@@ -25,13 +25,12 @@ public section
 
 namespace CallConv.Win64Inc
 
-def inc_body : Program := parse("
+def inc_body : Program := ⸨prog|
 win64_inc:
   movq %rcx, 8(%rsp)
   movq 8(%rsp), %rax
   addq $1, %rax
-  ret
-")
+  ret⸩
 
 variable [Host]
 
@@ -91,13 +90,12 @@ theorem inc_spec {j : Nat} (hj : inc_body.IsInfixAt Host.prog j)
 /-- A Windows x64 procedure that calls `win64_inc`. On entry `rsp + 8` is 16-byte aligned, so it
 allocates the callee's 32-byte shadow space plus 8 bytes of padding to make `rsp` 16-byte aligned
 at the `call`. -/
-def caller : Program := parse("
+def caller : Program := ⸨prog|
 win64_caller:
   subq $40, %rsp
   call win64_inc
   addq $40, %rsp
-  ret
-")
+  ret⸩
 
 omit [Host] in
 /-- The caller's 48-byte reservation: the callee's return-address slot, its shadow space, and the

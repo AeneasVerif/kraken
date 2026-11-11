@@ -33,12 +33,11 @@ public section
 
 namespace CallConv.SysVInc
 
-def inc_body : Program := parse("
+def inc_body : Program := ⸨prog|
 sysv_inc:
   movq %rdi, %rax
   addq $1, %rax
-  ret
-")
+  ret⸩
 
 variable [Host]
 
@@ -78,13 +77,12 @@ theorem inc_spec {j : Nat} (hj : inc_body.IsInfixAt Host.prog j)
 
 /-- A SysV procedure that calls `sysv_inc`. On entry `rsp + 8` is 16-byte aligned, so it moves
 `rsp` down by 8 to make `rsp` aligned at the `call`. -/
-def caller : Program := parse("
+def caller : Program := ⸨prog|
 sysv_caller:
   subq $8, %rsp
   call sysv_inc
   addq $8, %rsp
-  ret
-")
+  ret⸩
 
 omit [Host] in
 /-- The caller's 16-byte reservation: the callee's return-address slot and 8 bytes of padding. -/
