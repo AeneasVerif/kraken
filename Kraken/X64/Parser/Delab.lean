@@ -836,6 +836,13 @@ private def delabAvxOperation (aw : Width) (w? : Option AvxWidth) : X64DelabM (T
     delabAvx3Op (← `(x64_avx3_op| vpxor)) aw
   | AvxOperation.vpternlogd _ _ _ _ _ => delabAvx3ImmOp (← `(x64_avx3_imm_op| vpternlogd)) aw
   | AvxOperation.vshufps    _ _ _ _ _ => delabAvx3ImmOp (← `(x64_avx3_imm_op| vshufps))    aw
+  | AvxOperation.vpunpckldq  _ _ _ _ => delabAvx3Op (← `(x64_avx3_op| vpunpckldq))  aw
+  | AvxOperation.vpunpckhdq  _ _ _ _ => delabAvx3Op (← `(x64_avx3_op| vpunpckhdq))  aw
+  | AvxOperation.vpunpcklqdq _ _ _ _ => delabAvx3Op (← `(x64_avx3_op| vpunpcklqdq)) aw
+  | AvxOperation.vpunpckhqdq _ _ _ _ => delabAvx3Op (← `(x64_avx3_op| vpunpckhqdq)) aw
+  | AvxOperation.vperm2i128 _ _ _ _ _ =>
+    unless w? == some .W256 do failure
+    delabAvx3ImmOp (← `(x64_avx3_imm_op| vperm2i128)) aw
   | AvxOperation.vinserti64x4 _ _ _ _ _ =>
     unless w? == some .W512 do failure
     let dst ← withNaryArg 1 (delabAvxRegOrMem aw)

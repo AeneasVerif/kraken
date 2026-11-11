@@ -605,6 +605,10 @@ def elabAvx3Op (stx : TSyntax `x64_avx3_op) : TermElabM Expr := withRef stx do
   | `(x64_avx3_op| vpandn)   => pure (mkConst ``AvxOperation.vpandn)
   | `(x64_avx3_op| vpor)     => pure (mkConst ``AvxOperation.vpor)
   | `(x64_avx3_op| vpxor)    => pure (mkConst ``AvxOperation.vpxor)
+  | `(x64_avx3_op| vpunpckldq)  => pure (mkConst ``AvxOperation.vpunpckldq)
+  | `(x64_avx3_op| vpunpckhdq)  => pure (mkConst ``AvxOperation.vpunpckhdq)
+  | `(x64_avx3_op| vpunpcklqdq) => pure (mkConst ``AvxOperation.vpunpcklqdq)
+  | `(x64_avx3_op| vpunpckhqdq) => pure (mkConst ``AvxOperation.vpunpckhqdq)
   | _                        => throwError "invalid AVX 3-operand mnemonic"
 
 /-- The `AvxOperation` constructor of an `x64_avx3_imm_op`. -/
@@ -612,6 +616,7 @@ def elabAvx3ImmOp (stx : TSyntax `x64_avx3_imm_op) : TermElabM Expr := withRef s
   match stx with
   | `(x64_avx3_imm_op| vpternlogd) => pure (mkConst ``AvxOperation.vpternlogd)
   | `(x64_avx3_imm_op| vshufps)    => pure (mkConst ``AvxOperation.vshufps)
+  | `(x64_avx3_imm_op| vperm2i128) => pure (mkConst ``AvxOperation.vperm2i128)
   | _                              => throwError "invalid AVX 3-operand immediate mnemonic"
 
 /-- The scalar transfer width of `vmovd` (`.W32`) or `vmovq` (`.W64`). -/
@@ -761,7 +766,11 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       let dst ← elabAvxRegOrMem dst
       mkAppWidth mk #[dst, src1, src2]
   | `(x64_instr| $op:x64_avx3_imm_op $imm:x64_imm, $src2:x64_avx_operand, $src1:x64_avx_operand, $dst:x64_avx_operand) =>
-    mkAvxInstr do
+    -- `vperm2i128` exists at 256 bits only.
+    let width? := match op with
+      | `(x64_avx3_imm_op| vperm2i128) => some .W256
+      | _ => none
+    mkAvxInstr (width? := width?) do
       let mk ← elabAvx3ImmOp op
       let imm ← elabImm imm
       let src2 ← elabAvxRegOrMem src2

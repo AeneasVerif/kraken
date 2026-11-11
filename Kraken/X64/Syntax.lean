@@ -289,6 +289,13 @@ inductive AvxOperation (w : AvxWidth)
   | vpandn (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
   | vpor (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
   | vpxor (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  -- AVX2 and AVX-512 interleaves, within each 128-bit block
+  | vpunpckldq (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vpunpckhdq (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vpunpcklqdq (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vpunpckhqdq (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  -- AVX2, 256 bits only
+  | vperm2i128 (_ : AvxDst w) (src1 src2 : AvxRegOrMem w) (imm : ConstExpr)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 inductive Instr

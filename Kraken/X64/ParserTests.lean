@@ -955,6 +955,12 @@ vpand %xmm0, %xmm1, %xmm2
 vpandn (%rax), %ymm3, %ymm4
 vpor %ymm5, %ymm6, %ymm7
 vpxor 32(%rsp), %xmm8, %xmm15
+vpunpckldq %xmm0, %xmm1, %xmm2
+vpunpckhdq (%rax), %ymm3, %ymm4
+vpunpcklqdq %zmm5, %zmm6, %zmm7
+vpunpckhqdq 64(%rsp), %zmm8, %zmm25
+vperm2i128 $0x20, %ymm9, %ymm10, %ymm11
+vperm2i128 $0x31, 32(%rsp), %ymm12, %ymm13
 ⸩
 ].all agreesWithCombinatorParser
 
@@ -981,6 +987,23 @@ info: ⸨prog|
   vpternlogd $0xca, %zmm11, %zmm12, %zmm13
   vpermi2q %zmm10, %zmm11, %zmm12
   vinserti64x4 $1, 32(%rsp), %zmm15, %zmm16
+⸩
+
+/-- error: type error: w256 != w512 -/
+#guard_msgs in
+#check ⸨prog| vperm2i128 $0x20, %zmm9, %zmm10, %zmm11 ⸩
+
+/--
+info: ⸨prog|
+  vpunpckldq %xmm0, %xmm1, %xmm2
+  vpunpckhqdq 64(%rsp), %zmm8, %zmm25
+  vperm2i128 $49, 32(%rsp), %ymm12, %ymm13⸩ : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog|
+  vpunpckldq %xmm0, %xmm1, %xmm2
+  vpunpckhqdq 64(%rsp), %zmm8, %zmm25
+  vperm2i128 $0x31, 32(%rsp), %ymm12, %ymm13
 ⸩
 
 end sha_and_avx512

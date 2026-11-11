@@ -85,6 +85,9 @@ def corpus : List String := [
   "vmovdqa (%rsp), %xmm0", "vmovdqa %ymm1, 32(%rsp)", "vmovdqa %ymm2, %ymm3",
   "vpand %xmm0, %xmm1, %xmm2", "vpandn (%rax), %ymm3, %ymm4", "vpor %ymm5, %ymm6, %ymm7",
   "vpxor 32(%rsp), %xmm8, %xmm15",
+  "vpunpckldq %xmm0, %xmm1, %xmm2", "vpunpckhdq (%rax), %ymm3, %ymm4", "vpunpcklqdq %zmm5, %zmm6, %zmm7",
+  "vpunpckhqdq 64(%rsp), %zmm8, %zmm25", "vperm2i128 $0x20, %ymm9, %ymm10, %ymm11",
+  "vperm2i128 $0x31, 32(%rsp), %ymm12, %ymm13",
   -- data words: a label, a difference of labels, a literal
   ".short sym", "a:\nb:\n  .short b - a", ".short 7",
   ".long sym", "a:\nb:\n  .long b-a", ".long -1",
@@ -116,6 +119,10 @@ def corpus : List String := [
 -- Data words print with the directive of their size.
 #guard toATT [.word 1 (.label "a"), .word 2 (.label "a"), .word 4 (.int64 3),
     .word 8 (.sub (.label "b") (.label "a"))] == ".byte a\n.short a\n.long 3\n.quad b-a"
+
+-- `vperm2i128` exists at 256 bits only.
+#guard ["vperm2i128 $0x20, %xmm9, %xmm10, %xmm11", "vperm2i128 $0x20, %zmm9, %zmm10, %zmm11"].all
+  fun s => (parse s).toOption.isNone
 
 #guard ["cmove %ax, %bx", "cmovzl %eax, %ebx", "cmovnew %ax, %bx", "cmovnel %eax, %ebx", "cmovneq %rax, %rbx"].all roundtrips
 

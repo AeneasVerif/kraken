@@ -1002,6 +1002,25 @@ def parseInstr : Parser Instr := do
   | "vpandn" => vexOnly mn (← commaSeparatedAvx3 .vpandn)
   | "vpor" => vexOnly mn (← commaSeparatedAvx3 .vpor)
   | "vpxor" => vexOnly mn (← commaSeparatedAvx3 .vpxor)
+  | "vpunpckldq" =>
+    commaSeparatedAvx3 .vpunpckldq
+
+  | "vpunpckhdq" =>
+    commaSeparatedAvx3 .vpunpckhdq
+
+  | "vpunpcklqdq" =>
+    commaSeparatedAvx3 .vpunpcklqdq
+
+  | "vpunpckhqdq" =>
+    commaSeparatedAvx3 .vpunpckhqdq
+
+  | "vperm2i128" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    let (addr_w1, src2) ← parseAvxAO parseAvxRegOrMem .W256; parseComma
+    let (addr_w2, src1) ← parseAvxAO parseAvxRegOrMem .W256; parseComma
+    let (addr_w3, dst) ← parseAvxAO parseAvxRegOrMem .W256
+    let addr_w ← mergeAddrWidths addr_w1 (← mergeAddrWidths addr_w2 addr_w3)
+    pure (toAvxInstr addr_w (AvxOperation.vperm2i128 dst src1 src2 imm))
 
   -- Bitwise - 64-bit
   | "xor" =>

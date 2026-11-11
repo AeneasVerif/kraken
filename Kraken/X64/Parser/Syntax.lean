@@ -370,6 +370,14 @@ syntax &"vpandn" : x64_avx3_op
 syntax &"vpor" : x64_avx3_op
 /-- Bitwise XOR (no 512-bit form). -/
 syntax &"vpxor" : x64_avx3_op
+/-- Interleave the low doublewords of each 16-byte block. -/
+syntax &"vpunpckldq" : x64_avx3_op
+/-- Interleave the high doublewords of each 16-byte block. -/
+syntax &"vpunpckhdq" : x64_avx3_op
+/-- Interleave the low quadwords of each 16-byte block. -/
+syntax &"vpunpcklqdq" : x64_avx3_op
+/-- Interleave the high quadwords of each 16-byte block. -/
+syntax &"vpunpckhqdq" : x64_avx3_op
 
 /-- AVX 3-operand vector instruction mnemonics taking an 8-bit immediate (`$imm, src2, src1, dst`). -/
 declare_syntax_cat x64_avx3_imm_op (behavior := both)
@@ -377,6 +385,8 @@ declare_syntax_cat x64_avx3_imm_op (behavior := both)
 syntax &"vpternlogd" : x64_avx3_imm_op
 /-- Shuffle packed single-precision values from two sources. -/
 syntax &"vshufps" : x64_avx3_imm_op
+/-- Pick each 128-bit half from the halves of two sources (256 bits only). -/
+syntax &"vperm2i128" : x64_avx3_imm_op
 
 /-- VEX 32/64-bit transfer mnemonics (`vmovd`, `vmovq`). -/
 declare_syntax_cat x64_vmov_gp_op (behavior := both)
