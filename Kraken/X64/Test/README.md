@@ -26,14 +26,13 @@ Note: Always consult the [Intel SDM](https://intel.github.io/SDM/sdm.html) to id
 
 ### Vector registers
 
-On a host with AVX-512F, the runner compares all of `zmm0` to `zmm31`.
+Under Intel SDE, or natively on a host with AVX-512F, the runner compares all of `zmm0` to `zmm31`; native execution on other hosts compares `ymm0` to `ymm15`.
 
-On other hosts it compares `ymm0` to `ymm15`.
-
-A test that needs AVX-512 says so on one of its comment lines, and is skipped on hosts without it:
+A test that needs AVX-512 says so on one of its comment lines:
 ```
 # Requires: avx512f
 ```
+On hosts without AVX-512F, native execution is skipped and the test still runs under Intel SDE (skipping altogether only with `--skip-sde`).
 
 ## Running Tests
 
