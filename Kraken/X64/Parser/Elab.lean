@@ -547,11 +547,15 @@ def elabExtMovOp : String → TermElabM Expr
 /-- The `AvxOperation` constructor of an `x64_avx_op`. -/
 def elabAvxOp (stx : TSyntax `x64_avx_op) : TermElabM Expr := withRef stx do
   match stx with
-  | `(x64_avx_op| movdqu)  => pure (mkConst ``AvxOperation.movdqu)
-  | `(x64_avx_op| vmovdqu) => pure (mkConst ``AvxOperation.vmovdqu)
-  | `(x64_avx_op| movdqa)  => pure (mkConst ``AvxOperation.movdqa)
-  | `(x64_avx_op| paddd)   => pure (mkConst ``AvxOperation.paddd)
-  | `(x64_avx_op| pshufb)  => pure (mkConst ``AvxOperation.pshufb)
+  | `(x64_avx_op| movdqu)      => pure (mkConst ``AvxOperation.movdqu)
+  | `(x64_avx_op| vmovdqu)     => pure (mkConst ``AvxOperation.vmovdqu)
+  | `(x64_avx_op| movdqa)      => pure (mkConst ``AvxOperation.movdqa)
+  | `(x64_avx_op| paddd)       => pure (mkConst ``AvxOperation.paddd)
+  | `(x64_avx_op| pshufb)      => pure (mkConst ``AvxOperation.pshufb)
+  | `(x64_avx_op| sha256msg1)  => pure (mkConst ``AvxOperation.sha256msg1)
+  | `(x64_avx_op| sha256msg2)  => pure (mkConst ``AvxOperation.sha256msg2)
+  | `(x64_avx_op| vmovdqu32)   => pure (mkConst ``AvxOperation.vmovdqu32)
+  | `(x64_avx_op| vmovdqa32)   => pure (mkConst ``AvxOperation.vmovdqa32)
   | _ =>
     let (stem, sfx) ← splitSuffixed stx
     match stem, sfx with
@@ -568,6 +572,8 @@ def elabAvxImmOp (stx : TSyntax `x64_avx_imm_op) : TermElabM Expr := withRef stx
   | `(x64_avx_imm_op| pshufd)  => pure (mkConst ``AvxOperation.pshufd)
   | `(x64_avx_imm_op| palignr) => pure (mkConst ``AvxOperation.palignr)
   | `(x64_avx_imm_op| pblendw) => pure (mkConst ``AvxOperation.pblendw)
+  | `(x64_avx_imm_op| vprord)  => pure (mkConst ``AvxOperation.vprord)
+  | `(x64_avx_imm_op| vpsrld)  => pure (mkConst ``AvxOperation.vpsrld)
   | _                          => throwError "invalid AVX immediate mnemonic"
 
 /-- The scalar transfer width of `vmovd` (`.W32`) or `vmovq` (`.W64`). -/
@@ -702,6 +708,24 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       let src ← elabAvxRegOrMem src
       let dst ← elabAvxRegOrMem dst
       mkAppWidth mk #[dst, src]
+  | `(x64_instr| sha256rnds2 $src:x64_avx_operand, $dst:x64_avx_operand) =>
+    mkAvxInstr do
+      let src ← elabAvxRegOrMem src
+      let dst ← elabAvxRegOrMem dst
+      mkAppWidth (mkConst ``AvxOperation.sha256rnds2) #[dst, src]
+  | `(x64_instr| sha256rnds2 $r0:x64_avx_reg, $src:x64_avx_operand, $dst:x64_avx_operand) =>
+    unless (← evalAvxReg r0) == ⟨.W128, .xmm .mm0⟩ do
+      throwErrorAt r0 "the implicit operand of sha256rnds2 is %xmm0"
+    mkAvxInstr do
+      let src ← elabAvxRegOrMem src
+      let dst ← elabAvxRegOrMem dst
+      mkAppWidth (mkConst ``AvxOperation.sha256rnds2) #[dst, src]
+  | `(x64_instr| vpaddd $src2:x64_avx_operand, $src1:x64_avx_operand, $dst:x64_avx_operand) =>
+    mkAvxInstr do
+      let src2 ← elabAvxRegOrMem src2
+      let src1 ← elabAvxRegOrMem src1
+      let dst ← elabAvxRegOrMem dst
+      mkAppWidth (mkConst ``AvxOperation.vpaddd) #[dst, src1, src2]
   | `(x64_instr| $op:x64_avx_imm_op $imm:x64_imm, $src:x64_avx_operand, $dst:x64_avx_operand) =>
     mkAvxInstr do
       let mk ← elabAvxImmOp op
@@ -709,6 +733,13 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       let src ← elabAvxRegOrMem src
       let dst ← elabAvxRegOrMem dst
       mkAppWidth mk #[dst, src, imm]
+  | `(x64_instr| vpternlogd $imm:x64_imm, $src3:x64_avx_operand, $src2:x64_avx_operand, $dst:x64_avx_operand) =>
+    mkAvxInstr do
+      let imm ← elabImm imm
+      let src3 ← elabAvxRegOrMem src3
+      let src2 ← elabAvxRegOrMem src2
+      let dst ← elabAvxRegOrMem dst
+      mkAppWidth (mkConst ``AvxOperation.vpternlogd) #[dst, src2, src3, imm]
   | `(x64_instr| $op:x64_vmov_gp_op $src:x64_avx_reg, $dst:x64_avx_reg) =>
     let n ← evalVmovGpWidth op
     if n != .W64 then throwErrorAt op "vmovd takes no two xmm operands"
@@ -871,9 +902,17 @@ def elabEmbedding (W : Type) [ToExpr W] (body : X64ElabM Expr) (expectedType? : 
 
 end
 
+<<<<<<< Updated upstream
 /-- Inline unquoted X64 assembly directive elaborator (`⸨dir| ... ⸩`). -/
 elab_rules : term
   | `(⸨dir| $d:x64_directive⸩) => elabDirective d
+=======
+private unsafe def parseImpl (input : String) : Except String _root_.Program :=
+  Except.mapError toString <| unsafeIO do
+    let env ← getEnvironmentForElabModule `Kraken.X64.Parser.Elab
+    let comp := do evalExpr _root_.Program (mkConst ``_root_.Program) (← elabX64 input)
+    comp.run'.run'.toIO' { fileName := "<input>", fileMap := default } { env }
+>>>>>>> Stashed changes
 
 macro_rules
   | `(⸨dir $n | $dir:x64_directive⸩) =>
