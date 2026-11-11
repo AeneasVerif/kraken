@@ -122,6 +122,8 @@ def operation {w} (aw : Width) (op : Operation w) : String :=
   | .shlx d x c => s!"shlx {reg c}, {rm aw x}, {reg d}"
   | .shrx d x c => s!"shrx {reg c}, {rm aw x}, {reg d}"
   | .sarx d x c => s!"sarx {reg c}, {rm aw x}, {reg d}"
+  | .cld => "cld"
+  | .std => "std"
   | .jcc cc l => s!"j{cc} {l}"
   | .jmp t => s!"jmp {target aw t}"
   | .call t => s!"call {target aw t}"
@@ -139,10 +141,8 @@ def avxOperation {w} (aw : Width) (op : AvxOperation w) : String :=
   | .movaps d x => two "movaps" d x
   | .vmovaps d x => two "vmovaps" d x
   | .vmovdqa d x => two "vmovdqa" d x
-  | .vmovdqu d x => two "vmovdqu" d x
   | .subps d x => two "subps" d x
   | .addps d x => two "addps" d x
-  | .vzeroupper => "vzeroupper"
   | .movdqu d x => two "movdqu" d x
   | .movdqa d x => two "movdqa" d x
   | .paddd d x => two "paddd" d x
@@ -150,6 +150,25 @@ def avxOperation {w} (aw : Width) (op : AvxOperation w) : String :=
   | .pshufd d x i => s!"pshufd ${const i}, {avxRm aw x}, {avxRm aw d}"
   | .palignr d x i => s!"palignr ${const i}, {avxRm aw x}, {avxRm aw d}"
   | .pblendw d x i => s!"pblendw ${const i}, {avxRm aw x}, {avxRm aw d}"
+  | .vmovdqu d x => two "vmovdqu" d x
+  | .vmovIn n d x => s!"{vmovName n} {rm aw x}, {avxReg d}"
+  | .vmovOut n d x => s!"{vmovName n} {avxReg x}, {rm aw d}"
+  | .vmovq d x => s!"vmovq {avxReg x}, {avxReg d}"
+  | .vzeroupper => "vzeroupper"
+  | .sha256rnds2 d x => s!"sha256rnds2 %xmm0, {avxRm aw x}, {avxRm aw d}"
+  | .sha256msg1 d x => two "sha256msg1" d x
+  | .sha256msg2 d x => two "sha256msg2" d x
+  | .vmovdqu32 d x => two "vmovdqu32" d x
+  | .vmovdqa32 d x => two "vmovdqa32" d x
+  | .vpaddd d a b => s!"vpaddd {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
+  | .vprord d x i => s!"vprord ${const i}, {avxRm aw x}, {avxRm aw d}"
+  | .vpsrld d x i => s!"vpsrld ${const i}, {avxRm aw x}, {avxRm aw d}"
+  | .vpternlogd d b c i => s!"vpternlogd ${const i}, {avxRm aw c}, {avxRm aw b}, {avxRm aw d}"
+  | .vpshufb d a b => s!"vpshufb {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
+  | .vshufps d a b i => s!"vshufps ${const i}, {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
+  | .vpermi2q d a b => s!"vpermi2q {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
+  | .vpermi2d d a b => s!"vpermi2d {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
+  | .vinserti64x4 d a b i => s!"vinserti64x4 ${const i}, {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
 
 def instr : Instr → String
   | .regular aw _ op => operation aw op
@@ -159,6 +178,7 @@ def directive : _root_.Directive → String
   | .instr i => instr i
   | .label l => s!"{l}:"
   | d@(.byteArray _) => toString d
+  | .word n e => s!"{dataWordDirective n} {const e}"
 
 end Kraken.X64.ATT
 

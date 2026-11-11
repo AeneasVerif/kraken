@@ -239,6 +239,9 @@ inductive Operation (w : Width)
   | shlx (_ : Reg w) (src : RegOrMem w) (cnt : Reg w)
   | shrx (_ : Reg w) (src : RegOrMem w) (cnt : Reg w)
   | sarx (_ : Reg w) (src : RegOrMem w) (cnt : Reg w)
+  -- Flag control
+  | cld
+  | std
   -- Control flow
   | jcc (cc : CondCode) (target : Label)
   | jmp (target : RelRegOrMem)
@@ -258,10 +261,8 @@ inductive AvxOperation (w : AvxWidth)
   | movaps (_ : AvxDst w) (src : AvxRegOrMem w)
   | vmovaps (_ : AvxDst w) (src : AvxRegOrMem w)
   | vmovdqa (_ : AvxDst w) (src : AvxRegOrMem w)
-  | vmovdqu (_ : AvxDst w) (src : AvxRegOrMem w)
   | subps (_ : AvxDst w) (src : AvxRegOrMem w)
   | addps (_ : AvxDst w) (src : AvxRegOrMem w)
-  | vzeroupper
   -- SSE2, SSSE3, and SSE4.1 integer operations
   | movdqu (_ : AvxDst w) (src : AvxRegOrMem w)
   | movdqa (_ : AvxDst w) (src : AvxRegOrMem w)
@@ -270,6 +271,29 @@ inductive AvxOperation (w : AvxWidth)
   | pshufd (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   | palignr (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   | pblendw (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  -- VEX moves, which clear every bit above what they write
+  | vmovdqu (_ : AvxDst w) (src : AvxRegOrMem w)
+  -- `vmovd` when `n` is 32 bits, `vmovq` when it is 64
+  | vmovIn (n : Width) (_ : AvxReg w) (src : RegOrMem n)
+  | vmovOut (n : Width) (_ : Dst n) (src : AvxReg w)
+  | vmovq (_ : AvxReg w) (src : AvxReg w)
+  | vzeroupper
+  -- SHA extensions
+  | sha256rnds2 (_ : AvxDst w) (src : AvxRegOrMem w)  -- reads xmm0 implicitly
+  | sha256msg1 (_ : AvxDst w) (src : AvxRegOrMem w)
+  | sha256msg2 (_ : AvxDst w) (src : AvxRegOrMem w)
+  -- AVX-512 integer operations, without write-masking
+  | vmovdqu32 (_ : AvxDst w) (src : AvxRegOrMem w)
+  | vmovdqa32 (_ : AvxDst w) (src : AvxRegOrMem w)
+  | vpaddd (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vprord (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  | vpsrld (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  | vpternlogd (_ : AvxDst w) (src2 src3 : AvxRegOrMem w) (imm : ConstExpr)
+  | vpshufb (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vshufps (_ : AvxDst w) (src1 src2 : AvxRegOrMem w) (imm : ConstExpr)
+  | vpermi2q (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vpermi2d (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vinserti64x4 (_ : AvxDst w) (src1 : AvxRegOrMem w) (src2 : AvxRegOrMem .W256) (imm : ConstExpr)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 inductive Instr
@@ -283,11 +307,11 @@ instance [AddressSize] {w : Width} : CoeOut (Operation w) Instr where
 instance [AddressSize] {w : AvxWidth} : CoeOut (AvxOperation w) Instr where
   coe op := Instr.avx address_size w op
 
-abbrev Directive := Kraken.Directive Instr
+abbrev Directive := Kraken.Directive Instr ConstExpr
 
 abbrev Program := List Directive
 
-abbrev Executable := Kraken.Executable Instr
+abbrev Executable := Kraken.Executable Instr ConstExpr
 
 namespace Reg
 @[match_pattern] abbrev rax := low .rax .W64

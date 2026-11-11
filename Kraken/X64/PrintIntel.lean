@@ -68,6 +68,12 @@ def ConstExpr.toStr : ConstExpr → String
   | .sub e1 e2 => s!"({e1.toStr} - {e2.toStr})"
 instance : ToString ConstExpr where toString := ConstExpr.toStr
 
+/-- The assembler directive for a data word of `bytes` bytes. Sizes without a dedicated directive
+use the GNU `.<n>byte` spelling. -/
+def dataWordDirective : Nat → String
+  | 1 => ".byte" | 2 => ".short" | 4 => ".long" | 8 => ".quad"
+  | n => s!".{n}byte"
+
 def AddrExpr.toStr (a : AddrExpr) (addr_w : Width := .W64) : String :=
   let dispStr := match a.base, a.disp with
     -- Unwrap RIP-relative displacements back to just the label for printing
@@ -175,6 +181,8 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .shlx dst src cnt => s!"shlx {dst}, {src.toStr addr_w}, {cnt}"
   | .shrx dst src cnt => s!"shrx {dst}, {src.toStr addr_w}, {cnt}"
   | .sarx dst src cnt => s!"sarx {dst}, {src.toStr addr_w}, {cnt}"
+  | .cld => "cld"
+  | .std => "std"
   | .jcc cc l => s!"j{cc} {l}"
   | .jmp tgt => s!"jmp {tgt.toStr addr_w}"
   | .call tgt => s!"call {tgt.toStr addr_w}"
@@ -184,16 +192,17 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .nopalign a (some p) => s!".align {a}, {p}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
+/-- The mnemonic of a move between a vector register and 32 or 64 bits elsewhere. -/
+def vmovName (n : Width) : String := if n == .W32 then "vmovd" else "vmovq"
+
 def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : String := match op with
   | .movups dst src => s!"movups {dst.toStr addr_w}, {src.toStr addr_w}"
   | .vmovups dst src => s!"vmovups {dst.toStr addr_w}, {src.toStr addr_w}"
   | .movaps dst src => s!"movaps {dst.toStr addr_w}, {src.toStr addr_w}"
   | .vmovaps dst src => s!"vmovaps {dst.toStr addr_w}, {src.toStr addr_w}"
   | .vmovdqa dst src => s!"vmovdqa {dst.toStr addr_w}, {src.toStr addr_w}"
-  | .vmovdqu dst src => s!"vmovdqu {dst.toStr addr_w}, {src.toStr addr_w}"
   | .subps dst src => s!"subps {dst.toStr addr_w}, {src.toStr addr_w}"
   | .addps dst src => s!"addps {dst.toStr addr_w}, {src.toStr addr_w}"
-  | .vzeroupper => "vzeroupper"
   | .movdqu dst src => s!"movdqu {dst.toStr addr_w}, {src.toStr addr_w}"
   | .movdqa dst src => s!"movdqa {dst.toStr addr_w}, {src.toStr addr_w}"
   | .paddd dst src => s!"paddd {dst.toStr addr_w}, {src.toStr addr_w}"
@@ -201,6 +210,26 @@ def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : Stri
   | .pshufd dst src imm => s!"pshufd {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
   | .palignr dst src imm => s!"palignr {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
   | .pblendw dst src imm => s!"pblendw {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .vmovdqu dst src => s!"vmovdqu {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vmovIn n dst src => s!"{vmovName n} {dst}, {src.toStr addr_w}"
+  | .vmovOut n dst src => s!"{vmovName n} {dst.toStr addr_w}, {src}"
+  | .vmovq dst src => s!"vmovq {dst}, {src}"
+  | .vzeroupper => "vzeroupper"
+  | .sha256rnds2 dst src => s!"sha256rnds2 {dst.toStr addr_w}, {src.toStr addr_w}, xmm0"
+  | .sha256msg1 dst src => s!"sha256msg1 {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .sha256msg2 dst src => s!"sha256msg2 {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vmovdqu32 dst src => s!"vmovdqu32 {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vmovdqa32 dst src => s!"vmovdqa32 {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vpaddd dst a b => s!"vpaddd {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vprord dst src imm => s!"vprord {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .vpsrld dst src imm => s!"vpsrld {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
+  | .vpternlogd dst b c imm => s!"vpternlogd {dst.toStr addr_w}, {b.toStr addr_w}, {c.toStr addr_w}, {imm}"
+  | .vpshufb dst a b => s!"vpshufb {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vshufps dst a b imm => s!"vshufps {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}, {imm}"
+  | .vpermi2q dst a b => s!"vpermi2q {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vpermi2d dst a b => s!"vpermi2d {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vinserti64x4 dst a b imm =>
+    s!"vinserti64x4 {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}, {imm}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
 instance : ToString Instr where
@@ -213,3 +242,4 @@ instance : ToString Directive where
   | .instr i => ToString.toString i
   | .label l => s!"{l}:"
   | .byteArray bs => ".byte "++", ".intercalate (bs.toList.map (fun b => s!"{b}"))
+  | .word n e => s!"{dataWordDirective n} {e}"

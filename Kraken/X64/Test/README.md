@@ -22,7 +22,7 @@ movq $100, %rax
 movq $7, %rbx
 mulq %rbx 
 ```
-Note: Always consult the [instruction manual](https://www.felixcloutier.com/x86/) to identify which flags are architecturally undefined for a given instruction.
+Note: Always consult the [Intel SDM](https://intel.github.io/SDM/sdm.html) to identify which flags are architecturally undefined for a given instruction.
 
 ### Vector registers
 

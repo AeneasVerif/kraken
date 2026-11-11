@@ -319,14 +319,15 @@ def parseLabel : Parser ConstExpr := do
   let n ← parseLabelRaw
   pure (.label n)
 
-/-- Parse a symbolic constant: a label, optionally offset by a constant, e.g.
-  `sym`, `sym+8`, `.L0-4`. -/
+/-- Parse a symbolic constant: a label, optionally offset by a constant or by another label, e.g.
+  `sym`, `sym+8`, `.L0-4`, `.Lcase0-.Ltable`. -/
 def parseSymExpr : Parser ConstExpr := do
   let l ← parseLabel
   (attempt do
     skipHWs
     let op ← pchar '+' <|> pchar '-'
-    let i ← parseInt64Raw
+    skipHWs
+    let i ← parseInt64Raw <|> parseLabel
     pure (if op == '+' then .add l i else .sub l i)
   ) <|> pure l
 
@@ -540,6 +541,13 @@ def toAvxInstr (addr : MaybeAddrWidth) {w : AvxWidth} (op : AvxOperation w) : In
   let _ : AddressSize := { address_size := addr.getD .W64 }
   ↑op
 
+/-- Parse an xmm register. -/
+def parseXmm : Parser (AvxReg .W128) := do
+  skipHWs
+  match ← parseAvxRegW with
+  | ⟨ .W128, r ⟩ => pure r
+  | _ => fail "expected an xmm register"
+
 /-- Parse a comma separator. -/
 def parseComma : Parser Unit := do
   skipHWs
@@ -604,6 +612,18 @@ def commaSeparatedAvx {T1 T2} (op_w: Option AvxWidth) (p1: Parser (MaybeAddrWidt
     let (addr_w2, dst) ← parseAvxAO p2 w
     let addr_w ← mergeAddrWidths addr_w1 addr_w2
     pure (toAvxInstr addr_w (mk dst src))
+
+/-- Three AVX operands of one width, in AT&T order: the second source, the first source, then the
+destination. -/
+def commaSeparatedAvx3
+    (mk: {op_w: AvxWidth} → AvxRegOrMem op_w → AvxRegOrMem op_w → AvxRegOrMem op_w → AvxOperation op_w) :
+    Parser Instr := do
+  let src2 ← parseAvxRegOrMem; parseComma
+  let src1 ← parseAvxRegOrMem; parseComma
+  let (addr_w1, ⟨ w, src2, src1 ⟩) ← ascribeOrInferAvx src2 (pure src1)
+  let (addr_w2, dst) ← parseAvxAO parseAvxRegOrMem w
+  let addr_w ← mergeAddrWidths addr_w1 addr_w2
+  pure (toAvxInstr addr_w (mk dst src1 src2))
 
 def assertW {T} (v: MaybeOpWidth T): Parser (Σ w: Width, T w) :=
   match v with
@@ -860,10 +880,10 @@ def parseInstr : Parser Instr := do
   | "vmovaps" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovaps
 
-  | "vmovdqa" | "vmovdqa32" | "vmovdqa64" =>
+  | "vmovdqa" | "vmovdqa64" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovdqa
 
-  | "vmovdqu" | "vmovdqu8" | "vmovdqu16" | "vmovdqu32" | "vmovdqu64" =>
+  | "vmovdqu" | "vmovdqu8" | "vmovdqu16" | "vmovdqu64" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovdqu
 
   | "addps" =>
@@ -871,9 +891,6 @@ def parseInstr : Parser Instr := do
 
   | "subps" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .subps
-
-  | "vzeroupper" =>
-    pure (toAvxInstr .none (w := .W256) .vzeroupper)
 
   | "movdqu" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .movdqu
@@ -895,9 +912,84 @@ def parseInstr : Parser Instr := do
     let imm ← (skipHWs *> parseImmediate); parseComma
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .palignr d x imm)
 
+  -- The explicit form names the implicit xmm0 first, as `as` prints it.
+  | "sha256rnds2" =>
+    attempt (do
+      skipHWs
+      match ← parseAvxRegW with
+      | ⟨ .W128, .xmm .mm0 ⟩ => parseComma
+      | _ => fail "the implicit operand of sha256rnds2 is %xmm0"
+      commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .sha256rnds2)
+    <|> commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .sha256rnds2
+
+  | "sha256msg1" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .sha256msg1
+
+  | "sha256msg2" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .sha256msg2
+
   | "pblendw" =>
     let imm ← (skipHWs *> parseImmediate); parseComma
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .pblendw d x imm)
+
+  | "vmovd" | "vmovq" =>
+    let n : Width := if mn == "vmovd" then .W32 else .W64
+    -- An xmm source goes out to a register or memory, or to another xmm for `vmovq`.
+    (attempt do
+      let src ← parseXmm; parseComma
+      (attempt do
+        if n != .W64 then fail "vmovd takes no two xmm operands"
+        let dst ← parseXmm
+        pure (toAvxInstr .none (.vmovq dst src))) <|> (do
+        let (addr_w, dst) ← parseRegOrMemAO n
+        pure (toAvxInstr addr_w (.vmovOut n dst src)))) <|> (do
+    let (addr_w, src) ← parseRegOrMemAO n; parseComma
+    let dst ← parseXmm
+    pure (toAvxInstr addr_w (.vmovIn n dst src)))
+
+  | "vzeroupper" =>
+    pure (toAvxInstr .none (w := .W128) .vzeroupper)
+  | "vmovdqu32" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovdqu32
+
+  | "vmovdqa32" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovdqa32
+
+  | "vpaddd" =>
+    commaSeparatedAvx3 .vpaddd
+
+  | "vprord" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .vprord d x imm)
+
+  | "vpsrld" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .vpsrld d x imm)
+
+  | "vpternlogd" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx3 (fun d x y => .vpternlogd d x y imm)
+
+  | "vpshufb" =>
+    commaSeparatedAvx3 .vpshufb
+
+  | "vshufps" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx3 (fun d x y => .vshufps d x y imm)
+
+  | "vpermi2q" =>
+    commaSeparatedAvx3 .vpermi2q
+
+  | "vpermi2d" =>
+    commaSeparatedAvx3 .vpermi2d
+
+  | "vinserti64x4" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    let (addr_w1, src2) ← parseAvxAO parseAvxRegOrMem .W256; parseComma
+    let (addr_w2, src1) ← parseAvxAO parseAvxRegOrMem .W512; parseComma
+    let (addr_w3, dst) ← parseAvxAO parseAvxRegOrMem .W512
+    let addr_w ← mergeAddrWidths addr_w1 (← mergeAddrWidths addr_w2 addr_w3)
+    pure (toAvxInstr addr_w (AvxOperation.vinserti64x4 dst src1 src2 imm))
 
   -- Bitwise - 64-bit
   | "xor" =>
@@ -1182,6 +1274,9 @@ def parseInstr : Parser Instr := do
   | "ret" | "retq" =>
     pure (toInstr .none (w := .W64) .ret)
 
+  | "cld" => pure (toInstr .none (w := .W64) .cld)
+  | "std" => pure (toInstr .none (w := .W64) .std)
+
   | "call" | "callq" =>
     let ( addr_w, target ) ← parseRelRegOrMem
     pure (toInstr addr_w (w := .W64) (.call target))
@@ -1269,6 +1364,14 @@ def skipSpaceAndCheckLineEnd : Parser Bool := do
   | some _ =>
     pure false
 
+/-- Parse a data word: `.short`, `.long` or `.quad` followed by an integer or a symbolic
+constant (`sym`, `sym+8`, `.Lcase0-.Ltable`). The value stays symbolic. -/
+def parseDataWord : Parser _root_.Directive := do
+  let bytes ← (pstring ".short" *> pure 2) <|> (pstring ".long" *> pure 4) <|> (pstring ".quad" *> pure 8)
+  skipHWs
+  let e ← parseInt64Raw <|> parseSymExpr
+  pure (.word bytes e)
+
 -- NOTE TO ROBOT: `Kraken` is open because we are under the `Kraken.*` namespace.
 -- However, I would like `Directive` to resolve to the `_root_.Directive` definition
 -- instead of `Kraken.Directive`. Is there a way to do this?
@@ -1276,8 +1379,8 @@ def parseOptionalInstr : Parser (Option _root_.Directive) := do
   if (← skipSpaceAndCheckLineEnd) then
     pure none
   else
-    let i ← parseAlign <|> parseInstr
-    pure (some (Directive.instr i))
+    let d ← parseDataWord <|> (Directive.instr <$> (parseAlign <|> parseInstr))
+    pure (some d)
 
 def checkLineEnd : Parser Unit := do
   if (← skipSpaceAndCheckLineEnd) then

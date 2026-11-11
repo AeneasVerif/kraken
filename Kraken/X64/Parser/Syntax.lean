@@ -14,6 +14,8 @@ namespace Kraken.X64.Parser
 /-- X64 assembly identifier (`main`, `and`, `.LBB0_1`, `aa.1.aa.1`, `.L.str.1.llvm.12345`). -/
 declare_syntax_cat x64_ident
 syntax asmIdentToken : x64_ident
+/-- Label antiquotation -/
+syntax (priority := low) "❰" term "❱" : x64_ident
 
 /-- X64 constant expression (signed or unsigned integer, symbol with `+` or `-` offset). -/
 declare_syntax_cat x64_const
@@ -22,7 +24,10 @@ syntax "-" num : x64_const
 syntax "+" num : x64_const
 syntax x64_ident "+" num : x64_const
 syntax x64_ident "-" num : x64_const
+syntax x64_ident "-" x64_ident : x64_const
 syntax x64_ident : x64_const
+/-- Constant expression antiquotation -/
+syntax (priority := default - 1) "❰" term "❱" : x64_const
 
 /-- X64 general-purpose register name (`rax`..`r15`, `eax`..`r15d`, `ax`..`r15w`, `al`..`r15b`, `ah`..`dh`). -/
 declare_syntax_cat x64_reg_name (behavior := both)
@@ -136,7 +141,7 @@ syntax "%" noWs &"cl" : x64_shift_count
 
 /-- X64 memory addressing operand (`disp(%base, %idx, scale)` or bare displacement). -/
 declare_syntax_cat x64_mem
-syntax (x64_const)? "(" x64_reg_or_rip ("," x64_reg ("," num)?)? ")" : x64_mem
+syntax (x64_const)? "(" x64_reg_or_rip (", " x64_reg (", " num)?)? ")" : x64_mem
 syntax x64_const : x64_mem
 
 declare_syntax_cat x64_reg_or_mem
@@ -148,11 +153,12 @@ declare_syntax_cat x64_operand
 syntax x64_reg_or_mem : x64_operand
 syntax x64_imm : x64_operand
 syntax "❰" term "❱" : x64_operand
-/-- Symbolic immediate with an offset (`$sym+8`, `$sym-8`). Lean parses `$sym` as an antiquotation node
-    of this category rather than as an `x64_imm`, so the offset has to be attached here instead of in
+/-- Symbolic immediate with an offset (`$sym+8`, `$sym-8`, `$b-a`). Lean parses `$sym` as an antiquotation
+    node of this category rather than as an `x64_imm`, so the offset has to be attached here instead of in
     `x64_const`; the elaborator requires the left operand to be such a `$sym` node. -/
 syntax x64_operand "+" num : x64_operand
 syntax x64_operand "-" num : x64_operand
+syntax x64_operand "-" x64_ident : x64_operand
 
 /-- X64 AVX instruction operand (AVX register or memory). -/
 declare_syntax_cat x64_avx_operand
@@ -176,6 +182,8 @@ declare_affixes bwlq extends wlq
   | /-- 8-bit (byte) operand width. -/           "b"
 
 declare_affixes cc
+  | /-- Condition: overflow (`OF = 1`). -/                                                "o"
+  | /-- Condition: not overflow (`OF = 0`). -/                                            "no"
   | /-- Condition: zero (`ZF = 1`; alias of `e`). -/                                      "z"
   | /-- Condition: equal (`ZF = 1`; alias of `z`). -/                                     "e"
   | /-- Condition: not zero (`ZF = 0`; alias of `ne`). -/                                 "nz"
@@ -190,10 +198,20 @@ declare_affixes cc
   | /-- Condition: not below or equal, unsigned (`CF = 0` and `ZF = 0`; alias of `a`). -/ "nbe"
   | /-- Condition: below or equal, unsigned (`CF = 1` or `ZF = 1`; alias of `na`). -/     "be"
   | /-- Condition: not above, unsigned (`CF = 1` or `ZF = 1`; alias of `be`). -/          "na"
+  | /-- Condition: sign / negative (`SF = 1`). -/                                         "s"
+  | /-- Condition: not sign / non-negative (`SF = 0`). -/                                 "ns"
+  | /-- Condition: parity / parity even (`PF = 1`; alias of `pe`). -/                     "p"
+  | /-- Condition: parity even (`PF = 1`; alias of `p`). -/                               "pe"
+  | /-- Condition: not parity / parity odd (`PF = 0`; alias of `po`). -/                  "np"
+  | /-- Condition: parity odd (`PF = 0`; alias of `np`). -/                               "po"
   | /-- Condition: less, signed (`SF ≠ OF`; alias of `nge`). -/                           "l"
   | /-- Condition: not greater or equal, signed (`SF ≠ OF`; alias of `l`). -/             "nge"
+  | /-- Condition: greater or equal, signed (`SF = OF`; alias of `nl`). -/                "ge"
+  | /-- Condition: not less, signed (`SF = OF`; alias of `ge`). -/                        "nl"
   | /-- Condition: less or equal, signed (`ZF = 1` or `SF ≠ OF`; alias of `ng`). -/       "le"
   | /-- Condition: not greater, signed (`ZF = 1` or `SF ≠ OF`; alias of `le`). -/         "ng"
+  | /-- Condition: greater, signed (`ZF = 0` and `SF = OF`; alias of `nle`). -/           "g"
+  | /-- Condition: not less or equal, signed (`ZF = 0` and `SF = OF`; alias of `g`). -/   "nle"
 
 declare_affixes ext_z
   | /-- 8-bit (byte) source to 16-bit (word) destination. -/              "bw"
@@ -305,7 +323,7 @@ declare_syntax_cat x64_lea_op (behavior := both)
 /-- Load effective address (`dst ← addr(src)`). -/
 syntax_affixed (suffixes := bwlq) "lea" : x64_lea_op
 
-/-- AVX vector instruction mnemonics. -/
+/-- AVX/SSE 2-operand vector instruction mnemonics (`src, dst`). -/
 declare_syntax_cat x64_avx_op (behavior := both)
 /-- Move unaligned packed values. -/
 syntax_affixed (suffixes := avx_ps) "movu" : x64_avx_op
@@ -323,6 +341,30 @@ syntax_affixed (suffixes := avx_dqu) "vmovdqu" : x64_avx_op
 syntax_affixed (suffixes := avx_ps) "add" : x64_avx_op
 /-- Subtract packed floating-point values. -/
 syntax_affixed (suffixes := avx_ps) "sub" : x64_avx_op
+/-- Move unaligned packed integer values (SSE2). -/
+syntax &"movdqu" : x64_avx_op
+/-- Move aligned packed integer values (SSE2). -/
+syntax &"movdqa" : x64_avx_op
+/-- Add packed 32-bit integers (SSE2). -/
+syntax &"paddd" : x64_avx_op
+/-- Packed shuffle bytes (SSSE3). -/
+syntax &"pshufb" : x64_avx_op
+
+/-- SSE vector instruction mnemonics taking an 8-bit immediate (`$imm, src, dst`). -/
+declare_syntax_cat x64_avx_imm_op (behavior := both)
+/-- Shuffle packed doublewords (SSE2). -/
+syntax &"pshufd" : x64_avx_imm_op
+/-- Packed align right (SSSE3). -/
+syntax &"palignr" : x64_avx_imm_op
+/-- Variable blend packed words (SSE4.1). -/
+syntax &"pblendw" : x64_avx_imm_op
+
+/-- VEX 32/64-bit transfer mnemonics (`vmovd`, `vmovq`). -/
+declare_syntax_cat x64_vmov_gp_op (behavior := both)
+/-- Move doubleword between XMM and 32-bit GPR/memory (zeroing upper bits). -/
+syntax &"vmovd" : x64_vmov_gp_op
+/-- Move quadword between XMM and 64-bit GPR/memory or XMM (zeroing upper bits). -/
+syntax &"vmovq" : x64_vmov_gp_op
 
 /-- Exchange register/memory with register (`xchg*`) mnemonics. -/
 declare_syntax_cat x64_xchg_op (behavior := both)
@@ -395,50 +437,87 @@ syntax_affixed (suffixes := cc) "j" : x64_jcc_op
 
 /-- X64 instruction statement with instruction-specific arity and operand categories. -/
 declare_syntax_cat x64_instr (behavior := both)
-syntax withPosition(".align" lineEq num ("," lineEq num)?) : x64_instr
-syntax withPosition(x64_bin_op lineEq x64_operand "," lineEq x64_operand) : x64_instr
-syntax withPosition(x64_rm_reg_op lineEq x64_operand "," lineEq x64_reg) : x64_instr
-syntax withPosition(x64_cmov_op lineEq x64_operand "," lineEq x64_reg) : x64_instr
-syntax withPosition(x64_unary_op lineEq x64_operand) : x64_instr
-syntax withPosition(x64_set_op lineEq x64_operand) : x64_instr
-syntax withPosition(x64_imul_op lineEq x64_operand) : x64_instr
-syntax withPosition(x64_imul_op lineEq x64_operand "," lineEq x64_operand) : x64_instr
-syntax withPosition(x64_imul_op lineEq x64_operand "," lineEq x64_operand "," lineEq x64_reg) : x64_instr
-syntax withPosition(x64_mulx_op lineEq x64_operand "," lineEq x64_reg "," lineEq x64_reg) : x64_instr
-syntax withPosition(&"movsx" lineEq x64_reg "," lineEq x64_reg) : x64_instr
-syntax withPosition(&"movzx" lineEq x64_reg "," lineEq x64_reg) : x64_instr
-syntax withPosition(x64_ext_mov_op lineEq x64_operand "," lineEq x64_reg) : x64_instr
-syntax withPosition(x64_lea_op lineEq x64_mem "," lineEq x64_reg) : x64_instr
-syntax withPosition(x64_avx_op lineEq x64_avx_operand "," lineEq x64_avx_operand) : x64_instr
+syntax withPosition(".align" ppSpace lineEq num (", " lineEq num)?) : x64_instr
+syntax withPosition(x64_bin_op ppSpace lineEq x64_operand ", " lineEq x64_operand) : x64_instr
+syntax withPosition(x64_rm_reg_op ppSpace lineEq x64_operand ", " lineEq x64_reg) : x64_instr
+syntax withPosition(x64_cmov_op ppSpace lineEq x64_operand ", " lineEq x64_reg) : x64_instr
+syntax withPosition(x64_unary_op ppSpace lineEq x64_operand) : x64_instr
+syntax withPosition(x64_set_op ppSpace lineEq x64_operand) : x64_instr
+syntax withPosition(x64_imul_op ppSpace lineEq x64_operand) : x64_instr
+syntax withPosition(x64_imul_op ppSpace lineEq x64_operand ", " lineEq x64_operand) : x64_instr
+syntax withPosition(x64_imul_op ppSpace lineEq x64_operand ", " lineEq x64_operand ", " lineEq x64_reg) : x64_instr
+syntax withPosition(x64_mulx_op ppSpace lineEq x64_operand ", " lineEq x64_reg ", " lineEq x64_reg) : x64_instr
+syntax withPosition(&"movsx" ppSpace lineEq x64_reg ", " lineEq x64_reg) : x64_instr
+syntax withPosition(&"movzx" ppSpace lineEq x64_reg ", " lineEq x64_reg) : x64_instr
+syntax withPosition(x64_ext_mov_op ppSpace lineEq x64_operand ", " lineEq x64_reg) : x64_instr
+syntax withPosition(x64_lea_op ppSpace lineEq x64_mem ", " lineEq x64_reg) : x64_instr
+syntax withPosition(x64_avx_op ppSpace lineEq x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
+syntax withPosition(x64_avx_imm_op ppSpace lineEq x64_imm ", " lineEq x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
+syntax (priority := low) withPosition(x64_vmov_gp_op ppSpace lineEq x64_avx_reg ", " lineEq x64_avx_reg) : x64_instr
+syntax withPosition(x64_vmov_gp_op ppSpace lineEq x64_avx_reg ", " lineEq x64_operand) : x64_instr
+syntax withPosition(x64_vmov_gp_op ppSpace lineEq x64_operand ", " lineEq x64_avx_reg) : x64_instr
 syntax &"vzeroupper" : x64_instr
-syntax withPosition(x64_xchg_op lineEq x64_operand "," lineEq x64_operand) : x64_instr
-syntax withPosition(x64_rorx_op lineEq x64_operand "," lineEq x64_operand "," lineEq x64_reg) : x64_instr
-syntax withPosition(x64_bmi2_shift_op lineEq x64_reg "," lineEq x64_operand "," lineEq x64_reg) : x64_instr
-syntax withPosition(x64_shift_op lineEq x64_operand) : x64_instr
-syntax withPosition(x64_shift_op lineEq x64_shift_count "," lineEq x64_operand) : x64_instr
-syntax withPosition(x64_shd_op lineEq x64_shift_count "," lineEq x64_reg "," lineEq x64_operand) : x64_instr
-syntax withPosition(x64_bswap_op lineEq x64_reg) : x64_instr
-syntax withPosition(x64_push_op lineEq x64_operand) : x64_instr
-syntax withPosition(x64_pop_op lineEq x64_operand) : x64_instr
+syntax withPosition(x64_xchg_op ppSpace lineEq x64_operand ", " lineEq x64_operand) : x64_instr
+syntax withPosition(x64_rorx_op ppSpace lineEq x64_operand ", " lineEq x64_operand ", " lineEq x64_reg) : x64_instr
+syntax withPosition(x64_bmi2_shift_op ppSpace lineEq x64_reg ", " lineEq x64_operand ", " lineEq x64_reg) : x64_instr
+syntax withPosition(x64_shift_op ppSpace lineEq x64_operand) : x64_instr
+syntax withPosition(x64_shift_op ppSpace lineEq x64_shift_count ", " lineEq x64_operand) : x64_instr
+syntax withPosition(x64_shd_op ppSpace lineEq x64_shift_count ", " lineEq x64_reg ", " lineEq x64_operand) : x64_instr
+syntax withPosition(x64_bswap_op ppSpace lineEq x64_reg) : x64_instr
+syntax withPosition(x64_push_op ppSpace lineEq x64_operand) : x64_instr
+syntax withPosition(x64_pop_op ppSpace lineEq x64_operand) : x64_instr
 syntax &"ret"  : x64_instr
 syntax &"retq" : x64_instr
-syntax withPosition(&"call"  lineEq x64_operand) : x64_instr
-syntax withPosition(&"callq" lineEq x64_operand) : x64_instr
-syntax withPosition(&"jmp"   lineEq x64_operand) : x64_instr
-syntax withPosition(&"jmpq"  lineEq x64_operand) : x64_instr
+syntax &"cld"  : x64_instr
+syntax &"std"  : x64_instr
+syntax withPosition(&"call"  ppSpace lineEq x64_operand) : x64_instr
+syntax withPosition(&"callq" ppSpace lineEq x64_operand) : x64_instr
+syntax withPosition(&"jmp"   ppSpace lineEq x64_operand) : x64_instr
+syntax withPosition(&"jmpq"  ppSpace lineEq x64_operand) : x64_instr
 syntax &"nop" : x64_instr
-syntax withPosition(&"nop" lineEq num) : x64_instr
-syntax withPosition(x64_jcc_op lineEq x64_ident) : x64_instr
+syntax withPosition(&"nop" ppSpace lineEq num) : x64_instr
+syntax withPosition(x64_jcc_op ppSpace lineEq x64_ident) : x64_instr
 
-/-- X64 directive (label declaration, instruction, or Lean term antiquotation). -/
+/-- X64 directive (label declaration, instruction, data word, or Lean term antiquotation). -/
 declare_syntax_cat x64_directive (behavior := both)
 syntax withPosition(atomic(x64_ident lineEq ":")) ";"? : x64_directive
 syntax x64_instr ";" : x64_directive
 syntax withPosition(x64_instr notFollowedBy(lineEq (x64_ident <|> "," <|> x64_operand))) : x64_directive
 syntax "❰" term "❱" ";"? : x64_directive
+/-- Data word: `.short`, `.long` or `.quad` followed by a constant. -/
+syntax withPosition(".short" ppSpace lineEq x64_const) ";"? : x64_directive
+syntax withPosition(".long"  ppSpace lineEq x64_const) ";"? : x64_directive
+syntax withPosition(".quad"  ppSpace lineEq x64_const) ";"? : x64_directive
+
+/-- Embedding of directives -/
+syntax "⸨dir| " x64_directive " ⸩" : term
+
+/-- Embedding of sized directives -/
+syntax "⸨dir " term "| " x64_directive " ⸩" : term
 
 /-- X64 assembly program (sequence of directives). -/
 declare_syntax_cat x64_prog (behavior := both)
-syntax x64_directive* : x64_prog
+syntax ppDedent((ppLine x64_directive)*) : x64_prog
+
+/-- Inline unquoted X64 assembly block (`⸨prog| ...⸩`). -/
+syntax "⸨prog|" x64_prog "⸩" : term
+
+/-- Embedding of instructions (`⸨instr| addq %rax, %rbx ⸩ : Instr`). -/
+syntax "⸨instr| " x64_instr " ⸩" : term
+
+/-- Embedding of operands (`⸨operand| $1 ⸩ : Operand w`). -/
+syntax "⸨operand| " x64_operand " ⸩" : term
+
+/-- Embedding of memory operands (`⸨mem| 8(%rax, %rbx, 4) ⸩ : AddrExpr`). -/
+syntax "⸨mem| " x64_mem " ⸩" : term
+
+/-- Embedding of general-purpose registers (`⸨reg| %eax ⸩ : Reg .W32`). -/
+syntax "⸨reg| " x64_reg " ⸩" : term
+
+/-- Embedding of AVX registers (`⸨reg| %xmm0 ⸩ : AvxReg .W128`). -/
+syntax "⸨reg| " x64_avx_reg " ⸩" : term
+
+/-- Embedding of constant expressions (`⸨const| lbl+8 ⸩ : ConstExpr`). -/
+syntax "⸨const| " x64_const " ⸩" : term
 
 end Kraken.X64.Parser
