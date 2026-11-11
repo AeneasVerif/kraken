@@ -1,9 +1,10 @@
 module
 
-public import Kraken.AArch64.Parser.Basic
-public meta import Kraken.AArch64.Parser.Basic
+public import Kraken.AArch64.Syntax
+public meta import Kraken.AArch64.Syntax
 public import Kraken.AArch64.Parser.Syntax
 public meta import Kraken.AArch64.Parser.Syntax
+public import Lean
 public meta import Lean
 
 /-!
@@ -119,6 +120,287 @@ def checkLiteralPoolImmediate (w : RegWidth) (imm : Int64) : Except String Unit 
   if w == .W32 then
     checkRange s!"literal pool immediate" imm.toInt (Int32.minValue.toInt...=Int32.maxValue.toInt)
 
+/-- Validate a memory extension shift amount (`0` or log2 of access size in bytes). -/
+def getMemExtendAmount (w : RegWidth) (amt : Nat) (scale : Nat := w.bytes) : Except String MemExtendAmount :=
+  match scale, amt with
+  | 1, 0 => .ok .E0
+  | 2, 0 => .ok .E0
+  | 2, 1 => .ok .E1
+  | 4, 0 => .ok .E0
+  | 4, 2 => .ok .E2
+  | 8, 0 => .ok .E0
+  | 8, 3 => .ok .E3
+  | _, _ => .error s!"invalid memory extension shift amount {amt} for width {w}"
+
+/-- Validate a move-wide immediate shift amount (`MOVZ`/`MOVK`/`MOVN`). -/
+def getMovShift (w : RegWidth) (amt : Nat) : Except String (MovShift w) :=
+  match w, amt with
+  | _, 0     => .ok .LSL0
+  | _, 16    => .ok .LSL16
+  | .W64, 32 => .ok .LSL32
+  | .W64, 48 => .ok .LSL48
+  | _, _     => .error s!"invalid move wide shift amount {amt} for width {w}"
+
+/-- Validate a memory index extension type (`UXTW`, `SXTW`, `UXTX`, `SXTX`, `LSL`) and check that
+    the register width matches. -/
+def getMemExtendType (extName : String) (w : RegWidth) : Except String MemExtendType :=
+  match extName.toLower, w with
+  | "uxtw", .W32 => .ok MemExtendType.UXTW
+  | "uxtw", .W64 => .error "UXTW extension requires a 32-bit index register (Wn)"
+  | "sxtw", .W32 => .ok MemExtendType.SXTW
+  | "sxtw", .W64 => .error "SXTW extension requires a 32-bit index register (Wn)"
+  | "uxtx", .W64 => .ok MemExtendType.UXTX
+  | "uxtx", .W32 => .error "UXTX extension requires a 64-bit index register (Xn)"
+  | "sxtx", .W64 => .ok MemExtendType.SXTX
+  | "sxtx", .W32 => .error "SXTX extension requires a 64-bit index register (Xn)"
+  | "lsl",  .W64 => .ok MemExtendType.UXTX
+  | "lsl",  .W32 => .ok MemExtendType.UXTW
+  | ext,    _    => .error s!"unknown memory extension type: {ext}"
+
+/-- Validate a load/store immediate byte offset (scaled in `[0, 4095 * scale]` or unscaled in `[-256, 255]`). -/
+def checkLoadStoreOffset (w : RegWidth) (imm : Int64) (allowUnscaled : Bool) (scale : Nat := w.bytes) : Except String Unit :=
+  let maxOff := 4095 * scale
+  let isScaled := imm.toInt >= 0 && imm.toInt <= maxOff && imm.toInt % scale == 0
+  let isUnscaled := allowUnscaled && imm.toInt >= -256 && imm.toInt <= 255
+  if isScaled || isUnscaled then
+    .ok ()
+  else if allowUnscaled then
+    .error s!"offset {imm.toInt} is neither a valid scaled offset [0, {maxOff}] (multiple of {scale}) nor a valid unscaled offset [-256, 255]"
+  else
+    .error s!"unsigned offset {imm.toInt} out of range [0, {maxOff}] or not a multiple of {scale}"
+
+/-- Validate an unscaled 9-bit signed immediate byte offset for `LDUR`/`STUR` (`[-256, 255]`). -/
+def checkUnscaledOffset (imm : Int64) : Except String Unit :=
+  checkRange "unscaled offset" imm.toInt (-256...=255)
+
+/-- Validate an optional shift amount for register operands (`[0, w.bits - 1]`). -/
+def checkShiftAmount (w : RegWidth) (amt : Int64) : Except String Unit :=
+  let maxAmt := w.bits - 1
+  if amt.toInt < 0 || amt.toInt > maxAmt then
+    .error s!"shift amount {amt.toInt} out of range [0, {maxAmt}] for {w.bits}-bit instruction"
+  else .ok ()
+
+/-- Validate a signed immediate byte offset for load/store pair instructions (`LDP`/`STP`). -/
+def checkPairOffset (w : RegWidth) (imm : Int64) : Except String Unit :=
+  let (minOff, maxOff, align) := match w with | .W32 => (-256, 252, 4) | .W64 => (-512, 504, 8)
+  if imm.toInt < minOff || imm.toInt > maxOff || imm.toInt % align != 0 then
+    .error s!"pair offset {imm.toInt} out of range [{minOff}, {maxOff}] or not a multiple of {align}"
+  else .ok ()
+
+def intToHexStr (n : Int) : String :=
+  if n < 0 then s!"-0x{String.ofList (Nat.toDigits 16 (-n).natAbs)}"
+  else s!"0x{String.ofList (Nat.toDigits 16 n.natAbs)}"
+
+/-- Validate a PC-relative byte offset for `ADR` (`[-0x100000, 0xfffff]`). -/
+def checkAdrOffset (offset : Int64) : Except String Unit :=
+  let val := offset.toInt
+  if val < -0x100000 || val > 0xfffff then
+    .error s!"adr offset {intToHexStr val} out of range [-0x100000, 0xfffff]"
+  else .ok ()
+
+/-- Check whether an `E`-bit unsigned integer consists of a non-empty contiguous run of ones starting from bit 0. -/
+def isContiguousOnes (v : Nat) (E : Nat) : Bool :=
+  v > 0 && v < ((1 <<< E) - 1) && ((v + 1) &&& v) == 0
+
+def isRotatedRunOfOnesAux (elem : Nat) (E : Nat) : Nat → Bool
+  | 0 => false
+  | n + 1 =>
+    if isContiguousOnes elem E then
+      true
+    else
+      let nextElem := (elem >>> 1) ||| ((elem &&& 1) <<< (E - 1))
+      isRotatedRunOfOnesAux nextElem E n
+
+/-- Determine whether an `E`-bit number (`0 < elem < 2^E - 1`) is a rotated contiguous run of ones. -/
+def isRotatedRunOfOnes (elem : Nat) (E : Nat) : Bool :=
+  isRotatedRunOfOnesAux elem E E
+
+/-- Replicate an `E`-bit pattern across an entire `wBits`-wide integer. -/
+def repeatElement (pattern : Nat) (wBits : Nat) (E : Nat) : Nat :=
+  match wBits, E with
+  | 64, 64 => pattern
+  | 64, 32 => pattern * 0x0000000100000001
+  | 64, 16 => pattern * 0x0001000100010001
+  | 64, 8  => pattern * 0x0101010101010101
+  | 64, 4  => pattern * 0x1111111111111111
+  | 64, 2  => pattern * 0x5555555555555555
+  | 32, 32 => pattern
+  | 32, 16 => pattern * 0x00010001
+  | 32, 8  => pattern * 0x01010101
+  | 32, 4  => pattern * 0x11111111
+  | 32, 2  => pattern * 0x55555555
+  | _, _ => 0
+
+/-- Check whether an integer value is formed by repeating its low `E`-bit pattern across `wBits`. -/
+def isRepeatedPattern (val : Nat) (wBits : Nat) (E : Nat) : Bool :=
+  let pattern := val &&& ((1 <<< E) - 1)
+  val == repeatElement pattern wBits E
+
+/-- Determine whether a 32-bit or 64-bit value is a valid ARMv8-A bitmask immediate for logical instructions. -/
+def isValidLogicalImmediate (w : RegWidth) (val : Int64) : Bool :=
+  let vNat := match w with
+    | .W32 => (val.toBitVec.toNat &&& 0xFFFFFFFF)
+    | .W64 => val.toBitVec.toNat
+  let wBits := w.bits
+  let maxVal := (1 <<< wBits) - 1
+  if vNat == 0 || vNat == maxVal then
+    false
+  else
+    let sizes := match w with
+      | .W32 => [2, 4, 8, 16, 32]
+      | .W64 => [2, 4, 8, 16, 32, 64]
+    sizes.any (fun E =>
+      isRepeatedPattern vNat wBits E &&
+      isRotatedRunOfOnes (vNat &&& ((1 <<< E) - 1)) E)
+
+/-- Validate an ARMv8-A bitmask immediate for logical instructions (`AND`, `ORR`, `EOR`, `TST`). -/
+def checkLogicalImmediate (w : RegWidth) (imm : Int64) : Except String Unit :=
+  if isValidLogicalImmediate w imm then
+    .ok ()
+  else
+    .error s!"invalid logical immediate: {intToHexStr imm.toInt}"
+
+/-- Validate a PC-relative page offset for `ADRP`. -/
+def checkAdrpOffset (offset : Int64) : Except String Unit :=
+  let val := offset.toInt
+  if val % 0x1000 != 0 then
+    .error s!"adrp offset {intToHexStr val} not page aligned (must be multiple of 0x1000)"
+  else
+    let page_offset := val / 0x1000
+    if page_offset < -0x100000 || page_offset > 0xfffff then
+      .error s!"adrp offset {intToHexStr val} out of range [-0x100000000, 0xfffff000]"
+    else .ok ()
+
+/-- Validate a 26-bit signed word offset for unconditional branch (`B` / `BL`). -/
+def checkBOffset (offset : Int64) : Except String Unit :=
+  let val := offset.toInt
+  if val < -0x8000000 || val > 0x7fffffc || val % 4 != 0 then
+    .error s!"b offset {intToHexStr val} out of range [-0x8000000, 0x7fffffc] or not a multiple of 4"
+  else .ok ()
+
+/-- Validate a 19-bit signed word offset for conditional branch (`B.cond`). -/
+def checkBCondOffset (offset : Int64) : Except String Unit :=
+  let val := offset.toInt
+  if val < -0x100000 || val > 0xffffc || val % 4 != 0 then
+    .error s!"b.cond offset {intToHexStr val} out of range [-0x100000, 0xffffc] or not a multiple of 4"
+  else .ok ()
+
+/-- Validate a 19-bit signed word offset for compare-and-branch (`CBZ` / `CBNZ`). -/
+def checkCbzOffset (instrName : String) (offset : Int64) : Except String Unit :=
+  let val := offset.toInt
+  if val < -0x100000 || val > 0xffffc || val % 4 != 0 then
+    .error s!"{instrName} offset {intToHexStr val} out of range [-0x100000, 0xffffc] or not a multiple of 4"
+  else .ok ()
+
+/-- Validate a 14-bit signed word offset for test-bit-and-branch (`TBZ` / `TBNZ`). -/
+def checkTbzOffset (instrName : String) (offset : Int64) : Except String Unit :=
+  let val := offset.toInt
+  if val < -0x8000 || val > 0x7ffc || val % 4 != 0 then
+    .error s!"{instrName} offset {intToHexStr val} out of range [-0x8000, 0x7ffc] or not a multiple of 4"
+  else .ok ()
+
+/-- Validate a bit test position for `TBZ` / `TBNZ` (`[0, w.bits - 1]`). -/
+def checkTbzBitPosition (instrName : String) (w : RegWidth) (bit : Nat) : Except String Unit :=
+  let maxBit := w.bits - 1
+  if bit > maxBit then
+    .error s!"{instrName} bit position {bit} out of range [0, {maxBit}] for {w.bits}-bit instruction"
+  else .ok ()
+
+/-- Validate that an immediate shift amount, bit position, or rotate/size index is within `[0, w.bits - 1]`. -/
+def checkBitWidthBound (instrName : String) (w : RegWidth) (imm : Nat) : Except String Unit :=
+  checkRange s!"{instrName} immediate" imm (0...=w.bits - 1)
+
+/-- Validate bitfield extract/insert bounds (`lsb < w.bits`, `width > 0`, and `lsb + width <= w.bits`). -/
+def checkBitfieldBounds (instrName : String) (w : RegWidth) (lsb width : Nat) : Except String Unit :=
+  if lsb >= w.bits || width == 0 || lsb + width > w.bits then
+    .error s!"{instrName} bounds invalid: lsb={lsb}, width={width}, w={w.bits}"
+  else .ok ()
+
+/-- Validate conditional compare (`CCMP`/`CCMN`) immediate operand (`[0, 31]`). -/
+def checkCcmpImmediate (imm : Nat) : Except String Unit :=
+  checkRange "ccmp/ccmn immediate" imm (0...=31)
+
+/-- Validate NZCV condition flags immediate operand (`[0, 15]`). -/
+def checkNzcvFlags (nzcv : Nat) : Except String Unit :=
+  checkRange "nzcv immediate" nzcv (0...=15)
+
+/-- Validate a 12-bit unsigned arithmetic immediate (`[0, 4095]`). -/
+def checkArithmeticImmediate (imm : Int64) : Except String Unit :=
+  checkRange "immediate" imm.toInt (0...=4095)
+
+/-- Validate and map an arithmetic extension mnemonic (`UXTB`, `SXTB`, `UXTH`, `SXTH`, `UXTW`, `SXTW`,
+    `UXTX`, `SXTX`, `LSL`), checking register width compatibility. -/
+def getExtendType (extName : String) (instrW : RegWidth) (regW : RegWidth) : Except String ExtendType := do
+  let ty ← match extName.toLower with
+    | "uxtb" => .ok ExtendType.UXTB
+    | "sxtb" => .ok ExtendType.SXTB
+    | "uxth" => .ok ExtendType.UXTH
+    | "sxth" => .ok ExtendType.SXTH
+    | "uxtw" => .ok ExtendType.UXTW
+    | "sxtw" => .ok ExtendType.SXTW
+    | "uxtx" => .ok ExtendType.UXTX
+    | "sxtx" => .ok ExtendType.SXTX
+    | "lsl" =>
+      match instrW with
+      | .W64 => .ok ExtendType.UXTX
+      | .W32 => .ok ExtendType.UXTW
+    | _ => .error s!"unknown extension type: {extName}"
+  match instrW, ty, regW with
+  | .W32, _, .W64 => .error "32-bit extended register instruction requires a 32-bit register (Wn)"
+  | .W64, .UXTX, .W32 | .W64, .SXTX, .W32 => .error s!"{extName.toUpper} extension requires a 64-bit register (Xn)"
+  | .W64, .UXTB, .W64 | .W64, .SXTB, .W64
+  | .W64, .UXTH, .W64 | .W64, .SXTH, .W64
+  | .W64, .UXTW, .W64 | .W64, .SXTW, .W64 => .error s!"{extName.toUpper} extension requires a 32-bit register (Wn)"
+  | _, _, _ => .ok ty
+
+/-- Parse an AArch64 condition code mnemonic (`eq`, `ne`, `cs`/`hs`, `cc`/`lo`, ...). -/
+def parseCondCode (s : String) : Option CondCode :=
+  match s.toLower with
+  | "eq"        => some .EQ
+  | "ne"        => some .NE
+  | "cs" | "hs" => some .CS
+  | "cc" | "lo" => some .CC
+  | "mi"        => some .MI
+  | "pl"        => some .PL
+  | "vs"        => some .VS
+  | "vc"        => some .VC
+  | "hi"        => some .HI
+  | "ls"        => some .LS
+  | "ge"        => some .GE
+  | "lt"        => some .LT
+  | "gt"        => some .GT
+  | "le"        => some .LE
+  | "al"        => some .AL
+  | "nv"        => some .NV
+  | _           => none
+
+/-- Check whether a bit vector value has at most one non-zero 16-bit halfword (`MOVZ`). -/
+def tryMovz (w : RegWidth) (val : BitVec w.bits) : Option (Int64 × MovShift w) :=
+  let n := val.toNat
+  if n >>> 16 == 0 then
+    some (.ofNat n, .LSL0)
+  else if n &&& 0xFFFF == 0 && n >>> 32 == 0 then
+    some (.ofNat (n >>> 16), .LSL16)
+  else
+    match w with
+    | .W32 => none
+    | .W64 =>
+      if n &&& 0xFFFFFFFF == 0 && n >>> 48 == 0 then
+        some (.ofNat (n >>> 32), .LSL32)
+      else if n &&& 0xFFFFFFFFFFFF == 0 then
+        some (.ofNat (n >>> 48), .LSL48)
+      else
+        none
+
+/-- Check whether a bit vector value can be moved using a single `MOVZ` or `MOVN` instruction. -/
+def tryMovzOrMovn (w : RegWidth) (val : BitVec w.bits) : Option (Bool × Int64 × MovShift w) :=
+  match tryMovz w val with
+  | some (imm16, shift) => some (false, imm16, shift)
+  | none =>
+    match tryMovz w (~~~val) with
+    | some (imm16, shift) => some (true, imm16, shift)
+    | none => none
+
 -- ============================================================================
 -- Elaboration Monad: Operand Width Inference
 -- ============================================================================
@@ -214,6 +496,19 @@ def elabAntiquot (t : Term) (ty : Expr) : TermElabM Expr :=
 -- ============================================================================
 -- Register Evaluation & Elaboration
 -- ============================================================================
+
+/-- A generic parsed register (`gpr`, `sp`, or `xzr`) before instruction-specific context validation
+    resolves register 31. -/
+inductive AnyReg (w : RegWidth)
+  | gpr (r : XReg) : AnyReg w
+  | sp : AnyReg w
+  | xzr : AnyReg w
+
+abbrev AnyRegW := (w : RegWidth) × AnyReg w
+
+def AnyReg.isSp {w : RegWidth} : AnyReg w → Bool
+  | .sp => true
+  | _   => false
 
 /-- Map a register index suffix (`0`..`30`) to its `XReg`. -/
 def xreg? : String → Option XReg
@@ -1461,6 +1756,10 @@ def elabEmbedding (body : AArch64ElabM Expr) (expectedType? : Option Expr) (widt
   instantiateMVars e
 
 end
+
+/-- Parse an AArch64 assembly string into a Kraken `Program`. -/
+public def parse (input : String) : Except String _root_.Program :=
+  evalElabString _root_.Program `Kraken.AArch64.Parser.Elab ``elabAArch64 input
 
 /-- Inline unquoted AArch64 assembly directive elaborator (`⸨dir| ... ⸩`). -/
 elab_rules : term

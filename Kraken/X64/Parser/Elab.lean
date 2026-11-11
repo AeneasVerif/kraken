@@ -1,9 +1,10 @@
 module
 
-public import Kraken.X64.Parser.Basic
-public meta import Kraken.X64.Parser.Basic
+public import Kraken.X64.Syntax
+public meta import Kraken.X64.Syntax
 public import Kraken.X64.Parser.Syntax
 public meta import Kraken.X64.Parser.Syntax
+public import Lean
 public meta import Lean
 
 /-!
@@ -488,26 +489,41 @@ def evalExtWidthSuffix : String → TermElabM (Width × Width)
   | "lq" | "xd" => return (.W32, .W64)
   | sfx         => throwError "invalid extension width suffix '{sfx}'"
 
-/-- Evaluate the condition-code suffix of a mnemonic (`cmov<cc>`, `set<cc>`, `j<cc>`). -/
+/-- Evaluate the condition code of a `CondCode` suffix string (`o`, `no`, `z`, `e`, ...). -/
+def evalCondCode? : String → Option CondCode
+  | "o"                 => some .o
+  | "no"                => some .no
+  | "z"  | "e"          => some .z
+  | "nz" | "ne"         => some .nz
+  | "b"  | "c"  | "nae" => some .b
+  | "ae" | "nc" | "nb"  => some .ae
+  | "a"  | "nbe"        => some .a
+  | "be" | "na"         => some .be
+  | "s"                 => some .s
+  | "ns"                => some .ns
+  | "p"  | "pe"         => some .p
+  | "np" | "po"         => some .np
+  | "l"  | "nge"        => some .l
+  | "ge" | "nl"         => some .ge
+  | "le" | "ng"         => some .le
+  | "g"  | "nle"        => some .g
+  | _                   => none
+
+/-- Evaluate the condition-code suffix of a mnemonic (`set<cc>`, `j<cc>`). -/
 def evalCondCodeSuffix (stx : Syntax) : TermElabM CondCode := withRef stx do
-  match ← getAffixedSuffix stx with
-  | "o"                 => return .o
-  | "no"                => return .no
-  | "z"  | "e"          => return .z
-  | "nz" | "ne"         => return .nz
-  | "b"  | "c"  | "nae" => return .b
-  | "ae" | "nc" | "nb"  => return .ae
-  | "a"  | "nbe"        => return .a
-  | "be" | "na"         => return .be
-  | "s"                 => return .s
-  | "ns"                => return .ns
-  | "p"  | "pe"         => return .p
-  | "np" | "po"         => return .np
-  | "l"  | "nge"        => return .l
-  | "ge" | "nl"         => return .ge
-  | "le" | "ng"         => return .le
-  | "g"  | "nle"        => return .g
-  | sfx                 => throwError "invalid condition code '{sfx}'"
+  let sfx ← getAffixedSuffix stx
+  let some cc := evalCondCode? sfx | throwError "invalid condition code '{sfx}'"
+  return cc
+
+/-- Evaluate the condition-code and optional width suffix of a `cmov<cc>{w,l,q}` mnemonic. -/
+def evalCmovSuffix (stx : Syntax) : TermElabM (CondCode × Option Width) := withRef stx do
+  let sfx ← getAffixedSuffix stx
+  if let some cc := evalCondCode? sfx then
+    return (cc, none)
+  let some cc := evalCondCode? (sfx.dropEnd 1).toString
+    | throwError "invalid condition code '{sfx}'"
+  let w? ← evalWidthSuffix (sfx.takeEnd 1).toString
+  return (cc, w?)
 
 /-- The `Operation` constructor for the stem of an `x64_bin_op`. -/
 def elabBinOp : String → TermElabM Expr
@@ -620,9 +636,9 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       let dst ← elabReg dst
       mkAppWidth mk #[dst, src]
   | `(x64_instr| $op:x64_cmov_op $src:x64_operand, $dst:x64_reg) =>
-    mkRegularInstr do
+    let (cc, width?) ← evalCmovSuffix op
+    mkRegularInstr (width? := width?) do
       let mk := mkConst ``Operation.cmovcc
-      let cc ← evalCondCodeSuffix op
       let src ← elabRegOrMemOperand src
       let dst ← elabReg dst
       mkAppWidth mk #[toExpr cc, dst, src]
@@ -858,6 +874,10 @@ def elabEmbedding (W : Type) [ToExpr W] (body : X64ElabM Expr) (expectedType? : 
   instantiateMVars e
 
 end
+
+/-- Parse an X64 assembly string (with `# ...` line comments) into a Kraken `Program`. -/
+public def parse (input : String) : Except String _root_.Program :=
+  evalElabString _root_.Program `Kraken.X64.Parser.Elab ``elabX64 input
 
 /-- Inline unquoted X64 assembly directive elaborator (`⸨dir| ... ⸩`). -/
 elab_rules : term
