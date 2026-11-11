@@ -915,5 +915,63 @@ info: ⸨prog|
 
 end sse_and_vex
 
+section sha_and_avx512
+
+#guard [
+  ⸨prog|
+sha256rnds2 %xmm0, %xmm1, %xmm2
+sha256rnds2 (%rsp), %xmm3
+sha256msg1 %xmm4, %xmm5
+sha256msg2 16(%rsp), %xmm6
+⸩,
+  ⸨prog|
+vmovdqu32 (%rsp), %zmm0
+vmovdqa32 %zmm1, 64(%rsp)
+vpaddd %zmm2, %zmm3, %zmm4
+vpaddd (%rax), %ymm5, %ymm6
+vprord $7, %zmm7, %zmm8
+vpsrld $3, %xmm9, %xmm10
+vpternlogd $0xca, %zmm11, %zmm12, %zmm13
+vpternlogd $0x96, 64(%rsp), %zmm14, %zmm31
+⸩,
+  ⸨prog|
+vpshufb %zmm0, %zmm1, %zmm2
+vpshufb (%rax), %ymm3, %ymm4
+vshufps $0x44, %zmm5, %zmm6, %zmm7
+vshufps $0xdd, 64(%rsp), %xmm8, %xmm9
+vpermi2q %zmm10, %zmm11, %zmm12
+vpermi2d (%rsp), %zmm13, %zmm24
+vinserti64x4 $1, %ymm14, %zmm15, %zmm16
+vinserti64x4 $0, 32(%rsp), %zmm17, %zmm18
+⸩
+].all agreesWithCombinatorParser
+
+/-- error: the implicit operand of sha256rnds2 is %xmm0 -/
+#guard_msgs in
+#check ⸨prog| sha256rnds2 %xmm1, %xmm2, %xmm3 ⸩
+
+/-- error: type error: w256 != w512 -/
+#guard_msgs in
+#check ⸨prog| vinserti64x4 $1, %zmm14, %zmm15, %zmm16 ⸩
+
+/--
+info: ⸨prog|
+  sha256rnds2 %xmm0, %xmm1, %xmm2
+  vpaddd (%rax), %ymm5, %ymm6
+  vpternlogd $202, %zmm11, %zmm12, %zmm13
+  vpermi2q %zmm10, %zmm11, %zmm12
+  vinserti64x4 $1, 32(%rsp), %zmm15, %zmm16⸩ : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog|
+  sha256rnds2 %xmm1, %xmm2
+  vpaddd (%rax), %ymm5, %ymm6
+  vpternlogd $0xca, %zmm11, %zmm12, %zmm13
+  vpermi2q %zmm10, %zmm11, %zmm12
+  vinserti64x4 $1, 32(%rsp), %zmm15, %zmm16
+⸩
+
+end sha_and_avx512
+
 end Tests
 

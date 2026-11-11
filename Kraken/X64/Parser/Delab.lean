@@ -764,6 +764,22 @@ private def delabAvxImmOp (op : TSyntax `x64_avx_imm_op) (aw : Width) : X64Delab
   unless avxOperandDeterminesWidth src || avxOperandDeterminesWidth dst do failure
   `(x64_instr| $op:x64_avx_imm_op $imm:x64_imm, $src:x64_avx_operand, $dst:x64_avx_operand)
 
+private def delabAvx3Op (op : TSyntax `x64_avx3_op) (aw : Width) : X64DelabM (TSyntax `x64_instr) := do
+  let dst ← withNaryArg 1 (delabAvxRegOrMem aw)
+  let src1 ← withNaryArg 2 (delabAvxRegOrMem aw)
+  let src2 ← withNaryArg 3 (delabAvxRegOrMem aw)
+  unless [src2, src1, dst].any avxOperandDeterminesWidth do failure
+  `(x64_instr| $op:x64_avx3_op $src2:x64_avx_operand, $src1:x64_avx_operand, $dst:x64_avx_operand)
+
+private def delabAvx3ImmOp (op : TSyntax `x64_avx3_imm_op) (aw : Width) :
+    X64DelabM (TSyntax `x64_instr) := do
+  let dst ← withNaryArg 1 (delabAvxRegOrMem aw)
+  let src1 ← withNaryArg 2 (delabAvxRegOrMem aw)
+  let src2 ← withNaryArg 3 (delabAvxRegOrMem aw)
+  let imm := mkImm (← withNaryArg 4 delabConstExpr)
+  unless [src2, src1, dst].any avxOperandDeterminesWidth do failure
+  `(x64_instr| $op:x64_avx3_imm_op $imm:x64_imm, $src2:x64_avx_operand, $src1:x64_avx_operand, $dst:x64_avx_operand)
+
 private def delabVmovGpOp (nExpr : Expr) : DelabM (TSyntax `x64_vmov_gp_op) := do
   match evalWidth? nExpr with
   | some .W32 => `(x64_vmov_gp_op| vmovd)
@@ -786,6 +802,30 @@ private def delabAvxOperation (aw : Width) (w? : Option AvxWidth) : X64DelabM (T
   | AvxOperation.pshufd  _ _ _ _ => delabAvxImmOp (← `(x64_avx_imm_op| pshufd))  aw
   | AvxOperation.palignr _ _ _ _ => delabAvxImmOp (← `(x64_avx_imm_op| palignr)) aw
   | AvxOperation.pblendw _ _ _ _ => delabAvxImmOp (← `(x64_avx_imm_op| pblendw)) aw
+  | AvxOperation.sha256msg1 _ _ _ => delabAvxBinOp (← `(x64_avx_op| sha256msg1)) aw
+  | AvxOperation.sha256msg2 _ _ _ => delabAvxBinOp (← `(x64_avx_op| sha256msg2)) aw
+  | AvxOperation.sha256rnds2 _ _ _ =>
+    let dst ← withNaryArg 1 (delabAvxRegOrMem aw)
+    let src ← withNaryArg 2 (delabAvxRegOrMem aw)
+    unless avxOperandDeterminesWidth src || avxOperandDeterminesWidth dst do failure
+    `(x64_instr| sha256rnds2 %xmm0, $src:x64_avx_operand, $dst:x64_avx_operand)
+  | AvxOperation.vmovdqu32 _ _ _ => delabAvxBinOp (← `(x64_avx_op| vmovdqu32)) aw
+  | AvxOperation.vmovdqa32 _ _ _ => delabAvxBinOp (← `(x64_avx_op| vmovdqa32)) aw
+  | AvxOperation.vprord _ _ _ _ => delabAvxImmOp (← `(x64_avx_imm_op| vprord)) aw
+  | AvxOperation.vpsrld _ _ _ _ => delabAvxImmOp (← `(x64_avx_imm_op| vpsrld)) aw
+  | AvxOperation.vpaddd   _ _ _ _ => delabAvx3Op (← `(x64_avx3_op| vpaddd))   aw
+  | AvxOperation.vpshufb  _ _ _ _ => delabAvx3Op (← `(x64_avx3_op| vpshufb))  aw
+  | AvxOperation.vpermi2q _ _ _ _ => delabAvx3Op (← `(x64_avx3_op| vpermi2q)) aw
+  | AvxOperation.vpermi2d _ _ _ _ => delabAvx3Op (← `(x64_avx3_op| vpermi2d)) aw
+  | AvxOperation.vpternlogd _ _ _ _ _ => delabAvx3ImmOp (← `(x64_avx3_imm_op| vpternlogd)) aw
+  | AvxOperation.vshufps    _ _ _ _ _ => delabAvx3ImmOp (← `(x64_avx3_imm_op| vshufps))    aw
+  | AvxOperation.vinserti64x4 _ _ _ _ _ =>
+    unless w? == some .W512 do failure
+    let dst ← withNaryArg 1 (delabAvxRegOrMem aw)
+    let src1 ← withNaryArg 2 (delabAvxRegOrMem aw)
+    let src2 ← withNaryArg 3 (delabAvxRegOrMem aw)
+    let imm := mkImm (← withNaryArg 4 delabConstExpr)
+    `(x64_instr| vinserti64x4 $imm:x64_imm, $src2:x64_avx_operand, $src1:x64_avx_operand, $dst:x64_avx_operand)
   | AvxOperation.vmovq _ _ _ =>
     unless w? == some .W128 do failure
     let op ← `(x64_vmov_gp_op| vmovq)

@@ -83,6 +83,12 @@ private def withOperandWidth {α : Type} (w? : Option Width) (body : X64ElabM α
   finally
     modify ({ · with operandWidth := saved })
 
+/-- Run `body` at the AVX operation width `w`, for the one operand of a mixed-width instruction. -/
+private def withAvxOperandWidth {α : Type} (w : AvxWidth) (body : X64ElabM α) : X64ElabM α := do
+  let saved ← getOperandWidth
+  modify ({ · with operandWidth := toExpr w })
+  try body finally modify ({ · with operandWidth := saved })
+
 /-- Run `body` with its own operation width, initially `w?`, and return the width it determined. -/
 private def withOperandWidth' {α : Type} (w? : Option Width) (body : X64ElabM α) : X64ElabM (α × Expr) := do
   let w ← (toExpr <$> w?).getDM (mkFreshExprMVar (toTypeExpr Width))
@@ -552,6 +558,10 @@ def elabAvxOp (stx : TSyntax `x64_avx_op) : TermElabM Expr := withRef stx do
   | `(x64_avx_op| movdqa)  => pure (mkConst ``AvxOperation.movdqa)
   | `(x64_avx_op| paddd)   => pure (mkConst ``AvxOperation.paddd)
   | `(x64_avx_op| pshufb)  => pure (mkConst ``AvxOperation.pshufb)
+  | `(x64_avx_op| sha256msg1) => pure (mkConst ``AvxOperation.sha256msg1)
+  | `(x64_avx_op| sha256msg2) => pure (mkConst ``AvxOperation.sha256msg2)
+  | `(x64_avx_op| vmovdqu32)  => pure (mkConst ``AvxOperation.vmovdqu32)
+  | `(x64_avx_op| vmovdqa32)  => pure (mkConst ``AvxOperation.vmovdqa32)
   | _ =>
     let (stem, sfx) ← splitSuffixed stx
     match stem, sfx with
@@ -568,7 +578,25 @@ def elabAvxImmOp (stx : TSyntax `x64_avx_imm_op) : TermElabM Expr := withRef stx
   | `(x64_avx_imm_op| pshufd)  => pure (mkConst ``AvxOperation.pshufd)
   | `(x64_avx_imm_op| palignr) => pure (mkConst ``AvxOperation.palignr)
   | `(x64_avx_imm_op| pblendw) => pure (mkConst ``AvxOperation.pblendw)
+  | `(x64_avx_imm_op| vprord)  => pure (mkConst ``AvxOperation.vprord)
+  | `(x64_avx_imm_op| vpsrld)  => pure (mkConst ``AvxOperation.vpsrld)
   | _                          => throwError "invalid AVX immediate mnemonic"
+
+/-- The `AvxOperation` constructor of an `x64_avx3_op`. -/
+def elabAvx3Op (stx : TSyntax `x64_avx3_op) : TermElabM Expr := withRef stx do
+  match stx with
+  | `(x64_avx3_op| vpaddd)   => pure (mkConst ``AvxOperation.vpaddd)
+  | `(x64_avx3_op| vpshufb)  => pure (mkConst ``AvxOperation.vpshufb)
+  | `(x64_avx3_op| vpermi2q) => pure (mkConst ``AvxOperation.vpermi2q)
+  | `(x64_avx3_op| vpermi2d) => pure (mkConst ``AvxOperation.vpermi2d)
+  | _                        => throwError "invalid AVX 3-operand mnemonic"
+
+/-- The `AvxOperation` constructor of an `x64_avx3_imm_op`. -/
+def elabAvx3ImmOp (stx : TSyntax `x64_avx3_imm_op) : TermElabM Expr := withRef stx do
+  match stx with
+  | `(x64_avx3_imm_op| vpternlogd) => pure (mkConst ``AvxOperation.vpternlogd)
+  | `(x64_avx3_imm_op| vshufps)    => pure (mkConst ``AvxOperation.vshufps)
+  | _                              => throwError "invalid AVX 3-operand immediate mnemonic"
 
 /-- The scalar transfer width of `vmovd` (`.W32`) or `vmovq` (`.W64`). -/
 def evalVmovGpWidth (stx : TSyntax `x64_vmov_gp_op) : TermElabM Width := withRef stx do
@@ -709,6 +737,40 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       let src ← elabAvxRegOrMem src
       let dst ← elabAvxRegOrMem dst
       mkAppWidth mk #[dst, src, imm]
+  | `(x64_instr| $op:x64_avx3_op $src2:x64_avx_operand, $src1:x64_avx_operand, $dst:x64_avx_operand) =>
+    mkAvxInstr do
+      let mk ← elabAvx3Op op
+      let src2 ← elabAvxRegOrMem src2
+      let src1 ← elabAvxRegOrMem src1
+      let dst ← elabAvxRegOrMem dst
+      mkAppWidth mk #[dst, src1, src2]
+  | `(x64_instr| $op:x64_avx3_imm_op $imm:x64_imm, $src2:x64_avx_operand, $src1:x64_avx_operand, $dst:x64_avx_operand) =>
+    mkAvxInstr do
+      let mk ← elabAvx3ImmOp op
+      let imm ← elabImm imm
+      let src2 ← elabAvxRegOrMem src2
+      let src1 ← elabAvxRegOrMem src1
+      let dst ← elabAvxRegOrMem dst
+      mkAppWidth mk #[dst, src1, src2, imm]
+  | `(x64_instr| sha256rnds2 $src:x64_avx_operand, $dst:x64_avx_operand) =>
+    mkAvxInstr do
+      let src ← elabAvxRegOrMem src
+      let dst ← elabAvxRegOrMem dst
+      mkAppWidth (mkConst ``AvxOperation.sha256rnds2) #[dst, src]
+  | `(x64_instr| sha256rnds2 $k:x64_avx_reg, $src:x64_avx_operand, $dst:x64_avx_operand) =>
+    let ⟨.W128, .xmm .mm0⟩ ← evalAvxReg k
+      | throwErrorAt k "the implicit operand of sha256rnds2 is %xmm0"
+    mkAvxInstr do
+      let src ← elabAvxRegOrMem src
+      let dst ← elabAvxRegOrMem dst
+      mkAppWidth (mkConst ``AvxOperation.sha256rnds2) #[dst, src]
+  | `(x64_instr| vinserti64x4 $imm:x64_imm, $src2:x64_avx_operand, $src1:x64_avx_operand, $dst:x64_avx_operand) =>
+    mkAvxInstr (width? := some .W512) do
+      let imm ← elabImm imm
+      let src2 ← withAvxOperandWidth .W256 (elabAvxRegOrMem src2)
+      let src1 ← elabAvxRegOrMem src1
+      let dst ← elabAvxRegOrMem dst
+      mkAppWidth (mkConst ``AvxOperation.vinserti64x4) #[dst, src1, src2, imm]
   | `(x64_instr| $op:x64_vmov_gp_op $src:x64_avx_reg, $dst:x64_avx_reg) =>
     let n ← evalVmovGpWidth op
     if n != .W64 then throwErrorAt op "vmovd takes no two xmm operands"
