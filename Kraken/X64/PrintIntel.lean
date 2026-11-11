@@ -218,6 +218,12 @@ def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : Stri
   | .vpermi2d dst a b => s!"vpermi2d {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
   | .vinserti64x4 dst a b imm =>
     s!"vinserti64x4 {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}, {imm}"
+  | .vpunpckldq dst a b => s!"vpunpckldq {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vpunpckhdq dst a b => s!"vpunpckhdq {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vpunpcklqdq dst a b => s!"vpunpcklqdq {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vpunpckhqdq dst a b => s!"vpunpckhqdq {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vperm2i128 dst a b imm =>
+    s!"vperm2i128 {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}, {imm}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
 instance : ToString Instr where

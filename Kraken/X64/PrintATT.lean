@@ -157,6 +157,11 @@ def avxOperation {w} (aw : Width) (op : AvxOperation w) : String :=
   | .vpermi2q d a b => s!"vpermi2q {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
   | .vpermi2d d a b => s!"vpermi2d {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
   | .vinserti64x4 d a b i => s!"vinserti64x4 ${const i}, {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
+  | .vpunpckldq d a b => s!"vpunpckldq {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
+  | .vpunpckhdq d a b => s!"vpunpckhdq {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
+  | .vpunpcklqdq d a b => s!"vpunpcklqdq {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
+  | .vpunpckhqdq d a b => s!"vpunpckhqdq {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
+  | .vperm2i128 d a b i => s!"vperm2i128 ${const i}, {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
 
 def instr : Instr → String
   | .regular aw _ op => operation aw op

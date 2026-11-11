@@ -330,6 +330,24 @@ def BitVec.permute2 {w : Nat} (c : Nat) (idx a b : BitVec w) : BitVec w :=
     let x := (idx.lane c j).toNat
     if (x / n) % 2 == 1 then b.lane c (x % n) else a.lane c (x % n)
 
+/-- Lanes of `c` bits taken in turn from `a` and `b`, within each 16-byte block: from the low half
+of each block, or from the high half when `high`. -/
+def BitVec.unpackLanes {w : Nat} (c : Nat) (high : Bool) (a b : BitVec w) : BitVec w :=
+  let n := 128 / c
+  BitVec.ofLanes w c fun i =>
+    let k := n * (i / n) + (if high then n / 2 else 0) + i % n / 2
+    if i % 2 == 0 then a.lane c k else b.lane c k
+
+/-- 128-bit halves picked from the halves of `a` and `b` by the nibbles of `imm`.
+
+In each nibble, bit 0 picks the high half, bit 1 picks `b` over `a`, and bit 3 zeroes the result. -/
+def BitVec.permute128 {w : Nat} (a b : BitVec w) (imm : BitVec 8) : BitVec w :=
+  BitVec.ofLanes w 128 fun i =>
+    let sel := (imm.toNat >>> (4 * i)) % 16
+    if sel / 8 == 1 then 0#128
+    else if sel / 2 % 2 == 1 then b.lane 128 (sel % 2)
+    else a.lane 128 (sel % 2)
+
 def BitVec.toFloat32 (v : BitVec 32) : Float32 :=
   Float32.ofBits (UInt32.ofBitVec v)
 
@@ -1001,6 +1019,26 @@ match i with
     src1.interp s p (fun a s =>
       let half := ((imm.interp p).toBitVec.take 8).toNat % 2
       s.setAvx dst (BitVec.ofLanes _ 256 fun i => if i == half then b else a.lane 256 i) p next))
+  | .vpunpckldq dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (BitVec.unpackLanes 32 false a b) p next))
+  | .vpunpckhdq dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (BitVec.unpackLanes 32 true a b) p next))
+  | .vpunpcklqdq dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (BitVec.unpackLanes 64 false a b) p next))
+  | .vpunpckhqdq dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (BitVec.unpackLanes 64 true a b) p next))
+  | .vperm2i128 dst src1 src2 imm =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (BitVec.permute128 a b ((imm.interp p).toBitVec.take 8)) p next))
 
 @[kstep]
 def Instr.interp [Labels]
