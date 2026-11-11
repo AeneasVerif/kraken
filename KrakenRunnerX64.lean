@@ -8,6 +8,7 @@ At this point this expects a file only containing a list of assembly instruction
 Usage: krakenrunner_x64 <assembly.S>
        krakenrunner_x64 --generate <seed> <count> <length>  (random sequences that Kraken deems deterministic)
        krakenrunner_x64 --batch < sequences.json              (predict final states for a JSON array of sequences)
+       krakenrunner_x64 --encodable <seed> <count>            (compare `Instr.encodable` with `as`)
 
 Arguments:
 - assembly.S: Assembly source file
@@ -19,6 +20,7 @@ Output:
 
 import Kraken.Fuzzer
 meta import Kraken.Fuzzer
+import Kraken.X64.Encodable
 import Kraken.X64.Parser
 import Kraken.X64.PrintATT
 import Kraken.X64.Semantics
@@ -166,7 +168,104 @@ def fuzzConfig : FuzzConfig MachineData StatusFlags StateSummary where
   genSeed := genSeed
   defineAllFlagsInstr := "addq %rax, %rax"
 
+/-! ## Encodability oracle
+
+`--encodable` prints random instructions, asks `as` which it assembles, and compares with
+`Instr.encodable`. An instruction counts as encodable when `as` accepts its printed form
+without errors or warnings and the parser reads it back as the same instruction, so that `as`
+and Kraken read it alike. -/
+
+namespace EncodableOracle
+
+-- A wider generator than the fuzzer's: labels and label arithmetic, rip-relative operands, nop
+-- lengths, and values around every field boundary.
+local instance (priority := high) : Gen Nat := ⟨pick #[0, 1, 2, 3, 5, 8, 16, 144, 255]⟩
+local instance (priority := high) : Gen String := ⟨pick #["foo", ".Lbar", "9lives", ""]⟩
+local instance (priority := high) : Gen Int64 := ⟨oneOf #[genInt64 #[3, 8, 16, 32, 64], do
+  let v : Int := (← pick #[1, -1]) * 2 ^ (← pick #[7, 8, 15, 16, 31, 32, 63]) + (← pick #[-1, 0, 1])
+  return .ofInt v]⟩
+local instance (priority := high) : Gen ConstExpr := ⟨oneOf #[
+  .int64 <$> gen, .int64 <$> gen, .label <$> gen,
+  return .add (.label (← gen)) (.int64 (← gen)), return .sub (.label (← gen)) (.int64 (← gen)),
+  pure (.sub (.label "foo") (.label ".Lbar")), return .add (.int64 (← gen)) (.int64 (← gen)),
+  return .sub (.label (← gen)) .after_current_instruction,
+  pick #[.before_current_instruction, .after_current_instruction]]⟩
+local instance (priority := high) : Gen RegOrRip := ⟨oneOf #[.reg <$> gen, pure .rip]⟩
+local instance (priority := high) : Gen AddrExpr := ⟨gen_ctors% AddrExpr⟩
+local instance (priority := high) : Gen ShiftCountExpr := ⟨gen_ctors% ShiftCountExpr⟩
+local instance (priority := high) : Gen RelRegOrMem := ⟨gen_ctors% RelRegOrMem⟩
+local instance (priority := high) {w} : Gen (RegOrMem w) := ⟨gen_ctors% RegOrMem⟩
+local instance (priority := high) {w} : Gen (Operand w) := ⟨gen_ctors% Operand⟩
+local instance (priority := high) {w} : Gen (AvxRegOrMem w) := ⟨gen_ctors% AvxRegOrMem⟩
+local instance (priority := high) {w} : Gen (Operation w) := ⟨gen_ctors% Operation⟩
+local instance (priority := high) {w} : Gen (AvxOperation w) := ⟨gen_ctors% AvxOperation⟩
+
+def genInstr : GenM Instr := gen_ctors% Instr
+
+/-- Whether `i` reads its address size: through a memory operand, or as a string instruction. -/
+def usesAddressSize (i : Instr) : Bool :=
+  let e := toExpr i
+  [``AddrExpr.mk, ``Operation.movs, ``Operation.stos].any fun c => (e.find? (·.isConstOf c)).isSome
+
+/-- `i` with the address size and operation size the parser gives when they do not matter. -/
+def normalize (i : Instr) : Instr :=
+  let aw a := if usesAddressSize i then a else .W64
+  match i with
+  | .regular a w op =>
+    let free : Option (Operation .W64) := match op with
+      | .cld => some .cld | .std => some .std | .cpuid => some .cpuid | .xgetbv => some .xgetbv
+      | .ret => some .ret | .jcc cc l => some (.jcc cc l) | .jmp t => some (.jmp t)
+      | .call t => some (.call t) | .nop n => some (.nop n) | .nopalign n p => some (.nopalign n p)
+      | _ => none
+    match free with
+    | some op => .regular (aw a) .W64 op
+    | none => .regular (aw a) w op
+  | .avx a _ .vzeroupper => .avx (aw a) .W128 .vzeroupper
+  | .avx a w op => .avx (aw a) w op
+
+/-- The parser reads the printed `i` back as `i`. The one meaning `as` and the parser cannot see:
+`.align` fills with the given byte, and only `0x90` is a `nop`. -/
+def readsBack (i : Instr) : Bool :=
+  match Kraken.X64.Parser.parse (Kraken.X64.ATT.instr i), i with
+  | _, .regular _ _ (.nopalign a (some pad)) => a ≤ 1 || pad == 0x90
+  | .ok [.instr i'], _ => normalize i' == normalize i
+  | _, _ => false
+
+/-- The lines of `src` that `as` rejects or warns about. The printer omits the `*` of an indirect
+branch, which `as` warns about but assembles as intended. -/
+def rejectedLines (src : String) : IO (Array Nat) :=
+  IO.FS.withTempFile fun h path => do
+    h.putStr src; h.flush
+    let out ← IO.Process.output
+      { cmd := "as", args := #["-march=+noapx_f", "-o", "/dev/null", path.toString] }
+    let pfx := path.toString ++ ":"
+    return (out.stderr.splitOn "\n").toArray.filterMap fun l => do
+      let rest ← l.dropPrefix? pfx
+      if (rest.toString.splitOn "without `*'").length > 1 then none
+      rest.takeWhile Char.isDigit |>.toString.toNat?
+
+def run (seed count : Nat) : IO UInt32 := do
+  let instrs : Array Instr :=
+    ((Array.range count).filterMapM fun _ => genInstr.run).run' (mkStdGen seed)
+  let texts := instrs.map Kraken.X64.ATT.instr
+  let bad ← rejectedLines ("\n".intercalate texts.toList ++ "\n")
+  let mut disagree := 0
+  let mut accepted := 0
+  for i in instrs, t in texts, n in [1:instrs.size + 1] do
+    let oracle := !bad.contains n && readsBack i
+    if oracle then accepted := accepted + 1
+    if oracle != i.encodable then
+      disagree := disagree + 1
+      let verdict := if oracle then "accepted, not encodable" else "rejected, encodable"
+      IO.println s!"{verdict}: {t}    ({(repr i).pretty 1000})"
+  IO.println s!"{instrs.size} instructions, {accepted} encodable, {disagree} disagreements"
+  return if disagree == 0 then 0 else 1
+
+end EncodableOracle
+
 public def main (args : List String) : IO UInt32 := do
+  if let ["--encodable", seed, count] := args then
+    return ← EncodableOracle.run seed.toNat! count.toNat!
   if let some code ← fuzzConfig.handleCli? args then return code
 
   if args.isEmpty then return 1
