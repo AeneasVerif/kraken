@@ -13,6 +13,7 @@ public import Kraken.X64.Semantics
 @[kstep] def Effects.All (post : MachineState → Prop) : Effects → Prop
   | .done a => post a
   | .unimplemented _ => False
+  | .unresolved_label _ => False
   | .gp_unaligned .. => False
   | .nonmem_load .. => False
   | .nonmem_store .. => False
@@ -83,13 +84,8 @@ theorem step_at {p : Program} [nw : WellFormedLayout p] {k : Nat} {d : Directive
   eventually_trans _ _ _ _
     (eventually_of_interp (fun _ _ => Kraken.Program.sizeBefore_eq_of_addrOf_eq p) hd h) fun _ => id
 
-theorem label_eq_addrOf {p : Program} [l : Layout p] {lbl : Label} {k : Nat}
+theorem label?_eq_some_addrOf {p : Program} [l : Layout p] {lbl : Label} {k : Nat}
     (hk : p.findIdx? (·.isLabel lbl) = some k) :
-    @Labels.label (Executable.labels p.toExecutable) lbl = p.toExecutable.addrOf k :=
+    @Labels.label? (Executable.labels (Kraken.Layout.apply p l)) lbl =
+      some ((Kraken.Layout.apply p l).addrOf k) :=
   Kraken.Layout.withAddresses_findSome?_label p lbl hk
-
-theorem step_label {p : Program} [l : Layout p] {lbl : Label} {k : Nat}
-    (hk : p.findIdx? (·.isLabel lbl) = some k) {post : @Post MachineState} {s : MachineData}
-    (h : Eventually (step1 p.toExecutable) post ⟨s, p.toExecutable.addrOf k⟩) :
-    Eventually (step1 p.toExecutable) post ⟨s, @Labels.label (Executable.labels p.toExecutable) lbl⟩ := by
-  rwa [label_eq_addrOf hk]

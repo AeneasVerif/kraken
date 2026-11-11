@@ -56,7 +56,7 @@ private def wrapping : MachineData :=
 /-! `cld`/`std` write only the direction flag. -/
 
 private def runOp (op : Operation .W64) (s : MachineData) : Option MachineData :=
-  let : Labels := ⟨fun _ => 0⟩
+  let : Labels := ⟨fun _ => some 0⟩
   let : AddressSize := ⟨.W64⟩
   match op.interp ⟨0, 1⟩ s (fun s => .done ⟨s, 1⟩) (fun _ _ => .unimplemented "jump") with
   | .done st => some st.data
@@ -71,3 +71,14 @@ private def busy : MachineData :=
 #guard runOp .cld busy == some busy
 #guard (runOp .std busy >>= runOp .std) == some { busy with df := true }
 #guard (runOp .std busy >>= runOp .cld) == some busy
+
+private def emptyLabels : Labels := { label? _ := none }
+
+#guard match @ConstExpr.interp emptyLabels (.add (.label "missing") (.int64 4)) ⟨0, 5⟩ (fun _ => .done ⟨s, 0⟩) with
+  | .unresolved_label l => l == "missing"
+  | _ => false
+
+#guard match (letI := emptyLabels; letI : AddressSize := ⟨.W64⟩
+    Operation.interp (w := .W64) (.jcc .z "missing_target") ⟨0, 2⟩ { s with status := { s.status with zf := true } } (fun st => .done ⟨st, 2⟩) (fun a st => .done ⟨st, a⟩)) with
+  | .unresolved_label l => l == "missing_target"
+  | _ => false
