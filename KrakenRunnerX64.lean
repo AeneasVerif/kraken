@@ -107,6 +107,8 @@ instance : Gen AddrIndex := ⟨gen_ctors% AddrIndex⟩
 
 -- No nop lengths or alignments; other control flow is rejected by `stepDeterministic`.
 instance : Gen Nat := ⟨failure⟩
+-- No string instructions: in a random state, rsi and rdi point outside the stack mapping.
+instance : Gen Bool := ⟨failure⟩
 instance : Gen Int64 := ⟨genInt64 #[3, 8, 16, 32, 64]⟩
 -- Code addresses differ between Kraken's layout and the hardware binary, so no labels, nor
 -- `before/after_current_instruction`, nor rip-relative addressing.
