@@ -3,6 +3,7 @@ module
 public import LeanQbe.Main
 public import LeanQbe.RegaLemmas
 public import LeanQbe.OptLemmas
+public import LeanQbe.FlatLemmas
 
 /-!
 # Correctness of the pipeline
@@ -232,5 +233,214 @@ theorem compile_sound {T : Target} (h : T.Host) (Γ : Env)
       · simp at hcomp
     · simp at hcomp
     · simp at hcomp
+
+theorem compile_of_compileModule {I : Isa} {raBytes : Nat} {exits : List String} {nX : Nat} :
+    ∀ {fs : List Fn} {extCallees : List (String × Nat)} {code : List I.Directive}
+      {bounds : List (String × Nat)},
+    compileModule I raBytes extCallees exits nX fs = .ok (code, bounds) →
+    compile I fs = .ok code
+  | [], _, _, _, h => by
+    simp only [compileModule, Except.ok.injEq, Prod.mk.injEq] at h
+    rcases h with ⟨rfl, _⟩
+    rfl
+  | f :: fs, extCallees, code, bounds, h => by
+    simp only [compileModule] at h
+    split at h
+    · rename_i c b hc hb
+      split at h
+      · rename_i cs bs hrest
+        simp only [Except.ok.injEq, Prod.mk.injEq] at h
+        rcases h with ⟨rfl, _⟩
+        have ih := compile_of_compileModule hrest
+        simp [compile, hc, ih]
+      · simp at h
+    · simp at h
+    · simp at h
+
+/-- Extract the emitted directives from a `compileModule` result (made `@[irreducible]` below
+so the kernel never re-evaluates `res`). -/
+def extractCode {D : Type} (res : Except String (List D × List (String × Nat))) : List D :=
+  match res with
+  | .ok (c, _) => c
+  | .error _ => []
+
+/-- Extract the computed stack bounds from a `compileModule` result (made `@[irreducible]` below
+so the kernel never re-evaluates `res`). -/
+def extractBounds {D : Type} (res : Except String (List D × List (String × Nat))) :
+    List (String × Nat) :=
+  match res with
+  | .ok (_, b) => b
+  | .error _ => []
+
+theorem extractResult_eq {D : Type} {label : String → D} {labelsNodup : List D → Bool}
+    {res : Except String (List D × List (String × Nat))}
+    {fnNames exits : List String} {maxBound : Nat}
+    (h : checkCompileResult label labelsNodup res fnNames exits maxBound = true) :
+    res = .ok (extractCode res, extractBounds res) := by
+  cases res with
+  | error _ => simp [checkCompileResult] at h
+  | ok cb => rcases cb with ⟨c, b⟩; rfl
+
+theorem extract_nodup {D : Type} {label : String → D} {labelsNodup : List D → Bool}
+    {res : Except String (List D × List (String × Nat))}
+    {fnNames exits : List String} {maxBound : Nat}
+    (h : checkCompileResult label labelsNodup res fnNames exits maxBound = true) :
+    labelsNodup (extractCode res ++ exits.map label) = true := by
+  cases res with
+  | error _ => simp [checkCompileResult] at h
+  | ok cb =>
+    rcases cb with ⟨c, b⟩
+    simp only [checkCompileResult, Bool.and_eq_true] at h
+    exact h.1.1.1
+
+theorem extract_small {D : Type} {label : String → D} {labelsNodup : List D → Bool}
+    {res : Except String (List D × List (String × Nat))}
+    {fnNames exits : List String} {maxBound : Nat}
+    (h : checkCompileResult label labelsNodup res fnNames exits maxBound = true) :
+    4 * (extractCode res ++ exits.map label).length < 2 ^ 64 := by
+  cases res with
+  | error _ => simp [checkCompileResult] at h
+  | ok cb =>
+    rcases cb with ⟨c, b⟩
+    simp only [checkCompileResult, Bool.and_eq_true, decide_eq_true_eq] at h
+    exact h.1.1.2
+
+theorem extract_bound_le {D : Type} {label : String → D} {labelsNodup : List D → Bool}
+    {res : Except String (List D × List (String × Nat))}
+    {fnNames exits : List String} {maxBound : Nat}
+    (h : checkCompileResult label labelsNodup res fnNames exits maxBound = true)
+    (nm : String) :
+    (lookupBound (extractBounds res) nm).getD 0 ≤ maxBound := by
+  cases res with
+  | error _ => simp [checkCompileResult] at h
+  | ok cb =>
+    rcases cb with ⟨c, b⟩
+    simp only [checkCompileResult, Bool.and_eq_true] at h
+    have hall := h.1.2
+    dsimp [extractBounds]
+    cases hlk : lookupBound b nm with
+    | none => simp
+    | some v =>
+      have hmem := lookupBound_mem hlk
+      have hv := List.all_eq_true.mp hall (nm, v) hmem
+      simpa using of_decide_eq_true hv
+
+theorem extract_bound_mem {D : Type} {label : String → D} {labelsNodup : List D → Bool}
+    {res : Except String (List D × List (String × Nat))}
+    {fnNames exits : List String} {maxBound : Nat}
+    (h : checkCompileResult label labelsNodup res fnNames exits maxBound = true)
+    {nm : String} (hnm : nm ∈ fnNames) :
+    (nm, (lookupBound (extractBounds res) nm).getD 0) ∈ extractBounds res := by
+  cases res with
+  | error _ => simp [checkCompileResult] at h
+  | ok cb =>
+    rcases cb with ⟨c, b⟩
+    simp only [checkCompileResult, Bool.and_eq_true] at h
+    have hall := List.all_eq_true.mp h.2 nm hnm
+    dsimp [extractBounds]
+    cases hlk : lookupBound b nm with
+    | none => simp [hlk] at hall
+    | some v => exact lookupBound_mem hlk
+
+attribute [irreducible] extractCode extractBounds
+
+/-- Bundle of a compiled module on target `T`, constructed from a single kernel evaluation of
+`checkCompile` so that downstream proofs never re-evaluate the compiler. -/
+structure Compiled (T : Target) (extCallees : List (String × Nat)) (exits : List String)
+    (nX : Nat) (fs : List Fn) (maxBound : Nat := 2048) where
+  code : List T.Directive
+  bounds : List (String × Nat)
+  compileModule_eq : compileModule T.toIsa T.raBytes extCallees exits nX fs = .ok (code, bounds)
+  compile_eq : compile T.toIsa fs = .ok code
+  bound_mem : ∀ {nm : String}, nm ∈ fs.map Fn.name → (nm, (lookupBound bounds nm).getD 0) ∈ bounds
+  bound_le : ∀ (nm : String), (lookupBound bounds nm).getD 0 ≤ maxBound
+  host : T.Host
+  prog_host : T.prog host = code ++ exits.map T.label
+  labelsUnique : T.LabelsUnique host
+
+namespace Compiled
+
+variable {T : Target} {extCallees : List (String × Nat)} {exits : List String}
+  {nX : Nat} {fs : List Fn} {maxBound : Nat}
+
+/-- Symbolic stack bound computed for function `nm` in `M`. -/
+def bound (M : Compiled T extCallees exits nX fs maxBound) (nm : String) : Nat :=
+  (lookupBound M.bounds nm).getD 0
+
+theorem bound_mem_of_mem (M : Compiled T extCallees exits nX fs maxBound)
+    {nm : String} (hnm : nm ∈ fs.map Fn.name) :
+    (nm, M.bound nm) ∈ M.bounds :=
+  M.bound_mem hnm
+
+theorem bound_le_max (M : Compiled T extCallees exits nX fs maxBound) (nm : String) :
+    M.bound nm ≤ maxBound :=
+  M.bound_le nm
+
+theorem code_infix_host (M : Compiled T extCallees exits nX fs maxBound) :
+    M.code.IsInfixAt (T.prog M.host) 0 := by
+  rw [M.prog_host]
+  exact ⟨exits.map T.label, rfl⟩
+
+theorem defined_exit_host (M : Compiled T extCallees exits nX fs maxBound)
+    {g : String} (hg : g ∈ exits) :
+    T.Defined M.host g := by
+  obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.mp hg
+  refine ⟨M.code.length + i, ?_⟩
+  rw [M.prog_host, List.getElem?_append_right (by omega)]
+  have : M.code.length + i - M.code.length = i := by omega
+  rw [this, List.getElem?_map, List.getElem?_eq_getElem hi]
+  rfl
+
+/-- Module linking theorem over any host `h` containing `M.code` at `k₀` with unique labels. -/
+theorem fnSpec (M : Compiled T extCallees exits nX fs maxBound)
+    (h : T.Host) (Γ : Env) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    (hwf : ∀ f ∈ fs, Func.Wf f.body)
+    (hsound : ∀ f ∈ fs, ∀ args m Q X, Γ f.name args m Q X → Func.spec Γ f.body args m Q X)
+    (hext : ∀ p ∈ extCallees, T.FnSpec h p.1 (Γ p.1) p.2 nX)
+    (hexits : ∀ g ∈ exits, T.Defined h g)
+    {nm : String} (hnm : nm ∈ fs.map Fn.name) :
+    T.Defined h nm ∧ T.FnSpec h nm (Γ nm) (M.bound nm) nX :=
+  compile_sound h Γ extCallees exits nX fs M.code M.bounds k₀
+    M.compileModule_eq hc hu hwf hsound hext hexits
+    (nm, M.bound nm) (M.bound_mem hnm)
+
+/-- Module linking theorem specialized to `M.host` (when `extCallees = []`). -/
+theorem fnSpec_host (M : Compiled T [] exits nX fs maxBound)
+    (Γ : Env)
+    (hwf : ∀ f ∈ fs, Func.Wf f.body)
+    (hsound : ∀ f ∈ fs, ∀ args m Q X, Γ f.name args m Q X → Func.spec Γ f.body args m Q X)
+    {nm : String} (hnm : nm ∈ fs.map Fn.name) :
+    T.Defined M.host nm ∧ T.FnSpec M.host nm (Γ nm) (M.bound nm) nX :=
+  M.fnSpec M.host Γ 0 M.code_infix_host M.labelsUnique hwf hsound
+    (fun _ hp => nomatch hp) (fun _ hg => M.defined_exit_host hg) hnm
+
+end Compiled
+
+/-- Single boolean predicate checked once by `kernel_rfl` per program and target. -/
+def checkCompile (T : Target) (L : TargetLayout T)
+    (extCallees : List (String × Nat)) (exits : List String) (nX : Nat)
+    (fs : List Fn) (maxBound : Nat := 2048) : Bool :=
+  checkCompileResult T.label L.labelsNodup
+    (compileModule T.toIsa T.raBytes extCallees exits nX fs)
+    (fs.map Fn.name) exits maxBound
+
+/-- Construct `Compiled` from a single proof of `checkCompile = true`. -/
+def compileChecked (T : Target) (L : TargetLayout T)
+    (extCallees : List (String × Nat)) (exits : List String) (nX : Nat)
+    (fs : List Fn) (maxBound : Nat := 2048)
+    (h : checkCompile T L extCallees exits nX fs maxBound = true) :
+    Compiled T extCallees exits nX fs maxBound where
+  code := extractCode (compileModule T.toIsa T.raBytes extCallees exits nX fs)
+  bounds := extractBounds (compileModule T.toIsa T.raBytes extCallees exits nX fs)
+  compileModule_eq := extractResult_eq h
+  compile_eq := compile_of_compileModule (extractResult_eq h)
+  bound_mem := extract_bound_mem h
+  bound_le := extract_bound_le h
+  host := L.layoutOf
+    (extractCode (compileModule T.toIsa T.raBytes extCallees exits nX fs) ++ exits.map T.label)
+    (extract_small h)
+  prog_host := L.prog_layoutOf _ _
+  labelsUnique := L.labelsUnique_layoutOf (extract_small h) (extract_nodup h)
 
 end LeanQbe

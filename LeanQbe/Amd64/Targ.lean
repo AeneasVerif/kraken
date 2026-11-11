@@ -88,6 +88,7 @@ def frameSize (ns : Nat) : Nat := 8 * ns + (if ns % 2 = 0 then 8 else 0)
   store := store
   jmp := jmp
   jnz := jnz
+  jnzCmp := jnzCmp
   ret := ret
   raRegs := []
   frameSize := frameSize
@@ -97,9 +98,5 @@ def frameSize (ns : Nat) : Nat := 8 * ns + (if ns % 2 = 0 then 8 else 0)
   slotLd rd i := [ldSpD rd (Int64.ofNat (8 * i))]
   call sym := [callD sym]
   tailJmp sym := [jmpD sym]
-
-/-- `isa` with fast-path instruction selection (`fastOp`, `fastStore`, and `jnzCmp`). -/
-@[reducible] def fastIsa : Isa :=
-  { isa with op := fastOp, store := fastStore, jnzCmp := jnzCmp }
 
 end LeanQbe.Amd64

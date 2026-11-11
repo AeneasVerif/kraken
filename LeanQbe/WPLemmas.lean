@@ -66,6 +66,53 @@ def Spec.Mono (spec : Spec) : Prop :=
 theorem Func.spec_mono (Γ : Env) (f : Func) : (Func.spec Γ f).Mono :=
   fun args m _ _ _ _ hQ hX h => wp_mono hQ hX (f Val Cont) args [] m h
 
+theorem wp_env_mono {Γ Γ' : Env} {Q : Post} {X : XPost}
+    (hΓ : ∀ g vs m P E, Γ g vs m P E → Γ' g vs m P E) (e : Expr Val Cont) :
+    ∀ args acc m, wp Γ Q X e args acc m → wp Γ' Q X e args acc m := by
+  induction e with
+  | let_ op k ih =>
+    intro args acc m h; simp only [wp] at h ⊢
+    exact ⟨h.1, Op.wp_mono (fun v => ih v [] [] m) h.2⟩
+  | load c s sg a k ih =>
+    intro args acc m h; simp only [wp] at h ⊢
+    obtain ⟨h1, v, hv, h2⟩ := h
+    exact ⟨h1, v, hv, ih v [] [] m h2⟩
+  | store s v a k ih =>
+    intro args acc m h; simp only [wp] at h ⊢
+    exact ⟨h.1, h.2.1, ih _ _ _ h.2.2⟩
+  | call f as k ih =>
+    intro args acc m h; simp only [wp] at h ⊢
+    obtain ⟨h1, P, E, hg, hP, hE⟩ := h
+    exact ⟨h1, P, E, hΓ _ _ _ _ _ hg, fun rs m' hp => ih _ _ _ (hP rs m' hp), hE⟩
+  | jnz c t e iht ihe =>
+    intro args acc m h; simp only [wp] at h ⊢
+    exact ⟨h.1, fun hc => iht _ _ _ (h.2.1 hc), fun hc => ihe _ _ _ (h.2.2 hc)⟩
+  | jump j as => intro args acc m h; simpa only [wp] using h
+  | ret vs => intro args acc m h; simpa only [wp] using h
+  | exit f as => intro args acc m h; simpa only [wp] using h
+  | hlt => intro args acc m h; simp only [wp] at h
+  | param f ih =>
+    intro args acc m h
+    cases args with
+    | nil => simp only [wp] at h
+    | cons a as => simp only [wp] at h ⊢; exact ih a _ _ _ h
+  | label f ih =>
+    intro args acc m h; simp only [wp] at h ⊢
+    exact ⟨h.1, fun J => ih J _ _ _ (h.2 J)⟩
+  | block b rest ihb ihr =>
+    intro args acc m h
+    cases acc with
+    | nil => simp only [wp, and_false] at h
+    | cons J acc' =>
+      simp only [wp] at h ⊢
+      exact ⟨h.1, fun hJ => ihr _ _ _ (h.2 (fun as m' hb => hJ as m' (ihb _ _ _ hb)))⟩
+
+theorem Func.spec_env_mono {Γ Γ' : Env}
+    (hΓ : ∀ g vs m P E, Γ g vs m P E → Γ' g vs m P E) {f : Func} {args : List Val}
+    {m : Mem 64} {Q : Post} {X : XPost} (h : Func.spec Γ f args m Q X) :
+    Func.spec Γ' f args m Q X :=
+  wp_env_mono hΓ (f Val Cont) args [] m h
+
 /-- Closure under a block that starts with a parameter: the parameter becomes a bound variable. -/
 theorem closed_param {Γ : Env} {Q : Post} {X : XPost} {f : Val → Expr Val Cont} {J : Cont} :
     (∀ as m, wp Γ Q X (.param f) as [] m → J as m) ↔

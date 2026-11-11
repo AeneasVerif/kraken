@@ -3,6 +3,8 @@ module
 public import LeanQbe.Amd64.Targ
 public import LeanQbe.Amd64.IselLemmas
 import Kraken.X64.Parser
+import all Kraken.Separation
+import all Kraken.Mem
 
 /-!
 # x64 target lemmas and the `Target` instance
@@ -418,21 +420,110 @@ def hostLabel (h : Host) (l : Label) : Int64 :=
     letI := h
     exact eventually_jnz hc hj fun s' hregs hmem =>
       hk s' (fun r _ => congrArg (Reg64s.get64 · r) hregs) hmem
+  jnzCmp_spec {h} {_} {_} {_} {_} {_} {_} {_} {_} {_} {_} {_} hop hc hj hvars hv hk := by
+    letI := h; exact eventually_jnzCmp hop hc hj hvars hv hk
   ret_spec {h} {_} {s} {_} {_} {_} hc _ hmem hk := by
     letI := h
     refine eventually_ret hc hmem (hk _ (fun r hr => ?_) ?_ rfl)
     · exact Reg64s.get64_set64_of_ne _ _ _ _ fun he => hr (he ▸ List.mem_cons_self)
     · exact Reg64s.get64_set64_same s.regs .rsp _
 
-/-- `target` with `fastIsa` (`fastOp`, `fastStore`, and `jnzCmp`). -/
-def fastTarget : Target :=
-  { target with
-    toIsa := fastIsa
-    op_spec := fun {h} {_} {_} {_} {_} {_} {_} {_} hop hc hvars hv hk => by
-      letI := h; exact eventually_fastOp hop hc hvars hv hk
-    store_spec := fun {h} {_} {_} {_} {_} {_} {_} {_} hop hc hvars hok hk => by
-      letI := h; exact eventually_fastStore hop hc hvars hok hk
-    jnzCmp_spec := fun {h} {_} {_} {_} {_} {_} {_} {_} {_} {_} {_} {_} hop hc hj hvars hv hk => by
-      letI := h; exact eventually_jnzCmp hop hc hj hvars hv hk }
+/-- Labels of size 0, every other directive of size 4, from `0x1000`. -/
+@[instance_reducible] def layoutOf (p : Program) : Layout :=
+  { start := 0x1000, size := fun i => match p[i]? with | some (.label _) => 0 | _ => 4 }
+
+theorem layoutOf_zero (p : Program) :
+    ∀ i d, p[i]? = some d → @Kraken.Layout.size _ (layoutOf p) i = 0 → ∃ l, d = .label l := by
+  intro i d hd hz
+  cases d
+  case label l => exact ⟨l, rfl⟩
+  all_goals
+    have hz' : (match p[i]? with | some (.label _) => 0 | _ => 4) = 0 := hz
+    rw [hd] at hz'
+    simp at hz'
+
+private theorem sum_sized_mapIdx_le_four (sz : Nat → Nat) (hsz : ∀ i, sz i ≤ 4) :
+    ∀ (xs : List Directive) (k : Nat),
+      (List.map (·.size)
+        (List.mapIdx (fun i d => ({ directive := d, size := sz (k + i) } : Kraken.Sized Directive)) xs)).sum ≤
+        4 * xs.length
+  | [], _ => by simp
+  | _ :: xs, k => by
+    rw [List.mapIdx_cons, List.map_cons, List.sum_cons, List.length_cons]
+    have h0 : sz (k + 0) ≤ 4 := hsz (k + 0)
+    have ih := sum_sized_mapIdx_le_four sz hsz xs (k + 1)
+    have hconv : (List.mapIdx (fun i d => ({ directive := d, size := sz (k + (i + 1)) } : Kraken.Sized Directive)) xs) =
+        (List.mapIdx (fun i d => ({ directive := d, size := sz (k + 1 + i) } : Kraken.Sized Directive)) xs) := by
+      congr 1; funext i d; congr 2; omega
+    rw [hconv]
+    dsimp only
+    omega
+
+theorem layoutOf_small (p : Program) (h : 4 * p.length < 2 ^ 64) :
+    (@Kraken.Layout.apply _ (layoutOf p) p).sizeBefore p.length < 2 ^ 64 := by
+  refine Nat.lt_of_le_of_lt ?_ h
+  simp only [Kraken.Executable.sizeBefore, Kraken.Layout.apply]
+  rw [List.take_of_length_le (by simp)]
+  simpa using sum_sized_mapIdx_le_four (fun i => @Kraken.Layout.size _ (layoutOf p) i)
+    (fun i => by
+      show (match p[i]? with | some (.label _) => 0 | _ => 4) ≤ 4
+      split <;> decide) p 0
+
+def labelsNodup (p : Program) : Bool :=
+  decide ((p.filterMap fun | .label l => some l | _ => none).Nodup)
+
+def targetLayout : TargetLayout target where
+  labelsNodup := labelsNodup
+  layoutOf prog h := .ofLayout prog (layoutOf prog) (layoutOf_zero prog) (layoutOf_small prog h)
+  prog_layoutOf _ _ := rfl
+  labelsUnique_layoutOf {prog} h hnd :=
+    letI : Host := .ofLayout prog (layoutOf prog) (layoutOf_zero prog) (layoutOf_small prog h)
+    Host.labelsUnique_of_nodup (of_decide_eq_true hnd)
+
+/-- `n`-byte zero stack below `rsp = 0x0ff8`, return address `ra` at `0x0ff8`, and payload `bs` at `0x1000`. -/
+def initMem (n : Nat) (ra : Int64) (bs : List UInt8) : Mem 64 :=
+  ((stackZeros n ++ ra.toUInt64.toBytes) ++ bs).At (0x0ff8#64 - BitVec.ofNat 64 n)
+
+theorem initMem_entry (n : Nat) (ra : Int64) (bs : List UInt8)
+    (hn : n ≤ 2048) (hbs : bs.length ≤ 8192) :
+    initMem n ra bs =⋆
+      Eq (bs.At 0x1000#64) ⋆
+      ((fun f => ∃ zs : List UInt8, zs.length = n ∧ f = zs.At (0x0ff8#64 - BitVec.ofNat 64 n)) ⋆
+        Eq (ra.toUInt64.At 0x0ff8#64)) ⋆
+      Std.ExtHashMap.emp := by
+  have hra : ra.toUInt64.toBytes.length = 8 := UInt64.toBytes_length _
+  have hzs : (stackZeros n).length = n := stackZeros_length n
+  rw [Std.ExtHashMap.sep_emp, Std.ExtHashMap.sep_comm]
+  have h1 := Mem.At_append_sep (stackZeros n ++ ra.toUInt64.toBytes) bs
+    (0x0ff8#64 - BitVec.ofNat 64 n)
+    (by simp only [List.length_append, hzs, hra]; omega)
+  have e2 : 0x0ff8#64 - BitVec.ofNat 64 n + BitVec.ofNat 64 (stackZeros n).length = 0x0ff8#64 := by
+    rw [hzs, BitVec.sub_add_cancel]
+  have e1 : 0x0ff8#64 - BitVec.ofNat 64 n + BitVec.ofNat 64 (stackZeros n ++ ra.toUInt64.toBytes).length =
+      0x1000#64 := by
+    simp only [List.length_append, hzs, hra]
+    apply BitVec.eq_of_toNat_eq
+    simp only [BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat]
+    omega
+  rw [e1] at h1
+  have h2 := Mem.At_append_sep (stackZeros n) ra.toUInt64.toBytes (0x0ff8#64 - BitVec.ofNat 64 n)
+    (by simp only [hzs, hra]; omega)
+  rw [e2] at h2
+  have h0 : (Eq (((stackZeros n ++ ra.toUInt64.toBytes) ++ bs).At (0x0ff8#64 - BitVec.ofNat 64 n)))
+      (initMem n ra bs) := rfl
+  rw [h1] at h0
+  refine sep_mono (fun f hf => ?_) h0
+  rw [h2] at hf
+  exact sep_mono (fun f1 hf1 => ⟨stackZeros n, hzs, hf1.symm⟩) hf
+
+theorem initMem_empty_entry (n : Nat) (ra : Int64) (hn : n ≤ 2048) :
+    initMem n ra [] =⋆
+      ((fun f => ∃ zs : List UInt8, zs.length = n ∧ f = zs.At (0x0ff8#64 - BitVec.ofNat 64 n)) ⋆
+        Eq (ra.toUInt64.At 0x0ff8#64)) ⋆
+      Std.ExtHashMap.emp := by
+  have h := initMem_entry n ra [] hn (by decide)
+  have hemp : Eq (([] : List UInt8).At 0x1000#64) = Std.ExtHashMap.emp := by
+    funext f; simp [List.At, Std.ExtHashMap.emp]
+  rwa [hemp, Std.ExtHashMap.emp_sep] at h
 
 end LeanQbe.Amd64

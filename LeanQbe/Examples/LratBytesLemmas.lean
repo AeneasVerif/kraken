@@ -3,6 +3,7 @@ module
 public import LeanQbe.Examples.LratBytesDimacsLemmas
 public import LeanQbe.Examples.LratBytesRupLemmas
 public import LeanQbe.Examples.LratBytesCheckLemmas
+public import LeanQbe.MainLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 
@@ -331,6 +332,43 @@ theorem lratBytesRejectEnv_sound :
 
 /-! ## 6. Concrete-memory source-level non-vacuity (`accepts` and `rejects`) -/
 
+abbrev nvCnfPtr : BitVec 64 := 0x1000#64
+abbrev nvPrfPtr (cnfBytes : List UInt8) : BitVec 64 :=
+  nvCnfPtr + BitVec.ofNat 64 cnfBytes.length
+abbrev nvWorkPtr (cnfBytes prfBytes : List UInt8) : BitVec 64 :=
+  nvPrfPtr cnfBytes + BitVec.ofNat 64 prfBytes.length
+
+def lratBytesPayload (cnfBytes prfBytes : List UInt8) : List UInt8 :=
+  (cnfBytes ++ prfBytes) ++ stackZeros 512
+
+theorem lratBytesPayload_length (cnfBytes prfBytes : List UInt8) :
+    (lratBytesPayload cnfBytes prfBytes).length = cnfBytes.length + prfBytes.length + 512 := by
+  simp [lratBytesPayload, stackZeros_length, Nat.add_assoc]
+
+theorem lratBytesPayload_sep (cnfBytes prfBytes : List UInt8)
+    (hcb : cnfBytes.length ≤ 4096) (hpb : prfBytes.length ≤ 4096) :
+    (Eq (cnfBytes.At nvCnfPtr) ⋆
+      Eq (prfBytes.At (nvPrfPtr cnfBytes)) ⋆
+      region (nvWorkPtr cnfBytes prfBytes) 512)
+      ((lratBytesPayload cnfBytes prfBytes).At nvCnfPtr) := by
+  have hptr : nvCnfPtr.toNat = 4096 := rfl
+  have h512 : (stackZeros 512).length = 512 := stackZeros_length 512
+  have h1 := Mem.At_append_sep (cnfBytes ++ prfBytes) (stackZeros 512) nvCnfPtr
+    (by simp only [List.length_append, h512]; omega)
+  have e1 : nvCnfPtr + BitVec.ofNat 64 (cnfBytes ++ prfBytes).length =
+      nvWorkPtr cnfBytes prfBytes := by
+    simp only [nvWorkPtr, nvPrfPtr, nvCnfPtr, List.length_append]
+    apply BitVec.eq_of_toNat_eq
+    simp only [BitVec.toNat_add, BitVec.toNat_ofNat]
+    omega
+  rw [e1] at h1
+  have h2 := Mem.At_append_sep cnfBytes prfBytes nvCnfPtr (by omega)
+  have h0 : (Eq (((cnfBytes ++ prfBytes) ++ stackZeros 512).At nvCnfPtr))
+      ((lratBytesPayload cnfBytes prfBytes).At nvCnfPtr) := rfl
+  rw [h1] at h0
+  exact sep_mono (fun fL hfL => by rwa [h2] at hfL)
+    (sep_mono_r (fun fW hfW => ⟨stackZeros 512, h512, hfW.symm⟩) h0)
+
 private theorem concreteMem_sep (cnfBytes prfBytes : List UInt8)
     (hcb : cnfBytes.length ≤ 4096) (hpb : prfBytes.length ≤ 4096) :
     let cnf_ptr : Val := 0x1000#64
@@ -412,5 +450,59 @@ theorem lratCheckBytes_rejects_nonvacuous :
   · simp [cnf_ptr, hcb]
   · simp [prf_ptr, cnf_ptr, hcb, hpb]
   · simp [work_ptr, prf_ptr, cnf_ptr, hcb, hpb]
+
+/-! ## 7. Target-generic `compile_sound` linking -/
+
+theorem lrat_bytes_fnSpec {T : Target} {maxBound : Nat}
+    (M : Compiled T [] [] 0 lratBytesFns maxBound)
+    (hh : T.Host) (k₀ : Nat) (hc : M.code.IsInfixAt (T.prog hh) k₀)
+    (hu : T.LabelsUnique hh) {nm : String} (hnm : nm ∈ lratBytesFns.map Fn.name) :
+    T.Defined hh nm ∧ T.FnSpec hh nm (lratBytesEnv nm) (M.bound nm) 0 :=
+  M.fnSpec hh lratBytesEnv k₀ hc hu lratBytesFns_wf lratBytesEnv_sound
+    (fun _ h => nomatch h) (fun _ h => nomatch h) hnm
+
+theorem lrat_bytes_accepts_fnSpec {T : Target} {maxBound : Nat}
+    (M : Compiled T [] [] 0 lratBytesFns maxBound) :
+    T.FnSpec M.host "lrat_check_bytes" lratCheckBytesAcceptSpec (M.bound "lrat_check_bytes") 0 := by
+  simpa [lratBytesAcceptEnv_entry] using
+    (M.fnSpec_host lratBytesAcceptEnv lratBytesFns_wf lratBytesAcceptEnv_sound
+      (nm := "lrat_check_bytes") (by simp [lratBytesFns])).2
+
+theorem lrat_bytes_rejects_fnSpec {T : Target} {maxBound : Nat}
+    (M : Compiled T [] [] 0 lratBytesFns maxBound) :
+    T.FnSpec M.host "lrat_check_bytes" lratCheckBytesRejectSpec (M.bound "lrat_check_bytes") 0 := by
+  simpa [lratBytesRejectEnv_entry] using
+    (M.fnSpec_host lratBytesRejectEnv lratBytesFns_wf lratBytesRejectEnv_sound
+      (nm := "lrat_check_bytes") (by simp [lratBytesFns])).2
+
+theorem lratCheckBytesAcceptSpec_nv (m : Mem 64)
+    (hm : ((Eq (nvDimacsBytes.At nvCnfPtr) ⋆ Eq (nvLratAcceptBytes.At (nvPrfPtr nvDimacsBytes)) ⋆
+      region (nvWorkPtr nvDimacsBytes nvLratAcceptBytes) 512) ⋆ Std.ExtHashMap.emp) m) :
+    lratCheckBytesAcceptSpec
+      [nvCnfPtr, BitVec.ofNat 64 nvDimacsBytes.length,
+       nvPrfPtr nvDimacsBytes, BitVec.ofNat 64 nvLratAcceptBytes.length,
+       nvWorkPtr nvDimacsBytes nvLratAcceptBytes, 512#64]
+      m (fun rs _ => rs = [1] ∧ nvBytesCnf.Unsat) (fun _ _ _ => False) :=
+  ⟨nvCnfPtr, nvPrfPtr nvDimacsBytes, nvWorkPtr nvDimacsBytes nvLratAcceptBytes,
+    Std.ExtHashMap.emp, rfl,
+    by simp only [nvCnfPtr, nvDimacsBytes_length]; decide,
+    by simp only [nvPrfPtr, nvCnfPtr, nvDimacsBytes_length, nvLratAcceptBytes_length]; decide,
+    by simp only [nvWorkPtr, nvPrfPtr, nvCnfPtr, nvDimacsBytes_length, nvLratAcceptBytes_length]; decide,
+    hm, fun _ hu _ => ⟨rfl, hu⟩⟩
+
+theorem lratCheckBytesRejectSpec_nv (m : Mem 64)
+    (hm : ((Eq (nvDimacsBytes.At nvCnfPtr) ⋆ Eq (nvLratRejectBytes.At (nvPrfPtr nvDimacsBytes)) ⋆
+      region (nvWorkPtr nvDimacsBytes nvLratRejectBytes) 512) ⋆ Std.ExtHashMap.emp) m) :
+    lratCheckBytesRejectSpec
+      [nvCnfPtr, BitVec.ofNat 64 nvDimacsBytes.length,
+       nvPrfPtr nvDimacsBytes, BitVec.ofNat 64 nvLratRejectBytes.length,
+       nvWorkPtr nvDimacsBytes nvLratRejectBytes, 512#64]
+      m (fun rs _ => rs = [0]) (fun _ _ _ => False) :=
+  ⟨nvCnfPtr, nvPrfPtr nvDimacsBytes, nvWorkPtr nvDimacsBytes nvLratRejectBytes,
+    Std.ExtHashMap.emp, rfl,
+    by simp only [nvCnfPtr, nvDimacsBytes_length]; decide,
+    by simp only [nvPrfPtr, nvCnfPtr, nvDimacsBytes_length, nvLratRejectBytes_length]; decide,
+    by simp only [nvWorkPtr, nvPrfPtr, nvCnfPtr, nvDimacsBytes_length, nvLratRejectBytes_length]; decide,
+    hm, fun _ _ => rfl⟩
 
 end LeanQbe.LratBytes

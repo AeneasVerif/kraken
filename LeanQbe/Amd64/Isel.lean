@@ -177,24 +177,6 @@ def divSeq (rd : Reg64) (core : List Directive) (res : Reg64) (a b : Arg Reg64) 
     some (argTo .r10 a :: argTo .r11 b :: movD rd .rax :: movD .rax .r10 :: movD .r10 .rdx ::
       (core ++ [movD .r11 res, movD .rdx .r10, movD .rax rd, movD rd .r11]))
 
-/-- `rd := o`. -/
-def op : Op Reg64 → Reg64 → Option (List Directive)
-  | .bin k o a b, rd =>
-    match shiftIns k o with
-    | some i => some [argTo .r11 a, movD .r10 .rcx, argTo .rcx b, i, movD .rcx .r10, movD rd .r11]
-    | none =>
-      match divCore k o with
-      | some (core, res) => divSeq rd core res a b
-      | none => (binIns k o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
-  | .cmp k o a b, rd =>
-    let (x, y) := if (condOf o).1 then (b, a) else (a, b)
-    some [argTo .r11 x, argTo .r10 y, cmpIns k, setccD (condOf o).2, movzbD rd]
-  | .ext k s sg (.var r), rd => some [extD k s sg rd r]
-  | .ext k s sg (.imm c), rd => some [moviD rd (k.trunc (s.extend sg c))]
-  | .copy .l a, rd => some [argTo rd a]
-  | .copy .w (.var r), rd => some [movlD rd r]
-  | .copy .w (.imm c), rd => some [moviD rd (Cls.w.trunc c)]
-
 /-- An address operand: a register as is, an immediate materialised in `r10`. -/
 def addrIn : Arg Reg64 → List Directive × Reg64
   | .var r => ([], r)
@@ -226,12 +208,6 @@ def storeIns : Sz → Reg64 → Directive
   | .h, ra => ins16 (.mov (.mem (atReg ra)) (.reg (h16 .r11)))
   | .w, ra => ins32 (.mov (.mem (atReg ra)) (.reg (d .r11)))
   | .l, ra => storelD .r11 ra
-
-/-- `store{sz} x, a`: the value through `r11`, an immediate address through `r10`. -/
-def store (sz : Sz) (x a : Arg Reg64) : Option (List Directive) :=
-  some (argTo .r11 x :: (addrIn a).1 ++ [storeIns sz (addrIn a).2])
-
-/-! ## Fast-path instruction selection (`fastOp`, `fastStore`) -/
 
 /-- `sh{l,r}/sar{k} $c, %rd`: shift `rd` by immediate `c` (masked to 5 or 6 bits). -/
 def shiftImmIns : Cls → BinOp → Reg64 → Val → Option Directive
@@ -328,7 +304,7 @@ def movK : Cls → Reg64 → Reg64 → Directive
   | .w => movlD
 
 /-- `rd := o` with fast paths for immediate shifts, immediate ALU/cmp, 3-op `lea`, and 2-address `bin`. -/
-def fastOp : Op Reg64 → Reg64 → Option (List Directive)
+def op : Op Reg64 → Reg64 → Option (List Directive)
   | .bin k o a b, rd =>
     match shiftIns k o with
     | some i =>
@@ -384,7 +360,7 @@ def fastOp : Op Reg64 → Reg64 → Option (List Directive)
   | .copy .w (.imm c), rd => some [moviD rd (Cls.w.trunc c)]
 
 /-- `store{sz} x, a` with direct register/imm store. -/
-def fastStore (sz : Sz) (x a : Arg Reg64) : Option (List Directive) :=
+def store (sz : Sz) (x a : Arg Reg64) : Option (List Directive) :=
   match x with
   | .var rv => some ((addrIn a).1 ++ [storeRegIns sz rv (addrIn a).2])
   | .imm cx =>

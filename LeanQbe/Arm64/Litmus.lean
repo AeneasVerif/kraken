@@ -1,19 +1,17 @@
 module
 
-public import LeanQbe.Arm64.LitmusCode
-public import LeanQbe.Arm64.Tracer
+public import LeanQbe.Arm64.Abi
+public import LeanQbe.Examples.LitmusProgsLemmas
 import all Kraken.Separation
 import all Kraken.Mem
 
 /-!
-# Litmus programs on AArch64: end-to-end theorems and non-vacuity
+# Litmus suite on AArch64
 
-* `sumto_correct` & `sumto_nonvacuous`: the counting loop end to end on Kraken AArch64.
-* `callinc_module_fnspec`, `callinc_correct` & `callinc_nonvacuous`: two-function module
-  `[inc, callinc]` with a value spilled across a call.
-* `twice_module_fnspec`, `twice_correct` & `twice_nonvacuous_exit`: two-function module
-  `[check, twice]` with an exit to `"fail"` propagated through a call.
-* `spill10_correct` & `spill10_nonvacuous`: `spill10` end to end on Kraken AArch64.
+Instantiates all 10 litmus programs (`tracer`, `ifelse`, `sumto`, `evenodd`, `nested`, `swap`,
+`spill10`, `callinc`, `twice`, `sumcall`) on `Arm64.target` via one kernel evaluation per program
+(`compileChecked ... (by kernel_rfl)`), proving `FnSpec`s, closed Kraken-AArch64 end-to-end theorems,
+and concrete execution witnesses.
 -/
 
 set_option autoImplicit false
@@ -22,52 +20,177 @@ set_option autoImplicit false
 
 namespace LeanQbe.Arm64.Litmus
 
-open LeanQbe LeanQbe.Litmus LeanQbe.Arm64.Tracer Rega
+open LeanQbe LeanQbe.Litmus Arm64 Kraken
 
-/-- Labels of size 0, every other directive of size 4, from `0x1000`. -/
-@[instance_reducible] def layoutOf (p : Program) : Layout :=
-  { start := 0x1000, size := fun i => match p[i]? with | some (.label _) => 0 | _ => 4 }
+def tracerCompiled : Compiled target [] [] 0 [tracer] :=
+  compileChecked target targetLayout [] [] 0 [tracer] 2048 (by kernel_rfl)
 
-theorem layoutOf_zero (p : Program) :
-    ∀ i d, p[i]? = some d → @Kraken.Layout.size _ (layoutOf p) i = 0 → ∃ l, d = .label l := by
-  intro i d hd hz
-  cases d
-  case label l => exact ⟨l, rfl⟩
-  all_goals
-    have hz' : (match p[i]? with | some (.label _) => 0 | _ => 4) = 0 := hz
-    rw [hd] at hz'
-    simp at hz'
+def ifelseCompiled : Compiled target [] [] 0 [ifelse] :=
+  compileChecked target targetLayout [] [] 0 [ifelse] 2048 (by kernel_rfl)
 
-/-! ## A loop end to end: `sumto` on Kraken AArch64 -/
+def sumtoCompiled : Compiled target [] [] 0 [sumto] :=
+  compileChecked target targetLayout [] [] 0 [sumto] 2048 (by kernel_rfl)
 
-/-- `sumto` on Kraken AArch64: called with `n < 2^32` in `x0`, 16 bytes of stack space below `sp`,
-the return address in `x30` and a 16-byte aligned `sp`, it returns to `ra` with `1 + 2 + … + n` in
-`x0`, the callee-saved registers and `sp` intact, the 16-byte stack frame returned with arbitrary
-contents, and the frame `R` untouched. -/
-theorem sumto_correct [Host] (k₀ : Nat) (hc : sumtoCode.IsInfixAt Host.prog k₀)
+def evenoddCompiled : Compiled target [] [] 0 [evenodd] :=
+  compileChecked target targetLayout [] [] 0 [evenodd] 2048 (by kernel_rfl)
+
+def nestedCompiled : Compiled target [] [] 0 [nested] :=
+  compileChecked target targetLayout [] [] 0 [nested] 2048 (by kernel_rfl)
+
+def swapCompiled : Compiled target [] [] 0 [swap] :=
+  compileChecked target targetLayout [] [] 0 [swap] 2048 (by kernel_rfl)
+
+def spill10Compiled : Compiled target [] [] 0 [spill10] :=
+  compileChecked target targetLayout [] [] 0 [spill10] 2048 (by kernel_rfl)
+
+def callincCompiled : Compiled target [] [] 0 [inc, callinc] :=
+  compileChecked target targetLayout [] [] 0 [inc, callinc] 2048 (by kernel_rfl)
+
+def twiceCompiled : Compiled target [] ["fail"] 0 [check, twice] :=
+  compileChecked target targetLayout [] ["fail"] 0 [check, twice] 2048 (by kernel_rfl)
+
+def sumcallCompiled : Compiled target [] [] 0 [inc, sumcall] :=
+  compileChecked target targetLayout [] [] 0 [inc, sumcall] 2048 (by kernel_rfl)
+
+section Generic
+variable [hh : Host]
+
+theorem tracer_fnspec (k₀ : Nat) (hc : tracerCompiled.code.IsInfixAt Host.prog k₀)
+    (hu : Host.LabelsUnique) :
+    target.Defined hh "tracer" ∧
+      target.FnSpec hh "tracer" (Func.spec emptyEnv tracer.body) (tracerCompiled.bound "tracer") 0 :=
+  leaf_fnSpec tracerCompiled tracer_wf hh k₀ hc hu
+
+theorem ifelse_fnspec (k₀ : Nat) (hc : ifelseCompiled.code.IsInfixAt Host.prog k₀)
+    (hu : Host.LabelsUnique) :
+    target.Defined hh "ifelse" ∧
+      target.FnSpec hh "ifelse" (Func.spec emptyEnv ifelse.body) (ifelseCompiled.bound "ifelse") 0 :=
+  leaf_fnSpec ifelseCompiled ifelse_wf hh k₀ hc hu
+
+theorem sumto_fnspec (k₀ : Nat) (hc : sumtoCompiled.code.IsInfixAt Host.prog k₀)
+    (hu : Host.LabelsUnique) :
+    target.Defined hh "sumto" ∧
+      target.FnSpec hh "sumto" (Func.spec emptyEnv sumto.body) (sumtoCompiled.bound "sumto") 0 :=
+  leaf_fnSpec sumtoCompiled sumto_wf hh k₀ hc hu
+
+theorem evenodd_fnspec (k₀ : Nat) (hc : evenoddCompiled.code.IsInfixAt Host.prog k₀)
+    (hu : Host.LabelsUnique) :
+    target.Defined hh "evenodd" ∧
+      target.FnSpec hh "evenodd" (Func.spec emptyEnv evenodd.body) (evenoddCompiled.bound "evenodd") 0 :=
+  leaf_fnSpec evenoddCompiled evenodd_wf hh k₀ hc hu
+
+theorem nested_fnspec (k₀ : Nat) (hc : nestedCompiled.code.IsInfixAt Host.prog k₀)
+    (hu : Host.LabelsUnique) :
+    target.Defined hh "nested" ∧
+      target.FnSpec hh "nested" (Func.spec emptyEnv nested.body) (nestedCompiled.bound "nested") 0 :=
+  leaf_fnSpec nestedCompiled nested_wf hh k₀ hc hu
+
+theorem swap_fnspec (k₀ : Nat) (hc : swapCompiled.code.IsInfixAt Host.prog k₀)
+    (hu : Host.LabelsUnique) :
+    target.Defined hh "swap" ∧
+      target.FnSpec hh "swap" (Func.spec emptyEnv swap.body) (swapCompiled.bound "swap") 0 :=
+  leaf_fnSpec swapCompiled swap_wf hh k₀ hc hu
+
+theorem spill10_fnspec (k₀ : Nat) (hc : spill10Compiled.code.IsInfixAt Host.prog k₀)
+    (hu : Host.LabelsUnique) :
+    target.Defined hh "spill10" ∧
+      target.FnSpec hh "spill10" (Func.spec emptyEnv spill10.body) (spill10Compiled.bound "spill10") 0 :=
+  leaf_fnSpec spill10Compiled spill10_wf hh k₀ hc hu
+
+theorem callinc_module_fnspec (k₀ : Nat)
+    (hc : callincCompiled.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    {nm : String} (hnm : nm ∈ [inc, callinc].map Fn.name) :
+    target.Defined hh nm ∧ target.FnSpec hh nm (callincEnv nm) (callincCompiled.bound nm) 0 :=
+  callinc_fnSpec callincCompiled hh k₀ hc hu hnm
+
+theorem twice_module_fnspec (k₀ : Nat)
+    (hc : twiceCompiled.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    (hfail : target.Defined hh "fail")
+    {nm : String} (hnm : nm ∈ [check, twice].map Fn.name) :
+    target.Defined hh nm ∧ target.FnSpec hh nm (twiceEnv nm) (twiceCompiled.bound nm) 0 :=
+  twice_fnSpec twiceCompiled hh k₀ hc hu hfail hnm
+
+theorem sumcall_module_fnspec (k₀ : Nat)
+    (hc : sumcallCompiled.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    {nm : String} (hnm : nm ∈ [inc, sumcall].map Fn.name) :
+    target.Defined hh nm ∧ target.FnSpec hh nm (sumcallEnv nm) (sumcallCompiled.bound nm) 0 :=
+  sumcall_fnSpec sumcallCompiled hh k₀ hc hu hnm
+
+/-- `tracer` on Kraken AArch64. -/
+theorem tracer_correct (k₀ : Nat) (hc : tracerCompiled.code.IsInfixAt Host.prog k₀)
+    (hu : Host.LabelsUnique) (a b p : BitVec 64) (m : Mem 64)
+    (hp : ∃ i, m.loadInt p 8 = some i)
+    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
+    (ha : (s.regs.getXReg .X0).toBitVec = a) (hb : (s.regs.getXReg .X1).toBitVec = b)
+    (hpp : (s.regs.getXReg .X2).toBitVec = p)
+    (hra : s.regs.X30 = ra.toUInt64)
+    (hsp : s.regs.SP.toNat % 16 = 0)
+    (hmem : s.dmem =⋆ Eq m ⋆
+      (fun f => ∃ bs : List UInt8, bs.length = tracerCompiled.bound "tracer" ∧
+          f = bs.At (s.regs.SP.toBitVec - BitVec.ofNat 64 (tracerCompiled.bound "tracer"))) ⋆ R) :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = ra ∧ (st.data.regs.getXReg .X0).toBitVec = a + b ∧
+        (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26, .X27, .X28, .X29],
+          st.data.regs.getXReg r = s.regs.getXReg r) ∧
+        st.data.regs.SP = s.regs.SP ∧
+        (st.data.dmem =⋆ Eq (m.storeInt p 8 (a + b).toInt) ⋆
+          (fun f => ∃ bs : List UInt8, bs.length = tracerCompiled.bound "tracer" ∧
+              f = bs.At (s.regs.SP.toBitVec - BitVec.ofNat 64 (tracerCompiled.bound "tracer"))) ⋆ R))
+      ⟨s, Labels.label "tracer"⟩ := by
+  obtain ⟨f_ab, f_rest, hu1, hd1, ⟨f_m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩ := hmem
+  have hwp : Func.spec emptyEnv tracer.body [a, b, p] m
+      (fun rets m' => rets = [a + b] ∧ m' = storeMem m .l p (a + b)) (fun _ _ _ => False) :=
+    tracer_spec emptyEnv a b p m (by simpa [storeOk, Sz.bytes] using hp)
+  have hargs : target.ArgsIn [a, b, p] s := by
+    simp [Target.ArgsIn, Target.ValsIn, argRegs, get_reg, ha, hb, hpp]
+  have hmem' : target.mem s =⋆ Eq m ⋆
+      target.Entry (target.get s target.sp) ra (tracerCompiled.bound "tracer") ⋆ R := by
+    refine ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, ?_⟩, hrest⟩
+    simp only [Target.Entry, region_zero, Std.ExtHashMap.sep_emp]
+    exact hentry
+  have h := (tracer_fnspec k₀ hc hu).2 [a, b, p] m _ _ hwp s ra R hargs hra hsp hmem'
+  refine eventually_weaken _ _ _ _ ?_ h
+  rintro st (⟨hpc, rets, m', ⟨rfl, rfl⟩, hrets, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx, _⟩)
+  · refine ⟨hpc, ?_, fun r hr => ?_, ?_, ?_⟩
+    · simpa [Target.RetsIn, Target.ValsIn, retRegs, get_reg] using hrets
+    · have := hcs (.reg r) (by simp [calleeSaved] at hr ⊢; omega)
+      exact UInt64.toBitVec_inj.mp this
+    · have : get st.data .SP = get s .SP := by simpa using hsp'
+      exact UInt64.toBitVec_inj.mp this
+    · exact hm'
+  · exact hx.elim
+
+/-- `sumto` on Kraken AArch64. -/
+theorem sumto_correct (k₀ : Nat) (hc : sumtoCompiled.code.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique) (n : BitVec 64) (hn : n.toNat < 2 ^ 32)
     (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
     (hx0 : (s.regs.getXReg .X0).toBitVec = n) (hra : s.regs.X30 = ra.toUInt64)
     (hsp : s.regs.SP.toNat % 16 = 0)
     (hmem : s.dmem =⋆
-      (fun f => ∃ bs : List UInt8, bs.length = 16 ∧ f = bs.At (s.regs.SP.toBitVec - 16#64)) ⋆ R) :
+      (fun f => ∃ bs : List UInt8, bs.length = sumtoCompiled.bound "sumto" ∧
+          f = bs.At (s.regs.SP.toBitVec - BitVec.ofNat 64 (sumtoCompiled.bound "sumto"))) ⋆ R) :
     Eventually (step1 Host.exe)
       (fun st => st.pc = ra ∧ (st.data.regs.getXReg .X0).toBitVec = tri n.toNat ∧
         (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26, .X27, .X28, .X29],
           st.data.regs.getXReg r = s.regs.getXReg r) ∧
         st.data.regs.SP = s.regs.SP ∧
         (st.data.dmem =⋆
-          (fun f => ∃ bs : List UInt8, bs.length = 16 ∧ f = bs.At (s.regs.SP.toBitVec - 16#64)) ⋆ R))
+          (fun f => ∃ bs : List UInt8, bs.length = sumtoCompiled.bound "sumto" ∧
+              f = bs.At (s.regs.SP.toBitVec - BitVec.ofNat 64 (sumtoCompiled.bound "sumto"))) ⋆ R))
       ⟨s, Labels.label "sumto"⟩ := by
+  obtain ⟨f_entry, f_rest, hu1, hd1, hentry, hrest⟩ := hmem
   have hE : (Eq (∅ : Mem 64)) = Std.ExtHashMap.emp := by
     funext x; apply propext; simp [Std.ExtHashMap.emp, eq_comm]
   have hargs : target.ArgsIn [n] s := by
     simp [Target.ArgsIn, Target.ValsIn, argRegs, get_reg, hx0]
-  have hmem' : target.mem s =⋆ Eq ∅ ⋆ target.Entry (target.get s target.sp) ra 16 ⋆ R := by
-    simp only [Target.Entry, region_zero, Std.ExtHashMap.emp_sep, Std.ExtHashMap.sep_emp, hE]
-    exact hmem
-  have h := sumto_fnspec k₀ hc hu (fun _ _ _ _ _ => False) 0 [n] ∅ _ _ (sumto_spec _ n hn ∅) s ra R
-    hargs hra hsp hmem'
+  have hmem' : target.mem s =⋆ Eq ∅ ⋆
+      target.Entry (target.get s target.sp) ra (sumtoCompiled.bound "sumto") ⋆ R := by
+    rw [hE, Std.ExtHashMap.emp_sep]
+    refine ⟨f_entry, f_rest, hu1, hd1, ?_, hrest⟩
+    simp only [Target.Entry, region_zero, Std.ExtHashMap.sep_emp]
+    exact hentry
+  have h := (sumto_fnspec k₀ hc hu).2 [n] ∅ _ _ (sumto_spec emptyEnv n hn ∅)
+    s ra R hargs hra hsp hmem'
   refine eventually_weaken _ _ _ _ ?_ h
   rintro st (⟨hpc, rets, m', ⟨rfl, rfl⟩, hrets, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx, _⟩)
   · refine ⟨hpc, ?_, fun r hr => ?_, ?_, ?_⟩
@@ -80,80 +203,36 @@ theorem sumto_correct [Host] (k₀ : Nat) (hc : sumtoCode.IsInfixAt Host.prog k�
       exact hm'
   · exact hx.elim
 
-abbrev sumtoHost : Host := .ofLayout sumtoCode (layoutOf sumtoCode) (layoutOf_zero _) (by decide)
-
-def sumtoState : MachineData :=
-  { regs := { X0 := 3, X30 := (0x1234 : Int64).toUInt64, SP := 0x7000 },
-    dmem := zeros16.At 0x6ff0#64 }
-
-attribute [local instance] sumtoHost in
-theorem sumto_nonvacuous :
-    Eventually (step1 Host.exe)
-      (fun st => st.pc = 0x1234 ∧ (st.data.regs.getXReg .X0).toBitVec = 6)
-      ⟨sumtoState, Labels.label "sumto"⟩ := by
-  have hmem : sumtoState.dmem =⋆
-      (fun f => ∃ bs : List UInt8, bs.length = 16 ∧ f = bs.At (sumtoState.regs.SP.toBitVec - 16#64)) ⋆
-      Std.ExtHashMap.emp := by
-    rw [Std.ExtHashMap.sep_emp]
-    exact ⟨zeros16, by simp [zeros16], rfl⟩
-  have h := sumto_correct 0 (List.prefix_refl _) (Host.labelsUnique_of_nodup (by decide)) 3
-    (by decide) sumtoState 0x1234 Std.ExtHashMap.emp rfl rfl (by decide) hmem
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st ⟨hpc, hx0, -⟩
-  exact ⟨hpc, by rw [hx0]; decide⟩
-
-/-! ## Two-function module with a call and a spill across the call: `[inc, callinc]` -/
-
-def callincEnv : Env := fun g => if g = "inc" then incContract else callincContract
-
-/-- Linking `[inc, callinc]` via `compile_sound`. -/
-theorem callinc_module_fnspec [hh : Host] (k₀ : Nat)
-    (hc : (incCode ++ callincCode).IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
-    ∀ p ∈ callincBounds,
-      target.Defined hh p.1 ∧ target.FnSpec hh p.1 (callincEnv p.1) p.2 0 := by
-  refine compile_sound (T := target) hh callincEnv [] [] 0 [inc, callinc]
-    (incCode ++ callincCode) callincBounds k₀ callinc_module_compile hc hu ?_ ?_
-    (fun _ h => nomatch h) (fun _ h => nomatch h)
-  · intro f hf
-    simp only [List.mem_cons] at hf
-    rcases hf with rfl | rfl | h
-    · exact inc_wf
-    · exact callinc_wf
-    · nomatch h
-  · intro f hf
-    simp only [List.mem_cons] at hf
-    rcases hf with rfl | rfl | h
-    · exact inc_spec _
-    · exact callinc_spec _ rfl
-    · nomatch h
-
-/-- `callinc` on Kraken AArch64: in every host containing `incCode ++ callincCode` at index `k₀`,
-calling `callinc` (at `Labels.label "callinc"`) with `a, b` in `x0, x1`, 32 bytes of stack space
-below `sp`, return address `ra` in `x30`, and 16-byte aligned `sp` returns to `ra` with `a + 1 + b`
-in `x0`. -/
-theorem callinc_correct [hh : Host] (k₀ : Nat)
-    (hc : (incCode ++ callincCode).IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+/-- `callinc` on Kraken AArch64. -/
+theorem callinc_correct (k₀ : Nat)
+    (hc : callincCompiled.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (a b : BitVec 64) (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
     (ha : (s.regs.getXReg .X0).toBitVec = a) (hb : (s.regs.getXReg .X1).toBitVec = b)
     (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)
     (hmem : s.dmem =⋆
-      (fun f => ∃ bs : List UInt8, bs.length = 32 ∧ f = bs.At (s.regs.SP.toBitVec - 32#64)) ⋆ R) :
+      (fun f => ∃ bs : List UInt8, bs.length = callincCompiled.bound "callinc" ∧
+          f = bs.At (s.regs.SP.toBitVec - BitVec.ofNat 64 (callincCompiled.bound "callinc"))) ⋆ R) :
     Eventually (step1 Host.exe)
       (fun st => st.pc = ra ∧ (st.data.regs.getXReg .X0).toBitVec = a + 1 + b ∧
         (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26, .X27, .X28, .X29],
           st.data.regs.getXReg r = s.regs.getXReg r) ∧
         st.data.regs.SP = s.regs.SP ∧
         (st.data.dmem =⋆
-          (fun f => ∃ bs : List UInt8, bs.length = 32 ∧ f = bs.At (s.regs.SP.toBitVec - 32#64)) ⋆ R))
+          (fun f => ∃ bs : List UInt8, bs.length = callincCompiled.bound "callinc" ∧
+              f = bs.At (s.regs.SP.toBitVec - BitVec.ofNat 64 (callincCompiled.bound "callinc"))) ⋆ R))
       ⟨s, Labels.label "callinc"⟩ := by
+  obtain ⟨f_entry, f_rest, hu1, hd1, hentry, hrest⟩ := hmem
   have hE : (Eq (∅ : Mem 64)) = Std.ExtHashMap.emp := by
     funext x; apply propext; simp [Std.ExtHashMap.emp, eq_comm]
   have hargs : target.ArgsIn [a, b] s := by
     simp [Target.ArgsIn, Target.ValsIn, argRegs, get_reg, ha, hb]
-  have hmem' : target.mem s =⋆ Eq ∅ ⋆ target.Entry (target.get s target.sp) ra 32 ⋆ R := by
-    simp only [Target.Entry, region_zero, Std.ExtHashMap.emp_sep, Std.ExtHashMap.sep_emp, hE]
-    exact hmem
-  have hf := (callinc_module_fnspec k₀ hc hu ("callinc", 32) (by simp [callincBounds])).2
+  have hmem' : target.mem s =⋆ Eq ∅ ⋆
+      target.Entry (target.get s target.sp) ra (callincCompiled.bound "callinc") ⋆ R := by
+    rw [hE, Std.ExtHashMap.emp_sep]
+    refine ⟨f_entry, f_rest, hu1, hd1, ?_, hrest⟩
+    simp only [Target.Entry, region_zero, Std.ExtHashMap.sep_emp]
+    exact hentry
+  have hf := (callinc_module_fnspec k₀ hc hu (nm := "callinc") (by decide)).2
     [a, b] ∅ (fun r m' => r = [a + 1 + b] ∧ m' = ∅) (fun _ _ _ => False) ⟨a, b, rfl, rfl, rfl⟩
     s ra R hargs hra hsp hmem'
   refine eventually_weaken _ _ _ _ ?_ hf
@@ -168,69 +247,16 @@ theorem callinc_correct [hh : Host] (k₀ : Nat)
       exact hm'
   · exact hx.elim
 
-abbrev callincHost : Host :=
-  .ofLayout (incCode ++ callincCode) (layoutOf (incCode ++ callincCode)) (layoutOf_zero _) (by decide)
-
-def callincState : MachineData :=
-  { regs := { X0 := 40, X1 := 1, X30 := (0x1234 : Int64).toUInt64, SP := 0x7000 },
-    dmem := zeros32.At 0x6fe0#64 }
-
-attribute [local instance] callincHost in
-theorem callinc_nonvacuous :
-    Eventually (step1 Host.exe)
-      (fun st => st.pc = 0x1234 ∧ (st.data.regs.getXReg .X0).toBitVec = 42)
-      ⟨callincState, Labels.label "callinc"⟩ := by
-  have hmem : callincState.dmem =⋆
-      (fun f => ∃ bs : List UInt8, bs.length = 32 ∧ f = bs.At (callincState.regs.SP.toBitVec - 32#64)) ⋆
-      Std.ExtHashMap.emp := by
-    rw [Std.ExtHashMap.sep_emp]
-    exact ⟨zeros32, by simp [zeros32], rfl⟩
-  have h := callinc_correct 0 (List.prefix_refl _) (Host.labelsUnique_of_nodup (by decide)) 40 1
-    callincState 0x1234 Std.ExtHashMap.emp rfl rfl rfl (by decide) hmem
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st ⟨hpc, hx0, -⟩
-  exact ⟨hpc, by rw [hx0]; decide⟩
-
-/-! ## Exit propagation through a call: `[check, twice]` -/
-
-def twiceEnv : Env := fun g => if g = "check" then checkContract else twiceContract
-
-/-- Linking `[check, twice]` via `compile_sound` in any host that also defines `"fail"`. -/
-theorem twice_module_fnspec [hh : Host] (k₀ : Nat)
-    (hc : (checkCode ++ twiceCode).IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    (hfail : target.Defined hh "fail") :
-    ∀ p ∈ twiceBounds,
-      target.Defined hh p.1 ∧ target.FnSpec hh p.1 (twiceEnv p.1) p.2 16 := by
-  refine compile_sound (T := target) hh twiceEnv [] ["fail"] 16 [check, twice]
-    (checkCode ++ twiceCode) twiceBounds k₀ twice_module_compile hc hu ?_ ?_
-    (fun _ h => nomatch h) ?_
-  · intro f hf
-    simp only [List.mem_cons] at hf
-    rcases hf with rfl | rfl | h
-    · exact check_wf
-    · exact twice_wf
-    · nomatch h
-  · intro f hf
-    simp only [List.mem_cons] at hf
-    rcases hf with rfl | rfl | h
-    · exact check_spec _
-    · exact twice_spec _ rfl
-    · nomatch h
-  · intro g hg
-    simp only [List.mem_singleton] at hg
-    subst hg
-    exact hfail
-
-/-- `twice` on Kraken AArch64: returns `a + b` to `ra` when both have non-zero low 32 bits, or
-exits to `"fail"` in a call-ready state with the failing argument in `x0`. -/
-theorem twice_correct [hh : Host] (k₀ : Nat)
-    (hc : (checkCode ++ twiceCode).IsInfixAt Host.prog k₀)
+/-- `twice` on Kraken AArch64. -/
+theorem twice_correct (k₀ : Nat)
+    (hc : twiceCompiled.code.IsInfixAt Host.prog k₀)
     (hfail : target.Defined hh "fail") (hu : Host.LabelsUnique)
     (a b : BitVec 64) (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
     (ha : (s.regs.getXReg .X0).toBitVec = a) (hb : (s.regs.getXReg .X1).toBitVec = b)
     (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)
     (hmem : s.dmem =⋆
-      (fun f => ∃ bs : List UInt8, bs.length = 48 ∧ f = bs.At (s.regs.SP.toBitVec - 48#64)) ⋆ R) :
+      (fun f => ∃ bs : List UInt8, bs.length = twiceCompiled.bound "twice" ∧
+          f = bs.At (s.regs.SP.toBitVec - BitVec.ofNat 64 (twiceCompiled.bound "twice"))) ⋆ R) :
     Eventually (step1 Host.exe)
       (fun st =>
         (Truthy a ∧ Truthy b ∧ st.pc = ra ∧ (st.data.regs.getXReg .X0).toBitVec = a + b ∧
@@ -242,13 +268,17 @@ theorem twice_correct [hh : Host] (k₀ : Nat)
          (Truthy a ∧ ¬Truthy b ∧ st.pc = Labels.label "fail" ∧ (st.data.regs.getXReg .X0).toBitVec = b ∧
           st.data.regs.SP.toNat % 16 = 0)))
       ⟨s, Labels.label "twice"⟩ := by
+  obtain ⟨f_entry, f_rest, hu1, hd1, hentry, hrest⟩ := hmem
   have hE : (Eq (∅ : Mem 64)) = Std.ExtHashMap.emp := by
     funext x; apply propext; simp [Std.ExtHashMap.emp, eq_comm]
   have hargs : target.ArgsIn [a, b] s := by
     simp [Target.ArgsIn, Target.ValsIn, argRegs, get_reg, ha, hb]
-  have hmem' : target.mem s =⋆ Eq ∅ ⋆ target.Entry (target.get s target.sp) ra 48 ⋆ R := by
-    simp only [Target.Entry, region_zero, Std.ExtHashMap.emp_sep, Std.ExtHashMap.sep_emp, hE]
-    exact hmem
+  have hmem' : target.mem s =⋆ Eq ∅ ⋆
+      target.Entry (target.get s target.sp) ra (twiceCompiled.bound "twice") ⋆ R := by
+    rw [hE, Std.ExtHashMap.emp_sep]
+    refine ⟨f_entry, f_rest, hu1, hd1, ?_, hrest⟩
+    simp only [Target.Entry, region_zero, Std.ExtHashMap.sep_emp]
+    exact hentry
   let Q : LeanQbe.Post := fun r m' => Truthy a ∧ Truthy b ∧ r = [a + b] ∧ m' = ∅
   let X : XPost := fun g xs m' =>
     g = "fail" ∧ m' = ∅ ∧ ((¬Truthy a ∧ xs = [a]) ∨ (Truthy a ∧ ¬Truthy b ∧ xs = [b]))
@@ -256,7 +286,7 @@ theorem twice_correct [hh : Host] (k₀ : Nat)
     ⟨a, b, rfl, fun hta htb => ⟨hta, htb, rfl, rfl⟩,
       fun hna => ⟨rfl, rfl, Or.inl ⟨hna, rfl⟩⟩,
       fun hta hnb => ⟨rfl, rfl, Or.inr ⟨hta, hnb, rfl⟩⟩⟩
-  have hf := (twice_module_fnspec k₀ hc hu hfail ("twice", 48) (by simp [twiceBounds])).2
+  have hf := (twice_module_fnspec k₀ hc hu hfail (nm := "twice") (by decide)).2
     [a, b] ∅ Q X hspec s ra R hargs hra hsp hmem'
   refine eventually_weaken _ _ _ _ ?_ hf
   rintro st (⟨hpc, rets, m', ⟨hta, htb, rfl, rfl⟩, hrets, ⟨hcs, hsp'⟩, _⟩ |
@@ -273,63 +303,37 @@ theorem twice_correct [hh : Host] (k₀ : Nat)
     · refine Or.inr (Or.inr ⟨hta, hnb, hpc, ?_, hspE⟩)
       simpa [Target.ArgsIn, Target.ValsIn, argRegs, get_reg] using has'
 
-def twiceProg : Program := checkCode ++ twiceCode ++ [.label "fail"]
-
-abbrev twiceHost : Host :=
-  .ofLayout twiceProg (layoutOf twiceProg) (layoutOf_zero _) (by decide)
-
-def twiceState (a b : UInt64) : MachineData :=
-  { regs := { X0 := a, X1 := b, X30 := (0x1234 : Int64).toUInt64, SP := 0x7000 },
-    dmem := zeros48.At 0x6fd0#64 }
-
-attribute [local instance] twiceHost in
-theorem twice_nonvacuous_exit :
-    Eventually (step1 Host.exe)
-      (fun st => st.pc = Labels.label "fail" ∧
-        (st.data.regs.getXReg .X0).toBitVec = 0)
-      ⟨twiceState 20 0, Labels.label "twice"⟩ := by
-  have hmem : (twiceState 20 0).dmem =⋆
-      (fun f => ∃ bs : List UInt8, bs.length = 48 ∧ f = bs.At ((twiceState 20 0).regs.SP.toBitVec - 48#64)) ⋆
-      Std.ExtHashMap.emp := by
-    rw [Std.ExtHashMap.sep_emp]
-    exact ⟨zeros48, by simp [zeros48], rfl⟩
-  have hc : (checkCode ++ twiceCode).IsInfixAt Host.prog 0 := ⟨[.label "fail"], rfl⟩
-  have hfail : target.Defined twiceHost "fail" :=
-    ⟨checkCode.length + twiceCode.length, by decide⟩
-  have h := twice_correct 0 hc hfail (Host.labelsUnique_of_nodup (by decide)) 20 0 (twiceState 20 0)
-    0x1234 Std.ExtHashMap.emp rfl rfl rfl (by decide) hmem
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st (⟨_, h0, -⟩ | (⟨hna, -⟩ | ⟨_, _, hpc, hx0, -⟩))
-  · exact absurd h0 (by decide)
-  · exact absurd (by decide : Truthy 20) hna
-  · exact ⟨hpc, hx0⟩
-
-/-! ## `spill10` on Kraken AArch64 -/
-
-theorem spill10_correct [Host] (k₀ : Nat) (hc : spill10Code.IsInfixAt Host.prog k₀)
+/-- `spill10` on Kraken AArch64. -/
+theorem spill10_correct (k₀ : Nat) (hc : spill10Compiled.code.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique) (a b : BitVec 64)
     (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
     (ha : (s.regs.getXReg .X0).toBitVec = a) (hb : (s.regs.getXReg .X1).toBitVec = b)
     (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)
     (hmem : s.dmem =⋆
-      (fun f => ∃ bs : List UInt8, bs.length = 16 ∧ f = bs.At (s.regs.SP.toBitVec - 16#64)) ⋆ R) :
+      (fun f => ∃ bs : List UInt8, bs.length = spill10Compiled.bound "spill10" ∧
+          f = bs.At (s.regs.SP.toBitVec - BitVec.ofNat 64 (spill10Compiled.bound "spill10"))) ⋆ R) :
     Eventually (step1 Host.exe)
       (fun st => st.pc = ra ∧ (st.data.regs.getXReg .X0).toBitVec = spill10Val a b ∧
         (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26, .X27, .X28, .X29],
           st.data.regs.getXReg r = s.regs.getXReg r) ∧
         st.data.regs.SP = s.regs.SP ∧
         (st.data.dmem =⋆
-          (fun f => ∃ bs : List UInt8, bs.length = 16 ∧ f = bs.At (s.regs.SP.toBitVec - 16#64)) ⋆ R))
+          (fun f => ∃ bs : List UInt8, bs.length = spill10Compiled.bound "spill10" ∧
+              f = bs.At (s.regs.SP.toBitVec - BitVec.ofNat 64 (spill10Compiled.bound "spill10"))) ⋆ R))
       ⟨s, Labels.label "spill10"⟩ := by
+  obtain ⟨f_entry, f_rest, hu1, hd1, hentry, hrest⟩ := hmem
   have hE : (Eq (∅ : Mem 64)) = Std.ExtHashMap.emp := by
     funext x; apply propext; simp [Std.ExtHashMap.emp, eq_comm]
   have hargs : target.ArgsIn [a, b] s := by
     simp [Target.ArgsIn, Target.ValsIn, argRegs, get_reg, ha, hb]
-  have hmem' : target.mem s =⋆ Eq ∅ ⋆ target.Entry (target.get s target.sp) ra 16 ⋆ R := by
-    simp only [Target.Entry, region_zero, Std.ExtHashMap.emp_sep, Std.ExtHashMap.sep_emp, hE]
-    exact hmem
-  have h := spill10_fnspec k₀ hc hu (fun _ _ _ _ _ => False) 0
-    [a, b] ∅ _ _ (spill10_spec _ a b ∅) s ra R hargs hra hsp hmem'
+  have hmem' : target.mem s =⋆ Eq ∅ ⋆
+      target.Entry (target.get s target.sp) ra (spill10Compiled.bound "spill10") ⋆ R := by
+    rw [hE, Std.ExtHashMap.emp_sep]
+    refine ⟨f_entry, f_rest, hu1, hd1, ?_, hrest⟩
+    simp only [Target.Entry, region_zero, Std.ExtHashMap.sep_emp]
+    exact hentry
+  have h := (spill10_fnspec k₀ hc hu).2 [a, b] ∅ _ _ (spill10_spec emptyEnv a b ∅)
+    s ra R hargs hra hsp hmem'
   refine eventually_weaken _ _ _ _ ?_ h
   rintro st (⟨hpc, rets, m', ⟨rfl, rfl⟩, hrets, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx, _⟩)
   · refine ⟨hpc, ?_, fun r hr => ?_, ?_, ?_⟩
@@ -342,25 +346,104 @@ theorem spill10_correct [Host] (k₀ : Nat) (hc : spill10Code.IsInfixAt Host.pro
       exact hm'
   · exact hx.elim
 
-abbrev spill10Host : Host :=
-  .ofLayout spill10Code (layoutOf spill10Code) (layoutOf_zero _) (of_decide_eq_true (by kernel_rfl))
+end Generic
 
+/-! ## Concrete AArch64 execution witnesses -/
+
+abbrev tracerHost : Host := tracerCompiled.host
+def tracerState0 : MachineData :=
+  { regs := { X0 := 40, X1 := 2, X2 := 0x1000, X30 := (0x1234 : Int64).toUInt64, SP := 0x1000 },
+    dmem := initMem (tracerCompiled.bound "tracer") zeros8 }
+
+attribute [local instance] tracerHost in
+theorem tracer_nonvacuous :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = 0x1234 ∧ (st.data.regs.getXReg .X0).toBitVec = 42 ∧
+        (st.data.dmem =⋆ Eq (m0.storeInt 0x1000#64 8 (42 : BitVec 64).toInt) ⋆
+          (fun f => ∃ bs : List UInt8, bs.length = tracerCompiled.bound "tracer" ∧
+              f = bs.At (0x1000#64 - BitVec.ofNat 64 (tracerCompiled.bound "tracer"))) ⋆
+          Std.ExtHashMap.emp))
+      ⟨tracerState0, Labels.label "tracer"⟩ := by
+  have hmem := initMem_entry (tracerCompiled.bound "tracer") zeros8
+    (tracerCompiled.bound_le_max "tracer") (by decide)
+  have h := tracer_correct 0 tracerCompiled.code_infix_host tracerCompiled.labelsUnique
+    40 2 0x1000#64 m0 m0_loadInt tracerState0 0x1234 Std.ExtHashMap.emp rfl rfl rfl rfl (by decide) hmem
+  refine eventually_weaken _ _ _ _ ?_ h
+  rintro st ⟨hpc, hx0, -, -, hm⟩
+  exact ⟨hpc, hx0, hm⟩
+
+abbrev sumtoHost : Host := sumtoCompiled.host
+def sumtoState : MachineData :=
+  { regs := { X0 := 3, X30 := (0x1234 : Int64).toUInt64, SP := 0x1000 },
+    dmem := initMem (sumtoCompiled.bound "sumto") [] }
+
+attribute [local instance] sumtoHost in
+theorem sumto_nonvacuous :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = 0x1234 ∧ (st.data.regs.getXReg .X0).toBitVec = 6)
+      ⟨sumtoState, Labels.label "sumto"⟩ := by
+  have hmem := initMem_empty_entry (sumtoCompiled.bound "sumto")
+    (sumtoCompiled.bound_le_max "sumto")
+  have h := sumto_correct 0 sumtoCompiled.code_infix_host sumtoCompiled.labelsUnique
+    3 (by decide) sumtoState 0x1234 Std.ExtHashMap.emp rfl rfl (by decide) hmem
+  refine eventually_weaken _ _ _ _ ?_ h
+  rintro st ⟨hpc, hx0, -⟩
+  exact ⟨hpc, by rw [hx0]; decide⟩
+
+abbrev callincHost : Host := callincCompiled.host
+def callincState : MachineData :=
+  { regs := { X0 := 40, X1 := 1, X30 := (0x1234 : Int64).toUInt64, SP := 0x1000 },
+    dmem := initMem (callincCompiled.bound "callinc") [] }
+
+attribute [local instance] callincHost in
+theorem callinc_nonvacuous :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = 0x1234 ∧ (st.data.regs.getXReg .X0).toBitVec = 42)
+      ⟨callincState, Labels.label "callinc"⟩ := by
+  have hmem := initMem_empty_entry (callincCompiled.bound "callinc")
+    (callincCompiled.bound_le_max "callinc")
+  have h := callinc_correct 0 callincCompiled.code_infix_host callincCompiled.labelsUnique
+    40 1 callincState 0x1234 Std.ExtHashMap.emp rfl rfl rfl (by decide) hmem
+  refine eventually_weaken _ _ _ _ ?_ h
+  rintro st ⟨hpc, hx0, -⟩
+  exact ⟨hpc, by rw [hx0]; decide⟩
+
+abbrev twiceHost : Host := twiceCompiled.host
+def twiceState (a b : UInt64) : MachineData :=
+  { regs := { X0 := a, X1 := b, X30 := (0x1234 : Int64).toUInt64, SP := 0x1000 },
+    dmem := initMem (twiceCompiled.bound "twice") [] }
+
+attribute [local instance] twiceHost in
+theorem twice_nonvacuous_exit :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = Labels.label "fail" ∧ (st.data.regs.getXReg .X0).toBitVec = 0)
+      ⟨twiceState 20 0, Labels.label "twice"⟩ := by
+  have hmem := initMem_empty_entry (twiceCompiled.bound "twice")
+    (twiceCompiled.bound_le_max "twice")
+  have hfail : target.Defined twiceHost "fail" :=
+    twiceCompiled.defined_exit_host (by simp)
+  have h := twice_correct 0 twiceCompiled.code_infix_host hfail twiceCompiled.labelsUnique
+    20 0 (twiceState 20 0) 0x1234 Std.ExtHashMap.emp rfl rfl rfl (by decide) hmem
+  refine eventually_weaken _ _ _ _ ?_ h
+  rintro st (⟨_, h0, -⟩ | (⟨hna, -⟩ | ⟨_, _, hpc, hx0, -⟩))
+  · exact absurd h0 (by decide)
+  · exact absurd (by decide : Truthy 20) hna
+  · exact ⟨hpc, hx0⟩
+
+abbrev spill10Host : Host := spill10Compiled.host
 def spill10State : MachineData :=
-  { regs := { X0 := 10, X1 := 7, X30 := (0x1234 : Int64).toUInt64, SP := 0x7000 },
-    dmem := zeros16.At 0x6ff0#64 }
+  { regs := { X0 := 10, X1 := 7, X30 := (0x1234 : Int64).toUInt64, SP := 0x1000 },
+    dmem := initMem (spill10Compiled.bound "spill10") [] }
 
 attribute [local instance] spill10Host in
 theorem spill10_nonvacuous :
     Eventually (step1 Host.exe)
       (fun st => st.pc = 0x1234 ∧ (st.data.regs.getXReg .X0).toBitVec = spill10Val 10 7)
       ⟨spill10State, Labels.label "spill10"⟩ := by
-  have hmem : spill10State.dmem =⋆
-      (fun f => ∃ bs : List UInt8, bs.length = 16 ∧ f = bs.At (spill10State.regs.SP.toBitVec - 16#64)) ⋆
-      Std.ExtHashMap.emp := by
-    rw [Std.ExtHashMap.sep_emp]
-    exact ⟨zeros16, by simp [zeros16], rfl⟩
-  have h := spill10_correct 0 (List.prefix_refl _) (Host.labelsUnique_of_nodup (by decide)) 10 7
-    spill10State 0x1234 Std.ExtHashMap.emp rfl rfl rfl (by decide) hmem
+  have hmem := initMem_empty_entry (spill10Compiled.bound "spill10")
+    (spill10Compiled.bound_le_max "spill10")
+  have h := spill10_correct 0 spill10Compiled.code_infix_host spill10Compiled.labelsUnique
+    10 7 spill10State 0x1234 Std.ExtHashMap.emp rfl rfl rfl (by decide) hmem
   refine eventually_weaken _ _ _ _ ?_ h
   rintro st ⟨hpc, hx0, -⟩
   exact ⟨hpc, hx0⟩

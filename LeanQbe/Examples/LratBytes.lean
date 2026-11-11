@@ -14,7 +14,7 @@ DIMACS for a genuinely unsatisfiable `CNF Nat` (and `0` on any malformed input, 
 non-conflict, or insufficient scratch space).
 
 All six functions in `lratBytesFns` take at most 6 arguments, have `exits = []`, and return a single
-word so the module compiles cleanly through `Amd64.fastIsa`, `Amd64.isa`, `Arm64.isa`, and stock QBE.
+word so the module compiles cleanly through `Amd64.isa`, `Arm64.isa`, and stock QBE.
 
 ## Scratch header layout at `hdr = work_ptr` (10 × 8 = 80 bytes)
 

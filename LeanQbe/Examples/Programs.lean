@@ -13,12 +13,10 @@ driver (`LeanQbe.Driver`) can print, on every target. This is the only table: th
 `leanqbe` (x64) and `leanqbe-arm64` list and compile exactly these, and the test, benchmark and tool
 scripts ask the executables by name.
 
-Three groupings of the union-find functions have a name each, because three users need them:
-
-* `uf`: `find` and `union` (which calls `find` twice), the module of the litmus harness
-  `test/uf_main.c` and of the end-to-end theorems;
-* `unionfind`: `find` and `unionInline` (no call), the module of `test/arm64/unionfind_main.c`;
-* `uf_bench`: all three in one module, as `bench/uf_bench.c` links them.
+The three union-find names (`uf` for `test/uf_main.c`, `unionfind` for
+`test/arm64/unionfind_main.c`, and `uf_bench` for `bench/uf_bench.c`) all compile the unified
+three-function module `UnionFind.ufFns` (`find`, `union`, `unionInline`), matching the single
+compiled record in `Amd64.UnionFind` and `Arm64.UnionFind`.
 -/
 
 @[expose] public section
@@ -27,17 +25,14 @@ namespace LeanQbe
 
 /-- Built-in programs and multi-function modules: name, functions (callees first). -/
 def programs : List (String × List Fn) :=
-  let find : Fn := ⟨"find", UnionFind.find⟩
-  let union : Fn := ⟨"union", UnionFind.union⟩
-  let unionInline : Fn := ⟨"unionInline", UnionFind.unionInline⟩
   ([Litmus.tracer, Litmus.ifelse, Litmus.sumto, Litmus.evenodd, Litmus.nested, Litmus.swap,
     Litmus.spill10].map fun f => (f.name, [f])) ++
   [("callinc", [Litmus.inc, Litmus.callinc]),
    ("twice", [Litmus.check, Litmus.twice]),
    ("sumcall", [Litmus.inc, Litmus.sumcall]),
-   ("uf", [find, union]),
-   ("unionfind", [find, unionInline]),
-   ("uf_bench", [find, union, unionInline]),
+   ("uf", UnionFind.ufFns),
+   ("unionfind", UnionFind.ufFns),
+   ("uf_bench", UnionFind.ufFns),
    ("lrat_trim", LratTrim.lratTrimFns),
    ("lrat_bytes", LratBytes.lratBytesFns)]
 

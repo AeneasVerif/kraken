@@ -3,6 +3,7 @@ module
 public import LeanQbe.Examples.LratTrim
 public import LeanQbe.Examples.LratRupLemmas
 public import LeanQbe.Examples.LratTrimStrictLemmas
+public import LeanQbe.MainLemmas
 public import Kraken.SeparationTactics
 import all Kraken.Mem
 import all Kraken.Separation
@@ -392,14 +393,15 @@ def lratCheckFns : List Fn :=
    ⟨"br_check_clause", checkClause⟩,
    ⟨"br_check_proof", checkProof⟩]
 
-/-- Environment mapping each of the 4 LRAT checker functions to its contract. -/
+/-- Environment mapping each of the LRAT checker functions to its contract. -/
 def lratEnv : Env := fun g =>
   if g = "br_check_clause_non_strictly_by_propagation" then LratRup.checkRupSpec
   else if g = "br_check_clause_strictly_by_resolution" then strictSpec
   else if g = "br_check_clause" then checkClauseSpec
-  else checkProofSpec
+  else if g = "br_check_proof" then checkProofSpec
+  else fun _ _ _ _ => False
 
-/-- One-step linking glue for `compile_correct` over `lratCheckFns` and `lratEnv`. -/
+/-- One-step linking glue for `compile_correct` over `lratTrimFns` and `lratEnv`. -/
 theorem lratEnv_step :
     (∀ args m Q X, lratEnv "br_check_clause_non_strictly_by_propagation" args m Q X →
       Func.spec lratEnv LratRup.checkRup args m Q X) ∧
@@ -414,6 +416,16 @@ theorem lratEnv_step :
    checkClause_correct lratEnv (fun _ _ _ _ h => h) (fun _ _ _ _ h => h),
    checkProof_correct lratEnv (fun _ _ _ _ h => h)⟩
 
+theorem lratTrimFns_wf : ∀ f ∈ lratTrimFns, Func.Wf f.body := by
+  intro f hf
+  simp only [lratTrimFns, List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl | rfl | rfl | rfl
+  · exact LratRup.checkRup_wf
+  · exact strictCheck_wf
+  · exact checkClause_wf
+  · exact checkProof_wf
+  · exact trimProof_wf
+
 theorem lratCheckFns_wf : ∀ f ∈ lratCheckFns, Func.Wf f.body := by
   intro f hf
   simp only [lratCheckFns, List.mem_cons, List.not_mem_nil, or_false] at hf
@@ -424,14 +436,27 @@ theorem lratCheckFns_wf : ∀ f ∈ lratCheckFns, Func.Wf f.body := by
   · exact checkProof_wf
 
 theorem lratEnv_sound :
-    ∀ f ∈ lratCheckFns, ∀ args m Q X, lratEnv f.name args m Q X → Func.spec lratEnv f.body args m Q X := by
+    ∀ f ∈ lratTrimFns, ∀ args m Q X, lratEnv f.name args m Q X → Func.spec lratEnv f.body args m Q X := by
   intro f hf
-  simp only [lratCheckFns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl
+  simp only [lratTrimFns, List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl | rfl | rfl | rfl
   · exact lratEnv_step.1
   · exact lratEnv_step.2.1
   · exact lratEnv_step.2.2.1
   · exact lratEnv_step.2.2.2
+  · intro _ _ _ _ h; exact False.elim h
+
+/-- Target-generic `FnSpec` for `lratTrimFns` against `lratEnv`. -/
+theorem lrat_fnSpec {T : Target} {nX maxBound : Nat}
+    (M : Compiled T [] ["lrat_fail"] nX lratTrimFns maxBound)
+    (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    (hfail : T.Defined h "lrat_fail")
+    {nm : String} (hnm : nm ∈ lratTrimFns.map Fn.name) :
+    T.Defined h nm ∧ T.FnSpec h nm (lratEnv nm) (M.bound nm) nX :=
+  M.fnSpec h lratEnv k₀ hc hu lratTrimFns_wf lratEnv_sound
+    (fun _ hp => nomatch hp)
+    (by intro g hg; simp at hg; subst hg; exact hfail) hnm
 
 /-! ## Non-vacuity -/
 
@@ -781,22 +806,36 @@ theorem checkProof_accepts (Γ : Env)
         wp_step hloop
         branch_t { exact hQ m2 hm2 nvAcceptCnf_unsat } } } }
 
-/-- Environment mapping the 4 LRAT checker functions to their concrete-accepting contracts. -/
+/-- Environment mapping the LRAT checker functions to their concrete-accepting contracts. -/
 def lratAcceptEnv : Env := fun g =>
   if g = "br_check_clause_non_strictly_by_propagation" then LratRup.checkRupSpec
   else if g = "br_check_clause_strictly_by_resolution" then strictAcceptSpec
   else if g = "br_check_clause" then checkClauseAcceptSpec
-  else checkProofAcceptSpec
+  else if g = "br_check_proof" then checkProofAcceptSpec
+  else fun _ _ _ _ => False
 
 theorem lratAcceptEnv_sound :
-    ∀ f ∈ lratCheckFns, ∀ args m Q X, lratAcceptEnv f.name args m Q X → Func.spec lratAcceptEnv f.body args m Q X := by
+    ∀ f ∈ lratTrimFns, ∀ args m Q X, lratAcceptEnv f.name args m Q X → Func.spec lratAcceptEnv f.body args m Q X := by
   intro f hf
-  simp only [lratCheckFns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl
+  simp only [lratTrimFns, List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl | rfl | rfl | rfl
   · exact LratRup.checkRup_correct lratAcceptEnv
   · exact strictCheck_accepts lratAcceptEnv
   · exact checkClause_accepts lratAcceptEnv (fun _ _ _ _ h => h)
   · exact checkProof_accepts lratAcceptEnv (fun _ _ _ _ h => h)
+  · intro _ _ _ _ h; exact False.elim h
+
+/-- Target-generic `FnSpec` for `lratTrimFns` against `lratAcceptEnv`. -/
+theorem lrat_accepts_fnSpec {T : Target} {nX maxBound : Nat}
+    (M : Compiled T [] ["lrat_fail"] nX lratTrimFns maxBound)
+    (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    (hfail : T.Defined h "lrat_fail")
+    {nm : String} (hnm : nm ∈ lratTrimFns.map Fn.name) :
+    T.Defined h nm ∧ T.FnSpec h nm (lratAcceptEnv nm) (M.bound nm) nX :=
+  M.fnSpec h lratAcceptEnv k₀ hc hu lratTrimFns_wf lratAcceptEnv_sound
+    (fun _ hp => nomatch hp)
+    (by intro g hg; simp at hg; subst hg; exact hfail) hnm
 
 theorem nvAccept_pre :
     CheckProofPre 1 2 0x1000 nvAcceptK [0, 0, 0, 1] [0, 0x10f2, 0x10fa, 0x1102]

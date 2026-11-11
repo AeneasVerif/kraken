@@ -4,6 +4,7 @@ public import LeanQbe.Examples.UnionFind
 public import LeanQbe.Logic.MemLemmas
 public import LeanQbe.Logic.Rules
 public import LeanQbe.Wf
+public import LeanQbe.MainLemmas
 
 /-!
 # Union-find: correctness
@@ -169,5 +170,34 @@ theorem find_nonvacuous :
 /-- After `union 1 2` on singletons, 1 and 2 share a class and 0 does not join it. -/
 theorem merge_init_1_2 : merge id 1 2 1 = merge id 1 2 2 ∧ merge id 1 2 0 ≠ merge id 1 2 1 := by
   decide
+
+theorem ufFns_wf : ∀ f ∈ ufFns, Func.Wf f.body := by
+  intro f hf
+  simp only [ufFns, List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl | rfl
+  · exact find_wf
+  · exact union_wf
+  · exact unionInline_wf
+
+theorem ufEnv_sound :
+    ∀ f ∈ ufFns, ∀ args m Q X, ufEnv f.name args m Q X → Func.spec ufEnv f.body args m Q X := by
+  intro f hf
+  simp only [ufFns, List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl | rfl
+  · exact find_correct _
+  · exact union_correct _ (fun _ _ _ _ h => h)
+  · exact unionInline_correct _
+
+/-- Target-generic `FnSpec` for all three functions in `ufFns`. -/
+theorem uf_fnSpec {T : Target} {maxBound : Nat}
+    (M : Compiled T [] [] 0 ufFns maxBound)
+    (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    {nm : String} (hnm : nm ∈ ufFns.map Fn.name) :
+    T.Defined h nm ∧ T.FnSpec h nm (ufEnv nm) (M.bound nm) 0 :=
+  M.fnSpec h ufEnv k₀ hc hu ufFns_wf ufEnv_sound
+    (fun _ hp => nomatch hp) (fun _ hg => nomatch hg) hnm
+
+def ufInitBytes : List UInt8 := bytes64 (init 4)
 
 end LeanQbe.UnionFind

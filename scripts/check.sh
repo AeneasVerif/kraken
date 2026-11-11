@@ -7,7 +7,7 @@
 #     `native_decide` and friends anywhere in a tracked .lean file (native axioms).
 #  3. Checks import closures: the generic `LeanQbe` root imports neither `Kraken.X64` nor
 #     `Kraken.AArch64`, and every module file under `LeanQbe/` is reachable from its library root
-#     (`LeanQbe/Amd64/*` and `LeanQbe/Examples/Litmus*` from `LeanQbeAmd64`, `LeanQbe/Arm64/*` from `LeanQbeArm64`, the rest from
+#     (`LeanQbe/Amd64/*` from `LeanQbeAmd64`, `LeanQbe/Arm64/*` from `LeanQbeArm64`, the rest from
 #     `LeanQbe`), so that step 1 really built it. Only files known to git are checked.
 #  4. Axiom audit: `#print axioms` for every theorem listed in scripts/headline.txt, plus every
 #     `#print axioms` already in the build log (any module that step 1 builds, for example a test
@@ -72,7 +72,7 @@ if grep -q '^LeanQbe$' "$TMP/closure_LeanQbe.txt"; then :; else err "could not c
 while IFS= read -r f; do
   m="${f%.lean}"; m="${m//\//.}"
   case "$m" in
-    LeanQbe.Amd64.*|LeanQbe.Examples.Litmus*) r=LeanQbeAmd64 ;;
+    LeanQbe.Amd64.*) r=LeanQbeAmd64 ;;
     LeanQbe.Arm64.*) r=LeanQbeArm64 ;;
     *) r=LeanQbe ;;
   esac

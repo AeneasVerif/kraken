@@ -27,6 +27,8 @@ public import LeanQbe.Logic.BitVec
 public import LeanQbe.Logic.Cells
 public import LeanQbe.Logic.Bytes
 public import LeanQbe.Logic.ZeroTerm
+public import LeanQbe.Examples.LitmusProgs
+public import LeanQbe.Examples.LitmusProgsLemmas
 public import LeanQbe.Examples.UnionFind
 public import LeanQbe.Examples.UnionFindLemmas
 public import LeanQbe.Examples.LratRup

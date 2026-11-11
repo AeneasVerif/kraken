@@ -453,4 +453,20 @@ theorem call_fnspec {h : T.Host} {k : Nat} {sym : String} {spec : Spec} {n nX : 
 
 end Target
 
+/-- Target-specific host layout constructor (4 bytes per directive, starting at address 0). -/
+structure TargetLayout (T : Target) where
+  labelsNodup : List T.Directive → Bool
+  layoutOf : (prog : List T.Directive) → 4 * prog.length < 2 ^ 64 → T.Host
+  prog_layoutOf : ∀ (prog : List T.Directive) (h : 4 * prog.length < 2 ^ 64),
+    T.prog (layoutOf prog h) = prog
+  labelsUnique_layoutOf : ∀ {prog : List T.Directive} (h : 4 * prog.length < 2 ^ 64),
+    labelsNodup prog = true → T.LabelsUnique (layoutOf prog h)
+
+/-- `n` zero bytes for concrete initial stack frames (irreducible so tactics do not unfold `n`). -/
+def stackZeros (n : Nat) : List UInt8 := List.replicate n 0
+
+theorem stackZeros_length (n : Nat) : (stackZeros n).length = n := List.length_replicate
+
+attribute [irreducible] stackZeros
+
 end LeanQbe

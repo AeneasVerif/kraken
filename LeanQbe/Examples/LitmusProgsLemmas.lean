@@ -3,6 +3,9 @@ module
 public import LeanQbe.Examples.LitmusProgs
 public import LeanQbe.Wf
 public import LeanQbe.WPLemmas
+public import LeanQbe.MainLemmas
+import all Kraken.Mem
+import all Kraken.Separation
 
 /-!
 # Litmus programs: well-formedness and source-level contracts (generic)
@@ -133,5 +136,131 @@ theorem spill10_spec (Γ : Env) (a b : Val) (m : Mem 64) :
     Func.spec Γ spill10.body [a, b] m (fun r m' => r = [spill10Val a b] ∧ m' = m)
       (fun _ _ _ => False) := by
   simp [Func.spec, spill10, spill10Val, wp, Op.wp, Op.eval, BinOp.eval, Arg.val]
+
+theorem tracer_spec (Γ : Env) (a b p : Val) (m : Mem 64) (hp : storeOk m .l p) :
+    Func.spec Γ tracer.body [a, b, p] m
+      (fun rets m' => rets = [a + b] ∧ m' = storeMem m .l p (a + b))
+      (fun _ _ _ => False) := by
+  simp [Func.spec, tracer, wp, Op.wp, Op.eval, BinOp.eval, Arg.val, hp]
+
+def zeros8 : List UInt8 := List.replicate 8 0
+
+def m0 : Mem 64 := zeros8.At 0x1000#64
+
+theorem m0_loadInt : ∃ i, m0.loadInt 0x1000#64 8 = some i :=
+  ⟨_, Mem.loadInt_sep zeros8 _ 8 Std.ExtHashMap.emp m0 (by rw [Std.ExtHashMap.sep_emp]; rfl)
+    (by simp [zeros8]) (by decide)⟩
+
+abbrev emptyEnv : Env := fun _ _ _ _ _ => False
+
+/-- Target-generic `FnSpec` for any single-function `Compiled` module `[f]`. -/
+theorem leaf_fnSpec {T : Target} {f : Fn} {maxBound : Nat}
+    (M : Compiled T [] [] 0 [f] maxBound) (hwf : Func.Wf f.body)
+    (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h) :
+    T.Defined h f.name ∧ T.FnSpec h f.name (Func.spec emptyEnv f.body) (M.bound f.name) 0 := by
+  let Γ : Env := fun _ => Func.spec emptyEnv f.body
+  exact M.fnSpec h Γ k₀ hc hu
+    (by intro f' hf'; simp at hf'; subst hf'; exact hwf)
+    (by
+      intro f' hf' args m Q X hs
+      simp only [List.mem_singleton] at hf'
+      subst hf'
+      exact Func.spec_env_mono (fun _ _ _ _ _ h => nomatch h) hs)
+    (fun _ hp => nomatch hp) (fun _ hg => nomatch hg) (by simp)
+
+def callincEnv : Env := fun g => if g = "inc" then incContract else callincContract
+
+theorem callinc_wf_all : ∀ f ∈ [inc, callinc], Func.Wf f.body := by
+  intro f hf
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl
+  · exact inc_wf
+  · exact callinc_wf
+
+theorem callincEnv_sound :
+    ∀ f ∈ [inc, callinc], ∀ args m Q X,
+      callincEnv f.name args m Q X → Func.spec callincEnv f.body args m Q X := by
+  intro f hf
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl
+  · exact inc_spec _
+  · exact callinc_spec _ rfl
+
+/-- Target-generic `FnSpec` for `[inc, callinc]`. -/
+theorem callinc_fnSpec {T : Target} {maxBound : Nat}
+    (M : Compiled T [] [] 0 [inc, callinc] maxBound)
+    (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    {nm : String} (hnm : nm ∈ [inc, callinc].map Fn.name) :
+    T.Defined h nm ∧ T.FnSpec h nm (callincEnv nm) (M.bound nm) 0 :=
+  M.fnSpec h callincEnv k₀ hc hu callinc_wf_all callincEnv_sound
+    (fun _ hp => nomatch hp) (fun _ hg => nomatch hg) hnm
+
+def twiceEnv : Env := fun g => if g = "check" then checkContract else twiceContract
+
+theorem twice_wf_all : ∀ f ∈ [check, twice], Func.Wf f.body := by
+  intro f hf
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl
+  · exact check_wf
+  · exact twice_wf
+
+theorem twiceEnv_sound :
+    ∀ f ∈ [check, twice], ∀ args m Q X,
+      twiceEnv f.name args m Q X → Func.spec twiceEnv f.body args m Q X := by
+  intro f hf
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl
+  · exact check_spec _
+  · exact twice_spec _ rfl
+
+/-- Target-generic `FnSpec` for `[check, twice]`. -/
+theorem twice_fnSpec {T : Target} {nX maxBound : Nat}
+    (M : Compiled T [] ["fail"] nX [check, twice] maxBound)
+    (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    (hfail : T.Defined h "fail")
+    {nm : String} (hnm : nm ∈ [check, twice].map Fn.name) :
+    T.Defined h nm ∧ T.FnSpec h nm (twiceEnv nm) (M.bound nm) nX :=
+  M.fnSpec h twiceEnv k₀ hc hu twice_wf_all twiceEnv_sound
+    (fun _ hp => nomatch hp)
+    (by intro g hg; simp at hg; subst hg; exact hfail) hnm
+
+def incOnlyEnv : Env := fun g =>
+  if g = "inc" then incContract else fun _ _ _ _ => False
+
+def sumcallEnv : Env := fun g =>
+  if g = "inc" then incContract else Func.spec incOnlyEnv sumcall.body
+
+theorem sumcall_wf_all : ∀ f ∈ [inc, sumcall], Func.Wf f.body := by
+  intro f hf
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl
+  · exact inc_wf
+  · exact sumcall_wf
+
+theorem sumcallEnv_sound :
+    ∀ f ∈ [inc, sumcall], ∀ args m Q X,
+      sumcallEnv f.name args m Q X → Func.spec sumcallEnv f.body args m Q X := by
+  intro f hf
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl
+  · exact inc_spec _
+  · intro args m Q X hs
+    have hs' : Func.spec incOnlyEnv sumcall.body args m Q X := by
+      simpa [sumcallEnv, sumcall] using hs
+    refine Func.spec_env_mono (fun g xs m' Q' X' hg => ?_) hs'
+    by_cases heq : g = "inc" <;> simp [incOnlyEnv, sumcallEnv, heq] at hg ⊢
+    exact hg
+
+theorem sumcall_fnSpec {T : Target} {maxBound : Nat}
+    (M : Compiled T [] [] 0 [inc, sumcall] maxBound)
+    (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    {nm : String} (hnm : nm ∈ [inc, sumcall].map Fn.name) :
+    T.Defined h nm ∧ T.FnSpec h nm (sumcallEnv nm) (M.bound nm) 0 :=
+  M.fnSpec h sumcallEnv k₀ hc hu sumcall_wf_all sumcallEnv_sound
+    (fun _ hp => nomatch hp) (fun _ hg => nomatch hg) hnm
 
 end LeanQbe.Litmus

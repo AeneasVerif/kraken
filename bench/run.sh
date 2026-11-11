@@ -194,8 +194,8 @@ read -r lrf h3 <<<"$(median_ms "$OUT/lrat_leanqbe")"
 read -r lrr h4 <<<"$(median_ms "$OUT/lrat_leanqbe" rup)"
 ufi_cnt="$(insns "$OUT/uf.s")"
 lri_cnt="$(insns "$OUT/lrat_trim.s")"
-echo "| **lean-qbe (x64, fast isel)** | $ufc | $ufi | $ufi_cnt | $lrf | $lrr | $lri_cnt | $h1 / $h3 |"
-check_row "lean-qbe (x64, fast isel)" "$h1" "$h2" "$h3" "$h4"
+echo "| **lean-qbe (x64)** | $ufc | $ufi | $ufi_cnt | $lrf | $lrr | $lri_cnt | $h1 / $h3 |"
+check_row "lean-qbe (x64)" "$h1" "$h2" "$h3" "$h4"
 
 echo ""
 if [ ${#FAILS[@]} -eq 0 ]; then

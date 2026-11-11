@@ -112,4 +112,14 @@ def unionSpec : Spec := fun args m Q _ =>
   ∃ p x y n rep R, args = [p, x, y] ∧ (uf p n rep ⋆ R) m ∧ x.toNat < n ∧ y.toNat < n ∧
     ∀ m', (uf p n (merge rep x y) ⋆ R) m' → Q [] m'
 
+def findFn : Fn := ⟨"find", find⟩
+def unionFn : Fn := ⟨"union", union⟩
+def unionInlineFn : Fn := ⟨"unionInline", unionInline⟩
+
+/-- The union-find module (`find`, `union` calling `find` twice, and `unionInline`). -/
+def ufFns : List Fn := [findFn, unionFn, unionInlineFn]
+
+/-- Environment mapping `"find"` to `findSpec` and `"union"` / `"unionInline"` to `unionSpec`. -/
+def ufEnv : Env := fun g => if g = "find" then findSpec else unionSpec
+
 end LeanQbe.UnionFind
