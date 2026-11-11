@@ -259,10 +259,10 @@ syntax_affixed (suffixes := lq) "adcx" : x64_rm_reg_op
 /-- Unsigned integer addition with overflow flag (`OF`). -/
 syntax_affixed (suffixes := lq) "adox" : x64_rm_reg_op
 
-/-- Conditional move (`cmov<cc>`) mnemonics taking `(src : RegOrMem, dst : Reg)`. -/
+/-- Conditional move (`cmov<cc>{w,l,q}`) mnemonics taking `(src : RegOrMem, dst : Reg)`. -/
 declare_syntax_cat x64_cmov_op (behavior := both)
 /-- Conditional move if condition holds. -/
-syntax_affixed (suffixes := cc) "cmov" : x64_cmov_op
+syntax_affixed (suffixes := cc, wlq) "cmov" : x64_cmov_op
 
 /-- Unary arithmetic/bitwise mnemonics taking `(dst : RegOrMem)`. -/
 declare_syntax_cat x64_unary_op (behavior := both)
