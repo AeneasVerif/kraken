@@ -8,7 +8,9 @@ import all Kraken.Mem
 /-!
 # Lemmas about the memory predicates
 
-* Separation glue missing from Kraken: pulling `∃` and pure facts out of `⋆`.
+* Separation glue missing from Kraken: pulling `∃` and pure facts out of `⋆`, and transporting a fact
+  along an equation of predicates (`sep_cast`; `sep_ac h` proves the equation by `ac_rfl`, after
+  `open ProofUtil`).
 * `loadVal` / `storeOk` / `storeMem` on `cell64` and `array64`, in the form `wp` asks for.
 * `array64` focusing (`array64_focus`, `array64_set`), as in Kraken's `LratTrimSpec.word8Array`.
 * Satisfiability: `array64_bytes` (non-vacuity of every spec built on `array64`).
@@ -35,6 +37,12 @@ theorem sep_pure_l {φ : Prop} {P R : Mem 64 → Prop} {m : Mem 64} :
   constructor
   · rintro ⟨a, b, hu, hi, ⟨h, hp⟩, hr⟩; exact ⟨h, a, b, hu, hi, hp, hr⟩
   · rintro ⟨h, a, b, hu, hi, hp, hr⟩; exact ⟨a, b, hu, hi, ⟨h, hp⟩, hr⟩
+
+theorem sep_cast {P P' : Mem 64 → Prop} {m : Mem 64} (h : P m) (e : P = P') : P' m := e ▸ h
+
+namespace ProofUtil
+scoped macro "sep_ac" h:term : term => `(sep_cast $h (by ac_rfl))
+end ProofUtil
 
 /-! ## Words -/
 

@@ -2,26 +2,15 @@ module
 
 public import LeanQbe.GvnLemmas
 public import LeanQbe.WPLemmas
-public meta import Lean
+public import LeanQbe.FlatLemmas
 
 /-! Tests of `Func.gvn`: outputs by `rfl` in the kernel, `Wf`, and a contract through `gvn_spec`.
 
 The elaborator's `rfl` fails on `Func.gvn prog = …` (its `isDefEq` gives up on the table lookups under
-the binders), while the kernel checks it at once; hence `kernel_rfl` (from Spike A), which hands
+the binders), while the kernel checks it at once; hence `kernel_rfl` (`LeanQbe.FlatLemmas`), which hands
 `Eq.refl` to the kernel without the elaborator's check. -/
 
 set_option autoImplicit false
-
-open Lean Elab Tactic Meta in
-/-- Close `lhs = rhs` with `Eq.refl lhs`, checked by the kernel only. -/
-elab "kernel_rfl" : tactic => do
-  let goal ← getMainGoal
-  let tgt ← instantiateMVars (← goal.getType)
-  let some (α, lhs, _) := tgt.eq?
-    | throwError "kernel_rfl: goal is not an equality{indentExpr tgt}"
-  let u ← getLevel α
-  goal.assign (mkApp2 (mkConst ``Eq.refl [u]) α lhs)
-  replaceMainGoal []
 
 @[expose] public section
 

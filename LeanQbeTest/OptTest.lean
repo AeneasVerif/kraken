@@ -1,9 +1,9 @@
 module
 
 public import LeanQbe.OptLemmas
-public import LeanQbeTest.GvnTest
+public import LeanQbe.FlatLemmas
 
-/-! Test of the mid-end pipeline `Func.opt` (uses `kernel_rfl` from `LeanQbeTest.GvnTest`). -/
+/-! Test of the mid-end pipeline `Func.opt` (uses `kernel_rfl` from `LeanQbe.FlatLemmas`). -/
 
 set_option autoImplicit false
 

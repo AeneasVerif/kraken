@@ -24,6 +24,7 @@ def header : String := "module
 public import LeanQbe.Arm64.Abi
 public import LeanQbe.Examples.LitmusProgsLemmas
 public import LeanQbe.MainLemmas
+public import LeanQbe.FlatLemmas
 public import Kraken.AArch64.Parser
 
 /-!
@@ -38,17 +39,6 @@ labels (`…_fnspec`).
 -/
 
 set_option autoImplicit false
-
-open Lean Elab Tactic Meta in
-/-- Close `lhs = rhs` with `Eq.refl lhs`, checked by the kernel only. -/
-elab \"kernel_rfl\" : tactic => do
-  let goal ← getMainGoal
-  let tgt ← instantiateMVars (← goal.getType)
-  let some (α, lhs, _) := tgt.eq?
-    | throwError \"kernel_rfl: goal is not an equality{indentExpr tgt}\"
-  let u ← getLevel α
-  goal.assign (mkApp2 (mkConst ``Eq.refl [u]) α lhs)
-  replaceMainGoal []
 
 @[expose] public section
 

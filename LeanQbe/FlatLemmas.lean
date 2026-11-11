@@ -196,8 +196,11 @@ theorem Func.wf_of_reify {f : Func}
   exact denote_wf _ [] [] 0 [] [] 0 rfl rfl rfl rfl
 
 open Lean Elab Tactic Meta in
-/-- Close `lhs = rhs` with `Eq.refl lhs`, checked by the kernel only (Spike A). The elaborator's
-`isDefEq` is skipped: it is several times slower on large PHOAS terms and gives up on some. -/
+/-- Close `lhs = rhs` with `Eq.refl lhs`, checked by the kernel only. The elaborator's `isDefEq` is
+skipped: it is several times slower on large PHOAS terms and gives up on some.
+
+This is the only definition of the tactic. Besides `wf_reify` below, the kernel checks of compiler
+output (`…_compile`, `…_module_compile`) and the pass tests use it; they import this module. -/
 elab "kernel_rfl" : tactic => do
   let goal ← getMainGoal
   let tgt ← instantiateMVars (← goal.getType)

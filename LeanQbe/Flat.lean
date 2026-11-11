@@ -16,7 +16,7 @@ once and for all. Together they prove `Func.Wf f` in time linear in the kernel's
 (`wf_reify`), instead of `wf_tac`'s search, which is quadratic in the number of binders.
 
 Contexts are lists with the newest binder first, plus their length kept as a separate argument, so that
-the index arithmetic is on closed numerals (Spike A: the elaborator does not fold `Nat` arithmetic on open
+the index arithmetic is on closed numerals (the elaborator does not fold `Nat` arithmetic on open
 terms; the kernel does not care).
 -/
 

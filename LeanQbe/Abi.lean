@@ -350,7 +350,7 @@ def Run (h : T.Host) (k : Nat) (s : T.MData) (post : T.State → Prop) : Prop :=
 def Keeps (s s' : T.MData) (clob : List T.Reg) : Prop :=
   ∀ r, r ∉ clob → T.get s' r = T.get s r
 
-/-- No label is defined twice in the host program (Spike K: required for jumps to be correct). -/
+/-- No label is defined twice in the host program (required for jumps to be correct). -/
 def LabelsUnique (h : T.Host) : Prop :=
   ∀ (i j : Nat) (l : String),
     (T.prog h)[i]? = some (T.label l) → (T.prog h)[j]? = some (T.label l) → i = j

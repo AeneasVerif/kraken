@@ -13,7 +13,13 @@ for what unfolding cannot do:
   (`∀ as m', wp b as m' → J as m'`), by strong induction on the measure: total correctness needs no
   extra machinery.
 * `wp_join`: the same without a back edge (a join after `jnz`, or a continuation label).
-* Evaluation lemmas for comparisons in `jnz` and shift-by-immediate address arithmetic.
+* `wp_unroll`: no invariant at all, only the closure hypothesis of the block; with the tactic `wp_step`
+  (jump to the block once more) this executes a loop on concrete data, iteration by iteration. There,
+  `branch_t tac` / `branch_f tac` take the branch of a `jnz` whose condition is decided (true / false) and
+  continue with `tac`.
+* `wp_call_ret1`: a call whose contract returns exactly one value and never exits.
+* Evaluation lemmas for comparisons in `jnz` (`truthy_boolVal`, `first_eq_zero`) and shift-by-immediate
+  address arithmetic.
 
 Larger groups (mutual recursion between blocks, as in `Smoke.evenOdd`) use the closure hypotheses
 directly after `simp only [wp, closed_param, forall_args_nil]`.
@@ -76,8 +82,26 @@ theorem wp_join {Γ : Env} {Q : Post} {X : XPost} {b : Expr Val Cont} {rest : Co
     wp Γ Q X (.label fun J => .block b (rest J)) [] [] m :=
   wp_loop (fun _ => P) (fun _ _ as m h _ => hbody as m h) fun J hJ => hrest J (hJ 0)
 
+theorem wp_unroll {Γ : Env} {Q : Post} {X : XPost} {b rest : Cont → Expr Val Cont} {m : Mem 64}
+    (h : ∀ J : Cont, (∀ as m', wp Γ Q X (b J) as [] m' → J as m') → wp Γ Q X (rest J) [] [] m) :
+    wp Γ Q X (.label fun J => .block (b J) (rest J)) [] [] m := by
+  simp only [wp, List.nil_append, true_and]; exact h
+
+theorem wp_call_ret1 {Γ : Env} {Q : Post} {X : XPost} {f : Sym} {args : List (Arg Val)}
+    {k : Expr Val Cont} {m : Mem 64} (Pred : Val → Mem 64 → Prop)
+    (hcall : Γ f (args.map Arg.val) m (fun rs m' => ∃ r, rs = [r] ∧ Pred r m') (fun _ _ _ => False))
+    (hk : ∀ r m', Pred r m' → wp Γ Q X k [r] [] m') :
+    wp Γ Q X (.call f args k) [] [] m := by
+  simp only [wp, true_and]
+  exact ⟨_, fun _ _ _ => False, hcall, by rintro _ m' ⟨r, rfl, hp⟩; exact hk r m' hp,
+    fun _ _ _ h => h.elim⟩
+
 @[simp] theorem truthy_boolVal (b : Bool) : Truthy (boolVal b) ↔ b = true := by
   cases b <;> decide
+
+theorem first_eq_zero {first : Val} (h : first = 0 ∨ first = 1) (hf : ¬ Truthy first) :
+    first = 0 :=
+  h.elim id fun h1 => absurd (by subst h1; decide : Truthy first) hf
 
 /-- Address arithmetic: `shl x, 3` is `8 * x`. -/
 @[simp] theorem shl_three (x : Val) : x <<< 3 = BitVec.ofNat 64 (8 * x.toNat) := by
@@ -92,5 +116,14 @@ macro "wp_unfold" : tactic =>
     LeanQbe.CmpOp.eval, LeanQbe.Arg.val, List.map, true_and, Option.some.injEq, exists_eq_left',
     LeanQbe.truthy_boolVal, beq_iff_eq, bne_iff_ne, ne_eq, decide_eq_true_eq, Bool.not_eq_true,
     beq_eq_false_iff_ne, BitVec.reduceToNat, Nat.reduceMod, LeanQbe.shl_three])
+
+macro "wp_step" h:term : tactic =>
+  `(tactic| (refine $h _ _ ?_; dsimp only [wp_param]; wp_unfold))
+
+macro "branch_t" t:tacticSeq : tactic =>
+  `(tactic| refine ⟨fun _ => by $t, fun hc => by first | exact absurd hc (by decide) | exact absurd (by decide) hc | exact absurd rfl hc⟩)
+
+macro "branch_f" t:tacticSeq : tactic =>
+  `(tactic| refine ⟨fun hc => absurd hc (by decide), fun _ => by $t⟩)
 
 end LeanQbe

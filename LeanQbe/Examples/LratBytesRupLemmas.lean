@@ -1,8 +1,20 @@
 module
 
 public import LeanQbe.Examples.LratBytesSpec
+public import LeanQbe.Examples.LratRupLemmas
 import all Kraken.Mem
 import all Kraken.Separation
+
+/-!
+# `lbReadAddLits` and `lbRupCheck`: correctness
+
+The RUP loops of `lb_rup_check` work on the same values and trail arrays as lrat_trim's
+`br_check_clause_non_strictly_by_propagation`, and `LratBytes.lean` repeats its inline helpers
+`assignedLit` and `backtrack` verbatim. This file therefore reuses, from `LratRupLemmas.lean`
+(`LeanQbe.LratRup`), the propagation state `PState` with `pstate_sep`, and the specifications
+`assignedLit_spec` and `backtrack_spec`. That is the one place where the `LratBytes` proofs depend on
+the lrat_trim proofs.
+-/
 
 set_option autoImplicit false
 

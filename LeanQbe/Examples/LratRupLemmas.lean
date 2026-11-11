@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.Examples.LratRup
-public import LeanQbe.Logic.MemLemmas
+public import LeanQbe.Logic.ZeroTerm
 public import LeanQbe.Logic.Rules
 public import Kraken.Bedrock2.Test.LratTrimRupProof
 public import Kraken.SeparationTactics
@@ -16,7 +16,8 @@ The specification is the one of Kraken's `br_check_clause_non_strictly_by_propag
 (`LratTrimRupProof.lean`), with `lrat_fail` an `exit` (decision D5). The model and memory predicates
 (`assignBytes`, `ClauseTable`, `ZeroTermInts`, `kernelState`, `byte1Array`, …) and the pure RUP lemmas
 (`phase1_step_*`, `phase2_inner_*`, `entails_insert_of_unit_prop`, …) are imported from there unchanged;
-everything about the program is new.
+the loads and stores on those predicates, the bit-vector facts and `solve_bytes_at` are in
+`LeanQbe/Logic/`; everything about the program is new.
 -/
 
 set_option autoImplicit false
@@ -31,114 +32,11 @@ open Kraken.Bedrock2.Test
 
 /-! ## Bit-level facts -/
 
-theorem sar63 (lit : Val) : lit.sshiftRight 63 = if lit.slt 0 then -1 else 0 := by
-  apply BitVec.eq_of_toInt_eq
-  simp only [BitVec.toInt_sshiftRight, BitVec.slt]
-  split <;> simp <;> grind
-
-theorem negif (b : Val) (c : Bool) :
-    (b ^^^ (if c then -1 else 0)) - (if c then -1 else 0) = if c then -b else b := by
-  cases c <;> simp [BitVec.neg_eq_not_add, BitVec.sub_eq_add_neg]
-  exact BitVec.xor_allOnes
-
 theorem abs_eq (lit : Val) : (lit ^^^ lit.sshiftRight 63) - lit.sshiftRight 63 = bvAbs lit := by
   rw [sar63, negif]; rfl
 
 theorem negif_eq (b lit : Val) : (b ^^^ lit.sshiftRight 63) - lit.sshiftRight 63 = evalAssignedLit b lit := by
   rw [sar63, negif]; rfl
-
-theorem ofInt_take_toNat (v : Val) {w : Nat} :
-    BitVec.ofInt 64 ((v.toNat : Int).take w) = (v.setWidth w).setWidth 64 := by
-  apply BitVec.eq_of_toNat_eq; simp only [Int.take, BitVec.toNat_ofInt, BitVec.toNat_setWidth]
-  rw [show ((2 : Int) ^ w) = ((2 ^ w : Nat) : Int) from by simp,
-    ← Int.natCast_emod, ← Int.natCast_emod, Int.toNat_natCast]
-
-theorem sext8 (v : Val) (h : IsInt8 v) :
-    (BitVec.setWidth 8 (BitVec.ofInt 64 ((v.toNat : Int).take 8))).signExtend 64 = v := by
-  rw [ofInt_take_toNat v]; unfold IsInt8 at h; grind
-
-theorem sext32 (v : Val) (h : IsInt32 v) :
-    (BitVec.setWidth 32 (BitVec.ofInt 64 ((v.toNat : Int).take 32))).signExtend 64 = v := by
-  rw [ofInt_take_toNat v]; unfold IsInt32 at h; grind
-
-theorem truthy_iff (v : Val) (h : IsInt32 v) : Truthy v ↔ v ≠ 0 := by
-  unfold Truthy IsInt32 at *; constructor <;> intro h1 h2 <;> apply h1 <;> grind
-
-/-! ## Memory: Kraken's cells read and written by QBE loads and stores -/
-
-theorem loadsb_byte1 {a v : Val} {R : Mem 64 → Prop} {m : Mem 64} (h : (byte1 a v ⋆ R) m)
-    (hv : IsInt8 v) : loadVal m .l .b true a = some v := by
-  rw [loadVal_toBytes (s := .b) h]; exact congrArg some (sext8 v hv)
-
-theorem loadsw_int4 {a v : Val} {R : Mem 64 → Prop} {m : Mem 64} (h : (int4 a v ⋆ R) m)
-    (hv : IsInt32 v) : loadVal m .l .w true a = some v := by
-  rw [loadVal_toBytes (s := .w) h]; exact congrArg some (sext32 v hv)
-
-theorem loadl_word8 {a v : Val} {sg : Bool} {R : Mem 64 → Prop} {m : Mem 64} (h : (word8 a v ⋆ R) m) :
-    loadVal m .l .l sg a = some v := by
-  rw [loadVal_toBytes (s := .l) h]
-  simp only [Sz.bytes, Int.take, Cls.trunc, Sz.extend]
-  rw [Int.emod_eq_of_lt (by omega) (by have := v.isLt; omega)]
-  exact congrArg some (BitVec.eq_of_toNat_eq (by simp))
-
-theorem store_byte1 {a v0 : Val} (v : Val) {R : Mem 64 → Prop} {m : Mem 64} (h : (byte1 a v0 ⋆ R) m) :
-    storeOk m .b a ∧ (byte1 a v ⋆ R) (storeMem m .b a v) := store_toBytes (s := .b) v h
-
-theorem store_int4 {a v0 : Val} (v : Val) {R : Mem 64 → Prop} {m : Mem 64} (h : (int4 a v0 ⋆ R) m) :
-    storeOk m .w a ∧ (int4 a v ⋆ R) (storeMem m .w a v) := store_toBytes (s := .w) v h
-
-theorem store_word8 {a v0 : Val} (v : Val) {R : Mem 64 → Prop} {m : Mem 64} (h : (word8 a v0 ⋆ R) m) :
-    storeOk m .l a ∧ (word8 a v ⋆ R) (storeMem m .l a v) := store_toBytes (s := .l) v h
-
-theorem loadsb_byte1Array {a : Val} {xs : List Val} {i : Nat} {R : Mem 64 → Prop} {m : Mem 64}
-    (hi : i < xs.length) (hv : IsInt8 xs[i]) (h : (byte1Array a xs ⋆ R) m) :
-    loadVal m .l .b true (a + BitVec.ofNat 64 i) = some xs[i] := by
-  rw [byte1Array_focus a xs hi, sep_assoc] at h; exact loadsb_byte1 h hv
-
-theorem storeb_byte1Array {a : Val} {xs : List Val} {i : Nat} (v : Val) {R : Mem 64 → Prop}
-    {m : Mem 64} (hi : i < xs.length) (h : (byte1Array a xs ⋆ R) m) :
-    storeOk m .b (a + BitVec.ofNat 64 i) ∧
-      (byte1Array a (xs.set i v) ⋆ R) (storeMem m .b (a + BitVec.ofNat 64 i) v) := by
-  rw [byte1Array_focus a xs hi, sep_assoc] at h
-  obtain ⟨h1, h2⟩ := store_byte1 v h
-  exact ⟨h1, by rwa [byte1Array_set a xs hi, sep_assoc]⟩
-
-theorem storew_int4Array {a : Val} {xs : List Val} {i : Nat} (v : Val) {R : Mem 64 → Prop}
-    {m : Mem 64} (hi : i < xs.length) (h : (int4Array a xs ⋆ R) m) :
-    storeOk m .w (a + BitVec.ofNat 64 (4 * i)) ∧
-      (int4Array a (xs.set i v) ⋆ R) (storeMem m .w (a + BitVec.ofNat 64 (4 * i)) v) := by
-  rw [int4Array_focus a xs hi, sep_assoc] at h
-  obtain ⟨h1, h2⟩ := store_int4 v h
-  exact ⟨h1, by rwa [int4Array_set a xs hi, sep_assoc]⟩
-
-theorem loadl_word8Array {a : Val} {xs : List Val} {i : Nat} {sg : Bool} {R : Mem 64 → Prop}
-    {m : Mem 64} (hi : i < xs.length) (h : (word8Array a xs ⋆ R) m) :
-    loadVal m .l .l sg (a + BitVec.ofNat 64 (8 * i)) = some xs[i] := by
-  rw [word8Array_focus a xs hi, sep_assoc] at h; exact loadl_word8 h
-
-theorem storel_word8Array {a : Val} {xs : List Val} {i : Nat} (v : Val) {R : Mem 64 → Prop}
-    {m : Mem 64} (hi : i < xs.length) (h : (word8Array a xs ⋆ R) m) :
-    storeOk m .l (a + BitVec.ofNat 64 (8 * i)) ∧
-      (word8Array a (xs.set i v) ⋆ R) (storeMem m .l (a + BitVec.ofNat 64 (8 * i)) v) := by
-  rw [word8Array_focus a xs hi, sep_assoc] at h
-  obtain ⟨h1, h2⟩ := store_word8 v h
-  exact ⟨h1, by rwa [word8Array_set a xs hi, sep_assoc]⟩
-
-theorem loadsw_int4Array {a : Val} {xs : List Val} {i : Nat} {R : Mem 64 → Prop} {m : Mem 64}
-    (hi : i < xs.length) (h32 : IsInt32 xs[i]) (h : (int4Array a xs ⋆ R) m) :
-    loadVal m .l .w true (a + BitVec.ofNat 64 (4 * i)) = some xs[i] := by
-  rw [int4Array_focus a xs hi, sep_assoc] at h; exact loadsw_int4 h h32
-
-theorem loadsw_zeroTerm {p : Val} {xs : List Val} {i : Nat} {R : Mem 64 → Prop} {m : Mem 64}
-    (hi : i ≤ xs.length) (h32 : ∀ x ∈ xs, IsInt32 x) (h : (ZeroTermInts p xs ⋆ R) m) :
-    loadVal m .l .w true (p + BitVec.ofNat 64 (4 * i)) = some (zeroTermGet xs i) := by
-  unfold zeroTermGet; split
-  · rename_i hlt
-    rw [zeroTermInts_focus_elem p xs hlt, sep_assoc] at h
-    exact loadsw_int4 h (h32 _ (List.getElem_mem hlt))
-  · obtain rfl : i = xs.length := by omega
-    rw [zeroTermInts_focus_end p xs, sep_assoc] at h
-    exact loadsw_int4 h isInt32_zero
 
 /-! ## The inline helpers -/
 
@@ -156,8 +54,6 @@ theorem assignedLit_spec {Γ : Env} {Q : Post} {X : XPost} {vb lit : Val} {mv : 
   rw [← ofNat_bvAbs_toNat lit, loadsb_byte1Array hi
     (by rw [getElem_assignBytes _ _ hi']; exact isInt8_assignByte _ _) hm, getElem_assignBytes _ _ hi']
   rfl
-
-theorem sep_cast {P P' : Mem 64 → Prop} {m : Mem 64} (h : P m) (e : P = P') : P' m := e ▸ h
 
 theorem assignLit_spec {Γ : Env} {Q : Post} {X : XPost} {vb tb te sla wlit idx : Val} {mv : Nat}
     {assign : Assignment} {trail : List Val} {t0 : Val} {tf : List Val} {R : Mem 64 → Prop}
@@ -298,32 +194,6 @@ theorem assignLit_pstate {Γ : Env} {Q : Post} {X : XPost} {vb tb te sla wlit id
   rcases List.mem_append.1 ht with h | h
   · exact htv t h
   · rw [List.mem_singleton.1 h]; exact hwlit
-
-theorem zeroTermGet_isInt32 {xs : List Val} (h32 : ∀ x ∈ xs, IsInt32 x) (i : Nat) :
-    IsInt32 (zeroTermGet xs i) := by
-  unfold zeroTermGet; split
-  · exact h32 _ (List.getElem_mem _)
-  · exact isInt32_zero
-
-theorem zeroTerm_jnz_step {p : Val} {xs : List Val} {i : Nat} {R : Mem 64 → Prop} {m : Mem 64}
-    {T E : Val → Prop}
-    (hi : i ≤ xs.length) (h32 : ∀ x ∈ xs, IsInt32 x) (hne0 : ∀ x ∈ xs, x ≠ 0)
-    (hm : (ZeroTermInts p xs ⋆ R) m)
-    (hnz : ∀ hlt : i < xs.length, T xs[i])
-    (hz : i = xs.length → E 0) :
-    ∃ v, loadVal m .l .w true (p + BitVec.ofNat 64 (4 * i)) = some v ∧
-      ((Truthy v → T v) ∧ (¬ Truthy v → E v)) := by
-  refine ⟨zeroTermGet xs i, loadsw_zeroTerm hi h32 hm, fun h => ?_, fun h => ?_⟩
-  · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i)] at h
-    have hlt := (zeroTermGet_ne_zero_iff hi hne0).1 h
-    simpa [zeroTermGet, hlt] using hnz hlt
-  · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i), Classical.not_not] at h
-    obtain rfl := (zeroTermGet_eq_zero_iff hi hne0).1 h
-    simpa [zeroTermGet] using hz rfl
-
-theorem ptr4 (p : Val) (i : Nat) :
-    p + BitVec.ofNat 64 (4 * i) + 4 = p + BitVec.ofNat 64 (4 * (i + 1)) :=
-  BitVec.eq_of_toNat_eq (by simp [BitVec.toNat_add]; omega)
 
 /-! ## Phase 1 -/
 
@@ -626,73 +496,7 @@ theorem checkRup_wf : Func.Wf checkRup := by
 
 /-! ## Non-vacuity -/
 
-/-- `n` bytes per value, little-endian. -/
-def bytesN (n : Nat) (xs : List Val) : List UInt8 := xs.flatMap fun v => Int.toBytes n v.toNat
-
-theorem bytesN_length (n : Nat) (xs : List Val) : (bytesN n xs).length = n * xs.length := by
-  induction xs with
-  | nil => simp [bytesN]
-  | cons x xs ih =>
-    simp only [bytesN, List.flatMap_cons, List.length_append, Int.toBytes_length] at ih ⊢
-    rw [ih, List.length_cons, Nat.mul_succ]; omega
-
-theorem eq_nil_At (a : Val) : (emp : Mem 64 → Prop) = Eq (([] : List UInt8).At a) := by
-  funext m; apply propext; constructor
-  · intro h; rw [h]; apply ExtHashMap.ext_getElem?; intro k; simp [List.At]
-  · intro h; rw [← h]; apply ExtHashMap.ext_getElem?; intro k; simp [List.At]
-
-theorem eq_cons_At {n : Nat} (a v : Val) (bs : List UInt8) (h : n + bs.length ≤ 2 ^ 64) :
-    (Eq ((Int.toBytes n v.toNat).At a) ⋆ Eq (bs.At (a + BitVec.ofNat 64 n))) =
-      Eq ((Int.toBytes n v.toNat ++ bs).At a) := by
-  rw [Mem.At_append_sep _ _ _ (by rw [Int.toBytes_length]; exact h), Int.toBytes_length]
-
-private theorem bytesArray_eq (n : Nat) (arr : Val → List Val → Mem 64 → Prop)
-    (hnil : ∀ a, arr a [] = emp)
-    (hcons : ∀ a x xs, arr a (x :: xs) = (Eq ((Int.toBytes n x.toNat).At a) ⋆ arr (a + BitVec.ofNat 64 n) xs))
-    (a : Val) (xs : List Val) (h : n * xs.length ≤ 2 ^ 64) :
-    arr a xs = Eq ((bytesN n xs).At a) := by
-  induction xs generalizing a with
-  | nil => rw [hnil, bytesN, List.flatMap_nil, eq_nil_At]
-  | cons x xs ih =>
-    have hl := bytesN_length n xs
-    have h' : n * xs.length + n ≤ 2 ^ 64 := Nat.mul_succ n xs.length ▸ h
-    rw [hcons, bytesN, List.flatMap_cons, ih _ (by omega)]
-    exact eq_cons_At a x _ (by omega)
-
-theorem byte1Array_eq (a : Val) (xs : List Val) (h : xs.length ≤ 2 ^ 64) :
-    byte1Array a xs = Eq ((bytesN 1 xs).At a) :=
-  bytesArray_eq 1 byte1Array byte1Array_nil byte1Array_cons a xs (by simpa using h)
-
-theorem int4Array_eq (a : Val) (xs : List Val) (h : 4 * xs.length ≤ 2 ^ 64) :
-    int4Array a xs = Eq ((bytesN 4 xs).At a) :=
-  bytesArray_eq 4 int4Array int4Array_nil int4Array_cons a xs h
-
-theorem word8Array_eq (a : Val) (xs : List Val) (h : 8 * xs.length ≤ 2 ^ 64) :
-    word8Array a xs = Eq ((bytesN 8 xs).At a) :=
-  bytesArray_eq 8 word8Array word8Array_nil word8Array_cons a xs h
-
-theorem eq_append_At (a : Val) (b1 b2 : List UInt8) (h : b1.length + b2.length ≤ 2 ^ 64) :
-    Eq ((b1 ++ b2).At a) = (Eq (b1.At a) ⋆ Eq (b2.At (a + BitVec.ofNat 64 b1.length))) :=
-  Mem.At_append_sep _ _ _ h
-
-theorem mem_at_cast {P : Mem 64 → Prop} {bs : List UInt8} {a : Val}
-    (h : Eq (bs.At a) = P) : P (bs.At a) := h ▸ rfl
-
 theorem KernelFields_toList_length (k : KernelFields) : k.toList.length = 20 := rfl
-
-syntax "solve_bytes_at" : tactic
-macro_rules
-  | `(tactic| solve_bytes_at) => `(tactic| (
-      try simp only [sep_emp]
-      repeat (first
-        | rw [byte1Array_eq _ _ (by simp)]
-        | rw [int4Array_eq _ _ (by simp)]
-        | rw [word8Array_eq _ _ (by simp [KernelFields.toList])])
-      refine mem_at_cast ?_
-      repeat rw [eq_append_At _ _ _ (by simp [bytesN_length, KernelFields_toList_length])]
-      simp only [bytesN_length, KernelFields_toList_length, List.length_cons, List.length_nil,
-        Nat.reduceAdd, Nat.reduceMul, BitVec.reduceAdd, BitVec.ofNat_eq_ofNat]
-      ac_rfl))
 
 /-! ## A concrete instance: the tautology `[1, -1]` -/
 
@@ -710,7 +514,7 @@ theorem nv_mem : ((byte1Array 0x10a0 (assignBytes 1 Assignment.empty) ⋆ int4Ar
     (kernelState 0x1000 nvK ⋆ (ZeroTermInts 0x10aa [1, -1] ⋆ ZeroTermInts 0x10b6 []))) (nvBytes.At 0x1000) := by
   rw [assignBytes_empty]
   unfold kernelState ZeroTermInts nvBytes
-  solve_bytes_at
+  solve_bytes_at [KernelFields_toList_length]
 
 /-- `checkRupSpec` is satisfiable: the tautology `[1, -1]`, no antecedents, a trail of two free
 slots, in the 186 bytes of `nvBytes` at `0x1000`. -/

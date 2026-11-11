@@ -1,23 +1,30 @@
 module
 
 public import LeanQbe.Examples.LratBytes
-public import LeanQbe.Examples.LratRupLemmas
+public import LeanQbe.Logic.ZeroTerm
+public import LeanQbe.Logic.Rules
 public import LeanQbe.AbiLemmas
+public import LeanQbe.Wf
 public import Kraken.Bedrock2.Test.LratTrimCheckProof
 import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Shared specifications, pure executable mirror, and `region` lemmas for `LratBytes`
+# Shared specifications and pure executable mirror for `LratBytes`
 
 Defines:
 1. `lratBytesFns_wf`: well-formedness (`Func.Wf`) of all 6 functions in `lratBytesFns`.
-2. `loadub_At` and `region` ↔ `byte1Array` / `int4Array` / `word8Array` / `ZeroTermInts` bridges.
+2. Bounds of the DIMACS number parser (`parseNat_lt_bound`) and validity of the literals it yields
+   (`isValidLit_ofNat`).
 3. The 100% structurally recursive pure mirror `runLratCheckBytes` (`parseBodyPure`,
    `readLeb128Pure`, `readAddLitsPure`, `rupCheckPure`, `checkPrfPure`).
 4. `WorkCfg`, `WorkState`, and the exact contracts for all 5 internal callees
    (`lbParseDimacsHeaderSpec`, `lbParseDimacsBodySpec`, `lbReadAddLitsSpec`,
    `lbRupCheckSpec`, `lbCheckPrfSpec`) plus `lratCheckBytesExactSpec`.
+
+The program-independent helpers these proofs use are in `LeanQbe/Logic/`: `loadub_At` and the `region`
+bridges in `Bytes.lean` and `ZeroTerm.lean`, the bit-vector and cursor lemmas in `BitVec.lean`,
+`wp_call_ret1` in `Rules.lean`, `sep_ac` in `MemLemmas.lean`.
 -/
 
 set_option autoImplicit false
@@ -29,7 +36,6 @@ namespace LeanQbe.LratBytes
 open Std Std.ExtHashMap Std.Sat
 open Std.Tactic.BVDecide.LRAT.Internal
 open Kraken.Bedrock2.Test
-open LeanQbe.LratRup
 
 /-! ## 1. Well-formedness of `lratBytesFns` -/
 
@@ -62,328 +68,9 @@ theorem lratBytesFns_wf : ∀ f ∈ lratBytesFns, Func.Wf f.body := by
   · exact lbCheckPrf_wf
   · exact lratCheckBytes_wf
 
-/-! ## 2. Byte-stream `loadub` and `region` ↔ Kraken array bridges -/
-
-theorem toBytes_u8 (b : UInt8) : Int.toBytes 1 (b.toNat : Int) = [b] := by
-  have hb := b.toNat_lt
-  simp only [Int.toBytes, Int.take]
-  rw [Int.emod_eq_of_lt (by omega) (by omega)]
-  simp
-
-theorem loadub_At {base : Val} {bs : List UInt8} {i : Nat} {R : Mem 64 → Prop} {m : Mem 64}
-    (hi : i < bs.length) (hlen : bs.length ≤ 2 ^ 64)
-    (hm : (Eq (bs.At base) ⋆ R) m) :
-    loadVal m .l .b false (base + BitVec.ofNat 64 i) = some (BitVec.ofNat 64 bs[i].toNat) := by
-  have hsplit : bs = bs.take i ++ ([bs[i]] ++ bs.drop (i + 1)) := by
-    rw [List.singleton_append, ← List.drop_eq_getElem_cons hi, List.take_append_drop]
-  have heq : Eq (bs.At base) =
-      (Eq ((Int.toBytes 1 (bs[i].toNat : Int)).At (base + BitVec.ofNat 64 i)) ⋆
-        (Eq ((bs.take i).At base) ⋆
-          Eq ((bs.drop (i + 1)).At (base + BitVec.ofNat 64 i + 1)))) := by
-    conv => lhs; rw [hsplit]
-    rw [eq_append_At base (bs.take i) ([bs[i]] ++ bs.drop (i + 1))
-          (by simp [List.length_take_of_le (Nat.le_of_lt hi)]; omega),
-        List.length_take_of_le (Nat.le_of_lt hi),
-        eq_append_At (base + BitVec.ofNat 64 i) [bs[i]] (bs.drop (i + 1))
-          (by simp; omega),
-        toBytes_u8]
-    simp only [List.length_singleton]
-    ac_rfl
-  have hm' : (Eq ((Int.toBytes 1 (bs[i].toNat : Int)).At (base + BitVec.ofNat 64 i)) ⋆
-      ((Eq ((bs.take i).At base) ⋆ Eq ((bs.drop (i + 1)).At (base + BitVec.ofNat 64 i + 1))) ⋆ R)) m := by
-    rw [heq] at hm; exact sep_cast hm (by ac_rfl)
-  rw [loadVal_toBytes (s := .b) hm']
-  have hb := bs[i].toNat_lt
-  simp only [Sz.bytes, Int.take, Cls.trunc, Sz.extend]
-  rw [Int.emod_eq_of_lt (by omega) (by omega)]
-  exact congrArg some (BitVec.eq_of_toNat_eq (by simp))
-
-theorem byte1Array_to_region {a : Val} {xs : List Val} {f : Mem 64}
-    (h : xs.length ≤ 2 ^ 64) (hf : byte1Array a xs f) :
-    region a xs.length f := by
-  rw [byte1Array_eq a xs h] at hf
-  exact ⟨bytesN 1 xs, by simp [bytesN_length], hf.symm⟩
-
-theorem int4Array_to_region {a : Val} {xs : List Val} {f : Mem 64}
-    (h : 4 * xs.length ≤ 2 ^ 64) (hf : int4Array a xs f) :
-    region a (4 * xs.length) f := by
-  rw [int4Array_eq a xs h] at hf
-  exact ⟨bytesN 4 xs, by simp [bytesN_length], hf.symm⟩
-
-theorem word8Array_to_region {a : Val} {xs : List Val} {f : Mem 64}
-    (h : 8 * xs.length ≤ 2 ^ 64) (hf : word8Array a xs f) :
-    region a (8 * xs.length) f := by
-  rw [word8Array_eq a xs h] at hf
-  exact ⟨bytesN 8 xs, by simp [bytesN_length], hf.symm⟩
-
-theorem zeroTermInts_to_region {a : Val} {xs : List Val} {f : Mem 64}
-    (h : 4 * (xs.length + 1) ≤ 2 ^ 64) (hf : ZeroTermInts a xs f) :
-    region a (4 * (xs.length + 1)) f := by
-  unfold ZeroTermInts at hf
-  have hr := int4Array_to_region (by simpa using h) hf
-  simpa using hr
-
-private theorem toBytes_ofBytes_toNat {n : Nat} {bs : List UInt8}
-    (hn : n = 1 ∨ n = 4 ∨ n = 8) (hl : bs.length = n) :
-    Int.toBytes n ((BitVec.ofInt 64 (Int.ofBytes bs)).toNat : Int) = bs := by
-  rw [← Int.toBytes_emod]
-  have hdvd : (2 ^ (8 * n) : Int) ∣ ((2 ^ 64 : Nat) : Int) := by
-    rcases hn with rfl | rfl | rfl <;> decide
-  have hdvd2 : (2 ^ (8 * n) : Int) ∣ (2 ^ 64 : Int) := by
-    rcases hn with rfl | rfl | rfl <;> decide
-  have h1 : ((BitVec.ofInt 64 (Int.ofBytes bs)).toNat : Int).take (8 * n) =
-      (Int.ofBytes bs).take (8 * n) := by
-    simp only [Int.take]
-    rw [← BitVec.toInt_emod_two_pow, Int.emod_emod_of_dvd _ hdvd2, BitVec.toInt_ofInt,
-        ← Int.emod_emod_of_dvd _ hdvd, Int.bmod_emod, Int.emod_emod_of_dvd _ hdvd]
-  rw [h1, Int.toBytes_emod, ← hl]
-  exact Int.toBytes_ofBytes_all bs
-
-private theorem region_to_bytes_array {n : Nat} (arr : Val → List Val → Mem 64 → Prop)
-    (hnil : ∀ a, arr a [] = emp)
-    (hcons : ∀ a v vs, arr a (v :: vs) = (Eq ((Int.toBytes n v.toNat).At a) ⋆ arr (a + BitVec.ofNat 64 n) vs))
-    (hn : n = 1 ∨ n = 4 ∨ n = 8) (a : Val) (k : Nat) (hk : n * k ≤ 2 ^ 64) :
-    ∀ {f : Mem 64}, region a (n * k) f → ∃ xs : List Val, xs.length = k ∧ arr a xs f := by
-  induction k generalizing a with
-  | zero =>
-    intro f hf
-    simp only [Nat.mul_zero, region_zero] at hf
-    exact ⟨[], rfl, by rw [hnil]; exact hf⟩
-  | succ k ih =>
-    intro f hf
-    have hmul : n * (k + 1) = n + n * k := by rw [Nat.mul_succ, Nat.add_comm]
-    have hnk : n * k ≤ 2 ^ 64 := Nat.le_trans (Nat.le_add_left _ _) (hmul ▸ hk)
-    have hnle : n + n * k ≤ 2 ^ 64 := hmul ▸ hk
-    have hsp : region a (n + n * k) f := hmul ▸ hf
-    rw [region_split hnle] at hsp
-    obtain ⟨f1, f2, hu, hd, ⟨bs1, hl1, rfl⟩, hf2⟩ := hsp
-    obtain ⟨xs, hxs, h2⟩ := ih (a + BitVec.ofNat 64 n) hnk hf2
-    let v : Val := BitVec.ofInt 64 (Int.ofBytes bs1)
-    have hv : Int.toBytes n v.toNat = bs1 := toBytes_ofBytes_toNat hn hl1
-    refine ⟨v :: xs, by simp [hxs], ?_⟩
-    rw [hcons, hv]
-    exact ⟨_, f2, hu, hd, rfl, h2⟩
-
-theorem region_to_byte1Array {a : Val} (k : Nat) (hk : k ≤ 2 ^ 64) {f : Mem 64}
-    (hf : region a k f) :
-    ∃ xs : List Val, xs.length = k ∧ byte1Array a xs f :=
-  region_to_bytes_array byte1Array (fun _ => rfl) (fun _ _ _ => rfl)
-    (Or.inl rfl) a k (by omega) (by simpa using hf)
-
-theorem region_to_int4Array {a : Val} (k : Nat) (hk : 4 * k ≤ 2 ^ 64) {f : Mem 64}
-    (hf : region a (4 * k) f) :
-    ∃ xs : List Val, xs.length = k ∧ int4Array a xs f :=
-  region_to_bytes_array int4Array (fun _ => rfl) (fun _ _ _ => rfl)
-    (Or.inr (Or.inl rfl)) a k hk hf
-
-theorem region_to_word8Array {a : Val} (k : Nat) (hk : 8 * k ≤ 2 ^ 64) {f : Mem 64}
-    (hf : region a (8 * k) f) :
-    ∃ xs : List Val, xs.length = k ∧ word8Array a xs f :=
-  region_to_bytes_array word8Array (fun _ => rfl) (fun _ _ _ => rfl)
-    (Or.inr (Or.inr rfl)) a k hk hf
-
-theorem region_pop_int4 {a : Val} {rem : Nat} (hrem : 0 < rem)
-    (hfit : 4 * rem ≤ 2 ^ 64) {f : Mem 64} (hf : region a (4 * rem) f) :
-    ∃ v0 : Val, (int4 a v0 ⋆ region (a + 4) (4 * (rem - 1))) f := by
-  have heq : 4 * rem = 4 * 1 + 4 * (rem - 1) := by omega
-  rw [heq, region_split (by omega)] at hf
-  obtain ⟨f1, f2, hu, hd, hf1, hf2⟩ := hf
-  obtain ⟨xs, hxs, h1⟩ := region_to_int4Array 1 (by omega) hf1
-  rcases xs with _ | ⟨v0, _ | _⟩ <;> simp at hxs
-  simp only [int4Array_cons, int4Array_nil, sep_emp] at h1
-  exact ⟨v0, f1, f2, hu, hd, h1, by simpa using hf2⟩
-
-theorem region_pop_store_int4 {wcur : Val} {rem : Nat} (v : Val) {R : Mem 64 → Prop} {m : Mem 64}
-    (hrem : 0 < rem) (hfit : 4 * rem ≤ 2 ^ 64)
-    (hm : (region wcur (4 * rem) ⋆ R) m) :
-    storeOk m .w wcur ∧
-    (int4 wcur v ⋆ region (wcur + 4) (4 * (rem - 1)) ⋆ R) (storeMem m .w wcur v) := by
-  obtain ⟨f_w, f_rest, hu, hd, hf_w, hf_rest⟩ := hm
-  obtain ⟨v0, hv0_cell⟩ := region_pop_int4 hrem hfit hf_w
-  have hm_cell : ((int4 wcur v0 ⋆ region (wcur + 4) (4 * (rem - 1))) ⋆ R) m :=
-    ⟨f_w, f_rest, hu, hd, hv0_cell, hf_rest⟩
-  rw [sep_assoc] at hm_cell
-  obtain ⟨ok, hm'⟩ := LratRup.store_int4 v hm_cell
-  exact ⟨ok, sep_cast hm' (by ac_rfl)⟩
-
-theorem region_merge_eq {a : Val} {n1 n2 n : Nat}
-    (hsum : n1 + n2 = n) (hfit : n ≤ 2 ^ 64) :
-    (region a n1 ⋆ region (a + BitVec.ofNat 64 n1) n2) = region a n := by
-  subst hsum
-  exact (region_split (a := a) (n1 := n1) (n2 := n2) hfit).symm
-
-/-! ### Shared BitVec, pointer, separation, and WP helpers -/
-
-namespace ProofUtil
-scoped macro "sep_ac" h:term : term => `(sep_cast $h (by ac_rfl))
-end ProofUtil
+/-! ## 2. Bounds of the DIMACS number parser, literal validity -/
 
 open ProofUtil
-
-theorem ptr_add_ofNat (base : Val) (a b : Nat) :
-    base + BitVec.ofNat 64 a + BitVec.ofNat 64 b = base + BitVec.ofNat 64 (a + b) :=
-  BitVec.eq_of_toNat_eq (by simp [BitVec.toNat_add]; omega)
-
-theorem ptr_step_1 (base : Val) (i : Nat) :
-    base + BitVec.ofNat 64 i + 1 = base + BitVec.ofNat 64 (i + 1) :=
-  ptr_add_ofNat base i 1
-
-theorem cursor_eq_iff {base : Val} {i j : Nat} (hi : i < 2 ^ 64) (hj : j < 2 ^ 64) :
-    base + BitVec.ofNat 64 i = base + BitVec.ofNat 64 j ↔ i = j := by
-  constructor
-  · intro h
-    have h2 : BitVec.ofNat 64 i = BitVec.ofNat 64 j := by grind
-    have h3 := congrArg BitVec.toNat h2
-    simpa [Nat.mod_eq_of_lt hi, Nat.mod_eq_of_lt hj] using h3
-  · rintro rfl; rfl
-
-theorem bv64_u8_eq {b k : UInt8} :
-    BitVec.ofNat 64 b.toNat = BitVec.ofNat 64 k.toNat ↔ b = k := by
-  have hb := b.toNat_lt
-  have hk := k.toNat_lt
-  constructor
-  · intro h
-    have := congrArg BitVec.toNat h
-    simp [Nat.mod_eq_of_lt (by omega : b.toNat < 2 ^ 64),
-          Nat.mod_eq_of_lt (by omega : k.toNat < 2 ^ 64)] at this
-    exact UInt8.eq_of_toBitVec_eq (BitVec.eq_of_toNat_eq this)
-  · rintro rfl; rfl
-
-theorem bv_add_ofNat (a b : Nat) :
-    BitVec.ofNat 64 a + BitVec.ofNat 64 b = BitVec.ofNat 64 (a + b) :=
-  BitVec.eq_of_toNat_eq (by simp [BitVec.toNat_add])
-
-theorem bv_sub_ofNat {a b : Nat} (hba : b ≤ a) (ha : a < 2 ^ 64) :
-    BitVec.ofNat 64 a - BitVec.ofNat 64 b = BitVec.ofNat 64 (a - b) :=
-  BitVec.eq_of_toNat_eq (by
-    simp [BitVec.toNat_sub, Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt (by omega : b < 2 ^ 64),
-      Nat.mod_eq_of_lt (by omega : a - b < 2 ^ 64)]; omega)
-
-theorem bv_shl_ofNat {a k : Nat} (ha : a < 2 ^ 64) (_hk : k < 64) :
-    BitVec.ofNat 64 a <<< k = BitVec.ofNat 64 (a <<< k) :=
-  BitVec.eq_of_toNat_eq (by
-    simp [BitVec.toNat_shiftLeft, Nat.mod_eq_of_lt ha])
-
-theorem bv_shr_ofNat {a k : Nat} (ha : a < 2 ^ 64) (_hk : k < 64) :
-    BitVec.ofNat 64 a >>> k = BitVec.ofNat 64 (a >>> k) :=
-  BitVec.eq_of_toNat_eq (by
-    simp [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow, Nat.mod_eq_of_lt ha,
-      Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt (Nat.div_le_self _ _) ha)])
-
-theorem bv_shr_one {u : Nat} (hu : u < 2 ^ 64) :
-    BitVec.ofNat 64 u >>> (1 : Nat) = BitVec.ofNat 64 (u / 2) := by
-  simpa [Nat.shiftRight_eq_div_pow] using bv_shr_ofNat hu (by decide)
-
-theorem bv_and_pow2_sub_one {a k : Nat} (ha : a < 2 ^ 64) :
-    BitVec.ofNat 64 a &&& BitVec.ofNat 64 (2 ^ k - 1) = BitVec.ofNat 64 (a % 2 ^ k) := by
-  apply BitVec.eq_of_toNat_eq
-  rw [BitVec.toNat_and, BitVec.toNat_ofNat, BitVec.toNat_ofNat, BitVec.toNat_ofNat,
-    Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt (Nat.mod_le a _) ha)]
-  apply Nat.eq_of_testBit_eq; intro i
-  simp only [Nat.testBit_and, Nat.testBit_mod_two_pow, Nat.testBit_two_pow_sub_one]
-  by_cases hi : i < 64
-  · simp [hi, Bool.and_comm]
-  · have hai : a.testBit i = false :=
-      Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le ha (Nat.pow_le_pow_right (by decide) (by omega)))
-    simp [hi, hai]
-
-theorem bv_and_one {u : Nat} (hu : u < 2 ^ 64) :
-    BitVec.ofNat 64 u &&& (1 : Val) = BitVec.ofNat 64 (u % 2) :=
-  bv_and_pow2_sub_one (k := 1) hu
-
-theorem bv_align_pow2 {x k : Nat} (hk : k < 64) (hx : x < 2 ^ 64) :
-    BitVec.ofNat 64 x &&& (-(BitVec.ofNat 64 (2 ^ k))) = BitVec.ofNat 64 ((x / 2 ^ k) * 2 ^ k) := by
-  have hp : 2 ^ k < 2 ^ 64 := Nat.pow_lt_pow_right (by decide) hk
-  have hpow_pos : 0 < 2 ^ k := @Nat.two_pow_pos k
-  have hlt : (x / 2 ^ k) * 2 ^ k < 2 ^ 64 := by
-    have := Nat.div_mul_le_self x (2 ^ k); omega
-  apply BitVec.eq_of_toNat_eq
-  simp only [BitVec.toNat_and, BitVec.toNat_neg, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hx,
-    Nat.mod_eq_of_lt hp, Nat.mod_eq_of_lt hlt]
-  have hm : (2 ^ 64 - 2 ^ k) % 2 ^ 64 = 2 ^ 64 - 2 ^ k := by omega
-  have hsh : (x >>> k) <<< k = x &&& (2 ^ 64 - 2 ^ k) := by
-    apply Nat.eq_of_testBit_eq; intro i
-    simp only [Nat.testBit_shiftLeft, Nat.testBit_shiftRight, Nat.testBit_and]
-    by_cases hik : k ≤ i <;> by_cases hi64 : i < 64
-    · have ht1 : (2 ^ 64 - 2 ^ k).testBit i = true := by
-        have hsub : 2 ^ 64 - 2 ^ k = (2 ^ (64 - k) - 1) <<< k := by
-          rw [Nat.shiftLeft_eq, Nat.mul_sub_right_distrib, Nat.one_mul, ← Nat.pow_add,
-            Nat.sub_add_cancel (by omega)]
-        rw [hsub, Nat.testBit_shiftLeft]
-        simp [hik, Nat.testBit_two_pow_sub_one, show i - k < 64 - k by omega]
-      simp [hik, ht1, Nat.add_sub_cancel' hik]
-    · have hx0 : x.testBit i = false :=
-        Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le hx (Nat.pow_le_pow_right (by decide) (by omega)))
-      simp [hik, Nat.add_sub_cancel' hik, hx0]
-    · have ht0 : (2 ^ 64 - 2 ^ k).testBit i = false := by
-        have hsub : 2 ^ 64 - 2 ^ k = (2 ^ (64 - k) - 1) <<< k := by
-          rw [Nat.shiftLeft_eq, Nat.mul_sub_right_distrib, Nat.one_mul, ← Nat.pow_add,
-            Nat.sub_add_cancel (by omega)]
-        rw [hsub, Nat.testBit_shiftLeft]
-        simp [hik]
-      simp [hik, ht0]
-    · have hx0 : x.testBit i = false :=
-        Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le hx (Nat.pow_le_pow_right (by decide) (by omega)))
-      simp [hik, hx0]
-  rw [hm, ← hsh, Nat.shiftLeft_eq, Nat.shiftRight_eq_div_pow]
-
-theorem bv_ult_eq {a b : Nat} (ha : a < 2 ^ 64) (hb : b < 2 ^ 64) :
-    (BitVec.ofNat 64 a).ult (BitVec.ofNat 64 b) = decide (a < b) := by
-  simp [BitVec.ult, Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb]
-
-theorem bv_ule_eq {a b : Nat} (ha : a < 2 ^ 64) (hb : b < 2 ^ 64) :
-    (BitVec.ofNat 64 a).ule (BitVec.ofNat 64 b) = decide (a ≤ b) := by
-  simp [BitVec.ule, Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb]
-
-theorem bv_eq_zero_iff {v : Nat} (hv : v < 2 ^ 64) :
-    BitVec.ofNat 64 v = (0 : Val) ↔ v = 0 := by
-  simpa using cursor_eq_iff (base := 0) hv (by decide)
-
-theorem ult_branch {a b : Nat} {P Q : Prop} (ha : a < 2 ^ 64) (hb : b < 2 ^ 64)
-    (ht : a < b → P) (hf : ¬ a < b → Q) :
-    ((BitVec.ofNat 64 a).ult (BitVec.ofNat 64 b) = true → P) ∧
-    ((BitVec.ofNat 64 a).ult (BitVec.ofNat 64 b) = false → Q) := by
-  rw [bv_ult_eq ha hb]; simp only [decide_eq_true_eq, decide_eq_false_iff_not]; exact ⟨ht, hf⟩
-
-theorem ule_branch {a b : Nat} {P Q : Prop} (ha : a < 2 ^ 64) (hb : b < 2 ^ 64)
-    (ht : a ≤ b → P) (hf : ¬ a ≤ b → Q) :
-    ((BitVec.ofNat 64 a).ule (BitVec.ofNat 64 b) = true → P) ∧
-    ((BitVec.ofNat 64 a).ule (BitVec.ofNat 64 b) = false → Q) := by
-  rw [bv_ule_eq ha hb]; simp only [decide_eq_true_eq, decide_eq_false_iff_not]; exact ⟨ht, hf⟩
-
-theorem bv_eq_zero_branch {v : Nat} {P Q : Prop} (hv : v < 2 ^ 64)
-    (hz : v = 0 → P) (hnz : v ≠ 0 → Q) :
-    (BitVec.ofNat 64 v = (0 : Val) → P) ∧ (BitVec.ofNat 64 v ≠ (0 : Val) → Q) := by
-  simp only [ne_eq, bv_eq_zero_iff hv]; exact ⟨hz, hnz⟩
-
-theorem bv_odd_branch {u : Nat} {P Q : Prop} (hu : u < 2 ^ 64)
-    (hodd : (u % 2 != 0) = true → P) (heven : (u % 2 != 0) = false → Q) :
-    (BitVec.ofNat 64 u &&& (1 : Val) ≠ 0 → P) ∧
-    (¬ BitVec.ofNat 64 u &&& (1 : Val) ≠ 0 → Q) := by
-  rw [bv_and_one hu]
-  have hiff : (BitVec.ofNat 64 (u % 2) ≠ (0 : Val)) ↔ (u % 2 != 0) = true := by
-    rw [ne_eq, bv_eq_zero_iff (by omega), bne_iff_ne]
-  constructor
-  · intro h; exact hodd (hiff.mp h)
-  · intro h; exact heven (Bool.eq_false_iff.mpr (fun ht => h (hiff.mpr ht)))
-
-theorem cursor_eof_branch {base : Val} {i n : Nat} {P Q : Prop}
-    (hi : i ≤ n) (hn : n < 2 ^ 64)
-    (heof : i = n → P) (hneof : i < n → Q) :
-    (base + BitVec.ofNat 64 i = base + BitVec.ofNat 64 n → P) ∧
-    (base + BitVec.ofNat 64 i ≠ base + BitVec.ofNat 64 n → Q) := by
-  have hiff := cursor_eq_iff (base := base) (by omega : i < 2 ^ 64) hn
-  simp only [ne_eq, hiff]
-  exact ⟨heof, fun h => hneof (Nat.lt_of_le_of_ne hi h)⟩
-
-theorem wp_call_ret1 {Γ : Env} {Q : Post} {X : XPost} {f : Sym} {args : List (Arg Val)}
-    {k : Expr Val Cont} {m : Mem 64} (Pred : Val → Mem 64 → Prop)
-    (hcall : Γ f (args.map Arg.val) m (fun rs m' => ∃ r, rs = [r] ∧ Pred r m') (fun _ _ _ => False))
-    (hk : ∀ r m', Pred r m' → wp Γ Q X k [r] [] m') :
-    wp Γ Q X (.call f args k) [] [] m := by
-  simp only [wp, true_and]
-  exact ⟨_, fun _ _ _ => False, hcall, by rintro _ m' ⟨r, rfl, hp⟩; exact hk r m' hp,
-    fun _ _ _ h => h.elim⟩
 
 theorem parseDigitsAux_lt_bound {acc : Nat} {bs : List UInt8} {v : Nat} {rest : List UInt8}
     (hacc : acc < dimacsBound) (h : parseDigitsAux acc bs = some (v, rest)) :
@@ -876,11 +563,6 @@ def hdrWords (c : WorkCfg) (pcur cur : Val) : List Val :=
 theorem fit_active (c : WorkCfg) : c.hdr.toNat + c.activeBytes < 2 ^ 64 := by
   have := c.hfit; unfold activeBytes vBytes tBytes tRaw; omega
 
-private theorem bv_add_ofNat_toNat {a : Val} {n : Nat} (h : a.toNat + n < 2 ^ 64) :
-    (a + BitVec.ofNat 64 n).toNat = a.toNat + n := by
-  rw [BitVec.toNat_add, BitVec.toNat_ofNat,
-    Nat.mod_eq_of_lt (by omega : n < 2 ^ 64), Nat.mod_eq_of_lt h]
-
 theorem toNat_vb (c : WorkCfg) : c.vb.toNat = c.hdr.toNat + 80 := by
   have := c.fit_active; unfold activeBytes at this
   exact bv_add_ofNat_toNat (n := 80) (by omega)
@@ -994,11 +676,6 @@ theorem loadl_hdr {c : WorkCfg} {pcur cur : Val} {sg : Bool} {R : Mem 64 → Pro
     loadVal m .l .l sg a =
       some ((c.hdrWords pcur cur)[i]'(by simpa [WorkCfg.hdrWords] using hi)) := by
   subst ha; exact loadl_word8Array _ h
-
-theorem sep_mono2 {P1 P1' P2 P2' : Mem 64 → Prop}
-    (h1 : ∀ f, P1 f → P1' f) (h2 : ∀ f, P2 f → P2' f) :
-    ∀ f, (P1 ⋆ P2) f → (P1' ⋆ P2') f :=
-  fun _ h => sep_mono h1 (sep_mono_r h2 h)
 
 /-- Collapse the 8 partitioned workspace regions back into `region c.hdr c.activeBytes`. -/
 theorem workCfg_regions_to_activeBytes (c : WorkCfg) {poolUsedInts poolRemInts : Nat}

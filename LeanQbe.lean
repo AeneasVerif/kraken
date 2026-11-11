@@ -23,6 +23,10 @@ public import LeanQbe.Notation
 public import LeanQbe.Logic.Mem
 public import LeanQbe.Logic.MemLemmas
 public import LeanQbe.Logic.Rules
+public import LeanQbe.Logic.BitVec
+public import LeanQbe.Logic.Cells
+public import LeanQbe.Logic.Bytes
+public import LeanQbe.Logic.ZeroTerm
 public import LeanQbe.Examples.UnionFind
 public import LeanQbe.Examples.UnionFindLemmas
 public import LeanQbe.Examples.LratRup

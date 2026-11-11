@@ -15,8 +15,9 @@ import all Std.Sat.CNF.Entails
 The specification `strictSpec` is the one of Kraken's `call_br_check_clause_strictly_by_resolution`
 (`LratTrimStrictProof.lean`), with `lrat_fail` an `exit` (decision D5). The pure resolution metatheory
 (`MarksWF`, `marksCount`, `MarksSat`, `MarksEntailed`, `InnerInv`, `ValidAntecedent`, …) is imported
-from `LratTrimStrictProof.lean` unchanged, and the memory and bit-level helpers are reused from
-`LratRupLemmas.lean`.
+from `LratTrimStrictProof.lean` unchanged. The memory and bit-level helpers are in `LeanQbe/Logic/`;
+what is specific to LRAT literals and the kernel state (`abs_eq`, `negif_eq`, `loadl_kfield`,
+`KernelFields_toList_length`, `nvK`) is reused from `LratRupLemmas.lean`.
 -/
 
 set_option autoImplicit false
@@ -71,13 +72,6 @@ theorem mpol_eq_of_eval_slt_false {mpol : Bool} {lit : Val}
     mpol = (toLiteral lit).2 := by
   rw [evalAssignedLit_encodePol_eq] at h; generalize (toLiteral lit).2 = p at h ⊢
   cases mpol <;> cases p <;> revert h <;> decide
-
-private theorem first_eq_zero {first : Val} (h : first = 0 ∨ first = 1) (hf : ¬ Truthy first) :
-    first = 0 :=
-  h.elim id fun h1 => absurd (by subst h1; decide : Truthy first) hf
-
-theorem ptr4_sub (p : Val) (i : Nat) :
-    p + BitVec.ofNat 64 (4 * (i + 1)) - 4 = p + BitVec.ofNat 64 (4 * i) := by grind
 
 /-! ## Loop 1: `strictScan` -/
 
@@ -398,6 +392,6 @@ theorem strictCheck_nonvacuous :
     ?_, ⟨_, rfl⟩, ⟨ZeroTermInts 0x10aa [], by ac_rfl⟩, fun _ _ _ => rfl, fun _ _ => rfl⟩
   unfold kernelState ZeroTermInts nvStrictBytes
   rw [show List.replicate 2 (0 : Val) = [0, 0] from rfl]
-  solve_bytes_at
+  solve_bytes_at [KernelFields_toList_length]
 
 end LeanQbe.LratTrim

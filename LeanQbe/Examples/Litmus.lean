@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.RegaLemmas
+public import LeanQbe.FlatLemmas
 public import LeanQbe.Examples.LitmusProgsLemmas
 public import LeanQbe.Amd64.TargLemmas
 public import Kraken.X64.PrintATT
@@ -11,16 +12,6 @@ import all Kraken.Mem
 set_option autoImplicit false
 
 @[expose] public section
-
-open Lean Elab Tactic Meta in
-elab "kernel_rfl" : tactic => do
-  let goal ← getMainGoal
-  let tgt ← instantiateMVars (← goal.getType)
-  let some (α, lhs, _) := tgt.eq?
-    | throwError "kernel_rfl: goal is not an equality{indentExpr tgt}"
-  let u ← getLevel α
-  goal.assign (mkApp2 (mkConst ``Eq.refl [u]) α lhs)
-  replaceMainGoal []
 
 namespace LeanQbe.Litmus
 

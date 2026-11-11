@@ -13,33 +13,9 @@ namespace LeanQbe.LratBytes
 open Std Std.ExtHashMap Std.Sat
 open Std.Tactic.BVDecide.LRAT.Internal
 open Kraken.Bedrock2.Test
-open LeanQbe.LratRup
 open ProofUtil
 
 /-! ## 1. Pure byte-scanner and `parseNat` helper lemmas -/
-
-private theorem boolVal_or (a b : Bool) : boolVal a ||| boolVal b = boolVal (a || b) := by
-  cases a <;> cases b <;> decide
-
-private theorem u8_le_iff_toNat {a b : UInt8} : a ≤ b ↔ a.toNat ≤ b.toNat :=
-  UInt8.le_iff_toBitVec_le.trans BitVec.le_def
-
-private theorem u8_sub_ult_eq (lo len : Nat) (hlen : 0 < len) (h : lo + len ≤ 256) (b : UInt8) :
-    (BitVec.ofNat 64 b.toNat - BitVec.ofNat 64 lo).ult (BitVec.ofNat 64 len) =
-      (decide (lo ≤ b.toNat) && decide (b.toNat ≤ lo + len - 1)) := by
-  have hb := b.toNat_lt
-  simp only [BitVec.ult, BitVec.toNat_sub, BitVec.toNat_ofNat,
-    Nat.mod_eq_of_lt (by omega : b.toNat < 2 ^ 64),
-    Nat.mod_eq_of_lt (by omega : lo < 2 ^ 64),
-    Nat.mod_eq_of_lt (by omega : len < 2 ^ 64)]
-  by_cases hlo : lo ≤ b.toNat
-  · have hsub : (2 ^ 64 - lo + b.toNat) % 2 ^ 64 = b.toNat - lo := by
-      rw [show 2 ^ 64 - lo + b.toNat = 2 ^ 64 + (b.toNat - lo) from by omega,
-        Nat.add_mod_left, Nat.mod_eq_of_lt (by omega)]
-    rw [hsub]; by_cases hhi : b.toNat ≤ lo + len - 1 <;> simp [hlo, hhi] <;> omega
-  · have hsub : (2 ^ 64 - lo + b.toNat) % 2 ^ 64 = 2 ^ 64 - lo + b.toNat :=
-      Nat.mod_eq_of_lt (by omega)
-    rw [hsub]; simp [hlo]; omega
 
 private theorem isWsByte_val (b : UInt8) :
     (boolVal (BitVec.ofNat 64 b.toNat == 32) |||
@@ -277,21 +253,6 @@ private theorem region80_to_words10 {hdr : Val} {f : Mem 64} (hf : region hdr 80
   rcases ws with _ | ⟨w0, _ | ⟨w1, _ | ⟨w2, _ | ⟨w3, _ | ⟨w4, _ | ⟨w5, _ | ⟨w6, _ | ⟨w7, _ | ⟨w8, _ | ⟨w9, _ | _⟩⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
     simp at hlen
   exact ⟨w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, hwa⟩
-
-private theorem expectByte_branch {base : Val} {bs : List UInt8} {i : Nat} {k : UInt8}
-    {R : Mem 64 → Prop} {m : Mem 64} {P Q : Prop}
-    (hbase : base.toNat + bs.length < 2 ^ 64) (hi : i ≤ bs.length) (hm : (Eq (bs.At base) ⋆ R) m)
-    (heof : bs.drop i = [] → Q)
-    (hmatch : ∀ (hlt : i < bs.length), bs[i] = k → P)
-    (hmismatch : ∀ (hlt : i < bs.length), bs[i] ≠ k → Q) :
-    (base + BitVec.ofNat 64 i = base + BitVec.ofNat 64 bs.length → Q) ∧
-    (base + BitVec.ofNat 64 i ≠ base + BitVec.ofNat 64 bs.length →
-      ∃ v, loadVal m .l .b false (base + BitVec.ofNat 64 i) = some v ∧
-        ((v = BitVec.ofNat 64 k.toNat → P) ∧ (v ≠ BitVec.ofNat 64 k.toNat → Q))) :=
-  cursor_eof_branch hi (by omega) (fun heq => heof (by rw [heq]; simp))
-    (fun hlt => ⟨_, loadub_At hlt (by omega) hm,
-      fun heq => hmatch hlt ((bv64_u8_eq (k := k)).mp heq),
-      fun hne => hmismatch hlt (fun h => hne ((bv64_u8_eq (k := k)).mpr h))⟩)
 
 theorem lbParseDimacsHeader_correct (Γ : Env) :
     ∀ args m Q X, lbParseDimacsHeaderSpec args m Q X → Func.spec Γ lbParseDimacsHeader args m Q X := by
@@ -591,11 +552,6 @@ private theorem collapse_body_state (c : WorkCfg) {cur0 : Val}
   dsimp only [pcur] at hm1
   exact workCfg_regions_to_activeBytes c (poolUsedInts := poolUsed) (poolRemInts := accLen + rem)
     (by omega) (sep_ac hm1)
-
-private theorem sep_mono_mid {A B B' C : Mem 64 → Prop} {m : Mem 64}
-    (h : ∀ f, B f → B' f) (hm : (A ⋆ B ⋆ C) m) : (A ⋆ B' ⋆ C) m := by
-  obtain ⟨f12, f3, hu1, hd1, ⟨f1, f2, hu2, hd2, hA, hB⟩, hC⟩ := hm
-  exact ⟨f12, f3, hu1, hd1, ⟨f1, f2, hu2, hd2, hA, h f2 hB⟩, hC⟩
 
 private theorem bodyMid_finish {c : WorkCfg} {cnf_ptr cur0 : Val} {cnfBytes : List UInt8}
     {poolUsed poolRem : Nat} {ptrs : List Val} {table : List (Option (List Val))}

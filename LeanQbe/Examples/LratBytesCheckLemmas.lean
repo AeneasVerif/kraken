@@ -23,7 +23,6 @@ namespace LeanQbe.LratBytes
 open Std Std.ExtHashMap Std.Sat
 open Std.Tactic.BVDecide.LRAT.Internal
 open Kraken.Bedrock2.Test
-open LeanQbe.LratRup
 open ProofUtil
 
 /-! ## 1. Pure stream-length, fuel-invariance, and literal-validity lemmas -/

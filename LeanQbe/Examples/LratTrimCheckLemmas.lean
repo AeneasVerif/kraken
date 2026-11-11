@@ -30,29 +30,6 @@ open LeanQbe.LratRup
 
 /-! ## Memory and bit-vector helpers -/
 
-theorem loaduw_int4 {a v : Val} {R : Mem 64 → Prop} {m : Mem 64} (h : (int4 a v ⋆ R) m) :
-    loadVal m .l .w false a = some (v &&& 0xffffffff#64) := by
-  rw [loadVal_toBytes (s := .w) h]
-  simp only [Cls.trunc, Sz.extend, Sz.bytes]; rw [ofInt_take_toNat v]; congr 1; grind
-
-theorem loaduw_zeroTerm_head {p : Val} {xs : List Val} {R : Mem 64 → Prop} {m : Mem 64}
-    (h : (ZeroTermInts p xs ⋆ R) m) :
-    loadVal m .l .w false p = some (((xs ++ [0])[0]'(by simp)) &&& 0xffffffff#64) := by
-  rw [zeroTermInts_split_head p xs, sep_assoc] at h
-  exact loaduw_int4 h
-
-theorem word8_eq_int4_sep (a v : Val) :
-    word8 a v = (int4 a v ⋆ Eq (((Int.toBytes 8 v.toNat).drop 4).At (a + 4))) := by
-  unfold word8 int4
-  conv => lhs; rw [← List.take_append_drop 4 (Int.toBytes 8 v.toNat)]
-  exact Mem.At_append_sep (Int.toBytes 4 v.toNat) ((Int.toBytes 8 v.toNat).drop 4) a
-    (by simp [Int.toBytes_length])
-
-theorem loadsw_word8 {a v : Val} {R : Mem 64 → Prop} {m : Mem 64} (h : (word8 a v ⋆ R) m)
-    (hv : IsInt32 v) : loadVal m .l .w true a = some v := by
-  rw [word8_eq_int4_sep, sep_assoc] at h
-  exact loadsw_int4 h hv
-
 theorem loadsw_kfield {st : Val} {k : KernelFields} {R : Mem 64 → Prop} {m : Mem 64} (i : Nat)
     (hi : i < 20) (h : (kernelState st k ⋆ R) m) {a : Val} (ha : a = st + BitVec.ofNat 64 (8 * i))
     (hv : IsInt32 (k.toList[i]'(by simpa [KernelFields.toList] using hi))) :
@@ -61,9 +38,6 @@ theorem loadsw_kfield {st : Val} {k : KernelFields} {R : Mem 64 → Prop} {m : M
   unfold kernelState at h
   rw [word8Array_focus st k.toList (by simpa [KernelFields.toList] using hi), sep_assoc] at h
   exact loadsw_word8 h hv
-
-theorem shl_two (x : Val) : x <<< 2 = BitVec.ofNat 64 (4 * x.toNat) := by
-  apply BitVec.eq_of_toNat_eq; simp [BitVec.toNat_shiftLeft]; omega
 
 theorem storel_stat_chk_total {st : Val} {k : KernelFields} {R : Mem 64 → Prop} {m : Mem 64} :
     (kernelState st k ⋆ R) m →
@@ -520,7 +494,7 @@ theorem nvCheck_pre :
   · unfold kernelState nvCheckPro ZeroTermInts nvCheckBytes
     dsimp only [nvCheckK, nvK]
     rw [show List.replicate 2 (0 : Val) = [0, 0] from rfl]
-    solve_bytes_at
+    solve_bytes_at [KernelFields_toList_length]
   · intro id hlo hhi _
     have hid : id.toNat = 1 := by change 1 ≤ id.toNat at hlo; change id.toNat ≤ 1 at hhi; omega
     simp only [hid, List.getD, List.getElem?_cons_succ, List.getElem?_cons_zero, Option.getD_some,
@@ -546,32 +520,6 @@ theorem checkProof_nonvacuous :
     fun _ _ _ => rfl, fun _ _ => rfl⟩
 
 /-! ## Accepting UNSAT instance (`[[1], [-1]]`, exit postcondition `False`) -/
-
-theorem wp_unroll {Γ : Env} {Q : Post} {X : XPost} {b rest : Cont → Expr Val Cont} {m : Mem 64}
-    (h : ∀ J : Cont, (∀ as m', wp Γ Q X (b J) as [] m' → J as m') → wp Γ Q X (rest J) [] [] m) :
-    wp Γ Q X (.label fun J => .block (b J) (rest J)) [] [] m := by
-  simp only [wp, List.nil_append, true_and]; exact h
-
-theorem loadsw_at {a p : Val} {xs : List Val} (i : Nat) {R : Mem 64 → Prop} {m : Mem 64}
-    (hi : i < xs.length) (hv : IsInt32 xs[i]) (h : (int4Array a xs ⋆ R) m)
-    (heq : p = a + BitVec.ofNat 64 (4 * i) := by rfl) :
-    loadVal m .l .w true p = some xs[i] := heq ▸ loadsw_int4Array hi hv h
-
-theorem loadl_at {a p : Val} {xs : List Val} (i : Nat) {R : Mem 64 → Prop} {m : Mem 64}
-    (hi : i < xs.length) (h : (word8Array a xs ⋆ R) m)
-    (heq : p = a + BitVec.ofNat 64 (8 * i) := by rfl) :
-    loadVal m .l .l true p = some xs[i] := heq ▸ loadl_word8Array hi h
-
-theorem loadsb_at {a p : Val} {xs : List Val} (i : Nat) {R : Mem 64 → Prop} {m : Mem 64}
-    (hi : i < xs.length) (hv : IsInt8 xs[i]) (h : (byte1Array a xs ⋆ R) m)
-    (heq : p = a + BitVec.ofNat 64 i := by rfl) :
-    loadVal m .l .b true p = some xs[i] := heq ▸ loadsb_byte1Array hi hv h
-
-theorem storeb_at {a : Val} {xs : List Val} (i : Nat) (p v : Val) {R : Mem 64 → Prop} {m : Mem 64}
-    (hi : i < xs.length) (h : (byte1Array a xs ⋆ R) m)
-    (heq : p = a + BitVec.ofNat 64 i := by rfl) :
-    storeOk m .b p ∧ (byte1Array a (xs.set i v) ⋆ R) (storeMem m .b p v) :=
-  heq ▸ storeb_byte1Array v hi h
 
 /-- The unsatisfiable 2-clause formula `(x₁) ∧ (¬x₁)`. -/
 def nvAcceptCnf : CNF Nat :=
@@ -637,46 +585,7 @@ theorem nvAcceptBytes_length : nvAcceptBytes.length = 274 := by
 
 theorem nvAccept_mem : nvAcceptMem nvAcceptK emp (nvAcceptBytes.At 0x1000) := by
   unfold nvAcceptMem kernelState nvAcceptRo ZeroTermInts nvAcceptBytes
-  solve_bytes_at
-
-local macro "wp_step" h:term : tactic =>
-  `(tactic| (refine $h _ _ ?_; dsimp only [wp_param]; wp_unfold))
-
-local macro "branch_t" t:tacticSeq : tactic =>
-  `(tactic| refine ⟨fun _ => by $t, fun hc => by first | exact absurd hc (by decide) | exact absurd (by decide) hc | exact absurd rfl hc⟩)
-
-local macro "branch_f" t:tacticSeq : tactic =>
-  `(tactic| refine ⟨fun hc => absurd hc (by decide), fun _ => by $t⟩)
-
-private theorem ld_w_step {m : Mem 64} {p : Val} {Q : Val → Prop} (a : Val) (i : Nat)
-    {xs : List Val} {R : Mem 64 → Prop} {v : Val}
-    (h : (int4Array a xs ⋆ R) m) (heq : p = a + BitVec.ofNat 64 (4 * i))
-    (hi : xs[i]? = some v) (hv : IsInt32 v) (hk : Q v) :
-    ∃ x, loadVal m .l .w true p = some x ∧ Q x := by
-  have hlt : i < xs.length := Nat.lt_of_not_le fun hge => by
-    simp [List.getElem?_eq_none hge] at hi
-  have hget : xs[i] = v := Option.some.inj (by rwa [List.getElem?_eq_getElem hlt] at hi)
-  exact ⟨v, hget ▸ loadsw_at i hlt (hget ▸ hv) h heq, hk⟩
-
-private theorem ld_l_step {m : Mem 64} {p : Val} {Q : Val → Prop} (a : Val) (i : Nat)
-    {xs : List Val} {R : Mem 64 → Prop} {v : Val}
-    (h : (word8Array a xs ⋆ R) m) (heq : p = a + BitVec.ofNat 64 (8 * i))
-    (hi : xs[i]? = some v) (hk : Q v) :
-    ∃ x, loadVal m .l .l true p = some x ∧ Q x := by
-  have hlt : i < xs.length := Nat.lt_of_not_le fun hge => by
-    simp [List.getElem?_eq_none hge] at hi
-  have hget : xs[i] = v := Option.some.inj (by rwa [List.getElem?_eq_getElem hlt] at hi)
-  exact ⟨v, hget ▸ loadl_at i hlt h heq, hk⟩
-
-private theorem ld_b_step {m : Mem 64} {p : Val} {Q : Val → Prop} (a : Val) (i : Nat)
-    {xs : List Val} {R : Mem 64 → Prop} {v : Val}
-    (h : (byte1Array a xs ⋆ R) m) (heq : p = a + BitVec.ofNat 64 i)
-    (hi : xs[i]? = some v) (hv : IsInt8 v) (hk : Q v) :
-    ∃ x, loadVal m .l .b true p = some x ∧ Q x := by
-  have hlt : i < xs.length := Nat.lt_of_not_le fun hge => by
-    simp [List.getElem?_eq_none hge] at hi
-  have hget : xs[i] = v := Option.some.inj (by rwa [List.getElem?_eq_getElem hlt] at hi)
-  exact ⟨v, hget ▸ loadsb_at i hlt (hget ▸ hv) h heq, hk⟩
+  solve_bytes_at [KernelFields_toList_length]
 
 local macro "ld_w" a:term "," i:term : tactic =>
   `(tactic| (apply ld_w_step $a $i
