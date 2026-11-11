@@ -14,6 +14,7 @@ public import Kraken.X64.Semantics
   | .done a => post a
   | .unimplemented _ => False
   | .gp_unaligned .. => False
+  | .divide_error => False
   | .nonmem_load .. => False
   | .nonmem_store .. => False
   | @Effects.undefined α _ cont => ∀ v: α, (cont v).All post
