@@ -922,6 +922,23 @@ setp %sil
 setnp %dil
 setge %r8b
 setg %r9b
+⸩,
+  ⸨prog|
+sha256rnds2 %xmm0, %xmm2, %xmm1
+sha256rnds2 (%rax), %xmm3
+sha256rnds2 %xmm0, %xmm4
+sha256msg1 %xmm4, %xmm5
+sha256msg2 16(%rsp), %xmm6
+⸩,
+  ⸨prog|
+vmovdqu32 (%rsp), %zmm0
+vmovdqa32 %zmm1, 64(%rsp)
+vpaddd %zmm2, %zmm3, %zmm4
+vpaddd (%rax), %ymm5, %ymm6
+vprord $7, %zmm7, %zmm8
+vpsrld $3, %xmm9, %xmm10
+vpternlogd $0xca, %zmm11, %zmm12, %zmm13
+vpternlogd $0x96, 64(%rsp), %zmm14, %zmm31
 ⸩
 ].all agreesWithCombinatorParser
 
@@ -929,12 +946,25 @@ setg %r9b
 #guard_msgs in
 #check ⸨prog| vmovd %xmm0, %xmm1 ⸩
 
+/-- error: the implicit operand of sha256rnds2 is %xmm0 -/
+#guard_msgs in
+#check ⸨prog| sha256rnds2 %xmm1, %xmm2, %xmm3 ⸩
+
 /--
 info: ⸨prog|
   vmovd %eax, %xmm0
   vmovq %xmm0, 24(%rsp)
   pshufd $27, %xmm5, %xmm6
-  vzeroupper⸩ : List _root_.Directive
+  vzeroupper
+  sha256rnds2 %xmm0, %xmm2, %xmm1
+  sha256msg1 %xmm4, %xmm5
+  sha256msg2 16(%rsp), %xmm6
+  vmovdqu32 (%rsp), %zmm0
+  vmovdqa32 %zmm1, 64(%rsp)
+  vpaddd %zmm2, %zmm3, %zmm4
+  vprord $7, %zmm7, %zmm8
+  vpsrld $3, %xmm9, %xmm10
+  vpternlogd $202, %zmm11, %zmm12, %zmm13⸩ : List _root_.Directive
 -/
 #guard_msgs in
 #check ⸨prog|
@@ -942,6 +972,15 @@ info: ⸨prog|
   vmovq %xmm0, 24(%rsp)
   pshufd $0x1b, %xmm5, %xmm6
   vzeroupper
+  sha256rnds2 %xmm0, %xmm2, %xmm1
+  sha256msg1 %xmm4, %xmm5
+  sha256msg2 16(%rsp), %xmm6
+  vmovdqu32 (%rsp), %zmm0
+  vmovdqa32 %zmm1, 64(%rsp)
+  vpaddd %zmm2, %zmm3, %zmm4
+  vprord $7, %zmm7, %zmm8
+  vpsrld $3, %xmm9, %xmm10
+  vpternlogd $0xca, %zmm11, %zmm12, %zmm13
 ⸩
 
 variable (rest : List _root_.Directive) in
