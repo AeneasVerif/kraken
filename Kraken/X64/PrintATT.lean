@@ -170,3 +170,38 @@ end Kraken.X64.ATT
 /-- Print a program in AT&T syntax, one directive per line. -/
 def Kraken.X64.toATT (p : _root_.Program) : String :=
   "\n".intercalate (p.map ATT.directive)
+
+namespace Kraken.X64.ATT
+
+/-- A routine: exported, aligned to 64 bytes, its directives indented below its label. -/
+def routine (name : String) (p : _root_.Program) : String :=
+  s!"\t.globl {name}\n\t.p2align 6\n{name}:\n" ++
+    String.join (p.map fun
+      | .label l => s!"{l}:\n"
+      | d => s!"\t{directive d}\n")
+
+/-- Read-only bytes under an exported label, aligned to 64 bytes, sixteen per line. -/
+def dataBlock (name : String) (bytes : ByteArray) : String := Id.run do
+  let mut out := s!"\t.globl {name}\n\t.p2align 6\n{name}:\n"
+  for row in [0:(bytes.size + 15) / 16] do
+    let line := (bytes.extract (16 * row) (16 * row + 16)).toList.map (toString ·.toNat)
+    out := out ++ s!"\t.byte {", ".intercalate line}\n"
+  return out
+
+end Kraken.X64.ATT
+
+/--
+A whole assembler file in AT&T syntax, to be run through the C preprocessor (a `.S` file):
+the routines in `.text`, then the data blocks in read-only memory, each exported under its name.
+It targets x86-64 ELF and Mach-O, where exported symbols get a leading underscore.
+-/
+def Kraken.X64.toATTFile (routines : List (String × _root_.Program))
+    (data : List (String × ByteArray)) : String :=
+  let names := routines.map (·.1) ++ data.map (·.1)
+  "#if defined(__APPLE__)\n" ++ String.join (names.map fun n => s!"#define {n} _{n}\n") ++
+  "#endif\n" ++
+  "\t.text\n" ++
+  String.join (routines.map fun (n, p) => ATT.routine n p) ++
+  "#if defined(__APPLE__)\n\t.section __TEXT,__const\n#else\n\t.section .rodata\n#endif\n" ++
+  String.join (data.map fun (n, b) => ATT.dataBlock n b) ++
+  "#if defined(__ELF__)\n\t.section .note.GNU-stack,\"\",@progbits\n#endif\n"

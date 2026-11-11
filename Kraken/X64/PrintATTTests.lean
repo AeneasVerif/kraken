@@ -125,3 +125,62 @@ def corpus : List String := [
     if f.path.extension == some "S" then
       unless roundtrips (stripDirectives (← IO.FS.readFile f.path)) do
         throw <| .userError s!"{f.path} does not round-trip"
+
+/-- Two routines, one with a loop, for the file printer. -/
+def fileRoutines : List (String × String) := [
+  ("add1", "leaq 1(%rdi), %rax\nret"),
+  ("sum", "xorl %eax, %eax\n.Lloop:\naddq (%rdi), %rax\naddq $8, %rdi\ndecq %rsi\njne .Lloop\nret")]
+
+/-- `fileRoutines` parsed, and the file printed from them with one data block of 18 bytes. -/
+def file : Except String (List (String × Program) × String) := do
+  let routines ← fileRoutines.mapM fun (n, s) => return (n, ← parse s)
+  return (routines, toATTFile routines [("table", ⟨(List.range 18).toArray.map Nat.toUInt8⟩)])
+
+/--
+info: #if defined(__APPLE__)
+#define add1 _add1
+#define sum _sum
+#define table _table
+#endif
+	.text
+	.globl add1
+	.p2align 6
+add1:
+	lea 1(%rdi), %rax
+	ret
+	.globl sum
+	.p2align 6
+sum:
+	xorl %eax, %eax
+.Lloop:
+	addq (%rdi), %rax
+	addq $8, %rdi
+	decq %rsi
+	jne .Lloop
+	ret
+#if defined(__APPLE__)
+	.section __TEXT,__const
+#else
+	.section .rodata
+#endif
+	.globl table
+	.p2align 6
+table:
+	.byte 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+	.byte 16, 17
+#if defined(__ELF__)
+	.section .note.GNU-stack,"",@progbits
+#endif
+-/
+#guard_msgs in
+#eval show IO Unit from match file with
+  | .ok (_, f) => IO.print f
+  | .error e => throw <| .userError e
+
+-- Without the assembler directives, the file reads back as the routines, each behind its label,
+-- then the data label.
+#guard match file with
+  | .ok (routines, f) => match parse (stripDirectives f) with
+    | .ok p => p == routines.flatMap (fun (n, r) => .label n :: r) ++ [.label "table"]
+    | .error _ => false
+  | .error _ => false
