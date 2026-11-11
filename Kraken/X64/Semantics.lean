@@ -649,6 +649,18 @@ def MachineData.repeatString [AddressSize] (step : MachineData → (MachineData 
   | 0, s, next => next s
   | count + 1, s, next => step s (fun s => repeatString step count (s.stepString .rcx (-1)) next)
 
+/-- A `rep` prefix on a string instruction that uses the registers `rs` besides the count.
+At a 32-bit address size and a zero count, some processors still write the count and pointers
+back as 32-bit registers, clearing their upper halves, and others leave them alone. -/
+def MachineData.repString [address_size : AddressSize]
+    (step : MachineData → (MachineData → Effects) → Effects) (rs : List Reg64) (s : MachineData)
+    (next : MachineData → Effects) : Effects :=
+  let count := (s.regs.get (.low .rcx address_size.address_size)).toNat
+  if count == 0 && address_size.address_size == .W32 then
+    undefined fun clear : Bool =>
+      next (if clear then (Reg64.rcx :: rs).foldl (fun s r => s.stepString r 0) s else s)
+  else repeatString step count s next
+
 set_option maxHeartbeats 1000000
 @[kstep] def Operation.interp [Labels] [address_size : AddressSize]
   {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
@@ -673,14 +685,14 @@ set_option maxHeartbeats 1000000
       s.load (s.stringPtr .rsi) w (fun v s =>
       s.store (s.stringPtr .rdi) v (fun s =>
       next ((s.stepString .rsi delta).stepString .rdi delta)))
-    if rep then MachineData.repeatString step (s.regs.get (.low .rcx address_size.address_size)).toNat s next
+    if rep then MachineData.repString step [.rsi, .rdi] s next
     else step s next
   | .stos rep =>
     let delta : Int := if s.df then -w.bytes else w.bytes
     let step s next :=
       s.store (s.stringPtr .rdi) (s.regs.get (.low .rax w)) (fun s =>
       next (s.stepString .rdi delta))
-    if rep then MachineData.repeatString step (s.regs.get (.low .rcx address_size.address_size)).toNat s next
+    if rep then MachineData.repString step [.rdi] s next
     else step s next
   | .setcc cc dst =>
     s.set dst (cc.interp s.status) p next
