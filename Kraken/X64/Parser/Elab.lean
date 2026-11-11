@@ -879,6 +879,10 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
     mkClosedInstr .cld
   | `(x64_instr| std) =>
     mkClosedInstr .std
+  | `(x64_instr| cpuid) =>
+    mkClosedInstr .cpuid
+  | `(x64_instr| xgetbv) =>
+    mkClosedInstr .xgetbv
   | `(x64_instr| call $target:x64_operand) | `(x64_instr| callq $target:x64_operand) =>
     mkRegularInstr (width? := some .W64) do
       let mk := mkConst ``Operation.call

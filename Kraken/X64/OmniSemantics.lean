@@ -21,6 +21,8 @@ public import Kraken.X64.Semantics
   | .require_read_access _ cont => (cont ()).All post
   | .require_write_access _ cont => (cont ()).All post
   | .require_exec_access _ cont => (cont ()).All post
+  | .cpuid _ _ cont => ∀ a b c d, (cont a b c d).All post
+  | .xgetbv _ cont => ∀ v, (cont v).All post
 
 @[ksimp] theorem Effects.All_require_read_access (addr : BitVec 64) (bytes : UInt64)
     (ok : Unit → Effects) (post : MachineState → Prop) :

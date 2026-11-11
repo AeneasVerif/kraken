@@ -850,6 +850,18 @@ info: ⸨prog|
 #guard_msgs (whitespace := lax) in
 #check ⸨prog| cld; std ⸩
 
+-- Test: processor identification (`cpuid`/`xgetbv`)
+#guard [⸨prog| cpuid; xgetbv ⸩].all agreesWithCombinatorParser
+#guard ⸨instr| cpuid ⸩ = Instr.regular .W64 .W64 .cpuid
+
+/--
+info: ⸨prog|
+  cpuid
+  xgetbv⸩ : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog| cpuid; xgetbv ⸩
+
 section string_instructions
 
 #guard [

@@ -1274,6 +1274,8 @@ def parseInstr : Parser Instr := do
 
   | "cld" => pure (toInstr .none (w := .W64) .cld)
   | "std" => pure (toInstr .none (w := .W64) .std)
+  | "cpuid" => pure (toInstr .none (w := .W64) .cpuid)
+  | "xgetbv" => pure (toInstr .none (w := .W64) .xgetbv)
 
   | "call" | "callq" =>
     let ( addr_w, target ) ← parseRelRegOrMem

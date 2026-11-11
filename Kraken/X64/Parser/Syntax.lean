@@ -516,6 +516,8 @@ syntax &"ret"  : x64_instr
 syntax &"retq" : x64_instr
 syntax &"cld"  : x64_instr
 syntax &"std"  : x64_instr
+syntax &"cpuid"  : x64_instr
+syntax &"xgetbv" : x64_instr
 syntax withPosition(&"call"  ppSpace lineEq x64_operand) : x64_instr
 syntax withPosition(&"callq" ppSpace lineEq x64_operand) : x64_instr
 syntax withPosition(&"jmp"   ppSpace lineEq x64_operand) : x64_instr

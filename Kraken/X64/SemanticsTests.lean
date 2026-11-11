@@ -138,3 +138,26 @@ private def runDiv {w} (op : Operation w) (s : MachineData) : Option Reg64s :=
 #guard (runDiv (.div (.reg (.low .rbx .W32)))
   { s with regs := { rax := 0xffffffff00000005, rdx := 0xffffffff00000001, rbx := 3 } }).map
     (fun r => (r.rax, r.rdx)) == some (0x55555557, 0)
+/-! `cpuid` asks for the leaf in eax and the subleaf in ecx, and writes the answer to eax, ebx, ecx,
+edx, zero-extended; `xgetbv` asks for the register in ecx and writes it to edx:eax. -/
+
+private def ident : MachineData :=
+  { busy with regs := { rax := 0xffffffff00000007, rbx := 0xffffffffffffffff,
+                        rcx := 0xffffffff00000001, rdx := 0xffffffffffffffff, rsi := 5 } }
+
+private def runIdent (op : Operation .W64) (s : MachineData) : Option (List (BitVec 32) × MachineData) :=
+  let : Labels := ⟨fun _ => 0⟩
+  let : AddressSize := ⟨.W64⟩
+  match op.interp ⟨0, 1⟩ s (fun s => .done ⟨s, 1⟩) (fun _ _ => .unimplemented "jump") with
+  | .cpuid leaf subleaf ret => match ret 0x11 0x22 0x33 0x44 with
+    | .done st => some ([leaf, subleaf], st.data)
+    | _ => none
+  | .xgetbv index ret => match ret 0x01234567800000e7 with
+    | .done st => some ([index], st.data)
+    | _ => none
+  | _ => none
+
+#guard runIdent .cpuid ident == some ([7, 1],
+  { ident with regs := { ident.regs with rax := 0x11, rbx := 0x22, rcx := 0x33, rdx := 0x44 } })
+#guard runIdent .xgetbv ident == some ([1],
+  { ident with regs := { ident.regs with rax := 0x800000e7, rdx := 0x01234567 } })
