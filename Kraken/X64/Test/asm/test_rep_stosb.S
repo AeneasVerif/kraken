@@ -12,9 +12,14 @@ rep stosb
 movq 0(%rsp), %rbx
 movq 8(%rsp), %rdx
 
-# A zero count stores nothing.
+# A zero count stores nothing and moves no register.
+movq $0, 0x38(%rsp)
+leaq 0x38(%rsp), %rdi
 movq $0, %rcx
 rep stosb
+movq 0x38(%rsp), %r10
+movq %rdi, %r11
+subq %rsp, %r11
 
 # One quadword, then a repeated word.
 leaq 16(%rsp), %rdi

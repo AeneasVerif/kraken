@@ -15,8 +15,16 @@ movq 0x20(%rsp), %rbx
 movq 0x28(%rsp), %rdx
 
 # A zero count copies nothing and moves no register.
+movq $0, 0x38(%rsp)
+leaq 8(%rsp), %rsi
+leaq 0x38(%rsp), %rdi
 movq $0, %rcx
 rep movsb
+movq 0x38(%rsp), %r10
+movq %rsi, %r11
+movq %rdi, %r12
+subq %rsp, %r11
+subq %rsp, %r12
 
 # Overlapping, one byte up: a forward byte loop repeats the first byte.
 leaq 0(%rsp), %rsi

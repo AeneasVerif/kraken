@@ -384,6 +384,19 @@ declare_syntax_cat x64_pop_op (behavior := both)
 /-- Pop value from stack into operand. -/
 syntax_affixed (suffixes := bwlq) "pop" : x64_pop_op
 
+declare_affixes string_widths
+  | /-- 8-bit (byte) elements. -/        "b"
+  | /-- 16-bit (word) elements. -/       "w"
+  | /-- 32-bit (doubleword) elements. -/ "l"
+  | /-- 64-bit (quadword) elements. -/   "q"
+
+/-- String instruction (`movs*`, `stos*`) mnemonics, whose operands are implicit. -/
+declare_syntax_cat x64_string_op (behavior := both)
+/-- Move one element from `(%rsi)` to `(%rdi)`, stepping both pointers. -/
+syntax_affixed (suffixes := string_widths) "movs" : x64_string_op
+/-- Store the accumulator to `(%rdi)`, stepping the pointer. -/
+syntax_affixed (suffixes := string_widths) "stos" : x64_string_op
+
 /-- Conditional jump (`j<cc>`) mnemonics taking a target label. -/
 declare_syntax_cat x64_jcc_op (behavior := both)
 /-- Conditional relative jump to label if condition holds. -/
@@ -421,6 +434,11 @@ syntax withPosition(x64_shd_op ppSpace lineEq x64_shift_count ", " lineEq x64_re
 syntax withPosition(x64_bswap_op ppSpace lineEq x64_reg) : x64_instr
 syntax withPosition(x64_push_op ppSpace lineEq x64_operand) : x64_instr
 syntax withPosition(x64_pop_op ppSpace lineEq x64_operand) : x64_instr
+syntax x64_string_op : x64_instr
+syntax withPosition(&"rep" ppSpace lineEq x64_string_op) : x64_instr
+/-- 32-bit addressing, which the implicit operands of a string instruction cannot show. -/
+syntax withPosition(&"addr32" ppSpace lineEq x64_string_op) : x64_instr
+syntax withPosition(&"addr32" ppSpace lineEq &"rep" ppSpace lineEq x64_string_op) : x64_instr
 syntax &"ret"  : x64_instr
 syntax &"retq" : x64_instr
 syntax &"cld"  : x64_instr
