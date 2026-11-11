@@ -388,6 +388,12 @@ inductive Effects
   | require_read_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_write_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
+  -- The processor's answers are the environment's, like a device's: `cpuid` returns eax, ebx,
+  -- ecx, edx for a leaf and subleaf, `xgetbv` the extended control register `index`.
+  -- Its faults (#UD when CR4.OSXSAVE is clear, #GP for an unsupported index) are the
+  -- environment's to raise.
+  | cpuid (leaf subleaf : BitVec 32) (ret : BitVec 32 → BitVec 32 → BitVec 32 → BitVec 32 → Effects)
+  | xgetbv (index : BitVec 32) (ret : BitVec 64 → Effects)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
 
 -- Splits the interval in two halves in case of overflow
@@ -905,6 +911,12 @@ set_option maxHeartbeats 1000000
     jmp (.ofBitVec ra) { s with regs := s.regs.set64 .rsp (rsp + 8) })
   | .cld => next { s with df := false }
   | .std => next { s with df := true }
+  | .cpuid =>
+    Effects.cpuid (s.regs.get .eax) (s.regs.get .ecx) (fun a b c d =>
+    next ((((s.setReg .eax a).setReg .ebx b).setReg .ecx c).setReg .edx d))
+  | .xgetbv =>
+    Effects.xgetbv (s.regs.get .ecx) (fun v =>
+    next ((s.setReg .eax (v.take 32)).setReg .edx (v.extractLsb' 32 32)))
   | nop _ | nopalign _ _ => next s
 
 -- AVX Operations Interpreter
@@ -1057,6 +1069,11 @@ where
     | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
     | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
+    -- No processor to ask: answer from the state hash, like `undefined`.
+    | .cpuid _ _ cont =>
+      let h := (hash s.1.regs).toBitVec
+      handleEffects (cont (h.take 32) (h.extractLsb' 32 32) (h.take 32) (h.extractLsb' 32 32))
+    | .xgetbv _ cont => handleEffects (cont (hash s.1.regs).toBitVec)
 
 def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
   match d with

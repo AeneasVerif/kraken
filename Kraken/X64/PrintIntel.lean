@@ -183,6 +183,8 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .bswap dst => s!"bswap {dst}"
   | .cld => "cld"
   | .std => "std"
+  | .cpuid => "cpuid"
+  | .xgetbv => "xgetbv"
   | .jcc cc l => s!"j{cc} {l}"
   | .jmp tgt => s!"jmp {tgt.toStr addr_w}"
   | .call tgt => s!"call {tgt.toStr addr_w}"

@@ -725,6 +725,12 @@ private def delabOperation (aw : Width) (w? : Option Width) : X64DelabM (TSyntax
   | Operation.std _ =>
     unless w? == some .W64 do failure
     `(x64_instr| std)
+  | Operation.cpuid _ =>
+    unless w? == some .W64 do failure
+    `(x64_instr| cpuid)
+  | Operation.xgetbv _ =>
+    unless w? == some .W64 do failure
+    `(x64_instr| xgetbv)
   | Operation.ret _ =>
     unless w? == some .W64 do failure
     `(x64_instr| ret)
