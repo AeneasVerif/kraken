@@ -548,6 +548,7 @@ def elabRmRegOp : String → TermElabM Expr
 /-- The `Operation` constructor for the stem of an `x64_unary_op`. -/
 def elabUnaryOp : String → TermElabM Expr
   | "mul" => pure (mkConst ``Operation.mul)
+  | "div" => pure (mkConst ``Operation.div)
   | "neg" => pure (mkConst ``Operation.neg)
   | "dec" => pure (mkConst ``Operation.dec)
   | "inc" => pure (mkConst ``Operation.inc)

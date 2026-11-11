@@ -543,7 +543,7 @@ private def delabBinOp (stem : String) (aw : Width) (w? : Option Width) : X64Del
   ensureWidthDetermined w? #[src, dst]
   `(x64_instr| $op:x64_bin_op $src:x64_operand, $dst:x64_operand)
 
-/-- Delaborate a unary `Operation` constructor (`mul`, `neg`, `dec`, `inc`, `not`) at `(aw, w?)`. -/
+/-- Delaborate a unary `Operation` constructor (`mul`, `div`, `neg`, `dec`, `inc`, `not`) at `(aw, w?)`. -/
 private def delabUnaryOp (stem : String) (aw : Width) (w? : Option Width) : X64DelabM (TSyntax `x64_instr) := do
   let op := mkSuffixed `x64_unary_op stem (widthSuffix w?)
   let dst ← withNaryArg 1 (delabRegOrMemOperand aw)
@@ -641,6 +641,7 @@ private def delabOperation (aw : Width) (w? : Option Width) : X64DelabM (TSyntax
     `(x64_instr| $op:x64_cmov_op $src:x64_operand, $dst:x64_reg)
   -- Unary arithmetic / bitwise
   | Operation.mul _ _ => delabUnaryOp "mul" aw w?
+  | Operation.div _ _ => delabUnaryOp "div" aw w?
   | Operation.neg _ _ => delabUnaryOp "neg" aw w?
   | Operation.dec _ _ => delabUnaryOp "dec" aw w?
   | Operation.inc _ _ => delabUnaryOp "inc" aw w?

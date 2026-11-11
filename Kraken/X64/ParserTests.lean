@@ -1106,6 +1106,37 @@ info: ⸨prog|
 ⸩
 
 end avx2_bitwise
+section division
+
+#guard [
+  ⸨prog|
+divb %bl
+divw %cx
+divl %r8d
+divq %rbx
+div %r9
+divb (%rsp)
+divq 8(%rsp,%rcx,8)
+divl (%eax)
+⸩
+].all agreesWithCombinatorParser
+
+#guard ⸨instr| divq %rbx ⸩ = Instr.regular .W64 .W64 (.div (.reg (.low .rbx .W64)))
+
+/--
+info: ⸨prog|
+  divb %ah
+  divl %r8d
+  divq 8(%rsp)⸩ : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog|
+  divb %ah
+  div %r8d
+  divq 8(%rsp)
+⸩
+
+end division
 
 end Tests
 

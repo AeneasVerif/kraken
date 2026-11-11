@@ -729,6 +729,16 @@ def parseInstr : Parser Instr := do
     let ( addr_w, src ) ← parseRegOrMemAO w
     pure (toInstr addr_w (.mul src))
 
+  | "div" =>
+    let ( addr_w, src) ← parseRegOrMem
+    let ⟨ _w, src ⟩ ← assertW src
+    pure (toInstr addr_w (.div src))
+
+  | "divq" | "divl" | "divw" | "divb" =>
+    let w ← instrWidth mn
+    let ( addr_w, src ) ← parseRegOrMemAO w
+    pure (toInstr addr_w (.div src))
+
   | "mulx" =>
     -- Per Intel SDM: MULX dest1 and dest2 must be registers
     -- mulxq src, lo, hi (AT&T: src → rdx*src, result in lo:hi)

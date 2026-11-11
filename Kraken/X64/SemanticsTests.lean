@@ -93,3 +93,48 @@ private def at0x1010 {w} : AvxRegOrMem w := .mem { base := none, idx := none, di
 #guard match runAvx (w := .W256) (.vmovdqu (.avx (.ymm .mm0)) at0x1010) with
   | .require_read_access .. => true
   | _ => false
+/-! `div` raises #DE on a zero divisor or a quotient too wide for the destination. -/
+
+private def isDivideError {w} (op : Operation w) (s : MachineData) : Bool :=
+  let : Labels := ⟨fun _ => 0⟩
+  let : AddressSize := ⟨.W64⟩
+  go (op.interp ⟨0, 1⟩ s (fun s => .done ⟨s, 1⟩) (fun _ _ => .unimplemented "jump"))
+where go : Effects → Bool
+  | .divide_error => true
+  | .require_read_access _ ok => go (ok ())
+  | _ => false
+
+/-- Runs `op`, resolving the undefined flags to zero. -/
+private def runDiv {w} (op : Operation w) (s : MachineData) : Option Reg64s :=
+  let : Labels := ⟨fun _ => 0⟩
+  let : AddressSize := ⟨.W64⟩
+  match op.interp ⟨0, 1⟩ s (fun s => .done ⟨s, 1⟩) (fun _ _ => .unimplemented "jump") with
+  | @Effects.undefined _ t cont => match cont (t.from_hash 0) with
+    | .done st => some st.data.regs
+    | _ => none
+  | _ => none
+
+-- Zero divisors, at every width.
+#guard isDivideError (.div (.reg (.low .rbx .W64))) { s with regs := { rax := 7 } }
+#guard isDivideError (.div (.reg (.low .rbx .W32))) { s with regs := { rax := 7, rbx := 0x100000000 } }
+#guard isDivideError (.div (.reg (.low .rbx .W16))) { s with regs := { rax := 7 } }
+#guard isDivideError (.div (.reg (.low .rbx .W8))) { s with regs := { rax := 7 } }
+-- The divisor is read from memory (zero bytes here).
+#guard isDivideError (w := .W64) (.div (.mem { base := none, idx := none, disp := .int64 0x1000 })) s
+-- Quotients one past the maximum.
+#guard isDivideError (.div (.reg (.low .rbx .W64))) { s with regs := { rdx := 1, rbx := 1 } }
+#guard isDivideError (.div (.reg (.low .rbx .W32))) { s with regs := { rdx := 3, rax := 0, rbx := 3 } }
+#guard isDivideError (.div (.reg (.low .rbx .W16))) { s with regs := { rdx := 2, rbx := 2 } }
+#guard isDivideError (.div (.reg (.low .rbx .W8))) { s with regs := { rax := 0x100, rbx := 1 } }
+-- Quotients exactly at the maximum do not fault.
+#guard !isDivideError (.div (.reg (.low .rbx .W64)))
+  { s with regs := { rdx := 0, rax := 0xffffffffffffffff, rbx := 1 } }
+#guard !isDivideError (.div (.reg (.low .rbx .W8))) { s with regs := { rax := 0x1fe, rbx := 2 } }
+
+-- 0x107 / 2: quotient 0x83 in al, remainder 1 in ah, the rest of rax kept.
+#guard (runDiv (.div (.reg (.low .rbx .W8)))
+  { s with regs := { rax := 0xaaaa0107, rbx := 2 } }).map (·.rax) == some 0xaaaa0183
+-- rdx:rax = 2^64 + 5 over 3, upper halves of rax and rdx cleared by the 32-bit writes.
+#guard (runDiv (.div (.reg (.low .rbx .W32)))
+  { s with regs := { rax := 0xffffffff00000005, rdx := 0xffffffff00000001, rbx := 3 } }).map
+    (fun r => (r.rax, r.rdx)) == some (0x55555557, 0)
