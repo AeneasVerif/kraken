@@ -1,6 +1,6 @@
 name = "LeanQbe"
 version = "0.1.0"
-defaultTargets = ["LeanQbe", "LeanQbeAmd64", "LeanQbeArm64", "LeanQbeTest", "leanqbe"]
+defaultTargets = ["LeanQbe", "LeanQbeAmd64", "LeanQbeArm64", "LeanQbeTest", "leanqbe", "leanqbe-arm64"]
 requiresModuleSystem = true
 
 [leanOptions]
@@ -26,9 +26,15 @@ name = "LeanQbeArm64"
 name = "LeanQbeTest"
 globs = ["LeanQbeTest.+"]
 
+# The executables only instantiate the generic driver `LeanQbe.Driver`, one per target: no module
+# can import both Kraken.X64 and Kraken.AArch64, so there is no single executable with a target flag.
 [[lean_exe]]
 name = "leanqbe"
 root = "Main"
+
+[[lean_exe]]
+name = "leanqbe-arm64"
+root = "MainArm64"
 
 # Kraken (same repository). Not in defaultTargets: build explicitly with
 # `lake build Kraken KrakenAArch64 ...` when needed.

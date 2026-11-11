@@ -2,9 +2,13 @@
 # Benchmark and QBE pass-ablation suite (plan step 6).
 # Compares:
 #   1. gcc -O2 and clang -O2 on C (union-find C and Bedrock2-generated lrat-trim C);
-#   2. stock QBE on `LeanQbe.Print.module` output (`uf.ssa`, `lrat_trim.ssa`), plus pass ablations
-#      disabling one QBE pass at a time (fold, copy, gvn/gcm, simpl, isel addressing, rega coalescing);
-#   3. lean-qbe x64 compiled assembly (`uf_leaf.s` today; `uf.s` and `lrat_trim.s` as soon as R3 lands).
+#   2. stock QBE on the QBE IL that `leanqbe --il` prints for the modules `uf_bench` and `lrat_trim`,
+#      plus pass ablations disabling one QBE pass at a time (fold, copy, gvn/gcm, simpl, isel
+#      addressing, rega coalescing);
+#   3. lean-qbe: the x64 assembly that `leanqbe` emits for the same two modules.
+# Every row must print the result hashes of the first row (gcc -O2 on C) in each of its four runs.
+# A row that prints other hashes, and a run that fails or prints no hash, is listed after the table
+# and makes the exit code 1; so does every command that fails (`set -e`).
 # Every command runs under `timeout`. Never modifies `qbe/`.
 set -euo pipefail
 
@@ -15,8 +19,13 @@ mkdir -p "$OUT"
 QBE_SRC="${QBE_SRC:-$ROOT/qbe}"
 [ -d "$QBE_SRC" ] || QBE_SRC="/usr/local/google/home/andreser/lean-qbe/qbe"
 
-echo "== 1. Dumping QBE IL and lean-qbe x64 assembly into $OUT"
-timeout 600 lake env lean --run bench/DumpBench.lean "$OUT"
+echo "== 1. Emitting QBE IL and lean-qbe x64 assembly with leanqbe into $OUT"
+timeout 1800 lake build leanqbe >"$OUT/build.log" 2>&1 || { tail -20 "$OUT/build.log"; exit 1; }
+LEANQBE="$ROOT/.lake/build/bin/leanqbe"
+timeout 60 "$LEANQBE" --il uf_bench >"$OUT/uf.ssa"
+timeout 60 "$LEANQBE" --il lrat_trim >"$OUT/lrat_trim.ssa"
+timeout 60 "$LEANQBE" uf_bench >"$OUT/uf.s"
+timeout 60 "$LEANQBE" lrat_trim >"$OUT/lrat_trim.s"
 
 echo "== 2. Building instrumented stock QBE (with env-var pass ablation switches) in $OUT/qbe-src"
 rm -rf "$OUT/qbe-src"
@@ -75,23 +84,47 @@ insns() { # count instructions in a .s file (indented or unindented)
   grep -vE '^\s*($|\.|#|/\*|[A-Za-z0-9_.$]+:)' "$1" 2>/dev/null | wc -l | tr -d ' '
 }
 
-median_ms() { # run binary ($1) with optional arg ($2) 5 times, print median ms and check hash
+median_ms() { # run binary ($1) with optional arg ($2) 5 times, print the median ms and the hash;
+              # print "FAILED FAILED" if a run fails or prints no ms= and hash=, or if the hash varies
   local bin="$1"
   local arg="${2:-}"
   local times=()
   local hash=""
+  local ok=1
   for _ in 1 2 3 4 5; do
     local out
-    if [ -n "$arg" ]; then out="$(timeout 60 "$bin" "$arg")"; else out="$(timeout 60 "$bin")"; fi
+    if [ -n "$arg" ]; then out="$(timeout 60 "$bin" "$arg")" || ok=0; else out="$(timeout 60 "$bin")" || ok=0; fi
     local m h
     m="$(sed -n 's/.*ms=\([0-9.]*\).*/\1/p' <<<"$out")"
     h="$(sed -n 's/.*hash=\(0x[0-9a-f]*\).*/\1/p' <<<"$out")"
+    [ -n "$m" ] && [ -n "$h" ] || ok=0
+    [ -z "$hash" ] || [ "$h" = "$hash" ] || ok=0
     times+=("$m")
     hash="$h"
   done
   local med
   med="$(printf '%s\n' "${times[@]}" | sort -n | sed -n '3p')"
-  echo "$med $hash"
+  if [ $ok = 1 ]; then echo "$med $hash"; else echo "FAILED FAILED"; fi
+}
+
+# The first row whose runs all succeed (gcc -O2 on C) sets the reference result hashes; check_row
+# records every other row that does not print exactly those. The table shows the hashes of the
+# UF (call) and LRAT (full) runs; all four are compared.
+REF=""
+REF_LBL=""
+ROWS=0
+FAILS=()
+check_row() { # $1 = label, $2 $3 $4 $5 = result hashes: UF (call), UF (inline), LRAT (full), LRAT (rup)
+  local lbl="$1" hs="$2 $3 $4 $5" h valid=1 note=""
+  ROWS=$((ROWS + 1))
+  for h in "$2" "$3" "$4" "$5"; do
+    case "$h" in 0x*) ;; *) valid=0 ;; esac
+  done
+  if [ $valid = 1 ] && [ -z "$REF" ]; then REF="$hs"; REF_LBL="$lbl"
+  elif [ "$hs" != "$REF" ]; then
+    [ $valid = 1 ] || note=" (FAILED: a run failed, printed no hash, or printed different hashes in its five repetitions)"
+    FAILS+=("$lbl: result hashes $hs differ from those of ${REF_LBL:-the reference row, which is missing}: ${REF:--}$note")
+  fi
 }
 
 echo ""
@@ -110,6 +143,7 @@ for cc in gcc clang; do
   read -r lrf h3 <<<"$(median_ms "$OUT/lrat_$cc")"
   read -r lrr h4 <<<"$(median_ms "$OUT/lrat_$cc" rup)"
   echo "| $cc -O2 (C) | $ufc | $ufi | - | $lrf | $lrr | - | $h1 / $h3 |"
+  check_row "$cc -O2 (C)" "$h1" "$h2" "$h3" "$h4"
 done
 
 # QBE variants
@@ -149,28 +183,25 @@ for idx in "${!LABELS[@]}"; do
   read -r lrf h3 <<<"$(median_ms "$OUT/lrat_$tag")"
   read -r lrr h4 <<<"$(median_ms "$OUT/lrat_$tag" rup)"
   echo "| $lbl | $ufc | $ufi | $ufi_cnt | $lrf | $lrr | $lri_cnt | $h1 / $h3 |"
+  check_row "$lbl" "$h1" "$h2" "$h3" "$h4"
 done
 
-if [ -f "$OUT/uf.s" ] && [ -f "$OUT/lrat_trim.s" ]; then
-  timeout 60 gcc -std=c11 -O2 bench/uf_bench.c "$OUT/uf.s" -o "$OUT/uf_leanqbe"
-  timeout 60 gcc -std=c11 -O2 bench/lrat_bench.c "$OUT/lrat_trim.s" -o "$OUT/lrat_leanqbe"
-  read -r ufc h1 <<<"$(median_ms "$OUT/uf_leanqbe")"
-  read -r ufi _ <<<"$(median_ms "$OUT/uf_leanqbe" inline)"
-  read -r lrf h3 <<<"$(median_ms "$OUT/lrat_leanqbe")"
-  read -r lrr _ <<<"$(median_ms "$OUT/lrat_leanqbe" rup)"
-  ufi_cnt="$(insns "$OUT/uf.s")"
-  lri_cnt="$(insns "$OUT/lrat_trim.s")"
-  echo "| lean-qbe (x64, simple isel) | $ufc | $ufi | $ufi_cnt | $lrf | $lrr | $lri_cnt | $h1 / $h3 |"
-fi
+timeout 60 gcc -std=c11 -O2 bench/uf_bench.c "$OUT/uf.s" -o "$OUT/uf_leanqbe"
+timeout 60 gcc -std=c11 -O2 bench/lrat_bench.c "$OUT/lrat_trim.s" -o "$OUT/lrat_leanqbe"
+read -r ufc h1 <<<"$(median_ms "$OUT/uf_leanqbe")"
+read -r ufi h2 <<<"$(median_ms "$OUT/uf_leanqbe" inline)"
+read -r lrf h3 <<<"$(median_ms "$OUT/lrat_leanqbe")"
+read -r lrr h4 <<<"$(median_ms "$OUT/lrat_leanqbe" rup)"
+ufi_cnt="$(insns "$OUT/uf.s")"
+lri_cnt="$(insns "$OUT/lrat_trim.s")"
+echo "| **lean-qbe (x64, fast isel)** | $ufc | $ufi | $ufi_cnt | $lrf | $lrr | $lri_cnt | $h1 / $h3 |"
+check_row "lean-qbe (x64, fast isel)" "$h1" "$h2" "$h3" "$h4"
 
-if [ -f "$OUT/uf_fast.s" ] && [ -f "$OUT/lrat_trim_fast.s" ]; then
-  timeout 60 gcc -std=c11 -O2 bench/uf_bench.c "$OUT/uf_fast.s" -o "$OUT/uf_leanqbe_fast"
-  timeout 60 gcc -std=c11 -O2 bench/lrat_bench.c "$OUT/lrat_trim_fast.s" -o "$OUT/lrat_leanqbe_fast"
-  read -r ufc h1 <<<"$(median_ms "$OUT/uf_leanqbe_fast")"
-  read -r ufi _ <<<"$(median_ms "$OUT/uf_leanqbe_fast" inline)"
-  read -r lrf h3 <<<"$(median_ms "$OUT/lrat_leanqbe_fast")"
-  read -r lrr _ <<<"$(median_ms "$OUT/lrat_leanqbe_fast" rup)"
-  ufi_cnt="$(insns "$OUT/uf_fast.s")"
-  lri_cnt="$(insns "$OUT/lrat_trim_fast.s")"
-  echo "| **lean-qbe (x64, fast isel)** | $ufc | $ufi | $ufi_cnt | $lrf | $lrr | $lri_cnt | $h1 / $h3 |"
+echo ""
+if [ ${#FAILS[@]} -eq 0 ]; then
+  echo "== bench: all $ROWS rows print the result hashes of $REF_LBL in all four runs: $REF"
+else
+  printf 'FAIL: %s\n' "${FAILS[@]}"
+  echo "== bench: FAILED"
+  exit 1
 fi

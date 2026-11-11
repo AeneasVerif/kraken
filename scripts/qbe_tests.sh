@@ -17,7 +17,7 @@ if [ -z "${QBE:-}" ]; then
   QBE="$W/qbe-src/qbe"
 fi
 cd "$ROOT"
-timeout 600 lake build LeanQbe.Parse LeanQbe.Print LeanQbe.Main LeanQbe.Amd64.Targ >/dev/null || { echo "build failed"; exit 1; }
+timeout 600 lake build LeanQbe.Parse LeanQbe.Print LeanQbe.Main LeanQbe.Driver LeanQbe.Amd64.Targ >/dev/null || { echo "build failed"; exit 1; }
 timeout 900 lake env lean --run scripts/QbeTests.lean "$W/out" "$QBE_SRC"/test/*.ssa > "$W/parse.txt" || { cat "$W/parse.txt"; echo "QbeTests.lean failed"; exit 1; }
 grep '^SKIP' "$W/parse.txt"
 pass=0; lq_pass=0; fail=0

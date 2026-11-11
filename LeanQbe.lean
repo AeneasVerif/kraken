@@ -40,11 +40,13 @@ public import LeanQbe.Examples.LratBytesDimacsLemmas
 public import LeanQbe.Examples.LratBytesRupLemmas
 public import LeanQbe.Examples.LratBytesCheckLemmas
 public import LeanQbe.Examples.LratBytesLemmas
+public import LeanQbe.Examples.Programs
 public import LeanQbe.Rega
 public import LeanQbe.RegaLemmas
 public import LeanQbe.Main
 public import LeanQbe.MainLemmas
 public import LeanQbe.Live
 public import LeanQbe.Spill
+public import LeanQbe.Driver
 
 /-! Root of the generic library. Imports neither `Kraken.X64` nor `Kraken.AArch64`. -/

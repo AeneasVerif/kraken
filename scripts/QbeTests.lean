@@ -1,6 +1,7 @@
 import LeanQbe.Parse
 import LeanQbe.Print
 import LeanQbe.Main
+import LeanQbe.Driver
 import LeanQbe.Amd64.Targ
 import Kraken.X64.PrintATT
 
@@ -18,9 +19,9 @@ Usage: `lake env lean --run scripts/QbeTests.lean <outdir> <file.ssa>…`; print
 
 open LeanQbe
 
+/-- GNU as text for x64, by the driver's `emitAsm` and Kraken's AT&T printer. -/
 def emitAsm (fs : List Fn) (code : List Amd64.isa.Directive) : String :=
-  let globls := fs.map (fun f => s!".globl {f.name}\n") |>.foldl (· ++ ·) ""
-  ".text\n" ++ globls ++ Kraken.X64.toATT code ++ "\n"
+  Driver.emitAsm (I := Amd64.isa) (fun c => Kraken.X64.toATT c ++ "\n") fs code
 
 def driver (src : String) : Option String := do
   let lines := src.splitOn "\n"
