@@ -1,14 +1,14 @@
-use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::process::ExitCode;
-use std::ptr::NonNull;
 use std::time::Instant;
 
 const _: () = assert!(usize::BITS == 64, "lrat_check_bytes requires a 64-bit target");
 
 const DIMACS_BOUND: u64 = 1 << 28;
+/// Largest byte count that still fits in `isize::MAX` bytes (the limit on any Rust
+/// buffer) once rounded up to whole `u64` words.
 const MAX_WORK_BYTES: usize = (isize::MAX as usize) & !7;
 
 extern "C" {
@@ -270,48 +270,11 @@ fn compute_work_len(cnf: &[u8], prf_len: usize) -> usize {
     total.min(MAX_WORK_BYTES as u64) as usize
 }
 
-/// 8-byte-aligned, fallibly-allocated zeroed scratch buffer (uses OS lazy zero-pages via `calloc`).
-struct WorkBuf {
-    ptr: Option<(NonNull<u8>, Layout)>,
-    len: usize,
-}
-
-impl WorkBuf {
-    fn new_zeroed(len: usize) -> Result<Self, String> {
-        if len == 0 {
-            return Ok(Self { ptr: None, len: 0 });
-        }
-        let layout = Layout::from_size_align(len, 8)
-            .map_err(|_| format!("work buffer size {len} bytes exceeds allocator limit"))?;
-        // SAFETY: `layout.size() > 0` and `layout.align() == 8`.
-        let raw = unsafe { alloc_zeroed(layout) };
-        let Some(ptr) = NonNull::new(raw) else {
-            return Err(format!("failed to allocate {len} bytes for work buffer"));
-        };
-        Ok(Self {
-            ptr: Some((ptr, layout)),
-            len,
-        })
-    }
-
-    fn as_mut_slice(&mut self) -> &mut [u8] {
-        match self.ptr {
-            Some((ptr, _)) => {
-                // SAFETY: `ptr` points to `self.len` initialized bytes live until `Drop`.
-                unsafe { std::slice::from_raw_parts_mut(ptr.as_ptr(), self.len) }
-            }
-            None => &mut [],
-        }
-    }
-}
-
-impl Drop for WorkBuf {
-    fn drop(&mut self) {
-        if let Some((ptr, layout)) = self.ptr {
-            // SAFETY: `ptr` was allocated with `alloc_zeroed(layout)` and `layout.size() > 0`.
-            unsafe { dealloc(ptr.as_ptr(), layout) };
-        }
-    }
+/// Zeroed scratch buffer of `ceil(len / 8)` words, so it holds at least `len` bytes and
+/// is 8-byte aligned. `vec!` of zeros asks for zeroed memory rather than writing it, so
+/// a large buffer is lazily zeroed pages from the OS. Running out of memory aborts.
+fn zeroed_work(len: usize) -> Vec<u64> {
+    vec![0u64; len.div_ceil(8)]
 }
 
 fn read_input(path: &OsStr) -> io::Result<Vec<u8>> {
@@ -324,19 +287,39 @@ fn read_input(path: &OsStr) -> io::Result<Vec<u8>> {
     }
 }
 
-fn check_bytes(cnf: &[u8], prf: &[u8], work: &mut [u8]) -> u64 {
-    // SAFETY: `cnf`, `prf`, and `work` are valid live slices whose byte lengths
-    // fit in `u64` (checked via `usize::BITS == 64`), and `lrat_check_bytes` is
-    // proved to read only `[cnf_ptr, cnf_ptr + cnf_len)` and `[prf_ptr, prf_ptr + prf_len)`
-    // and only read/write `[work_ptr, work_ptr + work_len)`.
+/// Runs the checker with the first `work_len` bytes of `work` as its scratch space.
+/// Panics if `work_len` exceeds the buffer or if `cnf` and `prf` overlap.
+fn check_bytes(cnf: &[u8], prf: &[u8], work: &mut [u64], work_len: usize) -> u64 {
+    let work_cap = std::mem::size_of_val(work); // 8 * work.len() bytes
+    assert!(
+        work_len <= work_cap,
+        "work_len {work_len} exceeds the {work_cap}-byte work buffer"
+    );
+    // Two shared slices may overlap, which the contract of `lrat_check_bytes` rules out.
+    // (This also refuses an empty slice that points strictly inside the other one.)
+    let (c, p) = (cnf.as_ptr_range(), prf.as_ptr_range());
+    assert!(c.end <= p.start || p.end <= c.start, "cnf and prf overlap");
+    // SAFETY: `cnf` and `prf` are valid live byte slices. `work` is a valid live
+    // exclusive `u64` slice, so its `work_cap` bytes are initialized and writable, and
+    // they stay valid `u64`s whatever bytes are stored in them; `work_len <= work_cap`
+    // is asserted above. All three lengths fit in `u64` (checked via
+    // `usize::BITS == 64`). None of the three ranges wraps around the end of the
+    // address space (`ptr + len < 2^64`): a slice is empty or within one allocation,
+    // which has `base + size <= usize::MAX`. The three ranges are pairwise disjoint, as
+    // the proved contract of `lrat_check_bytes` requires: `cnf` and `prf` because one
+    // ends at or before the other starts (asserted above), and `work` from both because
+    // an exclusive slice shares no byte with any other live slice. Given all that,
+    // `lrat_check_bytes` is proved to read only `[cnf_ptr, cnf_ptr + cnf_len)` and
+    // `[prf_ptr, prf_ptr + prf_len)` and only read/write
+    // `[work_ptr, work_ptr + work_len)`.
     unsafe {
         lrat_check_bytes(
             cnf.as_ptr(),
             cnf.len() as u64,
             prf.as_ptr(),
             prf.len() as u64,
-            work.as_mut_ptr(),
-            work.len() as u64,
+            work.as_mut_ptr().cast::<u8>(),
+            work_len as u64,
         )
     }
 }
@@ -369,16 +352,10 @@ fn run(cfg: Config) -> ExitCode {
     let work_len = cfg
         .work_bytes
         .unwrap_or_else(|| compute_work_len(&cnf, prf.len()));
-    let mut work = match WorkBuf::new_zeroed(work_len) {
-        Ok(b) => b,
-        Err(msg) => {
-            eprintln!("lrat_check: {msg}");
-            return ExitCode::from(2);
-        }
-    };
+    let mut work = zeroed_work(work_len);
 
     let t_check = Instant::now();
-    let ok = check_bytes(&cnf, &prf, work.as_mut_slice());
+    let ok = check_bytes(&cnf, &prf, &mut work, work_len);
     let check_dur = t_check.elapsed();
     let total_dur = t_start.elapsed();
 
@@ -535,16 +512,18 @@ mod tests {
     }
 
     #[test]
-    fn work_buf_alloc_and_oom() {
-        let mut empty = WorkBuf::new_zeroed(0).expect("zero-len WorkBuf should succeed");
-        assert_eq!(empty.as_mut_slice().len(), 0);
+    fn work_buf_words_and_limit() {
+        for (len, words) in [(0, 0), (1, 1), (8, 1), (9, 2), (127, 16), (1024, 128), (4097, 513)] {
+            let work = zeroed_work(len);
+            assert_eq!(work.len(), words, "{len} bytes");
+            assert!(work.iter().all(|&w| w == 0));
+        }
 
-        let mut small = WorkBuf::new_zeroed(4097).expect("4097-byte WorkBuf should succeed");
-        assert_eq!(small.as_mut_slice().len(), 4097);
-        assert_eq!(small.as_mut_slice().as_ptr() as usize % 8, 0);
-        assert!(small.as_mut_slice().iter().all(|&b| b == 0));
-
-        assert!(WorkBuf::new_zeroed(1 << 62).is_err());
+        // Up to `MAX_WORK_BYTES` the word count cannot overflow; anything larger is
+        // rejected as a usage error.
+        assert_eq!(MAX_WORK_BYTES.div_ceil(8) * 8, MAX_WORK_BYTES);
+        assert_eq!(parse_work_bytes(&MAX_WORK_BYTES.to_string()), Ok(MAX_WORK_BYTES));
+        assert!(parse_work_bytes(&(MAX_WORK_BYTES + 1).to_string()).is_err());
         assert!(parse_work_bytes(&((isize::MAX as usize).to_string())).is_err());
     }
 
@@ -553,16 +532,79 @@ mod tests {
         let cnf = b"p cnf 1 2\n1 0\n-1 0\n";
         // 'a' id=3 lits=[1] hints=[1]; 'd' ids=[1]; 'a' id=4 lits=[] hints=[3, 2]
         let accept_prf = [b'a', 6, 2, 0, 2, 0, b'd', 2, 0, b'a', 8, 0, 6, 4, 0];
-        let mut work = vec![0u8; compute_work_len(cnf, accept_prf.len())];
-        assert_eq!(check_bytes(cnf, &accept_prf, &mut work), 1);
+        let len = compute_work_len(cnf, accept_prf.len());
+        assert_eq!(check_bytes(cnf, &accept_prf, &mut zeroed_work(len), len), 1);
 
         let reject_prf = [b'a', 6, 0, 2, 0];
-        let mut work2 = vec![0u8; compute_work_len(cnf, reject_prf.len())];
-        assert_eq!(check_bytes(cnf, &reject_prf, &mut work2), 0);
+        let len2 = compute_work_len(cnf, reject_prf.len());
+        assert_eq!(check_bytes(cnf, &reject_prf, &mut zeroed_work(len2), len2), 0);
 
         // Tiny work buffer and empty slices must cleanly return 0 without UB.
-        let mut tiny = [0u8; 64];
-        assert_eq!(check_bytes(cnf, &accept_prf, &mut tiny), 0);
-        assert_eq!(check_bytes(&[], &[], &mut []), 0);
+        assert_eq!(check_bytes(cnf, &accept_prf, &mut [0u64; 8], 64), 0);
+        assert_eq!(check_bytes(&[], &[], &mut [], 0), 0);
+
+        // The checker is given `work_len`, not the size of the buffer behind it: a
+        // buffer that suffices in full is too small when only 64 bytes of it are offered.
+        assert_eq!(check_bytes(cnf, &accept_prf, &mut zeroed_work(len), 64), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "work_len 9 exceeds the 8-byte work buffer")]
+    fn ffi_work_len_beyond_buffer_panics() {
+        check_bytes(&[], &[], &mut [0u64; 1], 9);
+    }
+
+    #[test]
+    fn ffi_overlapping_inputs_panic() {
+        let buf = [0u8; 16];
+        // Partial overlap, overlap in a single byte, one slice inside the other (each
+        // of those both ways round), and the same slice twice.
+        let cases: [(&[u8], &[u8]); 7] = [
+            (&buf[..10], &buf[6..]),
+            (&buf[6..], &buf[..10]),
+            (&buf[..9], &buf[8..]),
+            (&buf[8..], &buf[..9]),
+            (&buf, &buf[4..8]),
+            (&buf[4..8], &buf),
+            (&buf, &buf),
+        ];
+        for (i, (cnf, prf)) in cases.into_iter().enumerate() {
+            let caught = std::panic::catch_unwind(|| check_bytes(cnf, prf, &mut [0u64; 8], 64));
+            let payload = caught.expect_err(&format!("case {i}: overlapping inputs accepted"));
+            let msg = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned());
+            assert_eq!(msg.as_deref(), Some("cnf and prf overlap"), "case {i}");
+        }
+    }
+
+    #[test]
+    fn ffi_adjacent_inputs_accepted() {
+        let cnf = b"p cnf 1 2\n1 0\n-1 0\n";
+        let prf = [b'a', 6, 2, 0, 2, 0, b'd', 2, 0, b'a', 8, 0, 6, 4, 0];
+        let len = compute_work_len(cnf, prf.len());
+
+        // One buffer holding `cnf` then `prf` with nothing between them: the two
+        // ranges touch but share no byte.
+        let mut buf = cnf.to_vec();
+        buf.extend_from_slice(&prf);
+        let (c, p) = buf.split_at(cnf.len());
+        assert_eq!(c.as_ptr_range().end, p.as_ptr_range().start);
+        assert_eq!(check_bytes(c, p, &mut zeroed_work(len), len), 1);
+
+        // The same with `prf` first.
+        let mut buf = prf.to_vec();
+        buf.extend_from_slice(cnf);
+        let (p, c) = buf.split_at(prf.len());
+        assert_eq!(p.as_ptr_range().end, c.as_ptr_range().start);
+        assert_eq!(check_bytes(c, p, &mut zeroed_work(len), len), 1);
+
+        // An empty slice at either end of the other one, or dangling, is accepted too
+        // (and the instance is then simply not verified).
+        for empty in [&c[..0], &c[c.len()..], &[]] {
+            assert_eq!(check_bytes(empty, c, &mut zeroed_work(len), len), 0);
+            assert_eq!(check_bytes(c, empty, &mut zeroed_work(len), len), 0);
+        }
     }
 }

@@ -167,14 +167,18 @@ for label, bin_path in [("leanqbe", ours), ("stock-qbe", qbe)]:
     r = run(bin_path, ["-q", str(cnf1), str(bad_prf)])
     assert r.returncode == 1 and r.stdout == b"", (label, r)
 
-    for wb in ["0", "64", "127"]:
+    # --work-bytes is exact to the byte: 175 and 176 round up to the same 22-word
+    # buffer, but this instance needs 176 bytes of scratch, so only 176 is enough.
+    for wb in ["0", "64", "127", "175"]:
         r = run(bin_path, ["--work-bytes", wb, str(cnf1), str(prf1)])
         assert r.returncode == 1 and r.stdout == b"s NOT VERIFIED\n", (label, wb, r)
 
-    r = run(bin_path, ["--work-bytes=1024", str(cnf1), str(prf1)])
-    assert r.returncode == 0 and r.stdout == b"s VERIFIED\n", (label, r)
+    for wb in ["176", "1024"]:
+        r = run(bin_path, [f"--work-bytes={wb}", str(cnf1), str(prf1)])
+        assert r.returncode == 0 and r.stdout == b"s VERIFIED\n", (label, wb, r)
 
-    # CLI / I/O / OOM errors (exit 2, never SIGABRT)
+    # CLI / I/O errors (exit 2). A --work-bytes too large to be a buffer at all is
+    # rejected as an argument; one that merely exceeds available memory may abort.
     for bad_args in [
         [],
         [str(cnf1)],
@@ -185,7 +189,6 @@ for label, bin_path in [("leanqbe", ours), ("stock-qbe", qbe)]:
         ["-f", str(cnf1), str(prf1)],
         ["--bogus", str(cnf1), str(prf1)],
         ["--work-bytes", "notanumber", str(cnf1), str(prf1)],
-        ["--work-bytes", str(1 << 62), str(cnf1), str(prf1)],
         ["--work-bytes", str((1 << 63) - 1), str(cnf1), str(prf1)],
         [str(tmp / "does_not_exist.cnf"), str(prf1)],
         [str(cnf1), str(tmp / "does_not_exist.lrat")],
