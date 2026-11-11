@@ -1760,17 +1760,10 @@ end
 initialize ref : IO.Ref (Option Environment) ← IO.mkRef none
 
 private unsafe def parseImpl (input : String) : Except String _root_.Program :=
-  (unsafeIO do
-    let env ← match ← ref.get with
-      | some env => pure env
-      | none =>
-        enableInitializersExecution
-        initSearchPath (← findSysroot) [← getLibDir (← getBuildDir)]
-        let env ← importModules #[{ module := `Kraken.AArch64.Parser.Elab }] {} (loadExts := true)
-        ref.set env
-        pure env
-    (do evalExpr _root_.Program (mkConst ``_root_.Program) (← elabAArch64 input)).run'.run'.toIO'
-      { fileName := "<input>", fileMap := default } { env }).mapError toString
+  Except.mapError toString <| unsafeIO do
+    let env ← getEnvironmentForElabModule `Kraken.AArch64.Parser.Elab
+    let comp := do evalExpr _root_.Program (mkConst ``_root_.Program) (← elabAArch64 input)
+    comp.run'.run'.toIO' { fileName := "<input>", fileMap := default } { env }
 
 /-- Parse an AArch64 assembly string into a Kraken `Program`. -/
 @[implemented_by parseImpl]

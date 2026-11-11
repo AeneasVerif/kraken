@@ -45,3 +45,19 @@ def ofNatNoOverflow (v : Nat) : m Int64 := do
 end
 
 end Int64
+
+namespace Lean
+
+initialize environmentForElabModuleExt : IO.Ref (NameMap Environment) ← IO.mkRef ∅
+
+public unsafe def getEnvironmentForElabModule (elabModule : Name) : IO Environment := do
+  match (← environmentForElabModuleExt.get).find? elabModule with
+  | some env => pure env
+  | none =>
+      enableInitializersExecution
+      initSearchPath (← findSysroot) [← getLibDir (← getBuildDir)]
+      let env ← importModules #[{ module := elabModule }] {} (loadExts := true)
+      environmentForElabModuleExt.modify (·.insert elabModule env)
+      pure env
+
+end Lean
