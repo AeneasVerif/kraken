@@ -1757,11 +1757,18 @@ def elabEmbedding (body : AArch64ElabM Expr) (expectedType? : Option Expr) (widt
 
 end
 
+initialize ref : IO.Ref (Option Environment) ← IO.mkRef none
+
 private unsafe def parseImpl (input : String) : Except String _root_.Program :=
   (unsafeIO do
-    enableInitializersExecution
-    initSearchPath (← findSysroot) [← getLibDir (← getBuildDir)]
-    let env ← importModules #[{ module := `Kraken.AArch64.Parser.Elab }] {} (loadExts := true)
+    let env ← match ← ref.get with
+      | some env => pure env
+      | none =>
+        enableInitializersExecution
+        initSearchPath (← findSysroot) [← getLibDir (← getBuildDir)]
+        let env ← importModules #[{ module := `Kraken.AArch64.Parser.Elab }] {} (loadExts := true)
+        ref.set env
+        pure env
     (do evalExpr _root_.Program (mkConst ``_root_.Program) (← elabAArch64 input)).run'.run'.toIO'
       { fileName := "<input>", fileMap := default } { env }).mapError toString
 
