@@ -587,6 +587,24 @@ private def delabExtMov (isSigned : Bool) (aw : Width) (wDst? : Option Width) (w
     let src ← withNaryArg 3 (delabRegOrMemOperand aw)
     `(x64_instr| $op:x64_ext_mov_op $src:x64_operand, $dst:x64_reg)
 
+/-- A string move or store, with its `addr32` and `rep` prefixes. -/
+private def delabStringOp (stem : String) (aw : Width) (w? : Option Width) (repExpr : Expr) :
+    X64DelabM (TSyntax `x64_instr) := do
+  let some w := w? | failure
+  let op := mkSuffixed `x64_string_op stem (widthSuffix (some w))
+  let rep ← match_expr repExpr with
+    | Bool.true => pure true
+    | Bool.false => pure false
+    | _ => failure
+  match aw, rep with
+  | .W64, false => `(x64_instr| $op:x64_string_op)
+  | .W64, true  => `(x64_instr| rep $op:x64_string_op)
+  | .W32, rep =>
+    -- The prefix shows the address width, as a memory operand's registers would.
+    modify ({ · with hasAddrReg := true })
+    if rep then `(x64_instr| addr32 rep $op:x64_string_op) else `(x64_instr| addr32 $op:x64_string_op)
+  | _, _ => failure
+
 /-- Delaborate an `Operation w` inside `Instr.regular aw w op` into an `x64_instr`. -/
 private def delabOperation (aw : Width) (w? : Option Width) : X64DelabM (TSyntax `x64_instr) := do
   let sfx := widthSuffix w?
@@ -699,6 +717,8 @@ private def delabOperation (aw : Width) (w? : Option Width) : X64DelabM (TSyntax
     ensureWidthDetermined w? #[dst]
     `(x64_instr| $op:x64_pop_op $dst:x64_operand)
   -- Flag control, control flow & nop/align
+  | Operation.movs _ repExpr => delabStringOp "movs" aw w? repExpr
+  | Operation.stos _ repExpr => delabStringOp "stos" aw w? repExpr
   | Operation.cld _ =>
     unless w? == some .W64 do failure
     `(x64_instr| cld)
