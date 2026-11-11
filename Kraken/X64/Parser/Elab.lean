@@ -1,9 +1,10 @@
 module
 
-public import Kraken.X64.Parser.Basic
-public meta import Kraken.X64.Parser.Basic
+public import Kraken.X64.Syntax
+public meta import Kraken.X64.Syntax
 public import Kraken.X64.Parser.Syntax
 public meta import Kraken.X64.Parser.Syntax
+public import Lean
 public meta import Lean
 
 /-!
@@ -21,7 +22,7 @@ namespace Kraken.X64.Parser
 open Lean Meta Elab Kraken.Parser
 open Term hiding mkConst  -- `mkConst` is the pure `Lean.mkConst`, not the environment lookup `Term.mkConst`
 
-public meta section
+public section
 
 -- ============================================================================
 -- Elaboration Monad: Operation & Address Widths
@@ -488,26 +489,41 @@ def evalExtWidthSuffix : String → TermElabM (Width × Width)
   | "lq" | "xd" => return (.W32, .W64)
   | sfx         => throwError "invalid extension width suffix '{sfx}'"
 
-/-- Evaluate the condition-code suffix of a mnemonic (`cmov<cc>`, `set<cc>`, `j<cc>`). -/
+/-- Evaluate the condition code of a `CondCode` suffix string (`o`, `no`, `z`, `e`, ...). -/
+def evalCondCode? : String → Option CondCode
+  | "o"                 => some .o
+  | "no"                => some .no
+  | "z"  | "e"          => some .z
+  | "nz" | "ne"         => some .nz
+  | "b"  | "c"  | "nae" => some .b
+  | "ae" | "nc" | "nb"  => some .ae
+  | "a"  | "nbe"        => some .a
+  | "be" | "na"         => some .be
+  | "s"                 => some .s
+  | "ns"                => some .ns
+  | "p"  | "pe"         => some .p
+  | "np" | "po"         => some .np
+  | "l"  | "nge"        => some .l
+  | "ge" | "nl"         => some .ge
+  | "le" | "ng"         => some .le
+  | "g"  | "nle"        => some .g
+  | _                   => none
+
+/-- Evaluate the condition-code suffix of a mnemonic (`set<cc>`, `j<cc>`). -/
 def evalCondCodeSuffix (stx : Syntax) : TermElabM CondCode := withRef stx do
-  match ← getAffixedSuffix stx with
-  | "o"                 => return .o
-  | "no"                => return .no
-  | "z"  | "e"          => return .z
-  | "nz" | "ne"         => return .nz
-  | "b"  | "c"  | "nae" => return .b
-  | "ae" | "nc" | "nb"  => return .ae
-  | "a"  | "nbe"        => return .a
-  | "be" | "na"         => return .be
-  | "s"                 => return .s
-  | "ns"                => return .ns
-  | "p"  | "pe"         => return .p
-  | "np" | "po"         => return .np
-  | "l"  | "nge"        => return .l
-  | "ge" | "nl"         => return .ge
-  | "le" | "ng"         => return .le
-  | "g"  | "nle"        => return .g
-  | sfx                 => throwError "invalid condition code '{sfx}'"
+  let sfx ← getAffixedSuffix stx
+  let some cc := evalCondCode? sfx | throwError "invalid condition code '{sfx}'"
+  return cc
+
+/-- Evaluate the condition-code and optional width suffix of a `cmov<cc>{w,l,q}` mnemonic. -/
+def evalCmovSuffix (stx : Syntax) : TermElabM (CondCode × Option Width) := withRef stx do
+  let sfx ← getAffixedSuffix stx
+  if let some cc := evalCondCode? sfx then
+    return (cc, none)
+  let some cc := evalCondCode? (sfx.dropEnd 1).toString
+    | throwError "invalid condition code '{sfx}'"
+  let w? ← evalWidthSuffix (sfx.takeEnd 1).toString
+  return (cc, w?)
 
 /-- The `Operation` constructor for the stem of an `x64_bin_op`. -/
 def elabBinOp : String → TermElabM Expr
@@ -626,9 +642,9 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       let dst ← elabReg dst
       mkAppWidth mk #[dst, src]
   | `(x64_instr| $op:x64_cmov_op $src:x64_operand, $dst:x64_reg) =>
-    mkRegularInstr do
+    let (cc, width?) ← evalCmovSuffix op
+    mkRegularInstr (width? := width?) do
       let mk := mkConst ``Operation.cmovcc
-      let cc ← evalCondCodeSuffix op
       let src ← elabRegOrMemOperand src
       let dst ← elabReg dst
       mkAppWidth mk #[toExpr cc, dst, src]
@@ -902,41 +918,16 @@ def elabEmbedding (W : Type) [ToExpr W] (body : X64ElabM Expr) (expectedType? : 
 
 end
 
-/-- Inline unquoted X64 assembly directive elaborator (`⸨dir| ... ⸩`). -/
-elab_rules : term
-  | `(⸨dir| $d:x64_directive⸩) => elabDirective d
+private unsafe def parseImpl (input : String) : Except String _root_.Program :=
+  (unsafeIO do
+    enableInitializersExecution
+    initSearchPath (← findSysroot) [← getLibDir (← getBuildDir)]
+    let env ← importModules #[{ module := `Kraken.X64.Parser.Elab }] {} (loadExts := true)
+    (do evalExpr _root_.Program (mkConst ``_root_.Program) (← elabX64 input)).run'.run'.toIO'
+      { fileName := "<input>", fileMap := default } { env }).mapError toString
 
-macro_rules
-  | `(⸨dir $n | $dir:x64_directive⸩) =>
-    `({directive := ⸨dir| $dir⸩, size := Kraken.Layout.size _root_.Instr _root_.ConstExpr $n : Kraken.Sized _root_.Directive})
-
-/-- Inline unquoted X64 assembly block elaborator (`⸨prog| ...⸩`). -/
-elab_rules : term
-  | `(⸨prog| $p:x64_prog⸩) => elabProgram p
-
-/-- Standalone embeddings of the elements of a program:
-    * `⸨instr| ... ⸩ : Instr`
-    * `⸨operand| ... ⸩ : Operand w`
-    * `⸨mem| ... ⸩ : AddrExpr`. An `AddrExpr` only holds 64-bit registers: the address width that the
-      registers of a memory operand determine (`0(%eax)` is a 32-bit address) is part of the
-      instruction (`Instr.regular`), so it is dropped here, and `⸨mem| 0(%eax) ⸩ = ⸨mem| 0(%rax) ⸩`.
-    * `⸨reg| ... ⸩ : Reg w` for general-purpose registers and `AvxReg w` for AVX registers
-    * `⸨const| ... ⸩ : ConstExpr`
-
-    Width-indexed results take their width from their registers, from the type of an antiquotation, or
-    else from the expected type (`(⸨operand| $1 ⸩ : Operand .W64)`). -/
-elab_rules : term <= expectedType?
-  | `(⸨instr| $i:x64_instr ⸩) => do ensureHasType expectedType? (← elabInstr i)
-  | `(⸨operand| $o:x64_operand ⸩) => elabEmbedding Width (elabOperand o) expectedType?
-  | `(⸨mem| $m:x64_mem ⸩) => elabEmbedding Width (elabMem m) expectedType? (widthIndexed := false)
-  | `(⸨reg| $r:x64_reg ⸩) => elabEmbedding Width (elabReg r) expectedType?
-  | `(⸨reg| $r:x64_avx_reg ⸩) => elabEmbedding AvxWidth (elabAvxReg r) expectedType?
-  | `(⸨const| $c:x64_const ⸩) => do ensureHasType expectedType? (← elabConstExpr c)
-
-/-- Read an X64 assembly file, strip assembler directives, parse via `runParserCategory`,
-    and elaborate into a Kraken `Program`. -/
-elab "include_x64" path:str : term => do
-  let content ← IO.FS.readFile path.getString
-  withRef path <| elabX64 (stripDirectives content)
+/-- Parse an X64 assembly string (with `# ...` line comments) into a Kraken `Program`. -/
+@[implemented_by parseImpl]
+public opaque parse (input : String) : Except String _root_.Program
 
 end Kraken.X64.Parser
