@@ -71,3 +71,25 @@ private def busy : MachineData :=
 #guard runOp .cld busy == some busy
 #guard (runOp .std busy >>= runOp .std) == some { busy with df := true }
 #guard (runOp .std busy >>= runOp .cld) == some busy
+
+/-! `vmovdqa` faults on a memory operand not aligned to its width, and `vmovdqu` does not. -/
+
+private def runAvx {w} (op : AvxOperation w) : Effects :=
+  let : Labels := ⟨fun _ => 0⟩
+  let : AddressSize := ⟨.W64⟩
+  op.interp ⟨0, 1⟩ s (fun s => .done ⟨s, 1⟩)
+
+private def at0x1010 {w} : AvxRegOrMem w := .mem { base := none, idx := none, disp := .int64 0x1010 }
+
+#guard match runAvx (w := .W256) (.vmovdqa (.avx (.ymm .mm0)) at0x1010) with
+  | .gp_unaligned addr bytes => addr == 0x1010 && bytes == 32
+  | _ => false
+#guard match runAvx (w := .W256) (.vmovdqa at0x1010 (.avx (.ymm .mm0))) with
+  | .gp_unaligned addr bytes => addr == 0x1010 && bytes == 32
+  | _ => false
+#guard match runAvx (w := .W128) (.vmovdqa (.avx (.xmm .mm0)) at0x1010) with
+  | .require_read_access .. => true
+  | _ => false
+#guard match runAvx (w := .W256) (.vmovdqu (.avx (.ymm .mm0)) at0x1010) with
+  | .require_read_access .. => true
+  | _ => false

@@ -139,6 +139,16 @@ def mkAvxInstr (body : X64ElabM Expr) (width? : Option AvxWidth := none) : TermE
     let aw := (← get).addressWidth?.getD (toExpr Width.W64)
     instantiateMVars (mkApp3 (mkConst ``Instr.avx) aw w op)
 
+/-- Reject the 512-bit form of a VEX-only mnemonic in the instruction `i`, which EVEX spells
+    differently. -/
+def checkNo512 (ref : Syntax) (i : Expr) : TermElabM Expr := do
+  let vexOnly := [``AvxOperation.vmovdqa, ``AvxOperation.vpand, ``AvxOperation.vpandn,
+    ``AvxOperation.vpor, ``AvxOperation.vpxor]
+  if let .const n _ := (i.getArg! 2).getAppFn then
+    if vexOnly.contains n && (← whnf (i.getArg! 1)).isConstOf ``AvxWidth.W512 then
+      throwErrorAt ref "{n.getString!} has no 512-bit form"
+  return i
+
 /-- Elaborate the term `t` of an antiquotation at the type `ty` expected by its position. Elaboration is
     forced to finish here (`withSynthesize`) because the instruction inspects the result right away: the
     unification of `ty` against `t`'s type is what determines the operation width, and `mkRegularInstr`
@@ -562,6 +572,7 @@ def elabAvxOp (stx : TSyntax `x64_avx_op) : TermElabM Expr := withRef stx do
   | `(x64_avx_op| sha256msg2) => pure (mkConst ``AvxOperation.sha256msg2)
   | `(x64_avx_op| vmovdqu32)  => pure (mkConst ``AvxOperation.vmovdqu32)
   | `(x64_avx_op| vmovdqa32)  => pure (mkConst ``AvxOperation.vmovdqa32)
+  | `(x64_avx_op| vmovdqa)    => pure (mkConst ``AvxOperation.vmovdqa)
   | _ =>
     let (stem, sfx) ← splitSuffixed stx
     match stem, sfx with
@@ -580,6 +591,7 @@ def elabAvxImmOp (stx : TSyntax `x64_avx_imm_op) : TermElabM Expr := withRef stx
   | `(x64_avx_imm_op| pblendw) => pure (mkConst ``AvxOperation.pblendw)
   | `(x64_avx_imm_op| vprord)  => pure (mkConst ``AvxOperation.vprord)
   | `(x64_avx_imm_op| vpsrld)  => pure (mkConst ``AvxOperation.vpsrld)
+  | `(x64_avx_imm_op| vpslld)  => pure (mkConst ``AvxOperation.vpslld)
   | _                          => throwError "invalid AVX immediate mnemonic"
 
 /-- The `AvxOperation` constructor of an `x64_avx3_op`. -/
@@ -589,6 +601,10 @@ def elabAvx3Op (stx : TSyntax `x64_avx3_op) : TermElabM Expr := withRef stx do
   | `(x64_avx3_op| vpshufb)  => pure (mkConst ``AvxOperation.vpshufb)
   | `(x64_avx3_op| vpermi2q) => pure (mkConst ``AvxOperation.vpermi2q)
   | `(x64_avx3_op| vpermi2d) => pure (mkConst ``AvxOperation.vpermi2d)
+  | `(x64_avx3_op| vpand)    => pure (mkConst ``AvxOperation.vpand)
+  | `(x64_avx3_op| vpandn)   => pure (mkConst ``AvxOperation.vpandn)
+  | `(x64_avx3_op| vpor)     => pure (mkConst ``AvxOperation.vpor)
+  | `(x64_avx3_op| vpxor)    => pure (mkConst ``AvxOperation.vpxor)
   | _                        => throwError "invalid AVX 3-operand mnemonic"
 
 /-- The `AvxOperation` constructor of an `x64_avx3_imm_op`. -/
@@ -725,7 +741,7 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       let dst ← elabReg dst
       mkAppWidth mk #[dst, src]
   | `(x64_instr| $op:x64_avx_op $src:x64_avx_operand, $dst:x64_avx_operand) =>
-    mkAvxInstr do
+    checkNo512 op <| ← mkAvxInstr do
       let mk ← elabAvxOp op
       let src ← elabAvxRegOrMem src
       let dst ← elabAvxRegOrMem dst
@@ -738,7 +754,7 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       let dst ← elabAvxRegOrMem dst
       mkAppWidth mk #[dst, src, imm]
   | `(x64_instr| $op:x64_avx3_op $src2:x64_avx_operand, $src1:x64_avx_operand, $dst:x64_avx_operand) =>
-    mkAvxInstr do
+    checkNo512 op <| ← mkAvxInstr do
       let mk ← elabAvx3Op op
       let src2 ← elabAvxRegOrMem src2
       let src1 ← elabAvxRegOrMem src1

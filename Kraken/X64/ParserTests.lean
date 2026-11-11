@@ -943,6 +943,18 @@ vpermi2q %zmm10, %zmm11, %zmm12
 vpermi2d (%rsp), %zmm13, %zmm24
 vinserti64x4 $1, %ymm14, %zmm15, %zmm16
 vinserti64x4 $0, 32(%rsp), %zmm17, %zmm18
+⸩,
+  ⸨prog|
+vpslld $3, %xmm1, %xmm2
+vpslld $10, (%rsp), %ymm3
+vpslld $31, %zmm4, %zmm5
+vmovdqa (%rsp), %xmm0
+vmovdqa %ymm1, 32(%rsp)
+vmovdqa %ymm2, %ymm3
+vpand %xmm0, %xmm1, %xmm2
+vpandn (%rax), %ymm3, %ymm4
+vpor %ymm5, %ymm6, %ymm7
+vpxor 32(%rsp), %xmm8, %xmm15
 ⸩
 ].all agreesWithCombinatorParser
 
@@ -972,6 +984,43 @@ info: ⸨prog|
 ⸩
 
 end sha_and_avx512
+
+section avx2_bitwise
+
+local elab "elabX64% " s:str : term => elabX64 s.getString
+
+/-- error: vpxor has no 512-bit form -/
+#guard_msgs in
+#check ⸨prog| vpxor %zmm0, %zmm1, %zmm2 ⸩
+
+/-- error: vmovdqa has no 512-bit form -/
+#guard_msgs in
+#check ⸨prog| vmovdqa (%rsp), %zmm0 ⸩
+
+/-- error: vpandn has no 512-bit form -/
+#guard_msgs in
+#check elabX64% "vpandn %zmm0, %zmm1, %zmm2"
+
+/-- error: vmovdqa has no 512-bit form -/
+#guard_msgs in
+#check elabX64% "vmovdqa %zmm0, 64(%rsp)"
+
+/--
+info: ⸨prog|
+  vpslld $10, (%rsp), %ymm3
+  vmovdqa %ymm1, 32(%rsp)
+  vpandn (%rax), %ymm3, %ymm4
+  vpxor %xmm0, %xmm1, %xmm2⸩ : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog|
+  vpslld $10, (%rsp), %ymm3
+  vmovdqa %ymm1, 32(%rsp)
+  vpandn (%rax), %ymm3, %ymm4
+  vpxor %xmm0, %xmm1, %xmm2
+⸩
+
+end avx2_bitwise
 
 end Tests
 

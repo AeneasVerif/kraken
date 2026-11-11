@@ -817,6 +817,23 @@ private def delabAvxOperation (aw : Width) (w? : Option AvxWidth) : X64DelabM (T
   | AvxOperation.vpshufb  _ _ _ _ => delabAvx3Op (← `(x64_avx3_op| vpshufb))  aw
   | AvxOperation.vpermi2q _ _ _ _ => delabAvx3Op (← `(x64_avx3_op| vpermi2q)) aw
   | AvxOperation.vpermi2d _ _ _ _ => delabAvx3Op (← `(x64_avx3_op| vpermi2d)) aw
+  | AvxOperation.vpslld _ _ _ _ => delabAvxImmOp (← `(x64_avx_imm_op| vpslld)) aw
+  -- These mnemonics have no 512-bit form, which the parsers reject.
+  | AvxOperation.vmovdqa _ _ _ =>
+    if w? == some .W512 then failure
+    delabAvxBinOp (← `(x64_avx_op| vmovdqa)) aw
+  | AvxOperation.vpand _ _ _ _ =>
+    if w? == some .W512 then failure
+    delabAvx3Op (← `(x64_avx3_op| vpand)) aw
+  | AvxOperation.vpandn _ _ _ _ =>
+    if w? == some .W512 then failure
+    delabAvx3Op (← `(x64_avx3_op| vpandn)) aw
+  | AvxOperation.vpor _ _ _ _ =>
+    if w? == some .W512 then failure
+    delabAvx3Op (← `(x64_avx3_op| vpor)) aw
+  | AvxOperation.vpxor _ _ _ _ =>
+    if w? == some .W512 then failure
+    delabAvx3Op (← `(x64_avx3_op| vpxor)) aw
   | AvxOperation.vpternlogd _ _ _ _ _ => delabAvx3ImmOp (← `(x64_avx3_imm_op| vpternlogd)) aw
   | AvxOperation.vshufps    _ _ _ _ _ => delabAvx3ImmOp (← `(x64_avx3_imm_op| vshufps))    aw
   | AvxOperation.vinserti64x4 _ _ _ _ _ =>

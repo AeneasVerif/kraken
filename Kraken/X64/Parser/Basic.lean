@@ -625,6 +625,12 @@ def commaSeparatedAvx3
   let addr_w ← mergeAddrWidths addr_w1 addr_w2
   pure (toAvxInstr addr_w (mk dst src1 src2))
 
+/-- Reject the 512-bit form of a VEX-only mnemonic, which EVEX spells differently. -/
+def vexOnly (mn : String) (i : Instr) : Parser Instr :=
+  match i with
+  | .avx _ .W512 _ => fail s!"{mn} has no 512-bit form"
+  | i => pure i
+
 def assertW {T} (v: MaybeOpWidth T): Parser (Σ w: Width, T w) :=
   match v with
   | ⟨ .none, _ ⟩ => fail "missing type annotation"
@@ -984,6 +990,18 @@ def parseInstr : Parser Instr := do
     let (addr_w3, dst) ← parseAvxAO parseAvxRegOrMem .W512
     let addr_w ← mergeAddrWidths addr_w1 (← mergeAddrWidths addr_w2 addr_w3)
     pure (toAvxInstr addr_w (AvxOperation.vinserti64x4 dst src1 src2 imm))
+
+  | "vpslld" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .vpslld d x imm)
+
+  | "vmovdqa" =>
+    vexOnly mn (← commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovdqa)
+
+  | "vpand" => vexOnly mn (← commaSeparatedAvx3 .vpand)
+  | "vpandn" => vexOnly mn (← commaSeparatedAvx3 .vpandn)
+  | "vpor" => vexOnly mn (← commaSeparatedAvx3 .vpor)
+  | "vpxor" => vexOnly mn (← commaSeparatedAvx3 .vpxor)
 
   -- Bitwise - 64-bit
   | "xor" =>

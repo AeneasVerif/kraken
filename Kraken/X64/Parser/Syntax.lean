@@ -334,6 +334,8 @@ syntax &"sha256msg2" : x64_avx_op
 syntax &"vmovdqu32" : x64_avx_op
 /-- AVX-512 move aligned packed doublewords. -/
 syntax &"vmovdqa32" : x64_avx_op
+/-- AVX move aligned packed integer values (zeroing upper bits; no 512-bit form). -/
+syntax &"vmovdqa" : x64_avx_op
 
 /-- SSE vector instruction mnemonics taking an 8-bit immediate (`$imm, src, dst`). -/
 declare_syntax_cat x64_avx_imm_op (behavior := both)
@@ -347,6 +349,8 @@ syntax &"pblendw" : x64_avx_imm_op
 syntax &"vprord" : x64_avx_imm_op
 /-- AVX-512 shift packed doublewords right, logically. -/
 syntax &"vpsrld" : x64_avx_imm_op
+/-- Shift packed doublewords left, logically. -/
+syntax &"vpslld" : x64_avx_imm_op
 
 /-- AVX 3-operand vector instruction mnemonics (`src2, src1, dst`). -/
 declare_syntax_cat x64_avx3_op (behavior := both)
@@ -358,6 +362,14 @@ syntax &"vpshufb" : x64_avx3_op
 syntax &"vpermi2q" : x64_avx3_op
 /-- Permute doublewords from two tables, overwriting the indices. -/
 syntax &"vpermi2d" : x64_avx3_op
+/-- Bitwise AND (no 512-bit form). -/
+syntax &"vpand" : x64_avx3_op
+/-- Bitwise AND of the complement of the first source with the second (no 512-bit form). -/
+syntax &"vpandn" : x64_avx3_op
+/-- Bitwise OR (no 512-bit form). -/
+syntax &"vpor" : x64_avx3_op
+/-- Bitwise XOR (no 512-bit form). -/
+syntax &"vpxor" : x64_avx3_op
 
 /-- AVX 3-operand vector instruction mnemonics taking an 8-bit immediate (`$imm, src2, src1, dst`). -/
 declare_syntax_cat x64_avx3_imm_op (behavior := both)

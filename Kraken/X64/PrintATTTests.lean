@@ -81,6 +81,10 @@ def corpus : List String := [
   "vpshufb %zmm0, %zmm1, %zmm2", "vpshufb (%rax), %ymm3, %ymm4", "vshufps $0x44, %zmm5, %zmm6, %zmm7",
   "vshufps $0xdd, 64(%rsp), %xmm8, %xmm9", "vpermi2q %zmm10, %zmm11, %zmm12", "vpermi2d (%rsp), %zmm13, %zmm24",
   "vinserti64x4 $1, %ymm14, %zmm15, %zmm16", "vinserti64x4 $0, 32(%rsp), %zmm17, %zmm18",
+  "vpslld $3, %xmm1, %xmm2", "vpslld $10, (%rsp), %ymm3", "vpslld $31, %zmm4, %zmm5",
+  "vmovdqa (%rsp), %xmm0", "vmovdqa %ymm1, 32(%rsp)", "vmovdqa %ymm2, %ymm3",
+  "vpand %xmm0, %xmm1, %xmm2", "vpandn (%rax), %ymm3, %ymm4", "vpor %ymm5, %ymm6, %ymm7",
+  "vpxor 32(%rsp), %xmm8, %xmm15",
   -- data words: a label, a difference of labels, a literal
   ".short sym", "a:\nb:\n  .short b - a", ".short 7",
   ".long sym", "a:\nb:\n  .long b-a", ".long -1",

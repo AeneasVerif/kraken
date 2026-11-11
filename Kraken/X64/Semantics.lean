@@ -1001,6 +1001,30 @@ match i with
     src1.interp s p (fun a s =>
       let half := ((imm.interp p).toBitVec.take 8).toNat % 2
       s.setAvx dst (BitVec.ofLanes _ 256 fun i => if i == half then b else a.lane 256 i) p next))
+  | .vpslld dst src imm =>
+    src.interp s p (fun a s =>
+      let count := ((imm.interp p).toBitVec.take 8).toNat
+      s.setAvx dst (a.mapLanes 32 (fun x => if count < 32 then x <<< count else 0#32)) p next)
+  -- VEX memory operands need no alignment, except for `vmovdqa`.
+  | .vmovdqa dst src =>
+    src.interp s p (checkAlign := true)
+      (fun val s => s.setAvx dst val p (checkAlign := true) next)
+  | .vpand dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (a &&& b) p next))
+  | .vpandn dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (~~~a &&& b) p next))
+  | .vpor dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (a ||| b) p next))
+  | .vpxor dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (a ^^^ b) p next))
 
 @[kstep]
 def Instr.interp [Labels]
