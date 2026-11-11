@@ -6,13 +6,14 @@ import all Kraken.Separation
 import all Kraken.Mem
 
 /-!
-# Stack cells shared by the x64 calling conventions
+# Model for the x64 stack
 
-The memory a procedure specification talks about at a call, in the separation logic of
-`Kraken.Separation` over byte maps `Mem 64`:
+Certain stack conventions are required by the hardware (e.g., `call` and `ret` consume
+a stack slot); other conventions are common among the various calling conventions
+(rsp+8 is generally 16-byte aligned on procedure entry). We also model a procedure
+reserving the stack space required for its callee.
 
-* `RetCell ra a`: the 8 bytes at `a` hold the return address `ra`, as `call` wrote them
-  (`[rsp]` on entry, under every x64 convention);
+* `RetCell ra a`: the 8 bytes at `a` hold the return address `ra`;
 * `Owned n a`: `n` bytes at `a` the procedure owns but knows nothing about;
 * `Reserve d r`: the `d` bytes of free stack just below `r`: the procedure's *stack reservation*
   (Bedrock's `reserving` clause). The caller supplies it, the procedure may use it, and it comes
@@ -20,15 +21,8 @@ The memory a procedure specification talks about at a call, in the separation lo
 * `Shadow r`: the 32 bytes above the return address at `r` that the Windows x64 convention hands
   to the callee (`[rsp + 8, rsp + 40)` on entry).
 
-Kraken has no faulting model, so stack exhaustion cannot be a runtime error: a procedure that uses
-stack asks for it in its precondition. Addresses wrap modulo `2^64`, so `Reserve d r` with
-`d > r.toNat` would be bytes at the top of memory; the conventions' `CallPre` rules that out with
-an explicit bound, which the cells themselves do not carry.
-
-`EntryAligned` is the alignment rule both conventions share.
-
-The cells are `Eq (bs.At a)` with explicit byte lists (`Kraken.SeparationMem`); `Owned` hides the
-list existentially, and `Owned.elim`/`Owned.intro` open and close it at a load or store.
+Stack cells are `Eq (bs.At a)` with explicit byte lists (`Kraken.SeparationMem`).
+`Owned` hides these existentially, and `Owned.elim`/`Owned.intro` open and close the existential.
 -/
 
 public section
@@ -40,7 +34,7 @@ namespace Kraken.X64.Stack
 
 /-! ## Cells -/
 
-/-- The bytes a return address occupies: the slot at `a` holds `ra`, as `call` wrote it. -/
+/-- The bytes a return address occupies: the slot at `a` holds `ra` -/
 abbrev RetCell (ra : Int64) (a : BitVec 64) : Mem 64 → Prop :=
   Eq ((Int.toBytes 8 ra.toBitVec.toInt).At a)
 

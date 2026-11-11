@@ -51,7 +51,10 @@ moved down by 8. -/
 /-- A run of `e` entered at `entry` in a state `t` with `Pre x ra t` reaches `ra` in a state `s'`
 with `Post x ra t s'`. `x` is a logical variable that the call site instantiates (the argument, the
 caller's memory frame). `Post` sees the entry state `t`, so that it can say which registers and
-memory are as they were. -/
+memory are as they were.
+
+TODO: we don't use the `Layout` here, but we need it to use `step1`; we may be able to clean this up.
+-/
 @[expose] def Kraken.Executable.ProcSpec [_root_.Layout] (e : _root_.Executable) (entry : Int64) {α : Type}
     (Pre : α → Int64 → MachineData → Prop)
     (Post : α → Int64 → MachineData → MachineData → Prop) : Prop :=
