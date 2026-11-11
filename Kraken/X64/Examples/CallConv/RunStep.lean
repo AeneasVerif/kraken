@@ -5,6 +5,8 @@ public import Kraken.X64.WP.Basic
 /-!
 # `run_step`: stepping one instruction by hand
 
+TODO: This can be removed after the relevant `kstep` improvements land.
+
 `run_step h [extra]` runs the head directive of a fragment placed at the infix position `h`
 (`Host.run_cons`) and unfolds its semantics with the lemmas a general-purpose register instruction
 needs, plus `extra`. What is left are the memory accesses (`Effects.All_store`, ...) and the
