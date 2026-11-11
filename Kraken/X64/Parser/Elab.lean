@@ -573,6 +573,9 @@ def elabAvxOp (stx : TSyntax `x64_avx_op) : TermElabM Expr := withRef stx do
   | `(x64_avx_op| vmovdqu32)  => pure (mkConst ``AvxOperation.vmovdqu32)
   | `(x64_avx_op| vmovdqa32)  => pure (mkConst ``AvxOperation.vmovdqa32)
   | `(x64_avx_op| vmovdqa)    => pure (mkConst ``AvxOperation.vmovdqa)
+  | `(x64_avx_op| pxor)    => pure (mkConst ``AvxOperation.pxor)
+  | `(x64_avx_op| pand)    => pure (mkConst ``AvxOperation.pand)
+  | `(x64_avx_op| pandn)   => pure (mkConst ``AvxOperation.pandn)
   | _ =>
     let (stem, sfx) ← splitSuffixed stx
     match stem, sfx with
@@ -796,6 +799,15 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       let src1 ← elabAvxRegOrMem src1
       let dst ← elabAvxRegOrMem dst
       mkAppWidth (mkConst ``AvxOperation.vinserti64x4) #[dst, src1, src2, imm]
+  | `(x64_instr| $op:x64_avx_shift_imm_op $imm:x64_imm, $dst:x64_avx_reg) =>
+    mkAvxInstr do
+      let mk ← match op with
+        | `(x64_avx_shift_imm_op| psrld) => pure (mkConst ``AvxOperation.psrld)
+        | `(x64_avx_shift_imm_op| pslld) => pure (mkConst ``AvxOperation.pslld)
+        | _ => throwErrorAt op "invalid SSE shift mnemonic"
+      let imm ← elabImm imm
+      let dst ← mkAppWidth (mkConst ``AvxRegOrMem.avx) #[← elabAvxReg dst]
+      mkAppWidth mk #[dst, imm]
   | `(x64_instr| $op:x64_vmov_gp_op $src:x64_avx_reg, $dst:x64_avx_reg) =>
     let n ← evalVmovGpWidth op
     if n != .W64 then throwErrorAt op "vmovd takes no two xmm operands"
@@ -856,6 +868,10 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       let mk := mkConst ``Operation.pop
       let dst ← elabRegOrMemOperand dst
       mkAppWidth mk #[dst]
+  | `(x64_instr| $op:x64_string_op) => elabStringInstr op false .W64
+  | `(x64_instr| rep $op:x64_string_op) => elabStringInstr op true .W64
+  | `(x64_instr| addr32 $op:x64_string_op) => elabStringInstr op false .W32
+  | `(x64_instr| addr32 rep $op:x64_string_op) => elabStringInstr op true .W32
   | `(x64_instr| ret) | `(x64_instr| retq) =>
     mkClosedInstr .ret
   | `(x64_instr| cld) =>
@@ -884,6 +900,14 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       mkAppWidth mk #[toExpr cc, target]
   | _ => throwError "invalid instruction syntax"
 where
+  /-- A string move or store at the address width `aw`, its width named by its suffix. -/
+  elabStringInstr (op : TSyntax `x64_string_op) (rep : Bool) (aw : Width) : TermElabM Expr := do
+    let (stem, some w) ← splitWidthSuffixed op | throwErrorAt op "missing width suffix"
+    let mk ← match stem with
+      | "movs" => pure (mkConst ``Operation.movs)
+      | "stos" => pure (mkConst ``Operation.stos)
+      | _ => throwErrorAt op "invalid string instruction mnemonic '{stem}'"
+    pure (mkApp3 (mkConst ``Instr.regular) (toExpr aw) (toExpr w) (mkApp2 mk (toExpr w) (toExpr rep)))
   /-- A 64-bit instruction without operands to infer widths from. -/
   mkClosedInstr (op : Operation .W64) : TermElabM Expr :=
     pure (toExpr (Instr.regular .W64 .W64 op))

@@ -42,6 +42,8 @@ def corpus : List String := [
   "setl %al", "setle %al", "seto %al", "setno %al", "sets %al", "setns %al",
   "setp %al", "setnp %al", "setge %al", "setg %al",
   "cmovz %rax, %rbx", "cmovl (%rsp), %ecx", "cmovge %rax, %rbx", "cmovg (%rsp), %ecx",
+  "movsb", "movsq", "rep movsb", "rep movsl", "stosw", "rep stosb", "rep stosq",
+  "addr32 movsb", "addr32 rep movsq", "addr32 stosl", "addr32 rep stosw",
   -- arithmetic
   "leaq 8(%rax,%rbx,4), %rcx", "leal (%eax), %ecx", "lea sym(%rip), %rax",
   "addq $1, %rax", "addb %al, (%rsp)", "adcl (%rsp), %eax", "adcx %rax, %rbx",
@@ -69,6 +71,8 @@ def corpus : List String := [
   "movaps %xmm3, %xmm4", "addps (%rax), %xmm5", "subps %xmm6, %xmm7",
   "movdqu (%rsp), %xmm0", "movdqa %xmm1, 16(%rsp)", "paddd (%rax), %xmm2", "pshufb %xmm3, %xmm4",
   "pshufd $0x1b, %xmm5, %xmm6", "palignr $8, (%rsp), %xmm7", "pblendw $0xf0, %xmm8, %xmm9",
+  "pxor %xmm1, %xmm2", "pand 16(%rsp), %xmm3", "pandn %xmm15, %xmm14", "psrld $7, %xmm4",
+  "pslld $32, %xmm15",
   "vmovdqu (%rsp), %xmm0", "vmovdqu %ymm1, 32(%rsp)", "vmovdqu %ymm2, %ymm3",
   "vmovd %eax, %xmm4", "vmovd 4(%rsp), %xmm5", "vmovd %xmm6, %r9d", "vmovd %xmm7, (%rsp)",
   "vmovq %rax, %xmm8", "vmovq 8(%rsp), %xmm9", "vmovq %xmm10, %rbx", "vmovq %xmm11, (%rsp)",

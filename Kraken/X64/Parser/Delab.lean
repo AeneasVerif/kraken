@@ -587,6 +587,24 @@ private def delabExtMov (isSigned : Bool) (aw : Width) (wDst? : Option Width) (w
     let src ← withNaryArg 3 (delabRegOrMemOperand aw)
     `(x64_instr| $op:x64_ext_mov_op $src:x64_operand, $dst:x64_reg)
 
+/-- A string move or store, with its `addr32` and `rep` prefixes. -/
+private def delabStringOp (stem : String) (aw : Width) (w? : Option Width) (repExpr : Expr) :
+    X64DelabM (TSyntax `x64_instr) := do
+  let some w := w? | failure
+  let op := mkSuffixed `x64_string_op stem (widthSuffix (some w))
+  let rep ← match_expr repExpr with
+    | Bool.true => pure true
+    | Bool.false => pure false
+    | _ => failure
+  match aw, rep with
+  | .W64, false => `(x64_instr| $op:x64_string_op)
+  | .W64, true  => `(x64_instr| rep $op:x64_string_op)
+  | .W32, rep =>
+    -- The prefix shows the address width, as a memory operand's registers would.
+    modify ({ · with hasAddrReg := true })
+    if rep then `(x64_instr| addr32 rep $op:x64_string_op) else `(x64_instr| addr32 $op:x64_string_op)
+  | _, _ => failure
+
 /-- Delaborate an `Operation w` inside `Instr.regular aw w op` into an `x64_instr`. -/
 private def delabOperation (aw : Width) (w? : Option Width) : X64DelabM (TSyntax `x64_instr) := do
   let sfx := widthSuffix w?
@@ -699,6 +717,8 @@ private def delabOperation (aw : Width) (w? : Option Width) : X64DelabM (TSyntax
     ensureWidthDetermined w? #[dst]
     `(x64_instr| $op:x64_pop_op $dst:x64_operand)
   -- Flag control, control flow & nop/align
+  | Operation.movs _ repExpr => delabStringOp "movs" aw w? repExpr
+  | Operation.stos _ repExpr => delabStringOp "stos" aw w? repExpr
   | Operation.cld _ =>
     unless w? == some .W64 do failure
     `(x64_instr| cld)
@@ -779,6 +799,12 @@ private def delabAvx3ImmOp (op : TSyntax `x64_avx3_imm_op) (aw : Width) :
   let imm := mkImm (← withNaryArg 4 delabConstExpr)
   unless [src2, src1, dst].any avxOperandDeterminesWidth do failure
   `(x64_instr| $op:x64_avx3_imm_op $imm:x64_imm, $src2:x64_avx_operand, $src1:x64_avx_operand, $dst:x64_avx_operand)
+private def delabAvxShiftImmOp (op : TSyntax `x64_avx_shift_imm_op) : X64DelabM (TSyntax `x64_instr) := do
+  let dst ← withNaryArg 1 do
+    let_expr AvxRegOrMem.avx _ _ := ← getExpr | failure
+    withAppArg delabAvxReg
+  let imm := mkImm (← withNaryArg 2 delabConstExpr)
+  `(x64_instr| $op:x64_avx_shift_imm_op $imm:x64_imm, $dst:x64_avx_reg)
 
 private def delabVmovGpOp (nExpr : Expr) : DelabM (TSyntax `x64_vmov_gp_op) := do
   match evalWidth? nExpr with
@@ -799,6 +825,11 @@ private def delabAvxOperation (aw : Width) (w? : Option AvxWidth) : X64DelabM (T
   | AvxOperation.movdqa  _ _ _ => delabAvxBinOp (← `(x64_avx_op| movdqa))  aw
   | AvxOperation.paddd   _ _ _ => delabAvxBinOp (← `(x64_avx_op| paddd))   aw
   | AvxOperation.pshufb  _ _ _ => delabAvxBinOp (← `(x64_avx_op| pshufb))  aw
+  | AvxOperation.pxor    _ _ _ => delabAvxBinOp (← `(x64_avx_op| pxor))    aw
+  | AvxOperation.pand    _ _ _ => delabAvxBinOp (← `(x64_avx_op| pand))    aw
+  | AvxOperation.pandn   _ _ _ => delabAvxBinOp (← `(x64_avx_op| pandn))   aw
+  | AvxOperation.psrld   _ _ _ => delabAvxShiftImmOp (← `(x64_avx_shift_imm_op| psrld))
+  | AvxOperation.pslld   _ _ _ => delabAvxShiftImmOp (← `(x64_avx_shift_imm_op| pslld))
   | AvxOperation.pshufd  _ _ _ _ => delabAvxImmOp (← `(x64_avx_imm_op| pshufd))  aw
   | AvxOperation.palignr _ _ _ _ => delabAvxImmOp (← `(x64_avx_imm_op| palignr)) aw
   | AvxOperation.pblendw _ _ _ _ => delabAvxImmOp (← `(x64_avx_imm_op| pblendw)) aw

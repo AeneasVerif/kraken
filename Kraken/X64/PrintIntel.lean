@@ -129,6 +129,14 @@ instance : ToString ShiftCountExpr where toString
   | .cl => "cl"
   | .imm8 v => ToString.toString v
 
+/-- The width letter Intel syntax gives a string instruction. -/
+def stringSuffix : Width → String | .W8 => "b" | .W16 => "w" | .W32 => "d" | .W64 => "q"
+
+/-- The prefixes of a string instruction: `addr32` for 32-bit addressing, which its implicit
+    operands cannot show, then `rep` when repeated. -/
+def stringPrefix (addr_w : Width) (rep : Bool) : String :=
+  (if addr_w == .W32 then "addr32 " else "") ++ (if rep then "rep " else "")
+
 def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := match op with
   | .mov dst src => s!"mov {dst.toStr addr_w}, {src.toStr addr_w}"
   | @Operation.movsx _ w' dst src =>
@@ -138,6 +146,8 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .movzx dst src => s!"movzx {dst.toStr addr_w}, {src.toStr addr_w}"
   | .push src => s!"push {src.toStr addr_w}"
   | .pop dst => s!"pop {dst.toStr addr_w}"
+  | .movs rep => s!"{stringPrefix addr_w rep}movs{stringSuffix w}"
+  | .stos rep => s!"{stringPrefix addr_w rep}stos{stringSuffix w}"
   | .setcc cc dst => s!"set{cc} {dst.toStr addr_w}"
   | .cmovcc cc dst src => s!"cmov{cc} {dst}, {src.toStr addr_w}"
   | .lea dst src => s!"lea {dst}, {src.toStr addr_w}"
@@ -194,6 +204,11 @@ def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : Stri
   | .movdqu dst src => s!"movdqu {dst.toStr addr_w}, {src.toStr addr_w}"
   | .movdqa dst src => s!"movdqa {dst.toStr addr_w}, {src.toStr addr_w}"
   | .paddd dst src => s!"paddd {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .pxor dst src => s!"pxor {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .pand dst src => s!"pand {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .pandn dst src => s!"pandn {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .psrld dst imm => s!"psrld {dst.toStr addr_w}, {imm}"
+  | .pslld dst imm => s!"pslld {dst.toStr addr_w}, {imm}"
   | .pshufb dst src => s!"pshufb {dst.toStr addr_w}, {src.toStr addr_w}"
   | .pshufd dst src imm => s!"pshufd {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
   | .palignr dst src imm => s!"palignr {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"

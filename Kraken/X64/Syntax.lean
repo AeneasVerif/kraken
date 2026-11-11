@@ -195,6 +195,9 @@ inductive Operation (w : Width)
   | pop  (_ : Dst w)
   | setcc (_ : CondCode) (_ : Dst w) -- {_ : w = .W8}
   | cmovcc (_ : CondCode) (_ : Reg w) (src : RegOrMem w)
+  -- String moves and stores, once or with a `rep` prefix
+  | movs (rep : Bool)
+  | stos (rep : Bool)
   -- Arithmetic
   | lea (_ : Reg w) (src : AddrExpr) -- {_ : 16 <= w.bits}
   | add  (_ : Dst w) (src : Operand w)
@@ -255,6 +258,12 @@ inductive AvxOperation (w : AvxWidth)
   | movdqu (_ : AvxDst w) (src : AvxRegOrMem w)
   | movdqa (_ : AvxDst w) (src : AvxRegOrMem w)
   | paddd (_ : AvxDst w) (src : AvxRegOrMem w)
+  | pxor (_ : AvxDst w) (src : AvxRegOrMem w)
+  | pand (_ : AvxDst w) (src : AvxRegOrMem w)
+  | pandn (_ : AvxDst w) (src : AvxRegOrMem w)
+  -- Shifts of each dword by an immediate count
+  | psrld (_ : AvxDst w) (imm : ConstExpr)
+  | pslld (_ : AvxDst w) (imm : ConstExpr)
   | pshufb (_ : AvxDst w) (src : AvxRegOrMem w)
   | pshufd (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   | palignr (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)

@@ -647,6 +647,25 @@ def parseWidthSuffix : Char → Option Width
   | 'b' => pure .W8 | 'w' => pure .W16 | 'l' => pure .W32 | 'q' => pure .W64
   | _ =>  none
 
+/-- A string move or store, named with its width suffix, once or repeated, at the address size
+    `addr`. -/
+def stringInstr (addr : MaybeAddrWidth) (mn : String) (rep : Bool) : Parser Instr := do
+  let some w := parseWidthSuffix (String.Pos.Raw.get mn (.mk (mn.length - 1)))
+    | fail s!"expected a string instruction, got {mn}"
+  if mn.length != 5 then fail s!"expected a string instruction, got {mn}"
+  else if mn.startsWith "movs" then pure (toInstr addr (w := w) (.movs rep))
+  else if mn.startsWith "stos" then pure (toInstr addr (w := w) (.stos rep))
+  else fail s!"expected a string instruction, got {mn}"
+
+/-- A string instruction after its prefixes: an optional `rep`, then the mnemonic. -/
+def repStringInstr (addr : MaybeAddrWidth) : Parser Instr := do
+  skipHWs
+  let mn := (← parseName).toLower
+  if mn == "rep" then
+    skipHWs
+    stringInstr addr (← parseName).toLower true
+  else stringInstr addr mn false
+
 /-- Parse an instruction mnemonic and its operands.
     AT&T syntax: src, dst (reversed from Intel). -/
 def parseInstr : Parser Instr := do
@@ -897,6 +916,25 @@ def parseInstr : Parser Instr := do
 
   | "paddd" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .paddd
+
+  | "pxor" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pxor
+
+  | "pand" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pand
+
+  | "pandn" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pandn
+
+  | "psrld" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    let ⟨ _, dst ⟩ ← (skipHWs *> parseAvxRegW)
+    pure (toAvxInstr .none (.psrld (.avx dst) imm))
+
+  | "pslld" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    let ⟨ _, dst ⟩ ← (skipHWs *> parseAvxRegW)
+    pure (toAvxInstr .none (.pslld (.avx dst) imm))
 
   | "pshufb" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pshufb
@@ -1208,6 +1246,18 @@ def parseInstr : Parser Instr := do
     let w ← instrWidth mn
     let ( addr_w, dst ) ← parseRegOrMemAO w
     pure (toInstr addr_w (.pop dst))
+
+  | "movsb" | "movsw" | "movsl" | "movsq" | "stosb" | "stosw" | "stosl" | "stosq" =>
+    stringInstr .none mn false
+
+  | "rep" =>
+    skipHWs
+    let mn ← parseName
+    stringInstr .none mn.toLower true
+
+  -- 32-bit addressing, which only a string instruction cannot spell through its operands.
+  | "addr32" =>
+    repStringInstr (some .W32)
 
   | "ret" | "retq" =>
     pure (toInstr .none (w := .W64) .ret)

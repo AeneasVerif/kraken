@@ -850,6 +850,46 @@ info: ⸨prog|
 #guard_msgs (whitespace := lax) in
 #check ⸨prog| cld; std ⸩
 
+section string_instructions
+
+#guard [
+  ⸨prog|
+movsb
+movsq
+rep movsb
+rep movsl
+stosw
+rep stosb
+rep stosq
+⸩,
+  ⸨prog|
+addr32 movsb
+addr32 rep movsq
+addr32 stosl
+addr32 rep stosw
+⸩
+].all agreesWithCombinatorParser
+
+#guard ⸨instr| addr32 rep movsb ⸩ = Instr.regular .W32 .W8 (.movs true)
+#guard ⸨instr| stosq ⸩ = Instr.regular .W64 .W64 (.stos false)
+
+/--
+info: ⸨prog|
+  rep movsb
+  movsq
+  addr32 rep stosl
+  addr32 stosw⸩ : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog|
+  rep movsb
+  movsq
+  addr32 rep stosl
+  addr32 stosw
+⸩
+
+end string_instructions
+
 section sse_and_vex
 
 #guard [
@@ -863,6 +903,13 @@ pshufb %xmm3, %xmm4
 pshufd $0x1b, %xmm5, %xmm6
 palignr $8, (%rsp), %xmm7
 pblendw $0xf0, %xmm8, %xmm9
+⸩,
+  ⸨prog|
+pxor %xmm1, %xmm2
+pand 16(%rsp), %xmm3
+pandn %xmm15, %xmm14
+psrld $7, %xmm4
+pslld $0x20, %xmm15
 ⸩,
   ⸨prog|
 vmovdqu (%rsp), %ymm0
@@ -902,6 +949,21 @@ info: ⸨prog|
   vmovq %xmm0, 24(%rsp)
   pshufd $0x1b, %xmm5, %xmm6
   vzeroupper
+⸩
+
+/--
+info: ⸨prog|
+  pxor %xmm1, %xmm2
+  pandn (%rax), %xmm3
+  psrld $7, %xmm4
+  pslld $32, %xmm5⸩ : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog|
+  pxor %xmm1, %xmm2
+  pandn (%rax), %xmm3
+  psrld $7, %xmm4
+  pslld $0x20, %xmm5
 ⸩
 
 variable (rest : List _root_.Directive) in
