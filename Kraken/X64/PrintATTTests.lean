@@ -75,6 +75,9 @@ def corpus : List String := [
   "vmovq %xmm12, %xmm13", "vzeroupper",
   "sha256rnds2 %xmm0, %xmm2, %xmm1", "sha256rnds2 (%rax), %xmm3", "sha256rnds2 %xmm0, %xmm4", "sha256msg1 %xmm4, %xmm5",
   "sha256msg2 16(%rsp), %xmm6",
+  "vmovdqu32 (%rsp), %zmm0", "vmovdqa32 %zmm1, 64(%rsp)", "vpaddd %zmm2, %zmm3, %zmm4",
+  "vpaddd (%rax), %ymm5, %ymm6", "vprord $7, %zmm7, %zmm8", "vpsrld $3, %xmm9, %xmm10",
+  "vpternlogd $0xca, %zmm11, %zmm12, %zmm13", "vpternlogd $0x96, 64(%rsp), %zmm14, %zmm31",
   -- data words: a label, a difference of labels, a literal
   ".short sym", "a:\nb:\n  .short b - a", ".short 7",
   ".long sym", "a:\nb:\n  .long b-a", ".long -1",
