@@ -348,7 +348,8 @@ def test_file(path: Path) -> Tuple[bool, str]:
         print(f"[{Color.RED}INVALID{Color.RESET}]")
         return False, str(e)
 
-    print(f"[{Color.GREEN}PASS{Color.RESET}]")
+    runners = ", ".join(name for name, _ in references)
+    print(f"[{Color.GREEN}PASS{Color.RESET}] ({runners})")
     return True, ""
 
 if __name__ == "__main__":
