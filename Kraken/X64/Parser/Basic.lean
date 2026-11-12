@@ -625,6 +625,12 @@ def commaSeparatedAvx3
   let addr_w ← mergeAddrWidths addr_w1 addr_w2
   pure (toAvxInstr addr_w (mk dst src1 src2))
 
+/-- Reject the 512-bit form of a VEX-only mnemonic, which EVEX spells differently. -/
+def vexOnly (mn : String) (i : Instr) : Parser Instr :=
+  match i with
+  | .avx _ .W512 _ => fail s!"{mn} has no 512-bit form"
+  | i => pure i
+
 def assertW {T} (v: MaybeOpWidth T): Parser (Σ w: Width, T w) :=
   match v with
   | ⟨ .none, _ ⟩ => fail "missing type annotation"
@@ -722,6 +728,16 @@ def parseInstr : Parser Instr := do
     let w ← instrWidth mn
     let ( addr_w, src ) ← parseRegOrMemAO w
     pure (toInstr addr_w (.mul src))
+
+  | "div" =>
+    let ( addr_w, src) ← parseRegOrMem
+    let ⟨ _w, src ⟩ ← assertW src
+    pure (toInstr addr_w (.div src))
+
+  | "divq" | "divl" | "divw" | "divb" =>
+    let w ← instrWidth mn
+    let ( addr_w, src ) ← parseRegOrMemAO w
+    pure (toInstr addr_w (.div src))
 
   | "mulx" =>
     -- Per Intel SDM: MULX dest1 and dest2 must be registers
@@ -911,6 +927,25 @@ def parseInstr : Parser Instr := do
   | "paddd" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .paddd
 
+  | "pxor" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pxor
+
+  | "pand" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pand
+
+  | "pandn" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pandn
+
+  | "psrld" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    let ⟨ _, dst ⟩ ← (skipHWs *> parseAvxRegW)
+    pure (toAvxInstr .none (.psrld (.avx dst) imm))
+
+  | "pslld" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    let ⟨ _, dst ⟩ ← (skipHWs *> parseAvxRegW)
+    pure (toAvxInstr .none (.pslld (.avx dst) imm))
+
   | "pshufb" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .pshufb
 
@@ -982,6 +1017,58 @@ def parseInstr : Parser Instr := do
   | "vpternlogd" =>
     let imm ← (skipHWs *> parseImmediate); parseComma
     commaSeparatedAvx3 (fun d x y => .vpternlogd d x y imm)
+
+  | "vpshufb" =>
+    commaSeparatedAvx3 .vpshufb
+
+  | "vshufps" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx3 (fun d x y => .vshufps d x y imm)
+
+  | "vpermi2q" =>
+    commaSeparatedAvx3 .vpermi2q
+
+  | "vpermi2d" =>
+    commaSeparatedAvx3 .vpermi2d
+
+  | "vinserti64x4" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    let (addr_w1, src2) ← parseAvxAO parseAvxRegOrMem .W256; parseComma
+    let (addr_w2, src1) ← parseAvxAO parseAvxRegOrMem .W512; parseComma
+    let (addr_w3, dst) ← parseAvxAO parseAvxRegOrMem .W512
+    let addr_w ← mergeAddrWidths addr_w1 (← mergeAddrWidths addr_w2 addr_w3)
+    pure (toAvxInstr addr_w (AvxOperation.vinserti64x4 dst src1 src2 imm))
+
+  | "vpslld" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .vpslld d x imm)
+
+  | "vmovdqa" =>
+    vexOnly mn (← commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovdqa)
+
+  | "vpand" => vexOnly mn (← commaSeparatedAvx3 .vpand)
+  | "vpandn" => vexOnly mn (← commaSeparatedAvx3 .vpandn)
+  | "vpor" => vexOnly mn (← commaSeparatedAvx3 .vpor)
+  | "vpxor" => vexOnly mn (← commaSeparatedAvx3 .vpxor)
+  | "vpunpckldq" =>
+    commaSeparatedAvx3 .vpunpckldq
+
+  | "vpunpckhdq" =>
+    commaSeparatedAvx3 .vpunpckhdq
+
+  | "vpunpcklqdq" =>
+    commaSeparatedAvx3 .vpunpcklqdq
+
+  | "vpunpckhqdq" =>
+    commaSeparatedAvx3 .vpunpckhqdq
+
+  | "vperm2i128" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    let (addr_w1, src2) ← parseAvxAO parseAvxRegOrMem .W256; parseComma
+    let (addr_w2, src1) ← parseAvxAO parseAvxRegOrMem .W256; parseComma
+    let (addr_w3, dst) ← parseAvxAO parseAvxRegOrMem .W256
+    let addr_w ← mergeAddrWidths addr_w1 (← mergeAddrWidths addr_w2 addr_w3)
+    pure (toAvxInstr addr_w (AvxOperation.vperm2i128 dst src1 src2 imm))
 
   -- Bitwise - 64-bit
   | "xor" =>
@@ -1187,6 +1274,8 @@ def parseInstr : Parser Instr := do
 
   | "cld" => pure (toInstr .none (w := .W64) .cld)
   | "std" => pure (toInstr .none (w := .W64) .std)
+  | "cpuid" => pure (toInstr .none (w := .W64) .cpuid)
+  | "xgetbv" => pure (toInstr .none (w := .W64) .xgetbv)
 
   | "call" | "callq" =>
     let ( addr_w, target ) ← parseRelRegOrMem
