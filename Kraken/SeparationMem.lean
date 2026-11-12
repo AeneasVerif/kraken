@@ -47,7 +47,7 @@ private theorem List.mapM_loop_id_some {α : Type} (xs : List α) (acc : List α
     List.mapM.loop id (xs.map some) acc = some (acc.reverse ++ xs) := by
   induction xs generalizing acc <;> simp_all [List.mapM.loop]
 
-private theorem List.allSome_map_some {α : Type} (l : List α) : List.allSome (l.map some) = some l := by
+private theorem List.mapM_id_map_some {α : Type} (l : List α) : (l.map some).mapM id = some l := by
   exact List.mapM_loop_id_some l []
 
 private theorem List.range_get_eq_map_some {α : Type} (l : List α) :
@@ -86,7 +86,7 @@ theorem loadBytes_sep {w : Nat} (bs : List UInt8) (a : BitVec w) (n : Nat) (R : 
     apply List.map_congr_left; intro i hi; rw [List.mem_range] at hi; rw [dif_pos hi]; exact h_get i hi]
   cases Hl
   rw [List.range_get_eq_map_some]
-  rw [List.allSome_map_some]
+  rw [List.mapM_id_map_some]
 
 theorem storeBytes_sep {w : Nat} (a : BitVec w) (n : Nat) (_bs bs : List UInt8)
     (R : Mem w → Prop) (m : Mem w)
