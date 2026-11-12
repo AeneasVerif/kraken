@@ -13,12 +13,10 @@ meta import Kraken.AArch64.Print
 open Kraken.AArch64 Kraken.AArch64.Parser Kraken.Parser
 
 /-- `s` parses, and printing the result then re-parsing gives the same program. -/
-def roundtrips (s : String) : Bool :=
-  match parse s with
-  | .ok p => match parse (print p) with
-    | .ok p' => p' == p
-    | .error _ => false
-  | .error _ => false
+def roundtrips (s : String) : IO Bool := do
+  let p ← parse s
+  let p' ← parse (print p)
+  return p' == p
 
 /-- One line per `Operation` constructor and operand form. -/
 def corpus : List String := [
@@ -73,16 +71,16 @@ def corpus : List String := [
 
 /-- info: [] -/
 #guard_msgs in
-#eval corpus.filter (!roundtrips ·)
+#eval corpus.filterM (fun s => (!·) <$> roundtrips s)
 
 -- Printed form is canonical AArch64.
-#guard match parse "ldr x0, [sp, #0]\nfoo: cmp x1, x2\nbne foo\nret lr" with
-  | .ok p => print p == "ldr x0, [sp]\nfoo:\nsubs xzr, x1, x2\nb.ne foo\nret"
-  | .error _ => false
+#eval show IO Unit from do
+  let p ← parse "ldr x0, [sp, #0]\nfoo: cmp x1, x2\nbne foo\nret lr"
+  assert! print p == "ldr x0, [sp]\nfoo:\nsubs xzr, x1, x2\nb.ne foo\nret"
 
 -- Every program in the hardware test corpus round-trips.
 #eval show IO Unit from do
   for f in ← System.FilePath.readDir "Kraken/AArch64/Test/asm" do
     if f.path.extension == some "S" then
-      unless roundtrips (stripDirectives (← IO.FS.readFile f.path)) do
+      unless ← roundtrips (stripDirectives (← IO.FS.readFile f.path)) do
         throw <| .userError s!"{f.path} does not round-trip"

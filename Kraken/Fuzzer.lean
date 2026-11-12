@@ -105,7 +105,7 @@ structure FuzzConfig (MachineData StatusFlags StateSummary : Type) where
   setStatus : MachineData → StatusFlags → MachineData
   /-- Parses `asmCode` into positioned steps where `directive s p h` runs the directive at
   address range `p` from state `s`, resolving `undefined` choices with `h`. -/
-  parseSteps : String → Option (List (Addressable (MachineData → Std.Rco Int64 → UInt64 → Option (MachineData × Bool))))
+  parseSteps : String → OptionT IO (List (Addressable (MachineData → Std.Rco Int64 → UInt64 → Option (MachineData × Bool))))
   summarize : MachineData → StateSummary
   genInstr : GenM String
   runAssembler : System.FilePath → IO IO.Process.Output
@@ -125,29 +125,30 @@ Resolving to all-zeros and all-ones makes every bit of an `undefined` value diff
 runs. That suffices to expose any dependence on it because `Semantics.lean` only ever stores an
 undefined choice directly into a flag, all flags, or a register, never computes with it. -/
 def FuzzConfig.stepDeterministic (cfg : FuzzConfig MachineData StatusFlags StateSummary)
-    (d : MachineData) (u : UndefFlags) (asmCode : String) : Option (MachineData × UndefFlags) := do
+    (d : MachineData) (u : UndefFlags) (asmCode : String) : OptionT IO (MachineData × UndefFlags) := do
   let steps ← cfg.parseSteps asmCode
-  let mut (d, u) := (d, u)
-  for {addr := pc, directive := step, size := sz} in steps do
-    let run (status : StatusFlags) (pc : Int64) (h : UInt64) : Option (MachineData × Bool) :=
-      step (cfg.setStatus d status) (.mk pc (pc + .ofNat sz)) h
-    let dStatus := cfg.getStatus d
-    let mut outs : Array MachineData := #[]
-    for status in u.completions dStatus do
-      let (s, sawUndef) ← run status pc 0
-      outs := outs.push s
-      if sawUndef then outs := outs.push (← run status pc (-1)).1
-    outs := outs.push (← run dStatus (pc + 0x1000) 0).1
-    let s0 ← outs[0]?
-    let s0Status := cfg.getStatus s0
-    if outs.any (cfg.setStatus · s0Status != s0) then failure
-    (d, u) := (s0, .disagreeing s0Status (outs.map cfg.getStatus))
-  return (d, u)
+  OptionT.mk <| pure do
+    let mut (d, u) := (d, u)
+    for {addr := pc, directive := step, size := sz} in steps do
+      let run (status : StatusFlags) (pc : Int64) (h : UInt64) : Option (MachineData × Bool) :=
+        step (cfg.setStatus d status) (.mk pc (pc + .ofNat sz)) h
+      let dStatus := cfg.getStatus d
+      let mut outs : Array MachineData := #[]
+      for status in u.completions dStatus do
+        let (s, sawUndef) ← run status pc 0
+        outs := outs.push s
+        if sawUndef then outs := outs.push (← run status pc (-1)).1
+      outs := outs.push (← run dStatus (pc + 0x1000) 0).1
+      let s0 ← outs[0]?
+      let s0Status := cfg.getStatus s0
+      if outs.any (cfg.setStatus · s0Status != s0) then failure
+      (d, u) := (s0, .disagreeing s0Status (outs.map cfg.getStatus))
+    return (d, u)
 
-def FuzzConfig.predict (cfg : FuzzConfig MachineData StatusFlags StateSummary) (asmCode : String) : Json :=
-  match cfg.stepDeterministic cfg.initData .none asmCode with
-  | some (s, ⟨0⟩) => Json.mkObj [("ok", toJson true), ("state", toJson (cfg.summarize s))]
-  | _ => Json.mkObj [("ok", toJson false), ("error", toJson "unparseable, faulting, jumping, or non-deterministic")]
+def FuzzConfig.predict (cfg : FuzzConfig MachineData StatusFlags StateSummary) (asmCode : String) : IO Json := do
+  match ← (cfg.stepDeterministic cfg.initData .none asmCode).run with
+  | some (s, ⟨0⟩) => return Json.mkObj [("ok", toJson true), ("state", toJson (cfg.summarize s))]
+  | _ => return Json.mkObj [("ok", toJson false), ("error", toJson "unparseable, faulting, jumping, or non-deterministic")]
 
 def FuzzConfig.genPool (cfg : FuzzConfig MachineData StatusFlags StateSummary) (n : Nat) : StateM StdGen (Array String) :=
   (Array.range n).filterMapM fun _ => cfg.genInstr.run
@@ -158,12 +159,12 @@ def FuzzConfig.assemblable (cfg : FuzzConfig MachineData StatusFlags StateSummar
 /-- Four random register initializations (`genSeed`) followed by `length` instructions from `pool`,
 each drawn until `stepDeterministic` accepts one. A final `defineAllFlagsInstr` makes all flags defined. -/
 def FuzzConfig.genSequence (cfg : FuzzConfig MachineData StatusFlags StateSummary)
-    (pool : Array String) (length : Nat) : StateM StdGen String := do
+    (pool : Array String) (length : Nat) : StateT StdGen IO String := do
   let mut (d, undef, lines) := (cfg.initData, UndefFlags.none, #[])
   for i in [0 : 4 + length] do
     for _ in [0 : 200] do
-      let some cand ← (if i < 4 then cfg.genSeed else pick pool).run | continue
-      if let some (d', undef') := cfg.stepDeterministic d undef cand then
+      let some cand ← modifyGet (if i < 4 then cfg.genSeed else pick pool).run.run | continue
+      if let some (d', undef') ← (cfg.stepDeterministic d undef cand).run then
         (d, undef, lines) := (d', undef', lines.push cand)
         break
   if undef != .none then lines := lines.push cfg.defineAllFlagsInstr
@@ -178,12 +179,12 @@ def FuzzConfig.handleCli? (cfg : FuzzConfig MachineData StatusFlags StateSummary
     let (pool, g) := (cfg.genPool 5000).run (mkStdGen seed.toNat!)
     let pool ← cfg.assemblable pool
     let gen := (List.range count.toNat!).mapM fun _ => cfg.genSequence pool length.toNat!
-    IO.println (toJson (gen.run' g).run).compress
+    IO.println (toJson (← gen.run' g)).compress
     return some 0
   | ["--batch"] =>
     let raw ← (← IO.getStdin).readToEnd
     let seqs ← IO.ofExcept (Json.parse raw >>= fromJson? (α := Array String))
-    IO.println (toJson (seqs.map cfg.predict)).compress
+    IO.println (toJson (← seqs.mapM cfg.predict)).compress
     return some 0
   | _ => return none
 

@@ -1757,16 +1757,13 @@ def elabEmbedding (body : AArch64ElabM Expr) (expectedType? : Option Expr) (widt
 
 end
 
-initialize ref : IO.Ref (Option Environment) ← IO.mkRef none
-
-private unsafe def parseImpl (input : String) : Except String _root_.Program :=
-  Except.mapError toString <| unsafeIO do
-    let env ← getEnvironmentForElabModule `Kraken.AArch64.Parser.Elab
-    let comp := do evalExpr _root_.Program (mkConst ``_root_.Program) (← elabAArch64 input)
-    comp.run'.run'.toIO' { fileName := "<input>", fileMap := default } { env }
+private unsafe def parseImpl (input : String) : IO _root_.Program := do
+  let env ← getEnvironmentForElabModule `Kraken.AArch64.Parser.Elab
+  let comp := do evalExpr _root_.Program (mkConst ``_root_.Program) (← elabAArch64 input)
+  comp.run'.run'.toIO' { fileName := "<input>", fileMap := default } { env }
 
 /-- Parse an AArch64 assembly string into a Kraken `Program`. -/
 @[implemented_by parseImpl]
-public opaque parse (input : String) : Except String _root_.Program
+public opaque parse (input : String) : IO _root_.Program
 
 end Kraken.AArch64.Parser
