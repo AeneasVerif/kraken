@@ -99,13 +99,14 @@ def corpus : List String := [
       .word 8 (.int64 5)]
   | .error _ => false
 
+
 -- The jump-table entries are label differences, kept symbolic, so a jump table round-trips
 -- without fixing the layout.
 #guard match parse jumpTable with
   | .ok p =>
     let table := p.drop (p.length - 3)
     table == [0, 1, 2].map (fun k => .word 4 (.sub (.label s!".Lcase{k}") (.label ".LJTI0_0"))) &&
-      (table.map (_root_.Directive.fakeSize 0)).sum == 12
+      (table.map (Directive.fakeSize 0 ·)).sum == 12
   | .error _ => false
 
 -- Data words print with the directive of their size.

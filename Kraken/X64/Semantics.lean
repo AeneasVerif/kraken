@@ -1078,6 +1078,14 @@ def Instr.fakeSize (hashOfProgram : UInt64) (i : Instr) : PNat :=
   | .regular _ _ (.nop sz) => .ofNat (max 1 sz)
   | i => .ofNat (1 + (hash (hashOfProgram, i) % 15).toNat)
 
+def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
+  match d with
+  | .label _ => 0
+  | .byteArray arr => arr.size
+  | .instr instr => instr.fakeSize hashOfProgram
+  | .word bytes _ => bytes
+
+
 def Program.fakeLayout (prog : Program) : Executable :=
   let h := hash prog;
   let layout : Layout := {
