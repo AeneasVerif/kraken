@@ -95,7 +95,10 @@ instance : StatusFlagBits StatusFlags where
 partial def evalEffects (h : UInt64) (sawUndef : Bool) : Effects → Option (MachineData × Bool)
   | .done st => some (st.data, sawUndef)
   | .require_read_access _ ok | .require_write_access _ ok | .require_exec_access _ ok => evalEffects h sawUndef (ok ())
+  -- `runAssembler` keeps the candidates to extensions the host has.
+  | .require_features _ ok => evalEffects h sawUndef (ok ())
   | @Effects.undefined _ t cont => evalEffects h true (cont (t.from_hash h))
+  -- `cpuid` and `xgetbv` are never accepted: their answers differ from the host's.
   | _ => none
 
 instance : Gen Width := ⟨gen_ctors% Width⟩

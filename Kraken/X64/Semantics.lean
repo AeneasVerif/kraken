@@ -6,6 +6,8 @@ public import Kraken.Mem
 meta import Kraken.Mem
 public import Kraken.X64.Syntax
 meta import Kraken.X64.Syntax
+public import Kraken.X64.Feature
+meta import Kraken.X64.Feature
 public import Lean.ToExpr
 meta import Lean.Elab.Deriving.ToExpr
 
@@ -314,6 +316,40 @@ def BitVec.ternaryLogic {w : Nat} (a b c : BitVec w) (imm : BitVec 8) : BitVec w
       acc ||| (pick (k / 4 % 2 == 1) a &&& pick (k / 2 % 2 == 1) b &&& pick (k % 2 == 1) c)
     else acc) 0#w
 
+/-- Within each 16-byte block: two dwords of `a`, then two of `b`, each picked by two bits of `imm`. -/
+def BitVec.shuffleDwordPairs {w : Nat} (a b : BitVec w) (imm : BitVec 8) : BitVec w :=
+  BitVec.ofLanes w 32 fun i =>
+    let pick := 4 * (i / 4) + (imm.toNat >>> (2 * (i % 4))) % 4
+    if i % 4 < 2 then a.lane 32 pick else b.lane 32 pick
+
+/-- Lanes of `c` bits picked from two tables by the lanes of `idx`.
+
+With `n` lanes per vector, an index's low bits pick a lane modulo `n`, and the next bit picks `b`
+over `a`. -/
+def BitVec.permute2 {w : Nat} (c : Nat) (idx a b : BitVec w) : BitVec w :=
+  let n := w / c
+  BitVec.ofLanes w c fun j =>
+    let x := (idx.lane c j).toNat
+    if (x / n) % 2 == 1 then b.lane c (x % n) else a.lane c (x % n)
+
+/-- Lanes of `c` bits taken in turn from `a` and `b`, within each 16-byte block: from the low half
+of each block, or from the high half when `high`. -/
+def BitVec.unpackLanes {w : Nat} (c : Nat) (high : Bool) (a b : BitVec w) : BitVec w :=
+  let n := 128 / c
+  BitVec.ofLanes w c fun i =>
+    let k := n * (i / n) + (if high then n / 2 else 0) + i % n / 2
+    if i % 2 == 0 then a.lane c k else b.lane c k
+
+/-- 128-bit halves picked from the halves of `a` and `b` by the nibbles of `imm`.
+
+In each nibble, bit 0 picks the high half, bit 1 picks `b` over `a`, and bit 3 zeroes the result. -/
+def BitVec.permute128 {w : Nat} (a b : BitVec w) (imm : BitVec 8) : BitVec w :=
+  BitVec.ofLanes w 128 fun i =>
+    let sel := (imm.toNat >>> (4 * i)) % 16
+    if sel / 8 == 1 then 0#128
+    else if sel / 2 % 2 == 1 then b.lane 128 (sel % 2)
+    else a.lane 128 (sel % 2)
+
 def BitVec.toFloat32 (v : BitVec 32) : Float32 :=
   Float32.ofBits (UInt32.ofBitVec v)
 
@@ -379,6 +415,7 @@ inductive Effects
   | done (a : MachineState)
   | unimplemented (msg : String)
   | gp_unaligned (addr : BitVec 64) (w : Nat)
+  | divide_error -- #DE
   -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
   -- for instance, MMIO reads/writes at certain device register addresses might change what
   -- data memory the process logically owns vs what memory is owned by devices
@@ -388,7 +425,15 @@ inductive Effects
   | require_read_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_write_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
-export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
+  -- The processor raises #UD if it lacks one of these extensions.
+  | require_features (fs : List Feature) (ok : Unit → Effects)
+  -- The processor's answers are the environment's, like a device's: `cpuid` returns eax, ebx,
+  -- ecx, edx for a leaf and subleaf, `xgetbv` the extended control register `index`.
+  -- Its faults (#UD when CR4.OSXSAVE is clear, #GP for an unsupported index) are the
+  -- environment's to raise.
+  | cpuid (leaf subleaf : BitVec 32) (ret : BitVec 32 → BitVec 32 → BitVec 32 → BitVec 32 → Effects)
+  | xgetbv (index : BitVec 32) (ret : BitVec 64 → Effects)
+export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access require_features)
 
 -- Splits the interval in two halves in case of overflow
 def require_access (access : Std.Rco AddressBound → (Unit → Effects) → Effects)
@@ -783,6 +828,19 @@ set_option maxHeartbeats 1000000
     let cf := v.signed != a.signed * b.signed
     undefined (λ sf => undefined (λ zf => undefined (λ af => undefined (λ pf =>
     next { s with status := { cf := cf, pf, af, zf, sf, of := cf }})))))))
+  -- The dividend is ax for 8 bits, else dx:ax at the operand width. A zero divisor or a quotient
+  -- too wide for the destination raises #DE before any register is written.
+  | .div src =>
+    src.interp s p (fun b s =>
+    let dividend := if w == .W8 then (s.regs.get (.low .rax .W16)).toNat
+      else (s.regs.get (.low .rdx w)).toNat * 2 ^ w.bits + (s.regs.get (.low .rax w)).toNat
+    let q := dividend / b.toNat
+    let r := dividend % b.toNat
+    if b.toNat == 0 || q ≥ 2 ^ w.bits then .divide_error else
+    let s := if w == .W8
+      then s.setReg (.low .rax .W16) (.ofNat _ (r * 2 ^ 8 + q))
+      else (s.setReg (.low .rax w) (.ofNat _ q)).setReg (.low .rdx w) (.ofNat _ r)
+    undefined (λ (status : StatusFlags) => next { s with status }))
 -- Bitwise
   | .test a b =>
     a.interp s p (fun a s =>
@@ -917,6 +975,12 @@ set_option maxHeartbeats 1000000
     jmp (.ofBitVec ra) { s with regs := s.regs.set64 .rsp (rsp + 8) })
   | .cld => next { s with df := false }
   | .std => next { s with df := true }
+  | .cpuid =>
+    Effects.cpuid (s.regs.get .eax) (s.regs.get .ecx) (fun a b c d =>
+    next ((((s.setReg .eax a).setReg .ebx b).setReg .ecx c).setReg .edx d))
+  | .xgetbv =>
+    Effects.xgetbv (s.regs.get .ecx) (fun v =>
+    next ((s.setReg .eax (v.take 32)).setReg .edx (v.extractLsb' 32 32)))
   | nop _ | nopalign _ _ => next s
 
 -- AVX Operations Interpreter
@@ -947,6 +1011,27 @@ match i with
     src.interp s p (checkAlign := true) (fun a s =>
     dst.interp s p (fun b s =>
       s.setAvxLegacy dst (BitVec.packedBinOp 32 (· + ·) b a) p next))
+  | .pxor dst src =>
+    src.interp s p (checkAlign := true) (fun a s =>
+    dst.interp s p (fun b s =>
+      s.setAvxLegacy dst (b ^^^ a) p next))
+  | .pand dst src =>
+    src.interp s p (checkAlign := true) (fun a s =>
+    dst.interp s p (fun b s =>
+      s.setAvxLegacy dst (b &&& a) p next))
+  | .pandn dst src =>
+    src.interp s p (checkAlign := true) (fun a s =>
+    dst.interp s p (fun b s =>
+      s.setAvxLegacy dst (~~~b &&& a) p next))
+  -- A count above 31 clears every lane.
+  | .psrld dst imm =>
+    dst.interp s p (fun a s =>
+      let count := ((imm.interp p).toBitVec.take 8).toNat
+      s.setAvxLegacy dst (a.mapLanes 32 (fun x => if count < 32 then x >>> count else 0#32)) p next)
+  | .pslld dst imm =>
+    dst.interp s p (fun a s =>
+      let count := ((imm.interp p).toBitVec.take 8).toNat
+      s.setAvxLegacy dst (a.mapLanes 32 (fun x => if count < 32 then x <<< count else 0#32)) p next)
   | .pshufb dst src =>
     src.interp s p (checkAlign := true) (fun m s =>
     dst.interp s p (fun a s =>
@@ -1004,18 +1089,88 @@ match i with
     src2.interp s p (fun b s =>
     dst.interp s p (fun a s =>
       s.setAvx dst (BitVec.ternaryLogic a b c ((imm.interp p).toBitVec.take 8)) p next)))
+  | .vpshufb dst src1 src2 =>
+    src2.interp s p (fun m s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (a.shuffleBytes m) p next))
+  | .vshufps dst src1 src2 imm =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (a.shuffleDwordPairs b ((imm.interp p).toBitVec.take 8)) p next))
+  -- The destination holds the indices, and is then overwritten.
+  | .vpermi2q dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+    dst.interp s p (fun idx s =>
+      s.setAvx dst (BitVec.permute2 64 idx a b) p next)))
+  | .vpermi2d dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+    dst.interp s p (fun idx s =>
+      s.setAvx dst (BitVec.permute2 32 idx a b) p next)))
+  -- Bit 0 of the immediate picks which 256-bit half of the first source is replaced.
+  | .vinserti64x4 dst src1 src2 imm =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      let half := ((imm.interp p).toBitVec.take 8).toNat % 2
+      s.setAvx dst (BitVec.ofLanes _ 256 fun i => if i == half then b else a.lane 256 i) p next))
+  | .vpslld dst src imm =>
+    src.interp s p (fun a s =>
+      let count := ((imm.interp p).toBitVec.take 8).toNat
+      s.setAvx dst (a.mapLanes 32 (fun x => if count < 32 then x <<< count else 0#32)) p next)
+  -- VEX memory operands need no alignment, except for `vmovdqa`.
+  | .vmovdqa dst src =>
+    src.interp s p (checkAlign := true)
+      (fun val s => s.setAvx dst val p (checkAlign := true) next)
+  | .vpand dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (a &&& b) p next))
+  | .vpandn dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (~~~a &&& b) p next))
+  | .vpor dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (a ||| b) p next))
+  | .vpxor dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (a ^^^ b) p next))
+  | .vpunpckldq dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (BitVec.unpackLanes 32 false a b) p next))
+  | .vpunpckhdq dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (BitVec.unpackLanes 32 true a b) p next))
+  | .vpunpcklqdq dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (BitVec.unpackLanes 64 false a b) p next))
+  | .vpunpckhqdq dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (BitVec.unpackLanes 64 true a b) p next))
+  | .vperm2i128 dst src1 src2 imm =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (BitVec.permute128 a b ((imm.interp p).toBitVec.take 8)) p next))
 
 @[kstep]
 def Instr.interp [Labels]
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
   require_exec_access p (fun _unit =>
+  require_features i.features (fun _unit =>
     match i with
       | .regular addr_sz op_sz op =>
           Operation.interp (w := op_sz) (address_size := .mk addr_sz) op p s next jmp
       | .avx addr_sz op_sz op =>
           AvxOperation.interp (w := op_sz) (address_size := .mk addr_sz) op p s next
-  )
+  ))
 
 @[kstep] def Directive.interp [Labels]
   (d : Directive) (s : MachineData) (p : Std.Rco Int64)
@@ -1055,20 +1210,31 @@ def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineSt
 
 -- -- Concrete evaluators for expedient testing
 
-partial def Executable.eval (e : Executable) (s : MachineState) (until_ : MachineState → Bool) : Except String (MachineState) :=
+-- `hasFeature` is the processor's set of extensions, every one by default.
+partial def Executable.eval (e : Executable) (s : MachineState) (until_ : MachineState → Bool)
+    (hasFeature : Feature → Bool := fun _ => true) : Except String (MachineState) :=
   if until_ s then .ok s else handleEffects (Executable.straightline e s .done)
 where
   handleEffects es :=
     match es with
-    | .done s => eval e s until_
+    | .done s => eval e s until_ hasFeature
     | .unimplemented msg => .error msg
     | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
+    | .divide_error => .error "#DE: divide error"
     | .require_read_access _ ok => handleEffects (ok ())
     | .require_write_access _ ok => handleEffects (ok ())
     | .require_exec_access _ ok => handleEffects (ok ())
+    | .require_features fs ok => match fs.find? (!hasFeature ·) with
+      | some f => .error s!"#UD: missing {repr f}"
+      | none => handleEffects (ok ())
     | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
     | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
+    -- No processor to ask: answer from the state hash, like `undefined`.
+    | .cpuid _ _ cont =>
+      let h := (hash s.1.regs).toBitVec
+      handleEffects (cont (h.take 32) (h.extractLsb' 32 32) (h.take 32) (h.extractLsb' 32 32))
+    | .xgetbv _ cont => handleEffects (cont (hash s.1.regs).toBitVec)
 
 def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
   match d with

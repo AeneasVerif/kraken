@@ -95,9 +95,11 @@ def handleEffects (ds : IncrementerState) (es : Effects)
   | .done ms => ok (.mk ms ds)
   | .unimplemented msg => .error msg
   | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
+  | .divide_error => .error "#DE: divide error"
   | .require_read_access _ cont => handleEffects ds (cont ()) ok
   | .require_write_access _ cont => handleEffects ds (cont ()) ok
   | .require_exec_access _ cont => handleEffects ds (cont ()) ok
+  | .require_features _ cont => handleEffects ds (cont ()) ok
   | .nonmem_load dmem addr w cont => do
     match h: w with
     | .W8 | .W16 | .W64 => throw s!"nonmem_load of width other than 4 bytes"
@@ -117,6 +119,8 @@ def handleEffects (ds : IncrementerState) (es : Effects)
         | .none => .error s!"nonmem_store at unmapped address {repr addr}"
       | _ => .error s!"nonmem_store of width other than 4 bytes"
   | @Effects.undefined _ t cont => handleEffects ds (cont (t.from_hash (hash ds))) ok
+  | .cpuid .. => .error "cpuid is not modeled by this device"
+  | .xgetbv .. => .error "xgetbv is not modeled by this device"
 
 def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
     : Except String SystemState :=
