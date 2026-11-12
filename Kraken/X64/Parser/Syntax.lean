@@ -326,6 +326,19 @@ syntax &"movdqa" : x64_avx_op
 syntax &"paddd" : x64_avx_op
 /-- Packed shuffle bytes (SSSE3). -/
 syntax &"pshufb" : x64_avx_op
+/-- Bitwise exclusive or (SSE2). -/
+syntax &"pxor" : x64_avx_op
+/-- Bitwise and (SSE2). -/
+syntax &"pand" : x64_avx_op
+/-- Bitwise and of the complemented destination with the source (SSE2). -/
+syntax &"pandn" : x64_avx_op
+
+/-- SSE shift mnemonics taking an 8-bit immediate count (`$imm, dst`). -/
+declare_syntax_cat x64_avx_shift_imm_op (behavior := both)
+/-- Shift packed doublewords right, logically (SSE2). -/
+syntax &"psrld" : x64_avx_shift_imm_op
+/-- Shift packed doublewords left, logically (SSE2). -/
+syntax &"pslld" : x64_avx_shift_imm_op
 
 /-- SSE vector instruction mnemonics taking an 8-bit immediate (`$imm, src, dst`). -/
 declare_syntax_cat x64_avx_imm_op (behavior := both)
@@ -424,6 +437,7 @@ syntax withPosition(x64_ext_mov_op ppSpace lineEq x64_operand ", " lineEq x64_re
 syntax withPosition(x64_lea_op ppSpace lineEq x64_mem ", " lineEq x64_reg) : x64_instr
 syntax withPosition(x64_avx_op ppSpace lineEq x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
 syntax withPosition(x64_avx_imm_op ppSpace lineEq x64_imm ", " lineEq x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
+syntax withPosition(x64_avx_shift_imm_op ppSpace lineEq x64_imm ", " lineEq x64_avx_reg) : x64_instr
 syntax (priority := low) withPosition(x64_vmov_gp_op ppSpace lineEq x64_avx_reg ", " lineEq x64_avx_reg) : x64_instr
 syntax withPosition(x64_vmov_gp_op ppSpace lineEq x64_avx_reg ", " lineEq x64_operand) : x64_instr
 syntax withPosition(x64_vmov_gp_op ppSpace lineEq x64_operand ", " lineEq x64_avx_reg) : x64_instr
