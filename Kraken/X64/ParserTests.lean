@@ -579,6 +579,43 @@ info: ⸨prog|
 variable [Kraken.Layout Instr ConstExpr] in
 #check ⸨dir 1 | addq $1, %rax ⸩
 
+/--
+info: ⸨prog|
+  ❰Directive.instr (regular Width.W64 Width.W64 (Operation.tzcnt (⸨reg| %rbx ⸩) ↑(⸨reg| %rax ⸩)))❱
+  ❰Directive.instr (regular Width.W64 Width.W64 (Operation.lzcnt (⸨reg| %rcx ⸩) ↑(⸨reg| %rax ⸩)))❱
+  ❰Directive.instr (regular Width.W64 Width.W32 (Operation.bsr (⸨reg| %ecx ⸩) ↑(⸨reg| %eax ⸩)))❱
+  ❰Directive.instr (regular Width.W64 Width.W64 (Operation.popcnt (⸨reg| %rbx ⸩) ↑(⸨reg| %rax ⸩)))❱
+  ❰Directive.instr (regular Width.W64 Width.W64 (Operation.btc (↑(⸨reg| %rax ⸩)) (⸨operand| $3 ⸩)))❱
+  ❰Directive.instr (regular Width.W64 Width.W64 (Operation.xchg (↑(⸨mem| (%rsp) ⸩)) (⸨reg| %rax ⸩)))❱
+  ❰Directive.instr (regular Width.W64 Width.W64 (Operation.xchg (↑(⸨mem| (%rsp) ⸩)) (⸨reg| %rax ⸩)))❱
+  ❰Directive.instr (regular Width.W64 Width.W64 (Operation.rorx (⸨reg| %rbx ⸩) (↑(⸨reg| %rax ⸩)) (⸨const| 7 ⸩)))❱
+  ❰Directive.instr (regular Width.W64 Width.W64 (Operation.shlx (⸨reg| %rax ⸩) (↑(⸨mem| (%rsp) ⸩)) (⸨reg| %rcx ⸩)))❱
+  ❰Directive.instr (regular Width.W64 Width.W32 (Operation.shrx (⸨reg| %edx ⸩) (↑(⸨reg| %eax ⸩)) (⸨reg| %ecx ⸩)))❱
+  ❰Directive.instr (regular Width.W64 Width.W64 (Operation.sarx (⸨reg| %rbx ⸩) (↑(⸨reg| %rax ⸩)) (⸨reg| %rcx ⸩)))❱
+  ❰Directive.instr (avx Width.W64 AvxWidth.W256 (AvxOperation.vmovaps ↑(⸨reg| %ymm1 ⸩) ↑(⸨reg| %ymm0 ⸩)))❱
+  ❰Directive.instr (avx Width.W64 AvxWidth.W256 (AvxOperation.vmovdqa ↑(⸨reg| %ymm4 ⸩) ↑(⸨reg| %ymm3 ⸩)))❱
+  vmovdqu (%rsp), %zmm6
+  vzeroupper⸩ : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog|
+  tzcnt %rax, %rbx
+  lzcnt %rax, %rcx
+  bsr %eax, %ecx
+  popcnt %rax, %rbx
+  btcq $3, %rax
+  xchgq %rax, (%rsp)
+  xchgq (%rsp), %rax
+  rorx $7, %rax, %rbx
+  shlx %rcx, (%rsp), %rax
+  shrx %ecx, %eax, %edx
+  sarx %rcx, %rax, %rbx
+  vmovaps %ymm0, %ymm1
+  vmovdqa %ymm3, %ymm4
+  vmovdqu (%rsp), %zmm6
+  vzeroupper
+⸩
+
 end syntax_cat_and_include
 
 section antiquotations

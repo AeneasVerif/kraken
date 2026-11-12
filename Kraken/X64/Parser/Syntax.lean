@@ -227,6 +227,15 @@ declare_affixes ext_s extends ext_z
 declare_affixes avx_ps
   | /-- Packed single-precision floating-point (32-bit lanes). -/         "ps"
 
+declare_affixes avx_dqa
+  | /-- Default aligned packed integer move. -/                           ""
+  | /-- 32-bit doubleword elements. -/                                    "32"
+  | /-- 64-bit quadword elements. -/                                      "64"
+
+declare_affixes avx_dqu extends avx_dqa
+  | /-- 8-bit byte elements. -/                                           "8"
+  | /-- 16-bit word elements. -/                                          "16"
+
 /-- Binary ALU/move mnemonics taking `(src : Operand, dst : RegOrMem)`. -/
 declare_syntax_cat x64_bin_op (behavior := both)
 /-- Integer addition (`dst ← dst + src`). -/
@@ -251,13 +260,23 @@ syntax_affixed (suffixes := bwlq) "or" : x64_bin_op
 syntax_affixed (suffixes := bwlq) "cmp" : x64_bin_op
 /-- Logical compare (`dst & src`, setting flags). -/
 syntax_affixed (suffixes := bwlq) "test" : x64_bin_op
+/-- Bit test and complement (`CF ← Bit(dst, src); Bit(dst, src) ← ~Bit(dst, src)`). -/
+syntax_affixed (suffixes := wlq) "btc" : x64_bin_op
 
-/-- Binary carry-chain mnemonics (`adcx*`, `adox*`) taking `(src : RegOrMem, dst : Reg)`. -/
+/-- Binary carry-chain and bit-count/scan mnemonics (`adcx*`, `adox*`, `tzcnt*`, `lzcnt*`, `bsr*`, `popcnt*`) taking `(src : RegOrMem, dst : Reg)`. -/
 declare_syntax_cat x64_rm_reg_op (behavior := both)
 /-- Unsigned integer addition with carry flag (`CF`). -/
 syntax_affixed (suffixes := lq) "adcx" : x64_rm_reg_op
 /-- Unsigned integer addition with overflow flag (`OF`). -/
 syntax_affixed (suffixes := lq) "adox" : x64_rm_reg_op
+/-- Count the number of trailing zero bits. -/
+syntax_affixed (suffixes := wlq) "tzcnt" : x64_rm_reg_op
+/-- Count the number of leading zero bits. -/
+syntax_affixed (suffixes := wlq) "lzcnt" : x64_rm_reg_op
+/-- Bit scan reverse (most significant set bit). -/
+syntax_affixed (suffixes := wlq) "bsr" : x64_rm_reg_op
+/-- Return the number of bits set to 1 (population count). -/
+syntax_affixed (suffixes := wlq) "popcnt" : x64_rm_reg_op
 
 /-- Conditional move (`cmov<cc>`) mnemonics taking `(src : RegOrMem, dst : Reg)`. -/
 declare_syntax_cat x64_cmov_op (behavior := both)
@@ -312,14 +331,18 @@ syntax_affixed (suffixes := avx_ps) "movu" : x64_avx_op
 syntax_affixed (suffixes := avx_ps) "vmovu" : x64_avx_op
 /-- Move aligned packed values. -/
 syntax_affixed (suffixes := avx_ps) "mova" : x64_avx_op
+/-- AVX move aligned packed values. -/
+syntax_affixed (suffixes := avx_ps) "vmova" : x64_avx_op
+/-- AVX move aligned packed integer values. -/
+syntax_affixed (suffixes := avx_dqa) "vmovdqa" : x64_avx_op
+/-- AVX move unaligned packed integer values. -/
+syntax_affixed (suffixes := avx_dqu) "vmovdqu" : x64_avx_op
 /-- Add packed floating-point values. -/
 syntax_affixed (suffixes := avx_ps) "add" : x64_avx_op
 /-- Subtract packed floating-point values. -/
 syntax_affixed (suffixes := avx_ps) "sub" : x64_avx_op
 /-- Move unaligned packed integer values (SSE2). -/
 syntax &"movdqu" : x64_avx_op
-/-- AVX move unaligned packed integer values (zeroing upper bits). -/
-syntax &"vmovdqu" : x64_avx_op
 /-- Move aligned packed integer values (SSE2). -/
 syntax &"movdqa" : x64_avx_op
 /-- Add packed 32-bit integers (SSE2). -/
@@ -342,6 +365,25 @@ declare_syntax_cat x64_vmov_gp_op (behavior := both)
 syntax &"vmovd" : x64_vmov_gp_op
 /-- Move quadword between XMM and 64-bit GPR/memory or XMM (zeroing upper bits). -/
 syntax &"vmovq" : x64_vmov_gp_op
+
+/-- Exchange register/memory with register (`xchg*`) mnemonics. -/
+declare_syntax_cat x64_xchg_op (behavior := both)
+/-- Exchange register/memory with register. -/
+syntax_affixed (suffixes := bwlq) "xchg" : x64_xchg_op
+
+/-- BMI2 rotate right logical without affecting flags (`rorx*`) mnemonics. -/
+declare_syntax_cat x64_rorx_op (behavior := both)
+/-- Rotate right logical without affecting flags. -/
+syntax_affixed (suffixes := lq) "rorx" : x64_rorx_op
+
+/-- BMI2 shift without affecting flags (`shlx*`, `shrx*`, `sarx*`) mnemonics. -/
+declare_syntax_cat x64_bmi2_shift_op (behavior := both)
+/-- Shift logical left without affecting flags. -/
+syntax_affixed (suffixes := lq) "shlx" : x64_bmi2_shift_op
+/-- Shift logical right without affecting flags. -/
+syntax_affixed (suffixes := lq) "shrx" : x64_bmi2_shift_op
+/-- Shift arithmetic right without affecting flags. -/
+syntax_affixed (suffixes := lq) "sarx" : x64_bmi2_shift_op
 
 /-- Shift and rotate mnemonics (1- or 2-operand forms). -/
 declare_syntax_cat x64_shift_op (behavior := both)
@@ -428,6 +470,9 @@ syntax (priority := low) withPosition(x64_vmov_gp_op ppSpace lineEq x64_avx_reg 
 syntax withPosition(x64_vmov_gp_op ppSpace lineEq x64_avx_reg ", " lineEq x64_operand) : x64_instr
 syntax withPosition(x64_vmov_gp_op ppSpace lineEq x64_operand ", " lineEq x64_avx_reg) : x64_instr
 syntax &"vzeroupper" : x64_instr
+syntax withPosition(x64_xchg_op ppSpace lineEq x64_operand ", " lineEq x64_operand) : x64_instr
+syntax withPosition(x64_rorx_op ppSpace lineEq x64_operand ", " lineEq x64_operand ", " lineEq x64_reg) : x64_instr
+syntax withPosition(x64_bmi2_shift_op ppSpace lineEq x64_reg ", " lineEq x64_operand ", " lineEq x64_reg) : x64_instr
 syntax withPosition(x64_shift_op ppSpace lineEq x64_operand) : x64_instr
 syntax withPosition(x64_shift_op ppSpace lineEq x64_shift_count ", " lineEq x64_operand) : x64_instr
 syntax withPosition(x64_shd_op ppSpace lineEq x64_shift_count ", " lineEq x64_reg ", " lineEq x64_operand) : x64_instr

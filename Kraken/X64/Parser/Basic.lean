@@ -896,6 +896,15 @@ def parseInstr : Parser Instr := do
   | "movaps" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .movaps
 
+  | "vmovaps" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovaps
+
+  | "vmovdqa" | "vmovdqa64" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovdqa
+
+  | "vmovdqu" | "vmovdqu8" | "vmovdqu16" | "vmovdqu64" =>
+    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovdqu
+
   | "addps" =>
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .addps
 
@@ -942,9 +951,6 @@ def parseInstr : Parser Instr := do
     let imm ← (skipHWs *> parseImmediate); parseComma
     commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem (fun d x => .pblendw d x imm)
 
-  | "vmovdqu" =>
-    commaSeparatedAvx .none parseAvxRegOrMem parseAvxRegOrMem .vmovdqu
-
   | "vmovd" | "vmovq" =>
     let n : Width := if mn == "vmovd" then .W32 else .W64
     -- An xmm source goes out to a register or memory, or to another xmm for `vmovq`.
@@ -982,6 +988,27 @@ def parseInstr : Parser Instr := do
   | "vpternlogd" =>
     let imm ← (skipHWs *> parseImmediate); parseComma
     commaSeparatedAvx3 (fun d x y => .vpternlogd d x y imm)
+
+  | "vpshufb" =>
+    commaSeparatedAvx3 .vpshufb
+
+  | "vshufps" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparatedAvx3 (fun d x y => .vshufps d x y imm)
+
+  | "vpermi2q" =>
+    commaSeparatedAvx3 .vpermi2q
+
+  | "vpermi2d" =>
+    commaSeparatedAvx3 .vpermi2d
+
+  | "vinserti64x4" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    let (addr_w1, src2) ← parseAvxAO parseAvxRegOrMem .W256; parseComma
+    let (addr_w2, src1) ← parseAvxAO parseAvxRegOrMem .W512; parseComma
+    let (addr_w3, dst) ← parseAvxAO parseAvxRegOrMem .W512
+    let addr_w ← mergeAddrWidths addr_w1 (← mergeAddrWidths addr_w2 addr_w3)
+    pure (toAvxInstr addr_w (AvxOperation.vinserti64x4 dst src1 src2 imm))
 
   -- Bitwise - 64-bit
   | "xor" =>
@@ -1136,6 +1163,99 @@ def parseInstr : Parser Instr := do
     let cnt ← parseOptionalShiftAndComma
     let ( addr_w, dst ) ← parseRegOrMemAO w
     pure (toInstr addr_w (.rcr dst cnt))
+
+  -- Bit manipulation & BMI2
+  | "tzcnt" =>
+    commaSeparated .none parseRegOrMem parseRegA .tzcnt
+
+  | "tzcntq" | "tzcntl" | "tzcntw" =>
+    let w ← instrWidth mn
+    commaSeparated w parseRegOrMem parseRegA .tzcnt
+
+  | "lzcnt" =>
+    commaSeparated .none parseRegOrMem parseRegA .lzcnt
+
+  | "lzcntq" | "lzcntl" | "lzcntw" =>
+    let w ← instrWidth mn
+    commaSeparated w parseRegOrMem parseRegA .lzcnt
+
+  | "bsr" =>
+    commaSeparated .none parseRegOrMem parseRegA .bsr
+
+  | "bsrq" | "bsrl" | "bsrw" =>
+    let w ← instrWidth mn
+    commaSeparated w parseRegOrMem parseRegA .bsr
+
+  | "popcnt" =>
+    commaSeparated .none parseRegOrMem parseRegA .popcnt
+
+  | "popcntq" | "popcntl" | "popcntw" =>
+    let w ← instrWidth mn
+    commaSeparated w parseRegOrMem parseRegA .popcnt
+
+  | "btc" =>
+    commaSeparated .none parseOperand parseRegOrMem .btc
+
+  | "btcq" | "btcl" | "btcw" =>
+    let w ← instrWidth mn
+    commaSeparated w parseOperand parseRegOrMem .btc
+
+  | "xchg" =>
+    (attempt (commaSeparated .none parseRegA parseRegOrMem .xchg)) <|>
+    (commaSeparated .none parseRegOrMem parseRegA (fun src dst => .xchg dst src))
+
+  | "xchgq" | "xchgl" | "xchgw" | "xchgb" =>
+    let w ← instrWidth mn
+    (attempt (commaSeparated w parseRegA parseRegOrMem .xchg)) <|>
+    (commaSeparated w parseRegOrMem parseRegA (fun src dst => .xchg dst src))
+
+  | "rorx" =>
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparated .none parseRegOrMem parseRegA (fun dst src => .rorx dst src imm)
+
+  | "rorxq" | "rorxl" =>
+    let w ← instrWidth mn
+    let imm ← (skipHWs *> parseImmediate); parseComma
+    commaSeparated w parseRegOrMem parseRegA (fun dst src => .rorx dst src imm)
+
+  | "shlx" =>
+    let ⟨w_cnt, cnt⟩ ← parseRegW; parseComma
+    let (addr_w, src) ← parseRegOrMemAO w_cnt; parseComma
+    let dst ← parseRegO w_cnt
+    pure (toInstr addr_w (.shlx dst src cnt))
+
+  | "shlxq" | "shlxl" =>
+    let w ← instrWidth mn
+    let cnt ← parseRegO w; parseComma
+    let (addr_w, src) ← parseRegOrMemAO w; parseComma
+    let dst ← parseRegO w
+    pure (toInstr addr_w (.shlx dst src cnt))
+
+  | "shrx" =>
+    let ⟨w_cnt, cnt⟩ ← parseRegW; parseComma
+    let (addr_w, src) ← parseRegOrMemAO w_cnt; parseComma
+    let dst ← parseRegO w_cnt
+    pure (toInstr addr_w (.shrx dst src cnt))
+
+  | "shrxq" | "shrxl" =>
+    let w ← instrWidth mn
+    let cnt ← parseRegO w; parseComma
+    let (addr_w, src) ← parseRegOrMemAO w; parseComma
+    let dst ← parseRegO w
+    pure (toInstr addr_w (.shrx dst src cnt))
+
+  | "sarx" =>
+    let ⟨w_cnt, cnt⟩ ← parseRegW; parseComma
+    let (addr_w, src) ← parseRegOrMemAO w_cnt; parseComma
+    let dst ← parseRegO w_cnt
+    pure (toInstr addr_w (.sarx dst src cnt))
+
+  | "sarxq" | "sarxl" =>
+    let w ← instrWidth mn
+    let cnt ← parseRegO w; parseComma
+    let (addr_w, src) ← parseRegOrMemAO w; parseComma
+    let dst ← parseRegO w
+    pure (toInstr addr_w (.sarx dst src cnt))
 
   -- Byte swap
   | "bswap" =>

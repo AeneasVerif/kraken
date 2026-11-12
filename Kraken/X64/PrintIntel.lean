@@ -181,6 +181,16 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .rcl dst cnt => s!"rcl {dst.toStr addr_w}, {cnt}"
   | .rcr dst cnt => s!"rcr {dst.toStr addr_w}, {cnt}"
   | .bswap dst => s!"bswap {dst}"
+  | .tzcnt dst src => s!"tzcnt {dst}, {src.toStr addr_w}"
+  | .lzcnt dst src => s!"lzcnt {dst}, {src.toStr addr_w}"
+  | .bsr dst src => s!"bsr {dst}, {src.toStr addr_w}"
+  | .popcnt dst src => s!"popcnt {dst}, {src.toStr addr_w}"
+  | .btc dst src => s!"btc {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .xchg dst src => s!"xchg {dst.toStr addr_w}, {src}"
+  | .rorx dst src imm => s!"rorx {dst}, {src.toStr addr_w}, {imm}"
+  | .shlx dst src cnt => s!"shlx {dst}, {src.toStr addr_w}, {cnt}"
+  | .shrx dst src cnt => s!"shrx {dst}, {src.toStr addr_w}, {cnt}"
+  | .sarx dst src cnt => s!"sarx {dst}, {src.toStr addr_w}, {cnt}"
   | .cld => "cld"
   | .std => "std"
   | .jcc cc l => s!"j{cc} {l}"
@@ -199,6 +209,8 @@ def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : Stri
   | .movups dst src => s!"movups {dst.toStr addr_w}, {src.toStr addr_w}"
   | .vmovups dst src => s!"vmovups {dst.toStr addr_w}, {src.toStr addr_w}"
   | .movaps dst src => s!"movaps {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vmovaps dst src => s!"vmovaps {dst.toStr addr_w}, {src.toStr addr_w}"
+  | .vmovdqa dst src => s!"vmovdqa {dst.toStr addr_w}, {src.toStr addr_w}"
   | .subps dst src => s!"subps {dst.toStr addr_w}, {src.toStr addr_w}"
   | .addps dst src => s!"addps {dst.toStr addr_w}, {src.toStr addr_w}"
   | .movdqu dst src => s!"movdqu {dst.toStr addr_w}, {src.toStr addr_w}"
@@ -222,6 +234,12 @@ def AvxOperation.toStr {w} (op : AvxOperation w) (addr_w : Width := .W64) : Stri
   | .vprord dst src imm => s!"vprord {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
   | .vpsrld dst src imm => s!"vpsrld {dst.toStr addr_w}, {src.toStr addr_w}, {imm}"
   | .vpternlogd dst b c imm => s!"vpternlogd {dst.toStr addr_w}, {b.toStr addr_w}, {c.toStr addr_w}, {imm}"
+  | .vpshufb dst a b => s!"vpshufb {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vshufps dst a b imm => s!"vshufps {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}, {imm}"
+  | .vpermi2q dst a b => s!"vpermi2q {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vpermi2d dst a b => s!"vpermi2d {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}"
+  | .vinserti64x4 dst a b imm =>
+    s!"vinserti64x4 {dst.toStr addr_w}, {a.toStr addr_w}, {b.toStr addr_w}, {imm}"
 instance {w} : ToString (Operation w) where toString op := op.toStr
 
 instance : ToString Instr where

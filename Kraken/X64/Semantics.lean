@@ -314,6 +314,22 @@ def BitVec.ternaryLogic {w : Nat} (a b c : BitVec w) (imm : BitVec 8) : BitVec w
       acc ||| (pick (k / 4 % 2 == 1) a &&& pick (k / 2 % 2 == 1) b &&& pick (k % 2 == 1) c)
     else acc) 0#w
 
+/-- Within each 16-byte block: two dwords of `a`, then two of `b`, each picked by two bits of `imm`. -/
+def BitVec.shuffleDwordPairs {w : Nat} (a b : BitVec w) (imm : BitVec 8) : BitVec w :=
+  BitVec.ofLanes w 32 fun i =>
+    let pick := 4 * (i / 4) + (imm.toNat >>> (2 * (i % 4))) % 4
+    if i % 4 < 2 then a.lane 32 pick else b.lane 32 pick
+
+/-- Lanes of `c` bits picked from two tables by the lanes of `idx`.
+
+With `n` lanes per vector, an index's low bits pick a lane modulo `n`, and the next bit picks `b`
+over `a`. -/
+def BitVec.permute2 {w : Nat} (c : Nat) (idx a b : BitVec w) : BitVec w :=
+  let n := w / c
+  BitVec.ofLanes w c fun j =>
+    let x := (idx.lane c j).toNat
+    if (x / n) % 2 == 1 then b.lane c (x % n) else a.lane c (x % n)
+
 def BitVec.toFloat32 (v : BitVec 32) : Float32 :=
   Float32.ofBits (UInt32.ofBitVec v)
 
@@ -570,19 +586,8 @@ structure StatusFlags.from_result.Remaining where
   of : Bool
   deriving Repr, BEq, DecidableEq
 
--- TEMPORARY: definitions stolen from Lean 4.28's standard library, but with a
--- different name so that this file builds with both 4.27 and 4.28
-namespace BitVec
-def cpopNatRec_ {w} (x : BitVec w) (pos acc : Nat) : Nat :=
-  match pos with
-  | 0 => acc
-  | n + 1 => x.cpopNatRec_ n (acc + (x.getLsbD n).toNat)
-
-def cpop_ {w} (x : BitVec w) : BitVec w := BitVec.ofNat w (cpopNatRec_ x w 0)
-end BitVec
-
 @[kstep] def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
-  { pf := (result.take 8).cpop_ % 2 == BitVec.zero _
+  { pf := (result.take 8).cpop % 2 == BitVec.zero _
     zf := result == BitVec.zero _
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
 
@@ -900,6 +905,72 @@ set_option maxHeartbeats 1000000
             ++ a.extractLsb' 32 8 ++ a.extractLsb' 40 8 ++ a.extractLsb' 48 8 ++ a.drop 56
       next (s.setReg dst (v.setWidth _))
     | _ => undefined (fun v => next (s.setReg dst v))
+  | .tzcnt dst src =>
+    src.interp s p (fun a s =>
+    let v := a.ctz
+    let cf := a == 0
+    let zf := v == 0
+    undefined (fun (status : StatusFlags) =>
+    next { (s.setReg dst v) with status := { status with cf, zf } }))
+  | .lzcnt dst src =>
+    src.interp s p (fun a s =>
+    let v := a.clz
+    let cf := a == 0
+    let zf := v == 0
+    undefined (fun (status : StatusFlags) =>
+    next { (s.setReg dst v) with status := { status with cf, zf } }))
+  | .bsr dst src =>
+    src.interp s p (fun a s =>
+    undefined (fun (status : StatusFlags) =>
+    let zf := a == 0
+    let s := if zf then s else s.setReg dst (BitVec.ofNat w.bits (w.bits - 1) - a.clz)
+    next { s with status := { status with zf } }))
+  | .popcnt dst src =>
+    src.interp s p (fun a s =>
+    let v := a.cpop
+    let zf := a == 0
+    next { (s.setReg dst v) with status := { cf := false, pf := false, af := false, zf, sf := false, of := false } })
+  | .btc dst src =>
+    src.interp s p (fun b s =>
+    let toggle (a : w.type) (bitIdx : Nat) (setDst : w.type → (MachineData → Effects) → Effects) :=
+      let cf := a.getLsbD bitIdx
+      let v := a ^^^ (BitVec.ofNat w.bits 1 <<< bitIdx)
+      undefined (fun (status : StatusFlags) =>
+      setDst v (fun s => next { s with status := { status with cf, zf := s.status.zf } }))
+    match dst, src with
+    | .mem a, .regOrMem (.reg _) =>
+      let wordOff := b.toInt.fdiv w.bits * w.bytes
+      let effAddr := (a.interp s.regs p + BitVec.ofInt address_size.address_size.bits wordOff).zeroExtend 64
+      s.load effAddr w (fun val s =>
+        toggle val (b.toInt.fmod w.bits).toNat (fun v ret => s.store effAddr v ret))
+    | _, _ =>
+      dst.interp s p (fun a s =>
+        toggle a (b.toNat % w.bits) (fun v ret => s.set dst v p ret)))
+  | .xchg dst src =>
+    dst.interp s p (fun a s =>
+    let b := s.regs.get src
+    s.set dst b p (fun s =>
+    next (s.setReg src a)))
+  | .rorx dst src imm =>
+    src.interp s p (fun a s =>
+    let count := ((imm.interp p).toBitVec.take 8).toNat &&& (match w with | .W64 => 0x3f | _ => 0x1f)
+    let v := a.rotateRight count
+    next (s.setReg dst v))
+  | .shlx dst src cnt =>
+    src.interp s p (fun a s =>
+    let count := (s.regs.get cnt).toNat &&& (match w with | .W64 => 0x3f | _ => 0x1f)
+    let v := a <<< count
+    next (s.setReg dst v))
+  | .shrx dst src cnt =>
+    src.interp s p (fun a s =>
+    let count := (s.regs.get cnt).toNat &&& (match w with | .W64 => 0x3f | _ => 0x1f)
+    let v := a.ushiftRight count
+    next (s.setReg dst v))
+  | .sarx dst src cnt =>
+    src.interp s p (fun a s =>
+    let count := (s.regs.get cnt).toNat &&& (match w with | .W64 => 0x3f | _ => 0x1f)
+    let v := a.sshiftRight count
+    next (s.setReg dst v))
   | .jcc cc l =>
     if cc.interp s.status
     then jmp (label l) s
@@ -929,6 +1000,12 @@ match i with
   | .movaps dst src =>
     src.interp s p (checkAlign := true)
       (fun val s => s.setAvxLegacy dst val p (checkAlign := true) next)
+  | .vmovaps dst src =>
+    src.interp s p (checkAlign := true)
+      (fun val s => s.setAvx dst val p (checkAlign := true) next)
+  | .vmovdqa dst src =>
+    src.interp s p (checkAlign := true)
+      (fun val s => s.setAvx dst val p (checkAlign := true) next)
   -- TODO: MXCSR
   | .subps dst src =>
     src.interp s p (checkAlign := true) (fun a s =>
@@ -1004,6 +1081,31 @@ match i with
     src2.interp s p (fun b s =>
     dst.interp s p (fun a s =>
       s.setAvx dst (BitVec.ternaryLogic a b c ((imm.interp p).toBitVec.take 8)) p next)))
+  | .vpshufb dst src1 src2 =>
+    src2.interp s p (fun m s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (a.shuffleBytes m) p next))
+  | .vshufps dst src1 src2 imm =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      s.setAvx dst (a.shuffleDwordPairs b ((imm.interp p).toBitVec.take 8)) p next))
+  -- The destination holds the indices, and is then overwritten.
+  | .vpermi2q dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+    dst.interp s p (fun idx s =>
+      s.setAvx dst (BitVec.permute2 64 idx a b) p next)))
+  | .vpermi2d dst src1 src2 =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+    dst.interp s p (fun idx s =>
+      s.setAvx dst (BitVec.permute2 32 idx a b) p next)))
+  -- Bit 0 of the immediate picks which 256-bit half of the first source is replaced.
+  | .vinserti64x4 dst src1 src2 imm =>
+    src2.interp s p (fun b s =>
+    src1.interp s p (fun a s =>
+      let half := ((imm.interp p).toBitVec.take 8).toNat % 2
+      s.setAvx dst (BitVec.ofLanes _ 256 fun i => if i == half then b else a.lane 256 i) p next))
 
 @[kstep]
 def Instr.interp [Labels]

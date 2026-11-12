@@ -232,6 +232,16 @@ inductive Operation (w : Width)
   | rcl  (_ : Dst w) (_ : ShiftCountExpr)
   | rcr  (_ : Dst w) (_ : ShiftCountExpr)
   | bswap  (dst : Reg w) -- (_ : w = .W32 ∨ w = .W64)
+  | tzcnt (_ : Reg w) (src : RegOrMem w)
+  | lzcnt (_ : Reg w) (src : RegOrMem w)
+  | bsr (_ : Reg w) (src : RegOrMem w)
+  | popcnt (_ : Reg w) (src : RegOrMem w)
+  | btc (_ : Dst w) (src : Operand w)
+  | xchg (_ : Dst w) (src : Reg w)
+  | rorx (_ : Reg w) (src : RegOrMem w) (imm : ConstExpr)
+  | shlx (_ : Reg w) (src : RegOrMem w) (cnt : Reg w)
+  | shrx (_ : Reg w) (src : RegOrMem w) (cnt : Reg w)
+  | sarx (_ : Reg w) (src : RegOrMem w) (cnt : Reg w)
   -- Flag control
   | cld
   | std
@@ -252,6 +262,8 @@ inductive AvxOperation (w : AvxWidth)
   | movups (_ : AvxDst w) (src : AvxRegOrMem w)
   | vmovups (_ : AvxDst w) (src : AvxRegOrMem w)
   | movaps (_ : AvxDst w) (src : AvxRegOrMem w)
+  | vmovaps (_ : AvxDst w) (src : AvxRegOrMem w)
+  | vmovdqa (_ : AvxDst w) (src : AvxRegOrMem w)
   | subps (_ : AvxDst w) (src : AvxRegOrMem w)
   | addps (_ : AvxDst w) (src : AvxRegOrMem w)
   -- SSE2, SSSE3, and SSE4.1 integer operations
@@ -280,6 +292,11 @@ inductive AvxOperation (w : AvxWidth)
   | vprord (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   | vpsrld (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   | vpternlogd (_ : AvxDst w) (src2 src3 : AvxRegOrMem w) (imm : ConstExpr)
+  | vpshufb (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vshufps (_ : AvxDst w) (src1 src2 : AvxRegOrMem w) (imm : ConstExpr)
+  | vpermi2q (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vpermi2d (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vinserti64x4 (_ : AvxDst w) (src1 : AvxRegOrMem w) (src2 : AvxRegOrMem .W256) (imm : ConstExpr)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 inductive Instr

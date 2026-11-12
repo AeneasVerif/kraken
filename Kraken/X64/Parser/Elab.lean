@@ -456,6 +456,25 @@ def elabShiftCount (stx : TSyntax `x64_shift_count) : TermElabM Expr := withRef 
     return mkApp (mkConst ``ShiftCountExpr.imm8) (← elabImm imm)
   | _ => throwError "expected immediate or %cl shift count"
 
+/-- Elaborate an immediate `x64_operand` (`$imm`, `$sym`, `$sym ± n`) into an `Expr` of type `ConstExpr`. -/
+def elabImmOperand (stx : TSyntax `x64_operand) : TermElabM Expr := withRef stx do
+  if stx.raw.isAntiquot then
+    return toExpr (ConstExpr.label (← getAntiquotSym stx.raw))
+  else match stx with
+  | `(x64_operand| $i:x64_imm) => elabImm i
+  | `(x64_operand| $sym:x64_operand + $n:num) =>
+    let s ← getAntiquotSym sym.raw
+    let i ← withRef n <| Int64.ofNatNoOverflow n.getNat
+    return toExpr (ConstExpr.add (.label s) (.int64 i))
+  | `(x64_operand| $sym:x64_operand - $n:num) =>
+    let s ← getAntiquotSym sym.raw
+    let i ← withRef n <| Int64.ofNatNoOverflow n.getNat
+    return toExpr (ConstExpr.sub (.label s) (.int64 i))
+  | `(x64_operand| $sym:x64_operand - $b:x64_ident) =>
+    let s := toExpr (ConstExpr.label (← getAntiquotSym sym.raw))
+    return mkApp2 (mkConst ``ConstExpr.sub) s (← elabConstExprIdent b)
+  | _ => throwError "expected immediate operand"
+
 -- ============================================================================
 -- Mnemonic Suffixes & Constructors
 -- ============================================================================
@@ -521,13 +540,18 @@ def elabBinOp : String → TermElabM Expr
   | "or"             => pure (mkConst ``Operation.or)
   | "cmp"            => pure (mkConst ``Operation.cmp)
   | "test"           => pure (mkConst ``Operation.test)
+  | "btc"            => pure (mkConst ``Operation.btc)
   | stem             => throwError "invalid binary instruction mnemonic '{stem}'"
 
 /-- The `Operation` constructor for the stem of an `x64_rm_reg_op`. -/
 def elabRmRegOp : String → TermElabM Expr
-  | "adcx" => pure (mkConst ``Operation.adcx)
-  | "adox" => pure (mkConst ``Operation.adox)
-  | stem   => throwError "invalid carry-chain mnemonic '{stem}'"
+  | "adcx"   => pure (mkConst ``Operation.adcx)
+  | "adox"   => pure (mkConst ``Operation.adox)
+  | "tzcnt"  => pure (mkConst ``Operation.tzcnt)
+  | "lzcnt"  => pure (mkConst ``Operation.lzcnt)
+  | "bsr"    => pure (mkConst ``Operation.bsr)
+  | "popcnt" => pure (mkConst ``Operation.popcnt)
+  | stem     => throwError "invalid carry-chain or bit-scan mnemonic '{stem}'"
 
 /-- The `Operation` constructor for the stem of an `x64_unary_op`. -/
 def elabUnaryOp : String → TermElabM Expr
@@ -548,19 +572,30 @@ def elabExtMovOp : String → TermElabM Expr
 def elabAvxOp (stx : TSyntax `x64_avx_op) : TermElabM Expr := withRef stx do
   match stx with
   | `(x64_avx_op| movdqu)  => pure (mkConst ``AvxOperation.movdqu)
-  | `(x64_avx_op| vmovdqu) => pure (mkConst ``AvxOperation.vmovdqu)
   | `(x64_avx_op| movdqa)  => pure (mkConst ``AvxOperation.movdqa)
   | `(x64_avx_op| paddd)   => pure (mkConst ``AvxOperation.paddd)
   | `(x64_avx_op| pshufb)  => pure (mkConst ``AvxOperation.pshufb)
   | _ =>
     let (stem, sfx) ← splitSuffixed stx
     match stem, sfx with
-    | "movu",  "ps" => pure (mkConst ``AvxOperation.movups)
-    | "vmovu", "ps" => pure (mkConst ``AvxOperation.vmovups)
-    | "mova",  "ps" => pure (mkConst ``AvxOperation.movaps)
-    | "add",   "ps" => pure (mkConst ``AvxOperation.addps)
-    | "sub",   "ps" => pure (mkConst ``AvxOperation.subps)
-    | _, _          => throwError "invalid AVX mnemonic"
+    | "movu",    "ps" => pure (mkConst ``AvxOperation.movups)
+    | "vmovu",   "ps" => pure (mkConst ``AvxOperation.vmovups)
+    | "mova",    "ps" => pure (mkConst ``AvxOperation.movaps)
+    | "vmova",   "ps" => pure (mkConst ``AvxOperation.vmovaps)
+    | "vmovdqa", "32" => pure (mkConst ``AvxOperation.vmovdqa32)
+    | "vmovdqa", _    => pure (mkConst ``AvxOperation.vmovdqa)
+    | "vmovdqu", "32" => pure (mkConst ``AvxOperation.vmovdqu32)
+    | "vmovdqu", _    => pure (mkConst ``AvxOperation.vmovdqu)
+    | "add",     "ps" => pure (mkConst ``AvxOperation.addps)
+    | "sub",     "ps" => pure (mkConst ``AvxOperation.subps)
+    | _, _            => throwError "invalid AVX mnemonic"
+
+/-- The `Operation` constructor for the stem of an `x64_bmi2_shift_op`. -/
+def elabBmi2ShiftOp : String → TermElabM Expr
+  | "shlx" => pure (mkConst ``Operation.shlx)
+  | "shrx" => pure (mkConst ``Operation.shrx)
+  | "sarx" => pure (mkConst ``Operation.sarx)
+  | stem   => throwError "invalid BMI2 shift mnemonic '{stem}'"
 
 /-- The `AvxOperation` constructor of an `x64_avx_imm_op`. -/
 def elabAvxImmOp (stx : TSyntax `x64_avx_imm_op) : TermElabM Expr := withRef stx do
@@ -730,6 +765,36 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       mkAppWidth (mkConst ``AvxOperation.vmovIn) #[toExpr n, dst, src]
   | `(x64_instr| vzeroupper) =>
     pure (toExpr (Instr.avx .W64 .W128 .vzeroupper))
+  | `(x64_instr| $op:x64_xchg_op $op1:x64_operand, $op2:x64_operand) =>
+    let width? ← evalSuffixWidth? op
+    mkRegularInstr (width? := width?) do
+      let mk := mkConst ``Operation.xchg
+      if let `(x64_operand| $r1:x64_reg) := op1 then
+        let src ← elabReg r1
+        let dst ← elabRegOrMemOperand op2
+        mkAppWidth mk #[dst, src]
+      else if let `(x64_operand| $r2:x64_reg) := op2 then
+        let dst ← elabRegOrMemOperand op1
+        let src ← elabReg r2
+        mkAppWidth mk #[dst, src]
+      else
+        throwError "expected at least one register operand for xchg"
+  | `(x64_instr| $op:x64_rorx_op $imm:x64_operand, $src:x64_operand, $dst:x64_reg) =>
+    let width? ← evalSuffixWidth? op
+    mkRegularInstr (width? := width?) do
+      let mk := mkConst ``Operation.rorx
+      let imm ← elabImmOperand imm
+      let src ← elabRegOrMemOperand src
+      let dst ← elabReg dst
+      mkAppWidth mk #[dst, src, imm]
+  | `(x64_instr| $op:x64_bmi2_shift_op $cnt:x64_reg, $src:x64_operand, $dst:x64_reg) =>
+    let (stem, width?) ← splitWidthSuffixed op
+    mkRegularInstr (width? := width?) do
+      let mk ← elabBmi2ShiftOp stem
+      let cnt ← elabReg cnt
+      let src ← elabRegOrMemOperand src
+      let dst ← elabReg dst
+      mkAppWidth mk #[dst, src, cnt]
   | `(x64_instr| $op:x64_shift_op $dst:x64_operand) =>
     let (stem, width?) ← splitWidthSuffixed op
     mkRegularInstr (width? := width?) do
