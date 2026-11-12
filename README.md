@@ -77,3 +77,18 @@ Thus incidental extensions to x64 must not clash with actual features of x64,
 or undefined behavior in x64 (e.g. bswap r16).
 
 More guidance on reviewing semantics is in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Using the embedded syntax
+
+One is able to embed X64 and AArch64 assemlby into Lean by using the 
+`⸨prog| ... ⸩` syntax (braces typed as `\((`), which gets transformed by the
+elaborator into the Lean model used internally by Kraken. To parameterize over
+parts of our program, it is useful to use antiquotations `❰...❱` (braces typed
+as `\h<`) to inject arbitrary values of our model into the syntax.
+
+
+```lean
+variable {w : Width} (r : Reg w)
+def add_2  := ⸨prog| add $2, %❰r❱⸩ 
+def add_2' := ⸨prog| inc %❰r❱; inc %❰r❱⸩
+```
