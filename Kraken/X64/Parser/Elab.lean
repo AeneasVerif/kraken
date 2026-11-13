@@ -839,6 +839,8 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
   | `(x64_instr| nop) =>
     mkClosedInstr (.nop 1)
   | `(x64_instr| nop $sz:num) => mkClosedInstr (.nop sz.getNat)
+  | `(x64_instr| jrcxz $lbl:x64_ident) => elabJrcxz .W64 lbl
+  | `(x64_instr| jecxz $lbl:x64_ident) => elabJrcxz .W32 lbl
   | `(x64_instr| $op:x64_jcc_op $lbl:x64_ident) =>
     mkRegularInstr (width? := some .W64) do
       let mk := mkConst ``Operation.jcc
@@ -847,6 +849,11 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       mkAppWidth mk #[toExpr cc, target]
   | _ => throwError "invalid instruction syntax"
 where
+  /-- `jrcxz`/`jecxz` fix the address width from the mnemonic and use a 64-bit operation width. -/
+  elabJrcxz (aw : Width) (lbl : TSyntax `x64_ident) : TermElabM Expr := do
+    let target ← elabIdent lbl
+    pure (mkApp3 (mkConst ``Instr.regular) (toExpr aw) (toExpr Width.W64)
+      (mkApp2 (mkConst ``Operation.jrcxz) (toExpr Width.W64) target))
   /-- A string move or store at the address width `aw`, its width named by its suffix. -/
   elabStringInstr (op : TSyntax `x64_string_op) (rep : Bool) (aw : Width) : TermElabM Expr := do
     let (stem, some w) ← splitWidthSuffixed op | throwErrorAt op "missing width suffix"

@@ -79,3 +79,22 @@ private def busy : MachineData :=
     Operation.interp (w := .W64) (.jcc .z "missing_target") ⟨0, 2⟩ { s with status := { s.status with zf := true } } (fun st => .done ⟨st, 2⟩) (fun a st => .done ⟨st, a⟩)) with
   | .resolve_label l _ => l == "missing_target"
   | _ => false
+
+/-! `jrcxz`/`jecxz` jump when `%rcx`/`%ecx` is zero, and fall through otherwise. -/
+private def runJump (aw : Width) (op : Operation .W64) (s : MachineData) : Option Int64 :=
+  let : AddressSize := ⟨aw⟩
+  match op.interp ⟨0, 1⟩ s (fun s => .done ⟨s, 1⟩) (fun tgt s => .done ⟨s, tgt⟩) with
+  | .resolve_label "l" k => match k 42 with
+    | .done st => some st.pc
+    | _ => none
+  | .done st => if st.pc == 1 then none else some st.pc
+  | _ => none
+
+private def withRcx (v : UInt64) : MachineData := { s with regs := { rcx := v } }
+
+#guard runJump .W64 (.jrcxz "l") (withRcx 0) == some 42
+#guard runJump .W64 (.jrcxz "l") (withRcx 1) == none
+#guard runJump .W64 (.jrcxz "l") (withRcx 0x100000000) == none
+#guard runJump .W32 (.jrcxz "l") (withRcx 0) == some 42
+#guard runJump .W32 (.jrcxz "l") (withRcx 1) == none
+#guard runJump .W32 (.jrcxz "l") (withRcx 0x100000000) == some 42
