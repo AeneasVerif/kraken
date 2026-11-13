@@ -14,6 +14,12 @@
 #     under LeanQbeTest/). Allowed: propext, Classical.choice, Quot.sound. A report that is not one
 #     complete line fails: Lean breaks a long report over several lines, and then it cannot be read.
 #     So does a headline theorem without a report, and a headline.txt that is missing or lists none.
+#  5. Check times, in seconds of CPU time. Checking LeanQbe/Amd64/LratBytes.lean or
+#     LeanQbe/Arm64/LratBytes.lean makes the kernel run the whole compiler, so the time it takes is
+#     the cost of the compiler in the kernel. Each fails above KERNEL_CHECK_LIMIT seconds (default
+#     60). They take about 27 s on an idle machine and 47 s on one that runs three times as many
+#     jobs as it has cores; elapsed time more than doubles there, so it is not what is measured.
+#     The check times of the five largest lemma files are printed and never fail.
 #
 # Every command runs under `timeout`. Exit code 0 iff all checks pass.
 set -uo pipefail
@@ -116,6 +122,32 @@ while IFS= read -r line; do
     case " $ALLOWED " in *" $a "*) ;; *) err "disallowed axiom $a: $line" ;; esac
   done
 done <"$TMP/axioms.txt"
+
+echo "== 5. check times (CPU)"
+KERNEL_CHECK_LIMIT="${KERNEL_CHECK_LIMIT:-60}"
+KERNEL_FILES=(LeanQbe/Amd64/LratBytes.lean LeanQbe/Arm64/LratBytes.lean)
+time_check() { # $1 = .lean file; appends "<CPU seconds> <exit code> <file>" to $TMP/times.txt
+  local cpu rc
+  cpu="$( { TIMEFORMAT='%U %S'; time timeout "$LEAN_TIMEOUT" lake env lean "$1" >/dev/null 2>&1; } 2>&1 )"
+  rc=$?
+  echo "$(awk '{print int($1 + $2 + 0.5)}' <<<"$cpu") $rc $1" >>"$TMP/times.txt"
+}
+: >"$TMP/times.txt"
+for f in "${KERNEL_FILES[@]}"; do time_check "$f" & done
+wait
+git ls-files 'LeanQbe/*Lemmas.lean' 'LeanQbe/**/*Lemmas.lean' | sort -u | xargs wc -l \
+  | grep -v ' total$' | sort -rn | head -n 5 | awk '{print $2}' >"$TMP/largest.txt" || true
+while IFS= read -r f; do time_check "$f" & done <"$TMP/largest.txt"
+wait
+while read -r cpu rc f; do
+  limit=""
+  case " ${KERNEL_FILES[*]} " in *" $f "*) limit=" (limit ${KERNEL_CHECK_LIMIT} s)" ;; esac
+  printf '%4d s  %s%s\n' "$cpu" "$f" "$limit"
+  [ "$rc" -eq 0 ] || err "$f failed to check (exit code $rc; 124 = timeout)"
+  if [ -n "$limit" ] && [ "$cpu" -gt "$KERNEL_CHECK_LIMIT" ]; then
+    err "$f took more than ${KERNEL_CHECK_LIMIT} s to check; the kernel runs the compiler there"
+  fi
+done <"$TMP/times.txt"
 
 if [ $fail -eq 0 ]; then echo "== check.sh: ALL PASSED"; else echo "== check.sh: FAILED"; fi
 exit $fail
