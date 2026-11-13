@@ -484,18 +484,18 @@ private theorem workState_tableRel {B R : Mem 64 → Prop} {c : WorkCfg}
     TableRel c.mv c.cap ptrs table PoolUsed :=
   (workState_sep.mp (sep_ac hm : (WorkState c poolUsed poolRem cur ptrs table PoolUsed ⋆ (B ⋆ R)) m)).2.1
 
-private theorem workState_load_hdr {B R : Mem 64 → Prop} {c : WorkCfg}
-    {poolUsed poolRem : Nat} {cur a : Val} {ptrs : List Val} {table : List (Option (List Val))}
-    {PoolUsed : Mem 64 → Prop} {m : Mem 64} (i : Nat) (hi : i < 10)
-    (ha : a = c.hdr + BitVec.ofNat 64 (8 * i))
-    (hm : (B ⋆ WorkState c poolUsed poolRem cur ptrs table PoolUsed ⋆ R) m) :
-    loadVal m .l .l true a =
-      some ((c.hdrWords (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) cur)[i]'(by
-        simpa [WorkCfg.hdrWords] using hi)) := by
+private theorem workState_ld_hdr {B R : Mem 64 → Prop} {c : WorkCfg}
+    {poolUsed poolRem : Nat} {cur p v : Val} {ptrs : List Val} {table : List (Option (List Val))}
+    {PoolUsed : Mem 64 → Prop} {m : Mem 64} {Q : Val → Prop} (i : Nat)
+    (hm : (B ⋆ WorkState c poolUsed poolRem cur ptrs table PoolUsed ⋆ R) m)
+    (hp : p = c.hdr + BitVec.ofNat 64 (8 * i))
+    (hi : (c.hdrWords (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) cur)[i]? = some v)
+    (hk : Q v) :
+    ∃ x, loadVal m .l .l true p = some x ∧ Q x := by
   obtain ⟨_, _, _, hwm⟩ := workState_sep.mp
     (sep_ac hm : (WorkState c poolUsed poolRem cur ptrs table PoolUsed ⋆ (B ⋆ R)) m)
   simp only [sep_assoc] at hwm
-  exact loadl_hdr i hi hwm ha
+  exact ld_l_step c.hdr i hwm hp hi hk
 
 private theorem workState_store_cur {B R : Mem 64 → Prop} {c : WorkCfg}
     {poolUsed poolRem : Nat} {cur cur' : Val} {ptrs : List Val} {table : List (Option (List Val))}
@@ -514,23 +514,24 @@ private theorem workState_store_cur {B R : Mem 64 → Prop} {c : WorkCfg}
   rw [hset] at hm1
   exact ⟨hok, sep_ac (workState_sep.mpr ⟨hsum, htr, hpu, by simp only [sep_assoc]; exact hm1⟩)⟩
 
-private theorem workState_load_cb {B R : Mem 64 → Prop} {c : WorkCfg}
+private theorem workState_cb_branch {B R : Mem 64 → Prop} {c : WorkCfg}
     {poolUsed poolRem : Nat} {cur : Val} {ptrs : List Val} {table : List (Option (List Val))}
-    {PoolUsed : Mem 64 → Prop} {m : Mem 64} {i : Nat} (hi : i < c.cap)
-    (hm : (B ⋆ WorkState c poolUsed poolRem cur ptrs table PoolUsed ⋆ R) m) :
-    ∃ (hplen : ptrs.length = c.cap) (htlen : table.length = c.cap),
-      loadVal m .l .l true (c.cb + BitVec.ofNat 64 (8 * i)) = some (ptrs[i]'(hplen ▸ hi)) ∧
-      (match table[i]'(htlen ▸ hi) with
-       | none => ptrs[i]'(hplen ▸ hi) = 0
-       | some lits =>
-         ptrs[i]'(hplen ▸ hi) ≠ 0 ∧
-         (∀ x ∈ lits, IsValidLit c.mv x) ∧
-         (∃ R_l, PoolUsed = (ZeroTermInts (ptrs[i]'(hplen ▸ hi)) lits ⋆ R_l))) := by
+    {PoolUsed : Mem 64 → Prop} {m : Mem 64} {i : Nat} {P Q : Prop} (hi : i < c.cap)
+    (hm : (B ⋆ WorkState c poolUsed poolRem cur ptrs table PoolUsed ⋆ R) m)
+    (hsome : ∀ lits, table[i]? = some (some lits) → P)
+    (hnone : table[i]? = some none → Q) :
+    ∃ v, loadVal m .l .l true (c.cb + BitVec.ofNat 64 (8 * i)) = some v ∧
+      ((v ≠ 0 → P) ∧ (¬ v ≠ 0 → Q)) := by
   obtain ⟨_, ⟨hplen, htlen, hrel⟩, _, hwm⟩ := workState_sep.mp
     (sep_ac hm : (WorkState c poolUsed poolRem cur ptrs table PoolUsed ⋆ (B ⋆ R)) m)
   have hwm_cb : (word8Array c.cb ptrs ⋆ wsCbRest c poolUsed poolRem cur PoolUsed B R) m := by
     dsimp only [wsCbRest]; exact sep_ac hwm
-  exact ⟨hplen, htlen, loadl_word8Array (hplen ▸ hi) hwm_cb, hrel i hi⟩
+  refine ⟨_, loadl_word8Array (hplen ▸ hi) hwm_cb, ?_⟩
+  have hri := hrel i hi
+  have hget : table[i]? = some (table[i]'(htlen ▸ hi)) := List.getElem?_eq_getElem _
+  cases hti : table[i]'(htlen ▸ hi) <;> rw [hti] at hri hget
+  · exact ⟨fun h => absurd hri h, fun _ => hnone hget⟩
+  · exact ⟨fun _ => hsome _ hget, fun h => absurd hri.1 h⟩
 
 private theorem workState_store_cb {B R : Mem 64 → Prop} {c : WorkCfg}
     {poolUsed poolRem : Nat} {cur v : Val} {ptrs : List Val} {table table' : List (Option (List Val))}
@@ -574,6 +575,28 @@ private theorem tableRel_set_some {mv cap : Nat} {ptrs : List Val}
   refine ⟨by simp [hplen], by simp [htlen], fun i hi => ?_⟩
   grind
 
+private theorem u8_eq_branch {b : UInt8} {n : Nat} [OfNat Val n] [OfNat UInt8 n] {P Q : Prop}
+    (ht : (b == OfNat.ofNat n) = true → P)
+    (hf : (b == OfNat.ofNat n) = false → Q)
+    (hk : (OfNat.ofNat n : Val) = BitVec.ofNat 64 (OfNat.ofNat n : UInt8).toNat := by rfl) :
+    (BitVec.ofNat 64 b.toNat = OfNat.ofNat n → P) ∧
+    (BitVec.ofNat 64 b.toNat ≠ OfNat.ofNat n → Q) := by
+  rw [hk, bv64_u8_eq]
+  grind
+
+private theorem apply_jfail {J : Cont} {P : List Val → Mem 64 → Prop} {as : List Val}
+    {m : Mem 64} (hJ : ∀ as m, P as m → J as m) (hp : P as m) : J as m := hJ as m hp
+
+local macro "fail_leaf" : tactic =>
+  `(tactic| ((try refine ⟨fun h => absurd rfl h, fun _ => ?_⟩);
+             apply apply_jfail ‹_›;
+             refine ⟨rfl,
+               by simp +zetaDelta [*, -List.getElem_cons_drop, -List.length_drop,
+                    -bne_iff_ne, -getElem?_pos, checkPrfAux];
+                  try simp +zetaDelta [*, -List.getElem_cons_drop, -List.length_drop,
+                    -bne_iff_ne, -getElem?_pos, delLoopAux],
+               by first | assumption | exact workState_collapse ‹_›⟩))
+
 /-- Verification of `lbCheckPrf` against `lbCheckPrfSpec`, parameterized by `Γ` providing
 `lbReadAddLitsSpec` and `lbRupCheckSpec`. -/
 theorem lbCheckPrf_correct_of (Γ : Env)
@@ -586,17 +609,15 @@ theorem lbCheckPrf_correct_of (Γ : Env)
   have hcap_bound : c.cap < 2 ^ 64 := by have := c.hfit; omega
   have hnc_bound : c.nc < 2 ^ 64 := by have := c.hnc; unfold dimacsBound at this; omega
   wp_unfold
-  refine ⟨_, workState_load_hdr 1 (by decide) rfl hm0,
-    _, workState_load_hdr 2 (by decide) rfl hm0,
-    _, workState_load_hdr 6 (by decide) rfl hm0, ?_⟩
-  simp only [WorkCfg.hdrWords, List.getElem_cons_succ, List.getElem_cons_zero]
+  refine workState_ld_hdr 1 hm0 rfl rfl ?_
+  refine workState_ld_hdr 2 hm0 rfl rfl ?_
+  refine workState_ld_hdr 6 hm0 rfl rfl ?_
   -- `@fail` join point
   apply wp_join (fun as m' => as = [] ∧
     checkPrfPure c.mv c.nc poolRem0 table0 prfBytes = false ∧
     (Eq (prfBytes.At prf_ptr) ⋆ region c.hdr c.activeBytes ⋆ R) m')
   · rintro _ m' ⟨rfl, hfalse, hm'⟩
-    wp_unfold
-    exact hQ 0 m' (by simp [hfalse]) hm'
+    wp_unfold; exact hQ 0 m' (by simp [hfalse]) hm'
   intro Jfail hJfail
   -- `@rec_loop`
   apply wp_loop (fun r as m => ∃ idx poolUsed poolRem ptrs table PoolUsed,
@@ -611,8 +632,7 @@ theorem lbCheckPrf_correct_of (Γ : Env)
       rfl, hidx, rfl, hpure, hm⟩ ih
     have hlen_cap : table.length = c.cap := (workState_tableRel hm).2.1
     wp_unfold
-    refine ⟨_, workState_load_hdr 9 (by decide) rfl hm, ?_⟩
-    simp only [WorkCfg.hdrWords, List.getElem_cons_succ, List.getElem_cons_zero]
+    refine workState_ld_hdr 9 hm rfl rfl ?_
     refine cursor_eof_branch hidx (by omega)
       (fun hidx_end => by
         subst hidx_end
@@ -620,280 +640,210 @@ theorem lbCheckPrf_correct_of (Γ : Env)
         rw [hpure, List.drop_length]; rfl)
       (fun hidx_lt => by
         have hm_prf : (Eq (prfBytes.At prf_ptr) ⋆
-            (WorkState c poolUsed poolRem (prf_ptr + BitVec.ofNat 64 idx) ptrs table PoolUsed ⋆ R)) m :=
+            (WorkState c poolUsed poolRem (prf_ptr + BitVec.ofNat 64 idx) ptrs table PoolUsed ⋆
+              R)) m :=
           sep_cast hm (by ac_rfl)
         refine ⟨_, loadub_At hidx_lt (by omega) hm_prf, ?_⟩
         let tag := prfBytes[idx]
         let bs1 := prfBytes.drop (idx + 1)
         have hdrop_idx : prfBytes.drop idx = tag :: bs1 := List.drop_eq_getElem_cons hidx_lt
         rw [ptr_step_1]
-        have his_a_iff : (BitVec.ofNat 64 tag.toNat = (97 : Val)) ↔ (tag == 97) = true := by
-          rw [show (97 : Val) = BitVec.ofNat 64 (97 : UInt8).toNat from rfl, bv64_u8_eq, beq_iff_eq]
-        refine ⟨fun his_a => ?_, fun hnot_a => ?_⟩
+        refine u8_eq_branch (fun htag97 => ?_) (fun htag_not97 => ?_)
         · -- `'a'` record
-          have htag97 : (tag == 97) = true := his_a_iff.mp his_a
           refine readLeb128_spec hprf_fit (by omega) rfl rfl hm_prf
-            (fun hleb_none => hJfail _ _ ⟨rfl, by
-              rw [hpure, hdrop_idx]
-              simp [checkPrfAux, htag97, bs1, hleb_none], workState_collapse hm⟩)
+            (fun hleb_none => by fail_leaf)
             fun uid bs2 hleb_uid huid_lt _ hbs2_drop hidx2_gt => ?_
+          rw [eq_comm] at hbs2_drop
           let idx2 := prfBytes.length - bs2.length
           have hidx2_le : idx2 ≤ prfBytes.length := Nat.sub_le _ _
           wp_unfold
           refine bv_odd_branch (by omega : uid < 2 ^ 64)
-            (fun ho => hJfail _ _ ⟨rfl, by
-              rw [hpure, hdrop_idx]
-              simp [checkPrfAux, htag97, bs1, hleb_uid, ho], workState_collapse hm⟩)
+            (fun ho => by fail_leaf)
             (fun heven' => ?_)
           let id := uid / 2
           rw [bv_shr_one (by omega : uid < 2 ^ 64)]
           refine ult_branch hnc_bound (by omega : id < 2 ^ 64)
-            (fun hnc_lt_id => ?_) (fun hid_le_nc => ?_)
-          · refine ult_branch (by omega : id < 2 ^ 64) hcap_bound
-              (fun hid_lt_cap => ?_) (fun hid_ge_cap => ?_)
-            · rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : id < 2 ^ 64)]
-              obtain ⟨hplen, htlen, hld_slot, hslot_rel⟩ := workState_load_cb hid_lt_cap hm
-              refine ⟨_, hld_slot, fun hused => ?_, fun hunused => ?_⟩
-              · refine hJfail _ _ ⟨rfl, ?_, workState_collapse hm⟩
+            (fun hnc_lt_id => ?_) (fun hid_le_nc => by fail_leaf)
+          refine ult_branch (by omega : id < 2 ^ 64) hcap_bound
+            (fun hid_lt_cap => ?_) (fun hid_ge_cap => by fail_leaf)
+          rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : id < 2 ^ 64)]
+          refine workState_cb_branch hid_lt_cap hm (fun _ hti => by fail_leaf) fun hti_none => ?_
+          obtain ⟨hok_cur2, hm_cur2⟩ :=
+            workState_store_cur (cur' := prf_ptr + BitVec.ofNat 64 idx2) hm
+          refine ⟨hok_cur2, ?_⟩
+          refine workState_ld_hdr 8 hm_cur2 rfl rfl ?_
+          let c_ptr := c.pbase + BitVec.ofNat 64 (4 * poolUsed)
+          refine wp_call_ret1 _
+            (hReadAddLits _ _ _ _ ⟨c, prf_ptr, prfBytes, idx2, poolUsed, poolRem,
+              ptrs, table, PoolUsed, R, rfl, hprf_fit, hidx2_le, hm_cur2,
+              fun r m1 hr => ⟨r, rfl, hr⟩⟩) ?_
+          rintro lstat m1 hread_res
+          wp_unfold
+          rw [hbs2_drop] at hread_res
+          cases hread_eq : readAddLitsPure c.mv poolRem bs2 with
+          | none =>
+            rw [hread_eq] at hread_res; obtain ⟨rfl, hm1_reg⟩ := hread_res; fail_leaf
+          | some val3 =>
+            rcases val3 with ⟨clits, poolRem', bs3⟩
+            rw [hread_eq] at hread_res
+            obtain ⟨hlstat, hbs3_drop, hidx3_le, _, hc_ptr_nz, hclits_v, hm1⟩ := hread_res
+            rw [eq_comm] at hbs3_drop
+            let idx3 := prfBytes.length - bs3.length
+            have hlstat_nz : lstat ≠ 0 := by rw [hlstat]; split <;> decide
+            refine ⟨fun _ => ?_, fun h0 => absurd (Classical.not_not.mp h0) hlstat_nz⟩
+            let PoolUsed1 := PoolUsed ⋆ ZeroTermInts c_ptr clits
+            refine wp_call_ret1 _
+              (hRupCheck _ _ _ _ ⟨c, id, c_ptr, prf_ptr, prfBytes, idx3,
+                poolUsed + (clits.length + 1), poolRem', clits, ptrs, table, PoolUsed1, R,
+                rfl, hid_lt_cap, hprf_fit, hidx3_le, hclits_v,
+                ⟨PoolUsed, sep_comm PoolUsed (ZeroTermInts c_ptr clits)⟩, hm1,
+                fun r m2 hr => ⟨r, rfl, hr⟩⟩) ?_
+            rintro rok m2 hrup_res
+            wp_unfold
+            rw [hbs3_drop] at hrup_res
+            cases hrup_eq : rupCheckPure c.mv id clits table bs3 with
+            | none =>
+              rw [hrup_eq] at hrup_res; obtain ⟨rfl, hm2_reg⟩ := hrup_res; fail_leaf
+            | some bs4 =>
+              rw [hrup_eq] at hrup_res
+              obtain ⟨rfl, hbs4_drop, hidx4_le, hm2⟩ := hrup_res
+              let idx4 := prfBytes.length - bs4.length
+              refine ⟨fun _ => ?_, fun h0 => absurd (Classical.not_not.mp h0) (by decide)⟩
+              have hlstat2_iff : (lstat = (2 : Val)) ↔ clits.isEmpty = true := by
+                rw [hlstat]; cases clits.isEmpty <;> decide
+              refine ⟨fun hemp => ?_, fun hnemp => ?_⟩
+              · have hemp' : clits.isEmpty = true := hlstat2_iff.mp hemp
+                refine hQ 1 m2 ?_ (workState_collapse hm2)
+                have htrue : checkPrfPure c.mv c.nc poolRem0 table0 prfBytes = true := by
+                  rw [hpure, hdrop_idx]
+                  simp [checkPrfAux, tag, htag97, bs1, hleb_uid, heven', hlen_cap, hnc_lt_id,
+                    hid_lt_cap, id, hti_none, hread_eq, hrup_eq, hemp', -getElem?_pos]
+                simp [htrue]
+              · have hnemp' : clits.isEmpty = false := by
+                  cases hb : clits.isEmpty
+                  · rfl
+                  · exact absurd (hlstat2_iff.mpr hb) hnemp
+                have htr_new := tableRel_set_some (id := id) hc_ptr_nz hclits_v
+                  ⟨PoolUsed, sep_comm PoolUsed (ZeroTermInts c_ptr clits)⟩
+                  (workState_tableRel hm2)
+                obtain ⟨hok_cb, hm3⟩ := workState_store_cb hid_lt_cap htr_new hm2
+                refine ⟨hok_cb, ?_⟩
+                have hlt2 := readAddLitsPure_lt hread_eq
+                have hlt3 := rupCheckPure_lt hrup_eq
+                have hbs3_lt : bs3.length < bs2.length := by
+                  have : (prfBytes.drop idx2).length = bs2.length := by rw [← hbs2_drop]
+                  omega
+                have hbs4_lt : bs4.length < bs3.length := by
+                  have : (prfBytes.drop idx3).length = bs3.length := by rw [← hbs3_drop]
+                  omega
+                have hidx4_gt : idx < idx4 := by dsimp [idx4, idx2] at hidx2_gt ⊢; omega
+                refine ih (prfBytes.length - idx4) _ _ (by omega)
+                  ⟨idx4, poolUsed + (clits.length + 1), poolRem',
+                    ptrs.set id c_ptr, table.set id (some clits), PoolUsed1,
+                    rfl, hidx4_le, rfl, ?_, hm3⟩
                 rw [hpure, hdrop_idx]
-                cases hti : table[id]'(htlen ▸ hid_lt_cap) with
-                | none => rw [hti] at hslot_rel; exact absurd hslot_rel hused
-                | some lits =>
-                  simp [checkPrfAux, htag97, bs1, hleb_uid, heven', hlen_cap, hnc_lt_id, hid_lt_cap,
-                    id, hti]
-              · have hptr0 : ptrs[id]'(hplen ▸ hid_lt_cap) = 0 := Classical.not_not.mp hunused
-                have hti_none : table[id]'(htlen ▸ hid_lt_cap) = none := by
-                  cases hti : table[id]'(htlen ▸ hid_lt_cap) with
-                  | none => rfl
-                  | some lits => rw [hti] at hslot_rel; exact absurd hptr0 hslot_rel.1
-                obtain ⟨hok_cur2, hm_cur2⟩ := workState_store_cur (cur' := prf_ptr + BitVec.ofNat 64 idx2) hm
-                refine ⟨hok_cur2, _, workState_load_hdr 8 (by decide) rfl hm_cur2, ?_⟩
-                simp only [WorkCfg.hdrWords, List.getElem_cons_succ, List.getElem_cons_zero]
-                let c_ptr := c.pbase + BitVec.ofNat 64 (4 * poolUsed)
-                refine wp_call_ret1 _
-                  (hReadAddLits _ _ _ _ ⟨c, prf_ptr, prfBytes, idx2, poolUsed, poolRem,
-                    ptrs, table, PoolUsed, R, rfl, hprf_fit, hidx2_le, hm_cur2,
-                    fun r m1 hr => ⟨r, rfl, hr⟩⟩) ?_
-                rintro lstat m1 hread_res
-                wp_unfold
-                cases hread_eq : readAddLitsPure c.mv poolRem (prfBytes.drop idx2) with
-                | none =>
-                  rw [hread_eq] at hread_res
-                  obtain ⟨rfl, hm1_reg⟩ := hread_res
-                  refine ⟨fun h => absurd rfl h, fun _ => hJfail _ _ ⟨rfl, ?_, hm1_reg⟩⟩
-                  rw [hpure, hdrop_idx, ← hbs2_drop] at *
-                  simp [checkPrfAux, htag97, bs1, hleb_uid, heven', hlen_cap, hnc_lt_id, hid_lt_cap,
-                    id, hti_none, hread_eq]
-                | some val3 =>
-                  rcases val3 with ⟨clits, poolRem', bs3⟩
-                  rw [hread_eq] at hread_res
-                  obtain ⟨hlstat, hbs3_drop, hidx3_le, _, hc_ptr_nz, hclits_v, hm1⟩ := hread_res
-                  let idx3 := prfBytes.length - bs3.length
-                  have hlstat_nz : lstat ≠ 0 := by rw [hlstat]; split <;> decide
-                  refine ⟨fun _ => ?_, fun h0 => absurd (Classical.not_not.mp h0) hlstat_nz⟩
-                  let PoolUsed1 := PoolUsed ⋆ ZeroTermInts c_ptr clits
-                  refine wp_call_ret1 _
-                    (hRupCheck _ _ _ _ ⟨c, id, c_ptr, prf_ptr, prfBytes, idx3,
-                      poolUsed + (clits.length + 1), poolRem', clits, ptrs, table, PoolUsed1, R,
-                      rfl, hid_lt_cap, hprf_fit, hidx3_le, hclits_v,
-                      ⟨PoolUsed, sep_comm PoolUsed (ZeroTermInts c_ptr clits)⟩, hm1,
-                      fun r m2 hr => ⟨r, rfl, hr⟩⟩) ?_
-                  rintro rok m2 hrup_res
-                  wp_unfold
-                  cases hrup_eq : rupCheckPure c.mv id clits table (prfBytes.drop idx3) with
-                  | none =>
-                    rw [hrup_eq] at hrup_res
-                    obtain ⟨rfl, hm2_reg⟩ := hrup_res
-                    refine ⟨fun h => absurd rfl h, fun _ => hJfail _ _ ⟨rfl, ?_, hm2_reg⟩⟩
-                    rw [hpure, hdrop_idx]
-                    rw [← hbs2_drop] at hread_eq
-                    rw [← hbs3_drop] at hrup_eq
-                    simp [checkPrfAux, htag97, bs1, hleb_uid, heven', hlen_cap, hnc_lt_id, hid_lt_cap,
-                      id, hti_none, hread_eq, hrup_eq]
-                  | some bs4 =>
-                    rw [hrup_eq] at hrup_res
-                    obtain ⟨rfl, hbs4_drop, hidx4_le, hm2⟩ := hrup_res
-                    let idx4 := prfBytes.length - bs4.length
-                    refine ⟨fun _ => ?_, fun h0 => absurd (Classical.not_not.mp h0) (by decide)⟩
-                    have hlstat2_iff : (lstat = (2 : Val)) ↔ clits.isEmpty = true := by
-                      rw [hlstat]; cases clits.isEmpty <;> decide
-                    refine ⟨fun hemp => ?_, fun hnemp => ?_⟩
-                    · have hemp' : clits.isEmpty = true := hlstat2_iff.mp hemp
-                      refine hQ 1 m2 ?_ (workState_collapse hm2)
-                      have htrue : checkPrfPure c.mv c.nc poolRem0 table0 prfBytes = true := by
-                        rw [hpure, hdrop_idx]
-                        rw [← hbs2_drop] at hread_eq
-                        rw [← hbs3_drop] at hrup_eq
-                        simp [checkPrfAux, htag97, bs1, hleb_uid, heven', hlen_cap, hnc_lt_id, hid_lt_cap,
-                          id, hti_none, hread_eq, hrup_eq, hemp']
-                      simp [htrue]
-                    · have hnemp' : clits.isEmpty = false := by
-                        cases hb : clits.isEmpty
-                        · rfl
-                        · exact absurd (hlstat2_iff.mpr hb) hnemp
-                      have htr_new := tableRel_set_some (id := id) hc_ptr_nz hclits_v
-                        ⟨PoolUsed, sep_comm PoolUsed (ZeroTermInts c_ptr clits)⟩
-                        (workState_tableRel hm2)
-                      obtain ⟨hok_cb, hm3⟩ := workState_store_cb hid_lt_cap htr_new hm2
-                      refine ⟨hok_cb, ?_⟩
-                      have hlt2 := readAddLitsPure_lt hread_eq
-                      have hlt3 := rupCheckPure_lt hrup_eq
-                      have hbs3_lt : bs3.length < bs2.length := by
-                        have : (prfBytes.drop idx2).length = bs2.length := by rw [← hbs2_drop]
-                        omega
-                      have hbs4_lt : bs4.length < bs3.length := by
-                        have : (prfBytes.drop idx3).length = bs3.length := by rw [← hbs3_drop]
-                        omega
-                      have hidx4_gt : idx < idx4 := by dsimp [idx4, idx2] at hidx2_gt ⊢; omega
-                      refine ih (prfBytes.length - idx4) _ _ (by omega)
-                        ⟨idx4, poolUsed + (clits.length + 1), poolRem',
-                          ptrs.set id c_ptr, table.set id (some clits), PoolUsed1,
-                          rfl, hidx4_le, rfl, ?_, hm3⟩
-                      rw [hpure, hdrop_idx]
-                      rw [← hbs2_drop] at hread_eq
-                      rw [← hbs3_drop] at hrup_eq
-                      have hstep_aux : checkPrfAux ((tag :: bs1).length + 1) c.mv c.nc poolRem table (tag :: bs1) =
-                          checkPrfAux (bs1.length + 1) c.mv c.nc poolRem' (table.set id (some clits)) bs4 := by
-                        simp [checkPrfAux, htag97, bs1, hleb_uid, heven', hlen_cap, hnc_lt_id, hid_lt_cap,
-                          id, hti_none, hread_eq, hrup_eq, hnemp']
-                      rw [hstep_aux, ← hbs4_drop]
-                      exact checkPrfAux_fuel_irrel
-                        (by have : bs1.length = prfBytes.length - (idx + 1) := List.length_drop; omega)
-                        (by omega)
-            · refine hJfail _ _ ⟨rfl, ?_, workState_collapse hm⟩
-              rw [hpure, hdrop_idx]
-              simp [checkPrfAux, htag97, bs1, hleb_uid, heven', hlen_cap, hnc_lt_id, hid_ge_cap]
-          · refine hJfail _ _ ⟨rfl, ?_, workState_collapse hm⟩
-            rw [hpure, hdrop_idx]
-            simp [checkPrfAux, htag97, bs1, hleb_uid, heven', hid_le_nc]
+                have hstep_aux :
+                    checkPrfAux ((tag :: bs1).length + 1) c.mv c.nc poolRem table (tag :: bs1) =
+                    checkPrfAux (bs1.length + 1) c.mv c.nc poolRem'
+                      (table.set id (some clits)) bs4 := by
+                  simp [checkPrfAux, tag, -List.getElem_cons_drop, -getElem?_pos, htag97, bs1,
+                    hleb_uid, heven', hlen_cap, hnc_lt_id, hid_lt_cap, id, hti_none, hread_eq,
+                    hrup_eq, hnemp']
+                rw [hstep_aux, ← hbs4_drop]
+                exact checkPrfAux_fuel_irrel
+                  (by have : bs1.length = prfBytes.length - (idx + 1) := List.length_drop; omega)
+                  (by omega)
         · -- Not `'a'`: check `'d'` (`100`)
-          have htag_not97 : (tag == 97) = false := beq_false_of_ne (fun h => hnot_a (his_a_iff.mpr (beq_iff_eq.mpr h)))
-          have his_d_iff : (BitVec.ofNat 64 tag.toNat = (100 : Val)) ↔ (tag == 100) = true := by
-            rw [show (100 : Val) = BitVec.ofNat 64 (100 : UInt8).toNat from rfl, bv64_u8_eq, beq_iff_eq]
-          refine ⟨fun his_d => ?_, fun hnot_d => ?_⟩
-          · have htag100 : (tag == 100) = true := his_d_iff.mp his_d
-            -- `@del_loop`
-            apply wp_loop (fun dr das dm => ∃ didx dptrs dtable,
-              das = [prf_ptr + BitVec.ofNat 64 didx] ∧
-              idx + 1 ≤ didx ∧ didx ≤ prfBytes.length ∧
-              dr = prfBytes.length - didx ∧
-              delLoopAux (bs1.length + 1) c.cap table bs1 =
-                delLoopAux ((prfBytes.drop didx).length + 1) c.cap dtable (prfBytes.drop didx) ∧
-              (Eq (prfBytes.At prf_ptr) ⋆
-                WorkState c poolUsed poolRem (prf_ptr + BitVec.ofNat 64 idx) dptrs dtable PoolUsed ⋆ R) dm)
-            · rintro Jdel dr das dm ⟨didx, dptrs, dtable, rfl, hdidx_lo, hdidx_hi, rfl, hdel_eq, hdm⟩ ih_del
-              wp_unfold
-              have hdm_prf : (Eq (prfBytes.At prf_ptr) ⋆
-                  (WorkState c poolUsed poolRem (prf_ptr + BitVec.ofNat 64 idx) dptrs dtable PoolUsed ⋆ R)) dm :=
-                sep_cast hdm (by ac_rfl)
-              refine readLeb128_spec hprf_fit hdidx_hi rfl rfl hdm_prf
-                (fun hleb_none => hJfail _ _ ⟨rfl, by
-                  rw [hpure, hdrop_idx]
-                  have hdn : delLoopAux (bs1.length + 1) c.cap table bs1 = none := by
-                    rw [hdel_eq]; simp [delLoopAux, hleb_none]
-                  simp only [checkPrfAux, htag_not97, htag100, hlen_cap, ↓reduceIte, Bool.false_eq_true]
-                  rw [hdn], workState_collapse hdm⟩)
-                fun u bs_d hleb_u hu_lt _ hbsd_drop hdidx2_gt => ?_
-              let didx2 := prfBytes.length - bs_d.length
-              have hdidx2_le : didx2 ≤ prfBytes.length := Nat.sub_le _ _
-              wp_unfold
-              refine bv_eq_zero_branch (by omega : u < 2 ^ 64)
-                (fun hu0 => by
-                  subst hu0
-                  obtain ⟨hok_dcur, hdm_cur⟩ := workState_store_cur (cur' := prf_ptr + BitVec.ofNat 64 didx2) hdm
-                  refine ⟨hok_dcur, ?_⟩
-                  have hdel_done : delLoopAux (bs1.length + 1) c.cap table bs1 = some (dtable, bs_d) := by
-                    rw [hdel_eq]; simp [delLoopAux, hleb_u]
-                  refine ih (prfBytes.length - didx2) _ _ (by omega)
-                    ⟨didx2, poolUsed, poolRem, dptrs, dtable, PoolUsed, rfl, hdidx2_le, rfl, ?_, hdm_cur⟩
-                  rw [hpure, hdrop_idx]
-                  have hstep_d : checkPrfAux ((tag :: bs1).length + 1) c.mv c.nc poolRem table (tag :: bs1) =
-                      checkPrfAux (bs1.length + 1) c.mv c.nc poolRem dtable bs_d := by
-                    simp only [checkPrfAux, htag_not97, htag100, hlen_cap, ↓reduceIte, Bool.false_eq_true]
-                    rw [hdel_done]; rfl
-                  rw [hstep_d, ← hbsd_drop]
-                  exact checkPrfAux_fuel_irrel
-                    (by have : bs1.length = prfBytes.length - (idx + 1) := List.length_drop; omega)
+          refine u8_eq_branch (fun htag100 => ?_) (fun htag_not100 => by fail_leaf)
+          -- `@del_loop`
+          apply wp_loop (fun dr das dm => ∃ didx dptrs dtable,
+            das = [prf_ptr + BitVec.ofNat 64 didx] ∧
+            idx + 1 ≤ didx ∧ didx ≤ prfBytes.length ∧
+            dr = prfBytes.length - didx ∧
+            delLoopAux (bs1.length + 1) c.cap table bs1 =
+              delLoopAux ((prfBytes.drop didx).length + 1) c.cap dtable (prfBytes.drop didx) ∧
+            (Eq (prfBytes.At prf_ptr) ⋆
+              WorkState c poolUsed poolRem (prf_ptr + BitVec.ofNat 64 idx)
+                dptrs dtable PoolUsed ⋆ R) dm)
+          · rintro Jdel dr das dm
+              ⟨didx, dptrs, dtable, rfl, hdidx_lo, hdidx_hi, rfl, hdel_eq, hdm⟩ ih_del
+            wp_unfold
+            have hdm_prf : (Eq (prfBytes.At prf_ptr) ⋆
+                (WorkState c poolUsed poolRem (prf_ptr + BitVec.ofNat 64 idx)
+                  dptrs dtable PoolUsed ⋆ R)) dm := sep_cast hdm (by ac_rfl)
+            refine readLeb128_spec hprf_fit hdidx_hi rfl rfl hdm_prf
+              (fun hleb_none => by fail_leaf)
+              fun u bs_d hleb_u hu_lt _ hbsd_drop hdidx2_gt => ?_
+            rw [eq_comm] at hbsd_drop
+            let didx2 := prfBytes.length - bs_d.length
+            have hdidx2_le : didx2 ≤ prfBytes.length := Nat.sub_le _ _
+            wp_unfold
+            refine bv_eq_zero_branch (by omega : u < 2 ^ 64)
+              (fun hu0 => by
+                subst hu0
+                obtain ⟨hok_dcur, hdm_cur⟩ :=
+                  workState_store_cur (cur' := prf_ptr + BitVec.ofNat 64 didx2) hdm
+                refine ⟨hok_dcur, ?_⟩
+                have hdel_done :
+                    delLoopAux (bs1.length + 1) c.cap table bs1 = some (dtable, bs_d) := by
+                  rw [hdel_eq]; simp [delLoopAux, hleb_u]
+                refine ih (prfBytes.length - didx2) _ _ (by omega)
+                  ⟨didx2, poolUsed, poolRem, dptrs, dtable, PoolUsed,
+                    rfl, hdidx2_le, rfl, ?_, hdm_cur⟩
+                rw [hpure, hdrop_idx]
+                have hstep_d :
+                    checkPrfAux ((tag :: bs1).length + 1) c.mv c.nc poolRem table (tag :: bs1) =
+                    checkPrfAux (bs1.length + 1) c.mv c.nc poolRem dtable bs_d := by
+                  simp only [checkPrfAux, tag, htag_not97, htag100, hlen_cap, ↓reduceIte,
+                    Bool.false_eq_true]
+                  rw [hdel_done]; rfl
+                rw [hstep_d, hbsd_drop]
+                exact checkPrfAux_fuel_irrel
+                  (by have : bs1.length = prfBytes.length - (idx + 1) := List.length_drop; omega)
+                  (by omega))
+              (fun hu_ne0 => by
+                cases u with
+                | zero => exact absurd rfl hu_ne0
+                | succ u1 =>
+                  let u := u1 + 1
+                  refine bv_odd_branch (by omega : u < 2 ^ 64)
+                    (fun ho => by fail_leaf)
+                    (fun hdeven' => ?_)
+                  let did := u / 2
+                  rw [bv_shr_one (by omega : u < 2 ^ 64)]
+                  refine bv_eq_zero_branch (by omega : did < 2 ^ 64)
+                    (fun hdid0 => by fail_leaf)
+                    (fun hdid_nz' => ?_)
+                  have hdid_nz : (did == 0) = false := beq_false_of_ne hdid_nz'
+                  refine ult_branch (by omega : did < 2 ^ 64) hcap_bound
+                    (fun hdid_lt_cap => ?_) (fun hdid_ge_cap => by fail_leaf)
+                  rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : did < 2 ^ 64)]
+                  refine workState_cb_branch hdid_lt_cap hdm (fun dlits hdget_eq => ?_)
+                    (fun hdget_none => by fail_leaf)
+                  have hdtr_new := tableRel_set_none (did := did) (workState_tableRel hdm)
+                  obtain ⟨hok_dcb, hdm2⟩ := workState_store_cb hdid_lt_cap hdtr_new hdm
+                  refine ⟨hok_dcb, ih_del (prfBytes.length - didx2) _ _ (by omega)
+                    ⟨didx2, dptrs.set did 0, dtable.set did none, rfl,
+                      by omega, hdidx2_le, rfl, ?_, hdm2⟩⟩
+                  rw [hdel_eq]
+                  have hstep_del :
+                      delLoopAux ((prfBytes.drop didx).length + 1) c.cap dtable
+                        (prfBytes.drop didx) =
+                      delLoopAux (prfBytes.drop didx).length c.cap (dtable.set did none) bs_d := by
+                    simp [delLoopAux, hleb_u, hdeven', did, hdid_nz, hdid_lt_cap, hdget_eq, u,
+                      -getElem?_pos]
+                  rw [hstep_del, hbsd_drop]
+                  exact delLoopAux_fuel_irrel
+                    (by have : bs_d.length = prfBytes.length - didx2 := by
+                          rw [← hbsd_drop, List.length_drop]
+                        have : (prfBytes.drop didx).length = prfBytes.length - didx :=
+                          List.length_drop
+                        omega)
                     (by omega))
-                (fun hu_ne0 => by
-                  cases u with
-                  | zero => exact absurd rfl hu_ne0
-                  | succ u1 =>
-                    let u := u1 + 1
-                    refine bv_odd_branch (by omega : u < 2 ^ 64)
-                      (fun ho => hJfail _ _ ⟨rfl, by
-                        have hdn : delLoopAux (bs1.length + 1) c.cap table bs1 = none := by
-                          rw [hdel_eq]; simp [delLoopAux, hleb_u, ho]
-                        rw [hpure, hdrop_idx]
-                        simp only [checkPrfAux, htag_not97, htag100, hlen_cap, ↓reduceIte, Bool.false_eq_true]
-                        rw [hdn], workState_collapse hdm⟩)
-                      (fun hdeven' => ?_)
-                    let did := u / 2
-                    rw [bv_shr_one (by omega : u < 2 ^ 64)]
-                    refine bv_eq_zero_branch (by omega : did < 2 ^ 64)
-                      (fun hdid0 => hJfail _ _ ⟨rfl, by
-                        have hdn : delLoopAux (bs1.length + 1) c.cap table bs1 = none := by
-                          rw [hdel_eq]; simp [delLoopAux, hleb_u, hdeven', hdid0, u]
-                        rw [hpure, hdrop_idx]
-                        simp only [checkPrfAux, htag_not97, htag100, hlen_cap, ↓reduceIte, Bool.false_eq_true]
-                        rw [hdn], workState_collapse hdm⟩)
-                      (fun hdid_nz' => ?_)
-                    have hdid_nz : (did == 0) = false := beq_false_of_ne hdid_nz'
-                    refine ult_branch (by omega : did < 2 ^ 64) hcap_bound
-                      (fun hdid_lt_cap => ?_) (fun hdid_ge_cap => ?_)
-                    · rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : did < 2 ^ 64)]
-                      obtain ⟨hdplen, hdtlen, hdld_slot, hdslot_rel⟩ := workState_load_cb hdid_lt_cap hdm
-                      refine ⟨_, hdld_slot, fun hdact => ?_, fun hdinact => ?_⟩
-                      · obtain ⟨dlits, hdti_eq⟩ : ∃ lits, dtable[did]'(hdtlen ▸ hdid_lt_cap) = some lits := by
-                          cases hti : dtable[did]'(hdtlen ▸ hdid_lt_cap) with
-                          | none => rw [hti] at hdslot_rel; exact absurd hdslot_rel hdact
-                          | some lits => exact ⟨lits, rfl⟩
-                        have hdtr_new := tableRel_set_none (did := did) (workState_tableRel hdm)
-                        obtain ⟨hok_dcb, hdm2⟩ := workState_store_cb hdid_lt_cap hdtr_new hdm
-                        refine ⟨hok_dcb, ih_del (prfBytes.length - didx2) _ _ (by omega)
-                          ⟨didx2, dptrs.set did 0, dtable.set did none, rfl,
-                            by omega, hdidx2_le, rfl, ?_, hdm2⟩⟩
-                        rw [hdel_eq]
-                        have hdget_eq : dtable[did]? = some (some dlits) := by
-                          rw [List.getElem?_eq_getElem (hdtlen ▸ hdid_lt_cap), hdti_eq]
-                        have hstep_del : delLoopAux ((prfBytes.drop didx).length + 1) c.cap dtable (prfBytes.drop didx) =
-                            delLoopAux (prfBytes.drop didx).length c.cap (dtable.set did none) bs_d := by
-                          simp [delLoopAux, hleb_u, hdeven', did, hdid_nz, hdid_lt_cap, hdget_eq, u]
-                        rw [hstep_del, ← hbsd_drop]
-                        exact delLoopAux_fuel_irrel
-                          (by have : bs_d.length = prfBytes.length - didx2 := by rw [hbsd_drop, List.length_drop]
-                              have : (prfBytes.drop didx).length = prfBytes.length - didx := List.length_drop
-                              omega)
-                          (by omega)
-                      · have hdptr0 : dptrs[did]'(hdplen ▸ hdid_lt_cap) = 0 := Classical.not_not.mp hdinact
-                        have hdti_none : dtable[did]'(hdtlen ▸ hdid_lt_cap) = none := by
-                          cases hti : dtable[did]'(hdtlen ▸ hdid_lt_cap) with
-                          | none => rfl
-                          | some lits => rw [hti] at hdslot_rel; exact absurd hdptr0 hdslot_rel.1
-                        have hdget_none : dtable[did]? = some none := by
-                          rw [List.getElem?_eq_getElem (hdtlen ▸ hdid_lt_cap), hdti_none]
-                        refine hJfail _ _ ⟨rfl, ?_, workState_collapse hdm⟩
-                        have hdn : delLoopAux (bs1.length + 1) c.cap table bs1 = none := by
-                          rw [hdel_eq]
-                          simp [delLoopAux, hleb_u, hdeven', did, hdid_nz, hdid_lt_cap, hdget_none, u]
-                        rw [hpure, hdrop_idx]
-                        simp only [checkPrfAux, htag_not97, htag100, hlen_cap, ↓reduceIte, Bool.false_eq_true]
-                        rw [hdn]
-                    · refine hJfail _ _ ⟨rfl, ?_, workState_collapse hdm⟩
-                      have hdn : delLoopAux (bs1.length + 1) c.cap table bs1 = none := by
-                        rw [hdel_eq]
-                        simp [delLoopAux, hleb_u, hdeven', did, hdid_nz, hdid_ge_cap, u]
-                      rw [hpure, hdrop_idx]
-                      simp only [checkPrfAux, htag_not97, htag100, hlen_cap, ↓reduceIte, Bool.false_eq_true]
-                      rw [hdn])
-            · intro Jdel hJdel
-              wp_unfold
-              exact hJdel (prfBytes.length - (idx + 1)) _ _
-                ⟨idx + 1, ptrs, table, rfl, Nat.le_refl _, hidx_lt, rfl, rfl, hm⟩
-          · have htag_not100 : (tag == 100) = false := beq_false_of_ne (fun h => hnot_d (his_d_iff.mpr (beq_iff_eq.mpr h)))
-            refine hJfail _ _ ⟨rfl, ?_, workState_collapse hm⟩
-            rw [hpure, hdrop_idx]
-            simp [checkPrfAux, htag_not97, htag_not100])
+          · intro Jdel hJdel
+            wp_unfold
+            exact hJdel (prfBytes.length - (idx + 1)) _ _
+              ⟨idx + 1, ptrs, table, rfl, Nat.le_refl _, hidx_lt, rfl, rfl, hm⟩)
   · intro Jrec hJrec
     wp_unfold
     refine hJrec prfBytes.length _ _
