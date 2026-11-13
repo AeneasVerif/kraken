@@ -26,15 +26,13 @@ theorem wp_mono {Γ : Env} {Q Q' : Post} {X X' : XPost}
     exact ⟨h.1, Op.wp_mono (fun v => ih v [] [] m) h.2⟩
   | load c s sg a k ih =>
     intro args acc m h; simp only [wp] at h ⊢
-    obtain ⟨h1, v, hv, h2⟩ := h
-    exact ⟨h1, v, hv, ih v [] [] m h2⟩
+    grind
   | store s v a k ih =>
     intro args acc m h; simp only [wp] at h ⊢
     exact ⟨h.1, h.2.1, ih _ _ _ h.2.2⟩
   | call f as k ih =>
     intro args acc m h; simp only [wp] at h ⊢
-    obtain ⟨h1, P, E, hΓ, hP, hE⟩ := h
-    exact ⟨h1, P, E, hΓ, fun rs m' hp => ih _ _ _ (hP rs m' hp), fun g xs m' he => hX _ _ _ (hE g xs m' he)⟩
+    grind
   | jnz c t e iht ihe =>
     intro args acc m h; simp only [wp] at h ⊢
     exact ⟨h.1, fun hc => iht _ _ _ (h.2.1 hc), fun hc => ihe _ _ _ (h.2.2 hc)⟩
@@ -75,15 +73,13 @@ theorem wp_env_mono {Γ Γ' : Env} {Q : Post} {X : XPost}
     exact ⟨h.1, Op.wp_mono (fun v => ih v [] [] m) h.2⟩
   | load c s sg a k ih =>
     intro args acc m h; simp only [wp] at h ⊢
-    obtain ⟨h1, v, hv, h2⟩ := h
-    exact ⟨h1, v, hv, ih v [] [] m h2⟩
+    grind
   | store s v a k ih =>
     intro args acc m h; simp only [wp] at h ⊢
     exact ⟨h.1, h.2.1, ih _ _ _ h.2.2⟩
   | call f as k ih =>
     intro args acc m h; simp only [wp] at h ⊢
-    obtain ⟨h1, P, E, hg, hP, hE⟩ := h
-    exact ⟨h1, P, E, hΓ _ _ _ _ _ hg, fun rs m' hp => ih _ _ _ (hP rs m' hp), hE⟩
+    grind
   | jnz c t e iht ihe =>
     intro args acc m h; simp only [wp] at h ⊢
     exact ⟨h.1, fun hc => iht _ _ _ (h.2.1 hc), fun hc => ihe _ _ _ (h.2.2 hc)⟩
@@ -127,9 +123,7 @@ theorem closed_param {Γ : Env} {Q : Post} {X : XPost} {f : Val → Expr Val Con
 /-- Normal form used after `closed_param`: a body that is not a `param` consumes no arguments. -/
 theorem forall_args_nil {P : List Val → Mem 64 → Prop} {R : Mem 64 → Prop} :
     (∀ as m, (as = [] ∧ R m) → P as m) ↔ ∀ m, R m → P [] m := by
-  constructor
-  · intro h m hr; exact h [] m ⟨rfl, hr⟩
-  · intro h as m ⟨has, hr⟩; subst has; exact h m hr
+  grind
 
 theorem wp_param_cons {Γ : Env} {Q : Post} {X : XPost} {f : Val → Expr Val Cont} {a : Val}
     {as : List Val} {acc : List Cont} {m : Mem 64} :

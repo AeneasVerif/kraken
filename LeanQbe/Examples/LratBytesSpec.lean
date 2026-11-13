@@ -79,13 +79,7 @@ theorem parseDigitsAux_lt_bound {acc : Nat} {bs : List UInt8} {v : Nat} {rest : 
   | nil => simp [parseDigitsAux] at h; obtain ⟨rfl, _⟩ := h; exact hacc
   | cons b bs ih =>
     simp only [parseDigitsAux] at h
-    split at h
-    · split at h
-      · rename_i hlt; exact ih hlt h
-      · nomatch h
-    · split at h
-      · simp at h; obtain ⟨rfl, _⟩ := h; exact hacc
-      · nomatch h
+    grind
 
 theorem parseNat_lt_bound {bs : List UInt8} {v : Nat} {rest : List UInt8}
     (h : parseNat bs = some (v, rest)) : v < dimacsBound := by
@@ -103,21 +97,16 @@ theorem parseNat_lt_bound {bs : List UInt8} {v : Nat} {rest : List UInt8}
 private theorem bv64_ofNat_slt_zero {v : Nat} (hv : v < 2 ^ 28) :
     (BitVec.ofNat 64 v).slt 0#64 = false := by
   unfold BitVec.slt BitVec.toInt
-  simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : v < 2 ^ 64), decide_eq_false_iff_not]
-  split <;> omega
+  grind
 
 theorem isValidLit_ofNat {mv v : Nat} (hv1 : 1 ≤ v) (hvm : v ≤ mv) (hmv : mv < dimacsBound) :
     IsValidLit mv (BitVec.ofNat 64 v) := by
   unfold dimacsBound at hmv
   have hslt := bv64_ofNat_slt_zero (v := v) (by omega)
   refine ⟨by unfold IsInt32; grind, ?_, ?_, by omega⟩
-  · intro hz
-    have := congrArg BitVec.toNat hz
-    simp [Nat.mod_eq_of_lt (by omega : v < 2 ^ 64)] at this
-    omega
+  · grind
   · unfold bvAbs
-    rw [show (0 : BitVec 64) = 0#64 from rfl, hslt]
-    simp [Nat.mod_eq_of_lt (by omega : v < 2 ^ 64), hvm]
+    grind
 
 /-! ## 3. Pure executable mirror (`runLratCheckBytes`) -/
 
@@ -233,9 +222,7 @@ theorem readLeb128Pure_drop {prfBytes : List UInt8} {idx u : Nat} {bs' : List UI
   obtain ⟨hu, hlt, k, hk0, hkle, hdrop⟩ := readLeb128Pure_some h
   rw [List.length_drop] at hkle hlt
   rw [List.drop_drop] at hdrop
-  have hlen' : bs'.length = prfBytes.length - (idx + k) := by rw [hdrop, List.length_drop]
-  have hidx' : prfBytes.length - bs'.length = idx + k := by omega
-  exact ⟨hu, by rw [List.length_drop]; omega, by omega, by omega, by rwa [hidx']⟩
+  grind
 
 theorem readLeb128_spec {Γ : Env} {Q : Post} {X : XPost} {fail : Cont}
     {cur pend prf_ptr : Val} {prfBytes : List UInt8} {idx : Nat}
@@ -264,10 +251,7 @@ theorem readLeb128_spec {Γ : Env} {Q : Post} {X : XPost} {fail : Cont}
   · rintro _ _ ⟨u, idx', rfl, rfl, hidx', hres⟩
     wp_unfold
     obtain ⟨hu, hlt, _, hgt, hdrop⟩ := readLeb128Pure_drop hidx hres
-    have heq_idx : prfBytes.length - (prfBytes.drop idx').length = idx' := by
-      rw [List.length_drop]; omega
-    rw [← heq_idx]
-    exact hdone u (prfBytes.drop idx') hres hu hlt hdrop hgt
+    grind
   · intro Jdone hJdone
     apply wp_loop (fun fuel as m' => ∃ i acc sh,
       1 ≤ fuel ∧ sh + 7 * fuel = 28 ∧ acc < 2 ^ 28 ∧
@@ -315,8 +299,7 @@ theorem readLeb128_spec {Γ : Env} {Q : Post} {X : XPost} {fail : Cont}
           · simp only [hlt28, ↓reduceIte] at hpure
             exact ih fuel' _ _ (by omega)
               ⟨i + 1, _, sh + 7, by omega, by omega, hacc2_lt, hilt, rfl, rfl, hpure⟩
-          · simp only [hnlt28, ↓reduceIte] at hpure
-            exact hfail hpure
+          · grind
         · simp only [readLeb128Aux, hmore_b (Classical.not_not.mp hnmore),
             Bool.false_eq_true, ↓reduceIte] at hpure
           exact hJdone _ _ ⟨_, i + 1, rfl, rfl, hilt, hpure⟩
@@ -593,18 +576,13 @@ theorem pcur_ne_zero (c : WorkCfg) {off : Nat} (hoff : off ≤ 4 * c.poolInts) :
     c.pbase + BitVec.ofNat 64 off ≠ 0 := by
   have := c.fit_active; have := c.toNat_vb; have := c.toNat_tb
   have := c.toNat_cb; have := c.toNat_pbase; unfold activeBytes at *
-  intro h0
-  have h0n := congrArg BitVec.toNat h0
-  rw [bv_add_ofNat_toNat (n := off) (by omega)] at h0n
-  have : (0 : Val).toNat = 0 := rfl
-  omega
+  grind
 
 theorem pcur_eq_plim_iff (c : WorkCfg) {rem : Nat} (hrem : rem ≤ c.poolInts) :
     c.pbase + BitVec.ofNat 64 (4 * (c.poolInts - rem)) = c.plim ↔ rem = 0 := by
   have := c.fit_active; have := c.toNat_vb; have := c.toNat_tb
   have := c.toNat_cb; have := c.toNat_pbase; unfold activeBytes at *; unfold plim
-  rw [cursor_eq_iff (by omega) (by omega)]
-  omega
+  grind
 
 end WorkCfg
 

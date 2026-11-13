@@ -154,8 +154,7 @@ theorem layoutOf_zero (p : Program) :
   case label l => exact ⟨l, rfl⟩
   all_goals
     have hz' : (match p[i]? with | some (.label _) => 0 | _ => 4) = 0 := hz
-    rw [hd] at hz'
-    simp at hz'
+    grind
 
 private theorem sum_sized_mapIdx_le_four (sz : Nat → Nat) (hsz : ∀ i, sz i ≤ 4) :
     ∀ (xs : List Directive) (k : Nat),
@@ -167,12 +166,7 @@ private theorem sum_sized_mapIdx_le_four (sz : Nat → Nat) (hsz : ∀ i, sz i �
     rw [List.mapIdx_cons, List.map_cons, List.sum_cons, List.length_cons]
     have h0 : sz (k + 0) ≤ 4 := hsz (k + 0)
     have ih := sum_sized_mapIdx_le_four sz hsz xs (k + 1)
-    have hconv : (List.mapIdx (fun i d => ({ directive := d, size := sz (k + (i + 1)) } : Kraken.Sized Directive)) xs) =
-        (List.mapIdx (fun i d => ({ directive := d, size := sz (k + 1 + i) } : Kraken.Sized Directive)) xs) := by
-      congr 1; funext i d; congr 2; omega
-    rw [hconv]
-    dsimp only
-    omega
+    grind
 
 theorem layoutOf_small (p : Program) (h : 4 * p.length < 2 ^ 64) :
     (@Kraken.Layout.apply _ (layoutOf p) p).sizeBefore p.length < 2 ^ 64 := by

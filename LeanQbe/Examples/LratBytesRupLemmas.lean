@@ -37,8 +37,7 @@ private theorem zigzag_eq {u : Nat} (hu : u < 2 ^ 28) :
     (v ^^^ mask) - mask = decodeZigZag u := by
   dsimp only [decodeZigZag]
   have hmask : (0 : Val) - (BitVec.ofNat 64 u &&& 1) = if u % 2 == 1 then -1 else 0 := by
-    rw [bv_and_one (by omega)]
-    rcases Nat.mod_two_eq_zero_or_one u with h | h <;> rw [h] <;> decide
+    grind
   rw [hmask, negif]
 
 private abbrev wsFixed (c : WorkCfg) (ptrs : List Val) (PoolUsed : Mem 64 → Prop) :
@@ -125,8 +124,7 @@ theorem lbReadAddLits_correct (Γ : Env) :
     obtain ⟨fuel', rfl⟩ : ∃ fuel', fuel = fuel' + 1 := ⟨fuel - 1, by omega⟩
     let wcur : Val := c_ptr + BitVec.ofNat 64 (4 * acc.length)
     have hwcur_eq : wcur = c.pbase + BitVec.ofNat 64 (4 * (c.poolInts - rem)) := by
-      dsimp only [wcur, c_ptr]
-      exact BitVec.eq_of_toNat_eq (by simp [BitVec.toNat_add]; omega)
+      grind
     wp_unfold
     refine ⟨fun hfull => ?_, fun hnfull => ?_⟩
     · have hrem0 : rem = 0 := (c.pcur_eq_plim_iff (by omega)).mp (hwcur_eq ▸ hfull)
@@ -177,9 +175,7 @@ theorem lbReadAddLits_correct (Γ : Env) :
           refine ⟨ok_p72, ?_⟩
           have hwcur2_eq :
               wcur + 4 = c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (clits.length + 1))) := by
-            have hcl_len : clits.length = acc.length := List.length_reverse
-            rw [hcl_len, hwcur_eq]
-            exact BitVec.eq_of_toNat_eq (by simp [BitVec.toNat_add]; omega)
+            grind
           have hhdr_end :
               ((c.hdrWords c_ptr cur0).set 8 (wcur + 4)).set 9 cur2 =
                 c.hdrWords (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (clits.length + 1)))) cur2 := by
@@ -213,25 +209,8 @@ theorem lbReadAddLits_correct (Γ : Env) :
           have hvalid_clits : ∀ x ∈ clits, IsValidLit c.mv x :=
             fun x hx => hacc_valid x (List.mem_reverse.mp hx)
           have hwcur_cptr : wcur = c_ptr ↔ acc.length = 0 := by
-            have := c.toNat_pbase
-            rw [show (wcur = c_ptr) ↔
-                  (c_ptr + BitVec.ofNat 64 (4 * acc.length) = c_ptr + BitVec.ofNat 64 0) from by
-                  simp [wcur],
-              cursor_eq_iff (by omega) (by decide)]
-            omega
-          refine ⟨fun hemp => ?_, fun hnemp => ?_⟩
-          · have hlen0 : acc.length = 0 := hwcur_cptr.mp hemp
-            have his_emp : acc.reverse.isEmpty = true := by simp [List.length_eq_zero_iff.mp hlen0]
-            refine hQ 2 _ ?_
-            rw [hpure]
-            exact ⟨by rw [his_emp]; rfl, hbs', hidx'_le, by rw [List.length_reverse]; omega,
-              hcptr_ne0, hvalid_clits, hm_done⟩
-          · have hlen_ne0 : acc.length ≠ 0 := mt hwcur_cptr.mpr hnemp
-            have his_nemp : acc.reverse.isEmpty = false := by cases acc <;> simp at hlen_ne0 ⊢
-            refine hQ 1 _ ?_
-            rw [hpure]
-            exact ⟨by rw [his_nemp]; rfl, hbs', hidx'_le, by rw [List.length_reverse]; omega,
-              hcptr_ne0, hvalid_clits, hm_done⟩
+            grind
+          grind
         · have hpure_step :
               readAddLitsAux (fuel' + 1) c.mv rem acc (prfBytes.drop idx) =
                 (let v := u / 2
@@ -246,14 +225,12 @@ theorem lbReadAddLits_correct (Γ : Env) :
             have := c.hmv; unfold dimacsBound at this; omega
           refine bv_eq_zero_branch (by omega : u / 2 < 2 ^ 64)
             (fun hv0 => ?_) (fun hv_ne0 => ?_)
-          · simp only [hv0, beq_self_eq_true, Bool.true_or, ↓reduceIte] at hpure
-            exact collapseFail acc rem m' hrem_sum hpure hm'
+          · grind
           · have hv_pos : 1 ≤ u / 2 := by omega
             have hv_ne0_b : ((u / 2) == 0) = false := beq_false_of_ne hv_ne0
             refine ult_branch hmv_lt64 (by omega : u / 2 < 2 ^ 64)
               (fun hmv_lt_v => ?_) (fun hnlt => ?_)
-            · simp only [hv_ne0_b, hmv_lt_v, decide_true, Bool.false_or, ↓reduceIte] at hpure
-              exact collapseFail acc rem m' hrem_sum hpure hm'
+            · grind
             · have hv_le_mv : u / 2 ≤ c.mv := by omega
               have hv_le_b : decide (c.mv < u / 2) = false := decide_eq_false (by omega)
               simp only [hv_ne0_b, hv_le_b, Bool.false_or, Bool.false_eq_true, ↓reduceIte] at hpure
@@ -286,10 +263,7 @@ theorem lbReadAddLits_correct (Γ : Env) :
                 ⟨idx', rem - 1, decodeZigZag u :: acc, ?_, by omega, by simp; omega, ?_,
                   ?_, ?_, hm1_next⟩
               · rw [← hbs']; omega
-              · intro x hx
-                rcases List.mem_cons.mp hx with rfl | hx
-                · exact hlit_valid
-                · exact hacc_valid x hx
+              · grind
               · simp only [List.length_cons, ptr4]; rfl
               · rwa [← hbs']
   · intro Jloop hJloop
@@ -339,9 +313,7 @@ theorem assignLitChecked_spec {Γ : Env} {Q : Post} {X : XPost} {fail : Cont}
   subst hidx hte htlim
   wp_unfold
   refine ⟨fun hfull => ?_, fun hnfull => ?_⟩
-  · have h4 : 4 * trail.length = 4 * (mv + 1) :=
-      (cursor_eq_iff (by omega) (by omega)).mp hfull
-    exact hfail (by omega)
+  · grind
   · have hne_len : trail.length ≠ mv + 1 := by
       intro heq; apply hnfull; rw [heq]
     rcases tf with _ | ⟨t0, tf'⟩
@@ -360,12 +332,8 @@ theorem assignLitChecked_spec {Γ : Env} {Q : Post} {X : XPost} {fail : Cont}
     rw [ha]
     refine ⟨ok1, ok2, hk _ tf' hne_len
       (pstate_sep.mpr ⟨?_, trailCoversAssign_insert wlit hcov, ?_, ?_, sep_cast hm2 (by ac_rfl)⟩)⟩
-    · rw [List.length_append, List.length_singleton]
-      exact BitVec.eq_of_toNat_eq (by simp [BitVec.toNat_add]; omega)
-    · intro t ht
-      rcases List.mem_append.mp ht with h | h
-      · exact htv t h
-      · rw [List.mem_singleton.mp h]; exact hwlit
+    · grind
+    · grind
     · simp at hlen ⊢; omega
 
 theorem rupPhase1_spec {Γ : Env} {Q : Post} {X : XPost} {fail taut ph2 : Cont}
@@ -415,14 +383,12 @@ theorem rupPhase1_spec {Γ : Env} {Q : Post} {X : XPost} {fail taut ph2 : Cont}
       · simp only [hneg, ↓reduceIte] at hpure
         exact ih _ _ _ (by omega) ⟨i + 1, te, assign, trail, tf, by rw [ptr4], hlt, rfl, hm', hpure⟩
       · refine ⟨fun hpos => ?_, fun hnpos => ?_⟩
-        · simp only [hnneg, hpos, Bool.false_eq_true, ↓reduceIte] at hpure
-          exact htaut m' te assign trail tf hpure hm'
+        · grind
         · rw [show (0 : Val) - clits[i] = -clits[i] by simp]
           refine assignLitChecked_spec (isValidLit_neg hlit) (bvAbs_neg hlit).symm htlim htfit hm'
             (fun hfull => ?_)
             (fun m'' tf' hne_len hm'' => ?_)
-          · simp only [hnneg, hnpos, hfull, beq_self_eq_true, Bool.false_eq_true, ↓reduceIte] at hpure
-            exact hfail m' te assign trail tf hpure hm'
+          · grind
           · have hfull_f : (trail.length == mv + 1) = false := beq_eq_false_iff_ne.mpr hne_len
             simp only [hnneg, hnpos, hfull_f, Bool.false_eq_true, ↓reduceIte] at hpure
             have hidx_neg : (bvAbs clits[i]).toNat = (toLiteral (-clits[i])).1 := by
@@ -483,8 +449,7 @@ theorem rupInner_spec {Γ : Env} {Q : Post} {X : XPost} {fail done : Cont}
       refine ⟨fun hneg => ?_, fun hnneg => ?_⟩
       · rw [show (0 : Val) - alits[i] = -alits[i] by simp]
         refine ⟨fun heq => ?_, fun hne => ?_⟩
-        · simp only [hneg, heq, beq_self_eq_true, ↓reduceIte] at hpure
-          exact hfail m' te assign trail tf hpure hm'
+        · grind
         · have hne_b : (unit == -alits[i]) = false := beq_eq_false_iff_ne.mpr hne
           simp only [hneg, hne_b, Bool.false_eq_true, ↓reduceIte] at hpure
           exact ih _ _ _ (by omega) ⟨i + 1, unit, te, assign, trail, tf, by rw [ptr4], hlt, rfl, hm', hpure⟩
@@ -509,8 +474,7 @@ theorem rupInner_spec {Γ : Env} {Q : Post} {X : XPost} {fail done : Cont}
             refine assignLitChecked_spec hlit rfl htlim htfit hm'
               (fun hfull => ?_)
               (fun m'' tf' hne_len hm'' => ?_)
-            · simp only [hfull, beq_self_eq_true, ↓reduceIte] at hpure_su
-              exact hfail m' te assign trail tf hpure_su hm'
+            · grind
             · have hfull_f : (trail.length == mv + 1) = false := beq_eq_false_iff_ne.mpr hne_len
               simp only [hfull_f, Bool.false_eq_true, ↓reduceIte] at hpure_su
               have hidx_pos : (bvAbs alits[i]).toNat = (toLiteral alits[i]).1 := rfl
@@ -528,17 +492,10 @@ theorem rupInner_spec {Γ : Env} {Q : Post} {X : XPost} {fail done : Cont}
           wp_unfold
           refine ⟨fun htu => ?_, fun hntu => ?_⟩
           · have htu_b : (lo32 unit != 0) = true := bne_iff_ne.mpr htu
-            rw [htu_b] at hpure
-            refine ⟨fun heq => ?_, fun hne => ?_⟩
-            · simp only [heq, beq_self_eq_true, ↓reduceIte] at hpure
-              exact hJsu [] m' ⟨rfl, rfl, hpure⟩
-            · have hne_b : (unit == alits[i]) = false := beq_eq_false_iff_ne.mpr hne
-              simp only [hne_b, Bool.false_eq_true, ↓reduceIte] at hpure
-              exact hfail m' te assign trail tf hpure hm'
+            grind
           · have hntu_b : (lo32 unit != 0) = false := by
               rw [Bool.eq_false_iff, ne_eq, bne_iff_ne]; exact hntu
-            simp only [hntu_b, Bool.false_eq_true, ↓reduceIte] at hpure
-            exact hJsu [] m' ⟨rfl, rfl, hpure⟩
+            grind
     · rw [truthy_iff _ (zeroTermGet_isInt32 h32 i), Classical.not_not] at hz
       obtain rfl := (zeroTermGet_eq_zero_iff hi hne0).mp hz
       simp only [List.drop_length, rupInnerPure] at hpure
@@ -699,9 +656,7 @@ theorem lbRupCheck_correct (Γ : Env) :
     (Eq (prfBytes.At prf_ptr) ⋆ region c.hdr c.activeBytes ⋆ R) m')
   · rintro _ m' ⟨rfl, hnone, hreg⟩
     wp_unfold
-    refine hQ 0 m' ?_
-    rw [hnone]
-    exact ⟨rfl, hreg⟩
+    grind
   intro Jfail hJfail
   have goFail : ∀ (te : Val) (assign : Assignment) (trail tf : List Val) (m' : Mem 64),
       rupCheckPure c.mv id clits table (prfBytes.drop idx0) = none →
@@ -814,8 +769,7 @@ theorem lbRupCheck_correct (Γ : Env) :
           rw [← hu_succ] at hpure hleb_some
           refine bv_odd_branch (by omega : u < 2 ^ 64)
             (fun hodd_b => ?_) (fun heven_b => ?_)
-          · simp only [hodd_b, ↓reduceIte] at hpure
-            exact goFail cte assign_c trail_c tf_c m' hpure hm'
+          · grind
           · simp only [heven_b, Bool.false_eq_true, ↓reduceIte] at hpure
             rw [bv_shr_one (by omega : u < 2 ^ 64)]
             let aid := u / 2
@@ -836,16 +790,8 @@ theorem lbRupCheck_correct (Γ : Env) :
                   refine ih fuel' _ _ (by omega) ⟨idx', ?_, hidx'_le, rfl, ?_, hm'⟩
                   · rw [← hbs']; omega
                   · rwa [← hbs']
-              · have hptr0 : ptrs[aid]'(hplen ▸ haid_cap) = 0 := Classical.not_not.mp hnact
-                have hspec_a := hrel aid haid_cap
-                rw [List.getElem?_eq_getElem (htlen ▸ haid_cap)] at hpure
-                cases ht_a : table[u / 2]'(htlen ▸ haid_cap) with
-                | none =>
-                  simp only [ht_a] at hpure
-                  exact goFail cte assign_c trail_c tf_c m' hpure hm'
-                | some alits => rw [ht_a] at hspec_a; exact absurd hptr0 hspec_a.1
-            · simp only [hnaid_lt, ↓reduceIte] at hpure
-              exact goFail cte assign_c trail_c tf_c m' hpure hm'
+              · grind
+            · grind
     · intro Jcloop hJcloop
       wp_unfold
       exact hJcloop ((prfBytes.drop idx_c).length + 1) _ _
@@ -900,8 +846,7 @@ theorem lbRupCheck_correct (Γ : Env) :
           rw [← hu_succ] at hpure hleb_some
           refine bv_odd_branch (by omega : u < 2 ^ 64)
             (fun hodd_b => ?_) (fun heven_b => ?_)
-          · simp only [hodd_b, ↓reduceIte] at hpure
-            exact goFail te assign trail tf m' hpure hm'
+          · grind
           · simp only [heven_b, Bool.false_eq_true, ↓reduceIte] at hpure
             rw [bv_shr_one (by omega : u < 2 ^ 64)]
             let aid := u / 2
@@ -942,9 +887,7 @@ theorem lbRupCheck_correct (Γ : Env) :
                       · rwa [← hbs']
                     · have hntu_b : (lo32 unit != 0) = false := by
                         rw [Bool.eq_false_iff, ne_eq, bne_iff_ne]; exact hntu
-                      simp only [hntu_b, Bool.false_eq_true, ↓reduceIte] at hpure
-                      exact hJconsume _ m''
-                        ⟨idx', t2, assign2, trail2, tf2, rfl, hidx'_le, by rwa [← hbs'], hm''⟩
+                      grind
                   · intro Jidone hJidone
                     refine rupInner_spec hvalid_a rfl htfit (wsRup_focus hpu_a hm')
                       (fun m'' t2 assign2 trail2 tf2 hinner_none hm''_in => ?_)
@@ -953,16 +896,8 @@ theorem lbRupCheck_correct (Γ : Env) :
                       exact goFail t2 assign2 trail2 tf2 m'' hpure (wsRup_unfocus hpu_a hm''_in)
                     · exact hJidone _ m'' ⟨unit, t2, assign2, trail2, tf2, rfl, hinner_ok,
                         wsRup_unfocus hpu_a hm''_in⟩
-              · have hptr0 : ptrs[aid]'(hplen ▸ haid_cap) = 0 := Classical.not_not.mp hnact
-                have hspec_a := hrel aid haid_cap
-                rw [List.getElem?_eq_getElem (htlen ▸ haid_cap)] at hpure
-                cases ht_a : table[u / 2]'(htlen ▸ haid_cap) with
-                | none =>
-                  simp only [ht_a] at hpure
-                  exact goFail te assign trail tf m' hpure hm'
-                | some alits => rw [ht_a] at hspec_a; exact absurd hptr0 hspec_a.1
-            · simp only [hnaid_lt, ↓reduceIte] at hpure
-              exact goFail te assign trail tf m' hpure hm'
+              · grind
+            · grind
     · intro Jouter hJouter
       wp_unfold
       exact hJouter ((prfBytes.drop idx0).length + 1) _ _
@@ -1082,8 +1017,7 @@ private theorem rupPhase1Pure_loop_sound {mv : Nat} {clits : List Val}
           exact rupPhase1Pure_loop_sound hvalid rem (i + 1)
             (assign.insert (toLiteral (-clits[i])).1 (toLiteral (-clits[i])).2)
             (trailLen + 1) hlt (by omega) (phase1_step_insert hlt hlit hinv hun)
-        · simp only [↓reduceIte]
-          exact ⟨fun h => (nomatch h), fun _ _ h => (nomatch h)⟩
+        · grind
       · simp only [↓reduceIte]
         exact ⟨fun _ => phase1_step_tautology hlt hinv (hcases.2.1 ⟨hneg, hpos⟩),
           fun _ _ h => (nomatch h)⟩
@@ -1155,15 +1089,9 @@ private theorem rupInnerPure_loop_sound {mv : Nat} {alits : List Val} {F : CNF N
           rupInnerPure mv (alits.drop (i + 1)) alits[i] (assignBytes mv assign) trailLen
       have hsu : (unit = 0 ∨ unit = alits[i]) ∧ stepUnit = some (unit', vals', trailLen') := by
         rcases hst with ⟨rfl, _⟩ | ⟨hu, huv, _⟩
-        · have hz : (lo32 (0 : Val) != 0) = false := by decide
-          simp only [hz, Bool.false_eq_true, ↓reduceIte] at hres
-          exact ⟨Or.inl rfl, hres⟩
+        · grind
         · rw [lo32_bne_zero_of_valid hu huv] at hres
-          simp only [↓reduceIte] at hres
-          cases heq : (unit == alits[i])
-          · simp [heq] at hres
-          · simp only [heq, ↓reduceIte] at hres
-            exact ⟨Or.inr (eq_of_beq heq), hres⟩
+          grind
       obtain ⟨hu_cases, hres_su⟩ := hsu
       dsimp only [stepUnit] at hres_su
       cases hvz : (evalAssignedLit (assignByte assign (toLiteral alits[i]).1) alits[i] == 0)
@@ -1172,9 +1100,7 @@ private theorem rupInnerPure_loop_sound {mv : Nat} {alits : List Val} {F : CNF N
         simp only [hvz, Bool.false_eq_true, ↓reduceIte] at hres_su
         have hpos : (0 : Val).slt
             (evalAssignedLit (assignByte assign (toLiteral alits[i]).1) alits[i]) = true := by
-          cases hp : (0 : Val).slt _
-          · exact absurd (hcases.2.2 ⟨hneg, hp⟩).2 hnv0
-          · rfl
+          grind
         have hsat := hcases.2.1 ⟨hneg, hpos⟩
         have hst' : PureInnerSt mv alits curAssign (i + 1) alits[i] assign := by
           rcases hst with ⟨rfl, rfl, hinv⟩ | ⟨hu, huv, hus, hrel, hinv⟩
@@ -1201,9 +1127,7 @@ private theorem rupInnerPure_loop_sound {mv : Nat} {alits : List Val} {F : CNF N
             exact rupInnerPure_loop_sound hvalid hcl hent rem (i + 1) alits[i]
               (assign.insert (toLiteral alits[i]).1 (toLiteral alits[i]).2)
               (trailLen + 1) unit' vals' trailLen' hlt (by omega) hst' hres_su
-          · rcases hu_cases with rfl | rfl
-            · exact absurd rfl hu
-            · rw [hun] at hus; nomatch hus
+          · grind
         · simp [hfull] at hres_su
     · have hfals := hcases.1 hneg
       simp only [hneg, ↓reduceIte] at hres

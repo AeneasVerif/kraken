@@ -31,8 +31,7 @@ theorem get_setSP_of_ne (s : MachineData) (v : Val) (r : Reg) (h : r ≠ .SP) :
   simp [get_setSP, h]
 
 theorem ofInt_toInt_ofNat (o : Nat) : BitVec.ofInt 64 (Int64.ofNat o).toInt = BitVec.ofNat 64 o := by
-  rw [Int64.toInt, BitVec.ofInt_toInt]
-  exact Int64.toBitVec_ofNat' ..
+  grind
 
 /-- The address `[sp, #o]`. -/
 theorem sp_addr (s : MachineData) (o : Nat) :
@@ -100,9 +99,7 @@ theorem frameSize_mod (ns : Nat) : frameSize ns % 16 = 0 := by
 /-- A multiple of 16 below an aligned address is aligned. -/
 theorem aligned_sub (sp : Val) (n : Nat) (hsp : sp.toNat % 16 = 0) (hn : n % 16 = 0) :
     (sp - BitVec.ofNat 64 n).toNat % 16 = 0 := by
-  have := sp.isLt
-  simp only [BitVec.toNat_sub, BitVec.toNat_ofNat]
-  omega
+  grind
 
 /-- What the frame keeps besides the slots: the saved `x30` above the slots, then padding. -/
 def Saved (sp0 : Val) (ra : Int64) (ns : Nat) : Mem 64 → Prop :=
@@ -239,10 +236,8 @@ theorem eventually_slotSt {k i : Nat} {r : Reg} {s : MachineData} {G : Mem 64 �
     rw [hlen]
     refine hk s' (fun r hr => ?_) ?_
     · have : r ≠ .reg .X17 := by intro e; subst e; simp [scratch] at hr
-      simp only [get, hregs]
-      exact get_wr_of_ne _ _ _ _ this
-    · rw [hsp₁, get_wr_same] at hmem'
-      exact hmem'
+      grind
+    · grind
 
 /-- `rd` := slot `i`. -/
 theorem eventually_slotLd {k i : Nat} {rd : Reg} {v : Val} {s : MachineData} {G : Mem 64 → Prop}
@@ -278,10 +273,7 @@ theorem eventually_call {k : Nat} {sym : Label} {s : MachineData} {post : @_root
     Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ := by
   refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
   simp only [step_simp, Reg64s.setRegOrZr, Reg64s.setRegOrZr64]
-  have hra : BitVec.ofInt 64 (Host.addrOf (k + 1)).toInt = (Host.addrOf (k + 1)).toBitVec := by
-    rw [← Int64.toInt_toBitVec, BitVec.ofInt_toInt]
-  rw [hra]
-  exact hk
+  grind
 
 /-- `b sym` -/
 theorem eventually_tailJmp {k : Nat} {sym : Label} {s : MachineData}

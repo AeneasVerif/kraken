@@ -22,10 +22,7 @@ private theorem isWsByte_val (b : UInt8) :
       boolVal ((BitVec.ofNat 64 b.toNat - 9).ult 5)) =
     boolVal (isDimacsWs b) := by
   rw [boolVal_or]; congr 1; unfold isDimacsWs
-  have h1 : (BitVec.ofNat 64 b.toNat == (32 : Val)) = (b == 32) :=
-    Bool.eq_iff_iff.mpr (by simpa [beq_iff_eq] using (bv64_u8_eq (b := b) (k := 32)))
-  have h2 := u8_sub_ult_eq 9 5 (by decide) (by decide) b
-  simpa [u8_le_iff_toNat] using congr (congrArg (· || ·) h1) h2
+  grind
 
 private theorem u8_sub48_ult10 (b : UInt8) :
     (BitVec.ofNat 64 b.toNat - (48 : Val)).ult (10 : Val) = isDimacsDigit b := by
@@ -36,12 +33,7 @@ private theorem digit_bounds {b : UInt8} (hd : isDimacsDigit b = true) :
     48 ≤ b.toNat ∧ b.toNat - 48 < 10 ∧
       BitVec.ofNat 64 b.toNat - (48 : Val) = BitVec.ofNat 64 (b.toNat - 48) := by
   unfold isDimacsDigit at hd
-  simp only [Bool.and_eq_true, decide_eq_true_eq, u8_le_iff_toNat] at hd
-  have h48 : (48 : UInt8).toNat = 48 := rfl
-  have h57 : (57 : UInt8).toNat = 57 := rfl
-  rw [h48, h57] at hd
-  have hb := b.toNat_lt
-  exact ⟨hd.1, by omega, by simpa using bv_sub_ofNat (a := b.toNat) (b := 48) hd.1 (by omega)⟩
+  grind
 
 private theorem skipWsCommentsAux_true_cons (c : UInt8) (bs : List UInt8) :
     skipWsCommentsAux true (c :: bs) =
@@ -364,11 +356,7 @@ private theorem skipWsCommentsAux_length_le (inC : Bool) (bs : List UInt8) :
   | cons b bs ih =>
     cases inC
     · rw [skipWsCommentsAux_false_cons]
-      split
-      · exact Nat.le_trans (ih false) (by simp)
-      · split
-        · exact Nat.le_trans (ih true) (by simp)
-        · exact Nat.le_refl _
+      grind
     · rw [skipWsCommentsAux_true_cons]
       split <;> exact Nat.le_trans (ih _) (by simp)
 
@@ -382,13 +370,7 @@ private theorem parseDigitsAux_length_le {acc : Nat} {bs : List UInt8} {v : Nat}
   | nil => simp [parseDigitsAux] at h; obtain ⟨_, rfl⟩ := h; exact Nat.le_refl _
   | cons b bs ih =>
     simp only [parseDigitsAux] at h
-    split at h
-    · split at h
-      · exact Nat.le_trans (ih h) (by simp)
-      · nomatch h
-    · split at h
-      · simp at h; obtain ⟨_, rfl⟩ := h; exact Nat.le_refl _
-      · nomatch h
+    grind
 
 theorem parseNat_length_lt {bs : List UInt8} {v : Nat} {rest : List UInt8}
     (h : parseNat bs = some (v, rest)) : rest.length < bs.length := by
@@ -455,11 +437,7 @@ theorem parseClausePure_fuel_irrel {f1 f2 mv poolRem : Nat} {acc : List Val} {bs
             | some vr =>
               obtain ⟨v, rest'⟩ := vr
               have hr_lt := parseNat_length_lt hp
-              simp only [List.length_cons] at hcr_len
-              dsimp
-              split
-              · rfl
-              · exact ih (by omega) (by omega)
+              grind
         · rw [parseClausePure_succ_pos hsw hb, parseClausePure_succ_pos hsw hb]
           split
           · rfl
@@ -468,23 +446,16 @@ theorem parseClausePure_fuel_irrel {f1 f2 mv poolRem : Nat} {acc : List Val} {bs
             | some vr =>
               obtain ⟨v, rest'⟩ := vr
               have hr_lt := parseNat_length_lt hp
-              dsimp
-              split
-              · rfl
-              · split
-                · rfl
-                · exact ih (by omega) (by omega)
+              grind
 
 theorem toLiteral_ofNat {v : Nat} (_hv1 : 1 ≤ v) (hvb : v < dimacsBound) :
     toLiteral (BitVec.ofNat 64 v) = (v, true) := by
   unfold dimacsBound at hvb
   have hslt : (BitVec.ofNat 64 v).slt 0#64 = false := by
     unfold BitVec.slt BitVec.toInt
-    simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : v < 2 ^ 64), decide_eq_false_iff_not]
-    split <;> omega
+    grind
   unfold toLiteral bvAbs
-  rw [show (0 : BitVec 64) = 0#64 from rfl, hslt]
-  simp [Nat.mod_eq_of_lt (by omega : v < 2 ^ 64)]
+  grind
 
 theorem toLiteral_neg_ofNat {mv v : Nat} (hv1 : 1 ≤ v) (hvm : v ≤ mv) (hmv : mv < dimacsBound) :
     toLiteral (-BitVec.ofNat 64 v) = (v, false) := by
@@ -623,9 +594,7 @@ private theorem initClauseTable_set {cap : Nat} {clauses : List (List Val)} (cli
   rw [List.set_append_right _ _ (by omega)]
   rw [hpre, Nat.sub_self]
   obtain ⟨d, hd⟩ : ∃ d, cap - (clauses.length + 1) = d + 1 := ⟨cap - (clauses.length + 2), by omega⟩
-  have hd2 : cap - ((clauses ++ [clits]).length + 1) = d := by simp; omega
-  rw [hd, hd2, List.replicate_succ, List.set_cons_zero]
-  simp [List.map_append]
+  grind
 
 private theorem tableRel_set {mv cap cid : Nat} {ptrs : List Val}
     {table : List (Option (List Val))} {PoolUsed : Mem 64 → Prop} {pcur : Val} {clits : List Val}
@@ -713,8 +682,7 @@ private theorem bodyMid_clause_finish {c : WorkCfg} {cnf_ptr cur0 : Val} {cnfByt
     rw [List.length_reverse, ptr_add_ofNat]; congr 2; omega
   have hwcur2 : (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) + 4 =
       c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (acc.length + 1))) := by
-    rw [show (4 : Val) = BitVec.ofNat 64 4 from rfl, ptr_add_ofNat]
-    exact congrArg (c.pbase + BitVec.ofNat 64 ·) (by omega)
+    grind
   have hzt : ZeroTermInts (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) acc.reverse =
       (int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) acc.reverse ⋆
        int4 (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) 0) := by
@@ -761,8 +729,7 @@ private theorem bodyMid_lit_store {c : WorkCfg} {cnf_ptr cur0 : Val} {cnfBytes :
     rw [List.length_reverse, ptr_add_ofNat]; congr 2; omega
   have hwcur2 : (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) + 4 =
       c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (acc.length + 1))) := by
-    rw [show (4 : Val) = BitVec.ofNat 64 4 from rfl, ptr_add_ofNat]
-    exact congrArg (c.pbase + BitVec.ofNat 64 ·) (by omega)
+    grind
   have harr_next : int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) (lit :: acc).reverse =
       (int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) acc.reverse ⋆
        int4 (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) lit) := by
@@ -911,8 +878,7 @@ theorem lbParseDimacsBody_correct (Γ : Env) :
           have hwcur2 : ∀ lit : Val,
               (c.pbase + BitVec.ofNat 64 (4 * (poolUsed + acc.length))) + 4 =
                 c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (lit :: acc).length)) := fun lit => by
-            rw [show (4 : Val) = BitVec.ofNat 64 4 from rfl, ptr_add_ofNat]
-            exact congrArg (c.pbase + BitVec.ofNat 64 ·) (by rw [List.length_cons]; omega)
+            grind
           have hstep_lit : ∀ (lit : Val) {idx2 : Nat} (hidx2 : idx2 ≤ cnfBytes.length) (hlidx : lidx < idx2),
               IsValidLit c.mv lit →
               parseClausePure ((cnfBytes.drop idx2).length + 1) c.mv (rem - 1) (lit :: acc) (cnfBytes.drop idx2) =
@@ -970,8 +936,7 @@ theorem lbParseDimacsBody_correct (Γ : Env) :
             · have hcl_ok : parseClausePure ((cnfBytes.drop idx).length + 1) c.mv poolRem []
                   (cnfBytes.drop idx) = some (acc.reverse, rem - 1, cnfBytes.drop idx2) := by
                 rw [← hcl_inv, parseClausePure_succ_pos hsw1' hb_ne45]
-                simp only [beq_eq_false_iff_ne.mpr (by omega : rem ≠ 0), Bool.false_eq_true,
-                  ↓reduceIte, hp_v', hv0, beq_self_eq_true, hd2]
+                grind
               rw [show (BitVec.ofNat 64 cidNat).toNat = cidNat from Nat.mod_eq_of_lt (by omega)]
               obtain ⟨ok_z, ok_slot, htr', hpu', hm_slot⟩ := bodyMid_clause_finish (cidNat := cidNat)
                 (by omega) hrev_len hcid1 rfl hrem_pos (by omega) (by omega) htr hpu hacc_val hm_lit
@@ -1151,12 +1116,7 @@ private theorem parseBodyPure_sound_aux {mv k poolRem poolRem' : Nat}
         · exact hrev cl hmem) hbody
       refine ⟨fun cnf0 => ?_, by simp [hlen]; omega, hval_all⟩
       simp only [parseClauses, hparse_cl]
-      dsimp
-      have hfold : ((clits :: revClauses).reverse.foldl (fun c lits => c.add (toClause lits)) cnf0) =
-          (revClauses.reverse.foldl (fun c lits => c.add (toClause lits)) cnf0).add (toClause clits) := by
-        rw [List.reverse_cons, List.foldl_append]; rfl
-      rw [← hfold]
-      exact hcnf_eq cnf0
+      grind
 
 theorem parseBodyPure_sound {cnfBytes bodyRest : List UInt8} {mv nc poolInts poolRem' : Nat}
     {clauses : List (List Val)}
@@ -1170,8 +1130,7 @@ theorem parseBodyPure_sound {cnfBytes bodyRest : List UInt8} {mv nc poolInts poo
   obtain ⟨hclauses, hlen, hval⟩ := parseBodyPure_sound_aux hmv (by simp) hbody
   refine ⟨?_, by simpa using hlen, hval⟩
   unfold parseDimacs
-  rw [hhdr]; dsimp
-  simpa using hclauses CNF.empty
+  grind
 
 /-! ## 6. DIMACS encoder round-trip (`parseDimacs_encodeDimacs`) -/
 
@@ -1186,9 +1145,7 @@ private theorem natToBytesAux_acc (fuel n : Nat) (acc : List UInt8) :
   | zero => simp [natToBytesAux]
   | succ fuel ih =>
     simp only [natToBytesAux]
-    split
-    · simp
-    · rw [ih (n / 10) (_ :: acc), ih (n / 10) [_], List.append_assoc, List.singleton_append]
+    grind
 
 private theorem natToBytesAux_fuel_irrel {f1 f2 n : Nat} (acc : List UInt8)
     (h1 : n < f1) (h2 : n < f2) :
@@ -1200,9 +1157,7 @@ private theorem natToBytesAux_fuel_irrel {f1 f2 n : Nat} (acc : List UInt8)
     | zero => omega
     | succ fuel2 =>
       simp only [natToBytesAux]
-      split
-      · rfl
-      · exact ih _ (by omega) (by omega)
+      grind
 
 private theorem natToBytes_lt_10 {n : Nat} (h : n < 10) :
     natToBytes n = [(48 + n).toUInt8] := by
@@ -1223,19 +1178,13 @@ private theorem digit_toNat {d : Nat} (hd : d < 10) :
 private theorem isDimacsDigit_digit {d : Nat} (hd : d < 10) :
     isDimacsDigit ((48 + d).toUInt8) = true := by
   unfold isDimacsDigit
-  simp only [Bool.and_eq_true, decide_eq_true_eq, u8_le_iff_toNat, digit_toNat hd]
-  change 48 ≤ 48 + d ∧ 48 + d ≤ 57
-  omega
+  grind
 
 private theorem isDimacsWs_of_digit {b : UInt8} (hd : isDimacsDigit b = true) :
     isDimacsWs b = false := by
   have ⟨h48, _, _⟩ := digit_bounds hd
   unfold isDimacsWs
-  simp only [Bool.or_eq_false_iff, beq_eq_false_iff_ne, Bool.and_eq_false_iff,
-    decide_eq_false_iff_not, u8_le_iff_toNat]
-  refine ⟨fun h => ?_, Or.inr ?_⟩
-  · subst h; contradiction
-  · change ¬ b.toNat ≤ 13; omega
+  grind
 
 private theorem isDimacsDigit_of_ws {b : UInt8} (hw : isDimacsWs b = true) :
     isDimacsDigit b = false := by
@@ -1246,16 +1195,11 @@ private theorem isDimacsDigit_of_ws {b : UInt8} (hw : isDimacsWs b = true) :
 private theorem ne_99_of_digit {b : UInt8} (hd : isDimacsDigit b = true) :
     (b == 99) = false := by
   have ⟨_, h10, _⟩ := digit_bounds hd
-  rw [beq_eq_false_iff_ne]
-  intro h; subst h
-  change (99 : Nat) - 48 < 10 at h10
-  omega
+  grind
 
 private theorem ne_45_of_digit {b : UInt8} (hd : isDimacsDigit b = true) : b ≠ 45 := by
   have ⟨h48, _, _⟩ := digit_bounds hd
-  intro h; subst h
-  change 48 ≤ 45 at h48
-  omega
+  grind
 
 private theorem natToBytes_digits (n : Nat) :
     natToBytes n ≠ [] ∧ ∀ b ∈ natToBytes n, isDimacsDigit b = true := by
@@ -1299,14 +1243,12 @@ private theorem parseNat_natToBytes_append {n : Nat} (hn : n < dimacsBound) (tai
     by_cases h : n < 10
     · rw [natToBytes_lt_10 h, List.singleton_append]
       simp only [parseNat, isDimacsDigit_digit h, ↓reduceIte, digit_toNat h]
-      have hsub : 48 + n - 48 = n := by omega
-      rw [hsub]
+      grind
     · rw [natToBytes_ge_10 (by omega), List.append_assoc, List.singleton_append]
       rw [ih (n / 10) (by omega) (by omega)]
       have hd : n % 10 < 10 := by omega
       simp only [parseDigitsAux, isDimacsDigit_digit hd, ↓reduceIte, digit_toNat hd]
-      have hacc : n / 10 * 10 + (48 + n % 10 - 48) = n := by omega
-      simp only [hacc, hn, ↓reduceIte]
+      grind
 
 private theorem parseNat_natToBytes_ws {n : Nat} {w : UInt8} {rest : List UInt8}
     (hn : n < dimacsBound) (hw : isDimacsWs w = true) :
@@ -1410,10 +1352,7 @@ private theorem parseClauseAux_fuel_irrel {f1 f2 mv : Nat} {acc : List (Literal 
           | some vr =>
             obtain ⟨v, rest'⟩ := vr
             have hp_len := parseNat_length_lt hpn
-            simp only
-            split
-            · exact ih (by simp at hcr_len; omega) (by simp at hcr_len; omega)
-            · rfl
+            grind
         · cases hpn : parseNat (b :: rest) with
           | none =>
             have _ := hb
@@ -1426,9 +1365,7 @@ private theorem parseClauseAux_fuel_irrel {f1 f2 mv : Nat} {acc : List (Literal 
             · have hp_len := parseNat_length_lt hpn
               rw [parseClauseAux_succ_pos_ne0 hsw hb hv0 hpn,
                   parseClauseAux_succ_pos_ne0 hsw hb hv0 hpn]
-              split
-              · exact ih (by omega) (by omega)
-              · rfl
+              grind
 
 private theorem parseClauseAux_ws_cons {fuel mv : Nat} {acc : List (Literal Nat)}
     {w : UInt8} {bs : List UInt8} (hw : isDimacsWs w = true) :
@@ -1452,9 +1389,7 @@ private theorem encodeDimacsLit_length_ge_2 (l : Literal Nat) :
   unfold encodeDimacsLit
   obtain ⟨hne, _⟩ := natToBytes_digits l.1
   have hpos : 1 ≤ (natToBytes l.1).length := by
-    cases h : natToBytes l.1 with
-    | nil => exact absurd h hne
-    | cons _ _ => simp
+    grind
   cases l.2 <;> simp <;> omega
 
 private theorem parseClauseAux_encodeLits {ls : List (Literal Nat)} {fuel mv : Nat}
@@ -1484,11 +1419,7 @@ private theorem parseClauseAux_encodeLits {ls : List (Literal Nat)} {fuel mv : N
       let tail := ls.flatMap encodeDimacsLit ++ ([48, 10] ++ rest)
       have hlen_lit := encodeDimacsLit_length_ge_2 (v, pol)
       have hfuel' : tail.length < fuel := by
-        have happ : ((v, pol) :: ls).flatMap encodeDimacsLit ++ ([48, 10] ++ rest) =
-            encodeDimacsLit (v, pol) ++ tail := by
-          simp [tail, List.append_assoc]
-        rw [happ, List.length_append] at hfuel
-        omega
+        grind
       simp only [List.flatMap_cons, List.append_assoc]
       change parseClauseAux (fuel + 1) mv acc (encodeDimacsLit (v, pol) ++ tail) = _
       have hcond : (1 ≤ v && v ≤ mv) = true := by simp [hv1, hvm]
@@ -1545,8 +1476,7 @@ private theorem parseClauses_encodeDimacsClauses {mv : Nat} {cls : List (CNF.Cla
     simp only [List.length_cons, List.flatMap_cons, parseClauses]
     rw [parseClause_ws_cons (by decide : isDimacsWs 10 = true),
         parseClause_encodeDimacsClause hmv (fun l hl => hcls cl (by simp) l hl)]
-    dsimp
-    exact ih (accCnf.add cl) (fun c hc => hcls c (by simp [hc]))
+    grind
 
 private theorem foldl_add_clauses_toList (cls : List (CNF.Clause Nat)) (init : CNF Nat) :
     (cls.foldl CNF.add init).clauses.toList = init.clauses.toList ++ cls := by

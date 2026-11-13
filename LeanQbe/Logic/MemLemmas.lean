@@ -118,8 +118,7 @@ theorem storeMem_eq (m : Mem 64) (s : Sz) (a v : Val) :
   · exact ⟨_, rfl, setWidth_toInt_take v 32⟩
   · refine ⟨_, rfl, ?_⟩
     simp only [Sz.bytes, Int.take, BitVec.toInt_emod_two_pow]
-    have := v.isLt
-    exact (Int.emod_eq_of_lt (by omega) (by omega)).symm
+    grind
 
 theorem loadVal_toBytes {s : Sz} {a : Val} {x : Int} {k : Cls} {sg : Bool} {R : Mem 64 → Prop}
     {m : Mem 64} (h : (Eq ((Int.toBytes s.bytes x).At a) ⋆ R) m) :

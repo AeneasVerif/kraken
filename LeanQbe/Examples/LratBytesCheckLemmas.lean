@@ -31,8 +31,7 @@ private theorem readLeb128Pure_props {bs : List UInt8} {u : Nat} {bs' : List UIn
     (h : readLeb128Pure bs = some (u, bs')) :
     u < 2 ^ 28 ∧ bs'.length < bs.length ∧ bs' = bs.drop (bs.length - bs'.length) := by
   obtain ⟨hu, hlt, k, _, hkle, rfl⟩ := readLeb128Pure_some h
-  rw [List.length_drop]
-  exact ⟨hu, by omega, by congr 1; omega⟩
+  grind
 
 private theorem drop_trans_len {full bs' : List UInt8} {idx : Nat} (hidx : idx ≤ full.length)
     (h : bs' = (full.drop idx).drop ((full.drop idx).length - bs'.length))
@@ -40,9 +39,7 @@ private theorem drop_trans_len {full bs' : List UInt8} {idx : Nat} (hidx : idx �
     bs' = full.drop (full.length - bs'.length) ∧ full.length - bs'.length ≤ full.length := by
   have hfl : (full.drop idx).length = full.length - idx := List.length_drop
   rw [List.drop_drop] at h
-  have heq : idx + ((full.drop idx).length - bs'.length) = full.length - bs'.length := by omega
-  rw [heq] at h
-  exact ⟨h, by omega⟩
+  grind
 
 private theorem readAddLitsAux_lt {fuel mv poolRem : Nat} {acc : List Val} {bs : List UInt8}
     {clits : List Val} {poolRem' : Nat} {bs' : List UInt8}
@@ -58,15 +55,10 @@ private theorem readAddLitsAux_lt {fuel mv poolRem : Nat} {acc : List Val} {bs :
       · simp at h
       · rename_i bs1 heq
         obtain ⟨_, hlt1, _⟩ := readLeb128Pure_props heq
-        simp only [Option.some.injEq, Prod.mk.injEq] at h
-        obtain ⟨_, _, rfl⟩ := h
-        exact hlt1
+        grind
       · rename_i u bs1 _ heq
         obtain ⟨_, hlt1, _⟩ := readLeb128Pure_props heq
-        split at h
-        · simp at h
-        · have hlt2 := ih h
-          omega
+        grind
 
 private theorem readAddLitsPure_lt {mv poolRem : Nat} {bs : List UInt8}
     {clits : List Val} {poolRem' : Nat} {bs' : List UInt8}
@@ -88,13 +80,7 @@ private theorem consumeHintsAux_lt {fuel id : Nat} {table : List (Option (List V
       simp only [Option.some.injEq] at h; subst h; exact hlt1
     · rename_i u bs1 _ heq
       obtain ⟨_, hlt1, _⟩ := readLeb128Pure_props heq
-      split at h
-      · simp at h
-      · split at h
-        · split at h
-          · have hlt2 := ih h; omega
-          · simp at h
-        · simp at h
+      grind
 
 private theorem rupPhase2Aux_lt {fuel mv id : Nat} {table : List (Option (List Val))}
     {vals : List Val} {tl : Nat} {bs bs' : List UInt8}
@@ -143,9 +129,7 @@ private theorem delLoopAux_props {fuel cap : Nat} {table : List (Option (List Va
     · simp at h
     · rename_i bs1 heq
       obtain ⟨_, hlt1, hdrop1⟩ := readLeb128Pure_props heq
-      simp only [Option.some.injEq, Prod.mk.injEq] at h
-      obtain ⟨rfl, rfl⟩ := h
-      exact ⟨hlt1, hdrop1⟩
+      grind
     · rename_i u bs1 _ heq
       obtain ⟨_, hlt1, hdrop1⟩ := readLeb128Pure_props heq
       split at h
@@ -174,13 +158,7 @@ private theorem delLoopAux_fuel_irrel {f1 f2 cap : Nat} {table : List (Option (L
       · rfl
       · rename_i u bs1 _ heq
         obtain ⟨_, hlt1, _⟩ := readLeb128Pure_props heq
-        split
-        · rfl
-        · split
-          · rfl
-          · split
-            · exact ih (by omega) (by omega)
-            · rfl
+        grind
 
 private theorem checkPrfAux_fuel_irrel {f1 f2 mv nc poolRem : Nat}
     {table : List (Option (List Val))} {bs : List UInt8}
@@ -215,9 +193,7 @@ private theorem checkPrfAux_fuel_irrel {f1 f2 mv nc poolRem : Nat}
                     · rfl
                     · rename_i bs4 heq3
                       have hlt3 := rupCheckPure_lt heq3
-                      split
-                      · rfl
-                      · exact ih (by omega) (by omega)
+                      grind
                 · rfl
         · split
           · split
@@ -240,10 +216,7 @@ private theorem readAddLitsAux_valid {fuel mv poolRem : Nat} {acc : List Val} {b
     · simp at h
     · split at h
       · simp at h
-      · simp only [Option.some.injEq, Prod.mk.injEq] at h
-        obtain ⟨rfl, _, _⟩ := h
-        intro x hx
-        exact hacc x (List.mem_reverse.mp hx)
+      · grind
       · rename_i u bs1 _ heq
         obtain ⟨hu, _, _⟩ := readLeb128Pure_props heq
         split at h
@@ -252,11 +225,7 @@ private theorem readAddLitsAux_valid {fuel mv poolRem : Nat} {acc : List Val} {b
           simp only [Bool.not_eq_true, Bool.or_eq_false_iff, beq_eq_false_iff_ne,
             decide_eq_false_iff_not] at hgood
           have hv_valid := isValidLit_decodeZigZag hu (by omega) (by omega) hmv
-          refine ih ?_ h
-          intro x hx
-          rcases List.mem_cons.mp hx with rfl | hx'
-          · exact hv_valid
-          · exact hacc x hx'
+          grind
 
 private theorem readAddLitsPure_valid {mv poolRem : Nat} {bs : List UInt8}
     {clits : List Val} {poolRem' : Nat} {bs' : List UInt8}
@@ -321,9 +290,7 @@ theorem initClauseTable_sound {mv cap : Nat} {clauses : List (List Val)}
       have hj' : j < clauses.length := by simpa using hj
       have hmem := List.getElem_mem hj'
       exact ⟨hvalid _ hmem, foldl_mem_entails hmem⟩
-    · rw [List.getElem?_append_right (Nat.le_of_not_lt hj)] at hget
-      rw [List.getElem?_replicate] at hget
-      split at hget <;> simp at hget
+    · grind
 
 private theorem delLoopAux_sound {fuel cap mv : Nat} {F : CNF Nat}
     {table table' : List (Option (List Val))} {bs bs' : List UInt8}
@@ -334,22 +301,7 @@ private theorem delLoopAux_sound {fuel cap mv : Nat} {F : CNF Nat}
   | zero => simp [delLoopAux] at h
   | succ fuel ih =>
     simp only [delLoopAux] at h
-    split at h
-    · simp at h
-    · simp only [Option.some.injEq, Prod.mk.injEq] at h
-      obtain ⟨rfl, _⟩ := h; exact ht
-    · split at h
-      · simp at h
-      · split at h
-        · simp at h
-        · split at h
-          · refine ih ?_ h
-            intro i lits hi
-            rw [List.getElem?_set] at hi
-            split at hi
-            · simp at hi
-            · exact ht i lits hi
-          · simp at h
+    grind
 
 private theorem unsat_of_entails_empty {cnf₀ F : CNF Nat}
     (hent : cnf₀.Entails F) (hemp : CNF.EntailsClause F (toClause [])) :
@@ -363,8 +315,7 @@ private theorem unsat_of_entails_empty {cnf₀ F : CNF Nat}
     have hem : toClause [] = CNF.Clause.empty := CNF.Clause.ext (by simp [toClause])
     rw [hem]
     exact CNF.Clause.eval_empty a
-  rw [hev] at hc
-  cases hc
+  grind
 
 /-- Pure soundness of `checkPrfAux` given RUP step soundness `hrup_sound`. -/
 theorem checkPrfAux_sound_of
@@ -413,23 +364,7 @@ theorem checkPrfAux_sound_of
                       have hnil : clits = [] := List.isEmpty_iff.mp hemp
                       subst hnil
                       exact unsat_of_entails_empty hent hent_cl
-                    · let F' := F.add (toClause clits)
-                      have hent' : cnf₀.Entails F' := by
-                        refine CNF.entails_trans hent ?_
-                        rw [CNF.entails_add_iff]
-                        exact ⟨CNF.entails_refl F, hent_cl⟩
-                      have htable' : TableSound mv F' (table.set (uid / 2) (some clits)) := by
-                        intro i lits hi
-                        rw [List.getElem?_set] at hi
-                        split at hi
-                        · split at hi
-                          · simp only [Option.some.injEq] at hi
-                            subst hi
-                            exact ⟨hclits, entailsClause_add_self F (toClause clits)⟩
-                          · simp at hi
-                        · obtain ⟨hv, he⟩ := htable i lits hi
-                          exact ⟨hv, entailsClause_add_mono he⟩
-                      exact ih hent' htable' hchk
+                    · grind
               · simp at hchk
       · split at hchk
         · split at hchk
@@ -626,11 +561,7 @@ private theorem tableRel_set_none {mv cap : Nat} {ptrs : List Val}
     TableRel mv cap (ptrs.set did 0) (table.set did none) PoolUsed := by
   obtain ⟨hplen, htlen, hrel⟩ := htr
   refine ⟨by simp [hplen], by simp [htlen], fun i hi => ?_⟩
-  by_cases heq : did = i
-  · subst heq
-    simp
-  · simp only [List.getElem_set_ne heq]
-    exact hrel i hi
+  grind
 
 private theorem tableRel_set_some {mv cap : Nat} {ptrs : List Val}
     {table : List (Option (List Val))} {PoolUsed : Mem 64 → Prop}
@@ -641,12 +572,7 @@ private theorem tableRel_set_some {mv cap : Nat} {ptrs : List Val}
     TableRel mv cap (ptrs.set id c_ptr) (table.set id (some clits)) PoolUsed := by
   obtain ⟨hplen, htlen, hrel⟩ := htr
   refine ⟨by simp [hplen], by simp [htlen], fun i hi => ?_⟩
-  by_cases heq : id = i
-  · subst heq
-    simp only [List.getElem_set_self]
-    exact ⟨hc_ptr, hclits, hpool⟩
-  · simp only [List.getElem_set_ne heq]
-    exact hrel i hi
+  grind
 
 /-- Verification of `lbCheckPrf` against `lbCheckPrfSpec`, parameterized by `Γ` providing
 `lbReadAddLitsSpec` and `lbRupCheckSpec`. -/
@@ -981,21 +907,7 @@ private theorem replicate_zero_set {xs : List Val} {i : Nat} (hi : i < xs.length
       List.replicate (i + 1) 0 ++ xs.drop (i + 1) := by
   apply List.ext_getElem
   · simp; omega
-  · intro k hk1 hk2
-    by_cases hki : k < i
-    · rw [List.getElem_set_ne (by omega), List.getElem_append_left (by simp [hki]),
-          List.getElem_append_left (by simp; omega)]
-      simp
-    · by_cases heq : k = i
-      · subst heq
-        rw [List.getElem_set_self, List.getElem_append_left (by simp)]
-        simp
-      · rw [List.getElem_set_ne (by omega),
-            List.getElem_append_right (by simp; omega),
-            List.getElem_append_right (by simp; omega)]
-        simp only [List.length_replicate, List.getElem_drop]
-        congr 1
-        omega
+  · grind
 
 private theorem tableRel_init (mv cap : Nat) :
     TableRel mv cap (List.replicate cap 0) (List.replicate cap none) emp :=
@@ -1094,8 +1006,7 @@ private theorem runLratCheckBytes_of_header {cnfBytes prfBytes bodyRest : List U
           | some (clauses, pool_ints') =>
             checkPrfPure mv nc pool_ints' (initClauseTable cap clauses) prfBytes := by
   unfold runLratCheckBytes
-  simp only [h128, hhdr, ↓reduceIte]
-  rfl
+  grind
 
 /-- Verification of `lratCheckBytes` against `lratCheckBytesExactSpec`, parameterized by `Γ`
 providing `lbParseDimacsHeaderSpec`, `lbParseDimacsBodySpec`, and `lbCheckPrfSpec`. -/

@@ -83,8 +83,7 @@ theorem assignLit_spec {Γ : Env} {Q : Post} {X : XPost} {vb tb te sla wlit idx 
     simp [toLiteral]
   rw [ha]
   refine ⟨ok1, ok2, hk _ ?_ (trailCoversAssign_insert wlit hcov) (sep_cast hm2 (by ac_rfl))⟩
-  rw [List.length_append, List.length_singleton]
-  exact BitVec.eq_of_toNat_eq (by simp [BitVec.toNat_add]; omega)
+  grind
 
 theorem flush_spec {Γ : Env} {Q : Post} {X : XPost} {st te sr sla : Val} {k : KernelFields}
     {R : Mem 64 → Prop} {m : Mem 64} {kc : Expr Val Cont}
@@ -118,17 +117,11 @@ theorem backtrack_spec {Γ : Env} {Q : Post} {X : XPost} {vb tb te : Val} {mv : 
     wp_unfold
     refine ⟨fun heq => ?_, fun hne => ?_⟩
     · obtain rfl : i = trail.length := by
-        rw [hte] at heq
-        have := congrArg (fun x => (x - tb).toNat) heq
-        simp [BitVec.add_comm tb, Nat.mod_eq_of_lt (by omega : 4 * i < 2 ^ 64),
-          Nat.mod_eq_of_lt hlen] at this
-        omega
+        grind
       rw [List.take_length, clearTrailBytes_assignBytes hcov] at hm
       exact hk m hm
     · have hlt : i < trail.length := by
-        rcases Nat.eq_or_lt_of_le hi with rfl | h
-        · exact absurd hte.symm hne
-        · exact h
+        grind
       have hv := hvalid trail[i] (List.getElem_mem hlt)
       have hget : (trail ++ tf)[i]'(by simp; omega) = trail[i] := List.getElem_append_left hlt
       rw [sep_assoc, sep_comm_l] at hm
@@ -190,10 +183,7 @@ theorem assignLit_pstate {Γ : Env} {Q : Post} {X : XPost} {vb tb te sla wlit id
   · simp at hcap
   refine assignLit_spec hwlit hidx hte hcov hm fun m' hte' hcov' hm' => hk m' _ tf' rfl ?_
   refine pstate_sep.2 ⟨hte', hcov', ?_, by simp at hlen ⊢; omega, hm'⟩
-  intro t ht
-  rcases List.mem_append.1 ht with h | h
-  · exact htv t h
-  · rw [List.mem_singleton.1 h]; exact hwlit
+  grind
 
 /-! ## Phase 1 -/
 
@@ -316,14 +306,10 @@ theorem inner_spec {Γ : Env} {Q : Post} {X : XPost} {fail done : Cont}
               exact hstep _ _ _ _ _ _ _ hm''
                 (Or.inr ⟨hlit.2.1, hlit, Assignment.get?_insert_of_eq rfl, by omega,
                   Or.inl ⟨hun, rfl⟩, phase2_inner_new_unit hlt hinv⟩)
-            · rcases hu with hu | hu
-              · exact absurd hu hu'
-              · rw [hu, hun] at hus; nomatch hus
+            · grind
           · have hpos : (0 : Val).slt (evalAssignedLit (assignByte assign (toLiteral clits[i]).1)
                 clits[i]) = true := by
-              cases hp : (0 : Val).slt _
-              · exact absurd (hcases.2.2 ⟨hneg, hp⟩).2 hv0
-              · rfl
+              grind
             have hsat := hcases.2.1 ⟨hneg, hpos⟩
             refine hstep _ _ _ _ _ _ _ hm' ?_
             rcases hst with ⟨rfl, rfl, hc, hinv⟩ | ⟨hu', huv, hus, hc, hrel, hinv⟩
@@ -338,9 +324,7 @@ theorem inner_spec {Γ : Env} {Q : Post} {X : XPost} {fail done : Cont}
             · exact isInt32_zero
             · exact huv.1
           rw [truthy_iff _ hu32]
-          refine ⟨fun hu => ⟨fun heq => hK _ _ ⟨rfl, rfl, Or.inr heq⟩,
-            fun _ => hfail m' te sla assign trail tf hm'⟩, fun hu => hK _ _ ⟨rfl, rfl, Or.inl ?_⟩⟩
-          simpa using hu
+          grind
     · subst heq; rw [InnerSt, List.take_length] at hst
       rcases hst with ⟨rfl, rfl, hc, hall⟩ | ⟨hu, huv, _, hc, hrel, hinv⟩
       · refine hdone m' 0 te sla _ trail tf hm' (Or.inl ⟨rfl, hc, ?_⟩)
@@ -396,9 +380,7 @@ theorem phase2_spec {Γ : Env} {Q : Post} {X : XPost} {fail finish : Cont}
       hP1 ▸ hm
     refine ⟨_, loadl_word8Array (a := lb) hal (by ecancel), ?_⟩
     have haid0 : 0 < aids[j].toNat := by
-      rcases Nat.eq_zero_or_pos aids[j].toNat with h | h
-      · exact absurd (BitVec.eq_of_toNat_eq (by simpa using h)) (hne0 _ (List.getElem_mem hlt))
-      · exact h
+      grind
     obtain ⟨clits, R2, hP2, hcl_valid, hcl_get⟩ := hct.2 aids[j].toNat hal haid0 hptr
     have hcl := mem_toCNF_of_formula_getElem? hcl_get
     apply wp_join (fun as m' => ∃ unit te2 sla2 assign' trail' tf', as = [unit, te2, sla2] ∧
@@ -422,9 +404,7 @@ theorem phase2_spec {Γ : Env} {Q : Post} {X : XPost} {fail finish : Cont}
         (fun m' te' sla' assign' trail' tf' h => hfail _ _ _ _ _ _ _ _ _ (back h))
         (fun m' unit te' sla' assign' trail' tf' h hres => hK _ _ ⟨unit, te', sla', assign', trail',
           tf', rfl, back h, ?_⟩) sla
-      rcases hres with ⟨hu, _, hunsat⟩ | hres
-      · exact Or.inl ⟨hu, hunsat⟩
-      · exact Or.inr hres
+      grind
   · intro J hJ
     wp_unfold
     exact hJ _ _ _ ⟨0, te0, sr0, sla0, assign0, trail0, tf0, by simp, Nat.zero_le _, rfl, by omega,
@@ -536,8 +516,7 @@ theorem not_falsify_taut (assign : Assignment) :
   have h2 := (h (toLiteral (-1))).1 (by rw [← CNF.Clause.mem_literals_iff, literals_toClause]; simp)
   have e1 : toLiteral 1 = (1, true) := by decide
   have e2 : toLiteral (-1) = (1, false) := by decide
-  rw [e1] at h1; rw [e2] at h2
-  rw [h1] at h2; cases h2
+  grind
 
 /-- Completeness data point (Bedrock2's spec has none): on the tautology `[1, -1]` the function
 returns, it never exits to `lrat_fail`. -/

@@ -93,8 +93,7 @@ theorem wp_call_ret1 {Γ : Env} {Q : Post} {X : XPost} {f : Sym} {args : List (A
     (hk : ∀ r m', Pred r m' → wp Γ Q X k [r] [] m') :
     wp Γ Q X (.call f args k) [] [] m := by
   simp only [wp, true_and]
-  exact ⟨_, fun _ _ _ => False, hcall, by rintro _ m' ⟨r, rfl, hp⟩; exact hk r m' hp,
-    fun _ _ _ h => h.elim⟩
+  grind
 
 @[simp] theorem truthy_boolVal (b : Bool) : Truthy (boolVal b) ↔ b = true := by
   cases b <;> decide

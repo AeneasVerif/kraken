@@ -29,10 +29,7 @@ open Std Std.ExtHashMap
 theorem pa_set {parent : List Val} {j v : Val} (hj : j.toNat < parent.length) (i : Val) :
     pa (parent.set j.toNat v) i = if i = j then v else pa parent i := by
   simp only [pa, List.getD_eq_getElem?_getD, List.getElem?_set]
-  by_cases h : i = j
-  · subst h; simp [hj]
-  · have : j.toNat ≠ i.toNat := fun e => h (BitVec.eq_of_toNat_eq e.symm)
-    simp [this, h]
+  grind
 
 theorem pa_eq_getElem {parent : List Val} {i : Val} (hi : i.toNat < parent.length) :
     parent[i.toNat] = pa parent i := by

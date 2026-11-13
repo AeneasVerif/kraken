@@ -28,95 +28,19 @@ def SimpAct.val (va vb : Val) : SimpAct → Val
 /-! ## Soundness of `cmpAct`, `binAct`, and `Op.rewrite` -/
 
 theorem cmpOp_eval_self {n : Nat} (o : CmpOp) (v : BitVec n) : o.eval v v = o.isRefl := by
-  cases o <;> simp [CmpOp.eval, CmpOp.isRefl, BitVec.sle, BitVec.slt, BitVec.ule, BitVec.ult]
+  cases o <;> grind [CmpOp.eval, CmpOp.isRefl]
 
 theorem cmpAct_eval {k : Cls} {o : CmpOp} {eqKey : Bool} {va vb : Val} {act : SimpAct}
     (heq : eqKey = true → va = vb) (h : cmpAct k o eqKey = some act) :
     (Op.cmp k o (.imm va) (.imm vb)).eval = some (act.val va vb) := by
-  simp only [cmpAct] at h
-  split at h
-  · next hk =>
-    cases h
-    rw [heq hk]
-    cases k <;> simp [Op.eval, cmpOp_eval_self, SimpAct.val]
-  · contradiction
+  cases k <;> grind [cmpAct, Op.eval, cmpOp_eval_self, SimpAct.val, Arg.val]
 
 theorem binAct_eval {k : Cls} {o : BinOp} {ai bi : Option Val} {eqKey : Bool} {va vb : Val}
     {act : SimpAct} (hai : ∀ c, ai = some c → va = c) (hbi : ∀ c, bi = some c → vb = c)
     (heq : eqKey = true → va = vb) (h : binAct k o ai bi eqKey = some act) :
     (Op.bin k o (.imm va) (.imm vb)).eval = some (act.val va vb) := by
-  unfold binAct at h
-  cases o <;> simp only [beq_iff_eq, Bool.and_eq_true] at h
-  · -- add
-    split at h
-    · next h1 => cases h; obtain ⟨rfl, hb⟩ := h1; rw [hbi _ hb]; simp [Op.eval, BinOp.eval, SimpAct.val]
-    · split at h
-      · next h1 => cases h; obtain ⟨rfl, ha⟩ := h1; rw [hai _ ha]; simp [Op.eval, BinOp.eval, SimpAct.val]
-      · contradiction
-  · -- sub
-    split at h
-    · next h1 => cases h; rw [heq h1]; cases k <;> simp [Op.eval, BinOp.eval, SimpAct.val]
-    · split at h
-      · next h1 => cases h; obtain ⟨rfl, hb⟩ := h1; rw [hbi _ hb]; simp [Op.eval, BinOp.eval, SimpAct.val]
-      · contradiction
-  · -- mul
-    split at h
-    · next ha => cases h; rw [hai _ ha]; cases k <;> simp [Op.eval, BinOp.eval, SimpAct.val]
-    · split at h
-      · next hb => cases h; rw [hbi _ hb]; cases k <;> simp [Op.eval, BinOp.eval, SimpAct.val]
-      · split at h
-        · next h1 => cases h; obtain ⟨rfl, hb⟩ := h1; rw [hbi _ hb]; simp [Op.eval, BinOp.eval, SimpAct.val]
-        · split at h
-          · next h1 => cases h; obtain ⟨rfl, ha⟩ := h1; rw [hai _ ha]; simp [Op.eval, BinOp.eval, SimpAct.val]
-          · contradiction
-  · contradiction
-  · contradiction
-  · contradiction
-  · contradiction
-  · -- and
-    split at h
-    · next ha => cases h; rw [hai _ ha]; cases k <;> simp [Op.eval, BinOp.eval, SimpAct.val]
-    · split at h
-      · next hb => cases h; rw [hbi _ hb]; cases k <;> simp [Op.eval, BinOp.eval, SimpAct.val]
-      · split at h
-        · next h1 =>
-          cases h; obtain ⟨rfl, hb⟩ := h1; rw [hbi _ hb]
-          simp only [Op.eval, BinOp.eval, SimpAct.val, Arg.val, BitVec.and_allOnes]
-        · split at h
-          · next h1 => cases h; obtain ⟨rfl, h2⟩ := h1; rw [heq h2]; simp [Op.eval, BinOp.eval, SimpAct.val]
-          · split at h
-            · next h1 =>
-              cases h; obtain ⟨rfl, ha⟩ := h1; rw [hai _ ha]
-              simp only [Op.eval, BinOp.eval, SimpAct.val, Arg.val, BitVec.allOnes_and]
-            · contradiction
-  · -- or
-    split at h
-    · next h1 => cases h; obtain ⟨rfl, hb⟩ := h1; rw [hbi _ hb]; simp [Op.eval, BinOp.eval, SimpAct.val]
-    · split at h
-      · next h1 => cases h; obtain ⟨rfl, h2⟩ := h1; rw [heq h2]; simp [Op.eval, BinOp.eval, SimpAct.val]
-      · split at h
-        · next h1 => cases h; obtain ⟨rfl, ha⟩ := h1; rw [hai _ ha]; simp [Op.eval, BinOp.eval, SimpAct.val]
-        · contradiction
-  · -- xor
-    split at h
-    · next h1 => cases h; rw [heq h1]; cases k <;> simp [Op.eval, BinOp.eval, SimpAct.val]
-    · split at h
-      · next h1 => cases h; obtain ⟨rfl, hb⟩ := h1; rw [hbi _ hb]; simp [Op.eval, BinOp.eval, SimpAct.val]
-      · split at h
-        · next h1 => cases h; obtain ⟨rfl, ha⟩ := h1; rw [hai _ ha]; simp [Op.eval, BinOp.eval, SimpAct.val]
-        · contradiction
-  · -- sar
-    split at h
-    · next h1 => cases h; obtain ⟨rfl, hb⟩ := h1; rw [hbi _ hb]; simp [Op.eval, BinOp.eval, SimpAct.val]
-    · contradiction
-  · -- shr
-    split at h
-    · next h1 => cases h; obtain ⟨rfl, hb⟩ := h1; rw [hbi _ hb]; simp [Op.eval, BinOp.eval, SimpAct.val]
-    · contradiction
-  · -- shl
-    split at h
-    · next h1 => cases h; obtain ⟨rfl, hb⟩ := h1; rw [hbi _ hb]; simp [Op.eval, BinOp.eval, SimpAct.val]
-    · contradiction
+  cases o <;> cases k <;>
+    grind [binAct, Op.eval, BinOp.eval, SimpAct.val, Arg.val, Option.some_inj]
 
 theorem findPow2_spec {w : Nat} {x : BitVec w} :
     ∀ {limit m : Nat}, findPow2 w x limit = some m → m < limit ∧ x = BitVec.twoPow w m
@@ -251,12 +175,8 @@ theorem Op.rewrite_eval (o : Op Val) : o.rewrite.eval = o.eval := by
   | cmp k op a b => rfl
   | copy k a => rfl
   | ext k s sg a =>
-    cases k <;> cases s <;> cases sg <;> try rfl
-    all_goals
-      simp only [Op.rewrite, Op.eval, Cls.trunc, Sz.extend, lo32, zext32, Option.some.injEq]
-      apply BitVec.eq_of_toNat_eq
-      simp only [BitVec.toNat_setWidth, BitVec.toNat_signExtend]
-      (try split) <;> omega
+    cases k <;> cases s <;> cases sg <;>
+      grind [Op.rewrite, Op.eval, Cls.trunc, Sz.extend, Option.some_inj]
 
 /-! ## Context invariants and `OpRel` lemmas for `fold` -/
 
@@ -277,9 +197,7 @@ theorem Arg.FLt.mono {b : Nat} {κ : FKey} (h : κ.FLt b) : κ.FLt (b + 1) := by
 
 theorem Arg.fev_fupd {ρ : Nat → Val} {b : Nat} {v : Val} {κ : FKey} (h : κ.FLt b) :
     κ.fev (fupd ρ b v) = κ.fev ρ := by
-  cases κ with
-  | var i => simp only [Arg.fev, fupd, Nat.ne_of_lt h, ↓reduceIte]
-  | imm _ => rfl
+  cases κ <;> grind [Arg.fev, fupd, Arg.FLt]
 
 /-- Every input variable denotes an operand and a key with the source value. -/
 def FGood (ρ : Nat → Val) (b : Nat) (G : List (FVal Val × Val)) : Prop :=
@@ -618,10 +536,7 @@ theorem fold_wp {Γ : Env} {Q : Post} {X : XPost} :
       · next c hcj =>
         rw [hcj] at hcv
         have hc2 : c = c₂.val := hcv
-        subst hc2
-        by_cases htr : Truthy c₂.val
-        · simp only [htr, ↓reduceIte]; exact iht hD 0 b ρ hG [] [] m rfl (ht htr)
-        · simp only [htr, ↓reduceIte]; exact ihe hD 0 b ρ hG [] [] m rfl (he htr)
+        grind
       · next v hcj =>
         have hcv' : (Arg.var v : Arg Val).val = c₂.val := hcj ▸ hcv
         exact ⟨rfl, fun h => iht hD 0 b ρ hG [] [] m rfl (ht (hcv' ▸ h)),
@@ -657,19 +572,14 @@ theorem fold_wp {Γ : Env} {Q : Post} {X : XPost} :
   | label _ ih =>
     intro hD n b ρ hG args acc m hn hw
     simp only [wp, fold] at hw ⊢
-    refine ⟨hw.1, fun J => ih J J ?_ (n + 1) b ρ hG [] (acc ++ [J]) m (by simp [hn]) (hw.2 J)⟩
-    intro p hp
-    cases hp with
-    | head => rfl
-    | tail _ hp => exact hD p hp
+    grind
   | block _ _ ihb ihr =>
     intro hD n b ρ hG args acc m hn hw
     cases acc with
     | nil => simp only [wp, and_false] at hw
     | cons J acc' =>
       simp only [wp, fold] at hw ⊢
-      refine ⟨hw.1, fun hJ => ihr hD (n - 1) b ρ hG [] acc' m (by simp at hn; omega) (hw.2 ?_)⟩
-      exact fun as m' hb => hJ as m' (ihb hD 0 b ρ hG as [] m' rfl hb)
+      grind
 
 theorem fold_wf {V₁ V₂ L₁ L₂ : Type} :
     ∀ {G : List (FVal V₁ × FVal V₂)} {D : List (L₁ × L₂)} {e₁ : Expr (FVal V₁) L₁}

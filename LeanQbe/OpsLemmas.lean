@@ -47,13 +47,9 @@ theorem Op.eval_w_hi {op : Op Val} {v : Val}
     (h : op.eval = some v) : v = zext32 (lo32 v) := by
   rcases hk with ⟨o, a, b, rfl⟩ | ⟨s, sg, a, rfl⟩ | ⟨a, rfl⟩
   · simp only [Op.eval, Option.map_eq_some_iff] at h
-    obtain ⟨r, _, rfl⟩ := h
-    apply BitVec.eq_of_toNat_eq
-    simp [BitVec.toNat_setWidth]
+    grind
   all_goals
     simp only [Op.eval, Cls.trunc, Option.some.injEq] at h
-    subst h
-    apply BitVec.eq_of_toNat_eq
-    simp [BitVec.toNat_setWidth]
+    grind
 
 end LeanQbe

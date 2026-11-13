@@ -141,6 +141,10 @@ def CmpOp.eval {n : Nat} : CmpOp → BitVec n → BitVec n → Bool
   | .uge, a, b => b.ule a
   | .ugt, a, b => b.ult a
 
+/- `grind` proves bit-vector facts in `Nat` and `Int`, through its `[grind hom]` rules. The default
+rules cover the signed comparisons; these add the sign bit and the unsigned comparisons. -/
+attribute [grind hom] BitVec.msb_eq_toInt BitVec.ult_eq_decide BitVec.ule_eq_decide
+
 /-- Low 32 bits. -/
 abbrev lo32 (x : Val) : BitVec 32 := x.setWidth 32
 

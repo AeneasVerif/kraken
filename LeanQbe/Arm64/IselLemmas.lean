@@ -9,47 +9,18 @@ import Kraken.AArch64.Parser
 `op_runs`: the snippet `op o (.reg d)` of `Isel.lean` computes `o`'s value into `x d`, clobbering
 at most `x16`/`x17` and leaving memory unchanged.
 
-* Flag facts for `subs` (`subs_c`, `subs_v`, `notCondOf_subs`): after `cmp a, b`, the negated
-  condition of `cset` holds iff the IL comparison is false, at widths 32 and 64.
+* Flag fact for `subs` (`notCondOf_subs`): after `cmp a, b`, the negated condition of `cset` holds
+  iff the IL comparison is false, at widths 32 and 64.
 * Remainders: `umod_eq_sub`, `srem_eq_sub` (`msub` after `udiv`/`sdiv`).
 * One lemma per family: `binIns_runs`, `cmpIns_runs`, `extIns_runs`; operands `args_runs`.
 
-No native bit-blasting tactics: proofs go through `toNat`/`toInt` and `omega`, or bitwise `ext`.
+No native bit-blasting tactics: proofs go through `toNat`/`toInt` (`grind`, `omega`), or bitwise
+`ext`.
 -/
 
 @[expose] public section
 
 namespace LeanQbe.Arm64
-
-theorem subs_c {n : Nat} (a b : BitVec n) :
-    ((a - b).unsigned == a.unsigned - b.unsigned) = !(a < b : Bool) := by
-  simp only [BitVec.unsigned]
-  by_cases h : a < b
-  · have h' : a.toNat < b.toNat := h
-    simp only [h, decide_true, Bool.not_true, beq_eq_false_iff_ne, ne_eq]
-    omega
-  · have h' : ¬ BitVec.usubOverflow a b := by simpa [BitVec.usubOverflow_eq] using h
-    have h'' : b.toNat ≤ a.toNat := by simpa [BitVec.lt_def] using h
-    simp only [h, decide_false, Bool.not_false, beq_iff_eq, BitVec.toNat_sub_of_not_usubOverflow h']
-    omega
-
-theorem subs_v {n : Nat} (a b : BitVec n) :
-    ((a - b).signed != a.signed - b.signed) = BitVec.ssubOverflow a b := by
-  simp only [BitVec.signed]
-  by_cases h : BitVec.ssubOverflow a b
-  · simp only [h, bne_iff_ne, ne_eq]
-    have h1 := BitVec.le_two_mul_toInt (x := a - b)
-    have h2 := BitVec.two_mul_toInt_lt (x := a - b)
-    simp only [BitVec.ssubOverflow, Bool.or_eq_true, decide_eq_true_eq] at h
-    rcases n with _ | n
-    · simp [BitVec.of_length_zero] at h
-    · simp only [Nat.add_one_sub_one] at h
-      have : (2 : Int) ^ (n + 1) = 2 * 2 ^ n := by rw [Int.pow_succ]; omega
-      push_cast at h1 h2
-      omega
-  · simp only [Bool.not_eq_true] at h
-    rw [BitVec.toInt_sub_of_not_ssubOverflow (by rw [h]; simp)]
-    simp [h]
 
 theorem umod_eq_sub {n : Nat} (a b : BitVec n) : a % b = a - (a / b) * b := by
   apply BitVec.eq_of_toNat_eq
@@ -127,16 +98,9 @@ theorem binIns_runs (w : RegWidth) (bo : BinOp) (d a b t : XReg) (s : MachineDat
       subst hv
       have hy0 : y ≠ 0 := by
         simp only [sdivDefined, Bool.and_eq_true, bne_iff_ne] at h; exact h.1
-      have hy0' : ¬ y.toNat = 0 := fun h0 => hy0 (BitVec.eq_of_toNat_eq (h0.trans rfl))
-      simp [BitVec.toNat_eq, hy0']
+      grind
     · simp only [h, Bool.false_eq_true, ite_false, reduceCtorEq] at hv
-  case udiv.W32 | udiv.W64 =>
-    by_cases h : y = 0
-    · simp only [h, ite_true, reduceCtorEq] at hv
-    · simp only [h, ite_false, Option.some.injEq] at hv
-      subst hv
-      have hy0' : ¬ y.toNat = 0 := fun h0 => h (BitVec.eq_of_toNat_eq (h0.trans rfl))
-      simp [BitVec.toNat_eq, hy0']
+  case udiv.W32 | udiv.W64 => grind
   all_goals (simp only [Option.some.injEq] at hv; rw [hv])
 
 @[step_simp]
@@ -144,43 +108,11 @@ theorem setRegOrZr_xzr (regs : Reg64s) (w : RegWidth) (v : BitVec w.bits) :
     regs.setRegOrZr (xzr w) v = regs := by
   cases w <;> rfl
 
-theorem beq_zero_toInt {n : Nat} (z : BitVec n) : (z == 0#n) = decide (z.toInt = 0) := by
-  rw [Bool.eq_iff_iff, beq_iff_eq, decide_eq_true_iff, ← BitVec.toInt_inj, BitVec.toInt_zero]
-
-theorem beq_toNat {n : Nat} (x y : BitVec n) : (x == y) = decide (x.toNat = y.toNat) := by
-  rw [Bool.eq_iff_iff, beq_iff_eq, decide_eq_true_iff, BitVec.toNat_eq]
-
 theorem notCondOf_subs {n : Nat} (hn : n = 32 ∨ n = 64) (co : CmpOp) (x y : BitVec n) :
     (notCondOf co).interp (StatusFlags.subs (x - y) x y) = !(co.eval x y) := by
-  simp only [StatusFlags.subs, StatusFlags.from_result, subs_c, subs_v, BitVec.ssubOverflow,
-    BitVec.zero_eq]
-  have hx1 := BitVec.toInt_lt (x := x)
-  have hx2 := BitVec.le_toInt x
-  have hy1 := BitVec.toInt_lt (x := y)
-  have hy2 := BitVec.le_toInt y
-  have hd1 := BitVec.toInt_lt (x := x - y)
-  have hd2 := BitVec.le_toInt (x - y)
-  have hmod : (x - y).toInt % 2 ^ n = (x.toInt - y.toInt) % 2 ^ n := by
-    rw [BitVec.toInt_sub]
-    have : (x.toInt - y.toInt).bmod (2 ^ n) % ((2 ^ n : Nat) : Int) =
-        (x.toInt - y.toInt) % ((2 ^ n : Nat) : Int) := Int.bmod_emod
-    push_cast at this
-    exact this
-  have hxn := x.isLt
-  have hyn := y.isLt
-  have hsub := BitVec.toNat_sub x y
-  rcases hn with rfl | rfl <;> cases co
-  case' inl.sle | inl.slt | inl.sge | inl.sgt | inr.sle | inr.slt | inr.sge | inr.sgt =>
-    simp only [notCondOf, CondCode.interp, CmpOp.eval, BitVec.msb_eq_toInt, beq_zero_toInt,
-      BitVec.sle_eq_decide, BitVec.slt_eq_decide]
-  all_goals
-    try simp only [notCondOf, CondCode.interp, CmpOp.eval, beq_toNat, BitVec.toNat_ofNat,
-      BitVec.ule_eq_decide, BitVec.ult_eq_decide, BitVec.lt_def, bne]
-  all_goals
-    rw [Bool.eq_iff_iff]
-    simp only [Bool.not_eq_true', beq_eq_false_iff_ne, ← Bool.decide_or, ← Bool.decide_and, ← decide_not, beq_iff_eq, ne_eq,
-      decide_eq_decide, decide_eq_true_eq, Bool.and_eq_true, Bool.or_eq_true]
-    omega
+  rcases hn with rfl | rfl <;> cases co <;>
+    grind [notCondOf, StatusFlags.subs, StatusFlags.from_result, CondCode.interp, CmpOp.eval,
+      BitVec.unsigned, BitVec.signed]
 
 set_option linter.unusedSimpArgs false in
 theorem cmpIns_runs (w : RegWidth) (co : CmpOp) (d a b : XReg) (s : MachineData) :
@@ -212,8 +144,7 @@ theorem extIns_runs (k : Cls) (sz : Sz) (sg : Bool) (d a : XReg) (s : MachineDat
     simp only [step_simp, Int64.toInt_zero, Int.toNat_zero, BitVec.shiftLeft_zero, evalSBFM,
       evalUBFM, Cls.trunc, Sz.extend, wr, BitVec.take, ite_true, ite_false, Bool.false_eq_true] <;>
     congr 3 <;> simp [lo32, zext32] <;> ext i hi <;>
-    simp [BitVec.getElem_signExtend, BitVec.getLsbD_signExtend, BitVec.msb_eq_getLsbD_last] <;>
-    by_cases h1 : i < 8 <;> by_cases h2 : i < 16 <;> by_cases h3 : i < 32 <;> simp [h1, h2, h3] <;> omega
+    grind
 
 theorem argIn_reg {a : Arg Reg} {tmp : XReg} {ca : List Directive} {ra : XReg}
     (h : argIn a tmp = some (ca, ra)) : a = .var (.reg ra) ∨ (ra = tmp ∧ ∃ c, a = .imm c) := by
@@ -262,16 +193,13 @@ theorem remTmp_spec {a b : Arg Reg} {ca cb : List Directive} {ra rb t : XReg}
   rcases argIn_reg ha with ha' | ⟨ha', c, hac⟩ <;> rcases argIn_reg hb with hb' | ⟨hb', c', hbc⟩
   · subst ha' hb'
     simp only [remTmp, Option.some.injEq] at ht
-    subst ht
-    exact ⟨.inr rfl, fun h => (hva ra rfl).2 h.symm, fun h => (hvb rb rfl).2 h.symm⟩
+    grind
   · subst ha' hb' hbc
     simp only [remTmp, Option.some.injEq] at ht
-    subst ht
-    exact ⟨.inl rfl, fun h => (hva ra rfl).1 h.symm, by decide⟩
+    grind
   · subst ha' hb' hac
     simp only [remTmp, Option.some.injEq] at ht
-    subst ht
-    exact ⟨.inr rfl, by decide, fun h => (hvb rb rfl).2 h.symm⟩
+    grind
   · subst hac hbc
     simp [remTmp] at ht
 
@@ -296,18 +224,11 @@ theorem setRegOrSp_sp (regs : Reg64s) (d : XReg) (w : RegWidth) (v : BitVec w.bi
 
 theorem ofInt_toInt_setWidth_of_lt (m : Nat) {v : Val} (h : v.toNat < 4096) :
     BitVec.ofInt m v.toInt = v.setWidth m := by
-  have hvi : v.toInt = (v.toNat : Int) := by
-    simp only [BitVec.toInt]; split <;> omega
-  apply BitVec.eq_of_toNat_eq
-  simp only [BitVec.toNat_ofInt, hvi, BitVec.toNat_setWidth]
-  omega
+  grind
 
 theorem setWidth32_clsW (c : Val) : (Cls.w.trunc c).setWidth 32 = c.setWidth 32 := by
   simp only [Cls.trunc, zext32, lo32]
-  ext i hi
-  have h64 : i < 64 := by omega
-  rw [← BitVec.getLsbD_eq_getElem, ← BitVec.getLsbD_eq_getElem]
-  simp only [BitVec.getLsbD_setWidth, hi, h64, decide_true, Bool.true_and]
+  grind
 
 theorem ofInt_toInt_clsW {cb : Val} (hlt : (Cls.w.trunc cb).toNat < 4096) :
     BitVec.ofInt 32 (Cls.w.trunc cb).toInt = cb.setWidth 32 := by
@@ -498,8 +419,7 @@ theorem op_runs {o : Op Reg} {d : XReg} {c : List Directive} {v : Val} {s : Mach
           obtain ⟨h1, h2, h3⟩ := remTmp_spec ha hb hv' ht
           exact ⟨t, h1, fun _ => ⟨h2, h3⟩, hc.symm⟩
         all_goals
-          simp only [Option.bind_some, Option.some.injEq] at hc
-          exact ⟨.X16, .inl rfl, fun h => by simp at h, hc.symm⟩
+          grind
       obtain ⟨s₂, h₂, hra, hrb, hf₂, hd₂⟩ := args_runs (s := s) ha hb hv'
       simp only [Op.map, Op.eval] at hv
       cases k
@@ -508,14 +428,12 @@ theorem op_runs {o : Op Reg} {d : XReg} {c : List Directive} {v : Val} {s : Mach
           (by rw [hra, hrb]; exact hr)
         refine ⟨s', h₂.append h', hd', fun z hz => ?_, hm'.trans hd₂⟩
         obtain ⟨hzd, hz16, hz17⟩ := not_mem_rd_scratch hz
-        rw [hf' z hzd (by rcases ht16 with rfl | rfl <;> assumption),
-          hf₂ z (by simp [scratch, hz16, hz17])]
+        grind
       · obtain ⟨s', h', hd', hf', hm'⟩ := binIns_runs .W64 bo d ra rb t s₂ v ht
           (by rw [hra, hrb]; simpa using hv)
         refine ⟨s', h₂.append h', hd'.trans (BitVec.setWidth_eq v), fun z hz => ?_, hm'.trans hd₂⟩
         obtain ⟨hzd, hz16, hz17⟩ := not_mem_rd_scratch hz
-        rw [hf' z hzd (by rcases ht16 with rfl | rfl <;> assumption),
-          hf₂ z (by simp [scratch, hz16, hz17])]
+        grind
   | cmp k co a b =>
     cases hfc : fastCmp? k co d a b with
     | some ds =>
@@ -535,8 +453,7 @@ theorem op_runs {o : Op Reg} {d : XReg} {c : List Directive} {v : Val} {s : Mach
         cases k <;> simp only [Op.map, Op.eval, Option.some.injEq] at hv <;> subst hv
         · rfl
         · simp [widthOf]
-      · obtain ⟨hzd, hz16, hz17⟩ := not_mem_rd_scratch hz
-        rw [hf' z hzd, hf₂ z (by simp [scratch, hz16, hz17])]
+      · grind
   | ext k sz sg a =>
     rcases a with ((r | _) | c₀)
     · simp only [op, Option.some.injEq] at hc

@@ -228,10 +228,7 @@ theorem gvn_wp {Γ : Env} {Q : Post} {X : XPost} :
       · next r hr =>
         obtain ⟨h1, h2, h3, _⟩ := hT _ (Tbl.find_mem hr)
         have hvr : v = r.1.val := by
-          have := hkey.trans hv
-          simp only at h1
-          rw [h1] at this
-          exact (Option.some.inj this).symm
+          grind
         subst hvr
         exact ih r r.1.val hD 0 b tbl ρ (hG.cons rfl h2 h3) hT [] [] m rfl hk
       · exact miss
@@ -259,8 +256,7 @@ theorem gvn_wp {Γ : Env} {Q : Post} {X : XPost} :
     simp only [wp, gvn] at hw ⊢
     obtain ⟨rfl, ht, he⟩ := hw
     rw [hc.out_val hG]
-    exact ⟨rfl, fun h => iht hD 0 b tbl ρ hG hT [] [] m rfl (ht h),
-      fun h => ihe hD 0 b tbl ρ hG hT [] [] m rfl (he h)⟩
+    grind
   | jump hj has =>
     intro hD n b tbl ρ hG hT args acc m _ hw
     simp only [wp, gvn] at hw ⊢
@@ -290,19 +286,14 @@ theorem gvn_wp {Γ : Env} {Q : Post} {X : XPost} :
   | label _ ih =>
     intro hD n b tbl ρ hG hT args acc m hn hw
     simp only [wp, gvn] at hw ⊢
-    refine ⟨hw.1, fun J => ih J J ?_ (n + 1) b tbl ρ hG hT [] (acc ++ [J]) m (by simp [hn]) (hw.2 J)⟩
-    intro p hp
-    cases hp with
-    | head => rfl
-    | tail _ hp => exact hD p hp
+    grind
   | block _ _ ihb ihr =>
     intro hD n b tbl ρ hG hT args acc m hn hw
     cases acc with
     | nil => simp only [wp, and_false] at hw
     | cons J acc' =>
       simp only [wp, gvn] at hw ⊢
-      refine ⟨hw.1, fun hJ => ihr hD (n - 1) b tbl ρ hG hT [] acc' m (by simp at hn; omega) (hw.2 ?_)⟩
-      exact fun as m' hb => hJ as m' (ihb hD 0 b tbl ρ hG hT as [] m' rfl hb)
+      grind
 
 /-! ## `Wf` preservation -/
 
@@ -408,9 +399,7 @@ theorem gvn_wf {V₁ V₂ L₁ L₂ : Type} :
       rcases hT.find (ko := op₂.mapArgs Arg.key) with ⟨h1, h2⟩ | ⟨r₁, r₂, h1, h2, hr1, hr2⟩
       · rw [h1, h2]; exact miss
       · rw [h1, h2]; exact ih r₁ r₂ 0 b t₁ t₂ G' (hG.cons hr1 hr2) hT
-    · simp only [hn, ↓reduceIte]
-      rw [hko] at miss ⊢
-      exact miss
+    · grind
   | load c s sg ha _ ih =>
     intro n b t₁ t₂ G' hG hT
     exact .load c s sg (ha.out hG) fun v₁ v₂ =>

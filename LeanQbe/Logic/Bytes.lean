@@ -182,18 +182,7 @@ theorem word8Array_to_region {a : Val} {xs : List Val} {f : Mem 64}
 private theorem toBytes_ofBytes_toNat {n : Nat} {bs : List UInt8}
     (hn : n = 1 ∨ n = 4 ∨ n = 8) (hl : bs.length = n) :
     Int.toBytes n ((BitVec.ofInt 64 (Int.ofBytes bs)).toNat : Int) = bs := by
-  rw [← Int.toBytes_emod]
-  have hdvd : (2 ^ (8 * n) : Int) ∣ ((2 ^ 64 : Nat) : Int) := by
-    rcases hn with rfl | rfl | rfl <;> decide
-  have hdvd2 : (2 ^ (8 * n) : Int) ∣ (2 ^ 64 : Int) := by
-    rcases hn with rfl | rfl | rfl <;> decide
-  have h1 : ((BitVec.ofInt 64 (Int.ofBytes bs)).toNat : Int).take (8 * n) =
-      (Int.ofBytes bs).take (8 * n) := by
-    simp only [Int.take]
-    rw [← BitVec.toInt_emod_two_pow, Int.emod_emod_of_dvd _ hdvd2, BitVec.toInt_ofInt,
-        ← Int.emod_emod_of_dvd _ hdvd, Int.bmod_emod, Int.emod_emod_of_dvd _ hdvd]
-  rw [h1, Int.toBytes_emod, ← hl]
-  exact Int.toBytes_ofBytes_all bs
+  grind
 
 private theorem region_to_bytes_array {n : Nat} (arr : Val → List Val → Mem 64 → Prop)
     (hnil : ∀ a, arr a [] = emp)

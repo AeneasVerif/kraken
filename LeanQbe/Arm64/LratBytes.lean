@@ -154,12 +154,7 @@ theorem lrat_check_bytes_arm64_unsat_of_fnspec {b : Nat}
   refine eventually_weaken _ _ _ _ ?_
     (lrat_check_bytes_arm64_of_fnspec hfnspec cnf_ptr prf_ptr work_ptr cnfBytes prfBytes work_len
       hcnf hprf hwork s ra R hx0 hx1 hx2 hx3 hx4 hx5 hra hsp hmem)
-  rintro st ⟨hpc, hr01, hunsat, -⟩
-  refine ⟨hpc, hr01, fun h1 => ?_⟩
-  obtain ⟨cnf', hp', hu'⟩ := hunsat h1
-  rw [hparse] at hp'
-  injection hp' with h_eq
-  exact h_eq ▸ hu'
+  grind
 
 /-- Closed end-to-end AArch64 theorem for `lrat_check_bytes`. -/
 theorem lrat_check_bytes_arm64_correct (k₀ : Nat)
@@ -325,9 +320,7 @@ private theorem lratBytesState_call {spec : Spec}
   refine eventually_weaken _ _ _ _ ?_
     (hfnspec _ m Q (fun _ _ _ => False) (hspec m hm_emp) s0 0x1234 Std.ExtHashMap.emp
       hargs rfl hsp' hmem')
-  rintro st (⟨hpc, rets, m', hQ, hrets, -⟩ | ⟨_, _, _, hx, _⟩)
-  · exact ⟨hpc, rets, m', hQ, hrets⟩
-  · exact hx.elim
+  grind
 
 /-- Concrete accepting execution of compiled `lrat_check_bytes` on Kraken AArch64. -/
 theorem lrat_check_bytes_arm64_accepts :

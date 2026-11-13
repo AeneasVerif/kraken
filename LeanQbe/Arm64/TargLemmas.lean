@@ -44,7 +44,8 @@ theorem get_sp (s : MachineData) : get s .SP = s.regs.SP.toBitVec := rfl
     have h' : d ≠ r := fun e => h (e ▸ rfl)
     simp [get_reg, Reg64s.getXReg_setXReg_of_ne _ _ _ _ h']
 
-theorem get_wr (s : MachineData) (d : XReg) (v : Val) (r : Reg) :
+/-- `grind` reads a register through the writes before it, by this rule. -/
+@[grind =] theorem get_wr (s : MachineData) (d : XReg) (v : Val) (r : Reg) :
     get (wr s d v) r = if r = .reg d then v else get s r := by
   split
   · subst r; exact get_wr_same ..

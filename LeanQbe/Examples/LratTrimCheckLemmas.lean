@@ -312,8 +312,7 @@ theorem checkProof_correct (Γ : Env)
       wp_unfold
       have hid1 : (id + 1).toNat = id.toNat + 1 := toNat_add_one_of_lt (by omega)
       refine ih _ _ _ (by omega) ⟨id + 1, k', rfl, rfl, by omega, by omega, hinv', ?_, ?_⟩
-      · rwa [show (id + 1).toNat - k₀.first_proof_id.toNat =
-          id.toNat - k₀.first_proof_id.toNat + 1 by omega]
+      · grind
       · rwa [hid1]
     intro Jnext hJnext
     let uw : Val := if k₀.trimming = 0 then -1 else usedWords[id.toNat]
@@ -350,16 +349,14 @@ theorem checkProof_correct (Γ : Env)
           exact entails_stepState_of_unused _ hent
         · intro hlt
           have := pre.hempty_used
-          rw [show id.toNat = k₀.empty_clause.toNat by omega] at hused_false
-          simp [this] at hused_false
+          grind
     · intro Jcheck hJcheck
       wp_unfold
       refine ⟨fun htnz => ?_, fun htz => ?_⟩
       · rw [shl_two]
         refine ⟨_, loadsw_int4Array hid_used (pre.hused_int32 id.toNat hid_used) (by ecancel), ?_⟩
         exact hJcheck _ _ ⟨congrArg (· :: []) (ite_eq_right htnz).symm, rfl⟩
-      · have ht0 : k₀.trimming = 0 := Classical.not_not.1 htz
-        exact hJcheck _ _ ⟨congrArg (· :: []) (ite_eq_left ht0).symm, rfl⟩
+      · grind
   · intro Jloop hJloop
     wp_unfold
     exact hJloop _ _ _ ⟨k₀.first_proof_id, k₀, rfl, rfl, Nat.le_refl _,

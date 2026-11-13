@@ -41,10 +41,7 @@ theorem exists_pol_of_ne_zero {marks : List Val} (hwf : MarksWF marks)
     {idx : Nat} (hlt : idx < marks.length) (hne : marks[idx] ≠ 0) :
     ∃ pol, marks[idx]? = some (encodePol pol) ∧ marks[idx] = encodePol pol := by
   have h := hwf idx hlt
-  rw [List.getElem?_eq_getElem hlt] at h
-  rcases h with h0 | ⟨pol, hpol⟩
-  · exact absurd (Option.some.inj h0) hne
-  · exact ⟨pol, by rw [List.getElem?_eq_getElem hlt, hpol], Option.some.inj hpol⟩
+  grind
 
 theorem store_stat_resolved {st v : Val} {k : KernelFields} {P R : Mem 64 → Prop} {m : Mem 64}
     (h : (P ⋆ (kernelState st k ⋆ R)) m) :
@@ -96,11 +93,8 @@ theorem strictScan_spec {Γ : Env} {Q : Post} {X : XPost} {scanned : Cont}
         ⟨i + 1, hlt, rfl, by rw [ptr4], rfl, ?_⟩⟩
       intro x hx
       rw [List.take_add_one, List.getElem?_eq_getElem hlt] at hx
-      rcases List.mem_append.1 hx with h | h
-      · exact hinv x h
-      · rw [List.mem_singleton.1 h]; exact hneg
-    · subst hlen; rw [List.take_length] at hinv
-      exact hscan hinv
+      grind
+    · grind
   · intro J hJ
     wp_unfold
     exact hJ _ _ _ ⟨0, Nat.zero_le _, rfl, by simp, rfl, by simp⟩
@@ -195,12 +189,7 @@ theorem strictOuter_spec {Γ : Env} {Q : Post} {X : XPost} {resolved : Cont}
   · rintro J j as m' ⟨marks, first, hj, rfl, hmlen, hwf, hfirst_or, hent_init, hm⟩ ih
     wp_unfold
     refine ⟨fun heq => ?_, fun hne => ?_⟩
-    · obtain rfl : j = 0 := by
-        have := congrArg (fun x => (x - ants).toNat) heq
-        simp [BitVec.add_comm ants, Nat.mod_eq_of_lt (by omega : 4 * j < 2 ^ 64)] at this
-        omega
-      rw [Nat.sub_zero]
-      exact hres m' marks first hmlen hwf hfirst_or hent_init hm
+    · grind
     · obtain ⟨j', rfl⟩ : ∃ j', j = j' + 1 :=
         Nat.exists_eq_succ_of_ne_zero fun h0 => hne (by subst h0; simp)
       have hj' : j' < aids.length := hj
@@ -347,9 +336,7 @@ theorem strictCheck_correct (Γ : Env) :
         rw [Classical.not_not] at hz
         have hcnt_le : marksCount marks2 ≤ n := hlen2 ▸ marksCount_le_length marks2
         have hcnt0 : marksCount marks2 = 0 := by
-          have htoNat := congrArg BitVec.toNat hz
-          simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt hcnt_le hn_bound)] at htoNat
-          exact htoNat
+          grind
         have hmarks2_eq : marks2 = List.replicate n 0 :=
           hlen2 ▸ eq_replicate_zero_of_marksCount_eq_zero hcnt0
         rw [hmarks2_eq] at hm3

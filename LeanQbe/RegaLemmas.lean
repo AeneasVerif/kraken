@@ -72,10 +72,7 @@ theorem lookup_mem {I : Isa} {R : SymRegs I} {x : Nat} {r : I.Reg} (h : lookup R
   unfold lookup at h
   obtain ⟨⟨a, l⟩, hp, hf⟩ := List.exists_of_findSome?_eq_some h
   by_cases ha : a = .var x
-  · subst ha
-    cases l with
-    | reg r' => simp at hf; subst hf; exact hp
-    | slot _ => simp at hf
+  · grind
   · simp [ha] at hf
 
 theorem lookupLoc_mem {I : Isa} {R : SymRegs I} {x : Nat} {l : Loc I}
@@ -252,22 +249,13 @@ private theorem fuseCmp_some {I : Isa} {h : Hints I} {fn : String} {st : St I} {
         · rename_i hc
           simp only [Bool.and_eq_true, beq_iff_eq] at hc
           rcases hc with ⟨⟨rfl, _⟩, hpre⟩
-          cases ha : argReg R a with
-          | none => simp [ha] at hf
-          | some a' =>
-            cases hb : argReg R b with
-            | none => simp [ha, hb] at hf
-            | some b' =>
-              simp only [ha, hb] at hf
-              exact ⟨cls, co, a, b, t, e', a', b', rfl, rfl, hpre, ha, hb, hf⟩
+          grind
         · simp at hf
 
 theorem mem_copyTo {I : Isa} {l d : Loc I} {R : SymRegs I} {a : Arg Nat} {l' : Loc I}
     (h : (a, l') ∈ copyTo l d R) : l' = d ∧ (a, l) ∈ R := by
   simp only [copyTo, List.mem_map, List.mem_filter, locEq_eq_true] at h
-  obtain ⟨⟨a', l''⟩, ⟨hm, rfl⟩, he⟩ := h
-  obtain ⟨rfl, rfl⟩ := Prod.mk.injEq .. ▸ he
-  exact ⟨rfl, hm⟩
+  grind
 
 /-- A move `d := s` between registers. -/
 theorem Agree.mov {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s s' : T.MData} {σ : List Val}
@@ -308,8 +296,7 @@ theorem Agree.movi {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s s' : T.MData
   · cases hv with
     | imm c => exact hd
   · refine (hA.clob (d := some d) (fun r h1 h2 => hs r ?_)) _ _ hx _ hv
-    simp only [List.mem_cons, not_or]
-    exact ⟨fun e => h1 (by rw [e]), h2⟩
+    grind
 
 /-- `d := slot i`. -/
 theorem Agree.ld {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s s' : T.MData} {σ : List Val}
@@ -322,11 +309,9 @@ theorem Agree.ld {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s s' : T.MData} 
   · obtain ⟨rfl, hm⟩ := mem_copyTo hx
     have := hA _ _ hm _ ha
     simp only [LocHolds] at this ⊢
-    rw [hv] at this
-    rw [hd]; exact Option.some.inj this
+    grind
   · refine (hA.clob (d := some d) (fun r h1 h2 => hs r ?_)) _ _ hx _ ha
-    simp only [List.mem_cons, not_or]
-    exact ⟨fun e => h1 (by rw [e]), h2⟩
+    grind
 
 /-- `slot i := s`. -/
 theorem Agree.st {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s s' : T.MData} {σ : List Val}
@@ -444,35 +429,18 @@ theorem keeps_dest {s s' : T.MData} {saved : List T.Reg} {d : T.Reg}
     (hd : d ∈ T.allocatable ∨ d ∈ saved ∨ d ∈ T.scratch)
     (hs : ∀ r, r ∉ d :: T.scratch → T.get s' r = T.get s r) :
     ∀ r, r ∉ T.allocatable → r ∉ saved → r ∉ T.scratch → T.get s' r = T.get s r := by
-  intro r h1 h2 h3
-  refine hs r ?_
-  simp only [List.mem_cons, not_or]
-  refine ⟨fun e => ?_, h3⟩
-  rcases hd with h | h | h
-  · exact h1 (e ▸ h)
-  · exact h2 (e ▸ h)
-  · exact h3 (e ▸ h)
+  grind
 
 theorem keeps_dest' {s s' : T.MData} {d : T.Reg}
     (hs : ∀ r, r ∉ d :: T.scratch → T.get s' r = T.get s r) :
     ∀ r, some r ≠ some d → r ∉ T.scratch → T.get s' r = T.get s r := by
-  intro r h1 h2
-  refine hs r ?_
-  simp only [List.mem_cons, not_or]
-  exact ⟨fun e => h1 (by rw [e]), h2⟩
+  grind
 
 theorem keeps_one {s s' : T.MData} {saved : List T.Reg} {d : T.Reg}
     (hd : d ∈ T.allocatable ∨ d ∈ saved ∨ d ∈ T.scratch)
     (hs : ∀ r, r ∉ [d] → T.get s' r = T.get s r) :
     ∀ r, r ∉ T.allocatable → r ∉ saved → r ∉ T.scratch → T.get s' r = T.get s r := by
-  intro r h1 h2 h3
-  refine hs r ?_
-  simp only [List.mem_singleton]
-  intro e
-  rcases hd with h | h | h
-  · exact h1 (e ▸ h)
-  · exact h2 (e ▸ h)
-  · exact h3 (e ▸ h)
+  grind
 
 /-! ## Labels -/
 
@@ -653,10 +621,7 @@ theorem base_add_frame : base hints s₀ + BitVec.ofNat 64 (frame hints) = T.get
 
 theorem below_add (hFn : frame hints ≤ n) :
     T.get s₀ T.sp - BitVec.ofNat 64 n + BitVec.ofNat 64 (n - frame hints) = base hints s₀ := by
-  apply BitVec.eq_of_toNat_eq
-  simp only [base, BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat]
-  have := (T.get s₀ T.sp).isLt
-  omega
+  grind
 
 private theorem add_ofNat_8 (x : BitVec 64) (i : Nat) :
     x + BitVec.ofNat 64 (8 * i) + 8#64 = x + BitVec.ofNat 64 (8 * (i + 1)) := by
@@ -745,11 +710,7 @@ theorem restoreCs_ok {h : T.Host} {post : T.State → Prop} {s₀ : T.MData} {G 
       · exact (hkeep_rs q hr_notin (T.calleeSaved_not_scratch q hr_cs)).trans hd1
       · exact hrest_rs q hq
     have hkeep : ∀ q, q ∉ r :: rs → q ∉ T.scratch → T.get s' q = T.get s q := by
-      intro q hq1 hq2
-      simp only [List.mem_cons, not_or] at hq1
-      refine (hkeep_rs q hq1.2 hq2).trans (hs1 q ?_)
-      simp only [List.mem_cons, not_or]
-      exact ⟨hq1.1, hq2⟩
+      grind
     simpa [restoreCs, Nat.add_assoc] using kont s' hrest hkeep (hm'.trans hm1)
 
 /-- Put the frame back together: what the epilogue leaves is the caller's `Entry` footprint. -/
@@ -879,8 +840,7 @@ theorem ret_ok (hy : Hyps h hints E Γ s₀ n nX bound) {k : Nat} {s : T.MData} 
     rw [hsp2]; simp only [Target.Entry] at hm2; exact sep_ac' (by ac_rfl) hm2
   refine T.ret_spec (by simpa only [List.length_append, Nat.add_assoc] using (hc.append).2) hra2 hm2' fun s3 hk3 hsp3 hm3 => ?_
   have keep2 : ∀ r, r ≠ T.sp → r ∉ T.raRegs → r ∉ T.scratch → T.get s3 r = T.get s1 r := by
-    intro r h1 h2 h3
-    rw [hk3 r (by simp [h1, h3]), hk2 r (by simp [h1, h2, h3])]
+    grind
   refine Eventually.done _ (Or.inl ⟨T.pc_mk _ _, rets, m, hQ, ?_, ⟨?_, ?_⟩, ?_⟩)
   · rw [T.data_mk]
     refine valsIn_keep (fun r hr => keep2 r (fun e => T.sp_not_retRegs (e ▸ hr))
@@ -959,17 +919,11 @@ variable {T : Target}
 
 private theorem sub_add_sub (x : BitVec 64) {n m : Nat} (h : m ≤ n) :
     x - BitVec.ofNat 64 n + BitVec.ofNat 64 (n - m) = x - BitVec.ofNat 64 m := by
-  apply BitVec.eq_of_toNat_eq
-  simp only [BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat]
-  have := x.isLt
-  omega
+  grind
 
 private theorem sub_ofNat_add (x : BitVec 64) (a b : Nat) :
     x - BitVec.ofNat 64 (a + b) = x - BitVec.ofNat 64 a - BitVec.ofNat 64 b := by
-  apply BitVec.eq_of_toNat_eq
-  simp only [BitVec.toNat_sub, BitVec.toNat_ofNat]
-  have := x.isLt
-  omega
+  grind
 
 section Main
 variable {hints : Hints T.toIsa} {s₀ : T.MData} {ra : T.Addr} {n : Nat} {Rf : Mem 64 → Prop}
@@ -994,11 +948,7 @@ theorem callee_split {b : Nat} (hb : frame hints + T.raBytes + b ≤ n) (hn : n 
   have e : n - frame hints = n - frame hints - (b + T.raBytes) + (b + T.raBytes) := by omega
   conv => lhs; rw [e]
   rw [region_split (by omega)]
-  have e2 : T.get s₀ T.sp - BitVec.ofNat 64 n + BitVec.ofNat 64 (n - frame hints - (b + T.raBytes)) =
-      base hints s₀ - BitVec.ofNat 64 T.raBytes - BitVec.ofNat 64 b := by
-    rw [Nat.sub_sub, sub_add_sub _ (by omega), Nat.add_comm b T.raBytes, ← Nat.add_assoc,
-      sub_ofNat_add, sub_ofNat_add]
-  rw [e2]
+  grind
 
 end Main
 
@@ -1039,11 +989,7 @@ theorem lower_correct (hy : Hyps h hints E Γ s₀ n nX bound) {G : List (Val ×
     T.Run h k s (FnPost h Q X s₀ ra n nX Rf) := by
   have fresh : ∀ {G : List (Val × Nat)} {n : Nat}, (∀ p ∈ G, p.2 < n) →
       ∀ v, ∀ p ∈ (v, n) :: G, p.2 < n + 1 := by
-    intro G n hG v p hp
-    simp only [List.mem_cons] at hp
-    rcases hp with rfl | hp
-    · simp
-    · have := hG _ hp; omega
+    grind
   have nilR : ∀ {s : T.MData}, T.ValsIn ([] : List T.Reg) [] s := by simp [Target.ValsIn]
   induction hwf with
   | @let_ G D op₁ op₂ k₁ k₂ hop _ ih =>
@@ -1070,10 +1016,7 @@ theorem lower_correct (hy : Hyps h hints E Γ s₀ n nX bound) {G : List (Val ×
             refine (ih' v).2 k [] [] m s σ hcode hft (hD.cons _) .nil ?_
             refine ⟨rfl, rfl, rfl, rfl, hw, fun v' hv' hfc j hlab hcont => ?_⟩
             have hveq : v' = v := by
-              simp only [List.mem_cons, Prod.mk.injEq] at hv'
-              rcases hv' with ⟨rfl, -⟩ | hv'
-              · rfl
-              · have := hG _ hv'; omega
+              grind
             subst hveq
             refine moves_ok hy.spE _ st.R R1 k s σ hR1 hfc.append.1 hA hI
               fun s1 σ1 hA1 hI1 => ?_
@@ -1327,8 +1270,7 @@ theorem lower_correct (hy : Hyps h hints E Γ s₀ n nX bound) {G : List (Val ×
                   simpa only [List.length_append, List.length_singleton, Nat.add_assoc,
                     Nat.add_comm c'.length 1] using h)
                 hD .nil ⟨hA', nilR, hI', hwt ht⟩
-              simpa only [Target.Run, List.length_append, List.length_singleton, Nat.add_assoc]
-                using this
+              grind
             · have := ihe'.2 _ [] [] m s' σ' hc1.append.1.append.2
                 (fun ℓf hlf => by simp only [Option.some.injEq] at hlf; subst hlf; exact hlab)
                 hD .nil ⟨hA', nilR, hI', hwe hf⟩

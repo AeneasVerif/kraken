@@ -82,10 +82,7 @@ theorem lratCheckBytesExactSpec_of_spec {args : List Val} {m : Mem 64} {Q : Post
   refine ⟨cnf_ptr, prf_ptr, work_ptr, cnfBytes, prfBytes, work_len, R_mem,
     hargs, hcnf, hprf, hwork, hm, fun r m' hr hm' => ?_⟩
   cases hrun : runLratCheckBytes cnfBytes prfBytes work_len
-  · rw [hrun] at hr
-    simp only [Bool.false_eq_true, ↓reduceIte] at hr
-    subst hr
-    exact hQ 0 m' (Or.inl rfl) (fun h01 => absurd h01 (by decide)) hm'
+  · grind
   · rw [hrun] at hr
     simp only [↓reduceIte] at hr
     subst hr
@@ -195,8 +192,7 @@ theorem lratCheckBytesSpec_of_encoded {cnf : CNF Nat} {args : List Val} {m : Mem
   refine hQ r m' hr01 (fun hr1 => ?_) hm'
   obtain ⟨cnf', hp, hu⟩ := hunsat hr1
   rw [parseDimacs_encodeDimacs hvalid] at hp
-  injection hp with heq
-  exact heq ▸ hu
+  grind
 
 theorem lratCheckBytes_encoded_correct (cnf : CNF Nat) :
     ∀ args m Q X,
@@ -248,8 +244,7 @@ theorem nvReject_run : runLratCheckBytes nvDimacsBytes nvLratRejectBytes 512 = f
 theorem nvBytesCnf_unsat : nvBytesCnf.Unsat := by
   obtain ⟨cnf, hp, hu⟩ := runLratCheckBytes_sound nvAccept_run
   rw [nvDimacsBytes_parse] at hp
-  injection hp with heq
-  exact heq ▸ hu
+  grind
 
 /-- Specialized accepting contract for `(nvDimacsBytes, nvLratAcceptBytes, 512)`:
 returns `r = 1` and `nvBytesCnf.Unsat` with `X` unconstrained (`exits = []`). -/
@@ -315,9 +310,7 @@ theorem lratCheckBytesExactSpec_of_reject {args : List Val} {m : Mem 64} {Q : Po
   refine ⟨cnf_ptr, prf_ptr, work_ptr, nvDimacsBytes, nvLratRejectBytes, 512, R_mem,
     hargs, hcnf, hprf, hwork, hm, fun r m' hr hm' => ?_⟩
   rw [nvReject_run] at hr
-  simp only [Bool.false_eq_true, ↓reduceIte] at hr
-  subst hr
-  exact hQ m' hm'
+  grind
 
 /-- Function environment exposing `lratCheckBytesRejectSpec` at `"lrat_check_bytes"`. -/
 def lratBytesRejectEnv : Env := mkLratBytesEnv lratCheckBytesRejectSpec
@@ -357,10 +350,7 @@ theorem lratBytesPayload_sep (cnfBytes prfBytes : List UInt8)
     (by simp only [List.length_append, h512]; omega)
   have e1 : nvCnfPtr + BitVec.ofNat 64 (cnfBytes ++ prfBytes).length =
       nvWorkPtr cnfBytes prfBytes := by
-    simp only [nvWorkPtr, nvPrfPtr, nvCnfPtr, List.length_append]
-    apply BitVec.eq_of_toNat_eq
-    simp only [BitVec.toNat_add, BitVec.toNat_ofNat]
-    omega
+    grind
   rw [e1] at h1
   have h2 := Mem.At_append_sep cnfBytes prfBytes nvCnfPtr (by omega)
   have h0 : (Eq (((cnfBytes ++ prfBytes) ++ stackZeros 512).At nvCnfPtr))
@@ -383,10 +373,7 @@ private theorem concreteMem_sep (cnfBytes prfBytes : List UInt8)
   have h1 := Mem.At_append_sep (cnfBytes ++ prfBytes) (List.replicate 512 0) cnf_ptr
     (by simp only [List.length_append, h512]; omega)
   have e1 : cnf_ptr + BitVec.ofNat 64 (cnfBytes ++ prfBytes).length = work_ptr := by
-    simp only [work_ptr, prf_ptr, cnf_ptr, List.length_append]
-    apply BitVec.eq_of_toNat_eq
-    simp only [BitVec.toNat_add, BitVec.toNat_ofNat]
-    omega
+    grind
   rw [e1] at h1
   have h2 := Mem.At_append_sep cnfBytes prfBytes cnf_ptr
     (by omega)

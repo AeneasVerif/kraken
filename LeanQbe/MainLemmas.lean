@@ -83,15 +83,7 @@ theorem compile_correct {T : Target} (h : T.Host) (Γ : Env) (bound : String →
       · exact hf₀
       · refine compile_correct h Γ bound nX fs cs (k₀ + c₀.length) hcs hcode.append.2 hu
           (fun pre f' post heq => ?_) f hf
-        obtain ⟨hwf, hspec, hFn, hn, hcallees, hexits⟩ :=
-          hstep (f₀ :: pre) f' post (by simp [heq])
-        refine ⟨hwf, hspec, hFn, hn, fun g hg => ?_, hexits⟩
-        obtain ⟨h1 | h1, h2⟩ := hcallees g hg
-        · simp only [List.map_cons, List.mem_cons] at h1
-          rcases h1 with rfl | h1
-          · exact ⟨Or.inr hf₀, h2⟩
-          · exact ⟨Or.inl h1, h2⟩
-        · exact ⟨Or.inr h1, h2⟩
+        grind
     · simp at hcomp
     · simp at hcomp
 
@@ -100,14 +92,7 @@ theorem lookupBound_mem {bounds : List (String × Nat)} {g : String} {b : Nat}
   unfold lookupBound at h
   cases hf : bounds.find? (fun p => p.1 == g) with
   | none => simp [hf] at h
-  | some p =>
-    simp only [hf, Option.map_some, Option.some.injEq] at h
-    have hmem := List.mem_of_find?_eq_some hf
-    have heq : p.1 = g := by simpa using List.find?_some hf
-    rcases p with ⟨_, _⟩
-    simp only at heq h
-    subst heq h
-    exact hmem
+  | some p => grind
 
 theorem calleesBound_spec {F raBytes : Nat} {bounds : List (String × Nat)} :
     ∀ {gs : List String} {n : Nat},
@@ -115,8 +100,7 @@ theorem calleesBound_spec {F raBytes : Nat} {bounds : List (String × Nat)} :
     F ≤ n ∧ ∀ g ∈ gs, ∃ bg, lookupBound bounds g = some bg ∧ F + raBytes + bg ≤ n
   | [], _, h => by
     simp only [calleesBound, Option.some.injEq] at h
-    subst h
-    exact ⟨Nat.le_refl _, fun _ hg => nomatch hg⟩
+    grind
   | g :: gs, n, h => by
     unfold calleesBound at h
     split at h
@@ -124,11 +108,7 @@ theorem calleesBound_spec {F raBytes : Nat} {bounds : List (String × Nat)} :
       simp only [Option.some.injEq] at h
       subst h
       obtain ⟨hF, ih⟩ := calleesBound_spec hrest
-      refine ⟨Nat.le_trans hF (Nat.le_max_right _ _), fun g' hg' => ?_⟩
-      rcases List.mem_cons.mp hg' with rfl | hg'
-      · exact ⟨bg, hbg, Nat.le_max_left _ _⟩
-      · obtain ⟨bg', hmem, hle⟩ := ih g' hg'
-        exact ⟨bg', hmem, Nat.le_trans hle (Nat.le_max_right _ _)⟩
+      grind
     · simp at h
 
 theorem checkAndBound_spec {I : Isa} {raBytes : Nat} {exits : List String} {nX : Nat}
@@ -153,21 +133,7 @@ theorem checkAndBound_spec {I : Isa} {raBytes : Nat} {exits : List String} {nX :
         simp only [Option.some.injEq] at h
         subst h hn_def
         obtain ⟨hF, hcallees⟩ := calleesBound_spec hn₁
-        have hle : n₁ ≤ (if f.opt.ext.exits.isEmpty = true then n₁ else Nat.max n₁ nX) := by
-          split
-          · exact Nat.le_refl _
-          · exact Nat.le_max_left _ _
-        refine ⟨Nat.le_trans hF hle, h264, fun g hg => ?_, fun g hg => ?_⟩
-        · obtain ⟨bg, hlk, hbg⟩ := hcallees g hg
-          exact ⟨bg, hlk, Nat.le_trans hbg hle⟩
-        · have hge : g ∈ exits := of_decide_eq_true (List.all_eq_true.mp hall g hg)
-          have hne : f.opt.ext.exits.isEmpty = false := by
-            cases he : f.opt.ext.exits with
-            | nil => rw [he] at hg; nomatch hg
-            | cons _ _ => rfl
-          refine ⟨hge, ?_⟩
-          rw [hne]
-          simp [Nat.le_max_right]
+        grind
       · simp at h
     · simp at h
 
@@ -187,8 +153,7 @@ theorem compile_sound {T : Target} (h : T.Host) (Γ : Env)
     ∀ p ∈ bounds, T.Defined h p.1 ∧ T.FnSpec h p.1 (Γ p.1) p.2 nX
   | [], _, _, _, hcomp, _, _, _, _, _, _, p, hp => by
     simp only [compileModule, Except.ok.injEq, Prod.mk.injEq] at hcomp
-    rcases hcomp with ⟨_, rfl⟩
-    nomatch hp
+    grind
   | f :: fs, code, bounds, k₀, hcomp, hcode, hu, hwf, hspec, hext, hexits, p, hp => by
     simp only [compileModule] at hcomp
     split at hcomp
@@ -217,8 +182,7 @@ theorem compile_sound {T : Target} (h : T.Host) (Γ : Env)
             have hgb : bound g = bg := by dsimp [bound]; rw [hlk]; rfl
             rw [hgb]
             exact ⟨hext (g, bg) (lookupBound_mem hlk), hbg⟩
-          · obtain ⟨hge, hnX⟩ := hex g hg
-            exact ⟨hexits g hge, hnX⟩
+          · grind
         rcases List.mem_cons.mp hp with rfl | hp
         · exact ⟨hf_def, hf_spec⟩
         · exact compile_sound h Γ ((f.name, b) :: extCallees) exits nX fs cs bs (k₀ + c.length)
@@ -322,8 +286,7 @@ theorem extract_bound_le {D : Type} {label : String → D} {labelsNodup : List D
     | none => simp
     | some v =>
       have hmem := lookupBound_mem hlk
-      have hv := List.all_eq_true.mp hall (nm, v) hmem
-      simpa using of_decide_eq_true hv
+      grind
 
 theorem extract_bound_mem {D : Type} {label : String → D} {labelsNodup : List D → Bool}
     {res : Except String (List D × List (String × Nat))}
@@ -387,9 +350,7 @@ theorem defined_exit_host (M : Compiled T extCallees exits nX fs maxBound)
   obtain ⟨i, hi, rfl⟩ := List.mem_iff_getElem.mp hg
   refine ⟨M.code.length + i, ?_⟩
   rw [M.prog_host, List.getElem?_append_right (by omega)]
-  have : M.code.length + i - M.code.length = i := by omega
-  rw [this, List.getElem?_map, List.getElem?_eq_getElem hi]
-  rfl
+  grind
 
 /-- Module linking theorem over any host `h` containing `M.code` at `k₀` with unique labels. -/
 theorem fnSpec (M : Compiled T extCallees exits nX fs maxBound)

@@ -114,19 +114,13 @@ theorem Mem.storeInt_frame {m M : Mem 64} {F : Mem 64 → Prop} (hM : (Eq m ⋆ 
     apply ExtHashMap.ext_getElem?
     intro k
     simp only [ExtHashMap.union_eq, ExtHashMap.getElem?_union]
-    by_cases hk : k ∈ (Int.toBytes n v).At a
-    · rw [ExtHashMap.getElem?_eq_none (hnb k (hsub k hk))]
-      simp
-    · rw [ExtHashMap.getElem?_eq_none hk]
-      simp
+    grind
   · simp only [Mem.storeInt, Mem.storeBytes]
     apply ExtHashMap.eq_empty_iff_forall_not_mem.mpr
     intro k hk
     rw [ExtHashMap.inter_eq, ExtHashMap.mem_inter_iff, ExtHashMap.union_eq,
       ExtHashMap.mem_union_iff] at hk
-    obtain ⟨hk1 | hk1, hk2⟩ := hk
-    · exact hnb k hk1 hk2
-    · exact hnb k (hsub k hk1) hk2
+    grind
 
 theorem storeMem_frame {m M : Mem 64} {F : Mem 64 → Prop} (hM : (Eq m ⋆ F) M) {sz : Sz} {a : Val}
     (h : storeOk m sz a) (v : Val) : (Eq (storeMem m sz a v) ⋆ F) (storeMem M sz a v) := by
@@ -183,8 +177,7 @@ theorem toBytes_ofInt_ofBytes {bs : List UInt8} (hl : bs.length = 8) :
   rw [← Int.toBytes_emod]
   have h1 : ((BitVec.ofInt 64 (Int.ofBytes bs)).toInt).take (8 * 8) =
       (Int.ofBytes bs).take (8 * 8) := by
-    simp only [Int.take, BitVec.toInt_ofInt]
-    exact Int.bmod_emod
+    grind
   rw [h1, Int.toBytes_emod, ← hl]
   exact Int.toBytes_ofBytes_all bs
 
@@ -207,12 +200,7 @@ theorem slots_append {a : Val} (σ₁ σ₂ : List Val) :
   | cons v vs ih =>
     have e : a + 8#64 + BitVec.ofNat 64 (8 * vs.length) =
         a + BitVec.ofNat 64 (8 * (v :: vs).length) := by
-      simp only [List.length_cons]
-      rw [BitVec.add_assoc]
-      congr 1
-      apply BitVec.eq_of_toNat_eq
-      simp only [BitVec.toNat_add, BitVec.toNat_ofNat]
-      omega
+      grind
     rw [List.cons_append, slots_cons, slots_cons, ih, e, ExtHashMap.sep_assoc]
 
 /-- Slot `i` of `σ` in isolation. -/
@@ -299,9 +287,7 @@ theorem FnSpec.mono_exit {h : T.Host} {sym : String} {spec : Spec} {n nX nX' : N
     (hf : T.FnSpec h sym spec n nX) (hX : nX' ≤ nX) : T.FnSpec h sym spec n nX' := by
   intro args m Q X hspec s ra R ha hr hsp hmem
   refine eventually_weaken _ _ _ _ ?_ (hf args m Q X hspec s ra R ha hr hsp hmem)
-  rintro st (hret | ⟨sym', as, m', hX', hd, hpc, has, hsp', ra', n', F, hn', hb', hra', hm'⟩)
-  · exact Or.inl hret
-  · exact Or.inr ⟨sym', as, m', hX', hd, hpc, has, hsp', ra', n', F, by omega, hb', hra', hm'⟩
+  grind
 
 /-- A contract with a larger stack bound: the extra stack is part of the caller's frame. -/
 theorem FnSpec.mono_stack {h : T.Host} {sym : String} {spec : Spec} {n n' nX : Nat}
@@ -311,17 +297,13 @@ theorem FnSpec.mono_stack {h : T.Host} {sym : String} {spec : Spec} {n n' nX : N
   -- `region (sp - n') n' = region (sp - n') (n' - n) ⋆ region (sp - n) n`
   have eaddr : T.get s T.sp - BitVec.ofNat 64 n' + BitVec.ofNat 64 (n' - n) =
       T.get s T.sp - BitVec.ofNat 64 n := by
-    apply BitVec.eq_of_toNat_eq
-    have := (T.get s T.sp).isLt
-    simp only [BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat]
-    omega
+    grind
   have hsplit : region (T.get s T.sp - BitVec.ofNat 64 n') n' =
       region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n) ⋆
         region (T.get s T.sp - BitVec.ofNat 64 n) n := by
     have := region_split (a := T.get s T.sp - BitVec.ofNat 64 n') (n1 := n' - n) (n2 := n)
       (by omega)
-    rw [Nat.sub_add_cancel hn, eaddr] at this
-    exact this
+    grind
   have hmem' : (T.mem s =⋆ Eq m ⋆ T.Entry (T.get s T.sp) ra n ⋆
       (region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n) ⋆ R)) := by
     have : (Eq m ⋆ T.Entry (T.get s T.sp) ra n' ⋆ R) =
@@ -338,8 +320,7 @@ theorem FnSpec.mono_stack {h : T.Host} {sym : String} {spec : Spec} {n n' nX : N
       simp only [Target.Exit]
       have := region_split (a := T.get s T.sp - BitVec.ofNat 64 n') (n1 := n' - n)
         (n2 := n + T.raBytes) (by omega)
-      rw [show n' - n + (n + T.raBytes) = n' + T.raBytes by omega, eaddr] at this
-      exact this
+      grind
     have : (Eq m' ⋆ T.Exit (T.get s T.sp) n' ⋆ R) =
         (Eq m' ⋆ T.Exit (T.get s T.sp) n ⋆
           (region (T.get s T.sp - BitVec.ofNat 64 n') (n' - n) ⋆ R)) := by
@@ -385,8 +366,7 @@ theorem link {h : T.Host} (Γ : Env) (bound : String → Nat) (nX : Nat) :
 /-- A register kept by `call` (outside `sp :: raRegs ++ scratch`). -/
 private theorem not_mem_call_clob {r : T.Reg} (h1 : r ≠ T.sp) (h2 : r ∉ T.raRegs)
     (h3 : r ∉ T.scratch) : r ∉ T.sp :: T.raRegs ++ T.scratch := by
-  simp only [List.mem_cons, List.mem_append, not_or]
-  exact ⟨⟨h1, h2⟩, h3⟩
+  grind
 
 /--
 Calling a function that meets its `FnSpec`: `call sym` at index `k`, with the callee's arguments in

@@ -56,14 +56,10 @@ theorem sumto_spec (Γ : Env) (n : Val) (hn : n.toNat < 2 ^ 32) (m : Mem 64) :
     have hk32 : k + 1 < 2 ^ 32 := by omega
     have ht : Truthy (BitVec.ofNat 64 (k + 1)) := by
       simp only [Truthy, lo32, ne_eq]
-      intro h0
-      have := congrArg BitVec.toNat h0
-      simp [BitVec.toNat_ofNat] at this
-      omega
+      grind
     refine hloop _ _ _ ⟨fun _ => ?_, fun hnt => absurd ht hnt⟩
     have hsub : BitVec.ofNat 64 (k + 1) - 1 = BitVec.ofNat 64 k := by
-      apply BitVec.eq_of_toNat_eq
-      simp [BitVec.toNat_sub, BitVec.toNat_ofNat]; omega
+      grind
     rw [hsub]
     refine ih (by omega) _ ?_
     rw [← hs]; simp only [tri]; ac_rfl
@@ -122,10 +118,8 @@ theorem twice_spec (Γ : Env) (hcheck : Γ "check" = checkContract) :
     · rw [hcheck]; exact ⟨b, rfl, fun hb => ⟨hb, rfl, rfl⟩, fun hnb => ⟨hnb, rfl, rfl, rfl⟩⟩
     · rintro _ _ ⟨hb, rfl, rfl⟩
       exact ⟨rfl, a + b, rfl, rfl, hQ ha hb⟩
-    · rintro _ _ _ ⟨hnb, rfl, rfl, rfl⟩
-      exact hXb ha hnb
-  · rintro _ _ _ ⟨hna, rfl, rfl, rfl⟩
-    exact hXa hna
+    · grind
+  · grind
 
 /-- Expected value of `spill10(a, b)`. -/
 def spill10Val (a b : Val) : Val :=

@@ -60,8 +60,7 @@ theorem eventually_jnz {k j : Nat} {r : Reg64} {l : Label} {s : MachineData}
   · have : ((s.regs.get64 r).setWidth 32 == BitVec.zero 32) = false := by
       simpa [BitVec.zero, Truthy] using h0
     simp only [this, Bool.not_false, ↓reduceIte, Effects.All]
-    rw [hj]
-    refine (hk _ ?_ ?_).1 h0 <;> rfl
+    grind
   · have : ((s.regs.get64 r).setWidth 32 == BitVec.zero 32) = true := by
       simpa [BitVec.zero, Truthy] using h0
     simp only [this, Bool.not_true, Bool.false_eq_true, ↓reduceIte, Effects.All]
@@ -115,8 +114,7 @@ theorem eventually_popD {i : Nat} {r : Reg64} {v : Val} {s : MachineData} {F : M
   have hv : BitVec.ofInt 64 (Int.ofBytes (Int.toBytes 8 v.toInt)) = v :=
     BitVec.ofInt_ofBytes_toBytes 64 8 rfl v
   simp only [Effects.All]
-  rw [hv]
-  exact hk _ rfl rfl
+  grind
 
 /-- `sub $c, %rsp` (flags arbitrary). -/
 theorem eventually_subSpD {i : Nat} {c : Int64} {s : MachineData} {post : MachineState → Prop}
@@ -169,8 +167,7 @@ theorem eventually_ldSpD {i : Nat} {rd : Reg64} {off : Int64} {v : Val} {s : Mac
   have hv : BitVec.ofInt 64 (Int.ofBytes (Int.toBytes 8 v.toInt)) = v :=
     BitVec.ofInt_ofBytes_toBytes 64 8 rfl v
   simp only [Effects.All]
-  rw [hv]
-  exact hk _ rfl rfl
+  grind
 
 /-- `call l`, where `l` resolves to the address of directive `j`. -/
 theorem eventually_callD {i j : Nat} {l : Label} {s : MachineData} {F : Mem 64 → Prop}
@@ -267,8 +264,7 @@ theorem prologue_spec [Host] {k ns : Nat} {s : MachineData} {ra : Int64} {G : Me
     Run k s post := by
   refine eventually_subSpD (List.isInfixAt_singleton.mp hc) fun s' hs hm => hk s' ?_ ?_ ?_
   · rw [hs, Reg64s.get64_set64_same]; simp
-  · intro r hr
-    rw [hs, Reg64s.get64_set64_of_ne _ _ _ _ fun he => hr (by simp [he])]
+  · grind
   · have hle : 8 * ns ≤ frameSize ns := by simp only [frameSize]; split <;> omega
     have e : frameSize ns = 8 * ns + (frameSize ns - 8 * ns) := by omega
     rw [hm]
@@ -290,11 +286,8 @@ theorem epilogue_spec [Host] {k ns : Nat} {s : MachineData} {ra : Int64} {G : Me
     Run k s post := by
   refine eventually_addSpD (List.isInfixAt_singleton.mp hc) fun s' hs hm => hk s' ?_ trivial ?_ ?_
   · rw [hs, Reg64s.get64_set64_same]; simp
-  · intro r hr
-    rw [hs, Reg64s.get64_set64_of_ne _ _ _ _ fun he => hr (by simp [he])]
-  · rw [hm]
-    rw [BitVec.add_sub_cancel] at hmem
-    ac_nf at hmem ⊢
+  · grind
+  · grind
 
 
 /-! ## The `Target` instance -/
@@ -424,8 +417,7 @@ theorem layoutOf_zero (p : Program) :
   case label l => exact ⟨l, rfl⟩
   all_goals
     have hz' : (match p[i]? with | some (.label _) => 0 | _ => 4) = 0 := hz
-    rw [hd] at hz'
-    simp at hz'
+    grind
 
 private theorem sum_sized_mapIdx_le_four (sz : Nat → Nat) (hsz : ∀ i, sz i ≤ 4) :
     ∀ (xs : List Directive) (k : Nat),
@@ -437,12 +429,7 @@ private theorem sum_sized_mapIdx_le_four (sz : Nat → Nat) (hsz : ∀ i, sz i �
     rw [List.mapIdx_cons, List.map_cons, List.sum_cons, List.length_cons]
     have h0 : sz (k + 0) ≤ 4 := hsz (k + 0)
     have ih := sum_sized_mapIdx_le_four sz hsz xs (k + 1)
-    have hconv : (List.mapIdx (fun i d => ({ directive := d, size := sz (k + (i + 1)) } : Kraken.Sized Directive)) xs) =
-        (List.mapIdx (fun i d => ({ directive := d, size := sz (k + 1 + i) } : Kraken.Sized Directive)) xs) := by
-      congr 1; funext i d; congr 2; omega
-    rw [hconv]
-    dsimp only
-    omega
+    grind
 
 theorem layoutOf_small (p : Program) (h : 4 * p.length < 2 ^ 64) :
     (@Kraken.Layout.apply _ (layoutOf p) p).sizeBefore p.length < 2 ^ 64 := by
@@ -486,10 +473,7 @@ theorem initMem_entry (n : Nat) (ra : Int64) (bs : List UInt8)
     rw [hzs, BitVec.sub_add_cancel]
   have e1 : 0x0ff8#64 - BitVec.ofNat 64 n + BitVec.ofNat 64 (stackZeros n ++ ra.toUInt64.toBytes).length =
       0x1000#64 := by
-    simp only [List.length_append, hzs, hra]
-    apply BitVec.eq_of_toNat_eq
-    simp only [BitVec.toNat_add, BitVec.toNat_sub, BitVec.toNat_ofNat]
-    omega
+    grind
   rw [e1] at h1
   have h2 := Mem.At_append_sep (stackZeros n) ra.toUInt64.toBytes (0x0ff8#64 - BitVec.ofNat 64 n)
     (by simp only [hzs, hra]; omega)

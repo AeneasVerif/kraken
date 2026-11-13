@@ -43,10 +43,7 @@ end
 
 private theorem cons_sub {α : Type} {p : α} {G G' : List α} (h : ∀ q ∈ G, q ∈ G') :
     ∀ q ∈ p :: G, q ∈ p :: G' := by
-  intro q hq
-  cases hq with
-  | head => exact List.Mem.head _
-  | tail _ hq => exact List.Mem.tail _ (h _ hq)
+  grind
 
 /-- Weakening: `Wf` is preserved by enlarging both contexts. -/
 theorem Wf.weaken {V₁ V₂ L₁ L₂ : Type} {G : List (V₁ × V₂)} {D : List (L₁ × L₂)}
