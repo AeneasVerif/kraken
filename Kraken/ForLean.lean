@@ -9,11 +9,11 @@ Definitions that are not specific to Kraken and could equally live in Lean itsel
 public import Lean
 public meta import Lean
 
-open Lean
+open Lean Meta
 
 namespace Lean.Elab.Term
 
-public meta section
+public section
 
 /-- Parse `input` as the syntax category `cat` with `Lean.Parser.runParserCategory` and elaborate the
     resulting syntax tree with `elabStx`. -/
@@ -28,7 +28,7 @@ end Lean.Elab.Term
 
 namespace Int64
 
-public meta section
+public section
 
 variable {m : Type → Type} [Monad m] [MonadError m]
 
@@ -45,3 +45,19 @@ def ofNatNoOverflow (v : Nat) : m Int64 := do
 end
 
 end Int64
+
+namespace Lean
+
+initialize environmentForElabModuleExt : IO.Ref (NameMap Environment) ← IO.mkRef ∅
+
+public unsafe def getEnvironmentForElabModule (elabModule : Name) : IO Environment := do
+  match (← environmentForElabModuleExt.get).find? elabModule with
+  | some env => pure env
+  | none =>
+      enableInitializersExecution
+      initSearchPath (← findSysroot) [← getLibDir (← getBuildDir)]
+      let env ← importModules #[{ module := elabModule }] {} (loadExts := true)
+      environmentForElabModuleExt.modify (·.insert elabModule env)
+      pure env
+
+end Lean

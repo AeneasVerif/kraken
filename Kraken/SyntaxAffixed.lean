@@ -59,22 +59,33 @@ elab_rules (kind := declareAffixes) : command
     let declName ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo name
     modifyEnv (affixSetsExt.addEntry · (declName, set))
 
+/-- The Cartesian product of affix sets (or `#[("", none)]` when omitted), concatenating affixes and
+    joining docstrings with a blank line. -/
+private def getAffixProduct (ids? : Option (Syntax.TSepArray `ident ",")) : CommandElabM AffixSet := do
+  let mut acc : AffixSet := #[("", none)]
+  for set in ← (ids?.getD ∅).getElems.mapM getAffixSet do
+    let mut out := #[]
+    for (a, docA?) in acc do
+      for (b, docB?) in set do
+        let docs := [docA?, docB?].filterMap id
+        out := out.push (a ++ b, if docs.isEmpty then none else some ("\n\n".intercalate docs))
+    acc := out
+  return acc
+
 /-- Declare a non-reserved keyword syntax `pre ++ stem ++ sfx : cat` for every prefix `pre` and suffix
     `sfx` of the given affix sets (an omitted set or stem is empty), concatenating the docstrings of the
     command, the prefix and the suffix. Each syntax kind is named ``cat.affixed.«pre|stem|sfx»``, so that
     `splitAffixed` can recover the parts in the elaborator. -/
 syntax (name := syntaxAffixed) (Parser.Command.docComment)? "syntax_affixed "
-  (atomic(" (" &"prefixes" " := ") ident ") ")? (atomic(" (" &"suffixes" " := ") ident ") ")?
+  (atomic(" (" &"prefixes" " := ") ident,+ ") ")? (atomic(" (" &"suffixes" " := ") ident,+ ") ")?
   (str)? " : " ident : command
 elab_rules (kind := syntaxAffixed) : command
-  | `(syntaxAffixed| $[$doc?]? syntax_affixed $[(prefixes := $pres?)]? $[(suffixes := $sfxs?)]? $[$stem?]? : $cat) => do
+  | `(syntaxAffixed| $[$doc?]? syntax_affixed $[(prefixes := $pres?,*)]? $[(suffixes := $sfxs?,*)]? $[$stem?]? : $cat) => do
     let headDoc? ← doc?.mapM getDocStringText
     let stem := (stem?.map (·.getString)).getD ""
     let catParser := mkIdent (cat.getId.appendAfter "_parser")
-    -- An omitted affix set stands for the empty affix alone.
-    let affixes (set? : Option Ident) : CommandElabM AffixSet := set?.mapM getAffixSet <&> (·.getD #[("", none)])
-    for (pre, preDoc?) in ← affixes pres? do
-      for (sfx, sfxDoc?) in ← affixes sfxs? do
+    for (pre, preDoc?) in ← getAffixProduct pres? do
+      for (sfx, sfxDoc?) in ← getAffixProduct sfxs? do
         let keyword := pre ++ stem ++ sfx
         -- `syntax` would reject such atoms; we bypass it (see below), so check here.
         if keyword.isEmpty then
@@ -95,7 +106,7 @@ elab_rules (kind := syntaxAffixed) : command
 
 end
 
-public meta section
+public section
 
 open Term
 

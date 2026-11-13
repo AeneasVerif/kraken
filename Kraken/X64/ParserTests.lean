@@ -451,16 +451,15 @@ sel:
   [0, 1, 2].map (fun k => .word 4 (.sub (.label s!".Lcase{k}") (.label ".LJTI0_0")))
 
 /-- Printing `p` in AT&T syntax and reading it back with the combinator parser gives `p`. -/
-def agreesWithCombinatorParser (p : Program) : Bool :=
-  match Kraken.X64.Parser.parse (Kraken.X64.toATT p) with
-  | .ok p' => p' == p
-  | .error _ => false
+def agreesWithCombinatorParser (p : Program) : IO Bool := do
+  return (← Kraken.X64.Parser.parse (Kraken.X64.toATT p)) == p
 
-#guard [⸨prog| .long end - start ⸩, ⸨prog| .quad sym ⸩, ⸨prog| .short 7 ⸩, ⸨prog| .long sym+8 ⸩,
-  ⸨prog| .quad -1 ⸩, ⸨prog| movq $b-a, %rax ⸩, ⸨prog|
+#eval show IO Unit from do
+  assert! ← [⸨prog| .long end - start ⸩, ⸨prog| .quad sym ⸩, ⸨prog| .short 7 ⸩, ⸨prog| .long sym+8 ⸩,
+    ⸨prog| .quad -1 ⸩, ⸨prog| movq $b-a, %rax ⸩, ⸨prog|
 .longest:
   nop
-⸩].all agreesWithCombinatorParser
+⸩].allM agreesWithCombinatorParser
 
 end data_words
 
@@ -852,8 +851,9 @@ info: ⸨prog|
 
 section string_instructions
 
-#guard [
-  ⸨prog|
+#eval show IO Unit from do
+  assert! ← [
+    ⸨prog|
 movsb
 movsq
 rep movsb
@@ -862,13 +862,13 @@ stosw
 rep stosb
 rep stosq
 ⸩,
-  ⸨prog|
+    ⸨prog|
 addr32 movsb
 addr32 rep movsq
 addr32 stosl
 addr32 rep stosw
 ⸩
-].all agreesWithCombinatorParser
+  ].allM agreesWithCombinatorParser
 
 #guard ⸨instr| addr32 rep movsb ⸩ = Instr.regular .W32 .W8 (.movs true)
 #guard ⸨instr| stosq ⸩ = Instr.regular .W64 .W64 (.stos false)
@@ -892,19 +892,20 @@ end string_instructions
 
 section sse_and_vex
 
-#guard [
-  ⸨prog|
+#eval show IO Unit from do
+  assert! ← [
+    ⸨prog|
 movdqu (%rsp), %xmm0
 movdqa %xmm1, 16(%rsp)
 paddd (%rax), %xmm2
 pshufb %xmm3, %xmm4
 ⸩,
-  ⸨prog|
+    ⸨prog|
 pshufd $0x1b, %xmm5, %xmm6
 palignr $8, (%rsp), %xmm7
 pblendw $0xf0, %xmm8, %xmm9
 ⸩,
-  ⸨prog|
+    ⸨prog|
 vmovdqu (%rsp), %ymm0
 vmovd %eax, %xmm0
 vmovd %xmm1, 16(%rsp)
@@ -913,7 +914,7 @@ vmovq %xmm3, %xmm2
 vmovq %xmm1, 24(%rsp)
 vzeroupper
 ⸩,
-  ⸨prog|
+    ⸨prog|
 seto %al
 setno %bl
 sets %cl
@@ -922,19 +923,49 @@ setp %sil
 setnp %dil
 setge %r8b
 setg %r9b
+⸩,
+    ⸨prog|
+sha256rnds2 %xmm0, %xmm2, %xmm1
+sha256rnds2 (%rax), %xmm3
+sha256rnds2 %xmm0, %xmm4
+sha256msg1 %xmm4, %xmm5
+sha256msg2 16(%rsp), %xmm6
+⸩,
+    ⸨prog|
+vmovdqu32 (%rsp), %zmm0
+vmovdqa32 %zmm1, 64(%rsp)
+vpaddd %zmm2, %zmm3, %zmm4
+vpaddd (%rax), %ymm5, %ymm6
+vprord $7, %zmm7, %zmm8
+vpsrld $3, %xmm9, %xmm10
+vpternlogd $0xca, %zmm11, %zmm12, %zmm13
+vpternlogd $0x96, 64(%rsp), %zmm14, %zmm31
 ⸩
-].all agreesWithCombinatorParser
+  ].allM agreesWithCombinatorParser
 
 /-- error: vmovd takes no two xmm operands -/
 #guard_msgs in
 #check ⸨prog| vmovd %xmm0, %xmm1 ⸩
+
+/-- error: the implicit operand of sha256rnds2 is %xmm0 -/
+#guard_msgs in
+#check ⸨prog| sha256rnds2 %xmm1, %xmm2, %xmm3 ⸩
 
 /--
 info: ⸨prog|
   vmovd %eax, %xmm0
   vmovq %xmm0, 24(%rsp)
   pshufd $27, %xmm5, %xmm6
-  vzeroupper⸩ : List _root_.Directive
+  vzeroupper
+  sha256rnds2 %xmm0, %xmm2, %xmm1
+  sha256msg1 %xmm4, %xmm5
+  sha256msg2 16(%rsp), %xmm6
+  vmovdqu32 (%rsp), %zmm0
+  vmovdqa32 %zmm1, 64(%rsp)
+  vpaddd %zmm2, %zmm3, %zmm4
+  vprord $7, %zmm7, %zmm8
+  vpsrld $3, %xmm9, %xmm10
+  vpternlogd $202, %zmm11, %zmm12, %zmm13⸩ : List _root_.Directive
 -/
 #guard_msgs in
 #check ⸨prog|
@@ -942,6 +973,15 @@ info: ⸨prog|
   vmovq %xmm0, 24(%rsp)
   pshufd $0x1b, %xmm5, %xmm6
   vzeroupper
+  sha256rnds2 %xmm0, %xmm2, %xmm1
+  sha256msg1 %xmm4, %xmm5
+  sha256msg2 16(%rsp), %xmm6
+  vmovdqu32 (%rsp), %zmm0
+  vmovdqa32 %zmm1, 64(%rsp)
+  vpaddd %zmm2, %zmm3, %zmm4
+  vprord $7, %zmm7, %zmm8
+  vpsrld $3, %xmm9, %xmm10
+  vpternlogd $0xca, %zmm11, %zmm12, %zmm13
 ⸩
 
 variable (rest : List _root_.Directive) in

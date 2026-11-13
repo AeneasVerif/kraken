@@ -259,10 +259,10 @@ syntax_affixed (suffixes := lq) "adcx" : x64_rm_reg_op
 /-- Unsigned integer addition with overflow flag (`OF`). -/
 syntax_affixed (suffixes := lq) "adox" : x64_rm_reg_op
 
-/-- Conditional move (`cmov<cc>`) mnemonics taking `(src : RegOrMem, dst : Reg)`. -/
+/-- Conditional move (`cmov<cc>{w,l,q}`) mnemonics taking `(src : RegOrMem, dst : Reg)`. -/
 declare_syntax_cat x64_cmov_op (behavior := both)
 /-- Conditional move if condition holds. -/
-syntax_affixed (suffixes := cc) "cmov" : x64_cmov_op
+syntax_affixed (suffixes := cc, wlq) "cmov" : x64_cmov_op
 
 /-- Unary arithmetic/bitwise mnemonics taking `(dst : RegOrMem)`. -/
 declare_syntax_cat x64_unary_op (behavior := both)
@@ -326,8 +326,16 @@ syntax &"movdqa" : x64_avx_op
 syntax &"paddd" : x64_avx_op
 /-- Packed shuffle bytes (SSSE3). -/
 syntax &"pshufb" : x64_avx_op
+/-- Perform an intermediate calculation for the next four SHA-256 message dwords. -/
+syntax &"sha256msg1" : x64_avx_op
+/-- Perform a final calculation for the next four SHA-256 message dwords. -/
+syntax &"sha256msg2" : x64_avx_op
+/-- Move unaligned packed 32-bit integer values (AVX-512). -/
+syntax &"vmovdqu32" : x64_avx_op
+/-- Move aligned packed 32-bit integer values (AVX-512). -/
+syntax &"vmovdqa32" : x64_avx_op
 
-/-- SSE vector instruction mnemonics taking an 8-bit immediate (`$imm, src, dst`). -/
+/-- SSE/AVX vector instruction mnemonics taking an 8-bit immediate (`$imm, src, dst`). -/
 declare_syntax_cat x64_avx_imm_op (behavior := both)
 /-- Shuffle packed doublewords (SSE2). -/
 syntax &"pshufd" : x64_avx_imm_op
@@ -335,6 +343,10 @@ syntax &"pshufd" : x64_avx_imm_op
 syntax &"palignr" : x64_avx_imm_op
 /-- Variable blend packed words (SSE4.1). -/
 syntax &"pblendw" : x64_avx_imm_op
+/-- Rotate packed doublewords right by immediate count (AVX-512). -/
+syntax &"vprord" : x64_avx_imm_op
+/-- Shift packed doublewords logical right by immediate count (AVX-512). -/
+syntax &"vpsrld" : x64_avx_imm_op
 
 /-- VEX 32/64-bit transfer mnemonics (`vmovd`, `vmovq`). -/
 declare_syntax_cat x64_vmov_gp_op (behavior := both)
@@ -423,7 +435,11 @@ syntax withPosition(&"movzx" ppSpace lineEq x64_reg ", " lineEq x64_reg) : x64_i
 syntax withPosition(x64_ext_mov_op ppSpace lineEq x64_operand ", " lineEq x64_reg) : x64_instr
 syntax withPosition(x64_lea_op ppSpace lineEq x64_mem ", " lineEq x64_reg) : x64_instr
 syntax withPosition(x64_avx_op ppSpace lineEq x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
+syntax withPosition(&"sha256rnds2" ppSpace lineEq x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
+syntax withPosition(&"sha256rnds2" ppSpace lineEq x64_avx_reg ", "  x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
+syntax withPosition(&"vpaddd" ppSpace lineEq x64_avx_operand ", " lineEq x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
 syntax withPosition(x64_avx_imm_op ppSpace lineEq x64_imm ", " lineEq x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
+syntax withPosition(&"vpternlogd" ppSpace lineEq x64_imm ", " lineEq x64_avx_operand ", " lineEq x64_avx_operand ", " lineEq x64_avx_operand) : x64_instr
 syntax (priority := low) withPosition(x64_vmov_gp_op ppSpace lineEq x64_avx_reg ", " lineEq x64_avx_reg) : x64_instr
 syntax withPosition(x64_vmov_gp_op ppSpace lineEq x64_avx_reg ", " lineEq x64_operand) : x64_instr
 syntax withPosition(x64_vmov_gp_op ppSpace lineEq x64_operand ", " lineEq x64_avx_reg) : x64_instr
