@@ -48,13 +48,16 @@ def swap : Program := ⸨prog|
   eor x0, x0, x1
 ⸩
 
-theorem swap_correct [layout : Layout] (d : MachineData) :
-    straightlineStep (layout swap) ⟨d, layout.start⟩
-    (fun s' =>
+theorem swap_correct [layout : Layout] [layout.NoWrap swap] (d : MachineData) :
+    Eventually (step1 (layout swap))
+      (fun s' =>
+        s'.pc = (layout swap).addrOf swap.length ∧
         s'.1.regs.getRegOrZr .X0 = d.regs.getRegOrZr .X1 ∧
-        s'.1.regs.getRegOrZr .X1 = d.regs.getRegOrZr .X0) := by
+        s'.1.regs.getRegOrZr .X1 = d.regs.getRegOrZr .X0)
+      ⟨d, layout.start⟩ := by
   kprologue swap with d
   sym => kstep; tactic =>
+  refine .done _ ⟨rfl, ?_⟩
   grind
 
 -- Example 3: Multi-instruction arithmetic and shift pipeline
@@ -64,11 +67,15 @@ def arith_shift : Program := ⸨prog|
   sub x3, x2, x0
 ⸩
 
-theorem arith_shift_correct [layout : Layout] (d : MachineData) :
-    straightlineStep (layout arith_shift) ⟨d, layout.start⟩ (fun s' =>
-      s'.1.regs.getRegOrZr .X3 = 3 * (d.regs.getRegOrZr .X1 + 42)) := by
+theorem arith_shift_correct [layout : Layout] [layout.NoWrap arith_shift] (d : MachineData) :
+    Eventually (step1 (layout arith_shift))
+      (fun s' =>
+        s'.pc = (layout arith_shift).addrOf arith_shift.length ∧
+        s'.1.regs.getRegOrZr .X3 = 3 * (d.regs.getRegOrZr .X1 + 42))
+      ⟨d, layout.start⟩ := by
   kprologue arith_shift with d
   sym => kstep; tactic =>
+  refine .done _ ⟨rfl, ?_⟩
   simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl,
     show (Int64.toInt 0).toNat = 0 from rfl]
   bv_decide
@@ -82,18 +89,44 @@ start:
   mov x1, #42
 ⸩
 
-theorem p4_correct [layout : Layout] (d : MachineData) :
-    Eventually (straightlineStep (layout controlflow))
-      (fun s' => s'.1.regs.X1 = 42)
+theorem p4_correct [layout : Layout] [layout.NoWrap controlflow] (d : MachineData) :
+    Eventually (step1 (layout controlflow))
+      (fun s' => s'.pc = (layout controlflow).addrOf controlflow.length ∧ s'.1.regs.X1 = 42)
       ⟨d, layout.start⟩ := by
-  apply step_cps
   kprologue controlflow with d
   sym => kstep; tactic =>
   rename_i v v1
   have : v1 = 0 := by grind
   simp [this]
   sym => kstep; tactic =>
-  apply Eventually.done
+  refine .done _ ⟨rfl, ?_⟩
+  simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl]
+  bv_decide
+
+-- Example 4b: Stepping through a taken branch to an internal label, then falling through
+def controlflow_jump : Program := ⸨prog|
+  mov x0, #2
+loop:
+  sub x0, x0, #1
+  cbnz x0, loop
+  mov x1, #42
+⸩
+
+theorem controlflow_jump_correct [layout : Layout] [layout.NoWrap controlflow_jump] (d : MachineData) :
+    Eventually (step1 (layout controlflow_jump))
+      (fun s' => s'.pc = (layout controlflow_jump).addrOf controlflow_jump.length ∧ s'.1.regs.X1 = 42)
+      ⟨d, layout.start⟩ := by
+  kprologue controlflow_jump with d
+  sym => kstep; tactic =>
+  rename_i v v1
+  have : v1 = 1 := by grind
+  simp [this]
+  sym => kstep; tactic =>
+  rename_i v2
+  have : v2 = 0 := by grind
+  simp [this]
+  sym => kstep; tactic =>
+  refine .done _ ⟨rfl, ?_⟩
   simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl]
   bv_decide
 
@@ -108,17 +141,18 @@ def move_2_regs_to_heap : Program := ⸨prog|
     ldr x4, [x2, #8]
 ⸩
 
-theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
+theorem move_2_regs_to_heap_correct [layout : Layout] [layout.NoWrap move_2_regs_to_heap]
+    (s₀ : MachineData)
     (v1 v2 : UInt64)
     (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v1.At s₀.regs.X2.toBitVec) ⋆ Eq (v2.At (s₀.regs.X2.toBitVec + 8#64)) ⋆ R) :
-    Eventually (straightlineStep (layout move_2_regs_to_heap))
+    Eventually (step1 (layout move_2_regs_to_heap))
       (fun s' =>
+        s'.pc = (layout move_2_regs_to_heap).addrOf move_2_regs_to_heap.length ∧
         s'.1.regs.X3 = s₀.regs.X0 ∧
         s'.1.regs.X4 = s₀.regs.X1 ∧
         s'.1.regs.X2 = s₀.regs.X2)
       ⟨s₀, layout.start⟩ := by
-  apply step_cps
   kprologue move_2_regs_to_heap with s₀
 
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
@@ -146,7 +180,7 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   tactic =>
   apply Eventually.done
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
-  exact ⟨rfl, rfl, rfl⟩
+  exact ⟨rfl, rfl, rfl, rfl⟩
 
 -- Example 6: Memory access with shifted register offset [x1, x2, lsl #3]
 def reg_offset_example : Program := ⸨prog|
@@ -156,13 +190,14 @@ def reg_offset_example : Program := ⸨prog|
     ldr x3, [x1, x2, lsl #3]
 ⸩
 
-theorem reg_offset_example_correct [layout : Layout] (s₀ : MachineData)
+theorem reg_offset_example_correct [layout : Layout] [layout.NoWrap reg_offset_example]
+    (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.X1.toBitVec + BitVec.ofInt 64 (s₀.regs.X2.toBitVec.toNat <<< 3))) ⋆ R) :
-    Eventually (straightlineStep (layout reg_offset_example))
-      (fun s' => s'.1.regs.X3 = 42)
+    Eventually (step1 (layout reg_offset_example))
+      (fun s' => s'.pc = (layout reg_offset_example).addrOf reg_offset_example.length ∧
+        s'.1.regs.X3 = 42)
       ⟨s₀, layout.start⟩ := by
-  apply step_cps
   kprologue reg_offset_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   simp at h_mem
@@ -176,5 +211,4 @@ theorem reg_offset_example_correct [layout : Layout] (s₀ : MachineData)
   case h_len => exact by decide
   kstep
   tactic =>
-  apply Eventually.done
-  rfl
+  exact .done _ ⟨rfl, rfl⟩

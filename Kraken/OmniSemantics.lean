@@ -20,12 +20,6 @@ inductive Eventually {State : Type} (trans : State → Post → Prop) (post : Po
       (forall (mid: State), mid_p mid → Eventually trans post mid) →
       Eventually trans post initial
 
-theorem step_cps {State : Type} (trans : State → Post → Prop) (post : Post) (initial : State) :
-  trans initial (fun mid => Eventually trans post mid) → Eventually trans post initial :=
-  by
-    intro h
-    exact .step initial _ h (fun _ => id)
-
 theorem eventually_trans {State : Type} (trans : State → Post → Prop) (p q : Post) (initial : State)
   (e : Eventually trans p initial)
   (h : ∀ s, p s → Eventually trans q s) :
