@@ -44,30 +44,24 @@ theorem binAct_eval {k : Cls} {o : BinOp} {ai bi : Option Val} {eqKey : Bool} {v
 
 theorem findPow2_spec {w : Nat} {x : BitVec w} :
     ∀ {limit m : Nat}, findPow2 w x limit = some m → m < limit ∧ x = BitVec.twoPow w m
-  | 0, _, h => by simp [findPow2] at h
-  | l + 1, m, h => by
-    simp only [findPow2] at h
-    split at h
+  | 0, _, h => nomatch h
+  | l + 1, _, h => by
+    simp only [findPow2] at h; split at h
     · next hx => cases h; exact ⟨Nat.lt_succ_self l, hx⟩
-    · obtain ⟨hm, hx⟩ := findPow2_spec h
-      exact ⟨Nat.lt_succ_of_lt hm, hx⟩
+    · obtain ⟨hm, hx⟩ := findPow2_spec h; exact ⟨Nat.lt_succ_of_lt hm, hx⟩
 
 theorem pow2Shift?_eval_r {k : Cls} {c m : Val} (a : Arg Val) (h : pow2Shift? k c = some m) :
     (Op.bin k .shl a (.imm m)).eval = (Op.bin k .mul a (.imm c)).eval := by
   cases k with
   | l =>
     simp only [pow2Shift?, Option.map_eq_some_iff] at h
-    obtain ⟨i, hi, rfl⟩ := h
-    obtain ⟨hilt, rfl⟩ := findPow2_spec hi
-    have hm : (BitVec.ofNat 64 i).toNat % 64 = i := by
-      simp [BitVec.toNat_ofNat]; omega
-    simp only [Op.eval, BinOp.eval, Arg.val, hm, BitVec.shiftLeft_eq_mul_twoPow]
+    obtain ⟨i, hi, rfl⟩ := h; obtain ⟨hilt, hlo⟩ := findPow2_spec hi
+    have hm : (BitVec.ofNat 64 i).toNat % 64 = i := by simp [BitVec.toNat_ofNat]; omega
+    simp only [Op.eval, BinOp.eval, Arg.val, hm, hlo, BitVec.shiftLeft_eq_mul_twoPow]
   | w =>
     simp only [pow2Shift?, Option.map_eq_some_iff] at h
-    obtain ⟨i, hi, rfl⟩ := h
-    obtain ⟨hilt, hlo⟩ := findPow2_spec hi
-    have hm : (lo32 (BitVec.ofNat 64 i)).toNat % 32 = i := by
-      simp [lo32, BitVec.toNat_ofNat]; omega
+    obtain ⟨i, hi, rfl⟩ := h; obtain ⟨hilt, hlo⟩ := findPow2_spec hi
+    have hm : (lo32 (BitVec.ofNat 64 i)).toNat % 32 = i := by simp [lo32, BitVec.toNat_ofNat]; omega
     simp only [Op.eval, BinOp.eval, Arg.val, hm, hlo, BitVec.shiftLeft_eq_mul_twoPow]
 
 theorem pow2Shift?_eval_l {k : Cls} {c m : Val} (b : Arg Val) (h : pow2Shift? k c = some m) :
@@ -82,101 +76,30 @@ theorem lo32_allOnes : lo32 (BitVec.allOnes 64) = BitVec.allOnes 32 := by decide
 
 theorem rewriteMul_eval (k : Cls) (a b : Arg Val) :
     (rewriteMul k a b).eval = (Op.bin k .mul a b).eval := by
-  unfold rewriteMul
-  cases b with
-  | imm c =>
-    dsimp only [Arg.imm?, Option.bind]
-    cases hp : pow2Shift? k c with
-    | some m => exact pow2Shift?_eval_r a hp
-    | none =>
-      dsimp only
-      cases a with
-      | imm c' =>
-        dsimp only [Arg.imm?, Option.bind]
-        cases hp' : pow2Shift? k c' with
-        | some m => exact pow2Shift?_eval_l (.imm c) hp'
-        | none => rfl
-      | var _ => rfl
-  | var v =>
-    dsimp only [Arg.imm?, Option.bind]
-    cases a with
-    | imm c' =>
-      dsimp only [Arg.imm?, Option.bind]
-      cases hp' : pow2Shift? k c' with
-      | some m => exact pow2Shift?_eval_l (.var v) hp'
-      | none => rfl
-    | var _ => rfl
+  fun_cases rewriteMul k a b
+  · next h => cases b <;> simp_all [Arg.imm?]; exact pow2Shift?_eval_r a h
+  · next h => cases a <;> simp_all [Arg.imm?]; exact pow2Shift?_eval_l b h
+  · rfl
 
 theorem rewriteBin_eval (k : Cls) (o : BinOp) (a b : Arg Val) :
     (rewriteBin k o a b).eval = (Op.bin k o a b).eval := by
-  unfold rewriteBin
-  cases k with
-  | l =>
-    cases o <;> try rfl
-    exact rewriteMul_eval .l a b
-  | w =>
-    cases o with
-    | add =>
-      simp only [beq_iff_eq]
-      split
-      · next h => rw [Op.eval_copy]; simp [Op.eval, BinOp.eval, Cls.trunc, Arg.imm?_eq_some h]
-      · split
-        · next h => rw [Op.eval_copy]; simp [Op.eval, BinOp.eval, Cls.trunc, Arg.imm?_eq_some h]
-        · rfl
-    | sub =>
-      simp only [beq_iff_eq]
-      split
-      · next h => rw [Op.eval_copy]; simp [Op.eval, BinOp.eval, Cls.trunc, Arg.imm?_eq_some h]
-      · rfl
-    | or =>
-      simp only [beq_iff_eq]
-      split
-      · next h => rw [Op.eval_copy]; simp [Op.eval, BinOp.eval, Cls.trunc, Arg.imm?_eq_some h]
-      · split
-        · next h => rw [Op.eval_copy]; simp [Op.eval, BinOp.eval, Cls.trunc, Arg.imm?_eq_some h]
-        · rfl
-    | xor =>
-      simp only [beq_iff_eq]
-      split
-      · next h => rw [Op.eval_copy]; simp [Op.eval, BinOp.eval, Cls.trunc, Arg.imm?_eq_some h]
-      · split
-        · next h => rw [Op.eval_copy]; simp [Op.eval, BinOp.eval, Cls.trunc, Arg.imm?_eq_some h]
-        · rfl
-    | and =>
-      simp only [beq_iff_eq]
-      split
-      · next h =>
-        rw [Op.eval_copy]
-        simp only [Op.eval, BinOp.eval, Cls.trunc, Arg.imm?_eq_some h, lo32_allOnes,
-          BitVec.and_allOnes, Option.map]
-      · split
-        · next h =>
-          rw [Op.eval_copy]
-          simp only [Op.eval, BinOp.eval, Cls.trunc, Arg.imm?_eq_some h, lo32_allOnes,
-            BitVec.allOnes_and, Option.map]
-        · rfl
-    | shl | shr | sar =>
-      simp only [beq_iff_eq]
-      split
-      · next h => rw [Op.eval_copy]; simp [Op.eval, BinOp.eval, Cls.trunc, Arg.imm?_eq_some h]
-      · rfl
-    | mul =>
-      simp only [beq_iff_eq]
-      split
-      · next h => rw [Op.eval_copy]; simp [Op.eval, BinOp.eval, Cls.trunc, Arg.imm?_eq_some h]
-      · split
-        · next h => rw [Op.eval_copy]; simp [Op.eval, BinOp.eval, Cls.trunc, Arg.imm?_eq_some h]
-        · exact rewriteMul_eval .w a b
-    | div | rem | udiv | urem => rfl
+  fun_cases rewriteBin k o a b <;>
+    first
+    | rfl
+    | exact rewriteMul_eval _ a b
+    | (rename_i h; try simp only [beq_iff_eq] at h
+       rw [Op.eval_copy]
+       simp only [Op.eval, BinOp.eval, Cls.trunc, Arg.imm?_eq_some h, lo32_allOnes,
+         BitVec.and_allOnes, BitVec.allOnes_and, Option.map]
+       try simp [lo32])
 
 theorem Op.rewrite_eval (o : Op Val) : o.rewrite.eval = o.eval := by
   cases o with
   | bin k op a b => exact rewriteBin_eval k op a b
-  | cmp k op a b => rfl
-  | copy k a => rfl
   | ext k s sg a =>
-    cases k <;> cases s <;> cases sg <;>
+    cases k <;> cases s <;> cases sg <;> (try rfl) <;>
       grind [Op.rewrite, Op.eval, Cls.trunc, Sz.extend, Option.some_inj]
+  | _ => rfl
 
 /-! ## Context invariants and `OpRel` lemmas for `fold` -/
 
@@ -191,9 +114,7 @@ def Arg.FLt (b : Nat) : FKey → Prop
 def fupd (ρ : Nat → Val) (b : Nat) (v : Val) : Nat → Val := fun i => if i = b then v else ρ i
 
 theorem Arg.FLt.mono {b : Nat} {κ : FKey} (h : κ.FLt b) : κ.FLt (b + 1) := by
-  cases κ with
-  | var i => exact Nat.lt_succ_of_lt h
-  | imm _ => trivial
+  cases κ <;> grind [Arg.FLt]
 
 theorem Arg.fev_fupd {ρ : Nat → Val} {b : Nat} {v : Val} {κ : FKey} (h : κ.FLt b) :
     κ.fev (fupd ρ b v) = κ.fev ρ := by
@@ -205,17 +126,13 @@ def FGood (ρ : Nat → Val) (b : Nat) (G : List (FVal Val × Val)) : Prop :=
 
 theorem FGood.cons {ρ : Nat → Val} {b : Nat} {G : List (FVal Val × Val)} (hG : FGood ρ b G)
     {r : FVal Val} {v : Val} (h1 : r.1.val = v) (h2 : r.2.fev ρ = v) (h3 : r.2.FLt b) :
-    FGood ρ b ((r, v) :: G) := by
-  intro p hp
-  cases hp with
-  | head => exact ⟨h1, h2, h3⟩
-  | tail _ hp => exact hG p hp
+    FGood ρ b ((r, v) :: G)
+  | _, .head _ => ⟨h1, h2, h3⟩
+  | _, .tail _ hp => hG _ hp
 
 theorem FGood.upd {ρ : Nat → Val} {b : Nat} {G : List (FVal Val × Val)} (hG : FGood ρ b G)
-    (v : Val) : FGood (fupd ρ b v) (b + 1) G := by
-  intro p hp
-  obtain ⟨h1, h2, h3⟩ := hG p hp
-  exact ⟨h1, (Arg.fev_fupd h3).trans h2, h3.mono⟩
+    (v : Val) : FGood (fupd ρ b v) (b + 1) G :=
+  fun p hp => let ⟨h1, h2, h3⟩ := hG p hp; ⟨h1, (Arg.fev_fupd h3).trans h2, h3.mono⟩
 
 theorem FGood.fresh {ρ : Nat → Val} {b : Nat} {G : List (FVal Val × Val)} (hG : FGood ρ b G)
     (v : Val) : FGood (fupd ρ b v) (b + 1) (((.var v, .var b), v) :: G) :=
@@ -253,26 +170,17 @@ theorem Forall₂.fout_vals (hG : FGood ρ b G) :
 theorem OpRel.fout_eval (hG : FGood ρ b G) {o₁ : Op (FVal Val)} {o₂ : Op Val}
     (h : OpRel G o₁ o₂) : (o₁.mapArgs Arg.fout).eval = o₂.eval := by
   cases h with
-  | bin k o ha hb =>
+  | bin k _ ha hb | cmp k _ ha hb =>
     cases k <;> simp only [Op.mapArgs, Op.eval, ha.fout_val hG, hb.fout_val hG]
-  | cmp k o ha hb =>
-    cases k <;> simp only [Op.mapArgs, Op.eval, ha.fout_val hG, hb.fout_val hG]
-  | ext k s sg ha => simp only [Op.mapArgs, Op.eval, ha.fout_val hG]
-  | copy k ha => simp only [Op.mapArgs, Op.eval, ha.fout_val hG]
+  | ext _ _ _ ha | copy _ ha => simp only [Op.mapArgs, Op.eval, ha.fout_val hG]
 
 end
 
 theorem Op.constVal?_eval {o : Op Val} {c : Val} (h : o.constVal? = some c) : o.eval = some c := by
   cases o with
-  | bin k o a b => cases a <;> cases b <;> simp_all [Op.constVal?, Op.toImm?, Arg.imm?]
-  | cmp k o a b => cases a <;> cases b <;> simp_all [Op.constVal?, Op.toImm?, Arg.imm?]
-  | ext k s sg a => cases a <;> simp_all [Op.constVal?, Op.toImm?, Arg.imm?]
-  | copy k a => cases a <;> simp_all [Op.constVal?, Op.toImm?, Arg.imm?]
-
-theorem Op.copyL?_eval {o : Op Val} {a : Arg Val} (h : o.copyL? = some a) : o.eval = some a.val := by
-  cases o with
-  | copy k a' => cases k <;> simp_all [Op.copyL?, Op.eval, Cls.trunc]
-  | _ => simp [Op.copyL?] at h
+  | bin _ _ a b | cmp _ _ a b =>
+    cases a <;> cases b <;> simp_all [Op.constVal?, Op.toImm?, Arg.imm?]
+  | ext _ _ _ a | copy _ a => cases a <;> simp_all [Op.constVal?, Op.toImm?, Arg.imm?]
 
 theorem OpRel.simpAct_eval {G : List (FVal Val × Val)} {ρ : Nat → Val} {b : Nat} (hG : FGood ρ b G)
     {op₁ : Op (FVal Val)} {op₂ : Op Val} (ho : OpRel G op₁ op₂) {act : SimpAct}
@@ -282,57 +190,42 @@ theorem OpRel.simpAct_eval {G : List (FVal Val × Val)} {ρ : Nat → Val} {b : 
   unfold Op.simpAct at h
   cases hc : (op₁.mapArgs Arg.fout).constVal? with
   | some c =>
-    rw [hc] at h
-    cases h
-    have he := (ho.fout_eval hG).symm.trans (Op.constVal?_eval hc)
-    exact ⟨he, rfl, trivial⟩
+    rw [hc] at h; cases h
+    exact ⟨(ho.fout_eval hG).symm.trans (Op.constVal?_eval hc), rfl, trivial⟩
   | none =>
-    rw [hc] at h
-    dsimp only at h
+    rw [hc] at h; dsimp only at h
     cases ho with
     | @bin k o a₁ b₁ a₂ b₂ ha hb =>
-      have hai : ∀ c, a₁.fout.imm? = some c → a₂.val = c := fun c hc =>
-        (ha.fout_val hG).symm.trans (Arg.imm?_eq_some hc)
-      have hbi : ∀ c, b₁.fout.imm? = some c → b₂.val = c := fun c hc =>
-        (hb.fout_val hG).symm.trans (Arg.imm?_eq_some hc)
-      have heq : (a₁.fkey == b₁.fkey) = true → a₂.val = b₂.val := fun hk => by
-        have hk' : a₁.fkey = b₁.fkey := eq_of_beq hk
-        exact (ha.fkey_ev hG).symm.trans (hk' ▸ hb.fkey_ev hG)
-      have hev := binAct_eval hai hbi heq h
+      have heq : (a₁.fkey == b₁.fkey) = true → a₂.val = b₂.val := fun hk =>
+        (ha.fkey_ev hG).symm.trans (eq_of_beq (α := FKey) hk ▸ hb.fkey_ev hG)
+      have hev := binAct_eval
+        (fun _ hc => (ha.fout_val hG).symm.trans (Arg.imm?_eq_some hc))
+        (fun _ hc => (hb.fout_val hG).symm.trans (Arg.imm?_eq_some hc)) heq h
       have hev' : (Op.bin k o a₂ b₂).eval = (Op.bin k o (.imm a₂.val) (.imm b₂.val)).eval := by
         cases k <;> rfl
       cases act with
       | imm c => exact ⟨hev'.trans hev, rfl, trivial⟩
       | fst =>
         obtain ⟨h1, h2, h3⟩ := ha.fpair_good hG
-        dsimp only [SimpAct.apply, Op.firstArg]
-        rw [h1] at h2 ⊢
-        exact ⟨hev'.trans hev, h2, h3⟩
+        dsimp only [SimpAct.apply, Op.firstArg]; rw [h1] at h2 ⊢; exact ⟨hev'.trans hev, h2, h3⟩
       | snd =>
         obtain ⟨h1, h2, h3⟩ := hb.fpair_good hG
-        dsimp only [SimpAct.apply, Op.secondArg]
-        rw [h1] at h2 ⊢
-        exact ⟨hev'.trans hev, h2, h3⟩
+        dsimp only [SimpAct.apply, Op.secondArg]; rw [h1] at h2 ⊢; exact ⟨hev'.trans hev, h2, h3⟩
     | @cmp k o a₁ b₁ a₂ b₂ ha hb =>
-      have heq : (a₁.fkey == b₁.fkey) = true → a₂.val = b₂.val := fun hk => by
-        have hk' : a₁.fkey = b₁.fkey := eq_of_beq hk
-        exact (ha.fkey_ev hG).symm.trans (hk' ▸ hb.fkey_ev hG)
+      have heq : (a₁.fkey == b₁.fkey) = true → a₂.val = b₂.val := fun hk =>
+        (ha.fkey_ev hG).symm.trans (eq_of_beq (α := FKey) hk ▸ hb.fkey_ev hG)
       have hev := cmpAct_eval heq h
       have hev' : (Op.cmp k o a₂ b₂).eval = (Op.cmp k o (.imm a₂.val) (.imm b₂.val)).eval := by
         cases k <;> rfl
-      simp only [cmpAct] at h
-      split at h
-      · cases h; exact ⟨hev'.trans hev, rfl, trivial⟩
-      · contradiction
+      simp only [cmpAct] at h; split at h <;> cases h
+      exact ⟨hev'.trans hev, rfl, trivial⟩
     | @ext k s sg a₁ a₂ ha =>
-      cases k <;> cases s <;> simp only [extAct, reduceCtorEq] at h
-      cases h
+      cases k <;> cases s <;> cases h
       obtain ⟨h1, h2, h3⟩ := ha.fpair_good hG
       dsimp only [SimpAct.apply, Op.firstArg]
       exact ⟨by simp [Op.eval, Cls.trunc, Sz.extend, h1], h2, h3⟩
     | @copy k a₁ a₂ ha =>
-      cases k <;> simp only [copyAct, reduceCtorEq] at h
-      cases h
+      cases k <;> cases h
       obtain ⟨h1, h2, h3⟩ := ha.fpair_good hG
       dsimp only [SimpAct.apply, Op.firstArg]
       exact ⟨by simp [Op.eval, Cls.trunc, h1], h2, h3⟩
@@ -348,33 +241,26 @@ def FRelG (G' : List (V₁ × V₂)) (G : List (FVal V₁ × FVal V₂)) : Prop 
 variable {G' : List (V₁ × V₂)} {G : List (FVal V₁ × FVal V₂)}
 
 theorem FRelG.cons (hG : FRelG G' G) {r₁ : FVal V₁} {r₂ : FVal V₂} (h1 : ArgRel G' r₁.1 r₂.1)
-    (h2 : r₁.2 = r₂.2) : FRelG G' ((r₁, r₂) :: G) := by
-  intro p hp
-  cases hp with
-  | head => exact ⟨h1, h2⟩
-  | tail _ hp => exact hG p hp
+    (h2 : r₁.2 = r₂.2) : FRelG G' ((r₁, r₂) :: G)
+  | _, .head _ => ⟨h1, h2⟩
+  | _, .tail _ hp => hG _ hp
 
 theorem FRelG.fresh (hG : FRelG G' G) (v₁ : V₁) (v₂ : V₂) (b : Nat) :
     FRelG ((v₁, v₂) :: G') (((.var v₁, .var b), (.var v₂, .var b)) :: G) := by
   intro p hp
   cases hp with
-  | head => exact ⟨.var (List.Mem.head _), rfl⟩
-  | tail _ hp =>
-    obtain ⟨h1, h2⟩ := hG p hp
-    exact ⟨h1.weaken fun _ hq => List.Mem.tail _ hq, h2⟩
+  | head => exact ⟨.var (.head _), rfl⟩
+  | tail _ hp => exact ⟨(hG p hp).1.weaken fun _ => .tail _, (hG p hp).2⟩
 
 theorem ArgRel.imm?_eq {a₁ : Arg V₁} {a₂ : Arg V₂} :
     ArgRel G' a₁ a₂ → a₁.imm? = a₂.imm?
-  | .var _ => rfl
-  | .imm _ => rfl
+  | .var _ | .imm _ => rfl
 
 theorem OpRel.toImm?_eq {o₁ : Op V₁} {o₂ : Op V₂} (h : OpRel G' o₁ o₂) :
     o₁.toImm? = o₂.toImm? := by
   cases h with
-  | bin k o ha hb => simp only [Op.toImm?, ha.imm?_eq, hb.imm?_eq]
-  | cmp k o ha hb => simp only [Op.toImm?, ha.imm?_eq, hb.imm?_eq]
-  | ext k s sg ha => simp only [Op.toImm?, ha.imm?_eq]
-  | copy k ha => simp only [Op.toImm?, ha.imm?_eq]
+  | bin _ _ ha hb | cmp _ _ ha hb => simp only [Op.toImm?, ha.imm?_eq, hb.imm?_eq]
+  | ext _ _ _ ha | copy _ ha => simp only [Op.toImm?, ha.imm?_eq]
 
 theorem OpRel.constVal?_eq {o₁ : Op V₁} {o₂ : Op V₂} (h : OpRel G' o₁ o₂) :
     o₁.constVal? = o₂.constVal? := by
@@ -404,33 +290,20 @@ theorem OpRel.fout (hG : FRelG G' G) {o₁ : Op (FVal V₁)} {o₂ : Op (FVal V�
 
 theorem OpRel.simpAct_eq (hG : FRelG G' G) {o₁ : Op (FVal V₁)} {o₂ : Op (FVal V₂)}
     (ho : OpRel G o₁ o₂) : o₁.simpAct = o₂.simpAct := by
-  have hc := (ho.fout hG).constVal?_eq
   unfold Op.simpAct
-  rw [hc]
-  cases (o₂.mapArgs Arg.fout).constVal? with
-  | some _ => rfl
-  | none =>
-    cases ho with
-    | bin k o ha hb =>
-      simp only [(ha.fout hG).imm?_eq, (hb.fout hG).imm?_eq, ha.fkey_eq hG, hb.fkey_eq hG]
-    | cmp k o ha hb =>
-      simp only [ha.fkey_eq hG, hb.fkey_eq hG]
-    | ext _ _ _ _ => rfl
-    | copy _ _ => rfl
+  rw [(ho.fout hG).constVal?_eq]
+  cases ho with
+  | bin _ _ ha hb =>
+    simp only [(ha.fout hG).imm?_eq, (hb.fout hG).imm?_eq, ha.fkey_eq hG, hb.fkey_eq hG]
+  | cmp _ _ ha hb => simp only [ha.fkey_eq hG, hb.fkey_eq hG]
+  | ext _ _ _ _ | copy _ _ => rfl
 
 theorem OpRel.apply_rel (hG : FRelG G' G) {o₁ : Op (FVal V₁)} {o₂ : Op (FVal V₂)}
     (ho : OpRel G o₁ o₂) (act : SimpAct) :
     ArgRel G' (act.apply o₁).1 (act.apply o₂).1 ∧ (act.apply o₁).2 = (act.apply o₂).2 := by
-  cases act with
-  | imm c => exact ⟨.imm c, rfl⟩
-  | fst =>
-    cases ho with
-    | bin _ _ ha _ | cmp _ _ ha _ | ext _ _ _ ha | copy _ ha =>
-      exact ⟨ha.fout hG, ha.fkey_eq hG⟩
-  | snd =>
-    cases ho with
-    | bin _ _ _ hb | cmp _ _ _ hb => exact ⟨hb.fout hG, hb.fkey_eq hG⟩
-    | ext _ _ _ ha | copy _ ha => exact ⟨ha.fout hG, ha.fkey_eq hG⟩
+  cases act <;> cases ho <;>
+    exact ⟨by first | exact .imm _ | exact ‹ArgRel G _ _›.fout hG,
+      by first | rfl | exact ‹ArgRel G _ _›.fkey_eq hG⟩
 
 theorem OpRel.rewriteMul (k : Cls) {a₁ b₁ : Arg V₁} {a₂ b₂ : Arg V₂}
     (ha : ArgRel G' a₁ a₂) (hb : ArgRel G' b₁ b₂) :
@@ -447,18 +320,13 @@ theorem OpRel.rewriteMul (k : Cls) {a₁ b₁ : Arg V₁} {a₂ b₂ : Arg V₂}
 theorem OpRel.rewriteBin (k : Cls) (o : BinOp) {a₁ b₁ : Arg V₁} {a₂ b₂ : Arg V₂}
     (ha : ArgRel G' a₁ a₂) (hb : ArgRel G' b₁ b₂) :
     OpRel G' (LeanQbe.rewriteBin k o a₁ b₁) (LeanQbe.rewriteBin k o a₂ b₂) := by
-  cases k with
-  | l =>
-    cases o <;> simp only [LeanQbe.rewriteBin] <;>
-      first | exact .bin .l _ ha hb | exact OpRel.rewriteMul .l ha hb
-  | w =>
-    cases o <;> simp only [LeanQbe.rewriteBin, ha.imm?_eq, hb.imm?_eq] <;>
-      repeat (first
-        | split
-        | exact .copy .w ha
-        | exact .copy .w hb
-        | exact .bin .w _ ha hb
-        | exact OpRel.rewriteMul .w ha hb)
+  cases k <;> cases o <;> simp only [LeanQbe.rewriteBin, ha.imm?_eq, hb.imm?_eq] <;>
+    repeat (first
+      | split
+      | exact .copy .w ha
+      | exact .copy .w hb
+      | exact .bin _ _ ha hb
+      | exact OpRel.rewriteMul _ ha hb)
 
 theorem OpRel.rewrite {o₁ : Op V₁} {o₂ : Op V₂} (ho : OpRel G' o₁ o₂) :
     OpRel G' o₁.rewrite o₂.rewrite := by
@@ -493,13 +361,11 @@ theorem fold_wp {Γ : Env} {Q : Post} {X : XPost} :
     split
     · next hn0 =>
       subst hn0
-      have : acc = [] := List.eq_nil_of_length_eq_zero hn
-      subst this
+      cases List.eq_nil_of_length_eq_zero hn
       split
       · next act hact =>
         obtain ⟨h1, h2, h3⟩ := ho.simpAct_eval hG hact
-        have hvr : v = (act.apply op₁).1.val := Option.some.inj (hv.symm.trans h1)
-        subst hvr
+        cases hv.symm.trans h1
         exact ih (act.apply op₁) (act.apply op₁).1.val hD 0 b ρ (hG.cons rfl h2 h3) [] [] m rfl hk
       · exact miss
     · exact miss
@@ -511,56 +377,45 @@ theorem fold_wp {Γ : Env} {Q : Post} {X : XPost} :
       ih (.var v, .var b) v hD 0 (b + 1) (fupd ρ b v) (hG.fresh v) [] [] m rfl hk⟩
   | store s hv ha _ ih =>
     intro hD n b ρ hG args acc m _ hw
-    simp only [wp, fold] at hw ⊢
+    simp only [wp, fold, ha.fout_val hG, hv.fout_val hG] at hw ⊢
     obtain ⟨rfl, hok, hk⟩ := hw
-    rw [ha.fout_val hG, hv.fout_val hG]
     exact ⟨rfl, hok, ih hD 0 b ρ hG [] [] _ rfl hk⟩
   | call f has _ ih =>
     intro hD n b ρ hG args acc m _ hw
-    simp only [wp, fold] at hw ⊢
+    simp only [wp, fold, has.fout_vals hG] at hw ⊢
     obtain ⟨rfl, P, E, hΓ, hP, hE⟩ := hw
-    rw [has.fout_vals hG]
     exact ⟨rfl, P, E, hΓ, fun rs m' hp => ih hD 0 b ρ hG rs [] m' rfl (hP rs m' hp), hE⟩
   | @jnz G D c₁ c₂ t₁ t₂ e₁ e₂ hc _ _ iht ihe =>
     intro hD n b ρ hG args acc m hn hw
     simp only [wp] at hw
     obtain ⟨rfl, ht, he⟩ := hw
     have hcv := hc.fout_val hG
+    have ht' := fun h => iht hD 0 b ρ hG [] [] m rfl (ht h)
+    have he' := fun h => ihe hD 0 b ρ hG [] [] m rfl (he h)
+    clear iht ihe ht he
     unfold fold
     split
     · next hn0 =>
       subst hn0
-      have : acc = [] := List.eq_nil_of_length_eq_zero hn
-      subst this
+      cases List.eq_nil_of_length_eq_zero hn
       split
-      · next c hcj =>
-        rw [hcj] at hcv
-        have hc2 : c = c₂.val := hcv
-        grind
+      · next c hcj => rw [hcj] at hcv; have hc2 : c = c₂.val := hcv; split <;> grind
       · next v hcj =>
         have hcv' : (Arg.var v : Arg Val).val = c₂.val := hcj ▸ hcv
-        exact ⟨rfl, fun h => iht hD 0 b ρ hG [] [] m rfl (ht (hcv' ▸ h)),
-          fun h => ihe hD 0 b ρ hG [] [] m rfl (he (hcv' ▸ h))⟩
-    · exact ⟨rfl, fun h => iht hD 0 b ρ hG [] [] m rfl (ht (hcv ▸ h)),
-        fun h => ihe hD 0 b ρ hG [] [] m rfl (he (hcv ▸ h))⟩
+        exact ⟨rfl, fun h => ht' (hcv' ▸ h), fun h => he' (hcv' ▸ h)⟩
+    · exact ⟨rfl, fun h => ht' (hcv ▸ h), fun h => he' (hcv ▸ h)⟩
   | jump hj has =>
     intro hD n b ρ hG args acc m _ hw
+    have hj' := hD _ hj; dsimp only at hj'
     simp only [wp, fold] at hw ⊢
-    have hj' := hD _ hj
-    simp only at hj'
-    subst hj'
-    rw [has.fout_vals hG]
+    rw [hj', has.fout_vals hG]
     exact hw
   | ret has =>
     intro _ n b ρ hG args acc m _ hw
-    simp only [wp, fold] at hw ⊢
-    rw [has.fout_vals hG]
-    exact hw
+    simp only [wp, fold, has.fout_vals hG] at hw ⊢; exact hw
   | exit f has =>
     intro _ n b ρ hG args acc m _ hw
-    simp only [wp, fold] at hw ⊢
-    rw [has.fout_vals hG]
-    exact hw
+    simp only [wp, fold, has.fout_vals hG] at hw ⊢; exact hw
   | hlt => intro _ _ _ _ _ _ _ _ _ hw; simp only [wp] at hw
   | param _ ih =>
     intro hD n b ρ hG args acc m _ hw
@@ -570,16 +425,10 @@ theorem fold_wp {Γ : Env} {Q : Post} {X : XPost} :
       simp only [wp, fold] at hw ⊢
       exact ih (.var a, .var b) a hD 0 (b + 1) (fupd ρ b a) (hG.fresh a) as [] m rfl hw
   | label _ ih =>
-    intro hD n b ρ hG args acc m hn hw
-    simp only [wp, fold] at hw ⊢
-    grind
+    intro hD n b ρ hG args acc m hn hw; simp only [wp, fold] at hw ⊢; grind
   | block _ _ ihb ihr =>
     intro hD n b ρ hG args acc m hn hw
-    cases acc with
-    | nil => simp only [wp, and_false] at hw
-    | cons J acc' =>
-      simp only [wp, fold] at hw ⊢
-      grind
+    cases acc <;> simp only [wp, fold, and_false] at hw ⊢ <;> grind
 
 theorem fold_wf {V₁ V₂ L₁ L₂ : Type} :
     ∀ {G : List (FVal V₁ × FVal V₂)} {D : List (L₁ × L₂)} {e₁ : Expr (FVal V₁) L₁}
@@ -590,9 +439,7 @@ theorem fold_wf {V₁ V₂ L₁ L₂ : Type} :
   | @let_ G D op₁ op₂ k₁ k₂ ho _ ih =>
     intro G' hG n b
     have ho' := (ho.fout hG).rewrite
-    have hact := ho.simpAct_eq hG
-    simp only [fold]
-    rw [hact]
+    simp only [fold, ho.simpAct_eq hG]
     split
     · cases op₂.simpAct with
       | some act =>
@@ -613,8 +460,7 @@ theorem fold_wf {V₁ V₂ L₁ L₂ : Type} :
     split
     · cases hc with
       | @var p₁ p₂ h =>
-        rcases p₁ with ⟨a₁, κ₁⟩
-        rcases p₂ with ⟨a₂, κ₂⟩
+        rcases p₁ with ⟨a₁, κ₁⟩; rcases p₂ with ⟨a₂, κ₂⟩
         obtain ⟨h', _⟩ := hG _ h
         simp only [Arg.fout] at h' ⊢
         cases h' with

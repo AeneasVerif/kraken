@@ -45,41 +45,20 @@ theorem Arg.val_map (ρ : Nat → Val) (κ : Key) : (Arg.map ρ κ).val = κ.ev 
   cases κ <;> rfl
 
 theorem Arg.Lt.mono {b : Nat} {κ : Key} (h : κ.Lt b) : κ.Lt (b + 1) := by
-  cases κ with
-  | var i => exact Nat.lt_succ_of_lt h
-  | imm _ => trivial
+  cases κ <;> grind [Arg.Lt]
 
 theorem Arg.ev_upd {ρ : Nat → Val} {b : Nat} {v : Val} {κ : Key} (h : κ.Lt b) :
     κ.ev (upd ρ b v) = κ.ev ρ := by
-  cases κ with
-  | var i => simp only [Arg.ev, upd, Nat.ne_of_lt h, ↓reduceIte]
-  | imm _ => rfl
+  cases κ <;> grind [Arg.ev, upd, Arg.Lt]
 
 theorem Op.KeysLt.mono {b : Nat} {o : Op Nat} (h : o.KeysLt b) : o.KeysLt (b + 1) :=
   fun κ hκ => (h κ hκ).mono
 
 theorem Op.map_upd {ρ : Nat → Val} {b : Nat} {v : Val} {o : Op Nat} (h : o.KeysLt b) :
     o.map (upd ρ b v) = o.map ρ := by
-  have ha : ∀ a : Key, a.Lt b → Arg.map (upd ρ b v) a = Arg.map ρ a := by
-    intro a ha
-    cases a with
-    | var i => simp only [Arg.map, upd, Nat.ne_of_lt ha, ↓reduceIte]
-    | imm _ => rfl
-  cases o with
-  | bin k o a c =>
-    have h1 := ha a (h a (by simp [Op.args]))
-    have h2 := ha c (h c (by simp [Op.args]))
-    simp only [Op.map, h1, h2]
-  | cmp k o a c =>
-    have h1 := ha a (h a (by simp [Op.args]))
-    have h2 := ha c (h c (by simp [Op.args]))
-    simp only [Op.map, h1, h2]
-  | ext k s sg a =>
-    have h1 := ha a (h a (by simp [Op.args]))
-    simp only [Op.map, h1]
-  | copy k a =>
-    have h1 := ha a (h a (by simp [Op.args]))
-    simp only [Op.map, h1]
+  have ha : ∀ a : Key, a.Lt b → Arg.map (upd ρ b v) a = Arg.map ρ a := fun a ha => by
+    cases a <;> grind [Arg.map, upd, Arg.Lt]
+  cases o <;> simp_all [Op.map, Op.KeysLt, Op.args]
 
 theorem Tbl.find_mem {V : Type} {ko : Op Nat} :
     ∀ {t : Tbl V} {r : Arg V × Key}, t.find ko = some r → (ko, r) ∈ t
@@ -102,11 +81,9 @@ def GoodT (ρ : Nat → Val) (b : Nat) (t : Tbl Val) : Prop :=
 
 theorem GoodG.cons {ρ : Nat → Val} {b : Nat} {G : List ((Arg Val × Key) × Val)} (hG : GoodG ρ b G)
     {r : Arg Val × Key} {v : Val} (h1 : r.1.val = v) (h2 : r.2.ev ρ = v) (h3 : r.2.Lt b) :
-    GoodG ρ b ((r, v) :: G) := by
-  intro p hp
-  cases hp with
-  | head => exact ⟨h1, h2, h3⟩
-  | tail _ hp => exact hG p hp
+    GoodG ρ b ((r, v) :: G)
+  | _, .head _ => ⟨h1, h2, h3⟩
+  | _, .tail _ hp => hG _ hp
 
 theorem GoodG.upd {ρ : Nat → Val} {b : Nat} {G : List ((Arg Val × Key) × Val)} (hG : GoodG ρ b G)
     (v : Val) : GoodG (LeanQbe.upd ρ b v) (b + 1) G := by
@@ -153,39 +130,25 @@ theorem Forall₂.out_vals (hG : GoodG ρ b G) :
 theorem OpRel.out_eval (hG : GoodG ρ b G) {o₁ : Op (Arg Val × Key)} {o₂ : Op Val} (h : OpRel G o₁ o₂) :
     (o₁.mapArgs Arg.out).eval = o₂.eval := by
   cases h with
-  | bin k o ha hb => cases k <;> simp only [Op.mapArgs, Op.eval, ha.out_val hG, hb.out_val hG]
-  | cmp k o ha hb => cases k <;> simp only [Op.mapArgs, Op.eval, ha.out_val hG, hb.out_val hG]
-  | ext k s sg ha => simp only [Op.mapArgs, Op.eval, ha.out_val hG]
-  | copy k ha => simp only [Op.mapArgs, Op.eval, ha.out_val hG]
+  | bin k _ ha hb | cmp k _ ha hb =>
+    cases k <;> simp only [Op.mapArgs, Op.eval, ha.out_val hG, hb.out_val hG]
+  | ext _ _ _ ha | copy _ ha => simp only [Op.mapArgs, Op.eval, ha.out_val hG]
 
 theorem OpRel.key_eval (hG : GoodG ρ b G) {o₁ : Op (Arg Val × Key)} {o₂ : Op Val} (h : OpRel G o₁ o₂) :
     ((o₁.mapArgs Arg.key).map ρ).eval = o₂.eval := by
   cases h with
-  | bin k o ha hb =>
+  | bin k _ ha hb | cmp k _ ha hb =>
     cases k <;> simp only [Op.mapArgs, Op.map, Op.eval, Arg.val_map, ha.key_ev hG, hb.key_ev hG]
-  | cmp k o ha hb =>
-    cases k <;> simp only [Op.mapArgs, Op.map, Op.eval, Arg.val_map, ha.key_ev hG, hb.key_ev hG]
-  | ext k s sg ha => simp only [Op.mapArgs, Op.map, Op.eval, Arg.val_map, ha.key_ev hG]
-  | copy k ha => simp only [Op.mapArgs, Op.map, Op.eval, Arg.val_map, ha.key_ev hG]
+  | ext _ _ _ ha | copy _ ha => simp only [Op.mapArgs, Op.map, Op.eval, Arg.val_map, ha.key_ev hG]
 
 theorem OpRel.keys_lt (hG : GoodG ρ b G) {o₁ : Op (Arg Val × Key)} {o₂ : Op Val} (h : OpRel G o₁ o₂) :
     (o₁.mapArgs Arg.key).KeysLt b := by
   intro κ hκ
   cases h with
-  | bin k o ha hb =>
+  | bin _ _ ha hb | cmp _ _ ha hb =>
     simp only [Op.mapArgs, Op.args, List.mem_cons, List.not_mem_nil, or_false] at hκ
-    rcases hκ with rfl | rfl
-    · exact ha.key_lt hG
-    · exact hb.key_lt hG
-  | cmp k o ha hb =>
-    simp only [Op.mapArgs, Op.args, List.mem_cons, List.not_mem_nil, or_false] at hκ
-    rcases hκ with rfl | rfl
-    · exact ha.key_lt hG
-    · exact hb.key_lt hG
-  | ext k s sg ha =>
-    simp only [Op.mapArgs, Op.args, List.mem_cons, List.not_mem_nil, or_false] at hκ
-    subst hκ; exact ha.key_lt hG
-  | copy k ha =>
+    rcases hκ with rfl | rfl <;> first | exact ha.key_lt hG | exact hb.key_lt hG
+  | ext _ _ _ ha | copy _ ha =>
     simp only [Op.mapArgs, Op.args, List.mem_cons, List.not_mem_nil, or_false] at hκ
     subst hκ; exact ha.key_lt hG
 
@@ -259,22 +222,12 @@ theorem gvn_wp {Γ : Env} {Q : Post} {X : XPost} :
     grind
   | jump hj has =>
     intro hD n b tbl ρ hG hT args acc m _ hw
+    have hj' := hD _ hj; dsimp only at hj'
     simp only [wp, gvn] at hw ⊢
-    have hj' := hD _ hj
-    simp only at hj'
-    subst hj'
-    rw [has.out_vals hG]
-    exact hw
-  | ret has =>
+    rw [hj', has.out_vals hG]; exact hw
+  | ret has | exit _ has =>
     intro hD n b tbl ρ hG hT args acc m _ hw
-    simp only [wp, gvn] at hw ⊢
-    rw [has.out_vals hG]
-    exact hw
-  | exit f has =>
-    intro hD n b tbl ρ hG hT args acc m _ hw
-    simp only [wp, gvn] at hw ⊢
-    rw [has.out_vals hG]
-    exact hw
+    simp only [wp, gvn, has.out_vals hG] at hw ⊢; exact hw
   | hlt => intro _ _ _ _ _ _ _ _ _ _ _ hw; simp only [wp] at hw
   | param _ ih =>
     intro hD n b tbl ρ hG hT args acc m _ hw
@@ -310,20 +263,14 @@ def RelT (G' : List (V₁ × V₂)) (t₁ : Tbl V₁) (t₂ : Tbl V₂) : Prop :
 variable {G' : List (V₁ × V₂)} {G : List ((Arg V₁ × Key) × (Arg V₂ × Key))}
 
 theorem RelG.cons (hG : RelG G' G) {r₁ : Arg V₁ × Key} {r₂ : Arg V₂ × Key} (h1 : ArgRel G' r₁.1 r₂.1)
-    (h2 : r₁.2 = r₂.2) : RelG G' ((r₁, r₂) :: G) := by
-  intro p hp
-  cases hp with
-  | head => exact ⟨h1, h2⟩
-  | tail _ hp => exact hG p hp
+    (h2 : r₁.2 = r₂.2) : RelG G' ((r₁, r₂) :: G)
+  | _, .head _ => ⟨h1, h2⟩
+  | _, .tail _ hp => hG _ hp
 
 theorem RelG.fresh (hG : RelG G' G) (v₁ : V₁) (v₂ : V₂) (b : Nat) :
-    RelG ((v₁, v₂) :: G') (((.var v₁, .var b), (.var v₂, .var b)) :: G) := by
-  intro p hp
-  cases hp with
-  | head => exact ⟨.var (List.Mem.head _), rfl⟩
-  | tail _ hp =>
-    obtain ⟨h1, h2⟩ := hG p hp
-    exact ⟨h1.weaken fun _ hq => List.Mem.tail _ hq, h2⟩
+    RelG ((v₁, v₂) :: G') (((.var v₁, .var b), (.var v₂, .var b)) :: G)
+  | _, .head _ => ⟨.var (.head _), rfl⟩
+  | _, .tail _ hp => ⟨(hG _ hp).1.weaken fun _ => .tail _, (hG _ hp).2⟩
 
 theorem RelT.weaken {t₁ : Tbl V₁} {t₂ : Tbl V₂} (hT : RelT G' t₁ t₂) (v₁ : V₁) (v₂ : V₂) :
     RelT ((v₁, v₂) :: G') t₁ t₂ :=
@@ -360,10 +307,8 @@ theorem Forall₂.out (hG : RelG G' G) :
 theorem OpRel.key_eq (hG : RelG G' G) {o₁ : Op (Arg V₁ × Key)} {o₂ : Op (Arg V₂ × Key)}
     (h : OpRel G o₁ o₂) : o₁.mapArgs Arg.key = o₂.mapArgs Arg.key := by
   cases h with
-  | bin k o ha hb => simp only [Op.mapArgs, ha.key_eq hG, hb.key_eq hG]
-  | cmp k o ha hb => simp only [Op.mapArgs, ha.key_eq hG, hb.key_eq hG]
-  | ext k s sg ha => simp only [Op.mapArgs, ha.key_eq hG]
-  | copy k ha => simp only [Op.mapArgs, ha.key_eq hG]
+  | bin _ _ ha hb | cmp _ _ ha hb => simp only [Op.mapArgs, ha.key_eq hG, hb.key_eq hG]
+  | ext _ _ _ ha | copy _ ha => simp only [Op.mapArgs, ha.key_eq hG]
 
 theorem OpRel.out (hG : RelG G' G) {o₁ : Op (Arg V₁ × Key)} {o₂ : Op (Arg V₂ × Key)} :
     OpRel G o₁ o₂ → OpRel G' (o₁.mapArgs Arg.out) (o₂.mapArgs Arg.out)
