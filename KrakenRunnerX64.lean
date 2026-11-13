@@ -72,14 +72,13 @@ def summarize (s : MachineData) : StateSummary :=
 def stackLocation : UInt64 := 0x7ffecafee200
 def initData : MachineData := {regs := {rsp := stackLocation}, dmem := initStack stackLocation}
 
-def finishCriterion (p : Program) (s : MachineState) : Bool :=
-  s.pc = p.fakeLayout.labels.label _end
-
 def runKraken (asmCode : String)
     : Except String MachineState := do
   let prog ← Kraken.X64.Parser.parse (_start ++ ":" ++ asmCode ++ "\n" ++ _end ++ ":")
-  let initState : MachineState := ⟨initData, prog.fakeLayout.labels.label _start⟩
-  prog.fakeLayout.eval initState (finishCriterion prog)
+  let exe := prog.fakeLayout
+  let endPc := exe.labels.label _end
+  let initState : MachineState := ⟨initData, exe.labels.label _start⟩
+  exe.eval initState (·.pc = endPc)
 
 /-! ## Fuzzer instantiation -/
 

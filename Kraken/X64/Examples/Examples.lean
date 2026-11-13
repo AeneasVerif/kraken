@@ -30,10 +30,12 @@ open Kraken.X64.Parser
 def p1 := ⸨prog| start: mov $1, %rax ⸩
 
 -- Super-simple example to debug tactics
-example [layout : Layout] s : straightlineStep (layout p1) ⟨s, layout.start⟩ (fun s => s.1.regs.rax = 1) := by
+example [layout : Layout] [layout.NoWrap p1] s :
+    Eventually (step1 (layout p1))
+      (fun s => s.pc = (layout p1).addrOf p1.length ∧ s.1.regs.rax = 1) ⟨s, layout.start⟩ := by
   kprologue p1 with s
   sym => kstep; tactic =>
-  decide
+  exact .done _ ⟨rfl, rfl⟩
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
   /- simp [MachineData.setReg,Reg64s.set,Reg64s.set64,ConstExpr.interp] -/
   /- simp [Width.bits] -/
@@ -44,16 +46,16 @@ def swap : Program := ⸨prog|
   xor %rax, %rbx
   xor %rbx, %rax⸩
 
-theorem swap_correct [layout : Layout] (d : MachineData) :
-      Eventually (straightlineStep (layout swap))
+theorem swap_correct [layout : Layout] [layout.NoWrap swap] (d : MachineData) :
+    Eventually (step1 (layout swap))
       (fun s' =>
-          s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
-          s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
+        s'.pc = (layout swap).addrOf swap.length ∧
+        s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
+        s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
       ⟨d, layout.start⟩ := by
-  apply step_cps
   kprologue swap with d
   sym => kstep; tactic =>
-  apply Eventually.done
+  refine .done _ ⟨rfl, ?_⟩
   grind
 
 -- Stepping demo. Ideally, this demo should be without the first .mov
@@ -65,20 +67,47 @@ start:
   mov $2, %rax⸩
 
 -- Example 2: stepping through both straightline and control instructions
-example [layout : Layout] (s : MachineData): Eventually (straightlineStep (layout p2)) (fun s => s.1.regs.rax = 2) ⟨s, layout.start⟩ := by
-  apply step_cps
+example [layout : Layout] [layout.NoWrap p2] (s : MachineData) :
+    Eventually (step1 (layout p2))
+      (fun s => s.pc = (layout p2).addrOf p2.length ∧ s.1.regs.rax = 2) ⟨s, layout.start⟩ := by
   kprologue p2 with s
   sym =>
   kstep
   tactic =>
   -- TODO: would be nice to have these simp steps be part of kstep
-  rename_i v v1 status
+  rename_i v status
   have: v = 0 := by grind
   simp [this]
   sym =>
   kstep
   tactic =>
-  apply Eventually.done
+  refine .done _ ⟨rfl, ?_⟩
+  dsimp only
+  bv_decide
+
+def p2_jump : Program := ⸨prog|
+  mov $2, %rax
+loop:
+  sub $1, %rax
+  jnz loop
+  mov $42, %rax⸩
+
+-- Example 2b: taking a jump to an internal label once, then falling through
+example [layout : Layout] [layout.NoWrap p2_jump] (s : MachineData) :
+    Eventually (step1 (layout p2_jump))
+      (fun s => s.pc = (layout p2_jump).addrOf p2_jump.length ∧ s.1.regs.rax = 42)
+      ⟨s, layout.start⟩ := by
+  kprologue p2_jump with s
+  sym => kstep; tactic =>
+  rename_i v status
+  have : v = 1 := by grind
+  simp [this]
+  sym => kstep; tactic =>
+  rename_i v' status'
+  have : v' = 0 := by grind
+  simp [this]
+  sym => kstep; tactic =>
+  refine .done _ ⟨rfl, ?_⟩
   dsimp only
   bv_decide
 
@@ -101,21 +130,22 @@ _end:
 def p3_spec (s: MachineData): Nat := 2^(2^s.regs.rbx.toNat)
 
 set_option maxHeartbeats 4000000 in
-theorem p3_correct [layout: Layout] (s: MachineData):
-    p3_spec s < 2^64 →
-    Eventually (straightlineStep (layout p3)) (fun s => s.1.regs.rdx.toNat = p3_spec s.1 ∧ s.1.regs.rax = 0) ⟨s, layout.start⟩ :=
-  by
-    intros h_bounds
-    apply step_cps
-    kprologue p3 with s
+theorem p3_correct [layout : Layout] [layout.NoWrap p3] (s : MachineData) :
+    p3_spec s < 2 ^ 64 →
+    Eventually (step1 (layout p3))
+      (fun s => s.pc = (layout p3).addrOf p3.length ∧
+        s.1.regs.rdx.toNat = p3_spec s.1 ∧ s.1.regs.rax = 0)
+      ⟨s, layout.start⟩ := by
+  intros h_bounds
+  kprologue p3 with s
 
-    sym =>
-    -- kstep 3
-    -- tactic =>
-    -- apply reg_dec_loop
-    -- intros
+  sym =>
+  -- kstep 3
+  -- tactic =>
+  -- apply reg_dec_loop
+  -- intros
 
-    sorry
+  sorry
 
 /-     intros h_bounds h_rip
     simp [p3]
@@ -201,13 +231,15 @@ def p4 := eval% ⸨prog|start: mov $2, %rax
 dec %rax⸩
 
 -- Super-simple example to debug tactics
-example [layout : Layout] s : straightlineStep (layout p4) ⟨s, layout.start⟩ (fun s => s.1.regs.rax = 1) := by
+example [layout : Layout] [layout.NoWrap p4] s :
+    Eventually (step1 (layout p4))
+      (fun s => s.pc = (layout p4).addrOf p4.length ∧ s.1.regs.rax = 1) ⟨s, layout.start⟩ := by
   kprologue p4 with s
   sym =>
   kstep
   -- intros
   tactic =>
-  decide
+  exact .done _ ⟨rfl, rfl⟩
 
 /- Examples -/
 
@@ -220,9 +252,13 @@ set_option maxHeartbeats 1000000
 set_option pp.rawOnError true
 /- set_option pp.all true -/
 
-example [layout : Layout] s : straightlineStep (layout p5) ⟨s, layout.start⟩ (fun s => s.1.regs.rax = 0) := by
+example [layout : Layout] [layout.NoWrap p5] s :
+    Eventually (step1 (layout p5))
+      (fun s => s.pc = (layout p5).addrOf p5.length ∧ s.1.regs.rax = 0) ⟨s, layout.start⟩ := by
   kprologue p5 with s
   sym => kstep; tactic =>
+  refine .done _ ⟨rfl, ?_⟩
+  dsimp only
   bv_decide
 
 def p6 := ⸨prog|push %rax
@@ -254,20 +290,20 @@ attribute [ksimp]
   UInt64.toBitVec_sub
   UInt64.toNat_toBitVec
 
-theorem p6_correct [layout : Layout] (s₀ : MachineData)
+theorem p6_correct [layout : Layout] [layout.NoWrap p6] (s₀ : MachineData)
     (stack : List UInt8) (h_len : stack.length = 8) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (stack.At (s₀.regs.rsp.toBitVec - 8#64)) ⋆ R) :
-    Eventually (straightlineStep (layout p6))
-      (fun s' => s'.1.regs.rax = s₀.regs.rax ∧ s'.1.regs.rsp = s₀.regs.rsp)
+    Eventually (step1 (layout p6))
+      (fun s' => s'.pc = (layout p6).addrOf p6.length ∧
+        s'.1.regs.rax = s₀.regs.rax ∧ s'.1.regs.rsp = s₀.regs.rsp)
       ⟨s₀, layout.start⟩ := by
-  apply step_cps
   kprologue p6 with s₀
   have h_bs : stack.length = 8 := h_len
   have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
   sym =>
   kstep
   tactic =>
-  apply Eventually.done
+  refine .done _ ⟨rfl, ?_⟩
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
   simp (config := { zetaDelta := true }) only [show (OfNat.ofNat 8 : UInt64) = 8 from rfl]
   bv_decide
@@ -290,11 +326,12 @@ done:
 The hypothesis `h_mem` says the loader put that value in memory: nothing in this framework links
 the program text to memory yet, so it is assumed.
 -/
-theorem p7_correct [layout : Layout] (s₀ : MachineData) (R : DataMem → Prop)
+theorem p7_correct [layout : Layout] [layout.NoWrap p7] (s₀ : MachineData) (R : DataMem → Prop)
     (h_mem : letI := Executable.labels (layout p7)
       s₀.dmem =⋆ Eq ((Int.toBytes 4 (label "end" - label "start").toInt).At (label "size").toBitVec) ⋆ R) :
-    Eventually (straightlineStep (layout p7))
+    Eventually (step1 (layout p7))
       (fun s' => letI := Executable.labels (layout p7)
+        s'.pc = (layout p7).addrOf p7.length ∧
         s'.1.regs.rax = UInt64.ofBitVec (((label "end" - label "start").toBitVec.setWidth 32).setWidth 64))
       ⟨s₀, layout.start⟩ := by
   have h_addr (X Y : Int64) :
@@ -307,7 +344,6 @@ theorem p7_correct [layout : Layout] (s₀ : MachineData) (R : DataMem → Prop)
     rw [ofBytes_toBytes, Int.take, show 8 * 4 = 32 from rfl, Int64.toInt,
       ← BitVec.signExtend_eq_setWidth_of_le _ (by decide)]
     simp [BitVec.ofInt, BitVec.signExtend]
-  apply step_cps
   kprologue p7 with s₀
   sym =>
   kstep
@@ -315,9 +351,8 @@ theorem p7_correct [layout : Layout] (s₀ : MachineData) (R : DataMem → Prop)
   case h_len => exact Int.toBytes_length 4 _
   kstep
   tactic =>
-  apply Eventually.done
+  refine .done _ ⟨rfl, ?_⟩
   simp only [h_val, Int64.toBitVec_sub]
-  rfl
 
 -- The same run under `fakeLayout`, where the nops take 5 + 3 bytes. The eval plays the loader: it
 -- stores the word's value at `size`.
@@ -336,22 +371,11 @@ theorem p7_correct [layout : Layout] (s₀ : MachineData) (R : DataMem → Prop)
 /- set_option maxRecDepth 4000 -/
 /- set_option maxHeartbeats 2000000 -/
 
--- example [layout : Layout] s
+-- example [layout : Layout] [layout.NoWrap bigp] s
 --   (hAlign: s.regs.rsp % 8 = 0)
 --   (hContains: forall x, x ∈ s.dmem)
--- : straightlineStep (layout bigp) ⟨s, layout.start⟩ (fun s => s.1.regs.rax = 0) := by
---   -- Refine the state to make registers apparent -- note that `cases` consumes
---   -- the hypothesis, and substitutes it, so we make a copy of it to have a
---   -- refined state in the hypotheses, not the goal.
---   let ss := s
---   change (straightlineStep _ (ss, _) _)
---   cases s with | mk regs flags mem =>
---   cases regs with | mk rax =>
---   -- Rewrite the program to make layout, addresses, etc. apparent
---   delta bigp
---   dsimp only [straightlineStep,Executable.straightline]
---   rw [Executable.directivesFromStart]
---   simp [List.mapIdx,List.mapIdx.go]
+-- : Eventually (step1 (layout bigp)) (fun s => s.1.regs.rax = 0) ⟨s, layout.start⟩ := by
+--   kprologue bigp with s
 --   sym =>
 --   kstep
 --   done
@@ -367,17 +391,17 @@ def move_2_regs_to_heap := ⸨prog|
     movq 8(%rdi), %r13
 ⸩
 
-theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
-  (v1 v2 : UInt64)
-  (R : DataMem → Prop)
-  (h_mem : s₀.dmem =⋆ Eq (v1.At s₀.regs.rdi.toBitVec) ⋆ Eq (v2.At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ R)
-  : Eventually (straightlineStep (layout move_2_regs_to_heap))
+theorem move_2_regs_to_heap_correct [layout : Layout] [layout.NoWrap move_2_regs_to_heap]
+    (s₀ : MachineData) (v1 v2 : UInt64) (R : DataMem → Prop)
+    (h_mem : s₀.dmem =⋆ Eq (v1.At s₀.regs.rdi.toBitVec) ⋆
+      Eq (v2.At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ R) :
+    Eventually (step1 (layout move_2_regs_to_heap))
       (fun s' =>
+        s'.pc = (layout move_2_regs_to_heap).addrOf move_2_regs_to_heap.length ∧
         s'.1.regs.r12 = s₀.regs.rax ∧
         s'.1.regs.r13 = s₀.regs.rcx ∧
         s'.1.regs.rdi = s₀.regs.rdi)
       ⟨s₀, layout.start⟩ := by
-  apply step_cps
   kprologue move_2_regs_to_heap with s₀
 
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
@@ -408,7 +432,7 @@ theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
   tactic =>
   apply Eventually.done
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
-  exact ⟨rfl, rfl, rfl⟩
+  exact ⟨rfl, rfl, rfl, rfl⟩
 
 def sib_example := ⸨prog|
     movq $42, %rax
@@ -418,13 +442,12 @@ def sib_example := ⸨prog|
 
 -- FIXME: I had to replace `s₀.regs.r15.toBitVec * 8#64` with `BitVec.ofInt 64
 -- (s₀.regs.r15.toBitVec.toInt * 8)` to make the example go through. Why?
-theorem sib_example_correct [layout : Layout] (s₀ : MachineData)
+theorem sib_example_correct [layout : Layout] [layout.NoWrap sib_example] (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdi.toBitVec + BitVec.ofInt 64 (s₀.regs.r15.toBitVec.toInt * 8))) ⋆ R) :
-    Eventually (straightlineStep (layout sib_example))
-      (fun s' => s'.1.regs.rax = 42)
+    Eventually (step1 (layout sib_example))
+      (fun s' => s'.pc = (layout sib_example).addrOf sib_example.length ∧ s'.1.regs.rax = 42)
       ⟨s₀, layout.start⟩ := by
-  apply step_cps
   kprologue sib_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   simp at h_mem
@@ -438,8 +461,7 @@ theorem sib_example_correct [layout : Layout] (s₀ : MachineData)
   case h_len => exact by decide
   kstep
   tactic =>
-  apply Eventually.done
-  rfl
+  exact .done _ ⟨rfl, rfl⟩
 
 def alu_mem_example := ⸨prog|
     movq $42, %rax
@@ -447,13 +469,13 @@ def alu_mem_example := ⸨prog|
     movq $100, %rcx
     addq 136(%rdx), %rcx⸩
 
-theorem alu_mem_example_correct [layout : Layout] (s₀ : MachineData)
+theorem alu_mem_example_correct [layout : Layout] [layout.NoWrap alu_mem_example] (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdx.toBitVec + 136#64)) ⋆ R) :
-    Eventually (straightlineStep (layout alu_mem_example))
-      (fun s' => s'.1.regs.rcx = 142)
+    Eventually (step1 (layout alu_mem_example))
+      (fun s' => s'.pc = (layout alu_mem_example).addrOf alu_mem_example.length ∧
+        s'.1.regs.rcx = 142)
       ⟨s₀, layout.start⟩ := by
-  apply step_cps
   kprologue alu_mem_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   have h_mem1 := Mem.storeInt_sep (rdx.toBitVec + 136#64) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
@@ -466,7 +488,7 @@ theorem alu_mem_example_correct [layout : Layout] (s₀ : MachineData)
   case h_len => exact Int.toBytes_length 8 _
   kstep
   tactic =>
-  apply Eventually.done
+  refine .done _ ⟨rfl, ?_⟩
   dsimp [UInt64.toBitVec]
   change (100 : UInt64) + { toBitVec := BitVec.ofInt 64 (Int.ofBytes (Int.toBytes 8 (42#64).toInt)) } = (142 : UInt64)
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
@@ -483,14 +505,15 @@ def dynamic_stack_example := ⸨prog|
     movq %rbp, %rsp
     movq -8(%rsp), %rbx⸩
 
-theorem dynamic_stack_example_correct [layout : Layout] (s₀ : MachineData)
+theorem dynamic_stack_example_correct [layout : Layout] [layout.NoWrap dynamic_stack_example]
+    (s₀ : MachineData)
     (stack : List UInt8) (lstack : stack.length = 1024) R
     (h : s₀.regs.r9.toNat + s₀.regs.r15.toNat < 125)
     (h_mem : s₀.dmem =⋆ Eq (stack.At (s₀.regs.rsp.toBitVec - 1024)) ⋆ R) :
-    Eventually (straightlineStep (layout dynamic_stack_example))
-      (fun s' => s'.1.regs.rax = 42 ∧ s'.1.regs.rbx = 99 ∧ s'.1.regs.rsp = s₀.regs.rsp)
+    Eventually (step1 (layout dynamic_stack_example))
+      (fun s' => s'.pc = (layout dynamic_stack_example).addrOf dynamic_stack_example.length ∧
+        s'.1.regs.rax = 42 ∧ s'.1.regs.rbx = 99 ∧ s'.1.regs.rsp = s₀.regs.rsp)
       ⟨s₀, layout.start⟩ := by
-  apply step_cps
   kprologue dynamic_stack_example with s₀
   have h_bs : stack.length = 1024 := lstack
   have h_take_drop : stack = stack.take 1016 ++ stack.drop 1016 := by exact (List.take_append_drop 1016 stack).symm
