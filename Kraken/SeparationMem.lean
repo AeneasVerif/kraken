@@ -43,13 +43,6 @@ private theorem Std.ExtHashMap.union_union_override {key value : Type} [BEq key]
     · rfl
   · rfl
 
-private theorem List.mapM_loop_id_some {α : Type} (xs : List α) (acc : List α) :
-    List.mapM.loop id (xs.map some) acc = some (acc.reverse ++ xs) := by
-  induction xs generalizing acc <;> simp_all [List.mapM.loop]
-
-private theorem List.allSome_map_some {α : Type} (l : List α) : List.allSome (l.map some) = some l := by
-  exact List.mapM_loop_id_some l []
-
 private theorem List.range_get_eq_map_some {α : Type} (l : List α) :
     (List.range l.length).map (fun i => if h : i < l.length then some (l.get ⟨i, h⟩) else none) = l.map some := by
   apply List.ext_get <;> simp
@@ -86,7 +79,7 @@ theorem loadBytes_sep {w : Nat} (bs : List UInt8) (a : BitVec w) (n : Nat) (R : 
     apply List.map_congr_left; intro i hi; rw [List.mem_range] at hi; rw [dif_pos hi]; exact h_get i hi]
   cases Hl
   rw [List.range_get_eq_map_some]
-  rw [List.allSome_map_some]
+  simpa using List.mapM_pure (m := Option) (f := id) (l := bs)
 
 theorem storeBytes_sep {w : Nat} (a : BitVec w) (n : Nat) (_bs bs : List UInt8)
     (R : Mem w → Prop) (m : Mem w)

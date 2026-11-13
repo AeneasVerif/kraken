@@ -12,7 +12,7 @@ import tempfile
 import difflib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 BIN_DIR = PROJECT_DIR / ".lake/build/bin"
@@ -24,12 +24,10 @@ NATIVE_X64 = platform.system() == "Linux" and platform.machine().lower() in ("x8
 REGS = ["rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rsp", "rbp",
         "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"]
 ZMMS = [f"zmm{i}" for i in range(32)]
-# With AVX-512F the host's full zmm0..31 are compared; without it, only ymm0..15, assuming AVX2.
-HAS_AVX512 = "avx512f" in Path("/proc/cpuinfo").read_text().split()
-VECTORS = ZMMS if HAS_AVX512 else [f"ymm{i}" for i in range(16)]
-VECTOR_BYTES = 64 if HAS_AVX512 else 32
+HAS_AVX512 = NATIVE_X64 and "avx512f" in Path("/proc/cpuinfo").read_text().split()
+VECTOR_BYTES = 64
 # Maps each flag to its bit in the EFLAGS register.
-FLAG_MAP = {"cf": 0, "pf": 2, "af": 4, "zf": 6, "sf": 7, "of": 11}
+FLAG_MAP = {"cf": 0, "pf": 2, "af": 4, "zf": 6, "sf": 7, "df": 10, "of": 11}
 TIMEOUT_SECONDS = 50
 # Kraken's initial rsp and its stack mapping [STACK - STACK_SIZE, STACK), filled with 0xff
 # (`stackLocation`, `stackSize` and `initStack` in KrakenRunnerX64.lean). The low byte of STACK
@@ -38,7 +36,7 @@ STACK = 0x7ffecafee200
 STACK_SIZE = 800
 # The dumped machine state: GPRs, rflags, then vector registers (see `parse_raw_state`).
 VECTOR_BASE = (len(REGS) + 1) * 8
-STATE_BYTES = VECTOR_BASE + VECTOR_BYTES * len(VECTORS)
+STATE_BYTES = VECTOR_BASE + VECTOR_BYTES * len(ZMMS)
 # A section for Kraken's stack. Linking with LD_STACK places it at [STACK - STACK_SIZE, STACK), so
 # the binary has exactly Kraken's stack mapping and can use Kraken's absolute rsp.
 STACK_SECTION = f""".section .stack, "aw", @nobits
@@ -52,33 +50,66 @@ class Color:
     BOLD = "\033[1m"
     RESET = "\033[0m"
 
+def if_avx512(then_insns: Sequence[str], else_insns: Sequence[str] = ()) -> List[str]:
+    guard = [
+        "xorl %eax, %eax",
+        "cpuid",
+        "cmpl $7, %eax",
+        "jb 1f",
+        "movl $1, %eax",
+        "cpuid",
+        "btl $27, %ecx",
+        "jnc 1f",
+        "xorl %ecx, %ecx",
+        "xgetbv",
+        "andl $0xe6, %eax",
+        "cmpl $0xe6, %eax",
+        "jne 1f",
+        "movl $7, %eax",
+        "xorl %ecx, %ecx",
+        "cpuid",
+        "btl $16, %ebx",
+        "jnc 1f",
+    ]
+    if not else_insns:
+        return [*guard, *then_insns, "1:"]
+    return [*guard, *then_insns, "jmp 2f", "1:", *else_insns, "2:"]
+
 def reset_state() -> str:
-  """Assembly that sets up Kraken's initial state (`initData` in KrakenRunnerX64.lean): rsp = STACK,
-  rflags = 0, the stack filled with 0xff, and all other GPRs and vector registers zero."""
-  zero_gprs = "\n    ".join(f"movq $0, %{r}" for r in REGS if r != "rsp")
-  # vzeroall leaves zmm16..31 alone.
-  zero_high = "\n    ".join(f"vpxord %zmm{i}, %zmm{i}, %zmm{i}" for i in range(16, 32)) if HAS_AVX512 else ""
-  return f"""
-    movq ${STACK}, %rsp
-    pushq $0
-    popfq                       # rflags = 0
-    leaq -{STACK_SIZE}(%rsp), %rdi
-    movb $0xff, %al
-    movq ${STACK_SIZE}, %rcx
-    rep stosb                   # memset(rdi, al, rcx)
-    vzeroall
-    {zero_high}
-    {zero_gprs}
-"""
+    """Assembly that sets up Kraken's initial state (`initData` in KrakenRunnerX64.lean): rsp = STACK,
+    rflags = 0, the stack filled with 0xff, and all other GPRs and vector registers zero. Detects
+    AVX-512F at runtime (Intel SDM Vol. 1, 15.2) so one binary works natively and under SDE."""
+    insns = [
+        "vzeroall",
+        # vzeroall leaves zmm16..31 alone.
+        *if_avx512([f"vpxord %zmm{i}, %zmm{i}, %zmm{i}" for i in range(16, 32)]),
+        f"movq ${STACK}, %rsp",
+        "pushq $0",
+        "popfq                       # rflags = 0",
+        f"leaq -{STACK_SIZE}(%rsp), %rdi",
+        "movb $0xff, %al",
+        f"movq ${STACK_SIZE}, %rcx",
+        "rep stosb                   # memset(rdi, al, rcx)",
+        *[f"movq $0, %{r}" for r in REGS if r != "rsp"],
+    ]
+    return "\n    " + "\n    ".join(insns) + "\n"
 
 def save_state(out: str) -> str:
-  """Assembly that stores the machine state (STATE_BYTES bytes) at `out`, in the layout
-  `parse_raw_state` reads. Clobbers rax and rsp."""
-  saves = [f"movq %{r}, {out} + {i * 8}(%rip)" for i, r in enumerate(REGS)]
-  saves += [f"vmovups %{v}, {out} + {VECTOR_BASE + i * VECTOR_BYTES}(%rip)" for i, v in enumerate(VECTORS)]
-  # rflags can only be read via the stack, and the code may have moved rsp.
-  saves += [f"movq ${STACK}, %rsp", "pushfq", "popq %rax", f"movq %rax, {out} + {len(REGS) * 8}(%rip)"]
-  return "\n    " + "\n    ".join(saves) + "\n"
+    """Assembly that stores the machine state (STATE_BYTES bytes) at zero-initialized `out`, in the
+    layout `parse_raw_state` reads. Clobbers rax, rbx, rcx, rdx, rsp, and rflags."""
+    insns = [
+        *[f"movq %{r}, {out} + {i * 8}(%rip)" for i, r in enumerate(REGS)],
+        # rflags can only be read via the stack, and the code may have moved rsp.
+        f"movq ${STACK}, %rsp",
+        "pushfq",
+        "popq %rax",
+        f"movq %rax, {out} + {len(REGS) * 8}(%rip)",
+        *if_avx512(
+            [f"vmovups %zmm{i}, {out} + {VECTOR_BASE + i * VECTOR_BYTES}(%rip)" for i in range(32)],
+            [f"vmovups %ymm{i}, {out} + {VECTOR_BASE + i * VECTOR_BYTES}(%rip)" for i in range(16)],
+        ),
+    ]
+    return "\n    " + "\n    ".join(insns) + "\n"
 
 def get_boilerplate(instruction_text: str) -> str:
   return f"""
@@ -116,7 +147,7 @@ class ExecutionState:
     flags: Dict[str, bool]
 
 def parse_raw_state(raw_bytes: bytes) -> ExecutionState:
-    fmt = f"<{len(REGS)}Q Q" + f"{VECTOR_BYTES}s" * len(VECTORS)
+    fmt = f"<{len(REGS)}Q Q" + f"{VECTOR_BYTES}s" * len(ZMMS)
     unpacked = struct.unpack(fmt, raw_bytes)
     reg_values = unpacked[:len(REGS)]
     rflags = unpacked[len(REGS)]
@@ -186,7 +217,6 @@ def get_undefined_flags(path: Path) -> List[str]:
         return [f.strip() for f in raw_flags.split(",") if f.strip()]
     return []
 
-# A test that uses AVX-512 says so with a `# Requires: avx512f` line, and is skipped on hosts without it.
 def requires_avx512(path: Path) -> bool:
     return "# Requires: avx512f" in path.read_text().splitlines()
 
@@ -281,24 +311,25 @@ def test_file(path: Path) -> Tuple[bool, str]:
     print(f"{path.name:50}", end="", flush=True)
 
     references = []
-    references.append(("native", ()))
+    if HAS_AVX512 or not requires_avx512(path):
+        references.append(("native", ()))
     if SDE_RUNNER:
-        references.append(("SDE", (SDE_RUNNER, "--")))
+        references.append(("SDE", (SDE_RUNNER, "-gnr", "--")))
 
     roundtrip_success, roundtrip_err = test_roundtrip(path)
     if not roundtrip_success:
         print(f"[{Color.RED}ROUNDTRIP FAIL{Color.RESET}]")
         return False, roundtrip_err
 
-    if requires_avx512(path) and not HAS_AVX512:
-        print(f"[{Color.CYAN}SKIP{Color.RESET}] (needs AVX-512F)")
-        return True, ""
-
     kraken, kraken_err = run_kraken(path)
 
     if kraken_err:
         print(f"[{Color.RED}CRASH{Color.RESET}]")
         return False, kraken_err
+
+    if not references:
+        print(f"[{Color.CYAN}SKIP{Color.RESET}] (needs AVX-512F or SDE)")
+        return True, ""
 
     undefined_flags = get_undefined_flags(path)
     try:
@@ -317,17 +348,20 @@ def test_file(path: Path) -> Tuple[bool, str]:
         print(f"[{Color.RED}INVALID{Color.RESET}]")
         return False, str(e)
 
-    print(f"[{Color.GREEN}PASS{Color.RESET}]")
+    runners = ", ".join(name for name, _ in references)
+    print(f"[{Color.GREEN}PASS{Color.RESET}] ({runners})")
     return True, ""
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compare Kraken with native x86_64 and Intel SDE.")
     parser.add_argument("target", type=Path, help="assembly file or directory")
-    parser.add_argument("--skip-sde", action="store_true", help="do not fail if SDE is unavailable")
+    parser.add_argument("--skip-sde", action="store_true", help="skip Intel SDE execution")
     args = parser.parse_args()
     if not NATIVE_X64:
         parser.error("Incorrect architecture: please use qemu to run this script in an x64 environment")
-    if not SDE_RUNNER and not args.skip_sde:
+    if args.skip_sde:
+        SDE_RUNNER = None
+    elif not SDE_RUNNER:
         parser.error("SDE is required; run bash tool/get-sde.sh or put sde64 on PATH.")
 
     if not KRAKEN_RUNNER.exists():

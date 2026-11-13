@@ -79,6 +79,8 @@ def operation {w} (aw : Width) (op : Operation w) : String :=
   | .movzx d x => s!"movzx {rm aw x}, {rm aw d}"
   | .push x => one "push" (operand aw x)
   | .pop d => one "pop" (rm aw d)
+  | .movs rep => s!"{stringPrefix aw rep}movs{s}"
+  | .stos rep => s!"{stringPrefix aw rep}stos{s}"
   | .setcc cc d => s!"set{cc} {rm aw d}"
   | .cmovcc cc d x => s!"cmov{cc} {rm aw x}, {reg d}"
   | .lea d a => s!"lea {addr aw a}, {reg d}"
@@ -112,6 +114,8 @@ def operation {w} (aw : Width) (op : Operation w) : String :=
   | .rcl d c => two "rcl" (count c) (rm aw d)
   | .rcr d c => two "rcr" (count c) (rm aw d)
   | .bswap d => s!"bswap {reg d}"
+  | .cld => "cld"
+  | .std => "std"
   | .jcc cc l => s!"j{cc} {l}"
   | .jmp t => s!"jmp {target aw t}"
   | .call t => s!"call {target aw t}"
@@ -136,6 +140,20 @@ def avxOperation {w} (aw : Width) (op : AvxOperation w) : String :=
   | .pshufd d x i => s!"pshufd ${const i}, {avxRm aw x}, {avxRm aw d}"
   | .palignr d x i => s!"palignr ${const i}, {avxRm aw x}, {avxRm aw d}"
   | .pblendw d x i => s!"pblendw ${const i}, {avxRm aw x}, {avxRm aw d}"
+  | .vmovdqu d x => two "vmovdqu" d x
+  | .vmovIn n d x => s!"{vmovName n} {rm aw x}, {avxReg d}"
+  | .vmovOut n d x => s!"{vmovName n} {avxReg x}, {rm aw d}"
+  | .vmovq d x => s!"vmovq {avxReg x}, {avxReg d}"
+  | .vzeroupper => "vzeroupper"
+  | .sha256rnds2 d x => s!"sha256rnds2 %xmm0, {avxRm aw x}, {avxRm aw d}"
+  | .sha256msg1 d x => two "sha256msg1" d x
+  | .sha256msg2 d x => two "sha256msg2" d x
+  | .vmovdqu32 d x => two "vmovdqu32" d x
+  | .vmovdqa32 d x => two "vmovdqa32" d x
+  | .vpaddd d a b => s!"vpaddd {avxRm aw b}, {avxRm aw a}, {avxRm aw d}"
+  | .vprord d x i => s!"vprord ${const i}, {avxRm aw x}, {avxRm aw d}"
+  | .vpsrld d x i => s!"vpsrld ${const i}, {avxRm aw x}, {avxRm aw d}"
+  | .vpternlogd d b c i => s!"vpternlogd ${const i}, {avxRm aw c}, {avxRm aw b}, {avxRm aw d}"
 
 def instr : Instr → String
   | .regular aw _ op => operation aw op
@@ -145,6 +163,7 @@ def directive : _root_.Directive → String
   | .instr i => instr i
   | .label l => s!"{l}:"
   | d@(.byteArray _) => toString d
+  | .word n e => s!"{dataWordDirective n} {const e}"
 
 end Kraken.X64.ATT
 

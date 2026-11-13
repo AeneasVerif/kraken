@@ -195,6 +195,9 @@ inductive Operation (w : Width)
   | pop  (_ : Dst w)
   | setcc (_ : CondCode) (_ : Dst w) -- {_ : w = .W8}
   | cmovcc (_ : CondCode) (_ : Reg w) (src : RegOrMem w)
+  -- String moves and stores, once or with a `rep` prefix
+  | movs (rep : Bool)
+  | stos (rep : Bool)
   -- Arithmetic
   | lea (_ : Reg w) (src : AddrExpr) -- {_ : 16 <= w.bits}
   | add  (_ : Dst w) (src : Operand w)
@@ -229,6 +232,9 @@ inductive Operation (w : Width)
   | rcl  (_ : Dst w) (_ : ShiftCountExpr)
   | rcr  (_ : Dst w) (_ : ShiftCountExpr)
   | bswap  (dst : Reg w) -- (_ : w = .W32 ∨ w = .W64)
+  -- Flag control
+  | cld
+  | std
   -- Control flow
   | jcc (cc : CondCode) (target : Label)
   | jmp (target : RelRegOrMem)
@@ -256,6 +262,24 @@ inductive AvxOperation (w : AvxWidth)
   | pshufd (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   | palignr (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   | pblendw (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  -- VEX moves, which clear every bit above what they write
+  | vmovdqu (_ : AvxDst w) (src : AvxRegOrMem w)
+  -- `vmovd` when `n` is 32 bits, `vmovq` when it is 64
+  | vmovIn (n : Width) (_ : AvxReg w) (src : RegOrMem n)
+  | vmovOut (n : Width) (_ : Dst n) (src : AvxReg w)
+  | vmovq (_ : AvxReg w) (src : AvxReg w)
+  | vzeroupper
+  -- SHA extensions
+  | sha256rnds2 (_ : AvxDst w) (src : AvxRegOrMem w)  -- reads xmm0 implicitly
+  | sha256msg1 (_ : AvxDst w) (src : AvxRegOrMem w)
+  | sha256msg2 (_ : AvxDst w) (src : AvxRegOrMem w)
+  -- AVX-512 integer operations, without write-masking
+  | vmovdqu32 (_ : AvxDst w) (src : AvxRegOrMem w)
+  | vmovdqa32 (_ : AvxDst w) (src : AvxRegOrMem w)
+  | vpaddd (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vprord (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  | vpsrld (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  | vpternlogd (_ : AvxDst w) (src2 src3 : AvxRegOrMem w) (imm : ConstExpr)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 inductive Instr
@@ -269,11 +293,11 @@ instance [AddressSize] {w : Width} : CoeOut (Operation w) Instr where
 instance [AddressSize] {w : AvxWidth} : CoeOut (AvxOperation w) Instr where
   coe op := Instr.avx address_size w op
 
-abbrev Directive := Kraken.Directive Instr
+abbrev Directive := Kraken.Directive Instr ConstExpr
 
 abbrev Program := List Directive
 
-abbrev Executable := Kraken.Executable Instr
+abbrev Executable := Kraken.Executable Instr ConstExpr
 
 namespace Reg
 @[match_pattern] abbrev rax := low .rax .W64
