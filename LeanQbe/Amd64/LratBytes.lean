@@ -220,91 +220,14 @@ theorem lrat_check_bytes_x64_unsat (k₀ : Nat)
 
 end Generic
 
-/-! ## Concrete x64 executions in `compiled.host`: accepting (`rax = 1`) and rejecting (`rax = 0`) -/
+/-! ## Concrete x64 executions in `compiled.host` (`rax = 1` and `rax = 0`) -/
 
 abbrev lratBytesHost : Host := compiled.host
 attribute [local instance] lratBytesHost
 
 def lratBytesState (cnfBytes prfBytes : List UInt8) : MachineData :=
-  { regs :=
-      { rdi := (nvCnfPtr).toNat.toUInt64
-        rsi := cnfBytes.length.toUInt64
-        rdx := (nvPrfPtr cnfBytes).toNat.toUInt64
-        rcx := prfBytes.length.toUInt64
-        r8  := (nvWorkPtr cnfBytes prfBytes).toNat.toUInt64
-        r9  := 512
-        rsp := 0x0ff8 },
-    dmem := initMem (compiled.bound "lrat_check_bytes") 0x1234
-      (lratBytesPayload cnfBytes prfBytes) }
-
-theorem lratBytesState_mem (cnfBytes prfBytes : List UInt8)
-    (hcb : cnfBytes.length ≤ 1024) (hpb : prfBytes.length ≤ 1024) :
-    (lratBytesState cnfBytes prfBytes).dmem =⋆
-      (Eq (cnfBytes.At nvCnfPtr) ⋆
-        Eq (prfBytes.At (nvPrfPtr cnfBytes)) ⋆
-        region (nvWorkPtr cnfBytes prfBytes) 512) ⋆
-      ((fun f => ∃ bs : List UInt8, bs.length = compiled.bound "lrat_check_bytes" ∧
-          f = bs.At ((lratBytesState cnfBytes prfBytes).regs.get64 .rsp -
-            BitVec.ofNat 64 (compiled.bound "lrat_check_bytes"))) ⋆
-        Eq ((0x1234 : Int64).toUInt64.At ((lratBytesState cnfBytes prfBytes).regs.get64 .rsp))) ⋆
-      Std.ExtHashMap.emp := by
-  have hpay_len : (lratBytesPayload cnfBytes prfBytes).length ≤ 8192 := by
-    rw [lratBytesPayload_length]; omega
-  have h0 := initMem_entry (compiled.bound "lrat_check_bytes") 0x1234
-    (lratBytesPayload cnfBytes prfBytes) (compiled.bound_le_max "lrat_check_bytes") hpay_len
-  exact sep_mono (fun _ => sep_mono (fun _ e => e ▸
-    lratBytesPayload_sep cnfBytes prfBytes (by omega) (by omega))) h0
-
-private theorem lratBytesState_call {spec : Spec}
-    (hfnspec : target.FnSpec lratBytesHost "lrat_check_bytes" spec
-      (compiled.bound "lrat_check_bytes") 0)
-    (cnfBytes prfBytes : List UInt8)
-    (hcb : cnfBytes.length ≤ 1024) (hpb : prfBytes.length ≤ 1024)
-    {Q : LeanQbe.Post}
-    (hspec : ∀ m : Mem 64,
-      ((Eq (cnfBytes.At nvCnfPtr) ⋆ Eq (prfBytes.At (nvPrfPtr cnfBytes)) ⋆
-        region (nvWorkPtr cnfBytes prfBytes) 512) ⋆ Std.ExtHashMap.emp) m →
-      spec
-        [nvCnfPtr, BitVec.ofNat 64 cnfBytes.length,
-         nvPrfPtr cnfBytes, BitVec.ofNat 64 prfBytes.length,
-         nvWorkPtr cnfBytes prfBytes, 512#64] m Q (fun _ _ _ => False)) :
-    Eventually (step1 Host.exe)
-      (fun st => st.pc = (0x1234 : Int64) ∧ ∃ rets m', Q rets m' ∧ target.RetsIn rets st.data)
-      ⟨lratBytesState cnfBytes prfBytes, Labels.label "lrat_check_bytes"⟩ := by
-  let s0 := lratBytesState cnfBytes prfBytes
-  obtain ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, hm_pre, hentry⟩, hrest⟩ :=
-    lratBytesState_mem cnfBytes prfBytes hcb hpb
-  have hm_emp : ((Eq (cnfBytes.At nvCnfPtr) ⋆ Eq (prfBytes.At (nvPrfPtr cnfBytes)) ⋆
-      region (nvWorkPtr cnfBytes prfBytes) 512) ⋆ Std.ExtHashMap.emp) m := by
-    rwa [Std.ExtHashMap.sep_emp]
-  have hrdi : s0.regs.get64 .rdi = nvCnfPtr := rfl
-  have hrsi : s0.regs.get64 .rsi = BitVec.ofNat 64 cnfBytes.length := rfl
-  have hrdx : s0.regs.get64 .rdx = nvPrfPtr cnfBytes :=
-    BitVec.eq_of_toNat_eq (by
-      change (BitVec.ofNat 64 (nvPrfPtr cnfBytes).toNat).toNat = (nvPrfPtr cnfBytes).toNat
-      simp)
-  have hrcx : s0.regs.get64 .rcx = BitVec.ofNat 64 prfBytes.length := rfl
-  have hr8 : s0.regs.get64 .r8 = nvWorkPtr cnfBytes prfBytes :=
-    BitVec.eq_of_toNat_eq (by
-      change (BitVec.ofNat 64 (nvWorkPtr cnfBytes prfBytes).toNat).toNat =
-        (nvWorkPtr cnfBytes prfBytes).toNat
-      simp)
-  have hr9 : s0.regs.get64 .r9 = 512#64 := rfl
-  have hargs : target.ArgsIn
-      [nvCnfPtr, BitVec.ofNat 64 cnfBytes.length,
-       nvPrfPtr cnfBytes, BitVec.ofNat 64 prfBytes.length,
-       nvWorkPtr cnfBytes prfBytes, 512#64] s0 := by
-    simp [Target.ArgsIn, Target.ValsIn, target, isa, hrdi, hrsi, hrdx, hrcx, hr8, hr9]
-  have hsp : target.spEntry (target.get s0 target.sp) :=
-    show (0x0ff8#64 + 8#64).toNat % 16 = 0 by decide
-  have hmem' : target.mem s0 =⋆ Eq m ⋆
-      target.Entry (target.get s0 target.sp) (0x1234 : Int64)
-        (compiled.bound "lrat_check_bytes") ⋆ Std.ExtHashMap.emp :=
-    ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩
-  refine eventually_weaken _ _ _ _ ?_
-    (hfnspec _ m Q (fun _ _ _ => False) (hspec m hm_emp) s0 0x1234 Std.ExtHashMap.emp
-      hargs trivial hsp hmem')
-  grind
+  initState (compiled.bound "lrat_check_bytes")
+    (lratBytesPayload cnfBytes prfBytes) (lratBytesArgs cnfBytes prfBytes)
 
 def lratBytesAcceptState0 : MachineData :=
   lratBytesState nvDimacsBytes nvLratAcceptBytes
@@ -313,15 +236,8 @@ def lratBytesAcceptState0 : MachineData :=
 theorem lrat_check_bytes_x64_accepts :
     Eventually (step1 Host.exe)
       (fun st => st.pc = 0x1234 ∧ st.data.regs.get64 .rax = 1 ∧ nvBytesCnf.Unsat)
-      ⟨lratBytesAcceptState0, Labels.label "lrat_check_bytes"⟩ := by
-  have hf := lratBytesState_call (Q := fun rs _ => rs = [1] ∧ nvBytesCnf.Unsat)
-    (lrat_bytes_accepts_fnSpec compiled) nvDimacsBytes nvLratAcceptBytes (by simp) (by simp)
-    lratCheckBytesAcceptSpec_nv
-  refine eventually_weaken _ _ _ _ ?_ hf
-  rintro st ⟨hpc, _, _, ⟨rfl, hu⟩, hrets⟩
-  have hrax : st.data.regs.get64 .rax = 1 := by
-    simpa [Target.RetsIn, Target.ValsIn, target, isa] using hrets
-  exact ⟨hpc, hrax, hu⟩
+      ⟨lratBytesAcceptState0, Labels.label "lrat_check_bytes"⟩ :=
+  lrat_check_bytes_accepts_witness targetInit compiled
 
 def lratBytesRejectState0 : MachineData :=
   lratBytesState nvDimacsBytes nvLratRejectBytes
@@ -330,14 +246,7 @@ def lratBytesRejectState0 : MachineData :=
 theorem lrat_check_bytes_x64_rejects :
     Eventually (step1 Host.exe)
       (fun st => st.pc = 0x1234 ∧ st.data.regs.get64 .rax = 0)
-      ⟨lratBytesRejectState0, Labels.label "lrat_check_bytes"⟩ := by
-  have hf := lratBytesState_call (Q := fun rs _ => rs = [0])
-    (lrat_bytes_rejects_fnSpec compiled) nvDimacsBytes nvLratRejectBytes (by simp) (by simp)
-    lratCheckBytesRejectSpec_nv
-  refine eventually_weaken _ _ _ _ ?_ hf
-  rintro st ⟨hpc, _, _, rfl, hrets⟩
-  have hrax : st.data.regs.get64 .rax = 0 := by
-    simpa [Target.RetsIn, Target.ValsIn, target, isa] using hrets
-  exact ⟨hpc, hrax⟩
+      ⟨lratBytesRejectState0, Labels.label "lrat_check_bytes"⟩ :=
+  lrat_check_bytes_rejects_witness targetInit compiled
 
 end LeanQbe.Amd64.LratBytes

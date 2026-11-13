@@ -209,13 +209,40 @@ theorem initMem_entry (n : Nat) (bs : List UInt8)
   rw [h1] at h0
   exact sep_mono (fun f hf => ⟨stackZeros n, hzs, hf.symm⟩) h0
 
-theorem initMem_empty_entry (n : Nat) (hn : n ≤ 2048) :
-    initMem n [] =⋆
-      (fun f => ∃ zs : List UInt8, zs.length = n ∧ f = zs.At (0x1000#64 - BitVec.ofNat 64 n)) ⋆
-      Std.ExtHashMap.emp := by
-  have h := initMem_entry n [] hn (by decide)
-  have hemp : Eq (([] : List UInt8).At 0x1000#64) = Std.ExtHashMap.emp := by
-    funext f; simp [List.At, Std.ExtHashMap.emp]
-  rwa [hemp, Std.ExtHashMap.emp_sep] at h
+/-- Concrete initial machine state with stack bound `n`, return address `0x1234` in `x30`,
+payload `bs` at `0x1000`, and up to 6 arguments in `x0..x5`. -/
+def initState (n : Nat) (bs : List UInt8) (args : List Val) : MachineData :=
+  { regs :=
+      { X0  := UInt64.ofBitVec (args.getD 0 0)
+        X1  := UInt64.ofBitVec (args.getD 1 0)
+        X2  := UInt64.ofBitVec (args.getD 2 0)
+        X3  := UInt64.ofBitVec (args.getD 3 0)
+        X4  := UInt64.ofBitVec (args.getD 4 0)
+        X5  := UInt64.ofBitVec (args.getD 5 0)
+        SP  := 0x1000
+        X30 := (0x1234 : Int64).toUInt64 }
+    dmem := initMem n bs }
+
+theorem initState_argsIn (n : Nat) (bs : List UInt8) (args : List Val) (h : args.length ≤ 6) :
+    target.ArgsIn args (initState n bs args) := by
+  rcases args with _ | ⟨_, _ | ⟨_, _ | ⟨_, _ | ⟨_, _ | ⟨_, _ | ⟨_, _ | args⟩⟩⟩⟩⟩⟩ <;>
+    first | rfl | simp at h
+
+@[reducible] def targetInit : TargetInit target where
+  sp0 := 0x1000#64
+  ra0 := 0x1234
+  ret0 := .reg .X0
+  arg0 := .reg .X0
+  initState := initState
+  get_sp _ _ _ := rfl
+  argsIn := initState_argsIn
+  raReg _ _ _ := rfl
+  spEntry := by decide
+  mem_entry n bs _ hn hbs :=
+    sep_mono (fun _ => sep_mono_r fun _ hf => by
+      simp only [Target.Entry, region_zero, Std.ExtHashMap.sep_emp]; exact hf)
+      (initMem_entry n bs hn hbs)
+  retsIn_singleton _ _ := List.head_eq_of_cons_eq
+  argsIn_singleton _ _ := List.head_eq_of_cons_eq
 
 end LeanQbe.Arm64

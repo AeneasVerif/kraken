@@ -404,4 +404,76 @@ def compileChecked (T : Target) (L : TargetLayout T)
   prog_host := L.prog_layoutOf _ _
   labelsUnique := L.labelsUnique_layoutOf (extract_small h) (extract_nodup h)
 
+namespace TargetInit
+
+variable {T : Target} (I : TargetInit T)
+
+/-- Run a function `nm` in `M.host` from `I.initState (M.bound nm) bs args` using `hf`. -/
+theorem run_fnSpec {exits : List String} {nX : Nat} {fs : List Fn}
+    (M : Compiled T [] exits nX fs 2048) {nm : String} {spec : Spec}
+    (hf : T.FnSpec M.host nm spec (M.bound nm) nX)
+    (bs : List UInt8) (args : List Val)
+    (hbs : bs.length ≤ 8192) (hargs : args.length ≤ 6)
+    {Q : Post} {X : XPost}
+    (hspec : spec args (bs.At 0x1000#64) Q X)
+    {post : T.State → Prop}
+    (hpost : ∀ st,
+      (T.pc st = I.ra0 ∧ ∃ rets m', Q rets m' ∧ T.RetsIn rets (T.data st) ∧
+        (T.mem (T.data st) =⋆ Eq m' ⋆ T.Exit I.sp0 (M.bound nm) ⋆ Std.ExtHashMap.emp)) ∨
+      (∃ sym' as m', X sym' as m' ∧ T.pc st = T.labelAddr M.host sym' ∧
+        T.ArgsIn as (T.data st)) →
+      post st) :
+    Eventually (T.step M.host) post
+      (T.mkState (I.initState (M.bound nm) bs args) (T.labelAddr M.host nm)) := by
+  have hmem := I.mem_entry (M.bound nm) bs args (M.bound_le_max nm) hbs
+  rw [← I.get_sp (M.bound nm) bs args] at hmem
+  refine eventually_weaken _ _ _ _ ?_
+    (hf args (bs.At 0x1000#64) Q X hspec (I.initState (M.bound nm) bs args) I.ra0
+      Std.ExtHashMap.emp (I.argsIn _ _ _ hargs) (I.raReg _ _ _)
+      (by rw [I.get_sp]; exact I.spEntry) hmem)
+  rintro st (⟨hpc, rets, m', hQ, hrets, _, hm'⟩ | ⟨sym', as, m', hX, _, hpc, has, _⟩)
+  · rw [I.get_sp] at hm'
+    exact hpost st (Or.inl ⟨hpc, rets, m', hQ, hrets, hm'⟩)
+  · exact hpost st (Or.inr ⟨sym', as, m', hX, hpc, has⟩)
+
+/-- Run a non-exiting function returning a single value `v` in `I.ret0`. -/
+theorem run_ret1 {exits : List String} {nX : Nat} {fs : List Fn}
+    (M : Compiled T [] exits nX fs 2048) {nm : String} {spec : Spec}
+    (hf : T.FnSpec M.host nm spec (M.bound nm) nX)
+    (bs : List UInt8) (args : List Val) (v : Val)
+    (hbs : bs.length ≤ 8192) (hargs : args.length ≤ 6)
+    {Q : Post}
+    (hspec : spec args (bs.At 0x1000#64) Q (fun _ _ _ => False))
+    (hQ : ∀ rets m', Q rets m' → rets = [v]) :
+    Eventually (T.step M.host)
+      (fun st => T.pc st = I.ra0 ∧ T.get (T.data st) I.ret0 = v)
+      (T.mkState (I.initState (M.bound nm) bs args) (T.labelAddr M.host nm)) := by
+  refine I.run_fnSpec M hf bs args hbs hargs hspec ?_
+  rintro st (⟨hpc, rets, m', hq, hrets, _⟩ | ⟨_, _, _, hx, _⟩)
+  · have hr := hQ rets m' hq; subst hr
+    exact ⟨hpc, I.retsIn_singleton v _ hrets⟩
+  · exact hx.elim
+
+/-- Run a non-exiting function returning `[v]` and establishing memory predicate `P`. -/
+theorem run_ret1_sep {exits : List String} {nX : Nat} {fs : List Fn}
+    (M : Compiled T [] exits nX fs 2048) {nm : String} {spec : Spec}
+    (hf : T.FnSpec M.host nm spec (M.bound nm) nX)
+    (bs : List UInt8) (args : List Val) (v : Val) (P : Mem 64 → Prop)
+    (hbs : bs.length ≤ 8192) (hargs : args.length ≤ 6)
+    {Q : Post}
+    (hspec : spec args (bs.At 0x1000#64) Q (fun _ _ _ => False))
+    (hQ : ∀ rets m', Q rets m' → rets = [v] ∧ P m') :
+    Eventually (T.step M.host)
+      (fun st => T.pc st = I.ra0 ∧ T.get (T.data st) I.ret0 = v ∧
+        (T.mem (T.data st) =⋆ P ⋆ T.Exit I.sp0 (M.bound nm) ⋆ Std.ExtHashMap.emp))
+      (T.mkState (I.initState (M.bound nm) bs args) (T.labelAddr M.host nm)) := by
+  refine I.run_fnSpec M hf bs args hbs hargs hspec ?_
+  rintro st (⟨hpc, rets, m', hq, hrets, hm'⟩ | ⟨_, _, _, hx, _⟩)
+  · obtain ⟨rfl, hP⟩ := hQ rets m' hq
+    exact ⟨hpc, I.retsIn_singleton v _ hrets,
+      sep_mono (fun _ => sep_mono (fun _ e => e ▸ hP)) hm'⟩
+  · exact hx.elim
+
+end TargetInit
+
 end LeanQbe

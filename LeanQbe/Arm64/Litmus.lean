@@ -351,9 +351,7 @@ end Generic
 /-! ## Concrete AArch64 execution witnesses -/
 
 abbrev tracerHost : Host := tracerCompiled.host
-def tracerState0 : MachineData :=
-  { regs := { X0 := 40, X1 := 2, X2 := 0x1000, X30 := (0x1234 : Int64).toUInt64, SP := 0x1000 },
-    dmem := initMem (tracerCompiled.bound "tracer") zeros8 }
+def tracerState0 : MachineData := initState (tracerCompiled.bound "tracer") zeros8 [40, 2, 0x1000]
 
 attribute [local instance] tracerHost in
 theorem tracer_nonvacuous :
@@ -363,89 +361,48 @@ theorem tracer_nonvacuous :
           (fun f => ∃ bs : List UInt8, bs.length = tracerCompiled.bound "tracer" ∧
               f = bs.At (0x1000#64 - BitVec.ofNat 64 (tracerCompiled.bound "tracer"))) ⋆
           Std.ExtHashMap.emp))
-      ⟨tracerState0, Labels.label "tracer"⟩ := by
-  have hmem := initMem_entry (tracerCompiled.bound "tracer") zeros8
-    (tracerCompiled.bound_le_max "tracer") (by decide)
-  have h := tracer_correct 0 tracerCompiled.code_infix_host tracerCompiled.labelsUnique
-    40 2 0x1000#64 m0 m0_loadInt tracerState0 0x1234 Std.ExtHashMap.emp rfl rfl rfl rfl (by decide) hmem
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st ⟨hpc, hx0, -, -, hm⟩
-  exact ⟨hpc, hx0, hm⟩
+      ⟨tracerState0, Labels.label "tracer"⟩ :=
+  tracer_witness targetInit tracerCompiled
 
 abbrev sumtoHost : Host := sumtoCompiled.host
-def sumtoState : MachineData :=
-  { regs := { X0 := 3, X30 := (0x1234 : Int64).toUInt64, SP := 0x1000 },
-    dmem := initMem (sumtoCompiled.bound "sumto") [] }
+def sumtoState : MachineData := initState (sumtoCompiled.bound "sumto") [] [3]
 
 attribute [local instance] sumtoHost in
 theorem sumto_nonvacuous :
     Eventually (step1 Host.exe)
       (fun st => st.pc = 0x1234 ∧ (st.data.regs.getXReg .X0).toBitVec = 6)
-      ⟨sumtoState, Labels.label "sumto"⟩ := by
-  have hmem := initMem_empty_entry (sumtoCompiled.bound "sumto")
-    (sumtoCompiled.bound_le_max "sumto")
-  have h := sumto_correct 0 sumtoCompiled.code_infix_host sumtoCompiled.labelsUnique
-    3 (by decide) sumtoState 0x1234 Std.ExtHashMap.emp rfl rfl (by decide) hmem
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st ⟨hpc, hx0, -⟩
-  exact ⟨hpc, by rw [hx0]; decide⟩
+      ⟨sumtoState, Labels.label "sumto"⟩ :=
+  sumto_witness targetInit sumtoCompiled
 
 abbrev callincHost : Host := callincCompiled.host
-def callincState : MachineData :=
-  { regs := { X0 := 40, X1 := 1, X30 := (0x1234 : Int64).toUInt64, SP := 0x1000 },
-    dmem := initMem (callincCompiled.bound "callinc") [] }
+def callincState : MachineData := initState (callincCompiled.bound "callinc") [] [40, 1]
 
 attribute [local instance] callincHost in
 theorem callinc_nonvacuous :
     Eventually (step1 Host.exe)
       (fun st => st.pc = 0x1234 ∧ (st.data.regs.getXReg .X0).toBitVec = 42)
-      ⟨callincState, Labels.label "callinc"⟩ := by
-  have hmem := initMem_empty_entry (callincCompiled.bound "callinc")
-    (callincCompiled.bound_le_max "callinc")
-  have h := callinc_correct 0 callincCompiled.code_infix_host callincCompiled.labelsUnique
-    40 1 callincState 0x1234 Std.ExtHashMap.emp rfl rfl rfl (by decide) hmem
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st ⟨hpc, hx0, -⟩
-  exact ⟨hpc, by rw [hx0]; decide⟩
+      ⟨callincState, Labels.label "callinc"⟩ :=
+  callinc_witness targetInit callincCompiled
 
 abbrev twiceHost : Host := twiceCompiled.host
 def twiceState (a b : UInt64) : MachineData :=
-  { regs := { X0 := a, X1 := b, X30 := (0x1234 : Int64).toUInt64, SP := 0x1000 },
-    dmem := initMem (twiceCompiled.bound "twice") [] }
+  initState (twiceCompiled.bound "twice") [] [a.toBitVec, b.toBitVec]
 
 attribute [local instance] twiceHost in
 theorem twice_nonvacuous_exit :
     Eventually (step1 Host.exe)
       (fun st => st.pc = Labels.label "fail" ∧ (st.data.regs.getXReg .X0).toBitVec = 0)
-      ⟨twiceState 20 0, Labels.label "twice"⟩ := by
-  have hmem := initMem_empty_entry (twiceCompiled.bound "twice")
-    (twiceCompiled.bound_le_max "twice")
-  have hfail : target.Defined twiceHost "fail" :=
-    twiceCompiled.defined_exit_host (by simp)
-  have h := twice_correct 0 twiceCompiled.code_infix_host hfail twiceCompiled.labelsUnique
-    20 0 (twiceState 20 0) 0x1234 Std.ExtHashMap.emp rfl rfl rfl (by decide) hmem
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st (⟨_, h0, -⟩ | (⟨hna, -⟩ | ⟨_, _, hpc, hx0, -⟩))
-  · exact absurd h0 (by decide)
-  · exact absurd (by decide : Truthy 20) hna
-  · exact ⟨hpc, hx0⟩
+      ⟨twiceState 20 0, Labels.label "twice"⟩ :=
+  twice_exit_witness targetInit twiceCompiled
 
 abbrev spill10Host : Host := spill10Compiled.host
-def spill10State : MachineData :=
-  { regs := { X0 := 10, X1 := 7, X30 := (0x1234 : Int64).toUInt64, SP := 0x1000 },
-    dmem := initMem (spill10Compiled.bound "spill10") [] }
+def spill10State : MachineData := initState (spill10Compiled.bound "spill10") [] [10, 7]
 
 attribute [local instance] spill10Host in
 theorem spill10_nonvacuous :
     Eventually (step1 Host.exe)
       (fun st => st.pc = 0x1234 ∧ (st.data.regs.getXReg .X0).toBitVec = spill10Val 10 7)
-      ⟨spill10State, Labels.label "spill10"⟩ := by
-  have hmem := initMem_empty_entry (spill10Compiled.bound "spill10")
-    (spill10Compiled.bound_le_max "spill10")
-  have h := spill10_correct 0 spill10Compiled.code_infix_host spill10Compiled.labelsUnique
-    10 7 spill10State 0x1234 Std.ExtHashMap.emp rfl rfl rfl (by decide) hmem
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st ⟨hpc, hx0, -⟩
-  exact ⟨hpc, hx0⟩
+      ⟨spill10State, Labels.label "spill10"⟩ :=
+  spill10_witness targetInit spill10Compiled
 
 end LeanQbe.Arm64.Litmus

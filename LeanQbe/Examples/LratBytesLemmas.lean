@@ -366,21 +366,10 @@ private theorem concreteMem_sep (cnfBytes prfBytes : List UInt8)
     let work_ptr : Val := prf_ptr + BitVec.ofNat 64 prfBytes.length
     let m0 : Mem 64 := ((cnfBytes ++ prfBytes) ++ List.replicate 512 0).At cnf_ptr
     ((Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr 512) ⋆ emp) m0 := by
-  intro cnf_ptr prf_ptr work_ptr m0
-  rw [Std.ExtHashMap.sep_emp]
-  have hptr : cnf_ptr.toNat = 4096 := rfl
-  have h512 : (List.replicate 512 (0 : UInt8)).length = 512 := List.length_replicate
-  have h1 := Mem.At_append_sep (cnfBytes ++ prfBytes) (List.replicate 512 0) cnf_ptr
-    (by simp only [List.length_append, h512]; omega)
-  have e1 : cnf_ptr + BitVec.ofNat 64 (cnfBytes ++ prfBytes).length = work_ptr := by
-    grind
-  rw [e1] at h1
-  have h2 := Mem.At_append_sep cnfBytes prfBytes cnf_ptr
-    (by omega)
-  have h0 : (Eq (((cnfBytes ++ prfBytes) ++ List.replicate 512 0).At cnf_ptr)) m0 := rfl
-  rw [h1] at h0
-  exact sep_mono (fun fL hfL => by rwa [h2] at hfL)
-    (sep_mono_r (fun fW hfW => ⟨List.replicate 512 0, h512, hfW.symm⟩) h0)
+  intro _ _ _ _
+  have h := lratBytesPayload_sep cnfBytes prfBytes hcb hpb
+  unfold lratBytesPayload stackZeros at h
+  rwa [Std.ExtHashMap.sep_emp]
 
 /-- Source-level concrete accepting non-vacuity: on concrete memory containing
 `nvDimacsBytes ++ nvLratAcceptBytes ++ replicate 512 0` at `0x1000`, `lratCheckBytes` terminates
@@ -400,15 +389,11 @@ theorem lratCheckBytes_accepts_nonvacuous :
           region work_ptr 512) ⋆ emp) m')
       (fun _ _ _ => False) := by
   intro cnf_ptr prf_ptr work_ptr m0
-  have hcb : nvDimacsBytes.length = 19 := nvDimacsBytes_length
-  have hpb : nvLratAcceptBytes.length = 15 := rfl
-  refine lratBytesAcceptEnv_sound ⟨"lrat_check_bytes", lratCheckBytes⟩ (by simp [lratBytesFns])
-    _ m0 _ _ ⟨cnf_ptr, prf_ptr, work_ptr, emp, rfl, ?_, ?_, ?_,
-      concreteMem_sep nvDimacsBytes nvLratAcceptBytes (by omega) (by omega),
+  exact lratBytesAcceptEnv_sound ⟨"lrat_check_bytes", lratCheckBytes⟩ (by simp [lratBytesFns])
+    _ m0 _ _ ⟨cnf_ptr, prf_ptr, work_ptr, emp, rfl,
+      by simp [cnf_ptr], by simp [prf_ptr, cnf_ptr], by simp [work_ptr, prf_ptr, cnf_ptr],
+      concreteMem_sep nvDimacsBytes nvLratAcceptBytes (by simp) (by simp),
       fun m' hunsat hm' => ⟨rfl, hunsat, hm'⟩⟩
-  · simp [cnf_ptr, hcb]
-  · simp [prf_ptr, cnf_ptr, hcb, hpb]
-  · simp [work_ptr, prf_ptr, cnf_ptr, hcb, hpb]
 
 /-- Source-level concrete rejecting non-vacuity: on concrete memory containing
 `nvDimacsBytes ++ nvLratRejectBytes ++ replicate 512 0` at `0x1000`, `lratCheckBytes` terminates
@@ -428,15 +413,11 @@ theorem lratCheckBytes_rejects_nonvacuous :
           region work_ptr 512) ⋆ emp) m')
       (fun _ _ _ => False) := by
   intro cnf_ptr prf_ptr work_ptr m0
-  have hcb : nvDimacsBytes.length = 19 := nvDimacsBytes_length
-  have hpb : nvLratRejectBytes.length = 5 := rfl
-  refine lratBytesRejectEnv_sound ⟨"lrat_check_bytes", lratCheckBytes⟩ (by simp [lratBytesFns])
-    _ m0 _ _ ⟨cnf_ptr, prf_ptr, work_ptr, emp, rfl, ?_, ?_, ?_,
-      concreteMem_sep nvDimacsBytes nvLratRejectBytes (by omega) (by omega),
+  exact lratBytesRejectEnv_sound ⟨"lrat_check_bytes", lratCheckBytes⟩ (by simp [lratBytesFns])
+    _ m0 _ _ ⟨cnf_ptr, prf_ptr, work_ptr, emp, rfl,
+      by simp [cnf_ptr], by simp [prf_ptr, cnf_ptr], by simp [work_ptr, prf_ptr, cnf_ptr],
+      concreteMem_sep nvDimacsBytes nvLratRejectBytes (by simp) (by simp),
       fun m' hm' => ⟨rfl, hm'⟩⟩
-  · simp [cnf_ptr, hcb]
-  · simp [prf_ptr, cnf_ptr, hcb, hpb]
-  · simp [work_ptr, prf_ptr, cnf_ptr, hcb, hpb]
 
 /-! ## 7. Target-generic `compile_sound` linking -/
 
@@ -462,34 +443,52 @@ theorem lrat_bytes_rejects_fnSpec {T : Target} {maxBound : Nat}
     (M.fnSpec_host lratBytesRejectEnv lratBytesFns_wf lratBytesRejectEnv_sound
       (nm := "lrat_check_bytes") (by simp [lratBytesFns])).2
 
-theorem lratCheckBytesAcceptSpec_nv (m : Mem 64)
-    (hm : ((Eq (nvDimacsBytes.At nvCnfPtr) ⋆ Eq (nvLratAcceptBytes.At (nvPrfPtr nvDimacsBytes)) ⋆
-      region (nvWorkPtr nvDimacsBytes nvLratAcceptBytes) 512) ⋆ Std.ExtHashMap.emp) m) :
-    lratCheckBytesAcceptSpec
-      [nvCnfPtr, BitVec.ofNat 64 nvDimacsBytes.length,
-       nvPrfPtr nvDimacsBytes, BitVec.ofNat 64 nvLratAcceptBytes.length,
-       nvWorkPtr nvDimacsBytes nvLratAcceptBytes, 512#64]
-      m (fun rs _ => rs = [1] ∧ nvBytesCnf.Unsat) (fun _ _ _ => False) :=
-  ⟨nvCnfPtr, nvPrfPtr nvDimacsBytes, nvWorkPtr nvDimacsBytes nvLratAcceptBytes,
-    Std.ExtHashMap.emp, rfl,
-    by simp only [nvCnfPtr, nvDimacsBytes_length]; decide,
-    by simp only [nvPrfPtr, nvCnfPtr, nvDimacsBytes_length, nvLratAcceptBytes_length]; decide,
-    by simp only [nvWorkPtr, nvPrfPtr, nvCnfPtr, nvDimacsBytes_length, nvLratAcceptBytes_length]; decide,
-    hm, fun _ hu _ => ⟨rfl, hu⟩⟩
+def lratBytesArgs (cnfBytes prfBytes : List UInt8) : List Val :=
+  [nvCnfPtr, BitVec.ofNat 64 cnfBytes.length,
+   nvPrfPtr cnfBytes, BitVec.ofNat 64 prfBytes.length,
+   nvWorkPtr cnfBytes prfBytes, 512#64]
 
-theorem lratCheckBytesRejectSpec_nv (m : Mem 64)
-    (hm : ((Eq (nvDimacsBytes.At nvCnfPtr) ⋆ Eq (nvLratRejectBytes.At (nvPrfPtr nvDimacsBytes)) ⋆
-      region (nvWorkPtr nvDimacsBytes nvLratRejectBytes) 512) ⋆ Std.ExtHashMap.emp) m) :
-    lratCheckBytesRejectSpec
-      [nvCnfPtr, BitVec.ofNat 64 nvDimacsBytes.length,
-       nvPrfPtr nvDimacsBytes, BitVec.ofNat 64 nvLratRejectBytes.length,
-       nvWorkPtr nvDimacsBytes nvLratRejectBytes, 512#64]
-      m (fun rs _ => rs = [0]) (fun _ _ _ => False) :=
-  ⟨nvCnfPtr, nvPrfPtr nvDimacsBytes, nvWorkPtr nvDimacsBytes nvLratRejectBytes,
-    Std.ExtHashMap.emp, rfl,
-    by simp only [nvCnfPtr, nvDimacsBytes_length]; decide,
-    by simp only [nvPrfPtr, nvCnfPtr, nvDimacsBytes_length, nvLratRejectBytes_length]; decide,
-    by simp only [nvWorkPtr, nvPrfPtr, nvCnfPtr, nvDimacsBytes_length, nvLratRejectBytes_length]; decide,
-    hm, fun _ _ => rfl⟩
+theorem lrat_check_bytes_accepts_witness {T : Target} (I : TargetInit T)
+    (M : Compiled T [] [] 0 lratBytesFns 2048) :
+    Eventually (T.step M.host)
+      (fun st => T.pc st = I.ra0 ∧ T.get (T.data st) I.ret0 = 1 ∧ nvBytesCnf.Unsat)
+      (T.mkState
+        (I.initState (M.bound "lrat_check_bytes")
+          (lratBytesPayload nvDimacsBytes nvLratAcceptBytes)
+          (lratBytesArgs nvDimacsBytes nvLratAcceptBytes))
+        (T.labelAddr M.host "lrat_check_bytes")) := by
+  have hspec : lratCheckBytesAcceptSpec (lratBytesArgs nvDimacsBytes nvLratAcceptBytes)
+      ((lratBytesPayload nvDimacsBytes nvLratAcceptBytes).At 0x1000#64)
+      (fun rs _ => rs = [1] ∧ nvBytesCnf.Unsat) (fun _ _ _ => False) :=
+    ⟨nvCnfPtr, nvPrfPtr nvDimacsBytes, nvWorkPtr nvDimacsBytes nvLratAcceptBytes,
+      Std.ExtHashMap.emp, rfl,
+      by simp [nvCnfPtr], by simp [nvPrfPtr, nvCnfPtr], by simp [nvWorkPtr, nvPrfPtr, nvCnfPtr],
+      by rw [Std.ExtHashMap.sep_emp]; exact lratBytesPayload_sep _ _ (by simp) (by simp),
+      fun _ hu _ => ⟨rfl, hu⟩⟩
+  refine I.run_fnSpec M (lrat_bytes_accepts_fnSpec M) _ _
+    (by simp [lratBytesPayload_length]) (by decide) hspec ?_
+  rintro st (⟨hpc, _, _, ⟨rfl, hu⟩, hrets, _⟩ | ⟨_, _, _, hx, _⟩)
+  · exact ⟨hpc, I.retsIn_singleton 1 _ hrets, hu⟩
+  · exact hx.elim
+
+theorem lrat_check_bytes_rejects_witness {T : Target} (I : TargetInit T)
+    (M : Compiled T [] [] 0 lratBytesFns 2048) :
+    Eventually (T.step M.host)
+      (fun st => T.pc st = I.ra0 ∧ T.get (T.data st) I.ret0 = 0)
+      (T.mkState
+        (I.initState (M.bound "lrat_check_bytes")
+          (lratBytesPayload nvDimacsBytes nvLratRejectBytes)
+          (lratBytesArgs nvDimacsBytes nvLratRejectBytes))
+        (T.labelAddr M.host "lrat_check_bytes")) := by
+  have hspec : lratCheckBytesRejectSpec (lratBytesArgs nvDimacsBytes nvLratRejectBytes)
+      ((lratBytesPayload nvDimacsBytes nvLratRejectBytes).At 0x1000#64)
+      (fun rs _ => rs = [0]) (fun _ _ _ => False) :=
+    ⟨nvCnfPtr, nvPrfPtr nvDimacsBytes, nvWorkPtr nvDimacsBytes nvLratRejectBytes,
+      Std.ExtHashMap.emp, rfl,
+      by simp [nvCnfPtr], by simp [nvPrfPtr, nvCnfPtr], by simp [nvWorkPtr, nvPrfPtr, nvCnfPtr],
+      by rw [Std.ExtHashMap.sep_emp]; exact lratBytesPayload_sep _ _ (by simp) (by simp),
+      fun _ _ => rfl⟩
+  exact I.run_ret1 M (lrat_bytes_rejects_fnSpec M) _ _ 0
+    (by simp [lratBytesPayload_length]) (by decide) hspec fun _ _ h => h
 
 end LeanQbe.LratBytes

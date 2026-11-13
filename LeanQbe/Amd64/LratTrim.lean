@@ -97,67 +97,24 @@ abbrev lratHost : Host := compiled.host
 attribute [local instance] lratHost
 
 def lratState0 : MachineData :=
-  { regs := { rdi := 0x1000, rsp := 0x0ff8 },
-    dmem := initMem (compiled.bound "br_check_proof") 0x1234 nvCheckBytes }
+  initState (compiled.bound "br_check_proof") nvCheckBytes [0x1000]
 
 theorem checkProof_x64_nonvacuous :
     Eventually (step1 Host.exe)
       (fun st =>
         (st.pc = 0x1234 ∧ (CNF.empty : CNF Nat).Unsat) ∨
         st.pc = Labels.label "lrat_fail")
-      ⟨lratState0, Labels.label "br_check_proof"⟩ := by
-  have hnv_len : nvCheckBytes.length ≤ 8192 := by
-    simp [nvCheckBytes, bytesN_length, KernelFields.toList]
-  have hmem : lratState0.dmem =⋆ Eq (nvCheckBytes.At 0x1000#64) ⋆
-      ((fun f => ∃ bs : List UInt8, bs.length = compiled.bound "br_check_proof" ∧
-          f = bs.At (lratState0.regs.get64 .rsp - BitVec.ofNat 64 (compiled.bound "br_check_proof"))) ⋆
-        Eq ((0x1234 : Int64).toUInt64.At (lratState0.regs.get64 .rsp))) ⋆
-      Std.ExtHashMap.emp :=
-    initMem_entry (compiled.bound "br_check_proof") 0x1234 nvCheckBytes
-      (compiled.bound_le_max "br_check_proof") hnv_len
-  have hfail : target.Defined lratHost "lrat_fail" :=
-    compiled.defined_exit_host (by simp)
-  have h := checkProof_x64_correct 0 compiled.code_infix_host compiled.labelsUnique hfail
-    nvCheck_pre lratState0 0x1234 Std.ExtHashMap.emp rfl (by decide) hmem
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st (⟨hpc, hunsat, -⟩ | ⟨hpc, -⟩)
-  · exact Or.inl ⟨hpc, hunsat⟩
-  · exact Or.inr hpc
+      ⟨lratState0, Labels.label "br_check_proof"⟩ :=
+  checkProof_nonvacuous_witness targetInit compiled
 
 def lratAcceptState0 : MachineData :=
-  { regs := { rdi := 0x1000, rsp := 0x0ff8 },
-    dmem := initMem (compiled.bound "br_check_proof") 0x1234 nvAcceptBytes }
+  initState (compiled.bound "br_check_proof") nvAcceptBytes [0x1000]
 
 /-- Concrete accepting execution of compiled `br_check_proof` on Kraken x64. -/
 theorem checkProof_x64_accepts :
     Eventually (step1 Host.exe)
       (fun st => st.pc = 0x1234 ∧ nvAcceptCnf.Unsat)
-      ⟨lratAcceptState0, Labels.label "br_check_proof"⟩ := by
-  have hacc_len : nvAcceptBytes.length ≤ 8192 := by
-    have := nvAcceptBytes_length; omega
-  have hmem : target.mem lratAcceptState0 =⋆ Eq (nvAcceptBytes.At 0x1000#64) ⋆
-      target.Entry (target.get lratAcceptState0 target.sp) (0x1234 : Int64)
-        (compiled.bound "br_check_proof") ⋆
-      Std.ExtHashMap.emp :=
-    initMem_entry (compiled.bound "br_check_proof") 0x1234 nvAcceptBytes
-      (compiled.bound_le_max "br_check_proof") hacc_len
-  have hfail : target.Defined lratHost "lrat_fail" :=
-    compiled.defined_exit_host (by simp)
-  have hrdi : lratAcceptState0.regs.get64 .rdi = 0x1000#64 := rfl
-  have hargs : target.ArgsIn [0x1000#64] lratAcceptState0 := by
-    simp [Target.ArgsIn, Target.ValsIn, target, isa, hrdi]
-  have hsp : (lratAcceptState0.regs.get64 .rsp + 8#64).toNat % 16 = 0 := by decide
-  have hspec : lratAcceptEnv "br_check_proof" [0x1000#64] (nvAcceptBytes.At 0x1000#64)
-      (fun rs m' => rs = [] ∧ nvAcceptMem nvAcceptK2 Std.ExtHashMap.emp m' ∧ nvAcceptCnf.Unsat)
-      (fun _ _ _ => False) := by
-    simpa [lratAcceptEnv] using checkProof_accepts_nonvacuous
-  have hf := (lrat_module_accepts_fnspec 0 compiled.code_infix_host compiled.labelsUnique hfail
-      (nm := "br_check_proof") (by decide)).2
-    [0x1000#64] (nvAcceptBytes.At 0x1000#64) _ _ hspec
-    lratAcceptState0 0x1234 Std.ExtHashMap.emp hargs trivial hsp hmem
-  refine eventually_weaken _ _ _ _ ?_ hf
-  rintro st (⟨hpc, _, _, ⟨_, _, hunsat⟩, -⟩ | ⟨_, _, _, hx, _⟩)
-  · exact ⟨hpc, hunsat⟩
-  · exact hx.elim
+      ⟨lratAcceptState0, Labels.label "br_check_proof"⟩ :=
+  checkProof_accepts_witness targetInit compiled
 
 end LeanQbe.Amd64.LratTrim

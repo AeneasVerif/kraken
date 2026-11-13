@@ -197,4 +197,34 @@ theorem uf_fnSpec {T : Target} {maxBound : Nat}
 
 def ufInitBytes : List UInt8 := bytes64 (init 4)
 
+theorem find_witness {T : Target} (I : TargetInit T)
+    (M : Compiled T [] [] 0 ufFns 2048) :
+    Eventually (T.step M.host)
+      (fun st => T.pc st = I.ra0 ∧ T.get (T.data st) I.ret0 = 3 ∧
+        (T.mem (T.data st) =⋆ uf 0x1000#64 4 id ⋆
+          T.Exit I.sp0 (M.bound "find") ⋆ Std.ExtHashMap.emp))
+      (T.mkState (I.initState (M.bound "find") ufInitBytes [0x1000, 3])
+        (T.labelAddr M.host "find")) :=
+  I.run_ret1_sep M (M.fnSpec_host ufEnv ufFns_wf ufEnv_sound (nm := "find") (by decide)).2
+    ufInitBytes [0x1000, 3] 3 (uf 0x1000#64 4 id) (by decide) (by decide)
+    (Q := fun rs m' => rs = [3] ∧ (uf 0x1000 4 id ⋆ emp) m') find_nonvacuous
+    fun _ _ ⟨hr, hm⟩ => ⟨hr, by rwa [sep_emp] at hm⟩
+
+theorem union_witness {T : Target} (I : TargetInit T)
+    (M : Compiled T [] [] 0 ufFns 2048) {nm : String}
+    (hnm : nm ∈ ufFns.map Fn.name) (heq : ufEnv nm = unionSpec) :
+    Eventually (T.step M.host)
+      (fun st => T.pc st = I.ra0 ∧
+        (T.mem (T.data st) =⋆ uf 0x1000#64 4 (merge id 1 2) ⋆
+          T.Exit I.sp0 (M.bound nm) ⋆ Std.ExtHashMap.emp) ∧
+        merge id 1 2 1 = merge id 1 2 2 ∧ merge id 1 2 0 ≠ merge id 1 2 1)
+      (T.mkState (I.initState (M.bound nm) ufInitBytes [0x1000, 1, 2])
+        (T.labelAddr M.host nm)) := by
+  refine I.run_fnSpec M (heq ▸ (M.fnSpec_host ufEnv ufFns_wf ufEnv_sound hnm).2)
+    ufInitBytes [0x1000, 1, 2] (by decide) (by decide) union_nonvacuous ?_
+  rintro st (⟨hpc, _, m', ⟨_, huf⟩, _, hm'⟩ | ⟨_, _, _, hx, _⟩)
+  · rw [sep_emp] at huf
+    exact ⟨hpc, sep_mono (fun _ => sep_mono (fun _ e => e ▸ huf)) hm', merge_init_1_2⟩
+  · exact hx.elim
+
 end LeanQbe.UnionFind

@@ -481,14 +481,36 @@ theorem initMem_entry (n : Nat) (ra : Int64) (bs : List UInt8)
   rw [h2] at hf
   exact sep_mono (fun f1 hf1 => ⟨stackZeros n, hzs, hf1.symm⟩) hf
 
-theorem initMem_empty_entry (n : Nat) (ra : Int64) (hn : n ≤ 2048) :
-    initMem n ra [] =⋆
-      ((fun f => ∃ zs : List UInt8, zs.length = n ∧ f = zs.At (0x0ff8#64 - BitVec.ofNat 64 n)) ⋆
-        Eq (ra.toUInt64.At 0x0ff8#64)) ⋆
-      Std.ExtHashMap.emp := by
-  have h := initMem_entry n ra [] hn (by decide)
-  have hemp : Eq (([] : List UInt8).At 0x1000#64) = Std.ExtHashMap.emp := by
-    funext f; simp [List.At, Std.ExtHashMap.emp]
-  rwa [hemp, Std.ExtHashMap.emp_sep] at h
+/-- Concrete initial machine state with stack bound `n`, return address `0x1234`, payload `bs`
+at `0x1000`, and up to 6 arguments in `rdi, rsi, rdx, rcx, r8, r9`. -/
+def initState (n : Nat) (bs : List UInt8) (args : List Val) : MachineData :=
+  { regs :=
+      { rdi := UInt64.ofBitVec (args.getD 0 0)
+        rsi := UInt64.ofBitVec (args.getD 1 0)
+        rdx := UInt64.ofBitVec (args.getD 2 0)
+        rcx := UInt64.ofBitVec (args.getD 3 0)
+        r8  := UInt64.ofBitVec (args.getD 4 0)
+        r9  := UInt64.ofBitVec (args.getD 5 0)
+        rsp := 0x0ff8 }
+    dmem := initMem n 0x1234 bs }
+
+theorem initState_argsIn (n : Nat) (bs : List UInt8) (args : List Val) (h : args.length ≤ 6) :
+    target.ArgsIn args (initState n bs args) := by
+  rcases args with _ | ⟨_, _ | ⟨_, _ | ⟨_, _ | ⟨_, _ | ⟨_, _ | ⟨_, _ | args⟩⟩⟩⟩⟩⟩ <;>
+    first | rfl | simp at h
+
+@[reducible] def targetInit : TargetInit target where
+  sp0 := 0x0ff8#64
+  ra0 := 0x1234
+  ret0 := .rax
+  arg0 := .rdi
+  initState := initState
+  get_sp _ _ _ := rfl
+  argsIn := initState_argsIn
+  raReg _ _ _ := trivial
+  spEntry := by decide
+  mem_entry n bs _ hn hbs := initMem_entry n 0x1234 bs hn hbs
+  retsIn_singleton _ _ := List.head_eq_of_cons_eq
+  argsIn_singleton _ _ := List.head_eq_of_cons_eq
 
 end LeanQbe.Amd64

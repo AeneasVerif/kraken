@@ -893,4 +893,43 @@ theorem checkProof_accepts_nonvacuous :
       (fun _ _ _ => False) :=
   ⟨emp, rfl, nvAccept_mem, fun _ hm hu => ⟨rfl, hm, hu⟩⟩
 
+theorem checkProof_nonvacuous_witness {T : Target} (I : TargetInit T)
+    (M : Compiled T [] ["lrat_fail"] 0 lratTrimFns 2048) :
+    Eventually (T.step M.host)
+      (fun st =>
+        (T.pc st = I.ra0 ∧ (CNF.empty : CNF Nat).Unsat) ∨
+        T.pc st = T.labelAddr M.host "lrat_fail")
+      (T.mkState (I.initState (M.bound "br_check_proof") nvCheckBytes [0x1000])
+        (T.labelAddr M.host "br_check_proof")) := by
+  have hlen : nvCheckBytes.length ≤ 8192 := by
+    simp [nvCheckBytes, bytesN_length, KernelFields.toList]
+  have hspec : lratEnv "br_check_proof" [0x1000] (nvCheckBytes.At 0x1000)
+      (fun _ _ => (CNF.empty : CNF Nat).Unsat) (fun g _ _ => g = "lrat_fail") :=
+    ⟨1, 2, 0x1000, nvCheckK, [1, 1], [0, 0x10ca], [0, 0x10ce], [], .empty,
+      [.empty, .empty], [[], []], [[], []], nvCheckPro, rfl, nvCheck_pre,
+      fun _ _ hu => hu, fun _ _ => rfl⟩
+  refine I.run_fnSpec M
+    (M.fnSpec_host lratEnv lratTrimFns_wf lratEnv_sound (nm := "br_check_proof") (by decide)).2
+    nvCheckBytes [0x1000] hlen (by decide) hspec ?_
+  rintro st (⟨hpc, _, _, hu, _⟩ | ⟨_, _, _, rfl, hpc, _⟩)
+  · exact Or.inl ⟨hpc, hu⟩
+  · exact Or.inr hpc
+
+theorem checkProof_accepts_witness {T : Target} (I : TargetInit T)
+    (M : Compiled T [] ["lrat_fail"] 0 lratTrimFns 2048) :
+    Eventually (T.step M.host)
+      (fun st => T.pc st = I.ra0 ∧ nvAcceptCnf.Unsat)
+      (T.mkState (I.initState (M.bound "br_check_proof") nvAcceptBytes [0x1000])
+        (T.labelAddr M.host "br_check_proof")) := by
+  have hlen : nvAcceptBytes.length ≤ 8192 := by have := nvAcceptBytes_length; omega
+  refine I.run_fnSpec M
+    (M.fnSpec_host lratAcceptEnv lratTrimFns_wf lratAcceptEnv_sound
+      (nm := "br_check_proof") (by decide)).2
+    nvAcceptBytes [0x1000] hlen (by decide)
+    (Q := fun rs m' => rs = [] ∧ nvAcceptMem nvAcceptK2 emp m' ∧ nvAcceptCnf.Unsat)
+    (X := fun _ _ _ => False) checkProof_accepts_nonvacuous ?_
+  rintro st (⟨hpc, _, _, ⟨_, _, hu⟩, _⟩ | ⟨_, _, _, hx, _⟩)
+  · exact ⟨hpc, hu⟩
+  · exact hx.elim
+
 end LeanQbe.LratTrim

@@ -470,4 +470,21 @@ theorem stackZeros_length (n : Nat) : (stackZeros n).length = n := List.length_r
 
 attribute [irreducible] stackZeros
 
+/-- Concrete initial-state parameters for running closed execution witnesses on target `T`. -/
+structure TargetInit (T : Target) where
+  sp0 : Val
+  ra0 : T.Addr
+  ret0 : T.Reg
+  arg0 : T.Reg
+  initState : Nat → List UInt8 → List Val → T.MData
+  get_sp : ∀ n bs args, T.get (initState n bs args) T.sp = sp0
+  argsIn : ∀ n bs (args : List Val), args.length ≤ 6 → T.ArgsIn args (initState n bs args)
+  raReg : ∀ n bs args, T.raReg (initState n bs args) ra0
+  spEntry : T.spEntry sp0
+  mem_entry : ∀ n bs args, n ≤ 2048 → bs.length ≤ 8192 →
+    (T.mem (initState n bs args) =⋆
+      Eq (bs.At 0x1000#64) ⋆ T.Entry sp0 ra0 n ⋆ Std.ExtHashMap.emp)
+  retsIn_singleton : ∀ v s, T.RetsIn [v] s → T.get s ret0 = v
+  argsIn_singleton : ∀ v s, T.ArgsIn [v] s → T.get s arg0 = v
+
 end LeanQbe

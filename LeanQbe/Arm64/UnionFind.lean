@@ -170,17 +170,10 @@ end Generic
 abbrev ufHost : Host := compiled.host
 attribute [local instance] ufHost
 
-def findState0 : MachineData :=
-  { regs := { X0 := 0x1000, X1 := 3, X30 := (0x1234 : Int64).toUInt64, SP := 0x1000 },
-    dmem := initMem (compiled.bound "find") ufInitBytes }
-
-def unionState0 : MachineData :=
-  { regs := { X0 := 0x1000, X1 := 1, X2 := 2, X30 := (0x1234 : Int64).toUInt64, SP := 0x1000 },
-    dmem := initMem (compiled.bound "union") ufInitBytes }
-
+def findState0 : MachineData := initState (compiled.bound "find") ufInitBytes [0x1000, 3]
+def unionState0 : MachineData := initState (compiled.bound "union") ufInitBytes [0x1000, 1, 2]
 def unionInlineState0 : MachineData :=
-  { regs := { X0 := 0x1000, X1 := 1, X2 := 2, X30 := (0x1234 : Int64).toUInt64, SP := 0x1000 },
-    dmem := initMem (compiled.bound "unionInline") ufInitBytes }
+  initState (compiled.bound "unionInline") ufInitBytes [0x1000, 1, 2]
 
 /-- Concrete execution of `find` on `init 4` at `0x1000`: `find(0x1000, 3)` returns `3` in `x0`. -/
 theorem find_arm64_nonvacuous :
@@ -190,19 +183,8 @@ theorem find_arm64_nonvacuous :
           (fun f => ∃ bs : List UInt8, bs.length = compiled.bound "find" ∧
               f = bs.At (0x1000#64 - BitVec.ofNat 64 (compiled.bound "find"))) ⋆
           Std.ExtHashMap.emp))
-      ⟨findState0, Labels.label "find"⟩ := by
-  have hmem : findState0.dmem =⋆ uf 0x1000#64 4 id ⋆
-      (fun f => ∃ bs : List UInt8, bs.length = compiled.bound "find" ∧
-          f = bs.At (findState0.regs.SP.toBitVec - BitVec.ofNat 64 (compiled.bound "find"))) ⋆
-      Std.ExtHashMap.emp :=
-    sep_mono (fun _ => sep_mono (fun _ e => e ▸ uf_init 0x1000#64 (by decide)))
-      (initMem_entry (compiled.bound "find") ufInitBytes
-        (compiled.bound_le_max "find") (by decide))
-  have h := find_arm64_correct 0 compiled.code_infix_host compiled.labelsUnique
-    0x1000#64 3 4 id (by decide) findState0 0x1234 Std.ExtHashMap.emp rfl rfl rfl (by decide) hmem
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st ⟨hpc, hx0, -, -, hm⟩
-  exact ⟨hpc, hx0, hm⟩
+      ⟨findState0, Labels.label "find"⟩ :=
+  find_witness targetInit compiled
 
 /-- Concrete execution of `union` (calling `find` twice) on `init 4` at `0x1000`. -/
 theorem union_arm64_nonvacuous :
@@ -213,20 +195,8 @@ theorem union_arm64_nonvacuous :
               f = bs.At (0x1000#64 - BitVec.ofNat 64 (compiled.bound "union"))) ⋆
           Std.ExtHashMap.emp) ∧
         merge id 1 2 1 = merge id 1 2 2 ∧ merge id 1 2 0 ≠ merge id 1 2 1)
-      ⟨unionState0, Labels.label "union"⟩ := by
-  have hmem : unionState0.dmem =⋆ uf 0x1000#64 4 id ⋆
-      (fun f => ∃ bs : List UInt8, bs.length = compiled.bound "union" ∧
-          f = bs.At (unionState0.regs.SP.toBitVec - BitVec.ofNat 64 (compiled.bound "union"))) ⋆
-      Std.ExtHashMap.emp :=
-    sep_mono (fun _ => sep_mono (fun _ e => e ▸ uf_init 0x1000#64 (by decide)))
-      (initMem_entry (compiled.bound "union") ufInitBytes
-        (compiled.bound_le_max "union") (by decide))
-  have h := union_arm64_correct 0 compiled.code_infix_host compiled.labelsUnique
-    0x1000#64 1 2 4 id (by decide) (by decide)
-    unionState0 0x1234 Std.ExtHashMap.emp rfl rfl rfl rfl (by decide) hmem
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st ⟨hpc, -, -, hm⟩
-  exact ⟨hpc, hm, merge_init_1_2⟩
+      ⟨unionState0, Labels.label "union"⟩ :=
+  union_witness targetInit compiled (by decide) rfl
 
 /-- Concrete execution of `unionInline` on `init 4` at `0x1000`. -/
 theorem unionInline_arm64_nonvacuous :
@@ -237,19 +207,7 @@ theorem unionInline_arm64_nonvacuous :
               f = bs.At (0x1000#64 - BitVec.ofNat 64 (compiled.bound "unionInline"))) ⋆
           Std.ExtHashMap.emp) ∧
         merge id 1 2 1 = merge id 1 2 2 ∧ merge id 1 2 0 ≠ merge id 1 2 1)
-      ⟨unionInlineState0, Labels.label "unionInline"⟩ := by
-  have hmem : unionInlineState0.dmem =⋆ uf 0x1000#64 4 id ⋆
-      (fun f => ∃ bs : List UInt8, bs.length = compiled.bound "unionInline" ∧
-          f = bs.At (unionInlineState0.regs.SP.toBitVec - BitVec.ofNat 64 (compiled.bound "unionInline"))) ⋆
-      Std.ExtHashMap.emp :=
-    sep_mono (fun _ => sep_mono (fun _ e => e ▸ uf_init 0x1000#64 (by decide)))
-      (initMem_entry (compiled.bound "unionInline") ufInitBytes
-        (compiled.bound_le_max "unionInline") (by decide))
-  have h := unionInline_arm64_correct 0 compiled.code_infix_host compiled.labelsUnique
-    0x1000#64 1 2 4 id (by decide) (by decide)
-    unionInlineState0 0x1234 Std.ExtHashMap.emp rfl rfl rfl rfl (by decide) hmem
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st ⟨hpc, -, -, hm⟩
-  exact ⟨hpc, hm, merge_init_1_2⟩
+      ⟨unionInlineState0, Labels.label "unionInline"⟩ :=
+  union_witness targetInit compiled (by decide) rfl
 
 end LeanQbe.Arm64.UnionFind

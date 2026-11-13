@@ -257,4 +257,65 @@ theorem sumcall_fnSpec {T : Target} {maxBound : Nat}
   M.fnSpec h sumcallEnv k₀ hc hu sumcall_wf_all sumcallEnv_sound
     (fun _ hp => nomatch hp) (fun _ hg => nomatch hg) hnm
 
+/-! ## Target-generic execution witnesses -/
+
+theorem tracer_witness {T : Target} (I : TargetInit T)
+    (M : Compiled T [] [] 0 [tracer] 2048) :
+    Eventually (T.step M.host)
+      (fun st => T.pc st = I.ra0 ∧ T.get (T.data st) I.ret0 = 42 ∧
+        (T.mem (T.data st) =⋆ Eq (m0.storeInt 0x1000#64 8 (42 : BitVec 64).toInt) ⋆
+          T.Exit I.sp0 (M.bound "tracer") ⋆ Std.ExtHashMap.emp))
+      (T.mkState (I.initState (M.bound "tracer") zeros8 [40, 2, 0x1000])
+        (T.labelAddr M.host "tracer")) :=
+  I.run_ret1_sep M (leaf_fnSpec M tracer_wf M.host 0 M.code_infix_host M.labelsUnique).2
+    zeros8 [40, 2, 0x1000] 42 _ (by decide) (by decide)
+    (tracer_spec emptyEnv 40 2 0x1000#64 m0 (by simpa [storeOk, Sz.bytes] using m0_loadInt))
+    fun _ _ ⟨hr, hm⟩ => ⟨hr, hm.symm⟩
+
+theorem sumto_witness {T : Target} (I : TargetInit T)
+    (M : Compiled T [] [] 0 [sumto] 2048) :
+    Eventually (T.step M.host)
+      (fun st => T.pc st = I.ra0 ∧ T.get (T.data st) I.ret0 = 6)
+      (T.mkState (I.initState (M.bound "sumto") [] [3]) (T.labelAddr M.host "sumto")) :=
+  I.run_ret1 M (leaf_fnSpec M sumto_wf M.host 0 M.code_infix_host M.labelsUnique).2
+    [] [3] 6 (by decide) (by decide) (sumto_spec emptyEnv 3 (by decide) _)
+    fun _ _ ⟨hr, _⟩ => hr
+
+theorem callinc_witness {T : Target} (I : TargetInit T)
+    (M : Compiled T [] [] 0 [inc, callinc] 2048) :
+    Eventually (T.step M.host)
+      (fun st => T.pc st = I.ra0 ∧ T.get (T.data st) I.ret0 = 42)
+      (T.mkState (I.initState (M.bound "callinc") [] [40, 1])
+        (T.labelAddr M.host "callinc")) :=
+  I.run_ret1 M
+    (callinc_fnSpec M M.host 0 M.code_infix_host M.labelsUnique (by decide)).2
+    [] [40, 1] 42 (by decide) (by decide) (Q := fun r _ => r = [42])
+    ⟨40, 1, rfl, rfl⟩ fun _ _ h => h
+
+theorem twice_exit_witness {T : Target} (I : TargetInit T)
+    (M : Compiled T [] ["fail"] 0 [check, twice] 2048) :
+    Eventually (T.step M.host)
+      (fun st => T.pc st = T.labelAddr M.host "fail" ∧ T.get (T.data st) I.arg0 = 0)
+      (T.mkState (I.initState (M.bound "twice") [] [20, 0])
+        (T.labelAddr M.host "twice")) := by
+  refine I.run_fnSpec M
+    (M.fnSpec_host twiceEnv twice_wf_all twiceEnv_sound (nm := "twice") (by decide)).2
+    [] [20, 0] (by decide) (by decide)
+    (Q := fun _ _ => False) (X := fun g xs _ => g = "fail" ∧ xs = [0])
+    ⟨20, 0, rfl, fun _ h0 => absurd h0 (by decide),
+      fun h20 => absurd (by decide : Truthy 20) h20, fun _ _ => ⟨rfl, rfl⟩⟩ ?_
+  rintro st (⟨_, _, _, hq, _⟩ | ⟨_, _, _, ⟨rfl, rfl⟩, hpc, has⟩)
+  · exact hq.elim
+  · exact ⟨hpc, I.argsIn_singleton 0 _ has⟩
+
+theorem spill10_witness {T : Target} (I : TargetInit T)
+    (M : Compiled T [] [] 0 [spill10] 2048) :
+    Eventually (T.step M.host)
+      (fun st => T.pc st = I.ra0 ∧ T.get (T.data st) I.ret0 = spill10Val 10 7)
+      (T.mkState (I.initState (M.bound "spill10") [] [10, 7])
+        (T.labelAddr M.host "spill10")) :=
+  I.run_ret1 M (leaf_fnSpec M spill10_wf M.host 0 M.code_infix_host M.labelsUnique).2
+    [] [10, 7] (spill10Val 10 7) (by decide) (by decide) (spill10_spec emptyEnv 10 7 _)
+    fun _ _ ⟨hr, _⟩ => hr
+
 end LeanQbe.Litmus
