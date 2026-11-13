@@ -184,6 +184,7 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .cld => "cld"
   | .std => "std"
   | .jcc cc l => s!"j{cc} {l}"
+  | .jrcxz l => match addr_w with | .W32 => s!"jecxz {l}" | _ => s!"jrcxz {l}"
   | .jmp tgt => s!"jmp {tgt.toStr addr_w}"
   | .call tgt => s!"call {tgt.toStr addr_w}"
   | .ret => "ret"

@@ -237,6 +237,7 @@ inductive Operation (w : Width)
   | std
   -- Control flow
   | jcc (cc : CondCode) (target : Label)
+  | jrcxz (target : Label)
   | jmp (target : RelRegOrMem)
   | call (target : RelRegOrMem)
   | ret

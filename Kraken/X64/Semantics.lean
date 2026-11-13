@@ -904,6 +904,11 @@ set_option maxHeartbeats 1000000
     if cc.interp s.status
     then jmp (label l) s
     else next s
+  | .jrcxz l =>
+    let c := Reg.low .rcx address_size.address_size
+    if s.regs.get c == 0
+    then jmp (label l) s
+    else next s
   | .jmp tgt =>
     tgt.interp s p (fun a s =>
     jmp (.ofBitVec a) s)

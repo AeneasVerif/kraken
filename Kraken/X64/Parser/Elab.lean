@@ -793,6 +793,12 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
     mkClosedInstr (.nop 1)
   | `(x64_instr| nop $sz:num) =>
     mkClosedInstr (.nop sz.getNat)
+  | `(x64_instr| jrcxz $lbl:x64_ident) =>
+    let target ← getAsmIdent lbl
+    pure (toExpr (Instr.regular .W64 .W64 (.jrcxz target)))
+  | `(x64_instr| jecxz $lbl:x64_ident) =>
+    let target ← getAsmIdent lbl
+    pure (toExpr (Instr.regular .W32 .W64 (.jrcxz target)))
   | `(x64_instr| $op:x64_jcc_op $lbl:x64_ident) =>
     mkRegularInstr (width? := some .W64) do
       let mk := mkConst ``Operation.jcc
