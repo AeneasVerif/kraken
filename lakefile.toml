@@ -14,6 +14,14 @@ globs = ["Kraken.*"]  # TODO: move the tests out of `Kraken`
 [[lean_lib]]
 name = "KrakenAArch64"
 
+[[require]]
+name = "iris"
+git = "https://github.com/leanprover-community/iris-lean.git"
+subDir = "Iris"
+
+[[lean_lib]]
+name = "KrakenIris"
+
 [[lean_exe]]
 name = "krakenrunner_x64"
 root = "KrakenRunnerX64"

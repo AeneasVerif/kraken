@@ -83,6 +83,7 @@ def operation {w} (aw : Width) (op : Operation w) : String :=
   | .stos rep => s!"{stringPrefix aw rep}stos{s}"
   | .setcc cc d => s!"set{cc} {rm aw d}"
   | .cmovcc cc d x => s!"cmov{cc} {rm aw x}, {reg d}"
+  | .xchg d x => two "xchg" (reg x) (rm aw d)
   | .lea d a => s!"lea {addr aw a}, {reg d}"
   | .add d x => two "add" (operand aw x) (rm aw d)
   | .adc d x => two "adc" (operand aw x) (rm aw d)

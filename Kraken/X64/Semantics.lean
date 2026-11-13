@@ -388,6 +388,7 @@ inductive Effects
   | require_read_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_write_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
+  | yield (k : Unit → Effects)
 export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
 
 -- Splits the interval in two halves in case of overflow
@@ -425,7 +426,7 @@ def MachineData.load
   require_access require_read_access addr (UInt64.ofNat w.bytes) (fun _unit =>
     match Mem.loadInt s.dmem addr w.bytes with
     | .some i => ret (.ofInt _ i) s
-    | .none => nonmem_load s.dmem addr w (fun v dmem => ret v { s with dmem }))
+    | .none => nonmem_load s.dmem addr w (fun v dmem => .yield fun _ => ret v { s with dmem }))
 
 -- Alternatively, we could define this in terms of BitVecs without %:
 -- (addr &&& BitVec.ofNat 64 (bytes - 1)) == 0#64
@@ -452,7 +453,21 @@ def MachineData.store (s : MachineData) (addr : BitVec 64) {w : Width} (v : w.ty
     match Mem.loadInt s.dmem addr w.bytes with
     | .some _ =>
         ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
-    | .none => nonmem_store s.dmem addr v (fun dmem' => ret { s with dmem := dmem' }))
+    | .none => nonmem_store s.dmem addr v (fun dmem' => .yield fun _ => ret { s with dmem := dmem' }))
+
+-- An atomic read-modify-write
+def MachineData.rmw (s : MachineData) (addr : BitVec 64) (w : Width) (f : w.type → w.type)
+  (ret : w.type → MachineData → Effects) : Effects :=
+  require_access require_read_access addr (UInt64.ofNat w.bytes) (fun _unit =>
+  require_access require_write_access addr (UInt64.ofNat w.bytes) (fun _unit =>
+    match Mem.loadInt s.dmem addr w.bytes with
+    | .some i =>
+        let old : w.type := .ofInt _ i
+        ret old { s with dmem := Mem.storeInt s.dmem addr w.bytes (f old).toInt }
+    | .none =>
+        nonmem_load s.dmem addr w (fun old dmem =>
+        nonmem_store dmem addr (f old) (fun dmem' =>
+        .yield fun _ => ret old { s with dmem := dmem' }))))
 
 def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v : w.type) (ret: MachineData → Effects) (checkAlign : Bool := false) : Effects :=
   if checkAlign && !(isAligned w.bytes addr) then
@@ -655,6 +670,15 @@ set_option maxHeartbeats 1000000
     src.interp s p (fun src s =>
     let v := if cc.interp s.status then src else s.regs.get dst
     next (s.setReg dst v))
+  | .xchg dst src =>
+    match dst with
+    | .reg r =>
+      let a := s.regs.get r
+      let b := s.regs.get src
+      next ((s.setReg r b).setReg src a)
+    | .mem m =>
+      s.rmw ((m.interp s.regs p).zeroExtend _) w (fun _ => s.regs.get src)
+        (fun old s => next (s.setReg src old))
 -- Arithmetic
   | .lea dst src => next (s.setReg dst ((src.interp s.regs p).zeroExtend _))
   | .add dst src =>
@@ -1066,6 +1090,7 @@ where
     | .require_read_access _ ok => handleEffects (ok ())
     | .require_write_access _ ok => handleEffects (ok ())
     | .require_exec_access _ ok => handleEffects (ok ())
+    | .yield k => handleEffects (k ())
     | .nonmem_load _ addr _ _ => .error s!"Load at unmapped address {repr addr}"
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
     | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
