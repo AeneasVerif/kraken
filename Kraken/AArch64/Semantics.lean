@@ -963,6 +963,16 @@ def Directives.interp [Labels]
 
 abbrev Layout := Kraken.Layout Instr ConstExpr
 
+theorem inert_of_size_zero [layout : Layout] [Labels] {i : Nat} {d : Directive}
+    (hz : layout.size d i = 0) (s : MachineData) (p : Std.Rco Int64)
+    (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) :
+    d.interp s p next jmp = next s := by
+  cases d with
+  | instr _ => exact absurd hz (Nat.ne_of_gt (layout.instrSize i).property)
+  | label _ => rfl
+  | byteArray bs => simp [Directive.interp, ByteArray.isEmpty, show bs.size = 0 from hz]
+  | word bytes _ => simp [Directive.interp, show bytes = 0 from hz]
+
 @[reducible]
 def Executable.labels (e : Executable) : Labels :=
   { label l := (e.withAddresses.findSome?

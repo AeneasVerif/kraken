@@ -1,7 +1,6 @@
 module
 
 public import Kraken.X64.Semantics
-public import Kraken.X64.Inert
 public import Kraken.Data.List.Infix
 
 private theorem takeWhile_eq_take_of {α : Type _} {p : α → Bool} {l : List α} {n : Nat}
@@ -41,26 +40,6 @@ public theorem Host.sizeBefore_eq_of_addrOf_eq [Host] {j k : Nat} (h : Host.addr
     Host.exe.sizeBefore j = Host.exe.sizeBefore k :=
   Host.addr_determines_offset j k h
 
-public theorem Layout.inert_of_size_eq_zero [layout : Layout] {i : Nat} {d : Directive}
-    (hz : layout.size d i = 0) : d.Inert := by
-  cases d with
-  | instr inst =>
-    have := (layout.instrSize i).property
-    simp [Kraken.Layout.size] at hz
-    omega
-  | label l => exact Directive.inert_label l
-  | byteArray bs =>
-    simp [Kraken.Layout.size] at hz
-    exact Directive.inert_byteArray_of_isEmpty (by simp [ByteArray.isEmpty, hz])
-  | word bytes e =>
-    simp [Kraken.Layout.size] at hz
-    subst hz
-    exact Directive.inert_word_zero e
-
-public theorem Host.inert_of_getElem? [Host] {i : Nat} {d : Directive} (_h : Host.prog[i]? = some d)
-    (hz : Host.layout.size d i = 0) : d.Inert :=
-  Layout.inert_of_size_eq_zero hz
-
 @[expose] public def Host.startAddr [Host] {p : Program} (h : p.IsInfix Host.prog) : Int64 :=
   Host.addrOf (p.infixIdx Host.prog h)
 
@@ -83,10 +62,6 @@ public theorem Host.addrOf_succ [Host] {k : Nat} {d : Directive} (hd : Host.prog
 
 section
 variable [Host]
-
-public theorem Host.inert_of_size_zero {d : Directive} (h : {directive := d, size := 0} ∈ Host.exe.program) : d.Inert := by
-  obtain ⟨m, hm⟩ := List.mem_iff_getElem?.mp h
-  grind [Host.exe_getElem?, Host.inert_of_getElem?]
 
 public theorem Host.directivesAtAddress_addrOf {k : Nat} {c : Kraken.Sized Directive}
     (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) :

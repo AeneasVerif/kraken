@@ -791,9 +791,7 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       mkAppWidth mk #[target]
   | `(x64_instr| nop) =>
     mkClosedInstr (.nop 1)
-  | `(x64_instr| nop $sz:num) => match sz.getNat with
-    | 0 => throwErrorAt sz "nop length must be positive"
-    | sz => mkClosedInstr (.nop sz)
+  | `(x64_instr| nop $sz:num) => mkClosedInstr (.nop sz.getNat)
   | `(x64_instr| $op:x64_jcc_op $lbl:x64_ident) =>
     mkRegularInstr (width? := some .W64) do
       let mk := mkConst ``Operation.jcc
