@@ -327,15 +327,15 @@ The hypothesis `h_mem` says the loader put that value in memory: nothing in this
 the program text to memory yet, so it is assumed.
 -/
 theorem p7_correct [layout : WellFormedLayout p7] (s₀ : MachineData) (R : DataMem → Prop)
-    (h_mem : letI := Executable.labels p7.toExecutable
+    (h_mem : let label l := ((Executable.labels p7.toExecutable).label? l).getD (-1)
       s₀.dmem =⋆ Eq ((Int.toBytes 4 (label "end" - label "start").toInt).At (label "size").toBitVec) ⋆ R) :
     Eventually (step1 p7.toExecutable)
-      (fun s' => letI := Executable.labels p7.toExecutable
+      (fun s' => let label l := ((Executable.labels p7.toExecutable).label? l).getD (-1)
         s'.pc = p7.toExecutable.addrOf p7.length ∧
         s'.1.regs.rax = UInt64.ofBitVec (((label "end" - label "start").toBitVec.setWidth 32).setWidth 64))
       ⟨s₀, layout.start⟩ := by
   have h_addr (X Y : Int64) :
-      (BitVec.ofInt 64 X.toInt + BitVec.ofInt 64 0 + BitVec.ofInt 64 (Y - X).toInt).setWidth 64
+      (BitVec.ofInt 64 X.toInt + BitVec.ofInt 64 (Y - X).toInt).setWidth 64
         = Y.toBitVec := by
     simp only [BitVec.setWidth_eq, Int64.toInt, BitVec.ofInt_toInt, Int64.toBitVec_sub]
     grind
@@ -344,15 +344,19 @@ theorem p7_correct [layout : WellFormedLayout p7] (s₀ : MachineData) (R : Data
     rw [ofBytes_toBytes, Int.take, show 8 * 4 = 32 from rfl, Int64.toInt,
       ← BitVec.signExtend_eq_setWidth_of_le _ (by decide)]
     simp [BitVec.ofInt, BitVec.signExtend]
+  have h_size : ((Executable.labels p7.toExecutable).label? "size").getD (-1) = p7.toExecutable.addrOf 6 := by
+    rw [label?_eq_some_addrOf (p := p7) (k := 6) rfl]; rfl
   kprologue p7 with s₀
   sym =>
   kstep
-  case h_mem => tactic => dsimp only; rw [h_addr]; exact h_mem
+  case h_mem => tactic => dsimp only; rw [h_addr, ← h_size]; exact h_mem
   case h_len => exact Int.toBytes_length 4 _
   kstep
   tactic =>
   refine .done _ ⟨rfl, ?_⟩
-  simp only [h_val, Int64.toBitVec_sub]
+  simp only [h_val, Int64.toBitVec_sub,
+    label?_eq_some_addrOf (p := p7) (lbl := "end") (k := 3) rfl,
+    label?_eq_some_addrOf (p := p7) (lbl := "start") (k := 0) rfl]
 
 -- The same run under `fakeLayout`, where the nops take 5 + 3 bytes. The eval plays the loader: it
 -- stores the word's value at `size`.
@@ -360,7 +364,7 @@ theorem p7_correct [layout : WellFormedLayout p7] (s₀ : MachineData) (R : Data
 #guard_msgs in
 #eval
   let exe := p7.fakeLayout
-  let := exe.labels
+  let label l := (exe.labels.label? l).getD (-1)
   let word : Int64 := label "end" - label "start"
   let data : MachineData := { dmem := Mem.storeInt {} (label "size").toBitVec 4 word.toInt }
   (Executable.eval exe {data, pc := label "start"} (fun st => st.pc = label "done")).bind

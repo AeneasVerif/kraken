@@ -219,7 +219,7 @@ def kbeta: DSimproc := fun e => do
 def kdsimpProj : DSimproc := fun e => do
   let f := e.getAppFn
   let .const declName _ := f | return .rfl
-  if declName == `Labels.label then return .rfl
+  if declName == `Labels.label? then return .rfl
   let some _projInfo ← getProjectionFnInfo? declName | return .rfl
   let reduceProjCont? (e? : Option Expr) : DSimpM Result := do
     match e? with
@@ -353,6 +353,45 @@ partial def evalSymKStep : Grind.GrindTactic :=
       | _ => findLabelIdx? tl lbl (i + 1)
     | _ => return none
 
+  let rec getEffectsState (e : Expr) : Option Expr :=
+    match e with
+    | .letE _ _ _ body _ => getEffectsState body
+    | .mdata _ e => getEffectsState e
+    | _ =>
+      if e.isApp && e.getAppFn.isConstOf `Effects.All && e.getAppArgs.size == 2 then
+        some e.getAppArgs[1]!
+      else
+        none
+
+  let resolveLabel? (goal : Grind.Goal) : Grind.GrindTacticM (Option Grind.Goal) := do
+    let goalT ← goal.withContext do instantiateMVars (← goal.mvarId.getType)
+    let_expr gimmickId goalT' := goalT | return none
+    let some eff := getEffectsState goalT' | return none
+    let some labelApp := eff.find? fun e =>
+      e.isAppOfArity `Labels.label? 2 &&
+      (e.getArg! 0).isAppOfArity `Executable.labels 1 &&
+      ((e.getArg! 0).getArg! 0).isAppOfArity ``Kraken.Layout.apply 4 &&
+      !(e.getArg! 1).hasLooseBVars
+    | return none
+    let labelsInst := labelApp.getArg! 0
+    let lblExpr := labelApp.getArg! 1
+    let exe := labelsInst.getArg! 0
+    let_expr Kraken.Layout.apply instrType constType p l := exe | return none
+    let some k ← goal.withContext (findLabelIdx? p lblExpr 0) | return none
+    let goal ← goal.withContext do
+      let isLabelPred ← mkAppOptM ``Kraken.Directive.isLabel #[some instrType, some constType, some lblExpr]
+      let findIdxExpr ← mkAppM ``List.findIdx? #[isLabelPred, p]
+      let someK ← mkAppM ``Option.some #[mkNatLit k]
+      let hkType ← mkEq findIdxExpr someK
+      let hkProof ← mkExpectedTypeHint (← mkEqRefl someK) hkType
+      let heq ← mkAppOptM `label?_eq_some_addrOf
+        #[some p, some l, some lblExpr, some (mkNatLit k), some hkProof]
+      let r ← goal.mvarId.rewrite (← goal.mvarId.getType) heq false
+      let eNew ← Grind.liftSymM <| Sym.preprocessExpr r.eNew
+      let mvarId ← goal.mvarId.replaceTargetEq eNew r.eqProof
+      return { goal with mvarId }
+    return some goal
+
   let stepAt? (goal : Grind.Goal) : Grind.GrindTacticM (Option Grind.Goal) := do
     if (← maxInstrCount.mapM (·.get)) == some 0 then
       return none
@@ -361,34 +400,10 @@ partial def evalSymKStep : Grind.GrindTactic :=
     let_expr Eventually _ trans post state := goalT' | return none
     unless trans.isAppOfArity `step1 1 do return none
     let exe := trans.getArg! 0
-    let_expr Kraken.Layout.apply instrType constType p l := exe | return none
+    let_expr Kraken.Layout.apply _ _ p _ := exe | return none
     unless state.isAppOfArity `MachineState.mk 2 do return none
     let s := state.getArg! 0
     let pc := state.getArg! 1
-    if pc.isAppOfArity `Labels.label 2 then
-      let labelsInst := pc.getArg! 0
-      let lblExpr := pc.getArg! 1
-      unless labelsInst.isAppOfArity `Executable.labels 1 do return none
-      let pcExe := labelsInst.getArg! 0
-      let some k ← goal.withContext do
-        unless ← isDefEq pcExe exe do return none
-        findLabelIdx? p lblExpr 0
-      | return none
-      let goal ← removeGimmick goal
-      let goal ← goal.withContext do
-        let isLabelPred ← mkAppOptM ``Kraken.Directive.isLabel #[some instrType, some constType, some lblExpr]
-        let findIdxExpr ← mkAppM ``List.findIdx? #[isLabelPred, p]
-        let someK ← mkAppM ``Option.some #[mkNatLit k]
-        let hkType ← mkEq findIdxExpr someK
-        let hkProof ← mkExpectedTypeHint (← mkEqRefl someK) hkType
-        let stepFn ← mkAppOptM `step_label
-          #[some p, some l, some lblExpr, some (mkNatLit k), some hkProof, some post, some s]
-        let .forallE _ hType _ _ ← inferType stepFn | throwError "kstep: unexpected step_label type"
-        let hType' ← Grind.liftSymM <| Sym.preprocessExpr hType
-        let mvarNew ← mkFreshExprMVar hType'
-        goal.mvarId.assign (mkApp stepFn mvarNew)
-        return { goal with mvarId := mvarNew.mvarId! }
-      return some (← insertGimmick goal)
     let_expr Kraken.Executable.addrOf _ _ pcExe kExpr := pc | return none
     let some k := kExpr.nat? <|> kExpr.rawNatLit? | return none
     let some d ← goal.withContext do
@@ -433,6 +448,9 @@ partial def evalSymKStep : Grind.GrindTactic :=
       goal.withContext do
         logInfo m!"MAIN LOOP, after step 1: {goal.mvarId}"
 
+    if let some goal' ← resolveLabel? goal then
+      return ← go goal'
+
     -- STEP 2: simp
     let (keepGoingSimp, goal) ← goal.withContext do
       Grind.liftGrindM do
@@ -454,15 +472,6 @@ partial def evalSymKStep : Grind.GrindTactic :=
       let goalT ← goal.mvarId.getType
       let_expr gimmickId goalT' := goalT | throwError "missing gimmick"
       let goalT' ← instantiateMVars goalT'
-      let rec getEffectsState (e : Expr) : Option Expr :=
-        match e with
-        | .letE _ _ _ body _ => getEffectsState body
-        | .mdata _ e => getEffectsState e
-        | _ =>
-          if e.isApp && e.getAppFn.isConstOf `Effects.All && e.getAppArgs.size == 2 then
-            some e.getAppArgs[1]!
-          else
-            none
       -- No more Effects.All in the goal -- return to the user (we might be done,
       -- or realistically, we might need to debug).
       let some goalState := getEffectsState goalT' | return (goal, [])

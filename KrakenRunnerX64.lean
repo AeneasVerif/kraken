@@ -76,9 +76,11 @@ def runKraken (asmCode : String)
     : Except String MachineState := do
   let prog ← Kraken.X64.Parser.parse (_start ++ ":" ++ asmCode ++ "\n" ++ _end ++ ":")
   let exe := prog.fakeLayout
-  let endPc := exe.labels.label _end
-  let initState : MachineState := ⟨initData, exe.labels.label _start⟩
-  exe.eval initState (·.pc = endPc)
+  let some start := exe.labels.label? _start
+    | .error s!"Missing start label {_start}"
+  let endPc := exe.labels.label? _end
+  let initState : MachineState := ⟨initData, start⟩
+  exe.eval initState (fun s => some s.pc == endPc)
 
 /-! ## Fuzzer instantiation -/
 

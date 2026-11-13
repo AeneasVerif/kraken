@@ -255,9 +255,9 @@ def Directive.isLabel (lbl : Label) : Directive Instr Const → Bool
 theorem Executable.withAddresses_findSome?_label_mk [DecidableEq Instr] [DecidableEq Const] :
     ∀ (program : List (Sized (Directive Instr Const))) (startAddr : Int64) (lbl : Label) (k : Nat),
       program.findIdx? (·.directive.isLabel lbl) = some k →
-      ((Executable.withAddresses {startAddr, program}).findSome?
-        (fun {directive, addr, ..} => if directive = .label lbl then .some addr else .none)).getD (-1) =
-        Executable.addrOf {startAddr, program} k
+      (Executable.withAddresses {startAddr, program}).findSome?
+        (fun {directive, addr, ..} => if directive = .label lbl then .some addr else .none) =
+        some (Executable.addrOf {startAddr, program} k)
   | [], _, _, _, hk => by simp at hk
   | c :: program, startAddr, lbl, k, hk => by
     rw [Executable.withAddresses, List.findSome?_cons]
@@ -281,13 +281,13 @@ theorem Layout.map_directive_apply (prog : Program Instr Const) [l : Layout prog
   simp [Layout.apply, Function.comp_def]
 
 /-- If `k` is the index of the first `.label lbl` directive in `prog`, looking up `lbl` in
-`prog.toExecutable.withAddresses` yields `prog.toExecutable.addrOf k`. -/
+`prog.toExecutable.withAddresses` yields `some (prog.toExecutable.addrOf k)`. -/
 theorem Layout.withAddresses_findSome?_label [DecidableEq Instr] [DecidableEq Const]
     (prog : Program Instr Const) [l : Layout prog] (lbl : Label) {k : Nat}
     (hk : prog.findIdx? (·.isLabel lbl) = some k) :
     (prog.toExecutable.withAddresses.findSome?
-      (fun {directive, addr, ..} => if directive = .label lbl then .some addr else .none)).getD (-1) =
-      prog.toExecutable.addrOf k := by
+      (fun {directive, addr, ..} => if directive = .label lbl then .some addr else .none)) =
+      some (prog.toExecutable.addrOf k) := by
   apply Executable.withAddresses_findSome?_label_mk
   rw [← l.map_directive_apply prog, List.findIdx?_map] at hk
   exact hk

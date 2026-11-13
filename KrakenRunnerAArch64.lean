@@ -77,9 +77,11 @@ def runKraken (asmCode : String) (initRegs : Reg64s := initData.regs)
   let stripped := Kraken.Parser.stripDirectives (_start ++ ":\n" ++ asmCode ++ "\n" ++ _end ++ ":\n")
   let prog ← Kraken.AArch64.Parser.parse stripped
   let exe := Program.fakeLayout prog
-  let endPc := exe.labels.label _end
-  let initState : MachineState := ⟨{regs := initRegs, dmem := initStack stackLocation}, exe.labels.label _start⟩
-  exe.eval initState (·.pc = endPc)
+  let some start := exe.labels.label? _start
+    | .error s!"Missing start label {_start}"
+  let endPc := exe.labels.label? _end
+  let initState : MachineState := ⟨{regs := initRegs, dmem := initStack stackLocation}, start⟩
+  exe.eval initState (fun s => some s.pc == endPc)
 
 /-! ## Fuzzer instantiation -/
 
