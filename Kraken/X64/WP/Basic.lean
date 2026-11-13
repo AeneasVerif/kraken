@@ -61,7 +61,7 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     (h : (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
       (fun s' => .done ⟨s', Host.addrOf (k + 1)⟩) (fun a s' => .done ⟨s', a⟩)).All post) :
     Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ :=
-  _root_.eventually_of_interp Host.addr_determines_offset hdp.cons.1 h
+  _root_.eventually_of_interp (fun _ _ => Host.sizeBefore_eq_of_addrOf_eq) hdp.cons.1 h
 
 end
 

@@ -48,10 +48,10 @@ def swap : Program := ⸨prog|
   eor x0, x0, x1
 ⸩
 
-theorem swap_correct [layout : Layout] [layout.NoWrap swap] (d : MachineData) :
-    Eventually (step1 (layout swap))
+theorem swap_correct [layout : WellFormedLayout swap] (d : MachineData) :
+    Eventually (step1 swap.toExecutable)
       (fun s' =>
-        s'.pc = (layout swap).addrOf swap.length ∧
+        s'.pc = swap.toExecutable.addrOf swap.length ∧
         s'.1.regs.getRegOrZr .X0 = d.regs.getRegOrZr .X1 ∧
         s'.1.regs.getRegOrZr .X1 = d.regs.getRegOrZr .X0)
       ⟨d, layout.start⟩ := by
@@ -67,10 +67,10 @@ def arith_shift : Program := ⸨prog|
   sub x3, x2, x0
 ⸩
 
-theorem arith_shift_correct [layout : Layout] [layout.NoWrap arith_shift] (d : MachineData) :
-    Eventually (step1 (layout arith_shift))
+theorem arith_shift_correct [layout : WellFormedLayout arith_shift] (d : MachineData) :
+    Eventually (step1 arith_shift.toExecutable)
       (fun s' =>
-        s'.pc = (layout arith_shift).addrOf arith_shift.length ∧
+        s'.pc = arith_shift.toExecutable.addrOf arith_shift.length ∧
         s'.1.regs.getRegOrZr .X3 = 3 * (d.regs.getRegOrZr .X1 + 42))
       ⟨d, layout.start⟩ := by
   kprologue arith_shift with d
@@ -89,9 +89,9 @@ start:
   mov x1, #42
 ⸩
 
-theorem p4_correct [layout : Layout] [layout.NoWrap controlflow] (d : MachineData) :
-    Eventually (step1 (layout controlflow))
-      (fun s' => s'.pc = (layout controlflow).addrOf controlflow.length ∧ s'.1.regs.X1 = 42)
+theorem p4_correct [layout : WellFormedLayout controlflow] (d : MachineData) :
+    Eventually (step1 controlflow.toExecutable)
+      (fun s' => s'.pc = controlflow.toExecutable.addrOf controlflow.length ∧ s'.1.regs.X1 = 42)
       ⟨d, layout.start⟩ := by
   kprologue controlflow with d
   sym => kstep; tactic =>
@@ -112,9 +112,9 @@ loop:
   mov x1, #42
 ⸩
 
-theorem controlflow_jump_correct [layout : Layout] [layout.NoWrap controlflow_jump] (d : MachineData) :
-    Eventually (step1 (layout controlflow_jump))
-      (fun s' => s'.pc = (layout controlflow_jump).addrOf controlflow_jump.length ∧ s'.1.regs.X1 = 42)
+theorem controlflow_jump_correct [layout : WellFormedLayout controlflow_jump] (d : MachineData) :
+    Eventually (step1 controlflow_jump.toExecutable)
+      (fun s' => s'.pc = controlflow_jump.toExecutable.addrOf controlflow_jump.length ∧ s'.1.regs.X1 = 42)
       ⟨d, layout.start⟩ := by
   kprologue controlflow_jump with d
   sym => kstep; tactic =>
@@ -141,14 +141,14 @@ def move_2_regs_to_heap : Program := ⸨prog|
     ldr x4, [x2, #8]
 ⸩
 
-theorem move_2_regs_to_heap_correct [layout : Layout] [layout.NoWrap move_2_regs_to_heap]
+theorem move_2_regs_to_heap_correct [layout : WellFormedLayout move_2_regs_to_heap]
     (s₀ : MachineData)
     (v1 v2 : UInt64)
     (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v1.At s₀.regs.X2.toBitVec) ⋆ Eq (v2.At (s₀.regs.X2.toBitVec + 8#64)) ⋆ R) :
-    Eventually (step1 (layout move_2_regs_to_heap))
+    Eventually (step1 move_2_regs_to_heap.toExecutable)
       (fun s' =>
-        s'.pc = (layout move_2_regs_to_heap).addrOf move_2_regs_to_heap.length ∧
+        s'.pc = move_2_regs_to_heap.toExecutable.addrOf move_2_regs_to_heap.length ∧
         s'.1.regs.X3 = s₀.regs.X0 ∧
         s'.1.regs.X4 = s₀.regs.X1 ∧
         s'.1.regs.X2 = s₀.regs.X2)
@@ -190,12 +190,12 @@ def reg_offset_example : Program := ⸨prog|
     ldr x3, [x1, x2, lsl #3]
 ⸩
 
-theorem reg_offset_example_correct [layout : Layout] [layout.NoWrap reg_offset_example]
+theorem reg_offset_example_correct [layout : WellFormedLayout reg_offset_example]
     (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.X1.toBitVec + BitVec.ofInt 64 (s₀.regs.X2.toBitVec.toNat <<< 3))) ⋆ R) :
-    Eventually (step1 (layout reg_offset_example))
-      (fun s' => s'.pc = (layout reg_offset_example).addrOf reg_offset_example.length ∧
+    Eventually (step1 reg_offset_example.toExecutable)
+      (fun s' => s'.pc = reg_offset_example.toExecutable.addrOf reg_offset_example.length ∧
         s'.1.regs.X3 = 42)
       ⟨s₀, layout.start⟩ := by
   kprologue reg_offset_example with s₀

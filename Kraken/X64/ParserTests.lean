@@ -576,7 +576,7 @@ info: ⸨prog|
 
 /-- info: ⸨dir 1| addq $1, %rax ⸩ : Sized _root_.Directive -/
 #guard_msgs (whitespace := lax) in
-variable [Kraken.Layout Instr ConstExpr] in
+variable {p : Program} [Kraken.Layout p] in
 #check ⸨dir 1 | addq $1, %rax ⸩
 
 end syntax_cat_and_include

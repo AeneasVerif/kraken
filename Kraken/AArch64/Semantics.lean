@@ -961,9 +961,10 @@ def Directives.interp [Labels]
     directive.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
     interp ds s (pc+.ofNat sz) ret))
 
-abbrev Layout := Kraken.Layout Instr ConstExpr
+abbrev Layout (prog : Program) := Kraken.Layout prog
+abbrev WellFormedLayout (prog : Program) := Kraken.WellFormedLayout prog
 
-theorem inert_of_size_zero [layout : Layout] [Labels] {i : Nat} {d : Directive}
+theorem inert_of_size_zero {prog : Program} [layout : Layout prog] [Labels] {i : Nat} {d : Directive}
     (hz : layout.size d i = 0) (s : MachineData) (p : Std.Rco Int64)
     (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) :
     d.interp s p next jmp = next s := by
@@ -1006,15 +1007,15 @@ def Instr.fakeSize (_ : Instr) : PNat := .ofNat 4
 
 def Program.fakeLayout (prog : Program) : Executable :=
   let h := hash prog;
-  let layout : Layout := {
+  let layout : Layout prog := {
     start := h.toInt64<<<16
     instrSize i := match prog[i]? with
       | some (.instr instr) => instr.fakeSize
       | _ => 4
   }
-  layout prog
+  layout.apply prog
 
-abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
+abbrev eval (prog : Program) [layout : Layout prog] := Executable.eval prog.toExecutable
 
 /-- info: Except.ok 58 -/
 #guard_msgs in

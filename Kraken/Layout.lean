@@ -38,29 +38,31 @@ structure Executable (Instr Const : Type) where
   program : List (Sized (Directive Instr Const))
 
 -- JP: why is `size` not `Directive → Nat`?
-class Layout (Instr Const : Type) where
+class Layout {Instr Const : Type} (p : Program Instr Const) where
   start : Int64 -- NOTE: Why is `start` a `Int64`?
   instrSize : Nat → PNat
 
 variable {Instr Const : Type}
 
-def Layout.size [l : Layout Instr Const] : Directive Instr Const → Nat → Nat
+def Layout.size {p : Program Instr Const} [l : Layout p] : Directive Instr Const → Nat → Nat
   | .instr _, idx => l.instrSize idx
   | .label _, _ => 0
   | .byteArray arr, _ => arr.size
   | .word bytes _, _ => bytes
 
-def Layout.apply (l : Layout Instr Const) (prog : Program Instr Const) : Executable Instr Const :=
-  {startAddr := l.start, program := prog.mapIdx fun idx directive => {directive, size := l.size directive idx}}
+def Program.size (p : Program Instr Const) [l : Layout p] := p.mapIdx (fun idx d => l.size d idx) |>.sum
 
--- NOTE: We write `List (Kraken.Directive Instr Const)` here, and not `Kraken.Program Instr Const`, because architecture
--- specific `Program` types are written as `List Directive` which desugar to `List (Kraken.Directive Instr Const)`,
--- and so otherwise the typeclass synthesis algorithm would not find this instance.
--- Architecture specific programs are written as `List Directive` for architecture-specific `Directive`
--- instead of `Kraken.Directive Instr Const` so that `ls[i].foo` searches for `Directive.foo` first, instead of
--- going directly to `Kraken.Directive.foo` (which contains less information)
-instance : CoeFun (Layout Instr Const) (fun _ => List (Directive Instr Const) → Executable Instr Const) where
-  coe := Layout.apply
+class Layout.IsWellFormed (p : Program Instr Const) [Layout p] where
+  no_overflow : p.size < 2^64
+
+class abbrev WellFormedLayout (p : Program Instr Const) := Layout p, Layout.IsWellFormed p
+
+def Layout.apply (prog : Program Instr Const) (l : Layout prog) : Executable Instr Const :=
+  {startAddr := l.start, program := prog.mapIdx (fun i directive => {directive, size := l.size directive i})}
+
+abbrev Program.toExecutable (prog : Program Instr Const) [l : Layout prog] := l.apply prog
+
+abbrev _root_.List.toExecutable (prog : Program Instr Const) [l : Layout prog] := l.apply prog
 
 structure Addressable (Directive : Type) extends Sized Directive where (addr : Int64)
 
@@ -168,9 +170,9 @@ theorem Executable.withAddresses_dropWhile_addrOf (j n : Nat)
     obtain ⟨dz, -, rfl⟩ := Option.map_eq_some_iff.mp hc
     simpa using hj
 
-theorem Layout.apply_getElem? [l : Layout Instr Const] (prog : List (Directive Instr Const))
+theorem Layout.apply_getElem? (prog : Program Instr Const) [l : Layout prog]
     (i : Nat) :
-    (l prog).program[i]? = prog[i]?.map fun d => {directive := d, size := l.size d i} := by
+    prog.toExecutable.program[i]? = prog[i]?.map fun d => {directive := d, size := l.size d i} := by
   simp [Layout.apply, List.getElem?_mapIdx]
 
 private theorem takeWhile_eq_take_of {α : Type _} {p : α → Bool} {l : List α} {n : Nat}
@@ -218,21 +220,28 @@ theorem Executable.directivesAtAddress_addrOf (e : Executable Instr Const)
   · grind [Executable.getElem?_withAddresses_eq, Executable.sizeBefore_mono]
   · grind [Executable.getElem?_withAddresses_eq]
 
-/-- Asserts that the total byte size of `l prog` is strictly less than $2^{64}$, preventing
-64-bit address wraparound across the program. -/
-class Layout.NoWrap [l : Layout Instr Const] (prog : List (Directive Instr Const)) : Prop where
-  size_lt : ((l prog).program.map (·.size)).sum < 2 ^ 64
+theorem Program.map_size_toExecutable_eq (p : Program Instr Const) [l : Layout p] :
+    (p.toExecutable.program.map (·.size)).sum = p.size := by
+  dsimp [Program.toExecutable, Layout.apply, Program.size]
+  congr 1
+  generalize (l.size) = sz
+  induction p generalizing sz <;> simp [List.mapIdx_cons, *]
 
-/-- Under `Layout.NoWrap`, two directive indices with the same 64-bit address have the same byte
-offset from `startAddr`. -/
-theorem Layout.NoWrap.sizeBefore_eq_of_addrOf_eq [l : Layout Instr Const]
-    {prog : List (Directive Instr Const)} [nw : Layout.NoWrap prog] {j k : Nat}
-    (h : (l prog).addrOf j = (l prog).addrOf k) :
-    (l prog).sizeBefore j = (l prog).sizeBefore k := by
-  have hlt (n : Nat) : (l prog).sizeBefore n < 2 ^ 64 := by
-    have := nw.size_lt
-    rw [← List.take_append_drop n (l prog).program, List.map_append, List.sum_append] at this
-    exact Nat.lt_of_le_of_lt (Nat.le_add_right _ _) this
+theorem Executable.sizeBefore_le (n : Nat) :
+    e.sizeBefore n ≤ (e.program.map (·.size)).sum := by
+  simpa [sizeBefore, List.take_of_length_le (Nat.le_max_right n e.program.length)] using
+    e.sizeBefore_mono (Nat.le_max_left n e.program.length)
+
+theorem Program.sizeBefore_lt (prog : Program Instr Const) [WellFormedLayout prog] (n : Nat) :
+    prog.toExecutable.sizeBefore n < 2^64 :=
+  Nat.lt_of_le_of_lt (prog.toExecutable.sizeBefore_le n)
+    (Program.map_size_toExecutable_eq prog ▸ Layout.IsWellFormed.no_overflow)
+
+theorem Program.sizeBefore_eq_of_addrOf_eq (prog : Program Instr Const) [WellFormedLayout prog]
+    {j k : Nat} (h : prog.toExecutable.addrOf j = prog.toExecutable.addrOf k) :
+    prog.toExecutable.sizeBefore j = prog.toExecutable.sizeBefore k := by
+  have hj := Program.sizeBefore_lt prog j
+  have hk := Program.sizeBefore_lt prog k
   grind [Executable.addrOf]
 
 def Directive.isLabel (lbl : Label) : Directive Instr Const → Bool
@@ -266,19 +275,19 @@ theorem Executable.withAddresses_findSome?_label_mk [DecidableEq Instr] [Decidab
       simp only [addrOf, sizeBefore, List.take_succ_cons, List.map_cons, List.sum_cons]
       grind
 
-theorem Layout.map_directive_apply [l : Layout Instr Const] (prog : List (Directive Instr Const)) :
-    (l prog).program.map (·.directive) = prog := by
+theorem Layout.map_directive_apply (prog : Program Instr Const) [l : Layout prog] :
+    prog.toExecutable.program.map (·.directive) = prog := by
   apply List.ext_getElem?
   simp [Layout.apply, Function.comp_def]
 
 /-- If `k` is the index of the first `.label lbl` directive in `prog`, looking up `lbl` in
-`(l prog).withAddresses` yields `(l prog).addrOf k`. -/
+`prog.toExecutable.withAddresses` yields `prog.toExecutable.addrOf k`. -/
 theorem Layout.withAddresses_findSome?_label [DecidableEq Instr] [DecidableEq Const]
-    [l : Layout Instr Const] (prog : List (Directive Instr Const)) (lbl : Label) {k : Nat}
+    (prog : Program Instr Const) [l : Layout prog] (lbl : Label) {k : Nat}
     (hk : prog.findIdx? (·.isLabel lbl) = some k) :
-    ((l prog).withAddresses.findSome?
+    (prog.toExecutable.withAddresses.findSome?
       (fun {directive, addr, ..} => if directive = .label lbl then .some addr else .none)).getD (-1) =
-      (l prog).addrOf k := by
+      prog.toExecutable.addrOf k := by
   apply Executable.withAddresses_findSome?_label_mk
   rw [← l.map_directive_apply prog, List.findIdx?_map] at hk
   exact hk
