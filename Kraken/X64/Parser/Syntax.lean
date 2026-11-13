@@ -449,6 +449,8 @@ syntax withPosition(&"jmp"   ppSpace lineEq x64_operand) : x64_instr
 syntax withPosition(&"jmpq"  ppSpace lineEq x64_operand) : x64_instr
 syntax &"nop" : x64_instr
 syntax withPosition(&"nop" ppSpace lineEq num) : x64_instr
+syntax withPosition(&"jrcxz" ppSpace lineEq x64_ident) : x64_instr
+syntax withPosition(&"jecxz" ppSpace lineEq x64_ident) : x64_instr
 syntax withPosition(x64_jcc_op ppSpace lineEq x64_ident) : x64_instr
 
 /-- X64 directive (label declaration, instruction, data word, or Lean term antiquotation). -/

@@ -117,6 +117,7 @@ def operation {w} (aw : Width) (op : Operation w) : String :=
   | .cld => "cld"
   | .std => "std"
   | .jcc cc l => s!"j{cc} {l}"
+  | .jrcxz l => match aw with | .W32 => s!"jecxz {l}" | _ => s!"jrcxz {l}"
   | .jmp t => s!"jmp {target aw t}"
   | .call t => s!"call {target aw t}"
   | .ret => "ret"

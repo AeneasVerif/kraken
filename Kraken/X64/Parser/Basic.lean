@@ -1205,6 +1205,16 @@ def parseInstr : Parser Instr := do
     ) <|> (pure (toInstr .none (w := .W64) (.nop 1)))
 
   -- Control flow - conditional jumps
+  | "jrcxz" =>
+    skipHWs
+    let target ← parseLabelRaw
+    pure (toInstr (.some .W64) (w := .W64) (.jrcxz target))
+
+  | "jecxz" =>
+    skipHWs
+    let target ← parseLabelRaw
+    pure (toInstr (.some .W32) (w := .W64) (.jrcxz target))
+
   | _ =>
     if mn.startsWith "j" then
       let cc ← parseCondCode (mn.drop 1)

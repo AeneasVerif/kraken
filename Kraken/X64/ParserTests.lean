@@ -850,6 +850,15 @@ info: ⸨prog|
 #guard_msgs (whitespace := lax) in
 #check ⸨prog| cld; std ⸩
 
+-- Test: `jrcxz`/`jecxz` pick the address size from the mnemonic
+/--
+info: ⸨prog|
+  jrcxz l
+  jecxz l⸩ : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog| jrcxz l; jecxz l ⸩
+
 section string_instructions
 
 #guard [

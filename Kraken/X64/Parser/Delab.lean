@@ -743,6 +743,15 @@ private def delabOperation (aw : Width) (w? : Option Width) : X64DelabM (TSyntax
     let op := mkSuffixed `x64_jcc_op "j" ccSfx
     let lbl ← withNaryArg 2 delabIdent
     `(x64_instr| $op:x64_jcc_op $lbl:x64_ident)
+  | Operation.jrcxz _ _ =>
+    unless w? == some .W64 do failure
+    let lbl ← withNaryArg 1 delabIdent
+    match aw with
+    | .W64 => `(x64_instr| jrcxz $lbl:x64_ident)
+    | .W32 =>
+      modify ({ · with hasAddrReg := true })
+      `(x64_instr| jecxz $lbl:x64_ident)
+    | _ => failure
   | Operation.nop _ lenExpr =>
     unless w? == some .W64 do failure
     let some len := evalNat? lenExpr | failure
