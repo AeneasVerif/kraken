@@ -51,3 +51,24 @@ jobs:
       - name: Install AArch64 cross-assembler and QEMU
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user
       - run: python3 Kraken/AArch64/Test/fuzz_aarch64.py --batches 10 --batch-size 100 --seed 1
+
+  run-bedrock2-c-tests:
+    name: Run Bedrock2 C differential tests (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+      - name: Install gcc-multilib and clang
+        run: sudo apt-get update && sudo apt-get install -y gcc-multilib clang
+      - run: python3 Kraken/Bedrock2/Test/c_tests.py
+      - name: Run generated Bedrock2 programs
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 Kraken/Bedrock2/Test/c_tests.py --gen 1 200 --no-corpus
+          --config-filter 'O3-flto-ubsan|m64-O0-asan' --save-failures bedrock2c-failures
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: bedrock2c-failures
+          path: bedrock2c-failures
+          if-no-files-found: ignore
