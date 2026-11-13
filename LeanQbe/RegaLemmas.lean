@@ -51,6 +51,22 @@ def LocHolds (s : T.MData) (σ : List Val) : Loc T.toIsa → Val → Prop
 def Agree (G : List (Val × Nat)) (R : SymRegs T.toIsa) (s : T.MData) (σ : List Val) : Prop :=
   ∀ a l, (a, l) ∈ R → ∀ a₁, ArgRel G a₁ a → LocHolds s σ l a₁.val
 
+@[simp] theorem locEq_eq_true {I : Isa} {a b : Loc I} : locEq a b = true ↔ a = b := by
+  cases a <;> cases b <;> simp [locEq]
+
+@[simp] theorem locEq_eq_false {I : Isa} {a b : Loc I} : locEq a b = false ↔ a ≠ b := by
+  rw [← Bool.not_eq_true, locEq_eq_true]
+
+@[simp] theorem argNatEq_eq_true {a b : Arg Nat} : argNatEq a b = true ↔ a = b := by
+  cases a <;> cases b <;> simp [argNatEq]
+
+@[simp] theorem argNatEq_eq_false {a b : Arg Nat} : argNatEq a b = false ↔ a ≠ b := by
+  rw [← Bool.not_eq_true, argNatEq_eq_true]
+
+@[simp] theorem symRegMem_eq_true {I : Isa} {t : Arg Nat × Loc I} {R : SymRegs I} :
+    symRegMem t R = true ↔ t ∈ R := by
+  simp [symRegMem]
+
 theorem lookup_mem {I : Isa} {R : SymRegs I} {x : Nat} {r : I.Reg} (h : lookup R x = some r) :
     (.var x, .reg r) ∈ R := by
   unfold lookup at h
@@ -71,7 +87,7 @@ theorem lookupLoc_mem {I : Isa} {R : SymRegs I} {x : Nat} {l : Loc I}
     obtain ⟨⟨a, l'⟩, hp, rfl⟩ := h
     have := List.mem_of_find?_eq_some hp
     have hx := List.find?_some hp
-    simp only [beq_iff_eq] at hx
+    simp only [argNatEq_eq_true] at hx
     subst hx; exact this
 
 theorem Agree.reg {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s : T.MData} {σ : List Val}
@@ -191,8 +207,8 @@ theorem Agree.bindN {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s : T.MData} 
     {x : Nat} {r : T.Reg} {v : Val} (hA : Agree G R s σ) (hx : ∀ p ∈ G, p.2 < x)
     (hr : T.get s r = v) : Agree ((v, x) :: G) (Rega.bindN x r R) s σ := by
   intro a l hy a₁ hw
-  simp only [Rega.bindN, List.mem_cons, List.mem_filter, Prod.mk.injEq, bne_iff_ne,
-    ne_eq] at hy
+  simp only [Rega.bindN, List.mem_cons, List.mem_filter, Prod.mk.injEq, Bool.not_eq_true',
+    argNatEq_eq_false, ne_eq] at hy
   rcases hy with ⟨rfl, rfl⟩ | ⟨hy, hne⟩
   · cases hw with
     | @var v₁ _ hy =>
@@ -208,9 +224,9 @@ theorem Agree.mono {G G' : List (Val × Nat)} {R : SymRegs T.toIsa} {s : T.MData
 
 theorem Agree.dropVar {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s : T.MData} {σ : List Val}
     (v : Val) (x : Nat) (hA : Agree G R s σ) :
-    Agree ((v, x) :: G) (R.filter (fun p => p.1 != .var x)) s σ := by
+    Agree ((v, x) :: G) (R.filter (fun p => !argNatEq p.1 (.var x))) s σ := by
   intro a l hx a₁ ha
-  simp only [List.mem_filter, bne_iff_ne, ne_eq] at hx
+  simp only [List.mem_filter, Bool.not_eq_true', argNatEq_eq_false, ne_eq] at hx
   exact hA a l hx.1 a₁ (ha.uncons hx.2)
 
 private theorem fuseCmp_some {I : Isa} {h : Hints I} {fn : String} {st : St I} {R : SymRegs I}
@@ -235,7 +251,7 @@ private theorem fuseCmp_some {I : Isa} {h : Hints I} {fn : String} {st : St I} {
         split at hf
         · rename_i hc
           simp only [Bool.and_eq_true, beq_iff_eq] at hc
-          rcases hc with ⟨⟨⟨rfl, _⟩, _⟩, hpre⟩
+          rcases hc with ⟨⟨rfl, _⟩, hpre⟩
           cases ha : argReg R a with
           | none => simp [ha] at hf
           | some a' =>
@@ -248,10 +264,9 @@ private theorem fuseCmp_some {I : Isa} {h : Hints I} {fn : String} {st : St I} {
 
 theorem mem_copyTo {I : Isa} {l d : Loc I} {R : SymRegs I} {a : Arg Nat} {l' : Loc I}
     (h : (a, l') ∈ copyTo l d R) : l' = d ∧ (a, l) ∈ R := by
-  simp only [copyTo, List.mem_map, List.mem_filter, decide_eq_true_eq] at h
+  simp only [copyTo, List.mem_map, List.mem_filter, locEq_eq_true] at h
   obtain ⟨⟨a', l''⟩, ⟨hm, rfl⟩, he⟩ := h
-  simp only [Prod.mk.injEq] at he
-  obtain ⟨rfl, rfl⟩ := he
+  obtain ⟨rfl, rfl⟩ := Prod.mk.injEq .. ▸ he
   exact ⟨rfl, hm⟩
 
 /-- A move `d := s` between registers. -/
@@ -274,7 +289,7 @@ theorem Agree.mov {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s s' : T.MData}
     · obtain ⟨rfl, hm⟩ := mem_copyTo hx
       show T.get s' d = _
       rw [hd]; exact hA _ _ hm _ hv
-    · simp only [List.mem_filter, decide_eq_true_eq] at hx
+    · simp only [List.mem_filter, Bool.not_eq_true', locEq_eq_false] at hx
       cases l with
       | reg q =>
         show T.get s' q = _
@@ -327,7 +342,7 @@ theorem Agree.st {G : List (Val × Nat)} {R : SymRegs T.toIsa} {s s' : T.MData} 
   · obtain ⟨rfl, hm⟩ := mem_copyTo hx'
     simp only [LocHolds, List.getElem?_set_self hi]
     rw [hA.reg hm ha]
-  · simp only [List.mem_filter, decide_eq_true_eq] at hx'
+  · simp only [List.mem_filter, Bool.not_eq_true', locEq_eq_false] at hx'
     cases l with
     | reg q =>
       simp only [keepAfter, Bool.and_eq_true, decide_eq_true_eq] at hk
@@ -539,7 +554,7 @@ theorem shuffle_ok (hspE : T.spEntry (T.get s₀ T.sp)) {G : List (Val × Nat)} 
       obtain ⟨rfl, rfl⟩ := hs
       refine moves_ok hspE _ R _ k s σ hR'' hc hA hI fun s' σ' hA' hI' =>
         kont s' σ' (fun a l hx a₁ hv => ?_) hA' hI'
-      simp only [List.all_eq_true, decide_eq_true_eq] at hall
+      simp only [List.all_eq_true, symRegMem_eq_true] at hall
       exact hA' a l (hall _ hx) a₁ hv
     · simp at hs
   · simp at hs

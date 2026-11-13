@@ -49,17 +49,23 @@ inductive Loc (I : Isa) where
   | reg (r : I.Reg)
   | slot (i : Nat)
 
-instance : DecidableEq (Loc I) := fun a b =>
-  match a, b with
-  | .reg r, .reg r' =>
-    if h : r = r' then .isTrue (h ▸ rfl) else .isFalse (by intro e; cases e; exact h rfl)
-  | .slot i, .slot j =>
-    if h : i = j then .isTrue (h ▸ rfl) else .isFalse (by intro e; cases e; exact h rfl)
-  | .reg _, .slot _ => .isFalse (by intro e; cases e)
-  | .slot _, .reg _ => .isFalse (by intro e; cases e)
-
 /-- The symbolic location file: which locations hold which names or constants. -/
 abbrev SymRegs (I : Isa) := List (Arg Nat × Loc I)
+
+def locEq (a b : Loc I) : Bool :=
+  match a, b with
+  | .reg r, .reg r' => r == r'
+  | .slot i, .slot j => i == j
+  | _, _ => false
+
+def argNatEq (a b : Arg Nat) : Bool :=
+  match a, b with
+  | .var x, .var y => x == y
+  | .imm c, .imm d => c == d
+  | _, _ => false
+
+def symRegMem (t : Arg Nat × Loc I) (R : SymRegs I) : Bool :=
+  R.any fun p => argNatEq p.1 t.1 && locEq p.2 t.2
 
 /-- Hint: where a join point expects its live values (registers or slots) and its parameters
 (registers). -/
@@ -119,13 +125,13 @@ def lname (fn : String) (n : Nat) : String := fn ++ ".L" ++ String.ofList (natDi
 /-- A register holding name `x`, if any. -/
 def lookup (R : SymRegs I) (x : Nat) : Option I.Reg :=
   R.findSome? fun p =>
-    if p.1 == .var x then (match p.2 with | .reg r => some r | .slot _ => none) else none
+    if argNatEq p.1 (.var x) then (match p.2 with | .reg r => some r | .slot _ => none) else none
 
 /-- A location holding name `x`, if any (registers first). -/
 def lookupLoc (R : SymRegs I) (x : Nat) : Option (Loc I) :=
   match lookup R x with
   | some r => some (.reg r)
-  | none => (R.find? (fun p => p.1 == .var x)).map (·.2)
+  | none => (R.find? (fun p => argNatEq p.1 (.var x))).map (·.2)
 
 /-- An operand as a snippet operand: a variable must be in a non-scratch register. -/
 def argReg (R : SymRegs I) : Arg Nat → Option (Arg I.Reg)
@@ -167,11 +173,11 @@ def afterCall (saved : List I.Reg) (R : SymRegs I) : SymRegs I :=
 
 /-- Name `x` (fresh) now lives in `r`. Stale entries for `x` (from a bad hint) are dropped. -/
 def bindN (x : Nat) (r : I.Reg) (R : SymRegs I) : SymRegs I :=
-  (.var x, .reg r) :: R.filter (fun p => p.1 != .var x)
+  (.var x, .reg r) :: R.filter (fun p => !argNatEq p.1 (.var x))
 
 /-- The entries of location `l`, copied to location `d`. -/
 def copyTo (l d : Loc I) (R : SymRegs I) : SymRegs I :=
-  (R.filter (fun p => decide (p.2 = l))).map (fun p => (p.1, d))
+  (R.filter (fun p => locEq p.2 l)).map (fun p => (p.1, d))
 
 def Move.code : Move I → List I.Directive
   | .mov d s => I.mov d s
@@ -182,11 +188,11 @@ def Move.code : Move I → List I.Directive
 /-- Symbolic effect of a move. -/
 def movSym : Move I → SymRegs I → SymRegs I
   | .mov d s, R =>
-    if d = s then R else copyTo (.reg s) (.reg d) R ++ R.filter (fun p => decide (p.2 ≠ .reg d))
+    if d = s then R else copyTo (.reg s) (.reg d) R ++ R.filter (fun p => !locEq p.2 (.reg d))
   | .movi d c, R => (.imm c, .reg d) :: clob (some d) R
   | .ld d i, R => copyTo (.slot i) (.reg d) R ++ clob (some d) R
   | .st i s, R =>
-    clob none (copyTo (.reg s) (.slot i) R ++ R.filter (fun p => decide (p.2 ≠ .slot i)))
+    clob none (copyTo (.reg s) (.slot i) R ++ R.filter (fun p => !locEq p.2 (.slot i)))
 
 /-- Is a move allowed (in a frame of `ns` spill slots and `saved` callee-saved registers)? -/
 def Move.ok (ns : Nat) (saved : List I.Reg := []) : Move I → Bool
@@ -227,9 +233,11 @@ def moveFor (R : SymRegs I) (a : Arg Nat) : Loc I → Option (Move I)
 /-- Writing `d` would destroy the only copy of a value some other pending target still needs. -/
 def blocked (R : SymRegs I) (pending : SymRegs I) (d : Loc I) : Bool :=
   pending.any fun (a, d') =>
-    decide (d' ≠ d) &&
+    !locEq d' d &&
     match a with
-    | .var y => R.all (fun p => p.1 != .var y || decide (p.2 = d)) && R.any (fun p => p.1 == .var y)
+    | .var y =>
+      R.all (fun p => !argNatEq p.1 (.var y) || locEq p.2 d) &&
+        R.any (fun p => argNatEq p.1 (.var y))
     | .imm _ => false
 
 /-- Sequentialise the moves into `tgts`. Untrusted: `lower` checks the outcome. Moves from locations
@@ -238,7 +246,7 @@ is broken by copying one register into a free scratch register; constants are lo
 def pmoveAux : Nat → SymRegs I → SymRegs I → List (Move I) → List (Move I)
   | 0, _, _, acc => acc.reverse
   | fuel + 1, R, pending, acc =>
-    match pending.filter (fun t => decide (t ∉ R)) with
+    match pending.filter (fun t => !symRegMem t R) with
     | [] => acc.reverse
     | pend =>
       let isVar : Arg Nat × Loc I → Bool := fun t => match t.1 with | .var _ => true | .imm _ => false
@@ -267,7 +275,7 @@ def shuffle (ns : Nat) (saved : List I.Reg := []) (R : SymRegs I) (tgts : SymReg
     Option (List I.Directive × SymRegs I) :=
   let mv := pmove R tgts
   match execMoves ns saved mv R with
-  | some R' => if tgts.all (fun t => decide (t ∈ R')) then some (movesCode mv, R') else none
+  | some R' => if tgts.all (fun t => symRegMem t R') then some (movesCode mv, R') else none
   | none => none
 
 def prepend (pre : List I.Directive) : Res I → Res I
@@ -295,36 +303,11 @@ def restoreCs {I : Isa} (base : Nat) : List I.Reg → List I.Directive
   | [] => []
   | r :: rs => I.slotLd r base ++ restoreCs (base + 1) rs
 
-/-- Whether variable `x` occurs in `a`. -/
-def argHasVar (x : Nat) : Arg Nat → Bool
-  | .var y => y == x
-  | .imm _ => false
-
-/-- Whether variable `x` occurs in `o`. -/
-def opHasVar (x : Nat) : Op Nat → Bool
-  | .bin _ _ a b | .cmp _ _ a b => argHasVar x a || argHasVar x b
-  | .ext _ _ _ a | .copy _ a => argHasVar x a
-
-/-- Whether variable `x` occurs in `e`, given next fresh variable `nv`. -/
-def exprHasVar (x : Nat) : Expr Nat Nat → Nat → Bool
-  | .let_ o k, nv => opHasVar x o || exprHasVar x (k nv) (nv + 1)
-  | .load _ _ _ a k, nv => argHasVar x a || exprHasVar x (k nv) (nv + 1)
-  | .store _ v a k, nv => argHasVar x v || argHasVar x a || exprHasVar x k nv
-  | .call _ as k, nv => as.any (argHasVar x) || exprHasVar x k nv
-  | .jnz c t e, nv => argHasVar x c || exprHasVar x t nv || exprHasVar x e nv
-  | .jump _ as, _ => as.any (argHasVar x)
-  | .ret vs, _ | .exit _ vs, _ => vs.any (argHasVar x)
-  | .hlt, _ => false
-  | .param k, nv => exprHasVar x (k nv) (nv + 1)
-  | .label f, nv => exprHasVar x (f 0) nv
-  | .block b r, nv => exprHasVar x b nv || exprHasVar x r nv
-
 /-- Check if `let_ op k` followed by `jnz` can be fused into `I.jnzCmp`. -/
 def fuseCmp? (h : Hints I) (fn : String) (st : St I) (R : SymRegs I) :
     Op Nat → Expr Nat Nat → Option (List I.Directive)
-  | .cmp cls co a b, .jnz (.var x) t e =>
-    if x == st.nv && !exprHasVar st.nv t (st.nv + 1) && !exprHasVar st.nv e (st.nv + 1) &&
-        (h.pre (st.ip + 1)).isEmpty then
+  | .cmp cls co a b, .jnz (.var x) _ _ =>
+    if x == st.nv && (h.dest st.nv).isNone && (h.pre (st.ip + 1)).isEmpty then
       match argReg R a, argReg R b with
       | some a', some b' => I.jnzCmp cls co a' b' (lname fn st.nl)
       | _, _ => none
@@ -349,7 +332,7 @@ def lower (h : Hints I) (E : Ext) (fn : String) :
     | some R =>
       match fuseCmp? h fn st R op (k st.nv) with
       | some c =>
-        let R' := clob none (R.filter (fun p => p.1 != .var st.nv))
+        let R' := clob none (R.filter (fun p => !argNatEq p.1 (.var st.nv)))
         lower h E fn (k st.nv) ⟨st.nv + 1, st.nl, st.ip + 1, R', [], []⟩ ft
           (some (st.nv, movesCode (h.pre st.ip) ++ c))
       | none =>

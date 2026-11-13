@@ -19,30 +19,33 @@ set_option autoImplicit false
 
 namespace LeanQbe
 
-/-- Symbols called by an expression. -/
-def Expr.callees : Expr Unit Unit → List String
-  | .param f | .let_ _ f | .load _ _ _ _ f | .label f => Expr.callees (f ())
-  | .store _ _ _ k => Expr.callees k
-  | .call g _ k => g :: Expr.callees k
-  | .jnz _ t e => Expr.callees t ++ Expr.callees e
-  | .block b rest => Expr.callees b ++ Expr.callees rest
-  | .jump _ _ | .ret _ | .exit _ _ | .hlt => []
-
-/-- Exit targets of an expression. -/
-def Expr.exits : Expr Unit Unit → List String
-  | .param f | .let_ _ f | .load _ _ _ _ f | .label f => Expr.exits (f ())
-  | .store _ _ _ k | .call _ _ k => Expr.exits k
-  | .jnz _ t e => Expr.exits t ++ Expr.exits e
-  | .block b rest => Expr.exits b ++ Expr.exits rest
-  | .exit g _ => [g]
-  | .jump _ _ | .ret _ | .hlt => []
+/-- Symbols called and exit targets of an expression, traversed with `Rega.lower`'s `(nv, nl)`
+numbering so that `f.opt.body Nat Nat` shares WHNF cache entries with `toTree` and `lower`. -/
+def Expr.extAux : Expr Nat Nat → Nat → Nat → List String → List String →
+    List String × List String × Nat × Nat
+  | .param f, nv, nl, cs, xs | .let_ _ f, nv, nl, cs, xs | .load _ _ _ _ f, nv, nl, cs, xs =>
+    Expr.extAux (f nv) (nv + 1) nl cs xs
+  | .label f, nv, nl, cs, xs => Expr.extAux (f nl) nv (nl + 1) cs xs
+  | .store _ _ _ k, nv, nl, cs, xs => Expr.extAux k nv nl cs xs
+  | .call g _ k, nv, nl, cs, xs => Expr.extAux k nv nl (g :: cs) xs
+  | .jnz (.imm c) t e, nv, nl, cs, xs =>
+    if Truthy c then Expr.extAux t nv nl cs xs else Expr.extAux e nv nl cs xs
+  | .jnz (.var _) t e, nv, nl, cs, xs =>
+    let (cs1, xs1, nv1, nl1) := Expr.extAux e nv (nl + 1) cs xs
+    Expr.extAux t nv1 nl1 cs1 xs1
+  | .block b rest, nv, nl, cs, xs =>
+    let (cs1, xs1, nv1, nl1) := Expr.extAux rest nv nl cs xs
+    Expr.extAux b nv1 nl1 cs1 xs1
+  | .exit g _, nv, nl, cs, xs => (cs, g :: xs, nv, nl)
+  | .jump _ _, nv, nl, cs, xs | .ret _, nv, nl, cs, xs | .hlt, nv, nl, cs, xs => (cs, xs, nv, nl)
 
 /-- The function after the mid-end. -/
 def Fn.opt (f : Fn) : Fn := ⟨f.name, Func.opt f.body⟩
 
 /-- What a function may call and exit to. -/
 def Fn.ext (f : Fn) : Rega.Ext :=
-  ⟨Expr.callees (f.body Unit Unit), Expr.exits (f.body Unit Unit)⟩
+  let (cs, xs, _, _) := Expr.extAux (f.body Nat Nat) 0 0 [] []
+  ⟨cs.reverse, xs.reverse⟩
 
 /-- Hints used by `compileFn`. -/
 def Fn.hints (I : Isa) (f : Fn) : Rega.Hints I := Spill.hints I f.opt

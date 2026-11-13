@@ -185,7 +185,7 @@ theorem layoutOf_small (p : Program) (h : 4 * p.length < 2 ^ 64) :
       split <;> decide) p 0
 
 def labelsNodup (p : Program) : Bool :=
-  decide ((p.filterMap fun | .label l => some l | _ => none).Nodup)
+  stringsNodup (p.filterMap fun | .label l => some l | _ => none)
 
 def targetLayout : TargetLayout target where
   labelsNodup := labelsNodup
@@ -193,7 +193,7 @@ def targetLayout : TargetLayout target where
   prog_layoutOf _ _ := rfl
   labelsUnique_layoutOf {prog} h hnd :=
     letI : Host := .ofLayout prog (layoutOf prog) (layoutOf_zero prog) (layoutOf_small prog h)
-    Host.labelsUnique_of_nodup (of_decide_eq_true hnd)
+    Host.labelsUnique_of_nodup (stringsNodup_nodup hnd)
 
 /-- `n`-byte zero stack below `sp = 0x1000`, and payload `bs` at `0x1000`. -/
 def initMem (n : Nat) (bs : List UInt8) : Mem 64 :=

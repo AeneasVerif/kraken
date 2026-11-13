@@ -462,6 +462,27 @@ structure TargetLayout (T : Target) where
   labelsUnique_layoutOf : ∀ {prog : List T.Directive} (h : 4 * prog.length < 2 ^ 64),
     labelsNodup prog = true → T.LabelsUnique (layoutOf prog h)
 
+def listNodupBEq {α : Type} [BEq α] : List α → Bool
+  | [] => true
+  | x :: xs => !(xs.contains x) && listNodupBEq xs
+
+theorem listNodupBEq_nodup {α : Type} [BEq α] [LawfulBEq α] :
+    ∀ {xs : List α}, listNodupBEq xs = true → xs.Nodup
+  | [], _ => .nil
+  | _ :: _, h => by
+    simp only [listNodupBEq, Bool.and_eq_true, Bool.not_eq_true', List.contains_eq_mem,
+      decide_eq_false_iff_not] at h
+    exact .cons (fun _ hy e => h.1 (e ▸ hy)) (listNodupBEq_nodup h.2)
+
+/-- Fast kernel-reduction `Nodup` check on strings (reversing each string once so suffixes like
+`.L14` vs `.L15` mismatch on the first character without constructing `Decidable` proof terms). -/
+def stringsNodup (ss : List String) : Bool :=
+  listNodupBEq (ss.map fun (s : String) => s.toList.reverse)
+
+theorem stringsNodup_nodup {ss : List String} (h : stringsNodup ss = true) : ss.Nodup :=
+  List.Pairwise.of_map (fun (s : String) => s.toList.reverse) (fun _ _ hne e => hne (e ▸ rfl))
+    (listNodupBEq_nodup h)
+
 /-- `n` zero bytes for concrete initial stack frames (irreducible so tactics do not unfold `n`). -/
 def stackZeros (n : Nat) : List UInt8 := List.replicate n 0
 
