@@ -469,9 +469,6 @@ syntax "❰" term "❱" : aarch64_directive
 /-- Embedding of directives -/
 syntax "⸨dir| " aarch64_directive " ⸩" : term
 
-/-- Embedding of sized directives -/
-syntax "⸨dir " term "| " aarch64_directive " ⸩" : term
-
 /-- AArch64 assembly program (sequence of directives). -/
 declare_syntax_cat aarch64_prog (behavior := both)
 syntax ppDedent((ppLine aarch64_directive)*) : aarch64_prog

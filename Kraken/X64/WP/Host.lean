@@ -3,6 +3,8 @@ module
 public import Kraken.X64.Semantics
 public import Kraken.Data.List.Infix
 
+open Kraken (Layout WellFormedLayout)
+
 private theorem takeWhile_eq_take_of {α : Type _} {p : α → Bool} {l : List α} {n : Nat}
     (hprior : ∀ k, k < n → ∀ c, l[k]? = some c → p c = true)
     (hhead : ∀ c, l[n]? = some c → p c = false) :
@@ -23,22 +25,39 @@ private theorem exists_least_le {P : Nat → Prop} {n : Nat} (h : P n) :
 
 public class Host where
   prog : Program
-  layout : Layout
-  /-- Two directives at the same address have the same offset in the executable. -/
-  addr_determines_offset : ∀ j k, (layout.apply prog).addrOf j = (layout.apply prog).addrOf k →
-    (layout.apply prog).sizeBefore j = (layout.apply prog).sizeBefore k
+  layout : WellFormedLayout prog
 
-public instance [Host] : Layout := Host.layout
+public instance [Host] : WellFormedLayout Host.prog := Host.layout
 
-@[expose] public def Host.exe [Host] : Executable := Host.layout.apply Host.prog
+@[expose] public def Host.exe [Host] : Executable := Host.prog.toExecutable
 
 @[expose] public def Host.addrOf [Host] (k : Nat) : Int64 := Host.exe.addrOf k
 
+public abbrev Host.size [Host] (i : Nat) : Nat := Host.layout.size i
+
 public instance [Host] : Labels := Executable.labels Host.exe
 
+private theorem Program.map_size_toExecutable_eq (p : Program) [l : Layout p] :
+    (p.toExecutable.program.map (·.size)).sum = Kraken.Program.size p := by
+  dsimp [Kraken.Program.toExecutable, Kraken.Layout.apply, Kraken.Program.size]
+  congr 1
+  exact List.ext_getElem? fun i => by simp [Kraken.Layout.apply, List.getElem?_mapIdx, Function.comp_def]
+
+private theorem Executable.sizeBefore_le (e : Executable) (n : Nat) :
+    e.sizeBefore n ≤ (e.program.map (·.size)).sum := by
+  simpa [Kraken.Executable.sizeBefore, List.take_of_length_le (Nat.le_max_right n e.program.length)] using
+    e.sizeBefore_mono (Nat.le_max_left n e.program.length)
+
+private theorem Program.sizeBefore_lt (prog : Program) [WellFormedLayout prog] (n : Nat) :
+    prog.toExecutable.sizeBefore n < 2^64 :=
+  Nat.lt_of_le_of_lt (Executable.sizeBefore_le prog.toExecutable n)
+    (Program.map_size_toExecutable_eq prog ▸ WellFormedLayout.no_overflow)
+
 public theorem Host.sizeBefore_eq_of_addrOf_eq [Host] {j k : Nat} (h : Host.addrOf j = Host.addrOf k) :
-    Host.exe.sizeBefore j = Host.exe.sizeBefore k :=
-  Host.addr_determines_offset j k h
+    Host.exe.sizeBefore j = Host.exe.sizeBefore k := by
+  have hj := Program.sizeBefore_lt Host.prog j
+  have hk := Program.sizeBefore_lt Host.prog k
+  grind [Kraken.Executable.addrOf, Host.addrOf, Host.exe]
 
 @[expose] public def Host.startAddr [Host] {p : Program} (h : p.IsInfix Host.prog) : Int64 :=
   Host.addrOf (p.infixIdx Host.prog h)
@@ -48,17 +67,17 @@ public theorem Host.sizeBefore_eq_of_addrOf_eq [Host] {j k : Nat} (h : Host.addr
 
 export Host (startAddr endAddr)
 
-public theorem Layout.apply_getElem? [layout : Layout] (p : Program) (i : Nat) :
-    (layout p).program[i]? = (p[i]?).map (fun d => {directive := d, size := layout.size d i}) := by
+public theorem Layout.apply_getElem? (p : Program) [layout : Layout p] (i : Nat) :
+    p.toExecutable.program[i]? = (p[i]?).map (fun d => {directive := d, size := layout.size i}) := by
   simp [Kraken.Layout.apply, List.getElem?_mapIdx]
 
 public theorem Host.exe_getElem? [Host] (i : Nat) :
-    Host.exe.program[i]? = Host.prog[i]?.map (fun d => {directive := d, size := Host.layout.size d i}) :=
+    Host.exe.program[i]? = Host.prog[i]?.map (fun d => {directive := d, size := Host.layout.size i}) :=
   Layout.apply_getElem? _ _
 
 public theorem Host.addrOf_succ [Host] {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d) :
-    Host.addrOf (k + 1) = Host.addrOf k + .ofNat (Host.layout.size d k) :=
-  Kraken.Executable.addrOf_succ _ (c := {directive := d, size := Host.layout.size d k}) (by rw [Host.exe_getElem?, hd]; rfl)
+    Host.addrOf (k + 1) = Host.addrOf k + .ofNat (Host.layout.size k) :=
+  Kraken.Executable.addrOf_succ _ (c := {directive := d, size := Host.layout.size k}) (by rw [Host.exe_getElem?, hd]; rfl)
 
 section
 variable [Host]

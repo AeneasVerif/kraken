@@ -15,10 +15,6 @@ open Lean Elab Term Kraken.Parser
 elab_rules : term
   | `(⸨dir| $d:x64_directive⸩) => elabDirective d
 
-macro_rules
-  | `(⸨dir $n | $dir:x64_directive⸩) =>
-    `({directive := ⸨dir| $dir⸩, size := Kraken.Layout.size ⸨dir| $dir⸩ $n : Kraken.Sized _root_.Directive})
-
 /-- Inline unquoted X64 assembly block elaborator (`⸨prog| ...⸩`). -/
 elab_rules : term
   | `(⸨prog| $p:x64_prog⸩) => elabProgram p

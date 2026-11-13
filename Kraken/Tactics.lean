@@ -82,13 +82,31 @@ elab_rules : tactic
 
       let straightlineStepId := mkIdent `straightlineStep
       let execStraightlineId := mkIdent `Executable.straightline
+      let pExpr ← Term.elabTerm p none
+      let some pUnfolded ← delta? pExpr | throwErrorAt p "kprologue: `{p}` is not a definition"
 
       evalTactic (← `(tactic|
         (let ss := $s
          change ($straightlineStepId:ident _ ⟨ss, _⟩ _)
-         obtain $statePat:rcasesPat := $s
-         delta $p
-         dsimp only [$straightlineStepId:ident, $execStraightlineId:ident]
+         obtain $statePat:rcasesPat := $s)))
+      let goal ← getMainGoal
+      let goal ← goal.withContext do
+        let target ← instantiateMVars (← goal.getType)
+        let newTarget ← Core.transform target fun e => do
+          let_expr List.toExecutable instrType constType prog l := e | return .continue
+          unless ← isDefEq prog pExpr do return .continue
+          let exeExpr ← mkAppOptM ``Kraken.Layout.apply #[some instrType, some constType, some pExpr, some l]
+          let some exeUnfolded ← unfoldDefinition? exeExpr | return .continue
+          let_expr Kraken.Executable.mk _ _ startAddr mapIdxExpr := exeUnfolded | return .continue
+          let_expr List.mapIdx α β f _ := mapIdxExpr | return .continue
+          let newMapIdx ← mkAppOptM ``List.mapIdx #[some α, some β, some f, some pUnfolded]
+          let newExe ← mkAppOptM ``Kraken.Executable.mk #[some instrType, some constType, some startAddr, some newMapIdx]
+          return .done newExe
+        goal.replaceTargetDefEq newTarget
+      replaceMainGoal [goal]
+
+      evalTactic (← `(tactic|
+        (dsimp only [$straightlineStepId:ident, $execStraightlineId:ident]
          rw [Executable.directivesFromStart]
          simp [List.mapIdx, List.mapIdx.go])))
 
