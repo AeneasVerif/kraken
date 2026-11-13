@@ -769,6 +769,10 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       let mk := mkConst ``Operation.pop
       let dst ← elabRegOrMemOperand dst
       mkAppWidth mk #[dst]
+  | `(x64_instr| $op:x64_string_op) => elabStringInstr op false .W64
+  | `(x64_instr| rep $op:x64_string_op) => elabStringInstr op true .W64
+  | `(x64_instr| addr32 $op:x64_string_op) => elabStringInstr op false .W32
+  | `(x64_instr| addr32 rep $op:x64_string_op) => elabStringInstr op true .W32
   | `(x64_instr| ret) | `(x64_instr| retq) =>
     mkClosedInstr .ret
   | `(x64_instr| cld) =>
@@ -797,6 +801,14 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       mkAppWidth mk #[toExpr cc, target]
   | _ => throwError "invalid instruction syntax"
 where
+  /-- A string move or store at the address width `aw`, its width named by its suffix. -/
+  elabStringInstr (op : TSyntax `x64_string_op) (rep : Bool) (aw : Width) : TermElabM Expr := do
+    let (stem, some w) ← splitWidthSuffixed op | throwErrorAt op "missing width suffix"
+    let mk ← match stem with
+      | "movs" => pure (mkConst ``Operation.movs)
+      | "stos" => pure (mkConst ``Operation.stos)
+      | _ => throwErrorAt op "invalid string instruction mnemonic '{stem}'"
+    pure (mkApp3 (mkConst ``Instr.regular) (toExpr aw) (toExpr w) (mkApp2 mk (toExpr w) (toExpr rep)))
   /-- A 64-bit instruction without operands to infer widths from. -/
   mkClosedInstr (op : Operation .W64) : TermElabM Expr :=
     pure (toExpr (Instr.regular .W64 .W64 op))

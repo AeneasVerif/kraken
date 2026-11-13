@@ -850,6 +850,46 @@ info: ⸨prog|
 #guard_msgs (whitespace := lax) in
 #check ⸨prog| cld; std ⸩
 
+section string_instructions
+
+#guard [
+  ⸨prog|
+movsb
+movsq
+rep movsb
+rep movsl
+stosw
+rep stosb
+rep stosq
+⸩,
+  ⸨prog|
+addr32 movsb
+addr32 rep movsq
+addr32 stosl
+addr32 rep stosw
+⸩
+].all agreesWithCombinatorParser
+
+#guard ⸨instr| addr32 rep movsb ⸩ = Instr.regular .W32 .W8 (.movs true)
+#guard ⸨instr| stosq ⸩ = Instr.regular .W64 .W64 (.stos false)
+
+/--
+info: ⸨prog|
+  rep movsb
+  movsq
+  addr32 rep stosl
+  addr32 stosw⸩ : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog|
+  rep movsb
+  movsq
+  addr32 rep stosl
+  addr32 stosw
+⸩
+
+end string_instructions
+
 section sse_and_vex
 
 #guard [

@@ -107,6 +107,8 @@ instance : Gen AddrIndex := ⟨gen_ctors% AddrIndex⟩
 
 -- No nop lengths or alignments; other control flow is rejected by `stepDeterministic`.
 instance : Gen Nat := ⟨failure⟩
+-- A string instruction whose pointers leave the stack mapping faults, and the candidate is dropped.
+instance : Gen Bool := ⟨pick #[true, false]⟩
 instance : Gen Int64 := ⟨genInt64 #[3, 8, 16, 32, 64]⟩
 -- Code addresses differ between Kraken's layout and the hardware binary, so no labels, nor
 -- `before/after_current_instruction`, nor rip-relative addressing.
@@ -131,8 +133,13 @@ instance {w} : Gen (Operation w) := ⟨gen_ctors% Operation⟩
 instance {w} : Gen (AvxOperation w) := ⟨gen_ctors% AvxOperation⟩
 instance : Gen Instr := ⟨gen_ctors% Instr⟩
 
--- Loads a random 64-bit value into a register other than rsp.
+-- Loads a random 64-bit value into a register other than rsp, or sets up a string instruction.
 def genSeed : GenM String := do
+  -- A pointer into the stack mapping, far enough from both ends for a short string, or a small count.
+  match ← nextNat 4 with
+  | 0 => return s!"leaq -{100 + (← nextNat 600)}(%rsp), %{← pick #["rsi", "rdi"]}"
+  | 1 => return s!"movq ${← nextNat 12}, %rcx"
+  | _ => pure ()
   let r ← gen; guard (r != Reg64.rsp)
   let r := Kraken.X64.ATT.reg (.low r .W64)
   let movabs := s!"movabsq ${← nextNat (2 ^ 64)}, {r}"

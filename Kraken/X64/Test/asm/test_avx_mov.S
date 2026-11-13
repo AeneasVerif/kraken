@@ -47,5 +47,3 @@ movq 0x20(%rsp), %r13  # 13
 movq 0x28(%rsp), %r12  # 12
 movq 0x30(%rsp), %r11  # 11
 movq 0x38(%rsp), %r10  # 10
-
-# TODO: zmms neeed avx512 support in the test harness
