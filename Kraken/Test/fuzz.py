@@ -57,22 +57,25 @@ def run_fuzzer(asm_tests, as_cmd, ld_cmd, emu_cmd=(), description=None):
     args = p.parse_args()
 
     # The pool's mnemonics (as built for seed 0; other seeds may differ in a few rare ones), to
-    # report which were run least. Register seeding and the final flag-defining instruction are
-    # not in the pool and so are not counted.
+    # report which were run least. Each row is "<mnemonic> <forms>", and a mnemonic may contain a
+    # space ("rep movsb"). The run counts come from the generator, which knows the mnemonic it drew
+    # each instruction from; register seeding and the final flag-defining instruction are not
+    # drawn from the pool and so are not counted.
     listing = subprocess.run([asm_tests.KRAKEN_RUNNER, "--mnemonics", args.only], capture_output=True, text=True)
-    pool = [line.split()[0] for line in listing.stdout.splitlines()]
+    pool = [line.rsplit(None, 1)[0] for line in listing.stdout.splitlines()]
     if listing.returncode or not pool:
-        print(listing.stderr.strip() or f"no assemblable instruction has a mnemonic starting with {args.only}")
+        print(listing.stderr.strip() or f"no assemblable instruction has a mnemonic matching {args.only} (see --mnemonics)")
         return 2
     per_mnemonic = Counter({m: 0 for m in pool})
-    print(f"pool: {len(pool)} mnemonics" + (f" starting with {args.only}" if args.only else ""))
+    print(f"pool: {len(pool)} mnemonics" + (f" matching {args.only}" if args.only else ""))
 
     failures = total = 0
     start = time.perf_counter()
     for b in range(args.batches):
         seed = args.seed + b
-        seqs = kraken(asm_tests.KRAKEN_RUNNER, "--generate", seed, args.batch_size, args.length, args.only)
-        per_mnemonic.update(w[0] for seq in seqs for line in seq.split("\n") if (w := line.split()) and w[0] in per_mnemonic)
+        generated = kraken(asm_tests.KRAKEN_RUNNER, "--generate", seed, args.batch_size, args.length, args.only)
+        seqs = generated["seqs"]
+        per_mnemonic.update(generated["runs"])
         preds = kraken(asm_tests.KRAKEN_RUNNER, "--batch", inp=json.dumps(seqs).encode())
         hw_states = run_hardware(asm_tests, seqs, as_cmd, ld_cmd, emu_cmd)
         for i, (seq, hw, k) in enumerate(zip(seqs, hw_states, preds, strict=True)):

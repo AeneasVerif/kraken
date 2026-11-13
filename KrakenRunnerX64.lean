@@ -148,6 +148,23 @@ def genSeed : GenM String := do
   -- otherwise see only zeros.
   return s!"{movabs}\nmovq {r}, -16(%rsp)\nmovq {r}, -8(%rsp)\nmovups -16(%rsp), %xmm{← nextNat 16}"
 
+/-- The mnemonic a pool instruction is grouped under: its name together with the prefixes the
+printer puts in front of it (the leading words, which start with a letter; operands do not), except
+address-size prefixes. `rep` changes the operation, so `rep movsb` is its own mnemonic; `addr32`
+only changes the address size, like `(%eax)` for `(%rax)` in an operand, so `addr32 rep movsb` is a
+form of `rep movsb`. A prefix the printer learns later is kept; an address-size prefix must be
+added to the list here. -/
+def x64Mnemonic (line : String) : String :=
+  let lead := ((line.splitOn " ").filter (· ≠ "")).takeWhile (·.front.isAlpha)
+  " ".intercalate (lead.filter (· ∉ ["addr32"]))
+
+#guard x64Mnemonic "addq $1, %rax" == "addq"
+#guard x64Mnemonic "movsb" == "movsb"
+#guard x64Mnemonic "addr32 movsb" == "movsb"
+#guard x64Mnemonic "rep movsb" == "rep movsb"
+#guard x64Mnemonic "addr32 rep movsb" == "rep movsb"
+#guard x64Mnemonic "vmovdqu (%rsp), %ymm1" == "vmovdqu"
+
 -- APX is excluded because the hardware lacks it (e.g. `imul %edx, %r12d, %edi`), AVX-512 because
 -- the harness only observes ymm0-15.
 def fuzzConfig : FuzzConfig MachineData StatusFlags StateSummary where
@@ -164,6 +181,7 @@ def fuzzConfig : FuzzConfig MachineData StatusFlags StateSummary where
   runAssembler path := IO.Process.output { cmd := "as", args := #["-march=+noapx_f+noavx512f", "-o", "/dev/null", path.toString] }
   genSeed := genSeed
   defineAllFlagsInstr := "addq %rax, %rax"
+  mnemonic := x64Mnemonic
 
 public def main (args : List String) : IO UInt32 := do
   if let some code ← fuzzConfig.handleCli? args then return code

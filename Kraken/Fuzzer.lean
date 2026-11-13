@@ -98,6 +98,10 @@ def filterAssemblable (runAssembler : System.FilePath → IO IO.Process.Output) 
     if out.exitCode != 0 && bad.isEmpty then throw (.userError out.stderr)
     return cands.zipIdx.filterMap fun (c, i) => if bad.contains (i + 1) then none else some c
 
+/-- The first word of an assembly line: the default mnemonic of a pool instruction. -/
+def firstWord (line : String) : String :=
+  (line.trimAscii.toString.takeWhile (!·.isWhitespace)).toString
+
 /-- Architecture-specific hooks for the differential fuzzer. -/
 structure FuzzConfig (MachineData StatusFlags StateSummary : Type) where
   initData : MachineData
@@ -111,6 +115,8 @@ structure FuzzConfig (MachineData StatusFlags StateSummary : Type) where
   runAssembler : System.FilePath → IO IO.Process.Output
   genSeed : GenM String
   defineAllFlagsInstr : String
+  /-- The mnemonic a pool instruction is grouped under (see `Pool`). -/
+  mnemonic : String → String := firstWord
 
 variable {MachineData StatusFlags StateSummary : Type}
   [BEq MachineData] [StatusFlagBits StatusFlags] [ToJson StateSummary]
@@ -155,13 +161,9 @@ def FuzzConfig.genPool (cfg : FuzzConfig MachineData StatusFlags StateSummary) (
 def FuzzConfig.assemblable (cfg : FuzzConfig MachineData StatusFlags StateSummary) (cands : Array String) : IO (Array String) :=
   filterAssemblable cfg.runAssembler cands
 
-/-- The mnemonic of an assembly line: its first word. -/
-def mnemonic (line : String) : String :=
-  (line.trimAscii.toString.takeWhile (!·.isWhitespace)).toString
-
-/-- The assemblable instructions a run draws from, grouped by mnemonic. Sequences pick a mnemonic
-uniformly and then one of its forms, so that an instruction with few syntactic forms is run as
-often as one with many, and so that one the generator rarely produces is not drowned out.
+/-- The assemblable instructions a run draws from, grouped by `FuzzConfig.mnemonic`. Sequences pick
+a mnemonic uniformly and then one of its forms, so that an instruction with few syntactic forms is
+run as often as one with many, and so that one the generator rarely produces is not drowned out.
 
 The unit of fairness is the printed mnemonic, so in AT&T syntax each width (`addb`, `addw`, …) and
 each condition code (`seta`, `setb`, …) is its own group; a condition-code instruction thus gets
@@ -178,20 +180,25 @@ def poolTarget : Nat := 64
 mnemonics of interest may be ones the generator rarely produces. -/
 def poolRounds (focused : Bool) : Nat := if focused then 64 else 8
 
+/-- Whether the `--only` entry `p` selects the mnemonic `m`: `m` or one of its words starts with
+`p`. So `movs` selects `rep movsb` as well as `movsb`, and `rep movs` selects `rep movsb`. -/
+def selects (p m : String) : Bool :=
+  m.startsWith p || (m.splitOn " ").any (·.startsWith p)
+
 /-- Rounds of random generation and assembler filtering, grouped by mnemonic, stopping early once
 every mnemonic seen has `poolTarget` forms. A mnemonic the generator rarely produces ends up with
 fewer forms, but is still drawn as often as any other. With `only` set, keeps the mnemonics that
-start with one of its entries. -/
+one of its entries `selects`. -/
 def FuzzConfig.buildPool (cfg : FuzzConfig MachineData StatusFlags StateSummary) (g : StdGen)
     (only : Array String := #[]) : IO (Pool × StdGen) := do
-  let keep (m : String) := only.isEmpty || only.any (m.startsWith ·)
+  let keep (m : String) := only.isEmpty || only.any (selects · m)
   let mut forms : Std.HashMap String (Array String) := {}
   let mut g := g
   for _ in [0 : poolRounds !only.isEmpty] do
     let (cands, g') := (cfg.genPool 5000).run g
     g := g'
-    for c in ← cfg.assemblable (cands.filter (keep <| mnemonic ·)) do
-      let m := mnemonic c
+    for c in ← cfg.assemblable (cands.filter (keep <| cfg.mnemonic ·)) do
+      let m := cfg.mnemonic c
       let seen := forms.getD m #[]
       if seen.size < poolTarget && !seen.contains c then
         forms := forms.insert m (seen.push c)
@@ -212,26 +219,35 @@ def FuzzConfig.firstAccepted (cfg : FuzzConfig MachineData StatusFlags StateSumm
 /-- Four random register initializations (`genSeed`) followed by `length` instructions from `pool`:
 a mnemonic drawn uniformly, then its forms drawn until `stepDeterministic` accepts one, so that a
 mnemonic most of whose forms fault (say, on a random address) is run no less often than the others.
-A final `defineAllFlagsInstr` makes all flags defined. -/
+A final `defineAllFlagsInstr` makes all flags defined. Also returns the mnemonic of each instruction
+drawn from the pool, which the seeds and the final instruction are not. -/
 def FuzzConfig.genSequence (cfg : FuzzConfig MachineData StatusFlags StateSummary)
-    (pool : Pool) (length : Nat) : StateM StdGen String := do
-  let mut (d, undef, lines) := (cfg.initData, UndefFlags.none, #[])
+    (pool : Pool) (length : Nat) : StateM StdGen (String × Array String) := do
+  let mut (d, undef, lines, drawn) := (cfg.initData, UndefFlags.none, #[], (#[] : Array String))
   for _ in [0 : 4] do
     if let some (cand, d', undef') ← cfg.firstAccepted d undef cfg.genSeed 200 then
       (d, undef, lines) := (d', undef', lines.push cand)
   for _ in [0 : length] do
     for _ in [0 : 10] do
-      let some (_, forms) ← (pick pool.groups).run | continue
+      let some (m, forms) ← (pick pool.groups).run | continue
       if let some (cand, d', undef') ← cfg.firstAccepted d undef (pick forms) 20 then
-        (d, undef, lines) := (d', undef', lines.push cand)
+        (d, undef, lines, drawn) := (d', undef', lines.push cand, drawn.push m)
         break
   if undef != .none then lines := lines.push cfg.defineAllFlagsInstr
-  return "\n".intercalate lines.toList
+  return ("\n".intercalate lines.toList, drawn)
+
+/-- How many times each mnemonic occurs in `ms`. -/
+def countRuns (ms : Array String) : Std.HashMap String Nat :=
+  ms.foldl (fun acc m => acc.insert m (acc.getD m 0 + 1)) {}
 
 /-- Handles `--generate <seed> <count> <length> [<mnemonic-prefixes>]`, `--mnemonics [<prefixes>]`
 and `--batch` CLI invocations, returning `none` when `args` is a normal single-file runner
-invocation. The prefixes are comma-separated and restrict the pool to the mnemonics starting with
-one of them; `--mnemonics` prints the pool's mnemonics with the number of forms of each. -/
+invocation. The prefixes are comma-separated and restrict the pool to the mnemonics one of them
+`selects`; `--mnemonics` prints the pool's mnemonics with the number of forms of each.
+
+`--generate` prints `{"seqs": [...], "runs": {mnemonic: count}}`, the sequences and how many of
+their instructions were drawn from each mnemonic. `--batch` reads either that object or a bare
+array of sequences. -/
 def FuzzConfig.handleCli? (cfg : FuzzConfig MachineData StatusFlags StateSummary)
     (args : List String) : IO (Option UInt32) := do
   let prefixes (s : String) : Array String :=
@@ -241,10 +257,14 @@ def FuzzConfig.handleCli? (cfg : FuzzConfig MachineData StatusFlags StateSummary
     let only := prefixes (" ".intercalate rest)
     let (pool, g) ← cfg.buildPool (mkStdGen seed.toNat!) only
     if pool.groups.isEmpty then
-      IO.eprintln s!"no assemblable instruction has a mnemonic starting with {", ".intercalate only.toList}"
+      IO.eprintln s!"no assemblable instruction has a mnemonic matching {", ".intercalate only.toList} (see --mnemonics)"
       return some 1
     let gen := (List.range count.toNat!).mapM fun _ => cfg.genSequence pool length.toNat!
-    IO.println (toJson (gen.run' g).run).compress
+    let results := (gen.run' g).run
+    let runs := countRuns (results.toArray.flatMap (·.2))
+    IO.println (Json.mkObj [
+      ("seqs", toJson (results.map (·.1))),
+      ("runs", Json.mkObj (runs.toList.map fun (m, n) => (m, toJson n)))]).compress
     return some 0
   | "--mnemonics" :: rest =>
     let (pool, _) ← cfg.buildPool (mkStdGen 0) (prefixes (" ".intercalate rest))
@@ -252,8 +272,8 @@ def FuzzConfig.handleCli? (cfg : FuzzConfig MachineData StatusFlags StateSummary
       IO.println s!"{m} {forms.size}"
     return some 0
   | ["--batch"] =>
-    let raw ← (← IO.getStdin).readToEnd
-    let seqs ← IO.ofExcept (Json.parse raw >>= fromJson? (α := Array String))
+    let json ← IO.ofExcept (Json.parse (← (← IO.getStdin).readToEnd))
+    let seqs ← IO.ofExcept (fromJson? (α := Array String) ((json.getObjVal? "seqs").toOption.getD json))
     IO.println (toJson (seqs.map cfg.predict)).compress
     return some 0
   | _ => return none
