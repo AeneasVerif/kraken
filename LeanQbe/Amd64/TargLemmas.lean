@@ -38,8 +38,7 @@ theorem eventually_jmp {k j : Nat} {l : Label} {s : MachineData} {post : (Machin
     (hk : Run j s post) :
     Run k s post := by
   refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
-  simp only [Directive.interp, Instr.interp, Operation.interp, RelRegOrMem.interp, ConstExpr.interp,
-    Effects.All]
+  simp only [step_simp]
   rw [hj, Int64.ofBitVec_toBitVec, Int64.add_comm, Int64.sub_add_cancel]
   exact hk
 
@@ -53,12 +52,10 @@ theorem eventually_jnz {k j : Nat} {r : Reg64} {l : Label} {s : MachineData}
   obtain ⟨h0, hc1⟩ := hc.cons
   obtain ⟨h1, -⟩ := hc1.cons
   refine Host.eventually_of_interp_cps h0 ?_
-  simp only [Directive.interp, Instr.interp, Operation.interp, Operand.interp, RegOrMem.interp,
-    Effects.All, Reg64s.get_low32]
+  simp only [step_simp]
   intro af
   refine Host.eventually_of_interp_cps h1 ?_
-  simp only [Directive.interp, Instr.interp, Operation.interp, Effects.All, CondCode.interp,
-    StatusFlags.from_result, BitVec.and_self]
+  simp only [step_simp, CondCode.interp, StatusFlags.from_result, BitVec.and_self]
   by_cases h0 : Truthy (s.regs.get64 r)
   · have : ((s.regs.get64 r).setWidth 32 == BitVec.zero 32) = false := by
       simpa [BitVec.zero, Truthy] using h0
@@ -97,8 +94,7 @@ theorem eventually_pushD {i : Nat} {r : Reg64} {s : MachineData} {F : Mem 64 →
     Run i s post := by
   obtain ⟨bs, hl, hbs⟩ := region_sep_elim hmem
   refine Host.eventually_of_interp_cps hi ?_
-  simp only [pushD, Directive.interp, Instr.interp, Operation.interp, Operand.interp,
-    RegOrMem.interp, get_q, Effects.All]
+  simp only [step_simp, pushD]
   refine (store_All_of_sep _ _ .W64 _ _ _ bs F ?_ hl).mpr ?_
   · exact hbs
   exact hk _ rfl (Mem.storeInt_sep _ 8 bs F s.dmem ⟨hbs, hl⟩ _)
@@ -113,12 +109,12 @@ theorem eventually_popD {i : Nat} {r : Reg64} {v : Val} {s : MachineData} {F : M
       Run (i + 1) s' post) :
     Run i s post := by
   refine Host.eventually_of_interp_cps hi ?_
-  simp only [popD, Directive.interp, Instr.interp, Operation.interp]
+  simp only [step_simp, popD]
   refine (load_All_of_sep _ _ .W64 _ _ (Int.toBytes 8 v.toInt) F hmem
     (Int.toBytes_length _ _)).mpr ?_
   have hv : BitVec.ofInt 64 (Int.ofBytes (Int.toBytes 8 v.toInt)) = v :=
     BitVec.ofInt_ofBytes_toBytes 64 8 rfl v
-  simp only [MachineData.set, MachineData.setReg, set_q, Effects.All]
+  simp only [Effects.All]
   rw [hv]
   exact hk _ rfl rfl
 
@@ -129,9 +125,7 @@ theorem eventually_subSpD {i : Nat} {c : Int64} {s : MachineData} {post : Machin
       s'.dmem = s.dmem → Run (i + 1) s' post) :
     Run i s post := by
   refine Host.eventually_of_interp_cps hi ?_
-  simp only [subSpD, Directive.interp, Instr.interp, Operation.interp, Operand.interp,
-    RegOrMem.interp, ConstExpr.interp, MachineData.set, MachineData.setReg, Effects.All, set_q,
-    get_q]
+  simp only [step_simp, subSpD]
   exact hk _ (by simp) rfl
 
 /-- `add $c, %rsp` (flags arbitrary). -/
@@ -141,9 +135,7 @@ theorem eventually_addSpD {i : Nat} {c : Int64} {s : MachineData} {post : Machin
       s'.dmem = s.dmem → Run (i + 1) s' post) :
     Run i s post := by
   refine Host.eventually_of_interp_cps hi ?_
-  simp only [addSpD, Directive.interp, Instr.interp, Operation.interp, Operand.interp,
-    RegOrMem.interp, ConstExpr.interp, MachineData.set, MachineData.setReg, Effects.All, set_q,
-    get_q]
+  simp only [step_simp, addSpD]
   exact hk _ (by simp [BitVec.add_comm]) rfl
 
 /-- `movq %rv, off(%rsp)` -/
@@ -157,8 +149,7 @@ theorem eventually_stSpD {i : Nat} {rv : Reg64} {off : Int64} {s : MachineData}
     Run i s post := by
   obtain ⟨bs, hl, hbs⟩ := region_sep_elim hmem
   refine Host.eventually_of_interp_cps hi ?_
-  simp only [stSpD, Directive.interp, Instr.interp, Operation.interp, Operand.interp,
-    RegOrMem.interp, MachineData.set, get_q, AddrExpr.interp_base_disp]
+  simp only [step_simp, stSpD, AddrExpr.interp_base_disp]
   refine (store_All_of_sep _ _ .W64 _ _ _ bs F (by simpa using hbs) hl).mpr ?_
   simp only [Effects.All]
   exact hk _ rfl (Mem.storeInt_sep _ 8 bs F s.dmem ⟨hbs, hl⟩ (s.regs.get64 rv).toInt)
@@ -172,13 +163,12 @@ theorem eventually_ldSpD {i : Nat} {rd : Reg64} {off : Int64} {v : Val} {s : Mac
       Run (i + 1) s' post) :
     Run i s post := by
   refine Host.eventually_of_interp_cps hi ?_
-  simp only [ldSpD, Directive.interp, Instr.interp, Operation.interp, Operand.interp,
-    RegOrMem.interp, AddrExpr.interp_base_disp]
+  simp only [step_simp, ldSpD, AddrExpr.interp_base_disp]
   refine (load_All_of_sep _ _ .W64 _ _ (Int.toBytes 8 v.toInt) F hmem
     (Int.toBytes_length _ _)).mpr ?_
   have hv : BitVec.ofInt 64 (Int.ofBytes (Int.toBytes 8 v.toInt)) = v :=
     BitVec.ofInt_ofBytes_toBytes 64 8 rfl v
-  simp only [MachineData.set, MachineData.setReg, set_q, Effects.All]
+  simp only [Effects.All]
   rw [hv]
   exact hk _ rfl rfl
 
@@ -193,8 +183,7 @@ theorem eventually_callD {i j : Nat} {l : Label} {s : MachineData} {F : Mem 64 �
     Run i s post := by
   obtain ⟨bs, hl, hbs⟩ := region_sep_elim hmem
   refine Host.eventually_of_interp_cps hi ?_
-  simp only [callD, Directive.interp, Instr.interp, Operation.interp, RelRegOrMem.interp,
-    ConstExpr.interp, Effects.All]
+  simp only [step_simp, callD]
   refine (store_All_of_sep _ _ .W64 _ _ _ bs F ?_ hl).mpr ?_
   · exact hbs
   rw [hj, Int64.ofBitVec_toBitVec, Int64.add_comm, Int64.sub_add_cancel]
@@ -211,8 +200,7 @@ theorem eventually_callD_any {i : Nat} {l : Label} {s : MachineData} {F : Mem 64
     Run i s post := by
   obtain ⟨bs, hl, hbs⟩ := region_sep_elim hmem
   refine Host.eventually_of_interp_cps hi ?_
-  simp only [callD, Directive.interp, Instr.interp, Operation.interp, RelRegOrMem.interp,
-    ConstExpr.interp, Effects.All]
+  simp only [step_simp, callD]
   refine (store_All_of_sep _ _ .W64 _ _ _ bs F ?_ hl).mpr ?_
   · exact hbs
   rw [Int64.ofBitVec_toBitVec, Int64.add_comm, Int64.sub_add_cancel]
@@ -226,8 +214,7 @@ theorem eventually_addRR {i : Nat} {rd rs : Reg64} {s : MachineData} {post : Mac
       Run (i + 1) s' post) :
     Run i s post := by
   refine Host.eventually_of_interp_cps hi ?_
-  simp only [Directive.interp, Instr.interp, Operation.interp, Operand.interp,
-    RegOrMem.interp, MachineData.set, MachineData.setReg, Effects.All, set_q, get_q]
+  simp only [step_simp]
   exact hk _ rfl rfl
 
 /-- `jmp l`, where `l` resolves to the address of directive `j`. -/
@@ -236,8 +223,7 @@ theorem eventually_jmpD {i j : Nat} {l : Label} {s : MachineData} {post : Machin
     (hk : Run j s post) :
     Run i s post := by
   refine Host.eventually_of_interp_cps hi ?_
-  simp only [jmpD, Directive.interp, Instr.interp, Operation.interp, RelRegOrMem.interp,
-    ConstExpr.interp, Effects.All]
+  simp only [step_simp, jmpD]
   rw [hj, Int64.ofBitVec_toBitVec, Int64.add_comm, Int64.sub_add_cancel]
   exact hk
 
@@ -247,8 +233,7 @@ theorem eventually_jmpD_any {i : Nat} {l : Label} {s : MachineData} {post : Mach
     (hk : Eventually (step1 Host.exe) post ⟨s, Labels.label l⟩) :
     Run i s post := by
   refine Host.eventually_of_interp_cps hi ?_
-  simp only [jmpD, Directive.interp, Instr.interp, Operation.interp, RelRegOrMem.interp,
-    ConstExpr.interp, Effects.All]
+  simp only [step_simp, jmpD]
   rw [Int64.ofBitVec_toBitVec, Int64.add_comm, Int64.sub_add_cancel]
   exact hk
 

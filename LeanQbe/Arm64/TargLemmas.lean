@@ -4,6 +4,7 @@ public import LeanQbe.Arm64.Isel
 public import Kraken.AArch64.WP
 public import Kraken.AArch64.Regs
 public import Kraken.AArch64.Sep
+public import LeanQbe.StepSimp
 
 /-!
 # AArch64 snippet lemmas: infrastructure, moves, constants, jumps, return
@@ -55,7 +56,17 @@ theorem get_wr (s : MachineData) (d : XReg) (v : Val) (r : Reg) :
 
 @[simp] theorem dmem_wr (s : MachineData) (d : XReg) (v : Val) : (wr s d v).dmem = s.dmem := rfl
 
+/-! `step_simp` (`LeanQbe/StepSimp.lean`) on AArch64: Kraken's interpreter down to the reads and
+writes of the machine state, and (tagged where they are stated) the accesses to the operand forms
+`zr`, `xzr` and `sp` in terms of `Reg64s.getXReg` and `Reg64s.setXReg`. -/
+
+attribute [step_simp] Directive.interp Instr.interp Operation.interp ConstExpr.interp
+  ConstExpr.evalBranchTarget ExtOrImmReg.interp ShiftRegExpr.interp AddrOrLit.interpLoad
+  AddrExpr.interpLoad AddrExpr.interpStore AddrExpr.checkSPAlignment AddrExpr.eval Effects.All
+  MachineData.setRegOrZr MachineData.setRegOrSp
+
 /-- Writing a `w`-register zero-extends. -/
+@[step_simp]
 theorem setRegOrZr_zr (regs : Reg64s) (d : XReg) (w : RegWidth) (v : BitVec w.bits) :
     regs.setRegOrZr (zr d w) v = regs.setXReg d (v.setWidth 64) := by
   cases w
@@ -64,6 +75,7 @@ theorem setRegOrZr_zr (regs : Reg64s) (d : XReg) (w : RegWidth) (v : BitVec w.bi
     simp
 
 /-- Reading a `w`-register truncates. -/
+@[step_simp]
 theorem getRegOrZr_zr (regs : Reg64s) (r : XReg) (w : RegWidth) :
     regs.getRegOrZr (zr r w) = (regs.getXReg r).toBitVec.setWidth w.bits := by
   simp only [Reg64s.getRegOrZr, Reg64s.getRegOrZr64, RegOrZr.base, BitVec.take]
@@ -124,16 +136,14 @@ theorem Runs.eventually [Host] {c : List Directive} {s s' : MachineData} {k : Na
 theorem runs_mov_reg (d : XReg) (rs : Reg) (s : MachineData) :
     Runs (mov (.reg d) rs) s (wr s d (get s rs)) := by
   refine Runs.single fun p next jmp => ?_
-  simp only [Operation.interp, ExtOrImmReg.interp, ConstExpr.interp, MachineData.setRegOrSp,
-    Reg64s.setRegOrSp, Reg64s.setRegOrSp64]
+  simp only [step_simp, Reg64s.setRegOrSp, Reg64s.setRegOrSp64]
   congr
   simp [Reg64s.getRegOrSp, RegOrSp.base, BitVec.take]
 
 theorem runs_mov_sp (rs : Reg) (s : MachineData) :
     Runs (mov .SP rs) s { s with regs := { s.regs with SP := UInt64.ofBitVec (get s rs) } } := by
   refine Runs.single fun p next jmp => ?_
-  simp only [Operation.interp, ExtOrImmReg.interp, ConstExpr.interp, MachineData.setRegOrSp,
-    Reg64s.setRegOrSp, Reg64s.setRegOrSp64]
+  simp only [step_simp, Reg64s.setRegOrSp, Reg64s.setRegOrSp64]
   congr
   simp [Reg64s.getRegOrSp, RegOrSp.base, BitVec.take]
 
@@ -142,8 +152,7 @@ private theorem ofInt_toInt_ofBitVec (x : BitVec 64) : BitVec.ofInt 64 (Int64.of
 
 theorem runs_movImm (r : XReg) (c : Val) (s : MachineData) : Runs (movImm r c) s (wr s r c) := by
   refine Runs.single fun p next jmp => ?_
-  simp only [Operation.interp, AddrOrLit.interpLoad, Literal.interpLoad, ConstExpr.interp,
-    MachineData.setRegOrZr, setRegOrZr_zr, ofInt_toInt_ofBitVec, BitVec.setWidth_eq]
+  simp only [step_simp, Literal.interpLoad, ofInt_toInt_ofBitVec, BitVec.setWidth_eq]
 
 /-! ## Operands -/
 
@@ -212,23 +221,18 @@ theorem loadIns_runs (k : Cls) (sz : Sz) (sg : Bool) (d a : XReg) (s : MachineDa
   case l.false.w | l.true.w =>
     refine Runs.append (s₂ := wr s d (BitVec.ofInt 64 i)) (Runs.single' fun p next jmp post => ?_)
       (Runs.single fun p next jmp => ?_)
-    · simp only [Operation.interp, AddrOrLit.interpLoad, AddrExpr.interpLoad,
-        AddrExpr.checkSPAlignment, AddrExpr.eval, MachineData.load, Effects.All,
-        MachineData.setRegOrZr, setRegOrZr_zr, ConstExpr.interp, atReg_addr, MemWidth.bytes, hi]
+    · simp only [step_simp, MachineData.load, atReg_addr, MemWidth.bytes, hi]
       simp [wr]
-    · simp only [Operation.interp, ShiftRegExpr.interp, MachineData.setRegOrZr, setRegOrZr_zr,
-        getRegOrZr_zr, wr, Reg64s.setXReg_setXReg_same, Reg64s.getXReg_setXReg_same,
-        UInt64.toBitVec_ofBitVec, Reg64s.getRegOrZr_xzr, Cls.trunc, Sz.extend, Int64.toInt_zero,
-        Int.toNat_zero, BitVec.shiftLeft_zero]
+    · simp only [step_simp, wr, Reg64s.setXReg_setXReg_same, Reg64s.getXReg_setXReg_same,
+      UInt64.toBitVec_ofBitVec, Reg64s.getRegOrZr_xzr, Cls.trunc, Sz.extend, Int64.toInt_zero,
+      Int.toNat_zero, BitVec.shiftLeft_zero]
       generalize BitVec.ofInt 64 i = X
       congr 3
       ext_bits
   all_goals
     apply Runs.single'
     intro _ p next jmp post
-    simp only [Operation.interp, AddrOrLit.interpLoad, AddrExpr.interpLoad,
-      AddrExpr.checkSPAlignment, AddrExpr.eval, MachineData.load, Effects.All,
-      MachineData.setRegOrZr, setRegOrZr_zr, ConstExpr.interp, atReg_addr, MemWidth.bytes, hi]
+    simp only [step_simp, MachineData.load, atReg_addr, MemWidth.bytes, hi]
     simp only [MemWidth.bits, widthOf, RegWidth.bits, Cls.trunc, Sz.extend, wr]
     try rw [ofInt_eq_setWidth (by decide) i]
     try (generalize BitVec.ofInt 64 i = X; apply next_wr_congr; ext_bits)
@@ -247,9 +251,7 @@ theorem storeIns_runs (sz : Sz) (x a : XReg) (s : MachineData)
   all_goals
     apply Runs.single'
     intro _ p next jmp post
-    simp only [Operation.interp, AddrExpr.interpStore, AddrExpr.checkSPAlignment,
-      AddrExpr.eval, MachineData.store, Effects.All, ConstExpr.interp, atReg_addr, MemWidth.bytes,
-      hi, getRegOrZr_zr, storeMem]
+    simp only [step_simp, MachineData.store, atReg_addr, MemWidth.bytes, hi, storeMem]
     simp only [RegWidth.bits, MemWidth.bits, e8, e16, BitVec.setWidth_eq, get_reg]
 
 /-- The `load` snippet. -/
@@ -361,8 +363,7 @@ theorem eventually_jmp {k j : Nat} {l : Label} {s : MachineData} {post : @_root_
     (h : Eventually (step1 Host.exe) post ⟨s, Host.addrOf j⟩) :
     Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ := by
   refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
-  simp only [Directive.interp, Instr.interp, Operation.interp, ConstExpr.evalBranchTarget,
-    ConstExpr.interp, Effects.All]
+  simp only [step_simp]
   rw [hj]
   exact h
 
@@ -375,8 +376,7 @@ theorem eventually_cbnz32 {i j : Nat} {x : XReg} {l : Label} {s : MachineData}
       (¬ Truthy (get s (.reg x)) → Eventually (step1 Host.exe) post ⟨s, Host.addrOf (i + 1)⟩)) :
     Eventually (step1 Host.exe) post ⟨s, Host.addrOf i⟩ := by
   refine Host.eventually_of_interp_cps hi ?_
-  simp only [Directive.interp, Instr.interp, Operation.interp, ConstExpr.evalBranchTarget,
-    ConstExpr.interp, Effects.All, getRegOrZr_zr, hj]
+  simp only [step_simp, hj]
   by_cases ht : Truthy (get s (.reg x))
   · have : ((s.regs.getXReg x).toBitVec.setWidth 32 != 0) = true := by
       simpa [Truthy, get_reg] using ht

@@ -20,6 +20,9 @@ namespace LeanQbe.Arm64.LratBytes
 
 open Std.Sat LeanQbe LeanQbe.LratBytes Arm64 Kraken
 
+-- The limit guards the cost of the compiler in the kernel: this check needs about 31,000
+-- heartbeats (27 s). Heartbeats count allocations, so the limit holds on a busy machine too.
+set_option maxHeartbeats 48000 in
 /-- Single kernel evaluation of the compiler on `lratBytesFns` for AArch64. -/
 def compiled : Compiled target [] [] 0 lratBytesFns :=
   compileChecked target targetLayout [] [] 0 lratBytesFns 2048 (by kernel_rfl)

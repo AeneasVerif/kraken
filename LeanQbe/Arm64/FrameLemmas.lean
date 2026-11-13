@@ -53,16 +53,14 @@ theorem sp_aligned (s : MachineData) (h : (get s .SP).toNat % 16 = 0) :
 theorem runs_subSp (n : Nat) (s : MachineData) :
     Runs (subSp n) s (setSP s (get s .SP - BitVec.ofNat 64 n)) := by
   refine Runs.single fun p next jmp => ?_
-  simp only [Operation.interp, ExtOrImmReg.interp, ConstExpr.interp, MachineData.setRegOrSp,
-    Reg64s.setRegOrSp, Reg64s.setRegOrSp64, Reg64s.getRegOrSp_sp64, RegWidth.bits,
-    ofInt_toInt_ofNat, get_sp]
+  simp only [step_simp, Reg64s.setRegOrSp, Reg64s.setRegOrSp64, Reg64s.getRegOrSp_sp64,
+    RegWidth.bits, ofInt_toInt_ofNat, get_sp]
 
 theorem runs_addSp (n : Nat) (s : MachineData) :
     Runs (addSp n) s (setSP s (get s .SP + BitVec.ofNat 64 n)) := by
   refine Runs.single fun p next jmp => ?_
-  simp only [Operation.interp, ExtOrImmReg.interp, ConstExpr.interp, MachineData.setRegOrSp,
-    Reg64s.setRegOrSp, Reg64s.setRegOrSp64, Reg64s.getRegOrSp_sp64, RegWidth.bits,
-    ofInt_toInt_ofNat, get_sp]
+  simp only [step_simp, Reg64s.setRegOrSp, Reg64s.setRegOrSp64, Reg64s.getRegOrSp_sp64,
+    RegWidth.bits, ofInt_toInt_ofNat, get_sp]
 
 /-! ## Stack slots -/
 
@@ -76,8 +74,7 @@ theorem runs_stSp (v : XReg) (o : Nat) (s : MachineData) {G : Mem 64 → Prop}
       (Mem.storeInt s.dmem (get s .SP + BitVec.ofNat 64 o) 8 (get s (.reg v)).toInt) },
     Runs.single' fun p next jmp post => ?_, rfl,
     Mem.storeInt_sep _ 8 bs G s.dmem ⟨hbs, hl⟩ (get s (.reg v)).toInt⟩
-  simp only [Operation.interp, AddrExpr.interpStore, AddrExpr.checkSPAlignment, AddrExpr.eval,
-    ConstExpr.interp, getRegOrZr_zr, sp_aligned s hal, sp_addr, Bool.false_eq_true, ↓reduceIte]
+  simp only [step_simp, sp_aligned s hal, sp_addr, Bool.false_eq_true, ↓reduceIte]
   rw [store_All_of_sep _ _ .W64 _ _ _ bs G hbs hl]
   simp [get_reg]
 
@@ -86,13 +83,11 @@ theorem runs_ldSp (d : XReg) (o : Nat) (s : MachineData) {v : Val} {G : Mem 64 �
     (hmem : s.dmem =⋆ word (get s .SP + BitVec.ofNat 64 o) v ⋆ G) :
     Runs (ldSp d o) s (wr s d v) := by
   refine Runs.single' fun p next jmp post => ?_
-  simp only [Operation.interp, AddrOrLit.interpLoad, AddrExpr.interpLoad,
-    AddrExpr.checkSPAlignment, AddrExpr.eval, ConstExpr.interp, sp_aligned s hal, sp_addr,
-    Bool.false_eq_true, ↓reduceIte]
+  simp only [step_simp, sp_aligned s hal, sp_addr, Bool.false_eq_true, ↓reduceIte]
   rw [load_All_of_sep _ _ .W64 _ _ (Int.toBytes 8 v.toInt) G hmem (Int.toBytes_length _ _)]
   have hv : BitVec.ofInt 64 (Int.ofBytes (Int.toBytes 8 v.toInt)) = v :=
     BitVec.ofInt_ofBytes_toBytes 64 8 rfl v
-  simp only [MachineData.setRegOrZr, setRegOrZr_zr, MemWidth.bits, hv, BitVec.setWidth_eq]
+  simp only [MemWidth.bits, hv, BitVec.setWidth_eq]
 
 /-! ## Frame layout -/
 
@@ -282,8 +277,7 @@ theorem eventually_call {k : Nat} {sym : Label} {s : MachineData} {post : @_root
       ⟨wr s .X30 (Host.addrOf (k + 1)).toBitVec, Labels.label sym⟩) :
     Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ := by
   refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
-  simp only [Directive.interp, Instr.interp, Operation.interp, ConstExpr.evalBranchTarget,
-    ConstExpr.interp, MachineData.setRegOrZr, Reg64s.setRegOrZr, Reg64s.setRegOrZr64, Effects.All]
+  simp only [step_simp, Reg64s.setRegOrZr, Reg64s.setRegOrZr64]
   have hra : BitVec.ofInt 64 (Host.addrOf (k + 1)).toInt = (Host.addrOf (k + 1)).toBitVec := by
     rw [← Int64.toInt_toBitVec, BitVec.ofInt_toInt]
   rw [hra]
@@ -296,8 +290,7 @@ theorem eventually_tailJmp {k : Nat} {sym : Label} {s : MachineData}
     (hk : Eventually (step1 Host.exe) post ⟨s, Labels.label sym⟩) :
     Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ := by
   refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
-  simp only [Directive.interp, Instr.interp, Operation.interp, ConstExpr.evalBranchTarget,
-    ConstExpr.interp, Effects.All]
+  simp only [step_simp]
   exact hk
 
 end
