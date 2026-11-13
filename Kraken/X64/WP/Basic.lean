@@ -80,6 +80,30 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     rw [hat]
     exact (Directives.interp_inert_append hinert _ _ _ _).mpr h
 
+/-- Run the head directive of a fragment placed at index `k`, then continue. What is left is an
+`Effects.All` goal for that one directive, which `kstep` can step through. -/
+public theorem Host.run_cons {k : Nat} {d : Directive} {p : Program}
+    (hk : (d :: p).IsInfixAt Host.prog k) {post : @Post MachineState} {s : MachineData}
+    (h : (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
+      (fun s' => .done ⟨s', Host.addrOf (k + 1)⟩) (fun a s' => .done ⟨s', a⟩)).All
+        (Eventually (step1 Host.exe) post)) :
+    Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ :=
+  eventually_trans _ _ _ _ (Host.eventually_of_interp hk h) fun _ h => h
+
+/-- Run the head directive of a fragment placed at index `k` through a rule stated with
+`Program.wp` (such as `ProcSpec.wp_call`), then continue. -/
+public theorem Host.run_wp {k : Nat} {d : Directive} {p : Program}
+    (hk : (d :: p).IsInfixAt Host.prog k) {post : @Post MachineState} {s : MachineData}
+    (h : Program.wp [d] (fun s' => Eventually (step1 Host.exe) post ⟨s', Host.addrOf (k + 1)⟩)
+      (fun _ _ => False) s) :
+    Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ := by
+  refine eventually_trans _ _ _ _ (h k (List.IsInfixAt.append (a := [d]) hk).1) ?_
+  rintro ⟨s', a⟩ (⟨ha, hq⟩ | hf)
+  · dsimp only at ha hq
+    rw [ha]
+    exact hq
+  · exact hf.elim
+
 end
 
 /--

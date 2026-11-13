@@ -22,6 +22,20 @@ private theorem exists_least_le {P : Nat → Prop} {n : Nat} (h : P n) :
   induction n using Nat.strongRecOn with
   | ind n ih => grind
 
+private theorem findSome?_of_getElem? {α β : Type} {f : α → Option β} :
+    ∀ {l : List α} {j : Nat} {a : α} {b : β}, l[j]? = some a → f a = some b →
+      (∀ i, i < j → ∀ x, l[i]? = some x → f x = none) → l.findSome? f = some b
+  | [], _, _, _, h, _, _ => by simp at h
+  | x :: l, 0, a, b, h, hf, _ => by
+    simp only [List.getElem?_cons_zero, Option.some.injEq] at h
+    subst h
+    simp [hf]
+  | x :: l, j + 1, a, b, h, hf, hprior => by
+    have hx : f x = none := hprior 0 (by omega) x rfl
+    simp only [List.findSome?_cons, hx]
+    exact findSome?_of_getElem? (j := j) (by simpa using h) hf
+      (fun i hi y hy => hprior (i + 1) (by omega) y (by simpa using hy))
+
 public class Host where
   prog : Program
   layout : Layout
@@ -103,5 +117,28 @@ public theorem Host.directivesAtAddress_addrOf {k : Nat} {c : Kraken.Sized Direc
     grind [Kraken.Executable.getElem?_withAddresses_eq]
   · intro c hc
     grind [Kraken.Executable.getElem?_withAddresses_eq]
+
+/-- The address of a label is the address of its first occurrence in the ambient program. -/
+public theorem Host.label_addrOf {l : Label} {j : Nat} (hj : Host.prog[j]? = some (.label l))
+    (hfirst : ∀ i, i < j → Host.prog[i]? ≠ some (.label l)) :
+    label l = Host.addrOf j := by
+  show ((Host.exe.withAddresses.findSome?
+      (fun {directive, addr, ..} => if directive = .label l then .some addr else .none)).getD (-1))
+    = Host.addrOf j
+  rw [findSome?_of_getElem? (j := j) (b := Host.addrOf j)
+    (a := {directive := .label l, size := Host.layout.size j, addr := Host.exe.addrOf j})]
+  · rfl
+  · rw [Kraken.Executable.getElem?_withAddresses_eq, Host.exe_getElem?, hj]
+    rfl
+  · simp [Host.addrOf]
+  · intro i hi x hx
+    rw [Kraken.Executable.getElem?_withAddresses_eq, Host.exe_getElem?] at hx
+    cases hpi : Host.prog[i]? with
+    | none => simp [hpi] at hx
+    | some d =>
+      simp only [hpi, Option.map_some, Option.some.injEq] at hx
+      subst hx
+      have hne : d ≠ .label l := fun h => hfirst i hi (h ▸ hpi)
+      simp [hne]
 
 end

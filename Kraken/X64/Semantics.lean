@@ -96,6 +96,27 @@ structure Reg64s where
   | .ah | .bh | .ch | .dh => let old := s.get64 r.base;
     s.set64 r.base (old.replaceLow (BitVec.append v (s.get (.low r.base .W8))))
 
+/-- Reading a register after writing one. -/
+theorem Reg64s.get64_set64 (regs : Reg64s) (r r' : Reg64) (v : BitVec 64) :
+    (regs.set64 r v).get64 r' = if r = r' then v else regs.get64 r' := by
+  cases r <;> cases r' <;> simp [Reg64s.set64, Reg64s.get64]
+
+@[simp] theorem Reg64s.get64_set64_self (regs : Reg64s) (r : Reg64) (v : BitVec 64) :
+    (regs.set64 r v).get64 r = v := by
+  simp [Reg64s.get64_set64]
+
+theorem Reg64s.get64_set64_ne (regs : Reg64s) {r r' : Reg64} (h : r ≠ r') (v : BitVec 64) :
+    (regs.set64 r v).get64 r' = regs.get64 r' := by
+  simp [Reg64s.get64_set64, h]
+
+/-- A full-width register access is the 64-bit one. -/
+@[simp] theorem Reg64s.get_low64 (regs : Reg64s) (r : Reg64) :
+    regs.get (.low r .W64) = regs.get64 r := by
+  simp [Reg64s.get, Reg.base, Reg.offset, BitVec.take, BitVec.drop]
+
+@[simp] theorem Reg64s.set_low64 (regs : Reg64s) (r : Reg64) (v : Width.W64.type) :
+    regs.set (.low r .W64) v = regs.set64 r v := rfl
+
 def ZmmValue : Type := BitVec 512
   deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr
 
@@ -182,6 +203,18 @@ def RegZmms.setLegacy (s : RegZmms) {w} (r : AvxReg w) (v : w.type) : RegZmms :=
   | .zmm r => s.set512 r v  -- impossible
   | .ymm r => s.set512 r ((s.get512 r).replaceLow v)  -- impossible
   | .xmm r => s.set512 r ((s.get512 r).replaceLow v)
+
+/-- A legacy-SSE write to an `xmm` register is read back by the `xmm` view. -/
+@[simp] theorem RegZmms.get_setLegacy_xmm_self (z : RegZmms) (r : RegMm) (v : BitVec 128) :
+    (z.setLegacy (.xmm r) v).get (.xmm r) = v := by
+  have h : ∀ (o : BitVec 512) (v : BitVec 128),
+      (BitVec.setWidth 512 (BitVec.extractLsb' 128 384 o ++ v)).extractLsb' 0 128 = v := by
+    intro o v; ext i hi
+    simp only [BitVec.getElem_extractLsb', BitVec.getLsbD_setWidth, BitVec.getLsbD_append,
+      Nat.zero_add, hi, ite_true, BitVec.getLsbD_eq_getElem hi]
+    rw [decide_eq_true (Nat.lt_trans hi (by decide : 128 < 512)), Bool.true_and]
+  cases r <;> simp only [RegZmms.setLegacy, RegZmms.set512, RegZmms.get, RegZmms.get512,
+    AvxReg.base, BitVec.replaceLow, BitVec.take, BitVec.drop, AvxWidth.bits] <;> exact h _ v
 
 @[kstep]
 def BitVec.toAddressSize [address_size: AddressSize] (w: BitVec 64): BitVec address_size.address_size.bits :=
@@ -484,6 +517,15 @@ export Labels (label)
              | .some ⟨r, c⟩ => (s.get64 r).toAddressSize.signed * c.bytes
              | .none => 0
   BitVec.ofInt address_size.address_size.bits (base + idx + (a.disp.interp p).toInt)
+
+/-- A 64-bit `disp(%r)` address. -/
+@[simp] theorem AddrExpr.interp_reg_disp [Labels] (r : Reg64) (d : Int64) (regs : Reg64s)
+    (p : Std.Rco Int64) :
+    BitVec.zeroExtend 64 (@AddrExpr.interp _ ⟨.W64⟩
+      { base := some (.reg r), idx := none, disp := .int64 d } regs p)
+      = regs.get64 r + d.toBitVec := by
+  simp [AddrExpr.interp, BitVec.toAddressSize, BitVec.take, BitVec.signed, ConstExpr.interp,
+    BitVec.ofInt_add]
 
 @[kstep] def RegOrMem.interp {w} [Labels] [AddressSize]
   (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64)
