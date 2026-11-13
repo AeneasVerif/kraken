@@ -1815,7 +1815,7 @@ theorem test_aarch64_syntax_cat :
 
 /-- info: ⸨dir 1| add x0, x0, #1 ⸩ : Sized Directive -/
 #guard_msgs (whitespace := lax) in
-variable [Kraken.Layout Instr ConstExpr] in
+variable {p : Program} [Kraken.Layout p] in
 #check ⸨dir 1 | add x0, x0, #1 ⸩
 
 theorem test_include_aarch64_nop :
