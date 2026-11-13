@@ -22,9 +22,9 @@ Defines:
    (`lbParseDimacsHeaderSpec`, `lbParseDimacsBodySpec`, `lbReadAddLitsSpec`,
    `lbRupCheckSpec`, `lbCheckPrfSpec`) plus `lratCheckBytesExactSpec`.
 
-The program-independent helpers these proofs use are in `LeanQbe/Logic/`: `loadub_At` and the `region`
-bridges in `Bytes.lean` and `ZeroTerm.lean`, the bit-vector and cursor lemmas in `BitVec.lean`,
-`wp_call_ret1` in `Rules.lean`, `sep_ac` in `MemLemmas.lean`.
+The program-independent helpers these proofs use are in `LeanQbe/Logic/`: `loadub_At` and the
+`region` bridges in `Bytes.lean` and `ZeroTerm.lean`, the bit-vector and cursor lemmas in
+`BitVec.lean`, `wp_call_ret1` in `Rules.lean`, `sep_ac` in `MemLemmas.lean`.
 -/
 
 set_option autoImplicit false
@@ -224,6 +224,35 @@ theorem readLeb128Pure_drop {prfBytes : List UInt8} {idx u : Nat} {bs' : List UI
   rw [List.drop_drop] at hdrop
   grind
 
+theorem cursor_loadub_branch {base : Val} {bs : List UInt8} {i : Nat}
+    {R : Mem 64 → Prop} {m : Mem 64} {P : Prop} {Q : Val → Prop}
+    (hbase : base.toNat + bs.length < 2 ^ 64) (hi : i ≤ bs.length)
+    (hm : (Eq (bs.At base) ⋆ R) m)
+    (heof : i = bs.length → bs.drop i = [] → P)
+    (hstep : ∀ (hlt : i < bs.length), bs.drop i = bs[i] :: bs.drop (i + 1) →
+      Q (BitVec.ofNat 64 bs[i].toNat)) :
+    (base + BitVec.ofNat 64 i = base + BitVec.ofNat 64 bs.length → P) ∧
+    (base + BitVec.ofNat 64 i ≠ base + BitVec.ofNat 64 bs.length →
+      ∃ v, loadVal m .l .b false (base + BitVec.ofNat 64 i) = some v ∧ Q v) :=
+  cursor_eof_branch hi (by omega)
+    (fun heq => heof heq (by simp [heq]))
+    (fun hlt => ⟨_, loadub_At hlt (by omega) hm, hstep hlt (List.drop_eq_getElem_cons hlt)⟩)
+
+theorem expectByte_step {base : Val} {bs : List UInt8} {i : Nat} (k : UInt8)
+    {R : Mem 64 → Prop} {m : Mem 64} {P Q : Prop}
+    (hbase : base.toNat + bs.length < 2 ^ 64) (hi : i ≤ bs.length)
+    (hm : (Eq (bs.At base) ⋆ R) m)
+    (heof : bs.drop i = [] → Q)
+    (hmis : ∀ b rest, bs.drop i = b :: rest → b ≠ k → Q)
+    (hmatch : i + 1 ≤ bs.length → bs.drop i = k :: bs.drop (i + 1) → P) :
+    (base + BitVec.ofNat 64 i = base + BitVec.ofNat 64 bs.length → Q) ∧
+    (base + BitVec.ofNat 64 i ≠ base + BitVec.ofNat 64 bs.length →
+      ∃ v, loadVal m .l .b false (base + BitVec.ofNat 64 i) = some v ∧
+        ((v = BitVec.ofNat 64 k.toNat → P) ∧ (v ≠ BitVec.ofNat 64 k.toNat → Q))) :=
+  expectByte_branch hbase hi hm heof
+    (fun hlt hk => hmatch hlt (hk ▸ List.drop_eq_getElem_cons hlt))
+    (fun hlt hne => hmis bs[i] (bs.drop (i + 1)) (List.drop_eq_getElem_cons hlt) hne)
+
 theorem readLeb128_spec {Γ : Env} {Q : Post} {X : XPost} {fail : Cont}
     {cur pend prf_ptr : Val} {prfBytes : List UInt8} {idx : Nat}
     {R : Mem 64 → Prop} {m : Mem 64} {done : Val → Val → Expr Val Cont}
@@ -261,50 +290,44 @@ theorem readLeb128_spec {Γ : Env} {Q : Post} {X : XPost} {fail : Cont}
     · rintro Jleb fuel as _ ⟨i, acc, sh, hfuel1, hsh_eq, hacc, hi, rfl, rfl, hpure⟩ ih
       obtain ⟨fuel', rfl⟩ : ∃ fuel', fuel = fuel' + 1 := ⟨fuel - 1, by omega⟩
       wp_unfold
-      refine ⟨fun heof => ?_, fun hneof => ?_⟩
-      · have hi_eq : i = prfBytes.length := (cursor_eq_iff (by omega) (by omega)).mp heof
-        subst hi_eq; rw [List.drop_length] at hpure; exact hfail hpure
-      · have hilt : i < prfBytes.length := by
-          rcases Nat.eq_or_lt_of_le hi with rfl | h; exact absurd rfl hneof; exact h
-        refine ⟨_, loadub_At hilt (by omega) hm, ?_⟩
-        rw [List.drop_eq_getElem_cons hilt] at hpure
-        have hb : prfBytes[i].toNat < 256 := prfBytes[i].toNat_lt
-        have hlo_lt : prfBytes[i].toNat &&& 127 < 128 :=
-          Nat.and_lt_two_pow prfBytes[i].toNat (n := 7) (by decide)
-        have hsl_lt : (prfBytes[i].toNat &&& 127) <<< sh < 2 ^ 28 := lo7_shift_lt (by omega)
-        have hacc2_lt : (acc ||| ((prfBytes[i].toNat &&& 127) <<< sh)) < 2 ^ 28 :=
-          Nat.or_lt_two_pow hacc hsl_lt
-        have hhi_lt : prfBytes[i].toNat &&& 128 < 256 :=
-          Nat.and_lt_two_pow prfBytes[i].toNat (n := 8) (by decide)
-        have hlo_bv : BitVec.ofNat 64 prfBytes[i].toNat &&& (127 : Val) =
-            BitVec.ofNat 64 (prfBytes[i].toNat &&& 127) :=
-          BitVec.eq_of_toNat_eq (by simp)
-        have hhi_bv : BitVec.ofNat 64 prfBytes[i].toNat &&& (128 : Val) =
-            BitVec.ofNat 64 (prfBytes[i].toNat &&& 128) :=
-          BitVec.eq_of_toNat_eq (by simp)
-        have hsh_mod : (BitVec.ofNat 64 sh).toNat % 64 = sh := by
-          simp [Nat.mod_eq_of_lt (by omega : sh < 2 ^ 64), Nat.mod_eq_of_lt (by omega : sh < 64)]
-        have hacc2_bv : BitVec.ofNat 64 acc ||| BitVec.ofNat 64 ((prfBytes[i].toNat &&& 127) <<< sh) =
-            BitVec.ofNat 64 (acc ||| ((prfBytes[i].toNat &&& 127) <<< sh)) :=
-          BitVec.eq_of_toNat_eq (by simp)
-        rw [hlo_bv, hsh_mod, bv_shl_ofNat (by omega) (by omega), hacc2_bv, hhi_bv, ptr_step_1]
-        have ⟨hmore_b, hnmore_b⟩ := bv_eq_zero_branch (by omega : prfBytes[i].toNat &&& 128 < 2 ^ 64)
-          (fun h0 => by simp [h0] : prfBytes[i].toNat &&& 128 = 0 → ((prfBytes[i].toNat &&& 128) != 0) = false)
-          (fun hnz => by simp [hnz] : prfBytes[i].toNat &&& 128 ≠ 0 → ((prfBytes[i].toNat &&& 128) != 0) = true)
-        refine ⟨fun hmore => ?_, fun hnmore => ?_⟩
-        · simp only [readLeb128Aux, hnmore_b hmore, ↓reduceIte] at hpure
-          rw [show (7 : Val) = BitVec.ofNat 64 7 from rfl,
-              show (28 : Val) = BitVec.ofNat 64 28 from rfl, bv_add_ofNat sh 7]
-          refine ult_branch (a := sh + 7) (b := 28) (by omega) (by decide) (fun hlt28 => ?_) (fun hnlt28 => ?_)
-          · simp only [hlt28, ↓reduceIte] at hpure
-            exact ih fuel' _ _ (by omega)
-              ⟨i + 1, _, sh + 7, by omega, by omega, hacc2_lt, hilt, rfl, rfl, hpure⟩
-          · grind
-        · simp only [readLeb128Aux, hmore_b (Classical.not_not.mp hnmore),
-            Bool.false_eq_true, ↓reduceIte] at hpure
-          exact hJdone _ _ ⟨_, i + 1, rfl, rfl, hilt, hpure⟩
-    · intro Jleb hJleb
-      wp_unfold
+      refine cursor_loadub_branch hfit hi hm
+        (fun _ hnil => hfail (by simpa [hnil, readLeb128Aux] using hpure))
+        (fun hilt hdrop => ?_)
+      rw [hdrop] at hpure
+      have hlo_lt : prfBytes[i].toNat &&& 127 < 128 :=
+        Nat.and_lt_two_pow prfBytes[i].toNat (n := 7) (by decide)
+      have hacc2_lt : (acc ||| ((prfBytes[i].toNat &&& 127) <<< sh)) < 2 ^ 28 :=
+        Nat.or_lt_two_pow hacc (lo7_shift_lt (by omega))
+      have hhi_lt : prfBytes[i].toNat &&& 128 < 256 :=
+        Nat.and_lt_two_pow prfBytes[i].toNat (n := 8) (by decide)
+      have hlo_bv : BitVec.ofNat 64 prfBytes[i].toNat &&& (127 : Val) =
+          BitVec.ofNat 64 (prfBytes[i].toNat &&& 127) := BitVec.eq_of_toNat_eq (by simp)
+      have hhi_bv : BitVec.ofNat 64 prfBytes[i].toNat &&& (128 : Val) =
+          BitVec.ofNat 64 (prfBytes[i].toNat &&& 128) := BitVec.eq_of_toNat_eq (by simp)
+      have hsh_mod : (BitVec.ofNat 64 sh).toNat % 64 = sh := by
+        simp [Nat.mod_eq_of_lt (by omega : sh < 2 ^ 64), Nat.mod_eq_of_lt (by omega : sh < 64)]
+      have hacc2_bv : BitVec.ofNat 64 acc ||| BitVec.ofNat 64 ((prfBytes[i].toNat &&& 127) <<< sh) =
+          BitVec.ofNat 64 (acc ||| ((prfBytes[i].toNat &&& 127) <<< sh)) :=
+        BitVec.eq_of_toNat_eq (by simp)
+      rw [hlo_bv, hsh_mod, bv_shl_ofNat (by omega) (by omega), hacc2_bv, hhi_bv, ptr_step_1]
+      have ⟨hmore_b, hnmore_b⟩ := bv_eq_zero_branch (by omega : prfBytes[i].toNat &&& 128 < 2 ^ 64)
+        (fun h0 => by
+          simp [h0] : prfBytes[i].toNat &&& 128 = 0 → ((prfBytes[i].toNat &&& 128) != 0) = false)
+        (fun hnz => by
+          simp [hnz] : prfBytes[i].toNat &&& 128 ≠ 0 → ((prfBytes[i].toNat &&& 128) != 0) = true)
+      refine ⟨fun hmore => ?_, fun hnmore => ?_⟩
+      · simp only [readLeb128Aux, hnmore_b hmore, ↓reduceIte] at hpure
+        rw [show (7 : Val) = BitVec.ofNat 64 7 from rfl,
+            show (28 : Val) = BitVec.ofNat 64 28 from rfl, bv_add_ofNat sh 7]
+        refine ult_branch (a := sh + 7) (b := 28) (by omega) (by decide)
+          (fun hlt28 => ?_) (fun _ => by grind)
+        simp only [hlt28, ↓reduceIte] at hpure
+        exact ih fuel' _ _ (by omega)
+          ⟨i + 1, _, sh + 7, by omega, by omega, hacc2_lt, hilt, rfl, rfl, hpure⟩
+      · simp only [readLeb128Aux, hmore_b (Classical.not_not.mp hnmore),
+          Bool.false_eq_true, ↓reduceIte] at hpure
+        exact hJdone _ _ ⟨_, i + 1, rfl, rfl, hilt, hpure⟩
+    · intro Jleb hJleb; wp_unfold
       exact hJleb 4 _ _ ⟨idx, 0, 0, by decide, by decide, by decide, hidx, rfl, by simp, rfl⟩
 
 /-- Structural mirror of `lbReadAddLits`. -/
@@ -673,26 +696,78 @@ theorem workCfg_regions_to_activeBytes (c : WorkCfg) {poolUsedInts poolRemInts :
   have htb : c.tRaw ≤ c.tBytes := by unfold WorkCfg.tBytes WorkCfg.tRaw; omega
   unfold WorkCfg.activeBytes at hfit ⊢
   have hm2 : (region c.hdr 80 ⋆
-      ((region c.vb (c.mv + 1) ⋆ region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1))) ⋆
+      ((region c.vb (c.mv + 1) ⋆
+          region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1))) ⋆
         ((region c.tb c.tRaw ⋆ region c.tlim (c.tBytes - c.tRaw)) ⋆
           (region c.cb (8 * c.cap) ⋆
             (region c.pbase (4 * poolUsedInts) ⋆
               region (c.pbase + BitVec.ofNat 64 (4 * poolUsedInts)) (4 * poolRemInts)))))) m :=
     sep_ac hm
   rw [
-    region_merge_eq (a := c.vb) (n1 := c.mv + 1) (n2 := c.vBytes - (c.mv + 1)) (n := c.vBytes) (by omega) (by omega),
+    region_merge_eq (a := c.vb) (n1 := c.mv + 1) (n2 := c.vBytes - (c.mv + 1)) (n := c.vBytes)
+      (by omega) (by omega),
     show c.tlim = c.tb + BitVec.ofNat 64 c.tRaw from rfl,
-    region_merge_eq (a := c.tb) (n1 := c.tRaw) (n2 := c.tBytes - c.tRaw) (n := c.tBytes) (by omega) (by omega),
-    region_merge_eq (a := c.pbase) (n1 := 4 * poolUsedInts) (n2 := 4 * poolRemInts) (n := 4 * c.poolInts) (by omega) (by omega),
+    region_merge_eq (a := c.tb) (n1 := c.tRaw) (n2 := c.tBytes - c.tRaw) (n := c.tBytes)
+      (by omega) (by omega),
+    region_merge_eq (a := c.pbase) (n1 := 4 * poolUsedInts) (n2 := 4 * poolRemInts)
+      (n := 4 * c.poolInts) (by omega) (by omega),
     show c.pbase = c.cb + BitVec.ofNat 64 (8 * c.cap) from rfl,
-    region_merge_eq (a := c.cb) (n1 := 8 * c.cap) (n2 := 4 * c.poolInts) (n := 8 * c.cap + 4 * c.poolInts) rfl (by omega),
+    region_merge_eq (a := c.cb) (n1 := 8 * c.cap) (n2 := 4 * c.poolInts)
+      (n := 8 * c.cap + 4 * c.poolInts) rfl (by omega),
     show c.cb = c.tb + BitVec.ofNat 64 c.tBytes from rfl,
-    region_merge_eq (a := c.tb) (n1 := c.tBytes) (n2 := 8 * c.cap + 4 * c.poolInts) (n := c.tBytes + (8 * c.cap + 4 * c.poolInts)) rfl (by omega),
+    region_merge_eq (a := c.tb) (n1 := c.tBytes) (n2 := 8 * c.cap + 4 * c.poolInts)
+      (n := c.tBytes + (8 * c.cap + 4 * c.poolInts)) rfl (by omega),
     show c.tb = c.vb + BitVec.ofNat 64 c.vBytes from rfl,
-    region_merge_eq (a := c.vb) (n1 := c.vBytes) (n2 := c.tBytes + (8 * c.cap + 4 * c.poolInts)) (n := c.vBytes + (c.tBytes + (8 * c.cap + 4 * c.poolInts))) rfl (by omega),
+    region_merge_eq (a := c.vb) (n1 := c.vBytes) (n2 := c.tBytes + (8 * c.cap + 4 * c.poolInts))
+      (n := c.vBytes + (c.tBytes + (8 * c.cap + 4 * c.poolInts))) rfl (by omega),
     show c.vb = c.hdr + BitVec.ofNat 64 80 from rfl,
-    region_merge_eq (a := c.hdr) (n1 := 80) (n2 := c.vBytes + (c.tBytes + (8 * c.cap + 4 * c.poolInts))) (n := c.activeBytes) (by unfold WorkCfg.activeBytes; omega) hfit] at hm2
+    region_merge_eq (a := c.hdr) (n1 := 80)
+      (n2 := c.vBytes + (c.tBytes + (8 * c.cap + 4 * c.poolInts))) (n := c.activeBytes)
+      (by unfold WorkCfg.activeBytes; omega) hfit] at hm2
   exact hm2
+
+def wsFixed (c : WorkCfg) (ptrs : List Val) (PoolUsed : Mem 64 → Prop) : Mem 64 → Prop :=
+  byte1Array c.vb (assignBytes c.mv Assignment.empty) ⋆
+  region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1)) ⋆
+  region c.tb c.tRaw ⋆
+  region c.tlim (c.tBytes - c.tRaw) ⋆
+  word8Array c.cb ptrs ⋆
+  PoolUsed
+
+theorem wsFixed_to_region (c : WorkCfg) {pcur0 cur0 : Val}
+    {poolUsed accLen rem : Nat} {ptrs lits : List Val} {PoolUsed : Mem 64 → Prop} {m : Mem 64}
+    (hplen : ptrs.length = c.cap) (hll : lits.length = accLen)
+    (hsum : poolUsed + accLen + rem = c.poolInts)
+    (hpu : ∀ f, PoolUsed f → region c.pbase (4 * poolUsed) f)
+    (hm : (word8Array c.hdr (c.hdrWords pcur0 cur0) ⋆ wsFixed c ptrs PoolUsed ⋆
+      int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) lits ⋆
+      region (c.pbase + BitVec.ofNat 64 (4 * poolUsed) + BitVec.ofNat 64 (4 * accLen))
+        (4 * rem)) m) :
+    region c.hdr c.activeBytes m := by
+  have := c.fit_active; have hmv := c.hmv; unfold dimacsBound at hmv
+  unfold WorkCfg.activeBytes WorkCfg.vBytes WorkCfg.tBytes WorkCfg.tRaw at *
+  let pcur := c.pbase + BitVec.ofNat 64 (4 * poolUsed)
+  have h4 : ∀ f, (int4Array pcur lits ⋆ region (pcur + BitVec.ofNat 64 (4 * accLen)) (4 * rem)) f →
+      region pcur (4 * (accLen + rem)) f := fun _ hf => by
+    rw [← region_merge_eq (a := pcur) (n1 := 4 * accLen) (n2 := 4 * rem) (by omega) (by omega)]
+    exact sep_mono (fun _ g => by simpa [hll] using int4Array_to_region (by rw [hll]; omega) g) hf
+  unfold wsFixed at hm
+  have hm0 : (word8Array c.hdr (c.hdrWords pcur0 cur0) ⋆
+      byte1Array c.vb (assignBytes c.mv Assignment.empty) ⋆
+      region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1)) ⋆
+      region c.tb c.tRaw ⋆ region c.tlim (c.tBytes - c.tRaw) ⋆
+      word8Array c.cb ptrs ⋆ PoolUsed ⋆
+      (int4Array pcur lits ⋆ region (pcur + BitVec.ofNat 64 (4 * accLen)) (4 * rem))) m :=
+    sep_cast hm (by dsimp only [pcur]; ac_rfl)
+  refine workCfg_regions_to_activeBytes c (poolUsedInts := poolUsed) (poolRemInts := accLen + rem)
+    (by omega) ?_
+  refine sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2
+    (fun _ hf => by
+      simpa [WorkCfg.hdrWords] using word8Array_to_region (by simp [WorkCfg.hdrWords]) hf)
+    (fun _ hf => by simpa using byte1Array_to_region (by simp; omega) hf))
+    (fun _ h => h)) (fun _ h => h)) (fun _ h => h))
+    (fun _ hf => by simpa [hplen] using word8Array_to_region (by rw [hplen]; omega) hf))
+    hpu) h4 m hm0
 
 /-- Any `WorkState` collapses back into `region c.hdr c.activeBytes`. -/
 theorem WorkState.to_region {c : WorkCfg} {poolUsedInts poolRemInts : Nat} {cur : Val}
@@ -700,16 +775,101 @@ theorem WorkState.to_region {c : WorkCfg} {poolUsedInts poolRemInts : Nat} {cur 
     (h : WorkState c poolUsedInts poolRemInts cur ptrs table PoolUsed m) :
     region c.hdr c.activeBytes m := by
   obtain ⟨hsum, ⟨hplen, _, _⟩, hpu, hm⟩ := h
-  have := c.fit_active; have hmv := c.hmv; unfold dimacsBound at hmv
-  unfold WorkCfg.activeBytes WorkCfg.vBytes WorkCfg.tBytes WorkCfg.tRaw at *
   dsimp only at hm
-  refine workCfg_regions_to_activeBytes c hsum ?_
-  refine sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2
-    (fun _ hf => by have := word8Array_to_region (by simp [WorkCfg.hdrWords]) hf; simpa [WorkCfg.hdrWords] using this)
-    (fun _ hf => by simpa using byte1Array_to_region (by simp; omega) hf))
-    (fun _ h => h)) (fun _ h => h)) (fun _ h => h))
-    (fun _ hf => by have := word8Array_to_region (by rw [hplen]; omega) hf; rwa [hplen] at this))
-    hpu) (fun _ h => h) m hm
+  refine wsFixed_to_region c (pcur0 := c.pbase + BitVec.ofNat 64 (4 * poolUsedInts)) (cur0 := cur)
+    (accLen := 0) (lits := []) hplen rfl (by omega) hpu ?_
+  simp only [int4Array_nil, Nat.mul_zero, BitVec.add_zero]
+  have hemp : (word8Array c.hdr (c.hdrWords (c.pbase + BitVec.ofNat 64 (4 * poolUsedInts)) cur) ⋆
+      wsFixed c ptrs PoolUsed ⋆ emp) =
+      (word8Array c.hdr (c.hdrWords (c.pbase + BitVec.ofNat 64 (4 * poolUsedInts)) cur) ⋆
+      wsFixed c ptrs PoolUsed) := by simp [sep_emp]
+  rw [hemp]; unfold wsFixed
+  exact sep_ac hm
+
+theorem wsFixed_fail_collapse (c : WorkCfg) {base pcur0 cur0 : Val} {bs : List UInt8}
+    {poolUsed rem : Nat} {ptrs acc : List Val} {PoolUsed R : Mem 64 → Prop} {m : Mem 64}
+    (hplen : ptrs.length = c.cap)
+    (hsum : poolUsed + acc.length + rem = c.poolInts)
+    (hpu : ∀ f, PoolUsed f → region c.pbase (4 * poolUsed) f)
+    (hm : (Eq (bs.At base) ⋆
+      (word8Array c.hdr (c.hdrWords pcur0 cur0) ⋆ wsFixed c ptrs PoolUsed ⋆
+        int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) acc.reverse ⋆
+        region (c.pbase + BitVec.ofNat 64 (4 * poolUsed) + BitVec.ofNat 64 (4 * acc.length))
+          (4 * rem)) ⋆ R) m) :
+    (Eq (bs.At base) ⋆ region c.hdr c.activeBytes ⋆ R) m :=
+  sep_mono_mid (B' := region c.hdr c.activeBytes)
+    (fun _ hws => wsFixed_to_region c hplen (by simp) hsum hpu hws) hm
+
+theorem wsFixed_push_lit {c : WorkCfg} {base pcur0 cur0 : Val} {bs : List UInt8}
+    {poolUsed rem : Nat} {ptrs acc : List Val} {PoolUsed R : Mem 64 → Prop} {m : Mem 64}
+    (lit : Val) (hrem : 0 < rem) (hfit : 4 * rem ≤ 2 ^ 64)
+    (hm : (Eq (bs.At base) ⋆
+      (word8Array c.hdr (c.hdrWords pcur0 cur0) ⋆ wsFixed c ptrs PoolUsed ⋆
+        int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) acc.reverse ⋆
+        region (c.pbase + BitVec.ofNat 64 (4 * poolUsed) + BitVec.ofNat 64 (4 * acc.length))
+          (4 * rem)) ⋆ R) m) :
+    let wcur := c.pbase + BitVec.ofNat 64 (4 * poolUsed) + BitVec.ofNat 64 (4 * acc.length)
+    storeOk m .w wcur ∧
+    (Eq (bs.At base) ⋆
+      (word8Array c.hdr (c.hdrWords pcur0 cur0) ⋆ wsFixed c ptrs PoolUsed ⋆
+        int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) (lit :: acc).reverse ⋆
+        region (c.pbase + BitVec.ofNat 64 (4 * poolUsed) +
+          BitVec.ofNat 64 (4 * (lit :: acc).length)) (4 * (rem - 1))) ⋆ R)
+      (storeMem m .w wcur lit) := by
+  intro wcur
+  let pcur := c.pbase + BitVec.ofNat 64 (4 * poolUsed)
+  obtain ⟨ok_sw, hm1⟩ := region_pop_store_int4 lit hrem hfit
+    (sep_cast hm (by dsimp only [wcur, pcur]; ac_rfl) : (region wcur (4 * rem) ⋆
+      (Eq (bs.At base) ⋆ word8Array c.hdr (c.hdrWords pcur0 cur0) ⋆
+        wsFixed c ptrs PoolUsed ⋆ int4Array pcur acc.reverse ⋆ R)) m)
+  have harr : int4Array pcur (lit :: acc).reverse =
+      (int4Array pcur acc.reverse ⋆ int4 wcur lit) := by
+    rw [List.reverse_cons, int4Array_append, List.length_reverse]
+    simp [wcur, pcur, sep_emp]
+  have hwcur2 : wcur + 4 = pcur + BitVec.ofNat 64 (4 * (lit :: acc).length) := by
+    simp only [wcur, pcur, List.length_cons, ptr4]
+  rw [hwcur2] at hm1
+  refine ⟨ok_sw, ?_⟩
+  rw [harr]
+  exact sep_cast hm1 (by dsimp only [wcur, pcur]; ac_rfl)
+
+theorem wsFixed_finish_clause {c : WorkCfg} {base pcur0 cur0 : Val} {bs : List UInt8}
+    {poolUsed rem : Nat} {ptrs acc : List Val} {PoolUsed R : Mem 64 → Prop} {m : Mem 64}
+    (hrem : 0 < rem) (hsum : poolUsed + (acc.length + 1) + (rem - 1) = c.poolInts)
+    (hpu : ∀ f, PoolUsed f → region c.pbase (4 * poolUsed) f)
+    (hm : (Eq (bs.At base) ⋆
+      (word8Array c.hdr (c.hdrWords pcur0 cur0) ⋆ wsFixed c ptrs PoolUsed ⋆
+        int4Array (c.pbase + BitVec.ofNat 64 (4 * poolUsed)) acc.reverse ⋆
+        region (c.pbase + BitVec.ofNat 64 (4 * poolUsed) + BitVec.ofNat 64 (4 * acc.length))
+          (4 * rem)) ⋆ R) m) :
+    let pcur := c.pbase + BitVec.ofNat 64 (4 * poolUsed)
+    let wcur := pcur + BitVec.ofNat 64 (4 * acc.length)
+    let poolUsed' := poolUsed + (acc.length + 1)
+    storeOk m .w wcur ∧
+    (∀ f, (PoolUsed ⋆ ZeroTermInts pcur acc.reverse) f → region c.pbase (4 * poolUsed') f) ∧
+    (word8Array c.hdr (c.hdrWords pcur0 cur0) ⋆
+      (wsFixed c ptrs (PoolUsed ⋆ ZeroTermInts pcur acc.reverse) ⋆
+        region (c.pbase + BitVec.ofNat 64 (4 * poolUsed')) (4 * (rem - 1)) ⋆
+        Eq (bs.At base) ⋆ R))
+      (storeMem m .w wcur 0) := by
+  intro pcur wcur poolUsed'
+  have hfa := c.fit_active; unfold WorkCfg.activeBytes at hfa
+  obtain ⟨ok_z, hm1⟩ := region_pop_store_int4 0 hrem (by omega)
+    (sep_cast hm (by dsimp only [wcur, pcur]; ac_rfl) : (region wcur (4 * rem) ⋆
+      (Eq (bs.At base) ⋆ word8Array c.hdr (c.hdrWords pcur0 cur0) ⋆
+        wsFixed c ptrs PoolUsed ⋆ int4Array pcur acc.reverse ⋆ R)) m)
+  have hzt : ZeroTermInts pcur acc.reverse = (int4Array pcur acc.reverse ⋆ int4 wcur 0) := by
+    rw [zeroTermInts_eq_append, List.length_reverse]
+  have hwcur2 : wcur + 4 = c.pbase + BitVec.ofNat 64 (4 * poolUsed') := by
+    dsimp [wcur, pcur, poolUsed']; grind
+  rw [hwcur2] at hm1
+  refine ⟨ok_z, fun f hf => ?_, ?_⟩
+  · rw [show 4 * poolUsed' = 4 * poolUsed + 4 * (acc.reverse.length + 1) by
+      simp [poolUsed']; omega, region_split (by simp; omega)]
+    exact sep_mono2 hpu (fun _ hg => zeroTermInts_to_region (by simp; omega) hg) f hf
+  · unfold wsFixed at hm1 ⊢
+    rw [hzt]
+    exact sep_cast hm1 (by dsimp only [wcur, pcur]; ac_rfl)
 
 /-! ### Exact callee contracts -/
 
@@ -836,7 +996,8 @@ def lratCheckBytesExactSpec : Spec := fun args m Q _ =>
     ((Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len) ⋆ R_mem) m ∧
     ∀ (r : Val) (m' : Mem 64),
       r = (if runLratCheckBytes cnfBytes prfBytes work_len then 1 else 0) →
-      ((Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len) ⋆ R_mem) m' →
+      ((Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆
+        region work_ptr work_len) ⋆ R_mem) m' →
       Q [r] m'
 
 end LeanQbe.LratBytes
