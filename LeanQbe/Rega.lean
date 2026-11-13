@@ -303,53 +303,111 @@ def restoreCs {I : Isa} (base : Nat) : List I.Reg → List I.Directive
   | [] => []
   | r :: rs => I.slotLd r base ++ restoreCs (base + 1) rs
 
-/-- Check if `let_ op k` followed by `jnz` can be fused into `I.jnzCmp`. -/
-def fuseCmp? (h : Hints I) (fn : String) (st : St I) (R : SymRegs I) :
-    Op Nat → Expr Nat Nat → Option (List I.Directive)
-  | .cmp cls co a b, .jnz (.var x) _ _ =>
-    if x == st.nv && (h.dest st.nv).isNone && (h.pre (st.ip + 1)).isEmpty then
-      match argReg R a, argReg R b with
-      | some a', some b' => I.jnzCmp cls co a' b' (lname fn st.nl)
-      | _, _ => none
+/-- Negation of a comparison operator (`a o.neg b ↔ ¬ (a o b)`). -/
+def _root_.LeanQbe.CmpOp.neg : CmpOp → CmpOp
+  | .eq => .ne | .ne => .eq
+  | .sle => .sgt | .slt => .sge | .sge => .slt | .sgt => .sle
+  | .ule => .ugt | .ult => .uge | .uge => .ult | .ugt => .ule
+
+/-- Execute pre-moves at `st.ip`, requiring `st.pend` to be empty. -/
+def stepPre (h : Hints I) (st : St I) : Option (SymRegs I) :=
+  if st.pend.isEmpty then execMoves h.nslots h.saved (h.pre st.ip) st.R else none
+
+/-- If `e` is `.jump j as` and needs no moves from `R`, return `some j`. -/
+def zeroMoveJump? (h : Hints I) (R : SymRegs I) : Expr Nat Nat → Option Nat
+  | .jump j as =>
+    let En := h.entry j
+    let tgts := En.live ++ tgtsIn as En.ploc
+    if as.length == En.ploc.length &&
+        tgts.all (fun t => symRegMem t R &&
+          match t.2 with | .reg r => decide (r ∉ I.scratch) | .slot _ => true)
+    then some j else none
+  | _ => none
+
+/-- Label jumped to at the end of a straight-line sequence, if any. -/
+def endsWithJump? : Expr Nat Nat → Option Nat
+  | .jump j _ => some j
+  | .let_ _ k | .load _ _ _ _ k | .param k => endsWithJump? (k 0)
+  | .store _ _ _ k | .call _ _ k => endsWithJump? k
+  | _ => none
+
+/-- Untrusted branch layout choice `(inv, tgt?)`:
+`inv = true` negates the branch condition and swaps the roles of `t` and `e`;
+`tgt? = some j` threads a zero-move jump directly into the conditional branch. -/
+def jnzMode (h : Hints I) (R : SymRegs I) (t e : Expr Nat Nat) (ft : Option Nat) :
+    Bool × Option Nat :=
+  match zeroMoveJump? h R t, zeroMoveJump? h R e with
+  | some jt, some je => if ft == some jt then (true, some je) else (false, some jt)
+  | some jt, none => (false, some jt)
+  | none, some je => (true, some je)
+  | none, none => (ft.isSome && endsWithJump? e == ft && endsWithJump? t != ft, none)
+
+/-- Fused comparison state `(xf, cls, co, a', b')` from a preceding dest-less `let_ (.cmp ...)`. -/
+abbrev Fused (I : Isa) := Option (Nat × Cls × CmpOp × Arg I.Reg × Arg I.Reg)
+
+/-- Resolve the branch condition of `.jnz (.var x)`, either from `fused` or by testing `x ≠ 0`. -/
+def jnzCond (h : Hints I) (x : Nat) (st : St I) :
+    Fused I → Option (List I.Directive × SymRegs I × Cls × CmpOp × Arg I.Reg × Arg I.Reg)
+  | some (xf, cls, co, a', b') =>
+    if x == xf && (h.pre st.ip).isEmpty && st.pend.isEmpty then
+      some ([], st.R, cls, co, a', b')
     else none
-  | _, _ => none
+  | none =>
+    match stepPre h st with
+    | some R =>
+      match argReg R (.var x) with
+      | some (.var rc) => some (movesCode (h.pre st.ip), R, .w, .ne, .var rc, .imm 0)
+      | _ => none
+    | none => none
+
+/-- Assemble one orientation of `jnz`, checking that a threaded jump lowered to `[]`. -/
+def finishJnzBranch (I : Isa) (fn : String) (nl : Nat) (tgt? : Option Nat)
+    (b_taken : Expr Nat Nat) (br c_ft c_taken : List I.Directive) (nv2 nl2 ip2 : Nat) : Res I :=
+  match tgt? with
+  | some j =>
+    match b_taken with
+    | .jump j' _ =>
+      if j' == j && c_taken.isEmpty then .ok (br ++ c_ft, nv2, nl2, ip2)
+      else .error "jnz: bad jump thread"
+    | _ => .error "jnz: not a jump"
+  | none =>
+    .ok (br ++ c_ft ++ [I.label (lname fn nl)] ++ c_taken, nv2, nl2, ip2)
+
+/-- Assemble the lowered branches of `jnz` according to `inv`. -/
+def finishJnz (I : Isa) (fn : String) (nl : Nat) (inv : Bool) (tgt? : Option Nat)
+    (t e : Expr Nat Nat) (br ce ct : List I.Directive) (nv2 nl2 ip2 : Nat) : Res I :=
+  if inv then finishJnzBranch I fn nl tgt? e br ct ce nv2 nl2 ip2
+  else finishJnzBranch I fn nl tgt? t br ce ct nv2 nl2 ip2
 
 /-- Lower a term. `fn` prefixes label names.
-`ft` is the optional label of the immediately following block, so a trailing `jump` to `ft` falls through.
-`fused` carries `(xf, fc)` when a preceding `cmp` defining `xf` was fused into `fc` for the next `jnz`. -/
+`ft` is the optional label of the immediately following block, so a trailing `jump` to `ft` falls
+through. `fused` carries `(xf, cls, co, a', b')` when a preceding `cmp` fuses into `jnz`. -/
 def lower (h : Hints I) (E : Ext) (fn : String) :
-    Expr Nat Nat → St I → (ft : Option Nat := none) →
-    (fused : Option (Nat × List I.Directive) := none) → Res I
-  | .param f, st, ft, fused =>
-    if fused.isSome then .error "param: unexpected fused cmp" else
-    match st.PL with
-    | [] => .error "param: no register left"
-    | r :: PL => lower h E fn (f st.nv) ⟨st.nv + 1, st.nl, st.ip, bindN st.nv r st.R, PL, []⟩ ft
-  | .let_ op k, st, ft, fused =>
-    if fused.isSome then .error "let: unexpected fused cmp" else
-    match execMoves h.nslots h.saved (h.pre st.ip) st.R with
-    | none => .error "let: bad moves"
+    Expr Nat Nat → St I → (ft : Option Nat := none) → (fused : Fused I := none) → Res I
+  | .param f, st, ft, none =>
+    match st.PL, st.pend with
+    | r :: PL, [] => lower h E fn (f st.nv) ⟨st.nv + 1, st.nl, st.ip, bindN st.nv r st.R, PL, []⟩ ft
+    | _, _ => .error "param: no register left or pending label"
+  | .let_ op k, st, ft, none =>
+    match stepPre h st with
     | some R =>
-      match fuseCmp? h fn st R op (k st.nv) with
-      | some c =>
-        let R' := clob none (R.filter (fun p => !argNatEq p.1 (.var st.nv)))
-        lower h E fn (k st.nv) ⟨st.nv + 1, st.nl, st.ip + 1, R', [], []⟩ ft
-          (some (st.nv, movesCode (h.pre st.ip) ++ c))
-      | none =>
-        match h.dest st.nv, opRegs R op with
-        | some d, some o =>
-          if d ∈ I.allocatable ∨ d ∈ h.saved then
-            match I.op o d with
-            | some c =>
-              prepend (movesCode (h.pre st.ip) ++ c) (lower h E fn (k st.nv)
-                ⟨st.nv + 1, st.nl, st.ip + 1, bindN st.nv d (clob (some d) R), [], []⟩ ft)
-            | none => .error "let: no snippet"
-          else .error "let: destination not allocatable"
-        | _, _ => .error "let: operand or destination missing"
-  | .load cl sz sg a k, st, ft, fused =>
-    if fused.isSome then .error "load: unexpected fused cmp" else
-    match execMoves h.nslots h.saved (h.pre st.ip) st.R with
-    | none => .error "load: bad moves"
+      match h.dest st.nv, opRegs R op with
+      | some d, some o =>
+        if d ∈ I.allocatable ∨ d ∈ h.saved then
+          match I.op o d with
+          | some c =>
+            prepend (movesCode (h.pre st.ip) ++ c) (lower h E fn (k st.nv)
+              ⟨st.nv + 1, st.nl, st.ip + 1, bindN st.nv d (clob (some d) R), [], []⟩ ft)
+          | none => .error "let: no snippet"
+        else .error "let: destination not allocatable"
+      | none, some (.cmp cls co a' b') =>
+        prepend (movesCode (h.pre st.ip)) (lower h E fn (k st.nv)
+          ⟨st.nv + 1, st.nl, st.ip + 1, R.filter (fun p => !argNatEq p.1 (.var st.nv)), [], []⟩
+          ft (some (st.nv, cls, co, a', b')))
+      | _, _ => .error "let: operand or destination missing"
+    | none => .error "let: bad moves"
+  | .load cl sz sg a k, st, ft, none =>
+    match stepPre h st with
     | some R =>
       match h.dest st.nv, argReg R a with
       | some d, some a' =>
@@ -361,10 +419,9 @@ def lower (h : Hints I) (E : Ext) (fn : String) :
           | none => .error "load: no snippet"
         else .error "load: destination not allocatable"
       | _, _ => .error "load: operand or destination missing"
-  | .store sz v a k, st, ft, fused =>
-    if fused.isSome then .error "store: unexpected fused cmp" else
-    match execMoves h.nslots h.saved (h.pre st.ip) st.R with
-    | none => .error "store: bad moves"
+    | none => .error "load: bad moves"
+  | .store sz v a k, st, ft, none =>
+    match stepPre h st with
     | some R =>
       match argReg R v, argReg R a with
       | some v', some a' =>
@@ -374,10 +431,9 @@ def lower (h : Hints I) (E : Ext) (fn : String) :
             (lower h E fn k ⟨st.nv, st.nl, st.ip + 1, clob none R, [], []⟩ ft)
         | none => .error "store: no snippet"
       | _, _ => .error "store: operand missing"
-  | .call g as k, st, ft, fused =>
-    if fused.isSome then .error "call: unexpected fused cmp" else
-    match execMoves h.nslots h.saved (h.pre st.ip) st.R with
-    | none => .error "call: bad moves"
+    | none => .error "store: bad moves"
+  | .call g as k, st, ft, none =>
+    match stepPre h st with
     | some R =>
       if g ∈ E.callees ∧ as.length ≤ I.argRegs.length then
         match shuffle h.nslots h.saved R (tgtsIn as I.argRegs) with
@@ -386,41 +442,37 @@ def lower (h : Hints I) (E : Ext) (fn : String) :
             (lower h E fn k ⟨st.nv, st.nl, st.ip + 1, afterCall h.saved R', I.retRegs, []⟩ ft)
         | none => .error "call: arguments not placed"
       else .error "call: callee not allowed or too many arguments"
-  | .jnz (.imm c) t e, st, ft, fused =>
-    if fused.isSome then .error "jnz: unexpected fused cmp" else
-    match execMoves h.nslots h.saved (h.pre st.ip) st.R with
-    | none => .error "jnz: bad moves"
+    | none => .error "call: bad moves"
+  | .jnz (.imm c) t e, st, ft, none =>
+    match stepPre h st with
     | some R =>
       prepend (movesCode (h.pre st.ip))
         (if Truthy c then lower h E fn t ⟨st.nv, st.nl, st.ip + 1, R, [], []⟩ ft
          else lower h E fn e ⟨st.nv, st.nl, st.ip + 1, R, [], []⟩ ft)
+    | none => .error "jnz: bad moves"
   | .jnz (.var x) t e, st, ft, fused =>
-    match fused with
-    | some (xf, fc) =>
-      if x == xf && (h.pre st.ip).isEmpty then
-        match lower h E fn e ⟨st.nv, st.nl + 1, st.ip + 1, st.R, [], []⟩ (some st.nl) with
+    match jnzCond h x st fused with
+    | none => .error "jnz: bad condition"
+    | some (mvs, R, cls, co, a', b') =>
+      let R' := clob none R
+      let (inv, tgt?) := jnzMode h R' t e ft
+      let lbl := tgt?.getD st.nl
+      let ft_taken := match tgt? with | some j => some j | none => ft
+      let ft_ft := match tgt? with | some _ => ft | none => some st.nl
+      match I.jnzCmp cls (if inv then co.neg else co) a' b' (lname fn lbl) with
+      | none => .error "jnz: no snippet"
+      | some br =>
+        match lower h E fn e ⟨st.nv, st.nl + 1, st.ip + 1, R', [], []⟩
+            (if inv then ft_taken else ft_ft) with
         | .ok (ce, nv1, nl1, ip1) =>
-          prepend (fc ++ ce ++ [I.label (lname fn st.nl)])
-            (lower h E fn t ⟨nv1, nl1, ip1, st.R, [], []⟩ ft)
-        | .error err => .error err
-      else .error "jnz: bad fused cmp"
-    | none =>
-      match execMoves h.nslots h.saved (h.pre st.ip) st.R with
-      | none => .error "jnz: bad moves"
-      | some R =>
-        match argReg R (.var x) with
-        | some (.var rc) =>
-          match lower h E fn e ⟨st.nv, st.nl + 1, st.ip + 1, clob none R, [], []⟩ (some st.nl) with
-          | .ok (ce, nv1, nl1, ip1) =>
-            prepend (movesCode (h.pre st.ip) ++ I.jnz rc (lname fn st.nl) ++ ce ++
-                [I.label (lname fn st.nl)])
-              (lower h E fn t ⟨nv1, nl1, ip1, clob none R, [], []⟩ ft)
+          match lower h E fn t ⟨nv1, nl1, ip1, R', [], []⟩
+              (if inv then ft_ft else ft_taken) with
+          | .ok (ct, nv2, nl2, ip2) =>
+            prepend mvs (finishJnz I fn st.nl inv tgt? t e br ce ct nv2 nl2 ip2)
           | .error err => .error err
-        | _ => .error "jnz: operand missing"
-  | .jump j as, st, ft, fused =>
-    if fused.isSome then .error "jump: unexpected fused cmp" else
-    match execMoves h.nslots h.saved (h.pre st.ip) st.R with
-    | none => .error "jump: bad moves"
+        | .error err => .error err
+  | .jump j as, st, ft, none =>
+    match stepPre h st with
     | some R =>
       let En := h.entry j
       let tgts := En.live ++ tgtsIn as En.ploc
@@ -432,10 +484,9 @@ def lower (h : Hints I) (E : Ext) (fn : String) :
           .ok (movesCode (h.pre st.ip) ++ c ++ jc, st.nv, st.nl, st.ip + 1)
         | none => .error "jump: entry map not met"
       else .error "jump: arity or scratch register in entry map"
-  | .ret vs, st, _, fused =>
-    if fused.isSome then .error "ret: unexpected fused cmp" else
-    match execMoves h.nslots h.saved (h.pre st.ip) st.R with
-    | none => .error "ret: bad moves"
+    | none => .error "jump: bad moves"
+  | .ret vs, st, _, none =>
+    match stepPre h st with
     | some R =>
       if vs.length ≤ I.retRegs.length then
         match shuffle h.nslots h.saved R (tgtsIn vs I.retRegs) with
@@ -444,10 +495,9 @@ def lower (h : Hints I) (E : Ext) (fn : String) :
             I.epilogue h.totalSlots ++ I.ret, st.nv, st.nl, st.ip + 1)
         | none => .error "ret: results not placed"
       else .error "ret: too many results"
-  | .exit g as, st, _, fused =>
-    if fused.isSome then .error "exit: unexpected fused cmp" else
-    match execMoves h.nslots h.saved (h.pre st.ip) st.R with
-    | none => .error "exit: bad moves"
+    | none => .error "ret: bad moves"
+  | .exit g as, st, _, none =>
+    match stepPre h st with
     | some R =>
       if g ∈ E.exits ∧ as.length ≤ I.argRegs.length then
         match shuffle h.nslots h.saved R (tgtsIn as I.argRegs) with
@@ -456,13 +506,12 @@ def lower (h : Hints I) (E : Ext) (fn : String) :
             I.epilogue h.totalSlots ++ I.tailJmp g, st.nv, st.nl, st.ip + 1)
         | none => .error "exit: arguments not placed"
       else .error "exit: target not allowed or too many arguments"
-  | .hlt, st, _, fused =>
-    if fused.isSome then .error "hlt: unexpected fused cmp" else .ok ([], st.nv, st.nl, st.ip + 1)
-  | .label f, st, ft, fused =>
-    if fused.isSome then .error "label: unexpected fused cmp" else
+    | none => .error "exit: bad moves"
+  | .hlt, st, _, none =>
+    if st.pend.isEmpty then .ok ([], st.nv, st.nl, st.ip + 1) else .error "hlt: pending label"
+  | .label f, st, ft, none =>
     lower h E fn (f st.nl) ⟨st.nv, st.nl + 1, st.ip, st.R, st.PL, st.pend ++ [st.nl]⟩ ft
-  | .block b rest, st, ft, fused =>
-    if fused.isSome then .error "block: unexpected fused cmp" else
+  | .block b rest, st, ft, none =>
     match st.pend with
     | [] => .error "block: no pending label"
     | ℓ :: pend =>
@@ -471,6 +520,7 @@ def lower (h : Hints I) (E : Ext) (fn : String) :
         prepend (cr ++ [I.label (lname fn ℓ)])
           (lower h E fn b ⟨nv1, nl1, ip1, (h.entry ℓ).live, (h.entry ℓ).ploc, []⟩ ft)
       | .error err => .error err
+  | _, _, _, some _ => .error "unexpected fused cmp"
 
 /-- Initial state of a function body: parameters in the argument registers. -/
 def St.init (I : Isa) : St I := ⟨0, 0, 0, [], I.argRegs, []⟩

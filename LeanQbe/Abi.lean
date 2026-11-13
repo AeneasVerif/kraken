@@ -92,10 +92,8 @@ structure Isa where
   store : Sz → Arg Reg → Arg Reg → Option (List Directive)
   /-- `jmp l`: jump to label `l`. -/
   jmp : String → List Directive
-  /-- `jnz r l`: jump to label `l` if `Truthy r` (low 32 bits nonzero), else fall through. -/
-  jnz : Reg → String → List Directive
-  /-- Fused `cmp` + `jnz`: jump to `l` iff `cmp k co a b` evaluates to `1`; `none` falls back to `op` + `jnz`. -/
-  jnzCmp : Cls → CmpOp → Arg Reg → Arg Reg → String → Option (List Directive) := fun _ _ _ _ _ => none
+  /-- Conditional branch: jump to `l` iff `cmp k co a b` evaluates to `1`, else fall through. -/
+  jnzCmp : Cls → CmpOp → Arg Reg → Arg Reg → String → Option (List Directive)
   /-- `ret`: return to the caller. -/
   ret : List Directive
   /-- Registers the return-address convention uses besides memory (x64: none; AArch64: `x30`).
@@ -261,13 +259,6 @@ structure Target extends Isa where
     (∀ s', (∀ r, r ∉ scratch → get s' r = get s r) → mem s' = mem s →
       Eventually (step h) post (mkState s' (addrOf h j))) →
     Eventually (step h) post (mkState s (addrOf h k))
-  jnz_spec : ∀ {h : Host} {k j : Nat} {r : Reg} {l : String} {s : MData} {post : State → Prop},
-    (jnz r l).IsInfixAt (prog h) k → labelAddr h l = addrOf h j → r ∉ scratch →
-    (∀ s', (∀ r, r ∉ scratch → get s' r = get s r) → mem s' = mem s →
-      (Truthy (get s r) → Eventually (step h) post (mkState s' (addrOf h j))) ∧
-      (¬ Truthy (get s r) →
-        Eventually (step h) post (mkState s' (addrOf h (k + (jnz r l).length))))) →
-    Eventually (step h) post (mkState s (addrOf h k))
   jnzCmp_spec : ∀ {h : Host} {k j : Nat} {cls : Cls} {co : CmpOp} {a b : Arg Reg} {l : String}
       {c : List Directive} {v : Val} {s : MData} {post : State → Prop},
     jnzCmp cls co a b l = some c → c.IsInfixAt (prog h) k → labelAddr h l = addrOf h j →
@@ -276,7 +267,7 @@ structure Target extends Isa where
     (∀ s', (∀ r, r ∉ scratch → get s' r = get s r) → mem s' = mem s →
       (Truthy v → Eventually (step h) post (mkState s' (addrOf h j))) ∧
       (¬ Truthy v → Eventually (step h) post (mkState s' (addrOf h (k + c.length))))) →
-    Eventually (step h) post (mkState s (addrOf h k)) := by intros; contradiction
+    Eventually (step h) post (mkState s (addrOf h k))
   prologue_spec : ∀ {h : Host} {k ns : Nat} {s : MData} {ra : Addr} {G : Mem 64 → Prop}
       {post : State → Prop},
     (prologue ns).IsInfixAt (prog h) k → raReg s ra → spEntry (get s sp) →

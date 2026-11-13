@@ -394,10 +394,6 @@ def hostLabel (h : Host) (l : Label) : Int64 :=
     letI := h; eventually_store hop hc hvars hok hk
   jmp_spec {h} {_} {_} {_} {s} {_} hc hj hk :=
     letI := h; eventually_jmp hc hj (hk s (fun _ _ => rfl) rfl)
-  jnz_spec {h} {_} {_} {_} {_} {_} {_} hc hj _ hk := by
-    letI := h
-    exact eventually_jnz hc hj fun s' hregs hmem =>
-      hk s' (fun r _ => congrArg (Reg64s.get64 · r) hregs) hmem
   jnzCmp_spec {h} {_} {_} {_} {_} {_} {_} {_} {_} {_} {_} {_} hop hc hj hvars hv hk := by
     letI := h; exact eventually_jnzCmp hop hc hj hvars hv hk
   ret_spec {h} {_} {s} {_} {_} {_} hc _ hmem hk := by

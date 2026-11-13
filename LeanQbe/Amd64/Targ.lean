@@ -87,7 +87,6 @@ def frameSize (ns : Nat) : Nat := 8 * ns + (if ns % 2 = 0 then 8 else 0)
   load := load
   store := store
   jmp := jmp
-  jnz := jnz
   jnzCmp := jnzCmp
   ret := ret
   raRegs := []

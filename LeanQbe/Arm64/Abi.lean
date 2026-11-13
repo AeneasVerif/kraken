@@ -115,7 +115,6 @@ theorem x30_not_scratch : (XRegOrSp.reg .X30 : Reg) ∉ scratch := by simp [scra
     letI := h; Runs.spec (store_runs hop hvars hok) hc fun _ ⟨h1, h2⟩ => hk _ h1 h2
   jmp_spec {h} {_} {_} {_} {s} {_} hc hj hk :=
     letI := h; eventually_jmp hc hj (hk s (fun _ _ => rfl) rfl)
-  jnz_spec {h} {_} {_} {_} {_} {_} {_} hc hj _ hk := letI := h; eventually_jnz hc hj hk
   jnzCmp_spec {h} {_} {_} {_} {_} {_} {_} {_} {_} {_} {_} {_} hop hc hj hvars hv hk :=
     letI := h; eventually_jnzCmp hop hc hj hvars hv hk
   prologue_spec {h} {_} {_} {_} {_} {_} {_} hc hra hsp hF hmem hk := by

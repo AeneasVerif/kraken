@@ -268,7 +268,6 @@ def jnzCmp (k : Cls) (co : CmpOp) (a b : Arg Reg) (l : String) : Option (List Di
   load := load
   store := store
   jmp := jmp
-  jnz := jnz
   jnzCmp := jnzCmp
   ret := ret
   raRegs := [.reg .X30]
