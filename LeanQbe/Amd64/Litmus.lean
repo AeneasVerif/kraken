@@ -135,17 +135,16 @@ theorem tracer_correct (k₀ : Nat) (hc : tracerCompiled.code.IsInfixAt Host.pro
           (fun f => ∃ bs : List UInt8, bs.length = tracerCompiled.bound "tracer" + 8 ∧
               f = bs.At (s.regs.get64 .rsp - BitVec.ofNat 64 (tracerCompiled.bound "tracer"))) ⋆ R))
       ⟨s, Labels.label "tracer"⟩ := by
-  have hwp : Func.spec emptyEnv tracer.body [a, b, p] m
-      (fun rets m' => rets = [a + b] ∧ m' = storeMem m .l p (a + b)) (fun _ _ _ => False) :=
-    tracer_spec emptyEnv a b p m (by simpa [storeOk, Sz.bytes] using hp)
   have hargs : target.ArgsIn [a, b, p] s := by
     simp [Target.ArgsIn, Target.ValsIn, target, isa, ha, hb, hpp]
-  have h := (tracer_fnspec k₀ hc hu).2 [a, b, p] m _ _ hwp s ra R hargs trivial hsp hmem
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st (⟨hpc, rets, m', ⟨rfl, rfl⟩, hrets, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx, _⟩)
-  · refine ⟨hpc, ?_, fun r hr => hcs r hr, hsp', hm'⟩
-    simpa [Target.RetsIn, Target.ValsIn, target, isa] using hrets
-  · exact hx.elim
+  have hp' : storeOk m .l p := by simpa [storeOk, Sz.bytes] using hp
+  refine eventually_weaken _ _ _ _ ?_
+    (amd64_of_returns (tracer_returns tracerCompiled hh k₀ hc hu a b p m hp') s ra R hargs hsp
+      hmem)
+  rintro st ⟨hpc, hcs, hsp', rets, hrets,
+    f1, f2, hu1, hd1, ⟨m', fe, hu2, hd2, ⟨rfl, hstore⟩, hexit⟩, hf2⟩
+  refine ⟨hpc, ?_, hcs, hsp', f1, f2, hu1, hd1, ⟨m', fe, hu2, hd2, hstore.symm, hexit⟩, hf2⟩
+  simpa [Target.RetsIn, Target.ValsIn, target, isa] using hrets
 
 /-- `sumto` on Kraken x64. -/
 theorem sumto_correct (k₀ : Nat) (hc : sumtoCompiled.code.IsInfixAt Host.prog k₀)
@@ -164,21 +163,13 @@ theorem sumto_correct (k₀ : Nat) (hc : sumtoCompiled.code.IsInfixAt Host.prog 
           (fun f => ∃ bs : List UInt8, bs.length = sumtoCompiled.bound "sumto" + 8 ∧
               f = bs.At (s.regs.get64 .rsp - BitVec.ofNat 64 (sumtoCompiled.bound "sumto"))) ⋆ R))
       ⟨s, Labels.label "sumto"⟩ := by
-  have hE : (Eq (∅ : Mem 64)) = Std.ExtHashMap.emp := by
-    funext x; apply propext; simp [Std.ExtHashMap.emp, eq_comm]
   have hargs : target.ArgsIn [n] s := by
     simp [Target.ArgsIn, Target.ValsIn, target, isa, hrdi]
-  have hmem' : target.mem s =⋆ Eq ∅ ⋆
-      target.Entry (target.get s target.sp) ra (sumtoCompiled.bound "sumto") ⋆ R := by
-    rw [hE, Std.ExtHashMap.emp_sep]; exact hmem
-  have h := (sumto_fnspec k₀ hc hu).2 [n] ∅ _ _ (sumto_spec emptyEnv n hn ∅)
-    s ra R hargs trivial hsp hmem'
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st (⟨hpc, rets, m', ⟨rfl, rfl⟩, hrets, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx, _⟩)
-  · refine ⟨hpc, ?_, fun r hr => hcs r hr, hsp', ?_⟩
-    · simpa [Target.RetsIn, Target.ValsIn, target, isa] using hrets
-    · rw [hE, Std.ExtHashMap.emp_sep] at hm'; exact hm'
-  · exact hx.elim
+  refine eventually_weaken _ _ _ _ ?_
+    (amd64_of_returns_emp (sumto_returns sumtoCompiled hh k₀ hc hu n hn) s ra R hargs hsp hmem)
+  rintro st ⟨hpc, hcs, hsp', rets, hrets, rfl, hm'⟩
+  refine ⟨hpc, ?_, hcs, hsp', hm'⟩
+  simpa [Target.RetsIn, Target.ValsIn, target, isa] using hrets
 
 /-- `callinc` on Kraken x64. -/
 theorem callinc_correct (k₀ : Nat)
@@ -198,22 +189,14 @@ theorem callinc_correct (k₀ : Nat)
           (fun f => ∃ bs : List UInt8, bs.length = callincCompiled.bound "callinc" + 8 ∧
               f = bs.At (s.regs.get64 .rsp - BitVec.ofNat 64 (callincCompiled.bound "callinc"))) ⋆ R))
       ⟨s, Labels.label "callinc"⟩ := by
-  have hE : (Eq (∅ : Mem 64)) = Std.ExtHashMap.emp := by
-    funext x; apply propext; simp [Std.ExtHashMap.emp, eq_comm]
   have hargs : target.ArgsIn [a, b] s := by
     simp [Target.ArgsIn, Target.ValsIn, target, isa, ha, hb]
-  have hmem' : target.mem s =⋆ Eq ∅ ⋆
-      target.Entry (target.get s target.sp) ra (callincCompiled.bound "callinc") ⋆ R := by
-    rw [hE, Std.ExtHashMap.emp_sep]; exact hmem
-  have hf := (callinc_module_fnspec k₀ hc hu (nm := "callinc") (by decide)).2
-    [a, b] ∅ (fun r m' => r = [a + 1 + b] ∧ m' = ∅) (fun _ _ _ => False) ⟨a, b, rfl, rfl, rfl⟩
-    s ra R hargs trivial hsp hmem'
-  refine eventually_weaken _ _ _ _ ?_ hf
-  rintro st (⟨hpc, rets, m', ⟨rfl, rfl⟩, hrets, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx, _⟩)
-  · refine ⟨hpc, ?_, fun r hr => hcs r hr, hsp', ?_⟩
-    · simpa [Target.RetsIn, Target.ValsIn, target, isa] using hrets
-    · rw [hE, Std.ExtHashMap.emp_sep] at hm'; exact hm'
-  · exact hx.elim
+  refine eventually_weaken _ _ _ _ ?_
+    (amd64_of_returns_emp (callinc_returns callincCompiled hh k₀ hc hu a b) s ra R hargs hsp
+      hmem)
+  rintro st ⟨hpc, hcs, hsp', rets, hrets, rfl, hm'⟩
+  refine ⟨hpc, ?_, hcs, hsp', hm'⟩
+  simpa [Target.RetsIn, Target.ValsIn, target, isa] using hrets
 
 /-- `twice` on Kraken x64. -/
 theorem twice_correct (k₀ : Nat)
@@ -236,26 +219,19 @@ theorem twice_correct (k₀ : Nat)
          (Truthy a ∧ ¬Truthy b ∧ st.pc = Labels.label "fail" ∧ st.data.regs.get64 .rdi = b ∧
           (st.data.regs.get64 .rsp + 8#64).toNat % 16 = 0)))
       ⟨s, Labels.label "twice"⟩ := by
-  have hE : (Eq (∅ : Mem 64)) = Std.ExtHashMap.emp := by
-    funext x; apply propext; simp [Std.ExtHashMap.emp, eq_comm]
   have hargs : target.ArgsIn [a, b] s := by
     simp [Target.ArgsIn, Target.ValsIn, target, isa, ha, hb]
-  have hmem' : target.mem s =⋆ Eq ∅ ⋆
-      target.Entry (target.get s target.sp) ra (twiceCompiled.bound "twice") ⋆ R := by
-    rw [hE, Std.ExtHashMap.emp_sep]; exact hmem
-  let Q : LeanQbe.Post := fun r m' => Truthy a ∧ Truthy b ∧ r = [a + b] ∧ m' = ∅
-  let X : XPost := fun g xs m' =>
-    g = "fail" ∧ m' = ∅ ∧ ((¬Truthy a ∧ xs = [a]) ∨ (Truthy a ∧ ¬Truthy b ∧ xs = [b]))
-  have hspec : twiceContract [a, b] ∅ Q X :=
-    ⟨a, b, rfl, fun hta htb => ⟨hta, htb, rfl, rfl⟩,
-      fun hna => ⟨rfl, rfl, Or.inl ⟨hna, rfl⟩⟩,
-      fun hta hnb => ⟨rfl, rfl, Or.inr ⟨hta, hnb, rfl⟩⟩⟩
-  have hf := (twice_module_fnspec k₀ hc hu hfail (nm := "twice") (by decide)).2
-    [a, b] ∅ Q X hspec s ra R hargs trivial hsp hmem'
-  refine eventually_weaken _ _ _ _ ?_ hf
-  rintro st (⟨hpc, rets, m', ⟨hta, htb, rfl, rfl⟩, hrets, ⟨hcs, hsp'⟩, _⟩ |
-    ⟨sym', as', m', ⟨rfl, rfl, hcase⟩, _, hpc, has', hspE, _⟩)
-  · refine Or.inl ⟨hta, htb, hpc, ?_, fun r hr => hcs r hr, hsp'⟩
+  have hmem' : s.dmem =⋆ Std.ExtHashMap.emp ⋆
+      ((fun f => ∃ bs : List UInt8, bs.length = twiceCompiled.bound "twice" ∧
+          f = bs.At (s.regs.get64 .rsp - BitVec.ofNat 64 (twiceCompiled.bound "twice"))) ⋆
+        Eq (ra.toUInt64.At (s.regs.get64 .rsp))) ⋆ R := by
+    rw [Std.ExtHashMap.emp_sep]; exact hmem
+  refine eventually_weaken _ _ _ _ ?_
+    (amd64_of_call_emp (twice_call twiceCompiled hh k₀ hc hu hfail a b) s ra R hargs hsp hmem')
+  rintro st (⟨hpc, hcs, hsp', rets, hrets, hm'⟩ |
+    ⟨sym', as', -, hpc, has', hspE, m', rfl, _, hcase⟩)
+  · obtain ⟨_, _, _, _, ⟨_, _, _, _, ⟨hta, htb, rfl, _⟩, _⟩, _⟩ := hm'
+    refine Or.inl ⟨hta, htb, hpc, ?_, hcs, hsp'⟩
     simpa [Target.RetsIn, Target.ValsIn, target, isa] using hrets
   · rcases hcase with ⟨hna, rfl⟩ | ⟨hta, hnb, rfl⟩
     · refine Or.inr (Or.inl ⟨hna, hpc, ?_, hspE⟩)
@@ -281,21 +257,14 @@ theorem spill10_correct (k₀ : Nat) (hc : spill10Compiled.code.IsInfixAt Host.p
           (fun f => ∃ bs : List UInt8, bs.length = spill10Compiled.bound "spill10" + 8 ∧
               f = bs.At (s.regs.get64 .rsp - BitVec.ofNat 64 (spill10Compiled.bound "spill10"))) ⋆ R))
       ⟨s, Labels.label "spill10"⟩ := by
-  have hE : (Eq (∅ : Mem 64)) = Std.ExtHashMap.emp := by
-    funext x; apply propext; simp [Std.ExtHashMap.emp, eq_comm]
   have hargs : target.ArgsIn [a, b] s := by
     simp [Target.ArgsIn, Target.ValsIn, target, isa, ha, hb]
-  have hmem' : target.mem s =⋆ Eq ∅ ⋆
-      target.Entry (target.get s target.sp) ra (spill10Compiled.bound "spill10") ⋆ R := by
-    rw [hE, Std.ExtHashMap.emp_sep]; exact hmem
-  have h := (spill10_fnspec k₀ hc hu).2 [a, b] ∅ _ _ (spill10_spec emptyEnv a b ∅)
-    s ra R hargs trivial hsp hmem'
-  refine eventually_weaken _ _ _ _ ?_ h
-  rintro st (⟨hpc, rets, m', ⟨rfl, rfl⟩, hrets, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx, _⟩)
-  · refine ⟨hpc, ?_, fun r hr => hcs r hr, hsp', ?_⟩
-    · simpa [Target.RetsIn, Target.ValsIn, target, isa] using hrets
-    · rw [hE, Std.ExtHashMap.emp_sep] at hm'; exact hm'
-  · exact hx.elim
+  refine eventually_weaken _ _ _ _ ?_
+    (amd64_of_returns_emp (spill10_returns spill10Compiled hh k₀ hc hu a b) s ra R hargs hsp
+      hmem)
+  rintro st ⟨hpc, hcs, hsp', rets, hrets, rfl, hm'⟩
+  refine ⟨hpc, ?_, hcs, hsp', hm'⟩
+  simpa [Target.RetsIn, Target.ValsIn, target, isa] using hrets
 
 end Generic
 

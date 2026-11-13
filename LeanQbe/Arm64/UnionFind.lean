@@ -53,29 +53,14 @@ theorem find_arm64_correct (k₀ : Nat)
           (fun f => ∃ bs : List UInt8, bs.length = compiled.bound "find" ∧
               f = bs.At (s.regs.SP.toBitVec - BitVec.ofNat 64 (compiled.bound "find"))) ⋆ R))
       ⟨s, Labels.label "find"⟩ := by
-  obtain ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, huf, hentry⟩, hrest⟩ := hmem
-  let Q : LeanQbe.Post := fun rets m' => rets = [rep x] ∧ (uf p n rep ⋆ Std.ExtHashMap.emp) m'
-  let X : XPost := fun _ _ _ => False
-  have hm : (uf p n rep ⋆ Std.ExtHashMap.emp) m := by rwa [Std.ExtHashMap.sep_emp]
-  have hspec : findSpec [p, x] m Q X :=
-    ⟨p, x, n, rep, Std.ExtHashMap.emp, rfl, hm, hx, fun _ hm' => ⟨rfl, hm'⟩⟩
   have hargs : target.ArgsIn [p, x] s := by
     simp [Target.ArgsIn, Target.ValsIn, argRegs, get_reg, hp, hxx]
-  have hf := (uf_module_fnspec k₀ hc hu (nm := "find") (by decide)).2
-    [p, x] m Q X hspec s ra R hargs hra hsp
-    (by
-      simp only [Target.Entry, region_zero, Std.ExtHashMap.sep_emp]
-      exact ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩)
-  refine eventually_weaken _ _ _ _ ?_ hf
-  rintro st (⟨hpc, rets, m', ⟨rfl, huf'⟩, hrets, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx', _⟩)
-  · rw [Std.ExtHashMap.sep_emp] at huf'
-    refine ⟨hpc, ?_, fun r hr => ?_, ?_, sep_mono (fun _ => sep_mono (fun _ e => e ▸ huf')) hm'⟩
-    · simpa [Target.RetsIn, Target.ValsIn, retRegs, get_reg] using hrets
-    · have := hcs (.reg r) (by simp [calleeSaved] at hr ⊢; omega)
-      exact UInt64.toBitVec_inj.mp this
-    · have : get st.data .SP = get s .SP := by simpa using hsp'
-      exact UInt64.toBitVec_inj.mp this
-  · exact hx'.elim
+  refine eventually_weaken _ _ _ _ ?_
+    (arm64_of_returns (find_returns compiled hh k₀ hc hu p x n rep hx) s ra R hargs hra hsp hmem)
+  rintro st ⟨hpc, hcs, hsp', rets, hrets,
+    f1, f2, hu1, hd1, ⟨m', fe, hu2, hd2, ⟨rfl, huf'⟩, hexit⟩, hf2⟩
+  refine ⟨hpc, ?_, hcs, hsp', f1, f2, hu1, hd1, ⟨m', fe, hu2, hd2, huf', hexit⟩, hf2⟩
+  simpa [Target.RetsIn, Target.ValsIn, retRegs, get_reg] using hrets
 
 /-- End-to-end correctness of compiled `union` (calling `find` twice) on Kraken AArch64. -/
 theorem union_arm64_correct (k₀ : Nat)
@@ -97,28 +82,13 @@ theorem union_arm64_correct (k₀ : Nat)
           (fun f => ∃ bs : List UInt8, bs.length = compiled.bound "union" ∧
               f = bs.At (s.regs.SP.toBitVec - BitVec.ofNat 64 (compiled.bound "union"))) ⋆ R))
       ⟨s, Labels.label "union"⟩ := by
-  obtain ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, huf, hentry⟩, hrest⟩ := hmem
-  let Q : LeanQbe.Post := fun rets m' => rets = [] ∧ (uf p n (merge rep x y) ⋆ Std.ExtHashMap.emp) m'
-  let X : XPost := fun _ _ _ => False
-  have hm : (uf p n rep ⋆ Std.ExtHashMap.emp) m := by rwa [Std.ExtHashMap.sep_emp]
-  have hspec : unionSpec [p, x, y] m Q X :=
-    ⟨p, x, y, n, rep, Std.ExtHashMap.emp, rfl, hm, hx, hy, fun _ hm' => ⟨rfl, hm'⟩⟩
   have hargs : target.ArgsIn [p, x, y] s := by
     simp [Target.ArgsIn, Target.ValsIn, argRegs, get_reg, hp, hxx, hyy]
-  have hf := (uf_module_fnspec k₀ hc hu (nm := "union") (by decide)).2
-    [p, x, y] m Q X hspec s ra R hargs hra hsp
-    (by
-      simp only [Target.Entry, region_zero, Std.ExtHashMap.sep_emp]
-      exact ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩)
-  refine eventually_weaken _ _ _ _ ?_ hf
-  rintro st (⟨hpc, rets, m', ⟨rfl, huf'⟩, -, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx', _⟩)
-  · rw [Std.ExtHashMap.sep_emp] at huf'
-    refine ⟨hpc, fun r hr => ?_, ?_, sep_mono (fun _ => sep_mono (fun _ e => e ▸ huf')) hm'⟩
-    · have := hcs (.reg r) (by simp [calleeSaved] at hr ⊢; omega)
-      exact UInt64.toBitVec_inj.mp this
-    · have : get st.data .SP = get s .SP := by simpa using hsp'
-      exact UInt64.toBitVec_inj.mp this
-  · exact hx'.elim
+  refine eventually_weaken _ _ _ _ ?_
+    (arm64_of_returns (union_returns compiled hh k₀ hc hu p x y n rep hx hy)
+      s ra R hargs hra hsp hmem)
+  rintro st ⟨hpc, hcs, hsp', rets, -, hm'⟩
+  exact ⟨hpc, hcs, hsp', sep_mono (fun _ => sep_mono (fun _ h => h.2)) hm'⟩
 
 /-- End-to-end correctness of compiled `unionInline` on Kraken AArch64. -/
 theorem unionInline_arm64_correct (k₀ : Nat)
@@ -140,28 +110,13 @@ theorem unionInline_arm64_correct (k₀ : Nat)
           (fun f => ∃ bs : List UInt8, bs.length = compiled.bound "unionInline" ∧
               f = bs.At (s.regs.SP.toBitVec - BitVec.ofNat 64 (compiled.bound "unionInline"))) ⋆ R))
       ⟨s, Labels.label "unionInline"⟩ := by
-  obtain ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, huf, hentry⟩, hrest⟩ := hmem
-  let Q : LeanQbe.Post := fun rets m' => rets = [] ∧ (uf p n (merge rep x y) ⋆ Std.ExtHashMap.emp) m'
-  let X : XPost := fun _ _ _ => False
-  have hm : (uf p n rep ⋆ Std.ExtHashMap.emp) m := by rwa [Std.ExtHashMap.sep_emp]
-  have hspec : unionSpec [p, x, y] m Q X :=
-    ⟨p, x, y, n, rep, Std.ExtHashMap.emp, rfl, hm, hx, hy, fun _ hm' => ⟨rfl, hm'⟩⟩
   have hargs : target.ArgsIn [p, x, y] s := by
     simp [Target.ArgsIn, Target.ValsIn, argRegs, get_reg, hp, hxx, hyy]
-  have hf := (uf_module_fnspec k₀ hc hu (nm := "unionInline") (by decide)).2
-    [p, x, y] m Q X hspec s ra R hargs hra hsp
-    (by
-      simp only [Target.Entry, region_zero, Std.ExtHashMap.sep_emp]
-      exact ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩)
-  refine eventually_weaken _ _ _ _ ?_ hf
-  rintro st (⟨hpc, rets, m', ⟨rfl, huf'⟩, -, ⟨hcs, hsp'⟩, hm'⟩ | ⟨_, _, _, hx', _⟩)
-  · rw [Std.ExtHashMap.sep_emp] at huf'
-    refine ⟨hpc, fun r hr => ?_, ?_, sep_mono (fun _ => sep_mono (fun _ e => e ▸ huf')) hm'⟩
-    · have := hcs (.reg r) (by simp [calleeSaved] at hr ⊢; omega)
-      exact UInt64.toBitVec_inj.mp this
-    · have : get st.data .SP = get s .SP := by simpa using hsp'
-      exact UInt64.toBitVec_inj.mp this
-  · exact hx'.elim
+  refine eventually_weaken _ _ _ _ ?_
+    (arm64_of_returns (unionInline_returns compiled hh k₀ hc hu p x y n rep hx hy)
+      s ra R hargs hra hsp hmem)
+  rintro st ⟨hpc, hcs, hsp', rets, -, hm'⟩
+  exact ⟨hpc, hcs, hsp', sep_mono (fun _ => sep_mono (fun _ h => h.2)) hm'⟩
 
 end Generic
 

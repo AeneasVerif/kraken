@@ -513,4 +513,128 @@ theorem initState_argsIn (n : Nat) (bs : List UInt8) (args : List Val) (h : args
   retsIn_singleton _ _ := List.head_eq_of_cons_eq
   argsIn_singleton _ _ := List.head_eq_of_cons_eq
 
+/-- Translates `Amd64.target.Call` into the concrete Kraken-x64 machine statement. -/
+theorem amd64_of_call [hh : Host] {sym : String} {b nX : Nat} {args : List Val}
+    {P : Mem 64 → Prop} {Q : Post} {X : XPost}
+    (hcall : target.Call hh sym b nX args P Q X)
+    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
+    (hargs : target.ArgsIn args s)
+    (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
+    (hmem : s.dmem =⋆ P ⋆
+      ((fun f => ∃ bs : List UInt8, bs.length = b ∧
+          f = bs.At (s.regs.get64 .rsp - BitVec.ofNat 64 b)) ⋆
+        Eq (ra.toUInt64.At (s.regs.get64 .rsp))) ⋆ R) :
+    Eventually (step1 Host.exe)
+      (fun st =>
+        (st.pc = ra ∧
+          (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15], st.data.regs.get64 r = s.regs.get64 r) ∧
+          st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
+          ∃ rets, target.RetsIn rets st.data ∧
+            (st.data.dmem =⋆ Q rets ⋆
+              (fun f => ∃ bs : List UInt8, bs.length = b + 8 ∧
+                f = bs.At (s.regs.get64 .rsp - BitVec.ofNat 64 b)) ⋆ R)) ∨
+        (∃ sym' as, target.Defined hh sym' ∧ st.pc = Labels.label sym' ∧
+          target.ArgsIn as st.data ∧ (st.data.regs.get64 .rsp + 8#64).toNat % 16 = 0 ∧
+          ∃ (ra' : Int64) (n' : Nat) (F : Mem 64 → Prop), nX ≤ n' ∧
+            (st.data.dmem =⋆ X sym' as ⋆
+              ((fun f => ∃ bs : List UInt8, bs.length = n' ∧
+                  f = bs.At (st.data.regs.get64 .rsp - BitVec.ofNat 64 n')) ⋆
+                Eq (ra'.toUInt64.At (st.data.regs.get64 .rsp))) ⋆ F ⋆ R)))
+      ⟨s, Labels.label sym⟩ := by
+  refine eventually_weaken _ _ _ _ ?_ (hcall s ra R hargs trivial hsp hmem)
+  rintro st (⟨hpc, ⟨hcs, hsp'⟩, rets, hrets, hm'⟩ |
+    ⟨sym', as, hdef, hpc, has, hspE, ra', n', F, hnX, _, _, hm'⟩)
+  · exact Or.inl ⟨hpc, fun r hr => hcs r hr, hsp', rets, hrets, hm'⟩
+  · exact Or.inr ⟨sym', as, hdef, hpc, has, hspE, ra', n', F, hnX, hm'⟩
+
+/-- Simplified `amd64_of_call` erasing exit stack/frame details down to `∃ m', X sym' as m'`. -/
+theorem amd64_of_call_emp [hh : Host] {sym : String} {b nX : Nat} {args : List Val}
+    {P : Mem 64 → Prop} {Q : Post} {X : XPost}
+    (hcall : target.Call hh sym b nX args P Q X)
+    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
+    (hargs : target.ArgsIn args s)
+    (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
+    (hmem : s.dmem =⋆ P ⋆
+      ((fun f => ∃ bs : List UInt8, bs.length = b ∧
+          f = bs.At (s.regs.get64 .rsp - BitVec.ofNat 64 b)) ⋆
+        Eq (ra.toUInt64.At (s.regs.get64 .rsp))) ⋆ R) :
+    Eventually (step1 Host.exe)
+      (fun st =>
+        (st.pc = ra ∧
+          (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15],
+            st.data.regs.get64 r = s.regs.get64 r) ∧
+          st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
+          ∃ rets, target.RetsIn rets st.data ∧
+            (st.data.dmem =⋆ Q rets ⋆
+              (fun f => ∃ bs : List UInt8, bs.length = b + 8 ∧
+                f = bs.At (s.regs.get64 .rsp - BitVec.ofNat 64 b)) ⋆ R)) ∨
+        (∃ sym' as, target.Defined hh sym' ∧ st.pc = Labels.label sym' ∧
+          target.ArgsIn as st.data ∧ (st.data.regs.get64 .rsp + 8#64).toNat % 16 = 0 ∧
+          ∃ m', X sym' as m'))
+      ⟨s, Labels.label sym⟩ := by
+  refine eventually_weaken _ _ _ _ ?_ (amd64_of_call hcall s ra R hargs hsp hmem)
+  rintro st (hret | ⟨sym', as, hdef, hpc, has, hspE, _, _, _, _, m1, _, _, _, hX1, _⟩)
+  · exact Or.inl hret
+  · obtain ⟨m2, _, _, _, hX2, _⟩ := hX1
+    obtain ⟨m3, _, _, _, hX3, _⟩ := hX2
+    exact Or.inr ⟨sym', as, hdef, hpc, has, hspE, m3, hX3⟩
+
+/-- Translates `Amd64.target.Returns` into the concrete Kraken-x64 statement. -/
+theorem amd64_of_returns [hh : Host] {sym : String} {b : Nat} {args : List Val}
+    {P : Mem 64 → Prop} {Q : Post}
+    (hret : target.Returns hh sym b args P Q)
+    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
+    (hargs : target.ArgsIn args s)
+    (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
+    (hmem : s.dmem =⋆ P ⋆
+      ((fun f => ∃ bs : List UInt8, bs.length = b ∧
+          f = bs.At (s.regs.get64 .rsp - BitVec.ofNat 64 b)) ⋆
+        Eq (ra.toUInt64.At (s.regs.get64 .rsp))) ⋆ R) :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = ra ∧
+        (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15],
+          st.data.regs.get64 r = s.regs.get64 r) ∧
+        st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
+        ∃ rets, target.RetsIn rets st.data ∧
+          (st.data.dmem =⋆ Q rets ⋆
+            (fun f => ∃ bs : List UInt8, bs.length = b + 8 ∧
+              f = bs.At (s.regs.get64 .rsp - BitVec.ofNat 64 b)) ⋆ R))
+      ⟨s, Labels.label sym⟩ := by
+  refine eventually_weaken _ _ _ _ ?_ (hret s ra R hargs trivial hsp hmem)
+  rintro st ⟨hpc, ⟨hcs, hsp'⟩, rets, hrets, hm'⟩
+  exact ⟨hpc, fun r hr => hcs r hr, hsp', rets, hrets, hm'⟩
+
+/-- Empty-heap specialization of `amd64_of_returns`. -/
+theorem amd64_of_returns_emp [hh : Host] {sym : String} {b : Nat} {args : List Val}
+    {Q' : List Val → Prop}
+    (hret : target.Returns hh sym b args Std.ExtHashMap.emp
+      (fun rets m' => Q' rets ∧ Std.ExtHashMap.emp m'))
+    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
+    (hargs : target.ArgsIn args s)
+    (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
+    (hmem : s.dmem =⋆
+      ((fun f => ∃ bs : List UInt8, bs.length = b ∧
+          f = bs.At (s.regs.get64 .rsp - BitVec.ofNat 64 b)) ⋆
+        Eq (ra.toUInt64.At (s.regs.get64 .rsp))) ⋆ R) :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = ra ∧
+        (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15],
+          st.data.regs.get64 r = s.regs.get64 r) ∧
+        st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
+        ∃ rets, target.RetsIn rets st.data ∧ Q' rets ∧
+          (st.data.dmem =⋆
+            (fun f => ∃ bs : List UInt8, bs.length = b + 8 ∧
+              f = bs.At (s.regs.get64 .rsp - BitVec.ofNat 64 b)) ⋆ R))
+      ⟨s, Labels.label sym⟩ := by
+  have hmem' : target.mem s =⋆ Std.ExtHashMap.emp ⋆
+      target.Entry (target.get s target.sp) ra b ⋆ R := by
+    rw [Std.ExtHashMap.emp_sep]; exact hmem
+  refine eventually_weaken _ _ _ _ ?_ (amd64_of_returns hret s ra R hargs hsp hmem')
+  rintro st ⟨hpc, hcs, hsp', rets, hrets, hm'⟩
+  have hQ : Q' rets := by
+    obtain ⟨_, _, _, _, ⟨_, _, _, _, ⟨hQ, _⟩, _⟩, _⟩ := hm'; exact hQ
+  exact ⟨hpc, hcs, hsp', rets, hrets, hQ,
+    sep_mono (fun x hf1 => (congrFun (Std.ExtHashMap.emp_sep _) x).mp
+      (sep_mono (fun _ h => h.2) hf1)) hm'⟩
+
 end LeanQbe.Amd64

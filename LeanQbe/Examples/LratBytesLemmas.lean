@@ -491,4 +491,65 @@ theorem lrat_check_bytes_rejects_witness {T : Target} (I : TargetInit T)
   exact I.run_ret1 M (lrat_bytes_rejects_fnSpec M) _ _ 0
     (by simp [lratBytesPayload_length]) (by decide) hspec fun _ _ h => h
 
+section Closed
+
+theorem lrat_check_bytes_of_fnspec {T : Target} {h : T.Host} {b nX : Nat}
+    (hfnspec : T.FnSpec h "lrat_check_bytes" lratCheckBytesSpec b nX)
+    (cnf_ptr prf_ptr work_ptr : Val) (cnfBytes prfBytes : List UInt8) (work_len : Nat)
+    (hcnf : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hprf : prf_ptr.toNat + prfBytes.length < 2 ^ 64)
+    (hwork : work_ptr.toNat + work_len < 2 ^ 64) :
+    T.Returns h "lrat_check_bytes" b
+      [cnf_ptr, BitVec.ofNat 64 cnfBytes.length, prf_ptr, BitVec.ofNat 64 prfBytes.length,
+        work_ptr, BitVec.ofNat 64 work_len]
+      (Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len)
+      (fun rets m' => ∃ r, rets = [r] ∧ (r = 0 ∨ r = 1) ∧
+        (r = 1 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+        (Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len) m') :=
+  hfnspec.returns fun m hm => ⟨cnf_ptr, prf_ptr, work_ptr, cnfBytes, prfBytes, work_len,
+    Std.ExtHashMap.emp, rfl, hcnf, hprf, hwork, by rwa [Std.ExtHashMap.sep_emp],
+    fun r _ hr01 hunsat hm' => ⟨r, rfl, hr01, hunsat, by rwa [Std.ExtHashMap.sep_emp] at hm'⟩⟩
+
+theorem lrat_check_bytes_returns {T : Target} {maxBound : Nat}
+    (M : Compiled T [] [] 0 lratBytesFns maxBound) (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    (cnf_ptr prf_ptr work_ptr : Val) (cnfBytes prfBytes : List UInt8) (work_len : Nat)
+    (hcnf : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hprf : prf_ptr.toNat + prfBytes.length < 2 ^ 64)
+    (hwork : work_ptr.toNat + work_len < 2 ^ 64) :
+    T.Returns h "lrat_check_bytes" (M.bound "lrat_check_bytes")
+      [cnf_ptr, BitVec.ofNat 64 cnfBytes.length, prf_ptr, BitVec.ofNat 64 prfBytes.length,
+        work_ptr, BitVec.ofNat 64 work_len]
+      (Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len)
+      (fun rets m' => ∃ r, rets = [r] ∧ (r = 0 ∨ r = 1) ∧
+        (r = 1 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+        (Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len) m') :=
+  lrat_check_bytes_of_fnspec
+    (by simpa [lratBytesEnv_entry] using
+      (lrat_bytes_fnSpec M h k₀ hc hu (nm := "lrat_check_bytes") (by decide)).2)
+    cnf_ptr prf_ptr work_ptr cnfBytes prfBytes work_len hcnf hprf hwork
+
+theorem lrat_check_bytes_unsat_returns {T : Target} {maxBound : Nat}
+    (M : Compiled T [] [] 0 lratBytesFns maxBound) (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    (cnf : CNF Nat) (hvalid : ValidDimacsCnf cnf)
+    (cnf_ptr prf_ptr work_ptr : Val) (prfBytes : List UInt8) (work_len : Nat)
+    (hcnf : cnf_ptr.toNat + (encodeDimacs cnf).length < 2 ^ 64)
+    (hprf : prf_ptr.toNat + prfBytes.length < 2 ^ 64)
+    (hwork : work_ptr.toNat + work_len < 2 ^ 64) :
+    T.Returns h "lrat_check_bytes" (M.bound "lrat_check_bytes")
+      [cnf_ptr, BitVec.ofNat 64 (encodeDimacs cnf).length, prf_ptr,
+        BitVec.ofNat 64 prfBytes.length, work_ptr, BitVec.ofNat 64 work_len]
+      (Eq ((encodeDimacs cnf).At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len)
+      (fun rets m' => ∃ r, rets = [r] ∧ (r = 0 ∨ r = 1) ∧ (r = 1 → cnf.Unsat) ∧
+        (Eq ((encodeDimacs cnf).At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆
+          region work_ptr work_len) m') :=
+  ((lrat_bytes_fnSpec M h k₀ hc hu (nm := "lrat_check_bytes") (by decide)).2.of_spec _
+      (spec' := lratCheckBytesEncodedSpec cnf) fun _ _ _ _ => lratCheckBytesSpec_of_encoded).returns
+    fun m hm => ⟨hvalid, cnf_ptr, prf_ptr, work_ptr, prfBytes, work_len, Std.ExtHashMap.emp,
+      rfl, hcnf, hprf, hwork, by rwa [Std.ExtHashMap.sep_emp],
+      fun r _ hr01 hunsat hm' => ⟨r, rfl, hr01, hunsat, by rwa [Std.ExtHashMap.sep_emp] at hm'⟩⟩
+
+end Closed
+
 end LeanQbe.LratBytes

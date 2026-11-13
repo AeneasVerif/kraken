@@ -932,4 +932,23 @@ theorem checkProof_accepts_witness {T : Target} (I : TargetInit T)
   · exact ⟨hpc, hu⟩
   · exact hx.elim
 
+theorem checkProof_call {T : Target} {nX maxBound : Nat}
+    (M : Compiled T [] ["lrat_fail"] nX lratTrimFns maxBound)
+    (h : T.Host) (k₀ : Nat) (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    (hfail : T.Defined h "lrat_fail")
+    {max_var n : Nat} {st_ptr : Val} {k₀_fields : KernelFields}
+    {usedWords litsPtrs antePtrs trail_free0 : List Val} {cnf₀ : CNF Nat}
+    {clauses : List (CNF.Clause Nat)} {litsTable anteTable : List (List Val)}
+    {P_ro : Mem 64 → Prop} {m : Mem 64}
+    (pre : CheckProofPre max_var n st_ptr k₀_fields usedWords litsPtrs antePtrs trail_free0 cnf₀
+      clauses litsTable anteTable P_ro m) :
+    T.Call h "br_check_proof" (M.bound "br_check_proof") nX [st_ptr] (Eq m)
+      (fun rets m' => rets = [] ∧ cnf₀.Unsat ∧
+        ∃ k', FullMemInv max_var n trail_free0.length st_ptr k₀_fields P_ro k' m')
+      (fun g _ _ => g = "lrat_fail") :=
+  (lrat_fnSpec M h k₀ hc hu hfail (nm := "br_check_proof") (by decide)).2.call
+    fun _ hm => ⟨max_var, n, st_ptr, k₀_fields, usedWords, litsPtrs, antePtrs, trail_free0,
+      cnf₀, clauses, litsTable, anteTable, P_ro, rfl, hm ▸ pre,
+      fun _ hinv hunsat => ⟨rfl, hunsat, hinv⟩, fun _ _ => rfl⟩
+
 end LeanQbe.LratTrim

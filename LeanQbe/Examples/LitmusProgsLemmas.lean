@@ -257,4 +257,48 @@ theorem sumcall_fnSpec {T : Target} {maxBound : Nat}
   M.fnSpec h sumcallEnv k₀ hc hu sumcall_wf_all sumcallEnv_sound
     (fun _ hp => nomatch hp) (fun _ hg => nomatch hg) hnm
 
+section Closed
+
+variable {T : Target} {maxBound : Nat}
+
+theorem tracer_returns (M : Compiled T [] [] 0 [tracer] maxBound) (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    (a b p : Val) (m : Mem 64) (hp : storeOk m .l p) :
+    T.Returns h "tracer" (M.bound "tracer") [a, b, p] (Eq m)
+      (fun rets m' => rets = [a + b] ∧ m' = storeMem m .l p (a + b)) :=
+  (leaf_fnSpec M tracer_wf h k₀ hc hu).2.returns fun _ e => e ▸ tracer_spec emptyEnv a b p m hp
+
+theorem sumto_returns (M : Compiled T [] [] 0 [sumto] maxBound) (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    (n : Val) (hn : n.toNat < 2 ^ 32) :
+    T.Returns h "sumto" (M.bound "sumto") [n] Std.ExtHashMap.emp
+      (fun rets m' => rets = [tri n.toNat] ∧ Std.ExtHashMap.emp m') :=
+  (leaf_fnSpec M sumto_wf h k₀ hc hu).2.returns fun _ e => e ▸ sumto_spec emptyEnv n hn ∅
+
+theorem callinc_returns (M : Compiled T [] [] 0 [inc, callinc] maxBound) (h : T.Host)
+    (k₀ : Nat) (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h) (a b : Val) :
+    T.Returns h "callinc" (M.bound "callinc") [a, b] Std.ExtHashMap.emp
+      (fun rets m' => rets = [a + 1 + b] ∧ Std.ExtHashMap.emp m') :=
+  (callinc_fnSpec M h k₀ hc hu (nm := "callinc") (by decide)).2.returns
+    fun _ e => ⟨a, b, rfl, rfl, e⟩
+
+theorem twice_call {nX : Nat} (M : Compiled T [] ["fail"] nX [check, twice] maxBound)
+    (h : T.Host) (k₀ : Nat) (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    (hfail : T.Defined h "fail") (a b : Val) :
+    T.Call h "twice" (M.bound "twice") nX [a, b] Std.ExtHashMap.emp
+      (fun rets m' => Truthy a ∧ Truthy b ∧ rets = [a + b] ∧ Std.ExtHashMap.emp m')
+      (fun g xs m' => g = "fail" ∧ Std.ExtHashMap.emp m' ∧
+        ((¬Truthy a ∧ xs = [a]) ∨ (Truthy a ∧ ¬Truthy b ∧ xs = [b]))) :=
+  (twice_fnSpec M h k₀ hc hu hfail (nm := "twice") (by decide)).2.call
+    fun _ e => ⟨a, b, rfl, fun ha hb => ⟨ha, hb, rfl, e⟩,
+      fun hna => ⟨rfl, e, .inl ⟨hna, rfl⟩⟩, fun ha hnb => ⟨rfl, e, .inr ⟨ha, hnb, rfl⟩⟩⟩
+
+theorem spill10_returns (M : Compiled T [] [] 0 [spill10] maxBound) (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h) (a b : Val) :
+    T.Returns h "spill10" (M.bound "spill10") [a, b] Std.ExtHashMap.emp
+      (fun rets m' => rets = [spill10Val a b] ∧ Std.ExtHashMap.emp m') :=
+  (leaf_fnSpec M spill10_wf h k₀ hc hu).2.returns fun _ e => e ▸ spill10_spec emptyEnv a b ∅
+
+end Closed
+
 end LeanQbe.Litmus

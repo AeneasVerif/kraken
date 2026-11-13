@@ -282,6 +282,61 @@ theorem FnSpec.of_spec {h : T.Host} {sym : String} {spec spec' : Spec} {n nX : N
     T.FnSpec h sym spec' n nX :=
   fun args m Q X hspec => hf args m Q X (hs args m Q X hspec)
 
+/-- In host `h`, `sym` called with `args` and a memory holding `P`, `n` bytes of stack and a frame
+`R`, eventually returns with results `rets` and `Q rets` in memory, or exits to a symbol `sym'` with
+arguments `as` and `X sym' as` in memory. -/
+def Call (h : T.Host) (sym : String) (n nX : Nat) (args : List Val) (P : Mem 64 → Prop)
+    (Q : Post) (X : XPost) : Prop :=
+  ∀ (s : T.MData) (ra : T.Addr) (R : Mem 64 → Prop),
+    T.ArgsIn args s → T.raReg s ra → T.spEntry (T.get s T.sp) →
+    (T.mem s =⋆ P ⋆ T.Entry (T.get s T.sp) ra n ⋆ R) →
+    Eventually (T.step h)
+      (fun st =>
+        (T.pc st = ra ∧ T.Restored s (T.data st) ∧ ∃ rets, T.RetsIn rets (T.data st) ∧
+          (T.mem (T.data st) =⋆ Q rets ⋆ T.Exit (T.get s T.sp) n ⋆ R)) ∨
+        (∃ sym' as, T.Defined h sym' ∧ T.pc st = T.labelAddr h sym' ∧
+          T.ArgsIn as (T.data st) ∧ T.spEntry (T.get (T.data st) T.sp) ∧
+          ∃ (ra' : T.Addr) (n' : Nat) (F : Mem 64 → Prop), nX ≤ n' ∧ n' + T.raBytes ≤ 2 ^ 64 ∧
+            T.raReg (T.data st) ra' ∧
+            (T.mem (T.data st) =⋆ X sym' as ⋆ T.Entry (T.get (T.data st) T.sp) ra' n' ⋆ F ⋆ R)))
+      (T.mkState s (T.labelAddr h sym))
+
+/-- `T.Call` for code that never exits. -/
+def Returns (h : T.Host) (sym : String) (n : Nat) (args : List Val) (P : Mem 64 → Prop)
+    (Q : Post) : Prop :=
+  ∀ (s : T.MData) (ra : T.Addr) (R : Mem 64 → Prop),
+    T.ArgsIn args s → T.raReg s ra → T.spEntry (T.get s T.sp) →
+    (T.mem s =⋆ P ⋆ T.Entry (T.get s T.sp) ra n ⋆ R) →
+    Eventually (T.step h)
+      (fun st => T.pc st = ra ∧ T.Restored s (T.data st) ∧ ∃ rets, T.RetsIn rets (T.data st) ∧
+        (T.mem (T.data st) =⋆ Q rets ⋆ T.Exit (T.get s T.sp) n ⋆ R))
+      (T.mkState s (T.labelAddr h sym))
+
+/-- Lifts a `T.FnSpec` to a heap-predicate `T.Call`. -/
+theorem FnSpec.call {T : Target} {h : T.Host} {sym : String} {spec : Spec} {n nX : Nat}
+    (hf : T.FnSpec h sym spec n nX) {args : List Val} {P : Mem 64 → Prop} {Q : Post} {X : XPost}
+    (hspec : ∀ m, P m → spec args m Q X) : T.Call h sym n nX args P Q X := by
+  rintro s ra R hargs hra hsp ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, hP, hentry⟩, hrest⟩
+  refine eventually_weaken _ _ _ _ ?_
+    (hf args m Q X (hspec m hP) s ra R hargs hra hsp
+      ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩)
+  rintro st (⟨hpc, rets, m', hQ, hrets, hres, hm'⟩ |
+    ⟨sym', as, m', hX, hdef, hpc, has, hspE, ra', n', F, hn, hle, hra', hm'⟩)
+  · exact Or.inl ⟨hpc, hres, rets, hrets, sep_mono (fun _ => sep_mono (fun _ e => e ▸ hQ)) hm'⟩
+  · exact Or.inr ⟨sym', as, hdef, hpc, has, hspE, ra', n', F, hn, hle, hra',
+      sep_mono (fun _ => sep_mono (fun _ => sep_mono (fun _ e => e ▸ hX))) hm'⟩
+
+/-- Lifts a non-exiting `T.FnSpec` to `T.Returns`. -/
+theorem FnSpec.returns {T : Target} {h : T.Host} {sym : String} {spec : Spec} {n nX : Nat}
+    (hf : T.FnSpec h sym spec n nX) {args : List Val} {P : Mem 64 → Prop} {Q : Post}
+    (hspec : ∀ m, P m → spec args m Q (fun _ _ _ => False)) : T.Returns h sym n args P Q := by
+  intro s ra R hargs hra hsp hmem
+  refine eventually_weaken _ _ _ _ ?_ (hf.call hspec s ra R hargs hra hsp hmem)
+  rintro st (hret | ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _,
+    ⟨_, _, _, _, ⟨_, _, _, _, hx, _⟩, _⟩, _⟩)
+  · exact hret
+  · exact hx.elim
+
 /-- A contract with a smaller exit stack guarantee. -/
 theorem FnSpec.mono_exit {h : T.Host} {sym : String} {spec : Spec} {n nX nX' : Nat}
     (hf : T.FnSpec h sym spec n nX) (hX : nX' ≤ nX) : T.FnSpec h sym spec n nX' := by

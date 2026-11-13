@@ -71,45 +71,22 @@ theorem lrat_check_bytes_x64_of_fnspec {b : Nat}
           (fun f => ∃ bs : List UInt8, bs.length = b + 8 ∧
               f = bs.At (s.regs.get64 .rsp - BitVec.ofNat 64 b)) ⋆ R))
       ⟨s, Labels.label "lrat_check_bytes"⟩ := by
-  obtain ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, hm_pre, hentry⟩, hrest⟩ := hmem
-  let P_mem : Mem 64 → Prop :=
-    Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len
-  let Q : LeanQbe.Post := fun rets m' =>
-    ∃ r : Val, rets = [r] ∧ (r = 0 ∨ r = 1) ∧
-      (r = 1 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
-      (P_mem ⋆ Std.ExtHashMap.emp) m'
-  let X : XPost := fun _ _ _ => False
-  have hm_emp : (P_mem ⋆ Std.ExtHashMap.emp) m := by
-    dsimp [P_mem]; rwa [Std.ExtHashMap.sep_emp]
-  have hspec : lratCheckBytesSpec
-      [cnf_ptr, BitVec.ofNat 64 cnfBytes.length,
-       prf_ptr, BitVec.ofNat 64 prfBytes.length,
-       work_ptr, BitVec.ofNat 64 work_len] m Q X :=
-    ⟨cnf_ptr, prf_ptr, work_ptr, cnfBytes, prfBytes, work_len, Std.ExtHashMap.emp,
-      rfl, hcnf, hprf, hwork, hm_emp,
-      fun r m' hr01 hunsat hm' => ⟨r, rfl, hr01, hunsat, hm'⟩⟩
   have hargs : target.ArgsIn
       [cnf_ptr, BitVec.ofNat 64 cnfBytes.length,
        prf_ptr, BitVec.ofNat 64 prfBytes.length,
        work_ptr, BitVec.ofNat 64 work_len] s := by
     simp [Target.ArgsIn, Target.ValsIn, target, isa, hrdi, hrsi, hrdx, hrcx, hr8, hr9]
-  have hsp' : target.spEntry (target.get s target.sp) := hsp
-  have hmem' : target.mem s =⋆ Eq m ⋆ target.Entry (target.get s target.sp) ra b ⋆ R :=
-    ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩
-  have hf := hfnspec
-    [cnf_ptr, BitVec.ofNat 64 cnfBytes.length,
-     prf_ptr, BitVec.ofNat 64 prfBytes.length,
-     work_ptr, BitVec.ofNat 64 work_len] m Q X hspec s ra R hargs trivial hsp' hmem'
-  refine eventually_weaken _ _ _ _ ?_ hf
-  rintro st (⟨hpc, rets, m', ⟨r, rfl, hr01, hunsat, hm'⟩, hrets, ⟨hcs, hsp_out⟩, hdmem⟩ |
-    ⟨_, _, _, hx, _⟩)
-  · rw [Std.ExtHashMap.sep_emp] at hm'
-    have hrax : st.data.regs.get64 .rax = r := by
-      simpa [Target.RetsIn, Target.ValsIn, target, isa] using hrets
-    rw [← hrax] at hr01 hunsat
-    exact ⟨hpc, hr01, hunsat, fun reg hreg => hcs reg hreg, hsp_out,
-      sep_mono (fun _ => sep_mono (fun _ e => e ▸ hm')) hdmem⟩
-  · exact hx.elim
+  refine eventually_weaken _ _ _ _ ?_
+    (amd64_of_returns
+      (lrat_check_bytes_of_fnspec hfnspec cnf_ptr prf_ptr work_ptr cnfBytes prfBytes work_len
+        hcnf hprf hwork)
+      s ra R hargs hsp hmem)
+  rintro st ⟨hpc, hcs, hsp', rets, hrets,
+    f1, f2, hu1, hd1, ⟨m', fe, hu2, hd2, ⟨r, rfl, hr01, hunsat, hP⟩, hexit⟩, hf2⟩
+  have hrax : st.data.regs.get64 .rax = r := by
+    simpa [Target.RetsIn, Target.ValsIn, target, isa] using hrets
+  rw [← hrax] at hr01 hunsat
+  exact ⟨hpc, hr01, hunsat, hcs, hsp', f1, f2, hu1, hd1, ⟨m', fe, hu2, hd2, hP, hexit⟩, hf2⟩
 
 /-- Trivial-postcondition lifting helper. -/
 theorem lrat_check_bytes_x64_unsat_of_fnspec {b : Nat}

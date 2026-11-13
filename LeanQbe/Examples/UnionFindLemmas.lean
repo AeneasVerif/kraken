@@ -227,4 +227,37 @@ theorem union_witness {T : Target} (I : TargetInit T)
     exact ⟨hpc, sep_mono (fun _ => sep_mono (fun _ e => e ▸ huf)) hm', merge_init_1_2⟩
   · exact hx.elim
 
+section Closed
+
+variable {T : Target} {maxBound : Nat}
+
+theorem find_returns (M : Compiled T [] [] 0 ufFns maxBound) (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    (p x : Val) (n : Nat) (rep : Val → Val) (hx : x.toNat < n) :
+    T.Returns h "find" (M.bound "find") [p, x] (uf p n rep)
+      (fun rets m' => rets = [rep x] ∧ uf p n rep m') :=
+  (uf_fnSpec M h k₀ hc hu (nm := "find") (by decide)).2.returns
+    fun m hm => ⟨p, x, n, rep, emp, rfl, by rwa [sep_emp], hx,
+      fun _ hm' => ⟨rfl, by rwa [sep_emp] at hm'⟩⟩
+
+theorem union_returns (M : Compiled T [] [] 0 ufFns maxBound) (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    (p x y : Val) (n : Nat) (rep : Val → Val) (hx : x.toNat < n) (hy : y.toNat < n) :
+    T.Returns h "union" (M.bound "union") [p, x, y] (uf p n rep)
+      (fun rets m' => rets = [] ∧ uf p n (merge rep x y) m') :=
+  (uf_fnSpec M h k₀ hc hu (nm := "union") (by decide)).2.returns
+    fun m hm => ⟨p, x, y, n, rep, emp, rfl, by rwa [sep_emp], hx, hy,
+      fun _ hm' => ⟨rfl, by rwa [sep_emp] at hm'⟩⟩
+
+theorem unionInline_returns (M : Compiled T [] [] 0 ufFns maxBound) (h : T.Host) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.prog h) k₀) (hu : T.LabelsUnique h)
+    (p x y : Val) (n : Nat) (rep : Val → Val) (hx : x.toNat < n) (hy : y.toNat < n) :
+    T.Returns h "unionInline" (M.bound "unionInline") [p, x, y] (uf p n rep)
+      (fun rets m' => rets = [] ∧ uf p n (merge rep x y) m') :=
+  (uf_fnSpec M h k₀ hc hu (nm := "unionInline") (by decide)).2.returns
+    fun m hm => ⟨p, x, y, n, rep, emp, rfl, by rwa [sep_emp], hx, hy,
+      fun _ hm' => ⟨rfl, by rwa [sep_emp] at hm'⟩⟩
+
+end Closed
+
 end LeanQbe.UnionFind

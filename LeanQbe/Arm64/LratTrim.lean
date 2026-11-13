@@ -73,32 +73,16 @@ theorem checkProof_arm64_correct (k₀ : Nat)
                   f = bs.At (s.regs.SP.toBitVec - BitVec.ofNat 64 (compiled.bound "br_check_proof"))) ⋆ R)) ∨
         (st.pc = Labels.label "lrat_fail" ∧ st.data.regs.SP.toNat % 16 = 0))
       ⟨s, Labels.label "br_check_proof"⟩ := by
-  obtain ⟨f_ab, f_rest, hu1, hd1, ⟨f_m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩ := hmem
-  let Q : LeanQbe.Post := fun rets m' =>
-    rets = [] ∧ (∃ k', FullMemInv max_var n trail_free0.length st_ptr k₀_fields P_ro k' m') ∧ cnf₀.Unsat
-  let X : XPost := fun g _ _ => g = "lrat_fail"
-  have hspec : checkProofSpec [st_ptr] m Q X :=
-    ⟨max_var, n, st_ptr, k₀_fields, usedWords, litsPtrs, antePtrs, trail_free0, cnf₀,
-      clauses, litsTable, anteTable, P_ro, rfl, pre,
-      fun _ hinv hunsat => ⟨rfl, hinv, hunsat⟩, fun _ _ => rfl⟩
   have hargs : target.ArgsIn [st_ptr] s := by
     simp [Target.ArgsIn, Target.ValsIn, argRegs, get_reg, hx0]
-  have hf := (lrat_module_fnspec k₀ hc hu hfail (nm := "br_check_proof") (by decide)).2
-    [st_ptr] m Q X hspec s ra R hargs hra hsp
-    (by
-      simp only [Target.Entry, region_zero, Std.ExtHashMap.sep_emp]
-      exact ⟨f_ab, f_rest, hu1, hd1, ⟨m, f_entry, hu2, hd2, rfl, hentry⟩, hrest⟩)
-  refine eventually_weaken _ _ _ _ ?_ hf
-  rintro st (⟨hpc, rets, m', ⟨rfl, ⟨k', hinv'⟩, hunsat⟩, -, ⟨hcs, hsp'⟩, hm'⟩ |
-    ⟨sym', as', m', rfl, _, hpc, _, hspE, _⟩)
-  · rw [Target.Exit] at hm'
-    refine Or.inl ⟨hpc, hunsat, fun r hr => ?_, ?_, m', k', hinv',
-      sep_mono (fun _ => sep_mono (fun _ h => h)) hm'⟩
-    · have := hcs (.reg r) (by simp [calleeSaved] at hr ⊢; omega)
-      exact UInt64.toBitVec_inj.mp this
-    · have : get st.data .SP = get s .SP := by simpa using hsp'
-      exact UInt64.toBitVec_inj.mp this
-  · exact Or.inr ⟨hpc, hspE⟩
+  refine eventually_weaken _ _ _ _ ?_
+    (arm64_of_call_emp (checkProof_call compiled hh k₀ hc hu hfail pre) s ra R hargs hra hsp hmem)
+  rintro st (⟨hpc, hcs, hsp', rets, -, f1, f2, hu1, hd1,
+      ⟨m', fe, hu2, hd2, ⟨_, hunsat, k', hinv'⟩, hexit⟩, hf2⟩ |
+    ⟨sym', as', -, hpc, -, hspE, m', hfail'⟩)
+  · exact Or.inl ⟨hpc, hunsat, hcs, hsp', m', k', hinv',
+      f1, f2, hu1, hd1, ⟨m', fe, hu2, hd2, rfl, hexit⟩, hf2⟩
+  · subst hfail'; exact Or.inr ⟨hpc, hspE⟩
 
 end Generic
 
