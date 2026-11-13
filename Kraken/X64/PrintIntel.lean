@@ -150,6 +150,7 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .stos rep => s!"{stringPrefix addr_w rep}stos{stringSuffix w}"
   | .setcc cc dst => s!"set{cc} {dst.toStr addr_w}"
   | .cmovcc cc dst src => s!"cmov{cc} {dst}, {src.toStr addr_w}"
+  | .xchg dst src => s!"xchg {dst.toStr addr_w}, {src}"
   | .lea dst src => s!"lea {dst}, {src.toStr addr_w}"
   | .add dst src => s!"add {dst.toStr addr_w}, {src.toStr addr_w}"
   | .adc dst src => s!"adc {dst.toStr addr_w}, {src.toStr addr_w}"
