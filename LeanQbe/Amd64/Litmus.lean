@@ -313,7 +313,10 @@ theorem tracer_nonvacuous :
               f = bs.At (0x0ff8#64 - BitVec.ofNat 64 (tracerCompiled.bound "tracer"))) ⋆
           Std.ExtHashMap.emp))
       ⟨tracerState0, Labels.label "tracer"⟩ :=
-  tracer_witness targetInit tracerCompiled
+  targetInit.run_ret1_sep tracerCompiled (tracer_fnspec 0 tracerCompiled.code_infix_host
+      tracerCompiled.labelsUnique).2 zeros8 [40, 2, 0x1000] 42 _ (by decide) (by decide)
+    (tracer_spec emptyEnv 40 2 0x1000#64 m0 (by simpa [storeOk, Sz.bytes] using m0_loadInt))
+    fun _ _ ⟨hr, hm⟩ => ⟨hr, hm.symm⟩
 
 abbrev sumtoHost : Host := sumtoCompiled.host
 def sumtoState : MachineData := initState (sumtoCompiled.bound "sumto") [] [3]
@@ -323,7 +326,9 @@ theorem sumto_nonvacuous :
     Eventually (step1 Host.exe)
       (fun st => st.pc = 0x1234 ∧ st.data.regs.get64 .rax = 6)
       ⟨sumtoState, Labels.label "sumto"⟩ :=
-  sumto_witness targetInit sumtoCompiled
+  targetInit.run_ret1 sumtoCompiled (sumto_fnspec 0 sumtoCompiled.code_infix_host
+      sumtoCompiled.labelsUnique).2 [] [3] 6 (by decide) (by decide)
+    (sumto_spec emptyEnv 3 (by decide) _) fun _ _ ⟨hr, _⟩ => hr
 
 abbrev callincHost : Host := callincCompiled.host
 def callincState : MachineData := initState (callincCompiled.bound "callinc") [] [40, 1]
@@ -333,7 +338,9 @@ theorem callinc_nonvacuous :
     Eventually (step1 Host.exe)
       (fun st => st.pc = 0x1234 ∧ st.data.regs.get64 .rax = 42)
       ⟨callincState, Labels.label "callinc"⟩ :=
-  callinc_witness targetInit callincCompiled
+  targetInit.run_ret1 callincCompiled (callinc_module_fnspec 0 callincCompiled.code_infix_host
+      callincCompiled.labelsUnique (by decide)).2 [] [40, 1] 42 (by decide) (by decide)
+    (Q := fun r _ => r = [42]) ⟨40, 1, rfl, rfl⟩ fun _ _ h => h
 
 abbrev twiceHost : Host := twiceCompiled.host
 def twiceState (a b : UInt64) : MachineData :=
@@ -343,8 +350,16 @@ attribute [local instance] twiceHost in
 theorem twice_nonvacuous_exit :
     Eventually (step1 Host.exe)
       (fun st => st.pc = Labels.label "fail" ∧ st.data.regs.get64 .rdi = 0)
-      ⟨twiceState 20 0, Labels.label "twice"⟩ :=
-  twice_exit_witness targetInit twiceCompiled
+      ⟨twiceState 20 0, Labels.label "twice"⟩ := by
+  refine targetInit.run_fnSpec twiceCompiled (twice_module_fnspec 0 twiceCompiled.code_infix_host
+      twiceCompiled.labelsUnique (twiceCompiled.defined_exit_host (by simp)) (nm := "twice")
+      (by decide)).2 [] [20, 0] (by decide) (by decide)
+    (Q := fun _ _ => False) (X := fun g xs _ => g = "fail" ∧ xs = [0])
+    ⟨20, 0, rfl, fun _ h0 => absurd h0 (by decide),
+      fun h20 => absurd (by decide : Truthy 20) h20, fun _ _ => ⟨rfl, rfl⟩⟩ ?_
+  rintro st (⟨_, _, _, hq, _⟩ | ⟨_, _, _, ⟨rfl, rfl⟩, hpc, has⟩)
+  · exact hq.elim
+  · exact ⟨hpc, targetInit.argsIn_singleton 0 _ has⟩
 
 abbrev spill10Host : Host := spill10Compiled.host
 def spill10State : MachineData := initState (spill10Compiled.bound "spill10") [] [10, 7]
@@ -354,6 +369,8 @@ theorem spill10_nonvacuous :
     Eventually (step1 Host.exe)
       (fun st => st.pc = 0x1234 ∧ st.data.regs.get64 .rax = spill10Val 10 7)
       ⟨spill10State, Labels.label "spill10"⟩ :=
-  spill10_witness targetInit spill10Compiled
+  targetInit.run_ret1 spill10Compiled (spill10_fnspec 0 spill10Compiled.code_infix_host
+      spill10Compiled.labelsUnique).2 [] [10, 7] (spill10Val 10 7) (by decide) (by decide)
+    (spill10_spec emptyEnv 10 7 _) fun _ _ ⟨hr, _⟩ => hr
 
 end LeanQbe.Amd64.Litmus
