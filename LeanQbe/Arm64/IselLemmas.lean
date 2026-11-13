@@ -30,14 +30,16 @@ theorem umod_eq_sub {n : Nat} (a b : BitVec n) : a % b = a - (a / b) * b := by
   have := Nat.mod_add_div a.toNat b.toNat
   rw [Nat.mul_comm] at this
   rw [Nat.mod_eq_of_lt (a := a.toNat / b.toNat * b.toNat) (by omega)]
-  rw [show 2 ^ n - a.toNat / b.toNat * b.toNat + a.toNat = 2 ^ n + (a.toNat - a.toNat / b.toNat * b.toNat) by omega]
+  rw [show 2 ^ n - a.toNat / b.toNat * b.toNat + a.toNat =
+    2 ^ n + (a.toNat - a.toNat / b.toNat * b.toNat) by omega]
   rw [Nat.add_mod_left, Nat.mod_eq_of_lt (a := a.toNat - a.toNat / b.toNat * b.toNat) (by omega)]
   omega
 
 theorem srem_eq_sub {n : Nat} (a b : BitVec n) : a.srem b = a - (a.sdiv b) * b := by
   rw [BitVec.srem_eq, BitVec.sdiv_eq]
   rcases a.msb <;> rcases b.msb <;> simp only [umod_eq_sub, BitVec.udiv_eq] <;>
-    simp only [BitVec.neg_mul, BitVec.mul_neg, BitVec.neg_neg, BitVec.sub_eq_add_neg, BitVec.neg_add]
+    simp only [BitVec.neg_mul, BitVec.mul_neg, BitVec.neg_neg, BitVec.sub_eq_add_neg,
+      BitVec.neg_add]
 
 @[step_simp]
 theorem getRegOrZr_xzr (regs : Reg64s) (w : RegWidth) : regs.getRegOrZr (xzr w) = 0#w.bits := by
@@ -134,7 +136,8 @@ theorem cmpIns_runs (w : RegWidth) (co : CmpOp) (d a b : XReg) (s : MachineData)
 
 set_option linter.unusedSimpArgs false in
 theorem extIns_runs (k : Cls) (sz : Sz) (sg : Bool) (d a : XReg) (s : MachineData) :
-    ∃ s', Runs (extIns k sz sg d a) s s' ∧ get s' (.reg d) = k.trunc (sz.extend sg (get s (.reg a))) ∧
+    ∃ s', Runs (extIns k sz sg d a) s s' ∧
+      get s' (.reg d) = k.trunc (sz.extend sg (get s (.reg a))) ∧
       (∀ x, x ≠ .reg d → get s' x = get s x) ∧ s'.dmem = s.dmem := by
   refine ⟨wr s d (k.trunc (sz.extend sg (get s (.reg a)))), ?_, get_wr_same ..,
     fun z hz => get_wr_of_ne _ _ _ _ hz, rfl⟩
@@ -239,6 +242,46 @@ theorem ofInt_toInt_clsL {cb : Val} (hlt : (Cls.l.trunc cb).toNat < 4096) :
   rw [ofInt_toInt_setWidth_of_lt 64 hlt]
   simp [Cls.trunc, BitVec.setWidth_eq]
 
+theorem lo32_toNat_mod32 (cb : Val) : (lo32 cb).toNat % 32 = cb.toNat % 32 := by
+  simp only [lo32, BitVec.toNat_setWidth]
+  omega
+
+theorem evalUBFM_lsl {w : RegWidth} (x : w.type) {n : Nat} (hn : n < w.bits) :
+    evalUBFM (w := w) x ((w.bits - n) % w.bits) (w.bits - 1 - n) = x <<< n := by
+  cases w <;>
+    simp only [evalUBFM, RegWidth.bits, MemWidth.bits, BitVec.take, BitVec.zeroExtend] at hn ⊢ <;>
+    ext i hi <;> grind
+
+theorem evalUBFM_lsr {w : RegWidth} (x : w.type) {n : Nat} (hn : n < w.bits) :
+    evalUBFM (w := w) x n (w.bits - 1) = x >>> n := by
+  cases w <;>
+    simp only [evalUBFM, RegWidth.bits, MemWidth.bits, BitVec.take, BitVec.zeroExtend] at hn ⊢ <;>
+    ext i hi <;> grind
+
+theorem evalSBFM_asr {w : RegWidth} (x : w.type) {n : Nat} (hn : n < w.bits) :
+    evalSBFM (w := w) x n (w.bits - 1) = x.sshiftRight n := by
+  cases w <;>
+    simp only [evalSBFM, RegWidth.bits, MemWidth.bits, BitVec.take, BitVec.zeroExtend] at hn ⊢ <;>
+    ext i hi <;> grind
+
+set_option linter.unusedSimpArgs false in
+theorem shiftImmIns_runs {k : Cls} {bo : BinOp} {d ra : XReg} {cb : Val}
+    {ds : List Directive} {v : Val} {s : MachineData}
+    (hs : shiftImmIns (widthOf k) bo d ra cb = some ds)
+    (hv : ((Op.bin k bo (.var (.reg ra)) (.imm cb)).map (get s)).eval = some v) :
+    ∃ s', Runs ds s s' ∧ get s' (.reg d) = v ∧ (∀ r, r ≠ .reg d → get s' r = get s r) ∧
+      s'.dmem = s.dmem := by
+  have hn32 : cb.toNat % (RegWidth.W32).bits < (RegWidth.W32).bits := Nat.mod_lt _ (by decide)
+  have hn64 : cb.toNat % (RegWidth.W64).bits < (RegWidth.W64).bits := Nat.mod_lt _ (by decide)
+  cases bo <;> simp only [shiftImmIns, Option.some.injEq, reduceCtorEq] at hs <;> subst hs <;>
+    cases k <;> simp only [Op.map, Op.eval, Arg.map, Arg.val, BinOp.eval, Option.map_some,
+      Option.some.injEq, lo32_toNat_mod32] at hv <;> subst hv <;>
+    refine ⟨wr s d _, Runs.single fun p next jmp => ?_, get_wr_same ..,
+      fun z hz => get_wr_of_ne _ _ _ _ hz, rfl⟩ <;>
+    simp only [step_simp, evalUBFM_lsl _ hn32, evalUBFM_lsl _ hn64, evalUBFM_lsr _ hn32,
+      evalUBFM_lsr _ hn64, evalSBFM_asr _ hn32, evalSBFM_asr _ hn64, get_reg, wr, widthOf,
+      RegWidth.bits, MemWidth.bits, lo32, zext32, BitVec.setWidth_eq]
+
 set_option linter.unusedSimpArgs false in
 theorem fastBin_runs {k : Cls} {bo : BinOp} {d : XReg} {a b : Arg Reg}
     {ds : List Directive} {v : Val} {s : MachineData}
@@ -254,25 +297,36 @@ theorem fastBin_runs {k : Cls} {bo : BinOp} {d : XReg} {a b : Arg Reg}
       cases b with
       | var _ => simp [fastBin?] at hf
       | imm cb =>
-        simp only [fastBin?, imm12?, bind, Option.bind_eq_some_iff] at hf
-        split at hf
-        · rename_i hlt
-          simp only [Option.some.injEq] at hf
-          obtain ⟨ei, rfl, hbin⟩ := hf
-          cases bo <;> simp only [binImmIns, Option.some.injEq, reduceCtorEq] at hbin <;> subst hbin <;>
-            cases k <;> simp only [Op.map, Op.eval, Arg.map, Arg.val, BinOp.eval, Option.map_some,
-              Option.some.injEq] at hv <;> subst hv <;>
-            refine ⟨wr s d _, Runs.single fun p next jmp => ?_, get_wr_same ..,
-              fun z hz => get_wr_of_ne _ _ _ _ hz, rfl⟩
-          · simp [step_simp, Int64.toBitVec_ofBitVec, ofInt_toInt_clsW hlt, get_reg, wr, widthOf,
-            RegWidth.bits, MemWidth.bits, lo32, zext32, BitVec.setWidth_eq, BitVec.zeroExtend]; rfl
-          · simp [step_simp, Int64.toBitVec_ofBitVec, ofInt_toInt_clsL hlt, setWidth32_clsW,
-            get_reg, wr, widthOf, RegWidth.bits, MemWidth.bits, Cls.trunc, BitVec.setWidth_eq]; rfl
-          · simp [step_simp, Int64.toBitVec_ofBitVec, ofInt_toInt_clsW hlt, get_reg, wr, widthOf,
-            RegWidth.bits, MemWidth.bits, lo32, zext32, BitVec.setWidth_eq, BitVec.zeroExtend]; rfl
-          · simp [step_simp, Int64.toBitVec_ofBitVec, ofInt_toInt_clsL hlt, get_reg, wr, widthOf,
-            RegWidth.bits, MemWidth.bits, Cls.trunc, BitVec.setWidth_eq]; rfl
-        · obtain ⟨_, ⟨⟩, _⟩ := hf
+        cases hsh : shiftImmIns (widthOf k) bo d ra cb with
+        | some ds' =>
+          simp only [fastBin?, hsh, Option.some.injEq] at hf
+          subst hf
+          exact shiftImmIns_runs hsh hv
+        | none =>
+          simp only [fastBin?, hsh, imm12?, bind, Option.bind_eq_some_iff] at hf
+          split at hf
+          · rename_i hlt
+            simp only [Option.some.injEq] at hf
+            obtain ⟨ei, rfl, hbin⟩ := hf
+            cases bo <;> simp only [binImmIns, Option.some.injEq, reduceCtorEq] at hbin <;>
+              subst hbin <;> cases k <;>
+              simp only [Op.map, Op.eval, Arg.map, Arg.val, BinOp.eval, Option.map_some,
+                Option.some.injEq] at hv <;> subst hv <;>
+              refine ⟨wr s d _, Runs.single fun p next jmp => ?_, get_wr_same ..,
+                fun z hz => get_wr_of_ne _ _ _ _ hz, rfl⟩
+            · simp [step_simp, Int64.toBitVec_ofBitVec, ofInt_toInt_clsW hlt, get_reg, wr, widthOf,
+                RegWidth.bits, MemWidth.bits, lo32, zext32, BitVec.setWidth_eq, BitVec.zeroExtend]
+              rfl
+            · simp [step_simp, Int64.toBitVec_ofBitVec, ofInt_toInt_clsL hlt, setWidth32_clsW,
+                get_reg, wr, widthOf, RegWidth.bits, MemWidth.bits, Cls.trunc, BitVec.setWidth_eq]
+              rfl
+            · simp [step_simp, Int64.toBitVec_ofBitVec, ofInt_toInt_clsW hlt, get_reg, wr, widthOf,
+                RegWidth.bits, MemWidth.bits, lo32, zext32, BitVec.setWidth_eq, BitVec.zeroExtend]
+              rfl
+            · simp [step_simp, Int64.toBitVec_ofBitVec, ofInt_toInt_clsL hlt, get_reg, wr, widthOf,
+                RegWidth.bits, MemWidth.bits, Cls.trunc, BitVec.setWidth_eq]
+              rfl
+          · obtain ⟨_, ⟨⟩, _⟩ := hf
   | imm ca =>
     cases b with
     | imm _ => simp [fastBin?] at hf
@@ -282,7 +336,8 @@ theorem fastBin_runs {k : Cls} {bo : BinOp} {d : XReg} {a b : Arg Reg}
       | reg rb =>
         by_cases hbo : bo = .add
         · subst hbo
-          simp only [fastBin?, beq_self_eq_true, ite_true, imm12?, bind, Option.bind_eq_some_iff] at hf
+          simp only [fastBin?, beq_self_eq_true, ite_true, imm12?, bind,
+            Option.bind_eq_some_iff] at hf
           split at hf
           · rename_i hlt
             simp only [Option.some.injEq] at hf
@@ -339,7 +394,8 @@ theorem fastCmp_runs {k : Cls} {co : CmpOp} {d : XReg} {a b : Arg Reg}
           · generalize hx : get s (.reg ra) = x
             rw [get_reg] at hx
             have hc := notCondOf_subs (Or.inr rfl) co x cb
-            refine ⟨wr { s with status := StatusFlags.subs (x - cb) x cb } d (boolVal (co.eval x cb)),
+            refine ⟨wr { s with status := StatusFlags.subs (x - cb) x cb } d
+              (boolVal (co.eval x cb)),
               Runs.cons (s₂ := { s with status := StatusFlags.subs (x - cb) x cb })
                 (fun p next jmp => ?_) (Runs.single fun p next jmp => ?_),
               ?_, fun z hz => get_wr_of_ne _ _ _ _ hz, rfl⟩
@@ -367,7 +423,8 @@ theorem fastCmp_runs {k : Cls} {co : CmpOp} {d : XReg} {a b : Arg Reg}
             generalize hy : ca.setWidth 32 = y
             rw [get_reg] at hx
             have hc := notCondOf_subs (Or.inl rfl) (swapCmp co) x y
-            refine ⟨wr { s with status := StatusFlags.subs (x - y) x y } d (boolVal ((swapCmp co).eval x y)),
+            refine ⟨wr { s with status := StatusFlags.subs (x - y) x y } d
+              (boolVal ((swapCmp co).eval x y)),
               Runs.cons (s₂ := { s with status := StatusFlags.subs (x - y) x y })
                 (fun p next jmp => ?_) (Runs.single fun p next jmp => ?_),
               ?_, fun z hz => get_wr_of_ne _ _ _ _ hz, rfl⟩
@@ -380,7 +437,8 @@ theorem fastCmp_runs {k : Cls} {co : CmpOp} {d : XReg} {a b : Arg Reg}
           · generalize hx : get s (.reg rb) = x
             rw [get_reg] at hx
             have hc := notCondOf_subs (Or.inr rfl) (swapCmp co) x ca
-            refine ⟨wr { s with status := StatusFlags.subs (x - ca) x ca } d (boolVal ((swapCmp co).eval x ca)),
+            refine ⟨wr { s with status := StatusFlags.subs (x - ca) x ca } d
+              (boolVal ((swapCmp co).eval x ca)),
               Runs.cons (s₂ := { s with status := StatusFlags.subs (x - ca) x ca })
                 (fun p next jmp => ?_) (Runs.single fun p next jmp => ?_),
               ?_, fun z hz => get_wr_of_ne _ _ _ _ hz, rfl⟩
@@ -410,7 +468,8 @@ theorem op_runs {o : Op Reg} {d : XReg} {c : List Directive} {v : Val} {s : Mach
       obtain ⟨⟨ca, ra⟩, ha, ⟨cb, rb⟩, hb, hc⟩ := hc
       dsimp only at hc
       have hv' : ∀ r, r ∈ a.vars ++ b.vars → r ∉ scratch := hvars
-      obtain ⟨t, ht16, ht, rfl⟩ : ∃ t, (t = .X16 ∨ t = .X17) ∧ (bo = .rem ∨ bo = .urem → t ≠ ra ∧ t ≠ rb) ∧
+      obtain ⟨t, ht16, ht, rfl⟩ : ∃ t, (t = .X16 ∨ t = .X17) ∧
+          (bo = .rem ∨ bo = .urem → t ≠ ra ∧ t ≠ rb) ∧
           c = ca ++ cb ++ binIns (widthOf k) bo d ra rb t := by
         cases bo
         case rem | urem =>
@@ -536,7 +595,8 @@ private theorem eventually_jnzCmp_fallback [Host] {k j : Nat} {cls : Cls} {co : 
   obtain ⟨hsubs, hbcond⟩ := htail.cons
   have hbcond1 := List.isInfixAt_singleton.mp hbcond
   refine Runs.eventually h₂ hca ?_
-  refine Runs.eventually (subs_s_runs (widthOf cls) ra rb s₂) (List.isInfixAt_singleton.mpr hsubs) ?_
+  refine Runs.eventually (subs_s_runs (widthOf cls) ra rb s₂)
+    (List.isInfixAt_singleton.mpr hsubs) ?_
   refine eventually_bcond hbcond1 hj ?_
   let x := (get s₂ (.reg ra)).setWidth (widthOf cls).bits
   let y := (get s₂ (.reg rb)).setWidth (widthOf cls).bits
@@ -549,7 +609,8 @@ private theorem eventually_jnzCmp_fallback [Host] {k j : Nat} {cls : Cls} {co : 
       Option.some.injEq] at hv ⊢
     · exact hv.symm
     · exact hv.symm
-  have hlen : k + (ca ++ cb).length + [ins (.SUBS_s (xzr (widthOf cls)) (zr ra (widthOf cls)) (sh rb))].length + 1 =
+  have hlen : k + (ca ++ cb).length +
+      [ins (.SUBS_s (xzr (widthOf cls)) (zr ra (widthOf cls)) (sh rb))].length + 1 =
       k + ((ca ++ cb) ++ [ins (.SUBS_s (xzr (widthOf cls)) (zr ra (widthOf cls)) (sh rb)),
         ins (w := .W64) (.B_cond (condOf co) (.label l))]).length := by
     simp [List.length_append]; omega
@@ -609,13 +670,15 @@ theorem eventually_jnzCmp [Host] {k j : Nat} {cls : Cls} {co : CmpOp} {a b : Arg
               refine eventually_bcond h1 hj ?_
               have hv' : v = boolVal (co.eval x y) := by
                 rw [← hx, ← hy, ← get_reg]
-                simp only [Op.map, Op.eval, Arg.map, Arg.val, Option.some.injEq] at hv; exact hv.symm
+                simp only [Op.map, Op.eval, Arg.map, Arg.val, Option.some.injEq] at hv
+                exact hv.symm
               simp only [List.length_cons, List.length_nil, Nat.zero_add] at hk ⊢
               rw [← Nat.add_assoc] at hk
               exact ⟨fun ht => (hk { s with status := StatusFlags.subs (x - y) x y }
                   (fun _ _ => rfl) rfl).1 (by rw [hv', ← hcond, ht]; exact truthy_boolVal_true),
                 fun hf => (hk { s with status := StatusFlags.subs (x - y) x y }
-                  (fun _ _ => rfl) rfl).2 (by rw [hv', ← hcond, hf]; exact not_truthy_boolVal_false)⟩
+                  (fun _ _ => rfl) rfl).2
+                  (by rw [hv', ← hcond, hf]; exact not_truthy_boolVal_false)⟩
             · generalize hx : get s (.reg ra) = x
               rw [get_reg] at hx
               have hcond := condOf_subs (Or.inr rfl) co x cb
@@ -629,13 +692,15 @@ theorem eventually_jnzCmp [Host] {k j : Nat} {cls : Cls} {co : CmpOp} {a b : Arg
               refine eventually_bcond h1 hj ?_
               have hv' : v = boolVal (co.eval x cb) := by
                 rw [← hx, ← get_reg]
-                simp only [Op.map, Op.eval, Arg.map, Arg.val, Option.some.injEq] at hv; exact hv.symm
+                simp only [Op.map, Op.eval, Arg.map, Arg.val, Option.some.injEq] at hv
+                exact hv.symm
               simp only [List.length_cons, List.length_nil, Nat.zero_add] at hk ⊢
               rw [← Nat.add_assoc] at hk
               exact ⟨fun ht => (hk { s with status := StatusFlags.subs (x - cb) x cb }
                   (fun _ _ => rfl) rfl).1 (by rw [hv', ← hcond, ht]; exact truthy_boolVal_true),
                 fun hf => (hk { s with status := StatusFlags.subs (x - cb) x cb }
-                  (fun _ _ => rfl) rfl).2 (by rw [hv', ← hcond, hf]; exact not_truthy_boolVal_false)⟩
+                  (fun _ _ => rfl) rfl).2
+                  (by rw [hv', ← hcond, hf]; exact not_truthy_boolVal_false)⟩
           · simp at him
   | imm ca =>
     cases b with
@@ -672,13 +737,15 @@ theorem eventually_jnzCmp [Host] {k j : Nat} {cls : Cls} {co : CmpOp} {a b : Arg
               refine eventually_bcond h1 hj ?_
               have hv' : v = boolVal ((swapCmp co).eval x y) := by
                 rw [swapCmp_eval, ← hx, ← hy, ← get_reg]
-                simp only [Op.map, Op.eval, Arg.map, Arg.val, Option.some.injEq] at hv; exact hv.symm
+                simp only [Op.map, Op.eval, Arg.map, Arg.val, Option.some.injEq] at hv
+                exact hv.symm
               simp only [List.length_cons, List.length_nil, Nat.zero_add] at hk ⊢
               rw [← Nat.add_assoc] at hk
               exact ⟨fun ht => (hk { s with status := StatusFlags.subs (x - y) x y }
                   (fun _ _ => rfl) rfl).1 (by rw [hv', ← hcond, ht]; exact truthy_boolVal_true),
                 fun hf => (hk { s with status := StatusFlags.subs (x - y) x y }
-                  (fun _ _ => rfl) rfl).2 (by rw [hv', ← hcond, hf]; exact not_truthy_boolVal_false)⟩
+                  (fun _ _ => rfl) rfl).2
+                  (by rw [hv', ← hcond, hf]; exact not_truthy_boolVal_false)⟩
             · generalize hx : get s (.reg rb) = x
               rw [get_reg] at hx
               have hcond := condOf_subs (Or.inr rfl) (swapCmp co) x ca
@@ -692,13 +759,15 @@ theorem eventually_jnzCmp [Host] {k j : Nat} {cls : Cls} {co : CmpOp} {a b : Arg
               refine eventually_bcond h1 hj ?_
               have hv' : v = boolVal ((swapCmp co).eval x ca) := by
                 rw [swapCmp_eval, ← hx, ← get_reg]
-                simp only [Op.map, Op.eval, Arg.map, Arg.val, Option.some.injEq] at hv; exact hv.symm
+                simp only [Op.map, Op.eval, Arg.map, Arg.val, Option.some.injEq] at hv
+                exact hv.symm
               simp only [List.length_cons, List.length_nil, Nat.zero_add] at hk ⊢
               rw [← Nat.add_assoc] at hk
               exact ⟨fun ht => (hk { s with status := StatusFlags.subs (x - ca) x ca }
                   (fun _ _ => rfl) rfl).1 (by rw [hv', ← hcond, ht]; exact truthy_boolVal_true),
                 fun hf => (hk { s with status := StatusFlags.subs (x - ca) x ca }
-                  (fun _ _ => rfl) rfl).2 (by rw [hv', ← hcond, hf]; exact not_truthy_boolVal_false)⟩
+                  (fun _ _ => rfl) rfl).2
+                  (by rw [hv', ← hcond, hf]; exact not_truthy_boolVal_false)⟩
           · simp at him
 
 section ParserChecks
@@ -766,6 +835,12 @@ example : op (.ext .w .h false (.var (.reg .X1))) (.reg .X0) =
   some (parseAArch64("uxth w0, w1")) := rfl
 example : op (.copy .w (.var (.reg .X1))) (.reg .X0) =
   some (parseAArch64("mov w0, w1")) := rfl
+example : op (.bin .l .shl (.var (.reg .X1)) (.imm 3)) (.reg .X0) =
+  some (parseAArch64("lsl x0, x1, #3")) := rfl
+example : op (.bin .w .shr (.var (.reg .X1)) (.imm 3)) (.reg .X0) =
+  some (parseAArch64("lsr w0, w1, #3")) := rfl
+example : op (.bin .l .sar (.var (.reg .X1)) (.imm 63)) (.reg .X0) =
+  some (parseAArch64("asr x0, x1, #63")) := rfl
 
 end ParserChecks
 

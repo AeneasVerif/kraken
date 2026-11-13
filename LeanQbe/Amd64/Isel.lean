@@ -9,19 +9,20 @@ public import LeanQbe.Abi
 Snippets for the operations of the IL: `op`, `load`, `store` (each `none` when unsupported, so the
 lowering fails), and the directive helpers they are built from. Step lemmas in `IselLemmas.lean`.
 
-Supported (operands go through the scratch registers r11, r10, so any destination is allowed;
-operands may be any non-scratch register or an immediate):
+Supported (any non-scratch destination register, or any destination except for `div rem udiv urem`,
+which use `rd` alongside `r10` to save and restore `rax`/`rdx` around the hardware `div`/`idiv`
+instruction; operands may be any non-scratch register or an immediate):
 
 * `op`: every operation of `LeanQbe.Ops` (`copy`, `ext{s,u}{b,h,w,l}`, `add sub mul div rem udiv
   urem and or xor shl shr sar`, and every comparison `c{eq,ne,sle,slt,sge,sgt,ule,ult,uge,ugt}`),
-  at both classes, for any non-scratch destination register (and any destination except for
-  `div rem udiv urem`, which use `rd` alongside `r10` to save and restore `rax`/`rdx` around the
-  hardware `div`/`idiv` instruction). Shift counts go through `%cl` (`rcx` is saved in `r10`
-  around the shift); comparisons are `cmp` + `setcc` + `movzbl`, with `sge`/`sgt` as `setle`/`setl`
-  on swapped operands.
+  at both classes, with fast paths for 2-address register/immediate ALU ops, 3-operand `lea`,
+  `neg` (`0 - x` and `a - rd`), immediate shifts, and register/immediate comparisons (swapping
+  left-hand 32-bit immediates). Variable shift counts go through `%cl` (`rcx` is saved in `r10`
+  around the shift); comparisons are `cmp` + `setcc` + `movzbl` (or fused `cmp` + `jcc` in
+  `jnzCmp`).
 * `load`: every width, signedness and class, from a register or an immediate address (through
   `r10`); one `movs*`/`movz*`/`mov` instruction, plus `movl` for a class-`w` load of a long.
-* `store`: every width (`movb`/`movw`/`movl`/`movq` of `r11`'s low bytes) of a register or immediate,
+* `store`: every width (`movb`/`movw`/`movl`/`movq` from a register, 32-bit immediate, or `r11`)
   to a register or immediate address (through `r10`).
 -/
 
@@ -103,20 +104,24 @@ def shiftIns : Cls → BinOp → Option Directive
 /-- `movl %rs32, %rd32` (zero-extends). -/
 def movlD (rd rs : Reg64) : Directive := ins32 (.mov (.reg (d rd)) (.reg (d rs)))
 
-/-- For each comparison: whether the operands are swapped, and the condition code that holds after
-`cmp` iff the comparison holds. `sge`/`sgt` swap the operands because Kraken's parser has no
-`setge`/`setg`. -/
-def condOf : CmpOp → Bool × CondCode
-  | .eq => (false, .z)
-  | .ne => (false, .nz)
-  | .sle => (false, .le)
-  | .slt => (false, .l)
-  | .sge => (true, .le)
-  | .sgt => (true, .l)
-  | .ule => (false, .be)
-  | .ult => (false, .c)
-  | .uge => (false, .nc)
-  | .ugt => (false, .a)
+/-- The condition code that holds after `cmp` iff the comparison holds. -/
+def condOf : CmpOp → CondCode
+  | .eq => .z
+  | .ne => .nz
+  | .sle => .le
+  | .slt => .l
+  | .sge => .ge
+  | .sgt => .g
+  | .ule => .be
+  | .ult => .c
+  | .uge => .nc
+  | .ugt => .a
+
+/-- Swap operands of a comparison (`a o b ↔ b (swapCmp o) a`). -/
+def swapCmp : CmpOp → CmpOp
+  | .eq => .eq | .ne => .ne
+  | .sle => .sge | .slt => .sgt | .sge => .sle | .sgt => .slt
+  | .ule => .uge | .ult => .ugt | .uge => .ule | .ugt => .ult
 
 /-- `cmp{k} %r10, %r11`: flags of `r11 - r10` at class `k`. -/
 def cmpIns : Cls → Directive
@@ -219,6 +224,11 @@ def shiftImmIns : Cls → BinOp → Reg64 → Val → Option Directive
   | .w, .sar, r, c => some (ins32 (.sar (.reg (d r)) (.imm8 (.int64 (Int64.ofBitVec c)))))
   | _, _, _, _ => none
 
+/-- `neg{k} %rd`: `rd := -rd` (`0 - rd`) at class `k` (class `w` zero-extends). -/
+def negIns : Cls → Reg64 → Directive
+  | .l, rd => ins (.neg (.reg (q rd)))
+  | .w, rd => ins32 (.neg (.reg (d rd)))
+
 /-- `op{k} %rs, %rd`: `rd := rd op rs` at class `k` (class `w` zero-extends). -/
 def binRegIns : Cls → BinOp → Reg64 → Reg64 → Option Directive
   | .l, .add, rd, rs => some (ins (.add (.reg (q rd)) (.reg (q rs))))
@@ -261,7 +271,7 @@ def imm32Val (c : Val) : Int64 := Int64.ofBitVec ((c.truncate 32).signExtend 64)
 /-- Immediate operand encoding `imm32Val c` at width `w`. -/
 def imm32Op (w : Width) (c : Val) : Operand w := .imm (.int64 (imm32Val c))
 
-/-- Immediate value truncated to `sz` and sign-extended to 64 bits (always fits without assembler warning). -/
+/-- Immediate value truncated to `sz` and sign-extended to 64 bits. -/
 def storeImmVal (sz : Sz) (c : Val) : Int64 :=
   match sz with
   | .b => Int64.ofBitVec ((c.truncate 8).signExtend 64)
@@ -303,7 +313,8 @@ def movK : Cls → Reg64 → Reg64 → Directive
   | .l => movD
   | .w => movlD
 
-/-- `rd := o` with fast paths for immediate shifts, immediate ALU/cmp, 3-op `lea`, and 2-address `bin`. -/
+/-- `rd := o` with fast paths for immediate shifts, immediate ALU/cmp, 3-op `lea`, `neg`, and
+2-address `bin`. -/
 def op : Op Reg64 → Reg64 → Option (List Directive)
   | .bin k o a b, rd =>
     match shiftIns k o with
@@ -315,8 +326,10 @@ def op : Op Reg64 → Reg64 → Option (List Directive)
           match a with
           | .var ra => if ra = rd then some [si] else some [argTo rd (.var ra), si]
           | .imm _ => some [argTo rd a, si]
-        | none => some [argTo .r11 a, movD .r10 .rcx, argTo .rcx b, i, movD .rcx .r10, movD rd .r11]
-      | .var _ => some [argTo .r11 a, movD .r10 .rcx, argTo .rcx b, i, movD .rcx .r10, movD rd .r11]
+        | none =>
+          some [argTo .r11 a, movD .r10 .rcx, argTo .rcx b, i, movD .rcx .r10, movD rd .r11]
+      | .var _ =>
+        some [argTo .r11 a, movD .r10 .rcx, argTo .rcx b, i, movD .rcx .r10, movD rd .r11]
     | none =>
       match divCore k o with
       | some (core, res) => divSeq rd core res a b
@@ -325,6 +338,8 @@ def op : Op Reg64 → Reg64 → Option (List Directive)
         | _, .var ra, .var rb =>
           if ra = rd then (binRegIns k o rd rb).map (· :: [])
           else if isComm o ∧ rb = rd then (binRegIns k o rd ra).map (· :: [])
+          else if o == .sub && rb = rd then
+            (binRegIns k .add rd ra).map fun i => [negIns k rd, i]
           else if k == .l && o == .add && rb ≠ rd then
             some [ins (.lea (q rd) { base := some (.reg ra), idx := some ⟨rb, .W8⟩ })]
           else if rb ≠ rd then (binRegIns k o rd rb).map fun i => [movK k rd ra, i]
@@ -333,26 +348,33 @@ def op : Op Reg64 → Reg64 → Option (List Directive)
           if k == .w || fitsImm32 cb then
             if ra = rd then (binImmIns k o rd cb).map (· :: [])
             else if k == .l && o == .add then
-              some [ins (.lea (q rd) { base := some (.reg ra), idx := none, disp := .int64 (imm32Val cb) })]
+              some [ins (.lea (q rd)
+                { base := some (.reg ra), idx := none, disp := .int64 (imm32Val cb) })]
             else (binImmIns k o rd cb).map fun i => [movK k rd ra, i]
           else (binIns k o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
         | _, .imm ca, .var rb =>
-          if isComm o && (k == .w || fitsImm32 ca) then
+          if o == .sub && ca == 0 then
+            if rb = rd then some [negIns k rd]
+            else some [movK k rd rb, negIns k rd]
+          else if isComm o && (k == .w || fitsImm32 ca) then
             if rb = rd then (binImmIns k o rd ca).map (· :: [])
             else if k == .l && o == .add then
-              some [ins (.lea (q rd) { base := some (.reg rb), idx := none, disp := .int64 (imm32Val ca) })]
+              some [ins (.lea (q rd)
+                { base := some (.reg rb), idx := none, disp := .int64 (imm32Val ca) })]
             else (binImmIns k o rd ca).map fun i => [movK k rd rb, i]
           else (binIns k o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
         | _, _, _ => (binIns k o).map fun i => [argTo .r11 a, argTo .r10 b, i, movD rd .r11]
   | .cmp k o a b, rd =>
-    let (x, y) := if (condOf o).1 then (b, a) else (a, b)
-    match x, y with
-    | .var rx, .var ry => some [cmpRegIns k rx ry, setccD (condOf o).2, movzbD rd]
+    match a, b with
+    | .var rx, .var ry => some [cmpRegIns k rx ry, setccD (condOf o), movzbD rd]
     | .var rx, .imm cy =>
-      if k == .w || fitsImm32 cy then some [cmpImmIns k rx cy, setccD (condOf o).2, movzbD rd]
-      else some [moviD .r10 cy, cmpRegIns k rx .r10, setccD (condOf o).2, movzbD rd]
-    | .imm cx, .var ry => some [moviD .r10 cx, cmpRegIns k .r10 ry, setccD (condOf o).2, movzbD rd]
-    | _, _ => some [argTo .r11 x, argTo .r10 y, cmpIns k, setccD (condOf o).2, movzbD rd]
+      if k == .w || fitsImm32 cy then some [cmpImmIns k rx cy, setccD (condOf o), movzbD rd]
+      else some [moviD .r10 cy, cmpRegIns k rx .r10, setccD (condOf o), movzbD rd]
+    | .imm cx, .var ry =>
+      if k == .w || fitsImm32 cx then
+        some [cmpImmIns k ry cx, setccD (condOf (swapCmp o)), movzbD rd]
+      else some [moviD .r10 cx, cmpRegIns k .r10 ry, setccD (condOf o), movzbD rd]
+    | _, _ => some [argTo .r11 a, argTo .r10 b, cmpIns k, setccD (condOf o), movzbD rd]
   | .ext k s sg (.var r), rd => some [extD k s sg rd r]
   | .ext k s sg (.imm c), rd => some [moviD rd (k.trunc (s.extend sg c))]
   | .copy .l a, rd => some [argTo rd a]
@@ -369,14 +391,15 @@ def store (sz : Sz) (x a : Arg Reg64) : Option (List Directive) :=
 
 /-- Fused comparison + conditional branch directly to `l`. -/
 def jnzCmp (k : Cls) (o : CmpOp) (a b : Arg Reg64) (l : String) : Option (List Directive) :=
-  let (x, y) := if (condOf o).1 then (b, a) else (a, b)
-  let j := ins (.jcc (condOf o).2 l)
-  match x, y with
-  | .var rx, .var ry => some [cmpRegIns k rx ry, j]
+  let j (co : CmpOp) := ins (.jcc (condOf co) l)
+  match a, b with
+  | .var rx, .var ry => some [cmpRegIns k rx ry, j o]
   | .var rx, .imm cy =>
-    if k == .w || fitsImm32 cy then some [cmpImmIns k rx cy, j]
-    else some [moviD .r10 cy, cmpRegIns k rx .r10, j]
-  | .imm cx, .var ry => some [moviD .r10 cx, cmpRegIns k .r10 ry, j]
-  | _, _ => some [argTo .r11 x, argTo .r10 y, cmpIns k, j]
+    if k == .w || fitsImm32 cy then some [cmpImmIns k rx cy, j o]
+    else some [moviD .r10 cy, cmpRegIns k rx .r10, j o]
+  | .imm cx, .var ry =>
+    if k == .w || fitsImm32 cx then some [cmpImmIns k ry cx, j (swapCmp o)]
+    else some [moviD .r10 cx, cmpRegIns k .r10 ry, j o]
+  | _, _ => some [argTo .r11 a, argTo .r10 b, cmpIns k, j o]
 
 end LeanQbe.Amd64

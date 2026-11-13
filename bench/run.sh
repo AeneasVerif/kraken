@@ -19,13 +19,16 @@ mkdir -p "$OUT"
 QBE_SRC="${QBE_SRC:-$ROOT/qbe}"
 [ -d "$QBE_SRC" ] || QBE_SRC="/usr/local/google/home/andreser/lean-qbe/qbe"
 
-echo "== 1. Emitting QBE IL and lean-qbe x64 assembly with leanqbe into $OUT"
-timeout 1800 lake build leanqbe >"$OUT/build.log" 2>&1 || { tail -20 "$OUT/build.log"; exit 1; }
+echo "== 1. Emitting QBE IL and lean-qbe (x64 + arm64) assembly into $OUT"
+timeout 1800 lake build leanqbe leanqbe-arm64 >"$OUT/build.log" 2>&1 || { tail -20 "$OUT/build.log"; exit 1; }
 LEANQBE="$ROOT/.lake/build/bin/leanqbe"
+LEANQBE_ARM64="$ROOT/.lake/build/bin/leanqbe-arm64"
 timeout 60 "$LEANQBE" --il uf_bench >"$OUT/uf.ssa"
 timeout 60 "$LEANQBE" --il lrat_trim >"$OUT/lrat_trim.ssa"
 timeout 60 "$LEANQBE" uf_bench >"$OUT/uf.s"
 timeout 60 "$LEANQBE" lrat_trim >"$OUT/lrat_trim.s"
+timeout 60 "$LEANQBE_ARM64" uf_bench >"$OUT/uf_arm64.s"
+timeout 60 "$LEANQBE_ARM64" lrat_trim >"$OUT/lrat_trim_arm64.s"
 
 echo "== 2. Building instrumented stock QBE (with env-var pass ablation switches) in $OUT/qbe-src"
 rm -rf "$OUT/qbe-src"
@@ -196,6 +199,37 @@ ufi_cnt="$(insns "$OUT/uf.s")"
 lri_cnt="$(insns "$OUT/lrat_trim.s")"
 echo "| **lean-qbe (x64)** | $ufc | $ufi | $ufi_cnt | $lrf | $lrr | $lri_cnt | $h1 / $h3 |"
 check_row "lean-qbe (x64)" "$h1" "$h2" "$h3" "$h4"
+
+CC_ARM64="${CC_AARCH64:-aarch64-linux-gnu-gcc}"
+RUN_ARM64="qemu-aarch64 -L /usr/aarch64-linux-gnu"
+arm64_hash() {
+  local bin="$1" arg="${2:-}" out h
+  if [ -n "$arg" ]; then out="$(timeout 60 $RUN_ARM64 "$bin" "$arg")" || return 0
+  else out="$(timeout 60 $RUN_ARM64 "$bin")" || return 0; fi
+  h="$(sed -n 's/.*hash=\(0x[0-9a-f]*\).*/\1/p' <<<"$out")"
+  echo "${h:-FAILED}"
+}
+link_arm64() {
+  timeout 60 "$CC_ARM64" -std=c11 -O2 "$1" "$2" -o "$3" 2>&1 | grep -v -e 'SFrame' >&2 || true
+  [ -x "$3" ]
+}
+
+timeout 60 "$QBE" -t arm64 -o "$OUT/uf_qbe_arm64.s" "$OUT/uf.ssa"
+timeout 60 "$QBE" -t arm64 -o "$OUT/lrat_qbe_arm64.s" "$OUT/lrat_trim.ssa"
+for pair in "stock QBE (arm64):$OUT/uf_qbe_arm64.s:$OUT/lrat_qbe_arm64.s:qbe_arm64" \
+            "**lean-qbe (arm64)**:$OUT/uf_arm64.s:$OUT/lrat_trim_arm64.s:leanqbe_arm64"; do
+  IFS=: read -r lbl ufs lrs tag <<<"$pair"
+  ufi_cnt="$(insns "$ufs")"
+  lri_cnt="$(insns "$lrs")"
+  link_arm64 bench/uf_bench.c "$ufs" "$OUT/uf_$tag"
+  link_arm64 bench/lrat_bench.c "$lrs" "$OUT/lrat_$tag"
+  h1="$(arm64_hash "$OUT/uf_$tag")"
+  h2="$(arm64_hash "$OUT/uf_$tag" inline)"
+  h3="$(arm64_hash "$OUT/lrat_$tag")"
+  h4="$(arm64_hash "$OUT/lrat_$tag" rup)"
+  echo "| $lbl | - | - | $ufi_cnt | - | - | $lri_cnt | $h1 / $h3 |"
+  check_row "${lbl//\*/}" "$h1" "$h2" "$h3" "$h4"
+done
 
 echo ""
 if [ ${#FAILS[@]} -eq 0 ]; then

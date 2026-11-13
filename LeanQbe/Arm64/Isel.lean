@@ -24,7 +24,7 @@ def widthOf : Cls → RegWidth
   | .w => .W32
   | .l => .W64
 
-/-- An operand in a register: a register other than `sp` as is, an immediate materialised in `tmp`. -/
+/-- An operand in a register: a register other than `sp` as is, an immediate in `tmp`. -/
 def argIn (a : Arg Reg) (tmp : XReg) : Option (List Directive × XReg) :=
   match a with
   | .var (.reg r) => some ([], r)
@@ -46,8 +46,10 @@ def binIns (w : RegWidth) (o : BinOp) (d a b t : XReg) : List Directive :=
   | .mul => [ins (.MADD (zr d w) (zr a w) (zr b w) (xzr w))]
   | .div => [ins (.SDIV (zr d w) (zr a w) (zr b w))]
   | .udiv => [ins (.UDIV (zr d w) (zr a w) (zr b w))]
-  | .rem => [ins (.SDIV (zr t w) (zr a w) (zr b w)), ins (.MSUB (zr d w) (zr t w) (zr b w) (zr a w))]
-  | .urem => [ins (.UDIV (zr t w) (zr a w) (zr b w)), ins (.MSUB (zr d w) (zr t w) (zr b w) (zr a w))]
+  | .rem =>
+    [ins (.SDIV (zr t w) (zr a w) (zr b w)), ins (.MSUB (zr d w) (zr t w) (zr b w) (zr a w))]
+  | .urem =>
+    [ins (.UDIV (zr t w) (zr a w) (zr b w)), ins (.MSUB (zr d w) (zr t w) (zr b w) (zr a w))]
   | .and => [ins (.AND_s (zr d w) (zr a w) (sh b))]
   | .or => [ins (.ORR_s (zr d w) (zr a w) (sh b))]
   | .xor => [ins (.EOR_s (zr d w) (zr a w) (sh b))]
@@ -95,10 +97,20 @@ def imm12? (k : Cls) (c : Val) : Option ExtOrImmReg :=
   if v.toNat < 4096 then some (.imm { imm := .int64 (Int64.ofBitVec v), shift := .S0 }) else none
 
 /-- Immediate `add`/`sub` via `ADD (immediate)` / `SUB (immediate)`. -/
-def binImmIns (w : RegWidth) (o : BinOp) (d a : XReg) (ei : ExtOrImmReg) : Option (List Directive) :=
+def binImmIns (w : RegWidth) (o : BinOp) (d a : XReg) (ei : ExtOrImmReg) :
+    Option (List Directive) :=
   match o with
   | .add => some [ins (.ADD_e (sp d w) (sp a w) ei)]
   | .sub => some [ins (.SUB_e (sp d w) (sp a w) ei)]
+  | _ => none
+
+/-- Immediate shift via `UBFM`/`SBFM` (`lsl`/`lsr`/`asr` aliases). -/
+def shiftImmIns (w : RegWidth) (o : BinOp) (d a : XReg) (cb : Val) : Option (List Directive) :=
+  let n := cb.toNat % w.bits
+  match o with
+  | .shl => some [ins (.UBFM (zr d w) (zr a w) ((w.bits - n) % w.bits) (w.bits - 1 - n))]
+  | .shr => some [ins (.UBFM (zr d w) (zr a w) n (w.bits - 1))]
+  | .sar => some [ins (.SBFM (zr d w) (zr a w) n (w.bits - 1))]
   | _ => none
 
 /-- Swap operands of a comparison (`a o b ↔ b (swapCmp o) a`). -/
@@ -112,11 +124,14 @@ def cmpImmIns (w : RegWidth) (o : CmpOp) (d a : XReg) (ei : ExtOrImmReg) : List 
   [ins (.SUBS_e (xzr w) (sp a w) ei),
    ins (w := .W32) (.CSINC (zr d .W32) (xzr .W32) (xzr .W32) (notCondOf o))]
 
-/-- Fast-path immediate `add`/`sub` when an operand fits in a 12-bit unsigned immediate. -/
+/-- Fast-path immediate `add`/`sub` (12-bit unsigned) and immediate shifts (`shl`/`shr`/`sar`). -/
 def fastBin? (k : Cls) (bo : BinOp) (d : XReg) : Arg Reg → Arg Reg → Option (List Directive)
-  | .var (.reg ra), .imm cb => do
-    let ei ← imm12? k cb
-    binImmIns (widthOf k) bo d ra ei
+  | .var (.reg ra), .imm cb =>
+    match shiftImmIns (widthOf k) bo d ra cb with
+    | some ds => some ds
+    | none => do
+      let ei ← imm12? k cb
+      binImmIns (widthOf k) bo d ra ei
   | .imm ca, .var (.reg rb) =>
     if bo == .add then do
       let ei ← imm12? k ca
