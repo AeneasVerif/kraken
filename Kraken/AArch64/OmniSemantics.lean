@@ -21,8 +21,8 @@ public import Kraken.OmniSemantics
   | .require_write_access _ _ cont => (cont ()).All post
   | .require_exec_access _ cont => (cont ()).All post
 
-def step1 [Layout] (e: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
+def step1 (e: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
   (Executable.step e s .done).All post
 
-def straightlineStep [Layout] (e: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
+def straightlineStep (e: Executable) (s: MachineState) (post: @Post MachineState) : Prop :=
   (Executable.straightline e s .done).All post

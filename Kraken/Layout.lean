@@ -37,30 +37,38 @@ structure Executable (Instr Const : Type) where
   startAddr : Int64
   program : List (Sized (Directive Instr Const))
 
+variable {Instr Const : Type}
+
 -- JP: why is `size` not `Directive → Nat`?
-class Layout (Instr Const : Type) where
+class Layout (p : Program Instr Const) where
   start : Int64 -- NOTE: Why is `start` a `Int64`?
   instrSize : Nat → PNat
 
-variable {Instr Const : Type}
+def Layout.size {p : Program Instr Const} [l : Layout p] (i : Nat) : Nat :=
+  match p[i]? with
+  | some <| .instr _ => l.instrSize i
+  | some <| .label _ => 0
+  | some <| .byteArray arr => arr.size
+  | some <| .word bytes _ => bytes
+  | none => 0
 
-def Layout.size [l : Layout Instr Const] : Directive Instr Const → Nat → Nat
-  | .instr _, idx => l.instrSize idx
-  | .label _, _ => 0
-  | .byteArray arr, _ => arr.size
-  | .word bytes _, _ => bytes
+def Program.size (p : Program Instr Const) [l : Layout p] := p.mapIdx (fun idx _ => l.size idx) |>.sum
 
-def Layout.apply (l : Layout Instr Const) (prog : Program Instr Const) : Executable Instr Const :=
-  {startAddr := l.start, program := prog.mapIdx fun idx directive => {directive, size := l.size directive idx}}
+class WellFormedLayout (p : Program Instr Const) extends Layout p where
+  no_overflow : p.size < 2^64
 
--- NOTE: We write `List (Kraken.Directive Instr Const)` here, and not `Kraken.Program Instr Const`, because architecture
--- specific `Program` types are written as `List Directive` which desugar to `List (Kraken.Directive Instr Const)`,
--- and so otherwise the typeclass synthesis algorithm would not find this instance.
--- Architecture specific programs are written as `List Directive` for architecture-specific `Directive`
--- instead of `Kraken.Directive Instr Const` so that `ls[i].foo` searches for `Directive.foo` first, instead of
--- going directly to `Kraken.Directive.foo` (which contains less information)
-instance : CoeFun (Layout Instr Const) (fun _ => List (Directive Instr Const) → Executable Instr Const) where
-  coe := Layout.apply
+def Layout.apply (prog : Program Instr Const) (l : Layout prog) : Executable Instr Const :=
+  {startAddr := l.start, program := prog.mapIdx (fun i directive => {directive, size := l.size i})}
+
+abbrev Program.toExecutable (prog : Program Instr Const) [l : Layout prog] := l.apply prog
+
+abbrev _root_.List.toExecutable (prog : Program Instr Const) [l : Layout prog] := l.apply prog
+
+theorem Program.toExecutable_eq_of_eq (prog q : Program Instr Const) [l : Layout prog]
+    (hq : prog = q := by rfl) :
+    List.toExecutable prog =
+      {startAddr := l.start, program := q.mapIdx (fun i directive => {directive, size := l.size i})} := by
+  subst hq; rfl
 
 structure Addressable (Directive : Type) extends Sized Directive where (addr : Int64)
 
@@ -93,10 +101,13 @@ theorem Executable.withAddresses_dropWhile_start (startAddr : Int64) :
       Executable.withAddresses {startAddr, program} := by
   cases program <;> grind [Executable.withAddresses, List.dropWhile_cons, List.dropWhile_nil]
 
-theorem Executable.directivesFromStart [layout : Layout Instr Const] (prog : Program Instr Const) :
-    (layout prog).directivesFromAddress layout.start =
-      prog.mapIdx (fun i directive => {directive, size := layout.size directive i}) := by
-  grind [Executable.withAddresses_dropWhile_start, Executable.withAddresses_map_snd, Executable.directivesFromAddress, Layout.apply]
+theorem Executable.directivesFromStart {prog : Program Instr Const} [layout : Layout prog]
+    (q : Program Instr Const) :
+    Executable.directivesFromAddress
+      {startAddr := layout.start, program := q.mapIdx (fun i directive => {directive, size := layout.size i})}
+      layout.start =
+      q.mapIdx (fun i directive => {directive, size := layout.size i}) := by
+  grind [Executable.withAddresses_dropWhile_start, Executable.withAddresses_map_snd, Executable.directivesFromAddress]
 
 theorem directivesAtFromPrefix (a: Int64):
   ∃ rest, e.directivesFromAddress a = e.directivesAtAddress a ++ rest := by
@@ -196,5 +207,29 @@ theorem Executable.withAddresses_dropWhile_addrOf (j n : Nat)
     rw [Executable.getElem?_withAddresses_eq] at hc
     obtain ⟨dz, -, rfl⟩ := Option.map_eq_some_iff.mp hc
     simpa using hj
+
+theorem Program.map_size_toExecutable_eq (p : Program Instr Const) [l : Layout p] :
+    (p.toExecutable.program.map (·.size)).sum = p.size := by
+  dsimp [Program.toExecutable, Layout.apply, Program.size]
+  congr 1
+  generalize (l.size) = sz
+  induction p generalizing sz <;> simp [List.mapIdx_cons, *]
+
+theorem Executable.sizeBefore_le (n : Nat) :
+    e.sizeBefore n ≤ (e.program.map (·.size)).sum := by
+  simpa [sizeBefore, List.take_of_length_le (Nat.le_max_right n e.program.length)] using
+    e.sizeBefore_mono (Nat.le_max_left n e.program.length)
+
+theorem Program.sizeBefore_lt (prog : Program Instr Const) [WellFormedLayout prog] (n : Nat) :
+    prog.toExecutable.sizeBefore n < 2^64 :=
+  Nat.lt_of_le_of_lt (prog.toExecutable.sizeBefore_le n)
+    (Program.map_size_toExecutable_eq prog ▸ WellFormedLayout.no_overflow)
+
+theorem Program.sizeBefore_eq_of_addrOf_eq (prog : Program Instr Const) [WellFormedLayout prog]
+    {j k : Nat} (h : prog.toExecutable.addrOf j = prog.toExecutable.addrOf k) :
+    prog.toExecutable.sizeBefore j = prog.toExecutable.sizeBefore k := by
+  have hj := Program.sizeBefore_lt prog j
+  have hk := Program.sizeBefore_lt prog k
+  grind [Executable.addrOf]
 
 end Kraken

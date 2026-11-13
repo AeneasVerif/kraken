@@ -48,8 +48,8 @@ def swap : Program := ⸨prog|
   eor x0, x0, x1
 ⸩
 
-theorem swap_correct [layout : Layout] (d : MachineData) :
-    straightlineStep (layout swap) ⟨d, layout.start⟩
+theorem swap_correct [layout : Layout swap] (d : MachineData) :
+    straightlineStep swap.toExecutable ⟨d, layout.start⟩
     (fun s' =>
         s'.1.regs.getRegOrZr .X0 = d.regs.getRegOrZr .X1 ∧
         s'.1.regs.getRegOrZr .X1 = d.regs.getRegOrZr .X0) := by
@@ -64,8 +64,8 @@ def arith_shift : Program := ⸨prog|
   sub x3, x2, x0
 ⸩
 
-theorem arith_shift_correct [layout : Layout] (d : MachineData) :
-    straightlineStep (layout arith_shift) ⟨d, layout.start⟩ (fun s' =>
+theorem arith_shift_correct [layout : Layout arith_shift] (d : MachineData) :
+    straightlineStep arith_shift.toExecutable ⟨d, layout.start⟩ (fun s' =>
       s'.1.regs.getRegOrZr .X3 = 3 * (d.regs.getRegOrZr .X1 + 42)) := by
   kprologue arith_shift with d
   sym => kstep; tactic =>
@@ -82,8 +82,8 @@ start:
   mov x1, #42
 ⸩
 
-theorem p4_correct [layout : Layout] (d : MachineData) :
-    Eventually (straightlineStep (layout controlflow))
+theorem p4_correct [layout : Layout controlflow] (d : MachineData) :
+    Eventually (straightlineStep controlflow.toExecutable)
       (fun s' => s'.1.regs.X1 = 42)
       ⟨d, layout.start⟩ := by
   apply step_cps
@@ -108,11 +108,11 @@ def move_2_regs_to_heap : Program := ⸨prog|
     ldr x4, [x2, #8]
 ⸩
 
-theorem move_2_regs_to_heap_correct [layout : Layout] (s₀ : MachineData)
+theorem move_2_regs_to_heap_correct [layout : Layout move_2_regs_to_heap] (s₀ : MachineData)
     (v1 v2 : UInt64)
     (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v1.At s₀.regs.X2.toBitVec) ⋆ Eq (v2.At (s₀.regs.X2.toBitVec + 8#64)) ⋆ R) :
-    Eventually (straightlineStep (layout move_2_regs_to_heap))
+    Eventually (straightlineStep move_2_regs_to_heap.toExecutable)
       (fun s' =>
         s'.1.regs.X3 = s₀.regs.X0 ∧
         s'.1.regs.X4 = s₀.regs.X1 ∧
@@ -156,10 +156,10 @@ def reg_offset_example : Program := ⸨prog|
     ldr x3, [x1, x2, lsl #3]
 ⸩
 
-theorem reg_offset_example_correct [layout : Layout] (s₀ : MachineData)
+theorem reg_offset_example_correct [layout : Layout reg_offset_example] (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.X1.toBitVec + BitVec.ofInt 64 (s₀.regs.X2.toBitVec.toNat <<< 3))) ⋆ R) :
-    Eventually (straightlineStep (layout reg_offset_example))
+    Eventually (straightlineStep reg_offset_example.toExecutable)
       (fun s' => s'.1.regs.X3 = 42)
       ⟨s₀, layout.start⟩ := by
   apply step_cps

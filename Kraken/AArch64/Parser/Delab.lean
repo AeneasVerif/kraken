@@ -929,12 +929,15 @@ def delabDirective' : Delab := do
   let stx ← delabDirectiveCore
   `(⸨dir| $stx ⸩)
 
+/-- Output-only unexpander syntax for sized directives. -/
+syntax "⸨dir " term "| " aarch64_directive " ⸩" : term
+
 @[app_unexpander Kraken.Sized.mk]
 def sizedUnexpander : Unexpander
   | `($_ $dir $sz) => do
     let `(⸨dir| $dir⸩) := dir | throw ()
     let i ← match sz with
-      | `(Kraken.Layout.size $_ $i) | `(Layout.size $_ $i) | `(size $_ $i) => pure i
+      | `(Kraken.Layout.size $i) | `(Layout.size $i) | `(size $i) => pure i
       | _ => throw ()
     `(⸨dir $i | $dir ⸩)
   | _ => throw ()

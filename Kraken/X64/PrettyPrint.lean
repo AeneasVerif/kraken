@@ -47,8 +47,8 @@ private def isDirectiveNatType (e : Expr) : Bool :=
 
 private def natLit? (e : Expr) : Option Nat := e.nat? <|> e.rawNatLit?
 
-/-- Extracts `i` from `layout.size d i`: `Layout.apply` tags the `i`-th directive of a
-program with `layout.size d i`, so this recovers the directive's index. -/
+/-- Extracts `i` from `layout.size i`: `Layout.apply` tags the `i`-th directive of a
+program with `layout.size i`, so this recovers the directive's index. -/
 private def layoutIndex? (e : Expr) : Option Nat :=
   match_expr e with
   | Kraken.Layout.size _ _ _ _ i => natLit? i

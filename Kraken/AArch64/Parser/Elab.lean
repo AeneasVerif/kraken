@@ -1466,10 +1466,6 @@ end
 elab_rules : term
   | `(⸨dir| $d:aarch64_directive⸩) => elabDirective d
 
-macro_rules
-  | `(⸨dir $n | $dir:aarch64_directive⸩) =>
-    `({directive := ⸨dir| $dir⸩, size := Kraken.Layout.size ⸨dir| $dir⸩ $n : Kraken.Sized _root_.Directive})
-
 /-- Inline unquoted AArch64 assembly block elaborator (`⸨prog| ...⸩`). -/
 elab_rules : term
   | `(⸨prog| $p:aarch64_prog⸩) => elabProgram p

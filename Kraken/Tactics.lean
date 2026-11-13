@@ -82,12 +82,15 @@ elab_rules : tactic
 
       let straightlineStepId := mkIdent `straightlineStep
       let execStraightlineId := mkIdent `Executable.straightline
+      let pExpr ← Term.elabTerm p none
+      let some pUnfolded ← delta? pExpr | throwErrorAt p "kprologue: `{p}` is not a definition"
+      let qTerm ← Term.exprToSyntax pUnfolded
 
       evalTactic (← `(tactic|
         (let ss := $s
          change ($straightlineStepId:ident _ ⟨ss, _⟩ _)
          obtain $statePat:rcasesPat := $s
-         delta $p
+         rw [Kraken.Program.toExecutable_eq_of_eq $p $qTerm]
          dsimp only [$straightlineStepId:ident, $execStraightlineId:ident]
          rw [Executable.directivesFromStart]
          simp [List.mapIdx, List.mapIdx.go])))
