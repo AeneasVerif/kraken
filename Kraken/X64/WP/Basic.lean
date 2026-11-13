@@ -65,11 +65,13 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     rw [Host.exe_getElem?, hdp.cons.1]
     rfl
   rw [Host.addrOf_succ hdp.cons.1] at h
-  rcases Nat.eq_zero_or_pos (Host.layout.size d k) with h0 | hz
-  · rw [inert_of_size_zero h0, h0] at h
-    simpa [Effects.All] using Eventually.done _ h
-  · refine Eventually.step _ post ?_ fun _ hb => Eventually.done _ hb
-    obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd hz
+  match hsize: Host.layout.size d k with
+  | 0 =>
+    apply Eventually.done
+    simpa [hsize, inert_of_size_zero hsize, Effects.All] using h
+  | _+1 =>
+    refine Eventually.step _ post ?_ fun _ hb => Eventually.done _ hb
+    obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd <| by grind only
     have hmem : ∀ c ∈ pre, c ∈ Host.exe.program := fun c hc =>
       Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc)
     unfold step1 Executable.step
