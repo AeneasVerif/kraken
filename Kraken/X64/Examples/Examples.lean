@@ -27,7 +27,9 @@ open Kraken.X64.Parser
 
 --------------------------------------------------------------------------------
 
-def p1 := ⸨prog| start: mov $1, %rax ⸩
+def p1 := ⸨prog|
+  start:
+  mov $1, %rax ⸩
 
 -- Super-simple example to debug tactics
 example [layout : Layout] s : straightlineStep (layout p1) ⟨s, layout.start⟩ (fun s => s.1.regs.rax = 1) := by
@@ -197,7 +199,8 @@ theorem p3_correct [layout: Layout] (s: MachineData):
                   apply Nat.pow_le_pow_right (by decide)
                   omega -/
 
-def p4 := eval% ⸨prog|start: mov $2, %rax
+def p4 := eval% ⸨prog|start:
+mov $2, %rax
 dec %rax⸩
 
 -- Super-simple example to debug tactics
@@ -211,7 +214,8 @@ example [layout : Layout] s : straightlineStep (layout p4) ⟨s, layout.start⟩
 
 /- Examples -/
 
-def p5 := ⸨prog|start: mov $2, %rax
+def p5 := ⸨prog|start:
+mov $2, %rax
 dec %rax
 start2:
 dec %rax⸩
