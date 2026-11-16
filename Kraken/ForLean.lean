@@ -85,3 +85,17 @@ public unsafe def getEnvironmentForElabModule (elabModule : Name) : IO Environme
       pure env
 
 end Lean
+
+public section
+
+theorem List.mem_takeWhile {α : Type _} {p : α → Bool} {l : List α} {x : α}
+    (hx : x ∈ l.takeWhile p) : p x = true := by
+  induction l <;> grind [List.takeWhile_cons, List.takeWhile_nil]
+
+theorem Int64.add_ofNat_inj {a : Int64} {m n : Nat} (hm : m < UInt64.size) (hn : n < UInt64.size)
+    (h : a + .ofNat m = a + .ofNat n) : m = n := by
+  have : (Int64.ofNat m).toBitVec = OfNat.ofNat m := Int64.toBitVec_ofNat'
+  have : (Int64.ofNat n).toBitVec = OfNat.ofNat n := Int64.toBitVec_ofNat'
+  grind
+
+end
