@@ -552,6 +552,9 @@ def elabAvxOp (stx : TSyntax `x64_avx_op) : TermElabM Expr := withRef stx do
   | `(x64_avx_op| movdqa)  => pure (mkConst ``AvxOperation.movdqa)
   | `(x64_avx_op| paddd)   => pure (mkConst ``AvxOperation.paddd)
   | `(x64_avx_op| pshufb)  => pure (mkConst ``AvxOperation.pshufb)
+  | `(x64_avx_op| pxor)    => pure (mkConst ``AvxOperation.pxor)
+  | `(x64_avx_op| pand)    => pure (mkConst ``AvxOperation.pand)
+  | `(x64_avx_op| pandn)   => pure (mkConst ``AvxOperation.pandn)
   | _ =>
     let (stem, sfx) ← splitSuffixed stx
     match stem, sfx with
@@ -709,6 +712,15 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       let src ← elabAvxRegOrMem src
       let dst ← elabAvxRegOrMem dst
       mkAppWidth mk #[dst, src, imm]
+  | `(x64_instr| $op:x64_avx_shift_imm_op $imm:x64_imm, $dst:x64_avx_reg) =>
+    mkAvxInstr do
+      let mk ← match op with
+        | `(x64_avx_shift_imm_op| psrld) => pure (mkConst ``AvxOperation.psrld)
+        | `(x64_avx_shift_imm_op| pslld) => pure (mkConst ``AvxOperation.pslld)
+        | _ => throwErrorAt op "invalid SSE shift mnemonic"
+      let imm ← elabImm imm
+      let dst ← mkAppWidth (mkConst ``AvxRegOrMem.avx) #[← elabAvxReg dst]
+      mkAppWidth mk #[dst, imm]
   | `(x64_instr| $op:x64_vmov_gp_op $src:x64_avx_reg, $dst:x64_avx_reg) =>
     let n ← evalVmovGpWidth op
     if n != .W64 then throwErrorAt op "vmovd takes no two xmm operands"
