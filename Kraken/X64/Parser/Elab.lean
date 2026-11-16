@@ -791,8 +791,7 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       mkAppWidth mk #[target]
   | `(x64_instr| nop) =>
     mkClosedInstr (.nop 1)
-  | `(x64_instr| nop $sz:num) =>
-    mkClosedInstr (.nop sz.getNat)
+  | `(x64_instr| nop $sz:num) => mkClosedInstr (.nop sz.getNat)
   | `(x64_instr| $op:x64_jcc_op $lbl:x64_ident) =>
     mkRegularInstr (width? := some .W64) do
       let mk := mkConst ``Operation.jcc
@@ -877,7 +876,7 @@ elab_rules : term
 
 macro_rules
   | `(⸨dir $n | $dir:x64_directive⸩) =>
-    `({directive := ⸨dir| $dir⸩, size := Kraken.Layout.size _root_.Instr _root_.ConstExpr $n : Kraken.Sized _root_.Directive})
+    `({directive := ⸨dir| $dir⸩, size := Kraken.Layout.size ⸨dir| $dir⸩ $n : Kraken.Sized _root_.Directive})
 
 /-- Inline unquoted X64 assembly block elaborator (`⸨prog| ...⸩`). -/
 elab_rules : term
