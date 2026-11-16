@@ -1757,6 +1757,16 @@ def elabEmbedding (body : AArch64ElabM Expr) (expectedType? : Option Expr) (widt
 
 end
 
+/--
+  Parse a Kraken AArch64 `Program` from a `String`.
+
+  Safety conditions are:
+   · Those of `getEnvironmentForElabModule`
+     · Function is not called concurrently.
+     · Kraken.AArch64.Parser.Elab is ABI compatible with the current Lean runtime
+   · Those of `evalExpr`
+     · `(mkConst ``_root_.Program) : Expr` reflects to `_root_.Program : Type`.
+-/
 private unsafe def parseImpl (input : String) : IO _root_.Program := do
   let env ← getEnvironmentForElabModule `Kraken.AArch64.Parser.Elab
   let comp := do evalExpr _root_.Program (mkConst ``_root_.Program) (← elabAArch64 input)
