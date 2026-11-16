@@ -216,6 +216,7 @@ inductive Operation (w : Width)
   -- syntax level `imul` instruction, where imul1 is the 1-operand case
   | imul1 (src : RegOrMem w)
   | imul (_ : Option (Dst w)) (src1 : RegOrMem w) (src2 : Operand w)
+  | div  (src : RegOrMem w)
   -- Bitwise
   | test (a : RegOrMem w) (b : Operand w)
   | and  (_ : Dst w) (src : Operand w)
@@ -235,6 +236,9 @@ inductive Operation (w : Width)
   -- Flag control
   | cld
   | std
+  -- Processor identification
+  | cpuid
+  | xgetbv
   -- Control flow
   | jcc (cc : CondCode) (target : Label)
   | jmp (target : RelRegOrMem)
@@ -258,6 +262,12 @@ inductive AvxOperation (w : AvxWidth)
   | movdqu (_ : AvxDst w) (src : AvxRegOrMem w)
   | movdqa (_ : AvxDst w) (src : AvxRegOrMem w)
   | paddd (_ : AvxDst w) (src : AvxRegOrMem w)
+  | pxor (_ : AvxDst w) (src : AvxRegOrMem w)
+  | pand (_ : AvxDst w) (src : AvxRegOrMem w)
+  | pandn (_ : AvxDst w) (src : AvxRegOrMem w)
+  -- Shifts of each dword by an immediate count
+  | psrld (_ : AvxDst w) (imm : ConstExpr)
+  | pslld (_ : AvxDst w) (imm : ConstExpr)
   | pshufb (_ : AvxDst w) (src : AvxRegOrMem w)
   | pshufd (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   | palignr (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
@@ -280,6 +290,25 @@ inductive AvxOperation (w : AvxWidth)
   | vprord (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   | vpsrld (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
   | vpternlogd (_ : AvxDst w) (src2 src3 : AvxRegOrMem w) (imm : ConstExpr)
+  | vpshufb (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vshufps (_ : AvxDst w) (src1 src2 : AvxRegOrMem w) (imm : ConstExpr)
+  | vpermi2q (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vpermi2d (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vinserti64x4 (_ : AvxDst w) (src1 : AvxRegOrMem w) (src2 : AvxRegOrMem .W256) (imm : ConstExpr)
+  | vpslld (_ : AvxDst w) (src : AvxRegOrMem w) (imm : ConstExpr)
+  -- AVX2 operations, at 128 and 256 bits only
+  | vmovdqa (_ : AvxDst w) (src : AvxRegOrMem w)
+  | vpand (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vpandn (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vpor (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vpxor (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  -- AVX2 and AVX-512 interleaves, within each 128-bit block
+  | vpunpckldq (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vpunpckhdq (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vpunpcklqdq (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  | vpunpckhqdq (_ : AvxDst w) (src1 src2 : AvxRegOrMem w)
+  -- AVX2, 256 bits only
+  | vperm2i128 (_ : AvxDst w) (src1 src2 : AvxRegOrMem w) (imm : ConstExpr)
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
 inductive Instr
