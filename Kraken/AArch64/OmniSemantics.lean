@@ -57,17 +57,18 @@ theorem eventually_of_interp {p : Program} [l : WellFormedLayout p]
   | _ + 1 =>
     refine .step _ post ?_ fun _ => .done _
     obtain ⟨pre, hat, hpre⟩ := Kraken.Program.directivesAtAddress_addrOf p hd (by grind only)
+    have hmem := fun c (hc : c ∈ pre) => Kraken.Program.mem_of_zeroSizePrefix hat hpre hc
     unfold step1 Executable.step
     dsimp only
     rw [hat]
-    clear hat
+    clear hat hpre
     induction pre with
     | nil => simpa [Directives.interp, hsucc, hsize] using h
     | cons c pre ih =>
-      obtain ⟨m, d', hd', rfl, hz0⟩ := hpre c List.mem_cons_self
+      obtain ⟨m, d', hd', rfl, hz0⟩ := hmem c List.mem_cons_self
       simp only [List.cons_append, Directives.interp, Int64.reduceOfNat, Int64.add_zero,
         inert_of_size_zero hd' hz0]
-      exact ih fun c' hc' => hpre c' (List.mem_cons_of_mem _ hc')
+      exact ih fun c' hc' => hmem c' (List.mem_cons_of_mem _ hc')
 
 /- This theorem is meant to be used when the user is doing a proof over `Eventually` and wants to keep the
    state of the goal as an `Eventually` -/

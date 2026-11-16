@@ -49,18 +49,23 @@ def step1 (e : Executable) (s : MachineState) (post : @Post MachineState) : Prop
   letI := e.labels
   (Executable.step e s .done).All post
 
-private theorem Directives.interp_size_zero_append {p : Program} [l : Layout p]
-    {pre rest : List (Kraken.Sized Directive)}
-    (hpre : ∀ c ∈ pre, ∃ m d', p[m]? = some d' ∧ c = {directive := d', size := 0} ∧ l.size m = 0)
-    (s : MachineData) (pc : Int64) (ret : Int64 → MachineData → Effects) :
-    Directives.interp (pre ++ rest) s pc ret = Directives.interp rest s pc ret := by
+private theorem Directives.interp_directivesAtAddress_of_zeroSizePrefix
+    {p : Program} [l : Layout p] {pc : Int64} {rest : List (Kraken.Sized Directive)}
+    (h : Kraken.ZeroSizePrefix (p.toExecutable.directivesAtAddress pc) rest)
+    (s : MachineData) (ret : Int64 → MachineData → Effects) :
+    Directives.interp (p.toExecutable.directivesAtAddress pc) s pc ret =
+      Directives.interp rest s pc ret := by
+  obtain ⟨pre, hpre, hz⟩ := h
+  rw [hpre]
+  have hmem := fun c (hc : c ∈ pre) => Kraken.Program.mem_of_zeroSizePrefix hpre hz hc
+  clear hpre hz
   induction pre generalizing s with
   | nil => rfl
   | cons c pre ih =>
-    obtain ⟨m, d', hd', rfl, hz0⟩ := hpre c List.mem_cons_self
+    obtain ⟨m, d', hd', rfl, hz0⟩ := hmem c List.mem_cons_self
     simp only [List.cons_append, Directives.interp, Int64.reduceOfNat, Int64.add_zero,
       inert_of_size_zero hd' hz0]
-    exact ih (fun c' hc' => hpre c' (List.mem_cons_of_mem _ hc')) s
+    exact ih s (fun c' hc' => hmem c' (List.mem_cons_of_mem _ hc'))
 
 theorem eventually_of_interp {p : Program} [l : WellFormedLayout p]
     {k : Nat} {d : Directive} (hd : p[k]? = some d) {post : @Post MachineState} {s : MachineData}
@@ -80,10 +85,10 @@ theorem eventually_of_interp {p : Program} [l : WellFormedLayout p]
     simpa [hsucc, hsize, inert_of_size_zero hd hsize, Effects.All] using h
   | _ + 1 =>
     refine .step _ post ?_ fun _ => .done _
-    obtain ⟨pre, hat, hpre⟩ := Kraken.Program.directivesAtAddress_addrOf p hd (by grind only)
     unfold step1 Executable.step
     dsimp only
-    rw [hat, Directives.interp_size_zero_append hpre]
+    rw [Directives.interp_directivesAtAddress_of_zeroSizePrefix
+      (Kraken.Program.directivesAtAddress_addrOf p hd (by grind only))]
     simpa [Directives.interp, hsucc, hsize] using h
 
 @[ksimp] theorem Int64.add_sub_cancel_left (a b : Int64) : a + (b - a) = b := by grind
@@ -162,8 +167,8 @@ private theorem Eventually.lift_sub {p_sub p_full : Program}
     [l_sub : Layout p_sub] [l_full : Layout p_full]
     (hL : Executable.labels p_sub.toExecutable ⊆ Executable.labels p_full.toExecutable)
     (hat : ∀ pc, (∃ c ∈ p_sub.toExecutable.directivesAtAddress pc, 0 < c.size) →
-      ∃ pre, p_full.toExecutable.directivesAtAddress pc = pre ++ p_sub.toExecutable.directivesAtAddress pc ∧
-        ∀ c ∈ pre, c.size = 0)
+      Kraken.ZeroSizePrefix (p_full.toExecutable.directivesAtAddress pc)
+        (p_sub.toExecutable.directivesAtAddress pc))
     {post : MachineState → Prop} {init : MachineState}
     (h : Eventually (step1 p_sub.toExecutable) post init) :
     Eventually (step1 p_full.toExecutable) post init := by
@@ -171,25 +176,16 @@ private theorem Eventually.lift_sub {p_sub p_full : Program}
   | done s hp => exact .done s hp
   | step s mid_p hstep _ ih =>
     by_cases hpos : ∃ c ∈ p_sub.toExecutable.directivesAtAddress s.pc, 0 < c.size
-    · obtain ⟨pre, heq, hpre⟩ := hat s.pc hpos
-      have hpre' : ∀ c ∈ pre,
-          ∃ m d', p_full[m]? = some d' ∧ c = {directive := d', size := 0} ∧ l_full.size m = 0 := fun c hc => by
-        obtain ⟨i, rfl, -⟩ := Kraken.Program.mem_directivesAtAddress p_full (heq ▸ List.mem_append_left _ hc)
-        exact ⟨i, p_full[i], List.getElem?_eq_getElem i.isLt, by congr; exact hpre _ hc, hpre _ hc⟩
-      refine .step s mid_p ?_ ih
+    · refine .step s mid_p ?_ ih
       dsimp only [step1, Executable.step] at hstep ⊢
-      rw [heq, Directives.interp_size_zero_append hpre']
+      rw [Directives.interp_directivesAtAddress_of_zeroSizePrefix (hat s.pc hpos)]
       exact Effects.All_mono_labels hL _ hstep
-    · have hall0 : ∀ c ∈ p_sub.toExecutable.directivesAtAddress s.pc,
-          ∃ m d', p_sub[m]? = some d' ∧ c = {directive := d', size := 0} ∧ l_sub.size m = 0 :=
-        fun c hc => by
-          have hz := Classical.byContradiction fun h => hpos ⟨c, hc, Nat.pos_of_ne_zero h⟩
-          obtain ⟨i, rfl, -⟩ := Kraken.Program.mem_directivesAtAddress p_sub hc
-          exact ⟨i, p_sub[i], List.getElem?_eq_getElem i.isLt, by congr, hz⟩
+    · have hall0 : Kraken.ZeroSizePrefix (p_sub.toExecutable.directivesAtAddress s.pc) [] :=
+        ⟨p_sub.toExecutable.directivesAtAddress s.pc, by simp,
+          fun c hc => Classical.byContradiction fun hz => hpos ⟨c, hc, Nat.pos_of_ne_zero hz⟩⟩
       dsimp only [step1, Executable.step] at hstep
       letI := Executable.labels p_sub.toExecutable
-      rw [← List.append_nil (p_sub.toExecutable.directivesAtAddress s.pc),
-          Directives.interp_size_zero_append hall0,
+      rw [Directives.interp_directivesAtAddress_of_zeroSizePrefix hall0,
           Directives.interp, Effects.All] at hstep
       exact ih ⟨s.data, s.pc⟩ hstep
 
@@ -209,4 +205,4 @@ theorem Eventually.append
     Eventually (step1 (p₁ ++ p₂).toExecutable) post init :=
   letI := layout.take p₁
   Eventually.lift_sub (labels_take_subset (l := layout.toLayout))
-    (fun pc hpos => ⟨[], by rw [List.nil_append]; exact Kraken.Program.directivesAtAddress_take_eq p₁ p₂ pc hpos, by simp⟩) h
+    (fun pc hpos => Kraken.Program.directivesAtAddress_take_eq p₁ p₂ pc hpos ▸ .refl _) h

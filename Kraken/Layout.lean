@@ -31,6 +31,13 @@ structure Sized Directive where
   directive : Directive
   size : Nat
 
+/-- `ds₁` is `ds₂` preceded by zero-size directives. -/
+def ZeroSizePrefix {D : Type} (ds₁ ds₂ : List (Sized D)) : Prop :=
+  ∃ pre, ds₁ = pre ++ ds₂ ∧ ∀ c ∈ pre, c.size = 0
+
+@[simp] theorem ZeroSizePrefix.refl {D : Type} (ds : List (Sized D)) : ZeroSizePrefix ds ds :=
+  ⟨[], rfl, by simp⟩
+
 abbrev Program Instr Const := List (Directive Instr Const)
 
 structure Executable (Instr Const : Type) where
@@ -286,28 +293,22 @@ theorem Program.sizeBefore_eq_of_addrOf_eq (prog : Program Instr Const) [WellFor
   grind [Executable.addrOf]
 
 /-- If the `k`-th directive `d` of `prog` has positive size (`0 < Layout.size k`), then
-`prog.toExecutable.directivesAtAddress (prog.toExecutable.addrOf k)` consists of a prefix `pre` of
+`prog.toExecutable.directivesAtAddress (prog.toExecutable.addrOf k)` consists of a prefix of
 zero-size directives at `prog.toExecutable.addrOf k` followed by `[{directive := d, size := Layout.size k}]`. -/
 theorem Program.directivesAtAddress_addrOf (prog : Program Instr Const) [l : WellFormedLayout prog]
     {k : Nat} {d : Directive Instr Const} (hd : prog[k]? = some d) (hz : 0 < l.size k) :
-    ∃ pre, prog.toExecutable.directivesAtAddress (prog.toExecutable.addrOf k) =
-        pre ++ [{directive := d, size := l.size k}] ∧
-      ∀ c' ∈ pre, ∃ m d', prog[m]? = some d' ∧ c' = {directive := d', size := 0} ∧ l.size m = 0 := by
+    ZeroSizePrefix (prog.toExecutable.directivesAtAddress (prog.toExecutable.addrOf k))
+      [{directive := d, size := l.size k}] := by
   let e := prog.toExecutable
   have hc : e.program[k]? = some {directive := d, size := l.size k} := by
     simp [e, Layout.apply_getElem?, hd]
   obtain ⟨j, hjk, hj, hmin⟩ := exists_least_le (P := fun i => e.addrOf i = e.addrOf k) rfl
   have hsize : e.sizeBefore j = e.sizeBefore k := Program.sizeBefore_eq_of_addrOf_eq prog hj
-  have hpre (c') (hc' : c' ∈ (e.program.drop j).take (k - j)) :
-      ∃ m d', prog[m]? = some d' ∧ c' = {directive := d', size := 0} ∧ l.size m = 0 := by
+  have hpre (c') (hc' : c' ∈ (e.program.drop j).take (k - j)) : c'.size = 0 := by
     have := e.sizeBefore_add j (k - j)
     rw [Nat.add_sub_cancel' hjk] at this
     have hsum : (((e.program.drop j).take (k - j)).map (·.size)).sum = 0 := by omega
-    have hcz : c'.size = 0 := List.sum_eq_zero_iff_forall_eq_nat.mp hsum _ (List.mem_map_of_mem hc')
-    have hmem : c' ∈ e.program := (List.drop_sublist _ _).subset ((List.take_sublist _ _).subset hc')
-    obtain ⟨m, hm⟩ := List.mem_iff_getElem?.mp hmem
-    obtain ⟨d', hd', rfl⟩ := Option.map_eq_some_iff.mp (Layout.apply_getElem? prog m ▸ hm)
-    exact ⟨m, d', hd', by simp [show l.size m = 0 from hcz], hcz⟩
+    exact List.sum_eq_zero_iff_forall_eq_nat.mp hsum _ (List.mem_map_of_mem hc')
   have haddr (m : Nat) (hjm : j ≤ m) (hmk : m ≤ k) : e.addrOf m = e.addrOf k := by
     grind [Executable.addrOf, e.sizeBefore_mono hjm, e.sizeBefore_mono hmk]
   have hnext : e.addrOf (k + 1) ≠ e.addrOf k := fun h => by
@@ -420,6 +421,15 @@ theorem Program.mem_directivesAtAddress (p : Program Instr Const) [layout : Layo
     ((List.dropWhile_sublist _).subset ((List.takeWhile_sublist _).subset hx))
   exact ⟨i, rfl, haddr⟩
 
+theorem Program.mem_of_zeroSizePrefix {p : Program Instr Const} [l : Layout p]
+    {pc : Int64} {pre rest : List (Sized (Directive Instr Const))}
+    (hpre : p.toExecutable.directivesAtAddress pc = pre ++ rest) (hz : ∀ c ∈ pre, c.size = 0)
+    {c : Sized (Directive Instr Const)} (hc : c ∈ pre) :
+    ∃ m d, p[m]? = some d ∧ c = {directive := d, size := 0} ∧ l.size m = 0 := by
+  obtain ⟨i, rfl, -⟩ := Program.mem_directivesAtAddress p (hpre ▸ List.mem_append_left _ hc)
+  have hcz : l.size i = 0 := hz _ hc
+  exact ⟨i, p[i], List.getElem?_eq_getElem i.isLt, by congr, hcz⟩
+
 theorem Program.toExecutable_append_withAddresses (p₁ p₂ : Program Instr Const)
     [l : Layout (p₁ ++ p₂)] :
     letI := l.take p₁; letI := l.drop p₁
@@ -500,11 +510,11 @@ theorem Program.directivesAtAddress_drop_eq (p₁ p₂ : Program Instr Const)
     [layout : WellFormedLayout (p₁ ++ p₂)] (pc : Int64)
     (hpos : letI := layout.drop p₁; ∃ c ∈ p₂.toExecutable.directivesAtAddress pc, 0 < c.size) :
     letI := layout.drop p₁
-    ∃ pre, (p₁ ++ p₂).toExecutable.directivesAtAddress pc = pre ++ p₂.toExecutable.directivesAtAddress pc ∧
-      ∀ c ∈ pre, c.size = 0 := by
+    ZeroSizePrefix ((p₁ ++ p₂).toExecutable.directivesAtAddress pc)
+      (p₂.toExecutable.directivesAtAddress pc) := by
   letI l₁ : Layout p₁ := layout.toLayout.take p₁
   letI l₂ : Layout p₂ := layout.toLayout.drop p₁
-  change ∃ pre, (p₁ ++ p₂).toExecutable.directivesAtAddress pc = pre ++ p₂.toExecutable.directivesAtAddress pc ∧ _
+  change ZeroSizePrefix ((p₁ ++ p₂).toExecutable.directivesAtAddress pc) (p₂.toExecutable.directivesAtAddress pc)
   obtain ⟨_, hc₀, _⟩ : ∃ c ∈ p₂.toExecutable.directivesAtAddress pc, 0 < c.size := hpos
   obtain ⟨i₂, _, haddr₂⟩ := Program.mem_directivesAtAddress p₂ hc₀
   have hi₂ : p₂.toExecutable.sizeBefore i₂ ≤ p₂.size :=
