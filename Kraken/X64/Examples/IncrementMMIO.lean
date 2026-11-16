@@ -117,6 +117,8 @@ def handleEffects (ds : IncrementerState) (es : Effects)
         | .none => .error s!"nonmem_store at unmapped address {repr addr}"
       | _ => .error s!"nonmem_store of width other than 4 bytes"
   | @Effects.undefined _ t cont => handleEffects ds (cont (t.from_hash (hash ds))) ok
+  | .cpuid .. => .error "cpuid is not modeled by this device"
+  | .xgetbv .. => .error "xgetbv is not modeled by this device"
 
 def eval_schedule (schedule : List Bool) (e : Executable) (s : SystemState)
     : Except String SystemState :=

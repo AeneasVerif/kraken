@@ -61,6 +61,8 @@ def corpus : List String := [
   "bswap %eax", "bswapq %rax",
   -- flag control
   "cld", "std",
+  -- processor identification
+  "cpuid", "xgetbv",
   -- control flow
   "foo:\n  jmp foo", "je foo", "jne .L1", "jb foo", "jae foo", "ja foo", "jbe foo",
   "jl foo", "jle foo", "call foo", "call %rax", "jmp %rax",

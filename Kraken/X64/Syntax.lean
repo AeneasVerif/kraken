@@ -235,6 +235,9 @@ inductive Operation (w : Width)
   -- Flag control
   | cld
   | std
+  -- Processor identification
+  | cpuid
+  | xgetbv
   -- Control flow
   | jcc (cc : CondCode) (target : Label)
   | jmp (target : RelRegOrMem)
