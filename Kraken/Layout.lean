@@ -82,41 +82,9 @@ def Executable.directivesAtAddress (a : Int64) : List (Sized (Directive Instr Co
   let starts_at_a := e.withAddresses.dropWhile (·.addr ≠ a)
   (starts_at_a.takeWhile (·.addr = a)).map (·.toSized)
 
-def Executable.directivesFromAddress (a : Int64) : List (Sized (Directive Instr Const)) :=
-  let starts_at_a := e.withAddresses.dropWhile (·.addr ≠ a)
-  starts_at_a.map (·.toSized)
-
 theorem Executable.withAddresses_map_snd (startAddr : Int64) :
     (Executable.withAddresses {startAddr, program}).map (·.toSized) = program := by
   induction program generalizing startAddr <;> grind [Executable.withAddresses]
-
-theorem Executable.withAddresses_dropWhile_start (startAddr : Int64) :
-    (Executable.withAddresses {startAddr, program}).dropWhile (fun x => x.addr ≠ startAddr) =
-      Executable.withAddresses {startAddr, program} := by
-  cases program <;> grind [Executable.withAddresses, List.dropWhile_cons, List.dropWhile_nil]
-
-theorem Executable.directivesFromStart {prog : Program Instr Const} [layout : Layout prog]
-    (q : Program Instr Const) :
-    Executable.directivesFromAddress
-      {startAddr := layout.start, program := q.mapIdx (fun i directive => {directive, size := layout.size i})}
-      layout.start =
-      q.mapIdx (fun i directive => {directive, size := layout.size i}) := by
-  grind [Executable.withAddresses_dropWhile_start, Executable.withAddresses_map_snd, Executable.directivesFromAddress]
-
-theorem directivesAtFromPrefix (a: Int64):
-  ∃ rest, e.directivesFromAddress a = e.directivesAtAddress a ++ rest := by
-  dsimp [Executable.directivesFromAddress, Executable.directivesAtAddress]
-  refine ⟨((e.withAddresses.dropWhile (·.addr ≠ a)).dropWhile (·.addr = a)).map (·.toSized), ?_⟩
-  rw [← List.map_append]
-  rw [List.takeWhile_append_dropWhile]
-
-variable {e} in
-theorem Executable.mem_of_mem_directivesAtAddress
-    {a : Int64} (h : c ∈ e.directivesAtAddress a) : c ∈ e.program := by
-  obtain ⟨x, hx, rfl⟩ := List.mem_map.mp h
-  rw [← Executable.withAddresses_map_snd e.program e.startAddr]
-  exact List.mem_map_of_mem
-    ((List.dropWhile_sublist _).subset ((List.takeWhile_sublist _).subset hx))
 
 @[grind hom] theorem Int64.toBitVec_ofNat_grind (a : Nat) :
     (Int64.ofNat a).toBitVec = OfNat.ofNat a := by
@@ -202,4 +170,134 @@ theorem Executable.withAddresses_dropWhile_addrOf (j n : Nat)
     obtain ⟨dz, -, rfl⟩ := Option.map_eq_some_iff.mp hc
     simpa using hj
 
+theorem Layout.apply_getElem? (prog : Program Instr Const) [l : Layout prog]
+    (i : Nat) :
+    prog.toExecutable.program[i]? = prog[i]?.map fun d => {directive := d, size := l.size i} := by
+  simp [Layout.apply, List.getElem?_mapIdx]
+
+private theorem takeWhile_eq_take_of {α : Type _} {p : α → Bool} {l : List α} {n : Nat}
+    (hprior : ∀ k, k < n → ∀ c, l[k]? = some c → p c = true)
+    (hhead : ∀ c, l[n]? = some c → p c = false) :
+    l.takeWhile p = l.take n := by
+  induction l generalizing n with
+  | nil => simp
+  | cons a l ih =>
+    cases n with
+    | zero => simp [hhead a rfl]
+    | succ n =>
+      simp [hprior 0 (Nat.zero_lt_succ n) a rfl,
+        ih (fun k hk => hprior (k + 1) (Nat.succ_lt_succ hk)) hhead]
+
+private theorem exists_least_le {P : Nat → Prop} {n : Nat} (h : P n) :
+    ∃ j, j ≤ n ∧ P j ∧ ∀ k, k < j → ¬P k := by
+  induction n using Nat.strongRecOn
+  grind
+
+theorem Program.map_size_toExecutable_eq (p : Program Instr Const) [l : Layout p] :
+    (p.toExecutable.program.map (·.size)).sum = p.size := by
+  dsimp [Program.toExecutable, Layout.apply, Program.size]
+  congr 1
+  generalize (l.size) = sz
+  induction p generalizing sz <;> simp [List.mapIdx_cons, *]
+
+theorem Executable.sizeBefore_le (n : Nat) :
+    e.sizeBefore n ≤ (e.program.map (·.size)).sum := by
+  simpa [sizeBefore, List.take_of_length_le (Nat.le_max_right n e.program.length)] using
+    e.sizeBefore_mono (Nat.le_max_left n e.program.length)
+
+theorem Program.sizeBefore_lt (prog : Program Instr Const) [WellFormedLayout prog] (n : Nat) :
+    prog.toExecutable.sizeBefore n < 2^64 :=
+  Nat.lt_of_le_of_lt (prog.toExecutable.sizeBefore_le n)
+    (Program.map_size_toExecutable_eq prog ▸ WellFormedLayout.no_overflow)
+
+theorem Program.sizeBefore_eq_of_addrOf_eq (prog : Program Instr Const) [WellFormedLayout prog]
+    {j k : Nat} (h : prog.toExecutable.addrOf j = prog.toExecutable.addrOf k) :
+    prog.toExecutable.sizeBefore j = prog.toExecutable.sizeBefore k := by
+  have hj := Program.sizeBefore_lt prog j
+  have hk := Program.sizeBefore_lt prog k
+  grind [Executable.addrOf]
+
+/-- If the `k`-th directive `d` of `prog` has positive size (`0 < Layout.size k`), then
+`prog.toExecutable.directivesAtAddress (prog.toExecutable.addrOf k)` consists of a prefix `pre` of
+zero-size directives at `prog.toExecutable.addrOf k` followed by `[{directive := d, size := Layout.size k}]`. -/
+theorem Program.directivesAtAddress_addrOf (prog : Program Instr Const) [l : WellFormedLayout prog]
+    {k : Nat} {d : Directive Instr Const} (hd : prog[k]? = some d) (hz : 0 < l.size k) :
+    ∃ pre, prog.toExecutable.directivesAtAddress (prog.toExecutable.addrOf k) =
+        pre ++ [{directive := d, size := l.size k}] ∧
+      ∀ c' ∈ pre, ∃ m d', prog[m]? = some d' ∧ c' = {directive := d', size := 0} ∧ l.size m = 0 := by
+  let e := prog.toExecutable
+  have hc : e.program[k]? = some {directive := d, size := l.size k} := by
+    simp [e, Layout.apply_getElem?, hd]
+  obtain ⟨j, hjk, hj, hmin⟩ := exists_least_le (P := fun i => e.addrOf i = e.addrOf k) rfl
+  have hsize : e.sizeBefore j = e.sizeBefore k := Program.sizeBefore_eq_of_addrOf_eq prog hj
+  have hpre (c') (hc' : c' ∈ (e.program.drop j).take (k - j)) :
+      ∃ m d', prog[m]? = some d' ∧ c' = {directive := d', size := 0} ∧ l.size m = 0 := by
+    have := e.sizeBefore_add j (k - j)
+    rw [Nat.add_sub_cancel' hjk] at this
+    have hsum : (((e.program.drop j).take (k - j)).map (·.size)).sum = 0 := by omega
+    have hcz : c'.size = 0 := List.sum_eq_zero_iff_forall_eq_nat.mp hsum _ (List.mem_map_of_mem hc')
+    have hmem : c' ∈ e.program := (List.drop_sublist _ _).subset ((List.take_sublist _ _).subset hc')
+    obtain ⟨m, hm⟩ := List.mem_iff_getElem?.mp hmem
+    obtain ⟨d', hd', rfl⟩ := Option.map_eq_some_iff.mp (Layout.apply_getElem? prog m ▸ hm)
+    exact ⟨m, d', hd', by simp [show l.size m = 0 from hcz], hcz⟩
+  have haddr (m : Nat) (hjm : j ≤ m) (hmk : m ≤ k) : e.addrOf m = e.addrOf k := by
+    grind [Executable.addrOf, e.sizeBefore_mono hjm, e.sizeBefore_mono hmk]
+  have hnext : e.addrOf (k + 1) ≠ e.addrOf k := fun h => by
+    have : e.sizeBefore (k + 1) = e.sizeBefore k := Program.sizeBefore_eq_of_addrOf_eq prog h
+    grind
+  refine ⟨(e.program.drop j).take (k - j), ?_, hpre⟩
+  rw [Executable.directivesAtAddress, Executable.withAddresses_dropWhile_addrOf _ j k hj hmin,
+    takeWhile_eq_take_of (n := k - j + 1)]
+  · rw [List.map_take, List.map_drop, Executable.withAddresses_map_snd, List.take_add_one,
+      List.getElem?_drop, Nat.add_sub_cancel' hjk, hc, Option.toList]
+  · grind [Executable.getElem?_withAddresses_eq, Executable.sizeBefore_mono]
+  · grind [Executable.getElem?_withAddresses_eq]
+
+def Directive.isLabel (lbl : Label) : Directive Instr Const → Bool
+  | .label l => l == lbl
+  | _ => false
+
+@[simp] theorem Directive.isLabel_iff {lbl : Label} {d : Directive Instr Const} :
+    d.isLabel lbl = true ↔ d = .label lbl := by
+  cases d <;> simp [Directive.isLabel]
+
+theorem Executable.withAddresses_findSome?_label_mk [DecidableEq Instr] [DecidableEq Const] :
+    ∀ (program : List (Sized (Directive Instr Const))) (startAddr : Int64) (lbl : Label) (k : Nat),
+      program.findIdx? (·.directive.isLabel lbl) = some k →
+      ((Executable.withAddresses {startAddr, program}).findSome?
+        (fun {directive, addr, ..} => if directive = .label lbl then .some addr else .none)).getD (-1) =
+        Executable.addrOf {startAddr, program} k
+  | [], _, _, _, hk => by simp at hk
+  | c :: program, startAddr, lbl, k, hk => by
+    rw [Executable.withAddresses, List.findSome?_cons]
+    rw [List.findIdx?_cons] at hk
+    by_cases h : c.directive = .label lbl
+    · have his : c.directive.isLabel lbl = true := Directive.isLabel_iff.mpr h
+      simp [his] at hk
+      subst hk
+      simp [h]
+    · have his : c.directive.isLabel lbl = false :=
+        Bool.eq_false_iff.mpr (mt Directive.isLabel_iff.mp h)
+      simp [his] at hk
+      obtain ⟨k', hk', rfl⟩ := hk
+      simp only [h, ↓reduceIte, withAddresses_findSome?_label_mk program _ lbl k' hk']
+      simp only [addrOf, sizeBefore, List.take_succ_cons, List.map_cons, List.sum_cons]
+      grind
+
+theorem Layout.map_directive_apply (prog : Program Instr Const) [l : Layout prog] :
+    prog.toExecutable.program.map (·.directive) = prog := by
+  apply List.ext_getElem?
+  simp [Layout.apply, Function.comp_def]
+
+/-- If `k` is the index of the first `.label lbl` directive in `prog`, looking up `lbl` in
+`prog.toExecutable.withAddresses` yields `prog.toExecutable.addrOf k`. -/
+theorem Layout.withAddresses_findSome?_label [DecidableEq Instr] [DecidableEq Const]
+    (prog : Program Instr Const) [l : Layout prog] (lbl : Label) {k : Nat}
+    (hk : prog.findIdx? (·.isLabel lbl) = some k) :
+    (prog.toExecutable.withAddresses.findSome?
+      (fun {directive, addr, ..} => if directive = .label lbl then .some addr else .none)).getD (-1) =
+      prog.toExecutable.addrOf k := by
+  apply Executable.withAddresses_findSome?_label_mk
+  rw [← l.map_directive_apply prog, List.findIdx?_map] at hk
+  exact hk
 end Kraken

@@ -60,34 +60,8 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     (hdp : (d :: p).IsInfixAt Host.prog k) {post : @Post MachineState} {s : MachineData}
     (h : (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
       (fun s' => .done ⟨s', Host.addrOf (k + 1)⟩) (fun a s' => .done ⟨s', a⟩)).All post) :
-    Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ := by
-  have hd : Host.exe.program[k]? = some {directive := d, size := Host.layout.size k : Kraken.Sized Directive} := by
-    rw [Host.exe_getElem?, hdp.cons.1]
-    rfl
-  rw [Host.addrOf_succ hdp.cons.1] at h
-  match hsize: Host.layout.size k with
-  | 0 =>
-    apply Eventually.done
-    simpa [hsize, inert_of_size_zero hdp.cons.1 hsize, Effects.All] using h
-  | _+1 =>
-    refine Eventually.step _ post ?_ fun _ hb => Eventually.done _ hb
-    obtain ⟨pre, hat, hpre⟩ := Host.directivesAtAddress_addrOf hd <| by grind only
-    have hmem : ∀ c ∈ pre, c ∈ Host.exe.program := fun c hc =>
-      Kraken.Executable.mem_of_mem_directivesAtAddress (hat ▸ List.mem_append_left _ hc)
-    unfold step1 Executable.step
-    change (Directives.interp (Host.exe.directivesAtAddress (Host.addrOf k)) s (Host.addrOf k) _).All post
-    rw [hat]
-    clear hat
-    induction pre with
-    | nil => simpa [Directives.interp] using h
-    | cons c pre ih =>
-      obtain ⟨m, hm⟩ := List.mem_iff_getElem?.mp (hmem c List.mem_cons_self)
-      obtain ⟨d', hd', rfl⟩ := Option.map_eq_some_iff.mp (Host.exe_getElem? m ▸ hm)
-      have hz0 : Host.layout.size m = 0 := hpre _ List.mem_cons_self
-      simp only [hz0, List.cons_append, Directives.interp, Int64.reduceOfNat, Int64.add_zero,
-        inert_of_size_zero hd' hz0]
-      exact ih (fun c' hc' => hpre c' (List.mem_cons_of_mem _ hc'))
-        (fun c' hc' => hmem c' (List.mem_cons_of_mem _ hc'))
+    Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ :=
+  _root_.eventually_of_interp hdp.cons.1 h
 
 end
 
