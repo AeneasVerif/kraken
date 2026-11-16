@@ -14,12 +14,17 @@ public import Kraken.X64.Semantics
   | .done a => post a
   | .unimplemented _ => False
   | .gp_unaligned .. => False
+  | .divide_error => False
   | .nonmem_load .. => False
   | .nonmem_store .. => False
   | @Effects.undefined α _ cont => ∀ v: α, (cont v).All post
   | .require_read_access _ cont => (cont ()).All post
   | .require_write_access _ cont => (cont ()).All post
   | .require_exec_access _ cont => (cont ()).All post
+  -- Granted, like the access checks: a stricter environment can refuse.
+  | .require_features _ cont => (cont ()).All post
+  | .cpuid _ _ cont => ∀ a b c d, (cont a b c d).All post
+  | .xgetbv _ cont => ∀ v, (cont v).All post
 
 @[ksimp] theorem Effects.All_require_read_access (addr : BitVec 64) (bytes : UInt64)
     (ok : Unit → Effects) (post : MachineState → Prop) :
