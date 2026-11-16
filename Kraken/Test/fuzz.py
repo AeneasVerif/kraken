@@ -46,35 +46,40 @@ def run_hardware(asm_tests, seqs, as_cmd, ld_cmd, emu_cmd=()):
     return [asm_tests.parse_raw_state(raw[i * state_bytes:(i + 1) * state_bytes]) for i in range(len(seqs))]
 
 
+def non_negative(s):
+    n = int(s)
+    if n < 0:
+        raise argparse.ArgumentTypeError(f"{s} is negative")
+    return n
+
+
 def run_fuzzer(asm_tests, as_cmd, ld_cmd, emu_cmd=(), description=None):
     p = argparse.ArgumentParser(description=description)
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--batches", type=int, default=5)
-    p.add_argument("--batch-size", type=int, default=100)
-    p.add_argument("--length", type=int, default=12)
+    p.add_argument("--seed", type=non_negative, default=42)
+    p.add_argument("--batches", type=non_negative, default=5)
+    p.add_argument("--batch-size", type=non_negative, default=100)
+    p.add_argument("--length", type=non_negative, default=12)
     p.add_argument("--only", default="",
                    help="comma-separated mnemonic prefixes to restrict the instruction pool to, e.g. sha256,pshuf")
     args = p.parse_args()
+    only = [s.strip() for s in args.only.split(",") if s.strip()]
 
-    # The pool's mnemonics (as built for seed 0; other seeds may differ in a few rare ones), to
-    # report which were run least. Each row is "<mnemonic> <forms>", and a mnemonic may contain a
-    # space ("rep movsb"). The run counts come from the generator, which knows the mnemonic it drew
-    # each instruction from; register seeding and the final flag-defining instruction are not
-    # drawn from the pool and so are not counted.
-    listing = subprocess.run([asm_tests.KRAKEN_RUNNER, "--mnemonics", args.only], capture_output=True, text=True)
-    pool = [line.rsplit(None, 1)[0] for line in listing.stdout.splitlines()]
-    if listing.returncode or not pool:
-        print(listing.stderr.strip() or f"no assemblable instruction has a mnemonic matching {args.only} (see --mnemonics)")
-        return 2
-    per_mnemonic = Counter({m: 0 for m in pool})
-    print(f"pool: {len(pool)} mnemonics" + (f" matching {args.only}" if args.only else ""))
-
+    per_mnemonic = Counter()
     failures = total = 0
     start = time.perf_counter()
     for b in range(args.batches):
         seed = args.seed + b
-        generated = kraken(asm_tests.KRAKEN_RUNNER, "--generate", seed, args.batch_size, args.length, args.only)
+        request = {"seed": seed, "count": args.batch_size, "length": args.length, "only": only}
+        generated = kraken(asm_tests.KRAKEN_RUNNER, "--generate", inp=json.dumps(request).encode())
+        pool = generated["pool"]
+        unmatched = [prefix for prefix in only if not any(m.startswith(prefix) for m in pool)]
+        if unmatched:
+            print(f"seed {seed}: no assemblable instruction has a mnemonic starting with {', '.join(unmatched)}")
+            return 2
+        if b == 0:
+            print(f"pool: {len(pool)} mnemonics" + (f" matching {args.only}" if args.only else ""))
         seqs = generated["seqs"]
+        per_mnemonic.update({m: 0 for m in pool})
         per_mnemonic.update(generated["runs"])
         preds = kraken(asm_tests.KRAKEN_RUNNER, "--batch", inp=json.dumps(seqs).encode())
         hw_states = run_hardware(asm_tests, seqs, as_cmd, ld_cmd, emu_cmd)

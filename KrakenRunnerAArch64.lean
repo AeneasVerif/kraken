@@ -4,7 +4,7 @@ module
 KrakenRunnerAArch64 - Run AArch64 assembly instructions through Kraken Semantics and obtain results as json.
 
 Usage: krakenrunner_aarch64 <assembly.S> [init_regs.json]
-       krakenrunner_aarch64 --generate <seed> <count> <length>  (random sequences that Kraken deems deterministic)
+       krakenrunner_aarch64 --generate < request.json         (random sequences that Kraken deems deterministic)
        krakenrunner_aarch64 --batch < sequences.json            (predict final states for a JSON array of sequences)
 
 Arguments:

@@ -98,10 +98,6 @@ def filterAssemblable (runAssembler : System.FilePath → IO IO.Process.Output) 
     if out.exitCode != 0 && bad.isEmpty then throw (.userError out.stderr)
     return cands.zipIdx.filterMap fun (c, i) => if bad.contains (i + 1) then none else some c
 
-/-- The first word of an assembly line: the default mnemonic of a pool instruction. -/
-def firstWord (line : String) : String :=
-  (line.trimAscii.toString.takeWhile (!·.isWhitespace)).toString
-
 /-- Architecture-specific hooks for the differential fuzzer. -/
 structure FuzzConfig (MachineData StatusFlags StateSummary : Type) where
   initData : MachineData
@@ -115,8 +111,6 @@ structure FuzzConfig (MachineData StatusFlags StateSummary : Type) where
   runAssembler : System.FilePath → IO IO.Process.Output
   genSeed : GenM String
   defineAllFlagsInstr : String
-  /-- The mnemonic a pool instruction is grouped under (see `Pool`). -/
-  mnemonic : String → String := firstWord
 
 variable {MachineData StatusFlags StateSummary : Type}
   [BEq MachineData] [StatusFlagBits StatusFlags] [ToJson StateSummary]
@@ -161,53 +155,47 @@ def FuzzConfig.genPool (cfg : FuzzConfig MachineData StatusFlags StateSummary) (
 def FuzzConfig.assemblable (cfg : FuzzConfig MachineData StatusFlags StateSummary) (cands : Array String) : IO (Array String) :=
   filterAssemblable cfg.runAssembler cands
 
-/-- The assemblable instructions a run draws from, grouped by `FuzzConfig.mnemonic`. Sequences pick
-a mnemonic uniformly and then one of its forms, so that an instruction with few syntactic forms is
-run as often as one with many, and so that one the generator rarely produces is not drowned out.
+/-- Which mnemonic to group an instruction under. We special case `rep` prefixes and drop `addr32`.
+This means that `rep movsb` is distinct from `movsb`, but `addr32 rep movsb` is not distinct from
+`rep movsb`. -/
+private def mnemonic (line : String) : String :=
+  match (line.splitOn " ").filter (· ≠ "") with
+  | "addr32" :: "rep" :: w :: _ | "rep" :: w :: _ => s!"rep {w}"
+  | "addr32" :: w :: _ | w :: _ => w
+  | [] => ""
 
-The unit of fairness is the printed mnemonic, so in AT&T syntax each width (`addb`, `addw`, …) and
-each condition code (`seta`, `setb`, …) is its own group; a condition-code instruction thus gets
-sixteen shares, a vector instruction one. -/
-structure Pool where
-  groups : Array (String × Array String)
+#guard mnemonic "addq $1, %rax" == "addq"
+#guard mnemonic "movsb" == "movsb"
+#guard mnemonic "addr32 movsb" == "movsb"
+#guard mnemonic "rep movsb" == "rep movsb"
+#guard mnemonic "addr32 rep movsb" == "rep movsb"
+#guard mnemonic "ldr x0, [x1, #8]" == "ldr"
 
-/-- How many assemblable forms of each mnemonic `buildPool` aims for, so that every mnemonic
-is run with a varied set of operands. -/
-def poolTarget : Nat := 64
+private def poolTarget : Nat := 64
 
-/-- The rounds of generation `buildPool` runs: each draws 5000 random instructions. A focused pool
-(`only` set) runs more, since it discards most of each round before the assembler sees it and the
-mnemonics of interest may be ones the generator rarely produces. -/
-def poolRounds (focused : Bool) : Nat := if focused then 64 else 8
-
-/-- Whether the `--only` entry `p` selects the mnemonic `m`: `m` or one of its words starts with
-`p`. So `movs` selects `rep movsb` as well as `movsb`, and `rep movs` selects `rep movsb`. -/
-def selects (p m : String) : Bool :=
-  m.startsWith p || (m.splitOn " ").any (·.startsWith p)
-
-/-- Rounds of random generation and assembler filtering, grouped by mnemonic, stopping early once
-every mnemonic seen has `poolTarget` forms. A mnemonic the generator rarely produces ends up with
-fewer forms, but is still drawn as often as any other. With `only` set, keeps the mnemonics that
-one of its entries `selects`. -/
-def FuzzConfig.buildPool (cfg : FuzzConfig MachineData StatusFlags StateSummary) (g : StdGen)
-    (only : Array String := #[]) : IO (Pool × StdGen) := do
-  let keep (m : String) := only.isEmpty || only.any (selects · m)
+/-- Builds a pool of instructions grouped by mnemonic, keeping up to `poolTarget` forms for each
+mnemonic. `only` restricts the set of mnemonics in the pool. -/
+private def FuzzConfig.buildPool (cfg : FuzzConfig MachineData StatusFlags StateSummary) (g : StdGen)
+    (only : Array String := #[]) : IO (Array (String × Array String) × StdGen) := do
   let mut forms : Std.HashMap String (Array String) := {}
   let mut g := g
-  for _ in [0 : poolRounds !only.isEmpty] do
+  for _ in [0 : if only.isEmpty then 8 else 64] do
     let (cands, g') := (cfg.genPool 5000).run g
     g := g'
-    for c in ← cfg.assemblable (cands.filter (keep <| cfg.mnemonic ·)) do
-      let m := cfg.mnemonic c
+    let fresh := cands.filter fun c =>
+      let m := mnemonic c
+      let seen := forms.getD m #[]
+      (only.isEmpty || only.any (m.startsWith ·)) && seen.size < poolTarget && !seen.contains c
+    if fresh.isEmpty then continue
+    for c in ← cfg.assemblable fresh do
+      let m := mnemonic c
       let seen := forms.getD m #[]
       if seen.size < poolTarget && !seen.contains c then
         forms := forms.insert m (seen.push c)
-    if !forms.isEmpty && forms.toArray.all (·.2.size ≥ poolTarget) then break
-  return (⟨forms.toArray.qsort (·.1 < ·.1)⟩, g)
+  return (forms.toArray.qsort (·.1 < ·.1), g)
 
-/-- The first of `cands` that `stepDeterministic` accepts from `(d, undef)`, with the resulting
-state, drawing up to `tries` candidates. -/
-def FuzzConfig.firstAccepted (cfg : FuzzConfig MachineData StatusFlags StateSummary)
+/-- The first result of `cands` that `stepDeterministic` accepts, trying `tries` times. -/
+private def FuzzConfig.firstAccepted (cfg : FuzzConfig MachineData StatusFlags StateSummary)
     (d : MachineData) (undef : UndefFlags) (cands : GenM String) (tries : Nat) :
     StateM StdGen (Option (String × MachineData × UndefFlags)) := do
   for _ in [0 : tries] do
@@ -216,64 +204,53 @@ def FuzzConfig.firstAccepted (cfg : FuzzConfig MachineData StatusFlags StateSumm
       return some (cand, d', undef')
   return none
 
-/-- Four random register initializations (`genSeed`) followed by `length` instructions from `pool`:
-a mnemonic drawn uniformly, then its forms drawn until `stepDeterministic` accepts one, so that a
-mnemonic most of whose forms fault (say, on a random address) is run no less often than the others.
-A final `defineAllFlagsInstr` makes all flags defined. Also returns the mnemonic of each instruction
-drawn from the pool, which the seeds and the final instruction are not. -/
+/-- Generates a sequence of instructions: first four random initializations from `genSeed`, then up
+to `length` instructions from `pool`, and finally `defineAllFlagsInstr` to fix flags (if necessary).
+Returns the instruction sequence and the mnemonics of the instructions drawn from the pool.
+
+We attempt (i.e., run up to a bound) to keep an equal distribution of mnemonics by trying
+multiple variants until we find one that doesn't take a branch, fault, or depend on nondeterministic
+state. -/
 def FuzzConfig.genSequence (cfg : FuzzConfig MachineData StatusFlags StateSummary)
-    (pool : Pool) (length : Nat) : StateM StdGen (String × Array String) := do
+    (pool : Array (String × Array String)) (length : Nat) : StateM StdGen (String × Array String) := do
   let mut (d, undef, lines, drawn) := (cfg.initData, UndefFlags.none, #[], (#[] : Array String))
   for _ in [0 : 4] do
     if let some (cand, d', undef') ← cfg.firstAccepted d undef cfg.genSeed 200 then
       (d, undef, lines) := (d', undef', lines.push cand)
   for _ in [0 : length] do
     for _ in [0 : 10] do
-      let some (m, forms) ← (pick pool.groups).run | continue
+      let some (m, forms) ← (pick pool).run | continue
       if let some (cand, d', undef') ← cfg.firstAccepted d undef (pick forms) 20 then
         (d, undef, lines, drawn) := (d', undef', lines.push cand, drawn.push m)
         break
   if undef != .none then lines := lines.push cfg.defineAllFlagsInstr
   return ("\n".intercalate lines.toList, drawn)
 
-/-- How many times each mnemonic occurs in `ms`. -/
-def countRuns (ms : Array String) : Std.HashMap String Nat :=
-  ms.foldl (fun acc m => acc.insert m (acc.getD m 0 + 1)) {}
-
-/-- Handles `--generate <seed> <count> <length> [<mnemonic-prefixes>]`, `--mnemonics [<prefixes>]`
-and `--batch` CLI invocations, returning `none` when `args` is a normal single-file runner
-invocation. The prefixes are comma-separated and restrict the pool to the mnemonics one of them
-`selects`; `--mnemonics` prints the pool's mnemonics with the number of forms of each.
-
-`--generate` prints `{"seqs": [...], "runs": {mnemonic: count}}`, the sequences and how many of
-their instructions were drawn from each mnemonic. `--batch` reads either that object or a bare
-array of sequences. -/
+/-- `--generate` reads `{"seed": n, "count": n, "length": n, "only": [prefixes]}` from stdin
+to produce test sequences. `--batch` reads a JSON string array of instruction sequences from
+stdin and runs them. -/
 def FuzzConfig.handleCli? (cfg : FuzzConfig MachineData StatusFlags StateSummary)
     (args : List String) : IO (Option UInt32) := do
-  let prefixes (s : String) : Array String :=
-    (s.splitOn ",").toArray.map (·.trimAscii.toString) |>.filter (· ≠ "")
   match args with
-  | "--generate" :: seed :: count :: length :: rest =>
-    let only := prefixes (" ".intercalate rest)
-    let (pool, g) ← cfg.buildPool (mkStdGen seed.toNat!) only
-    if pool.groups.isEmpty then
-      IO.eprintln s!"no assemblable instruction has a mnemonic matching {", ".intercalate only.toList} (see --mnemonics)"
-      return some 1
-    let gen := (List.range count.toNat!).mapM fun _ => cfg.genSequence pool length.toNat!
+  | ["--generate"] =>
+    let req ← IO.ofExcept (Json.parse (← (← IO.getStdin).readToEnd))
+    let seed ← IO.ofExcept (req.getObjValAs? Nat "seed")
+    let count ← IO.ofExcept (req.getObjValAs? Nat "count")
+    let length ← IO.ofExcept (req.getObjValAs? Nat "length")
+    let only ← IO.ofExcept (req.getObjValAs? (Array String) "only")
+    let (pool, g) ← cfg.buildPool (mkStdGen seed) only
+    let gen := (List.range count).mapM fun _ => cfg.genSequence pool length
     let results := (gen.run' g).run
-    let runs := countRuns (results.toArray.flatMap (·.2))
+    let runs := (results.toArray.flatMap (·.2)).foldl (init := ({} : Std.HashMap String Nat))
+      fun acc m => acc.insert m (acc.getD m 0 + 1)
     IO.println (Json.mkObj [
+      ("pool", toJson (pool.map (·.1))),
       ("seqs", toJson (results.map (·.1))),
       ("runs", Json.mkObj (runs.toList.map fun (m, n) => (m, toJson n)))]).compress
     return some 0
-  | "--mnemonics" :: rest =>
-    let (pool, _) ← cfg.buildPool (mkStdGen 0) (prefixes (" ".intercalate rest))
-    for (m, forms) in pool.groups do
-      IO.println s!"{m} {forms.size}"
-    return some 0
   | ["--batch"] =>
-    let json ← IO.ofExcept (Json.parse (← (← IO.getStdin).readToEnd))
-    let seqs ← IO.ofExcept (fromJson? (α := Array String) ((json.getObjVal? "seqs").toOption.getD json))
+    let raw ← (← IO.getStdin).readToEnd
+    let seqs ← IO.ofExcept (Json.parse raw >>= fromJson? (α := Array String))
     IO.println (toJson (seqs.map cfg.predict)).compress
     return some 0
   | _ => return none
