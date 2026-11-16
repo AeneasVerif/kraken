@@ -1,6 +1,5 @@
 module
 
-public import Kraken.PNat
 public import Lean.ToExpr
 
 @[expose] public section
@@ -40,7 +39,8 @@ structure Executable (Instr Const : Type) where
 -- JP: why is `size` not `Directive → Nat`?
 class Layout (Instr Const : Type) where
   start : Int64 -- NOTE: Why is `start` a `Int64`?
-  instrSize : Nat → PNat
+  instrSize : Nat → Nat
+  instrSize_pos : ∀ i, 0 < instrSize i
 
 variable {Instr Const : Type}
 

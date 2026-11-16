@@ -968,7 +968,7 @@ theorem inert_of_size_zero [layout : Layout] [Labels] {i : Nat} {d : Directive}
     (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) :
     d.interp s p next jmp = next s := by
   cases d with
-  | instr _ => exact absurd hz (Nat.ne_of_gt (layout.instrSize i).property)
+  | instr _ => exact absurd hz (Nat.ne_of_gt (layout.instrSize_pos i))
   | label _ => rfl
   | byteArray bs => simp [Directive.interp, ByteArray.isEmpty, show bs.size = 0 from hz]
   | word bytes _ => simp [Directive.interp, show bytes = 0 from hz]
@@ -1006,7 +1006,7 @@ where
     | .unaligned_sp sp => .error s!"SP={sp} (is not 16-byte aligned)"
     | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
 
-def Instr.fakeSize (_ : Instr) : PNat := .ofNat 4
+def Instr.fakeSize (_ : Instr) : Nat := 4
 
 def Program.fakeLayout (prog : Program) : Executable :=
   let h := hash prog;
@@ -1015,6 +1015,7 @@ def Program.fakeLayout (prog : Program) : Executable :=
     instrSize i := match prog[i]? with
       | some (.instr instr) => instr.fakeSize
       | _ => 4
+    instrSize_pos i := by grind [Instr.fakeSize]
   }
   layout prog
 

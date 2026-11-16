@@ -1045,7 +1045,7 @@ theorem inert_of_size_zero [layout : Layout] [Labels] {i : Nat} {d : Directive}
     (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) :
     d.interp s p next jmp = next s := by
   cases d with
-  | instr _ => exact absurd hz (Nat.ne_of_gt (layout.instrSize i).property)
+  | instr _ => exact absurd hz (Nat.ne_of_gt (layout.instrSize_pos i))
   | label _ => rfl
   | byteArray bs => simp [Directive.interp, ByteArray.isEmpty, show bs.size = 0 from hz]
   | word bytes _ => simp [Directive.interp, show bytes = 0 from hz]
@@ -1083,10 +1083,10 @@ where
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
     | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
 
-def Instr.fakeSize (hashOfProgram : UInt64) (i : Instr) : PNat :=
+def Instr.fakeSize (hashOfProgram : UInt64) (i : Instr) : Nat :=
   match i with
-  | .regular _ _ (.nop sz) => .ofNat (max 1 sz)
-  | i => .ofNat (1 + (hash (hashOfProgram, i) % 15).toNat)
+  | .regular _ _ (.nop sz) => max 1 sz
+  | i => 1 + (hash (hashOfProgram, i) % 15).toNat
 
 def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
   match d with
@@ -1103,6 +1103,10 @@ def Program.fakeLayout (prog : Program) : Executable :=
     instrSize i := match prog[i]? with
       | some (.instr instr) => instr.fakeSize h
       | _ => 1
+    instrSize_pos i := by
+      split
+      · unfold Instr.fakeSize; split <;> omega
+      · omega
   }
   layout prog
 
