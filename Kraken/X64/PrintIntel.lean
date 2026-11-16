@@ -162,6 +162,7 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .sbb dst src => s!"sbb {dst.toStr addr_w}, {src.toStr addr_w}"
   | .cmp a b => s!"cmp {a.toStr addr_w}, {b.toStr addr_w}"
   | .mul src => s!"mul {src.toStr addr_w}"
+  | .div src => s!"div {src.toStr addr_w}"
   | .mulx hi lo src => s!"mulx {hi}, {lo}, {src.toStr addr_w}"
   | .imul none src1 src2 => s!"imul {src1.toStr addr_w}, {src2.toStr addr_w}"
   | .imul (some dst) src1 src2 => s!"imul {dst.toStr addr_w}, {src1.toStr addr_w}, {src2.toStr addr_w}"
