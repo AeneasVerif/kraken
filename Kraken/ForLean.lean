@@ -9,11 +9,11 @@ Definitions that are not specific to Kraken and could equally live in Lean itsel
 public import Lean
 public meta import Lean
 
-open Lean
+open Lean Meta
 
 namespace Lean.Elab.Term
 
-public meta section
+public section
 
 /-- Parse `input` as the syntax category `cat` with `Lean.Parser.runParserCategory` and elaborate the
     resulting syntax tree with `elabStx`. -/
@@ -28,7 +28,7 @@ end Lean.Elab.Term
 
 namespace Int64
 
-public meta section
+public section
 
 variable {m : Type → Type} [Monad m] [MonadError m]
 
@@ -45,3 +45,43 @@ def ofNatNoOverflow (v : Nat) : m Int64 := do
 end
 
 end Int64
+
+namespace Lean
+
+initialize environmentForElabModuleExt : IO.Ref (NameMap Environment) ← IO.mkRef ∅
+
+/--
+  Construct a `Lean.Evironment` which has `elabModule` imported, running its initializers.
+
+  This function is unsafe because it mimicks parts of the Lean frontend to build
+  the relevant `Lean.Environment`. The unsafe operations are:
+   · `enableInitializersExecution`.
+   · `importModules mods` with `loadExts := true`.
+
+  The purpose of `enableInitializersExecution` is to opt-in to the unsafe
+  behaviour of `importModules (loadExts := true)`. Its only safety condition
+  is that it must not be run concurrently (there is no mutex wrapping the
+  reference it updates).
+
+  As for `importModules mods`, using `loadExts := true` opts in to running initializer
+  functions. Some safety conditions must be met to consider this safe:
+   1. The file contents of `mods` correspond with those originally imported by the elaborator (and therefore can be executed).
+   2. The resulting environment memory regions are not manually freed (we keep them globally).
+
+  For the purposes of producing `Syntax` objects, it is crucial that initializers run,
+  since parsing information is found in `Parser.parserExtension`, which is by default
+  empty (`ParserExtension.mkInitial`), and is only populated by running the initializers
+  of files defining extra `syntax`. A similar situation happens with elaborators and the
+  `Lean.Elab.Term.termElabAttribute` extension.
+-/
+public unsafe def getEnvironmentForElabModule (elabModule : Name) : IO Environment := do
+  match (← environmentForElabModuleExt.get).find? elabModule with
+  | some env => pure env
+  | none =>
+      enableInitializersExecution
+      initSearchPath (← findSysroot) [← getLibDir (← getBuildDir)]
+      let env ← importModules #[{ module := elabModule }] {} (loadExts := true)
+      environmentForElabModuleExt.modify (·.insert elabModule env)
+      pure env
+
+end Lean
