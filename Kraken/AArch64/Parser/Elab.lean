@@ -1468,7 +1468,7 @@ elab_rules : term
 
 macro_rules
   | `(⸨dir $n | $dir:aarch64_directive⸩) =>
-    `({directive := ⸨dir| $dir⸩, size := Kraken.Layout.size _root_.Instr _root_.ConstExpr $n : Kraken.Sized _root_.Directive})
+    `({directive := ⸨dir| $dir⸩, size := Kraken.Layout.size ⸨dir| $dir⸩ $n : Kraken.Sized _root_.Directive})
 
 /-- Inline unquoted AArch64 assembly block elaborator (`⸨prog| ...⸩`). -/
 elab_rules : term

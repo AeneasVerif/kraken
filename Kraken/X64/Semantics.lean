@@ -1023,7 +1023,10 @@ def Instr.interp [Labels]
   match d with
   | .label _ => next s
   | .instr i => i.interp s p next jmp
-  | .byteArray _ => .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
+  | .byteArray bs =>
+    if bs.isEmpty then next s
+    else .unimplemented s!"Unimplemented: execution reached data block at {p.1}"
+  | .word 0 _ => next s
   | .word _ _ => .unimplemented s!"Unimplemented: execution reached data word at {p.1}"
 
 def Directives.interp [Labels]
@@ -1036,6 +1039,16 @@ def Directives.interp [Labels]
     interp ds s (pc+.ofNat sz) ret))
 
 abbrev Layout := Kraken.Layout Instr ConstExpr
+
+theorem inert_of_size_zero [layout : Layout] [Labels] {i : Nat} {d : Directive}
+    (hz : layout.size d i = 0) (s : MachineData) (p : Std.Rco Int64)
+    (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) :
+    d.interp s p next jmp = next s := by
+  cases d with
+  | instr _ => exact absurd hz (Nat.ne_of_gt (layout.instrSize_pos i))
+  | label _ => rfl
+  | byteArray bs => simp [Directive.interp, ByteArray.isEmpty, show bs.size = 0 from hz]
+  | word bytes _ => simp [Directive.interp, show bytes = 0 from hz]
 
 @[reducible]
 def Executable.labels (e : Executable) : Labels :=
@@ -1070,18 +1083,31 @@ where
     | .nonmem_store _ addr _ _ => .error s!"Store at unmapped address {repr addr}"
     | @Effects.undefined _ t cont => handleEffects (cont (t.from_hash (hash s.1.regs)))
 
+def Instr.fakeSize (hashOfProgram : UInt64) (i : Instr) : Nat :=
+  match i with
+  | .regular _ _ (.nop sz) => max 1 sz
+  | i => 1 + (hash (hashOfProgram, i) % 15).toNat
+
 def Directive.fakeSize (hashOfProgram : UInt64) (d : Directive) : Nat :=
   match d with
   | .label _ => 0
-  | .instr (.regular _ _ (.nop sz)) => sz -- may be zero
-  | .instr i => (1 + hash (hashOfProgram, i) % 15).toNat
-  | .byteArray bs => bs.size
+  | .byteArray arr => arr.size
+  | .instr instr => instr.fakeSize hashOfProgram
   | .word bytes _ => bytes
 
+
 def Program.fakeLayout (prog : Program) : Executable :=
-  let : Inhabited Directive := .mk (.byteArray (.mk #[]))
   let h := hash prog;
-  let layout : Layout := { start := h.toInt64<<<16, size i := prog[i]!.fakeSize h }
+  let layout : Layout := {
+    start := h.toInt64<<<16
+    instrSize i := match prog[i]? with
+      | some (.instr instr) => instr.fakeSize h
+      | _ => 1
+    instrSize_pos i := by
+      split
+      · unfold Instr.fakeSize; split <;> omega
+      · omega
+  }
   layout prog
 
 abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
