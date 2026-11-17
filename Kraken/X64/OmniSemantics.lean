@@ -12,9 +12,13 @@ public import Kraken.X64.Semantics
 
 open Kraken (Layout WellFormedLayout)
 
-@[kstep] def Effects.All (post : MachineState → Prop) : Effects → Prop
+@[kstep] def Effects.All [Labels] (post : MachineState → Prop) : Effects → Prop
   | .done a => post a
   | .unimplemented _ => False
+  | .resolve_label lbl k =>
+    match label? lbl with
+    | .some a => (k a).All post
+    | .none => False
   | .gp_unaligned .. => False
   | .nonmem_load .. => False
   | .nonmem_store .. => False
@@ -23,27 +27,35 @@ open Kraken (Layout WellFormedLayout)
   | .require_write_access _ cont => (cont ()).All post
   | .require_exec_access _ cont => (cont ()).All post
 
-@[ksimp] theorem Effects.All_require_read_access (addr : BitVec 64) (bytes : UInt64)
+@[ksimp] theorem Effects.All_resolve_label [Labels] (lbl : Label) (k : Int64 → Effects)
+    (post : MachineState → Prop) :
+    (Effects.resolve_label lbl k).All post =
+      (match label? lbl with | .some a => (k a).All post | .none => False) := by
+  rw [Effects.All]
+
+@[ksimp] theorem Effects.All_require_read_access [Labels] (addr : BitVec 64) (bytes : UInt64)
     (ok : Unit → Effects) (post : MachineState → Prop) :
     (require_access require_read_access addr bytes ok).All post = (ok ()).All post := by
   dsimp only [require_access]
   split <;> rfl
 
-@[ksimp] theorem Effects.All_require_write_access (addr : BitVec 64) (bytes : UInt64)
+@[ksimp] theorem Effects.All_require_write_access [Labels] (addr : BitVec 64) (bytes : UInt64)
     (ok : Unit → Effects) (post : MachineState → Prop) :
     (require_access require_write_access addr bytes ok).All post = (ok ()).All post := by
   dsimp only [require_access]
   split <;> rfl
 
 def step1 (e : Executable) (s : MachineState) (post : @Post MachineState) : Prop :=
+  letI := e.labels
   (Executable.step e s .done).All post
 
 theorem eventually_of_interp {p : Program} [l : WellFormedLayout p]
     {k : Nat} {d : Directive} (hd : p[k]? = some d) {post : @Post MachineState} {s : MachineData}
-    (h : (@Directive.interp (Executable.labels p.toExecutable) d s
-      ⟨p.toExecutable.addrOf k, p.toExecutable.addrOf (k + 1)⟩
-      (fun s' => .done ⟨s', p.toExecutable.addrOf (k + 1)⟩)
-      (fun a s' => .done ⟨s', a⟩)).All post) :
+    (h : letI := Executable.labels p.toExecutable
+      (d.interp s
+        ⟨p.toExecutable.addrOf k, p.toExecutable.addrOf (k + 1)⟩
+        (fun s' => .done ⟨s', p.toExecutable.addrOf (k + 1)⟩)
+        (fun a s' => .done ⟨s', a⟩)).All post) :
     Eventually (step1 p.toExecutable) post ⟨s, p.toExecutable.addrOf k⟩ := by
   have hc : p.toExecutable.program[k]? = some {directive := d, size := l.size k} := by
     simp [Kraken.Layout.apply_getElem?, hd]
@@ -74,20 +86,15 @@ theorem eventually_of_interp {p : Program} [l : WellFormedLayout p]
 
 theorem step_at {p : Program} [WellFormedLayout p] {k : Nat} {d : Directive}
     (hd : p[k]? = some d) {post : @Post MachineState} {s : MachineData}
-    (h : (@Directive.interp (Executable.labels p.toExecutable) d s
-      ⟨p.toExecutable.addrOf k, p.toExecutable.addrOf (k + 1)⟩
-      (fun s' => .done ⟨s', p.toExecutable.addrOf (k + 1)⟩)
-      (fun a s' => .done ⟨s', a⟩)).All (Eventually (step1 p.toExecutable) post)) :
+    (h : letI := Executable.labels p.toExecutable
+      (d.interp s
+        ⟨p.toExecutable.addrOf k, p.toExecutable.addrOf (k + 1)⟩
+        (fun s' => .done ⟨s', p.toExecutable.addrOf (k + 1)⟩)
+        (fun a s' => .done ⟨s', a⟩)).All (Eventually (step1 p.toExecutable) post)) :
     Eventually (step1 p.toExecutable) post ⟨s, p.toExecutable.addrOf k⟩ :=
   eventually_trans _ _ _ _ (eventually_of_interp hd h) fun _ => id
 
-theorem label_eq_addrOf {p : Program} [l : Layout p] {lbl : Label} {k : Nat}
+theorem label?_eq_some_addrOf {p : Program} [l : Layout p] {lbl : Label} {k : Nat}
     (hk : p.findIdx? (·.isLabel lbl) = some k) :
-    @Labels.label (Executable.labels p.toExecutable) lbl = p.toExecutable.addrOf k :=
+    @Labels.label? (Executable.labels p.toExecutable) lbl = some (p.toExecutable.addrOf k) :=
   Kraken.Layout.withAddresses_findSome?_label p lbl hk
-
-theorem step_label {p : Program} [l : Layout p] {lbl : Label} {k : Nat}
-    (hk : p.findIdx? (·.isLabel lbl) = some k) {post : @Post MachineState} {s : MachineData}
-    (h : Eventually (step1 p.toExecutable) post ⟨s, p.toExecutable.addrOf k⟩) :
-    Eventually (step1 p.toExecutable) post ⟨s, @Labels.label (Executable.labels p.toExecutable) lbl⟩ := by
-  rwa [label_eq_addrOf hk]
