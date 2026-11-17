@@ -76,10 +76,13 @@ def finishCriterion (p : Program) (s : MachineState) : Bool :=
   s.pc = p.fakeLayout.labels.label _end
 
 def runKraken (asmCode : String)
-    : Except String MachineState := do
-  let prog ← Kraken.X64.Parser.parse (_start ++ ":" ++ asmCode ++ "\n" ++ _end ++ ":")
-  let initState : MachineState := ⟨initData, prog.fakeLayout.labels.label _start⟩
-  prog.fakeLayout.eval initState (finishCriterion prog)
+    : IO (Except String MachineState) := do
+  try
+    let prog ← Kraken.X64.Parser.parse (_start ++ ":" ++ asmCode ++ "\n" ++ _end ++ ":")
+    let initState : MachineState := ⟨initData, prog.fakeLayout.labels.label _start⟩
+    return prog.fakeLayout.eval initState (finishCriterion prog)
+  catch e =>
+    return .error e.toString
 
 /-! ## Fuzzer instantiation -/
 
@@ -155,7 +158,8 @@ def fuzzConfig : FuzzConfig MachineData StatusFlags StateSummary where
   getStatus := (·.status)
   setStatus s status := { s with status }
   parseSteps asmCode := do
-    let exe := (← (Kraken.X64.Parser.parse asmCode).toOption).fakeLayout
+    let .ok prog ← (Kraken.X64.Parser.parse asmCode).toBaseIO | failure
+    let exe := prog.fakeLayout
     let := exe.labels
     return exe.withAddresses.map fun d : Kraken.Addressable Directive =>
       { d with directive := fun s p h => evalEffects h false (d.directive.interp s p (fun s => .done ⟨s, p.upper⟩) (fun _ _ => .unimplemented "jump")) }
@@ -172,7 +176,7 @@ public def main (args : List String) : IO UInt32 := do
 
   let asmCode ← IO.FS.readFile args[0]!
 
-  match runKraken asmCode with
+  match ← runKraken asmCode with
   | .ok {data, ..} =>
       IO.println (toJson (summarize data)).compress
       return 0

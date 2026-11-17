@@ -798,14 +798,39 @@ private def delabAvxOperation (aw : Width) (w? : Option AvxWidth) : X64DelabM (T
   | AvxOperation.movaps  _ _ _ => delabAvxBinOp (mkSuffixed `x64_avx_op "mova"  "ps") aw
   | AvxOperation.addps   _ _ _ => delabAvxBinOp (mkSuffixed `x64_avx_op "add"   "ps") aw
   | AvxOperation.subps   _ _ _ => delabAvxBinOp (mkSuffixed `x64_avx_op "sub"   "ps") aw
-  | AvxOperation.movdqu  _ _ _ => delabAvxBinOp (← `(x64_avx_op| movdqu))  aw
-  | AvxOperation.vmovdqu _ _ _ => delabAvxBinOp (← `(x64_avx_op| vmovdqu)) aw
-  | AvxOperation.movdqa  _ _ _ => delabAvxBinOp (← `(x64_avx_op| movdqa))  aw
-  | AvxOperation.paddd   _ _ _ => delabAvxBinOp (← `(x64_avx_op| paddd))   aw
-  | AvxOperation.pshufb  _ _ _ => delabAvxBinOp (← `(x64_avx_op| pshufb))  aw
+  | AvxOperation.movdqu      _ _ _ => delabAvxBinOp (← `(x64_avx_op| movdqu))      aw
+  | AvxOperation.vmovdqu     _ _ _ => delabAvxBinOp (← `(x64_avx_op| vmovdqu))     aw
+  | AvxOperation.movdqa      _ _ _ => delabAvxBinOp (← `(x64_avx_op| movdqa))      aw
+  | AvxOperation.paddd       _ _ _ => delabAvxBinOp (← `(x64_avx_op| paddd))       aw
+  | AvxOperation.pshufb      _ _ _ => delabAvxBinOp (← `(x64_avx_op| pshufb))      aw
+  | AvxOperation.sha256rnds2 _ _ _ =>
+    let dst ← withNaryArg 1 (delabAvxRegOrMem aw)
+    let src ← withNaryArg 2 (delabAvxRegOrMem aw)
+    unless [src, dst].any avxOperandDeterminesWidth do failure
+    let xmm0 ← `(x64_avx_reg| %xmm0)
+    `(x64_instr| sha256rnds2 $xmm0:x64_avx_reg, $src:x64_avx_operand, $dst:x64_avx_operand)
+  | AvxOperation.sha256msg1  _ _ _ => delabAvxBinOp (← `(x64_avx_op| sha256msg1))  aw
+  | AvxOperation.sha256msg2  _ _ _ => delabAvxBinOp (← `(x64_avx_op| sha256msg2))  aw
+  | AvxOperation.vmovdqu32   _ _ _ => delabAvxBinOp (← `(x64_avx_op| vmovdqu32))   aw
+  | AvxOperation.vmovdqa32   _ _ _ => delabAvxBinOp (← `(x64_avx_op| vmovdqa32))   aw
+  | AvxOperation.vpaddd _ _ _ _ =>
+    let dst ← withNaryArg 1 (delabAvxRegOrMem aw)
+    let src1 ← withNaryArg 2 (delabAvxRegOrMem aw)
+    let src2 ← withNaryArg 3 (delabAvxRegOrMem aw)
+    unless [src2, src1, dst].any avxOperandDeterminesWidth do failure
+    `(x64_instr| vpaddd $src2:x64_avx_operand, $src1:x64_avx_operand, $dst:x64_avx_operand)
   | AvxOperation.pshufd  _ _ _ _ => delabAvxImmOp (← `(x64_avx_imm_op| pshufd))  aw
   | AvxOperation.palignr _ _ _ _ => delabAvxImmOp (← `(x64_avx_imm_op| palignr)) aw
   | AvxOperation.pblendw _ _ _ _ => delabAvxImmOp (← `(x64_avx_imm_op| pblendw)) aw
+  | AvxOperation.vprord  _ _ _ _ => delabAvxImmOp (← `(x64_avx_imm_op| vprord))  aw
+  | AvxOperation.vpsrld  _ _ _ _ => delabAvxImmOp (← `(x64_avx_imm_op| vpsrld))  aw
+  | AvxOperation.vpternlogd _ _ _ _ _ =>
+    let dst ← withNaryArg 1 (delabAvxRegOrMem aw)
+    let src2 ← withNaryArg 2 (delabAvxRegOrMem aw)
+    let src3 ← withNaryArg 3 (delabAvxRegOrMem aw)
+    let imm := mkImm (← withNaryArg 4 delabConstExpr)
+    unless [src3, src2, dst].any avxOperandDeterminesWidth do failure
+    `(x64_instr| vpternlogd $imm:x64_imm, $src3:x64_avx_operand, $src2:x64_avx_operand, $dst:x64_avx_operand)
   | AvxOperation.vmovq _ _ _ =>
     unless w? == some .W128 do failure
     let op ← `(x64_vmov_gp_op| vmovq)

@@ -77,12 +77,15 @@ def finishCriterion (prog : Program) (s : MachineState) : Bool :=
   s.pc = layout.labels.label _end
 
 def runKraken (asmCode : String) (initRegs : Reg64s := initData.regs)
-    : Except String MachineState := do
-  let stripped := Kraken.Parser.stripDirectives (_start ++ ":\n" ++ asmCode ++ "\n" ++ _end ++ ":\n")
-  let prog ← Kraken.AArch64.Parser.parse stripped
-  let layout := Program.fakeLayout prog
-  let initState : MachineState := ⟨{regs := initRegs, dmem := initStack stackLocation}, layout.labels.label _start⟩
-  layout.eval initState (finishCriterion prog)
+    : IO (Except String MachineState) := do
+  try
+    let stripped := Kraken.Parser.stripDirectives (_start ++ ":\n" ++ asmCode ++ "\n" ++ _end ++ ":\n")
+    let prog ← Kraken.AArch64.Parser.parse stripped
+    let layout := Program.fakeLayout prog
+    let initState : MachineState := ⟨{regs := initRegs, dmem := initStack stackLocation}, layout.labels.label _start⟩
+    return layout.eval initState (finishCriterion prog)
+  catch e =>
+    return .error e.toString
 
 /-! ## Fuzzer instantiation -/
 
@@ -177,7 +180,8 @@ def fuzzConfig : FuzzConfig MachineData StatusFlags StateSummary where
   getStatus := (·.status)
   setStatus s status := { s with status }
   parseSteps asmCode := do
-    let exe := Program.fakeLayout (← (Kraken.AArch64.Parser.parse asmCode).toOption)
+    let .ok prog ← (Kraken.AArch64.Parser.parse asmCode).toBaseIO | failure
+    let exe := Program.fakeLayout prog
     let := exe.labels
     return exe.withAddresses.map fun d : Kraken.Addressable Directive =>
       { d with directive := fun s p h => evalEffects h false (d.directive.interp s p (fun s => .done ⟨s, p.upper⟩) (fun _ _ => .unimplemented "jump")) }
@@ -202,7 +206,7 @@ public def main (args : List String) : IO UInt32 := do
         IO.eprintln s!"Failed to parse init json: {e}"
         return (1 : UInt32)
 
-  match runKraken asmCode initRegs with
+  match ← runKraken asmCode initRegs with
   | .ok {data, ..} =>
       IO.println (toJson (summarize data)).compress
       return (0 : UInt32)
