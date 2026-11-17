@@ -13,7 +13,7 @@ import Kraken.X64.PrintATT
 meta import Kraken.X64.PrintATT
 
 section Tests
-open Kraken.X64.Parser
+open Lean Meta Kraken.X64.Parser
 
 open Instr Operand Reg Kraken
 
@@ -451,10 +451,10 @@ sel:
   [0, 1, 2].map (fun k => .word 4 (.sub (.label s!".Lcase{k}") (.label ".LJTI0_0")))
 
 /-- Printing `p` in AT&T syntax and reading it back with the combinator parser gives `p`. -/
-def agreesWithCombinatorParser (p : Program) : IO Bool := do
-  return (← Kraken.X64.Parser.parse (Kraken.X64.toATT p)) == p
+def agreesWithCombinatorParser (p : Program) : MetaM Bool := do
+  return (← Kraken.X64.Parser.Meta.parse (Kraken.X64.toATT p)) == p
 
-#eval show IO Unit from do
+run_meta do
   assert! ← [⸨prog| .long end - start ⸩, ⸨prog| .quad sym ⸩, ⸨prog| .short 7 ⸩, ⸨prog| .long sym+8 ⸩,
     ⸨prog| .quad -1 ⸩, ⸨prog| movq $b-a, %rax ⸩, ⸨prog|
 .longest:
@@ -851,7 +851,7 @@ info: ⸨prog|
 
 section string_instructions
 
-#eval show IO Unit from do
+run_meta do
   assert! ← [
     ⸨prog|
 movsb
@@ -892,7 +892,7 @@ end string_instructions
 
 section sse_and_vex
 
-#eval show IO Unit from do
+run_meta do
   assert! ← [
     ⸨prog|
 movdqu (%rsp), %xmm0

@@ -917,6 +917,14 @@ def elabEmbedding (W : Type) [ToExpr W] (body : X64ElabM Expr) (expectedType? : 
 
 end
 
+private unsafe def parseMetaImpl (input : String) : MetaM _root_.Program := do
+  let expr ← (elabX64 input).run'
+  evalExpr _root_.Program (mkConst ``_root_.Program) expr
+
+/-- Parse an X64 assembly string (with `# ...` line comments) into a Kraken `Program` in `MetaM`. -/
+@[implemented_by parseMetaImpl]
+public protected opaque Meta.parse (input : String) : MetaM _root_.Program
+
 /--
   Parse a Kraken X64 `Program` from a `String`.
 
@@ -929,8 +937,7 @@ end
 -/
 private unsafe def parseImpl (input : String) : IO _root_.Program := do
   let env ← getEnvironmentForElabModule `Kraken.X64.Parser.Elab
-  let comp := do evalExpr _root_.Program (mkConst ``_root_.Program) (← elabX64 input)
-  comp.run'.run'.toIO' { fileName := "<input>", fileMap := default } { env }
+  (Meta.parse input).run'.toIO' { fileName := "<input>", fileMap := default } { env }
 
 /-- Parse an X64 assembly string (with `# ...` line comments) into a Kraken `Program`. -/
 @[implemented_by parseImpl]
