@@ -136,73 +136,91 @@ private theorem label?_eq_some_mem {p : Program} [Kraken.Layout p] {l : Label} {
     Kraken.Program.map_directive_withAddresses p ▸ hd ▸ List.mem_map_of_mem (f := (·.directive)) hx
   exact List.mem_filterMap.mpr ⟨.label l, hmem, rfl⟩
 
-private theorem labels_take_subset {p₁ p₂ : Program} [l : Kraken.Layout (p₁ ++ p₂)] :
-    letI := l.take p₁
-    Executable.labels p₁.toExecutable ⊆ Executable.labels (p₁ ++ p₂).toExecutable := by
+private theorem labels_infix_subset (p₁ p p₂ : Program) [layout : Kraken.WellFormedLayout (p₁ ++ (p ++ p₂))] :
+    letI := (layout.drop p₁).take p
+    Executable.labels p.toExecutable ⊆ Executable.labels (p₁ ++ (p ++ p₂)).toExecutable := by
   intro lbl a ha
-  change (List.findSome? _ _) = some a at ha ⊢
-  rw [Kraken.Program.toExecutable_append_withAddresses p₁ p₂, List.findSome?_append, ha]; rfl
-
-variable (p₁ p₂ : Program) [layout : Kraken.WellFormedLayout (p₁ ++ p₂)]
-
-private theorem labels_drop_subset :
-    letI := layout.drop p₁
-    Executable.labels p₂.toExecutable ⊆ Executable.labels (p₁ ++ p₂).toExecutable := by
-  intro lbl a ha
-  have hmem₂ : lbl ∈ Kraken.Program.labels p₂ := by
-    letI := layout.toLayout.drop p₁; exact label?_eq_some_mem ha
-  have happ := Kraken.Program.toExecutable_append_withAddresses p₁ p₂ (l := layout.toLayout)
+  letI l₂₃ : Kraken.Layout (p ++ p₂) := layout.toLayout.drop p₁
+  have hmem : lbl ∈ Kraken.Program.labels p := by
+    letI := l₂₃.take p; exact label?_eq_some_mem ha
+  have happ : (p₁ ++ (p ++ p₂)).toExecutable.withAddresses =
+      (letI := layout.toLayout.take p₁; p₁.toExecutable.withAddresses) ++
+      ((letI := l₂₃.take p; p.toExecutable.withAddresses) ++
+       (letI := l₂₃.drop p; p₂.toExecutable.withAddresses)) := by
+    rw [Kraken.Program.toExecutable_append_withAddresses p₁ (p ++ p₂) (l := layout.toLayout),
+        Kraken.Program.toExecutable_append_withAddresses p p₂ (l := l₂₃)]
   change List.findSome? _ _ = some a at ha ⊢
+  dsimp only [Kraken.WellFormedLayout.toLayout, Kraken.WellFormedLayout.drop,
+    Kraken.WellFormedLayout.take] at ha
   rw [happ, List.findSome?_append]
   cases h₁ : List.findSome? _ (letI := layout.toLayout.take p₁; p₁.toExecutable).withAddresses with
-  | none => exact ha
+  | none =>
+    rw [List.findSome?_append]
+    rw [show List.findSome? (fun x => if x.1.directive = .label lbl then some x.addr else none)
+          (letI := l₂₃.take p; p.toExecutable.withAddresses) = some a from ha]
+    rfl
   | some _ =>
     have hmem₁ : lbl ∈ Kraken.Program.labels p₁ := by
       letI := layout.toLayout.take p₁; exact label?_eq_some_mem h₁
-    have hnodup : (Kraken.Program.labels p₁ ++ Kraken.Program.labels p₂).Nodup := by
+    have hmem₂₃ : lbl ∈ Kraken.Program.labels (p ++ p₂) := by
+      simpa [Kraken.Program.labels, List.filterMap_append] using Or.inl hmem
+    have hnodup : (Kraken.Program.labels p₁ ++ Kraken.Program.labels (p ++ p₂)).Nodup := by
       simpa [Kraken.Program.labels, List.filterMap_append] using layout.unique_labels
-    exact absurd rfl ((List.nodup_append.mp hnodup).2.2 lbl hmem₁ lbl hmem₂)
+    exact absurd rfl ((List.nodup_append.mp hnodup).2.2 lbl hmem₁ lbl hmem₂₃)
 
-private theorem Eventually.lift_sub {p_sub p_full : Program}
-    [l_sub : Layout p_sub] [l_full : Layout p_full]
-    (hL : Executable.labels p_sub.toExecutable ⊆ Executable.labels p_full.toExecutable)
-    (hat : ∀ pc, (∃ c ∈ p_sub.toExecutable.directivesAtAddress pc, 0 < c.size) →
-      Kraken.ZeroSizePrefix (p_full.toExecutable.directivesAtAddress pc)
-        (p_sub.toExecutable.directivesAtAddress pc))
-    {post : MachineState → Prop} {init : MachineState}
-    (h : Eventually (step1 p_sub.toExecutable) post init) :
-    Eventually (step1 p_full.toExecutable) post init := by
+theorem Eventually.infix (p₁ p p₂ : Program) [layout : Kraken.WellFormedLayout (p₁ ++ (p ++ p₂))]
+    (post : MachineState → Prop) (init : MachineState)
+    (h : letI := (layout.drop p₁).take p
+         Eventually (step1 p.toExecutable) post init) :
+    Eventually (step1 (p₁ ++ (p ++ p₂)).toExecutable) post init := by
+  letI l_sub := (layout.drop p₁).take p
+  change Eventually (step1 p.toExecutable) post init at h
   induction h with
   | done s hp => exact .done s hp
   | step s mid_p hstep _ ih =>
-    by_cases hpos : ∃ c ∈ p_sub.toExecutable.directivesAtAddress s.pc, 0 < c.size
+    by_cases hpos : ∃ c ∈ p.toExecutable.directivesAtAddress s.pc, 0 < c.size
     · refine .step s mid_p ?_ ih
       dsimp only [step1, Executable.step] at hstep ⊢
-      rw [Directives.interp_directivesAtAddress_of_zeroSizePrefix (hat s.pc hpos)]
-      exact Effects.All_mono_labels hL _ hstep
-    · have hall0 : Kraken.ZeroSizePrefix (p_sub.toExecutable.directivesAtAddress s.pc) [] :=
-        ⟨p_sub.toExecutable.directivesAtAddress s.pc, by simp,
+      rw [Directives.interp_directivesAtAddress_of_zeroSizePrefix
+        (Kraken.Program.directivesAtAddress_infix_eq p₁ p p₂ s.pc hpos)]
+      exact Effects.All_mono_labels (labels_infix_subset p₁ p p₂) _ hstep
+    · have hall0 : Kraken.ZeroSizePrefix (p.toExecutable.directivesAtAddress s.pc) [] :=
+        ⟨p.toExecutable.directivesAtAddress s.pc, by simp,
           fun c hc => Classical.byContradiction fun hz => hpos ⟨c, hc, Nat.pos_of_ne_zero hz⟩⟩
       dsimp only [step1, Executable.step] at hstep
-      letI := Executable.labels p_sub.toExecutable
+      letI := Executable.labels p.toExecutable
       rw [Directives.interp_directivesAtAddress_of_zeroSizePrefix hall0,
           Directives.interp, Effects.All] at hstep
       exact ih ⟨s.data, s.pc⟩ hstep
 
-theorem Eventually.prepend
-  (post : MachineState → Prop) (init : MachineState)
-  (h : letI := layout.drop p₁
-       Eventually (step1 p₂.toExecutable) post init) :
-    Eventually (step1 (p₁ ++ p₂).toExecutable) post init :=
-  letI := layout.drop p₁
-  Eventually.lift_sub (labels_drop_subset p₁ p₂)
-    (Kraken.Program.directivesAtAddress_drop_eq p₁ p₂) h
+theorem Eventually.prepend (p₁ p₂ : Program) [layout : Kraken.WellFormedLayout (p₁ ++ p₂)]
+    (post : MachineState → Prop) (init : MachineState)
+    (h : letI := layout.drop p₁
+         Eventually (step1 p₂.toExecutable) post init) :
+    Eventually (step1 (p₁ ++ p₂).toExecutable) post init := by
+  have hcast : ∀ {a b : Program} (hab : a = b) (la : Kraken.WellFormedLayout a),
+      b.toExecutable (l := (hab ▸ la).toLayout) = a.toExecutable (l := la.toLayout) := by rintro _ _ rfl _; rfl
+  let hnil : p₁ ++ p₂ = p₁ ++ (p₂ ++ []) := congrArg (p₁ ++ ·) (List.append_nil p₂).symm
+  letI l' : Kraken.WellFormedLayout (p₁ ++ (p₂ ++ [])) := hnil ▸ layout
+  have htake : ((l'.drop p₁).take p₂).toLayout = (layout.drop p₁).toLayout := by
+    have : ∀ {q} (hq : p₁ ++ p₂ = q) (lq : Kraken.WellFormedLayout q),
+        lq = hq ▸ layout →
+        ({ start := lq.start + .ofNat (p₁.mapIdx (fun i _ => lq.size i) |>.sum),
+           instrSize := fun i => lq.instrSize (i + p₁.length),
+           instrSize_pos := fun i => lq.instrSize_pos (i + p₁.length) } : Kraken.Layout p₂) =
+          layout.toLayout.drop p₁ := by
+      rintro _ rfl _ rfl; rfl
+    exact this hnil l' rfl
+  rw [← hcast hnil layout]
+  exact Eventually.infix p₁ p₂ [] post init (htake ▸ h)
 
-theorem Eventually.append
-  (post : MachineState → Prop) (init : MachineState)
-  (h : letI := layout.take p₁
-       Eventually (step1 p₁.toExecutable) post init) :
-    Eventually (step1 (p₁ ++ p₂).toExecutable) post init :=
-  letI := layout.take p₁
-  Eventually.lift_sub (labels_take_subset (l := layout.toLayout))
-    (fun pc hpos => Kraken.Program.directivesAtAddress_take_eq p₁ p₂ pc hpos ▸ .refl _) h
+theorem Eventually.append (p₁ p₂ : Program) [layout : Kraken.WellFormedLayout (p₁ ++ p₂)]
+    (post : MachineState → Prop) (init : MachineState)
+    (h : letI := layout.take p₁
+         Eventually (step1 p₁.toExecutable) post init) :
+    Eventually (step1 (p₁ ++ p₂).toExecutable) post init := by
+  have hdrop_take : ((layout.drop []).take p₁).toLayout = (layout.take p₁).toLayout := by
+    dsimp only [Kraken.Layout.drop, Kraken.Layout.take, Kraken.WellFormedLayout.toLayout,
+      Kraken.WellFormedLayout.drop, Kraken.WellFormedLayout.take]
+    congr 1; exact Int64.add_zero _
+  exact @Eventually.infix [] p₁ p₂ layout post init (hdrop_take ▸ h)
