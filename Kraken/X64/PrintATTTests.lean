@@ -12,12 +12,12 @@ meta import Kraken.X64.PrintATT
 import Kraken.X64.Semantics
 meta import Kraken.X64.Semantics
 
-open Kraken.X64 Kraken.X64.Parser Kraken.Parser
+open Lean Meta Kraken.X64 Kraken.X64.Parser Kraken.Parser
 
 /-- `s` parses, and printing the result then re-parsing gives the same program. -/
-def roundtrips (s : String) : IO Bool := do
-  let p ← parse s
-  let p' ← parse (toATT p)
+def roundtrips (s : String) : MetaM Bool := do
+  let p ← Meta.parse s
+  let p' ← Meta.parse (toATT p)
   return p' == p
 
 /-- clang `-O2` output for `switch (x) { case 0: return 10; case 1: return 20; case 2: return 30;
@@ -92,16 +92,16 @@ def corpus : List String := [
 #eval corpus.filterM (fun s => (!·) <$> roundtrips s)
 
 -- Data words keep their symbolic value.
-#eval show IO Unit from do
-  let p ← parse ".LJT:\n  .long .Lcase0 - .LJT\n  .quad 5"
+run_meta do
+  let p ← Meta.parse ".LJT:\n  .long .Lcase0 - .LJT\n  .quad 5"
   assert! p == [.label ".LJT", .word 4 (.sub (.label ".Lcase0") (.label ".LJT")),
       .word 8 (.int64 5)]
 
 
 -- The jump-table entries are label differences, kept symbolic, so a jump table round-trips
 -- without fixing the layout.
-#eval show IO Unit from do
-  let p ← parse jumpTable
+run_meta do
+  let p ← Meta.parse jumpTable
   let table := p.drop (p.length - 3)
   assert! table == [0, 1, 2].map (fun k => .word 4 (.sub (.label s!".Lcase{k}") (.label ".LJTI0_0"))) &&
     (table.map (Directive.fakeSize 0 ·)).sum == 12
@@ -110,17 +110,17 @@ def corpus : List String := [
 #guard toATT [.word 1 (.label "a"), .word 2 (.label "a"), .word 4 (.int64 3),
     .word 8 (.sub (.label "b") (.label "a"))] == ".byte a\n.short a\n.long 3\n.quad b-a"
 
-#eval show IO Unit from do
+run_meta do
   assert! ← ["cmove %ax, %bx", "cmovzl %eax, %ebx", "cmovnew %ax, %bx", "cmovnel %eax, %ebx", "cmovneq %rax, %rbx"].allM roundtrips
 
 -- Printed form is canonical AT&T.
-#eval show IO Unit from do
-  let p ← parse "movq %rax, -16(%rbp,%rcx,8)\nfoo: imul $3, 8(%eax), %ebx\njne foo\nnop"
+run_meta do
+  let p ← Meta.parse "movq %rax, -16(%rbp,%rcx,8)\nfoo: imul $3, 8(%eax), %ebx\njne foo\nnop"
   assert! toATT p == "movq %rax, -16(%rbp,%rcx,8)\nfoo:\nimull $3, 8(%eax), %ebx\njne foo\nnop"
 
 -- Every program in the hardware test corpus round-trips.
-#eval show IO Unit from do
+run_meta do
   for f in ← System.FilePath.readDir "Kraken/X64/Test/asm" do
     if f.path.extension == some "S" then
       unless ← roundtrips (stripDirectives (← IO.FS.readFile f.path)) do
-        throw <| .userError s!"{f.path} does not round-trip"
+        throwError s!"{f.path} does not round-trip"
