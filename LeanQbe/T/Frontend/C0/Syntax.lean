@@ -69,7 +69,7 @@ inductive BinOp : Type
 
 /-- Surface C0 expressions (pure except short-circuiting and calls). -/
 inductive Expr : Type
-  | intLit (val : Int) (suffix : IntSuffix := .none)
+  | intLit (val : Int) (suffix : IntSuffix := .none) (isDecimal : Bool := true)
   | floatLit (bits : UInt64)
   | boolLit (b : Bool)
   | null
@@ -102,11 +102,11 @@ inductive InitVal : Type
   deriving Repr, BEq, Inhabited
 
 mutual
-  /-- A `case` arm inside `switch`, supporting shared labels and explicit `fallthrough;`. -/
-  structure SwitchCase : Type where
+  /-- An ordered `switch` arm (`case`/`default` labels + body; falls through unless exited). -/
+  structure SwitchArm : Type where
     vals : List Int
+    hasDefault : Bool := false
     body : List Stmt
-    fallthrough : Bool := false
     deriving Repr, BEq, Inhabited
 
   /-- Surface C0 statements. -/
@@ -121,7 +121,7 @@ mutual
     | whileStmt (cond : Expr) (body : Stmt)
     | doWhileStmt (body : Stmt) (cond : Expr)
     | forStmt (init : Option Stmt) (cond : Option Expr) (step : Option Stmt) (body : Stmt)
-    | switchStmt (scrut : Expr) (cases : List SwitchCase) (default? : Option (List Stmt))
+    | switchStmt (scrut : Expr) (arms : List SwitchArm)
     | breakStmt
     | continueStmt
     | retStmt (vals : List Expr)

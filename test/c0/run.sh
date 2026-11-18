@@ -36,7 +36,7 @@ echo "== 3. (D2) compile native C99 fixtures & run C++20 differential suite (gcc
 for cc_pair in "gcc:g++:" "clang:clang++:-fsanitize=undefined,address"; do
   IFS=':' read -r CC CXX EXTRA <<< "$cc_pair"
   echo "--- [$CC / $CXX ${EXTRA:-O2}] ---"
-  for src in test_layout.c proplit.c lean_rc.c extra_cf.c; do
+  for src in test_layout.c proplit.c lean_rc.c v4_sum_pos64.c extra_cf.c; do
     timeout 60 "$CC" $C99_FLAGS $EXTRA -c "$ROOT/test/c0/$src" -o "$OUT/${src%.c}.$CC.o"
   done
   timeout 60 "$CXX" $CPP_FLAGS $EXTRA \
@@ -44,9 +44,252 @@ for cc_pair in "gcc:g++:" "clang:clang++:-fsanitize=undefined,address"; do
     "$OUT/test_layout.$CC.o" \
     "$OUT/proplit.$CC.o" \
     "$OUT/lean_rc.$CC.o" \
+    "$OUT/v4_sum_pos64.$CC.o" \
     "$OUT/extra_cf.$CC.o" \
     -o "$OUT/d2_runner_$CXX"
   timeout 60 "$OUT/d2_runner_$CXX"
 done
+
+echo "== 4. (Regression) run all 110 adversarial differential probes under test/c0/probes/ =="
+timeout 300 python3 - "$ROOT" "$OUT" <<'PY'
+import concurrent.futures, glob, os, re, struct, subprocess, sys
+
+ROOT, OUT = sys.argv[1], sys.argv[2]
+PDIR = os.path.join(OUT, "probes")
+os.makedirs(PDIR, exist_ok=True)
+WIDTH = {"u8": 8, "u16": 16, "u32": 32, "u64": 64, "i8": 8, "i16": 16, "i32": 32, "i64": 64, "bool": 1, "f64": 64}
+
+# Expected frontend rejections (negative tests for excluded/unsupported C constructs)
+EXPECTED_REJ = {
+    "x_goto_inner_label", "x_regloop", "y_arrparam", "z_floatsuf",
+}
+NOT_REJ = {
+    "rej_decl_multi_noinit", "rej_define_expr", "rej_empty_ret",
+    "rej_ifelse_all_ret_loop", "rej_sizeof_var",
+}
+# N8/N10 probes: lowered matches C99/IEEE-754 clang (differs only on gcc 40-bit bf extension or gcc -O2 NaN bug)
+USE_CLANG_REF = {"bf1", "bf_promo", "bf_signed", "y_float"}
+# Probes whose buffer dump embeds process-local pointer addresses (compare return values; pointer parity covered in D2)
+PTR_IN_BUF = {"x_list", "x_ptrptr"}
+
+def parse_specs(path):
+    specs = []
+    for line in open(path):
+        m = re.match(r"\s*//T\s+(\w+)\s+(\S+)\s*:(.*?):(.*)$", line)
+        if not m:
+            continue
+        fn, ret, ats, sets = m.group(1), m.group(2), m.group(3).split(), m.group(4)
+        rets = [] if ret == "void" else (ret.strip("()").split(",") if ret.startswith("(") else [ret])
+        calls = []
+        for cs in sets.split("|"):
+            cs = cs.strip()
+            if not cs and ats:
+                continue
+            vals = re.findall(r"\w+\[[^\]]*\](?:\+\d+)?|[^\s]+", cs)
+            assert len(vals) == len(ats), (path, fn, cs, ats)
+            calls.append(vals)
+        specs.append((fn, rets, ats, calls))
+    return specs
+
+def buf_bytes(v):
+    m = re.match(r"(\w+)\[([^\]]*)\](?:\+(\d+))?$", v)
+    ty, items, off = m.group(1), m.group(2), int(m.group(3) or 0)
+    w = WIDTH[ty] // 8 if ty != "bool" else 1
+    data = b""
+    for it in items.split(","):
+        if it.strip():
+            data += (eval(it) & ((1 << (8 * w)) - 1)).to_bytes(w, "little")
+    return data, off
+
+def scalar_u(ty, v):
+    if ty == "f64":
+        return struct.unpack("<Q", struct.pack("<d", float(eval(v))))[0]
+    return eval(v) & ((1 << WIDTH[ty]) - 1)
+
+def gen_driver(name, specs, cpp):
+    L = []
+    if cpp:
+        L += ["#define TQBE_CATCH_UB 1", '#include "tqbe_rt.hpp"', f'#include "{name}.hpp"', "#include <tuple>"]
+    else:
+        L += [f'#include "{ROOT}/test/c0/probes/{name}.c"']
+    L += ["#include <stdio.h>", "#include <stdlib.h>", "#include <string.h>", "#include <stdint.h>"]
+    if cpp:
+        L += [
+            "template<size_t N> static unsigned long long val(::tqbe::bits<N> b){ return b.data; }",
+            "static unsigned long long val(bool b){ return b; }",
+            "static unsigned long long val(::tqbe::fval<::tqbe::Fmt::d> f){ return f.raw.data; }",
+            "template<class... X> static void pr(const std::tuple<X...>& t){ std::apply([](auto&... x){ ((printf(\" %llx\", val(x))), ...); }, t); }",
+            "template<class X> static void pr(const X& x){ printf(\" %llx\", val(x)); }",
+        ]
+    L += ["static void dump(const char*nm, const unsigned char*b, size_t n){ printf(\" %s=\", nm); for(size_t i=0;i<n;i++) printf(\"%02x\", b[i]); }"]
+    L += ["int main(void){"]
+    idx = 0
+    for fn, rets, ats, calls in specs:
+        for vals in calls:
+            L.append(f"  {{ printf(\"%d {fn} ->\", {idx});")
+            idx += 1
+            args, bufs = [], []
+            if cpp:
+                L.append("  ::tqbe::Mem mem;")
+            for k, (ty, v) in enumerate(zip(ats, vals)):
+                if ty == "p":
+                    data, off = buf_bytes(v)
+                    n = len(data)
+                    init = ",".join(str(b) for b in data)
+                    L.append(f"  static const unsigned char i{k}[] = {{{init}}}; unsigned char *b{k} = (unsigned char*)malloc({max(n,1)}); memcpy(b{k}, i{k}, {n});")
+                    bufs.append((k, n))
+                    if cpp:
+                        L.append(f"  mem.map_bytes((uint64_t)(uintptr_t)b{k}, b{k}, {n});")
+                        args.append(f"::tqbe::bits<64>((uint64_t)(uintptr_t)b{k} + {off})")
+                    else:
+                        args.append(f"(void*)(b{k} + {off})")
+                else:
+                    u = scalar_u(ty, v)
+                    if cpp:
+                        args.append(("true" if u else "false") if ty == "bool" else (f"::tqbe::fval<::tqbe::Fmt::d>::from_u64({u}ULL)" if ty == "f64" else f"::tqbe::bits<{WIDTH[ty]}>({u}ULL)"))
+                    else:
+                        if ty == "f64":
+                            L.append(f"  double d{k}; {{ uint64_t t = {u}ULL; memcpy(&d{k}, &t, 8); }}")
+                            args.append(f"d{k}")
+                        elif ty == "bool":
+                            args.append("true" if u else "false")
+                        else:
+                            args.append(f"({ty}){u}ULL")
+            if cpp:
+                call = f"c0p_{name}::{fn}({', '.join(['mem'] + args)})"
+                L.append(f"  try {{ auto r = {call}; pr(r);")
+                for k, n in bufs:
+                    L.append(f"  {{ unsigned char o[{max(n,1)}]; for (size_t i=0;i<{n};i++) o[i]=mem.read_byte((uint64_t)(uintptr_t)b{k}+i); dump(\"b{k}\", o, {n}); }}")
+                L.append("  } catch (const ::tqbe::UbException& e) { printf(\" UB(%s)\", e.what()); } catch (const ::tqbe::ExitException& e) { printf(\" EXIT(%s)\", e.target.c_str()); }")
+            else:
+                call = f"{fn}({', '.join(args)})"
+                if not rets:
+                    L.append(f"  {call};")
+                elif len(rets) == 1:
+                    rt = rets[0]
+                    if rt == "f64":
+                        L.append(f"  {{ double r = {call}; uint64_t t; memcpy(&t,&r,8); printf(\" %llx\", (unsigned long long)t); }}")
+                    elif rt == "bool":
+                        L.append(f"  {{ bool r = {call}; printf(\" %llx\", (unsigned long long)r); }}")
+                    else:
+                        L.append(f"  {{ {rt} r = {call}; printf(\" %llx\", (unsigned long long)(u{WIDTH[rt]})r); }}")
+                else:
+                    L.append(f"  {{ __typeof__({call}) r = {call};")
+                    for j, rt in enumerate(rets):
+                        cast = "(unsigned long long)" if rt == "bool" else f"(unsigned long long)(u{WIDTH[rt]})"
+                        L.append(f"    printf(\" %llx\", {cast}r._{j});")
+                    L.append("  }")
+                for k, n in bufs:
+                    L.append(f"  dump(\"b{k}\", b{k}, {n});")
+            L.append("  printf(\"\\n\"); }")
+    L.append("  return 0; }")
+    return "\n".join(L) + "\n", idx
+
+probe_paths = sorted(glob.glob(os.path.join(ROOT, "test/c0/probes/*.c")))
+names = [os.path.basename(p)[:-2] for p in probe_paths]
+assert len(names) == 110, f"expected 110 probes, got {len(names)}"
+
+lean = """import LeanQbe.T.Frontend.C0
+import LeanQbe.T.PrintCpp
+open LeanQbe.T LeanQbe.T.Frontend.C0
+def emitNs (path ns : String) (fns : List Fn) : IO Unit := do
+  match PrintCpp.buildSymMap fns with
+  | .error e => throw (IO.userError e)
+  | .ok symMap =>
+    let decls := String.join (fns.map (PrintCpp.ppFnDecl symMap))
+    let defs := String.intercalate "\\n" (fns.map (PrintCpp.ppFn symMap))
+    IO.FS.writeFile path ("#pragma once\\n#include \\"tqbe_rt.hpp\\"\\nnamespace " ++ ns ++ " {\\n" ++ decls ++ "\\n" ++ defs ++ "\\n}\\n")
+"""
+linemap = {}
+for n in names:
+    hpp = os.path.join(PDIR, f"{n}.hpp")
+    if os.path.exists(hpp):
+        os.remove(hpp)
+    ln = lean.count("\n") + 1
+    lean += f'namespace P_{n}\nc0_file! p "{ROOT}/test/c0/probes/{n}.c"\n#eval emitNs "{hpp}" "c0p_{n}" p_fns\nend P_{n}\n'
+    linemap[ln + 1] = n
+
+lean_file = os.path.join(PDIR, "all_probes.lean")
+open(lean_file, "w").write(lean)
+r = subprocess.run(["timeout", "240", "lake", "env", "lean", lean_file], cwd=ROOT, capture_output=True, text=True)
+errs = {}
+cur = None
+for ln in (r.stdout + r.stderr).split("\n"):
+    m = re.match(r".*all_probes\.lean:(\d+):\d+: error: (.*)$", ln)
+    if m:
+        cur = linemap.get(int(m.group(1)))
+        if cur:
+            errs[cur] = m.group(2)
+        continue
+    if cur and ln.strip() and not re.match(r".*all_probes\.lean:\d+", ln):
+        errs[cur] += " " + ln.strip()
+    else:
+        cur = None
+
+def check_one(n):
+    hpp = os.path.join(PDIR, f"{n}.hpp")
+    is_rej = (n.startswith("rej_") and n not in NOT_REJ) or n in EXPECTED_REJ
+    if is_rej:
+        if os.path.exists(hpp) or n not in errs:
+            return f"FAIL {n}: expected rejection, got accepted (err={errs.get(n)})"
+        return ("REJ", 0)
+    if not os.path.exists(hpp):
+        return f"FAIL {n}: unexpectedly rejected: {errs.get(n, '(no message)')}"
+    if n == "y_cppkw":
+        return ("ELAB_ONLY", 0)
+    specs = parse_specs(os.path.join(ROOT, "test/c0/probes", f"{n}.c"))
+    nat_src, total = gen_driver(n, specs, cpp=False)
+    low_src, _ = gen_driver(n, specs, cpp=True)
+    open(os.path.join(PDIR, f"{n}_nat.c"), "w").write(nat_src)
+    open(os.path.join(PDIR, f"{n}_low.cpp"), "w").write(low_src)
+    cc = "clang" if n in USE_CLANG_REF else "gcc"
+    inc = ["-I", os.path.join(ROOT, "LeanQbe/T/Frontend/C0")]
+    c1 = subprocess.run(["timeout", "60", cc, "-std=c99", "-O2", "-fwrapv", "-fno-strict-aliasing", "-w"] + inc + [os.path.join(PDIR, f"{n}_nat.c"), "-o", os.path.join(PDIR, f"{n}_nat")], capture_output=True, text=True)
+    if c1.returncode != 0:
+        return f"FAIL {n} native {cc} compile: {c1.stderr[:500]}"
+    c2 = subprocess.run(["timeout", "60", "g++", "-std=c++20", "-O2", "-w", "-I", os.path.join(ROOT, "LeanQbe/T/Runtime"), "-I", PDIR, os.path.join(PDIR, f"{n}_low.cpp"), "-o", os.path.join(PDIR, f"{n}_low")], capture_output=True, text=True)
+    if c2.returncode != 0:
+        return f"FAIL {n} lowered g++ compile: {c2.stderr[:500]}"
+    rn = subprocess.run(["timeout", "10", os.path.join(PDIR, f"{n}_nat")], capture_output=True, text=True)
+    rl = subprocess.run(["timeout", "10", os.path.join(PDIR, f"{n}_low")], capture_output=True, text=True)
+    if rn.returncode != 0 or rl.returncode != 0:
+        return f"FAIL {n} run rc=({rn.returncode},{rl.returncode})"
+    nat_lines = rn.stdout.strip().split("\n") if rn.stdout.strip() else []
+    low_lines = rl.stdout.strip().split("\n") if rl.stdout.strip() else []
+    if len(nat_lines) != total or len(low_lines) != total:
+        return f"FAIL {n} line count mismatch ({len(nat_lines)} vs {len(low_lines)} vs {total})"
+    checked = 0
+    for i, (la, lb) in enumerate(zip(nat_lines, low_lines)):
+        if n == "call_order" and any(x in la for x in ("k1 ", "k1n ", "k3c ")):
+            continue
+        if n in PTR_IN_BUF:
+            # Compare return value prefix (before buffer dump containing process-local pointers)
+            ra, rb = la.split(" b0=")[0], lb.split(" b0=")[0]
+            if ra != rb:
+                return f"FAIL {n} case {i} return mismatch:\n  nat: {la}\n  low: {lb}"
+        elif la != lb:
+            return f"FAIL {n} case {i} mismatch ({cc}):\n  nat: {la}\n  low: {lb}"
+        checked += 1
+    return ("PASS", checked)
+
+failures, rej_cnt, pass_cnt, elab_cnt, case_cnt = [], 0, 0, 0, 0
+with concurrent.futures.ThreadPoolExecutor(12) as ex:
+    for res in ex.map(check_one, names):
+        if isinstance(res, str):
+            failures.append(res)
+        elif res[0] == "REJ":
+            rej_cnt += 1
+        elif res[0] == "ELAB_ONLY":
+            elab_cnt += 1
+        else:
+            pass_cnt += 1
+            case_cnt += res[1]
+
+for f in failures:
+    print(f, file=sys.stderr)
+if failures:
+    sys.exit(1)
+print(f"Regression probes passed: {pass_cnt} matched ({case_cnt} cases), {rej_cnt} rejected as expected, {elab_cnt} elab-only (N9 C++ keyword).")
+PY
 
 echo "== test/c0/run.sh: ALL PASSED =="

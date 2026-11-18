@@ -27,7 +27,7 @@ namespace LeanQbe.T.Frontend.C0
 
 inductive TokKind : Type
   | ident (s : String)
-  | intLit (val : Int) (suffix : IntSuffix)
+  | intLit (val : Int) (suffix : IntSuffix) (isDecimal : Bool := true)
   | floatLit (bits : UInt64)
   | strLit (s : String)
   | kw (s : String)
@@ -169,7 +169,7 @@ private partial def lexNumber (s : LexState) : Except String (Tok × LexState) :
       if let some c := cur.peek? i then sufChars := sufChars ++ [c]
     let (suf, slen) := parseIntSuffix sufChars
     cur := cur.advance slen
-    return ({ kind := .intLit (Int.ofNat n) suf, line }, cur)
+    return ({ kind := .intLit (Int.ofNat n) suf false, line }, cur)
   else if cur.peek? == some '0' && (cur.peek? 1 == some 'b' || cur.peek? 1 == some 'B') then
     cur := cur.advance 2
     let mut n : Nat := 0
@@ -186,7 +186,7 @@ private partial def lexNumber (s : LexState) : Except String (Tok × LexState) :
       if let some c := cur.peek? i then sufChars := sufChars ++ [c]
     let (suf, slen) := parseIntSuffix sufChars
     cur := cur.advance slen
-    return ({ kind := .intLit (Int.ofNat n) suf, line }, cur)
+    return ({ kind := .intLit (Int.ofNat n) suf false, line }, cur)
   -- Decimal or octal int, or floating point
   let mut intDigits : List Char := []
   while true do
@@ -230,8 +230,9 @@ private partial def lexNumber (s : LexState) : Except String (Tok × LexState) :
           else break
         | none => break
       if !hasExp then throw s!"invalid float exponent at line {line}"
-    if cur.peek? == some 'f' || cur.peek? == some 'F' || cur.peek? == some 'l' || cur.peek? == some 'L' then
-      cur := cur.advance
+    if let some sc := cur.peek? then
+      if sc == 'f' || sc == 'F' || sc == 'l' || sc == 'L' then
+        throw s!"unsupported float literal suffix '{sc}' at line {line}; C0 supports double (f64) literals only"
     let signedExp : Int := (if expNeg then -expVal else expVal) - Int.ofNat fracDigits.length
     let expSign := signedExp < 0
     let expNat := if signedExp < 0 then (-signedExp).toNat else signedExp.toNat
@@ -242,8 +243,10 @@ private partial def lexNumber (s : LexState) : Except String (Tok × LexState) :
     let bits := (Float.ofScientific mant expSign expNat).toBits
     return ({ kind := .floatLit bits, line }, cur)
   else
+    let isOct := intDigits.head? == some '0' && intDigits.length > 1
+    let isDec := intDigits.head? != some '0'
     let n : Nat :=
-      if intDigits.head? == some '0' && intDigits.length > 1 then
+      if isOct then
         Id.run do
           let mut acc : Nat := 0
           for c in intDigits do
@@ -260,39 +263,47 @@ private partial def lexNumber (s : LexState) : Except String (Tok × LexState) :
       if let some c := cur.peek? i then sufChars := sufChars ++ [c]
     let (suf, slen) := parseIntSuffix sufChars
     cur := cur.advance slen
-    return ({ kind := .intLit (Int.ofNat n) suf, line }, cur)
+    return ({ kind := .intLit (Int.ofNat n) suf isDec, line }, cur)
 
 private def lexCharLit (s : LexState) : Except String (Tok × LexState) := do
   let line := s.line
   let cur := s.advance -- skip opening '
+  let finish (code : Nat) (stAfter : LexState) : Except String (Tok × LexState) := do
+    if stAfter.peek? != some '\'' then
+      throw s!"unterminated char literal at line {line}"
+    let b := code % 256
+    let sval : Int := if b >= 128 then Int.ofNat b - 256 else Int.ofNat b
+    return ({ kind := .intLit sval .none true, line }, stAfter.advance)
   match cur.peek? with
   | none => throw s!"unterminated char literal at line {line}"
   | some '\\' =>
     let cur1 := cur.advance
-    let (code, cur2) ← match cur1.peek? with
-      | some 'n' => pure (10, cur1.advance)
-      | some 't' => pure (9, cur1.advance)
-      | some 'r' => pure (13, cur1.advance)
-      | some '0' => pure (0, cur1.advance)
-      | some '\\' => pure ('\\'.toNat, cur1.advance)
-      | some '\'' => pure ('\''.toNat, cur1.advance)
-      | some '"' => pure ('"'.toNat, cur1.advance)
-      | some 'x' =>
-        match cur1.peek? 1, cur1.peek? 2 with
-        | some h1, some h2 =>
-          if isHexDigit h1 && isHexDigit h2 then
-            pure (hexVal h1 * 16 + hexVal h2, cur1.advance 3)
-          else throw s!"invalid hex escape at line {line}"
-        | _, _ => throw s!"invalid hex escape at line {line}"
-      | _ => throw s!"unsupported char escape at line {line}"
-    if cur2.peek? != some '\'' then
-      throw s!"unterminated char literal at line {line}"
-    return ({ kind := .intLit (Int.ofNat code) .none, line }, cur2.advance)
+    let simpleEsc? : Option Nat := match cur1.peek? with
+      | some 'a' => some 7 | some 'b' => some 8 | some 'f' => some 12
+      | some 'n' => some 10 | some 'r' => some 13 | some 't' => some 9 | some 'v' => some 11
+      | some '\\' => some '\\'.toNat | some '\'' => some '\''.toNat
+      | some '"' => some '"'.toNat | some '?' => some '?'.toNat
+      | _ => none
+    if let some code := simpleEsc? then
+      finish code cur1.advance
+    else if cur1.peek? == some 'x' then
+      let mut stx := cur1.advance; let mut v : Nat := 0; let mut cnt := 0
+      while cnt < 2 do
+        match stx.peek? with
+        | some h => if isHexDigit h then v := v * 16 + hexVal h; stx := stx.advance; cnt := cnt + 1 else break
+        | none => break
+      if cnt == 0 then throw s!"invalid hex escape at line {line}"
+      finish v stx
+    else if (cur1.peek?.map isOctDigit).getD false then
+      let mut sto := cur1; let mut v : Nat := 0; let mut cnt := 0
+      while cnt < 3 do
+        match sto.peek? with
+        | some d => if isOctDigit d then v := v * 8 + (d.toNat - '0'.toNat); sto := sto.advance; cnt := cnt + 1 else break
+        | none => break
+      finish v sto
+    else throw s!"unsupported char escape at line {line}"
   | some c =>
-    let cur1 := cur.advance
-    if cur1.peek? != some '\'' then
-      throw s!"unterminated char literal at line {line}"
-    return ({ kind := .intLit (Int.ofNat c.toNat) .none, line }, cur1.advance)
+    finish c.toNat cur.advance
 
 private partial def lexStringLit (s : LexState) (acc : List Char := []) :
     Except String (Tok × LexState) := do
@@ -321,100 +332,231 @@ private def threeCharSyms : List String :=
 private def oneCharSyms : List Char :=
   ['+', '-', '*', '/', '%', '&', '|', '^', '~', '!', '<', '>', '=', '.', '?', ':', ';', ',', '(', ')', '{', '}', '[', ']']
 
-private def tryParseSimpleDefine (body : String) : Option (String × Int × IntSuffix) := do
-  let trimmed := body.trimAscii.toString
-  -- split name and rest
-  let chars := trimmed.toList
-  let nameCs := chars.takeWhile isIdentCont
-  guard (!nameCs.isEmpty)
-  let restCs := chars.drop nameCs.length
-  -- reject function-like macro `#define FOO(x) ...`
-  guard (restCs.head? != some '(')
-  let valStr := (String.ofList restCs).trimAscii.toString
-  guard (!valStr.isEmpty)
-  -- strip outer parens if simple `(-1)`
-  let valStr :=
-    if valStr.startsWith "(" && valStr.endsWith ")" then
-      ((valStr.drop 1).dropEnd 1).trimAscii.toString
-    else valStr
-  let neg := valStr.startsWith "-"
-  let numStr := if neg then (valStr.drop 1).trimAscii.toString else valStr
-  if numStr == "true" then return (String.ofList nameCs, 1, .none)
-  if numStr == "false" then return (String.ofList nameCs, 0, .none)
-  if numStr == "NULL" then return (String.ofList nameCs, 0, .ull)
-  guard (!numStr.isEmpty && numStr.toList.head?.all Char.isDigit)
-  -- lex single number
-  let st : LexState := { chars := numStr.toList.toArray }
-  match lexNumber st with
-  | .ok ({ kind := .intLit v suf, .. }, st') =>
-    if st'.idx == st'.chars.size then
-      some (String.ofList nameCs, if neg then -v else v, suf)
-    else none
-  | _ => none
+private partial def lexSingleToken (st : LexState) : Except String (Option Tok × LexState) := do
+  let mut cur := st
+  while cur.idx < cur.chars.size do
+    let some c := cur.peek? | break
+    if c.isWhitespace then cur := cur.advance
+    else if c == '/' && cur.peek? 1 == some '/' then cur := skipLineComment cur
+    else if c == '/' && cur.peek? 1 == some '*' then cur ← skipBlockComment cur
+    else break
+  let some c := cur.peek? | return (none, cur)
+  let line := cur.line
+  if isIdentStart c then
+    let mut cs : List Char := []
+    while true do
+      match cur.peek? with
+      | some ch => if isIdentCont ch then cs := ch :: cs; cur := cur.advance else break
+      | none => break
+    let word := String.ofList cs.reverse
+    let kind := if c0Keywords.contains word then .kw word else .ident word
+    return (some { kind, line }, cur)
+  else if c.isDigit then
+    let (tok, cur') ← lexNumber cur
+    return (some tok, cur')
+  else if c == '\'' then
+    let (tok, cur') ← lexCharLit cur
+    return (some tok, cur')
+  else if c == '"' then
+    let (tok, cur') ← lexStringLit cur
+    return (some tok, cur')
+  else
+    let s3 := String.ofList (([cur.peek?, cur.peek? 1, cur.peek? 2]).filterMap id)
+    let s2 := String.ofList (([cur.peek?, cur.peek? 1]).filterMap id)
+    if threeCharSyms.contains s3 then
+      return (some { kind := .sym s3, line }, cur.advance 3)
+    else if twoCharSyms.contains s2 then
+      return (some { kind := .sym s2, line }, cur.advance 2)
+    else if oneCharSyms.contains c then
+      return (some { kind := .sym (String.singleton c), line }, cur.advance)
+    else
+      throw s!"unexpected character '{c}' at line {line}"
 
-private partial def tokenize (src : String) :
-    Except String (Array Tok × Std.HashMap String (Int × IntSuffix)) := do
+private partial def tokenizeLineStr (line : Nat) (body : String) : Except String (Array Tok) := do
+  let mut st : LexState := { chars := body.toList.toArray, line, atLineStart := false }
+  let mut out : Array Tok := #[]
+  while st.idx < st.chars.size do
+    let (tok?, st') ← lexSingleToken st
+    st := st'
+    match tok? with
+    | some t => out := out.push t
+    | none => break
+  return out
+
+private partial def expandMacroToks (macros : Std.HashMap String (Array Tok))
+    (useLine : Nat) (toks : Array Tok) (seen : Std.HashSet String := {}) : Array Tok :=
+  Id.run do
+    let mut out : Array Tok := #[]
+    for t in toks do
+      match t.kind with
+      | .ident nm | .kw nm =>
+        if !seen.contains nm then
+          if let some repl := macros.get? nm then
+            let exp := expandMacroToks macros useLine repl (seen.insert nm)
+            for rt in exp do
+              out := out.push { rt with line := useLine }
+            continue
+        out := out.push { t with line := useLine }
+      | _ => out := out.push { t with line := useLine }
+    return out
+
+private partial def evalPpTokens (macros : Std.HashMap String (Array Tok))
+    (line : Nat) (toks : Array Tok) : Except String Int := do
+  let kindAt (q : Nat) : Option TokKind := toks[q]?.map (·.kind)
+  let ppPrec : String → Option (Nat × (Int → Int → Int))
+    | "||" => some (1, fun a b => if a != 0 || b != 0 then 1 else 0)
+    | "&&" => some (2, fun a b => if a != 0 && b != 0 then 1 else 0)
+    | "==" => some (3, fun a b => if a == b then 1 else 0)
+    | "!=" => some (3, fun a b => if a != b then 1 else 0)
+    | "<"  => some (4, fun a b => if a < b then 1 else 0)
+    | "<=" => some (4, fun a b => if a <= b then 1 else 0)
+    | ">"  => some (4, fun a b => if a > b then 1 else 0)
+    | ">=" => some (4, fun a b => if a >= b then 1 else 0)
+    | "+"  => some (5, (· + ·))
+    | "-"  => some (5, (· - ·))
+    | "*"  => some (6, (· * ·))
+    | _    => none
+  let rec evalExpr (minP : Nat) (p : Nat) : Except String (Int × Nat) := do
+    let (lhs, q0) : Int × Nat ← match kindAt p with
+      | some (.sym "!") => let (v, q) ← evalExpr 7 (p + 1); pure (if v == 0 then (1 : Int) else 0, q)
+      | some (.sym "-") => let (v, q) ← evalExpr 7 (p + 1); pure (-v, q)
+      | some (.sym "+") => evalExpr 7 (p + 1)
+      | some (.ident "defined") =>
+        if kindAt (p + 1) == some (.sym "(") then
+          match kindAt (p + 2), kindAt (p + 3) with
+          | some (.ident nm), some (.sym ")") => pure (if macros.contains nm then (1 : Int) else 0, p + 4)
+          | _, _ => throw s!"invalid defined(...) in #if at line {line}"
+        else match kindAt (p + 1) with
+          | some (.ident nm) => pure (if macros.contains nm then (1 : Int) else 0, p + 2)
+          | _ => throw s!"invalid defined in #if at line {line}"
+      | some (.intLit v _ _) => pure (v, p + 1)
+      | some (.kw "true") => pure ((1 : Int), p + 1)
+      | some (.kw "false") => pure ((0 : Int), p + 1)
+      | some (.sym "(") =>
+        let (v, q) ← evalExpr 1 (p + 1)
+        if kindAt q != some (.sym ")") then throw s!"expected ')' in #if at line {line}"
+        pure (v, q + 1)
+      | some (.ident nm) | some (.kw nm) =>
+        if let some repl := macros.get? nm then
+          let exp := expandMacroToks macros line repl (Std.HashSet.emptyWithCapacity.insert nm)
+          pure (← evalPpTokens macros line exp, p + 1)
+        else pure ((0 : Int), p + 1)
+      | _ => throw s!"unsupported '#if' expression at line {line}"
+    let mut acc := lhs
+    let mut pos := q0
+    while true do
+      let some (.sym s) := kindAt pos | break
+      let some (prec, fn) := ppPrec s | break
+      if prec < minP then break
+      let (rhs, q1) ← evalExpr (prec + 1) (pos + 1)
+      acc := fn acc rhs
+      pos := q1
+    pure (acc, pos)
+  let (res, endPos) ← evalExpr 1 0
+  if endPos != toks.size then throw s!"unexpected trailing token in '#if' expression at line {line}"
+  pure res
+
+private def splitFirstWord (s : String) : String × String :=
+  let cs := s.trimAscii.toString.toList
+  let hd := cs.takeWhile isIdentCont
+  let tl := (String.ofList (cs.drop hd.length)).trimAscii.toString
+  (String.ofList hd, tl)
+
+private partial def tokenize (src : String) : Except String (Array Tok) := do
   let mut st : LexState := { chars := src.toList.toArray }
   let mut toks : Array Tok := #[]
-  let mut defines : Std.HashMap String (Int × IntSuffix) := {}
+  let mut macros : Std.HashMap String (Array Tok) := {}
+  let mut funcMacros : Std.HashSet String := {}
+  let mut ifStack : List (Bool × Bool × Bool) := [] -- (parentActive, curActive, anyTaken)
+  let isActive := fun (stk : List (Bool × Bool × Bool)) =>
+    stk.head?.map (fun (_, cur, _) => cur) |>.getD true
   while st.idx < st.chars.size do
     let some c := st.peek? | break
-    if c.isWhitespace then
-      st := st.advance
-    else if c == '/' && st.peek? 1 == some '/' then
-      st := skipLineComment st
-    else if c == '/' && st.peek? 1 == some '*' then
-      st ← skipBlockComment st
+    if c.isWhitespace then st := st.advance
+    else if c == '/' && st.peek? 1 == some '/' then st := skipLineComment st
+    else if c == '/' && st.peek? 1 == some '*' then st ← skipBlockComment st
     else if c == '#' && st.atLineStart then
+      let lineNo := st.line
       let (lineText, st') := readPreprocessorLine st.advance
       st := st'
-      let trimmed := lineText.trimAscii.toString
-      if trimmed.startsWith "define" then
-        let rest := (trimmed.drop 6).trimAscii.toString
-        if let some (nm, v, suf) := tryParseSimpleDefine rest then
-          defines := defines.insert nm (v, suf)
-    else if isIdentStart c then
-      let line := st.line
-      let mut cs : List Char := []
-      while true do
-        match st.peek? with
-        | some ch =>
-          if isIdentCont ch then
-            cs := ch :: cs; st := st.advance
-          else break
-        | none => break
-      let word := String.ofList cs.reverse
-      let kind := if c0Keywords.contains word then .kw word else .ident word
-      toks := toks.push { kind, line }
-    else if c.isDigit then
-      let (tok, st') ← lexNumber st
-      toks := toks.push tok
-      st := st'
-    else if c == '\'' then
-      let (tok, st') ← lexCharLit st
-      toks := toks.push tok
-      st := st'
-    else if c == '"' then
-      let (tok, st') ← lexStringLit st
-      toks := toks.push tok
-      st := st'
+      let (dir, rest) := splitFirstWord lineText
+      let active := isActive ifStack
+      match dir with
+      | "ifdef" | "ifndef" =>
+        if !active then ifStack := (false, false, true) :: ifStack
+        else
+          let (nm, _) := splitFirstWord rest
+          let defined := macros.contains nm || funcMacros.contains nm
+          let b := if dir == "ifdef" then defined else !defined
+          ifStack := (true, b, b) :: ifStack
+      | "if" =>
+        if !active then ifStack := (false, false, true) :: ifStack
+        else
+          let ctoks ← tokenizeLineStr lineNo rest
+          let v ← evalPpTokens macros lineNo ctoks
+          let b := v != 0
+          ifStack := (true, b, b) :: ifStack
+      | "elif" =>
+        match ifStack with
+        | [] => throw s!"unexpected '#elif' without '#if' at line {lineNo}"
+        | (parentAct, _, anyTaken) :: tl =>
+          if !parentAct || anyTaken then
+            ifStack := (parentAct, false, anyTaken) :: tl
+          else
+            let ctoks ← tokenizeLineStr lineNo rest
+            let v ← evalPpTokens macros lineNo ctoks
+            let b := v != 0
+            ifStack := (true, b, b) :: tl
+      | "else" =>
+        match ifStack with
+        | [] => throw s!"unexpected '#else' without '#if' at line {lineNo}"
+        | (parentAct, _, anyTaken) :: tl =>
+          ifStack := (parentAct, parentAct && !anyTaken, true) :: tl
+      | "endif" =>
+        match ifStack with
+        | [] => throw s!"unexpected '#endif' without '#if' at line {lineNo}"
+        | _ :: tl => ifStack := tl
+      | "include" | "pragma" => pure ()
+      | "undef" =>
+        if active then
+          let (nm, _) := splitFirstWord rest
+          macros := macros.erase nm
+          funcMacros := funcMacros.erase nm
+      | "define" =>
+        if active then
+          let cs := rest.toList
+          let nameCs := cs.takeWhile isIdentCont
+          if nameCs.isEmpty then throw s!"invalid '#define' at line {lineNo}"
+          let nm := String.ofList nameCs
+          let afterNm := cs.drop nameCs.length
+          if afterNm.head? == some '(' then
+            funcMacros := funcMacros.insert nm
+          else
+            let bodyStr := (String.ofList afterNm).trimAscii.toString
+            let bodyToks ← tokenizeLineStr lineNo bodyStr
+            macros := macros.insert nm (expandMacroToks macros lineNo bodyToks {})
+      | _ =>
+        if active then throw s!"unsupported preprocessor directive '#{dir}' at line {lineNo}"
+    else if !isActive ifStack then
+      st := st.advance
     else
-      let line := st.line
-      let s3 := String.ofList (([st.peek?, st.peek? 1, st.peek? 2]).filterMap id)
-      let s2 := String.ofList (([st.peek?, st.peek? 1]).filterMap id)
-      if threeCharSyms.contains s3 then
-        toks := toks.push { kind := .sym s3, line }
-        st := st.advance 3
-      else if twoCharSyms.contains s2 then
-        toks := toks.push { kind := .sym s2, line }
-        st := st.advance 2
-      else if oneCharSyms.contains c then
-        toks := toks.push { kind := .sym (String.singleton c), line }
-        st := st.advance
-      else
-        throw s!"unexpected character '{c}' at line {line}"
+      let (tok?, st') ← lexSingleToken st
+      st := st'
+      if let some tok := tok? then
+        match tok.kind with
+        | .ident nm | .kw nm =>
+          if funcMacros.contains nm then
+            throw s!"function-like macro '{nm}' is not supported at line {tok.line}"
+          if let some repl := macros.get? nm then
+            let exp := expandMacroToks macros tok.line repl (Std.HashSet.emptyWithCapacity.insert nm)
+            for rt in exp do toks := toks.push rt
+          else
+            toks := toks.push tok
+        | _ => toks := toks.push tok
+  unless ifStack.isEmpty do
+    throw s!"unterminated '#if'/'#ifdef' directive at end of file"
   toks := toks.push { kind := .eof, line := st.line }
-  return (toks, defines)
+  return toks
 
 /-! ## Parser State & Primitives -/
 
@@ -424,7 +566,7 @@ private structure ParseState where
   typedefs : Std.HashSet String
   structs : Std.HashSet String
   unions : Std.HashSet String
-  consts : Std.HashMap String (Int × IntSuffix)
+  consts : Std.HashMap String Int
 
 private abbrev ParserM := StateT ParseState (Except String)
 
@@ -526,18 +668,21 @@ private def isTypeStart : ParserM Bool := do
     pure ((builtinTypeMap s).isSome || st.typedefs.contains s)
   | _ => pure false
 
-private partial def evalConstIntExpr : Expr → Except String Int
-  | .intLit v _ => pure v
+private partial def evalConstIntExpr (consts : Std.HashMap String Int) : Expr → Except String Int
+  | .intLit v _ _ => pure v
   | .boolLit b => pure (if b then 1 else 0)
-  | .unary .neg e => do pure (-(← evalConstIntExpr e))
-  | .unary .pos e => evalConstIntExpr e
-  | .unary .bitnot e => do pure (~~~(← evalConstIntExpr e))
-  | .binary .add a b => do pure ((← evalConstIntExpr a) + (← evalConstIntExpr b))
-  | .binary .sub a b => do pure ((← evalConstIntExpr a) - (← evalConstIntExpr b))
-  | .binary .mul a b => do pure ((← evalConstIntExpr a) * (← evalConstIntExpr b))
+  | .var nm => match consts.get? nm with
+    | some v => pure v
+    | none => throw s!"unknown constant '{nm}' in integer constant expression"
+  | .unary .neg e => do pure (-(← evalConstIntExpr consts e))
+  | .unary .pos e => evalConstIntExpr consts e
+  | .unary .bitnot e => do pure (~~~(← evalConstIntExpr consts e))
+  | .binary .add a b => do pure ((← evalConstIntExpr consts a) + (← evalConstIntExpr consts b))
+  | .binary .sub a b => do pure ((← evalConstIntExpr consts a) - (← evalConstIntExpr consts b))
+  | .binary .mul a b => do pure ((← evalConstIntExpr consts a) * (← evalConstIntExpr consts b))
   | .binary .shl a b => do
-    let va ← evalConstIntExpr a
-    let vb ← evalConstIntExpr b
+    let va ← evalConstIntExpr consts a
+    let vb ← evalConstIntExpr consts b
     pure (va * Int.ofNat (2 ^ vb.toNat))
   | _ => throw "expected integer constant expression"
 
@@ -659,21 +804,24 @@ mutual
         if ← matchSym ":" then
           let wTok ← nextTok
           match wTok.kind with
-          | .intLit w _ =>
+          | .intLit w _ _ =>
             if w < 0 then throw s!"C0 parse error (line {wTok.line}): negative bitfield width"
             bw := some w.toNat
           | _ => throw s!"C0 parse error (line {wTok.line}): expected bitfield width"
         else
+          let mut dims : List (Option Nat) := []
           while ← matchSym "[" do
             if ← matchSym "]" then
-              fty := .array fty none
+              dims := dims ++ [none]
             else
               let lenExpr ← parseExpr
               expectSym "]"
-              let len ← match evalConstIntExpr lenExpr with
+              let csts := (← get).consts
+              let len ← match evalConstIntExpr csts lenExpr with
                 | .ok v => if v < 0 then failAt "negative array length" else pure v.toNat
                 | .error e => failAt e
-              fty := .array fty (some len)
+              dims := dims ++ [some len]
+          fty := dims.foldr (fun d acc => .array acc d) fty
         fields := fields ++ [{ name := fname, ty := fty, bitWidth := bw }]
         more ← matchSym ","
       expectSym ";"
@@ -685,15 +833,9 @@ mutual
     | .kw "true" => let _ ← nextTok; pure (.boolLit true)
     | .kw "false" => let _ ← nextTok; pure (.boolLit false)
     | .kw "NULL" => let _ ← nextTok; pure .null
-    | .intLit v suf => let _ ← nextTok; pure (.intLit v suf)
+    | .intLit v suf isDec => let _ ← nextTok; pure (.intLit v suf isDec)
     | .floatLit bits => let _ ← nextTok; pure (.floatLit bits)
-    | .ident s =>
-      let _ ← nextTok
-      let st ← get
-      if let some (v, suf) := st.consts.get? s then
-        if (← peekTok).kind != .sym "(" then
-          return .intLit v suf
-      pure (.var s)
+    | .ident s => let _ ← nextTok; pure (.var s)
     | .sym "(" =>
       let _ ← nextTok
       let e ← parseExpr
@@ -903,20 +1045,21 @@ private def parseSimpleCall : ParserM (String × List Expr) := do
     expectSym ")"
   pure (fn, args)
 
+private def parseInitVal : ParserM InitVal := do
+  expectSym "="
+  if ← matchSym "{" then
+    let z ← parseExpr
+    match z with
+    | .intLit 0 _ _ => expectSym "}"; pure InitVal.zeroInit
+    | _ => failAt "only `{0}` aggregate zero-initializer is supported"
+  else
+    pure (.expr (← parseExpr))
+
 private def parseSimpleAction : ParserM Stmt := do
   if ← isTypeStart then
-    let base ← parseBaseType
-    let ty ← parsePtrStars base
+    let ty ← parseType
     let name ← expectIdent
-    expectSym "="
-    if ← matchSym "{" then
-      let z ← parseExpr
-      match z with
-      | .intLit 0 _ => expectSym "}"; pure (.decl ty name .zeroInit)
-      | _ => failAt "only `{0}` aggregate zero-initializer is supported"
-    else
-      let e ← parseExpr
-      pure (.decl ty name (.expr e))
+    pure (.decl ty name (← parseInitVal))
   else if (← peekTok).kind == .sym "++" || (← peekTok).kind == .sym "--" then
     let isInc := (← nextTok).kind == .sym "++"
     let e ← parseUnary
@@ -925,15 +1068,12 @@ private def parseSimpleAction : ParserM Stmt := do
   else
     let e ← parseUnary
     if ← matchSym "++" then
-      let lv ← MonadExcept.ofExcept (exprToLVal e)
-      pure (.incDec lv true)
+      pure (.incDec (← MonadExcept.ofExcept (exprToLVal e)) true)
     else if ← matchSym "--" then
-      let lv ← MonadExcept.ofExcept (exprToLVal e)
-      pure (.incDec lv false)
+      pure (.incDec (← MonadExcept.ofExcept (exprToLVal e)) false)
     else if let some binOp? ← parseAssignOp? then
       let lv ← MonadExcept.ofExcept (exprToLVal e)
-      let rhs ← parseExpr
-      pure (.assign lv binOp? rhs)
+      pure (.assign lv binOp? (← parseExpr))
     else
       match e with
       | .call fn args => pure (.callStmt [] fn args)
@@ -948,16 +1088,7 @@ private def parseLocalDecls : ParserM (List Stmt) := do
     let name ← expectIdent
     if (← peekTok).kind == .sym "[" then
       failAt "stack arrays are not supported in C0"
-    expectSym "="
-    let init ←
-      if ← matchSym "{" then
-        let z ← parseExpr
-        match z with
-        | .intLit 0 _ => expectSym "}"; pure InitVal.zeroInit
-        | _ => failAt "only `{0}` aggregate zero-initializer is supported"
-      else
-        pure (.expr (← parseExpr))
-    stmts := stmts ++ [.decl ty name init]
+    stmts := stmts ++ [.decl ty name (← parseInitVal)]
     more ← matchSym ","
   expectSym ";"
   pure stmts
@@ -1034,36 +1165,33 @@ mutual
       let scrut ← parseExpr
       expectSym ")"
       expectSym "{"
-      let mut cases : List SwitchCase := []
-      let mut default? : Option (List Stmt) := none
+      let mut arms : List SwitchArm := []
       while !(← matchSym "}") do
-        if ← matchKw "default" then
-          expectSym ":"
-          let mut body : List Stmt := []
-          while (← peekTok).kind != .sym "}" && (← peekTok).kind != .kw "case" do
-            body := body ++ (← parseStmtListItem)
-          default? := some body
-        else if ← matchKw "case" then
-          let mut vals : List Int := []
-          let v0 ← evalConstIntExpr (← parseExpr) |> MonadExcept.ofExcept
-          expectSym ":"
-          vals := [v0]
-          while ← matchKw "case" do
-            let vi ← evalConstIntExpr (← parseExpr) |> MonadExcept.ofExcept
+        let mut vals : List Int := []
+        let mut hasDef := false
+        let mut anyLbl := false
+        while true do
+          if ← matchKw "case" then
+            anyLbl := true
+            let csts := (← get).consts
+            let v ← evalConstIntExpr csts (← parseExpr) |> MonadExcept.ofExcept
             expectSym ":"
-            vals := vals ++ [vi]
-          let mut body : List Stmt := []
-          let mut isFall := false
-          while (← peekTok).kind != .sym "}" && (← peekTok).kind != .kw "case" && (← peekTok).kind != .kw "default" do
-            if ← matchKw "fallthrough" then
-              expectSym ";"
-              isFall := true
-              break
-            body := body ++ (← parseStmtListItem)
-          cases := cases ++ [{ vals, body, fallthrough := isFall }]
-        else
+            vals := vals ++ [v]
+          else if ← matchKw "default" then
+            anyLbl := true
+            expectSym ":"
+            hasDef := true
+          else break
+        unless anyLbl do
           failAt "expected 'case' or 'default' in switch"
-      pure (.switchStmt scrut cases default?)
+        let mut body : List Stmt := []
+        while (← peekTok).kind != .sym "}" && (← peekTok).kind != .kw "case" && (← peekTok).kind != .kw "default" do
+          if ← matchKw "fallthrough" then
+            expectSym ";"
+          else
+            body := body ++ (← parseStmtListItem)
+        arms := arms ++ [{ vals, hasDefault := hasDef, body }]
+      pure (.switchStmt scrut arms)
     | .kw "break" => let _ ← nextTok; expectSym ";"; pure .breakStmt
     | .kw "continue" => let _ ← nextTok; expectSym ";"; pure .continueStmt
     | .kw "goto" =>
@@ -1293,9 +1421,10 @@ private def parseTopDecl : ParserM (List Decl) := do
         let nm ← expectIdent
         if ← matchSym "=" then
           let e ← parseExpr
-          nextVal ← MonadExcept.ofExcept (evalConstIntExpr e)
+          let csts := (← get).consts
+          nextVal ← MonadExcept.ofExcept (evalConstIntExpr csts e)
         items := items ++ [(nm, nextVal)]
-        modify fun st => { st with consts := st.consts.insert nm (nextVal, .none) }
+        modify fun st => { st with consts := st.consts.insert nm nextVal }
         nextVal := nextVal + 1
         if !(← matchSym ",") then
           expectSym "}"
@@ -1338,14 +1467,14 @@ where
 
 /-- Parse a C0 `.c`/`.h` source string into a `TranslationUnit`. -/
 def parseC0 (src : String) : Except String TranslationUnit := do
-  let (toks, defines) ← tokenize src
+  let toks ← tokenize src
   let initState : ParseState := {
     toks := toks
     pos := 0
     typedefs := defaultTypedefs
     structs := {}
     unions := {}
-    consts := defines
+    consts := {}
   }
   let rec go : ParserM (List Decl) := do
     let mut decls : List Decl := []

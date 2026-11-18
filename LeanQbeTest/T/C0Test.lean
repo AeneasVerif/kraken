@@ -132,17 +132,18 @@ theorem leanrc_moduleOk : ModuleOk (fun _ _ _ _ _ _ _ => False) leanrc_module :=
   simp only [leanrc_module, leanrc_fns, List.mem_cons, List.not_mem_nil, or_false] at hmem
   rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
   · refine ⟨lean_is_scalar_impl_wf, ?_, fun _ _ _ _ h => h.elim⟩
-    simp [Fn.callsOk, lean_is_scalar_impl, Expr.callsOk]
+    simp [Fn.callsOk, lean_is_scalar_impl, lean_is_scalar_impl_body, Expr.callsOk]
   · refine ⟨lean_is_scalar_wf, ?_, fun _ _ _ _ h => h.elim⟩
-    simp [Fn.callsOk, lean_is_scalar, Expr.callsOk]
+    simp [Fn.callsOk, lean_is_scalar, lean_is_scalar_body, Expr.callsOk]
   · refine ⟨lean_box_wf, ?_, fun _ _ _ _ h => h.elim⟩
-    simp [Fn.callsOk, lean_box, Expr.callsOk]
+    simp [Fn.callsOk, lean_box, lean_box_body, Expr.callsOk]
   · refine ⟨lean_unbox_wf, ?_, fun _ _ _ _ h => h.elim⟩
-    simp [Fn.callsOk, lean_unbox, Expr.callsOk]
+    simp [Fn.callsOk, lean_unbox, lean_unbox_body, Expr.callsOk]
   · refine ⟨lean_inc_wf, ?_, fun _ _ _ _ h => h.elim⟩
-    simp [Fn.callsOk, lean_inc, Expr.callsOk, Blocks.callsOk]
+    simp [Fn.callsOk, lean_inc, lean_inc_body, Expr.callsOk, Blocks.callsOk]
   · refine ⟨lean_dec_ref_cold_wf, ?_, fun _ _ _ _ h => h.elim⟩
-    simp [Fn.callsOk, lean_dec_ref_cold, leanrc_module, Extern.sig, Expr.callsOk, Blocks.callsOk]
+    simp [Fn.callsOk, lean_dec_ref_cold, lean_dec_ref_cold_body, leanrc_module, Extern.sig,
+      Expr.callsOk, Blocks.callsOk]
   · refine ⟨lean_dec_wf, ?_, fun _ _ _ _ h => h.elim⟩
     have hmem_cold : lean_dec_ref_cold ∈ pre := by
       have hsplit' := hsplit
@@ -153,12 +154,12 @@ theorem leanrc_moduleOk : ModuleOk (fun _ _ _ _ _ _ _ => False) leanrc_module :=
         lean_dec, analyze_goto_demo, divmod_u32, sum_divmod_u32, find_guarded] at hn
       rcases pre with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | rest⟩⟩⟩⟩⟩⟩ <;>
         simp_all
-    simp only [Fn.callsOk, lean_dec, Expr.callsOk, Blocks.callsOk, true_and, and_true]
+    simp only [Fn.callsOk, lean_dec, lean_dec_body, Expr.callsOk, Blocks.callsOk, true_and, and_true]
     exact List.mem_append_left _ (List.mem_map.mpr ⟨lean_dec_ref_cold, hmem_cold, rfl⟩)
   · refine ⟨analyze_goto_demo_wf, ?_, fun _ _ _ _ h => h.elim⟩
-    simp [Fn.callsOk, analyze_goto_demo, Expr.callsOk, Blocks.callsOk]
+    simp [Fn.callsOk, analyze_goto_demo, analyze_goto_demo_body, Expr.callsOk, Blocks.callsOk]
   · refine ⟨divmod_u32_wf, ?_, fun _ _ _ _ h => h.elim⟩
-    simp [Fn.callsOk, divmod_u32, leanrc_module, Expr.callsOk]
+    simp [Fn.callsOk, divmod_u32, divmod_u32_body, leanrc_module, Expr.callsOk]
   · refine ⟨sum_divmod_u32_wf, ?_, fun _ _ _ _ h => h.elim⟩
     have hmem_dm : divmod_u32 ∈ pre := by
       have hsplit' := hsplit
@@ -169,10 +170,10 @@ theorem leanrc_moduleOk : ModuleOk (fun _ _ _ _ _ _ _ => False) leanrc_module :=
         lean_dec, analyze_goto_demo, divmod_u32, sum_divmod_u32, find_guarded] at hn
       rcases pre with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨a8, _ | rest⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
         simp_all
-    simp only [Fn.callsOk, sum_divmod_u32, Expr.callsOk, and_true]
+    simp only [Fn.callsOk, sum_divmod_u32, sum_divmod_u32_body, Expr.callsOk, and_true]
     exact List.mem_append_left _ (List.mem_map.mpr ⟨divmod_u32, hmem_dm, rfl⟩)
   · refine ⟨find_guarded_wf, ?_, fun _ _ _ _ h => h.elim⟩
-    simp [Fn.callsOk, find_guarded, Expr.callsOk, Blocks.callsOk]
+    simp [Fn.callsOk, find_guarded, find_guarded_body, Expr.callsOk, Blocks.callsOk]
 
 #guard (PrintCpp.ppModule leanrc_fns).isOk
 
@@ -182,20 +183,7 @@ end V3LeanRc
 
 section V4WpSmoke
 
-c0_decl! v4 "
-u64 sum_pos64(i64 *arr, u64 n) {
-  u64 i = 0ULL;
-  u64 acc = 0ULL;
-  while (i < n) {
-    i64 v = arr[i];
-    if (v > 0) {
-      acc = acc + (u64)v;
-    }
-    i = i + 1ULL;
-  }
-  return acc;
-}
-"
+c0_file! v4 "test/c0/v4_sum_pos64.c"
 
 #c0_shape sum_pos64
 
@@ -274,59 +262,7 @@ end V4WpSmoke
 
 section ExtraCF
 
-c0_decl! extra "
-typedef C0_RET2(u64, bool) u64_b;
-typedef C0_RET3(u32, u32, u32) u32_t3;
-
-u32 test_intrinsics(u32 x32, u64 x64, f64 d) {
-  u32 r32 = c0_rotl32(x32, 7u) ^ c0_rotr32(x32, 5u);
-  u32 c32 = c0_clz32(x32) + c0_ctz32(x32) + c0_popcnt32(x32);
-  u64 r64 = c0_rotl64(x64, 13ULL) ^ c0_rotr64(x64, 9ULL);
-  u64 c64 = c0_clz64(x64) + c0_ctz64(x64) + c0_popcnt64(x64);
-  u64 s1 = 0ULL; bool co1 = false;
-  C0_TIE2(s1, co1, c0_addc64(x64, 0xFFFFFFFFFFFFFF00ULL, (x32 & 1u) != 0u));
-  u64 d1 = 0ULL; bool bo1 = false;
-  C0_TIE2(d1, bo1, c0_subb64(x64, 100ULL, (x32 & 2u) != 0u));
-  u64 lo = 0ULL; u64 hi = 0ULL;
-  C0_TIE2(lo, hi, c0_umul128(x64, 0x100000003ULL));
-  u64 fb = c0_f64_to_bits(d);
-  f64 d2 = c0_bits_to_f64(fb);
-  u64 sat = c0_f64_to_u64_sat(d2);
-  u64 res = (u64)(r32 ^ c32) ^ r64 ^ c64 ^ s1 ^ d1 ^ lo ^ hi ^ fb ^ sat ^ (u64)co1 ^ (u64)bo1;
-  return (u32)(res ^ (res >> 32));
-}
-
-u32_t3 test_switch_loops(u32 mode, u32 n) {
-  u32 a = 0u;
-  u32 b = 1u;
-  u32 c = 0u;
-  u32 i = 0u;
-  do {
-    switch (mode & 3u) {
-      case 0:
-        a = a + 10u;
-        fallthrough;
-      case 1:
-        b = b + i;
-        break;
-      case 2:
-        c = c + 3u;
-        break;
-      default:
-        a = a + 1u;
-        b = b + 2u;
-        c = c + 3u;
-        break;
-    }
-    i = i + 1u;
-  } while (i < n);
-  for (u32 k = 0u; k < n; k++) {
-    if ((k & 1u) == 0u) continue;
-    c = c + k;
-  }
-  return C0_TUP3(u32_t3, a, b, c);
-}
-"
+c0_file! extra "test/c0/extra_cf.c"
 
 theorem test_intrinsics_wf : Func.Wf test_intrinsics_body := by t_wf_reify
 theorem test_switch_loops_wf : Func.Wf test_switch_loops_body := by t_wf_reify

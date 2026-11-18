@@ -99,82 +99,6 @@ structure LModule : Type where
   externs : List Extern
   exits : List Sym
 
-/-! ## Static Liveness & Mutation Analysis -/
-
-private def setUnion (a b : Std.HashSet String) : Std.HashSet String :=
-  b.fold (fun acc x => acc.insert x) a
-
-private def lvalMutatedLocal : LVal → Option String
-  | .var x => some x
-  | .dot b _ => lvalMutatedLocal b
-  | _ => none
-
-private partial def stmtMayFallThrough : Stmt → Bool
-  | .retStmt _ | .breakStmt | .continueStmt | .gotoStmt _ => false
-  | .ifStmt _ t (some e) => stmtMayFallThrough t || stmtMayFallThrough e
-  | .ifStmt _ _ none => true
-  | .block ss => ss.all stmtMayFallThrough
-  | .labelStmt _ s => stmtMayFallThrough s
-  | _ => true
-
-/-- Returns `true` if executing `s` can reach the end of `s` OR an outer-loop `continue`. -/
-private partial def stmtMayReachBackEdge (inInnerLoop : Bool := false) : Stmt → Bool
-  | .retStmt _ | .breakStmt | .gotoStmt _ => false
-  | .continueStmt => !inInnerLoop
-  | .ifStmt _ t (some e) => stmtMayReachBackEdge inInnerLoop t || stmtMayReachBackEdge inInnerLoop e
-  | .ifStmt _ _ none => true
-  | .block ss => ss.all (stmtMayReachBackEdge inInnerLoop)
-  | .labelStmt _ s => stmtMayReachBackEdge inInnerLoop s
-  | _ => true
-
-private partial def stmtMutatedLocals (onlyBackEdge inInnerLoop : Bool) (s : Stmt) :
-    Std.HashSet String :=
-  if onlyBackEdge && !stmtMayReachBackEdge inInnerLoop s then {} else
-  match s with
-  | .empty | .breakStmt | .continueStmt | .gotoStmt _ | .decl _ _ _
-  | .retStmt _ | .assumeStmt _ | .checkStmt _ _ | .assertStmt _ _ => {}
-  | .assign lv _ _ | .incDec lv _ =>
-    match lvalMutatedLocal lv with
-    | some x => ({} : Std.HashSet String).insert x
-    | none => {}
-  | .callStmt lhs _ _ => lhs.foldl (fun acc x => acc.insert x) {}
-  | .ifStmt _ t e? =>
-    let mt := stmtMutatedLocals onlyBackEdge inInnerLoop t
-    let me := e?.map (stmtMutatedLocals onlyBackEdge inInnerLoop) |>.getD {}
-    setUnion mt me
-  | .whileStmt _ b | .doWhileStmt b _ => stmtMutatedLocals onlyBackEdge true b
-  | .forStmt init? _ step? b =>
-    let mi := init?.map (stmtMutatedLocals onlyBackEdge true) |>.getD {}
-    let ms := step?.map (stmtMutatedLocals onlyBackEdge true) |>.getD {}
-    setUnion mi (setUnion ms (stmtMutatedLocals onlyBackEdge true b))
-  | .switchStmt _ cases def? =>
-    let mc := cases.foldl (fun acc c =>
-      setUnion acc (c.body.foldl (fun a st => setUnion a (stmtMutatedLocals onlyBackEdge inInnerLoop st)) {})) {}
-    match def? with
-    | some d => d.foldl (fun a st => setUnion a (stmtMutatedLocals onlyBackEdge inInnerLoop st)) mc
-    | none => mc
-  | .block ss => ss.foldl (fun acc st => setUnion acc (stmtMutatedLocals onlyBackEdge inInnerLoop st)) {}
-  | .labelStmt _ st => stmtMutatedLocals onlyBackEdge inInnerLoop st
-
-private partial def stmtHasBreak : Stmt → Bool
-  | .breakStmt => true
-  | .block ss => ss.any stmtHasBreak
-  | .ifStmt _ t e? => stmtHasBreak t || (e?.map stmtHasBreak |>.getD false)
-  | .whileStmt _ _ | .doWhileStmt _ _ | .forStmt _ _ _ _ | .switchStmt _ _ _ => false
-  | .labelStmt _ s => stmtHasBreak s
-  | _ => false
-
-private partial def stmtHasGoto (lbl : String) : Stmt → Bool
-  | .gotoStmt l => l == lbl
-  | .block ss => ss.any (stmtHasGoto lbl)
-  | .ifStmt _ t e? => stmtHasGoto lbl t || (e?.map (stmtHasGoto lbl) |>.getD false)
-  | .whileStmt _ b | .doWhileStmt b _ | .forStmt _ _ _ b => stmtHasGoto lbl b
-  | .switchStmt _ cs d? =>
-    cs.any (fun c => c.body.any (stmtHasGoto lbl)) ||
-    (d?.map (fun d => d.any (stmtHasGoto lbl)) |>.getD false)
-  | .labelStmt _ s => stmtHasGoto lbl s
-  | _ => false
-
 /-! ## Lowering Monad & Environment -/
 
 private inductive VarVal : Type
@@ -183,6 +107,7 @@ private inductive VarVal : Type
   deriving Repr
 
 private structure EnvEntry : Type where
+  declId : Nat
   name : String
   val : VarVal
   deriving Repr
@@ -191,12 +116,13 @@ private abbrev LocalEnv := List EnvEntry
 
 private structure JumpTarget : Type where
   lblId : Nat
-  vars : List (String × C0Type × Ty)
+  vars : List (Nat × String × C0Type × Ty)
 
 private structure LowerCtx : Type where
   layout : LayoutEnv
   fns : Std.HashMap String FnDef
   externs : Std.HashMap String FnSig
+  enums : Std.HashMap String Int := {}
   inlineStack : List String := []
   assertAsCheck : Bool := false
   breakTarget : Option JumpTarget := none
@@ -209,9 +135,15 @@ private structure LowerCtx : Type where
 private structure LowerState : Type where
   nextVar : Nat := 0
   nextLbl : Nat := 0
+  nextDecl : Nat := 0
   groups : List GroupShape := []
 
 private abbrev LowerM := StateT LowerState (Except String)
+
+private def freshDeclId : LowerM Nat := do
+  let st ← get
+  set { st with nextDecl := st.nextDecl + 1 }
+  pure st.nextDecl
 
 private def freshLVar (name : String) (t : Ty) : LowerM LVar := do
   let st ← get
@@ -230,40 +162,42 @@ private def recordGroup (kind label : String) (ps : List LVar) : LowerM Unit :=
 private def lookupEnv? (env : LocalEnv) (nm : String) : Option EnvEntry :=
   env.reverse.find? fun e => e.name == nm
 
-private def updateEnv (env : LocalEnv) (nm : String) (v : VarVal) : LocalEnv :=
-  let rec go : List EnvEntry → Bool × List EnvEntry
-    | [] => (false, [])
-    | e :: rest =>
-      let (found, rest') := go rest
-      if found then (true, e :: rest')
-      else if e.name == nm then (true, { e with val := v } :: rest')
-      else (false, e :: rest')
-  (go env).2
+private def lookupEnvById? (env : LocalEnv) (id : Nat) : Option EnvEntry :=
+  env.find? fun e => e.declId == id
 
-private def snapshotArgs (env : LocalEnv) (vars : List (String × C0Type × Ty)) :
+private def updateEnvById (env : LocalEnv) (id : Nat) (v : VarVal) : LocalEnv :=
+  env.map fun e => if e.declId == id then { e with val := v } else e
+
+private def updateEnv (env : LocalEnv) (nm : String) (v : VarVal) : LocalEnv :=
+  match lookupEnv? env nm with
+  | some e => updateEnvById env e.declId v
+  | none => env
+
+private def snapshotArgs (env : LocalEnv) (vars : List (Nat × String × C0Type × Ty)) :
     Except String (List LArg) :=
-  vars.mapM fun (nm, _, t) =>
-    match lookupEnv? env nm with
+  vars.mapM fun (id, nm, _, t) =>
+    match lookupEnvById? env id with
     | some { val := .scalar _ a, .. } =>
       if a.ty == t then pure a else throw s!"internal type mismatch on join var '{nm}'"
     | _ => throw s!"local '{nm}' not in scope at jump"
 
-private def allocJoinVars (vars : List (String × C0Type × Ty)) : LowerM (List LVar) :=
-  vars.mapM fun (nm, _, t) => freshLVar nm t
+private def allocJoinVars (vars : List (Nat × String × C0Type × Ty)) : LowerM (List LVar) :=
+  vars.mapM fun (_, nm, _, t) => freshLVar nm t
 
-private def rebindJoinVars (env : LocalEnv) (vars : List (String × C0Type × Ty))
+private def rebindJoinVars (env : LocalEnv) (vars : List (Nat × String × C0Type × Ty))
     (lvs : List LVar) : LocalEnv :=
-  (vars.zip lvs).foldl (fun e ((nm, c0t, _), lv) =>
-    updateEnv e nm (.scalar c0t (.var lv.id lv.ty))) env
+  (vars.zip lvs).foldl (fun e ((id, _, c0t, _), lv) =>
+    updateEnvById e id (.scalar c0t (.var lv.id lv.ty))) env
 
 private def selectJoinVars (env : LocalEnv) (mutated : Std.HashSet String) :
-    Except String (List (String × C0Type × Ty)) := do
-  let mut res : List (String × C0Type × Ty) := []
+    Except String (List (Nat × String × C0Type × Ty)) := do
+  let mut res : List (Nat × String × C0Type × Ty) := []
   for e in env do
     if mutated.contains e.name then
-      match e.val with
-      | .scalar c0ty a => res := res ++ [(e.name, c0ty, a.ty)]
-      | .tup _ => throw s!"tuple variable '{e.name}' cannot be carried across join/loop"
+      if (lookupEnv? env e.name).map (·.declId) == some e.declId then
+        match e.val with
+        | .scalar c0ty a => res := res ++ [(e.declId, e.name, c0ty, a.ty)]
+        | .tup _ => throw s!"tuple variable '{e.name}' cannot be carried across join/loop"
   pure res
 
 /-! ## C0 Type System, Promotions, and Conversions -/
@@ -295,26 +229,6 @@ private def lowerRetTys (env : LayoutEnv) (ty : C0Type) : Except String (List Ty
   | .void => pure []
   | .tuple ts => ts.mapM (lowerScalarTy env)
   | t => pure [← lowerScalarTy env t]
-
-private def intPromote (ty : C0Type) : C0Type :=
-  match ty with
-  | .bool => .i32
-  | .int _ n => if n < 32 then .i32 else ty
-  | _ => ty
-
-private def usualArithType (t1 t2 : C0Type) : Except String C0Type := do
-  if t1 == .f64 || t2 == .f64 then pure .f64
-  else
-    let p1 := intPromote t1
-    let p2 := intPromote t2
-    match p1, p2 with
-    | .int s1 n1, .int s2 n2 =>
-      if s1 == s2 then pure (.int s1 (Nat.max n1 n2))
-      else if !s1 && n1 >= n2 then pure p1
-      else if !s2 && n2 >= n1 then pure p2
-      else if s1 && n1 > n2 then pure p1
-      else pure p2
-    | _, _ => throw s!"invalid operands for arithmetic conversion: {repr t1}, {repr t2}"
 
 private def emitOp (rs sig : List Ty) (code : OpCode sig rs) (args : List LArg) (nm : String)
     (k : List LArg → LowerM LExpr) : LowerM LExpr := do
@@ -390,17 +304,10 @@ private def convertVal (env : LayoutEnv) (srcTy dstTy : C0Type) (a : LArg)
     if ts == td then k a
     else throw s!"unsupported conversion from {repr src} to {repr dst}"
 
-private def coerceIntLit (v : Int) (suf : IntSuffix) : C0Type × LArg :=
-  let mkBits (signed : Bool) (w : Nat) : C0Type × LArg :=
-    (.int signed w, .imm (.bits w) (BitVec.ofInt w v))
-  match suf with
-  | .ull | .ul => mkBits false 64
-  | .ll | .l => mkBits true 64
-  | .u => if v >= 0 && v < 2^32 then mkBits false 32 else mkBits false 64
-  | .none =>
-    if v >= -(2^31 : Int) && v < (2^31 : Int) then mkBits true 32
-    else if v >= 0 && v < (2^32 : Int) then mkBits false 32
-    else mkBits true 64
+private def coerceIntLit (v : Int) (suf : IntSuffix) (isDec : Bool := true) : C0Type × LArg :=
+  let ty := intLitType v suf isDec
+  let w := intBitWidth ty
+  (ty, .imm (.bits w) (BitVec.ofInt w v))
 
 /-! ## Memory & Bitfield Read/Write Helpers -/
 
@@ -438,13 +345,36 @@ private def extractBitsFromWord (env : LayoutEnv) (wordVal : LArg) (wordBits bit
       let rdecl ← MonadExcept.ofExcept (resolveType env declTy)
       if rdecl == .bool then
         emitOp1 .bool [unitTy, unitTy] (.cmp .ne unitTy) [masked, .imm unitTy (0#wordBits)] "bfb" (k .bool)
-      else convertVal env (.int false wordBits) rdecl masked (k rdecl)
+      else
+        let outTy ← MonadExcept.ofExcept (bitfieldValueType env rdecl width)
+        if isSignedInt rdecl && width < wordBits then
+          let sh := wordBits - width
+          emitOp1 unitTy [unitTy, unitTy] (.shl unitTy) [masked, .imm unitTy (BitVec.ofNat wordBits sh)] "bfs1" fun s1 =>
+            emitOp1 unitTy [unitTy, unitTy] (.ashr unitTy) [s1, .imm unitTy (BitVec.ofNat wordBits sh)] "bfs2" fun sx =>
+              convertVal env (.int true wordBits) outTy sx (k outTy)
+        else convertVal env (.int false wordBits) outTy masked (k outTy)
     if width == wordBits then afterMask shifted
     else
       let mask : BitVec wordBits := BitVec.ofNat wordBits ((1 <<< width) - 1)
       emitOp1 unitTy [unitTy, unitTy] (.and unitTy) [shifted, .imm unitTy mask] "bfm" afterMask
   if bitOff == 0 then afterShift wordVal
   else emitOp1 unitTy [unitTy, unitTy] (.lshr unitTy) [wordVal, .imm unitTy (BitVec.ofNat wordBits bitOff)] "bfs" afterShift
+
+private def inferTy (ctx : LowerCtx) (env : LocalEnv) (e : Expr)
+    (decayArray : Bool := true) (forSizeof : Bool := false) : Except String C0Type :=
+  let lookupVar (nm : String) : Except String C0Type :=
+    match lookupEnv? env nm with
+    | some { val := .scalar t _, .. } => pure t
+    | some { val := .tup _, .. } => throw s!"tuple variable '{nm}' cannot be used as scalar"
+    | none =>
+      match ctx.enums.get? nm with
+      | some v => pure (intLitType v .none true)
+      | none => throw s!"unbound local '{nm}'"
+  let lookupFnRet (fn : String) : Except String C0Type :=
+    if let some fd := ctx.fns.get? fn then pure fd.retTy
+    else if let some sg := ctx.externs.get? fn then pure sg.retTy
+    else throw s!"unknown function '{fn}'"
+  inferExprType ctx.layout lookupVar lookupFnRet e decayArray forSizeof
 
 private def loadFieldFromAddr (env : LayoutEnv) (baseAddr : LArg) (byteOff : Nat)
     (loc : FieldLoc) (k : C0Type → LArg → LowerM LExpr) : LowerM LExpr := do
@@ -574,7 +504,7 @@ mutual
   private partial def lowerExpr (ctx : LowerCtx) (env : LocalEnv) (e : Expr)
       (k : C0Type → LArg → LowerM LExpr) : LowerM LExpr := do
     match e with
-    | .intLit v suf => let (ty, arg) := coerceIntLit v suf; k ty arg
+    | .intLit v suf isDec => let (ty, arg) := coerceIntLit v suf isDec; k ty arg
     | .floatLit bits => k .f64 (.imm f64 (BitVec.ofNat 64 bits.toNat))
     | .boolLit b => k .bool (.imm .bool b)
     | .null => k (.ptr .void) (.imm i64 0#64)
@@ -582,7 +512,10 @@ mutual
       match lookupEnv? env nm with
       | some { val := .scalar ty a, .. } => k ty a
       | some { val := .tup _, .. } => throw s!"tuple variable '{nm}' cannot be used as a scalar"
-      | none => throw s!"unbound local variable '{nm}'"
+      | none =>
+        match ctx.enums.get? nm with
+        | some v => let (ty, arg) := coerceIntLit v .none true; k ty arg
+        | none => throw s!"unbound local variable '{nm}'"
     | .cast dstTy sub =>
       lowerExpr ctx env sub fun srcTy a =>
         convertVal ctx.layout srcTy dstTy a fun ca => do
@@ -591,7 +524,7 @@ mutual
       let (sz, _) ← MonadExcept.ofExcept (typeSizeAlign ctx.layout ty)
       k .u64 (.imm i64 (BitVec.ofNat 64 sz))
     | .sizeofExpr sub =>
-      let ty ← inferExprType ctx env sub
+      let ty ← MonadExcept.ofExcept (inferTy ctx env sub false true)
       let (sz, _) ← MonadExcept.ofExcept (typeSizeAlign ctx.layout ty)
       k .u64 (.imm i64 (BitVec.ofNat 64 sz))
     | .unary .pos sub =>
@@ -666,7 +599,7 @@ mutual
       pure (.group [(jLbl, [jVar], joinBody)] entry)
     | .binary op lhs rhs => lowerBinOp ctx env op lhs rhs k
     | .ternary cond thn els =>
-      let resTy ← inferExprType ctx env e
+      let resTy ← MonadExcept.ofExcept (inferTy ctx env e)
       let lt ← MonadExcept.ofExcept (lowerScalarTy ctx.layout resTy)
       let jLbl ← freshLblId
       let jVar ← freshLVar "tern" lt
@@ -793,77 +726,6 @@ mutual
         convertVal ctx.layout ty .bool a fun ba => do
           pure (.jnz ba (← onTrue) (← onFalse))
 
-  private partial def inferExprType (ctx : LowerCtx) (env : LocalEnv) (e : Expr) : LowerM C0Type := do
-    match e with
-    | .intLit v suf => pure (coerceIntLit v suf).1
-    | .floatLit _ => pure .f64
-    | .boolLit _ => pure .bool
-    | .null => pure (.ptr .void)
-    | .var nm =>
-      match lookupEnv? env nm with
-      | some { val := .scalar t _, .. } => pure t
-      | _ => throw s!"unbound local '{nm}'"
-    | .cast ty _ => MonadExcept.ofExcept (resolveType ctx.layout ty)
-    | .sizeofTy _ | .sizeofExpr _ => pure .u64
-    | .unary .pos sub | .unary .neg sub | .unary .bitnot sub =>
-      let t ← inferExprType ctx env sub
-      pure (if t == .f64 then .f64 else intPromote t)
-    | .unary .lognot _ => pure .bool
-    | .unary .deref p =>
-      match ← MonadExcept.ofExcept (resolveType ctx.layout (← inferExprType ctx env p)) with
-      | .ptr (.array elem _) => pure (.ptr elem)
-      | .ptr elem => MonadExcept.ofExcept (resolveType ctx.layout elem)
-      | t => throw s!"cannot dereference {repr t}"
-    | .unary .addrOf sub => pure (.ptr (← inferExprType ctx env sub))
-    | .binary op a b =>
-      match op with
-      | .eq | .ne | .lt | .le | .gt | .ge | .logand | .logor => pure .bool
-      | .shl | .shr => pure (intPromote (← inferExprType ctx env a))
-      | .add =>
-        let ta ← MonadExcept.ofExcept (resolveType ctx.layout (← inferExprType ctx env a))
-        let tb ← MonadExcept.ofExcept (resolveType ctx.layout (← inferExprType ctx env b))
-        match ta, tb with
-        | .ptr _, _ => pure ta | _, .ptr _ => pure tb
-        | _, _ => MonadExcept.ofExcept (usualArithType ta tb)
-      | .sub =>
-        let ta ← MonadExcept.ofExcept (resolveType ctx.layout (← inferExprType ctx env a))
-        let tb ← MonadExcept.ofExcept (resolveType ctx.layout (← inferExprType ctx env b))
-        match ta, tb with
-        | .ptr _, .ptr _ => pure .i64 | .ptr _, _ => pure ta
-        | _, _ => MonadExcept.ofExcept (usualArithType ta tb)
-      | _ =>
-        let ta ← MonadExcept.ofExcept (resolveType ctx.layout (← inferExprType ctx env a))
-        let tb ← MonadExcept.ofExcept (resolveType ctx.layout (← inferExprType ctx env b))
-        MonadExcept.ofExcept (usualArithType ta tb)
-    | .ternary _ t _ => inferExprType ctx env t
-    | .field b fld =>
-      let tb ← inferExprType ctx env b
-      match ← MonadExcept.ofExcept (lookupField ctx.layout tb fld) with
-      | .regular _ (.array elem _) _ => pure (.ptr elem)
-      | .regular _ fty _ | .bitfield _ _ _ _ fty => MonadExcept.ofExcept (resolveType ctx.layout fty)
-    | .arrow p fld =>
-      match ← MonadExcept.ofExcept (resolveType ctx.layout (← inferExprType ctx env p)) with
-      | .ptr agg =>
-        match ← MonadExcept.ofExcept (lookupField ctx.layout agg fld) with
-        | .regular _ (.array elem _) _ => pure (.ptr elem)
-        | .regular _ fty _ | .bitfield _ _ _ _ fty => MonadExcept.ofExcept (resolveType ctx.layout fty)
-      | t => throw s!"'->' on non-pointer {repr t}"
-    | .index a _ =>
-      match ← MonadExcept.ofExcept (resolveType ctx.layout (← inferExprType ctx env a)) with
-      | .ptr (.array elem _) => pure (.ptr elem)
-      | .ptr elem | .array elem _ => MonadExcept.ofExcept (resolveType ctx.layout elem)
-      | t => throw s!"index on non-pointer {repr t}"
-    | .call fn _ =>
-      match fn with
-      | "c0_rotl32" | "c0_rotr32" | "c0_clz32" | "c0_ctz32" | "c0_popcnt32" => pure .u32
-      | "c0_rotl64" | "c0_rotr64" | "c0_clz64" | "c0_ctz64" | "c0_popcnt64"
-      | "c0_f64_to_bits" | "c0_f64_to_u64_sat" => pure .u64
-      | "c0_bits_to_f64" => pure .f64
-      | _ =>
-        if let some fd := ctx.fns.get? fn then MonadExcept.ofExcept (resolveType ctx.layout fd.retTy)
-        else if let some sg := ctx.externs.get? fn then MonadExcept.ofExcept (resolveType ctx.layout sg.retTy)
-        else throw s!"unknown function '{fn}'"
-
   private partial def lowerCallArgs (ctx : LowerCtx) (env : LocalEnv)
       (paramTys : List C0Type) (args : List Expr)
       (k : List (C0Type × LArg) → LowerM LExpr) : LowerM LExpr := do
@@ -963,8 +825,8 @@ mutual
 
   private partial def inlineFunction (ctx : LowerCtx) (fd : FnDef)
       (argVals : List (C0Type × LArg)) (k : List (C0Type × LArg) → LowerM LExpr) : LowerM LExpr := do
-    let innerEnv : LocalEnv := (fd.params.zip argVals).map fun ((_, nm), (ct, a)) =>
-      { name := nm, val := .scalar ct a }
+    let innerEnv ← (fd.params.zip argVals).mapM fun ((_, nm), (ct, a)) => do
+      pure { declId := ← freshDeclId, name := nm, val := .scalar ct a : EnvEntry }
     let rRet ← MonadExcept.ofExcept (resolveType ctx.layout fd.retTy)
     let retC0Tys : List C0Type := match rRet with | .void => [] | .tuple ts => ts | t => [t]
     let bsTys ← MonadExcept.ofExcept (lowerRetTys ctx.layout fd.retTy)
@@ -1022,13 +884,17 @@ mutual
       | .block bs => countReturns bs
       | .ifStmt _ t e? => countStmt t + (e?.map countStmt |>.getD 0)
       | .whileStmt _ b | .doWhileStmt b _ | .forStmt _ _ _ b => countStmt b
-      | .switchStmt _ cs d? =>
-        cs.foldl (fun a c => a + countReturns c.body) 0 + (d?.map countReturns |>.getD 0)
+      | .switchStmt _ arms =>
+        arms.foldl (fun a arm => a + countReturns arm.body) 0
       | .labelStmt _ st => countStmt st
       | _ => 0
 
   private partial def lowerLValWrite (ctx : LowerCtx) (env : LocalEnv) (lv : LVal)
       (op? : Option BinOp) (rhsExpr : Expr) (k : LocalEnv → LowerM LExpr) : LowerM LExpr := do
+    let evalCompOp (bop : BinOp) (curTy : C0Type) (curA : LArg) (kw : C0Type → LArg → LowerM LExpr) := do
+      let tid ← freshDeclId
+      let dummyEnv : LocalEnv := env ++ [{ declId := tid, name := "__lval_tmp", val := .scalar curTy curA }]
+      lowerBinOp ctx dummyEnv bop (.var "__lval_tmp") rhsExpr kw
     let writeAtPtr (elemTy : C0Type) (pa : LArg) : LowerM LExpr := do
       let re ← MonadExcept.ofExcept (resolveType ctx.layout elemTy)
       match op? with
@@ -1037,8 +903,7 @@ mutual
           storeMemScalar ctx.layout re rty pa ra (k env)
       | some bop =>
         loadMemScalar ctx.layout re pa fun curTy curA =>
-          let dummyEnv : LocalEnv := { name := "__lval_tmp", val := .scalar curTy curA } :: env
-          lowerBinOp ctx dummyEnv bop (.var "__lval_tmp") rhsExpr fun rty ra =>
+          evalCompOp bop curTy curA fun rty ra =>
             storeMemScalar ctx.layout re rty pa ra (k env)
     match lv with
     | .var nm =>
@@ -1067,8 +932,7 @@ mutual
           | none => lowerExpr ctx env rhsExpr writeF
           | some bop =>
             loadFieldFromAddr ctx.layout pa 0 loc fun curTy curA =>
-              let dummyEnv : LocalEnv := { name := "__lval_tmp", val := .scalar curTy curA } :: env
-              lowerBinOp ctx dummyEnv bop (.var "__lval_tmp") rhsExpr writeF
+              evalCompOp bop curTy curA writeF
         | t => throw s!"'->' requires pointer, got {repr t}"
     | .index arrE idxE =>
       lowerIndexAddr ctx env arrE idxE fun elemTy pa => writeAtPtr elemTy pa
@@ -1084,8 +948,7 @@ mutual
         | none => lowerExpr ctx env rhsExpr writeF
         | some bop =>
           loadFieldFromAddr ctx.layout baseAddr (baseOff + off') loc fun curTy curA =>
-            let dummyEnv : LocalEnv := { name := "__lval_tmp", val := .scalar curTy curA } :: env
-            lowerBinOp ctx dummyEnv bop (.var "__lval_tmp") rhsExpr writeF
+            evalCompOp bop curTy curA writeF
       match rootLv with
       | .deref ptrE =>
         lowerExpr ctx env ptrE fun pty pa => do
@@ -1147,8 +1010,9 @@ mutual
         | .labelStmt l s => pure (l, s)
         | _ => throw "internal error"
       let afterStmts := firstLabeledStmt :: suffixStmts.tail!
-      -- Lower leading statements before the first `goto lblName` so declarations enter `env`
-      let firstUseIdx := (prefixStmts.findIdx? (stmtHasGoto lblName)).getD prefixStmts.length
+      -- Lower leading statements before the first `goto` to any label in this block so declarations enter `env`
+      let allLbls := stmts.filterMap fun | .labelStmt l _ => some l | _ => none
+      let firstUseIdx := (prefixStmts.findIdx? fun st => allLbls.any (stmtHasGoto · st)).getD prefixStmts.length
       if firstUseIdx == prefixStmts.length then
         lowerStmtList ctx env (prefixStmts ++ afterStmts) k
       else
@@ -1239,14 +1103,31 @@ mutual
     let reconcile (envExit : LocalEnv) : LocalEnv :=
       match outerEnvBeforeInit? with
       | none => envExit
-      | some orig => orig.map fun oe => (lookupEnv? envExit oe.name).getD oe
+      | some orig => envExit.take orig.length
     let jumpLp := fun envCur => do
       let args ← MonadExcept.ofExcept (snapshotArgs envCur lVars)
       pure (.jump lpLbl (lpLvs.map (·.ty)) args)
+    let mkDoWhileBody (ctxB : LowerCtx) (exitJump : LocalEnv → LowerM LExpr) : LowerM LExpr := do
+      if stmtHasContinue body then
+        let contVars ← MonadExcept.ofExcept (selectJoinVars env (stmtMutatedLocals false false body))
+        let contLbl ← freshLblId
+        let contLvs ← allocJoinVars contVars
+        recordGroup "do_cont" s!"dc_{contLbl}" contLvs
+        let envCont := rebindJoinVars env contVars contLvs
+        let contCond ← lowerCond ctx envCont (cond?.getD (.boolLit true)) (jumpLp envCont) (exitJump envCont)
+        let contTgt : JumpTarget := { lblId := contLbl, vars := contVars }
+        let jumpCont := fun envCur => do
+          let args ← MonadExcept.ofExcept (snapshotArgs envCur contVars)
+          pure (.jump contLbl (contLvs.map (·.ty)) args)
+        let doBody ← lowerStmt { ctxB with contTarget := some contTgt } envLoop body jumpCont
+        pure (.group [(contLbl, contLvs, contCond)] doBody)
+      else
+        lowerStmt ctxB envLoop body fun envAfterBody =>
+          lowerCond ctx envAfterBody (cond?.getD (.boolLit true)) (jumpLp envAfterBody) (exitJump envAfterBody)
 
     if hasBrk then
       let mutAny := setUnion (stmtMutatedLocals false false body) stepMutBack
-      let brkEnvBase := outerEnvBeforeInit?.getD env
+      let brkEnvBase := reconcile env
       let brkVars ← MonadExcept.ofExcept (selectJoinVars brkEnvBase mutAny)
       let brkLbl ← freshLblId
       let brkLvs ← allocJoinVars brkVars
@@ -1263,8 +1144,7 @@ mutual
         contInlineStep := if isDoWhile then none else step? }
       let lpBody ←
         if isDoWhile then
-          lowerStmt ctxBody envLoop body fun envAfterBody =>
-            lowerCond ctx envAfterBody (cond?.getD (.boolLit true)) (jumpLp envAfterBody) (jumpBrk envAfterBody)
+          mkDoWhileBody ctxBody jumpBrk
         else
           let bodyPlusStep ← lowerStmt ctxBody envLoop body fun envAfterBody =>
             match step? with
@@ -1280,11 +1160,17 @@ mutual
         breakTarget := none
         contTarget := some lpTarget
         contInlineStep := if isDoWhile then none else step? }
-      let exitCont := fun envExit => lowerPlainStmts ctx (reconcile envExit) rest k
+      let infLoop := match cond? with
+        | none => true
+        | some (.boolLit true) => true
+        | some (.intLit v _ _) => v != 0
+        | _ => false
+      let exitCont :=
+        if infLoop then fun _ => pure .hlt
+        else fun envExit => lowerPlainStmts ctx (reconcile envExit) rest k
       let lpBody ←
         if isDoWhile then
-          lowerStmt ctxBody envLoop body fun envAfterBody =>
-            lowerCond ctx envAfterBody (cond?.getD (.boolLit true)) (jumpLp envAfterBody) (exitCont envAfterBody)
+          mkDoWhileBody ctxBody exitCont
         else
           let bodyPlusStep ← lowerStmt ctxBody envLoop body fun envAfterBody =>
             match step? with
@@ -1301,9 +1187,10 @@ mutual
     | .empty => k env
     | .block ss =>
       lowerStmtList ctx env ss fun envAfter =>
-        k (env.map fun oe => (lookupEnv? envAfter oe.name).getD oe)
+        k (envAfter.take env.length)
     | .decl ty nm init =>
       let rty ← MonadExcept.ofExcept (resolveType ctx.layout ty)
+      let did ← freshDeclId
       match init with
       | .zeroInit =>
         let lt ← MonadExcept.ofExcept (lowerScalarTy ctx.layout rty)
@@ -1312,11 +1199,11 @@ mutual
           | .bits n => .imm (.bits n) (0#n)
           | .float .d => .imm f64 0#64
           | _ => .imm i64 0#64
-        k (env ++ [{ name := nm, val := .scalar rty imm0 }])
+        k (env ++ [{ declId := did, name := nm, val := .scalar rty imm0 }])
       | .expr e =>
         lowerExpr ctx env e fun ety a =>
           convertVal ctx.layout ety rty a fun ca =>
-            k (env ++ [{ name := nm, val := .scalar rty ca }])
+            k (env ++ [{ declId := did, name := nm, val := .scalar rty ca }])
     | .assign lv op? rhs => lowerLValWrite ctx env lv op? rhs k
     | .incDec lv isInc =>
       lowerLValWrite ctx env lv (some (if isInc then .add else .sub)) (.intLit 1 .none) k
@@ -1340,7 +1227,7 @@ mutual
       match ctx.breakTarget with
       | some tgt =>
         let args ← MonadExcept.ofExcept (snapshotArgs env tgt.vars)
-        pure (.jump tgt.lblId (tgt.vars.map (·.2.2)) args)
+        pure (.jump tgt.lblId (tgt.vars.map (·.2.2.2)) args)
       | none => throw "`break` outside loop or switch"
     | .continueStmt =>
       match ctx.contTarget with
@@ -1349,16 +1236,16 @@ mutual
         | some step =>
           lowerStmt { ctx with contInlineStep := none } env step fun env' => do
             let args ← MonadExcept.ofExcept (snapshotArgs env' tgt.vars)
-            pure (.jump tgt.lblId (tgt.vars.map (·.2.2)) args)
+            pure (.jump tgt.lblId (tgt.vars.map (·.2.2.2)) args)
         | none =>
           let args ← MonadExcept.ofExcept (snapshotArgs env tgt.vars)
-          pure (.jump tgt.lblId (tgt.vars.map (·.2.2)) args)
+          pure (.jump tgt.lblId (tgt.vars.map (·.2.2.2)) args)
       | none => throw "`continue` outside loop"
     | .gotoStmt lbl =>
       match ctx.gotoTargets.get? lbl with
       | some tgt =>
         let args ← MonadExcept.ofExcept (snapshotArgs env tgt.vars)
-        pure (.jump tgt.lblId (tgt.vars.map (·.2.2)) args)
+        pure (.jump tgt.lblId (tgt.vars.map (·.2.2.2)) args)
       | none => throw s!"goto target '{lbl}' is not a forward label in an enclosing block"
     | .labelStmt _ inner => lowerStmt ctx env inner k
     | .retStmt es =>
@@ -1383,15 +1270,13 @@ mutual
         lowerCond ctx env cond (pure body)
           (pure (.exit "c0_abort" [i32] [.imm i32 (BitVec.ofInt 32 line)]))
       else k env
-    | .switchStmt scrut cases default? => lowerSwitch ctx env scrut cases default? k
+    | .switchStmt scrut arms => lowerSwitch ctx env scrut arms k
     | .ifStmt _ _ _ | .whileStmt _ _ | .doWhileStmt _ _ | .forStmt _ _ _ _ =>
       lowerPlainStmts ctx env [s] k
 
   private partial def lowerSwitch (ctx : LowerCtx) (env : LocalEnv) (scrut : Expr)
-      (cases : List SwitchCase) (default? : Option (List Stmt))
-      (k : LocalEnv → LowerM LExpr) : LowerM LExpr := do
-    let mutSet := cases.foldl (fun acc c => setUnion acc (stmtMutatedLocals false false (.block c.body)))
-      (default?.map (fun d => stmtMutatedLocals false false (.block d)) |>.getD {})
+      (arms : List SwitchArm) (k : LocalEnv → LowerM LExpr) : LowerM LExpr := do
+    let mutSet := arms.foldl (fun acc a => setUnion acc (stmtMutatedLocals false false (.block a.body))) {}
     let jVars ← MonadExcept.ofExcept (selectJoinVars env mutSet)
     let brkLbl ← freshLblId
     let brkLvs ← allocJoinVars jVars
@@ -1408,30 +1293,28 @@ mutual
       convertVal ctx.layout sty pty sa fun scrA => do
         let n := intBitWidth pty
         let lt := Ty.bits n
-        let evalDefault (envCur : LocalEnv) : LowerM LExpr :=
-          match default? with
-          | some d => lowerStmtList ctxSw envCur d jumpBrk
-          | none => jumpBrk envCur
-        let rec runFallthrough (envCur : LocalEnv) : List SwitchCase → LowerM LExpr
-          | [] => evalDefault envCur
-          | c :: cs =>
-            if c.fallthrough then
-              lowerStmtList ctxSw envCur c.body fun envNext => runFallthrough envNext cs
+        let rec runFrom (envCur : LocalEnv) : List SwitchArm → LowerM LExpr
+          | [] => jumpBrk envCur
+          | arm :: rest =>
+            lowerStmtList ctxSw envCur arm.body fun envNext => runFrom envNext rest
+        let defBody ← match arms.findIdx? (·.hasDefault) with
+          | some idx => runFrom env (arms.drop idx)
+          | none => jumpBrk env
+        let rec buildCases : List SwitchArm → LowerM LExpr
+          | [] => pure defBody
+          | arm :: rest => do
+            let elseChain ← buildCases rest
+            if arm.vals.isEmpty then pure elseChain
             else
-              lowerStmtList ctxSw envCur c.body jumpBrk
-        let rec buildCases : List SwitchCase → LowerM LExpr
-          | [] => evalDefault env
-          | c :: cs => do
-            let elseChain ← buildCases cs
-            let armBody ← runFallthrough env (c :: cs)
-            let rec testVals : List Int → LowerM LExpr
-              | [] => pure elseChain
-              | v :: vs => do
-                let restTest ← testVals vs
-                emitOp1 .bool [lt, lt] (.cmp .eq lt) [scrA, .imm lt (BitVec.ofInt n v)] "sw_eq" fun eqB =>
-                  pure (.jnz eqB armBody restTest)
-            testVals c.vals
-        buildCases cases
+              let armBody ← runFrom env (arm :: rest)
+              let rec testVals : List Int → LowerM LExpr
+                | [] => pure elseChain
+                | v :: vs => do
+                  let restTest ← testVals vs
+                  emitOp1 .bool [lt, lt] (.cmp .eq lt) [scrA, .imm lt (BitVec.ofInt n v)] "sw_eq" fun eqB =>
+                    pure (.jnz eqB armBody restTest)
+              testVals arm.vals
+        buildCases arms
     pure (.group [(brkLbl, brkLvs, afterBody)] entry)
 end
 
@@ -1445,9 +1328,10 @@ private def lowerFnDef (ctx : LowerCtx) (fd : FnDef) : Except String LFn := do
     let rpt ← resolveType ctx.layout pt
     let lt ← lowerScalarTy ctx.layout rpt
     let lv : LVar := { id := st.nextVar, name := nm, ty := lt }
-    st := { st with nextVar := st.nextVar + 1 }
+    let did := st.nextDecl
+    st := { st with nextVar := st.nextVar + 1, nextDecl := did + 1 }
     paramLVs := paramLVs ++ [lv]
-    env := env ++ [{ name := nm, val := .scalar rpt (.var lv.id lt) }]
+    env := env ++ [{ declId := did, name := nm, val := .scalar rpt (.var lv.id lt) }]
   let rRet ← resolveType ctx.layout fd.retTy
   let rs ← lowerRetTys ctx.layout rRet
   let ctxFn : LowerCtx := { ctx with retTy := rRet, retCont := none }
@@ -1467,19 +1351,22 @@ def lowerTranslationUnit (tu : TranslationUnit) (assertAsCheck : Bool := false) 
   let mut fnOrder : List FnDef := []
   let mut externMap : Std.HashMap String FnSig := {}
   let mut externList : List Extern := []
+  let mut enumMap : Std.HashMap String Int := {}
   for d in tu.decls do
     match d with
     | .fnDef fd => fnDefs := fnDefs.insert fd.name fd; fnOrder := fnOrder ++ [fd]
     | .fnDecl sg =>
       if !fnDefs.contains sg.name && !externMap.contains sg.name then
         externMap := externMap.insert sg.name sg
+    | .enumConsts items =>
+      for (nm, v) in items do enumMap := enumMap.insert nm v
     | _ => pure ()
   for (_, sg) in externMap.toList do
     if !fnDefs.contains sg.name && sg.name != "c0_abort" then
       let as ← sg.params.mapM fun (t, _) => lowerScalarTy layout t
       let rs ← lowerRetTys layout sg.retTy
       externList := externList ++ [{ name := sg.name, as, rs }]
-  let ctx : LowerCtx := { layout, fns := fnDefs, externs := externMap, assertAsCheck }
+  let ctx : LowerCtx := { layout, fns := fnDefs, externs := externMap, enums := enumMap, assertAsCheck }
   let lfns ← fnOrder.mapM (lowerFnDef ctx)
   pure { fns := lfns, externs := externList, exits := ["c0_abort"] }
 

@@ -283,7 +283,7 @@ where
       pure <| mkAppN (Lean.mkConst ``LeanQbe.T.Blocks.cons)
         #[ctx.V, ctx.L, ctx.rsExpr, tsE, restSigE, bLam, bsE]
 
-meta def lFnToLeanExprM (lfn : LFn) : MetaM (Lean.Expr × Lean.Expr × Lean.Expr × Lean.Expr) := do
+meta def lFnToLeanExprM (lfn : LFn) : MetaM (Lean.Expr × Lean.Expr × Lean.Expr) := do
   let asList := lfn.params.map fun v => tyToExpr v.ty
   let rsList := lfn.rs.map tyToExpr
   let asExpr := listLit tyConst asList
@@ -297,8 +297,7 @@ meta def lFnToLeanExprM (lfn : LFn) : MetaM (Lean.Expr × Lean.Expr × Lean.Expr
       | .ok e => pure e
       | .error err => throwError err
     let funcExpr ← mkLambdaFVars #[V, L] bodyLam
-    let fnExpr := mkApp4 (Lean.mkConst ``LeanQbe.T.Fn.mk) (mkStrLit lfn.name) asExpr rsExpr funcExpr
-    pure (fnExpr, funcExpr, asExpr, rsExpr)
+    pure (funcExpr, asExpr, rsExpr)
 
 /-! ## Acyclicity Check for Lowered Modules -/
 
@@ -312,11 +311,17 @@ meta partial def lExprCalls : LExpr → List Sym
 
 meta def checkLModuleAcyclic (m : LModule) : Except String Unit := do
   let mut definedSoFar : Std.HashSet String := {}
-  let extSet : Std.HashSet String := m.externs.foldl (fun s e => s.insert e.name) {}
+  let mut extSet : Std.HashSet String := {}
+  for ex in m.externs do
+    if extSet.contains ex.name then
+      throw s!"duplicate extern declaration '{ex.name}'"
+    extSet := extSet.insert ex.name
   let fnNames : Std.HashSet String := m.fns.foldl (fun s f => s.insert f.name) {}
   for fn in m.fns do
     if definedSoFar.contains fn.name then
       throw s!"duplicate function definition '{fn.name}'"
+    if extSet.contains fn.name then
+      throw s!"function '{fn.name}' collides with extern declaration"
     for callee in lExprCalls fn.body do
       if callee == fn.name then
         throw s!"recursive call to '{callee}' is not permitted in acyclic C0 module"
@@ -342,17 +347,9 @@ meta def elabC0Module (modPrefix? : Option Name) (src : String) : CommandElabM U
   let mut fnConstNames : List Name := []
   for lfn in lmod.fns do
     let leanName := ns ++ Name.mkSimple lfn.name
-    let (fnExpr, funcExpr, asExpr, rsExpr) ← liftTermElabM (lFnToLeanExprM lfn)
-    -- Define `<lfn.name> : LeanQbe.T.Fn`
-    let fnTy := Lean.mkConst ``LeanQbe.T.Fn
-    liftCoreM <| do
-      addAndCompile (.defnDecl {
-        name := leanName, levelParams := [], type := fnTy, value := fnExpr,
-        hints := .regular 0, safety := .safe
-      })
-      enableRealizationsForConst leanName
-    -- Also define `<lfn.name>_body : Func as rs` for direct `t_wf_reify` & `wp` proofs
     let bodyName := ns ++ Name.mkSimple (lfn.name ++ "_body")
+    let (funcExpr, asExpr, rsExpr) ← liftTermElabM (lFnToLeanExprM lfn)
+    -- Define `<lfn.name>_body : Func as rs` first so `<lfn.name> : Fn` references it cleanly
     let funcTy := mkApp2 (Lean.mkConst ``LeanQbe.T.Func) asExpr rsExpr
     liftCoreM <| do
       addAndCompile (.defnDecl {
@@ -360,6 +357,15 @@ meta def elabC0Module (modPrefix? : Option Name) (src : String) : CommandElabM U
         hints := .regular 0, safety := .safe
       })
       enableRealizationsForConst bodyName
+    let fnTy := Lean.mkConst ``LeanQbe.T.Fn
+    let fnExpr := mkApp4 (Lean.mkConst ``LeanQbe.T.Fn.mk)
+      (mkStrLit lfn.name) asExpr rsExpr (Lean.mkConst bodyName)
+    liftCoreM <| do
+      addAndCompile (.defnDecl {
+        name := leanName, levelParams := [], type := fnTy, value := fnExpr,
+        hints := .regular 0, safety := .safe
+      })
+      enableRealizationsForConst leanName
     modifyEnv fun env =>
       let env := c0ShapeExt.addEntry env (leanName, lfn.shape)
       c0ShapeExt.addEntry env (bodyName, lfn.shape)

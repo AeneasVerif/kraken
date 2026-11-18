@@ -1,18 +1,5 @@
 #include "../../LeanQbe/T/Frontend/C0/c0.h"
 
-u64 sum_pos64(i64 *arr, u64 n) {
-  u64 i = 0ULL;
-  u64 acc = 0ULL;
-  while (i < n) {
-    i64 v = arr[i];
-    if (v > 0) {
-      acc = acc + (u64)v;
-    }
-    i = i + 1ULL;
-  }
-  return acc;
-}
-
 typedef C0_RET2(u64, bool) u64_b;
 typedef C0_RET3(u32, u32, u32) u32_t3;
 
