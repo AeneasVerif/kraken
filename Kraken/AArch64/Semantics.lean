@@ -239,7 +239,7 @@ export Labels (label)
     let lo := val &&& 0xFFF#64
     Int64.ofNat lo.toNat
 
-def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64) : Int64 :=
+@[kstep] def ConstExpr.evalBranchTarget [Labels] (target : ConstExpr) (p : Std.Rco Int64) : Int64 :=
   match target with
   | .int64 imm => p.lower + imm
   | _ => target.interp p
@@ -961,19 +961,21 @@ def Directives.interp [Labels]
     directive.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
     interp ds s (pc+.ofNat sz) ret))
 
-abbrev Layout := Kraken.Layout Instr ConstExpr
+open Kraken (Layout WellFormedLayout)
 
-theorem inert_of_size_zero [layout : Layout] [Labels] {i : Nat} {d : Directive}
-    (hz : layout.size d i = 0) (s : MachineData) (p : Std.Rco Int64)
+theorem inert_of_size_zero {prog : Program} [layout : Layout prog] [Labels] {i : Nat} {d : Directive}
+    (hd : prog[i]? = some d) (hz : layout.size i = 0) (s : MachineData) (p : Std.Rco Int64)
     (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) :
     d.interp s p next jmp = next s := by
+  unfold Kraken.Layout.size at hz
+  rw [hd] at hz
   cases d with
   | instr _ => exact absurd hz (Nat.ne_of_gt (layout.instrSize_pos i))
   | label _ => rfl
   | byteArray bs => simp [Directive.interp, ByteArray.isEmpty, show bs.size = 0 from hz]
   | word bytes _ => simp [Directive.interp, show bytes = 0 from hz]
 
-@[reducible]
+@[instance_reducible]
 def Executable.labels (e : Executable) : Labels :=
   { label l := (e.withAddresses.findSome?
       (fun {directive, addr, ..} => if directive = .label l then .some addr else .none)).getD (-1) }
@@ -985,14 +987,10 @@ def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → 
   let := Executable.labels e
   Directives.interp (e.directivesAtAddress s.pc) s.data s.pc (fun pc s => ret ⟨s, pc⟩)
 
-def Executable.straightline (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
-  let := Executable.labels e
-  Directives.interp (e.directivesFromAddress s.pc) s.data s.pc (fun pc s => ret ⟨s, pc⟩)
-
 -- -- Concrete evaluators for expedient testing
 
 partial def Executable.eval (e : Executable) (s : MachineState) (until_ : MachineState → Bool) : Except String (MachineState) :=
-  if until_ s then .ok s else handleEffects (Executable.straightline e s .done)
+  if until_ s then .ok s else handleEffects (Executable.step e s .done)
 where
   handleEffects es :=
     match es with
@@ -1010,49 +1008,52 @@ def Instr.fakeSize (_ : Instr) : Nat := 4
 
 def Program.fakeLayout (prog : Program) : Executable :=
   let h := hash prog;
-  let layout : Layout := {
+  let layout : Layout prog := {
     start := h.toInt64<<<16
     instrSize i := match prog[i]? with
       | some (.instr instr) => instr.fakeSize
       | _ => 4
     instrSize_pos i := by grind [Instr.fakeSize]
   }
-  layout prog
+  layout.apply prog
 
-abbrev eval [layout : Layout] (prog : Program) := Executable.eval (layout prog)
+abbrev eval (prog : Program) [layout : Layout prog] := Executable.eval prog.toExecutable
 
 /-- info: Except.ok 58 -/
 #guard_msgs in
 #eval
-  let exe := Program.fakeLayout [
+  let prog := [
     .label "main",
     .instr ⟨.W64, .LDR .X1 (.addr { base := .SP, off := 0 })⟩,
     .instr ⟨.W64, .ADD_e .X1 .X1 0x10⟩,
     .instr ⟨.W64, .STR .X1 { base := .SP, off := 0 }⟩,
     .instr ⟨.W64, .LDR .X2 (.addr { base := .SP, off := 0 })⟩]
+  let exe := Program.fakeLayout prog
   let start := (Executable.labels exe).label "main"
   let data : MachineData := { dmem := Mem.storeInt {} 0x100 8 42, regs := {SP := 0x100} }
-  (Executable.eval exe {data, pc := start} (fun st => (exe.directivesFromAddress st.pc).isEmpty)).bind (fun s => .ok s.1.regs.X2)
+  (Executable.eval exe {data, pc := start} (fun st => st.pc = exe.addrOf prog.length)).bind (fun s => .ok s.1.regs.X2)
 
 /-- info: Except.ok (42, 264) -/
 #guard_msgs in
 #eval
-  let exe := Program.fakeLayout [
+  let prog := [
     .label "main",
     .instr ⟨.W64, .LDR .X1 (.addr { base := .SP, off := .imm { imm := 8, index := some .Pre } })⟩ ]
+  let exe := Program.fakeLayout prog
   let start := (Executable.labels exe).label "main"
   let data : MachineData := { dmem := Mem.storeInt {} 0x108 8 42, regs := { SP := 0x100 } }
-  (Executable.eval exe {data, pc := start} (fun st => (exe.directivesFromAddress st.pc).isEmpty)).bind (fun s => .ok (s.1.regs.X1, s.1.regs.SP))
+  (Executable.eval exe {data, pc := start} (fun st => st.pc = exe.addrOf prog.length)).bind (fun s => .ok (s.1.regs.X1, s.1.regs.SP))
 
 /-- info: Except.ok (42, 264) -/
 #guard_msgs in
 #eval
-  let exe := Program.fakeLayout [
+  let prog := [
     .label "main",
     .instr ⟨.W64, .STR .X1 { base := .SP, off := .imm { imm := 8, index := some .Post } }⟩ ]
+  let exe := Program.fakeLayout prog
   let start := (Executable.labels exe).label "main"
   let data : MachineData := { dmem := Mem.storeInt {} 0x100 8 0, regs := { SP := 0x100, X1 := 42 } }
-  (Executable.eval exe {data, pc := start} (fun st => (exe.directivesFromAddress st.pc).isEmpty)).bind (fun s =>
+  (Executable.eval exe {data, pc := start} (fun st => st.pc = exe.addrOf prog.length)).bind (fun s =>
     match Mem.loadInt s.1.dmem 0x100 8 with
     | some v => .ok (v, s.1.regs.SP)
     | none => .error "Memory store failed"
