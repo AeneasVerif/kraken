@@ -71,3 +71,20 @@ private def busy : MachineData :=
 #guard runOp .cld busy == some busy
 #guard (runOp .std busy >>= runOp .std) == some { busy with df := true }
 #guard (runOp .std busy >>= runOp .cld) == some busy
+
+/-! `jrcxz`/`jecxz` jump when `%rcx`/`%ecx` is zero, and fall through otherwise. -/
+private def runJump (aw : Width) (op : Operation .W64) (s : MachineData) : Option Int64 :=
+  let : Labels := ⟨fun _ => 42⟩
+  let : AddressSize := ⟨aw⟩
+  match op.interp ⟨0, 1⟩ s (fun s => .done ⟨s, 1⟩) (fun tgt s => .done ⟨s, tgt⟩) with
+  | .done st => if st.pc == 1 then none else some st.pc
+  | _ => none
+
+private def withRcx (v : UInt64) : MachineData := { s with regs := { rcx := v } }
+
+#guard runJump .W64 (.jrcxz "l") (withRcx 0) == some 42
+#guard runJump .W64 (.jrcxz "l") (withRcx 1) == none
+#guard runJump .W64 (.jrcxz "l") (withRcx 0x100000000) == none
+#guard runJump .W32 (.jrcxz "l") (withRcx 0) == some 42
+#guard runJump .W32 (.jrcxz "l") (withRcx 1) == none
+#guard runJump .W32 (.jrcxz "l") (withRcx 0x100000000) == some 42
