@@ -97,5 +97,11 @@ public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.Examples.Bignum
 public import LeanQbe.T.Examples.ChaCha
 public import LeanQbe.T.Frontend.C0
+public import LeanQbe.T.Examples.LratBytes
+public import LeanQbe.T.Examples.LratBytesSpec
+public import LeanQbe.T.Examples.LratBytesDimacsLemmas
+public import LeanQbe.T.Examples.LratBytesRupLemmas
+public import LeanQbe.T.Examples.LratBytesCheckLemmas
+public import LeanQbe.T.Examples.LratBytesLemmas
 
 /-! Root of the generic library. Imports neither `Kraken.X64` nor `Kraken.AArch64`. -/
