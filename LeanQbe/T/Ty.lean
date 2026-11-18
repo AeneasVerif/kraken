@@ -104,14 +104,18 @@ abbrev v4f32 : Ty := Ty.vec 2 f32
   | .pair a b => .pair a.mask b.mask
   | _ => .bool
 
-/-- Size in bits (used for memory accesses and bitcasts). -/
+/-- Size in bits (used for memory accesses and bitcasts).
+Fields of a `pair a b` are tightly bit-packed with no inter-field padding (`a.size + b.size`);
+for example, `.pair .bool i8` has size `9` bits (`bytes = 2`), so the `i8` straddles bits `1..8`
+across the byte `0` / byte `1` boundary. -/
 @[reducible] def Ty.size : Ty → Nat
   | .bool => 1
   | .bits n => n
   | .float f => f.width
   | .pair a b => a.size + b.size
 
-/-- Number of bytes needed to store `t` in memory. -/
+/-- Number of bytes needed to store `t` in memory (ceiling `⌈t.size / 8⌉` of the bit-packed
+size; e.g. `.pair .bool i8` takes `2` bytes with the `i8` straddling byte `0` and byte `1`). -/
 @[reducible] def Ty.bytes (t : Ty) : Nat := (t.size + 7) / 8
 
 /-- True iff `t` contains any floating-point leaf. -/
@@ -134,14 +138,17 @@ abbrev v4f32 : Ty := Ty.vec 2 f32
 
 /-! ## Bit views and lane indexing -/
 
-/-- Pack a value into `t.size` bits, placing the first pair component in the low bits. -/
+/-- Pack a value into `t.size` bits, placing the first pair component in the low bits with no
+inter-field padding (so e.g. `.pair .bool i8` places `bool` in bit `0` and `i8` in bits `1..8`,
+straddling the byte boundary when stored in little-endian byte order). -/
 def toBits : (t : Ty) → Val t → BitVec t.size
   | .bool, b => BitVec.ofBool b
   | .bits _, x => x
   | .float _, x => x
   | .pair a b, x => (toBits b x.2 ++ toBits a x.1).cast (Nat.add_comm _ _)
 
-/-- Unpack `t.size` bits into `Val t`, reading the first pair component from the low bits. -/
+/-- Unpack `t.size` bits into `Val t`, reading the first pair component from the low bits
+(matching the bit-packed layout of `toBits`, with no inter-field padding). -/
 def ofBits : (t : Ty) → BitVec t.size → Val t
   | .bool, x => x.getLsbD 0
   | .bits _, x => x

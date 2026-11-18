@@ -228,3 +228,61 @@ Implemented the target-neutral typed IR and relational total-correctness weakest
 - **Gate & Axiom Checks (`scripts/check.sh`, `scripts/headline.txt`)**:
   - Added 46 `T1` headline theorems to `scripts/headline.txt` (under `LeanQbe.T.WPLemmas`, `LeanQbeTest.T.Examples`, and `LeanQbeTest.T.Smoke`).
   - `bash scripts/check.sh`: passes under `--wfail`, zero `sorry`, zero native-code axioms, clean import closures, `179 complete reports for 179 headline theorems` strictly within `[propext, Classical.choice, Quot.sound]`, `== check.sh: ALL PASSED`.
+
+---
+
+## T2: Relational `Wf`, `Wf.induct`, and Computable `TFlat` Reification (`LeanQbe.T`)
+
+Implemented parametric well-formedness (`Wf` / `WfB`), dependent one-motive induction (`Wf.induct`), and total computable de Bruijn reification (`TFlat` / `TBlocks`) for `LeanQbe.T`, leaving all E1 files untouched (`G5`) and importing neither `Kraken.X64` nor `Kraken.AArch64` in `LeanQbe.lean`.
+
+### 1. Opportunistic `T1` Review `#18` Cleanups
+
+- **`LeanQbe/T/Ty.lean`**: Documented bit-packed pair layout on `Ty.size`, `Ty.bytes`, `toBits`, and `ofBits` (no inter-field padding; first pair component in low bits; `bytes = ⌈t.size / 8⌉`; e.g., `.pair .bool i8` has `size = 9`, `bytes = 2`, with the `i8` straddling bits `1..8` across the byte 0 / byte 1 boundary).
+- **`LeanQbe/T/Ops.lean`, `LeanQbe/T/OpsLemmas.lean`, `LeanQbeTest/T/Smoke.lean`**:
+  - Documented `FCmpOp` ordering (`.eq`, `.lt`, `.le`, `.gt`, `.ge` ordered, `false` on NaN; `.ne` unordered-or-not-equal matching IEEE/C `!=`), `fptoui`/`fptosi` out-of-range UB (`False` on NaN, `±∞`, or out-of-range truncated integer), and `zext`/`sext`/`trunc` width direction requirements.
+  - Enforced `m ≤ n` on `.zext`/`.sext` and `n ≤ m` on `.trunc` in `OpCode.wp` (wrong-direction casts are now UB `False`; updated `OpCode.wp_mono` and `@[simp]` lemmas `OpCode.wp_{zext,sext,trunc}`).
+  - Enforced `.bool` load byte ∈ `{0, 1}` in `loadVal` (returns `none`, i.e., UB, for any byte `> 1`), proved `loadVal_bool_invalid`, and updated `loadVal_storeMem` and `sumLanes_correct`. Added regression tests `ext_trunc_wrong_direction_ub`, `load_bool_invalid_byte_ub`, `store_load_bool_roundtrip`, and `fcmp_ne_nan_unordered_true` in `LeanQbeTest/T/Smoke.lean`.
+
+### 2. Well-Formedness and `Wf.induct` (`LeanQbe/T/Wf.lean`, `LeanQbe/T/WfLemmas.lean`)
+
+- **Relational definitions (`LeanQbe/T/Wf.lean`)**:
+  - `ArgRel G t a₁ a₂` (paired variable in `G : Ctx V₁ V₂`, or equal immediate `Val t`), `OpRel G op₁ op₂` (equal `OpCode` and `TRel (ArgRel G)` operands), mutual `Wf G D e₁ e₂` / `WfB G D bs₁ bs₂` matching spike-2 head-bound `Tup` binders (`Tup.zip xs₁ xs₂ ++ G` for `let_` / `call` / block params; `⟨t, v₁, v₂⟩ :: G` for `load`; `Tup.zip Js₁ Js₂ ++ D` for `group`), `Func.Wf`, `Fn.Wf`, and syntax-directed `t_wf_tac` (using `TRel.nil'`/`TRel.cons'` and `Tup.zip` simplification so all `Examples` and `Smoke` functions including symbolic `vumin k` discharge with zero warnings).
+- **Lemmas and dependent induction (`LeanQbe/T/WfLemmas.lean`)**:
+  - Positional block projection `WfB.get` and reconstruction `WfB.of_get` (so inductive motives only need a single block-body expression case rather than a second `WfB` motive).
+  - Dependent one-motive `Wf.induct` / `WfB.induct_get` (usable via `induction hwf using Wf.induct`) mirroring `Typed2.lean`, exposing derivations and sub-derivations for downstream `T5`/`T6` passes.
+  - Context weakening and congruence (`ArgRel.weaken`, `TRel.argRel_weaken`, `OpRel.weaken`, `Wf.weaken`, `WfB.weaken`, `Wf.weaken_G`, `Wf.weaken_D`, `Wf.cons_G`, `Wf.append_G`, `Wf.append_D`, `Wf.congr`, `WfB.congr`), tuple/op mapping (`TRel.cons_iff`, `TRel.map`, `ArgRel.mapV`, `OpRel.mapV`), symmetry (`Ctx.flip`, `Wf.symm`, `WfB.symm`, `Func.Wf.refl`), and inversion helpers (`Wf.{let,load,store,call,jnz,group,jump,ret,exit}_inv`, `WfB.cons_inv`, `ArgRel.{var,imm}_iff`, `OpRel.mk_iff`).
+
+### 3. First-Order Mirror and Computable Reification (`LeanQbe/T/Flat.lean`, `LeanQbe/T/FlatLemmas.lean`)
+
+- **`TFlat` / `TBlocks` & reification (`LeanQbe/T/Flat.lean`)**:
+  - `TFlat rs` / `TBlocks rs sig`: typed first-order AST with de Bruijn *indices* (`0` = newest bound variable/label) using `K := fun _ => Nat`, `KL := fun _ => Nat`.
+  - Total `toTFlat` / `toTBlocks` converts de Bruijn levels `(nv, nl)` into indices via `if lvl < nv then nv - 1 - lvl else nv` (and `if j < nl then nl - 1 - j else nl`), ensuring out-of-scope levels cannot alias valid index `0` via `Nat` truncation.
+  - `denote` / `denoteB` interprets `TFlat` back into `Expr V L rs` for arbitrary `V L`, checking bounds (`listGet?`) and type equality (`tyDecEq`/`listTyDecEq`, `castTy`/`castListTy`), mapping any out-of-scope or ill-typed reference to `.hlt`.
+  - Total computable `TFlat.wfCheck` / `TBlocks.wfCheck` / `Func.checkTFlat` checks in-scope well-typedness in `Bool` (via `tyDecEq`/`listTyDecEq`), and `TFlat.noHlt` / `TBlocks.noHlt` checks absence of explicit `.hlt` nodes.
+- **Soundness & tactics (`LeanQbe/T/FlatLemmas.lean`)**:
+  - `denote_wf` / `denoteB_wf` (`denote` across related environments `CtxRel G vs₁ vs₂` and `CtxRel D ls₁ ls₂` is always `Wf G D`-related, even when `.hlt` fallback fires), `Func.wf_of_denote`, `Func.wf_of_reify`, and full soundness of `wfCheck` (`lookupV_isSome_of_check`, `lookupL_isSome_of_check`, `denoteArg_isSome_of_checkArg`, `denoteArgs_isSome_of_checkArgs`, `denote_noHlt_of_wfCheck`, `denoteB_noHlt_of_wfCheck`, `Func.denote_noHlt_of_check`, proving `Expr.NoHlt` holds at every instantiation when `wfCheck = true` and `noHlt = true`).
+  - Kernel-only `Eq.refl` tactic `t_kernel_rfl` and `t_wf_reify` (`refine Func.wf_of_reify ?_; t_kernel_rfl`), named with `t_` prefix so importing both `LeanQbe.FlatLemmas` and `LeanQbe.T.FlatLemmas` in `LeanQbe.lean` causes no syntax collision.
+  - Note on `Ty.vec k`: symbolic `k : Nat` blocks kernel `rfl` inside `tyDecEq`/`castTy` (as in `vumin (k : Nat)`), whereas any concrete `k` (`0`, `2`, `3`) succeeds with `t_wf_reify`; parametric `vumin_wf (k : Nat)` is proved directly via `t_wf_tac` in `ReifyTest.lean`.
+
+### 4. Tests and Scaling Benchmarks vs E1 (`LeanQbeTest/T/{ReifyTest,ScaleTest}.lean`)
+
+- **`LeanQbeTest/T/ReifyTest.lean`**: `t_wf_reify` on all 8 spike-4 programs (`add128`, `add256`, `mac`, `ult128`, `umin`, `mulByAdd`, `qrStep`, and `vumin` at `k = 0, 2, 3`, plus parametric `∀ k, Func.Wf (vumin k)` via `t_wf_tac`), all 6 closed functions in `Smoke.lean` (`evenOdd`, `sumLanes`, `tracer`, `storeThenLoadOther`, `caller`, `spin`), direct `Func.wf_of_reify rfl`, `Func.checkTFlat ... = true`, `Func.denote_noHlt_of_check` soundness tests, negative tests (`oobRawExpr`, `illTypedTFlat` failing `wfCheck` and `Expr.NoHlt` while still satisfying `denote_wf`), and `Wf.induct` / `Wf.weaken` checks.
+- **`LeanQbeTest/T/ScaleTest.lean`**: Kernel `t_wf_reify` and `Func.checkTFlat ... = true` checks for `sl 250`, `sl 1000`, `sl 2000`, and `bl 50` (50-block `group`, 151 instructions).
+
+Benchmark comparison on literal straight-line chains (`sl 250/1000/2000`, using both previous result and first parameter `%a`) and 50-block `group` (`bl 50`), profiled with `-Dprofiler=true` on literal `noncomputable def` constructor terms (`set_option maxRecDepth 16384 maxHeartbeats 4000000`) alongside live E1 constructor terms (`wf_reify`) and E1's historical baseline above (`T3` has not yet introduced its direct `Expr` term elaborator):
+
+| Program | T2 total elab (`process pre-def`) | E1 live elab (`process pre-def` / hist. macro) | T2 `t_wf_reify` kernel (`checkTFlat`) | E1 live `wf_reify` (hist.) | T2 / E1 kernel ratio (live / hist.) | Notes (`>2×` flagged) |
+|---|---|---|---|---|---|---|
+| `sl 250` | `0.990 s` (`0.126 s`) | `0.120 s` (`0.029 s` / `0.16 s`) | `0.371 s` (`0.252 s`) | `0.166 s` (`0.16 s`) | **`2.23×`** / **`2.32×`** | Kernel **`>2×`** (`2.23×` live); total elab **`8.25×` vs live** (`6.19×` vs macro) |
+| `sl 1000` | `7.04 s` (`1.88 s`) | `0.948 s` (`0.403 s` / `1.46 s`) | `2.22 s` (`1.76 s`) | `1.42 s` (`1.6 s`) | `1.56×` / `1.39×` | Kernel within `2×`; total elab **`7.43×` vs live** (`4.82×` vs macro) |
+| `sl 2000` | `27.3 s` (`7.78 s`) | `3.20 s` (`1.62 s` / `5.2 s`) | `6.67 s` (`5.43 s`) | `4.99 s` (`5.2 s`) | `1.34×` / `1.28×` | Kernel within `2×`; total elab **`8.53×` vs live** (`5.25×` vs macro) |
+| `bl 50 (151)` | `0.636 s` (`0.019 s`) | `0.096 s` (`0.011 s` / `0.12 s`) | `0.243 s` (`~0.10 s`) | `0.125 s` (`0.13 s`) | `1.94×` / `1.87×` | Kernel borderline `<2×` (`1.94×`); total elab **`6.63×` vs live** (`5.30×` vs macro) |
+
+Key scaling findings and guidance for `T3`:
+
+1. **Rejected `TFlat` designs**:
+   - Intrinsically typed `Member`-indexed `TFlat rs Γ Δ`: `0.625 s` at `sl 250` and **`8.63 s` at `sl 1000` (`6.0×` E1)** due to `O(N^2)` context/index AST terms.
+   - Skew-binary random-access list (`RList`) contexts: `0.576 s` / `2.97 s` / `7.1 s` at `sl 250/1000/2000`, slower than `List` because open-binder evaluation does not cache `rCons` reductions.
+   - Storing de Bruijn *levels* inside `TFlat` (`n - 1 - i` subtraction during `denote`): `0.382 s` / `2.59 s` / `8.58 s` / `0.265 s` (`sl 250/1000/2000`/`bl 50`), slower than pre-converting to de Bruijn indices in `toTFlat`.
+2. **Literal `def` elaboration (`6.6×`–`8.5×` total elab / `4.3×`–`4.8×` `process pre-def`, flagged `>2×`)**: Before `T3` introduces a direct `qbe` term elaborator, plain constructor `def`s spend `27.3 s` total elaboration (`7.78 s` `process pre-definitions`) at `sl 2000` due to dependent `Expr` constructors, `Op.mk` sigma indices, `op2` unfolding, and pattern-matching `fun (x, ()) =>` lambdas. Switching literal terms to `.1` projections + explicit `⟨code, args⟩` cuts `sl 2000` total elab from `27.3 s` to `17.8 s` (`process pre-definitions` `5.26 s`), while `T3`'s direct term elaborator (like E1's `7b0044b`) is expected to drop term elaboration to milliseconds.
+3. **Codegen `LCNF base` blowup (`>2×`, flagged)**: Compiling literal non-`noncomputable` functions written with pattern-matching lambdas `fun (x, ()) => ...` took `0.46 s` (`sl 250`), `9.02–13.4 s` (`sl 1000`), and timed out (`>120 s`) at `sl 2000` (vs E1 `0.05 s`/`0.58 s`/`2.4 s`), because Lean's LCNF base compiler performs nested `Prod`/`PUnit` `cases` analysis (`O(N^2)`). Switching the continuation binder to projection syntax `fun p => ... p.1` cut `LCNF base` at `sl 1000` by `40×` to `0.335 s` (`LCNF mono` `1.14 s`; vs E1 `0.108 s` / `0.450 s`), and `noncomputable def` removes codegen completely (`0 ms`). **Recommendation for `T3` (`Notation.lean`)**: desugar typed binders directly as `fun p =>` with `.1` projections and explicit `{sig}` `Op.mk` in a term elaborator rather than `fun (x, ()) =>` pattern-matching lambdas, and prefer `noncomputable def` for proof-only programs.

@@ -66,7 +66,10 @@ inductive CmpOp
   | eq | ne | ult | ule | ugt | uge | slt | sle | sgt | sge
   deriving DecidableEq, Repr, Inhabited, Hashable
 
-/-- IEEE floating-point comparison predicates (`ord`: neither NaN, `uno`: either NaN). -/
+/-- IEEE floating-point comparison predicates.
+`eq`, `lt`, `le`, `gt`, `ge` are ordered (returning `false` if either operand is NaN);
+`ne` is unordered-or-not-equal (`true` on `lt`, `gt`, or when either operand is NaN, matching
+IEEE/C `!=`); `ord` is true iff neither operand is NaN; `uno` is true iff either is NaN. -/
 inductive FCmpOp
   | eq | ne | lt | le | gt | ge | ord | uno
   deriving DecidableEq, Repr, Inhabited, Hashable
@@ -109,7 +112,8 @@ inductive OpCode : List Ty → List Ty → Type
   | select (t : Ty) : OpCode [.bool, t, t] [t]
   /-- Lane-wise select on a mask tree (variant C for `DecidableEq`). -/
   | blend (t : Ty) (m : Ty := t.mask) (h : m = t.mask := by rfl) : OpCode [m, t, t] [t]
-  /-- Integer width extensions, truncations, and boolean materialisation. -/
+  /-- Integer width extensions, truncations, and boolean materialisation.
+  `zext`/`sext` require `m ≤ n` and `trunc` requires `n ≤ m`; wrong directions are UB (`False`). -/
   | zext (m n : Nat) : OpCode [.bits m] [.bits n]
   | sext (m n : Nat) : OpCode [.bits m] [.bits n]
   | trunc (m n : Nat) : OpCode [.bits m] [.bits n]
@@ -151,7 +155,11 @@ inductive OpCode : List Ty → List Ty → Type
   | fneg (t : Ty) : OpCode [t] [t]
   | fabs (t : Ty) : OpCode [t] [t]
   | fcmp (o : FCmpOp) (t : Ty) (m : Ty := t.mask) (h : m = t.mask := by rfl) : OpCode [t, t] [m]
+  /-- Float-to-unsigned-int truncation toward zero. UB (`False`) on NaN, `±∞`, or truncated
+  integer outside `[0, 2^n)` (note values in `(-1, 0)` truncate to `0` and are defined). -/
   | fptoui (f : Fmt) (n : Nat) : OpCode [.float f] [.bits n]
+  /-- Float-to-signed-int truncation toward zero. UB (`False`) when `n = 0`, on NaN/`±∞`, or on
+  truncated integer outside `[-(2^(n-1)), 2^(n-1))`. -/
   | fptosi (f : Fmt) (n : Nat) : OpCode [.float f] [.bits n]
   | uitofp (n : Nat) (f : Fmt) : OpCode [.bits n] [.float f]
   | sitofp (n : Nat) (f : Fmt) : OpCode [.bits n] [.float f]
@@ -413,6 +421,8 @@ def liftFloatRel3 (op : Float.Model.Format → Float.Model.UnpackedFloat →
       liftFloatRel3 op u a.2 b.2 c.2 fun r2 => k (r1, r2)
   | _, _, _, _, _ => False
 
+/-- Leaf IEEE comparison: `eq`/`lt`/`le`/`gt`/`ge` are ordered (`false` on NaN); `ne` is
+unordered-or-not-equal (`true` on `lt`, `gt`, or NaN). -/
 def fcmpLeaf (o : FCmpOp) (f : Fmt) (a b : BitVec f.width) : Bool :=
   let c := Float.Model.UnpackedFloat.compare (unpackFloat f a) (unpackFloat f b)
   match o, c with
@@ -499,9 +509,9 @@ def OpCode.wp : {as rs : List Ty} → OpCode as rs → Tup Val as → (Tup Val r
       if t.hasFloat then False else post (liftCmp o.evalBits o.evalBool t a b, ())
   | _, _, .select _, (c, a, b, ()), post => post (if c then a else b, ())
   | _, _, .blend t _ rfl, (c, a, b, ()), post => post (blendV t c a b, ())
-  | _, _, .zext _ n, (a, ()), post => post (a.setWidth n, ())
-  | _, _, .sext _ n, (a, ()), post => post (a.signExtend n, ())
-  | _, _, .trunc _ n, (a, ()), post => post (a.setWidth n, ())
+  | _, _, .zext m n, (a, ()), post => m ≤ n ∧ post (a.setWidth n, ())
+  | _, _, .sext m n, (a, ()), post => m ≤ n ∧ post (a.signExtend n, ())
+  | _, _, .trunc m n, (a, ()), post => n ≤ m ∧ post (a.setWidth n, ())
   | _, _, .ofBool n, (c, ()), post => post (BitVec.ofNat n c.toNat, ())
   | _, _, .addc n, (a, b, c, ()), post =>
       post (a + b + BitVec.ofNat n c.toNat, decide (2 ^ n ≤ a.toNat + b.toNat + c.toNat), ())
@@ -584,9 +594,16 @@ def Op.wp {rs : List Ty} (op : Op Val rs) (post : Tup Val rs → Prop) : Prop :=
 
 /-! ## Partial memory over `Kraken.Mem 64` -/
 
-/-- Load a value of type `t` from address `a` in partial memory `m` (`none` if any byte is unmapped). -/
+/-- Load a value of type `t` from address `a` in partial memory `m`.
+Returns `none` (UB) if any byte in `[a, a + t.bytes)` is unmapped, or if `t = .bool` and the
+loaded byte is not in `{0, 1}` (i.e., `byte > 1`). -/
 def loadVal (m : Mem 64) (t : Ty) (a : BitVec 64) : Option (Val t) :=
-  (m.loadInt a t.bytes).map fun i => ofBits t (BitVec.ofInt t.size i)
+  (m.loadInt a t.bytes).bind fun i =>
+    match t with
+    | .bool => if i == 0 || i == 1 then some (i == 1) else none
+    | .bits n => some (ofBits (.bits n) (BitVec.ofInt n i))
+    | .float f => some (ofBits (.float f) (BitVec.ofInt f.width i))
+    | .pair x y => some (ofBits (.pair x y) (BitVec.ofInt (x.size + y.size) i))
 
 /-- Store `v : Val t` at address `a` in little-endian byte order. -/
 def storeMem (m : Mem 64) (t : Ty) (a : BitVec 64) (v : Val t) : Mem 64 :=

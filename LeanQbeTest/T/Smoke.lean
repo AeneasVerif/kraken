@@ -123,7 +123,7 @@ theorem sumLanes_correct (Γ : Env) (X : XPost) (m : Mem 64) :
     intro acc hacc
     refine hDone _ _ ?_
     simp only [wp_let_op1, wp_ret, OpCode.wp_unpair, OpCode.wp_zext, vals, Arg.val_var, hacc]
-    exact ⟨rfl, trivial⟩
+    exact ⟨by decide, rfl, trivial⟩
   have hl : ∀ k : Nat, k ≤ 10 →
       ∀ acc : Val v4i32, acc.1.1 = BitVec.ofNat 32 (2 ^ (10 - k)) →
       Js.2.1 (BitVec.ofNat 32 (10 - k), acc, ()) m := by
@@ -613,5 +613,37 @@ theorem fcvt_edge_cases :
     (OpCode.fcvt .d .h).wp (0xbe10000000000000#64, ()) (fun (r, ()) => r = 0x8000#16) := by
   simp only [OpCode.wp_fcvt]
   exact ⟨rfl, rfl, rfl⟩
+
+/-! ## 8. T1 review cleanups: `zext`/`sext`/`trunc` direction UB, `bool` load ∈ `{0,1}`, `fcmp .ne` -/
+
+theorem ext_trunc_wrong_direction_ub (a64 : BitVec 64) (a32 : BitVec 32)
+    (p32 : Tup Val [i32] → Prop) (p64 : Tup Val [i64] → Prop) :
+    ¬ (OpCode.zext 64 32).wp (a64, ()) p32 ∧
+    ¬ (OpCode.sext 64 32).wp (a64, ()) p32 ∧
+    ¬ (OpCode.trunc 32 64).wp (a32, ()) p64 := by
+  simp only [OpCode.wp_zext, OpCode.wp_sext, OpCode.wp_trunc]
+  refine ⟨fun h => by omega, fun h => by omega, fun h => by omega⟩
+
+theorem load_bool_invalid_byte_ub (Γ : Env) (X : XPost) (p : BitVec 64) (m : Mem 64)
+    (b : UInt8) (hget : m.get? p = some b) (hgt : 1 < b.toNat) :
+    ¬ wp Γ (rs := [.bool]) (fun _ _ => True) X
+        (.load .bool (.var p) fun y => .ret (.var y, ())) m := by
+  simp only [wp_load, Arg.val_var]
+  rintro ⟨v, hv, _⟩
+  rw [loadVal_bool_invalid m p b hget hgt] at hv
+  cases hv
+
+theorem store_load_bool_roundtrip (Γ : Env) (X : XPost) (b : Bool) (p : BitVec 64) (m : Mem 64)
+    (hok : storeOk m .bool p) :
+    wp Γ (rs := [.bool]) (fun (r, _) _ => r = b) X
+      (.store (t := .bool) (.imm b) (.imm p) (.load .bool (.imm p) fun y => .ret (.var y, ()))) m := by
+  simp only [wp_store, wp_load, wp_ret, vals, Arg.val_imm, Arg.val_var]
+  exact ⟨hok, b, loadVal_storeMem m .bool p b (by decide), rfl⟩
+
+theorem fcmp_ne_nan_unordered_true :
+    (OpCode.fcmp .ne f32).wp (0x7fc00000#32, 0x3f800000#32, ()) (fun (r, ()) => r = true) ∧
+    (OpCode.fcmp .eq f32).wp (0x7fc00000#32, 0x3f800000#32, ()) (fun (r, ()) => r = false) := by
+  simp only [OpCode.wp_fcmp, cast_eq]
+  decide
 
 end LeanQbe.T.Smoke

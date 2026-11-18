@@ -111,9 +111,9 @@ theorem OpCode.wp_mono : {as rs : List Ty} → (c : OpCode as rs) → (args : Tu
   | _, _, .cmp _ _ _ rfl, (_, _, ()), _, _, h, hp => cond_false_mono (h _) hp
   | _, _, .select _, (_, _, _, ()), _, _, h, hp => h _ hp
   | _, _, .blend _ _ rfl, (_, _, _, ()), _, _, h, hp => h _ hp
-  | _, _, .zext _ _, (_, ()), _, _, h, hp => h _ hp
-  | _, _, .sext _ _, (_, ()), _, _, h, hp => h _ hp
-  | _, _, .trunc _ _, (_, ()), _, _, h, hp => h _ hp
+  | _, _, .zext _ _, (_, ()), _, _, h, hp => ⟨hp.1, h _ hp.2⟩
+  | _, _, .sext _ _, (_, ()), _, _, h, hp => ⟨hp.1, h _ hp.2⟩
+  | _, _, .trunc _ _, (_, ()), _, _, h, hp => ⟨hp.1, h _ hp.2⟩
   | _, _, .ofBool _, (_, ()), _, _, h, hp => h _ hp
   | _, _, .addc _, (_, _, _, ()), _, _, h, hp => h _ hp
   | _, _, .subb _, (_, _, _, ()), _, _, h, hp => h _ hp
@@ -303,15 +303,15 @@ theorem isFloatNaN_packedNaN (f : Fmt) :
 
 @[simp] theorem OpCode.wp_zext (m n : Nat) (args : Tup Val [.bits m])
     (post : Tup Val [.bits n] → Prop) :
-    OpCode.wp (.zext m n) args post = post (args.1.setWidth n, ()) := rfl
+    OpCode.wp (.zext m n) args post = (m ≤ n ∧ post (args.1.setWidth n, ())) := rfl
 
 @[simp] theorem OpCode.wp_sext (m n : Nat) (args : Tup Val [.bits m])
     (post : Tup Val [.bits n] → Prop) :
-    OpCode.wp (.sext m n) args post = post (args.1.signExtend n, ()) := rfl
+    OpCode.wp (.sext m n) args post = (m ≤ n ∧ post (args.1.signExtend n, ())) := rfl
 
 @[simp] theorem OpCode.wp_trunc (m n : Nat) (args : Tup Val [.bits m])
     (post : Tup Val [.bits n] → Prop) :
-    OpCode.wp (.trunc m n) args post = post (args.1.setWidth n, ()) := rfl
+    OpCode.wp (.trunc m n) args post = (n ≤ m ∧ post (args.1.setWidth n, ())) := rfl
 
 @[simp] theorem OpCode.wp_ofBool (n : Nat) (args : Tup Val [.bool])
     (post : Tup Val [.bits n] → Prop) :
@@ -664,10 +664,25 @@ theorem loadVal_storeMem (m : Mem 64) (t : Ty) (a : BitVec 64) (v : Val t)
     simpa using List.mapM_pure (m := Option) (f := id) (l := bs)
   have hloadInt : (storeMem m t a v).loadInt a t.bytes = some (Int.ofBytes bs) := by
     simp [Mem.loadInt, hloadBytes]
-  simp only [loadVal, hloadInt, Option.map_some]
+  simp only [loadVal, hloadInt, Option.bind_some]
   have hbv : BitVec.ofInt (8 * t.bytes) (Int.ofBytes bs) = (toBits t v).setWidth (8 * t.bytes) :=
     BitVec.ofInt_ofBytes_toBytes (8 * t.bytes) t.bytes rfl _
-  rw [ofInt_setWidth_eq t (Int.ofBytes bs), hbv, setWidth_bytes_size, ofBits_toBits]
+  cases t with
+  | bool =>
+    cases v
+    · have hi0 : Int.ofBytes bs = 0 := by dsimp only [bs, toBits, Ty.bytes, Ty.size]; decide
+      simp [hi0]
+    · have hi1 : Int.ofBytes bs = 1 := by dsimp only [bs, toBits, Ty.bytes, Ty.size]; decide
+      simp [hi1]
+  | bits _ =>
+    simp only [Option.some.injEq]
+    rw [ofInt_setWidth_eq (.bits _) (Int.ofBytes bs), hbv, setWidth_bytes_size, ofBits_toBits]
+  | float _ =>
+    simp only [Option.some.injEq]
+    rw [ofInt_setWidth_eq (.float _) (Int.ofBytes bs), hbv, setWidth_bytes_size, ofBits_toBits]
+  | pair _ _ =>
+    simp only [Option.some.injEq]
+    rw [ofInt_setWidth_eq (.pair _ _) (Int.ofBytes bs), hbv, setWidth_bytes_size, ofBits_toBits]
 
 private theorem mapM_id_eq_some_mem {α : Type} {xs : List (Option α)} {ys : List α}
     (h : xs.mapM id = some ys) {x : Option α} (hx : x ∈ xs) : x.isSome := by
@@ -706,7 +721,20 @@ theorem loadBytes_eq_none_of_unmapped {w : Nat} (m : Mem w) (a : BitVec w) (n : 
 theorem loadVal_of_unmapped (m : Mem 64) (t : Ty) (a : BitVec 64)
     (h : ∃ i < t.bytes, m.get? (a + BitVec.ofNat 64 i) = none) :
     loadVal m t a = none := by
-  simp only [loadVal, Mem.loadInt, loadBytes_eq_none_of_unmapped m a t.bytes h, Option.map_none]
+  simp only [loadVal, Mem.loadInt, loadBytes_eq_none_of_unmapped m a t.bytes h, Option.map_none,
+    Option.bind_none]
+
+/-- Loading `.bool` from a byte outside `{0, 1}` fails (`none`, i.e. UB). -/
+theorem loadVal_bool_invalid (m : Mem 64) (a : BitVec 64) (b : UInt8)
+    (hget : m.get? a = some b) (hgt : 1 < b.toNat) :
+    loadVal m .bool a = none := by
+  have hload : m.loadInt a Ty.bool.bytes = some (b.toNat : Int) := by
+    rw [Std.ExtHashMap.get?_eq_getElem?] at hget
+    simp [Ty.bytes, Ty.size, Mem.loadInt, Mem.loadBytes, List.range_succ, hget, Int.ofBytes]
+  simp only [loadVal, hload, Option.bind_some]
+  have h0 : ((b.toNat : Int) == 0) = false := beq_false_of_ne (by omega)
+  have h1 : ((b.toNat : Int) == 1) = false := beq_false_of_ne (by omega)
+  simp [h0, h1]
 
 /-- Storing fails (`¬ storeOk`) if any byte in `[a, a + t.bytes)` is unmapped. -/
 theorem not_storeOk_of_unmapped (m : Mem 64) (t : Ty) (a : BitVec 64)
