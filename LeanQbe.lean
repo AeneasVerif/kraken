@@ -75,5 +75,10 @@ public import LeanQbe.T.Logic.ZeroTerm
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Examples.UnionFind
 public import LeanQbe.T.Examples.UnionFindLemmas
+public import LeanQbe.T.Legal
+public import LeanQbe.T.LegalLemmas
+public import LeanQbe.T.LegalCheck1
+public import LeanQbe.T.LegalCheck2
+public import LeanQbe.T.LegalCheck3
 
 /-! Root of the generic library. Imports neither `Kraken.X64` nor `Kraken.AArch64`. -/
