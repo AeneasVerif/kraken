@@ -21,6 +21,8 @@ Covers:
 
 set_option autoImplicit false
 
+@[expose] public section
+
 namespace LeanQbeTest.T.C0Test
 
 open LeanQbe.T
@@ -272,13 +274,13 @@ end ExtraCF
 
 /-! ## C++20 Codegen Entrypoint for `test/c0/run.sh` -/
 
-private def emitNamespace (ns : String) (fns : List Fn) : Except String String := do
+def emitNamespace (ns : String) (fns : List Fn) : Except String String := do
   let symMap ← PrintCpp.buildSymMap fns
   let decls := String.join (fns.map (PrintCpp.ppFnDecl symMap))
   let defs := String.intercalate "\n" (fns.map (PrintCpp.ppFn symMap))
   pure (s!"namespace {ns} " ++ "{\n" ++ decls ++ "\n" ++ defs ++ "\n} // namespace " ++ ns ++ "\n")
 
-public def runGenerate (outDir : String) : IO UInt32 := do
+def runGenerate (outDir : String) : IO UInt32 := do
   let groups : List (String × List Fn) :=
     [ ("c0_layout", layout_fns)
     , ("c0_proplit", proplit_fns)
@@ -301,5 +303,5 @@ public def runGenerate (outDir : String) : IO UInt32 := do
 
 end LeanQbeTest.T.C0Test
 
-public def main (args : List String) : IO UInt32 :=
+def main (args : List String) : IO UInt32 :=
   LeanQbeTest.T.C0Test.runGenerate (args.headD "/tmp/leanqbe-c0")
