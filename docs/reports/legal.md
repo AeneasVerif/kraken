@@ -66,3 +66,37 @@ Files: `LeanQbe/T/{Legal,LegalLemmas,LegalCheck1,LegalCheck2,LegalCheck3}.lean`,
 - **x64 native litmus & LRAT suite (`timeout 300 bash test/run.sh`)**: **ALL PASSED** (`rc=0`, both `leanqbe` and stock `qbe`).
 - **AArch64 QEMU litmus & LRAT suite (`timeout 300 bash test/arm64/run.sh`)**: **ALL PASSED** (`rc=0`, both `leanqbe-arm64` and stock `qbe -t arm64`).
 - **Review `#55` doc cleanup (`docs/reports/logic.md`)**: verified `UnionFindLemmas` restated as 228 vs 187 comparable source-level lines (`+41` / ~22%, noting E1 lines 189–263 are compiled-target theorems deferred to `T11`/`T12`) and `LeanQbe/T/Logic/` stated as 4,247 vs 1,046 lines (`~4.1×` E1).
+
+## `H5`: Mid-End Pipeline Timings & Workload Post-`Legal` ABI Audit
+
+### Uncontended `opt ∘ legal ∘ opt` kernel timings (`t_kernel_rfl` on `main` `3b2d92e`)
+
+Measured sequentially (single Lean process, zero CPU contention) via
+`(Func.opt (Func.legal .x64SSE (Func.opt ScaleTest.slN))).checkTFlat = true := by t_kernel_rfl`,
+compared against standalone `Func.legal` (`(slN.legal .x64AVX512).isLegal .x64AVX512 = true`, recorded above):
+
+| Benchmark | Ops | `Func.legal` `isLegal` (wall s) | `opt ∘ legal (.x64SSE) ∘ opt` `checkTFlat` (wall s) | CPU (user + sys s) | Scaling vs previous |
+|---|---:|---:|---:|---:|---:|
+| `ScaleTest.sl250` | 250 | 2.84 | **11.40** | 10.68 + 0.72 | — |
+| `ScaleTest.sl1000` | 1,000 | 6.58 | **49.33** | 47.61 + 1.72 | `4.33×` (4× ops) |
+| `ScaleTest.sl2000` | 2,000 | 20.52 | **110.82** | 107.78 + 3.04 | `2.25×` (2× ops) |
+
+- Scaling across `250 → 1,000 → 2,000` ops is near-linear (`2.25×` from `1,000` to `2,000` ops), confirming that `GvnTrie` + `NatTrie` + PHOAS `Func.legal` stay well under the `≤ 2.6×` growth envelope even across the full 13-stage `opt ∘ legal ∘ opt` mid-end pipeline.
+- All four `T13`/`T14` workload functions (`Bignum.{mul4x4,addMod25519,subMod25519}` and `ChaCha.chacha20Block`) additionally pass `(f.legal tgt).isLegal tgt = true` (on both `x64SSE` and `aarch64`) and `(Func.opt (Func.legal .x64SSE (Func.opt f))).checkTFlat = true` by `t_kernel_rfl` in `< 9 s` combined.
+
+### Post-`Legal` leaf signatures vs SysV x64 / AAPCS64 register limits (Risk `R13`)
+
+SysV x64 integer ABI provides **6 argument GPRs** (`rdi, rsi, rdx, rcx, r8, r9`) and **2 return GPRs** (`rax, rdx`); AAPCS64 provides **8 argument GPRs** (`x0..x7`) and **8 return GPRs** (`x0..x7`). All `T13`, `T14`, and `T16` workload functions fit strictly within both limits with zero stack-passed arguments or overflow returns:
+
+| Workload | Function | Source `(as → rs)` | Post-`Legal` (`x64SSE`, `x64AVX512`, `aarch64`) | Arg leaves (≤ 6 SysV) | Ret leaves (≤ 2 SysV) | Status |
+|---|---|---|---|---:|---:|---|
+| `T13` `Bignum` | `mul4x4` | `[i64, i64, i64] → []` | `[i64, i64, i64] → []` | 3 | 0 | **OK** |
+| `T13` `Bignum` | `addMod25519` | `[i64, i64, i64] → []` | `[i64, i64, i64] → []` | 3 | 0 | **OK** |
+| `T13` `Bignum` | `subMod25519` | `[i64, i64, i64] → []` | `[i64, i64, i64] → []` | 3 | 0 | **OK** |
+| `T14` `ChaCha` | `chacha20Block` | `[i64, i64] → []` | `[i64, i64] → []` (pointer-passed; 4 `v4i32` rows are loop-local) | 2 | 0 | **OK** |
+| `T16` `LratBytes` | `lb_parse_dimacs_header` | `[i64 × 3] → [i64]` | `[i64 × 3] → [i64]` | 3 | 1 | **OK** |
+| `T16` `LratBytes` | `lb_parse_dimacs_body` | `[i64 × 2] → [i64]` | `[i64 × 2] → [i64]` | 2 | 1 | **OK** |
+| `T16` `LratBytes` | `lb_read_add_lits` | `[i64 × 2] → [i64]` | `[i64 × 2] → [i64]` | 2 | 1 | **OK** |
+| `T16` `LratBytes` | `lb_rup_check` | `[i64 × 4] → [i64]` | `[i64 × 4] → [i64]` | 4 | 1 | **OK** |
+| `T16` `LratBytes` | `lb_check_prf` | `[i64 × 2] → [i64]` | `[i64 × 2] → [i64]` | 2 | 1 | **OK** |
+| `T16` `LratBytes` | `lrat_check_bytes` | `[i64 × 6] → [i64]` | `[i64 × 6] → [i64]` | 6 | 1 | **OK** (exact SysV ceiling) |
