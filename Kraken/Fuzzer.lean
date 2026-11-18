@@ -156,30 +156,98 @@ def FuzzConfig.genPool (cfg : FuzzConfig MachineData StatusFlags StateSummary) (
 def FuzzConfig.assemblable (cfg : FuzzConfig MachineData StatusFlags StateSummary) (cands : Array String) : IO (Array String) :=
   filterAssemblable cfg.runAssembler cands
 
-/-- Four random register initializations (`genSeed`) followed by `length` instructions from `pool`,
-each drawn until `stepDeterministic` accepts one. A final `defineAllFlagsInstr` makes all flags defined. -/
+/-- Which mnemonic to group an instruction under. We special case `rep` prefixes and drop `addr32`.
+This means that `rep movsb` is distinct from `movsb`, but `addr32 rep movsb` is not distinct from
+`rep movsb`. -/
+private def mnemonic (line : String) : String :=
+  match (line.splitOn " ").filter (· ≠ "") with
+  | "addr32" :: "rep" :: w :: _ | "rep" :: w :: _ => s!"rep {w}"
+  | "addr32" :: w :: _ | w :: _ => w
+  | [] => ""
+
+#guard mnemonic "addq $1, %rax" == "addq"
+#guard mnemonic "movsb" == "movsb"
+#guard mnemonic "addr32 movsb" == "movsb"
+#guard mnemonic "rep movsb" == "rep movsb"
+#guard mnemonic "addr32 rep movsb" == "rep movsb"
+#guard mnemonic "ldr x0, [x1, #8]" == "ldr"
+
+private def poolTarget : Nat := 64
+
+/-- Builds a pool of instructions grouped by mnemonic, keeping up to `poolTarget` forms for each
+mnemonic. `only` restricts the set of mnemonics in the pool. -/
+private def FuzzConfig.buildPool (cfg : FuzzConfig MachineData StatusFlags StateSummary) (g : StdGen)
+    (only : Array String := #[]) : IO (Array (String × Array String) × StdGen) := do
+  let mut forms : Std.HashMap String (Array String) := {}
+  let mut g := g
+  for _ in [0 : if only.isEmpty then 8 else 64] do
+    let (cands, g') := (cfg.genPool 5000).run g
+    g := g'
+    let fresh := cands.filter fun c =>
+      let m := mnemonic c
+      let seen := forms.getD m #[]
+      (only.isEmpty || only.any (m.startsWith ·)) && seen.size < poolTarget && !seen.contains c
+    if fresh.isEmpty then continue
+    for c in ← cfg.assemblable fresh do
+      let m := mnemonic c
+      let seen := forms.getD m #[]
+      if seen.size < poolTarget && !seen.contains c then
+        forms := forms.insert m (seen.push c)
+  return (forms.toArray.qsort (·.1 < ·.1), g)
+
+/-- The first result of `cands` that `stepDeterministic` accepts, trying `tries` times. -/
+private def FuzzConfig.firstAccepted (cfg : FuzzConfig MachineData StatusFlags StateSummary)
+    (d : MachineData) (undef : UndefFlags) (cands : GenM String) (tries : Nat) :
+    StateT StdGen IO (Option (String × MachineData × UndefFlags)) := do
+  for _ in [0 : tries] do
+    let some cand ← modifyGet cands.run.run | continue
+    if let some (d', undef') ← (cfg.stepDeterministic d undef cand).run then
+      return some (cand, d', undef')
+  return none
+
+/-- Generates a sequence of instructions: first four random initializations from `genSeed`, then up
+to `length` instructions from `pool`, and finally `defineAllFlagsInstr` to fix flags (if necessary).
+Returns the instruction sequence and the mnemonics of the instructions drawn from the pool.
+
+We attempt (i.e., run up to a bound) to keep an equal distribution of mnemonics by trying
+multiple variants until we find one that doesn't take a branch, fault, or depend on nondeterministic
+state. -/
 def FuzzConfig.genSequence (cfg : FuzzConfig MachineData StatusFlags StateSummary)
-    (pool : Array String) (length : Nat) : StateT StdGen IO String := do
-  let mut (d, undef, lines) := (cfg.initData, UndefFlags.none, #[])
-  for i in [0 : 4 + length] do
-    for _ in [0 : 200] do
-      let some cand ← modifyGet (if i < 4 then cfg.genSeed else pick pool).run.run | continue
-      if let some (d', undef') ← (cfg.stepDeterministic d undef cand).run then
-        (d, undef, lines) := (d', undef', lines.push cand)
+    (pool : Array (String × Array String)) (length : Nat) : StateT StdGen IO (String × Array String) := do
+  let mut (d, undef, lines, drawn) := (cfg.initData, UndefFlags.none, #[], (#[] : Array String))
+  for _ in [0 : 4] do
+    if let some (cand, d', undef') ← cfg.firstAccepted d undef cfg.genSeed 200 then
+      (d, undef, lines) := (d', undef', lines.push cand)
+  for _ in [0 : length] do
+    for _ in [0 : 10] do
+      let some (m, forms) ← modifyGet (pick pool).run.run | continue
+      if let some (cand, d', undef') ← cfg.firstAccepted d undef (pick forms) 20 then
+        (d, undef, lines, drawn) := (d', undef', lines.push cand, drawn.push m)
         break
   if undef != .none then lines := lines.push cfg.defineAllFlagsInstr
-  return "\n".intercalate lines.toList
+  return ("\n".intercalate lines.toList, drawn)
 
-/-- Handles `--generate <seed> <count> <length>` and `--batch` CLI invocations, returning `none`
-when `args` is a normal single-file runner invocation. -/
+/-- `--generate` reads `{"seed": n, "count": n, "length": n, "only": [prefixes]}` from stdin
+to produce test sequences. `--batch` reads a JSON string array of instruction sequences from
+stdin and runs them. -/
 def FuzzConfig.handleCli? (cfg : FuzzConfig MachineData StatusFlags StateSummary)
     (args : List String) : IO (Option UInt32) := do
   match args with
-  | ["--generate", seed, count, length] =>
-    let (pool, g) := (cfg.genPool 5000).run (mkStdGen seed.toNat!)
-    let pool ← cfg.assemblable pool
-    let gen := (List.range count.toNat!).mapM fun _ => cfg.genSequence pool length.toNat!
-    IO.println (toJson (← gen.run' g)).compress
+  | ["--generate"] =>
+    let req ← IO.ofExcept (Json.parse (← (← IO.getStdin).readToEnd))
+    let seed ← IO.ofExcept (req.getObjValAs? Nat "seed")
+    let count ← IO.ofExcept (req.getObjValAs? Nat "count")
+    let length ← IO.ofExcept (req.getObjValAs? Nat "length")
+    let only ← IO.ofExcept (req.getObjValAs? (Array String) "only")
+    let (pool, g) ← cfg.buildPool (mkStdGen seed) only
+    let gen := (List.range count).mapM fun _ => cfg.genSequence pool length
+    let results ← gen.run' g
+    let runs := (results.toArray.flatMap (·.2)).foldl (init := ({} : Std.HashMap String Nat))
+      fun acc m => acc.insert m (acc.getD m 0 + 1)
+    IO.println (Json.mkObj [
+      ("pool", toJson (pool.map (·.1))),
+      ("seqs", toJson (results.map (·.1))),
+      ("runs", Json.mkObj (runs.toList.map fun (m, n) => (m, toJson n)))]).compress
     return some 0
   | ["--batch"] =>
     let raw ← (← IO.getStdin).readToEnd
