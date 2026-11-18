@@ -287,7 +287,11 @@ def TBlocks.noHlt {rs : List Ty} : {sig : List (List Ty)} → TBlocks rs sig →
   | _, .cons b bs => b.noHlt && bs.noHlt
 end
 
-/-- Total computable reification + scope/type check for a closed `Func as rs`. -/
+/-- Total computable reification + scope/type check for a closed `Func as rs`.
+This cross-checks `toTFlat`'s de Bruijn index arithmetic against `TFlat.wfCheck` (ensuring
+no out-of-scope or type-mismatched variable/label index collapses to `.hlt` under `denote`,
+as proved by `Func.denote_noHlt_of_check`); it is NOT a theorem bridge to `Func.Wf`, which
+holds unconditionally by parametricity for any reified term (`Func.wf_of_reify`). -/
 def Func.checkTFlat {as rs : List Ty} (f : Func as rs) : Bool :=
   (toTFlat (f K KL (Tup.levels as 0)) as.length 0).wfCheck (pushTypes as []) []
 

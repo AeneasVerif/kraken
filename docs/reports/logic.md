@@ -307,3 +307,73 @@ acyclic functions sharing an 80-byte workspace header at `work_ptr` once `work_l
    `LratBytesLemmas.lean` exports `nvDimacsBytes_eq` and `@[simp]` length lemmas (`nvDimacsBytes_length`,
    `nvLratAcceptBytes_length`, `nvLratRejectBytes_length`) so downstream x86-64 and AArch64 machine proofs
    discharge slice bounds by `simp` without needing `import all Std.Sat.CNF.Basic`.
+
+## T3: Typed IR Notation (`LeanQbe.T.Notation`)
+
+`LeanQbe/T/Notation.lean` adds QBE-style typed notation (`tqbe { … }`, `tqbe -> … { … }`,
+`tqbe(%a:t, …) -> … { … }`, `tqbe $sym(%a:t, …) -> … { … }`, and `tqbe_def`) elaborating
+directly to `LeanQbe.T.Expr` / `Func` / `Fn` via a direct de Bruijn `TermElabM` elaborator (no
+mutable-local SSA conversion; structured sugar only per `G6`):
+
+- **Typed parameters and `group` signature inference**: `@label(%x:t, …)` infers `group` block
+  signatures directly; supports QBE shorthands (`b`, `w`, `l`, `s`, `d`) and explicit types
+  (`bool`, `i8`, `i16`, `i32`, `i64`, `bits n`, `f16`, `f32`, `f64`, `f128`, `v4i32`, `v8i32`,
+  `v2i64`, `v4f32`, `vec k t`, `pair a b`, `(a, b)`, `mask t`, or Lean `Ty` identifiers).
+- **Multi-result, pair, and vector operations**: `%s, %c =l addc …`, `subb`, `%lo, %hi =l umulw`
+  / `smulw`, `%p =(l,l) mkpair …`, `unpair`, `fst`, `snd`, wildcards `%_`, multi-result `call`,
+  lane-wise vector immediates (`[a₀, a₁, …]`, `splat c`, nested pairs), plus scalar/float/cast/SIMD
+  (`ternlog`, `shufd`, `shufb`, `alignr`, `blendw`, `sha256*`, `bitcast`) and memory ops.
+- **Structured §2 sugar**: `loop @l(%x:t = init, …) { … }` (with optional `-> @brk(%r:t)` or
+  `%r:t <- loop …`, supporting `%_` wildcard loop parameters), `break` / `continue` (innermost
+  or role-checked `@label`), `check %c else <target>`, `switch %v { k => <target>, …, _ => <target> }`
+  (omitting `_ =>` emits `.hlt` on fallthrough), and `<-` / `use` macro splicing.
+
+### Direct projection/explicit-`Op.mk` elaborator performance design
+
+To prevent the `27.3 s` elaboration slowdown and `> 120 s` `LCNF base` timeout observed in `T2`
+when nesting pattern-matching lambdas `fun (x, ()) => …`, `LeanQbe.T.Notation` emits:
+1. **Typed tuple projections (`Prod.fst` / `Prod.snd`)** over explicit `Tup V ts` binders rather
+   than pattern-matching `match` expressions on `Prod`/`PUnit` (`Prod`/`PUnit` definitional eta
+   still preserves `rfl` against hand-written pattern matches, while matching `t_wf_tac`'s
+   `Tup`/`TRel` shape).
+2. **Explicit `{sig}`/`{rs}` `Op.mk` applications** with de Bruijn `.bvar`s instead of wrapper calls
+   whose implicit type arguments trigger repeated unification across 2000 nested continuations.
+
+Stand-alone `-Dprofiler=true` benchmark (`maxRecDepth 16384`) on a literal 2000-instruction straight-line
+executable `def` (`set_option profiler true` + `wf_reify` / `t_wf_reify`):
+
+| Target | `process pre-definitions` | `LCNF base` | `LCNF mono` | `LCNF impure` | `IR` | `wf_reify` / `t_wf_reify` kernel check | Total wall time |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| E1 `sl2000` (`qbe(%a)` + `wf_reify`) | 1.45 s | 305 ms | 2.35 s | 170 ms | 36.4 ms | 5.64 s | **10.99 s** |
+| T3 `sl2000` (`tqbe(%a:l)` + `t_wf_reify`) | 4.09 s | 492 ms | 226 ms | 14.9 ms | 2.51 ms | 6.50 s | **12.74 s** (`1.16×`) |
+
+### `rfl` parity & `T3` test suite (`LeanQbeTest/T/NotationTest.lean`)
+
+- **Kernel `rfl` parity**: `add128`, `mulByAdd`, `qrStep` (`[16, 16, 16, 16]` and `splat 16`),
+  `vumin k` (polymorphic `vec k w`), `evenOdd` (`@even`/`@odd` mutual group), `readLeb128T`, and
+  `lbCheckPrf` (typed IR transliteration of `LeanQbe/Examples/LratBytes.lean`'s `'a'`/`'d'`
+  `switch`/`check`/nested-loop proof loop) all prove `= <handwritten term>` by `rfl`, plus
+  `Func.Wf` via `t_wf_reify` (or `t_wf_tac` for polymorphic `vumin k`) and `checkTFlat = true`.
+- **2000-instruction executable `def` in suite**: `LeanQbeTest.T.NotationTest.sl2000` (`def`, not
+  `noncomputable def`) elaborates via `tqbe(%a:l) -> l` and passes both `sl2000_wf` (`t_wf_reify`)
+  and `sl2000_check` (`t_kernel_rfl`).
+- **Companion `T2` `#29` cleanups**: clarified `Func.checkTFlat` docstring in `LeanQbe/T/Flat.lean`,
+  documented `t_wf_reify`/`t_kernel_rfl` preference + added cheap `hasExprMVar` check in
+  `LeanQbe/T/FlatLemmas.lean`, and added cross-block 50-block benchmark `bl50_cross` in
+  `LeanQbeTest/T/ScaleTest.lean`.
+- **Elaborator hardening & negative test coverage**: LHS binder type checks on `addc`/`subb`/`unpair`,
+  shadow-free macro argument resolution (`withResolvedMacroArgs` when `%x` and `@x` share a name),
+  symbolic `bitcast` size proofs (`dsimp` + `omega` under `Tactic.run` without leaking `sorry`/noise
+  on mismatch), pair immediate type inference (`(1:l, 2:w)`), `%x:l = load %p` LHS-typed loads,
+  optional `()` on `loop ... -> @brk`, `%_` loop parameters, label-role enforcement (`break @L`
+  requires `.loopBreak`, `continue @L` requires `.loopHeader`, scoped inside the loop body with loop
+  initializers elaborated before break-label local declarations), hygienic anonymous internal binders
+  for `switch` comparisons and unnamed loops/breaks (no leaked `_cmp`/`_loop`/`_break` user names),
+  rejection of bare integer literals at `.float` leaves and symbolic float trees (`vec k s`,
+  requiring explicit `imm ⟨...⟩` bit patterns such as `(Float.toBits 2.0).toBitVec`), range checks
+  on bitvector literals (`k < 2^n`, `-k` in `[1, 2^(n-1)]` for `n ≥ 1`, and `-0` rejected at all bit
+  widths), `imm8 < 256`, literal-only
+  and duplicate-free `switch` arms (with `.hlt` fallback when `_ =>` is omitted), concrete
+  `zext`/`sext`/`trunc`/`ext*` direction checks, symbolic label jump guard, float `switch` rejection,
+  duplicate group label / binder / loop-break-name checks, and `#guard_msgs` negative tests in
+  `LeanQbeTest/T/NotationTest.lean`.

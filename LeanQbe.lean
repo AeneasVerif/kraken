@@ -62,5 +62,6 @@ public import LeanQbe.T.Wf
 public import LeanQbe.T.WfLemmas
 public import LeanQbe.T.Flat
 public import LeanQbe.T.FlatLemmas
+public import LeanQbe.T.Notation
 
 /-! Root of the generic library. Imports neither `Kraken.X64` nor `Kraken.AArch64`. -/

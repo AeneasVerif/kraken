@@ -474,17 +474,26 @@ theorem Func.denote_noHlt_of_check {as rs : List Ty} (f : Func as rs)
 
 open Lean Elab Tactic Meta in
 /-- Close `lhs = rhs` with `Eq.refl lhs`, checked solely by the kernel (skipping elaborator
-`isDefEq`, which is much slower and hits recursion limits on large PHOAS terms). -/
+`isDefEq`, which does not scale cleanly and hits recursion limits on large PHOAS terms).
+
+Callers should prefer `t_kernel_rfl` / `t_wf_reify` over plain `Func.wf_of_reify rfl`.
+Note: because `t_kernel_rfl` delegates the equality check solely to the Lean kernel without
+running elaborator `isDefEq`, any genuine mismatch is reported by the kernel at declaration
+type-checking time (`(kernel) declaration type mismatch`). -/
 elab "t_kernel_rfl" : tactic => do
   let goal ← getMainGoal
   let tgt ← instantiateMVars (← goal.getType)
-  let some (α, lhs, _) := tgt.eq?
+  let some (α, lhs, rhs) := tgt.eq?
     | throwError "t_kernel_rfl: goal is not an equality{indentExpr tgt}"
+  if lhs.hasExprMVar || rhs.hasExprMVar then
+    throwError "t_kernel_rfl: goal still contains metavariables{indentExpr tgt}"
   let u ← getLevel α
   goal.assign (mkApp2 (mkConst ``Eq.refl [u]) α lhs)
   replaceMainGoal []
 
-/-- Prove `Func.Wf f` for a closed concrete function by reification + kernel `rfl`. -/
+/-- Prove `Func.Wf f` for a closed concrete function by reification + kernel `rfl`.
+Callers should use `t_wf_reify` rather than `Func.wf_of_reify rfl`, which does not scale
+cleanly in the elaborator on large PHOAS terms. -/
 macro "t_wf_reify" : tactic => `(tactic| (refine Func.wf_of_reify ?_; t_kernel_rfl))
 
 end LeanQbe.T
