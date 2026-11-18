@@ -80,5 +80,15 @@ public import LeanQbe.T.LegalLemmas
 public import LeanQbe.T.LegalCheck1
 public import LeanQbe.T.LegalCheck2
 public import LeanQbe.T.LegalCheck3
+public import LeanQbe.T.Fold
+public import LeanQbe.T.FoldLemmas
+public import LeanQbe.T.Copy
+public import LeanQbe.T.CopyLemmas
+public import LeanQbe.T.Gvn
+public import LeanQbe.T.GvnLemmas
+public import LeanQbe.T.Dce
+public import LeanQbe.T.DceLemmas
+public import LeanQbe.T.Opt
+public import LeanQbe.T.OptLemmas
 
 /-! Root of the generic library. Imports neither `Kraken.X64` nor `Kraken.AArch64`. -/
