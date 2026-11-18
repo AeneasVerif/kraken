@@ -90,5 +90,8 @@ public import LeanQbe.T.Dce
 public import LeanQbe.T.DceLemmas
 public import LeanQbe.T.Opt
 public import LeanQbe.T.OptLemmas
+public import LeanQbe.T.Module
+public import LeanQbe.T.Examples.Bignum
+public import LeanQbe.T.Examples.ChaCha
 
 /-! Root of the generic library. Imports neither `Kraken.X64` nor `Kraken.AArch64`. -/
