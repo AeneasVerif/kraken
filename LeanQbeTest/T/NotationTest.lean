@@ -486,8 +486,8 @@ def vecImmOps : Func [v4i32, v8i32, v2i64, v4f32] [v4i32, v8i32, v2i64, v4f32] :
     %v4masked =v4i32 blend [true, false, true, false]:mask v4i32, %v4out, %v4
     %v8out =v8i32 add %v8, [1, 2, 3, 4, 5, 6, 7, 8]
     %v2out =v2i64 xor %v2, [-1, 42]
-    %vfz =v4f32 fadd %vf, splat imm ⟨(Float32.toBits 0.0).toBitVec⟩
-    %vfout =v4f32 ffma %vfz, %vf, splat imm ⟨(Float32.toBits 1.0).toBitVec⟩
+    %vfz =v4f32 fadd %vf, splat imm ⟨0x00000000#32⟩
+    %vfout =v4f32 ffma %vfz, %vf, splat imm ⟨0x3f800000#32⟩
     ret %v4masked, %v8out, %v2out, %vfout
   }
 
@@ -503,9 +503,9 @@ def floatCastAndTerms : Func [f32, f64, i64] [f64, i64] :=
     jnz %c, {
       %d1 =d fcvt %sq
       %d2 =d fadd %d1, %fd
-      %d3 =d fsub %d2, imm ⟨(Float.toBits 1.0).toBitVec⟩
-      %d4 =d fmul %d3, imm ⟨(Float.toBits 2.0).toBitVec⟩
-      %d5 =d fdiv %d4, imm ⟨(Float.toBits 3.0).toBitVec⟩
+      %d3 =d fsub %d2, imm ⟨0x3ff0000000000000#64⟩
+      %d4 =d fmul %d3, imm ⟨0x4000000000000000#64⟩
+      %d5 =d fdiv %d4, imm ⟨0x4008000000000000#64⟩
       %u1 =l fptoui %d5
       %s1 =l fptosi %d5
       %df =d sitofp %n
@@ -547,7 +547,7 @@ tqbe_def tqbeDefFn : Func [i64] [i64] := tqbe(%x:l) -> l {
   %y =l neg %x
   %z =l not %y
   %q, %r =l subb %z, %x, false
-  %m =b feqd imm ⟨(Float.toBits 0.0).toBitVec⟩, imm ⟨(Float.toBits 0.0).toBitVec⟩
+  %m =b feqd imm ⟨0x0000000000000000#64⟩, imm ⟨0x0000000000000000#64⟩
   %out =l select %m, %q, 0
   %d =l udiv %out, 3
   %rem =l srem %d, 5
@@ -937,9 +937,9 @@ theorem switchNoDefault_check : Func.checkTFlat switchNoDefault = true := by dec
 
 def floatImmForms : Func [i64, f64, v4f32] [f64, v4f32] :=
   tqbe(%p:l, %x:d, %vf:v4f32) -> (d, v4f32) {
-    %y =d fadd %x, imm ⟨(Float.toBits 1.5).toBitVec⟩ : d
-    store imm ⟨(Float.toBits 0.0).toBitVec⟩ : d, %p
-    store splat imm ⟨(Float32.toBits 1.0).toBitVec⟩ : v4f32, %p
+    %y =d fadd %x, imm ⟨0x3ff8000000000000#64⟩ : d
+    store imm ⟨0x0000000000000000#64⟩ : d, %p
+    store splat imm ⟨0x3f800000#32⟩ : v4f32, %p
     %z =v4f32 fmul %vf, [imm ⟨0x3f800000#32⟩, imm ⟨0x40000000#32⟩, imm ⟨0x40400000#32⟩, imm ⟨0x40800000#32⟩]
     ret %y, %z
   }

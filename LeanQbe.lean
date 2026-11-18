@@ -63,5 +63,17 @@ public import LeanQbe.T.WfLemmas
 public import LeanQbe.T.Flat
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Notation
+public import LeanQbe.T.Logic.Arith
+public import LeanQbe.T.Logic.BitVec
+public import LeanQbe.T.Logic.Ops
+public import LeanQbe.T.Logic.Vec
+public import LeanQbe.T.Logic.Mem
+public import LeanQbe.T.Logic.MemLemmas
+public import LeanQbe.T.Logic.Cells
+public import LeanQbe.T.Logic.Bytes
+public import LeanQbe.T.Logic.ZeroTerm
+public import LeanQbe.T.Logic.Rules
+public import LeanQbe.T.Examples.UnionFind
+public import LeanQbe.T.Examples.UnionFindLemmas
 
 /-! Root of the generic library. Imports neither `Kraken.X64` nor `Kraken.AArch64`. -/
