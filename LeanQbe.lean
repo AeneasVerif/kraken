@@ -96,5 +96,6 @@ public import LeanQbe.T.Target
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.Examples.Bignum
 public import LeanQbe.T.Examples.ChaCha
+public import LeanQbe.T.Frontend.C0
 
 /-! Root of the generic library. Imports neither `Kraken.X64` nor `Kraken.AArch64`. -/
