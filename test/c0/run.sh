@@ -50,7 +50,7 @@ for cc_pair in "gcc:g++:" "clang:clang++:-fsanitize=undefined,address"; do
   timeout 60 "$OUT/d2_runner_$CXX"
 done
 
-echo "== 4. (Regression) run all 110 adversarial differential probes under test/c0/probes/ =="
+echo "== 4. (Regression) run all 111 adversarial differential probes under test/c0/probes/ =="
 timeout 300 python3 - "$ROOT" "$OUT" <<'PY'
 import concurrent.futures, glob, os, re, struct, subprocess, sys
 
@@ -156,7 +156,9 @@ def gen_driver(name, specs, cpp):
                         else:
                             args.append(f"({ty}){u}ULL")
             if cpp:
-                call = f"c0p_{name}::{fn}({', '.join(['mem'] + args)})"
+                cpp_kw = {"alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor", "bool", "break", "case", "catch", "char", "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "const", "consteval", "constexpr", "constinit", "const_cast", "continue", "co_await", "co_return", "co_yield", "decltype", "default", "delete", "do", "double", "dynamic_cast", "else", "enum", "explicit", "export", "extern", "false", "float", "for", "friend", "goto", "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq", "private", "protected", "public", "register", "reinterpret_cast", "requires", "return", "short", "signed", "sizeof", "static", "static_assert", "static_cast", "struct", "switch", "template", "this", "thread_local", "throw", "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual", "void", "volatile", "wchar_t", "while", "xor", "xor_eq"}
+                cpp_fn = f"fn_{fn}" if fn in cpp_kw else fn
+                call = f"c0p_{name}::{cpp_fn}({', '.join(['mem'] + args)})"
                 L.append(f"  try {{ auto r = {call}; pr(r);")
                 for k, n in bufs:
                     L.append(f"  {{ unsigned char o[{max(n,1)}]; for (size_t i=0;i<{n};i++) o[i]=mem.read_byte((uint64_t)(uintptr_t)b{k}+i); dump(\"b{k}\", o, {n}); }}")
@@ -187,7 +189,7 @@ def gen_driver(name, specs, cpp):
 
 probe_paths = sorted(glob.glob(os.path.join(ROOT, "test/c0/probes/*.c")))
 names = [os.path.basename(p)[:-2] for p in probe_paths]
-assert len(names) == 110, f"expected 110 probes, got {len(names)}"
+assert len(names) == 111, f"expected 111 probes, got {len(names)}"
 
 lean = """import LeanQbe.T.Frontend.C0
 import LeanQbe.T.PrintCpp
@@ -235,8 +237,6 @@ def check_one(n):
         return ("REJ", 0)
     if not os.path.exists(hpp):
         return f"FAIL {n}: unexpectedly rejected: {errs.get(n, '(no message)')}"
-    if n == "y_cppkw":
-        return ("ELAB_ONLY", 0)
     specs = parse_specs(os.path.join(ROOT, "test/c0/probes", f"{n}.c"))
     nat_src, total = gen_driver(n, specs, cpp=False)
     low_src, _ = gen_driver(n, specs, cpp=True)
@@ -247,40 +247,42 @@ def check_one(n):
     c1 = subprocess.run(["timeout", "60", cc, "-std=c99", "-O2", "-fwrapv", "-fno-strict-aliasing", "-w"] + inc + [os.path.join(PDIR, f"{n}_nat.c"), "-o", os.path.join(PDIR, f"{n}_nat")], capture_output=True, text=True)
     if c1.returncode != 0:
         return f"FAIL {n} native {cc} compile: {c1.stderr[:500]}"
-    c2 = subprocess.run(["timeout", "60", "g++", "-std=c++20", "-O2", "-w", "-I", os.path.join(ROOT, "LeanQbe/T/Runtime"), "-I", PDIR, os.path.join(PDIR, f"{n}_low.cpp"), "-o", os.path.join(PDIR, f"{n}_low")], capture_output=True, text=True)
-    if c2.returncode != 0:
-        return f"FAIL {n} lowered g++ compile: {c2.stderr[:500]}"
     rn = subprocess.run(["timeout", "10", os.path.join(PDIR, f"{n}_nat")], capture_output=True, text=True)
-    rl = subprocess.run(["timeout", "10", os.path.join(PDIR, f"{n}_low")], capture_output=True, text=True)
-    if rn.returncode != 0 or rl.returncode != 0:
-        return f"FAIL {n} run rc=({rn.returncode},{rl.returncode})"
+    if rn.returncode != 0:
+        return f"FAIL {n} native run rc={rn.returncode}"
     nat_lines = rn.stdout.strip().split("\n") if rn.stdout.strip() else []
-    low_lines = rl.stdout.strip().split("\n") if rl.stdout.strip() else []
-    if len(nat_lines) != total or len(low_lines) != total:
-        return f"FAIL {n} line count mismatch ({len(nat_lines)} vs {len(low_lines)} vs {total})"
-    checked = 0
-    for i, (la, lb) in enumerate(zip(nat_lines, low_lines)):
-        if n == "call_order" and any(x in la for x in ("k1 ", "k1n ", "k3c ")):
-            continue
-        if n in PTR_IN_BUF:
-            # Compare return value prefix (before buffer dump containing process-local pointers)
-            ra, rb = la.split(" b0=")[0], lb.split(" b0=")[0]
-            if ra != rb:
-                return f"FAIL {n} case {i} return mismatch:\n  nat: {la}\n  low: {lb}"
-        elif la != lb:
-            return f"FAIL {n} case {i} mismatch ({cc}):\n  nat: {la}\n  low: {lb}"
-        checked += 1
+    if len(nat_lines) != total:
+        return f"FAIL {n} native line count mismatch ({len(nat_lines)} vs {total})"
+    for cxx, extra in [("g++", []), ("clang++", ["-fsanitize=undefined,address"])]:
+        binp = os.path.join(PDIR, f"{n}_{cxx}")
+        c2 = subprocess.run(["timeout", "60", cxx, "-std=c++20", "-O2", "-w"] + extra + ["-I", os.path.join(ROOT, "LeanQbe/T/Runtime"), "-I", PDIR, os.path.join(PDIR, f"{n}_low.cpp"), "-o", binp], capture_output=True, text=True)
+        if c2.returncode != 0:
+            return f"FAIL {n} lowered {cxx} compile: {c2.stderr[:500]}"
+        rl = subprocess.run(["timeout", "10", binp], capture_output=True, text=True, env=dict(os.environ, ASAN_OPTIONS="detect_leaks=0"))
+        if rl.returncode != 0:
+            return f"FAIL {n} lowered {cxx} run rc={rl.returncode}: {rl.stderr[:300]}"
+        low_lines = rl.stdout.strip().split("\n") if rl.stdout.strip() else []
+        if len(low_lines) != total:
+            return f"FAIL {n} {cxx} line count mismatch ({len(low_lines)} vs {total})"
+        for i, (la, lb) in enumerate(zip(nat_lines, low_lines)):
+            if n == "call_order" and any(x in la for x in ("k1 ", "k1n ", "k3c ")):
+                continue
+            if n in PTR_IN_BUF:
+                ra, rb = la.split(" b0=")[0], lb.split(" b0=")[0]
+                if ra != rb:
+                    return f"FAIL {n} ({cxx}) case {i} return mismatch:\n  nat: {la}\n  low: {lb}"
+            elif la != lb:
+                return f"FAIL {n} ({cxx}) case {i} mismatch ({cc}):\n  nat: {la}\n  low: {lb}"
+    checked = sum(1 for la in nat_lines if not (n == "call_order" and any(x in la for x in ("k1 ", "k1n ", "k3c "))))
     return ("PASS", checked)
 
-failures, rej_cnt, pass_cnt, elab_cnt, case_cnt = [], 0, 0, 0, 0
+failures, rej_cnt, pass_cnt, case_cnt = [], 0, 0, 0
 with concurrent.futures.ThreadPoolExecutor(12) as ex:
     for res in ex.map(check_one, names):
         if isinstance(res, str):
             failures.append(res)
         elif res[0] == "REJ":
             rej_cnt += 1
-        elif res[0] == "ELAB_ONLY":
-            elab_cnt += 1
         else:
             pass_cnt += 1
             case_cnt += res[1]
@@ -289,7 +291,7 @@ for f in failures:
     print(f, file=sys.stderr)
 if failures:
     sys.exit(1)
-print(f"Regression probes passed: {pass_cnt} matched ({case_cnt} cases), {rej_cnt} rejected as expected, {elab_cnt} elab-only (N9 C++ keyword).")
+print(f"Regression probes passed (g++ + clang++ ASan/UBSan): {pass_cnt} matched ({case_cnt} cases), {rej_cnt} rejected as expected.")
 PY
 
 echo "== test/c0/run.sh: ALL PASSED =="

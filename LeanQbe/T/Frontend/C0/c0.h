@@ -6,7 +6,16 @@
 #include <stdint.h>
 #include <string.h>
 
-/* Fixed-width C0 scalar types (SysV LP64) */
+/*
+ * Fixed-width C0 scalar types (SysV LP64)
+ *
+ * Bitfield portability note (>32-bit bitfields):
+ *   Arithmetic directly on a bitfield wider than 32 bits (e.g. `u64 g : 40`)
+ *   evaluates in the 64-bit declared integer type in C0 and clang, whereas gcc
+ *   uses modular arithmetic at the bitfield width (40 bits). Use an explicit
+ *   `(u64)`/`(i64)` cast before arithmetic when >32-bit bitfields must behave
+ *   identically under gcc.
+ */
 typedef uint8_t  u8;
 typedef uint16_t u16;
 typedef uint32_t u32;

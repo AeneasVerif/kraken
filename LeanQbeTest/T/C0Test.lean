@@ -176,6 +176,7 @@ theorem leanrc_moduleOk : ModuleOk (fun _ _ _ _ _ _ _ => False) leanrc_module :=
     simp [Fn.callsOk, find_guarded, find_guarded_body, Expr.callsOk, Blocks.callsOk]
 
 #guard (PrintCpp.ppModule leanrc_fns).isOk
+#guard (PrintCpp.ppTModule leanrc_module).isOk
 
 end V3LeanRc
 
