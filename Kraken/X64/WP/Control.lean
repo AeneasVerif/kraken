@@ -8,7 +8,7 @@ public import Kraken.X64.Sep
 
 Step lemmas, in continuation-passing form, for the control-flow instructions a compiler emits:
 `jmp L`, `jcc L`, `call L` and `ret`, at any position of any `Host` program. The encodings are the
-ones the parser produces (`parse("jmp L") = [Directive.jmpTo "L"]` etc.).
+ones the parser produces (`⸨prog| jmp L ⸩ = [Directive.jmpTo "L"]` etc.).
 
 Labels resolve to their *first* definition in the host program (`Host.label_eq_addrOf`), so every
 lemma that jumps to a label takes the hypothesis `hfirst` that no earlier directive defines the same

@@ -41,9 +41,8 @@ All statements are generic in the `Host` and the position. Axioms: only `propext
 | File | Lemmas |
 |---|---|
 | `Kraken/Data/List/Infix.lean` | `List.isInfixAt_singleton` |
-| `Kraken/Layout.lean` | `Executable.sizeBefore_le_total`, `Executable.sizeBefore_eq_of_addrOf_eq` (executable below `2^64` bytes) |
-| `Kraken/X64/Inert.lean` | `Directive.inert_label` |
-| `Kraken/X64/WP/Host.lean` | `Host.label_eq_addrOf` (first definition), `Host.LabelsUnique`, `Host.LabelsUnique.first`, `Host.label_eq_addrOf_of_unique`, `Program.definedLabels`, `Host.labelsUnique_of_nodup` (decidable), `Host.ofLayout` (concrete hosts: zero size only for labels, size below `2^64`) |
+| `Kraken/Layout.lean` | `Executable.sizeBefore_le_total`, `Executable.sizeBefore_eq_of_addrOf_eq` (executable below `2^64` bytes; `Host.ofLayout` uses upstream `inert_of_size_zero`) |
+| `Kraken/X64/WP/Host.lean` | `Host.label_eq_addrOf` (first definition), `Host.LabelsUnique`, `Host.LabelsUnique.first`, `Host.label_eq_addrOf_of_unique`, `Program.definedLabels`, `Host.labelsUnique_of_nodup` (decidable), `Host.ofLayout` (concrete hosts: takes `Layout` and executable size below `2^64`) |
 | `Kraken/X64/WP/Basic.lean` | `Host.eventually_of_interp_cps`, `Host.step1_iff_interp` (converse, positive size), `Host.eventually_label`, `Program.wp_nil`, `Program.wp_singleton`, `Program.wp_label`, `Program.wp_append` |
 | `Kraken/X64/WP/Control.lean` (new) | encodings `Directive.jmpTo`, `jccTo`, `callTo`, `ret`; `Host.eventually_jmp`, `eventually_jcc`, `eventually_jcc_taken`, `eventually_jcc_fallthrough`, `eventually_call`, `eventually_ret`; `Program.wp_callTo` |
 | `Kraken/X64/Sep.lean` | `store_All_of_sep`, `load_All_of_sep` (now imports `Kraken.X64.OmniSemantics`) |
@@ -58,10 +57,11 @@ in namespace `SpikeK`).
 
 ## K2: AArch64 (commit `4952311`)
 
-`Kraken/AArch64/{Inert,WP/Host,WP/Basic}.lean` are verbatim copies of the x64 files *including the
+`Kraken/AArch64/WP/{Host,Basic}.lean` are adapted copies of the x64 files *including the
 K1 additions* (label resolution, `LabelsUnique`, `Host.ofLayout`, CPS step lemma, `wp` rules); only
-the import lines differ. This confirms Spike K's finding that these files are
-architecture-independent. Duplication: 31 + 241 + 197 lines. Making Kraken architecture-generic would
+the import lines differ (both use upstream `Kraken.Layout` after the `#230` rebase, removing the
+earlier `Inert.lean` files). This confirms Spike K's finding that these files are
+architecture-independent. Duplication: 219 + 218 lines. Making Kraken architecture-generic would
 remove it but is out of scope (plan 2.6).
 
 | File | Lemmas |
@@ -283,6 +283,21 @@ directives and per-function stack bounds in the kernel (`lrat_bytes_module_compi
   - `test/arm64/Emit.lean` + `test/arm64/run.sh`: **28/28 PASS** under `qemu-aarch64` across all 14
     suites (including `lrat_bytes (arm64)` and `lrat_bytes (stock qbe arm64)` against guard-paged
     `test/lrat_bytes_main.c`).
+
+## T0: Rebase Kraken onto upstream `bf9a5e3`
+
+- **Worktree**: `/usr/local/google/home/andreser/kraken/lean-qbe-v2` (branch `lean-qbe-v2`, HEAD `d2b7a5e71d28d51f1bd5395d5e5c522f53233e7f`, clean working tree), rebased all 36 local Kraken commits (`bf9a5e3..d2b7a5e`, keeping WP libraries, `div`/`idiv`, condition-code suffix tests, Bedrock2 port, and `nightly-2026-11-08` per decision `G3`) onto upstream `main` `bf9a5e3` (`bf9a5e33ac33cd40cd379121e658fce6f90f18e3`).
+  - Folded all upstream `bf9a5e3` adaptations directly into the rebased history with zero uncommitted files left behind (`git status` clean): `f4217ff` (`Kraken/Bedrock2/NonVacuity.lean` `l.mapM id`), `a7bc894` (`Kraken/SeparationMem.lean` `#253` `List.mapM_pure` adaptation + `Kraken/SeparationTests.lean` + `nightly-2026-11-08`), `fca3926` (`Kraken/X64/WP/Control.lean` `#229` `⸨prog| ... ⸩` docstrings & `#230` `Host.ofLayout` docstring without `hzero` in `Kraken/X64/WP/Host.lean`), `a6129f6` (`#230` deletion of `Kraken/AArch64/Inert.lean` and adaptation of `Kraken/AArch64/WP/{Basic,Control,Host}.lean` + `Kraken/AArch64/WPTests.lean`), `f37cc00` (`Host.label_undefined`), `b948f81` (`div`/`idiv`), and `d2b7a5e` (`Kraken/X64/ParserTests.lean` condition-code suffix alias tests covering `setcc`/`jcc`/`cmovcc`, including `pe`/`po`).
+- **`lean-qbe` updates**: committed on `main` (clean working tree except pre-existing untracked `conversations.txt`), pointing `lakefile.toml` and `lake-manifest.json` at `/usr/local/google/home/andreser/kraken/lean-qbe-v2` (`d2b7a5e71d28d51f1bd5395d5e5c522f53233e7f`), parameterizing `TargetLayout` (updated generic docstring) and `checkCompileResult` on `progSmall` (for `#230` directive sizes), deduplicating uniform host layout helpers (`uniformLayout`, `uniformDirSize`, `uniformProgSmall`, `uniformLayout_small`, `labelsNodup`, `labelsNodup_nodup`) into `LeanQbe/AbiLemmas.lean` for `LeanQbe/Amd64/TargLemmas.lean` and `LeanQbe/Arm64/Abi.lean`, updating `Mem.mem_of_loadBytes`/`allSome_isSome` for `List.mapM id`, and migrating `ParserChecks` to `⸨prog| ... ⸩` across `LeanQbe/{AbiLemmas,Main,MainLemmas}.lean`, `LeanQbe/Amd64/{TargLemmas,IselLemmas}.lean`, and `LeanQbe/Arm64/{Abi,FrameLemmas,IselLemmas}.lean`.
+- **Verification**:
+  - `lean-qbe-v2` intermediate commits: `f4217ff` (`lake build` 30 jobs; only pre-existing `Kraken/SeparationMem.lean:79:74` `dif_pos` deprecation before `a7bc894`), `a7bc894` (`--wfail` 32 jobs), `fca3926` (`--wfail` 97 jobs), `a6129f6` (`--wfail` 62 jobs), `f37cc00` (`--wfail` 77 jobs), `b948f81` (`--wfail` 83 jobs).
+  - `lean-qbe-v2` (at `d2b7a5e`): `lake build` + `lake build KrakenAArch64 KrakenBedrock2 krakenrunner_x64 krakenrunner_aarch64 att2intel bedrock2c` → `247 jobs` + `180 jobs` (only warnings are the 3 pre-existing upstream `sorry`s in `Kraken/X64/Examples/Examples.lean:111:4`, `:518:2`, and `Kraken/X64/Examples/IncrementDMA.lean:70:4`); `lake build --wfail` on all non-`sorry` targets (`Kraken.SeparationMem`, `Kraken.SeparationTests`, `Kraken.X64.WP.{Control,Host}`, `Kraken.X64.{WPTests,ParserTests,PrintATTTests,SemanticsTests}`, `KrakenAArch64`, `Kraken.AArch64.WPTests`, `KrakenBedrock2`, `krakenrunner_x64`, `krakenrunner_aarch64`, `att2intel`, `bedrock2c`) → `Build completed successfully (206 jobs)`.
+  - `lean-qbe-v2`: `python3 Kraken/X64/Test/asm_tests.py --skip-sde Kraken/X64/Test/asm` → `70/70 passed` (native; `--skip-sde`); `python3 Kraken/AArch64/Test/asm_tests.py Kraken/AArch64/Test/asm` → `63/63 passed`.
+  - `lean-qbe-v2`: `fuzz_x64.py --batches 10 --batch-size 100 --seed 1` → 1000 seqs, 0 failures; `fuzz_aarch64.py --batches 10 --batch-size 100 --seed 1` → 1000 seqs, 0 failures.
+  - `lean-qbe-v2`: `python3 Kraken/Bedrock2/Test/c_tests.py` → `PASS=746, XFAIL=6`; `python3 Kraken/Bedrock2/Test/c_tests.py --gen 1 200 --no-corpus --config-filter 'O3-flto-ubsan|m64-O0-asan'` → `PASS=1200`.
+  - `lean-qbe`: `bash scripts/all.sh` → all 5 PASS (`scripts/check.sh` 330 jobs `--wfail` + 133/133 axiom reports + step 5 `Amd64/LratBytes.lean` ~27s / `Arm64/LratBytes.lean` ~26s CPU under `maxHeartbeats 48000`, `test/run.sh`, `test/arm64/run.sh`, `tool/test_lrat_check.sh`, `bench/run.sh`).
+  - `lean-qbe`: `bash scripts/qbe_difftest.sh` → `amd64: 46068 results match`, `arm64: 46068 results match` (91 functions).
+  - `lean-qbe`: `bash scripts/qbe_tests.sh` → `parsed and passed: 19 (leanqbe x64 compiled and passed: 17), parsed and failed: 0, skipped: 57`.
 
 ## Next
 

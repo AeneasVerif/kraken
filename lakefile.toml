@@ -52,14 +52,17 @@ name = "KrakenBedrock2"
 [[lean_exe]]
 name = "krakenrunner_x64"
 root = "KrakenRunnerX64"
+supportInterpreter = true
 
 [[lean_exe]]
 name = "krakenrunner_aarch64"
 root = "KrakenRunnerAArch64"
+supportInterpreter = true
 
 [[lean_exe]]
 name = "att2intel"
 root = "Att2Intel"
+supportInterpreter = true
 
 [[lean_exe]]
 name = "bedrock2c"

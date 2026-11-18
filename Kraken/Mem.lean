@@ -18,12 +18,10 @@ open Std
 open Std.ExtHashMap
 open List
 
-def List.allSome {α} (l : List (Option α)) : Option (List α) := l.mapM id
-
 abbrev Mem (w) := ExtHashMap (BitVec w) UInt8
 
 def Mem.loadBytes {w} (m : Mem w) (a : BitVec w) (n : Nat) : Option (List UInt8) :=
-  ((List.range n).map (fun i => m.get? (a + .ofNat _ i))).allSome
+  ((List.range n).map (fun i => m.get? (a + .ofNat _ i))).mapM id
 
 def Mem.loadInt {w} (m : Mem w) (a : BitVec w) (n : Nat) : Option Int :=
   (loadBytes m a n).map Int.ofBytes

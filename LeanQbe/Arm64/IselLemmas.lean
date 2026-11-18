@@ -492,67 +492,72 @@ section ParserChecks
 open Kraken.AArch64.Parser
 
 -- Basic snippets
-example : mov (.reg .X0) (.reg .X1) = parseAArch64("add x0, x1, #0") := rfl
-example : movi (.reg .X0) 42 = parseAArch64("ldr x0, =42") := rfl
-example : jmp "L" = parseAArch64("b L") := rfl
-example : jnz (.reg .X0) "L" = parseAArch64("cbnz w0, L") := rfl
-example : ret = parseAArch64("ret") := rfl
+example : mov (.reg .X0) (.reg .X1) = ⸨prog| add x0, x1, #0 ⸩ := rfl
+example : movi (.reg .X0) 42 = ⸨prog| ldr x0, =42 ⸩ := rfl
+example : jmp "L" = ⸨prog| b L ⸩ := rfl
+example : jnz (.reg .X0) "L" = ⸨prog| cbnz w0, L ⸩ := rfl
+example : ret = ⸨prog| ret ⸩ := rfl
 
 -- Loads (all Sz × Bool × Cls combinations, register and immediate addresses)
-example : load .l .l false (.reg .X0) (.var (.reg .X1)) = some (parseAArch64("ldr x0, [x1]")) := rfl
+example : load .l .l false (.reg .X0) (.var (.reg .X1)) = some ⸨prog| ldr x0, [x1] ⸩ := rfl
 example : load .w .l false (.reg .X0) (.var (.reg .X1)) =
-  some (parseAArch64("ldr x0, [x1]
-mov w0, w0")) := rfl
+  some ⸨prog|
+    ldr x0, [x1]
+    mov w0, w0 ⸩ := rfl
 example : load .l .w true  (.reg .X0) (.var (.reg .X1)) =
-  some (parseAArch64("ldrsw x0, [x1]")) := rfl
-example : load .l .w false (.reg .X0) (.var (.reg .X1)) = some (parseAArch64("ldr w0, [x1]")) := rfl
-example : load .w .w true  (.reg .X0) (.var (.reg .X1)) = some (parseAArch64("ldr w0, [x1]")) := rfl
+  some ⸨prog| ldrsw x0, [x1] ⸩ := rfl
+example : load .l .w false (.reg .X0) (.var (.reg .X1)) = some ⸨prog| ldr w0, [x1] ⸩ := rfl
+example : load .w .w true  (.reg .X0) (.var (.reg .X1)) = some ⸨prog| ldr w0, [x1] ⸩ := rfl
 example : load .l .h false (.reg .X0) (.var (.reg .X1)) =
-  some (parseAArch64("ldrh w0, [x1]")) := rfl
+  some ⸨prog| ldrh w0, [x1] ⸩ := rfl
 example : load .l .h true  (.reg .X0) (.var (.reg .X1)) =
-  some (parseAArch64("ldrsh x0, [x1]")) := rfl
+  some ⸨prog| ldrsh x0, [x1] ⸩ := rfl
 example : load .w .h true  (.reg .X0) (.var (.reg .X1)) =
-  some (parseAArch64("ldrsh w0, [x1]")) := rfl
+  some ⸨prog| ldrsh w0, [x1] ⸩ := rfl
 example : load .l .b false (.reg .X0) (.var (.reg .X1)) =
-  some (parseAArch64("ldrb w0, [x1]")) := rfl
+  some ⸨prog| ldrb w0, [x1] ⸩ := rfl
 example : load .l .b true  (.reg .X0) (.var (.reg .X1)) =
-  some (parseAArch64("ldrsb x0, [x1]")) := rfl
+  some ⸨prog| ldrsb x0, [x1] ⸩ := rfl
 example : load .w .b true  (.reg .X0) (.var (.reg .X1)) =
-  some (parseAArch64("ldrsb w0, [x1]")) := rfl
+  some ⸨prog| ldrsb w0, [x1] ⸩ := rfl
 example : load .l .l false (.reg .X0) (.imm 0x1000) =
-  some (parseAArch64("ldr x16, =4096
-ldr x0, [x16]")) := rfl
+  some ⸨prog|
+    ldr x16, =4096
+    ldr x0, [x16] ⸩ := rfl
 
 -- Stores (all Sz, register and immediate operands)
-example : store .l (.var (.reg .X0)) (.var (.reg .X1)) = some (parseAArch64("str x0, [x1]")) := rfl
-example : store .w (.var (.reg .X0)) (.var (.reg .X1)) = some (parseAArch64("str w0, [x1]")) := rfl
-example : store .h (.var (.reg .X0)) (.var (.reg .X1)) = some (parseAArch64("strh w0, [x1]")) := rfl
-example : store .b (.var (.reg .X0)) (.var (.reg .X1)) = some (parseAArch64("strb w0, [x1]")) := rfl
+example : store .l (.var (.reg .X0)) (.var (.reg .X1)) = some ⸨prog| str x0, [x1] ⸩ := rfl
+example : store .w (.var (.reg .X0)) (.var (.reg .X1)) = some ⸨prog| str w0, [x1] ⸩ := rfl
+example : store .h (.var (.reg .X0)) (.var (.reg .X1)) = some ⸨prog| strh w0, [x1] ⸩ := rfl
+example : store .b (.var (.reg .X0)) (.var (.reg .X1)) = some ⸨prog| strb w0, [x1] ⸩ := rfl
 example : store .b (.imm 0) (.var (.reg .X1)) =
-  some (parseAArch64("ldr x17, =0
-strb w17, [x1]")) := rfl
+  some ⸨prog|
+    ldr x17, =0
+    strb w17, [x1] ⸩ := rfl
 
 -- Representative operations (bin, cmp, ext, copy)
 example : op (.bin .l .add (.var (.reg .X1)) (.var (.reg .X2))) (.reg .X0) =
-  some (parseAArch64("add x0, x1, x2")) := rfl
+  some ⸨prog| add x0, x1, x2 ⸩ := rfl
 example : op (.bin .w .sub (.var (.reg .X1)) (.var (.reg .X2))) (.reg .X0) =
-  some (parseAArch64("sub w0, w1, w2")) := rfl
+  some ⸨prog| sub w0, w1, w2 ⸩ := rfl
 example : op (.bin .l .mul (.var (.reg .X1)) (.var (.reg .X2))) (.reg .X0) =
-  some (parseAArch64("mul x0, x1, x2")) := rfl
+  some ⸨prog| mul x0, x1, x2 ⸩ := rfl
 example : op (.bin .l .div (.var (.reg .X1)) (.var (.reg .X2))) (.reg .X0) =
-  some (parseAArch64("sdiv x0, x1, x2")) := rfl
+  some ⸨prog| sdiv x0, x1, x2 ⸩ := rfl
 example : op (.bin .l .rem (.var (.reg .X1)) (.var (.reg .X2))) (.reg .X0) =
-  some (parseAArch64("sdiv x17, x1, x2
-msub x0, x17, x2, x1")) := rfl
+  some ⸨prog|
+    sdiv x17, x1, x2
+    msub x0, x17, x2, x1 ⸩ := rfl
 example : op (.cmp .l .slt (.var (.reg .X1)) (.var (.reg .X2))) (.reg .X0) =
-  some (parseAArch64("cmp x1, x2
-cset w0, lt")) := rfl
+  some ⸨prog|
+    cmp x1, x2
+    cset w0, lt ⸩ := rfl
 example : op (.ext .l .b true (.var (.reg .X1))) (.reg .X0) =
-  some (parseAArch64("sxtb x0, w1")) := rfl
+  some ⸨prog| sxtb x0, w1 ⸩ := rfl
 example : op (.ext .w .h false (.var (.reg .X1))) (.reg .X0) =
-  some (parseAArch64("uxth w0, w1")) := rfl
+  some ⸨prog| uxth w0, w1 ⸩ := rfl
 example : op (.copy .w (.var (.reg .X1))) (.reg .X0) =
-  some (parseAArch64("mov w0, w1")) := rfl
+  some ⸨prog| mov w0, w1 ⸩ := rfl
 
 end ParserChecks
 

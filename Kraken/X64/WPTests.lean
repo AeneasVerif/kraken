@@ -7,29 +7,20 @@ import Kraken.X64.WP
 /-! Tests for `Kraken.X64.WP`: the control-flow encodings and a concrete `Host`. -/
 
 open Kraken.X64.Parser in
-example : parse("jmp sym
+example : ⸨prog|
+  jmp sym
   jnz sym
   call sym
-  ret") = [.jmpTo "sym", .jccTo .nz "sym", .callTo "sym", .ret] := rfl
+  ret ⸩ = [.jmpTo "sym", .jccTo .nz "sym", .callTo "sym", .ret] := rfl
 
 namespace WPTests
 
 private def prog : Program := [.jmpTo "L", .label "L", .ret]
 
-@[instance_reducible] private def layout : Layout := { start := 0x1000, size := fun i => if i = 1 then 0 else 2 }
+@[instance_reducible] private def layout : Layout :=
+  { start := 0x1000, instrSize := fun _ => 2, instrSize_pos := fun _ => by decide }
 
-private abbrev host : Host :=
-  .ofLayout prog layout
-    (fun i d hd hz => by
-      have hz' : (if i = 1 then 0 else 2) = 0 := hz
-      have hi : i = 1 := by
-        by_cases h : i = 1
-        · exact h
-        · simp [h] at hz'
-      subst hi
-      simp only [prog, List.getElem?_cons_succ, List.getElem?_cons_zero, Option.some.injEq] at hd
-      exact ⟨"L", hd.symm⟩)
-    (by decide)
+private abbrev host : Host := .ofLayout prog layout (by decide)
 
 attribute [local instance] host
 
@@ -54,20 +45,9 @@ namespace WPTests.Counter
 private def prog : Program := [.label "L", .jmpTo "L", .label "L"]
 
 @[instance_reducible] private def layout : Layout :=
-  { start := 0x1000, size := fun i => if i = 1 then 2 else 0 }
+  { start := 0x1000, instrSize := fun _ => 2, instrSize_pos := fun _ => by decide }
 
-private abbrev host : Host :=
-  .ofLayout prog layout
-    (fun i d hd hz => by
-      have hz' : (if i = 1 then 2 else 0) = 0 := hz
-      rcases i with _ | _ | _ | i
-      · simp only [prog, List.getElem?_cons_zero, Option.some.injEq] at hd
-        exact ⟨"L", hd.symm⟩
-      · simp at hz'
-      · simp only [prog, List.getElem?_cons_succ, List.getElem?_cons_zero, Option.some.injEq] at hd
-        exact ⟨"L", hd.symm⟩
-      · simp [prog] at hd)
-    (by decide)
+private abbrev host : Host := .ofLayout prog layout (by decide)
 
 attribute [local instance] host
 

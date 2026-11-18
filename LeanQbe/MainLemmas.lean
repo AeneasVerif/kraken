@@ -236,19 +236,19 @@ def extractBounds {D : Type} (res : Except String (List D × List (String × Nat
   | .ok (_, b) => b
   | .error _ => []
 
-theorem extractResult_eq {D : Type} {label : String → D} {labelsNodup : List D → Bool}
+theorem extractResult_eq {D : Type} {label : String → D} {labelsNodup progSmall : List D → Bool}
     {res : Except String (List D × List (String × Nat))}
     {fnNames exits : List String} {maxBound : Nat}
-    (h : checkCompileResult label labelsNodup res fnNames exits maxBound = true) :
+    (h : checkCompileResult label labelsNodup progSmall res fnNames exits maxBound = true) :
     res = .ok (extractCode res, extractBounds res) := by
   cases res with
   | error _ => simp [checkCompileResult] at h
   | ok cb => rcases cb with ⟨c, b⟩; rfl
 
-theorem extract_nodup {D : Type} {label : String → D} {labelsNodup : List D → Bool}
+theorem extract_nodup {D : Type} {label : String → D} {labelsNodup progSmall : List D → Bool}
     {res : Except String (List D × List (String × Nat))}
     {fnNames exits : List String} {maxBound : Nat}
-    (h : checkCompileResult label labelsNodup res fnNames exits maxBound = true) :
+    (h : checkCompileResult label labelsNodup progSmall res fnNames exits maxBound = true) :
     labelsNodup (extractCode res ++ exits.map label) = true := by
   cases res with
   | error _ => simp [checkCompileResult] at h
@@ -257,22 +257,22 @@ theorem extract_nodup {D : Type} {label : String → D} {labelsNodup : List D �
     simp only [checkCompileResult, Bool.and_eq_true] at h
     exact h.1.1.1
 
-theorem extract_small {D : Type} {label : String → D} {labelsNodup : List D → Bool}
+theorem extract_small {D : Type} {label : String → D} {labelsNodup progSmall : List D → Bool}
     {res : Except String (List D × List (String × Nat))}
     {fnNames exits : List String} {maxBound : Nat}
-    (h : checkCompileResult label labelsNodup res fnNames exits maxBound = true) :
-    4 * (extractCode res ++ exits.map label).length < 2 ^ 64 := by
+    (h : checkCompileResult label labelsNodup progSmall res fnNames exits maxBound = true) :
+    progSmall (extractCode res ++ exits.map label) = true := by
   cases res with
   | error _ => simp [checkCompileResult] at h
   | ok cb =>
     rcases cb with ⟨c, b⟩
-    simp only [checkCompileResult, Bool.and_eq_true, decide_eq_true_eq] at h
+    simp only [checkCompileResult, Bool.and_eq_true] at h
     exact h.1.1.2
 
-theorem extract_bound_le {D : Type} {label : String → D} {labelsNodup : List D → Bool}
+theorem extract_bound_le {D : Type} {label : String → D} {labelsNodup progSmall : List D → Bool}
     {res : Except String (List D × List (String × Nat))}
     {fnNames exits : List String} {maxBound : Nat}
-    (h : checkCompileResult label labelsNodup res fnNames exits maxBound = true)
+    (h : checkCompileResult label labelsNodup progSmall res fnNames exits maxBound = true)
     (nm : String) :
     (lookupBound (extractBounds res) nm).getD 0 ≤ maxBound := by
   cases res with
@@ -288,10 +288,10 @@ theorem extract_bound_le {D : Type} {label : String → D} {labelsNodup : List D
       have hmem := lookupBound_mem hlk
       grind
 
-theorem extract_bound_mem {D : Type} {label : String → D} {labelsNodup : List D → Bool}
+theorem extract_bound_mem {D : Type} {label : String → D} {labelsNodup progSmall : List D → Bool}
     {res : Except String (List D × List (String × Nat))}
     {fnNames exits : List String} {maxBound : Nat}
-    (h : checkCompileResult label labelsNodup res fnNames exits maxBound = true)
+    (h : checkCompileResult label labelsNodup progSmall res fnNames exits maxBound = true)
     {nm : String} (hnm : nm ∈ fnNames) :
     (nm, (lookupBound (extractBounds res) nm).getD 0) ∈ extractBounds res := by
   cases res with
@@ -382,7 +382,7 @@ end Compiled
 def checkCompile (T : Target) (L : TargetLayout T)
     (extCallees : List (String × Nat)) (exits : List String) (nX : Nat)
     (fs : List Fn) (maxBound : Nat := 2048) : Bool :=
-  checkCompileResult T.label L.labelsNodup
+  checkCompileResult T.label L.labelsNodup L.progSmall
     (compileModule T.toIsa T.raBytes extCallees exits nX fs)
     (fs.map Fn.name) exits maxBound
 

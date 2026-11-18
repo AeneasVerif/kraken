@@ -1,5 +1,19 @@
 # Contributing
 
+## Pull request reviews
+
+- You can request a reviewer on your PR or ping someone in a PR comment to ask for a review
+  (keep work-in-progress PRs as drafts until ready).
+- Maintainers check PRs without a reviewer at least once a week and assign one.
+- A PR usually has one reviewer, unless there is a decision that several people should take a look.
+  When asking multiple reviewers, note what each person should look at and wait for all of them before merging.
+  Once a PR has a reviewer, that person is expected to review it,
+  so please check with them before reviewing a PR that already has one to avoid duplicating work.
+- If you are asked to review a PR and cannot get to it within a few days (or are not the right reviewer),
+  let the author know or suggest someone else so the PR does not sit blocked.
+- If you do not get a response within a week,
+  feel free to ping the reviewer or ask someone else to take a look.
+
 ## Reviewing semantics
 
 All changes to semantics should be thoroughly checked against the

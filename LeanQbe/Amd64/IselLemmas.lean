@@ -137,88 +137,88 @@ abbrev Kept (s s' : MachineData) : Prop :=
 
 section ParserChecks
 open Kraken.X64.Parser
-example : parse("mov %rsi, %rax") = mov .rax .rsi := rfl
-example : parse("mov $5, %rax") = movi .rax 5 := rfl
-example : parse("movq %rdi, (%rdx)") = [storelD .rdi .rdx] := rfl
-example : parse("mov (%rdx), %rax") = [ins (.mov (.reg (q .rax)) (.mem (atReg .rdx)))] := rfl
-example : parse("add %r10, %r11") = [(binIns .l .add).get rfl] := rfl
-example : parse("subl %r10d, %r11d") = [(binIns .w .sub).get rfl] := rfl
-example : parse("movl %esi, %eax") = [movlD .rax .rsi] := rfl
-example : parse("imul %r10, %r11") = [(binIns .l .mul).get rfl] := rfl
-example : parse("imull %r10d, %r11d") = [(binIns .w .mul).get rfl] := rfl
-example : parse("shl %cl, %r11") = [(shiftIns .l .shl).get rfl] := rfl
-example : parse("shr %cl, %r11") = [(shiftIns .l .shr).get rfl] := rfl
-example : parse("sar %cl, %r11") = [(shiftIns .l .sar).get rfl] := rfl
-example : parse("shll %cl, %r11d") = [(shiftIns .w .shl).get rfl] := rfl
-example : parse("shrl %cl, %r11d") = [(shiftIns .w .shr).get rfl] := rfl
-example : parse("sarl %cl, %r11d") = [(shiftIns .w .sar).get rfl] := rfl
-example : parse("cmp %r10, %r11") = [cmpIns .l] := rfl
-example : parse("cmpl %r10d, %r11d") = [cmpIns .w] := rfl
-example : parse("sete %r11b") = [setccD (condOf .eq)] := rfl
-example : parse("setne %r11b") = [setccD (condOf .ne)] := rfl
-example : parse("setle %r11b") = [setccD (condOf .sle)] := rfl
-example : parse("setl %r11b") = [setccD (condOf .slt)] := rfl
-example : parse("setge %r11b") = [setccD (condOf .sge)] := rfl
-example : parse("setg %r11b") = [setccD (condOf .sgt)] := rfl
-example : parse("setbe %r11b") = [setccD (condOf .ule)] := rfl
-example : parse("setb %r11b") = [setccD (condOf .ult)] := rfl
-example : parse("setae %r11b") = [setccD (condOf .uge)] := rfl
-example : parse("seta %r11b") = [setccD (condOf .ugt)] := rfl
-example : parse("neg %rdx") = [negIns .l .rdx] := rfl
-example : parse("negl %edx") = [negIns .w .rdx] := rfl
-example : parse("movzbl %r11b, %esi") = [movzbD .rsi] := rfl
-example : parse("movsbq %dil, %rax") = [extD .l .b true .rax .rdi] := rfl
-example : parse("movsbl %dil, %eax") = [extD .w .b true .rax .rdi] := rfl
-example : parse("movzbl %dil, %eax") = [extD .l .b false .rax .rdi] := rfl
-example : parse("movzbl %dil, %eax") = [extD .w .b false .rax .rdi] := rfl
-example : parse("movswq %di, %rax") = [extD .l .h true .rax .rdi] := rfl
-example : parse("movswl %di, %eax") = [extD .w .h true .rax .rdi] := rfl
-example : parse("movzwl %di, %eax") = [extD .l .h false .rax .rdi] := rfl
-example : parse("movzwl %di, %eax") = [extD .w .h false .rax .rdi] := rfl
-example : parse("movslq %edi, %rax") = [extD .l .w true .rax .rdi] := rfl
-example : parse("movl %edi, %eax") = [extD .w .w true .rax .rdi] := rfl
-example : parse("movl %edi, %eax") = [extD .l .w false .rax .rdi] := rfl
-example : parse("mov %rdi, %rax") = [extD .l .l true .rax .rdi] := rfl
-example : parse("movl %edi, %eax") = [extD .w .l false .rax .rdi] := rfl
-example : parse("movsbq (%rdx), %rax") = loadIns .l .b true .rax .rdx := rfl
-example : parse("movsbl (%rdx), %eax") = loadIns .w .b true .rax .rdx := rfl
-example : parse("movzbl (%rdx), %eax") = loadIns .l .b false .rax .rdx := rfl
-example : parse("movswq (%rdx), %rax") = loadIns .l .h true .rax .rdx := rfl
-example : parse("movswl (%rdx), %eax") = loadIns .w .h true .rax .rdx := rfl
-example : parse("movzwl (%rdx), %eax") = loadIns .w .h false .rax .rdx := rfl
-example : parse("movslq (%rdx), %rax") = loadIns .l .w true .rax .rdx := rfl
-example : parse("movl (%rdx), %eax") = loadIns .w .w true .rax .rdx := rfl
-example : parse("movl (%rdx), %eax") = loadIns .l .w false .rax .rdx := rfl
-example : parse("mov (%rdx), %rax") = loadIns .l .l false .rax .rdx := rfl
-example : parse("mov (%rdx), %rax; movl %eax, %eax") = loadIns .w .l true .rax .rdx := rfl
-example : parse("movb %r11b, (%rdx)") = [storeIns .b .rdx] := rfl
-example : parse("movw %r11w, (%rdx)") = [storeIns .h .rdx] := rfl
-example : parse("movl %r11d, (%rdx)") = [storeIns .w .rdx] := rfl
-example : parse("movq %r11, (%r10)") = [storeIns .l .r10] := rfl
-example : parse("mov $5, %r10; mov %r10, %r11; mov %rdi, %r10") =
+example : ⸨prog| mov %rsi, %rax ⸩ = mov .rax .rsi := rfl
+example : ⸨prog| mov $5, %rax ⸩ = movi .rax 5 := rfl
+example : ⸨prog| movq %rdi, (%rdx) ⸩ = [storelD .rdi .rdx] := rfl
+example : ⸨prog| mov (%rdx), %rax ⸩ = [ins (.mov (.reg (q .rax)) (.mem (atReg .rdx)))] := rfl
+example : ⸨prog| add %r10, %r11 ⸩ = [(binIns .l .add).get rfl] := rfl
+example : ⸨prog| subl %r10d, %r11d ⸩ = [(binIns .w .sub).get rfl] := rfl
+example : ⸨prog| movl %esi, %eax ⸩ = [movlD .rax .rsi] := rfl
+example : ⸨prog| imul %r10, %r11 ⸩ = [(binIns .l .mul).get rfl] := rfl
+example : ⸨prog| imull %r10d, %r11d ⸩ = [(binIns .w .mul).get rfl] := rfl
+example : ⸨prog| shl %cl, %r11 ⸩ = [(shiftIns .l .shl).get rfl] := rfl
+example : ⸨prog| shr %cl, %r11 ⸩ = [(shiftIns .l .shr).get rfl] := rfl
+example : ⸨prog| sar %cl, %r11 ⸩ = [(shiftIns .l .sar).get rfl] := rfl
+example : ⸨prog| shll %cl, %r11d ⸩ = [(shiftIns .w .shl).get rfl] := rfl
+example : ⸨prog| shrl %cl, %r11d ⸩ = [(shiftIns .w .shr).get rfl] := rfl
+example : ⸨prog| sarl %cl, %r11d ⸩ = [(shiftIns .w .sar).get rfl] := rfl
+example : ⸨prog| cmp %r10, %r11 ⸩ = [cmpIns .l] := rfl
+example : ⸨prog| cmpl %r10d, %r11d ⸩ = [cmpIns .w] := rfl
+example : ⸨prog| sete %r11b ⸩ = [setccD (condOf .eq)] := rfl
+example : ⸨prog| setne %r11b ⸩ = [setccD (condOf .ne)] := rfl
+example : ⸨prog| setle %r11b ⸩ = [setccD (condOf .sle)] := rfl
+example : ⸨prog| setl %r11b ⸩ = [setccD (condOf .slt)] := rfl
+example : ⸨prog| setge %r11b ⸩ = [setccD (condOf .sge)] := rfl
+example : ⸨prog| setg %r11b ⸩ = [setccD (condOf .sgt)] := rfl
+example : ⸨prog| setbe %r11b ⸩ = [setccD (condOf .ule)] := rfl
+example : ⸨prog| setb %r11b ⸩ = [setccD (condOf .ult)] := rfl
+example : ⸨prog| setae %r11b ⸩ = [setccD (condOf .uge)] := rfl
+example : ⸨prog| seta %r11b ⸩ = [setccD (condOf .ugt)] := rfl
+example : ⸨prog| neg %rdx ⸩ = [negIns .l .rdx] := rfl
+example : ⸨prog| negl %edx ⸩ = [negIns .w .rdx] := rfl
+example : ⸨prog| movzbl %r11b, %esi ⸩ = [movzbD .rsi] := rfl
+example : ⸨prog| movsbq %dil, %rax ⸩ = [extD .l .b true .rax .rdi] := rfl
+example : ⸨prog| movsbl %dil, %eax ⸩ = [extD .w .b true .rax .rdi] := rfl
+example : ⸨prog| movzbl %dil, %eax ⸩ = [extD .l .b false .rax .rdi] := rfl
+example : ⸨prog| movzbl %dil, %eax ⸩ = [extD .w .b false .rax .rdi] := rfl
+example : ⸨prog| movswq %di, %rax ⸩ = [extD .l .h true .rax .rdi] := rfl
+example : ⸨prog| movswl %di, %eax ⸩ = [extD .w .h true .rax .rdi] := rfl
+example : ⸨prog| movzwl %di, %eax ⸩ = [extD .l .h false .rax .rdi] := rfl
+example : ⸨prog| movzwl %di, %eax ⸩ = [extD .w .h false .rax .rdi] := rfl
+example : ⸨prog| movslq %edi, %rax ⸩ = [extD .l .w true .rax .rdi] := rfl
+example : ⸨prog| movl %edi, %eax ⸩ = [extD .w .w true .rax .rdi] := rfl
+example : ⸨prog| movl %edi, %eax ⸩ = [extD .l .w false .rax .rdi] := rfl
+example : ⸨prog| mov %rdi, %rax ⸩ = [extD .l .l true .rax .rdi] := rfl
+example : ⸨prog| movl %edi, %eax ⸩ = [extD .w .l false .rax .rdi] := rfl
+example : ⸨prog| movsbq (%rdx), %rax ⸩ = loadIns .l .b true .rax .rdx := rfl
+example : ⸨prog| movsbl (%rdx), %eax ⸩ = loadIns .w .b true .rax .rdx := rfl
+example : ⸨prog| movzbl (%rdx), %eax ⸩ = loadIns .l .b false .rax .rdx := rfl
+example : ⸨prog| movswq (%rdx), %rax ⸩ = loadIns .l .h true .rax .rdx := rfl
+example : ⸨prog| movswl (%rdx), %eax ⸩ = loadIns .w .h true .rax .rdx := rfl
+example : ⸨prog| movzwl (%rdx), %eax ⸩ = loadIns .w .h false .rax .rdx := rfl
+example : ⸨prog| movslq (%rdx), %rax ⸩ = loadIns .l .w true .rax .rdx := rfl
+example : ⸨prog| movl (%rdx), %eax ⸩ = loadIns .w .w true .rax .rdx := rfl
+example : ⸨prog| movl (%rdx), %eax ⸩ = loadIns .l .w false .rax .rdx := rfl
+example : ⸨prog| mov (%rdx), %rax ⸩ = loadIns .l .l false .rax .rdx := rfl
+example : ⸨prog| mov (%rdx), %rax; movl %eax, %eax ⸩ = loadIns .w .l true .rax .rdx := rfl
+example : ⸨prog| movb %r11b, (%rdx) ⸩ = [storeIns .b .rdx] := rfl
+example : ⸨prog| movw %r11w, (%rdx) ⸩ = [storeIns .h .rdx] := rfl
+example : ⸨prog| movl %r11d, (%rdx) ⸩ = [storeIns .w .rdx] := rfl
+example : ⸨prog| movq %r11, (%r10) ⸩ = [storeIns .l .r10] := rfl
+example : ⸨prog| mov $5, %r10; mov %r10, %r11; mov %rdi, %r10 ⸩ =
   (movi .r10 5 ++ [argTo .r11 (.var .r10), argTo .r10 (.var .rdi)]) := rfl
-example : parse("mov $0, %rdx; div %r11") = ((divCore .l .udiv).get rfl).1 := rfl
-example : parse("mov $0, %rdx; div %r11") = ((divCore .l .urem).get rfl).1 := rfl
-example : parse("mov $0, %rdx; divl %r11d") = ((divCore .w .udiv).get rfl).1 := rfl
-example : parse("mov $0, %rdx; divl %r11d") = ((divCore .w .urem).get rfl).1 := rfl
-example : parse("mov %rax, %rdx; sar $63, %rdx; idiv %r11") =
+example : ⸨prog| mov $0, %rdx; div %r11 ⸩ = ((divCore .l .udiv).get rfl).1 := rfl
+example : ⸨prog| mov $0, %rdx; div %r11 ⸩ = ((divCore .l .urem).get rfl).1 := rfl
+example : ⸨prog| mov $0, %rdx; divl %r11d ⸩ = ((divCore .w .udiv).get rfl).1 := rfl
+example : ⸨prog| mov $0, %rdx; divl %r11d ⸩ = ((divCore .w .urem).get rfl).1 := rfl
+example : ⸨prog| mov %rax, %rdx; sar $63, %rdx; idiv %r11 ⸩ =
   ((divCore .l .div).get rfl).1 := rfl
-example : parse("mov %rax, %rdx; sar $63, %rdx; idiv %r11") =
+example : ⸨prog| mov %rax, %rdx; sar $63, %rdx; idiv %r11 ⸩ =
   ((divCore .l .rem).get rfl).1 := rfl
-example : parse("movl %eax, %edx; sarl $31, %edx; idivl %r11d") =
+example : ⸨prog| movl %eax, %edx; sarl $31, %edx; idivl %r11d ⸩ =
   ((divCore .w .div).get rfl).1 := rfl
-example : parse("movl %eax, %edx; sarl $31, %edx; idivl %r11d") =
+example : ⸨prog| movl %eax, %edx; sarl $31, %edx; idivl %r11d ⸩ =
   ((divCore .w .rem).get rfl).1 := rfl
-example : parse("shlq $3, %rcx") = [(shiftImmIns .l .shl .rcx 3).get rfl] := rfl
-example : parse("shrl $3, %ecx") = [(shiftImmIns .w .shr .rcx 3).get rfl] := rfl
-example : parse("sarq $63, %rdx") = [(shiftImmIns .l .sar .rdx 63).get rfl] := rfl
-example : parse("add %rdi, %rcx") = [(binRegIns .l .add .rcx .rdi).get rfl] := rfl
-example : parse("subl %edi, %ecx") = [(binRegIns .w .sub .rcx .rdi).get rfl] := rfl
-example : parse("cmp %rax, %rdx") = [cmpRegIns .l .rdx .rax] := rfl
-example : parse("movb %sil, (%rdx)") = [storeRegIns .b .rsi .rdx] := rfl
-example : parse("movw %si, (%rdx)") = [storeRegIns .h .rsi .rdx] := rfl
-example : parse("movl %esi, (%rdx)") = [storeRegIns .w .rsi .rdx] := rfl
-example : parse("movq %rsi, (%rdx)") = [storeRegIns .l .rsi .rdx] := rfl
+example : ⸨prog| shlq $3, %rcx ⸩ = [(shiftImmIns .l .shl .rcx 3).get rfl] := rfl
+example : ⸨prog| shrl $3, %ecx ⸩ = [(shiftImmIns .w .shr .rcx 3).get rfl] := rfl
+example : ⸨prog| sarq $63, %rdx ⸩ = [(shiftImmIns .l .sar .rdx 63).get rfl] := rfl
+example : ⸨prog| add %rdi, %rcx ⸩ = [(binRegIns .l .add .rcx .rdi).get rfl] := rfl
+example : ⸨prog| subl %edi, %ecx ⸩ = [(binRegIns .w .sub .rcx .rdi).get rfl] := rfl
+example : ⸨prog| cmp %rax, %rdx ⸩ = [cmpRegIns .l .rdx .rax] := rfl
+example : ⸨prog| movb %sil, (%rdx) ⸩ = [storeRegIns .b .rsi .rdx] := rfl
+example : ⸨prog| movw %si, (%rdx) ⸩ = [storeRegIns .h .rsi .rdx] := rfl
+example : ⸨prog| movl %esi, (%rdx) ⸩ = [storeRegIns .w .rsi .rdx] := rfl
+example : ⸨prog| movq %rsi, (%rdx) ⸩ = [storeRegIns .l .rsi .rdx] := rfl
 end ParserChecks
 
 /-! ## Register file and addresses

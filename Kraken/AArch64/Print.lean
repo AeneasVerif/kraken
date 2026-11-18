@@ -203,10 +203,17 @@ def operation {w} (op : Operation w) : String :=
 
 def instr (i : Instr) : String := operation i.operation
 
+/-- The assembler directive for a data word of `bytes` bytes, in the GNU AArch64 spelling. Sizes
+without a dedicated directive use the GNU `.<n>byte` spelling. -/
+def dataWordDirective : Nat → String
+  | 1 => ".byte" | 2 => ".hword" | 4 => ".word" | 8 => ".xword"
+  | n => s!".{n}byte"
+
 def directive : _root_.Directive → String
   | .instr i => instr i
   | .label l => s!"{l}:"
   | .byteArray bs => ".byte " ++ ", ".intercalate (bs.toList.map toString)
+  | .word n e => s!"{dataWordDirective n} {constRaw e}"
 
 end Kraken.AArch64.Print
 

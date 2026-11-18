@@ -479,11 +479,11 @@ structure Instr where
   operation : Operation operation_size
   deriving Repr, DecidableEq, Hashable, Lean.ToExpr
 
-abbrev Directive := Kraken.Directive Instr
+abbrev Directive := Kraken.Directive Instr ConstExpr
 
 abbrev Program := List Directive
 
-abbrev Executable := Kraken.Executable Instr
+abbrev Executable := Kraken.Executable Instr ConstExpr
 
 namespace RegOrSp
 @[match_pattern] abbrev X0 := low (.reg .X0) .W64

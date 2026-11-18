@@ -290,14 +290,16 @@ end
 section ParserChecks
 open Kraken.AArch64.Parser
 
-example : prologue 1 = parseAArch64("sub sp, sp, #16
-str x30, [sp, #8]") := rfl
-example : epilogue 1 = parseAArch64("ldr x30, [sp, #8]
-add sp, sp, #16") := rfl
-example : slotSt 0 (.reg .X3) = parseAArch64("str x3, [sp]") := rfl
-example : slotLd (.reg .X3) 0 = parseAArch64("ldr x3, [sp]") := rfl
-example : call "f" = parseAArch64("bl f") := rfl
-example : tailJmp "f" = parseAArch64("b f") := rfl
+example : prologue 1 = ⸨prog|
+  sub sp, sp, #16
+  str x30, [sp, #8] ⸩ := rfl
+example : epilogue 1 = ⸨prog|
+  ldr x30, [sp, #8]
+  add sp, sp, #16 ⸩ := rfl
+example : slotSt 0 (.reg .X3) = ⸨prog| str x3, [sp] ⸩ := rfl
+example : slotLd (.reg .X3) 0 = ⸨prog| ldr x3, [sp] ⸩ := rfl
+example : call "f" = ⸨prog| bl f ⸩ := rfl
+example : tailJmp "f" = ⸨prog| b f ⸩ := rfl
 
 end ParserChecks
 

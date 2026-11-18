@@ -109,9 +109,9 @@ def compileModule (I : Isa) (raBytes : Nat) (extCallees : List (String × Nat))
     | _, none => .error s!"{f.name}: unknown callee, undeclared exit, or stack overflow"
 
 /-- Check a `compileModule` result in one boolean pass: compilation succeeded, all labels in
-`code ++ exits` are distinct, the trivial 4-byte-per-directive layout fits in 64 bits, every
-computed stack bound is at most `maxBound`, and every function name in `fnNames` has a bound. -/
-def checkCompileResult {D : Type} (label : String → D) (labelsNodup : List D → Bool)
+`code ++ exits` are distinct, the trivial layout fits in 64 bits, every computed stack bound is at
+most `maxBound`, and every function name in `fnNames` has a bound. -/
+def checkCompileResult {D : Type} (label : String → D) (labelsNodup progSmall : List D → Bool)
     (res : Except String (List D × List (String × Nat)))
     (fnNames exits : List String) (maxBound : Nat) : Bool :=
   match res with
@@ -119,7 +119,7 @@ def checkCompileResult {D : Type} (label : String → D) (labelsNodup : List D �
   | .ok (code, bounds) =>
     let prog := code ++ exits.map label
     labelsNodup prog &&
-    decide (4 * prog.length < 2 ^ 64) &&
+    progSmall prog &&
     bounds.all (fun p => decide (p.2 ≤ maxBound)) &&
     fnNames.all (fun nm => (lookupBound bounds nm).isSome)
 

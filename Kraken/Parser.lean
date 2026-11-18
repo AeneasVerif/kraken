@@ -39,11 +39,21 @@ def asmIdentToken.formatter : PrettyPrinter.Formatter := PrettyPrinter.Formatter
 @[combinator_parenthesizer asmIdentToken]
 def asmIdentToken.parenthesizer : PrettyPrinter.Parenthesizer := PrettyPrinter.Parenthesizer.visitToken
 
+end
+
+public section
+
 /-- Extract the raw assembly identifier string from an `asmIdentToken` syntax node. -/
 def getAsmIdent (stx : Syntax) : Elab.TermElabM String := withRef stx do
   match stx with
   | .node _ _ #[.atom _ s] => pure s
   | _ => throwError "expected assembly identifier"
+
+/-- Whether `s` is a valid assembly identifier token (`[a-zA-Z_.][a-zA-Z0-9_.]*`). -/
+def isAsmIdent (s : String) : Bool :=
+  match s.toList with
+  | c :: cs => (c.isAlpha || c == '_' || c == '.') && cs.all (fun c => c.isAlphanum || c == '_' || c == '.')
+  | [] => false
 
 end
 

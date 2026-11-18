@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.Abi
+public import Kraken.Layout
 import all Kraken.Mem
 import all Kraken.Separation
 
@@ -39,10 +40,10 @@ theorem sep_ac' {P Q : Mem 64 → Prop} {M : Mem 64} (e : P = Q) (h : P M) : Q M
 /-! ## Framing the memory operations -/
 
 private theorem allSome_isSome {α : Type} :
-    ∀ {l : List (Option α)} {bs : List α}, l.allSome = some bs → ∀ x ∈ l, x.isSome
+    ∀ {l : List (Option α)} {bs : List α}, l.mapM id = some bs → ∀ x ∈ l, x.isSome
   | [], _, _, x, hx => by cases hx
   | y :: l, bs, h, x, hx => by
-    simp only [List.allSome, List.mapM_cons, id, Option.bind_eq_bind, Option.pure_def,
+    simp only [List.mapM_cons, id, Option.bind_eq_bind, Option.pure_def,
       Option.bind_eq_some_iff, Option.some.injEq] at h
     obtain ⟨b, rfl, bs', hl, -⟩ := h
     rcases List.mem_cons.mp hx with rfl | hx
@@ -488,13 +489,14 @@ theorem call_fnspec {h : T.Host} {k : Nat} {sym : String} {spec : Spec} {n nX : 
 
 end Target
 
-/-- Target-specific host layout constructor (4 bytes per directive, starting at address 0). -/
+/-- Target-specific host layout constructor (executable size bound and label uniqueness). -/
 structure TargetLayout (T : Target) where
   labelsNodup : List T.Directive → Bool
-  layoutOf : (prog : List T.Directive) → 4 * prog.length < 2 ^ 64 → T.Host
-  prog_layoutOf : ∀ (prog : List T.Directive) (h : 4 * prog.length < 2 ^ 64),
+  progSmall : List T.Directive → Bool
+  layoutOf : (prog : List T.Directive) → progSmall prog = true → T.Host
+  prog_layoutOf : ∀ (prog : List T.Directive) (h : progSmall prog = true),
     T.prog (layoutOf prog h) = prog
-  labelsUnique_layoutOf : ∀ {prog : List T.Directive} (h : 4 * prog.length < 2 ^ 64),
+  labelsUnique_layoutOf : ∀ {prog : List T.Directive} (h : progSmall prog = true),
     labelsNodup prog = true → T.LabelsUnique (layoutOf prog h)
 
 def listNodupBEq {α : Type} [BEq α] : List α → Bool
@@ -541,5 +543,81 @@ structure TargetInit (T : Target) where
       Eq (bs.At 0x1000#64) ⋆ T.Entry sp0 ra0 n ⋆ Std.ExtHashMap.emp)
   retsIn_singleton : ∀ v s, T.RetsIn [v] s → T.get s ret0 = v
   argsIn_singleton : ∀ v s, T.ArgsIn [v] s → T.get s arg0 = v
+
+section UniformLayout
+
+/-- Uniform instruction layout with `instrSz` bytes per instruction, labels of size 0, from `start`. -/
+@[instance_reducible] def uniformLayout {Instr Const : Type}
+    (start : Int64 := 0x1000) (instrSz : Nat := 4)
+    (hpos : 0 < instrSz := by decide) : Kraken.Layout Instr Const :=
+  { start := start, instrSize := fun _ => instrSz, instrSize_pos := fun _ => hpos }
+
+/-- Per-directive size matching `uniformLayout` for `instrSz`-byte instructions. -/
+@[reducible] def uniformDirSize {Instr Const : Type} (instrSz : Nat) :
+    Kraken.Directive Instr Const → Nat
+  | .instr _ => instrSz
+  | .label _ => 0
+  | .byteArray arr => arr.size
+  | .word bytes _ => bytes
+
+/-- Fast computable check that `uniformLayout.apply p` stays below `2 ^ 64` bytes. -/
+def uniformProgSmall {Instr Const : Type} (instrSz : Nat)
+    (p : Kraken.Program Instr Const) : Bool :=
+  decide ((p.map (uniformDirSize instrSz)).sum < 2 ^ 64)
+
+private theorem size_map_uniformLayout {Instr Const : Type}
+    (start : Int64) (instrSz : Nat) (hpos : 0 < instrSz) :
+    ∀ (xs : List (Kraken.Directive Instr Const)) (k : Nat),
+      ((xs.mapIdx fun i d =>
+          ({ directive := d,
+             size := (uniformLayout start instrSz hpos).size d (k + i) } :
+            Kraken.Sized (Kraken.Directive Instr Const))).map (·.size)) =
+        xs.map (uniformDirSize instrSz)
+  | [], _ => rfl
+  | d :: xs, k => by
+    rw [List.mapIdx_cons, List.map_cons, List.map_cons]
+    have hd : (uniformLayout start instrSz hpos).size d (k + 0) = uniformDirSize instrSz d := by
+      cases d <;> rfl
+    have hrest :
+        (xs.mapIdx fun i d' =>
+          ({ directive := d',
+             size := (uniformLayout start instrSz hpos).size d' (k + (i + 1)) } :
+            Kraken.Sized (Kraken.Directive Instr Const))) =
+        xs.mapIdx fun i d' =>
+          ({ directive := d',
+             size := (uniformLayout start instrSz hpos).size d' ((k + 1) + i) } :
+            Kraken.Sized (Kraken.Directive Instr Const)) := by
+      congr 1; funext i d'; rw [show k + (i + 1) = (k + 1) + i from by omega]
+    rw [hd, hrest, size_map_uniformLayout start instrSz hpos xs (k + 1)]
+
+/-- `uniformProgSmall instrSz p = true` guarantees `(uniformLayout start instrSz hpos).apply p` stays below `2 ^ 64` bytes. -/
+theorem uniformLayout_small {Instr Const : Type}
+    (start : Int64) (instrSz : Nat) (hpos : 0 < instrSz)
+    (p : Kraken.Program Instr Const) (h : uniformProgSmall instrSz p = true) :
+    ((uniformLayout start instrSz hpos).apply p).sizeBefore p.length < 2 ^ 64 := by
+  have hs : ((uniformLayout start instrSz hpos).apply p).sizeBefore p.length =
+      (p.map (uniformDirSize instrSz)).sum := by
+    simp only [Kraken.Executable.sizeBefore, Kraken.Layout.apply]
+    rw [List.take_of_length_le (by simp)]
+    simpa using congrArg List.sum (size_map_uniformLayout start instrSz hpos p 0)
+  rw [hs]
+  exact of_decide_eq_true h
+
+/-- Decidable check that all `.label` directives in `p` are pairwise distinct. -/
+def labelsNodup {Instr Const : Type} (p : Kraken.Program Instr Const) : Bool :=
+  stringsNodup (p.filterMap fun | .label l => some l | _ => none)
+
+/-- `labelsNodup p = true` implies `(p.filterMap f).Nodup` for any matching label extractor `f`. -/
+theorem labelsNodup_nodup {Instr Const : Type}
+    {f : Kraken.Directive Instr Const → Option String}
+    (hf : ∀ d, (match d with | .label l => some l | _ => none) = f d)
+    {p : Kraken.Program Instr Const} (h : labelsNodup p = true) :
+    (p.filterMap f).Nodup := by
+  have hcongr : (p.filterMap fun | .label l => some l | _ => none) = p.filterMap f :=
+    congrArg (fun g => p.filterMap g) (funext hf)
+  rw [← hcongr]
+  exact stringsNodup_nodup h
+
+end UniformLayout
 
 end LeanQbe

@@ -40,12 +40,17 @@ private theorem split_union {m1 m2 : Mem w} (h : ∀ k, k ∈ m1 → k ∉ m2) :
     exact h k hk.1 hk.2⟩
 
 private theorem allSome_isSome {α : Type} {l : List (Option α)} {r : List α}
-    (h : l.allSome = some r) : ∀ x ∈ l, x.isSome := by
+    (h : l.mapM id = some r) : ∀ x ∈ l, x.isSome := by
   induction l generalizing r with
   | nil => simp
   | cons x l ih =>
-    cases x <;> simp [List.allSome, Option.bind_eq_some_iff] at h
-    exact fun y hy => (List.mem_cons.mp hy).elim (by rintro rfl; rfl) (ih h.choose_spec.1 y)
+    cases x with
+    | none => simp [List.mapM_cons] at h
+    | some a =>
+      cases h' : l.mapM id with
+      | none => simp [List.mapM_cons, h'] at h
+      | some rs =>
+        exact fun y hy => (List.mem_cons.mp hy).elim (by rintro rfl; rfl) (ih h' y)
 
 private theorem mem_of_store? {sz : AccessSize} {m m' : Mem w} {a v : BitVec w}
     (hs : store? sz m a v = some m') {k : BitVec w} (hk : k ∈ m') : k ∈ m := by

@@ -7,7 +7,7 @@ public import Kraken.AArch64.WP.Basic
 
 Step lemmas, in continuation-passing form, for the control-flow instructions a compiler emits:
 `b L`, `b.cc L`, `bl L`, `ret`, `cbz r, L` and `cbnz r, L`, at any position of any `Host` program.
-The encodings are the ones the parser produces (`parseAArch64("b L") = [Directive.bTo "L"]` etc.).
+The encodings are the ones the parser produces (`⸨prog| b L ⸩ = [Directive.bTo "L"]` etc.).
 
 Labels resolve to their *first* definition in the host program (`Host.label_eq_addrOf`), so every
 lemma that jumps to a label takes the hypothesis `hfirst` that no earlier directive defines the same

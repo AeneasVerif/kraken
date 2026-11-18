@@ -1,7 +1,6 @@
 module
 
 public import Kraken.X64.Semantics
-public import Kraken.X64.Inert
 public import Kraken.Data.List.Infix
 
 private theorem takeWhile_eq_take_of {α : Type _} {p : α → Bool} {l : List α} {n : Nat}
@@ -25,8 +24,6 @@ private theorem exists_least_le {P : Nat → Prop} {n : Nat} (h : P n) :
 public class Host where
   prog : Program
   layout : Layout
-  /-- Any directive that occupies zero space in the executable must be semantically inert. -/
-  zero_inert : ∀ i d, prog[i]? = some d → @Kraken.Layout.size _ layout i = 0 → d.Inert
   /-- Two directives at the same address have the same offset in the executable. -/
   addr_determines_offset : ∀ j k, (layout.apply prog).addrOf j = (layout.apply prog).addrOf k →
     (layout.apply prog).sizeBefore j = (layout.apply prog).sizeBefore k
@@ -43,10 +40,6 @@ public theorem Host.sizeBefore_eq_of_addrOf_eq [Host] {j k : Nat} (h : Host.addr
     Host.exe.sizeBefore j = Host.exe.sizeBefore k :=
   Host.addr_determines_offset j k h
 
-public theorem Host.inert_of_getElem? [Host] {i : Nat} {d : Directive} (h : Host.prog[i]? = some d)
-    (hz : Kraken.Layout.size Instr i = 0) : d.Inert :=
-  Host.zero_inert i d h hz
-
 @[expose] public def Host.startAddr [Host] {p : Program} (h : p.IsInfix Host.prog) : Int64 :=
   Host.addrOf (p.infixIdx Host.prog h)
 
@@ -56,23 +49,19 @@ public theorem Host.inert_of_getElem? [Host] {i : Nat} {d : Directive} (h : Host
 export Host (startAddr endAddr)
 
 public theorem Layout.apply_getElem? [layout : Layout] (p : Program) (i : Nat) :
-    (layout p).program[i]? = (p[i]?).map (fun d => {directive := d, size := Kraken.Layout.size Instr i}) := by
+    (layout p).program[i]? = (p[i]?).map (fun d => {directive := d, size := layout.size d i}) := by
   simp [Kraken.Layout.apply, List.getElem?_mapIdx]
 
 public theorem Host.exe_getElem? [Host] (i : Nat) :
-    Host.exe.program[i]? = Host.prog[i]?.map (fun d => {directive := d, size := Kraken.Layout.size Instr i}) :=
+    Host.exe.program[i]? = Host.prog[i]?.map (fun d => {directive := d, size := Host.layout.size d i}) :=
   Layout.apply_getElem? _ _
 
 public theorem Host.addrOf_succ [Host] {k : Nat} {d : Directive} (hd : Host.prog[k]? = some d) :
-    Host.addrOf (k + 1) = Host.addrOf k + .ofNat (Kraken.Layout.size Instr k) :=
-  Kraken.Executable.addrOf_succ _ (c := {directive := d, size := Kraken.Layout.size Instr k}) (by rw [Host.exe_getElem?, hd]; rfl)
+    Host.addrOf (k + 1) = Host.addrOf k + .ofNat (Host.layout.size d k) :=
+  Kraken.Executable.addrOf_succ _ (c := {directive := d, size := Host.layout.size d k}) (by rw [Host.exe_getElem?, hd]; rfl)
 
 section
 variable [Host]
-
-public theorem Host.inert_of_size_zero {d : Directive} (h : {directive := d, size := 0} ∈ Host.exe.program) : d.Inert := by
-  obtain ⟨m, hm⟩ := List.mem_iff_getElem?.mp h
-  grind [Host.exe_getElem?, Host.inert_of_getElem?]
 
 public theorem Host.directivesAtAddress_addrOf {k : Nat} {c : Kraken.Sized Directive}
     (hc : Host.exe.program[k]? = some c) (hz : 0 < c.size) :
@@ -137,7 +126,7 @@ public theorem Host.label_eq_addrOf [Host] {l : Label} {k : Nat}
     Labels.label l = Host.addrOf k := by
   show (Host.exe.withAddresses.findSome? _).getD (-1) = Host.addrOf k
   rw [findSome?_eq_of_getElem? (k := k)
-    (a := { directive := .label l, size := Kraken.Layout.size Instr k, addr := Host.exe.addrOf k })
+    (a := { directive := .label l, size := Host.layout.size (.label l) k, addr := Host.exe.addrOf k })
     (b := Host.exe.addrOf k)]
   · rfl
   · rw [Kraken.Executable.getElem?_withAddresses_eq, Host.exe_getElem?, hk]
@@ -219,16 +208,12 @@ public theorem Host.labelsUnique_of_nodup [Host] (h : (Program.definedLabels Hos
 /-! ## Concrete hosts -/
 
 /--
-A `Host` from a program and a layout that gives size zero only to labels and keeps the executable
-below `2 ^ 64` bytes. For concrete programs both side conditions are decidable.
+A `Host` from a program and a layout that keeps the executable below `2 ^ 64` bytes.
+For concrete programs `hsmall` is decidable.
 -/
 @[reducible, expose] public def Host.ofLayout (prog : Program) (layout : Layout)
-    (hzero : ∀ i d, prog[i]? = some d → @Kraken.Layout.size _ layout i = 0 → ∃ l, d = .label l)
     (hsmall : (layout.apply prog).sizeBefore prog.length < 2 ^ 64) : Host where
   prog := prog
   layout := layout
-  zero_inert i d hd hz := by
-    obtain ⟨l, rfl⟩ := hzero i d hd hz
-    exact @Directive.inert_label l
   addr_determines_offset _ _ h :=
     Kraken.Executable.sizeBefore_eq_of_addrOf_eq _ (by simpa [Kraken.Layout.apply] using hsmall) h

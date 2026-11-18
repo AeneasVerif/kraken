@@ -24,10 +24,9 @@ namespace LeanQbe.Amd64
 
 section ParserChecks
 open Kraken.X64.Parser
-example : parse("test %eax, %eax
-jnz L") = jnz .rax "L" := rfl
-example : parse("jmp L") = jmp "L" := rfl
-example : parse("ret") = ret := rfl
+example : ⸨prog| test %eax, %eax; jnz L ⸩ = jnz .rax "L" := rfl
+example : ⸨prog| jmp L ⸩ = jmp "L" := rfl
+example : ⸨prog| ret ⸩ = ret := rfl
 end ParserChecks
 
 section
@@ -402,51 +401,18 @@ def hostLabel (h : Host) (l : Label) : Int64 :=
     · exact Reg64s.get64_set64_of_ne _ _ _ _ fun he => hr (he ▸ List.mem_cons_self)
     · exact Reg64s.get64_set64_same s.regs .rsp _
 
-/-- Labels of size 0, every other directive of size 4, from `0x1000`. -/
-@[instance_reducible] def layoutOf (p : Program) : Layout :=
-  { start := 0x1000, size := fun i => match p[i]? with | some (.label _) => 0 | _ => 4 }
-
-theorem layoutOf_zero (p : Program) :
-    ∀ i d, p[i]? = some d → @Kraken.Layout.size _ (layoutOf p) i = 0 → ∃ l, d = .label l := by
-  intro i d hd hz
-  cases d
-  case label l => exact ⟨l, rfl⟩
-  all_goals
-    have hz' : (match p[i]? with | some (.label _) => 0 | _ => 4) = 0 := hz
-    grind
-
-private theorem sum_sized_mapIdx_le_four (sz : Nat → Nat) (hsz : ∀ i, sz i ≤ 4) :
-    ∀ (xs : List Directive) (k : Nat),
-      (List.map (·.size)
-        (List.mapIdx (fun i d => ({ directive := d, size := sz (k + i) } : Kraken.Sized Directive)) xs)).sum ≤
-        4 * xs.length
-  | [], _ => by simp
-  | _ :: xs, k => by
-    rw [List.mapIdx_cons, List.map_cons, List.sum_cons, List.length_cons]
-    have h0 : sz (k + 0) ≤ 4 := hsz (k + 0)
-    have ih := sum_sized_mapIdx_le_four sz hsz xs (k + 1)
-    grind
-
-theorem layoutOf_small (p : Program) (h : 4 * p.length < 2 ^ 64) :
-    (@Kraken.Layout.apply _ (layoutOf p) p).sizeBefore p.length < 2 ^ 64 := by
-  refine Nat.lt_of_le_of_lt ?_ h
-  simp only [Kraken.Executable.sizeBefore, Kraken.Layout.apply]
-  rw [List.take_of_length_le (by simp)]
-  simpa using sum_sized_mapIdx_le_four (fun i => @Kraken.Layout.size _ (layoutOf p) i)
-    (fun i => by
-      show (match p[i]? with | some (.label _) => 0 | _ => 4) ≤ 4
-      split <;> decide) p 0
-
-def labelsNodup (p : Program) : Bool :=
-  stringsNodup (p.filterMap fun | .label l => some l | _ => none)
-
+/-- Concrete x64 host layout: 4 bytes per instruction, 0 per label, starting at `0x1000`. -/
 def targetLayout : TargetLayout target where
   labelsNodup := labelsNodup
-  layoutOf prog h := .ofLayout prog (layoutOf prog) (layoutOf_zero prog) (layoutOf_small prog h)
+  progSmall := uniformProgSmall 4
+  layoutOf prog h := .ofLayout prog (uniformLayout 0x1000 4 (by decide))
+    (uniformLayout_small 0x1000 4 (by decide) prog h)
   prog_layoutOf _ _ := rfl
   labelsUnique_layoutOf {prog} h hnd :=
-    letI : Host := .ofLayout prog (layoutOf prog) (layoutOf_zero prog) (layoutOf_small prog h)
-    Host.labelsUnique_of_nodup (stringsNodup_nodup hnd)
+    letI : Host := .ofLayout prog (uniformLayout 0x1000 4 (by decide))
+      (uniformLayout_small 0x1000 4 (by decide) prog h)
+    Host.labelsUnique_of_nodup
+      (labelsNodup_nodup (fun d => by cases d <;> rfl) hnd)
 
 /-- `n`-byte zero stack below `rsp = 0x0ff8`, return address `ra` at `0x0ff8`, and payload `bs` at `0x1000`. -/
 def initMem (n : Nat) (ra : Int64) (bs : List UInt8) : Mem 64 :=
