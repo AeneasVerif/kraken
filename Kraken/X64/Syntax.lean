@@ -195,6 +195,7 @@ inductive Operation (w : Width)
   | pop  (_ : Dst w)
   | setcc (_ : CondCode) (_ : Dst w) -- {_ : w = .W8}
   | cmovcc (_ : CondCode) (_ : Reg w) (src : RegOrMem w)
+  | xchg (_ : Dst w) (src : Reg w)
   -- String moves and stores, once or with a `rep` prefix
   | movs (rep : Bool)
   | stos (rep : Bool)

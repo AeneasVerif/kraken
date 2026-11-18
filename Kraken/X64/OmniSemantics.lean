@@ -22,6 +22,7 @@ open Kraken (Layout WellFormedLayout)
   | .require_read_access _ cont => (cont ()).All post
   | .require_write_access _ cont => (cont ()).All post
   | .require_exec_access _ cont => (cont ()).All post
+  | .yield cont => (cont ()).All post
 
 @[ksimp] theorem Effects.All_require_read_access (addr : BitVec 64) (bytes : UInt64)
     (ok : Unit → Effects) (post : MachineState → Prop) :
