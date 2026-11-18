@@ -207,6 +207,11 @@ def Tup.levels {α : Type} : (as : List α) → Nat → Tup (fun _ : α => Nat) 
   | [], _ => ()
   | _ :: as, n => (n, levels as (n + 1))
 
+/-- Unit tuple for erased-representation passes (e.g. `Dce`, `Module`, `Target`). -/
+def Tup.units {α : Type} : (ts : List α) → Tup (fun _ : α => Unit) ts
+  | [] => ()
+  | _ :: ts => ((), Tup.units ts)
+
 /-- Every positional entry of two tuples is paired in `G`. -/
 def EnvRel {α : Type} {f g : α → Type} (G : Ctx f g) {as : List α}
     (xs : Tup f as) (ys : Tup g as) : Prop :=

@@ -461,4 +461,85 @@ theorem WfB.cons_inv {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {r
   cases h with
   | cons hb hbs => exact ⟨hb, hbs⟩
 
+/-! ## `Wf` right-hand-side inversion helpers -/
+
+section
+variable {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
+
+theorem Wf.rhs_let {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {ts : List Ty}
+    {e₁ : Expr V₁ L₁ rs} {op₂ : Op V₂ ts} {k₂ : Tup V₂ ts → Expr V₂ L₂ rs}
+    (h : Wf G D e₁ (.let_ op₂ k₂)) :
+    ∃ op₁ k₁, e₁ = .let_ op₁ k₁ ∧ OpRel G op₁ op₂ ∧
+      ∀ xs₁ xs₂, Wf (Tup.zip xs₁ xs₂ ++ G) D (k₁ xs₁) (k₂ xs₂) := by
+  cases h with
+  | let_ hop hk => exact ⟨_, _, rfl, hop, hk⟩
+
+theorem Wf.rhs_load {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {t : Ty}
+    {e₁ : Expr V₁ L₁ rs} {a₂ : Arg V₂ i64} {k₂ : V₂ t → Expr V₂ L₂ rs}
+    (h : Wf G D e₁ (.load t a₂ k₂)) :
+    ∃ a₁ k₁, e₁ = .load t a₁ k₁ ∧ ArgRel G i64 a₁ a₂ ∧
+      ∀ v₁ v₂, Wf (⟨t, v₁, v₂⟩ :: G) D (k₁ v₁) (k₂ v₂) := by
+  cases h with
+  | load _ ha hk => exact ⟨_, _, rfl, ha, hk⟩
+
+theorem Wf.rhs_store {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {t : Ty}
+    {e₁ : Expr V₁ L₁ rs} {v₂ : Arg V₂ t} {a₂ : Arg V₂ i64} {k₂ : Expr V₂ L₂ rs}
+    (h : Wf G D e₁ (.store v₂ a₂ k₂)) :
+    ∃ v₁ a₁ k₁, e₁ = .store v₁ a₁ k₁ ∧ ArgRel G t v₁ v₂ ∧ ArgRel G i64 a₁ a₂ ∧ Wf G D k₁ k₂ := by
+  cases h with
+  | store hv ha hk => exact ⟨_, _, _, rfl, hv, ha, hk⟩
+
+theorem Wf.rhs_call {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {f : Sym} {as bs : List Ty}
+    {e₁ : Expr V₁ L₁ rs} {args₂ : Tup (Arg V₂) as} {k₂ : Tup V₂ bs → Expr V₂ L₂ rs}
+    (h : Wf G D e₁ (.call f args₂ k₂)) :
+    ∃ args₁ k₁, e₁ = .call f args₁ k₁ ∧ TRel (ArgRel G) args₁ args₂ ∧
+      ∀ xs₁ xs₂, Wf (Tup.zip xs₁ xs₂ ++ G) D (k₁ xs₁) (k₂ xs₂) := by
+  cases h with
+  | call _ hargs hk => exact ⟨_, _, rfl, hargs, hk⟩
+
+theorem Wf.rhs_jnz {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
+    {e₁ : Expr V₁ L₁ rs} {c₂ : Arg V₂ .bool} {t₂ e₂ : Expr V₂ L₂ rs}
+    (h : Wf G D e₁ (.jnz c₂ t₂ e₂)) :
+    ∃ c₁ t₁ e₁', e₁ = .jnz c₁ t₁ e₁' ∧ ArgRel G .bool c₁ c₂ ∧ Wf G D t₁ t₂ ∧ Wf G D e₁' e₂ := by
+  cases h with
+  | jnz hc ht he => exact ⟨_, _, _, rfl, hc, ht, he⟩
+
+theorem Wf.rhs_jump {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {ts : List Ty}
+    {e₁ : Expr V₁ L₁ rs} {j₂ : L₂ ts} {args₂ : Tup (Arg V₂) ts}
+    (h : Wf G D e₁ (.jump j₂ args₂)) :
+    ∃ j₁ args₁, e₁ = .jump j₁ args₁ ∧ ⟨ts, j₁, j₂⟩ ∈ D ∧ TRel (ArgRel G) args₁ args₂ := by
+  cases h with
+  | jump hj hargs => exact ⟨_, _, rfl, hj, hargs⟩
+
+theorem Wf.rhs_ret {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
+    {e₁ : Expr V₁ L₁ rs} {vs₂ : Tup (Arg V₂) rs}
+    (h : Wf G D e₁ (.ret vs₂)) :
+    ∃ vs₁, e₁ = .ret vs₁ ∧ TRel (ArgRel G) vs₁ vs₂ := by
+  cases h with
+  | ret hvs => exact ⟨_, rfl, hvs⟩
+
+theorem Wf.rhs_exit {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {f : Sym} {as : List Ty}
+    {e₁ : Expr V₁ L₁ rs} {args₂ : Tup (Arg V₂) as}
+    (h : Wf G D e₁ (.exit f args₂)) :
+    ∃ args₁, e₁ = .exit f args₁ ∧ TRel (ArgRel G) args₁ args₂ := by
+  cases h with
+  | exit _ hargs => exact ⟨_, rfl, hargs⟩
+
+theorem Wf.rhs_hlt {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {e₁ : Expr V₁ L₁ rs}
+    (h : Wf G D e₁ .hlt) : e₁ = .hlt := by
+  cases h; rfl
+
+theorem Wf.rhs_group {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {sig : List (List Ty)}
+    {e₁ : Expr V₁ L₁ rs} {b₂ : Tup L₂ sig → Blocks V₂ L₂ rs sig}
+    {k₂ : Tup L₂ sig → Expr V₂ L₂ rs}
+    (h : Wf G D e₁ (.group b₂ k₂)) :
+    ∃ (b₁ : Tup L₁ sig → Blocks V₁ L₁ rs sig) (k₁ : Tup L₁ sig → Expr V₁ L₁ rs),
+      e₁ = .group b₁ k₁ ∧
+      (∀ Js₁ Js₂, WfB G (Tup.zip Js₁ Js₂ ++ D) (b₁ Js₁) (b₂ Js₂)) ∧
+      (∀ Js₁ Js₂, Wf G (Tup.zip Js₁ Js₂ ++ D) (k₁ Js₁) (k₂ Js₂)) := by
+  cases h with
+  | group hb hk => exact ⟨_, _, rfl, hb, hk⟩
+
+end
+
 end LeanQbe.T

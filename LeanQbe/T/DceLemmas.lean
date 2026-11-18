@@ -460,87 +460,6 @@ theorem OpCode.wp_exists : {sig rs : List Ty} → (c : OpCode sig rs) → (args 
     obtain ⟨r, hr⟩ := convertFloat_exists f g a (fun x => P (x, ())) hw
     exact ⟨(r, ()), hr⟩
 
-/-! ## `Wf` right-hand-side inversion helpers for `ek ~ e₁` -/
-
-section
-variable {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-
-theorem Wf.rhs_let {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {ts : List Ty}
-    {e₁ : Expr V₁ L₁ rs} {op₂ : Op V₂ ts} {k₂ : Tup V₂ ts → Expr V₂ L₂ rs}
-    (h : Wf G D e₁ (.let_ op₂ k₂)) :
-    ∃ op₁ k₁, e₁ = .let_ op₁ k₁ ∧ OpRel G op₁ op₂ ∧
-      ∀ xs₁ xs₂, Wf (Tup.zip xs₁ xs₂ ++ G) D (k₁ xs₁) (k₂ xs₂) := by
-  cases h with
-  | let_ hop hk => exact ⟨_, _, rfl, hop, hk⟩
-
-theorem Wf.rhs_load {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {t : Ty}
-    {e₁ : Expr V₁ L₁ rs} {a₂ : Arg V₂ i64} {k₂ : V₂ t → Expr V₂ L₂ rs}
-    (h : Wf G D e₁ (.load t a₂ k₂)) :
-    ∃ a₁ k₁, e₁ = .load t a₁ k₁ ∧ ArgRel G i64 a₁ a₂ ∧
-      ∀ v₁ v₂, Wf (⟨t, v₁, v₂⟩ :: G) D (k₁ v₁) (k₂ v₂) := by
-  cases h with
-  | load _ ha hk => exact ⟨_, _, rfl, ha, hk⟩
-
-theorem Wf.rhs_store {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {t : Ty}
-    {e₁ : Expr V₁ L₁ rs} {v₂ : Arg V₂ t} {a₂ : Arg V₂ i64} {k₂ : Expr V₂ L₂ rs}
-    (h : Wf G D e₁ (.store v₂ a₂ k₂)) :
-    ∃ v₁ a₁ k₁, e₁ = .store v₁ a₁ k₁ ∧ ArgRel G t v₁ v₂ ∧ ArgRel G i64 a₁ a₂ ∧ Wf G D k₁ k₂ := by
-  cases h with
-  | store hv ha hk => exact ⟨_, _, _, rfl, hv, ha, hk⟩
-
-theorem Wf.rhs_call {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {f : Sym} {as bs : List Ty}
-    {e₁ : Expr V₁ L₁ rs} {args₂ : Tup (Arg V₂) as} {k₂ : Tup V₂ bs → Expr V₂ L₂ rs}
-    (h : Wf G D e₁ (.call f args₂ k₂)) :
-    ∃ args₁ k₁, e₁ = .call f args₁ k₁ ∧ TRel (ArgRel G) args₁ args₂ ∧
-      ∀ xs₁ xs₂, Wf (Tup.zip xs₁ xs₂ ++ G) D (k₁ xs₁) (k₂ xs₂) := by
-  cases h with
-  | call _ hargs hk => exact ⟨_, _, rfl, hargs, hk⟩
-
-theorem Wf.rhs_jnz {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
-    {e₁ : Expr V₁ L₁ rs} {c₂ : Arg V₂ .bool} {t₂ e₂ : Expr V₂ L₂ rs}
-    (h : Wf G D e₁ (.jnz c₂ t₂ e₂)) :
-    ∃ c₁ t₁ e₁', e₁ = .jnz c₁ t₁ e₁' ∧ ArgRel G .bool c₁ c₂ ∧ Wf G D t₁ t₂ ∧ Wf G D e₁' e₂ := by
-  cases h with
-  | jnz hc ht he => exact ⟨_, _, _, rfl, hc, ht, he⟩
-
-theorem Wf.rhs_jump {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {ts : List Ty}
-    {e₁ : Expr V₁ L₁ rs} {j₂ : L₂ ts} {args₂ : Tup (Arg V₂) ts}
-    (h : Wf G D e₁ (.jump j₂ args₂)) :
-    ∃ j₁ args₁, e₁ = .jump j₁ args₁ ∧ ⟨ts, j₁, j₂⟩ ∈ D ∧ TRel (ArgRel G) args₁ args₂ := by
-  cases h with
-  | jump hj hargs => exact ⟨_, _, rfl, hj, hargs⟩
-
-theorem Wf.rhs_ret {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
-    {e₁ : Expr V₁ L₁ rs} {vs₂ : Tup (Arg V₂) rs}
-    (h : Wf G D e₁ (.ret vs₂)) :
-    ∃ vs₁, e₁ = .ret vs₁ ∧ TRel (ArgRel G) vs₁ vs₂ := by
-  cases h with
-  | ret hvs => exact ⟨_, rfl, hvs⟩
-
-theorem Wf.rhs_exit {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {f : Sym} {as : List Ty}
-    {e₁ : Expr V₁ L₁ rs} {args₂ : Tup (Arg V₂) as}
-    (h : Wf G D e₁ (.exit f args₂)) :
-    ∃ args₁, e₁ = .exit f args₁ ∧ TRel (ArgRel G) args₁ args₂ := by
-  cases h with
-  | exit _ hargs => exact ⟨_, rfl, hargs⟩
-
-theorem Wf.rhs_hlt {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {e₁ : Expr V₁ L₁ rs}
-    (h : Wf G D e₁ .hlt) : e₁ = .hlt := by
-  cases h; rfl
-
-theorem Wf.rhs_group {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {sig : List (List Ty)}
-    {e₁ : Expr V₁ L₁ rs} {b₂ : Tup L₂ sig → Blocks V₂ L₂ rs sig}
-    {k₂ : Tup L₂ sig → Expr V₂ L₂ rs}
-    (h : Wf G D e₁ (.group b₂ k₂)) :
-    ∃ (b₁ : Tup L₁ sig → Blocks V₁ L₁ rs sig) (k₁ : Tup L₁ sig → Expr V₁ L₁ rs),
-      e₁ = .group b₁ k₁ ∧
-      (∀ Js₁ Js₂, WfB G (Tup.zip Js₁ Js₂ ++ D) (b₁ Js₁) (b₂ Js₂)) ∧
-      (∀ Js₁ Js₂, Wf G (Tup.zip Js₁ Js₂ ++ D) (k₁ Js₁) (k₂ Js₂)) := by
-  cases h with
-  | group hb hk => exact ⟨_, _, rfl, hb, hk⟩
-
-end
-
 /-! ## Block liveness and sweep access lemmas -/
 
 theorem liveVarsB_sub {rs : List Ty} (b : Nat) :
@@ -922,21 +841,21 @@ theorem dce_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     simp only [liveVars] at hnd ⊢
     simp only [dceSweep, wp] at hw ⊢
     intro Js hclosed
-    have hsub_k : NatSet.Sub (liveVars b (kk (unitTup sig))).1
-        ((liveVarsB b (bk (unitTup sig))).1.union (liveVars b (kk (unitTup sig))).1) :=
+    have hsub_k : NatSet.Sub (liveVars b (kk (Tup.units sig))).1
+        ((liveVarsB b (bk (Tup.units sig))).1.union (liveVars b (kk (Tup.units sig))).1) :=
       NatSet.Sub.union_right _ _
-    refine ihk Js Js (tup_zip_self_eq hD Js) hG b (kk (unitTup sig)) (hkk (unitTup sig) Js)
+    refine ihk Js Js (tup_zip_self_eq hD Js) hG b (kk (Tup.units sig)) (hkk (Tup.units sig) Js)
       (hnd.sub hsub_k) m (hw Js ?_)
     rw [closed_iff] at hclosed ⊢
     intro ts i xs m' hb'
     apply hclosed i xs m'
-    rw [dceSweepB_liveVarsB_get b (bk (unitTup sig)) (b₁ Js) i xs]
-    have hsub_b : NatSet.Sub (liveVars (b + ts.length) ((bk (unitTup sig)).get i (Tup.levels ts b))).1
-        ((liveVarsB b (bk (unitTup sig))).1.union (liveVars b (kk (unitTup sig))).1) :=
-      NatSet.Sub.trans (liveVarsB_sub b (bk (unitTup sig)) i) (NatSet.Sub.union_left _ _)
+    rw [dceSweepB_liveVarsB_get b (bk (Tup.units sig)) (b₁ Js) i xs]
+    have hsub_b : NatSet.Sub (liveVars (b + ts.length) ((bk (Tup.units sig)).get i (Tup.levels ts b))).1
+        ((liveVarsB b (bk (Tup.units sig))).1.union (liveVars b (kk (Tup.units sig))).1) :=
+      NatSet.Sub.trans (liveVarsB_sub b (bk (Tup.units sig)) i) (NatSet.Sub.union_left _ _)
     exact ihb Js Js i (someTup ts xs) xs (tup_zip_self_eq hD Js) (SomeEq.append_some hG xs)
-      (b + ts.length) ((bk (unitTup sig)).get i (Tup.levels ts b))
-      ((hbk (unitTup sig) Js).get i (Tup.levels ts b) (someTup ts xs))
+      (b + ts.length) ((bk (Tup.units sig)).get i (Tup.levels ts b))
+      ((hbk (Tup.units sig) Js).get i (Tup.levels ts b) (someTup ts xs))
       (NoneDead.append_some (NoneDead.sub hsub_b hnd) (Tup.levels ts b) xs) m' hb'
 
 /-- Well-formedness preservation for `dceSweep`, proved via `Wf.induct`. -/
@@ -1052,20 +971,20 @@ theorem dce_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : Li
     rcases hwk.rhs_group with ⟨bk, kk, rfl, hbk, hkk⟩
     simp only [liveVars] at hnd ⊢
     simp only [dceSweep]
-    have hsub_k : NatSet.Sub (liveVars b (kk (unitTup sig))).1
-        ((liveVarsB b (bk (unitTup sig))).1.union (liveVars b (kk (unitTup sig))).1) :=
+    have hsub_k : NatSet.Sub (liveVars b (kk (Tup.units sig))).1
+        ((liveVarsB b (bk (Tup.units sig))).1.union (liveVars b (kk (Tup.units sig))).1) :=
       NatSet.Sub.union_right _ _
     refine .group (fun Js₁ Js₂ => WfB.of_get fun {ts} i xs₁ xs₂ => ?_)
-      (fun Js₁ Js₂ => ihk Js₁ Js₂ hrel b (kk (unitTup sig)) (hkk (unitTup sig) Js₁)
+      (fun Js₁ Js₂ => ihk Js₁ Js₂ hrel b (kk (Tup.units sig)) (hkk (Tup.units sig) Js₁)
         (hnd.sub hsub_k))
-    rw [dceSweepB_liveVarsB_get b (bk (unitTup sig)) (b₁ Js₁) i xs₁,
-        dceSweepB_liveVarsB_get b (bk (unitTup sig)) (b₂ Js₂) i xs₂]
-    have hsub_b : NatSet.Sub (liveVars (b + ts.length) ((bk (unitTup sig)).get i (Tup.levels ts b))).1
-        ((liveVarsB b (bk (unitTup sig))).1.union (liveVars b (kk (unitTup sig))).1) :=
-      NatSet.Sub.trans (liveVarsB_sub b (bk (unitTup sig)) i) (NatSet.Sub.union_left _ _)
+    rw [dceSweepB_liveVarsB_get b (bk (Tup.units sig)) (b₁ Js₁) i xs₁,
+        dceSweepB_liveVarsB_get b (bk (Tup.units sig)) (b₂ Js₂) i xs₂]
+    have hsub_b : NatSet.Sub (liveVars (b + ts.length) ((bk (Tup.units sig)).get i (Tup.levels ts b))).1
+        ((liveVarsB b (bk (Tup.units sig))).1.union (liveVars b (kk (Tup.units sig))).1) :=
+      NatSet.Sub.trans (liveVarsB_sub b (bk (Tup.units sig)) i) (NatSet.Sub.union_left _ _)
     exact ihb Js₁ Js₂ i (someTup ts xs₁) (someTup ts xs₂) (DceRel.append_some hrel xs₁ xs₂)
-      (b + ts.length) ((bk (unitTup sig)).get i (Tup.levels ts b))
-      ((hbk (unitTup sig) Js₁).get i (Tup.levels ts b) (someTup ts xs₁))
+      (b + ts.length) ((bk (Tup.units sig)).get i (Tup.levels ts b))
+      ((hbk (Tup.units sig) Js₁).get i (Tup.levels ts b) (someTup ts xs₁))
       (NoneDead.append_some (NoneDead.sub hsub_b hnd) _ _)
 
 /-! ## Closed functions -/

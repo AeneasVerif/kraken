@@ -156,6 +156,26 @@ theorem wp_store_cell64 {v0 : BitVec 64} {v a : Arg Val i64}
   let ⟨hok, hm'⟩ := store_cell64 v.val hm
   ⟨hok, hk _ hm'⟩
 
+theorem wp_load_array {t : Ty} {base : BitVec 64} {xs : List (Val t)} {i : Nat}
+    {a : Arg Val i64} {R : Mem 64 → Prop} {m : Mem 64}
+    {k : Val t → Expr Val Cont rs}
+    (hb : t.bytes ≤ 2 ^ 64)
+    (heq : a.val = base + BitVec.ofNat 64 (t.bytes * i)) (hi : i < xs.length)
+    (hm : (array base xs ⋆ R) m) (hk : wp Γ Q X (k xs[i]) m) :
+    wp Γ Q X (.load t a k) m :=
+  ⟨xs[i], heq ▸ loadVal_array hb hi hm, hk⟩
+
+theorem wp_store_array {t : Ty} {base : BitVec 64} {xs : List (Val t)} {i : Nat}
+    {v : Arg Val t} {a : Arg Val i64} {R : Mem 64 → Prop} {m : Mem 64}
+    {k : Expr Val Cont rs}
+    (hb : t.bytes ≤ 2 ^ 64)
+    (heq : a.val = base + BitVec.ofNat 64 (t.bytes * i)) (hi : i < xs.length)
+    (hm : (array base xs ⋆ R) m)
+    (hk : ∀ m', (array base (xs.set i v.val) ⋆ R) m' → wp Γ Q X k m') :
+    wp Γ Q X (.store v a k) m :=
+  let ⟨hok, hm'⟩ := store_array v.val hb hi hm
+  ⟨heq ▸ hok, hk _ (heq ▸ hm')⟩
+
 theorem wp_load_array64 {base : BitVec 64} {xs : List (BitVec 64)} {i : Nat}
     {a : Arg Val i64} {R : Mem 64 → Prop} {m : Mem 64}
     {k : BitVec 64 → Expr Val Cont rs}
@@ -178,10 +198,8 @@ end
 
 /-! ## `wp_unfold`, `wp_unfold_all`, `wp_step`, `branch_t`, `branch_f` -/
 
-/-- Unfold `wp` over straight-line `LeanQbe.T` code (both `tqbe` `Op.mk` and manual `op1`/`2`/`3`),
-reducing `vals`, `Prod.fst`/`Prod.snd`, `Arg.val`, and pure 1-result/pair ops while stopping at
-`group`, `call`, and `addc`/`subb`/`umulw`/`smulw`/`udiv`/`sdiv`/`urem`/`srem`. -/
-macro "t_wp_unfold" : tactic =>
+/-- Shared base simp list for `t_wp_unfold` and `t_wp_unfold_all` (`B6`). -/
+macro "t_wp_unfold_with" "[" extra:Lean.Parser.Tactic.simpLemma,* "]" : tactic =>
   `(tactic| simp only [
     LeanQbe.T.op1_eq_mk, LeanQbe.T.op2_eq_mk, LeanQbe.T.op3_eq_mk,
     LeanQbe.T.wp_let_copy_eq, LeanQbe.T.wp_let_add_eq, LeanQbe.T.wp_let_sub_eq,
@@ -225,61 +243,25 @@ macro "t_wp_unfold" : tactic =>
     true_and, and_true, false_implies, true_implies, Option.some.injEq, exists_eq_left',
     decide_eq_true_eq, decide_eq_false_iff_not, beq_iff_eq, bne_iff_ne, ne_eq,
     Bool.not_eq_true, beq_eq_false_iff_ne, bne_eq_false_iff_eq, beq_self_eq_true,
-    BitVec.reduceToNat, Nat.reduceMod, Nat.reduceLeDiff])
+    BitVec.reduceToNat, Nat.reduceMod, Nat.reduceLeDiff,
+    $extra,*])
+
+/-- Unfold `wp` over straight-line `LeanQbe.T` code (both `tqbe` `Op.mk` and manual `op1`/`2`/`3`),
+reducing `vals`, `Prod.fst`/`Prod.snd`, `Arg.val`, and pure 1-result/pair ops while stopping at
+`group`, `call`, and `addc`/`subb`/`umulw`/`smulw`/`udiv`/`sdiv`/`urem`/`srem`. -/
+macro "t_wp_unfold" : tactic =>
+  `(tactic| t_wp_unfold_with [])
 
 /-- Like `t_wp_unfold`, but also unfolds `addc`, `subb`, `umulw`, `smulw`, `udiv`, `sdiv`,
 `urem`, `srem`, and relational/converting float ops. -/
 macro "t_wp_unfold_all" : tactic =>
-  `(tactic| simp only [
-    LeanQbe.T.op1_eq_mk, LeanQbe.T.op2_eq_mk, LeanQbe.T.op3_eq_mk,
-    LeanQbe.T.wp_let_copy_eq, LeanQbe.T.wp_let_add_eq, LeanQbe.T.wp_let_sub_eq,
-    LeanQbe.T.wp_let_mul_eq, LeanQbe.T.wp_let_neg_eq, LeanQbe.T.wp_let_and_eq,
-    LeanQbe.T.wp_let_or_eq, LeanQbe.T.wp_let_xor_eq, LeanQbe.T.wp_let_not_eq,
-    LeanQbe.T.wp_let_ternlog_eq, LeanQbe.T.wp_let_shl_eq, LeanQbe.T.wp_let_lshr_eq,
-    LeanQbe.T.wp_let_ashr_eq, LeanQbe.T.wp_let_rotl_eq, LeanQbe.T.wp_let_rotr_eq,
-    LeanQbe.T.wp_let_fshl_eq, LeanQbe.T.wp_let_fshr_eq, LeanQbe.T.wp_let_bswap_eq,
-    LeanQbe.T.wp_let_clz_eq, LeanQbe.T.wp_let_cls_eq, LeanQbe.T.wp_let_rbit_eq,
-    LeanQbe.T.wp_let_ctz_eq, LeanQbe.T.wp_let_popcnt_eq, LeanQbe.T.wp_let_cmp_eq,
-    LeanQbe.T.wp_let_select_eq, LeanQbe.T.wp_let_blend_eq, LeanQbe.T.wp_let_zext_eq,
-    LeanQbe.T.wp_let_sext_eq, LeanQbe.T.wp_let_trunc_eq, LeanQbe.T.wp_let_ofBool_eq,
+  `(tactic| t_wp_unfold_with [
     LeanQbe.T.wp_let_addc_eq, LeanQbe.T.wp_let_subb_eq, LeanQbe.T.wp_let_umulw_eq,
     LeanQbe.T.wp_let_smulw_eq, LeanQbe.T.wp_let_udiv_eq, LeanQbe.T.wp_let_sdiv_eq,
     LeanQbe.T.wp_let_urem_eq, LeanQbe.T.wp_let_srem_eq,
-    LeanQbe.T.wp_let_udiv0_eq, LeanQbe.T.wp_let_sdiv0_eq, LeanQbe.T.wp_let_mkpair_eq,
-    LeanQbe.T.wp_let_unpair_eq, LeanQbe.T.wp_let_bitcast_eq,
-    LeanQbe.T.wp_let_shufd_eq, LeanQbe.T.wp_let_shufb_eq, LeanQbe.T.wp_let_alignr_eq,
-    LeanQbe.T.wp_let_blendw_eq, LeanQbe.T.wp_let_sha256rnds2_eq,
-    LeanQbe.T.wp_let_sha256msg1_eq, LeanQbe.T.wp_let_sha256msg2_eq,
     LeanQbe.T.wp_let_fadd_eq, LeanQbe.T.wp_let_fsub_eq, LeanQbe.T.wp_let_fmul_eq,
     LeanQbe.T.wp_let_fdiv_eq, LeanQbe.T.wp_let_ffma_eq, LeanQbe.T.wp_let_fsqrt_eq,
-    LeanQbe.T.wp_let_fneg_eq, LeanQbe.T.wp_let_fabs_eq, LeanQbe.T.wp_let_fcmp_eq,
-    LeanQbe.T.wp_let_fptoui_eq, LeanQbe.T.wp_let_fptosi_eq,
-    LeanQbe.T.wp_let_uitofp_eq, LeanQbe.T.wp_let_sitofp_eq, LeanQbe.T.wp_let_fcvt_eq,
-    LeanQbe.T.wp_load, LeanQbe.T.wp_store, LeanQbe.T.wp_jnz, LeanQbe.T.wp_jump,
-    LeanQbe.T.wp_ret, LeanQbe.T.wp_exit,
-    LeanQbe.T.OpCode.eq, LeanQbe.T.OpCode.ne, LeanQbe.T.OpCode.ult, LeanQbe.T.OpCode.ule,
-    LeanQbe.T.OpCode.ugt, LeanQbe.T.OpCode.uge, LeanQbe.T.OpCode.slt, LeanQbe.T.OpCode.sle,
-    LeanQbe.T.OpCode.sgt, LeanQbe.T.OpCode.sge,
-    LeanQbe.T.vals_nil, LeanQbe.T.vals_cons, LeanQbe.T.Arg.val_var, LeanQbe.T.Arg.val_imm,
-    LeanQbe.T.Blocks.get_here, LeanQbe.T.Blocks.get_there,
-    LeanQbe.T.Ty.hasFloat_vec, LeanQbe.T.Ty.hasFloat, LeanQbe.T.Ty.isFloatTree,
-    LeanQbe.T.Ty.bswapOk_vec, LeanQbe.T.Ty.bswapOk,
-    LeanQbe.T.evalBits_eq_beq, LeanQbe.T.evalBits_ne_bne,
-    LeanQbe.T.evalBits_ult_eq, LeanQbe.T.evalBits_ule_eq, LeanQbe.T.evalBits_ugt_eq,
-    LeanQbe.T.evalBits_uge_eq, LeanQbe.T.evalBits_slt_eq, LeanQbe.T.evalBits_sle_eq,
-    LeanQbe.T.evalBits_sgt_eq, LeanQbe.T.evalBits_sge_eq,
-    LeanQbe.T.evalBool_eq_beq, LeanQbe.T.evalBool_ne_bne,
-    LeanQbe.T.evalBool_ult_eq, LeanQbe.T.evalBool_ule_eq, LeanQbe.T.evalBool_ugt_eq,
-    LeanQbe.T.evalBool_uge_eq, LeanQbe.T.evalBool_slt_eq, LeanQbe.T.evalBool_sle_eq,
-    LeanQbe.T.evalBool_sgt_eq, LeanQbe.T.evalBool_sge_eq,
-    LeanQbe.T.lift1, LeanQbe.T.lift2, LeanQbe.T.lift3, LeanQbe.T.liftCmp, LeanQbe.T.blendV,
-    LeanQbe.T.liftFCmp, LeanQbe.T.shl_three,
-    cast_eq, ite_self, Bool.false_or, Bool.or_false, Bool.true_and, Bool.and_true,
-    Bool.not_true, Bool.not_false, Bool.false_eq_true, Bool.true_eq_false, ite_true, ite_false,
-    true_and, and_true, false_implies, true_implies, Option.some.injEq, exists_eq_left',
-    decide_eq_true_eq, decide_eq_false_iff_not, beq_iff_eq, bne_iff_ne, ne_eq,
-    Bool.not_eq_true, beq_eq_false_iff_ne, bne_eq_false_iff_eq, beq_self_eq_true,
-    BitVec.reduceToNat, Nat.reduceMod, Nat.reduceLeDiff])
+    LeanQbe.T.wp_let_fptoui_eq, LeanQbe.T.wp_let_fptosi_eq, LeanQbe.T.wp_let_fcvt_eq])
 
 macro "t_wp_step" h:term : tactic =>
   `(tactic| ((first | refine $h _ ?_ | refine $h _ _ ?_ | refine $h _ _ _ ?_ | refine $h _ _ _ _ ?_ | refine $h _ _ _ _ _ ?_); t_wp_unfold))

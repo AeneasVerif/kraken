@@ -115,13 +115,14 @@ scoped macro "t_wf_tac" : tactic =>
         | exact TRel.nil'
         | apply TRel.cons'
         | ((try dsimp only); exact ArgRel.imm _)
-        | ((try dsimp only); refine ArgRel.var ?_; simp [Tup.zip])
-        | (focus (simp [Tup.zip]; done))
+        | ((try dsimp only); refine ArgRel.var ?_; simp [Tup.zip, *])
+        | (focus (simp [Tup.zip, *]; done))
         | refine Wf.let_ ?_ ?_
         | refine Wf.load _ ?_ ?_
         | refine Wf.store ?_ ?_ ?_
         | refine Wf.call _ ?_ ?_
         | refine Wf.jnz ?_ ?_ ?_
+        | refine Wf.jump (by simp [Tup.zip, *]) ?_
         | refine Wf.jump ?_ ?_
         | refine Wf.ret ?_
         | refine Wf.exit _ ?_

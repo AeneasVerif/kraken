@@ -743,21 +743,6 @@ theorem subMod25519_correct (Γ : Env) :
 
 /-! ## 100%-PHOAS `Func.Wf` proofs (no `TFlat`) -/
 
-local macro "wf_ctx_tac" : tactic =>
-  `(tactic| (
-    repeat (
-      first
-        | intro _ _
-        | exact TRel.nil'
-        | apply TRel.cons'
-        | ((try dsimp only); exact ArgRel.imm _)
-        | ((try dsimp only); refine ArgRel.var ?_; simp [Tup.zip, *])
-        | refine Wf.let_ ?_ ?_
-        | refine Wf.load _ ?_ ?_
-        | refine Wf.store ?_ ?_ ?_
-        | refine Wf.ret ?_
-        | refine OpRel.mk _ ?_)))
-
 private theorem load4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {p₁ : V₁ i64} {p₂ : V₂ i64}
     {k₁ : V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → Expr V₁ L₁ rs}
@@ -767,7 +752,7 @@ private theorem load4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Typ
       Wf (⟨i64, x3₁, x3₂⟩ :: ⟨i64, x2₁, x2₂⟩ :: ⟨i64, x1₁, x1₂⟩ :: ⟨i64, x0₁, x0₂⟩ :: G) D
         (k₁ x0₁ x1₁ x2₁ x3₁) (k₂ x0₂ x1₂ x2₂ x3₂)) :
     Wf G D (load4K p₁ k₁) (load4K p₂ k₂) := by
-  unfold load4K; wf_ctx_tac
+  unfold load4K; t_wf_tac
   refine (hk _ _ _ _ _ _ _ _).weaken_G fun q hq => by simp [Tup.zip] at hq ⊢; grind
 
 private theorem store4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
@@ -776,7 +761,7 @@ private theorem store4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Ty
     (hp : ⟨i64, p₁, p₂⟩ ∈ G) (hx0 : ⟨i64, x0₁, x0₂⟩ ∈ G) (hx1 : ⟨i64, x1₁, x1₂⟩ ∈ G)
     (hx2 : ⟨i64, x2₁, x2₂⟩ ∈ G) (hx3 : ⟨i64, x3₁, x3₂⟩ ∈ G)
     (hk : Wf G D k₁ k₂) : Wf G D (store4K p₁ x0₁ x1₁ x2₁ x3₁ k₁) (store4K p₂ x0₂ x1₂ x2₂ x3₂ k₂) := by
-  unfold store4K; wf_ctx_tac
+  unfold store4K; t_wf_tac
   exact hk.weaken_G fun q hq => by simp [Tup.zip, hq]
 
 private theorem store8K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
@@ -807,7 +792,7 @@ private theorem mulRow0K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → T
       Wf (⟨i64, r4₁, r4₂⟩ :: ⟨i64, r3₁, r3₂⟩ :: ⟨i64, r2₁, r2₂⟩ :: ⟨i64, r1₁, r1₂⟩ :: ⟨i64, r0₁, r0₂⟩ :: G) D
         (k₁ r0₁ r1₁ r2₁ r3₁ r4₁) (k₂ r0₂ r1₂ r2₂ r3₂ r4₂)) :
     Wf G D (mulRow0K a0₁ a1₁ a2₁ a3₁ b0₁ k₁) (mulRow0K a0₂ a1₂ a2₂ a3₂ b0₂ k₂) := by
-  unfold mulRow0K; wf_ctx_tac
+  unfold mulRow0K; t_wf_tac
   refine (hk _ _ _ _ _ _ _ _ _ _).weaken_G fun q hq => by simp [Tup.zip] at hq ⊢; grind
 
 private theorem mulRowAccK_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
@@ -825,7 +810,7 @@ private theorem mulRowAccK_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty →
         (k₁ o0₁ o1₁ o2₁ o3₁ o4₁) (k₂ o0₂ o1₂ o2₂ o3₂ o4₂)) :
     Wf G D (mulRowAccK a0₁ a1₁ a2₁ a3₁ bj₁ acc0₁ acc1₁ acc2₁ acc3₁ k₁)
            (mulRowAccK a0₂ a1₂ a2₂ a3₂ bj₂ acc0₂ acc1₂ acc2₂ acc3₂ k₂) := by
-  unfold mulRowAccK; wf_ctx_tac
+  unfold mulRowAccK; t_wf_tac
   refine (hk _ _ _ _ _ _ _ _ _ _).weaken_G fun q hq => by simp [Tup.zip] at hq ⊢; grind
 
 private theorem add4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
@@ -841,7 +826,7 @@ private theorem add4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type
       Wf (⟨.bool, c3₁, c3₂⟩ :: ⟨i64, s3₁, s3₂⟩ :: ⟨i64, s2₁, s2₂⟩ :: ⟨i64, s1₁, s1₂⟩ :: ⟨i64, s0₁, s0₂⟩ :: G) D
         (k₁ s0₁ s1₁ s2₁ s3₁ c3₁) (k₂ s0₂ s1₂ s2₂ s3₂ c3₂)) :
     Wf G D (add4K a0₁ a1₁ a2₁ a3₁ b0₁ b1₁ b2₁ b3₁ k₁) (add4K a0₂ a1₂ a2₂ a3₂ b0₂ b1₂ b2₂ b3₂ k₂) := by
-  unfold add4K; wf_ctx_tac
+  unfold add4K; t_wf_tac
   refine (hk _ _ _ _ _ _ _ _ _ _).weaken_G fun q hq => by simp [Tup.zip] at hq ⊢; grind
 
 private theorem sub4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
@@ -857,7 +842,7 @@ private theorem sub4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type
       Wf (⟨.bool, w3₁, w3₂⟩ :: ⟨i64, d3₁, d3₂⟩ :: ⟨i64, d2₁, d2₂⟩ :: ⟨i64, d1₁, d1₂⟩ :: ⟨i64, d0₁, d0₂⟩ :: G) D
         (k₁ d0₁ d1₁ d2₁ d3₁ w3₁) (k₂ d0₂ d1₂ d2₂ d3₂ w3₂)) :
     Wf G D (sub4K a0₁ a1₁ a2₁ a3₁ b0₁ b1₁ b2₁ b3₁ k₁) (sub4K a0₂ a1₂ a2₂ a3₂ b0₂ b1₂ b2₂ b3₂ k₂) := by
-  unfold sub4K; wf_ctx_tac
+  unfold sub4K; t_wf_tac
   refine (hk _ _ _ _ _ _ _ _ _ _).weaken_G fun q hq => by simp [Tup.zip] at hq ⊢; grind
 
 theorem mul4x4_wf : Func.Wf mul4x4 := by
@@ -882,7 +867,7 @@ theorem addMod25519_wf : Func.Wf addMod25519 := by
   refine load4K_wf (by simp [Tup.zip]) fun _ _ _ _ _ _ _ _ => ?_
   refine add4K_wf (by simp) (by simp) (by simp) (by simp)
     (by simp) (by simp) (by simp) (by simp) fun _ _ _ _ _ _ _ _ _ _ => ?_
-  wf_ctx_tac
+  t_wf_tac
 
 theorem subMod25519_wf : Func.Wf subMod25519 := by
   intro V₁ V₂ L₁ L₂ xs₁ xs₂
@@ -891,7 +876,7 @@ theorem subMod25519_wf : Func.Wf subMod25519 := by
   refine load4K_wf (by simp [Tup.zip]) fun _ _ _ _ _ _ _ _ => ?_
   refine sub4K_wf (by simp) (by simp) (by simp) (by simp)
     (by simp) (by simp) (by simp) (by simp) fun _ _ _ _ _ _ _ _ _ _ => ?_
-  wf_ctx_tac
+  t_wf_tac
 
 
 end LeanQbe.T.Examples.Bignum

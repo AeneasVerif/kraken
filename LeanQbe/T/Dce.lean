@@ -91,10 +91,6 @@ abbrev OptV (V : Ty → Type) (t : Ty) : Type := Option (V t)
 /-- Type-erased label representation used during bottom-up liveness analysis. -/
 abbrev KL0 : List Ty → Type := fun _ => Unit
 
-def unitTup : (sig : List (List Ty)) → Tup KL0 sig
-  | [] => ()
-  | _ :: sig => ((), unitTup sig)
-
 def someTup {V : Ty → Type} : (ts : List Ty) → Tup V ts → Tup (OptV V) ts
   | [], () => ()
   | _ :: ts, (x, xs) => (some x, someTup ts xs)
@@ -165,7 +161,7 @@ def liveVars {rs : List Ty} (b : Nat) : Expr K KL0 rs → NatSet × KeepTree
   | .exit _ args => (addArgKeys args .empty, .leaf)
   | .hlt => (.empty, .leaf)
   | .group (sig := sig) bodies k =>
-    let ls := unitTup sig
+    let ls := Tup.units sig
     let (sb, kbs) := liveVarsB b (bodies ls)
     let (sk, ktk) := liveVars b (k ls)
     (sb.union sk, .groupNode kbs ktk)

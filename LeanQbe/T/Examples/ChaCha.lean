@@ -424,30 +424,10 @@ theorem chacha20Block_rfc8439_vector (Γ : Env) (out inp : BitVec 64) (old : Lis
 
 /-! ## 100%-PHOAS `Func.Wf` proof (no `TFlat`) -/
 
-local macro "wf_ctx_tac" : tactic =>
-  `(tactic| (
-    repeat (
-      first
-        | intro _ _
-        | exact TRel.nil'
-        | apply TRel.cons'
-        | ((try dsimp only); exact ArgRel.imm _)
-        | ((try dsimp only); refine ArgRel.var ?_; simp [Tup.zip, *])
-        | refine Wf.let_ ?_ ?_
-        | refine Wf.load _ ?_ ?_
-        | refine Wf.store ?_ ?_ ?_
-        | refine Wf.jnz ?_ ?_ ?_
-        | refine Wf.jump (by simp [Tup.zip, *]) ?_
-        | refine Wf.ret ?_
-        | refine Wf.group ?_ ?_
-        | exact WfB.nil
-        | refine WfB.cons ?_ ?_
-        | refine OpRel.mk _ ?_)))
-
 theorem chacha20Block_wf : Func.Wf chacha20Block := by
   intro V₁ V₂ L₁ L₂ xs₁ xs₂
   dsimp only [chacha20Block]
-  wf_ctx_tac
+  t_wf_tac
 
 
 end LeanQbe.T.Examples.ChaCha

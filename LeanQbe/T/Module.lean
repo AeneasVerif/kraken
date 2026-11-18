@@ -34,10 +34,6 @@ def Module.sigs (M : Module) : List SigEntry := M.fns.map Fn.sig ++ M.externs.ma
 def Module.names (M : Module) : List Sym := M.fns.map Fn.name ++ M.externs.map Extern.name
 def Module.namesNodup (M : Module) : Prop := M.names.Nodup
 
-def Tup.units {α : Type} : (ts : List α) → Tup (fun _ : α => Unit) ts
-  | [] => ()
-  | _ :: ts => ((), Tup.units ts)
-
 mutual
 def Expr.callsOk (allowed : List SigEntry) (exits : List Sym) {rs : List Ty} :
     Expr (fun _ => Unit) (fun _ => Unit) rs → Prop

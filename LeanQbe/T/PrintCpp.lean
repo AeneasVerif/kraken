@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.IL
+public import LeanQbe.T.Module
 
 set_option autoImplicit false
 
@@ -98,27 +99,31 @@ def baseMangle (s : Sym) : String :=
     else
       cleaned
 
-/-- Build an injective `Sym → String` map across a module, rejecting duplicate exact symbols. -/
-def buildSymMap (fns : List Fn) : Except String SymMap := do
+/-- Build an injective `Sym → String` map across a list of symbols, rejecting duplicate exact symbols. -/
+def buildSymMapNames (syms : List Sym) : Except String SymMap := do
   let mut seen : List Sym := []
   let mut used : List String := []
   let mut pairs : List (Sym × String) := []
-  for fn in fns do
-    if seen.contains fn.name then
-      throw s!"duplicate function symbol: {fn.name}"
-    seen := fn.name :: seen
-    let base := baseMangle fn.name
+  for name in syms do
+    if seen.contains name then
+      throw s!"duplicate function symbol: {name}"
+    seen := name :: seen
+    let base := baseMangle name
     let mut cand := base
     let mut k : Nat := 2
     while used.contains cand do
       cand := s!"{base}_{k}"
       k := k + 1
     used := cand :: used
-    pairs := (fn.name, cand) :: pairs
+    pairs := (name, cand) :: pairs
   pure fun s =>
     match pairs.find? (fun p => p.1 == s) with
     | some (_, id) => id
     | none => baseMangle s
+
+/-- Build an injective `Sym → String` map across a list of `Fn`s, rejecting duplicate exact symbols. -/
+def buildSymMap (fns : List Fn) : Except String SymMap :=
+  buildSymMapNames (fns.map Fn.name)
 
 /-- Escape UTF-8 bytes of a string into a valid C++ string literal body (using 3-digit octal escapes). -/
 def escapeCString (s : String) : String :=
@@ -489,6 +494,11 @@ def ppFnDecl (symMap : SymMap := baseMangle) (fn : Fn) : String :=
   let (paramStr, _) := ppFnSigParams fn.as
   s!"{ppRetTy fn.rs} {symMap fn.name}({paramStr});\n"
 
+/-- Render a forward declaration for an external function `Extern`. -/
+def ppExternDecl (symMap : SymMap := baseMangle) (ex : Extern) : String :=
+  let (paramStr, _) := ppFnSigParams ex.as
+  s!"{ppRetTy ex.rs} {symMap ex.name}({paramStr});\n"
+
 /-- Render a full C++ function definition directly from a PHOAS `Fn`. -/
 def ppFn (symMap : SymMap := baseMangle) (fn : Fn) : String :=
   let (paramStr, paramVoids) := ppFnSigParams fn.as
@@ -511,6 +521,18 @@ def ppModule (fns : List Fn) : Except String String := do
   let decls := String.join (fns.map (ppFnDecl symMap))
   let sep := if fns.isEmpty then "" else "\n"
   let defs := String.intercalate "\n" (fns.map (ppFn symMap))
+  pure (hdr ++ decls ++ sep ++ defs)
+
+/-- Render a complete standalone C++20 translation unit for a `LeanQbe.T.Module`
+(checking symbol uniqueness across both `M.fns` and `M.externs`). -/
+def ppTModule (M : Module) : Except String String := do
+  let symMap ← buildSymMapNames M.names
+  let hdr := "#include \"tqbe_rt.hpp\"\n\n"
+  let extDecls := String.join (M.externs.map (ppExternDecl symMap))
+  let fnDecls := String.join (M.fns.map (ppFnDecl symMap))
+  let decls := extDecls ++ fnDecls
+  let sep := if decls.isEmpty || M.fns.isEmpty then "" else "\n"
+  let defs := String.intercalate "\n" (M.fns.map (ppFn symMap))
   pure (hdr ++ decls ++ sep ++ defs)
 
 end LeanQbe.T.PrintCpp

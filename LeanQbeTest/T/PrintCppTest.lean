@@ -516,6 +516,26 @@ def extPreFns : List Fn :=
 #guard (ppModule (coreEdgeFns.map (Fn.legal .x64AVX2))).isOk
 #guard (ppModule (coreEdgeFns.map (Fn.legal .x64AVX512))).isOk
 
+-- `ppTModule` / `ppExternDecl` (`B3`): emits extern prototypes + rejects duplicate fn/extern names
+#guard
+  let ex : Extern := ⟨"ext_inc", [i64], [i64]⟩
+  let caller : Fn := ⟨"call_ext", [i64], [i64], fun _ _ (x, ()) =>
+    .call "ext_inc" (as := [i64]) (bs := [i64]) (.var x, ()) fun (r, ()) => .ret (.var r, ())⟩
+  let m : Module := { fns := [caller], externs := [ex] }
+  match ppTModule m with
+  | .ok s =>
+    (s.splitOn "::tqbe::bits<64> ext_inc(::tqbe::Mem& mem, ::tqbe::bits<64> p0);").length > 1 &&
+    (s.splitOn "::tqbe::bits<64> call_ext(::tqbe::Mem& mem, ::tqbe::bits<64> p0);").length > 1 &&
+    (s.splitOn "ext_inc(mem,").length > 1
+  | .error _ => false
+
+#guard
+  let dup : Module := {
+    fns := [⟨"dup_sym", [], [], fun _ _ () => .ret ()⟩],
+    externs := [⟨"dup_sym", [], []⟩]
+  }
+  !(ppTModule dup).isOk
+
 -- ============================================================================
 -- Helper to emit a namespaced group of functions without repeating #include
 -- ============================================================================
