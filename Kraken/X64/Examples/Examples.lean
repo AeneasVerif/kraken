@@ -18,7 +18,6 @@ import Kraken.Tactics
 import Std.Tactic.BVDecide
 import Kraken.X64.OmniSemantics
 import Kraken.X64.Parser
-import Kraken.X64.PrettyPrint
 import Kraken.X64.Semantics
 meta import Kraken.X64.Semantics
 import Kraken.X64.Sep
