@@ -51,5 +51,12 @@ public import LeanQbe.MainLemmas
 public import LeanQbe.Live
 public import LeanQbe.Spill
 public import LeanQbe.Driver
+public import LeanQbe.T.Ty
+public import LeanQbe.T.TyLemmas
+public import LeanQbe.T.Ops
+public import LeanQbe.T.OpsLemmas
+public import LeanQbe.T.IL
+public import LeanQbe.T.WP
+public import LeanQbe.T.WPLemmas
 
 /-! Root of the generic library. Imports neither `Kraken.X64` nor `Kraken.AArch64`. -/
