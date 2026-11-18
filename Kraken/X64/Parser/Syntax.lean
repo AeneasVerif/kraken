@@ -481,9 +481,6 @@ syntax withPosition(".quad"  ppSpace lineEq x64_const) ";"? : x64_directive
 /-- Embedding of directives -/
 syntax "⸨dir| " x64_directive " ⸩" : term
 
-/-- Embedding of sized directives -/
-syntax "⸨dir " term "| " x64_directive " ⸩" : term
-
 /-- X64 assembly program (sequence of directives). -/
 declare_syntax_cat x64_prog (behavior := both)
 syntax ppDedent((ppLine x64_directive)*) : x64_prog
