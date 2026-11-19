@@ -473,9 +473,6 @@ theorem arm64_of_returns [hh : Host] {sym : Sym} {b nX : Nat} {as bs : List Ty}
   · exact hret
   · exact hX.elim
 
-private theorem eq_empty_eq_emp : (Eq (∅ : Mem 64)) = Std.ExtHashMap.emp := by
-  funext m; exact propext eq_comm
-
 /-- Empty-heap specialization of `arm64_of_returns`. -/
 theorem arm64_of_returns_emp [hh : Host] {sym : Sym} {b nX : Nat} {as bs : List Ty}
     {spec : Spec as bs} (hfn : armTarget.FnSpec hh sym spec b nX)

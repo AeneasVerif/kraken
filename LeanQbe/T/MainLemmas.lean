@@ -11,7 +11,8 @@ public import LeanQbe.T.Logic.MemLemmas
 # Soundness of `LeanQbe.T.Main` & `Compiled` Harness (`T12g`)
 
 * **Signature & contract transfer**: `fnSpec_of_spec`, `encodeTup_eq_cast_of_legalSig_eq`,
-  and `fnSpec_of_legalEnv_legalSig_eq` (`noExit` and general `legalXPost` variants).
+  `legal_xpost_of_legalSig_eq`, `legal_xpost_i64`, and `fnSpec_of_legalEnv_legalSig_eq`
+  (`noExit` and general `legalXPost` variants).
 * **Cross-function label uniqueness**: `lname_inj_cross`, `lname_ne_cross`, `stringsNodup_nodup`,
   and `compileModule_labelsUnique` bridging `Rega.LabelClean T.toIsa` + `fnNameOk` +
   distinct function/exit names directly to `T.LabelsUnique host` without scanning internal `.L`
@@ -72,7 +73,8 @@ theorem legalSig_eq_cons_iff {lt : LegalTarget} {t : Ty} {ts : List Ty}
   simp only [LegalTarget.legalSig, List.length_append, List.length_cons] at hlen
   have h1 := legalTys_length_ge_one lt t; have h2 := legalSig_length_ge lt ts
   have hl1 : (lt.legalTys t).length = 1 := by omega
-  exact List.append_inj (show lt.legalTys t ++ lt.legalSig ts = [t] ++ ts from h) (by simpa using hl1)
+  exact List.append_inj (show lt.legalTys t ++ lt.legalSig ts = [t] ++ ts from h)
+    (by simpa using hl1)
 
 private theorem encodeVal_heq_of_legalTys_eq (lt : LegalTarget) :
     ∀ {t : Ty}, lt.legalTys t = [t] → (v : Val t) →
@@ -113,6 +115,24 @@ theorem encodeTup_eq_cast_of_legalSig_eq {lt : LegalTarget} {ts : List Ty}
     (h : lt.legalSig ts = ts) (xs : Tup Val ts) :
     encodeTup lt ts xs = cast (congrArg (Tup Val) h.symm) xs :=
   eq_of_heq ((encodeTup_heq_of_legalSig_eq lt h xs).trans (cast_heq _ _).symm)
+
+theorem legal_xpost_aux (X : XPost) (g : Sym) (m : Mem 64) {cs ts : List Ty}
+    {xs : Tup Val ts} {ys : Tup Val cs} (h1 : ts = cs) (h2 : HEq xs ys)
+    (hx : X g cs ys m) : X g ts xs m := by
+  subst h1; cases eq_of_heq h2; exact hx
+
+/-- Transfer an exit postcondition `X g cs xs m` across `lt.legalSig` when `lt.legalSig cs = cs`. -/
+theorem legal_xpost_of_legalSig_eq {lt : LegalTarget} {cs : List Ty}
+    (h : lt.legalSig cs = cs) {X : XPost} {g : Sym} {xs : Tup Val cs} {m : Mem 64}
+    (hx : X g cs xs m) : X g (lt.legalSig cs) (encodeTup lt cs xs) m :=
+  legal_xpost_aux X g m h (encodeTup_heq_of_legalSig_eq lt h xs) hx
+
+/-- Single-`i64` specialization of `legal_xpost_of_legalSig_eq`. -/
+theorem legal_xpost_i64 {lt : LegalTarget} (h : lt.legalSig [i64] = [i64])
+    {X : XPost} {g : Sym} {v : BitVec 64} {m : Mem 64}
+    (hx : X g [i64] (v, ()) m) :
+    X g (lt.legalSig [i64]) (encodeTup lt [i64] (v, ())) m :=
+  legal_xpost_of_legalSig_eq h hx
 
 private theorem legalXPost_cast {lt : LegalTarget} {X : XPost} {g : Sym}
     {cs cs' : List Ty} (hcs : lt.legalSig cs = cs') {xs : Tup Val cs}
@@ -391,7 +411,8 @@ theorem compileModule_labelsUnique_of_module {T : Target} (hcl : Rega.LabelClean
     {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
     {hints : List T.toIsa.Hints} {code : List T.Directive} {bounds : List (Sym × Nat)}
     (hprog : T.mach.prog host = code ++ exits.map T.frame.label)
-    (hcm : compileModule T.toIsa lt T.frame.raBytes extCallees exits nX M.fns hints = .ok (code, bounds))
+    (hcm : compileModule T.toIsa lt T.frame.raBytes extCallees exits nX M.fns hints =
+      .ok (code, bounds))
     (hnd : M.checkNamesNodup = true) (hex_nd : exits.Nodup)
     (hex_disj : ∀ e ∈ exits, e ∉ M.fns.map Fn.name)
     (hfok : M.fns.all (fun f => fnNameOk f.name) = true) (heok : exits.all fnNameOk = true) :
@@ -757,7 +778,9 @@ private theorem compile_sound_aux (T : Target) (host : T.mach.Host) (lt : LegalT
               dsimp only [bound]
               cases hfnd : extCallees.find? (fun q => q.1.1 == g) with
               | none =>
-                exfalso; have hnot := List.find?_eq_none.mp hfnd ((g, as, bs'), bg) hmem; simp at hnot
+                exfalso
+                have hnot := List.find?_eq_none.mp hfnd ((g, as, bs'), bg) hmem
+                simp at hnot
               | some q =>
                 have hqmem : q ∈ extCallees := List.mem_of_find?_eq_some hfnd
                 have hpred : q.1.1 = g :=
@@ -774,7 +797,8 @@ private theorem compile_sound_aux (T : Target) (host : T.mach.Host) (lt : LegalT
           rcases List.mem_cons.mp hp with rfl | hp'
           · exact ⟨f, List.mem_cons_self, rfl, hfdef, hfspec⟩
           · have hext' : ∀ q ∈ ((f.mid lt).sig, b) :: extCallees,
-                T.FnSpec host q.1.1 (legalEnv lt (Env.ofModule M Γ) q.1.1 q.1.2.1 q.1.2.2) q.2 nX := by
+                T.FnSpec host q.1.1
+                  (legalEnv lt (Env.ofModule M Γ) q.1.1 q.1.2.1 q.1.2.2) q.2 nX := by
               intro q hq
               rcases List.mem_cons.mp hq with rfl | hq'
               · exact hfspec
@@ -803,7 +827,8 @@ private theorem compile_sound_aux (T : Target) (host : T.mach.Host) (lt : LegalT
 theorem compile_sound (T : Target) (host : T.mach.Host) (lt : LegalTarget)
     (M : Module) (Γ : Env) (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX : Nat)
     (hints : List T.toIsa.Hints) (code : List T.Directive) (bounds : List (Sym × Nat)) (k₀ : Nat)
-    (hcm : compileModule T.toIsa lt T.frame.raBytes extCallees exits nX M.fns hints = .ok (code, bounds))
+    (hcm : compileModule T.toIsa lt T.frame.raBytes extCallees exits nX M.fns hints =
+      .ok (code, bounds))
     (hc : code.IsInfixAt (T.mach.prog host) k₀) (hu : T.LabelsUnique host)
     (hacyc : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf)
     (hsupp : ∀ f ∈ M.fns, (f.earlyOpt).body.supportsSource lt = true)
@@ -848,7 +873,8 @@ theorem bound_le_of_all {D : Type} {res : Except String (List D × List (Sym × 
   subst hres; unfold extractBounds
   cases hlk : lookupFnBound b nm with
   | none => simp
-  | some v => simpa using Nat.le_of_ble_eq_true (List.all_eq_true.mp hle (nm, v) (lookupFnBound_mem hlk))
+  | some v =>
+    simpa using Nat.le_of_ble_eq_true (List.all_eq_true.mp hle (nm, v) (lookupFnBound_mem hlk))
 
 theorem bound_mem_of_all {D : Type} {res : Except String (List D × List (Sym × Nat))}
     {c : List D} {b : List (Sym × Nat)} {fnNames : List Sym}
@@ -883,7 +909,8 @@ theorem extractResult_eq {D : Type} {label : Sym → D} {progSmall : List D → 
 
 theorem checkWithLabels_parts {D : Type} {label : Sym → D} {labelsNodup progSmall : List D → Bool}
     {res : Except String (List D × List (Sym × Nat))} {fnNames exits : List Sym} {maxBound : Nat}
-    (h : checkCompileResultWithLabels label labelsNodup progSmall res fnNames exits maxBound = true) :
+    (h : checkCompileResultWithLabels label labelsNodup progSmall res
+      fnNames exits maxBound = true) :
     res = .ok (extractCode res, extractBounds res) ∧
       labelsNodup (extractCode res ++ exits.map label) = true ∧
       progSmall (extractCode res ++ exits.map label) = true ∧
@@ -901,7 +928,8 @@ uniqueness (`TargetLayout.ofClean`) and explicit `stringsNodup` directive checks
 structure TargetLayout (T : Target) where
   progSmall : List T.Directive → Bool
   layoutOf : (prog : List T.Directive) → progSmall prog = true → T.mach.Host
-  prog_layoutOf : ∀ (prog : List T.Directive) (h : progSmall prog = true), T.mach.prog (layoutOf prog h) = prog
+  prog_layoutOf : ∀ (prog : List T.Directive) (h : progSmall prog = true),
+    T.mach.prog (layoutOf prog h) = prog
   labelsNodup : List T.Directive → Bool
   labelsUnique_layoutOf : ∀ {prog : List T.Directive} (h : progSmall prog = true),
     labelsNodup prog = true → T.LabelsUnique (layoutOf prog h)
@@ -915,7 +943,8 @@ def TargetLayout.ofClean {T : Target} (progSmall : List T.Directive → Bool)
   ⟨progSmall, layoutOf, prog_layoutOf, fun _ => false, fun _ h => nomatch h⟩
 
 /-- Bundle of a compiled typed module on target `T`, constructed from a single kernel evaluation
-of `checkCompile` (or `checkCompileWithLabels`) so downstream proofs never re-evaluate the compiler. -/
+of `checkCompile` (or `checkCompileWithLabels`) so downstream proofs never re-evaluate the
+compiler. -/
 structure Compiled (T : Target) (lt : LegalTarget) (extCallees : List (SigEntry × Nat))
     (exits : List Sym) (nX : Nat) (fs : List Fn) (hints : List T.toIsa.Hints)
     (maxBound : Nat := 2048) where
@@ -1055,7 +1084,8 @@ def compileChecked (T : Target) (L : TargetLayout T) (lt : LegalTarget)
   compile_eq := compile_of_compileModule (checkCompileResult_parts h).1
   bound_mem := fun hnm =>
     bound_mem_of_all (checkCompileResult_parts h).1 (checkCompileResult_parts h).2.2.2.2.2.2 hnm
-  bound_le := bound_le_of_all (checkCompileResult_parts h).1 (checkCompileResult_parts h).2.2.2.2.2.1
+  bound_le :=
+    bound_le_of_all (checkCompileResult_parts h).1 (checkCompileResult_parts h).2.2.2.2.2.1
   host := L.layoutOf
     (extractCode (compileModule T.toIsa lt T.frame.raBytes extCallees exits nX fs hints) ++
       exits.map T.frame.label)
@@ -1094,7 +1124,8 @@ def compileCheckedWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTarget
       exits.map T.frame.label)
     (checkWithLabels_parts h).2.2.1
   prog_host := L.prog_layoutOf _ _
-  labelsUnique := L.labelsUnique_layoutOf (checkWithLabels_parts h).2.2.1 (checkWithLabels_parts h).2.1
+  labelsUnique :=
+    L.labelsUnique_layoutOf (checkWithLabels_parts h).2.2.1 (checkWithLabels_parts h).2.1
 
 /-! ## Stack zeros and concrete execution harness (`TargetInit`) -/
 

@@ -10,7 +10,7 @@ import all Kraken.Mem
 # Separation-logic and memory framing lemmas for `LeanQbe.T` (`T4`)
 
 * Separation glue: `sep_ex_l`, `sep_ex_r`, `sep_pure_l`, `sep_pure_r`, `sep_cast`,
-  `ProofUtil.sep_ac`, `sep_mono`, `sep_mono_r`, `sep_mono2`, `sep_mono_mid`.
+  `eq_empty_eq_emp`, `ProofUtil.sep_ac`, `sep_mono`, `sep_mono_r`, `sep_mono2`, `sep_mono_mid`.
 * Typed `cell` and `cell64` rules (`loadVal_cell`, `store_cell`, `loadVal_cell64`, `store_cell64`).
 * Typed `array` and `array64` focusing/load/store rules (`array_focus`, `array_set`,
   `loadVal_array`, `store_array`, `array64_focus`, `array64_set`, `loadVal_array64`,
@@ -52,6 +52,9 @@ theorem sep_pure_r {φ : Prop} {P R : Mem 64 → Prop} {m : Mem 64} :
   rw [sep_comm, sep_pure_l, sep_comm]
 
 theorem sep_cast {P P' : Mem 64 → Prop} {m : Mem 64} (h : P m) (e : P = P') : P' m := e ▸ h
+
+theorem eq_empty_eq_emp : (Eq (∅ : Mem 64)) = Std.ExtHashMap.emp := by
+  funext m; exact propext eq_comm
 
 theorem sep_mono {P P' Q : Mem 64 → Prop} (h : ∀ x, P x → P' x) {M : Mem 64} :
     (P ⋆ Q) M → (P' ⋆ Q) M := by
@@ -167,7 +170,8 @@ theorem array_append {t : Ty} (a : BitVec 64) (xs ys : List (Val t)) :
 theorem array_focus {t : Ty} (a : BitVec 64) (xs : List (Val t)) {i : Nat} (hi : i < xs.length) :
     array a xs = (cell (a + BitVec.ofNat 64 (t.bytes * i)) xs[i] ⋆
       (array a (xs.take i) ⋆
-        array (a + BitVec.ofNat 64 (t.bytes * i) + BitVec.ofNat 64 t.bytes) (xs.drop (i + 1)))) := by
+        array (a + BitVec.ofNat 64 (t.bytes * i) + BitVec.ofNat 64 t.bytes)
+          (xs.drop (i + 1)))) := by
   conv => lhs; rw [← List.take_append_drop i xs, List.drop_eq_getElem_cons hi]
   rw [array_append, array_cons, List.length_take_of_le (Nat.le_of_lt hi),
     ← sep_assoc, sep_comm (array a (xs.take i)), sep_assoc]
@@ -176,7 +180,8 @@ theorem array_set {t : Ty} (a : BitVec 64) (xs : List (Val t)) {i : Nat} (hi : i
     (v : Val t) :
     array a (xs.set i v) = (cell (a + BitVec.ofNat 64 (t.bytes * i)) v ⋆
       (array a (xs.take i) ⋆
-        array (a + BitVec.ofNat 64 (t.bytes * i) + BitVec.ofNat 64 t.bytes) (xs.drop (i + 1)))) := by
+        array (a + BitVec.ofNat 64 (t.bytes * i) + BitVec.ofNat 64 t.bytes)
+          (xs.drop (i + 1)))) := by
   rw [array_focus a (xs.set i v) (i := i) (by simp [hi])]
   simp [List.take_set_of_le (Nat.le_refl i), List.drop_set_of_lt (Nat.lt_succ_self i)]
 
@@ -302,7 +307,8 @@ theorem store_toBytes_bits {n : Nat} {a : BitVec 64} {x : Int} (v : BitVec n)
     have hsw : v.setWidth (8 * (Ty.bits n).bytes) = v.cast hn :=
       BitVec.eq_of_toNat_eq (by simp [BitVec.toNat_setWidth, ← hn])
     rw [hsw, toInt_cast_bv]
-  have heq : Int.toBytes (Ty.bits n).bytes (v.toNat : Int) = Int.toBytes (Ty.bits n).bytes v.toInt := by
+  have heq :
+      Int.toBytes (Ty.bits n).bytes (v.toNat : Int) = Int.toBytes (Ty.bits n).bytes v.toInt := by
     rw [← Int.toBytes_emod, ← Int.toBytes_emod (x := v.toInt)]
     congr 1
     simp only [Int.take, ← hn]

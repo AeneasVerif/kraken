@@ -98,21 +98,6 @@ private theorem evenOdd_supports_mem :
     ∀ f ∈ evenOddRecMod.fns, (f.earlyOpt).body.supportsSource armLegalTarget = true :=
   fun f hf => List.all_eq_true.mp evenOdd_supports_all f hf
 
-private theorem eq_empty_eq_emp : (Eq (∅ : Mem 64)) = Std.ExtHashMap.emp := by
-  funext m; exact propext eq_comm
-
-private theorem legal_xpost_aux (X : XPost) (g : Sym) (m : Mem 64) {ts : List Ty}
-    {xs : Tup Val ts} {ys : Tup Val [i64]} (h1 : ts = [i64]) (h2 : HEq xs ys)
-    (hx : X g [i64] ys m) : X g ts xs m := by
-  subst h1; cases eq_of_heq h2; exact hx
-
-private theorem legal_xpost_i64 {lt : LegalTarget} (h : lt.legalSig [i64] = [i64])
-    {X : XPost} {g : Sym} {v : BitVec 64} {m : Mem 64}
-    (hx : X g [i64] (v, ()) m) :
-    X g (lt.legalSig [i64]) (encodeTup lt [i64] (v, ())) m := by
-  rw [encodeTup_eq_cast_of_legalSig_eq h]
-  exact legal_xpost_aux X g m h (cast_heq _ _) hx
-
 section Generic
 
 variable {hh : Host}
