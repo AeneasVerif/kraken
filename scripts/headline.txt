@@ -687,3 +687,17 @@ LeanQbe.T.Examples.Kissat.LayerAGates LeanQbe.T.Examples.Kissat.bvaFactor_sat_re
 LeanQbe.T.Examples.Kissat.LayerAGates LeanQbe.T.Examples.Kissat.bvaFactor_equisat
 LeanQbe.T.Examples.Kissat.LayerAGates LeanQbe.T.Examples.Kissat.tierBTrace_unsat
 LeanQbe.T.Examples.Kissat.LayerAGates LeanQbe.T.Examples.Kissat.tierBTrace_sat_recon
+LeanQbe.T.MainLink LeanQbe.T.compileModule_append
+LeanQbe.T.MainLink LeanQbe.T.linkCompiled
+LeanQbe.T.MainLink LeanQbe.T.linkCompiledList
+LeanQbe.T.MainLink LeanQbe.T.linkCompiled_fnSpec
+LeanQbe.T.MainLink LeanQbe.T.linkCompiledList_fnSpec
+LeanQbeTest.T.MainLinkAmd64Test LeanQbeTest.T.MainLinkAmd64Test.twoChunk_link_check
+LeanQbeTest.T.MainLinkAmd64Test LeanQbeTest.T.MainLinkAmd64Test.twoChunk_run_ret1_sep
+LeanQbeTest.T.MainLinkAmd64Test LeanQbeTest.T.MainLinkAmd64Test.threeChunk_link_check
+LeanQbeTest.T.MainLinkAmd64Test LeanQbeTest.T.MainLinkAmd64Test.threeChunk_run_ret1_sep
+LeanQbeTest.T.MainLinkArm64Test LeanQbeTest.T.MainLinkArm64Test.twoChunk_link_check
+LeanQbeTest.T.MainLinkArm64Test LeanQbeTest.T.MainLinkArm64Test.link_labels_ok
+LeanQbeTest.T.MainLinkArm64Test LeanQbeTest.T.MainLinkArm64Test.twoChunk_run_ret1_sep
+LeanQbeTest.T.MainLinkArm64Test LeanQbeTest.T.MainLinkArm64Test.threeChunk_link_check
+LeanQbeTest.T.MainLinkArm64Test LeanQbeTest.T.MainLinkArm64Test.threeChunk_run_ret1_sep
