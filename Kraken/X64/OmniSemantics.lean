@@ -37,13 +37,8 @@ open Kraken (Layout WellFormedLayout)
 
 /-! ### Memory accesses at a mapped address
 
-Backward rules for stepping a load or store by hand (`refine Effects.All_load h ?_`). They are
-implications, not equations, so they are not `ksimp` lemmas: under `kstep`, the same steps are taken
-by the `kspec` equations `store_sep`/`load_sep` (`Kraken.X64.Sep`), whose side conditions are
-separation-logic facts. The AVX rules have no `kspec` counterpart yet. -/
+Backward rules for stepping a load or store by hand (`refine Effects.All_load h ?_`). -/
 
-/-- A store to a mapped address: the access check passes and the run continues with the stored
-bytes. -/
 theorem Effects.All_store {s : MachineData} {addr : BitVec 64} {w : Width} {v : w.type}
     {ret : MachineData → Effects} {post : MachineState → Prop}
     (h : (Mem.loadInt s.dmem addr w.bytes).isSome)
@@ -55,7 +50,6 @@ theorem Effects.All_store {s : MachineData} {addr : BitVec 64} {w : Width} {v : 
   simp only [hi]
   exact hk
 
-/-- A load from a mapped address holding `i`: the run continues with the value read. -/
 theorem Effects.All_load {s : MachineData} {addr : BitVec 64} {w : Width} {i : Int}
     {ret : w.type → MachineData → Effects} {post : MachineState → Prop}
     (h : Mem.loadInt s.dmem addr w.bytes = some i)
@@ -66,8 +60,6 @@ theorem Effects.All_load {s : MachineData} {addr : BitVec 64} {w : Width} {i : I
   simp only [h]
   exact hk
 
-/-- An aligned vector store to a mapped address. With `checkAlign := true` (`movaps`), the
-alignment is a side condition: an unaligned access raises `#GP`, which `Effects.All` rejects. -/
 theorem Effects.All_storeAvx {s : MachineData} {addr : BitVec 64} {w : AvxWidth} {v : w.type}
     {ret : MachineData → Effects} {post : MachineState → Prop} {checkAlign : Bool}
     (ha : checkAlign → isAligned w.bytes addr)
@@ -82,7 +74,6 @@ theorem Effects.All_storeAvx {s : MachineData} {addr : BitVec 64} {w : AvxWidth}
   simp only [hi]
   exact hk
 
-/-- An aligned vector load from a mapped address holding `i`. -/
 theorem Effects.All_loadAvx {s : MachineData} {addr : BitVec 64} {w : AvxWidth} {i : Int}
     {ret : w.type → MachineData → Effects} {post : MachineState → Prop} {checkAlign : Bool}
     (ha : checkAlign → isAligned w.bytes addr)

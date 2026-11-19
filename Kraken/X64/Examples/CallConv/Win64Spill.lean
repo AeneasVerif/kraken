@@ -10,8 +10,7 @@ public import Kraken.X64.Win64
 
 `win64_spill` copies `xmm0` to `xmm1` through a 16-byte stack slot with `movaps`, which faults
 (`#GP`) on an address that is not 16-byte aligned. It allocates 24 bytes, so the slot at the new
-`rsp` is aligned exactly when `rsp + 8` was aligned on entry: the `EntryAligned` conjunct of
-`Win64.CallPre` is what the proof of `spill_spec` uses for the two `movaps`.
+`rsp` is aligned exactly when `rsp + 8` was aligned on entry.
 -/
 
 open Kraken.X64.Parser
@@ -41,21 +40,19 @@ variable [Host]
 
 theorem spill_spec {j : Nat} (hj : spill_body.IsInfixAt Host.prog j) :
     Host.exe.ProcSpec (Host.addrOf j)
-      (fun (R : Mem 64 → Prop) ra t => CallPre 24 R ra t)
+      (fun (R : Mem 64 → Prop) ra t => CallPre 24 R ra t ∧ t.df = false)
       (fun R ra t s => CallPost 24 R ra t s
         ∧ s.zmms.get (.xmm .mm1) = t.zmms.get (.xmm .mm0)) := by
-  rintro R ra t ⟨hal, hdf, hmem⟩
+  rintro R ra t ⟨⟨hal, hmem⟩, hdf⟩
   have h1 := hj.cons.2
   have h2 := h1.cons.2
   have h3 := h2.cons.2
   have h4 := h3.cons.2
   have h5 := h4.cons.2
-  -- the slot to the head of the tree
   rw [reserve24_eq, sep_assoc, sep_comm_l (Shadow _) (Owned 16 _),
     sep_comm_l (RetCell _ _) (Owned 16 _)] at hmem
   obtain ⟨bs, hbs, hmem⟩ := Owned.elim hmem
   have hslot := Mem.loadInt_sep bs _ 16 _ _ hmem hbs (by decide)
-  -- the frame arithmetic, for any `r`: `bv_omega` does not go through on the `get64` terms
   have eal : ∀ r : BitVec 64, r.toNat % 16 = 8 → (r - 24).toNat % 16 = 0 := fun _ _ => by bv_omega
   have eret : ∀ r : BitVec 64, 24 + (r - 24) = r := fun _ => by bv_omega
   have haligned : isAligned AvxWidth.W128.bytes (t.regs.get64 .rsp - 24) := by

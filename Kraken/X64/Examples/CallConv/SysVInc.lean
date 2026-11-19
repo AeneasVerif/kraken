@@ -11,17 +11,7 @@ public import Kraken.X64.SysV
 # A procedure call under the System V AMD64 convention
 
 `sysv_inc` returns its first argument plus one. `sysv_caller` is a SysV procedure that calls it.
-Both satisfy `IncSpec`: the convention's `CallPre`/`CallPost` plus the argument and the result,
-and nothing the convention already guarantees (callee-saved registers, the direction flag, the
-stack pointer). `inc_spec` is proved from the callee's code, for any placement in the ambient
-program. `caller_spec` is proved from the caller's code and the callee's `IncSpec` alone, through
-`ProcSpec.wp_call_owned`: it does not depend on the callee's code.
-
-`inc_spec` steps through the callee with the project's `kstep` tactic: `Host.run_cons` turns each
-instruction of the fragment into an `Effects.All` goal, and `kstep` runs it, including the load of
-the return address (`load_sep`). `caller_spec` and the other examples use `run_step`
-(`CallConv/RunStep.lean`), because `kstep` cannot yet reduce `disp(%r)` addresses, has no AVX memory
-rules, and does not handle `call`.
+Both satisfy `IncSpec`.
 -/
 
 open Kraken.X64.Parser
@@ -55,7 +45,6 @@ theorem inc_spec {j : Nat} (hj : inc_body.IsInfixAt Host.prog j)
   have h1 := hj.cons.2
   have h2 := h1.cons.2
   have h3 := h2.cons.2
-  -- `kstep` states registers as fields (`t.regs.rsp.toBitVec`), not through `get64`
   simp only [Reg64s.get64] at hmem
   refine Host.run_cons hj ?_
   sym => kstep; tactic =>
@@ -75,17 +64,15 @@ theorem inc_spec {j : Nat} (hj : inc_body.IsInfixAt Host.prog j)
   · simp only [Reg64s.get64] at harg
     simp (config := { zetaDelta := true }) [harg, BitVec.add_comm]
 
-/-- A SysV procedure that calls `sysv_inc`. On entry `rsp + 8` is 16-byte aligned, so it moves
-`rsp` down by 8 to make `rsp` aligned at the `call`. -/
 def caller : Program := ⸨prog|
 sysv_caller:
+  -- We need to align the stack for the callee.
   subq $8, %rsp
   call sysv_inc
   addq $8, %rsp
   ret⸩
 
 omit [Host] in
-/-- The caller's 16-byte reservation: the callee's return-address slot and 8 bytes of padding. -/
 private theorem reserve16_eq (r : BitVec 64) :
     Reserve 16 r = Owned 8 (r - 16) ⋆ Owned 8 (r - 8) := by
   rw [Reserve, show (16 : Nat) = 8 + 8 from rfl, Owned.split 8 8 _ (by omega)]
@@ -105,7 +92,6 @@ theorem caller_spec {c : Nat} (hc : caller.IsInfixAt Host.prog c)
   have h4 := h3.cons.2
   rw [reserve16_eq, sep_assoc, sep_comm_l] at hmem
   have e8 : BitVec.truncate Width.W64.bits (Int64.toBitVec 8) = 8 := rfl
-  -- the frame arithmetic, for any `r`: `bv_omega` does not go through on the `get64` terms
   have e16 : ∀ r : BitVec 64, r - 8 - 8 = r - 16 := fun _ => by bv_omega
   have eal : ∀ r : BitVec 64, r.toNat % 16 = 8 → (r - 16).toNat % 16 = 8 := fun _ _ => by bv_omega
   have eret : ∀ r : BitVec 64, 8 + (r - 16 + 8) = r := fun _ => by bv_omega

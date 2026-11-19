@@ -96,7 +96,6 @@ structure Reg64s where
   | .ah | .bh | .ch | .dh => let old := s.get64 r.base;
     s.set64 r.base (old.replaceLow (BitVec.append v (s.get (.low r.base .W8))))
 
-/-- Reading a register after writing one. -/
 theorem Reg64s.get64_set64 (regs : Reg64s) (r r' : Reg64) (v : BitVec 64) :
     (regs.set64 r v).get64 r' = if r = r' then v else regs.get64 r' := by
   cases r <;> cases r' <;> simp [Reg64s.set64, Reg64s.get64]
@@ -109,7 +108,6 @@ theorem Reg64s.get64_set64_ne (regs : Reg64s) {r r' : Reg64} (h : r ≠ r') (v :
     (regs.set64 r v).get64 r' = regs.get64 r' := by
   simp [Reg64s.get64_set64, h]
 
-/-- A full-width register access is the 64-bit one. -/
 @[simp] theorem Reg64s.get_low64 (regs : Reg64s) (r : Reg64) :
     regs.get (.low r .W64) = regs.get64 r := by
   simp [Reg64s.get, Reg.base, Reg.offset, BitVec.take, BitVec.drop]
@@ -204,7 +202,6 @@ def RegZmms.setLegacy (s : RegZmms) {w} (r : AvxReg w) (v : w.type) : RegZmms :=
   | .ymm r => s.set512 r ((s.get512 r).replaceLow v)  -- impossible
   | .xmm r => s.set512 r ((s.get512 r).replaceLow v)
 
-/-- A legacy-SSE write to an `xmm` register is read back by the `xmm` view. -/
 @[simp] theorem RegZmms.get_setLegacy_xmm_self (z : RegZmms) (r : RegMm) (v : BitVec 128) :
     (z.setLegacy (.xmm r) v).get (.xmm r) = v := by
   have h : ∀ (o : BitVec 512) (v : BitVec 128),
@@ -518,7 +515,6 @@ export Labels (label)
              | .none => 0
   BitVec.ofInt address_size.address_size.bits (base + idx + (a.disp.interp p).toInt)
 
-/-- A 64-bit `disp(%r)` address. -/
 @[simp] theorem AddrExpr.interp_reg_disp [Labels] (r : Reg64) (d : Int64) (regs : Reg64s)
     (p : Std.Rco Int64) :
     BitVec.zeroExtend 64 (@AddrExpr.interp _ ⟨.W64⟩

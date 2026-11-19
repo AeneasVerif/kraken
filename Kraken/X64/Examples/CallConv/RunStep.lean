@@ -3,7 +3,7 @@ module
 public import Kraken.X64.WP.Basic
 
 /-!
-# `run_step`: stepping one instruction by hand
+# Temporary macro_rules: `run_step` for stepping one instruction by hand
 
 TODO: This can be removed after the relevant `kstep` improvements land.
 

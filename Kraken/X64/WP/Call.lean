@@ -4,27 +4,20 @@ public import Kraken.X64.WP.Basic
 public import Kraken.X64.Stack
 
 /-!
-# Procedures by specification
+# Procedure specifications
 
 A *procedure specification* `ProcSpec e entry Pre Post` says that a run of the executable `e`
 entered at `entry` in a state `t` with `Pre x ra t` reaches the address `ra` in a state `s'` with
-`Post x ra t s'`. It is a proposition about the executable alone, so it can be assumed by one proof
-(a caller) and established by another (the callee's), and it can be the subject of an induction.
+`Post x ra t s'`.
 
-Nothing in `ProcSpec` mentions the stack or any register: how `ra` is handed over and what the
-callee must preserve is part of `Pre` and `Post`, and is fixed by a *calling convention*
-(`Kraken.X64.SysV`, `Kraken.X64.Win64`). The one convention-independent fact about the x64 `call`
-instruction is `MachineData.pushRa`: it stores the return address below `rsp` and moves `rsp`.
-`ProcSpec.wp_call` is the rule that uses a callee's `ProcSpec`, stated at its label, at a `call`
-site of a fragment.
+The one calling convention-independent fact about the x64 `call` instruction is `MachineData.pushRa`:
+it stores the return address below `rsp` and moves `rsp`. `ProcSpec.wp_call` is the rule that uses a
+callee's `ProcSpec`, stated at its label, at a `call` site of a fragment.
 -/
 
 public section
 
-/-! ## The stack at a call -/
-
-/-- The state a `call` leaves behind: the return address `ra` stored at `rsp - 8`, and `rsp`
-moved down by 8. -/
+/-- The result of a successful `call` with return address `ra` on `s`. -/
 @[expose] def MachineData.pushRa (s : MachineData) (ra : Int64) : MachineData :=
   { s with regs := s.regs.set64 .rsp (s.regs.get64 .rsp - Width.W64.bytesv),
            dmem := Mem.storeInt s.dmem (s.regs.get64 .rsp - Width.W64.bytesv)
@@ -46,27 +39,17 @@ moved down by 8. -/
 @[simp] theorem MachineData.df_pushRa (s : MachineData) (ra : Int64) :
     (s.pushRa ra).df = s.df := rfl
 
-/-! ## Procedure specifications -/
-
 /-- A run of `e` entered at `entry` in a state `t` with `Pre x ra t` reaches `ra` in a state `s'`
-with `Post x ra t s'`. `x` is a logical variable that the call site instantiates (the argument, the
-caller's memory frame). `Post` sees the entry state `t`, so that it can say which registers and
-memory are as they were. -/
+with `Post x ra t s'`. -/
 @[expose] def Kraken.Executable.ProcSpec (e : _root_.Executable) (entry : Int64) {α : Type}
     (Pre : α → Int64 → MachineData → Prop)
     (Post : α → Int64 → MachineData → MachineData → Prop) : Prop :=
   ∀ (x : α) (ra : Int64) (t : MachineData), Pre x ra t →
     Eventually (step1 e) (fun st => st.pc = ra ∧ Post x ra t st.data) ⟨t, entry⟩
 
-/-! ## The call rule -/
-
 section
 variable [Host]
 
-/-- A direct `call f` in a fragment, through the specification of the procedure at `f`: if the
-return-address slot below `rsp` is mapped, the callee's precondition holds at the pushed state for
-the return address `ra` (the address behind the `call`, wherever the fragment is placed), and the
-callee's postcondition implies `Q`, then the fragment `[call f]` reaches its end with `Q`. -/
 theorem Kraken.Executable.ProcSpec.wp_call {α : Type} {Pre : α → Int64 → MachineData → Prop}
     {Post : α → Int64 → MachineData → MachineData → Prop} {f : Label}
     (hspec : Host.exe.ProcSpec (label f) Pre Post) {asz osz : Width} (x : α) {Q : MachineData → Prop} {E : Int64 → MachineData → Prop}
@@ -91,9 +74,6 @@ theorem Kraken.Executable.ProcSpec.wp_call {α : Type} {Pre : α → Int64 → M
   rintro ⟨s', pc⟩ ⟨hpc, hp⟩
   exact Or.inl ⟨by simpa using hpc, hpost _ _ hp⟩
 
-/-- `wp_call` with the return-address slot given as an owned cell at the head of the caller's
-memory, the form a caller's own frame usually provides. The callee's precondition may then assume
-that the slot holds the return address and the rest of the memory is unchanged. -/
 theorem Kraken.Executable.ProcSpec.wp_call_owned {α : Type}
     {Pre : α → Int64 → MachineData → Prop} {Post : α → Int64 → MachineData → MachineData → Prop}
     {f : Label} (hspec : Host.exe.ProcSpec (label f) Pre Post) {asz osz : Width} (x : α) {Q : MachineData → Prop} {E : Int64 → MachineData → Prop}

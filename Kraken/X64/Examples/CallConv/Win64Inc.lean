@@ -10,10 +10,7 @@ public import Kraken.X64.Win64
 
 The same procedures as `CallConv.SysVInc`, but under `Kraken.X64.Win64`: the argument arrives in
 `rcx`, and the callee homes it into the shadow space the caller allocated above the return address
-before reading it back. The caller `win64_caller` allocates the shadow space plus padding with
-`subq $40, %rsp` so that `rsp` is 16-byte aligned at the `call`. As under SysV, both satisfy
-`IncSpec`, and `caller_spec` uses only the callee's `IncSpec`, through `ProcSpec.wp_call_owned`;
-only `Pre`/`Post` differ.
+before reading it back.
 -/
 
 open Kraken.X64.Parser
@@ -34,23 +31,22 @@ win64_inc:
 
 variable [Host]
 
-/-- The specification of an increment procedure at `entry` that needs `d` bytes of stack. -/
+-- Although the ABI doesn't require it, we'll insist on `df = false` on entry.
 abbrev IncSpec (d : Nat) (entry : Int64) : Prop :=
   Host.exe.ProcSpec entry
-    (fun (x : BitVec 64 × (Mem 64 → Prop)) ra t => CallPre d x.2 ra t ∧ ArgU64 t x.1)
+    (fun (x : BitVec 64 × (Mem 64 → Prop)) ra t => CallPre d x.2 ra t ∧ t.df = false ∧ ArgU64 t x.1)
     (fun x ra t s => CallPost d x.2 ra t s ∧ RetU64 s (x.1 + 1))
 
 theorem inc_spec {j : Nat} (hj : inc_body.IsInfixAt Host.prog j)
     (hfirst : ∀ i, i < j → Host.prog[i]? ≠ some (.label "win64_inc")) :
     IncSpec 0 (label "win64_inc") := by
   rw [Host.label_addrOf hj.cons.1 hfirst]
-  rintro ⟨n, R⟩ ra t ⟨⟨-, hdf, hmem⟩, harg⟩
+  rintro ⟨n, R⟩ ra t ⟨⟨-, hmem⟩, hdf, harg⟩
   have h1 := hj.cons.2
   have h2 := h1.cons.2
   have h3 := h2.cons.2
   have h4 := h3.cons.2
   run_step hj
-  -- the home slot of `rcx`, `[rsp + 8]`, to the head of the tree
   rw [Shadow_split, sep_assoc, sep_comm_l] at hmem
   obtain ⟨bs, hbs, hmem⟩ := Owned.elim hmem
   have hslot := Mem.loadInt_sep bs _ 8 _ _ hmem hbs (by decide)
@@ -87,38 +83,32 @@ theorem inc_spec {j : Nat} (hj : inc_body.IsInfixAt Host.prog j)
     rw [show t.regs.get64 .rcx = n from harg, BitVec.add_comm]
     rfl
 
-/-- A Windows x64 procedure that calls `win64_inc`. On entry `rsp + 8` is 16-byte aligned, so it
-allocates the callee's 32-byte shadow space plus 8 bytes of padding to make `rsp` 16-byte aligned
-at the `call`. -/
 def caller : Program := ⸨prog|
 win64_caller:
+  -- Allocate the shadow space (32 bytes) and align the stack (8 more bytes).
   subq $40, %rsp
   call win64_inc
   addq $40, %rsp
   ret⸩
 
 omit [Host] in
-/-- The caller's 48-byte reservation: the callee's return-address slot, its shadow space, and the
-padding. -/
+/-- The caller's 48-byte reservation: the callee's return-address slot, its shadow space, and the padding. -/
 private theorem frame_eq (r : BitVec 64) :
     Reserve 48 r = Owned 8 (r - 48) ⋆ (Shadow (r - 48) ⋆ Owned 8 (r - 8)) := by
   rw [Reserve, show (48 : Nat) = 8 + (32 + 8) from rfl, Owned.split 8 _ _ (by omega),
     Owned.split 32 8 _ (by omega)]
   congr 3 <;> bv_omega
 
-/-- The caller needs 48 bytes of stack: 8 of padding, and the callee's shadow space and return
-address. -/
 theorem caller_spec {c : Nat} (hc : caller.IsInfixAt Host.prog c)
     (hcfirst : ∀ i, i < c → Host.prog[i]? ≠ some (.label "win64_caller"))
     (hinc : IncSpec 0 (label "win64_inc")) :
     IncSpec 48 (label "win64_caller") := by
   rw [Host.label_addrOf hc.cons.1 hcfirst]
-  rintro ⟨n, R⟩ ra t ⟨⟨hal, hdf, hmem⟩, harg⟩
+  rintro ⟨n, R⟩ ra t ⟨⟨hal, hmem⟩, hdf, harg⟩
   have h1 := hc.cons.2
   have h2 := h1.cons.2
   have h3 := h2.cons.2
   have h4 := h3.cons.2
-  -- the callee's slot and shadow space to the head of the tree
   rw [frame_eq] at hmem
   dsimp only at hmem
   have hmem : t.dmem =⋆ Owned 8 (t.regs.get64 .rsp - 48) ⋆ (Shadow (t.regs.get64 .rsp - 48)
@@ -126,7 +116,6 @@ theorem caller_spec {c : Nat} (hc : caller.IsInfixAt Host.prog c)
         ⋆ (Owned 8 (t.regs.get64 .rsp - 8) ⋆ R)))) :=
     cast (congrFun (by ac_rfl) _) hmem
   have e40 : BitVec.truncate Width.W64.bits (Int64.toBitVec 40) = 40 := rfl
-  -- the frame arithmetic, for any `r`: `bv_omega` does not go through on the `get64` terms
   have e48 : ∀ r : BitVec 64, r - 40 - 8 = r - 48 := fun _ => by bv_omega
   have eal : ∀ r : BitVec 64, r.toNat % 16 = 8 → (r - 48).toNat % 16 = 8 := fun _ _ => by bv_omega
   have eret : ∀ r : BitVec 64, 40 + (r - 48 + 8) = r := fun _ => by bv_omega
@@ -140,7 +129,7 @@ theorem caller_spec {c : Nat} (hc : caller.IsInfixAt Host.prog c)
       ⋆ (Owned 8 (t.regs.get64 .rsp - 8) ⋆ R)))
     (by simpa only [Reg64s.get64_set64_self, e48]) ?_ ?_
   · intro ra' hpushed
-    refine ⟨⟨?_, by simpa using hdf, ?_⟩, ?_⟩
+    refine ⟨⟨?_, ?_⟩, by simpa using hdf, ?_⟩
     · simp only [EntryAligned, MachineData.get64_pushRa, ite_true, Reg64s.get64_set64_self, e48]
       exact eal _ hal
     · simpa only [MachineData.get64_pushRa, ite_true, Reserve.zero, emp_sep,
@@ -151,7 +140,6 @@ theorem caller_spec {c : Nat} (hc : caller.IsInfixAt Host.prog c)
     simp only [MachineData.get64_pushRa, ite_true, Reg64s.get64_set64_self, e48, Reserve.zero,
       emp_sep] at hrsp hm
     have er : 40 + s'.regs.get64 .rsp = t.regs.get64 .rsp := by rw [hrsp]; exact eret _
-    -- restate `hm` syntactically: `ac_rfl` fails on the form `simp` leaves behind
     replace hm : s'.dmem =⋆ Owned 8 (t.regs.get64 .rsp - 48) ⋆ (Shadow (t.regs.get64 .rsp - 48)
         ⋆ (RetCell ra (t.regs.get64 .rsp) ⋆ (Shadow (t.regs.get64 .rsp)
           ⋆ (Owned 8 (t.regs.get64 .rsp - 8) ⋆ R)))) := hm
