@@ -2,18 +2,19 @@ module
 
 public import LeanQbe.T.WP
 public import LeanQbe.T.Flat
+public import LeanQbe.T.Trie
 
 /-!
 # Dead-Code Elimination (`T6`)
 
 Two-phase PHOAS dead-code elimination pass:
-1. Bottom-up pure liveness analysis (`liveVars` / `liveVarsB`) over `Expr K KL0 rs` using an
-   `O(log N)` structural binary trie `NatSet` (`NatTrie` with `List Nat` overflow for `≥ 2^32`).
+1. Bottom-up pure liveness analysis (`liveVars` / `liveVarsB`) over `Expr K KL0 rs` using the
+   shared `O(log N)` structural binary trie `Trie Unit`.
    A `let_` binding `[b, b + ts.length)` is kept iff any of its results is live in its
    continuation (`anyLive`), causing chains of dead pure bindings to cascade in a single sweep.
-   Side-effectful or control nodes (`load`, `store`, `call`, `exit`, `store`, `jnz`, `jump`,
-   `ret`, `hlt`, `group`) are never dropped, and `group` block liveness is conservatively
-   unioned with the continuation's liveness.
+   Side-effectful or control nodes (`load`, `store`, `call`, `exit`, `jnz`, `jump`, `ret`, `hlt`,
+   `group`) are never dropped, and `group` block liveness is conservatively unioned with the
+   continuation's liveness.
 2. Top-down reconstruction (`dceSweep` / `dceSweepB`) over `Expr (OptV V) L rs` guided by the
    computed `KeepTree` / `KeepBlocks`.
 
@@ -29,59 +30,16 @@ namespace LeanQbe.T
 
 attribute [local instance] Val.inhabited
 
-/-! ## Fast structural `NatSet` (binary trie + large-index fallback) -/
+/-! ## `Trie Unit` union helper -/
 
-/-- Structural binary trie for variable levels `< 2^32`, avoiding `WellFounded.fix` so
-kernel `rfl` / `t_kernel_rfl` stays fast. -/
-inductive NatTrie : Type where
-  | empty
-  | node (here : Bool) (even odd : NatTrie)
-  deriving Repr, DecidableEq, Inhabited
-
-def NatTrie.mem : NatTrie → Nat → Bool
-  | .empty, _ => false
-  | .node h _ _, 0 => h
-  | .node _ e o, n + 1 =>
-    if n % 2 == 0 then NatTrie.mem e (n / 2) else NatTrie.mem o (n / 2)
-
-def NatTrie.insert : Nat → NatTrie → Nat → NatTrie
-  | _, .empty, 0 => .node true .empty .empty
-  | _, .node _ e o, 0 => .node true e o
-  | 0, t, _ + 1 => t
-  | fuel + 1, .empty, n + 1 =>
-    if n % 2 == 0 then .node false (NatTrie.insert fuel .empty (n / 2)) .empty
-    else .node false .empty (NatTrie.insert fuel .empty (n / 2))
-  | fuel + 1, .node h e o, n + 1 =>
-    if n % 2 == 0 then .node h (NatTrie.insert fuel e (n / 2)) o
-    else .node h e (NatTrie.insert fuel o (n / 2))
-
-def NatTrie.union : NatTrie → NatTrie → NatTrie
+/-- Structural union of two `Trie Unit` liveness sets (`rfl`-safe). -/
+def trieUnion : Trie Unit → Trie Unit → Trie Unit
   | .empty, t => t
   | t, .empty => t
-  | .node h₁ e₁ o₁, .node h₂ e₂ o₂ =>
-    .node (h₁ || h₂) (NatTrie.union e₁ e₂) (NatTrie.union o₁ o₂)
-
-def listMemNat : List Nat → Nat → Bool
-  | [], _ => false
-  | x :: xs, y => (x == y) || listMemNat xs y
-
-/-- Variable-level set: `O(log N)` trie for indices `< 2^32`, exact list fallback above `2^32`. -/
-structure NatSet : Type where
-  trie : NatTrie
-  big : List Nat
-  deriving Repr, DecidableEq, Inhabited
-
-def NatSet.empty : NatSet := ⟨.empty, []⟩
-
-def NatSet.mem (s : NatSet) (n : Nat) : Bool :=
-  s.trie.mem n || listMemNat s.big n
-
-def NatSet.insert (s : NatSet) (n : Nat) : NatSet :=
-  if n < 4294967296 then ⟨NatTrie.insert 32 s.trie n, s.big⟩
-  else ⟨s.trie, n :: s.big⟩
-
-def NatSet.union (s₁ s₂ : NatSet) : NatSet :=
-  ⟨NatTrie.union s₁.trie s₂.trie, s₁.big ++ s₂.big⟩
+  | .node (some ()) e₁ o₁, .node _ e₂ o₂ =>
+    .node (some ()) (trieUnion e₁ e₂) (trieUnion o₁ o₂)
+  | .node none e₁ o₁, .node v₂ e₂ o₂ =>
+    .node v₂ (trieUnion e₁ e₂) (trieUnion o₁ o₂)
 
 /-! ## Keep-tree representation and variable helpers -/
 
@@ -99,17 +57,17 @@ def noneTup {V : Ty → Type} : (ts : List Ty) → Tup (OptV V) ts
   | [] => ()
   | _ :: ts => (none, noneTup ts)
 
-def addArgKey {t : Ty} : Arg K t → NatSet → NatSet
-  | .var i, s => s.insert i
+def addArgKey {t : Ty} : Arg K t → Trie Unit → Trie Unit
+  | .var i, s => s.insert i ()
   | .imm _, s => s
 
-def addArgKeys : {ts : List Ty} → Tup (Arg K) ts → NatSet → NatSet
+def addArgKeys : {ts : List Ty} → Tup (Arg K) ts → Trie Unit → Trie Unit
   | [], (), s => s
   | _ :: _, (a, as), s => addArgKey a (addArgKeys as s)
 
-def anyLive (b : Nat) : Nat → NatSet → Bool
+def anyLive (b : Nat) : Nat → Trie Unit → Bool
   | 0, _ => false
-  | k + 1, s => s.mem b || anyLive (b + 1) k s
+  | k + 1, s => (s.find? b).isSome || anyLive (b + 1) k s
 
 def argSweep {V : Ty → Type} {t : Ty} : Arg (OptV V) t → Arg V t
   | .var (some v) => .var v
@@ -136,7 +94,7 @@ end
 /-! ## Bottom-up liveness and top-down sweep -/
 
 mutual
-def liveVars {rs : List Ty} (b : Nat) : Expr K KL0 rs → NatSet × KeepTree
+def liveVars {rs : List Ty} (b : Nat) : Expr K KL0 rs → Trie Unit × KeepTree
   | .let_ (ts := ts) op k =>
     let (s, kt) := liveVars (b + ts.length) (k (Tup.levels ts b))
     if anyLive b ts.length s then
@@ -155,7 +113,7 @@ def liveVars {rs : List Ty} (b : Nat) : Expr K KL0 rs → NatSet × KeepTree
   | .jnz c t e =>
     let (st, ktt) := liveVars b t
     let (se, kte) := liveVars b e
-    (addArgKey c (st.union se), .node2 ktt kte)
+    (addArgKey c (trieUnion st se), .node2 ktt kte)
   | .jump _ args => (addArgKeys args .empty, .leaf)
   | .ret vs => (addArgKeys vs .empty, .leaf)
   | .exit _ args => (addArgKeys args .empty, .leaf)
@@ -164,15 +122,15 @@ def liveVars {rs : List Ty} (b : Nat) : Expr K KL0 rs → NatSet × KeepTree
     let ls := Tup.units sig
     let (sb, kbs) := liveVarsB b (bodies ls)
     let (sk, ktk) := liveVars b (k ls)
-    (sb.union sk, .groupNode kbs ktk)
+    (trieUnion sb sk, .groupNode kbs ktk)
 
 def liveVarsB {rs : List Ty} (b : Nat) :
-    {sig : List (List Ty)} → Blocks K KL0 rs sig → NatSet × KeepBlocks
+    {sig : List (List Ty)} → Blocks K KL0 rs sig → Trie Unit × KeepBlocks
   | _, .nil => (.empty, .nil)
   | _, .cons (ts := ts) hd tl =>
     let (sh, kh) := liveVars (b + ts.length) (hd (Tup.levels ts b))
     let (st, kt) := liveVarsB b tl
-    (sh.union st, .cons kh kt)
+    (trieUnion sh st, .cons kh kt)
 end
 
 mutual

@@ -1,7 +1,6 @@
 module
 
-public import LeanQbe.T.WP
-public import LeanQbe.T.Flat
+public import LeanQbe.T.OptUtil
 
 /-!
 # Constant folding, trivial-op simplification, algebraic rules, and strength reduction (`T6`)
@@ -58,29 +57,9 @@ def Arg.fpair {V : Ty → Type} {t : Ty} (a : Arg (FVal V) t) : FVal V t := (a.f
 /-- Constant `FVal` carrying immediate `c`. -/
 def fimm {V : Ty → Type} {t : Ty} (c : Val t) : FVal V t := (.imm c, .imm c)
 
-/-- Extract the immediate value of an operand, if any. -/
-def Arg.imm? {V : Ty → Type} {t : Ty} : Arg V t → Option (Val t)
-  | .var _ => none
-  | .imm c => some c
-
-/-- Map a polymorphic operand transformation across an operand tuple. -/
-def tupMapArg {V W : Ty → Type} (f : ∀ t, Arg V t → Arg W t) :
-    {ts : List Ty} → Tup (Arg V) ts → Tup (Arg W) ts
-  | [], () => ()
-  | _ :: _, (a, as) => (f _ a, tupMapArg f as)
-
-/-- Extract a tuple of immediate values when every operand in the tuple is `.imm`. -/
-def tupImms? {V : Ty → Type} : {ts : List Ty} → Tup (Arg V) ts → Option (Tup Val ts)
-  | [], () => some ()
-  | _ :: _, (a, as) => do
-    let c ← a.imm?
-    let cs ← tupImms? as
-    pure (c, cs)
-
-/-- Wrap a tuple of bound output variables `xs : Tup V ts` into fresh `FVal V`s starting at `next`. -/
-def freshFVals {V : Ty → Type} : (ts : List Ty) → Tup V ts → Nat → Tup (FVal V) ts
-  | [], (), _ => ()
-  | _ :: ts, (x, xs), next => ((.var x, .var next), freshFVals ts xs (next + 1))
+/-- Wrap bound output variables `xs : Tup V ts` into fresh `FVal V`s starting at `next`. -/
+abbrev freshFVals {V : Ty → Type} : (ts : List Ty) → Tup V ts → Nat → Tup (FVal V) ts :=
+  tupFreshWith fun x next => (.var x, .var next)
 
 /-! ## Canonical quiet NaN and total computable `OpCode` constant evaluator -/
 
@@ -442,7 +421,8 @@ def Op.simpAct {V : Ty → Type} {rs : List Ty} (op : Op (FVal V) rs) : Option (
         else if a.fkey == b.fkey then some (.arg (.there .here), ()) else none
       | none => if a.fkey == b.fkey then some (.arg (.there .here), ()) else none
     | .zext m n, _ | .sext m n, _ | .trunc m n, _ =>
-      if h : m = n then some (cast (congrArg (fun k => SimpAct [.bits m] [.bits k]) h) (.arg .here, ()))
+      if h : m = n then
+        some (cast (congrArg (fun k => SimpAct [.bits m] [.bits k]) h) (.arg .here, ()))
       else none
     | .addc _, (a, b, c, ()) =>
       if c.fout.imm? == some false then
@@ -557,7 +537,7 @@ def foldB {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (next : Nat) :
     .cons (fun xs => fold (next + ts.length) (b (freshFVals ts xs next))) (foldB next bs)
 end
 
-/-- Fold constants, trivial ops, algebraic rules, strength reductions, and static branches on `Func`. -/
+/-- Fold constants, trivial ops, algebraic rules, strength reductions, and static branches. -/
 def Func.fold {as rs : List Ty} (f : Func as rs) : Func as rs :=
   fun V L xs => LeanQbe.T.fold as.length (f (FVal V) L (freshFVals as xs 0))
 

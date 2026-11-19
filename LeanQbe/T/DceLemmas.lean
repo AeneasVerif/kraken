@@ -1,14 +1,15 @@
 module
 
 public import LeanQbe.T.Dce
+public import LeanQbe.T.OptUtil
 public import LeanQbe.T.WfLemmas
 public import LeanQbe.T.WPLemmas
 
 /-!
 # Soundness and Relational Well-Formedness of Dead-Code Elimination (`T6`)
 
-* `NatSet` correctness (`NatSet.mem_insert_self`, `NatSet.mem_insert_mono`,
-  `NatSet.mem_union_left`, `NatSet.mem_union_right`) and `anyLive` / `addArgKeys` lemmas.
+* `Trie Unit` / `trieUnion` liveness correctness (`TrieSub`, `anyLive_eq_false`, `addArgKeys`
+  lemmas).
 * `OpCode.wp_exists`: any satisfied `OpCode.wp` guarantees existence of output tuples (exhibiting
   the canonical quiet NaN witness via `isFloatNaN_packedNaN` when quantifiers arise from NaNs,
   and discharging undefined behavior by `False.elim`).
@@ -22,184 +23,67 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 
-/-! ## `NatTrie`, `NatSet`, `anyLive`, and `addArgKeys` lemmas -/
+/-! ## `Trie Unit`, `trieUnion`, `anyLive`, and `addArgKeys` lemmas -/
 
-theorem NatTrie.mem_insert_self :
-    ∀ (fuel : Nat) (t : NatTrie) (n : Nat),
-      n < 2 ^ fuel → (NatTrie.insert fuel t n).mem n = true
-  | 0, t, 0, _ => by cases t <;> rfl
-  | 0, _, _ + 1, hlt => by simp at hlt
-  | fuel + 1, t, 0, _ => by cases t <;> rfl
-  | fuel + 1, t, n + 1, hlt => by
-    have hlt' : n / 2 < 2 ^ fuel := by
-      rw [Nat.pow_succ] at hlt
-      omega
-    cases t <;> simp only [NatTrie.insert] <;> split <;> rename_i hev <;>
-      simp only [NatTrie.mem, hev, ↓reduceIte] <;>
-      exact NatTrie.mem_insert_self fuel _ (n / 2) hlt'
+theorem find?_trieUnion : ∀ (t₁ t₂ : Trie Unit) (x : Nat),
+    (trieUnion t₁ t₂).find? x = (t₁.find? x).or (t₂.find? x)
+  | .empty, t₂, x => by simp [trieUnion]
+  | .node _ _ _, .empty, _ => by simp [trieUnion]
+  | .node (some ()) _ _, .node _ _ _, 0 => rfl
+  | .node none _ _, .node _ _ _, 0 => rfl
+  | .node (some ()) e₁ o₁, .node _ e₂ o₂, x + 1 => by
+    simp only [trieUnion, Trie.find?]
+    split <;> exact find?_trieUnion _ _ (x / 2)
+  | .node none e₁ o₁, .node _ e₂ o₂, x + 1 => by
+    simp only [trieUnion, Trie.find?]
+    split <;> exact find?_trieUnion _ _ (x / 2)
 
-theorem NatTrie.mem_insert_mono :
-    ∀ (fuel : Nat) (t : NatTrie) (x y : Nat),
-      t.mem y = true → (NatTrie.insert fuel t x).mem y = true
-  | 0, .empty, 0, _, hy => by simp [NatTrie.mem] at hy
-  | 0, .node h e o, 0, y, hy => by
-    cases y with
-    | zero => rfl
-    | succ y => exact hy
-  | 0, t, _ + 1, _, hy => by cases t <;> exact hy
-  | fuel + 1, .empty, _, _, hy => by simp [NatTrie.mem] at hy
-  | fuel + 1, .node h e o, 0, y, hy => by
-    cases y with
-    | zero => rfl
-    | succ y => exact hy
-  | fuel + 1, .node h e o, x + 1, y, hy => by
-    cases y with
-    | zero =>
-      simp only [NatTrie.insert]
-      split <;> exact hy
-    | succ y =>
-      simp only [NatTrie.insert]
-      split <;> rename_i hx <;> simp only [NatTrie.mem] at hy ⊢ <;>
-        split <;> rename_i hy'
-      · exact NatTrie.mem_insert_mono fuel e (x / 2) (y / 2) (by simp only [hy', ↓reduceIte] at hy; exact hy)
-      · simp only [hy', Bool.false_eq_true, ↓reduceIte] at hy; exact hy
-      · simp only [hy', ↓reduceIte] at hy; exact hy
-      · exact NatTrie.mem_insert_mono fuel o (x / 2) (y / 2)
-          (by simp only [hy', Bool.false_eq_true, ↓reduceIte] at hy; exact hy)
+theorem trieMem_union_left {t₁ t₂ : Trie Unit} {x : Nat}
+    (h : (t₁.find? x).isSome = true) : ((trieUnion t₁ t₂).find? x).isSome = true := by
+  rw [find?_trieUnion]; cases h₁ : t₁.find? x <;> simp_all
 
-theorem NatTrie.mem_union_left :
-    ∀ (t₁ t₂ : NatTrie) (x : Nat), t₁.mem x = true → (NatTrie.union t₁ t₂).mem x = true
-  | .empty, _, _, hx => by simp [NatTrie.mem] at hx
-  | t, .empty, _, hx => by cases t <;> exact hx
-  | .node h₁ e₁ o₁, .node h₂ e₂ o₂, 0, hx => by
-    simp only [NatTrie.mem] at hx
-    simp only [NatTrie.union, NatTrie.mem, hx, Bool.true_or]
-  | .node h₁ e₁ o₁, .node h₂ e₂ o₂, x + 1, hx => by
-    simp only [NatTrie.union, NatTrie.mem] at hx ⊢
-    split <;> rename_i hev
-    · simp only [hev, ↓reduceIte] at hx
-      exact NatTrie.mem_union_left e₁ e₂ (x / 2) hx
-    · simp only [hev, Bool.false_eq_true, ↓reduceIte] at hx
-      exact NatTrie.mem_union_left o₁ o₂ (x / 2) hx
+theorem trieMem_union_right {t₁ t₂ : Trie Unit} {x : Nat}
+    (h : (t₂.find? x).isSome = true) : ((trieUnion t₁ t₂).find? x).isSome = true := by
+  rw [find?_trieUnion]; cases h₁ : t₁.find? x <;> simp_all
 
-theorem NatTrie.mem_union_right :
-    ∀ (t₁ t₂ : NatTrie) (x : Nat), t₂.mem x = true → (NatTrie.union t₁ t₂).mem x = true
-  | .empty, _, _, hx => hx
-  | .node _ _ _, .empty, _, hx => by simp [NatTrie.mem] at hx
-  | .node h₁ e₁ o₁, .node h₂ e₂ o₂, 0, hx => by
-    simp only [NatTrie.mem] at hx
-    simp only [NatTrie.union, NatTrie.mem, hx, Bool.or_true]
-  | .node h₁ e₁ o₁, .node h₂ e₂ o₂, x + 1, hx => by
-    simp only [NatTrie.union, NatTrie.mem] at hx ⊢
-    split <;> rename_i hev
-    · simp only [hev, ↓reduceIte] at hx
-      exact NatTrie.mem_union_right e₁ e₂ (x / 2) hx
-    · simp only [hev, Bool.false_eq_true, ↓reduceIte] at hx
-      exact NatTrie.mem_union_right o₁ o₂ (x / 2) hx
+/-- Subset relation on `Trie Unit` liveness sets. -/
+def TrieSub (s₁ s₂ : Trie Unit) : Prop :=
+  ∀ x : Nat, (s₁.find? x).isSome = true → (s₂.find? x).isSome = true
 
-private theorem listMemNat_head (x : Nat) (xs : List Nat) : listMemNat (x :: xs) x = true := by
-  simp [listMemNat]
+theorem TrieSub.refl (s : Trie Unit) : TrieSub s s := fun _ h => h
 
-private theorem listMemNat_tail {x y : Nat} {xs : List Nat} (h : listMemNat xs y = true) :
-    listMemNat (x :: xs) y = true := by
-  simp [listMemNat, h]
-
-private theorem listMemNat_append_left {xs ys : List Nat} {x : Nat} :
-    listMemNat xs x = true → listMemNat (xs ++ ys) x = true := by
-  induction xs with
-  | nil => simp [listMemNat]
-  | cons a tl ih =>
-    intro h
-    simp only [List.cons_append, listMemNat, Bool.or_eq_true] at h ⊢
-    rcases h with heq | htl
-    · exact Or.inl heq
-    · exact Or.inr (ih htl)
-
-private theorem listMemNat_append_right {xs ys : List Nat} {x : Nat} :
-    listMemNat ys x = true → listMemNat (xs ++ ys) x = true := by
-  induction xs with
-  | nil => intro h; exact h
-  | cons _ _ ih =>
-    intro h
-    simp only [List.cons_append, listMemNat, Bool.or_eq_true]
-    exact Or.inr (ih h)
-
-theorem NatSet.mem_insert_self (s : NatSet) (n : Nat) : (s.insert n).mem n = true := by
-  simp only [NatSet.insert, NatSet.mem, Bool.or_eq_true]
-  split <;> rename_i hlt
-  · exact Or.inl (NatTrie.mem_insert_self 32 s.trie n (by omega))
-  · exact Or.inr (listMemNat_head n s.big)
-
-theorem NatSet.mem_insert_mono {s : NatSet} {x y : Nat} :
-    s.mem y = true → (s.insert x).mem y = true := by
-  intro hy
-  simp only [NatSet.mem, Bool.or_eq_true] at hy
-  simp only [NatSet.insert, NatSet.mem, Bool.or_eq_true]
-  split
-  · rcases hy with h1 | h2
-    · exact Or.inl (NatTrie.mem_insert_mono 32 s.trie x y h1)
-    · exact Or.inr h2
-  · rcases hy with h1 | h2
-    · exact Or.inl h1
-    · exact Or.inr (listMemNat_tail h2)
-
-theorem NatSet.mem_union_left {s₁ s₂ : NatSet} {x : Nat} :
-    s₁.mem x = true → (s₁.union s₂).mem x = true := by
-  intro h
-  simp only [NatSet.mem, Bool.or_eq_true] at h
-  simp only [NatSet.union, NatSet.mem, Bool.or_eq_true]
-  rcases h with h1 | h2
-  · exact Or.inl (NatTrie.mem_union_left s₁.trie s₂.trie x h1)
-  · exact Or.inr (listMemNat_append_left h2)
-
-theorem NatSet.mem_union_right {s₁ s₂ : NatSet} {x : Nat} :
-    s₂.mem x = true → (s₁.union s₂).mem x = true := by
-  intro h
-  simp only [NatSet.mem, Bool.or_eq_true] at h
-  simp only [NatSet.union, NatSet.mem, Bool.or_eq_true]
-  rcases h with h1 | h2
-  · exact Or.inl (NatTrie.mem_union_right s₁.trie s₂.trie x h1)
-  · exact Or.inr (listMemNat_append_right h2)
-
-/-- Subset relation on `NatSet`. -/
-def NatSet.Sub (s₁ s₂ : NatSet) : Prop :=
-  ∀ x : Nat, s₁.mem x = true → s₂.mem x = true
-
-theorem NatSet.Sub.refl (s : NatSet) : NatSet.Sub s s := fun _ h => h
-
-theorem NatSet.Sub.trans {s₁ s₂ s₃ : NatSet} (h12 : NatSet.Sub s₁ s₂) (h23 : NatSet.Sub s₂ s₃) :
-    NatSet.Sub s₁ s₃ :=
+theorem TrieSub.trans {s₁ s₂ s₃ : Trie Unit} (h12 : TrieSub s₁ s₂) (h23 : TrieSub s₂ s₃) :
+    TrieSub s₁ s₃ :=
   fun x hx => h23 x (h12 x hx)
 
-theorem NatSet.Sub.insert (s : NatSet) (i : Nat) : NatSet.Sub s (s.insert i) :=
-  fun _ h => NatSet.mem_insert_mono h
+theorem TrieSub.insert (s : Trie Unit) (i : Nat) : TrieSub s (s.insert i ()) := by
+  intro x hx
+  rw [Trie.find?_insert]
+  split <;> simp [hx]
 
-theorem NatSet.Sub.union_left (s₁ s₂ : NatSet) : NatSet.Sub s₁ (s₁.union s₂) :=
-  fun _ h => NatSet.mem_union_left h
+theorem TrieSub.union_left (s₁ s₂ : Trie Unit) : TrieSub s₁ (trieUnion s₁ s₂) :=
+  fun _ h => trieMem_union_left h
 
-theorem NatSet.Sub.union_right (s₁ s₂ : NatSet) : NatSet.Sub s₂ (s₁.union s₂) :=
-  fun _ h => NatSet.mem_union_right h
+theorem TrieSub.union_right (s₁ s₂ : Trie Unit) : TrieSub s₂ (trieUnion s₁ s₂) :=
+  fun _ h => trieMem_union_right h
 
-theorem NatSet.Sub.addArgKey {t : Ty} (a : Arg K t) (s : NatSet) :
-    NatSet.Sub s (LeanQbe.T.addArgKey a s) := by
+theorem TrieSub.addArgKey {t : Ty} (a : Arg K t) (s : Trie Unit) :
+    TrieSub s (LeanQbe.T.addArgKey a s) := by
   cases a with
-  | var i => exact NatSet.Sub.insert s i
-  | imm _ => exact NatSet.Sub.refl s
+  | var i => exact TrieSub.insert s i
+  | imm _ => exact TrieSub.refl s
 
-theorem NatSet.Sub.addArgKeys :
-    {ts : List Ty} → (as : Tup (Arg K) ts) → (s : NatSet) →
-    NatSet.Sub s (LeanQbe.T.addArgKeys as s)
-  | [], (), s => NatSet.Sub.refl s
+theorem TrieSub.addArgKeys :
+    {ts : List Ty} → (as : Tup (Arg K) ts) → (s : Trie Unit) →
+    TrieSub s (LeanQbe.T.addArgKeys as s)
+  | [], (), s => TrieSub.refl s
   | _ :: _, (a, as), s =>
-    NatSet.Sub.trans (NatSet.Sub.addArgKeys as s)
-      (NatSet.Sub.addArgKey a (LeanQbe.T.addArgKeys as s))
-
-theorem addArgKey_mem_self {s : NatSet} {t : Ty} {k : Nat} :
-    (addArgKey (t := t) (.var k) s).mem k = true :=
-  NatSet.mem_insert_self s k
+    TrieSub.trans (TrieSub.addArgKeys as s)
+      (TrieSub.addArgKey a (LeanQbe.T.addArgKeys as s))
 
 theorem anyLive_eq_false :
-    ∀ (k b : Nat) (s : NatSet), anyLive b k s = false → ∀ i, b ≤ i → i < b + k → s.mem i = false
+    ∀ (k b : Nat) (s : Trie Unit), anyLive b k s = false →
+      ∀ i, b ≤ i → i < b + k → (s.find? i).isSome = false
   | 0, _, _, _, _, h1, h2 => by omega
   | k + 1, b, s, h, i, h1, h2 => by
     simp only [anyLive, Bool.or_eq_false_iff] at h
@@ -209,64 +93,61 @@ theorem anyLive_eq_false :
 
 /-! ## `OpCode.wp_exists`: witness existence for dropped pure operations -/
 
+private theorem floatResultWp_exists (f : Fmt) (res : Float.Model.UnpackedFloat)
+    (P : BitVec f.width → Prop) (hw : floatResultWp f res P) :
+    ∃ r : BitVec f.width, P r := by
+  simp only [floatResultWp] at hw
+  split at hw
+  · exact ⟨(Float.Model.UnpackedFloat.packedNaN f.format).cast (Fmt.format_numBits f),
+      hw _ (isFloatNaN_packedNaN f)⟩
+  · exact ⟨_, hw⟩
+
 private theorem liftFloatRel1_exists
-    (op : Float.Model.Format → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat) :
-    ∀ (t : Ty), t.isFloatTree = true → ∀ (a : Val t) (P : Val t → Prop),
-      liftFloatRel1 op t a P → ∃ r : Val t, P r
-  | .float f, _, a, _, hw => by
-    simp only [liftFloatRel1, floatResultWp] at hw
-    split at hw
-    · exact ⟨(Float.Model.UnpackedFloat.packedNaN f.format).cast (Fmt.format_numBits f),
-        hw _ (isFloatNaN_packedNaN f)⟩
-    · exact ⟨_, hw⟩
-  | .pair s u, ht, a, P, hw => by
-    simp only [Ty.isFloatTree, Bool.and_eq_true] at ht
-    simp only [liftFloatRel1] at hw
-    obtain ⟨r₁, hr₁⟩ := liftFloatRel1_exists op s ht.1 a.1 _ hw
-    obtain ⟨r₂, hr₂⟩ := liftFloatRel1_exists op u ht.2 a.2 _ hr₁
-    exact ⟨(r₁, r₂), hr₂⟩
-  | .bool, ht, _, _, _ => by simp [Ty.isFloatTree] at ht
-  | .bits _, ht, _, _, _ => by simp [Ty.isFloatTree] at ht
+    (op : Float.Model.Format → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)
+    (t : Ty) (ht : t.isFloatTree = true) (a : Val t) (P : Val t → Prop)
+    (hw : liftFloatRel1 op t a P) : ∃ r : Val t, P r :=
+  liftFloatRel1_pred op
+    (fun t _ P => t.isFloatTree = true → ∃ r : Val t, P r)
+    (fun _ _ _ _ h hp ht => let ⟨r, hr⟩ := hp ht; ⟨r, h r hr⟩)
+    (fun f _ P hw _ => floatResultWp_exists f _ P hw)
+    (fun _ _ _ _ _ hm ht => by
+      simp only [Ty.isFloatTree, Bool.and_eq_true] at ht
+      obtain ⟨r₁, hr₁⟩ := hm ht.1
+      obtain ⟨r₂, hr₂⟩ := hr₁ ht.2
+      exact ⟨(r₁, r₂), hr₂⟩)
+    t a P hw ht
 
 private theorem liftFloatRel2_exists
     (op : Float.Model.Format → Float.Model.UnpackedFloat →
-      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat) :
-    ∀ (t : Ty), t.isFloatTree = true → ∀ (a b : Val t) (P : Val t → Prop),
-      liftFloatRel2 op t a b P → ∃ r : Val t, P r
-  | .float f, _, a, b, _, hw => by
-    simp only [liftFloatRel2, floatResultWp] at hw
-    split at hw
-    · exact ⟨(Float.Model.UnpackedFloat.packedNaN f.format).cast (Fmt.format_numBits f),
-        hw _ (isFloatNaN_packedNaN f)⟩
-    · exact ⟨_, hw⟩
-  | .pair s u, ht, a, b, P, hw => by
-    simp only [Ty.isFloatTree, Bool.and_eq_true] at ht
-    simp only [liftFloatRel2] at hw
-    obtain ⟨r₁, hr₁⟩ := liftFloatRel2_exists op s ht.1 a.1 b.1 _ hw
-    obtain ⟨r₂, hr₂⟩ := liftFloatRel2_exists op u ht.2 a.2 b.2 _ hr₁
-    exact ⟨(r₁, r₂), hr₂⟩
-  | .bool, ht, _, _, _, _ => by simp [Ty.isFloatTree] at ht
-  | .bits _, ht, _, _, _, _ => by simp [Ty.isFloatTree] at ht
+      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)
+    (t : Ty) (ht : t.isFloatTree = true) (a b : Val t) (P : Val t → Prop)
+    (hw : liftFloatRel2 op t a b P) : ∃ r : Val t, P r :=
+  liftFloatRel2_pred op
+    (fun t _ _ P => t.isFloatTree = true → ∃ r : Val t, P r)
+    (fun _ _ _ _ _ h hp ht => let ⟨r, hr⟩ := hp ht; ⟨r, h r hr⟩)
+    (fun f _ _ P hw _ => floatResultWp_exists f _ P hw)
+    (fun _ _ _ _ _ _ _ hm ht => by
+      simp only [Ty.isFloatTree, Bool.and_eq_true] at ht
+      obtain ⟨r₁, hr₁⟩ := hm ht.1
+      obtain ⟨r₂, hr₂⟩ := hr₁ ht.2
+      exact ⟨(r₁, r₂), hr₂⟩)
+    t a b P hw ht
 
 private theorem liftFloatRel3_exists
     (op : Float.Model.Format → Float.Model.UnpackedFloat →
-      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat) :
-    ∀ (t : Ty), t.isFloatTree = true → ∀ (a b c : Val t) (P : Val t → Prop),
-      liftFloatRel3 op t a b c P → ∃ r : Val t, P r
-  | .float f, _, a, b, c, _, hw => by
-    simp only [liftFloatRel3, floatResultWp] at hw
-    split at hw
-    · exact ⟨(Float.Model.UnpackedFloat.packedNaN f.format).cast (Fmt.format_numBits f),
-        hw _ (isFloatNaN_packedNaN f)⟩
-    · exact ⟨_, hw⟩
-  | .pair s u, ht, a, b, c, P, hw => by
-    simp only [Ty.isFloatTree, Bool.and_eq_true] at ht
-    simp only [liftFloatRel3] at hw
-    obtain ⟨r₁, hr₁⟩ := liftFloatRel3_exists op s ht.1 a.1 b.1 c.1 _ hw
-    obtain ⟨r₂, hr₂⟩ := liftFloatRel3_exists op u ht.2 a.2 b.2 c.2 _ hr₁
-    exact ⟨(r₁, r₂), hr₂⟩
-  | .bool, ht, _, _, _, _, _ => by simp [Ty.isFloatTree] at ht
-  | .bits _, ht, _, _, _, _, _ => by simp [Ty.isFloatTree] at ht
+      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)
+    (t : Ty) (ht : t.isFloatTree = true) (a b c : Val t) (P : Val t → Prop)
+    (hw : liftFloatRel3 op t a b c P) : ∃ r : Val t, P r :=
+  liftFloatRel3_pred op
+    (fun t _ _ _ P => t.isFloatTree = true → ∃ r : Val t, P r)
+    (fun _ _ _ _ _ _ h hp ht => let ⟨r, hr⟩ := hp ht; ⟨r, h r hr⟩)
+    (fun f _ _ _ P hw _ => floatResultWp_exists f _ P hw)
+    (fun _ _ _ _ _ _ _ _ _ hm ht => by
+      simp only [Ty.isFloatTree, Bool.and_eq_true] at ht
+      obtain ⟨r₁, hr₁⟩ := hm ht.1
+      obtain ⟨r₂, hr₂⟩ := hr₁ ht.2
+      exact ⟨(r₁, r₂), hr₂⟩)
+    t a b c P hw ht
 
 private theorem convertFloat_exists (src dst : Fmt) (a : BitVec src.width)
     (P : BitVec dst.width → Prop) (hw : convertFloat src dst a P) :
@@ -281,136 +162,78 @@ private theorem convertFloat_exists (src dst : Fmt) (a : BitVec src.width)
   | infinity _ => simp only [hu] at hw; exact ⟨_, hw⟩
   | zero _ => simp only [hu] at hw; exact ⟨_, hw⟩
 
+private theorem of_hasFloat_exists {t : Ty} {rs : List Ty} {r : Tup Val rs}
+    {P : Tup Val rs → Prop} (h : if t.hasFloat then False else P r) : ∃ x, P x := by
+  cases hb : t.hasFloat
+  · simp only [hb, Bool.false_eq_true, ↓reduceIte] at h; exact ⟨r, h⟩
+  · simp only [hb, ↓reduceIte] at h
+
+private theorem of_isFloatTree_exists {t : Ty} {rs : List Ty} {r : Tup Val rs}
+    {P : Tup Val rs → Prop} (h : if !t.isFloatTree then False else P r) : ∃ x, P x := by
+  cases hb : t.isFloatTree
+  · simp only [hb, Bool.not_false, ↓reduceIte] at h
+  · simp only [hb, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at h; exact ⟨r, h⟩
+
+private theorem liftFloatRel2_exists_ite
+    (op : Float.Model.Format → Float.Model.UnpackedFloat →
+      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)
+    {t : Ty} {a b : Val t} {P : Tup Val [t] → Prop}
+    (h : if !t.isFloatTree then False else liftFloatRel2 op t a b fun x => P (x, ())) :
+    ∃ r : Tup Val [t], P r := by
+  cases ht : t.isFloatTree
+  · simp only [ht, Bool.not_false, ↓reduceIte] at h
+  · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at h
+    obtain ⟨r, hr⟩ := liftFloatRel2_exists op t ht a b (fun x => P (x, ())) h
+    exact ⟨(r, ()), hr⟩
+
 /-- Any satisfied `OpCode.wp` witnesses an output tuple satisfying `P` (using a canonical
 quiet NaN when NaNs quantify universally over `isFloatNaN`, and `False.elim` on UB). -/
 theorem OpCode.wp_exists : {sig rs : List Ty} → (c : OpCode sig rs) → (args : Tup Val sig) →
     {P : Tup Val rs → Prop} → c.wp args P → ∃ r : Tup Val rs, P r
-  | _, _, .copy _, (_, ()), _, hw => ⟨_, hw⟩
-  | _, _, .add t, (_, _, ()), _, hw => by
-    simp only [OpCode.wp_add] at hw
-    cases hb : t.hasFloat
-    · simp only [hb, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
-    · simp only [hb, ↓reduceIte] at hw
-  | _, _, .sub t, (_, _, ()), _, hw => by
-    simp only [OpCode.wp_sub] at hw
-    cases hb : t.hasFloat
-    · simp only [hb, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
-    · simp only [hb, ↓reduceIte] at hw
-  | _, _, .mul t, (_, _, ()), _, hw => by
-    simp only [OpCode.wp_mul] at hw
-    cases hb : t.hasFloat
-    · simp only [hb, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
-    · simp only [hb, ↓reduceIte] at hw
-  | _, _, .neg t, (_, ()), _, hw => by
-    simp only [OpCode.wp_neg] at hw
-    cases hb : t.hasFloat
-    · simp only [hb, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
-    · simp only [hb, ↓reduceIte] at hw
-  | _, _, .and _, (_, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .or _, (_, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .xor _, (_, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .not _, (_, ()), _, hw => ⟨_, hw⟩
-  | _, _, .ternlog _ _, (_, _, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .shl t, (_, _, ()), _, hw => by
-    simp only [OpCode.wp_shl] at hw
-    cases hb : t.hasFloat
-    · simp only [hb, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
-    · simp only [hb, ↓reduceIte] at hw
-  | _, _, .lshr t, (_, _, ()), _, hw => by
-    simp only [OpCode.wp_lshr] at hw
-    cases hb : t.hasFloat
-    · simp only [hb, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
-    · simp only [hb, ↓reduceIte] at hw
-  | _, _, .ashr t, (_, _, ()), _, hw => by
-    simp only [OpCode.wp_ashr] at hw
-    cases hb : t.hasFloat
-    · simp only [hb, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
-    · simp only [hb, ↓reduceIte] at hw
-  | _, _, .rotl t, (_, _, ()), _, hw => by
-    simp only [OpCode.wp_rotl] at hw
-    cases hb : t.hasFloat
-    · simp only [hb, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
-    · simp only [hb, ↓reduceIte] at hw
-  | _, _, .rotr t, (_, _, ()), _, hw => by
-    simp only [OpCode.wp_rotr] at hw
-    cases hb : t.hasFloat
-    · simp only [hb, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
-    · simp only [hb, ↓reduceIte] at hw
-  | _, _, .fshl _, (_, _, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .fshr _, (_, _, _, ()), _, hw => ⟨_, hw⟩
+  | _, _, .add _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_add] at hw; exact hw)
+  | _, _, .sub _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_sub] at hw; exact hw)
+  | _, _, .mul _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_mul] at hw; exact hw)
+  | _, _, .neg _, (_, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_neg] at hw; exact hw)
+  | _, _, .shl _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_shl] at hw; exact hw)
+  | _, _, .lshr _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_lshr] at hw; exact hw)
+  | _, _, .ashr _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_ashr] at hw; exact hw)
+  | _, _, .rotl _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_rotl] at hw; exact hw)
+  | _, _, .rotr _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_rotr] at hw; exact hw)
   | _, _, .bswap t, (_, ()), _, hw => by
     simp only [OpCode.wp_bswap] at hw
     cases hb : t.bswapOk
     · simp only [hb, Bool.not_false, ↓reduceIte] at hw
     · simp only [hb, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
-  | _, _, .clz _, (_, ()), _, hw => ⟨_, hw⟩
-  | _, _, .cls _, (_, ()), _, hw => ⟨_, hw⟩
-  | _, _, .rbit _, (_, ()), _, hw => ⟨_, hw⟩
-  | _, _, .ctz _, (_, ()), _, hw => ⟨_, hw⟩
-  | _, _, .popcnt _, (_, ()), _, hw => ⟨_, hw⟩
-  | _, _, .cmp _ t _ rfl, (_, _, ()), _, hw => by
-    simp only [OpCode.wp_cmp, cast_eq] at hw
-    cases hb : t.hasFloat
-    · simp only [hb, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
-    · simp only [hb, ↓reduceIte] at hw
-  | _, _, .select _, (_, _, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .blend _ _ rfl, (_, _, _, ()), _, hw => ⟨_, hw⟩
+  | _, _, .cmp _ _ _ rfl, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_cmp, cast_eq] at hw; exact hw)
   | _, _, .zext _ _, (_, ()), _, hw => by simp only [OpCode.wp_zext] at hw; exact ⟨_, hw.2⟩
   | _, _, .sext _ _, (_, ()), _, hw => by simp only [OpCode.wp_sext] at hw; exact ⟨_, hw.2⟩
   | _, _, .trunc _ _, (_, ()), _, hw => by simp only [OpCode.wp_trunc] at hw; exact ⟨_, hw.2⟩
-  | _, _, .ofBool _, (_, ()), _, hw => ⟨_, hw⟩
-  | _, _, .addc _, (_, _, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .subb _, (_, _, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .umulw _, (_, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .smulw _, (_, _, ()), _, hw => ⟨_, hw⟩
   | _, _, .udiv _, (_, _, ()), _, hw => by simp only [OpCode.wp_udiv] at hw; exact ⟨_, hw.2⟩
   | _, _, .sdiv _, (_, _, ()), _, hw => by simp only [OpCode.wp_sdiv] at hw; exact ⟨_, hw.2⟩
   | _, _, .urem _, (_, _, ()), _, hw => by simp only [OpCode.wp_urem] at hw; exact ⟨_, hw.2⟩
   | _, _, .srem _, (_, _, ()), _, hw => by simp only [OpCode.wp_srem] at hw; exact ⟨_, hw.2⟩
-  | _, _, .udiv0 _, (_, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .sdiv0 _, (_, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .mkpair _ _, (_, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .unpair _ _, (_, ()), _, hw => ⟨_, hw⟩
-  | _, _, .bitcast _ _ _, (_, ()), _, hw => ⟨_, hw⟩
   | _, _, .shufd _ _, (_, ()), _, hw => by simp only [OpCode.wp_shufd] at hw; exact ⟨_, hw.2.2⟩
   | _, _, .shufb _, (_, _, ()), _, hw => by simp only [OpCode.wp_shufb] at hw; exact ⟨_, hw.2.2⟩
   | _, _, .alignr _ _, (_, _, ()), _, hw => by simp only [OpCode.wp_alignr] at hw; exact ⟨_, hw.2.2⟩
   | _, _, .blendw _ _, (_, _, ()), _, hw => by simp only [OpCode.wp_blendw] at hw; exact ⟨_, hw.2.2⟩
-  | _, _, .sha256rnds2, (_, _, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .sha256msg1, (_, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .sha256msg2, (_, _, ()), _, hw => ⟨_, hw⟩
-  | _, _, .fadd t, (a, b, ()), P, hw => by
-    simp only [OpCode.wp_fadd] at hw
-    cases ht : t.isFloatTree
-    · simp only [ht, Bool.not_false, ↓reduceIte] at hw
-    · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw
-      obtain ⟨r, hr⟩ := liftFloatRel2_exists Float.Model.UnpackedFloat.add t ht a b
-        (fun x => P (x, ())) hw
-      exact ⟨(r, ()), hr⟩
-  | _, _, .fsub t, (a, b, ()), P, hw => by
-    simp only [OpCode.wp_fsub] at hw
-    cases ht : t.isFloatTree
-    · simp only [ht, Bool.not_false, ↓reduceIte] at hw
-    · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw
-      obtain ⟨r, hr⟩ := liftFloatRel2_exists Float.Model.UnpackedFloat.sub t ht a b
-        (fun x => P (x, ())) hw
-      exact ⟨(r, ()), hr⟩
-  | _, _, .fmul t, (a, b, ()), P, hw => by
-    simp only [OpCode.wp_fmul] at hw
-    cases ht : t.isFloatTree
-    · simp only [ht, Bool.not_false, ↓reduceIte] at hw
-    · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw
-      obtain ⟨r, hr⟩ := liftFloatRel2_exists Float.Model.UnpackedFloat.mul t ht a b
-        (fun x => P (x, ())) hw
-      exact ⟨(r, ()), hr⟩
-  | _, _, .fdiv t, (a, b, ()), P, hw => by
-    simp only [OpCode.wp_fdiv] at hw
-    cases ht : t.isFloatTree
-    · simp only [ht, Bool.not_false, ↓reduceIte] at hw
-    · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw
-      obtain ⟨r, hr⟩ := liftFloatRel2_exists Float.Model.UnpackedFloat.div t ht a b
-        (fun x => P (x, ())) hw
-      exact ⟨(r, ()), hr⟩
+  | _, _, .fadd _, (_, _, ()), _, hw =>
+    liftFloatRel2_exists_ite _ (by simp only [OpCode.wp_fadd] at hw; exact hw)
+  | _, _, .fsub _, (_, _, ()), _, hw =>
+    liftFloatRel2_exists_ite _ (by simp only [OpCode.wp_fsub] at hw; exact hw)
+  | _, _, .fmul _, (_, _, ()), _, hw =>
+    liftFloatRel2_exists_ite _ (by simp only [OpCode.wp_fmul] at hw; exact hw)
+  | _, _, .fdiv _, (_, _, ()), _, hw =>
+    liftFloatRel2_exists_ite _ (by simp only [OpCode.wp_fdiv] at hw; exact hw)
   | _, _, .ffma t, (a, b, c, ()), P, hw => by
     simp only [OpCode.wp_ffma] at hw
     cases ht : t.isFloatTree
@@ -427,21 +250,12 @@ theorem OpCode.wp_exists : {sig rs : List Ty} → (c : OpCode sig rs) → (args 
       obtain ⟨r, hr⟩ := liftFloatRel1_exists Float.Model.UnpackedFloat.sqrt t ht a
         (fun x => P (x, ())) hw
       exact ⟨(r, ()), hr⟩
-  | _, _, .fneg t, (_, ()), _, hw => by
-    simp only [OpCode.wp_fneg] at hw
-    cases ht : t.isFloatTree
-    · simp only [ht, Bool.not_false, ↓reduceIte] at hw
-    · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
-  | _, _, .fabs t, (_, ()), _, hw => by
-    simp only [OpCode.wp_fabs] at hw
-    cases ht : t.isFloatTree
-    · simp only [ht, Bool.not_false, ↓reduceIte] at hw
-    · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
-  | _, _, .fcmp _ t _ rfl, (_, _, ()), _, hw => by
-    simp only [OpCode.wp_fcmp, cast_eq] at hw
-    cases ht : t.isFloatTree
-    · simp only [ht, Bool.not_false, ↓reduceIte] at hw
-    · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
+  | _, _, .fneg _, (_, ()), _, hw =>
+    of_isFloatTree_exists (by simp only [OpCode.wp_fneg] at hw; exact hw)
+  | _, _, .fabs _, (_, ()), _, hw =>
+    of_isFloatTree_exists (by simp only [OpCode.wp_fabs] at hw; exact hw)
+  | _, _, .fcmp _ _ _ rfl, (_, _, ()), _, hw =>
+    of_isFloatTree_exists (by simp only [OpCode.wp_fcmp, cast_eq] at hw; exact hw)
   | _, _, .fptoui f n, (a, ()), _, hw => by
     simp only [OpCode.wp_fptoui] at hw
     cases htr : truncToInt (unpackFloat f a) with
@@ -453,22 +267,36 @@ theorem OpCode.wp_exists : {sig rs : List Ty} → (c : OpCode sig rs) → (args 
     cases htr : truncToInt (unpackFloat f a) with
     | none => simp only [htr] at hw2
     | some _ => simp only [htr] at hw2; exact ⟨_, hw2.2.2⟩
-  | _, _, .uitofp _ _, (_, ()), _, hw => ⟨_, hw⟩
-  | _, _, .sitofp _ _, (_, ()), _, hw => ⟨_, hw⟩
   | _, _, .fcvt f g, (a, ()), P, hw => by
     simp only [OpCode.wp_fcvt] at hw
     obtain ⟨r, hr⟩ := convertFloat_exists f g a (fun x => P (x, ())) hw
     exact ⟨(r, ()), hr⟩
+  | _, _, .copy _, (_, ()), _, hw | _, _, .and _, (_, _, ()), _, hw
+  | _, _, .or _, (_, _, ()), _, hw | _, _, .xor _, (_, _, ()), _, hw
+  | _, _, .not _, (_, ()), _, hw | _, _, .ternlog _ _, (_, _, _, ()), _, hw
+  | _, _, .fshl _, (_, _, _, ()), _, hw | _, _, .fshr _, (_, _, _, ()), _, hw
+  | _, _, .clz _, (_, ()), _, hw | _, _, .cls _, (_, ()), _, hw
+  | _, _, .rbit _, (_, ()), _, hw | _, _, .ctz _, (_, ()), _, hw
+  | _, _, .popcnt _, (_, ()), _, hw | _, _, .select _, (_, _, _, ()), _, hw
+  | _, _, .blend _ _ rfl, (_, _, _, ()), _, hw => ⟨_, hw⟩
+  | _, _, .ofBool _, (_, ()), _, hw
+  | _, _, .addc _, (_, _, _, ()), _, hw | _, _, .subb _, (_, _, _, ()), _, hw
+  | _, _, .umulw _, (_, _, ()), _, hw | _, _, .smulw _, (_, _, ()), _, hw
+  | _, _, .udiv0 _, (_, _, ()), _, hw | _, _, .sdiv0 _, (_, _, ()), _, hw
+  | _, _, .mkpair _ _, (_, _, ()), _, hw | _, _, .unpair _ _, (_, ()), _, hw
+  | _, _, .bitcast _ _ _, (_, ()), _, hw | _, _, .sha256rnds2, (_, _, _, ()), _, hw
+  | _, _, .sha256msg1, (_, _, ()), _, hw | _, _, .sha256msg2, (_, _, ()), _, hw
+  | _, _, .uitofp _ _, (_, ()), _, hw | _, _, .sitofp _ _, (_, ()), _, hw => ⟨_, hw⟩
 
 /-! ## Block liveness and sweep access lemmas -/
 
 theorem liveVarsB_sub {rs : List Ty} (b : Nat) :
     {sig : List (List Ty)} → (bk : Blocks K KL0 rs sig) → {ts : List Ty} → (i : Member ts sig) →
-    NatSet.Sub (liveVars (b + ts.length) (bk.get i (Tup.levels ts b))).1 (liveVarsB b bk).1
+    TrieSub (liveVars (b + ts.length) (bk.get i (Tup.levels ts b))).1 (liveVarsB b bk).1
   | _ :: _, .cons _ _, _, .here =>
-    NatSet.Sub.union_left _ _
+    TrieSub.union_left _ _
   | _ :: _, .cons _ tl, _, .there i =>
-    NatSet.Sub.trans (liveVarsB_sub b tl i) (NatSet.Sub.union_right _ _)
+    TrieSub.trans (liveVarsB_sub b tl i) (TrieSub.union_right _ _)
 
 theorem dceSweepB_liveVarsB_get {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (b : Nat) :
     {sig : List (List Ty)} → (bk : Blocks K KL0 rs sig) → (bs : Blocks (OptV V) L rs sig) →
@@ -482,13 +310,13 @@ theorem dceSweepB_liveVarsB_get {V : Ty → Type} {L : List Ty → Type} {rs : L
 /-! ## Invariants `NoneDead`, `SomeEq`, and `DceRel` -/
 
 /-- Every dropped (`none`) binder level in `Gk` is absent from liveness set `s`. -/
-def NoneDead {V : Ty → Type} (s : NatSet) (Gk : Ctx K (OptV V)) : Prop :=
-  ∀ {t : Ty} {k : Nat} {o : OptV V t}, ⟨t, k, o⟩ ∈ Gk → o = none → s.mem k = false
+def NoneDead {V : Ty → Type} (s : Trie Unit) (Gk : Ctx K (OptV V)) : Prop :=
+  ∀ {t : Ty} {k : Nat} {o : OptV V t}, ⟨t, k, o⟩ ∈ Gk → o = none → (s.find? k).isSome = false
 
-theorem NoneDead.sub {V : Ty → Type} {s₁ s₂ : NatSet} {Gk : Ctx K (OptV V)}
-    (hsub : NatSet.Sub s₁ s₂) (hnd : NoneDead s₂ Gk) : NoneDead s₁ Gk := by
+theorem NoneDead.sub {V : Ty → Type} {s₁ s₂ : Trie Unit} {Gk : Ctx K (OptV V)}
+    (hsub : TrieSub s₁ s₂) (hnd : NoneDead s₂ Gk) : NoneDead s₁ Gk := by
   intro t k o hm ho
-  cases hmem : s₁.mem k with
+  cases hmem : (s₁.find? k).isSome with
   | false => rfl
   | true =>
     have hmem2 := hsub k hmem
@@ -496,7 +324,7 @@ theorem NoneDead.sub {V : Ty → Type} {s₁ s₂ : NatSet} {Gk : Ctx K (OptV V)
     rw [hf] at hmem2
     cases hmem2
 
-theorem NoneDead.cons_some {V : Ty → Type} {s : NatSet} {Gk : Ctx K (OptV V)}
+theorem NoneDead.cons_some {V : Ty → Type} {s : Trie Unit} {Gk : Ctx K (OptV V)}
     (hnd : NoneDead s Gk) {t : Ty} (k : Nat) (v : V t) :
     NoneDead s (⟨t, k, some v⟩ :: Gk) := by
   intro t' k' o hm ho
@@ -504,16 +332,16 @@ theorem NoneDead.cons_some {V : Ty → Type} {s : NatSet} {Gk : Ctx K (OptV V)}
   | head => cases ho
   | tail _ hm' => exact hnd hm' ho
 
-theorem NoneDead.append_some {V : Ty → Type} {s : NatSet} {Gk : Ctx K (OptV V)}
+theorem NoneDead.append_some {V : Ty → Type} {s : Trie Unit} {Gk : Ctx K (OptV V)}
     (hnd : NoneDead s Gk) :
     {ts : List Ty} → (ks : Tup K ts) → (xs : Tup V ts) →
     NoneDead s (Tup.zip ks (someTup ts xs) ++ Gk)
   | [], (), () => hnd
   | _ :: _, (k, ks), (x, xs) => NoneDead.cons_some (NoneDead.append_some hnd ks xs) k x
 
-theorem NoneDead.append_none {V : Ty → Type} {s : NatSet} {Gk : Ctx K (OptV V)}
+theorem NoneDead.append_none {V : Ty → Type} {s : Trie Unit} {Gk : Ctx K (OptV V)}
     (hnd : NoneDead s Gk) :
-    {ts : List Ty} → (b : Nat) → (∀ i, b ≤ i → i < b + ts.length → s.mem i = false) →
+    {ts : List Ty} → (b : Nat) → (∀ i, b ≤ i → i < b + ts.length → (s.find? i).isSome = false) →
     NoneDead s (Tup.zip (Tup.levels ts b) (noneTup (V := V) ts) ++ Gk)
   | [], _, _ => hnd
   | _ :: ts, b, hfalse => by
@@ -523,7 +351,8 @@ theorem NoneDead.append_none {V : Ty → Type} {s : NatSet} {Gk : Ctx K (OptV V)
     | head => exact hfalse _ (Nat.le_refl _) (by simp)
     | tail _ hm' =>
       exact NoneDead.append_none hnd (b + 1)
-        (fun i hi1 hi2 => hfalse i (Nat.le_of_succ_le hi1) (by simp only [List.length_cons] at hi2 ⊢; omega))
+        (fun i hi1 hi2 =>
+          hfalse i (Nat.le_of_succ_le hi1) (by simp only [List.length_cons] at hi2 ⊢; omega))
         hm' ho
 
 /-- Every kept (`some`) binder in `G` agrees with its semantic value in `Val`. -/
@@ -555,8 +384,8 @@ theorem SomeEq.append_none {G : Ctx (OptV Val) Val} (hG : SomeEq G) :
 /-- Lockstep `Option` binder invariant for `dce_wf`: either both sides were dropped (`none, none`)
 or both sides are kept (`some v₁, some v₂`) and related in `G'`. -/
 def DceRel {V₁ V₂ : Ty → Type} (G : Ctx (OptV V₁) (OptV V₂)) (G' : Ctx V₁ V₂) : Prop :=
-  ∀ {t : Ty} {o₁ : OptV V₁ t} {o₂ : OptV V₂ t},
-    ⟨t, o₁, o₂⟩ ∈ G → (o₁ = none ∧ o₂ = none) ∨ ∃ v₁ v₂, o₁ = some v₁ ∧ o₂ = some v₂ ∧ ⟨t, v₁, v₂⟩ ∈ G'
+  ∀ {t : Ty} {o₁ : OptV V₁ t} {o₂ : OptV V₂ t}, ⟨t, o₁, o₂⟩ ∈ G →
+    (o₁ = none ∧ o₂ = none) ∨ ∃ v₁ v₂, o₁ = some v₁ ∧ o₂ = some v₂ ∧ ⟨t, v₁, v₂⟩ ∈ G'
 
 theorem DceRel.weaken {V₁ V₂ : Ty → Type} {G : Ctx (OptV V₁) (OptV V₂)} {G₁ G₂ : Ctx V₁ V₂}
     (hsub : ∀ p ∈ G₁, p ∈ G₂) (hrel : DceRel G G₁) : DceRel G G₂ := by
@@ -594,40 +423,40 @@ theorem DceRel.append_none {V₁ V₂ : Ty → Type} {G : Ctx (OptV V₁) (OptV 
 
 /-! ## Operand liveness predicates and transport lemmas -/
 
-def Arg.InSet (s : NatSet) {t : Ty} : Arg K t → Prop
-  | .var k => s.mem k = true
+def Arg.InSet (s : Trie Unit) {t : Ty} : Arg K t → Prop
+  | .var k => (s.find? k).isSome = true
   | .imm _ => True
 
-theorem Arg.InSet.mono {s₁ s₂ : NatSet} (hsub : NatSet.Sub s₁ s₂) {t : Ty} {a : Arg K t} :
+theorem Arg.InSet.mono {s₁ s₂ : Trie Unit} (hsub : TrieSub s₁ s₂) {t : Ty} {a : Arg K t} :
     a.InSet s₁ → a.InSet s₂ := by
   cases a with
   | var k => exact hsub k
   | imm _ => exact fun _ => trivial
 
-theorem Arg.InSet.addArgKey {t : Ty} (a : Arg K t) (s : NatSet) : a.InSet (addArgKey a s) := by
+theorem Arg.InSet.addArgKey {t : Ty} (a : Arg K t) (s : Trie Unit) : a.InSet (addArgKey a s) := by
   cases a with
-  | var k => exact NatSet.mem_insert_self s k
+  | var k => simp [Arg.InSet, LeanQbe.T.addArgKey]
   | imm _ => trivial
 
-def ArgsInSet (s : NatSet) : {ts : List Ty} → Tup (Arg K) ts → Prop
+def ArgsInSet (s : Trie Unit) : {ts : List Ty} → Tup (Arg K) ts → Prop
   | [], () => True
   | _ :: _, (a, as) => a.InSet s ∧ ArgsInSet s as
 
-theorem ArgsInSet.mono {s₁ s₂ : NatSet} (hsub : NatSet.Sub s₁ s₂) :
+theorem ArgsInSet.mono {s₁ s₂ : Trie Unit} (hsub : TrieSub s₁ s₂) :
     {ts : List Ty} → {as : Tup (Arg K) ts} → ArgsInSet s₁ as → ArgsInSet s₂ as
   | [], (), _ => trivial
   | _ :: _, (_, _), ⟨ha, has⟩ => ⟨ha.mono hsub, ArgsInSet.mono hsub has⟩
 
 theorem ArgsInSet.addArgKeys :
-    {ts : List Ty} → (as : Tup (Arg K) ts) → (s : NatSet) →
+    {ts : List Ty} → (as : Tup (Arg K) ts) → (s : Trie Unit) →
     ArgsInSet (LeanQbe.T.addArgKeys as s) as
   | [], (), _ => trivial
   | _ :: _, (a, as), s =>
     ⟨Arg.InSet.addArgKey a (LeanQbe.T.addArgKeys as s),
-     ArgsInSet.mono (NatSet.Sub.addArgKey a (LeanQbe.T.addArgKeys as s))
+     ArgsInSet.mono (TrieSub.addArgKey a (LeanQbe.T.addArgKeys as s))
        (ArgsInSet.addArgKeys as s)⟩
 
-theorem argSweep_val_of_inSet {s : NatSet} {Gk : Ctx K (OptV Val)} {G : Ctx (OptV Val) Val}
+theorem argSweep_val_of_inSet {s : Trie Unit} {Gk : Ctx K (OptV Val)} {G : Ctx (OptV Val) Val}
     (hnd : NoneDead s Gk) (hG : SomeEq G)
     {t : Ty} {ak : Arg K t} {a₁ : Arg (OptV Val) t} {a₂ : Arg Val t}
     (hk : ArgRel Gk t ak a₁) (h12 : ArgRel G t a₁ a₂) (hin : ak.InSet s) :
@@ -645,11 +474,11 @@ theorem argSweep_val_of_inSet {s : NatSet} {Gk : Ctx K (OptV Val)} {G : Ctx (Opt
         rfl
       | none =>
         have hfalse := hnd hmk rfl
-        have hkmem : s.mem k = true := hin
+        have hkmem : (s.find? k).isSome = true := hin
         rw [hfalse] at hkmem
         cases hkmem
 
-theorem argsSweep_vals_of_inSet {s : NatSet} {Gk : Ctx K (OptV Val)} {G : Ctx (OptV Val) Val}
+theorem argsSweep_vals_of_inSet {s : Trie Unit} {Gk : Ctx K (OptV Val)} {G : Ctx (OptV Val) Val}
     (hnd : NoneDead s Gk) (hG : SomeEq G) :
     {ts : List Ty} → {aks : Tup (Arg K) ts} → {as₁ : Tup (Arg (OptV Val)) ts} →
     {as₂ : Tup (Arg Val) ts} →
@@ -660,7 +489,7 @@ theorem argsSweep_vals_of_inSet {s : NatSet} {Gk : Ctx K (OptV Val)} {G : Ctx (O
     Prod.ext (argSweep_val_of_inSet hnd hG hka h12a ha)
       (argsSweep_vals_of_inSet hnd hG hkas h12as has)
 
-theorem argSweep_rel_of_inSet {V₁ V₂ : Ty → Type} {s : NatSet}
+theorem argSweep_rel_of_inSet {V₁ V₂ : Ty → Type} {s : Trie Unit}
     {Gk : Ctx K (OptV V₁)} {G : Ctx (OptV V₁) (OptV V₂)} {G' : Ctx V₁ V₂}
     (hnd : NoneDead s Gk) (hrel : DceRel G G')
     {t : Ty} {ak : Arg K t} {a₁ : Arg (OptV V₁) t} {a₂ : Arg (OptV V₂) t}
@@ -675,13 +504,13 @@ theorem argSweep_rel_of_inSet {V₁ V₂ : Ty → Type} {s : NatSet}
       rcases hrel hm12 with ⟨h1, _⟩ | ⟨v₁, v₂, h1, h2, hmem⟩
       · subst h1
         have hfalse := hnd hmk rfl
-        have hkmem : s.mem k = true := hin
+        have hkmem : (s.find? k).isSome = true := hin
         rw [hfalse] at hkmem
         cases hkmem
       · subst h1 h2
         exact .var hmem
 
-theorem TRel.argsSweep_of_inSet {V₁ V₂ : Ty → Type} {s : NatSet}
+theorem TRel.argsSweep_of_inSet {V₁ V₂ : Ty → Type} {s : Trie Unit}
     {Gk : Ctx K (OptV V₁)} {G : Ctx (OptV V₁) (OptV V₂)} {G' : Ctx V₁ V₂}
     (hnd : NoneDead s Gk) (hrel : DceRel G G') :
     {ts : List Ty} → {aks : Tup (Arg K) ts} → {as₁ : Tup (Arg (OptV V₁)) ts} →
@@ -692,17 +521,6 @@ theorem TRel.argsSweep_of_inSet {V₁ V₂ : Ty → Type} {s : NatSet}
   | _ :: _, (_, _), (_, _), (_, _), .cons hka hkas, .cons h12a h12as, ⟨ha, has⟩ =>
     .cons (argSweep_rel_of_inSet hnd hrel hka h12a ha)
       (TRel.argsSweep_of_inSet hnd hrel hkas h12as has)
-
-private theorem tup_zip_self_eq {L : List Ty → Type} {D : Ctx L L}
-    (hD : ∀ p ∈ D, p.2.1 = p.2.2) :
-    {sig : List (List Ty)} → (Js : Tup L sig) →
-    ∀ p ∈ Tup.zip Js Js ++ D, p.2.1 = p.2.2
-  | [], (), _, hm => hD _ hm
-  | _ :: _, (j, Js), p, hm => by
-    simp only [Tup.zip, List.cons_append] at hm
-    cases hm with
-    | head => rfl
-    | tail _ hm' => exact tup_zip_self_eq hD Js p hm'
 
 /-! ## `dce_wp` and `dce_wf` via `Wf.induct` -/
 
@@ -734,9 +552,9 @@ theorem dce_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
               (ArgsInSet.addArgKeys argsk _)
           rw [hvals]
           refine OpCode.wp_mono code (vals args₂) (fun xs hkx => ?_) hw
-          have hsub : NatSet.Sub (liveVars (b + ts.length) (kk (Tup.levels ts b))).1
+          have hsub : TrieSub (liveVars (b + ts.length) (kk (Tup.levels ts b))).1
               (addArgKeys argsk (liveVars (b + ts.length) (kk (Tup.levels ts b))).1) :=
-            NatSet.Sub.addArgKeys argsk _
+            TrieSub.addArgKeys argsk _
           exact ih (someTup ts xs) xs hD (SomeEq.append_some hG xs)
             (b + ts.length) (kk (Tup.levels ts b))
             (hkk (Tup.levels ts b) (someTup ts xs))
@@ -759,8 +577,8 @@ theorem dce_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     have hval := argSweep_val_of_inSet hnd hG hak ha (Arg.InSet.addArgKey ak _)
     rw [hval]
     refine ⟨v, hv, ?_⟩
-    have hsub : NatSet.Sub (liveVars (b + 1) (kk b)).1 (addArgKey ak (liveVars (b + 1) (kk b)).1) :=
-      NatSet.Sub.addArgKey ak _
+    have hsub : TrieSub (liveVars (b + 1) (kk b)).1 (addArgKey ak (liveVars (b + 1) (kk b)).1) :=
+      TrieSub.addArgKey ak _
     exact ih (some v) v hD (SomeEq.cons_some hG v) (b + 1) (kk b) (hkk b (some v))
       (NoneDead.cons_some (NoneDead.sub hsub hnd) b v) m hk
   | store hv ha _ ih =>
@@ -770,11 +588,11 @@ theorem dce_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     simp only [dceSweep, wp] at hw ⊢
     have hvval := argSweep_val_of_inSet hnd hG hvk hv (Arg.InSet.addArgKey vk _)
     have haval := argSweep_val_of_inSet hnd hG hak ha
-      ((Arg.InSet.addArgKey ak _).mono (NatSet.Sub.addArgKey vk _))
+      ((Arg.InSet.addArgKey ak _).mono (TrieSub.addArgKey vk _))
     rw [hvval, haval]
     refine ⟨hw.1, ?_⟩
-    have hsub : NatSet.Sub (liveVars b kk).1 (addArgKey vk (addArgKey ak (liveVars b kk).1)) :=
-      NatSet.Sub.trans (NatSet.Sub.addArgKey ak _) (NatSet.Sub.addArgKey vk _)
+    have hsub : TrieSub (liveVars b kk).1 (addArgKey vk (addArgKey ak (liveVars b kk).1)) :=
+      TrieSub.trans (TrieSub.addArgKey ak _) (TrieSub.addArgKey vk _)
     exact ih hD hG b kk hkk (hnd.sub hsub) _ hw.2
   | @call _ _ f _ bs _ _ _ _ hargs _ ih =>
     intro hD hG Gk Dk b ek hwk hnd m hw
@@ -785,9 +603,9 @@ theorem dce_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     have hvals := argsSweep_vals_of_inSet hnd hG hargsk hargs (ArgsInSet.addArgKeys argsk _)
     rw [hvals]
     refine ⟨P, E, hΓ, fun r m' hp => ?_, hE⟩
-    have hsub : NatSet.Sub (liveVars (b + bs.length) (kk (Tup.levels bs b))).1
+    have hsub : TrieSub (liveVars (b + bs.length) (kk (Tup.levels bs b))).1
         (addArgKeys argsk (liveVars (b + bs.length) (kk (Tup.levels bs b))).1) :=
-      NatSet.Sub.addArgKeys argsk _
+      TrieSub.addArgKeys argsk _
     exact ih (someTup bs r) r hD (SomeEq.append_some hG r) (b + bs.length) (kk (Tup.levels bs b))
       (hkk (Tup.levels bs b) (someTup bs r))
       (NoneDead.append_some (NoneDead.sub hsub hnd) (Tup.levels bs b) r) m' (hP r m' hp)
@@ -798,12 +616,12 @@ theorem dce_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     simp only [dceSweep, wp] at hw ⊢
     have hval := argSweep_val_of_inSet hnd hG hck hc (Arg.InSet.addArgKey ck _)
     rw [hval]
-    have hsub_t : NatSet.Sub (liveVars b tk).1
-        (addArgKey ck ((liveVars b tk).1.union (liveVars b ek').1)) :=
-      NatSet.Sub.trans (NatSet.Sub.union_left _ _) (NatSet.Sub.addArgKey ck _)
-    have hsub_e : NatSet.Sub (liveVars b ek').1
-        (addArgKey ck ((liveVars b tk).1.union (liveVars b ek').1)) :=
-      NatSet.Sub.trans (NatSet.Sub.union_right _ _) (NatSet.Sub.addArgKey ck _)
+    have hsub_t : TrieSub (liveVars b tk).1
+        (addArgKey ck (trieUnion (liveVars b tk).1 (liveVars b ek').1)) :=
+      TrieSub.trans (TrieSub.union_left _ _) (TrieSub.addArgKey ck _)
+    have hsub_e : TrieSub (liveVars b ek').1
+        (addArgKey ck (trieUnion (liveVars b tk).1 (liveVars b ek').1)) :=
+      TrieSub.trans (TrieSub.union_right _ _) (TrieSub.addArgKey ck _)
     exact ⟨fun h => iht hD hG b tk htk (hnd.sub hsub_t) m (hw.1 h),
            fun h => ihe hD hG b ek' hek (hnd.sub hsub_e) m (hw.2 h)⟩
   | jump hj hargs =>
@@ -841,18 +659,20 @@ theorem dce_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     simp only [liveVars] at hnd ⊢
     simp only [dceSweep, wp] at hw ⊢
     intro Js hclosed
-    have hsub_k : NatSet.Sub (liveVars b (kk (Tup.units sig))).1
-        ((liveVarsB b (bk (Tup.units sig))).1.union (liveVars b (kk (Tup.units sig))).1) :=
-      NatSet.Sub.union_right _ _
+    have hsub_k : TrieSub (liveVars b (kk (Tup.units sig))).1
+        (trieUnion (liveVarsB b (bk (Tup.units sig))).1 (liveVars b (kk (Tup.units sig))).1) :=
+      TrieSub.union_right _ _
     refine ihk Js Js (tup_zip_self_eq hD Js) hG b (kk (Tup.units sig)) (hkk (Tup.units sig) Js)
       (hnd.sub hsub_k) m (hw Js ?_)
     rw [closed_iff] at hclosed ⊢
     intro ts i xs m' hb'
     apply hclosed i xs m'
     rw [dceSweepB_liveVarsB_get b (bk (Tup.units sig)) (b₁ Js) i xs]
-    have hsub_b : NatSet.Sub (liveVars (b + ts.length) ((bk (Tup.units sig)).get i (Tup.levels ts b))).1
-        ((liveVarsB b (bk (Tup.units sig))).1.union (liveVars b (kk (Tup.units sig))).1) :=
-      NatSet.Sub.trans (liveVarsB_sub b (bk (Tup.units sig)) i) (NatSet.Sub.union_left _ _)
+    have hsub_b :
+        TrieSub (liveVars (b + ts.length) ((bk (Tup.units sig)).get i (Tup.levels ts b))).1
+          (trieUnion (liveVarsB b (bk (Tup.units sig))).1
+            (liveVars b (kk (Tup.units sig))).1) :=
+      TrieSub.trans (liveVarsB_sub b (bk (Tup.units sig)) i) (TrieSub.union_left _ _)
     exact ihb Js Js i (someTup ts xs) xs (tup_zip_self_eq hD Js) (SomeEq.append_some hG xs)
       (b + ts.length) ((bk (Tup.units sig)).get i (Tup.levels ts b))
       ((hbk (Tup.units sig) Js).get i (Tup.levels ts b) (someTup ts xs))
@@ -882,9 +702,9 @@ theorem dce_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : Li
           simp only [dceSweep]
           refine .let_ (.mk code (TRel.argsSweep_of_inSet hnd hrel hargsk hargs₁₂
             (ArgsInSet.addArgKeys argsk _))) fun xs₁ xs₂ => ?_
-          have hsub : NatSet.Sub (liveVars (b + ts.length) (kk (Tup.levels ts b))).1
+          have hsub : TrieSub (liveVars (b + ts.length) (kk (Tup.levels ts b))).1
               (addArgKeys argsk (liveVars (b + ts.length) (kk (Tup.levels ts b))).1) :=
-            NatSet.Sub.addArgKeys argsk _
+            TrieSub.addArgKeys argsk _
           exact ih (someTup ts xs₁) (someTup ts xs₂) (DceRel.append_some hrel xs₁ xs₂)
             (b + ts.length) (kk (Tup.levels ts b))
             (hkk (Tup.levels ts b) (someTup ts xs₁))
@@ -903,8 +723,8 @@ theorem dce_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : Li
     simp only [dceSweep]
     refine .load t (argSweep_rel_of_inSet hnd hrel hak ha (Arg.InSet.addArgKey ak _))
       fun v₁ v₂ => ?_
-    have hsub : NatSet.Sub (liveVars (b + 1) (kk b)).1 (addArgKey ak (liveVars (b + 1) (kk b)).1) :=
-      NatSet.Sub.addArgKey ak _
+    have hsub : TrieSub (liveVars (b + 1) (kk b)).1 (addArgKey ak (liveVars (b + 1) (kk b)).1) :=
+      TrieSub.addArgKey ak _
     exact ih (some v₁) (some v₂) (DceRel.cons_some hrel v₁ v₂) (b + 1) (kk b)
       (hkk b (some v₁)) (NoneDead.cons_some (NoneDead.sub hsub hnd) b v₁)
   | store hv ha _ ih =>
@@ -912,10 +732,11 @@ theorem dce_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : Li
     rcases hwk.rhs_store with ⟨vk, ak, kk, rfl, hvk, hak, hkk⟩
     simp only [liveVars] at hnd ⊢
     simp only [dceSweep]
-    have hsub : NatSet.Sub (liveVars b kk).1 (addArgKey vk (addArgKey ak (liveVars b kk).1)) :=
-      NatSet.Sub.trans (NatSet.Sub.addArgKey ak _) (NatSet.Sub.addArgKey vk _)
+    have hsub : TrieSub (liveVars b kk).1 (addArgKey vk (addArgKey ak (liveVars b kk).1)) :=
+      TrieSub.trans (TrieSub.addArgKey ak _) (TrieSub.addArgKey vk _)
     exact .store (argSweep_rel_of_inSet hnd hrel hvk hv (Arg.InSet.addArgKey vk _))
-      (argSweep_rel_of_inSet hnd hrel hak ha ((Arg.InSet.addArgKey ak _).mono (NatSet.Sub.addArgKey vk _)))
+      (argSweep_rel_of_inSet hnd hrel hak ha
+        ((Arg.InSet.addArgKey ak _).mono (TrieSub.addArgKey vk _)))
       (ih hrel b kk hkk (hnd.sub hsub))
   | @call _ _ f _ bs _ _ _ _ hargs _ ih =>
     intro G' hrel Gk Dk b ek hwk hnd
@@ -924,9 +745,9 @@ theorem dce_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : Li
     simp only [dceSweep]
     refine .call f (TRel.argsSweep_of_inSet hnd hrel hargsk hargs (ArgsInSet.addArgKeys argsk _))
       fun xs₁ xs₂ => ?_
-    have hsub : NatSet.Sub (liveVars (b + bs.length) (kk (Tup.levels bs b))).1
+    have hsub : TrieSub (liveVars (b + bs.length) (kk (Tup.levels bs b))).1
         (addArgKeys argsk (liveVars (b + bs.length) (kk (Tup.levels bs b))).1) :=
-      NatSet.Sub.addArgKeys argsk _
+      TrieSub.addArgKeys argsk _
     exact ih (someTup bs xs₁) (someTup bs xs₂) (DceRel.append_some hrel xs₁ xs₂)
       (b + bs.length) (kk (Tup.levels bs b)) (hkk (Tup.levels bs b) (someTup bs xs₁))
       (NoneDead.append_some (NoneDead.sub hsub hnd) (Tup.levels bs b) xs₁)
@@ -935,12 +756,12 @@ theorem dce_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : Li
     rcases hwk.rhs_jnz with ⟨ck, tk, ek', rfl, hck, htk, hek⟩
     simp only [liveVars] at hnd ⊢
     simp only [dceSweep]
-    have hsub_t : NatSet.Sub (liveVars b tk).1
-        (addArgKey ck ((liveVars b tk).1.union (liveVars b ek').1)) :=
-      NatSet.Sub.trans (NatSet.Sub.union_left _ _) (NatSet.Sub.addArgKey ck _)
-    have hsub_e : NatSet.Sub (liveVars b ek').1
-        (addArgKey ck ((liveVars b tk).1.union (liveVars b ek').1)) :=
-      NatSet.Sub.trans (NatSet.Sub.union_right _ _) (NatSet.Sub.addArgKey ck _)
+    have hsub_t : TrieSub (liveVars b tk).1
+        (addArgKey ck (trieUnion (liveVars b tk).1 (liveVars b ek').1)) :=
+      TrieSub.trans (TrieSub.union_left _ _) (TrieSub.addArgKey ck _)
+    have hsub_e : TrieSub (liveVars b ek').1
+        (addArgKey ck (trieUnion (liveVars b tk).1 (liveVars b ek').1)) :=
+      TrieSub.trans (TrieSub.union_right _ _) (TrieSub.addArgKey ck _)
     exact .jnz (argSweep_rel_of_inSet hnd hrel hck hc (Arg.InSet.addArgKey ck _))
       (iht hrel b tk htk (hnd.sub hsub_t))
       (ihe hrel b ek' hek (hnd.sub hsub_e))
@@ -971,17 +792,19 @@ theorem dce_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : Li
     rcases hwk.rhs_group with ⟨bk, kk, rfl, hbk, hkk⟩
     simp only [liveVars] at hnd ⊢
     simp only [dceSweep]
-    have hsub_k : NatSet.Sub (liveVars b (kk (Tup.units sig))).1
-        ((liveVarsB b (bk (Tup.units sig))).1.union (liveVars b (kk (Tup.units sig))).1) :=
-      NatSet.Sub.union_right _ _
+    have hsub_k : TrieSub (liveVars b (kk (Tup.units sig))).1
+        (trieUnion (liveVarsB b (bk (Tup.units sig))).1 (liveVars b (kk (Tup.units sig))).1) :=
+      TrieSub.union_right _ _
     refine .group (fun Js₁ Js₂ => WfB.of_get fun {ts} i xs₁ xs₂ => ?_)
       (fun Js₁ Js₂ => ihk Js₁ Js₂ hrel b (kk (Tup.units sig)) (hkk (Tup.units sig) Js₁)
         (hnd.sub hsub_k))
     rw [dceSweepB_liveVarsB_get b (bk (Tup.units sig)) (b₁ Js₁) i xs₁,
         dceSweepB_liveVarsB_get b (bk (Tup.units sig)) (b₂ Js₂) i xs₂]
-    have hsub_b : NatSet.Sub (liveVars (b + ts.length) ((bk (Tup.units sig)).get i (Tup.levels ts b))).1
-        ((liveVarsB b (bk (Tup.units sig))).1.union (liveVars b (kk (Tup.units sig))).1) :=
-      NatSet.Sub.trans (liveVarsB_sub b (bk (Tup.units sig)) i) (NatSet.Sub.union_left _ _)
+    have hsub_b :
+        TrieSub (liveVars (b + ts.length) ((bk (Tup.units sig)).get i (Tup.levels ts b))).1
+          (trieUnion (liveVarsB b (bk (Tup.units sig))).1
+            (liveVars b (kk (Tup.units sig))).1) :=
+      TrieSub.trans (liveVarsB_sub b (bk (Tup.units sig)) i) (TrieSub.union_left _ _)
     exact ihb Js₁ Js₂ i (someTup ts xs₁) (someTup ts xs₂) (DceRel.append_some hrel xs₁ xs₂)
       (b + ts.length) ((bk (Tup.units sig)).get i (Tup.levels ts b))
       ((hbk (Tup.units sig) Js₁).get i (Tup.levels ts b) (someTup ts xs₁))

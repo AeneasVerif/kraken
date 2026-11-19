@@ -169,7 +169,7 @@ private theorem CGoodCtx.freshCVals_only (ρ : CEnv) :
     CGoodCtx (cupdTup ρ b xs) (b + ts.length) (Tup.zip (freshCVals ts xs b) xs)
   | [], (), _ => fun _ hp => nomatch hp
   | t :: ts, (x, xs), b => by
-    simp only [freshCVals, Tup.zip, cupdTup, List.length_cons]
+    simp only [freshCVals, tupFreshWith, Tup.zip, cupdTup, List.length_cons]
     intro p hp
     cases hp with
     | head =>
@@ -209,11 +209,10 @@ theorem ArgRel.cout_val {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val} (hG : CGo
   | .var (.mk _ _ _ _ _), _, .var h => (hG _ h).1
   | .imm _, _, .imm _ => rfl
 
-theorem TRel.cout_vals {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val} (hG : CGoodCtx ρ b G) :
-    {ts : List Ty} → {as₁ : Tup (Arg (CVal Val)) ts} → {as₂ : Tup (Arg Val) ts} →
-    TRel (ArgRel G) as₁ as₂ → vals (tupCOut as₁) = vals as₂
-  | [], (), (), .nil => rfl
-  | _ :: _, (_, _), (_, _), .cons h hs => Prod.ext (h.cout_val hG) (TRel.cout_vals hG hs)
+theorem TRel.cout_vals {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val} (hG : CGoodCtx ρ b G)
+    {ts : List Ty} {as₁ : Tup (Arg (CVal Val)) ts} {as₂ : Tup (Arg Val) ts}
+    (h : TRel (ArgRel G) as₁ as₂) : vals (tupCOut as₁) = vals as₂ :=
+  TRel.tupMapArg_vals (fun _ => Arg.cout) (fun ha => ha.cout_val hG) h
 
 /-- Reconcile matching `fst` and `snd` projections from the same `unpair` identity `pid`. -/
 theorem CopyGood.fst_snd_pair {ρ : CEnv} {b : Nat} {a a₂ b₁ b₂ : Ty} {pid : Nat}
@@ -343,7 +342,7 @@ theorem OpRel.copyLet_wp {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val} (hG : CG
       | none =>
         refine ⟨cupdTup ρ b (ts := [a, b']) (p₂.val.1, p₂.val.2, ()), ?_⟩
         have hf := hG.freshCVals (ts := [a, b']) (p₂.val.1, p₂.val.2, ())
-        simpa [freshCVals, Tup.zip] using hf
+        simpa [freshCVals, tupFreshWith, Tup.zip] using hf
       | some pid =>
         refine ⟨cupdTup ρ b (ts := [a, b']) (p₂.val.1, p₂.val.2, ()), ?_⟩
         have hcp' := hcp
@@ -596,17 +595,13 @@ theorem CRelG.append_tup {G' : Ctx V₁ V₂} {G : Ctx (CVal V₁) (CVal V₂)} 
   | [], (), (), .nil => hG
   | _ :: _, (_, _), (_, _), .cons hr hs => (CRelG.append_tup hG hs).cons hr
 
-private theorem CRelG.freshCVals_only :
-    {ts : List Ty} → (xs₁ : Tup V₁ ts) → (xs₂ : Tup V₂ ts) → (b : Nat) →
-    CRelG (Tup.zip xs₁ xs₂) (Tup.zip (freshCVals ts xs₁ b) (freshCVals ts xs₂ b))
-  | [], (), (), _ => fun _ hp => nomatch hp
-  | t :: ts, (x₁, xs₁), (x₂, xs₂), b => by
-    simp only [freshCVals, Tup.zip]
-    intro p hp
-    cases hp with
-    | head => exact CRelVal.fresh b List.mem_cons_self
-    | tail _ hp =>
-      exact (CRelG.freshCVals_only xs₁ xs₂ (b + 1) p hp).weaken fun _ hq => List.mem_cons_of_mem _ hq
+private theorem CRelG.freshCVals_only {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
+    CRelG (Tup.zip xs₁ xs₂) (Tup.zip (freshCVals ts xs₁ b) (freshCVals ts xs₂ b)) :=
+  mem_tup_zip_tupFreshWith (fun x n => CVal.fresh x n) (fun x n => CVal.fresh x n)
+    (P := fun G' _ c₁ c₂ => CRelVal G' c₁ c₂)
+    (fun hsub _ _ _ h => h.weaken hsub)
+    (fun _ _ idx => CRelVal.fresh idx List.mem_cons_self)
+    xs₁ xs₂ b
 
 theorem CRelG.freshCVals {G' : Ctx V₁ V₂} {G : Ctx (CVal V₁) (CVal V₂)} (hG : CRelG G' G)
     {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
@@ -621,21 +616,14 @@ theorem CRelG.freshOne {G' : Ctx V₁ V₂} {G : Ctx (CVal V₁) (CVal V₂)} (h
   (hG.weaken fun _ hq => List.mem_cons_of_mem _ hq).cons
     (CRelVal.fresh b List.mem_cons_self)
 
-theorem TRel.weaken_cval {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂) :
-    {ts : List Ty} → {r₁ : Tup (CVal V₁) ts} → {r₂ : Tup (CVal V₂) ts} →
-    TRel (fun _ => CRelVal G₁) r₁ r₂ → TRel (fun _ => CRelVal G₂) r₁ r₂
-  | [], (), (), .nil => .nil
-  | _ :: _, (_, _), (_, _), .cons h hs => .cons (h.weaken hsub) (TRel.weaken_cval hsub hs)
-
-theorem TRel.freshCVals_rel {G' : Ctx V₁ V₂} :
-    {ts : List Ty} → (xs₁ : Tup V₁ ts) → (xs₂ : Tup V₂ ts) → (b : Nat) →
-    TRel (fun _ => CRelVal (Tup.zip xs₁ xs₂ ++ G')) (freshCVals ts xs₁ b) (freshCVals ts xs₂ b)
-  | [], (), (), _ => .nil
-  | _ :: _, (_, xs₁), (_, xs₂), b => by
-    simp only [freshCVals, Tup.zip, List.cons_append]
-    exact .cons (CRelVal.fresh b List.mem_cons_self)
-      (TRel.weaken_cval (fun _ hq => List.mem_cons_of_mem _ hq)
-        (TRel.freshCVals_rel (G' := G') xs₁ xs₂ (b + 1)))
+theorem TRel.freshCVals_rel {G' : Ctx V₁ V₂} {ts : List Ty}
+    (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
+    TRel (fun _ => CRelVal (Tup.zip xs₁ xs₂ ++ G')) (freshCVals ts xs₁ b) (freshCVals ts xs₂ b) :=
+  TRel_tupFreshWith (fun x n => CVal.fresh x n) (fun x n => CVal.fresh x n)
+    (P := fun G' _ c₁ c₂ => CRelVal G' c₁ c₂)
+    (fun hsub _ _ _ h => h.weaken hsub)
+    (fun _ _ idx => CRelVal.fresh idx List.mem_cons_self)
+    xs₁ xs₂ b
 
 theorem ArgRel.toCVal_rel {G' : Ctx V₁ V₂} {G : Ctx (CVal V₁) (CVal V₂)} (hG : CRelG G' G)
     {t : Ty} {a₁ : Arg (CVal V₁) t} {a₂ : Arg (CVal V₂) t} :
@@ -650,11 +638,10 @@ theorem ArgRel.cout {G' : Ctx V₁ V₂} {G : Ctx (CVal V₁) (CVal V₂)} (hG :
     have hc := hG _ h; cases hc with | mk ho _ _ _ => exact ho
   | .imm c, _, .imm _ => .imm c
 
-theorem TRel.cout {G' : Ctx V₁ V₂} {G : Ctx (CVal V₁) (CVal V₂)} (hG : CRelG G' G) :
-    {ts : List Ty} → {as₁ : Tup (Arg (CVal V₁)) ts} → {as₂ : Tup (Arg (CVal V₂)) ts} →
-    TRel (ArgRel G) as₁ as₂ → TRel (ArgRel G') (tupCOut as₁) (tupCOut as₂)
-  | [], (), (), .nil => .nil
-  | _ :: _, (_, _), (_, _), .cons h hs => .cons (h.cout hG) (TRel.cout hG hs)
+theorem TRel.cout {G' : Ctx V₁ V₂} {G : Ctx (CVal V₁) (CVal V₂)} (hG : CRelG G' G)
+    {ts : List Ty} {as₁ : Tup (Arg (CVal V₁)) ts} {as₂ : Tup (Arg (CVal V₂)) ts}
+    (h : TRel (ArgRel G) as₁ as₂) : TRel (ArgRel G') (tupCOut as₁) (tupCOut as₂) :=
+  TRel.tupMapArg_rel (fun _ => Arg.cout) (fun _ => Arg.cout) (fun ha => ha.cout hG) h
 
 inductive CopyStepRel (G' : Ctx V₁ V₂) :
     {ts : List Ty} → CopyLetStep V₁ ts → CopyLetStep V₂ ts → Prop
@@ -676,8 +663,8 @@ private theorem mkpairEmitStep_rel {G' : Ctx V₁ V₂} (b : Nat) {a b' : Ty}
   rcases xs₂ with ⟨vp₂, ⟨⟩⟩
   have hsub : ∀ p ∈ G', p ∈ (Tup.zip (as := [.pair a b']) (vp₁, ()) (vp₂, ()) ++ G') :=
     fun _ hp => List.mem_cons_of_mem _ hp
-  exact .cons (.mk (.var List.mem_cons_self) (.pair (hcx.weaken hsub) (hcy.weaken hsub)) .none .none)
-    .nil
+  exact .cons (.mk (.var List.mem_cons_self) (.pair (hcx.weaken hsub) (hcy.weaken hsub))
+    .none .none) .nil
 
 private theorem mkpairProjStep_rel {G' : Ctx V₁ V₂} (b : Nat) {a b' : Ty}
     {cx₁ : CVal V₁ a} {cx₂ : CVal V₂ a} {cy₁ : CVal V₁ b'} {cy₂ : CVal V₂ b'}
@@ -842,7 +829,7 @@ theorem Func.copy_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) : (Func.copy
     simpa using CRelG.freshCVals (G := []) (G' := []) (fun _ hp => nomatch hp) xs₁ xs₂ 0
   exact LeanQbe.T.copy_wf hwf hrel as.length
 
-/-- Copy and pair propagation refines function contracts: any source contract holds on `Func.copy f`. -/
+/-- Copy and pair propagation refines contracts: any source contract holds on `Func.copy f`. -/
 theorem Func.copy_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.copy f) xs m Q X := by

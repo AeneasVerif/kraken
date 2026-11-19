@@ -35,61 +35,50 @@ theorem floatResultWp_self (f : Fmt) (res : Float.Model.UnpackedFloat)
     exact ⟨hw, fun Q hQ => hQ⟩
 
 theorem liftFloatRel1_self
-    (op : Float.Model.Format → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat) :
-    ∀ (t : Ty) (a : Val t) (P : Val t → Prop),
-      liftFloatRel1 op t a P →
-      liftFloatRel1 op t a (fun r => P r ∧ ∀ Q, liftFloatRel1 op t a Q → Q r)
-  | .float f, a, P, hw => floatResultWp_self f (op f.format (unpackFloat f a)) hw
-  | .bool, _, _, hw => False.elim hw
-  | .bits _, _, _, hw => False.elim hw
-  | .pair s u, (a₁, a₂), P, hw => by
-    simp only [liftFloatRel1] at hw ⊢
-    have h1 := liftFloatRel1_self op s a₁ _ hw
-    refine liftFloatRel1_mono op s a₁ _ _ (fun r₁ hr₁ => ?_) h1
-    have h2 := liftFloatRel1_self op u a₂ _ hr₁.1
-    refine liftFloatRel1_mono op u a₂ _ _ (fun r₂ hr₂ => ?_) h2
-    refine ⟨hr₂.1, fun Q hQ => ?_⟩
-    exact hr₂.2 (fun y => Q (r₁, y)) (hr₁.2 (fun x => liftFloatRel1 op u a₂ fun y => Q (x, y)) hQ)
+    (op : Float.Model.Format → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)
+    (t : Ty) (a : Val t) (P : Val t → Prop) (hw : liftFloatRel1 op t a P) :
+    liftFloatRel1 op t a (fun r => P r ∧ ∀ Q, liftFloatRel1 op t a Q → Q r) :=
+  liftFloatRel1_pred op
+    (fun t a P => liftFloatRel1 op t a (fun r => P r ∧ ∀ Q, liftFloatRel1 op t a Q → Q r))
+    (fun t a _ _ h hp => liftFloatRel1_mono op t a _ _ (fun r hr => ⟨h r hr.1, hr.2⟩) hp)
+    (fun f _a _ hw => floatResultWp_self f _ hw)
+    (fun s u a₁ a₂ _ hm => liftFloatRel1_mono op s a₁ _ _ (fun r₁ hr₁ =>
+      liftFloatRel1_mono op u a₂ _ _ (fun _r₂ hr₂ =>
+        ⟨hr₂.1, fun Q hQ => hr₂.2 (fun y => Q (r₁, y))
+          (hr₁.2 (fun x => liftFloatRel1 op u a₂ fun y => Q (x, y)) hQ)⟩) hr₁.1) hm)
+    t a P hw
 
 theorem liftFloatRel2_self
     (op : Float.Model.Format → Float.Model.UnpackedFloat →
-      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat) :
-    ∀ (t : Ty) (a b : Val t) (P : Val t → Prop),
-      liftFloatRel2 op t a b P →
-      liftFloatRel2 op t a b (fun r => P r ∧ ∀ Q, liftFloatRel2 op t a b Q → Q r)
-  | .float f, a, b, P, hw =>
-    floatResultWp_self f (op f.format (unpackFloat f a) (unpackFloat f b)) hw
-  | .bool, _, _, _, hw => False.elim hw
-  | .bits _, _, _, _, hw => False.elim hw
-  | .pair s u, (a₁, a₂), (b₁, b₂), P, hw => by
-    simp only [liftFloatRel2] at hw ⊢
-    have h1 := liftFloatRel2_self op s a₁ b₁ _ hw
-    refine liftFloatRel2_mono op s a₁ b₁ _ _ (fun r₁ hr₁ => ?_) h1
-    have h2 := liftFloatRel2_self op u a₂ b₂ _ hr₁.1
-    refine liftFloatRel2_mono op u a₂ b₂ _ _ (fun r₂ hr₂ => ?_) h2
-    refine ⟨hr₂.1, fun Q hQ => ?_⟩
-    exact hr₂.2 (fun y => Q (r₁, y))
-      (hr₁.2 (fun x => liftFloatRel2 op u a₂ b₂ fun y => Q (x, y)) hQ)
+      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)
+    (t : Ty) (a b : Val t) (P : Val t → Prop) (hw : liftFloatRel2 op t a b P) :
+    liftFloatRel2 op t a b (fun r => P r ∧ ∀ Q, liftFloatRel2 op t a b Q → Q r) :=
+  liftFloatRel2_pred op
+    (fun t a b P => liftFloatRel2 op t a b (fun r => P r ∧ ∀ Q, liftFloatRel2 op t a b Q → Q r))
+    (fun t a b _ _ h hp => liftFloatRel2_mono op t a b _ _ (fun r hr => ⟨h r hr.1, hr.2⟩) hp)
+    (fun f _a _b _ hw => floatResultWp_self f _ hw)
+    (fun s u a₁ a₂ b₁ b₂ _ hm => liftFloatRel2_mono op s a₁ b₁ _ _ (fun r₁ hr₁ =>
+      liftFloatRel2_mono op u a₂ b₂ _ _ (fun _r₂ hr₂ =>
+        ⟨hr₂.1, fun Q hQ => hr₂.2 (fun y => Q (r₁, y))
+          (hr₁.2 (fun x => liftFloatRel2 op u a₂ b₂ fun y => Q (x, y)) hQ)⟩) hr₁.1) hm)
+    t a b P hw
 
 theorem liftFloatRel3_self
     (op : Float.Model.Format → Float.Model.UnpackedFloat →
-      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat) :
-    ∀ (t : Ty) (a b c : Val t) (P : Val t → Prop),
-      liftFloatRel3 op t a b c P →
-      liftFloatRel3 op t a b c (fun r => P r ∧ ∀ Q, liftFloatRel3 op t a b c Q → Q r)
-  | .float f, a, b, c, P, hw =>
-    floatResultWp_self f (op f.format (unpackFloat f a) (unpackFloat f b) (unpackFloat f c)) hw
-  | .bool, _, _, _, _, hw => False.elim hw
-  | .bits _, _, _, _, _, hw => False.elim hw
-  | .pair s u, (a₁, a₂), (b₁, b₂), (c₁, c₂), P, hw => by
-    simp only [liftFloatRel3] at hw ⊢
-    have h1 := liftFloatRel3_self op s a₁ b₁ c₁ _ hw
-    refine liftFloatRel3_mono op s a₁ b₁ c₁ _ _ (fun r₁ hr₁ => ?_) h1
-    have h2 := liftFloatRel3_self op u a₂ b₂ c₂ _ hr₁.1
-    refine liftFloatRel3_mono op u a₂ b₂ c₂ _ _ (fun r₂ hr₂ => ?_) h2
-    refine ⟨hr₂.1, fun Q hQ => ?_⟩
-    exact hr₂.2 (fun y => Q (r₁, y))
-      (hr₁.2 (fun x => liftFloatRel3 op u a₂ b₂ c₂ fun y => Q (x, y)) hQ)
+      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)
+    (t : Ty) (a b c : Val t) (P : Val t → Prop) (hw : liftFloatRel3 op t a b c P) :
+    liftFloatRel3 op t a b c (fun r => P r ∧ ∀ Q, liftFloatRel3 op t a b c Q → Q r) :=
+  liftFloatRel3_pred op
+    (fun t a b c P =>
+      liftFloatRel3 op t a b c (fun r => P r ∧ ∀ Q, liftFloatRel3 op t a b c Q → Q r))
+    (fun t a b c _ _ h hp =>
+      liftFloatRel3_mono op t a b c _ _ (fun r hr => ⟨h r hr.1, hr.2⟩) hp)
+    (fun f _a _b _c _ hw => floatResultWp_self f _ hw)
+    (fun s u a₁ a₂ b₁ b₂ c₁ c₂ _ hm => liftFloatRel3_mono op s a₁ b₁ c₁ _ _ (fun r₁ hr₁ =>
+      liftFloatRel3_mono op u a₂ b₂ c₂ _ _ (fun _r₂ hr₂ =>
+        ⟨hr₂.1, fun Q hQ => hr₂.2 (fun y => Q (r₁, y))
+          (hr₁.2 (fun x => liftFloatRel3 op u a₂ b₂ c₂ fun y => Q (x, y)) hQ)⟩) hr₁.1) hm)
+    t a b c P hw
 
 theorem convertFloat_self (src dst : Fmt) (b : BitVec src.width)
     {P : BitVec dst.width → Prop} (hw : convertFloat src dst b P) :
@@ -126,11 +115,27 @@ private theorem cond2_and_self {c₁ c₂ : Prop} {rs : List Ty} {r : Tup Val rs
     c₁ ∧ c₂ ∧ P r ∧ ∀ Q : Tup Val rs → Prop, (c₁ ∧ c₂ ∧ Q r) → Q r :=
   ⟨hw.1, hw.2.1, hw.2.2, fun _ hQ => hQ.2.2⟩
 
+private theorem liftFloatRel2_self_ite
+    (op : Float.Model.Format → Float.Model.UnpackedFloat →
+      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)
+    {t : Ty} {a b : Val t} {P : Tup Val [t] → Prop}
+    (hw : if !t.isFloatTree then False else liftFloatRel2 op t a b fun r => P (r, ())) :
+    if !t.isFloatTree then False else
+      liftFloatRel2 op t a b fun r => P (r, ()) ∧
+        ∀ Q : Tup Val [t] → Prop,
+          (if !t.isFloatTree then False else liftFloatRel2 op t a b fun s => Q (s, ())) →
+          Q (r, ()) := by
+  cases ht : t.isFloatTree
+  · simp only [ht, Bool.not_false, ↓reduceIte] at hw
+  · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw ⊢
+    exact liftFloatRel2_mono op t a b _ _
+      (fun r hr => ⟨hr.1, fun Q hQ => hr.2 (fun x => Q (x, ())) hQ⟩)
+      (liftFloatRel2_self op t a b _ hw)
+
 /-- Any satisfied `OpCode.wp` witnesses outputs satisfying every other valid postcondition `Q`. -/
 theorem OpCode.wp_self : {sig rs : List Ty} → (c : OpCode sig rs) → (args : Tup Val sig) →
     {P : Tup Val rs → Prop} →
     c.wp args P → c.wp args (fun r => P r ∧ ∀ Q, c.wp args Q → Q r)
-  | _, _, .copy _, (_, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
   | _, _, .add _, (_, _, ()), P, hw => by
     simp only [OpCode.wp_add] at hw ⊢; exact cond_false_self P hw
   | _, _, .sub _, (_, _, ()), P, hw => by
@@ -139,11 +144,6 @@ theorem OpCode.wp_self : {sig rs : List Ty} → (c : OpCode sig rs) → (args : 
     simp only [OpCode.wp_mul] at hw ⊢; exact cond_false_self P hw
   | _, _, .neg _, (_, ()), P, hw => by
     simp only [OpCode.wp_neg] at hw ⊢; exact cond_false_self P hw
-  | _, _, .and _, (_, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .or _, (_, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .xor _, (_, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .not _, (_, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .ternlog _ _, (_, _, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
   | _, _, .shl _, (_, _, ()), P, hw => by
     simp only [OpCode.wp_shl] at hw ⊢; exact cond_false_self P hw
   | _, _, .lshr _, (_, _, ()), P, hw => by
@@ -154,30 +154,16 @@ theorem OpCode.wp_self : {sig rs : List Ty} → (c : OpCode sig rs) → (args : 
     simp only [OpCode.wp_rotl] at hw ⊢; exact cond_false_self P hw
   | _, _, .rotr _, (_, _, ()), P, hw => by
     simp only [OpCode.wp_rotr] at hw ⊢; exact cond_false_self P hw
-  | _, _, .fshl _, (_, _, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .fshr _, (_, _, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
   | _, _, .bswap _, (_, ()), P, hw => by
     simp only [OpCode.wp_bswap] at hw ⊢; exact cond_false_self P hw
-  | _, _, .clz _, (_, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .cls _, (_, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .rbit _, (_, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .ctz _, (_, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .popcnt _, (_, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
   | _, _, .cmp _ _ _ rfl, (_, _, ()), P, hw => by
     simp only [OpCode.wp_cmp, cast_eq] at hw ⊢; exact cond_false_self P hw
-  | _, _, .select _, (_, _, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .blend _ _ rfl, (_, _, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
   | _, _, .zext _ _, (_, ()), P, hw => by
     simp only [OpCode.wp_zext] at hw ⊢; exact cond_and_self P hw
   | _, _, .sext _ _, (_, ()), P, hw => by
     simp only [OpCode.wp_sext] at hw ⊢; exact cond_and_self P hw
   | _, _, .trunc _ _, (_, ()), P, hw => by
     simp only [OpCode.wp_trunc] at hw ⊢; exact cond_and_self P hw
-  | _, _, .ofBool _, (_, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .addc _, (_, _, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .subb _, (_, _, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .umulw _, (_, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .smulw _, (_, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
   | _, _, .udiv _, (_, _, ()), P, hw => by
     simp only [OpCode.wp_udiv] at hw ⊢; exact cond_and_self P hw
   | _, _, .sdiv _, (_, _, ()), P, hw => by
@@ -186,11 +172,6 @@ theorem OpCode.wp_self : {sig rs : List Ty} → (c : OpCode sig rs) → (args : 
     simp only [OpCode.wp_urem] at hw ⊢; exact cond_and_self P hw
   | _, _, .srem _, (_, _, ()), P, hw => by
     simp only [OpCode.wp_srem] at hw ⊢; exact cond_and_self P hw
-  | _, _, .udiv0 _, (_, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .sdiv0 _, (_, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .mkpair _ _, (_, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .unpair _ _, (_, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .bitcast _ _ _, (_, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
   | _, _, .shufd _ _, (_, ()), P, hw => by
     simp only [OpCode.wp_shufd] at hw ⊢; exact cond2_and_self P hw
   | _, _, .shufb _, (_, _, ()), P, hw => by
@@ -199,41 +180,14 @@ theorem OpCode.wp_self : {sig rs : List Ty} → (c : OpCode sig rs) → (args : 
     simp only [OpCode.wp_alignr] at hw ⊢; exact cond2_and_self P hw
   | _, _, .blendw _ _, (_, _, ()), P, hw => by
     simp only [OpCode.wp_blendw] at hw ⊢; exact cond2_and_self P hw
-  | _, _, .sha256rnds2, (_, _, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .sha256msg1, (_, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .sha256msg2, (_, _, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .fadd t, (a, b, ()), P, hw => by
-    simp only [OpCode.wp_fadd] at hw ⊢
-    cases ht : t.isFloatTree
-    · simp only [ht, Bool.not_false, ↓reduceIte] at hw
-    · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw ⊢
-      have h1 := liftFloatRel2_self Float.Model.UnpackedFloat.add t a b (fun r => P (r, ())) hw
-      refine liftFloatRel2_mono Float.Model.UnpackedFloat.add t a b _ _ (fun r hr => ?_) h1
-      exact ⟨hr.1, fun Q hQ => hr.2 (fun x => Q (x, ())) hQ⟩
-  | _, _, .fsub t, (a, b, ()), P, hw => by
-    simp only [OpCode.wp_fsub] at hw ⊢
-    cases ht : t.isFloatTree
-    · simp only [ht, Bool.not_false, ↓reduceIte] at hw
-    · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw ⊢
-      have h1 := liftFloatRel2_self Float.Model.UnpackedFloat.sub t a b (fun r => P (r, ())) hw
-      refine liftFloatRel2_mono Float.Model.UnpackedFloat.sub t a b _ _ (fun r hr => ?_) h1
-      exact ⟨hr.1, fun Q hQ => hr.2 (fun x => Q (x, ())) hQ⟩
-  | _, _, .fmul t, (a, b, ()), P, hw => by
-    simp only [OpCode.wp_fmul] at hw ⊢
-    cases ht : t.isFloatTree
-    · simp only [ht, Bool.not_false, ↓reduceIte] at hw
-    · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw ⊢
-      have h1 := liftFloatRel2_self Float.Model.UnpackedFloat.mul t a b (fun r => P (r, ())) hw
-      refine liftFloatRel2_mono Float.Model.UnpackedFloat.mul t a b _ _ (fun r hr => ?_) h1
-      exact ⟨hr.1, fun Q hQ => hr.2 (fun x => Q (x, ())) hQ⟩
-  | _, _, .fdiv t, (a, b, ()), P, hw => by
-    simp only [OpCode.wp_fdiv] at hw ⊢
-    cases ht : t.isFloatTree
-    · simp only [ht, Bool.not_false, ↓reduceIte] at hw
-    · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw ⊢
-      have h1 := liftFloatRel2_self Float.Model.UnpackedFloat.div t a b (fun r => P (r, ())) hw
-      refine liftFloatRel2_mono Float.Model.UnpackedFloat.div t a b _ _ (fun r hr => ?_) h1
-      exact ⟨hr.1, fun Q hQ => hr.2 (fun x => Q (x, ())) hQ⟩
+  | _, _, .fadd _, (_, _, ()), _, hw => by
+    simp only [OpCode.wp_fadd] at hw ⊢; exact liftFloatRel2_self_ite _ hw
+  | _, _, .fsub _, (_, _, ()), _, hw => by
+    simp only [OpCode.wp_fsub] at hw ⊢; exact liftFloatRel2_self_ite _ hw
+  | _, _, .fmul _, (_, _, ()), _, hw => by
+    simp only [OpCode.wp_fmul] at hw ⊢; exact liftFloatRel2_self_ite _ hw
+  | _, _, .fdiv _, (_, _, ()), _, hw => by
+    simp only [OpCode.wp_fdiv] at hw ⊢; exact liftFloatRel2_self_ite _ hw
   | _, _, .ffma t, (a, b, c, ()), P, hw => by
     simp only [OpCode.wp_ffma] at hw ⊢
     cases ht : t.isFloatTree
@@ -272,13 +226,27 @@ theorem OpCode.wp_self : {sig rs : List Ty} → (c : OpCode sig rs) → (args : 
     | some z =>
       simp only [htr] at hw2 ⊢
       exact ⟨hw2.1, hw2.2.1, hw2.2.2, fun _ hQ => hQ.2.2.2⟩
-  | _, _, .uitofp _ _, (_, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
-  | _, _, .sitofp _ _, (_, ()), _, hw => ⟨hw, fun _ hQ => hQ⟩
   | _, _, .fcvt f g, (a, ()), P, hw => by
     simp only [OpCode.wp_fcvt] at hw ⊢
     have h1 := convertFloat_self f g a hw
     exact convertFloat_mono f g a (fun r hr =>
       ⟨hr.1, fun Q hQ => hr.2 (fun x => Q (x, ())) hQ⟩) h1
+  | _, _, .copy _, (_, ()), _, hw | _, _, .and _, (_, _, ()), _, hw
+  | _, _, .or _, (_, _, ()), _, hw | _, _, .xor _, (_, _, ()), _, hw
+  | _, _, .not _, (_, ()), _, hw | _, _, .ternlog _ _, (_, _, _, ()), _, hw
+  | _, _, .fshl _, (_, _, _, ()), _, hw | _, _, .fshr _, (_, _, _, ()), _, hw
+  | _, _, .clz _, (_, ()), _, hw | _, _, .cls _, (_, ()), _, hw
+  | _, _, .rbit _, (_, ()), _, hw | _, _, .ctz _, (_, ()), _, hw
+  | _, _, .popcnt _, (_, ()), _, hw | _, _, .select _, (_, _, _, ()), _, hw
+  | _, _, .blend _ _ rfl, (_, _, _, ()), _, hw | _, _, .ofBool _, (_, ()), _, hw
+  | _, _, .addc _, (_, _, _, ()), _, hw | _, _, .subb _, (_, _, _, ()), _, hw
+  | _, _, .umulw _, (_, _, ()), _, hw | _, _, .smulw _, (_, _, ()), _, hw
+  | _, _, .udiv0 _, (_, _, ()), _, hw | _, _, .sdiv0 _, (_, _, ()), _, hw
+  | _, _, .mkpair _ _, (_, _, ()), _, hw | _, _, .unpair _ _, (_, ()), _, hw
+  | _, _, .bitcast _ _ _, (_, ()), _, hw | _, _, .sha256rnds2, (_, _, _, ()), _, hw
+  | _, _, .sha256msg1, (_, _, ()), _, hw | _, _, .sha256msg2, (_, _, ()), _, hw
+  | _, _, .uitofp _ _, (_, ()), _, hw | _, _, .sitofp _ _, (_, ()), _, hw =>
+    ⟨hw, fun _ hQ => hQ⟩
 
 /-! ## Valuation updates, `GoodG`, `GoodT`, and `GvnTbl.find_mem` -/
 
@@ -392,21 +360,25 @@ theorem GvnTrie.All.insert {V : Ty → Type} {P : GvnEntry V → Prop} :
       t.All P → P entry → (GvnTrie.insert t fuel n entry).All P
   | .empty, 0, _, _, _, hp => by
     simp only [GvnTrie.insert, GvnTrie.All]
-    refine ⟨(fun x hx => by cases hx with | head => exact hp | tail _ hx => nomatch hx), trivial, trivial⟩
+    refine ⟨(fun x hx => by cases hx with | head => exact hp | tail _ hx => nomatch hx),
+      trivial, trivial⟩
   | .node _ _ _, 0, _, _, ⟨hb, he, ho⟩, hp => by
     simp only [GvnTrie.insert, GvnTrie.All]
     refine ⟨(fun x hx => by cases hx with | head => exact hp | tail _ hx => exact hb x hx), he, ho⟩
   | .empty, _ + 1, 0, _, _, hp => by
     simp only [GvnTrie.insert, GvnTrie.All]
-    refine ⟨(fun x hx => by cases hx with | head => exact hp | tail _ hx => nomatch hx), trivial, trivial⟩
+    refine ⟨(fun x hx => by cases hx with | head => exact hp | tail _ hx => nomatch hx),
+      trivial, trivial⟩
   | .node _ _ _, _ + 1, 0, _, ⟨hb, he, ho⟩, hp => by
     simp only [GvnTrie.insert, GvnTrie.All]
     refine ⟨(fun x hx => by cases hx with | head => exact hp | tail _ hx => exact hb x hx), he, ho⟩
   | .empty, fuel + 1, n + 1, entry, _, hp => by
     simp only [GvnTrie.insert]
     split <;> simp only [GvnTrie.All]
-    · refine ⟨(fun _ hx => nomatch hx), GvnTrie.All.insert .empty fuel (n / 2) entry trivial hp, trivial⟩
-    · refine ⟨(fun _ hx => nomatch hx), trivial, GvnTrie.All.insert .empty fuel (n / 2) entry trivial hp⟩
+    · refine ⟨(fun _ hx => nomatch hx),
+        GvnTrie.All.insert .empty fuel (n / 2) entry trivial hp, trivial⟩
+    · refine ⟨(fun _ hx => nomatch hx), trivial,
+        GvnTrie.All.insert .empty fuel (n / 2) entry trivial hp⟩
   | .node _ e o, fuel + 1, n + 1, entry, ⟨hb, he, ho⟩, hp => by
     simp only [GvnTrie.insert]
     split <;> simp only [GvnTrie.All]
@@ -449,7 +421,7 @@ private theorem GoodG.freshGVals_only (ρ : (t : Ty) → Nat → Val t) :
     GoodG (fupdTup ρ b xs) (b + ts.length) (Tup.zip (freshGVals ts xs b) xs)
   | [], (), _ => fun _ hp => nomatch hp
   | _ :: ts, (x, xs), b => by
-    simp only [freshGVals, Tup.zip, fupdTup, List.length_cons]
+    simp only [freshGVals, tupFreshWith, Tup.zip, fupdTup, List.length_cons]
     intro p hp
     cases hp with
     | head =>
@@ -486,7 +458,7 @@ theorem TupGValGood.freshGVals (ρ : (t : Ty) → Nat → Val t) :
   | [], (), _ => trivial
   | _ :: ts, (x, xs), b => by
     unfold LeanQbe.T.freshGVals
-    simp only [TupGValGood, fupdTup, List.length_cons]
+    simp only [tupFreshWith, TupGValGood, fupdTup, List.length_cons]
     refine ⟨by omega, ?_, ?_⟩
     · rw [fupdTup_lt (fupd ρ b x) xs (by omega), fupd_eq]
     · have ih := TupGValGood.freshGVals (fupd ρ b x) xs (b + 1)
@@ -517,11 +489,9 @@ theorem ArgRel.gkey_ev {ρ : (t : Ty) → Nat → Val t} {b : Nat} {G : Ctx (GVa
   | .imm _ => rfl
 
 theorem TRel.gout_vals {ρ : (t : Ty) → Nat → Val t} {b : Nat} {G : Ctx (GVal Val) Val}
-    (hG : GoodG ρ b G) :
-    {ts : List Ty} → {as₁ : Tup (Arg (GVal Val)) ts} → {as₂ : Tup (Arg Val) ts} →
-    TRel (ArgRel G) as₁ as₂ → vals (tupGOut as₁) = vals as₂
-  | [], (), (), .nil => rfl
-  | _ :: _, (_, _), (_, _), .cons h hs => Prod.ext (h.gout_val hG) (TRel.gout_vals hG hs)
+    (hG : GoodG ρ b G) {ts : List Ty} {as₁ : Tup (Arg (GVal Val)) ts} {as₂ : Tup (Arg Val) ts}
+    (h : TRel (ArgRel G) as₁ as₂) : vals (tupGOut as₁) = vals as₂ :=
+  TRel.tupMapArg_vals (fun _ => Arg.gout) (fun ha => ha.gout_val hG) h
 
 theorem TRel.gkey_lt {ρ : (t : Ty) → Nat → Val t} {b : Nat} {G : Ctx (GVal Val) Val}
     (hG : GoodG ρ b G) :
@@ -697,18 +667,12 @@ theorem RelG.append_tup {G' : Ctx V₁ V₂} {G : Ctx (GVal V₁) (GVal V₂)} (
   | [], (), (), .nil => hG
   | _ :: _, (_, _), (_, _), .cons h hs => (RelG.append_tup hG hs).cons h
 
-private theorem RelG.freshGVals_only :
-    {ts : List Ty} → (xs₁ : Tup V₁ ts) → (xs₂ : Tup V₂ ts) → (b : Nat) →
-    RelG (Tup.zip xs₁ xs₂) (Tup.zip (freshGVals ts xs₁ b) (freshGVals ts xs₂ b))
-  | [], (), (), _ => fun _ hp => nomatch hp
-  | _ :: _, (_, xs₁), (_, xs₂), b => by
-    simp only [freshGVals, Tup.zip]
-    intro p hp
-    cases hp with
-    | head => exact ⟨List.mem_cons_self, rfl⟩
-    | tail _ hp =>
-      exact (RelG.freshGVals_only xs₁ xs₂ (b + 1) p hp).weaken fun _ hq =>
-        List.mem_cons_of_mem _ hq
+private theorem RelG.freshGVals_only {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
+    RelG (Tup.zip xs₁ xs₂) (Tup.zip (freshGVals ts xs₁ b) (freshGVals ts xs₂ b)) :=
+  mem_tup_zip_tupFreshWith (fun x n => (x, n)) (fun x n => (x, n))
+    (P := RelGVal) (fun hsub _ _ _ h => h.weaken hsub)
+    (fun _ _ _ => ⟨List.mem_cons_self, rfl⟩)
+    xs₁ xs₂ b
 
 theorem RelG.freshGVals {G' : Ctx V₁ V₂} {G : Ctx (GVal V₁) (GVal V₂)} (hG : RelG G' G)
     {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
@@ -717,26 +681,24 @@ theorem RelG.freshGVals {G' : Ctx V₁ V₂} {G : Ctx (GVal V₁) (GVal V₂)} (
   (hG.weaken fun _ hq => List.mem_append_right _ hq).append
     ((RelG.freshGVals_only xs₁ xs₂ b).weaken fun _ hq => List.mem_append_left G' hq)
 
-theorem RelG.freshOne {G' : Ctx V₁ V₂} {G : Ctx (GVal V₁) (GVal V₂)} (hG : RelG G' G)
-    {t : Ty} (v₁ : V₁ t) (v₂ : V₂ t) (b : Nat) :
-    RelG (⟨t, v₁, v₂⟩ :: G') (⟨t, (v₁, b), (v₂, b)⟩ :: G) :=
-  (hG.weaken fun _ hq => List.mem_cons_of_mem _ hq).cons ⟨List.mem_cons_self, rfl⟩
-
 theorem TRel.weaken_gval {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂) :
     {ts : List Ty} → {r₁ : Tup (GVal V₁) ts} → {r₂ : Tup (GVal V₂) ts} →
     TRel (RelGVal G₁) r₁ r₂ → TRel (RelGVal G₂) r₁ r₂
   | [], (), (), .nil => .nil
   | _ :: _, (_, _), (_, _), .cons h hs => .cons (h.weaken hsub) (TRel.weaken_gval hsub hs)
 
-theorem TRel.freshGVals_rel {G' : Ctx V₁ V₂} :
-    {ts : List Ty} → (xs₁ : Tup V₁ ts) → (xs₂ : Tup V₂ ts) → (b : Nat) →
-    TRel (RelGVal (Tup.zip xs₁ xs₂ ++ G')) (freshGVals ts xs₁ b) (freshGVals ts xs₂ b)
-  | [], (), (), _ => .nil
-  | _ :: _, (_, xs₁), (_, xs₂), b => by
-    simp only [freshGVals, Tup.zip, List.cons_append]
-    exact .cons ⟨List.mem_cons_self, rfl⟩
-      (TRel.weaken_gval (fun _ hq => List.mem_cons_of_mem _ hq)
-        (TRel.freshGVals_rel (G' := G') xs₁ xs₂ (b + 1)))
+theorem RelG.freshOne {G' : Ctx V₁ V₂} {G : Ctx (GVal V₁) (GVal V₂)} (hG : RelG G' G)
+    {t : Ty} (v₁ : V₁ t) (v₂ : V₂ t) (b : Nat) :
+    RelG (⟨t, v₁, v₂⟩ :: G') (⟨t, (v₁, b), (v₂, b)⟩ :: G) :=
+  (hG.weaken fun _ hq => List.mem_cons_of_mem _ hq).cons ⟨List.mem_cons_self, rfl⟩
+
+theorem TRel.freshGVals_rel {G' : Ctx V₁ V₂} {ts : List Ty}
+    (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
+    TRel (RelGVal (Tup.zip xs₁ xs₂ ++ G')) (freshGVals ts xs₁ b) (freshGVals ts xs₂ b) :=
+  TRel_tupFreshWith (fun x n => (x, n)) (fun x n => (x, n))
+    (P := RelGVal) (fun hsub _ _ _ h => h.weaken hsub)
+    (fun _ _ _ => ⟨List.mem_cons_self, rfl⟩)
+    xs₁ xs₂ b
 
 theorem ArgRel.gout {G' : Ctx V₁ V₂} {G : Ctx (GVal V₁) (GVal V₂)} (hG : RelG G' G)
     {t : Ty} {a₁ : Arg (GVal V₁) t} {a₂ : Arg (GVal V₂) t} :
@@ -750,11 +712,10 @@ theorem ArgRel.gkey_eq {G' : Ctx V₁ V₂} {G : Ctx (GVal V₁) (GVal V₂)} (h
   | .var h => congrArg Arg.var (hG _ h).2
   | .imm _ => rfl
 
-theorem TRel.gout {G' : Ctx V₁ V₂} {G : Ctx (GVal V₁) (GVal V₂)} (hG : RelG G' G) :
-    {ts : List Ty} → {as₁ : Tup (Arg (GVal V₁)) ts} → {as₂ : Tup (Arg (GVal V₂)) ts} →
-    TRel (ArgRel G) as₁ as₂ → TRel (ArgRel G') (tupGOut as₁) (tupGOut as₂)
-  | [], (), (), .nil => .nil
-  | _ :: _, (_, _), (_, _), .cons h hs => .cons (h.gout hG) (TRel.gout hG hs)
+theorem TRel.gout {G' : Ctx V₁ V₂} {G : Ctx (GVal V₁) (GVal V₂)} (hG : RelG G' G)
+    {ts : List Ty} {as₁ : Tup (Arg (GVal V₁)) ts} {as₂ : Tup (Arg (GVal V₂)) ts}
+    (h : TRel (ArgRel G) as₁ as₂) : TRel (ArgRel G') (tupGOut as₁) (tupGOut as₂) :=
+  TRel.tupMapArg_rel (fun _ => Arg.gout) (fun _ => Arg.gout) (fun ha => ha.gout hG) h
 
 theorem TRel.gkey_eq {G' : Ctx V₁ V₂} {G : Ctx (GVal V₁) (GVal V₂)} (hG : RelG G' G) :
     {ts : List Ty} → {as₁ : Tup (Arg (GVal V₁)) ts} → {as₂ : Tup (Arg (GVal V₂)) ts} →

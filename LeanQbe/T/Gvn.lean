@@ -1,7 +1,6 @@
 module
 
-public import LeanQbe.T.WP
-public import LeanQbe.T.Flat
+public import LeanQbe.T.OptUtil
 
 /-!
 # Lexical-scope Common Subexpression Elimination / Global Value Numbering (`T6`)
@@ -9,8 +8,9 @@ public import LeanQbe.T.Flat
 PHOAS-to-PHOAS pass `gvn : Nat → GvnTbl V → Expr (GVal V) L rs → Expr V L rs` where
 `GVal V t = V t × Nat` pairs each output binder with a lexical value number (`K t = Nat`).
 
-Each pure `let_` instruction is keyed by `GvnKey := (sig : List Ty) × (rs : List Ty) × OpCode sig rs × Tup (Arg K) sig`
-with fast structural `DecidableEq` (`listTyDecEq`, derived `DecidableEq` on `OpCode`, `tupDecEq argKDecEq`).
+Each pure `let_` instruction is keyed by
+`GvnKey := (sig : List Ty) × (rs : List Ty) × OpCode sig rs × Tup (Arg K) sig` with fast
+structural `DecidableEq` (`listTyDecEq`, derived `DecidableEq` on `OpCode`, `tupDecEq argKDecEq`).
 On a table hit, the `let_` is eliminated and its continuation receives the cached `Tup (GVal V) rs`;
 on a miss, the `let_` is emitted and `(key, freshGVals)` is pushed onto the lexical table.
 Effectful or control constructs (`load`, `store`, `call`, `exit`) are never deduplicated; lexical
@@ -233,17 +233,14 @@ def Arg.gkey {V : Ty → Type} {t : Ty} : Arg (GVal V) t → Arg K t
   | .var p => .var p.2
   | .imm c => .imm c
 
-def tupGOut {V : Ty → Type} : {ts : List Ty} → Tup (Arg (GVal V)) ts → Tup (Arg V) ts
-  | [], () => ()
-  | _ :: _, (a, as) => (a.gout, tupGOut as)
+abbrev tupGOut {V : Ty → Type} : {ts : List Ty} → Tup (Arg (GVal V)) ts → Tup (Arg V) ts :=
+  tupMapArg fun _ => Arg.gout
 
-def tupGKey {V : Ty → Type} : {ts : List Ty} → Tup (Arg (GVal V)) ts → Tup (Arg K) ts
-  | [], () => ()
-  | _ :: _, (a, as) => (a.gkey, tupGKey as)
+abbrev tupGKey {V : Ty → Type} : {ts : List Ty} → Tup (Arg (GVal V)) ts → Tup (Arg K) ts :=
+  tupMapArg fun _ => Arg.gkey
 
-def freshGVals {V : Ty → Type} : (ts : List Ty) → Tup V ts → Nat → Tup (GVal V) ts
-  | [], (), _ => ()
-  | _ :: ts, (x, xs), next => ((x, next), freshGVals ts xs (next + 1))
+abbrev freshGVals {V : Ty → Type} : (ts : List Ty) → Tup V ts → Nat → Tup (GVal V) ts :=
+  tupFreshWith fun x next => (x, next)
 
 mutual
 def gvn {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}

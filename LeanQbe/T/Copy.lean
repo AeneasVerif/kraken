@@ -1,7 +1,6 @@
 module
 
-public import LeanQbe.T.WP
-public import LeanQbe.T.Flat
+public import LeanQbe.T.OptUtil
 
 /-!
 # Copy and tuple-pair propagation (`T6`)
@@ -91,14 +90,12 @@ def Arg.cout {V : Ty → Type} {t : Ty} : Arg (CVal V) t → Arg V t
   | .imm c => .imm c
 
 /-- Map `Arg.cout` across a tuple of operands. -/
-def tupCOut {V : Ty → Type} : {ts : List Ty} → Tup (Arg (CVal V)) ts → Tup (Arg V) ts
-  | [], () => ()
-  | _ :: _, (a, as) => (a.cout, tupCOut as)
+abbrev tupCOut {V : Ty → Type} : {ts : List Ty} → Tup (Arg (CVal V)) ts → Tup (Arg V) ts :=
+  tupMapArg fun _ => Arg.cout
 
 /-- Wrap bound output variables `xs : Tup V ts` into fresh `CVal V`s starting at `next`. -/
-def freshCVals {V : Ty → Type} : (ts : List Ty) → Tup V ts → Nat → Tup (CVal V) ts
-  | [], (), _ => ()
-  | _ :: ts, (x, xs), next => (CVal.fresh x next, freshCVals ts xs (next + 1))
+abbrev freshCVals {V : Ty → Type} : (ts : List Ty) → Tup V ts → Nat → Tup (CVal V) ts :=
+  tupFreshWith fun x next => CVal.fresh x next
 
 /-- Outcome of lowering a `let_` binding in `copy`: either eliminate or emit with wrapper. -/
 inductive CopyLetStep (V : Ty → Type) : List Ty → Type
@@ -112,7 +109,7 @@ def mkpairEmitStep {V : Ty → Type} (next : Nat) (a b : Ty) (cx : CVal V a) (cy
   .emit (op2 (.mkpair a b) cx.out cy.out) (next + 1) fun (vp, ()) =>
     (.mk (.var vp) (some next) (.pair cx cy) .none .none, ())
 
-/-- Eliminate `mkpair (fst p) (snd p) → p` when both projections share the same `unpair` identity. -/
+/-- Eliminate `mkpair (fst p) (snd p) → p` when both sides share the same `unpair` identity. -/
 def mkpairProjStep {V : Ty → Type} (next : Nat) (a b : Ty) (cx : CVal V a) (cy : CVal V b) :
     CopyLetStep V [.pair a b] :=
   match cx.fstOf, cy.sndOf with
