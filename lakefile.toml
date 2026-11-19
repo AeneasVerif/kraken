@@ -26,7 +26,7 @@ name = "LeanQbeArm64"
 name = "LeanQbeTest"
 globs = ["LeanQbeTest.+"]
 
-# The executables only instantiate the generic driver `LeanQbe.Driver`, one per target: no module
+# The executables only instantiate the generic driver `LeanQbe.T.Driver`, one per target: no module
 # can import both Kraken.X64 and Kraken.AArch64, so there is no single executable with a target flag.
 [[lean_exe]]
 name = "leanqbe"

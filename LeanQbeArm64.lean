@@ -1,15 +1,6 @@
 module
 
-public import LeanQbe.Arm64.Targ
-public import LeanQbe.Arm64.Isel
-public import LeanQbe.Arm64.TargLemmas
-public import LeanQbe.Arm64.IselLemmas
-public import LeanQbe.Arm64.FrameLemmas
-public import LeanQbe.Arm64.Abi
-public import LeanQbe.Arm64.Litmus
-public import LeanQbe.Arm64.UnionFind
-public import LeanQbe.Arm64.LratTrim
-public import LeanQbe.Arm64.LratBytes
+public import LeanQbe
 public import LeanQbe.T.Arm64.Base
 public import LeanQbe.T.Arm64.Frame
 public import LeanQbe.T.Arm64.FrameLemmas
@@ -26,4 +17,4 @@ public import LeanQbe.T.Arm64.Bignum
 public import LeanQbe.T.Arm64.ChaCha
 public import LeanQbe.T.Arm64.LratBytes
 
-/-! Root of the AArch64 library: `Kraken.AArch64` via `LeanQbe.Arm64.*` & `LeanQbe.T.Arm64.*`. -/
+/-! Root of the AArch64 library: imports `Kraken.AArch64` and `LeanQbe.T.Arm64.*`. -/

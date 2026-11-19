@@ -6,17 +6,20 @@
 #  2. Fails on any `sorry` (build log, and `sorryAx` in any axiom report), and on `bv_decide`,
 #     `native_decide` and friends anywhere in a tracked .lean file (native axioms).
 #  3. Checks import closures: the generic `LeanQbe` root imports neither `Kraken.X64` nor
-#     `Kraken.AArch64`, and every module file under `LeanQbe/` is reachable from its library root
-#     (`LeanQbe/Amd64/*` from `LeanQbeAmd64`, `LeanQbe/Arm64/*` from `LeanQbeArm64`, the rest from
-#     `LeanQbe`), so that step 1 really built it. Only files known to git are checked.
+#     `Kraken.AArch64`, `LeanQbeAmd64` does not import `Kraken.AArch64`, `LeanQbeArm64` does not
+#     import `Kraken.X64`, every module file under `LeanQbe/` is reachable from its library root
+#     (`LeanQbe/T/Amd64/*` from `LeanQbeAmd64`, `LeanQbe/T/Arm64/*` from `LeanQbeArm64`, the rest
+#     from `LeanQbe`), and no retired untyped E1 module (`LeanQbe/` outside `LeanQbe/T/`,
+#     `LeanQbeTest/` outside `LeanQbeTest/T/`, or `SpikeS2*`) remains tracked. Only files known to
+#     git are checked.
 #  4. Axiom audit: `#print axioms` for every theorem listed in scripts/headline.txt, plus every
 #     `#print axioms` already in the build log (any module that step 1 builds, for example a test
 #     under LeanQbeTest/). Allowed: propext, Classical.choice, Quot.sound. A report that is not one
 #     complete line fails: Lean breaks a long report over several lines, and then it cannot be read.
 #     So does a headline theorem without a report, and a headline.txt that is missing or lists none.
 #  5. Check times, in seconds of CPU time, of the five largest lemma files and of the two files
-#     whose check makes the kernel run the whole compiler (LeanQbe/Amd64/LratBytes.lean and
-#     LeanQbe/Arm64/LratBytes.lean). Printed for the record; only a file that fails to check fails
+#     whose check makes the kernel run the whole compiler (LeanQbe/T/Amd64/LratBytes.lean and
+#     LeanQbe/T/Arm64/LratBytes.lean). Printed for the record; only a file that fails to check fails
 #     this step. The limit on the cost of the compiler in the kernel is not here: it is the
 #     `set_option maxHeartbeats` at `compiled` in those two files, which every build enforces.
 #     Time is no basis for a limit: on this machine under load, the same check took 27 to 64 s of
@@ -75,16 +78,33 @@ for r in LeanQbe LeanQbeAmd64 LeanQbeArm64; do closure "$r" | sort >"$TMP/closur
 if grep -E '^Kraken\.(X64|AArch64)(\.|$)' "$TMP/closure_LeanQbe.txt"; then
   err "the generic LeanQbe imports an architecture (modules above)"
 fi
-if grep -q '^LeanQbe$' "$TMP/closure_LeanQbe.txt"; then :; else err "could not compute the closure of LeanQbe"; fi
+if grep -E '^Kraken\.AArch64(\.|$)' "$TMP/closure_LeanQbeAmd64.txt"; then
+  err "LeanQbeAmd64 imports Kraken.AArch64 (modules above)"
+fi
+if grep -E '^Kraken\.X64(\.|$)' "$TMP/closure_LeanQbeArm64.txt"; then
+  err "LeanQbeArm64 imports Kraken.X64 (modules above)"
+fi
+for r in LeanQbe LeanQbeAmd64 LeanQbeArm64; do
+  if grep -q "^$r$" "$TMP/closure_$r.txt"; then :; else err "could not compute the closure of $r"; fi
+done
+if git ls-files --cached 'LeanQbe/*.lean' 'LeanQbe/**/*.lean' | grep -v '^LeanQbe/T/'; then
+  err "retired untyped E1 .lean files remain tracked under LeanQbe/ outside LeanQbe/T/"
+fi
+if git ls-files --cached 'LeanQbeTest/*.lean' 'LeanQbeTest/**/*.lean' | grep -v '^LeanQbeTest/T/'; then
+  err "retired untyped E1 .lean files remain tracked under LeanQbeTest/ outside LeanQbeTest/T/"
+fi
+if git ls-files --cached 'LeanQbeTest/*SpikeS2*' 'LeanQbeTest/**/*SpikeS2*' | grep .; then
+  err "temporary SpikeS2 files remain tracked under LeanQbeTest/"
+fi
 while IFS= read -r f; do
   m="${f%.lean}"; m="${m//\//.}"
   case "$m" in
-    LeanQbe.Amd64.*|LeanQbe.T.Amd64.*) r=LeanQbeAmd64 ;;
-    LeanQbe.Arm64.*|LeanQbe.T.Arm64.*) r=LeanQbeArm64 ;;
+    LeanQbe.T.Amd64.*) r=LeanQbeAmd64 ;;
+    LeanQbe.T.Arm64.*) r=LeanQbeArm64 ;;
     *) r=LeanQbe ;;
   esac
   grep -qx "$m" "$TMP/closure_$r.txt" || err "$f is not imported by the root $r.lean (so it is not built)"
-done < <(git ls-files --cached 'LeanQbe/*.lean' 'LeanQbe/**/*.lean' | sort -u)
+done < <(git ls-files --cached 'LeanQbe/T/*.lean' 'LeanQbe/T/**/*.lean' | sort -u)
 if git ls-files -z 'LeanQbe/T/*.lean' 'LeanQbe/T/**/*.lean' \
     | (set +o pipefail; xargs -0 grep -HnE '^\s*(public\s+|meta\s+)*import\s+(all\s+)?LeanQbe\.([^T]|T[^.])' 2>/dev/null); then
   err "LeanQbe/T module imports untyped E1 module (G5 violation)"
@@ -135,7 +155,7 @@ time_check() { # $1 = .lean file; appends "<CPU seconds> <exit code> <file>" to 
   rc=$?
   echo "$(awk '{print int($1 + $2 + 0.5)}' <<<"$cpu") $rc $1" >>"$TMP/times.txt"
 }
-{ echo LeanQbe/Amd64/LratBytes.lean; echo LeanQbe/Arm64/LratBytes.lean
+{ echo LeanQbe/T/Amd64/LratBytes.lean; echo LeanQbe/T/Arm64/LratBytes.lean
   git ls-files 'LeanQbe/*Lemmas*.lean' 'LeanQbe/**/*Lemmas*.lean' | sort -u | xargs wc -l \
     | grep -v ' total$' | sort -rn | head -n 5 | awk '{print $2}'; } >"$TMP/timed.txt"
 : >"$TMP/times.txt"

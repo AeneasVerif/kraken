@@ -47,6 +47,7 @@ fi
 if [ "$USE_QBE" = "1" ]; then
   if [ -z "${QBE:-}" ]; then
     QBE_SRC="${QBE_SRC:-$ROOT/qbe}"
+    [ -d "$QBE_SRC" ] || QBE_SRC="/usr/local/google/home/andreser/lean-qbe/qbe"
     cp -r "$QBE_SRC" "$TMP/qbe-src"
     timeout 300 make -C "$TMP/qbe-src" -j8 >/dev/null
     QBE="$TMP/qbe-src/qbe"
