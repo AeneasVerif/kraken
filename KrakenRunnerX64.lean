@@ -6,7 +6,7 @@ KrakenRunnerX64 - Run assembly instructions through Kraken Semantics and obtain 
 At this point this expects a file only containing a list of assembly instructions, no data block or similar.
 
 Usage: krakenrunner_x64 <assembly.S>
-       krakenrunner_x64 --generate <seed> <count> <length>  (random sequences that Kraken deems deterministic)
+       krakenrunner_x64 --generate < request.json         (random sequences that Kraken deems deterministic)
        krakenrunner_x64 --batch < sequences.json              (predict final states for a JSON array of sequences)
 
 Arguments:
