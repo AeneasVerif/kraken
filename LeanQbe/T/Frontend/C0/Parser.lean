@@ -51,16 +51,29 @@ private def nextTok : ParserM Tok := do
   modify fun st => { st with pos := st.pos + 1 }
   pure tok
 
+private def tokDesc : TokKind → String
+  | .ident s => s!"identifier '{s}'"
+  | .intLit v _ _ => s!"integer literal {v}"
+  | .floatLit _ => "float literal"
+  | .strLit s => s!"string literal \"{s}\""
+  | .kw s => s!"keyword '{s}'"
+  | .sym s => s!"symbol '{s}'"
+  | .eof => "end of file"
+
 private def failAt {α : Type} (msg : String) : ParserM α := do
   let tok ← peekTok
-  throw s!"C0 parse error (line {tok.line}): {msg}"
+  throw s!"C0 parse error (line {tok.line}, at {tokDesc tok.kind}): {msg}"
+
+private def liftExceptAt {α : Type} : Except String α → ParserM α
+  | .ok a => pure a
+  | .error msg => failAt msg
 
 private def expectSym (s : String) : ParserM Unit := do
   let tok ← peekTok
   if tok.kind == .sym s then
     let _ ← nextTok
   else
-    failAt s!"expected '{s}', got {repr tok.kind}"
+    failAt s!"expected '{s}', got {tokDesc tok.kind}"
 
 private def matchSym (s : String) : ParserM Bool := do
   let tok ← peekTok
@@ -80,7 +93,7 @@ private def expectIdent : ParserM String := do
   let tok ← nextTok
   match tok.kind with
   | .ident s => pure s
-  | _ => throw s!"C0 parse error (line {tok.line}): expected identifier, got {repr tok.kind}"
+  | _ => throw s!"C0 parse error (line {tok.line}): expected identifier, got {tokDesc tok.kind}"
 
 private def tryBacktrack {α : Type} (p : ParserM α) : ParserM (Option α) := do
   let saved ← get
@@ -175,7 +188,7 @@ mutual
           pure (.anonAggregate isUnion fields)
         else
           pure (if isUnion then .unionRef name else .structRef name)
-      | _ => failAt "expected struct/union name or '{'"
+      | _ => failAt s!"expected struct/union name or '\{', got {tokDesc next.kind}"
     | .ident "C0_RET2" =>
       let _ ← nextTok
       expectSym "("
@@ -223,7 +236,7 @@ mutual
       if let some ty := builtinTypeMap s then
         let _ ← nextTok
         pure ty
-      else failAt s!"expected type, got keyword '{s}'"
+      else failAt s!"expected type, got {tokDesc tok.kind}"
     | .ident s =>
       if let some ty := builtinTypeMap s then
         let _ ← nextTok
@@ -233,8 +246,8 @@ mutual
         if st.typedefs.contains s then
           let _ ← nextTok
           pure (.typedefRef s)
-        else failAt s!"unknown type name '{s}'"
-    | _ => failAt s!"expected type, got {repr tok.kind}"
+        else failAt s!"unknown type name '{s}' (at {tokDesc tok.kind})"
+    | _ => failAt s!"expected type, got {tokDesc tok.kind}"
 
   private partial def parsePtrStars (base : C0Type) : ParserM C0Type := do
     let mut ty := base
@@ -269,9 +282,12 @@ mutual
           let wTok ← nextTok
           match wTok.kind with
           | .intLit w _ _ =>
-            if w < 0 then throw s!"C0 parse error (line {wTok.line}): negative bitfield width"
+            if w < 0 then
+              throw s!"C0 parse error (line {wTok.line}): negative bitfield width {w}"
             bw := some w.toNat
-          | _ => throw s!"C0 parse error (line {wTok.line}): expected bitfield width"
+          | _ =>
+            throw s!"C0 parse error (line {wTok.line}): expected bitfield width, got {
+              tokDesc wTok.kind}"
         else
           let mut dims : List (Option Nat) := []
           while ← matchSym "[" do
@@ -305,7 +321,7 @@ mutual
       let e ← parseExpr
       expectSym ")"
       pure e
-    | _ => failAt s!"expected expression, got {repr tok.kind}"
+    | _ => failAt s!"expected expression, got {tokDesc tok.kind}"
 
   private partial def parsePostfix : ParserM Expr := do
     let mut e ← parsePrimary
@@ -336,7 +352,7 @@ mutual
               args := args ++ [← parseExpr]
             expectSym ")"
           e := .call fn args
-        | _ => failAt "indirect function calls are not supported in C0"
+        | _ => failAt s!"indirect function calls are not supported in C0 (got {tokDesc tok.kind})"
       | _ => break
     pure e
 
@@ -527,21 +543,23 @@ private def parseSimpleAction : ParserM Stmt := do
   else if (← peekTok).kind == .sym "++" || (← peekTok).kind == .sym "--" then
     let isInc := (← nextTok).kind == .sym "++"
     let e ← parseUnary
-    let lv ← MonadExcept.ofExcept (exprToLVal e)
+    let lv ← liftExceptAt (exprToLVal e)
     pure (.incDec lv isInc)
   else
     let e ← parseUnary
     if ← matchSym "++" then
-      pure (.incDec (← MonadExcept.ofExcept (exprToLVal e)) true)
+      pure (.incDec (← liftExceptAt (exprToLVal e)) true)
     else if ← matchSym "--" then
-      pure (.incDec (← MonadExcept.ofExcept (exprToLVal e)) false)
+      pure (.incDec (← liftExceptAt (exprToLVal e)) false)
     else if let some binOp? ← parseAssignOp? then
-      let lv ← MonadExcept.ofExcept (exprToLVal e)
+      let lv ← liftExceptAt (exprToLVal e)
       pure (.assign lv binOp? (← parseExpr))
     else
       match e with
       | .call fn args => pure (.callStmt [] fn args)
-      | _ => failAt "expected assignment, call, or increment/decrement"
+      | _ =>
+        let tok ← peekTok
+        failAt s!"expected assignment, call, or increment/decrement, got {tokDesc tok.kind}"
 
 private def parseLocalDecls : ParserM (List Stmt) := do
   let base ← parseBaseType
@@ -551,7 +569,7 @@ private def parseLocalDecls : ParserM (List Stmt) := do
     let ty ← parsePtrStars base
     let name ← expectIdent
     if (← peekTok).kind == .sym "[" then
-      failAt "stack arrays are not supported in C0"
+      failAt s!"stack arrays are not supported in C0 (variable '{name}', got '[')"
     stmts := stmts ++ [.decl ty name (← parseInitVal)]
     more ← matchSym ","
   expectSym ";"
@@ -594,7 +612,8 @@ mutual
     | .kw "do" =>
       let _ ← nextTok
       let body ← parseStmt
-      if !(← matchKw "while") then failAt "expected 'while' after do body"
+      if !(← matchKw "while") then
+        failAt s!"expected 'while' after do body, got {tokDesc (← peekTok).kind}"
       expectSym "("
       let cond ← parseExpr
       expectSym ")"
@@ -638,7 +657,7 @@ mutual
           if ← matchKw "case" then
             anyLbl := true
             let csts := (← get).consts
-            let v ← evalConstIntExpr csts (← parseExpr) |> MonadExcept.ofExcept
+            let v ← liftExceptAt (evalConstIntExpr csts (← parseExpr))
             expectSym ":"
             vals := vals ++ [v]
           else if ← matchKw "default" then
@@ -647,7 +666,7 @@ mutual
             hasDef := true
           else break
         unless anyLbl do
-          failAt "expected 'case' or 'default' in switch"
+          failAt s!"expected 'case' or 'default' in switch, got {tokDesc (← peekTok).kind}"
         let mut body : List Stmt := []
         while (← peekTok).kind != .sym "}" && (← peekTok).kind != .kw "case" && (← peekTok).kind != .kw "default" do
           if ← matchKw "fallthrough" then
@@ -886,7 +905,7 @@ private def parseTopDecl : ParserM (List Decl) := do
         if ← matchSym "=" then
           let e ← parseExpr
           let csts := (← get).consts
-          nextVal ← MonadExcept.ofExcept (evalConstIntExpr csts e)
+          nextVal ← liftExceptAt (evalConstIntExpr csts e)
         items := items ++ [(nm, nextVal)]
         modify fun st => { st with consts := st.consts.insert nm nextVal }
         nextVal := nextVal + 1

@@ -272,6 +272,43 @@ theorem test_switch_loops_wf : Func.Wf test_switch_loops_body := by t_wf_reify
 
 end ExtraCF
 
+/-! ## Negative Diagnostics & `ToFlat` Smoke (`#203`, `#018-B1`) -/
+
+section Diagnostics
+
+private def strContains (hay needle : String) : Bool :=
+  (hay.splitOn needle).length > 1
+
+private def lowerC0Str (src : String) : Except String LModule := do
+  let tu ← parseC0 src
+  lowerTranslationUnit tu
+
+#guard match parseC0 "u32 f(u32 x) { return x + ; }" with
+  | .error e => strContains e "line 1" && strContains e "symbol ';'"
+  | .ok _ => false
+
+#guard match parseC0 "u32 f(u32 x) { do { x = x + 1; } x; }" with
+  | .error e => strContains e "while" && strContains e "identifier 'x'"
+  | .ok _ => false
+
+#guard match lowerC0Str
+    "typedef struct { u32 x : 5; u32 y : 27; } bf_t;
+     u32 f(bf_t v) { v.x += 3; return v.x; }" with
+  | .error e => strContains e "register bitfield" && strContains e "v.x"
+  | .ok _ => false
+
+#guard match lowerC0Str
+    "typedef struct { u32 x; u32 y; } p_t;
+     u32 f(p_t v) { v.x += 3; return v.x; }" with
+  | .error e => strContains e "register bitfield" && strContains e "v.x"
+  | .ok _ => false
+
+#guard match compileC0Source [] "u64 add1(u64 x) { return x + 1ULL; }" with
+  | .ok [tf] => tf.name == "add1"
+  | _ => false
+
+end Diagnostics
+
 /-! ## C++20 Codegen Entrypoint for `test/c0/run.sh` -/
 
 def emitNamespace (ns : String) (fns : List Fn) : Except String String := do

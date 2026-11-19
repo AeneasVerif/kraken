@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.Frontend.C0
 public import LeanQbe.T.FlatLemmas
+public meta import LeanQbe.T.LeanLRC.Basic
 public meta import LeanQbe.T.Frontend.C0
 
 /-!
@@ -25,10 +26,6 @@ namespace LeanQbe.T.LeanLRC
 open LeanQbe.T
 open LeanQbe.T.Frontend.C0
 
-/-- Runtime abnormal exit symbols used by Tier-0a C0 runtime helpers. -/
-def rtExits : List Sym :=
-  ["lean_out_of_fuel", "lean_stack_overflow", "lean_oom", "lean_panic"]
-
 /-- Shared C0 struct and extern declarations for the Tier-0a `λRC` runtime. -/
 def rtC0Header : String := "#include \"c0.h\"
 typedef struct { u64 base; u64 cur; u64 end; u64 fuel; u64 depth; u64 env; } LeanRt;
@@ -43,162 +40,10 @@ extern void lean_oom(u64 rt);
 extern void lean_panic(u64 rt);
 "
 
-/-! ## Lowered `LExpr` → `TFlat` Bridge (`Func.Wf` via `Func.wf_of_denote`) -/
-
-/-- De Bruijn context mapping C0 `LVar` / label IDs to `TFlat` levels and types. -/
-structure LFlatCtx where
-  vdepth : Nat := 0
-  ldepth : Nat := 0
-  vars : List (Nat × Nat × Ty) := []
-  lbls : List (Nat × Nat × List Ty) := []
-
-def LFlatCtx.pushVar (c : LFlatCtx) (lv : LVar) : LFlatCtx :=
-  { c with vdepth := c.vdepth + 1, vars := (lv.id, c.vdepth, lv.ty) :: c.vars }
-
-def LFlatCtx.pushVars (c : LFlatCtx) (lvs : List LVar) : LFlatCtx :=
-  lvs.foldl LFlatCtx.pushVar c
-
-def LFlatCtx.pushLbl (c : LFlatCtx) (lid : Nat) (ts : List Ty) : LFlatCtx :=
-  { c with ldepth := c.ldepth + 1, lbls := (lid, c.ldepth, ts) :: c.lbls }
-
-def LFlatCtx.lookupVar (c : LFlatCtx) (id : Nat) (t : Ty) : Except String (Arg K t) :=
-  match c.vars.find? (fun p => p.1 == id) with
-  | some (_, lvl, t') =>
-    if _ : t' = t then pure (.var (c.vdepth - 1 - lvl))
-    else throw s!"LFlatCtx: variable {id} type mismatch"
-  | none => throw s!"LFlatCtx: unbound variable {id}"
-
-def LFlatCtx.lookupLbl (c : LFlatCtx) (lid : Nat) (ts : List Ty) : Except String Nat :=
-  match c.lbls.find? (fun p => p.1 == lid) with
-  | some (_, lvl, ts') =>
-    if ts' == ts then pure (c.ldepth - 1 - lvl)
-    else throw s!"LFlatCtx: label {lid} signature mismatch"
-  | none => throw s!"LFlatCtx: unbound label {lid}"
-
-def toFlatArg (c : LFlatCtx) (t : Ty) : LArg → Except String (Arg K t)
-  | .var id t' => if t' == t then c.lookupVar id t else throw s!"toFlatArg: var {id} ty"
-  | .imm t' v => if h : t' = t then pure (.imm (h ▸ v)) else throw "toFlatArg: imm ty"
-
-def toFlatArgs (c : LFlatCtx) : (ts : List Ty) → List LArg → Except String (Tup (Arg K) ts)
-  | [], [] => pure ()
-  | t :: ts, a :: as => do pure (← toFlatArg c t a, ← toFlatArgs c ts as)
-  | _, _ => throw "toFlatArgs: arity mismatch"
-
-mutual
-/-- Promote calls to runtime exit symbols into `.exit` terminators. -/
-def promoteExitCalls (exits : List Sym) : LExpr → LExpr
-  | .let_ op bs k => .let_ op bs (promoteExitCalls exits k)
-  | .load t a b k => .load t a b (promoteExitCalls exits k)
-  | .store t v a k => .store t v a (promoteExitCalls exits k)
-  | .call f as bs args binders k =>
-    if exits.contains f then .exit f as args
-    else .call f as bs args binders (promoteExitCalls exits k)
-  | .jnz c t e => .jnz c (promoteExitCalls exits t) (promoteExitCalls exits e)
-  | .jump l ts args => .jump l ts args
-  | .ret rs args => .ret rs args
-  | .exit f as args => .exit f as args
-  | .hlt => .hlt
-  | .group blks k => .group (promoteExitBlocks exits blks) (promoteExitCalls exits k)
-
-def promoteExitBlocks (exits : List Sym) :
-    List (Nat × List LVar × LExpr) → List (Nat × List LVar × LExpr)
-  | [] => []
-  | (l, ps, b) :: rest => (l, ps, promoteExitCalls exits b) :: promoteExitBlocks exits rest
-end
-
-mutual
-/-- Convert a lowered C0 `LExpr` into a scope-checked `TFlat rs`. -/
-def lExprToTFlat (c : LFlatCtx) (rs : List Ty) : LExpr → Except String (TFlat rs)
-  | .let_ op binders k => do
-    let args ← toFlatArgs c op.sig op.args
-    pure (.let_ ⟨op.code, args⟩ (← lExprToTFlat (c.pushVars binders) rs k))
-  | .load t addr binder k => do
-    pure (.load t (← toFlatArg c i64 addr) (← lExprToTFlat (c.pushVar binder) rs k))
-  | .store t val addr k => do
-    pure (.store (← toFlatArg c t val) (← toFlatArg c i64 addr) (← lExprToTFlat c rs k))
-  | .call f as bs args binders k => do
-    let fargs ← toFlatArgs c as args
-    pure (.call f bs fargs (← lExprToTFlat (c.pushVars binders) rs k))
-  | .jnz cond t e => do
-    pure (.jnz (← toFlatArg c .bool cond) (← lExprToTFlat c rs t) (← lExprToTFlat c rs e))
-  | .jump lid ts args => do
-    pure (.jump (← c.lookupLbl lid ts) (← toFlatArgs c ts args))
-  | .ret rs' args => do
-    if _ : rs' = rs then pure (.ret (← toFlatArgs c rs args))
-    else throw "lExprToTFlat: return signature mismatch"
-  | .exit f as args => do pure (.exit f (← toFlatArgs c as args))
-  | .hlt => pure .hlt
-  | .group blocks k => do
-    let c' := blocks.foldl (fun acc (lid, ps, _) => acc.pushLbl lid (ps.map (·.ty))) c
-    pure (.group (← lBlocksToTBlocks c' rs blocks) (← lExprToTFlat c' rs k))
-
-def lBlocksToTBlocks (c : LFlatCtx) (rs : List Ty) :
-    (blks : List (Nat × List LVar × LExpr)) →
-    Except String (TBlocks rs (blks.map fun (_, ps, _) => ps.map (·.ty)))
-  | [] => pure .nil
-  | (_, ps, b) :: rest => do
-    pure (.cons (← lExprToTFlat (c.pushVars ps) rs b) (← lBlocksToTBlocks c rs rest))
-end
-
-/-- `Type 0` packaged `TFlat` function descriptor for runtime lowering pipelines. -/
-structure TFlatFn where
-  name : Sym
-  as : List Ty
-  rs : List Ty
-  flat : TFlat rs
-
-/-- Reify `TFlatFn` into a well-formed `LeanQbe.T.Fn`. -/
-def TFlatFn.toFn (tf : TFlatFn) : Fn :=
-  ⟨tf.name, tf.as, tf.rs, denoteFunc tf.flat⟩
-
-/-- Universal `Func.Wf` theorem for every `TFlatFn` via `Func.wf_of_denote`. -/
-theorem TFlatFn.toFn_wf (tf : TFlatFn) : tf.toFn.Wf :=
-  Func.wf_of_denote tf.flat rfl
-
-/-- Lower a C0 `LFn` to `TFlatFn` after promoting exits and checking `TFlat.wfCheck`. -/
-def lFnToTFlatFn (exits : List Sym) (lfn : LFn) : Except String TFlatFn := do
-  let body := promoteExitCalls exits lfn.body
-  let c0 := ({} : LFlatCtx).pushVars lfn.params
-  let tf ← lExprToTFlat c0 lfn.rs body
-  let as := lfn.params.map (·.ty)
-  if tf.wfCheck (pushTypes as []) [] then
-    pure { name := lfn.name, as, rs := lfn.rs, flat := tf }
-  else throw s!"lFnToTFlatFn: wfCheck failed on '{lfn.name}'"
-
-/-- Compile C0 source into a list of `TFlatFn`s. -/
-def compileC0Source (exits : List Sym) (src : String) : Except String (List TFlatFn) := do
-  let tu ← parseC0 src
-  let lmod ← lowerTranslationUnit tu
-  lmod.fns.mapM (lFnToTFlatFn exits)
-
 /-! ## Meta Elaboration of Static Tier-0a Runtime Definitions -/
 
 meta section
 open Lean Elab Command
-
-def metaRtExits : List Sym :=
-  ["lean_out_of_fuel", "lean_stack_overflow", "lean_oom", "lean_panic"]
-
-mutual
-def metaPromoteExits (exits : List Sym) : LExpr → LExpr
-  | .let_ op bs k => .let_ op bs (metaPromoteExits exits k)
-  | .load t a b k => .load t a b (metaPromoteExits exits k)
-  | .store t v a k => .store t v a (metaPromoteExits exits k)
-  | .call f as bs args binders k =>
-    if exits.contains f then .exit f as args
-    else .call f as bs args binders (metaPromoteExits exits k)
-  | .jnz c t e => .jnz c (metaPromoteExits exits t) (metaPromoteExits exits e)
-  | .jump l ts args => .jump l ts args
-  | .ret rs args => .ret rs args
-  | .exit f as args => .exit f as args
-  | .hlt => .hlt
-  | .group blks k => .group (metaPromoteBlocks exits blks) (metaPromoteExits exits k)
-
-def metaPromoteBlocks (exits : List Sym) :
-    List (Nat × List LVar × LExpr) → List (Nat × List LVar × LExpr)
-  | [] => []
-  | (l, ps, b) :: rest => (l, ps, metaPromoteExits exits b) :: metaPromoteBlocks exits rest
-end
 
 /-- Elaborate a C0 runtime translation unit directly into kernel `<name>_body` / `<name>` defs,
 promoting runtime exit calls into `.exit` terminators. -/
@@ -209,7 +54,7 @@ elab "lrc_elab_rt_c0!" pfx:ident src:str : command => do
     | .ok m => pure m | .error err => throwError err
   let lmod' : LModule := {
     lmod with
-    fns := lmod.fns.map fun f => { f with body := metaPromoteExits metaRtExits f.body }
+    fns := lmod.fns.map fun f => { f with body := promoteExitCalls rtExits f.body }
   }
   if let .error err := checkLModuleAcyclic lmod' then throwError err
   let ns ← getCurrNamespace

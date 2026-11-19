@@ -667,8 +667,8 @@ private theorem hint_lookup_step {c : WorkCfg} {prf_ptr pcur cur0 te : BitVec 64
       ((BitVec.ofNat 64 u >>> (1 : Nat)).ult (BitVec.ofNat 64 id) = false → Q)) := by
   have hfa := c.fit_active; unfold WorkCfg.activeBytes at hfa
   refine ⟨(bv_odd_branch (u := u) (by omega : u < 2 ^ 64) hodd (fun _ => True.intro)).1,
-    fun heq0 => (bv_odd_branch (u := u) (by omega : u < 2 ^ 64) (fun _ => True.intro)
-      (fun heven_b => ?_)).2 (fun h => h heq0)⟩
+    (bv_odd_branch (u := u) (by omega : u < 2 ^ 64) (fun _ => True.intro)
+      (fun heven_b => ?_)).2⟩
   rw [bv_shr_one (by omega : u < 2 ^ 64)]
   refine ult_branch (by omega : u / 2 < 2 ^ 64) (by omega : id < 2 ^ 64)
     (fun haid_lt => ?_) (fun hnaid_lt => hge_id heven_b hnaid_lt)

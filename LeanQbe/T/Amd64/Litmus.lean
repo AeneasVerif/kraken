@@ -160,7 +160,7 @@ private theorem allFns_supportsSource_all :
 
 private theorem litmus_allFns_supports :
     ∀ fn ∈ allFns, (fn.earlyOpt).body.supportsSource x64LegalTarget = true :=
-  fun fn h => List.all_eq_true.mp allFns_supportsSource_all fn h
+  supportsAll_to_forall allFns_supportsSource_all
 
 private theorem noExit_module_fnspec {hh : Host} {mod : Module}
     {hints : List x64Target.toIsa.Hints}
@@ -173,15 +173,12 @@ private theorem noExit_module_fnspec {hh : Host} {mod : Module}
     (hnoex : ∀ args m Q X X',
       litmusEnv fn.name fn.as fn.rs args m Q X → litmusEnv fn.name fn.as fn.rs args m Q X') :
     x64Target.Defined hh fn.name ∧
-      x64Target.FnSpec hh fn.name (litmusEnv fn.name fn.as fn.rs) (M.bound fn.name) 0 := by
-  obtain ⟨hdef, hspec⟩ := M.fnSpec mod rfl hh litmusEnv k₀ hc hu hacyc
+      x64Target.FnSpec hh fn.name (litmusEnv fn.name fn.as fn.rs) (M.bound fn.name) 0 :=
+  M.fnSpec_noExit_id mod rfl hh litmusEnv k₀ hc hu hacyc
     (fun g hg => litmus_allFns_wf g (hsub g hg))
     (fun g hg => litmus_allFns_supports g (hsub g hg))
     (fun g hg => litmusEnv_sound g (hsub g hg))
-    (fun _ h => nomatch h) ⟨(fun _ h => nomatch h), (fun _ h => nomatch h)⟩
-    (fun _ h => nomatch h) hf
-  exact ⟨hdef, fnSpec_of_legalEnv_legalSig_eq_noExit has hrs
-    (List.mem_append_left _ (List.mem_map_of_mem hf)) hnoex hspec⟩
+    hf has hrs hnoex
 
 private theorem single_fnspec {hh : Host} {f : Fn}
     {hints : List x64Target.toIsa.Hints}

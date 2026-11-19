@@ -316,4 +316,45 @@ theorem region_merge_eq {a : BitVec 64} {n1 n2 n : Nat}
   subst hsum
   exact (region_split (a := a) (n1 := n1) (n2 := n2) hfit).symm
 
+theorem region_pop_store_int4_64 {wcur : BitVec 64} {rem : Nat} (v : BitVec 64)
+    {R : Mem 64 → Prop} {m : Mem 64} (hrem : 0 < rem) (hfit : 4 * rem ≤ 2 ^ 64)
+    (hm : (region wcur (4 * rem) ⋆ R) m) :
+    storeOk m i32 wcur ∧
+    (int4 wcur v ⋆ region (wcur + 4) (4 * (rem - 1)) ⋆ R)
+      (storeMem m i32 wcur (v.setWidth 32)) := by
+  obtain ⟨hok, hm'⟩ := region_pop_store_int4 (v.setWidth 32) hrem hfit hm
+  rw [int4_setWidth32] at hm'
+  exact ⟨hok, hm'⟩
+
+theorem cursor_loadu8_branch {base : BitVec 64} {bs : List UInt8} {i : Nat}
+    {R : Mem 64 → Prop} {m : Mem 64} {P : Prop} {Q : BitVec 8 → Prop}
+    (hbase : base.toNat + bs.length < 2 ^ 64) (hi : i ≤ bs.length)
+    (hm : (Eq (bs.At base) ⋆ R) m)
+    (heof : i = bs.length → bs.drop i = [] → P)
+    (hstep : ∀ (hlt : i < bs.length), bs.drop i = bs[i] :: bs.drop (i + 1) →
+      Q (BitVec.ofNat 8 bs[i].toNat)) :
+    (base + BitVec.ofNat 64 i = base + BitVec.ofNat 64 bs.length → P) ∧
+    (base + BitVec.ofNat 64 i ≠ base + BitVec.ofNat 64 bs.length →
+      ∃ v, loadVal m i8 (base + BitVec.ofNat 64 i) = some v ∧ Q v) :=
+  cursor_eof_branch hi (by omega)
+    (fun heq => heof heq (by simp [heq]))
+    (fun hlt => ⟨_, loadu8_At hlt (by omega) hm, hstep hlt (List.drop_eq_getElem_cons hlt)⟩)
+
+theorem expectByte_step {base : BitVec 64} {bs : List UInt8} {i : Nat} (k : UInt8)
+    {R : Mem 64 → Prop} {m : Mem 64} {P Q : Prop}
+    (hbase : base.toNat + bs.length < 2 ^ 64) (hi : i ≤ bs.length)
+    (hm : (Eq (bs.At base) ⋆ R) m)
+    (heof : bs.drop i = [] → Q)
+    (hmis : ∀ b rest, bs.drop i = b :: rest → b ≠ k → Q)
+    (hmatch : i + 1 ≤ bs.length → bs.drop i = k :: bs.drop (i + 1) → P) :
+    (base + BitVec.ofNat 64 i = base + BitVec.ofNat 64 bs.length → Q) ∧
+    (base + BitVec.ofNat 64 i ≠ base + BitVec.ofNat 64 bs.length →
+      ∃ v, loadVal m i8 (base + BitVec.ofNat 64 i) = some v ∧
+        ((v.setWidth 64 = BitVec.ofNat 64 k.toNat → P) ∧
+         (v.setWidth 64 ≠ BitVec.ofNat 64 k.toNat → Q))) := by
+  refine cursor_loadu8_branch hbase hi hm (fun _ hnil => heof hnil) (fun hlt hdrop => ?_)
+  rw [setWidth64_ofNat8]
+  exact ⟨fun heq => hmatch hlt (by rwa [bv64_u8_eq.mp heq] at hdrop),
+    fun hne => hmis bs[i] (bs.drop (i + 1)) hdrop (fun h => hne (bv64_u8_eq.mpr h))⟩
+
 end LeanQbe.T

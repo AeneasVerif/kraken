@@ -2,14 +2,14 @@ module
 
 public import LeanQbe.T.Examples.UnionFind
 public import LeanQbe.T.Logic.Rules
-public import LeanQbe.T.FlatLemmas
+public import LeanQbe.T.WfLemmas
 
 /-!
 # Verification of Union-Find in `LeanQbe.T` (`T4`)
 
 Typed-IR proof of path-halving `find`, call-based `union`, and inlined `unionInline`
 using `LeanQbe.T.Logic` (`wp_loop_group`, `wp_unfold`, `wp_load_array64`, `wp_store_array64`,
-`wp_call_of_spec`) and `t_wf_reify`.
+`wp_call_of_spec`) and `t_wf_tac`.
 -/
 
 set_option autoImplicit false
@@ -163,9 +163,9 @@ theorem unionInline_correct :
 
 /-! ## Well-formedness and module soundness -/
 
-theorem find_wf : Func.Wf find := by t_wf_reify
-theorem union_wf : Func.Wf union := by t_wf_reify
-theorem unionInline_wf : Func.Wf unionInline := by t_wf_reify
+theorem find_wf : Func.Wf find := by t_wf_tac
+theorem union_wf : Func.Wf union := by t_wf_tac
+theorem unionInline_wf : Func.Wf unionInline := by t_wf_tac
 
 /-- Non-vacuous concrete `n`-element initialization: every element points to itself. -/
 def init (n : Nat) : List (BitVec 64) :=

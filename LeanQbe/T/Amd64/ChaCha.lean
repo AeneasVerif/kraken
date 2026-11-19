@@ -51,7 +51,7 @@ private theorem chacha20Fns_supportsSource_all :
 
 theorem chacha20Fns_supportsSource :
     ∀ f ∈ chacha20Module.fns, (f.earlyOpt).body.supportsSource x64LegalTarget = true :=
-  fun f hf => List.all_eq_true.mp chacha20Fns_supportsSource_all f hf
+  supportsAll_to_forall chacha20Fns_supportsSource_all
 
 /-! ## 2. Generic `FnSpec` and Closed Kraken x64 Theorem -/
 
@@ -65,7 +65,9 @@ theorem chacha20_module_fnspec (k₀ : Nat)
     x64Target.Defined hh f.name ∧
       x64Target.FnSpec hh f.name (chacha20Env f.name f.as f.rs)
         (compiled.bound f.name) 0 := by
-  obtain ⟨hdef, hspec⟩ := compiled.fnSpec chacha20Module rfl hh chacha20Env k₀ hc hu
+  have hmem := hf
+  simp only [chacha20Module, List.mem_singleton] at hmem; subst hmem
+  exact compiled.fnSpec_noExit_id chacha20Module rfl hh chacha20Env k₀ hc hu
     chacha20Module_checkAcyclic
     (fun g hg => by
       simp only [chacha20Module, List.mem_singleton] at hg; subst hg; exact chacha20Block_wf)
@@ -73,12 +75,7 @@ theorem chacha20_module_fnspec (k₀ : Nat)
     (fun g hg => by
       simp only [chacha20Module, List.mem_singleton] at hg; subst hg
       exact chacha20Block_correct chacha20Env)
-    (fun _ h => nomatch h) ⟨(fun _ h => nomatch h), (fun _ h => nomatch h)⟩
-    (fun _ h => nomatch h) hf
-  have hmem := hf
-  simp only [chacha20Module, List.mem_singleton] at hmem; subst hmem
-  exact ⟨hdef, fnSpec_of_legalEnv_legalSig_eq_noExit rfl rfl
-    (List.mem_append_left _ (List.mem_map_of_mem hf)) (fun _ _ _ _ _ h => h) hspec⟩
+    hf rfl rfl (fun _ _ _ _ _ h => h)
 
 /-- End-to-end correctness of compiled `chacha20Block` on Kraken x64. -/
 theorem chacha20Block_x64_correct (k₀ : Nat)
@@ -127,60 +124,6 @@ theorem chacha20Block_x64_correct (k₀ : Nat)
 end Generic
 
 /-! ## 3. Concrete RFC 8439 §2.3.2 Witness in `compiled.host` -/
-
-private theorem array_eq_bytesOf {t : Ty} (a : BitVec 64) (xs : List (Val t))
-    (h : t.bytes * xs.length ≤ 2 ^ 64) {m : Mem 64} (hm : array a xs m) :
-    m = (bytesOf xs).At a := by
-  induction xs generalizing a m with
-  | nil =>
-    simp only [array_nil, bytesOf, List.flatMap_nil] at hm ⊢
-    have hm0 : m = ∅ := hm; subst hm0
-    apply ExtHashMap.ext_getElem?; intro k; simp [List.At]
-  | cons x xs ih =>
-    rw [array_cons] at hm
-    obtain ⟨m1, m2, rfl, hd, h1, h2⟩ := hm
-    have h1' : m1 = (Int.toBytes t.bytes ((toBits t x).setWidth (8 * t.bytes)).toInt).At a :=
-      h1.symm
-    have h2' : m2 = (bytesOf xs).At (a + BitVec.ofNat 64 t.bytes) :=
-      ih _ (by simp only [List.length_cons, Nat.mul_succ] at h; omega) h2
-    have hl : (Int.toBytes t.bytes ((toBits t x).setWidth (8 * t.bytes)).toInt).length +
-        (bytesOf xs).length ≤ 2 ^ 64 := by
-      simp only [Int.toBytes_length, bytesOf_length]
-      simp only [List.length_cons, Nat.mul_succ] at h; omega
-    have hat := List.At_append
-      (Int.toBytes t.bytes ((toBits t x).setWidth (8 * t.bytes)).toInt) (bytesOf xs) a hl
-    rw [Int.toBytes_length] at hat
-    rw [h1', h2', ← hat]
-    rfl
-
-private theorem mapM_id_map_some {α : Type} :
-    ∀ xs : List α, (xs.map some).mapM id = some xs
-  | [] => rfl
-  | x :: xs => by simp [mapM_id_map_some xs]
-
-private theorem loadBytes_sep_At {a : BitVec 64} {bs : List UInt8}
-    {R : Mem 64 → Prop} {m : Mem 64} (hlen : bs.length ≤ 2 ^ 64)
-    (hm : (Eq (bs.At a) ⋆ R) m) :
-    m.loadBytes a bs.length = some bs := by
-  obtain ⟨m1, m2, hm_eq, hd, rfl, _⟩ := hm
-  subst hm_eq
-  unfold Mem.loadBytes
-  have hmap : (List.range bs.length).map
-      (fun i => (bs.At a ∪ m2).get? (a + .ofNat 64 i)) = bs.map some := by
-    apply List.ext_getElem (by simp)
-    intro i hi1 hi2
-    simp only [List.length_map, List.length_range] at hi1
-    simp only [List.getElem_map, List.getElem_range]
-    have hmem : a + BitVec.ofNat 64 i ∈ bs.At a :=
-      (mem_At_iff bs a _).mpr ⟨i, hi1, rfl⟩
-    have hnot : a + BitVec.ofNat 64 i ∉ m2 := fun h2 =>
-      (ExtHashMap.eq_empty_iff_forall_not_mem.mp hd _)
-        (by rw [ExtHashMap.inter_eq, ExtHashMap.mem_inter_iff]; exact ⟨hmem, h2⟩)
-    rw [ExtHashMap.get?_eq_getElem?, ExtHashMap.getElem?_union,
-      ExtHashMap.getElem?_eq_none hnot, Option.none_or, ← ExtHashMap.get?_eq_getElem?]
-    rw [get?_At_idx bs a i (Nat.lt_of_lt_of_le hi1 hlen) hlen, List.getElem?_eq_getElem hi1]
-  rw [← ExtHashMap.union_eq] at hmap
-  rw [hmap, mapM_id_map_some]
 
 private theorem rfc8439_expected_bytes_eq_bytesOf :
     bytesOf (t := v4i32) (rfcChaCha20Core rfc8439_test_init).toRows = rfc8439_expected_bytes := by

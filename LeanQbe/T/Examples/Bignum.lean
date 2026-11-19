@@ -237,17 +237,6 @@ def subMod25519Spec : Spec [i64, i64, i64] [] := fun (out, pa, pb, ()) m Q _ =>
 
 /-! ## Algebraic lemmas (no `omega` on `≥ 2^128` or kernel `2^320` reduction) -/
 
-theorem limbsVal_lt_pow {n : Nat} : ∀ (xs : List (BitVec n)), limbsVal xs < 2 ^ (n * xs.length)
-  | [] => by simp
-  | x :: xs => by
-    simp only [limbsVal_cons, List.length_cons]
-    have hx : x.toNat < 2 ^ n := x.isLt
-    have hxs : limbsVal xs < 2 ^ (n * xs.length) := limbsVal_lt_pow xs
-    have h2 : 2 ^ n * (limbsVal xs + 1) ≤ 2 ^ n * 2 ^ (n * xs.length) := Nat.mul_le_mul_left _ hxs
-    rw [Nat.mul_add, Nat.mul_one] at h2
-    rw [show n * (xs.length + 1) = n + n * xs.length by rw [Nat.mul_succ, Nat.add_comm], Nat.pow_add]
-    exact Nat.lt_of_lt_of_le (Nat.add_lt_add_right hx _) (Nat.add_comm (2 ^ n) _ ▸ h2)
-
 theorem limbsVal4_lt_pow256 (x0 x1 x2 x3 : BitVec 64) : limbsVal [x0, x1, x2, x3] < 2 ^ 256 := by
   have h := limbsVal_lt_pow [x0, x1, x2, x3]
   have he : (2 : Nat) ^ (64 * ([x0, x1, x2, x3] : List (BitVec 64)).length) = 2 ^ 256 :=
@@ -292,46 +281,6 @@ theorem two_p25519_lt : 2 * p25519 < 2 ^ 256 := by
   rw [h256]
   generalize (2 : Nat) ^ 255 = K at h19 ⊢
   omega
-
-private theorem add4_base {B a0 a1 a2 a3 b0 b1 b2 b3 s0 s1 s2 s3 : Nat} {c0 c1 c2 c3 : Bool}
-    (h0 : c0.toNat * B + s0 = a0 + b0)
-    (h1 : c1.toNat * B + s1 = a1 + b1 + c0.toNat)
-    (h2 : c2.toNat * B + s2 = a2 + b2 + c1.toNat)
-    (h3 : c3.toNat * B + s3 = a3 + b3 + c2.toNat) :
-    c3.toNat * (B * (B * (B * B))) + (s0 + B * (s1 + B * (s2 + B * s3))) =
-      (a0 + B * (a1 + B * (a2 + B * a3))) + (b0 + B * (b1 + B * (b2 + B * b3))) := by
-  calc c3.toNat * (B * (B * (B * B))) + (s0 + B * (s1 + B * (s2 + B * s3)))
-      = s0 + B * (s1 + B * (s2 + B * (c3.toNat * B + s3))) := by
-          simp only [Nat.mul_add, ← Nat.mul_assoc]; ac_rfl
-    _ = s0 + B * (s1 + B * ((c2.toNat * B + s2) + B * (a3 + b3))) := by
-          rw [h3]; simp only [Nat.mul_add]; ac_rfl
-    _ = s0 + B * ((c1.toNat * B + s1) + B * ((a2 + b2) + B * (a3 + b3))) := by
-          rw [h2]; simp only [Nat.mul_add]; ac_rfl
-    _ = (c0.toNat * B + s0) + B * ((a1 + b1) + B * ((a2 + b2) + B * (a3 + b3))) := by
-          rw [h1]; simp only [Nat.mul_add]; ac_rfl
-    _ = (a0 + b0) + B * ((a1 + b1) + B * ((a2 + b2) + B * (a3 + b3))) := by rw [h0]
-    _ = (a0 + B * (a1 + B * (a2 + B * a3))) + (b0 + B * (b1 + B * (b2 + B * b3))) := by
-          simp only [Nat.mul_add]; ac_rfl
-
-private theorem sub4_base {B a0 a1 a2 a3 b0 b1 b2 b3 d0 d1 d2 d3 : Nat} {w0 w1 w2 w3 : Bool}
-    (h0 : d0 + b0 = a0 + w0.toNat * B)
-    (h1 : d1 + b1 + w0.toNat = a1 + w1.toNat * B)
-    (h2 : d2 + b2 + w1.toNat = a2 + w2.toNat * B)
-    (h3 : d3 + b3 + w2.toNat = a3 + w3.toNat * B) :
-    (d0 + B * (d1 + B * (d2 + B * d3))) + (b0 + B * (b1 + B * (b2 + B * b3))) =
-      (a0 + B * (a1 + B * (a2 + B * a3))) + w3.toNat * (B * (B * (B * B))) := by
-  calc (d0 + B * (d1 + B * (d2 + B * d3))) + (b0 + B * (b1 + B * (b2 + B * b3)))
-      = (d0 + b0) + B * ((d1 + b1) + B * ((d2 + b2) + B * (d3 + b3))) := by
-          simp only [Nat.mul_add]; ac_rfl
-    _ = a0 + B * ((d1 + b1 + w0.toNat) + B * ((d2 + b2) + B * (d3 + b3))) := by
-          rw [h0]; simp only [Nat.mul_add]; ac_rfl
-    _ = a0 + B * (a1 + B * ((d2 + b2 + w1.toNat) + B * (d3 + b3))) := by
-          rw [h1]; simp only [Nat.mul_add]; ac_rfl
-    _ = a0 + B * (a1 + B * (a2 + B * (d3 + b3 + w2.toNat))) := by
-          rw [h2]; simp only [Nat.mul_add]; ac_rfl
-    _ = a0 + B * (a1 + B * (a2 + B * (a3 + w3.toNat * B))) := by rw [h3]
-    _ = (a0 + B * (a1 + B * (a2 + B * a3))) + w3.toNat * (B * (B * (B * B))) := by
-          simp only [Nat.mul_add, ← Nat.mul_assoc]; ac_rfl
 
 private theorem B4_eq_pow256 : (2 : Nat) ^ 64 * (2 ^ 64 * (2 ^ 64 * 2 ^ 64)) = 2 ^ 256 := by
   rw [← Nat.pow_add, ← Nat.pow_add, ← Nat.pow_add]
@@ -425,13 +374,6 @@ private theorem mulRowAcc_bound {B A acc b : Nat}
   have h4 : B4 * (b + 1) ≤ B4 * B := Nat.mul_le_mul_left _ hb
   have h5 : B4 * B = B * (B * (B * (B * B))) := by dsimp only [B4]; ac_rfl
   exact Nat.lt_of_lt_of_le h1 (Nat.le_trans h2 (h3 ▸ h5 ▸ h4))
-
-private theorem drop_high_carry {k B s rhs : Nat} (h : k * B + s = rhs) (hlt : rhs < B) : s = rhs := by
-  cases k with
-  | zero => simpa using h
-  | succ k' =>
-    have hge : B ≤ (k' + 1) * B := Nat.le_mul_of_pos_left B (Nat.succ_pos k')
-    omega
 
 /-! ## Fragment `wp` lemmas -/
 

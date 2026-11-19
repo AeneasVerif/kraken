@@ -579,23 +579,6 @@ private theorem tableRel_set_some {mv cap : Nat} {ptrs : List (BitVec 64)}
   refine ⟨by simp [hplen], by simp [htlen], fun i hi => ?_⟩
   grind
 
-private theorem bv_odd_branch_eq {u : Nat} {P Q : Prop} (hu : u < 2 ^ 64)
-    (hodd : (u % 2 != 0) = true → P) (heven : (u % 2 != 0) = false → Q) :
-    (BitVec.ofNat 64 u &&& (1 : BitVec 64) ≠ 0 → P) ∧
-    (BitVec.ofNat 64 u &&& (1 : BitVec 64) = 0 → Q) :=
-  let h := bv_odd_branch hu hodd heven
-  ⟨h.1, fun heq => h.2 (fun hne => hne heq)⟩
-
-private theorem u8_eq_branch {b : UInt8} {n : Nat} [OfNat (BitVec 64) n] [OfNat UInt8 n]
-    {P Q : Prop}
-    (ht : (b == OfNat.ofNat n) = true → P)
-    (hf : (b == OfNat.ofNat n) = false → Q)
-    (hk : (OfNat.ofNat n : BitVec 64) = BitVec.ofNat 64 (OfNat.ofNat n : UInt8).toNat := by rfl) :
-    (BitVec.ofNat 64 b.toNat = OfNat.ofNat n → P) ∧
-    (BitVec.ofNat 64 b.toNat ≠ OfNat.ofNat n → Q) := by
-  rw [hk, bv64_u8_eq]
-  grind
-
 private theorem apply_jfail {J : Cont []} {P : Tup Val [] → Mem 64 → Prop} {as : Tup Val []}
     {m : Mem 64} (hJ : ∀ as m, P as m → J as m) (hp : P as m) : J as m := hJ as m hp
 
@@ -671,7 +654,7 @@ theorem lbCheckPrf_correct_of (Γ : Env)
           let idx2 := prfBytes.length - bs2.length
           have hidx2_le : idx2 ≤ prfBytes.length := Nat.sub_le _ _
           wp_unfold
-          refine bv_odd_branch_eq (by omega : uid < 2 ^ 64)
+          refine bv_odd_branch (by omega : uid < 2 ^ 64)
             (fun ho => by fail_leaf)
             (fun heven' => ?_)
           let id := uid / 2
@@ -820,7 +803,7 @@ theorem lbCheckPrf_correct_of (Γ : Env)
                 | zero => exact absurd rfl hu_ne0
                 | succ u1 =>
                   let u := u1 + 1
-                  refine bv_odd_branch_eq (by omega : u < 2 ^ 64)
+                  refine bv_odd_branch (by omega : u < 2 ^ 64)
                     (fun ho => by fail_leaf)
                     (fun hdeven' => ?_)
                   let did := u / 2

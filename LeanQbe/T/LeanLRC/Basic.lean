@@ -22,6 +22,10 @@ namespace LeanQbe.T.LeanLRC
 
 open LeanQbe.T
 
+/-- Runtime abnormal exit symbols used by Tier-0a C0 runtime helpers. -/
+def rtExits : List Sym :=
+  ["lean_out_of_fuel", "lean_stack_overflow", "lean_oom", "lean_panic"]
+
 /-! ## Core `λRC` AST (`Type 0`) -/
 
 /-- Minimal `λRC` / `Lean.IR` type classification. -/

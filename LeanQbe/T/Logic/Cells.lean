@@ -203,4 +203,47 @@ theorem ld_b_step {m : Mem 64} {p : BitVec 64} {Q : BitVec 8 → Prop} (a : BitV
   have hget : xs[i] = v := Option.some.inj (by rwa [List.getElem?_eq_getElem hlt] at hi)
   exact ⟨v.setWidth 8, hget ▸ loadb_at i hlt h heq, hk⟩
 
+/-! ## Truncating `BitVec 64` stores into `byte1` / `int4` arrays -/
+
+theorem byte1_setWidth8 (a v : BitVec 64) :
+    byte1 a ((v.setWidth 8).setWidth 64) = byte1 a v := by
+  unfold byte1
+  congr 2
+  rw [← Int.toBytes_emod, ← Int.toBytes_emod (x := (v.toNat : Int))]
+  congr 1
+  simp only [Int.take, BitVec.toNat_setWidth]
+  have h1 : v.toNat % 2 ^ 8 < 2 ^ 64 := Nat.lt_trans (Nat.mod_lt _ (by decide)) (by decide)
+  rw [Nat.mod_eq_of_lt h1]
+  exact_mod_cast (Nat.mod_mod_of_dvd v.toNat (Nat.dvd_refl (2 ^ 8)))
+
+theorem int4_setWidth32 (a v : BitVec 64) :
+    int4 a ((v.setWidth 32).setWidth 64) = int4 a v := by
+  unfold int4
+  congr 2
+  rw [← Int.toBytes_emod, ← Int.toBytes_emod (x := (v.toNat : Int))]
+  congr 1
+  simp only [Int.take, BitVec.toNat_setWidth]
+  have h1 : v.toNat % 2 ^ 32 < 2 ^ 64 := Nat.lt_trans (Nat.mod_lt _ (by decide)) (by decide)
+  rw [Nat.mod_eq_of_lt h1]
+  exact_mod_cast (Nat.mod_mod_of_dvd v.toNat (Nat.dvd_refl (2 ^ 32)))
+
+theorem store_byte1Array64 {a : BitVec 64} {xs : List (BitVec 64)} {i : Nat} (v : BitVec 64)
+    {R : Mem 64 → Prop} {m : Mem 64} (hi : i < xs.length) (h : (byte1Array a xs ⋆ R) m) :
+    storeOk m i8 (a + BitVec.ofNat 64 i) ∧
+      (byte1Array a (xs.set i v) ⋆ R) (storeMem m i8 (a + BitVec.ofNat 64 i) (v.setWidth 8)) := by
+  obtain ⟨hok, hm'⟩ := store_byte1Array (v.setWidth 8) hi h
+  refine ⟨hok, ?_⟩
+  rw [byte1Array_set a xs hi, byte1_setWidth8] at hm'
+  rwa [byte1Array_set a xs hi]
+
+theorem store_int4Array64 {a : BitVec 64} {xs : List (BitVec 64)} {i : Nat} (v : BitVec 64)
+    {R : Mem 64 → Prop} {m : Mem 64} (hi : i < xs.length) (h : (int4Array a xs ⋆ R) m) :
+    storeOk m i32 (a + BitVec.ofNat 64 (4 * i)) ∧
+      (int4Array a (xs.set i v) ⋆ R)
+        (storeMem m i32 (a + BitVec.ofNat 64 (4 * i)) (v.setWidth 32)) := by
+  obtain ⟨hok, hm'⟩ := store_int4Array (v.setWidth 32) hi h
+  refine ⟨hok, ?_⟩
+  rw [int4Array_set a xs hi, int4_setWidth32] at hm'
+  rwa [int4Array_set a xs hi]
+
 end LeanQbe.T

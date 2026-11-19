@@ -1009,7 +1009,30 @@ theorem fnSpec_host_src (M : Compiled T lt [] exits nX fs hints maxBound)
   exact ⟨hdef, fnSpec_of_legalEnv_legalSig_eq_noExit has hbs
     (List.mem_append_left _ (List.mem_map_of_mem hf)) hnoex hspec⟩
 
+/-- Generic `FnSpec` wrapper for empty-extern, empty-exit modules over any host `h` when
+`lt.legalSig` fixes `(f.as, f.rs)` and `Γ` ignores exit continuations. -/
+theorem fnSpec_noExit_id (M : Compiled T lt [] [] nX fs hints maxBound)
+    (mod : Module) (hfs : mod.fns = fs) (h : T.mach.Host) (Γ : Env) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
+    (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
+    (hsupp : ∀ f ∈ mod.fns, (f.earlyOpt).body.supportsSource lt = true)
+    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
+    {f : Fn} (hf : f ∈ mod.fns) (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs)
+    (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X') :
+    T.Defined h f.name ∧ T.FnSpec h f.name (Γ f.name f.as f.rs) (M.bound f.name) nX := by
+  obtain ⟨hdef, hspec⟩ := M.fnSpec mod hfs h Γ k₀ hc hu hacyc hwf hsupp hwp
+    (fun _ h => nomatch h) ⟨(fun _ h => nomatch h), (fun _ h => nomatch h)⟩
+    (fun _ h => nomatch h) hf
+  exact ⟨hdef, fnSpec_of_legalEnv_legalSig_eq_noExit has hrs
+    (List.mem_append_left _ (List.mem_map_of_mem hf)) hnoex hspec⟩
+
 end Compiled
+
+/-- Lift a kernel `List.all` `supportsSource` check to a universal quantifier over `fs`. -/
+theorem supportsAll_to_forall {lt : LegalTarget} {fs : List Fn}
+    (h : fs.all (fun f => (f.earlyOpt).body.supportsSource lt) = true) :
+    ∀ f ∈ fs, (f.earlyOpt).body.supportsSource lt = true :=
+  fun f hf => List.all_eq_true.mp h f hf
 
 /-- Single boolean predicate checked once by `t_kernel_rfl`, using structural `fnNameOk` +
 `stringsNodup (fnNames ++ exits)` (no O(L²) scan over internal `.L` block labels). -/

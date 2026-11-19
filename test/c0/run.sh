@@ -294,4 +294,32 @@ if failures:
 print(f"Regression probes passed (g++ + clang++ ASan/UBSan): {pass_cnt} matched ({case_cnt} cases), {rej_cnt} rejected as expected.")
 PY
 
+echo "== 5. (Negative diagnostics) verify #203 token-level parse & register bitfield errors =="
+cat > "$OUT/neg_diag.lean" <<'EOF'
+import LeanQbe.T.Frontend.C0
+open LeanQbe.T.Frontend.C0
+
+private def assertErrContains (label : String) (r : Except String α)
+    (subs : List String) : IO Unit := do
+  match r with
+  | .ok _ => throw (IO.userError s!"{label}: expected failure, got .ok")
+  | .error e =>
+    for s in subs do
+      if (e.splitOn s).length ≤ 1 then
+        throw (IO.userError s!"{label}: error '{e}' missing '{s}'")
+
+def main : IO Unit := do
+  assertErrContains "parse-tok" (parseC0 "u32 f(u32 x) { return x + ; }")
+    ["line 1", "symbol ';'"]
+  assertErrContains "parse-do" (parseC0 "u32 f(u32 x) { do { x = 1; } x; }")
+    ["while", "identifier 'x'"]
+  let bfSrc :=
+    "typedef struct { u32 x : 5; u32 y : 27; } bf_t; u32 f(bf_t v) { v.x += 3; return v.x; }"
+  let regSrc := "typedef struct { u32 x; u32 y; } p_t; u32 f(p_t v) { v.x += 3; return v.x; }"
+  assertErrContains "reg-bf" (parseC0 bfSrc >>= lowerTranslationUnit) ["register bitfield", "v.x"]
+  assertErrContains "reg-val" (parseC0 regSrc >>= lowerTranslationUnit) ["register bitfield", "v.x"]
+  IO.println "Negative diagnostics (#203) passed."
+EOF
+timeout 60 lake env lean --run "$OUT/neg_diag.lean"
+
 echo "== test/c0/run.sh: ALL PASSED =="

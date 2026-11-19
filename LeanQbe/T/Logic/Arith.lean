@@ -45,7 +45,8 @@ theorem limbsVal_append {n : Nat} (xs ys : List (BitVec n)) :
   | nil => simp
   | cons x xs ih =>
     simp only [List.cons_append, limbsVal_cons, List.length_cons, ih]
-    rw [show n * (xs.length + 1) = n + n * xs.length by rw [Nat.mul_succ, Nat.add_comm], Nat.pow_add]
+    rw [show n * (xs.length + 1) = n + n * xs.length by rw [Nat.mul_succ, Nat.add_comm],
+      Nat.pow_add]
     rw [Nat.mul_add, ← Nat.mul_assoc]
     ac_rfl
 
@@ -55,13 +56,37 @@ theorem limbsArg_eq_limbsVal {n : Nat} (xs : List (Arg Val (.bits n))) :
   | nil => rfl
   | cons x xs ih => simp [ih]
 
+theorem limbsVal_lt_pow {n : Nat} : ∀ (xs : List (BitVec n)), limbsVal xs < 2 ^ (n * xs.length)
+  | [] => by simp
+  | x :: xs => by
+    simp only [limbsVal_cons, List.length_cons]
+    have hx : x.toNat < 2 ^ n := x.isLt
+    have hxs : limbsVal xs < 2 ^ (n * xs.length) := limbsVal_lt_pow xs
+    have h2 : 2 ^ n * (limbsVal xs + 1) ≤ 2 ^ n * 2 ^ (n * xs.length) := Nat.mul_le_mul_left _ hxs
+    rw [Nat.mul_add, Nat.mul_one] at h2
+    rw [show n * (xs.length + 1) = n + n * xs.length by rw [Nat.mul_succ, Nat.add_comm],
+      Nat.pow_add]
+    exact Nat.lt_of_lt_of_le (Nat.add_lt_add_right hx _) (Nat.add_comm (2 ^ n) _ ▸ h2)
+
+/-- If `k * B + s = rhs` and `rhs < B`, then `k = 0`. -/
+theorem drop_high_carry_eq_zero {k B s rhs : Nat} (h : k * B + s = rhs) (hlt : rhs < B) :
+    k = 0 := by
+  cases k with
+  | zero => rfl
+  | succ k' =>
+    have hge : B ≤ (k' + 1) * B := Nat.le_mul_of_pos_left B (Nat.succ_pos k')
+    omega
+
+/-- If `k * B + s = rhs` and `rhs < B`, then `s = rhs`. -/
+theorem drop_high_carry {k B s rhs : Nat} (h : k * B + s = rhs) (hlt : rhs < B) :
+    s = rhs := by
+  have hk := drop_high_carry_eq_zero h hlt
+  subst hk; simpa using h
+
 /-- If `c.toNat * B + rem = rhs` and `rhs < B`, then the carry `c` must be `false`. -/
 theorem carry_zero_of_lt {c : Bool} {B rem rhs : Nat} (_hB : 0 < B)
-    (heq : c.toNat * B + rem = rhs) (hlt : rhs < B) : c = false := by
-  cases c
-  · rfl
-  · simp only [Bool.toNat_true, Nat.one_mul] at heq
-    omega
+    (heq : c.toNat * B + rem = rhs) (hlt : rhs < B) : c = false :=
+  Bool.toNat_eq_zero.mp (drop_high_carry_eq_zero heq hlt)
 
 /-- `Nat` form of `carry_zero_of_lt`. -/
 theorem carry_toNat_zero_of_lt {c : Bool} {B rem rhs : Nat} (hB : 0 < B)
@@ -202,6 +227,48 @@ theorem add256_combine0 {a0 a1 a2 a3 b0 b1 b2 b3 s0 s1 s2 s3 : Nat} {c0 c1 c2 c3
       (b3 * 2 ^ 192 + b2 * 2 ^ 128 + b1 * 2 ^ 64 + b0) := by
   have h := add256_combine_ci (ci := false) (by simpa using h0) h1 h2 h3
   rwa [Bool.toNat_false, Nat.add_zero] at h
+
+/-- Horner-form 4-limb addition in arbitrary base `B` (matches `limbsVal` directly). -/
+theorem add4_base {B a0 a1 a2 a3 b0 b1 b2 b3 s0 s1 s2 s3 : Nat} {c0 c1 c2 c3 : Bool}
+    (h0 : c0.toNat * B + s0 = a0 + b0)
+    (h1 : c1.toNat * B + s1 = a1 + b1 + c0.toNat)
+    (h2 : c2.toNat * B + s2 = a2 + b2 + c1.toNat)
+    (h3 : c3.toNat * B + s3 = a3 + b3 + c2.toNat) :
+    c3.toNat * (B * (B * (B * B))) + (s0 + B * (s1 + B * (s2 + B * s3))) =
+      (a0 + B * (a1 + B * (a2 + B * a3))) + (b0 + B * (b1 + B * (b2 + B * b3))) := by
+  calc c3.toNat * (B * (B * (B * B))) + (s0 + B * (s1 + B * (s2 + B * s3)))
+      = s0 + B * (s1 + B * (s2 + B * (c3.toNat * B + s3))) := by
+          simp only [Nat.mul_add, ← Nat.mul_assoc]; ac_rfl
+    _ = s0 + B * (s1 + B * ((c2.toNat * B + s2) + B * (a3 + b3))) := by
+          rw [h3]; simp only [Nat.mul_add]; ac_rfl
+    _ = s0 + B * ((c1.toNat * B + s1) + B * ((a2 + b2) + B * (a3 + b3))) := by
+          rw [h2]; simp only [Nat.mul_add]; ac_rfl
+    _ = (c0.toNat * B + s0) + B * ((a1 + b1) + B * ((a2 + b2) + B * (a3 + b3))) := by
+          rw [h1]; simp only [Nat.mul_add]; ac_rfl
+    _ = (a0 + b0) + B * ((a1 + b1) + B * ((a2 + b2) + B * (a3 + b3))) := by rw [h0]
+    _ = (a0 + B * (a1 + B * (a2 + B * a3))) + (b0 + B * (b1 + B * (b2 + B * b3))) := by
+          simp only [Nat.mul_add]; ac_rfl
+
+/-- Horner-form 4-limb subtraction with borrow in arbitrary base `B`. -/
+theorem sub4_base {B a0 a1 a2 a3 b0 b1 b2 b3 d0 d1 d2 d3 : Nat} {w0 w1 w2 w3 : Bool}
+    (h0 : d0 + b0 = a0 + w0.toNat * B)
+    (h1 : d1 + b1 + w0.toNat = a1 + w1.toNat * B)
+    (h2 : d2 + b2 + w1.toNat = a2 + w2.toNat * B)
+    (h3 : d3 + b3 + w2.toNat = a3 + w3.toNat * B) :
+    (d0 + B * (d1 + B * (d2 + B * d3))) + (b0 + B * (b1 + B * (b2 + B * b3))) =
+      (a0 + B * (a1 + B * (a2 + B * a3))) + w3.toNat * (B * (B * (B * B))) := by
+  calc (d0 + B * (d1 + B * (d2 + B * d3))) + (b0 + B * (b1 + B * (b2 + B * b3)))
+      = (d0 + b0) + B * ((d1 + b1) + B * ((d2 + b2) + B * (d3 + b3))) := by
+          simp only [Nat.mul_add]; ac_rfl
+    _ = a0 + B * ((d1 + b1 + w0.toNat) + B * ((d2 + b2) + B * (d3 + b3))) := by
+          rw [h0]; simp only [Nat.mul_add]; ac_rfl
+    _ = a0 + B * (a1 + B * ((d2 + b2 + w1.toNat) + B * (d3 + b3))) := by
+          rw [h1]; simp only [Nat.mul_add]; ac_rfl
+    _ = a0 + B * (a1 + B * (a2 + B * (d3 + b3 + w2.toNat))) := by
+          rw [h2]; simp only [Nat.mul_add]; ac_rfl
+    _ = a0 + B * (a1 + B * (a2 + B * (a3 + w3.toNat * B))) := by rw [h3]
+    _ = (a0 + B * (a1 + B * (a2 + B * a3))) + w3.toNat * (B * (B * (B * B))) := by
+          simp only [Nat.mul_add, ← Nat.mul_assoc]; ac_rfl
 
 /-- `subb2_borrow_eq_decide` specialized for 128-bit comparison (`n = 64`, `false.toNat` borrow-in). -/
 theorem subb128_borrow_eq_decide {a0 a1 b0 b1 d0 d1 : BitVec 64} {w0 w1 : Bool}

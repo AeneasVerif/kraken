@@ -61,73 +61,76 @@ meta def valToExpr : (t : Ty) → Val t → Lean.Expr
     let tb := mkApp (Lean.mkConst ``LeanQbe.T.Val) (tyToExpr b)
     mkApp4 (Lean.mkConst ``Prod.mk [.zero, .zero]) ta tb (valToExpr a va) (valToExpr b vb)
 
-meta def cmpOpToExpr : CmpOp → Lean.Expr
-  | .eq => Lean.mkConst ``LeanQbe.T.CmpOp.eq
-  | .ne => Lean.mkConst ``LeanQbe.T.CmpOp.ne
-  | .ult => Lean.mkConst ``LeanQbe.T.CmpOp.ult
-  | .ule => Lean.mkConst ``LeanQbe.T.CmpOp.ule
-  | .ugt => Lean.mkConst ``LeanQbe.T.CmpOp.ugt
-  | .uge => Lean.mkConst ``LeanQbe.T.CmpOp.uge
-  | .slt => Lean.mkConst ``LeanQbe.T.CmpOp.slt
-  | .sle => Lean.mkConst ``LeanQbe.T.CmpOp.sle
-  | .sgt => Lean.mkConst ``LeanQbe.T.CmpOp.sgt
-  | .sge => Lean.mkConst ``LeanQbe.T.CmpOp.sge
+meta def cmpOpToExpr (o : CmpOp) : Lean.Expr :=
+  Lean.mkConst <| match o with
+    | .eq => ``LeanQbe.T.CmpOp.eq | .ne => ``LeanQbe.T.CmpOp.ne
+    | .ult => ``LeanQbe.T.CmpOp.ult | .ule => ``LeanQbe.T.CmpOp.ule
+    | .ugt => ``LeanQbe.T.CmpOp.ugt | .uge => ``LeanQbe.T.CmpOp.uge
+    | .slt => ``LeanQbe.T.CmpOp.slt | .sle => ``LeanQbe.T.CmpOp.sle
+    | .sgt => ``LeanQbe.T.CmpOp.sgt | .sge => ``LeanQbe.T.CmpOp.sge
 
-meta def fcmpOpToExpr : FCmpOp → Lean.Expr
-  | .eq => Lean.mkConst ``LeanQbe.T.FCmpOp.eq
-  | .ne => Lean.mkConst ``LeanQbe.T.FCmpOp.ne
-  | .lt => Lean.mkConst ``LeanQbe.T.FCmpOp.lt
-  | .le => Lean.mkConst ``LeanQbe.T.FCmpOp.le
-  | .gt => Lean.mkConst ``LeanQbe.T.FCmpOp.gt
-  | .ge => Lean.mkConst ``LeanQbe.T.FCmpOp.ge
-  | .ord => Lean.mkConst ``LeanQbe.T.FCmpOp.ord
-  | .uno => Lean.mkConst ``LeanQbe.T.FCmpOp.uno
+meta def fcmpOpToExpr (o : FCmpOp) : Lean.Expr :=
+  Lean.mkConst <| match o with
+    | .eq => ``LeanQbe.T.FCmpOp.eq | .ne => ``LeanQbe.T.FCmpOp.ne
+    | .lt => ``LeanQbe.T.FCmpOp.lt | .le => ``LeanQbe.T.FCmpOp.le
+    | .gt => ``LeanQbe.T.FCmpOp.gt | .ge => ``LeanQbe.T.FCmpOp.ge
+    | .ord => ``LeanQbe.T.FCmpOp.ord | .uno => ``LeanQbe.T.FCmpOp.uno
+
+private meta def mkTyOp (nm : Name) (t : Ty) : Except String Lean.Expr :=
+  pure <| mkApp (Lean.mkConst nm) (tyToExpr t)
+
+private meta def mkNatOp (nm : Name) (n : Nat) : Except String Lean.Expr :=
+  pure <| mkApp (Lean.mkConst nm) (mkNatLit n)
+
+private meta def mkNat2Op (nm : Name) (m n : Nat) : Except String Lean.Expr :=
+  pure <| mkApp2 (Lean.mkConst nm) (mkNatLit m) (mkNatLit n)
 
 meta def opCodeToExpr {sig rs : List Ty} : OpCode sig rs → Except String Lean.Expr
-  | .copy t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.copy) (tyToExpr t)
-  | .add t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.add) (tyToExpr t)
-  | .sub t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.sub) (tyToExpr t)
-  | .mul t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.mul) (tyToExpr t)
-  | .neg t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.neg) (tyToExpr t)
-  | .and t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.and) (tyToExpr t)
-  | .or t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.or) (tyToExpr t)
-  | .xor t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.xor) (tyToExpr t)
-  | .not t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.not) (tyToExpr t)
-  | .shl t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.shl) (tyToExpr t)
-  | .lshr t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.lshr) (tyToExpr t)
-  | .ashr t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.ashr) (tyToExpr t)
-  | .rotl t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.rotl) (tyToExpr t)
-  | .rotr t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.rotr) (tyToExpr t)
-  | .clz n => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.clz) (mkNatLit n)
-  | .ctz n => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.ctz) (mkNatLit n)
-  | .popcnt n => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.popcnt) (mkNatLit n)
+  | .copy t => mkTyOp ``LeanQbe.T.OpCode.copy t
+  | .add t => mkTyOp ``LeanQbe.T.OpCode.add t
+  | .sub t => mkTyOp ``LeanQbe.T.OpCode.sub t
+  | .mul t => mkTyOp ``LeanQbe.T.OpCode.mul t
+  | .neg t => mkTyOp ``LeanQbe.T.OpCode.neg t
+  | .and t => mkTyOp ``LeanQbe.T.OpCode.and t
+  | .or t => mkTyOp ``LeanQbe.T.OpCode.or t
+  | .xor t => mkTyOp ``LeanQbe.T.OpCode.xor t
+  | .not t => mkTyOp ``LeanQbe.T.OpCode.not t
+  | .shl t => mkTyOp ``LeanQbe.T.OpCode.shl t
+  | .lshr t => mkTyOp ``LeanQbe.T.OpCode.lshr t
+  | .ashr t => mkTyOp ``LeanQbe.T.OpCode.ashr t
+  | .rotl t => mkTyOp ``LeanQbe.T.OpCode.rotl t
+  | .rotr t => mkTyOp ``LeanQbe.T.OpCode.rotr t
+  | .fadd t => mkTyOp ``LeanQbe.T.OpCode.fadd t
+  | .fsub t => mkTyOp ``LeanQbe.T.OpCode.fsub t
+  | .fmul t => mkTyOp ``LeanQbe.T.OpCode.fmul t
+  | .fdiv t => mkTyOp ``LeanQbe.T.OpCode.fdiv t
+  | .fneg t => mkTyOp ``LeanQbe.T.OpCode.fneg t
+  | .clz n => mkNatOp ``LeanQbe.T.OpCode.clz n
+  | .ctz n => mkNatOp ``LeanQbe.T.OpCode.ctz n
+  | .popcnt n => mkNatOp ``LeanQbe.T.OpCode.popcnt n
+  | .ofBool n => mkNatOp ``LeanQbe.T.OpCode.ofBool n
+  | .addc n => mkNatOp ``LeanQbe.T.OpCode.addc n
+  | .subb n => mkNatOp ``LeanQbe.T.OpCode.subb n
+  | .umulw n => mkNatOp ``LeanQbe.T.OpCode.umulw n
+  | .udiv n => mkNatOp ``LeanQbe.T.OpCode.udiv n
+  | .sdiv n => mkNatOp ``LeanQbe.T.OpCode.sdiv n
+  | .urem n => mkNatOp ``LeanQbe.T.OpCode.urem n
+  | .srem n => mkNatOp ``LeanQbe.T.OpCode.srem n
+  | .zext m n => mkNat2Op ``LeanQbe.T.OpCode.zext m n
+  | .sext m n => mkNat2Op ``LeanQbe.T.OpCode.sext m n
+  | .trunc m n => mkNat2Op ``LeanQbe.T.OpCode.trunc m n
   | .cmp o t m _ =>
-    let te := tyToExpr t
     let me := tyToExpr m
-    pure <| mkApp4 (Lean.mkConst ``LeanQbe.T.OpCode.cmp) (cmpOpToExpr o) te me (mkMaskEqRefl me)
-  | .zext m n => pure <| mkApp2 (Lean.mkConst ``LeanQbe.T.OpCode.zext) (mkNatLit m) (mkNatLit n)
-  | .sext m n => pure <| mkApp2 (Lean.mkConst ``LeanQbe.T.OpCode.sext) (mkNatLit m) (mkNatLit n)
-  | .trunc m n => pure <| mkApp2 (Lean.mkConst ``LeanQbe.T.OpCode.trunc) (mkNatLit m) (mkNatLit n)
-  | .ofBool n => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.ofBool) (mkNatLit n)
-  | .addc n => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.addc) (mkNatLit n)
-  | .subb n => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.subb) (mkNatLit n)
-  | .umulw n => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.umulw) (mkNatLit n)
-  | .udiv n => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.udiv) (mkNatLit n)
-  | .sdiv n => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.sdiv) (mkNatLit n)
-  | .urem n => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.urem) (mkNatLit n)
-  | .srem n => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.srem) (mkNatLit n)
-  | .bitcast t u _ =>
-    let eqPf := mkApp2 (Lean.mkConst ``Eq.refl [.succ .zero]) (Lean.mkConst ``Nat) (mkNatLit t.size)
-    pure <| mkApp3 (Lean.mkConst ``LeanQbe.T.OpCode.bitcast) (tyToExpr t) (tyToExpr u) eqPf
-  | .fadd t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.fadd) (tyToExpr t)
-  | .fsub t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.fsub) (tyToExpr t)
-  | .fmul t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.fmul) (tyToExpr t)
-  | .fdiv t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.fdiv) (tyToExpr t)
-  | .fneg t => pure <| mkApp (Lean.mkConst ``LeanQbe.T.OpCode.fneg) (tyToExpr t)
+    pure <| mkApp4 (Lean.mkConst ``LeanQbe.T.OpCode.cmp)
+      (cmpOpToExpr o) (tyToExpr t) me (mkMaskEqRefl me)
   | .fcmp o t m _ =>
-    let te := tyToExpr t
     let me := tyToExpr m
-    pure <| mkApp4 (Lean.mkConst ``LeanQbe.T.OpCode.fcmp) (fcmpOpToExpr o) te me (mkMaskEqRefl me)
+    pure <| mkApp4 (Lean.mkConst ``LeanQbe.T.OpCode.fcmp)
+      (fcmpOpToExpr o) (tyToExpr t) me (mkMaskEqRefl me)
+  | .bitcast t u _ =>
+    let eqPf := mkApp2 (Lean.mkConst ``Eq.refl [.succ .zero])
+      (Lean.mkConst ``Nat) (mkNatLit t.size)
+    pure <| mkApp3 (Lean.mkConst ``LeanQbe.T.OpCode.bitcast) (tyToExpr t) (tyToExpr u) eqPf
   | .fptoui f n => pure <| mkApp2 (Lean.mkConst ``LeanQbe.T.OpCode.fptoui) (fmtConst f) (mkNatLit n)
   | .fptosi f n => pure <| mkApp2 (Lean.mkConst ``LeanQbe.T.OpCode.fptosi) (fmtConst f) (mkNatLit n)
   | .uitofp n f => pure <| mkApp2 (Lean.mkConst ``LeanQbe.T.OpCode.uitofp) (mkNatLit n) (fmtConst f)

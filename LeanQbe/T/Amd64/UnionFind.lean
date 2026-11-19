@@ -49,7 +49,7 @@ private theorem ufFns_supportsSource_all :
 
 theorem ufFns_supportsSource :
     ∀ f ∈ ufModule.fns, (f.earlyOpt).body.supportsSource x64LegalTarget = true :=
-  fun f hf => List.all_eq_true.mp ufFns_supportsSource_all f hf
+  supportsAll_to_forall ufFns_supportsSource_all
 
 section Generic
 variable [hh : Host]
@@ -60,10 +60,6 @@ theorem uf_module_fnspec (k₀ : Nat)
     {f : Fn} (hf : f ∈ ufModule.fns) :
     x64Target.Defined hh f.name ∧
       x64Target.FnSpec hh f.name (ufEnv f.name f.as f.rs) (compiled.bound f.name) 0 := by
-  obtain ⟨hdef, hspec⟩ := compiled.fnSpec ufModule rfl hh ufEnv k₀ hc hu
-    ufModule_checkAcyclic ufFns_wf ufFns_supportsSource ufEnv_sound
-    (fun _ h => nomatch h) ⟨(fun _ h => nomatch h), (fun _ h => nomatch h)⟩
-    (fun _ h => nomatch h) hf
   have hmem := hf
   simp only [ufModule, ufFns, List.mem_cons, List.not_mem_nil, or_false] at hmem
   have ⟨has, hrs, hnoex⟩ :
@@ -71,8 +67,8 @@ theorem uf_module_fnspec (k₀ : Nat)
         (∀ args m Q X X',
           ufEnv f.name f.as f.rs args m Q X → ufEnv f.name f.as f.rs args m Q X') := by
     rcases hmem with rfl | rfl | rfl <;> exact ⟨rfl, rfl, fun _ _ _ _ _ h => h⟩
-  exact ⟨hdef, fnSpec_of_legalEnv_legalSig_eq_noExit has hrs
-    (List.mem_append_left _ (List.mem_map_of_mem hf)) hnoex hspec⟩
+  exact compiled.fnSpec_noExit_id ufModule rfl hh ufEnv k₀ hc hu
+    ufModule_checkAcyclic ufFns_wf ufFns_supportsSource ufEnv_sound hf has hrs hnoex
 
 /-- End-to-end correctness of compiled `find` on Kraken x64. -/
 theorem find_x64_correct (k₀ : Nat)

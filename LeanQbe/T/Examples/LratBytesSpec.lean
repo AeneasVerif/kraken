@@ -12,14 +12,13 @@ import all Kraken.Separation
 # Shared specifications and pure executable mirror for `LeanQbe.T.Examples.LratBytes`
 
 Defines:
-1. `lratBytesFns_wf`: well-formedness (`Func.Wf`) of all 6 functions in `lratBytesFns` via `t_wf_reify`.
-2. Typed-IR load/store & byte-cursor glue lemmas (`setWidth64_ofNat8`, `byte1_setWidth8`,
-   `int4_setWidth32`, `store_byte1Array64`, `store_int4Array64`, `region_pop_store_int4_64`,
-   `cursor_loadu8_branch`, `expectByte_step`).
-3. Bounds of the DIMACS number parser (`parseNat_lt_bound`) and validity of literals (`isValidLit_ofNat`).
-4. The 100% structurally recursive pure mirror `runLratCheckBytes` (`parseBodyPure`,
+1. `lratBytesFns_wf`: well-formedness (`Func.Wf`) of all 6 functions in `lratBytesFns`
+   via `t_wf_reify`.
+2. Bounds of the DIMACS number parser (`parseNat_lt_bound`) and validity of literals
+   (`isValidLit_ofNat`).
+3. The 100% structurally recursive pure mirror `runLratCheckBytes` (`parseBodyPure`,
    `readLeb128Pure`, `readAddLitsPure`, `rupCheckPure`, `checkPrfPure`) and `readLeb128_spec`.
-5. `WorkCfg`, `WorkState`, and the exact typed contracts for all 5 internal callees plus
+4. `WorkCfg`, `WorkState`, and the exact typed contracts for all 5 internal callees plus
    `lratCheckBytesExactSpec`.
 -/
 
@@ -59,97 +58,7 @@ theorem lratBytesModule_namesNodup : lratBytesModule.namesNodup := by
   simp only [Module.namesNodup, Module.names, lratBytesModule, lratBytesFns]
   decide
 
-/-! ## 2. Typed-IR width-casting and byte-cursor helpers -/
-
-@[simp] theorem setWidth64_ofNat8 (b : UInt8) :
-    (BitVec.ofNat 8 b.toNat).setWidth 64 = BitVec.ofNat 64 b.toNat := by
-  apply BitVec.eq_of_toNat_eq
-  have hb := b.toNat_lt
-  simp [BitVec.toNat_setWidth, Nat.mod_eq_of_lt (by omega : b.toNat < 2 ^ 64)]
-
-theorem byte1_setWidth8 (a v : BitVec 64) :
-    byte1 a ((v.setWidth 8).setWidth 64) = byte1 a v := by
-  unfold byte1
-  congr 2
-  rw [← Int.toBytes_emod, ← Int.toBytes_emod (x := (v.toNat : Int))]
-  congr 1
-  simp only [Int.take, BitVec.toNat_setWidth]
-  have h1 : v.toNat % 2 ^ 8 < 2 ^ 64 := Nat.lt_trans (Nat.mod_lt _ (by decide)) (by decide)
-  rw [Nat.mod_eq_of_lt h1]
-  exact_mod_cast (Nat.mod_mod_of_dvd v.toNat (Nat.dvd_refl (2 ^ 8)))
-
-theorem int4_setWidth32 (a v : BitVec 64) :
-    int4 a ((v.setWidth 32).setWidth 64) = int4 a v := by
-  unfold int4
-  congr 2
-  rw [← Int.toBytes_emod, ← Int.toBytes_emod (x := (v.toNat : Int))]
-  congr 1
-  simp only [Int.take, BitVec.toNat_setWidth]
-  have h1 : v.toNat % 2 ^ 32 < 2 ^ 64 := Nat.lt_trans (Nat.mod_lt _ (by decide)) (by decide)
-  rw [Nat.mod_eq_of_lt h1]
-  exact_mod_cast (Nat.mod_mod_of_dvd v.toNat (Nat.dvd_refl (2 ^ 32)))
-
-theorem store_byte1Array64 {a : BitVec 64} {xs : List (BitVec 64)} {i : Nat} (v : BitVec 64)
-    {R : Mem 64 → Prop} {m : Mem 64} (hi : i < xs.length) (h : (byte1Array a xs ⋆ R) m) :
-    storeOk m i8 (a + BitVec.ofNat 64 i) ∧
-      (byte1Array a (xs.set i v) ⋆ R) (storeMem m i8 (a + BitVec.ofNat 64 i) (v.setWidth 8)) := by
-  obtain ⟨hok, hm'⟩ := store_byte1Array (v.setWidth 8) hi h
-  refine ⟨hok, ?_⟩
-  rw [byte1Array_set a xs hi, byte1_setWidth8] at hm'
-  rwa [byte1Array_set a xs hi]
-
-theorem store_int4Array64 {a : BitVec 64} {xs : List (BitVec 64)} {i : Nat} (v : BitVec 64)
-    {R : Mem 64 → Prop} {m : Mem 64} (hi : i < xs.length) (h : (int4Array a xs ⋆ R) m) :
-    storeOk m i32 (a + BitVec.ofNat 64 (4 * i)) ∧
-      (int4Array a (xs.set i v) ⋆ R)
-        (storeMem m i32 (a + BitVec.ofNat 64 (4 * i)) (v.setWidth 32)) := by
-  obtain ⟨hok, hm'⟩ := store_int4Array (v.setWidth 32) hi h
-  refine ⟨hok, ?_⟩
-  rw [int4Array_set a xs hi, int4_setWidth32] at hm'
-  rwa [int4Array_set a xs hi]
-
-theorem region_pop_store_int4_64 {wcur : BitVec 64} {rem : Nat} (v : BitVec 64)
-    {R : Mem 64 → Prop} {m : Mem 64} (hrem : 0 < rem) (hfit : 4 * rem ≤ 2 ^ 64)
-    (hm : (region wcur (4 * rem) ⋆ R) m) :
-    storeOk m i32 wcur ∧
-    (int4 wcur v ⋆ region (wcur + 4) (4 * (rem - 1)) ⋆ R)
-      (storeMem m i32 wcur (v.setWidth 32)) := by
-  obtain ⟨hok, hm'⟩ := region_pop_store_int4 (v.setWidth 32) hrem hfit hm
-  rw [int4_setWidth32] at hm'
-  exact ⟨hok, hm'⟩
-
-theorem cursor_loadu8_branch {base : BitVec 64} {bs : List UInt8} {i : Nat}
-    {R : Mem 64 → Prop} {m : Mem 64} {P : Prop} {Q : BitVec 8 → Prop}
-    (hbase : base.toNat + bs.length < 2 ^ 64) (hi : i ≤ bs.length)
-    (hm : (Eq (bs.At base) ⋆ R) m)
-    (heof : i = bs.length → bs.drop i = [] → P)
-    (hstep : ∀ (hlt : i < bs.length), bs.drop i = bs[i] :: bs.drop (i + 1) →
-      Q (BitVec.ofNat 8 bs[i].toNat)) :
-    (base + BitVec.ofNat 64 i = base + BitVec.ofNat 64 bs.length → P) ∧
-    (base + BitVec.ofNat 64 i ≠ base + BitVec.ofNat 64 bs.length →
-      ∃ v, loadVal m i8 (base + BitVec.ofNat 64 i) = some v ∧ Q v) :=
-  cursor_eof_branch hi (by omega)
-    (fun heq => heof heq (by simp [heq]))
-    (fun hlt => ⟨_, loadu8_At hlt (by omega) hm, hstep hlt (List.drop_eq_getElem_cons hlt)⟩)
-
-theorem expectByte_step {base : BitVec 64} {bs : List UInt8} {i : Nat} (k : UInt8)
-    {R : Mem 64 → Prop} {m : Mem 64} {P Q : Prop}
-    (hbase : base.toNat + bs.length < 2 ^ 64) (hi : i ≤ bs.length)
-    (hm : (Eq (bs.At base) ⋆ R) m)
-    (heof : bs.drop i = [] → Q)
-    (hmis : ∀ b rest, bs.drop i = b :: rest → b ≠ k → Q)
-    (hmatch : i + 1 ≤ bs.length → bs.drop i = k :: bs.drop (i + 1) → P) :
-    (base + BitVec.ofNat 64 i = base + BitVec.ofNat 64 bs.length → Q) ∧
-    (base + BitVec.ofNat 64 i ≠ base + BitVec.ofNat 64 bs.length →
-      ∃ v, loadVal m i8 (base + BitVec.ofNat 64 i) = some v ∧
-        ((v.setWidth 64 = BitVec.ofNat 64 k.toNat → P) ∧
-         (v.setWidth 64 ≠ BitVec.ofNat 64 k.toNat → Q))) := by
-  refine cursor_loadu8_branch hbase hi hm (fun _ hnil => heof hnil) (fun hlt hdrop => ?_)
-  rw [setWidth64_ofNat8]
-  exact ⟨fun heq => hmatch hlt (by rwa [bv64_u8_eq.mp heq] at hdrop),
-    fun hne => hmis bs[i] (bs.drop (i + 1)) hdrop (fun h => hne (bv64_u8_eq.mpr h))⟩
-
-/-! ## 3. Bounds of the DIMACS number parser and literal validity -/
+/-! ## 2. Bounds of the DIMACS number parser and literal validity -/
 
 theorem parseDigitsAux_lt_bound {acc : Nat} {bs : List UInt8} {v : Nat} {rest : List UInt8}
     (hacc : acc < dimacsBound) (h : parseDigitsAux acc bs = some (v, rest)) :

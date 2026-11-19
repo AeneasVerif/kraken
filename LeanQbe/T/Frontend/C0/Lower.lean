@@ -974,7 +974,10 @@ mutual
           let (bitOff, width, dty) := match loc with
             | .regular fOff fty fsz => ((off' + fOff) * 8, fsz * 8, fty)
             | .bitfield uOff _ lBit w fty => ((off' + uOff) * 8 + lBit, w, fty)
-          if op?.isSome then throw "compound assignment on register bitfield not supported"
+          if op?.isSome then
+            let fldPath := String.intercalate "." chain
+            throw ("compound assignment on register bitfield / value field " ++
+              s!"'{nm}.{fldPath}' is not supported")
           lowerExpr ctx env rhsExpr fun rty ra => do
             let rd ← MonadExcept.ofExcept (resolveType ctx.layout dty)
             convertVal ctx.layout rty rd ra fun cv =>

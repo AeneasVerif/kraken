@@ -187,10 +187,26 @@ theorem bv_eq_zero_branch {v : Nat} {P Q : Prop} (hv : v < 2 ^ 64)
     (BitVec.ofNat 64 v = (0 : BitVec 64) → P) ∧
     (BitVec.ofNat 64 v ≠ (0 : BitVec 64) → Q) := by grind
 
+@[simp] theorem setWidth64_ofNat8 (b : UInt8) :
+    (BitVec.ofNat 8 b.toNat).setWidth 64 = BitVec.ofNat 64 b.toNat := by
+  apply BitVec.eq_of_toNat_eq
+  have hb := b.toNat_lt
+  simp [BitVec.toNat_setWidth, Nat.mod_eq_of_lt (by omega : b.toNat < 2 ^ 64)]
+
 theorem bv_odd_branch {u : Nat} {P Q : Prop} (hu : u < 2 ^ 64)
     (hodd : (u % 2 != 0) = true → P) (heven : (u % 2 != 0) = false → Q) :
     (BitVec.ofNat 64 u &&& (1 : BitVec 64) ≠ 0 → P) ∧
-    (¬ BitVec.ofNat 64 u &&& (1 : BitVec 64) ≠ 0 → Q) := by grind
+    (BitVec.ofNat 64 u &&& (1 : BitVec 64) = 0 → Q) := by grind
+
+theorem u8_eq_branch {b : UInt8} {n : Nat} [OfNat (BitVec 64) n] [OfNat UInt8 n]
+    {P Q : Prop}
+    (ht : (b == OfNat.ofNat n) = true → P)
+    (hf : (b == OfNat.ofNat n) = false → Q)
+    (hk : (OfNat.ofNat n : BitVec 64) = BitVec.ofNat 64 (OfNat.ofNat n : UInt8).toNat := by rfl) :
+    (BitVec.ofNat 64 b.toNat = OfNat.ofNat n → P) ∧
+    (BitVec.ofNat 64 b.toNat ≠ OfNat.ofNat n → Q) := by
+  rw [hk, bv64_u8_eq]
+  grind
 
 theorem cursor_eof_branch {base : BitVec 64} {i n : Nat} {P Q : Prop}
     (hi : i ≤ n) (hn : n < 2 ^ 64)

@@ -117,15 +117,12 @@ private theorem bignum_single_fnspec {hh : Host} {f : Fn}
       (g.earlyOpt).body.supportsSource x64LegalTarget = true := by
     intro g hg
     simp only [List.mem_singleton] at hg; rw [hg]
-    exact List.all_eq_true.mp bignumFns_supportsSource_all f hsupp_mem
-  obtain ⟨hdef, hspec⟩ := M.fnSpec ⟨[f], [], []⟩ rfl hh bignumEnv k₀ hc hu hacyc
+    exact supportsAll_to_forall bignumFns_supportsSource_all f hsupp_mem
+  exact M.fnSpec_noExit_id ⟨[f], [], []⟩ rfl hh bignumEnv k₀ hc hu hacyc
     (fun g hg => by simp only [List.mem_singleton] at hg; subst hg; exact hwf)
     hsupp
     (fun g hg => by simp only [List.mem_singleton] at hg; subst hg; exact hwp)
-    (fun _ h => nomatch h) ⟨(fun _ h => nomatch h), (fun _ h => nomatch h)⟩
-    (fun _ h => nomatch h) List.mem_cons_self
-  exact ⟨hdef, fnSpec_of_legalEnv_legalSig_eq_noExit has hrs
-    (List.mem_append_left _ (List.mem_map_of_mem List.mem_cons_self)) hnoex hspec⟩
+    List.mem_cons_self has hrs hnoex
 
 section Generic
 variable [hh : Host]

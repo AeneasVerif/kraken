@@ -28,6 +28,7 @@ namespace LeanQbeTest.T.LeanLRCTest
 
 open LeanQbe.T
 open LeanQbe.T.LeanLRC
+open LeanQbe.T.Frontend.C0 (TFlatFn)
 open LeanQbe.T.PrintCpp
 
 /-! ## 1. Exhaustive Scalar/Struct Coverage Module -/

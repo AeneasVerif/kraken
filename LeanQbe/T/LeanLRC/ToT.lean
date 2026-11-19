@@ -28,6 +28,7 @@ set_option autoImplicit false
 namespace LeanQbe.T.LeanLRC
 
 open LeanQbe.T
+open LeanQbe.T.Frontend.C0 (TFlatFn)
 
 /-! ## Lowering Context & Type-Safe Argument Coercion -/
 

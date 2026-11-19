@@ -51,7 +51,7 @@ private theorem lratBytesFns_supportsSource_all :
 
 theorem lratBytesFns_supportsSource :
     ∀ f ∈ lratBytesModule.fns, (f.earlyOpt).body.supportsSource x64LegalTarget = true :=
-  fun f hf => List.all_eq_true.mp lratBytesFns_supportsSource_all f hf
+  supportsAll_to_forall lratBytesFns_supportsSource_all
 
 section Generic
 variable [hh : Host]
@@ -67,10 +67,6 @@ private theorem mk_lrat_bytes_module_fnspec
     x64Target.Defined hh f.name ∧
       x64Target.FnSpec hh f.name (mkLratBytesEnv mainSpec f.name f.as f.rs)
         (compiled.bound f.name) 0 := by
-  obtain ⟨hdef, hspec⟩ := compiled.fnSpec lratBytesModule rfl hh (mkLratBytesEnv mainSpec) k₀
-    hc hu lratBytesModule_checkAcyclic lratBytesFns_wf lratBytesFns_supportsSource hsound
-    (fun _ h => nomatch h) ⟨(fun _ h => nomatch h), (fun _ h => nomatch h)⟩
-    (fun _ h => nomatch h) hf
   have hmem := hf
   simp only [lratBytesModule, lratBytesFns, List.mem_cons, List.not_mem_nil, or_false] at hmem
   have ⟨has, hrs, hnoex⟩ :
@@ -85,8 +81,9 @@ private theorem mk_lrat_bytes_module_fnspec
     · exact ⟨rfl, rfl, fun _ _ _ _ _ h => h⟩
     · exact ⟨rfl, rfl, fun _ _ _ _ _ h => h⟩
     · exact ⟨rfl, rfl, hnoex_main⟩
-  exact ⟨hdef, fnSpec_of_legalEnv_legalSig_eq_noExit has hrs
-    (List.mem_append_left _ (List.mem_map_of_mem hf)) hnoex hspec⟩
+  exact compiled.fnSpec_noExit_id lratBytesModule rfl hh (mkLratBytesEnv mainSpec) k₀ hc hu
+    lratBytesModule_checkAcyclic lratBytesFns_wf lratBytesFns_supportsSource hsound hf
+    has hrs hnoex
 
 /-- Closed `FnSpec` for every function in `lratBytesModule` on `x64Target`. -/
 theorem lrat_bytes_module_fnspec (k₀ : Nat)
