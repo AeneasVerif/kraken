@@ -260,4 +260,20 @@ theorem Ty.listBeq_iff_eq : {as bs : List Ty} → Ty.listBeq as bs = true ↔ as
     simp [Ty.listBeq, Bool.and_eq_true, Ty.beq_iff_eq, Ty.listBeq_iff_eq]
   | [], _ :: _ | _ :: _, [] => by simp [Ty.listBeq]
 
+/-- Kernel-reducible `BEq`-based `Nodup` check on lists. -/
+def listNodup {α : Type} [BEq α] : List α → Bool
+  | [] => true
+  | x :: xs => !(xs.contains x) && listNodup xs
+
+theorem listNodup_iff {α : Type} [BEq α] [LawfulBEq α] :
+    {xs : List α} → listNodup xs = true ↔ xs.Nodup
+  | [] => by simp [listNodup]
+  | x :: xs => by
+    simp only [listNodup, Bool.and_eq_true, Bool.not_eq_true', List.contains_eq_mem,
+      decide_eq_false_iff_not, List.nodup_cons, listNodup_iff]
+
+theorem listNodup_nodup {α : Type} [BEq α] [LawfulBEq α] {xs : List α}
+    (h : listNodup xs = true) : xs.Nodup :=
+  listNodup_iff.mp h
+
 end LeanQbe.T

@@ -57,52 +57,7 @@ theorem armAtSpIdx_eval [Labels] (s : MachineData) (r : XReg) (p : Std.Rco Int64
     Reg64s.getRegOrSp_sp64, BitVec.signed, Reg64s.getRegOrZr64, RegOrZr.base]
   exact congrArg (·, s) (ofInt_toInt_add_toNat _ _)
 
-private theorem ne_of_not_mem_armScratch {r : Reg} (hr : r ∉ armScratch) :
-    r ≠ .reg .X16 ∧ r ≠ .reg .X17 := by
-  simp only [armScratch, List.mem_cons, List.not_mem_nil, or_false, not_or] at hr
-  exact hr
-
-/-! ## 2. Local `Program.wp` / `armMach.FallsTo` bridge & frame helpers -/
-
-private def armDirFallsTo (d : Directive) (s : MachineData) (Q : MachineData → Prop) : Prop :=
-  ∀ [Labels] (p : Std.Rco Int64) (next : MachineData → Effects)
-    (jmp : Int64 → MachineData → Effects) (P : MachineState → Prop),
-    (∀ s', Q s' → (next s').All P) → (d.interp s p next jmp).All P
-
-private theorem armDirFallsTo_wp [Host] {d : Directive} {s : MachineData}
-    {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} (h : armDirFallsTo d s Q) :
-    _root_.Program.wp [d] Q E s :=
-  _root_.Program.wp_singleton fun _ _ => h _ _ _ _ fun _ hq => Or.inl ⟨rfl, hq⟩
-
-private theorem armWp_mono [Host] {p : _root_.Program} {Q Q' : MachineData → Prop}
-    {E : Int64 → MachineData → Prop} {s : MachineData}
-    (h : _root_.Program.wp p Q E s) (hQ : ∀ s', Q s' → Q' s') : _root_.Program.wp p Q' E s :=
-  _root_.Program.wp_mono hQ (fun _ _ he => he) h
-
-private theorem armWp_cons [Host] {d : Directive} {p : _root_.Program}
-    {Qd Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
-    (hd : _root_.Program.wp [d] Qd E s) (hp : ∀ s', Qd s' → _root_.Program.wp p Q E s') :
-    _root_.Program.wp (d :: p) Q E s :=
-  _root_.Program.wp_cons (_root_.Program.wp_mono hp (fun _ _ he => he) hd)
-
-private theorem armWp_append [Host] {p q : _root_.Program}
-    {Qp Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
-    (hp : _root_.Program.wp p Qp E s) (hq : ∀ s', Qp s' → _root_.Program.wp q Q E s') :
-    _root_.Program.wp (p ++ q) Q E s :=
-  _root_.Program.wp_append (_root_.Program.wp_mono hq (fun _ _ he => he) hp)
-
-private theorem armFallsTo_of_wp {h : Host} {k : Nat} {c : List Directive}
-    {gClob : List Reg} {fClob : FlagMask} {s : MachineData}
-    {Q : MachineData → Prop} {post : MachineState → Prop}
-    (hwp : @Program.wp h c (fun s' => Q s' ∧ armMach.Frame armCondReads s s' gClob [] fClob)
-      (fun _ _ => False) s) :
-    armMach.FallsTo armCondReads h k c gClob [] fClob s Q post := by
-  letI := h
-  intro hc hk
-  refine eventually_trans _ _ _ _ (hwp k hc) ?_
-  rintro ⟨s', a⟩ (⟨ha, ⟨hq, hfr⟩⟩ | hf)
-  · dsimp only at ha; subst ha; exact hk s' hq hfr
-  · exact False.elim hf
+/-! ## 2. Frame helpers & shared building-block `Program.wp` lemmas -/
 
 private theorem armFrame_upd_regs {s s' : MachineData} {gClob : List Reg} {fClob : FlagMask}
     (hkeep : ∀ r, r ∉ gClob → get s' r = get s r)
@@ -126,40 +81,6 @@ private theorem armKeep_regs {s s' : MachineData} (gClob : List Reg)
   cases r with
   | SP => simp [get_sp, hsp hr]
   | reg x => simp [get_reg, hx x hr]
-
-/-! ## 3. Shared building-block `Program.wp` lemmas -/
-
-private theorem armLdrPool_wp [Host] (d : XReg) (n : Nat) (s : MachineData) :
-    _root_.Program.wp [armLdrPool d n]
-      (fun s' => s' = wr s d (BitVec.ofNat 64 n)) (fun _ _ => False) s := by
-  refine armDirFallsTo_wp (by
-    intro _ p next jmp P hk
-    simp only [t_step_simp, Literal.interpLoad, BitVec.setWidth_eq]
-    rw [ofInt_toInt_ofNat]
-    exact hk _ rfl)
-
-private theorem armMovToXReg_wp [Host] (d : XReg) (src : Reg) (s : MachineData) :
-    _root_.Program.wp [armMovToXReg d src]
-      (fun s' => s' = wr s d (get s src)) (fun _ _ => False) s := by
-  refine armDirFallsTo_wp (by
-    intro _ p next jmp P hk
-    simp only [t_step_simp, imm0, Int64.toInt_zero, Reg64s.setRegOrSp,
-      Reg64s.setRegOrSp64]
-    rw [show BitVec.ofInt RegWidth.W64.bits 0 = 0#64 from rfl, BitVec.add_zero]
-    cases src with
-    | SP => simp [Reg64s.getRegOrSp_sp64]; exact hk _ rfl
-    | reg x => simp [Reg64s.getRegOrSp_reg64]; exact hk _ rfl)
-
-private theorem armMovToSp_wp [Host] (src : XReg) (s : MachineData) :
-    _root_.Program.wp [armMovToSp src]
-      (fun s' => s' = { s with regs := { s.regs with SP := UInt64.ofBitVec (get s (.reg src)) } })
-      (fun _ _ => False) s := by
-  refine armDirFallsTo_wp (by
-    intro _ p next jmp P hk
-    simp only [t_step_simp, imm0, Int64.toInt_zero, Reg64s.setRegOrSp_sp64,
-      Reg64s.getRegOrSp_reg64]
-    rw [show BitVec.ofInt RegWidth.W64.bits 0 = 0#64 from rfl, BitVec.add_zero]
-    exact hk _ rfl)
 
 private theorem armSubSpImm_fallsTo (n : Nat) (s : MachineData) :
     armDirFallsTo
@@ -211,7 +132,7 @@ private theorem armSubSp_wp [Host] (n : Nat) (s : MachineData) :
   · refine armWp_mono (armDirFallsTo_wp (armSubSpImm_fallsTo n s)) ?_
     rintro s' rfl
     exact ⟨rfl, fun _ _ => rfl, rfl, rfl⟩
-  · refine armWp_cons (armLdrPool_wp .X16 n s) ?_
+  · refine armWp_cons (armLdrPoolBv_wp .X16 (BitVec.ofNat 64 n) s) ?_
     rintro s₁ rfl
     refine armWp_mono (armDirFallsTo_wp (armSubSpX16_fallsTo (wr s .X16 (BitVec.ofNat 64 n)))) ?_
     rintro s' rfl
@@ -230,7 +151,7 @@ private theorem armAddSp_wp [Host] (n : Nat) (s : MachineData) :
   · refine armWp_mono (armDirFallsTo_wp (armAddSpImm_fallsTo n s)) ?_
     rintro s' rfl
     exact ⟨rfl, fun _ _ => rfl, rfl, rfl⟩
-  · refine armWp_cons (armLdrPool_wp .X16 n s) ?_
+  · refine armWp_cons (armLdrPoolBv_wp .X16 (BitVec.ofNat 64 n) s) ?_
     rintro s₁ rfl
     refine armWp_mono (armDirFallsTo_wp (armAddSpX16_fallsTo (wr s .X16 (BitVec.ofNat 64 n)))) ?_
     rintro s' rfl
@@ -293,7 +214,7 @@ private theorem armStSpXReg_wp [Host] (r : XReg) (o : Nat) {R : Mem 64 → Prop}
     rintro s' ⟨hregs, hst, hdmem⟩
     exact ⟨congrArg Reg64s.SP hregs, fun _ _ => congrFun (congrArg Reg64s.getXReg hregs) _,
       hst, hdmem⟩
-  · refine armWp_cons (armLdrPool_wp .X16 o s) ?_
+  · refine armWp_cons (armLdrPoolBv_wp .X16 (BitVec.ofNat 64 o) s) ?_
     rintro s₁ rfl
     have hal1 : (get (wr s .X16 (BitVec.ofNat 64 o)) .SP).toNat % 16 = 0 := by
       simpa [get_sp] using hal
@@ -329,7 +250,7 @@ private theorem armLdSpXReg_wp [Host] (rd : XReg) (o : Nat) (v : BitVec 64) {R :
     rintro s' rfl
     exact ⟨Reg64s.SP_setXReg _ _ _, Reg64s.getXReg_setXReg_same _ _ _,
       fun x hx _ => Reg64s.getXReg_setXReg_of_ne _ _ _ _ hx.symm, rfl, rfl⟩
-  · refine armWp_cons (armLdrPool_wp .X16 o s) ?_
+  · refine armWp_cons (armLdrPoolBv_wp .X16 (BitVec.ofNat 64 o) s) ?_
     rintro s₁ rfl
     have hal1 : (get (wr s .X16 (BitVec.ofNat 64 o)) .SP).toNat % 16 = 0 := by
       simpa [get_sp] using hal
@@ -541,7 +462,7 @@ theorem armSlotSt_spec {h : Host} {k i : Nat} {r : Reg} {s : MachineData}
     exact hx' y (fun e => hy (by simp [e, armScratch]))
   | SP =>
     dsimp only [armSlotSt]
-    refine armWp_cons (armMovToXReg_wp .X17 .SP s) ?_
+    refine armWp_cons (armMovToX_wp .X17 .SP s) ?_
     rintro s₁ rfl
     have hsp1 : (get (wr s .X17 (get s .SP)) .SP).toNat % 16 = 0 := by
       simpa [get_sp] using hsp
@@ -620,7 +541,7 @@ theorem armCanonAbi_spec {h : Host} {k : Nat} {t : Ty} {r : Reg} {v : Val t}
     | SP =>
       apply armFallsTo_of_wp
       dsimp only [armCanonAbi]
-      refine armWp_cons (armMovToXReg_wp .X16 .SP s) ?_
+      refine armWp_cons (armMovToX_wp .X16 .SP s) ?_
       rintro s₁ rfl
       have hh1 : GprHolds (get (wr s .X16 (get s .SP)) (.reg .X16)) .bool v := by
         simpa [get_wr_same] using hh
@@ -651,7 +572,7 @@ theorem armCanonAbi_spec {h : Host} {k : Nat} {t : Ty} {r : Reg} {v : Val t}
       apply armFallsTo_of_wp
       dsimp only [armCanonAbi]
       simp only [hcond, ↓reduceIte]
-      refine armWp_cons (armMovToXReg_wp .X16 .SP s) ?_
+      refine armWp_cons (armMovToX_wp .X16 .SP s) ?_
       rintro s₁ rfl
       have hh1 : GprHolds (get (wr s .X16 (get s .SP)) (.reg .X16)) (.bits n) v := by
         simpa [get_wr_same] using hh
@@ -790,7 +711,7 @@ theorem armSlotSt_noLab (i : Nat) (r : Reg) (l : Sym) :
   | SP =>
     dsimp only [armFrame, armSlotSt, armStSpXReg]
     simp only [List.mem_cons, List.singleton_append, not_or]
-    refine ⟨by simp [armMovToXReg, ins], ?_⟩
+    refine ⟨by simp [armMovToX, ins], ?_⟩
     split <;> simp [armLdrPool, ins]
 
 theorem armSlotLd_noLab (rd : Reg) (i : Nat) (l : Sym) :
@@ -818,12 +739,12 @@ theorem armCanonAbi_noLab (t : Ty) (r : Reg) (l : Sym) :
     | float _ | pair _ _ => simp [armCanonAbi, armCanonAbiXReg]
   | SP =>
     cases t with
-    | bool => simp [armCanonAbi, armCanonAbiXReg, armMovToXReg, armMovToSp, ins]
+    | bool => simp [armCanonAbi, armCanonAbiXReg, armMovToX, armMovToSp, ins]
     | bits n =>
       dsimp only [armFrame, armCanonAbi]
       split
       · simp only [List.append_assoc, List.mem_cons, List.mem_append, not_or]
-        refine ⟨by simp [armMovToXReg, ins], ?_, by simp [armMovToSp, ins]⟩
+        refine ⟨by simp [armMovToX, ins], ?_, by simp [armMovToSp, ins]⟩
         dsimp only [armCanonAbiXReg]
         repeat (split <;> try simp [ins])
         all_goals simp [ins]

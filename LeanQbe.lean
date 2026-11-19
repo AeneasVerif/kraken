@@ -96,6 +96,7 @@ public import LeanQbe.T.Target
 public import LeanQbe.T.TargetLemmas
 public import LeanQbe.T.AbiLemmas
 public import LeanQbe.T.Live
+public import LeanQbe.T.SpillFlags
 public import LeanQbe.T.Spill
 public import LeanQbe.T.Rega
 public import LeanQbe.T.RegaLemmas1
@@ -106,6 +107,7 @@ public import LeanQbe.T.RegaLemmas
 public import LeanQbe.T.StepSimp
 public import LeanQbe.T.Main
 public import LeanQbe.T.MainLemmas
+public import LeanQbe.T.MainSplice
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.Examples.Bignum

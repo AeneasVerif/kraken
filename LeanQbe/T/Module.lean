@@ -163,29 +163,13 @@ theorem SigEntry.beq_iff_eq {a b : SigEntry} : SigEntry.beq a b = true ↔ a = b
   rcases b with ⟨fb, asb, bsb⟩
   simp [SigEntry.beq, Bool.and_eq_true, Ty.listBeq_iff_eq, and_assoc]
 
-/-- Kernel-reducible `Bool` `Nodup` check on symbol lists. -/
-def symsNodupBool : List Sym → Bool
-  | [] => true
-  | x :: xs => !(xs.any (fun y => x == y)) && symsNodupBool xs
-
-theorem symsNodupBool_iff : {xs : List Sym} → symsNodupBool xs = true ↔ xs.Nodup
-  | [] => by simp [symsNodupBool]
-  | x :: xs => by
-    simp only [symsNodupBool, Bool.and_eq_true, Bool.not_eq_true', List.any_eq_false,
-      beq_iff_eq, List.nodup_cons, symsNodupBool_iff]
-    constructor
-    · rintro ⟨hmem, hnd⟩
-      exact ⟨fun hx => by simpa using hmem x hx, hnd⟩
-    · rintro ⟨hx, hnd⟩
-      exact ⟨fun y hy heq => hx (heq ▸ hy), hnd⟩
-
 /-- Boolean `Module.namesNodup` check, kernel-reducible by `rfl`. -/
 def Module.checkNamesNodup (M : Module) : Bool :=
-  symsNodupBool M.names
+  listNodup M.names
 
 theorem Module.namesNodup_of_checkNamesNodup {M : Module}
     (h : M.checkNamesNodup = true) : M.namesNodup :=
-  symsNodupBool_iff.mp h
+  listNodup_nodup h
 
 mutual
 def Expr.checkCallsOk (allowed : List SigEntry) (exits : List Sym) {rs : List Ty} :

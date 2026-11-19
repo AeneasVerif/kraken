@@ -1,10 +1,11 @@
 module
 
 public import LeanQbe.T.MainLemmas
+public import LeanQbe.T.MainSplice
 public import LeanQbe.T.FlatLemmas
 public import LeanQbeTest.T.RegaLitmusTarget
 public meta import Lean
-public meta import LeanQbe.T.MainLemmas
+public meta import LeanQbe.T.MainSplice
 public meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
@@ -576,7 +577,302 @@ theorem litmusCaller_run_sep :
     (Q := fun rets m' => rets = (44#64, ()) ∧ m' = [0x2a].At 0x1000#64) ⟨rfl, rfl⟩
     (fun _ _ h => ⟨h.1, h.2.symm⟩)
 
-/-! ## 6. Axiom Audit -/
+/-! ## 6. Abnormal `exit`, Non-Empty `extCallees`, and Callee Signature Rejection (`#270`) -/
+
+/-- `guard(x)`: abnormally exits to `"abort"(x)` when `x == 0`, otherwise returns `x + 1`. -/
+def fnExitGuard : Fn := ⟨"guard", [i64], [i64], fun _ _ (x, ()) =>
+  .let_ (op2 (@OpCode.cmp .eq i64 .bool rfl) (.var x) (.imm 0)) fun (isZero, ()) =>
+  .jnz (.var isZero)
+    (.exit "abort" (as := [i64]) (.var x, ()))
+    (.let_ (op2 (.add i64) (.var x) (.imm 1)) fun (r, ()) => .ret (.var r, ()))⟩
+
+def guardMod : Module where
+  fns := [fnExitGuard]
+  externs := []
+  exits := ["abort"]
+
+theorem guardMod_checkAcyclic : guardMod.checkAcyclic = true := by rfl
+
+theorem guardMod_wf : ∀ f ∈ guardMod.fns, f.Wf := by
+  intro f hf
+  simp only [guardMod, List.mem_singleton] at hf
+  subst hf; unfold Fn.Wf; t_wf_reify
+
+theorem guardMod_supportsSource :
+    ∀ f ∈ guardMod.fns, (f.opt).body.supportsSource LegalTarget.aarch64 = true := by
+  intro f hf
+  simp only [guardMod, List.mem_singleton] at hf
+  subst hf; t_kernel_rfl
+
+def guardΓ : Env
+  | "guard", [.bits 64], [.bits 64], (x, ()), m, Q, X =>
+      if x == 0#64 then X "abort" [i64] (0#64, ()) m else Q (x + 1#64, ()) m
+  | _, _, _, _, _, _, _ => False
+
+theorem guardMod_wp : ∀ f ∈ guardMod.fns, ∀ xs m Q X,
+    guardΓ f.name f.as f.rs xs m Q X → Func.wp guardΓ f.body xs m Q X := by
+  intro f hf xs m Q X hΓ
+  simp only [guardMod, List.mem_singleton] at hf
+  subst hf
+  rcases xs with ⟨x, ⟨⟩⟩
+  change (if x == 0#64 then X "abort" [i64] (0#64, ()) m else Q (x + 1#64, ()) m) at hΓ
+  dsimp only [Func.wp, fnExitGuard, wp, Op.wp, op2, OpCode.wp,
+    liftCmp, CmpOp.evalBits, lift2, Ty.hasFloat, Arg.val, vals]
+  by_cases hx : x = 0#64
+  · subst hx
+    split at hΓ
+    · exact ⟨fun _ => hΓ, fun h => absurd h (by decide)⟩
+    · rename_i hcond; exact absurd (by decide) hcond
+  · split at hΓ
+    · exact absurd (by simp_all) hx
+    · exact ⟨fun h => absurd (by simpa using h) hx, fun _ => hΓ⟩
+
+splice_module_hints guardHints litmusTarget.toIsa LegalTarget.aarch64 guardMod.fns
+
+theorem guard_check :
+    checkCompile litmusTarget litmusLayout LegalTarget.aarch64 [] ["abort"] 16 guardMod.fns
+      guardHints 2048 = true := by
+  t_kernel_rfl
+
+def guardCompiled :
+    Compiled litmusTarget LegalTarget.aarch64 [] ["abort"] 16 guardMod.fns guardHints 2048 :=
+  compileChecked litmusTarget litmusLayout LegalTarget.aarch64 litmusLabelClean
+    [] ["abort"] 16 guardMod.fns guardHints 2048 guard_check
+
+theorem guard_fnSpec :
+    litmusTarget.Defined guardCompiled.host "guard" ∧
+      litmusTarget.FnSpec guardCompiled.host "guard"
+        (legalEnv LegalTarget.aarch64 (Env.ofModule guardMod guardΓ) "guard" [i64] [i64])
+        (guardCompiled.bound "guard") 16 :=
+  guardCompiled.fnSpec_host guardMod rfl guardΓ guardMod_checkAcyclic
+    guardMod_wf guardMod_supportsSource guardMod_wp List.mem_cons_self
+
+private theorem guard_fnSpec_src :
+    litmusTarget.FnSpec guardCompiled.host "guard"
+      (fun args m Q X => guardΓ "guard" [i64] [i64] args m Q
+        (fun g cs xs m' => X g (LegalTarget.aarch64.legalSig cs)
+          (encodeTup LegalTarget.aarch64 cs xs) m'))
+      (guardCompiled.bound "guard") 16 :=
+  fnSpec_of_legalEnv_legalSig_eq (lt := LegalTarget.aarch64) (M := guardMod)
+    (as := [i64]) (bs := [i64]) (by rfl) (by rfl)
+    (by simp [guardMod, Module.sigs, fnExitGuard, Fn.sig]) guard_fnSpec.2
+
+/-- Concrete execution witness for the normal return branch of `guard` (`guard 41 = 42`). -/
+theorem guard_run_normal :
+    Eventually (litmusTarget.mach.step guardCompiled.host)
+      (fun st => litmusTarget.mach.pc st = litmusInit.ra0 ∧
+        litmusTarget.mach.getGpr (litmusTarget.mach.data st) litmusInit.ret0 = 42#64)
+      (litmusTarget.mach.mkState
+        (litmusInit.initState (as := [i64]) (guardCompiled.bound "guard") []
+          ((41#64, ()) : Tup Val [i64]))
+        (litmusTarget.mach.labelAddr guardCompiled.host "guard")) := by
+  refine litmusInit.run_fnSpec (as := [i64]) guardCompiled guard_fnSpec_src []
+    ((41#64, ()) : Tup Val [i64]) (by decide) rfl
+    (Q := fun rets _ => rets = (42#64, ())) (X := fun _ _ _ _ => False) (by rfl) ?_
+  rintro st (⟨hpc, rets, m', hq, hrets, _⟩ | ⟨_, _, _, _, hx, _⟩)
+  · subst hq; exact ⟨hpc, litmusInit.retsIn_singleton 42#64 _ hrets⟩
+  · exact hx.elim
+
+/-- Concrete execution witness for the abnormal `exit` branch of `guard` (`guard 0 → abort(0)`). -/
+theorem guard_run_exit :
+    Eventually (litmusTarget.mach.step guardCompiled.host)
+      (fun st => litmusTarget.mach.pc st = litmusTarget.mach.labelAddr guardCompiled.host "abort" ∧
+        litmusTarget.ArgsIn (as := [i64]) (0#64, ()) (litmusTarget.mach.data st))
+      (litmusTarget.mach.mkState
+        (litmusInit.initState (as := [i64]) (guardCompiled.bound "guard") []
+          ((0#64, ()) : Tup Val [i64]))
+        (litmusTarget.mach.labelAddr guardCompiled.host "guard")) := by
+  refine litmusInit.run_fnSpec (as := [i64]) guardCompiled guard_fnSpec_src []
+    ((0#64, ()) : Tup Val [i64]) (by decide) rfl
+    (Q := fun _ _ => False)
+    (X := fun sym cs xs _ => sym = "abort" ∧ cs = [i64] ∧ HEq xs ((0#64, ()) : Tup Val [i64]))
+    ⟨rfl, rfl, HEq.rfl⟩ ?_
+  rintro st (⟨_, _, _, hq, _⟩ | ⟨sym', cs', xs', _, ⟨rfl, rfl, hxs⟩, hpc, has⟩)
+  · exact hq.elim
+  · obtain rfl := eq_of_heq hxs; exact ⟨hpc, has⟩
+
+/-- Compiling `fnExitGuard` without declaring `"abort"` in `exits` is rejected. -/
+theorem guard_missing_exit_rejected :
+    checkCompile litmusTarget litmusLayout LegalTarget.aarch64 [] [] 16 guardMod.fns
+      guardHints 2048 = false := by
+  t_kernel_rfl
+
+/-- Separate compilation with non-empty `extCallees`: compile `fnModInc` alone, then compile
+`fnModCaller` against `extCallees := [(("inc", [i64], [i64]), bInc)]` and link on `codeInc ++ codeCaller`. -/
+def incOnlyMod : Module where
+  fns := [fnModInc]
+  externs := []
+  exits := []
+
+def callerOnlyMod : Module where
+  fns := [fnModCaller]
+  externs := [⟨"inc", [i64], [i64]⟩]
+  exits := []
+
+theorem incOnlyMod_checkAcyclic : incOnlyMod.checkAcyclic = true := by rfl
+theorem callerOnlyMod_checkAcyclic : callerOnlyMod.checkAcyclic = true := by rfl
+
+splice_module_hints incOnlyHints litmusTarget.toIsa LegalTarget.aarch64 incOnlyMod.fns
+splice_module_hints callerOnlyHints litmusTarget.toIsa LegalTarget.aarch64 callerOnlyMod.fns
+
+theorem incOnly_check :
+    checkCompile litmusTarget litmusLayout LegalTarget.aarch64 [] [] 0 incOnlyMod.fns
+      incOnlyHints 2048 = true := by
+  t_kernel_rfl
+
+def incOnlyCompiled :
+    Compiled litmusTarget LegalTarget.aarch64 [] [] 0 incOnlyMod.fns incOnlyHints 2048 :=
+  compileChecked litmusTarget litmusLayout LegalTarget.aarch64 litmusLabelClean
+    [] [] 0 incOnlyMod.fns incOnlyHints 2048 incOnly_check
+
+theorem callerExt_check :
+    checkCompile litmusTarget litmusLayout LegalTarget.aarch64
+      [(("inc", [i64], [i64]), incOnlyCompiled.bound "inc")] [] 0
+      callerOnlyMod.fns callerOnlyHints 2048 = true := by
+  t_kernel_rfl
+
+def callerExtCompiled :
+    Compiled litmusTarget LegalTarget.aarch64
+      [(("inc", [i64], [i64]), incOnlyCompiled.bound "inc")] [] 0
+      callerOnlyMod.fns callerOnlyHints 2048 :=
+  compileChecked litmusTarget litmusLayout LegalTarget.aarch64 litmusLabelClean
+    [(("inc", [i64], [i64]), incOnlyCompiled.bound "inc")] [] 0
+    callerOnlyMod.fns callerOnlyHints 2048 callerExt_check
+
+/-- Combined host containing both separately-compiled `inc` and `caller` code. -/
+theorem combinedExt_progSmall :
+    litmusLayout.progSmall (incOnlyCompiled.code ++ callerExtCompiled.code) = true := by
+  t_kernel_rfl
+
+def combinedExtHost : LHost :=
+  litmusLayout.layoutOf (incOnlyCompiled.code ++ callerExtCompiled.code) combinedExt_progSmall
+
+theorem combinedExt_labelsUnique : litmusTarget.LabelsUnique combinedExtHost := by
+  have hprog : litmusTarget.mach.prog combinedExtHost =
+      incOnlyCompiled.code ++ callerExtCompiled.code := litmusLayout.prog_layoutOf _ _
+  have hci := incOnlyCompiled.compileModule_eq
+  have hcc := callerExtCompiled.compileModule_eq
+  have hIncMem := (compileModule_code_labels litmusLabelClean LegalTarget.aarch64
+    litmusTarget.frame.raBytes [] 0 hci (by decide) (by decide)).1
+  have hCalMem := (compileModule_code_labels litmusLabelClean LegalTarget.aarch64
+    litmusTarget.frame.raBytes [] 0 hcc (by decide) (by decide)).1
+  intro i j l hi hj
+  rw [hprog] at hi hj
+  rcases Nat.lt_or_ge i incOnlyCompiled.code.length with hiL | hiR <;>
+    rcases Nat.lt_or_ge j incOnlyCompiled.code.length with hjL | hjR
+  · rw [List.getElem?_append_left hiL] at hi
+    rw [List.getElem?_append_left hjL] at hj
+    have hpi' : litmusTarget.mach.prog incOnlyCompiled.host = incOnlyCompiled.code := by
+      simpa using incOnlyCompiled.prog_host
+    exact incOnlyCompiled.labelsUnique i j l (hpi'.symm ▸ hi) (hpi'.symm ▸ hj)
+  · rw [List.getElem?_append_left hiL] at hi
+    rw [List.getElem?_append_right hjR] at hj
+    have h1 := hIncMem i l hi
+    have h2 := hCalMem (j - incOnlyCompiled.code.length) l hj
+    simp only [incOnlyMod, callerOnlyMod, List.mem_singleton] at h1 h2
+    rcases h1 with ⟨f1, hf1, h1⟩; subst hf1
+    rcases h2 with ⟨f2, hf2, h2⟩; subst hf2
+    rcases h1 with hl | ⟨n1, hl⟩ <;> rcases h2 with hr | ⟨n2, hr⟩
+    · rw [hl] at hr; simp [fnModInc, fnModCaller] at hr
+    · exact False.elim (lname_ne_cross (by decide) (hl.symm.trans hr).symm)
+    · exact False.elim (lname_ne_cross (by decide) (hl.symm.trans hr))
+    · have hnm := (lname_inj_cross (f := "inc") (g := "caller") (a := n1) (b := n2)
+        (by decide) (by decide) (hl.symm.trans hr)).1
+      simp at hnm
+  · rw [List.getElem?_append_right hiR] at hi
+    rw [List.getElem?_append_left hjL] at hj
+    have h1 := hCalMem (i - incOnlyCompiled.code.length) l hi
+    have h2 := hIncMem j l hj
+    simp only [incOnlyMod, callerOnlyMod, List.mem_singleton] at h1 h2
+    rcases h1 with ⟨f1, hf1, h1⟩; subst hf1
+    rcases h2 with ⟨f2, hf2, h2⟩; subst hf2
+    rcases h1 with hl | ⟨n1, hl⟩ <;> rcases h2 with hr | ⟨n2, hr⟩
+    · rw [hl] at hr; simp [fnModInc, fnModCaller] at hr
+    · exact False.elim (lname_ne_cross (by decide) (hl.symm.trans hr).symm)
+    · exact False.elim (lname_ne_cross (by decide) (hl.symm.trans hr))
+    · have hnm := (lname_inj_cross (f := "caller") (g := "inc") (a := n1) (b := n2)
+        (by decide) (by decide) (hl.symm.trans hr)).1
+      simp at hnm
+  · rw [List.getElem?_append_right hiR] at hi
+    rw [List.getElem?_append_right hjR] at hj
+    have hpc' : litmusTarget.mach.prog callerExtCompiled.host = callerExtCompiled.code := by
+      simpa using callerExtCompiled.prog_host
+    have heq := callerExtCompiled.labelsUnique (i - incOnlyCompiled.code.length)
+      (j - incOnlyCompiled.code.length) l (hpc'.symm ▸ hi) (hpc'.symm ▸ hj)
+    omega
+
+theorem callerExt_linked_fnSpec :
+    litmusTarget.Defined combinedExtHost "caller" ∧
+      litmusTarget.FnSpec combinedExtHost "caller"
+        (legalEnv LegalTarget.aarch64 (Env.ofModule callerOnlyMod litmusΓ) "caller" [i64] [i64])
+        (callerExtCompiled.bound "caller") 0 := by
+  have hprog : litmusTarget.mach.prog combinedExtHost =
+      incOnlyCompiled.code ++ callerExtCompiled.code := litmusLayout.prog_layoutOf _ _
+  have hIncInfix : incOnlyCompiled.code.IsInfixAt (litmusTarget.mach.prog combinedExtHost) 0 := by
+    rw [hprog]; exact ⟨callerExtCompiled.code, rfl⟩
+  have hCallerInfix : callerExtCompiled.code.IsInfixAt (litmusTarget.mach.prog combinedExtHost)
+      incOnlyCompiled.code.length := by
+    rw [hprog]; exact ⟨[], by simp⟩
+  have hIncSpec := incOnlyCompiled.fnSpec incOnlyMod rfl combinedExtHost litmusΓ 0
+    hIncInfix combinedExt_labelsUnique incOnlyMod_checkAcyclic
+    (fun f hf => by
+      simp only [incOnlyMod, List.mem_singleton] at hf; subst hf
+      exact litmusMod_wf fnModInc List.mem_cons_self)
+    (fun f hf => by
+      simp only [incOnlyMod, List.mem_singleton] at hf; subst hf
+      exact litmusMod_supportsSource fnModInc List.mem_cons_self)
+    (fun f hf xs m Q X hΓ => by
+      simp only [incOnlyMod, List.mem_singleton] at hf; subst hf
+      exact litmusMod_wp fnModInc List.mem_cons_self xs m Q X hΓ)
+    (fun _ h => nomatch h) ⟨(fun _ h => nomatch h), (fun _ h => nomatch h)⟩
+    (fun _ h => nomatch h) List.mem_cons_self
+  have hExt : ∀ p ∈ [(("inc", [i64], [i64]), incOnlyCompiled.bound "inc")],
+      litmusTarget.FnSpec combinedExtHost p.1.1
+        (legalEnv LegalTarget.aarch64 (Env.ofModule callerOnlyMod litmusΓ) p.1.1 p.1.2.1 p.1.2.2)
+        p.2 0 := by
+    intro p hp
+    simp only [List.mem_singleton] at hp; subst hp
+    intro args m Q X ⟨as', bs', has', hbs', args', Q', X', h1, h2, h3, hmem, hΓ⟩
+    refine hIncSpec.2 args m Q X ⟨as', bs', has', hbs', args', Q', X', h1, h2, h3, ?_, hΓ⟩
+    simp only [callerOnlyMod, incOnlyMod, Module.sigs, fnModCaller, fnModInc, Fn.sig, Extern.sig,
+      List.map_cons, List.map_nil, List.cons_append, List.nil_append, List.mem_cons,
+      List.not_mem_nil, or_false, Prod.mk.injEq] at hmem ⊢
+    rcases hmem with ⟨hbad, _⟩ | hok
+    · exact absurd hbad (by decide)
+    · exact hok
+  exact callerExtCompiled.fnSpec callerOnlyMod rfl combinedExtHost litmusΓ
+    incOnlyCompiled.code.length hCallerInfix combinedExt_labelsUnique callerOnlyMod_checkAcyclic
+    (fun f hf => by
+      simp only [callerOnlyMod, List.mem_singleton] at hf; subst hf
+      exact litmusMod_wf fnModCaller (List.mem_cons_of_mem _ List.mem_cons_self))
+    (fun f hf => by
+      simp only [callerOnlyMod, List.mem_singleton] at hf; subst hf
+      exact litmusMod_supportsSource fnModCaller (List.mem_cons_of_mem _ List.mem_cons_self))
+    (fun f hf xs m Q X hΓ => by
+      simp only [callerOnlyMod, List.mem_singleton] at hf; subst hf
+      exact litmusMod_wp fnModCaller (List.mem_cons_of_mem _ List.mem_cons_self) xs m Q X hΓ)
+    hExt ⟨fun _ hp _ hq _ => by simp at hp hq; subst hp hq; rfl,
+      fun _ hp => by simp at hp; subst hp; decide⟩
+    (fun _ h => nomatch h) List.mem_cons_self
+
+/-- Callee signature change rejection: changing arg type, return type, or arity in `extCallees`
+causes `compileModule` and `checkCompile` to reject `fnModCaller`. -/
+theorem extCallee_argSig_mismatch_rejected :
+    checkCompile litmusTarget litmusLayout LegalTarget.aarch64
+      [(("inc", [i32], [i64]), 0)] [] 0 callerOnlyMod.fns callerOnlyHints 2048 = false := by
+  t_kernel_rfl
+
+theorem extCallee_retSig_mismatch_rejected :
+    checkCompile litmusTarget litmusLayout LegalTarget.aarch64
+      [(("inc", [i64], [i32]), 0)] [] 0 callerOnlyMod.fns callerOnlyHints 2048 = false := by
+  t_kernel_rfl
+
+theorem extCallee_arity_mismatch_rejected :
+    checkCompile litmusTarget litmusLayout LegalTarget.aarch64
+      [(("inc", [i64, i64], [i64]), 0)] [] 0 callerOnlyMod.fns callerOnlyHints 2048 = false := by
+  t_kernel_rfl
+
+/-! ## 7. Axiom Audit -/
 
 #print axioms litmusLabelClean
 #print axioms litmus_check
@@ -586,6 +882,10 @@ theorem litmusCaller_run_sep :
 #print axioms litmusCaller_run_ret1
 #print axioms litmusCaller_run_i64
 #print axioms litmusCaller_run_sep
+#print axioms guard_fnSpec
+#print axioms guard_run_normal
+#print axioms guard_run_exit
+#print axioms callerExt_linked_fnSpec
 #print axioms LeanQbe.T.compileFn_correct
 #print axioms LeanQbe.T.compile_sound
 

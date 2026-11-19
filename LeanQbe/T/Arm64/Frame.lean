@@ -46,15 +46,7 @@ abbrev armAtSpIdx (r : XReg) : AddrExpr :=
 
 /-- Load unsigned 64-bit constant `n` into `x_d` via literal pool (`ldr xd, =n`). -/
 abbrev armLdrPool (d : XReg) (n : Nat) : Directive :=
-  ins (.LDR (zr d .W64) (.lit (.pool { expr := .int64 (Int64.ofNat n) })))
-
-/-- Move 64-bit GP or stack register `s` into `x_d` (`add xd, s, #0` / `mov xd, s`). -/
-abbrev armMovToXReg (d : XReg) (s : Reg) : Directive :=
-  ins (.ADD_e (.low (.reg d) .W64) (.low s .W64) imm0)
-
-/-- Move 64-bit GP register `s` into `sp` (`add sp, xs, #0` / `mov sp, xs`). -/
-abbrev armMovToSp (s : XReg) : Directive :=
-  ins (.ADD_e (.low .SP .W64) (.low (.reg s) .W64) imm0)
+  armLdrPoolBv d (BitVec.ofNat 64 n)
 
 /-- Allocate `n` bytes on `sp` (`sub sp, sp, #n`, or literal-pool `x16` fallback). -/
 def armSubSp (n : Nat) : List Directive :=
@@ -96,7 +88,7 @@ def armEpilogue (ns : Nat) : List Directive × FlagMask :=
 def armSlotSt (i : Nat) (r : Reg) : List Directive :=
   match r with
   | .reg x => armStSpXReg x (8 * i)
-  | .SP => [armMovToXReg .X17 .SP] ++ armStSpXReg .X17 (8 * i)
+  | .SP => [armMovToX .X17 .SP] ++ armStSpXReg .X17 (8 * i)
 
 /-- Load 64-bit GP or stack register `rd` from stack slot `i`. -/
 def armSlotLd (rd : Reg) (i : Nat) : List Directive :=
@@ -121,10 +113,10 @@ def armCanonAbi (t : Ty) (r : Reg) : List Directive × FlagMask :=
   | .reg x => (armCanonAbiXReg t x, maskNone)
   | .SP =>
     match t with
-    | .bool => ([armMovToXReg .X16 .SP] ++ armCanonAbiXReg t .X16 ++ [armMovToSp .X16], maskNone)
+    | .bool => ([armMovToX .X16 .SP] ++ armCanonAbiXReg t .X16 ++ [armMovToSp .X16], maskNone)
     | .bits n =>
       if n == 8 || n == 16 || n == 32 then
-        ([armMovToXReg .X16 .SP] ++ armCanonAbiXReg t .X16 ++ [armMovToSp .X16], maskNone)
+        ([armMovToX .X16 .SP] ++ armCanonAbiXReg t .X16 ++ [armMovToSp .X16], maskNone)
       else
         ([], maskNone)
     | _ => ([], maskNone)

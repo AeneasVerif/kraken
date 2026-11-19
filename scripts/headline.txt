@@ -607,3 +607,13 @@ LeanQbeTest.T.Amd64IselTest LeanQbeTest.T.Amd64IselTest.bignum_mul4x4_backendOk
 LeanQbeTest.T.Amd64IselTest LeanQbeTest.T.Amd64IselTest.lratBytes_all_backendOk
 LeanQbeTest.T.Amd64IselTest LeanQbeTest.T.Amd64IselTest.pitfall_a_bool_jnz_spec
 LeanQbeTest.T.Amd64IselTest LeanQbeTest.T.Amd64IselTest.pitfall_c_var_shl8_spec
+LeanQbe.T.Ty LeanQbe.T.listNodup_nodup
+LeanQbe.T.Examples.UnionFindLemmas LeanQbe.T.Examples.UnionFind.ufEnv_moduleOk
+LeanQbe.T.Examples.Bignum LeanQbe.T.Examples.Bignum.mul4x4_moduleOk
+LeanQbe.T.Examples.Bignum LeanQbe.T.Examples.Bignum.addMod25519_moduleOk
+LeanQbe.T.Examples.Bignum LeanQbe.T.Examples.Bignum.subMod25519_moduleOk
+LeanQbe.T.Examples.ChaCha LeanQbe.T.Examples.ChaCha.chacha20_moduleOk
+LeanQbeTest.T.MainTest LeanQbeTest.T.MainTest.guard_fnSpec
+LeanQbeTest.T.MainTest LeanQbeTest.T.MainTest.guard_run_normal
+LeanQbeTest.T.MainTest LeanQbeTest.T.MainTest.guard_run_exit
+LeanQbeTest.T.MainTest LeanQbeTest.T.MainTest.callerExt_linked_fnSpec

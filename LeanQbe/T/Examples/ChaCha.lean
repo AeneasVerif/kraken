@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Notation
+public import LeanQbe.T.Module
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.WfLemmas
 
@@ -429,5 +430,25 @@ theorem chacha20Block_wf : Func.Wf chacha20Block := by
   dsimp only [chacha20Block]
   t_wf_tac
 
+/-! ## `Module`, `Env`, and `ModuleOk` bundle -/
+
+def chacha20Fn : Fn := ⟨"chacha20Block", [i64, i64], [], chacha20Block⟩
+
+def chacha20Module : Module := ⟨[chacha20Fn], [], []⟩
+
+def chacha20Env : Env
+  | "chacha20Block", [.bits 64, .bits 64], [] => chacha20BlockSpec
+  | _, _, _ => fun _ _ _ _ => False
+
+theorem chacha20Module_checkAcyclic : chacha20Module.checkAcyclic = true := by rfl
+
+theorem chacha20_moduleOk : ModuleOk chacha20Env chacha20Module :=
+  Module.moduleOk_of_checkAcyclic chacha20Module_checkAcyclic
+    (fun fn hmem => by
+      simp only [chacha20Module, List.mem_singleton] at hmem
+      subst hmem; exact chacha20Block_wf)
+    (fun fn hmem => by
+      simp only [chacha20Module, List.mem_singleton] at hmem
+      subst hmem; exact chacha20Block_correct chacha20Env)
 
 end LeanQbe.T.Examples.ChaCha

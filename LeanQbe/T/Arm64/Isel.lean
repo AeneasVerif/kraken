@@ -32,18 +32,6 @@ namespace LeanQbe.T.Arm64
 abbrev armWidthOf (n : Nat) : RegWidth :=
   if n == 64 then .W64 else .W32
 
-/-- Load 64-bit constant `c` into `x_d` via literal pool (`ldr x_d, =c`). -/
-abbrev armLdrPoolBv (d : XReg) (c : BitVec 64) : Directive :=
-  ins (w := .W64) (.LDR (zr d .W64) (.lit (.pool { expr := .int64 (Int64.ofBitVec c) })))
-
-/-- Copy 64-bit register or `sp` into `x_d` (`add x_d, s, #0`). -/
-abbrev armMovToX (d : XReg) (s : Reg) : Directive :=
-  ins (w := .W64) (.ADD_e (.low (.reg d) .W64) (.low s .W64) imm0)
-
-/-- Copy 64-bit register `x_s` into `sp` (`add sp, x_s, #0`). -/
-abbrev armIselMovToSp (s : XReg) : Directive :=
-  ins (w := .W64) (.ADD_e (.low .SP .W64) (.low (.reg s) .W64) imm0)
-
 /-- Materialize architectural condition `c` as `0/1` into `x_d` without clobbering flags. -/
 abbrev armCset64 (d : XReg) (c : ArmCond) : Directive :=
   ins (w := .W64) (.CSINC (zr d .W64) (xzr .W64) (xzr .W64) (armNegCond c).toKraken)
@@ -97,13 +85,13 @@ def armMov (rd rs : Reg) : List Directive :=
 def armMovi (rd : Reg) (c : BitVec 64) : List Directive :=
   match rd with
   | .reg d => [armLdrPoolBv d c]
-  | .SP => [armLdrPoolBv .X16 c, armIselMovToSp .X16]
+  | .SP => [armLdrPoolBv .X16 c, armMovToSp .X16]
 
 /-- Materialize flag condition `c` into `rd` (`0/1`, routing `.SP` via `.X16`), preserving flags. -/
 def armSetcc (rd : Reg) (c : ArmCond) : List Directive :=
   match rd with
   | .reg d => [armCset64 d c]
-  | .SP => [armCset64 .X16 c, armIselMovToSp .X16]
+  | .SP => [armCset64 .X16 c, armMovToSp .X16]
 
 /-- Unconditional branch `b l`. -/
 def armJmp (l : Sym) : List Directive :=
@@ -177,7 +165,7 @@ def armLoad (t : Ty) (rd : Reg) (a : AddrArg Reg) : Option (List Directive × Fl
     some (setup ++ [dir], maskNone)
   | .SP =>
     let dir ← armLoadDir t .X16 addr
-    some (setup ++ [dir, armIselMovToSp .X16], maskNone)
+    some (setup ++ [dir, armMovToSp .X16], maskNone)
 
 /-- Materialize stored operand `pa` into `.X17` (or return its `XReg`) without clobbering flags. -/
 def armStoreValIn : (t : Ty) → PArg Reg Empty ArmCond t → Option (List Directive × XReg)

@@ -821,13 +821,6 @@ end Main
 
 /-! ## Function-level correctness -/
 
-theorem listNodup_nodup {α : Type} [BEq α] [LawfulBEq α] : ∀ {l : List α}, listNodup l = true → l.Nodup
-  | [], _ => List.nodup_nil
-  | x :: xs, h => by
-    simp only [listNodup, Bool.and_eq_true, Bool.not_eq_true'] at h
-    refine List.nodup_cons.mpr ⟨fun hm => ?_, listNodup_nodup h.2⟩
-    simp_all
-
 /-- **`T7b` headline:** a successfully lowered well-formed function satisfies `Target.FnSpec`. -/
 theorem lowerFn_correct (T : Target) (host : T.mach.Host) (hints : T.toIsa.Hints) (E : Ext) (f : Fn)
     (Γ : Env) (n nX : Nat) (bound : Sym → Nat) {code : List T.Directive} {k₀ : Nat}

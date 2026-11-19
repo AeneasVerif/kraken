@@ -136,7 +136,7 @@ time_check() { # $1 = .lean file; appends "<CPU seconds> <exit code> <file>" to 
   echo "$(awk '{print int($1 + $2 + 0.5)}' <<<"$cpu") $rc $1" >>"$TMP/times.txt"
 }
 { echo LeanQbe/Amd64/LratBytes.lean; echo LeanQbe/Arm64/LratBytes.lean
-  git ls-files 'LeanQbe/*Lemmas.lean' 'LeanQbe/**/*Lemmas.lean' | sort -u | xargs wc -l \
+  git ls-files 'LeanQbe/*Lemmas*.lean' 'LeanQbe/**/*Lemmas*.lean' | sort -u | xargs wc -l \
     | grep -v ' total$' | sort -rn | head -n 5 | awk '{print $2}'; } >"$TMP/timed.txt"
 : >"$TMP/times.txt"
 while IFS= read -r f; do time_check "$f" & done <"$TMP/timed.txt"

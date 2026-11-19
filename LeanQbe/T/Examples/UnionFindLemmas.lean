@@ -225,4 +225,9 @@ theorem ufEnv_sound : ∀ f ∈ ufFns,
   · exact union_correct ufEnv (fun args m Q X h => h)
   · exact unionInline_correct ufEnv
 
+theorem ufModule_checkAcyclic : ufModule.checkAcyclic = true := by rfl
+
+theorem ufEnv_moduleOk : ModuleOk ufEnv ufModule :=
+  Module.moduleOk_of_checkAcyclic ufModule_checkAcyclic ufFns_wf ufEnv_sound
+
 end LeanQbe.T.Examples.UnionFind

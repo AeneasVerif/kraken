@@ -55,6 +55,18 @@ abbrev atReg (r : XReg) : AddrExpr :=
 abbrev atOff (b : Reg) (o : Nat) : AddrExpr :=
   { base := .low b .W64, off := .imm { imm := .int64 (Int64.ofNat o), index := none } }
 
+/-- Load 64-bit constant `c` into `x_d` via literal pool (`ldr x_d, =c`). -/
+abbrev armLdrPoolBv (d : XReg) (c : BitVec 64) : Directive :=
+  ins (w := .W64) (.LDR (zr d .W64) (.lit (.pool { expr := .int64 (Int64.ofBitVec c) })))
+
+/-- Copy 64-bit GP or stack register `s` into `x_d` (`add x_d, s, #0` / `mov x_d, s`). -/
+abbrev armMovToX (d : XReg) (s : Reg) : Directive :=
+  ins (w := .W64) (.ADD_e (.low (.reg d) .W64) (.low s .W64) imm0)
+
+/-- Copy 64-bit GP register `s` into `sp` (`add sp, x_s, #0` / `mov sp, x_s`). -/
+abbrev armMovToSp (s : XReg) : Directive :=
+  ins (w := .W64) (.ADD_e (.low .SP .W64) (.low (.reg s) .W64) imm0)
+
 /-! ## 2. 64-bit register accessors and update rules -/
 
 /-- Read 64-bit GP or stack register `r`. -/
@@ -151,6 +163,11 @@ theorem armNegCond_reads (c : ArmCond) :
 /-- Scratch registers reserved for AArch64 lowering (`x16`, `x17`). -/
 @[reducible] def armScratch : List Reg := [.reg .X16, .reg .X17]
 
+theorem ne_of_not_mem_armScratch {r : Reg} (hr : r ∉ armScratch) :
+    r ≠ .reg .X16 ∧ r ≠ .reg .X17 := by
+  simp only [armScratch, List.mem_cons, List.not_mem_nil, or_false, not_or] at hr
+  exact hr
+
 /-- Single-step relation of a laid-out Kraken AArch64 host program. -/
 def hostStep (h : Host) : MachineState → (MachineState → Prop) → Prop :=
   letI := h; step1 Host.exe
@@ -203,7 +220,52 @@ theorem keepsFlags_of_bits {s s' : MachineData} {clob : FlagMask}
     (try rw [hc (flag_bit_clear (b := 2) (by decide) hdisj)]) <;>
     (try rw [hv (flag_bit_clear (b := 3) (by decide) hdisj)])
 
-/-! ## 5. `[t_step_simp]` rules -/
+/-! ## 5. `Program.wp` / `armMach.FallsTo` combinators and `[t_step_simp]` rules -/
+
+/-- Directive `d`, run from `s`, falls through into a state satisfying `Q`. -/
+def armDirFallsTo (d : Directive) (s : MachineData) (Q : MachineData → Prop) : Prop :=
+  ∀ [Labels] (p : Std.Rco Int64) (next : MachineData → Effects)
+    (jmp : Int64 → MachineData → Effects) (P : MachineState → Prop),
+    (∀ s', Q s' → (next s').All P) → (d.interp s p next jmp).All P
+
+theorem armDirFallsTo_wp [Host] {d : Directive} {s : MachineData}
+    {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} (h : armDirFallsTo d s Q) :
+    _root_.Program.wp [d] Q E s :=
+  _root_.Program.wp_singleton fun _ _ => h _ _ _ _ fun _ hq => Or.inl ⟨rfl, hq⟩
+
+theorem armWp_nil [Host] {Q : MachineData → Prop} {E : Int64 → MachineData → Prop}
+    {s : MachineData} (h : Q s) : _root_.Program.wp [] Q E s :=
+  _root_.Program.wp_nil h
+
+theorem armWp_mono [Host] {p : _root_.Program} {Q Q' : MachineData → Prop}
+    {E : Int64 → MachineData → Prop} {s : MachineData}
+    (h : _root_.Program.wp p Q E s) (hQ : ∀ s', Q s' → Q' s') : _root_.Program.wp p Q' E s :=
+  _root_.Program.wp_mono hQ (fun _ _ he => he) h
+
+theorem armWp_cons [Host] {d : Directive} {p : _root_.Program}
+    {Qd Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
+    (hd : _root_.Program.wp [d] Qd E s) (hp : ∀ s', Qd s' → _root_.Program.wp p Q E s') :
+    _root_.Program.wp (d :: p) Q E s :=
+  _root_.Program.wp_cons (_root_.Program.wp_mono hp (fun _ _ he => he) hd)
+
+theorem armWp_append [Host] {p q : _root_.Program}
+    {Qp Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
+    (hp : _root_.Program.wp p Qp E s) (hq : ∀ s', Qp s' → _root_.Program.wp q Q E s') :
+    _root_.Program.wp (p ++ q) Q E s :=
+  _root_.Program.wp_append (_root_.Program.wp_mono hq (fun _ _ he => he) hp)
+
+theorem armFallsTo_of_wp {h : Host} {k : Nat} {c : List Directive}
+    {gClob : List Reg} {fClob : FlagMask} {s : MachineData}
+    {Q : MachineData → Prop} {post : MachineState → Prop}
+    (hwp : @Program.wp h c (fun s' => Q s' ∧ armMach.Frame armCondReads s s' gClob [] fClob)
+      (fun _ _ => False) s) :
+    armMach.FallsTo armCondReads h k c gClob [] fClob s Q post := by
+  letI := h
+  intro hc hk
+  refine eventually_trans _ _ _ _ (hwp k hc) ?_
+  rintro ⟨s', a⟩ (⟨ha, ⟨hq, hfr⟩⟩ | hf)
+  · dsimp only at ha; subst ha; exact hk s' hq hfr
+  · exact False.elim hf
 
 attribute [t_step_simp] Directive.interp Instr.interp Operation.interp ConstExpr.interp
   ConstExpr.evalBranchTarget ExtOrImmReg.interp ShiftRegExpr.interp AddrOrLit.interpLoad
@@ -224,5 +286,37 @@ theorem getRegOrZr_zr (regs : Reg64s) (r : XReg) (w : RegWidth) :
 theorem getRegOrZr_xzr (regs : Reg64s) (w : RegWidth) :
     regs.getRegOrZr (xzr w) = 0#w.bits := by
   simp [xzr]
+
+theorem armLdrPoolBv_wp [Host] (d : XReg) (c : BitVec 64) (s : MachineData) :
+    _root_.Program.wp [armLdrPoolBv d c]
+      (fun s' => s' = wr s d c) (fun _ _ => False) s := by
+  refine armDirFallsTo_wp (by
+    intro _ p next jmp P hk
+    simp only [t_step_simp, Literal.interpLoad, BitVec.setWidth_eq]
+    rw [← Int64.toInt_toBitVec, Int64.toBitVec_ofBitVec, BitVec.ofInt_toInt]
+    exact hk _ rfl)
+
+theorem armMovToX_wp [Host] (d : XReg) (rs : Reg) (s : MachineData) :
+    _root_.Program.wp [armMovToX d rs]
+      (fun s' => s' = wr s d (get s rs)) (fun _ _ => False) s := by
+  refine armDirFallsTo_wp (by
+    intro _ p next jmp P hk
+    simp only [t_step_simp, imm0, Int64.toInt_zero, Reg64s.setRegOrSp,
+      Reg64s.setRegOrSp64]
+    rw [show BitVec.ofInt RegWidth.W64.bits 0 = 0#64 from rfl, BitVec.add_zero]
+    cases rs with
+    | SP => simp [Reg64s.getRegOrSp_sp64]; exact hk _ rfl
+    | reg x => simp [Reg64s.getRegOrSp_reg64]; exact hk _ rfl)
+
+theorem armMovToSp_wp [Host] (xs : XReg) (s : MachineData) :
+    _root_.Program.wp [armMovToSp xs]
+      (fun s' => s' = { s with regs := { s.regs with SP := UInt64.ofBitVec (get s (.reg xs)) } })
+      (fun _ _ => False) s := by
+  refine armDirFallsTo_wp (by
+    intro _ p next jmp P hk
+    simp only [t_step_simp, imm0, Int64.toInt_zero, Reg64s.setRegOrSp_sp64,
+      Reg64s.getRegOrSp_reg64]
+    rw [show BitVec.ofInt RegWidth.W64.bits 0 = 0#64 from rfl, BitVec.add_zero]
+    exact hk _ rfl)
 
 end LeanQbe.T.Arm64

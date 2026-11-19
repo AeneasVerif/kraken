@@ -2,10 +2,6 @@ module
 
 public import LeanQbe.T.Notation
 public import LeanQbe.T.Module
-public import LeanQbe.T.Legal
-public import LeanQbe.T.PrintQbe
-meta import LeanQbe.T.Legal
-meta import LeanQbe.T.PrintQbe
 
 /-!
 # Typed-IR Generic Scalar Litmus Suite (`W3.1`)
@@ -223,10 +219,5 @@ def allFns : List Fn :=
 /-- All 10 litmus modules (single-function and multi-function). -/
 def allModules : List Module :=
   allSingleModules ++ [callincModule, twiceModule, sumcallModule]
-
-#guard allModules.all Module.checkAcyclic = true
-#guard allModules.all (fun m => (PrintQbe.module m).isOk) = true
-#guard allFns.all (fun f => f.body.supportsSource LegalTarget.aarch64) = true
-#guard allFns.all (fun f => f.body.supportsSource LegalTarget.x64SSE) = true
 
 end LeanQbe.T.Examples.Litmus

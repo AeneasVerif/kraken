@@ -184,13 +184,10 @@ disjointness of `Rega.lname f a` and `g` without scanning internal block labels.
 def fnNameOk (s : Sym) : Bool :=
   !(hasDotLChars s.toList)
 
-/-- Reuse `Rega.listNodup` for `BEq`-based duplicate checks. -/
-abbrev listNodupBEq {α : Type} [BEq α] : List α → Bool := Rega.listNodup
-
 /-- Fast kernel-reducible `Nodup` check on strings (reversing each string once so suffixes like
 `.L14` vs `.L15` mismatch on the first character without building `Decidable` proof terms). -/
 def stringsNodup (ss : List String) : Bool :=
-  Rega.listNodup (ss.map fun (s : String) => s.toList.reverse)
+  listNodup (ss.map fun (s : String) => s.toList.reverse)
 
 /-- Convenience `labelsNodup` checker built from `stringsNodup` for directive types with an
 optional label extractor. -/

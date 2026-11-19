@@ -40,6 +40,11 @@ theorem allFns_supportsSource_x64SSE :
 theorem allModules_checkAcyclic :
     allModules.all Module.checkAcyclic = true := by t_kernel_rfl
 
+#guard allModules.all Module.checkAcyclic = true
+#guard allModules.all (fun m => (PrintQbe.module m).isOk) = true
+#guard allFns.all (fun f => f.body.supportsSource LegalTarget.aarch64) = true
+#guard allFns.all (fun f => f.body.supportsSource LegalTarget.x64SSE) = true
+
 theorem tracer_isLegal_aarch64  : tracer.body.isLegal LegalTarget.aarch64  = true := by t_kernel_rfl
 theorem ifelse_isLegal_aarch64  : ifelse.body.isLegal LegalTarget.aarch64  = true := by t_kernel_rfl
 theorem sumto_isLegal_aarch64   : sumto.body.isLegal LegalTarget.aarch64   = true := by t_kernel_rfl

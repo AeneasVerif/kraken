@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Notation
+public import LeanQbe.T.Module
 public import LeanQbe.T.Logic.Mem
 
 /-!
@@ -115,13 +116,19 @@ def unionSpec : Spec [i64, i64, i64] [] := fun (p, x, y, ()) m Q _ =>
   ∃ n rep R, (uf p n rep ⋆ R) m ∧ x.toNat < n ∧ y.toNat < n ∧
     ∀ m', (uf p n (merge rep x y) ⋆ R) m' → Q () m'
 
-/-- The closed union-find module. -/
+/-- The closed union-find function list. -/
 def ufFns : List Fn :=
   [ ⟨"find", [i64, i64], [i64], find⟩
   , ⟨"union", [i64, i64, i64], [], union⟩
   , ⟨"unionInline", [i64, i64, i64], [], unionInline⟩ ]
 
-/-- Closed module specification environment for `ufFns`. -/
+/-- Closed union-find `Module` (`externs := []`, `exits := []`). -/
+def ufModule : Module where
+  fns := ufFns
+  externs := []
+  exits := []
+
+/-- Closed module specification environment for `ufModule`. -/
 def ufEnv : Env
   | "find", [.bits 64, .bits 64], [.bits 64] => findSpec
   | "union", [.bits 64, .bits 64, .bits 64], [] => unionSpec

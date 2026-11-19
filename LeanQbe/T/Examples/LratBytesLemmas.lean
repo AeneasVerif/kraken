@@ -138,37 +138,13 @@ private theorem mkLratBytesEnv_sound (mainSpec : Spec [i64, i64, i64, i64, i64, 
       (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) (fun _ _ _ _ h => h) args m Q X
       (hweaken args m Q X hspec)
 
+theorem lratBytesModule_checkAcyclic : lratBytesModule.checkAcyclic = true := by rfl
+
 private theorem mkLratBytesEnv_moduleOk (mainSpec : Spec [i64, i64, i64, i64, i64, i64] [i64])
     (hweaken : ∀ args m Q X, mainSpec args m Q X → lratCheckBytesExactSpec args m Q X) :
-    ModuleOk (mkLratBytesEnv mainSpec) lratBytesModule := by
-  refine ⟨lratBytesModule_namesNodup, fun pre fn post hsplit => ?_⟩
-  have hsound := mkLratBytesEnv_sound mainSpec hweaken
-  simp only [lratBytesModule, lratBytesFns] at hsplit ⊢
-  rcases pre with _ | ⟨f0, _ | ⟨f1, _ | ⟨f2, _ | ⟨f3, _ | ⟨f4, _ | ⟨f5, pre'⟩⟩⟩⟩⟩⟩ <;>
-    simp only [List.nil_append, List.cons_append, List.cons.injEq] at hsplit
-  · rcases hsplit with ⟨rfl, _⟩
-    refine ⟨lbParseDimacsHeader_wf, ?_, hsound _ (by simp [lratBytesFns])⟩
-    simp [Fn.callsOk, lbParseDimacsHeader, skipWsCommentsQbe, skipWs1Qbe, readDimacsNat,
-      isWsByte, Expr.callsOk, Blocks.callsOk]
-  · rcases hsplit with ⟨rfl, rfl, _⟩
-    refine ⟨lbParseDimacsBody_wf, ?_, hsound _ (by simp [lratBytesFns])⟩
-    simp [Fn.callsOk, lbParseDimacsBody, skipWsCommentsQbe, readDimacsNat, isWsByte,
-      Expr.callsOk, Blocks.callsOk]
-  · rcases hsplit with ⟨rfl, rfl, rfl, _⟩
-    refine ⟨lbReadAddLits_wf, ?_, hsound _ (by simp [lratBytesFns])⟩
-    simp [Fn.callsOk, lbReadAddLits, readLeb128, Expr.callsOk, Blocks.callsOk]
-  · rcases hsplit with ⟨rfl, rfl, rfl, rfl, _⟩
-    refine ⟨lbRupCheck_wf, ?_, hsound _ (by simp [lratBytesFns])⟩
-    simp [Fn.callsOk, lbRupCheck, rupPhase1, rupInner, readLeb128, assignedLit,
-      assignLitChecked, backtrack, Expr.callsOk, Blocks.callsOk]
-  · rcases hsplit with ⟨rfl, rfl, rfl, rfl, rfl, _⟩
-    refine ⟨lbCheckPrf_wf, ?_, hsound _ (by simp [lratBytesFns])⟩
-    simp [Fn.callsOk, Fn.sig, lbCheckPrf, readLeb128, Expr.callsOk, Blocks.callsOk]
-  · rcases hsplit with ⟨rfl, rfl, rfl, rfl, rfl, rfl, _⟩
-    refine ⟨lratCheckBytes_wf, ?_, hsound _ (by simp [lratBytesFns])⟩
-    simp [Fn.callsOk, Fn.sig, lratCheckBytes, Expr.callsOk, Blocks.callsOk]
-  · rcases hsplit with ⟨_, _, _, _, _, _, hbad⟩
-    cases pre' <;> simp at hbad
+    ModuleOk (mkLratBytesEnv mainSpec) lratBytesModule :=
+  Module.moduleOk_of_checkAcyclic lratBytesModule_checkAcyclic
+    lratBytesFns_wf (mkLratBytesEnv_sound mainSpec hweaken)
 
 /-- Function-specification environment giving `lrat_check_bytes` its exact decision contract
 `lratCheckBytesExactSpec` (`r = if runLratCheckBytes cnfBytes prfBytes work_len then 1 else 0`). -/

@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Notation
+public import LeanQbe.T.Module
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.WfLemmas
 
@@ -878,5 +879,51 @@ theorem subMod25519_wf : Func.Wf subMod25519 := by
     (by simp) (by simp) (by simp) (by simp) fun _ _ _ _ _ _ _ _ _ _ => ?_
   t_wf_tac
 
+/-! ## `Module`, `Env`, and `ModuleOk` bundles -/
+
+def mul4x4Fn : Fn := ⟨"mul4x4", [i64, i64, i64], [], mul4x4⟩
+def addMod25519Fn : Fn := ⟨"addMod25519", [i64, i64, i64], [], addMod25519⟩
+def subMod25519Fn : Fn := ⟨"subMod25519", [i64, i64, i64], [], subMod25519⟩
+
+def mul4x4Module : Module := ⟨[mul4x4Fn], [], []⟩
+def addMod25519Module : Module := ⟨[addMod25519Fn], [], []⟩
+def subMod25519Module : Module := ⟨[subMod25519Fn], [], []⟩
+
+def bignumEnv : Env
+  | "mul4x4",      [.bits 64, .bits 64, .bits 64], [] => mul4x4Spec
+  | "addMod25519", [.bits 64, .bits 64, .bits 64], [] => addMod25519Spec
+  | "subMod25519", [.bits 64, .bits 64, .bits 64], [] => subMod25519Spec
+  | _, _, _ => fun _ _ _ _ => False
+
+theorem mul4x4Module_checkAcyclic : mul4x4Module.checkAcyclic = true := by rfl
+theorem addMod25519Module_checkAcyclic : addMod25519Module.checkAcyclic = true := by rfl
+theorem subMod25519Module_checkAcyclic : subMod25519Module.checkAcyclic = true := by rfl
+
+theorem mul4x4_moduleOk : ModuleOk bignumEnv mul4x4Module :=
+  Module.moduleOk_of_checkAcyclic mul4x4Module_checkAcyclic
+    (fun fn hmem => by
+      simp only [mul4x4Module, List.mem_singleton] at hmem
+      subst hmem; exact mul4x4_wf)
+    (fun fn hmem => by
+      simp only [mul4x4Module, List.mem_singleton] at hmem
+      subst hmem; exact mul4x4_correct bignumEnv)
+
+theorem addMod25519_moduleOk : ModuleOk bignumEnv addMod25519Module :=
+  Module.moduleOk_of_checkAcyclic addMod25519Module_checkAcyclic
+    (fun fn hmem => by
+      simp only [addMod25519Module, List.mem_singleton] at hmem
+      subst hmem; exact addMod25519_wf)
+    (fun fn hmem => by
+      simp only [addMod25519Module, List.mem_singleton] at hmem
+      subst hmem; exact addMod25519_correct bignumEnv)
+
+theorem subMod25519_moduleOk : ModuleOk bignumEnv subMod25519Module :=
+  Module.moduleOk_of_checkAcyclic subMod25519Module_checkAcyclic
+    (fun fn hmem => by
+      simp only [subMod25519Module, List.mem_singleton] at hmem
+      subst hmem; exact subMod25519_wf)
+    (fun fn hmem => by
+      simp only [subMod25519Module, List.mem_singleton] at hmem
+      subst hmem; exact subMod25519_correct bignumEnv)
 
 end LeanQbe.T.Examples.Bignum

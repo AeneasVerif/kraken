@@ -84,9 +84,6 @@ def tyEq : Ty → Ty → Bool
 def listTyEq : List Ty → List Ty → Bool
   | [], [] => true | x :: xs, y :: ys => tyEq x y && listTyEq xs ys | _, _ => false
 
-def listNodup {α : Type} [BEq α] : List α → Bool
-  | [] => true | x :: xs => !(xs.contains x) && listNodup xs
-
 def natDigits : Nat → Nat → List Char → List Char
   | 0, _, acc => acc
   | fuel + 1, n, acc =>

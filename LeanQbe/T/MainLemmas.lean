@@ -6,10 +6,9 @@ public import LeanQbe.T.LegalLemmas
 public import LeanQbe.T.RegaLemmas
 public import LeanQbe.T.TargetLemmas
 public import LeanQbe.T.Logic.MemLemmas
-public meta import Lean
 
 /-!
-# Soundness of `LeanQbe.T.Main`, `Compiled` Harness, and `splice_module_hints` (`T12g`)
+# Soundness of `LeanQbe.T.Main` & `Compiled` Harness (`T12g`)
 
 * **Signature & contract transfer**: `fnSpec_of_spec`, `encodeTup_eq_cast_of_legalSig_eq`,
   and `fnSpec_of_legalEnv_legalSig_eq` (`noExit` and general `legalXPost` variants).
@@ -23,8 +22,6 @@ public meta import Lean
 * **Kernel-certificate harness**: `TargetLayout` (+ `TargetLayout.ofClean`), `Compiled`,
   `checkCompile`, `compileChecked` (+ `WithLabels` variant), `Compiled.fnSpec`,
   `Compiled.fnSpec_host`, and `TargetInit` (`run_fnSpec`, `run_ret1`, `run_ret1_sep`).
-* **Meta hint splicing**: `splice_module_hints` command elaborator computing
-  `fns.map (Fn.computeHints I lt)` via `Lean.ToExpr` + `unsafe evalExpr` inside `meta section`.
 -/
 
 set_option autoImplicit false
@@ -246,7 +243,7 @@ theorem lname_inj_cross {f g : Sym} {a b : Nat}
 
 theorem stringsNodup_nodup {ss : List String} (h : stringsNodup ss = true) : ss.Nodup :=
   List.Pairwise.of_map (fun (s : String) => s.toList.reverse) (fun _ _ hne e => hne (e ▸ rfl))
-    (Rega.listNodup_nodup h)
+    (listNodup_nodup h)
 
 theorem labelsNodupBy_nodup {D : Type} (labelOf? : D → Option Sym) {prog : List D}
     (h : labelsNodupBy labelOf? prog = true) : (prog.filterMap labelOf?).Nodup :=
@@ -267,7 +264,7 @@ private theorem nodup_getElem?_inj : ∀ {xs : List Sym} {i j : Nat} {x : Sym},
   | _ :: ys, i + 1, j + 1, x, hnd, hi, hj =>
     congrArg Nat.succ (nodup_getElem?_inj (List.nodup_cons.mp hnd).2 hi hj)
 
-private theorem compileModule_code_labels {T : Target} (hcl : Rega.LabelClean T.toIsa)
+theorem compileModule_code_labels {T : Target} (hcl : Rega.LabelClean T.toIsa)
     (lt : LegalTarget) (raBytes : Nat) (exits : List Sym) (nX : Nat) :
     ∀ {extCallees : List (SigEntry × Nat)} {fs : List Fn} {hints : List T.toIsa.Hints}
       {code : List T.Directive} {bounds : List (Sym × Nat)},
@@ -1034,7 +1031,7 @@ attribute [irreducible] stackZeros
 
 /-- Concrete initial-state parameters for closed execution witnesses over typed `Tup Val as` /
 `Tup Val [t]` contracts on target `T`. -/
-structure TargetInit (T : Target) where
+structure TargetInit (T : Target) (maxStack : Nat := 2048) (maxMem : Nat := 8192) where
   sp0 : BitVec 64
   ra0 : T.mach.Addr
   ret0 : T.Reg
@@ -1046,7 +1043,7 @@ structure TargetInit (T : Target) where
     (T.toIsa.assignArgs as).isSome = true → T.ArgsIn args (initState n bs args)
   raReg : ∀ n bs {as : List Ty} (args : Tup Val as), T.frameSpec.raReg (initState n bs args) ra0
   spEntry : T.frameSpec.spEntry sp0
-  mem_entry : ∀ n bs {as : List Ty} (args : Tup Val as), n ≤ 2048 → bs.length ≤ 8192 →
+  mem_entry : ∀ n bs {as : List Ty} (args : Tup Val as), n ≤ maxStack → bs.length ≤ maxMem →
     (T.mach.mem (initState n bs args) =⋆
       Eq (bs.At 0x1000#64) ⋆ T.Entry sp0 ra0 n ⋆ Std.ExtHashMap.emp)
   retsIn_singleton : ∀ (v : Val i64) (s : T.mach.MData),
@@ -1056,23 +1053,24 @@ structure TargetInit (T : Target) where
 
 section TargetInitHelpers
 
-variable {T : Target} (I : TargetInit T)
+variable {T : Target} {maxStack maxMem : Nat} (I : TargetInit T maxStack maxMem)
   {lt : LegalTarget} {extCallees : List (SigEntry × Nat)} {exits : List Sym}
-  {nX : Nat} {fs : List Fn} {hints : List T.toIsa.Hints}
+  {nX : Nat} {fs : List Fn} {hints : List T.toIsa.Hints} {maxBound : Nat}
 
 /-- Run a function `nm` in `M.host` from `I.initState (M.bound nm) bsMem args` using `hf`. -/
-theorem TargetInit.run_fnSpec (M : Compiled T lt extCallees exits nX fs hints 2048)
+theorem TargetInit.run_fnSpec (M : Compiled T lt extCallees exits nX fs hints maxBound)
     {nm : Sym} {as bs : List Ty} {spec : Spec as bs} (hf : T.FnSpec M.host nm spec (M.bound nm) nX)
-    (bsMem : List UInt8) (args : Tup Val as) (hbs : bsMem.length ≤ 8192)
+    (bsMem : List UInt8) (args : Tup Val as) (hbs : bsMem.length ≤ maxMem)
     (hargs : (T.toIsa.assignArgs as).isSome = true) {Q : Post bs} {X : XPost}
     (hspec : spec args (bsMem.At 0x1000#64) Q X) {post : T.mach.State → Prop}
     (hpost : ∀ st, (T.mach.pc st = I.ra0 ∧ ∃ rets m', Q rets m' ∧ T.RetsIn rets (T.mach.data st) ∧
         (T.mach.mem (T.mach.data st) =⋆ Eq m' ⋆ T.Exit I.sp0 (M.bound nm) ⋆ Std.ExtHashMap.emp)) ∨
       (∃ (sym' : Sym) (cs : List Ty) (xs : Tup Val cs) (m' : Mem 64), X sym' cs xs m' ∧
-        T.mach.pc st = T.mach.labelAddr M.host sym' ∧ T.ArgsIn xs (T.mach.data st)) → post st) :
+        T.mach.pc st = T.mach.labelAddr M.host sym' ∧ T.ArgsIn xs (T.mach.data st)) → post st)
+    (hbound : maxBound ≤ maxStack := by omega) :
     Eventually (T.mach.step M.host) post
       (T.mach.mkState (I.initState (M.bound nm) bsMem args) (T.mach.labelAddr M.host nm)) := by
-  have hmem := I.mem_entry (M.bound nm) bsMem args (M.bound_le_max nm) hbs
+  have hmem := I.mem_entry (M.bound nm) bsMem args (Nat.le_trans (M.bound_le_max nm) hbound) hbs
   rw [← I.get_sp (M.bound nm) bsMem args] at hmem
   refine eventually_weaken _ _ _ _ ?_ (hf args (bsMem.At 0x1000#64) Q X hspec
     (I.initState (M.bound nm) bsMem args) I.ra0 Std.ExtHashMap.emp (I.argsIn _ _ _ hargs)
@@ -1082,103 +1080,70 @@ theorem TargetInit.run_fnSpec (M : Compiled T lt extCallees exits nX fs hints 20
   · exact hpost st (Or.inr ⟨sym', cs, xs, m', hX, hpc, has⟩)
 
 /-- Run a non-exiting function returning a typed singleton `(v, ()) : Tup Val [t]`. -/
-theorem TargetInit.run_ret1 (M : Compiled T lt extCallees exits nX fs hints 2048)
+theorem TargetInit.run_ret1 (M : Compiled T lt extCallees exits nX fs hints maxBound)
     {nm : Sym} {as : List Ty} {t : Ty} {spec : Spec as [t]}
     (hf : T.FnSpec M.host nm spec (M.bound nm) nX) (bsMem : List UInt8) (args : Tup Val as)
-    (v : Val t) (hbs : bsMem.length ≤ 8192) (hargs : (T.toIsa.assignArgs as).isSome = true)
+    (v : Val t) (hbs : bsMem.length ≤ maxMem) (hargs : (T.toIsa.assignArgs as).isSome = true)
     {Q : Post [t]} (hspec : spec args (bsMem.At 0x1000#64) Q (fun _ _ _ _ => False))
-    (hQ : ∀ rets m', Q rets m' → rets = (v, ())) :
+    (hQ : ∀ rets m', Q rets m' → rets = (v, ()))
+    (hbound : maxBound ≤ maxStack := by omega) :
     Eventually (T.mach.step M.host)
       (fun st => T.mach.pc st = I.ra0 ∧ T.RetsIn (bs := [t]) (v, ()) (T.mach.data st))
       (T.mach.mkState (I.initState (M.bound nm) bsMem args) (T.mach.labelAddr M.host nm)) := by
-  refine I.run_fnSpec M hf bsMem args hbs hargs hspec ?_
+  refine I.run_fnSpec M hf bsMem args hbs hargs hspec ?_ hbound
   rintro st (⟨hpc, rets, m', hq, hrets, _⟩ | ⟨_, _, _, _, hx, _⟩)
   · have hr := hQ rets m' hq; subst hr; exact ⟨hpc, hrets⟩
   · exact hx.elim
 
 /-- Specialization of `run_ret1` to `i64`, projecting the return value directly to `I.ret0`. -/
-theorem TargetInit.run_ret1_i64 (M : Compiled T lt extCallees exits nX fs hints 2048)
+theorem TargetInit.run_ret1_i64 (M : Compiled T lt extCallees exits nX fs hints maxBound)
     {nm : Sym} {as : List Ty} {spec : Spec as [i64]}
     (hf : T.FnSpec M.host nm spec (M.bound nm) nX) (bsMem : List UInt8) (args : Tup Val as)
-    (v : Val i64) (hbs : bsMem.length ≤ 8192) (hargs : (T.toIsa.assignArgs as).isSome = true)
+    (v : Val i64) (hbs : bsMem.length ≤ maxMem) (hargs : (T.toIsa.assignArgs as).isSome = true)
     {Q : Post [i64]} (hspec : spec args (bsMem.At 0x1000#64) Q (fun _ _ _ _ => False))
-    (hQ : ∀ rets m', Q rets m' → rets = (v, ())) :
+    (hQ : ∀ rets m', Q rets m' → rets = (v, ()))
+    (hbound : maxBound ≤ maxStack := by omega) :
     Eventually (T.mach.step M.host)
       (fun st => T.mach.pc st = I.ra0 ∧ T.mach.getGpr (T.mach.data st) I.ret0 = v)
       (T.mach.mkState (I.initState (M.bound nm) bsMem args) (T.mach.labelAddr M.host nm)) :=
   eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, I.retsIn_singleton v _ h.2⟩)
-    (I.run_ret1 M hf bsMem args v hbs hargs hspec hQ)
+    (I.run_ret1 M hf bsMem args v hbs hargs hspec hQ hbound)
 
 /-- Run a non-exiting function returning `(v, ()) : Tup Val [t]` and establishing `P`. -/
-theorem TargetInit.run_ret1_sep (M : Compiled T lt extCallees exits nX fs hints 2048)
+theorem TargetInit.run_ret1_sep (M : Compiled T lt extCallees exits nX fs hints maxBound)
     {nm : Sym} {as : List Ty} {t : Ty} {spec : Spec as [t]}
     (hf : T.FnSpec M.host nm spec (M.bound nm) nX) (bsMem : List UInt8) (args : Tup Val as)
-    (v : Val t) (P : Mem 64 → Prop) (hbs : bsMem.length ≤ 8192)
+    (v : Val t) (P : Mem 64 → Prop) (hbs : bsMem.length ≤ maxMem)
     (hargs : (T.toIsa.assignArgs as).isSome = true) {Q : Post [t]}
     (hspec : spec args (bsMem.At 0x1000#64) Q (fun _ _ _ _ => False))
-    (hQ : ∀ rets m', Q rets m' → rets = (v, ()) ∧ P m') :
+    (hQ : ∀ rets m', Q rets m' → rets = (v, ()) ∧ P m')
+    (hbound : maxBound ≤ maxStack := by omega) :
     Eventually (T.mach.step M.host)
       (fun st => T.mach.pc st = I.ra0 ∧ T.RetsIn (bs := [t]) (v, ()) (T.mach.data st) ∧
         (T.mach.mem (T.mach.data st) =⋆ P ⋆ T.Exit I.sp0 (M.bound nm) ⋆ Std.ExtHashMap.emp))
       (T.mach.mkState (I.initState (M.bound nm) bsMem args) (T.mach.labelAddr M.host nm)) := by
-  refine I.run_fnSpec M hf bsMem args hbs hargs hspec ?_
+  refine I.run_fnSpec M hf bsMem args hbs hargs hspec ?_ hbound
   rintro st (⟨hpc, rets, m', hq, hrets, hm'⟩ | ⟨_, _, _, _, hx, _⟩)
   · obtain ⟨rfl, hP⟩ := hQ rets m' hq
     exact ⟨hpc, hrets, sep_mono (fun _ => sep_mono (fun _ e => e ▸ hP)) hm'⟩
   · exact hx.elim
 
 /-- Specialization of `run_ret1_sep` to `i64`, projecting the return value directly to `I.ret0`. -/
-theorem TargetInit.run_ret1_sep_i64 (M : Compiled T lt extCallees exits nX fs hints 2048)
+theorem TargetInit.run_ret1_sep_i64 (M : Compiled T lt extCallees exits nX fs hints maxBound)
     {nm : Sym} {as : List Ty} {spec : Spec as [i64]}
     (hf : T.FnSpec M.host nm spec (M.bound nm) nX) (bsMem : List UInt8) (args : Tup Val as)
-    (v : Val i64) (P : Mem 64 → Prop) (hbs : bsMem.length ≤ 8192)
+    (v : Val i64) (P : Mem 64 → Prop) (hbs : bsMem.length ≤ maxMem)
     (hargs : (T.toIsa.assignArgs as).isSome = true) {Q : Post [i64]}
     (hspec : spec args (bsMem.At 0x1000#64) Q (fun _ _ _ _ => False))
-    (hQ : ∀ rets m', Q rets m' → rets = (v, ()) ∧ P m') :
+    (hQ : ∀ rets m', Q rets m' → rets = (v, ()) ∧ P m')
+    (hbound : maxBound ≤ maxStack := by omega) :
     Eventually (T.mach.step M.host)
       (fun st => T.mach.pc st = I.ra0 ∧ T.mach.getGpr (T.mach.data st) I.ret0 = v ∧
         (T.mach.mem (T.mach.data st) =⋆ P ⋆ T.Exit I.sp0 (M.bound nm) ⋆ Std.ExtHashMap.emp))
       (T.mach.mkState (I.initState (M.bound nm) bsMem args) (T.mach.labelAddr M.host nm)) :=
   eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, I.retsIn_singleton v _ h.2.1, h.2.2⟩)
-    (I.run_ret1_sep M hf bsMem args v P hbs hargs hspec hQ)
+    (I.run_ret1_sep M hf bsMem args v P hbs hargs hspec hQ hbound)
 
 end TargetInitHelpers
-
-/-! ## Meta hint splicing (`splice_module_hints`) -/
-
-meta section
-open Lean Elab Command Term Meta
-
-/-- `splice_module_hints name isa lt fns` evaluates `fns.map (Fn.computeHints isa lt)` in the
-meta interpreter using `Lean.ToExpr` and adds the resulting literal hint list as a safe kernel
-definition `name : List isa.Hints`. -/
-elab "splice_module_hints " hName:ident isaT:term:arg ltT:term:arg fnsT:term:arg : command => do
-  let hDeclNm := (← getCurrNamespace) ++ hName.getId
-  let (hTy, hExpr) ← liftTermElabM do
-    let isaE ← elabTerm isaT (some (mkConst ``LeanQbe.T.Isa))
-    let ltE ← elabTerm ltT (some (mkConst ``LeanQbe.T.LegalTarget))
-    let fnListTy := mkApp (mkConst ``List [0]) (mkConst ``LeanQbe.T.Fn)
-    let fnsE ← elabTerm fnsT (some fnListTy)
-    let regTy ← whnf (mkApp (mkConst ``LeanQbe.T.Isa.Reg) isaE)
-    let vregTy ← whnf (mkApp (mkConst ``LeanQbe.T.Isa.VReg) isaE)
-    let condTy ← whnf (mkApp (mkConst ``LeanQbe.T.Isa.Cond) isaE)
-    let hintTy := mkApp3 (mkConst ``LeanQbe.T.Hints) regTy vregTy condTy
-    let listHintsTy := mkApp (mkConst ``List [0]) hintTy
-    let compFn ← mkAppM ``LeanQbe.T.Fn.computeHints #[isaE, ltE]
-    let mapTerm ← mkAppM ``List.map #[compFn, fnsE]
-    let typedMap ← mkExpectedTypeHint mapTerm listHintsTy
-    let toExprInst ← synthInstance (mkApp (mkConst ``Lean.ToExpr [0]) listHintsTy)
-    let toExprTerm := mkApp3 (mkConst ``Lean.toExpr [0]) listHintsTy toExprInst typedMap
-    let hLit ← unsafe evalExpr Lean.Expr (mkConst ``Lean.Expr) toExprTerm
-    let outTy := mkApp (mkConst ``List [0]) (mkApp (mkConst ``LeanQbe.T.Isa.Hints) isaE)
-    return (outTy, hLit)
-  liftCoreM do
-    let hDecl := Declaration.defnDecl {
-      name := hDeclNm, levelParams := [], type := hTy, value := hExpr,
-      hints := .abbrev, safety := .safe }
-    addDecl hDecl (forceExpose := true)
-    compileDecl hDecl
-
-end
 
 end LeanQbe.T

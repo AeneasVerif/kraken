@@ -20,51 +20,7 @@ set_option autoImplicit false
 
 namespace LeanQbe.T.Arm64
 
-/-! ## 1. `Program.wp` / `armMach.FallsTo` combinators and framing -/
-
-def armDirFallsTo (d : Directive) (s : MachineData) (Q : MachineData → Prop) : Prop :=
-  ∀ [Labels] (p : Std.Rco Int64) (next : MachineData → Effects)
-    (jmp : Int64 → MachineData → Effects) (P : MachineState → Prop),
-    (∀ s', Q s' → (next s').All P) → (d.interp s p next jmp).All P
-
-theorem armDirFallsTo_wp [Host] {d : Directive} {s : MachineData}
-    {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} (h : armDirFallsTo d s Q) :
-    _root_.Program.wp [d] Q E s :=
-  _root_.Program.wp_singleton fun _ _ => h _ _ _ _ fun _ hq => Or.inl ⟨rfl, hq⟩
-
-theorem armWp_nil [Host] {Q : MachineData → Prop} {E : Int64 → MachineData → Prop}
-    {s : MachineData} (h : Q s) : _root_.Program.wp [] Q E s :=
-  _root_.Program.wp_nil h
-
-theorem armWp_mono [Host] {p : _root_.Program} {Q Q' : MachineData → Prop}
-    {E : Int64 → MachineData → Prop} {s : MachineData}
-    (h : _root_.Program.wp p Q E s) (hQ : ∀ s', Q s' → Q' s') : _root_.Program.wp p Q' E s :=
-  _root_.Program.wp_mono hQ (fun _ _ he => he) h
-
-theorem armWp_cons [Host] {d : Directive} {p : _root_.Program}
-    {Qd Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
-    (hd : _root_.Program.wp [d] Qd E s) (hp : ∀ s', Qd s' → _root_.Program.wp p Q E s') :
-    _root_.Program.wp (d :: p) Q E s :=
-  _root_.Program.wp_cons (_root_.Program.wp_mono hp (fun _ _ he => he) hd)
-
-theorem armWp_append [Host] {p q : _root_.Program}
-    {Qp Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
-    (hp : _root_.Program.wp p Qp E s) (hq : ∀ s', Qp s' → _root_.Program.wp q Q E s') :
-    _root_.Program.wp (p ++ q) Q E s :=
-  _root_.Program.wp_append (_root_.Program.wp_mono hq (fun _ _ he => he) hp)
-
-theorem armFallsTo_of_wp {h : Host} {k : Nat} {c : List Directive}
-    {gClob : List Reg} {fClob : FlagMask} {s : MachineData}
-    {Q : MachineData → Prop} {post : MachineState → Prop}
-    (hwp : @Program.wp h c (fun s' => Q s' ∧ armMach.Frame armCondReads s s' gClob [] fClob)
-      (fun _ _ => False) s) :
-    armMach.FallsTo armCondReads h k c gClob [] fClob s Q post := by
-  letI := h
-  intro hc hk
-  refine eventually_trans _ _ _ _ (hwp k hc) ?_
-  rintro ⟨s', a⟩ (⟨ha, ⟨hq, hfr⟩⟩ | hf)
-  · dsimp only at ha; subst ha; exact hk s' hq hfr
-  · exact False.elim hf
+/-! ## 1. Framing helpers -/
 
 theorem armFrame_upd_regs {s s' : MachineData} {gClob : List Reg} {fClob : FlagMask}
     (hkeep : ∀ r, r ∉ gClob → get s' r = get s r)
@@ -90,11 +46,6 @@ theorem armFrame_status_eq {s s' : MachineData} {gClob : List Reg} {fClob : Flag
     armMach.Frame armCondReads s s' gClob [] fClob :=
   armFrame_upd_regs hkeep (Or.inr (Or.inr hst))
 
-theorem ne_of_not_mem_armScratch {r : Reg} (hr : r ∉ armScratch) :
-    r ≠ .reg .X16 ∧ r ≠ .reg .X17 := by
-  simp only [armScratch, List.mem_cons, List.not_mem_nil, or_false, not_or] at hr
-  exact hr
-
 theorem xreg_ne_scratch_of_not_mem {x : XReg} (hx : XRegOrSp.reg x ∉ armScratch) :
     x ≠ .X16 ∧ x ≠ .X17 := by
   have ⟨h1, h2⟩ := ne_of_not_mem_armScratch hx
@@ -115,38 +66,6 @@ theorem frame_setStatus {s : MachineData} (st : StatusFlags) (gClob : List Reg) 
 theorem Reg64s_getXReg_setXReg_of_ne' (regs : Reg64s) (a b : XReg) (v : BitVec 64)
     (h : a ≠ b) : (regs.setXReg a v).getXReg b = regs.getXReg b :=
   Reg64s.getXReg_setXReg_of_ne regs a b v h
-
-theorem armLdrPoolBv_wp [Host] (d : XReg) (c : BitVec 64) (s : MachineData) :
-    _root_.Program.wp [armLdrPoolBv d c]
-      (fun s' => s' = wr s d c) (fun _ _ => False) s := by
-  refine armDirFallsTo_wp (by
-    intro _ p next jmp P hk
-    simp only [t_step_simp, Literal.interpLoad, BitVec.setWidth_eq]
-    rw [← Int64.toInt_toBitVec, Int64.toBitVec_ofBitVec, BitVec.ofInt_toInt]
-    exact hk _ rfl)
-
-theorem armMovToX_wp [Host] (d : XReg) (rs : Reg) (s : MachineData) :
-    _root_.Program.wp [armMovToX d rs]
-      (fun s' => s' = wr s d (get s rs)) (fun _ _ => False) s := by
-  refine armDirFallsTo_wp (by
-    intro _ p next jmp P hk
-    simp only [t_step_simp, imm0, Int64.toInt_zero, Reg64s.setRegOrSp,
-      Reg64s.setRegOrSp64]
-    rw [show BitVec.ofInt RegWidth.W64.bits 0 = 0#64 from rfl, BitVec.add_zero]
-    cases rs with
-    | SP => simp [Reg64s.getRegOrSp_sp64]; exact hk _ rfl
-    | reg x => simp [Reg64s.getRegOrSp_reg64]; exact hk _ rfl)
-
-theorem armIselMovToSp_wp [Host] (xs : XReg) (s : MachineData) :
-    _root_.Program.wp [armIselMovToSp xs]
-      (fun s' => s' = { s with regs := { s.regs with SP := UInt64.ofBitVec (get s (.reg xs)) } })
-      (fun _ _ => False) s := by
-  refine armDirFallsTo_wp (by
-    intro _ p next jmp P hk
-    simp only [t_step_simp, imm0, Int64.toInt_zero, Reg64s.setRegOrSp_sp64,
-      Reg64s.getRegOrSp_reg64]
-    rw [show BitVec.ofInt RegWidth.W64.bits 0 = 0#64 from rfl, BitVec.add_zero]
-    exact hk _ rfl)
 
 theorem armCset64_wp [Host] (d : XReg) (c : ArmCond) (s : MachineData) :
     _root_.Program.wp [armCset64 d c]
@@ -303,7 +222,7 @@ theorem armMovi_spec {h : Host} {k : Nat} {rd : Reg} {c : BitVec 64} {s : Machin
   | SP =>
     refine armWp_cons (armLdrPoolBv_wp .X16 c s) ?_
     rintro s₁ rfl
-    refine armWp_mono (armIselMovToSp_wp .X16 (wr s .X16 c)) ?_
+    refine armWp_mono (armMovToSp_wp .X16 (wr s .X16 c)) ?_
     rintro s' rfl
     refine ⟨⟨by simp [get_sp, get_wr_same], rfl⟩, armFrame_status_eq (fun r hr => ?_) rfl⟩
     simp only [List.mem_cons, armScratch, List.not_mem_nil, or_false, not_or] at hr
@@ -332,7 +251,7 @@ theorem armSetcc_spec {h : Host} {k : Nat} {rd : Reg} {c : ArmCond} {s : Machine
   | SP =>
     refine armWp_cons (armCset64_wp .X16 c s) ?_
     rintro s₁ rfl
-    refine armWp_mono (armIselMovToSp_wp .X16 (wr s .X16 _)) ?_
+    refine armWp_mono (armMovToSp_wp .X16 (wr s .X16 _)) ?_
     rintro s' rfl
     refine ⟨⟨?_, rfl⟩, armFrame_status_eq (fun r hr => ?_) rfl⟩
     · simp only [get_sp, get_wr_same, GprHolds]
@@ -627,7 +546,7 @@ theorem armLoad_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg} {a : AddrArg Reg}
     rintro s₁ ⟨heval, hx₁, _, hdmem₁, hst₁, _⟩
     refine armWp_cons (armLoadDir_wp hdir hnoSp heval (by simpa [armMach, hdmem₁] using hv)) ?_
     rintro s₂ ⟨w64, rfl, hw64⟩
-    refine armWp_mono (armIselMovToSp_wp .X16 (wr s₁ .X16 w64)) ?_
+    refine armWp_mono (armMovToSp_wp .X16 (wr s₁ .X16 w64)) ?_
     rintro s₃ rfl
     refine ⟨⟨?_, hdmem₁⟩, armFrame_status_eq ?_ hst₁⟩
     · simpa [armMach, get_sp, get_wr_same] using hw64
@@ -1138,11 +1057,11 @@ theorem armMov_noLab (rd rs : Reg) (l : Sym) : Kraken.Directive.label l ∉ armG
 
 theorem armMovi_noLab (rd : Reg) (c : BitVec 64) (l : Sym) :
     Kraken.Directive.label l ∉ armGpr.movi rd c := by
-  cases rd <;> simp [armMovi, armLdrPoolBv, armIselMovToSp, ins]
+  cases rd <;> simp [armMovi, armLdrPoolBv, armMovToSp, ins]
 
 theorem armSetcc_noLab (rd : Reg) (c : ArmCond) (l : Sym) :
     Kraken.Directive.label l ∉ armGpr.setcc rd c := by
-  cases rd <;> simp [armSetcc, armCset64, armIselMovToSp, ins]
+  cases rd <;> simp [armSetcc, armCset64, armMovToSp, ins]
 
 theorem armJmp_noLab (tgt l : Sym) : Kraken.Directive.label l ∉ armGpr.jmp tgt := by
   simp [armJmp, ins]
@@ -1167,7 +1086,7 @@ theorem armLoad_noLab {t : Ty} {rd : Reg} {a : AddrArg Reg} {c : List Directive}
     split at hdir <;> cases hdir <;> simp [ins]
   · rcases hrest with ⟨dir, hdir, rfl, rfl⟩
     simp only [List.mem_append, List.mem_cons, not_or]
-    refine ⟨hsa, ?_, by simp [armIselMovToSp, ins]⟩
+    refine ⟨hsa, ?_, by simp [armMovToSp, ins]⟩
     dsimp [armLoadDir] at hdir
     split at hdir <;> cases hdir <;> simp [ins]
 
