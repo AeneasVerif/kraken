@@ -11,9 +11,8 @@ public meta import LeanQbeTest.T.RegaLitmusTarget
 # `G12a`/`G12d` Litmus Programs, Untrusted `Spill` Hints, and Kernel-Checked Lowering
 
 Programs over the typed PHOAS IL lowered by `Rega.lowerFn RegaLitmus.isa` with untrusted hints
-computed by `Spill.hints` (optionally patched by `patchHints` for flag homes and instruction
-variants that `Spill`'s local heuristics do not discover), spliced as literals, and checked by a
-single kernel `rfl` per program (`t_kernel_rfl`).
+computed directly by `Spill.hints`, spliced as literals, and checked by a single kernel `rfl` per
+program (`t_kernel_rfl`).
 -/
 
 set_option autoImplicit false
@@ -156,40 +155,6 @@ def fnCfLoop : Fn := ⟨"cfLoop", [i64, i64], [i64, .bool], fun _ _ (n, x, ()) =
     (fun loop => .jump loop (.var n, .imm 0, .var x, .imm false, ()))⟩
 
 
-/-! ## 3. Untrusted Hint Patches (flag homes and variants beyond `Spill`'s local heuristics) -/
-
-/-- Overrides applied on top of `Spill.hints`: destination locations (by value number), block
-parameter locations (by label id), instruction variants and `clearFlags` (by instruction index).
-Hints are untrusted: `Rega.lowerFn` re-checks every one of them. -/
-structure Patch where
-  dest : List (Nat × isa.Loc) := []
-  ploc : List (Nat × List isa.Loc) := []
-  variant : List (Nat × VariantHint) := []
-  clear : List Nat := []
-
-def patchHints (h : isa.Hints) (p : Patch) : isa.Hints :=
-  { h with
-    dest := p.dest.foldl (fun t (k, l) => t.insert k l) h.dest
-    entry := p.ploc.foldl (fun t (k, ls) => t.insert k { (t.getD k {}) with ploc := ls }) h.entry
-    variant := p.variant.foldl (fun t (k, v) => t.insert k v) h.variant
-    pre := p.clear.foldl (fun t k => t.insert k { (t.getD k {}) with clearFlags := true }) h.pre }
-
-/-- `adcxAdox`: carries `cx`/`cx'` (values 7, 11) in `CF` via `adcx`, `oy`/`oy'` (9, 13) in `OF`
-via `adox`, with one `xor` clearing both flags before the first pair. -/
-def patchAdcxAdox : Patch where
-  dest := [(7, .flag .cf), (9, .flag .of), (11, .flag .cf), (13, .flag .of)]
-  variant := [(0, .adcx), (1, .adox), (2, .adcx), (3, .adox)]
-  clear := [0]
-
-/-- `cfLoop`: the `bool` block parameter `cf` (label 0, 4th parameter) and `cf'` (value 7) live in
-`CF`; `y + 8` (instruction 2) is `lea`, `i - 1` (3) is `dec`, `i' ≠ 0` (4) is `tstz`; the entry
-jump (0) clears `CF` to pass `false`. -/
-def patchCfLoop : Patch where
-  dest := [(7, .flag .cf)]
-  ploc := [(0, [.gpr 6, .gpr 1, .gpr 0, .flag .cf])]
-  variant := [(2, .disp 8), (3, .decInc), (4, .decInc)]
-  clear := [0]
-
 def extCarryCall : Rega.Ext := { callees := [("inc", [i64], [i64])] }
 
 /-! ## 4. External Untrusted Hint & Code Splicing (`ToExpr`, zero kernel oracle execution) -/
@@ -244,9 +209,8 @@ splice_lower hintsCarryCall codeCarryCall (Spill.hints isa fnCarryCall) (extCarr
 splice_lower hintsBits8 codeBits8 (Spill.hints isa fnBits8) ({}) fnBits8
 splice_lower hintsCmpJcc codeCmpJcc (Spill.hints isa fnCmpJcc) ({}) fnCmpJcc
 splice_lower hintsAdcChain codeAdcChain (Spill.hints isa fnAdcChain) ({}) fnAdcChain
-splice_lower hintsAdcxAdox codeAdcxAdox (patchHints (Spill.hints isa fnAdcxAdox) patchAdcxAdox) ({})
-  fnAdcxAdox
-splice_lower hintsCfLoop codeCfLoop (patchHints (Spill.hints isa fnCfLoop) patchCfLoop) ({}) fnCfLoop
+splice_lower hintsAdcxAdox codeAdcxAdox (Spill.hints isa fnAdcxAdox) ({}) fnAdcxAdox
+splice_lower hintsCfLoop codeCfLoop (Spill.hints isa fnCfLoop) ({}) fnCfLoop
 
 /-! ## 5. Well-Formedness and Kernel-Checked Lowering -/
 
@@ -302,27 +266,27 @@ theorem cmpJcc_code : codeCmpJcc =
     [.label "cmpJcc", .spAdd 0#64, .mov 0 7, .cmp 64 (.reg 0) (.reg 6), .jcc .cf "cmpJcc.L0",
      .mov 0 6, .spAdd 0#64, .ret, .label "cmpJcc.L0", .spAdd 0#64, .ret] := by t_kernel_rfl
 
-/-- `adc` chain: one `xor` clears `CF`, then three `adc`s ripple the carry through `CF`; only the
-dead final carry is materialised (`setc`). -/
+/-- `adc` chain: one `xor` clears `CF`, then three `adc`s ripple the carry through `CF`; the dead
+final carry stays in `CF` (zero `setcc`). -/
 theorem adcChain_code : codeAdcChain =
     [.label "adcChain", .spAdd 0#64, .mov 0 6, .xorz 11, .adc 64 7 (.reg 7) (.reg 2),
-     .adc 64 0 (.reg 0) (.reg 1), .adc 64 2 (.imm 0#64) (.imm 0#64), .setcc 1 .cf, .spAdd 0#64,
+     .adc 64 0 (.reg 0) (.reg 1), .adc 64 2 (.imm 0#64) (.imm 0#64), .spAdd 0#64,
      .ret] := by t_kernel_rfl
 
 /-- Interleaved `adcx`/`adox`: the `CF` chain survives the `adox`es and the `OF` chain survives the
 `adcx`es; no flag ever moves through a GPR. -/
 theorem adcxAdox_code : codeAdcxAdox =
-    [.label "adcxAdox", .spAdd 0#64, .xorz 11, .adcx 64 7 (.reg 7) (.reg 2),
-     .adox 64 2 (.reg 1) (.reg 9), .adcx 64 0 (.reg 6) (.imm 0#64), .adox 64 2 (.reg 8) (.imm 0#64),
+    [.label "adcxAdox", .spAdd 0#64, .mov 0 6, .xorz 11, .adcx 64 7 (.reg 7) (.reg 2),
+     .adox 64 1 (.reg 1) (.reg 9), .adcx 64 0 (.reg 0) (.imm 0#64), .adox 64 2 (.reg 8) (.imm 0#64),
      .spAdd 0#64, .ret] := by t_kernel_rfl
 
 /-- Loop-carried `CF`: `adc` produces it, `lea`/`dec`/`tstz`/`jcc`/`mov`/`jmp` preserve it around
 the back-edge into the next `adc`; it is materialised (`setc`) only on exit. -/
 theorem cfLoop_code : codeCfLoop =
-    [.label "cfLoop", .spAdd 0#64, .mov 0 6, .mov 6 7, .xorz 11, .movi 1 0#64,
-     .label "cfLoop.L0", .adc 64 1 (.reg 1) (.reg 0), .lea 7 0 8#64, .dec 64 0 (.reg 6),
+    [.label "cfLoop", .spAdd 0#64, .mov 0 6, .mov 2 7, .xorz 11, .movi 1 0#64,
+     .label "cfLoop.L0", .adc 64 1 (.reg 1) (.reg 0), .lea 6 0 8#64, .dec 64 0 (.reg 2),
      .tstz 64 (.reg 0), .jcc .nzf "cfLoop.L1", .mov 0 1, .setcc 2 .cf, .zext 8 2, .spAdd 0#64, .ret,
-     .label "cfLoop.L1", .mov 6 0, .mov 0 7, .jmp "cfLoop.L0"] := by t_kernel_rfl
+     .label "cfLoop.L1", .mov 2 0, .mov 0 6, .jmp "cfLoop.L0"] := by t_kernel_rfl
 
 theorem cfLoop_cf_writers :
     codeCfLoop.filter Instr.writesCF = [.xorz 11, .adc 64 1 (.reg 1) (.reg 0)] ∧
