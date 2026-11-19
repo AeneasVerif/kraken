@@ -48,6 +48,8 @@ public import LeanQbe.T.DivConst
 public import LeanQbe.T.DivConstLemmas
 public import LeanQbe.T.MemLoad
 public import LeanQbe.T.MemLoadLemmas
+public import LeanQbe.T.Peel
+public import LeanQbe.T.PeelLemmas
 public import LeanQbe.T.Trie
 public import LeanQbe.T.Target
 public import LeanQbe.T.TargetLemmas
