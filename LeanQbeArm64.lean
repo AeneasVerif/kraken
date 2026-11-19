@@ -22,5 +22,7 @@ public import LeanQbe.T.Arm64.Targ
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Arm64.Litmus
 public import LeanQbe.T.Arm64.UnionFind
+public import LeanQbe.T.Arm64.Bignum
+public import LeanQbe.T.Arm64.ChaCha
 
 /-! Root of the AArch64 library: `Kraken.AArch64` via `LeanQbe.Arm64.*` & `LeanQbe.T.Arm64.*`. -/

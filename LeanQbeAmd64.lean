@@ -27,5 +27,7 @@ public import LeanQbe.T.Amd64.Targ
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Amd64.Litmus
 public import LeanQbe.T.Amd64.UnionFind
+public import LeanQbe.T.Amd64.Bignum
+public import LeanQbe.T.Amd64.ChaCha
 
 /-! Root of the x64 library: imports `Kraken.X64`, `LeanQbe.Amd64.*`, and `LeanQbe.T.Amd64.*`. -/
