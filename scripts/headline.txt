@@ -590,3 +590,12 @@ LeanQbe.T.Examples.LitmusProgsLemmas LeanQbe.T.Examples.Litmus.callinc_moduleOk
 LeanQbe.T.Examples.LitmusProgsLemmas LeanQbe.T.Examples.Litmus.twice_moduleOk
 LeanQbe.T.Examples.LitmusProgsLemmas LeanQbe.T.Examples.Litmus.sumcall_moduleOk
 LeanQbe.T.Examples.LitmusProgsLemmas LeanQbe.T.Examples.Litmus.tracer_nonvacuous
+LeanQbe.T.Arm64.IselLemmas4 LeanQbe.T.Arm64.armGprSpec
+LeanQbe.T.Arm64.IselLemmas4 LeanQbe.T.Arm64.armOp_noLab
+LeanQbeTest.T.Arm64IselTest LeanQbeTest.T.Arm64IselTest.div0_witness
+LeanQbeTest.T.Arm64IselTest LeanQbeTest.T.Arm64IselTest.bitCount_witness
+LeanQbeTest.T.Arm64IselTest LeanQbeTest.T.Arm64IselTest.carry_borrow_chain_witness
+LeanQbeTest.T.Arm64IselTest LeanQbeTest.T.Arm64IselTest.mul_funnel_select_witness
+LeanQbeTest.T.Arm64IselTest LeanQbeTest.T.Arm64IselTest.subword_garbage_witness
+LeanQbeTest.T.Arm64IselTest LeanQbeTest.T.Arm64IselTest.sp_corner_witness
+LeanQbeTest.T.Arm64IselTest LeanQbeTest.T.Arm64IselTest.jnzGpr_false_witness
