@@ -102,12 +102,12 @@ Note: Both `T.Amd64.LratBytes.lean` (`79.18 s` CPU / `76.51 s` wall, max RSS `7,
 | `Litmus.sumcall` | `inc: 8, sumcall: 40` | 34 | `inc: 16, sumcall: 48` | 35 |
 | **`Litmus` total (10 modules)** | max `56` (`spill10`) | **241** | max `48` (`twice`/`sumcall`) | **223** |
 | **`UnionFind` (`T12i`)** | `find: 8, union: 40, unionInline: 8` | **102** | `find: 16, union: 48, unionInline: 16` | **93** |
-| **`LratBytes` (`T16`)** | `lb_parse_dimacs_header: 8, lb_parse_dimacs_body: 72, lb_read_add_lits: 56, lb_rup_check: 88, lb_check_prf: 184, lrat_check_bytes: 264` | **1,526** (`+33.5%` vs E1) | `lb_parse_dimacs_header: 16, lb_parse_dimacs_body: 16, lb_read_add_lits: 16, lb_rup_check: 16, lb_check_prf: 112, lrat_check_bytes: 176` | **1,192** (`+15.5%` vs E1) |
+| **`LratBytes` (`T16`)** | `lb_parse_dimacs_header: 8, lb_parse_dimacs_body: 72, lb_read_add_lits: 56, lb_rup_check: 88, lb_check_prf: 184, lrat_check_bytes: 264` | **1,505** (`+31.7%` vs E1) | `lb_parse_dimacs_header: 16, lb_parse_dimacs_body: 16, lb_read_add_lits: 16, lb_rup_check: 16, lb_check_prf: 112, lrat_check_bytes: 176` | **1,192** (`+15.5%` vs E1) |
 | **`LratBytes` (E1 baseline)** | `lb_parse_dimacs_header: 24, lb_parse_dimacs_body: 72, lb_read_add_lits: 56, lb_rup_check: 88, lb_check_prf: 184, lrat_check_bytes: 264` | **1,143** | `lb_parse_dimacs_header: 16, lb_parse_dimacs_body: 16, lb_read_add_lits: 16, lb_rup_check: 16, lb_check_prf: 112, lrat_check_bytes: 176` | **1,032** |
 
 Observations:
 * **Stack bounds parity (`T16` vs E1):** On AArch64, all six `LratBytes` functions match E1's exact frame bounds (`16/16/16/16/112/176` bytes). On x64, five of six functions match identically (`72/56/88/184/264`), while `lb_parse_dimacs_header` drops from `24` bytes (E1) to `8` bytes (`T16`).
-* **Directive counts:** `T16` emits `+383` directives (`1,526` vs `1,143`) on x64 and `+160` directives (`1,192` vs `1,032`) on AArch64 compared to E1, reflecting explicit typed-IR width conversions (`zext`/`sext`/`trunc`), `.bool` branch materialization, and `GprTarget`/`Targ` legalization.
+* **Directive counts:** `T16` emits `+362` directives (`1,505` vs `1,143`, `-21` from BMI2 variable shifts) on x64 and `+160` directives (`1,192` vs `1,032`) on AArch64 compared to E1, reflecting explicit typed-IR width conversions (`zext`/`sext`/`trunc`), `.bool` branch materialization, and `GprTarget`/`Targ` legalization.
 * **Register pressure (`Litmus.spill10`):** AArch64's larger allocatable GPR set keeps `spill10` at a minimal `16`-byte frame (`28` dirs) vs `56` bytes (`45` dirs) on SysV x64.
 
 ---

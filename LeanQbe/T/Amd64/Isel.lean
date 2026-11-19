@@ -10,7 +10,9 @@ Implements `x64Gpr : GprIsa Reg64 RegMm CondCode Directive` over `LeanQbe.T.Amd6
 `x64Scratch := [.r10, .r11]`, `x64CondReads`, `x64NegCond`):
 
 * `x64SupportsScalarOp`: kernel-`rfl`-safe 1-for-1 `Bool` gate covering:
-  - `[8, 16, 32, 64]`: `copy/add/sub/mul/neg/and/or/xor/not`, `shl/lshr/ashr/rotl/rotr`,
+  - `[8, 16, 32, 64]`: `copy/add/sub/mul/neg/and/or/xor/not`, `shl/lshr/ashr/rotl/rotr` (with
+    BMI2 flag-free `shlx`/`shrx`/`sarx` and immediate `rorx` at `32`/`64`),
+    `clz/cls/ctz/popcnt` (`lzcnt`/`tzcnt`/`popcnt` with `8`/`16`-to-`32` widening),
     `ofBool`, `udiv/sdiv/urem/srem`, `cmp` (both `.flag` and `.gpr`), `select` (`.flag`, `.gpr`,
     and `.imm`, branchless via `cmovcc`), `zext/sext/trunc/bitcast`, and `.bool`
     `copy/and/or/xor/not`.
@@ -191,6 +193,33 @@ def ShiftKind.isRot : ShiftKind → Bool
   | .rotl | .rotr => true
   | _ => false
 
+/-- BMI2 flag-free 3-operand variable shift constructor for `shl`/`lshr`/`ashr`. -/
+def ShiftKind.toBmi2Op? {w : Width} :
+    ShiftKind → Option (Reg w → RegOrMem w → Reg w → Operation w)
+  | .shl  => some .shlx
+  | .lshr => some .shrx
+  | .ashr => some .sarx
+  | _     => none
+
+/-- Pure `BitVec` shift/rotate semantics parameterized by shift count `k`. -/
+def ShiftKind.eval {n : Nat} : ShiftKind → BitVec n → Nat → BitVec n
+  | .shl,  x, k => x <<< k
+  | .lshr, x, k => x >>> k
+  | .ashr, x, k => x.sshiftRight k
+  | .rotl, x, k => x.rotateLeft k
+  | .rotr, x, k => x.rotateRight k
+
+/-- Bit-counting operation kind supported by `opBitcnt`. -/
+inductive BitcntKind | clz | cls | ctz | popcnt
+  deriving DecidableEq
+
+/-- Pure `BitVec` semantics of bit-counting operations. -/
+def BitcntKind.eval (w : Width) : BitcntKind → BitVec w.bits → BitVec w.bits
+  | .clz,    x => x.clz
+  | .cls,    x => (if x.msb then (~~~x).clz else x.clz) - BitVec.ofNat w.bits 1
+  | .ctz,    x => x.reverse.clz
+  | .popcnt, x => x.cpop
+
 /-- Mask `ecx` to `0..7` or `0..15` for variable `8`/`16`-bit shifts (Kraken shifts mask by `0x1f`). -/
 def shiftMaskRcx : Width → List Directive
   | .W8  => [ins32 (.and (.reg (d .rcx)) (.imm (.int64 7)))]
@@ -356,14 +385,25 @@ def opBin (w : Width) (k : AluBinKind)
                  movW w rd .r11], maskAll)
       | _, _ => none
 
-/-- Lower `.shl`/`.lshr`/`.ashr`/`.rotl`/`.rotr` on `.bits w.bits` into `rd`. -/
+/-- Lower `.shl`/`.lshr`/`.ashr`/`.rotl`/`.rotr` on `.bits w.bits` into `rd`.
+For 32/64-bit, uses BMI2 flag-free `shlx`/`shrx`/`sarx` on variable shifts and `rorx` on
+non-zero immediate rotates (`maskNone`); 8/16-bit and variable rotates use `%cl` / legacy ops. -/
 def opShift (w : Width) (sk : ShiftKind)
     (pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)) (rd : Reg64) :
     Option (List Directive × FlagMask) :=
+  let isWide := w == .W32 || w == .W64
   match pb with
   | .imm cb =>
     let cnt := cb.toNat % w.bits
     if cnt == 0 then opCopyBits w pa rd
+    else if isWide && sk.isRot then
+      let rotCnt := if sk == .rotl then w.bits - cnt else cnt
+      match pa with
+      | .gpr ra =>
+        some ([insW w (.rorx (regW w rd) (.reg (regW w ra)) (.int64 (Int64.ofNat rotCnt)))],
+              maskNone)
+      | .imm ca => some ([moviD rd ((sk.eval ca cnt).setWidth 64)], maskNone)
+      | .vec _  => none
     else do
       let setup ←
         match pa with
@@ -371,16 +411,71 @@ def opShift (w : Width) (sk : ShiftKind)
         | .imm ca => some [moviD rd (ca.setWidth 64)]
         | .vec _  => none
       let clob := if sk.isRot then maskCF ||| maskOF else maskAll
-      some (setup ++ [insW w (sk.toOp (.reg (regW w rd)) (.imm8 (.int64 (Int64.ofNat cnt))))], clob)
-  | .gpr rb => do
-    let d1 ← argToBits w .r11 pa
-    let mvRcx := if rb == .rcx then [] else [movW w .rcx rb]
-    let mask := shiftMaskRcx w
-    let sh := insW w (sk.toOp (.reg (regW w .r11)) .cl)
-    let clob :=
-      if w == .W8 || w == .W16 then maskAll else if sk.isRot then maskCF ||| maskOF else maskAll
-    some ([d1, movD .r10 .rcx] ++ mvRcx ++ mask ++ [sh, movD .rcx .r10, movW w rd .r11], clob)
+      some (setup ++ [insW w (sk.toOp (.reg (regW w rd)) (.imm8 (.int64 (Int64.ofNat cnt))))],
+            clob)
+  | .gpr rb =>
+    if isWide && !sk.isRot then
+      match sk.toBmi2Op?, pa with
+      | some bmiOp, .gpr ra =>
+        some ([insW w (bmiOp (regW w rd) (.reg (regW w ra)) (regW w rb))], maskNone)
+      | some bmiOp, .imm ca =>
+        some ([moviD .r11 (ca.setWidth 64),
+               insW w (bmiOp (regW w rd) (.reg (regW w .r11)) (regW w rb))], maskNone)
+      | _, _ => none
+    else do
+      let d1 ← argToBits w .r11 pa
+      let mvRcx := if rb == .rcx then [] else [movW w .rcx rb]
+      let mask := shiftMaskRcx w
+      let sh := insW w (sk.toOp (.reg (regW w .r11)) .cl)
+      let clob :=
+        if w == .W8 || w == .W16 then maskAll else if sk.isRot then maskCF ||| maskOF else maskAll
+      some ([d1, movD .r10 .rcx] ++ mvRcx ++ mask ++ [sh, movD .rcx .r10, movW w rd .r11], clob)
   | .vec _ => none
+
+/-- Lower `.clz`/`.cls`/`.ctz`/`.popcnt` on `.bits w.bits` into `rd` across `{8, 16, 32, 64}`.
+Constant-folds `.imm` inputs with `maskNone`; lowers `.gpr` inputs via `lzcnt`/`tzcnt`/`popcnt`
+(zero/sign-extending `8`/`16`-bit operands to `32` bits and adjusting counts) with `maskAll`. -/
+def opBitcnt (w : Width) (bk : BitcntKind)
+    (pa : PArg Reg64 RegMm CondCode (.bits w.bits)) (rd : Reg64) :
+    Option (List Directive × FlagMask) :=
+  match pa with
+  | .imm c => some ([moviD rd ((bk.eval w c).setWidth 64)], maskNone)
+  | .vec _ => none
+  | .gpr ra =>
+    let insn := match w, bk with
+      | .W32, .popcnt | .W64, .popcnt =>
+        [insW w (.popcnt (regW w rd) (.reg (regW w ra)))]
+      | .W8, .popcnt | .W16, .popcnt =>
+        [movW w rd ra, ins32 (.popcnt (d rd) (.reg (d rd)))]
+      | .W32, .clz | .W64, .clz =>
+        [insW w (.lzcnt (regW w rd) (.reg (regW w ra)))]
+      | .W8, .clz | .W16, .clz =>
+        [movW w rd ra,
+         ins32 (.lzcnt (d rd) (.reg (d rd))),
+         aluBinIns .W32 .sub rd (immBitsOp .W32 (BitVec.ofNat 32 (32 - w.bits)))]
+      | .W32, .ctz | .W64, .ctz =>
+        [insW w (.tzcnt (regW w rd) (.reg (regW w ra)))]
+      | .W8, .ctz | .W16, .ctz =>
+        [movW w rd ra,
+         aluBinIns .W32 .or rd (immBitsOp .W32 (BitVec.ofNat 32 (1 <<< w.bits))),
+         ins32 (.tzcnt (d rd) (.reg (d rd)))]
+      | .W32, .cls | .W64, .cls =>
+        [movW w .r11 ra,
+         insW w (.sar (.reg (regW w .r11)) (.imm8 (.int64 (Int64.ofNat (w.bits - 1))))),
+         aluBinIns w .xor .r11 (.reg (regW w ra)),
+         insW w (.lzcnt (regW w rd) (.reg (regW w .r11))),
+         insW w (.dec (.reg (regW w rd)))]
+      | .W8, .cls | .W16, .cls =>
+        let movsx := match w with
+          | .W8 => ins32 (.movsx (.reg (d rd)) (.reg (b8 ra)))
+          | _   => ins32 (.movsx (.reg (d rd)) (.reg (h16 ra)))
+        [movsx,
+         movlD .r11 rd,
+         ins32 (.sar (.reg (d .r11)) (.imm8 (.int64 31))),
+         aluBinIns .W32 .xor rd (.reg (d .r11)),
+         ins32 (.lzcnt (d rd) (.reg (d rd))),
+         aluBinIns .W32 .sub rd (immBitsOp .W32 (BitVec.ofNat 32 (33 - w.bits)))]
+    some (insn, maskAll)
 
 /-- Lower `.udiv`/`.sdiv`/`.urem`/`.srem` on `.bits w.bits` into `rd`.
 Widths `8`/`16` are zero/sign-extended to `32` bits and run through 32-bit `divl`/`idivl`. -/
@@ -805,6 +900,7 @@ def x64SupportsScalarOp {sig rs : List Ty} (code : OpCode sig rs)
   | _, _, .not (.bits n) | _, _, .shl (.bits n) | _, _, .lshr (.bits n) | _, _, .ashr (.bits n)
   | _, _, .rotl (.bits n) | _, _, .rotr (.bits n) | _, _, .ofBool n
   | _, _, .udiv n | _, _, .sdiv n | _, _, .urem n | _, _, .srem n
+  | _, _, .clz n | _, _, .cls n | _, _, .ctz n | _, _, .popcnt n
   | _, _, .cmp _ (.bits n) _ _ | _, _, .select (.bits n) => x64BitWidths.contains n
   | _, _, .copy .bool | _, _, .and .bool | _, _, .or .bool
   | _, _, .xor .bool | _, _, .not .bool => true
@@ -891,6 +987,18 @@ def x64Op : {sig rs : List Ty} → OpCode sig rs → Tup (PArg Reg64 RegMm CondC
                                 PArg Reg64 RegMm CondCode (.bits k)) n (pa, pb, pc)
       fun w (pa', pb', pc') => opFunnel w true pa' pb' pc' rd
   | _, _, .bswap (.bits n), (pa, ()), (.gpr rd, ()), _ => opBswap n pa rd
+  | _, _, .clz n, (pa, ()), (.gpr rd, ()), _ =>
+    withWidth (F := fun k => PArg Reg64 RegMm CondCode (.bits k)) n pa fun w pa' =>
+      opBitcnt w .clz pa' rd
+  | _, _, .cls n, (pa, ()), (.gpr rd, ()), _ =>
+    withWidth (F := fun k => PArg Reg64 RegMm CondCode (.bits k)) n pa fun w pa' =>
+      opBitcnt w .cls pa' rd
+  | _, _, .ctz n, (pa, ()), (.gpr rd, ()), _ =>
+    withWidth (F := fun k => PArg Reg64 RegMm CondCode (.bits k)) n pa fun w pa' =>
+      opBitcnt w .ctz pa' rd
+  | _, _, .popcnt n, (pa, ()), (.gpr rd, ()), _ =>
+    withWidth (F := fun k => PArg Reg64 RegMm CondCode (.bits k)) n pa fun w pa' =>
+      opBitcnt w .popcnt pa' rd
   | _, _, .cmp co (.bits n) _ h, (pa, pb, ()), (pd, ()), _ =>
     withWidth (F := fun k => PArg Reg64 RegMm CondCode (.bits k) ×
                             PArg Reg64 RegMm CondCode (.bits k)) n (pa, pb)

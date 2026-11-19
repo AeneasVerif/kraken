@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Amd64.IselLemmas4
+public import LeanQbe.T.Amd64.IselLemmasBitcnt
 
 /-!
 # x64 Scalar `GprTarget` Proofs — Part 5 (`T8`)
@@ -92,6 +92,10 @@ theorem x64Op_supportsScalarOp {sig rs : List Ty} {code : OpCode sig rs}
       · rfl
       · exfalso; change opBswap n pa _ = _ at h; unfold opBswap at h; cases n <;> simp_all
     | _ => exact none_ne_some (rfl : x64Op _ pas dsts vh = none) h
+  case clz n | cls n | ctz n | popcnt n =>
+    rcases pas with ⟨pa, ⟨⟩⟩; rcases dsts with ⟨pd, ⟨⟩⟩
+    cases pd <;> try exact none_ne_some (rfl : x64Op _ _ _ _ = none) h
+    dsimp only [x64Op] at h; exact width_mem _ _ h
   case cmp co t m hm =>
     cases t <;> (first
       | exact none_ne_some (rfl : x64Op _ pas dsts vh = none) h
@@ -145,7 +149,15 @@ private theorem opBin_isSome (w : Width) (k : AluBinKind)
 private theorem opShift_isSome (w : Width) (sk : ShiftKind)
     {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} (rd : Reg64)
     (ha : ∀ r, pa ≠ .vec r) (hb : ∀ r, pb ≠ .vec r) : (opShift w sk pa pb rd).isSome = true := by
-  cases pa <;> cases pb <;> first | exact absurd rfl (ha _) | exact absurd rfl (hb _) | ((simp [opShift, argToBits, opCopyBits, shiftMaskRcx]; repeat' split) <;> rfl)
+  cases w <;> cases sk <;> cases pa <;> cases pb <;>
+    first | exact absurd rfl (ha _) | exact absurd rfl (hb _) |
+      ((simp [opShift, argToBits, opCopyBits, shiftMaskRcx, ShiftKind.isRot, ShiftKind.toBmi2Op?];
+        repeat' split) <;> rfl)
+
+private theorem opBitcnt_isSome (w : Width) (bk : BitcntKind)
+    {pa : PArg Reg64 RegMm CondCode (.bits w.bits)} (rd : Reg64)
+    (ha : ∀ r, pa ≠ .vec r) : (opBitcnt w bk pa rd).isSome = true := by
+  cases pa with | vec r => exact absurd rfl (ha r) | _ => rfl
 
 private theorem opSelect_isSome (w : Width) {pc : PArg Reg64 RegMm CondCode .bool}
     {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} (rd : Reg64)
@@ -224,6 +236,10 @@ theorem x64SupportsScalarOp_complete {sig rs : List Ty} {code : OpCode sig rs} {
       · cases pa <;> first | exact absurd rfl (ha _) | (dsimp only [x64Op]; simp [opBswap] <;> rfl)
       · exfalso; revert hsup; cases n <;> simp [h1, h2, h3]
     | _ => exact false_ne_true_of (rfl : x64SupportsScalarOp _ u = false) hsup
+  case clz n | cls n | ctz n | popcnt n =>
+    change x64BitWidths.contains n = true at hsup; have ha := arg1_nv hp
+    rcases pas with ⟨pa, ⟨⟩⟩; rcases dsts with ⟨pd, ⟨⟩⟩; cases pd <;> simp [tupDstGprs] at hd
+    rcases mem_x64BitWidths hsup with rfl | rfl | rfl | rfl <;> exact opBitcnt_isSome _ _ _ ha
   case cmp co t m hm =>
     cases t <;> try exact false_ne_true_of (rfl : x64SupportsScalarOp _ u = false) hsup
     rename_i n; change x64BitWidths.contains n = true at hsup; subst hm; have ha := arg1_nv hp; have hb := arg2_nv hp
@@ -376,6 +392,16 @@ theorem x64Gpr_op_spec {h : x64Mach.Host} {k : Nat} {sig rs : List Ty} {code : O
     rename_i n _; have hok := (@opBswap_spec _ (fun _ _ => True) n pa _ c clob va s hc ha).1
     dsimp only [OpCode.wp, lift1] at hwp; simp only [hok, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hwp
     exact opPost1_fallsTo hwp fun {_} _ => (@opBswap_spec _ _ n pa _ c clob va s hc ha).2
+  case clz n | cls n | ctz n | popcnt n =>
+    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; have ha := trel1 hvs
+    rcases dsts with ⟨pd, ⟨⟩⟩
+    (cases pd <;> try exact none_ne_some (rfl : x64Op _ _ _ _ = none) hc); dsimp only [x64Op] at hc
+    rename_i rd; exact withWidth_elim hc fun w hn hw => by
+      subst hn; dsimp only [OpCode.wp] at hwp
+      exact opPost1_fallsTo hwp fun {_} _ =>
+        opBitcnt_spec w _ hw (hdst rd (by simp [tupDstGprs]))
+          (fun r hr => hargs r (by
+            cases pa with | gpr _ => simpa [tupArgGprs] using hr | _ => simp at hr)) ha
   case cmp co t m hm =>
     (cases t <;> try exact none_ne_some (rfl : x64Op _ pas dsts vh = none) hc); subst hm
     rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩; obtain ⟨ha, hb⟩ := trel2 hvs; rcases dsts with ⟨pd, ⟨⟩⟩

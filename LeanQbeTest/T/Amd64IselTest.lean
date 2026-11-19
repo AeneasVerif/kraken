@@ -174,9 +174,202 @@ theorem shift_mask_trap_rfl :
       some ([ins8 (.shl (.reg (b8 .rax)) (.imm8 (.int64 1)))], maskAll) ∧
     x64Gpr.op (.lshr i16) (.gpr .rax, .imm 16#16, ()) (.gpr .rdx, ()) .default =
       some ([movW .W16 .rdx .rax], maskNone) ∧
-    x64Gpr.op (.rotl i64) (.gpr .rax, .imm 5#64, ()) (.gpr .rax, ()) .default =
-      some ([ins (.rol (.reg (q .rax)) (.imm8 (.int64 5)))], maskCF ||| maskOF) :=
+    x64Gpr.op (.rotl i16) (.gpr .rax, .imm 5#16, ()) (.gpr .rax, ()) .default =
+      some ([ins16 (.rol (.reg (h16 .rax)) (.imm8 (.int64 5)))], maskCF ||| maskOF) :=
   ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+/-! ## 3b. BMI2 Flag-Free Shifts/Rotates & Native Bit-Counting (`T8.1`) -/
+
+theorem bmi2_shifts_rotates_rfl :
+    x64Gpr.op (.shl i64) (.gpr .rax, .gpr .rcx, ()) (.gpr .rdx, ()) .default =
+      some ([ins (.shlx (q .rdx) (.reg (q .rax)) (q .rcx))], maskNone) ∧
+    x64Gpr.op (.lshr i32) (.gpr .rax, .gpr .rsi, ()) (.gpr .rax, ()) .default =
+      some ([ins32 (.shrx (d .rax) (.reg (d .rax)) (d .rsi))], maskNone) ∧
+    x64Gpr.op (.ashr i64) (.imm 99#64, .gpr .rsi, ()) (.gpr .rdx, ()) .default =
+      some ([moviD .r11 99, ins (.sarx (q .rdx) (.reg (q .r11)) (q .rsi))], maskNone) ∧
+    x64Gpr.op (.rotl i64) (.gpr .rax, .imm 5#64, ()) (.gpr .rdx, ()) .default =
+      some ([ins (.rorx (q .rdx) (.reg (q .rax)) (.int64 59))], maskNone) ∧
+    x64Gpr.op (.rotr i32) (.gpr .rax, .imm 7#32, ()) (.gpr .rax, ()) .default =
+      some ([ins32 (.rorx (d .rax) (.reg (d .rax)) (.int64 7))], maskNone) ∧
+    x64Gpr.op (.rotl i32) (.imm 0x12340000#32, .imm 16#32, ()) (.gpr .rax, ()) .default =
+      some ([moviD .rax 0x1234], maskNone) ∧
+    x64Gpr.op (.rotl i64) (.gpr .rax, .gpr .rcx, ()) (.gpr .rdx, ()) .default =
+      some ([movW .W64 .r11 .rax, movD .r10 .rcx,
+             ins (.rol (.reg (q .r11)) .cl),
+             movD .rcx .r10, movW .W64 .rdx .r11], maskCF ||| maskOF) :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+theorem bitcnt_lowering_rfl :
+    x64Gpr.op (.clz 8) (.imm 0x0f#8, ()) (.gpr .rax, ()) .default =
+      some ([moviD .rax 4], maskNone) ∧
+    x64Gpr.op (.cls 16) (.imm 0xffe0#16, ()) (.gpr .rax, ()) .default =
+      some ([moviD .rax 10], maskNone) ∧
+    x64Gpr.op (.ctz 16) (.imm 0x0100#16, ()) (.gpr .rax, ()) .default =
+      some ([moviD .rax 8], maskNone) ∧
+    x64Gpr.op (.popcnt 16) (.imm 0x5555#16, ()) (.gpr .rax, ()) .default =
+      some ([moviD .rax 8], maskNone) ∧
+    x64Gpr.op (.popcnt 8) (.gpr .rax, ()) (.gpr .rdx, ()) .default =
+      some ([movW .W8 .rdx .rax, ins32 (.popcnt (d .rdx) (.reg (d .rdx)))], maskAll) ∧
+    x64Gpr.op (.popcnt 64) (.gpr .rsi, ()) (.gpr .rax, ()) .default =
+      some ([ins (.popcnt (q .rax) (.reg (q .rsi)))], maskAll) ∧
+    x64Gpr.op (.clz 16) (.gpr .rax, ()) (.gpr .rax, ()) .default =
+      some ([movW .W16 .rax .rax, ins32 (.lzcnt (d .rax) (.reg (d .rax))),
+             aluBinIns .W32 .sub .rax (immBitsOp .W32 16#32)], maskAll) ∧
+    x64Gpr.op (.clz 32) (.gpr .rsi, ()) (.gpr .rax, ()) .default =
+      some ([ins32 (.lzcnt (d .rax) (.reg (d .rsi)))], maskAll) ∧
+    x64Gpr.op (.ctz 8) (.gpr .rax, ()) (.gpr .rdx, ()) .default =
+      some ([movW .W8 .rdx .rax,
+             aluBinIns .W32 .or .rdx (immBitsOp .W32 256#32),
+             ins32 (.tzcnt (d .rdx) (.reg (d .rdx)))], maskAll) ∧
+    x64Gpr.op (.ctz 64) (.gpr .rsi, ()) (.gpr .rax, ()) .default =
+      some ([ins (.tzcnt (q .rax) (.reg (q .rsi)))], maskAll) ∧
+    x64Gpr.op (.cls 32) (.gpr .rax, ()) (.gpr .rax, ()) .default =
+      some ([movW .W32 .r11 .rax,
+             ins32 (.sar (.reg (d .r11)) (.imm8 (.int64 31))),
+             aluBinIns .W32 .xor .r11 (.reg (d .rax)),
+             ins32 (.lzcnt (d .rax) (.reg (d .r11))),
+             ins32 (.dec (.reg (d .rax)))], maskAll) ∧
+    x64Gpr.op (.cls 8) (.gpr .rax, ()) (.gpr .rax, ()) .default =
+      some ([ins32 (.movsx (.reg (d .rax)) (.reg (b8 .rax))),
+             movlD .r11 .rax,
+             ins32 (.sar (.reg (d .r11)) (.imm8 (.int64 31))),
+             aluBinIns .W32 .xor .rax (.reg (d .r11)),
+             ins32 (.lzcnt (d .rax) (.reg (d .rax))),
+             aluBinIns .W32 .sub .rax (immBitsOp .W32 25#32)], maskAll) :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+#guard x64Gpr.op (.ctz 32) (.imm 0x00000100#32, ()) (.gpr .rax, ()) .default ==
+  some ([moviD .rax 8], maskNone)
+
+#guard x64Gpr.op (.popcnt 64) (.imm 0x000000ff_000000ff#64, ()) (.gpr .rax, ()) .default ==
+  some ([moviD .rax 16], maskNone)
+
+theorem bmi2_shlx64_flags_spec {h : x64Mach.Host} {k : Nat} {s : MachineData}
+    {post : MachineState → Prop}
+    (ha0 : s.regs.get64 .rax = 0x00000000_00000003#64)
+    (hb0 : s.regs.get64 .rcx = 0xdeadbeef_00000004#64)
+    {c : List Directive} {clob : FlagMask}
+    (hc : x64Gpr.op (.shl i64) (.gpr .rax, .gpr .rcx, ()) (.gpr .rdx, ()) .default =
+      some (c, clob)) :
+    clob = maskNone ∧
+    x64Mach.FallsTo x64Gpr.condReads h k c [.rdx, .r10, .r11] [] maskNone s
+      (fun s' => GprHolds (s'.regs.get64 .rdx) i64 0x30#64 ∧ s'.dmem = s.dmem) post := by
+  have ha : x64Mach.PArgHolds s i64 (.gpr .rax) 0x03#64 := by
+    dsimp [Machine.PArgHolds, x64Mach, Machine.getGpr, GprHolds]; rw [ha0]; exact ⟨by decide, rfl⟩
+  have hb : x64Mach.PArgHolds s i64 (.gpr .rcx) 0xdeadbeef_00000004#64 := by
+    dsimp [Machine.PArgHolds, x64Mach, Machine.getGpr, GprHolds]; rw [hb0]; exact ⟨by decide, rfl⟩
+  have hwp : (OpCode.shl i64).wp (0x03#64, 0xdeadbeef_00000004#64, ())
+      (fun (r : Tup Val [i64]) => r.1 = 0x30#64) := rfl
+  have hclob : clob = maskNone := by
+    cases ((rfl : x64Gpr.op (.shl i64) (.gpr .rax, .gpr .rcx, ()) (.gpr .rdx, ()) .default =
+      some ([ins (.shlx (q .rdx) (.reg (q .rax)) (q .rcx))], maskNone)).symm.trans hc); rfl
+  subst hclob; refine ⟨rfl, ?_⟩
+  have hspec := x64GprSpec.op_spec (h := h) (k := k) (post := post) hc
+    (by simp [tupArgGprs, x64Scratch]) (by simp [tupDstGprs, x64Scratch])
+    (TRel.cons ha (TRel.cons hb .nil)) hwp
+  intro hinf hcont
+  refine hspec hinf fun s' ⟨⟨⟨rv, ()⟩, hrv, hdst⟩, hm⟩ hfr => ?_
+  dsimp at hrv; subst hrv; cases hdst with | cons hd _ => exact hcont s' ⟨hd, hm⟩ hfr
+
+theorem bmi2_rorx32_flags_spec {h : x64Mach.Host} {k : Nat} {s : MachineData}
+    {post : MachineState → Prop}
+    (ha0 : s.regs.get64 .rax = 0xdeadbeef_12345678#64)
+    {c : List Directive} {clob : FlagMask}
+    (hc : x64Gpr.op (.rotl i32) (.gpr .rax, .imm 8#32, ()) (.gpr .rdx, ()) .default =
+      some (c, clob)) :
+    clob = maskNone ∧
+    x64Mach.FallsTo x64Gpr.condReads h k c [.rdx, .r10, .r11] [] maskNone s
+      (fun s' => GprHolds (s'.regs.get64 .rdx) i32 0x34567812#32 ∧ s'.dmem = s.dmem) post := by
+  have ha : x64Mach.PArgHolds s i32 (.gpr .rax) 0x12345678#32 := by
+    dsimp [Machine.PArgHolds, x64Mach, Machine.getGpr, GprHolds]
+    rw [ha0]; exact ⟨by decide, rfl⟩
+  have hb : x64Mach.PArgHolds s i32 (.imm 8#32) 8#32 := rfl
+  have hwp : (OpCode.rotl i32).wp (0x12345678#32, 8#32, ())
+      (fun (r : Tup Val [i32]) => r.1 = 0x34567812#32) := rfl
+  have hclob : clob = maskNone := by
+    cases ((rfl : x64Gpr.op (.rotl i32) (.gpr .rax, .imm 8#32, ()) (.gpr .rdx, ()) .default =
+      some ([ins32 (.rorx (d .rdx) (.reg (d .rax)) (.int64 24))], maskNone)).symm.trans hc); rfl
+  subst hclob; refine ⟨rfl, ?_⟩
+  have hspec := x64GprSpec.op_spec (h := h) (k := k) (post := post) hc
+    (by simp [tupArgGprs, x64Scratch]) (by simp [tupDstGprs, x64Scratch])
+    (TRel.cons ha (TRel.cons hb .nil)) hwp
+  intro hinf hcont
+  refine hspec hinf fun s' ⟨⟨⟨rv, ()⟩, hrv, hdst⟩, hm⟩ hfr => ?_
+  dsimp at hrv; subst hrv; cases hdst with | cons hd _ => exact hcont s' ⟨hd, hm⟩ hfr
+
+theorem bitcnt_clz8_spec {h : x64Mach.Host} {k : Nat} {s : MachineData}
+    {post : MachineState → Prop}
+    (ha0 : s.regs.get64 .rax = 0xdeadbeef_ffffff0f#64)
+    {c : List Directive} {clob : FlagMask}
+    (hc : x64Gpr.op (.clz 8) (.gpr .rax, ()) (.gpr .rdx, ()) .default = some (c, clob)) :
+    x64Mach.FallsTo x64Gpr.condReads h k c [.rdx, .r10, .r11] [] clob s
+      (fun s' => GprHolds (s'.regs.get64 .rdx) i8 4#8 ∧ s'.dmem = s.dmem) post := by
+  have ha : x64Mach.PArgHolds s i8 (.gpr .rax) 0x0f#8 := by
+    dsimp [Machine.PArgHolds, x64Mach, Machine.getGpr, GprHolds]
+    rw [ha0]; exact ⟨by decide, rfl⟩
+  have hwp : (OpCode.clz 8).wp (0x0f#8, ()) (fun (r : Tup Val [i8]) => r.1 = 4#8) := rfl
+  have hspec := x64GprSpec.op_spec (h := h) (k := k) (post := post) hc
+    (by simp [tupArgGprs, x64Scratch]) (by simp [tupDstGprs, x64Scratch])
+    (TRel.cons ha .nil) hwp
+  intro hinf hcont
+  refine hspec hinf fun s' ⟨⟨⟨rv, ()⟩, hrv, hdst⟩, hm⟩ hfr => ?_
+  dsimp at hrv; subst hrv; cases hdst with | cons hd _ => exact hcont s' ⟨hd, hm⟩ hfr
+
+theorem bitcnt_cls16_spec {h : x64Mach.Host} {k : Nat} {s : MachineData}
+    {post : MachineState → Prop}
+    (ha0 : s.regs.get64 .rax = 0xdeadbeef_0000ffe0#64)
+    {c : List Directive} {clob : FlagMask}
+    (hc : x64Gpr.op (.cls 16) (.gpr .rax, ()) (.gpr .rdx, ()) .default = some (c, clob)) :
+    x64Mach.FallsTo x64Gpr.condReads h k c [.rdx, .r10, .r11] [] clob s
+      (fun s' => GprHolds (s'.regs.get64 .rdx) i16 10#16 ∧ s'.dmem = s.dmem) post := by
+  have ha : x64Mach.PArgHolds s i16 (.gpr .rax) 0xffe0#16 := by
+    dsimp [Machine.PArgHolds, x64Mach, Machine.getGpr, GprHolds]
+    rw [ha0]; exact ⟨by decide, rfl⟩
+  have hwp : (OpCode.cls 16).wp (0xffe0#16, ()) (fun (r : Tup Val [i16]) => r.1 = 10#16) := rfl
+  have hspec := x64GprSpec.op_spec (h := h) (k := k) (post := post) hc
+    (by simp [tupArgGprs, x64Scratch]) (by simp [tupDstGprs, x64Scratch])
+    (TRel.cons ha .nil) hwp
+  intro hinf hcont
+  refine hspec hinf fun s' ⟨⟨⟨rv, ()⟩, hrv, hdst⟩, hm⟩ hfr => ?_
+  dsimp at hrv; subst hrv; cases hdst with | cons hd _ => exact hcont s' ⟨hd, hm⟩ hfr
+
+theorem bitcnt_ctz32_spec {h : x64Mach.Host} {k : Nat} {s : MachineData}
+    {va : BitVec 32} {post : MachineState → Prop}
+    (ha0 : (s.regs.get64 .rax).setWidth 32 = va)
+    {c : List Directive} {clob : FlagMask}
+    (hc : x64Gpr.op (.ctz 32) (.gpr .rax, ()) (.gpr .rdx, ()) .default = some (c, clob)) :
+    x64Mach.FallsTo x64Gpr.condReads h k c [.rdx, .r10, .r11] [] clob s
+      (fun s' => GprHolds (s'.regs.get64 .rdx) i32 va.reverse.clz ∧ s'.dmem = s.dmem)
+      post := by
+  have ha : x64Mach.PArgHolds s i32 (.gpr .rax) va := by
+    dsimp [Machine.PArgHolds, x64Mach, Machine.getGpr, GprHolds]
+    exact ⟨by decide, ha0⟩
+  have hwp : (OpCode.ctz 32).wp (va, ())
+      (fun (r : Tup Val [i32]) => r.1 = va.reverse.clz) := rfl
+  have hspec := x64GprSpec.op_spec (h := h) (k := k) (post := post) hc
+    (by simp [tupArgGprs, x64Scratch]) (by simp [tupDstGprs, x64Scratch])
+    (TRel.cons ha .nil) hwp
+  intro hinf hcont
+  refine hspec hinf fun s' ⟨⟨⟨rv, ()⟩, hrv, hdst⟩, hm⟩ hfr => ?_
+  dsimp at hrv; subst hrv; cases hdst with | cons hd _ => exact hcont s' ⟨hd, hm⟩ hfr
+
+theorem bitcnt_popcnt64_spec {h : x64Mach.Host} {k : Nat} {s : MachineData}
+    {va : BitVec 64} {post : MachineState → Prop}
+    (ha0 : s.regs.get64 .rax = va)
+    {c : List Directive} {clob : FlagMask}
+    (hc : x64Gpr.op (.popcnt 64) (.gpr .rax, ()) (.gpr .rdx, ()) .default = some (c, clob)) :
+    x64Mach.FallsTo x64Gpr.condReads h k c [.rdx, .r10, .r11] [] clob s
+      (fun s' => GprHolds (s'.regs.get64 .rdx) i64 va.cpop ∧ s'.dmem = s.dmem) post := by
+  have ha : x64Mach.PArgHolds s i64 (.gpr .rax) va := by
+    dsimp [Machine.PArgHolds, x64Mach, Machine.getGpr, GprHolds]
+    rw [ha0]; exact ⟨by decide, rfl⟩
+  have hwp : (OpCode.popcnt 64).wp (va, ()) (fun (r : Tup Val [i64]) => r.1 = va.cpop) := rfl
+  have hspec := x64GprSpec.op_spec (h := h) (k := k) (post := post) hc
+    (by simp [tupArgGprs, x64Scratch]) (by simp [tupDstGprs, x64Scratch])
+    (TRel.cons ha .nil) hwp
+  intro hinf hcont
+  refine hspec hinf fun s' ⟨⟨⟨rv, ()⟩, hrv, hdst⟩, hm⟩ hfr => ?_
+  dsimp at hrv; subst hrv; cases hdst with | cons hd _ => exact hcont s' ⟨hd, hm⟩ hfr
 
 theorem pitfall_c_var_shl8_spec {h : x64Mach.Host} {k : Nat} {s : MachineData}
     {post : MachineState → Prop}
@@ -222,11 +415,7 @@ theorem hints_and_wide_ops_rfl :
   ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 theorem unsupported_ops_rejected_rfl :
-    x64Gpr.supportsScalarOp (.clz 64) (.var (), ()) = false ∧
-    x64Gpr.supportsScalarOp (.cls 64) (.var (), ()) = false ∧
     x64Gpr.supportsScalarOp (.rbit 64) (.var (), ()) = false ∧
-    x64Gpr.supportsScalarOp (.ctz 64) (.var (), ()) = false ∧
-    x64Gpr.supportsScalarOp (.popcnt 64) (.var (), ()) = false ∧
     x64Gpr.supportsScalarOp (.udiv0 64) (.var (), .var (), ()) = false ∧
     x64Gpr.supportsScalarOp (.sdiv0 64) (.var (), .var (), ()) = false ∧
     x64Gpr.supportsScalarOp (.fadd f64) (.var (), .var (), ()) = false ∧
@@ -234,11 +423,10 @@ theorem unsupported_ops_rejected_rfl :
     x64Gpr.supportsScalarOp (.addc 16) (.var (), .var (), .var (), ()) = false ∧
     x64Gpr.supportsScalarOp (.fshl 16) (.var (), .var (), .var (), ()) = false ∧
     x64Gpr.supportsScalarOp (.bitcast v4i32 v4i32 rfl) (.var (), ()) = false ∧
-    x64Gpr.op (.clz 64) (.gpr .rax, ()) (.gpr .rdx, ()) .default = none ∧
-    x64Gpr.op (.popcnt 64) (.gpr .rax, ()) (.gpr .rdx, ()) .default = none ∧
+    x64Gpr.op (.rbit 64) (.gpr .rax, ()) (.gpr .rdx, ()) .default = none ∧
     x64Gpr.op (.udiv0 64) (.gpr .rax, .gpr .rsi, ()) (.gpr .rdx, ()) .default = none ∧
     (∀ v0 v1 v2 : RegMm, x64Gpr.op (.fadd f64) (.vec v0, .vec v1, ()) (.vec v2, ()) .default = none) :=
-  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, fun _ _ _ => rfl⟩
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, fun _ _ _ => rfl⟩
 
 /-! ## 5. Scalar `Isa` & Kernel `Fn.backendOk` on Legalized `Bignum` & `LratBytes` -/
 
@@ -315,10 +503,26 @@ theorem lratBytes_names_verified :
        "lb_rup_check", "lb_check_prf", "lrat_check_bytes"] := by
   t_kernel_rfl
 
-def unsupportedClzFn : Fn := ⟨"bad_clz", [i64], [i64], fun _ _ (a, ()) =>
-  .let_ ⟨.clz 64, (.var a, ())⟩ fun (r, ()) => .ret (.var r, ())⟩
+def supportedBitcntFn : Fn := ⟨"ok_bitcnt", [i8, i16, i32, i64], [i64],
+  fun _ _ (a, b, c, d, ()) =>
+    .let_ ⟨.clz 8, (.var a, ())⟩ fun (r1, ()) =>
+    .let_ ⟨.cls 16, (.var b, ())⟩ fun (r2, ()) =>
+    .let_ ⟨.ctz 32, (.var c, ())⟩ fun (r3, ()) =>
+    .let_ ⟨.popcnt 64, (.var d, ())⟩ fun (r4, ()) =>
+    .let_ ⟨.zext 8 64, (.var r1, ())⟩ fun (z1, ()) =>
+    .let_ ⟨.zext 16 64, (.var r2, ())⟩ fun (z2, ()) =>
+    .let_ ⟨.zext 32 64, (.var r3, ())⟩ fun (z3, ()) =>
+    .let_ ⟨.add i64, (.var z1, .var z2, ())⟩ fun (s1, ()) =>
+    .let_ ⟨.add i64, (.var z3, .var r4, ())⟩ fun (s2, ()) =>
+    .let_ ⟨.add i64, (.var s1, .var s2, ())⟩ fun (s3, ()) =>
+    .ret (.var s3, ())⟩
 
-theorem backendOk_rejects_clz : unsupportedClzFn.backendOk testX64Isa = false := by t_kernel_rfl
+theorem backendOk_accepts_bitcnt : supportedBitcntFn.backendOk testX64Isa = true := by t_kernel_rfl
+
+def unsupportedRbitFn : Fn := ⟨"bad_rbit", [i64], [i64], fun _ _ (a, ()) =>
+  .let_ ⟨.rbit 64, (.var a, ())⟩ fun (r, ()) => .ret (.var r, ())⟩
+
+theorem backendOk_rejects_rbit : unsupportedRbitFn.backendOk testX64Isa = false := by t_kernel_rfl
 
 /-! ## 5b. Full `x64Gpr` + `x64Vec` + `x64Frame` `Bignum` Regression (`T7c-fix`) -/
 
@@ -383,8 +587,15 @@ meta def isSetccDir : Directive → Bool
 #print axioms pitfall_a_bool_jnz_spec
 #print axioms pitfall_a_ofBool_spec
 #print axioms pitfall_c_var_shl8_spec
+#print axioms bmi2_shlx64_flags_spec
+#print axioms bmi2_rorx32_flags_spec
+#print axioms bitcnt_clz8_spec
+#print axioms bitcnt_cls16_spec
+#print axioms bitcnt_ctz32_spec
+#print axioms bitcnt_popcnt64_spec
 #print axioms loadVal_bool_checks
-#print axioms backendOk_rejects_clz
+#print axioms backendOk_accepts_bitcnt
+#print axioms backendOk_rejects_rbit
 
 end LeanQbeTest.T.Amd64IselTest
 end

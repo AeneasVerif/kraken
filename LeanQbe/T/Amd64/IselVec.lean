@@ -149,19 +149,26 @@ def x64SlotAddr (i : Nat) : List Directive × AddrExpr :=
   if x64FitsImm31 off then ([], x64AtSp (Int64.ofNat off))
   else ([x64MoviD .r10 (BitVec.ofNat 64 off)], x64AtSpR10)
 
+/-- Unaligned vector memory directive (`vmovIn`/`vmovOut` at `.w64`, `vmovdqu32` otherwise). -/
+@[reducible]
+def x64VmemDir (isLoad : Bool) (w : SlotWidth) (v : RegMm) (addr : AddrExpr) : Directive :=
+  match w with
+  | .w64 =>
+    if isLoad then x64Avx128 (.vmovIn .W64 (.xmm v) (.mem addr))
+    else x64Avx128 (.vmovOut .W64 (.mem addr) (.xmm v))
+  | _ =>
+    if isLoad then x64Avx w (.vmovdqu32 (.avx (x64AvxRegOf w v)) (.mem addr))
+    else x64Avx w (.vmovdqu32 (.mem addr) (.avx (x64AvxRegOf w v)))
+
 /-- Store `w`-bit vector `vs` into stack slot `i` (unaligned safe, preserving flags). -/
 def x64VslotSt (w : SlotWidth) (i : Nat) (vs : RegMm) : List Directive :=
   let (pre, addr) := x64SlotAddr i
-  pre ++ match w with
-    | .w64 => [x64Avx128 (.vmovOut .W64 (.mem addr) (.xmm vs))]
-    | _ => [x64Avx w (.vmovdqu32 (.mem addr) (.avx (x64AvxRegOf w vs)))]
+  pre ++ [x64VmemDir false w vs addr]
 
 /-- Load stack slot `i` into `w`-bit vector `vd` (unaligned safe, preserving flags). -/
 def x64VslotLd (w : SlotWidth) (vd : RegMm) (i : Nat) : List Directive :=
   let (pre, addr) := x64SlotAddr i
-  pre ++ match w with
-    | .w64 => [x64Avx128 (.vmovIn .W64 (.xmm vd) (.mem addr))]
-    | _ => [x64Avx w (.vmovdqu32 (.avx (x64AvxRegOf w vd)) (.mem addr))]
+  pre ++ [x64VmemDir true w vd addr]
 
 /-- Address preparation for `AddrArg Reg64`, using `%r10` when `imm` or displacement exceeds int32. -/
 def x64AddrPrep : AddrArg Reg64 → List Directive × AddrExpr
@@ -174,19 +181,13 @@ def x64AddrPrep : AddrArg Reg64 → List Directive × AddrExpr
 def x64Vload (t : Ty) (vd : RegMm) (a : AddrArg Reg64) : Option (List Directive × FlagMask) :=
   (x64VecSlotWidth t).map fun w =>
     let (pre, addr) := x64AddrPrep a
-    let insn := match w with
-      | .w64 => x64Avx128 (.vmovIn .W64 (.xmm vd) (.mem addr))
-      | _ => x64Avx w (.vmovdqu32 (.avx (x64AvxRegOf w vd)) (.mem addr))
-    (pre ++ [insn], maskNone)
+    (pre ++ [x64VmemDir true w vd addr], maskNone)
 
 /-- Unaligned memory store from `vs` (`vmovOut .W64` for 64-bit, `vmovdqu32` for 128/256/512). -/
 def x64Vstore (t : Ty) (vs : RegMm) (a : AddrArg Reg64) : Option (List Directive × FlagMask) :=
   (x64VecSlotWidth t).map fun w =>
     let (pre, addr) := x64AddrPrep a
-    let insn := match w with
-      | .w64 => x64Avx128 (.vmovOut .W64 (.mem addr) (.xmm vs))
-      | _ => x64Avx w (.vmovdqu32 (.mem addr) (.avx (x64AvxRegOf w vs)))
-    (pre ++ [insn], maskNone)
+    (pre ++ [x64VmemDir false w vs addr], maskNone)
 
 /-! ## 3. Vector opcode selection (`x64Vop` and `x64SupportsVecOp`) -/
 

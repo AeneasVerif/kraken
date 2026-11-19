@@ -379,13 +379,32 @@ theorem x64SupportsOp_checks :
     x64Gpr.supportsScalarOp (.addc 16) (.var (), .var (), .var (), ()) = false ∧
     x64Gpr.supportsScalarOp (.umulw 64) (.var (), .var (), ()) = true ∧
     x64Gpr.supportsScalarOp (.fshl 32) (.var (), .var (), .var (), ()) = true ∧
-    x64Gpr.supportsScalarOp (.clz 64) (.var (), ()) = false ∧
-    x64Gpr.supportsScalarOp (.ctz 64) (.var (), ()) = false ∧
-    x64Gpr.supportsScalarOp (.popcnt 64) (.var (), ()) = false ∧
+    x64Gpr.supportsScalarOp (.clz 8) (.var (), ()) = true ∧
+    x64Gpr.supportsScalarOp (.clz 16) (.var (), ()) = true ∧
+    x64Gpr.supportsScalarOp (.clz 32) (.var (), ()) = true ∧
+    x64Gpr.supportsScalarOp (.clz 64) (.var (), ()) = true ∧
+    x64Gpr.supportsScalarOp (.cls 8) (.var (), ()) = true ∧
+    x64Gpr.supportsScalarOp (.cls 64) (.var (), ()) = true ∧
+    x64Gpr.supportsScalarOp (.ctz 8) (.var (), ()) = true ∧
+    x64Gpr.supportsScalarOp (.ctz 16) (.var (), ()) = true ∧
+    x64Gpr.supportsScalarOp (.ctz 32) (.var (), ()) = true ∧
+    x64Gpr.supportsScalarOp (.ctz 64) (.var (), ()) = true ∧
+    x64Gpr.supportsScalarOp (.popcnt 8) (.var (), ()) = true ∧
+    x64Gpr.supportsScalarOp (.popcnt 16) (.var (), ()) = true ∧
+    x64Gpr.supportsScalarOp (.popcnt 32) (.var (), ()) = true ∧
+    x64Gpr.supportsScalarOp (.popcnt 64) (.var (), ()) = true ∧
+    x64Gpr.supportsScalarOp (.rbit 64) (.var (), ()) = false ∧
+    x64LegalTarget.isLegalOp (.clz 8) false = true ∧
+    x64Target.toIsa.supportsOp (.clz 8) (.var (), ()) = true ∧
+    x64LegalTarget.isLegalOp (.cls 64) false = true ∧
+    x64Target.toIsa.supportsOp (.cls 64) (.var (), ()) = true ∧
+    x64LegalTarget.isLegalOp (.ctz 16) false = true ∧
+    x64Target.toIsa.supportsOp (.ctz 16) (.var (), ()) = true ∧
+    x64LegalTarget.isLegalOp (.popcnt 32) false = true ∧
+    x64Target.toIsa.supportsOp (.popcnt 32) (.var (), ()) = true ∧
+    x64Target.toIsa.supportsOp (.rbit 64) (.var (), ()) = false ∧
     x64Gpr.supportsScalarOp (.udiv0 64) (.var (), .var (), ()) = false ∧
     x64Gpr.supportsScalarOp (.fadd (.float .s)) (.var (), .var (), ()) = false := by
-  refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-    rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-    rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  repeat' (first | refine ⟨rfl, ?_⟩ | exact rfl)
 
 end LeanQbe.T.Amd64
