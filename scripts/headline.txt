@@ -677,3 +677,17 @@ LeanQbe.T.Arm64.Bignum LeanQbe.T.Arm64.Bignum.subMod25519_arm64_nonvacuous
 LeanQbe.T.Arm64.ChaCha LeanQbe.T.Arm64.ChaCha.chacha20_module_fnspec
 LeanQbe.T.Arm64.ChaCha LeanQbe.T.Arm64.ChaCha.chacha20Block_arm64_correct
 LeanQbe.T.Arm64.ChaCha LeanQbe.T.Arm64.ChaCha.rfc8439_vector_arm64_nonvacuous
+LeanQbe.T.Amd64.LratBytes LeanQbe.T.Amd64.LratBytes.compiled_check
+LeanQbe.T.Amd64.LratBytes LeanQbe.T.Amd64.LratBytes.lrat_bytes_module_fnspec
+LeanQbe.T.Amd64.LratBytes LeanQbe.T.Amd64.LratBytes.lrat_check_bytes_x64_of_fnspec
+LeanQbe.T.Amd64.LratBytes LeanQbe.T.Amd64.LratBytes.lrat_check_bytes_x64_correct
+LeanQbe.T.Amd64.LratBytes LeanQbe.T.Amd64.LratBytes.lrat_check_bytes_x64_unsat
+LeanQbe.T.Amd64.LratBytes LeanQbe.T.Amd64.LratBytes.lrat_check_bytes_x64_accepts
+LeanQbe.T.Amd64.LratBytes LeanQbe.T.Amd64.LratBytes.lrat_check_bytes_x64_rejects
+LeanQbe.T.Arm64.LratBytes LeanQbe.T.Arm64.LratBytes.compiled_check
+LeanQbe.T.Arm64.LratBytes LeanQbe.T.Arm64.LratBytes.lrat_bytes_module_fnspec
+LeanQbe.T.Arm64.LratBytes LeanQbe.T.Arm64.LratBytes.lrat_check_bytes_arm64_of_fnspec
+LeanQbe.T.Arm64.LratBytes LeanQbe.T.Arm64.LratBytes.lrat_check_bytes_arm64_correct
+LeanQbe.T.Arm64.LratBytes LeanQbe.T.Arm64.LratBytes.lrat_check_bytes_arm64_unsat
+LeanQbe.T.Arm64.LratBytes LeanQbe.T.Arm64.LratBytes.lrat_check_bytes_arm64_accepts
+LeanQbe.T.Arm64.LratBytes LeanQbe.T.Arm64.LratBytes.lrat_check_bytes_arm64_rejects

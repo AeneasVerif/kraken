@@ -24,5 +24,6 @@ public import LeanQbe.T.Arm64.Litmus
 public import LeanQbe.T.Arm64.UnionFind
 public import LeanQbe.T.Arm64.Bignum
 public import LeanQbe.T.Arm64.ChaCha
+public import LeanQbe.T.Arm64.LratBytes
 
 /-! Root of the AArch64 library: `Kraken.AArch64` via `LeanQbe.Arm64.*` & `LeanQbe.T.Arm64.*`. -/
