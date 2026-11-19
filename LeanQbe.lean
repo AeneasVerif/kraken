@@ -118,5 +118,7 @@ public import LeanQbe.T.Examples.LratBytesRupLemmas
 public import LeanQbe.T.Examples.LratBytesCheckLemmas
 public import LeanQbe.T.Examples.LratBytesLemmas
 public import LeanQbe.T.Examples.LratTrim
+public import LeanQbe.T.Examples.LitmusProgs
+public import LeanQbe.T.Examples.LitmusProgsLemmas
 
 /-! Root of the generic library. Imports neither `Kraken.X64` nor `Kraken.AArch64`. -/

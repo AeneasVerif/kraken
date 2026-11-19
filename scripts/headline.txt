@@ -581,3 +581,12 @@ LeanQbeTest.T.Amd64VecTest LeanQbeTest.T.Amd64VecTest.chachaQrProg_run
 LeanQbeTest.T.Amd64VecTest LeanQbeTest.T.Amd64VecTest.floatVecProg_nan_run
 LeanQbeTest.T.Amd64VecTest LeanQbeTest.T.Amd64VecTest.bridgeProg_run
 LeanQbeTest.T.Amd64VecTest LeanQbeTest.T.Amd64VecTest.unalignedProg_run
+LeanQbe.T.Examples.LitmusProgsLemmas LeanQbe.T.Examples.Litmus.tracer_spec
+LeanQbe.T.Examples.LitmusProgsLemmas LeanQbe.T.Examples.Litmus.nested_spec
+LeanQbe.T.Examples.LitmusProgsLemmas LeanQbe.T.Examples.Litmus.twice_spec
+LeanQbe.T.Examples.LitmusProgsLemmas LeanQbe.T.Examples.Litmus.sumcall_spec
+LeanQbe.T.Examples.LitmusProgsLemmas LeanQbe.T.Examples.Litmus.tracer_moduleOk
+LeanQbe.T.Examples.LitmusProgsLemmas LeanQbe.T.Examples.Litmus.callinc_moduleOk
+LeanQbe.T.Examples.LitmusProgsLemmas LeanQbe.T.Examples.Litmus.twice_moduleOk
+LeanQbe.T.Examples.LitmusProgsLemmas LeanQbe.T.Examples.Litmus.sumcall_moduleOk
+LeanQbe.T.Examples.LitmusProgsLemmas LeanQbe.T.Examples.Litmus.tracer_nonvacuous
