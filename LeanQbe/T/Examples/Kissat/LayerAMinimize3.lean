@@ -34,11 +34,6 @@ namespace LeanQbe.T.Examples.Kissat
 
 open Std.Sat
 
-private theorem trail_getElem_of_eq {c1 c2 : CdclState} (hc : c1 = c2) {i : Nat}
-    (h1 : i < c1.trail.size) (_h2 : i < c2.trail.size) :
-    c1.trail[i] = c2.trail[i] := by
-  subst hc; rfl
-
 /-! ## 1. Block replacement (`shrink`) under lazy `(level, trailPos)` ordering -/
 
 /-- Antecedent shrinkability condition at level `L`: every reason antecedent of `t` is level-0,

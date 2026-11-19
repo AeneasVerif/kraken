@@ -672,4 +672,429 @@ theorem markGarbageIf_sound {s : CdclState} (hinv : LazyTrailInv s)
     exact CNF.entails_clause_def.mp (hdb nid c hget) α hα
   exact ⟨hinv', rfl, rfl, hrlp, hrnr, hdb, hsat⟩
 
+/-! ## 3. Flushing root-level & root-antecedent trail reasons (`flushRootReasons`) -/
+
+/-- Check whether trail literal `l` sits at level `0` with non-`.unit` reason, or sits at a
+positive level with all `.binary`/`.large` antecedents already at level `0`. -/
+def shouldFlushReason (s : CdclState) (l : Nat) : Bool :=
+  let rsn := stateReason s l
+  if stateLevel s l == 0 then rsn != .unit
+  else match rsn with
+  | .binary other => stateLevel s other == 0
+  | .large cid =>
+    match s.clauses[cid]? with
+    | some (some c) => c.lits.all (fun x => x == l || stateLevel s x == 0)
+    | _ => false
+  | .decision | .unit => false
+
+/-- Demote literal `l` to decision level `0` with reason `.unit` and record it in `units`. -/
+def flushLitToUnit (s : CdclState) (l : Nat) : CdclState :=
+  let v := litVar l
+  { s with
+    units := if s.units.contains l then s.units else l :: s.units
+    levels := arraySetPad s.levels v 0 0
+    reasons := arraySetPad s.reasons v .unit .unit }
+
+@[simp] theorem f0_flushLitToUnit (s : CdclState) (l : Nat) :
+    (flushLitToUnit s l).f0 = s.f0 := rfl
+@[simp] theorem clauses_flushLitToUnit (s : CdclState) (l : Nat) :
+    (flushLitToUnit s l).clauses = s.clauses := rfl
+@[simp] theorem trail_flushLitToUnit (s : CdclState) (l : Nat) :
+    (flushLitToUnit s l).trail = s.trail := rfl
+@[simp] theorem level_flushLitToUnit (s : CdclState) (l : Nat) :
+    (flushLitToUnit s l).level = s.level := rfl
+@[simp] theorem inconsistent_flushLitToUnit (s : CdclState) (l : Nat) :
+    (flushLitToUnit s l).inconsistent = s.inconsistent := rfl
+
+@[simp] theorem stateLevel_flushLitToUnit (s : CdclState) (l x : Nat) :
+    stateLevel (flushLitToUnit s l) x =
+      if litVar x = litVar l then 0 else stateLevel s x :=
+  arraySetPad_getD s.levels (litVar l) 0 0 (litVar x)
+
+@[simp] theorem stateReason_flushLitToUnit (s : CdclState) (l x : Nat) :
+    stateReason (flushLitToUnit s l) x =
+      if litVar x = litVar l then .unit else stateReason s x :=
+  arraySetPad_getD s.reasons (litVar l) .unit .unit (litVar x)
+
+private theorem shouldFlushReason_sound {s : CdclState} (hinv : LazyTrailInv s)
+    {i : Nat} (hi : i < s.trail.size) (hfl : shouldFlushReason s s.trail[i] = true) :
+    stateReason s s.trail[i] ≠ .decision ∧ s.f0.EntailsClause (cnfClause [s.trail[i]]) := by
+  have hrd := hinv.reason_dag i hi; dsimp only at hrd
+  unfold shouldFlushReason at hfl; dsimp only at hfl
+  by_cases hl0 : stateLevel s s.trail[i] = 0
+  · have hnotdec : stateReason s s.trail[i] ≠ .decision := by
+      intro hdec; rw [hdec] at hrd; omega
+    exact ⟨hnotdec, lazyTrailEntailment_level0 hinv hi hl0⟩
+  · have hl0f : (stateLevel s s.trail[i] == 0) = false := beq_false_of_ne hl0
+    rw [ite_eq_right (by simp [hl0f])] at hfl
+    generalize hrsn : stateReason s s.trail[i] = rsn
+    rw [hrsn] at hfl hrd
+    cases rsn with
+    | decision | unit => simp at hfl
+    | binary other =>
+      simp only [beq_iff_eq] at hfl
+      obtain ⟨hbin, j, hj, _, hjeq, _, _⟩ := hrd
+      have hl0_j : stateLevel s s.trail[j] = 0 := by rw [hjeq, stateLevel_litNeg]; exact hfl
+      have hent_j := lazyTrailEntailment_level0 hinv hj hl0_j
+      rw [hjeq] at hent_j
+      refine ⟨by simp, CNF.entails_clause_def.mpr fun α hα => ?_⟩
+      obtain ⟨y, hy, hys⟩ := (clause_sat_cnfClause_iff α _).mp
+        (CNF.entails_clause_def.mp hbin α hα)
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hy
+      rcases hy with hyeq | hyeq <;> rw [hyeq] at hys
+      · exact (sat_cnfClause_singleton α _).mpr hys
+      · exact absurd ((sat_cnfClause_singleton α other).mpr hys)
+          ((sat_cnfClause_litNeg_iff α other).mp (CNF.entails_clause_def.mp hent_j α hα))
+    | large cid =>
+      dsimp only at hfl
+      cases hget : s.clauses[cid]? with
+      | none => rw [hget] at hfl; simp at hfl
+      | some opt =>
+        cases opt with
+        | none => rw [hget] at hfl; simp at hfl
+        | some c =>
+          rw [hget] at hfl
+          simp only [List.all_eq_true, Bool.or_eq_true, beq_iff_eq] at hfl
+          obtain ⟨c0, hget0, _, _, hall⟩ := hrd
+          rw [hget] at hget0; injection hget0 with h1; injection h1 with hc; subst hc
+          refine ⟨by simp, CNF.entails_clause_def.mpr fun α hα => ?_⟩
+          obtain ⟨x, hx, hxs⟩ := (clause_sat_cnfClause_iff α c.lits).mp
+            (CNF.entails_clause_def.mp (hinv.db_sound cid c hget) α hα)
+          by_cases hxeq : x = s.trail[i]
+          · rw [hxeq] at hxs; exact (sat_cnfClause_singleton α _).mpr hxs
+          · have hxl0 : stateLevel s x = 0 := (hfl x hx).resolve_left hxeq
+            obtain ⟨j, hj, _, hjeq, _, _⟩ := hall x hx hxeq
+            have hl0_j : stateLevel s s.trail[j] = 0 := by rw [hjeq, stateLevel_litNeg]; exact hxl0
+            have hent_j := lazyTrailEntailment_level0 hinv hj hl0_j
+            rw [hjeq] at hent_j
+            exact absurd ((sat_cnfClause_singleton α x).mpr hxs)
+              ((sat_cnfClause_litNeg_iff α x).mp (CNF.entails_clause_def.mp hent_j α hα))
+
+private theorem flushLitToUnit_preserves_lazyInv {s : CdclState} (hinv : LazyTrailInv s)
+    {i : Nat} (hi : i < s.trail.size)
+    (hne : stateReason s s.trail[i] ≠ .decision)
+    (hent : s.f0.EntailsClause (cnfClause [s.trail[i]])) :
+    let s' := flushLitToUnit s s.trail[i]
+    LazyTrailInv s' ∧
+    (∀ k, decisionsAtMost s' k = decisionsAtMost s k) ∧
+    (∀ j (_hj : j < s.trail.size), j ≠ i →
+      stateLevel s' s.trail[j] = stateLevel s s.trail[j] ∧
+      stateReason s' s.trail[j] = stateReason s s.trail[j]) := by
+  have hvar_ne : ∀ {j : Nat} (_hj : j < s.trail.size), j ≠ i →
+      litVar s.trail[j] ≠ litVar s.trail[i] :=
+    fun hj hne_ji hvar => hne_ji (hinv.vars_nodup _ i hj hi hvar)
+  have hdec_eq : ∀ k, decisionsAtMost (flushLitToUnit s s.trail[i]) k = decisionsAtMost s k := by
+    intro k
+    unfold decisionsAtMost
+    rw [trail_flushLitToUnit]
+    apply List.filter_congr
+    intro x hx
+    obtain ⟨j, hj, rfl⟩ := trail_mem_iff_exists.mp hx
+    by_cases hji : j = i
+    · subst hji
+      simp [stateReason_flushLitToUnit, hne]
+    · have hv := hvar_ne hj hji
+      simp [hv]
+  have hinv' : LazyTrailInv (flushLitToUnit s s.trail[i]) := by
+    refine ⟨hinv.vars_nodup, ?_, ?_, hinv.db_sound, ?_, ?_, hinv.inconsistent_sound⟩
+    · intro j hj
+      have hj' : j < s.trail.size := hj
+      change stateLevel (flushLitToUnit s s.trail[i]) s.trail[j] ≤ s.level
+      rw [stateLevel_flushLitToUnit]
+      by_cases hji : j = i
+      · subst hji; simp
+      · simp [hvar_ne hj' hji, hinv.levels_le j hj']
+    · intro a b ha hb hleq hrsn_b
+      have ha' : a < s.trail.size := ha
+      have hb' : b < s.trail.size := hb
+      change stateLevel (flushLitToUnit s s.trail[i]) s.trail[a] =
+        stateLevel (flushLitToUnit s s.trail[i]) s.trail[b] at hleq
+      change stateReason (flushLitToUnit s s.trail[i]) s.trail[b] = .decision at hrsn_b
+      rw [stateLevel_flushLitToUnit, stateLevel_flushLitToUnit] at hleq
+      rw [stateReason_flushLitToUnit] at hrsn_b
+      have hbi : b ≠ i := by
+        rintro rfl
+        simp at hrsn_b
+      have hvb : litVar s.trail[b] ≠ litVar s.trail[i] := hvar_ne hb' hbi
+      have hsr_b : stateReason s s.trail[b] = .decision := by simpa [hvb] using hrsn_b
+      have hpos_b : 0 < stateLevel s s.trail[b] := by
+        have hrd := hinv.reason_dag b hb'; dsimp only at hrd; rw [hsr_b] at hrd; exact hrd
+      have hai : a ≠ i := by
+        rintro rfl
+        simp only [↓reduceIte, hvb] at hleq
+        omega
+      have hva : litVar s.trail[a] ≠ litVar s.trail[i] := hvar_ne ha' hai
+      have hleq_s : stateLevel s s.trail[a] = stateLevel s s.trail[b] := by
+        simpa [hva, hvb] using hleq
+      exact hinv.dec_earliest a b ha' hb' hleq_s hsr_b
+    · intro u hu
+      dsimp only [flushLitToUnit] at hu
+      split at hu
+      · exact hinv.units_sound u hu
+      · rcases List.mem_cons.mp hu with rfl | hu'
+        · exact hent
+        · exact hinv.units_sound u hu'
+    · intro j hj
+      have hj' : j < s.trail.size := hj
+      change match stateReason (flushLitToUnit s s.trail[i]) s.trail[j] with
+        | .decision => 0 < stateLevel (flushLitToUnit s s.trail[i]) s.trail[j]
+        | .unit =>
+          stateLevel (flushLitToUnit s s.trail[i]) s.trail[j] = 0 ∧
+            s.f0.EntailsClause (cnfClause [s.trail[j]])
+        | .binary other =>
+          s.f0.EntailsClause (cnfClause [s.trail[j], other]) ∧
+            ∃ (m : Nat) (_hm : m < s.trail.size), m < j ∧ s.trail[m] = litNeg other ∧
+              stateLevel (flushLitToUnit s s.trail[i]) other ≤
+                stateLevel (flushLitToUnit s s.trail[i]) s.trail[j] ∧
+              lexLt (stateLevel (flushLitToUnit s s.trail[i]) other) m
+                (stateLevel (flushLitToUnit s s.trail[i]) s.trail[j]) j
+        | .large cid =>
+          ∃ c : Clause, s.clauses[cid]? = some (some c) ∧ !c.garbage = true ∧
+            s.trail[j] ∈ c.lits ∧
+            ∀ x ∈ c.lits, x ≠ s.trail[j] →
+              ∃ (m : Nat) (_hm : m < s.trail.size), m < j ∧ s.trail[m] = litNeg x ∧
+                stateLevel (flushLitToUnit s s.trail[i]) x ≤
+                  stateLevel (flushLitToUnit s s.trail[i]) s.trail[j] ∧
+                lexLt (stateLevel (flushLitToUnit s s.trail[i]) x) m
+                  (stateLevel (flushLitToUnit s s.trail[i]) s.trail[j]) j
+      rw [stateReason_flushLitToUnit, stateLevel_flushLitToUnit]
+      by_cases hji : j = i
+      · subst hji; simp [hent]
+      · have hvj : litVar s.trail[j] ≠ litVar s.trail[i] := hvar_ne hj' hji
+        have hrd := hinv.reason_dag j hj'; dsimp only at hrd
+        rw [ite_eq_right (by simp [hvj]), ite_eq_right (by simp [hvj])]
+        generalize hrsn : stateReason s s.trail[j] = rsn; rw [hrsn] at hrd
+        cases rsn with
+        | decision | unit => exact hrd
+        | binary other =>
+          obtain ⟨hbin, m, hm, hmlt, hmeq, hle, hlex⟩ := hrd
+          refine ⟨hbin, m, hm, hmlt, hmeq, ?_, ?_⟩
+          · rw [stateLevel_flushLitToUnit]
+            by_cases hvo : litVar other = litVar s.trail[i]
+            · simp [hvo]
+            · simp [hvo, hle]
+          · rw [stateLevel_flushLitToUnit]
+            by_cases hvo : litVar other = litVar s.trail[i]
+            · rw [ite_eq_left (by simp [hvo])]
+              by_cases hpos : 0 < stateLevel s s.trail[j]
+              · exact Or.inl hpos
+              · exact Or.inr ⟨by omega, hmlt⟩
+            · rw [ite_eq_right (by simp [hvo])]; exact hlex
+        | large cid =>
+          obtain ⟨c, hget, hng, hmem, hall⟩ := hrd
+          refine ⟨c, hget, hng, hmem, fun x hx hxne => ?_⟩
+          obtain ⟨m, hm, hmlt, hmeq, hle, hlex⟩ := hall x hx hxne
+          refine ⟨m, hm, hmlt, hmeq, ?_, ?_⟩
+          · rw [stateLevel_flushLitToUnit]
+            by_cases hvx : litVar x = litVar s.trail[i]
+            · simp [hvx]
+            · simp [hvx, hle]
+          · rw [stateLevel_flushLitToUnit]
+            by_cases hvx : litVar x = litVar s.trail[i]
+            · rw [ite_eq_left (by simp [hvx])]
+              by_cases hpos : 0 < stateLevel s s.trail[j]
+              · exact Or.inl hpos
+              · exact Or.inr ⟨by omega, hmlt⟩
+            · rw [ite_eq_right (by simp [hvx])]; exact hlex
+  exact ⟨hinv', hdec_eq, fun j hj hne_ji => by simp [hvar_ne hj hne_ji]⟩
+
+/-- Single step of `flushRootReasons` at trail position `i`. -/
+def flushRootReasonStep (s : CdclState) (i : Nat) : CdclState :=
+  if h : i < s.trail.size then
+    if shouldFlushReason s s.trail[i] then flushLitToUnit s s.trail[i] else s
+  else s
+
+@[simp] theorem f0_flushRootReasonStep (s : CdclState) (i : Nat) :
+    (flushRootReasonStep s i).f0 = s.f0 := by
+  unfold flushRootReasonStep; split
+  · split <;> rfl
+  · rfl
+@[simp] theorem clauses_flushRootReasonStep (s : CdclState) (i : Nat) :
+    (flushRootReasonStep s i).clauses = s.clauses := by
+  unfold flushRootReasonStep; split
+  · split <;> rfl
+  · rfl
+@[simp] theorem trail_flushRootReasonStep (s : CdclState) (i : Nat) :
+    (flushRootReasonStep s i).trail = s.trail := by
+  unfold flushRootReasonStep; split
+  · split <;> rfl
+  · rfl
+@[simp] theorem level_flushRootReasonStep (s : CdclState) (i : Nat) :
+    (flushRootReasonStep s i).level = s.level := by
+  unfold flushRootReasonStep; split
+  · split <;> rfl
+  · rfl
+
+/-- Left-to-right loop flushing root-level and all-root-antecedent reasons to `.unit`. -/
+def flushRootReasonsAux (s : CdclState) (i : Nat) : CdclState :=
+  if i < s.trail.size then
+    flushRootReasonsAux (flushRootReasonStep s i) (i + 1)
+  else s
+termination_by s.trail.size - i
+decreasing_by
+  simp only [trail_flushRootReasonStep]
+  omega
+
+/-- Flush all root-level and all-root-antecedent trail reasons to `.unit` at level `0`,
+establishing `ReasonLevelsPos` and `ReasonHasNonRootAntecedent` (`trail.c`, `unflushed == 0`). -/
+def flushRootReasons (s : CdclState) : CdclState :=
+  flushRootReasonsAux s 0
+
+private def FlushedBefore (s : CdclState) (bound : Nat) : Prop :=
+  ∀ (j : Nat) (_hj : j < s.trail.size), j < bound →
+    (∀ cid, stateReason s s.trail[j] = .large cid → 0 < stateLevel s s.trail[j]) ∧
+    (∀ cid c, stateReason s s.trail[j] = .large cid → s.clauses[cid]? = some (some c) →
+      ∃ x ∈ c.lits, x ≠ s.trail[j] ∧ 0 < stateLevel s x)
+
+private theorem flushRootReasonStep_props {s : CdclState} (hinv : LazyTrailInv s)
+    {i : Nat} (hi : i < s.trail.size) (hfb : FlushedBefore s i) :
+    let s1 := flushRootReasonStep s i
+    LazyTrailInv s1 ∧
+    (∀ k, decisionsAtMost s1 k = decisionsAtMost s k) ∧
+    FlushedBefore s1 (i + 1) := by
+  have hs1_def : flushRootReasonStep s i =
+      if shouldFlushReason s s.trail[i] then flushLitToUnit s s.trail[i] else s := by
+    simp [flushRootReasonStep, hi]
+  have hstep : LazyTrailInv (flushRootReasonStep s i) ∧
+      (∀ k, decisionsAtMost (flushRootReasonStep s i) k = decisionsAtMost s k) ∧
+      (∀ j (_hj : j < s.trail.size), j ≠ i →
+        stateLevel (flushRootReasonStep s i) s.trail[j] = stateLevel s s.trail[j] ∧
+        stateReason (flushRootReasonStep s i) s.trail[j] = stateReason s s.trail[j]) := by
+    by_cases hfl : shouldFlushReason s s.trail[i] = true
+    · obtain ⟨hne, hent⟩ := shouldFlushReason_sound hinv hi hfl
+      have hp := flushLitToUnit_preserves_lazyInv hinv hi hne hent
+      simpa [hs1_def, hfl] using hp
+    · have hflf : shouldFlushReason s s.trail[i] = false := Bool.eq_false_iff.mpr hfl
+      rw [hs1_def, ite_eq_right (by simp [hflf])]
+      exact ⟨hinv, fun _ => rfl, fun _ _ _ => ⟨rfl, rfl⟩⟩
+  refine ⟨hstep.1, hstep.2.1, fun j hj_s1 hji => ?_⟩
+  have hj : j < s.trail.size := by simpa using hj_s1
+  have htr : (flushRootReasonStep s i).trail[j] = s.trail[j] := by
+    simp only [trail_flushRootReasonStep]
+  have hcl : (flushRootReasonStep s i).clauses = s.clauses := clauses_flushRootReasonStep s i
+  rw [htr, hcl]
+  rcases Nat.lt_or_eq_of_le (Nat.lt_succ_iff.mp hji) with hjlt | rfl
+  · obtain ⟨hlvl_eq, hrsn_eq⟩ := hstep.2.2 j hj (Nat.ne_of_lt hjlt)
+    have hfbj := hfb j hj hjlt
+    refine ⟨fun cid hrsn => ?_, fun cid c hrsn hget => ?_⟩
+    · rw [hrsn_eq] at hrsn; rw [hlvl_eq]; exact hfbj.1 cid hrsn
+    · rw [hrsn_eq] at hrsn
+      obtain ⟨x, hx, hxne, hxpos⟩ := hfbj.2 cid c hrsn hget
+      refine ⟨x, hx, hxne, ?_⟩
+      have hrd := hinv.reason_dag j hj; dsimp only at hrd; rw [hrsn] at hrd
+      obtain ⟨c0, hget0, _, _, hall⟩ := hrd
+      rw [hget] at hget0; injection hget0 with h1; injection h1 with hc; subst hc
+      obtain ⟨m, hm, hmlt, hmeq, _, _⟩ := hall x hx hxne
+      have hmi : m ≠ i := by omega
+      have hx_var : litVar x ≠ litVar s.trail[i] := by
+        intro heq
+        exact hmi (hinv.vars_nodup m i hm hi (by rw [hmeq, litVar_litNeg, heq]))
+      by_cases hfl : shouldFlushReason s s.trail[i] = true
+      · rw [hs1_def, ite_eq_left hfl, stateLevel_flushLitToUnit, ite_eq_right (by simp [hx_var])]
+        exact hxpos
+      · have hflf : shouldFlushReason s s.trail[i] = false := Bool.eq_false_iff.mpr hfl
+        rw [hs1_def, ite_eq_right (by simp [hflf])]
+        exact hxpos
+  · have hno : shouldFlushReason s s.trail[j] = false →
+        (∀ cid, stateReason s s.trail[j] = .large cid → 0 < stateLevel s s.trail[j]) ∧
+        (∀ cid c, stateReason s s.trail[j] = .large cid → s.clauses[cid]? = some (some c) →
+          ∃ x ∈ c.lits, x ≠ s.trail[j] ∧ 0 < stateLevel s x) := by
+      intro hflf
+      unfold shouldFlushReason at hflf; dsimp only at hflf
+      have hlpos : ∀ cid, stateReason s s.trail[j] = .large cid → 0 < stateLevel s s.trail[j] := by
+        intro cid hrsn
+        by_cases hl0 : stateLevel s s.trail[j] = 0
+        · simp only [hl0, beq_self_eq_true, ↓reduceIte, hrsn, bne_eq_false_iff_eq] at hflf
+          cases hflf
+        · exact Nat.pos_of_ne_zero hl0
+      refine ⟨hlpos, fun cid c hrsn hget => ?_⟩
+      have hl0f : (stateLevel s s.trail[j] == 0) = false :=
+        beq_false_of_ne (Nat.ne_of_gt (hlpos cid hrsn))
+      rw [ite_eq_right (by simp [hl0f])] at hflf
+      rw [hrsn] at hflf; dsimp only at hflf
+      rw [hget] at hflf; dsimp only at hflf
+      rw [Bool.eq_false_iff] at hflf
+      exact Classical.byContradiction fun hnone => by
+        apply hflf
+        rw [List.all_eq_true]
+        intro x hx
+        by_cases hxeq : x = s.trail[j]
+        · simp [hxeq]
+        · have hx0 : stateLevel s x = 0 :=
+            Classical.byContradiction fun hxne => hnone ⟨x, hx, hxeq, Nat.pos_of_ne_zero hxne⟩
+          simp [hx0]
+    by_cases hfl : shouldFlushReason s s.trail[j] = true
+    · rw [hs1_def, ite_eq_left hfl]
+      refine ⟨fun cid hrsn => ?_, fun cid _ hrsn _ => ?_⟩ <;> simp at hrsn
+    · have hflf : shouldFlushReason s s.trail[j] = false := Bool.eq_false_iff.mpr hfl
+      rw [hs1_def, ite_eq_right (by simp [hflf])]
+      exact hno hflf
+
+private theorem flushRootReasonsAux_sound :
+    ∀ (k : Nat) (s : CdclState) (i : Nat),
+      s.trail.size - i ≤ k → LazyTrailInv s → FlushedBefore s i →
+      let s' := flushRootReasonsAux s i
+      LazyTrailInv s' ∧ ReasonLevelsPos s' ∧ ReasonHasNonRootAntecedent s' ∧
+      s'.f0 = s.f0 ∧ s'.trail = s.trail ∧ s'.clauses = s.clauses ∧ s'.level = s.level ∧
+      (∀ m, decisionsAtMost s' m = decisionsAtMost s m) := by
+  intro k
+  induction k with
+  | zero =>
+    intro s i hle hinv hfb
+    have hnlt : ¬ i < s.trail.size := by omega
+    unfold flushRootReasonsAux
+    rw [ite_eq_right (by simp [hnlt])]
+    refine ⟨hinv, fun j hj cid hrsn => (hfb j hj (by omega)).1 cid hrsn,
+      fun j hj cid c hrsn hget => (hfb j hj (by omega)).2 cid c hrsn hget,
+      rfl, rfl, rfl, rfl, fun _ => rfl⟩
+  | succ k ih =>
+    intro s i hle hinv hfb
+    unfold flushRootReasonsAux
+    by_cases hlt : i < s.trail.size
+    · rw [ite_eq_left (by simp [hlt])]
+      have hs1 := flushRootReasonStep_props hinv hlt hfb
+      have hih := ih (flushRootReasonStep s i) (i + 1)
+        (by simp; omega) hs1.1 hs1.2.2
+      exact ⟨hih.1, hih.2.1, hih.2.2.1,
+        hih.2.2.2.1.trans (f0_flushRootReasonStep s i),
+        hih.2.2.2.2.1.trans (trail_flushRootReasonStep s i),
+        hih.2.2.2.2.2.1.trans (clauses_flushRootReasonStep s i),
+        hih.2.2.2.2.2.2.1.trans (level_flushRootReasonStep s i),
+        fun m => (hih.2.2.2.2.2.2.2 m).trans (hs1.2.1 m)⟩
+    · rw [ite_eq_right (by simp [hlt])]
+      refine ⟨hinv, fun j hj cid hrsn => (hfb j hj (by omega)).1 cid hrsn,
+        fun j hj cid c hrsn hget => (hfb j hj (by omega)).2 cid c hrsn hget,
+        rfl, rfl, rfl, rfl, fun _ => rfl⟩
+
+/-- **Root-reason flush soundness**: flushing root-level and all-root-antecedent trail reasons
+to `.unit` preserves `LazyTrailInv` and `decisionsAtMost` while establishing both
+`ReasonLevelsPos` and `ReasonHasNonRootAntecedent` (ready for `sweep_collect_sound` and
+`reduceAndCollect_sound`). -/
+theorem flushRootReasons_sound {s : CdclState} (hinv : LazyTrailInv s) :
+    let s' := flushRootReasons s
+    LazyTrailInv s' ∧
+    ReasonLevelsPos s' ∧
+    ReasonHasNonRootAntecedent s' ∧
+    s'.f0 = s.f0 ∧
+    s'.trail = s.trail ∧
+    s'.clauses = s.clauses ∧
+    s'.level = s.level ∧
+    (∀ k, decisionsAtMost s' k = decisionsAtMost s k) ∧
+    (∀ (i : Nat) (hi : i < s'.trail.size),
+      (s'.f0 ++ unitsCnf (decisionsAtMost s' (stateLevel s' s'.trail[i]))).EntailsClause
+        (cnfClause [s'.trail[i]])) := by
+  have h := flushRootReasonsAux_sound s.trail.size s 0 (Nat.le_refl _) hinv
+    (fun _ _ h0 => absurd h0 (Nat.not_lt_zero _))
+  exact ⟨h.1, h.2.1, h.2.2.1, h.2.2.2.1, h.2.2.2.2.1, h.2.2.2.2.2.1, h.2.2.2.2.2.2.1,
+    h.2.2.2.2.2.2.2, fun i hi => lazyTrailEntailment h.1 i hi⟩
+
+/-- Convenience bridge from `CoreLemmas1.TrailInv` through `flushRootReasons` to
+`LazyTrailInv` + `ReasonLevelsPos` + `ReasonHasNonRootAntecedent`. -/
+theorem flushRoot_of_trailInv {s : CdclState} (hinv : TrailInv s) :
+    let s' := flushRootReasons s
+    LazyTrailInv s' ∧ ReasonLevelsPos s' ∧ ReasonHasNonRootAntecedent s' ∧
+    s'.f0 = s.f0 ∧ s'.trail = s.trail ∧ s'.clauses = s.clauses ∧ s'.level = s.level := by
+  have h := flushRootReasons_sound hinv.toLazy
+  exact ⟨h.1, h.2.1, h.2.2.1, h.2.2.2.1, h.2.2.2.2.1, h.2.2.2.2.2.1, h.2.2.2.2.2.2.1⟩
+
 end LeanQbe.T.Examples.Kissat

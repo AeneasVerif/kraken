@@ -789,8 +789,8 @@ theorem seedRemovable_isRemovable (s : MinState) (C : List Nat) (v : Nat) :
     · have hne : litVar x ≠ v := Ne.symm hv
       simp [hv, hne]
 
-private theorem trail_getElem_of_eq {c1 c2 : CdclState} (hc : c1 = c2) {i : Nat}
-    (h1 : i < c1.trail.size) (h2 : i < c2.trail.size) :
+theorem trail_getElem_of_eq {c1 c2 : CdclState} (hc : c1 = c2) {i : Nat}
+    (h1 : i < c1.trail.size) (_h2 : i < c2.trail.size) :
     c1.trail[i] = c2.trail[i] := by
   subst hc; rfl
 
