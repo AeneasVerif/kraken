@@ -349,31 +349,49 @@ def allocDefs {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List N
     (defs la : List Nat) (prefVar? : Option Nat) (dest : Trie I.Loc) :
     Trie I.Loc × List (Nat × Nat × Nat) × List (Nat × Nat × SlotWidth × Nat) :=
   let gOf (r : Nat) := c.gReg.getD r I.frame.sp
-  let pickG (gb : List Nat) (pref : Option Nat) := pref <|> freshReg (c.gAlloc ++ usedCs) gb <|> c.gAlloc.head?
-  let pickV (vb : List Nat) (pref : Option Nat) := pref <|> freshReg c.vAlloc vb <|> c.vAlloc.head?
-  let (dest', _, _, gSt, vSt) := defs.foldl (fun (dT, gb, vb, gS, vS) x => match home.getD x .none with
-    | .flag cc => (dT.insert x (.flag cc), gb, vb, gS, vS)
-    | .gpr r => (dT.insert x (.gpr (gOf r)), r :: gb, vb, gS, vS)
-    | .vec v => match c.vReg.find? v with | some vr => (dT.insert x (.vec vr), gb, v :: vb, gS, vS) | none => (dT, gb, vb, gS, vS)
-    | h =>
-      let spill? := match h with | .slot s w => some (s, w) | _ => none
-      if (c.banks.getD x .gpr).isVec then
-        let pref := if spill?.isSome then prefVar?.bind fun a => match home.getD a .none with
-          | .vec va => if Nat.ble (va + 1) c.nVec && !natMem va vb then some va else none | _ => none else none
-        match (pickV vb pref).bind fun v => (c.vReg.find? v).map (v, ·) with
-        | some (v, vr) =>
-          let vS' := match spill? with | some (s, w) => (x, s, w, v) :: vS | none => vS
-          (dT.insert x (.vec vr), gb, v :: vb, gS, vS')
-        | none => (dT, gb, vb, gS, vS)
-      else
-        let pref := if spill?.isSome then prefVar?.bind fun a => match home.getD a .none with
-          | .gpr ra => if Nat.ble (ra + 1) c.nGpr && !natMem ra gb then some ra else none | _ => none else none
-        match pickG gb pref with
-        | some r =>
-          let gS' := match spill? with | some (s, _) => (x, s, r) :: gS | none => gS
-          (dT.insert x (.gpr (gOf r)), r :: gb, vb, gS', vS)
-        | none => (dT, gb, vb, gS, vS))
-    (dest, gprHomes home (eraseMany defs la), vecHomes home (eraseMany defs la), [], [])
+  let pickG (gb sibG : List Nat) (pref : Option Nat) :=
+    pref.filter (!natMem · sibG) <|> freshReg (c.gAlloc ++ usedCs) gb <|>
+      c.gAlloc.find? (!natMem · sibG) <|> c.gAlloc.head?
+  let pickV (vb sibV : List Nat) (pref : Option Nat) :=
+    pref.filter (!natMem · sibV) <|> freshReg c.vAlloc vb <|>
+      c.vAlloc.find? (!natMem · sibV) <|> c.vAlloc.head?
+  let initGb := gprHomes home (union defs la)
+  let initVb := vecHomes home (union defs la)
+  let initSibG := gprHomes home defs
+  let initSibV := vecHomes home defs
+  let (dest', _, _, _, _, gSt, vSt) := defs.foldl
+    (fun (dT, gb, vb, sibG, sibV, gS, vS) x => match home.getD x .none with
+      | .flag cc => (dT.insert x (.flag cc), gb, vb, sibG, sibV, gS, vS)
+      | .gpr r => (dT.insert x (.gpr (gOf r)), r :: gb, vb, r :: sibG, sibV, gS, vS)
+      | .vec v =>
+        match c.vReg.find? v with
+        | some vr => (dT.insert x (.vec vr), gb, v :: vb, sibG, v :: sibV, gS, vS)
+        | none => (dT, gb, vb, sibG, sibV, gS, vS)
+      | h =>
+        let spill? := match h with | .slot s w => some (s, w) | _ => none
+        if (c.banks.getD x .gpr).isVec then
+          let pref :=
+            if spill?.isSome then prefVar?.bind fun a => match home.getD a .none with
+              | .vec va => if Nat.ble (va + 1) c.nVec && !natMem va vb then some va else none
+              | _ => none
+            else none
+          match (pickV vb sibV pref).bind fun v => (c.vReg.find? v).map (v, ·) with
+          | some (v, vr) =>
+            let vS' := match spill? with | some (s, w) => (x, s, w, v) :: vS | none => vS
+            (dT.insert x (.vec vr), gb, v :: vb, sibG, v :: sibV, gS, vS')
+          | none => (dT, gb, vb, sibG, sibV, gS, vS)
+        else
+          let pref :=
+            if spill?.isSome then prefVar?.bind fun a => match home.getD a .none with
+              | .gpr ra => if Nat.ble (ra + 1) c.nGpr && !natMem ra gb then some ra else none
+              | _ => none
+            else none
+          match pickG gb sibG pref with
+          | some r =>
+            let gS' := match spill? with | some (s, _) => (x, s, r) :: gS | none => gS
+            (dT.insert x (.gpr (gOf r)), r :: gb, vb, r :: sibG, sibV, gS', vS)
+          | none => (dT, gb, vb, sibG, sibV, gS, vS))
+    (dest, initGb, initVb, initSibG, initSibV, [], [])
   (dest', gSt, vSt)
 
 def pickPlocs {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (liveL ps usedCs : List Nat) :
@@ -493,7 +511,12 @@ def hints (I : Isa) (f : Fn)
     bparams := bs0.foldl (fun a (l, ps, _) => a.insert l (ps.map Prod.fst)) .empty,
     lTrie := lTrie }
   let fh := match I.frame.allocatable.head? with
-    | some r0 => gatherFlags I r0 I.vec.vecAllocatable.head? condCands nv (fnPs.map Prod.fst) c.cross c.bparams tys lTrie t | none => {}
+    | some r0 =>
+      let r1 := I.frame.allocatable[1]?.getD r0
+      let v0 := I.vec.vecAllocatable.head?
+      let v1 := I.vec.vecAllocatable[1]? <|> v0
+      gatherFlags I r0 r1 v0 v1 condCands nv (fnPs.map Prod.fst) c.cross c.bparams tys lTrie t
+    | none => {}
   let acc := gather c 1 t {}; let fnAbi := match I.assignArgs f.as with | some locs => abiIdList allGpr allVec locs | none => []
   let (home, usedCs, nslots) := colorVars c nv fh.flagHome acc (fnPs.map Prod.fst) fnAbi
   let (gSt0, vSt0, gRg0, vRg0) := pendFromArrivals home (fnPs.map Prod.fst) fnAbi

@@ -1,10 +1,19 @@
 module
 
 public import LeanQbe.T.Amd64.IselLemmas5
+public import LeanQbe.T.Amd64.IselVec
+public import LeanQbe.T.Amd64.Frame
+public import LeanQbe.T.Main
 public import LeanQbe.T.Examples.Bignum
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.Legal
 public import LeanQbe.T.FlatLemmas
+meta import LeanQbe.T.Amd64.Isel
+meta import LeanQbe.T.Amd64.IselVec
+meta import LeanQbe.T.Amd64.Frame
+meta import LeanQbe.T.Main
+meta import LeanQbe.T.Examples.Bignum
+meta import LeanQbe.T.Legal
 
 /-!
 # Verification Tests & Audit for `LeanQbe.T.Amd64` (`T8`)
@@ -310,6 +319,46 @@ def unsupportedClzFn : Fn := ⟨"bad_clz", [i64], [i64], fun _ _ (a, ()) =>
   .let_ ⟨.clz 64, (.var a, ())⟩ fun (r, ()) => .ret (.var r, ())⟩
 
 theorem backendOk_rejects_clz : unsupportedClzFn.backendOk testX64Isa = false := by t_kernel_rfl
+
+/-! ## 5b. Full `x64Gpr` + `x64Vec` + `x64Frame` `Bignum` Regression (`T7c-fix`) -/
+
+/-- Full x64 `Isa` combining `x64Gpr`, `x64Vec`, and `x64Frame`. -/
+@[expose] meta def fullX64Isa : Isa where
+  Reg := Reg64
+  VReg := RegMm
+  Cond := CondCode
+  Directive := Directive
+  gpr := x64Gpr
+  vec := x64Vec
+  frame := x64Frame
+
+meta def x64CompileMod (m : Module) : Except String (List Directive × List (Sym × Nat)) :=
+  let hs := m.fns.map (Fn.computeHints fullX64Isa (LegalTarget.x64))
+  compileModule fullX64Isa (LegalTarget.x64) fullX64Isa.frame.raBytes [] m.exits 0 m.fns hs
+
+meta def isMulxDir : Directive → Bool
+  | .instr (.regular _ _ (.mulx _ _ _)) => true
+  | _ => false
+
+meta def isCarryFlagOpDir : Directive → Bool
+  | .instr (.regular _ _ (.adcx _ _)) => true
+  | .instr (.regular _ _ (.adox _ _)) => true
+  | _ => false
+
+meta def isSetccDir : Directive → Bool
+  | .instr (.regular _ _ (.setcc _ _)) => true
+  | _ => false
+
+#guard (x64CompileMod Examples.Bignum.mul4x4Module).isOk = true
+#guard (x64CompileMod Examples.Bignum.addMod25519Module).isOk = true
+#guard (x64CompileMod Examples.Bignum.subMod25519Module).isOk = true
+
+#guard
+  let code := extractCode (x64CompileMod Examples.Bignum.mul4x4Module)
+  let mulxs := (code.filter isMulxDir).length
+  let carries := (code.filter isCarryFlagOpDir).length
+  let setccs := (code.filter isSetccDir).length
+  mulxs > 0 && carries > 0 && setccs == 0
 
 /-! ## 6. Axiom Audit -/
 

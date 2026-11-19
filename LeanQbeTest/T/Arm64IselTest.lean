@@ -1,8 +1,16 @@
 module
 
 public import LeanQbe.T.Arm64.IselLemmas4
+public import LeanQbe.T.Arm64.Frame
 public import LeanQbe.T.OpsLemmas
+public import LeanQbe.T.Main
+public import LeanQbe.T.Examples.Bignum
 import Kraken.AArch64.Parser
+meta import LeanQbe.T.Arm64.Isel
+meta import LeanQbe.T.Arm64.Frame
+meta import LeanQbe.T.Main
+meta import LeanQbe.T.Examples.Bignum
+meta import LeanQbe.T.Legal
 
 /-!
 # AArch64 Scalar GprIsa + GprTarget Test & Witness Suite (`T9`)
@@ -741,6 +749,42 @@ theorem jnzGpr_false_witness {s : MachineData}
   rintro s2 ⟨hx3, _⟩ _
   refine armMach_run_end ⟨rfl, ?_⟩
   rw [hx3, hfr1.1 _ (by simp [armScratch]), hx2]
+
+/-! ## 8b. Full `armGpr` + `armFrame` `Bignum` Regression (`T7c-fix`) -/
+
+@[expose] meta def armEmptyVecIsa : VecIsa Reg Empty ArmCond Directive where
+  vecScratch := []
+  vecAllocatable := []
+  vecArgRegs := []
+  vecRetRegs := []
+  isAbiVec _ := false
+  vecSlotWidth _ := none
+  vmov _ _ _ := []
+  vmovi _ _ _ := none
+  vslotSt _ _ _ := []
+  vslotLd _ _ _ := []
+  vop _ _ _ _ := none
+  vload _ _ _ := none
+  vstore _ _ _ := none
+  supportsVecOp _ _ := false
+
+/-- Scalar AArch64 `Isa` combining `armGpr` and `armFrame`. -/
+@[expose] meta def fullArm64Isa : Isa where
+  Reg := Reg
+  VReg := Empty
+  Cond := ArmCond
+  Directive := Directive
+  gpr := armGpr
+  vec := armEmptyVecIsa
+  frame := armFrame
+
+meta def armCompileMod (m : Module) : Except String (List Directive × List (Sym × Nat)) :=
+  let hs := m.fns.map (Fn.computeHints fullArm64Isa LegalTarget.aarch64)
+  compileModule fullArm64Isa LegalTarget.aarch64 fullArm64Isa.frame.raBytes [] m.exits 0 m.fns hs
+
+#guard (armCompileMod Examples.Bignum.mul4x4Module).isOk = true
+#guard (armCompileMod Examples.Bignum.addMod25519Module).isOk = true
+#guard (armCompileMod Examples.Bignum.subMod25519Module).isOk = true
 
 /-! ## 9. Standard-axiom audit -/
 

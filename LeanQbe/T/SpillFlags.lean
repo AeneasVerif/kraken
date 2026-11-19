@@ -41,21 +41,23 @@ def mkDummyPArgs {I : Isa} (r0 : I.Reg) (v0 : Option I.VReg) (fArg : Nat → Opt
   | .pair _ _ :: _, (.imm c, as) => (mkDummyPArgs r0 v0 fArg immF as).map (.imm c, ·)
   | .float _ :: _, _ => none
 
-def mkDummyPDsts {I : Isa} (r0 : I.Reg) (v0 : Option I.VReg) (fDst : Nat → Option I.Cond)
-    (nv0 : Nat) : (ts : List Ty) → Option (Tup (PDst I.Reg I.VReg I.Cond) ts)
+def mkDummyPDsts {I : Isa} (r0 r1 : I.Reg) (v0 v1 : Option I.VReg)
+    (fDst : Nat → Option I.Cond) (nv0 : Nat) :
+    (ts : List Ty) → Option (Tup (PDst I.Reg I.VReg I.Cond) ts)
   | [] => some ()
   | .bool :: ts =>
-    (mkDummyPDsts r0 v0 fDst (nv0 + 1) ts).map
+    (mkDummyPDsts r0 r1 v0 v1 fDst (nv0 + 1) ts).map
       (match fDst nv0 with | some c => .flag c | none => .gpr r0, ·)
-  | .bits _ :: ts => (mkDummyPDsts r0 v0 fDst (nv0 + 1) ts).map (.gpr r0, ·)
-  | .pair _ _ :: ts => v0.bind fun v => (mkDummyPDsts r0 v0 fDst (nv0 + 1) ts).map (.vec v, ·)
+  | .bits _ :: ts => (mkDummyPDsts r1 r0 v0 v1 fDst (nv0 + 1) ts).map (.gpr r0, ·)
+  | .pair _ _ :: ts => v0.bind fun v =>
+    (mkDummyPDsts r0 r1 v1 v0 fDst (nv0 + 1) ts).map (.vec v, ·)
   | .float _ :: _ => none
 
-def probeOp (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (fArg fDst : Nat → Option I.Cond)
+def probeOp (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (fArg fDst : Nat → Option I.Cond)
     (immF : Option I.Cond) (nv0 : Nat) {ts : List Ty} (op : Op VNat ts)
     (vh : VariantHint) : Option FlagMask :=
   (mkDummyPArgs r0 v0 fArg immF op.args).bind fun pas =>
-    (mkDummyPDsts r0 v0 fDst nv0 ts).bind fun dsts =>
+    (mkDummyPDsts r0 r1 v0 v1 fDst nv0 ts).bind fun dsts =>
       if (tupDstVecs dsts).isEmpty && (tupArgVecs pas).isEmpty then
         ((I.gpr.op op.code pas dsts vh).map Prod.snd) <|>
           ((I.vec.vop op.code pas dsts vh).map Prod.snd)
@@ -107,25 +109,26 @@ def carryVhs : {ts : List Ty} → Op VNat ts → List VariantHint
   | [.bits _, .bool], ⟨.addc _, _⟩ | [.bits _, .bool], ⟨.subb _, _⟩ => [.default, .adcx, .adox]
   | _, _ => [.default]
 
-def canOpReadFlag (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I.Cond) (nv0 : Nat)
-    {ts : List Ty} (op : Op VNat ts) (x : Nat) : Bool :=
+def canOpReadFlag (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List I.Cond)
+    (nv0 : Nat) {ts : List Ty} (op : Op VNat ts) (x : Nat) : Bool :=
   let fArg (c : I.Cond) (y : Nat) := if Nat.beq y x then some c else none
   let { sig := _, code, args := _ } := op
   conds.any fun c =>
     (carryVhs op).any fun vh =>
-      (probeOp I r0 v0 (fArg c) (fun _ => none) none nv0 op vh).isSome ||
+      (probeOp I r0 r1 v0 v1 (fArg c) (fun _ => none) none nv0 op vh).isSome ||
         match ts, code with
         | [.bits _, .bool], .addc _ | [.bits _, .bool], .subb _ =>
           let fDst y := if Nat.beq y (nv0 + 1) then some c else none
-          (probeOp I r0 v0 (fArg c) fDst none nv0 op vh).isSome
+          (probeOp I r0 r1 v0 v1 (fArg c) fDst none nv0 op vh).isSome
         | _, _ => false
 
 mutual
-def scanDefs (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I.Cond)
+def scanDefs (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List I.Cond)
     (isBool : Nat → Bool) (bparams : Trie (List Nat)) : Tree → ScanInfo → ScanInfo
   | n@(.let_ _ ip nv0 ts op k), s =>
     let bf := (opVarIds op).foldl (fun b x =>
-      if isBool x && !canOpReadFlag I r0 v0 conds nv0 op x then b.insert x true else b) s.badFlag
+      if isBool x && !canOpReadFlag I r0 r1 v0 v1 conds nv0 op x then b.insert x true else b)
+      s.badFlag
     let { sig := _, code, args := _ } := op
     let (di, bf) := match ts, code with
       | [.bool], .cmp _ (.bits _) .bool _ => (s.defIp.insert nv0 ip, bf)
@@ -134,28 +137,28 @@ def scanDefs (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I.Cond)
         let bf' := ((List.range ts.length).map (nv0 + ·)).foldl
           (fun b d => if isBool d then b.insert d true else b) bf
         (s.defIp, bf')
-    scanDefs I r0 v0 conds isBool bparams k
+    scanDefs I r0 r1 v0 v1 conds isBool bparams k
       { s with nodeAt := s.nodeAt.insert ip n, defIp := di, badFlag := bf }
   | n@(.load _ ip x _ _ k), s =>
     let bf := if isBool x then s.badFlag.insert x true else s.badFlag
-    scanDefs I r0 v0 conds isBool bparams k
+    scanDefs I r0 r1 v0 v1 conds isBool bparams k
       { s with nodeAt := s.nodeAt.insert ip n, badFlag := bf }
   | n@(.store _ ip t v _ k), s =>
     let bf :=
       if t == .bool then (argVarIds v).foldl (fun b x => b.insert x true) s.badFlag
       else s.badFlag
-    scanDefs I r0 v0 conds isBool bparams k
+    scanDefs I r0 r1 v0 v1 conds isBool bparams k
       { s with nodeAt := s.nodeAt.insert ip n, badFlag := bf }
   | n@(.call _ ip nv0 _ _ bs _ k), s =>
     let bf := ((List.range bs.length).map (nv0 + ·)).foldl
       (fun b d => if isBool d then b.insert d true else b) s.badFlag
-    scanDefs I r0 v0 conds isBool bparams k
+    scanDefs I r0 r1 v0 v1 conds isBool bparams k
       { s with nodeAt := s.nodeAt.insert ip n, badFlag := bf }
   | n@(.jnz _ ip _ _ t e), s =>
-    scanDefs I r0 v0 conds isBool bparams t
-      (scanDefs I r0 v0 conds isBool bparams e { s with nodeAt := s.nodeAt.insert ip n })
+    scanDefs I r0 r1 v0 v1 conds isBool bparams t
+      (scanDefs I r0 r1 v0 v1 conds isBool bparams e { s with nodeAt := s.nodeAt.insert ip n })
   | n@(.skip _ ip k), s =>
-    scanDefs I r0 v0 conds isBool bparams k { s with nodeAt := s.nodeAt.insert ip n }
+    scanDefs I r0 r1 v0 v1 conds isBool bparams k { s with nodeAt := s.nodeAt.insert ip n }
   | n@(.jump _ ip j _ args), s =>
     let rec goArgs : {ts : List Ty} → Tup (Arg VNat) ts → List Nat → ScanInfo → ScanInfo
       | [], (), _, sc | _ :: _, _, [], sc => sc
@@ -168,16 +171,17 @@ def scanDefs (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I.Cond)
       | _ :: _, (_, as), _ :: ps, sc => goArgs as ps sc
     goArgs args (bparams.getD j []) { s with nodeAt := s.nodeAt.insert ip n }
   | .group _ bs k, s =>
-    scanDefsB I r0 v0 conds isBool bparams bs (scanDefs I r0 v0 conds isBool bparams k s)
+    scanDefsB I r0 r1 v0 v1 conds isBool bparams bs
+      (scanDefs I r0 r1 v0 v1 conds isBool bparams k s)
   | _, s => s
 
-def scanDefsB (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I.Cond)
+def scanDefsB (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List I.Cond)
     (isBool : Nat → Bool) (bparams : Trie (List Nat)) : TreeBlocks → ScanInfo → ScanInfo
   | .nil, s => s
   | .cons _ ps b bs, s =>
     let bp := ps.foldl (fun t (p, ty) => if ty == .bool then t.insert p true else t) s.isBParam
-    scanDefsB I r0 v0 conds isBool bparams bs
-      (scanDefs I r0 v0 conds isBool bparams b { s with isBParam := bp })
+    scanDefsB I r0 r1 v0 v1 conds isBool bparams bs
+      (scanDefs I r0 r1 v0 v1 conds isBool bparams b { s with isBParam := bp })
 end
 
 def markIfHoist (prevIp : Trie Nat) (hb : Trie Bool) (anc? : Option Nat) (ip : Nat) : Trie Bool :=
@@ -288,7 +292,7 @@ def lockVh {C : Type} (ip : Nat) (vh : VariantHint) (cl : FlagMask)
     variant := if vh == .default then st.variant else st.variant.insert ip vh,
     lockedClob := st.lockedClob.insert ip cl }
 
-def probeIntervening (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I.Cond)
+def probeIntervening (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List I.Cond)
     (isCand : Nat → Bool) (info : ScanInfo) (fArg : Nat → Option I.Cond) (reqMask : FlagMask)
     (ip : Nat) (st : FlagState I.Cond) : Option (FlagState I.Cond) :=
   match st.lockedClob.find? ip with
@@ -299,18 +303,18 @@ def probeIntervening (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I
       let { sig := _, code, args := _ } := op
       match ts, code with
       | [.bool], .cmp _ (.bits _) .bool _ =>
-        (probeOp I r0 v0 fArg st.flagHome.find? none nv0 op .default).bind fun cl =>
+        (probeOp I r0 r1 v0 v1 fArg st.flagHome.find? none nv0 op .default).bind fun cl =>
           if FlagMask.disjoint reqMask cl then some st
           else if !isCand nv0 then none
           else conds.findSome? fun c =>
             let fDst x := if Nat.beq x nv0 then some c else none
-            (probeOp I r0 v0 fArg fDst none nv0 op .decInc).bind fun cl' =>
+            (probeOp I r0 r1 v0 v1 fArg fDst none nv0 op .decInc).bind fun cl' =>
               let usesOk := (info.usesOf.getD nv0 []).all fun u =>
                 match info.nodeAt.find? u with
                 | some (.let_ _ _ nu _ opU _) =>
                   (carryVhs opU).any fun vhU =>
                     let fArgU y := if Nat.beq y nv0 then some c else fArg y
-                    (probeOp I r0 v0 fArgU (fun _ => none) none nu opU vhU).isSome
+                    (probeOp I r0 r1 v0 v1 fArgU (fun _ => none) none nu opU vhU).isSome
                 | _ => true
               if FlagMask.disjoint reqMask cl' && usesOk then
                 some { lockVh ip .decInc cl' st with flagHome := st.flagHome.insert nv0 c }
@@ -318,20 +322,23 @@ def probeIntervening (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I
       | [.bits _, .bool], .addc _ | [.bits _, .bool], .subb _ =>
         let cOut := nv0 + 1
         if (st.flagHome.find? cOut).isSome then none
-        else match probeOp I r0 v0 fArg (fun _ => none) none nv0 op .default with
-          | some cl => if FlagMask.disjoint reqMask cl then some st else none
-          | none =>
+        else
+          let defOk := match probeOp I r0 r1 v0 v1 fArg (fun _ => none) none nv0 op .default with
+            | some cl => FlagMask.disjoint reqMask cl
+            | none => false
+          if defOk then some st
+          else
             let fDst (c : I.Cond) (x : Nat) := if Nat.beq x cOut then some c else none
             let canCarry := isCand cOut && [VariantHint.adcx, .adox].any fun vh =>
               conds.any fun c =>
                 let immF := if I.gpr.zeroFlags.contains c then some c else none
-                match probeOp I r0 v0 fArg (fDst c) immF nv0 op vh with
+                match probeOp I r0 r1 v0 v1 fArg (fDst c) immF nv0 op vh with
                 | some cl => FlagMask.disjoint reqMask cl
                 | none => false
             if canCarry then some st else none
       | _, _ =>
         (VariantHint.default :: altVariantsFor op).findSome? fun vh =>
-          (probeOp I r0 v0 fArg st.flagHome.find? none nv0 op vh).bind fun cl =>
+          (probeOp I r0 r1 v0 v1 fArg st.flagHome.find? none nv0 op vh).bind fun cl =>
             if FlagMask.disjoint reqMask cl then some (lockVh ip vh cl st) else none
     | some (.load _ _ _ t _ _) =>
       match I.gpr.load t r0 (.baseDisp r0 0) <|> v0.bind (I.vec.vload t · (.baseDisp r0 0)) with
@@ -349,7 +356,7 @@ def probeIntervening (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I
     | some (.call ..) => none
     | _ => some st
 
-def placeOrHoistClear (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I.Cond)
+def placeOrHoistClear (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List I.Cond)
     (isCand : Nat → Bool) (info : ScanInfo) (cc : I.Cond) (ip : Nat)
     (extraLive : Std.HashSet Nat) (st : FlagState I.Cond) : Option (FlagState I.Cond) :=
   if !I.gpr.zeroFlags.contains cc then none else
@@ -370,10 +377,10 @@ def placeOrHoistClear (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List 
             let st'? := path.foldl (fun acc? ip' => acc?.bind fun stAcc =>
               let req := I.gpr.condReads cc ||| maskOf stAcc.flagHome (info.liveAfter.getD ip' [])
               let fArg x := if extraLive.contains x then some cc else stAcc.flagHome.find? x
-              probeIntervening I r0 v0 conds isCand info fArg req ip' stAcc) (some st)
+              probeIntervening I r0 r1 v0 v1 conds isCand info fArg req ip' stAcc) (some st)
             st'?.map fun st1 => { st1 with clearAt := st1.clearAt.insert a true }
 
-def tryColorWeb (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I.Cond)
+def tryColorWeb (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List I.Cond)
     (isCand : Nat → Bool) (info : ScanInfo) (vars : List Nat) (st : FlagState I.Cond) :
     Option (FlagState I.Cond) :=
   let varSet : Std.HashSet Nat := Std.HashSet.ofList vars
@@ -406,7 +413,7 @@ def tryColorWeb (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I.Cond
               else if hasOther then [.decInc, .default] else [.default, .decInc]
             vhs.findSome? fun vh =>
               let fDst x := if Nat.beq x nv0 then some cc else none
-              (probeOp I r0 v0 fArg fDst none nv0 op vh).bind fun cl =>
+              (probeOp I r0 r1 v0 v1 fArg fDst none nv0 op vh).bind fun cl =>
                 if FlagMask.disjoint cm cl then some (lockVh ip vh cl stAcc) else none
           | [.bits _, .bool], .addc _, (_, _, cin, _)
           | [.bits _, .bool], .subb _, (_, _, cin, _) =>
@@ -415,14 +422,14 @@ def tryColorWeb (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I.Cond
               else if hasOther then [.adcx, .adox, .default] else [.default, .adcx, .adox]
             let tryVh (immF : Option I.Cond) (vh : VariantHint) :=
               let fDst x := if Nat.beq x (nv0 + 1) then some cc else none
-              (probeOp I r0 v0 fArg fDst immF nv0 op vh).bind fun cl =>
+              (probeOp I r0 r1 v0 v1 fArg fDst immF nv0 op vh).bind fun cl =>
                 if FlagMask.disjoint cm cl then some cl else none
             let clr? := match cin with
               | .imm false =>
                 vhs.findSome? fun vh =>
                   let immF := if I.gpr.zeroFlags.contains cc then some cc else none
                   (tryVh immF vh).bind fun cl =>
-                    (placeOrHoistClear I r0 v0 conds isCand info cc ip varSet stAcc).map
+                    (placeOrHoistClear I r0 r1 v0 v1 conds isCand info cc ip varSet stAcc).map
                       (lockVh ip vh cl ·)
               | _ => none
             clr? <|> vhs.findSome? fun vh => (tryVh none vh).map (lockVh ip vh · stAcc)
@@ -444,14 +451,14 @@ def tryColorWeb (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I.Cond
                 | some co => (fun x => if Nat.beq x cOut then some co else none)
                 | none => (fun _ => none)
               let ok := vhs.any fun vh =>
-                (probeOp I r0 v0 fArg fDst none nv0 op vh).isSome ||
+                (probeOp I r0 r1 v0 v1 fArg fDst none nv0 op vh).isSome ||
                   (isCand cOut && conds.any fun co =>
                     let fDst' x := if Nat.beq x cOut then some co else none
-                    (probeOp I r0 v0 fArg fDst' none nv0 op vh).isSome)
+                    (probeOp I r0 r1 v0 v1 fArg fDst' none nv0 op vh).isSome)
               if ok then some stU else none
           | _, _ =>
             let vh := stU.variant.getD ip_u .default
-            if (probeOp I r0 v0 fArg stU.flagHome.find? none nv0 op vh).isSome then some stU
+            if (probeOp I r0 r1 v0 v1 fArg stU.flagHome.find? none nv0 op vh).isSome then some stU
             else none
         | _ => some stU) (some stAcc)) (some st1)
     let st3? := st2?.bind fun st2 => liveIps.foldl (fun acc? ip' => acc?.bind fun stAcc =>
@@ -459,10 +466,11 @@ def tryColorWeb (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I.Cond
         let liveOther := (info.liveAfter.getD ip' []).filter (!varSet.contains ·)
         let req := I.gpr.condReads cc ||| maskOf stAcc.flagHome liveOther
         let fArgAcc x := if varSet.contains x then some cc else stAcc.flagHome.find? x
-        probeIntervening I r0 v0 conds isCand info fArgAcc req ip' stAcc) (some st2)
+        probeIntervening I r0 r1 v0 v1 conds isCand info fArgAcc req ip' stAcc) (some st2)
     let st4? := st3?.bind fun st3 =>
       info.immFalseJumps.foldl (fun acc? (ipJ, _, p) => acc?.bind fun stAcc =>
-        if varSet.contains p then placeOrHoistClear I r0 v0 conds isCand info cc ipJ varSet stAcc
+        if varSet.contains p then
+          placeOrHoistClear I r0 r1 v0 v1 conds isCand info cc ipJ varSet stAcc
         else some stAcc) (some st3)
     st4?.map fun st4 =>
       { st4 with flagHome := vars.foldl (fun fh v => fh.insert v cc) st4.flagHome }
@@ -475,12 +483,12 @@ def ufFind (rep : Trie Nat) (x : Nat) : Nat :=
       | none => c
   go 64 x
 
-def gatherFlags (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I.Cond) (nv : Nat)
+def gatherFlags (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List I.Cond) (nv : Nat)
     (fnParams : List Nat) (cross : Trie Bool) (bparams : Trie (List Nat)) (tys : Trie Ty)
     (lTrie : Trie (List Nat)) (t : Tree) : FlagHints I.Cond :=
   let isBool (x : Nat) : Bool := match tys.getD x i64 with | .bool => true | _ => false
   if !(List.range nv).any isBool then {} else
-    let s0 := scanDefs I r0 v0 conds isBool bparams t {}
+    let s0 := scanDefs I r0 r1 v0 v1 conds isBool bparams t {}
     let bf0 := (List.range nv).foldl
       (fun bf x => if isBool x && cross.getD x false then bf.insert x true else bf)
       (fnParams.foldl (fun bf x => if isBool x then bf.insert x true else bf) s0.badFlag)
@@ -504,14 +512,14 @@ def gatherFlags (I : Isa) (r0 : I.Reg) (v0 : Option I.VReg) (conds : List I.Cond
       else (bps, (info.defIp.getD (vs.headD 0) 0, vs) :: locs)) ([], [])
     let st1 := bpWebs.foldl (fun st vs =>
       if vs.any (fun v => (st.flagHome.find? v).isSome) then st else
-        match tryColorWeb I r0 v0 conds isCand info vs st with
+        match tryColorWeb I r0 r1 v0 v1 conds isCand info vs st with
         | some st' => st'
         | none =>
-          (vs.filter (!info.isBParam.getD · false)).foldl
-            (fun stAcc v => (tryColorWeb I r0 v0 conds isCand info [v] stAcc).getD stAcc) st) {}
+          (vs.filter (!info.isBParam.getD · false)).foldl (fun stAcc v =>
+            (tryColorWeb I r0 r1 v0 v1 conds isCand info [v] stAcc).getD stAcc) st) {}
     let st2 := ((locWebs.mergeSort (fun a b => a.1 ≤ b.1)).map Prod.snd).foldl (fun st vs =>
       if vs.any (fun v => (st.flagHome.find? v).isSome) then st
-      else (tryColorWeb I r0 v0 conds isCand info vs st).getD st) st1
+      else (tryColorWeb I r0 r1 v0 v1 conds isCand info vs st).getD st) st1
     { flagHome := st2.flagHome, variant := st2.variant, clearAt := st2.clearAt }
 
 end SpillFlags
