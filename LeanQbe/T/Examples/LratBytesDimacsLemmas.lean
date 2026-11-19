@@ -1093,7 +1093,7 @@ private theorem mem_le_cnfMaxVar {cnf : CNF Nat} {cl : CNF.Clause Nat} {l : Lite
           c'.literals m) cls _)
     · exact ih _ h
 
-private theorem parseClauseAux_fuel_irrel {f1 f2 mv : Nat} {acc : List (Literal Nat)}
+theorem parseClauseAux_fuel_irrel {f1 f2 mv : Nat} {acc : List (Literal Nat)}
     {bs : List UInt8} (h1 : bs.length < f1) (h2 : bs.length < f2) :
     parseClauseAux f1 mv acc bs = parseClauseAux f2 mv acc bs := by
   induction f1 generalizing f2 acc bs with
