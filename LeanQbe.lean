@@ -84,6 +84,9 @@ public import LeanQbe.T.Examples.LratBytesRupLemmas
 public import LeanQbe.T.Examples.LratBytesCheckLemmas
 public import LeanQbe.T.Examples.LratBytesLemmas
 public import LeanQbe.T.Examples.LratTrim
+public import LeanQbe.T.Examples.Kissat.Core
+public import LeanQbe.T.Examples.Kissat.CoreLemmas1
+public import LeanQbe.T.Examples.Kissat.CoreLemmas
 public import LeanQbe.T.Examples.LitmusProgs
 public import LeanQbe.T.Examples.LitmusProgsLemmas
 public import LeanQbe.T.Examples.Programs

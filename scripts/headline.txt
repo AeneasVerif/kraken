@@ -558,3 +558,5 @@ LeanQbe.T.Arm64.LratBytes LeanQbe.T.Arm64.LratBytes.lrat_check_bytes_arm64_corre
 LeanQbe.T.Arm64.LratBytes LeanQbe.T.Arm64.LratBytes.lrat_check_bytes_arm64_unsat
 LeanQbe.T.Arm64.LratBytes LeanQbe.T.Arm64.LratBytes.lrat_check_bytes_arm64_accepts
 LeanQbe.T.Arm64.LratBytes LeanQbe.T.Arm64.LratBytes.lrat_check_bytes_arm64_rejects
+LeanQbe.T.Examples.Kissat.CoreLemmas1 LeanQbe.T.Examples.Kissat.checkModel_sound
+LeanQbe.T.Examples.Kissat.CoreLemmas LeanQbe.T.Examples.Kissat.cdclSolve_sound
