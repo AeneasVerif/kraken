@@ -569,3 +569,9 @@ LeanQbe.T.Amd64.FrameLemmas LeanQbe.T.Amd64.x64FrameSpec
 LeanQbe.T.Arm64.FrameLemmas LeanQbe.T.Arm64.armFrameSpec
 LeanQbeTest.T.Amd64FrameTest LeanQbeTest.T.Amd64FrameTest.callerCallee_e2e
 LeanQbeTest.T.Arm64FrameTest LeanQbeTest.T.Arm64FrameTest.callerCallee_e2e
+LeanQbe.T.MainLemmas LeanQbe.T.compileFn_correct
+LeanQbe.T.MainLemmas LeanQbe.T.compile_sound
+LeanQbeTest.T.MainTest LeanQbeTest.T.MainTest.litmusLabelClean
+LeanQbeTest.T.MainTest LeanQbeTest.T.MainTest.litmusCaller_fnSpec
+LeanQbeTest.T.MainTest LeanQbeTest.T.MainTest.litmusCaller_run_i64
+LeanQbeTest.T.MainTest LeanQbeTest.T.MainTest.litmusCaller_run_sep

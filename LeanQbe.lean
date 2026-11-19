@@ -104,6 +104,8 @@ public import LeanQbe.T.RegaLemmas3
 public import LeanQbe.T.RegaLemmas4
 public import LeanQbe.T.RegaLemmas
 public import LeanQbe.T.StepSimp
+public import LeanQbe.T.Main
+public import LeanQbe.T.MainLemmas
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.Examples.Bignum
 public import LeanQbe.T.Examples.ChaCha
