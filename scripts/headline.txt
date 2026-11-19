@@ -599,3 +599,11 @@ LeanQbeTest.T.Arm64IselTest LeanQbeTest.T.Arm64IselTest.mul_funnel_select_witnes
 LeanQbeTest.T.Arm64IselTest LeanQbeTest.T.Arm64IselTest.subword_garbage_witness
 LeanQbeTest.T.Arm64IselTest LeanQbeTest.T.Arm64IselTest.sp_corner_witness
 LeanQbeTest.T.Arm64IselTest LeanQbeTest.T.Arm64IselTest.jnzGpr_false_witness
+LeanQbe.T.Amd64.IselLemmas5 LeanQbe.T.Amd64.x64GprSpec
+LeanQbe.T.Amd64.IselLemmas5 LeanQbe.T.Amd64.x64Op_supportsScalarOp
+LeanQbe.T.Amd64.IselLemmas5 LeanQbe.T.Amd64.x64SupportsScalarOp_complete
+LeanQbe.T.Amd64.IselLemmas5 LeanQbe.T.Amd64.x64Gpr_op_noLab
+LeanQbeTest.T.Amd64IselTest LeanQbeTest.T.Amd64IselTest.bignum_mul4x4_backendOk
+LeanQbeTest.T.Amd64IselTest LeanQbeTest.T.Amd64IselTest.lratBytes_all_backendOk
+LeanQbeTest.T.Amd64IselTest LeanQbeTest.T.Amd64IselTest.pitfall_a_bool_jnz_spec
+LeanQbeTest.T.Amd64IselTest LeanQbeTest.T.Amd64IselTest.pitfall_c_var_shl8_spec
