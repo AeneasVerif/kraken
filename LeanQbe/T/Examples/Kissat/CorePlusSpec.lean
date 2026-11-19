@@ -155,6 +155,8 @@ def corePlusInitStateSpec : Spec [i64, i64, i64, i64, i64] [.bool] :=
       360 ≤ avail.toNat ∧
       (bytes cnf_ptr cnfBytes ⋆ region hdr_addr avail.toNat ⋆ R) m ∧
       (∀ m', (bytes cnf_ptr cnfBytes ⋆ region hdr_addr avail.toNat ⋆ R) m' →
+        (∀ mv nc rest, parseHeader cnfBytes = some (mv, nc, rest) →
+          avail.toNat < cpFixedBytes mv + nc * 24) →
         Q (false, ()) m') ∧
       (∀ (c : CorePlusCfg) (s : CorePlusState) (j : Nat) (rest : List UInt8) (m' : Mem 64),
         c.hdr = hdr_addr → c.avail = avail.toNat →
