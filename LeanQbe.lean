@@ -72,6 +72,8 @@ public import LeanQbe.T.RegaLemmas
 public import LeanQbe.T.StepSimp
 public import LeanQbe.T.Main
 public import LeanQbe.T.MainLemmas
+public import LeanQbe.T.LinkRec
+public import LeanQbe.T.LinkRecLemmas
 public import LeanQbe.T.MainSplice
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
