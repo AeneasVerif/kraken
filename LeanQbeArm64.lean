@@ -18,5 +18,9 @@ public import LeanQbe.T.Arm64.IselLemmas1
 public import LeanQbe.T.Arm64.IselLemmas2
 public import LeanQbe.T.Arm64.IselLemmas3
 public import LeanQbe.T.Arm64.IselLemmas4
+public import LeanQbe.T.Arm64.Targ
+public import LeanQbe.T.Arm64.TargLemmas
+public import LeanQbe.T.Arm64.Litmus
+public import LeanQbe.T.Arm64.UnionFind
 
-/-! Root of the AArch64 library: imports `Kraken.AArch64` through `LeanQbe.Arm64.*`. -/
+/-! Root of the AArch64 library: `Kraken.AArch64` via `LeanQbe.Arm64.*` & `LeanQbe.T.Arm64.*`. -/

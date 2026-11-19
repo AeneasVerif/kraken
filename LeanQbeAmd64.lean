@@ -23,5 +23,9 @@ public import LeanQbe.T.Amd64.IselLemmas2
 public import LeanQbe.T.Amd64.IselLemmas3
 public import LeanQbe.T.Amd64.IselLemmas4
 public import LeanQbe.T.Amd64.IselLemmas5
+public import LeanQbe.T.Amd64.Targ
+public import LeanQbe.T.Amd64.TargLemmas
+public import LeanQbe.T.Amd64.Litmus
+public import LeanQbe.T.Amd64.UnionFind
 
-/-! Root of the x64 library: imports `Kraken.X64` through `LeanQbe.Amd64.*`. -/
+/-! Root of the x64 library: imports `Kraken.X64`, `LeanQbe.Amd64.*`, and `LeanQbe.T.Amd64.*`. -/
