@@ -44,6 +44,8 @@ public import LeanQbe.T.Inline
 public import LeanQbe.T.InlineLemmas
 public import LeanQbe.T.Canon
 public import LeanQbe.T.CanonLemmas
+public import LeanQbe.T.DivConst
+public import LeanQbe.T.DivConstLemmas
 public import LeanQbe.T.Trie
 public import LeanQbe.T.Target
 public import LeanQbe.T.TargetLemmas
