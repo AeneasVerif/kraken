@@ -6,8 +6,9 @@ public import Kraken.AArch64.WP.Basic
 # Control-flow step lemmas
 
 Step lemmas, in continuation-passing form, for the control-flow instructions a compiler emits:
-`b L`, `b.cc L`, `bl L`, `ret`, `cbz r, L` and `cbnz r, L`, at any position of any `Host` program.
-The encodings are the ones the parser produces (`⸨prog| b L ⸩ = [Directive.bTo "L"]` etc.).
+`b L`, `b.cc L`, `bl L`, `br r`, `blr r`, `ret`, `cbz r, L`, `cbnz r, L`, `tbz r, #b, L`, and
+`tbnz r, #b, L`, at any position of any `Host` program. The encodings are the ones the parser
+produces (`⸨prog| b L ⸩ = [Directive.bTo "L"]` etc.).
 
 Labels resolve to their *first* definition in the host program (`Host.label_eq_addrOf`), so every
 lemma that jumps to a label takes the hypothesis `hfirst` that no earlier directive defines the same
@@ -26,6 +27,14 @@ public abbrev Directive.bCondTo (cc : CondCode) (L : Label) : Directive :=
 public abbrev Directive.blTo (L : Label) : Directive :=
   .instr { operation_size := .W64, operation := .BL (.label L) }
 
+/-- `br r` -/
+public abbrev Directive.br (r : XRegOrXzr) : Directive :=
+  .instr { operation_size := .W64, operation := .BR (.low r .W64) }
+
+/-- `blr r` -/
+public abbrev Directive.blr (r : XRegOrXzr) : Directive :=
+  .instr { operation_size := .W64, operation := .BLR (.low r .W64) }
+
 /-- `ret` (to `x30`) -/
 public abbrev Directive.ret : Directive :=
   .instr { operation_size := .W64, operation := .RET (.low (.reg .X30) .W64) }
@@ -37,6 +46,14 @@ public abbrev Directive.cbzTo {w : RegWidth} (r : XRegOrXzr) (L : Label) : Direc
 /-- `cbnz r, L` for `r` of width `w` (`x` or `w` register) -/
 public abbrev Directive.cbnzTo {w : RegWidth} (r : XRegOrXzr) (L : Label) : Directive :=
   .instr { operation_size := w, operation := .CBNZ (.low r w) (.label L) }
+
+/-- `tbz r, #bit, L` for `r` of width `w` (`x` or `w` register) -/
+public abbrev Directive.tbzTo {w : RegWidth} (r : XRegOrXzr) (bit : Nat) (L : Label) : Directive :=
+  .instr { operation_size := w, operation := .TBZ (.low r w) bit (.label L) }
+
+/-- `tbnz r, #bit, L` for `r` of width `w` (`x` or `w` register) -/
+public abbrev Directive.tbnzTo {w : RegWidth} (r : XRegOrXzr) (bit : Nat) (L : Label) : Directive :=
+  .instr { operation_size := w, operation := .TBNZ (.low r w) bit (.label L) }
 
 section
 variable [Host]
@@ -116,6 +133,40 @@ public theorem Host.eventually_bl {i k : Nat} {L : Label} {post : @Post MachineS
   rw [hra]
   exact h
 
+/-- `br r` at index `i`, where `r` holds target address `tgt`. -/
+public theorem Host.eventually_br {i : Nat} {r : XRegOrXzr} {tgt : Int64}
+    {post : @Post MachineState} {s : MachineData}
+    (hi : Host.prog[i]? = some (.br r))
+    (htgt : s.regs.getRegOrZr (.low r .W64) = tgt.toBitVec)
+    (h : Eventually (step1 Host.exe) post ⟨s, tgt⟩) :
+    Eventually (step1 Host.exe) post ⟨s, Host.addrOf i⟩ := by
+  refine Host.eventually_of_interp_cps hi ?_
+  simp only [Directive.interp, Instr.interp, Operation.interp, Effects.All, htgt]
+  have : Int64.ofInt tgt.toBitVec.signed = tgt := by simp [BitVec.signed]
+  rw [this]
+  exact h
+
+/--
+`blr r` at index `i`, where `r` holds target address `tgt` (read before `x30` is updated, so
+`r = .reg .X30` is supported): `x30` holds the return address `Host.addrOf (i + 1)` and control is
+at `tgt`. Memory is untouched.
+-/
+public theorem Host.eventually_blr {i : Nat} {r : XRegOrXzr} {tgt : Int64}
+    {post : @Post MachineState} {s : MachineData}
+    (hi : Host.prog[i]? = some (.blr r))
+    (htgt : s.regs.getRegOrZr (.low r .W64) = tgt.toBitVec)
+    (h : Eventually (step1 Host.exe) post
+      ⟨{ s with regs := s.regs.setXReg .X30 (Host.addrOf (i + 1)).toBitVec }, tgt⟩) :
+    Eventually (step1 Host.exe) post ⟨s, Host.addrOf i⟩ := by
+  refine Host.eventually_of_interp_cps hi ?_
+  simp only [Directive.interp, Instr.interp, Operation.interp, MachineData.setRegOrZr,
+    Reg64s.setRegOrZr, Reg64s.setRegOrZr64, Effects.All, htgt]
+  have hra : BitVec.ofInt 64 (Host.addrOf (i + 1)).toInt = (Host.addrOf (i + 1)).toBitVec := by
+    rw [← Int64.toInt_toBitVec, BitVec.ofInt_toInt]
+  have hpc : Int64.ofInt tgt.toBitVec.signed = tgt := by simp [BitVec.signed]
+  rw [hra, hpc]
+  exact h
+
 /-- `ret` at index `i`, with the return address `ra` in `x30`: control is at `ra`. -/
 public theorem Host.eventually_ret {i : Nat} {post : @Post MachineState} {s : MachineData}
     {ra : Int64}
@@ -160,6 +211,38 @@ public theorem Host.eventually_cbnz {i k : Nat} {w : RegWidth} {r : XRegOrXzr} {
     (hfirst : ∀ j, j < k → Host.prog[j]? ≠ some (.label L))
     (h : Eventually (step1 Host.exe) post
       ⟨s, if s.regs.getRegOrZr (.low r w) = 0 then Host.addrOf (i + 1) else Host.addrOf k⟩) :
+    Eventually (step1 Host.exe) post ⟨s, Host.addrOf i⟩ := by
+  refine Host.eventually_of_interp_cps hi ?_
+  simp only [Directive.interp, Instr.interp, Operation.interp, ConstExpr.evalBranchTarget,
+    ConstExpr.interp, Effects.All]
+  rw [Host.label_eq_addrOf hk hfirst]
+  split <;> simp_all [Effects.All]
+
+/-- `tbz r, #bit, L` at index `i`, where `L` is first defined at index `k`. -/
+public theorem Host.eventually_tbz {i k : Nat} {w : RegWidth} {r : XRegOrXzr} {bit : Nat}
+    {L : Label} {post : @Post MachineState} {s : MachineData}
+    (hi : Host.prog[i]? = some (.tbzTo (w := w) r bit L))
+    (hk : Host.prog[k]? = some (.label L))
+    (hfirst : ∀ j, j < k → Host.prog[j]? ≠ some (.label L))
+    (h : Eventually (step1 Host.exe) post
+      ⟨s, if (s.regs.getRegOrZr (.low r w)).getLsbD bit then Host.addrOf (i + 1)
+        else Host.addrOf k⟩) :
+    Eventually (step1 Host.exe) post ⟨s, Host.addrOf i⟩ := by
+  refine Host.eventually_of_interp_cps hi ?_
+  simp only [Directive.interp, Instr.interp, Operation.interp, ConstExpr.evalBranchTarget,
+    ConstExpr.interp, Effects.All]
+  rw [Host.label_eq_addrOf hk hfirst]
+  split <;> simp_all [Effects.All]
+
+/-- `tbnz r, #bit, L` at index `i`, where `L` is first defined at index `k`. -/
+public theorem Host.eventually_tbnz {i k : Nat} {w : RegWidth} {r : XRegOrXzr} {bit : Nat}
+    {L : Label} {post : @Post MachineState} {s : MachineData}
+    (hi : Host.prog[i]? = some (.tbnzTo (w := w) r bit L))
+    (hk : Host.prog[k]? = some (.label L))
+    (hfirst : ∀ j, j < k → Host.prog[j]? ≠ some (.label L))
+    (h : Eventually (step1 Host.exe) post
+      ⟨s, if (s.regs.getRegOrZr (.low r w)).getLsbD bit then Host.addrOf k
+        else Host.addrOf (i + 1)⟩) :
     Eventually (step1 Host.exe) post ⟨s, Host.addrOf i⟩ := by
   refine Host.eventually_of_interp_cps hi ?_
   simp only [Directive.interp, Instr.interp, Operation.interp, ConstExpr.evalBranchTarget,

@@ -9,9 +9,17 @@ import Kraken.X64.WP
 open Kraken.X64.Parser in
 example : ⸨prog|
   jmp sym
+  jmp %rax
+  jmp 8(%rax)
   jnz sym
   call sym
-  ret ⸩ = [.jmpTo "sym", .jccTo .nz "sym", .callTo "sym", .ret] := rfl
+  call %rax
+  call (%rsp)
+  ret ⸩ =
+    [.jmpTo "sym", .jmpReg .rax,
+      .jmpMem { base := some (.reg .rax), idx := none, disp := .int64 8 },
+      .jccTo .nz "sym", .callTo "sym", .callReg .rax,
+      .callMem { base := some (.reg .rsp), idx := none, disp := .int64 0 }, .ret] := rfl
 
 namespace WPTests
 
@@ -38,6 +46,115 @@ private theorem jmp_ret (s : MachineData) (ra : Int64) (R : DataMem → Prop)
   exact Host.eventually_ret (i := 2) rfl hmem (.done _ ⟨rfl, rfl⟩)
 
 end WPTests
+
+namespace WPTests.Indirect
+
+private def prog : Program :=
+  [.callReg .rax, .jmpReg .rbx, .label "f", .ret, .label "done"]
+
+@[instance_reducible] private def layout : Layout :=
+  { start := 0x2000, instrSize := fun _ => 2, instrSize_pos := fun _ => by decide }
+
+private abbrev host : Host := .ofLayout prog layout (by decide)
+
+attribute [local instance] host
+
+/-- `call *%rax; jmp *%rbx; f: ret; done:` calls `f`, returns, and exits via `%rbx`. -/
+private theorem call_jmp_reg (s : MachineData) (old : List UInt8) (R : DataMem → Prop)
+    (hrax : s.regs.rax = (Host.addrOf 2).toUInt64)
+    (hrbx : s.regs.rbx = (Host.addrOf 4).toUInt64)
+    (hlen : old.length = 8)
+    (hmem : s.dmem =⋆ Eq (old.At (s.regs.rsp.toBitVec - 8#64)) ⋆ R) :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = Host.addrOf 5 ∧ st.data.regs.rsp = s.regs.rsp)
+      ⟨s, Host.addrOf 0⟩ := by
+  have hf : Host.prog[2]? = some (.label "f") := rfl
+  have hd : Host.prog[4]? = some (.label "done") := rfl
+  apply Host.eventually_call_reg (i := 0) (r := .rax) (tgt := Host.addrOf 2) rfl
+    (by simp [Reg64s.get64, hrax]) hlen hmem
+  intro m' hm'
+  apply Host.eventually_label hf
+  have hmem' : m' =⋆ Eq ((Host.addrOf 1).toUInt64.At
+      ({ s with regs := { s.regs with rsp := s.regs.rsp - 8 }, dmem := m' }.regs.rsp.toBitVec))
+      ⋆ R := by
+    simpa [Reg64s.rsp, Int64.toBitVec_sub] using hm'
+  apply Host.eventually_ret (i := 3) (ra := Host.addrOf 1) rfl hmem'
+  have hrsp :
+      ({ s with regs := { s.regs with rsp := s.regs.rsp - 8 }, dmem := m' }.regs.rsp + 8) =
+        s.regs.rsp := by
+    simp
+  apply Host.eventually_jmp_reg (i := 1) (r := .rbx) (tgt := Host.addrOf 4) rfl
+    (by simp [Reg64s.get64, hrbx])
+  apply Host.eventually_label hd
+  exact .done _ ⟨rfl, hrsp⟩
+
+/-- `Program.wp_callReg` composes an indirect call to `f: ret` at the `Program.wp` level. -/
+private theorem wp_call_reg (s : MachineData) (old : List UInt8) (R : DataMem → Prop)
+    (hrax : s.regs.rax = (Host.addrOf 2).toUInt64)
+    (hlen : old.length = 8)
+    (hmem : s.dmem =⋆ Eq (old.At (s.regs.rsp.toBitVec - 8#64)) ⋆ R) :
+    Program.wp [.callReg .rax] (fun st => st.regs.rsp = s.regs.rsp) (fun _ _ => False) s := by
+  apply Program.wp_callReg (tgt := Host.addrOf 2) (by simp [Reg64s.get64, hrax]) hlen hmem
+  intro ra m' hm'
+  apply Host.eventually_label (i := 2) rfl
+  apply Host.eventually_ret (i := 3) (ra := ra) rfl
+    (by simpa [Reg64s.rsp, Int64.toBitVec_sub] using hm')
+  exact .done _ ⟨rfl, by simp⟩
+
+end WPTests.Indirect
+
+namespace WPTests.CallRsp
+
+private def prog : Program :=
+  [.callReg .rsp,
+   .jmpMem { base := some (.reg .rcx), idx := none, disp := .int64 8 },
+   .callMem { base := some (.reg .rcx), idx := none, disp := .int64 0 }]
+
+@[instance_reducible] private def layout : Layout :=
+  { start := 0x3000, instrSize := fun _ => 2, instrSize_pos := fun _ => by decide }
+
+private abbrev host : Host := .ofLayout prog layout (by decide)
+
+attribute [local instance] host
+
+/-- `call *%rsp` reads `%rsp` before decrementing it by 8. -/
+private theorem call_rsp (s : MachineData) (old : List UInt8) (R : DataMem → Prop)
+    (hrsp : s.regs.rsp = (Host.addrOf 1).toUInt64)
+    (hlen : old.length = 8)
+    (hmem : s.dmem =⋆ Eq (old.At (s.regs.rsp.toBitVec - 8#64)) ⋆ R) :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = Host.addrOf 1 ∧ st.data.regs.rsp = s.regs.rsp - 8)
+      ⟨s, Host.addrOf 0⟩ := by
+  apply Host.eventually_call_reg (i := 0) (r := .rsp) (tgt := Host.addrOf 1) rfl
+    (by simp [Reg64s.get64, hrsp]) hlen hmem
+  intro _ _
+  exact .done _ ⟨rfl, rfl⟩
+
+/-- `jmp *8(%rcx)` loads the jump target from memory and jumps to it. -/
+private theorem jmp_mem (s : MachineData) (tgt : Int64) (R : DataMem → Prop)
+    (hmem : s.dmem =⋆ Eq (tgt.toUInt64.At (s.regs.rcx.toBitVec + 8#64)) ⋆ R) :
+    Eventually (step1 Host.exe) (fun st => st.pc = tgt) ⟨s, Host.addrOf 1⟩ := by
+  apply Host.eventually_jmp_mem (i := 1) (aw := .W64) (tgt := tgt) rfl
+  · simpa [Reg64s.get64] using hmem
+  exact .done _ rfl
+
+/-- `call *(%rcx)` loads the call target, pushes return address `Host.addrOf 3`, and jumps. -/
+private theorem call_mem (s : MachineData) (tgt : Int64) (old : List UInt8)
+    (Rload R : DataMem → Prop)
+    (hload : s.dmem =⋆ Eq (tgt.toUInt64.At s.regs.rcx.toBitVec) ⋆ Rload)
+    (hlen : old.length = 8)
+    (hmem : s.dmem =⋆ Eq (old.At (s.regs.rsp.toBitVec - 8#64)) ⋆ R) :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = tgt ∧ st.data.regs.rsp = s.regs.rsp - 8)
+      ⟨s, Host.addrOf 2⟩ := by
+  apply Host.eventually_call_mem (i := 2) (aw := .W64) (tgt := tgt) rfl
+  · simpa [Reg64s.get64] using hload
+  · exact hlen
+  · exact hmem
+  intro _ _
+  exact .done _ ⟨rfl, rfl⟩
+
+end WPTests.CallRsp
 
 namespace WPTests.Counter
 
