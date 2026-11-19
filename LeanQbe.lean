@@ -40,6 +40,8 @@ public import LeanQbe.T.DceLemmas
 public import LeanQbe.T.Opt
 public import LeanQbe.T.OptLemmas
 public import LeanQbe.T.Module
+public import LeanQbe.T.Inline
+public import LeanQbe.T.InlineLemmas
 public import LeanQbe.T.Trie
 public import LeanQbe.T.Target
 public import LeanQbe.T.TargetLemmas
