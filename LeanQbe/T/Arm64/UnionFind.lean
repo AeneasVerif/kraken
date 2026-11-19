@@ -44,11 +44,11 @@ def compiled : Compiled armTarget armLegalTarget [] [] 0 ufFns ufHints 2048 :=
     compiled_check
 
 private theorem ufFns_supportsSource_all :
-    ufFns.all (fun f => (f.opt).body.supportsSource armLegalTarget) = true := by
+    ufFns.all (fun f => (f.earlyOpt).body.supportsSource armLegalTarget) = true := by
   t_kernel_rfl
 
 theorem ufFns_supportsSource :
-    ∀ f ∈ ufModule.fns, (f.opt).body.supportsSource armLegalTarget = true :=
+    ∀ f ∈ ufModule.fns, (f.earlyOpt).body.supportsSource armLegalTarget = true :=
   fun f hf => List.all_eq_true.mp ufFns_supportsSource_all f hf
 
 section Generic

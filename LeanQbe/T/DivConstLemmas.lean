@@ -1,8 +1,7 @@
 module
 
 public import LeanQbe.T.DivConst
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.WfLemmas
+public import LeanQbe.T.OptUtilLemmas
 public import LeanQbe.T.Logic.Arith
 
 /-!
@@ -936,52 +935,6 @@ theorem emitSRemConst_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m 
 
 /-! ## `divConst` WP preservation (`divConst_wp`) -/
 
-private theorem divFlatArg_val {G : Ctx (Arg Val) Val} (hG : ∀ p ∈ G, p.2.1.val = p.2.2)
-    {t : Ty} {a₁ : Arg (Arg Val) t} {a₂ : Arg Val t} :
-    ArgRel G t a₁ a₂ → (divFlatArg a₁).val = a₂.val
-  | .var hm => hG _ hm
-  | .imm _ => rfl
-
-private theorem divFlatArgs_vals {G : Ctx (Arg Val) Val} (hG : ∀ p ∈ G, p.2.1.val = p.2.2)
-    {ts : List Ty} {as₁ : Tup (Arg (Arg Val)) ts} {as₂ : Tup (Arg Val) ts}
-    (h : TRel (ArgRel G) as₁ as₂) : vals (divFlatArgs as₁) = vals as₂ :=
-  TRel.tupMapArg_vals (fun _ => divFlatArg) (fun ha => divFlatArg_val hG ha) h
-
-private theorem divArgTup_zip_val :
-    {ts : List Ty} → (xs : Tup Val ts) → ∀ p ∈ Tup.zip (divArgTup xs) xs, p.2.1.val = p.2.2
-  | [], (), _, hp => nomatch hp
-  | _ :: _, (_, xs), _, hp => by
-    cases hp with
-    | head => rfl
-    | tail _ hp => exact divArgTup_zip_val xs _ hp
-
-private theorem ctx_val_append {H G : Ctx (Arg Val) Val}
-    (hH : ∀ p ∈ H, p.2.1.val = p.2.2) (hG : ∀ p ∈ G, p.2.1.val = p.2.2) :
-    ∀ p ∈ H ++ G, p.2.1.val = p.2.2 := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact hH p hp
-  · exact hG p hp
-
-private theorem ctx_val_cons_var {G : Ctx (Arg Val) Val} (hG : ∀ p ∈ G, p.2.1.val = p.2.2)
-    {t : Ty} (v : Val t) : ∀ p ∈ (⟨t, .var v, v⟩ :: G), p.2.1.val = p.2.2 := by
-  intro p hp; cases hp with | head => rfl | tail _ hp => exact hG p hp
-
-private theorem divArgTup_vals : {ts : List Ty} → (xs : Tup Val ts) → vals (divArgTup xs) = xs
-  | [], () => rfl
-  | _ :: _, (_, xs) => Prod.ext rfl (divArgTup_vals xs)
-
-private theorem tup_zip_vals_val {ts : List Ty} :
-    ∀ (r₁ : Tup (Arg Val) ts) (r₂ : Tup Val ts), vals r₁ = r₂ →
-      ∀ p ∈ Tup.zip r₁ r₂, p.2.1.val = p.2.2
-  | _, _, h, _, hp => by
-    induction ts with
-    | nil => cases hp
-    | cons _ _ ih =>
-      cases hp with
-      | head => exact (Prod.ext_iff.mp h).1
-      | tail _ hp => exact ih _ _ (Prod.ext_iff.mp h).2 hp
-
 private theorem divConstOp_bin_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
     {o : Option (Expr Val Cont rs)} {fb : Expr Val Cont rs}
     (hfb : wp Γ Q X fb m) (hsome : ∀ {e'}, o = some e' → wp Γ Q X e' m) :
@@ -999,53 +952,53 @@ private theorem divConstOp_wp {Γ : Env} {rs ts : List Ty} {Q : Post rs} {X : XP
     wp Γ Q X (divConstOp op₁ k₁) m := by
   cases hop with
   | @mk _ _ code args₁ args₂ hargs =>
-    have hvals : vals (divFlatArgs args₁) = vals args₂ := divFlatArgs_vals hG hargs
-    have hw_flat : (divFlatOp ⟨code, args₁⟩).wp (fun r => wp Γ Q X (k₂ r) m) := by
-      simpa [divFlatOp, Op.wp, hvals] using hw
+    have hvals : vals (flattenArgs args₁) = vals args₂ := flattenArgs_vals hG hargs
+    have hw_flat : (flattenOp ⟨code, args₁⟩).wp (fun r => wp Γ Q X (k₂ r) m) := by
+      simpa [flattenOp, Op.wp, hvals] using hw
     have hfallback :
-        wp Γ Q X (.let_ (divFlatOp ⟨code, args₁⟩) fun xs => k₁ (divArgTup xs)) m := by
+        wp Γ Q X (.let_ (flattenOp ⟨code, args₁⟩) fun xs => k₁ (toArgTup xs)) m := by
       simp only [wp]
-      exact Op.wp_mono (fun xs hxs => hk (divArgTup xs) xs (divArgTup_vals xs) hxs) hw_flat
-    unfold divConstOp; dsimp only [divFlatOp]
+      exact Op.wp_mono (fun xs hxs => hk (toArgTup xs) xs (toArgTup_vals xs) hxs) hw_flat
+    unfold divConstOp; dsimp only [flattenOp]
     cases code with
     | udiv n =>
       rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩
-      dsimp only [divFlatOp, divFlatArgs, tupMapArg] at hw_flat hfallback ⊢
-      cases hb : divFlatArg b₁ <;> simp only [hb] at hw_flat hfallback ⊢
+      dsimp only [flattenOp, flattenArgs, tupMapArg] at hw_flat hfallback ⊢
+      cases hb : flattenArg b₁ <;> simp only [hb] at hw_flat hfallback ⊢
       · exact hfallback
       · simp only [Op.wp, vals, Arg.val_imm, OpCode.wp_udiv] at hw_flat
         exact divConstOp_bin_wp hfallback fun he => (emitUDivConst_wp he fun _ r hr =>
-          hk (r, ()) ((divFlatArg a₁).val / _, ()) (Prod.ext hr rfl) hw_flat.2).2
+          hk (r, ()) ((flattenArg a₁).val / _, ()) (Prod.ext hr rfl) hw_flat.2).2
     | urem n =>
       rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩
-      dsimp only [divFlatOp, divFlatArgs, tupMapArg] at hw_flat hfallback ⊢
-      cases hb : divFlatArg b₁ <;> simp only [hb] at hw_flat hfallback ⊢
+      dsimp only [flattenOp, flattenArgs, tupMapArg] at hw_flat hfallback ⊢
+      cases hb : flattenArg b₁ <;> simp only [hb] at hw_flat hfallback ⊢
       · exact hfallback
       · simp only [Op.wp, vals, Arg.val_imm, OpCode.wp_urem] at hw_flat
         exact divConstOp_bin_wp hfallback fun he => (emitURemConst_wp he fun _ r hr =>
-          hk (r, ()) ((divFlatArg a₁).val % _, ()) (Prod.ext hr rfl) hw_flat.2).2
+          hk (r, ()) ((flattenArg a₁).val % _, ()) (Prod.ext hr rfl) hw_flat.2).2
     | sdiv n =>
       rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩
-      dsimp only [divFlatOp, divFlatArgs, tupMapArg] at hw_flat hfallback ⊢
-      cases hb : divFlatArg b₁ <;> simp only [hb] at hw_flat hfallback ⊢
+      dsimp only [flattenOp, flattenArgs, tupMapArg] at hw_flat hfallback ⊢
+      cases hb : flattenArg b₁ <;> simp only [hb] at hw_flat hfallback ⊢
       · exact hfallback
       · simp only [Op.wp, vals, Arg.val_imm, OpCode.wp_sdiv] at hw_flat
         exact divConstOp_bin_wp hfallback fun he => (emitSDivConst_wp he fun _ _ r hr =>
-          hk (r, ()) ((divFlatArg a₁).val.sdiv _, ()) (Prod.ext hr rfl) hw_flat.2).2.2
+          hk (r, ()) ((flattenArg a₁).val.sdiv _, ()) (Prod.ext hr rfl) hw_flat.2).2.2
     | srem n =>
       rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩
-      dsimp only [divFlatOp, divFlatArgs, tupMapArg] at hw_flat hfallback ⊢
-      cases hb : divFlatArg b₁ <;> simp only [hb] at hw_flat hfallback ⊢
+      dsimp only [flattenOp, flattenArgs, tupMapArg] at hw_flat hfallback ⊢
+      cases hb : flattenArg b₁ <;> simp only [hb] at hw_flat hfallback ⊢
       · exact hfallback
       · simp only [Op.wp, vals, Arg.val_imm, OpCode.wp_srem] at hw_flat
         exact divConstOp_bin_wp hfallback fun he => (emitSRemConst_wp he fun _ _ r hr =>
-          hk (r, ()) ((divFlatArg a₁).val.srem _, ()) (Prod.ext hr rfl) hw_flat.2).2.2
+          hk (r, ()) ((flattenArg a₁).val.srem _, ()) (Prod.ext hr rfl) hw_flat.2).2.2
     | _ => exact hfallback
 
 private theorem divConstB_get {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
     {sig : List (List Ty)} → {bs : Blocks (Arg V) L rs sig} →
     {ts : List Ty} → (i : Member ts sig) → (xs : Tup V ts) →
-    (divConstB bs).get i xs = divConst (bs.get i (divArgTup xs))
+    (divConstB bs).get i xs = divConst (bs.get i (toArgTup xs))
   | _, .cons _ _, _, .here, _ => rfl
   | _, .cons _ _, _, .there i, xs => divConstB_get i xs
 
@@ -1062,26 +1015,26 @@ theorem divConst_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     exact divConstOp_wp hG hop
       (fun r₁ r₂ hr hkr => ih r₁ r₂ m (ctx_val_append (tup_zip_vals_val r₁ r₂ hr) hG) hD hkr) hw
   | load t ha _ ih =>
-    intro m hG hD ⟨v, hv, hk⟩; simp only [divConst, wp]; rw [divFlatArg_val hG ha]
+    intro m hG hD ⟨v, hv, hk⟩; simp only [divConst, wp]; rw [flattenArg_val hG ha]
     exact ⟨v, hv, ih (.var v) v m (ctx_val_cons_var hG v) hD hk⟩
   | store hv ha _ ih =>
     intro m hG hD ⟨hok, hk⟩; simp only [divConst, wp]
-    rw [divFlatArg_val hG hv, divFlatArg_val hG ha]; exact ⟨hok, ih _ hG hD hk⟩
+    rw [flattenArg_val hG hv, flattenArg_val hG ha]; exact ⟨hok, ih _ hG hD hk⟩
   | call f hargs _ ih =>
     intro m hG hD ⟨P, E, hΓ, hP, hE⟩; simp only [divConst, wp]
-    rw [divFlatArgs_vals hG hargs]
+    rw [flattenArgs_vals hG hargs]
     exact ⟨P, E, hΓ, fun r m' hr =>
-      ih (divArgTup r) r m' (ctx_val_append (divArgTup_zip_val r) hG) hD (hP r m' hr), hE⟩
+      ih (toArgTup r) r m' (ctx_val_append (toArgTup_zip_val r) hG) hD (hP r m' hr), hE⟩
   | jnz hc _ _ iht ihe =>
-    intro m hG hD ⟨ht, he⟩; simp only [divConst, wp]; rw [divFlatArg_val hG hc]
+    intro m hG hD ⟨ht, he⟩; simp only [divConst, wp]; rw [flattenArg_val hG hc]
     exact ⟨fun h => iht m hG hD (ht h), fun h => ihe m hG hD (he h)⟩
   | jump hj hargs =>
     intro m hG hD hw; simp only [divConst, wp] at hw ⊢
-    have hj' := hD _ hj; dsimp only at hj'; rw [hj', divFlatArgs_vals hG hargs]; exact hw
+    have hj' := hD _ hj; dsimp only at hj'; rw [hj', flattenArgs_vals hG hargs]; exact hw
   | ret hvs =>
-    intro m hG _ hw; simp only [divConst, wp] at hw ⊢; rw [divFlatArgs_vals hG hvs]; exact hw
+    intro m hG _ hw; simp only [divConst, wp] at hw ⊢; rw [flattenArgs_vals hG hvs]; exact hw
   | exit f hargs =>
-    intro m hG _ hw; simp only [divConst, wp] at hw ⊢; rw [divFlatArgs_vals hG hargs]; exact hw
+    intro m hG _ hw; simp only [divConst, wp] at hw ⊢; rw [flattenArgs_vals hG hargs]; exact hw
   | hlt => intro _ _ _ hw; exact hw
   | group _ _ ihb ihk =>
     intro m hG hD hw Js hc
@@ -1090,52 +1043,10 @@ theorem divConst_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     intro _ i xs m' hb
     exact hc i xs m' (by
       rw [divConstB_get]
-      exact ihb Js Js i (divArgTup xs) xs m'
-        (ctx_val_append (divArgTup_zip_val xs) hG) (tup_zip_self_eq hD Js) hb)
+      exact ihb Js Js i (toArgTup xs) xs m'
+        (ctx_val_append (toArgTup_zip_val xs) hG) (tup_zip_self_eq hD Js) hb)
 
 /-! ## `divConst` well-formedness preservation (`divConst_wf`) -/
-
-private theorem divFlatArg_rel {V₁ V₂ : Ty → Type}
-    {G_in : Ctx (Arg V₁) (Arg V₂)} {G : Ctx V₁ V₂}
-    (hG : ∀ p ∈ G_in, ArgRel G p.1 p.2.1 p.2.2)
-    {t : Ty} {a₁ : Arg (Arg V₁) t} {a₂ : Arg (Arg V₂) t} :
-    ArgRel G_in t a₁ a₂ → ArgRel G t (divFlatArg a₁) (divFlatArg a₂)
-  | .var hm => hG _ hm
-  | .imm c => .imm c
-
-private theorem divFlatArgs_rel {V₁ V₂ : Ty → Type}
-    {G_in : Ctx (Arg V₁) (Arg V₂)} {G : Ctx V₁ V₂}
-    (hG : ∀ p ∈ G_in, ArgRel G p.1 p.2.1 p.2.2)
-    {ts : List Ty} {as₁ : Tup (Arg (Arg V₁)) ts} {as₂ : Tup (Arg (Arg V₂)) ts} :
-    TRel (ArgRel G_in) as₁ as₂ → TRel (ArgRel G) (divFlatArgs as₁) (divFlatArgs as₂) :=
-  TRel.tupMapArg_rel (fun _ => divFlatArg) (fun _ => divFlatArg) (fun ha => divFlatArg_rel hG ha)
-
-private theorem mem_zip_divArgTup {V₁ V₂ : Ty → Type} :
-    {ts : List Ty} → (xs₁ : Tup V₁ ts) → (xs₂ : Tup V₂ ts) →
-    ∀ p ∈ Tup.zip (divArgTup xs₁) (divArgTup xs₂), ArgRel (Tup.zip xs₁ xs₂) p.1 p.2.1 p.2.2
-  | [], (), (), _, hp => nomatch hp
-  | _ :: _, (_, _), (_, _), _, hp => by
-    cases hp with
-    | head => exact .var List.mem_cons_self
-    | tail _ hp =>
-      exact (mem_zip_divArgTup _ _ _ hp).weaken (fun _ hq => List.mem_cons_of_mem _ hq)
-
-private theorem ctx_argRel_append {V₁ V₂ : Ty → Type}
-    {H G_in : Ctx (Arg V₁) (Arg V₂)} {G₁ G₂ : Ctx V₁ V₂}
-    (hH : ∀ p ∈ H, ArgRel G₁ p.1 p.2.1 p.2.2)
-    (hG : ∀ p ∈ G_in, ArgRel G₂ p.1 p.2.1 p.2.2) :
-    ∀ p ∈ H ++ G_in, ArgRel (G₁ ++ G₂) p.1 p.2.1 p.2.2 := by
-  intro p hp; rcases List.mem_append.1 hp with hp | hp
-  · exact (hH p hp).weaken (fun _ hq => List.mem_append_left _ hq)
-  · exact (hG p hp).weaken (fun _ hq => List.mem_append_right _ hq)
-
-private theorem ctx_argRel_cons_var {V₁ V₂ : Ty → Type}
-    {G_in : Ctx (Arg V₁) (Arg V₂)} {G : Ctx V₁ V₂}
-    (hG : ∀ p ∈ G_in, ArgRel G p.1 p.2.1 p.2.2) {t : Ty} (v₁ : V₁ t) (v₂ : V₂ t) :
-    ∀ p ∈ (⟨t, .var v₁, .var v₂⟩ :: G_in), ArgRel (⟨t, v₁, v₂⟩ :: G) p.1 p.2.1 p.2.2 := by
-  intro p hp; cases hp with
-  | head => exact .var List.mem_cons_self
-  | tail _ hp => exact (hG p hp).weaken (fun _ hq => List.mem_cons_of_mem _ hq)
 
 private theorem wf_let_op2 {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {t u r : Ty} (code : OpCode [t, u] [r])
@@ -1362,15 +1273,6 @@ private theorem divConstOp_imm_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty
   · exfalso; simp [EmitWf, he₁, he₂] at h
   · exact h.2 he₁ he₂
 
-private theorem divArgTup_trel {V₁ V₂ : Ty → Type} :
-    {ts : List Ty} → (xs₁ : Tup V₁ ts) → (xs₂ : Tup V₂ ts) →
-    TRel (ArgRel (Tup.zip xs₁ xs₂)) (divArgTup xs₁) (divArgTup xs₂)
-  | [], (), () => .nil
-  | _ :: _, (_, _), (_, _) =>
-    .cons (.var List.mem_cons_self)
-      (TRel.mono (fun _ _ _ h => ArgRel.weaken (fun _ hp => List.mem_cons_of_mem _ hp) h)
-        (divArgTup_trel _ _))
-
 private theorem divConstOp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs ts : List Ty}
     {G_in : Ctx (Arg V₁) (Arg V₂)} {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
     (hG : ∀ p ∈ G_in, ArgRel G p.1 p.2.1 p.2.2)
@@ -1382,21 +1284,21 @@ private theorem divConstOp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty →
     Wf G D (divConstOp op₁ k₁) (divConstOp op₂ k₂) := by
   cases hop with
   | @mk _ _ code args₁ args₂ hargs =>
-    have hflat_args := divFlatArgs_rel hG hargs
+    have hflat_args := TRel.flattenArgs hG hargs
     have hfallback :
-        Wf G D (.let_ (divFlatOp ⟨code, args₁⟩) fun xs => k₁ (divArgTup xs))
-               (.let_ (divFlatOp ⟨code, args₂⟩) fun xs => k₂ (divArgTup xs)) :=
+        Wf G D (.let_ (flattenOp ⟨code, args₁⟩) fun xs => k₁ (toArgTup xs))
+               (.let_ (flattenOp ⟨code, args₂⟩) fun xs => k₂ (toArgTup xs)) :=
       .let_ (.mk code hflat_args) fun xs₁ xs₂ =>
         hk (fun _ hp => List.mem_append_right _ hp) _ _
           (TRel.mono (fun _ _ _ h => ArgRel.weaken (fun _ hp => List.mem_append_left G hp) h)
-            (divArgTup_trel xs₁ xs₂))
-    unfold divConstOp; dsimp only [divFlatOp]
+            (toArgTup_trel xs₁ xs₂))
+    unfold divConstOp; dsimp only [flattenOp]
     cases code with
     | udiv n =>
       rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
       rcases hflat_args with _ | ⟨hx, _ | ⟨hd, _⟩⟩
-      dsimp only [divFlatOp, divFlatArgs, tupMapArg] at hfallback ⊢
-      cases hb₁ : divFlatArg b₁ <;> cases hb₂ : divFlatArg b₂ <;>
+      dsimp only [flattenOp, flattenArgs, tupMapArg] at hfallback ⊢
+      cases hb₁ : flattenArg b₁ <;> cases hb₂ : flattenArg b₂ <;>
         simp only [hb₁, hb₂] at hd hfallback ⊢
       all_goals first
         | exact hfallback
@@ -1405,8 +1307,8 @@ private theorem divConstOp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty →
     | urem n =>
       rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
       rcases hflat_args with _ | ⟨hx, _ | ⟨hd, _⟩⟩
-      dsimp only [divFlatOp, divFlatArgs, tupMapArg] at hfallback ⊢
-      cases hb₁ : divFlatArg b₁ <;> cases hb₂ : divFlatArg b₂ <;>
+      dsimp only [flattenOp, flattenArgs, tupMapArg] at hfallback ⊢
+      cases hb₁ : flattenArg b₁ <;> cases hb₂ : flattenArg b₂ <;>
         simp only [hb₁, hb₂] at hd hfallback ⊢
       all_goals first
         | exact hfallback
@@ -1415,8 +1317,8 @@ private theorem divConstOp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty →
     | sdiv n =>
       rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
       rcases hflat_args with _ | ⟨hx, _ | ⟨hd, _⟩⟩
-      dsimp only [divFlatOp, divFlatArgs, tupMapArg] at hfallback ⊢
-      cases hb₁ : divFlatArg b₁ <;> cases hb₂ : divFlatArg b₂ <;>
+      dsimp only [flattenOp, flattenArgs, tupMapArg] at hfallback ⊢
+      cases hb₁ : flattenArg b₁ <;> cases hb₂ : flattenArg b₂ <;>
         simp only [hb₁, hb₂] at hd hfallback ⊢
       all_goals first
         | exact hfallback
@@ -1425,21 +1327,14 @@ private theorem divConstOp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty →
     | srem n =>
       rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
       rcases hflat_args with _ | ⟨hx, _ | ⟨hd, _⟩⟩
-      dsimp only [divFlatOp, divFlatArgs, tupMapArg] at hfallback ⊢
-      cases hb₁ : divFlatArg b₁ <;> cases hb₂ : divFlatArg b₂ <;>
+      dsimp only [flattenOp, flattenArgs, tupMapArg] at hfallback ⊢
+      cases hb₁ : flattenArg b₁ <;> cases hb₂ : flattenArg b₂ <;>
         simp only [hb₁, hb₂] at hd hfallback ⊢
       all_goals first
         | exact hfallback
         | (cases hd <;> exact divConstOp_imm_wf hfallback (emitSRemConst_wf hx _
             fun hsub r₁ r₂ hr => hk hsub (r₁, ()) (r₂, ()) (.cons hr .nil)))
     | _ => exact hfallback
-
-private theorem mem_zip_argRel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
-    {ts : List Ty} → {as₁ : Tup (Arg V₁) ts} → {as₂ : Tup (Arg V₂) ts} →
-    TRel (ArgRel G) as₁ as₂ → ∀ p ∈ Tup.zip as₁ as₂, ArgRel G p.1 p.2.1 p.2.2
-  | [], (), (), .nil, _, hp => nomatch hp
-  | _ :: _, (_, _), (_, _), .cons h hs, _, hp => by
-    cases hp with | head => exact h | tail _ hp => exact mem_zip_argRel hs _ hp
 
 /-- Well-formedness preservation for `divConst`, proved via `Wf.induct`. -/
 theorem divConst_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
@@ -1456,39 +1351,39 @@ theorem divConst_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs
     · exact mem_zip_argRel hr p hp
     · exact (hG p hp).weaken hsub
   | load t ha _ ih =>
-    intro G hG; exact .load t (divFlatArg_rel hG ha) fun v₁ v₂ =>
+    intro G hG; exact .load t (ha.flattenArg hG) fun v₁ v₂ =>
       ih (.var v₁) (.var v₂) (ctx_argRel_cons_var hG v₁ v₂)
   | store hv ha _ ih =>
-    intro G hG; exact .store (divFlatArg_rel hG hv) (divFlatArg_rel hG ha) (ih hG)
+    intro G hG; exact .store (hv.flattenArg hG) (ha.flattenArg hG) (ih hG)
   | call f hargs _ ih =>
-    intro G hG; exact .call f (divFlatArgs_rel hG hargs) fun xs₁ xs₂ =>
-      ih (divArgTup xs₁) (divArgTup xs₂) (ctx_argRel_append (mem_zip_divArgTup xs₁ xs₂) hG)
+    intro G hG; exact .call f (TRel.flattenArgs hG hargs) fun xs₁ xs₂ =>
+      ih (toArgTup xs₁) (toArgTup xs₂) (ctx_argRel_append (mem_zip_toArgTup xs₁ xs₂) hG)
   | jnz hc _ _ iht ihe =>
-    intro G hG; exact .jnz (divFlatArg_rel hG hc) (iht hG) (ihe hG)
-  | jump hj hargs => intro G hG; exact .jump hj (divFlatArgs_rel hG hargs)
-  | ret hvs => intro G hG; exact .ret (divFlatArgs_rel hG hvs)
-  | exit f hargs => intro G hG; exact .exit f (divFlatArgs_rel hG hargs)
+    intro G hG; exact .jnz (hc.flattenArg hG) (iht hG) (ihe hG)
+  | jump hj hargs => intro G hG; exact .jump hj (TRel.flattenArgs hG hargs)
+  | ret hvs => intro G hG; exact .ret (TRel.flattenArgs hG hvs)
+  | exit f hargs => intro G hG; exact .exit f (TRel.flattenArgs hG hargs)
   | hlt => intro _ _; exact .hlt
   | group _ _ ihb ihk =>
     intro G hG
     refine .group (fun Js₁ Js₂ => WfB.of_get fun i xs₁ xs₂ => ?_) (fun Js₁ Js₂ => ihk Js₁ Js₂ hG)
     simp only [divConstB_get]
-    exact ihb Js₁ Js₂ i (divArgTup xs₁) (divArgTup xs₂)
-      (ctx_argRel_append (mem_zip_divArgTup xs₁ xs₂) hG)
+    exact ihb Js₁ Js₂ i (toArgTup xs₁) (toArgTup xs₂)
+      (ctx_argRel_append (mem_zip_toArgTup xs₁ xs₂) hG)
 
 /-! ## Closed function theorems -/
 
 /-- `Func.divConst` preserves `Func.Wf`. -/
 theorem Func.divConst_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
     (Func.divConst f).Wf := fun V₁ V₂ L₁ L₂ xs₁ xs₂ =>
-  LeanQbe.T.divConst_wf (hf (Arg V₁) (Arg V₂) L₁ L₂ (divArgTup xs₁) (divArgTup xs₂))
-    (mem_zip_divArgTup xs₁ xs₂)
+  LeanQbe.T.divConst_wf (hf (Arg V₁) (Arg V₂) L₁ L₂ (toArgTup xs₁) (toArgTup xs₂))
+    (mem_zip_toArgTup xs₁ xs₂)
 
 /-- `Func.divConst` refines function contracts: any source contract holds on `Func.divConst f`. -/
 theorem Func.divConst_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.divConst f) xs m Q X :=
-  LeanQbe.T.divConst_wp (hf (Arg Val) Val Cont Cont (divArgTup xs) xs) m
-    (divArgTup_zip_val xs) (fun _ hp => nomatch hp) h
+  LeanQbe.T.divConst_wp (hf (Arg Val) Val Cont Cont (toArgTup xs) xs) m
+    (toArgTup_zip_val xs) (fun _ hp => nomatch hp) h
 
 end LeanQbe.T

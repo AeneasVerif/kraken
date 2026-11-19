@@ -23,46 +23,7 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 
-/-! ## Algebraic laws for `CmpOp.swap` and `AssocOp.eval` -/
-
-theorem CmpOp.swap_evalBits {n : Nat} (o : CmpOp) (a b : BitVec n) :
-    o.swap.evalBits b a = o.evalBits a b := by
-  cases o <;> simp [CmpOp.swap, CmpOp.evalBits, eq_comm]
-
-theorem CmpOp.swap_evalBool (o : CmpOp) (a b : Bool) :
-    o.swap.evalBool b a = o.evalBool a b := by
-  cases o <;> cases a <;> cases b <;> rfl
-
-theorem liftCmp_swap (o : CmpOp) : ∀ (t : Ty) (a b : Val t),
-    liftCmp o.swap.evalBits o.swap.evalBool t b a = liftCmp o.evalBits o.evalBool t a b
-  | .bool, a, b => CmpOp.swap_evalBool o a b
-  | .bits _, a, b => CmpOp.swap_evalBits o a b
-  | .float _, a, b => CmpOp.swap_evalBits o a b
-  | .pair s u, (a₁, a₂), (b₁, b₂) =>
-    Prod.ext (liftCmp_swap o s a₁ b₁) (liftCmp_swap o u a₂ b₂)
-
-theorem lift2_comm (fbv : ∀ {n}, BitVec n → BitVec n → BitVec n) (fbool : Bool → Bool → Bool)
-    (hbv : ∀ {n} (a b : BitVec n), fbv a b = fbv b a)
-    (hbool : ∀ a b : Bool, fbool a b = fbool b a) :
-    ∀ (t : Ty) (a b : Val t), lift2 fbv fbool t a b = lift2 fbv fbool t b a
-  | .bool, a, b => hbool a b
-  | .bits _, a, b => hbv a b
-  | .float _, a, b => hbv a b
-  | .pair s u, (a₁, a₂), (b₁, b₂) =>
-    Prod.ext (lift2_comm fbv fbool hbv hbool s a₁ b₁) (lift2_comm fbv fbool hbv hbool u a₂ b₂)
-
-theorem lift2_assoc (fbv : ∀ {n}, BitVec n → BitVec n → BitVec n) (fbool : Bool → Bool → Bool)
-    (hbv : ∀ {n} (a b c : BitVec n), fbv (fbv a b) c = fbv a (fbv b c))
-    (hbool : ∀ a b c : Bool, fbool (fbool a b) c = fbool a (fbool b c)) :
-    ∀ (t : Ty) (a b c : Val t),
-      lift2 fbv fbool t (lift2 fbv fbool t a b) c =
-        lift2 fbv fbool t a (lift2 fbv fbool t b c)
-  | .bool, a, b, c => hbool a b c
-  | .bits _, a, b, c => hbv a b c
-  | .float _, a, b, c => hbv a b c
-  | .pair s u, (a₁, a₂), (b₁, b₂), (c₁, c₂) =>
-    Prod.ext (lift2_assoc fbv fbool hbv hbool s a₁ b₁ c₁)
-      (lift2_assoc fbv fbool hbv hbool u a₂ b₂ c₂)
+/-! ## Algebraic laws for `AssocOp.eval` -/
 
 theorem AssocOp.eval_comm (op : AssocOp) (t : Ty) (a b : Val t) :
     op.eval t a b = op.eval t b a := by

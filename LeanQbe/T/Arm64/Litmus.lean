@@ -155,11 +155,11 @@ private theorem litmus_allFns_wf : ∀ fn ∈ allFns, fn.Wf := by
   · exact sumcall_wf
 
 private theorem allFns_supportsSource_all :
-    allFns.all (fun f => (f.opt).body.supportsSource armLegalTarget) = true := by
+    allFns.all (fun f => (f.earlyOpt).body.supportsSource armLegalTarget) = true := by
   t_kernel_rfl
 
 private theorem litmus_allFns_supports :
-    ∀ fn ∈ allFns, (fn.opt).body.supportsSource armLegalTarget = true :=
+    ∀ fn ∈ allFns, (fn.earlyOpt).body.supportsSource armLegalTarget = true :=
   fun fn h => List.all_eq_true.mp allFns_supportsSource_all fn h
 
 private theorem noExit_module_fnspec {hh : Host} {mod : Module}

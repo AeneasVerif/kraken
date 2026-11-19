@@ -12,7 +12,7 @@ public import LeanQbe.T.Module
 Executes the typed `LeanQbe.T` pipeline end-to-end cleanly above any `Target` without touching any
 architecture crate or E1 module:
 
-* `Fn.opt` / `Fn.mid`: `Opt → Legal lt → Opt` mid-end lowering pipeline.
+* `Fn.earlyOpt` / `Fn.lateOpt` / `Fn.mid`: `earlyOpt → Legal lt → lateOpt` staged mid-end lowering.
 * `Expr.extAux` / `Fn.ext`: PHOAS traversal collecting `(calleeSym, as, bs)` triples and exit
   symbols matching `Rega.lowerExpr` (ignoring dead `.jnz (.imm b)` branches).
 * `Fn.computeHints`: untrusted heuristic entry point calling `Spill.hints` (for meta/CLI hint
@@ -33,13 +33,22 @@ namespace LeanQbe.T
 
 /-! ## Mid-end pipeline and external hint computation -/
 
-/-- Run source-level PHOAS optimizations (`copy`, `gvn`, `fold`, `dce`) on a typed function. -/
+/-- Run legacy source-level PHOAS optimizations (`copy`, `gvn`, `fold`, `dce`) on a typed
+function. -/
 def Fn.opt (f : Fn) : Fn :=
   ⟨f.name, f.as, f.rs, Func.opt f.body⟩
 
-/-- Run the full mid-end pipeline (`Opt → Legal lt → Opt`) on a typed function. -/
+/-- Run Stage 1 pre-`Legal` optimizations (`Func.earlyOpt`) on a named function. -/
+def Fn.earlyOpt (f : Fn) : Fn :=
+  ⟨f.name, f.as, f.rs, Func.earlyOpt f.body⟩
+
+/-- Run Stage 2 post-`Legal` optimizations (`Func.lateOpt`) on a named function. -/
+def Fn.lateOpt (f : Fn) : Fn :=
+  ⟨f.name, f.as, f.rs, Func.lateOpt f.body⟩
+
+/-- Run the staged mid-end pipeline (`earlyOpt → Legal lt → lateOpt`) on a typed function. -/
 def Fn.mid (lt : LegalTarget) (f : Fn) : Fn :=
-  ((f.opt).legal lt).opt
+  ((f.earlyOpt).legal lt).lateOpt
 
 /-- Compute register-allocation / spill hints for `f.mid lt`. For meta/CLI hint splicing ONLY;
 never invoked inside `compileFn`, `compile`, or `compileModule`. -/

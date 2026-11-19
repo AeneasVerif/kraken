@@ -11,6 +11,7 @@ public import LeanQbe.T.Wf
 public import LeanQbe.T.WfLemmas
 public import LeanQbe.T.Flat
 public import LeanQbe.T.FlatLemmas
+public import LeanQbe.T.OptUtilLemmas
 public import LeanQbe.T.Notation
 public import LeanQbe.T.Logic.Arith
 public import LeanQbe.T.Logic.BitVec

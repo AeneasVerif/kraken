@@ -1,8 +1,7 @@
 module
 
 public import LeanQbe.T.SimplifyGroup
-public import LeanQbe.T.OptUtil
-public import LeanQbe.T.WfLemmas
+public import LeanQbe.T.OptUtilLemmas
 
 /-!
 # Correctness Proofs for `SimplifyGroup` (`O-M2`)
@@ -237,14 +236,6 @@ inductive OuterWfS (chk : Bool) {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty �
         OuterWf chk G' D (b₁ a₁) (b₂ a₂)) →
       OuterWfS chk G D bs₁ bs₂ →
       OuterWfS chk G D (.cons (ts := ts) (sig := sig) b₁ bs₁) (.cons b₂ bs₂)
-
-theorem TRel.toArgTup_mem {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
-    {ts : List Ty} → (xs₁ : Tup V₁ ts) → (xs₂ : Tup V₂ ts) →
-    TRel (ArgRel (Tup.zip xs₁ xs₂ ++ G)) (toArgTup xs₁) (toArgTup xs₂)
-  | [], (), () => .nil
-  | _ :: _, (_, xs₁), (_, xs₂) =>
-    .cons (.var List.mem_cons_self)
-      ((TRel.toArgTup_mem xs₁ xs₂).argRel_weaken fun _ h => .tail _ h)
 
 theorem OuterWfS.to_blocks {chk : Bool} {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
     {rs : List Ty} {G : Ctx (OptV V₁) (OptV V₂)} {D : Ctx (JLabel L₁) (JLabel L₂)} :

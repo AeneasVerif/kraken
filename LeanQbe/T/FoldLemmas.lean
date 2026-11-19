@@ -45,9 +45,7 @@ def fupdTup (ρ : (t : Ty) → Nat → Val t) (b : Nat) :
 theorem fupd_eq (ρ : (t : Ty) → Nat → Val t) {t : Ty} (b : Nat) (v : Val t) :
     fupd ρ b v t b = v := by
   simp only [fupd, ↓reduceIte]
-  cases h : tyDecEq t t with
-  | isTrue _ => rfl
-  | isFalse hne => exact absurd rfl hne
+  cases h : tyDecEq t t with | isTrue _ => rfl | isFalse hne => exact absurd rfl hne
 
 theorem fupd_ne (ρ : (t : Ty) → Nat → Val t) {t t' : Ty} {b i : Nat} (v : Val t) (h : i ≠ b) :
     fupd ρ b v t' i = ρ t' i := by
@@ -164,116 +162,79 @@ theorem evalConvertFloat_sound (src dst : Fmt) (b : BitVec src.width)
 theorem OpCode.eval?_sound : {sig rs : List Ty} → (c : OpCode sig rs) → (args : Tup Val sig) →
     {res : Tup Val rs} → (post : Tup Val rs → Prop) →
     c.eval? args = some res → c.wp args post → post res
-  | _, _, .copy _, (_, ()), _, _, hev, hw
-  | _, _, .not _, (_, ()), _, _, hev, hw
-  | _, _, .clz _, (_, ()), _, _, hev, hw
-  | _, _, .cls _, (_, ()), _, _, hev, hw
-  | _, _, .rbit _, (_, ()), _, _, hev, hw
-  | _, _, .ctz _, (_, ()), _, _, hev, hw
-  | _, _, .popcnt _, (_, ()), _, _, hev, hw
-  | _, _, .ofBool _, (_, ()), _, _, hev, hw
-  | _, _, .unpair _ _, (_, ()), _, _, hev, hw
-  | _, _, .bitcast _ _ _, (_, ()), _, _, hev, hw
-  | _, _, .uitofp _ _, (_, ()), _, _, hev, hw
-  | _, _, .sitofp _ _, (_, ()), _, _, hev, hw => by
-    simp only [OpCode.eval?, Option.some.injEq] at hev; subst hev; exact hw
-  | _, _, .and _, (_, _, ()), _, _, hev, hw
-  | _, _, .or _, (_, _, ()), _, _, hev, hw
-  | _, _, .xor _, (_, _, ()), _, _, hev, hw
-  | _, _, .umulw _, (_, _, ()), _, _, hev, hw
-  | _, _, .smulw _, (_, _, ()), _, _, hev, hw
-  | _, _, .udiv0 _, (_, _, ()), _, _, hev, hw
-  | _, _, .sdiv0 _, (_, _, ()), _, _, hev, hw
-  | _, _, .mkpair _ _, (_, _, ()), _, _, hev, hw
-  | _, _, .sha256msg1, (_, _, ()), _, _, hev, hw
-  | _, _, .sha256msg2, (_, _, ()), _, _, hev, hw => by
-    simp only [OpCode.eval?, Option.some.injEq] at hev; subst hev; exact hw
-  | _, _, .ternlog _ _, (_, _, _, ()), _, _, hev, hw
-  | _, _, .fshl _, (_, _, _, ()), _, _, hev, hw
-  | _, _, .fshr _, (_, _, _, ()), _, _, hev, hw
-  | _, _, .select _, (_, _, _, ()), _, _, hev, hw
-  | _, _, .addc _, (_, _, _, ()), _, _, hev, hw
-  | _, _, .subb _, (_, _, _, ()), _, _, hev, hw
-  | _, _, .sha256rnds2, (_, _, _, ()), _, _, hev, hw => by
-    simp only [OpCode.eval?, Option.some.injEq] at hev; subst hev; exact hw
-  | _, _, .neg _, (_, ()), _, _, hev, hw
-  | _, _, .bswap _, (_, ()), _, _, hev, hw
-  | _, _, .zext _ _, (_, ()), _, _, hev, hw
-  | _, _, .sext _ _, (_, ()), _, _, hev, hw
-  | _, _, .trunc _ _, (_, ()), _, _, hev, hw
-  | _, _, .shufd _ _, (_, ()), _, _, hev, hw
-  | _, _, .fneg _, (_, ()), _, _, hev, hw
-  | _, _, .fabs _, (_, ()), _, _, hev, hw => by
-    simp only [OpCode.eval?] at hev; split at hev <;> simp_all [OpCode.wp]
-  | _, _, .add _, (_, _, ()), _, _, hev, hw
-  | _, _, .sub _, (_, _, ()), _, _, hev, hw
-  | _, _, .mul _, (_, _, ()), _, _, hev, hw
-  | _, _, .shl _, (_, _, ()), _, _, hev, hw
-  | _, _, .lshr _, (_, _, ()), _, _, hev, hw
-  | _, _, .ashr _, (_, _, ()), _, _, hev, hw
-  | _, _, .rotl _, (_, _, ()), _, _, hev, hw
-  | _, _, .rotr _, (_, _, ()), _, _, hev, hw
-  | _, _, .udiv _, (_, _, ()), _, _, hev, hw
-  | _, _, .sdiv _, (_, _, ()), _, _, hev, hw
-  | _, _, .urem _, (_, _, ()), _, _, hev, hw
-  | _, _, .srem _, (_, _, ()), _, _, hev, hw
-  | _, _, .shufb _, (_, _, ()), _, _, hev, hw
-  | _, _, .alignr _ _, (_, _, ()), _, _, hev, hw
-  | _, _, .blendw _ _, (_, _, ()), _, _, hev, hw => by
-    simp only [OpCode.eval?] at hev; split at hev <;> simp_all [OpCode.wp]
-  | _, _, .cmp _ t _ h, (_, _, ()), _, _, hev, hw => by
-    subst h; simp only [OpCode.eval?, cast_eq] at hev; split at hev <;> simp_all [OpCode.wp_cmp]
-  | _, _, .blend _ _ h, (_, _, _, ()), _, _, hev, hw => by
-    subst h; simp only [OpCode.eval?, cast_eq, Option.some.injEq] at hev; subst hev; exact hw
-  | _, _, .fcmp _ t _ h, (_, _, ()), _, _, hev, hw => by
-    subst h; simp only [OpCode.eval?, cast_eq] at hev; split at hev <;> simp_all [OpCode.wp_fcmp]
-  | _, _, .fadd t, (a, b, ()), _, post, hev, hw
-  | _, _, .fsub t, (a, b, ()), _, post, hev, hw
-  | _, _, .fmul t, (a, b, ()), _, post, hev, hw
-  | _, _, .fdiv t, (a, b, ()), _, post, hev, hw => by
-    simp only [OpCode.eval?, Option.map_eq_some_iff] at hev
-    rcases hev with ⟨r, hr, rfl⟩
+  | _, _, .copy _, (_, ()), _, _, h, hw | _, _, .not _, (_, ()), _, _, h, hw
+  | _, _, .clz _, (_, ()), _, _, h, hw | _, _, .cls _, (_, ()), _, _, h, hw
+  | _, _, .rbit _, (_, ()), _, _, h, hw | _, _, .ctz _, (_, ()), _, _, h, hw
+  | _, _, .popcnt _, (_, ()), _, _, h, hw | _, _, .ofBool _, (_, ()), _, _, h, hw
+  | _, _, .unpair _ _, (_, ()), _, _, h, hw | _, _, .bitcast _ _ _, (_, ()), _, _, h, hw
+  | _, _, .uitofp _ _, (_, ()), _, _, h, hw | _, _, .sitofp _ _, (_, ()), _, _, h, hw => by
+    simp only [OpCode.eval?, Option.some.injEq] at h; subst h; exact hw
+  | _, _, .and _, (_, _, ()), _, _, h, hw | _, _, .or _, (_, _, ()), _, _, h, hw
+  | _, _, .xor _, (_, _, ()), _, _, h, hw | _, _, .umulw _, (_, _, ()), _, _, h, hw
+  | _, _, .smulw _, (_, _, ()), _, _, h, hw | _, _, .udiv0 _, (_, _, ()), _, _, h, hw
+  | _, _, .sdiv0 _, (_, _, ()), _, _, h, hw | _, _, .mkpair _ _, (_, _, ()), _, _, h, hw
+  | _, _, .sha256msg1, (_, _, ()), _, _, h, hw | _, _, .sha256msg2, (_, _, ()), _, _, h, hw => by
+    simp only [OpCode.eval?, Option.some.injEq] at h; subst h; exact hw
+  | _, _, .ternlog _ _, (_, _, _, ()), _, _, h, hw | _, _, .fshl _, (_, _, _, ()), _, _, h, hw
+  | _, _, .fshr _, (_, _, _, ()), _, _, h, hw | _, _, .select _, (_, _, _, ()), _, _, h, hw
+  | _, _, .addc _, (_, _, _, ()), _, _, h, hw | _, _, .subb _, (_, _, _, ()), _, _, h, hw
+  | _, _, .sha256rnds2, (_, _, _, ()), _, _, h, hw => by
+    simp only [OpCode.eval?, Option.some.injEq] at h; subst h; exact hw
+  | _, _, .neg _, (_, ()), _, _, h, hw | _, _, .bswap _, (_, ()), _, _, h, hw
+  | _, _, .zext _ _, (_, ()), _, _, h, hw | _, _, .sext _ _, (_, ()), _, _, h, hw
+  | _, _, .trunc _ _, (_, ()), _, _, h, hw | _, _, .shufd _ _, (_, ()), _, _, h, hw
+  | _, _, .fneg _, (_, ()), _, _, h, hw | _, _, .fabs _, (_, ()), _, _, h, hw => by
+    simp only [OpCode.eval?] at h; split at h <;> simp_all [OpCode.wp]
+  | _, _, .add _, (_, _, ()), _, _, h, hw | _, _, .sub _, (_, _, ()), _, _, h, hw
+  | _, _, .mul _, (_, _, ()), _, _, h, hw | _, _, .shl _, (_, _, ()), _, _, h, hw
+  | _, _, .lshr _, (_, _, ()), _, _, h, hw | _, _, .ashr _, (_, _, ()), _, _, h, hw
+  | _, _, .rotl _, (_, _, ()), _, _, h, hw | _, _, .rotr _, (_, _, ()), _, _, h, hw
+  | _, _, .udiv _, (_, _, ()), _, _, h, hw | _, _, .sdiv _, (_, _, ()), _, _, h, hw
+  | _, _, .urem _, (_, _, ()), _, _, h, hw | _, _, .srem _, (_, _, ()), _, _, h, hw
+  | _, _, .shufb _, (_, _, ()), _, _, h, hw | _, _, .alignr _ _, (_, _, ()), _, _, h, hw
+  | _, _, .blendw _ _, (_, _, ()), _, _, h, hw => by
+    simp only [OpCode.eval?] at h; split at h <;> simp_all [OpCode.wp]
+  | _, _, .cmp _ _ _ h', (_, _, ()), _, _, h, hw => by
+    subst h'; simp only [OpCode.eval?, cast_eq] at h; split at h <;> simp_all [OpCode.wp_cmp]
+  | _, _, .blend _ _ h', (_, _, _, ()), _, _, h, hw => by
+    subst h'; simp only [OpCode.eval?, cast_eq, Option.some.injEq] at h; subst h; exact hw
+  | _, _, .fcmp _ _ _ h', (_, _, ()), _, _, h, hw => by
+    subst h'; simp only [OpCode.eval?, cast_eq] at h; split at h <;> simp_all [OpCode.wp_fcmp]
+  | _, _, .fadd t, (a, b, ()), _, post, h, hw | _, _, .fsub t, (a, b, ()), _, post, h, hw
+  | _, _, .fmul t, (a, b, ()), _, post, h, hw | _, _, .fdiv t, (a, b, ()), _, post, h, hw => by
+    simp only [OpCode.eval?, Option.map_eq_some_iff] at h; rcases h with ⟨r, hr, rfl⟩
     by_cases hf : !t.isFloatTree
     · simp_all [OpCode.wp]
     · simp only [OpCode.wp, hf, Bool.false_eq_true, ↓reduceIte] at hw
       exact evalFloat2_sound _ t a b r (fun x => post (x, ())) hr hw
-  | _, _, .ffma t, (a, b, c, ()), _, post, hev, hw => by
-    simp only [OpCode.eval?, Option.map_eq_some_iff] at hev
-    rcases hev with ⟨r, hr, rfl⟩
+  | _, _, .ffma t, (a, b, c, ()), _, post, h, hw => by
+    simp only [OpCode.eval?, Option.map_eq_some_iff] at h; rcases h with ⟨r, hr, rfl⟩
     by_cases hf : !t.isFloatTree
     · simp only [OpCode.wp_ffma, hf, ↓reduceIte] at hw
     · simp only [OpCode.wp_ffma, hf, Bool.false_eq_true, ↓reduceIte] at hw
       exact evalFloat3_sound _ t a b c r (fun x => post (x, ())) hr hw
-  | _, _, .fsqrt t, (a, ()), _, post, hev, hw => by
-    simp only [OpCode.eval?, Option.map_eq_some_iff] at hev
-    rcases hev with ⟨r, hr, rfl⟩
+  | _, _, .fsqrt t, (a, ()), _, post, h, hw => by
+    simp only [OpCode.eval?, Option.map_eq_some_iff] at h; rcases h with ⟨r, hr, rfl⟩
     by_cases hf : !t.isFloatTree
     · simp only [OpCode.wp_fsqrt, hf, ↓reduceIte] at hw
     · simp only [OpCode.wp_fsqrt, hf, Bool.false_eq_true, ↓reduceIte] at hw
       exact evalFloat1_sound _ t a r (fun x => post (x, ())) hr hw
-  | _, _, .fptoui f n, (a, ()), _, _, hev, hw => by
-    simp only [OpCode.eval?, Option.bind_eq_some_iff] at hev
-    simp only [OpCode.wp_fptoui] at hw
-    rcases hev with ⟨z, hz, hres⟩
-    simp only [hz] at hw
-    split at hres
-    · simp only [Option.some.injEq] at hres; subst hres; exact hw.2.2
-    · cases hres
-  | _, _, .fptosi f n, (a, ()), _, _, hev, hw => by
-    simp only [OpCode.eval?] at hev
-    simp only [OpCode.wp_fptosi] at hw
-    split at hev
-    · simp only [Option.bind_eq_some_iff] at hev
-      rcases hev with ⟨z, hz, hres⟩
-      simp only [hz] at hw
-      split at hres
-      · simp only [Option.some.injEq] at hres; subst hres; exact hw.2.2.2
-      · cases hres
-    · cases hev
-  | _, _, .fcvt f g, (a, ()), _, _, hev, hw => by
-    simp only [OpCode.eval?, Option.some.injEq] at hev
-    subst hev
-    exact evalConvertFloat_sound f g a hw
+  | _, _, .fptoui f n, (a, ()), _, _, h, hw => by
+    simp only [OpCode.eval?, Option.bind_eq_some_iff] at h; simp only [OpCode.wp_fptoui] at hw
+    rcases h with ⟨z, hz, hr⟩; simp only [hz] at hw
+    split at hr
+    · simp only [Option.some.injEq] at hr; subst hr; exact hw.2.2
+    · cases hr
+  | _, _, .fptosi f n, (a, ()), _, _, h, hw => by
+    simp only [OpCode.eval?] at h; simp only [OpCode.wp_fptosi] at hw
+    split at h
+    · simp only [Option.bind_eq_some_iff] at h; rcases h with ⟨z, hz, hr⟩; simp only [hz] at hw
+      split at hr
+      · simp only [Option.some.injEq] at hr; subst hr; exact hw.2.2.2
+      · cases hr
+    · cases h
+  | _, _, .fcvt f g, (a, ()), _, _, h, hw => by
+    simp only [OpCode.eval?, Option.some.injEq] at h; subst h; exact evalConvertFloat_sound f g a hw
 
 /-! ## Algebraic identities, annihilators, and strength reduction lemmas -/
 
@@ -301,63 +262,40 @@ theorem isOneVal_eq : ∀ (t : Ty) (v : Val t), isOneVal t v = true → v = oneV
     simp only [isOneVal, Bool.and_eq_true] at h
     exact Prod.ext (isOneVal_eq a v1 h.1) (isOneVal_eq b v2 h.2)
 
-theorem isZeroArg?_eq {t : Ty} {a : Arg Val t} (h : isZeroArg? a = true) :
-    a.val = zeroVal t := by
-  cases a with
-  | var _ => simp [isZeroArg?, Arg.imm?] at h
-  | imm c => exact isZeroVal_eq t c h
+theorem isZeroArg?_eq {t : Ty} {a : Arg Val t} (h : isZeroArg? a = true) : a.val = zeroVal t :=
+  match a with | .imm c => isZeroVal_eq t c h | .var _ => by simp [isZeroArg?, Arg.imm?] at h
 
-theorem isOnesArg?_eq {t : Ty} {a : Arg Val t} (h : isOnesArg? a = true) :
-    a.val = onesVal t := by
-  cases a with
-  | var _ => simp [isOnesArg?, Arg.imm?] at h
-  | imm c => exact isOnesVal_eq t c h
+theorem isOnesArg?_eq {t : Ty} {a : Arg Val t} (h : isOnesArg? a = true) : a.val = onesVal t :=
+  match a with | .imm c => isOnesVal_eq t c h | .var _ => by simp [isOnesArg?, Arg.imm?] at h
 
-theorem isOneArg?_eq {t : Ty} {a : Arg Val t} (h : isOneArg? a = true) :
-    a.val = oneVal t := by
-  cases a with
-  | var _ => simp [isOneArg?, Arg.imm?] at h
-  | imm c => exact isOneVal_eq t c h
+theorem isOneArg?_eq {t : Ty} {a : Arg Val t} (h : isOneArg? a = true) : a.val = oneVal t :=
+  match a with | .imm c => isOneVal_eq t c h | .var _ => by simp [isOneArg?, Arg.imm?] at h
 
-private theorem lift2_nf (fbv : ∀ {n}, BitVec n → BitVec n → BitVec n)
+private theorem lift2_law (allowFlt : Bool) (fbv : ∀ {n}, BitVec n → BitVec n → BitVec n)
     (fbool : Bool → Bool → Bool) (g h k : (t : Ty) → Val t → Val t) :
-    ∀ (t : Ty), t.hasFloat = false → ∀ (x : Val t),
+    ∀ (t : Ty), (allowFlt = false → t.hasFloat = false) → ∀ (x : Val t),
       (hbv : ∀ {n} (x : BitVec n), fbv (g (.bits n) x) (h (.bits n) x) = k (.bits n) x := by
         intros; simp [zeroVal, oneVal, onesVal]) →
-      (hbool : ∀ x, fbool (g .bool x) (h .bool x) = k .bool x := by intro x; cases x <;> rfl) →
-      (hg : ∀ s u x₁ x₂, g (.pair s u) (x₁, x₂) = (g s x₁, g u x₂) := by intros; rfl) →
-      (hh : ∀ s u x₁ x₂, h (.pair s u) (x₁, x₂) = (h s x₁, h u x₂) := by intros; rfl) →
-      (hk : ∀ s u x₁ x₂, k (.pair s u) (x₁, x₂) = (k s x₁, k u x₂) := by intros; rfl) →
-      lift2 fbv fbool t (g t x) (h t x) = k t x
-  | .bool, _, x, _, hbool, _, _, _ => hbool x
-  | .bits _, _, x, hbv, _, _, _, _ => hbv x
-  | .float _, hf, _, _, _, _, _, _ => by simp [Ty.hasFloat] at hf
-  | .pair s u, hf, (x₁, x₂), hbv, hbool, hg, hh, hk => by
-    simp only [Ty.hasFloat, Bool.or_eq_false_iff] at hf
-    rw [hg, hh, hk]
-    exact Prod.ext (lift2_nf fbv fbool g h k s hf.1 x₁ hbv hbool hg hh hk)
-      (lift2_nf fbv fbool g h k u hf.2 x₂ hbv hbool hg hh hk)
-
-private theorem lift2_eq (fbv : ∀ {n}, BitVec n → BitVec n → BitVec n)
-    (fbool : Bool → Bool → Bool) (g h k : (t : Ty) → Val t → Val t) :
-    ∀ (t : Ty) (x : Val t),
-      (hbv : ∀ {n} (x : BitVec n), fbv (g (.bits n) x) (h (.bits n) x) = k (.bits n) x := by
-        intros; simp [zeroVal, oneVal, onesVal]) →
-      (hflt : ∀ {f} (x : BitVec f.width),
+      (hflt : ∀ {f : Fmt} (x : BitVec f.width), allowFlt = true →
         fbv (g (.float f) x) (h (.float f) x) = k (.float f) x := by
-        intros; simp [zeroVal, oneVal, onesVal]) →
+        intro _ _ h; cases h) →
       (hbool : ∀ x, fbool (g .bool x) (h .bool x) = k .bool x := by intro x; cases x <;> rfl) →
       (hg : ∀ s u x₁ x₂, g (.pair s u) (x₁, x₂) = (g s x₁, g u x₂) := by intros; rfl) →
       (hh : ∀ s u x₁ x₂, h (.pair s u) (x₁, x₂) = (h s x₁, h u x₂) := by intros; rfl) →
       (hk : ∀ s u x₁ x₂, k (.pair s u) (x₁, x₂) = (k s x₁, k u x₂) := by intros; rfl) →
       lift2 fbv fbool t (g t x) (h t x) = k t x
-  | .bool, x, _, _, hbool, _, _, _ => hbool x
-  | .bits _, x, hbv, _, _, _, _, _ => hbv x
-  | .float _, x, _, hflt, _, _, _, _ => hflt x
-  | .pair s u, (x₁, x₂), hbv, hflt, hbool, hg, hh, hk => by
+  | .bool, _, x, _, _, hbool, _, _, _ => hbool x
+  | .bits _, _, x, hbv, _, _, _, _, _ => hbv x
+  | .float _, hnf, x, _, hflt, _, _, _, _ =>
+    match allowFlt, hnf, hflt with
+    | false, hnf, _ => False.elim (by simp [Ty.hasFloat] at hnf)
+    | true, _, hflt => hflt x rfl
+  | .pair s u, hnf, (x₁, x₂), hbv, hflt, hbool, hg, hh, hk => by
+    simp only [Ty.hasFloat, Bool.or_eq_false_iff] at hnf
     rw [hg, hh, hk]
-    exact Prod.ext (lift2_eq fbv fbool g h k s x₁ hbv hflt hbool hg hh hk)
-      (lift2_eq fbv fbool g h k u x₂ hbv hflt hbool hg hh hk)
+    exact Prod.ext
+      (lift2_law allowFlt fbv fbool g h k s (fun h => (hnf h).1) x₁ hbv hflt hbool hg hh hk)
+      (lift2_law allowFlt fbv fbool g h k u (fun h => (hnf h).2) x₂ hbv hflt hbool hg hh hk)
 
 theorem cmpOp_evalBits_self {n : Nat} (o : CmpOp) (v : BitVec n) :
     o.evalBits v v = o.isRefl := by
@@ -438,11 +376,11 @@ private theorem ternlog_simp_eq (imm c : BitVec 8) (himm : (imm == c) = true)
     ∀ (t : Ty) (a b d : Val t),
       (hbv : ∀ {w} (x y z : BitVec w) i (_ : i < w),
         (k (.bits w) x y z)[i] = ternaryLogicBool x[i] y[i] z[i] c := by
-        intro w x y z i _
+        intro _ x y z i _
         cases x[i] <;> cases y[i] <;> cases z[i] <;> simp [zeroVal, onesVal, ternaryLogicBool]) →
       (hflt : ∀ {f} (x y z : BitVec f.width) i (_ : i < f.width),
         (k (.float f) x y z)[i] = ternaryLogicBool x[i] y[i] z[i] c := by
-        intro f x y z i _
+        intro _ x y z i _
         cases x[i] <;> cases y[i] <;> cases z[i] <;> simp [zeroVal, onesVal, ternaryLogicBool]) →
       (hbool : ∀ x y z : Bool, ternaryLogicBool x y z c = k .bool x y z := by
         intro x y z; cases x <;> cases y <;> cases z <;> rfl) →
@@ -462,6 +400,25 @@ private theorem ternlog_simp_eq (imm c : BitVec 8) (himm : (imm == c) = true)
     exact Prod.ext (ternlog_simp_eq imm c himm k s a.1 b.1 d.1 hbv hflt hbool hk)
       (ternlog_simp_eq imm c himm k u a.2 b.2 d.2 hbv hflt hbool hk)
 
+private theorem ternlog_simp_wp {t : Ty} {P : Tup Val [t] → Prop} {a b d : Val t}
+    (imm c : BitVec 8) (himm : (imm == c) = true) (k : (t : Ty) → Val t → Val t → Val t → Val t)
+    (hw : P (lift3 (fun x y z => ternaryLogic x y z imm)
+      (fun x y z => ternaryLogicBool x y z imm) t a b d, ()))
+    (hbv : ∀ {w} (x y z : BitVec w) i (_ : i < w),
+      (k (.bits w) x y z)[i] = ternaryLogicBool x[i] y[i] z[i] c := by
+      intro _ x y z i _
+      cases x[i] <;> cases y[i] <;> cases z[i] <;> simp [zeroVal, onesVal, ternaryLogicBool])
+    (hflt : ∀ {f} (x y z : BitVec f.width) i (_ : i < f.width),
+      (k (.float f) x y z)[i] = ternaryLogicBool x[i] y[i] z[i] c := by
+      intro _ x y z i _
+      cases x[i] <;> cases y[i] <;> cases z[i] <;> simp [zeroVal, onesVal, ternaryLogicBool])
+    (hbool : ∀ x y z : Bool, ternaryLogicBool x y z c = k .bool x y z := by
+      intro x y z; cases x <;> cases y <;> cases z <;> rfl)
+    (hk : ∀ s u a b d, k (.pair s u) a b d = (k s a.1 b.1 d.1, k u a.2 b.2 d.2) := by
+      intros; rfl) :
+    P (k t a b d, ()) :=
+  ternlog_simp_eq imm c himm k t a b d hbv hflt hbool hk ▸ hw
+
 theorem signExtend_self {n : Nat} (a : BitVec n) : a.signExtend n = a := by
   ext i hi
   simp only [BitVec.getElem_signExtend]
@@ -469,59 +426,32 @@ theorem signExtend_self {n : Nat} (a : BitVec n) : a.signExtend n = a := by
   simp [hi]
 
 private theorem one_toNat_of_pos {n : Nat} (hn : 0 < n) : (1#n : BitVec n).toNat = 1 := by
-  have hp : 1 < 2 ^ n := Nat.one_lt_two_pow (by omega)
-  simpa [BitVec.toNat_ofNat] using Nat.mod_eq_of_lt hp
+  simpa [BitVec.toNat_ofNat] using Nat.mod_eq_of_lt (Nat.one_lt_two_pow (by omega))
 
-theorem div_one_of_pos {n : Nat} (_hn : 0 < n) (a : BitVec n) : a / 1#n = a := by
-  simp
+theorem div_one_of_pos {n : Nat} (_hn : 0 < n) (a : BitVec n) : a / 1#n = a := by simp
 
-theorem mod_one_of_pos {n : Nat} (_hn : 0 < n) (a : BitVec n) : a % 1#n = 0#n := by
-  simp
+theorem mod_one_of_pos {n : Nat} (_hn : 0 < n) (a : BitVec n) : a % 1#n = 0#n := by simp
 
 theorem one_ne_zero_of_pos {n : Nat} (hn : 0 < n) : (1#n : BitVec n) ≠ 0#n := by
-  intro h
-  have := congrArg BitVec.toNat h
-  simp [one_toNat_of_pos hn] at this
-
-theorem sdivDefined_one_of_one_lt {n : Nat} (hn : 1 < n) (a : BitVec n) :
-    sdivDefined a 1#n = true := by
-  have hne0 : (1#n : BitVec n) ≠ 0#n := one_ne_zero_of_pos (by omega)
-  have hneAll : (1#n : BitVec n) ≠ BitVec.allOnes n := by
-    intro h
-    have h1 : (1#n : BitVec n).toNat = 1 := one_toNat_of_pos (by omega)
-    have hall : (BitVec.allOnes n).toNat = 2 ^ n - 1 := BitVec.toNat_allOnes
-    have hpow : 4 ≤ 2 ^ n := by
-      calc 4 = 2 ^ 2 := by decide
-        _ ≤ 2 ^ n := Nat.pow_le_pow_right (by decide) hn
-    have hnat := congrArg BitVec.toNat h
-    rw [h1, hall] at hnat
-    omega
-  simp [sdivDefined, hne0, hneAll]
+  intro h; have := congrArg BitVec.toNat h; simp [one_toNat_of_pos hn] at this
 
 private theorem one_toInt_of_one_lt {n : Nat} (hn : 1 < n) : (1#n : BitVec n).toInt = 1 := by
-  have hpowN : 4 ≤ 2 ^ n := by
+  have hpowN : 4 ≤ 2 ^ n :=
     calc 4 = 2 ^ 2 := by decide
       _ ≤ 2 ^ n := Nat.pow_le_pow_right (by decide) hn
   have hpowI : (4 : Int) ≤ ((2 ^ n : Nat) : Int) := by exact_mod_cast hpowN
-  have h1nat : (1#n : BitVec n).toNat = 1 := one_toNat_of_pos (by omega)
   have hmod : (1 : Int) % ((2 ^ n : Nat) : Int) = 1 := Int.emod_eq_of_lt (by omega) (by omega)
   have h1 : (1#n : BitVec n) = BitVec.ofInt n 1 := by
-    apply BitVec.eq_of_toNat_eq
-    rw [h1nat, BitVec.toNat_ofInt]
+    apply BitVec.eq_of_toNat_eq; rw [one_toNat_of_pos (by omega), BitVec.toNat_ofInt]
     exact_mod_cast hmod.symm
-  rw [h1, BitVec.toInt_ofInt]
-  unfold Int.bmod
-  rw [hmod]
-  dsimp only
-  split <;> omega
+  rw [h1, BitVec.toInt_ofInt]; unfold Int.bmod; rw [hmod]; dsimp only; split <;> omega
 
 theorem sdiv_one_of_one_lt {n : Nat} (hn : 1 < n) (a : BitVec n) : a.sdiv 1#n = a := by
   apply BitVec.eq_of_toInt_eq
   rw [BitVec.toInt_sdiv, one_toInt_of_one_lt hn, Int.tdiv_one, ← BitVec.toInt_ofInt,
     BitVec.ofInt_toInt]
 
-theorem srem_one_of_one_lt {n : Nat} (_hn : 1 < n) (a : BitVec n) : a.srem 1#n = 0#n := by
-  simp
+theorem srem_one_of_one_lt {n : Nat} (_hn : 1 < n) (a : BitVec n) : a.srem 1#n = 0#n := by simp
 
 /-! ## Strength reduction soundness (`Op.rewrite_wp`) -/
 
@@ -565,20 +495,12 @@ theorem leafPow2Shift?_mul_r : ∀ (t : Ty) (a c s : Val t),
   | .bool, _, _, _, _, hs => by simp [leafPow2Shift?] at hs
   | .float _, _, _, _, hf, _ => by simp [Ty.hasFloat] at hf
 
-theorem lift2_mul_comm : ∀ (t : Ty) (a b : Val t),
-    t.hasFloat = false → lift2 (· * ·) (· && ·) t a b = lift2 (· * ·) (· && ·) t b a
-  | .bool, a, b, _ => Bool.and_comm a b
-  | .bits _, a, b, _ => BitVec.mul_comm a b
-  | .float _, _, _, hf => by simp [Ty.hasFloat] at hf
-  | .pair t1 t2, (a1, a2), (b1, b2), hf => by
-    simp only [Ty.hasFloat, Bool.or_eq_false_iff] at hf
-    exact Prod.ext (lift2_mul_comm t1 a1 b1 hf.1) (lift2_mul_comm t2 a2 b2 hf.2)
-
 theorem leafPow2Shift?_mul_l (t : Ty) (a c s : Val t)
     (hf : t.hasFloat = false) (hs : leafPow2Shift? t c = some s) :
     lift2 (fun {n} x y => x <<< (y.toNat % n)) (fun x _ => x) t a s =
       lift2 (· * ·) (· && ·) t c a := by
-  rw [leafPow2Shift?_mul_r t a c s hf hs, lift2_mul_comm t a c hf]
+  rw [leafPow2Shift?_mul_r t a c s hf hs,
+    lift2_comm (· * ·) (· && ·) BitVec.mul_comm Bool.and_comm t a c]
 
 theorem twoPow_ne_zero {n m : Nat} (hm : m < n) : BitVec.twoPow n m ≠ 0#n := by
   intro h
@@ -677,17 +599,12 @@ theorem FGood.cons {ρ : (t : Ty) → Nat → Val t} {b : Nat} {G : Ctx (FVal Va
 
 theorem FGood.upd_all {ρ : (t : Ty) → Nat → Val t} {b : Nat} {G : Ctx (FVal Val) Val}
     (hG : FGood ρ b G) {ts : List Ty} (xs : Tup Val ts) :
-    FGood (fupdTup ρ b xs) (b + ts.length) G := by
-  intro p hp
-  obtain ⟨h1, h2, h3⟩ := hG p hp
-  exact ⟨h1, (FKey.fev_fupdTup xs h3).trans h2, h3.add⟩
+    FGood (fupdTup ρ b xs) (b + ts.length) G := fun p hp =>
+  let ⟨h1, h2, h3⟩ := hG p hp; ⟨h1, (FKey.fev_fupdTup xs h3).trans h2, h3.add⟩
 
 theorem FGood.append {ρ : (t : Ty) → Nat → Val t} {b : Nat} {G₁ G₂ : Ctx (FVal Val) Val}
-    (h1 : FGood ρ b G₁) (h2 : FGood ρ b G₂) : FGood ρ b (G₁ ++ G₂) := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact h1 p hp
-  · exact h2 p hp
+    (h1 : FGood ρ b G₁) (h2 : FGood ρ b G₂) : FGood ρ b (G₁ ++ G₂) := fun p hp =>
+  (List.mem_append.1 hp).elim (h1 p) (h2 p)
 
 private theorem FGood.freshFVals_only (ρ : (t : Ty) → Nat → Val t) :
     {ts : List Ty} → (xs : Tup Val ts) → (b : Nat) →
@@ -832,10 +749,75 @@ private theorem simpAct_shift_zero {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → N
   · rename_i hcond; cases hact
     simp only [Bool.and_eq_true, Bool.not_eq_true'] at hcond
     have hz := hb.isZero hG hcond.2
-    have hsh := lift2_nf f (fun x _ => x) (fun _ x => x) (fun t _ => zeroVal t)
-      (fun _ x => x) t hcond.1 a₂.val (fun x => hf x) (fun _ => rfl)
+    have hsh := lift2_law false f (fun x _ => x) (fun _ x => x) (fun t _ => zeroVal t)
+      (fun _ x => x) t (fun _ => hcond.1) a₂.val (fun x => hf x) (hbool := fun _ => rfl)
     simpa [SimpAct.vals, Tup.get, hcond.1, vals, hz, hsh] using hw
   · cases hact
+
+private theorem simpAct_bin_zero_add {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val t}
+    {b : Nat} (hG : FGood ρ b G) {t : Ty} {a₁ b₁ : Arg (FVal Val) t} {a₂ b₂ : Arg Val t}
+    (ha : ArgRel G t a₁ a₂) (hb : ArgRel G t b₁ b₂) (fbv : ∀ {n}, BitVec n → BitVec n → BitVec n)
+    (fbool : Bool → Bool → Bool) (allowFlt : Bool) (hnf : allowFlt = false → t.hasFloat = false)
+    {act : SimpAct [t, t] [t]}
+    (hact : (if isZeroArg? b₁.fout then some (.arg .here, ())
+      else if isZeroArg? a₁.fout then some (.arg (.there .here), ()) else none) = some act)
+    {P : Tup Val [t] → Prop} (hw : P (lift2 fbv fbool t a₂.val b₂.val, ()))
+    (hbvr : ∀ {n} (x : BitVec n), fbv x 0#n = x := by intro; simp)
+    (hbvl : ∀ {n} (x : BitVec n), fbv 0#n x = x := by intro; simp)
+    (hboolr : ∀ x, fbool x false = x := by intro x; cases x <;> rfl)
+    (hbooll : ∀ x, fbool false x = x := by intro x; cases x <;> rfl)
+    (hfltr : ∀ {f : Fmt} (x : BitVec f.width), allowFlt = true → fbv x 0#f.width = x := by
+      intro _ _ h; cases h)
+    (hfltl : ∀ {f : Fmt} (x : BitVec f.width), allowFlt = true → fbv 0#f.width x = x := by
+      intro _ _ h; cases h) :
+    P (SimpAct.vals (vals (a₂, b₂, ())) act) := by
+  split at hact
+  · cases hact; next hbz =>
+    have h := lift2_law allowFlt fbv fbool (fun _ x => x) (fun t _ => zeroVal t) (fun _ x => x)
+      t hnf a₂.val (by intros; exact hbvr _) hfltr hboolr
+    simpa [SimpAct.vals, Tup.get, vals, hb.isZero hG hbz, h] using hw
+  · split at hact
+    · cases hact; next haz =>
+      have h := lift2_law allowFlt fbv fbool (fun t _ => zeroVal t) (fun _ x => x) (fun _ x => x)
+        t hnf b₂.val (by intros; exact hbvl _) hfltl hbooll
+      simpa [SimpAct.vals, Tup.get, vals, ha.isZero hG haz, h] using hw
+    · cases hact
+
+private theorem simpAct_bitwise {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val t} {b : Nat}
+    (hG : FGood ρ b G) {t : Ty} {a₁ b₁ : Arg (FVal Val) t} {a₂ b₂ : Arg Val t}
+    (ha : ArgRel G t a₁ a₂) (hb : ArgRel G t b₁ b₂)
+    (fbv : ∀ {n}, BitVec n → BitVec n → BitVec n) (fbool : Bool → Bool → Bool)
+    (pArg qArg : Arg Val t → Bool) (kVal : (u : Ty) → Val u)
+    (hpEq : ∀ {a : Arg Val t}, pArg a = true → a.val = kVal t)
+    (hqEq : ∀ {a : Arg Val t},
+      qArg a = true → a.val = (if kVal .bool then zeroVal t else onesVal t))
+    (hpL : ∀ x : Val t, lift2 fbv fbool t (kVal t) x = kVal t)
+    (hpR : ∀ x : Val t, lift2 fbv fbool t x (kVal t) = kVal t)
+    (hqR : ∀ x : Val t, lift2 fbv fbool t x (if kVal .bool then zeroVal t else onesVal t) = x)
+    (hqL : ∀ x : Val t, lift2 fbv fbool t (if kVal .bool then zeroVal t else onesVal t) x = x)
+    (hself : ∀ x : Val t, lift2 fbv fbool t x x = x)
+    {act : SimpAct [t, t] [t]}
+    (hact : (if pArg a₁.fout || pArg b₁.fout then some (.imm (kVal t), ())
+      else if qArg b₁.fout then some (.arg .here, ())
+      else if qArg a₁.fout then some (.arg (.there .here), ())
+      else if a₁.fkey == b₁.fkey then some (.arg .here, ()) else none) = some act)
+    {P : Tup Val [t] → Prop} (hw : P (lift2 fbv fbool t a₂.val b₂.val, ())) :
+    P (SimpAct.vals (vals (a₂, b₂, ())) act) := by
+  split at hact
+  · rename_i hor; cases hact
+    rcases Bool.or_eq_true_iff.1 hor with haz | hbz
+    · simpa [SimpAct.vals, vals, (ha.fout_val hG).symm.trans (hpEq haz), hpL] using hw
+    · simpa [SimpAct.vals, vals, (hb.fout_val hG).symm.trans (hpEq hbz), hpR] using hw
+  · split at hact
+    · cases hact; next hbo =>
+      simpa [SimpAct.vals, Tup.get, vals, (hb.fout_val hG).symm.trans (hqEq hbo), hqR] using hw
+    · split at hact
+      · cases hact; next hao =>
+        simpa [SimpAct.vals, Tup.get, vals, (ha.fout_val hG).symm.trans (hqEq hao), hqL] using hw
+      · split at hact
+        · cases hact; next heq =>
+          simpa [SimpAct.vals, Tup.get, vals, ha.fkey_beq_val hG hb heq, hself] using hw
+        · cases hact
 
 private theorem simpAct_mulw_zero {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val t}
     {b : Nat} (hG : FGood ρ b G) {n : Nat} {a₁ b₁ : Arg (FVal Val) (.bits n)}
@@ -851,10 +833,8 @@ private theorem simpAct_mulw_zero {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Na
   split at hact
   · rename_i hor; cases hact
     rcases Bool.or_eq_true_iff.1 hor with haz | hbz
-    · have ha0 := ha.isZero hG haz
-      simpa [SimpAct.vals, vals, ha0, zeroVal, hhi0l] using hw
-    · have hb0 := hb.isZero hG hbz
-      simpa [SimpAct.vals, vals, hb0, zeroVal, hhi0r] using hw
+    · simpa [SimpAct.vals, vals, ha.isZero hG haz, zeroVal, hhi0l] using hw
+    · simpa [SimpAct.vals, vals, hb.isZero hG hbz, zeroVal, hhi0r] using hw
   · cases hact
 
 private theorem simpAct_div_one {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val t}
@@ -868,10 +848,8 @@ private theorem simpAct_div_one {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat 
     {P : Tup Val [.bits n] → Prop} (hw : P (op a₂.val b₂.val, ())) :
     P (SimpAct.vals (vals (a₂, b₂, ())) act) := by
   split at hact
-  · rename_i hcond; cases hact
-    simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at hcond
-    rw [hb.fout_imm?_val hG hcond.2, hop hcond.1] at hw
-    exact hw
+  · rename_i hc; cases hact; simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at hc
+    rw [hb.fout_imm?_val hG hc.2, hop hc.1] at hw; exact hw
   · cases hact
 
 theorem OpRel.simpAct_sound {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val t} {b : Nat}
@@ -891,8 +869,7 @@ theorem OpRel.simpAct_sound {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → 
       rw [hconst] at hact; cases hact
       simp only [Option.bind_eq_some_iff] at hconst
       rcases hconst with ⟨cs, hcs, hev⟩
-      have hvals : vals args₂ = cs :=
-        (TRel.fout_vals hG hargs).symm.trans (tupImms?_vals hcs)
+      have hvals : vals args₂ = cs := (TRel.fout_vals hG hargs).symm.trans (tupImms?_vals hcs)
       rw [SimpAct.vals_simpImms]
       exact code.eval?_sound (vals args₂) P (by rw [hvals]; exact hev) hw
     | none =>
@@ -904,32 +881,22 @@ theorem OpRel.simpAct_sound {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → 
         split at hact
         · cases hact
         · rename_i hnf; have hf0 : t.hasFloat = false := Bool.eq_false_iff.mpr hnf
-          split at hact
-          · rename_i hbz; cases hact
-            have h := lift2_nf (· + ·) (· ^^ ·) (fun _ x => x) (fun t _ => zeroVal t)
-              (fun _ x => x) t hf0 a₂.val
-            simpa [SimpAct.vals, Tup.get, OpCode.wp_add, hf0, vals, hb.isZero hG hbz, h] using hw
-          · split at hact
-            · rename_i haz; cases hact
-              have h := lift2_nf (· + ·) (· ^^ ·) (fun t _ => zeroVal t) (fun _ x => x)
-                (fun _ x => x) t hf0 b₂.val
-              simpa [SimpAct.vals, Tup.get, OpCode.wp_add, hf0, vals, ha.isZero hG haz, h] using hw
-            · cases hact
+          exact simpAct_bin_zero_add hG ha hb (· + ·) (· ^^ ·) false (fun _ => hf0) hact
+            (by simpa [OpCode.wp_add, hf0, vals] using hw)
       | sub t =>
         rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩; rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩; dsimp only at hact
         split at hact
         · cases hact
         · rename_i hnf; have hf0 : t.hasFloat = false := Bool.eq_false_iff.mpr hnf
           split at hact
-          · rename_i heq; cases hact
-            have hveq := ha.fkey_beq_val hG hb heq
-            have h := lift2_nf (· - ·) (· ^^ ·) (fun _ x => x) (fun _ x => x)
-              (fun t _ => zeroVal t) t hf0 b₂.val
-            simpa [SimpAct.vals, Tup.get, OpCode.wp_sub, hf0, vals, hveq, h] using hw
+          · cases hact; next heq =>
+            have h := lift2_law false (· - ·) (· ^^ ·) (fun _ x => x) (fun _ x => x)
+              (fun t _ => zeroVal t) t (fun _ => hf0) b₂.val
+            simpa [SimpAct.vals, OpCode.wp_sub, hf0, vals, ha.fkey_beq_val hG hb heq, h] using hw
           · split at hact
-            · rename_i hbz; cases hact
-              have h := lift2_nf (· - ·) (· ^^ ·) (fun _ x => x) (fun t _ => zeroVal t)
-                (fun _ x => x) t hf0 a₂.val
+            · cases hact; next hbz =>
+              have h := lift2_law false (· - ·) (· ^^ ·) (fun _ x => x) (fun t _ => zeroVal t)
+                (fun _ x => x) t (fun _ => hf0) a₂.val
               simpa [SimpAct.vals, Tup.get, OpCode.wp_sub, hf0, vals, hb.isZero hG hbz, h] using hw
             · cases hact
       | mul t =>
@@ -940,128 +907,82 @@ theorem OpRel.simpAct_sound {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → 
           split at hact
           · rename_i hor0; cases hact
             rcases Bool.or_eq_true_iff.1 hor0 with haz | hbz
-            · have h := lift2_nf (· * ·) (· && ·) (fun t _ => zeroVal t) (fun _ x => x)
-                (fun t _ => zeroVal t) t hf0 b₂.val
-              simpa [SimpAct.vals, Tup.get, OpCode.wp_mul, hf0, vals, ha.isZero hG haz, h] using hw
-            · have h := lift2_nf (· * ·) (· && ·) (fun _ x => x) (fun t _ => zeroVal t)
-                (fun t _ => zeroVal t) t hf0 a₂.val
-              simpa [SimpAct.vals, Tup.get, OpCode.wp_mul, hf0, vals, hb.isZero hG hbz, h] using hw
+            · have h := lift2_law false (· * ·) (· && ·) (fun t _ => zeroVal t) (fun _ x => x)
+                (fun t _ => zeroVal t) t (fun _ => hf0) b₂.val
+              simpa [SimpAct.vals, OpCode.wp_mul, hf0, vals, ha.isZero hG haz, h] using hw
+            · have h := lift2_law false (· * ·) (· && ·) (fun _ x => x) (fun t _ => zeroVal t)
+                (fun t _ => zeroVal t) t (fun _ => hf0) a₂.val
+              simpa [SimpAct.vals, OpCode.wp_mul, hf0, vals, hb.isZero hG hbz, h] using hw
           · split at hact
-            · rename_i hbo; cases hact
-              have h := lift2_nf (· * ·) (· && ·) (fun _ x => x) (fun t _ => oneVal t)
-                (fun _ x => x) t hf0 a₂.val
+            · cases hact; next hbo =>
+              have h := lift2_law false (· * ·) (· && ·) (fun _ x => x) (fun t _ => oneVal t)
+                (fun _ x => x) t (fun _ => hf0) a₂.val
               simpa [SimpAct.vals, Tup.get, OpCode.wp_mul, hf0, vals, hb.isOne hG hbo, h] using hw
             · split at hact
-              · rename_i hao; cases hact
-                have h := lift2_nf (· * ·) (· && ·) (fun t _ => oneVal t) (fun _ x => x)
-                  (fun _ x => x) t hf0 b₂.val
+              · cases hact; next hao =>
+                have h := lift2_law false (· * ·) (· && ·) (fun t _ => oneVal t) (fun _ x => x)
+                  (fun _ x => x) t (fun _ => hf0) b₂.val
                 simpa [SimpAct.vals, Tup.get, OpCode.wp_mul, hf0, vals, ha.isOne hG hao, h] using hw
               · cases hact
       | neg t =>
-        cases t with
-        | bool => rcases hargs with _ | ⟨ha, _⟩; cases hact; exact hw
-        | _ => cases hact
+        cases t with | bool => rcases hargs with _ | ⟨_, _⟩; cases hact; exact hw | _ => cases hact
       | and t =>
         rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩; rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩; dsimp only at hact
-        split at hact
-        · rename_i hor0; cases hact
-          rcases Bool.or_eq_true_iff.1 hor0 with haz | hbz
-          · have h := lift2_eq (· &&& ·) (· && ·) (fun t _ => zeroVal t) (fun _ x => x)
-              (fun t _ => zeroVal t) t b₂.val
-            simpa [SimpAct.vals, Tup.get, OpCode.wp_and, vals, ha.isZero hG haz, h] using hw
-          · have h := lift2_eq (· &&& ·) (· && ·) (fun _ x => x) (fun t _ => zeroVal t)
-              (fun t _ => zeroVal t) t a₂.val
-            simpa [SimpAct.vals, Tup.get, OpCode.wp_and, vals, hb.isZero hG hbz, h] using hw
-        · split at hact
-          · rename_i hbo; cases hact
-            have h := lift2_eq (· &&& ·) (· && ·) (fun _ x => x) (fun t _ => onesVal t)
-              (fun _ x => x) t a₂.val
-            simpa [SimpAct.vals, Tup.get, OpCode.wp_and, vals, hb.isOnes hG hbo, h] using hw
-          · split at hact
-            · rename_i hao; cases hact
-              have h := lift2_eq (· &&& ·) (· && ·) (fun t _ => onesVal t) (fun _ x => x)
-                (fun _ x => x) t b₂.val
-              simpa [SimpAct.vals, Tup.get, OpCode.wp_and, vals, ha.isOnes hG hao, h] using hw
-            · split at hact
-              · rename_i heq; cases hact
-                have hveq := ha.fkey_beq_val hG hb heq
-                have h := lift2_eq (· &&& ·) (· && ·) (fun _ x => x) (fun _ x => x)
-                  (fun _ x => x) t b₂.val
-                simpa [SimpAct.vals, Tup.get, OpCode.wp_and, vals, hveq, h] using hw
-              · cases hact
+        exact simpAct_bitwise hG ha hb (· &&& ·) (· && ·) isZeroArg? isOnesArg? zeroVal
+          isZeroArg?_eq isOnesArg?_eq
+          (fun x => lift2_law true (· &&& ·) (· && ·) (fun t _ => zeroVal t) (fun _ y => y)
+            (fun t _ => zeroVal t) t (fun h => by cases h) x (hflt := fun _ _ => by simp [zeroVal]))
+          (fun x => lift2_law true (· &&& ·) (· && ·) (fun _ y => y) (fun t _ => zeroVal t)
+            (fun t _ => zeroVal t) t (fun h => by cases h) x (hflt := fun _ _ => by simp [zeroVal]))
+          (fun x => lift2_law true (· &&& ·) (· && ·) (fun _ y => y) (fun t _ => onesVal t)
+            (fun _ y => y) t (fun h => by cases h) x (hflt := fun _ _ => by simp [onesVal]))
+          (fun x => lift2_law true (· &&& ·) (· && ·) (fun t _ => onesVal t) (fun _ y => y)
+            (fun _ y => y) t (fun h => by cases h) x (hflt := fun _ _ => by simp [onesVal]))
+          (fun x => lift2_law true (· &&& ·) (· && ·) (fun _ y => y) (fun _ y => y)
+            (fun _ y => y) t (fun h => by cases h) x (hflt := fun _ _ => by simp))
+          hact (by simpa [OpCode.wp_and, vals] using hw)
       | or t =>
         rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩; rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩; dsimp only at hact
-        split at hact
-        · rename_i hor0; cases hact
-          rcases Bool.or_eq_true_iff.1 hor0 with hao | hbo
-          · have h := lift2_eq (· ||| ·) (· || ·) (fun t _ => onesVal t) (fun _ x => x)
-              (fun t _ => onesVal t) t b₂.val
-            simpa [SimpAct.vals, Tup.get, OpCode.wp_or, vals, ha.isOnes hG hao, h] using hw
-          · have h := lift2_eq (· ||| ·) (· || ·) (fun _ x => x) (fun t _ => onesVal t)
-              (fun t _ => onesVal t) t a₂.val
-            simpa [SimpAct.vals, Tup.get, OpCode.wp_or, vals, hb.isOnes hG hbo, h] using hw
-        · split at hact
-          · rename_i hbz; cases hact
-            have h := lift2_eq (· ||| ·) (· || ·) (fun _ x => x) (fun t _ => zeroVal t)
-              (fun _ x => x) t a₂.val
-            simpa [SimpAct.vals, Tup.get, OpCode.wp_or, vals, hb.isZero hG hbz, h] using hw
-          · split at hact
-            · rename_i haz; cases hact
-              have h := lift2_eq (· ||| ·) (· || ·) (fun t _ => zeroVal t) (fun _ x => x)
-                (fun _ x => x) t b₂.val
-              simpa [SimpAct.vals, Tup.get, OpCode.wp_or, vals, ha.isZero hG haz, h] using hw
-            · split at hact
-              · rename_i heq; cases hact
-                have hveq := ha.fkey_beq_val hG hb heq
-                have h := lift2_eq (· ||| ·) (· || ·) (fun _ x => x) (fun _ x => x)
-                  (fun _ x => x) t b₂.val
-                simpa [SimpAct.vals, Tup.get, OpCode.wp_or, vals, hveq, h] using hw
-              · cases hact
+        exact simpAct_bitwise hG ha hb (· ||| ·) (· || ·) isOnesArg? isZeroArg? onesVal
+          isOnesArg?_eq isZeroArg?_eq
+          (fun x => lift2_law true (· ||| ·) (· || ·) (fun t _ => onesVal t) (fun _ y => y)
+            (fun t _ => onesVal t) t (fun h => by cases h) x (hflt := fun _ _ => by simp [onesVal]))
+          (fun x => lift2_law true (· ||| ·) (· || ·) (fun _ y => y) (fun t _ => onesVal t)
+            (fun t _ => onesVal t) t (fun h => by cases h) x (hflt := fun _ _ => by simp [onesVal]))
+          (fun x => lift2_law true (· ||| ·) (· || ·) (fun _ y => y) (fun t _ => zeroVal t)
+            (fun _ y => y) t (fun h => by cases h) x (hflt := fun _ _ => by simp [zeroVal]))
+          (fun x => lift2_law true (· ||| ·) (· || ·) (fun t _ => zeroVal t) (fun _ y => y)
+            (fun _ y => y) t (fun h => by cases h) x (hflt := fun _ _ => by simp [zeroVal]))
+          (fun x => lift2_law true (· ||| ·) (· || ·) (fun _ y => y) (fun _ y => y)
+            (fun _ y => y) t (fun h => by cases h) x (hflt := fun _ _ => by simp))
+          hact (by simpa [OpCode.wp_or, vals] using hw)
       | xor t =>
         rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩; rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩; dsimp only at hact
         split at hact
-        · rename_i heq; cases hact
-          have hveq := ha.fkey_beq_val hG hb heq
-          have h := lift2_eq (· ^^^ ·) (· ^^ ·) (fun _ x => x) (fun _ x => x)
-            (fun t _ => zeroVal t) t b₂.val
-          simpa [SimpAct.vals, Tup.get, OpCode.wp_xor, vals, hveq, h] using hw
-        · split at hact
-          · rename_i hbz; cases hact
-            have h := lift2_eq (· ^^^ ·) (· ^^ ·) (fun _ x => x) (fun t _ => zeroVal t)
-              (fun _ x => x) t a₂.val
-            simpa [SimpAct.vals, Tup.get, OpCode.wp_xor, vals, hb.isZero hG hbz, h] using hw
-          · split at hact
-            · rename_i haz; cases hact
-              have h := lift2_eq (· ^^^ ·) (· ^^ ·) (fun t _ => zeroVal t) (fun _ x => x)
-                (fun _ x => x) t b₂.val
-              simpa [SimpAct.vals, Tup.get, OpCode.wp_xor, vals, ha.isZero hG haz, h] using hw
-            · cases hact
+        · cases hact; next heq =>
+          have h := lift2_law true (· ^^^ ·) (· ^^ ·) (fun _ x => x) (fun _ x => x)
+            (fun t _ => zeroVal t) t (fun h => by cases h) b₂.val
+            (hflt := fun _ _ => by simp [zeroVal])
+          simpa [SimpAct.vals, OpCode.wp_xor, vals, ha.fkey_beq_val hG hb heq, h] using hw
+        · exact simpAct_bin_zero_add hG ha hb (· ^^^ ·) (· ^^ ·) true (fun h => by cases h) hact
+            (by simpa [OpCode.wp_xor, vals] using hw)
+            (hfltr := fun _ _ => by simp) (hfltl := fun _ _ => by simp)
       | ternlog t imm =>
         rcases args₂ with ⟨a₂, b₂, c₂, ⟨⟩⟩
         rcases hargs with _ | ⟨ha, _ | ⟨hb, _ | ⟨hc, _⟩⟩⟩; dsimp only at hact
+        have hw' : P (lift3 (fun x y z => ternaryLogic x y z imm)
+            (fun x y z => ternaryLogicBool x y z imm) t a₂.val b₂.val c₂.val, ()) := by
+          simpa [OpCode.wp_ternlog, vals] using hw
         split at hact
-        · rename_i himm; cases hact
-          have h := ternlog_simp_eq imm 0#8 himm (fun t _ _ _ => zeroVal t) t a₂.val b₂.val c₂.val
-          simpa [SimpAct.vals, Tup.get, OpCode.wp_ternlog, vals, h] using hw
+        · next h => cases hact; exact ternlog_simp_wp imm 0#8 h (fun t _ _ _ => zeroVal t) hw'
         · split at hact
-          · rename_i himm; cases hact
-            have h := ternlog_simp_eq imm 0xff#8 himm (fun t _ _ _ => onesVal t)
-              t a₂.val b₂.val c₂.val
-            simpa [SimpAct.vals, Tup.get, OpCode.wp_ternlog, vals, h] using hw
+          · next h => cases hact; exact ternlog_simp_wp imm 0xff#8 h (fun t _ _ _ => onesVal t) hw'
           · split at hact
-            · rename_i himm; cases hact
-              have h := ternlog_simp_eq imm 0xf0#8 himm (fun _ a _ _ => a) t a₂.val b₂.val c₂.val
-              simpa [SimpAct.vals, Tup.get, OpCode.wp_ternlog, vals, h] using hw
+            · next h => cases hact; exact ternlog_simp_wp imm 0xf0#8 h (fun _ a _ _ => a) hw'
             · split at hact
-              · rename_i himm; cases hact
-                have h := ternlog_simp_eq imm 0xcc#8 himm (fun _ _ b _ => b)
-                  t a₂.val b₂.val c₂.val
-                simpa [SimpAct.vals, Tup.get, OpCode.wp_ternlog, vals, h] using hw
+              · next h => cases hact; exact ternlog_simp_wp imm 0xcc#8 h (fun _ _ b _ => b) hw'
               · split at hact
-                · rename_i himm; cases hact
-                  have h := ternlog_simp_eq imm 0xaa#8 himm (fun _ _ _ c => c)
-                    t a₂.val b₂.val c₂.val
-                  simpa [SimpAct.vals, Tup.get, OpCode.wp_ternlog, vals, h] using hw
+                · next h => cases hact; exact ternlog_simp_wp imm 0xaa#8 h (fun _ _ _ c => c) hw'
                 · cases hact
       | shl t =>
         rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩; dsimp only at hact
@@ -1262,25 +1183,18 @@ def FRelG (G' : Ctx V₁ V₂) (G : Ctx (FVal V₁) (FVal V₂)) : Prop :=
 variable {G' : Ctx V₁ V₂} {G : Ctx (FVal V₁) (FVal V₂)}
 
 theorem FRelG.append (h1 : FRelG G' G) {H : Ctx (FVal V₁) (FVal V₂)} (h2 : FRelG G' H) :
-    FRelG G' (H ++ G) := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact h2 p hp
-  · exact h1 p hp
+    FRelG G' (H ++ G) := fun p hp => (List.mem_append.1 hp).elim (h2 p) (h1 p)
 
 theorem FRelG.weaken (hG : FRelG G' G) {G'' : Ctx V₁ V₂} (hsub : ∀ p ∈ G', p ∈ G'') :
-    FRelG G'' G :=
-  fun p hp => ⟨(hG p hp).1.weaken hsub, (hG p hp).2⟩
+    FRelG G'' G := fun p hp => ⟨(hG p hp).1.weaken hsub, (hG p hp).2⟩
 
 private theorem FRelG.freshFVals_only {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts)
     (b : Nat) :
     FRelG (Tup.zip xs₁ xs₂) (Tup.zip (freshFVals ts xs₁ b) (freshFVals ts xs₂ b)) :=
-  mem_tup_zip_tupFreshWith
-    (fun {t} x n => ((.var x, .var n) : FVal V₁ t))
+  mem_tup_zip_tupFreshWith (fun {t} x n => ((.var x, .var n) : FVal V₁ t))
     (fun {t} x n => ((.var x, .var n) : FVal V₂ t))
     (P := fun G' _ w₁ w₂ => ArgRel G' _ w₁.1 w₂.1 ∧ w₁.2 = w₂.2)
-    (fun hsub _ _ _ h => ⟨h.1.weaken hsub, h.2⟩)
-    (fun _ _ _ => ⟨.var List.mem_cons_self, rfl⟩)
+    (fun hsub _ _ _ h => ⟨h.1.weaken hsub, h.2⟩) (fun _ _ _ => ⟨.var List.mem_cons_self, rfl⟩)
     xs₁ xs₂ b
 
 theorem FRelG.freshFVals (hG : FRelG G' G) {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts)
@@ -1290,37 +1204,30 @@ theorem FRelG.freshFVals (hG : FRelG G' G) {ts : List Ty} (xs₁ : Tup V₁ ts) 
     ((FRelG.freshFVals_only xs₁ xs₂ b).weaken fun _ hq => List.mem_append_left G' hq)
 
 theorem FRelG.freshOne (hG : FRelG G' G) {t : Ty} (v₁ : V₁ t) (v₂ : V₂ t) (b : Nat) :
-    FRelG (⟨t, v₁, v₂⟩ :: G') (⟨t, (.var v₁, .var b), (.var v₂, .var b)⟩ :: G) := by
-  intro p hp
-  cases hp with
-  | head => exact ⟨.var List.mem_cons_self, rfl⟩
-  | tail _ hp => exact ⟨(hG p hp).1.weaken fun _ hq => List.mem_cons_of_mem _ hq, (hG p hp).2⟩
+    FRelG (⟨t, v₁, v₂⟩ :: G') (⟨t, (.var v₁, .var b), (.var v₂, .var b)⟩ :: G)
+  | _, .head _ => ⟨.var List.mem_cons_self, rfl⟩
+  | p, .tail _ hp => ⟨(hG p hp).1.weaken fun _ hq => List.mem_cons_of_mem _ hq, (hG p hp).2⟩
 
 theorem ArgRel.imm?_eq {t : Ty} {a₁ : Arg V₁ t} {a₂ : Arg V₂ t} :
     ArgRel G' t a₁ a₂ → a₁.imm? = a₂.imm?
   | .var _ | .imm _ => rfl
 
 theorem ArgRel.isZero_eq {t : Ty} {a₁ : Arg V₁ t} {a₂ : Arg V₂ t} (h : ArgRel G' t a₁ a₂) :
-    isZeroArg? a₁ = isZeroArg? a₂ := by
-  simp [isZeroArg?, h.imm?_eq]
+    isZeroArg? a₁ = isZeroArg? a₂ := by simp [isZeroArg?, h.imm?_eq]
 
 theorem ArgRel.isOnes_eq {t : Ty} {a₁ : Arg V₁ t} {a₂ : Arg V₂ t} (h : ArgRel G' t a₁ a₂) :
-    isOnesArg? a₁ = isOnesArg? a₂ := by
-  simp [isOnesArg?, h.imm?_eq]
+    isOnesArg? a₁ = isOnesArg? a₂ := by simp [isOnesArg?, h.imm?_eq]
 
 theorem ArgRel.isOne_eq {t : Ty} {a₁ : Arg V₁ t} {a₂ : Arg V₂ t} (h : ArgRel G' t a₁ a₂) :
-    isOneArg? a₁ = isOneArg? a₂ := by
-  simp [isOneArg?, h.imm?_eq]
+    isOneArg? a₁ = isOneArg? a₂ := by simp [isOneArg?, h.imm?_eq]
 
 theorem ArgRel.fout (hG : FRelG G' G) {t : Ty} {a₁ : Arg (FVal V₁) t} {a₂ : Arg (FVal V₂) t} :
     ArgRel G t a₁ a₂ → ArgRel G' t a₁.fout a₂.fout
-  | .var h => (hG _ h).1
-  | .imm c => .imm c
+  | .var h => (hG _ h).1 | .imm c => .imm c
 
 theorem ArgRel.fkey_eq (hG : FRelG G' G) {t : Ty} {a₁ : Arg (FVal V₁) t} {a₂ : Arg (FVal V₂) t} :
     ArgRel G t a₁ a₂ → a₁.fkey = a₂.fkey
-  | .var h => (hG _ h).2
-  | .imm _ => rfl
+  | .var h => (hG _ h).2 | .imm _ => rfl
 
 theorem TRel.fout (hG : FRelG G' G) {ts : List Ty} {as₁ : Tup (Arg (FVal V₁)) ts}
     {as₂ : Tup (Arg (FVal V₂)) ts} (h : TRel (ArgRel G) as₁ as₂) :
@@ -1470,68 +1377,41 @@ theorem fold_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
           ih (freshFVals ts xs b) xs hD (b + ts.length) (fupdTup ρ b xs)
             (hG.freshFVals xs) m hxs) hw'
   | load t ha _ ih =>
-    intro hD b ρ hG m hw
-    simp only [wp, fold] at hw ⊢
-    rcases hw with ⟨v, hv, hk⟩
+    intro hD b ρ hG m hw; simp only [wp, fold] at hw ⊢; rcases hw with ⟨v, hv, hk⟩
     exact ⟨v, ha.fout_val hG ▸ hv,
       ih (.var v, .var b) v hD (b + 1) (fupd ρ b v) (hG.freshOne v) m hk⟩
   | store hv ha _ ih =>
-    intro hD b ρ hG m hw
-    simp only [wp, fold] at hw ⊢
-    rw [ha.fout_val hG, hv.fout_val hG]
+    intro hD b ρ hG m hw; simp only [wp, fold] at hw ⊢; rw [ha.fout_val hG, hv.fout_val hG]
     exact ⟨hw.1, ih hD b ρ hG _ hw.2⟩
   | call f hargs _ ih =>
-    intro hD b ρ hG m hw
-    simp only [wp, fold] at hw ⊢
-    rcases hw with ⟨P, E, hΓ, hP, hE⟩
+    intro hD b ρ hG m hw; simp only [wp, fold] at hw ⊢; rcases hw with ⟨P, E, hΓ, hP, hE⟩
     rw [hargs.fout_vals hG]
     exact ⟨P, E, hΓ, fun r m' hp =>
       ih (freshFVals _ r b) r hD (b + _) (fupdTup ρ b r) (hG.freshFVals r) m' (hP r m' hp), hE⟩
   | @jnz G D c₁ c₂ t₁ t₂ e₁ e₂ hc _ _ iht ihe =>
-    intro hD b ρ hG m hw
-    simp only [wp] at hw
-    have hcv := hc.fout_val hG
-    simp only [fold]
+    intro hD b ρ hG m hw; simp only [wp] at hw; have hcv := hc.fout_val hG; simp only [fold]
     cases hcf : c₁.fout with
     | imm bv =>
       rw [hcf] at hcv
       cases bv
       · exact ihe hD b ρ hG m (hw.2 hcv.symm)
       · exact iht hD b ρ hG m (hw.1 hcv.symm)
-    | var v =>
-      rw [hcf] at hcv
-      simp only [wp]
+    | var _ =>
+      rw [hcf] at hcv; simp only [wp]
       exact ⟨fun h => iht hD b ρ hG m (hw.1 (hcv ▸ h)), fun h => ihe hD b ρ hG m (hw.2 (hcv ▸ h))⟩
   | jump hj hargs =>
-    intro hD b ρ hG m hw
-    have hj' := hD _ hj; dsimp only at hj'
-    simp only [wp, fold] at hw ⊢
-    rw [hj', hargs.fout_vals hG]
-    exact hw
-  | ret hvs =>
-    intro _ b ρ hG m hw
-    simp only [wp, fold] at hw ⊢
-    rw [hvs.fout_vals hG]
-    exact hw
-  | exit f hargs =>
-    intro _ b ρ hG m hw
-    simp only [wp, fold] at hw ⊢
-    rw [hargs.fout_vals hG]
-    exact hw
-  | hlt =>
-    intro _ _ _ _ _ hw
-    exact hw
+    intro hD b ρ hG m hw; have hj' := hD _ hj; dsimp only at hj'
+    simp only [wp, fold] at hw ⊢; rw [hj', hargs.fout_vals hG]; exact hw
+  | ret hvs | exit _ hvs =>
+    intro _ b ρ hG m hw; simp only [wp, fold] at hw ⊢; rw [hvs.fout_vals hG]; exact hw
+  | hlt => intro _ _ _ _ _ hw; exact hw
   | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
-    intro hD b ρ hG m hw
-    simp only [wp, fold] at hw ⊢
-    intro Js hclosed
+    intro hD b ρ hG m hw; simp only [wp, fold] at hw ⊢; intro Js hclosed
     refine ihk Js Js (tup_zip_self_eq hD Js) b ρ hG m (hw Js ?_)
-    rw [closed_iff] at hclosed ⊢
-    intro ts i xs m' hb
+    rw [closed_iff] at hclosed ⊢; intro ts i xs m' hb
     have hfold := ihb Js Js i (freshFVals ts xs b) xs (tup_zip_self_eq hD Js)
       (b + ts.length) (fupdTup ρ b xs) (hG.freshFVals xs) m' hb
-    rw [← foldB_get b (b₁ Js) i xs] at hfold
-    exact hclosed i xs m' hfold
+    rw [← foldB_get b (b₁ Js) i xs] at hfold; exact hclosed i xs m' hfold
 
 /-- Well-formedness preservation for `fold`, proved via `Wf.induct`. -/
 theorem fold_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
@@ -1545,53 +1425,34 @@ theorem fold_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : L
     cases hop with
     | @mk sig _ code args₁ args₂ hargs =>
       have hop' : OpRel G' ⟨code, tupMapArg (fun _ => Arg.fout) args₁⟩
-          ⟨code, tupMapArg (fun _ => Arg.fout) args₂⟩ :=
-        .mk code (TRel.fout hG hargs)
-      have hact_eq := OpRel.simpAct_eq hG hargs (code := code)
-      simp only [fold]
-      rw [hact_eq]
+          ⟨code, tupMapArg (fun _ => Arg.fout) args₂⟩ := .mk code (TRel.fout hG hargs)
+      rw [fold, fold, OpRel.simpAct_eq hG hargs (code := code)]
       cases hact : ({ code := code, args := args₂ } : Op (FVal V₂) ts).simpAct with
-      | some act =>
-        exact ih _ _ (hG.apply_simpAct hargs act) b
+      | some act => exact ih _ _ (hG.apply_simpAct hargs act) b
       | none =>
         exact .let_ hop'.rewrite fun xs₁ xs₂ => ih _ _ (hG.freshFVals xs₁ xs₂ b) (b + ts.length)
   | load t ha _ ih =>
-    intro G' hG b
-    exact .load t (ha.fout hG) fun v₁ v₂ => ih _ _ (hG.freshOne v₁ v₂ b) (b + 1)
-  | store hv ha _ ih =>
-    intro G' hG b
-    exact .store (hv.fout hG) (ha.fout hG) (ih hG b)
+    intro _ hG b; exact .load t (ha.fout hG) fun v₁ v₂ => ih _ _ (hG.freshOne v₁ v₂ b) (b + 1)
+  | store hv ha _ ih => intro _ hG b; exact .store (hv.fout hG) (ha.fout hG) (ih hG b)
   | call f hargs _ ih =>
-    intro G' hG b
-    exact .call f (TRel.fout hG hargs) fun xs₁ xs₂ =>
-      ih _ _ (hG.freshFVals xs₁ xs₂ b) (b + _)
+    intro _ hG b
+    exact .call f (TRel.fout hG hargs) fun xs₁ xs₂ => ih _ _ (hG.freshFVals xs₁ xs₂ b) (b + _)
   | @jnz G D c₁ c₂ t₁ t₂ e₁ e₂ hc _ _ iht ihe =>
-    intro G' hG b
-    simp only [fold]
+    intro _ hG b; simp only [fold]
     cases hc with
     | @var v₁ v₂ h =>
-      rcases v₁ with ⟨a₁, κ₁⟩
-      rcases v₂ with ⟨a₂, κ₂⟩
-      obtain ⟨h', _⟩ := hG _ h
-      dsimp only at h' ⊢
+      rcases v₁ with ⟨a₁, κ₁⟩; rcases v₂ with ⟨a₂, κ₂⟩
+      obtain ⟨h', _⟩ := hG _ h; dsimp only at h' ⊢
       cases h' with
       | var hm => exact .jnz (.var hm) (iht hG b) (ihe hG b)
       | imm bv => cases bv <;> first | exact iht hG b | exact ihe hG b
     | imm bv => cases bv <;> first | exact iht hG b | exact ihe hG b
-  | jump hj hargs =>
-    intro G' hG _
-    exact .jump hj (TRel.fout hG hargs)
-  | ret hvs =>
-    intro G' hG _
-    exact .ret (TRel.fout hG hvs)
-  | exit f hargs =>
-    intro G' hG _
-    exact .exit f (TRel.fout hG hargs)
-  | hlt =>
-    intro _ _ _
-    exact .hlt
+  | jump hj hargs => intro _ hG _; exact .jump hj (TRel.fout hG hargs)
+  | ret hvs => intro _ hG _; exact .ret (TRel.fout hG hvs)
+  | exit f hargs => intro _ hG _; exact .exit f (TRel.fout hG hargs)
+  | hlt => intro _ _ _; exact .hlt
   | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
-    intro G' hG b
+    intro _ hG b
     refine .group (fun Js₁ Js₂ => WfB.of_get fun i xs₁ xs₂ => ?_) (fun Js₁ Js₂ => ihk Js₁ Js₂ hG b)
     simpa [foldB_get] using ihb Js₁ Js₂ i _ _ (hG.freshFVals xs₁ xs₂ b) (b + _)
 

@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Amd64.Isel
+public import LeanQbe.T.OpsLemmas
 import Kraken.X64.Parser
 
 /-!
@@ -582,10 +583,6 @@ theorem cond_subFlags {n : Nat} (hn : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64) (c
   · exact hsle
   · exact hsgt
   · exact hsge
-
-theorem swapCmp_evalBits {n : Nat} (co : CmpOp) (a b : BitVec n) :
-    (swapCmp co).evalBits a b = co.evalBits b a := by
-  cases co <;> grind [swapCmp, CmpOp.evalBits]
 
 theorem loadVal_bool_spec {m : Mem 64} {a : BitVec 64} {b : Bool}
     (h : loadVal m .bool a = some b) :

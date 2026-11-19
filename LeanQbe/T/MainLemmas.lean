@@ -16,8 +16,8 @@ public import LeanQbe.T.Logic.MemLemmas
   and `compileModule_labelsUnique` bridging `Rega.LabelClean T.toIsa` + `fnNameOk` +
   distinct function/exit names directly to `T.LabelsUnique host` without scanning internal `.L`
   block labels.
-* **End-to-end compilation soundness**: `compileFn_correct` (composing `Func.opt_spec` →
-  `Fn.legal_spec` → `Func.opt_spec` → `Rega.lowerFn_correct` with `legalEnv` & `Env.ofModule`
+* **End-to-end compilation soundness**: `compileFn_correct` (composing `Func.earlyOpt_spec` →
+  `Fn.legal_spec` → `Func.lateOpt_spec` → `Rega.lowerFn_correct` with `legalEnv` & `Env.ofModule`
   signature isolation) and `compile_sound` over acyclic modules checked by `Module.checkAcyclic`.
 * **Kernel-certificate harness**: `TargetLayout` (+ `TargetLayout.ofClean`), `Compiled`,
   `checkCompile`, `compileChecked` (+ `WithLabels` variant), `Compiled.fnSpec`,
@@ -569,24 +569,24 @@ theorem compile_of_compileModule {I : Isa} {lt : LegalTarget} {raBytes : Nat}
 /-! ## `compileFn_correct` and `compile_sound` -/
 
 theorem fn_mid_wf {lt : LegalTarget} {f : Fn} (hwf : f.Wf) : (f.mid lt).Wf :=
-  Func.opt_wf (Func.legal_wf lt (Func.opt_wf hwf))
+  Func.lateOpt_wf (Func.legal_wf lt (Func.earlyOpt_wf hwf))
 
 private theorem mid_pipeline_spec {lt : LegalTarget} {as rs : List Ty} (g : Func as rs)
-    (hg : g.Wf) (hsupp : (Func.opt g).supportsSource lt = true) (Γ : Env)
+    (hg : g.Wf) (hsupp : (Func.earlyOpt g).supportsSource lt = true) (Γ : Env)
     (xs : Tup Val as) (xs' : Tup Val (lt.legalSig as)) (hxs : encodeTup lt as xs = xs')
     (m : Mem 64) (P : Post rs) (E : XPost)
     (Q' : Post (lt.legalSig rs)) (X' : XPost)
     (hQ : ∀ r m₁, legalPost lt P r m₁ → Q' r m₁)
     (hX : ∀ f cs ys m₁, legalXPost lt E f cs ys m₁ → X' f cs ys m₁)
     (hs : Func.spec Γ g xs m P E) :
-    Func.spec (legalEnv lt Γ) (Func.opt (Func.legal lt (Func.opt g))) xs' m Q' X' := by
+    Func.spec (legalEnv lt Γ) (Func.lateOpt (Func.legal lt (Func.earlyOpt g))) xs' m Q' X' := by
   subst hxs
-  have hwf₁ : (Func.opt g).Wf := Func.opt_wf hg
-  have hopt : Func.spec Γ (Func.opt g) xs m P E := Func.opt_spec hg hs
-  have hleg := Func.legal_spec lt (Func.opt g) hwf₁ hsupp Γ xs m P E hopt
-  have hmono := Func.spec_mono (legalEnv lt Γ) (Func.legal lt (Func.opt g))
+  have hwf₁ : (Func.earlyOpt g).Wf := Func.earlyOpt_wf hg
+  have hopt : Func.spec Γ (Func.earlyOpt g) xs m P E := Func.earlyOpt_spec hg hs
+  have hleg := Func.legal_spec lt (Func.earlyOpt g) hwf₁ hsupp Γ xs m P E hopt
+  have hmono := Func.spec_mono (legalEnv lt Γ) (Func.legal lt (Func.earlyOpt g))
     (encodeTup lt as xs) m (legalPost lt P) Q' (legalXPost lt E) X' hQ hX hleg
-  exact Func.opt_spec (Func.legal_wf lt hwf₁) hmono
+  exact Func.lateOpt_spec (Func.legal_wf lt hwf₁) hmono
 
 private theorem legalEnv_elim_mid {lt : LegalTarget} {f : Fn} {Γ_src : Env}
     (hiso : ∀ as bs xs m P E, Γ_src f.name as bs xs m P E → as = f.as ∧ bs = f.rs)
@@ -603,12 +603,13 @@ private theorem legalEnv_elim_mid {lt : LegalTarget} {f : Fn} {Γ_src : Env}
   · intro r m₁ hp; have := hQ r m₁ hp; rwa [cast_eq] at this
 
 private theorem compileFn_mid_spec {lt : LegalTarget} {f : Fn} (hwf : f.Wf)
-    (hsupp : (Func.opt f.body).supportsSource lt = true) (Γ_src : Env)
+    (hsupp : (Func.earlyOpt f.body).supportsSource lt = true) (Γ_src : Env)
     (hiso : ∀ as bs xs m P E, Γ_src f.name as bs xs m P E → as = f.as ∧ bs = f.rs)
     (hsound : ∀ xs m P E, Γ_src f.name f.as f.rs xs m P E → Func.spec Γ_src f.body xs m P E) :
     ∀ xs' m Q' X',
       legalEnv lt Γ_src f.name (lt.legalSig f.as) (lt.legalSig f.rs) xs' m Q' X' →
-      Func.spec (legalEnv lt Γ_src) (Func.opt (Func.legal lt (Func.opt f.body))) xs' m Q' X' := by
+      Func.spec (legalEnv lt Γ_src) (Func.lateOpt (Func.legal lt (Func.earlyOpt f.body)))
+        xs' m Q' X' := by
   intro xs' m Q' X' h
   obtain ⟨xs, P, E, hxs', hQ', hX, hΓ⟩ := legalEnv_elim_mid hiso h
   exact mid_pipeline_spec f.body hwf hsupp Γ_src xs xs' hxs' m P E Q' X' hQ' hX
@@ -618,7 +619,7 @@ private theorem compileFn_mid_spec {lt : LegalTarget} {f : Fn} (hwf : f.Wf)
 theorem compileFn_correct_iso (T : Target) (host : T.mach.Host) (lt : LegalTarget)
     (hints : T.toIsa.Hints) (E : Rega.Ext) (f : Fn) (Γ_src : Env)
     (n nX : Nat) (bound : Sym → Nat) {code : List T.Directive} {k₀ : Nat}
-    (hwf : f.Wf) (hsupp : (f.opt).body.supportsSource lt = true)
+    (hwf : f.Wf) (hsupp : (f.earlyOpt).body.supportsSource lt = true)
     (hl : Rega.lowerFn T.toIsa hints E (f.mid lt) = .ok code)
     (hc : code.IsInfixAt (T.mach.prog host) k₀) (hu : T.LabelsUnique host)
     (hfr : Rega.frame T hints ≤ n) (hn : n + T.frame.raBytes ≤ 2 ^ 64)
@@ -640,7 +641,7 @@ theorem compileFn_correct (T : Target) (host : T.mach.Host) (lt : LegalTarget)
     (M : Module) (hnd : M.namesNodup) {f : Fn} (hf : f ∈ M.fns)
     (hints : T.toIsa.Hints) (Γ : Env) (n nX : Nat) (bound : Sym → Nat)
     {code : List T.Directive} {k₀ : Nat}
-    (hwf : f.Wf) (hsupp : (f.opt).body.supportsSource lt = true)
+    (hwf : f.Wf) (hsupp : (f.earlyOpt).body.supportsSource lt = true)
     (hl : compileFn T.toIsa lt hints f = .ok code)
     (hc : code.IsInfixAt (T.mach.prog host) k₀) (hu : T.LabelsUnique host)
     (hfr : Rega.frame T hints ≤ n) (hn : n + T.frame.raBytes ≤ 2 ^ 64)
@@ -702,7 +703,7 @@ private theorem compile_sound_aux (T : Target) (host : T.mach.Host) (lt : LegalT
       {code : List T.Directive} {bounds : List (Sym × Nat)} {k₀ : Nat},
       compileModule T.toIsa lt T.frame.raBytes extCallees exits nX fs hints = .ok (code, bounds) →
       code.IsInfixAt (T.mach.prog host) k₀ → T.LabelsUnique host → (fs.map Fn.name).Nodup →
-      (∀ f ∈ fs, f ∈ M.fns ∧ f.Wf ∧ (f.opt).body.supportsSource lt = true ∧
+      (∀ f ∈ fs, f ∈ M.fns ∧ f.Wf ∧ (f.earlyOpt).body.supportsSource lt = true ∧
         ∀ xs m P E, Env.ofModule M Γ f.name f.as f.rs xs m P E →
           Func.wp (Env.ofModule M Γ) f.body xs m P E) →
       (∀ p ∈ extCallees,
@@ -737,7 +738,7 @@ private theorem compile_sound_aux (T : Target) (host : T.mach.Host) (lt : LegalT
           rcases hcm with ⟨rfl, rfl⟩
           obtain ⟨hc_inf, hcs_inf⟩ := List.IsInfixAt.append hc
           obtain ⟨hfM, hfwf, hfsupp, hfwp⟩ := hfns f List.mem_cons_self
-          have hfns' : ∀ g ∈ fs, g ∈ M.fns ∧ g.Wf ∧ (g.opt).body.supportsSource lt = true ∧
+          have hfns' : ∀ g ∈ fs, g ∈ M.fns ∧ g.Wf ∧ (g.earlyOpt).body.supportsSource lt = true ∧
               ∀ xs m P E, Env.ofModule M Γ g.name g.as g.rs xs m P E →
                 Func.wp (Env.ofModule M Γ) g.body xs m P E :=
             fun g hg => hfns g (List.mem_cons_of_mem f hg)
@@ -805,7 +806,7 @@ theorem compile_sound (T : Target) (host : T.mach.Host) (lt : LegalTarget)
     (hcm : compileModule T.toIsa lt T.frame.raBytes extCallees exits nX M.fns hints = .ok (code, bounds))
     (hc : code.IsInfixAt (T.mach.prog host) k₀) (hu : T.LabelsUnique host)
     (hacyc : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf)
-    (hsupp : ∀ f ∈ M.fns, (f.opt).body.supportsSource lt = true)
+    (hsupp : ∀ f ∈ M.fns, (f.earlyOpt).body.supportsSource lt = true)
     (hwp : ∀ f ∈ M.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
     (hext : ∀ p ∈ extCallees,
       T.FnSpec host p.1.1 (legalEnv lt (Env.ofModule M Γ) p.1.1 p.1.2.1 p.1.2.2) p.2 nX)
@@ -817,7 +818,7 @@ theorem compile_sound (T : Target) (host : T.mach.Host) (lt : LegalTarget)
         (legalEnv lt (Env.ofModule M Γ) p.1 (lt.legalSig f.as) (lt.legalSig f.rs)) p.2 nX := by
   have hMod := (Module.moduleOk_of_checkAcyclic hacyc hwf hwp).ofModule
   have hfnsNd : (M.fns.map Fn.name).Nodup := (List.nodup_append.mp hMod.nodup).1
-  have hfnsOk : ∀ f ∈ M.fns, f ∈ M.fns ∧ f.Wf ∧ (f.opt).body.supportsSource lt = true ∧
+  have hfnsOk : ∀ f ∈ M.fns, f ∈ M.fns ∧ f.Wf ∧ (f.earlyOpt).body.supportsSource lt = true ∧
       ∀ xs m P E, Env.ofModule M Γ f.name f.as f.rs xs m P E →
         Func.wp (Env.ofModule M Γ) f.body xs m P E := by
     intro f hf
@@ -959,7 +960,7 @@ theorem fnSpec (M : Compiled T lt extCallees exits nX fs hints maxBound)
     (mod : Module) (hfs : mod.fns = fs) (h : T.mach.Host) (Γ : Env) (k₀ : Nat)
     (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
     (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
-    (hsupp : ∀ f ∈ mod.fns, (f.opt).body.supportsSource lt = true)
+    (hsupp : ∀ f ∈ mod.fns, (f.earlyOpt).body.supportsSource lt = true)
     (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
     (hext : ∀ p ∈ extCallees,
       T.FnSpec h p.1.1 (legalEnv lt (Env.ofModule mod Γ) p.1.1 p.1.2.1 p.1.2.2) p.2 nX)
@@ -984,7 +985,7 @@ theorem fnSpec (M : Compiled T lt extCallees exits nX fs hints maxBound)
 theorem fnSpec_host (M : Compiled T lt [] exits nX fs hints maxBound)
     (mod : Module) (hfs : mod.fns = fs) (Γ : Env)
     (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
-    (hsupp : ∀ f ∈ mod.fns, (f.opt).body.supportsSource lt = true)
+    (hsupp : ∀ f ∈ mod.fns, (f.earlyOpt).body.supportsSource lt = true)
     (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
     {f : Fn} (hf : f ∈ mod.fns) :
     T.Defined M.host f.name ∧ T.FnSpec M.host f.name
@@ -999,7 +1000,7 @@ is independent of exit continuations. -/
 theorem fnSpec_host_src (M : Compiled T lt [] exits nX fs hints maxBound)
     (mod : Module) (hfs : mod.fns = fs) (Γ : Env)
     (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
-    (hsupp : ∀ f ∈ mod.fns, (f.opt).body.supportsSource lt = true)
+    (hsupp : ∀ f ∈ mod.fns, (f.earlyOpt).body.supportsSource lt = true)
     (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
     {f : Fn} (hf : f ∈ mod.fns) (has : lt.legalSig f.as = f.as) (hbs : lt.legalSig f.rs = f.rs)
     (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X') :

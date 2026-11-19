@@ -42,44 +42,6 @@ inductive JLabel (L : List Ty → Type) : List Ty → Type
   | loc {ts : List Ty} (id : Nat) : JLabel L ts
   | probe {ts : List Ty} : JLabel L ts
 
-/-- Optional variable representation (`none` is used solely for static analysis traversal). -/
-abbrev OptV (V : Ty → Type) (t : Ty) : Type := Option (V t)
-
-def someTup {V : Ty → Type} : (ts : List Ty) → Tup V ts → Tup (OptV V) ts
-  | [], () => ()
-  | _ :: ts, (x, xs) => (some x, someTup ts xs)
-
-def noneTup {V : Ty → Type} : (ts : List Ty) → Tup (OptV V) ts
-  | [] => ()
-  | _ :: ts => (none, noneTup ts)
-
-def toArgTup {V : Ty → Type} : {ts : List Ty} → Tup V ts → Tup (Arg V) ts
-  | [], () => ()
-  | _ :: _, (x, xs) => (.var x, toArgTup xs)
-
-def dummyArgOptTup {V : Ty → Type} (ts : List Ty) : Tup (Arg (OptV V)) ts :=
-  toArgTup (noneTup ts)
-
-def flattenArg {V : Ty → Type} {t : Ty} : Arg (Arg V) t → Arg V t
-  | .var a => a
-  | .imm c => .imm c
-
-abbrev flattenArgs {V : Ty → Type} {ts : List Ty} :
-    Tup (Arg (Arg V)) ts → Tup (Arg V) ts :=
-  tupMapArg fun _ => flattenArg
-
-def flattenOp {V : Ty → Type} {rs : List Ty} (op : Op (Arg V) rs) : Op V rs :=
-  ⟨op.code, flattenArgs op.args⟩
-
-def argUntag {V : Ty → Type} {t : Ty} : Arg (OptV V) t → Arg V t
-  | .var (some v) => .var v
-  | .var none => .imm default
-  | .imm c => .imm c
-
-abbrev argsUntag {V : Ty → Type} {ts : List Ty} :
-    Tup (Arg (OptV V)) ts → Tup (Arg V) ts :=
-  tupMapArg fun _ => argUntag
-
 def locLabels {L : List Ty → Type} : (sig : List (List Ty)) → Nat → Tup (JLabel L) sig
   | [], _ => ()
   | _ :: sig, d => (.loc d, locLabels sig (d + 1))
@@ -330,19 +292,19 @@ mutual
 def untagExpr {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
     Expr (OptV V) (JLabel L) rs → Expr V L rs
   | .let_ (ts := ts) op k =>
-    .let_ ⟨op.code, argsUntag op.args⟩ fun xs => untagExpr (k (someTup ts xs))
+    .let_ ⟨op.code, argsSweep op.args⟩ fun xs => untagExpr (k (someTup ts xs))
   | .load t a k =>
-    .load t (argUntag a) fun v => untagExpr (k (some v))
+    .load t (argSweep a) fun v => untagExpr (k (some v))
   | .store v a k =>
-    .store (argUntag v) (argUntag a) (untagExpr k)
+    .store (argSweep v) (argSweep a) (untagExpr k)
   | .call f (bs := bs) args k =>
-    .call f (argsUntag args) fun xs => untagExpr (k (someTup bs xs))
+    .call f (argsSweep args) fun xs => untagExpr (k (someTup bs xs))
   | .jnz c t e =>
-    .jnz (argUntag c) (untagExpr t) (untagExpr e)
-  | .jump (.outer l) args => .jump l (argsUntag args)
+    .jnz (argSweep c) (untagExpr t) (untagExpr e)
+  | .jump (.outer l) args => .jump l (argsSweep args)
   | .jump _ _ => .hlt
-  | .ret vs => .ret (argsUntag vs)
-  | .exit f args => .exit f (argsUntag args)
+  | .ret vs => .ret (argsSweep vs)
+  | .exit f args => .exit f (argsSweep args)
   | .hlt => .hlt
   | .group bodies k =>
     .group

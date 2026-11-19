@@ -1161,19 +1161,6 @@ theorem deadLoadSweepB_liveLoadVarsB_get {V : Ty → Type} {L : List Ty → Type
   | _ :: _, .cons _ bkt, .cons _ bst, _, .there i', xs =>
     deadLoadSweepB_liveLoadVarsB_get b bkt bst i' xs
 
-theorem NoneDead.cons_none {V : Ty → Type} {s : Trie Unit} {Gk : Ctx K (OptV V)}
-    (hnd : NoneDead s Gk) {t : Ty} (b : Nat) (hb : (s.find? b).isSome = false) :
-    NoneDead s (⟨t, b, none⟩ :: Gk) := by
-  intro _ _ _ hm ho; cases hm with | head => exact hb | tail _ hm' => exact hnd hm' ho
-
-theorem SomeEq.cons_none {G : Ctx (OptV Val) Val} (hG : SomeEq G) {t : Ty} (v : Val t) :
-    SomeEq (⟨t, none, v⟩ :: G) := by
-  intro _ _ _ hm _ hw; cases hm with | head => cases hw | tail _ hm' => exact hG hm' _ hw
-
-theorem DceRel.cons_none {V₁ V₂ : Ty → Type} {G : Ctx (OptV V₁) (OptV V₂)} {G' : Ctx V₁ V₂}
-    (hrel : DceRel G G') {t : Ty} : DceRel (⟨t, none, none⟩ :: G) G' := by
-  intro _ _ _ hm; cases hm with | head => exact Or.inl ⟨rfl, rfl⟩ | tail _ hm' => exact hrel hm'
-
 theorem deadLoad_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {G : Ctx (OptV Val) Val} {D : Ctx Cont Cont}
     {e₁ : Expr (OptV Val) Cont rs} {e₂ : Expr Val Cont rs} (hwf : Wf G D e₁ e₂) :

@@ -1,8 +1,7 @@
 module
 
 public import LeanQbe.T.Peel
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.WfLemmas
+public import LeanQbe.T.OptUtilLemmas
 
 /-!
 # Correctness of Bounded 1-Iteration Loop Peeling (`O-M2`)
@@ -26,126 +25,6 @@ set_option autoImplicit false
 namespace LeanQbe.T
 
 namespace Peel
-
-/-! ## Operand flattening and context transport helpers -/
-
-theorem flattenArg_val {G : Ctx (Arg Val) Val} (hG : ∀ p ∈ G, p.2.1.val = p.2.2)
-    {t : Ty} {a₁ : Arg (Arg Val) t} {a₂ : Arg Val t} (ha : ArgRel G t a₁ a₂) :
-    (flattenArg a₁).val = a₂.val := by
-  cases ha with
-  | var hm => exact hG _ hm
-  | imm _ => rfl
-
-theorem flattenArgs_vals {G : Ctx (Arg Val) Val} (hG : ∀ p ∈ G, p.2.1.val = p.2.2)
-    {ts : List Ty} {as₁ : Tup (Arg (Arg Val)) ts} {as₂ : Tup (Arg Val) ts}
-    (h : TRel (ArgRel G) as₁ as₂) : vals (flattenArgs as₁) = vals as₂ :=
-  TRel.tupMapArg_vals (fun _ => flattenArg) (fun ha => flattenArg_val hG ha) h
-
-theorem toArgTup_zip_val :
-    {ts : List Ty} → (xs : Tup Val ts) → ∀ p ∈ Tup.zip (toArgTup xs) xs, p.2.1.val = p.2.2
-  | [], (), _, hp => nomatch hp
-  | _ :: _, (_, xs), _, hp => by
-    cases hp with
-    | head => rfl
-    | tail _ hp => exact toArgTup_zip_val xs _ hp
-
-theorem ctx_zip_vals :
-    {ts : List Ty} → (args : Tup (Arg Val) ts) → ∀ p ∈ Tup.zip args (vals args), p.2.1.val = p.2.2
-  | [], (), _, hp => nomatch hp
-  | _ :: _, (_, args), _, hp => by
-    cases hp with
-    | head => rfl
-    | tail _ hp => exact ctx_zip_vals args _ hp
-
-theorem ctx_val_append {H G : Ctx (Arg Val) Val}
-    (hH : ∀ p ∈ H, p.2.1.val = p.2.2) (hG : ∀ p ∈ G, p.2.1.val = p.2.2) :
-    ∀ p ∈ H ++ G, p.2.1.val = p.2.2 := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact hH p hp
-  · exact hG p hp
-
-theorem ctx_val_cons_var {G : Ctx (Arg Val) Val} (hG : ∀ p ∈ G, p.2.1.val = p.2.2)
-    {t : Ty} (v : Val t) : ∀ p ∈ (⟨t, .var v, v⟩ :: G), p.2.1.val = p.2.2 := by
-  intro p hp
-  cases hp with
-  | head => rfl
-  | tail _ hp => exact hG p hp
-
-theorem argRel_flattenArg {V₁ V₂ : Ty → Type}
-    {G_body : Ctx (Arg V₁) (Arg V₂)} {G : Ctx V₁ V₂}
-    (hG : ∀ p ∈ G_body, ArgRel G p.1 p.2.1 p.2.2)
-    {t : Ty} {a₁ : Arg (Arg V₁) t} {a₂ : Arg (Arg V₂) t} :
-    ArgRel G_body t a₁ a₂ → ArgRel G t (flattenArg a₁) (flattenArg a₂)
-  | .var hm => hG _ hm
-  | .imm c => .imm c
-
-theorem trel_flattenArgs {V₁ V₂ : Ty → Type}
-    {G_body : Ctx (Arg V₁) (Arg V₂)} {G : Ctx V₁ V₂}
-    (hG : ∀ p ∈ G_body, ArgRel G p.1 p.2.1 p.2.2)
-    {ts : List Ty} {as₁ : Tup (Arg (Arg V₁)) ts} {as₂ : Tup (Arg (Arg V₂)) ts} :
-    TRel (ArgRel G_body) as₁ as₂ →
-    TRel (ArgRel G) (flattenArgs as₁) (flattenArgs as₂) :=
-  TRel.tupMapArg_rel (fun _ => flattenArg) (fun _ => flattenArg)
-    (fun ha => argRel_flattenArg hG ha)
-
-theorem opRel_flattenOp {V₁ V₂ : Ty → Type}
-    {G_body : Ctx (Arg V₁) (Arg V₂)} {G : Ctx V₁ V₂}
-    (hG : ∀ p ∈ G_body, ArgRel G p.1 p.2.1 p.2.2)
-    {rs : List Ty} {op₁ : Op (Arg V₁) rs} {op₂ : Op (Arg V₂) rs} :
-    OpRel G_body op₁ op₂ → OpRel G (flattenOp op₁) (flattenOp op₂)
-  | .mk code hargs => .mk code (trel_flattenArgs hG hargs)
-
-theorem mem_zip_toArgTup {V₁ V₂ : Ty → Type} :
-    {ts : List Ty} → (xs₁ : Tup V₁ ts) → (xs₂ : Tup V₂ ts) →
-    ∀ p ∈ Tup.zip (toArgTup xs₁) (toArgTup xs₂), ArgRel (Tup.zip xs₁ xs₂) p.1 p.2.1 p.2.2
-  | [], (), (), _, hp => nomatch hp
-  | _ :: _, (_, _), (_, _), _, hp => by
-    cases hp with
-    | head => exact .var List.mem_cons_self
-    | tail _ hp =>
-      exact (mem_zip_toArgTup _ _ _ hp).weaken (fun _ hq => List.mem_cons_of_mem _ hq)
-
-theorem ctx_argRel_append {V₁ V₂ : Ty → Type}
-    {H : Ctx (Arg V₁) (Arg V₂)} {G_body : Ctx (Arg V₁) (Arg V₂)}
-    {G₁ G₂ : Ctx V₁ V₂}
-    (hH : ∀ p ∈ H, ArgRel G₁ p.1 p.2.1 p.2.2)
-    (hG : ∀ p ∈ G_body, ArgRel G₂ p.1 p.2.1 p.2.2) :
-    ∀ p ∈ H ++ G_body, ArgRel (G₁ ++ G₂) p.1 p.2.1 p.2.2 := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact (hH p hp).weaken (fun _ hq => List.mem_append_left _ hq)
-  · exact (hG p hp).weaken (fun _ hq => List.mem_append_right _ hq)
-
-theorem ctx_argRel_append_same {V₁ V₂ : Ty → Type}
-    {H G_body : Ctx (Arg V₁) (Arg V₂)} {G' : Ctx V₁ V₂}
-    (hH : ∀ p ∈ H, ArgRel G' p.1 p.2.1 p.2.2)
-    (hG : ∀ p ∈ G_body, ArgRel G' p.1 p.2.1 p.2.2) :
-    ∀ p ∈ H ++ G_body, ArgRel G' p.1 p.2.1 p.2.2 := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact hH p hp
-  · exact hG p hp
-
-theorem ctx_argRel_cons_var {V₁ V₂ : Ty → Type}
-    {G_body : Ctx (Arg V₁) (Arg V₂)} {G : Ctx V₁ V₂}
-    (hG : ∀ p ∈ G_body, ArgRel G p.1 p.2.1 p.2.2)
-    {t : Ty} (v₁ : V₁ t) (v₂ : V₂ t) :
-    ∀ p ∈ (⟨t, .var v₁, .var v₂⟩ :: G_body),
-      ArgRel (⟨t, v₁, v₂⟩ :: G) p.1 p.2.1 p.2.2 := by
-  intro p hp
-  cases hp with
-  | head => exact .var List.mem_cons_self
-  | tail _ hp => exact (hG p hp).weaken (fun _ hq => List.mem_cons_of_mem _ hq)
-
-theorem mem_zip_argRel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
-    {ts : List Ty} → {as₁ : Tup (Arg V₁) ts} → {as₂ : Tup (Arg V₂) ts} →
-    TRel (ArgRel G) as₁ as₂ → ∀ p ∈ Tup.zip as₁ as₂, ArgRel G p.1 p.2.1 p.2.2
-  | [], (), (), .nil, _, hp => nomatch hp
-  | _ :: _, (_, _), (_, _), .cons h hs, _, hp => by
-    cases hp with
-    | head => exact h
-    | tail _ hp => exact mem_zip_argRel hs _ hp
 
 /-! ## Block-access and `peelAux` reduction helpers -/
 
@@ -644,7 +523,7 @@ theorem peelAux_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs 
   induction hwf using Wf.induct with
   | let_ hop _ ih =>
     intro G' D' hG hD budget depth
-    exact .let_ (opRel_flattenOp hG hop) fun xs₁ xs₂ =>
+    exact .let_ (hop.flattenOp hG) fun xs₁ xs₂ =>
       ih (toArgTup xs₁) (toArgTup xs₂)
         (ctx_argRel_append (mem_zip_toArgTup xs₁ xs₂) hG)
         (fun p hp => (hD p hp).weaken
@@ -652,18 +531,18 @@ theorem peelAux_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs 
         budget depth
   | load t ha _ ih =>
     intro G' D' hG hD budget depth
-    exact .load t (argRel_flattenArg hG ha) fun v₁ v₂ =>
+    exact .load t (ha.flattenArg hG) fun v₁ v₂ =>
       ih (.var v₁) (.var v₂) (ctx_argRel_cons_var hG v₁ v₂)
         (fun p hp => (hD p hp).weaken
           (fun _ hq => List.mem_cons_of_mem _ hq) (fun _ hq => hq))
         budget depth
   | store hv ha _ ih =>
     intro G' D' hG hD budget depth
-    exact .store (argRel_flattenArg hG hv) (argRel_flattenArg hG ha)
+    exact .store (hv.flattenArg hG) (ha.flattenArg hG)
       (ih hG hD budget depth)
   | call f hargs _ ih =>
     intro G' D' hG hD budget depth
-    exact .call f (trel_flattenArgs hG hargs) fun xs₁ xs₂ =>
+    exact .call f (TRel.flattenArgs hG hargs) fun xs₁ xs₂ =>
       ih (toArgTup xs₁) (toArgTup xs₂)
         (ctx_argRel_append (mem_zip_toArgTup xs₁ xs₂) hG)
         (fun p hp => (hD p hp).weaken
@@ -671,11 +550,11 @@ theorem peelAux_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs 
         budget depth
   | jnz hc _ _ iht ihe =>
     intro G' D' hG hD budget depth
-    exact .jnz (argRel_flattenArg hG hc) (iht hG hD budget depth) (ihe hG hD budget depth)
+    exact .jnz (hc.flattenArg hG) (iht hG hD budget depth) (ihe hG hD budget depth)
   | @jump _ _ ts j₁ j₂ _ _ hj hargs =>
     intro G' D' hG hD _ _
     have hlbl := hD _ hj
-    have hargs' := trel_flattenArgs hG hargs
+    have hargs' := TRel.flattenArgs hG hargs
     cases j₁ <;> cases j₂
     · exact .jump hlbl hargs'
     · exact False.elim hlbl
@@ -688,10 +567,10 @@ theorem peelAux_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs 
     · exact False.elim hlbl
   | ret hvs =>
     intro G' _ hG _ _ _
-    exact .ret (trel_flattenArgs hG hvs)
+    exact .ret (TRel.flattenArgs hG hvs)
   | exit f hargs =>
     intro G' _ hG _ _ _
-    exact .exit f (trel_flattenArgs hG hargs)
+    exact .exit f (TRel.flattenArgs hG hargs)
   | hlt =>
     intro _ _ _ _ _ _
     exact .hlt
@@ -1014,8 +893,8 @@ theorem Func.peel_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
     (maxLoopSize : Nat := 40) : (Func.peel f maxLoopSize).Wf := by
   intro V₁ V₂ L₁ L₂ xs₁ xs₂
   have hwf := hf (Arg V₁) (Arg V₂) (Peel.PeelL V₁ L₁ rs) (Peel.PeelL V₂ L₂ rs)
-    (Peel.toArgTup xs₁) (Peel.toArgTup xs₂)
-  exact LeanQbe.T.peel_wf hwf (Peel.mem_zip_toArgTup xs₁ xs₂)
+    (toArgTup xs₁) (toArgTup xs₂)
+  exact LeanQbe.T.peel_wf hwf (mem_zip_toArgTup xs₁ xs₂)
     (fun _ hp => nomatch hp) maxLoopSize
 
 /-- Closed-function WP refinement for `Func.peel`. -/
@@ -1023,8 +902,8 @@ theorem Func.peel_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
     (maxLoopSize : Nat := 40) {Γ : Env} {xs : Tup Val as} {m : Mem 64}
     {Q : Post rs} {X : XPost} (h : Func.spec Γ f xs m Q X) :
     Func.spec Γ (Func.peel f maxLoopSize) xs m Q X := by
-  have hwf := hf (Arg Val) Val (Peel.PeelL Val Cont rs) Cont (Peel.toArgTup xs) xs
-  exact LeanQbe.T.peel_wp hwf m maxLoopSize (Peel.toArgTup_zip_val xs)
+  have hwf := hf (Arg Val) Val (Peel.PeelL Val Cont rs) Cont (toArgTup xs) xs
+  exact LeanQbe.T.peel_wp hwf m maxLoopSize (toArgTup_zip_val xs)
     (fun _ hp => nomatch hp) (fun hm _ => nomatch hm) h
 
 /-- Named-function well-formedness preservation for `Fn.peel`. -/

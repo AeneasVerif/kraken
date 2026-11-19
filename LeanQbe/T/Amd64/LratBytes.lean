@@ -46,11 +46,11 @@ def compiled : Compiled x64Target x64LegalTarget [] [] 0 lratBytesFns lratBytesH
     lratBytesFns lratBytesHints 2048 compiled_check
 
 private theorem lratBytesFns_supportsSource_all :
-    lratBytesFns.all (fun f => (f.opt).body.supportsSource x64LegalTarget) = true := by
+    lratBytesFns.all (fun f => (f.earlyOpt).body.supportsSource x64LegalTarget) = true := by
   t_kernel_rfl
 
 theorem lratBytesFns_supportsSource :
-    ∀ f ∈ lratBytesModule.fns, (f.opt).body.supportsSource x64LegalTarget = true :=
+    ∀ f ∈ lratBytesModule.fns, (f.earlyOpt).body.supportsSource x64LegalTarget = true :=
   fun f hf => List.all_eq_true.mp lratBytesFns_supportsSource_all f hf
 
 section Generic

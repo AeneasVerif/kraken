@@ -141,12 +141,6 @@ def condOf : CmpOp → CondCode
   | .sgt => .g
   | .sge => .ge
 
-/-- Swap operands of a comparison (`a o b ↔ b (swapCmp o) a`). -/
-def swapCmp : CmpOp → CmpOp
-  | .eq  => .eq  | .ne  => .ne
-  | .ult => .ugt | .ule => .uge | .ugt => .ult | .uge => .ule
-  | .slt => .sgt | .sle => .sge | .sgt => .slt | .sge => .sle
-
 /-- Binary ALU operation kind supported by `opBin`. -/
 inductive AluBinKind | add | sub | and | or | xor | mul
   deriving DecidableEq
@@ -554,7 +548,7 @@ def opCmp (w : Width) (co : CmpOp)
     | .imm cx, .gpr ry =>
       if w != .W64 || fitsImm32 (cx.setWidth 64) then
         some ([insW w (.cmp (.reg (regW w ry)) (immBitsOp w cx))] ++
-              setccMove rd (condOf (swapCmp co)), maskAll)
+              setccMove rd (condOf co.swap), maskAll)
       else
         some ([moviD .r10 (cx.setWidth 64),
                insW w (.cmp (.reg (regW w .r10)) (.reg (regW w ry)))] ++
@@ -565,12 +559,12 @@ def opCmp (w : Width) (co : CmpOp)
   | .flag cc =>
     match pa, pb with
     | .imm cx, .gpr ry =>
-      if cc == condOf (swapCmp co) && (w != .W64 || fitsImm32 (cx.setWidth 64)) then
+      if cc == condOf co.swap && (w != .W64 || fitsImm32 (cx.setWidth 64)) then
         some ([insW w (.cmp (.reg (regW w ry)) (immBitsOp w cx))], maskAll)
       else if cc == condOf co then
         some ([moviD .r10 (cx.setWidth 64),
                insW w (.cmp (.reg (regW w .r10)) (.reg (regW w ry)))], maskAll)
-      else if cc == condOf (swapCmp co) then
+      else if cc == condOf co.swap then
         some ([moviD .r10 (cx.setWidth 64),
                insW w (.cmp (.reg (regW w ry)) (.reg (regW w .r10)))], maskAll)
       else none
@@ -578,7 +572,7 @@ def opCmp (w : Width) (co : CmpOp)
       if cc == condOf co then do
         let c ← cmpDirect w pa pb
         some (c, maskAll)
-      else if cc == condOf (swapCmp co) then do
+      else if cc == condOf co.swap then do
         let c ← cmpDirect w pb pa
         some (c, maskAll)
       else none

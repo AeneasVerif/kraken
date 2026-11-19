@@ -111,6 +111,16 @@ def isSelectTy (t : Ty) : Bool := !t.hasFloat
 /-- Signature eligible for `select` conversion. -/
 def isSelectSig (ts : List Ty) : Bool := ts.all isSelectTy
 
+/-- Variant of `isSelectTy` optionally restricting to machine `.bits` (`8`/`16`/`32`/`64`) so
+post-`Legal` targets never see `.select .bool` or `.select (.pair ..)`. -/
+def isSelectTyWith (bitsOnly : Bool) (t : Ty) : Bool :=
+  if bitsOnly then match t with | .bits n => [8, 16, 32, 64].contains n | _ => false
+  else isSelectTy t
+
+/-- Signature filter parameterized by `bitsOnly`. -/
+def isSelectSigWith (bitsOnly : Bool) (ts : List Ty) : Bool :=
+  ts.all (isSelectTyWith bitsOnly)
+
 /-- Structural plan for a matched diamond inside a 1-block `.group` continuation. -/
 inductive DiamondPlan : Type
   | jnz (nT nE : Nat)
@@ -136,24 +146,28 @@ def checkArm {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
 
 /-- Check whether `e` is a straight-line entry prefix ending in a diamond `.jnz` whose arms each
 have `≤ 4` safe `.let_`s jumping to `(.loc jId)` with `select`-compatible signature `jTs`. -/
-def checkDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    (jId : Nat) (jTs : List Ty) (next : Nat) :
+def checkDiamondWith {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (bitsOnly : Bool) (jId : Nat) (jTs : List Ty) (next : Nat) :
     Expr (IVal V) (JLabel L) rs → Option DiamondPlan
   | .let_ (ts := ts) _ k =>
-    (checkDiamond jId jTs (next + ts.length) (k (dummyIVals ts next))).map .let_
+    (checkDiamondWith bitsOnly jId jTs (next + ts.length) (k (dummyIVals ts next))).map .let_
   | .load _ _ k =>
-    (checkDiamond jId jTs (next + 1) (k (.imm default, .var next))).map .load
+    (checkDiamondWith bitsOnly jId jTs (next + 1) (k (.imm default, .var next))).map .load
   | .store _ _ k =>
-    (checkDiamond jId jTs next k).map .store
+    (checkDiamondWith bitsOnly jId jTs next k).map .store
   | .call _ (bs := bs) _ k =>
-    (checkDiamond jId jTs (next + bs.length) (k (dummyIVals bs next))).map .call
+    (checkDiamondWith bitsOnly jId jTs (next + bs.length) (k (dummyIVals bs next))).map .call
   | .jnz _ t e =>
-    if isSelectSig jTs then
+    if isSelectSigWith bitsOnly jTs then
       match checkArm jId jTs 4 next t, checkArm jId jTs 4 next e with
       | some nT, some nE => some (.jnz nT nE)
       | _, _ => none
     else none
   | _ => none
+
+/-- Default (`bitsOnly = false`) alias for `checkDiamondWith`. -/
+abbrev checkDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :=
+  @checkDiamondWith V L rs false
 
 /-! ## Hoisting pure arm prefixes and emitting scalar/pair `select`s -/
 
@@ -247,21 +261,21 @@ open IfOptImpl
 
 mutual
 /-- PHOAS-to-PHOAS if-conversion pass (`MB3`: diamond `jnz` → `select`), preserving `.group`
-block structure. -/
-def ifOpt {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    (depth next : Nat) : Expr (IVal V) (JLabel L) rs → Expr V L rs
+block structure. When `bitsOnly = true`, only `.bits` (`8/16/32/64`) join values are converted. -/
+def ifOptWith {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (bitsOnly : Bool) (depth next : Nat) : Expr (IVal V) (JLabel L) rs → Expr V L rs
   | .let_ (ts := ts) op k =>
     .let_ ⟨op.code, tupIOut op.args⟩ fun xs =>
-      ifOpt depth (next + ts.length) (k (freshIVals ts xs next))
+      ifOptWith bitsOnly depth (next + ts.length) (k (freshIVals ts xs next))
   | .load t a k =>
-    .load t (iout a) fun v => ifOpt depth (next + 1) (k (.var v, .var next))
+    .load t (iout a) fun v => ifOptWith bitsOnly depth (next + 1) (k (.var v, .var next))
   | .store v a k =>
-    .store (iout v) (iout a) (ifOpt depth next k)
+    .store (iout v) (iout a) (ifOptWith bitsOnly depth next k)
   | .call f (bs := bs) args k =>
     .call f (tupIOut args) fun xs =>
-      ifOpt depth (next + bs.length) (k (freshIVals bs xs next))
+      ifOptWith bitsOnly depth (next + bs.length) (k (freshIVals bs xs next))
   | .jnz c t e =>
-    .jnz (iout c) (ifOpt depth next t) (ifOpt depth next e)
+    .jnz (iout c) (ifOptWith bitsOnly depth next t) (ifOptWith bitsOnly depth next e)
   | .jump j args =>
     match j with
     | .outer l => .jump l (tupIOut args)
@@ -270,34 +284,53 @@ def ifOpt {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
   | .exit f args => .exit f (tupIOut args)
   | .hlt => .hlt
   | .group (sig := [ts]) bodies k =>
-    let plan? := checkDiamond depth ts next (k (.loc depth, ()))
+    let plan? := checkDiamondWith bitsOnly depth ts next (k (.loc depth, ()))
     .group (sig := [ts])
-      (fun Js => ifOptB (depth + 1) next (bodies (Js.map fun _ l => .outer l)))
+      (fun Js => ifOptBWith bitsOnly (depth + 1) next (bodies (Js.map fun _ l => .outer l)))
       (fun Js =>
         match plan? with
         | some plan => hoistDiamond Js.1 plan next (k (.outer Js.1, ()))
-        | none => ifOpt (depth + 1) next (k (.outer Js.1, ())))
+        | none => ifOptWith bitsOnly (depth + 1) next (k (.outer Js.1, ())))
   | .group (sig := []) bodies k =>
     .group
-      (fun Js => ifOptB depth next (bodies (Js.map fun _ l => .outer l)))
-      (fun Js => ifOpt depth next (k (Js.map fun _ l => .outer l)))
+      (fun Js => ifOptBWith bitsOnly depth next (bodies (Js.map fun _ l => .outer l)))
+      (fun Js => ifOptWith bitsOnly depth next (k (Js.map fun _ l => .outer l)))
   | .group (sig := _ :: _ :: rest) bodies k =>
     .group
-      (fun Js => ifOptB (depth + rest.length + 2) next (bodies (Js.map fun _ l => .outer l)))
-      (fun Js => ifOpt (depth + rest.length + 2) next (k (Js.map fun _ l => .outer l)))
+      (fun Js =>
+        ifOptBWith bitsOnly (depth + rest.length + 2) next (bodies (Js.map fun _ l => .outer l)))
+      (fun Js =>
+        ifOptWith bitsOnly (depth + rest.length + 2) next (k (Js.map fun _ l => .outer l)))
 
-/-- Block-list companion of `ifOpt`. -/
-def ifOptB {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    (depth next : Nat) : {sig : List (List Ty)} →
+/-- Block-list companion of `ifOptWith`. -/
+def ifOptBWith {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (bitsOnly : Bool) (depth next : Nat) : {sig : List (List Ty)} →
     Blocks (IVal V) (JLabel L) rs sig → Blocks V L rs sig
   | _, .nil => .nil
   | _, .cons (ts := ts) b bs =>
-    .cons (fun xs => ifOpt depth (next + ts.length) (b (freshIVals ts xs next)))
-      (ifOptB depth next bs)
+    .cons (fun xs => ifOptWith bitsOnly depth (next + ts.length) (b (freshIVals ts xs next)))
+      (ifOptBWith bitsOnly depth next bs)
 end
 
+/-- Default (`bitsOnly = false`) alias for `ifOptWith`. -/
+abbrev ifOpt {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :=
+  @ifOptWith V L rs false
+
+/-- Default (`bitsOnly = false`) alias for `ifOptBWith`. -/
+abbrev ifOptB {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :=
+  @ifOptBWith V L rs false
+
 /-- Convert eligible diamond `jnz` patterns into `.select`s on a closed typed function `Func`. -/
-def Func.ifOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  fun V L xs => _root_.LeanQbe.T.ifOpt 0 as.length (f (IVal V) (JLabel L) (freshIVals as xs 0))
+def Func.ifOptWith (bitsOnly : Bool) {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  fun V L xs =>
+    _root_.LeanQbe.T.ifOptWith bitsOnly 0 as.length (f (IVal V) (JLabel L) (freshIVals as xs 0))
+
+/-- Pre-`Legal` if-conversion allowing `.bool`/`.bits`/`.pair` select values. -/
+abbrev Func.ifOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  Func.ifOptWith false f
+
+/-- Post-`Legal` if-conversion restricted to machine `.bits` (`8/16/32/64`) select values. -/
+def Func.ifOptBits {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  Func.ifOptWith true f
 
 end LeanQbe.T

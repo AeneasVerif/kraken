@@ -896,8 +896,14 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
               refine finishSpec (armWp_mono (armSubsImm_wp hn64 (armWidthOf n) rb ca hlt s) ?_) hc
               rintro s₁ rfl; refine ⟨?_, rfl, armFrame_nzcv fun _ _ => rfl⟩
               rcases hn' with rfl | rfl
-              · rw [show armWidthOf 32 = .W32 from rfl]; dsimp only [RegWidth.bits, MemWidth.bits]; simp only [BitVec.setWidth_eq] at hpa ⊢; rw [hrb, hpa, armCmpCond_subs (Or.inl rfl), armSwapCmp_eval]
-              · rw [show armWidthOf 64 = .W64 from rfl]; dsimp only [RegWidth.bits, MemWidth.bits]; simp only [BitVec.setWidth_eq] at hrb hpa ⊢; rw [hrb, hpa, armCmpCond_subs (Or.inr rfl), armSwapCmp_eval]
+              · rw [show armWidthOf 32 = .W32 from rfl]
+                dsimp only [RegWidth.bits, MemWidth.bits]
+                simp only [BitVec.setWidth_eq] at hpa ⊢
+                rw [hrb, hpa, armCmpCond_subs (Or.inl rfl), CmpOp.swap_evalBits]
+              · rw [show armWidthOf 64 = .W64 from rfl]
+                dsimp only [RegWidth.bits, MemWidth.bits]
+                simp only [BitVec.setWidth_eq] at hrb hpa ⊢
+                rw [hrb, hpa, armCmpCond_subs (Or.inr rfl), CmpOp.swap_evalBits]
     · rename_i hn816
       have hn' : n = 8 ∨ n = 16 := by rcases mem_armWidths hn with rfl | rfl | rfl | rfl <;> simp at hn816 ⊢
       have hn0 : 0 < n := by rcases hn' with rfl | rfl <;> decide

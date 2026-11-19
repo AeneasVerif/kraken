@@ -46,11 +46,11 @@ def compiled : Compiled armTarget armLegalTarget [] [] 0 chacha20Module.fns chac
     [] [] 0 chacha20Module.fns chacha20Hints 2048 compiled_check
 
 private theorem chacha20Fns_supportsSource_all :
-    chacha20Module.fns.all (fun f => (f.opt).body.supportsSource armLegalTarget) = true := by
+    chacha20Module.fns.all (fun f => (f.earlyOpt).body.supportsSource armLegalTarget) = true := by
   t_kernel_rfl
 
 theorem chacha20Fns_supportsSource :
-    ∀ f ∈ chacha20Module.fns, (f.opt).body.supportsSource armLegalTarget = true :=
+    ∀ f ∈ chacha20Module.fns, (f.earlyOpt).body.supportsSource armLegalTarget = true :=
   fun f hf => List.all_eq_true.mp chacha20Fns_supportsSource_all f hf
 
 /-! ## 2. Generic `FnSpec` and Closed Kraken AArch64 Theorem -/

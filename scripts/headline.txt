@@ -560,3 +560,16 @@ LeanQbe.T.Arm64.LratBytes LeanQbe.T.Arm64.LratBytes.lrat_check_bytes_arm64_accep
 LeanQbe.T.Arm64.LratBytes LeanQbe.T.Arm64.LratBytes.lrat_check_bytes_arm64_rejects
 LeanQbe.T.Examples.Kissat.CoreLemmas1 LeanQbe.T.Examples.Kissat.checkModel_sound
 LeanQbe.T.Examples.Kissat.CoreLemmas LeanQbe.T.Examples.Kissat.cdclSolve_sound
+LeanQbe.T.InlineLemmas LeanQbe.T.Module.inline_ok
+LeanQbe.T.FlatLemmas LeanQbe.T.Func.renorm_spec
+LeanQbe.T.CanonLemmas LeanQbe.T.Func.canon_spec
+LeanQbe.T.DivConstLemmas LeanQbe.T.Func.divConst_spec
+LeanQbe.T.MemLoadLemmas LeanQbe.T.Func.memLoad_spec
+LeanQbe.T.MemLoadLemmas LeanQbe.T.Func.deadLoadElim_spec
+LeanQbe.T.MemLoadLemmas LeanQbe.T.Func.assumeElim_spec
+LeanQbe.T.IfOptLemmas LeanQbe.T.Func.ifOpt_spec
+LeanQbe.T.SimplifyGroupLemmas LeanQbe.T.Func.simplifyGroup_spec
+LeanQbe.T.PeelLemmas LeanQbe.T.Func.peel_spec
+LeanQbe.T.OptLemmas LeanQbe.T.Func.earlyOpt_spec
+LeanQbe.T.OptLemmas LeanQbe.T.Func.lateOpt_spec
+LeanQbe.T.OptLemmas LeanQbe.T.Module.optInline_ok

@@ -33,19 +33,6 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 
-/-- Flip an integer comparison predicate so `b (o.swap) a = a o b`. -/
-def CmpOp.swap : CmpOp → CmpOp
-  | .eq => .eq
-  | .ne => .ne
-  | .ult => .ugt
-  | .ule => .uge
-  | .ugt => .ult
-  | .uge => .ule
-  | .slt => .sgt
-  | .sle => .sge
-  | .sgt => .slt
-  | .sge => .sle
-
 /-- Associative and commutative binary opcodes eligible for constant-chain reassociation.
 Shifts are excluded because mod-`n` shift-count wrapping is not associative. -/
 inductive AssocOp

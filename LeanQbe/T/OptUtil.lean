@@ -2,13 +2,16 @@ module
 
 public import LeanQbe.T.WP
 public import LeanQbe.T.Flat
+public import LeanQbe.T.Trie
 
 /-!
-# Shared mid-end pass utilities (`T6`)
+# Shared mid-end pass utilities (`T6`, `#015-B1`)
 
-Common `Arg` / `Tup` / `Ctx` combinators (`Arg.imm?`, `tupMapArg`, `tupImms?`, `tupFreshWith`),
+Common `Arg` / `Tup` / `Ctx` / `Trie` combinators (`Arg.imm?`, `tupMapArg`, `tupImms?`,
+`tupFreshWith`, `flattenArg`/`flattenArgs`/`flattenOp`/`toArgTup`, `OptV`/`KL0`/`someTup`/`noneTup`/
+`dummyArgOptTup`/`argSweep`/`argsSweep`, `trieUnion`/`addArgKey`/`addArgKeys`/`anyLive`),
 relational transport lemmas, and generic `liftFloatRel{1,2,3}_pred` preservation lemmas shared
-across `Fold`, `Copy`, `Gvn`, and `Dce` (and their correctness modules).
+across mid-end optimization passes.
 -/
 
 set_option autoImplicit false
@@ -16,6 +19,8 @@ set_option autoImplicit false
 @[expose] public section
 
 namespace LeanQbe.T
+
+attribute [local instance] Val.inhabited
 
 /-! ## Shared `Arg` and `Tup` combinators (`#008-B1`) -/
 
@@ -43,6 +48,84 @@ def tupFreshWith {V W : Ty → Type} (mk : ∀ {t : Ty}, V t → Nat → W t) :
     (ts : List Ty) → Tup V ts → Nat → Tup W ts
   | [], (), _ => ()
   | _ :: ts, (x, xs), next => (mk x next, tupFreshWith mk ts xs (next + 1))
+
+/-! ## Two-level operand flattening and `Option`-tagged binder helpers (`#015-B1`) -/
+
+/-- Flatten a two-level operand `Arg (Arg V) t` into `Arg V t`. -/
+def flattenArg {V : Ty → Type} {t : Ty} : Arg (Arg V) t → Arg V t
+  | .var a => a
+  | .imm c => .imm c
+
+/-- Flatten a tuple of two-level operands into `Tup (Arg V) ts`. -/
+abbrev flattenArgs {V : Ty → Type} {ts : List Ty} :
+    Tup (Arg (Arg V)) ts → Tup (Arg V) ts :=
+  tupMapArg fun _ => flattenArg
+
+/-- Flatten operands of an `Op (Arg V) rs` into `Op V rs`. -/
+def flattenOp {V : Ty → Type} {rs : List Ty} (op : Op (Arg V) rs) : Op V rs :=
+  ⟨op.code, flattenArgs op.args⟩
+
+/-- Lift a variable tuple `Tup V ts` into `Tup (Arg V) ts`. -/
+def toArgTup {V : Ty → Type} : {ts : List Ty} → Tup V ts → Tup (Arg V) ts
+  | [], () => ()
+  | _ :: _, (x, xs) => (.var x, toArgTup xs)
+
+/-- Optional variable representation (`none` for dropped or static-probe binders). -/
+abbrev OptV (V : Ty → Type) (t : Ty) : Type := Option (V t)
+
+/-- Type-erased label representation used during bottom-up analysis passes. -/
+abbrev KL0 : List Ty → Type := fun _ => Unit
+
+/-- Wrap every variable in `Tup V ts` as `some`. -/
+def someTup {V : Ty → Type} : (ts : List Ty) → Tup V ts → Tup (OptV V) ts
+  | [], () => ()
+  | _ :: ts, (x, xs) => (some x, someTup ts xs)
+
+/-- Build a tuple of `none` variables matching `ts`. -/
+def noneTup {V : Ty → Type} : (ts : List Ty) → Tup (OptV V) ts
+  | [] => ()
+  | _ :: ts => (none, noneTup ts)
+
+/-- Build dummy `Arg.var none` operands matching `ts` for static probing. -/
+def dummyArgOptTup {V : Ty → Type} (ts : List Ty) : Tup (Arg (OptV V)) ts :=
+  toArgTup (noneTup ts)
+
+/-- Replace dropped (`none`) variables with `default` immediate values. -/
+def argSweep {V : Ty → Type} {t : Ty} : Arg (OptV V) t → Arg V t
+  | .var (some v) => .var v
+  | .var none => .imm default
+  | .imm c => .imm c
+
+/-- Map `argSweep` across an operand tuple. -/
+abbrev argsSweep {V : Ty → Type} {ts : List Ty} :
+    Tup (Arg (OptV V)) ts → Tup (Arg V) ts :=
+  tupMapArg fun _ => argSweep
+
+/-! ## Shared `Trie Unit` liveness helpers (`#015-B1`) -/
+
+/-- Structural union of two `Trie Unit` liveness sets (`rfl`-safe). -/
+def trieUnion : Trie Unit → Trie Unit → Trie Unit
+  | .empty, t => t
+  | t, .empty => t
+  | .node (some ()) e₁ o₁, .node _ e₂ o₂ =>
+    .node (some ()) (trieUnion e₁ e₂) (trieUnion o₁ o₂)
+  | .node none e₁ o₁, .node v₂ e₂ o₂ =>
+    .node v₂ (trieUnion e₁ e₂) (trieUnion o₁ o₂)
+
+/-- Record a variable operand key in a `Trie Unit` liveness set. -/
+def addArgKey {t : Ty} : Arg K t → Trie Unit → Trie Unit
+  | .var i, s => s.insert i ()
+  | .imm _, s => s
+
+/-- Record all variable operand keys of a tuple in a `Trie Unit` liveness set. -/
+def addArgKeys : {ts : List Ty} → Tup (Arg K) ts → Trie Unit → Trie Unit
+  | [], (), s => s
+  | _ :: _, (a, as), s => addArgKey a (addArgKeys as s)
+
+/-- Return `true` iff any de Bruijn level in `[b, b + k)` is present in `s`. -/
+def anyLive (b : Nat) : Nat → Trie Unit → Bool
+  | 0, _ => false
+  | k + 1, s => (s.find? b).isSome || anyLive (b + 1) k s
 
 /-! ## Shared `Tup` / `TRel` / `Ctx` transport lemmas -/
 

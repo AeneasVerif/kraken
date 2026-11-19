@@ -29,24 +29,6 @@ namespace LeanQbe.T
 
 namespace Peel
 
-/-- Flatten a two-level operand `Arg (Arg V) t` into `Arg V t`. -/
-def flattenArg {V : Ty → Type} {t : Ty} : Arg (Arg V) t → Arg V t
-  | .var a => a
-  | .imm c => .imm c
-
-/-- Flatten a tuple of two-level operands into `Tup (Arg V) ts`. -/
-abbrev flattenArgs {V : Ty → Type} {ts : List Ty} :
-    Tup (Arg (Arg V)) ts → Tup (Arg V) ts :=
-  tupMapArg fun _ => flattenArg
-
-/-- Flatten operands of an `Op (Arg V) rs` into `Op V rs`. -/
-def flattenOp {V : Ty → Type} {rs : List Ty} (op : Op (Arg V) rs) : Op V rs :=
-  ⟨op.code, flattenArgs op.args⟩
-
-/-- Lift a variable tuple `Tup V ts` into `Tup (Arg V) ts`. -/
-abbrev toArgTup {V : Ty → Type} {ts : List Ty} (xs : Tup V ts) : Tup (Arg V) ts :=
-  xs.map fun _ => Arg.var
-
 /-- Construct a tuple of default immediate operands for metrics inspection. -/
 def immDefaults (V : Ty → Type) : (ts : List Ty) → Tup (Arg V) ts
   | [] => ()
@@ -218,7 +200,7 @@ def peelB (budget : Nat) {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
 /-- Peel 1 iteration of eligible single-block loops in a closed function `Func`, bounded by
 `maxLoopSize` (default `40`). -/
 def Func.peel {as rs : List Ty} (f : Func as rs) (maxLoopSize : Nat := 40) : Func as rs :=
-  fun V L xs => LeanQbe.T.peel maxLoopSize (f (Arg V) (Peel.PeelL V L rs) (Peel.toArgTup xs))
+  fun V L xs => LeanQbe.T.peel maxLoopSize (f (Arg V) (Peel.PeelL V L rs) (toArgTup xs))
 
 /-- Peel 1 iteration of eligible single-block loops in a named function `Fn`, keeping `name`,
 `as`, and `rs`. -/

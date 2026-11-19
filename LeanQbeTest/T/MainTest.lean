@@ -456,7 +456,7 @@ theorem litmusMod_wf : ∀ f ∈ litmusMod.fns, f.Wf := by
   · unfold Fn.Wf; t_wf_reify
 
 theorem litmusMod_supportsSource :
-    ∀ f ∈ litmusMod.fns, (f.opt).body.supportsSource LegalTarget.aarch64 = true := by
+    ∀ f ∈ litmusMod.fns, (f.earlyOpt).body.supportsSource LegalTarget.aarch64 = true := by
   intro f hf
   simp only [litmusMod, List.mem_cons, List.not_mem_nil, or_false] at hf
   rcases hf with rfl | rfl <;> t_kernel_rfl
@@ -599,7 +599,7 @@ theorem guardMod_wf : ∀ f ∈ guardMod.fns, f.Wf := by
   subst hf; unfold Fn.Wf; t_wf_reify
 
 theorem guardMod_supportsSource :
-    ∀ f ∈ guardMod.fns, (f.opt).body.supportsSource LegalTarget.aarch64 = true := by
+    ∀ f ∈ guardMod.fns, (f.earlyOpt).body.supportsSource LegalTarget.aarch64 = true := by
   intro f hf
   simp only [guardMod, List.mem_singleton] at hf
   subst hf; t_kernel_rfl

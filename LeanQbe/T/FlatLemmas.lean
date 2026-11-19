@@ -499,15 +499,7 @@ Callers should use `t_wf_reify` rather than `Func.wf_of_reify rfl`, which does n
 cleanly in the elaborator on large PHOAS terms. -/
 macro "t_wf_reify" : tactic => `(tactic| (refine Func.wf_of_reify ?_; t_kernel_rfl))
 
-/-! ## Reification-denotation round-trip (`reifyFunc`, `denoteFunc`, `Func.renorm_spec`) -/
-
-/-- Reify a closed function `f` into its first-order de Bruijn `TFlat` representation. -/
-def reifyFunc {as rs : List Ty} (f : Func as rs) : TFlat rs :=
-  toTFlat (f K KL (Tup.levels as 0)) as.length 0
-
-/-- Denote a first-order `TFlat` term back into a closed PHOAS `Func`. -/
-def denoteFunc {as rs : List Ty} (tf : TFlat rs) : Func as rs :=
-  fun V L xs => denote V L tf (pushTup xs []) []
+/-! ## Reification-denotation round-trip (`Func.renorm`, `Func.renorm_wf`, `Func.renorm_spec`) -/
 
 private theorem castTy_self_eq {V : Ty → Type} : ∀ (t : Ty) (v : V t), castTy t t v = some v
   | .bool, _ => rfl
@@ -773,20 +765,20 @@ theorem renorm_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
 
 /-- Reification-denotation round-trip of any closed function is well-formed. -/
 theorem Func.renorm_wf {as rs : List Ty} (f : Func as rs) :
-    (denoteFunc (as := as) (reifyFunc f)).Wf :=
+    (Func.renorm f).Wf :=
   Func.wf_of_denote (reifyFunc f) rfl
 
 /-- Reification-denotation round-trip preserves `Func.wp` for any well-formed function. -/
 theorem Func.renorm_spec {as rs : List Ty} {Γ : Env} {f : Func as rs} (h : f.Wf)
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (hw : Func.wp Γ f xs m Q X) :
-    Func.wp Γ (denoteFunc (reifyFunc f)) xs m Q X := by
+    Func.wp Γ (Func.renorm f) xs m Q X := by
   have hwf := h K Val KL Cont (Tup.levels as 0) xs
   have hvs : CtxMatch lookupV (Tup.zip (Tup.levels as 0) xs) (pushTup xs []) := by
     simpa [List.append_nil] using
       (ctxMatch_pushTupV (G := ([] : Ctx K Val)) (vs := []) (fun _ hp => nomatch hp) xs)
   have hls : CtxMatch lookupL ([] : Ctx KL Cont) [] := fun _ hp => nomatch hp
   have hd := denote_wp hwf (pushTup xs []) [] hvs hls hw
-  simpa [Func.wp, denoteFunc, reifyFunc, pushTup_length] using hd
+  simpa [Func.wp, Func.renorm, denoteFunc, reifyFunc, pushTup_length] using hd
 
 end LeanQbe.T

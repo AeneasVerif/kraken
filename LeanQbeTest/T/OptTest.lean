@@ -194,4 +194,102 @@ theorem scaleLive250_opt_out : Func.opt scaleLive250 = scaleLive250 := by
 theorem scaleLive250_opt_wf : (Func.opt scaleLive250).Wf :=
   Func.opt_wf (by t_wf_reify)
 
+/-! ## 6. Staged `O-M2` pipelines (`Func.earlyOpt`, `Func.lateOpt`, `simplifyGroupFast`) -/
+
+/-- Diamond join (`if x <s y then a + 10 else a - 10`) collapses under `lateOpt` via
+`ifOptBits → simplifyGroupFast`. -/
+def stagedDiamond : Func [i64, i64, i64] [i64] := fun _ _ (x, y, a, ()) =>
+  .let_ (op2 (.cmp .slt i64) (.var x) (.var y)) fun (c, ()) =>
+  .group (sig := [[i64]])
+    (fun _ => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
+    (fun (J, ()) =>
+      .jnz (.var c)
+        (.let_ (op2 (.add i64) (.var a) (.imm 10)) fun (t, ()) => .jump J (.var t, ()))
+        (.let_ (op2 (.sub i64) (.var a) (.imm 10)) fun (e, ()) => .jump J (.var e, ())))
+
+theorem stagedDiamond_earlyOpt_out : Func.earlyOpt stagedDiamond = fun _ _ (x, y, a, ()) =>
+    .let_ (op2 (.cmp .slt i64) (.var x) (.var y)) fun (c, ()) =>
+    .group (sig := [[i64]])
+      (fun _ => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
+      (fun (J, ()) =>
+        .jnz (.var c)
+          (.let_ (op2 (.add i64) (.var a) (.imm 10)) fun (t, ()) => .jump J (.var t, ()))
+          (.let_ (op2 (.sub i64) (.var a) (.imm 10)) fun (e, ()) => .jump J (.var e, ()))) := by
+  t_kernel_rfl
+
+theorem stagedDiamond_lateOpt_out :
+    Func.lateOpt (Func.earlyOpt stagedDiamond) = fun _ _ (x, y, a, ()) =>
+      .let_ (op2 (.cmp .slt i64) (.var x) (.var y)) fun (c, ()) =>
+      .let_ (op2 (.add i64) (.var a) (.imm 10)) fun (t, ()) =>
+      .let_ (op2 (.sub i64) (.var a) (.imm 10)) fun (e, ()) =>
+      .let_ (op3 (.select i64) (.var c) (.var t) (.var e)) fun (s, ()) =>
+      .ret (.var s, ()) := by
+  t_kernel_rfl
+
+theorem stagedDiamond_wf : stagedDiamond.Wf := by t_wf_reify
+
+theorem stagedDiamond_earlyOpt_wf : (Func.earlyOpt stagedDiamond).Wf :=
+  Func.earlyOpt_wf stagedDiamond_wf
+
+theorem stagedDiamond_lateOpt_wf : (Func.lateOpt (Func.earlyOpt stagedDiamond)).Wf :=
+  Func.lateOpt_wf stagedDiamond_earlyOpt_wf
+
+theorem stagedDiamond_earlyLate_spec (Γ : Env) (x y a : BitVec 64) (m : Mem 64) :
+    Func.spec Γ (Func.lateOpt (Func.earlyOpt stagedDiamond)) (x, y, a, ()) m
+      (fun (r, ()) m' =>
+        r = (if BitVec.slt x y then a + 10#64 else a - 10#64) ∧ m' = m)
+      (fun _ _ _ _ => False) := by
+  apply Func.lateOpt_spec stagedDiamond_earlyOpt_wf
+  apply Func.earlyOpt_spec stagedDiamond_wf
+  dsimp only [Func.spec, Func.wp, stagedDiamond]
+  simp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, liftCmp, CmpOp.evalBits, i64, Closed]
+  intro ⟨J, ⟨⟩⟩ hJ
+  refine ⟨fun h => ?_, fun h => ?_⟩
+  · exact hJ.1 (a + 10#64, ()) m ⟨by simp [h], rfl⟩
+  · exact hJ.1 (a - 10#64, ()) m ⟨by simp [h], rfl⟩
+
+/-- Post-`Legal` synergy across `divConst` (`x /u 2` -> `lshr 1`), `memLoad` (store-to-load
+forwarding), `deadLoadElim` (unused load), and `assumeElim` (`.jnz c _ .hlt`). -/
+def lateSynergyProg : Func [i64, i64, .bool] [i64] := fun _ _ (x, ptr, cond, ()) =>
+  .store (.var x) (.var ptr)
+    (.load i64 (.var ptr) fun v =>
+      .load i64 (.var ptr) fun _unused =>
+        .let_ (op2 (.udiv 64) (.var v) (.imm 2)) fun (q, ()) =>
+          .jnz (.var cond) (.ret (.var q, ())) .hlt)
+
+theorem lateSynergyProg_lateOpt_out : Func.lateOpt lateSynergyProg = fun _ _ (x, ptr, _c, ()) =>
+    .store (.var x) (.var ptr)
+      (.let_ (op2 (.lshr i64) (.var x) (.imm 1)) fun (q, ()) =>
+        .ret (.var q, ())) := by
+  t_kernel_rfl
+
+theorem lateSynergyProg_wf : lateSynergyProg.Wf := by t_wf_reify
+
+theorem lateSynergyProg_lateOpt_wf : (Func.lateOpt lateSynergyProg).Wf :=
+  Func.lateOpt_wf lateSynergyProg_wf
+
+theorem lateSynergyProg_lateOpt_spec (Γ : Env) (x ptr o : BitVec 64) (cond : Bool)
+    (hcond : cond = true) (R : Mem 64 → Prop) (m : Mem 64) (hm : (cell64 ptr o ⋆ R) m) :
+    Func.spec Γ (Func.lateOpt lateSynergyProg) (x, ptr, cond, ()) m
+      (fun (r, ()) m' => r = x / 2#64 ∧ (cell64 ptr x ⋆ R) m')
+      (fun _ _ _ _ => False) := by
+  subst hcond
+  apply Func.lateOpt_spec lateSynergyProg_wf
+  dsimp only [Func.spec, Func.wp, lateSynergyProg]
+  wp_unfold
+  obtain ⟨hst, hm1⟩ := store_cell64 x hm
+  refine ⟨hst, ?_⟩
+  have hl : loadVal _ i64 ptr = some x := loadVal_cell64 hm1
+  refine ⟨x, hl, x, hl, by decide, ?_⟩
+  exact ⟨fun _ => ⟨rfl, hm1⟩, fun h => by cases h⟩
+
+#print axioms LeanQbe.T.Func.renorm_spec
+#print axioms LeanQbe.T.Func.simplifyGroupFast_spec
+#print axioms LeanQbe.T.Func.earlyOpt_wf
+#print axioms LeanQbe.T.Func.earlyOpt_spec
+#print axioms LeanQbe.T.Func.lateOpt_wf
+#print axioms LeanQbe.T.Func.lateOpt_spec
+#print axioms stagedDiamond_earlyLate_spec
+#print axioms lateSynergyProg_lateOpt_spec
+
 end LeanQbe.T.OptTest

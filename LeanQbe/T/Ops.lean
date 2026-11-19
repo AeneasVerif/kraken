@@ -66,6 +66,12 @@ inductive CmpOp
   | eq | ne | ult | ule | ugt | uge | slt | sle | sgt | sge
   deriving DecidableEq, Repr, Inhabited, Hashable
 
+/-- Flip an integer comparison predicate so `b (o.swap) a = a o b`. -/
+def CmpOp.swap : CmpOp → CmpOp
+  | .eq => .eq | .ne => .ne
+  | .ult => .ugt | .ule => .uge | .ugt => .ult | .uge => .ule
+  | .slt => .sgt | .sle => .sge | .sgt => .slt | .sge => .sle
+
 /-- IEEE floating-point comparison predicates.
 `eq`, `lt`, `le`, `gt`, `ge` are ordered (returning `false` if either operand is NaN);
 `ne` is unordered-or-not-equal (`true` on `lt`, `gt`, or when either operand is NaN, matching

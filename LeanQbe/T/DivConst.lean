@@ -36,26 +36,6 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 
-/-! ## PHOAS two-level operand flattening -/
-
-/-- Flatten a two-level operand `Arg (Arg V) t` into `Arg V t`. -/
-def divFlatArg {V : Ty → Type} {t : Ty} : Arg (Arg V) t → Arg V t
-  | .var a => a
-  | .imm c => .imm c
-
-/-- Flatten a tuple of two-level operands into `Tup (Arg V) ts`. -/
-abbrev divFlatArgs {V : Ty → Type} {ts : List Ty} :
-    Tup (Arg (Arg V)) ts → Tup (Arg V) ts :=
-  tupMapArg fun _ => divFlatArg
-
-/-- Flatten operands of an `Op (Arg V) rs` into `Op V rs`. -/
-def divFlatOp {V : Ty → Type} {rs : List Ty} (op : Op (Arg V) rs) : Op V rs :=
-  ⟨op.code, divFlatArgs op.args⟩
-
-/-- Lift a variable tuple `Tup V ts` into `Tup (Arg V) ts`. -/
-abbrev divArgTup {V : Ty → Type} {ts : List Ty} (xs : Tup V ts) : Tup (Arg V) ts :=
-  xs.map fun _ => Arg.var
-
 /-! ## Total computable boolean certificates (trusted checkers) -/
 
 /-- Certificate that `d = 2^m` with `2 ≤ n` and `1 ≤ m < n`. -/
@@ -256,8 +236,8 @@ def emitSRemConst {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
 /-- Lower one `let_` operation with optional constant division/remainder replacement. -/
 def divConstOp {V : Ty → Type} {L : List Ty → Type} {rs ts : List Ty}
     (op : Op (Arg V) ts) (k : Tup (Arg V) ts → Expr V L rs) : Expr V L rs :=
-  let op' := divFlatOp op
-  let fallback := .let_ op' fun xs => k (divArgTup xs)
+  let op' := flattenOp op
+  let fallback := .let_ op' fun xs => k (toArgTup xs)
   let ⟨code, args⟩ := op'
   match code, args with
   | .udiv n, (x, .imm d, ()) =>
@@ -275,14 +255,14 @@ mutual
 def divConst {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
     Expr (Arg V) L rs → Expr V L rs
   | .let_ op k => divConstOp op fun res => divConst (k res)
-  | .load t a k => .load t (divFlatArg a) fun v => divConst (k (.var v))
-  | .store v a k => .store (divFlatArg v) (divFlatArg a) (divConst k)
+  | .load t a k => .load t (flattenArg a) fun v => divConst (k (.var v))
+  | .store v a k => .store (flattenArg v) (flattenArg a) (divConst k)
   | .call f args k =>
-    .call f (divFlatArgs args) fun xs => divConst (k (divArgTup xs))
-  | .jnz c t e => .jnz (divFlatArg c) (divConst t) (divConst e)
-  | .jump j args => .jump j (divFlatArgs args)
-  | .ret vs => .ret (divFlatArgs vs)
-  | .exit f args => .exit f (divFlatArgs args)
+    .call f (flattenArgs args) fun xs => divConst (k (toArgTup xs))
+  | .jnz c t e => .jnz (flattenArg c) (divConst t) (divConst e)
+  | .jump j args => .jump j (flattenArgs args)
+  | .ret vs => .ret (flattenArgs vs)
+  | .exit f args => .exit f (flattenArgs args)
   | .hlt => .hlt
   | .group bodies k =>
     .group (fun Js => divConstB (bodies Js)) (fun Js => divConst (k Js))
@@ -291,12 +271,12 @@ def divConst {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
 def divConstB {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
     {sig : List (List Ty)} → Blocks (Arg V) L rs sig → Blocks V L rs sig
   | _, .nil => .nil
-  | _, .cons b bs => .cons (fun xs => divConst (b (divArgTup xs))) (divConstB bs)
+  | _, .cons b bs => .cons (fun xs => divConst (b (toArgTup xs))) (divConstB bs)
 end
 
 /-- Run constant division & remainder optimization on a closed typed function `Func`. -/
 def Func.divConst {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  fun V L xs => LeanQbe.T.divConst (f (Arg V) L (divArgTup xs))
+  fun V L xs => LeanQbe.T.divConst (f (Arg V) L (toArgTup xs))
 
 /-- Run constant division & remainder optimization on a named typed function `Fn`. -/
 def Fn.divConst (fn : Fn) : Fn :=

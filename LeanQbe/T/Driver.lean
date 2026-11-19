@@ -53,8 +53,9 @@ def main (tool : String) (I : Isa) (lt : LegalTarget)
     runProgram tool name fun fs => (· ++ "\n") <$> PrintQbe.fns fs
   | [name] =>
     runProgram tool name fun fs =>
-      let hints := fs.map fun f => Spill.hints I (f.mid lt)
-      emitAsm printCode fs <$> compile I lt fs hints
+      let fs' := (Module.optInline { fns := fs }).fns
+      let hints := fs'.map fun f => Spill.hints I (f.mid lt)
+      emitAsm printCode fs' <$> compile I lt fs' hints
   | _ => do
     IO.eprintln s!"usage: {tool} <program> | {tool} --il <program> | {tool} --list"
     pure 2

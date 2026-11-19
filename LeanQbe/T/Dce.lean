@@ -1,15 +1,13 @@
 module
 
-public import LeanQbe.T.WP
-public import LeanQbe.T.Flat
-public import LeanQbe.T.Trie
+public import LeanQbe.T.OptUtil
 
 /-!
 # Dead-Code Elimination (`T6`)
 
 Two-phase PHOAS dead-code elimination pass:
 1. Bottom-up pure liveness analysis (`liveVars` / `liveVarsB`) over `Expr K KL0 rs` using the
-   shared `O(log N)` structural binary trie `Trie Unit`.
+   shared `O(log N)` structural binary trie `Trie Unit` (`OptUtil`).
    A `let_` binding `[b, b + ts.length)` is kept iff any of its results is live in its
    continuation (`anyLive`), causing chains of dead pure bindings to cascade in a single sweep.
    Side-effectful or control nodes (`load`, `store`, `call`, `exit`, `jnz`, `jump`, `ret`, `hlt`,
@@ -28,55 +26,7 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 
-attribute [local instance] Val.inhabited
-
-/-! ## `Trie Unit` union helper -/
-
-/-- Structural union of two `Trie Unit` liveness sets (`rfl`-safe). -/
-def trieUnion : Trie Unit → Trie Unit → Trie Unit
-  | .empty, t => t
-  | t, .empty => t
-  | .node (some ()) e₁ o₁, .node _ e₂ o₂ =>
-    .node (some ()) (trieUnion e₁ e₂) (trieUnion o₁ o₂)
-  | .node none e₁ o₁, .node v₂ e₂ o₂ =>
-    .node v₂ (trieUnion e₁ e₂) (trieUnion o₁ o₂)
-
-/-! ## Keep-tree representation and variable helpers -/
-
-/-- Variable representation in `dceSweep`: `some v` for live binders, `none` for dropped ones. -/
-abbrev OptV (V : Ty → Type) (t : Ty) : Type := Option (V t)
-
-/-- Type-erased label representation used during bottom-up liveness analysis. -/
-abbrev KL0 : List Ty → Type := fun _ => Unit
-
-def someTup {V : Ty → Type} : (ts : List Ty) → Tup V ts → Tup (OptV V) ts
-  | [], () => ()
-  | _ :: ts, (x, xs) => (some x, someTup ts xs)
-
-def noneTup {V : Ty → Type} : (ts : List Ty) → Tup (OptV V) ts
-  | [] => ()
-  | _ :: ts => (none, noneTup ts)
-
-def addArgKey {t : Ty} : Arg K t → Trie Unit → Trie Unit
-  | .var i, s => s.insert i ()
-  | .imm _, s => s
-
-def addArgKeys : {ts : List Ty} → Tup (Arg K) ts → Trie Unit → Trie Unit
-  | [], (), s => s
-  | _ :: _, (a, as), s => addArgKey a (addArgKeys as s)
-
-def anyLive (b : Nat) : Nat → Trie Unit → Bool
-  | 0, _ => false
-  | k + 1, s => (s.find? b).isSome || anyLive (b + 1) k s
-
-def argSweep {V : Ty → Type} {t : Ty} : Arg (OptV V) t → Arg V t
-  | .var (some v) => .var v
-  | .var none => .imm default
-  | .imm c => .imm c
-
-def argsSweep {V : Ty → Type} : {ts : List Ty} → Tup (Arg (OptV V)) ts → Tup (Arg V) ts
-  | [], () => ()
-  | _ :: _, (a, as) => (argSweep a, argsSweep as)
+/-! ## Keep-tree representation -/
 
 mutual
 inductive KeepTree : Type

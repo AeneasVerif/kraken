@@ -62,25 +62,7 @@ def Func.size {as rs : List Ty} (f : Func as rs) : Nat :=
 def Fn.size (fn : Fn) : Nat :=
   Func.size fn.body
 
-/-! ## Callee operand flattening and `.ret`-to-`.jump` splicing -/
-
-/-- Flatten a two-level operand `Arg (Arg V) t` into `Arg V t`. -/
-def flattenArg {V : Ty → Type} {t : Ty} : Arg (Arg V) t → Arg V t
-  | .var a => a
-  | .imm c => .imm c
-
-/-- Flatten a tuple of two-level operands into `Tup (Arg V) ts`. -/
-abbrev flattenArgs {V : Ty → Type} {ts : List Ty} :
-    Tup (Arg (Arg V)) ts → Tup (Arg V) ts :=
-  tupMapArg fun _ => flattenArg
-
-/-- Flatten operands of an `Op (Arg V) rs` into `Op V rs`. -/
-def flattenOp {V : Ty → Type} {rs : List Ty} (op : Op (Arg V) rs) : Op V rs :=
-  ⟨op.code, flattenArgs op.args⟩
-
-/-- Lift a variable tuple `Tup V ts` into `Tup (Arg V) ts`. -/
-abbrev toArgTup {V : Ty → Type} {ts : List Ty} (xs : Tup V ts) : Tup (Arg V) ts :=
-  xs.map fun _ => Arg.var
+/-! ## `.ret`-to-`.jump` splicing (using `OptUtil` operand flattening) -/
 
 mutual
 /-- Splice a callee body instantiated at `Arg V` and caller label type `L` into a caller

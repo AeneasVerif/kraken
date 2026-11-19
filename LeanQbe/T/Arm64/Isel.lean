@@ -194,11 +194,6 @@ def armCmpCond : CmpOp → ArmCond
   | .eq => .eq | .ne => .ne | .ult => .cc | .ule => .ls | .ugt => .hi
   | .uge => .cs | .slt => .lt | .sle => .le | .sgt => .gt | .sge => .ge
 
-/-- Swap comparison orientation when immediate is on the left (`a o b ↔ b (swap o) a`). -/
-def armSwapCmp : CmpOp → CmpOp
-  | .eq => .eq | .ne => .ne | .ult => .ugt | .ule => .uge | .ugt => .ult
-  | .uge => .ule | .slt => .sgt | .sle => .sge | .sgt => .slt | .sge => .sle
-
 def armIsSignedCmp : CmpOp → Bool
   | .slt | .sle | .sgt | .sge => true
   | _ => false
@@ -466,7 +461,7 @@ def armCmpOp (o : CmpOp) (n : Nat) (pa pb : PArg Reg Empty ArmCond (.bits n))
           finish (cb' ++ [ins (.SUBS_s (xzr w) (zr ra w) (sh rb))]) (armCmpCond o)
       | .imm ca, .gpr (.reg rb) =>
         match armImm12? ca with
-        | some ei => finish [ins (.SUBS_e (xzr w) (.low (.reg rb) w) ei)] (armCmpCond (armSwapCmp o))
+        | some ei => finish [ins (.SUBS_e (xzr w) (.low (.reg rb) w) ei)] (armCmpCond o.swap)
         | none =>
           let (ca', ra) ← armArgIn .X16 pa
           finish (ca' ++ [ins (.SUBS_s (xzr w) (zr ra w) (sh rb))]) (armCmpCond o)

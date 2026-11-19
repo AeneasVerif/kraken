@@ -132,3 +132,27 @@ As recorded on the swarm board (`w3-crypto` `#385`, `@reviewer` `#387`, `@coordi
 | `LeanQbe/T/Amd64/ChaCha.lean` | 262 | `7.98 s` (`7.44 u + 0.54 s`) | `chacha20Block` (EVEX `v4i32` SIMD): `77` / `8 B` / `367 B` |
 | `LeanQbe/T/Arm64/ChaCha.lean` | 266 | `37.40 s` (`35.41 u + 1.99 s`) | `chacha20Block` (scalarized `v4i32`): `485` / `192 B` / `1944 B` |
 
+---
+
+## 7. Post-`O-Track` Re-Verification (`Func.earlyOpt` → `Legal` → `Func.lateOpt`)
+
+After wiring `Fn.mid lt f := ((f.earlyOpt).legal lt).lateOpt` (`O-Track` Wave 3) with AST
+renormalization (`Func.renorm`) and `simplifyGroupFast` / `peelFast`, all `10` native certificates
+were re-verified sequentially via `/usr/bin/time -p timeout 300 lake env lean -DwarningAsError=true`
+with **zero `maxHeartbeats` overrides** (`0` warnings, `0 sorry`):
+
+| Module | LOC | CPU Time (`user + sys`) | Wall Time | Post-`O-Track` Metrics (`dirs` / `bound` / `.text`) |
+|---|---:|---:|---:|---|
+| `LeanQbe/T/Amd64/Litmus.lean` | 640 | `8.33 s` (`7.79 u + 0.54 s`) | `6.86 s` | `10` modules, `279` dirs total (max bound `56 B` `spill10`) |
+| `LeanQbe/T/Amd64/UnionFind.lean` | 289 | `11.67 s` (`10.96 u + 0.71 s`) | `11.07 s` | `119` dirs; bounds `find: 8, union: 40, unionInline: 8` |
+| `LeanQbe/T/Amd64/Bignum.lean` | 496 | `18.20 s` (`17.14 u + 1.06 s`) | `17.06 s` | `mul4x4`: `258` / `104 B` / `1022 B` (`11 mulx, 12 adcx, 12 adox, 0 setcc`); `addMod25519`: `68` / `40 B` / `255 B`; `subMod25519`: `78` / `56 B` / `300 B` |
+| `LeanQbe/T/Amd64/ChaCha.lean` | 262 | `7.47 s` (`6.81 u + 0.66 s`) | `6.88 s` | `chacha20Block`: `75` / `8 B` / `365 B` (`-2` dirs, `-2 B` vs `3b42664`) |
+| `LeanQbe/T/Amd64/LratBytes.lean` | 328 | **`67.30 s`** (`63.95 u + 3.35 s`) | `64.90 s` | `1,509` dirs; bounds `8 / 72 / 56 / 88 / 184 / 264` (`-11.88 s` vs `T16`) |
+| `LeanQbe/T/Arm64/Litmus.lean` | 663 | `8.46 s` (`7.91 u + 0.55 s`) | `6.92 s` | `10` modules, `259` dirs total (max bound `48 B` `twice`/`sumcall`) |
+| `LeanQbe/T/Arm64/UnionFind.lean` | 288 | `6.84 s` (`6.28 u + 0.56 s`) | `6.27 s` | `107` dirs; bounds `find: 16, union: 48, unionInline: 16` |
+| `LeanQbe/T/Arm64/Bignum.lean` | 477 | `17.49 s` (`16.60 u + 0.89 s`) | `16.55 s` | `mul4x4`: `225` / `48 B` / `904 B`; `addMod25519`: `44` / `16 B` / `200 B`; `subMod25519`: `52` / `16 B` / `232 B` |
+| `LeanQbe/T/Arm64/ChaCha.lean` | 262 | `37.36 s` (`35.77 u + 1.59 s`) | `36.80 s` | `chacha20Block`: `481` / `192 B` / `1928 B` (`-4` dirs, `-16 B` vs `3b42664`) |
+| `LeanQbe/T/Arm64/LratBytes.lean` | 331 | **`39.71 s`** (`38.05 u + 1.66 s`) | `37.30 s` | `1,200` dirs; bounds `16 / 16 / 16 / 16 / 112 / 176` (`-3.29 s` vs `T16`) |
+
+See [o_track_benchmarks.md](./o_track_benchmarks.md) for `bench/run.sh`, `MB1`–`MB8` speedup tables, and the `13` new `O-Track` headline theorems added to `scripts/headline.txt`.
+

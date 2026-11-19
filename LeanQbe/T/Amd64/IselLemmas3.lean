@@ -113,8 +113,8 @@ theorem opCmp_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (co :
         rcases hpa with rfl; simp only [opCmp] at hc
         split at hc
         · simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
-          refine useSetcc _ vb cx (condOf (swapCmp co))
-            (by rw [cond_subFlags hwn, swapCmp_evalBits]) rfl rfl ?_
+          refine useSetcc _ vb cx (condOf co.swap)
+            (by rw [cond_subFlags hwn, CmpOp.swap_evalBits]) rfl rfl ?_
           refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_cmp_imm w s ry cx)) ?_
           rintro s1 rfl; exact ⟨fun _ _ => rfl, rfl, rfl, by rw [hpb.2]⟩
         · simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
@@ -161,7 +161,7 @@ theorem opCmp_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (co :
         · rename_i hcond
           have hcc := (beq_cond_iff cc _).1 ((Bool.and_eq_true ..).mp hcond).1
           simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
-          refine finish _ vb cx (by rw [hcc, cond_subFlags hwn, swapCmp_evalBits]) rfl rfl ?_
+          refine finish _ vb cx (by rw [hcc, cond_subFlags hwn, CmpOp.swap_evalBits]) rfl rfl ?_
           refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_cmp_imm w s ry cx)) ?_
           rintro s1 rfl; exact ⟨fun _ _ => rfl, rfl, rfl, by rw [hpb.2]⟩
         · split at hc
@@ -178,7 +178,7 @@ theorem opCmp_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (co :
           · split at hc <;> try contradiction
             rename_i hcc; have hcc' := (beq_cond_iff cc _).1 hcc
             simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
-            refine finish _ vb cx (by rw [hcc', cond_subFlags hwn, swapCmp_evalBits]) rfl rfl ?_
+            refine finish _ vb cx (by rw [hcc', cond_subFlags hwn, CmpOp.swap_evalBits]) rfl rfl ?_
             have hry := (ne_of_not_mem_x64Scratch (hargs ry (by simp [PArg.gprs]))).1
             refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD s .r10 (cx.setWidth 64))) ?_
             rintro s1 rfl
@@ -200,7 +200,7 @@ theorem opCmp_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (co :
           have hargs' : ∀ r ∈ (PArg.imm cy : PArg Reg64 RegMm CondCode (.bits w.bits)).gprs ++
               (PArg.imm cx : PArg Reg64 RegMm CondCode (.bits w.bits)).gprs, r ∉ x64Scratch :=
             fun r hr => by simp [PArg.gprs] at hr
-          exact finish _ vb va (by rw [hcc', cond_subFlags hwn, swapCmp_evalBits]) rfl rfl
+          exact finish _ vb va (by rw [hcc', cond_subFlags hwn, CmpOp.swap_evalBits]) rfl rfl
             (wp_cmpDirect w hseq hargs' hpb hpa)
       | vec _ => simp [opCmp, cmpDirect] at hc
     | gpr rx =>
@@ -221,7 +221,7 @@ theorem opCmp_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (co :
               ∀ r ∈ _ ++ (PArg.gpr rx : PArg Reg64 RegMm CondCode (.bits w.bits)).gprs,
                 r ∉ x64Scratch :=
             fun r hr => hargs r (by simp only [List.mem_append] at hr ⊢; exact hr.symm)
-          exact finish _ vb va (by rw [hcc', cond_subFlags hwn, swapCmp_evalBits]) rfl rfl
+          exact finish _ vb va (by rw [hcc', cond_subFlags hwn, CmpOp.swap_evalBits]) rfl rfl
             (wp_cmpDirect w hseq hargs' hpb hpa)
     | vec _ => simp [opCmp, cmpDirect] at hc
 

@@ -504,6 +504,38 @@ theorem singleRet_opt_inlined_spec (a : BitVec 64) (m : Mem 64) :
       (singleRet_wf fnAdd1Caller (List.mem_cons_of_mem _ List.mem_cons_self))
   · exact singleRet_caller_spec a m _ _ ⟨rfl, rfl⟩
 
+/-- `Module.optInline` preserves `ModuleOk` across acyclic inlining + renormalization. -/
+theorem singleRet_optInline_modOk : ModuleOk singleRetΓ singleRetMod.optInline :=
+  Module.optInline_ok 40 singleRet_modOk
+
+theorem nested_optInline_modOk : ModuleOk nestedΓ nestedMod.optInline :=
+  Module.optInline_ok 40 nested_modOk
+
+/-- Post-inlining `Func.earlyOpt` collapses the spliced single-use `.group` into straight-line
+code. -/
+theorem singleRet_earlyOpt_inlined_out :
+    Func.earlyOpt (fnAdd1Caller.inline [fnAdd1]).body = fun _ _ (a, ()) =>
+      .let_ (op2 (.add i64) (.var a) (.imm 1)) fun (y, ()) =>
+      .let_ (op2 (.shl i64) (.var y) (.imm 1)) fun (z, ()) =>
+      .ret (.var z, ()) := by
+  t_kernel_rfl
+
+theorem singleRet_earlyOpt_inlined_wf :
+    (Func.earlyOpt (fnAdd1Caller.inline [fnAdd1]).body).Wf :=
+  Func.earlyOpt_wf (Func.inline_wf (fun _ h => by
+    simp only [List.mem_singleton] at h; subst h; exact singleRet_wf fnAdd1 List.mem_cons_self)
+    (singleRet_wf fnAdd1Caller (List.mem_cons_of_mem _ List.mem_cons_self)))
+
+theorem singleRet_earlyOpt_inlined_spec (a : BitVec 64) (m : Mem 64) :
+    Func.spec singleRetΓ (Func.earlyOpt (fnAdd1Caller.inline [fnAdd1]).body) (a, ()) m
+      (fun r m' => r = ((a + 1#64) * 2#64, ()) ∧ m' = m)
+      (fun _ _ _ _ => False) := by
+  apply Func.earlyOpt_spec
+  · exact Func.inline_wf (fun _ h => by
+      simp only [List.mem_singleton] at h; subst h; exact singleRet_wf fnAdd1 List.mem_cons_self)
+      (singleRet_wf fnAdd1Caller (List.mem_cons_of_mem _ List.mem_cons_self))
+  · exact singleRet_caller_spec a m _ _ ⟨rfl, rfl⟩
+
 /-! ## 6. Axiom Audit -/
 
 #print axioms LeanQbe.T.spliceRet_wp
@@ -512,9 +544,14 @@ theorem singleRet_opt_inlined_spec (a : BitVec 64) (m : Mem 64) :
 #print axioms LeanQbe.T.inline_callsOk
 #print axioms LeanQbe.T.Module.inline_ok
 #print axioms LeanQbe.T.Module.inline_checkAcyclic
+#print axioms LeanQbe.T.Func.renorm_callsOk
+#print axioms LeanQbe.T.Module.optInline_ok
 #print axioms singleRet_inline_modOk
+#print axioms singleRet_optInline_modOk
 #print axioms multiBlock_inline_modOk
 #print axioms nested_inline_modOk
+#print axioms nested_optInline_modOk
 #print axioms threshold_inline_modOk
+#print axioms singleRet_earlyOpt_inlined_spec
 
 end LeanQbeTest.T.InlineTest

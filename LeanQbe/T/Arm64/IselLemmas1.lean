@@ -851,10 +851,6 @@ theorem armCmpCond_subs {n : Nat} (hn : n = 32 ∨ n = 64) (o : CmpOp) (x y : Bi
   rcases hn with rfl | rfl <;> cases o <;>
     grind [BitVec.unsigned, BitVec.signed]
 
-theorem armSwapCmp_eval {n : Nat} (o : CmpOp) (x y : BitVec n) :
-    (armSwapCmp o).evalBits x y = o.evalBits y x := by
-  cases o <;> simp [armSwapCmp, CmpOp.evalBits, eq_comm]
-
 theorem cmp_subword_unsigned {n : Nat} (hn : n = 8 ∨ n = 16) (o : CmpOp)
     (ho : armIsSignedCmp o = false) (x y : BitVec n) :
     o.evalBits (x.setWidth 32) (y.setWidth 32) = o.evalBits x y := by

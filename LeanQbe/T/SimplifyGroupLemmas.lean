@@ -76,7 +76,7 @@ theorem SgRel.flattenArgs {V₁ V₂ : Ty → Type} {G' : Ctx (OptV V₁) (OptV 
     {G : Ctx (Arg (OptV V₁)) (Arg (OptV V₂))} (hG : SgRel G' G)
     {ts : List Ty} {as₁ : Tup (Arg (Arg (OptV V₁))) ts} {as₂ : Tup (Arg (Arg (OptV V₂))) ts}
     (h : TRel (ArgRel G) as₁ as₂) : TRel (ArgRel G') (flattenArgs as₁) (flattenArgs as₂) :=
-  TRel.tupMapArg_rel (fun _ => SgImpl.flattenArg) (fun _ => SgImpl.flattenArg)
+  TRel.tupMapArg_rel (fun _ => LeanQbe.T.flattenArg) (fun _ => LeanQbe.T.flattenArg)
     (fun ha => hG.flattenArg ha) h
 
 theorem SgRel.append_toArgTup {V₁ V₂ : Ty → Type} {G' : Ctx (OptV V₁) (OptV V₂)}
@@ -421,19 +421,19 @@ theorem SomeRelG.cons_some {V₁ V₂ : Ty → Type} {G' : Ctx V₁ V₂} {G : C
     SomeRelG (⟨t, v₁, v₂⟩ :: G') (⟨t, some v₁, some v₂⟩ :: G) :=
   SomeRelG.append_some hG (ts := [t]) (v₁, ()) (v₂, ())
 
-theorem argUntag_rel {V₁ V₂ : Ty → Type} {G' : Ctx V₁ V₂} {G : Ctx (OptV V₁) (OptV V₂)}
+theorem argSweep_rel {V₁ V₂ : Ty → Type} {G' : Ctx V₁ V₂} {G : Ctx (OptV V₁) (OptV V₂)}
     (hG : SomeRelG G' G) {t : Ty} {a₁ : Arg (OptV V₁) t} {a₂ : Arg (OptV V₂) t} :
-    ArgRel G t a₁ a₂ → ArgRel G' t (argUntag a₁) (argUntag a₂)
+    ArgRel G t a₁ a₂ → ArgRel G' t (argSweep a₁) (argSweep a₂)
   | .var hm => by
     rcases hG _ hm with ⟨v₁, v₂, h1, h2, hv⟩
     dsimp only at h1 h2 hv; rw [h1, h2]; exact .var hv
   | .imm c => .imm c
 
-theorem trel_argUntag {V₁ V₂ : Ty → Type} {G' : Ctx V₁ V₂} {G : Ctx (OptV V₁) (OptV V₂)}
+theorem trel_argSweep {V₁ V₂ : Ty → Type} {G' : Ctx V₁ V₂} {G : Ctx (OptV V₁) (OptV V₂)}
     (hG : SomeRelG G' G) {ts : List Ty} {as₁ : Tup (Arg (OptV V₁)) ts}
     {as₂ : Tup (Arg (OptV V₂)) ts} (h : TRel (ArgRel G) as₁ as₂) :
-    TRel (ArgRel G') (argsUntag as₁) (argsUntag as₂) :=
-  TRel.tupMapArg_rel (fun _ => argUntag) (fun _ => argUntag) (fun ha => argUntag_rel hG ha) h
+    TRel (ArgRel G') (argsSweep as₁) (argsSweep as₂) :=
+  TRel.tupMapArg_rel (fun _ => argSweep) (fun _ => argSweep) (fun ha => argSweep_rel hG ha) h
 
 def OuterD {L₁ L₂ : List Ty → Type} (D : Ctx (JLabel L₁) (JLabel L₂)) (D' : Ctx L₁ L₂) : Prop :=
   ∀ p ∈ D, match p.2.1, p.2.2 with | .outer l₁, .outer l₂ => ⟨p.1, l₁, l₂⟩ ∈ D' | _, _ => False
@@ -462,28 +462,28 @@ theorem outerWf_to_untag_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → T
     OuterWf true G D e₁ e₂ → Wf G' D' (untagExpr e₁) (untagExpr e₂)
   | _, _, _, _, hG, hD, _, _, .let_ hop hk => by
     rcases hop rfl with ⟨code, hargs⟩
-    exact .let_ (.mk code (trel_argUntag hG hargs)) fun xs₁ xs₂ =>
+    exact .let_ (.mk code (trel_argSweep hG hargs)) fun xs₁ xs₂ =>
       outerWf_to_untag_wf (hG.append_some xs₁ xs₂) hD
         (hk (someTup _ xs₁) (someTup _ xs₂) (fun _ => ⟨xs₁, xs₂, rfl, rfl⟩))
   | _, _, _, _, hG, hD, _, _, .load t ha hk =>
-    .load t (argUntag_rel hG (ha rfl)) fun v₁ v₂ =>
+    .load t (argSweep_rel hG (ha rfl)) fun v₁ v₂ =>
       outerWf_to_untag_wf (hG.cons_some v₁ v₂) hD
         (hk (some v₁) (some v₂) (fun _ => ⟨v₁, v₂, rfl, rfl⟩))
   | _, _, _, _, hG, hD, _, _, .store hv ha hk =>
-    .store (argUntag_rel hG (hv rfl)) (argUntag_rel hG (ha rfl)) (outerWf_to_untag_wf hG hD hk)
+    .store (argSweep_rel hG (hv rfl)) (argSweep_rel hG (ha rfl)) (outerWf_to_untag_wf hG hD hk)
   | _, _, _, _, hG, hD, _, _, .call f hargs hk =>
-    .call f (trel_argUntag hG (hargs rfl)) fun xs₁ xs₂ =>
+    .call f (trel_argSweep hG (hargs rfl)) fun xs₁ xs₂ =>
       outerWf_to_untag_wf (hG.append_some xs₁ xs₂) hD
         (hk (someTup _ xs₁) (someTup _ xs₂) (fun _ => ⟨xs₁, xs₂, rfl, rfl⟩))
   | _, _, _, _, hG, hD, _, _, .jnz hc ht he =>
-    .jnz (argUntag_rel hG (hc rfl)) (outerWf_to_untag_wf hG hD ht) (outerWf_to_untag_wf hG hD he)
+    .jnz (argSweep_rel hG (hc rfl)) (outerWf_to_untag_wf hG hD ht) (outerWf_to_untag_wf hG hD he)
   | _, _, _, _, hG, hD, _, _, .jump (j₁ := j₁) (j₂ := j₂) hj hargs => by
     have hj' := hD _ hj
     cases j₁ <;> cases j₂ <;> simp only [untagExpr] at hj' ⊢
-    · exact .jump hj' (trel_argUntag hG (hargs rfl))
+    · exact .jump hj' (trel_argSweep hG (hargs rfl))
     all_goals exact False.elim hj'
-  | _, _, _, _, hG, _, _, _, .ret hvs => .ret (trel_argUntag hG (hvs rfl))
-  | _, _, _, _, hG, _, _, _, .exit f hargs => .exit f (trel_argUntag hG (hargs rfl))
+  | _, _, _, _, hG, _, _, _, .ret hvs => .ret (trel_argSweep hG (hvs rfl))
+  | _, _, _, _, hG, _, _, _, .exit f hargs => .exit f (trel_argSweep hG (hargs rfl))
   | _, _, _, _, _, _, _, _, .hlt => .hlt
   | _, _, _, _, hG, hD, _, _, .group hb hk =>
     .group
@@ -539,17 +539,17 @@ mutual
 def untagWith (interp : JEnv) {rs : List Ty} :
     Expr (OptV Val) (JLabel Cont) rs → Expr Val Cont rs
   | .let_ (ts := ts) op k =>
-    .let_ ⟨op.code, argsUntag op.args⟩ fun xs => untagWith interp (k (someTup ts xs))
-  | .load t a k => .load t (argUntag a) fun v => untagWith interp (k (some v))
-  | .store v a k => .store (argUntag v) (argUntag a) (untagWith interp k)
+    .let_ ⟨op.code, argsSweep op.args⟩ fun xs => untagWith interp (k (someTup ts xs))
+  | .load t a k => .load t (argSweep a) fun v => untagWith interp (k (some v))
+  | .store v a k => .store (argSweep v) (argSweep a) (untagWith interp k)
   | .call f (bs := bs) args k =>
-    .call f (argsUntag args) fun xs => untagWith interp (k (someTup bs xs))
-  | .jnz c t e => .jnz (argUntag c) (untagWith interp t) (untagWith interp e)
-  | .jump (.outer l) args => .jump l (argsUntag args)
-  | .jump (.loc id) args => .jump (interp id) (argsUntag args)
+    .call f (argsSweep args) fun xs => untagWith interp (k (someTup bs xs))
+  | .jnz c t e => .jnz (argSweep c) (untagWith interp t) (untagWith interp e)
+  | .jump (.outer l) args => .jump l (argsSweep args)
+  | .jump (.loc id) args => .jump (interp id) (argsSweep args)
   | .jump .probe _ => .hlt
-  | .ret vs => .ret (argsUntag vs)
-  | .exit f args => .exit f (argsUntag args)
+  | .ret vs => .ret (argsSweep vs)
+  | .exit f args => .exit f (argsSweep args)
   | .hlt => .hlt
   | .group bodies k =>
     .group
@@ -652,7 +652,7 @@ theorem spliceBlock_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     (targetId : Nat) (targetTs : List Ty)
     (b : Tup (Arg (OptV Val)) targetTs → Expr (OptV Val) (JLabel Cont) rs)
     (P : Cont targetTs) (base : JEnv)
-    (hP : ∀ args m, P (vals (argsUntag args)) m → wp Γ Q X (untagWith base (b args)) m)
+    (hP : ∀ args m, P (vals (argsSweep args)) m → wp Γ Q X (untagWith base (b args)) m)
     (e : Expr (OptV Val) (JLabel Cont) rs) :
     ∀ m, wp Γ Q X (untagWith (mkSpliceInterp targetId targetTs P base) e) m →
       wp Γ Q X (untagWith base (spliceBlock targetId targetTs b e)) m := by
@@ -755,7 +755,7 @@ theorem outerWfB_wp_congr_rhs {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost
 end
 
 def WpG (G : Ctx (Arg (OptV Val)) Val) : Prop :=
-  ∀ p ∈ G, (argUntag p.2.1).val = p.2.2
+  ∀ p ∈ G, (argSweep p.2.1).val = p.2.2
 
 theorem WpG.append_some {G : Ctx (Arg (OptV Val)) Val} (hG : WpG G) :
     {ts : List Ty} → (xs : Tup Val ts) → WpG (Tup.zip (toArgTup (someTup ts xs)) xs ++ G)
@@ -770,19 +770,19 @@ theorem WpG.cons_some {G : Ctx (Arg (OptV Val)) Val} (hG : WpG G) {t : Ty} (v : 
     WpG (⟨t, .var (some v), v⟩ :: G) :=
   WpG.append_some hG (ts := [t]) (v, ())
 
-theorem argUntag_flatten_val {G : Ctx (Arg (OptV Val)) Val} (hG : WpG G) {t : Ty}
+theorem argSweep_flatten_val {G : Ctx (Arg (OptV Val)) Val} (hG : WpG G) {t : Ty}
     {a₁ : Arg (Arg (OptV Val)) t} {a₂ : Arg Val t} :
-    ArgRel G t a₁ a₂ → (argUntag (flattenArg a₁)).val = a₂.val
+    ArgRel G t a₁ a₂ → (argSweep (flattenArg a₁)).val = a₂.val
   | .var hm => hG _ hm
   | .imm _ => rfl
 
-theorem trel_argsUntag_flatten_vals {G : Ctx (Arg (OptV Val)) Val} (hG : WpG G) :
+theorem trel_argsSweep_flatten_vals {G : Ctx (Arg (OptV Val)) Val} (hG : WpG G) :
     {ts : List Ty} → {a₁ : Tup (Arg (Arg (OptV Val))) ts} → {a₂ : Tup (Arg Val) ts} →
-    TRel (ArgRel G) a₁ a₂ → vals (argsUntag (flattenArgs a₁)) = vals a₂
+    TRel (ArgRel G) a₁ a₂ → vals (argsSweep (flattenArgs a₁)) = vals a₂
   | [], (), (), .nil => rfl
   | _ :: _, (x₁, xs₁), (x₂, xs₂), .cons h hs => by
     simp only [tupMapArg, vals]
-    rw [argUntag_flatten_val hG h, trel_argsUntag_flatten_vals hG hs]
+    rw [argSweep_flatten_val hG h, trel_argsSweep_flatten_vals hG hs]
 
 theorem WpG.append_args {G₁ G₂ : Ctx (Arg (OptV Val)) Val} (hG₁ : WpG G₁) (hG₂ : WpG G₂) :
     {ts : List Ty} → {a₁ : Tup (Arg (Arg (OptV Val))) ts} → {a₂ : Tup (Arg Val) ts} →
@@ -791,12 +791,12 @@ theorem WpG.append_args {G₁ G₂ : Ctx (Arg (OptV Val)) Val} (hG₁ : WpG G₁
   | _ :: _, (x₁, xs₁), (x₂, xs₂), .cons h hs => fun p hp => by
     simp only [flattenArgs, tupMapArg, vals, Tup.zip, List.cons_append] at hp
     cases hp with
-    | head => exact argUntag_flatten_val hG₁ h
+    | head => exact argSweep_flatten_val hG₁ h
     | tail _ hp => exact WpG.append_args hG₁ hG₂ hs p hp
 
 theorem WpG.append_val_eq {G : Ctx (Arg (OptV Val)) Val} (hG : WpG G) :
     {ts : List Ty} → (a : Tup (Arg (OptV Val)) ts) → (xs : Tup Val ts) →
-    vals (argsUntag a) = xs → WpG (Tup.zip a xs ++ G)
+    vals (argsSweep a) = xs → WpG (Tup.zip a xs ++ G)
   | [], (), (), _ => hG
   | _ :: _, (a, as), (x, xs), heq => fun p hp => by
     simp only [Tup.zip, List.cons_append] at hp
@@ -1053,7 +1053,7 @@ theorem simplifyGroup_wp_aux {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     cases hop with
     | mk code hargs =>
       simp only [simplifyGroup, flattenOp, untagWith, wp, Op.wp] at hw2 ⊢
-      rw [trel_argsUntag_flatten_vals hG hargs]
+      rw [trel_argsSweep_flatten_vals hG hargs]
       exact OpCode.wp_mono code _ (fun r => ih (toArgTup (someTup _ r)) r
         (hkk (toArgTup (noneTup _)) (toArgTup (someTup _ r))) depth interp
         (hG.append_some r) hD hBD m) hw2
@@ -1061,20 +1061,20 @@ theorem simplifyGroup_wp_aux {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     intro Gk Dk ek hwk depth interp hG hD hBD m ⟨v, hv, hw2⟩
     rcases hwk.rhs_load with ⟨ak, kk, rfl, _, hkk⟩
     simp only [simplifyGroup, untagWith, wp]
-    rw [argUntag_flatten_val hG ha]
+    rw [argSweep_flatten_val hG ha]
     exact ⟨v, hv, ih (.var (some v)) v (hkk (.var none) (.var (some v))) depth interp
       (hG.cons_some v) hD hBD m hw2⟩
   | store hv ha _ ih =>
     intro Gk Dk ek hwk depth interp hG hD hBD m ⟨hok, hw2⟩
     rcases hwk.rhs_store with ⟨vk, ak, kk, rfl, _, _, hkk⟩
     simp only [simplifyGroup, untagWith, wp]
-    rw [argUntag_flatten_val hG hv, argUntag_flatten_val hG ha]
+    rw [argSweep_flatten_val hG hv, argSweep_flatten_val hG ha]
     exact ⟨hok, ih hkk depth interp hG hD hBD _ hw2⟩
   | call f hargs _ ih =>
     intro Gk Dk ek hwk depth interp hG hD hBD m ⟨P, E, hΓ, hP, hE⟩
     rcases hwk.rhs_call with ⟨argsk, kk, rfl, _, hkk⟩
     simp only [simplifyGroup, untagWith, wp]
-    rw [trel_argsUntag_flatten_vals hG hargs]
+    rw [trel_argsSweep_flatten_vals hG hargs]
     exact ⟨P, E, hΓ, fun r m' hp => ih (toArgTup (someTup _ r)) r
       (hkk (toArgTup (noneTup _)) (toArgTup (someTup _ r))) depth interp
       (hG.append_some r) hD hBD m' (hP r m' hp), hE⟩
@@ -1082,7 +1082,7 @@ theorem simplifyGroup_wp_aux {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     intro Gk Dk ek hwk depth interp hG hD hBD m hw2
     rcases hwk.rhs_jnz with ⟨ck, tk, ek', rfl, _, htk, hek⟩
     simp only [simplifyGroup, untagWith, wp] at hw2 ⊢
-    rw [argUntag_flatten_val hG hc]
+    rw [argSweep_flatten_val hG hc]
     exact ⟨fun h => iht htk depth interp hG hD hBD m (hw2.1 h),
            fun h => ihe hek depth interp hG hD hBD m (hw2.2 h)⟩
   | @jump _ _ _ j₁ _ _ _ hj hargs =>
@@ -1091,19 +1091,19 @@ theorem simplifyGroup_wp_aux {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     cases j₁ with
     | outer l =>
       simp only [simplifyGroup, untagWith, wp] at hw2 ⊢
-      rw [trel_argsUntag_flatten_vals hG hargs]; dsimp only at hd; rwa [hd]
+      rw [trel_argsSweep_flatten_vals hG hargs]; dsimp only at hd; rwa [hd]
     | loc id =>
       simp only [simplifyGroup, untagWith, wp] at hw2 ⊢
-      rw [trel_argsUntag_flatten_vals hG hargs]; dsimp only at hd; rwa [hd.2]
+      rw [trel_argsSweep_flatten_vals hG hargs]; dsimp only at hd; rwa [hd.2]
     | probe => exact False.elim hd
   | ret hvs =>
     intro _ _ _ _ _ _ hG _ _ m hw2
     simp only [simplifyGroup, untagWith, wp] at hw2 ⊢
-    rwa [trel_argsUntag_flatten_vals hG hvs]
+    rwa [trel_argsSweep_flatten_vals hG hvs]
   | exit f hargs =>
     intro _ _ _ _ _ _ hG _ _ m hw2
     simp only [simplifyGroup, untagWith, wp] at hw2 ⊢
-    rwa [trel_argsUntag_flatten_vals hG hargs]
+    rwa [trel_argsSweep_flatten_vals hG hargs]
   | hlt =>
     intro _ _ _ _ _ _ _ _ _ _ hw2; exact hw2
   | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
@@ -1296,7 +1296,7 @@ theorem simplifyGroup_wp_aux {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
               have hone := (filterSBlocks_ids_spec keep sig bs₁' depth).2.2 jTs jId
                 (by simp [hr₁]) (by simp [hr₁])
               let J_splice : Cont jTs := fun vs m' =>
-                ∀ (a₁ : Tup (Arg (OptV Val)) jTs), vals (argsUntag a₁) = vs →
+                ∀ (a₁ : Tup (Arg (OptV Val)) jTs), vals (argsSweep a₁) = vs →
                   wp Γ Q X (untagWith interp (b₁' a₁)) m'
               let Js₂ := spliceTup jId jTs J_splice sig depth
               let interp' : JEnv := fun {ts} id =>

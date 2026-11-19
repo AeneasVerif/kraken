@@ -1,11 +1,12 @@
 module
 
 public import LeanQbe.T.Inline
+public import LeanQbe.T.OptUtilLemmas
 
 /-!
 # Correctness of Acyclic Small-Callee Inlining (`O-M1`)
 
-* Operand flattening and lookup lemmas (`flattenArgs_vals`, `TRel.flattenArgs`, `lookupCallee_mem`).
+* `lookupCallee_mem`: callee lookup witnesses matching `Fn` in candidate list.
 * `spliceRet_wp`, `spliceRet_wf`, `spliceRet_callsOk`: soundness, well-formedness, and
   call/exit preservation of `.ret`-to-`.jump` splicing via `Wf.induct`.
 * `inline_wp`, `inline_wf`, `inline_callsOk`: expression-level soundness, relational `Wf`, and
@@ -21,115 +22,7 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 
-/-! ## Operand flattening, lifting, and block-projection helpers -/
-
-theorem flattenArg_val {G : Ctx (Arg Val) Val} (hG : ∀ p ∈ G, p.2.1.val = p.2.2)
-    {t : Ty} {a₁ : Arg (Arg Val) t} {a₂ : Arg Val t} (ha : ArgRel G t a₁ a₂) :
-    (flattenArg a₁).val = a₂.val := by
-  cases ha with
-  | var hm => exact hG _ hm
-  | imm _ => rfl
-
-theorem flattenArgs_vals {G : Ctx (Arg Val) Val} (hG : ∀ p ∈ G, p.2.1.val = p.2.2)
-    {ts : List Ty} {as₁ : Tup (Arg (Arg Val)) ts} {as₂ : Tup (Arg Val) ts}
-    (h : TRel (ArgRel G) as₁ as₂) : vals (flattenArgs as₁) = vals as₂ :=
-  TRel.tupMapArg_vals (fun _ => flattenArg) (fun ha => flattenArg_val hG ha) h
-
-theorem toArgTup_zip_val :
-    {ts : List Ty} → (xs : Tup Val ts) → ∀ p ∈ Tup.zip (toArgTup xs) xs, p.2.1.val = p.2.2
-  | [], (), _, hp => nomatch hp
-  | _ :: _, (_, xs), _, hp => by
-      cases hp with
-      | head => rfl
-      | tail _ hp => exact toArgTup_zip_val xs _ hp
-
-theorem ctx_zip_vals :
-    {ts : List Ty} → (args : Tup (Arg Val) ts) → ∀ p ∈ Tup.zip args (vals args), p.2.1.val = p.2.2
-  | [], (), _, hp => nomatch hp
-  | _ :: _, (_, args), _, hp => by
-      cases hp with
-      | head => rfl
-      | tail _ hp => exact ctx_zip_vals args _ hp
-
-private theorem ctx_val_append {H G : Ctx (Arg Val) Val}
-    (hH : ∀ p ∈ H, p.2.1.val = p.2.2) (hG : ∀ p ∈ G, p.2.1.val = p.2.2) :
-    ∀ p ∈ H ++ G, p.2.1.val = p.2.2 := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact hH p hp
-  · exact hG p hp
-
-private theorem ctx_val_cons_var {G : Ctx (Arg Val) Val} (hG : ∀ p ∈ G, p.2.1.val = p.2.2)
-    {t : Ty} (v : Val t) : ∀ p ∈ (⟨t, .var v, v⟩ :: G), p.2.1.val = p.2.2 := by
-  intro p hp
-  cases hp with
-  | head => rfl
-  | tail _ hp => exact hG p hp
-
-theorem ArgRel.flattenArg {V₁ V₂ : Ty → Type}
-    {G_body : Ctx (Arg V₁) (Arg V₂)} {G : Ctx V₁ V₂}
-    (hG : ∀ p ∈ G_body, ArgRel G p.1 p.2.1 p.2.2)
-    {t : Ty} {a₁ : Arg (Arg V₁) t} {a₂ : Arg (Arg V₂) t} :
-    ArgRel G_body t a₁ a₂ → ArgRel G t (LeanQbe.T.flattenArg a₁) (LeanQbe.T.flattenArg a₂)
-  | .var hm => hG _ hm
-  | .imm c => .imm c
-
-theorem TRel.flattenArgs {V₁ V₂ : Ty → Type}
-    {G_body : Ctx (Arg V₁) (Arg V₂)} {G : Ctx V₁ V₂}
-    (hG : ∀ p ∈ G_body, ArgRel G p.1 p.2.1 p.2.2)
-    {ts : List Ty} {as₁ : Tup (Arg (Arg V₁)) ts} {as₂ : Tup (Arg (Arg V₂)) ts} :
-    TRel (ArgRel G_body) as₁ as₂ →
-    TRel (ArgRel G) (LeanQbe.T.flattenArgs as₁) (LeanQbe.T.flattenArgs as₂) :=
-  TRel.tupMapArg_rel (fun _ => LeanQbe.T.flattenArg) (fun _ => LeanQbe.T.flattenArg)
-    (fun ha => ha.flattenArg hG)
-
-theorem OpRel.flattenOp {V₁ V₂ : Ty → Type}
-    {G_body : Ctx (Arg V₁) (Arg V₂)} {G : Ctx V₁ V₂}
-    (hG : ∀ p ∈ G_body, ArgRel G p.1 p.2.1 p.2.2)
-    {rs : List Ty} {op₁ : Op (Arg V₁) rs} {op₂ : Op (Arg V₂) rs} :
-    OpRel G_body op₁ op₂ → OpRel G (LeanQbe.T.flattenOp op₁) (LeanQbe.T.flattenOp op₂)
-  | .mk code hargs => .mk code (TRel.flattenArgs hG hargs)
-
-theorem mem_zip_toArgTup {V₁ V₂ : Ty → Type} :
-    {ts : List Ty} → (xs₁ : Tup V₁ ts) → (xs₂ : Tup V₂ ts) →
-    ∀ p ∈ Tup.zip (toArgTup xs₁) (toArgTup xs₂), ArgRel (Tup.zip xs₁ xs₂) p.1 p.2.1 p.2.2
-  | [], (), (), _, hp => nomatch hp
-  | _ :: _, (_, _), (_, _), _, hp => by
-      cases hp with
-      | head => exact .var List.mem_cons_self
-      | tail _ hp =>
-          exact (mem_zip_toArgTup _ _ _ hp).weaken (fun _ hq => List.mem_cons_of_mem _ hq)
-
-private theorem ctx_argRel_append {V₁ V₂ : Ty → Type}
-    {H : Ctx (Arg V₁) (Arg V₂)} {G_body : Ctx (Arg V₁) (Arg V₂)}
-    {G₁ G₂ : Ctx V₁ V₂}
-    (hH : ∀ p ∈ H, ArgRel G₁ p.1 p.2.1 p.2.2)
-    (hG : ∀ p ∈ G_body, ArgRel G₂ p.1 p.2.1 p.2.2) :
-    ∀ p ∈ H ++ G_body, ArgRel (G₁ ++ G₂) p.1 p.2.1 p.2.2 := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact (hH p hp).weaken (fun _ hq => List.mem_append_left _ hq)
-  · exact (hG p hp).weaken (fun _ hq => List.mem_append_right _ hq)
-
-private theorem ctx_argRel_cons_var {V₁ V₂ : Ty → Type}
-    {G_body : Ctx (Arg V₁) (Arg V₂)} {G : Ctx V₁ V₂}
-    (hG : ∀ p ∈ G_body, ArgRel G p.1 p.2.1 p.2.2)
-    {t : Ty} (v₁ : V₁ t) (v₂ : V₂ t) :
-    ∀ p ∈ (⟨t, .var v₁, .var v₂⟩ :: G_body),
-      ArgRel (⟨t, v₁, v₂⟩ :: G) p.1 p.2.1 p.2.2 := by
-  intro p hp
-  cases hp with
-  | head => exact .var List.mem_cons_self
-  | tail _ hp => exact (hG p hp).weaken (fun _ hq => List.mem_cons_of_mem _ hq)
-
-theorem mem_zip_argRel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
-    {ts : List Ty} → {as₁ : Tup (Arg V₁) ts} → {as₂ : Tup (Arg V₂) ts} →
-    TRel (ArgRel G) as₁ as₂ → ∀ p ∈ Tup.zip as₁ as₂, ArgRel G p.1 p.2.1 p.2.2
-  | [], (), (), .nil, _, hp => nomatch hp
-  | _ :: _, (_, _), (_, _), .cons h hs, _, hp => by
-      cases hp with
-      | head => exact h
-      | tail _ hp => exact mem_zip_argRel hs _ hp
+/-! ## Callee lookup and block-projection helpers -/
 
 theorem lookupCallee_mem :
     ∀ {cands : List Fn} {f : Sym} {as bs : List Ty} {callee : Func as bs},

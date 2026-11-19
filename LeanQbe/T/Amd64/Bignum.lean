@@ -96,7 +96,7 @@ meta def isSetccDir : Directive → Bool
 
 private theorem bignumFns_supportsSource_all :
     [mul4x4Fn, addMod25519Fn, subMod25519Fn].all
-      (fun f => (f.opt).body.supportsSource x64LegalTarget) = true := by
+      (fun f => (f.earlyOpt).body.supportsSource x64LegalTarget) = true := by
   t_kernel_rfl
 
 private theorem bignum_single_fnspec {hh : Host} {f : Fn}
@@ -114,7 +114,7 @@ private theorem bignum_single_fnspec {hh : Host} {f : Fn}
     x64Target.Defined hh f.name ∧
       x64Target.FnSpec hh f.name (bignumEnv f.name f.as f.rs) (M.bound f.name) 0 := by
   have hsupp : ∀ g ∈ ({ fns := [f], externs := [], exits := [] } : Module).fns,
-      (g.opt).body.supportsSource x64LegalTarget = true := by
+      (g.earlyOpt).body.supportsSource x64LegalTarget = true := by
     intro g hg
     simp only [List.mem_singleton] at hg; rw [hg]
     exact List.all_eq_true.mp bignumFns_supportsSource_all f hsupp_mem
