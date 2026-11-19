@@ -654,6 +654,11 @@ LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Examples.Kissat.CorePlus.kissat_ana
 LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Examples.Kissat.CorePlus.kissat_decide_wf
 LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Examples.Kissat.CorePlus.kissat_solve_bytes_wf
 LeanQbe.T.Examples.Kissat.CorePlusSpec1 LeanQbe.T.Examples.Kissat.CorePlus.entails_of_minMarkInv
+LeanQbe.T.Examples.Kissat.CorePlusLemmas LeanQbe.T.Examples.Kissat.CorePlus.corePlusEnv_sound
+LeanQbe.T.Examples.Kissat.CorePlusLemmas LeanQbe.T.Examples.Kissat.CorePlus.corePlusEnv_moduleOk
+LeanQbe.T.Examples.Kissat.CorePlusLemmas LeanQbe.T.Examples.Kissat.CorePlus.solve_bytes_correct
+LeanQbe.T.Examples.Kissat.CorePlusLemmas LeanQbe.T.Examples.Kissat.CorePlus.unsat_nonvacuous
+LeanQbe.T.Examples.Kissat.CorePlusLemmas LeanQbe.T.Examples.Kissat.CorePlus.sat_nonvacuous
 LeanQbe.T.Examples.Kissat.LayerACollect1 LeanQbe.T.Examples.Kissat.flushRootReasons_sound
 LeanQbe.T.Examples.Kissat.LayerACollect1 LeanQbe.T.Examples.Kissat.flushRoot_of_trailInv
 LeanQbe.T.Examples.Kissat.LayerASubsume LeanQbe.T.Examples.Kissat.subsume_cnf_equiv
