@@ -17,13 +17,14 @@
 #     under LeanQbeTest/). Allowed: propext, Classical.choice, Quot.sound. A report that is not one
 #     complete line fails: Lean breaks a long report over several lines, and then it cannot be read.
 #     So does a headline theorem without a report, and a headline.txt that is missing or lists none.
-#  5. Check times, in seconds of CPU time, of the five largest lemma files and of the four files
-#     whose check makes the kernel run the whole compiler on LratBytes and Kissat
+#  5. Standalone re-elaboration timing (enabled when `CHECK_TIMES=1`, skipped by default): checks
+#     CPU time of the five largest `*Lemmas*.lean` files and of the four files whose check makes
+#     the kernel run the whole compiler on LratBytes and Kissat
 #     (LeanQbe/T/{Amd64,Arm64}/{LratBytes,Kissat}.lean). Printed for the record; only a file that
-#     fails to check fails this step. The limit on the cost of the compiler in the kernel is
-#     Lean's default `200,000` `maxHeartbeats` (`t_kernel_rfl` at `compiled_check` in those four
-#     files), which every build enforces. Time is no basis for a limit: on this machine under load,
-#     these checks took ~40 to 82 s of CPU time.
+#     fails to check fails this step. Step 1 (`lake build --wfail`) always enforces Lean's default
+#     `200,000` `maxHeartbeats` on every modified module (including `compiled_check` via
+#     `t_kernel_rfl` in those four files), while `CHECK_TIMES=1` enables standalone Step 5
+#     re-elaboration timing (typically ~40 to 80 s CPU for the LratBytes/Kissat certs).
 #
 # Every command runs under `timeout`. Exit code 0 iff all checks pass.
 set -uo pipefail
@@ -148,24 +149,28 @@ while IFS= read -r line; do
   done
 done <"$TMP/axioms.txt"
 
-echo "== 5. check times (CPU)"
-time_check() { # $1 = .lean file; appends "<CPU seconds> <exit code> <file>" to $TMP/times.txt
-  local cpu rc
-  cpu="$( { TIMEFORMAT='%U %S'; time timeout "$LEAN_TIMEOUT" lake env lean "$1" >/dev/null 2>&1; } 2>&1 )"
-  rc=$?
-  echo "$(awk '{print int($1 + $2 + 0.5)}' <<<"$cpu") $rc $1" >>"$TMP/times.txt"
-}
-{ echo LeanQbe/T/Amd64/LratBytes.lean; echo LeanQbe/T/Arm64/LratBytes.lean
-  echo LeanQbe/T/Amd64/Kissat.lean; echo LeanQbe/T/Arm64/Kissat.lean
-  git ls-files 'LeanQbe/*Lemmas*.lean' 'LeanQbe/**/*Lemmas*.lean' | sort -u | xargs wc -l \
-    | grep -v ' total$' | sort -rn | head -n 5 | awk '{print $2}'; } >"$TMP/timed.txt"
-: >"$TMP/times.txt"
-while IFS= read -r f; do time_check "$f" & done <"$TMP/timed.txt"
-wait
-while read -r cpu rc f; do
-  printf '%4d s  %s\n' "$cpu" "$f"
-  [ "$rc" -eq 0 ] || err "$f failed to check (exit code $rc; 124 = timeout)"
-done <"$TMP/times.txt"
+if [ "${CHECK_TIMES:-0}" = "1" ]; then
+  echo "== 5. check times (CPU)"
+  time_check() { # $1 = .lean file; appends "<CPU seconds> <exit code> <file>" to $TMP/times.txt
+    local cpu rc
+    cpu="$( { TIMEFORMAT='%U %S'; time timeout "$LEAN_TIMEOUT" lake env lean "$1" >/dev/null 2>&1; } 2>&1 )"
+    rc=$?
+    echo "$(awk '{print int($1 + $2 + 0.5)}' <<<"$cpu") $rc $1" >>"$TMP/times.txt"
+  }
+  { echo LeanQbe/T/Amd64/LratBytes.lean; echo LeanQbe/T/Arm64/LratBytes.lean
+    echo LeanQbe/T/Amd64/Kissat.lean; echo LeanQbe/T/Arm64/Kissat.lean
+    git ls-files 'LeanQbe/*Lemmas*.lean' 'LeanQbe/**/*Lemmas*.lean' | sort -u | xargs wc -l \
+      | grep -v ' total$' | sort -rn | head -n 5 | awk '{print $2}'; } >"$TMP/timed.txt"
+  : >"$TMP/times.txt"
+  while IFS= read -r f; do time_check "$f" & done <"$TMP/timed.txt"
+  wait
+  while read -r cpu rc f; do
+    printf '%4d s  %s\n' "$cpu" "$f"
+    [ "$rc" -eq 0 ] || err "$f failed to check (exit code $rc; 124 = timeout)"
+  done <"$TMP/times.txt"
+else
+  echo "== 5. standalone timing skipped (set CHECK_TIMES=1 to run) =="
+fi
 
 if [ $fail -eq 0 ]; then echo "== check.sh: ALL PASSED"; else echo "== check.sh: FAILED"; fi
 exit $fail

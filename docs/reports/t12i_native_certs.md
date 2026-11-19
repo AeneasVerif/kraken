@@ -162,7 +162,7 @@ See [o_track_benchmarks.md](./o_track_benchmarks.md) for `bench/run.sh`, `MB1`â€
 
 Both `B1.1 LinkRec` (`LeanQbe/T/{Amd64,Arm64}/LinkRec.lean`) and `X1 Stage B Kissat`
 (`LeanQbe/T/{Amd64,Arm64}/Kissat.lean`) splice hints outside the kernel (`splice_module_hints`),
-validate compilation in a single `t_kernel_rfl` check with **zero `maxHeartbeats` overrides**
+validate compilation via `t_kernel_rfl` checks with **zero `maxHeartbeats` overrides**
 (default `200,000`), `0 sorry`, `0` lines `> 100` cols, and `0` E1/cross-architecture imports.
 
 ### 8.1 Standalone `-DwarningAsError=true` Build Times & Compiled Metrics (`main`)

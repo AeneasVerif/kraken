@@ -2,13 +2,14 @@ module
 
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.LinkRecLemmas
+public import LeanQbe.T.Examples.LinkRec
 public import LeanQbe.T.MainSplice
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
 meta import LeanQbe.T.MainSplice
 meta import LeanQbe.T.Amd64.Targ
-meta import LeanQbe.T.LinkRecLemmas
+meta import LeanQbe.T.Examples.LinkRec
 
 /-!
 # Cyclic & Mutual-Recursion Linking on SysV x64 (`B1.1`)

@@ -1,17 +1,19 @@
 module
 
 public import LeanQbe.T.LinkRecLemmas
+public import LeanQbe.T.Examples.LinkRec
 public import LeanQbeTest.T.MainTest
 public import LeanQbe.T.MainSplice
 public meta import Lean
 public meta import LeanQbe.T.MainSplice
-public meta import LeanQbe.T.LinkRecLemmas
+public meta import LeanQbe.T.Examples.LinkRec
 public meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
 # Tests for Measure/Fuel-Indexed Cyclic Module Linking (`B1.1`)
 
-Exercises `LeanQbe.T.LinkRec` and `LeanQbe.T.LinkRecLemmas` on `RegaLitmus.litmusTarget`:
+Exercises `LeanQbe.T.LinkRec`, `LeanQbe.T.LinkRecLemmas`, and `LeanQbe.T.Examples.LinkRec` on
+`RegaLitmus.litmusTarget`:
 1. Mutual recursion `isEven`/`isOdd` (direct cross-function calls): `checkAcyclic = false`,
    `checkCyclic = true`, `t_wf_reify`, `Env.sound_rec` / `Env.sound_rec_unfold`, `TargetLayout`
    (`litmusLayout` and `litmusLayoutWithLabels`), and concrete `TargetInit.run_rec_ret1_i64`
