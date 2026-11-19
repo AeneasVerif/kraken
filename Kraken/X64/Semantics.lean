@@ -948,6 +948,25 @@ set_option maxHeartbeats 1000000
       let status : StatusFlags :=
         { cf := false, pf := false, af := false, zf := a == 0, sf := false, of := false }
       next { s with regs := s.regs.set dst v, status })
+  -- Intel SDM Vol. 2: BMI2 shifts mask count to 5/6 bits (32/64-bit) and leave flags untouched.
+  | .shlx dst src1 src2 | .shrx dst src1 src2 | .sarx dst src1 src2 =>
+    match (generalizing := false) (motive := Width → Effects) w with
+    | .W32 | .W64 =>
+      src1.interp s p (fun a s =>
+      let count := (s.regs.get src2).toNat &&& (w.bits - 1)
+      let v := match i with
+        | .shlx _ _ _ => a <<< count
+        | .shrx _ _ _ => a.ushiftRight count
+        | _ => a.sshiftRight count
+      next (s.setReg dst v))
+    | _ => undefined (fun v => next (s.setReg dst v))
+  | .rorx dst src imm =>
+    match (generalizing := false) (motive := Width → Effects) w with
+    | .W32 | .W64 =>
+      src.interp s p (fun a s =>
+      let count := ((imm.interp p).toBitVec.take 8).toNat &&& (w.bits - 1)
+      next (s.setReg dst (a.rotateRight count)))
+    | _ => undefined (fun v => next (s.setReg dst v))
   | .jcc cc l =>
     if cc.interp s.status
     then jmp (label l) s

@@ -396,6 +396,35 @@ example : ⸨prog|
    .instr (.regular .W64 .W16 (.tzcnt .bx (.mem { base := some (.reg .rsp), idx := none }))),
    .instr (.regular .W64 .W32 (.popcnt .ecx (.reg .eax)))] := rfl
 
+-- Test: BMI2 flagless shifts and rotate (shlx, shrx, sarx, rorx)
+/--
+info: ⸨prog|
+  shlx %rcx, %rax, %rbx
+  shrx %ecx, (%rsp), %edx
+  sarx %r8, 8(%rsp), %r9
+  rorx $7, %rax, %rbx
+  rorx $31, (%rsp), %eax⸩ : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog|
+  shlxq %rcx, %rax, %rbx
+  shrxl %ecx, (%rsp), %edx
+  sarx %r8, 8(%rsp), %r9
+  rorxq $7, %rax, %rbx
+  rorxl $31, (%rsp), %eax
+⸩
+
+example : ⸨prog|
+  shlxl %ecx, (%rsp), %edx
+  shrxq %r8, %rax, %rbx
+  sarxq %rcx, %rsi, %rdi
+  rorx $0xff, (%rsp), %r9 ⸩ =
+  [.instr (.regular .W64 .W32 (.shlx .edx (.mem { base := some (.reg .rsp), idx := none }) .ecx)),
+   .instr (.regular .W64 .W64 (.shrx .rbx (.reg .rax) .r8)),
+   .instr (.regular .W64 .W64 (.sarx .rdi (.reg .rsi) .rcx)),
+   .instr (.regular .W64 .W64
+     (.rorx .r9 (.mem { base := some (.reg .rsp), idx := none }) (.int64 255)))] := rfl
+
 -- Test: xor for zeroing
 /--
 info: ⸨prog|
@@ -539,6 +568,14 @@ local elab "elabX64% " s:str : term => elabX64 s.getString
 /-- error: <input>:1:0: expected end of input -/
 #guard_msgs in
 #check elabX64% "adoxw %ax, %bx"
+
+/-- error: <input>:1:0: expected end of input -/
+#guard_msgs in
+#check elabX64% "shlxw %cx, %ax, %bx"
+
+/-- error: <input>:1:0: expected end of input -/
+#guard_msgs in
+#check elabX64% "rorxw $1, %ax, %bx"
 
 /-- error: type error: w64 != w32 -/
 #guard_msgs in

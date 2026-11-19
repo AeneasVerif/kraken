@@ -190,3 +190,43 @@ private def bitcntOk {w : Width} (op : Operation w) (s : MachineData)
   resolveAll 3 (runOpW (.tzcnt .bl (.reg .al)) {})
 #guard resolveAll 0 (runOpW (.popcnt .bl (.reg .al)) {}) !=
   resolveAll 3 (runOpW (.popcnt .bl (.reg .al)) {})
+
+/-! BMI2 shifts/rotate (`shlx`, `shrx`, `sarx`, `rorx`): count masking and flag preservation. -/
+
+#guard detData (.shlx .rbx (.reg .rax) .rcx)
+  { busy with regs := { rax := 0x8000000000000001, rcx := 64 } } ==
+  some { busy with regs := { rax := 0x8000000000000001, rcx := 64, rbx := 0x8000000000000001 } }
+
+#guard detData (.shlx .ebx (.reg .eax) .ecx)
+  { busy with regs := { rax := 0x1234567880000001, rcx := 31, rbx := -1 } } ==
+  some { busy with regs := { rax := 0x1234567880000001, rcx := 31, rbx := 0x80000000 } }
+
+#guard detData (.shrx .ebx (.reg .eax) .ecx)
+  { busy with regs := { rax := 0x80000001, rcx := 0xff, rbx := -1 } } ==
+  some { busy with regs := { rax := 0x80000001, rcx := 0xff, rbx := 1 } }
+
+#guard detData (.sarx .ebx (.reg .eax) .ecx)
+  { busy with regs := { rax := 0x80000001, rcx := 0xff, rbx := -1 } } ==
+  some { busy with regs := { rax := 0x80000001, rcx := 0xff, rbx := 0xffffffff } }
+
+#guard detData (.sarx .rbx (.reg .rax) .rcx)
+  { busy with regs := { rax := 0x8000000000000001, rcx := 63 } } ==
+  some { busy with regs := { rax := 0x8000000000000001, rcx := 63, rbx := 0xffffffffffffffff } }
+
+#guard detData (.rorx .ebx (.reg .eax) (.int64 0xff))
+  { busy with regs := { rax := 0x80000001, rbx := -1 } } ==
+  some { busy with regs := { rax := 0x80000001, rbx := 0x00000003 } }
+
+#guard detData (.rorx .rbx (.reg .rax) (.int64 64))
+  { busy with regs := { rax := 0x0123456789abcdef } } ==
+  some { busy with regs := { rax := 0x0123456789abcdef, rbx := 0x0123456789abcdef } }
+
+-- Non-32/64 widths follow the `bswap` undefined fallback.
+#guard resolveAll 0 (runOpW (.shlx .bx (.reg .ax) .cx) {}) !=
+  resolveAll 1 (runOpW (.shlx .bx (.reg .ax) .cx) {})
+#guard resolveAll 0 (runOpW (.shrx .bl (.reg .al) .cl) {}) !=
+  resolveAll 1 (runOpW (.shrx .bl (.reg .al) .cl) {})
+#guard resolveAll 0 (runOpW (.sarx .bx (.reg .ax) .cx) {}) !=
+  resolveAll 1 (runOpW (.sarx .bx (.reg .ax) .cx) {})
+#guard resolveAll 0 (runOpW (.rorx .bx (.reg .ax) (.int64 1)) {}) !=
+  resolveAll 1 (runOpW (.rorx .bx (.reg .ax) (.int64 1)) {})

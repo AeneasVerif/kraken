@@ -238,6 +238,10 @@ inductive Operation (w : Width)
   | lzcnt  (dst : Reg w) (src : RegOrMem w) -- {_ : 16 <= w.bits}
   | tzcnt  (dst : Reg w) (src : RegOrMem w) -- {_ : 16 <= w.bits}
   | popcnt (dst : Reg w) (src : RegOrMem w) -- {_ : 16 <= w.bits}
+  | shlx   (dst : Reg w) (src1 : RegOrMem w) (src2 : Reg w) -- {_ : 32 <= w.bits}
+  | shrx   (dst : Reg w) (src1 : RegOrMem w) (src2 : Reg w) -- {_ : 32 <= w.bits}
+  | sarx   (dst : Reg w) (src1 : RegOrMem w) (src2 : Reg w) -- {_ : 32 <= w.bits}
+  | rorx   (dst : Reg w) (src : RegOrMem w) (imm : ConstExpr) -- {_ : 32 <= w.bits}
   -- Flag control
   | cld
   | std

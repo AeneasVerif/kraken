@@ -391,6 +391,20 @@ syntax_affixed (suffixes := wlq) "shld" : x64_shd_op
 /-- Double-precision shift right. -/
 syntax_affixed (suffixes := wlq) "shrd" : x64_shd_op
 
+/-- BMI2 flagless variable-count shift mnemonics (`shlx*`, `shrx*`, `sarx*`). -/
+declare_syntax_cat x64_bmi2_shift_op (behavior := both)
+/-- Logical left shift without affecting flags (`dst ← src1 << (src2 & mask)`). -/
+syntax_affixed (suffixes := lq) "shlx" : x64_bmi2_shift_op
+/-- Logical right shift without affecting flags (`dst ← src1 >>> (src2 & mask)`). -/
+syntax_affixed (suffixes := lq) "shrx" : x64_bmi2_shift_op
+/-- Arithmetic right shift without affecting flags (`dst ← src1 >>s (src2 & mask)`). -/
+syntax_affixed (suffixes := lq) "sarx" : x64_bmi2_shift_op
+
+/-- BMI2 flagless rotate right (`rorx*`) mnemonics (3-operand immediate form). -/
+declare_syntax_cat x64_rorx_op (behavior := both)
+/-- Rotate right by immediate without affecting flags (`dst ← ror(src, imm & mask)`). -/
+syntax_affixed (suffixes := lq) "rorx" : x64_rorx_op
+
 /-- Byte swap (`bswap*`) mnemonics (1 register operand). -/
 declare_syntax_cat x64_bswap_op (behavior := both)
 /-- Byte-order swap (endianness reversal). -/
@@ -457,6 +471,10 @@ syntax &"vzeroupper" : x64_instr
 syntax withPosition(x64_shift_op ppSpace lineEq x64_operand) : x64_instr
 syntax withPosition(x64_shift_op ppSpace lineEq x64_shift_count ", " lineEq x64_operand) : x64_instr
 syntax withPosition(x64_shd_op ppSpace lineEq x64_shift_count ", " lineEq x64_reg ", " lineEq x64_operand) : x64_instr
+syntax withPosition(x64_bmi2_shift_op ppSpace lineEq x64_reg ", "
+  lineEq x64_operand ", " lineEq x64_reg) : x64_instr
+syntax withPosition(x64_rorx_op ppSpace lineEq x64_imm ", "
+  lineEq x64_operand ", " lineEq x64_reg) : x64_instr
 syntax withPosition(x64_bswap_op ppSpace lineEq x64_reg) : x64_instr
 syntax withPosition(x64_push_op ppSpace lineEq x64_operand) : x64_instr
 syntax withPosition(x64_pop_op ppSpace lineEq x64_operand) : x64_instr

@@ -573,6 +573,15 @@ private def delabShdOp (stem : String) (aw : Width) : X64DelabM (TSyntax `x64_in
   let cnt ← withNaryArg 3 delabShiftCount
   `(x64_instr| $op:x64_shd_op $cnt:x64_shift_count, $src:x64_reg, $dst:x64_operand)
 
+/-- Delaborate a BMI2 3-operand shift (`shlx`, `shrx`, `sarx`) at `aw`. -/
+private def delabBmi2ShiftOp (stem : String) (aw : Width) :
+    X64DelabM (TSyntax `x64_instr) := do
+  let op := mkSuffixed `x64_bmi2_shift_op stem ""
+  let dst ← withNaryArg 1 delabReg
+  let src ← withNaryArg 2 (delabRegOrMemOperand aw)
+  let cnt ← withNaryArg 3 delabReg
+  `(x64_instr| $op:x64_bmi2_shift_op $cnt:x64_reg, $src:x64_operand, $dst:x64_reg)
+
 /-- Delaborate an extending move (`movsx` / `movzx`). -/
 private def delabExtMov (isSigned : Bool) (aw : Width) (wDst? : Option Width) (wSrcExpr dstExpr srcExpr : Expr) :
     X64DelabM (TSyntax `x64_instr) := do
@@ -705,6 +714,15 @@ private def delabOperation (aw : Width) (w? : Option Width) : X64DelabM (TSyntax
   | Operation.rcr  _ _ _ => delabShiftOp "rcr" aw w?
   | Operation.shld _ _ _ _ => delabShdOp "shld" aw
   | Operation.shrd _ _ _ _ => delabShdOp "shrd" aw
+  | Operation.shlx _ _ _ _ => delabBmi2ShiftOp "shlx" aw
+  | Operation.shrx _ _ _ _ => delabBmi2ShiftOp "shrx" aw
+  | Operation.sarx _ _ _ _ => delabBmi2ShiftOp "sarx" aw
+  | Operation.rorx _ _ _ _ =>
+    let op := mkSuffixed `x64_rorx_op "rorx" ""
+    let dst ← withNaryArg 1 delabReg
+    let src ← withNaryArg 2 (delabRegOrMemOperand aw)
+    let imm := mkImm (← withNaryArg 3 delabConstExpr)
+    `(x64_instr| $op:x64_rorx_op $imm:x64_imm, $src:x64_operand, $dst:x64_reg)
   | Operation.bswap _ _ =>
     let op := mkSuffixed `x64_bswap_op "bswap" ""
     let dst ← withNaryArg 1 delabReg
