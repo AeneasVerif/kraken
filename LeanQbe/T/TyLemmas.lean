@@ -115,7 +115,7 @@ theorem bitcastVal_bitcastVal {t u w : Ty} (h1 : t.size = u.size) (h2 : u.size =
 
 /-! ## Tuple and context lemmas -/
 
-theorem Tup.get_map {α : Type} {f g : α → Type} (h : ∀ a, f a → g a) :
+@[simp] theorem Tup.get_map {α : Type} {f g : α → Type} (h : ∀ a, f a → g a) :
     {as : List α} → {a : α} → (xs : Tup f as) → (i : Member a as) →
     (xs.map h).get i = h a (xs.get i)
   | _ :: _, _, _, .here => rfl

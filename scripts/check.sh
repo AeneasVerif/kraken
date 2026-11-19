@@ -79,8 +79,8 @@ if grep -q '^LeanQbe$' "$TMP/closure_LeanQbe.txt"; then :; else err "could not c
 while IFS= read -r f; do
   m="${f%.lean}"; m="${m//\//.}"
   case "$m" in
-    LeanQbe.Amd64.*) r=LeanQbeAmd64 ;;
-    LeanQbe.Arm64.*) r=LeanQbeArm64 ;;
+    LeanQbe.Amd64.*|LeanQbe.T.Amd64.*) r=LeanQbeAmd64 ;;
+    LeanQbe.Arm64.*|LeanQbe.T.Arm64.*) r=LeanQbeArm64 ;;
     *) r=LeanQbe ;;
   esac
   grep -qx "$m" "$TMP/closure_$r.txt" || err "$f is not imported by the root $r.lean (so it is not built)"

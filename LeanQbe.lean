@@ -93,6 +93,8 @@ public import LeanQbe.T.OptLemmas
 public import LeanQbe.T.Module
 public import LeanQbe.T.Trie
 public import LeanQbe.T.Target
+public import LeanQbe.T.TargetLemmas
+public import LeanQbe.T.StepSimp
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.Examples.Bignum
 public import LeanQbe.T.Examples.ChaCha

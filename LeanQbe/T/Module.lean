@@ -152,4 +152,152 @@ theorem selfRec_not_moduleOk (Γ : Env) (exts : List Extern) (exits : List Sym) 
   exact hnd.1 ex hex (congrArg Prod.fst hsig)
 
 
+/-! ## Decidable-free `ModuleOk` checker (`T-prep`) -/
+
+/-- Boolean equality on `SigEntry`, kernel-reducible by `rfl`. -/
+def SigEntry.beq (a b : SigEntry) : Bool :=
+  (a.1 == b.1) && Ty.listBeq a.2.1 b.2.1 && Ty.listBeq a.2.2 b.2.2
+
+theorem SigEntry.beq_iff_eq {a b : SigEntry} : SigEntry.beq a b = true ↔ a = b := by
+  rcases a with ⟨fa, asa, bsa⟩
+  rcases b with ⟨fb, asb, bsb⟩
+  simp [SigEntry.beq, Bool.and_eq_true, Ty.listBeq_iff_eq, and_assoc]
+
+/-- Kernel-reducible `Bool` `Nodup` check on symbol lists. -/
+def symsNodupBool : List Sym → Bool
+  | [] => true
+  | x :: xs => !(xs.any (fun y => x == y)) && symsNodupBool xs
+
+theorem symsNodupBool_iff : {xs : List Sym} → symsNodupBool xs = true ↔ xs.Nodup
+  | [] => by simp [symsNodupBool]
+  | x :: xs => by
+    simp only [symsNodupBool, Bool.and_eq_true, Bool.not_eq_true', List.any_eq_false,
+      beq_iff_eq, List.nodup_cons, symsNodupBool_iff]
+    constructor
+    · rintro ⟨hmem, hnd⟩
+      exact ⟨fun hx => by simpa using hmem x hx, hnd⟩
+    · rintro ⟨hx, hnd⟩
+      exact ⟨fun y hy heq => hx (heq ▸ hy), hnd⟩
+
+/-- Boolean `Module.namesNodup` check, kernel-reducible by `rfl`. -/
+def Module.checkNamesNodup (M : Module) : Bool :=
+  symsNodupBool M.names
+
+theorem Module.namesNodup_of_checkNamesNodup {M : Module}
+    (h : M.checkNamesNodup = true) : M.namesNodup :=
+  symsNodupBool_iff.mp h
+
+mutual
+def Expr.checkCallsOk (allowed : List SigEntry) (exits : List Sym) {rs : List Ty} :
+    Expr (fun _ => Unit) (fun _ => Unit) rs → Bool
+  | .let_ _ k => (k (Tup.units _)).checkCallsOk allowed exits
+  | .load _ _ k => (k ()).checkCallsOk allowed exits
+  | .store _ _ k => k.checkCallsOk allowed exits
+  | .call f (as := as) (bs := bs) _ k =>
+      allowed.any (SigEntry.beq (f, as, bs)) &&
+        (k (Tup.units bs)).checkCallsOk allowed exits
+  | .jnz _ t e => t.checkCallsOk allowed exits && e.checkCallsOk allowed exits
+  | .jump _ _ | .ret _ | .hlt => true
+  | .exit f _ => exits.any (fun e => f == e)
+  | .group (sig := sig) bodies k =>
+      (bodies (Tup.units sig)).checkCallsOk allowed exits &&
+        (k (Tup.units sig)).checkCallsOk allowed exits
+
+def Blocks.checkCallsOk (allowed : List SigEntry) (exits : List Sym) {rs : List Ty} :
+    {sig : List (List Ty)} → Blocks (fun _ => Unit) (fun _ => Unit) rs sig → Bool
+  | _, .nil => true
+  | _, .cons b bs =>
+      (b (Tup.units _)).checkCallsOk allowed exits && bs.checkCallsOk allowed exits
+end
+
+mutual
+theorem Expr.callsOk_of_checkCallsOk {allowed : List SigEntry} {exits : List Sym}
+    {rs : List Ty} :
+    (e : Expr (fun _ => Unit) (fun _ => Unit) rs) →
+    e.checkCallsOk allowed exits = true →
+    e.callsOk allowed exits
+  | .let_ _ k, h => Expr.callsOk_of_checkCallsOk (k (Tup.units _)) h
+  | .load _ _ k, h => Expr.callsOk_of_checkCallsOk (k ()) h
+  | .store _ _ k, h => Expr.callsOk_of_checkCallsOk k h
+  | .call f (as := as) (bs := bs) _ k, h => by
+    simp only [Expr.checkCallsOk, Bool.and_eq_true, List.any_eq_true, SigEntry.beq_iff_eq] at h
+    rcases h with ⟨⟨s, hs, heq⟩, hk⟩
+    exact ⟨heq ▸ hs, Expr.callsOk_of_checkCallsOk (k (Tup.units bs)) hk⟩
+  | .jnz _ t e, h => by
+    simp only [Expr.checkCallsOk, Bool.and_eq_true] at h
+    exact ⟨Expr.callsOk_of_checkCallsOk t h.1, Expr.callsOk_of_checkCallsOk e h.2⟩
+  | .jump _ _, _ | .ret _, _ | .hlt, _ => trivial
+  | .exit f _, h => by
+    simp only [Expr.checkCallsOk, List.any_eq_true, beq_iff_eq] at h
+    rcases h with ⟨s, hs, rfl⟩
+    exact hs
+  | .group (sig := sig) bodies k, h => by
+    simp only [Expr.checkCallsOk, Bool.and_eq_true] at h
+    exact ⟨Blocks.callsOk_of_checkCallsOk (bodies (Tup.units sig)) h.1,
+      Expr.callsOk_of_checkCallsOk (k (Tup.units sig)) h.2⟩
+
+theorem Blocks.callsOk_of_checkCallsOk {allowed : List SigEntry} {exits : List Sym}
+    {rs : List Ty} :
+    {sig : List (List Ty)} → (bs : Blocks (fun _ => Unit) (fun _ => Unit) rs sig) →
+    bs.checkCallsOk allowed exits = true →
+    bs.callsOk allowed exits
+  | _, .nil, _ => trivial
+  | _, .cons b bs, h => by
+    simp only [Blocks.checkCallsOk, Bool.and_eq_true] at h
+    exact ⟨Expr.callsOk_of_checkCallsOk (b (Tup.units _)) h.1,
+      Blocks.callsOk_of_checkCallsOk bs h.2⟩
+end
+
+def Fn.checkCallsOk (allowed : List SigEntry) (exits : List Sym) (fn : Fn) : Bool :=
+  (fn.body (fun _ => Unit) (fun _ => Unit) (Tup.units fn.as)).checkCallsOk allowed exits
+
+theorem Fn.callsOk_of_checkCallsOk {allowed : List SigEntry} {exits : List Sym} {fn : Fn}
+    (h : fn.checkCallsOk allowed exits = true) : fn.callsOk allowed exits :=
+  Expr.callsOk_of_checkCallsOk _ h
+
+def Module.checkFnsCallsOk (exits : List Sym) (extSigs : List SigEntry) :
+    List SigEntry → List Fn → Bool
+  | _, [] => true
+  | allowed, fn :: rest =>
+      fn.checkCallsOk (allowed ++ extSigs) exits &&
+      Module.checkFnsCallsOk exits extSigs (allowed ++ [fn.sig]) rest
+
+theorem Module.checkFnsCallsOk_ok (exits : List Sym) (extSigs : List SigEntry) :
+    ∀ (seen rest pre : List Fn) (fn : Fn) (post : List Fn),
+    Module.checkFnsCallsOk exits extSigs (seen.map Fn.sig) rest = true →
+    rest = pre ++ fn :: post →
+    fn.callsOk ((seen ++ pre).map Fn.sig ++ extSigs) exits
+  | _, [], pre, _, _, _, hsplit => by cases pre <;> simp at hsplit
+  | seen, f :: rest, [], fn, post, hchk, hsplit => by
+    simp only [List.nil_append, List.cons.injEq] at hsplit
+    rcases hsplit with ⟨rfl, _⟩
+    simp only [Module.checkFnsCallsOk, Bool.and_eq_true] at hchk
+    simpa [List.append_nil] using Fn.callsOk_of_checkCallsOk hchk.1
+  | seen, f :: rest, f' :: pre', fn, post, hchk, hsplit => by
+    simp only [List.cons_append, List.cons.injEq] at hsplit
+    rcases hsplit with ⟨rfl, hrest⟩
+    simp only [Module.checkFnsCallsOk, Bool.and_eq_true] at hchk
+    have hnext := hchk.2
+    rw [show seen.map Fn.sig ++ [f.sig] = (seen ++ [f]).map Fn.sig by simp] at hnext
+    have ih := Module.checkFnsCallsOk_ok exits extSigs (seen ++ [f]) rest pre' fn post hnext hrest
+    simpa [List.append_assoc] using ih
+
+/-- Acyclicity + `namesNodup` boolean checker for `Module`, kernel-reducible by `rfl`. -/
+def Module.checkAcyclic (M : Module) : Bool :=
+  M.checkNamesNodup && Module.checkFnsCallsOk M.exits (M.externs.map Extern.sig) [] M.fns
+
+/-- Construct `ModuleOk Γ M` from `M.checkAcyclic = true` plus per-function `Wf` and `Func.wp`. -/
+theorem Module.moduleOk_of_checkAcyclic {Γ : Env} {M : Module}
+    (hcheck : M.checkAcyclic = true)
+    (hwf : ∀ fn ∈ M.fns, fn.Wf)
+    (hwp : ∀ fn ∈ M.fns, ∀ xs m Q X,
+      Γ fn.name fn.as fn.rs xs m Q X → Func.wp Γ fn.body xs m Q X) :
+    ModuleOk Γ M := by
+  simp only [Module.checkAcyclic, Bool.and_eq_true] at hcheck
+  refine ⟨Module.namesNodup_of_checkNamesNodup hcheck.1, fun pre fn post hsplit => ?_⟩
+  have hmem : fn ∈ M.fns := hsplit ▸ by simp
+  refine ⟨hwf fn hmem, ?_, hwp fn hmem⟩
+  simpa using Module.checkFnsCallsOk_ok M.exits (M.externs.map Extern.sig)
+    [] M.fns pre fn post hcheck.2 hsplit
+
 end LeanQbe.T

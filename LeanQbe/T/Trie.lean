@@ -73,11 +73,14 @@ theorem Trie.find?_insertAux {α : Type} : ∀ (fuel : Nat) (t : Trie α) (i j :
           Trie.find?_insertAux fuel _ (m / 2) (k / 2) v hm]
       all_goals exact fun hd => absurd hd (div2_ne hkm (by simp [hm2, hk2]))
 
+@[simp] theorem Trie.find?_empty {α : Type} (i : Nat) :
+    (Trie.empty : Trie α).find? i = none := rfl
+
 theorem Trie.find?_insert {α : Type} (t : Trie α) (i j : Nat) (v : α) :
     (t.insert i v).find? j = if j = i then some v else t.find? j :=
   Trie.find?_insertAux (i + 1) t i j v (Nat.lt_succ_self i)
 
-theorem Trie.find?_insert_self {α : Type} (t : Trie α) (i : Nat) (v : α) :
+@[simp] theorem Trie.find?_insert_self {α : Type} (t : Trie α) (i : Nat) (v : α) :
     (t.insert i v).find? i = some v := by
   simp [Trie.find?_insert]
 
@@ -99,12 +102,19 @@ theorem Trie.find?_erase {α : Type} : ∀ (t : Trie α) (i j : Nat),
         simp [Trie.erase, Trie.find?, hm2, hk2, hkm, e.find?_erase, o.find?_erase]
       all_goals exact fun hd => absurd hd (div2_ne hkm (by simp [hm2, hk2]))
 
-theorem Trie.find?_erase_self {α : Type} (t : Trie α) (i : Nat) :
+@[simp] theorem Trie.find?_erase_self {α : Type} (t : Trie α) (i : Nat) :
     (t.erase i).find? i = none := by
   simp [Trie.find?_erase]
 
 theorem Trie.find?_erase_ne {α : Type} (t : Trie α) {i j : Nat} (h : j ≠ i) :
     (t.erase i).find? j = t.find? j := by
   simp [Trie.find?_erase, h]
+
+@[simp] theorem Trie.getD_empty {α : Type} (i : Nat) (d : α) :
+    (Trie.empty : Trie α).getD i d = d := rfl
+
+@[simp] theorem Trie.getD_insert_self {α : Type} (t : Trie α) (i : Nat) (v d : α) :
+    (t.insert i v).getD i d = v := by
+  simp [Trie.getD]
 
 end LeanQbe.T

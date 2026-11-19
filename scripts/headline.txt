@@ -549,3 +549,8 @@ LeanQbe.T.Examples.LratBytesLemmas LeanQbe.T.Examples.LratBytes.lratBytesRejectE
 LeanQbe.T.Examples.LratBytesLemmas LeanQbe.T.Examples.LratBytes.lratBytesRejectEnv_moduleOk
 LeanQbe.T.Examples.LratBytesLemmas LeanQbe.T.Examples.LratBytes.lratCheckBytes_accepts
 LeanQbe.T.Examples.LratBytesLemmas LeanQbe.T.Examples.LratBytes.lratCheckBytes_rejects
+LeanQbe.T.Module LeanQbe.T.Module.moduleOk_of_checkAcyclic
+LeanQbe.T.TargetLemmas LeanQbe.T.unpackSlotWords_packSlotWords
+LeanQbe.T.TargetLemmas LeanQbe.T.Machine.FallsTo.comp
+LeanQbe.T.Amd64.Base LeanQbe.T.Amd64.x64NegCond_interp
+LeanQbe.T.Arm64.Base LeanQbe.T.Arm64.armNegCond_interp

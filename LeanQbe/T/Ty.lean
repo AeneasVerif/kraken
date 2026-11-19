@@ -217,4 +217,47 @@ def EnvRel {α : Type} {f g : α → Type} (G : Ctx f g) {as : List α}
     (xs : Tup f as) (ys : Tup g as) : Prop :=
   ∀ a (i : Member a as), ⟨a, xs.get i, ys.get i⟩ ∈ G
 
+/-! ## Decidable-free boolean equality -/
+
+/-- Boolean equality on `Fmt`, kernel-reducible by `rfl`. -/
+def Fmt.beq : Fmt → Fmt → Bool
+  | .h, .h | .s, .s | .d, .d | .q, .q => true
+  | _, _ => false
+
+theorem Fmt.beq_iff_eq {a b : Fmt} : a.beq b = true ↔ a = b := by
+  cases a <;> cases b <;> simp [Fmt.beq]
+
+/-- Boolean equality on `Ty`, kernel-reducible by `rfl`. -/
+def Ty.beq : Ty → Ty → Bool
+  | .bool, .bool => true
+  | .bits n, .bits m => n == m
+  | .float f, .float g => f.beq g
+  | .pair a1 b1, .pair a2 b2 => a1.beq a2 && b1.beq b2
+  | _, _ => false
+
+theorem Ty.beq_iff_eq : {a b : Ty} → a.beq b = true ↔ a = b
+  | .bool, .bool => by simp [Ty.beq]
+  | .bits _, .bits _ => by simp [Ty.beq]
+  | .float _, .float _ => by simp [Ty.beq, Fmt.beq_iff_eq]
+  | .pair a1 b1, .pair a2 b2 => by
+    simp [Ty.beq, Bool.and_eq_true, Ty.beq_iff_eq (a := a1) (b := a2),
+      Ty.beq_iff_eq (a := b1) (b := b2)]
+  | .bool, .bits _ | .bool, .float _ | .bool, .pair _ _
+  | .bits _, .bool | .bits _, .float _ | .bits _, .pair _ _
+  | .float _, .bool | .float _, .bits _ | .float _, .pair _ _
+  | .pair _ _, .bool | .pair _ _, .bits _ | .pair _ _, .float _ => by
+    simp [Ty.beq]
+
+/-- Boolean equality on `List Ty`, kernel-reducible by `rfl`. -/
+def Ty.listBeq : List Ty → List Ty → Bool
+  | [], [] => true
+  | a :: as, b :: bs => a.beq b && Ty.listBeq as bs
+  | _, _ => false
+
+theorem Ty.listBeq_iff_eq : {as bs : List Ty} → Ty.listBeq as bs = true ↔ as = bs
+  | [], [] => by simp [Ty.listBeq]
+  | _ :: _, _ :: _ => by
+    simp [Ty.listBeq, Bool.and_eq_true, Ty.beq_iff_eq, Ty.listBeq_iff_eq]
+  | [], _ :: _ | _ :: _, [] => by simp [Ty.listBeq]
+
 end LeanQbe.T
