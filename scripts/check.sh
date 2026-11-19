@@ -17,13 +17,13 @@
 #     under LeanQbeTest/). Allowed: propext, Classical.choice, Quot.sound. A report that is not one
 #     complete line fails: Lean breaks a long report over several lines, and then it cannot be read.
 #     So does a headline theorem without a report, and a headline.txt that is missing or lists none.
-#  5. Check times, in seconds of CPU time, of the five largest lemma files and of the two files
-#     whose check makes the kernel run the whole compiler (LeanQbe/T/Amd64/LratBytes.lean and
-#     LeanQbe/T/Arm64/LratBytes.lean). Printed for the record; only a file that fails to check fails
-#     this step. The limit on the cost of the compiler in the kernel is not here: it is the
-#     `set_option maxHeartbeats` at `compiled` in those two files, which every build enforces.
-#     Time is no basis for a limit: on this machine under load, the same check took 27 to 64 s of
-#     CPU time and 27 to 68 s of elapsed time.
+#  5. Check times, in seconds of CPU time, of the five largest lemma files and of the four files
+#     whose check makes the kernel run the whole compiler on LratBytes and Kissat
+#     (LeanQbe/T/{Amd64,Arm64}/{LratBytes,Kissat}.lean). Printed for the record; only a file that
+#     fails to check fails this step. The limit on the cost of the compiler in the kernel is
+#     Lean's default `200,000` `maxHeartbeats` (`t_kernel_rfl` at `compiled_check` in those four
+#     files), which every build enforces. Time is no basis for a limit: on this machine under load,
+#     these checks took ~40 to 82 s of CPU time.
 #
 # Every command runs under `timeout`. Exit code 0 iff all checks pass.
 set -uo pipefail
@@ -156,6 +156,7 @@ time_check() { # $1 = .lean file; appends "<CPU seconds> <exit code> <file>" to 
   echo "$(awk '{print int($1 + $2 + 0.5)}' <<<"$cpu") $rc $1" >>"$TMP/times.txt"
 }
 { echo LeanQbe/T/Amd64/LratBytes.lean; echo LeanQbe/T/Arm64/LratBytes.lean
+  echo LeanQbe/T/Amd64/Kissat.lean; echo LeanQbe/T/Arm64/Kissat.lean
   git ls-files 'LeanQbe/*Lemmas*.lean' 'LeanQbe/**/*Lemmas*.lean' | sort -u | xargs wc -l \
     | grep -v ' total$' | sort -rn | head -n 5 | awk '{print $2}'; } >"$TMP/timed.txt"
 : >"$TMP/times.txt"

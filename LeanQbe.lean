@@ -94,6 +94,14 @@ public import LeanQbe.T.Examples.Kissat.Dimacs
 public import LeanQbe.T.Examples.Kissat.Solver
 public import LeanQbe.T.Examples.Kissat.DimacsLemmas1
 public import LeanQbe.T.Examples.Kissat.DimacsLemmas
+public import LeanQbe.T.Examples.Kissat.SolverArena
+public import LeanQbe.T.Examples.Kissat.SolverSpec
+public import LeanQbe.T.Examples.Kissat.SolverIngestLemmas1
+public import LeanQbe.T.Examples.Kissat.SolverIngestLemmas
+public import LeanQbe.T.Examples.Kissat.SolverPropLemmas
+public import LeanQbe.T.Examples.Kissat.SolverAnalyzeLemmas1
+public import LeanQbe.T.Examples.Kissat.SolverAnalyzeLemmas
+public import LeanQbe.T.Examples.Kissat.SolverLemmas
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT

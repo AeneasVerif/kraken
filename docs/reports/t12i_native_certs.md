@@ -156,3 +156,40 @@ with **zero `maxHeartbeats` overrides** (`0` warnings, `0 sorry`):
 
 See [o_track_benchmarks.md](./o_track_benchmarks.md) for `bench/run.sh`, `MB1`–`MB8` speedup tables, and the `13` new `O-Track` headline theorems added to `scripts/headline.txt`.
 
+---
+
+## 8. Cyclic Recursion (`B1.1 LinkRec`) & End-to-End SAT Solver (`X1 Stage B Kissat`)
+
+Both `B1.1 LinkRec` (`LeanQbe/T/{Amd64,Arm64}/LinkRec.lean`) and `X1 Stage B Kissat`
+(`LeanQbe/T/{Amd64,Arm64}/Kissat.lean`) splice hints outside the kernel (`splice_module_hints`),
+validate compilation in a single `t_kernel_rfl` check with **zero `maxHeartbeats` overrides**
+(default `200,000`), `0 sorry`, `0` lines `> 100` cols, and `0` E1/cross-architecture imports.
+
+### 8.1 Standalone `-DwarningAsError=true` Build Times & Compiled Metrics (`main`)
+
+Measured sequentially via `/usr/bin/time -p timeout 300 lake env lean -DwarningAsError=true <file>`
+on `main` (all `.olean` dependencies prebuilt, exit code `0`):
+
+| Module | LOC | Max Col | `maxHeartbeats` | CPU Time (`user + sys`) | Wall Time | Compiled Metrics (`dirs` / Stack Bounds) |
+|---|---:|---:|---|---:|---:|---|
+| `LeanQbe/T/Amd64/LinkRec.lean` | 347 | 99 | default (`200,000`) | `3.07 s` (`2.69 u + 0.38 s`) | `2.51 s` | `evenOdd`: `30` dirs (`base = 16`, `step = 16`, `boundAt 32 = 528 B`); `recSum`: `32` dirs (`base = 16`, `step = 16`, `boundAt 16 = 272 B`, exit `"out_of_fuel"`) |
+| `LeanQbe/T/Arm64/LinkRec.lean` | 359 | 99 | default (`200,000`) | `3.08 s` (`2.68 u + 0.40 s`) | `2.47 s` | `evenOdd`: `32` dirs (`base = 16`, `step = 16`, `boundAt 32 = 528 B`); `recSum`: `32` dirs (`base = 16`, `step = 16`, `boundAt 16 = 272 B`, exit `"out_of_fuel"`) |
+| `LeanQbe/T/Amd64/Kissat.lean` | 335 | 98 | default (`200,000`) | `78.01 s` (`75.02 u + 2.99 s`) | `67.23 s` | `25` fns (`dimacs_fns ++ solver_fns`), `3,206` dirs (`code.length`), max bound `296 B` (`kissat_solve_bytes`; `kissat_propagate = 264 B`, `kissat_propagate_lit = 232 B`, `kissat_parse_body = 216 B`, remaining `8`–`184 B`) |
+| `LeanQbe/T/Arm64/Kissat.lean` | 335 | 98 | default (`200,000`) | `77.99 s` (`75.06 u + 2.93 s`) | `67.32 s` | `25` fns (`dimacs_fns ++ solver_fns`), `3,100` dirs (`code.length`), max bound `272 B` (`kissat_solve_bytes`; `kissat_propagate = 240 B`, `kissat_parse_body = 224 B`, `kissat_propagate_lit = 208 B`, remaining `16`–`176 B`) |
+
+Both `LeanQbe/T/Amd64/Kissat.lean` and `LeanQbe/T/Arm64/Kissat.lean` are tracked in
+`scripts/check.sh` Step 5 (`#021-B1`) alongside `LratBytes.lean`.
+
+### 8.2 Headline Theorems & Axiom Audit
+
+All theorems emit complete single-line `#print axioms` reports in `scripts/check.sh` Step 4
+strictly within `[propext, Classical.choice, Quot.sound]`:
+
+* **`B1.1 LinkRec` (`11` x64 + `11` Arm64, plus `5` generic `LeanQbe.T.LinkRec` theorems):**
+  * **x64 (`LeanQbe.T.Amd64.LinkRec`):** `evenOdd_module_fnspec`, `recSum_module_fnspec`, `isEven_x64_correct`, `isOdd_x64_correct`, `recSum_x64_correct`, `isEven_4_x64_nonvacuous`, `isEven_5_x64_nonvacuous`, `isOdd_4_x64_nonvacuous`, `isOdd_5_x64_nonvacuous`, `recSum_normal_x64_nonvacuous`, `recSum_out_of_fuel_x64_nonvacuous`.
+  * **Arm64 (`LeanQbe.T.Arm64.LinkRec`):** `evenOdd_module_fnspec`, `recSum_module_fnspec`, `isEven_arm64_correct`, `isOdd_arm64_correct`, `recSum_arm64_correct`, `isEven_4_arm64_nonvacuous`, `isEven_5_arm64_nonvacuous`, `isOdd_4_arm64_nonvacuous`, `isOdd_5_arm64_nonvacuous`, `recSum_normal_arm64_nonvacuous`, `recSum_out_of_fuel_arm64_nonvacuous`.
+* **`X1 Stage B Kissat` (`8` source + `7` x64 + `7` Arm64):**
+  * **Source (`LeanQbe.T.Examples.Kissat`):** `dimacsEnv_sound`, `dimacsEnv_moduleOk`, `kissat_check_model_sound`, `kissatEnv_sound`, `kissatEnv_moduleOk`, `kissat_solve_bytes_correct`, `kissat_unsat_nonvacuous`, `kissat_sat_nonvacuous`.
+  * **x64 (`LeanQbe.T.Amd64.Kissat`):** `compiled_check`, `kissat_module_fnspec`, `kissat_solve_bytes_x64_of_fnspec`, `kissat_solve_bytes_x64_correct`, `kissat_solve_bytes_x64_sound`, `kissat_x64_unsat_nonvacuous` (`rax = 20#64 ∧ nvUnsatCnf.Unsat`), `kissat_x64_sat_nonvacuous` (`rax = 10#64 ∧ ¬ nvSatCnf.Unsat ∧ ∃ α, nvSatCnf.Sat α`).
+  * **Arm64 (`LeanQbe.T.Arm64.Kissat`):** `compiled_check`, `kissat_module_fnspec`, `kissat_solve_bytes_arm64_of_fnspec`, `kissat_solve_bytes_arm64_correct`, `kissat_solve_bytes_arm64_sound`, `kissat_arm64_unsat_nonvacuous` (`X0 = 20#64 ∧ nvUnsatCnf.Unsat`), `kissat_arm64_sat_nonvacuous` (`X0 = 10#64 ∧ ¬ nvSatCnf.Unsat ∧ ∃ α, nvSatCnf.Sat α`).
+
