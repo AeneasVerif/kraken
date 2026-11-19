@@ -85,6 +85,10 @@ while IFS= read -r f; do
   esac
   grep -qx "$m" "$TMP/closure_$r.txt" || err "$f is not imported by the root $r.lean (so it is not built)"
 done < <(git ls-files --cached 'LeanQbe/*.lean' 'LeanQbe/**/*.lean' | sort -u)
+if git ls-files -z 'LeanQbe/T/*.lean' 'LeanQbe/T/**/*.lean' \
+    | (set +o pipefail; xargs -0 grep -HnE '^\s*(public\s+|meta\s+)*import\s+(all\s+)?LeanQbe\.([^T]|T[^.])' 2>/dev/null); then
+  err "LeanQbe/T module imports untyped E1 module (G5 violation)"
+fi
 
 echo "== 4. axiom audit"
 # Build log: every `#print axioms` that the build printed.

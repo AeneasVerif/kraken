@@ -554,3 +554,12 @@ LeanQbe.T.TargetLemmas LeanQbe.T.unpackSlotWords_packSlotWords
 LeanQbe.T.TargetLemmas LeanQbe.T.Machine.FallsTo.comp
 LeanQbe.T.Amd64.Base LeanQbe.T.Amd64.x64NegCond_interp
 LeanQbe.T.Arm64.Base LeanQbe.T.Arm64.armNegCond_interp
+LeanQbe.T.RegaLemmas3 LeanQbe.T.Rega.lowerFn_labelsUnique
+LeanQbe.T.RegaLemmas3 LeanQbe.T.Rega.lowerFn_label_mem
+LeanQbe.T.RegaLemmas4 LeanQbe.T.Rega.lowerExpr_correct
+LeanQbe.T.RegaLemmas4 LeanQbe.T.Rega.lowerFn_correct
+LeanQbeTest.T.RegaLitmusTest LeanQbe.T.RegaLitmus.branches_correct
+LeanQbeTest.T.RegaLitmusTest LeanQbe.T.RegaLitmus.carryCall_correct
+LeanQbeTest.T.RegaLitmusTest LeanQbe.T.RegaLitmus.adcxAdox_correct
+LeanQbeTest.T.RegaLitmusTest LeanQbe.T.RegaLitmus.cfLoop_correct
+LeanQbeTest.T.RegaLitmusTest LeanQbe.T.RegaLitmus.cfLoop_nonvacuous
