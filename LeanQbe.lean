@@ -50,6 +50,11 @@ public import LeanQbe.T.MemLoad
 public import LeanQbe.T.MemLoadLemmas
 public import LeanQbe.T.Peel
 public import LeanQbe.T.PeelLemmas
+public import LeanQbe.T.IfOpt
+public import LeanQbe.T.IfOptLemmas
+public import LeanQbe.T.SimplifyGroup
+public import LeanQbe.T.SimplifyGroupLemmas1
+public import LeanQbe.T.SimplifyGroupLemmas
 public import LeanQbe.T.Trie
 public import LeanQbe.T.Target
 public import LeanQbe.T.TargetLemmas
