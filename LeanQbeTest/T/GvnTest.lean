@@ -272,7 +272,7 @@ theorem floatProofProg_gvn_spec (Γ : Env) (a b : Val v4i32) (fa fb : Val v4f32)
   refine ⟨hr1, hr2, ?_⟩
   decide
 
-/-! ## 6. `GvnTrie` kernel-cost scaling at 250 distinct instructions -/
+/-! ## 6. `Trie (GvnBucket V)` kernel-cost scaling at 250 distinct instructions -/
 
 def liveChainGo {V : Ty → Type} {L : List Ty → Type} : Nat → Arg V i64 → Expr V L [i64]
   | 0, acc => .ret (acc, ())

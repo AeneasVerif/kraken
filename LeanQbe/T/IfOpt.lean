@@ -41,24 +41,8 @@ inductive JLabel (L : List Ty → Type) : List Ty → Type
   | outer {ts : List Ty} : L ts → JLabel L ts
   | loc {ts : List Ty} (id : Nat) : JLabel L ts
 
-/-- Symbolic variable/immediate key used to detect identical operands across branches. -/
-abbrev IKey (t : Ty) : Type := Arg K t
-
-/-- Input variable representation in `ifOpt`: output operand paired with symbolic key. -/
-abbrev IVal (V : Ty → Type) (t : Ty) : Type := Arg V t × IKey t
-
-/-- Kernel-reducible boolean equality on `Val t`. -/
-def valBeq : (t : Ty) → Val t → Val t → Bool
-  | .bool, a, b => a == b
-  | .bits _, a, b => a == b
-  | .float _, a, b => a == b
-  | .pair s u, (a₁, a₂), (b₁, b₂) => valBeq s a₁ b₁ && valBeq u a₂ b₂
-
-/-- Kernel-reducible boolean equality on `IKey t`. -/
-def iKeyBeq {t : Ty} : IKey t → IKey t → Bool
-  | .var i, .var j => i == j
-  | .imm a, .imm b => valBeq t a b
-  | _, _ => false
+/-- Input variable representation in `ifOpt`: output operand paired with symbolic `FKey`. -/
+abbrev IVal (V : Ty → Type) (t : Ty) : Type := Arg V t × FKey t
 
 /-- Output operand of an `Arg (IVal V) t`. -/
 def iout {V : Ty → Type} {t : Ty} : Arg (IVal V) t → Arg V t
@@ -66,7 +50,7 @@ def iout {V : Ty → Type} {t : Ty} : Arg (IVal V) t → Arg V t
   | .imm c => .imm c
 
 /-- Symbolic key of an `Arg (IVal V) t`. -/
-def ikey {V : Ty → Type} {t : Ty} : Arg (IVal V) t → IKey t
+def ikey {V : Ty → Type} {t : Ty} : Arg (IVal V) t → FKey t
   | .var p => p.2
   | .imm c => .imm c
 
@@ -189,19 +173,19 @@ def splitPairIVal {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} {a b :
       cont (next + 2) (Arg.var (.var v₁, .var next)) (Arg.var (.var v₂, .var (next + 1)))
 
 /-- Emit nested `.select`s across a single non-float type `t` onto `.bits`/`.bool`, keeping
-identical operands (`iKeyBeq (ikey aT) (ikey aE)`) un-selected. -/
+identical operands (`fKeyBeq (ikey aT) (ikey aE)`) un-selected. -/
 def emitSelectTy {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (c : Arg V .bool) : (t : Ty) → Nat → Arg (IVal V) t → Arg (IVal V) t →
     (Nat → Arg V t → Expr V L rs) → Expr V L rs
   | .bool, next, aT, aE, cont =>
-    if iKeyBeq (ikey aT) (ikey aE) then cont next (iout aT)
+    if fKeyBeq (ikey aT) (ikey aE) then cont next (iout aT)
     else .let_ (op3 (.select .bool) c (iout aT) (iout aE)) fun (r, ()) => cont next (.var r)
   | .bits n, next, aT, aE, cont =>
-    if iKeyBeq (ikey aT) (ikey aE) then cont next (iout aT)
+    if fKeyBeq (ikey aT) (ikey aE) then cont next (iout aT)
     else .let_ (op3 (.select (.bits n)) c (iout aT) (iout aE)) fun (r, ()) => cont next (.var r)
   | .float _, next, aT, _, cont => cont next (iout aT)
   | .pair a b, next, aT, aE, cont =>
-    if iKeyBeq (ikey aT) (ikey aE) then cont next (iout aT)
+    if fKeyBeq (ikey aT) (ikey aE) then cont next (iout aT)
     else
       splitPairIVal next aT fun next₁ aT₁ aT₂ =>
       splitPairIVal next₁ aE fun next₂ aE₁ aE₂ =>

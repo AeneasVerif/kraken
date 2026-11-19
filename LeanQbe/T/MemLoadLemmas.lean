@@ -1,7 +1,8 @@
 module
 
 public import LeanQbe.T.MemLoad
-public import LeanQbe.T.FoldLemmas
+public import LeanQbe.T.OptUtilLemmas
+public import LeanQbe.T.OpsLemmas
 public import LeanQbe.T.DceLemmas
 
 /-!

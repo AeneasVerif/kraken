@@ -1,8 +1,7 @@
 module
 
 public import LeanQbe.T.Fold
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.WfLemmas
+public import LeanQbe.T.OptUtilLemmas
 public import LeanQbe.T.OpsLemmas
 
 /-!
@@ -21,68 +20,6 @@ set_option autoImplicit false
 @[expose] public section
 
 namespace LeanQbe.T
-
-/-! ## Valuation updates and key bounds -/
-
-def FKey.fev (ρ : (t : Ty) → Nat → Val t) : {t : Ty} → FKey t → Val t
-  | t, .var i => ρ t i
-  | _, .imm c => c
-
-def FKey.FLt (b : Nat) : {t : Ty} → FKey t → Prop
-  | _, .var i => i < b
-  | _, .imm _ => True
-
-def fupd (ρ : (t : Ty) → Nat → Val t) {t : Ty} (b : Nat) (v : Val t) :
-    (t' : Ty) → Nat → Val t' :=
-  fun t' i => if i = b then match tyDecEq t t' with | isTrue h => h ▸ v | isFalse _ => ρ t' i
-    else ρ t' i
-
-def fupdTup (ρ : (t : Ty) → Nat → Val t) (b : Nat) :
-    {ts : List Ty} → Tup Val ts → (t' : Ty) → Nat → Val t'
-  | [], (), t', i => ρ t' i
-  | _ :: _, (x, xs), t', i => fupdTup (fupd ρ b x) (b + 1) xs t' i
-
-theorem fupd_eq (ρ : (t : Ty) → Nat → Val t) {t : Ty} (b : Nat) (v : Val t) :
-    fupd ρ b v t b = v := by
-  simp only [fupd, ↓reduceIte]
-  cases h : tyDecEq t t with | isTrue _ => rfl | isFalse hne => exact absurd rfl hne
-
-theorem fupd_ne (ρ : (t : Ty) → Nat → Val t) {t t' : Ty} {b i : Nat} (v : Val t) (h : i ≠ b) :
-    fupd ρ b v t' i = ρ t' i := by
-  simp [fupd, h]
-
-theorem fupdTup_lt (ρ : (t : Ty) → Nat → Val t) :
-    {ts : List Ty} → (xs : Tup Val ts) → {b : Nat} → {t' : Ty} → {i : Nat} →
-    i < b → fupdTup ρ b xs t' i = ρ t' i
-  | [], (), _, _, _, _ => rfl
-  | _ :: _, (x, xs), b, t', i, hi => by
-    simp only [fupdTup]
-    rw [fupdTup_lt (fupd ρ b x) xs (by omega)]
-    exact fupd_ne ρ x (by omega)
-
-theorem FKey.FLt.mono {b : Nat} {t : Ty} {κ : FKey t} (h : κ.FLt b) : κ.FLt (b + 1) := by
-  cases κ with
-  | var i => exact Nat.lt_succ_of_lt h
-  | imm _ => trivial
-
-theorem FKey.FLt.add {b k : Nat} {t : Ty} {κ : FKey t} (h : κ.FLt b) : κ.FLt (b + k) := by
-  cases κ with
-  | var i => exact Nat.lt_of_lt_of_le h (Nat.le_add_right b k)
-  | imm _ => trivial
-
-theorem FKey.fev_fupd {ρ : (t : Ty) → Nat → Val t} {b : Nat} {u : Ty} (v : Val u)
-    {t : Ty} {κ : FKey t} (h : κ.FLt b) :
-    κ.fev (fupd ρ b v) = κ.fev ρ := by
-  cases κ with
-  | var i => exact fupd_ne ρ v (Nat.ne_of_lt h)
-  | imm _ => rfl
-
-theorem FKey.fev_fupdTup {ρ : (t : Ty) → Nat → Val t} {b : Nat}
-    {ts : List Ty} (xs : Tup Val ts) {t : Ty} {κ : FKey t} (h : κ.FLt b) :
-    κ.fev (fupdTup ρ b xs) = κ.fev ρ := by
-  cases κ with
-  | var i => exact fupdTup_lt ρ xs h
-  | imm _ => rfl
 
 /-! ## Soundness of `OpCode.eval?` -/
 

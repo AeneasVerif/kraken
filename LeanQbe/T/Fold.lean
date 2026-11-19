@@ -35,9 +35,6 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 
-/-- Symbolic variable key for detecting equal variables independently of `V`. -/
-abbrev FKey (t : Ty) := Arg K t
-
 /-- Input representation of a value in `fold`: replacement operand paired with symbolic key. -/
 abbrev FVal (V : Ty → Type) (t : Ty) := Arg V t × FKey t
 

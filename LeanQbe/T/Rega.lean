@@ -37,9 +37,7 @@ def SlotEntry.slots : SlotEntry → Nat
 
 inductive DefFact where
   | addImm64 (base : Nat) (disp : BitVec 64)
-  | addVar64 (a b : Nat)
   | imm64 (c : BitVec 64)
-  | copy (src : Nat)
   deriving DecidableEq, Repr
 
 structure SymState (I : Isa) where
@@ -437,12 +435,11 @@ def recordDef : {sig rs : List Ty} → OpCode sig rs → Tup (Arg VNat) sig → 
   | _, _, .add (.bits n), (a, b, ()) =>
     if !Nat.beq n 64 then none else match a, b with
       | .var x, .imm c | .imm c, .var x => some (.addImm64 x (c.setWidth 64))
-      | .var x, .var y => some (.addVar64 x y) | _, _ => none
+      | _, _ => none
   | _, _, .sub (.bits n), (.var x, .imm c, ()) =>
     if Nat.beq n 64 then some (.addImm64 x (-(c.setWidth 64))) else none
-  | _, _, .copy (.bits n), (a, ()) =>
-    match a with | .var x => some (.copy x) | .imm c => if Nat.beq n 64 then some (.imm64 (c.setWidth 64)) else none
-  | _, _, .copy _, (.var x, ()) => some (.copy x)
+  | _, _, .copy (.bits n), (.imm c, ()) =>
+    if Nat.beq n 64 then some (.imm64 (c.setWidth 64)) else none
   | _, _, _, _ => none
 
 def tupDstFlags {I : Isa} : {ts : List Ty} → Tup (PDst I.Reg I.VReg I.Cond) ts → List I.Cond

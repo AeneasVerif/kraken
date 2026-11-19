@@ -99,9 +99,7 @@ end Mach
 
 def DefOk (G : VCtx) (x : Nat) : DefFact → Prop
   | .addImm64 b d => ∀ v, ⟨i64, v, x⟩ ∈ G → ∃ vb, ⟨i64, vb, b⟩ ∈ G ∧ v = vb + d
-  | .addVar64 a b => ∀ v, ⟨i64, v, x⟩ ∈ G → ∃ va vb, ⟨i64, va, a⟩ ∈ G ∧ ⟨i64, vb, b⟩ ∈ G ∧ v = va + vb
   | .imm64 c => ∀ v, ⟨i64, v, x⟩ ∈ G → v = c
-  | .copy y => ∀ t v, ⟨t, v, x⟩ ∈ G → ⟨t, v, y⟩ ∈ G
 
 /-! ## 2. `Agree` -/
 
@@ -365,10 +363,7 @@ theorem DefOk.grow {G G' : VCtx} {nv x : Nat} {d : DefFact} (hG : ∀ p ∈ G', 
   have hm := mem_grow hG (sa := .var x) (by simp [symArgScopeOk, Nat.ble_eq]; omega) x rfl
   cases d with
   | addImm64 b c => intro v hv; obtain ⟨vb, h1, h2⟩ := h v (hm _ _ hv); exact ⟨vb, hsub _ h1, h2⟩
-  | addVar64 a b =>
-    intro v hv; obtain ⟨va, vb, h1, h2, h3⟩ := h v (hm _ _ hv); exact ⟨va, vb, hsub _ h1, hsub _ h2, h3⟩
   | imm64 c => intro v hv; exact h v (hm _ _ hv)
-  | copy y => intro t v hv; exact hsub _ (h t v (hm _ _ hv))
 
 theorem keepRegLoc_frame {gClob : List T.Reg} {vClob : List T.VReg} {fClob : FlagMask}
     (hfr : T.mach.Frame T.gpr.condReads s s' gClob vClob fClob) {sa : SymArg} {rl : RegLoc T.Reg T.VReg T.Cond}

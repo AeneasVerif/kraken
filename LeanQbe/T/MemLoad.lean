@@ -1,7 +1,6 @@
 module
 
 public import LeanQbe.T.OptUtil
-public import LeanQbe.T.Fold
 public import LeanQbe.T.Dce
 
 /-!

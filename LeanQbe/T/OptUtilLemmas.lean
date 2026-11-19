@@ -5,11 +5,15 @@ public import LeanQbe.T.WfLemmas
 public import LeanQbe.T.WPLemmas
 
 /-!
-# Shared Mid-End Optimization Transport & Liveness Lemmas (`#015-B1`)
+# Shared Mid-End Optimization Transport & Liveness Lemmas (`#015-B1`, `#016-B1`)
 
-Centralizes proof helpers shared across `InlineLemmas`, `DivConstLemmas`, `PeelLemmas`,
-`SimplifyGroupLemmas1`, `SimplifyGroupLemmas`, `DceLemmas`, and `MemLoadLemmas`:
+Centralizes proof helpers shared across `FoldLemmas`, `GvnLemmas`, `CanonLemmas`, `MemLoadLemmas`,
+`IfOptLemmas`, `InlineLemmas`, `DivConstLemmas`, `PeelLemmas`, `SimplifyGroupLemmas1`,
+`SimplifyGroupLemmas`, and `DceLemmas`:
 
+* Symbolic `FKey` equality, evaluation environment `FEnv`, and update helpers (`valBeq_iff_eq`,
+  `fKeyBeq_iff_eq`, `FKey.fev`, `FKey.FLt`, `fupd`, `fupdTup`, `fupd_eq`, `fupd_ne`,
+  `fupdTup_lt`, `FKey.FLt.{le,mono,add}`, `FKey.fev_fupd`, `FKey.fev_fupdTup`).
 * Semantic value transport (`flattenArg_val`, `flattenArgs_vals`, `toArgTup_zip_val`,
   `toArgTup_vals`, `ctx_zip_vals`, `tup_zip_vals_val`, `ctx_val_append`, `ctx_val_cons_var`).
 * Relational `Wf` transport (`ArgRel.flattenArg`, `TRel.flattenArgs`, `OpRel.flattenOp`,
@@ -25,6 +29,80 @@ set_option autoImplicit false
 @[expose] public section
 
 namespace LeanQbe.T
+
+/-! ## Symbolic `FKey` equality, valuation updates, and key bounds (`#016-B1`) -/
+
+theorem valBeq_iff_eq : {t : Ty} → {a b : Val t} → valBeq t a b = true ↔ a = b
+  | .bool, a, b => by simp [valBeq]
+  | .bits _, a, b => by simp [valBeq]
+  | .float _, a, b => by simp [valBeq]
+  | .pair s u, (a₁, a₂), (b₁, b₂) => by
+    simp only [valBeq, Bool.and_eq_true, valBeq_iff_eq (t := s), valBeq_iff_eq (t := u),
+      Prod.mk.injEq]
+
+theorem fKeyBeq_iff_eq {t : Ty} : {a b : FKey t} → fKeyBeq a b = true ↔ a = b
+  | .var i, .var j => by simp [fKeyBeq]
+  | .imm a, .imm b => by simp [fKeyBeq, valBeq_iff_eq]
+  | .var _, .imm _ | .imm _, .var _ => by simp [fKeyBeq]
+
+/-- Evaluation environment for symbolic `FKey` variables. -/
+abbrev FEnv := (t : Ty) → Nat → Val t
+
+def FKey.fev (ρ : FEnv) : {t : Ty} → FKey t → Val t
+  | t, .var i => ρ t i
+  | _, .imm c => c
+
+def FKey.FLt (b : Nat) : {t : Ty} → FKey t → Prop
+  | _, .var i => i < b
+  | _, .imm _ => True
+
+def fupd (ρ : FEnv) {t : Ty} (b : Nat) (v : Val t) : FEnv :=
+  fun t' i => if i = b then match tyDecEq t t' with | isTrue h => h ▸ v | isFalse _ => ρ t' i
+    else ρ t' i
+
+def fupdTup (ρ : FEnv) (b : Nat) : {ts : List Ty} → Tup Val ts → FEnv
+  | [], (), t', i => ρ t' i
+  | _ :: _, (x, xs), t', i => fupdTup (fupd ρ b x) (b + 1) xs t' i
+
+theorem fupd_eq (ρ : FEnv) {t : Ty} (b : Nat) (v : Val t) : fupd ρ b v t b = v := by
+  simp only [fupd, ↓reduceIte]
+  cases h : tyDecEq t t with | isTrue _ => rfl | isFalse hne => exact absurd rfl hne
+
+theorem fupd_ne (ρ : FEnv) {t t' : Ty} {b i : Nat} (v : Val t) (h : i ≠ b) :
+    fupd ρ b v t' i = ρ t' i := by
+  simp [fupd, h]
+
+theorem fupdTup_lt (ρ : FEnv) :
+    {ts : List Ty} → (xs : Tup Val ts) → {b : Nat} → {t' : Ty} → {i : Nat} →
+    i < b → fupdTup ρ b xs t' i = ρ t' i
+  | [], (), _, _, _, _ => rfl
+  | _ :: _, (x, xs), b, t', i, hi => by
+    simp only [fupdTup]
+    rw [fupdTup_lt (fupd ρ b x) xs (by omega)]
+    exact fupd_ne ρ x (by omega)
+
+theorem FKey.FLt.le {b₁ b₂ : Nat} (h : b₁ ≤ b₂) : {t : Ty} → {κ : FKey t} → κ.FLt b₁ → κ.FLt b₂
+  | _, .var _, hk => Nat.lt_of_lt_of_le hk h
+  | _, .imm _, _ => trivial
+
+theorem FKey.FLt.mono {b : Nat} {t : Ty} {κ : FKey t} (h : κ.FLt b) : κ.FLt (b + 1) :=
+  h.le (Nat.le_succ b)
+
+theorem FKey.FLt.add {b k : Nat} {t : Ty} {κ : FKey t} (h : κ.FLt b) : κ.FLt (b + k) :=
+  h.le (Nat.le_add_right b k)
+
+theorem FKey.fev_fupd {ρ : FEnv} {b : Nat} {u : Ty} (v : Val u)
+    {t : Ty} {κ : FKey t} (h : κ.FLt b) : κ.fev (fupd ρ b v) = κ.fev ρ := by
+  cases κ with
+  | var _ => exact fupd_ne ρ v (Nat.ne_of_lt h)
+  | imm _ => rfl
+
+theorem FKey.fev_fupdTup {ρ : FEnv} {b : Nat}
+    {ts : List Ty} (xs : Tup Val ts) {t : Ty} {κ : FKey t} (h : κ.FLt b) :
+    κ.fev (fupdTup ρ b xs) = κ.fev ρ := by
+  cases κ with
+  | var _ => exact fupdTup_lt ρ xs h
+  | imm _ => rfl
 
 /-! ## Two-level operand flattening & `toArgTup` semantic transport -/
 

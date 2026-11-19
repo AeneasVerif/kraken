@@ -5,13 +5,13 @@ public import LeanQbe.T.Flat
 public import LeanQbe.T.Trie
 
 /-!
-# Shared mid-end pass utilities (`T6`, `#015-B1`)
+# Shared mid-end pass utilities (`T6`, `#015-B1`, `#016-B1`)
 
 Common `Arg` / `Tup` / `Ctx` / `Trie` combinators (`Arg.imm?`, `tupMapArg`, `tupImms?`,
-`tupFreshWith`, `flattenArg`/`flattenArgs`/`flattenOp`/`toArgTup`, `OptV`/`KL0`/`someTup`/`noneTup`/
-`dummyArgOptTup`/`argSweep`/`argsSweep`, `trieUnion`/`addArgKey`/`addArgKeys`/`anyLive`),
-relational transport lemmas, and generic `liftFloatRel{1,2,3}_pred` preservation lemmas shared
-across mid-end optimization passes.
+`tupFreshWith`, `FKey`/`valBeq`/`fKeyBeq`, `flattenArg`/`flattenArgs`/`flattenOp`/`toArgTup`,
+`OptV`/`KL0`/`someTup`/`noneTup`/`dummyArgOptTup`/`argSweep`/`argsSweep`,
+`trieUnion`/`addArgKey`/`addArgKeys`/`anyLive`), relational transport lemmas, and generic
+`liftFloatRel{1,2,3}_pred` preservation lemmas shared across mid-end optimization passes.
 -/
 
 set_option autoImplicit false
@@ -48,6 +48,24 @@ def tupFreshWith {V W : Ty → Type} (mk : ∀ {t : Ty}, V t → Nat → W t) :
     (ts : List Ty) → Tup V ts → Nat → Tup W ts
   | [], (), _ => ()
   | _ :: ts, (x, xs), next => (mk x next, tupFreshWith mk ts xs (next + 1))
+
+/-! ## Symbolic value keys and kernel-reducible equality (`#016-B1`) -/
+
+/-- Symbolic variable/immediate key for detecting equal operands independently of `V`. -/
+abbrev FKey (t : Ty) := Arg K t
+
+/-- Kernel-reducible boolean equality on `Val t`. -/
+def valBeq : (t : Ty) → Val t → Val t → Bool
+  | .bool, a, b => a == b
+  | .bits _, a, b => a == b
+  | .float _, a, b => a == b
+  | .pair s u, (a₁, a₂), (b₁, b₂) => valBeq s a₁ b₁ && valBeq u a₂ b₂
+
+/-- Kernel-reducible boolean equality on `FKey t`. -/
+def fKeyBeq {t : Ty} : FKey t → FKey t → Bool
+  | .var i, .var j => i == j
+  | .imm a, .imm b => valBeq t a b
+  | _, _ => false
 
 /-! ## Two-level operand flattening and `Option`-tagged binder helpers (`#015-B1`) -/
 

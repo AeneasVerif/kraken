@@ -1,17 +1,15 @@
 module
 
 public import LeanQbe.T.IfOpt
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.WfLemmas
+public import LeanQbe.T.OptUtilLemmas
 public import LeanQbe.T.OpsLemmas
 
 /-!
 # Correctness of `ifOpt` (`O-M2`, `MB3`)
 
-* `valBeq_iff_eq`, `iKeyBeq_iff_eq`: kernel-reducible key/value equality soundness.
 * `OpCode.wp_of_isSafeOp`: every whitelisted safe opcode is total and UB-free.
 * `emitSelectTup_wp`, `emitSelectTup_wf`: scalar/pair `select` lowering correctness (including
-  identical-operand skip).
+  identical-operand skip via `fKeyBeq_iff_eq`).
 * `ifOpt_wf`, `ifOpt_wp`: expression-level `Wf` preservation and WP refinement via `Wf.induct`.
 * `Func.ifOpt_wf`, `Func.ifOpt_spec`: closed-function specifications.
 -/
@@ -25,21 +23,6 @@ namespace LeanQbe.T
 open IfOptImpl
 
 namespace IfOptImpl
-
-/-! ## Value and key equality lemmas -/
-
-theorem valBeq_iff_eq : {t : Ty} → {a b : Val t} → valBeq t a b = true ↔ a = b
-  | .bool, a, b => by simp [valBeq]
-  | .bits _, a, b => by simp [valBeq]
-  | .float _, a, b => by simp [valBeq]
-  | .pair s u, (a₁, a₂), (b₁, b₂) => by
-    simp only [valBeq, Bool.and_eq_true, valBeq_iff_eq (t := s), valBeq_iff_eq (t := u),
-      Prod.mk.injEq]
-
-theorem iKeyBeq_iff_eq {t : Ty} : {a b : IKey t} → iKeyBeq a b = true ↔ a = b
-  | .var i, .var j => by simp [iKeyBeq]
-  | .imm a, .imm b => by simp [iKeyBeq, valBeq_iff_eq]
-  | .var _, .imm _ | .imm _, .var _ => by simp [iKeyBeq]
 
 /-! ## Safe opcode totality -/
 
@@ -79,144 +62,98 @@ theorem OpCode.wp_of_isSafeOp {sig rs : List Ty} (code : OpCode sig rs)
   | fptoui _ _ | fptosi _ _ | uitofp _ _ | sitofp _ _ | fcvt _ _ =>
     simp [isSafeOp] at hs
 
-/-! ## Key evaluation environment `IEnv` and `IGood` -/
-
-abbrev IEnv := (t : Ty) → Nat → Val t
-
-def iupd (ρ : IEnv) {t : Ty} (b : Nat) (v : Val t) : IEnv :=
-  fun u k => if h : u = t then (if k = b then h ▸ v else ρ u k) else ρ u k
-
-def iupdTup (ρ : IEnv) (b : Nat) : {ts : List Ty} → Tup Val ts → IEnv
-  | [], () => ρ
-  | _ :: _, (x, xs) => iupdTup (iupd ρ b x) (b + 1) xs
-
-theorem iupd_eq (ρ : IEnv) {t : Ty} (b : Nat) (v : Val t) : iupd ρ b v t b = v := by
-  simp [iupd]
-
-theorem iupd_ne (ρ : IEnv) {t u : Ty} {b k : Nat} (v : Val t) (h : k ≠ b) :
-    iupd ρ b v u k = ρ u k := by
-  by_cases hu : u = t <;> simp [iupd, hu, h]
-
-theorem iupdTup_lt (ρ : IEnv) : {ts : List Ty} → (xs : Tup Val ts) → {b : Nat} →
-    ∀ {u k}, k < b → iupdTup ρ b xs u k = ρ u k
-  | [], (), _, _, _, _ => rfl
-  | _ :: _, (x, xs), b, u, k, hk => by
-    simp only [iupdTup]
-    rw [iupdTup_lt (iupd ρ b x) xs (by omega), iupd_ne ρ x (by omega)]
-
-def IKey.iev (ρ : IEnv) : {t : Ty} → IKey t → Val t
-  | t, .var i => ρ t i
-  | _, .imm c => c
-
-def IKey.ILt (b : Nat) : {t : Ty} → IKey t → Prop
-  | _, .var i => i < b
-  | _, .imm _ => True
-
-theorem IKey.ILt.mono {b₁ b₂ : Nat} (h : b₁ ≤ b₂) :
-    {t : Ty} → {k : IKey t} → k.ILt b₁ → k.ILt b₂
-  | _, .var _, hk => Nat.lt_of_lt_of_le hk h
-  | _, .imm _, _ => trivial
-
-theorem IKey.iev_iupd {ρ : IEnv} {b : Nat} {u : Ty} (v : Val u) :
-    {t : Ty} → {k : IKey t} → k.ILt b → k.iev (iupd ρ b v) = k.iev ρ
-  | _, .var _, hk => iupd_ne ρ v (Nat.ne_of_lt hk)
-  | _, .imm _, _ => rfl
-
-theorem IKey.iev_iupdTup {ρ : IEnv} {b : Nat} {ts : List Ty} (xs : Tup Val ts) :
-    {t : Ty} → {k : IKey t} → k.ILt b → k.iev (iupdTup ρ b xs) = k.iev ρ
-  | _, .var _, hk => iupdTup_lt ρ xs hk
-  | _, .imm _, _ => rfl
+/-! ## Semantic invariant `IGood` over `FEnv` / `FKey` -/
 
 /-- Soundness invariant on `G : Ctx (IVal Val) Val`. -/
-def IGood (ρ : IEnv) (b : Nat) (G : Ctx (IVal Val) Val) : Prop :=
-  ∀ p ∈ G, p.2.1.1.val = p.2.2 ∧ p.2.1.2.iev ρ = p.2.2 ∧ p.2.1.2.ILt b
+def IGood (ρ : FEnv) (b : Nat) (G : Ctx (IVal Val) Val) : Prop :=
+  ∀ p ∈ G, p.2.1.1.val = p.2.2 ∧ p.2.1.2.fev ρ = p.2.2 ∧ p.2.1.2.FLt b
 
-theorem IGood.mono {ρ ρ' : IEnv} {b b' : Nat} {G : Ctx (IVal Val) Val}
-    (hb : b ≤ b') (hρ : ∀ {u} (k : IKey u), k.ILt b → k.iev ρ' = k.iev ρ)
+theorem IGood.mono {ρ ρ' : FEnv} {b b' : Nat} {G : Ctx (IVal Val) Val}
+    (hb : b ≤ b') (hρ : ∀ {u} (k : FKey u), k.FLt b → k.fev ρ' = k.fev ρ)
     (hG : IGood ρ b G) : IGood ρ' b' G := by
   intro p hp
   obtain ⟨h1, h2, h3⟩ := hG p hp
-  exact ⟨h1, (hρ p.2.1.2 h3).trans h2, h3.mono hb⟩
+  exact ⟨h1, (hρ p.2.1.2 h3).trans h2, h3.le hb⟩
 
-theorem IGood.upd_all {ρ : IEnv} {b : Nat} {G : Ctx (IVal Val) Val} (hG : IGood ρ b G)
-    {ts : List Ty} (xs : Tup Val ts) : IGood (iupdTup ρ b xs) (b + ts.length) G :=
-  hG.mono (Nat.le_add_right _ _) (fun _ hk => IKey.iev_iupdTup xs hk)
+theorem IGood.upd_all {ρ : FEnv} {b : Nat} {G : Ctx (IVal Val) Val} (hG : IGood ρ b G)
+    {ts : List Ty} (xs : Tup Val ts) : IGood (fupdTup ρ b xs) (b + ts.length) G :=
+  hG.mono (Nat.le_add_right _ _) (fun _ hk => FKey.fev_fupdTup xs hk)
 
-theorem IGood.append {ρ : IEnv} {b : Nat} {G₁ G₂ : Ctx (IVal Val) Val}
+theorem IGood.append {ρ : FEnv} {b : Nat} {G₁ G₂ : Ctx (IVal Val) Val}
     (h1 : IGood ρ b G₁) (h2 : IGood ρ b G₂) : IGood ρ b (G₁ ++ G₂) := by
   intro p hp
   rcases List.mem_append.1 hp with hp | hp
   · exact h1 p hp
   · exact h2 p hp
 
-private theorem IGood.freshIVals_only (ρ : IEnv) :
+private theorem IGood.freshIVals_only (ρ : FEnv) :
     {ts : List Ty} → (xs : Tup Val ts) → (b : Nat) →
-    IGood (iupdTup ρ b xs) (b + ts.length) (Tup.zip (freshIVals ts xs b) xs)
+    IGood (fupdTup ρ b xs) (b + ts.length) (Tup.zip (freshIVals ts xs b) xs)
   | [], (), _ => fun _ hp => nomatch hp
   | _ :: ts, (x, xs), b => by
-    simp only [freshIVals, tupFreshWith, Tup.zip, iupdTup, List.length_cons]
+    simp only [freshIVals, tupFreshWith, Tup.zip, fupdTup, List.length_cons]
     intro p hp
     cases hp with
     | head =>
-      refine ⟨rfl, ?_, by simp [IKey.ILt]⟩
-      simp only [IKey.iev]
-      rw [iupdTup_lt (iupd ρ b x) xs (by omega), iupd_eq]
+      refine ⟨rfl, ?_, by simp [FKey.FLt]⟩
+      simp only [FKey.fev]
+      rw [fupdTup_lt (fupd ρ b x) xs (by omega), fupd_eq]
     | tail _ hp =>
-      have ih := IGood.freshIVals_only (iupd ρ b x) xs (b + 1) p hp
+      have ih := IGood.freshIVals_only (fupd ρ b x) xs (b + 1) p hp
       rw [show b + 1 + ts.length = b + (ts.length + 1) by omega] at ih
       exact ih
 
-theorem IGood.freshIVals {ρ : IEnv} {b : Nat} {G : Ctx (IVal Val) Val} (hG : IGood ρ b G)
+theorem IGood.freshIVals {ρ : FEnv} {b : Nat} {G : Ctx (IVal Val) Val} (hG : IGood ρ b G)
     {ts : List Ty} (xs : Tup Val ts) :
-    IGood (iupdTup ρ b xs) (b + ts.length) (Tup.zip (freshIVals ts xs b) xs ++ G) :=
+    IGood (fupdTup ρ b xs) (b + ts.length) (Tup.zip (freshIVals ts xs b) xs ++ G) :=
   (IGood.freshIVals_only ρ xs b).append (hG.upd_all xs)
 
-theorem IGood.freshOne {ρ : IEnv} {b : Nat} {G : Ctx (IVal Val) Val} (hG : IGood ρ b G)
+theorem IGood.freshOne {ρ : FEnv} {b : Nat} {G : Ctx (IVal Val) Val} (hG : IGood ρ b G)
     {t : Ty} (v : Val t) :
-    IGood (iupd ρ b v) (b + 1) (⟨t, (.var v, .var b), v⟩ :: G) :=
+    IGood (fupd ρ b v) (b + 1) (⟨t, (.var v, .var b), v⟩ :: G) :=
   hG.freshIVals (ts := [t]) (v, ())
 
-theorem argRel_iout_val {G : Ctx (IVal Val) Val} {ρ : IEnv} {b : Nat} (hG : IGood ρ b G)
+theorem argRel_iout_val {G : Ctx (IVal Val) Val} {ρ : FEnv} {b : Nat} (hG : IGood ρ b G)
     {t : Ty} {a₁ : Arg (IVal Val) t} {a₂ : Arg Val t} :
     ArgRel G t a₁ a₂ → (iout a₁).val = a₂.val
   | .var h => (hG _ h).1
   | .imm _ => rfl
 
-theorem TRel.iout_vals {G : Ctx (IVal Val) Val} {ρ : IEnv} {b : Nat} (hG : IGood ρ b G)
+theorem TRel.iout_vals {G : Ctx (IVal Val) Val} {ρ : FEnv} {b : Nat} (hG : IGood ρ b G)
     {ts : List Ty} {as₁ : Tup (Arg (IVal Val)) ts} {as₂ : Tup (Arg Val) ts}
     (h : TRel (ArgRel G) as₁ as₂) : vals (tupIOut as₁) = vals as₂ :=
   TRel.tupMapArg_vals (fun _ => iout) (fun ha => argRel_iout_val hG ha) h
 
 /-! ## `IArgGood` and `emitSelectTy` / `emitSelectTup` WP soundness -/
 
-def IArgGood (ρ : IEnv) (b : Nat) {t : Ty} (a : Arg (IVal Val) t) (v : Val t) : Prop :=
-  (iout a).val = v ∧ (ikey a).iev ρ = v ∧ (ikey a).ILt b
+def IArgGood (ρ : FEnv) (b : Nat) {t : Ty} (a : Arg (IVal Val) t) (v : Val t) : Prop :=
+  (iout a).val = v ∧ (ikey a).fev ρ = v ∧ (ikey a).FLt b
 
-theorem iargGood_mono {ρ ρ' : IEnv} {b₁ b₂ : Nat} (hb : b₁ ≤ b₂)
-    (hρ : ∀ {u} (k : IKey u), k.ILt b₁ → k.iev ρ' = k.iev ρ)
+theorem iargGood_mono {ρ ρ' : FEnv} {b₁ b₂ : Nat} (hb : b₁ ≤ b₂)
+    (hρ : ∀ {u} (k : FKey u), k.FLt b₁ → k.fev ρ' = k.fev ρ)
     {t : Ty} {a : Arg (IVal Val) t} {v : Val t} (h : IArgGood ρ b₁ a v) :
     IArgGood ρ' b₂ a v :=
-  ⟨h.1, (hρ (ikey a) h.2.2).trans h.2.1, h.2.2.mono hb⟩
+  ⟨h.1, (hρ (ikey a) h.2.2).trans h.2.1, h.2.2.le hb⟩
 
-theorem argRel_iargGood {G : Ctx (IVal Val) Val} {ρ : IEnv} {b : Nat} (hG : IGood ρ b G)
+theorem argRel_iargGood {G : Ctx (IVal Val) Val} {ρ : FEnv} {b : Nat} (hG : IGood ρ b G)
     {t : Ty} {a₁ : Arg (IVal Val) t} {a₂ : Arg Val t} :
     ArgRel G t a₁ a₂ → IArgGood ρ b a₁ a₂.val
   | .var h => hG _ h
   | .imm _ => ⟨rfl, rfl, trivial⟩
 
-def IArgsGood (ρ : IEnv) (b : Nat) :
+def IArgsGood (ρ : FEnv) (b : Nat) :
     {ts : List Ty} → Tup (Arg (IVal Val)) ts → Tup Val ts → Prop
   | [], (), () => True
   | _ :: _, (a, as), (v, vs) => IArgGood ρ b a v ∧ IArgsGood ρ b as vs
 
-theorem IArgsGood.of_trel {G : Ctx (IVal Val) Val} {ρ : IEnv} {b : Nat} (hG : IGood ρ b G) :
+theorem IArgsGood.of_trel {G : Ctx (IVal Val) Val} {ρ : FEnv} {b : Nat} (hG : IGood ρ b G) :
     {ts : List Ty} → {as₁ : Tup (Arg (IVal Val)) ts} → {as₂ : Tup (Arg Val) ts} →
     TRel (ArgRel G) as₁ as₂ → IArgsGood ρ b as₁ (vals as₂)
   | [], (), (), .nil => trivial
   | _ :: _, (_, _), (_, _), .cons ha has => ⟨argRel_iargGood hG ha, IArgsGood.of_trel hG has⟩
 
-theorem iargsGood_mono {ρ ρ' : IEnv} {b₁ b₂ : Nat} (hb : b₁ ≤ b₂)
-    (hρ : ∀ {u} (k : IKey u), k.ILt b₁ → k.iev ρ' = k.iev ρ) :
+theorem iargsGood_mono {ρ ρ' : FEnv} {b₁ b₂ : Nat} (hb : b₁ ≤ b₂)
+    (hρ : ∀ {u} (k : FKey u), k.FLt b₁ → k.fev ρ' = k.fev ρ) :
     {ts : List Ty} → {as : Tup (Arg (IVal Val)) ts} → {vs : Tup Val ts} →
     IArgsGood ρ b₁ as vs → IArgsGood ρ' b₂ as vs
   | [], (), (), _ => trivial
@@ -234,11 +171,11 @@ private theorem mkPairArg_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   · exact h _ rfl
 
 private theorem splitPairIVal_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
-    {a b : Ty} (ρ : IEnv) (next : Nat) (p : Arg (IVal Val) (.pair a b)) (v : Val (.pair a b))
+    {a b : Ty} (ρ : FEnv) (next : Nat) (p : Arg (IVal Val) (.pair a b)) (v : Val (.pair a b))
     (hp : IArgGood ρ next p v)
     {cont : Nat → Arg (IVal Val) a → Arg (IVal Val) b → Expr Val Cont rs}
-    (hcont : ∀ (ρ' : IEnv) (next' : Nat) (p₁ : Arg (IVal Val) a) (p₂ : Arg (IVal Val) b),
-      next ≤ next' → (∀ {u} (k : IKey u), k.ILt next → k.iev ρ' = k.iev ρ) →
+    (hcont : ∀ (ρ' : FEnv) (next' : Nat) (p₁ : Arg (IVal Val) a) (p₂ : Arg (IVal Val) b),
+      next ≤ next' → (∀ {u} (k : FKey u), k.FLt next → k.fev ρ' = k.fev ρ) →
       IArgGood ρ' next' p₁ v.1 → IArgGood ρ' next' p₂ v.2 →
       wp Γ Q X (cont next' p₁ p₂) m) :
     wp Γ Q X (splitPairIVal next p cont) m := by
@@ -255,21 +192,21 @@ private theorem splitPairIVal_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XP
     simp only [wp_let_op1, OpCode.wp_unpair]
     have hw : w = v := by rw [← hp.1, hio]; rfl
     subst hw
-    let ρ' := iupd (iupd ρ next w.1) (next + 1) w.2
+    let ρ' := fupd (fupd ρ next w.1) (next + 1) w.2
     refine hcont ρ' (next + 2) (.var (.var w.1, .var next)) (.var (.var w.2, .var (next + 1)))
       (by omega) (fun {u} k hk => ?_) ?_ ?_
-    · rw [IKey.iev_iupd _ (hk.mono (by omega)), IKey.iev_iupd _ hk]
+    · rw [FKey.fev_fupd _ (hk.le (by omega)), FKey.fev_fupd _ hk]
     · refine ⟨rfl, ?_, show next < next + 2 by omega⟩
-      simp only [ikey, IKey.iev, ρ']
-      rw [iupd_ne _ _ (by omega), iupd_eq]
+      simp only [ikey, FKey.fev, ρ']
+      rw [fupd_ne _ _ (by omega), fupd_eq]
     · refine ⟨rfl, ?_, show next + 1 < next + 2 by omega⟩
-      simp only [ikey, IKey.iev, ρ']
-      rw [iupd_eq]
+      simp only [ikey, FKey.fev, ρ']
+      rw [fupd_eq]
 
 private theorem emitSelectTy_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
     (c : Arg Val .bool) :
     (t : Ty) → isSelectTy t = true →
-    (ρ : IEnv) → (next : Nat) →
+    (ρ : FEnv) → (next : Nat) →
     {aT aE : Arg (IVal Val) t} → {vT vE : Val t} →
     IArgGood ρ next aT vT → IArgGood ρ next aE vE →
     {cont : Nat → Arg Val t → Expr Val Cont rs} →
@@ -278,19 +215,19 @@ private theorem emitSelectTy_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
     wp Γ Q X (emitSelectTy c t next aT aE cont) m
   | .bool, _, ρ, next, aT, aE, vT, vE, hT, hE, cont, hcont => by
     simp only [emitSelectTy]
-    cases hbeq : iKeyBeq (ikey aT) (ikey aE)
+    cases hbeq : fKeyBeq (ikey aT) (ikey aE)
     · simp only [Bool.false_eq_true, ↓reduceIte, wp_let_op3, OpCode.wp_select]
       exact hcont next _ (Nat.le_refl _) (by rw [hT.1, hE.1]; rfl)
-    · have heq : ikey aT = ikey aE := iKeyBeq_iff_eq.1 hbeq
+    · have heq : ikey aT = ikey aE := fKeyBeq_iff_eq.1 hbeq
       have hveq : vT = vE := by rw [← hT.2.1, heq, hE.2.1]
       simp only [↓reduceIte]
       exact hcont next _ (Nat.le_refl _) (by rw [hT.1, hveq]; cases c.val <;> rfl)
   | .bits n, _, ρ, next, aT, aE, vT, vE, hT, hE, cont, hcont => by
     simp only [emitSelectTy]
-    cases hbeq : iKeyBeq (ikey aT) (ikey aE)
+    cases hbeq : fKeyBeq (ikey aT) (ikey aE)
     · simp only [Bool.false_eq_true, ↓reduceIte, wp_let_op3, OpCode.wp_select]
       exact hcont next _ (Nat.le_refl _) (by rw [hT.1, hE.1]; rfl)
-    · have heq : ikey aT = ikey aE := iKeyBeq_iff_eq.1 hbeq
+    · have heq : ikey aT = ikey aE := fKeyBeq_iff_eq.1 hbeq
       have hveq : vT = vE := by rw [← hT.2.1, heq, hE.2.1]
       simp only [↓reduceIte]
       exact hcont next _ (Nat.le_refl _) (by rw [hT.1, hveq]; cases c.val <;> rfl)
@@ -300,7 +237,7 @@ private theorem emitSelectTy_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
     have hta : isSelectTy a = true := by simp [isSelectTy, ht.1]
     have htb : isSelectTy b = true := by simp [isSelectTy, ht.2]
     simp only [emitSelectTy]
-    cases hbeq : iKeyBeq (ikey aT) (ikey aE)
+    cases hbeq : fKeyBeq (ikey aT) (ikey aE)
     · simp only [Bool.false_eq_true, ↓reduceIte]
       refine splitPairIVal_wp ρ next aT vT hT fun ρ₁ next₁ aT₁ aT₂ hle₁ hev₁ hT₁ hT₂ => ?_
       have hE' := iargGood_mono hle₁ hev₁ hE
@@ -314,14 +251,14 @@ private theorem emitSelectTy_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
       refine hcont next₄ r (Nat.le_trans hle₁ (Nat.le_trans hle₂ (Nat.le_trans hle₃ hle₄))) ?_
       rw [hr, hr₁, hr₂]
       cases c.val <;> rfl
-    · have heq : ikey aT = ikey aE := iKeyBeq_iff_eq.1 hbeq
+    · have heq : ikey aT = ikey aE := fKeyBeq_iff_eq.1 hbeq
       have hveq : vT = vE := by rw [← hT.2.1, heq, hE.2.1]
       simp only [↓reduceIte]
       exact hcont next _ (Nat.le_refl _) (by rw [hT.1, hveq]; cases c.val <;> rfl)
 
 theorem emitSelectTup_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
     (c : Arg Val .bool) :
-    (ts : List Ty) → isSelectSig ts = true → (ρ : IEnv) → (next : Nat) →
+    (ts : List Ty) → isSelectSig ts = true → (ρ : FEnv) → (next : Nat) →
     {asT asE : Tup (Arg (IVal Val)) ts} → {vsT vsE : Tup Val ts} →
     IArgsGood ρ next asT vsT → IArgsGood ρ next asE vsE →
     {cont : Tup (Arg Val) ts → Expr Val Cont rs} →
@@ -512,7 +449,7 @@ private theorem emitSelectTy_wf {rs : List Ty} {G' : Ctx V₁ V₂} {D' : Ctx L�
     Wf G' D' (emitSelectTy c₁ t next aT₁ aE₁ cont₁) (emitSelectTy c₂ t next aT₂ aE₂ cont₂)
   | .bool, next, aT₁, aE₁, aT₂, aE₂, hT, hE, cont₁, cont₂, hcont => by
     simp only [emitSelectTy, hT.2, hE.2]
-    cases iKeyBeq (ikey aT₂) (ikey aE₂)
+    cases fKeyBeq (ikey aT₂) (ikey aE₂)
     · simp only [Bool.false_eq_true, ↓reduceIte]
       refine .let_ (.mk (.select .bool) (.cons hc (.cons hT.1 (.cons hE.1 .nil))))
         fun (r₁, ()) (r₂, ()) => ?_
@@ -521,7 +458,7 @@ private theorem emitSelectTy_wf {rs : List Ty} {G' : Ctx V₁ V₂} {D' : Ctx L�
     · exact hcont G' next (iout aT₁) (iout aT₂) (fun _ h => h) hT.1
   | .bits n, next, aT₁, aE₁, aT₂, aE₂, hT, hE, cont₁, cont₂, hcont => by
     simp only [emitSelectTy, hT.2, hE.2]
-    cases iKeyBeq (ikey aT₂) (ikey aE₂)
+    cases fKeyBeq (ikey aT₂) (ikey aE₂)
     · simp only [Bool.false_eq_true, ↓reduceIte]
       refine .let_ (.mk (.select (.bits n)) (.cons hc (.cons hT.1 (.cons hE.1 .nil))))
         fun (r₁, ()) (r₂, ()) => ?_
@@ -532,7 +469,7 @@ private theorem emitSelectTy_wf {rs : List Ty} {G' : Ctx V₁ V₂} {D' : Ctx L�
     hcont G' next _ _ (fun _ h => h) hT.1
   | .pair a b, next, aT₁, aE₁, aT₂, aE₂, hT, hE, cont₁, cont₂, hcont => by
     simp only [emitSelectTy, hT.2, hE.2]
-    cases iKeyBeq (ikey aT₂) (ikey aE₂)
+    cases fKeyBeq (ikey aT₂) (ikey aE₂)
     · simp only [Bool.false_eq_true, ↓reduceIte]
       refine splitPairIVal_wf next hT fun G₁ next₁ aT₁₁ aT₂₁ aT₁₂ aT₂₂ hsub₁ hT₁ hT₂ => ?_
       refine splitPairIVal_wf next₁ (iargRel_weaken hsub₁ hE)
@@ -1050,12 +987,12 @@ private theorem bool_val_cases {c₁ : Arg (IVal Val) .bool} {c₂ : Arg Val .bo
 
 private theorem hoistArm_taken_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
     {jTs : List Ty} (j : Cont jTs) :
-    ∀ (n next : Nat) {ρ : IEnv} {G : Ctx (IVal Val) Val} {D : Ctx (JLabel Cont) Cont}
+    ∀ (n next : Nat) {ρ : FEnv} {G : Ctx (IVal Val) Val} {D : Ctx (JLabel Cont) Cont}
       {e₁ : Expr (IVal Val) (JLabel Cont) rs} {e₂ : Expr Val Cont rs},
     Wf G D e₁ e₂ → ArmSpec j n e₂ → IGood ρ next G → wp Γ Q X e₂ m →
     {cont : Nat → Tup (Arg (IVal Val)) jTs → Expr Val Cont rs} →
     (∀ next' ρ' args₁ vs₂, next ≤ next' →
-      (∀ {u} (k : IKey u), k.ILt next → k.iev ρ' = k.iev ρ) →
+      (∀ {u} (k : FKey u), k.FLt next → k.fev ρ' = k.fev ρ) →
       IArgsGood ρ' next' args₁ vs₂ → j vs₂ m → wp Γ Q X (cont next' args₁) m) →
     wp Γ Q X (hoistArm jTs n next e₁ cont) m
   | 0, next, ρ, G, D, e₁, e₂, hwf, hsp, hG, hwp, cont, hcont => by
@@ -1081,18 +1018,18 @@ private theorem hoistArm_taken_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : X
           (hsp' r) (hG.freshIVals r) hr fun next' ρ' args₁ vs₂ hle hev hargs' hj => ?_
         refine hcont next' ρ' args₁ vs₂ (Nat.le_trans (Nat.le_add_right _ _) hle)
           (fun {u} k hk => ?_) hargs' hj
-        exact (hev k (hk.mono (Nat.le_add_right _ _))).trans (IKey.iev_iupdTup r hk)
+        exact (hev k (hk.le (Nat.le_add_right _ _))).trans (FKey.fev_fupdTup r hk)
     | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _ | exit _ _ | hlt
     | group _ _ => exact False.elim hsp
 
 private theorem hoistArm_untaken_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} {jTs : List Ty} (j : Cont jTs) :
-    ∀ (n next : Nat) {ρ : IEnv} {G : Ctx (IVal Val) Val} {D : Ctx (JLabel Cont) Cont}
+    ∀ (n next : Nat) {ρ : FEnv} {G : Ctx (IVal Val) Val} {D : Ctx (JLabel Cont) Cont}
       {e₁ : Expr (IVal Val) (JLabel Cont) rs} {e₂ : Expr Val Cont rs},
     Wf G D e₁ e₂ → ArmSpec j n e₂ → IGood ρ next G →
     {cont : Nat → Tup (Arg (IVal Val)) jTs → Expr Val Cont rs} →
     (∀ next' ρ' args₁ vs₂, next ≤ next' →
-      (∀ {u} (k : IKey u), k.ILt next → k.iev ρ' = k.iev ρ) →
+      (∀ {u} (k : FKey u), k.FLt next → k.fev ρ' = k.fev ρ) →
       IArgsGood ρ' next' args₁ vs₂ → wp Γ Q X (cont next' args₁) m) →
     wp Γ Q X (hoistArm jTs n next e₁ cont) m
   | 0, next, ρ, G, D, e₁, e₂, hwf, hsp, hG, cont, hcont => by
@@ -1116,13 +1053,13 @@ private theorem hoistArm_untaken_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X :
           (hsp' r) (hG.freshIVals r) fun next' ρ' args₁ vs₂ hle hev hargs' => ?_
         refine hcont next' ρ' args₁ vs₂ (Nat.le_trans (Nat.le_add_right _ _) hle)
           (fun {u} k hk => ?_) hargs'
-        exact (hev k (hk.mono (Nat.le_add_right _ _))).trans (IKey.iev_iupdTup r hk)
+        exact (hev k (hk.le (Nat.le_add_right _ _))).trans (FKey.fev_fupdTup r hk)
     | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _ | exit _ _ | hlt
     | group _ _ => exact False.elim hsp
 
 private theorem hoistDiamond_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {jTs : List Ty}
     (j : Cont jTs) :
-    ∀ (plan : DiamondPlan) (next : Nat) {ρ : IEnv} {G : Ctx (IVal Val) Val}
+    ∀ (plan : DiamondPlan) (next : Nat) {ρ : FEnv} {G : Ctx (IVal Val) Val}
       {D : Ctx (JLabel Cont) Cont} {e₁ : Expr (IVal Val) (JLabel Cont) rs} {e₂ : Expr Val Cont rs},
     Wf G D e₁ e₂ → DiamondSpec j plan e₂ → IGood ρ next G → ∀ m,
     wp Γ Q X e₂ m → wp Γ Q X (hoistDiamond j plan next e₁) m
@@ -1211,7 +1148,7 @@ private theorem ifOpt_jump_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost
     {j₁ : JLabel Cont ts} {j₂ : Cont ts}
     {args₁ : Tup (Arg (IVal Val)) ts} {args₂ : Tup (Arg Val) ts}
     (hj : ⟨ts, j₁, j₂⟩ ∈ D) (hargs : TRel (ArgRel G) args₁ args₂)
-    {ρ : IEnv} {bitsOnly : Bool} {depth next : Nat} (hD : OuterContD D) (hG : IGood ρ next G)
+    {ρ : FEnv} {bitsOnly : Bool} {depth next : Nat} (hD : OuterContD D) (hG : IGood ρ next G)
     {m : Mem 64} (hw : wp Γ Q X (.jump j₂ args₂) m) :
     wp Γ Q X (ifOptWith bitsOnly depth next (.jump j₁ args₁)) m := by
   have hj' := hD _ hj
@@ -1348,13 +1285,13 @@ theorem ifOptWith_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
       simp only [ifOptWith, wp, Op.wp] at hw ⊢
       rw [TRel.iout_vals hG hargs]
       exact OpCode.wp_mono code (vals args₂) (fun r hr =>
-        ih (freshIVals _ r next) r hD depth (next + _) (iupdTup ρ next r)
+        ih (freshIVals _ r next) r hD depth (next + _) (fupdTup ρ next r)
           (hG.freshIVals r) m hr) hw
   | load t ha _ ih =>
     intro hD depth next ρ hG m ⟨v, hv, hk⟩
     simp only [ifOptWith, wp]
     rw [argRel_iout_val hG ha]
-    exact ⟨v, hv, ih (.var v, .var next) v hD depth (next + 1) (iupd ρ next v)
+    exact ⟨v, hv, ih (.var v, .var next) v hD depth (next + 1) (fupd ρ next v)
       (hG.freshOne v) m hk⟩
   | store hv ha _ ih =>
     intro hD depth next ρ hG m ⟨hok, hk⟩
@@ -1366,7 +1303,7 @@ theorem ifOptWith_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     simp only [ifOptWith, wp]
     rw [TRel.iout_vals hG hargs]
     exact ⟨P, E, hΓ, fun r m' hp =>
-      ih (freshIVals _ r next) r hD depth (next + _) (iupdTup ρ next r)
+      ih (freshIVals _ r next) r hD depth (next + _) (fupdTup ρ next r)
         (hG.freshIVals r) m' (hP r m' hp), hE⟩
   | jnz hc _ _ iht ihe =>
     intro hD depth next ρ hG m hw
@@ -1413,7 +1350,7 @@ theorem ifOptWith_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
           rw [ifOptB_get]
           exact ihb (Js.map fun _ l => .outer l) Js i (freshIVals ts' xs next) xs
             (OuterContD.append_outer hD Js) (depth + 1) (next + ts'.length)
-            (iupdTup ρ next xs) (hG.freshIVals xs) m' hb'
+            (fupdTup ρ next xs) (hG.freshIVals xs) m' hb'
         have hw₂ := hw Js hclosed₂
         cases hplan : checkDiamondWith bitsOnly depth ts next (k₁ (.loc depth, ())) with
         | none =>
@@ -1434,7 +1371,7 @@ theorem ifOptWith_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
         rw [ifOptB_get]
         exact ihb (Js.map fun _ l => .outer l) Js i (freshIVals ts' xs next) xs
           (OuterContD.append_outer hD Js) (depth + rest.length + 2) (next + ts'.length)
-          (iupdTup ρ next xs) (hG.freshIVals xs) m' hb'
+          (fupdTup ρ next xs) (hG.freshIVals xs) m' hb'
 
 /-- Weakest-precondition refinement for `ifOpt`, proved via `Wf.induct`. -/
 theorem ifOpt_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
@@ -1471,7 +1408,7 @@ theorem Func.ifOptWith_spec (bitsOnly : Bool) {as rs : List Ty} {f : Func as rs}
     {Γ : Env} {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.ifOptWith bitsOnly f) xs m Q X := by
   have hwf := hf (IVal Val) Val (JLabel Cont) Cont (freshIVals as xs 0) xs
-  have hgood : IGood (iupdTup (fun _ _ => default) 0 xs) as.length
+  have hgood : IGood (fupdTup (fun _ _ => default) 0 xs) as.length
       (Tup.zip (freshIVals as xs 0) xs) := by
     simpa using IGood.freshIVals (ρ := fun _ _ => default) (b := 0) (G := [])
       (fun _ hp => nomatch hp) xs

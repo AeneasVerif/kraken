@@ -169,42 +169,18 @@ def opCodeTag {sig rs : List Ty} : OpCode sig rs → Nat
   | .sitofp _ _ => 63
   | .fcvt _ _ => 64
 
-/-- 16-bit prime-modulus hash of `(code, args)` for `GvnTrie` indexing (`< 2^16`). -/
+/-- 16-bit prime-modulus hash of `(code, args)` for `Trie` indexing (`< 2^16`). -/
 def gvnHash {sig rs : List Ty} (code : OpCode sig rs) (args : Tup (Arg K) sig) : Nat :=
   (tupArgHash args * 131 + opCodeTag code) % 65521
 
-/-- A single entry in a `GvnTrie` bucket. -/
+/-- A single entry in a `GvnTbl` bucket. -/
 abbrev GvnEntry (V : Ty → Type) := (k : GvnKey) × Tup (GVal V) k.2.1
 
 /-- Hash bucket of `GvnKey` entries sharing the same `gvnHash`. -/
 abbrev GvnBucket (V : Ty → Type) := List (GvnEntry V)
 
-/-- Binary trie over hash bits (`O(log B)` depth `≤ 16` without `WellFounded.fix`). -/
-inductive GvnTrie (V : Ty → Type) : Type where
-  | empty
-  | node (bucket : GvnBucket V) (even odd : GvnTrie V)
-
-def GvnTrie.get {V : Ty → Type} : GvnTrie V → Nat → Nat → GvnBucket V
-  | .empty, _, _ => []
-  | .node b _ _, 0, _ => b
-  | .node b _ _, _ + 1, 0 => b
-  | .node _ e o, fuel + 1, n + 1 =>
-    if n % 2 == 0 then GvnTrie.get e fuel (n / 2) else GvnTrie.get o fuel (n / 2)
-
-def GvnTrie.insert {V : Ty → Type} : GvnTrie V → Nat → Nat → GvnEntry V → GvnTrie V
-  | .empty, 0, _, entry => .node [entry] .empty .empty
-  | .node b e o, 0, _, entry => .node (entry :: b) e o
-  | .empty, _ + 1, 0, entry => .node [entry] .empty .empty
-  | .node b e o, _ + 1, 0, entry => .node (entry :: b) e o
-  | .empty, fuel + 1, n + 1, entry =>
-    if n % 2 == 0 then .node [] (GvnTrie.insert .empty fuel (n / 2) entry) .empty
-    else .node [] .empty (GvnTrie.insert .empty fuel (n / 2) entry)
-  | .node b e o, fuel + 1, n + 1, entry =>
-    if n % 2 == 0 then .node b (GvnTrie.insert e fuel (n / 2) entry) o
-    else .node b e (GvnTrie.insert o fuel (n / 2) entry)
-
-/-- Lexical CSE table mapping `GvnKey`s to cached `GVal V` result tuples (hash-bucketed trie). -/
-abbrev GvnTbl (V : Ty → Type) := GvnTrie V
+/-- Lexical CSE table mapping `GvnKey`s to cached `GVal V` result tuples (hash-bucketed `Trie`). -/
+abbrev GvnTbl (V : Ty → Type) := Trie (GvnBucket V)
 
 def GvnBucket.find {V : Ty → Type} :
     GvnBucket V → (sig rs : List Ty) → OpCode sig rs → Tup (Arg K) sig → Option (Tup (GVal V) rs)
@@ -217,13 +193,14 @@ def GvnBucket.find {V : Ty → Type} :
 /-- Look up a key `(sig, rs, code, args)` in `tbl`, casting the cached tuple along `rs`. -/
 @[irreducible] def GvnTbl.find {V : Ty → Type} (tbl : GvnTbl V)
     (sig rs : List Ty) (code : OpCode sig rs) (args : Tup (Arg K) sig) : Option (Tup (GVal V) rs) :=
-  GvnBucket.find (GvnTrie.get tbl 16 (gvnHash code args)) sig rs code args
+  GvnBucket.find (Trie.getD tbl (gvnHash code args) []) sig rs code args
 
 /-- Insert `(key, v)` into `tbl` at `gvnHash code args`. -/
 @[irreducible] def GvnTbl.insert {V : Ty → Type} (tbl : GvnTbl V)
     (sig rs : List Ty) (code : OpCode sig rs) (args : Tup (Arg K) sig) (v : Tup (GVal V) rs) :
     GvnTbl V :=
-  GvnTrie.insert tbl 16 (gvnHash code args) ⟨⟨sig, rs, code, args⟩, v⟩
+  let h := gvnHash code args
+  Trie.insert tbl h (⟨⟨sig, rs, code, args⟩, v⟩ :: Trie.getD tbl h [])
 
 def Arg.gout {V : Ty → Type} {t : Ty} : Arg (GVal V) t → Arg V t
   | .var p => .var p.1

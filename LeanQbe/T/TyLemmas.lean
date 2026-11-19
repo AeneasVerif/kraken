@@ -8,7 +8,7 @@ public import LeanQbe.T.Ty
 * Vector size, mask, and leaf-predicate properties (`vec_size`, `hasFloat_vec`, `isFloatTree_vec`).
 * Bit-view round-trip theorems (`ofBits_toBits`, `toBits_ofBits`, `bitcastVal_self`,
   `bitcastVal_bitcastVal`) and byte-width bounds (`size_le_eight_bytes`, `setWidth_bytes_size`).
-* Tuple and context helper lemmas (`Tup.get_map`, `TRel.mono`, `envRel_toTup`).
+* Tuple and context helper lemmas (`Tup.get_map`, `TRel.mono`).
 -/
 
 set_option autoImplicit false
@@ -126,13 +126,5 @@ theorem TRel.mono {α : Type} {f g : α → Type} {R S : ∀ a, f a → g a → 
     {as : List α} → {xs : Tup f as} → {ys : Tup g as} → TRel R xs ys → TRel S xs ys
   | [], _, _, .nil => .nil
   | _ :: _, _, _, .cons hr hrs => .cons (h _ _ _ hr) (TRel.mono h hrs)
-
-theorem envRel_toTup : {α : Type} → {f g : α → Type} → {as : List α} →
-    (xs₁ : Tup f as) → (xs₂ : Tup g as) → EnvRel (Tup.zip xs₁ xs₂) xs₁ xs₂
-  | _, _, _, [], _, _ => fun _ i => nomatch i
-  | _, _, _, _ :: _, xs₁, xs₂ => fun a i => by
-    cases i with
-    | here => exact List.mem_cons_self
-    | there i => exact List.mem_cons_of_mem _ (envRel_toTup xs₁.2 xs₂.2 a i)
 
 end LeanQbe.T

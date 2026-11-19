@@ -81,7 +81,6 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {sig rs : List Ty} {code : OpCode sig
         cases mem_cons_top hlt hm'
       · exact ⟨_, List.mem_cons_of_mem _ ‹_›, by simp⟩
       · exact ⟨_, List.mem_cons_of_mem _ ‹_›, by simp [BitVec.add_comm]⟩
-      · exact ⟨_, _, List.mem_cons_of_mem _ ‹_›, List.mem_cons_of_mem _ ‹_›, rfl⟩
   · split at hd
     · next hn =>
       simp only [Nat.beq_eq] at hn; subst hn
@@ -93,31 +92,17 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {sig rs : List Ty} {code : OpCode sig
       cases mem_cons_top hlt hm'
       exact ⟨_, List.mem_cons_of_mem _ ‹_›, by simp [BitVec.sub_eq_add_neg]⟩
     · simp at hd
-  · rcases hrel with _ | ⟨h1, -⟩
-    split at hd
-    · cases hd; cases h1
+  · split at hd
+    · next hn =>
+      simp only [Nat.beq_eq] at hn; subst hn
+      rcases hrel with _ | ⟨h1, -⟩
+      cases hd; cases h1
       simp only [OpCode.wp_copy, vals, Arg.val] at hwp ⊢
-      refine ⟨hwp, by simp, fun t' v' hm' => ?_⟩
-      simp only [Tup.zip, Tup.levels] at hm' ⊢
+      refine ⟨hwp, by simp, fun v' hm' => ?_⟩
+      simp only [Tup.zip, Tup.levels] at hm'
       cases mem_cons_top hlt hm'
-      exact List.mem_cons_of_mem _ ‹_›
-    · split at hd
-      · next hn =>
-        simp only [Nat.beq_eq] at hn; subst hn
-        cases hd; cases h1
-        simp only [OpCode.wp_copy, vals, Arg.val] at hwp ⊢
-        refine ⟨hwp, by simp, fun v' hm' => ?_⟩
-        simp only [Tup.zip, Tup.levels] at hm'
-        cases mem_cons_top hlt hm'
-        simp
-      · simp at hd
-  · rcases hrel with _ | ⟨h1, -⟩
-    cases hd; cases h1
-    simp only [OpCode.wp_copy, vals, Arg.val] at hwp ⊢
-    refine ⟨hwp, by simp, fun t' v' hm' => ?_⟩
-    simp only [Tup.zip, Tup.levels] at hm' ⊢
-    cases mem_cons_top hlt hm'
-    exact List.mem_cons_of_mem _ ‹_›
+      simp
+    · simp at hd
   · simp at hd
 
 theorem zip_levels_mem {G : VCtx} : ∀ {ts : List Ty} {rvs : Tup Val ts} {nv : Nat} {p},

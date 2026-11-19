@@ -212,11 +212,6 @@ def Tup.units {α : Type} : (ts : List α) → Tup (fun _ : α => Unit) ts
   | [] => ()
   | _ :: ts => ((), Tup.units ts)
 
-/-- Every positional entry of two tuples is paired in `G`. -/
-def EnvRel {α : Type} {f g : α → Type} (G : Ctx f g) {as : List α}
-    (xs : Tup f as) (ys : Tup g as) : Prop :=
-  ∀ a (i : Member a as), ⟨a, xs.get i, ys.get i⟩ ∈ G
-
 /-! ## Decidable-free boolean equality -/
 
 /-- Boolean equality on `Fmt`, kernel-reducible by `rfl`. -/

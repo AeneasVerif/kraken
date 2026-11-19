@@ -1,7 +1,6 @@
 module
 
 public import LeanQbe.T.OptUtil
-public import LeanQbe.T.Fold
 
 /-!
 # Commutative canonicalization and constant-chain reassociation (`O-M1`)
