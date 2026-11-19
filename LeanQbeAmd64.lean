@@ -11,5 +11,7 @@ public import LeanQbe.Amd64.UnionFind
 public import LeanQbe.Amd64.LratTrim
 public import LeanQbe.Amd64.LratBytes
 public import LeanQbe.T.Amd64.Base
+public import LeanQbe.T.Amd64.Frame
+public import LeanQbe.T.Amd64.FrameLemmas
 
 /-! Root of the x64 library: imports `Kraken.X64` through `LeanQbe.Amd64.*`. -/

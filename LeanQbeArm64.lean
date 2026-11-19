@@ -11,5 +11,7 @@ public import LeanQbe.Arm64.UnionFind
 public import LeanQbe.Arm64.LratTrim
 public import LeanQbe.Arm64.LratBytes
 public import LeanQbe.T.Arm64.Base
+public import LeanQbe.T.Arm64.Frame
+public import LeanQbe.T.Arm64.FrameLemmas
 
 /-! Root of the AArch64 library: imports `Kraken.AArch64` through `LeanQbe.Arm64.*`. -/

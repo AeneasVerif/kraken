@@ -94,6 +94,7 @@ public import LeanQbe.T.Module
 public import LeanQbe.T.Trie
 public import LeanQbe.T.Target
 public import LeanQbe.T.TargetLemmas
+public import LeanQbe.T.AbiLemmas
 public import LeanQbe.T.Live
 public import LeanQbe.T.Spill
 public import LeanQbe.T.Rega
