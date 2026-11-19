@@ -3,21 +3,27 @@ module
 public import LeanQbe.T.OptUtil
 
 /-!
-# Dead-Code Elimination (`T6`)
+# Dead-Code Elimination (`T6`, `O-M2`)
 
-Two-phase PHOAS dead-code elimination pass:
-1. Bottom-up pure liveness analysis (`liveVars` / `liveVarsB`) over `Expr K KL0 rs` using the
-   shared `O(log N)` structural binary trie `Trie Unit` (`OptUtil`).
-   A `let_` binding `[b, b + ts.length)` is kept iff any of its results is live in its
-   continuation (`anyLive`), causing chains of dead pure bindings to cascade in a single sweep.
-   Side-effectful or control nodes (`load`, `store`, `call`, `exit`, `jnz`, `jump`, `ret`, `hlt`,
-   `group`) are never dropped, and `group` block liveness is conservatively unioned with the
-   continuation's liveness.
+Two-phase PHOAS dead-binding elimination pass (`liveVarsWith` / `dceSweep` / `Func.dceWith`):
+1. Bottom-up pure liveness analysis (`liveVarsWith` / `liveVarsBWith`) over `Expr K KL0 rs` using
+   the shared `O(log N)` structural binary trie `Trie Unit` (`OptUtil`), parameterized by
+   `dropLets dropLoads : Bool`:
+   - When `dropLets` is true, a `let_` binding `[b, b + ts.length)` is kept iff any of its results
+     is live in its continuation (`anyLive`), causing chains of dead pure bindings to cascade in a
+     single sweep.
+   - When `dropLoads` is true, a `.load` binding `b` is kept iff `(s.find? b).isSome`.
+   - Side-effectful or control nodes (`store`, `call`, `exit`, `jnz`, `jump`, `ret`, `hlt`,
+     `group`) are never dropped, and `group` block liveness is conservatively unioned with the
+     continuation's liveness.
 2. Top-down reconstruction (`dceSweep` / `dceSweepB`) over `Expr (OptV V) L rs` guided by the
    computed `KeepTree` / `KeepBlocks`.
+3. `Func.dce := Func.dceWith true false` (dead `let_` elimination) and
+   `Func.deadLoadElim := Func.dceWith false true` (dead `.load` elimination).
 
-Correctness (`LeanQbe/T/DceLemmas.lean`): `OpCode.wp_exists`, `dce_wp`, `dce_wf`,
-`Func.dce_wf`, `Func.dce_spec`.
+Correctness (`LeanQbe/T/DceLemmas.lean`): `OpCode.wp_exists`, `dceWith_wp`, `dceWith_wf`,
+`dce_wp`, `dce_wf`, `Func.dce_wf`, `Func.dce_spec`, `Func.deadLoadElim_wf`,
+`Func.deadLoadElim_spec`.
 -/
 
 set_option autoImplicit false
@@ -44,25 +50,29 @@ end
 /-! ## Bottom-up liveness and top-down sweep -/
 
 mutual
-def liveVars {rs : List Ty} (b : Nat) : Expr K KL0 rs → Trie Unit × KeepTree
+def liveVarsWith (dropLets dropLoads : Bool) {rs : List Ty} (b : Nat) :
+    Expr K KL0 rs → Trie Unit × KeepTree
   | .let_ (ts := ts) op k =>
-    let (s, kt) := liveVars (b + ts.length) (k (Tup.levels ts b))
-    if anyLive b ts.length s then
+    let (s, kt) := liveVarsWith dropLets dropLoads (b + ts.length) (k (Tup.levels ts b))
+    if !dropLets || anyLive b ts.length s then
       (addArgKeys op.args s, .letNode true kt)
     else
       (s, .letNode false kt)
   | .load _ a k =>
-    let (s, kt) := liveVars (b + 1) (k b)
-    (addArgKey a s, .node1 kt)
+    let (s, kt) := liveVarsWith dropLets dropLoads (b + 1) (k b)
+    if !dropLoads || (s.find? b).isSome then
+      (addArgKey a s, .letNode true kt)
+    else
+      (s, .letNode false kt)
   | .store v a k =>
-    let (s, kt) := liveVars b k
+    let (s, kt) := liveVarsWith dropLets dropLoads b k
     (addArgKey v (addArgKey a s), .node1 kt)
   | .call _ (bs := bs) args k =>
-    let (s, kt) := liveVars (b + bs.length) (k (Tup.levels bs b))
+    let (s, kt) := liveVarsWith dropLets dropLoads (b + bs.length) (k (Tup.levels bs b))
     (addArgKeys args s, .node1 kt)
   | .jnz c t e =>
-    let (st, ktt) := liveVars b t
-    let (se, kte) := liveVars b e
+    let (st, ktt) := liveVarsWith dropLets dropLoads b t
+    let (se, kte) := liveVarsWith dropLets dropLoads b e
     (addArgKey c (trieUnion st se), .node2 ktt kte)
   | .jump _ args => (addArgKeys args .empty, .leaf)
   | .ret vs => (addArgKeys vs .empty, .leaf)
@@ -70,16 +80,16 @@ def liveVars {rs : List Ty} (b : Nat) : Expr K KL0 rs → Trie Unit × KeepTree
   | .hlt => (.empty, .leaf)
   | .group (sig := sig) bodies k =>
     let ls := Tup.units sig
-    let (sb, kbs) := liveVarsB b (bodies ls)
-    let (sk, ktk) := liveVars b (k ls)
+    let (sb, kbs) := liveVarsBWith dropLets dropLoads b (bodies ls)
+    let (sk, ktk) := liveVarsWith dropLets dropLoads b (k ls)
     (trieUnion sb sk, .groupNode kbs ktk)
 
-def liveVarsB {rs : List Ty} (b : Nat) :
+def liveVarsBWith (dropLets dropLoads : Bool) {rs : List Ty} (b : Nat) :
     {sig : List (List Ty)} → Blocks K KL0 rs sig → Trie Unit × KeepBlocks
   | _, .nil => (.empty, .nil)
   | _, .cons (ts := ts) hd tl =>
-    let (sh, kh) := liveVars (b + ts.length) (hd (Tup.levels ts b))
-    let (st, kt) := liveVarsB b tl
+    let (sh, kh) := liveVarsWith dropLets dropLoads (b + ts.length) (hd (Tup.levels ts b))
+    let (st, kt) := liveVarsBWith dropLets dropLoads b tl
     (trieUnion sh st, .cons kh kt)
 end
 
@@ -95,7 +105,8 @@ def dceSweep {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     | _ => .hlt
   | .load t a k =>
     match kt with
-    | .node1 kt' => .load t (argSweep a) (fun v => dceSweep kt' (k (some v)))
+    | .letNode true kt' => .load t (argSweep a) (fun v => dceSweep kt' (k (some v)))
+    | .letNode false kt' => dceSweep kt' (k none)
     | _ => .hlt
   | .store v a k =>
     match kt with
@@ -129,9 +140,17 @@ def dceSweepB {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     | _ => .cons (fun _ => .hlt) (dceSweepB .nil bs)
 end
 
-/-- Run dead-code elimination on a closed function `Func`. -/
-def Func.dce {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  let kt := (liveVars as.length (f K KL0 (Tup.levels as 0))).2
+/-- Run configurable dead-binding elimination (`dropLets`, `dropLoads`) on a closed `Func`. -/
+def Func.dceWith (dropLets dropLoads : Bool) {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  let kt := (liveVarsWith dropLets dropLoads as.length (f K KL0 (Tup.levels as 0))).2
   fun V L xs => dceSweep kt (f (OptV V) L (someTup as xs))
+
+/-- Run dead-code elimination (dropping dead `let_` bindings) on a closed `Func`. -/
+def Func.dce {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  Func.dceWith true false f
+
+/-- Drop pure unused `.load` instructions from a closed `Func`. -/
+def Func.deadLoadElim {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  Func.dceWith false true f
 
 end LeanQbe.T

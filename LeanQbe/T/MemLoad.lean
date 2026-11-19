@@ -1,10 +1,9 @@
 module
 
 public import LeanQbe.T.OptUtil
-public import LeanQbe.T.Dce
 
 /-!
-# Lexical Memory Load/Store Optimization (`MemLoad`, `DeadLoadElim`) and `AssumeElim` (`O-M2`)
+# Lexical Memory Load/Store Optimization (`MemLoad`) and `AssumeElim` (`O-M2`)
 
 1. **`Func.memLoad`**: two-phase PHOAS lexical load CSE and store-to-load forwarding:
    - Phase 1 (`analyzeMem` / `analyzeMemB` at `K`, `KL0`): builds a `MemSumTree` computing
@@ -24,10 +23,7 @@ public import LeanQbe.T.Dce
        of `cache` disjoint from the group's `MemSummary` (preserving the full cache when
        read-only, disjoint fields when stores are to tracked bases, and flushing on calls or
        untracked stores).
-2. **`Func.deadLoadElim`**: optional dead-load elimination via bottom-up `K` liveness
-   (`liveLoadVars`) + `deadLoadSweep`, dropping unused `.load`s while keeping used loads and all
-   `let_`/`store`/`call`/`exit` nodes.
-3. **`Func.assumeElim`**: rewrites `.jnz c t .hlt → t` and `.jnz c .hlt e → e` bottom-up across
+2. **`Func.assumeElim`**: rewrites `.jnz c t .hlt → t` and `.jnz c .hlt e → e` bottom-up across
    `Expr` and `Blocks`.
 
 Correctness (`LeanQbe/T/MemLoadLemmas.lean`): `Func.memLoad_wf`, `Func.memLoad_spec`,
@@ -315,102 +311,6 @@ end
 def Func.memLoad {as rs : List Ty} (f : Func as rs) : Func as rs :=
   let mst := (analyzeMem as.length .empty (f K KL0 (Tup.levels as 0))).2
   fun V L xs => memLoadSweep as.length .empty [] mst (f (MVal V) L (freshMVals as xs 0))
-
-/-! ## Optional dead-load elimination (`Func.deadLoadElim`) -/
-
-mutual
-/-- Bottom-up liveness analysis over `Expr K KL0 rs` tracking which `.load` results are used. -/
-def liveLoadVars {rs : List Ty} (b : Nat) : Expr K KL0 rs → Trie Unit × KeepTree
-  | .let_ (ts := ts) op k =>
-    let (s, kt) := liveLoadVars (b + ts.length) (k (Tup.levels ts b))
-    (addArgKeys op.args s, .node1 kt)
-  | .load _ a k =>
-    let (s, kt) := liveLoadVars (b + 1) (k b)
-    if (s.find? b).isSome then
-      (addArgKey a s, .letNode true kt)
-    else
-      (s, .letNode false kt)
-  | .store v a k =>
-    let (s, kt) := liveLoadVars b k
-    (addArgKey v (addArgKey a s), .node1 kt)
-  | .call _ (bs := bs) args k =>
-    let (s, kt) := liveLoadVars (b + bs.length) (k (Tup.levels bs b))
-    (addArgKeys args s, .node1 kt)
-  | .jnz c t e =>
-    let (st, ktt) := liveLoadVars b t
-    let (se, kte) := liveLoadVars b e
-    (addArgKey c (trieUnion st se), .node2 ktt kte)
-  | .jump _ args => (addArgKeys args .empty, .leaf)
-  | .ret vs => (addArgKeys vs .empty, .leaf)
-  | .exit _ args => (addArgKeys args .empty, .leaf)
-  | .hlt => (.empty, .leaf)
-  | .group (sig := sig) bodies k =>
-    let ls := Tup.units sig
-    let (sb, kbs) := liveLoadVarsB b (bodies ls)
-    let (sk, ktk) := liveLoadVars b (k ls)
-    (trieUnion sb sk, .groupNode kbs ktk)
-
-/-- Block-list companion of `liveLoadVars`. -/
-def liveLoadVarsB {rs : List Ty} (b : Nat) :
-    {sig : List (List Ty)} → Blocks K KL0 rs sig → Trie Unit × KeepBlocks
-  | _, .nil => (.empty, .nil)
-  | _, .cons (ts := ts) hd tl =>
-    let (sh, kh) := liveLoadVars (b + ts.length) (hd (Tup.levels ts b))
-    let (st, kt) := liveLoadVarsB b tl
-    (trieUnion sh st, .cons kh kt)
-end
-
-mutual
-/-- Top-down sweep dropping unused `.load` bindings guided by `liveLoadVars`'s `KeepTree`. -/
-def deadLoadSweep {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    (kt : KeepTree) : Expr (OptV V) L rs → Expr V L rs
-  | .let_ (ts := ts) op k =>
-    match kt with
-    | .node1 kt' =>
-      .let_ ⟨op.code, argsSweep op.args⟩ fun xs => deadLoadSweep kt' (k (someTup ts xs))
-    | _ => .hlt
-  | .load t a k =>
-    match kt with
-    | .letNode true kt' => .load t (argSweep a) fun v => deadLoadSweep kt' (k (some v))
-    | .letNode false kt' => deadLoadSweep kt' (k none)
-    | _ => .hlt
-  | .store v a k =>
-    match kt with
-    | .node1 kt' => .store (argSweep v) (argSweep a) (deadLoadSweep kt' k)
-    | _ => .hlt
-  | .call f (bs := bs) args k =>
-    match kt with
-    | .node1 kt' =>
-      .call f (argsSweep args) fun xs => deadLoadSweep kt' (k (someTup bs xs))
-    | _ => .hlt
-  | .jnz c t e =>
-    match kt with
-    | .node2 ktt kte => .jnz (argSweep c) (deadLoadSweep ktt t) (deadLoadSweep kte e)
-    | _ => .hlt
-  | .jump j args => .jump j (argsSweep args)
-  | .ret vs => .ret (argsSweep vs)
-  | .exit f args => .exit f (argsSweep args)
-  | .hlt => .hlt
-  | .group bodies k =>
-    match kt with
-    | .groupNode kbs ktk =>
-      .group (fun Js => deadLoadSweepB kbs (bodies Js)) (fun Js => deadLoadSweep ktk (k Js))
-    | _ => .hlt
-
-/-- Block-list companion of `deadLoadSweep`. -/
-def deadLoadSweepB {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    (kbs : KeepBlocks) : {sig : List (List Ty)} → Blocks (OptV V) L rs sig → Blocks V L rs sig
-  | _, .nil => .nil
-  | _, .cons (ts := ts) b bs =>
-    match kbs with
-    | .cons kh kt => .cons (fun xs => deadLoadSweep kh (b (someTup ts xs))) (deadLoadSweepB kt bs)
-    | _ => .cons (fun _ => .hlt) (deadLoadSweepB .nil bs)
-end
-
-/-- Drop pure unused `.load` instructions from a closed `Func`. -/
-def Func.deadLoadElim {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  let kt := (liveLoadVars as.length (f K KL0 (Tup.levels as 0))).2
-  fun V L xs => deadLoadSweep kt (f (OptV V) L (someTup as xs))
 
 /-! ## `AssumeElim`: `.jnz c t .hlt → t` and `.jnz c .hlt e → e` -/
 

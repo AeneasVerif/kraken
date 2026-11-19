@@ -1,5 +1,6 @@
 module
 
+public import LeanQbe.T.DceLemmas
 public import LeanQbe.T.MemLoadLemmas
 public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.FlatLemmas
