@@ -543,6 +543,13 @@ private def delabBinOp (stem : String) (aw : Width) (w? : Option Width) : X64Del
   ensureWidthDetermined w? #[src, dst]
   `(x64_instr| $op:x64_bin_op $src:x64_operand, $dst:x64_operand)
 
+/-- Delaborate a `(src : RegOrMem, dst : Reg)` `Operation` constructor at `aw`. -/
+private def delabRmRegOp (stem : String) (aw : Width) : X64DelabM (TSyntax `x64_instr) := do
+  let op := mkSuffixed `x64_rm_reg_op stem ""
+  let dst ← withNaryArg 1 delabReg
+  let src ← withNaryArg 2 (delabRegOrMemOperand aw)
+  `(x64_instr| $op:x64_rm_reg_op $src:x64_operand, $dst:x64_reg)
+
 /-- Delaborate a unary `Operation` constructor (`mul`, `neg`, `dec`, `inc`, `not`) at `(aw, w?)`. -/
 private def delabUnaryOp (stem : String) (aw : Width) (w? : Option Width) : X64DelabM (TSyntax `x64_instr) := do
   let op := mkSuffixed `x64_unary_op stem (widthSuffix w?)
@@ -620,17 +627,12 @@ private def delabOperation (aw : Width) (w? : Option Width) : X64DelabM (TSyntax
   | Operation.or   _ _ _ => delabBinOp "or"   aw w?
   | Operation.cmp  _ _ _ => delabBinOp "cmp"  aw w?
   | Operation.test _ _ _ => delabBinOp "test" aw w?
-  -- Carry-chain
-  | Operation.adcx _ _ _ =>
-    let op := mkSuffixed `x64_rm_reg_op "adcx" ""
-    let dst ← withNaryArg 1 delabReg
-    let src ← withNaryArg 2 (delabRegOrMemOperand aw)
-    `(x64_instr| $op:x64_rm_reg_op $src:x64_operand, $dst:x64_reg)
-  | Operation.adox _ _ _ =>
-    let op := mkSuffixed `x64_rm_reg_op "adox" ""
-    let dst ← withNaryArg 1 delabReg
-    let src ← withNaryArg 2 (delabRegOrMemOperand aw)
-    `(x64_instr| $op:x64_rm_reg_op $src:x64_operand, $dst:x64_reg)
+  -- Carry-chain and bit-counting (`(src : RegOrMem, dst : Reg)`)
+  | Operation.adcx   _ _ _ => delabRmRegOp "adcx"   aw
+  | Operation.adox   _ _ _ => delabRmRegOp "adox"   aw
+  | Operation.lzcnt  _ _ _ => delabRmRegOp "lzcnt"  aw
+  | Operation.tzcnt  _ _ _ => delabRmRegOp "tzcnt"  aw
+  | Operation.popcnt _ _ _ => delabRmRegOp "popcnt" aw
   -- Conditional move
   | Operation.cmovcc _ ccExpr _ _ =>
     let some cc := evalCondCode? ccExpr | failure

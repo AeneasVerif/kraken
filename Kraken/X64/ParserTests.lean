@@ -362,6 +362,40 @@ info: ⸨prog|
 #guard_msgs (whitespace := lax) in
 #check ⸨prog| idiv %r9w ⸩
 
+-- Test: lzcnt, tzcnt, and popcnt (16/32/64-bit, reg and mem, optional wlq suffixes)
+/--
+info: ⸨prog|
+  lzcnt %rax, %rbx
+  lzcnt (%rsp), %ecx
+  lzcnt %ax, %dx
+  tzcnt 8(%rsp), %rbx
+  tzcnt %eax, %ecx
+  tzcnt %r8w, %r9w
+  popcnt %rax, %rbx
+  popcnt (%rsp), %ecx
+  popcnt %ax, %dx⸩ : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog|
+  lzcntq %rax, %rbx
+  lzcntl (%rsp), %ecx
+  lzcntw %ax, %dx
+  tzcntq 8(%rsp), %rbx
+  tzcnt %eax, %ecx
+  tzcntw %r8w, %r9w
+  popcntq %rax, %rbx
+  popcntl (%rsp), %ecx
+  popcntw %ax, %dx
+⸩
+
+example : ⸨prog|
+  lzcnt %rsi, %rdi
+  tzcntw (%rsp), %bx
+  popcntl %eax, %ecx ⸩ =
+  [.instr (.regular .W64 .W64 (.lzcnt .rdi (.reg .rsi))),
+   .instr (.regular .W64 .W16 (.tzcnt .bx (.mem { base := some (.reg .rsp), idx := none }))),
+   .instr (.regular .W64 .W32 (.popcnt .ecx (.reg .eax)))] := rfl
+
 -- Test: xor for zeroing
 /--
 info: ⸨prog|
@@ -496,6 +530,15 @@ local elab "elabX64% " s:str : term => elabX64 s.getString
 /-- error: <input>:1:12: expected x64_reg_name -/
 #guard_msgs in
 #check elabX64% "xorq %rax, %unlikely"
+
+-- adcx/adox remain lq-only (reject the 16-bit w suffix)
+/-- error: <input>:1:0: expected end of input -/
+#guard_msgs in
+#check elabX64% "adcxw %ax, %bx"
+
+/-- error: <input>:1:0: expected end of input -/
+#guard_msgs in
+#check elabX64% "adoxw %ax, %bx"
 
 /-- error: type error: w64 != w32 -/
 #guard_msgs in

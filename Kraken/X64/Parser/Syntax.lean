@@ -252,12 +252,18 @@ syntax_affixed (suffixes := bwlq) "cmp" : x64_bin_op
 /-- Logical compare (`dst & src`, setting flags). -/
 syntax_affixed (suffixes := bwlq) "test" : x64_bin_op
 
-/-- Binary carry-chain mnemonics (`adcx*`, `adox*`) taking `(src : RegOrMem, dst : Reg)`. -/
+/-- Binary mnemonics taking `(src : RegOrMem, dst : Reg)`. -/
 declare_syntax_cat x64_rm_reg_op (behavior := both)
 /-- Unsigned integer addition with carry flag (`CF`). -/
 syntax_affixed (suffixes := lq) "adcx" : x64_rm_reg_op
 /-- Unsigned integer addition with overflow flag (`OF`). -/
 syntax_affixed (suffixes := lq) "adox" : x64_rm_reg_op
+/-- Count leading zero bits (`dst ← clz(src)`). -/
+syntax_affixed (suffixes := wlq) "lzcnt" : x64_rm_reg_op
+/-- Count trailing zero bits (`dst ← ctz(src)`). -/
+syntax_affixed (suffixes := wlq) "tzcnt" : x64_rm_reg_op
+/-- Population count of 1-bits (`dst ← popcnt(src)`). -/
+syntax_affixed (suffixes := wlq) "popcnt" : x64_rm_reg_op
 
 /-- Conditional move (`cmov<cc>{w,l,q}`) mnemonics taking `(src : RegOrMem, dst : Reg)`. -/
 declare_syntax_cat x64_cmov_op (behavior := both)

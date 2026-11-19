@@ -235,6 +235,9 @@ inductive Operation (w : Width)
   | rcl  (_ : Dst w) (_ : ShiftCountExpr)
   | rcr  (_ : Dst w) (_ : ShiftCountExpr)
   | bswap  (dst : Reg w) -- (_ : w = .W32 ∨ w = .W64)
+  | lzcnt  (dst : Reg w) (src : RegOrMem w) -- {_ : 16 <= w.bits}
+  | tzcnt  (dst : Reg w) (src : RegOrMem w) -- {_ : 16 <= w.bits}
+  | popcnt (dst : Reg w) (src : RegOrMem w) -- {_ : 16 <= w.bits}
   -- Flag control
   | cld
   | std

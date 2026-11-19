@@ -108,3 +108,85 @@ private def divideError : String ⊕ (UInt64 × UInt64) := .inl "#DE: Divide err
 #guard runDiv ⸨prog| movq $-7, %rax; movq $-1, %rdx; movq $2, %rcx; idivq %rcx ⸩ ==
   .inr (0xfffffffffffffffd, 0xffffffffffffffff)
 #guard runDiv ⸨prog| movq $7, %rax; movq $-2, %rcx; idivq %rcx ⸩ == .inr (0xfffffffffffffffd, 1)
+
+/-! Bit-counting (`lzcnt`, `tzcnt`, `popcnt`): flag behavior and `.W8` fallback. -/
+
+private def runOpW {w : Width} (op : Operation w) (s : MachineData) : Effects :=
+  let : Labels := ⟨fun _ => 0⟩
+  let : AddressSize := ⟨.W64⟩
+  op.interp ⟨0, 1⟩ s (fun s => .done ⟨s, 1⟩) (fun _ _ => .unimplemented "jump")
+
+private def detData {w : Width} (op : Operation w) (s : MachineData) : Option MachineData :=
+  match runOpW op s with
+  | .done st => some st.data
+  | _ => none
+
+-- `popcnt` sets ZF iff src = 0, clears CF/PF/AF/SF/OF, preserves DF, and respects register width.
+#guard detData (.popcnt .rbx (.reg .rax)) busy == some {
+  busy with
+  regs := busy.regs.set .rbx 3,
+  status := { cf := false, pf := false, af := false, zf := false, sf := false, of := false }
+}
+
+#guard detData (.popcnt .rbx (.reg .rcx)) busy == some {
+  busy with
+  regs := busy.regs.set .rbx 0,
+  status := { cf := false, pf := false, af := false, zf := true, sf := false, of := false }
+}
+
+#guard detData (.popcnt .ebx (.reg .eax))
+    { busy with regs := { rax := 0x010203040000000f, rbx := 0xffffffffffffffff } } == some {
+  busy with
+  regs := { rax := 0x010203040000000f, rbx := 4 },
+  status := { cf := false, pf := false, af := false, zf := false, sf := false, of := false }
+}
+
+#guard detData (.popcnt .bx (.reg .ax))
+    { busy with regs := { rax := 0xffff0003, rbx := 0x123456789abc0000 } } == some {
+  busy with
+  regs := { rax := 0xffff0003, rbx := 0x123456789abc0002 },
+  status := { cf := false, pf := false, af := false, zf := false, sf := false, of := false }
+}
+
+-- Resolve all `Effects.undefined` choices with a bitmask `h` (bit 0 -> first choice, etc.).
+private partial def resolveAll (h : Nat) : Effects → Option MachineData
+  | .done st => some st.data
+  | @Effects.undefined _ _ cont =>
+    let v := UInt64.ofNat (if h &&& 1 == 1 then UInt64.size - 1 else 0)
+    resolveAll (h >>> 1) (cont (NondetSupportingType.from_hash v))
+  | .require_read_access _ ok => resolveAll h (ok ())
+  | _ => none
+
+-- `lzcnt` / `tzcnt` fix CF = (src == 0) and ZF = (res == 0), while PF/AF/SF/OF are undefined.
+private def bitcntOk {w : Width} (op : Operation w) (s : MachineData)
+    (expVal : UInt64) (expCf expZf : Bool) : Bool :=
+  (List.range 16).all fun mask =>
+    match resolveAll mask (runOpW op s) with
+    | some d =>
+      d.regs.rbx == expVal && d.status.cf == expCf && d.status.zf == expZf &&
+      d.status.pf == (mask &&& 1 == 1) && d.status.af == ((mask >>> 1) &&& 1 == 1) &&
+      d.status.sf == ((mask >>> 2) &&& 1 == 1) && d.status.of == ((mask >>> 3) &&& 1 == 1)
+    | none => false
+
+#guard bitcntOk (.lzcnt .rbx (.reg .rax)) { regs := { rax := 0 } } 64 true false
+#guard bitcntOk (.lzcnt .rbx (.reg .rax)) { regs := { rax := 1 } } 63 false false
+#guard bitcntOk (.lzcnt .rbx (.reg .rax)) { regs := { rax := 0x8000000000000000 } } 0 false true
+#guard bitcntOk (.lzcnt .ebx (.reg .eax)) { regs := { rax := 0x80000000, rbx := -1 } } 0 false true
+#guard bitcntOk (.lzcnt .bx (.reg .ax))
+  { regs := { rax := 0, rbx := 0x12340000 } } 0x12340010 true false
+
+#guard bitcntOk (.tzcnt .rbx (.reg .rax)) { regs := { rax := 0 } } 64 true false
+#guard bitcntOk (.tzcnt .rbx (.reg .rax)) { regs := { rax := 1 } } 0 false true
+#guard bitcntOk (.tzcnt .rbx (.reg .rax)) { regs := { rax := 0x8000000000000000 } } 63 false false
+#guard bitcntOk (.tzcnt .ebx (.reg .eax))
+  { regs := { rax := 0x80000000, rbx := -1 } } 31 false false
+#guard bitcntOk (.tzcnt .bx (.reg .ax))
+  { regs := { rax := 0x8000, rbx := 0x12340000 } } 0x1234000f false false
+
+-- 8-bit fallback leaves both destination and status undefined.
+#guard resolveAll 0 (runOpW (.lzcnt .bl (.reg .al)) {}) !=
+  resolveAll 3 (runOpW (.lzcnt .bl (.reg .al)) {})
+#guard resolveAll 0 (runOpW (.tzcnt .bl (.reg .al)) {}) !=
+  resolveAll 3 (runOpW (.tzcnt .bl (.reg .al)) {})
+#guard resolveAll 0 (runOpW (.popcnt .bl (.reg .al)) {}) !=
+  resolveAll 3 (runOpW (.popcnt .bl (.reg .al)) {})

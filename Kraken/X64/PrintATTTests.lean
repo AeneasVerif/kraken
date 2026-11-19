@@ -59,6 +59,9 @@ def corpus : List String := [
   "shrw $2, %ax", "sarl %cl, %eax", "shldq $4, %rax, %rbx", "shrd %cl, %ax, (%rsp)",
   "rolq $1, %rax", "rorb %cl, %al", "rclq $1, %rax", "rcrl %cl, (%rsp)",
   "bswap %eax", "bswapq %rax",
+  "lzcnt %rax, %rbx", "lzcnt (%rsp), %eax", "lzcntw %ax, %bx",
+  "tzcnt %rax, %rbx", "tzcnt 8(%rsp), %ecx", "tzcntw (%rsp), %dx",
+  "popcnt %rax, %rbx", "popcnt (%rsp), %eax", "popcntw %ax, %bx",
   -- flag control
   "cld", "std",
   -- control flow

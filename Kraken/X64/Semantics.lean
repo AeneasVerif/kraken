@@ -923,6 +923,31 @@ set_option maxHeartbeats 1000000
             ++ a.extractLsb' 32 8 ++ a.extractLsb' 40 8 ++ a.extractLsb' 48 8 ++ a.drop 56
       next (s.setReg dst (v.setWidth _))
     | _ => undefined (fun v => next (s.setReg dst v))
+  -- Intel SDM Vol. 2: LZCNT / TZCNT set CF := (src == 0), ZF := (res == 0); PF/AF/SF/OF undefined.
+  | .lzcnt dst src | .tzcnt dst src =>
+    match (generalizing := false) (motive := Width → Effects) w with
+    | .W8 =>
+      undefined (fun v => undefined (fun status =>
+        next { s with regs := s.regs.set dst v, status }))
+    | _ =>
+      src.interp s p (fun a s =>
+      let v := match i with | .lzcnt _ _ => a.clz | _ => a.reverse.clz
+      undefined (fun pf => undefined (fun af => undefined (fun sf => undefined (fun of =>
+      next { s with
+        regs := s.regs.set dst v,
+        status := { cf := a == 0, pf, af, zf := v == 0, sf, of } })))))
+  -- Intel SDM Vol. 2: POPCNT sets ZF := (src == 0) and clears CF/PF/AF/SF/OF.
+  | .popcnt dst src =>
+    match (generalizing := false) (motive := Width → Effects) w with
+    | .W8 =>
+      undefined (fun v => undefined (fun status =>
+        next { s with regs := s.regs.set dst v, status }))
+    | _ =>
+      src.interp s p (fun a s =>
+      let v := a.cpop_
+      let status : StatusFlags :=
+        { cf := false, pf := false, af := false, zf := a == 0, sf := false, of := false }
+      next { s with regs := s.regs.set dst v, status })
   | .jcc cc l =>
     if cc.interp s.status
     then jmp (label l) s

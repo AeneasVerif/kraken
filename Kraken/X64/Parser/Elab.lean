@@ -541,9 +541,12 @@ def elabBinOp : String → TermElabM Expr
 
 /-- The `Operation` constructor for the stem of an `x64_rm_reg_op`. -/
 def elabRmRegOp : String → TermElabM Expr
-  | "adcx" => pure (mkConst ``Operation.adcx)
-  | "adox" => pure (mkConst ``Operation.adox)
-  | stem   => throwError "invalid carry-chain mnemonic '{stem}'"
+  | "adcx"   => pure (mkConst ``Operation.adcx)
+  | "adox"   => pure (mkConst ``Operation.adox)
+  | "lzcnt"  => pure (mkConst ``Operation.lzcnt)
+  | "tzcnt"  => pure (mkConst ``Operation.tzcnt)
+  | "popcnt" => pure (mkConst ``Operation.popcnt)
+  | stem     => throwError "invalid reg/mem-to-reg mnemonic '{stem}'"
 
 /-- The `Operation` constructor for the stem of an `x64_unary_op`. -/
 def elabUnaryOp : String → TermElabM Expr
