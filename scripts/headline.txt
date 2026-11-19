@@ -645,3 +645,12 @@ LeanQbe.T.Examples.Kissat.LayerACollect LeanQbe.T.Examples.Kissat.sweepClauses_s
 LeanQbe.T.Examples.Kissat.LayerACollect LeanQbe.T.Examples.Kissat.sweep_collect_sound
 LeanQbe.T.Examples.Kissat.LayerACollect LeanQbe.T.Examples.Kissat.partitionIrredFirst_sound
 LeanQbe.T.Examples.Kissat.LayerACollect LeanQbe.T.Examples.Kissat.reduceAndCollect_sound
+LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Examples.Kissat.CorePlus.coreplus_fns_wf
+LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Examples.Kissat.CorePlus.coreplusFns_wf
+LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Examples.Kissat.CorePlus.coreplus_acyclic
+LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Examples.Kissat.CorePlus.kissat_minimize_lit_wf
+LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Examples.Kissat.CorePlus.kissat_minimize_clause_wf
+LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Examples.Kissat.CorePlus.kissat_analyze_wf
+LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Examples.Kissat.CorePlus.kissat_decide_wf
+LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Examples.Kissat.CorePlus.kissat_solve_bytes_wf
+LeanQbe.T.Examples.Kissat.CorePlusSpec1 LeanQbe.T.Examples.Kissat.CorePlus.entails_of_minMarkInv

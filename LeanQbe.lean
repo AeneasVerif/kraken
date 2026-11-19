@@ -111,6 +111,10 @@ public import LeanQbe.T.Examples.Kissat.SolverPropLemmas
 public import LeanQbe.T.Examples.Kissat.SolverAnalyzeLemmas1
 public import LeanQbe.T.Examples.Kissat.SolverAnalyzeLemmas
 public import LeanQbe.T.Examples.Kissat.SolverLemmas
+public import LeanQbe.T.Examples.Kissat.CorePlus
+public import LeanQbe.T.Examples.Kissat.CorePlusArena
+public import LeanQbe.T.Examples.Kissat.CorePlusSpec1
+public import LeanQbe.T.Examples.Kissat.CorePlusSpec
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
