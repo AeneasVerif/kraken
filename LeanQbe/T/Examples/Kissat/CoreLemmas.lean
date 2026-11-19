@@ -403,12 +403,13 @@ theorem lexLtBool_sound {s : CdclState} {l1 l2 : Nat}
 
 private theorem litMinSubAux_removable {s : CdclState} {c K : List Nat} {rootLit : Nat}
     (hsmaller : ∀ y ∈ c, lexLtBool s y rootLit = true → Removable s K y) :
-    ∀ fuel curr, litMinSubAux s c rootLit fuel curr = true → Removable s K curr := by
+    ∀ fuel curr allowSelf,
+      litMinSubAux s c rootLit fuel curr allowSelf = true → Removable s K curr := by
   intro fuel
   induction fuel with
-  | zero => intro _ h; simp [litMinSubAux] at h
+  | zero => intro _ _ h; simp [litMinSubAux] at h
   | succ fuel ih =>
-    intro curr h
+    intro curr allowSelf h
     simp only [litMinSubAux] at h
     by_cases htrl : trailHasLit s.trail (litNeg curr) = true
     · have htrl_neg : (!trailHasLit s.trail (litNeg curr)) = false := by simp [htrl]
@@ -418,10 +419,10 @@ private theorem litMinSubAux_removable {s : CdclState} {c K : List Nat} {rootLit
       · exact .root0 curr hmem hl0
       · have hl0f : (stateLevel s curr == 0) = false := beq_false_of_ne hl0
         simp only [hl0f, Bool.false_eq_true, ↓reduceIte] at h
-        by_cases hsub : (c.contains curr && lexLtBool s curr rootLit) = true
+        by_cases hsub : (allowSelf && c.contains curr && lexLtBool s curr rootLit) = true
         · simp only [Bool.and_eq_true, List.contains_iff_mem] at hsub
-          exact hsmaller curr hsub.1 hsub.2
-        · have hsubf : (c.contains curr && lexLtBool s curr rootLit) = false :=
+          exact hsmaller curr hsub.1.2 hsub.2
+        · have hsubf : (allowSelf && c.contains curr && lexLtBool s curr rootLit) = false :=
             Bool.eq_false_iff.mpr hsub
           simp only [hsubf, Bool.false_eq_true, ↓reduceIte] at h
           cases hrsn : stateReason s curr with
@@ -429,7 +430,7 @@ private theorem litMinSubAux_removable {s : CdclState} {c K : List Nat} {rootLit
           | unit => rw [hrsn] at h; simp at h
           | binary other =>
             rw [hrsn] at h; simp only [Bool.and_eq_true] at h
-            exact .binary curr other hmem hrsn (ih other h.2)
+            exact .binary curr other hmem hrsn (ih other true h.2)
           | large cid =>
             rw [hrsn] at h; dsimp only at h
             cases hget : s.clauses[cid]? with
@@ -442,7 +443,7 @@ private theorem litMinSubAux_removable {s : CdclState} {c K : List Nat} {rootLit
                 simp only [Bool.and_eq_true, List.contains_iff_mem, List.all_eq_true,
                   Bool.or_eq_true, beq_iff_eq] at h
                 exact .large curr cid cl hmem hrsn hget h.1.2 fun x hx hne =>
-                  ih x (((h.2 x hx).resolve_left hne).2)
+                  ih x true (((h.2 x hx).resolve_left hne).2)
     · have htrl_pos : (!trailHasLit s.trail (litNeg curr)) = true := by simp [htrl]
       simp [htrl_pos] at h
 
@@ -457,35 +458,7 @@ theorem minimizeClause_removableInv {s : CdclState} {c : List Nat} :
       by_cases hmin : isMinimizable s c l = true
       · have hsmaller : ∀ y ∈ c, lexLtBool s y l = true → Removable s (minimizeClause s c) y :=
           fun y hy hlt => ih (lexMeasure s y) (hmeas ▸ lexLtBool_sound hlt) y hy rfl
-        unfold isMinimizable at hmin
-        by_cases htrl : trailHasLit s.trail (litNeg l) = true
-        · have hmem : litNeg l ∈ s.trail.toList := trailHasLit_iff.mp htrl
-          simp only [show (!trailHasLit s.trail (litNeg l)) = false by simp [htrl],
-            Bool.false_eq_true, ↓reduceIte] at hmin
-          by_cases hl0 : stateLevel s l = 0
-          · exact .root0 l hmem hl0
-          · have hl0f : (stateLevel s l == 0) = false := beq_false_of_ne hl0
-            simp only [hl0f, Bool.false_eq_true, ↓reduceIte] at hmin
-            cases hrsn : stateReason s l with
-            | decision => rw [hrsn] at hmin; simp at hmin
-            | unit => rw [hrsn] at hmin; simp at hmin
-            | binary other =>
-              rw [hrsn] at hmin; simp only [Bool.and_eq_true] at hmin
-              exact .binary l other hmem hrsn (litMinSubAux_removable hsmaller _ other hmin.2)
-            | large cid =>
-              rw [hrsn] at hmin; dsimp only at hmin
-              cases hget : s.clauses[cid]? with
-              | none => rw [hget] at hmin; simp at hmin
-              | some opt =>
-                cases opt with
-                | none => rw [hget] at hmin; simp at hmin
-                | some cl =>
-                  rw [hget] at hmin
-                  simp only [Bool.and_eq_true, List.contains_iff_mem, List.all_eq_true,
-                    Bool.or_eq_true, beq_iff_eq] at hmin
-                  exact .large l cid cl hmem hrsn hget hmin.1.2 fun x hx hne =>
-                    litMinSubAux_removable hsmaller _ x (((hmin.2 x hx).resolve_left hne).2)
-        · simp [show (!trailHasLit s.trail (litNeg l)) = true by simp [htrl]] at hmin
+        exact litMinSubAux_removable hsmaller _ l false hmin
       · exact .in_keep l (List.mem_filter.mpr ⟨hl, by simp [Bool.eq_false_iff.mpr hmin]⟩)
   intro l hl _; exact hstrong (lexMeasure s l) l hl rfl
 

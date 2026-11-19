@@ -463,47 +463,31 @@ def lexLtBool (s : CdclState) (l1 l2 : Nat) : Bool :=
   else false
 
 def litMinSubAux (s : CdclState) (c : List Nat) (rootLit : Nat) :
-    Nat → Nat → Bool
-  | 0, _ => false
-  | fuel + 1, curr =>
+    Nat → Nat → Bool → Bool
+  | 0, _, _ => false
+  | fuel + 1, curr, allowSelf =>
     if !trailHasLit s.trail (litNeg curr) then false
     else if stateLevel s curr == 0 then true
-    else if c.contains curr && lexLtBool s curr rootLit then true
+    else if allowSelf && c.contains curr && lexLtBool s curr rootLit then true
     else
       match stateReason s curr with
       | .decision => false
       | .unit => stateLevel s curr == 0
       | .binary other =>
-        lexLtBool s other curr && litMinSubAux s c rootLit fuel other
+        lexLtBool s other curr && litMinSubAux s c rootLit fuel other true
       | .large cid =>
         match s.clauses[cid]? with
         | some (some cl) =>
           let ncurr := litNeg curr
           !cl.garbage && cl.lits.contains ncurr &&
             cl.lits.all (fun x =>
-              x == ncurr || (lexLtBool s x curr && litMinSubAux s c rootLit fuel x))
+              x == ncurr || (lexLtBool s x curr && litMinSubAux s c rootLit fuel x true))
         | _ => false
 
 /-- Check whether literal `l ∈ c` can be safely eliminated against strictly `≺`-smaller clause
 literals in `c` and level-0 literals along reason predecessors. -/
 def isMinimizable (s : CdclState) (c : List Nat) (l : Nat) : Bool :=
-  if !trailHasLit s.trail (litNeg l) then false
-  else if stateLevel s l == 0 then true
-  else
-    let fuel := s.trail.size + 1
-    match stateReason s l with
-    | .decision => false
-    | .unit => stateLevel s l == 0
-    | .binary other =>
-      lexLtBool s other l && litMinSubAux s c l fuel other
-    | .large cid =>
-      match s.clauses[cid]? with
-      | some (some cl) =>
-        let nl := litNeg l
-        !cl.garbage && cl.lits.contains nl &&
-          cl.lits.all (fun x =>
-            x == nl || (lexLtBool s x l && litMinSubAux s c l fuel x))
-      | _ => false
+  litMinSubAux s c l (s.trail.size + 1) l false
 
 /-- Minimize clause `c` by removing every literal certified by `isMinimizable`. -/
 def minimizeClause (s : CdclState) (c : List Nat) : List Nat :=
