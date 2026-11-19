@@ -472,105 +472,69 @@ theorem scalarShufb128_isLegal (target : LegalTarget) {Δ : List (List Ty)} {rs 
 
 section ShaIsLegal
 
+theorem emitShaMix3_isLegal (target : LegalTarget) {Δ : List (List Ty)} {rs : List Ty}
+    (h32 : 32 ∈ target.bitWidths) {Γ : List (Ty × VarKind)} (thirdLshr : Bool)
+    (n1 n2 n3 : Nat) (x : Arg K i32)
+    (hx : ArgNormal target Γ i32 x) {k : Arg K i32 → Expr K KL rs}
+    (hk : IsLegalCont target Γ Δ (fun Γ' r => ArgNormal target Γ' i32 r) k) :
+    (toTFlat (emitShaMix3 thirdLshr n1 n2 n3 x k) Γ.length Δ.length).isLegal target Γ Δ = true := by
+  have hleg32 : target.isLegalTy i32 = true := by simpa [LegalTarget.isLegalTy] using h32
+  simp only [emitShaMix3, emitRotr32, emitXor32]
+  refine isLegal_let_op2_normal target (.rotr i32) x (.imm _) _ rfl
+    (by simp [LegalTarget.isLegalOp, h32]) hx hleg32 hleg32 ?_
+  let Γ1 := (i32, VarKind.normal) :: Γ
+  refine isLegal_let_op2_normal target (.rotr i32) x (.imm _) _ rfl
+    (by simp [LegalTarget.isLegalOp, h32]) (hx.mono ⟨[_], rfl⟩) hleg32 hleg32 ?_
+  let Γ2 := (i32, VarKind.normal) :: Γ1
+  let Γ3 := (i32, VarKind.normal) :: Γ2
+  let Γ4 := (i32, VarKind.normal) :: Γ3
+  let Γ5 := (i32, VarKind.normal) :: Γ4
+  have hXorTail :
+      (toTFlat (.let_ (op2 (.xor i32) (.var Γ.length) (.var Γ1.length)) fun (t, ()) =>
+        .let_ (op2 (.xor i32) (.var t) (.var Γ2.length)) fun (r', ()) => k (.var r'))
+        Γ3.length Δ.length).isLegal target Γ3 Δ = true := by
+    refine isLegal_let_op2_normal target (.xor i32) (.var Γ.length) (.var Γ1.length) _ rfl
+      (by simp [LegalTarget.isLegalOp, h32]) ((ArgNormal.head target Γ hleg32).mono ⟨[_, _], rfl⟩)
+      ((ArgNormal.head target Γ1 hleg32).mono ⟨[_], rfl⟩) hleg32 ?_
+    refine isLegal_let_op2_normal target (.xor i32) (.var Γ3.length) (.var Γ2.length) _ rfl
+      (by simp [LegalTarget.isLegalOp, h32]) (ArgNormal.head target Γ3 hleg32)
+      ((ArgNormal.head target Γ2 hleg32).mono ⟨[_], rfl⟩) hleg32 ?_
+    exact hk Γ5 (.var Γ4.length) ⟨[_, _, _, _, _], rfl⟩ (ArgNormal.head target Γ4 hleg32)
+  cases thirdLshr
+  · simp only [Bool.false_eq_true, ↓reduceIte]
+    exact isLegal_let_op2_normal target (.rotr i32) x (.imm _) _ rfl
+      (by simp [LegalTarget.isLegalOp, h32]) (hx.mono ⟨[_, _], rfl⟩) hleg32 hleg32 hXorTail
+  · simp only [↓reduceIte]
+    exact isLegal_let_op2_normal target (.lshr i32) x (.imm _) _ rfl
+      (by simp [LegalTarget.isLegalOp, h32]) (hx.mono ⟨[_, _], rfl⟩) hleg32 hleg32 hXorTail
+
 theorem emitShaSigma0_isLegal (target : LegalTarget) {Δ : List (List Ty)} {rs : List Ty}
     (h32 : 32 ∈ target.bitWidths) {Γ : List (Ty × VarKind)} (x : Arg K i32)
     (hx : ArgNormal target Γ i32 x) {k : Arg K i32 → Expr K KL rs}
     (hk : IsLegalCont target Γ Δ (fun Γ' r => ArgNormal target Γ' i32 r) k) :
-    (toTFlat (emitShaSigma0 x k) Γ.length Δ.length).isLegal target Γ Δ = true := by
-  have hleg32 : target.isLegalTy i32 = true := by simpa [LegalTarget.isLegalTy] using h32
-  simp only [emitShaSigma0, emitRotr32, emitXor32]
-  refine isLegal_let_op2_normal target (.rotr i32) x (.imm _) _ rfl (by simp [LegalTarget.isLegalOp, h32]) hx hleg32 hleg32 ?_
-  let Γ1 := (i32, VarKind.normal) :: Γ
-  refine isLegal_let_op2_normal target (.rotr i32) x (.imm _) _ rfl (by simp [LegalTarget.isLegalOp, h32])
-    (hx.mono ⟨[_], rfl⟩) hleg32 hleg32 ?_
-  let Γ2 := (i32, VarKind.normal) :: Γ1
-  refine isLegal_let_op2_normal target (.rotr i32) x (.imm _) _ rfl (by simp [LegalTarget.isLegalOp, h32])
-    (hx.mono ⟨[_, _], rfl⟩) hleg32 hleg32 ?_
-  let Γ3 := (i32, VarKind.normal) :: Γ2
-  refine isLegal_let_op2_normal target (.xor i32) (.var Γ.length) (.var Γ1.length) _ rfl
-    (by simp [LegalTarget.isLegalOp, h32]) ((ArgNormal.head target Γ hleg32).mono ⟨[_, _], rfl⟩)
-    ((ArgNormal.head target Γ1 hleg32).mono ⟨[_], rfl⟩) hleg32 ?_
-  let Γ4 := (i32, VarKind.normal) :: Γ3
-  refine isLegal_let_op2_normal target (.xor i32) (.var Γ3.length) (.var Γ2.length) _ rfl
-    (by simp [LegalTarget.isLegalOp, h32]) (ArgNormal.head target Γ3 hleg32)
-    ((ArgNormal.head target Γ2 hleg32).mono ⟨[_], rfl⟩) hleg32 ?_
-  let Γ5 := (i32, VarKind.normal) :: Γ4
-  exact hk Γ5 (.var Γ4.length) ⟨[_, _, _, _, _], rfl⟩ (ArgNormal.head target Γ4 hleg32)
+    (toTFlat (emitShaSigma0 x k) Γ.length Δ.length).isLegal target Γ Δ = true :=
+  emitShaMix3_isLegal target h32 false 2 13 22 x hx hk
 
 theorem emitShaSigma1_isLegal (target : LegalTarget) {Δ : List (List Ty)} {rs : List Ty}
     (h32 : 32 ∈ target.bitWidths) {Γ : List (Ty × VarKind)} (x : Arg K i32)
     (hx : ArgNormal target Γ i32 x) {k : Arg K i32 → Expr K KL rs}
     (hk : IsLegalCont target Γ Δ (fun Γ' r => ArgNormal target Γ' i32 r) k) :
-    (toTFlat (emitShaSigma1 x k) Γ.length Δ.length).isLegal target Γ Δ = true := by
-  have hleg32 : target.isLegalTy i32 = true := by simpa [LegalTarget.isLegalTy] using h32
-  simp only [emitShaSigma1, emitRotr32, emitXor32]
-  refine isLegal_let_op2_normal target (.rotr i32) x (.imm _) _ rfl (by simp [LegalTarget.isLegalOp, h32]) hx hleg32 hleg32 ?_
-  let Γ1 := (i32, VarKind.normal) :: Γ
-  refine isLegal_let_op2_normal target (.rotr i32) x (.imm _) _ rfl (by simp [LegalTarget.isLegalOp, h32])
-    (hx.mono ⟨[_], rfl⟩) hleg32 hleg32 ?_
-  let Γ2 := (i32, VarKind.normal) :: Γ1
-  refine isLegal_let_op2_normal target (.rotr i32) x (.imm _) _ rfl (by simp [LegalTarget.isLegalOp, h32])
-    (hx.mono ⟨[_, _], rfl⟩) hleg32 hleg32 ?_
-  let Γ3 := (i32, VarKind.normal) :: Γ2
-  refine isLegal_let_op2_normal target (.xor i32) (.var Γ.length) (.var Γ1.length) _ rfl
-    (by simp [LegalTarget.isLegalOp, h32]) ((ArgNormal.head target Γ hleg32).mono ⟨[_, _], rfl⟩)
-    ((ArgNormal.head target Γ1 hleg32).mono ⟨[_], rfl⟩) hleg32 ?_
-  let Γ4 := (i32, VarKind.normal) :: Γ3
-  refine isLegal_let_op2_normal target (.xor i32) (.var Γ3.length) (.var Γ2.length) _ rfl
-    (by simp [LegalTarget.isLegalOp, h32]) (ArgNormal.head target Γ3 hleg32)
-    ((ArgNormal.head target Γ2 hleg32).mono ⟨[_], rfl⟩) hleg32 ?_
-  let Γ5 := (i32, VarKind.normal) :: Γ4
-  exact hk Γ5 (.var Γ4.length) ⟨[_, _, _, _, _], rfl⟩ (ArgNormal.head target Γ4 hleg32)
+    (toTFlat (emitShaSigma1 x k) Γ.length Δ.length).isLegal target Γ Δ = true :=
+  emitShaMix3_isLegal target h32 false 6 11 25 x hx hk
 
 theorem emitShaSig0_isLegal (target : LegalTarget) {Δ : List (List Ty)} {rs : List Ty}
     (h32 : 32 ∈ target.bitWidths) {Γ : List (Ty × VarKind)} (x : Arg K i32)
     (hx : ArgNormal target Γ i32 x) {k : Arg K i32 → Expr K KL rs}
     (hk : IsLegalCont target Γ Δ (fun Γ' r => ArgNormal target Γ' i32 r) k) :
-    (toTFlat (emitShaSig0 x k) Γ.length Δ.length).isLegal target Γ Δ = true := by
-  have hleg32 : target.isLegalTy i32 = true := by simpa [LegalTarget.isLegalTy] using h32
-  simp only [emitShaSig0, emitRotr32, emitLshr32, emitXor32]
-  refine isLegal_let_op2_normal target (.rotr i32) x (.imm _) _ rfl (by simp [LegalTarget.isLegalOp, h32]) hx hleg32 hleg32 ?_
-  let Γ1 := (i32, VarKind.normal) :: Γ
-  refine isLegal_let_op2_normal target (.rotr i32) x (.imm _) _ rfl (by simp [LegalTarget.isLegalOp, h32])
-    (hx.mono ⟨[_], rfl⟩) hleg32 hleg32 ?_
-  let Γ2 := (i32, VarKind.normal) :: Γ1
-  refine isLegal_let_op2_normal target (.lshr i32) x (.imm _) _ rfl (by simp [LegalTarget.isLegalOp, h32])
-    (hx.mono ⟨[_, _], rfl⟩) hleg32 hleg32 ?_
-  let Γ3 := (i32, VarKind.normal) :: Γ2
-  refine isLegal_let_op2_normal target (.xor i32) (.var Γ.length) (.var Γ1.length) _ rfl
-    (by simp [LegalTarget.isLegalOp, h32]) ((ArgNormal.head target Γ hleg32).mono ⟨[_, _], rfl⟩)
-    ((ArgNormal.head target Γ1 hleg32).mono ⟨[_], rfl⟩) hleg32 ?_
-  let Γ4 := (i32, VarKind.normal) :: Γ3
-  refine isLegal_let_op2_normal target (.xor i32) (.var Γ3.length) (.var Γ2.length) _ rfl
-    (by simp [LegalTarget.isLegalOp, h32]) (ArgNormal.head target Γ3 hleg32)
-    ((ArgNormal.head target Γ2 hleg32).mono ⟨[_], rfl⟩) hleg32 ?_
-  let Γ5 := (i32, VarKind.normal) :: Γ4
-  exact hk Γ5 (.var Γ4.length) ⟨[_, _, _, _, _], rfl⟩ (ArgNormal.head target Γ4 hleg32)
+    (toTFlat (emitShaSig0 x k) Γ.length Δ.length).isLegal target Γ Δ = true :=
+  emitShaMix3_isLegal target h32 true 7 18 3 x hx hk
 
 theorem emitShaSig1_isLegal (target : LegalTarget) {Δ : List (List Ty)} {rs : List Ty}
     (h32 : 32 ∈ target.bitWidths) {Γ : List (Ty × VarKind)} (x : Arg K i32)
     (hx : ArgNormal target Γ i32 x) {k : Arg K i32 → Expr K KL rs}
     (hk : IsLegalCont target Γ Δ (fun Γ' r => ArgNormal target Γ' i32 r) k) :
-    (toTFlat (emitShaSig1 x k) Γ.length Δ.length).isLegal target Γ Δ = true := by
-  have hleg32 : target.isLegalTy i32 = true := by simpa [LegalTarget.isLegalTy] using h32
-  simp only [emitShaSig1, emitRotr32, emitLshr32, emitXor32]
-  refine isLegal_let_op2_normal target (.rotr i32) x (.imm _) _ rfl (by simp [LegalTarget.isLegalOp, h32]) hx hleg32 hleg32 ?_
-  let Γ1 := (i32, VarKind.normal) :: Γ
-  refine isLegal_let_op2_normal target (.rotr i32) x (.imm _) _ rfl (by simp [LegalTarget.isLegalOp, h32])
-    (hx.mono ⟨[_], rfl⟩) hleg32 hleg32 ?_
-  let Γ2 := (i32, VarKind.normal) :: Γ1
-  refine isLegal_let_op2_normal target (.lshr i32) x (.imm _) _ rfl (by simp [LegalTarget.isLegalOp, h32])
-    (hx.mono ⟨[_, _], rfl⟩) hleg32 hleg32 ?_
-  let Γ3 := (i32, VarKind.normal) :: Γ2
-  refine isLegal_let_op2_normal target (.xor i32) (.var Γ.length) (.var Γ1.length) _ rfl
-    (by simp [LegalTarget.isLegalOp, h32]) ((ArgNormal.head target Γ hleg32).mono ⟨[_, _], rfl⟩)
-    ((ArgNormal.head target Γ1 hleg32).mono ⟨[_], rfl⟩) hleg32 ?_
-  let Γ4 := (i32, VarKind.normal) :: Γ3
-  refine isLegal_let_op2_normal target (.xor i32) (.var Γ3.length) (.var Γ2.length) _ rfl
-    (by simp [LegalTarget.isLegalOp, h32]) (ArgNormal.head target Γ3 hleg32)
-    ((ArgNormal.head target Γ2 hleg32).mono ⟨[_], rfl⟩) hleg32 ?_
-  let Γ5 := (i32, VarKind.normal) :: Γ4
-  exact hk Γ5 (.var Γ4.length) ⟨[_, _, _, _, _], rfl⟩ (ArgNormal.head target Γ4 hleg32)
+    (toTFlat (emitShaSig1 x k) Γ.length Δ.length).isLegal target Γ Δ = true :=
+  emitShaMix3_isLegal target h32 true 17 19 10 x hx hk
 
 theorem emitShaCh_isLegal (target : LegalTarget) {Δ : List (List Ty)} {rs : List Ty}
     (h32 : 32 ∈ target.bitWidths) {Γ : List (Ty × VarKind)} (x y z : Arg K i32)

@@ -1031,25 +1031,28 @@ def emitNot32 {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (a : Arg V i32) (k : Arg V i32 → Expr V L rs) : Expr V L rs :=
   .let_ (op1 (.not i32) a) fun (r, ()) => k (.var r)
 
+def emitShaMix3 {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (thirdLshr : Bool) (n1 n2 n3 : Nat) (x : Arg V i32)
+    (k : Arg V i32 → Expr V L rs) : Expr V L rs :=
+  emitRotr32 x n1 fun r1 => emitRotr32 x n2 fun r2 =>
+  (if thirdLshr then emitLshr32 x n3 else emitRotr32 x n3) fun r3 =>
+  emitXor32 r1 r2 fun t => emitXor32 t r3 k
+
 def emitShaSigma0 {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (x : Arg V i32) (k : Arg V i32 → Expr V L rs) : Expr V L rs :=
-  emitRotr32 x 2 fun r2 => emitRotr32 x 13 fun r13 => emitRotr32 x 22 fun r22 =>
-  emitXor32 r2 r13 fun t => emitXor32 t r22 k
+  emitShaMix3 false 2 13 22 x k
 
 def emitShaSigma1 {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (x : Arg V i32) (k : Arg V i32 → Expr V L rs) : Expr V L rs :=
-  emitRotr32 x 6 fun r6 => emitRotr32 x 11 fun r11 => emitRotr32 x 25 fun r25 =>
-  emitXor32 r6 r11 fun t => emitXor32 t r25 k
+  emitShaMix3 false 6 11 25 x k
 
 def emitShaSig0 {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (x : Arg V i32) (k : Arg V i32 → Expr V L rs) : Expr V L rs :=
-  emitRotr32 x 7 fun r7 => emitRotr32 x 18 fun r18 => emitLshr32 x 3 fun s3 =>
-  emitXor32 r7 r18 fun t => emitXor32 t s3 k
+  emitShaMix3 true 7 18 3 x k
 
 def emitShaSig1 {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (x : Arg V i32) (k : Arg V i32 → Expr V L rs) : Expr V L rs :=
-  emitRotr32 x 17 fun r17 => emitRotr32 x 19 fun r19 => emitLshr32 x 10 fun s10 =>
-  emitXor32 r17 r19 fun t => emitXor32 t s10 k
+  emitShaMix3 true 17 19 10 x k
 
 def emitShaCh {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (x y z : Arg V i32) (k : Arg V i32 → Expr V L rs) : Expr V L rs :=
@@ -1646,6 +1649,11 @@ def legalFloatBit2 {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     .let_ (op2 (mkOp fw) (.var bx) (.var by_)) fun (br, ()) =>
     .let_ (op1 (.bitcast (.bits fw) (.float f) rfl) (.var br)) fun (r, ()) => cont (.var r)
 
+/-- True iff `target` supports native packed 128-bit SHA-256 instruction `code`. -/
+@[reducible] def LegalTarget.sha256Legal (target : LegalTarget) {as rs : List Ty}
+    (code : OpCode as rs) : Bool :=
+  target.keepsPacked v4i32 && target.vecIntOpSupported code v4i32 false
+
 /-- Legalize a single `Op (LVar target V) rs'` into a continuation receiving `Tup (LVar target V) rs'`. -/
 def legalOp (target : LegalTarget) {V : Ty → Type} {L : List Ty → Type} {outRs : List Ty}
     {rs' : List Ty} (op : Op (LVar target V) rs')
@@ -2157,28 +2165,14 @@ def legalOp (target : LegalTarget) {V : Ty → Type} {L : List Ty → Type} {out
     legalBlendw target imm t (legalArg target a) (legalArg target b) fun r => k (r, ())
   | .sha256rnds2 =>
     let (cdgh, abef, wk, ()) := args
-    if hk : target.keepsPacked v4i32 then
-      if target.vecIntOpSupported .sha256rnds2 v4i32 false then
-        have hl : target.legalTys v4i32 = [v4i32] := by simp [LegalTarget.legalTys, hk]
-        let c' : Arg V v4i32 := (cast (by rw [hl]) (legalArg target cdgh) : Tup (Arg V) [v4i32]).1
-        let a' : Arg V v4i32 := (cast (by rw [hl]) (legalArg target abef) : Tup (Arg V) [v4i32]).1
-        let w' : Arg V v4i32 := (cast (by rw [hl]) (legalArg target wk) : Tup (Arg V) [v4i32]).1
-        .let_ (op3 .sha256rnds2 c' a' w') fun (r, ()) =>
-          k (cast (by simp [LVar, hl]) (show Tup (Arg V) [v4i32] from (.var r, ())), ())
-      else
-        splitLegalToLeaves target v4i32 (legalArg target cdgh) fun fc =>
-        splitLegalToLeaves target v4i32 (legalArg target abef) fun fa =>
-        splitLegalToLeaves target v4i32 (legalArg target wk) fun fw =>
-        packLeavesToWords64 target v4i32 fc fun wc =>
-        packLeavesToWords64 target v4i32 fa fun wa =>
-        packLeavesToWords64 target v4i32 fw fun ww =>
-        words2ToDwords4 (wc.getD 0 (.imm 0#64)) (wc.getD 1 (.imm 0#64)) fun cd0 cd1 cd2 cd3 =>
-        words2ToDwords4 (wa.getD 0 (.imm 0#64)) (wa.getD 1 (.imm 0#64)) fun ab0 ab1 ab2 ab3 =>
-        words2ToDwords4 (ww.getD 0 (.imm 0#64)) (ww.getD 1 (.imm 0#64)) fun wk0 wk1 wk2 wk3 =>
-        scalarSha256rnds2 cd0 cd1 cd2 cd3 ab0 ab1 ab2 ab3 wk0 wk1 wk2 wk3 fun r0 r1 r2 r3 =>
-        dwords4ToWords2 r0 r1 r2 r3 fun w0 w1 =>
-        unpackWords64ToLeaves target [w0, w1] 0 v4i32 fun fres =>
-        packLeavesToLegal target v4i32 fres fun res => k (res, ())
+    if hk : target.sha256Legal .sha256rnds2 then
+      have hkp : target.keepsPacked v4i32 = true := (Bool.and_eq_true _ _).mp hk |>.1
+      have hl : target.legalTys v4i32 = [v4i32] := by simp [LegalTarget.legalTys, hkp]
+      let c' : Arg V v4i32 := (cast (by rw [hl]) (legalArg target cdgh) : Tup (Arg V) [v4i32]).1
+      let a' : Arg V v4i32 := (cast (by rw [hl]) (legalArg target abef) : Tup (Arg V) [v4i32]).1
+      let w' : Arg V v4i32 := (cast (by rw [hl]) (legalArg target wk) : Tup (Arg V) [v4i32]).1
+      .let_ (op3 .sha256rnds2 c' a' w') fun (r, ()) =>
+        k (cast (by simp [LVar, hl]) (show Tup (Arg V) [v4i32] from (.var r, ())), ())
     else
       splitLegalToLeaves target v4i32 (legalArg target cdgh) fun fc =>
       splitLegalToLeaves target v4i32 (legalArg target abef) fun fa =>
@@ -2195,7 +2189,7 @@ def legalOp (target : LegalTarget) {V : Ty → Type} {L : List Ty → Type} {out
       packLeavesToLegal target v4i32 fres fun res => k (res, ())
   | .sha256msg1 =>
     let (w0123, w4, ()) := args
-    if hk : target.keepsPacked v4i32 && target.vecIntOpSupported .sha256msg1 v4i32 false then
+    if hk : target.sha256Legal .sha256msg1 then
       have hkp : target.keepsPacked v4i32 = true := (Bool.and_eq_true _ _).mp hk |>.1
       have hl : target.legalTys v4i32 = [v4i32] := by simp [LegalTarget.legalTys, hkp]
       let a' : Arg V v4i32 := (cast (by rw [hl]) (legalArg target w0123) : Tup (Arg V) [v4i32]).1
@@ -2215,24 +2209,13 @@ def legalOp (target : LegalTarget) {V : Ty → Type} {L : List Ty → Type} {out
       packLeavesToLegal target v4i32 fres fun res => k (res, ())
   | .sha256msg2 =>
     let (sums, w, ()) := args
-    if hk : target.keepsPacked v4i32 then
-      if target.vecIntOpSupported .sha256msg2 v4i32 false then
-        have hl : target.legalTys v4i32 = [v4i32] := by simp [LegalTarget.legalTys, hk]
-        let a' : Arg V v4i32 := (cast (by rw [hl]) (legalArg target sums) : Tup (Arg V) [v4i32]).1
-        let b' : Arg V v4i32 := (cast (by rw [hl]) (legalArg target w) : Tup (Arg V) [v4i32]).1
-        .let_ (op2 .sha256msg2 a' b') fun (r, ()) =>
-          k (cast (by simp [LVar, hl]) (show Tup (Arg V) [v4i32] from (.var r, ())), ())
-      else
-        splitLegalToLeaves target v4i32 (legalArg target sums) fun fa =>
-        splitLegalToLeaves target v4i32 (legalArg target w) fun fb =>
-        packLeavesToWords64 target v4i32 fa fun wa =>
-        packLeavesToWords64 target v4i32 fb fun wb =>
-        words2ToDwords4 (wa.getD 0 (.imm 0#64)) (wa.getD 1 (.imm 0#64)) fun s0 s1 s2 s3 =>
-        words2ToDwords4 (wb.getD 0 (.imm 0#64)) (wb.getD 1 (.imm 0#64)) fun w0 w1 w2 w3 =>
-        scalarSha256msg2 s0 s1 s2 s3 w0 w1 w2 w3 fun r0 r1 r2 r3 =>
-        dwords4ToWords2 r0 r1 r2 r3 fun wr0 wr1 =>
-        unpackWords64ToLeaves target [wr0, wr1] 0 v4i32 fun fres =>
-        packLeavesToLegal target v4i32 fres fun res => k (res, ())
+    if hk : target.sha256Legal .sha256msg2 then
+      have hkp : target.keepsPacked v4i32 = true := (Bool.and_eq_true _ _).mp hk |>.1
+      have hl : target.legalTys v4i32 = [v4i32] := by simp [LegalTarget.legalTys, hkp]
+      let a' : Arg V v4i32 := (cast (by rw [hl]) (legalArg target sums) : Tup (Arg V) [v4i32]).1
+      let b' : Arg V v4i32 := (cast (by rw [hl]) (legalArg target w) : Tup (Arg V) [v4i32]).1
+      .let_ (op2 .sha256msg2 a' b') fun (r, ()) =>
+        k (cast (by simp [LVar, hl]) (show Tup (Arg V) [v4i32] from (.var r, ())), ())
     else
       splitLegalToLeaves target v4i32 (legalArg target sums) fun fa =>
       splitLegalToLeaves target v4i32 (legalArg target w) fun fb =>
@@ -2614,12 +2597,9 @@ def LegalTarget.isLegalOp (target : LegalTarget) :
   | _, _, .blendw t imm, _ =>
     target.keepsPacked t && t.size != 0 && t.size % 128 == 0 &&
       target.vecIntOpSupported (.blendw t imm) t false
-  | _, _, .sha256rnds2, _ =>
-    target.keepsPacked v4i32 && target.vecIntOpSupported .sha256rnds2 v4i32 false
-  | _, _, .sha256msg1, _ =>
-    target.keepsPacked v4i32 && target.vecIntOpSupported .sha256msg1 v4i32 false
-  | _, _, .sha256msg2, _ =>
-    target.keepsPacked v4i32 && target.vecIntOpSupported .sha256msg2 v4i32 false
+  | _, _, .sha256rnds2, _ => target.sha256Legal .sha256rnds2
+  | _, _, .sha256msg1, _ => target.sha256Legal .sha256msg1
+  | _, _, .sha256msg2, _ => target.sha256Legal .sha256msg2
   | _, _, .fadd t, _ =>
     match t with
     | .float f => f ∈ target.floatFmts

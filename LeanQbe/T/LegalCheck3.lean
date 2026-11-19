@@ -1138,16 +1138,16 @@ theorem legalOp_isLegal (target : LegalTarget) {Δ : List (List Ty)} {rs : List 
     simp only [legalOp]
     split
     · next hp =>
-      by_cases hsup : target.vecIntOpSupported .sha256rnds2 v4i32 false = true
-      · simp only [hsup, ↓reduceIte]
-        have hl : target.legalTys v4i32 = [v4i32] := by simp [LegalTarget.legalTys, hp]
-        refine isLegal_let_op3_normal target .sha256rnds2 _ _ _ _ rfl
-          (by simp [LegalTarget.isLegalOp, hp, hsup])
-          (ArgsNormal_cast_eq _ hl hc').1 (ArgsNormal_cast_eq _ hl ha).1 (ArgsNormal_cast_eq _ hl hw).1 hp ?_
-        exact hcont1 k hk _ _ (CtxExtends.cons _ _)
-          (ArgsNormal_cast_eq _ hl.symm ⟨ArgNormal.head target Γ hp, trivial⟩)
-      · have hsupf : target.vecIntOpSupported .sha256rnds2 v4i32 false = false := Bool.eq_false_iff.mpr hsup
-        simp only [hsupf, Bool.false_eq_true, ↓reduceIte]; exact hsc
+      have hkp : target.keepsPacked v4i32 = true := (Bool.and_eq_true _ _).mp hp |>.1
+      have hsup : target.vecIntOpSupported .sha256rnds2 v4i32 false = true :=
+        (Bool.and_eq_true _ _).mp hp |>.2
+      have hl : target.legalTys v4i32 = [v4i32] := by simp [LegalTarget.legalTys, hkp]
+      refine isLegal_let_op3_normal target .sha256rnds2 _ _ _ _ rfl
+        (by simp [LegalTarget.isLegalOp, hkp, hsup])
+        (ArgsNormal_cast_eq _ hl hc').1 (ArgsNormal_cast_eq _ hl ha).1
+        (ArgsNormal_cast_eq _ hl hw).1 hkp ?_
+      exact hcont1 k hk _ _ (CtxExtends.cons _ _)
+        (ArgsNormal_cast_eq _ hl.symm ⟨ArgNormal.head target Γ hkp, trivial⟩)
     · exact hsc
   | sha256msg1 =>
     rcases args₂ with ⟨w0123, w4, ⟨⟩⟩
@@ -1240,16 +1240,15 @@ theorem legalOp_isLegal (target : LegalTarget) {Δ : List (List Ty)} {rs : List 
     simp only [legalOp]
     split
     · next hp =>
-      by_cases hsup : target.vecIntOpSupported .sha256msg2 v4i32 false = true
-      · simp only [hsup, ↓reduceIte]
-        have hl : target.legalTys v4i32 = [v4i32] := by simp [LegalTarget.legalTys, hp]
-        refine isLegal_let_op2_normal target .sha256msg2 _ _ _ rfl
-          (by simp [LegalTarget.isLegalOp, hp, hsup])
-          (ArgsNormal_cast_eq _ hl ha).1 (ArgsNormal_cast_eq _ hl hb).1 hp ?_
-        exact hcont1 k hk _ _ (CtxExtends.cons _ _)
-          (ArgsNormal_cast_eq _ hl.symm ⟨ArgNormal.head target Γ hp, trivial⟩)
-      · have hsupf : target.vecIntOpSupported .sha256msg2 v4i32 false = false := Bool.eq_false_iff.mpr hsup
-        simp only [hsupf, Bool.false_eq_true, ↓reduceIte]; exact hsc
+      have hkp : target.keepsPacked v4i32 = true := (Bool.and_eq_true _ _).mp hp |>.1
+      have hsup : target.vecIntOpSupported .sha256msg2 v4i32 false = true :=
+        (Bool.and_eq_true _ _).mp hp |>.2
+      have hl : target.legalTys v4i32 = [v4i32] := by simp [LegalTarget.legalTys, hkp]
+      refine isLegal_let_op2_normal target .sha256msg2 _ _ _ rfl
+        (by simp [LegalTarget.isLegalOp, hkp, hsup])
+        (ArgsNormal_cast_eq _ hl ha).1 (ArgsNormal_cast_eq _ hl hb).1 hkp ?_
+      exact hcont1 k hk _ _ (CtxExtends.cons _ _)
+        (ArgsNormal_cast_eq _ hl.symm ⟨ArgNormal.head target Γ hkp, trivial⟩)
     · exact hsc
   | fadd t | fsub t | fmul t | fdiv t =>
     rcases args₂ with ⟨a, b, ⟨⟩⟩
