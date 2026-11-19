@@ -407,16 +407,6 @@ theorem bitvec_split_toInt {n : Nat} (hn : 1 ≤ n) (x : BitVec (n + n)) :
     rw [Int.sub_mul, hpow, ← hnat]
     omega
 
-theorem toInt_emod_two_pow {n : Nat} (a : BitVec n) :
-    a.toInt % (2 ^ n : Int) = (a.toNat : Int) := by
-  rw [BitVec.toInt_eq_msb_cond]
-  have ha : 0 ≤ (a.toNat : Int) ∧ (a.toNat : Int) < (2 ^ n : Int) :=
-    ⟨Int.natCast_nonneg _, by exact_mod_cast a.isLt⟩
-  cases a.msb
-  · simp [Int.emod_eq_of_lt ha.1 ha.2]
-  · simp only [↓reduceIte, Int.natCast_pow, Int.cast_ofNat_Int]
-    rw [Int.sub_emod_right, Int.emod_eq_of_lt ha.1 ha.2]
-
 private theorem natAbs_le_of_bounds {x : Int} {B : Nat} (h1 : -(B : Int) ≤ x) (h2 : x ≤ (B : Int)) :
     x.natAbs ≤ B := by
   omega
@@ -498,7 +488,8 @@ theorem smulw_toInt {n : Nat} (a b : BitVec n) :
           Int.toNat_of_nonneg hnn1, Int.toNat_of_nonneg hnn2, Int.emod_emod_of_dvd _ hdvd]
       rw [hmod1]
       have hmod2 : (a.toInt * b.toInt) % (2 : Int) ^ n = ((a.toNat * b.toNat : Nat) : Int) % (2 : Int) ^ n := by
-        rw [Int.mul_emod, toInt_emod_two_pow, toInt_emod_two_pow, ← Int.natCast_mul]
+        rw [Int.mul_emod, BitVec.toInt_emod_two_pow, BitVec.toInt_emod_two_pow,
+          ← Int.natCast_mul]
       rw [hmod2, show (2 : Int) ^ n = ((2 ^ n : Nat) : Int) by push_cast; rfl,
         ← Int.natCast_emod, Int.toNat_natCast]
     have hsplit := bitvec_split_toInt hn1 (BitVec.ofInt (n + n) (a.toInt * b.toInt))

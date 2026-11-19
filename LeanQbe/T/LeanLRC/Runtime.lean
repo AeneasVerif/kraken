@@ -45,59 +45,12 @@ extern void lean_panic(u64 rt);
 meta section
 open Lean Elab Command
 
-/-- Elaborate a C0 runtime translation unit directly into kernel `<name>_body` / `<name>` defs,
-promoting runtime exit calls into `.exit` terminators. -/
-elab "lrc_elab_rt_c0!" pfx:ident src:str : command => do
-  let tu ← match parseC0 src.getString with
-    | .ok t => pure t | .error err => throwError err
-  let lmod ← match lowerTranslationUnit tu with
-    | .ok m => pure m | .error err => throwError err
-  let lmod' : LModule := {
-    lmod with
-    fns := lmod.fns.map fun f => { f with body := promoteExitCalls rtExits f.body }
-  }
-  if let .error err := checkLModuleAcyclic lmod' then throwError err
-  let ns ← getCurrNamespace
-  let mut fnConstNames : List Name := []
-  for lfn in lmod'.fns do
-    let leanName := ns ++ Name.mkSimple lfn.name
-    let bodyName := ns ++ Name.mkSimple (lfn.name ++ "_body")
-    let (funcExpr, asExpr, rsExpr) ← liftTermElabM (lFnToLeanExprM lfn)
-    let funcTy := mkApp2 (Lean.mkConst ``LeanQbe.T.Func) asExpr rsExpr
-    liftCoreM <| do
-      let bDecl := .defnDecl {
-        name := bodyName, levelParams := [], type := funcTy, value := funcExpr,
-        hints := .regular 0, safety := .safe
-      }
-      addDecl bDecl (forceExpose := true)
-      compileDecl bDecl
-      enableRealizationsForConst bodyName
-    let fnTy := Lean.mkConst ``LeanQbe.T.Fn
-    let fnExpr := mkApp4 (Lean.mkConst ``LeanQbe.T.Fn.mk)
-      (mkStrLit lfn.name) asExpr rsExpr (Lean.mkConst bodyName)
-    liftCoreM <| do
-      let fDecl := .defnDecl {
-        name := leanName, levelParams := [], type := fnTy, value := fnExpr,
-        hints := .regular 0, safety := .safe
-      }
-      addDecl fDecl (forceExpose := true)
-      compileDecl fDecl
-      enableRealizationsForConst leanName
-    fnConstNames := fnConstNames ++ [leanName]
-  let fnType := Lean.mkConst ``LeanQbe.T.Fn
-  let fnsName := ns ++ Name.mkSimple (pfx.getId.toString ++ "_fns")
-  let fnsTy := mkApp (Lean.mkConst ``List [.one]) fnType
-  let fnsVal := (fnConstNames.map Lean.mkConst).foldr
-    (fun e acc => mkApp3 (Lean.mkConst ``List.cons [.one]) fnType e acc)
-    (mkApp (Lean.mkConst ``List.nil [.one]) fnType)
-  liftCoreM <| do
-    let lDecl := .defnDecl {
-      name := fnsName, levelParams := [], type := fnsTy, value := fnsVal,
-      hints := .regular 0, safety := .safe
-    }
-    addDecl lDecl (forceExpose := true)
-    compileDecl lDecl
-    enableRealizationsForConst fnsName
+/-- Elaborate a C0 runtime translation unit directly into kernel `<name>_body` / `<name>` defs
+and `<pfx>_fns` (all `forceExpose`d, no `#c0_shape` metadata, no `<pfx>_module`), promoting
+runtime exit calls into `.exit` terminators. -/
+elab "lrc_elab_rt_c0!" pfx:ident src:str : command =>
+  elabC0Module (some pfx.getId) src.getString rtExits (forceExpose := true)
+    (registerShapes := false) (emitModule := false)
 
 end
 

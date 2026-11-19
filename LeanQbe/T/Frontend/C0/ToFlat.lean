@@ -67,29 +67,6 @@ def toFlatArgs (c : LFlatCtx) : (ts : List Ty) → List LArg → Except String (
   | _, _ => throw "toFlatArgs: arity mismatch"
 
 mutual
-/-- Promote calls to designated exit symbols into `.exit` terminators. -/
-def promoteExitCalls (exits : List Sym) : LExpr → LExpr
-  | .let_ op bs k => .let_ op bs (promoteExitCalls exits k)
-  | .load t a b k => .load t a b (promoteExitCalls exits k)
-  | .store t v a k => .store t v a (promoteExitCalls exits k)
-  | .call f as bs args binders k =>
-    if exits.contains f then .exit f as args
-    else .call f as bs args binders (promoteExitCalls exits k)
-  | .jnz c t e => .jnz c (promoteExitCalls exits t) (promoteExitCalls exits e)
-  | .jump l ts args => .jump l ts args
-  | .ret rs args => .ret rs args
-  | .exit f as args => .exit f as args
-  | .hlt => .hlt
-  | .group blks k => .group (promoteExitBlocks exits blks) (promoteExitCalls exits k)
-
-/-- Promote exit calls inside a list of lowered `group` blocks. -/
-def promoteExitBlocks (exits : List Sym) :
-    List (Nat × List LVar × LExpr) → List (Nat × List LVar × LExpr)
-  | [] => []
-  | (l, ps, b) :: rest => (l, ps, promoteExitCalls exits b) :: promoteExitBlocks exits rest
-end
-
-mutual
 /-- Convert a lowered C0 `LExpr` into a scope-checked `TFlat rs`. -/
 def lExprToTFlat (c : LFlatCtx) (rs : List Ty) : LExpr → Except String (TFlat rs)
   | .let_ op binders k => do

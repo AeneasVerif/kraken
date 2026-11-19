@@ -378,6 +378,12 @@ LeanQbeTest.T.C0Test LeanQbeTest.T.C0Test.sum_pos64_wf
 LeanQbeTest.T.C0Test LeanQbeTest.T.C0Test.sum_pos64_correct
 LeanQbeTest.T.C0Test LeanQbeTest.T.C0Test.test_intrinsics_wf
 LeanQbeTest.T.C0Test LeanQbeTest.T.C0Test.test_switch_loops_wf
+LeanQbe.T.Logic.C0Step LeanQbe.T.Env.ofTable_sound
+LeanQbe.T.Logic.C0Step LeanQbe.T.Env.ofTable_noExit
+LeanQbe.T.Logic.C0Step LeanQbe.T.Env.ofTable_moduleOk
+LeanQbeTest.T.C0StepTest LeanQbeTest.T.C0StepTest.sv_find_wp
+LeanQbeTest.T.C0StepTest LeanQbeTest.T.C0StepTest.sv_backtrack_wp
+LeanQbeTest.T.C0StepTest LeanQbeTest.T.C0StepTest.svEnv_moduleOk
 LeanQbe.T.Examples.LratBytesSpec LeanQbe.T.Examples.LratBytes.lbParseDimacsHeader_wf
 LeanQbe.T.Examples.LratBytesSpec LeanQbe.T.Examples.LratBytes.lbParseDimacsBody_wf
 LeanQbe.T.Examples.LratBytesSpec LeanQbe.T.Examples.LratBytes.lbReadAddLits_wf

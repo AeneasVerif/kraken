@@ -41,25 +41,6 @@ open Kraken.Bedrock2.Test
 def dimacsState (d mv nc cur val : BitVec 64) : Mem 64 → Prop :=
   array64 d [mv, nc, cur, val]
 
-theorem cell64_eq_word8 (a v : BitVec 64) : cell64 a v = word8 a v := by
-  unfold cell64 word8
-  congr 2
-  rw [← Int.toBytes_emod, ← Int.toBytes_emod (x := (v.toNat : Int))]
-  congr 1
-  simp only [Int.take, BitVec.toInt_eq_msb_cond]
-  have hlt : 0 ≤ (v.toNat : Int) ∧ (v.toNat : Int) < (2 ^ 64 : Int) :=
-    ⟨Int.natCast_nonneg _, by exact_mod_cast v.isLt⟩
-  cases v.msb
-  · simp
-  · simp only [↓reduceIte, Int.natCast_pow, Int.cast_ofNat_Int]
-    rw [Int.sub_emod_right, Int.emod_eq_of_lt hlt.1 hlt.2]
-
-theorem array64_eq_word8Array (a : BitVec 64) (xs : List (BitVec 64)) :
-    array64 a xs = word8Array a xs := by
-  induction xs generalizing a with
-  | nil => rfl
-  | cons x xs ih => rw [array64_cons, word8Array_cons, cell64_eq_word8, ih]
-
 theorem dimacsState_eq_word8Array (d mv nc cur val : BitVec 64) :
     dimacsState d mv nc cur val = word8Array d [mv, nc, cur, val] :=
   array64_eq_word8Array d [mv, nc, cur, val]

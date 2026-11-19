@@ -1373,4 +1373,29 @@ def lowerTranslationUnit (tu : TranslationUnit) (assertAsCheck : Bool := false) 
   let lfns ← fnOrder.mapM (lowerFnDef ctx)
   pure { fns := lfns, externs := externList, exits := ["c0_abort"] }
 
+/-! ## Exit-Call Promotion -/
+
+mutual
+/-- Promote calls to designated exit symbols into `.exit` terminators. -/
+@[expose] def promoteExitCalls (exits : List Sym) : LExpr → LExpr
+  | .let_ op bs k => .let_ op bs (promoteExitCalls exits k)
+  | .load t a b k => .load t a b (promoteExitCalls exits k)
+  | .store t v a k => .store t v a (promoteExitCalls exits k)
+  | .call f as bs args binders k =>
+    if exits.contains f then .exit f as args
+    else .call f as bs args binders (promoteExitCalls exits k)
+  | .jnz c t e => .jnz c (promoteExitCalls exits t) (promoteExitCalls exits e)
+  | .jump l ts args => .jump l ts args
+  | .ret rs args => .ret rs args
+  | .exit f as args => .exit f as args
+  | .hlt => .hlt
+  | .group blks k => .group (promoteExitBlocks exits blks) (promoteExitCalls exits k)
+
+/-- Promote exit calls inside a list of lowered `group` blocks. -/
+@[expose] def promoteExitBlocks (exits : List Sym) :
+    List (Nat × List LVar × LExpr) → List (Nat × List LVar × LExpr)
+  | [] => []
+  | (l, ps, b) :: rest => (l, ps, promoteExitCalls exits b) :: promoteExitBlocks exits rest
+end
+
 end LeanQbe.T.Frontend.C0

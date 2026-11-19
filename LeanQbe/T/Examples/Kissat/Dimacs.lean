@@ -31,56 +31,8 @@ open Lean Elab Command
 /-- Elaborate an acyclic C0 translation unit into `@[expose] public` `<fn>_body`, `<fn>`, and
 `<pfx>_fns` declarations (`forceExpose := true`) so downstream `module` proofs and `t_kernel_rfl`
 can unfold definitions across module boundaries. -/
-def elabKissatC0 (pfx : Name) (src : String) : CommandElabM Unit := do
-  let tu ← match parseC0 src with
-    | .ok t => pure t | .error err => throwError err
-  let lmod ← match lowerTranslationUnit tu with
-    | .ok m => pure m | .error err => throwError err
-  if let .error err := checkLModuleAcyclic lmod then throwError err
-  let ns ← getCurrNamespace
-  let mut fnConstNames : List Name := []
-  for lfn in lmod.fns do
-    let leanName := ns ++ Name.mkSimple lfn.name
-    let bodyName := ns ++ Name.mkSimple (lfn.name ++ "_body")
-    let (funcExpr, asExpr, rsExpr) ← liftTermElabM (lFnToLeanExprM lfn)
-    let funcTy := mkApp2 (Lean.mkConst ``LeanQbe.T.Func) asExpr rsExpr
-    liftCoreM <| do
-      let bDecl := .defnDecl {
-        name := bodyName, levelParams := [], type := funcTy, value := funcExpr,
-        hints := .regular 0, safety := .safe
-      }
-      addDecl bDecl (forceExpose := true)
-      compileDecl bDecl
-      enableRealizationsForConst bodyName
-    let fnTy := Lean.mkConst ``LeanQbe.T.Fn
-    let fnExpr := mkApp4 (Lean.mkConst ``LeanQbe.T.Fn.mk)
-      (mkStrLit lfn.name) asExpr rsExpr (Lean.mkConst bodyName)
-    liftCoreM <| do
-      let fDecl := .defnDecl {
-        name := leanName, levelParams := [], type := fnTy, value := fnExpr,
-        hints := .regular 0, safety := .safe
-      }
-      addDecl fDecl (forceExpose := true)
-      compileDecl fDecl
-      enableRealizationsForConst leanName
-    modifyEnv fun env =>
-      let env := c0ShapeExt.addEntry env (leanName, lfn.shape)
-      c0ShapeExt.addEntry env (bodyName, lfn.shape)
-    fnConstNames := fnConstNames ++ [leanName]
-  let fnType := Lean.mkConst ``LeanQbe.T.Fn
-  let fnsName := ns ++ Name.mkSimple (pfx.toString ++ "_fns")
-  let fnsTy := mkApp (Lean.mkConst ``List [.one]) fnType
-  let fnsVal := (fnConstNames.map Lean.mkConst).foldr
-    (fun e acc => mkApp3 (Lean.mkConst ``List.cons [.one]) fnType e acc)
-    (mkApp (Lean.mkConst ``List.nil [.one]) fnType)
-  liftCoreM <| do
-    let lDecl := .defnDecl {
-      name := fnsName, levelParams := [], type := fnsTy, value := fnsVal,
-      hints := .regular 0, safety := .safe
-    }
-    addDecl lDecl (forceExpose := true)
-    compileDecl lDecl
-    enableRealizationsForConst fnsName
+def elabKissatC0 (pfx : Name) (src : String) : CommandElabM Unit :=
+  elabC0Module (some pfx) src (forceExpose := true) (emitModule := false)
 
 elab "kissat_c0! " pfx:ident src:str : command =>
   elabKissatC0 pfx.getId src.getString

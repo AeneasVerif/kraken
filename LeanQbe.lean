@@ -23,6 +23,8 @@ public import LeanQbe.T.Logic.Cells
 public import LeanQbe.T.Logic.Bytes
 public import LeanQbe.T.Logic.ZeroTerm
 public import LeanQbe.T.Logic.Rules
+public import LeanQbe.T.Logic.C0StepAttr
+public import LeanQbe.T.Logic.C0Step
 public import LeanQbe.T.Examples.UnionFind
 public import LeanQbe.T.Examples.UnionFindLemmas
 public import LeanQbe.T.Legal

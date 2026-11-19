@@ -337,13 +337,33 @@ meta def checkLModuleAcyclic (m : LModule) : Except String Unit := do
 
 /-! ## Commands: `c0_decl!`, `c0_file!`, and `#c0_shape` -/
 
-meta def elabC0Module (modPrefix? : Option Name) (src : String) : CommandElabM Unit := do
+/-- Add a non-polymorphic definition, compile it, and enable realizations. With
+`forceExpose := true` the body is exported even outside an `@[expose]` section (so downstream
+`module` proofs can unfold it); otherwise this is exactly `addAndCompile`. -/
+meta def addExposedDecl (name : Name) (type value : Lean.Expr) (forceExpose : Bool := false) :
+    CoreM Unit := do
+  let decl := .defnDecl {
+    name, levelParams := [], type, value, hints := .regular 0, safety := .safe
+  }
+  addDecl decl (forceExpose := forceExpose)
+  compileDecl decl
+  enableRealizationsForConst name
+
+/-- Elaborate a C0 translation unit into kernel `<fn>_body : Func as rs` / `<fn> : Fn` defs in
+the current namespace, plus `<pfx>_fns` (and, if `emitModule`, `<pfx>_module`) when a prefix
+is given. `exits` lists runtime symbols whose calls are promoted into `.exit` terminators;
+`forceExpose` exports all bodies; `registerShapes` records `#c0_shape` metadata. -/
+meta def elabC0Module (modPrefix? : Option Name) (src : String) (exits : List Sym := [])
+    (forceExpose : Bool := false) (registerShapes : Bool := true) (emitModule : Bool := true) :
+    CommandElabM Unit := do
   let tu ← match parseC0 src with
     | .ok tu => pure tu
     | .error err => throwError err
   let lmod ← match lowerTranslationUnit tu with
     | .ok m => pure m
     | .error err => throwError err
+  let lmod : LModule := if exits.isEmpty then lmod else
+    { lmod with fns := lmod.fns.map fun f => { f with body := promoteExitCalls exits f.body } }
   if let .error err := checkLModuleAcyclic lmod then
     throwError err
   let ns ← getCurrNamespace
@@ -354,24 +374,14 @@ meta def elabC0Module (modPrefix? : Option Name) (src : String) : CommandElabM U
     let (funcExpr, asExpr, rsExpr) ← liftTermElabM (lFnToLeanExprM lfn)
     -- Define `<lfn.name>_body : Func as rs` first so `<lfn.name> : Fn` references it cleanly
     let funcTy := mkApp2 (Lean.mkConst ``LeanQbe.T.Func) asExpr rsExpr
-    liftCoreM <| do
-      addAndCompile (.defnDecl {
-        name := bodyName, levelParams := [], type := funcTy, value := funcExpr,
-        hints := .regular 0, safety := .safe
-      })
-      enableRealizationsForConst bodyName
-    let fnTy := Lean.mkConst ``LeanQbe.T.Fn
+    liftCoreM <| addExposedDecl bodyName funcTy funcExpr forceExpose
     let fnExpr := mkApp4 (Lean.mkConst ``LeanQbe.T.Fn.mk)
       (mkStrLit lfn.name) asExpr rsExpr (Lean.mkConst bodyName)
-    liftCoreM <| do
-      addAndCompile (.defnDecl {
-        name := leanName, levelParams := [], type := fnTy, value := fnExpr,
-        hints := .regular 0, safety := .safe
-      })
-      enableRealizationsForConst leanName
-    modifyEnv fun env =>
-      let env := c0ShapeExt.addEntry env (leanName, lfn.shape)
-      c0ShapeExt.addEntry env (bodyName, lfn.shape)
+    liftCoreM <| addExposedDecl leanName (Lean.mkConst ``LeanQbe.T.Fn) fnExpr forceExpose
+    if registerShapes then
+      modifyEnv fun env =>
+        let env := c0ShapeExt.addEntry env (leanName, lfn.shape)
+        c0ShapeExt.addEntry env (bodyName, lfn.shape)
     fnConstNames := fnConstNames ++ [leanName]
   if let some pfx := modPrefix? then
     let fnType := Lean.mkConst ``LeanQbe.T.Fn
@@ -380,24 +390,16 @@ meta def elabC0Module (modPrefix? : Option Name) (src : String) : CommandElabM U
     let fnsVal := (fnConstNames.map Lean.mkConst).foldr
       (fun e acc => mkApp3 (Lean.mkConst ``List.cons [.one]) fnType e acc)
       (mkApp (Lean.mkConst ``List.nil [.one]) fnType)
-    liftCoreM <| do
-      addAndCompile (.defnDecl {
-        name := fnsName, levelParams := [], type := fnsTy, value := fnsVal,
-        hints := .regular 0, safety := .safe
-      })
-      enableRealizationsForConst fnsName
-    let modName := ns ++ Name.mkSimple (pfx.toString ++ "_module")
-    let extsExpr := listLit (Lean.mkConst ``LeanQbe.T.Extern) <| lmod.externs.map fun ex =>
-      mkApp3 (Lean.mkConst ``LeanQbe.T.Extern.mk) (mkStrLit ex.name)
-        (listLit tyConst (ex.as.map tyToExpr)) (listLit tyConst (ex.rs.map tyToExpr))
-    let exitsExpr := listLit (Lean.mkConst ``LeanQbe.T.Sym) (lmod.exits.map mkStrLit)
-    let modVal := mkApp3 (Lean.mkConst ``LeanQbe.T.Module.mk) (Lean.mkConst fnsName) extsExpr exitsExpr
-    liftCoreM <| do
-      addAndCompile (.defnDecl {
-        name := modName, levelParams := [], type := Lean.mkConst ``LeanQbe.T.Module, value := modVal,
-        hints := .regular 0, safety := .safe
-      })
-      enableRealizationsForConst modName
+    liftCoreM <| addExposedDecl fnsName fnsTy fnsVal forceExpose
+    if emitModule then
+      let modName := ns ++ Name.mkSimple (pfx.toString ++ "_module")
+      let extsExpr := listLit (Lean.mkConst ``LeanQbe.T.Extern) <| lmod.externs.map fun ex =>
+        mkApp3 (Lean.mkConst ``LeanQbe.T.Extern.mk) (mkStrLit ex.name)
+          (listLit tyConst (ex.as.map tyToExpr)) (listLit tyConst (ex.rs.map tyToExpr))
+      let exitsExpr := listLit (Lean.mkConst ``LeanQbe.T.Sym) (lmod.exits.map mkStrLit)
+      let modVal := mkApp3 (Lean.mkConst ``LeanQbe.T.Module.mk)
+        (Lean.mkConst fnsName) extsExpr exitsExpr
+      liftCoreM <| addExposedDecl modName (Lean.mkConst ``LeanQbe.T.Module) modVal forceExpose
 
 syntax "c0_decl! " (ident)? str : command
 syntax "c0_file! " (ident)? str : command
