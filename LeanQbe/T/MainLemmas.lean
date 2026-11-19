@@ -404,6 +404,58 @@ theorem compileModule_labelsUnique_of_module {T : Target} (hcl : Rega.LabelClean
   intro i j l hi hj; rw [hprog] at hi hj
   exact compileModule_labelsUnique hcl hcm hnd' hok' i j l hi hj
 
+/-- Concatenate two separately compiled modules whose function names are pairwise distinct and
+`fnNameOk`, yielding `T.LabelsUnique` for any host whose program is `code₁ ++ code₂`. -/
+theorem compileModule_append_labelsUnique {T : Target} (hcl : Rega.LabelClean T.toIsa)
+    (host : T.mach.Host)
+    {lt₁ lt₂ : LegalTarget} {raBytes₁ raBytes₂ : Nat}
+    {ext₁ ext₂ : List (SigEntry × Nat)} {exits₁ exits₂ : List Sym} {nX₁ nX₂ : Nat}
+    {fs₁ fs₂ : List Fn} {hints₁ hints₂ : List T.toIsa.Hints}
+    {code₁ code₂ : List T.Directive} {bounds₁ bounds₂ : List (Sym × Nat)}
+    (hprog : T.mach.prog host = code₁ ++ code₂)
+    (hcm₁ : compileModule T.toIsa lt₁ raBytes₁ ext₁ exits₁ nX₁ fs₁ hints₁ = .ok (code₁, bounds₁))
+    (hcm₂ : compileModule T.toIsa lt₂ raBytes₂ ext₂ exits₂ nX₂ fs₂ hints₂ = .ok (code₂, bounds₂))
+    (hnd : (fs₁.map Fn.name ++ fs₂.map Fn.name).Nodup)
+    (hok : (fs₁.map Fn.name ++ fs₂.map Fn.name).all fnNameOk = true) :
+    T.LabelsUnique host := by
+  have hnd_split := List.nodup_append.mp hnd
+  simp only [List.all_append, Bool.and_eq_true, List.all_map] at hok
+  obtain ⟨hmem₁, huniq₁⟩ := compileModule_code_labels hcl lt₁ raBytes₁ exits₁ nX₁ hcm₁
+    hnd_split.1 hok.1
+  obtain ⟨hmem₂, huniq₂⟩ := compileModule_code_labels hcl lt₂ raBytes₂ exits₂ nX₂ hcm₂
+    hnd_split.2.1 hok.2
+  have hdisj : ∀ (i₁ j₂ : Nat) (l : Sym), code₁[i₁]? = some (T.frame.label l) →
+      code₂[j₂]? = some (T.frame.label l) → False := by
+    intro i₁ j₂ l hi₁ hj₂
+    obtain ⟨f₁, hf₁, h₁⟩ := hmem₁ i₁ l hi₁
+    obtain ⟨f₂, hf₂, h₂⟩ := hmem₂ j₂ l hj₂
+    have hok₁ := List.all_eq_true.mp hok.1 f₁ hf₁
+    have hok₂ := List.all_eq_true.mp hok.2 f₂ hf₂
+    rcases h₁ with rfl | ⟨a, rfl⟩ <;> rcases h₂ with hnm | ⟨b, hnm⟩
+    · exact hnd_split.2.2 f₁.name (List.mem_map_of_mem hf₁) f₂.name
+        (List.mem_map_of_mem hf₂) hnm
+    · exact lname_ne_cross hok₁ hnm.symm
+    · exact lname_ne_cross hok₂ hnm
+    · exact hnd_split.2.2 f₁.name (List.mem_map_of_mem hf₁) f₂.name
+        (List.mem_map_of_mem hf₂) (lname_inj_cross hok₁ hok₂ hnm).1
+  intro i j l hi hj
+  rw [hprog] at hi hj
+  rcases Nat.lt_or_ge i code₁.length with hiL | hiR <;>
+    rcases Nat.lt_or_ge j code₁.length with hjL | hjR
+  · rw [List.getElem?_append_left hiL] at hi
+    rw [List.getElem?_append_left hjL] at hj
+    exact huniq₁ i j l hi hj
+  · rw [List.getElem?_append_left hiL] at hi
+    rw [List.getElem?_append_right hjR] at hj
+    exact absurd hj (fun h' => hdisj i (j - code₁.length) l hi h')
+  · rw [List.getElem?_append_right hiR] at hi
+    rw [List.getElem?_append_left hjL] at hj
+    exact absurd hi (fun h' => hdisj j (i - code₁.length) l hj h')
+  · rw [List.getElem?_append_right hiR] at hi
+    rw [List.getElem?_append_right hjR] at hj
+    have heq := huniq₂ (i - code₁.length) (j - code₁.length) l hi hj
+    omega
+
 /-! ## Stack bound and `compile` helper lemmas -/
 
 theorem lookupBound_mem : ∀ {bounds : List (SigEntry × Nat)} {g : SigEntry} {v : Nat},

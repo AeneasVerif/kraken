@@ -32,10 +32,6 @@ namespace LeanQbe.T.Arm64.UnionFind
 open Std Std.ExtHashMap
 open LeanQbe.T LeanQbe.T.Examples.UnionFind LeanQbe.T.Arm64 Kraken
 
-private meta instance : Lean.ToExpr Empty where
-  toTypeExpr := Lean.mkConst ``Empty
-  toExpr e := e.elim
-
 splice_module_hints ufHints (armTarget.toIsa) armLegalTarget ufFns
 
 theorem compiled_check :

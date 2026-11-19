@@ -134,7 +134,10 @@ theorem step_vop1 {h : Host} {k : Nat} {sig : List Ty} {t : Ty}
       x64Mach.Run h (k + c.length) s' post) :
     x64Mach.Run h k s post := by
   refine x64VecSpec.vop_spec hc hpaG hpaV (by simp [tupDstGprs])
-    (fun vr hvr => by simp only [tupDstVecs, List.mem_singleton] at hvr; subst hvr; exact hdV)
+    (fun vr hvr => by
+      simp only [tupDstVecs_cons, tupDstVecs_nil, PDst.vecs, List.append_nil,
+        List.mem_singleton] at hvr
+      subst hvr; exact hdV)
     hhold hwp hinf ?_
   rintro s' ⟨⟨⟨rv, ⟨⟩⟩, heq, htr⟩, hmem⟩ hfr
   obtain rfl : rv = res := (Prod.mk.inj heq).1

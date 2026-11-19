@@ -31,10 +31,6 @@ namespace LeanQbe.T.Arm64.ChaCha
 open Std Std.ExtHashMap
 open LeanQbe.T LeanQbe.T.ProofUtil LeanQbe.T.Examples.ChaCha LeanQbe.T.Arm64 Kraken
 
-private meta instance : Lean.ToExpr Empty where
-  toTypeExpr := Lean.mkConst ``Empty
-  toExpr e := e.elim
-
 splice_module_hints chacha20Hints (armTarget.toIsa) armLegalTarget chacha20Module.fns
 
 /-! ## 1. Compiled Kernel Certificate & Source Support -/

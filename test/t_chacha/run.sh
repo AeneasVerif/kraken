@@ -6,7 +6,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
+OUT_USER="${OUT+set}"
 OUT="${OUT:-$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-tchacha.XXXXXX")}"
+cleanup() { if [ -z "$OUT_USER" ]; then rm -rf "$OUT"; fi; }
+trap cleanup EXIT
 echo "outputs in $OUT"
 
 echo "== 1. build ChaCha modules =="

@@ -130,29 +130,70 @@ inductive PDst (Reg VReg Cond : Type) : Ty → Type where
   | vec {t : Ty} (v : VReg) : PDst Reg VReg Cond t
   | flag (c : Cond) : PDst Reg VReg Cond .bool
 
-def PArg.gprs {R V C : Type} {t : Ty} : PArg R V C t → List R
-  | .gpr r => [r]
-  | _ => []
+@[simp] def PArg.gprs {R V C : Type} {t : Ty} : PArg R V C t → List R
+  | .gpr r => [r] | _ => []
 
-def tupArgGprs {R V C : Type} : {ts : List Ty} → Tup (PArg R V C) ts → List R
-  | [], () => []
-  | _ :: _, (.gpr r, xs) => r :: tupArgGprs xs
-  | _ :: _, (_, xs) => tupArgGprs xs
+@[simp] def PArg.vecs {R V C : Type} {t : Ty} : PArg R V C t → List V
+  | .vec v => [v] | _ => []
 
-def tupArgVecs {R V C : Type} : {ts : List Ty} → Tup (PArg R V C) ts → List V
-  | [], () => []
-  | _ :: _, (.vec v, xs) => v :: tupArgVecs xs
-  | _ :: _, (_, xs) => tupArgVecs xs
+@[simp] def PDst.gprs {R V C : Type} {t : Ty} : PDst R V C t → List R
+  | .gpr r => [r] | _ => []
 
-def tupDstGprs {R V C : Type} : {ts : List Ty} → Tup (PDst R V C) ts → List R
-  | [], () => []
-  | _ :: _, (.gpr r, xs) => r :: tupDstGprs xs
-  | _ :: _, (_, xs) => tupDstGprs xs
+@[simp] def PDst.vecs {R V C : Type} {t : Ty} : PDst R V C t → List V
+  | .vec v => [v] | _ => []
 
-def tupDstVecs {R V C : Type} : {ts : List Ty} → Tup (PDst R V C) ts → List V
+def tupFlatMap {F : Ty → Type} {α : Type} (f : {t : Ty} → F t → List α) :
+    {ts : List Ty} → Tup F ts → List α
   | [], () => []
-  | _ :: _, (.vec v, xs) => v :: tupDstVecs xs
-  | _ :: _, (_, xs) => tupDstVecs xs
+  | _ :: _, (x, xs) => f x ++ tupFlatMap f xs
+
+@[simp] theorem tupFlatMap_nil {F : Ty → Type} {α : Type} (f : {t : Ty} → F t → List α)
+    (xs : Tup F []) :
+    tupFlatMap (F := F) f (ts := []) xs = [] := rfl
+
+@[simp] theorem tupFlatMap_cons {F : Ty → Type} {α : Type} (f : {t : Ty} → F t → List α)
+    {t : Ty} {ts : List Ty} (xs : Tup F (t :: ts)) :
+    tupFlatMap (F := F) f (ts := t :: ts) xs = f xs.1 ++ tupFlatMap (F := F) f xs.2 := rfl
+
+def tupArgGprs {R V C : Type} {ts : List Ty} (xs : Tup (PArg R V C) ts) : List R :=
+  tupFlatMap PArg.gprs xs
+
+def tupArgVecs {R V C : Type} {ts : List Ty} (xs : Tup (PArg R V C) ts) : List V :=
+  tupFlatMap PArg.vecs xs
+
+def tupDstGprs {R V C : Type} {ts : List Ty} (xs : Tup (PDst R V C) ts) : List R :=
+  tupFlatMap PDst.gprs xs
+
+def tupDstVecs {R V C : Type} {ts : List Ty} (xs : Tup (PDst R V C) ts) : List V :=
+  tupFlatMap PDst.vecs xs
+
+theorem tupArgGprs_nil {R V C : Type} (xs : Tup (PArg R V C) []) :
+    tupArgGprs (R := R) (V := V) (C := C) (ts := []) xs = [] := rfl
+
+theorem tupArgGprs_cons {R V C : Type} {t : Ty} {ts : List Ty}
+    (xs : Tup (PArg R V C) (t :: ts)) :
+    tupArgGprs (ts := t :: ts) xs = xs.1.gprs ++ tupArgGprs xs.2 := rfl
+
+theorem tupArgVecs_nil {R V C : Type} (xs : Tup (PArg R V C) []) :
+    tupArgVecs (R := R) (V := V) (C := C) (ts := []) xs = [] := rfl
+
+theorem tupArgVecs_cons {R V C : Type} {t : Ty} {ts : List Ty}
+    (xs : Tup (PArg R V C) (t :: ts)) :
+    tupArgVecs (ts := t :: ts) xs = xs.1.vecs ++ tupArgVecs xs.2 := rfl
+
+theorem tupDstGprs_nil {R V C : Type} (xs : Tup (PDst R V C) []) :
+    tupDstGprs (R := R) (V := V) (C := C) (ts := []) xs = [] := rfl
+
+theorem tupDstGprs_cons {R V C : Type} {t : Ty} {ts : List Ty}
+    (xs : Tup (PDst R V C) (t :: ts)) :
+    tupDstGprs (ts := t :: ts) xs = xs.1.gprs ++ tupDstGprs xs.2 := rfl
+
+theorem tupDstVecs_nil {R V C : Type} (xs : Tup (PDst R V C) []) :
+    tupDstVecs (R := R) (V := V) (C := C) (ts := []) xs = [] := rfl
+
+theorem tupDstVecs_cons {R V C : Type} {t : Ty} {ts : List Ty}
+    (xs : Tup (PDst R V C) (t :: ts)) :
+    tupDstVecs (ts := t :: ts) xs = xs.1.vecs ++ tupDstVecs xs.2 := rfl
 
 /-- Scalar opcode gate (`H4`, `module` `rfl`-safe via `contains`/`Nat.ble` per `#165`):
 splits `hasBitCounts` from `hasPopcnt` (#156). -/

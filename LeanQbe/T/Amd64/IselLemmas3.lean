@@ -95,7 +95,9 @@ theorem opCmp_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (co :
       refine ⟨?_, hm1, x64_frame_of_eq ?_ hz1 (updFlags_maskAll _ _)⟩
       · dsimp only [Machine.PDstHolds, GprHolds]
         rw [Reg64s.get64_set64_same, hst1, hcond]; cases co.evalBits va vb <;> rfl
-      · intro r hr; simp only [tupDstGprs, List.cons_append, List.nil_append, List.mem_cons, not_or] at hr
+      · intro r hr
+        simp only [tupDstGprs_cons, tupDstGprs_nil, PDst.gprs, List.cons_append,
+          List.nil_append, List.mem_cons, not_or] at hr
         rw [Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1),
           hr1 r (by simp only [x64Scratch, List.mem_cons, List.mem_nil_iff, or_false]; exact fun h => h.elim hr.2.1 hr.2.2.1)]
     cases pa with
@@ -215,8 +217,10 @@ theorem opCmp_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (co :
           rename_i hcc; have hcc' := (beq_cond_iff cc _).1 hcc
           rcases Option.bind_eq_some_iff.mp hc with ⟨seq, hseq, hm⟩
           simp only [Option.some.injEq, Prod.mk.injEq] at hm; rcases hm with ⟨rfl, rfl⟩
-          have hargs' : ∀ r ∈ _ ++ (PArg.gpr rx : PArg Reg64 RegMm CondCode (.bits w.bits)).gprs, r ∉ x64Scratch :=
-            fun r hr => hargs r (by simp [List.mem_append] at hr ⊢; exact hr.symm)
+          have hargs' :
+              ∀ r ∈ _ ++ (PArg.gpr rx : PArg Reg64 RegMm CondCode (.bits w.bits)).gprs,
+                r ∉ x64Scratch :=
+            fun r hr => hargs r (by simp only [List.mem_append] at hr ⊢; exact hr.symm)
           exact finish _ vb va (by rw [hcc', cond_subFlags hwn, swapCmp_evalBits]) rfl rfl
             (wp_cmpDirect w hseq hargs' hpb hpa)
     | vec _ => simp [opCmp, cmpDirect] at hc

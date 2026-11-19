@@ -747,59 +747,11 @@ theorem combinedExt_progSmall :
 def combinedExtHost : LHost :=
   litmusLayout.layoutOf (incOnlyCompiled.code ++ callerExtCompiled.code) combinedExt_progSmall
 
-theorem combinedExt_labelsUnique : litmusTarget.LabelsUnique combinedExtHost := by
-  have hprog : litmusTarget.mach.prog combinedExtHost =
-      incOnlyCompiled.code ++ callerExtCompiled.code := litmusLayout.prog_layoutOf _ _
-  have hci := incOnlyCompiled.compileModule_eq
-  have hcc := callerExtCompiled.compileModule_eq
-  have hIncMem := (compileModule_code_labels litmusLabelClean LegalTarget.aarch64
-    litmusTarget.frame.raBytes [] 0 hci (by decide) (by decide)).1
-  have hCalMem := (compileModule_code_labels litmusLabelClean LegalTarget.aarch64
-    litmusTarget.frame.raBytes [] 0 hcc (by decide) (by decide)).1
-  intro i j l hi hj
-  rw [hprog] at hi hj
-  rcases Nat.lt_or_ge i incOnlyCompiled.code.length with hiL | hiR <;>
-    rcases Nat.lt_or_ge j incOnlyCompiled.code.length with hjL | hjR
-  · rw [List.getElem?_append_left hiL] at hi
-    rw [List.getElem?_append_left hjL] at hj
-    have hpi' : litmusTarget.mach.prog incOnlyCompiled.host = incOnlyCompiled.code := by
-      simpa using incOnlyCompiled.prog_host
-    exact incOnlyCompiled.labelsUnique i j l (hpi'.symm ▸ hi) (hpi'.symm ▸ hj)
-  · rw [List.getElem?_append_left hiL] at hi
-    rw [List.getElem?_append_right hjR] at hj
-    have h1 := hIncMem i l hi
-    have h2 := hCalMem (j - incOnlyCompiled.code.length) l hj
-    simp only [incOnlyMod, callerOnlyMod, List.mem_singleton] at h1 h2
-    rcases h1 with ⟨f1, hf1, h1⟩; subst hf1
-    rcases h2 with ⟨f2, hf2, h2⟩; subst hf2
-    rcases h1 with hl | ⟨n1, hl⟩ <;> rcases h2 with hr | ⟨n2, hr⟩
-    · rw [hl] at hr; simp [fnModInc, fnModCaller] at hr
-    · exact False.elim (lname_ne_cross (by decide) (hl.symm.trans hr).symm)
-    · exact False.elim (lname_ne_cross (by decide) (hl.symm.trans hr))
-    · have hnm := (lname_inj_cross (f := "inc") (g := "caller") (a := n1) (b := n2)
-        (by decide) (by decide) (hl.symm.trans hr)).1
-      simp at hnm
-  · rw [List.getElem?_append_right hiR] at hi
-    rw [List.getElem?_append_left hjL] at hj
-    have h1 := hCalMem (i - incOnlyCompiled.code.length) l hi
-    have h2 := hIncMem j l hj
-    simp only [incOnlyMod, callerOnlyMod, List.mem_singleton] at h1 h2
-    rcases h1 with ⟨f1, hf1, h1⟩; subst hf1
-    rcases h2 with ⟨f2, hf2, h2⟩; subst hf2
-    rcases h1 with hl | ⟨n1, hl⟩ <;> rcases h2 with hr | ⟨n2, hr⟩
-    · rw [hl] at hr; simp [fnModInc, fnModCaller] at hr
-    · exact False.elim (lname_ne_cross (by decide) (hl.symm.trans hr).symm)
-    · exact False.elim (lname_ne_cross (by decide) (hl.symm.trans hr))
-    · have hnm := (lname_inj_cross (f := "caller") (g := "inc") (a := n1) (b := n2)
-        (by decide) (by decide) (hl.symm.trans hr)).1
-      simp at hnm
-  · rw [List.getElem?_append_right hiR] at hi
-    rw [List.getElem?_append_right hjR] at hj
-    have hpc' : litmusTarget.mach.prog callerExtCompiled.host = callerExtCompiled.code := by
-      simpa using callerExtCompiled.prog_host
-    have heq := callerExtCompiled.labelsUnique (i - incOnlyCompiled.code.length)
-      (j - incOnlyCompiled.code.length) l (hpc'.symm ▸ hi) (hpc'.symm ▸ hj)
-    omega
+theorem combinedExt_labelsUnique : litmusTarget.LabelsUnique combinedExtHost :=
+  compileModule_append_labelsUnique litmusLabelClean combinedExtHost
+    (litmusLayout.prog_layoutOf _ _)
+    incOnlyCompiled.compileModule_eq callerExtCompiled.compileModule_eq
+    (by decide) (by decide)
 
 theorem callerExt_linked_fnSpec :
     litmusTarget.Defined combinedExtHost "caller" ∧

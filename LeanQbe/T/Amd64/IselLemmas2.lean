@@ -675,7 +675,9 @@ theorem opPostDst_gpr_bool {rd : Reg64} {rv : BitVec 64} {st : StatusFlags}
     OpPostDst1 .bool (.gpr rd) b clob s { s with regs := s.regs.set64 rd rv, status := st } := by
   refine ⟨?_, rfl, x64_frame_of_eq ?_ rfl hup⟩
   · dsimp only [Machine.PDstHolds, GprHolds]; rw [Reg64s.get64_set64_same, hrv]
-  · intro r hr; simp only [tupDstGprs, List.singleton_append, List.mem_cons, not_or] at hr
+  · intro r hr
+    simp only [tupDstGprs_cons, tupDstGprs_nil, PDst.gprs,
+      List.singleton_append, List.mem_cons, not_or] at hr
     exact Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1)
 
 theorem opCopyBool_spec [Host] {E : Int64 → MachineData → Prop}
@@ -765,7 +767,8 @@ theorem opBoolBin_spec [Host] {E : Int64 → MachineData → Prop} (op : Bool �
         rw [Reg64s.get64_set64_same, BitVec.setWidth_setWidth_of_le _ (by decide),
           Reg64s.get64_set64_same, hr11_3, BitVec.setWidth_eq]
       · intro r hr
-        simp only [tupDstGprs, List.singleton_append, List.mem_cons, not_or] at hr
+        simp only [tupDstGprs_cons, tupDstGprs_nil, PDst.gprs,
+          List.singleton_append, List.mem_cons, not_or] at hr
         rw [Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1),
           Reg64s.get64_set64_of_ne _ .r11 r _ (Ne.symm hr.2.2.1),
           Reg64s.get64_set64_of_ne _ .r10 r _ (Ne.symm hr.2.1),
@@ -825,7 +828,9 @@ theorem opBoolNot_spec [Host] {E : Int64 → MachineData → Prop}
       · dsimp only [Machine.PDstHolds, GprHolds]
         rw [Reg64s.get64_set64_same, BitVec.setWidth_setWidth_of_le _ (by decide),
           Reg64s.get64_set64_same, replaceLow_setWidth_le (by decide), hx, BitVec.setWidth_eq]
-      · intro r hr; simp only [tupDstGprs, List.singleton_append, List.mem_cons, not_or] at hr
+      · intro r hr
+        simp only [tupDstGprs_cons, tupDstGprs_nil, PDst.gprs,
+          List.singleton_append, List.mem_cons, not_or] at hr
         rw [Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1),
           Reg64s.get64_set64_of_ne _ .r11 r _ (Ne.symm hr.2.2.1),
           Reg64s.get64_set64_of_ne _ .r11 r _ (Ne.symm hr.2.2.1)]

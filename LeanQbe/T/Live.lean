@@ -30,24 +30,39 @@ def Bank.isVec : Bank → Bool | .vec _ => true | .gpr => false
 def Bank.slots : Bank → Nat | .gpr => 1 | .vec w => w.slots
 def Bank.slotWidth : Bank → SlotWidth | .gpr => .w64 | .vec w => w
 
-/-! ## Small `Nat` List-Set Operations -/
+/-! ## Small `Nat` Set Operations (backed by `Trie Unit`) -/
+
+def trieOfList (xs : List Nat) : Trie Unit :=
+  xs.foldl (fun t x => t.insert x ()) .empty
+
+def trieMem (t : Trie Unit) (x : Nat) : Bool :=
+  (t.find? x).isSome
 
 def natMem (x : Nat) : List Nat → Bool
   | [] => false | y :: ys => if Nat.beq x y then true else natMem x ys
 
-def eraseRev (x : Nat) : List Nat → List Nat → List Nat
-  | [], acc => acc
-  | y :: ys, acc => if Nat.beq y x then eraseRev x ys acc else eraseRev x ys (y :: acc)
+def erase (x : Nat) (xs : List Nat) : List Nat :=
+  xs.filter (!Nat.beq · x)
 
-def erase (x : Nat) (xs : List Nat) : List Nat := (eraseRev x xs []).reverse
-def eraseMany (xs : List Nat) (ys : List Nat) : List Nat := ys.filter (!natMem · xs)
+def eraseMany (xs : List Nat) (ys : List Nat) : List Nat :=
+  if xs.isEmpty then ys
+  else
+    let s := trieOfList xs
+    ys.filter (!trieMem s ·)
 
-def unionAux : List Nat → List Nat → List Nat
-  | [], acc => acc.reverse
-  | x :: xs, acc => if natMem x acc then unionAux xs acc else unionAux xs (x :: acc)
+def union (a b : List Nat) : List Nat :=
+  if b.isEmpty then a
+  else
+    let seen := trieOfList a
+    let base := if a.isEmpty then [] else a.reverse
+    (b.foldl (fun (acc, s) x =>
+      if trieMem s x then (acc, s) else (x :: acc, s.insert x ())) (base, seen)).1.reverse
 
-def union (a b : List Nat) : List Nat := unionAux b a.reverse
-def dedup (xs : List Nat) : List Nat := unionAux xs []
+def dedup (xs : List Nat) : List Nat :=
+  if xs.isEmpty then []
+  else
+    (xs.foldl (fun (acc, s) x =>
+      if trieMem s x then (acc, s) else (x :: acc, s.insert x ())) ([], .empty)).1.reverse
 
 /-- Variable IDs reusing `Ops.lean`'s `Arg.vars`, `tupVars`, and `Op.vars` (`B4`). -/
 def argVarIds {t : Ty} (a : Arg VNat t) : List Nat := a.vars.map (·.2)
@@ -234,13 +249,13 @@ def loopBlocks (bs : List (Nat × List (Nat × Ty) × Tree)) : Trie Bool :=
   let adj := bs.foldl (fun a (l, _, tb) => a.insert l (allJumps tb)) (.empty : Trie (List Nat))
   let maxFuel := bs.length * bs.length + bs.length + 1
   let canReach (src target : Nat) : Bool :=
-    let rec dfs : Nat → List Nat → List Nat → Bool
+    let rec dfs : Nat → List Nat → Trie Unit → Bool
       | 0, _, _ | _, [], _ => false
       | fuel + 1, x :: xs, vis =>
         if Nat.beq x target then true
-        else if natMem x vis then dfs fuel xs vis
-        else dfs fuel (adj.getD x [] ++ xs) (x :: vis)
-    dfs maxFuel (adj.getD src []) []
+        else if trieMem vis x then dfs fuel xs vis
+        else dfs fuel (adj.getD x [] ++ xs) (vis.insert x ())
+    dfs maxFuel (adj.getD src []) .empty
   bs.foldl (fun acc (l, _, _) => if canReach l l then acc.insert l true else acc) .empty
 
 end Live

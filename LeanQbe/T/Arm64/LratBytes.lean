@@ -33,10 +33,6 @@ namespace LeanQbe.T.Arm64.LratBytes
 open Std Std.ExtHashMap Std.Sat
 open LeanQbe.T LeanQbe.T.Examples.LratBytes LeanQbe.T.Arm64 Kraken
 
-private meta instance : Lean.ToExpr Empty where
-  toTypeExpr := Lean.mkConst ``Empty
-  toExpr e := e.elim
-
 splice_module_hints lratBytesHints (armTarget.toIsa) armLegalTarget lratBytesFns
 
 theorem compiled_check :

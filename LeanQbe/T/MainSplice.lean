@@ -20,6 +20,10 @@ namespace LeanQbe.T
 meta section
 open Lean Elab Command Term Meta
 
+instance : Lean.ToExpr Empty where
+  toTypeExpr := Lean.mkConst ``Empty
+  toExpr e := e.elim
+
 /-- `splice_module_hints name isa lt fns` evaluates `fns.map (Fn.computeHints isa lt)` in the
 meta interpreter using `Lean.ToExpr` and adds the resulting literal hint list as a safe kernel
 definition `name : List isa.Hints`. -/

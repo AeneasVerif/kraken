@@ -774,9 +774,9 @@ private theorem mem_tupArgGprs_tail {t : Ty} {ts : List Ty} {r : Reg}
     {pa : PArg Reg Empty ArmCond t} {xs : Tup (PArg Reg Empty ArmCond) ts}
     (hr : r ∈ tupArgGprs xs) : r ∈ tupArgGprs (ts := t :: ts) (pa, xs) := by
   cases pa with
-  | gpr _ => simp [tupArgGprs, hr]
+  | gpr _ => simp [tupArgGprs] at hr ⊢; exact Or.inr hr
   | vec v => exact v.elim
-  | imm _ | flag _ => simp [tupArgGprs, hr]
+  | imm _ | flag _ => simp [tupArgGprs] at hr ⊢; exact hr
 
 private theorem arg2_gprs {t u : Ty} {pa : PArg Reg Empty ArmCond t} {pb : PArg Reg Empty ArmCond u}
     (h : ∀ r ∈ tupArgGprs (R := Reg) (V := Empty) (C := ArmCond) (ts := [t, u]) (pa, pb, ()), r ∉ armScratch) :

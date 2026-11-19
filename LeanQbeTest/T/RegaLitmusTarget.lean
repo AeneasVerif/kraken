@@ -1374,8 +1374,8 @@ theorem addcArm_spec {h : LHost} {k : Nat} {n d : Nat} {a b : PArg Nat Nat Cond 
         · simp [Ne.symm hrd, h1d]
         · simp [MDataG.evalCond, h1c]
         · intro r hr
-          simp only [tupDstGprs, frameIsa, List.cons_append, List.nil_append, List.mem_cons,
-            not_or] at hr
+          simp only [tupDstGprs_cons, tupDstGprs_nil, PDst.gprs, frameIsa, List.nil_append,
+            List.cons_append, List.mem_cons, not_or] at hr
           simp [hr.2.1, h1g r hr.1]
     · cases hp
   · cases hop

@@ -31,10 +31,6 @@ namespace LeanQbe.T.Arm64.Bignum
 open Std Std.ExtHashMap
 open LeanQbe.T LeanQbe.T.ProofUtil LeanQbe.T.Examples.Bignum LeanQbe.T.Arm64 Kraken
 
-private meta instance : Lean.ToExpr Empty where
-  toTypeExpr := Lean.mkConst ``Empty
-  toExpr e := e.elim
-
 splice_module_hints mul4x4Hints (armTarget.toIsa) armLegalTarget mul4x4Module.fns
 splice_module_hints addMod25519Hints (armTarget.toIsa) armLegalTarget addMod25519Module.fns
 splice_module_hints subMod25519Hints (armTarget.toIsa) armLegalTarget subMod25519Module.fns

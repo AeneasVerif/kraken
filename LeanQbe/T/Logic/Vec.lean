@@ -531,23 +531,28 @@ theorem lanewiseX_iff_lane {ts : List Ty} (P : Tup Val ts → Prop) :
         rw [tupLane_succ_ge k xs hge, Nat.add_sub_cancel] at h'
         exact h'
 
+private theorem lanewise_succ_iff (k : Nat) (Q₁ Q₂ R : Nat → Prop)
+    (h_lt : ∀ i, i < 2 ^ k → (R i ↔ Q₁ i))
+    (h_ge : ∀ i, ¬ i < 2 ^ k → (R i ↔ Q₂ (i - 2 ^ k))) :
+    ((∀ i < 2 ^ k, Q₁ i) ∧ (∀ i < 2 ^ k, Q₂ i)) ↔ ∀ i < 2 ^ (k + 1), R i := by
+  constructor
+  · rintro ⟨h1, h2⟩ i hi
+    by_cases hlt : i < 2 ^ k
+    · exact (h_lt i hlt).mpr (h1 i hlt)
+    · exact (h_ge i hlt).mpr (h2 (i - 2 ^ k) (by rw [Nat.pow_succ] at hi; omega))
+  · intro h
+    refine ⟨fun i hi =>
+        (h_lt i hi).mp (h i (Nat.lt_of_lt_of_le hi (by rw [Nat.pow_succ]; omega))),
+      fun i hi => ?_⟩
+    have h' := (h_ge (i + 2 ^ k) (by omega)).mp (h (i + 2 ^ k) (by rw [Nat.pow_succ]; omega))
+    simpa only [Nat.add_sub_cancel] using h'
+
 theorem lanewise1_iff_lane {t : Ty} (P : Val t → Prop) :
     ∀ (k : Nat) (x : Val (Ty.vec k t)), Lanewise1 P k x ↔ ∀ i < 2 ^ k, P (lane k x i)
   | 0, x => ⟨fun h _ _ => h, fun h => h 0 (by decide)⟩
   | k + 1, x => by
     rw [Lanewise1, lanewise1_iff_lane P k x.1, lanewise1_iff_lane P k x.2]
-    constructor
-    · rintro ⟨h1, h2⟩ i hi
-      simp only [lane]; split <;> rename_i hlt
-      · exact h1 i hlt
-      · exact h2 (i - 2 ^ k) (by rw [Nat.pow_succ] at hi; omega)
-    · intro h
-      refine ⟨fun i hi => ?_, fun i hi => ?_⟩
-      · have h' := h i (Nat.lt_of_lt_of_le hi (by rw [Nat.pow_succ]; omega))
-        simpa [lane, hi] using h'
-      · have h' := h (i + 2 ^ k) (by rw [Nat.pow_succ]; omega)
-        have hge : ¬ i + 2 ^ k < 2 ^ k := by omega
-        simpa [lane, hge] using h'
+    exact lanewise_succ_iff k _ _ _ (fun _ h => by simp [lane, h]) (fun _ h => by simp [lane, h])
 
 theorem lanewise2_iff_lane {t₁ t₂ : Ty} (P : Val t₁ → Val t₂ → Prop) :
     ∀ (k : Nat) (x : Val (Ty.vec k t₁)) (y : Val (Ty.vec k t₂)),
@@ -555,18 +560,7 @@ theorem lanewise2_iff_lane {t₁ t₂ : Ty} (P : Val t₁ → Val t₂ → Prop)
   | 0, x, y => ⟨fun h _ _ => h, fun h => h 0 (by decide)⟩
   | k + 1, x, y => by
     rw [Lanewise2, lanewise2_iff_lane P k x.1 y.1, lanewise2_iff_lane P k x.2 y.2]
-    constructor
-    · rintro ⟨h1, h2⟩ i hi
-      simp only [lane]; split <;> rename_i hlt
-      · exact h1 i hlt
-      · exact h2 (i - 2 ^ k) (by rw [Nat.pow_succ] at hi; omega)
-    · intro h
-      refine ⟨fun i hi => ?_, fun i hi => ?_⟩
-      · have h' := h i (Nat.lt_of_lt_of_le hi (by rw [Nat.pow_succ]; omega))
-        simpa [lane, hi] using h'
-      · have h' := h (i + 2 ^ k) (by rw [Nat.pow_succ]; omega)
-        have hge : ¬ i + 2 ^ k < 2 ^ k := by omega
-        simpa [lane, hge] using h'
+    exact lanewise_succ_iff k _ _ _ (fun _ h => by simp [lane, h]) (fun _ h => by simp [lane, h])
 
 theorem lanewise3_iff_lane {t₁ t₂ t₃ : Ty} (P : Val t₁ → Val t₂ → Val t₃ → Prop) :
     ∀ (k : Nat) (x : Val (Ty.vec k t₁)) (y : Val (Ty.vec k t₂)) (z : Val (Ty.vec k t₃)),
@@ -574,18 +568,7 @@ theorem lanewise3_iff_lane {t₁ t₂ t₃ : Ty} (P : Val t₁ → Val t₂ → 
   | 0, x, y, z => ⟨fun h _ _ => h, fun h => h 0 (by decide)⟩
   | k + 1, x, y, z => by
     rw [Lanewise3, lanewise3_iff_lane P k x.1 y.1 z.1, lanewise3_iff_lane P k x.2 y.2 z.2]
-    constructor
-    · rintro ⟨h1, h2⟩ i hi
-      simp only [lane]; split <;> rename_i hlt
-      · exact h1 i hlt
-      · exact h2 (i - 2 ^ k) (by rw [Nat.pow_succ] at hi; omega)
-    · intro h
-      refine ⟨fun i hi => ?_, fun i hi => ?_⟩
-      · have h' := h i (Nat.lt_of_lt_of_le hi (by rw [Nat.pow_succ]; omega))
-        simpa [lane, hi] using h'
-      · have h' := h (i + 2 ^ k) (by rw [Nat.pow_succ]; omega)
-        have hge : ¬ i + 2 ^ k < 2 ^ k := by omega
-        simpa [lane, hge] using h'
+    exact lanewise_succ_iff k _ _ _ (fun _ h => by simp [lane, h]) (fun _ h => by simp [lane, h])
 
 theorem lanewise4_iff_lane {t₁ t₂ t₃ t₄ : Ty} (P : Val t₁ → Val t₂ → Val t₃ → Val t₄ → Prop) :
     ∀ (k : Nat) (w : Val (Ty.vec k t₁)) (x : Val (Ty.vec k t₂)) (y : Val (Ty.vec k t₃))
@@ -595,18 +578,7 @@ theorem lanewise4_iff_lane {t₁ t₂ t₃ t₄ : Ty} (P : Val t₁ → Val t₂
   | k + 1, w, x, y, z => by
     rw [Lanewise4, lanewise4_iff_lane P k w.1 x.1 y.1 z.1,
       lanewise4_iff_lane P k w.2 x.2 y.2 z.2]
-    constructor
-    · rintro ⟨h1, h2⟩ i hi
-      simp only [lane]; split <;> rename_i hlt
-      · exact h1 i hlt
-      · exact h2 (i - 2 ^ k) (by rw [Nat.pow_succ] at hi; omega)
-    · intro h
-      refine ⟨fun i hi => ?_, fun i hi => ?_⟩
-      · have h' := h i (Nat.lt_of_lt_of_le hi (by rw [Nat.pow_succ]; omega))
-        simpa [lane, hi] using h'
-      · have h' := h (i + 2 ^ k) (by rw [Nat.pow_succ]; omega)
-        have hge : ¬ i + 2 ^ k < 2 ^ k := by omega
-        simpa [lane, hge] using h'
+    exact lanewise_succ_iff k _ _ _ (fun _ h => by simp [lane, h]) (fun _ h => by simp [lane, h])
 
 theorem lanewise1_splatV {t : Ty} (P : Val t → Prop) (k : Nat) {v : Val t} (hv : P v) :
     Lanewise1 P k (splatV k v) :=
@@ -676,5 +648,87 @@ theorem lanewiseX_mono {ts : List Ty} {P Q : Tup Val ts → Prop} (h : ∀ xs, P
     ∀ (k : Nat) (xs : Tup (fun t => Val (Ty.vec k t)) ts), LanewiseX P k xs → LanewiseX Q k xs
   | 0, xs, hp => h xs hp
   | k + 1, _, ⟨h1, h2⟩ => ⟨lanewiseX_mono h k _ h1, lanewiseX_mono h k _ h2⟩
+
+/-! ## 128-bit `v4i32` bitvector-lane & `shuffleDwords` lemmas -/
+
+theorem bvLane_toBits_v4i32 (w0 w1 w2 w3 : BitVec 32) :
+    bvLane 32 0 (toBits v4i32 ((w0, w1), (w2, w3))) = w0 ∧
+    bvLane 32 1 (toBits v4i32 ((w0, w1), (w2, w3))) = w1 ∧
+    bvLane 32 2 (toBits v4i32 ((w0, w1), (w2, w3))) = w2 ∧
+    bvLane 32 3 (toBits v4i32 ((w0, w1), (w2, w3))) = w3 := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;>
+  · apply BitVec.eq_of_getLsbD_eq
+    intro i hi
+    simp only [bvLane, toBits, BitVec.getLsbD_extractLsb', BitVec.getLsbD_cast,
+      BitVec.getLsbD_append]
+    grind
+
+theorem bvOfLanes_128_32_eq (f : Nat → BitVec 32) :
+    bvOfLanes 128 32 f =
+      (((f 0).setWidth 128 ||| ((f 1).setWidth 128 <<< 32)) |||
+        ((f 2).setWidth 128 <<< 64)) ||| ((f 3).setWidth 128 <<< 96) := by
+  have hrange : List.range (128 / 32) = [0, 1, 2, 3] := by decide
+  unfold bvOfLanes
+  rw [hrange]
+  simp only [List.foldl_cons, List.foldl_nil, Nat.mul_zero, Nat.mul_one,
+    BitVec.shiftLeft_zero, BitVec.zero_or]
+
+theorem ofBits_bvOfLanes_v4i32 (f : Nat → BitVec 32) :
+    ofBits v4i32 (bvOfLanes v4i32.size 32 f) = ((f 0, f 1), (f 2, f 3)) := by
+  show ofBits v4i32 (bvOfLanes 128 32 f) = ((f 0, f 1), (f 2, f 3))
+  rw [bvOfLanes_128_32_eq]
+  simp only [ofBits, Ty.size]
+  refine Prod.ext (Prod.ext ?_ ?_) (Prod.ext ?_ ?_) <;>
+  · apply BitVec.eq_of_getLsbD_eq
+    intro i hi
+    simp only [BitVec.getLsbD_extractLsb', BitVec.getLsbD_or, BitVec.getLsbD_shiftLeft,
+      BitVec.getLsbD_setWidth]
+    grind
+
+def v4i32LaneGet (r : Val v4i32) (j : Nat) : BitVec 32 :=
+  match j % 4 with
+  | 0 => r.1.1
+  | 1 => r.1.2
+  | 2 => r.2.1
+  | _ => r.2.2
+
+theorem ofBits_shuffleDwords_v4i32 (r : Val v4i32) (imm : BitVec 8) :
+    ofBits v4i32 (shuffleDwords (toBits v4i32 r) imm) =
+      ((v4i32LaneGet r (imm.toNat % 4), v4i32LaneGet r ((imm.toNat >>> 2) % 4)),
+       (v4i32LaneGet r ((imm.toNat >>> 4) % 4), v4i32LaneGet r ((imm.toNat >>> 6) % 4))) := by
+  rcases r with ⟨⟨w0, w1⟩, ⟨w2, w3⟩⟩
+  have ⟨h0, h1, h2, h3⟩ := bvLane_toBits_v4i32 w0 w1 w2 w3
+  unfold shuffleDwords
+  rw [ofBits_bvOfLanes_v4i32]
+  have hlane : ∀ k : Nat, bvLane 32 (k % 4) (toBits v4i32 ((w0, w1), (w2, w3))) =
+      v4i32LaneGet ((w0, w1), (w2, w3)) (k % 4) := fun k => by
+    have hk : k % 4 = 0 ∨ k % 4 = 1 ∨ k % 4 = 2 ∨ k % 4 = 3 := by omega
+    rcases hk with h | h | h | h <;> simp [v4i32LaneGet, h, h0, h1, h2, h3]
+  simp only [Nat.zero_div, Nat.mul_zero, Nat.zero_add]
+  refine Prod.ext (Prod.ext (hlane imm.toNat) ?_) (Prod.ext ?_ ?_)
+  · dsimp only
+    rw [show 4 * (1 / 4) = 0 from rfl, show 2 * (1 % 4) = 2 from rfl, Nat.zero_add]
+    exact hlane (imm.toNat >>> 2)
+  · dsimp only
+    rw [show 4 * (2 / 4) = 0 from rfl, show 2 * (2 % 4) = 4 from rfl, Nat.zero_add]
+    exact hlane (imm.toNat >>> 4)
+  · dsimp only
+    rw [show 4 * (3 / 4) = 0 from rfl, show 2 * (3 % 4) = 6 from rfl, Nat.zero_add]
+    exact hlane (imm.toNat >>> 6)
+
+theorem shufd_v4i32_39 (r : Val v4i32) :
+    ofBits v4i32 (shuffleDwords (toBits v4i32 r) (0x39 : BitVec 8)) =
+      ((r.1.2, r.2.1), (r.2.2, r.1.1)) := by
+  rw [ofBits_shuffleDwords_v4i32]; rfl
+
+theorem shufd_v4i32_4e (r : Val v4i32) :
+    ofBits v4i32 (shuffleDwords (toBits v4i32 r) (0x4e : BitVec 8)) =
+      ((r.2.1, r.2.2), (r.1.1, r.1.2)) := by
+  rw [ofBits_shuffleDwords_v4i32]; rfl
+
+theorem shufd_v4i32_93 (r : Val v4i32) :
+    ofBits v4i32 (shuffleDwords (toBits v4i32 r) (0x93 : BitVec 8)) =
+      ((r.2.2, r.1.1), (r.1.2, r.2.1)) := by
+  rw [ofBits_shuffleDwords_v4i32]; rfl
 
 end LeanQbe.T

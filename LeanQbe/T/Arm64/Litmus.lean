@@ -32,10 +32,6 @@ namespace LeanQbe.T.Arm64.Litmus
 open Std Std.ExtHashMap
 open LeanQbe.T LeanQbe.T.Examples.Litmus LeanQbe.T.Arm64 Kraken
 
-private meta instance : Lean.ToExpr Empty where
-  toTypeExpr := Lean.mkConst ``Empty
-  toExpr e := e.elim
-
 splice_module_hints tracerHints  (armTarget.toIsa) armLegalTarget tracerModule.fns
 splice_module_hints ifelseHints  (armTarget.toIsa) armLegalTarget ifelseModule.fns
 splice_module_hints sumtoHints   (armTarget.toIsa) armLegalTarget sumtoModule.fns

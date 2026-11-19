@@ -1009,7 +1009,9 @@ theorem opMulw_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (hw 
                 x64_frame_of_eq (fun r hr => ?_) hz3 (updFlags_of_status_eq hst3 _)⟩
               · dsimp [Machine.getGpr]; rw [Reg64s.get64_set64_of_ne _ rhi rlo _ hrlo_hi.symm, Reg64s.get64_set64_same, hvlo]
               · dsimp [Machine.getGpr]; rw [Reg64s.get64_set64_same, hvhi]
-              · simp only [tupDstGprs, x64Scratch, List.mem_cons, List.mem_append, List.mem_nil_iff, or_false, not_or] at hr
+              · simp only [tupDstGprs_cons, tupDstGprs_nil, PDst.gprs, x64Scratch,
+                  List.append_nil, List.singleton_append, List.mem_cons, List.mem_append,
+                  List.mem_nil_iff, or_false, not_or] at hr
                 rcases hr with ⟨⟨hr1, hr2⟩, ⟨hr10, hr11⟩⟩
                 have hdr : r ≠ .rdx := fun h => by
                   subst h; rcases (Bool.or_eq_true _ _).mp hskip with h' | h' <;>
@@ -1025,7 +1027,9 @@ theorem opMulw_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (hw 
               · dsimp [Machine.getGpr]; rw [Reg64s.get64_set64_of_ne _ .rdx rlo _ hne_rdx.1.symm,
                   Reg64s.get64_set64_of_ne _ rhi rlo _ hrlo_hi.symm, Reg64s.get64_set64_same, hvlo]
               · dsimp [Machine.getGpr]; rw [Reg64s.get64_set64_of_ne _ .rdx rhi _ hne_rdx.2.symm, Reg64s.get64_set64_same, hvhi]
-              · simp only [tupDstGprs, x64Scratch, List.mem_cons, List.mem_append, List.mem_nil_iff, or_false, not_or] at hr
+              · simp only [tupDstGprs_cons, tupDstGprs_nil, PDst.gprs, x64Scratch,
+                  List.append_nil, List.singleton_append, List.mem_cons, List.mem_append,
+                  List.mem_nil_iff, or_false, not_or] at hr
                 rcases hr with ⟨⟨hr1, hr2⟩, ⟨hr10, hr11⟩⟩; dsimp [Machine.getGpr]
                 by_cases hdr : r = .rdx
                 · subst hdr; rw [Reg64s.get64_set64_same, Reg64s.get64_set64_of_ne _ rhi .r10 _ hrhi_sc.1,
@@ -1119,7 +1123,9 @@ theorem opMulw_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (hw 
               exact (congrArg (BitVec.setWidth w.bits) (by simp only [Reg64s.get64_set64]; grind)).trans ha'
             · dsimp [Machine.getGpr]
               exact (congrArg (BitVec.setWidth w.bits) (by simp only [Reg64s.get64_set64]; grind)).trans hd'
-            · simp only [tupDstGprs, List.mem_cons, List.mem_append, List.mem_nil_iff, or_false, not_or, x64Scratch] at hr
+            · simp only [tupDstGprs_cons, tupDstGprs_nil, PDst.gprs, List.nil_append,
+                List.cons_append, List.mem_cons, List.mem_nil_iff, or_false, not_or,
+                x64Scratch] at hr
               dsimp [Machine.getGpr]; simp only [Reg64s.get64_set64]; grind
 
 end
