@@ -600,3 +600,6 @@ LeanQbe.T.Arm64.LinkRec LeanQbe.T.Arm64.LinkRec.isOdd_4_arm64_nonvacuous
 LeanQbe.T.Arm64.LinkRec LeanQbe.T.Arm64.LinkRec.isOdd_5_arm64_nonvacuous
 LeanQbe.T.Arm64.LinkRec LeanQbe.T.Arm64.LinkRec.recSum_normal_arm64_nonvacuous
 LeanQbe.T.Arm64.LinkRec LeanQbe.T.Arm64.LinkRec.recSum_out_of_fuel_arm64_nonvacuous
+LeanQbe.T.Examples.Kissat.DimacsLemmas LeanQbe.T.Examples.Kissat.dimacsEnv_sound
+LeanQbe.T.Examples.Kissat.DimacsLemmas LeanQbe.T.Examples.Kissat.dimacsEnv_moduleOk
+LeanQbe.T.Examples.Kissat.DimacsLemmas LeanQbe.T.Examples.Kissat.kissat_check_model_sound
