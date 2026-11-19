@@ -90,6 +90,8 @@ public import LeanQbe.T.Examples.LratTrim
 public import LeanQbe.T.Examples.Kissat.Core
 public import LeanQbe.T.Examples.Kissat.CoreLemmas1
 public import LeanQbe.T.Examples.Kissat.CoreLemmas
+public import LeanQbe.T.Examples.Kissat.Dimacs
+public import LeanQbe.T.Examples.Kissat.Solver
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
