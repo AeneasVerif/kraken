@@ -93,6 +93,12 @@ public import LeanQbe.T.Examples.LratTrim
 public import LeanQbe.T.Examples.Kissat.Core
 public import LeanQbe.T.Examples.Kissat.CoreLemmas1
 public import LeanQbe.T.Examples.Kissat.CoreLemmas
+public import LeanQbe.T.Examples.Kissat.LayerAMinimize1
+public import LeanQbe.T.Examples.Kissat.LayerAMinimize2
+public import LeanQbe.T.Examples.Kissat.LayerAMinimize3
+public import LeanQbe.T.Examples.Kissat.LayerAMinimize
+public import LeanQbe.T.Examples.Kissat.LayerACollect1
+public import LeanQbe.T.Examples.Kissat.LayerACollect
 public import LeanQbe.T.Examples.Kissat.Dimacs
 public import LeanQbe.T.Examples.Kissat.Solver
 public import LeanQbe.T.Examples.Kissat.DimacsLemmas1
