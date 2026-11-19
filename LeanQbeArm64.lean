@@ -17,5 +17,6 @@ public import LeanQbe.T.Arm64.Bignum
 public import LeanQbe.T.Arm64.ChaCha
 public import LeanQbe.T.Arm64.LratBytes
 public import LeanQbe.T.Arm64.LinkRec
+public import LeanQbe.T.Arm64.Kissat
 
 /-! Root of the AArch64 library: imports `Kraken.AArch64` and `LeanQbe.T.Arm64.*`. -/

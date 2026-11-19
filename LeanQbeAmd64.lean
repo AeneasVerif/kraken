@@ -22,5 +22,6 @@ public import LeanQbe.T.Amd64.Bignum
 public import LeanQbe.T.Amd64.ChaCha
 public import LeanQbe.T.Amd64.LratBytes
 public import LeanQbe.T.Amd64.LinkRec
+public import LeanQbe.T.Amd64.Kissat
 
 /-! Root of the x64 library: imports `Kraken.X64` and `LeanQbe.T.Amd64.*`. -/
