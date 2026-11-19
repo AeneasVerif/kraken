@@ -575,3 +575,9 @@ LeanQbeTest.T.MainTest LeanQbeTest.T.MainTest.litmusLabelClean
 LeanQbeTest.T.MainTest LeanQbeTest.T.MainTest.litmusCaller_fnSpec
 LeanQbeTest.T.MainTest LeanQbeTest.T.MainTest.litmusCaller_run_i64
 LeanQbeTest.T.MainTest LeanQbeTest.T.MainTest.litmusCaller_run_sep
+LeanQbe.T.Amd64.IselVecLemmas3 LeanQbe.T.Amd64.x64VecSpec
+LeanQbe.T.Amd64.IselVecLemmas3 LeanQbe.T.Amd64.x64Vop_noLab
+LeanQbeTest.T.Amd64VecTest LeanQbeTest.T.Amd64VecTest.chachaQrProg_run
+LeanQbeTest.T.Amd64VecTest LeanQbeTest.T.Amd64VecTest.floatVecProg_nan_run
+LeanQbeTest.T.Amd64VecTest LeanQbeTest.T.Amd64VecTest.bridgeProg_run
+LeanQbeTest.T.Amd64VecTest LeanQbeTest.T.Amd64VecTest.unalignedProg_run
