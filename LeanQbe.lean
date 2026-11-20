@@ -124,6 +124,8 @@ public import LeanQbe.T.Examples.Kissat.CorePlusArena
 public import LeanQbe.T.Examples.Kissat.CorePlusSpec1
 public import LeanQbe.T.Examples.Kissat.CorePlusSpec
 public import LeanQbe.T.Examples.Kissat.CorePlusPropLemmas
+public import LeanQbe.T.Examples.Kissat.CorePlusMinimizeLemmas1
+public import LeanQbe.T.Examples.Kissat.CorePlusMinimizeLemmas
 public import LeanQbe.T.Examples.Kissat.Plain1
 public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbe.T.Examples.Kissat.PlainArena1
