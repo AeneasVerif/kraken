@@ -344,7 +344,7 @@ def mBoxed : LcTy → LcTy
 
 /-- Is the boxed form of `t` a definite heap object? -/
 def mBoxedIsObj : LcTy → Bool
-  | .uint64 => true
+  | .uint64 | .usize => true
   | _ => false
 
 mutual

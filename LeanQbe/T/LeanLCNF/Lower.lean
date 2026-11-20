@@ -351,7 +351,7 @@ def uintPrim (rt : LArg) (w : Nat) (op : String) (as : List LArg) (k : LArg → 
   | "decEq", [a, b] | "beq", [a, b] => cmpU .eq a b
   | "decLt", [a, b] | "blt", [a, b] => cmpU .ult a b
   | "decLe", [a, b] | "ble", [a, b] => cmpU .ule a b
-  | "ofNat", [a] | "ofNatLT", [a] | "ofNatTruncate", [a] =>
+  | "ofNat", [a] | "ofNatLT", [a] =>
     withJoin1 t k fun j => do
       let slow ← call1 "lcnf_nat_slow" [i64, i64, i64, i64] i64
         [rt, imm64 (natOpCode "ofNat"), a, imm64 w] fun r => convW 64 w r fun r' => pure (j r')

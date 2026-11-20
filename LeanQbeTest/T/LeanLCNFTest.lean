@@ -73,7 +73,11 @@ def declHas (short : String) (p : LcCode → Bool) : Bool :=
 
 #guard Demo.demoMod.decls.length ≥ 80
 #guard Demo.demoMod.externs.map (·.name) |>.all fun n =>
-  n.startsWith "Nat." || n.startsWith "UInt64."
+  n.startsWith "Nat." || n.startsWith "UInt64." || n.startsWith "USize."
+-- `USize.add._boxed` is synthesized from the persisted signature and `dec`s its boxed arguments.
+#guard (demoDecl? "usizeSum").isSome &&
+  (Demo.demoMod.decls.find? (·.name == "USize.add._boxed")).any fun d =>
+    anyStmt (fun | .dec .. => true | _ => false) d.body
 -- FBIP: `ExpandResetReuse`'s `isShared` diamond with in-place `oset` in `ins` / `mapValues`.
 #guard (demoDecl? "RBNode.ins").any fun d => anyVal (fun | .isShared _ => true | _ => false) d.body
 #guard declHas "RBNode.mapValues" fun | .oset .. => true | _ => false
@@ -91,16 +95,16 @@ def declHas (short : String) (p : LcCode → Bool) : Bool :=
 /-! ## 2. Lowering, reification, `Func.Wf` -/
 
 /-- The lowered demo program (empty on a lowering error, which the `#guard`s below reject). -/
-def demoTfs : List TFlatFn := (lowerModule Demo.demoMod).toOption.getD []
+def demoTfs : List TFlatFn := (lowerModule Demo.lcnfProgram).toOption.getD []
 
 /-- The reified demo program. -/
-def demoFns : List Fn := lcnfFns demoTfs
+def demoFns : List Fn := LeanLRC.tflatFnsToFns demoTfs
 
 /-- Every function of the lowered demo program is `Func.Wf`. -/
-theorem lcnf_demo_wf : ∀ f ∈ demoFns, f.Wf := lcnfFns_wf demoTfs
+theorem lcnf_demo_wf : ∀ f ∈ demoFns, f.Wf := LeanLRC.tflatFnsToFns_wf demoTfs
 
-#guard (lowerModule Demo.demoMod).isOk
-#guard demoTfs.length == Demo.demoMod.decls.length + 3
+#guard (lowerModule Demo.lcnfProgram).isOk
+#guard demoTfs.length == Demo.lcnfProgram.decls.length + 3
 #guard demoFns.all fun f => Func.checkTFlat f.body
 #guard (demoFns.map (·.name)).contains "lcnf_apply_3"
 
@@ -139,7 +143,6 @@ def metricsLine (tf : TFlatFn) : String :=
 /-! ## 3. Axioms -/
 
 #print axioms lcnf_demo_wf
-#print axioms lcnfFns_wf
 
 /-! ## 4. Artifact generator -/
 
@@ -150,7 +153,7 @@ def traced : List String :=
 /-- Write `lcnf_gen.hpp`, traces and metrics into `outDir`. -/
 def generateArtifacts (outDir : System.FilePath) : IO Unit := do
   IO.FS.createDirAll outDir
-  let tfs ← IO.ofExcept (lowerModule Demo.demoMod)
+  let tfs ← IO.ofExcept (lowerModule Demo.lcnfProgram)
   let m := lcnfTModule tfs
   IO.FS.writeFile (outDir / "lcnf_gen.hpp") (← IO.ofExcept (PrintCpp.ppTModule m))
   IO.FS.writeFile (outDir / "metrics.txt") (String.intercalate "\n" (tfs.map metricsLine) ++ "\n")
@@ -164,7 +167,7 @@ def generateArtifacts (outDir : System.FilePath) : IO Unit := do
       IO.FS.writeFile (tr / s!"{file}.mono") (s.mono ++ "\n")
       IO.FS.writeFile (tr / s!"{file}.impure") (s.impure ++ "\n")
     | none => throw (IO.userError s!"no snapshot for {full}")
-    match (lcnfFns tfs).find? (·.name == mangleLc full) with
+    match (LeanLRC.tflatFnsToFns tfs).find? (·.name == mangleLc full) with
     | some f => IO.FS.writeFile (tr / s!"{file}.T.ssa") ((← IO.ofExcept (PrintQbe.fn f)) ++ "\n")
     | none => throw (IO.userError s!"no lowered function for {full}")
 

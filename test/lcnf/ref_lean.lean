@@ -32,6 +32,8 @@ def runTests (quick : Bool) : IO Unit := do
   for (n, d, s) in vms do
     if quick && n > 100 then continue
     IO.println s!"VM n={n} depth={d} seed={s} r={vmBench n d s}"
+  for n in [0, 1, 10, 100, 1000] do
+    IO.println s!"USZ n={n} r={usizeSum n}"
 
 /-- Time one workload (inputs depend on `k` so nothing is hoisted into a closed term). -/
 def bench (name : String) (f : Unit → Nat) : IO Unit := do

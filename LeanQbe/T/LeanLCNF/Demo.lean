@@ -383,9 +383,43 @@ def vmBench (n depth seed : Nat) : UInt64 :=
   let code := vcompile e []
   match vmLoop code e n 7 0 with
   | (acc, ok) => acc + UInt64.ofNat ok
+
+/-! ### 5. Boxed `USize` closures (`USize.add._boxed` receives heap-boxed arguments) -/
+
+def usFold (f : USize → USize → USize) : USize → List USize → USize
+  | acc, [] => acc
+  | acc, x :: xs => usFold f (f acc x) xs
+
+def usList : Nat → List USize → List USize
+  | 0, acc => acc
+  | n + 1, acc => usList n (USize.ofNat (n * 3) :: acc)
+
+def usizeSum (n : Nat) : Nat := (usFold (· + ·) 7 (usList n [])).toNat
 -- END LCNF DEMO
 
 /-! The demo program: real impure LCNF of the entry points and their transitive callees. -/
-lcnf_of_lean! demoMod [rbBench, rbPersist, rbLinear, rbShared, sortBench, satSolve, vmBench]
+lcnf_of_lean! demoMod
+  [rbBench, rbPersist, rbLinear, rbShared, sortBench, satSolve, vmBench, usizeSum]
+
+/-- Hand-built impure LCNF for paths the compiler rarely emits: `reset` whose token is `dec`'d
+instead of reused (`Probe.resetDec n`: the child must survive, result `n`) and `reset`/`reuse`
+with a tag update (`Probe.reuse n`: result `n` iff the reused cell carries the new tag). -/
+def probeDecls : List LcDecl :=
+  let c0 : LcCtor := { name := "Probe.box", cidx := 0, size := 1, usize := 0, ssize := 0 }
+  let c1 : LcCtor := { name := "Probe.alt", cidx := 1, size := 1, usize := 0, ssize := 0 }
+  [ { name := "LeanQbe.T.LeanLCNF.Probe.resetDec", params := [{ id := 1, ty := .tobject }]
+      retTy := .tobject
+      body := .let_ 2 .object (.ctor c0 [.var 1]) <| .let_ 3 .object (.ctor c0 [.var 2]) <|
+        .inc 2 1 false <| .let_ 4 .tobject (.reset 1 3) <| .dec 4 1 true <|
+        .let_ 5 .tobject (.oproj 0 2) <| .inc 5 1 true <| .dec 2 1 false <| .ret (.var 5) }
+  , { name := "LeanQbe.T.LeanLCNF.Probe.reuse", params := [{ id := 1, ty := .tobject }]
+      retTy := .tobject
+      body := .let_ 2 .object (.ctor c0 [.var 1]) <| .inc 1 1 true <|
+        .let_ 3 .tobject (.reset 1 2) <| .let_ 4 .object (.reuse 3 c1 true [.var 1]) <|
+        .cases 4 [ (.ctor 1 "Probe.alt", .dec 4 1 false (.ret (.var 1)))
+                 , (.dflt, .dec 4 1 false (.dec 1 1 true (.ret .erased))) ] } ]
+
+/-- The program lowered and tested by `test/lcnf/run.sh`: the demo module plus `probeDecls`. -/
+def lcnfProgram : LcModule := { demoMod with decls := demoMod.decls ++ probeDecls }
 
 end LeanQbe.T.LeanLCNF.Demo

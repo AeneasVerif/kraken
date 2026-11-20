@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.LeanLCNF.Lower
+public import LeanQbe.T.LeanLRC.ToT
 
 /-!
 # Impure `LCNF` → `LeanQbe.T`: code, declarations, closures and modules
@@ -14,7 +15,7 @@ public import LeanQbe.T.LeanLCNF.Lower
   a balanced `jnz` tree; under-application extends the closure; over-application chains
   `lcnf_apply_r` and `lcnf_apply_(k-r)`).
 * `lowerModule`: every function is scope-checked by `lExprToTFlat` + `TFlat.wfCheck`;
-  `lcnfFns_wf` gives `Func.Wf` for every reified function.
+  `LeanLRC.tflatFnsToFns_wf` gives `Func.Wf` for every reified function.
 -/
 
 set_option autoImplicit false
@@ -137,13 +138,16 @@ def lowerPap (env : LEnv) (c : LCtx) (f : String) (as : List LcArg) (k : LArg �
     storeFields p 24 vs (k p)
 
 /-- `reset n x` (only reached if `ExpandResetReuse` left one): exclusive → release the `n`
-fields and reuse `x`; shared → `dec x` and return `box(0)`. -/
+fields (`lean_ctor_release`: `dec` each and overwrite it with `box(0)`, so a token that is later
+`dec`'d instead of reused frees nothing twice) and reuse `x`; shared → `dec x`, `box(0)`. -/
 def lowerReset (c : LCtx) (n : Nat) (x : LArg) (k : LArg → LM LExpr) : LM LExpr :=
   withJoin1 i64 k fun j => do
     let rec decFields : Nat → LM LExpr
       | 0 => pure (j x)
-      | i + 1 => loadAt i64 x (8 + 8 * (n - 1 - i)) fun y =>
-        emitDec1 c.rt y .tobject true (decFields i)
+      | i + 1 =>
+        let off := 8 + 8 * (n - 1 - i)
+        loadAt i64 x off fun y =>
+        emitDec1 c.rt y .tobject true (storeAt i64 (imm64 1) x off (decFields i))
     let ex ← decFields n
     let sh ← emitDec1 c.rt x .object false (pure (j (imm64 1)))
     loadAt i32 x 0 fun rc => cmpOp .eq 32 rc (imm 32 1) fun e => pure (.jnz e ex sh)
@@ -431,18 +435,9 @@ def lowerModule (m : LcModule) : Except String (List TFlatFn) := do
 /-- Runtime externs as `LeanQbe.T.Extern`s. -/
 def rtExterns : List Extern := rtCalls.map fun (n, as, bs) => { name := n, as, rs := bs }
 
-/-- Reify lowered functions into PHOAS `Fn`s. -/
-def lcnfFns (tfs : List TFlatFn) : List Fn := tfs.map TFlatFn.toFn
-
-/-- The `LeanQbe.T.Module` of a lowered program (runtime calls are externs). -/
+/-- The `LeanQbe.T.Module` of a lowered program (runtime calls are externs); every function is
+`Func.Wf` by `LeanLRC.tflatFnsToFns_wf`. -/
 def lcnfTModule (tfs : List TFlatFn) : Module :=
-  { fns := lcnfFns tfs, externs := rtExterns, exits := rtExitSyms }
-
-/-- Every reified lowered function is `Func.Wf`. -/
-theorem lcnfFns_wf (tfs : List TFlatFn) : ∀ f ∈ lcnfFns tfs, f.Wf := by
-  intro f hf
-  simp only [lcnfFns, List.mem_map] at hf
-  obtain ⟨tf, _, rfl⟩ := hf
-  exact tf.toFn_wf
+  { fns := LeanLRC.tflatFnsToFns tfs, externs := rtExterns, exits := rtExitSyms }
 
 end LeanQbe.T.LeanLCNF

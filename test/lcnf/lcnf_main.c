@@ -23,6 +23,8 @@
 #include <time.h>
 
 #define DEMO(n) l_LeanQbe_T_LeanLCNF_Demo_##n
+#define l_LeanQbe_T_LeanLCNF_Demo_Probe_resetDec l_LeanQbe_T_LeanLCNF_Probe_resetDec
+#define l_LeanQbe_T_LeanLCNF_Demo_Probe_reuse l_LeanQbe_T_LeanLCNF_Probe_reuse
 
 #ifdef LCNF_TQBE
 typedef ::tqbe::bits<64> W;
@@ -67,6 +69,9 @@ u64 DEMO(rbShared)(u64 rt, u64 n, u64 reps);
 u64 DEMO(sortBench)(u64 rt, u64 n, u64 seed);
 u64 DEMO(satSolve)(u64 rt, u64 kind, u64 a, u64 b, u64 seed);
 u64 DEMO(vmBench)(u64 rt, u64 n, u64 depth, u64 seed);
+u64 DEMO(usizeSum)(u64 rt, u64 n);
+u64 l_LeanQbe_T_LeanLCNF_Probe_resetDec(u64 rt, u64 n);
+u64 l_LeanQbe_T_LeanLCNF_Probe_reuse(u64 rt, u64 n);
 static LcnfRt g_rtblock;
 static u64 g_rt;
 #define CALL1(f, a) DEMO(f)(g_rt, a)
@@ -179,6 +184,27 @@ static void run_tests(int quick) {
     leak_check("vmBench");
     printf("VM n=%llu depth=%llu seed=%llu r=%llu\n", (unsigned long long)vm[i][0],
            (unsigned long long)vm[i][1], (unsigned long long)vm[i][2], (unsigned long long)r);
+  }
+  static const u64 usz[] = {0, 1, 10, 100, 1000};
+  for (size_t i = 0; i < sizeof usz / sizeof usz[0]; i++) {
+    u64 r = ub("usizeSum", CALL1(usizeSum, bx(usz[i])));
+    leak_check("usizeSum");
+    printf("USZ n=%llu r=%llu\n", (unsigned long long)usz[i], (unsigned long long)r);
+  }
+  /* Hand-built LCNF probes: `reset` token `dec`'d without reuse, and `reset`/`reuse` + setTag. */
+  {
+    u64 a0 = allocs();
+    u64 p1 = ub("Probe.resetDec", CALL1(Probe_resetDec, bx(5)));
+    leak_check("Probe.resetDec");
+    u64 p2 = ub("Probe.reuse", CALL1(Probe_reuse, bx(9)));
+    leak_check("Probe.reuse");
+    u64 da = allocs() - a0;
+    fprintf(stderr, "PROBE resetDec=%llu reuse=%llu allocs=%llu\n", (unsigned long long)p1,
+            (unsigned long long)p2, (unsigned long long)da);
+    if (p1 != 5 || p2 != 9 || da != 3) {
+      fprintf(stderr, "FAIL probes: expected resetDec=5 reuse=9 allocs=3\n");
+      g_fail = 1;
+    }
   }
 }
 
