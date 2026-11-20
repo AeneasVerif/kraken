@@ -241,6 +241,7 @@ public import LeanQbe.T.Examples.Kissat.FullSweepVarLemmas1
 public import LeanQbe.T.Examples.Kissat.FullSweepVarLemmas
 public import LeanQbe.T.Examples.Kissat.FullSweepFwdLemmas
 public import LeanQbe.T.Examples.Kissat.FullReduceLemmas
+public import LeanQbe.T.Examples.Kissat.FullWalkExtLemmas
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
