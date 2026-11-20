@@ -237,6 +237,8 @@ public import LeanQbe.T.Examples.Kissat.FullBveBvaLemmas1
 public import LeanQbe.T.Examples.Kissat.FullBveBvaLemmas2
 public import LeanQbe.T.Examples.Kissat.FullBveBvaLemmas3
 public import LeanQbe.T.Examples.Kissat.FullBveBvaLemmas
+public import LeanQbe.T.Examples.Kissat.FullSweepVarLemmas1
+public import LeanQbe.T.Examples.Kissat.FullSweepVarLemmas
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
