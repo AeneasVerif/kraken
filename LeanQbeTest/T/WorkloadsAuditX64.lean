@@ -25,7 +25,7 @@ Curve25519 bignum kernels (`mul4x4` using `mulx`/`adcx`/`adox` with zero `setcc`
 2. **Curve25519 Bignum (`Amd64.Bignum`)**:
    * Closed Kraken x64 correctness for `mul4x4`, `addMod25519`, and `subMod25519` (`audit_mul4x4`,
      `audit_add25519`, `audit_sub25519`) plus concrete wrapping witnesses (`audit_mul4x4_nv`,
-     `audit_add25519_nv`, `audit_sub25519_nv`) and instruction checks (`11 mulx`, `12 adcx`,
+     `audit_add_nv`, `audit_sub_nv`) and instruction checks (`11 mulx`, `12 adcx`,
      `12 adox`, `0 setcc`).
 3. **Union-Find (`Amd64.UnionFind`)**:
    * Closed Kraken x64 correctness for `find`, `union` (cross-function calls), and `unionInline`
