@@ -1,8 +1,8 @@
 # T7 Design Note: PHOAS-First Checked Lowering, Flag-Frame Snippets, and ABI Contract (`H3`/`H4`)
 
-Companion artifacts (all verified with `0 sorry`, `-DwarningAsError=true`, standard axioms only):
-- `H3`/`H4` interface: [Target.lean](file:///usr/local/google/home/andreser/.gemini/jetski/brain/6fff401a-caec-4119-bcb2-6d38220cdae2/scratch/Target.lean) (399 LOC) & cross-module `t_kernel_rfl` test [TargetConsumerTest.lean](file:///usr/local/google/home/andreser/.gemini/jetski/brain/6fff401a-caec-4119-bcb2-6d38220cdae2/scratch/TargetConsumerTest.lean) (75 LOC)
-- Spike S2 (x64 & AArch64 flag-frame preservation): [SpikeS2X64.lean](file:///usr/local/google/home/andreser/.gemini/jetski/brain/6fff401a-caec-4119-bcb2-6d38220cdae2/scratch/SpikeS2X64.lean), [SpikeS2Arm64.lean](file:///usr/local/google/home/andreser/.gemini/jetski/brain/6fff401a-caec-4119-bcb2-6d38220cdae2/scratch/SpikeS2Arm64.lean)
+Companion artifacts (historical scratch prototypes, verified with `0 sorry`, `-DwarningAsError=true`, standard axioms only):
+- `H3`/`H4` interface: historical scratch `Target.lean` (399 LOC; landed as `LeanQbe/T/Target.lean`) & cross-module `t_kernel_rfl` test `TargetConsumerTest.lean` (75 LOC; landed as `LeanQbeTest/T/TargetConsumerTest.lean`)
+- Spike S2 (x64 & AArch64 flag-frame preservation): historical scratch `SpikeS2X64.lean`, `SpikeS2Arm64.lean`
 
 ---
 
@@ -12,7 +12,7 @@ Per the unanimous `U1`–`U5` `PHOAS`-first verdict, `T7` lowers `Fn` directly b
 
 * **Bounded `SymState` & `rfl`-soundness guardrails (`#141`, `#164`–`#168` Traps 1–5):**
   1. `R_reg : List (SymArg × RegLoc Reg VReg Cond)` — active bindings (`SymArg`: `var | immBool | immBits | immVec`) in `.gpr r`, `.vec vr`, or `.flag c` **only**. Since each physical register/condition holds at most one live `SymArg`, `R_reg.length ≤ |GPR| + |VReg| + |Cond|` (`O(1)` scan for lookup, clobber, and `L5` flag kill).
-  2. `R_slot : Trie (SymArg × SlotWidth)` — active stack slots indexed by 8-byte granule `i < h.nslots` (`O(log N)` structural `find?`/`erase` on `Trie` + `insertAux (n + 1)` on `Nat` fuel with zero `WellFounded.fix`, proved via `Trie.find?_insert_{self,ne}` & `Trie.find?_erase_{self,ne}` in [Target.lean](file:///usr/local/google/home/andreser/.gemini/jetski/brain/6fff401a-caec-4119-bcb2-6d38220cdae2/scratch/Target.lean#L48-L88), Trap 1). Memory predicates reuse `region`, `cell64`, and `array64` directly from `LeanQbe.T.Logic.Mem` (`#167.1`, zero duplicate `word`/`slots` aliases).
+  2. `R_slot : Trie (SymArg × SlotWidth)` — active stack slots indexed by 8-byte granule `i < h.nslots` (`O(log N)` structural `find?`/`erase` on `Trie` + `insertAux (n + 1)` on `Nat` fuel with zero `WellFounded.fix`, proved via `Trie.find?_insert_{self,ne}` & `Trie.find?_erase_{self,ne}` in historical scratch `Target.lean` lines 48–88; now `LeanQbe/T/Target.lean`, Trap 1). Memory predicates reuse `region`, `cell64`, and `array64` directly from `LeanQbe.T.Logic.Mem` (`#167.1`, zero duplicate `word`/`slots` aliases).
   3. `defs : Trie DefFact` (`L9`) — pure SSA definitions `x = op(args)` for total `OpCode`s, passed **lexically** (never threaded sequentially across `.jnz` branches or sibling `Blocks`, Trap 4). By lexical SSA freshness (`nv` strictly increasing), entries hold monotonically with zero kill maintenance, enabling checked `[base + disp]` folding (`AddrArg.baseDisp`) and constant/copy rematerialization without a `.remat` `Loc` constructor.
   4. `nv nl ip : Nat` — fresh variable IDs, structural `Nat` block labels, and instruction index into `Hints.{dest, pre, variant}`. All computable `module` checks use pure `Bool` (`Nat.ble`, `List.contains`, `==`, `&&`, `||` — never `Prop` `if a < b` / `∈` `Decidable` witnesses that block cross-module `t_kernel_rfl`, Trap 2, verified in `TargetConsumerTest.lean`), `OpCode` matchers match flatly (`match sig, rs, code with`, Trap 4), and `LabelsUnique` is proved structurally from monotone `[nl, nl')` bounds in `T7` rather than `O(L²)` `List.Nodup` `decide` (Trap 5).
 * **Literal `Hints` splicing path (`T12`, `#167.5`):** `SlotWidth`, `Loc`, `VariantHint`, `Move`, `PreStep`, `SymArg`, `Entry`, `Trie`, and `Hints` all derive `Lean.ToExpr` in `Target.lean` (matching `Kraken/{X64,AArch64}/Syntax.lean`), so `T12`'s MetaM compile wrapper runs untrusted `Spill.hints` outside the kernel and splices literal `Hints` expressions directly via `Lean.toExpr` (verified in `TargetConsumerTest.sampleHintsExpr`) without `Repr` round-tripping.
@@ -22,7 +22,7 @@ Per the unanimous `U1`–`U5` `PHOAS`-first verdict, `T7` lowers `Fn` directly b
 
 ## 2. Exact Snippet Lemma Signatures & Flag-Frame Clauses (6 Representative Op Kinds)
 
-Every snippet spec in [Target.lean](file:///usr/local/google/home/andreser/.gemini/jetski/brain/6fff401a-caec-4119-bcb2-6d38220cdae2/scratch/Target.lean#L252-L347) uses `M.FallsTo condReads h k code gClob vClob fClob s Q post`, whose `M.Frame` packages `M.KeepsGpr`, `M.KeepsVec`, and `M.UpdFlags`:
+Every snippet spec in historical scratch `Target.lean` (lines 252–347; now `LeanQbe/T/Target.lean`) uses `M.FallsTo condReads h k code gClob vClob fClob s Q post`, whose `M.Frame` packages `M.KeepsGpr`, `M.KeepsVec`, and `M.UpdFlags`:
 ```lean
 def UpdFlags (condReads : C → FlagMask) (s s' : M.MData) (mask : FlagMask) : Prop :=
   ∀ c, FlagMask.disjoint (condReads c) mask = true → M.evalCond s' c = M.evalCond s c

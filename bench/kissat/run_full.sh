@@ -133,15 +133,9 @@ echo "outputs in $OUT (modules: ${MODULES[*]})"
 echo "== 1. Generate 300+ inprocessing & search-stress DIMACS CNFs =="
 timeout 60 python3 -B bench/kissat/gen_inproc_cnfs.py "$OUT/cnfs/gen" --summary
 
-KISSAT_SCRATCH="/usr/local/google/home/andreser/.gemini/jetski/brain"
-KISSAT_SCRATCH="$KISSAT_SCRATCH/06d85d8f-79d2-4064-9941-37cb455b0e29/scratch/kissat"
 KISSAT_SRC="${KISSAT_SRC:-}"
-if [ -z "$KISSAT_SRC" ]; then
-  if [ -d "$ROOT/scratch/kissat/src" ]; then
-    KISSAT_SRC="$ROOT/scratch/kissat"
-  elif [ -d "$KISSAT_SCRATCH/src" ]; then
-    KISSAT_SRC="$KISSAT_SCRATCH"
-  fi
+if [ -z "$KISSAT_SRC" ] && [ -d "$ROOT/scratch/kissat/src" ]; then
+  KISSAT_SRC="$ROOT/scratch/kissat"
 fi
 
 if [ "$WITH_KTEST" -eq 1 ] && [ -n "$KISSAT_SRC" ] && [ -d "$KISSAT_SRC/test/cnf" ]; then
@@ -221,7 +215,7 @@ HDR
     echo "Using reference Kissat 4.0.4: $KISSAT_BIN"
   else
     KISSAT_BIN=""
-    echo "NOTE: reference Kissat 4.0.4 not available or lacks --plain; skipping reference comparison."
+    echo "NOTE: reference Kissat 4.0.4 not available or lacks --plain (set KISSAT_BIN or KISSAT_SRC); skipping reference comparison."
   fi
 fi
 
