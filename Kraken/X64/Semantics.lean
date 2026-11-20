@@ -379,6 +379,7 @@ inductive Effects
   | done (a : MachineState)
   | unimplemented (msg : String)
   | resolve_label (lbl : Label) (k : Int64 → Effects)
+  | resolve_got_slot (lbl : Label) (k : Int64 → Effects)
   | gp_unaligned (addr : BitVec 64) (w : Nat)
   -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
   -- for instance, MMIO reads/writes at certain device register addresses might change what
@@ -465,8 +466,10 @@ def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v 
           ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
       | .none => unimplemented "AVX nonmem store not supported")
 
-class Labels where label? : Label → Option Int64
-export Labels (label?)
+class Labels where
+  label? : Label → Option Int64
+  gotSlot? : Label → Option Int64
+export Labels (label? gotSlot?)
 
 def Labels.label! [Labels] (l : Label) : Int64 :=
   match label? l with
@@ -489,6 +492,7 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
     (ret : _root_.Int64 → Effects) : Effects :=
   match e with
   | .label l => .resolve_label l ret
+  | .gotSlot l => .resolve_got_slot l ret
   | .int64 i => ret i
   | .before_current_instruction => ret p.lower
   | .after_current_instruction => ret p.upper
@@ -1106,9 +1110,10 @@ theorem inert_of_size_zero {prog : Program} [layout : Layout prog] {i : Nat} {d 
   | word bytes _ => simp [Directive.interp, show bytes = 0 from hz]
 
 @[instance_reducible]
-def Executable.labels (e : Executable) : Labels :=
+def Executable.labels (e : Executable) (gotSlot : Label → Option Int64 := fun _ => none) : Labels :=
   { label? l := e.withAddresses.findSome?
-      (fun {directive, addr, ..} => if directive = .label l then .some addr else .none) }
+      (fun {directive, addr, ..} => if directive = .label l then .some addr else .none)
+    gotSlot? := gotSlot }
 
 def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Kraken.Sized Directive) :=
   e.program.dropWhile (·.directive != .label l)
@@ -1118,17 +1123,22 @@ def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → 
 
 -- -- Concrete evaluators for expedient testing
 
-partial def Executable.eval (e : Executable) (s : MachineState) (until_ : MachineState → Bool) : Except String (MachineState) :=
+partial def Executable.eval (e : Executable) (s : MachineState) (until_ : MachineState → Bool)
+    (labels : Labels := e.labels) : Except String MachineState :=
   if until_ s then .ok s else handleEffects (Executable.step e s .done)
 where
   handleEffects es :=
     match es with
-    | .done s => eval e s until_
+    | .done s => eval e s until_ labels
     | .unimplemented msg => .error msg
     | .resolve_label lbl k =>
-      match e.labels.label? lbl with
+      match labels.label? lbl with
       | .some a => handleEffects (k a)
       | .none => .error s!"unresolved label: {lbl}"
+    | .resolve_got_slot lbl k =>
+      match labels.gotSlot? lbl with
+      | .some a => handleEffects (k a)
+      | .none => .error s!"unresolved GOT slot: {lbl}"
     | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
     | .require_read_access _ ok => handleEffects (ok ())
     | .require_write_access _ ok => handleEffects (ok ())

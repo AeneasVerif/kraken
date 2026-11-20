@@ -61,6 +61,7 @@ instance : ToString RegOrRip where toString b := b.toStr
 
 def ConstExpr.toStr : ConstExpr → String
   | .label l => l
+  | .gotSlot l => s!"slot({l})"
   | .int64 i => s!"{i}"
   | .before_current_instruction => "."
   | .after_current_instruction => "."
@@ -78,6 +79,8 @@ def AddrExpr.toStr (a : AddrExpr) (addr_w : Width := .W64) : String :=
   let dispStr := match a.base, a.disp with
     -- Unwrap RIP-relative displacements back to just the label for printing
     -- (like RelRegOrMem.toStr below)
+    | .some .rip, .sub (.gotSlot l) .after_current_instruction =>
+      if a.idx.isNone then l ++ "@GOTPCREL" else toString (ConstExpr.gotSlot l)
     | .some .rip, .sub e .after_current_instruction => toString e
     | _, _ => toString a.disp
   "[" ++ "+".intercalate (

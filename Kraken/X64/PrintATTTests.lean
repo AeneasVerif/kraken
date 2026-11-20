@@ -71,6 +71,9 @@ def corpus : List String := [
   "foo:\n  jmp foo", "je foo", "jne .L1", "jb foo", "jae foo", "ja foo", "jbe foo",
   "jl foo", "jle foo", "call foo", "call %rax", "jmp %rax",
   "jmp 8(%rax)", "call (%rsp)", "ret", "nop", "nop 5", ".align 16", ".align 16, 0x90",
+  "movq f@GOTPCREL(%rip), %rax",
+  "callq *f@GOTPCREL(%rip)", "jmpq *f@GOTPCREL(%rip)",
+  "callq *%rax", "jmpq *%r11", "call *8(%rsp)", "jmp *(%rax)",
   "a:\nb: ret\n\nc:",
   -- AVX
   "movups %xmm0, %xmm1", "vmovups (%rsp), %ymm2", "vmovups %zmm31, 64(%rsp)",
@@ -125,6 +128,25 @@ run_meta do
 run_meta do
   let p ← Meta.parse "movq %rax, -16(%rbp,%rcx,8)\nfoo: imul $3, 8(%eax), %ebx\njne foo\nnop"
   assert! toATT p == "movq %rax, -16(%rbp,%rcx,8)\nfoo:\nimull $3, 8(%eax), %ebx\njne foo\nnop"
+
+run_meta do
+  let p ← Meta.parse "movq f@GOTPCREL(%rip), %rax\ncallq *f@GOTPCREL(%rip)\njmpq *%r11"
+  assert! toATT p == "movq f@GOTPCREL(%rip), %rax\ncall *f@GOTPCREL(%rip)\njmp *%r11"
+  assert! p == (⸨prog|
+    movq f@GOTPCREL(%rip), %rax
+    callq *f@GOTPCREL(%rip)
+    jmpq *%r11
+  ⸩ : Program)
+
+#guard (⸨mem| f@GOTPCREL(%rip) ⸩ : AddrExpr).toStr == "[rip+f@GOTPCREL]"
+#guard (RelRegOrMem.mem ⸨mem| f@GOTPCREL(%rip) ⸩).toStr ==
+  "QWORD PTR [rip+f@GOTPCREL]"
+#guard (RelRegOrMem.reg ⸨reg| %r11 ⸩).toStr == "r11"
+
+#guard
+  let a := AddrExpr.mk (some .rip) (some ⟨.rcx, .W64⟩)
+    (.sub (.gotSlot "f") .after_current_instruction)
+  ATT.addr .W64 a == "slot(f)(%rip,%rcx,8)" && a.toStr == "[rip+rcx*8+slot(f)]"
 
 -- Every program in the hardware test corpus round-trips.
 run_meta do

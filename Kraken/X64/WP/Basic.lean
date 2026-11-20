@@ -11,7 +11,7 @@ program.
 This definition is the bridge to `Std.WP` and thus `vcgen`.
 
 The definition of `wp` works by
-1. considering the weakest precondition `step1 Host.exe` of a single instruction in the laid out
+1. considering the weakest precondition `step1 Host.exe Host.gotSlot` of a single instruction in the laid out
    executable,
 2. taking the least fixpoint of `X ↦ post ∪ step1 X` via `Eventually step1`, the set of pre states
    which inevitably reach the postcondition, and crucially,
@@ -28,7 +28,7 @@ without users needing to specify it explicitly everywhere.
 @[expose] public def Program.wp [Host] (p : Program) (Q : MachineData → Prop)
     (E : Int64 → MachineData → Prop) (s : MachineData) : Prop :=
   ∀ k, p.IsInfixAt Host.prog k →
-    Eventually (step1 Host.exe)
+    Eventually (step1 Host.exe Host.gotSlot)
       (fun st => (st.pc = Host.addrOf (k + p.length) ∧ Q st.data) ∨ E st.pc st.data)
       ⟨s, Host.addrOf k⟩
 
@@ -60,7 +60,7 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     (hdp : (d :: p).IsInfixAt Host.prog k) {post : @Post MachineState} {s : MachineData}
     (h : (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
       (fun s' => .done ⟨s', Host.addrOf (k + 1)⟩) (fun a s' => .done ⟨s', a⟩)).All post) :
-    Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ :=
+    Eventually (step1 Host.exe Host.gotSlot) post ⟨s, Host.addrOf k⟩ :=
   _root_.eventually_of_interp hdp.cons.1 h
 
 end
@@ -74,7 +74,7 @@ public theorem Program.step1_of_wp_at [Host] {p : Program}
     {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
     {post : @Post MachineState} {k : Nat} (hk : p.IsInfixAt Host.prog k) (hwp : p.wp Q E s)
     (hQ : ∀ s', Q s' → post ⟨s', Host.addrOf (k + p.length)⟩) (hE : ∀ a s', E a s' → post ⟨s', a⟩) :
-    Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ := by
+    Eventually (step1 Host.exe Host.gotSlot) post ⟨s, Host.addrOf k⟩ := by
   refine eventually_weaken _ _ _ _ ?_ (hwp k hk)
   rintro ⟨s', a⟩ (⟨ha, hq⟩ | he)
   · dsimp only at ha
@@ -92,5 +92,5 @@ public theorem Program.step1_of_wp [Host] {p : Program}
     {Q : MachineData → Prop} {E : Int64 → MachineData → Prop} {s : MachineData}
     {post : @Post MachineState} (h : p.IsInfix Host.prog) (hwp : p.wp Q E s)
     (hQ : ∀ s', Q s' → post ⟨s', endAddr h⟩) (hE : ∀ a s', E a s' → post ⟨s', a⟩) :
-    Eventually (step1 Host.exe) post ⟨s, startAddr h⟩ :=
+    Eventually (step1 Host.exe Host.gotSlot) post ⟨s, startAddr h⟩ :=
   Program.step1_of_wp_at (List.isInfixAt_infixIdx h) hwp hQ hE

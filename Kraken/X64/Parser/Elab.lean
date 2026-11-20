@@ -352,6 +352,11 @@ def evalScale (stx : TSyntax `num) : X64ElabM Width := withRef stx do
     address width. -/
 def elabMem (stx : TSyntax `x64_mem) : X64ElabM Expr := withRef stx <| computingAddrWidth do
   match stx with
+  | `(x64_mem| $id:x64_ident @GOTPCREL(%rip)) =>
+    setOperandWidth (toExpr Width.W64)
+    let slot := mkApp (mkConst ``ConstExpr.gotSlot) (← elabIdent id)
+    mkAddrExpr (mkApp2 (mkConst ``ConstExpr.sub) slot (mkConst ``ConstExpr.after_current_instruction))
+      (some (toExpr RegOrRip.rip)) none
   | `(x64_mem| $[$disp?:x64_const]?($baseStx:x64_reg_or_rip $[, $idxStx?:x64_reg $[, $scStx??:num]?]?)) =>
     let base ← elabRegOrRip baseStx
     let disp ← match disp? with
@@ -443,24 +448,24 @@ def elabAvxRegOrMem (stx : TSyntax `x64_avx_operand) : X64ElabM Expr := withRef 
   | `(x64_avx_operand| ❰ $t ❱) => elabAntiquot t (← mkAppWidth (mkConst ``AvxRegOrMem))
   | _ => throwError "expected AVX register or memory operand"
 
-/-- Elaborate a relative branch target (`RelRegOrMem`) from an `x64_operand`. -/
-def elabRelTarget (stx : TSyntax `x64_operand) : X64ElabM Expr := withRef stx do
+/-- Elaborate a relative branch target (`RelRegOrMem`) from an `x64_target`. -/
+def elabRelTarget (stx : TSyntax `x64_target) : X64ElabM Expr := withRef stx do
   match stx with
-  | `(x64_operand| $r:x64_reg) =>
+  | `(x64_target| *$r:x64_reg) | `(x64_target| $r:x64_reg) =>
     let (reg, w) ← withOperandWidth none (elabReg r)
     unless ← isDefEq w (toExpr Width.W64) do
       throwError "expected a 64-bit register in relative addressing position"
     pure (mkApp (mkConst ``RelRegOrMem.reg) reg)
-  | `(x64_operand| $id:x64_ident) =>
+  | `(x64_target| $id:x64_ident) =>
     let lbl ← elabIdent id
     pure <| mkApp (mkConst ``RelRegOrMem.rel) <|
       mkApp2 (mkConst ``ConstExpr.sub) (mkApp (mkConst ``ConstExpr.label) lbl) (mkConst ``ConstExpr.after_current_instruction)
-  | `(x64_operand| $_:x64_const) =>
+  | `(x64_target| $_:x64_const) =>
     -- Labels are handled above.
     throwError "absolute branch targets are not supported"
-  | `(x64_operand| $m:x64_mem) =>
+  | `(x64_target| *$m:x64_mem) | `(x64_target| $m:x64_mem) =>
     return mkApp (mkConst ``RelRegOrMem.mem) (← elabMem m)
-  | `(x64_operand| ❰ $t ❱) =>
+  | `(x64_target| ❰ $t ❱) =>
     elabAntiquot t (mkConst ``RelRegOrMem)
   | _ => throwError "invalid branch target operand"
 
@@ -856,12 +861,12 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
     mkClosedInstr .cld
   | `(x64_instr| std) =>
     mkClosedInstr .std
-  | `(x64_instr| call $target:x64_operand) | `(x64_instr| callq $target:x64_operand) =>
+  | `(x64_instr| call $target:x64_target) | `(x64_instr| callq $target:x64_target) =>
     mkRegularInstr (width? := some .W64) do
       let mk := mkConst ``Operation.call
       let target ← elabRelTarget target
       mkAppWidth mk #[target]
-  | `(x64_instr| jmp $target:x64_operand) | `(x64_instr| jmpq $target:x64_operand) =>
+  | `(x64_instr| jmp $target:x64_target) | `(x64_instr| jmpq $target:x64_target) =>
     mkRegularInstr (width? := some .W64) do
       let mk := mkConst ``Operation.jmp
       let target ← elabRelTarget target

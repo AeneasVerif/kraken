@@ -8,6 +8,7 @@ open Kraken (Layout WellFormedLayout)
 public class Host where
   prog : Program
   layout : WellFormedLayout prog
+  gotSlot : Label → Option Int64 := fun _ => none
 
 public instance [Host] : WellFormedLayout Host.prog := Host.layout
 
@@ -17,7 +18,7 @@ public instance [Host] : WellFormedLayout Host.prog := Host.layout
 
 public abbrev Host.size [Host] (i : Nat) : Nat := Host.layout.size i
 
-public instance [Host] : Labels := Executable.labels Host.exe
+public instance [Host] : Labels := Executable.labels Host.exe Host.gotSlot
 
 public theorem Host.sizeBefore_eq_of_addrOf_eq [Host] {j k : Nat} (h : Host.addrOf j = Host.addrOf k) :
     Host.exe.sizeBefore j = Host.exe.sizeBefore k :=

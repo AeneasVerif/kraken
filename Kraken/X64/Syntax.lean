@@ -87,6 +87,7 @@ abbrev Label := String
 
 inductive ConstExpr
   | label (_ : Label)
+  | gotSlot (_ : Label)
   | int64 (_ : Int64)
   | before_current_instruction | after_current_instruction
   | add (_ _ : ConstExpr) | sub (_ _ : ConstExpr)

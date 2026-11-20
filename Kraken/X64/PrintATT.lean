@@ -23,6 +23,7 @@ def avxReg {w} (r : AvxReg w) : String := "%" ++ toString r
 
 def const : ConstExpr → String
   | .label l => l
+  | .gotSlot l => s!"slot({l})"
   | .int64 i => toString i
   | .add a b => s!"{const a}+{const b}"
   | .sub a b => s!"{const a}-{const b}"
@@ -30,6 +31,8 @@ def const : ConstExpr → String
 
 def addr (aw : Width) (a : AddrExpr) : String :=
   let disp := match a.base, a.disp with
+    | some .rip, .sub (.gotSlot l) .after_current_instruction =>
+      if a.idx.isNone then l ++ "@GOTPCREL" else const (.gotSlot l)
     | some .rip, .sub e .after_current_instruction => const e
     | _, .int64 0 => ""
     | _, d => const d
@@ -66,8 +69,8 @@ def bitOffset {w} : BitOffset w → String
 def target (aw : Width) : RelRegOrMem → String
   | .rel (.sub e .after_current_instruction) => const e
   | .rel e => const e
-  | .reg r => reg r
-  | .mem a => addr aw a
+  | .reg r => "*" ++ reg r
+  | .mem a => "*" ++ addr aw a
 
 def operation {w} (aw : Width) (op : Operation w) : String :=
   let s := suffix w
