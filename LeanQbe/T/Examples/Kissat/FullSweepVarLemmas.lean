@@ -990,11 +990,14 @@ theorem full_sweep_sat_wp (Γ : Env)
     (fun Ju hJu => by
       fsv_steps
       · obtain ⟨F_cur, hspw⟩ := hinv.exists_witness
+        have hcl_lt : s.core.cur_level < 2 ^ 64 := by
+          have := hspw.2.1.cur_level_le; have := hinv.lengths.core_ok.trail_end_le; omega
         have hbt_lvl : 0 < c.max_vars := by
           have : s.core.cur_level ≠ 0 := by c0_bound
           have := hspw.2.1.cur_level_le; have := hinv.lengths.core_ok.trail_end_le; omega
         c0_call hbt
-        refine ⟨c, s, R, rfl, hinv.lengths, fun _ => hbt_lvl, hspw.2.1.trail_lits_lt, hm, ?_⟩
+        refine ⟨c, s, R, rfl, hinv.lengths, hcl_lt, fun _ => hbt_lvl,
+          hspw.2.1.trail_lits_lt, hm, ?_⟩
         intro vals1 lvl1 rsns1 trl1 tp1 te1 prop1 cl1 unass1 sc1 m1 _ hlen1 hte1 hprop1 hcl1
           hpres1 htrl1 hwinv1 hotfs1 hm1
         let s1 : FullState :=

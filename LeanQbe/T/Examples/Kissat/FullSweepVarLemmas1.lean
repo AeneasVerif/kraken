@@ -244,7 +244,7 @@ def fullArenaNextSpec : Spec [i64, i32] [i32] := fun (h, cref, ()) m Q _ =>
 
 def fullBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧
+    h = c.hdr ∧ s.LengthsOk c ∧ s.core.cur_level < 2 ^ 64 ∧
     (target_lvl.toNat < s.core.cur_level → target_lvl.toNat < c.max_vars) ∧
     (∀ i < s.core.trail_end, (s.core.trl[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
     (FullMem c s ⋆ R) m ∧
