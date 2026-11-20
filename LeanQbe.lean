@@ -165,6 +165,10 @@ public import LeanQbe.T.Examples.Kissat.Full1
 public import LeanQbe.T.Examples.Kissat.Full2
 public import LeanQbe.T.Examples.Kissat.Full3
 public import LeanQbe.T.Examples.Kissat.Full
+public import LeanQbe.T.Examples.Kissat.FullSpec1
+public import LeanQbe.T.Examples.Kissat.FullSpec2
+public import LeanQbe.T.Examples.Kissat.FullSpec3
+public import LeanQbe.T.Examples.Kissat.FullSpec
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas1
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas2
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas
