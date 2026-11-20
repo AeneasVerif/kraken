@@ -132,7 +132,7 @@ private theorem learn_clause_post_ac_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
       s'.scratch.work_stk2 = s.scratch.work_stk2 →
-      (r = 20#64 → F0.Unsat) →
+      (r = 20#64 → F0.Unsat ∧ FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
       (r = 0#64 → FullSparseInvW c F0 F_cur s') →
       (r = 1#64 → FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m')
@@ -586,8 +586,13 @@ theorem full_learn_clause_wp (Γ : Env)
         have hv_bt : vals_bt[(s.core.tmp[j]?.getD 0#32).toNat]?.getD 0#8 = 0xFF#8 := by
           rw [hkeep_v _ hjv.1, ite_eq_left hle_nl]; exact hjv.2
         have hl_bt : (lvl_bt[(s.core.tmp[j]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ max_lvl := by
-          rw [hkeep_l _ (by omega : (s.core.tmp[j]?.getD 0#32).toNat / 2 < s.core.cur_vars),
-            ite_eq_left hle_nl]
+          obtain ⟨i0, hi0, hi0_eq⟩ := (hsw_inv.2.1.vals_false_iff _ hjv.1).mp hjv.2
+          have hdiv : (s_sw.core.trl[i0]?.getD 0#32).toNat / 2 =
+              (s.core.tmp[j]?.getD 0#32).toNat / 2 := by
+            rw [hi0_eq, fullInv_var_xor1]
+          have hl_eq := hkeep_l i0 hi0
+          rw [hdiv] at hl_eq
+          rw [hl_eq, ite_eq_left hle_nl]
           exact hle_ml
         obtain ⟨idx, hidx, heq⟩ := (hbt_w.vals_false_iff _ hjv.1).mp hv_bt
         exact ⟨idx, hidx, heq, hl_bt⟩
@@ -765,8 +770,8 @@ theorem full_learn_clause_wp (Γ : Env)
                 c0_split
                 · c0_steps
                   exact hQ 20#64 s_r m_r hr_sp.1 (Or.inr (Or.inr rfl)) hr_cv hr_fu hr_ws2'
-                    (fun _ => hr_20 (by assumption)) (fun h => by cases h) (fun h => by cases h)
-                    hm_r
+                    (fun _ => ⟨hr_20 (by assumption), hr_sp, by omega⟩) (fun h => by cases h)
+                    (fun h => by cases h) hm_r
                 · c0_split
                   · c0_steps
                     exact hQ 0#64 s_r m_r hr_sp.1 (Or.inl rfl) hr_cv hr_fu hr_ws2'
@@ -875,7 +880,7 @@ theorem full_analyze_wp (Γ : Env)
     have hcl0 : s.core.cur_level = 0 := by bv_omega
     c0_steps
     exact hQ 20#64 s m hs.1 (Or.inr (Or.inr rfl)) rfl (Nat.le_refl _) rfl
-      (fun _ => level0_unsat_of_conflict_okW hs.2.1 hcl0 hconfl)
+      (fun _ => ⟨level0_unsat_of_conflict_okW hs.2.1 hcl0 hconfl, hs.toOtfs, Nat.le_refl _, rfl⟩)
       (fun h => by cases h) (fun h => by cases h) hm
   · have hcur_pos : 0 < s.core.cur_level := by bv_omega
     have hlim_nat : (BitVec.ofNat 64 s.core.cur_vars + 64#64).toNat = s.core.cur_vars + 64 := by
@@ -914,8 +919,11 @@ theorem full_analyze_wp (Γ : Env)
         have h1_ws2' : s1.scratch.work_stk2 = s.scratch.work_stk2 := h1_ws2.trans hws2_i
         c0_split
         · c0_steps
+          obtain ⟨hu1, ho1, hcl1, hdm1⟩ := h1_20 (by assumption)
           exact hQ 20#64 s1 m1 h1_len (Or.inr (Or.inr rfl)) h1_cv' h1_fu' h1_ws2'
-            (fun _ => h1_20 (by assumption)) (fun h => by cases h) (fun h => by cases h) hm1
+            (fun _ => ⟨hu1, ho1, Nat.le_trans hcl1 hcl_le_i,
+              hdm1.trans (hcut_inv.2.2.2.2.2.trans hs.2.2.2.2.2.symm)⟩)
+            (fun h => by cases h) (fun h => by cases h) hm1
         · c0_split
           · obtain ⟨h1_sp, h1_cl_lt⟩ := h1_1 (by assumption)
             c0_steps
@@ -938,9 +946,11 @@ theorem full_analyze_wp (Γ : Env)
               have h2_ws2' : s2.scratch.work_stk2 = s.scratch.work_stk2 := h2_ws2.trans h1_ws2'
               c0_split
               · c0_steps
+                obtain ⟨hu2, ho2, hcl2, hdm2⟩ := h2_20 (by assumption)
                 exact hQ 20#64 s2 m2 h2_len (Or.inr (Or.inr rfl)) h2_cv' h2_fu' h2_ws2'
-                  (fun _ => h2_20 (by assumption)) (fun h => by cases h)
-                  (fun h => by cases h) hm2
+                  (fun _ => ⟨hu2, ho2, Nat.le_trans hcl2 hcl1_le',
+                    hdm2.trans (hcut1_inv.2.2.2.2.2.trans hs.2.2.2.2.2.symm)⟩)
+                  (fun h => by cases h) (fun h => by cases h) hm2
               · c0_split
                 · c0_steps
                   exact hQ 0#64 s2 m2 h2_len (Or.inl rfl) h2_cv' h2_fu' h2_ws2'
@@ -1080,7 +1090,11 @@ theorem full_analyze_wp (Γ : Env)
                           have hlc_ws2' : s_lc.scratch.work_stk2 = s.scratch.work_stk2 :=
                             hlc_ws2.trans hem_ws2
                           c0_steps
-                          exact hQ rl s_lc m_lc hlc_len hlc_dom hlc_cv' hlc_fu' hlc_ws2' hlc_20
+                          exact hQ rl s_lc m_lc hlc_len hlc_dom hlc_cv' hlc_fu' hlc_ws2'
+                            (fun h20 => let ⟨hu, hsp, hcl⟩ := hlc_20 h20
+                              ⟨hu, hsp.toOtfs, by
+                                rw [hem_core_eq] at hcl; dsimp [s_ms] at hcl; omega,
+                                hsp.2.2.2.2.2.trans hs.2.2.2.2.2.symm⟩)
                             (fun h0 => (hlc_0 h0).toOtfs)
                             (fun h1 => let ⟨hs1, hcl1⟩ := hlc_1 h1
                               ⟨hs1, by rw [hem_core_eq] at hcl1; dsimp [s_ms] at hcl1; omega⟩)

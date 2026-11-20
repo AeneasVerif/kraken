@@ -995,9 +995,9 @@ theorem full_ingest_cl_wp (Γ : Env)
                       change ¬ (s.core.vals[l0.toNat]?.getD 0#8 ≠ 0#8)
                       exact fun h => h hl0_un
                     rw [ite_eq_right hguard_f]
-                    intro flags' unass' phases' m4 hfl' hph' hlen_sf hm4; p_lets
+                    intro flags' unass' phases' m4 hfl' hph' hm4; p_lets
                     have h_alvl : ((0 : BitVec 32) = 0#32) = True := eq_true rfl
-                    simp only [h_alvl, ↓reduceIte] at hlen_sf hm4
+                    simp only [h_alvl, ↓reduceIte] at hm4
                     let sf : FullState :=
                       { st3 with
                         core :=
@@ -1011,6 +1011,18 @@ theorem full_ingest_cl_wp (Γ : Env)
                             trail_end := st3.core.trail_end + 1
                             unassigned := unass', unflushed := st3.core.unflushed + 1#64 }
                         scratch := { st3.scratch with phases := phases' } }
+                    have hlen_sf : sf.LengthsOk c :=
+                      ⟨{ hlen3.core_ok with
+                          vals_len := by simp [sf, hlen3.core_ok.vals_len]
+                          flags_len := hfl'
+                          lvl_len := by simp [sf, hlen3.core_ok.lvl_len]
+                          rsns_len := by simp [sf, hlen3.core_ok.rsns_len]
+                          trl_len := by simp [sf, hlen3.core_ok.trl_len]
+                          trail_pos_len := by simp [sf, hlen3.core_ok.trail_pos_len]
+                          trail_end_le := by dsimp only [sf]; omega
+                          propagated_le := by
+                            have := hlen3.core_ok.propagated_le; dsimp only [sf]; omega },
+                        { hlen3.scratch_ok with phases_len := hph' }⟩
                     have hw_sf : FullWitnessInv c F1 F_next sf.core :=
                       addUnit_preserves_witness hlen3.core_ok hw3_n hcl0 hfl'
                         (unassigned' := unass') (unflushed' := st3.core.unflushed + 1#64)

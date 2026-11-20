@@ -171,6 +171,11 @@ theorem full_wsort_sift_bridge_wp (Γ : Env) :
       intro i hi0 hin
       simpa [FullHeurWalkSpecs.fullWsortKey] using hres i hi0 (by omega)
 
+private theorem fullScratch_upd_hp_ps_eq {sc sc0 : FullScratch} {hp0 ps0 hp1 ps1 : List (BitVec 32)}
+    (h : sc = { sc0 with heap := hp0, pos := ps0 }) :
+    { sc with heap := hp1, pos := ps1 } = { sc0 with heap := hp1, pos := ps1 } := by
+  subst h; rfl
+
 theorem full_heap_up_bridge_wp (Γ : Env) :
     ∀ a m Q X, fullHeapUpSpec a m Q X → Func.wp Γ full_heap_up_body a m Q X := by
   rintro ⟨h, v, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
@@ -181,21 +186,23 @@ theorem full_heap_up_bridge_wp (Γ : Env) :
   obtain hcv_le := hok.cur_vars_le
   obtain hhl := hsok.heap_len_arr; obtain hpl := hsok.pos_len; obtain hsl := hsok.score_len
   c0_steps
-  · exact hQ () s m rfl hlen (probePres_refl s) hm
-  · exact hQ () s m rfl hlen (probePres_refl s) hm
-  · exact hQ () s m rfl hlen (probePres_refl s) hm
-  · exact hQ () s m rfl hlen (probePres_refl s) hm
+  · exact hQ () s m rfl hlen ⟨probePres_refl s, s.scratch.heap, s.scratch.pos, rfl⟩ hm
+  · exact hQ () s m rfl hlen ⟨probePres_refl s, s.scratch.heap, s.scratch.pos, rfl⟩ hm
+  · exact hQ () s m rfl hlen ⟨probePres_refl s, s.scratch.heap, s.scratch.pos, rfl⟩ hm
+  · exact hQ () s m rfl hlen ⟨probePres_refl s, s.scratch.heap, s.scratch.pos, rfl⟩ hm
   · obtain hv : v.toNat < s.core.cur_vars := by c0_bound
     obtain hp_lt : (s.scratch.pos[v.toNat]'(by omega)).toNat < s.core.cur_vars := by c0_bound
     refine wp_loop_safety_slice_pure (fullSafetySlice c) s R
       (fun s1 (p, ()) => p.toNat < s.core.cur_vars ∧
-        s1.scratch.heap_len = s.scratch.heap_len ∧ FullProbeScratchPres s s1)
+        s1.scratch.heap_len = s.scratch.heap_len ∧ FullProbeScratchPres s s1 ∧
+        ∃ hp' ps', s1.scratch = { s.scratch with heap := hp', pos := ps' })
       (fun (p, ()) => p.toNat)
       (fun J hLoop => ?_)
-      (fun J s1 (p, ()) m1 hcore1 hlen1 ⟨hp1, hhl_eq, hpres1⟩ hm1 hLoop1 => ?_)
+      (fun J s1 (p, ()) m1 hcore1 hlen1 ⟨hp1, hhl_eq, hpres1, hp1_l, ps1_l, hsc1⟩ hm1 hLoop1 => ?_)
     · c0_steps
       exact hLoop s (BitVec.setWidth 32 (s.scratch.pos[v.toNat]'(by omega)), ()) m hm rfl hlen
-        ⟨by simpa [BitVec.toNat_setWidth] using hp_lt, rfl, probePres_refl s⟩
+        ⟨by simpa [BitVec.toNat_setWidth] using hp_lt, rfl, probePres_refl s,
+          s.scratch.heap, s.scratch.pos, rfl⟩
     · rw [Blocks.get_here]; dsimp only [fullSafetySlice] at *
       have hceq1 : s1.core = s.core := hcore1
       obtain hsok1 := hlen1.scratch_ok
@@ -216,7 +223,7 @@ theorem full_heap_up_bridge_wp (Γ : Env) :
           refine hQ () _ m ?_ ?_ ?_ hm
           · exact hcore1.update _
           · exact hlen_upd_hp_ps hlen1 _ _ _ (by simp [hhl1]) (by simp [hpl1])
-          · exact hpres1
+          · exact ⟨hpres1, _, _, by dsimp only; rw [hsc1]⟩
         · obtain hpv_lt :
               (s1.scratch.heap[(BitVec.setWidth 64 ((p - 1) >>> (1 : Nat))).toNat]'hpp_arr).toNat <
               s1.scratch.pos.length := by
@@ -229,15 +236,15 @@ theorem full_heap_up_bridge_wp (Γ : Env) :
           · refine hQ () _ m ?_ ?_ ?_ hm
             · exact hcore1.update _
             · exact hlen_upd_hp_ps hlen1 _ _ _ (by simp [hhl1]) (by simp [hpl1])
-            · exact hpres1
+            · exact ⟨hpres1, _, _, by dsimp only; rw [hsc1]⟩
           · refine hLoop1 _ ((p - 1) >>> (1 : Nat), ()) m hm (by dsimp only; omega) rfl ?_
-              ⟨hpp_cv, hhl_eq, hpres1⟩
+              ⟨hpp_cv, hhl_eq, hpres1, _, _, fullScratch_upd_hp_ps_eq hsc1⟩
             exact hlen_upd_hp_ps hlen1 _ _ _ (by simp [hhl1]) (by simp [hpl1])
       · c0_steps
         refine hQ () _ m ?_ ?_ ?_ hm
         · exact hcore1.update _
         · exact hlen_upd_hp_ps hlen1 _ _ _ (by simp [hhl1]) (by simp [hpl1])
-        · exact hpres1
+        · exact ⟨hpres1, _, _, by dsimp only; rw [hsc1]⟩
 
 theorem full_heap_down_bridge_wp (Γ : Env) :
     ∀ a m Q X, fullHeapDownSpec a m Q X → Func.wp Γ full_heap_down_body a m Q X := by
@@ -359,16 +366,20 @@ theorem full_heap_push_bridge_wp (Γ : Env)
   obtain hcv_le := hok.cur_vars_le
   obtain hhl := hsok.heap_len_arr; obtain hpl := hsok.pos_len
   c0_steps
-  · exact hQ () s m rfl hlen (probePres_refl s) hm
-  · exact hQ () s m rfl hlen (probePres_refl s) hm
-  · exact hQ () s m rfl hlen (probePres_refl s) hm
+  · exact hQ () s m rfl hlen
+      ⟨probePres_refl s, s.scratch.heap, s.scratch.pos, s.scratch.heap_len, rfl⟩ hm
+  · exact hQ () s m rfl hlen
+      ⟨probePres_refl s, s.scratch.heap, s.scratch.pos, s.scratch.heap_len, rfl⟩ hm
+  · exact hQ () s m rfl hlen
+      ⟨probePres_refl s, s.scratch.heap, s.scratch.pos, s.scratch.heap_len, rfl⟩ hm
   · refine wp_safety_slice_call hUp (fun _ => True) trivial rfl ?_ hm
       fun _ s' m' hcore' hlen' _ hpres' hm' => ?_
     · exact hlen_upd_hp_ps hlen _ _ _ (by simp [hhl]) (by simp [hpl])
     · dsimp only [fullSafetySlice] at hm' hlen'
+      obtain ⟨hpr', hp', ps', hsc'⟩ := hpres'
       c0_steps
       exact hQ () s' m' ((PreservesCoreSlice.of_update _ s _ (fun _ => rfl)).trans hcore')
-        hlen' hpres' hm'
+        hlen' ⟨hpr', hp', ps', _, by rw [hsc']⟩ hm'
 
 theorem full_heap_pop_bridge_wp (Γ : Env)
     (hDown : ∀ a m Q X, fullHeapDownSpec a m Q X → Γ "full_heap_down" [i64, i32] [] a m Q X) :
@@ -473,8 +484,8 @@ theorem full_bump_var_bridge_wp (Γ : Env)
            fun _ s2 m2 hcore2 hlen2 _ hpres2 hm2 => ?_
          dsimp only [fullSafetySlice] at hm2 hlen2
          c0_steps
-         exact hQ () s2 m2 (hcore1.trans hcore2) hlen2 (probePres_trans hpres1 hpres2) hm2)
-      | exact hQ () s1 m1 hcore1 hlen1 hpres1 hm1
+         exact hQ () s2 m2 (hcore1.trans hcore2) hlen2 (probePres_trans hpres1.1 hpres2) hm2)
+      | exact hQ () s1 m1 hcore1 hlen1 hpres1.1 hm1
 
 theorem full_bump_decay_bridge_wp (Γ : Env)
     (hRes : ∀ a m Q X, fullRescaleSpec a m Q X → Γ "full_rescale" [i64] [] a m Q X) :

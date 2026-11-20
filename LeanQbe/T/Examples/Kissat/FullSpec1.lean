@@ -1095,7 +1095,7 @@ def FullConflictOkW (F_cur : List (List Nat)) (s : FullState) : Prop :=
     s.core.vals[s.core.confl_lit1.toNat]?.getD 0#8 = 0xFF#8 ∧
     (cnfOfClauses F_cur).EntailsClause
       (cnfClause [s.core.confl_lit0.toNat, s.core.confl_lit1.toNat])) ∨
-  (s.core.confl_type ≠ 1#64 ∧
+  (s.core.confl_type = 2#64 ∧
     s.core.confl_ref.toNat ∈ fullArenaClauseRefs s ∧
     fullArenaClauseGarb s s.core.confl_ref.toNat = false ∧
     ∀ l ∈ fullArenaClauseLits s s.core.confl_ref.toNat, s.core.vals[l]?.getD 0#8 = 0xFF#8)
@@ -1123,7 +1123,7 @@ theorem level0_unsat_of_conflict_okW {c : FullCfg} {F0 : CNF Nat} {F_cur : List 
 
 /-- Valid conflict witness stored in `(confl_type, confl_ref, confl_lit0, confl_lit1)`:
 either a falsified entailed binary clause (`confl_type = 1#64`) or a falsified live arena clause
-(`confl_type ≠ 1#64`, `confl_ref ∈ fullArenaClauseRefs s`, `garb = false`). -/
+(`confl_type = 2#64`, `confl_ref ∈ fullArenaClauseRefs s`, `garb = false`). -/
 def FullConflictOk (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
   (s.core.confl_type = 1#64 ∧
     s.core.confl_lit0.toNat < 2 * s.core.cur_vars ∧
@@ -1133,7 +1133,7 @@ def FullConflictOk (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
         (cnfClause [s.core.confl_lit0.toNat, s.core.confl_lit1.toNat])) ∧
     s.core.vals[s.core.confl_lit0.toNat]?.getD 0#8 = 0xFF#8 ∧
     s.core.vals[s.core.confl_lit1.toNat]?.getD 0#8 = 0xFF#8) ∨
-  (s.core.confl_type ≠ 1#64 ∧
+  (s.core.confl_type = 2#64 ∧
     s.core.confl_ref.toNat ∈ fullArenaClauseRefs s ∧
     fullArenaClauseGarb s s.core.confl_ref.toNat = false ∧
     ∀ l ∈ fullArenaClauseLits s s.core.confl_ref.toNat, s.core.vals[l]?.getD 0#8 = 0xFF#8)
@@ -1370,7 +1370,7 @@ theorem FullConflictOkW.toCut {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List N
   · rename_i h1
     rcases hc with ⟨_, h0lt, h1lt, hf0, hf1, _⟩ | ⟨hne, _⟩
     · exact ⟨fun _ => (hw.vals_false_iff _ h0lt).mp hf0, fun _ => (hw.vals_false_iff _ h1lt).mp hf1⟩
-    · exact absurd h1 hne
+    · exact absurd (h1.symm.trans hne) (by decide)
   · rename_i hne
     rcases hc with ⟨h1, _⟩ | ⟨_, href, hng, hfals⟩
     · exact absurd h1 hne
