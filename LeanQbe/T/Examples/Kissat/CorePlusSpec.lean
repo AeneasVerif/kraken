@@ -203,6 +203,7 @@ def corePlusIngestClauseSpec : Spec [i64, i64] [i64] := fun (h, cend, ()) m Q _ 
     match parseClause c.mv (cnfBytes.drop i0) with
     | none =>
       ∀ s' m', s'.LengthsOk c → s'.fuel = s.fuel →
+        s'.heur.rel_trigger = s.heur.rel_trigger →
         (bytes cnf_ptr cnfBytes ⋆ CorePlusMem c s' ⋆ R) m' → Q (0#64, ()) m'
     | some (cl, rest) =>
       ∀ r s' j m',
