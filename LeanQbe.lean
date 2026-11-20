@@ -187,6 +187,9 @@ public import LeanQbe.T.Examples.Kissat.FullDenseWatchLemmas
 public import LeanQbe.T.Examples.Kissat.FullBinLuckyLemmas1
 public import LeanQbe.T.Examples.Kissat.FullBinLuckyLemmas2
 public import LeanQbe.T.Examples.Kissat.FullBinLuckyLemmas
+public import LeanQbe.T.Examples.Kissat.FullAssignAddLemmas1
+public import LeanQbe.T.Examples.Kissat.FullAssignAddLemmas2
+public import LeanQbe.T.Examples.Kissat.FullAssignAddLemmas
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
