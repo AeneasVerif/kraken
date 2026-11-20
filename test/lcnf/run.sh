@@ -100,9 +100,20 @@ timeout 60 "$OUT/ref_lean" > "$OUT/ref.out"
 timeout 60 "$OUT/ref_lean" quick > "$OUT/ref_quick.out"
 
 CFLAGS_RT="-O2 -Wall -Wextra -Werror -I$T"
+run_err() { # <stderr-file> <cmd...>
+  local err="$1"; shift
+  "$@" 2>"$err" || {
+    local rc=$?
+    tail -n 60 "$err" >&2 || true
+    exit "$rc"
+  }
+}
 check_run() { # <name> <stdout> <stderr> <expected>
-  diff -u "$4" "$2"
-  grep -q '^LEAKCHECK ok' "$3"
+  diff -u "$4" "$2" || { tail -n 60 "$3" >&2 || true; return 1; }
+  if ! grep -q '^LEAKCHECK ok' "$3"; then
+    tail -n 60 "$3" >&2 || true
+    return 1
+  fi
   echo "$1: $(wc -l < "$2") lines bit-identical to the oracle;" \
     "$(grep '^FBIP' "$3" || echo 'FBIP n/a'); $(grep '^STAT total' "$3")"
 }
@@ -110,28 +121,31 @@ check_run() { # <name> <stdout> <stderr> <expected>
 echo "== 4b. x86-64 (LeanQbe.T x64Target + gcc -O2) =="
 timeout 120 gcc $CFLAGS_RT -no-pie "$T/lcnf_main.c" "$T/lcnf_rt.c" "$OUT/lcnf_x64.s" \
   -o "$OUT/lcnf_x64"
-timeout 60 "$OUT/lcnf_x64" > "$OUT/x64.out" 2> "$OUT/x64.err"
+run_err "$OUT/x64.err" timeout 60 "$OUT/lcnf_x64" > "$OUT/x64.out"
 check_run x64 "$OUT/x64.out" "$OUT/x64.err" "$OUT/ref.out"
 
 echo "== 4c. Arm64 (LeanQbe.T armTarget + aarch64-linux-gnu-gcc -O2 + qemu-aarch64) =="
 timeout 120 aarch64-linux-gnu-gcc $CFLAGS_RT "$T/lcnf_main.c" "$T/lcnf_rt.c" \
   "$OUT/lcnf_arm64.s" -o "$OUT/lcnf_arm64" 2>&1 | { grep -v -e 'SFrame' || true; }
-timeout 120 qemu-aarch64 -L /usr/aarch64-linux-gnu "$OUT/lcnf_arm64" > "$OUT/arm64.out" \
-  2> "$OUT/arm64.err"
+run_err "$OUT/arm64.err" timeout 120 qemu-aarch64 -L /usr/aarch64-linux-gnu \
+  "$OUT/lcnf_arm64" > "$OUT/arm64.out"
 check_run arm64 "$OUT/arm64.out" "$OUT/arm64.err" "$OUT/ref.out"
 
 echo "== 4d. PrintCpp + clang++ -std=c++20 -O2 -fsanitize=address,undefined (reduced sizes) =="
 timeout 300 clang++ -std=c++20 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined \
   -fno-sanitize-recover=all -DLCNF_TQBE -I"$ROOT/LeanQbe/T/Runtime" -I"$OUT" -I"$T" \
   -x c++ "$T/lcnf_main.c" -o "$OUT/lcnf_cpp"
-timeout 120 "$OUT/lcnf_cpp" quick > "$OUT/cpp.out" 2> "$OUT/cpp.err"
+run_err "$OUT/cpp.err" timeout 120 "$OUT/lcnf_cpp" quick > "$OUT/cpp.out"
 check_run printcpp-asan "$OUT/cpp.out" "$OUT/cpp.err" "$OUT/ref_quick.out"
 if grep -E 'ERROR: AddressSanitizer|runtime error' "$OUT/cpp.err"; then exit 1; fi
 
 echo "== 5. benchmark: LeanQbe.T x86-64 vs leanc -O2 (wall clock ms) =="
 timeout 120 "$OUT/ref_lean" bench > "$OUT/bench_ref.out"
-timeout 120 "$OUT/lcnf_x64" bench > "$OUT/bench_x64.out" 2> "$OUT/bench_x64.err"
-grep -q '^LEAKCHECK ok' "$OUT/bench_x64.err"
+run_err "$OUT/bench_x64.err" timeout 120 "$OUT/lcnf_x64" bench > "$OUT/bench_x64.out"
+if ! grep -q '^LEAKCHECK ok' "$OUT/bench_x64.err"; then
+  tail -n 60 "$OUT/bench_x64.err" >&2 || true
+  exit 1
+fi
 printf '%-12s %12s %14s %8s  %s\n' workload "leanc -O2" "LeanQbe.T x64" ratio \
   "allocs/reused (LeanQbe.T runtime)"
 join <(sort "$OUT/bench_ref.out" | awk '{print $2, $3, $4}') \
