@@ -387,6 +387,10 @@ declare_syntax_cat x64_bswap_op (behavior := both)
 /-- Byte-order swap (endianness reversal). -/
 syntax_affixed (suffixes := lq) "bswap" : x64_bswap_op
 
+declare_syntax_cat x64_bit_test_op (behavior := both)
+syntax_affixed (suffixes := wlq) "bt" : x64_bit_test_op
+syntax_affixed (suffixes := wlq) "bts" : x64_bit_test_op
+
 /-- Stack push (`push*`) mnemonics (1 operand). -/
 declare_syntax_cat x64_push_op (behavior := both)
 /-- Push operand onto stack. -/
@@ -449,6 +453,7 @@ syntax withPosition(x64_shift_op ppSpace lineEq x64_operand) : x64_instr
 syntax withPosition(x64_shift_op ppSpace lineEq x64_shift_count ", " lineEq x64_operand) : x64_instr
 syntax withPosition(x64_shd_op ppSpace lineEq x64_shift_count ", " lineEq x64_reg ", " lineEq x64_operand) : x64_instr
 syntax withPosition(x64_bswap_op ppSpace lineEq x64_reg) : x64_instr
+syntax withPosition(x64_bit_test_op ppSpace lineEq x64_operand ", " lineEq x64_reg) : x64_instr
 syntax withPosition(x64_push_op ppSpace lineEq x64_operand) : x64_instr
 syntax withPosition(x64_pop_op ppSpace lineEq x64_operand) : x64_instr
 syntax x64_string_op : x64_instr

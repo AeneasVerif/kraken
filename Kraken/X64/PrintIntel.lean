@@ -110,6 +110,11 @@ def Operand.toStr {w} (op : Operand w) (addr_w : Width := .W64) : String := matc
   | .imm v => s!"OFFSET {v}"
 instance {w} : ToString (Operand w) where toString op := op.toStr
 
+instance {w} : ToString (BitOffset w) where
+  toString
+    | .reg r => toString r
+    | .imm v => (Operand.imm (w := w) v).toStr
+
 def AvxOperand.toStr {w} (op : AvxOperand w) (addr_w : Width := .W64) : String := match op with
   | .regOrMem rm => rm.toStr addr_w
 instance {w} : ToString (AvxOperand w) where toString op := op.toStr
@@ -181,6 +186,8 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .rcl dst cnt => s!"rcl {dst.toStr addr_w}, {cnt}"
   | .rcr dst cnt => s!"rcr {dst.toStr addr_w}, {cnt}"
   | .bswap dst => s!"bswap {dst}"
+  | .bt base offset => s!"bt {base}, {offset}"
+  | .bts base offset => s!"bts {base}, {offset}"
   | .cld => "cld"
   | .std => "std"
   | .jcc cc l => s!"j{cc} {l}"

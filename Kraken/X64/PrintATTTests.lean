@@ -59,6 +59,11 @@ def corpus : List String := [
   "shrw $2, %ax", "sarl %cl, %eax", "shldq $4, %rax, %rbx", "shrd %cl, %ax, (%rsp)",
   "rolq $1, %rax", "rorb %cl, %al", "rclq $1, %rax", "rcrl %cl, (%rsp)",
   "bswap %eax", "bswapq %rax",
+  "bt %rcx, %rax", "btq $63, %r15", "btl %ecx, %eax", "bt $31, %r9d",
+  "btw %cx, %ax", "bt $15, %r15w",
+  "bts %rax, %rax", "btsq $255, %r15", "btsl %r9d, %eax", "bts $32, %r9d",
+  "btsw %cx, %ax", "bts $15, %r15w",
+  "btq $sym, %rax", "btsl $sym+8, %eax", "btw $end-start, %ax",
   -- flag control
   "cld", "std",
   -- control flow
@@ -126,3 +131,16 @@ run_meta do
     if f.path.extension == some "S" then
       unless ← roundtrips (stripDirectives (← IO.FS.readFile f.path)) do
         throwError s!"{f.path} does not round-trip"
+
+run_meta do
+  let p ← Meta.parse "btq %rcx, %rax\nbtsl $31, %eax\nbtw $sym, %ax"
+  assert! toATT p == "bt %rcx, %rax\nbts $31, %eax\nbt $sym, %ax"
+
+#guard (Operation.bt (.low .rax .W64) (.reg (.low .rcx .W64))).toStr ==
+  "bt rax, rcx"
+#guard (Operation.bts (.low .rax .W32) (.imm (.int64 31))).toStr ==
+  "bts eax, 31"
+#guard (Operation.bt (.low .rax .W16) (.imm (.label "sym"))).toStr ==
+  "bt ax, OFFSET sym"
+#guard (Operation.bts (.low .r15 .W64) (.imm (.int64 255))).toStr ==
+  "bts r15, 255"

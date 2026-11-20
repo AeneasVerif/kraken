@@ -432,6 +432,22 @@ def delabOperand (aw : Width) : X64DelabM (TSyntax `x64_operand) :=
       let t ← delab
       annotateStx (← `(x64_operand| ❰ $t ❱)))
 
+def delabBitOffset : X64DelabM (TSyntax `x64_operand) :=
+  tryX64Delab
+    (do
+      match_expr ← getExpr with
+      | BitOffset.reg _ _ =>
+        let r ← withAppArg delabReg
+        annotateStx (← `(x64_operand| $r:x64_reg))
+      | BitOffset.imm _ _ =>
+        let c ← withAppArg delabConstExpr
+        let imm := mkImm c
+        annotateStx (← `(x64_operand| $imm:x64_imm))
+      | _ => failure)
+    (do
+      let t ← delab
+      annotateStx (← `(x64_operand| ❰ $t ❱)))
+
 /-- Delaborate an `AvxRegOrMem w` into an `x64_avx_operand`, falling back to `❰t❱` for open terms. -/
 def delabAvxRegOrMem (aw : Width) : X64DelabM (TSyntax `x64_avx_operand) :=
   tryX64Delab
@@ -718,6 +734,18 @@ private def delabOperation (aw : Width) (w? : Option Width) : X64DelabM (TSyntax
     let op := mkSuffixed `x64_bswap_op "bswap" ""
     let dst ← withNaryArg 1 delabReg
     `(x64_instr| $op:x64_bswap_op $dst:x64_reg)
+  | Operation.bt _ _ _ =>
+    if w? == some .W8 then failure
+    let op := mkSuffixed `x64_bit_test_op "bt" ""
+    let base ← withNaryArg 1 delabReg
+    let offset ← withNaryArg 2 delabBitOffset
+    `(x64_instr| $op:x64_bit_test_op $offset:x64_operand, $base:x64_reg)
+  | Operation.bts _ _ _ =>
+    if w? == some .W8 then failure
+    let op := mkSuffixed `x64_bit_test_op "bts" ""
+    let base ← withNaryArg 1 delabReg
+    let offset ← withNaryArg 2 delabBitOffset
+    `(x64_instr| $op:x64_bit_test_op $offset:x64_operand, $base:x64_reg)
   -- Stack push / pop
   | Operation.push _ _ =>
     let op := mkSuffixed `x64_push_op "push" sfx

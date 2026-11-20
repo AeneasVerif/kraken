@@ -1003,4 +1003,62 @@ info: ⸨prog|
 
 end sse_and_vex
 
+section bit_tests
+
+/--
+info: ⸨prog|
+  bt %rcx, %rax
+  bt $31, %eax
+  bt %cx, %ax
+  bts $255, %r15
+  bts %r9d, %eax
+  bts $15, %ax
+  bt $sym+8, %rax
+  bts $end-start, %eax⸩ : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog|
+  btq %rcx, %rax
+  btl $31, %eax
+  btw %cx, %ax
+  btsq $255, %r15
+  btsl %r9d, %eax
+  btsw $15, %ax
+  btq $sym+8, %rax
+  btsl $end-start, %eax
+⸩
+
+example (offset : BitOffset .W64) (base : Reg .W64) :
+    (⸨instr| bt ❰offset❱, %❰base❱ ⸩ : Instr) = .regular .W64 .W64 (.bt base offset) := by
+  rfl
+
+run_meta do
+  assert! ← [⸨prog|
+    btq %rcx, %rax
+    btl $31, %eax
+    btw %cx, %ax
+    btsq $255, %r15
+    btsl %r9d, %eax
+    btsw $15, %ax
+    btq $sym+8, %rax
+    btsl $end-start, %eax
+  ⸩].allM agreesWithCombinatorParser
+
+private def rejectsBitTest (source : String) : MetaM Bool := do
+  try
+    let _ ← Kraken.X64.Parser.Meta.parse source
+    return false
+  catch _ =>
+    return true
+
+run_meta do
+  assert! ← [
+    "btq %rcx, (%rax)", "btsq $63, (%rax)", "btl %ecx, sym", "btsl $0, sym",
+    "btq (%rcx), %rax", "btsq sym, %rax",
+    "btb $0, %al", "btsb %cl, %al", "bt $0, %al", "bts %ah, %al",
+    "btq %ecx, %rax", "btsl %rcx, %eax", "btq $0, %eax", "btw %ecx, %ax"
+  ].allM rejectsBitTest
+
+end bit_tests
+
 end Tests

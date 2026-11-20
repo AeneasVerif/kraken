@@ -59,6 +59,10 @@ def count : ShiftCountExpr → String
   | .cl => "%cl"
   | .imm8 e => "$" ++ const e
 
+def bitOffset {w} : BitOffset w → String
+  | .reg r => reg r
+  | .imm e => "$" ++ const e
+
 def target (aw : Width) : RelRegOrMem → String
   | .rel (.sub e .after_current_instruction) => const e
   | .rel e => const e
@@ -113,6 +117,8 @@ def operation {w} (aw : Width) (op : Operation w) : String :=
   | .rcl d c => two "rcl" (count c) (rm aw d)
   | .rcr d c => two "rcr" (count c) (rm aw d)
   | .bswap d => s!"bswap {reg d}"
+  | .bt base offset => s!"bt {bitOffset offset}, {reg base}"
+  | .bts base offset => s!"bts {bitOffset offset}, {reg base}"
   | .cld => "cld"
   | .std => "std"
   | .jcc cc l => s!"j{cc} {l}"

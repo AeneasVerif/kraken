@@ -79,3 +79,32 @@ private def busy : MachineData :=
     Operation.interp (w := .W64) (.jcc .z "missing_target") ⟨0, 2⟩ { s with status := { s.status with zf := true } } (fun st => .done ⟨st, 2⟩) (fun a st => .done ⟨st, a⟩)) with
   | .resolve_label l _ => l == "missing_target"
   | _ => false
+
+private def bitFlags : List StatusFlags :=
+  (List.range 64).map fun n => NondetSupportingType.from_hash (UInt64.ofNat n)
+
+#guard ([Operation.bt (.low .rax .W64) (.imm (.int64 0)),
+    .bts (.low .rax .W64) (.imm (.int64 0))].all fun op =>
+  let : AddressSize := ⟨.W64⟩
+  match op.interp ⟨0, 1⟩ busy (fun st => .done ⟨st, 1⟩)
+      (fun _ _ => .unimplemented "jump") with
+  | @Effects.undefined _ .statusFlags k =>
+    bitFlags.all fun flags =>
+      match k flags with
+      | .done st => st.data.status == { flags with cf := true, zf := busy.status.zf }
+      | _ => false
+  | _ => false)
+
+#guard ([Operation.bt (.low .rax .W8) (.imm (.int64 0)),
+    .bts .ah (.reg .ah)].all fun op =>
+  let : AddressSize := ⟨.W64⟩
+  match op.interp ⟨0, 1⟩ busy (fun st => .done ⟨st, 1⟩)
+      (fun _ _ => .unimplemented "jump") with
+  | .unimplemented _ => true
+  | _ => false)
+
+#guard match (letI : AddressSize := ⟨.W64⟩
+    Operation.interp (.bt (.low .rax .W64) (.imm (.add (.label "offset") (.int64 1))))
+      ⟨0, 1⟩ busy (fun st => .done ⟨st, 1⟩) (fun _ _ => .unimplemented "jump")) with
+  | .resolve_label label _ => label == "offset"
+  | _ => false

@@ -183,6 +183,9 @@ abbrev CondCode.ae := CondCode.nc
 inductive ShiftCountExpr | cl | imm8 (v : ConstExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
+inductive BitOffset (w : Width) | reg (r : Reg w) | imm (v : ConstExpr)
+  deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
+
 inductive RelRegOrMem | rel (_ : ConstExpr) | reg (r : Reg .W64) | mem (_ : AddrExpr)
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
@@ -232,6 +235,8 @@ inductive Operation (w : Width)
   | rcl  (_ : Dst w) (_ : ShiftCountExpr)
   | rcr  (_ : Dst w) (_ : ShiftCountExpr)
   | bswap  (dst : Reg w) -- (_ : w = .W32 ∨ w = .W64)
+  | bt (base : Reg w) (offset : BitOffset w)
+  | bts (base : Reg w) (offset : BitOffset w)
   -- Flag control
   | cld
   | std

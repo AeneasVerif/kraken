@@ -129,6 +129,7 @@ instance : Gen AddrExpr := ⟨oneOf #[gen_ctors% AddrExpr,
   return { base := some (.reg .rsp), idx := none, disp := .int64 (.ofInt (-1 - (← nextNat stackSize))) }]⟩
 
 instance : Gen ShiftCountExpr := ⟨gen_ctors% ShiftCountExpr⟩
+instance {w} : Gen (BitOffset w) := ⟨gen_ctors% BitOffset⟩
 instance : Gen RelRegOrMem := ⟨gen_ctors% RelRegOrMem⟩
 instance {w} : Gen (RegOrMem w) := ⟨gen_ctors% RegOrMem⟩
 instance {w} : Gen (Operand w) := ⟨gen_ctors% Operand⟩

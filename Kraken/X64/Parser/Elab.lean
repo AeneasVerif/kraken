@@ -424,6 +424,17 @@ def elabOperand (stx : TSyntax `x64_operand) : X64ElabM Expr := withRef stx do
     imm (mkApp2 (mkConst ``ConstExpr.sub) s (← elabConstExprIdent b))
   | _ => throwError "invalid operand"
 
+def elabBitOffset (stx : TSyntax `x64_operand) : X64ElabM Expr := withRef stx do
+  if let `(x64_operand| ❰ $t ❱) := stx then
+    return ← elabAntiquot t (← mkAppWidth (mkConst ``BitOffset))
+  match_expr ← elabOperand stx with
+  | Operand.regOrMem _ rm =>
+    match_expr rm with
+    | RegOrMem.reg _ r => mkAppWidth (mkConst ``BitOffset.reg) #[r]
+    | _ => throwError "bit offset must be a register or immediate"
+  | Operand.imm _ v => mkAppWidth (mkConst ``BitOffset.imm) #[v]
+  | _ => throwError "bit offset must be a register or immediate"
+
 /-- Elaborate an `x64_avx_operand` into an `Expr` of type `AvxRegOrMem w`. -/
 def elabAvxRegOrMem (stx : TSyntax `x64_avx_operand) : X64ElabM Expr := withRef stx do
   match stx with
@@ -811,6 +822,18 @@ def elabInstr (stx : TSyntax `x64_instr) : TermElabM Expr := withRef stx do
       let mk := mkConst ``Operation.bswap
       let dst ← elabReg dst
       mkAppWidth mk #[dst]
+  | `(x64_instr| $op:x64_bit_test_op $offset:x64_operand, $base:x64_reg) =>
+    let (stem, width?) ← splitWidthSuffixed op
+    mkRegularInstr (width? := width?) do
+      let mk ← match stem with
+        | "bt" => pure (mkConst ``Operation.bt)
+        | "bts" => pure (mkConst ``Operation.bts)
+        | _ => throwErrorAt op "invalid bit test mnemonic"
+      let base ← elabReg base
+      let offset ← elabBitOffset offset
+      if evalWidth? (← instantiateMVars (← getOperandWidth)) == some .W8 then
+        throwErrorAt op "bit test requires 16-, 32-, or 64-bit operands"
+      mkAppWidth mk #[base, offset]
   | `(x64_instr| $op:x64_push_op $src:x64_operand) =>
     let width? ← evalSuffixWidth? op
     mkRegularInstr (width? := width?) (ifUndetermined := some .W64) do
