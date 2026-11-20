@@ -178,6 +178,9 @@ public import LeanQbe.T.Examples.Kissat.FullMinLemmas2
 public import LeanQbe.T.Examples.Kissat.FullMinLemmas3
 public import LeanQbe.T.Examples.Kissat.FullMinLemmas4
 public import LeanQbe.T.Examples.Kissat.FullMinLemmas
+public import LeanQbe.T.Examples.Kissat.FullDimacsBodyLemmas1
+public import LeanQbe.T.Examples.Kissat.FullDimacsBodyLemmas2
+public import LeanQbe.T.Examples.Kissat.FullDimacsBodyLemmas
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
