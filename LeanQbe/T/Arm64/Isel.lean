@@ -787,5 +787,6 @@ def armSupportsScalarOp {sig rs : List Ty} (code : OpCode sig rs)
   load := armLoad
   store := armStore
   supportsScalarOp := armSupportsScalarOp
+  cmpFlags := [.eq, .ne, .lt, .ge, .le, .gt, .ls, .hi]
 
 end LeanQbe.T.Arm64

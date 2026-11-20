@@ -236,6 +236,8 @@ structure GprIsa (Reg VReg Cond Directive : Type) where
   store : (t : Ty) → PArg Reg VReg Cond t → AddrArg Reg → Option (List Directive × FlagMask)
   supportsScalarOp : {sig rs : List Ty} → (c : OpCode sig rs) →
     Tup (Arg (fun _ => Unit)) sig → Bool
+  /-- Comparison condition codes `Spill` may keep a `cmp` result in (untrusted hint input). -/
+  cmpFlags : List Cond := []
 
 structure VecIsa (Reg VReg Cond Directive : Type) where
   vecScratch : List VReg

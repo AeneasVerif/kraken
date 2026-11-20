@@ -485,7 +485,8 @@ end
 
 /-- Compute untrusted `Hints` for `Rega.lowerFn` via per-bank priority graph coloring. -/
 def hints (I : Isa) (f : Fn)
-    (condCands : List I.Cond := I.gpr.zeroFlags ++ I.gpr.zeroFlags.map I.gpr.negCond) : I.Hints :=
+    (condCands : List I.Cond :=
+      I.gpr.zeroFlags ++ I.gpr.zeroFlags.map I.gpr.negCond ++ I.gpr.cmpFlags) : I.Hints :=
   let nGpr := I.frame.allocatable.length
   let nCs := I.frame.calleeSaved.length
   let allGpr := I.frame.allocatable ++ I.frame.calleeSaved ++ I.frame.scratch ++ I.frame.argRegs ++ I.frame.retRegs
