@@ -70,12 +70,18 @@ static uint8_t *read_file_bytes(const char *path, size_t *out_len) {
 int main(int argc, char **argv) {
   int argi = 1;
   int telemetry = 0;
+  int plain_tel = 0;
   if (argi < argc && strcmp(argv[argi], "--telemetry") == 0) {
     telemetry = 1;
     argi++;
+  } else if (argi < argc && strcmp(argv[argi], "--plain-telemetry") == 0) {
+    plain_tel = 1;
+    argi++;
   }
   if (argc - argi < 3) {
-    fprintf(stderr, "usage: %s [--telemetry] <work_bytes> <fuel> <cnf>...\n", argv[0]);
+    fprintf(stderr,
+            "usage: %s [--telemetry|--plain-telemetry] <work_bytes> <fuel> <cnf>...\n",
+            argv[0]);
     return 2;
   }
   size_t work_len = (size_t)strtoull(argv[argi++], NULL, 10);
@@ -120,14 +126,33 @@ int main(int argc, char **argv) {
       }
     }
     uint64_t conflicts = 0, learned = 0, min_rem = 0;
-    if (telemetry && (got == 10ULL || got == 20ULL) && work_len >= pad + 360ULL) {
-      conflicts = hdr[42];
-      learned = hdr[43];
-      min_rem = hdr[44];
+    if (plain_tel) {
+      uint64_t rst = 0, red = 0, rph = 0, sw = 0;
+      if (work_len >= pad + 768ULL) {
+        conflicts = hdr[42];
+        learned = hdr[43];
+        min_rem = hdr[44];
+        sw = hdr[70];
+        rph = hdr[84];
+        red = hdr[86];
+        rst = hdr[89];
+      }
+      printf("%s\t%llu\t%.3f\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\n",
+             path, (unsigned long long)got, ms,
+             (unsigned long long)conflicts, (unsigned long long)learned,
+             (unsigned long long)min_rem, (unsigned long long)rst,
+             (unsigned long long)red, (unsigned long long)rph,
+             (unsigned long long)sw);
+    } else {
+      if (telemetry && (got == 10ULL || got == 20ULL) && work_len >= pad + 360ULL) {
+        conflicts = hdr[42];
+        learned = hdr[43];
+        min_rem = hdr[44];
+      }
+      printf("%s\t%llu\t%.3f\t%llu\t%llu\t%llu\n", path, (unsigned long long)got, ms,
+             (unsigned long long)conflicts, (unsigned long long)learned,
+             (unsigned long long)min_rem);
     }
-    printf("%s\t%llu\t%.3f\t%llu\t%llu\t%llu\n", path, (unsigned long long)got, ms,
-           (unsigned long long)conflicts, (unsigned long long)learned,
-           (unsigned long long)min_rem);
     free_guarded(gw);
     free_guarded(gc);
     free(raw);

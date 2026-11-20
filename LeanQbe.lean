@@ -123,6 +123,12 @@ public import LeanQbe.T.Examples.Kissat.CorePlus
 public import LeanQbe.T.Examples.Kissat.CorePlusArena
 public import LeanQbe.T.Examples.Kissat.CorePlusSpec1
 public import LeanQbe.T.Examples.Kissat.CorePlusSpec
+public import LeanQbe.T.Examples.Kissat.Plain1
+public import LeanQbe.T.Examples.Kissat.Plain
+public import LeanQbe.T.Examples.Kissat.PlainArena1
+public import LeanQbe.T.Examples.Kissat.PlainArena
+public import LeanQbe.T.Examples.Kissat.PlainSpec1
+public import LeanQbe.T.Examples.Kissat.PlainSpec
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
