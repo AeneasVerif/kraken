@@ -126,17 +126,24 @@ theorem addGarbageClause_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : Plain
       · rw [hnew_garb_s'] at hng; cases hng
   refine ⟨hlen', harena', hwat, hinv.cur_level_le, hinv.trail_lits_lt, hinv.trail_vars_nodup,
     hinv.vals_domain, hinv.vals_true_iff, hinv.vals_false_iff, hinv.lvl_le, hinv.trail_mono,
-    hinv.levels_inhabited, hinv.level0_sound, hinv.trail_pos_inv, hinv.level0_rsn_none, ?_⟩
-  intro idx hidx; dsimp only [s']; intro hne
-  have hrs := hinv.reason_inv idx hidx hne
-  split at hrs <;> split
-  · exact hrs
-  · rename_i h1 h2; exact absurd h1 h2
-  · rename_i h1 h2; exact absurd h2 h1
-  · have hrefs' := hrefs; have hgarb' := hold_garb _ hrs.1; have hlits' := hold_lits _ hrs.1
-    dsimp only [s'] at hrefs' hgarb' hlits'
-    exact ⟨hrefs' ▸ List.mem_append_left _ hrs.1, hgarb'.trans hrs.2.1,
-      fun q hq => hrs.2.2 q (hlits' ▸ hq)⟩
+    hinv.levels_inhabited, hinv.level0_sound, hinv.trail_pos_inv, hinv.level0_rsn_none, ?_, ?_⟩
+  · intro idx hidx; dsimp only [s']; intro hne
+    have hrs := hinv.reason_inv idx hidx hne
+    split at hrs <;> split
+    · exact hrs
+    · rename_i h1 h2; exact absurd h1 h2
+    · rename_i h1 h2; exact absurd h2 h1
+    · have hrefs' := hrefs; have hgarb' := hold_garb _ hrs.1; have hlits' := hold_lits _ hrs.1
+      dsimp only [s'] at hrefs' hgarb' hlits'
+      exact ⟨hrefs' ▸ List.mem_append_left _ hrs.1, hgarb'.trans hrs.2.1,
+        fun q hq => hrs.2.2 q (hlits' ▸ hq)⟩
+  · intro idx hidx; dsimp only [s']; intro hne hlg
+    have hrs := hinv.reason_inv idx hidx hne
+    split at hrs
+    · rename_i hbad; exact absurd hlg hbad
+    · have hlits' := hold_lits _ hrs.1
+      dsimp only [s'] at hlits'
+      exact hlits' ▸ hinv.reason_lit_mem idx hidx hne hlg
 
 theorem WatchSliceOk.relocate {c : PlainCfg} {F0 F1 : CNF Nat} {s s' : PlainState}
     {lit p p' rem : Nat}

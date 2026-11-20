@@ -594,6 +594,11 @@ structure PlainCoreInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) : Prop whe
         arenaClauseGarb s rsn.toNat = false ∧
         ∀ q ∈ arenaClauseLits s rsn.toNat,
           q = p ∨ ∃ k < idx, (s.trl[k]?.getD 0#32).toNat = q ^^^ 1
+  reason_lit_mem : ∀ idx < s.trail_end,
+    let p := (s.trl[idx]?.getD 0#32).toNat
+    let rsn := s.rsns[p / 2]?.getD 0xFFFFFFFF#32
+    rsn ≠ 0xFFFFFFFF#32 → (rsn &&& 0x80000000#32) = 0#32 →
+      p ∈ arenaClauseLits s rsn.toNat
 
 abbrev PlainTrailInv := PlainCoreInv
 
@@ -794,7 +799,14 @@ theorem assign_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
       else
         rsn.toNat ∈ arenaClauseRefs s ∧ arenaClauseGarb s rsn.toNat = false ∧
         ∀ q ∈ arenaClauseLits s rsn.toNat,
-          q = lit.toNat ∨ ∃ k < s.trail_end, (s.trl[k]?.getD 0#32).toNat = q ^^^ 1) :
+          q = lit.toNat ∨ ∃ k < s.trail_end, (s.trl[k]?.getD 0#32).toNat = q ^^^ 1)
+    (hrsn_mem : s.cur_level ≠ 0 → rsn ≠ 0xFFFFFFFF#32 → (rsn &&& 0x80000000#32) = 0#32 →
+      lit.toNat ∈ arenaClauseLits s rsn.toNat := by
+      intro _ _ hlg
+      first
+      | contradiction
+      | (have h31 := congrArg (BitVec.getLsbD · 31) hlg; simp +zetaDelta at h31; done)
+      | (simp_all; done)) :
     let v := lit.toNat / 2
     let rsn' := if s.cur_level = 0 then 0xFFFFFFFF#32 else rsn
     let s' : PlainState :=
@@ -864,7 +876,8 @@ theorem assign_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
       trail_end_le := by dsimp [s']; omega
       propagated_le := by dsimp [s']; have := hlen.propagated_le; omega
       heur_ok := { hlen.heur_ok with phases_len := hph } }
-  refine ⟨hlen', hs'_arena, hs'_watches, by omega, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨hlen', hs'_arena, hs'_watches, by omega, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+    ?_, ?_⟩
   · intro i hi; rw [hs'_te] at hi; rw [htrl_get i hi]; split
     · exact hlit
     · exact hinv.trail_lits_lt i (by omega)
@@ -1032,6 +1045,24 @@ theorem assign_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
           simpa [arenaClauseLits, arenaClauseSize, s'] using hq
         exact (hrs.2.2 q hq').elim Or.inl fun ⟨k, hk, hkeq⟩ => Or.inr ⟨k, hk, by
           rw [htrl_get k (by omega)]; simp [show k ≠ s.trail_end by omega, hkeq]⟩
+  · intro idx hidx; rw [hs'_te] at hidx; dsimp only; rw [htrl_get idx hidx]
+    by_cases hie : idx = s.trail_end
+    · simp only [hie, ↓reduceIte]
+      have hr : s'.rsns[v]?.getD 0xFFFFFFFF#32 = rsn' := by
+        dsimp only [s']; rw [List.getElem?_set_self (by rw [hlen.rsns_len]; omega)]; rfl
+      rw [hr]; intro hne hlg
+      by_cases hcl0 : s.cur_level = 0
+      · simp [rsn', hcl0] at hne
+      · simp only [rsn', hcl0, ↓reduceIte] at hne hlg ⊢
+        simpa [arenaClauseLits, arenaClauseSize, s'] using hrsn_mem hcl0 hne hlg
+    · simp only [hie, ↓reduceIte]
+      have hilt : idx < s.trail_end := by omega
+      have hnv : (s.trl[idx]?.getD 0#32).toNat / 2 ≠ v := hnot_var idx hilt
+      have hr : s'.rsns[(s.trl[idx]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32 =
+          s.rsns[(s.trl[idx]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32 := by
+        simp [s', List.getElem?_set_ne (Ne.symm hnv)]
+      rw [hr]; intro hne hlg
+      simpa [arenaClauseLits, arenaClauseSize, s'] using hinv.reason_lit_mem idx hilt hne hlg
 
 /-- Helper state update after appending one large clause (`len ≥ 3`) in `plain_add_clause`. -/
 def addClauseState (s : PlainState) (len : Nat) (arena' wvec' wstk' : List (BitVec 32))
@@ -1146,17 +1177,24 @@ theorem addClause_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
       · rw [hnew_lits]; exact hent
   refine ⟨hlen', harena', hwat, hinv.cur_level_le, hinv.trail_lits_lt, hinv.trail_vars_nodup,
     hinv.vals_domain, hinv.vals_true_iff, hinv.vals_false_iff, hinv.lvl_le, hinv.trail_mono,
-    hinv.levels_inhabited, hinv.level0_sound, hinv.trail_pos_inv, hinv.level0_rsn_none, ?_⟩
-  intro idx hidx; dsimp only [s', addClauseState]; intro hne
-  have hrs := hinv.reason_inv idx hidx hne
-  split at hrs <;> split
-  · exact hrs
-  · rename_i h1 h2; exact absurd h1 h2
-  · rename_i h1 h2; exact absurd h2 h1
-  · have hrefs' := hrefs; have hgarb' := hold_garb _ hrs.1; have hlits' := hold_lits _ hrs.1
-    dsimp only [s', addClauseState] at hrefs' hgarb' hlits'
-    exact ⟨hrefs' ▸ List.mem_append_left _ hrs.1, hgarb'.trans hrs.2.1,
-      fun q hq => hrs.2.2 q (hlits' ▸ hq)⟩
+    hinv.levels_inhabited, hinv.level0_sound, hinv.trail_pos_inv, hinv.level0_rsn_none, ?_, ?_⟩
+  · intro idx hidx; dsimp only [s', addClauseState]; intro hne
+    have hrs := hinv.reason_inv idx hidx hne
+    split at hrs <;> split
+    · exact hrs
+    · rename_i h1 h2; exact absurd h1 h2
+    · rename_i h1 h2; exact absurd h2 h1
+    · have hrefs' := hrefs; have hgarb' := hold_garb _ hrs.1; have hlits' := hold_lits _ hrs.1
+      dsimp only [s', addClauseState] at hrefs' hgarb' hlits'
+      exact ⟨hrefs' ▸ List.mem_append_left _ hrs.1, hgarb'.trans hrs.2.1,
+        fun q hq => hrs.2.2 q (hlits' ▸ hq)⟩
+  · intro idx hidx; dsimp only [s', addClauseState]; intro hne hlg
+    have hrs := hinv.reason_inv idx hidx hne
+    split at hrs
+    · rename_i hbad; exact absurd hlg hbad
+    · have hlits' := hold_lits _ hrs.1
+      dsimp only [s', addClauseState] at hlits'
+      exact hlits' ▸ hinv.reason_lit_mem idx hidx hne hlg
 
 /-- Swapping two literals inside live arena clause `cref` + updating `ar[cref + 1]` and watches
 preserves `PlainCoreInv`. -/
@@ -1312,15 +1350,20 @@ theorem swapCl_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
         Or.inl ((hmem_iff r hr l).mpr hl)
   refine ⟨hlen', harena', hwat, hinv.cur_level_le, hinv.trail_lits_lt, hinv.trail_vars_nodup,
     hinv.vals_domain, hinv.vals_true_iff, hinv.vals_false_iff, hinv.lvl_le, hinv.trail_mono,
-    hinv.levels_inhabited, hinv.level0_sound, hinv.trail_pos_inv, hinv.level0_rsn_none, ?_⟩
-  intro idx hidx; dsimp only [s']; intro hne
-  have hrs := hinv.reason_inv idx hidx hne
-  split at hrs <;> split
-  · exact hrs
-  · rename_i h1 h2; exact absurd h1 h2
-  · rename_i h1 h2; exact absurd h2 h1
-  · exact ⟨hrefs ▸ hrs.1, (hgarb_eq _ hrs.1).trans hrs.2.1,
-      fun q hq => hrs.2.2 q ((hmem_iff _ hrs.1 q).mp hq)⟩
+    hinv.levels_inhabited, hinv.level0_sound, hinv.trail_pos_inv, hinv.level0_rsn_none, ?_, ?_⟩
+  · intro idx hidx; dsimp only [s']; intro hne
+    have hrs := hinv.reason_inv idx hidx hne
+    split at hrs <;> split
+    · exact hrs
+    · rename_i h1 h2; exact absurd h1 h2
+    · rename_i h1 h2; exact absurd h2 h1
+    · exact ⟨hrefs ▸ hrs.1, (hgarb_eq _ hrs.1).trans hrs.2.1,
+        fun q hq => hrs.2.2 q ((hmem_iff _ hrs.1 q).mp hq)⟩
+  · intro idx hidx; dsimp only [s']; intro hne hlg
+    have hrs := hinv.reason_inv idx hidx hne
+    split at hrs
+    · rename_i hbad; exact absurd hlg hbad
+    · exact (hmem_iff _ hrs.1 _).mpr (hinv.reason_lit_mem idx hidx hne hlg)
 
 /-- Initial zeroed state produced by `plain_init_state` satisfies `PlainInv`. -/
 theorem plainInv_init {c : PlainCfg} {s : PlainState} (hlen : s.LengthsOk c)
@@ -1350,7 +1393,7 @@ theorem plainInv_init {c : PlainCfg} {s : PlainState} (hlen : s.LengthsOk c)
     fun l hl => by rw [hvals, hte]; simp [hl],
     fun _ h => by omega, fun _ _ _ h => by omega,
     fun _ _ h2 => by omega, fun _ h => by omega, fun _ h => by omega,
-    fun _ h => by omega, fun _ h => by omega⟩,
+    fun _ h => by omega, fun _ h => by omega, fun _ h => by omega⟩,
     fun v hv => by rw [hmrk]; simp [hv]⟩
 
 end LeanQbe.T.Examples.Kissat.Plain
