@@ -613,7 +613,7 @@ bool full_fwd_check_cl(FullHdr *h, u32 cref) {
       if ((w0 & PW_BIN_FLAG) != 0u) {
         u32 ot = w0 & PW_LIT_MASK;
         if (lm[ot] != (u8)0) { subsumed = true; break; }
-        if (lm[ot ^ 1u] != (u8)0) { drop = ot ^ 1u; break; }
+        if ((ot ^ 1u) != l && lm[ot ^ 1u] != (u8)0) { drop = ot ^ 1u; break; }
         continue;
       }
       if (p >= end) { break; }

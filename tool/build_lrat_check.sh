@@ -47,10 +47,16 @@ fi
 if [ "$USE_QBE" = "1" ]; then
   if [ -z "${QBE:-}" ]; then
     QBE_SRC="${QBE_SRC:-$ROOT/qbe}"
-    [ -d "$QBE_SRC" ] || QBE_SRC="/usr/local/google/home/andreser/lean-qbe/qbe"
-    cp -r "$QBE_SRC" "$TMP/qbe-src"
-    timeout 300 make -C "$TMP/qbe-src" -j8 >/dev/null
-    QBE="$TMP/qbe-src/qbe"
+    if [ -d "$QBE_SRC" ]; then
+      cp -r "$QBE_SRC" "$TMP/qbe-src"
+      timeout 300 make -C "$TMP/qbe-src" -j8 >/dev/null
+      QBE="$TMP/qbe-src/qbe"
+    elif QBE="$(command -v qbe || true)" && [ -n "$QBE" ]; then
+      :
+    else
+      echo "FAIL: stock QBE not found (set QBE, QBE_SRC, or place checkout at $ROOT/qbe)" >&2
+      exit 1
+    fi
   fi
   timeout 60 "$ROOT/.lake/build/bin/leanqbe" --il lrat_bytes >"$TMP/lrat_bytes.ssa"
   timeout 60 "$QBE" -o "$TMP/lrat_bytes.s" "$TMP/lrat_bytes.ssa"

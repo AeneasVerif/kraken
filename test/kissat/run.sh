@@ -58,8 +58,8 @@ timeout 60 qemu-aarch64 -L /usr/aarch64-linux-gnu "$OUT/kissat_arm64" > "$OUT/ar
 diff -u "$OUT/x64.out" "$OUT/arm64.out"
 
 QBE_SRC="${QBE_SRC:-$ROOT/qbe}"
-if [ ! -d "$QBE_SRC" ] && [ -d /usr/local/google/home/andreser/lean-qbe/qbe ]; then
-  QBE_SRC=/usr/local/google/home/andreser/lean-qbe/qbe
+if [ -z "${QBE:-}" ] && [ ! -d "$QBE_SRC" ]; then
+  QBE="$(command -v qbe || true)"
 fi
 if [ -n "${QBE:-}" ] || [ -d "$QBE_SRC" ]; then
   echo "== 6. stock QBE cross-check (amd64_sysv + arm64) =="
@@ -83,6 +83,8 @@ if [ -n "${QBE:-}" ] || [ -d "$QBE_SRC" ]; then
   timeout 60 qemu-aarch64 -L /usr/aarch64-linux-gnu "$OUT/kissat_qbe_arm64" \
     > "$OUT/qbe_arm64.out"
   diff -u "$OUT/x64.out" "$OUT/qbe_arm64.out"
+else
+  echo "NOTE: stock QBE not found (set QBE, QBE_SRC, or place checkout at $ROOT/qbe); skipping step 6."
 fi
 
 KISSAT_BIN="${KISSAT_BIN:-$(command -v kissat || true)}"

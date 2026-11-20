@@ -6,6 +6,10 @@
 /think*.txt
 /design-log.md
 /lean-qbe-search.md
+# Python bytecode and local conversation logs
+__pycache__/
+*.pyc
+/conversations.txt
 # from Kraken
 /.lake
 .vimsession
@@ -14,5 +18,4 @@
 # Build artifacts from test runs
 *.o
 asm-tests/test
-__pycache__/
 *.orig

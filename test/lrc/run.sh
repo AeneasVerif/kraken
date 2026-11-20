@@ -64,12 +64,17 @@ timeout 60 aarch64-linux-gnu-gcc -O1 test/lrc/lrc_main.c "$OUT/lrc_arm64.s" \
 timeout 30 qemu-aarch64 -L /usr/aarch64-linux-gnu "$OUT/lrc_arm64" > "$OUT/arm64.out"
 diff -u "$OUT/ref.out" "$OUT/arm64.out"
 
-QBE_SRC="${QBE_SRC:-/usr/local/google/home/andreser/lean-qbe/qbe}"
-if [ -d "$QBE_SRC" ]; then
+QBE_SRC="${QBE_SRC:-$ROOT/qbe}"
+if [ -z "${QBE:-}" ] && [ ! -d "$QBE_SRC" ]; then
+  QBE="$(command -v qbe || true)"
+fi
+if [ -n "${QBE:-}" ] || [ -d "$QBE_SRC" ]; then
   echo "== 7. stock QBE cross-check (amd64_sysv + arm64) =="
-  cp -r "$QBE_SRC" "$OUT/qbe-src"
-  timeout 120 make -C "$OUT/qbe-src" -j8 >"$OUT/qbe-build.log" 2>&1
-  QBE="$OUT/qbe-src/qbe"
+  if [ -z "${QBE:-}" ]; then
+    cp -r "$QBE_SRC" "$OUT/qbe-src"
+    timeout 120 make -C "$OUT/qbe-src" -j8 >"$OUT/qbe-build.log" 2>&1
+    QBE="$OUT/qbe-src/qbe"
+  fi
   timeout 30 "$QBE" -t amd64_sysv -o "$OUT/lrc_qbe_x64.s" "$OUT/lrc.ssa"
   timeout 60 gcc -O1 -no-pie test/lrc/lrc_main.c "$OUT/lrc_qbe_x64.s" -o "$OUT/lrc_qbe_x64"
   timeout 30 "$OUT/lrc_qbe_x64" > "$OUT/qbe_x64.out"
@@ -80,6 +85,8 @@ if [ -d "$QBE_SRC" ]; then
     -o "$OUT/lrc_qbe_arm64" 2>&1 | grep -v -e 'SFrame' || true
   timeout 30 qemu-aarch64 -L /usr/aarch64-linux-gnu "$OUT/lrc_qbe_arm64" > "$OUT/qbe_arm64.out"
   diff -u "$OUT/ref.out" "$OUT/qbe_arm64.out"
+else
+  echo "NOTE: stock QBE not found (set QBE, QBE_SRC, or place checkout at $ROOT/qbe); skipping step 7."
 fi
 
 echo "== test/lrc/run.sh: ALL DIFFERENTIAL CHECKS PASSED =="

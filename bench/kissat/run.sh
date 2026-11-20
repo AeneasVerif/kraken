@@ -21,12 +21,8 @@ trap cleanup EXIT
 echo "outputs in $OUT"
 
 KISSAT_SRC="${KISSAT_SRC:-}"
-if [ -z "$KISSAT_SRC" ]; then
-  if [ -d "$ROOT/scratch/kissat" ]; then
-    KISSAT_SRC="$ROOT/scratch/kissat"
-  elif [ -d "/usr/local/google/home/andreser/.gemini/jetski/brain/06d85d8f-79d2-4064-9941-37cb455b0e29/scratch/kissat" ]; then
-    KISSAT_SRC="/usr/local/google/home/andreser/.gemini/jetski/brain/06d85d8f-79d2-4064-9941-37cb455b0e29/scratch/kissat"
-  fi
+if [ -z "$KISSAT_SRC" ] && [ -d "$ROOT/scratch/kissat" ]; then
+  KISSAT_SRC="$ROOT/scratch/kissat"
 fi
 WORK_BYTES="${WORK_BYTES:-8388608}"
 FUEL="${FUEL:-400000}"
@@ -99,14 +95,18 @@ if [ -z "${KISSAT_BIN:-}" ]; then
   fi
 fi
 if [ -n "${KISSAT_BIN:-}" ]; then
-  echo "Using stock kissat: $KISSAT_BIN"
   # Verify options work (NOT built with -DNOPTIONS)
-  printf 'p cnf 0 0\n' | timeout 10 "$KISSAT_BIN" --basic --lucky=0 -q >/dev/null || {
-    rc=$?; [ "$rc" -eq 10 ]
-  }
+  rc=0
+  printf 'p cnf 0 0\n' | timeout 10 "$KISSAT_BIN" --basic --lucky=0 -q >/dev/null 2>&1 || rc=$?
+  if [ "$rc" -eq 10 ]; then
+    echo "Using stock kissat: $KISSAT_BIN"
+  else
+    echo "NOTE: kissat binary '$KISSAT_BIN' unavailable or lacks --basic/--lucky=0; skipping stock-kissat comparison rows."
+    KISSAT_BIN=""
+  fi
 else
   KISSAT_BIN=""
-  echo "NOTE: no stock kissat binary or KISSAT_SRC found; skipping stock-kissat comparison rows."
+  echo "NOTE: no stock kissat binary or KISSAT_SRC found (set KISSAT_BIN or KISSAT_SRC); skipping stock-kissat comparison rows."
 fi
 
 echo "== 5. Generate multi-family DIMACS CNFs + collect stock kissat test/cnf =="
