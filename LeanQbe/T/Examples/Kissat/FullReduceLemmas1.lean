@@ -219,17 +219,20 @@ def fullAssignLvlSpec : Spec [i64, i32, i32, i32] [] :=
         let v := lit.toNat / 2
         let rsn' := if alvl = 0#32 then 0xFFFFFFFF#32 else rsn
         let unfl' := if alvl = 0#32 then s.core.unflushed + 1#64 else s.core.unflushed
-        ∀ flags' phases' unass' m', flags'.length = c.max_vars → phases'.length = c.max_vars →
+        ∀ flags' unass' phases' m',
+          flags'.length = c.max_vars → phases'.length = c.max_vars →
           let s' : FullState :=
-            { core :=
+            { s with
+              core :=
                 { s.core with
                   vals := (s.core.vals.set lit.toNat 1#8).set (lit.toNat ^^^ 1) 0xFF#8
                   flags := flags', lvl := s.core.lvl.set v alvl, rsns := s.core.rsns.set v rsn'
                   trl := s.core.trl.set s.core.trail_end lit
                   trail_pos := s.core.trail_pos.set v (BitVec.ofNat 32 s.core.trail_end)
-                  trail_end := s.core.trail_end + 1, unassigned := unass', unflushed := unfl' }
+                  trail_end := s.core.trail_end + 1
+                  unassigned := unass', unflushed := unfl' }
               scratch := { s.scratch with phases := phases' } }
-          s'.LengthsOk c → (FullMem c s' ⋆ R) m' → Q () m'
+          (FullMem c s' ⋆ R) m' → Q () m'
 
 /-! ### Owned 10 `Spec` contracts & shared outcome/post predicates -/
 

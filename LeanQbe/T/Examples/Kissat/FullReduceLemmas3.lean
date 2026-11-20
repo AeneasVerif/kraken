@@ -804,7 +804,7 @@ theorem full_sweep_copy_wp (Γ : Env)
                 split
                 · rename_i hskip; exact absurd hskip hnot_skip
                 · dsimp only
-                  intro flags' phases' unass' m' hfl' hph' hlen' hm'
+                  intro flags' unass' phases' m' hfl' hph' hm'
                   have hw' := level0Assign_preserves_witness
                     (k := { s.core with arena := arL, arena_len := dst.toNat })
                     { hlenL.core_ok with arena_len_le := by change dst.toNat ≤ c.arena_cap; omega }
@@ -817,7 +817,17 @@ theorem full_sweep_copy_wp (Γ : Env)
                     (s.core.trail_pos.set (ulit.toNat / 2) (BitVec.ofNat 32 s.core.trail_end))
                     (s.core.trail_end + 1) unass' (s.core.unflushed + 1#64) s.core.wvec s.core.wstk
                     s.core.wlen s.core.wusable s.core.num_binary s.core.oom phases' s.scratch.wsort
-                    m' hlen' hout_fin ⟨fun hf => Bool.noConfusion (har_t.symm.trans hf),
+                    m'
+                    ⟨{ hlenL.core_ok with
+                       vals_len := by simp [hlenL.core_ok.vals_len], flags_len := hfl'
+                       lvl_len := by simp [hlenL.core_ok.lvl_len]
+                       rsns_len := by simp [hlenL.core_ok.rsns_len]
+                       trl_len := by simp [hlenL.core_ok.trl_len]
+                       trail_pos_len := by simp [hlenL.core_ok.trail_pos_len]
+                       trail_end_le := hte_lt
+                       propagated_le := Nat.le_succ_of_le hlenL.core_ok.propagated_le },
+                     { hlenL.scratch_ok with phases_len := hph' }⟩
+                    hout_fin ⟨fun hf => Bool.noConfusion (har_t.symm.trans hf),
                      fun _ => ⟨hw', hbinL.with_core rfl rfl rfl rfl, by dsimp only; omega,
                        Or.inr (Or.inr (Or.inl rfl)), (fun h => by cases h), (fun h => by cases h),
                        (fun _ => rfl), (fun _ => by dsimp only; omega),
