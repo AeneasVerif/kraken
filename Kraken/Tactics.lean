@@ -16,79 +16,18 @@ open Lean Meta Elab Tactic Kraken
 
 /-- Set up a straight-line proof for `p` from `s`, naming the state fields and
 general-purpose registers. `status` and `dmem` are called `flags` and `mem`. -/
-syntax (name := kprologue) "kprologue" ident "with" ident : tactic
 
 private def kprologueBinderName (field : Lean.Name) : Lean.Name :=
   if field == `status then `flags
   else if field == `dmem then `mem
   else field
 
-elab_rules : tactic
-  | `(tactic| kprologue $p:ident with $s:ident) => withMainContext do
-      let env ← getEnv
-      let state ← Term.elabTerm s none
-      let stateType ← whnf (← inferType state)
-      let some stateName := stateType.getAppFn.constName?
-        | throwErrorAt s "kprologue: expected a state with a structure type"
-      let some _ := getStructureInfo? env stateName
-        | throwErrorAt s "kprologue: `{stateName}` is not a structure"
-
-      let stateFields := getStructureFields env stateName
-      let some regsInfo := getFieldInfo? env stateName `regs
-        | throwErrorAt s "kprologue: `{stateName}` has no `regs` field"
-      let regs ← mkAppM regsInfo.projFn #[state]
-      let regsType ← whnf (← inferType regs)
-      let some regsName := regsType.getAppFn.constName?
-        | throwErrorAt s "kprologue: `{stateName}.regs` does not have a structure type"
-      let some _ := getStructureInfo? env regsName
-        | throwErrorAt s "kprologue: `{stateName}.regs` is not a structure"
-
-      let regFields := getStructureFields env regsName
-      let stateBinderNames :=
-        (stateFields.filter (· != `regs)).map kprologueBinderName
-      let binderNames := regFields ++ stateBinderNames
-
-      let mut seen : NameSet := {}
-      let mut duplicateNames := #[]
-      for name in binderNames do
-        if seen.contains name then
-          unless duplicateNames.contains name do
-            duplicateNames := duplicateNames.push name
-        else
-          seen := seen.insert name
-      unless duplicateNames.isEmpty do
-        let names := String.intercalate ", " (duplicateNames.toList.map (·.toString))
-        throwErrorAt s "kprologue: duplicate local names: {names}"
-
-      let lctx ← getLCtx
-      let collisions := binderNames.filter fun name =>
-        (lctx.findFromUserName? name).isSome
-      unless collisions.isEmpty do
-        let names := String.intercalate ", " (collisions.toList.map (·.toString))
-        throwErrorAt s
-          "kprologue: refusing to shadow existing locals: {names}"
-
-      -- These binders must remain visible after the tactic, so give them no macro scopes.
-      let regPats ← regFields.mapM fun field =>
-        let id := mkIdentFrom s field
-        `(rcasesPat| $id:ident)
-      let regsPat ← `(rcasesPat| ⟨$[$regPats],*⟩)
-      let statePats ← stateFields.mapM fun field =>
-        if field == `regs then
-          pure regsPat
-        else
-          let id := mkIdentFrom s (kprologueBinderName field)
-          `(rcasesPat| $id:ident)
-      let statePat ← `(rcasesPat| ⟨$[$statePats],*⟩)
-
-      let step1Id := mkIdent `step1
-
-      evalTactic (← `(tactic|
-        (let ss := $s
-         change (Eventually ($step1Id:ident (Kraken.Layout.apply $p _)) _
-           ⟨ss, (Kraken.Layout.apply $p _).startAddr⟩)
-         obtain $statePat:rcasesPat := $s
-         rw [← Kraken.Executable.addrOf_zero])))
+-- NOTE: Do we need this?
+elab "kprologue" p:term "with" s:term : tactic => withMainContext do
+  evalTactic (← `(tactic|
+    (change (Eventually ($(mkIdent `step1):ident (Kraken.Layout.apply $p _)) _
+        ⟨$s, (Kraken.Layout.apply $p _).startAddr⟩)
+     rw [← Kraken.Executable.addrOf_zero])))
 
 --------------------------------------------------------------------------------
 
