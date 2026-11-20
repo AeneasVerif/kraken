@@ -9,6 +9,7 @@ Core tactics and theorems for stepping through Kraken assembly proofs.
 public import Kraken.Attribute
 import Kraken.Layout
 import Kraken.OmniSemantics
+public meta import Kraken.ForLean
 
 public meta section
 
@@ -31,9 +32,15 @@ elab "kprologue" p:term "with" s:term : tactic => withMainContext do
 
 --------------------------------------------------------------------------------
 
+-- lift_lets
+
+-- #check Sym.liftLets
+
 open Sym Sym.DSimp
 
-partial def peelLambdaLets (f : Expr) (args : Array Expr) (fvars : Array Expr) (k : Expr → Array Expr → DSimpM Result) : DSimpM Result := do
+@[deprecated]
+partial def peelLambdaLets (f : Expr) (args : Array Expr) (fvars : Array Expr)
+    (k : Expr → Array Expr → DSimpM Result) : DSimpM Result := do
   -- (fun y => let x = e1 in e2) () ~~> let x = e1 in (fun y => e2) ()
   match f with
   | .lam binderName binderType body binderInfo =>
@@ -52,6 +59,7 @@ partial def peelLambdaLets (f : Expr) (args : Array Expr) (fvars : Array Expr) (
     | _ => k (mkAppN f args) fvars
   | _ => k (mkAppN f args) fvars
 
+@[deprecated]
 partial def peelLets (e : Expr) (fvars : Array Expr) (k : Expr → Array Expr → DSimpM Result) : DSimpM Result := do
   match e with
   | .letE name type val body _ =>
@@ -63,6 +71,7 @@ partial def peelLets (e : Expr) (fvars : Array Expr) (k : Expr → Array Expr �
     else
       k e fvars
 
+@[deprecated]
 partial def peelArgsLets (args : Array Expr) (i : Nat) (peeled : Array Expr) (fvars : Array Expr) (k : Array Expr → Array Expr → DSimpM Result) : DSimpM Result := do
   if h : i < args.size then
     let arg := args[i]
@@ -102,34 +111,28 @@ def kdeltaBetaOnly (targets : List Name) : DSimproc := fun e => do
       -- Really nothing to do here.
       return .rfl
 
-def gimmickId (p: Prop): Prop := p
-
-theorem gimmick {p: Prop} (h: gimmickId p): p := by
-  simp [gimmickId] at h
-  assumption
-
-theorem gimmickInv {p: Prop} (h: p): gimmickId p := by
-  simp [gimmickId]
-  assumption
-
 -- Enable with `set_option trace.Kraken.kstep true`.
 initialize registerTraceClass `Kraken.kstep
+
+initialize registerOption `Kraken.kstep.debug {
+  name := `debug
+  defValue := false
+}
 
 -- Debugging the reduction steps: to easily have a marker that tells us when we've hit the top-level
 -- term, we assume prior to running `kstep`, the user does `apply gimmick`. (This also avoids having
 -- to reason about whether we're at the top-level term or not -- we never are.)
+@[deprecated]
 def klog : DSimproc := fun e => do
   -- Trace every top-level term to show the various states of the dsimp
   -- call.
   let s := (← get).numSteps
   /- if s = 789 then -/
   /-   return .rfl (done := true) -/
-  let_expr gimmickId arg := e | return .rfl
-  trace[Kraken.kstep] "step {s} visiting\n{arg}"
+  trace[Kraken.kstep] "step {s} visiting\n{e}"
   return .rfl
 
-structure KStepConfig where
-  debug := false
+structure KStepConfig
 declare_term_config_elab elabKStepConfig KStepConfig
 
 syntax (name := symKStep) "kstep" optConfig (ppSpace num)? : grind
@@ -144,6 +147,7 @@ def kdsimpMatch: DSimproc := fun e => do
   else
     return .step (← share e'')
 
+/- NOTE: There is no beta reduction Sym.Simproc, so we build our own -/
 def kbeta: DSimproc := fun e => do
   unless e.isApp do return .rfl
   let f := e.getAppFn
@@ -155,21 +159,22 @@ def kbeta: DSimproc := fun e => do
   else
     return .rfl
 
+-- Unfolds the definition if it is a projection function to
+-- reduce the projection.
 def kdsimpProj : DSimproc := fun e => do
   let f := e.getAppFn
   let .const declName _ := f | return .rfl
   if declName == `Labels.label? then return .rfl
   let some _projInfo ← getProjectionFnInfo? declName | return .rfl
   let reduceProjCont? (e? : Option Expr) : DSimpM Result := do
-    match e? with
+    let some e := e? | return .rfl
+    match (← reduceProj? e.getAppFn) with
+    | some f => return .step (← shareCommon (mkAppN f e.getAppArgs))
     | none   => return .rfl
-    | some e =>
-      match (← reduceProj? e.getAppFn) with
-      | some f => return .step (← shareCommon (mkAppN f e.getAppArgs))
-      | none   => return .rfl
   -- TODO: special support for instances?
   reduceProjCont? (← unfoldDefinition? e)
 
+@[deprecated Sym.liftLets]
 def kLiftLets : DSimproc := fun e => do
   -- We only lift lets to the top-level (which is always an application of
   -- Effects.all)
@@ -183,65 +188,14 @@ def kLiftLets : DSimproc := fun e => do
   /- logInfo m!"liftLets produces {e'}" -/
   return .step e'
 
--- FIXME: a copy-paste of the Lean implementation since it's marked as private
-def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
-  goal.withContext do
-    let mvarCounterSaved := (← getMCtx).mvarCounter
-    let r ← Term.withSynthesize do
-      let heq := term
-      /-
-      The target is in `sym` normal form (e.g., reducible constants have been unfolded), but the
-      given equation is not. We unfold reducible constants in its statement so that `kabstract`
-      key-matching can find occurrences of the lhs in the target, and the rhs requires less
-      normalization after the rewrite.
-      -/
-      let heqType ← instantiateMVars (← inferType heq)
-      let heqType' ← Sym.unfoldReducible heqType
-      let heq ← if isSameExpr heqType heqType' then pure heq else mkExpectedTypeHint heq heqType'
-      goal.mvarId.rewrite (← goal.mvarId.getType) heq symm
-    let mctx ← getMCtx
-    let mvarIds := r.mvarIds.filter fun mvarId => (mctx.getDecl mvarId |>.index) >= mvarCounterSaved
-    let eNew ← Grind.liftSymM <| Sym.preprocessExpr r.eNew
-    let mvarId ← goal.mvarId.replaceTargetEq eNew r.eqProof
-    let mvarIds ← mvarIds.filterM fun mvarId => return !(← mvarId.isAssigned)
-    let sideGoals ← mvarIds.mapM fun mvarId => do
-      let target ← mvarId.getType
-      let target' ← Grind.liftSymM <| Sym.preprocessExpr target
-      if isSameExpr target target' then
-        -- The metavariable was created by `forallMetaTelescopeReducing` with kind `.natural`;
-        -- prevent it from being assigned by unification in later steps.
-        mvarId.setKind .syntheticOpaque
-        return { goal with mvarId }
-      else
-        let mvarId ← mvarId.replaceTargetDefEq target'
-        return { goal with mvarId }
-    pure ({ goal with mvarId }, sideGoals)
-
 @[grind_tactic symKStep]
-partial def evalSymKStep : Grind.GrindTactic :=
-  fun stx : Syntax => do
+partial def evalSymKStep : Grind.GrindTactic := fun stx : Syntax => do
   let cfg := stx[1]
   let config ← elabKStepConfig cfg
   let maxSteps? : Option Nat := if stx[2].isNone then none else some stx[2][0].toNat
   -- A `sym` tactic operates over a pair of the grind state and an MVarId. To avoid scope mistakes,
   -- we only ever use `goal` and never let-bind mvarId.
   let goal : Grind.Goal ← Grind.getMainGoal
-
-  let gimmickRule ← mkBackwardRuleFromDecl ``gimmick
-  let insertGimmick (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
-    let .goals [mvarId] ← Grind.liftGrindM (gimmickRule.apply goal.mvarId) | failure
-    pure { goal with mvarId }
-
-  let gimmickRule ← mkBackwardRuleFromDecl ``gimmickInv
-  let removeGimmick (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
-    let mvarId ← Grind.liftGrindM (do
-      let .goals [mvarId] ← gimmickRule.apply goal.mvarId | failure
-      pure mvarId
-    )
-    pure { goal with mvarId }
-
-  -- Apply the debug gimmick. We actually *do* expect the goal to be in this form.
-  let goal ← insertGimmick goal
 
   let env ← getEnv
 
@@ -262,13 +216,10 @@ partial def evalSymKStep : Grind.GrindTactic :=
     pure (insertPattern specTree pat name)
   ) {}
 
-  -- TODO: remove once we have lift_lets
   let introsIf (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
-    let goal ← removeGimmick goal
-    let goal ← match ← Grind.liftGrindM (goal.intros #[]) with
+    match ← Grind.liftGrindM (goal.intros #[]) with
       | Grind.IntrosResult.failed => pure goal
       | .goal _ goal => pure goal
-    pure (← insertGimmick goal)
 
   let rec getListElem? (xs : Expr) (i : Nat) : MetaM (Option Expr) := do
     let xs ← whnf xs
@@ -294,7 +245,6 @@ partial def evalSymKStep : Grind.GrindTactic :=
 
   let resolveLabel? (goal : Grind.Goal) : Grind.GrindTacticM (Option Grind.Goal) := do
     let goalT ← goal.withContext do instantiateMVars (← goal.mvarId.getType)
-    let_expr gimmickId goalT' := goalT | return none
     let matchLabelApp? (e : Expr) : Option (Expr × Expr × Expr × Expr × Expr) := do
       let mkApp2 (.const `Labels.label? _) (mkApp (.const `Executable.labels _) exe) lblExpr := e
         | none
@@ -302,7 +252,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
       guard !lblExpr.hasLooseBVars
       return (instrType, constType, p, l, lblExpr)
     let some (instrType, constType, p, l, lblExpr) :=
-      (goalT'.find? (matchLabelApp? · |>.isSome)).bind matchLabelApp? | return none
+      (goalT.find? (matchLabelApp? · |>.isSome)).bind matchLabelApp? | return none
     let some k ← goal.withContext (findLabelIdx? p lblExpr 0) | return none
     let goal ← goal.withContext do
       let isLabelPred ← mkAppOptM ``Kraken.Directive.isLabel #[some instrType, some constType, some lblExpr]
@@ -322,8 +272,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
     if (← maxInstrCount.mapM (·.get)) == some 0 then
       return none
     let goalT ← goal.withContext do instantiateMVars (← goal.mvarId.getType)
-    let_expr gimmickId goalT' := goalT | return none
-    let_expr Eventually _ trans post state := goalT' | return none
+    let_expr Eventually _ trans post state := goalT | return none
     let mkApp (.const `step1 _) exe := trans | return none
     let_expr Kraken.Layout.apply _ _ p _ := exe | return none
     let mkApp2 (.const `MachineState.mk _) s pc := state | return none
@@ -336,8 +285,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
     match_expr d with
     | Kraken.Directive.label _ _ _ => pure ()
     | _ => maxInstrCount.forM (·.modify (· - 1))
-    let goal ← removeGimmick goal
-    let goal ← goal.withContext do
+    goal.withContext do
       let someD ← mkAppM ``Option.some #[d]
       let getElemExpr ← mkAppM ``GetElem?.getElem? #[p, mkNatLit k]
       let hdType ← mkEq getElemExpr someD
@@ -348,8 +296,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
       let hType' ← Grind.liftSymM <| Sym.preprocessExpr hType
       let mvarNew ← mkFreshExprMVar hType'
       goal.mvarId.assign (mkApp stepFn mvarNew)
-      return { goal with mvarId := mvarNew.mvarId! }
-    some <$> insertGimmick goal
+      return some { goal with mvarId := mvarNew.mvarId! }
 
   -- MAIN LOOP
   let rec go (goal: Grind.Goal): Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
@@ -368,7 +315,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
           (← mvarId.getType))
       introsIf ({ goal with mvarId })
 
-    if config.debug then
+    if (←getOptions).get `debug false then
       goal.withContext do
         logInfo m!"MAIN LOOP, after step 1: {goal.mvarId}"
 
@@ -380,7 +327,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
         | .noProgress => pure (false, goal)
         | .goal mvarId => pure (true, { goal with mvarId })
         | .closed => throwError "unexpected"
-    if config.debug then
+    if (←getOptions).get `debug false then
       goal.withContext do
         let t ← goal.mvarId.getType
         logInfo m!"MAIN LOOP, after step 2: {t}"
@@ -394,8 +341,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
     -- STEP 3: spec lemmas
     goal.withContext do
       let goalT ← goal.mvarId.getType
-      let_expr gimmickId goalT' := goalT | throwError "missing gimmick"
-      let goalT' ← instantiateMVars goalT'
+      let goalT' ← instantiateMVars goalT
       -- No more Effects.All in the goal -- return to the user (we might be done,
       -- or realistically, we might need to debug).
       let some goalState := getEffectsState goalT' | return (goal, [])
@@ -505,9 +451,6 @@ partial def evalSymKStep : Grind.GrindTactic :=
         pure (goal, [])
 
   let (goal, subGoals) ← go goal
-
-  -- Remove the gimmick debug marker.
-  let goal ← removeGimmick goal
 
   logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
 

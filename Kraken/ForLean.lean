@@ -93,3 +93,44 @@ theorem List.mem_takeWhile {α : Type _} {p : α → Bool} {l : List α} {x : α
   induction l <;> grind [List.takeWhile_cons, List.takeWhile_nil]
 
 end
+
+public meta section
+
+open Lean Meta Elab Tactic Sym
+
+-- TODO: Move to ForLean.lean
+-- FIXME: a copy-paste of the Lean implementation since it's marked as private
+def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
+  goal.withContext do
+    let mvarCounterSaved := (← getMCtx).mvarCounter
+    let r ← Term.withSynthesize do
+      let heq := term
+      /-
+      The target is in `sym` normal form (e.g., reducible constants have been unfolded), but the
+      given equation is not. We unfold reducible constants in its statement so that `kabstract`
+      key-matching can find occurrences of the lhs in the target, and the rhs requires less
+      normalization after the rewrite.
+      -/
+      let heqType ← instantiateMVars (← inferType heq)
+      let heqType' ← Sym.unfoldReducible heqType
+      let heq ← if isSameExpr heqType heqType' then pure heq else mkExpectedTypeHint heq heqType'
+      goal.mvarId.rewrite (← goal.mvarId.getType) heq symm
+    let mctx ← getMCtx
+    let mvarIds := r.mvarIds.filter fun mvarId => (mctx.getDecl mvarId |>.index) >= mvarCounterSaved
+    let eNew ← Grind.liftSymM <| Sym.preprocessExpr r.eNew
+    let mvarId ← goal.mvarId.replaceTargetEq eNew r.eqProof
+    let mvarIds ← mvarIds.filterM fun mvarId => return !(← mvarId.isAssigned)
+    let sideGoals ← mvarIds.mapM fun mvarId => do
+      let target ← mvarId.getType
+      let target' ← Grind.liftSymM <| Sym.preprocessExpr target
+      if isSameExpr target target' then
+        -- The metavariable was created by `forallMetaTelescopeReducing` with kind `.natural`;
+        -- prevent it from being assigned by unification in later steps.
+        mvarId.setKind .syntheticOpaque
+        return { goal with mvarId }
+      else
+        let mvarId ← mvarId.replaceTargetDefEq target'
+        return { goal with mvarId }
+    pure ({ goal with mvarId }, sideGoals)
+
+end
