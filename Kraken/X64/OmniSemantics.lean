@@ -193,26 +193,23 @@ theorem Eventually.infix (p₁ p p₂ : Program) [layout : Kraken.WellFormedLayo
           Directives.interp, Effects.All] at hstep
       exact ih ⟨s.data, s.pc⟩ hstep
 
-theorem Eventually.prepend (p₁ p₂ : Program) [layout : Kraken.WellFormedLayout (p₁ ++ p₂)]
+theorem Eventually.prepend (p₁ p : Program) [layout : Kraken.WellFormedLayout (p₁ ++ p)]
     (post : MachineState → Prop) (init : MachineState)
     (h : letI := layout.drop p₁
-         Eventually (step1 p₂.toExecutable) post init) :
-    Eventually (step1 (p₁ ++ p₂).toExecutable) post init := by
-  have hcast : ∀ {a b : Program} (hab : a = b) (la : Kraken.WellFormedLayout a),
-      b.toExecutable (l := (hab ▸ la).toLayout) = a.toExecutable (l := la.toLayout) := by rintro _ _ rfl _; rfl
-  let hnil : p₁ ++ p₂ = p₁ ++ (p₂ ++ []) := congrArg (p₁ ++ ·) (List.append_nil p₂).symm
-  letI l' : Kraken.WellFormedLayout (p₁ ++ (p₂ ++ [])) := hnil ▸ layout
-  have htake : ((l'.drop p₁).take p₂).toLayout = (layout.drop p₁).toLayout := by
-    have : ∀ {q} (hq : p₁ ++ p₂ = q) (lq : Kraken.WellFormedLayout q),
-        lq = hq ▸ layout →
-        ({ start := lq.start + .ofNat (p₁.mapIdx (fun i _ => lq.size i) |>.sum),
-           instrSize := fun i => lq.instrSize (i + p₁.length),
-           instrSize_pos := fun i => lq.instrSize_pos (i + p₁.length) } : Kraken.Layout p₂) =
-          layout.toLayout.drop p₁ := by
-      rintro _ rfl _ rfl; rfl
-    exact this hnil l' rfl
-  rw [← hcast hnil layout]
-  exact Eventually.infix p₁ p₂ [] post init (htake ▸ h)
+         Eventually (step1 p.toExecutable) post init) :
+    Eventually (step1 (p₁ ++ p).toExecutable) post init := by
+  refine Eq.mpr ?_ (Eventually.infix p₁ p []
+    (layout := congrArg (p₁ ++ ·) (List.append_nil p) ▸ layout) post init (Eq.mp ?_ h))
+  · generalize List.append_nil p = hnil
+    generalize p ++ [] = q at hnil
+    cases hnil; rfl
+  · congr
+    change WellFormedLayout.mk (toLayout := Layout.mk _ _ _) _ _ =
+           WellFormedLayout.mk (toLayout := Layout.mk _ _ _) _ _
+    congr 2 <;>
+    · generalize List.append_nil p = hnil
+      generalize p ++ [] = q at hnil
+      cases hnil; rfl
 
 theorem Eventually.append (p₁ p₂ : Program) [layout : Kraken.WellFormedLayout (p₁ ++ p₂)]
     (post : MachineState → Prop) (init : MachineState)
