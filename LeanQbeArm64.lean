@@ -19,5 +19,7 @@ public import LeanQbe.T.Arm64.LratBytes
 public import LeanQbe.T.Arm64.LinkRec
 public import LeanQbe.T.Arm64.Kissat
 public import LeanQbe.T.Arm64.KissatCorePlus
+public import LeanQbe.T.Arm64.KissatPlainCert1
+public import LeanQbe.T.Arm64.KissatPlainCert
 
 /-! Root of the AArch64 library: imports `Kraken.AArch64` and `LeanQbe.T.Arm64.*`. -/

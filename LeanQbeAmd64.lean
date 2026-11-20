@@ -24,5 +24,7 @@ public import LeanQbe.T.Amd64.LratBytes
 public import LeanQbe.T.Amd64.LinkRec
 public import LeanQbe.T.Amd64.Kissat
 public import LeanQbe.T.Amd64.KissatCorePlus
+public import LeanQbe.T.Amd64.KissatPlainCert1
+public import LeanQbe.T.Amd64.KissatPlainCert
 
 /-! Root of the x64 library: imports `Kraken.X64` and `LeanQbe.T.Amd64.*`. -/
