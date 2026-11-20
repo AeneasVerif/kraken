@@ -267,7 +267,7 @@ theorem fullMinMarkStepState_dom_clr {c : FullCfg} {s : FullState}
         · exact hcov hmcf w hw (by simpa [List.getElem?_set_ne (Ne.symm hweq)] using hnz)
 
 theorem fullMinMarkInv_step_poison {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    {keep : List Nat} (hcore : FullCoreInv c F0 s) (hmin : FullMinMarkInv s.core keep)
+    {keep : List Nat} (hcore : FullOtfsCoreInv c F0 s) (hmin : FullMinMarkInv s.core keep)
     {v : Nat} (hv : v < s.core.cur_vars) (hno8 : (s.core.mrk[v]?.getD 0#8 &&& 8#8) = 0#8) :
     FullMinMarkInv (fullMinMarkStepState s v 4#8).core keep := by
   dsimp only [fullMinMarkStepState, fullMinMarkStepCore]
@@ -276,7 +276,7 @@ theorem fullMinMarkInv_step_poison {c : FullCfg} {F0 : CNF Nat} {s : FullState}
   · exact fullMinMarkInv_poison hcore hmin hv hno8
 
 theorem fullMinMarkInv_step_keep {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    {keep : List Nat} (hcore : FullCoreInv c F0 s) (hmin : FullMinMarkInv s.core keep)
+    {keep : List Nat} (hcore : FullOtfsCoreInv c F0 s) (hmin : FullMinMarkInv s.core keep)
     {l : Nat} (hl : l < 2 * s.core.cur_vars) (hkeep : l ∈ keep)
     (hfals : s.core.vals[l]?.getD 0#8 = 0xFF#8)
     (hno8 : (s.core.mrk[l / 2]?.getD 0#8 &&& 8#8) = 0#8) :
@@ -366,6 +366,11 @@ private theorem sortSwap_length {xs : List (BitVec 32)} {u v : Nat}
     (sortSwap xs u v hu hv).length = xs.length := by
   simp [sortSwap]
 
+private theorem sortSwap_perm {xs : List (BitVec 32)} {u v : Nat}
+    {hu : u < xs.length} {hv : v < xs.length} :
+    (sortSwap xs u v hu hv).Perm xs :=
+  list_swap_perm xs hu hv
+
 private theorem sortSwap_getElem? {xs : List (BitVec 32)} {u v k : Nat}
     {hu : u < xs.length} {hv : v < xs.length} :
     (sortSwap xs u v hu hv)[k]? =
@@ -422,7 +427,7 @@ private theorem heap_root_max {lvl tpos tmp : List (BitVec 32)} {lim : Nat}
 
 private def SiftInv (lvl tpos tmp_init tmp : List (BitVec 32))
     (r0 lim r : Nat) : Prop :=
-  tmp.length = tmp_init.length ∧
+  tmp.length = tmp_init.length ∧ tmp.Perm tmp_init ∧
   (∀ k, (k = 0 ∨ 1 + lim ≤ k) → tmp[k]? = tmp_init[k]?) ∧
   SortSliceEq tmp tmp_init (1 + lim) ∧
   (∀ k, 1 ≤ k → k < 1 + lim →
@@ -444,7 +449,7 @@ private theorem siftInv_done_of_oob {lvl tpos tmp_init tmp : List (BitVec 32)} {
   intro i hi1 hi2
   by_cases hir : i = r
   · subst i; exact ⟨fun h => by omega, fun h => by omega⟩
-  · exact hi.2.2.2.2.2.2.1 i hi1 hi2 hir
+  · exact hi.2.2.2.2.2.2.2.1 i hi1 hi2 hir
 
 private theorem siftInv_done_of_ge {lvl tpos tmp_init tmp : List (BitVec 32)} {r0 lim r ch : Nat}
     (hi : SiftInv lvl tpos tmp_init tmp r0 lim r) (_hc : ch < lim)
@@ -465,7 +470,7 @@ private theorem siftInv_done_of_ge {lvl tpos tmp_init tmp : List (BitVec 32)} {r
         · exact hge
         · omega
     · intro h2; exact tmpLe_trans (hmax h2).2 hge
-  · exact hi.2.2.2.2.2.2.1 i hi1 hi2 hir
+  · exact hi.2.2.2.2.2.2.2.1 i hi1 hi2 hir
 
 private theorem siftInv_swap {lvl tpos tmp_init tmp : List (BitVec 32)} {r0 lim r ch : Nat}
     (hi : SiftInv lvl tpos tmp_init tmp r0 lim r) (hlim_len : 1 + lim ≤ tmp_init.length)
@@ -475,7 +480,7 @@ private theorem siftInv_swap {lvl tpos tmp_init tmp : List (BitVec 32)} {r0 lim 
       tmpLe lvl tpos (tmp[1 + (2 * r + 1)]?.getD 0#32) (tmp[1 + ch]?.getD 0#32) ∧
       tmpLe lvl tpos (tmp[1 + (2 * r + 2)]?.getD 0#32) (tmp[1 + ch]?.getD 0#32)) :
     let hlen := hi.1
-    let hu : 1 + r < tmp.length := by have := hi.2.2.2.2.1; omega
+    let hu : 1 + r < tmp.length := by have := hi.2.2.2.2.2.1; omega
     let hv : 1 + ch < tmp.length := by omega
     SiftInv lvl tpos tmp_init (sortSwap tmp (1 + r) (1 + ch) hu hv) r0 lim ch := by
   intro hlen hu hv
@@ -494,8 +499,9 @@ private theorem siftInv_swap {lvl tpos tmp_init tmp : List (BitVec 32)} {r0 lim 
           List.getElem?_eq_getElem hv, Option.getD_some]
       · simp only [h1, h2, ↓reduceIte]
   have hpar_ch : (ch - 1) / 2 = r := by omega
-  rcases hi with ⟨_, hout, hseq, hbd, hr_lim, hr0_r, hheap, hgp⟩
-  refine ⟨sortSwap_length.trans hlen, ?_, ?_, ?_, hch_lim, by omega, ?_, ?_⟩
+  rcases hi with ⟨_, hperm, hout, hseq, hbd, hr_lim, hr0_r, hheap, hgp⟩
+  refine ⟨sortSwap_length.trans hlen, sortSwap_perm.trans hperm, ?_, ?_, ?_, hch_lim,
+    by omega, ?_, ?_⟩
   · intro k hk; rw [sortSwap_getElem?]
     have h1 : k ≠ 1 + ch := by rcases hk with rfl | h <;> omega
     have h2 : k ≠ 1 + r := by rcases hk with rfl | h <;> omega
@@ -605,16 +611,16 @@ theorem full_sort_tmp_sift_wp (Γ : Env)
     ⟨tmp_init, lvl, tpos, R, hst_lt, hlim_len, hlim_60, hbd0, hheap0, hm0, hQ⟩
   unfold Func.wp full_sort_tmp_sift_body; dsimp only [full_sort_tmp_sift_body]
   let BrkP : Tup Val [i64] → Mem 64 → Prop := fun (_, ()) m' =>
-    ∃ tmp', tmp'.length = tmp_init.length ∧
+    ∃ tmp', tmp'.length = tmp_init.length ∧ tmp'.Perm tmp_init ∧
       (∀ k, (k = 0 ∨ 1 + lim.toNat ≤ k) → tmp'[k]? = tmp_init[k]?) ∧
       SortSliceEq tmp' tmp_init (1 + lim.toNat) ∧
       IsMaxHeapFrom lvl tpos tmp' start.toNat lim.toNat ∧
       (array (t := i32) tmp_ptr tmp' ⋆ array (t := i32) lvl_ptr lvl ⋆
         array (t := i32) tpos_ptr tpos ⋆ R) m'
   refine wp_join_group (ts := [i64]) BrkP ?_ ?_
-  · rintro _ ⟨_, ⟨⟩⟩ m' ⟨tmp', hlen', hout', hseq', hh', hm'⟩
+  · rintro _ ⟨_, ⟨⟩⟩ m' ⟨tmp', hlen', hperm', hout', hseq', hh', hm'⟩
     rw [Blocks.get_here, wp]
-    exact hQ tmp' m' hlen' hout' hseq' hh' hm'
+    exact hQ tmp' m' hlen' hperm' hout' hseq' hh' hm'
   · rintro Jbrk hJbrk
     let SiftLp : Nat → Tup Val [i64] → Mem 64 → Prop := fun dec (r, ()) m1 =>
       dec = lim.toNat - r.toNat ∧
@@ -626,13 +632,14 @@ theorem full_sort_tmp_sift_wp (Γ : Env)
       rw [Blocks.get_here, wp]; refine ⟨fun _ => ?_, fun h => by cases h⟩
       ml_lets
       have hsi_cp := hsi
-      rcases hsi with ⟨htl, hout, hseq, hbd, hr_lim, hr0_r, hheap, hgp⟩
+      rcases hsi with ⟨htl, hperm, hout, hseq, hbd, hr_lim, hr0_r, hheap, hgp⟩
       have hc1_nat : ((r <<< ((BitVec.signExtend 64 (1 : BitVec 32)).toNat % 64)) + 1).toNat =
           2 * r.toNat + 1 := bv64_shl1_add1_toNat (x := r) (by omega)
       ml_jnz; refine ⟨fun hoob => ?_, fun hch_in => ?_⟩
       · change BitVec.ule lim ((r <<< _) + 1) = true at hoob
         rw [BitVec.ule, decide_eq_true_eq, hc1_nat] at hoob
-        exact hJbrk (r, ()) m1 ⟨tmp1, htl, hout, hseq, siftInv_done_of_oob hsi_cp hoob, hm1⟩
+        exact hJbrk (r, ()) m1
+          ⟨tmp1, htl, hperm, hout, hseq, siftInv_done_of_oob hsi_cp hoob, hm1⟩
       · have hc1_lt : 2 * r.toNat + 1 < lim.toNat := by
           change BitVec.ule lim ((r <<< _) + 1) = false at hch_in
           rw [BitVec.ule, decide_eq_false_iff_not, hc1_nat] at hch_in; omega
@@ -724,7 +731,7 @@ theorem full_sort_tmp_sift_wp (Γ : Env)
                   Option.getD_some, ← hvr_eq, ← hvc_eq]
                 exact tmpLe_of_decide_false hge
               have hch_eq' : ch.toNat = 2 * r.toNat + 1 ∨ ch.toNat = 2 * r.toNat + 2 := by omega
-              exact hJbrk (r, ()) m2 ⟨tmp1, htl, hout, hseq,
+              exact hJbrk (r, ()) m2 ⟨tmp1, htl, hperm, hout, hseq,
                 siftInv_done_of_ge hsi_cp hch_lim hch_eq' hge' hch_max, hm1⟩
         · rintro J2 hJ2; ml_lets
           have hc2_bv : (c1 + 1).toNat = 2 * r.toNat + 2 := by
@@ -794,7 +801,7 @@ theorem full_sort_tmp_sift_wp (Γ : Env)
               by rw [hc1_eq]; exact hc1_lt, fun h => by omega⟩
     · intro J hJ; wp_unfold
       have hsift0 : SiftInv lvl tpos tmp_init tmp_init start.toNat lim.toNat start.toNat :=
-        ⟨rfl, fun _ _ => rfl, sortSliceEq_refl _ _, hbd0, hst_lt, le_refl _,
+        ⟨rfl, List.Perm.refl _, fun _ _ => rfl, sortSliceEq_refl _ _, hbd0, hst_lt, le_refl _,
           fun i hi1 hi2 hine => hheap0 i (by omega) hi2,
           fun hlt => absurd hlt (Nat.lt_irrefl _)⟩
       exact hJ (lim.toNat - start.toNat) (start, ()) m0 ⟨rfl, tmp_init, hsift0, hm0⟩
@@ -842,7 +849,7 @@ theorem full_sort_tmp_wp (Γ : Env)
   · c0_cond hle2
     have htl2 : s.core.tmp_len ≤ 2 := by bv_omega
     ml_lets; rw [wp]
-    refine hQ s.core.tmp m htmp_len (fun _ => rfl)
+    refine hQ s.core.tmp m htmp_len (List.Perm.refl _) (fun _ => rfl)
       (fun j h1 h2 => ⟨j, h1, h2, rfl⟩) (fun i h1 h2 => ⟨i, h1, h2, rfl⟩)
       (fun i j hi hij hj => by
         have hij' : i = j := by omega
@@ -865,14 +872,16 @@ theorem full_sort_tmp_wp (Γ : Env)
     ml_lets
     let Loop1Inv : Nat → Tup Val [i64] → Mem 64 → Prop := fun dec (start, ()) m1 =>
       dec = start.toNat ∧ start.toNat ≤ n.toNat / 2 ∧
-      ∃ tmp1, tmp1.length = c.max_vars ∧
+      ∃ tmp1, tmp1.length = c.max_vars ∧ tmp1.Perm s.core.tmp ∧
+        (∀ k, s.core.tmp_len ≤ k → tmp1[k]? = s.core.tmp[k]?) ∧
         (0 < s.core.tmp_len → tmp1[0]? = s.core.tmp[0]?) ∧
         SortSliceEq tmp1 s.core.tmp s.core.tmp_len ∧
         (∀ k, 1 ≤ k → k < s.core.tmp_len → (tmp1[k]?.getD 0#32).toNat < 2 * c.max_vars) ∧
         IsMaxHeapFrom s.core.lvl s.core.trail_pos tmp1 start.toNat n.toNat ∧
         (FullMem c { s with core := { s.core with tmp := tmp1 } } ⋆ R) m1
     refine wp_loop_group (ts := [i64]) Loop1Inv ?_ ?_
-    · rintro J1 dec ⟨start, ⟨⟩⟩ m1 hJ1 ⟨rfl, hst_le, tmp1, htl1, h01, hseq1, hbd1, hh1, hm1⟩
+    · rintro J1 dec ⟨start, ⟨⟩⟩ m1 hJ1
+        ⟨rfl, hst_le, tmp1, htl1, hperm1, hout1, h01, hseq1, hbd1, hh1, hm1⟩
       rw [Blocks.get_here]; ml_lets
       ml_jnz; refine ⟨fun hst_pos => ?_, fun hst0 => ?_⟩
       · have hst_gt0 : 0 < start.toNat := by c0_cond hst_pos; bv_omega
@@ -888,7 +897,7 @@ theorem full_sort_tmp_wp (Γ : Env)
           fun k hk1 hk2 => by
             have := hbd1 k hk1 (by omega); exact ⟨by omega, by omega⟩,
           by rw [hst_m1, Nat.sub_add_cancel hst_gt0]; exact hh1, hm1_sift, ?_⟩
-        intro tmp2 m2 htl2' hout2 hseq2 hh2 hm2_sift
+        intro tmp2 m2 htl2' hperm2 hout2 hseq2 hh2 hm2_sift
         have hm2 := hm1_unfocus tmp2 m2 hm2_sift
         have h02 : 0 < s.core.tmp_len → tmp2[0]? = s.core.tmp[0]? := fun hp =>
           (hout2 0 (Or.inl rfl)).trans (h01 hp)
@@ -900,7 +909,9 @@ theorem full_sort_tmp_wp (Γ : Env)
           obtain ⟨j, hj1, hj2, hkj⟩ := hseq2'.1 k hk1 hk2
           rw [hkj]; exact hbd0 j hj1 hj2
         exact hJ1 (start - 1).toNat (start - 1, ()) m2 (by rw [hst_m1]; omega)
-          ⟨rfl, by rw [hst_m1]; omega, tmp2, htl2'.trans htl1, h02, hseq2', hbd2, hh2, hm2⟩
+          ⟨rfl, by rw [hst_m1]; omega, tmp2, htl2'.trans htl1, hperm2.trans hperm1,
+            fun k hk => (hout2 k (Or.inr (by omega))).trans (hout1 k hk), h02, hseq2', hbd2, hh2,
+            hm2⟩
       · have hst_eq0 : start.toNat = 0 := by
           change (0 : BitVec 64).ult start = false at hst0
           rw [BitVec.ult, decide_eq_false_iff_not] at hst0; bv_omega
@@ -912,7 +923,8 @@ theorem full_sort_tmp_wp (Γ : Env)
           rw [BitVec.toNat_sub_of_le (by bv_omega), h1]
         let Loop2Inv : Nat → Tup Val [i64] → Mem 64 → Prop := fun dec2 (e, ()) m2 =>
           dec2 = e.toNat ∧ e.toNat < n.toNat ∧
-          ∃ tmp2, tmp2.length = c.max_vars ∧
+          ∃ tmp2, tmp2.length = c.max_vars ∧ tmp2.Perm s.core.tmp ∧
+            (∀ k, s.core.tmp_len ≤ k → tmp2[k]? = s.core.tmp[k]?) ∧
             (0 < s.core.tmp_len → tmp2[0]? = s.core.tmp[0]?) ∧
             SortSliceEq tmp2 s.core.tmp s.core.tmp_len ∧
             (∀ k, 1 ≤ k → k < s.core.tmp_len → (tmp2[k]?.getD 0#32).toNat < 2 * c.max_vars) ∧
@@ -922,7 +934,7 @@ theorem full_sort_tmp_wp (Γ : Env)
                 (tmp2[1 + i]?.getD 0#32) (tmp2[1 + j]?.getD 0#32)) ∧
             (FullMem c { s with core := { s.core with tmp := tmp2 } } ⋆ R) m2
         refine wp_loop_group (ts := [i64]) Loop2Inv ?_ ?_
-        · rintro J2 dec2 ⟨e, ⟨⟩⟩ m2 hJ2 ⟨rfl, he_lt, tmp2, htl2', h02, hseq2, hbd2,
+        · rintro J2 dec2 ⟨e, ⟨⟩⟩ m2 hJ2 ⟨rfl, he_lt, tmp2, htl2', hperm2, hout2, h02, hseq2, hbd2,
             hh2, hsorted2, hm2⟩
           rw [Blocks.get_here]; ml_lets
           ml_jnz; refine ⟨fun he_pos => ?_, fun he0' => ?_⟩
@@ -1044,7 +1056,7 @@ theorem full_sort_tmp_wp (Γ : Env)
               by simpa using he_gt0, by omega, by omega,
               fun k hk1 hk2 => by have := hbd3 k hk1 (by omega); exact ⟨by omega, by omega⟩,
               by simpa using hheap3, hm4_sift, ?_⟩
-            intro tmp4 m4 htl4 hout4 hseq4 hh4 hm4_sift'
+            intro tmp4 m4 htl4 hperm4 hout4 hseq4 hh4 hm4_sift'
             have hm4_out := hm4_unfocus tmp4 m4 hm4_sift'
             have h04 : 0 < s.core.tmp_len → tmp4[0]? = s.core.tmp[0]? := fun hp =>
               (hout4 0 (Or.inl rfl)).trans (h03 hp)
@@ -1068,9 +1080,16 @@ theorem full_sort_tmp_wp (Γ : Env)
                   hmax3_tail j hj1 hj2 (k - 1) (by omega)
               · rw [hout4 (1 + i) (Or.inr (by omega))]
                 exact hmax3_tail j hj1 hj2 i hij
+            have hperm3 : tmp3.Perm tmp2 := sortSwap_perm
+            have hout3 : ∀ k, s.core.tmp_len ≤ k → tmp3[k]? = tmp2[k]? := fun k hk => by
+              dsimp only [tmp3]; rw [sortSwap_getElem?]
+              simp [show k ≠ 1 + e.toNat by omega, show k ≠ 1 by omega]
             ml_lets
             exact hJ2 (e - 1).toNat (e - 1, ()) m4 (by rw [he_m1]; omega)
-              ⟨rfl, by rw [he_m1]; omega, tmp4, htl4.trans htl3, h04, hseq4_full, hbd4,
+              ⟨rfl, by rw [he_m1]; omega, tmp4, htl4.trans htl3,
+                hperm4.trans (hperm3.trans hperm2),
+                fun k hk => (hout4 k (Or.inr (by omega))).trans ((hout3 k hk).trans (hout2 k hk)),
+                h04, hseq4_full, hbd4,
                 by rw [he_m1, Nat.sub_add_cancel he_gt0]; simpa using hh4,
                 by rw [he_m1, Nat.sub_add_cancel he_gt0]; exact hsorted4, hm4_out⟩
           · have he_eq0 : e.toNat = 0 := by
@@ -1078,7 +1097,8 @@ theorem full_sort_tmp_wp (Γ : Env)
               rw [BitVec.ult, decide_eq_false_iff_not] at he0'; bv_omega
             rw [he_eq0] at hsorted2
             ml_lets; rw [wp]
-            refine hQ tmp2 m2 htl2' h02 hseq2.1 hseq2.2 (fun i j hi1 hij hj => ?_) hm2
+            refine hQ tmp2 m2 htl2' (perm_take_of_drop_eq hperm2 hout2) h02 hseq2.1 hseq2.2
+              (fun i j hi1 hij hj => ?_) hm2
             by_cases hj1 : j = 1
             · subst hj1
               have hij' : i = 1 := by omega
@@ -1087,8 +1107,8 @@ theorem full_sort_tmp_wp (Γ : Env)
                 simpa [show 1 + (i - 1) = i by omega, show 1 + (j - 1) = j by omega] using
                   hsorted2 (j - 1) (by omega) (by omega) (i - 1) (by omega))
         · intro J2 hJ2; wp_unfold
-          exact hJ2 e0.toNat (e0, ()) m1 ⟨rfl, by omega, tmp1, htl1, h01, hseq1, hbd1,
-            by rw [he0, Nat.sub_add_cancel (by omega)]; exact hh1,
+          exact hJ2 e0.toNat (e0, ()) m1 ⟨rfl, by omega, tmp1, htl1, hperm1, hout1, h01, hseq1,
+            hbd1, by rw [he0, Nat.sub_add_cancel (by omega)]; exact hh1,
             fun j hj1 => by rw [he0] at hj1; omega, hm1⟩
     · intro J1 hJ1; wp_unfold
       have hsh : ((n >>> ((BitVec.signExtend 64 (1 : BitVec 32)).toNat % 64))).toNat =
@@ -1098,8 +1118,8 @@ theorem full_sort_tmp_wp (Γ : Env)
         rw [h1, hm', bv64_lshr_1]
       have hh0 : IsMaxHeapFrom s.core.lvl s.core.trail_pos s.core.tmp (n.toNat / 2) n.toNat := by
         intro i hi1 hi2; exact ⟨fun h => by omega, fun h => by omega⟩
-      exact hJ1 _ _ m ⟨hsh, le_refl _, s.core.tmp, htmp_len, fun _ => rfl,
-        sortSliceEq_refl _ _, hbd0, hh0, hm⟩
+      exact hJ1 _ _ m ⟨hsh, le_refl _, s.core.tmp, htmp_len, List.Perm.refl _, fun _ _ => rfl,
+        fun _ => rfl, sortSliceEq_refl _ _, hbd0, hh0, hm⟩
 
 /-! ## 3. `full_shrink_lower_wp` -/
 
@@ -1111,9 +1131,9 @@ theorem full_shrink_lower_wp (Γ : Env)
     ∀ args m Q X, fullShrinkLowerSpec args m Q X →
       Func.wp Γ full_shrink_lower_body args m Q X := by
   rintro ⟨h, ot, ov, ⟨⟩⟩ m Q X
-    ⟨c, F0, s, keepSet, R, rfl, hcore, hmin, hov_eq, hot_lt, hval, hno8, hm, hQ⟩
+    ⟨c, F0, s, keepSet, R, rfl, hcore, hmin, hov_eq, hot_lt, hval, hlv_ov, hno8, hm, hQ⟩
   unfold Func.wp full_shrink_lower_body; dsimp only [full_shrink_lower_body]
-  have hlen := hcore.lengths
+  have hlen := hcore.1
   have hov_lt : ov.toNat < s.core.cur_vars := by omega
   have hov_mrk : (ov.setWidth 64).toNat < s.core.mrk.length := by
     rw [bv_c0_zext32_64, hlen.core_ok.mrk_len]; have := hlen.core_ok.cur_vars_le; omega
@@ -1153,8 +1173,8 @@ theorem full_shrink_lower_wp (Γ : Env)
       rw [h4] at hm2
       let s1 := minLitState s mrk1 mstk1 mclr1 mcl1 mcf1
       let s2 := fullMinMarkStepState s1 ov.toNat 4#8
-      have hcore1 : FullCoreInv c F0 s1 :=
-        fullCoreInv_with_min hcore hlen1.core_ok.mrk_len hlen1.core_ok.min_stk_len
+      have hcore1 : FullOtfsCoreInv c F0 s1 :=
+        fullOtfsCoreInv_with_min hcore hlen1.core_ok.mrk_len hlen1.core_ok.min_stk_len
           hlen1.core_ok.min_clr_len_arr hlen1.core_ok.min_clr_len_le
       have hno8_1 : (s1.core.mrk[ov.toNat]?.getD 0#8 &&& 8#8) = 0#8 := by
         dsimp only [s1, minLitState]
@@ -1184,7 +1204,7 @@ theorem full_shrink_lower_wp (Γ : Env)
           s.core.min_clr_full, hlen, fun _ _ => rfl, fun _ _ h => h, fun _ _ => rfl, hmin, hm⟩
       · apply wp_call_of_spec; apply hMl
         dsimp only [fullMinLitSpec, vals, Arg.val]
-        refine ⟨c, F0, s, keepSet, R, rfl, hcore, hmin, hot_lt, hval,
+        refine ⟨c, F0, s, keepSet, R, rfl, hcore, hmin, hot_lt, hval, by rwa [← hov_eq],
           fun v hv hle => hno8 v hv (by rwa [hov_eq]), hm, ?_⟩
         intro ok mrk1 mstk1 mclr1 mcl1 mcf1 m1 hlen1 hab1 hm2_1 h8_1 hmin1 hok1 hm1
         ml_lets; ml_jnz; refine ⟨fun hok_t => ?_, fun _ => ?_⟩
@@ -1247,14 +1267,14 @@ def shrinkBlkSt (s : FullState) (tmp1 : List (BitVec 32)) (mrk1 : List (BitVec 8
     scratch := { s.scratch with shrink_stk := sstk1 } }
 
 theorem coreInv_shrinkBlk {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {tmp1 : List (BitVec 32)} {mrk1 : List (BitVec 8)}
+    (hcore : FullOtfsCoreInv c F0 s) {tmp1 : List (BitVec 32)} {mrk1 : List (BitVec 8)}
     {mstk1 mclr1 sstk1 : List (BitVec 32)} {mcl1 : Nat} {mcf1 : BitVec 64}
     (htmp : tmp1.length = c.max_vars) (hmrk : mrk1.length = c.max_vars)
     (hmstk : mstk1.length = 2 * c.minDepth) (hmclr : mclr1.length = c.max_vars)
     (hmcl : mcl1 ≤ c.max_vars) (hsstk : sstk1.length = c.max_vars) :
-    FullCoreInv c F0 (shrinkBlkSt s tmp1 mrk1 mstk1 mclr1 mcl1 mcf1 sstk1) :=
-  fullCoreInv_with_min_tmp hcore htmp hcore.lengths.core_ok.tmp_len_le hmrk hmstk hmclr hmcl
-    { hcore.lengths.scratch_ok with shrink_stk_len := hsstk }
+    FullOtfsCoreInv c F0 (shrinkBlkSt s tmp1 mrk1 mstk1 mclr1 mcl1 mcf1 sstk1) :=
+  fullOtfsCoreInv_with_min_tmp hcore htmp hcore.1.core_ok.tmp_len_le hmrk hmstk hmclr hmcl
+    { hcore.1.scratch_ok with shrink_stk_len := hsstk }
 
 theorem shrinkBlkSt_step {s : FullState} {tmp1 : List (BitVec 32)}
     {mrk1 : List (BitVec 8)} {mstk1 mclr1 sstk1 : List (BitVec 32)} {mcl1 : Nat}
@@ -1272,6 +1292,7 @@ theorem shrinkBlkSt_step {s : FullState} {tmp1 : List (BitVec 32)}
 /-- Purely structural reason coverage predicate (independent of `F_cur`). -/
 def RsnCov (k : FullCoreState) (P : Nat → Prop) (idx : Nat) : Prop :=
   let p := (k.trl[idx]?.getD 0#32).toNat
+  (k.lvl[p / 2]?.getD 0#32).toNat < k.cur_level ∧
   let rsn := k.rsns[p / 2]?.getD 0xFFFFFFFF#32
   rsn ≠ 0xFFFFFFFF#32 ∧
   if (rsn &&& 0x80000000#32) ≠ 0#32 then
@@ -1286,13 +1307,13 @@ def RsnCov (k : FullCoreState) (P : Nat → Prop) (idx : Nat) : Prop :=
         ((k.lvl[q / 2]?.getD 0#32).toNat = 0 ∨ P (q / 2))
 
 theorem rsnCov_mono {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {P1 P2 : Nat → Prop}
+    (hcore : FullOtfsCoreInv c F0 s) {P1 P2 : Nat → Prop}
     (hP : ∀ w < s.core.cur_vars, P1 w → P2 w) {idx : Nat} (h : RsnCov s.core P1 idx) :
     RsnCov s.core P2 idx := by
-  obtain ⟨F_cur, hw⟩ := hcore.witness
+  obtain ⟨F_cur, hw⟩ := hcore.2
   dsimp only [RsnCov] at h ⊢
-  rcases h with ⟨hne, hif⟩
-  refine ⟨hne, ?_⟩
+  rcases h with ⟨hlv, hne, hif⟩
+  refine ⟨hlv, hne, ?_⟩
   split at hif <;> split
   · obtain ⟨hot, j, hj, hjeq, hdep⟩ := hif
     exact ⟨hot, j, hj, hjeq, hdep.elim Or.inl fun h1 => Or.inr (hP _ (by omega) h1)⟩
@@ -1309,7 +1330,7 @@ abbrev ShrinkResolved (k : FullCoreState) (mrk : List (BitVec 8)) (idx : Nat) : 
   RsnCov k (fun w => (mrk[w]?.getD 0#8 &&& 2#8) ≠ 0#8 ∨ (mrk[w]?.getD 0#8 &&& 8#8) ≠ 0#8) idx
 
 theorem remSound_lift_mrk2 {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {mrk1 mrk2 : List (BitVec 8)}
+    (hcore : FullOtfsCoreInv c F0 s) {mrk1 mrk2 : List (BitVec 8)}
     (hm2 : ∀ w < s.core.cur_vars,
       (mrk1[w]?.getD 0#8 &&& 2#8) ≠ 0#8 → (mrk2[w]?.getD 0#8 &&& 2#8) ≠ 0#8)
     {idx : Nat} (h : RsnCov s.core (fun w => (mrk1[w]?.getD 0#8 &&& 2#8) ≠ 0#8) idx) :
@@ -1317,7 +1338,7 @@ theorem remSound_lift_mrk2 {c : FullCfg} {F0 : CNF Nat} {s : FullState}
   rsnCov_mono hcore hm2 h
 
 theorem shrinkResolved_mono {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {mrk1 mrk2 : List (BitVec 8)}
+    (hcore : FullOtfsCoreInv c F0 s) {mrk1 mrk2 : List (BitVec 8)}
     (hm2 : ∀ w < s.core.cur_vars,
       (mrk1[w]?.getD 0#8 &&& 2#8) ≠ 0#8 → (mrk2[w]?.getD 0#8 &&& 2#8) ≠ 0#8)
     (hm8 : ∀ w < s.core.cur_vars,
@@ -1328,7 +1349,7 @@ theorem shrinkResolved_mono {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     (fun h8 => Or.inr (hm8 w hw h8))) hr
 
 theorem shrinkResolved_to_rem {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {mrk1 mrk2 : List (BitVec 8)}
+    (hcore : FullOtfsCoreInv c F0 s) {mrk1 mrk2 : List (BitVec 8)}
     (hm2 : ∀ w < s.core.cur_vars,
       (mrk1[w]?.getD 0#8 &&& 2#8) ≠ 0#8 → (mrk2[w]?.getD 0#8 &&& 2#8) ≠ 0#8)
     (hm8 : ∀ w < s.core.cur_vars,
@@ -1355,11 +1376,11 @@ structure ShrinkBaseInv (c : FullCfg) (s : FullState)
   sstk_lt : ∀ j < slen, (sstk1[j]?.getD 0#32).toNat < s.core.cur_vars
 
 theorem shrinkBaseInv_core {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {mrk1 : List (BitVec 8)} {mstk1 mclr1 sstk1 : List (BitVec 32)}
+    (hcore : FullOtfsCoreInv c F0 s) {mrk1 : List (BitVec 8)} {mstk1 mclr1 sstk1 : List (BitVec 32)}
     {mcl1 slen : Nat} {mcf1 : BitVec 64} {keep0 : List Nat}
     (hb : ShrinkBaseInv c s mrk1 mstk1 mclr1 mcl1 mcf1 sstk1 slen keep0) :
-    FullCoreInv c F0 (shrinkBlkSt s s.core.tmp mrk1 mstk1 mclr1 mcl1 mcf1 sstk1) :=
-  coreInv_shrinkBlk hcore hcore.lengths.core_ok.tmp_len_arr hb.mrk_len hb.mstk_len hb.mclr_len
+    FullOtfsCoreInv c F0 (shrinkBlkSt s s.core.tmp mrk1 mstk1 mclr1 mcl1 mcf1 sstk1) :=
+  coreInv_shrinkBlk hcore hcore.1.core_ok.tmp_len_arr hb.mrk_len hb.mstk_len hb.mclr_len
     hb.mcl_le hb.sstk_len
 
 theorem getElem?_getD_of_getElem {α : Type _} (d : α) {xs ys : List α}

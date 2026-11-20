@@ -62,13 +62,15 @@ private def EdgeChild (k : FullCoreState) (idx pos cidx : Nat) : Prop :=
   cidx < idx ∧ (k.trl[cidx]?.getD 0#32).toNat = l ^^^ 1
 
 private theorem frameCov_zero {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) (mrk1 : List (BitVec 8)) {idx : Nat}
+    (hcore : FullOtfsCoreInv c F0 s) (mrk1 : List (BitVec 8)) {idx : Nat}
     (hi : idx < s.core.trail_end)
+    (hlvl : (s.core.lvl[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD 0#32).toNat <
+      s.core.cur_level)
     (hne : s.core.rsns[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32 ≠
       0xFFFFFFFF#32) :
     FrameCov s.core mrk1 idx 0 := by
-  obtain ⟨F_cur, hw⟩ := hcore.witness
-  have hrs := hw.reason_inv idx hi hne
+  obtain ⟨F_cur, hw⟩ := hcore.2
+  have hrs := hw.reason_inv_below idx hi hlvl hne
   refine ⟨hne, ?_⟩
   split at hrs <;> split
   · exact ⟨hrs.1, fun h => by omega⟩
@@ -78,15 +80,16 @@ private theorem frameCov_zero {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     exact ⟨hrs.1, hrs.2.1, hwf.2.1, fun _ h => by omega⟩
 
 private theorem frameCov_arena_lits_bd {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {cref : Nat} (href : cref ∈ fullArenaClauseRefsCore s.core) :
+    (hcore : FullOtfsCoreInv c F0 s) {cref : Nat} (href : cref ∈ fullArenaClauseRefsCore s.core) :
     cref + 3 + fullArenaClauseSizeCore s.core cref ≤ s.core.arena.length := by
-  obtain ⟨F_cur, hw⟩ := hcore.witness
+  obtain ⟨F_cur, hw⟩ := hcore.2
   have hwf := hw.arena.refs_wf cref href
   have := hwf.2.2.1; have := hwf.2.2.2.1
-  have := hcore.lengths.core_ok.arena_len_le; have := hcore.lengths.core_ok.arena_len_arr; omega
+  have := hcore.1.core_ok.arena_len_le; have := hcore.1.core_ok.arena_len_arr; omega
 
 private theorem frameCov_arena_lits_mem {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {cref pos : Nat} (href : cref ∈ fullArenaClauseRefsCore s.core)
+    (hcore : FullOtfsCoreInv c F0 s) {cref pos : Nat}
+    (href : cref ∈ fullArenaClauseRefsCore s.core)
     (hp : pos < fullArenaClauseSizeCore s.core cref) :
     (s.core.arena[cref + 3 + pos]?.getD 0#32).toNat ∈ fullArenaClauseLitsCore s.core cref := by
   have hbd := frameCov_arena_lits_bd hcore href
@@ -94,11 +97,11 @@ private theorem frameCov_arena_lits_mem {c : FullCfg} {F0 : CNF Nat} {s : FullSt
   exact ⟨pos, hp, by rw [List.getElem?_eq_getElem (by omega), Option.getD_some]⟩
 
 private theorem frameCov_mono {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {mrk1 mrk2 : List (BitVec 8)}
+    (hcore : FullOtfsCoreInv c F0 s) {mrk1 mrk2 : List (BitVec 8)}
     (hmono : ∀ w < s.core.cur_vars,
       (mrk1[w]?.getD 0#8 &&& 2#8) ≠ 0#8 → (mrk2[w]?.getD 0#8 &&& 2#8) ≠ 0#8)
     {idx lim : Nat} (hcov : FrameCov s.core mrk1 idx lim) : FrameCov s.core mrk2 idx lim := by
-  obtain ⟨F_cur, hw⟩ := hcore.witness
+  obtain ⟨F_cur, hw⟩ := hcore.2
   rcases hcov with ⟨hne, hif⟩
   refine ⟨hne, ?_⟩
   split at hif <;> split
@@ -114,8 +117,11 @@ private theorem frameCov_mono {c : FullCfg} {F0 : CNF Nat} {s : FullState}
       exact Or.inr ⟨j, hj, hjeq, hdep.elim Or.inl fun h2 => Or.inr (hmono _ (by omega) h2)⟩
 
 private theorem frameCov_step {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {mrk1 : List (BitVec 8)} {idx pos : Nat}
-    (hi : idx < s.core.trail_end) (hcov : FrameCov s.core mrk1 idx pos)
+    (hcore : FullOtfsCoreInv c F0 s) {mrk1 : List (BitVec 8)} {idx pos : Nat}
+    (hi : idx < s.core.trail_end)
+    (hlvl : (s.core.lvl[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD 0#32).toNat <
+      s.core.cur_level)
+    (hcov : FrameCov s.core mrk1 idx pos)
     (hlt : pos < if (s.core.rsns[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32 &&&
         0x80000000#32) ≠ 0#32 then 1 else fullArenaClauseSizeCore s.core
         (s.core.rsns[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32).toNat)
@@ -127,10 +133,10 @@ private theorem frameCov_step {c : FullCfg} {F0 : CNF Nat} {s : FullState}
       ∃ j < idx, (s.core.trl[j]?.getD 0#32).toNat = q ^^^ 1 ∧
         ((s.core.lvl[q / 2]?.getD 0#32).toNat = 0 ∨ (mrk1[q / 2]?.getD 0#8 &&& 2#8) ≠ 0#8)) :
     FrameCov s.core mrk1 idx (pos + 1) := by
-  obtain ⟨F_cur, hw⟩ := hcore.witness
+  obtain ⟨F_cur, hw⟩ := hcore.2
   dsimp only [FrameCov] at hcov ⊢
   rcases hcov with ⟨hne, hif⟩
-  have hrs := hw.reason_inv idx hi hne
+  have hrs := hw.reason_inv_below idx hi hlvl hne
   refine ⟨hne, ?_⟩
   dsimp only [minLitRsnLit] at hstep ⊢
   dsimp only at hif hrs hlt hstep ⊢
@@ -165,7 +171,7 @@ private theorem frameCov_step {c : FullCfg} {F0 : CNF Nat} {s : FullState}
       · exact Or.inr hok
 
 private theorem frameCov_to_hrsn {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {mrk1 : List (BitVec 8)} {idx lim : Nat}
+    (hcore : FullOtfsCoreInv c F0 s) {mrk1 : List (BitVec 8)} {idx lim : Nat}
     (hcov : FrameCov s.core mrk1 idx lim)
     (hlim : (if (s.core.rsns[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32 &&&
         0x80000000#32) ≠ 0#32 then 1 else fullArenaClauseSizeCore s.core
@@ -200,8 +206,11 @@ private theorem frameCov_to_hrsn {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     rwa [List.getElem?_eq_getElem (by omega), Option.getD_some, hjeq] at hq'
 
 private theorem frameCov_edge_exists {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {mrk1 : List (BitVec 8)} {idx pos : Nat}
-    (hi : idx < s.core.trail_end) (hcov : FrameCov s.core mrk1 idx pos)
+    (hcore : FullOtfsCoreInv c F0 s) {mrk1 : List (BitVec 8)} {idx pos : Nat}
+    (hi : idx < s.core.trail_end)
+    (hlvl : (s.core.lvl[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD 0#32).toNat <
+      s.core.cur_level)
+    (hcov : FrameCov s.core mrk1 idx pos)
     (hlt : pos < if (s.core.rsns[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32 &&&
         0x80000000#32) ≠ 0#32 then 1 else fullArenaClauseSizeCore s.core
         (s.core.rsns[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32).toNat)
@@ -214,10 +223,10 @@ private theorem frameCov_edge_exists {c : FullCfg} {F0 : CNF Nat} {s : FullState
     ∃ cidx < idx, (s.core.trl[cidx]?.getD 0#32).toNat = q ^^^ 1 ∧
       (s.core.lvl[q / 2]?.getD 0#32).toNat ≤
         (s.core.lvl[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD 0#32).toNat := by
-  obtain ⟨F_cur, hw⟩ := hcore.witness
+  obtain ⟨F_cur, hw⟩ := hcore.2
   dsimp only [FrameCov, minLitRsnLit] at hcov hlt hneq ⊢
   rcases hcov with ⟨hne, hif⟩
-  have hrs := hw.reason_inv idx hi hne
+  have hrs := hw.reason_inv_below idx hi hlvl hne
   dsimp only at hif hrs hlt hneq ⊢
   by_cases hbin : (s.core.rsns[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32 &&&
       0x80000000#32) ≠ 0#32
@@ -270,12 +279,12 @@ private theorem minLitStkInv_drop_cov {k : FullCoreState} {mstk1 : List (BitVec 
   ⟨h.len, h.idx0_eq, h.bd, h.dec, h.lvl_le_root, h.slot, fun hc => by cases hc⟩
 
 private theorem minLitStkInv_var_ne {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {mstk1 : List (BitVec 32)} {mrk1 : List (BitVec 8)}
+    (hcore : FullOtfsCoreInv c F0 s) {mstk1 : List (BitVec 32)} {mrk1 : List (BitVec 8)}
     {sp idx0 : Nat} {idxs : List Nat} {req}
     (h : MinLitStkInv s.core mstk1 mrk1 sp idx0 idxs req)
     {i j : Nat} (hi : i < idxs.length) (hj : j < idxs.length) (hne : i ≠ j) :
     (s.core.trl[idxs[i]]?.getD 0#32).toNat / 2 ≠ (s.core.trl[idxs[j]]?.getD 0#32).toNat / 2 := by
-  obtain ⟨F_cur, hw⟩ := hcore.witness
+  obtain ⟨F_cur, hw⟩ := hcore.2
   intro heq
   have hij := hw.trail_vars_nodup idxs[i] idxs[j] (h.bd i hi) (h.bd j hj) heq
   rcases Nat.lt_or_gt_of_ne hne with h1 | h2
@@ -283,7 +292,7 @@ private theorem minLitStkInv_var_ne {c : FullCfg} {F0 : CNF Nat} {s : FullState}
   · have := dec_chain_lt h.dec h2 hj hi; omega
 
 private theorem minLitStkInv_poison_other {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {mstk1 mclr1 : List (BitVec 32)}
+    (hcore : FullOtfsCoreInv c F0 s) {mstk1 mclr1 : List (BitVec 32)}
     {mrk1 : List (BitVec 8)} {sp idx0 u_idx mcl1 : Nat} {mcf1 : BitVec 64}
     {idxs : List Nat} (h : MinLitStkInv s.core mstk1 mrk1 sp idx0 idxs false)
     (hu_idx : ∀ j (hj : j < idxs.length), u_idx < idxs[j])
@@ -294,7 +303,7 @@ private theorem minLitStkInv_poison_other {c : FullCfg} {F0 : CNF Nat} {s : Full
     MinLitStkInv s.core mstk1
       (fullMinMarkCore (minLitState s mrk1 mstk1 mclr1 mcl1 mcf1).core
         ((s.core.trl[u_idx]?.getD 0#32).toNat / 2) 4#8).mrk sp idx0 idxs false := by
-  obtain ⟨F_cur, hw⟩ := hcore.witness
+  obtain ⟨F_cur, hw⟩ := hcore.2
   refine ⟨h.len, h.idx0_eq, h.bd, h.dec, h.lvl_le_root, fun j hj => ?_, fun hc => by cases hc⟩
   refine ⟨(h.slot j hj).1, fun hj1 => ?_⟩
   have hvj : (s.core.trl[idxs[j]]?.getD 0#32).toNat / 2 < s.core.cur_vars := by
@@ -328,9 +337,11 @@ private theorem minLitStkInv_step_top {c : FullCfg} {k : FullCoreState}
       simpa only [hne_len, ↓reduceIte] using h.cov rfl j hj
 
 private theorem minLitStkInv_push {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {mstk1 : List (BitVec 32)} {mrk1 : List (BitVec 8)}
+    (hcore : FullOtfsCoreInv c F0 s) {mstk1 : List (BitVec 32)} {mrk1 : List (BitVec 8)}
     {sp idx0 u_idx : Nat} {idxs : List Nat}
     (h : MinLitStkInv s.core mstk1 mrk1 sp idx0 idxs true)
+    (hroot_lvl : (s.core.lvl[(s.core.trl[idx0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat <
+      s.core.cur_level)
     (hmstk_len : mstk1.length = 2 * c.minDepth) (hsp1 : sp + 1 < c.minDepth)
     {u_bv pos_bv : BitVec 32}
     (hpos_eq : pos_bv.toNat = (mstk1[2 * sp + 1]?.getD 0#32).toNat + 1)
@@ -425,12 +436,14 @@ private theorem minLitStkInv_push {c : FullCfg} {F0 : CNF Nat} {s : FullState}
         ?_⟩
       simp only [List.length_append, List.length_singleton, ↓reduceIte, BitVec.toNat_ofNat]
       exact frameCov_zero hcore mrk1 (Nat.lt_trans hu_bd (h.bd sp (by omega)))
-        (by rw [← hu_eq]; exact hrsn_u)
+        (Nat.lt_of_le_of_lt hu_lvl hroot_lvl) (by rw [← hu_eq]; exact hrsn_u)
 
 private theorem minLitStkInv_pop {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {mstk1 : List (BitVec 32)} {mrk1 mrk2 : List (BitVec 8)}
+    (hcore : FullOtfsCoreInv c F0 s) {mstk1 : List (BitVec 32)} {mrk1 mrk2 : List (BitVec 8)}
     {sp idx0 : Nat} {idxs : List Nat}
     (h : MinLitStkInv s.core mstk1 mrk1 sp idx0 idxs true) (hsp : 0 < sp)
+    (hroot_lvl : (s.core.lvl[(s.core.trl[idx0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat <
+      s.core.cur_level)
     (hmono : ∀ w < s.core.cur_vars,
       (mrk1[w]?.getD 0#8 &&& 2#8) ≠ 0#8 → (mrk2[w]?.getD 0#8 &&& 2#8) ≠ 0#8)
     (hmrk_top : (mrk2[(s.core.trl[idxs[sp]'(by have := h.len; omega)]?.getD 0#32).toNat / 2]?.getD
@@ -468,7 +481,8 @@ private theorem minLitStkInv_pop {c : FullCfg} {F0 : CNF Nat} {s : FullState}
               0x80000000#32) ≠ 0#32 then 1 else fullArenaClauseSizeCore s.core
             (s.core.rsns[(s.core.trl[idxs[sp - 1]]?.getD 0#32).toNat / 2]?.getD
               0xFFFFFFFF#32).toNat := by omega
-      have hstep := frameCov_step hcore (h.bd (sp - 1) (by omega)) hcov_m hsz_lt ?_
+      have hstep := frameCov_step hcore (h.bd (sp - 1) (by omega))
+        (Nat.lt_of_le_of_lt (h.lvl_le_root (sp - 1) (by omega)) hroot_lvl) hcov_m hsz_lt ?_
       · simpa only [show (mstk1[2 * (sp - 1) + 1]?.getD 0#32).toNat - 1 + 1 =
           (mstk1[2 * (sp - 1) + 1]?.getD 0#32).toNat by omega] using hstep
       · have hdec_sp : idxs[sp]'(by omega) < idxs[sp - 1]'(by omega) := by
@@ -504,10 +518,10 @@ private structure MinLitStInv (c : FullCfg) (s : FullState) (keepSet : List Nat)
 
 private theorem MinLitStInv.core {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     {keepSet : List Nat} {mrk1 : List (BitVec 8)} {mstk1 mclr1 : List (BitVec 32)}
-    {mcl1 : Nat} {mcf1 : BitVec 64} (hcore : FullCoreInv c F0 s)
+    {mcl1 : Nat} {mcf1 : BitVec 64} (hcore : FullOtfsCoreInv c F0 s)
     (h : MinLitStInv c s keepSet mrk1 mstk1 mclr1 mcl1 mcf1) :
-    FullCoreInv c F0 (minLitState s mrk1 mstk1 mclr1 mcl1 mcf1) :=
-  fullCoreInv_with_min hcore h.mrk_len h.mstk_len h.mclr_len h.mcl_le
+    FullOtfsCoreInv c F0 (minLitState s mrk1 mstk1 mclr1 mcl1 mcf1) :=
+  fullOtfsCoreInv_with_min hcore h.mrk_len h.mstk_len h.mclr_len h.mcl_le
 
 private theorem minLitStInv_with_mstk {c : FullCfg} {s : FullState} {keepSet : List Nat}
     {mrk1 : List (BitVec 8)} {mstk1 mclr1 mstk' : List (BitVec 32)} {mcl1 : Nat} {mcf1 : BitVec 64}
@@ -564,7 +578,7 @@ private theorem minLitStInv_mark {c : FullCfg} {s : FullState} {keepSet : List N
 private theorem fullMinMarkSpec_zero_inv {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     {R : Mem 64 → Prop} {mrk1 : List (BitVec 8)} {mstk1 mclr1 : List (BitVec 32)}
     {mcl1 : Nat} {mcf1 : BitVec 64} {m1 : Mem 64} {Q' : Post []} {X' : XPost}
-    (hcore : FullCoreInv c F0 s) (hmrk : mrk1.length = c.max_vars)
+    (hcore : FullOtfsCoreInv c F0 s) (hmrk : mrk1.length = c.max_vars)
     (hmstk : mstk1.length = 2 * c.minDepth) (hmclr : mclr1.length = c.max_vars)
     (hmcl : mcl1 ≤ c.max_vars)
     (hm1 : (FullMem c (minLitState s mrk1 mstk1 mclr1 mcl1 mcf1) ⋆ R) m1)
@@ -578,7 +592,7 @@ private theorem fullMinMarkSpec_zero_inv {c : FullCfg} {F0 : CNF Nat} {s : FullS
     fullMinMarkSpec (c.hdr, v, tag, ()) m1 Q' X' := by
   let st1 := minLitState s mrk1 mstk1 mclr1 mcl1 mcf1
   have hlen1 : st1.LengthsOk c :=
-    (fullCoreInv_with_min hcore hmrk hmstk hmclr hmcl).lengths
+    (fullOtfsCoreInv_with_min hcore hmrk hmstk hmclr hmcl).1
   refine ⟨c, st1, R, rfl, hlen1, hm1, ?_⟩
   dsimp only
   have hc1 : ¬ (st1.core.cur_vars ≤ v.toNat ∨ (st1.core.mrk[v.toNat]?.getD 0#8 &&& tag) ≠ 0#8) :=
@@ -652,20 +666,23 @@ theorem bv8_c0_and8_ne0 {a : BitVec 8}
   rw [h0, h8] at h; c0_cond h; exact h
 
 theorem shrink_arena_lits_mem {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {cref pos : Nat} (href : cref ∈ fullArenaClauseRefsCore s.core)
+    (hcore : FullOtfsCoreInv c F0 s) {cref pos : Nat}
+    (href : cref ∈ fullArenaClauseRefsCore s.core)
     (hp : pos < fullArenaClauseSizeCore s.core cref) :
     (s.core.arena[cref + 3 + pos]?.getD 0#32).toNat ∈ fullArenaClauseLitsCore s.core cref := by
-  obtain ⟨_, hw⟩ := hcore.witness
+  obtain ⟨_, hw⟩ := hcore.2
   have hwf := hw.arena.refs_wf cref href
   have hbd : cref + 3 + fullArenaClauseSizeCore s.core cref ≤ s.core.arena.length := by
     have := hwf.2.2.1; have := hwf.2.2.2.1
-    have := hcore.lengths.core_ok.arena_len_le; have := hcore.lengths.core_ok.arena_len_arr; omega
+    have := hcore.1.core_ok.arena_len_le; have := hcore.1.core_ok.arena_len_arr; omega
   rw [mem_fullArenaClauseLitsCore_iff hbd]
   exact ⟨pos, hp, by rw [List.getElem?_eq_getElem (by omega), Option.getD_some]⟩
 
 theorem shrink_rsn_loop_done {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {mrk : List (BitVec 8)} {idx : Nat}
+    (hcore : FullOtfsCoreInv c F0 s) {mrk : List (BitVec 8)} {idx : Nat}
     (hi : idx < s.core.trail_end)
+    (hlvl : (s.core.lvl[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD 0#32).toNat <
+      s.core.cur_level)
     (hrs : s.core.rsns[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32 ≠
       0xFFFFFFFF#32)
     (hcov :
@@ -680,10 +697,10 @@ theorem shrink_rsn_loop_done {c : FullCfg} {F0 : CNF Nat} {s : FullState}
           ((s.core.lvl[q / 2]?.getD 0#32).toNat = 0 ∨ (mrk[q / 2]?.getD 0#8 &&& 2#8) ≠ 0#8 ∨
             (mrk[q / 2]?.getD 0#8 &&& 8#8) ≠ 0#8)) :
     ShrinkResolved s.core mrk idx := by
-  obtain ⟨_, hw⟩ := hcore.witness
-  have hr := hw.reason_inv idx hi hrs
+  obtain ⟨_, hw⟩ := hcore.2
+  have hr := hw.reason_inv_below idx hi hlvl hrs
   dsimp only [ShrinkResolved, RsnCov] at hr hcov ⊢
-  refine ⟨hrs, ?_⟩
+  refine ⟨hlvl, hrs, ?_⟩
   by_cases hbin : (s.core.rsns[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32 &&&
       0x80000000#32) ≠ 0#32
   · simp only [eq_true hbin, ↓reduceIte] at hr hcov ⊢
@@ -702,7 +719,7 @@ theorem shrink_rsn_loop_done {c : FullCfg} {F0 : CNF Nat} {s : FullState}
         fullArenaClauseSizeCore s.core (s.core.rsns[(s.core.trl[idx]?.getD 0#32).toNat / 2]?.getD
           0xFFFFFFFF#32).toNat ≤ s.core.arena.length := by
       have := hwf.2.2.1; have := hwf.2.2.2.1
-      have := hcore.lengths.core_ok.arena_len_le; have := hcore.lengths.core_ok.arena_len_arr; omega
+      have := hcore.1.core_ok.arena_len_le; have := hcore.1.core_ok.arena_len_arr; omega
     obtain ⟨j, hj, hjeq⟩ := (mem_fullArenaClauseLitsCore_iff hbd).mp hq
     have hqj := hcov j hj
     rwa [List.getElem?_eq_getElem (by omega), Option.getD_some, hjeq] at hqj
@@ -715,9 +732,9 @@ theorem full_min_lit_wp (Γ : Env)
     ∀ args m Q X, fullMinLitSpec args m Q X →
       Func.wp Γ full_min_lit_body args m Q X := by
   rintro ⟨h, root_lit, ⟨⟩⟩ m Q X
-    ⟨c, F0, s, keepSet, R, rfl, hcore, hmin, hrl, hval, hno8, hm, hQ⟩
+    ⟨c, F0, s, keepSet, R, rfl, hcore, hmin, hrl, hval, hrl_lvl, hno8, hm, hQ⟩
   unfold Func.wp full_min_lit_body; dsimp only [full_min_lit_body]
-  have hlen0 := hcore.lengths.core_ok
+  have hlen0 := hcore.1.core_ok
   have hmx := c.hmaxv; have har := c.harena; unfold dimacsBound at hmx har
   have hcv := hlen0.cur_vars_le
   ml_ld load_full_cur_vars hm
@@ -733,7 +750,7 @@ theorem full_min_lit_wp (Γ : Env)
       ml_lets; ml_jnz; refine ⟨fun _ => ?_, fun hrsn_some => ?_⟩
       · ml_lets; rw [wp]
         exact hQ false s.core.mrk s.core.min_stk s.core.min_clr s.core.min_clr_len
-          s.core.min_clr_full m hcore.lengths (fun _ _ => rfl) (fun _ _ h => h)
+          s.core.min_clr_full m hcore.1 (fun _ _ => rfl) (fun _ _ h => h)
           (fun _ _ => rfl) hmin (fun hc => by cases hc) hm
       · ml_ld load_full_mark_ptr hm
         ml_ld load_full_level_ptr hm
@@ -751,10 +768,12 @@ theorem full_min_lit_wp (Γ : Env)
         refine ⟨by simpa using hok1, ?_⟩
         ml_ld load_full_arena_len hm1
         ml_lets
-        obtain ⟨F_cur0, hw0⟩ := hcore.witness
+        obtain ⟨F_cur0, hw0⟩ := hcore.2
         obtain ⟨idx0, hi0, hi0_eq⟩ := (hw0.vals_false_iff root_lit.toNat hrl).mp hval
         have hrv_root : (s.core.trl[idx0]?.getD 0#32).toNat / 2 = root_lit.toNat / 2 := by
           have hl := litVar_litNeg root_lit.toNat; unfold litVar litNeg at hl; rw [hi0_eq, hl]
+        have hi0_lvl : (s.core.lvl[(s.core.trl[idx0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat <
+            s.core.cur_level := by rw [hrv_root]; exact hrl_lvl
         have hrsn_ne0 : s.core.rsns[(s.core.trl[idx0]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32 ≠
             0xFFFFFFFF#32 := by
           have hrl_lt : (root_lit >>> 1).toNat < s.core.rsns.length := by
@@ -802,14 +821,15 @@ theorem full_min_lit_wp (Γ : Env)
             have hrv_w : (s.core.trl[idx0_w]?.getD 0#32).toNat / 2 = root_lit.toNat / 2 := by
               have hl := litVar_litNeg root_lit.toNat; unfold litVar litNeg at hl
               rw [hroot_w, hl]
-            refine hQ true mrk1 mstk1 mclr1 mcl1 mcf1 m' hcore1.lengths hsi.mrk_above hsi.mono2
+            refine hQ true mrk1 mstk1 mclr1 mcl1 mcf1 m' hcore1.1 hsi.mrk_above hsi.mono2
               hsi.bit8 hsi.min_inv (fun _ => ⟨fun keep' hsub => ?_, ?_⟩) hm'
-            · refine fullMinMarkInv_drop hcore1 hsi.min_inv hsub hi0_w hroot_w ?_
+            · refine fullMinMarkInv_drop hcore1 hsi.min_inv hsub hrl_lvl hi0_w hroot_w ?_
               simp only [hroot_w] at hh; exact hh
             · have hno8_w :
                   (mrk1[(s.core.trl[idx0_w]?.getD 0#32).toNat / 2]?.getD 0#8 &&& 8#8) = 0#8 := by
                 rw [hrv_w, hsi.bit8 _ (by omega)]; exact hno8 _ (by omega) (le_refl _)
-              have hmrk := fullMinMarkInv_mark_rem hcore1 hsi.min_inv hi0_w hno8_w hh
+              have hmrk := fullMinMarkInv_mark_rem hcore1 hsi.min_inv hi0_w
+                (by rw [hrv_w]; exact hrl_lvl) hno8_w hh
               simpa only [hrv_w] using hmrk
           · rw [hnok] at hrest; simp only [Bool.false_eq_true, ↓reduceIte] at hrest
             obtain ⟨hsp_lt, idxs, hstk⟩ := hrest
@@ -874,7 +894,7 @@ theorem full_min_lit_wp (Γ : Env)
                 exact hzero2 k hk (by omega)
               · ml_lets; rw [wp]
                 have hcore2 := hsi2.core hcore
-                exact hQ false mrk2 mstk1 mclr2 mcl2 mcf2 m2 hcore2.lengths hsi2.mrk_above
+                exact hQ false mrk2 mstk1 mclr2 mcl2 mcf2 m2 hcore2.1 hsi2.mrk_above
                   hsi2.mono2 hsi2.bit8 hsi2.min_inv (fun hc => by cases hc) hm2
             · intro J hJ; wp_unfold
               exact hJ sp.toNat (1#64, ()) m' ⟨le_refl _, Nat.succ_le_of_lt (by omega), rfl,
@@ -1007,8 +1027,9 @@ theorem full_min_lit_wp (Γ : Env)
                           refine minLitStkInv_step_top (c := c) hstk hsi.mstk_len hsp_lt (pos + 1)
                             fun _ => ?_
                           rw [hpos_add1]
-                          refine frameCov_step hcore (hstk.bd sp.toNat hsp_idxs) hcov_sp hcov_sz
-                            (Or.inl ?_)
+                          refine frameCov_step hcore (hstk.bd sp.toNat hsp_idxs)
+                            (Nat.lt_of_le_of_lt (hstk.lvl_le_root sp.toNat hsp_idxs) hi0_lvl)
+                            hcov_sp hcov_sz (Or.inl ?_)
                           rw [← hrsn_eq, ← hlit_eq, ← hv_nat, ← bv32_lshr_1, huv]
                         · have hu_ne_v : minLitRsnLit s.core
                               (s.core.rsns[(s.core.trl[idxs[sp.toNat]'hsp_idxs]?.getD 0#32).toNat /
@@ -1017,8 +1038,10 @@ theorem full_min_lit_wp (Γ : Env)
                             rw [← hrsn_eq, ← hlit_eq, ← hv_nat, ← bv32_lshr_1]
                             c0_cond huv_ne
                             intro heq; apply huv_ne; exact BitVec.eq_of_toNat_eq heq
-                          obtain ⟨_, u_idx, hu_idx_lt, hu_idx_eq, hu_lvl_le⟩ := frameCov_edge_exists
-                            hcore (hstk.bd sp.toNat hsp_idxs) hcov_sp hcov_sz hu_ne_v
+                          obtain ⟨_, u_idx, hu_idx_lt, hu_idx_eq, hu_lvl_le⟩ :=
+                            frameCov_edge_exists hcore (hstk.bd sp.toNat hsp_idxs)
+                              (Nat.lt_of_le_of_lt (hstk.lvl_le_root sp.toNat hsp_idxs) hi0_lvl)
+                              hcov_sp hcov_sz hu_ne_v
                           have hu_lvl_len : ((lit >>> 1).setWidth 64).toNat <
                               (minLitState s mrk1 mstk2 mclr1 mcl1 mcf1).core.lvl.length := by
                             dsimp only [minLitState]; rw [hlen0.lvl_len]; bv_omega
@@ -1033,8 +1056,9 @@ theorem full_min_lit_wp (Γ : Env)
                             refine minLitStkInv_step_top (c := c) hstk hsi.mstk_len hsp_lt (pos + 1)
                               fun _ => ?_
                             rw [hpos_add1]
-                            refine frameCov_step hcore (hstk.bd sp.toNat hsp_idxs) hcov_sp hcov_sz
-                              (Or.inr ⟨u_idx, hu_idx_lt, hu_idx_eq, Or.inl ?_⟩)
+                            refine frameCov_step hcore (hstk.bd sp.toNat hsp_idxs)
+                              (Nat.lt_of_le_of_lt (hstk.lvl_le_root sp.toNat hsp_idxs) hi0_lvl)
+                              hcov_sp hcov_sz (Or.inr ⟨u_idx, hu_idx_lt, hu_idx_eq, Or.inl ?_⟩)
                             rw [← hrsn_eq, ← hlit_eq]
                             have hlw : lit.toNat / 2 < s.core.lvl.length := by
                               rw [hlen0.lvl_len, ← bv32_lshr_1]; omega
@@ -1060,8 +1084,9 @@ theorem full_min_lit_wp (Γ : Env)
                               refine minLitStkInv_step_top (c := c) hstk hsi.mstk_len hsp_lt
                                 (pos + 1) fun _ => ?_
                               rw [hpos_add1]
-                              refine frameCov_step hcore (hstk.bd sp.toNat hsp_idxs) hcov_sp hcov_sz
-                                (Or.inr ⟨u_idx, hu_idx_lt, hu_idx_eq, Or.inr ?_⟩)
+                              refine frameCov_step hcore (hstk.bd sp.toNat hsp_idxs)
+                                (Nat.lt_of_le_of_lt (hstk.lvl_le_root sp.toNat hsp_idxs) hi0_lvl)
+                                hcov_sp hcov_sz (Or.inr ⟨u_idx, hu_idx_lt, hu_idx_eq, Or.inr ?_⟩)
                               rw [← hrsn_eq, ← hlit_eq, ← bv32_lshr_1, ← hmu_eq]; exact hmu_is2
                             · ml_lets; ml_jnz; refine ⟨fun _ => ?_, fun hmu_n4 => ?_⟩
                               · ml_lets; apply hB
@@ -1199,8 +1224,8 @@ theorem full_min_lit_wp (Γ : Env)
                                       rw [ht] at hur_some; cases hur_some
                                     have hz_u : mrk1[(lit >>> 1).toNat]?.getD 0#8 = 0#8 := by
                                       rw [← hmu_eq]; exact hmu0
-                                    have hstk3 := minLitStkInv_push hcore hstk hsi.mstk_len hsp1_lt
-                                      (u_bv := lit >>> 1) (pos_bv := pos + 1)
+                                    have hstk3 := minLitStkInv_push hcore hstk hi0_lvl hsi.mstk_len
+                                      hsp1_lt (u_bv := lit >>> 1) (pos_bv := pos + 1)
                                       (by rw [hpos_add1, hpos_nat]) hu_idx_lt hu_nat_idx hu_lvl_root
                                       (by rwa [← hpos_nat]) hz_u hrsn_u_ne
                                       ⟨hu_idx_lt, by rw [← hpos_nat]; exact hu_idx_eq⟩
@@ -1270,10 +1295,12 @@ theorem full_min_lit_wp (Γ : Env)
                       have hmin4 : FullMinMarkInv k4 keepSet := by
                         simpa only [k4, hv_eq'] using
                           fullMinMarkInv_mark_rem hcore_p hsi.min_inv
-                            (hstk.bd sp.toNat hsp_idxs) hno8_v hhrsn
+                            (hstk.bd sp.toNat hsp_idxs)
+                            (Nat.lt_of_le_of_lt (hstk.lvl_le_root sp.toNat hsp_idxs) hi0_lvl)
+                            hno8_v hhrsn
                       obtain ⟨hsi4, hmono_step⟩ := minLitStInv_mark hcv hsi hv_lt hz_v 2#8
                         (Or.inl rfl) hmin4
-                      have hstk4 := minLitStkInv_pop hcore hstk hsp_gt0 hmono_step
+                      have hstk4 := minLitStkInv_pop hcore hstk hsp_gt0 hi0_lvl hmono_step
                         (by rw [← hv_nat]; dsimp only [k4, fullMinMarkCore]
                             rw [List.getElem?_set_self (by rw [hsi.mrk_len]; omega),
                               Option.getD_some, hz_v]; decide)
@@ -1364,7 +1391,7 @@ theorem full_min_lit_wp (Γ : Env)
                 Option.getD_some]
               refine ⟨fun hk1 => by simp at hk1, ?_⟩
               simp only [List.length_singleton, ↓reduceIte, BitVec.toNat_ofNat]
-              exact frameCov_zero hcore s.core.mrk hi0 hrsn_ne0
+              exact frameCov_zero hcore s.core.mrk hi0 hi0_lvl hrsn_ne0
           have hsi0 : MinLitStInv c s keepSet s.core.mrk mstk0 s.core.min_clr
               s.core.min_clr_len s.core.min_clr_full :=
             ⟨hlen0.mrk_len, hmstkl', hlen0.min_clr_len_arr, hlen0.min_clr_len_le,

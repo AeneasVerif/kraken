@@ -49,10 +49,10 @@ private abbrev ShrinkCovAt (s : FullState) (mrk : List (BitVec 8)) (t_in : Nat) 
       (mrk[q / 2]?.getD 0#8 &&& 8#8) ≠ 0#8)
 
 private theorem fullWitness_shrinkBlk {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
-    {s : FullState} (hw : FullWitnessInv c F0 F_cur s.core)
+    {s : FullState} (hw : FullOtfsWitnessInv c F0 F_cur s.core)
     {tmp1 : List (BitVec 32)} {mrk1 : List (BitVec 8)} {mstk1 mclr1 sstk1 : List (BitVec 32)}
     {mcl1 : Nat} {mcf1 : BitVec 64} :
-    FullWitnessInv c F0 F_cur (shrinkBlkSt s tmp1 mrk1 mstk1 mclr1 mcl1 mcf1 sstk1).core :=
+    FullOtfsWitnessInv c F0 F_cur (shrinkBlkSt s tmp1 mrk1 mstk1 mclr1 mcl1 mcf1 sstk1).core :=
   { hw with
     arena := { hw.arena with len_ok := hw.arena.len_ok }
     watches := hw.watches.with_wstk rfl rfl rfl rfl rfl (fun _ hr => hr) }
@@ -83,7 +83,7 @@ private theorem shrink_set_bit8_monos {c : FullCfg} {s : FullState} {mrk : List 
     · rwa [List.getElem?_set_ne (Ne.symm hwe)]⟩
 
 private theorem shrink_cov_lift {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {mrk1 mrk2 : List (BitVec 8)} {t_in i_lim : Nat}
+    (hcore : FullOtfsCoreInv c F0 s) {mrk1 mrk2 : List (BitVec 8)} {t_in i_lim : Nat}
     {rsn : BitVec 32} {is_bin_b : Bool} (ht_te : t_in < s.core.trail_end)
     (hm2 : ∀ w < s.core.cur_vars,
       (mrk1[w]?.getD 0#8 &&& 2#8) ≠ 0#8 → (mrk2[w]?.getD 0#8 &&& 2#8) ≠ 0#8)
@@ -97,7 +97,7 @@ private theorem shrink_cov_lift {c : FullCfg} {F0 : CNF Nat} {s : FullState}
         (mrk2[ot.toNat / 2]?.getD 0#8 &&& 2#8) ≠ 0#8 ∨
         (mrk2[ot.toNat / 2]?.getD 0#8 &&& 8#8) ≠ 0#8)) :
     ∀ k < i_lim + 1, ShrinkCovAt s mrk2 t_in rsn is_bin_b k := by
-  obtain ⟨_, hw0⟩ := hcore.witness
+  obtain ⟨_, hw0⟩ := hcore.2
   intro k hk; by_cases hki : k < i_lim
   · rcases hcov k hki with heq | ⟨m', hm', hmeq, hdep⟩
     · exact Or.inl heq
@@ -114,7 +114,7 @@ private theorem shrink_cov_lift {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     subst k; simpa only [ShrinkCovAt, ← hot_eq] using hstep
 
 private theorem shrink_step_pre_push8 {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {blvl : BitVec 32} {beg end_b : Nat}
+    (hcore : FullOtfsCoreInv c F0 s) {blvl : BitVec 32} {beg end_b : Nat}
     {mrk1 : List (BitVec 8)} {mstk1 mclr1 sstk1 : List (BitVec 32)}
     {mcl1 open_cnt slen t_lim idx_uip k_ot : Nat} {mcf1 : BitVec 64} {keep0 : List Nat}
     (hb : ShrinkBaseInv c s mrk1 mstk1 mclr1 mcl1 mcf1 sstk1 slen keep0)
@@ -137,8 +137,8 @@ private theorem shrink_step_pre_push8 {c : FullCfg} {F0 : CNF Nat} {s : FullStat
     2 ≤ open_cnt + 1 ∧ open_cnt + 1 ≤ (end_b - beg) + (slen + 1) ∧
     (mrk2[ot.toNat / 2]?.getD 0#8 &&& 8#8) ≠ 0#8 := by
   intro ov mrk2 sstk2
-  obtain ⟨_, hw⟩ := hcore.witness
-  have hcv := hcore.lengths.core_ok.cur_vars_le
+  obtain ⟨_, hw⟩ := hcore.2
+  have hcv := hcore.1.core_ok.cur_vars_le
   have hov_nat : ov.toNat = ot.toNat / 2 := bv32_lshr_1 ot
   have hov_lt : ov.toNat < s.core.cur_vars := by rw [hov_nat]; omega
   have hmin2 := fullMinMarkInv_set_bit8 (shrinkBaseInv_core hcore hb) hb.min_inv hov_lt
@@ -187,7 +187,7 @@ private theorem shrink_step_pre_push8 {c : FullCfg} {F0 : CNF Nat} {s : FullStat
     exact bv8_and8_of_or8 _
 
 private theorem shrink_step_pre_mark2 {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {blvl : BitVec 32} {beg end_b : Nat}
+    (hcore : FullOtfsCoreInv c F0 s) {blvl : BitVec 32} {beg end_b : Nat}
     {mrk1 mrk2 : List (BitVec 8)} {mstk2 mclr2 sstk1 : List (BitVec 32)}
     {mcl2 open_cnt slen t_lim idx_uip : Nat} {mcf2 : BitVec 64} {keep0 : List Nat}
     (hb : ShrinkBaseInv c s mrk2 mstk2 mclr2 mcl2 mcf2 sstk1 slen keep0)
@@ -201,7 +201,7 @@ private theorem shrink_step_pre_mark2 {c : FullCfg} {F0 : CNF Nat} {s : FullStat
     ShrinkBlk8 s mrk2 beg end_b ∧ ShrinkStk8 mrk2 sstk1 slen ∧
     ShrinkAll8 s blvl mrk2 t_lim idx_uip ∧
     trailCount8 s.core.trl mrk2 (min (t_lim + 1) s.core.trail_end) ≤ open_cnt - 1 := by
-  obtain ⟨_, hw⟩ := hcore.witness
+  obtain ⟨_, hw⟩ := hcore.2
   have hm8 : ∀ w < s.core.cur_vars, (mrk1[w]?.getD 0#8 &&& 8#8) ≠ 0#8 →
       (mrk2[w]?.getD 0#8 &&& 8#8) ≠ 0#8 := fun w hw' h => by rwa [hbit8 w hw']
   refine ⟨fun j hj1 hj2 => by rw [hbit8 _ (hblk_lt j hj1 hj2)]; exact hblk_8 j hj1 hj2,
@@ -216,7 +216,7 @@ private theorem shrink_step_pre_mark2 {c : FullCfg} {F0 : CNF Nat} {s : FullStat
     rw [htc]; exact hcnt_pre
 
 private theorem shrink_blk_success_finish {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hcore : FullCoreInv c F0 s) {beg end_b : Nat} {blvl : BitVec 32}
+    (hcore : FullOtfsCoreInv c F0 s) {beg end_b : Nat} {blvl : BitVec 32}
     (hbe : beg < end_b) (hes : end_b ≤ s.core.tmp_len) (hsc : s.core.tmp_len ≤ s.core.cur_vars)
     (hkeep_spec : ∀ k < s.core.tmp_len, s.core.tmp[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
       let l := (s.core.tmp[k]?.getD 0#32).toNat
@@ -251,18 +251,19 @@ private theorem shrink_blk_success_finish {c : FullCfg} {F0 : CNF Nat} {s : Full
     let keep' := ((tmp'.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat
     let sf := shrinkBlkSt s tmp' mrkf mstk1 mclrf mclf mcff sstk1
     FullMinMarkInv sf.core keep' ∧
-    (∀ F_cur, FullWitnessInv c F0 F_cur s.core →
+    (∀ F_cur, FullOtfsWitnessInv c F0 F_cur s.core →
       (cnfOfClauses F_cur).EntailsClause (cnfClause
         (((s.core.tmp.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat)) →
-      FullWitnessInv c F0 F_cur sf.core ∧ (cnfOfClauses F_cur).EntailsClause (cnfClause keep')) ∧
+      FullOtfsWitnessInv c F0 F_cur sf.core ∧
+      (cnfOfClauses F_cur).EntailsClause (cnfClause keep')) ∧
     (∀ k, beg ≤ k → k < end_b → tmp'[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
       (s.core.lvl[(tmp'[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = blvl.toNat) ∧
     (∀ k < s.core.tmp_len, tmp'[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
       let l := (tmp'[k]?.getD 0#32).toNat
       l < 2 * s.core.cur_vars ∧ sf.core.vals[l]?.getD 0#8 = 0xFF#8 ∧
       (mrkf[l / 2]?.getD 0#8 &&& 2#8) ≠ 0#8) := by
-  intro keep' sf; obtain ⟨_, hw0⟩ := hcore.witness
-  have hcv := hcore.lengths.core_ok.cur_vars_le; have hmx := c.hmaxv; unfold dimacsBound at hmx
+  intro keep' sf; obtain ⟨_, hw0⟩ := hcore.2
+  have hcv := hcore.1.core_ok.cur_vars_le; have hmx := c.hmaxv; unfold dimacsBound at hmx
   have huip_lt : uip.toNat < 2 * s.core.cur_vars := by
     rw [← huip_eq]; exact hw0.trail_lits_lt _ huip_te
   obtain ⟨hnuip_xor, hnuip_lt⟩ := bv32_xor1_toNat_lt huip_lt
@@ -300,10 +301,11 @@ private theorem shrink_blk_success_finish {c : FullCfg} {F0 : CNF Nat} {s : Full
       · exact Or.inr (by
           simpa [RsnCov, fullArenaClauseRefsCore, fullArenaClauseGarbCore, fullArenaClauseLitsCore,
             fullArenaHdrCore, fullArenaClauseSizeCore] using remSound_lift_mrk2 hcore hmono1f hok)
-  have hEnt_f : ∀ F_cur, FullWitnessInv c F0 F_cur s.core →
+  have hEnt_f : ∀ F_cur, FullOtfsWitnessInv c F0 F_cur s.core →
       (cnfOfClauses F_cur).EntailsClause (cnfClause
         (((s.core.tmp.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat)) →
-      FullWitnessInv c F0 F_cur sf.core ∧ (cnfOfClauses F_cur).EntailsClause (cnfClause keep') := by
+      FullOtfsWitnessInv c F0 F_cur sf.core ∧
+        (cnfOfClauses F_cur).EntailsClause (cnfClause keep') := by
     intro F_cur hw hEnt0
     have hwf := fullWitness_shrinkBlk hw (tmp1 := tmp') (mrk1 := mrkf) (mstk1 := mstk1)
       (mclr1 := mclrf) (mcl1 := mclf) (mcf1 := mcff) (sstk1 := sstk1)
@@ -413,13 +415,14 @@ private def shrinkBlkClearExpr (pMark pShrinkStk slen : Val i64) : Expr Val Cont
 
 private theorem shrink_blk_clear_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     {keep0 : List Nat} {R : Mem 64 → Prop} {Q : Post []} {X : XPost}
-    (hcore : FullCoreInv c F0 s) {mrk_a : List (BitVec 8)} {mstk_a mclr_a sstk_a : List (BitVec 32)}
-    {mcl_a : Nat} {mcf_a : BitVec 64} {slen_a : Val i64} {m_a : Mem 64}
+    (hcore : FullOtfsCoreInv c F0 s) {mrk_a : List (BitVec 8)}
+    {mstk_a mclr_a sstk_a : List (BitVec 32)} {mcl_a : Nat} {mcf_a : BitVec 64} {slen_a : Val i64}
+    {m_a : Mem 64}
     (hb_a : ShrinkBaseInv c s mrk_a mstk_a mclr_a mcl_a mcf_a sstk_a slen_a.toNat keep0)
     (hm_a : (FullMem c (shrinkBlkSt s s.core.tmp mrk_a mstk_a mclr_a mcl_a mcf_a sstk_a) ⋆ R) m_a)
     (hpost : ∀ mrk_f m_f,
       let sf := shrinkBlkSt s s.core.tmp mrk_f mstk_a mclr_a mcl_a mcf_a sstk_a
-      FullCoreInv c F0 sf → FullMinMarkInv sf.core keep0 →
+      FullOtfsCoreInv c F0 sf → FullMinMarkInv sf.core keep0 →
       (∀ w, s.core.cur_vars ≤ w → mrk_f[w]? = s.core.mrk[w]?) →
       (∀ v < s.core.cur_vars, (mrk_f[v]?.getD 0#8 &&& 8#8) = 0#8) →
       (∀ w < s.core.cur_vars,
@@ -427,7 +430,7 @@ private theorem shrink_blk_clear_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s :
       (FullMem c sf ⋆ R) m_f → Q () m_f) :
     wp Γ Q X (shrinkBlkClearExpr c.pMark c.pShrinkStk slen_a) m_a := by
   dsimp only [shrinkBlkClearExpr]
-  have hlen0 := hcore.lengths.core_ok; have hcv := hlen0.cur_vars_le
+  have hlen0 := hcore.1.core_ok; have hcv := hlen0.cur_vars_le
   have hmx := c.hmaxv; unfold dimacsBound at hmx
   refine wp_loop_group (ts := [i64]) (fun n (i_bv, ()) m_f =>
       ∃ (mrk_f : List (BitVec 8)),
@@ -553,7 +556,7 @@ private theorem shrink_blk_after_wp {Γ : Env}
       Γ "full_min_mark" [i64, i32, i8] [] args m Q X)
     {c : FullCfg} {F0 : CNF Nat} {s : FullState} {beg end_b : Val i64} {blvl : Val i32}
     {R : Mem 64 → Prop} {Q : Post []} {X : XPost}
-    (hcore : FullCoreInv c F0 s) (hbeg_end : beg.toNat < end_b.toNat)
+    (hcore : FullOtfsCoreInv c F0 s) (hbeg_end : beg.toNat < end_b.toNat)
     (hend_tl : end_b.toNat ≤ s.core.tmp_len) (htl_cv : s.core.tmp_len ≤ s.core.cur_vars)
     (hblk_spec : ∀ k, beg.toNat ≤ k → k < end_b.toNat →
       (s.core.lvl[(s.core.tmp[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = blvl.toNat)
@@ -563,7 +566,7 @@ private theorem shrink_blk_after_wp {Γ : Env}
       (s.core.mrk[l / 2]?.getD 0#8 &&& 2#8) ≠ 0#8)
     (hQ : ∀ tmp' mrk' mstk' mclr' mcl' mcf' sstk' m',
       let s' : FullState := shrinkBlkSt s tmp' mrk' mstk' mclr' mcl' mcf' sstk'
-      FullCoreInv c F0 s' →
+      FullOtfsCoreInv c F0 s' →
       FullMinMarkInv s'.core
         (((tmp'.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat) →
       (∀ v, s.core.cur_vars ≤ v → mrk'[v]? = s.core.mrk[v]?) →
@@ -573,10 +576,17 @@ private theorem shrink_blk_after_wp {Γ : Env}
       (∀ k < s.core.tmp_len, (k < beg.toNat ∨ end_b.toNat ≤ k) → tmp'[k]? = s.core.tmp[k]?) →
       (∀ k, beg.toNat ≤ k → k < end_b.toNat → tmp'[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
         (s.core.lvl[(tmp'[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = blvl.toNat) →
-      (∀ F_cur, FullWitnessInv c F0 F_cur s.core →
+      ((((s.core.tmp.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map
+          fun x => x.toNat / 2).Nodup →
+        (∀ k < s.core.tmp_len, (k < beg.toNat ∨ end_b.toNat ≤ k) →
+          s.core.tmp[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
+          (s.core.lvl[(s.core.tmp[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≠ blvl.toNat) →
+        (((tmp'.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map
+          fun x => x.toNat / 2).Nodup) →
+      (∀ F_cur, FullOtfsWitnessInv c F0 F_cur s.core →
         (cnfOfClauses F_cur).EntailsClause (cnfClause
           (((s.core.tmp.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat)) →
-        FullWitnessInv c F0 F_cur s'.core ∧
+        FullOtfsWitnessInv c F0 F_cur s'.core ∧
         (cnfOfClauses F_cur).EntailsClause (cnfClause
           (((tmp'.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat))) →
       (∀ k < s.core.tmp_len, tmp'[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
@@ -591,13 +601,14 @@ private theorem shrink_blk_after_wp {Γ : Env}
   dsimp only [shrinkBlkAfterExpr]
   rcases xs with ⟨open_a, slen_a, failed_a, uip_a, t_a, ⟨⟩⟩
   rcases ha with ⟨mrk_a, mstk_a, mclr_a, sstk_a, mcl_a, mcf_a, hb_a, hsstk_a, hm_a, hsucc_a⟩
-  have hlen0 := hcore.lengths.core_ok; have hcv := hlen0.cur_vars_le
+  have hlen0 := hcore.1.core_ok; have hcv := hlen0.cur_vars_le
   have hmx := c.hmaxv; unfold dimacsBound at hmx
   refine wp_join_group (ts := []) (fun () m_f => m_f = m_a) ?_ ?_
   · rintro J_fl ⟨⟩ m_f hm_f_eq; subst m_f; rw [Blocks.get_here]
     exact shrink_blk_clear_wp hcore hb_a hm_a fun mrk_f m_f hc hm ha h8 hm2 hmf =>
       hQ s.core.tmp mrk_f mstk_a mclr_a mcl_a mcf_a sstk_a m_f hc hm ha h8 hm2 (fun _ _ _ => rfl)
-        (fun k hk1 hk2 _ => hblk_spec k hk1 hk2) (fun _ hw hent => ⟨fullWitness_shrinkBlk hw, hent⟩)
+        (fun k hk1 hk2 _ => hblk_spec k hk1 hk2) (fun hnd _ => hnd)
+        (fun _ hw hent => ⟨fullWitness_shrinkBlk hw, hent⟩)
         (fun k hk hne => let sp := hkeep_spec k hk hne; ⟨sp.1, sp.2.1, hm2 _ (by omega) sp.2.2⟩) hmf
   rintro J_fl hJ_fl
   ml_jnz; refine ⟨fun _ => by ml_lets; exact hJ_fl () m_a rfl, ?_⟩; intro hnfail
@@ -704,7 +715,7 @@ private theorem shrink_blk_after_wp {Γ : Env}
     let sb_i2 := shrinkBlkSt s tmp_f mrk_i2 mstk_a mclr_i mcl_i mcf_i sstk_a
     have hln_i2 : sb_i2.LengthsOk c :=
       (coreInv_shrinkBlk hcore (mcf1 := mcf_i) htf_len (by simp [mrk_i2, hmri_len]) hb_a.mstk_len
-        hmclri_len hmcli_le hb_a.sstk_len).lengths
+        hmclri_len hmcli_le hb_a.sstk_len).1
     have hno8_sv : (sb_i2.core.mrk[sv.toNat]?.getD 0#8 &&& 8#8) = 0#8 := by
       dsimp only [sb_i2, shrinkBlkSt, mrk_i2]
       rw [List.getElem?_set_self (by rw [hmri_len]; omega), Option.getD_some]
@@ -790,11 +801,15 @@ private theorem shrink_blk_after_wp {Γ : Env}
     have hcore_f := coreInv_shrinkBlk hcore (mcf1 := mcf_i) htf_len hmri_len
       hb_a.mstk_len hmclri_len hmcli_le hb_a.sstk_len
     obtain ⟨hmin_f, hEnt_f, hlvl_f, htmp_f⟩ := shrink_blk_success_finish
-      hcore hbeg_end hend_tl htl_cv hkeep_spec hb_a hmri_len hmclri_len htf_len hdom_i hcov_i
-      hmono_i h8_to_2f hnew2_i huip_te huip_eq huip_8 huip_lvl hres_a hblk_a htf_out htf_beg
-      htf_rest
+      hcore hbeg_end hend_tl htl_cv hkeep_spec hb_a hmri_len hmclri_len htf_len hdom_i
+      hcov_i hmono_i h8_to_2f hnew2_i huip_te huip_eq huip_8 huip_lvl hres_a hblk_a htf_out
+      htf_beg htf_rest
     exact hQ tmp_f mrk_i mstk_a mclr_i mcl_i mcf_i sstk_a m_i hcore_f hmin_f hab_i hno8_f
-      (fun w hw h2 => hmono_i w hw (hb_a.mono2 w hw h2)) htf_out hlvl_f hEnt_f htmp_f hm_i
+      (fun w hw h2 => hmono_i w hw (hb_a.mono2 w hw h2)) htf_out hlvl_f
+      (fun hnd hother => nodup_filter_shrink_blk (by rw [hlen0.tmp_len_arr]; omega)
+        (by rw [htf_len]; omega) hnd htf_out hlvl_f
+        (fun _ j _ hij hj _ hnj => hnj (by rw [htf_rest j (by omega) hj]; rfl)) hother)
+      hEnt_f htmp_f hm_i
 
 /-! ## 3. Exported `full_shrink_blk_wp` -/
 
@@ -813,8 +828,8 @@ theorem full_shrink_blk_wp (Γ : Env)
   ml_ld load_full_level_ptr hm; ml_ld load_full_reason_ptr hm
   ml_ld load_full_trail_ptr hm; ml_ld load_full_shrink_stk_ptr hm
   ml_ld load_full_arena_ptr hm; ml_ld load_full_cur_vars hm; ml_lets
-  obtain ⟨_, hw0⟩ := hcore.witness
-  have hlen0 := hcore.lengths.core_ok; have hcv := hlen0.cur_vars_le
+  obtain ⟨_, hw0⟩ := hcore.2
+  have hlen0 := hcore.1.core_ok; have hcv := hlen0.cur_vars_le
   have hmx := c.hmaxv; have har := c.harena; unfold dimacsBound at hmx har
   let keep0 := ((s.core.tmp.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat
   have hblk_lt : ∀ j, beg.toNat ≤ j → j < end_b.toNat →
@@ -839,7 +854,7 @@ theorem full_shrink_blk_wp (Γ : Env)
       exact hJ1 (end_b.toNat - beg.toNat) (0#64, beg, ()) m
         ⟨s.core.mrk, s.scratch.shrink_stk, rfl, le_refl _, le_of_lt hbeg_end, by omega,
           ⟨hlen0.mrk_len, hlen0.min_stk_len, hlen0.min_clr_len_arr, hlen0.min_clr_len_le,
-            hcore.lengths.scratch_ok.shrink_stk_len, by omega, fun _ _ => rfl, hmin0,
+            hcore.1.scratch_ok.shrink_stk_len, by omega, fun _ _ => rfl, hmin0,
             fun _ _ h => h, fun w hw h8 => absurd (hno8_0 w hw) h8, fun _ h => by omega⟩,
           fun _ h1 h2 => by omega, fun _ h => by omega,
           fun w hw h8 => absurd (hno8_0 w hw) h8, by omega, hm⟩)
@@ -1104,7 +1119,10 @@ theorem full_shrink_blk_wp (Γ : Env)
       0xFFFFFFFF#32 := by
     rw [getElem?_getD_of_getElem 0xFFFFFFFF#32 (rfl : s.core.rsns = st_c.core.rsns)
       (congrArg (· / 2) huip_in_eq')]; exact hrsn_ne
-  have hrs := hw0.reason_inv t_in.toNat ht_te hrsn_ne'
+  have ht_in_lvl : (s.core.lvl[(s.core.trl[t_in.toNat]?.getD 0#32).toNat / 2]?.getD 0#32).toNat <
+      s.core.cur_level := by
+    rw [huip_in_eq', (h8_c _ (by omega) huip_in_8).1]; exact hblvl_lt
+  have hrs := hw0.reason_inv_below t_in.toNat ht_te ht_in_lvl hrsn_ne'
   let is_bin_b := (rsn &&& 0x80000000#32 != 0#32)
   let CszJoin : Tup Val [.bool, i32] → Mem 64 → Prop := fun (f_sz, csz_bv, ()) m_sz =>
     m_sz = m_c ∧ f_sz = false ∧
@@ -1184,7 +1202,7 @@ theorem full_shrink_blk_wp (Γ : Env)
       obtain ⟨hop2_i, hopl_i, h8_i, hcnt_i, hcov_i⟩ := hok_i rfl
       have hi_eq := hce_done rfl
       have hrc_i : ShrinkResolved s.core mrk_i t_in.toNat := by
-        refine shrink_rsn_loop_done hcore ht_te hrsn_ne' ?_
+        refine shrink_rsn_loop_done hcore ht_te ht_in_lvl hrsn_ne' ?_
         dsimp only; intro j hj
         have hbin_iff : ((rsn &&& 0x80000000#32) ≠ 0#32) ↔ is_bin_b = true := by
           dsimp only [is_bin_b]; simp only [bne_iff_ne, ne_eq]
@@ -1321,7 +1339,7 @@ theorem full_shrink_blk_wp (Γ : Env)
     have hval_ot : st_i.core.vals[ot.toNat]?.getD 0#8 = 0xFF#8 :=
       (hw0.vals_false_iff _ hot_info.1).mpr ⟨k_ot, Nat.lt_trans hk_lt ht_te, hk_eq⟩
     refine ⟨c, F0, st_i, keep0, R, rfl, shrinkBaseInv_core hcore hb_i, hb_i.min_inv,
-      bv32_lshr_1 ot, hot_info.1, hval_ot,
+      bv32_lshr_1 ot, hot_info.1, hval_ot, by rw [bv32_lshr_1]; exact Nat.lt_trans hlov_lt hblvl_lt,
       by rw [bv32_lshr_1]; exact shrinkOkInv_lvl_lt_no8 (fun w hw h8 => (h8_i w hw h8).1) hlov_lt,
       hm_i, ?_⟩
     intro ok_l mrk_l mstk_l mclr_l mcl_l mcf_l m_l hlen_l hab_l hmono_l hbit8_l hmin_l hok_l hm_l
