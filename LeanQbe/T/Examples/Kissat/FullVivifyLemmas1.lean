@@ -61,6 +61,12 @@ def FullLastLearnedWf (s : FullState) : Prop :=
 def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
   FullLastLearnedWf s ∧ s.scratch.extend_len ≤ c.extend_cap
 
+/-- Canonical sparse 2WL Stage-4 invariant with explicit current formula (`#968`). -/
+def FullSparseInvW (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) :
+    Prop :=
+  s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ FullLitMarksClear c s ∧
+  FullArenaVarsNodup s ∧ FullExtScratchOk c s ∧ s.core.dense_mode = 0#64
+
 /-- Canonical sparse 2WL Stage-4 solver invariant (`#968`). -/
 def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
   FullCoreInv c F0 s ∧ FullLitMarksClear c s ∧ FullArenaVarsNodup s ∧
@@ -219,14 +225,17 @@ theorem fv_with_scratch {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     ⟨fun i hi => by simpa [FullLastLearnedWf, hll] using h.2.2.2.1.1 i hi,
       by simpa [hext] using h.2.2.2.1.2⟩, h.2.2.2.2⟩
 
-theorem fv_with_oom {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (h : FullSparseInv c F0 s) (v : BitVec 64) :
-    FullSparseInv c F0 { s with core := { s.core with oom := v } } := by
-  obtain ⟨⟨hlen, F_cur, hw⟩, hmc, hnd, hext, hdm⟩ := h
-  refine ⟨⟨⟨{ hlen.core_ok with vals_len := hlen.core_ok.vals_len }, hlen.scratch_ok⟩, F_cur,
-    { hw with arena := { hw.arena with len_ok := hw.arena.len_ok },
-              watches := hw.watches.with_wstk rfl rfl rfl rfl rfl (fun _ r => r) }⟩,
-    hmc, hnd, hext, hdm⟩
+theorem fv_sparseW_to_sparse {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)} {s : FullState}
+    (h : FullSparseInvW c F0 F_cur s) : FullSparseInv c F0 s :=
+  ⟨⟨h.1, F_cur, h.2.1⟩, h.2.2.1, h.2.2.2.1, h.2.2.2.2.1, h.2.2.2.2.2⟩
+
+theorem fv_with_oomW {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)} {s : FullState}
+    (h : FullSparseInvW c F0 F_cur s) (v : BitVec 64) :
+    FullSparseInvW c F0 F_cur { s with core := { s.core with oom := v } } :=
+  ⟨⟨{ h.1.core_ok with vals_len := h.1.core_ok.vals_len }, h.1.scratch_ok⟩,
+    { h.2.1 with arena := { h.2.1.arena with len_ok := h.2.1.arena.len_ok },
+                 watches := h.2.1.watches.with_wstk rfl rfl rfl rfl rfl (fun _ r => r) },
+    h.2.2.1, h.2.2.2.1, h.2.2.2.2.1, h.2.2.2.2.2⟩
 
 theorem fv_with_probing {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     (h : FullSparseInv c F0 s) (v : BitVec 64) :
@@ -346,27 +355,26 @@ theorem fv_witness_markGarb_level0 {c : FullCfg} {F0 : CNF Nat} {F_cur : List (L
     (fullArenaClauseLitsCore_set_outside hbd hdisj).2
   rw [hlits_eq]; exact hnd_other r hr hne hng0
 
-theorem fv_markGarb {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (h : FullSparseInv c F0 s) (hl0 : s.core.cur_level = 0)
+theorem fv_markGarbW {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)} {s : FullState}
+    (h : FullSparseInvW c F0 F_cur s) (hl0 : s.core.cur_level = 0)
     {cref : Nat} (href : cref ∈ fullArenaClauseRefs s) (ag' : BitVec 64) :
     let s' : FullState :=
       { s with core :=
         { s.core with
           arena := s.core.arena.set cref (fullArenaHdr s cref ||| 0x00080000#32)
           arena_garbage := ag' } }
-    FullSparseInv c F0 s' ∧ fullArenaClauseRefs s' = fullArenaClauseRefs s ∧
+    FullSparseInvW c F0 F_cur s' ∧ fullArenaClauseRefs s' = fullArenaClauseRefs s ∧
       (∀ q ∈ fullArenaClauseRefs s,
         fullArenaNextOff s'.core.arena s.core.arena_len q =
           fullArenaNextOff s.core.arena s.core.arena_len q) := by
   intro s'
-  obtain ⟨F_cur, hw⟩ := h.1.witness
   obtain ⟨hlen', hw', hrefs, hnd', hnxt⟩ :=
-    fv_witness_markGarb_level0 h.1.lengths hw hl0 href ag' (fun r hr _ hng => h.2.2.1 r hr hng)
-  exact ⟨⟨⟨hlen', F_cur, hw'⟩, h.2.1, hnd',
+    fv_witness_markGarb_level0 h.1 h.2.1 hl0 href ag' (fun r hr _ hng => h.2.2.2.1 r hr hng)
+  exact ⟨⟨hlen', hw', h.2.2.1, hnd',
     ⟨fun i hi => by
-      simpa [FullLastLearnedWf, fullArenaClauseRefs, s', hrefs] using h.2.2.2.1.1 i hi,
-      h.2.2.2.1.2⟩,
-    h.2.2.2.2⟩, hrefs, hnxt⟩
+      simpa [FullLastLearnedWf, fullArenaClauseRefs, s', hrefs] using h.2.2.2.2.1.1 i hi,
+      h.2.2.2.2.1.2⟩,
+    h.2.2.2.2.2⟩, hrefs, hnxt⟩
 
 /-- Updating header word `ar[cref]` while preserving `PH_GARB` (`bit 19`) and `PH_SHRK` (`bit 23`)
 preserves `FullCoreInv`, `fullArenaClauseRefs`, `fullArenaClauseSize`, `fullArenaClauseGarb`,
@@ -933,8 +941,9 @@ theorem fv_watchSlice_append_large {F_cur : List (List Nat)} {k k' : FullCoreSta
       (by simpa [show p' + 2 + rem = p' + (rem + 2) by omega] using hw0)
       (by simpa [show p' + 2 + rem + 1 = p' + (rem + 2) + 1 by omega] using hw1)
 
-theorem fullWatchPush_large_preserves_sparseInv {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hsp : FullSparseInv c F0 s) {lit w0 cref : BitVec 32} {ok : Bool}
+theorem fullWatchPush_large_preserves_sparseInvW {c : FullCfg} {F0 : CNF Nat}
+    {F_cur : List (List Nat)} {s : FullState}
+    (hsp : FullSparseInvW c F0 F_cur s) {lit w0 cref : BitVec 32} {ok : Bool}
     {wvec' wstk' wsort' : List (BitVec 32)} {wlen' : Nat} {wusable' : BitVec 64}
     (hflag : (w0 &&& 0x80000000#32) = 0#32) (hlt : cref.toNat < 0x80000000)
     (href : cref.toNat ∈ fullArenaClauseRefs s) :
@@ -960,9 +969,9 @@ theorem fullWatchPush_large_preserves_sparseInv {c : FullCfg} {F0 : CNF Nat} {s 
       ∀ k < fullWatchSize s lit.toNat,
         s'.core.wstk[fullWatchOff s' lit.toNat + k]? =
           s.core.wstk[fullWatchOff s lit.toNat + k]?) →
-    FullSparseInv c F0 s' := by
+    FullSparseInvW c F0 F_cur s' := by
   intro s' hlen' hlay hother hok_t hok_f
-  obtain ⟨⟨_, F_cur, hw⟩, hmc, hnd, hext, hdm⟩ := hsp
+  obtain ⟨_, hw, hmc, hnd, hext, hdm⟩ := hsp
   have hwat0 : WatchesInv F_cur s.core := by
     have := hw.watches; unfold ModeWatchesInv at this; simpa [hdm] using this
   have hwat' : ModeWatchesInv F_cur s'.core := by
@@ -988,7 +997,7 @@ theorem fullWatchPush_large_preserves_sparseInv {c : FullCfg} {F0 : CNF Nat} {s 
         (Nat.le_refl _) (fun _ r => r) hpre (hwat0.slices l hl)
   have harena' : FullArenaClausesInv c F_cur s'.core :=
     ⟨hw.arena.len_ok, hw.arena.refs_wf, hw.arena.shrk_term, hw.arena.lits_lt, hw.arena.entails⟩
-  exact ⟨⟨hlen', F_cur, { hw with arena := harena', watches := hwat' }⟩, hmc, hnd, hext, hdm⟩
+  exact ⟨hlen', { hw with arena := harena', watches := hwat' }, hmc, hnd, hext, hdm⟩
 
 theorem entails_filter_level0 {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {k : FullCoreState} (hw : FullWitnessInv c F0 F_cur k) (hl0 : k.cur_level = 0)
@@ -1108,18 +1117,14 @@ def fullVivWatchPushSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
 
 def fullVivAddUnitSpec : Spec [i64, i32] [.bool] := fun (h, lit, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ FullSparseInv c F0 s ∧ FullWitnessInv c F0 F_cur s.core ∧
-    lit.toNat < 2 * s.core.cur_vars ∧
-    (cnfOfClauses F_cur).EntailsClause (cnfClause [lit.toNat]) ∧
-    (FullMem c s ⋆ R) m ∧
+    h = c.hdr ∧ FullSparseInvW c F0 F_cur s ∧ lit.toNat < 2 * s.core.cur_vars ∧
+    (cnfOfClauses F_cur).EntailsClause (cnfClause [lit.toNat]) ∧ (FullMem c s ⋆ R) m ∧
     ∀ (ok : Bool) s' m',
-      s'.LengthsOk c →
+      FullSparseInvW c F0 F_cur s' → s'.core.cur_level = 0 →
       s'.core.arena = s.core.arena → s'.core.arena_len = s.core.arena_len →
       s'.core.cur_vars = s.core.cur_vars → s'.core.probing = s.core.probing →
       s'.core.oom = s.core.oom → s'.core.fuel = s.core.fuel →
-      (ok = true → FullSparseInv c F0 s' ∧ s'.core.cur_level = 0) →
-      (ok = false → F0.Unsat) →
-      (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
+      (ok = false → F0.Unsat) → (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
 def fullVivAddBinSpec : Spec [i64, i32, i32] [i64] := fun (h, a, b, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
@@ -1130,13 +1135,11 @@ def fullVivAddBinSpec : Spec [i64, i32, i32] [i64] := fun (h, a, b, ()) m Q _ =>
     (FullMem c s ⋆ R) m ∧
     ∀ (r : BitVec 64) s' m',
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) →
-      s'.core.arena = s.core.arena → s'.core.arena_len = s.core.arena_len →
-      s'.core.cur_vars = s.core.cur_vars → s'.core.cur_level = 0 →
-      s'.core.probing = s.core.probing → s'.core.fuel = s.core.fuel →
-      (r = 20#64 → F0.Unsat) →
-      (r ≠ 20#64 → FullWitnessInv c F0 F_cur s'.core ∧ FullLitMarksClear c s' ∧
-        FullExtScratchOk c s' ∧ s'.core.dense_mode = 0#64) →
-      (FullMem c s' ⋆ R) m' → Q (r, ()) m'
+      FullWitnessInv c F0 F_cur s'.core → FullLitMarksClear c s' → FullExtScratchOk c s' →
+      s'.core.dense_mode = 0#64 → s'.core.arena = s.core.arena →
+      s'.core.arena_len = s.core.arena_len → s'.core.cur_vars = s.core.cur_vars →
+      s'.core.cur_level = 0 → s'.core.probing = s.core.probing → s'.core.fuel = s.core.fuel →
+      (r = 20#64 → F0.Unsat) → (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
 def fullVivAssignSpec : Spec [i64, i32, i32] [] := fun (h, lit, rsn, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
@@ -1230,60 +1233,78 @@ def fullVivPropagateSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
 def fullVivSortLitsSpec : Spec [i64, i64, i32] [] := fun (h, lits_ptr, sz, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ lits_ptr = c.pTmp ∧ s.LengthsOk c ∧ sz.toNat ≤ c.max_vars ∧
-    (∀ k < sz.toNat, (s.core.tmp[k]?.getD 0#32).toNat < 2 * c.max_vars) ∧ (FullMem c s ⋆ R) m ∧
+    (∀ i < sz.toNat, (s.core.tmp[i]?.getD 0#32).toNat < 2 * c.max_vars) ∧
+    (FullMem c s ⋆ R) m ∧
     ∀ tmp' m', tmp'.length = c.max_vars →
-      (∀ k, sz.toNat ≤ k → tmp'[k]? = s.core.tmp[k]?) →
-      (∀ k < sz.toNat, ∃ idx < sz.toNat, tmp'[k]? = s.core.tmp[idx]?) →
-      (∀ idx < sz.toNat, ∃ k < sz.toNat, tmp'[k]? = s.core.tmp[idx]?) →
+      (tmp'.take sz.toNat).Perm (s.core.tmp.take sz.toNat) →
+      (∀ i, sz.toNat ≤ i → i < c.max_vars → tmp'[i]? = s.core.tmp[i]?) →
       (FullMem c { s with core := { s.core with tmp := tmp' } } ⋆ R) m' → Q () m'
 
 end FullVivifySpecs
 
 /-! ## 4. `full_viv_sort_lits` `Func.wp` proof -/
 
-private theorem tmp_shift_perm {xs orig : List (BitVec 32)} {sz i j : Nat} {x prev : BitVec 32}
-    (hlen : xs.length = orig.length) (hsz : sz ≤ orig.length) (hi : i < sz)
-    (hj_pos : 0 < j) (hj_le : j ≤ i) (hprev : xs[j - 1]? = some prev)
-    (hout : ∀ k, sz ≤ k → xs[k]? = orig[k]?)
-    (hsub : ∀ k < sz, k ≠ j → ∃ idx < sz, xs[k]? = orig[idx]?)
-    (hx_in : ∃ idx < sz, some x = orig[idx]?)
-    (hsurj : ∀ idx < sz, orig[idx]? = some x ∨ ∃ k < sz, k ≠ j ∧ xs[k]? = orig[idx]?) :
-    let xs' := xs.set j prev
-    xs'.length = orig.length ∧ (∀ k, sz ≤ k → xs'[k]? = orig[k]?) ∧
-    (∀ k < sz, k ≠ j - 1 → ∃ idx < sz, xs'[k]? = orig[idx]?) ∧
-    (∀ idx < sz, orig[idx]? = some x ∨ ∃ k < sz, k ≠ j - 1 ∧ xs'[k]? = orig[idx]?) := by
-  intro xs'; refine ⟨by simp [xs', hlen], fun k hk => ?_, fun k hk hne => ?_, fun idx hidx => ?_⟩
-  · dsimp only [xs']; rw [List.getElem?_set_ne (by omega)]; exact hout k hk
-  · dsimp only [xs']; by_cases hkj : k = j
-    · subst hkj; rw [List.getElem?_set_self (by omega), ← hprev]
-      exact hsub (k - 1) (by omega) (by omega)
-    · rw [List.getElem?_set_ne (Ne.symm hkj)]; exact hsub k hk hkj
-  · rcases hsurj idx hidx with heq | ⟨k, hk, hkj, hkeq⟩
-    · exact Or.inl heq
-    · right; by_cases hkj1 : k = j - 1
-      · subst hkj1; refine ⟨j, by omega, by omega, ?_⟩
-        dsimp only [xs']; rw [List.getElem?_set_self (by omega), ← hprev]; exact hkeq
-      · refine ⟨k, hk, hkj1, ?_⟩; dsimp only [xs']
-        rw [List.getElem?_set_ne (Ne.symm hkj)]; exact hkeq
+private theorem tmp_lt_of_perm {xs orig : List (BitVec 32)} {sz B : Nat}
+    (hxs : sz ≤ xs.length) (hperm : (xs.take sz).Perm (orig.take sz))
+    (hlt : ∀ idx < sz, (orig[idx]?.getD 0#32).toNat < B) :
+    ∀ k < sz, (xs[k]?.getD 0#32).toNat < B := fun k hk => by
+  have hm : xs[k]'(by omega) ∈ orig.take sz := hperm.mem_iff.mp (by
+    rw [List.mem_iff_getElem]
+    exact ⟨k, by rw [List.length_take]; omega, by simp [List.getElem_take]⟩)
+  obtain ⟨idx, hidx, heq⟩ := List.mem_iff_getElem.mp hm
+  have hle_o : (orig.take sz).length ≤ orig.length := by
+    rw [List.length_take]; exact Nat.min_le_right _ _
+  have hidx_sz : idx < sz := by rw [List.length_take] at hidx; omega
+  have hget := hlt idx hidx_sz
+  rw [List.getElem_take] at heq
+  rw [List.getElem?_eq_getElem (by omega), Option.getD_some, ← heq]
+  rwa [List.getElem?_eq_getElem (by omega), Option.getD_some] at hget
 
-private theorem tmp_place_perm {xs orig : List (BitVec 32)} {sz i j : Nat} {x : BitVec 32}
-    (hlen : xs.length = orig.length) (hsz : sz ≤ orig.length) (hi : i < sz) (hj : j ≤ i)
-    (hout : ∀ k, sz ≤ k → xs[k]? = orig[k]?)
-    (hsub : ∀ k < sz, k ≠ j → ∃ idx < sz, xs[k]? = orig[idx]?)
-    (hx_in : ∃ idx < sz, some x = orig[idx]?)
-    (hsurj : ∀ idx < sz, orig[idx]? = some x ∨ ∃ k < sz, k ≠ j ∧ xs[k]? = orig[idx]?) :
-    let xs' := xs.set j x
-    xs'.length = orig.length ∧ (∀ k, sz ≤ k → xs'[k]? = orig[k]?) ∧
-    (∀ k < sz, ∃ idx < sz, xs'[k]? = orig[idx]?) ∧
-    (∀ idx < sz, ∃ k < sz, xs'[k]? = orig[idx]?) := by
-  intro xs'; refine ⟨by simp [xs', hlen], fun k hk => ?_, fun k hk => ?_, fun idx hidx => ?_⟩
-  · dsimp only [xs']; rw [List.getElem?_set_ne (by omega)]; exact hout k hk
-  · dsimp only [xs']; by_cases hkj : k = j
-    · subst hkj; rw [List.getElem?_set_self (by omega)]; exact hx_in
-    · rw [List.getElem?_set_ne (Ne.symm hkj)]; exact hsub k hk hkj
-  · rcases hsurj idx hidx with heq | ⟨k, hk, hkj, hkeq⟩
-    · refine ⟨j, by omega, ?_⟩; dsimp only [xs']; rw [List.getElem?_set_self (by omega), heq]
-    · refine ⟨k, hk, ?_⟩; dsimp only [xs']; rw [List.getElem?_set_ne (Ne.symm hkj)]; exact hkeq
+private theorem tmp_shift_hole {xs orig : List (BitVec 32)} {sz j : Nat} {x prev : BitVec 32}
+    (hlen : xs.length = orig.length) (hsz : sz ≤ orig.length) (hj0 : 0 < j) (hjsz : j < sz)
+    (hprev : xs[j - 1]? = some prev) (hperm : ((xs.set j x).take sz).Perm (orig.take sz)) :
+    (((xs.set j prev).set (j - 1) x).take sz).Perm (orig.take sz) := by
+  obtain ⟨m, rfl⟩ := Nat.exists_eq_succ_of_ne_zero (Nat.ne_of_gt hj0)
+  rw [Nat.succ_sub_one] at hprev ⊢
+  let A := (xs.set (m + 1) x).take sz; let B := ((xs.set (m + 1) prev).set m x).take sz
+  have hAl : A.length = sz := by simp [A, List.length_take, hlen]; omega
+  let head := A.take m; let tail := A.drop (m + 2)
+  have htk : head.length = m := by simp [head, List.length_take, hAl]; omega
+  have hsp : ∀ (C : List (BitVec 32)) (a b : BitVec 32), C.length = sz →
+      (∀ k < m, C[k]? = A[k]?) → C[m]? = some a → C[m + 1]? = some b →
+      (∀ k, m + 2 ≤ k → C[k]? = A[k]?) → C = head ++ a :: b :: tail := by
+    intro C a b hCl hk_lt hk_m hk_j hk_gt; refine List.ext_getElem? fun k => ?_
+    by_cases hkm : k < m
+    · rw [List.getElem?_append_left (by omega), List.getElem?_take]; simp [hkm, hk_lt k hkm]
+    · rw [List.getElem?_append_right (by omega), htk]
+      by_cases hk0 : k = m
+      · subst hk0; simp [hk_m]
+      · by_cases hk1 : k = m + 1
+        · subst hk1; simp [hk_j]
+        · rw [show k - m = (k - (m + 2)) + 2 by omega]
+          simp only [List.getElem?_cons_succ, tail, List.getElem?_drop]
+          rw [show m + 2 + (k - (m + 2)) = k by omega]; exact hk_gt k (by omega)
+  have hA := hsp A prev x hAl (fun _ _ => rfl)
+    (by simp only [A, List.getElem?_take, show m < sz by omega, ↓reduceIte,
+          List.getElem?_set_ne (by omega : m + 1 ≠ m)]; exact hprev)
+    (by simp only [A, List.getElem?_take, hjsz, ↓reduceIte]
+        exact List.getElem?_set_self (by omega))
+    fun _ _ => rfl
+  have hB := hsp B x prev (by simp [B, List.length_take, hlen]; omega)
+    (fun k hk => by
+      simp only [A, B, List.getElem?_take, List.getElem?_set_ne (by omega : m ≠ k),
+        List.getElem?_set_ne (by omega : m + 1 ≠ k)])
+    (by simp only [B, List.getElem?_take, show m < sz by omega, ↓reduceIte]
+        exact List.getElem?_set_self (by simp; omega))
+    (by simp only [B, List.getElem?_take, hjsz, ↓reduceIte,
+          List.getElem?_set_ne (by omega : m ≠ m + 1)]
+        exact List.getElem?_set_self (by omega))
+    fun k hk => by
+      simp only [A, B, List.getElem?_take, List.getElem?_set_ne (by omega : m ≠ k),
+        List.getElem?_set_ne (by omega : m + 1 ≠ k)]
+  have hswap : B.Perm A := by
+    rw [hB, hA]; exact List.Perm.append_left _ (List.Perm.swap prev x tail)
+  exact hswap.trans hperm
 
 private theorem bv32_zext64_shl1_add1 (x : BitVec 32) :
     (((x.setWidth 64) <<< 1#64) + 1#64).toNat = 2 * x.toNat + 1 := by
@@ -1301,94 +1322,77 @@ theorem full_viv_sort_lits_wp (Γ : Env) :
   refine wp_loop_inv
     (fun (i, ()) m1 => ∃ tmp1 : List (BitVec 32),
       1 ≤ i.toNat ∧ (sz.toNat = 0 → i.toNat = 1) ∧ (0 < sz.toNat → i.toNat ≤ sz.toNat) ∧
-      tmp1.length = c.max_vars ∧
-      (∀ k, sz.toNat ≤ k → tmp1[k]? = s.core.tmp[k]?) ∧
-      (∀ k < sz.toNat, ∃ idx < sz.toNat, tmp1[k]? = s.core.tmp[idx]?) ∧
-      (∀ idx < sz.toNat, ∃ k < sz.toNat, tmp1[k]? = s.core.tmp[idx]?) ∧
+      tmp1.length = c.max_vars ∧ (tmp1.take sz.toNat).Perm (s.core.tmp.take sz.toNat) ∧
+      (∀ k, sz.toNat ≤ k → k < c.max_vars → tmp1[k]? = s.core.tmp[k]?) ∧
       (FullMem c { s with core := { s.core with tmp := tmp1 } } ⋆ R) m1)
     (fun (i, ()) _ => sz.toNat - i.toNat)
     (fun J_out hJ => by
       fv_steps
       have h1 : (1#32 : BitVec 32).toNat = 1 := rfl
       exact hJ (1#32, ()) m ⟨s.core.tmp, by omega, fun _ => rfl, fun h => by omega, htl0,
-        fun _ _ => rfl, fun k hk => ⟨k, hk, rfl⟩, fun idx hi => ⟨idx, hi, rfl⟩, hm⟩)
-    (fun J_out (i, ()) m1 ⟨tmp1, hi1, hiz, hipos, htl1, hout1, hsub1, hsurj1, hm1⟩ ih => ?_)
+        .refl _, fun _ _ _ => rfl, hm⟩)
+    (fun J_out (i, ()) m1 ⟨tmp1, hi1, hiz, hipos, htl1, hperm1, hout1, hm1⟩ ih => ?_)
   fv_steps
   · have hi_lt : i.toNat < sz.toNat := by c0_bound
-    have htmp1_lt : ∀ k < sz.toNat, (tmp1[k]?.getD 0#32).toNat < 2 * c.max_vars := fun k hk => by
-      obtain ⟨idx, hidx, heq⟩ := hsub1 k hk; rw [heq]; exact hlt_orig idx hidx
+    have htmp1_lt := tmp_lt_of_perm (by omega) hperm1 hlt_orig
     let x : BitVec 32 := tmp1[i.toNat]'(by omega)
     have hx_lt_v : x.toNat < 2 * c.max_vars := by
       have h := htmp1_lt i.toNat hi_lt
       rwa [List.getElem?_eq_getElem (by omega), Option.getD_some] at h
     have hx_widx := bv32_zext64_shl1_add1 x
     have hx_wlt : (((x.setWidth 64) <<< 1#64) + 1#64).toNat < s.core.wvec.length := by omega
-    have hstep_tmp : ∃ idx < sz.toNat, some x = s.core.tmp[idx]? := by
-      have := hsub1 i.toNat hi_lt; rwa [List.getElem?_eq_getElem (by omega)] at this
-    have hsurj_init : ∀ idx < sz.toNat,
-        s.core.tmp[idx]? = some x ∨
-        ∃ k < sz.toNat, k ≠ i.toNat ∧ tmp1[k]? = s.core.tmp[idx]? := fun idx hidx => by
-      obtain ⟨k, hk, hkeq⟩ := hsurj1 idx hidx
-      by_cases hki : k = i.toNat
-      · subst hki; left; rw [← hkeq, List.getElem?_eq_getElem (by omega)]
-      · exact Or.inr ⟨k, hk, hki, hkeq⟩
+    have hperm_init : ((tmp1.set i.toNat x).take sz.toNat).Perm (s.core.tmp.take sz.toNat) := by
+      rwa [show tmp1.set i.toNat x = tmp1 from List.ext_getElem (by simp) fun k hk _ => by
+        by_cases hki : k = i.toNat
+        · subst hki; rw [List.getElem_set_self]
+        · rw [List.getElem_set_ne (Ne.symm hki)]]
     fv_steps
     refine wp_loop_inv
       (fun (j, ()) m2 => ∃ tmp2 : List (BitVec 32),
         j.toNat ≤ i.toNat ∧ tmp2.length = c.max_vars ∧
-        (∀ k, sz.toNat ≤ k → tmp2[k]? = s.core.tmp[k]?) ∧
-        (∀ k < sz.toNat, k ≠ j.toNat → ∃ idx < sz.toNat, tmp2[k]? = s.core.tmp[idx]?) ∧
-        (∀ idx < sz.toNat, s.core.tmp[idx]? = some x ∨
-          ∃ k < sz.toNat, k ≠ j.toNat ∧ tmp2[k]? = s.core.tmp[idx]?) ∧
+        ((tmp2.set j.toNat x).take sz.toNat).Perm (s.core.tmp.take sz.toNat) ∧
+        (∀ k, sz.toNat ≤ k → k < c.max_vars → tmp2[k]? = s.core.tmp[k]?) ∧
         (FullMem c { s with core := { s.core with tmp := tmp2 } } ⋆ R) m2)
       (fun (j, ()) _ => j.toNat)
       (fun J2 hJ2 => by
-        fv_steps
-        exact hJ2 (i, ()) m1 ⟨tmp1, Nat.le_refl _, htl1, hout1, fun k hk _ => hsub1 k hk,
-          hsurj_init, hm1⟩)
-      (fun J2 (j, ()) m2 ⟨tmp2, hj_le, htl2, hout2, hsub2, hsurj2, hm2⟩ ih2 => ?_)
+        fv_steps; exact hJ2 (i, ()) m1 ⟨tmp1, Nat.le_refl _, htl1, hperm_init, hout1, hm1⟩)
+      (fun J2 (j, ()) m2 ⟨tmp2, hj_le, htl2, hperm2, hout2, hm2⟩ ih2 => ?_)
     have hplace : ∀ (j0 : BitVec 32) (tmp_f : List (BitVec 32)) (mf : Mem 64),
         j0.toNat ≤ i.toNat → tmp_f.length = c.max_vars →
-        (∀ k, sz.toNat ≤ k → tmp_f[k]? = s.core.tmp[k]?) →
-        (∀ k < sz.toNat, k ≠ j0.toNat → ∃ idx < sz.toNat, tmp_f[k]? = s.core.tmp[idx]?) →
-        (∀ idx < sz.toNat, s.core.tmp[idx]? = some x ∨
-          ∃ k < sz.toNat, k ≠ j0.toNat ∧ tmp_f[k]? = s.core.tmp[idx]?) →
+        ((tmp_f.set j0.toNat x).take sz.toNat).Perm (s.core.tmp.take sz.toNat) →
+        (∀ k, sz.toNat ≤ k → k < c.max_vars → tmp_f[k]? = s.core.tmp[k]?) →
         (FullMem c { s with core := { s.core with tmp := tmp_f.set j0.toNat x } } ⋆ R) mf →
         J_out (i + 1#32, ()) mf := by
-      intro j0 tmp_f mf hj0 htlf houtf hsubf hsurjf hmf
-      have hpm := tmp_place_perm (by omega : tmp_f.length = s.core.tmp.length)
-        (by omega : sz.toNat ≤ s.core.tmp.length) hi_lt hj0 houtf hsubf hstep_tmp hsurjf
+      intro j0 tmp_f mf hj0 htlf hpermf houtf hmf
       have hi1_nat : (i + 1#32).toNat = i.toNat + 1 := by bv_omega
       exact ih (i + 1#32, ()) mf (by dsimp only; omega)
-        ⟨tmp_f.set j0.toNat x, by omega, fun hz => by omega,
-         fun _ => by omega, by simp [htlf], hpm.2.1, hpm.2.2.1, hpm.2.2.2, hmf⟩
+        ⟨tmp_f.set j0.toNat x, by omega, fun hz => by omega, fun _ => by omega, by simp [htlf],
+         hpermf, fun k hk1 hk2 => by rw [List.getElem?_set_ne (by omega)]; exact houtf k hk1 hk2,
+         hmf⟩
     fv_steps
     · have hj_pos : 0 < j.toNat := by c0_bound
       have hj1_nat : (j - 1#32).toNat = j.toNat - 1 := by bv_omega
       let prev : BitVec 32 := tmp2[(j - 1#32).toNat]'(by omega)
       have hprev_eq : tmp2[j.toNat - 1]? = some prev := by
-        rw [List.getElem?_eq_getElem (by omega)]; congr 1
-        simp only [prev, hj1_nat]
+        rw [List.getElem?_eq_getElem (by omega)]; congr 1; simp only [prev, hj1_nat]
       have hprev_lt : prev.toNat < 2 * c.max_vars := by
-        obtain ⟨idx, hidx, heq⟩ := hsub2 (j.toNat - 1) (by omega) (by omega)
-        have h := hlt_orig idx hidx
-        rw [← heq, hprev_eq, Option.getD_some] at h; exact h
+        have h := tmp_lt_of_perm (by simp [htl2]; omega) hperm2 hlt_orig (j.toNat - 1) (by omega)
+        rwa [List.getElem?_set_ne (by omega), hprev_eq, Option.getD_some] at h
       have hp_widx := bv32_zext64_shl1_add1 prev
       have hp_wlt : (((prev.setWidth 64) <<< 1#64) + 1#64).toNat < s.core.wvec.length := by omega
-      have hsh := tmp_shift_perm (by omega : tmp2.length = s.core.tmp.length)
-        (by omega : sz.toNat ≤ s.core.tmp.length) hi_lt hj_pos hj_le hprev_eq
-        hout2 hsub2 hstep_tmp hsurj2
+      have hperm_sh := tmp_shift_hole (by omega : tmp2.length = s.core.tmp.length)
+        (by omega : sz.toNat ≤ s.core.tmp.length) hj_pos (by omega) hprev_eq hperm2
       fv_steps
-      · exact hplace j tmp2 _ hj_le htl2 hout2 hsub2 hsurj2 hm
-      · exact hplace j tmp2 _ hj_le htl2 hout2 hsub2 hsurj2 hm
-      · exact ih2 (j - 1#32, ()) _ (by dsimp only; omega)
-          ⟨tmp2.set j.toNat prev, by omega, by simp [htl2],
-           hsh.2.1, by simpa [hj1_nat] using hsh.2.2.1, by simpa [hj1_nat] using hsh.2.2.2, hm⟩
-      · exact ih2 (j - 1#32, ()) _ (by dsimp only; omega)
-          ⟨tmp2.set j.toNat prev, by omega, by simp [htl2],
-           hsh.2.1, by simpa [hj1_nat] using hsh.2.2.1, by simpa [hj1_nat] using hsh.2.2.2, hm⟩
-    · exact hplace j tmp2 _ hj_le htl2 hout2 hsub2 hsurj2 hm
-  · exact hQ tmp1 m1 htl1 hout1 hsub1 hsurj1 hm1
+      · exact hplace j tmp2 _ hj_le htl2 hperm2 hout2 hm
+      · exact hplace j tmp2 _ hj_le htl2 hperm2 hout2 hm
+      · exact ih2 (j - 1#32, ()) _ (by dsimp only; omega) ⟨tmp2.set j.toNat prev, by omega,
+          by simp [htl2], by simpa [hj1_nat] using hperm_sh,
+          fun k hk1 hk2 => by rw [List.getElem?_set_ne (by omega)]; exact hout2 k hk1 hk2, hm⟩
+      · exact ih2 (j - 1#32, ()) _ (by dsimp only; omega) ⟨tmp2.set j.toNat prev, by omega,
+          by simp [htl2], by simpa [hj1_nat] using hperm_sh,
+          fun k hk1 hk2 => by rw [List.getElem?_set_ne (by omega)]; exact hout2 k hk1 hk2, hm⟩
+    · exact hplace j tmp2 _ hj_le htl2 hperm2 hout2 hm
+  · exact hQ tmp1 m1 htl1 hperm1 hout1 hm1
 
 end
 

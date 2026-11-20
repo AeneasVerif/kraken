@@ -54,18 +54,19 @@ namespace FullVivifySpecs
 /-- Specification for `full_viv_simplify(h, cref)`: level-0 simplification of a non-garbage arena
 clause (`0` live non-garbage, `1` satisfied/unit/bin/`PH_GARB`, `20` UNSAT). -/
 def fullVivSimplifySpec : Spec [i64, i32] [i64] := fun (h, cref, ()) m Q _ =>
-  ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ FullSparseInv c F0 s ∧ s.core.cur_level = 0 ∧
+  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState)
+    (R : Mem 64 → Prop),
+    h = c.hdr ∧ FullSparseInvW c F0 F_cur s ∧ s.core.cur_level = 0 ∧
     cref.toNat ∈ fullArenaClauseRefs s ∧ fullArenaClauseGarb s cref.toNat = false ∧
-    (FullMem c s ⋆ R) m ∧ ∀ (r : BitVec 64) s' m',
-      s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
-      s'.core.arena_len = s.core.arena_len → s'.core.cur_vars = s.core.cur_vars →
-      s'.core.probing = s.core.probing → (r = 20#64 → F0.Unsat) →
-      (r ≠ 20#64 → FullSparseInv c F0 s' ∧ s'.core.cur_level = 0 ∧
-        fullArenaClauseRefs s' = fullArenaClauseRefs s ∧ ∀ q ∈ fullArenaClauseRefs s,
-          fullArenaNextOff s'.core.arena s.core.arena_len q =
-            fullArenaNextOff s.core.arena s.core.arena_len q) →
-      (r = 0#64 → fullArenaClauseGarb s' cref.toNat = false) → (FullMem c s' ⋆ R) m' → Q (r, ()) m'
+    (FullMem c s ⋆ R) m ∧
+    ∀ r s' m',
+      FullSparseInvW c F0 F_cur s' → s'.core.cur_level = 0 → s'.core.cur_vars = s.core.cur_vars →
+      s'.core.arena_len = s.core.arena_len → s'.core.probing = s.core.probing →
+      s'.core.fuel = s.core.fuel → fullArenaClauseRefs s' = fullArenaClauseRefs s →
+      (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) → (r = 20#64 → F0.Unsat) →
+      (r = 0#64 →
+        cref.toNat ∈ fullArenaClauseRefs s' ∧ fullArenaClauseGarb s' cref.toNat = false) →
+      (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
 end FullVivifySpecs
 
@@ -145,8 +146,8 @@ private theorem simplify_post_loop2_wp (Γ : Env) (hAddUnit : HypAddUnit Γ)
     (hAddBin : HypAddBin Γ) (hWatchPush : HypWatchPush Γ) {c : FullCfg} {F0 : CNF Nat}
     {F_cur0 : List (List Nat)} {s s2 : FullState} {R : Mem 64 → Prop}
     {cref hdr old_sz nsz : Val i32} {ar3 : List (BitVec 32)} {idxs : List Nat} {m : Mem 64}
-    {Q : Post [i64]} {X : XPost} (hsp2 : FullSparseInv c F0 s2)
-    (hw2 : FullWitnessInv c F0 F_cur0 s2.core) (href : cref.toNat ∈ fullArenaClauseRefs s)
+    {Q : Post [i64]} {X : XPost} (hsp2 : FullSparseInvW c F0 F_cur0 s2)
+    (href : cref.toNat ∈ fullArenaClauseRefs s)
     (hs2_ref : fullArenaClauseRefs s2 = fullArenaClauseRefs s)
     (hs2_ng : fullArenaClauseGarb s2 cref.toNat = false) (hs2_ar : s2.core.arena = s.core.arena)
     (hm2_eq : VivMetaEq s s2) (hs2_sz : fullArenaClauseSize s2 cref.toNat = old_sz.toNat)
@@ -164,9 +165,10 @@ private theorem simplify_post_loop2_wp (Γ : Env) (hAddUnit : HypAddUnit Γ)
     (hno1_2 : ∀ j < old_sz.toNat,
       s2.core.vals[(s2.core.arena[cref.toNat + 3 + j]?.getD 0#32).toNat]?.getD 0#8 ≠ 1#8)
     (hm : (FullMem c { s2 with core := { s2.core with arena := ar3 } } ⋆ R) m)
-    (hQ : VivQ c F0 s R Q cref.toNat true) :
+    (hQ : VivQ c F0 F_cur0 s R Q cref.toNat true) :
     wp Γ Q X (simplifyPostLoop2Expr c cref hdr old_sz nsz) m := by
-  have hcl := hsp2.1.lengths.core_ok; have hcap := c.harena; unfold dimacsBound at hcap
+  have hw2 := hsp2.2.1; have hcl := hsp2.1.core_ok
+  have hcap := c.harena; unfold dimacsBound at hcap
   have har2_len := hcl.arena_len_arr; have halen_le := hcl.arena_len_le
   have href2 : cref.toNat ∈ fullArenaClauseRefs s2 := by rw [hs2_ref]; exact href
   have hwf := hw2.arena.refs_wf cref.toNat href2
@@ -180,16 +182,19 @@ private theorem simplify_post_loop2_wp (Γ : Env) (hAddUnit : HypAddUnit Γ)
   have har3_lt3 : (cref.setWidth 64 + 3#64).toNat < ar3.length := by omega
   have har3_lt4 : (cref.setWidth 64 + 4#64).toNat < ar3.length := by omega
   obtain ⟨hnew_lits_lt, hent_new, hupd_w, hnd_other_ar3⟩ :=
-    simplify_compact_facts hsp2 hw2 hm2_eq.2.2.1 href2 hs2_ng (by omega) har3_len hid_len hout3
+    simplify_compact_facts hsp2 hm2_eq.2.2.1 href2 hs2_ng (by omega) har3_len hid_len hout3
       (by simpa [hs2_sz] using hid_lt) hsub3
       (fun j hj => hcov3 j (by rw [hs2_sz] at hj; exact hj))
       (fun j hj => hno1_2 j (by rw [hs2_sz] at hj; exact hj))
   dsimp only [simplifyPostLoop2Expr, arBasePtr, arOffPtr, addArenaGarbageExpr, storeTermExpr, fvOp]
   fv_to_grp
   · have hnsz0 : nsz.toNat = 0 := by c0_bound
-    exact simplify_zero_pack hsp2.1.lengths har3_len
-      (hw2.ext_sound.2 (unsat_of_entails_nil (by simpa [hnsz0] using hent_new)))
-      hm2_eq.1 hm2_eq.2.1 hm2_eq.2.2.2 hQ hm
+    have har3_eq : ar3 = s2.core.arena :=
+      List.ext_getElem (har3_len.trans har2_len.symm) fun p hp1 hp2 => Option.some.inj (by
+        rw [← List.getElem?_eq_getElem hp1, ← List.getElem?_eq_getElem hp2]
+        exact hout3 p (by omega))
+    exact simplify_zero_pack hsp2 har3_eq (unsat_of_entails_nil (by simpa [hnsz0] using hent_new))
+      hm2_eq hs2_ref hQ hm
   · have hnsz1 : nsz.toNat = 1 := by c0_bound
     fv_steps; obtain ⟨hlen_u, hw_u, hrefs_u, hnxt_u⟩ := hupd_w (by omega)
     let s_upd : FullState := { s2 with core := { s2.core with arena := ar3 } }
@@ -198,13 +203,14 @@ private theorem simplify_post_loop2_wp (Γ : Env) (hAddUnit : HypAddUnit Γ)
       rw [hout3 cref.toNat (Or.inl (by omega))]; exact hs2_hdr
     have hext_u : FullExtScratchOk c s_upd := ⟨fun i hi => by
       dsimp only [FullLastLearnedWf, s_upd]; rw [hrefs_u]
-      exact hsp2.2.2.2.1.1 i hi, hsp2.2.2.2.1.2⟩
-    obtain ⟨s_g, _, hmg, _, hsp_g, hw_g, ha_g, hm_g⟩ :=
-      fullArena_markGarb_pack hlen_u hw_u hsp2.2.1 hext_u hsp2.2.2.2.2 hm2_eq.2.2.1
+      exact hsp2.2.2.2.2.1.1 i hi, hsp2.2.2.2.2.1.2⟩
+    obtain ⟨s_g, _, hmg, _, hsp_g, ha_g, hm_g⟩ :=
+      fullArena_markGarb_pack hlen_u hw_u hsp2.2.2.1 hext_u hsp2.2.2.2.2.2 hm2_eq.2.2.1
         (by rw [hrefs_u]; exact href2) hhdr_u
         (fun r hr hne hngr => hnd_other_ar3 s_upd rfl rfl r (hrefs_u ▸ hr) hne hngr) hm
     have hms_g : VivMetaEq s s_g :=
-      ⟨hmg.1.trans hm2_eq.1, hmg.2.1.trans hm2_eq.2.1, hmg.2.2.1, hmg.2.2.2.trans hm2_eq.2.2.2⟩
+      ⟨hmg.1.trans hm2_eq.1, hmg.2.1.trans hm2_eq.2.1, hmg.2.2.1,
+       hmg.2.2.2.1.trans hm2_eq.2.2.2.1, hmg.2.2.2.2.trans hm2_eq.2.2.2.2⟩
     have has_g : VivArenaEq s s_g :=
       ⟨ha_g.1.trans (hrefs_u.trans hs2_ref), fun q hq => by
         have h1 := ha_g.2 q (hrefs_u ▸ hs2_ref ▸ hq)
@@ -219,14 +225,14 @@ private theorem simplify_post_loop2_wp (Γ : Env) (hAddUnit : HypAddUnit Γ)
     have hu0_lt : (ar3[cref.toNat + 3]'(by omega)).toNat < 2 * s_g.core.cur_vars := by
       rw [hms_g.2.1, ← hm2_eq.2.1]; have := hnew_lits_lt 0 (by omega)
       rwa [List.getElem?_eq_getElem (by omega), Option.getD_some] at this
-    refine addUnit_call_wp Γ hAddUnit hsp_g hw_g hms_g has_g (by rwa [hu0_eq])
+    refine addUnit_call_wp Γ hAddUnit hsp_g hms_g has_g (by rwa [hu0_eq])
       (by rw [hu0_eq]; exact range_entails_1 hnsz1 (by omega) hent_new) hm_g ?_ ?_
     · intro s4 m4 hsp4 hm4' ha4 hmem4; fv_steps
-      exact hQ 1#64 s4 m4 hsp4.1.lengths (Or.inr (Or.inl rfl)) hm4'.1 hm4'.2.1 hm4'.2.2.2
-        (fun h => by cases h) (fun _ => ⟨hsp4, hm4'.2.2.1, ha4⟩) (fun _ h => by cases h) hmem4
-    · intro s4 m4 hl4 hu4 hal4 hcv4 hpr4 hmem4; fv_steps
-      exact hQ 20#64 s4 m4 hl4 (Or.inr (Or.inr rfl)) hal4 hcv4 hpr4 (fun _ => hu4)
-        (fun h => absurd rfl h) (fun _ h => by cases h) hmem4
+      exact hQ 1#64 s4 m4 hsp4 hm4'.2.2.1 hm4'.2.1 hm4'.1 hm4'.2.2.2.1 hm4'.2.2.2.2 ha4.1
+        (Or.inr (Or.inl rfl)) (fun h => by cases h) (fun _ h => by cases h) hmem4
+    · intro s4 m4 hsp4 hm4' ha4 hu4 hmem4; fv_steps
+      exact hQ 20#64 s4 m4 hsp4 hm4'.2.2.1 hm4'.2.1 hm4'.1 hm4'.2.2.2.1 hm4'.2.2.2.2 ha4.1
+        (Or.inr (Or.inr rfl)) (fun _ => hu4) (fun _ h => by cases h) hmem4
   · have hnsz2 : nsz.toNat = 2 := by c0_bound
     obtain ⟨hlen_u, hw_u, hrefs_u, hnxt_u⟩ := hupd_w (by omega)
     let s_upd : FullState := { s2 with core := { s2.core with arena := ar3 } }
@@ -246,32 +252,41 @@ private theorem simplify_post_loop2_wp (Γ : Env) (hAddUnit : HypAddUnit Γ)
         range_entails_2 hnsz2 (by omega) hent_new
     have hext_u : FullExtScratchOk c s_upd := ⟨fun i hi => by
       dsimp only [FullLastLearnedWf, s_upd]; rw [hrefs_u]
-      exact hsp2.2.2.2.1.1 i hi, hsp2.2.2.2.1.2⟩
+      exact hsp2.2.2.2.2.1.1 i hi, hsp2.2.2.2.2.1.2⟩
     c0_call hAddBin
-    refine ⟨c, F0, F_cur0, s_upd, R, rfl, hlen_u, hw_u, hsp2.2.1, hext_u, hsp2.2.2.2.2,
+    refine ⟨c, F0, F_cur0, s_upd, R, rfl, hlen_u, hw_u, hsp2.2.2.1, hext_u, hsp2.2.2.2.2.2,
       hm2_eq.2.2.1, hu0_lt, hu1_lt, hbin_ent, hm,
-      fun br s4 m4 hlen4 _ har4 halen4 hcv4 hl4 hpr4 _ h20 hne20 hm4 => ?_⟩
+      fun br s4 m4 hlen4 _ hw4 hmc4 hext4 hdm4 har4 halen4 hcv4 hl4 hpr4 hfu4 h20 hm4 => ?_⟩
     have har4_len : s4.core.arena.length = c.arena_cap := hlen4.core_ok.arena_len_arr
     have hcref_lt4 : cref.toNat < s4.core.arena.length := by rw [har4_len]; omega
+    have hhdr4 : fullArenaHdr s4 cref.toNat = hdr := by
+      unfold fullArenaHdr fullArenaHdrCore; rw [har4]; dsimp only [s_upd]
+      rw [hout3 cref.toNat (Or.inl (by omega))]; exact hs2_hdr
     fv_steps
-    · exact simplify_bin20_pack hlen4 har4_len (h20 hc) halen4 hm2_eq.1 hcv4 hm2_eq.2.1 hpr4
-        hm2_eq.2.2.2 hQ hm
-    · obtain ⟨hw4, hmc4, hext4, hdm4⟩ := hne20 hc
-      have hhdr4 : fullArenaHdr s4 cref.toNat = hdr := by
-        unfold fullArenaHdr fullArenaHdrCore; rw [har4]; dsimp only [s_upd]
-        rw [hout3 cref.toNat (Or.inl (by omega))]; exact hs2_hdr
-      have hm_g := fullMem_eq_of_arena_ag_eq (a2 := s4.core.arena.set cref.toNat
+    · have hm_g := fullMem_eq_of_arena_ag_eq (a2 := s4.core.arena.set cref.toNat
           (hdr ||| 0x00080000#32)) (by rw [hcref0]; rfl) hm
-      obtain ⟨s5, hlen5, hs5_al, hs5_cv, hs5_pr, hsp5, hl5, ha5, hm5⟩ :=
+      obtain ⟨s5, hs5_al, hs5_cv, hs5_pr, hs5_fu, hsp5, hl5, ha5, hm5⟩ :=
         markGarb_bin_pack hlen4 hw4 hmc4 hext4 hdm4 hl4 href (hrefs_u.trans hs2_ref) hm2_eq.1
           har4 halen4 hhdr4 (fun r hr hne hngr => hnd_other_ar3 s4 har4 halen4 r
             (by rw [← hrefs_u]; change r ∈ fullArenaClauseRefs s_upd
                 unfold fullArenaClauseRefs fullArenaClauseRefsCore at *; rwa [← har4, ← halen4])
             hne hngr) (fun q hq => by
             have h := hnxt_u q (hrefs_u ▸ hq); dsimp only [s_upd] at h ⊢; rwa [hs2_ar] at h) hm_g
-      exact hQ 1#64 s5 _ hlen5 (Or.inr (Or.inl rfl)) hs5_al (hs5_cv.trans (hcv4.trans hm2_eq.2.1))
-        (hs5_pr.trans (hpr4.trans hm2_eq.2.2.2)) (fun h => by cases h)
-        (fun _ => ⟨hsp5, hl5, ha5⟩) (fun _ h => by cases h) hm5
+      exact hQ 20#64 s5 _ hsp5 hl5 (hs5_cv.trans (hcv4.trans hm2_eq.2.1)) hs5_al
+        (hs5_pr.trans (hpr4.trans hm2_eq.2.2.2.1)) (hs5_fu.trans (hfu4.trans hm2_eq.2.2.2.2))
+        ha5.1 (Or.inr (Or.inr rfl)) (fun _ => h20 hc) (fun _ h => by cases h) hm5
+    · have hm_g := fullMem_eq_of_arena_ag_eq (a2 := s4.core.arena.set cref.toNat
+          (hdr ||| 0x00080000#32)) (by rw [hcref0]; rfl) hm
+      obtain ⟨s5, hs5_al, hs5_cv, hs5_pr, hs5_fu, hsp5, hl5, ha5, hm5⟩ :=
+        markGarb_bin_pack hlen4 hw4 hmc4 hext4 hdm4 hl4 href (hrefs_u.trans hs2_ref) hm2_eq.1
+          har4 halen4 hhdr4 (fun r hr hne hngr => hnd_other_ar3 s4 har4 halen4 r
+            (by rw [← hrefs_u]; change r ∈ fullArenaClauseRefs s_upd
+                unfold fullArenaClauseRefs fullArenaClauseRefsCore at *; rwa [← har4, ← halen4])
+            hne hngr) (fun q hq => by
+            have h := hnxt_u q (hrefs_u ▸ hq); dsimp only [s_upd] at h ⊢; rwa [hs2_ar] at h) hm_g
+      exact hQ 1#64 s5 _ hsp5 hl5 (hs5_cv.trans (hcv4.trans hm2_eq.2.1)) hs5_al
+        (hs5_pr.trans (hpr4.trans hm2_eq.2.2.2.1)) (hs5_fu.trans (hfu4.trans hm2_eq.2.2.2.2))
+        ha5.1 (Or.inr (Or.inl rfl)) (fun h => by cases h) (fun _ h => by cases h) hm5
   · have hnsz3 : 3 ≤ nsz.toNat := bv32_ge3_of_ne nsz (by c0_bound) (by c0_bound) (by c0_bound)
     have hsz_def : fullArenaClauseSize s2 cref.toNat =
         fullArenaClauseSizeCore s2.core cref.toNat := rfl
@@ -290,7 +305,7 @@ private theorem simplify_post_loop2_wp (Γ : Env) (hAddUnit : HypAddUnit Γ)
         ShrkPad ar_f s2.core.arena cref.toNat old_sz.toNat nsz.toNat ∧
         (FullMem c { s2 with core := { s2.core with arena := ar_f } } ⋆ R) mf)
       (fun _ _ mf ⟨ar_f, harf_len, hout_f, hng_f, hsh_f, hsz_f, hpay_f, hpad_f, hmf⟩ => by
-        obtain ⟨hsp_f, hgb_f, ha_f⟩ := simplify_shrk_sparseInv hsp2 hw2 hm2_eq.2.2.1 href2 hs2_ng
+        obtain ⟨hsp_f, hgb_f, ha_f⟩ := simplify_shrk_sparseInv hsp2 hm2_eq.2.2.1 href2 hs2_ng
           hnsz3 (by omega) harf_len hid_len hid_pw (fun q hq => by have := hid_lt q hq; omega)
           hsub3 hnew_lits_lt hent_new (by simpa [hs2_sz] using hout_f) hng_f hsh_f hsz_f hpay_f
           (by simpa [hs2_sz] using hpad_f)
@@ -301,17 +316,16 @@ private theorem simplify_post_loop2_wp (Γ : Env) (hAddUnit : HypAddUnit Γ)
           change (cref.setWidth 64 + 4#64).toNat < ar_f.length; rw [harf_len]; omega
         fv_to_grp
         refine wp_join_group
-          (fun _ m' => ∃ s' : FullState, FullSparseInv c F0 s' ∧ s'.core.arena = s_f.core.arena ∧
-            VivMetaEq s s' ∧ fullArenaClauseRefs s' = fullArenaClauseRefs s ∧ (FullMem c s' ⋆ R) m')
+          (fun _ m' => ∃ s' : FullState, FullSparseInvW c F0 F_cur0 s' ∧
+            s'.core.arena = s_f.core.arena ∧ VivMetaEq s s' ∧
+            fullArenaClauseRefs s' = fullArenaClauseRefs s ∧ (FullMem c s' ⋆ R) m')
           (fun _ _ m' ⟨s', hsp', har', hms', href', hm'⟩ => by
             fv_steps
             have hgb' : fullArenaClauseGarb s' cref.toNat = false := by
               unfold fullArenaClauseGarb fullArenaClauseGarbCore fullArenaHdrCore
               rw [har']; exact hgb_f
-            exact hQ 0#64 s' m' hsp'.1.lengths (Or.inl rfl) hms'.1 hms'.2.1 hms'.2.2.2
-              (fun h => by cases h) (fun _ => ⟨hsp', hms'.2.2.1, href', fun q hq => by
-                rw [har']; have := ha_f.2 q (by rw [hs2_ref]; exact hq)
-                rwa [hm2_eq.1, hs2_ar] at this⟩) (fun _ _ => hgb') hm')
+            exact hQ 0#64 s' m' hsp' hms'.2.2.1 hms'.2.1 hms'.1 hms'.2.2.2.1 hms'.2.2.2.2 href'
+              (Or.inl rfl) (fun h => by cases h) (fun _ _ => ⟨href' ▸ href, hgb'⟩) hm')
           (fun Js hJs => by
             refine watch2_calls_wp Γ hWatchPush hsp_f (by omega) href (ha_f.1.trans hs2_ref)
               hm2_eq hmf ?_ ?_
@@ -344,8 +358,8 @@ private theorem simplify_post_loop2_wp (Γ : Env) (hAddUnit : HypAddUnit Γ)
 private theorem simplify_loop2_wp (Γ : Env) (hAddUnit : HypAddUnit Γ) (hAddBin : HypAddBin Γ)
     (hWatchPush : HypWatchPush Γ) {c : FullCfg} {F0 : CNF Nat} {F_cur0 : List (List Nat)}
     {s s2 : FullState} {R : Mem 64 → Prop} {cref hdr old_sz : Val i32} {j0 : Nat} {m2 : Mem 64}
-    {Q : Post [i64]} {X : XPost} (hsp2 : FullSparseInv c F0 s2)
-    (hw2 : FullWitnessInv c F0 F_cur0 s2.core) (href : cref.toNat ∈ fullArenaClauseRefs s)
+    {Q : Post [i64]} {X : XPost} (hsp2 : FullSparseInvW c F0 F_cur0 s2)
+    (href : cref.toNat ∈ fullArenaClauseRefs s)
     (hs2_ref : fullArenaClauseRefs s2 = fullArenaClauseRefs s)
     (hs2_ng : fullArenaClauseGarb s2 cref.toNat = false) (hs2_ar : s2.core.arena = s.core.arena)
     (hm2_eq : VivMetaEq s s2) (hs2_sz : fullArenaClauseSize s2 cref.toNat = old_sz.toNat)
@@ -357,9 +371,9 @@ private theorem simplify_loop2_wp (Γ : Env) (hAddUnit : HypAddUnit Γ) (hAddBin
       s2.core.vals[(s2.core.arena[cref.toNat + 3 + j]?.getD 0#32).toNat]?.getD 0#8 ≠ 1#8)
     (hlit2_lt : ∀ (j : Nat) (_hj : j < old_sz.toNat),
       (s2.core.arena[cref.toNat + 3 + j]'(by omega)).toNat < 2 * s2.core.cur_vars)
-    (hm2 : (FullMem c s2 ⋆ R) m2) (hQv : VivQ c F0 s R Q cref.toNat true) :
+    (hm2 : (FullMem c s2 ⋆ R) m2) (hQv : VivQ c F0 F_cur0 s R Q cref.toNat true) :
     wp Γ Q X (simplifyLoop2Expr c cref hdr old_sz) m2 := by
-  have hcl := hsp2.1.lengths.core_ok; have har2_len := hcl.arena_len_arr
+  have hcl := hsp2.1.core_ok; have har2_len := hcl.arena_len_arr
   have hv2_len := hcl.vals_len; have hcv2_le := hcl.cur_vars_le; have halen_le := hcl.arena_len_le
   have hcap := c.harena; have hmx := c.hmaxv; unfold dimacsBound at hcap hmx
   dsimp only [simplifyLoop2Expr, arLitPtr, fvOp]
@@ -453,7 +467,7 @@ private theorem simplify_loop2_wp (Γ : Env) (hAddUnit : HypAddUnit Γ) (hAddBin
            (fun h => absurd (h ▸ hvj) hvne0), hm3⟩
   · have hi2_eq : i2.toNat = old_sz.toNat := by c0_bound
     have hnsz_lt : nsz.toNat < old_sz.toNat := by have := hlt_j0 (by omega); omega
-    exact simplify_post_loop2_wp Γ hAddUnit hAddBin hWatchPush hsp2 hw2 href hs2_ref hs2_ng
+    exact simplify_post_loop2_wp Γ hAddUnit hAddBin hWatchPush hsp2 href hs2_ref hs2_ng
       hs2_ar hm2_eq hs2_sz hs2_hdr hhdr_ng hnsz_lt har3_len hout3 hid_len hid_pw
       (fun q hq => by have := hid_lt q hq; omega) hsub3 (fun j hj => hcov3 j (by omega))
       (fun j hj => hno1_2 j (by omega)) hm3 hQv
@@ -468,17 +482,17 @@ theorem full_viv_simplify_wp (Γ : Env)
     (hWatchPush : ∀ args m Q X, fullVivWatchPushSpec args m Q X →
       Γ "full_watch_push" [i64, i32, i32, i32, i32] [.bool] args m Q X) :
     ∀ args m Q X, fullVivSimplifySpec args m Q X → Func.wp Γ full_viv_simplify_body args m Q X := by
-  rintro ⟨h, cref, ⟨⟩⟩ m Q X ⟨c, F0, s, R, rfl, hsp, hl0, href, hng, hm, hQ⟩
-  have hQv : VivQ c F0 s R Q cref.toNat true :=
-    fun r s' m' hl hr hal hcv hpr h20 hne h0 => hQ r s' m' hl hr hal hcv hpr h20 hne (h0 rfl)
-  obtain ⟨F_cur0, hw0⟩ := hsp.1.witness
-  have hcl := hsp.1.lengths.core_ok; have hcap := c.harena; have hmx := c.hmaxv
-  unfold dimacsBound at hcap hmx
+  rintro ⟨h, cref, ⟨⟩⟩ m Q X ⟨c, F0, F_cur0, s, R, rfl, hsp, hl0, href, hng, hm, hQ⟩
+  have hQv : VivQ c F0 F_cur0 s R Q cref.toNat true :=
+    fun r s' m' hsp' hl' hcv' hal' hpr' hfu' href' hr h20 h0 =>
+      hQ r s' m' hsp' hl' hcv' hal' hpr' hfu' href' hr h20 (h0 rfl)
+  have hw0 := hsp.2.1; have hcl := hsp.1.core_ok
+  have hcap := c.harena; have hmx := c.hmaxv; unfold dimacsBound at hcap hmx
   have har_len := hcl.arena_len_arr; have halen_le := hcl.arena_len_le
   have hcv_le := hcl.cur_vars_le; have hv_len := hcl.vals_len
   have hcref_wf := hw0.arena.refs_wf cref.toNat href
   obtain ⟨hcref_lt, hmod2, hcref0_eq, hcref1_eq, hcref2_eq, hcref3_eq, hcref4_eq, hhdr_ng_raw⟩ :=
-    cref_hdr_facts hsp hw0 href hng
+    cref_hdr_facts (fv_sparseW_to_sparse hsp) hw0 href hng
   let hdr := s.core.arena[(cref.setWidth 64).toNat]'(by rw [hcref0_eq]; exact hcref_lt)
   let old_sz := s.core.arena[(cref.setWidth 64 + 2#64).toNat]'(by rw [hcref2_eq]; omega)
   have hhdr_eq : hdr = fullArenaHdr s cref.toNat := ar_get_eq_getD hcref0_eq _
@@ -529,18 +543,22 @@ theorem full_viv_simplify_wp (Γ : Env)
     have hi1_eq : (i + 1#32).toNat = i.toNat + 1 := by bv_omega
     fv_steps
     · c0_call hUnwatch
-      refine ⟨c, F0, F_cur0, s, R, rfl, hsp, hw0, hm, fun wvec1 wstk1 wu1 m2 hsp1 hw1 hm2 => ?_⟩
+      refine ⟨c, F0, F_cur0, s, R, rfl, fv_sparseW_to_sparse hsp, hw0, hm,
+        fun wvec1 wstk1 wu1 m2 hsp1 hw1 hm2 => ?_⟩
       have hcref4_lt1 : (cref.setWidth 64 + 4#64).toNat < ({ s with core :=
           { s.core with wvec := wvec1, wstk := wstk1, wusable := wu1 } } :
           FullState).core.arena.length := hcref4_lt
       fv_steps; c0_call hUnwatch
       refine ⟨c, F0, F_cur0, _, R, rfl, hsp1, hw1, hm2, fun wvec2 wstk2 wu2 m3 hsp2w hw2 hm3 => ?_⟩
-      fv_steps; obtain ⟨hsp3, hrefs3, hnxt3⟩ :=
-        fv_markGarb hsp2w hl0 href (s.core.arena_garbage + 3#64 + old_sz.setWidth 64)
+      fv_steps
+      have hsp2W : FullSparseInvW c F0 F_cur0 { s with core :=
+          { s.core with wvec := wvec2, wstk := wstk2, wusable := wu2 } } :=
+        ⟨hsp2w.1.lengths, hw2, hsp2w.2.1, hsp2w.2.2.1, hsp2w.2.2.2.1, hsp2w.2.2.2.2⟩
+      obtain ⟨hsp3, hrefs3, _⟩ :=
+        fv_markGarbW hsp2W hl0 href (s.core.arena_garbage + 3#64 + old_sz.setWidth 64)
       have har_eq := congrArg (fun x => s.core.arena.set cref.toNat (x ||| 0x00080000#32)) hhdr_eq
-      exact hQv 1#64 _ _ hsp3.1.lengths (Or.inr (Or.inl rfl)) rfl rfl rfl (fun h => by cases h)
-        (fun _ => ⟨hsp3, hl0, hrefs3, hnxt3⟩) (fun _ h => by cases h)
-        (fullMem_eq_of_arena_ag_eq har_eq hm)
+      exact hQv 1#64 _ _ hsp3 hl0 rfl rfl rfl rfl hrefs3 (Or.inr (Or.inl rfl))
+        (fun h => by cases h) (fun _ h => by cases h) (fullMem_eq_of_arena_ag_eq har_eq hm)
     · have hne1 : s.core.vals[lit.toNat]?.getD 0#8 ≠ 1#8 := by
         simp only [hmod3i] at hc; rw [← hv_get, (bv8_sext32_eq0_iff _).mp hc]; decide
       have hk1_eq : (k + 1#32).toNat = k.toNat + 1 := by bv_omega
@@ -564,23 +582,24 @@ theorem full_viv_simplify_wp (Γ : Env)
          fun _ => ⟨i.toNat, by omega, by rwa [hlit_getD]⟩⟩
   · have hi_eq : i.toNat = old_sz.toNat := by dsimp only [old_sz] at hi_le ⊢; c0_bound
     clear hc; fv_steps
-    · exact hQv 0#64 s m1 hsp.1.lengths (Or.inl rfl) rfl rfl rfl (fun h => by cases h)
-        (fun _ => ⟨hsp, hl0, rfl, fun _ _ => rfl⟩) (fun _ _ => hng) hm
+    · exact hQv 0#64 s m1 hsp hl0 rfl rfl rfl rfl rfl (Or.inl rfl) (fun h => by cases h)
+        (fun _ _ => ⟨href, hng⟩) hm
     · have hk_lt : k.toNat < old_sz.toNat := by
         have hne : k.toNat ≠ old_sz.toNat :=
           fun h => (by dsimp only [old_sz]; c0_bound : k ≠ old_sz) (BitVec.eq_of_toNat_eq h)
         omega
       obtain ⟨j0, hj0_lt, hj0_ff⟩ := hhasf (by omega)
       c0_call hUnwatch
-      refine ⟨c, F0, F_cur0, s, R, rfl, hsp, hw0, hm, fun wvec1 wstk1 wu1 m1' hsp1 hw1 hm1' => ?_⟩
+      refine ⟨c, F0, F_cur0, s, R, rfl, fv_sparseW_to_sparse hsp, hw0, hm,
+        fun wvec1 wstk1 wu1 m1' hsp1 hw1 hm1' => ?_⟩
       have hcref4_lt1 : (cref.setWidth 64 + 4#64).toNat < ({ s with core :=
           { s.core with wvec := wvec1, wstk := wstk1, wusable := wu1 } } :
           FullState).core.arena.length := hcref4_lt
       fv_steps; c0_call hUnwatch
       refine ⟨c, F0, F_cur0, _, R, rfl, hsp1, hw1, hm1',
         fun wvec2 wstk2 wu2 m2 hsp2w hw2w hm2w => ?_⟩
-      obtain ⟨s2, hs2_ar, hs2_v, _, hm2_eq, hs2_ref, hs2_ng, hs2_sz, hs2_hdr, hsp2, hw2, hm2⟩ :=
-        unwatch2_state_pack hsp2w hw2w hm2w hng hsz_s_eq hhdr_eq rfl rfl rfl rfl hl0 rfl rfl
+      obtain ⟨s2, hs2_ar, hs2_v, _, hm2_eq, hs2_ref, hs2_ng, hs2_sz, hs2_hdr, hsp2, hm2⟩ :=
+        unwatch2_state_pack hsp2w hw2w hm2w hng hsz_s_eq hhdr_eq rfl rfl rfl rfl hl0 rfl rfl rfl
       have hno1_2 : ∀ j < old_sz.toNat,
           s2.core.vals[(s2.core.arena[cref.toNat + 3 + j]?.getD 0#32).toNat]?.getD 0#8 ≠ 1#8 :=
         fun j hj => by rw [hs2_v, hs2_ar]; exact hno1 j (by omega)
@@ -593,10 +612,10 @@ theorem full_viv_simplify_wp (Γ : Env)
       have hsz_c2 : fullArenaClauseSizeCore s2.core cref.toNat = old_sz.toNat := hs2_sz
       have hlit2_lt : ∀ (j : Nat) (_hj : j < old_sz.toNat),
           (s2.core.arena[cref.toNat + 3 + j]'(by omega)).toNat < 2 * s2.core.cur_vars :=
-        fun j hj => hw2.arena.lits_lt cref.toNat hcref2_mem hs2_ng _
+        fun j hj => hsp2.2.1.arena.lits_lt cref.toNat hcref2_mem hs2_ng _
           ((mem_fullArenaClauseLitsCore_iff (by omega)).mpr ⟨j, by rw [hsz_c2]; exact hj, rfl⟩)
       fv_steps
-      exact simplify_loop2_wp Γ hAddUnit hAddBin hWatchPush hsp2 hw2 href hs2_ref hs2_ng hs2_ar
+      exact simplify_loop2_wp Γ hAddUnit hAddBin hWatchPush hsp2 href hs2_ref hs2_ng hs2_ar
         hm2_eq hs2_sz hs2_hdr hhdr_ng hold_sz_3 har2_bd (lt_of_lt_of_eq hj0_lt hi_eq) hj0_ff2
         hno1_2 hlit2_lt hm2 hQv
 
@@ -608,24 +627,22 @@ namespace FullVivifySpecs
 strengthening (`out[0 ..< olen]`) entailed by `F_cur` at level 0. -/
 def fullVivCommitSpec : Spec [i64, i32, i64, i32, .bool] [i64] :=
   fun (h, cref, out_ptr, olen, _used_red, ()) m Q _ =>
-    ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
-      h = c.hdr ∧ out_ptr = c.pWorkStk2 ∧
-      FullSparseInv c F0 s ∧ FullWitnessInv c F0 F_cur s.core ∧ s.core.cur_level = 0 ∧
+    ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState)
+      (R : Mem 64 → Prop),
+      h = c.hdr ∧ out_ptr = c.pWorkStk2 ∧ FullSparseInvW c F0 F_cur s ∧ s.core.cur_level = 0 ∧
       cref.toNat ∈ fullArenaClauseRefs s ∧ fullArenaClauseGarb s cref.toNat = false ∧
+      olen.toNat ≤ c.max_vars ∧
       (olen.toNat < fullArenaClauseSize s cref.toNat →
-        olen.toNat ≤ 2 * c.max_vars ∧
-        (∀ j < olen.toNat, (s.scratch.work_stk2[j]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
-        (((s.scratch.work_stk2.take olen.toNat).map BitVec.toNat).map (· / 2)).Nodup ∧
+        (∀ i < olen.toNat, (s.scratch.work_stk2[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
+        ((s.scratch.work_stk2.take olen.toNat).map fun x => x.toNat / 2).Nodup ∧
         (cnfOfClauses F_cur).EntailsClause
           (cnfClause ((s.scratch.work_stk2.take olen.toNat).map BitVec.toNat))) ∧
-      (FullMem c s ⋆ R) m ∧ ∀ (r : BitVec 64) s' m',
-        s'.LengthsOk c → (r = 1#64 ∨ r = 2#64 ∨ r = 20#64) →
-        s'.core.arena_len = s.core.arena_len → s'.core.cur_vars = s.core.cur_vars →
-        s'.core.probing = s.core.probing → (r = 20#64 → F0.Unsat) →
-        (r ≠ 20#64 → FullSparseInv c F0 s' ∧ s'.core.cur_level = 0 ∧
-          fullArenaClauseRefs s' = fullArenaClauseRefs s ∧ ∀ q ∈ fullArenaClauseRefs s,
-            fullArenaNextOff s'.core.arena s.core.arena_len q =
-              fullArenaNextOff s.core.arena s.core.arena_len q) →
+      (FullMem c s ⋆ R) m ∧
+      ∀ r s' m',
+        FullSparseInvW c F0 F_cur s' → s'.core.cur_level = 0 → s'.core.cur_vars = s.core.cur_vars →
+        s'.core.arena_len = s.core.arena_len → s'.core.probing = s.core.probing →
+        s'.core.fuel = s.core.fuel → fullArenaClauseRefs s' = fullArenaClauseRefs s →
+        (r = 1#64 ∨ r = 2#64 ∨ r = 20#64) → (r = 20#64 → F0.Unsat) →
         (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
 end FullVivifySpecs
@@ -649,7 +666,7 @@ private theorem commit_shrk_mid_wp (Γ : Env) (hWatchPush : HypWatchPush Γ)
     {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)} {s s3 : FullState}
     {R : Mem 64 → Prop} {cref olen old_sz : Val i32} {hdr nhdr : BitVec 32}
     {ni1 nr1 : BitVec 64} {ar_sz : List (BitVec 32)} {m5 : Mem 64} {Q : Post [i64]} {X : XPost}
-    (hsp3 : FullSparseInv c F0 s3) (hw3 : FullWitnessInv c F0 F_cur s3.core)
+    (hsp3 : FullSparseInvW c F0 F_cur s3)
     (href : cref.toNat ∈ fullArenaClauseRefs s)
     (hs3_ref : fullArenaClauseRefs s3 = fullArenaClauseRefs s)
     (hs3_ng : fullArenaClauseGarb s3 cref.toNat = false) (hs3_ar : s3.core.arena = s.core.arena)
@@ -673,7 +690,7 @@ private theorem commit_shrk_mid_wp (Γ : Env) (hWatchPush : HypWatchPush Γ)
       ar_sz[k]? = s3.core.arena[k]?)
     (hm5 : (FullMem c { s3 with core := { s3.core with
       arena := ar_sz, num_irred := ni1, num_redundant := nr1 } } ⋆ R) m5)
-    (hQ : VivQ c F0 s R Q cref.toNat false) :
+    (hQ : VivQ c F0 F_cur s R Q cref.toNat false) :
     wp Γ Q X ((Blocks.cons (fun (p : Tup Val [i32]) =>
       Expr.group (sig := [[i32]]) (fun _ => commitShrkTailBlock c cref) fun Js =>
       fvOp (OpCode.and i32) (Arg.var p.fst, Arg.imm 8388608, ()) fun p1 =>
@@ -682,8 +699,8 @@ private theorem commit_shrk_mid_wp (Γ : Env) (hWatchPush : HypWatchPush Γ)
         (fvOp (OpCode.or i32) (Arg.var p.fst, Arg.imm 8388608, ())
           fun q => Expr.jump Js.fst (Arg.var q.fst, ())))
         (Expr.jump Js.fst (Arg.var p.fst, ()))) Blocks.nil).get Member.here (nhdr, ())) m5 := by
-  have hcl := hsp3.1.lengths.core_ok; have har3_len := hcl.arena_len_arr
-  have hscl := hsp3.1.lengths.scratch_ok; have hws2_3 := hscl.work_stk2_len
+  have hw3 := hsp3.2.1; have hcl := hsp3.1.core_ok; have har3_len := hcl.arena_len_arr
+  have hscl := hsp3.1.scratch_ok; have hws2_3 := hscl.work_stk2_len
   have hle := hcl.arena_len_le; have hcap := c.harena; have hmx := c.hmaxv
   unfold dimacsBound at hcap hmx
   have href3 : cref.toNat ∈ fullArenaClauseRefs s3 := by rw [hs3_ref]; exact href
@@ -708,7 +725,7 @@ private theorem commit_shrk_mid_wp (Γ : Env) (hWatchPush : HypWatchPush Γ)
       have hcref_lt8 : cref.toNat < 0x80000000 := by omega
       have h0_ws2 : 0 < s3.scratch.work_stk2.length := by rw [hws2_3]; omega
       have h1_ws2 : 1 < s3.scratch.work_stk2.length := by rw [hws2_3]; omega
-      obtain ⟨hsp_f, ha_f⟩ := commit_shrk_sparseInv hsp3 hw3 hm3_eq.2.2.1 href3 hs3_ng holen3
+      obtain ⟨hsp_f, ha_f⟩ := commit_shrk_sparseInv hsp3 hm3_eq.2.2.1 href3 hs3_ng holen3
         (by omega) (by omega) (by simpa [hs3_ws2, hm3_eq.2.1] using hout_lt)
         (by simpa [hs3_ws2] using hout_nd) (by simpa [hs3_ws2] using hout_ent) harp_len hng2 hsh2
         (by simpa [hs3_sz] using hout_p) hsz_p hpay_p (by simpa [hs3_sz] using hpad_p)
@@ -720,13 +737,11 @@ private theorem commit_shrk_mid_wp (Γ : Env) (hWatchPush : HypWatchPush Γ)
       dsimp only [commitShrkTailBlock, arBasePtr, fvOp]; fv_steps
       refine watch2_calls_wp Γ hWatchPush hsp_f hcref_lt8 href has_f.1 hm3_eq hm ?_ ?_
       · intro s' m' hsp' har' hm' href' hm''; fv_steps
-        exact hQ 1#64 s' m' hsp'.1.lengths (Or.inl rfl) hm'.1 hm'.2.1 hm'.2.2.2
-          (fun h => by cases h) (fun _ => ⟨hsp', hm'.2.2.1, href', fun q hq => by
-            rw [har']; exact has_f.2 q hq⟩) (fun h => by cases h) hm''
+        exact hQ 1#64 s' m' hsp' hm'.2.2.1 hm'.2.1 hm'.1 hm'.2.2.2.1 hm'.2.2.2.2 href'
+          (Or.inl rfl) (fun h => by cases h) (fun h => by cases h) hm''
       · intro s' m' hsp' har' hm' href' hm''; fv_steps
-        exact hQ 2#64 s' m' hsp'.1.lengths (Or.inr (Or.inl rfl)) hm'.1 hm'.2.1 hm'.2.2.2
-          (fun h => by cases h) (fun _ => ⟨hsp', hm'.2.2.1, href', fun q hq => by
-            rw [har']; exact has_f.2 q hq⟩) (fun h => by cases h) hm'')
+        exact hQ 2#64 s' m' hsp' hm'.2.2.1 hm'.2.1 hm'.1 hm'.2.2.2.1 hm'.2.2.2.2 href'
+          (Or.inr (Or.inl rfl)) (fun h => by cases h) (fun h => by cases h) hm'')
     (fun J_shrk hJ_shrk => ?_)
   fv_steps
   · have hsh0 : (nhdr &&& 0x00800000#32) = 0#32 := by c0_bound
@@ -762,15 +777,17 @@ theorem full_viv_commit_wp (Γ : Env)
       Γ "full_watch_push" [i64, i32, i32, i32, i32] [.bool] args m Q X) :
     ∀ args m Q X, fullVivCommitSpec args m Q X → Func.wp Γ full_viv_commit_body args m Q X := by
   rintro ⟨h, cref, out_ptr, olen, used_red, ⟨⟩⟩ m Q X
-    ⟨c, F0, F_cur, s, R, rfl, rfl, hsp, hw, hl0, href, hng, hout_ok, hm, hQ⟩
-  have hQv : VivQ c F0 s R Q cref.toNat false :=
-    fun r s' m' hl hr hal hcv hpr h20 hne _ => hQ r s' m' hl hr hal hcv hpr h20 hne
-  have hcl := hsp.1.lengths.core_ok; have hscl := hsp.1.lengths.scratch_ok
+    ⟨c, F0, F_cur, s, R, rfl, rfl, hsp, hl0, href, hng, holen_le_mv, hout_ok, hm, hQ⟩
+  have hQv : VivQ c F0 F_cur s R Q cref.toNat false :=
+    fun r s' m' hsp' hl' hcv' hal' hpr' hfu' href' hr h20 _ =>
+      hQ r s' m' hsp' hl' hcv' hal' hpr' hfu' href' hr h20
+  have hw := hsp.2.1; have hcl := hsp.1.core_ok; have hscl := hsp.1.scratch_ok
   have hcap := c.harena; have hmx := c.hmaxv; unfold dimacsBound at hcap hmx
   have har_len := hcl.arena_len_arr; have halen_le := hcl.arena_len_le
   have hws2_len := hscl.work_stk2_len; have hcref_wf := hw.arena.refs_wf cref.toNat href
+  have holen_le : olen.toNat ≤ 2 * c.max_vars := by omega
   obtain ⟨hcref_lt, hmod2, hcref0_eq, hcref1_eq, hcref2_eq, hcref3_eq, hcref4_eq, hhdr_ng_raw⟩ :=
-    cref_hdr_facts hsp hw href hng
+    cref_hdr_facts (fv_sparseW_to_sparse hsp) hw href hng
   let hdr := s.core.arena[(cref.setWidth 64).toNat]'(by rw [hcref0_eq]; exact hcref_lt)
   let old_sz := s.core.arena[(cref.setWidth 64 + 2#64).toNat]'(by rw [hcref2_eq]; omega)
   have hhdr_eq : hdr = fullArenaHdr s cref.toNat := ar_get_eq_getD hcref0_eq _
@@ -785,46 +802,51 @@ theorem full_viv_commit_wp (Γ : Env)
   have hcref4_lt : (cref.setWidth 64 + 4#64).toNat < s.core.arena.length := by omega
   have hsz_s_eq : fullArenaClauseSize s cref.toNat = old_sz.toNat := hold_sz_eq.symm
   fv_steps
-  · exact hQv 1#64 s m hsp.1.lengths (Or.inl rfl) rfl rfl rfl (fun h => by cases h)
-      (fun _ => ⟨hsp, hl0, rfl, fun _ _ => rfl⟩) (fun h => by cases h) hm
+  · exact hQv 1#64 s m hsp hl0 rfl rfl rfl rfl rfl (Or.inl rfl) (fun h => by cases h)
+      (fun h => by cases h) hm
   · have holen_lt : olen.toNat < old_sz.toNat := by dsimp only [old_sz]; c0_bound
-    obtain ⟨_, _, _, hout_ent⟩ := hout_ok (by rw [hsz_s_eq]; exact holen_lt)
+    obtain ⟨_, _, hout_ent⟩ := hout_ok (by rw [hsz_s_eq]; exact holen_lt)
     have holen0 : olen.toNat = 0 := by c0_bound
-    exact commit_zero_pack hsp.1.lengths
-      (hw.ext_sound.2 (unsat_of_entails_nil (by simpa [holen0] using hout_ent))) hQv hm
-  · obtain ⟨s1, hs1_core, hs1_ws2, hsp1, hw1, hm1⟩ := commit_vivcnt_pack hsp hw hm
+    exact commit_zero_pack hsp hl0 (unsat_of_entails_nil (by simpa [holen0] using hout_ent)) hQv hm
+  · obtain ⟨s1, hs1_core, hs1_ws2, hsp1, hm1⟩ := commit_vivcnt_pack hsp hm
+    have hw1 := hsp1.2.1
     have holen_lt : olen.toNat < old_sz.toNat := by dsimp only [old_sz]; c0_bound
-    obtain ⟨holen_le, hout_lt, hout_nd, hout_ent⟩ := hout_ok (by rw [hsz_s_eq]; exact holen_lt)
+    obtain ⟨hout_lt, hout_nd', hout_ent⟩ := hout_ok (by rw [hsz_s_eq]; exact holen_lt)
+    have hout_nd : (((s.scratch.work_stk2.take olen.toNat).map BitVec.toNat).map (· / 2)).Nodup :=
+      by simpa only [List.map_map, Function.comp_def] using hout_nd'
     have h0_ws2 : 0 < s.scratch.work_stk2.length := by
       have : olen.toNat ≠ 0 := fun h => (by c0_bound : olen ≠ 0#32) (BitVec.eq_of_toNat_eq h)
       omega
     have hcref4_lt_s1 : (cref.setWidth 64 + 4#64).toNat < s1.core.arena.length := by
       rw [hs1_core]; exact hcref4_lt
     c0_call hUnwatch
-    refine ⟨c, F0, F_cur, s1, R, rfl, hsp1, hw1, hm1, fun wvec1 wstk1 wu1 m2 hsp2 hw2 hm2 => ?_⟩
+    refine ⟨c, F0, F_cur, s1, R, rfl, fv_sparseW_to_sparse hsp1, hw1, hm1,
+      fun wvec1 wstk1 wu1 m2 hsp2 hw2 hm2 => ?_⟩
     have hcref4_lt1 : (cref.setWidth 64 + 4#64).toNat < ({ s1 with core :=
         { s1.core with wvec := wvec1, wstk := wstk1, wusable := wu1 } } :
         FullState).core.arena.length := hcref4_lt_s1
     fv_steps; c0_call hUnwatch
     refine ⟨c, F0, F_cur, _, R, rfl, hsp2, hw2, hm2, fun wvec2 wstk2 wu2 m3 hsp3w hw3w hm3w => ?_⟩
-    obtain ⟨s3, hs3_ar, _, hs3_ws2, hm3_eq, hs3_ref, hs3_ng, hs3_sz, hs3_hdr, hsp3, hw3, hm3⟩ :=
+    obtain ⟨s3, hs3_ar, _, hs3_ws2, hm3_eq, hs3_ref, hs3_ng, hs3_sz, hs3_hdr, hsp3, hm3⟩ :=
       unwatch2_state_pack hsp3w hw3w hm3w hng hsz_s_eq hhdr_eq (by rw [hs1_core]) (by rw [hs1_core])
         (by rw [hs1_core]) (by rw [hs1_core]) (by rw [hs1_core]; exact hl0) (by rw [hs1_core])
-        hs1_ws2
+        (by rw [hs1_core]) hs1_ws2
     clear hsp3w hw3w hm3w wvec1 wstk1 wu1 m2 hsp2 hw2 hm2 wvec2 wstk2 wu2 hcref4_lt1
       hcref4_lt_s1 s1 hs1_core hs1_ws2 hsp1 hw1 hm1
-    have har3_len := hsp3.1.lengths.core_ok.arena_len_arr
-    have hws2_3 := hsp3.1.lengths.scratch_ok.work_stk2_len
+    have har3_len := hsp3.1.core_ok.arena_len_arr
+    have hws2_3 := hsp3.1.scratch_ok.work_stk2_len
     have hcref_lt3 : cref.toNat < s3.core.arena.length := by rw [har3_len]; omega
     have h0_ws2_3 : 0 < s3.scratch.work_stk2.length := by rw [hws2_3]; omega
     fv_steps
     · have holen1 : olen.toNat = 1 := by c0_bound
       fv_steps
-      obtain ⟨s_g, _, hmg, _, hsp_g, hw_g, ha_g, hm_g⟩ :=
-        fullArena_markGarb_pack hsp3.1.lengths hw3 hsp3.2.1 hsp3.2.2.2.1 hsp3.2.2.2.2 hm3_eq.2.2.1
-          (by rw [hs3_ref]; exact href) hs3_hdr (fun r hr _ hngr => hsp3.2.2.1 r hr hngr) hm
+      obtain ⟨s_g, _, hmg, _, hsp_g, ha_g, hm_g⟩ :=
+        fullArena_markGarb_pack hsp3.1 hsp3.2.1 hsp3.2.2.1 hsp3.2.2.2.2.1 hsp3.2.2.2.2.2
+          hm3_eq.2.2.1 (by rw [hs3_ref]; exact href) hs3_hdr
+          (fun r hr _ hngr => hsp3.2.2.2.1 r hr hngr) hm
       have hms_g : VivMetaEq s s_g :=
-        ⟨hmg.1.trans hm3_eq.1, hmg.2.1.trans hm3_eq.2.1, hmg.2.2.1, hmg.2.2.2.trans hm3_eq.2.2.2⟩
+        ⟨hmg.1.trans hm3_eq.1, hmg.2.1.trans hm3_eq.2.1, hmg.2.2.1,
+         hmg.2.2.2.1.trans hm3_eq.2.2.2.1, hmg.2.2.2.2.trans hm3_eq.2.2.2.2⟩
       have has_g : VivArenaEq s s_g :=
         ⟨ha_g.1.trans hs3_ref, fun q hq => by
           have := ha_g.2 q (by rw [hs3_ref]; exact hq); rwa [hm3_eq.1, hs3_ar] at this⟩
@@ -832,19 +854,20 @@ theorem full_viv_commit_wp (Γ : Env)
       have hu0_ent : (cnfOfClauses F_cur).EntailsClause
           (cnfClause [(s3.scratch.work_stk2[0]'(by omega)).toNat]) := by
         simpa only [← hs3_ws2] using take_entails_1 holen1 (by rw [hws2_len]; omega) hout_ent
-      refine addUnit_call_wp Γ hAddUnit hsp_g hw_g hms_g has_g hu0_lt hu0_ent hm_g ?_ ?_
+      refine addUnit_call_wp Γ hAddUnit hsp_g hms_g has_g hu0_lt hu0_ent hm_g ?_ ?_
       · intro s4 m4 hsp4 hm4' ha4 hmem4; fv_steps
-        exact hQv 1#64 s4 m4 hsp4.1.lengths (Or.inl rfl) hm4'.1 hm4'.2.1 hm4'.2.2.2
-          (fun h => by cases h) (fun _ => ⟨hsp4, hm4'.2.2.1, ha4⟩) (fun h => by cases h) hmem4
-      · intro s4 m4 hl4 hu4 hal4 hcv4 hpr4 hmem4; fv_steps
-        exact hQv 20#64 s4 m4 hl4 (Or.inr (Or.inr rfl)) hal4 hcv4 hpr4 (fun _ => hu4)
-          (fun h => absurd rfl h) (fun h => by cases h) hmem4
+        exact hQv 1#64 s4 m4 hsp4 hm4'.2.2.1 hm4'.2.1 hm4'.1 hm4'.2.2.2.1 hm4'.2.2.2.2 ha4.1
+          (Or.inl rfl) (fun h => by cases h) (fun h => by cases h) hmem4
+      · intro s4 m4 hsp4 hm4' ha4 hu4 hmem4; fv_steps
+        exact hQv 20#64 s4 m4 hsp4 hm4'.2.2.1 hm4'.2.1 hm4'.1 hm4'.2.2.2.1 hm4'.2.2.2.2 ha4.1
+          (Or.inr (Or.inr rfl)) (fun _ => hu4) (fun h => by cases h) hmem4
     · have holen2 : olen.toNat = 2 := by c0_bound
       have h1_ws2_3 : 1 < s3.scratch.work_stk2.length := by rw [hws2_3]; omega
       fv_steps
-      obtain ⟨s_g, _, hmg, _, hsp_g, hw_g, ha_g, hm_g⟩ :=
-        fullArena_markGarb_pack hsp3.1.lengths hw3 hsp3.2.1 hsp3.2.2.2.1 hsp3.2.2.2.2 hm3_eq.2.2.1
-          (by rw [hs3_ref]; exact href) hs3_hdr (fun r hr _ hngr => hsp3.2.2.1 r hr hngr) hm
+      obtain ⟨s_g, _, hmg, _, hsp_g, ha_g, hm_g⟩ :=
+        fullArena_markGarb_pack hsp3.1 hsp3.2.1 hsp3.2.2.1 hsp3.2.2.2.2.1 hsp3.2.2.2.2.2
+          hm3_eq.2.2.1 (by rw [hs3_ref]; exact href) hs3_hdr
+          (fun r hr _ hngr => hsp3.2.2.2.1 r hr hngr) hm
       have hu0_lt := ws2_lt_cv (j := 0) (by omega) hout_lt hs3_ws2 hm3_eq.2.1 hmg.2.1 (by omega)
       have hu1_lt := ws2_lt_cv (j := 1) (by omega) hout_lt hs3_ws2 hm3_eq.2.1 hmg.2.1 (by omega)
       have hbin_ent : (cnfOfClauses F_cur).EntailsClause
@@ -852,20 +875,22 @@ theorem full_viv_commit_wp (Γ : Env)
                       (s3.scratch.work_stk2[1]'(by omega)).toNat]) := by
         simpa only [← hs3_ws2] using take_entails_2 holen2 (by rw [hws2_len]; omega) hout_ent
       c0_call hAddBin
-      refine ⟨c, F0, F_cur, s_g, R, rfl, hsp_g.1.lengths, hw_g, hsp_g.2.1, hsp_g.2.2.2.1,
-        hsp_g.2.2.2.2, hmg.2.2.1, hu0_lt, hu1_lt, hbin_ent, hm_g,
-        fun br s4 m4 hlen4 _ har4 halen4 hcv4 hl4 hpr4 _ h20 hne20 hm4 => ?_⟩
+      refine ⟨c, F0, F_cur, s_g, R, rfl, hsp_g.1, hsp_g.2.1, hsp_g.2.2.1, hsp_g.2.2.2.2.1,
+        hsp_g.2.2.2.2.2, hmg.2.2.1, hu0_lt, hu1_lt, hbin_ent, hm_g,
+        fun br s4 m4 hlen4 _ hw4 hmc4 hext4 hdm4 har4 halen4 hcv4 hl4 hpr4 hfu4 h20 hm4 => ?_⟩
+      have has_g : VivArenaEq s s_g := ⟨ha_g.1.trans hs3_ref, fun q hq => by
+        have := ha_g.2 q (by rw [hs3_ref]; exact hq); rwa [hm3_eq.1, hs3_ar] at this⟩
+      obtain ⟨hsp4, hl4', ha4⟩ := addBin_ok_post hlen4 hw4 hmc4 hext4 hdm4 hl4 har4
+        halen4 hsp_g.2.2.2.1 has_g
       fv_steps
-      · exact hQv 20#64 s4 m4 hlen4 (Or.inr (Or.inr rfl)) (halen4.trans (hmg.1.trans hm3_eq.1))
-          (hcv4.trans (hmg.2.1.trans hm3_eq.2.1)) (hpr4.trans (hmg.2.2.2.trans hm3_eq.2.2.2))
-          (fun _ => h20 hc) (fun h => absurd rfl h) (fun h => by cases h) hm4
-      · obtain ⟨hw4, hmc4, hext4, hdm4⟩ := hne20 hc
-        have has_g : VivArenaEq s s_g := ⟨ha_g.1.trans hs3_ref, fun q hq => by
-          have := ha_g.2 q (by rw [hs3_ref]; exact hq); rwa [hm3_eq.1, hs3_ar] at this⟩
-        exact hQv 1#64 s4 m4 hlen4 (Or.inl rfl) (halen4.trans (hmg.1.trans hm3_eq.1))
-          (hcv4.trans (hmg.2.1.trans hm3_eq.2.1)) (hpr4.trans (hmg.2.2.2.trans hm3_eq.2.2.2))
-          (fun h => by cases h) (fun _ => addBin_ok_post hlen4 hw4 hmc4 hext4 hdm4 hl4 har4
-            halen4 hsp_g.2.2.1 has_g) (fun h => by cases h) hm4
+      · exact hQv 20#64 s4 m4 hsp4 hl4' (hcv4.trans (hmg.2.1.trans hm3_eq.2.1))
+          (halen4.trans (hmg.1.trans hm3_eq.1)) (hpr4.trans (hmg.2.2.2.1.trans hm3_eq.2.2.2.1))
+          (hfu4.trans (hmg.2.2.2.2.trans hm3_eq.2.2.2.2)) ha4.1 (Or.inr (Or.inr rfl))
+          (fun _ => h20 hc) (fun h => by cases h) hm4
+      · exact hQv 1#64 s4 m4 hsp4 hl4' (hcv4.trans (hmg.2.1.trans hm3_eq.2.1))
+          (halen4.trans (hmg.1.trans hm3_eq.1)) (hpr4.trans (hmg.2.2.2.1.trans hm3_eq.2.2.2.1))
+          (hfu4.trans (hmg.2.2.2.2.trans hm3_eq.2.2.2.2)) ha4.1 (Or.inl rfl)
+          (fun h => by cases h) (fun h => by cases h) hm4
     · have holen3 : 3 ≤ olen.toNat :=
         bv32_ge3_of_ne olen (by c0_bound) (by c0_bound) (by c0_bound)
       have h1_ws2_3 : 1 < s3.scratch.work_stk2.length := by rw [hws2_3]; omega
@@ -919,7 +944,7 @@ theorem full_viv_commit_wp (Γ : Env)
             (FullMem c { s3 with core := { s3.core with
               arena := ar_sz, num_irred := ni1, num_redundant := nr1 } } ⋆ R) m5)
           (fun _ (nhdr, ()) m5 ⟨ni1, nr1, hng_nh, hsh_nh, hm5⟩ =>
-            commit_shrk_mid_wp Γ hWatchPush hsp3 hw3 href hs3_ref hs3_ng hs3_ar hm3_eq hs3_ws2
+            commit_shrk_mid_wp Γ hWatchPush hsp3 href hs3_ref hs3_ng hs3_ar hm3_eq hs3_ws2
               hs3_sz hsz_s_eq hs3_hdr holen3 holen_lt holen_le hout_lt hout_nd hout_ent hasz_cap
               hng_nh hsh_nh hasz_out hasz_sz hcp_sz hasz_pad hm5 hQv)
           (fun J_red hJ_red => ?_)
@@ -939,13 +964,12 @@ namespace FullVivifySpecs
 `confl_ref`). -/
 def FullVivConflictOk (F_cur : List (List Nat)) (s : FullState) : Prop :=
   (s.core.confl_type = 1#64 ∧
-    (s.core.confl_lit0.truncate 32).toNat < 2 * s.core.cur_vars ∧
-    (s.core.confl_lit1.truncate 32).toNat < 2 * s.core.cur_vars ∧
+    s.core.confl_lit0.toNat < 2 * s.core.cur_vars ∧
+    s.core.confl_lit1.toNat < 2 * s.core.cur_vars ∧
     (cnfOfClauses F_cur).EntailsClause
-      (cnfClause [(s.core.confl_lit0.truncate 32).toNat,
-                  (s.core.confl_lit1.truncate 32).toNat]) ∧
-    s.core.vals[(s.core.confl_lit0.truncate 32).toNat]?.getD 0#8 = 0xFF#8 ∧
-    s.core.vals[(s.core.confl_lit1.truncate 32).toNat]?.getD 0#8 = 0xFF#8) ∨
+      (cnfClause [s.core.confl_lit0.toNat, s.core.confl_lit1.toNat]) ∧
+    s.core.vals[s.core.confl_lit0.toNat]?.getD 0#8 = 0xFF#8 ∧
+    s.core.vals[s.core.confl_lit1.toNat]?.getD 0#8 = 0xFF#8) ∨
   (s.core.confl_type = 2#64 ∧
     s.core.confl_ref.toNat ∈ fullArenaClauseRefs s ∧
     fullArenaClauseGarb s s.core.confl_ref.toNat = false ∧

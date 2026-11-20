@@ -31,9 +31,9 @@ from a probe propagation or conflict, clearing `mrk` on exit and proving `F_cur 
 whenever `olen < fullArenaClauseSize s cref.toNat`. -/
 def fullVivDeduceSpec : Spec [i64, i32, i32, i64] [i32] :=
   fun (h, cref, implied, out_ptr, ()) m Q _ =>
-    ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
-      h = c.hdr ∧ out_ptr = c.pWorkStk2 ∧
-      FullSparseInv c F0 s ∧ FullWitnessInv c F0 F_cur s.core ∧
+    ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState)
+      (R : Mem 64 → Prop),
+      h = c.hdr ∧ out_ptr = c.pWorkStk2 ∧ FullSparseInvW c F0 F_cur s ∧
       cref.toNat ∈ fullArenaClauseRefs s ∧ fullArenaClauseGarb s cref.toNat = false ∧
       (implied = 0xFFFFFFFF#32 →
         FullVivConflictOk F_cur s ∨
@@ -47,8 +47,7 @@ def fullVivDeduceSpec : Spec [i64, i32, i32, i64] [i32] :=
           { s with
             core := { s.core with mrk := mrk' }
             scratch := { s.scratch with work_stk1 := ws1', work_stk2 := ws2', res_sz := rsz' } }
-        FullSparseInv c F0 s' → FullWitnessInv c F0 F_cur s'.core →
-        olen.toNat ≤ c.max_vars →
+        FullSparseInvW c F0 F_cur s' → olen.toNat ≤ c.max_vars →
         (olen.toNat < fullArenaClauseSize s cref.toNat →
           (∀ i < olen.toNat, (ws2'[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
           ((ws2'.take olen.toNat).map fun x => x.toNat / 2).Nodup ∧
@@ -1002,8 +1001,10 @@ private theorem deduce_phase1_loop_wp (Γ : Env) {c : FullCfg} {F0 : CNF Nat}
 theorem full_viv_deduce_wp (Γ : Env) :
     ∀ args m Q X, fullVivDeduceSpec args m Q X → Func.wp Γ full_viv_deduce_body args m Q X := by
   rintro ⟨h, cref, implied, out_ptr, ⟨⟩⟩ m Q X
-    ⟨c, F0, F_cur, s, R, rfl, rfl, hsp, hw, href, hng, hconfl, himp, hm, hQ⟩
-  have hcl := hsp.1.lengths.core_ok; have hscl := hsp.1.lengths.scratch_ok
+    ⟨c, F0, F_cur, s, R, rfl, rfl, hspW, href, hng, hconfl, himp, hm, hQ⟩
+  have hsp := fv_sparseW_to_sparse hspW
+  have hw := hspW.2.1
+  have hcl := hspW.1.core_ok; have hscl := hspW.1.scratch_ok
   have hcap := c.harena; have hmx := c.hmaxv; unfold dimacsBound at hcap hmx
   have hcv_le := hcl.cur_vars_le; have hte_le := hcl.trail_end_le
   have halen_le := hcl.arena_len_le
@@ -1033,7 +1034,10 @@ theorem full_viv_deduce_wp (Γ : Env) :
           work_stk1 := ws1_1, work_stk2 := ws2_1, res_sz := rsz1 } } ⋆ R) mp)
     (fun _ (qlen_v, olen_v, ()) mp ⟨mrk1, ws1_1, ws2_1, rsz1, hws2_1, hql1, hq1, ho1, hsd1,
         hsd_imp1, hmp⟩ =>
-      deduce_phase2_wp Γ hsp hw href hng hconfl himp hws2_1 hql1 hq1 ho1 hsd1 hsd_imp1 hmp hQ)
+      deduce_phase2_wp Γ hsp hw href hng hconfl himp hws2_1 hql1 hq1 ho1 hsd1 hsd_imp1 hmp
+        fun olen' mrk' ws1' ws2' rsz' m' hsp' hw' hle hok hm' =>
+          hQ olen' mrk' ws1' ws2' rsz' m'
+            ⟨hsp'.1.lengths, hw', hsp'.2.1, hsp'.2.2.1, hsp'.2.2.2.1, hsp'.2.2.2.2⟩ hle hok hm')
     (fun Js hJs => ?_)
   fv_to_grp
   · have himp_ne : implied ≠ 0xFFFFFFFF#32 := by c0_bound
@@ -1143,18 +1147,22 @@ theorem full_viv_deduce_wp (Γ : Env) :
             (⟨_, ha_lt, hb_lt, hent_ab, hva, hvb⟩ | ⟨hct2, _⟩) | ⟨hct0, _⟩
           · obtain ⟨idx_a, hidx_a, heq_a⟩ := (hw.vals_false_iff _ ha_lt).mp hva
             obtain ⟨idx_b, hidx_b, heq_b⟩ := (hw.vals_false_iff _ hb_lt).mp hvb
+            have ha_tr : (s.core.confl_lit0.truncate 32).toNat = s.core.confl_lit0.toNat :=
+              bv64_trunc32_toNat (by omega)
+            have hb_tr : (s.core.confl_lit1.truncate 32).toNat = s.core.confl_lit1.toNat :=
+              bv64_trunc32_toNat (by omega)
             let a_bv := s.core.confl_lit0.truncate 32
             let b_bv := s.core.confl_lit1.truncate 32
             have ha_cv : (a_bv >>> 1#32).toNat < s.core.cur_vars := by
-              rw [bv32_lshr1_toNat]; dsimp only [a_bv]; omega
+              rw [bv32_lshr1_toNat]; dsimp only [a_bv]; rw [ha_tr]; omega
             have hb_cv : (b_bv >>> 1#32).toNat < s.core.cur_vars := by
-              rw [bv32_lshr1_toNat]; dsimp only [b_bv]; omega
+              rw [bv32_lshr1_toNat]; dsimp only [b_bv]; rw [hb_tr]; omega
             have ha_trl : ∃ idx < s.core.trail_end,
                 (s.core.trl[idx]?.getD 0#32).toNat / 2 = (a_bv >>> 1#32).toNat :=
-              ⟨idx_a, hidx_a, by rw [heq_a, fullInv_var_xor1, bv32_lshr1_toNat]⟩
+              ⟨idx_a, hidx_a, by rw [heq_a, fullInv_var_xor1, bv32_lshr1_toNat, ← ha_tr]⟩
             have hb_trl : ∃ idx < s.core.trail_end,
                 (s.core.trl[idx]?.getD 0#32).toNat / 2 = (b_bv >>> 1#32).toNat :=
-              ⟨idx_b, hidx_b, by rw [heq_b, fullInv_var_xor1, bv32_lshr1_toNat]⟩
+              ⟨idx_b, hidx_b, by rw [heq_b, fullInv_var_xor1, bv32_lshr1_toNat, ← hb_tr]⟩
             fv_to_grp
             refine wp_join_group (ts := [i64])
               (fun (qlen_a, ()) ma => ∃ (mrk_a : List (BitVec 8)) (ws1_a : List (BitVec 32)),
@@ -1180,7 +1188,8 @@ theorem full_viv_deduce_wp (Γ : Env) :
                     fv_steps; exact hJq (qlen_b, ()) mb ⟨mrk_b, ws1_b, 0#64, hql_b, hqb,
                       fun _ => by
                         simp only [himp_eq, ne_eq, not_true_eq_false, ↓reduceIte, hct1]
-                        exact ⟨hca', hcb'⟩, hmb⟩)
+                        exact ⟨by simpa [a_bv, ha_tr] using hca',
+                               by simpa [b_bv, hb_tr] using hcb'⟩, hmb⟩)
                   (fun Jb hJb => by
                     have hb_lvl : (b_bv >>> 1#32).toNat < s.core.lvl.length := by omega
                     have hb_mrk : (b_bv >>> 1#32).toNat < mrk_a.length := by rw [hqa.1]; omega
