@@ -261,17 +261,19 @@ def boxU64 (rt x : LArg) (k : LArg → LM LExpr) : LM LExpr :=
 /-! ## Inline `Nat` (tagged fixnum) and `UIntN` primitives -/
 
 /-- Run `fast` when both tagged-`Nat` operands are scalars, else (or when `fast` reports
-overflow by calling its `slow` argument) call `lcnf_nat_slow(rt, op, a, b)`. -/
+overflow by calling its `slow` argument) call `lcnf_nat_slow(rt, op, a, b)`. The scalar test is
+emitted before the join is opened (see `emitInc`). -/
 def natBin (rt : LArg) (op : String) (resW : Nat) (a b : LArg)
     (fast : (slow : LM LExpr) → (LArg → LExpr) → LM LExpr)
     (k : LArg → LM LExpr) : LM LExpr :=
+  and64 a b fun ab => isScalarObj ab fun both =>
   withJoin1 (.bits resW) k fun j => do
     let slow : LM LExpr :=
       call1 "lcnf_nat_slow" [i64, i64, i64, i64] i64 [rt, imm64 (natOpCode op), a, b] fun r =>
         convW 64 resW r fun r' => pure (j r')
     let fastE ← fast slow j
     let slowE ← slow
-    and64 a b fun ab => isScalarObj ab fun both => pure (.jnz both fastE slowE)
+    pure (.jnz both fastE slowE)
 
 /-- Box an unboxed `i64` (`< 2^63`) as a tagged scalar. -/
 def boxSmall (x : LArg) (k : LArg → LM LExpr) : LM LExpr :=
@@ -354,11 +356,11 @@ def uintPrim (rt : LArg) (w : Nat) (op : String) (as : List LArg) (k : LArg → 
   | "decLt", [a, b] | "blt", [a, b] => cmpU .ult a b
   | "decLe", [a, b] | "ble", [a, b] => cmpU .ule a b
   | "ofNat", [a] | "ofNatLT", [a] =>
-    withJoin1 t k fun j => do
+    isScalarObj a fun s => withJoin1 t k fun j => do
       let slow ← call1 "lcnf_nat_slow" [i64, i64, i64, i64] i64
         [rt, imm64 (natOpCode "ofNat"), a, imm64 w] fun r => convW 64 w r fun r' => pure (j r')
       let fast ← lshr64 a (imm64 1) fun x => convW 64 w x fun r => pure (j r)
-      isScalarObj a fun s => pure (.jnz s fast slow)
+      pure (.jnz s fast slow)
   | "toNat", [a] =>
     convW w 64 a fun x =>
     if w < 64 then boxSmall x k

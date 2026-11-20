@@ -152,13 +152,14 @@ def lowerReset (c : LCtx) (n : Nat) (x : LArg) (k : LArg → LM LExpr) : LM LExp
     let sh ← emitDec1 c.rt x .object false (pure (j (imm64 1)))
     loadAt i32 x 0 fun rc => cmpOp .eq 32 rc (imm 32 1) fun e => pure (.jnz e ex sh)
 
-/-- `reuse x in ctor_i ys`: reuse the cell unless `reset` produced `box(0)`. -/
+/-- `reuse x in ctor_i ys`: reuse the cell unless `reset` produced `box(0)` (the scalar test is
+emitted before the join is opened, see `emitInc`). -/
 def lowerReuse (c : LCtx) (x : LArg) (ci : LcCtor) (upd : Bool) (vs : List LArg)
     (k : LArg → LM LExpr) : LM LExpr :=
-  withJoin1 i64 (fun p => storeFields p 8 vs (k p)) fun j => do
+  isScalarObj x fun s => withJoin1 i64 (fun p => storeFields p 8 vs (k p)) fun j => do
     let fresh ← allocObj c.rt ci.byteSize ci.header fun p => pure (j p)
     let keep ← if upd then storeAt i8 (imm 8 ci.cidx) x 7 (pure (j x)) else pure (j x)
-    isScalarObj x fun s => pure (.jnz s fresh keep)
+    pure (.jnz s fresh keep)
 
 /-- Lower a `LetValue` bound at type `ty`. -/
 def lowerVal (env : LEnv) (c : LCtx) (ty : LcTy) (v : LcVal) (k : LArg → LM LExpr) :
