@@ -111,6 +111,10 @@ public import LeanQbe.T.Examples.Kissat.LayerABve
 public import LeanQbe.T.Examples.Kissat.LayerAGates
 public import LeanQbe.T.Examples.Kissat.LayerAFull1
 public import LeanQbe.T.Examples.Kissat.LayerAFull
+public import LeanQbe.T.Examples.Kissat.FullArena1
+public import LeanQbe.T.Examples.Kissat.FullArena
+public import LeanQbe.T.Examples.Kissat.FullInv1
+public import LeanQbe.T.Examples.Kissat.FullInv2
 public import LeanQbe.T.Examples.Kissat.Dimacs
 public import LeanQbe.T.Examples.Kissat.Solver
 public import LeanQbe.T.Examples.Kissat.DimacsLemmas1
