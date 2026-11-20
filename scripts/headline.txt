@@ -764,6 +764,6 @@ LeanQbe.T.Examples.Kissat.PlainSpec1 LeanQbe.T.Examples.Kissat.Plain.assign_pres
 LeanQbe.T.Examples.Kissat.PlainSpec1 LeanQbe.T.Examples.Kissat.Plain.addClause_preserves_core
 LeanQbe.T.Examples.Kissat.PlainSpec1 LeanQbe.T.Examples.Kissat.Plain.swapCl_preserves_core
 LeanQbe.T.Examples.Kissat.PlainSpec1 LeanQbe.T.Examples.Kissat.Plain.plainInv_init
-LeanQbe.T.Examples.Kissat.PlainSpec1 LeanQbe.T.Examples.Kissat.Plain.plainMinMark_entails
+LeanQbe.T.Examples.Kissat.PlainSpec2 LeanQbe.T.Examples.Kissat.Plain.plainMinMark_entails
 LeanQbe.T.Examples.Kissat.PlainSpec LeanQbe.T.Examples.Kissat.Plain.plainSpecTable_noExit
 LeanQbe.T.Examples.Kissat.PlainSpec LeanQbe.T.Examples.Kissat.Plain.plainSpecTable_sigs

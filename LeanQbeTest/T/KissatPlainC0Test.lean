@@ -98,7 +98,7 @@ example {c F0 s} (h : PlainCoreInv c F0 s) (hall : ∀ v < c.mv, s.vals[2 * v]?.
 #print axioms LeanQbe.T.Examples.Kissat.Plain.plainSpecTable_noExit
 #print axioms LeanQbe.T.Examples.Kissat.Plain.plainSpecTable_sigs
 
-/-! ## 2. Formula Generators & Differential Test Corpus (58 Cases) -/
+/-! ## 2. Formula Generators & Differential Test Corpus (59 Cases) -/
 
 private def joinLines (ls : List String) : String :=
   String.intercalate "\n" ls ++ "\n"
@@ -220,6 +220,21 @@ private def mkLuckyNegSat : String :=
   joinLines (mkHeader 6 4 ::
     [ "-1 2 -3 0", "1 -2 -4 0", "3 4 -5 0", "5 -6 0" ])
 
+private def mkAnalyzeReduceFlushSat : String :=
+  let core :=
+    [ "1 0"
+    , "2 3 4 0", "2 3 -4 0", "2 -3 4 0", "2 -3 -4 0"
+    , "-2 -3 -4 5 0", "-2 -3 -4 -5 0", "-2 -3 4 5 0", "-2 -3 4 -5 0"
+    , "15 4 3 0", "15 4 -3 0", "15 -4 3 0", "15 -4 -3 0"
+    , "-16 -15 14 0", "-16 -15 -14 0" ]
+  let pad := (List.range 16).map fun m =>
+    let mid := (List.range 4).map fun j =>
+      let v := 6 + j
+      if (m >>> j) % 2 == 1 then s!"-{v}" else s!"{v}"
+    String.intercalate " " (["2", "-3"] ++ mid ++ ["10", "11", "12", "13", "5", "4", "14", "0"])
+  let cls := core ++ pad
+  joinLines (mkHeader 16 cls.length :: cls)
+
 private def mkOrdering4 : String :=
   let vars (i j : Nat) := i * 3 + (if j < i then j else j - 1) + 1
   let asym := (List.range 4).flatMap fun i =>
@@ -292,6 +307,7 @@ private def corpus : List PlainCase :=
   , ⟨"sat_3sat_15v", sat3_15, 32768, 20000, 10, true⟩
   , ⟨"sat_3sat_22v", sat3_22, 65536, 50000, 10, false⟩
   , ⟨"sat_horn_8v", mkHornSat, 4096, 500, 10, true⟩
+  , ⟨"analyze_reduce_flush_sat", mkAnalyzeReduceFlushSat, 4984, 2000, 10, true⟩
   , ⟨"sat_comments_crlf",
       "c hdr\r\nc 2\n  p \t cnf  2  2 \r\n1 -2 0 c inline\n2 0\nc eof",
       4096, 100, 10, true⟩
@@ -327,7 +343,7 @@ private def checkLayerACase (tc : PlainCase) : Bool :=
       | .unsat => tc.expected == 20
       | .unknown => false
 
-#guard corpus.length == 58
+#guard corpus.length == 59
 #guard corpus.all checkLayerACase
 #guard checkLayerACase ⟨"fuel_0_check", "p cnf 1 2\n1 0\n-1 0\n", 4096, 0, 0, false⟩
 

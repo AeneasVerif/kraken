@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.PlainSpec1
+public import LeanQbe.T.Examples.Kissat.PlainSpec2
 public import LeanQbe.T.Examples.Kissat.SolverIngestLemmas1
 public import LeanQbe.T.Logic.C0Step
 import all Kraken.Mem
@@ -9,8 +9,8 @@ import all Kraken.Separation
 /-!
 # Kissat `D-Plain` Per-Function `Spec` Contracts & Specification Table (`Stage 3`)
 
-Builds on `PlainSpec1` to define `{ s with ... }` record-update `Spec` definitions for all
-51 C0 functions in `plain1_fns ++ plain2_fns`, unit-witness `UnitSatTrace`/`UnitUnsatTrace`,
+Builds on `PlainSpec1`/`PlainSpec2` to define `{ s with ... }` record-update `Spec` definitions
+for all 51 C0 functions in `plain1_fns ++ plain2_fns`, unit-witness `UnitSatTrace`/`UnitUnsatTrace`,
 `plainInitStateSpec` (including the `false`-branch capacity guard), `plainSolveBytesCoreSpec`,
 and the 59-row `Env.ofTable` table `plainSpecTable` (`mkPlainEnv`, `plainEnv`), ready for Wave 2b.
 -/
@@ -64,30 +64,47 @@ def plainAllocClSpec : Spec [i64, i32, i32, .bool] [i64] := fun (h, sz, _glue, r
         Q (BitVec.ofNat 64 s.arena_len, ()) m'
 
 def plainWstackDefragSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
-  ∃ (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ PlainCoreInv c F0 s ∧ (PlainMem c s ⋆ R) m ∧
+  ∃ (c : PlainCfg) (s : PlainState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ WatchStackLayout c s ∧ (PlainMem c s ⋆ R) m ∧
     ∀ wvec' wstk' wlen' wsort' m',
       let s' : PlainState :=
         { s with wvec := wvec', wstk := wstk', wlen := wlen', wusable := 0#64,
                  heur := { s.heur with wsort := wsort' } }
-      s'.LengthsOk c → WatchesInv c F0 s' → (PlainMem c s' ⋆ R) m' → Q () m'
+      s'.LengthsOk c → WatchStackLayout c s' → (1 ≤ s.wlen → 1 ≤ wlen') →
+      (∀ l < 2 * c.mv, watchSize s' l = watchSize s l ∧
+        ∀ k < watchSize s l, s'.wstk[watchOff s' l + k]? = s.wstk[watchOff s l + k]?) →
+      (PlainMem c s' ⋆ R) m' → Q () m'
 
 def plainWatchPushSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
   fun (h, lit, w0, w1, cnt, ()) m Q _ =>
-    ∃ (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) (R : Mem 64 → Prop),
-      h = c.hdr ∧ PlainCoreInv c F0 s ∧ (PlainMem c s ⋆ R) m ∧
-      (cnt.toNat = 1 →
-        (w0 &&& 0x80000000#32) ≠ 0#32 ∧ (w0 &&& 0x7FFFFFFF#32).toNat < 2 * c.mv ∧
-        F0.EntailsClause (cnfClause [lit.toNat, (w0 &&& 0x7FFFFFFF#32).toNat])) ∧
-      (cnt.toNat = 2 →
-        (w0 &&& 0x80000000#32) = 0#32 ∧ w1.toNat < 0x80000000 ∧ w1.toNat ∈ arenaClauseRefs s) ∧
+    ∃ (c : PlainCfg) (s : PlainState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ s.LengthsOk c ∧ WatchStackLayout c s ∧
+      (cnt.toNat = 1 → w0 ≠ 0xFFFFFFFF#32) ∧
+      (cnt.toNat = 2 → w0 ≠ 0xFFFFFFFF#32 ∧ w1 ≠ 0xFFFFFFFF#32) ∧
+      (PlainMem c s ⋆ R) m ∧
       ∀ (ok : Bool) wvec' wstk' wlen' wusable' wsort' m',
         let s' : PlainState :=
           { s with wvec := wvec', wstk := wstk', wlen := wlen', wusable := wusable',
                    heur := { s.heur with wsort := wsort' } }
-        s'.LengthsOk c → WatchesInv c F0 s' →
-        (ok = false → c.mv * 2 ≤ lit.toNat ∨ (cnt.toNat ≠ 1 ∧ cnt.toNat ≠ 2) ∨
-          s' = s ∨ wusable' = 0#64) →
+        s'.LengthsOk c → WatchStackLayout c s' →
+        (∀ l < 2 * c.mv, l ≠ lit.toNat →
+          watchSize s' l = watchSize s l ∧
+          ∀ k < watchSize s l, s'.wstk[watchOff s' l + k]? = s.wstk[watchOff s l + k]?) →
+        (ok = true →
+          lit.toNat < 2 * c.mv ∧ (cnt.toNat = 1 ∨ cnt.toNat = 2) ∧
+          watchSize s' lit.toNat = watchSize s lit.toNat + cnt.toNat ∧
+          (∀ k < watchSize s lit.toNat,
+            s'.wstk[watchOff s' lit.toNat + k]? = s.wstk[watchOff s lit.toNat + k]?) ∧
+          s'.wstk[watchOff s' lit.toNat + watchSize s lit.toNat]? = some w0 ∧
+          (cnt.toNat = 2 →
+            s'.wstk[watchOff s' lit.toNat + watchSize s lit.toNat + 1]? = some w1)) →
+        (ok = false →
+          (lit.toNat < 2 * c.mv →
+            watchSize s' lit.toNat = watchSize s lit.toNat ∧
+            ∀ k < watchSize s lit.toNat,
+              s'.wstk[watchOff s' lit.toNat + k]? = s.wstk[watchOff s lit.toNat + k]?) ∧
+          (c.mv * 2 ≤ lit.toNat ∨ (cnt.toNat ≠ 1 ∧ cnt.toNat ≠ 2) ∨
+            s' = s ∨ wusable' = 0#64)) →
         (PlainMem c s' ⋆ R) m' → Q (ok, ()) m'
 
 /-- Shared heuristic-only contract for `(h, v) -> ()` helpers modifying only `s.heur`. -/
@@ -96,14 +113,21 @@ def plainHeurVarVoidSpec : Spec [i64, i32] [] := fun (h, _v, ()) m Q _ =>
     h = c.hdr ∧ s.LengthsOk c ∧ (PlainMem c s ⋆ R) m ∧
     ∀ heur' m', heur'.LengthsOk c → (PlainMem c { s with heur := heur' } ⋆ R) m' → Q () m'
 
+/-- Shared heuristic-only `(h, v) -> ()` contract also preserving `rel_trigger`. -/
+def plainHeurVarRelVoidSpec : Spec [i64, i32] [] := fun (h, _v, ()) m Q _ =>
+  ∃ (c : PlainCfg) (s : PlainState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ (PlainMem c s ⋆ R) m ∧
+    ∀ heur' m', heur'.LengthsOk c → heur'.rel_trigger = s.heur.rel_trigger →
+      (PlainMem c { s with heur := heur' } ⋆ R) m' → Q () m'
+
 /-- Shared heuristic-only contract for `(h) -> ()` helpers modifying only `s.heur`. -/
 def plainHeurVoidSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : PlainCfg) (s : PlainState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ (PlainMem c s ⋆ R) m ∧
     ∀ heur' m', heur'.LengthsOk c → (PlainMem c { s with heur := heur' } ⋆ R) m' → Q () m'
 
-abbrev plainHeapUpSpec := plainHeurVarVoidSpec
-abbrev plainHeapPushSpec := plainHeurVarVoidSpec
+abbrev plainHeapUpSpec := plainHeurVarRelVoidSpec
+abbrev plainHeapPushSpec := plainHeurVarRelVoidSpec
 abbrev plainRescaleSpec := plainHeurVoidSpec
 abbrev plainBumpVarSpec := plainHeurVarVoidSpec
 abbrev plainBumpDecaySpec := plainHeurVoidSpec
@@ -140,7 +164,7 @@ def plainEmaUpdateSpec : Spec [i64, i64] [] := fun (h, _glue, ()) m Q _ =>
 
 def plainAssignSpec : Spec [i64, i32, i32] [] := fun (h, lit, rsn, ()) m Q _ =>
   ∃ (c : PlainCfg) (s : PlainState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧ (PlainMem c s ⋆ R) m ∧
+    h = c.hdr ∧ s.LengthsOk c ∧ s.cur_level < 2 ^ 32 ∧ (PlainMem c s ⋆ R) m ∧
     if c.mv ≤ lit.toNat / 2 ∨ c.mv ≤ s.trail_end then
       Q () m
     else
@@ -161,17 +185,23 @@ def plainAssignSpec : Spec [i64, i32, i32] [] := fun (h, lit, rsn, ()) m Q _ =>
         s'.LengthsOk c → (PlainMem c s' ⋆ R) m' → Q () m'
 
 def plainBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
-  ∃ (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ PlainCoreInv c F0 s ∧ target_lvl.toNat ≤ s.cur_level ∧ (PlainMem c s ⋆ R) m ∧
+  ∃ (c : PlainCfg) (s : PlainState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧
+    (∀ i < s.trail_end, (s.trl[i]?.getD 0#32).toNat < 2 * c.mv) ∧
+    (PlainMem c s ⋆ R) m ∧
     ∀ vals' lvl' rsns' te' prop' heur' m',
       let s' : PlainState :=
         { s with
           vals := vals', lvl := lvl', rsns := rsns', trail_end := te',
           propagated := prop', cur_level := target_lvl.toNat, heur := heur' }
-      PlainCoreInv c F0 s' → te' ≤ s.trail_end →
-      (∀ i < s.trail_end,
-        (s.lvl[(s.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ target_lvl.toNat →
-        i < te') →
+      s'.LengthsOk c → te' ≤ s.trail_end → prop' ≤ te' →
+      heur'.rel_trigger = s.heur.rel_trigger →
+      (∀ i < te', (s.trl[i]?.getD 0#32).toNat < 2 * c.mv) →
+      (∀ F0, PlainCoreInv c F0 s → target_lvl.toNat ≤ s.cur_level →
+        PlainCoreInv c F0 s' ∧
+        ∀ i < s.trail_end,
+          ((s.lvl[(s.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ target_lvl.toNat ↔
+            i < te')) →
       (PlainMem c s' ⋆ R) m' → Q () m'
 
 def plainAddClauseSpec : Spec [i64, i32, i32, .bool] [i64] :=
@@ -192,16 +222,22 @@ def plainAddClauseSpec : Spec [i64, i32, i32, .bool] [i64] :=
           (r = 0xFFFFFFFF#64 ∨ r = 0xFFFFFFFE#64) →
           PlainCoreInv c F0 s' → (PlainMem c s' ⋆ R) m' → Q (r, ()) m'
       else
-        ∀ r arena' wvec' wstk' wlen' wusable' fred' ni' nr' wsort' m',
-          (r = 0xFFFFFFFF#64 ∧
+        ∀ r arena' alen' wvec' wstk' wlen' wusable' fred' ni' nr' wsort' m',
+          (r = 0xFFFFFFFF#64 ∨ r = BitVec.ofNat 64 s.arena_len) →
+          (r = 0xFFFFFFFF#64 →
             let s' : PlainState :=
-              { s with arena := arena', wvec := wvec', wstk := wstk', wlen := wlen',
-                       wusable := wusable', heur := { s.heur with wsort := wsort' } }
-            PlainCoreInv c F0 s' ∧ (PlainMem c s' ⋆ R) m' ∧ Q (0xFFFFFFFF#64, ()) m') ∨
-          (r = BitVec.ofNat 64 s.arena_len ∧
+              { s with arena := arena', arena_len := alen', wvec := wvec', wstk := wstk',
+                       wlen := wlen', wusable := wusable', heur := { s.heur with wsort := wsort' } }
+            PlainCoreInv c F0 s' ∧ (PlainMem c s' ⋆ R) m') →
+          (r = BitVec.ofNat 64 s.arena_len →
+            alen' = s.arena_len + 3 + len.toNat ∧
             let s' := addClauseState s len.toNat arena' wvec' wstk' wlen' wusable'
               fred' ni' nr' wsort'
-            PlainCoreInv c F0 s' ∧ (PlainMem c s' ⋆ R) m' ∧ Q (r, ()) m')
+            PlainCoreInv c F0 s' ∧ s.arena_len ∈ arenaClauseRefs s' ∧
+            arenaClauseGarb s' s.arena_len = false ∧
+            arenaClauseLits s' s.arena_len = (s.tmp.take len.toNat).map BitVec.toNat ∧
+            (PlainMem c s' ⋆ R) m') →
+          Q (r, ()) m'
 
 def plainZeroTablesSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : PlainCfg) (s : PlainState) (R : Mem 64 → Prop),
@@ -283,7 +319,8 @@ def plainIngestClSpec : Spec [i64, i64] [i64] := fun (h, cend, ()) m Q _ =>
     (bytes cnf_ptr cnfBytes ⋆ PlainMem c s ⋆ R) m ∧
     match parseClause c.mv (cnfBytes.drop i0) with
     | none =>
-      ∀ s' m', s'.LengthsOk c → s'.fuel = s.fuel →
+      ∀ s' m', s'.LengthsOk c → s'.fuel = s.fuel → s'.oom = s.oom →
+        s'.probing = s.probing → s'.heur.rel_trigger = s.heur.rel_trigger →
         (bytes cnf_ptr cnfBytes ⋆ PlainMem c s' ⋆ R) m' → Q (0#64, ()) m'
     | some (cl, rest) =>
       ∀ r s' j m',
@@ -334,16 +371,16 @@ def plainFindReplSpec : Spec [i64, i64] [i64] := fun (h, cref, ()) m Q _ =>
     3 ≤ arenaClauseSize s cref.toNat ∧
     cref.toNat + 3 + arenaClauseSize s cref.toNat ≤ s.arena_len ∧
     (PlainMem c s ⋆ R) m ∧
-    ((Q (0xFFFFFFFF#64, ()) m ∧
-      ∀ k, 2 ≤ k → k < arenaClauseSize s cref.toNat →
+    ((∀ k, 2 ≤ k → k < arenaClauseSize s cref.toNat →
         let cand := (s.arena[cref.toNat + 3 + k]?.getD 0#32).toNat
-        2 * c.mv ≤ cand ∨ ((s.vals[cand]?.getD 0#8).signExtend 32).slt 0#32 = true) ∨
-     (∃ (r : Nat) (srch' : BitVec 32),
-        2 ≤ r ∧ r < arenaClauseSize s cref.toNat ∧ srch' = BitVec.ofNat 32 r ∧
-        (let cand := (s.arena[cref.toNat + 3 + r]?.getD 0#32).toNat
-         cand < 2 * c.mv ∧ ((s.vals[cand]?.getD 0#8).signExtend 32).slt 0#32 = false) ∧
-        ∀ m', (PlainMem c { s with arena := s.arena.set (cref.toNat + 1) srch' } ⋆ R) m' →
-          Q (BitVec.ofNat 64 r, ()) m'))
+        2 * c.mv ≤ cand ∨ ((s.vals[cand]?.getD 0#8).signExtend 32).slt 0#32 = true) →
+      Q (0xFFFFFFFF#64, ()) m) ∧
+    (∀ (r : Nat) (m' : Mem 64),
+      2 ≤ r → r < arenaClauseSize s cref.toNat →
+      (let cand := (s.arena[cref.toNat + 3 + r]?.getD 0#32).toNat
+       cand < 2 * c.mv ∧ ((s.vals[cand]?.getD 0#8).signExtend 32).slt 0#32 = false) →
+      (PlainMem c { s with arena := s.arena.set (cref.toNat + 1) (BitVec.ofNat 32 r) } ⋆ R) m' →
+      Q (BitVec.ofNat 64 r, ()) m')
 
 def plainPropLitSpec : Spec [i64, i32] [.bool] := fun (h, lit, ()) m Q _ =>
   ∃ (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) (R : Mem 64 → Prop),
@@ -357,6 +394,11 @@ def plainPropLitSpec : Spec [i64, i32] [.bool] := fun (h, lit, ()) m Q _ =>
           wstk := wstk', wlen := wlen', wusable := wu', confl_type := ctype',
           confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1', oom := oom', heur := heur' }
       PlainCoreInv c F0 s' → s.trail_end ≤ te' → heur'.rel_trigger = s.heur.rel_trigger →
+      (∀ i < s.trail_end, trl'[i]? = s.trl[i]?) →
+      (∀ i < s.trail_end,
+        lvl'[(s.trl[i]?.getD 0#32).toNat / 2]? = s.lvl[(s.trl[i]?.getD 0#32).toNat / 2]?) →
+      (∀ i, s.trail_end ≤ i → i < te' →
+        (lvl'[(trl'[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = s.cur_level) →
       (ok = false → oom' ≠ 0#64 ∨
         (ctype' = 1#64 ∧ c0'.toNat < 2 * c.mv ∧ c1'.toNat < 2 * c.mv ∧
           F0.EntailsClause (cnfClause [c0'.toNat, c1'.toNat]) ∧
@@ -382,6 +424,11 @@ def plainPropagateSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
           oom := oom', heur := heur' }
       PlainCoreInv c F0 s' → s.trail_end ≤ te' → fuel'.toNat ≤ s.fuel.toNat →
       heur'.rel_trigger = s.heur.rel_trigger →
+      (∀ i < s.trail_end, trl'[i]? = s.trl[i]?) →
+      (∀ i < s.trail_end,
+        lvl'[(s.trl[i]?.getD 0#32).toNat / 2]? = s.lvl[(s.trl[i]?.getD 0#32).toNat / 2]?) →
+      (∀ i, s.trail_end ≤ i → i < te' →
+        (lvl'[(trl'[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = s.cur_level) →
       (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
       (r = 0#64 → prop' = te' ∧ (s.oom = 0#64 → oom' = 0#64)) →
       (r = 1#64 →
@@ -400,7 +447,7 @@ def plainPropagateSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       (s.propagated = s.trail_end → r = 0#64 ∧ s' = s) →
       (PlainMem c s' ⋆ R) m' → Q (r, ()) m'
 
-def plainMarkReasonsSpec : Spec [i64, .bool] [] := fun (h, _set_flag, ()) m Q _ =>
+def plainMarkReasonsSpec : Spec [i64, .bool] [] := fun (h, set_flag, ()) m Q _ =>
   ∃ (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) (R : Mem 64 → Prop),
     h = c.hdr ∧ PlainCoreInv c F0 s ∧ (PlainMem c s ⋆ R) m ∧
     ∀ arena' m',
@@ -409,6 +456,7 @@ def plainMarkReasonsSpec : Spec [i64, .bool] [] := fun (h, _set_flag, ()) m Q _ 
       (∀ r ∈ arenaClauseRefs s, arenaClauseSize s' r = arenaClauseSize s r ∧
         arenaClauseGarb s' r = arenaClauseGarb s r ∧
         arenaClauseLits s' r = arenaClauseLits s r) →
+      (set_flag = true → ReasonsMarked s') →
       PlainCoreInv c F0 s' → (PlainMem c s' ⋆ R) m' → Q () m'
 
 def plainRedLessSpec : Spec [i64, i32, i32] [.bool] := fun (ar_ptr, a, b, ()) m Q _ =>
@@ -417,10 +465,13 @@ def plainRedLessSpec : Spec [i64, i32, i32] [.bool] := fun (ar_ptr, a, b, ()) m 
     (array (t := i32) ar_ptr ar ⋆ R) m ∧
     ∀ res : Bool, Q (res, ()) m
 
-def plainSortRedsSpec : Spec [i64, i64] [] := fun (h, _n, ()) m Q _ =>
+def plainSortRedsSpec : Spec [i64, i64] [] := fun (h, n, ()) m Q _ =>
   ∃ (c : PlainCfg) (s : PlainState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧ (PlainMem c s ⋆ R) m ∧
+    h = c.hdr ∧ s.LengthsOk c ∧ n.toNat ≤ c.red_cap ∧
+    (∀ k < n.toNat, (s.heur.red_refs[k]?.getD 0#32).toNat + 2 < c.arena_cap) ∧
+    (PlainMem c s ⋆ R) m ∧
     ∀ heur' m', heur'.LengthsOk c → heur'.rel_trigger = s.heur.rel_trigger →
+      (∀ k < n.toNat, ∃ j < n.toNat, heur'.red_refs[k]? = s.heur.red_refs[j]?) →
       (PlainMem c { s with heur := heur' } ⋆ R) m' → Q () m'
 
 def plainLitRankSpec : Spec [i64, i64, i32] [i64] := fun (vals_ptr, lvl_ptr, l, ()) m Q _ =>
@@ -431,7 +482,8 @@ def plainLitRankSpec : Spec [i64, i64, i32] [i64] := fun (vals_ptr, lvl_ptr, l, 
 
 def plainSweepSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
   ∃ (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ PlainCoreInv c F0 s ∧ (PlainMem c s ⋆ R) m ∧
+    h = c.hdr ∧ PlainCoreInv c F0 s ∧ (0 < s.cur_level → ReasonsMarked s) ∧
+    (PlainMem c s ⋆ R) m ∧
     ∀ r vals' lvl' rsns' trl' tp' te' unfl' wvec' wstk' arena' alen' wlen' wu' fred' ni' nr'
       nb' oom' heur' m',
       let s' : PlainState :=
@@ -443,7 +495,10 @@ def plainSweepSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
           num_redundant := nr', num_binary := nb', oom := oom', heur := heur' }
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 3#64) →
       heur'.rel_trigger = s.heur.rel_trigger →
+      (∀ i < te', (trl'[i]?.getD 0#32).toNat < 2 * c.mv) →
       (r = 0#64 ∨ r = 1#64 → PlainCoreInv c F0 s' ∧ oom' = 0#64) →
+      (0 < s.cur_level → r = 0#64 →
+        vals' = s.vals ∧ lvl' = s.lvl ∧ trl' = s.trl ∧ tp' = s.trail_pos ∧ te' = s.trail_end) →
       (r = 1#64 → s.cur_level = 0 ∧ s.trail_end < te') →
       (r = 2#64 → s.cur_level = 0 ∧ F0.Unsat) →
       (PlainMem c s' ⋆ R) m' → Q (r, ()) m'
@@ -463,20 +518,29 @@ def plainReduceSpec : Spec [i64, .bool] [i64] := fun (h, _force, ()) m Q _ =>
           confl_type := ctype', confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1',
           oom := oom', heur := heur' }
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) → fuel'.toNat ≤ s.fuel.toNat →
+      (∀ i < te', (trl'[i]?.getD 0#32).toNat < 2 * c.mv) →
       (r = 20#64 → F0.Unsat) →
       (r = 1#64 → PlainCoreInv c F0 s' ∧ cl' ≤ s.cur_level ∧ (s.oom = 0#64 → oom' = 0#64)) →
+      (r = 1#64 → 0 < cl' →
+        cl' = s.cur_level ∧ vals' = s.vals ∧ lvl' = s.lvl ∧ trl' = s.trl ∧
+        tp' = s.trail_pos ∧ te' = s.trail_end) →
       (PlainMem c s' ⋆ R) m' → Q (r, ()) m'
 
 /-! ## 4. Conflict analysis, shrink/minimize, decision, mode/restart, `lucky` (`Plain2`) -/
 
 def plainAnalyzeLitSpec : Spec [i64, i32, i32] [.bool] := fun (h, lit, skip_var, ()) m Q _ =>
   ∃ (c : PlainCfg) (s : PlainState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧ s.tmp_len ≤ c.mv ∧ s.tmp_cnt + 1 < 2 ^ 64 ∧
-    (PlainMem c s ⋆ R) m ∧
+    h = c.hdr ∧ s.LengthsOk c ∧ s.cur_level < 2 ^ 32 ∧ s.tmp_len ≤ c.mv ∧
+    s.tmp_cnt + 1 < 2 ^ 64 ∧ (PlainMem c s ⋆ R) m ∧
     ∀ (ok : Bool) mrk' tmp' tc' tl' m',
       let s' : PlainState :=
         { s with mrk := mrk', tmp := tmp', tmp_cnt := tc', tmp_len := tl' }
-      s'.LengthsOk c → s.tmp_len ≤ tl' → tl' ≤ c.mv → s.tmp_cnt ≤ tc' →
+      s'.LengthsOk c → s.tmp_len ≤ tl' → tl' ≤ s.tmp_len + 1 → tl' ≤ c.mv → s.tmp_cnt ≤ tc' →
+      tc' = s.tmp_cnt +
+        (if lit.toNat / 2 < c.mv ∧ s.mrk[lit.toNat / 2]?.getD 0#8 = 0#8 ∧
+            mrk'[lit.toNat / 2]?.getD 0#8 ≠ 0#8 ∧
+            (s.lvl[lit.toNat / 2]?.getD 0#32).toNat = s.cur_level
+         then 1 else 0) →
       (∀ v < c.mv, s.mrk[v]?.getD 0#8 ≠ 0#8 → mrk'[v]?.getD 0#8 = s.mrk[v]?.getD 0#8) →
       (∀ k < s.tmp_len, tmp'[k]? = s.tmp[k]?) →
       (∀ v < c.mv, s.mrk[v]?.getD 0#8 = 0#8 → mrk'[v]?.getD 0#8 ≠ 0#8 →
@@ -484,7 +548,8 @@ def plainAnalyzeLitSpec : Spec [i64, i32, i32] [.bool] := fun (h, lit, skip_var,
         0 < (s.lvl[v]?.getD 0#32).toNat ∧ (s.lvl[v]?.getD 0#32).toNat ≤ s.cur_level) →
       (∀ j, s.tmp_len ≤ j → j < tl' →
         (tmp'[j]?.getD 0#32).toNat = lit.toNat ∧ lit.toNat / 2 < c.mv ∧
-        lit.toNat / 2 ≠ skip_var.toNat ∧ 0 < (s.lvl[lit.toNat / 2]?.getD 0#32).toNat ∧
+        lit.toNat / 2 ≠ skip_var.toNat ∧ s.mrk[lit.toNat / 2]?.getD 0#8 = 0#8 ∧
+        0 < (s.lvl[lit.toNat / 2]?.getD 0#32).toNat ∧
         (s.lvl[lit.toNat / 2]?.getD 0#32).toNat < s.cur_level ∧
         mrk'[lit.toNat / 2]?.getD 0#8 ≠ 0#8) →
       (ok = true →
@@ -494,7 +559,8 @@ def plainAnalyzeLitSpec : Spec [i64, i32, i32] [.bool] := fun (h, lit, skip_var,
             mrk'[lit.toNat / 2]?.getD 0#8 ≠ 0#8) ∧
           (s.mrk[lit.toNat / 2]?.getD 0#8 = 0#8 →
             (s.lvl[lit.toNat / 2]?.getD 0#32).toNat ≤ s.cur_level ∧
-            ((s.lvl[lit.toNat / 2]?.getD 0#32).toNat = s.cur_level →
+            (0 < (s.lvl[lit.toNat / 2]?.getD 0#32).toNat →
+              (s.lvl[lit.toNat / 2]?.getD 0#32).toNat = s.cur_level →
               tc' = s.tmp_cnt + 1) ∧
             (0 < (s.lvl[lit.toNat / 2]?.getD 0#32).toNat →
               (s.lvl[lit.toNat / 2]?.getD 0#32).toNat < s.cur_level →
@@ -503,7 +569,8 @@ def plainAnalyzeLitSpec : Spec [i64, i32, i32] [.bool] := fun (h, lit, skip_var,
 
 def plainAnalyzeRsnSpec : Spec [i64, i32, i32] [.bool] := fun (h, rsn, skip_var, ()) m Q _ =>
   ∃ (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ PlainCoreInv c F0 s ∧ s.tmp_len ≤ c.mv ∧ s.tmp_cnt + c.mv < 2 ^ 64 ∧
+    h = c.hdr ∧ PlainCoreInv c F0 s ∧ s.tmp_len ≤ c.mv ∧ s.tmp_cnt + c.mv + 1 < 2 ^ 64 ∧
+    (rsn ≠ 0xFFFFFFFF#32 → (rsn &&& 0x80000000#32) = 0#32 → rsn.toNat ∈ arenaClauseRefs s) ∧
     (PlainMem c s ⋆ R) m ∧
     ∀ (ok : Bool) mrk' tmp' tc' tl' arena' heur' m',
       let s' : PlainState :=
@@ -516,18 +583,37 @@ def plainAnalyzeRsnSpec : Spec [i64, i32, i32] [.bool] := fun (h, rsn, skip_var,
         arenaClauseLits s' r = arenaClauseLits s r) →
       (∀ v < c.mv, s.mrk[v]?.getD 0#8 ≠ 0#8 → mrk'[v]?.getD 0#8 = s.mrk[v]?.getD 0#8) →
       (∀ k < s.tmp_len, tmp'[k]? = s.tmp[k]?) →
+      (∀ v < c.mv, s.mrk[v]?.getD 0#8 = 0#8 → mrk'[v]?.getD 0#8 ≠ 0#8 →
+        ∃ l ∈ rsnLits s rsn,
+          l / 2 = v ∧ v ≠ skip_var.toNat ∧
+          0 < (s.lvl[v]?.getD 0#32).toNat ∧ (s.lvl[v]?.getD 0#32).toNat ≤ s.cur_level) →
+      (∀ j, s.tmp_len ≤ j → j < tl' →
+        let l := (tmp'[j]?.getD 0#32).toNat
+        l ∈ rsnLits s rsn ∧ l < 2 * c.mv ∧ l / 2 ≠ skip_var.toNat ∧
+        s.mrk[l / 2]?.getD 0#8 = 0#8 ∧
+        0 < (s.lvl[l / 2]?.getD 0#32).toNat ∧ (s.lvl[l / 2]?.getD 0#32).toNat < s.cur_level ∧
+        mrk'[l / 2]?.getD 0#8 ≠ 0#8) →
+      (tc' - s.tmp_cnt =
+        ((List.range c.mv).filter fun v =>
+          decide (s.mrk[v]?.getD 0#8 = 0#8) &&
+          decide (mrk'[v]?.getD 0#8 ≠ 0#8) &&
+          decide ((s.lvl[v]?.getD 0#32).toNat = s.cur_level)).length) →
       (ok = true → rsn ≠ 0xFFFFFFFF#32 ∧
         ((rsn &&& 0x80000000#32) ≠ 0#32 →
           (rsn &&& 0x7FFFFFFF#32).toNat / 2 < c.mv) ∧
         ((rsn &&& 0x80000000#32) = 0#32 →
           rsn.toNat + 3 ≤ s.arena_len ∧ 3 ≤ arenaClauseSize s rsn.toNat ∧
-          rsn.toNat + 3 + arenaClauseSize s rsn.toNat ≤ s.arena_len)) →
-      (∀ l, ((rsn &&& 0x80000000#32) ≠ 0#32 ∧ l = (rsn &&& 0x7FFFFFFF#32).toNat ∨
-             (rsn &&& 0x80000000#32) = 0#32 ∧ l ∈ arenaClauseLits s rsn.toNat) →
-        ok = true → l / 2 < c.mv ∧
-        (l / 2 ≠ skip_var.toNat →
-          (0 < (s.lvl[l / 2]?.getD 0#32).toNat → mrk'[l / 2]?.getD 0#8 ≠ 0#8) ∧
-          (s.mrk[l / 2]?.getD 0#8 = 0#8 → (s.lvl[l / 2]?.getD 0#32).toNat ≤ s.cur_level))) →
+          rsn.toNat + 3 + arenaClauseSize s rsn.toNat ≤ s.arena_len) ∧
+        ∀ l ∈ rsnLits s rsn,
+          l / 2 < c.mv ∧
+          (l / 2 ≠ skip_var.toNat →
+            (0 < (s.lvl[l / 2]?.getD 0#32).toNat → mrk'[l / 2]?.getD 0#8 ≠ 0#8) ∧
+            (s.mrk[l / 2]?.getD 0#8 = 0#8 →
+              (s.lvl[l / 2]?.getD 0#32).toNat ≤ s.cur_level ∧
+              (0 < (s.lvl[l / 2]?.getD 0#32).toNat →
+                (s.lvl[l / 2]?.getD 0#32).toNat < s.cur_level →
+                ∃ j, s.tmp_len ≤ j ∧ j < tl' ∧
+                  (tmp'[j]?.getD 0#32).toNat / 2 = l / 2)))) →
       (PlainMem c s' ⋆ R) m' → Q (ok, ()) m'
 
 def plainClearMarksSpec : Spec [i64, i64] [] := fun (h, trail_from, ()) m Q _ =>
@@ -563,58 +649,94 @@ def plainMinLitSpec : Spec [i64, i32] [.bool] := fun (h, root_lit, ()) m Q _ =>
     (R : Mem 64 → Prop),
     h = c.hdr ∧ PlainCoreInv c F0 s ∧ PlainMinMarkInv c F0 s keepSet ∧
     root_lit.toNat < 2 * c.mv ∧ s.vals[root_lit.toNat]?.getD 0#8 = 0xFF#8 ∧
-    (s.mrk[root_lit.toNat / 2]?.getD 0#8 &&& 2#8) ≠ 0#8 ∧
+    (∀ v < c.mv,
+      (s.lvl[v]?.getD 0#32).toNat ≤ (s.lvl[root_lit.toNat / 2]?.getD 0#32).toNat →
+      (s.mrk[v]?.getD 0#8 &&& 8#8) = 0#8) ∧
     (PlainMem c s ⋆ R) m ∧
     ∀ (ok : Bool) mrk' mstk' mclr' mcl' mcf' m',
       let s' : PlainState :=
         { s with mrk := mrk', min_stk := mstk', min_clr := mclr',
                  min_clr_len := mcl', min_clr_full := mcf' }
       s'.LengthsOk c →
-      (∀ v < c.mv, s.mrk[v]?.getD 0#8 = 2#8 → mrk'[v]?.getD 0#8 = 2#8) →
+      (∀ v < c.mv,
+        (s.mrk[v]?.getD 0#8 &&& 2#8) ≠ 0#8 → (mrk'[v]?.getD 0#8 &&& 2#8) ≠ 0#8) →
+      (∀ v < c.mv, (mrk'[v]?.getD 0#8 &&& 8#8) = (s.mrk[v]?.getD 0#8 &&& 8#8)) →
       PlainMinMarkInv c F0 s' keepSet →
-      (ok = true → ∀ keep' : List Nat,
-        (∀ l ∈ keepSet, l = root_lit.toNat ∨ l ∈ keep') → PlainMinMarkInv c F0 s' keep') →
+      (ok = true →
+        (∀ keep' : List Nat,
+          (∀ l ∈ keepSet, l = root_lit.toNat ∨ l ∈ keep') → PlainMinMarkInv c F0 s' keep') ∧
+        PlainMinMarkInv c F0 (plainMinMarkState c s' (root_lit.toNat / 2) 2#8) keepSet) →
       (PlainMem c s' ⋆ R) m' → Q (ok, ()) m'
 
 def plainTmpLessSpec : Spec [i64, i64, i32, i32] [.bool] :=
   fun (lvl_ptr, tpos_ptr, a, b, ()) m Q _ =>
     ∃ (lvl tpos : List (BitVec 32)) (R : Mem 64 → Prop),
-      a.toNat / 2 < lvl.length ∧ b.toNat / 2 < lvl.length ∧
-      a.toNat / 2 < tpos.length ∧ b.toNat / 2 < tpos.length ∧
+      let va := a.toNat / 2
+      let vb := b.toNat / 2
+      let la := (lvl[va]?.getD 0#32).toNat
+      let lb := (lvl[vb]?.getD 0#32).toNat
+      va < lvl.length ∧ vb < lvl.length ∧ va < tpos.length ∧ vb < tpos.length ∧
       (array (t := i32) lvl_ptr lvl ⋆ array (t := i32) tpos_ptr tpos ⋆ R) m ∧
-      ∀ res : Bool, Q (res, ()) m
+      Q (decide (la < lb ∨ (la = lb ∧
+        (tpos[va]?.getD 0#32).toNat < (tpos[vb]?.getD 0#32).toNat)), ()) m
 
 def plainSortTmpSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : PlainCfg) (s : PlainState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧ s.tmp_len ≤ c.mv ∧ (PlainMem c s ⋆ R) m ∧
+    h = c.hdr ∧ s.LengthsOk c ∧ s.tmp_len ≤ c.mv ∧
+    (∀ k, 1 ≤ k → k < s.tmp_len → (s.tmp[k]?.getD 0#32).toNat < 2 * c.mv) ∧
+    (PlainMem c s ⋆ R) m ∧
     ∀ tmp' m',
       tmp'.length = c.mv →
       (0 < s.tmp_len → tmp'[0]? = s.tmp[0]?) →
       (∀ j, 1 ≤ j → j < s.tmp_len → ∃ i, 1 ≤ i ∧ i < s.tmp_len ∧ tmp'[j]? = s.tmp[i]?) →
       (∀ i, 1 ≤ i → i < s.tmp_len → ∃ j, 1 ≤ j ∧ j < s.tmp_len ∧ s.tmp[i]? = tmp'[j]?) →
+      (∀ i j, 1 ≤ i → i ≤ j → j < s.tmp_len →
+        (s.lvl[(tmp'[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤
+        (s.lvl[(tmp'[j]?.getD 0#32).toNat / 2]?.getD 0#32).toNat) →
       (PlainMem c { s with tmp := tmp' } ⋆ R) m' → Q () m'
 
 def plainShrinkBlkSpec : Spec [i64, i64, i64, i32, i64] [] :=
-  fun (h, beg, end_b, _blvl, _max_tr, ()) m Q _ =>
+  fun (h, beg, end_b, blvl, max_tr, ()) m Q _ =>
     ∃ (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) (R : Mem 64 → Prop),
-      h = c.hdr ∧ PlainCoreInv c F0 s ∧ 1 ≤ beg.toNat ∧ beg.toNat ≤ end_b.toNat ∧
+      h = c.hdr ∧ PlainCoreInv c F0 s ∧
+      PlainMinMarkInv c F0 s
+        (((s.tmp.take s.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat) ∧
+      (∀ v < c.mv, (s.mrk[v]?.getD 0#8 &&& 8#8) = 0#8) ∧
+      1 ≤ beg.toNat ∧ beg.toNat < end_b.toNat ∧
       end_b.toNat ≤ s.tmp_len ∧ s.tmp_len ≤ c.mv ∧
+      0 < blvl.toNat ∧ blvl.toNat < s.cur_level ∧
       F0.EntailsClause (cnfClause
         (((s.tmp.take s.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat)) ∧
+      (∀ k, beg.toNat ≤ k → k < end_b.toNat →
+        let l := (s.tmp[k]?.getD 0#32).toNat
+        l < 2 * c.mv ∧ s.vals[l]?.getD 0#8 = 0xFF#8 ∧
+        (s.lvl[l / 2]?.getD 0#32).toNat = blvl.toNat ∧
+        (s.trail_pos[l / 2]?.getD 0#32).toNat ≤ max_tr.toNat) ∧
       (∀ k < s.tmp_len, s.tmp[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
         let l := (s.tmp[k]?.getD 0#32).toNat
-        l < 2 * c.mv ∧ s.vals[l]?.getD 0#8 = 0xFF#8) ∧
+        l < 2 * c.mv ∧ s.vals[l]?.getD 0#8 = 0xFF#8 ∧
+        (s.mrk[l / 2]?.getD 0#8 &&& 2#8) ≠ 0#8) ∧
       (PlainMem c s ⋆ R) m ∧
       ∀ tmp' mrk' mstk' mclr' mcl' mcf' heur' m',
         let s' : PlainState :=
           { s with tmp := tmp', mrk := mrk', min_stk := mstk', min_clr := mclr',
                    min_clr_len := mcl', min_clr_full := mcf', heur := heur' }
-        PlainCoreInv c F0 s' → tmp'.length = c.mv →
+        PlainCoreInv c F0 s' →
+        PlainMinMarkInv c F0 s'
+          (((tmp'.take s.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat) →
+        (∀ v < c.mv, (mrk'[v]?.getD 0#8 &&& 8#8) = 0#8) →
+        tmp'.length = c.mv → heur'.rel_trigger = s.heur.rel_trigger →
+        (∀ v < c.mv,
+          (s.mrk[v]?.getD 0#8 &&& 2#8) ≠ 0#8 → (mrk'[v]?.getD 0#8 &&& 2#8) ≠ 0#8) →
+        (∀ k < s.tmp_len, (k < beg.toNat ∨ end_b.toNat ≤ k) → tmp'[k]? = s.tmp[k]?) →
+        (∀ k, beg.toNat ≤ k → k < end_b.toNat → tmp'[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
+          (s.lvl[(tmp'[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = blvl.toNat) →
         F0.EntailsClause (cnfClause
           (((tmp'.take s.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat)) →
         (∀ k < s.tmp_len, tmp'[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
           let l := (tmp'[k]?.getD 0#32).toNat
-          l < 2 * c.mv ∧ s'.vals[l]?.getD 0#8 = 0xFF#8) →
+          l < 2 * c.mv ∧ s'.vals[l]?.getD 0#8 = 0xFF#8 ∧
+          (mrk'[l / 2]?.getD 0#8 &&& 2#8) ≠ 0#8) →
         (PlainMem c s' ⋆ R) m' → Q () m'
 
 def plainMinShrinkSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
@@ -623,13 +745,22 @@ def plainMinShrinkSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
     F0.EntailsClause (cnfClause ((s.tmp.take s.tmp_len).map BitVec.toNat)) ∧
     (∀ k < s.tmp_len, let l := (s.tmp[k]?.getD 0#32).toNat
       l < 2 * c.mv ∧ s.vals[l]?.getD 0#8 = 0xFF#8) ∧
+    (∀ k, 1 ≤ k → k < s.tmp_len →
+      let lv := (s.lvl[(s.tmp[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat
+      0 < lv ∧ lv < s.cur_level) ∧
     (PlainMem c s ⋆ R) m ∧
     ∀ tmp' tl' mrk' mstk' mclr' mcl' mcf' heur' m',
       let s' : PlainState := { s with
         tmp := tmp', tmp_len := tl', mrk := mrk', min_stk := mstk', min_clr := mclr',
         min_clr_len := mcl', min_clr_full := mcf', heur := heur' }
       PlainInv c F0 s' → 1 ≤ tl' → tl' ≤ s.tmp_len → tmp'[0]? = s.tmp[0]? →
-      (∀ j, 1 ≤ j → j < tl' → ∃ i, 1 ≤ i ∧ i < s.tmp_len ∧ tmp'[j]? = s.tmp[i]?) →
+      heur'.rel_trigger = s.heur.rel_trigger →
+      (∀ j, 1 ≤ j → j < tl' →
+        let l := (tmp'[j]?.getD 0#32).toNat
+        let lv := (s.lvl[l / 2]?.getD 0#32).toNat
+        l < 2 * c.mv ∧ s.vals[l]?.getD 0#8 = 0xFF#8 ∧
+        0 < lv ∧ lv < s.cur_level ∧
+        lv ≤ (s.lvl[(tmp'[tl' - 1]?.getD 0#32).toNat / 2]?.getD 0#32).toNat) →
       F0.EntailsClause (cnfClause ((tmp'.take tl').map BitVec.toNat)) →
       (PlainMem c s' ⋆ R) m' → Q () m'
 
@@ -644,17 +775,20 @@ def plainAnalyzeSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       arenaClauseGarb s s.confl_ref.toNat = false ∧
       ∀ l ∈ arenaClauseLits s s.confl_ref.toNat, s.vals[l]?.getD 0#8 = 0xFF#8)) ∧
     (PlainMem c s ⋆ R) m ∧
-    ∀ r vals' lvl' rsns' trl' tp' te' prop' cl' tc' tl' mrk' tmp' wvec' arena' alen' wstk'
-      wlen' wu' ag' fred' ni' nr' nb' unfl' oom' mstk' mclr' mcl' mcf' heur' m',
+    ∀ r vals' lvl' rsns' trl' tp' te' prop' cl' fuel' tc' tl' mrk' tmp' wvec' arena' alen' wstk'
+      wlen' wu' ag' fred' ni' nr' nb' unfl' ctype' cref' c0' c1' oom' mstk' mclr' mcl' mcf'
+      heur' m',
       let s' : PlainState := { s with
         vals := vals', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp',
-        trail_end := te', propagated := prop', cur_level := cl', tmp_cnt := tc', tmp_len := tl',
-        mrk := mrk', tmp := tmp', wvec := wvec', arena := arena', arena_len := alen',
-        wstk := wstk', wlen := wlen', wusable := wu', arena_garbage := ag',
-        first_reducible := fred', num_irred := ni', num_redundant := nr', num_binary := nb',
-        unflushed := unfl', oom := oom', min_stk := mstk', min_clr := mclr',
+        trail_end := te', propagated := prop', cur_level := cl', fuel := fuel',
+        tmp_cnt := tc', tmp_len := tl', mrk := mrk', tmp := tmp', wvec := wvec',
+        arena := arena', arena_len := alen', wstk := wstk', wlen := wlen', wusable := wu',
+        arena_garbage := ag', first_reducible := fred', num_irred := ni', num_redundant := nr',
+        num_binary := nb', unflushed := unfl', confl_type := ctype', confl_ref := cref',
+        confl_lit0 := c0', confl_lit1 := c1', oom := oom', min_stk := mstk', min_clr := mclr',
         min_clr_len := mcl', min_clr_full := mcf', heur := heur' }
-      s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
+      s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) → fuel'.toNat ≤ s.fuel.toNat →
+      (∀ i < te', (trl'[i]?.getD 0#32).toNat < 2 * c.mv) →
       (r = 20#64 → F0.Unsat) →
       (r = 1#64 → PlainInv c F0 s' ∧ cl' < s.cur_level) →
       (PlainMem c s' ⋆ R) m' → Q (r, ()) m'

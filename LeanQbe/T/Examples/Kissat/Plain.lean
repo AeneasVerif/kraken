@@ -685,8 +685,9 @@ void plain_shrink_blk(PlainHdr *h, u64 beg, u64 end_b, u32 blvl, u64 max_tr) {
       t = t - 1ULL;
     }
     if (failed) { break; }
-    if (t > 0ULL) { t = t - 1ULL; }
     if (open == 1ULL) { break; }
+    if (t == 0ULL) { failed = true; break; }
+    t = t - 1ULL;
     u32 uv = uip >> 1;
     u32 rsn = rsns[uv];
     if (rsn == 0xFFFFFFFFu) { failed = true; break; }
@@ -920,7 +921,7 @@ u64 plain_analyze(PlainHdr *h) {
       u64 rr = plain_reduce(h, true);
       if (rr == 20ULL) { return 20ULL; }
       if (rr != 1ULL) { return 0ULL; }
-      if (vals[uip_lit] != (i8)0) { return 1ULL; }
+      if (h->cur_level != max_lvl || vals[uip_lit] != (i8)0) { return 1ULL; }
     }
   }
   u64 new_ref = plain_add_clause(h, (u32)h->tmp_len, (u32)glue, true);

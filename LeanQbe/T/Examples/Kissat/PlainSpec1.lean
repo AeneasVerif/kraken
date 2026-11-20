@@ -10,13 +10,14 @@ import all Kraken.Separation
 Builds on `PlainArena` to define:
 1. `COMPACT` `ward` 32-bit word-arena clause projections (`arenaHdr`, `arenaClauseSize`,
    `arenaClauseGarb`, `arenaClauseLits`, `arenaNextOff`, `arenaClauseRefs`, `ArenaClausesInv`).
-2. Contiguous watch `vectors` (`watchOff`, `watchSize`, `WatchSliceOk`, `WatchesInv`) supporting
-   both tagged binary watches (`PW_BIN_FLAG`) and blocking-literal large watches.
+2. Contiguous watch `vectors` (`watchOff`, `watchSize`, `WatchSliceOk`, `WatchStackLayout`,
+   `WatchesInv`) supporting both tagged binary watches (`PW_BIN_FLAG`) and blocking-literal
+   large watches.
 3. Three-way reason trail & minimization invariants (`PlainCoreInv` / `PlainTrailInv`,
    `MarksClear`, `PlainMinMarkInv`, `PlainInv`), preserving separation between soundness fields
    and `PlainHeur`.
-4. Preservation & soundness proofs (`assign_preserves_core`, `addClause_preserves_core`,
-   `swapCl_preserves_core`, `plainInv_init`, `plainMinMark_entails`).
+4. Core preservation proofs (`assign_preserves_core`, `addClause_preserves_core`,
+   `swapCl_preserves_core`, `plainInv_init`); minimization & GC helpers live in `PlainSpec2`.
 -/
 
 set_option autoImplicit false
@@ -339,6 +340,7 @@ structure ArenaClausesInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) : Prop 
     arenaNextOff s.arena s.arena_len r ≤ s.arena_len ∧
     (arenaNextOff s.arena s.arena_len r = s.arena_len ∨
      arenaNextOff s.arena s.arena_len r + 3 ≤ s.arena_len)
+  no_shrk : ∀ r ∈ arenaClauseRefs s, (arenaHdr s r &&& 0x00800000#32) = 0#32
   lits_lt : ∀ r ∈ arenaClauseRefs s, arenaClauseGarb s r = false →
     ∀ l ∈ arenaClauseLits s r, l < 2 * c.mv
   entails : ∀ r ∈ arenaClauseRefs s, arenaClauseGarb s r = false →
@@ -362,6 +364,39 @@ theorem ArenaClausesInv.chain_end {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
   rcases h.len_ok with hz | h3
   · exact Or.inl hz
   · exact Or.inr (arenaScanRefs_last (by omega) h3 fun r hr => (h.refs_wf r hr).2.2.2.2)
+
+theorem ArenaClausesInv.arenaNextOff_eq {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
+    (h : ArenaClausesInv c F0 s) {r : Nat} (hr : r ∈ arenaClauseRefs s) :
+    arenaNextOff s.arena s.arena_len r = r + 3 + arenaClauseSize s r := by
+  have hwf := h.refs_wf r hr
+  have hns := h.no_shrk r hr
+  have hbd : r + 3 + arenaClauseSize s r ≤ s.arena_len := by omega
+  unfold arenaNextOff
+  have h1 : ¬ (r + 3 > s.arena_len) := by omega
+  have h2 : ¬ (r + 3 + (s.arena[r + 2]?.getD 0#32).toNat > s.arena_len) := by
+    unfold arenaClauseSize at hbd; omega
+  unfold arenaHdr at hns
+  simp [h1, h2, hns, arenaClauseSize]
+
+theorem ArenaClausesInv.arenaNextOff_extend {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
+    (h : ArenaClausesInv c F0 s) {arena' : List (BitVec 32)} {alen' : Nat}
+    (hal : s.arena_len ≤ alen')
+    (hhold : ∀ k < s.arena_len, arena'[k]? = s.arena[k]?) :
+    ∀ r ∈ arenaClauseRefs s,
+      arenaNextOff arena' alen' r = arenaNextOff s.arena s.arena_len r := by
+  intro r hr
+  have hwf := h.refs_wf r hr
+  have hns := h.no_shrk r hr
+  have hbd : r + 3 + arenaClauseSize s r ≤ s.arena_len := by omega
+  rw [h.arenaNextOff_eq hr]
+  unfold arenaNextOff
+  have h1 : ¬ (r + 3 > alen') := by omega
+  have ha0 : arena'[r]? = s.arena[r]? := hhold r (by omega)
+  have ha2 : arena'[r + 2]? = s.arena[r + 2]? := hhold (r + 2) (by omega)
+  have h2 : ¬ (r + 3 + (s.arena[r + 2]?.getD 0#32).toNat > alen') := by
+    unfold arenaClauseSize at hbd; omega
+  unfold arenaHdr at hns
+  simp [h1, ha0, ha2, h2, hns, arenaClauseSize]
 
 /-! ## 2. Watch `vectors` and contiguous watch stack (`WatchesInv`) -/
 
@@ -410,13 +445,104 @@ theorem WatchSliceOk.mono {c : PlainCfg} {F0 F1 : CNF Nat} {s s' : PlainState} {
       (by rw [hwstk (p + 1) (by omega) (by omega), hp1])
       hflag hlt (hsub _ href) (ih fun k hk1 hk2 => hwstk k (by omega) (by omega))
 
-structure WatchesInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) : Prop where
+theorem WatchSliceOk.ne_sentinel {c : PlainCfg} {F0 : CNF Nat} {s : PlainState} {lit p rem : Nat}
+    (h : WatchSliceOk c F0 s lit p rem) :
+    ∀ k < rem, s.wstk[p + k]? ≠ some 0xFFFFFFFF#32 := by
+  have hmv := c.hmv; unfold dimacsBound at hmv
+  induction h with
+  | empty => intro _ hk; omega
+  | @bin p rem w0 hp _ hlt _ _ ih =>
+    intro k hk
+    cases k with
+    | zero =>
+      rw [Nat.add_zero, hp]; intro heq
+      have hw : w0 = 0xFFFFFFFF#32 := Option.some.inj heq
+      subst hw
+      have hval : (0xFFFFFFFF#32 &&& 0x7FFFFFFF#32).toNat = 0x7FFFFFFF := by decide
+      omega
+    | succ k' =>
+      have := ih k' (by omega)
+      rwa [Nat.add_assoc, Nat.add_comm 1 k'] at this
+  | @large p rem w0 cref hp hp1 hflag hlt _ _ ih =>
+    intro k hk
+    cases k with
+    | zero =>
+      rw [Nat.add_zero, hp]; intro heq
+      have hw : w0 = 0xFFFFFFFF#32 := Option.some.inj heq
+      subst hw; revert hflag; decide
+    | succ k' =>
+      cases k' with
+      | zero =>
+        rw [hp1]; intro heq
+        have hc : cref = 0xFFFFFFFF#32 := Option.some.inj heq
+        subst hc; revert hlt; decide
+      | succ k'' =>
+        have := ih k'' (by omega)
+        rwa [show p + 2 + k'' = p + (k'' + 2) by omega] at this
+
+/-- Pure structural watch-stack layout invariant (arena- and formula-agnostic). -/
+structure WatchStackLayout (c : PlainCfg) (s : PlainState) : Prop where
   bounds : ∀ l < 2 * c.mv, watchOff s l + watchSize s l ≤ s.wlen
+  pos_off : ∀ l < 2 * c.mv, 0 < watchSize s l → 1 ≤ watchOff s l
+  disjoint : ∀ l1 l2, l1 < 2 * c.mv → l2 < 2 * c.mv → l1 ≠ l2 →
+    0 < watchSize s l1 → 0 < watchSize s l2 →
+    watchOff s l1 + watchSize s l1 ≤ watchOff s l2 ∨
+    watchOff s l2 + watchSize s l2 ≤ watchOff s l1
+  no_sentinel : ∀ l < 2 * c.mv, ∀ k < watchSize s l,
+    s.wstk[watchOff s l + k]? ≠ some 0xFFFFFFFF#32
+
+theorem WatchStackLayout.with_wstk {c : PlainCfg} {s s' : PlainState}
+    (h : WatchStackLayout c s) (hw : s'.wvec = s.wvec) (hs : s'.wstk = s.wstk)
+    (hl : s'.wlen = s.wlen) : WatchStackLayout c s' :=
+  ⟨fun l hl' => by unfold watchOff watchSize; rw [hw, hl]; exact h.bounds l hl',
+   fun l hl' hpos => by
+     unfold watchSize at hpos; unfold watchOff; rw [hw] at hpos ⊢; exact h.pos_off l hl' hpos,
+   fun l1 l2 h1 h2 hne hp1 hp2 => by
+     unfold watchSize at hp1 hp2; unfold watchOff watchSize; rw [hw] at hp1 hp2 ⊢
+     exact h.disjoint l1 l2 h1 h2 hne hp1 hp2,
+   fun l hl' k hk => by
+     unfold watchSize at hk; unfold watchOff; rw [hw] at hk ⊢; rw [hs]
+     exact h.no_sentinel l hl' k hk⟩
+
+structure WatchesInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) : Prop where
+  layout : WatchStackLayout c s
   slices : ∀ l < 2 * c.mv, WatchSliceOk c F0 s l (watchOff s l) (watchSize s l)
+
+theorem WatchesInv.bounds {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
+    (h : WatchesInv c F0 s) : ∀ l < 2 * c.mv, watchOff s l + watchSize s l ≤ s.wlen :=
+  h.layout.bounds
+
+theorem WatchesInv.pos_off {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
+    (h : WatchesInv c F0 s) : ∀ l < 2 * c.mv, 0 < watchSize s l → 1 ≤ watchOff s l :=
+  h.layout.pos_off
+
+theorem WatchesInv.disjoint {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
+    (h : WatchesInv c F0 s) :
+    ∀ l1 l2, l1 < 2 * c.mv → l2 < 2 * c.mv → l1 ≠ l2 →
+      0 < watchSize s l1 → 0 < watchSize s l2 →
+      watchOff s l1 + watchSize s l1 ≤ watchOff s l2 ∨
+      watchOff s l2 + watchSize s l2 ≤ watchOff s l1 :=
+  h.layout.disjoint
+
+theorem WatchesInv.no_sentinel {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
+    (h : WatchesInv c F0 s) :
+    ∀ l < 2 * c.mv, ∀ k < watchSize s l, s.wstk[watchOff s l + k]? ≠ some 0xFFFFFFFF#32 :=
+  h.layout.no_sentinel
+
+theorem WatchesInv.of_slices {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
+    (hbounds : ∀ l < 2 * c.mv, watchOff s l + watchSize s l ≤ s.wlen)
+    (hpos : ∀ l < 2 * c.mv, 0 < watchSize s l → 1 ≤ watchOff s l)
+    (hdisj : ∀ l1 l2, l1 < 2 * c.mv → l2 < 2 * c.mv → l1 ≠ l2 →
+      0 < watchSize s l1 → 0 < watchSize s l2 →
+      watchOff s l1 + watchSize s l1 ≤ watchOff s l2 ∨
+      watchOff s l2 + watchSize s l2 ≤ watchOff s l1)
+    (hslices : ∀ l < 2 * c.mv, WatchSliceOk c F0 s l (watchOff s l) (watchSize s l)) :
+    WatchesInv c F0 s :=
+  ⟨⟨hbounds, hpos, hdisj, fun l hl => (hslices l hl).ne_sentinel⟩, hslices⟩
 
 theorem WatchesInv.mono {c : PlainCfg} {F0 F1 : CNF Nat} {s : PlainState}
     (hF : F1.Entails F0) (h : WatchesInv c F0 s) : WatchesInv c F1 s :=
-  ⟨h.bounds, fun l hl => (h.slices l hl).mono hF (fun _ hr => hr) (fun _ _ _ => rfl)⟩
+  ⟨h.layout, fun l hl => (h.slices l hl).mono hF (fun _ hr => hr) (fun _ _ _ => rfl)⟩
 
 /-! ## 3. Core CDCL trail, three-way reason, and minimization invariants -/
 
@@ -449,6 +575,11 @@ structure PlainCoreInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) : Prop whe
   level0_sound : ∀ i < s.trail_end,
     (s.lvl[(s.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = 0 →
     F0.EntailsClause (cnfClause [(s.trl[i]?.getD 0#32).toNat])
+  trail_pos_inv : ∀ i < s.trail_end,
+    (s.trail_pos[(s.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = i
+  level0_rsn_none : ∀ idx < s.trail_end,
+    (s.lvl[(s.trl[idx]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = 0 →
+    s.rsns[(s.trl[idx]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32 = 0xFFFFFFFF#32
   reason_inv : ∀ idx < s.trail_end,
     let p := (s.trl[idx]?.getD 0#32).toNat
     let rsn := s.rsns[p / 2]?.getD 0xFFFFFFFF#32
@@ -471,17 +602,18 @@ def MarksClear (c : PlainCfg) (s : PlainState) : Prop :=
   ∀ v < c.mv, s.mrk[v]?.getD 0#8 = 0#8
 
 /-- Iterative minimization mark invariant for `plain_min_lit` / `plain_shrink_blk` /
-`plain_min_shrink` supporting binary and large arena reasons. -/
+`plain_min_shrink` supporting binary and large arena reasons. Bits `2#8` (`REMOVABLE`), `4#8`
+(`POISONED`), and temporary block-mark `8#8` (`SHRK`, cleared on `plain_shrink_blk` exit) may be
+set; `min_clr` covers bits `2#8 | 4#8` (`6#8`). -/
 structure PlainMinMarkInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
     (keep : List Nat) : Prop where
-  mrk_dom : ∀ v < c.mv,
-    s.mrk[v]?.getD 0#8 = 0#8 ∨ s.mrk[v]?.getD 0#8 = 2#8 ∨ s.mrk[v]?.getD 0#8 = 4#8
-  clr_cov : s.min_clr_full = 0#64 → ∀ v < c.mv, s.mrk[v]?.getD 0#8 ≠ 0#8 →
+  mrk_dom : ∀ v < c.mv, (s.mrk[v]?.getD 0#8 &&& 0xF1#8) = 0#8
+  clr_cov : s.min_clr_full = 0#64 → ∀ v < c.mv, (s.mrk[v]?.getD 0#8 &&& 6#8) ≠ 0#8 →
     ∃ k < s.min_clr_len, (s.min_clr[k]?.getD 0#32).toNat = v
   rem_sound : ∀ idx < s.trail_end,
     let p := (s.trl[idx]?.getD 0#32).toNat
     let v := p / 2
-    s.mrk[v]?.getD 0#8 = 2#8 →
+    (s.mrk[v]?.getD 0#8 &&& 2#8) ≠ 0#8 →
     (p ^^^ 1) ∈ keep ∨
       let rsn := s.rsns[v]?.getD 0xFFFFFFFF#32
       rsn ≠ 0xFFFFFFFF#32 ∧
@@ -491,7 +623,7 @@ structure PlainMinMarkInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
         F0.EntailsClause (cnfClause [p, ot]) ∧
         ∃ k < idx,
           (s.trl[k]?.getD 0#32).toNat = ot ^^^ 1 ∧
-          ((s.lvl[ot / 2]?.getD 0#32).toNat = 0 ∨ s.mrk[ot / 2]?.getD 0#8 = 2#8)
+          ((s.lvl[ot / 2]?.getD 0#32).toNat = 0 ∨ (s.mrk[ot / 2]?.getD 0#8 &&& 2#8) ≠ 0#8)
       else
         rsn.toNat ∈ arenaClauseRefs s ∧
         arenaClauseGarb s rsn.toNat = false ∧
@@ -499,7 +631,7 @@ structure PlainMinMarkInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
           q = p ∨
           ∃ k < idx,
             (s.trl[k]?.getD 0#32).toNat = q ^^^ 1 ∧
-            ((s.lvl[q / 2]?.getD 0#32).toNat = 0 ∨ s.mrk[q / 2]?.getD 0#8 = 2#8)
+            ((s.lvl[q / 2]?.getD 0#32).toNat = 0 ∨ (s.mrk[q / 2]?.getD 0#8 &&& 2#8) ≠ 0#8)
 
 /-- Full CDCL solver invariant (`PlainCoreInv` + `MarksClear`). -/
 structure PlainInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) : Prop where
@@ -536,7 +668,7 @@ theorem WatchesInv.with_wstk {c : PlainCfg} {F0 : CNF Nat} {s s' : PlainState}
     (h : WatchesInv c F0 s) (hw : s'.wvec = s.wvec) (hs : s'.wstk = s.wstk)
     (hl : s'.wlen = s.wlen) (ha : arenaClauseRefs s' = arenaClauseRefs s) :
     WatchesInv c F0 s' := by
-  refine ⟨fun l hl' => by unfold watchOff watchSize; rw [hw, hl]; exact h.bounds l hl', ?_⟩
+  refine ⟨h.layout.with_wstk hw hs hl, ?_⟩
   intro l hl'
   simpa [watchOff, watchSize, hw] using
     (h.slices l hl').mono (by rw [CNF.entails_def]; exact fun _ h => h)
@@ -732,7 +864,7 @@ theorem assign_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
       trail_end_le := by dsimp [s']; omega
       propagated_le := by dsimp [s']; have := hlen.propagated_le; omega
       heur_ok := { hlen.heur_ok with phases_len := hph } }
-  refine ⟨hlen', hs'_arena, hs'_watches, by omega, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨hlen', hs'_arena, hs'_watches, by omega, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro i hi; rw [hs'_te] at hi; rw [htrl_get i hi]; split
     · exact hlit
     · exact hinv.trail_lits_lt i (by omega)
@@ -833,6 +965,33 @@ theorem assign_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
       simp only [hie, ↓reduceIte] at hli ⊢
       rw [hlvl_get _ (by have := hinv.trail_lits_lt i hilt; omega)] at hli
       simp only [hnot_var i hilt, ↓reduceIte] at hli; exact hinv.level0_sound i hilt hli
+  · intro i hi; rw [hs'_te] at hi; rw [htrl_get i hi]
+    have hte_lt32 : s.trail_end < 2 ^ 32 := by
+      have := c.hmv; unfold dimacsBound at this; omega
+    by_cases hie : i = s.trail_end
+    · subst hie; simp only [↓reduceIte]
+      dsimp only [s']
+      rw [List.getElem?_set_self (by rw [hlen.trail_pos_len]; omega), Option.getD_some,
+        bv32_ofNat_toNat hte_lt32]
+    · have hilt : i < s.trail_end := by omega
+      simp only [hie, ↓reduceIte]
+      have hnv : (s.trl[i]?.getD 0#32).toNat / 2 ≠ v := hnot_var i hilt
+      dsimp only [s']; rw [List.getElem?_set_ne (Ne.symm hnv)]
+      exact hinv.trail_pos_inv i hilt
+  · intro idx hidx hli; rw [hs'_te] at hidx; rw [htrl_get idx hidx] at hli ⊢
+    by_cases hie : idx = s.trail_end
+    · simp only [hie, ↓reduceIte] at hli ⊢
+      rw [hlvl_get v (by omega)] at hli; simp only [↓reduceIte] at hli
+      dsimp only [s']
+      rw [List.getElem?_set_self (by rw [hlen.rsns_len]; omega), Option.getD_some]
+      simp [rsn', hli]
+    · have hilt : idx < s.trail_end := by omega
+      simp only [hie, ↓reduceIte] at hli ⊢
+      have hnv : (s.trl[idx]?.getD 0#32).toNat / 2 ≠ v := hnot_var idx hilt
+      rw [hlvl_get _ (by have := hinv.trail_lits_lt idx hilt; omega)] at hli
+      simp only [hnv, ↓reduceIte] at hli
+      dsimp only [s']; rw [List.getElem?_set_ne (Ne.symm hnv)]
+      exact hinv.level0_rsn_none idx hilt hli
   · intro idx hidx; rw [hs'_te] at hidx; dsimp only; rw [htrl_get idx hidx]
     by_cases hie : idx = s.trail_end
     · simp only [hie, ↓reduceIte]
@@ -902,8 +1061,6 @@ theorem addClause_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
     (hlits_lt : ∀ l ∈ (s.tmp.take len).map BitVec.toNat, l < 2 * c.mv)
     (hent : F0.EntailsClause (cnfClause ((s.tmp.take len).map BitVec.toNat)))
     (hhold_arena : ∀ k < s.arena_len, arena'[k]? = s.arena[k]?)
-    (hnxt_hold : ∀ r ∈ arenaClauseRefs s,
-      arenaNextOff arena' (s.arena_len + 3 + len) r = arenaNextOff s.arena s.arena_len r)
     (hnew_noshrk : (arena'[s.arena_len]?.getD 0#32 &&& 0x00800000#32) = 0#32)
     (hnew_nogarb : (arena'[s.arena_len]?.getD 0#32 &&& 0x00080000#32) = 0#32)
     (hnew_sz : (arena'[s.arena_len + 2]?.getD 0#32).toNat = len)
@@ -915,6 +1072,8 @@ theorem addClause_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
     PlainCoreInv c F0
       (addClauseState s len arena' wvec' wstk' wlen' wusable' fred' ni' nr' wsort') := by
   let s' := addClauseState s len arena' wvec' wstk' wlen' wusable' fred' ni' nr' wsort'
+  have hnxt_hold := hinv.arena.arenaNextOff_extend (alen' := s.arena_len + 3 + len)
+    (by omega) hhold_arena
   have hrefs : arenaClauseRefs s' = arenaClauseRefs s ++ [s.arena_len] := by
     unfold arenaClauseRefs s' addClauseState
     exact arenaScanRefs_eq_of_prefix hge3 hnew_noshrk hnew_sz
@@ -956,7 +1115,7 @@ theorem addClause_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
   have hnew_garb_s' : arenaClauseGarb s' s.arena_len = false := by
     unfold arenaClauseGarb arenaHdr s' addClauseState; simp [hnew_nogarb]
   have harena' : ArenaClausesInv c F0 s' := by
-    refine ⟨Or.inr (by dsimp [s', addClauseState]; omega), ?_, ?_, ?_⟩
+    refine ⟨Or.inr (by dsimp [s', addClauseState]; omega), ?_, ?_, ?_, ?_⟩
     · intro r hr; rw [hrefs, List.mem_append, List.mem_singleton] at hr
       rcases hr with hr | rfl
       · have hwf := hinv.arena.refs_wf r hr
@@ -971,6 +1130,12 @@ theorem addClause_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
         rw [hnxt_new, hnew_sz_s']
         refine ⟨by dsimp [s', addClauseState]; omega, hge3, by omega,
           by dsimp [s', addClauseState]; omega, Or.inl (by dsimp [s', addClauseState])⟩
+    · intro r hr; rw [hrefs, List.mem_append, List.mem_singleton] at hr
+      rcases hr with hr | rfl
+      · have hr3 := (hinv.arena.refs_wf r hr).1
+        unfold arenaHdr s' addClauseState; rw [hhold_arena r (by omega)]
+        exact hinv.arena.no_shrk r hr
+      · exact hnew_noshrk
     · intro r hr hng; rw [hrefs, List.mem_append, List.mem_singleton] at hr
       rcases hr with hr | rfl
       · rw [hold_garb r hr] at hng; rw [hold_lits r hr]; exact hinv.arena.lits_lt r hr hng
@@ -981,7 +1146,7 @@ theorem addClause_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
       · rw [hnew_lits]; exact hent
   refine ⟨hlen', harena', hwat, hinv.cur_level_le, hinv.trail_lits_lt, hinv.trail_vars_nodup,
     hinv.vals_domain, hinv.vals_true_iff, hinv.vals_false_iff, hinv.lvl_le, hinv.trail_mono,
-    hinv.levels_inhabited, hinv.level0_sound, ?_⟩
+    hinv.levels_inhabited, hinv.level0_sound, hinv.trail_pos_inv, hinv.level0_rsn_none, ?_⟩
   intro idx hidx; dsimp only [s', addClauseState]; intro hne
   have hrs := hinv.reason_inv idx hidx hne
   split at hrs <;> split
@@ -1131,9 +1296,15 @@ theorem swapCl_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
       wvec_len := hwvl, wstk_len_arr := hwsl, wlen_le := hwle
       heur_ok := { hlen.heur_ok with wsort_len := hwol } }
   have harena' : ArenaClausesInv c F0 s' := by
-    refine ⟨hinv.arena.len_ok, ?_, ?_, ?_⟩
+    refine ⟨hinv.arena.len_ok, ?_, ?_, ?_, ?_⟩
     · intro r hr; rw [hrefs] at hr; have hwf := hinv.arena.refs_wf r hr
       dsimp only [s']; rw [hnxt_eq r hr, hsz_eq r hr]; exact hwf
+    · intro r hr; rw [hrefs] at hr; unfold arenaHdr; dsimp only [s']
+      by_cases hrc : r = cref
+      · subst r; rw [har_set0]; exact hinv.arena.no_shrk _ hr
+      · rcases hout_ref r hr hrc with hlt | hgt
+        · rw [har_eq_outside r (Or.inl (by omega))]; exact hinv.arena.no_shrk _ hr
+        · rw [har_eq_outside r (Or.inr hgt)]; exact hinv.arena.no_shrk _ hr
     · intro r hr hng l hl; rw [hrefs] at hr; rw [hgarb_eq r hr] at hng
       exact hinv.arena.lits_lt r hr hng l ((hmem_iff r hr l).mp hl)
     · intro r hr hng; rw [hrefs] at hr; rw [hgarb_eq r hr] at hng
@@ -1141,7 +1312,7 @@ theorem swapCl_preserves_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
         Or.inl ((hmem_iff r hr l).mpr hl)
   refine ⟨hlen', harena', hwat, hinv.cur_level_le, hinv.trail_lits_lt, hinv.trail_vars_nodup,
     hinv.vals_domain, hinv.vals_true_iff, hinv.vals_false_iff, hinv.lvl_le, hinv.trail_mono,
-    hinv.levels_inhabited, hinv.level0_sound, ?_⟩
+    hinv.levels_inhabited, hinv.level0_sound, hinv.trail_pos_inv, hinv.level0_rsn_none, ?_⟩
   intro idx hidx; dsimp only [s']; intro hne
   have hrs := hinv.reason_inv idx hidx hne
   split at hrs <;> split
@@ -1166,334 +1337,20 @@ theorem plainInv_init {c : PlainCfg} {s : PlainState} (hlen : s.LengthsOk c)
     ⟨Or.inl hal,
      (by intro r hr; rw [hrefs] at hr; cases hr),
      (by intro r hr; rw [hrefs] at hr; cases hr),
+     (by intro r hr; rw [hrefs] at hr; cases hr),
      (by intro r hr; rw [hrefs] at hr; cases hr)⟩,
-    ⟨fun l hl => by obtain ⟨ho, hs⟩ := hw0 l hl; omega,
-     fun l hl => by obtain ⟨ho, hs⟩ := hw0 l hl; rw [ho, hs]; exact .empty⟩,
+    WatchesInv.of_slices
+      (fun l hl => by obtain ⟨ho, hs⟩ := hw0 l hl; omega)
+      (fun l hl hpos => by obtain ⟨_, hs⟩ := hw0 l hl; omega)
+      (fun l1 _ h1 _ _ hp1 _ => by obtain ⟨_, hs⟩ := hw0 l1 h1; omega)
+      (fun l hl => by obtain ⟨ho, hs⟩ := hw0 l hl; rw [ho, hs]; exact .empty),
     by rw [hte, hcl]; exact Nat.le_refl _,
     fun _ h => by omega, fun _ _ h => by omega,
     fun l hl => by rw [hvals]; simp [hl], fun l hl => by rw [hvals, hte]; simp [hl],
     fun l hl => by rw [hvals, hte]; simp [hl],
     fun _ h => by omega, fun _ _ _ h => by omega,
-    fun _ _ h2 => by omega, fun _ h => by omega, fun _ h => by omega⟩,
+    fun _ _ h2 => by omega, fun _ h => by omega, fun _ h => by omega,
+    fun _ h => by omega, fun _ h => by omega⟩,
     fun v hv => by rw [hmrk]; simp [hv]⟩
-
-theorem plainMinMarkInv_init {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
-    (hcore : PlainCoreInv c F0 s) (hmc : MarksClear c s) (keep : List Nat) :
-    PlainMinMarkInv c F0 s keep :=
-  ⟨fun v hv => Or.inl (hmc v hv),
-   fun _ v hv hnz => absurd (hmc v hv) hnz,
-   fun idx hi h => by
-     have hv : (s.trl[idx]?.getD 0#32).toNat / 2 < c.mv := by
-       have := hcore.trail_lits_lt idx hi; omega
-     have := hmc _ hv; rw [h] at this; cases this⟩
-
-private theorem plain_trail_xor_var_lt {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
-    (hcore : PlainCoreInv c F0 s) {k q : Nat} (hk : k < s.trail_end)
-    (hkeq : (s.trl[k]?.getD 0#32).toNat = q ^^^ 1) : q / 2 < c.mv := by
-  have hlt := hcore.trail_lits_lt k hk
-  have hql : (q ^^^ 1) / 2 = q / 2 := litVar_litNeg q
-  rw [hkeq, ← hql] at *; omega
-
-/-- State update performed by `plain_min_mark(h, v, tag)` when `mrk[v] = 0`. -/
-def plainMinMarkState (c : PlainCfg) (s : PlainState) (v : Nat) (tag : BitVec 8) :
-    PlainState :=
-  let mclr' := if s.min_clr_len < c.mv then s.min_clr.set s.min_clr_len (BitVec.ofNat 32 v)
-               else s.min_clr
-  let mcl' := if s.min_clr_len < c.mv then s.min_clr_len + 1 else s.min_clr_len
-  let mcf' := if s.min_clr_len < c.mv then s.min_clr_full else 1#64
-  { s with mrk := s.mrk.set v tag, min_clr := mclr', min_clr_len := mcl', min_clr_full := mcf' }
-
-private theorem plain_clr_cov_mark_step {c : PlainCfg} {s : PlainState}
-    (hcov : s.min_clr_full = 0#64 → ∀ w < c.mv, s.mrk[w]?.getD 0#8 ≠ 0#8 →
-      ∃ k < s.min_clr_len, (s.min_clr[k]?.getD 0#32).toNat = w)
-    {v : Nat} (hv : v < c.mv) (hmcll : s.min_clr.length = c.mv) (tag : BitVec 8) :
-    let s' := plainMinMarkState c s v tag
-    s'.min_clr_full = 0#64 → ∀ w < c.mv, s'.mrk[w]?.getD 0#8 ≠ 0#8 →
-      ∃ k < s'.min_clr_len, (s'.min_clr[k]?.getD 0#32).toNat = w := by
-  dsimp only [plainMinMarkState]
-  intro hmcf w hw hnz
-  by_cases hlt : s.min_clr_len < c.mv
-  · simp only [hlt, ↓reduceIte] at hmcf hnz ⊢
-    by_cases hweq : w = v
-    · subst w
-      refine ⟨s.min_clr_len, by omega, ?_⟩
-      rw [List.getElem?_set_self (by omega), Option.getD_some,
-        bv32_ofNat_toNat (by have := c.hmv; unfold dimacsBound at this; omega)]
-    · have hnz' : s.mrk[w]?.getD 0#8 ≠ 0#8 := by
-        simpa [List.getElem?_set_ne (Ne.symm hweq)] using hnz
-      obtain ⟨k, hk, hkeq⟩ := hcov hmcf w hw hnz'
-      exact ⟨k, by omega, by rw [List.getElem?_set_ne (by omega)]; exact hkeq⟩
-  · simp only [hlt, ↓reduceIte] at hmcf; cases hmcf
-
-private theorem plainMinMarkInv_lift_sound {c : PlainCfg} {F0 : CNF Nat}
-    {s s' : PlainState} {keep : List Nat} (hcore : PlainCoreInv c F0 s)
-    (hs_eq : s'.trail_end = s.trail_end ∧ s'.trl = s.trl ∧ s'.lvl = s.lvl ∧
-      s'.rsns = s.rsns ∧ s'.arena = s.arena ∧ s'.arena_len = s.arena_len)
-    (hmono : ∀ w < c.mv, s.mrk[w]?.getD 0#8 = 2#8 → s'.mrk[w]?.getD 0#8 = 2#8)
-    (hprev : ∀ idx < s.trail_end,
-      let p := (s.trl[idx]?.getD 0#32).toNat
-      s.mrk[p / 2]?.getD 0#8 = 2#8 →
-      (p ^^^ 1) ∈ keep ∨
-        let rsn := s.rsns[p / 2]?.getD 0xFFFFFFFF#32
-        rsn ≠ 0xFFFFFFFF#32 ∧
-        if (rsn &&& 0x80000000#32) ≠ 0#32 then
-          let ot := (rsn &&& 0x7FFFFFFF#32).toNat
-          ot < 2 * c.mv ∧ F0.EntailsClause (cnfClause [p, ot]) ∧
-          ∃ k < idx, (s.trl[k]?.getD 0#32).toNat = ot ^^^ 1 ∧
-            ((s.lvl[ot / 2]?.getD 0#32).toNat = 0 ∨ s.mrk[ot / 2]?.getD 0#8 = 2#8)
-        else
-          rsn.toNat ∈ arenaClauseRefs s ∧ arenaClauseGarb s rsn.toNat = false ∧
-          ∀ q ∈ arenaClauseLits s rsn.toNat,
-            q = p ∨ ∃ k < idx, (s.trl[k]?.getD 0#32).toNat = q ^^^ 1 ∧
-              ((s.lvl[q / 2]?.getD 0#32).toNat = 0 ∨ s.mrk[q / 2]?.getD 0#8 = 2#8))
-    {idx : Nat} (hi : idx < s.trail_end)
-    (h2' : s.mrk[(s.trl[idx]?.getD 0#32).toNat / 2]?.getD 0#8 = 2#8) :
-    let p := (s'.trl[idx]?.getD 0#32).toNat
-    (p ^^^ 1) ∈ keep ∨
-      let rsn := s'.rsns[p / 2]?.getD 0xFFFFFFFF#32
-      rsn ≠ 0xFFFFFFFF#32 ∧
-      if (rsn &&& 0x80000000#32) ≠ 0#32 then
-        let ot := (rsn &&& 0x7FFFFFFF#32).toNat
-        ot < 2 * c.mv ∧ F0.EntailsClause (cnfClause [p, ot]) ∧
-        ∃ k < idx, (s'.trl[k]?.getD 0#32).toNat = ot ^^^ 1 ∧
-          ((s'.lvl[ot / 2]?.getD 0#32).toNat = 0 ∨ s'.mrk[ot / 2]?.getD 0#8 = 2#8)
-      else
-        rsn.toNat ∈ arenaClauseRefs s' ∧ arenaClauseGarb s' rsn.toNat = false ∧
-        ∀ q ∈ arenaClauseLits s' rsn.toNat,
-          q = p ∨ ∃ k < idx, (s'.trl[k]?.getD 0#32).toNat = q ^^^ 1 ∧
-            ((s'.lvl[q / 2]?.getD 0#32).toNat = 0 ∨ s'.mrk[q / 2]?.getD 0#8 = 2#8) := by
-  rcases hs_eq with ⟨_, htrl, hlvl, hrsn, har, hal⟩
-  rw [htrl, hrsn, hlvl]
-  have hr : arenaClauseRefs s' = arenaClauseRefs s := by simp [arenaClauseRefs, har, hal]
-  have hcl : ∀ r, arenaClauseGarb s' r = arenaClauseGarb s r ∧
-      arenaClauseLits s' r = arenaClauseLits s r := fun r => by
-    simp [arenaClauseGarb, arenaHdr, arenaClauseLits, arenaClauseSize, har]
-  rcases hprev idx hi h2' with hin | ⟨hne, hif⟩
-  · exact Or.inl hin
-  · refine Or.inr ⟨hne, ?_⟩
-    split at hif <;> split
-    · obtain ⟨hot, hent, k, hk, hkeq, hdep⟩ := hif
-      exact ⟨hot, hent, k, hk, hkeq, hdep.elim Or.inl fun hk2 => Or.inr (hmono _ (by omega) hk2)⟩
-    · rename_i h1 h2; exact absurd h1 h2
-    · rename_i h1 h2; exact absurd h2 h1
-    · obtain ⟨href, hng, hall⟩ := hif
-      refine ⟨by rw [hr]; exact href, by rw [(hcl _).1]; exact hng, fun q hq => ?_⟩
-      rw [(hcl _).2] at hq
-      rcases hall q hq with rfl | ⟨k, hk, hkeq, hdep⟩
-      · exact Or.inl rfl
-      · exact Or.inr ⟨k, hk, hkeq, hdep.elim Or.inl fun hk2 =>
-          Or.inr (hmono _ (plain_trail_xor_var_lt hcore (Nat.lt_trans hk hi) hkeq) hk2)⟩
-
-theorem plainMinMarkInv_poison {c : PlainCfg} {F0 : CNF Nat} {s : PlainState} {keep : List Nat}
-    (hcore : PlainCoreInv c F0 s) (hmin : PlainMinMarkInv c F0 s keep)
-    {v : Nat} (hv : v < c.mv) (hz : s.mrk[v]?.getD 0#8 = 0#8) :
-    PlainMinMarkInv c F0 (plainMinMarkState c s v 4#8) keep := by
-  let s' := plainMinMarkState c s v 4#8; change PlainMinMarkInv c F0 s' keep
-  have hlen := hcore.lengths
-  have hmono : ∀ w < c.mv, s'.mrk[w]?.getD 0#8 = 2#8 ↔ s.mrk[w]?.getD 0#8 = 2#8 := fun w _ => by
-    by_cases hweq : w = v
-    · subst w; rw [show s'.mrk[v]?.getD 0#8 = 4#8 by
-        simp [s', plainMinMarkState, List.getElem?_set_self (by rw [hlen.mrk_len]; omega)], hz]
-      decide
-    · simp [s', plainMinMarkState, List.getElem?_set_ne (Ne.symm hweq)]
-  refine ⟨fun w hw => ?_, plain_clr_cov_mark_step hmin.clr_cov hv hlen.min_clr_len_arr 4#8,
-    fun idx hi h2 => ?_⟩
-  · by_cases hweq : w = v
-    · subst w; right; right
-      simp [s', plainMinMarkState, List.getElem?_set_self (by rw [hlen.mrk_len]; omega)]
-    · simp only [s', plainMinMarkState, List.getElem?_set_ne (Ne.symm hweq)]
-      exact hmin.mrk_dom w hw
-  · have hvw : (s.trl[idx]?.getD 0#32).toNat / 2 < c.mv := by
-      have := hcore.trail_lits_lt idx hi; omega
-    exact plainMinMarkInv_lift_sound (s' := s') hcore ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
-      (fun w hw => (hmono w hw).mpr) hmin.rem_sound hi ((hmono _ hvw).mp h2)
-
-theorem plainMinMarkInv_mark_keep {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
-    {keep : List Nat} (hcore : PlainCoreInv c F0 s) (hmin : PlainMinMarkInv c F0 s keep)
-    {l : Nat} (hl : l < 2 * c.mv) (hkeep : l ∈ keep) (hfals : s.vals[l]?.getD 0#8 = 0xFF#8)
-    (hz : s.mrk[l / 2]?.getD 0#8 = 0#8) :
-    PlainMinMarkInv c F0 (plainMinMarkState c s (l / 2) 2#8) keep := by
-  let v := l / 2; let s' := plainMinMarkState c s v 2#8; change PlainMinMarkInv c F0 s' keep
-  have hlen := hcore.lengths; have hv : v < c.mv := by omega
-  have hmono : ∀ w < c.mv, s.mrk[w]?.getD 0#8 = 2#8 → s'.mrk[w]?.getD 0#8 = 2#8 := fun w _ hw2 => by
-    by_cases hweq : w = v
-    · subst w; rw [hz] at hw2; cases hw2
-    · simp [s', plainMinMarkState, List.getElem?_set_ne (Ne.symm hweq), hw2]
-  refine ⟨fun w hw => ?_, plain_clr_cov_mark_step hmin.clr_cov hv hlen.min_clr_len_arr 2#8,
-    fun idx hi h2 => ?_⟩
-  · by_cases hweq : w = v
-    · subst w; right; left
-      simp [s', plainMinMarkState, List.getElem?_set_self (by rw [hlen.mrk_len]; omega)]
-    · simp only [s', plainMinMarkState, List.getElem?_set_ne (Ne.symm hweq)]
-      exact hmin.mrk_dom w hw
-  · have hi' : idx < s.trail_end := hi
-    by_cases hveq : (s.trl[idx]?.getD 0#32).toNat / 2 = v
-    · obtain ⟨k, hk, hkeq⟩ := (hcore.vals_false_iff l hl).mp hfals
-      have hk_idx : k = idx := hcore.trail_vars_nodup k idx hk hi' (by
-        rw [hkeq, show (l ^^^ 1) / 2 = v from litVar_litNeg l, hveq])
-      subst hk_idx
-      have hp : (l ^^^ 1) ^^^ 1 = l := litNeg_litNeg l
-      exact Or.inl (by dsimp only [s', plainMinMarkState]; rwa [hkeq, hp])
-    · have h2' : s.mrk[(s.trl[idx]?.getD 0#32).toNat / 2]?.getD 0#8 = 2#8 := by
-        simpa [s', plainMinMarkState, List.getElem?_set_ne (Ne.symm hveq)] using h2
-      exact plainMinMarkInv_lift_sound (s' := s') hcore ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
-        hmono hmin.rem_sound hi' h2'
-
-theorem plainMinMarkInv_mark_rem {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
-    {keep : List Nat} (hcore : PlainCoreInv c F0 s) (hmin : PlainMinMarkInv c F0 s keep)
-    {idx0 : Nat} (hi0 : idx0 < s.trail_end)
-    (hz : s.mrk[(s.trl[idx0]?.getD 0#32).toNat / 2]?.getD 0#8 = 0#8)
-    (hrsn : let p0 := (s.trl[idx0]?.getD 0#32).toNat
-      let rsn := s.rsns[p0 / 2]?.getD 0xFFFFFFFF#32
-      rsn ≠ 0xFFFFFFFF#32 ∧
-      if (rsn &&& 0x80000000#32) ≠ 0#32 then
-        let ot := (rsn &&& 0x7FFFFFFF#32).toNat
-        ot < 2 * c.mv ∧ F0.EntailsClause (cnfClause [p0, ot]) ∧
-        ∃ k < idx0, (s.trl[k]?.getD 0#32).toNat = ot ^^^ 1 ∧
-          ((s.lvl[ot / 2]?.getD 0#32).toNat = 0 ∨ s.mrk[ot / 2]?.getD 0#8 = 2#8)
-      else
-        rsn.toNat ∈ arenaClauseRefs s ∧ arenaClauseGarb s rsn.toNat = false ∧
-        ∀ q ∈ arenaClauseLits s rsn.toNat,
-          q = p0 ∨ ∃ k < idx0, (s.trl[k]?.getD 0#32).toNat = q ^^^ 1 ∧
-            ((s.lvl[q / 2]?.getD 0#32).toNat = 0 ∨ s.mrk[q / 2]?.getD 0#8 = 2#8)) :
-    PlainMinMarkInv c F0
-      (plainMinMarkState c s ((s.trl[idx0]?.getD 0#32).toNat / 2) 2#8) keep := by
-  let v := (s.trl[idx0]?.getD 0#32).toNat / 2
-  let s' := plainMinMarkState c s v 2#8; change PlainMinMarkInv c F0 s' keep
-  have hlen := hcore.lengths
-  have hv : v < c.mv := by have := hcore.trail_lits_lt idx0 hi0; omega
-  have hmono : ∀ w < c.mv, s.mrk[w]?.getD 0#8 = 2#8 → s'.mrk[w]?.getD 0#8 = 2#8 := by
-    intro w _ hw2
-    by_cases hweq : w = v
-    · subst w; rw [hz] at hw2; cases hw2
-    · simp [s', plainMinMarkState, List.getElem?_set_ne (Ne.symm hweq), hw2]
-  refine ⟨fun w hw => ?_, plain_clr_cov_mark_step hmin.clr_cov hv hlen.min_clr_len_arr 2#8,
-    fun idx hi h2 => ?_⟩
-  · by_cases hweq : w = v
-    · subst w; right; left
-      simp [s', plainMinMarkState, List.getElem?_set_self (by rw [hlen.mrk_len]; omega)]
-    · simp only [s', plainMinMarkState, List.getElem?_set_ne (Ne.symm hweq)]
-      exact hmin.mrk_dom w hw
-  · have hi' : idx < s.trail_end := hi
-    by_cases hveq : (s.trl[idx]?.getD 0#32).toNat / 2 = v
-    · have hidx : idx = idx0 := hcore.trail_vars_nodup idx idx0 hi' hi0 hveq; subst hidx
-      obtain ⟨hne, hif⟩ := hrsn; refine Or.inr ⟨hne, ?_⟩
-      split at hif <;> split
-      · obtain ⟨hot, hent, k, hk, hkeq, hdep⟩ := hif
-        have hot_v : (s.rsns[(s.trl[idx]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32 &&&
-            0x7FFFFFFF#32).toNat / 2 < c.mv := by omega
-        exact ⟨hot, hent, k, hk, hkeq, hdep.elim Or.inl fun hk2 => Or.inr (hmono _ hot_v hk2)⟩
-      · rename_i h1 h2; exact absurd h1 h2
-      · rename_i h1 h2; exact absurd h2 h1
-      · obtain ⟨href, hng, hall⟩ := hif; refine ⟨href, hng, fun q hq => ?_⟩
-        rcases hall q hq with rfl | ⟨k, hk, hkeq, hdep⟩
-        · exact Or.inl rfl
-        · exact Or.inr ⟨k, hk, hkeq, hdep.elim Or.inl fun hk2 =>
-            Or.inr (hmono _ (plain_trail_xor_var_lt hcore (Nat.lt_trans hk hi0) hkeq) hk2)⟩
-    · have h2' : s.mrk[(s.trl[idx]?.getD 0#32).toNat / 2]?.getD 0#8 = 2#8 := by
-        simpa [s', plainMinMarkState, List.getElem?_set_ne (Ne.symm hveq)] using h2
-      exact plainMinMarkInv_lift_sound (s' := s') hcore ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
-        hmono hmin.rem_sound hi' h2'
-
-theorem plainMinMarkInv_drop {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
-    {keep keep' : List Nat} (hcore : PlainCoreInv c F0 s) (hmin : PlainMinMarkInv c F0 s keep)
-    {root_lit : Nat} (hsub : ∀ l ∈ keep, l = root_lit ∨ l ∈ keep')
-    {idx0 : Nat} (hi0 : idx0 < s.trail_end)
-    (hroot : (s.trl[idx0]?.getD 0#32).toNat = root_lit ^^^ 1)
-    (hrsn : let p0 := root_lit ^^^ 1
-      let rsn := s.rsns[p0 / 2]?.getD 0xFFFFFFFF#32
-      rsn ≠ 0xFFFFFFFF#32 ∧
-      if (rsn &&& 0x80000000#32) ≠ 0#32 then
-        let ot := (rsn &&& 0x7FFFFFFF#32).toNat
-        ot < 2 * c.mv ∧ F0.EntailsClause (cnfClause [p0, ot]) ∧
-        ∃ k < idx0, (s.trl[k]?.getD 0#32).toNat = ot ^^^ 1 ∧
-          ((s.lvl[ot / 2]?.getD 0#32).toNat = 0 ∨ s.mrk[ot / 2]?.getD 0#8 = 2#8)
-      else
-        rsn.toNat ∈ arenaClauseRefs s ∧ arenaClauseGarb s rsn.toNat = false ∧
-        ∀ q ∈ arenaClauseLits s rsn.toNat,
-          q = p0 ∨ ∃ k < idx0, (s.trl[k]?.getD 0#32).toNat = q ^^^ 1 ∧
-            ((s.lvl[q / 2]?.getD 0#32).toNat = 0 ∨ s.mrk[q / 2]?.getD 0#8 = 2#8)) :
-    PlainMinMarkInv c F0 s keep' := by
-  refine ⟨hmin.mrk_dom, hmin.clr_cov, fun idx hi h2 => ?_⟩
-  rcases hmin.rem_sound idx hi h2 with hin | hok
-  · rcases hsub _ hin with heq | hin'
-    · have hv_eq : (s.trl[idx]?.getD 0#32).toNat / 2 = (s.trl[idx0]?.getD 0#32).toNat / 2 := by
-        rw [hroot]
-        have h1 : ((s.trl[idx]?.getD 0#32).toNat ^^^ 1) / 2 =
-            (s.trl[idx]?.getD 0#32).toNat / 2 := litVar_litNeg _
-        have h2' : (root_lit ^^^ 1) / 2 = root_lit / 2 := litVar_litNeg root_lit
-        rw [← h1, heq, h2']
-      have hidx : idx = idx0 := hcore.trail_vars_nodup idx idx0 hi hi0 hv_eq
-      subst hidx; rw [hroot]; exact Or.inr hrsn
-    · exact Or.inl hin'
-  · exact Or.inr hok
-
-private theorem plain_trail_lit_false_strong {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
-    {keep : List Nat} (hcore : PlainCoreInv c F0 s) (hmin : PlainMinMarkInv c F0 s keep)
-    (α : Nat → Bool) (hα : F0.Sat α)
-    (hkeep_false : ∀ l ∈ keep, α (litVar l) ≠ !(litSign l)) :
-    ∀ i < s.trail_end, let p := (s.trl[i]?.getD 0#32).toNat
-      (s.lvl[p / 2]?.getD 0#32).toNat = 0 ∨ s.mrk[p / 2]?.getD 0#8 = 2#8 →
-      α (litVar p) = !(litSign p) := by
-  intro i hi p hcond
-  rcases hcond with hl0 | hrem
-  · exact (sat_cnfClause_singleton α p).mp
-      (CNF.entails_clause_def.mp (hcore.level0_sound i hi hl0) α hα)
-  · rcases hmin.rem_sound i hi hrem with hin | ⟨_, hif⟩
-    · have hf := hkeep_false _ hin
-      have hv : litVar (p ^^^ 1) = litVar p := litVar_litNeg p
-      have hs : litSign (p ^^^ 1) = !(litSign p) := litSign_litNeg p
-      rw [hv, hs] at hf; cases h1 : α (litVar p) <;> cases h2 : litSign p <;> simp_all
-    · have hcontra : ∀ (q k : Nat), k < i → (s.trl[k]?.getD 0#32).toNat = q ^^^ 1 →
-          ((s.lvl[q / 2]?.getD 0#32).toNat = 0 ∨ s.mrk[q / 2]?.getD 0#8 = 2#8) →
-          α (litVar q) = !(litSign q) → False := fun q k hk hkeq hkcond hqsat => by
-        have hkq : (s.trl[k]?.getD 0#32).toNat / 2 = q / 2 := by rw [hkeq]; exact litVar_litNeg q
-        have hkf := plain_trail_lit_false_strong hcore hmin α hα hkeep_false k
-          (Nat.lt_trans hk hi) (by rw [hkq]; exact hkcond)
-        have hv : litVar (q ^^^ 1) = litVar q := litVar_litNeg q
-        have hs : litSign (q ^^^ 1) = !(litSign q) := litSign_litNeg q
-        rw [hkeq, hv, hs] at hkf; cases h1 : α (litVar q) <;> cases h2 : litSign q <;> simp_all
-      split at hif
-      · obtain ⟨_, hent, k, hk, hkeq, hkcond⟩ := hif
-        obtain ⟨q, hq, hqsat⟩ := (clause_sat_cnfClause_iff α _).mp
-          (CNF.entails_clause_def.mp hent α hα)
-        simp only [List.mem_cons, List.not_mem_nil, or_false] at hq
-        rcases hq with rfl | hq
-        · exact hqsat
-        · exact False.elim (hcontra _ k hk hkeq hkcond (hq ▸ hqsat))
-      · obtain ⟨href, hng, hall⟩ := hif
-        obtain ⟨q, hq, hqsat⟩ := (clause_sat_cnfClause_iff α _).mp
-          (CNF.entails_clause_def.mp (hcore.arena.entails _ href hng) α hα)
-        rcases hall q hq with rfl | ⟨k, hk, hkeq, hkcond⟩
-        · exact hqsat
-        · exact False.elim (hcontra q k hk hkeq hkcond hqsat)
-termination_by i => i
-
-/-- Soundness of clause minimization via `PlainMinMarkInv`: if every literal of `orig` is
-falsified and either kept in `keep` or marked `REMOVABLE` (`2#8`), then `F0` entails `keep`. -/
-theorem plainMinMark_entails {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
-    {orig keep : List Nat} (hcore : PlainCoreInv c F0 s) (hmin : PlainMinMarkInv c F0 s keep)
-    (horig : F0.EntailsClause (cnfClause orig))
-    (hspec : ∀ l ∈ orig, l < 2 * c.mv ∧ s.vals[l]?.getD 0#8 = 0xFF#8 ∧
-      (l ∈ keep ∨ s.mrk[l / 2]?.getD 0#8 = 2#8)) :
-    F0.EntailsClause (cnfClause keep) := by
-  rw [CNF.entails_clause_def] at horig ⊢; intro α hα
-  by_cases hsat : (keep.any fun l => α (litVar l) == !(litSign l)) = true
-  · obtain ⟨l, hl, hlt⟩ := List.any_eq_true.mp hsat
-    exact (clause_sat_cnfClause_iff α keep).mpr ⟨l, hl, beq_iff_eq.mp hlt⟩
-  · exfalso
-    have hkf : ∀ l ∈ keep, α (litVar l) ≠ !(litSign l) := fun l hl heq =>
-      hsat (List.any_eq_true.mpr ⟨l, hl, beq_iff_eq.mpr heq⟩)
-    obtain ⟨l, hl, hlsat⟩ := (clause_sat_cnfClause_iff α orig).mp (horig α hα)
-    obtain ⟨hlt, hfals, hkm⟩ := hspec l hl
-    rcases hkm with hin | hmrk
-    · exact hkf l hin hlsat
-    · obtain ⟨i, hi, hieq⟩ := (hcore.vals_false_iff l hlt).mp hfals
-      have hvar : (s.trl[i]?.getD 0#32).toNat / 2 = l / 2 := by rw [hieq]; exact litVar_litNeg l
-      have htf := plain_trail_lit_false_strong hcore hmin α hα hkf i hi
-        (Or.inr (by rw [hvar]; exact hmrk))
-      have hv : litVar (l ^^^ 1) = litVar l := litVar_litNeg l
-      have hs : litSign (l ^^^ 1) = !(litSign l) := litSign_litNeg l
-      rw [hieq, hv, hs, hlsat] at htf; cases hls : litSign l <;> simp_all
 
 end LeanQbe.T.Examples.Kissat.Plain
