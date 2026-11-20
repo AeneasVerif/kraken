@@ -1061,4 +1061,15 @@ run_meta do
 
 end bit_tests
 
+section preprocessing
+
+run_meta do
+  assert! (← Kraken.X64.Parser.Meta.parse "\tmovq\t%rax,\t%rbx\n\taddq\t$1,\t%rax") ==
+    ⸨prog| movq %rax, %rbx; addq $1, %rax ⸩
+  let source := ".text\n.L0:\tretq\n\t.ascii \"a:b\"\n\t.file \"path:source\"\n"
+  assert! (← Kraken.X64.Parser.Meta.parse (Kraken.Parser.stripDirectives source)) ==
+    ⸨prog| .L0: retq ⸩
+
+end preprocessing
+
 end Tests

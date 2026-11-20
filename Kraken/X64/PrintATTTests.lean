@@ -46,6 +46,7 @@ def corpus : List String := [
   "leaq 8(%rax,%rbx,4), %rcx", "leal (%eax), %ecx", "lea sym(%rip), %rax",
   "leaq 24(,%rcx,8), %rax", "leaq (,%r9,4), %rax", "leal -8(,%ecx,2), %eax",
   "movq sym(,%rdx), %rax", "movb %al, (,%ecx,1)", "leaq (,%ecx,8), %rax",
+  "\tmovq\t%rax,\t%r12", "\taddq\t$1,\t%rcx",
   "addq $1, %rax", "addb %al, (%rsp)", "adcl (%rsp), %eax", "adcx %rax, %rbx",
   "adox (%rsp), %ecx", "incq %rax", "incb (%rsp)", "decw %ax", "negl %eax",
   "subq %rax, %rbx", "sbbb $1, %al", "cmpq $0, (%rsp)", "cmpl %eax, %ebx",
@@ -144,3 +145,6 @@ run_meta do
   "bt ax, OFFSET sym"
 #guard (Operation.bts (.low .r15 .W64) (.imm (.int64 255))).toStr ==
   "bts r15, 255"
+
+#guard stripDirectives ".text\n.L0:\tretq\n\t.ascii \"a:b\"\n\t.file \"path:source\"\n\t.size f, 8 # note:\n" ==
+  ".L0:\tretq\n"

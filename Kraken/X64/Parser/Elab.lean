@@ -926,7 +926,7 @@ def elabProgram (stx : TSyntax `x64_prog) : TermElabM Expr := withRef stx do
 /-- Parse and elaborate an X64 assembly string (with `# ...` line comments) into a `Lean.Expr`
     representing a Kraken `Program`. -/
 public def elabX64 (s : String) : TermElabM Expr :=
-  elabCategory `x64_prog elabProgram (replaceLineComments "#" s)
+  elabCategory `x64_prog elabProgram (replaceLineComments "#" (s.replace "\t" " "))
 
 -- ============================================================================
 -- Standalone Embeddings (`⸨instr|`, `⸨operand|`, `⸨mem|`, `⸨reg|`, `⸨const|`)

@@ -74,6 +74,7 @@ public def replaceLineComments (marker : String) (input : String) : String :=
 public def stripDirectives (content : String) : String :=
   "\n".intercalate <| content.splitOn "\n" |>.filter fun line =>
     let line := line.trimAsciiStart.toString
-    !line.startsWith "." || line.any (· == ':')
+    !line.startsWith "." ||
+      (line.any (· == ':') && isAsmIdent ((line.splitOn ":").head!).trimAscii.toString)
 
 end Kraken.Parser
