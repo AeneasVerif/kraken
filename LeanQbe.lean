@@ -224,6 +224,9 @@ public import LeanQbe.T.Examples.Kissat.FullParseInitLemmas
 public import LeanQbe.T.Examples.Kissat.FullSubstLemmas1
 public import LeanQbe.T.Examples.Kissat.FullSubstLemmas2
 public import LeanQbe.T.Examples.Kissat.FullSubstLemmas
+public import LeanQbe.T.Examples.Kissat.FullLuckyLemmas1
+public import LeanQbe.T.Examples.Kissat.FullLuckyLemmas2
+public import LeanQbe.T.Examples.Kissat.FullLuckyLemmas
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
