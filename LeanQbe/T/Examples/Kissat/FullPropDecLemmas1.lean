@@ -98,6 +98,22 @@ def FullConflAt (F_cur : List (List Nat)) (k : FullCoreState) : Prop :=
     fullArenaClauseGarbCore k k.confl_ref.toNat = false ∧
     ∀ l ∈ fullArenaClauseLitsCore k k.confl_ref.toNat, k.vals[l]?.getD 0#8 = 0xFF#8)
 
+/-- Weak conflict witness matching `FullSpec1.FullConflictOkW` (`confl_type ≠ 1#64` for large). -/
+def FullConflOkW (F_cur : List (List Nat)) (k : FullCoreState) : Prop :=
+  (k.confl_type = 1#64 ∧ k.confl_lit0.toNat < 2 * k.cur_vars ∧
+    k.confl_lit1.toNat < 2 * k.cur_vars ∧
+    (cnfOfClauses F_cur).EntailsClause
+      (cnfClause [k.confl_lit0.toNat, k.confl_lit1.toNat]) ∧
+    k.vals[k.confl_lit0.toNat]?.getD 0#8 = 0xFF#8 ∧
+    k.vals[k.confl_lit1.toNat]?.getD 0#8 = 0xFF#8) ∨
+  (k.confl_type ≠ 1#64 ∧ k.confl_ref.toNat ∈ fullArenaClauseRefsCore k ∧
+    fullArenaClauseGarbCore k k.confl_ref.toNat = false ∧
+    ∀ l ∈ fullArenaClauseLitsCore k k.confl_ref.toNat, k.vals[l]?.getD 0#8 = 0xFF#8)
+
+theorem FullConflAt.toOkW {F_cur : List (List Nat)} {k : FullCoreState}
+    (h : FullConflAt F_cur k) : FullConflOkW F_cur k :=
+  h.elim Or.inl fun ⟨h2, hr⟩ => Or.inr ⟨by rw [h2]; decide, hr⟩
+
 /-- Predicate expressing that candidate literal `k` of `cref` is unusable by `full_find_repl`. -/
 def fullFindReplBad (s : FullState) (cref k : Nat) : Prop :=
   let cand := (s.core.arena[cref + 3 + k]?.getD 0#32).toNat
@@ -353,9 +369,9 @@ def fullPropLitSpec : Spec [i64, i32, i64] [.bool] :=
               search_ticks := ticks', wsort := wsort', phases := phases' } }
         s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
         FullTrailExt s.core s'.core → FullArenaPermEq s.core s'.core →
-        (ok = true → oom' = 0#64) →
+        (ok = true → oom' = 0#64 ∧ ctype' = s.core.confl_type) →
         (ok = false → oom' ≠ 0#64 ∨
-          (FullConflAt F_cur s'.core ∧ (ctype' = 2#64 → cref' ≠ ignore_ref))) →
+          (FullConflOkW F_cur s'.core ∧ (ctype' = 2#64 → cref' ≠ ignore_ref))) →
         (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
 def fullPropagateIgnoreSpec : Spec [i64, i64] [i64] :=
@@ -380,10 +396,11 @@ def fullPropagateIgnoreSpec : Spec [i64, i64] [i64] :=
         FullTrailExt s.core s'.core → FullArenaPermEq s.core s'.core →
         fuel'.toNat ≤ s.core.fuel.toNat →
         (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
-        (r = 0#64 → prop' = te' ∧ (s.core.oom = 0#64 → oom' = 0#64) ∧
+        (r = 0#64 → prop' = te' ∧ ctype' = s.core.confl_type ∧
+          (s.core.oom = 0#64 → oom' = 0#64) ∧
           (s.core.propagated < s.core.trail_end → fuel'.toNat < s.core.fuel.toNat)) →
         (r = 1#64 → fuel'.toNat < s.core.fuel.toNat ∧ oom' = 0#64 ∧
-          FullConflAt F_cur s'.core ∧ (ctype' = 2#64 → cref' ≠ ignore_ref) ∧
+          FullConflOkW F_cur s'.core ∧ (ctype' = 2#64 → cref' ≠ ignore_ref) ∧
           (s'.core.cur_level = 0 → F0.Unsat)) →
         (r = 2#64 → oom' ≠ 0#64 ∨ fuel' = 0#64) →
         (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
@@ -409,12 +426,13 @@ def fullPropagateSpec : Spec [i64] [i64] :=
               search_ticks := ticks', wsort := wsort', phases := phases' } }
         s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
         FullTrailExt s.core s'.core → FullArenaPermEq s.core s'.core →
+        (FullArenaVarsNodup s → FullArenaVarsNodup s') →
         fuel'.toNat ≤ s.core.fuel.toNat →
         (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
         (r = 0#64 → prop' = te' ∧ (s.core.oom = 0#64 → oom' = 0#64) ∧
           (s.core.propagated < s.core.trail_end → fuel'.toNat < s.core.fuel.toNat)) →
         (r = 1#64 → fuel'.toNat < s.core.fuel.toNat ∧ oom' = 0#64 ∧
-          FullConflAt F_cur s'.core ∧ (s'.core.cur_level = 0 → F0.Unsat)) →
+          FullConflOkW F_cur s'.core ∧ (s'.core.cur_level = 0 → F0.Unsat)) →
         (r = 2#64 → oom' ≠ 0#64 ∨ fuel' = 0#64) →
         (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
         (FullMem c s' ⋆ R) m' → Q (r, ()) m'
@@ -817,9 +835,9 @@ theorem FullWitnessInv.vals_zero_xor1 {c : FullCfg} {F0 : CNF Nat} {F_cur : List
   exact (hw.vals_zero_iff (by omega : 2 * v + 1 < 2 * k.cur_vars)).mpr fun i hi => by
     have := h1 i hi; omega
 
-theorem FullWitnessInv.level0_unsat_of_conflAt {c : FullCfg} {F0 : CNF Nat}
+theorem FullWitnessInv.level0_unsat_of_conflOkW {c : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {k : FullCoreState} (hw : FullWitnessInv c F0 F_cur k)
-    (hl0 : k.cur_level = 0) (hc : FullConflAt F_cur k) : F0.Unsat := by
+    (hl0 : k.cur_level = 0) (hc : FullConflOkW F_cur k) : F0.Unsat := by
   rcases hc with ⟨_, h0lt, h1lt, hent, hf0, hf1⟩ | ⟨_, href, hg, hfals⟩
   · refine hw.ext_sound.2
       (unsat_of_entails_nil (entails_of_mem_or_false hent fun l hl => Or.inr ?_))
@@ -833,6 +851,11 @@ theorem FullWitnessInv.level0_unsat_of_conflAt {c : FullCfg} {F0 : CNF Nat}
       (entails_of_mem_or_false (hw.arena.entails _ href hg) fun l hl => Or.inr ?_))
     obtain ⟨i, hi, hieq⟩ := (hw.vals_false_iff l (hw.arena.lits_lt _ href hg l hl)).mp (hfals l hl)
     have hs := hw.level0_sound i hi (by have := hw.lvl_le i hi; omega); rwa [hieq] at hs
+
+theorem FullWitnessInv.level0_unsat_of_conflAt {c : FullCfg} {F0 : CNF Nat}
+    {F_cur : List (List Nat)} {k : FullCoreState} (hw : FullWitnessInv c F0 F_cur k)
+    (hl0 : k.cur_level = 0) (hc : FullConflAt F_cur k) : F0.Unsat :=
+  hw.level0_unsat_of_conflOkW hl0 hc.toOkW
 
 theorem FullWitnessInv.with_fuel_prop {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {k : FullCoreState} (hw : FullWitnessInv c F0 F_cur k) (fuel' : BitVec 64) (prop' : Nat) :

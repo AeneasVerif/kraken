@@ -91,10 +91,11 @@ theorem full_propagate_ignore_wp (Γ : Env)
         phases := st.scratch.phases } →
       (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
       (r = 0#64 → st.core.propagated = st.core.trail_end ∧
+        st.core.confl_type = s.core.confl_type ∧
         (s.core.oom = 0#64 → st.core.oom = 0#64) ∧
         (s.core.propagated < s.core.trail_end → st.core.fuel.toNat < s.core.fuel.toNat)) →
       (r = 1#64 → st.core.fuel.toNat < s.core.fuel.toNat ∧ st.core.oom = 0#64 ∧
-        FullConflAt F_cur st.core ∧
+        FullConflOkW F_cur st.core ∧
         (st.core.confl_type = 2#64 → st.core.confl_ref ≠ ignore_ref) ∧
         (st.core.cur_level = 0 → F0.Unsat)) →
       (r = 2#64 → st.core.oom ≠ 0#64 ∨ st.core.fuel = 0#64) →
@@ -122,11 +123,13 @@ theorem full_propagate_ignore_wp (Γ : Env)
         search_ticks := st.scratch.search_ticks, wsort := st.scratch.wsort,
         phases := st.scratch.phases } ∧
       (s.core.oom = 0#64 → st.core.oom = 0#64) ∧
+      st.core.confl_type = s.core.confl_type ∧
       (st.core.fuel.toNat = s.core.fuel.toNat → st = s) ∧
       (s.core.propagated = s.core.trail_end → st = s) ∧
       (FullMem c st ⋆ R) ml) ?_ ?_
   · rintro L rem ⟨⟩ ml ih
-      ⟨st, rfl, hst_l, hst_w, hag, htr, hperm, hfuel_le, hsc, hoom_pres, hsame, hnoop, hml⟩
+      ⟨st, rfl, hst_l, hst_w, hag, htr, hperm, hfuel_le, hsc, hoom_pres, hct_pres, hsame, hnoop,
+        hml⟩
     have hcl := hst_l.core_ok
     have hcv_le := hcl.cur_vars_le
     have htl := hcl.trl_len; have hte_le := hcl.trail_end_le; have hpr_le := hcl.propagated_le
@@ -192,29 +195,30 @@ theorem full_propagate_ignore_wp (Γ : Env)
       · have hok_t : ok = true := by assumption
         exact ih st2.core.fuel.toNat () m2 (by dsimp [st2, st1]; omega)
           ⟨st2, rfl, hlen2, hw2, hag2, htr12, hperm12, by omega, hsc2,
-            fun _ => hok_oom hok_t, fun heq => by omega, fun hpe => absurd hpe hne_end, hm2⟩
+            fun _ => (hok_oom hok_t).1, (hok_oom hok_t).2.trans hct_pres,
+            fun heq => by omega, fun hpe => absurd hpe hne_end, hm2⟩
       · have hok_f : ok = false := by assumption
         exact hret_st 2#64 st2 m2 hlen2 hw2 hag2 htr12 hperm12 (by omega) hsc2
           (Or.inr (Or.inr rfl)) (by simp) (by simp) (fun _ => Or.inl hc)
           (fun hpe => absurd hpe hne_end) hm2
       · have hok_f : ok = false := by assumption
         have hoom2_0 : oom' = 0#64 := by assumption
-        have ⟨hcf_at, hcf_ign⟩ := (hconfl hok_f).resolve_left (fun h => h hoom2_0)
+        have ⟨hcf_ok, hcf_ign⟩ := (hconfl hok_f).resolve_left (fun h => h hoom2_0)
         exact hret_st 1#64 st2 m2 hlen2 hw2 hag2 htr12 hperm12 (by omega) hsc2
           (Or.inr (Or.inl rfl)) (by simp)
-          (fun _ => ⟨hfl2_lt, hoom2_0, hcf_at, hcf_ign,
-            fun hcl0 => hw2.level0_unsat_of_conflAt hcl0 hcf_at⟩)
+          (fun _ => ⟨hfl2_lt, hoom2_0, hcf_ok, hcf_ign,
+            fun hcl0 => hw2.level0_unsat_of_conflOkW hcl0 hcf_ok⟩)
           (by simp) (fun hpe => absurd hpe hne_end) hm2
     · have hpr_eq : st.core.propagated = st.core.trail_end := by c0_bound
       exact hret_st 0#64 st ml hst_l hst_w hag htr hperm hfuel_le hsc (Or.inl rfl)
-        (fun _ => ⟨hpr_eq, hoom_pres, fun hlt => by
+        (fun _ => ⟨hpr_eq, hct_pres, hoom_pres, fun hlt => by
           by_cases hf : st.core.fuel.toNat = s.core.fuel.toNat
           · have := hsame hf; subst this; omega
           · omega⟩)
         (by simp) (by simp) (fun hpe => ⟨rfl, hnoop hpe⟩) hml
   · intro L hL; fp_steps
     exact hL s.core.fuel.toNat () m ⟨s, rfl, hlen0, hw0, .refl _ _, .refl _, .refl _,
-      Nat.le_refl _, rfl, fun h => h, fun _ => rfl, fun _ => rfl, hm⟩
+      Nat.le_refl _, rfl, fun h => h, rfl, fun _ => rfl, fun _ => rfl, hm⟩
 
 theorem full_propagate_wp (Γ : Env)
     (hPropIgn : ∀ args m Q X, fullPropagateIgnoreSpec args m Q X →
@@ -230,7 +234,9 @@ theorem full_propagate_wp (Γ : Env)
       hr1 hr2 hnoop hm' => ?_⟩
   fp_steps
   exact hQ r vals' flags' lvl' rsns' trl' tp' te' prop' unas' unfl' wvec' arena' wstk' wlen' wu'
-    fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' m' hlen' hw' htr' hperm' hfl' hr hr0
+    fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' m' hlen' hw' htr' hperm'
+    (fun hnd => hperm'.preserves_varsNodup hnd) hfl' hr
+    (fun h0 => let ⟨hp, _, ho, hf⟩ := hr0 h0; ⟨hp, ho, hf⟩)
     (fun h1 => let ⟨hf, ho, hca, _, hu⟩ := hr1 h1; ⟨hf, ho, hca, hu⟩) hr2 hnoop hm'
 
 /-! ## 2. Chronological decision invariant & `full_decide` `Func.wp` proof -/
@@ -689,7 +695,7 @@ theorem full_warmup_wp (Γ : Env)
               refine ⟨c, F0, F_cur, st3, R, rfl, hinv3.lengths, hw3, hdm_st, hm3',
                 fun r vals'' flags'' lvl'' rsns'' trl'' tp'' te'' prop'' unas'' unfl''
                   wvec'' arena'' wstk'' wlen'' wu'' fuel'' ctype'' cref'' c0'' c1'' oom''
-                  ticks'' wsort'' phases'' m4 hlen4 hw4 _ hperm4 hfl4 _ _ _ _ _ hm4 => ?_⟩
+                  ticks'' wsort'' phases'' m4 hlen4 hw4 _ hperm4 _ hfl4 _ _ _ _ _ hm4 => ?_⟩
               let st4 : FullState :=
                 { core := { st3.core with
                     vals := vals'', flags := flags'', lvl := lvl'', rsns := rsns'', trl := trl'',

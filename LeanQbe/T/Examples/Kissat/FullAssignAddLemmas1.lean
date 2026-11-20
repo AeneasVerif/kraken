@@ -902,6 +902,33 @@ def fullAssignSpec : Spec [i64, i32, i32] [] := fun (h, lit, rsn, ()) m Q _ =>
             scratch := { s.scratch with phases := phases' } }
         (FullMem c s' ⋆ R) m' → Q () m'
 
+def fullAssignLvlFlagsSpec : Spec [i64, i32, i32, i32] [] :=
+  fun (h, lit, rsn, alvl, ()) m Q _ =>
+    ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ s.LengthsOk c ∧ (FullMem c s ⋆ R) m ∧
+      if s.core.cur_vars ≤ lit.toNat / 2 ∨ c.max_vars ≤ s.core.trail_end ∨
+          s.core.vals[lit.toNat]?.getD 0#8 ≠ 0#8 then
+        Q () m
+      else
+        let v := lit.toNat / 2
+        let rsn' := if alvl = 0#32 then 0xFFFFFFFF#32 else rsn
+        let unfl' := if alvl = 0#32 then s.core.unflushed + 1#64 else s.core.unflushed
+        ∀ flags' unass' phases' m',
+          flags'.length = c.max_vars → phases'.length = c.max_vars →
+          (alvl ≠ 0#32 → flags' = s.core.flags) →
+          let s' : FullState :=
+            { s with
+              core :=
+                { s.core with
+                  vals := (s.core.vals.set lit.toNat 1#8).set (lit.toNat ^^^ 1) 0xFF#8
+                  flags := flags', lvl := s.core.lvl.set v alvl, rsns := s.core.rsns.set v rsn'
+                  trl := s.core.trl.set s.core.trail_end lit
+                  trail_pos := s.core.trail_pos.set v (BitVec.ofNat 32 s.core.trail_end)
+                  trail_end := s.core.trail_end + 1
+                  unassigned := unass', unflushed := unfl' }
+              scratch := { s.scratch with phases := phases' } }
+          (FullMem c s' ⋆ R) m' → Q () m'
+
 def fullAddClauseSpec : Spec [i64, i32, i32, .bool] [i64] :=
   fun (h, len, _glue, _red, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
@@ -1001,8 +1028,8 @@ private abbrev asgFin (s : FullState) (lit rsn' alvl : BitVec 32) (flags' : List
                     unassigned := unass', unflushed := unfl' }
     scratch := { s.scratch with phases := ph' } }
 
-theorem full_assign_lvl_wp (Γ : Env) :
-    ∀ args m Q X, fullAssignLvlSpec args m Q X →
+theorem full_assign_lvl_flags_wp (Γ : Env) :
+    ∀ args m Q X, fullAssignLvlFlagsSpec args m Q X →
       Func.wp Γ full_assign_lvl_body args m Q X := by
   rintro ⟨h, lit, rsn, alvl, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
   have hmx := c.hmaxv; unfold dimacsBound at hmx
@@ -1085,11 +1112,11 @@ theorem full_assign_lvl_wp (Γ : Env) :
               simp only [bv_c0_zext32_64, bv32_lshr1] at hm
               exact hm
             refine wp_join_group (fun () m3 => ∃ flags' : List (BitVec 32),
-              flags'.length = c.max_vars ∧
+              flags'.length = c.max_vars ∧ (alvl ≠ 0#32 → flags' = s.core.flags) ∧
               (FullMem c (asg4 s lit (if alvl = 0#32 then 0xFFFFFFFF#32 else rsn) alvl
                 flags' unass' (if alvl = 0#32 then s.core.unflushed + 1#64 else s.core.unflushed)
                 ph') ⋆ R) m3) ?_ ?_
-            · rintro _ ⟨⟩ m3 ⟨flags', hfl', hm3'⟩
+            · rintro _ ⟨⟩ m3 ⟨flags', hfl', hfl_eq', hm3'⟩
               c0_steps
               have hfin : (FullMem c
                   (asgFin s lit (if alvl = 0#32 then 0xFFFFFFFF#32 else rsn) alvl flags' unass'
@@ -1099,16 +1126,17 @@ theorem full_assign_lvl_wp (Γ : Env) :
                   bv64_ofNat_toNat (by omega : s.core.trail_end < 2 ^ 64),
                   bv64_add1_toNat hte_lt64] at hm
                 exact hm
-              exact hQ flags' unass' ph' m hfl' hph' hfin
+              exact hQ flags' unass' ph' m hfl' hph' hfl_eq' hfin
             · intro J3 hJ3; clear hQ
               c0_steps
               · simp only [bv_c0_zext32_64, bv32_lshr1] at hm
                 refine hJ3 () m ⟨s.core.flags.set (lit.toNat / 2)
-                  (s.core.flags[lit.toNat / 2]'(by omega) &&& ~~~1#32), by simp [hfll], ?_⟩
+                  (s.core.flags[lit.toNat / 2]'(by omega) &&& ~~~1#32), by simp [hfll],
+                  fun hne => absurd hc hne, ?_⟩
                 simp only [show (alvl = 0#32) = True from eq_true (hc : alvl = 0#32), ↓reduceIte]
                 exact hm
               · simp only [bv_c0_zext32_64, bv32_lshr1] at hm
-                refine hJ3 () m ⟨s.core.flags, hco.flags_len, ?_⟩
+                refine hJ3 () m ⟨s.core.flags, hco.flags_len, fun _ => rfl, ?_⟩
                 simp only [show (alvl = 0#32) = False from eq_false (hc : alvl ≠ 0#32), ↓reduceIte]
                 exact hm
           · intro J2 hJ2; clear hQ
@@ -1123,6 +1151,19 @@ theorem full_assign_lvl_wp (Γ : Env) :
           · exact hJ1 () m ⟨s.core.unassigned - 1#64, hm⟩
           · exact hJ1 () m ⟨s.core.unassigned, hm0⟩
           · exact hJ1 () m ⟨s.core.unassigned, hm0⟩
+
+theorem full_assign_lvl_wp (Γ : Env) :
+    ∀ args m Q X, fullAssignLvlSpec args m Q X →
+      Func.wp Γ full_assign_lvl_body args m Q X := by
+  rintro ⟨h, lit, rsn, alvl, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+  refine full_assign_lvl_flags_wp Γ (c.hdr, lit, rsn, alvl, ()) m Q X
+    ⟨c, s, R, rfl, hlen, hm, ?_⟩
+  dsimp only at hQ ⊢
+  by_cases hcond : s.core.cur_vars ≤ lit.toNat / 2 ∨ c.max_vars ≤ s.core.trail_end ∨
+      s.core.vals[lit.toNat]?.getD 0#8 ≠ 0#8
+  · simp only [hcond, ↓reduceIte] at hQ ⊢; exact hQ
+  · simp only [hcond, ↓reduceIte] at hQ ⊢
+    exact fun fl un ph m' hfl hph _ hm' => hQ fl un ph m' hfl hph hm'
 
 theorem full_assign_wp (Γ : Env)
     (hAssignLvl : ∀ args m Q X, fullAssignLvlSpec args m Q X →

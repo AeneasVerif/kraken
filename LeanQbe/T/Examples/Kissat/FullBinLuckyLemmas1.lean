@@ -113,9 +113,8 @@ def fullAssignLvlSpec : Spec [i64, i32, i32, i32] [] := fun (h, lit, rsn, alvl, 
       let v := lit.toNat / 2
       let rsn' := if alvl = 0#32 then 0xFFFFFFFF#32 else rsn
       let unfl' := if alvl = 0#32 then s.core.unflushed + 1#64 else s.core.unflushed
-      ∀ flags' unassigned' phases' m',
+      ∀ flags' unass' phases' m',
         flags'.length = c.max_vars → phases'.length = c.max_vars →
-        (alvl ≠ 0#32 → flags' = s.core.flags) →
         let s' : FullState :=
           { s with
             core :=
@@ -124,9 +123,9 @@ def fullAssignLvlSpec : Spec [i64, i32, i32, i32] [] := fun (h, lit, rsn, alvl, 
                 flags := flags', lvl := s.core.lvl.set v alvl
                 rsns := s.core.rsns.set v rsn', trl := s.core.trl.set s.core.trail_end lit
                 trail_pos := s.core.trail_pos.set v (BitVec.ofNat 32 s.core.trail_end)
-                trail_end := s.core.trail_end + 1, unassigned := unassigned', unflushed := unfl' }
+                trail_end := s.core.trail_end + 1, unassigned := unass', unflushed := unfl' }
             scratch := { s.scratch with phases := phases' } }
-        s'.LengthsOk c → (FullMem c s' ⋆ R) m' → Q () m'
+        (FullMem c s' ⋆ R) m' → Q () m'
 
 def fullAssignSpec : Spec [i64, i32, i32] [] := fun (h, lit, rsn, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
@@ -139,9 +138,8 @@ def fullAssignSpec : Spec [i64, i32, i32] [] := fun (h, lit, rsn, ()) m Q _ =>
       let alvl := BitVec.ofNat 32 s.core.cur_level
       let rsn' := if s.core.cur_level = 0 then 0xFFFFFFFF#32 else rsn
       let unfl' := if s.core.cur_level = 0 then s.core.unflushed + 1#64 else s.core.unflushed
-      ∀ flags' unassigned' phases' m',
+      ∀ flags' unass' phases' m',
         flags'.length = c.max_vars → phases'.length = c.max_vars →
-        (s.core.cur_level ≠ 0 → flags' = s.core.flags) →
         let s' : FullState :=
           { s with
             core :=
@@ -150,9 +148,20 @@ def fullAssignSpec : Spec [i64, i32, i32] [] := fun (h, lit, rsn, ()) m Q _ =>
                 flags := flags', lvl := s.core.lvl.set v alvl
                 rsns := s.core.rsns.set v rsn', trl := s.core.trl.set s.core.trail_end lit
                 trail_pos := s.core.trail_pos.set v (BitVec.ofNat 32 s.core.trail_end)
-                trail_end := s.core.trail_end + 1, unassigned := unassigned', unflushed := unfl' }
+                trail_end := s.core.trail_end + 1, unassigned := unass', unflushed := unfl' }
             scratch := { s.scratch with phases := phases' } }
-        s'.LengthsOk c → (FullMem c s' ⋆ R) m' → Q () m'
+        (FullMem c s' ⋆ R) m' → Q () m'
+
+def FullProbeScratchPres (s s' : FullState) : Prop :=
+  (s'.scratch.last_learned = s.scratch.last_learned ∧
+   s'.scratch.extend_len = s.scratch.extend_len) ∧
+  s'.scratch.work_stk1 = s.scratch.work_stk1 ∧
+  s'.scratch.work_stk2 = s.scratch.work_stk2 ∧
+  s'.scratch.tarjan_mark = s.scratch.tarjan_mark ∧
+  s'.scratch.scratch_buf = s.scratch.scratch_buf ∧
+  s'.scratch.ant_sz = s.scratch.ant_sz ∧
+  s'.scratch.res_sz = s.scratch.res_sz ∧
+  s'.scratch.sim_sig = s.scratch.sim_sig
 
 def fullBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
@@ -183,6 +192,36 @@ def fullBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
             s.core.vals[l]?.getD 0#8
           else 0#8) →
         (∀ F0 F_cur, FullWitnessInv c F0 F_cur s.core → FullWitnessInv c F0 F_cur s'.core) →
+        (FullMem c s' ⋆ R) m' → Q () m'
+
+def fullBacktrackExtSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
+  ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ s.core.cur_level < 2 ^ 64 ∧
+    (target_lvl.toNat < s.core.cur_level → target_lvl.toNat < c.max_vars) ∧
+    (∀ i < s.core.trail_end, (s.core.trl[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
+    (FullMem c s ⋆ R) m ∧
+    if s.core.cur_level ≤ target_lvl.toNat then
+      Q () m
+    else
+      ∀ vals' lvl' rsns' trl' tp' te' prop' cl' unass' sc' m',
+        let s' : FullState :=
+          { s with
+            core :=
+              { s.core with
+                vals := vals', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp',
+                trail_end := te', propagated := prop', cur_level := cl', unassigned := unass' }
+            scratch := sc' }
+        s'.LengthsOk c → te' ≤ s.core.trail_end → prop' ≤ te' →
+        cl' = min s.core.cur_level target_lvl.toNat →
+        FullProbeScratchPres s s' → sc'.shrink_stk = s.scratch.shrink_stk →
+        (∀ i < te', (trl'[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) →
+        ((∃ F0 F_cur, FullWitnessInv c F0 F_cur s.core) →
+          ∀ l < 2 * s.core.cur_vars, vals'[l]?.getD 0#8 =
+            if (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl.toNat then
+              s.core.vals[l]?.getD 0#8
+            else 0#8) →
+        (∀ F0 F_cur, FullWitnessInv c F0 F_cur s.core → target_lvl.toNat ≤ s.core.cur_level →
+          FullWitnessInv c F0 F_cur s'.core) →
         (FullMem c s' ⋆ R) m' → Q () m'
 
 def fullPropagateSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
@@ -287,25 +326,47 @@ def fullAddBinSpec : Spec [i64, i32, i32] [i64] := fun (h, a, b, ()) m Q _ =>
       (r = 20#64 → F0.Unsat ∧ inc' = 1#64) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
-def fullDeleteBinSideSpec : Spec [i64, i32, i32] [] := fun (h, _lit, _other, ()) m Q _ =>
-  ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ FullCoreInv c F0 s ∧ (FullMem c s ⋆ R) m ∧
-    ∀ wvec' wstk' wusable' m',
+def fullDeleteBinSideSpec : Spec [i64, i32, i32] [] := fun (h, lit, _other, ()) m Q _ =>
+  ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧
+    (lit.toNat < 2 * s.core.cur_vars →
+      fullWatchOff s lit.toNat + fullWatchSize s lit.toNat ≤ s.core.wlen) ∧
+    (FullMem c s ⋆ R) m ∧
+    ∀ wvec' wstk' wu' m',
       let s' : FullState :=
-        { s with core := { s.core with wvec := wvec', wstk := wstk', wusable := wusable' } }
+        { s with core := { s.core with wvec := wvec', wstk := wstk', wusable := wu' } }
       s'.LengthsOk c →
-      (∀ F_cur, FullWitnessInv c F0 F_cur s.core → FullWitnessInv c F0 F_cur s'.core) →
+      (lit.toNat < 2 * s.core.cur_vars →
+        fullWatchOff s' lit.toNat = fullWatchOff s lit.toNat ∧
+        fullWatchSize s' lit.toNat ≤ fullWatchSize s lit.toNat) →
+      (∀ l < 2 * s.core.cur_vars, l ≠ lit.toNat →
+        fullWatchOff s' l = fullWatchOff s l ∧ fullWatchSize s' l = fullWatchSize s l) →
+      (∀ idx < c.wcap,
+        (lit.toNat < 2 * s.core.cur_vars →
+          idx < fullWatchOff s lit.toNat ∨
+          fullWatchOff s lit.toNat + fullWatchSize s lit.toNat ≤ idx) →
+        wstk'[idx]? = s.core.wstk[idx]?) →
+      (∀ F_cur, WatchSliceOk F_cur s.core lit.toNat (fullWatchOff s lit.toNat)
+          (fullWatchSize s lit.toNat) →
+        WatchSliceOk F_cur s'.core lit.toNat (fullWatchOff s' lit.toNat)
+          (fullWatchSize s' lit.toNat)) →
+      (∀ F_cur, DenseWatchSliceOk F_cur s.core lit.toNat (fullWatchOff s lit.toNat)
+          (fullWatchSize s lit.toNat) →
+        DenseWatchSliceOk F_cur s'.core lit.toNat (fullWatchOff s' lit.toNat)
+          (fullWatchSize s' lit.toNat)) →
+      (WatchStackLayout s.core → WatchStackLayout s'.core) →
+      (∀ F_cur, ModeWatchesInv F_cur s.core → ModeWatchesInv F_cur s'.core) →
       (FullMem c s' ⋆ R) m' → Q () m'
 
 def fullDeleteBinarySpec : Spec [i64, i32, i32] [] := fun (h, _a, _b, ()) m Q _ =>
-  ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ FullCoreInv c F0 s ∧ (FullMem c s ⋆ R) m ∧
-    ∀ wvec' wstk' wusable' nb' m',
+  ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ WatchStackLayout s.core ∧ (FullMem c s ⋆ R) m ∧
+    ∀ wvec' wstk' wu' nb' m',
       let s' : FullState :=
-        { s with core := { s.core with wvec := wvec', wstk := wstk', wusable := wusable',
+        { s with core := { s.core with wvec := wvec', wstk := wstk', wusable := wu',
                                        num_binary := nb' } }
-      s'.LengthsOk c →
-      (∀ F_cur, FullWitnessInv c F0 F_cur s.core → FullWitnessInv c F0 F_cur s'.core) →
+      s'.LengthsOk c → WatchStackLayout s'.core →
+      (∀ F_cur, ModeWatchesInv F_cur s.core → ModeWatchesInv F_cur s'.core) →
       (FullMem c s' ⋆ R) m' → Q () m'
 
 def fullSetInactiveSpec : Spec [i64, i32, i32] [] := fun (h, v, _flag, ()) m Q _ =>
@@ -323,26 +384,48 @@ def fullSetInactiveSpec : Spec [i64, i32, i32] [] := fun (h, v, _flag, ()) m Q _
 def fullAddUnitSpec : Spec [i64, i32] [.bool] := fun (h, lit, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
-    (lit.toNat / 2 < s.core.cur_vars →
+    (lit.toNat < 2 * s.core.cur_vars →
       (cnfOfClauses F_cur).EntailsClause (cnfClause [lit.toNat])) ∧
     (FullMem c s ⋆ R) m ∧
-    ∀ ok vals' flags' lvl' rsns' trl' tp' te' prop' cl' unfl' inc' unass' phases' ta' ba' pt' pb'
-      hp' ps' hl' qsi' qss' m',
+    ∀ (ok : Bool) vals' flags' lvl' rsns' trl' tp' te' prop' cl' unass' unfl' inc'
+      phases' ta' ba' pt' pb' hp' ps' hl' qsi' qss' m',
       let s' : FullState :=
         { s with
           core :=
             { s.core with
               vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
               trail_pos := tp', trail_end := te', propagated := prop', cur_level := cl',
-              unflushed := unfl', inconsistent := inc', unassigned := unass' }
+              unassigned := unass', unflushed := unfl', inconsistent := inc' }
           scratch :=
             { s.scratch with
               phases := phases', target_assigned := ta', best_assigned := ba',
               phases_target := pt', phases_best := pb', heap := hp', pos := ps',
               heap_len := hl', q_search_idx := qsi', q_search_stamp := qss' } }
       s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core → cl' = 0 →
-      (ok = false → s.core.cur_vars ≤ lit.toNat / 2 ∨ (F0.Unsat ∧ inc' = 1#64)) →
-      (ok = true → lit.toNat / 2 < s.core.cur_vars) →
+      (lit.toNat < 2 * s.core.cur_vars → ok = false → F0.Unsat ∧ inc' ≠ 0#64) →
+      (ok = false → 2 * s.core.cur_vars ≤ lit.toNat ∨ (F0.Unsat ∧ inc' ≠ 0#64)) →
+      (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
+
+def fullAddUnitExtSpec : Spec [i64, i32] [.bool] := fun (h, lit, ()) m Q _ =>
+  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
+    (lit.toNat < 2 * s.core.cur_vars →
+      (cnfOfClauses F_cur).EntailsClause (cnfClause [lit.toNat])) ∧
+    (FullMem c s ⋆ R) m ∧
+    ∀ (ok : Bool) vals' flags' lvl' rsns' trl' tp' te' prop' cl' unass' unfl' inc'
+      (sc' : FullScratch) m',
+      let s' : FullState :=
+        { s with
+          core :=
+            { s.core with
+              vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
+              trail_pos := tp', trail_end := te', propagated := prop', cur_level := cl',
+              unassigned := unass', unflushed := unfl', inconsistent := inc' }
+          scratch := sc' }
+      s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core → cl' = 0 →
+      FullProbeScratchPres s s' → sc'.shrink_stk = s.scratch.shrink_stk →
+      (lit.toNat < 2 * s.core.cur_vars → ok = false → F0.Unsat ∧ inc' ≠ 0#64) →
+      (ok = false → 2 * s.core.cur_vars ≤ lit.toNat ∨ (F0.Unsat ∧ inc' ≠ 0#64)) →
       (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
 def fullLuckyPolarSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
@@ -425,6 +508,25 @@ scoped macro "fbl_group" : tactic =>
       (repeat fbl_strip)
       fbl_to_group
       repeat (any_goals (fbl_strip; repeat fbl_strip); fbl_to_group)))
+
+open Lean Elab Tactic in
+/-- Step straight-line ops up to the next `Expr.jnz`, step that `jnz` once, and stop. -/
+scoped elab "fbl_split_jnz" : tactic => do
+  let rec go (fuel : Nat) : TacticM Unit := do
+    if fuel = 0 then return
+    let mut out : Array MVarId := #[]
+    for g in ← getUnsolvedGoals do
+      if ← g.isAssigned then continue
+      setGoals [g]
+      let ty ← Lean.instantiateMVars (← g.getType)
+      let isJnz := ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 &&
+        ((ty.getArg! 4).headBeta).isAppOf ``LeanQbe.T.Expr.jnz
+      if ← LeanQbe.T.C0Step.stepOnce then
+        if isJnz then out := out ++ (← getUnsolvedGoals)
+        else go (fuel - 1); out := out ++ (← getUnsolvedGoals)
+      else out := out.push g
+    setGoals out.toList
+  go 100
 
 end FullBinLuckyTactics
 

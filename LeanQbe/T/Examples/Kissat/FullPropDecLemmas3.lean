@@ -27,7 +27,7 @@ open scoped FullArenaTactics FullPropDecTactics
 open FullPropDecSpecs
 
 theorem propLit_finish {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
-    {s st : FullState} {ignore_ref : BitVec 64} {not_lit : BitVec 32}
+    {s st : FullState} {ignore_ref : BitVec 64} {not_lit : BitVec 32} {ctype0 : BitVec 64}
     {off_v p_v q_v end_v q_c : BitVec 64} {confl_v : Bool}
     {wstk_c wstk_k : List (BitVec 32)} {R : Mem 64 → Prop} {m : Mem 64} {idx1 : Nat}
     (hpi : PropLitInv c F0 F_cur s st not_lit.toNat off_v.toNat q_v.toNat p_v.toNat end_v.toNat)
@@ -40,7 +40,7 @@ theorem propLit_finish {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     (hout : ∀ k, (k < off_v.toNat ∨ end_v.toNat ≤ k) → wstk_c[k]? = st.core.wstk[k]?)
     (hkeep : ∀ i, (i < q_v.toNat + (end_v.toNat - p_v.toNat) ∨ end_v.toNat ≤ i) →
       wstk_k[i]? = wstk_c[i]?)
-    (hcf_f : confl_v = false → st.core.oom = 0#64)
+    (hcf_f : confl_v = false → st.core.oom = 0#64 ∧ st.core.confl_type = ctype0)
     (hcf_t : confl_v = true → PropLitConfl F_cur ignore_ref st.core)
     (hm : (FullMem c { st with core := { st.core with
         wstk := wstk_k, wvec := st.core.wvec.set idx1 ((q_c - off_v).setWidth 32),
@@ -58,7 +58,7 @@ theorem propLit_finish {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
       search_ticks := st_fin.scratch.search_ticks, wsort := st_fin.scratch.wsort,
       phases := st_fin.scratch.phases } ∧
     ((!confl_v) = false → PropLitConfl F_cur ignore_ref st_fin.core) ∧
-    ((!confl_v) = true → st_fin.core.oom = 0#64) ∧
+    ((!confl_v) = true → st_fin.core.oom = 0#64 ∧ st_fin.core.confl_type = ctype0) ∧
     (FullMem c st_fin ⋆ R) m := by
   intro st_fin
   have hq_ge := hpi.sw.q_ge; have hq_le := hpi.sw.q_le_p; have hp_le := hpi.sw.p_le_end

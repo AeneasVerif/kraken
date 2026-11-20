@@ -332,15 +332,42 @@ def fullWsortSiftSpec : Spec [i64, i64, i64, i64] [] :=
         FullWsortMaxHeap wvec ws' start.toNat n.toNat →
         (array (t := i32) wvec_ptr wvec ⋆ array (t := i32) ws_ptr ws' ⋆ R) m' → Q () m'
 
+/-- Parameterized scratch preservation predicate for `full_backtrack` helpers/specs. -/
+def BacktrackScrPres (withShrink : Bool) (s s' : FullState) : Prop :=
+  FullProbeScratchPres s s' ∧
+  (withShrink = true → s'.scratch.shrink_stk = s.scratch.shrink_stk)
+
+/-- Parameterized callee `Spec` for `full_save_target_best(h)`. -/
+def fullSaveTargetBestGenSpec (withShrink : Bool) : Spec [i64] [] :=
+  SafetySlice.spec fullSafetySlice (fun c (h, ()) _ => h = c.hdr)
+    (fun _ _ _ s s' => BacktrackScrPres withShrink s s')
+
+/-- Parameterized callee `Spec` for `full_heap_push(h, v)`. -/
+def fullHeapPushGenSpec (withShrink : Bool) : Spec [i64, i32] [] :=
+  SafetySlice.spec fullSafetySlice (fun c (h, _) _ => h = c.hdr)
+    (fun _ _ _ s s' => BacktrackScrPres withShrink s s')
+
 /-- Callee `Spec`: `full_save_target_best(h)` (`FullProbeScratchPres` per `#1058`). -/
 def fullSaveTargetBestSpec : Spec [i64] [] :=
   SafetySlice.spec fullSafetySlice (fun c (h, ()) _ => h = c.hdr)
     (fun _ _ _ s s' => FullProbeScratchPres s s')
 
+/-- Callee `Spec`: `full_save_target_best(h)` additionally preserving `shrink_stk`. -/
+def fullSaveTargetBestShrinkSpec : Spec [i64] [] :=
+  SafetySlice.spec fullSafetySlice (fun c (h, ()) _ => h = c.hdr)
+    (fun _ _ _ s s' =>
+      FullProbeScratchPres s s' ∧ s'.scratch.shrink_stk = s.scratch.shrink_stk)
+
 /-- Callee `Spec`: `full_heap_push(h, v)` (`FullProbeScratchPres` per `#1058`). -/
 def fullHeapPushSpec : Spec [i64, i32] [] :=
   SafetySlice.spec fullSafetySlice (fun c (h, _) _ => h = c.hdr)
     (fun _ _ _ s s' => FullProbeScratchPres s s')
+
+/-- Callee `Spec`: `full_heap_push(h, v)` additionally preserving `shrink_stk`. -/
+def fullHeapPushShrinkSpec : Spec [i64, i32] [] :=
+  SafetySlice.spec fullSafetySlice (fun c (h, _) _ => h = c.hdr)
+    (fun _ _ _ s s' =>
+      FullProbeScratchPres s s' ∧ s'.scratch.shrink_stk = s.scratch.shrink_stk)
 
 /-- Specification of `full_arena_next(h, cref)` (`FullSpec2:84-87`). -/
 def fullArenaNextSpec : Spec [i64, i32] [i32] := fun (h, cref, ()) m Q _ =>
@@ -384,7 +411,49 @@ def fullWstackDefragSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
           s'.core.wstk[fullWatchOff s' l + k]? = s.core.wstk[fullWatchOff s l + k]?) →
       (FullMem c s' ⋆ R) m' → Q () m'
 
-/-- Specification of `full_backtrack(h, target_lvl)` (`FullSpec2:257-277` + `#1058`/`#1053`). -/
+/-- Parameterized specification of `full_backtrack(h, target_lvl)`. -/
+def fullBacktrackGenSpec (withShrink : Bool) : Spec [i64, i64] [] :=
+  fun (h, target_lvl, ()) m Q _ =>
+    ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ s.LengthsOk c ∧ s.core.cur_level < 2 ^ 64 ∧
+      (target_lvl.toNat < s.core.cur_level → target_lvl.toNat < c.max_vars) ∧
+      (∀ i < s.core.trail_end, (s.core.trl[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
+      (FullMem c s ⋆ R) m ∧
+      ∀ vals' lvl' rsns' trl' tp' te' prop' cl' unass' sc' m',
+        let s' : FullState :=
+          { s with
+            core := { s.core with vals := vals', lvl := lvl', rsns := rsns', trl := trl',
+                                  trail_pos := tp', trail_end := te', propagated := prop',
+                                  cur_level := cl', unassigned := unass' }
+            scratch := sc' }
+        s'.LengthsOk c → te' ≤ s.core.trail_end → prop' ≤ te' →
+        cl' = min s.core.cur_level target_lvl.toNat → BacktrackScrPres withShrink s s' →
+        (∀ i < te', (trl'[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) →
+        (∀ l < 2 * s.core.cur_vars,
+          (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl.toNat →
+          vals'[l]?.getD 0#8 = s.core.vals[l]?.getD 0#8) →
+        (∀ v < s.core.cur_vars,
+          (s.core.lvl[v]?.getD 0#32).toNat ≤ target_lvl.toNat →
+          lvl'[v]?.getD 0#32 = s.core.lvl[v]?.getD 0#32) →
+        ((∃ F0 F_cur,
+            FullWitnessInv c F0 F_cur s.core ∨ FullOtfsWitnessInv c F0 F_cur s.core) →
+          (∀ l < 2 * s.core.cur_vars, vals'[l]?.getD 0#8 =
+            if (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl.toNat then
+              s.core.vals[l]?.getD 0#8
+            else 0#8) ∧
+          (∀ i < s.core.trail_end,
+            let v := (s.core.trl[i]?.getD 0#32).toNat / 2
+            lvl'[v]?.getD 0#32 =
+              if (s.core.lvl[v]?.getD 0#32).toNat ≤ target_lvl.toNat then
+                s.core.lvl[v]?.getD 0#32
+              else 0#32)) →
+        (∀ F0 F_cur, FullWitnessInv c F0 F_cur s.core → target_lvl.toNat ≤ s.core.cur_level →
+          FullWitnessInv c F0 F_cur s'.core) →
+        (∀ F0 F_cur, FullOtfsWitnessInv c F0 F_cur s.core → target_lvl.toNat < s.core.cur_level →
+          FullWitnessInv c F0 F_cur s'.core) →
+        (FullMem c s' ⋆ R) m' → Q () m'
+
+/-- Specification of `full_backtrack(h, target_lvl)` (`FullSpec2:257-287` + `#1058`/`#1053`). -/
 def fullBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ s.core.cur_level < 2 ^ 64 ∧
@@ -407,6 +476,60 @@ def fullBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
       (∀ v < s.core.cur_vars,
         (s.core.lvl[v]?.getD 0#32).toNat ≤ target_lvl.toNat →
         lvl'[v]?.getD 0#32 = s.core.lvl[v]?.getD 0#32) →
+      ((∃ F0 F_cur,
+          FullWitnessInv c F0 F_cur s.core ∨ FullOtfsWitnessInv c F0 F_cur s.core) →
+        (∀ l < 2 * s.core.cur_vars, vals'[l]?.getD 0#8 =
+          if (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl.toNat then
+            s.core.vals[l]?.getD 0#8
+          else 0#8) ∧
+        (∀ i < s.core.trail_end,
+          let v := (s.core.trl[i]?.getD 0#32).toNat / 2
+          lvl'[v]?.getD 0#32 =
+            if (s.core.lvl[v]?.getD 0#32).toNat ≤ target_lvl.toNat then
+              s.core.lvl[v]?.getD 0#32
+            else 0#32)) →
+      (∀ F0 F_cur, FullWitnessInv c F0 F_cur s.core → target_lvl.toNat ≤ s.core.cur_level →
+        FullWitnessInv c F0 F_cur s'.core) →
+      (∀ F0 F_cur, FullOtfsWitnessInv c F0 F_cur s.core → target_lvl.toNat < s.core.cur_level →
+        FullWitnessInv c F0 F_cur s'.core) →
+      (FullMem c s' ⋆ R) m' → Q () m'
+
+/-- Specification of `full_backtrack(h, target_lvl)` additionally preserving `shrink_stk`. -/
+def fullBacktrackShrinkSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
+  ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ s.core.cur_level < 2 ^ 64 ∧
+    (target_lvl.toNat < s.core.cur_level → target_lvl.toNat < c.max_vars) ∧
+    (∀ i < s.core.trail_end, (s.core.trl[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
+    (FullMem c s ⋆ R) m ∧
+    ∀ vals' lvl' rsns' trl' tp' te' prop' cl' unass' sc' m',
+      let s' : FullState :=
+        { s with
+          core := { s.core with vals := vals', lvl := lvl', rsns := rsns', trl := trl',
+                                trail_pos := tp', trail_end := te', propagated := prop',
+                                cur_level := cl', unassigned := unass' }
+          scratch := sc' }
+      s'.LengthsOk c → te' ≤ s.core.trail_end → prop' ≤ te' →
+      cl' = min s.core.cur_level target_lvl.toNat →
+      FullProbeScratchPres s s' → sc'.shrink_stk = s.scratch.shrink_stk →
+      (∀ i < te', (trl'[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) →
+      (∀ l < 2 * s.core.cur_vars,
+        (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl.toNat →
+        vals'[l]?.getD 0#8 = s.core.vals[l]?.getD 0#8) →
+      (∀ v < s.core.cur_vars,
+        (s.core.lvl[v]?.getD 0#32).toNat ≤ target_lvl.toNat →
+        lvl'[v]?.getD 0#32 = s.core.lvl[v]?.getD 0#32) →
+      ((∃ F0 F_cur,
+          FullWitnessInv c F0 F_cur s.core ∨ FullOtfsWitnessInv c F0 F_cur s.core) →
+        (∀ l < 2 * s.core.cur_vars, vals'[l]?.getD 0#8 =
+          if (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl.toNat then
+            s.core.vals[l]?.getD 0#8
+          else 0#8) ∧
+        (∀ i < s.core.trail_end,
+          let v := (s.core.trl[i]?.getD 0#32).toNat / 2
+          lvl'[v]?.getD 0#32 =
+            if (s.core.lvl[v]?.getD 0#32).toNat ≤ target_lvl.toNat then
+              s.core.lvl[v]?.getD 0#32
+            else 0#32)) →
       (∀ F0 F_cur, FullWitnessInv c F0 F_cur s.core → target_lvl.toNat ≤ s.core.cur_level →
         FullWitnessInv c F0 F_cur s'.core) →
       (∀ F0 F_cur, FullOtfsWitnessInv c F0 F_cur s.core → target_lvl.toNat < s.core.cur_level →

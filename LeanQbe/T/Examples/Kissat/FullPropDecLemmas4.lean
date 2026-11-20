@@ -428,7 +428,7 @@ theorem full_prop_lit_wp (Γ : Env)
       st.scratch = { s.scratch with
         search_ticks := st.scratch.search_ticks, wsort := st.scratch.wsort,
         phases := st.scratch.phases } →
-      (ok = true → st.core.oom = 0#64) →
+      (ok = true → st.core.oom = 0#64 ∧ st.core.confl_type = s.core.confl_type) →
       (ok = false → PropLitConfl F_cur ignore_ref st.core) →
       (FullMem c st ⋆ R) ml → Q (ok, ()) ml := by
     intro ok st ml hst_l hst_w hag htr hperm hsc hok_oom hcf hml
@@ -442,7 +442,8 @@ theorem full_prop_lit_wp (Γ : Env)
       st.scratch.phases ml hst_l' hst_w' htr' hperm' hok_oom ?_ hml
     intro hf; have hcf' := hcf hf; unfold PropLitConfl at hcf'; rw [hst_eq] at hcf'; exact hcf'
   have hret_noop : Q (true, ()) m :=
-    hret_st true s m hlen0 hw0 (.refl _ _) (.refl _) (.refl _) rfl (fun _ => hoom0) (by simp) hm
+    hret_st true s m hlen0 hw0 (.refl _ _) (.refl _) (.refl _) rfl (fun _ => ⟨hoom0, rfl⟩)
+      (by simp) hm
   have hvl0 := hlen0.core_ok.vals_len; have hwv0 := hlen0.core_ok.wvec_len
   unfold Func.wp full_prop_lit_body
   fp_head_steps
@@ -509,13 +510,14 @@ theorem full_prop_lit_wp (Γ : Env)
     refine wp_loop_break_group
       (fun (off_v, p_v, q_v, end_v, confl_v, ()) mb => ∃ st : FullState,
         PropLitInv c F0 F_cur s st not_lit.toNat off_v.toNat q_v.toNat p_v.toNat end_v.toNat ∧
-        (confl_v = false → st.core.oom = 0#64) ∧
+        (confl_v = false → st.core.oom = 0#64 ∧ st.core.confl_type = s.core.confl_type) ∧
         (confl_v = true → PropLitConfl F_cur ignore_ref st.core) ∧
         (FullMem c st ⋆ R) mb)
       (fun rem (off_v, p_v, q_v, end_v, ()) ml => ∃ st : FullState,
         rem = end_v.toNat - p_v.toNat ∧
         PropLitInv c F0 F_cur s st not_lit.toNat off_v.toNat q_v.toNat p_v.toNat end_v.toNat ∧
-        st.core.oom = 0#64 ∧ (FullMem c st ⋆ R) ml) ?_ ?_ ?_
+        st.core.oom = 0#64 ∧ st.core.confl_type = s.core.confl_type ∧
+        (FullMem c st ⋆ R) ml) ?_ ?_ ?_
     · -- Post-loop break/exit join `B`: Loop 2 (tail copy) -> Loop 3 (sentinel fill) -> store -> ret
       rintro _ ⟨off_v, p_v, q_v, end_v, confl_v, ⟨⟩⟩ mb ⟨st, hpi, hcf_f, hcf_t, hmb⟩
       have hnot_st : not_lit.toNat < 2 * st.core.cur_vars := hpi.cur_vars_eq.symm ▸ hnot_lt
@@ -577,11 +579,11 @@ theorem full_prop_lit_wp (Γ : Env)
             ⟨wstk_k.set k_c.toNat 0xFFFFFFFF#32, by simp [hwl3], by omega, by omega,
               propLit_loop3_step hk_ge hk_lt hkeep, hm⟩
         · have ⟨hl_f, hw_f, hag_f, htr_f, hperm_f, hsc_f, hcf_f', hoom_f, hm_f⟩ :=
-            propLit_finish hpi hdense0 hnot_st hwl3 hqfin_eq hidx1 hpre
-              (fun k hk => hsuf k (by omega)) hout hkeep hcf_f hcf_t hm
+            propLit_finish (ctype0 := s.core.confl_type) hpi hdense0 hnot_st hwl3 hqfin_eq hidx1
+              hpre (fun k hk => hsuf k (by omega)) hout hkeep hcf_f hcf_t hm
           exact hret_st (!confl_v) _ m hl_f hw_f hag_f htr_f hperm_f hsc_f hoom_f hcf_f' hm_f
     · -- Main loop body `L`: `while (p < end)`
-      rintro B L rem ⟨off_v, p_v, q_v, end_v, ⟨⟩⟩ ml hB ih ⟨st, rfl, hpi, hoom_st, hml⟩
+      rintro B L rem ⟨off_v, p_v, q_v, end_v, ⟨⟩⟩ ml hB ih ⟨st, rfl, hpi, hoom_st, hct_st, hml⟩
       have hcv_eq : st.core.cur_vars = s.core.cur_vars := hpi.cur_vars_eq
       have hnot_st : not_lit.toNat < 2 * st.core.cur_vars := hcv_eq.symm ▸ hnot_lt
       clear hc hret_noop hvl0 hwv0 hoff0_eq hsz0_eq hsz0_pos hpi0 hlen_st0 st0 hnot_f0 hm hw0 hlen0
@@ -623,7 +625,7 @@ theorem full_prop_lit_wp (Γ : Env)
         have hp1 : (p_v + 1#64).toNat = p_v.toNat + 1 := bv64_add1_toNat (by omega)
         have hq1 : (q_v + 1#64).toNat = q_v.toNat + 1 := bv64_add1_toNat (by omega)
         refine ih (end_v.toNat - (p_v + 1#64).toNat) (off_v, p_v + 1#64, q_v + 1#64, end_v, ()) m
-          (by omega) ⟨st1, rfl, ?_, hoom_st, hm⟩
+          (by omega) ⟨st1, rfl, ?_, hoom_st, hct_st, hm⟩
         exact
           { len := hlen1
             nw := fullWitnessInv_nw_congr hlen1.core_ok.cur_vars_le hpi.nw
@@ -727,7 +729,7 @@ theorem full_prop_lit_wp (Γ : Env)
         have hq1 : (q_v + 1#64).toNat = q_v.toNat + 1 := bv64_add1_toNat (by omega)
         fp_head_steps
         refine ih (end_v.toNat - (p_v + 1#64).toNat) (off_v, p_v + 1#64, q_v + 1#64, end_v, ())
-          m_as (by omega) ⟨st2, rfl, ?_, hoom_st, hm_as⟩
+          m_as (by omega) ⟨st2, rfl, ?_, hoom_st, hct_st, hm_as⟩
         exact
           { len := hlen2, nw := hnw2
             sw := by rw [hp1, hq1]; exact hsw1.with_nonwatch rfl rfl rfl rfl rfl
@@ -799,15 +801,15 @@ theorem full_prop_lit_wp (Γ : Env)
           · exact ih _ (off_v, p_v + (1 : BitVec 64) + (1 : BitVec 64), q_v, end_v, ()) m
               (by omega) ⟨_, rfl, propLit_inv_drop
                 (ticks' := st.scratch.search_ticks + (1 : BitVec 64)) hpi hsw_drop hp2_nat,
-                hoom_st, hm⟩
+                hoom_st, hct_st, hm⟩
           · exact ih _ (off_v, p_v + (1 : BitVec 64) + (1 : BitVec 64), q_v, end_v, ()) m
               (by omega) ⟨_, rfl, propLit_inv_drop
                 (ticks' := st.scratch.search_ticks + (1 : BitVec 64)) hpi hsw_drop hp2_nat,
-                hoom_st, hm⟩
+                hoom_st, hct_st, hm⟩
           · exact ih _ (off_v, p_v + (1 : BitVec 64) + (1 : BitVec 64), q_v, end_v, ()) m
               (by omega) ⟨_, rfl, propLit_inv_drop
                 (ticks' := st.scratch.search_ticks + (1 : BitVec 64)) hpi hsw_drop hp2_nat,
-                hoom_st, hm⟩
+                hoom_st, hct_st, hm⟩
           · -- Live clause: `l0 = ar[cref+3]`, `l1 = ar[cref+4]`, then join `Js_3`
             let st_t : FullState :=
               { st with scratch :=
@@ -831,14 +833,15 @@ theorem full_prop_lit_wp (Γ : Env)
             refine wp_join_group
               (fun (other, ()) mj => ∃ st1 : FullState,
                 PropLitInv c F0 F_cur s st1 not_lit.toNat off_v.toNat q_v.toNat (p_v.toNat + 2)
-                  end_v.toNat ∧ st1.core.oom = 0#64 ∧ st1.core.arena_len = st.core.arena_len ∧
+                  end_v.toNat ∧ st1.core.oom = 0#64 ∧
+                st1.core.confl_type = s.core.confl_type ∧ st1.core.arena_len = st.core.arena_len ∧
                 cref.toNat ∈ fullArenaClauseRefsCore st1.core ∧
                 fullArenaClauseGarbCore st1.core cref.toNat = false ∧
                 fullArenaClauseSizeCore st1.core cref.toNat =
                   fullArenaClauseSizeCore st.core cref.toNat ∧
                 st1.core.arena[cref.toNat + 3]? = some other ∧
                 st1.core.arena[cref.toNat + 4]? = some not_lit ∧ (FullMem c st1 ⋆ R) mj) ?_ ?_
-            · rintro _ ⟨other, ⟨⟩⟩ mj ⟨st1, hpi1, hoom1, halen1, hcr_ref1, hng1, hcsz1,
+            · rintro _ ⟨other, ⟨⟩⟩ mj ⟨st1, hpi1, hoom1, hct1, halen1, hcr_ref1, hng1, hcsz1,
                 har3, har4, hmj⟩
               have haren1 := hpi1.len.core_ok.arena_len_arr
               have halen1_le := hpi1.len.core_ok.arena_len_le
@@ -861,7 +864,8 @@ theorem full_prop_lit_wp (Γ : Env)
                 exact ih _ (off_v, p_v + (1 : BitVec 64) + (1 : BitVec 64), q_v + (2 : BitVec 64),
                     end_v, ()) m (by omega)
                   ⟨_, rfl, propLit_inv_keep_large hpi1 hpi1.sw hnot_st1 hq1_nat hq2_nat hp2_nat
-                    (by omega) (by omega) (bv32_mask7f_flag0 other) hcr_lt hcr_ref1, hoom1, hm⟩
+                    (by omega) (by omega) (bv32_mask7f_flag0 other) hcr_lt hcr_ref1,
+                    hoom1, hct1, hm⟩
               · -- `vals[other] ≤ 0`: call `full_find_repl(h, (u64)cref)`
                 have hov_np : (0#32).slt ((st1.core.vals[other.toNat]'(by omega)).signExtend 32) =
                     false := hc
@@ -881,7 +885,7 @@ theorem full_prop_lit_wp (Γ : Env)
                         q_v + (2 : BitVec 64), end_v, ()) m (by omega)
                       ⟨_, rfl, propLit_inv_keep_large hpi1 hpi1.sw hnot_st1 hq1_nat hq2_nat
                         hp2_nat (by omega) (by omega) (bv32_mask7f_flag0 other) hcr_lt hcr_ref1,
-                        hoom1, hm⟩
+                        hoom1, hct1, hm⟩
                   · -- `(u64)cref ≠ ignore_ref` and `ov < 0`: large clause conflict & break
                     have hne_ign : cref.setWidth 64 ≠ ignore_ref := by assumption
                     have hov_f := propLit_vals_neg hpi1.nw hother_lt (by omega) hc
@@ -962,7 +966,7 @@ theorem full_prop_lit_wp (Γ : Env)
                     fp_head_steps
                     refine ih _ (off_v, p_v + (1 : BitVec 64) + (1 : BitVec 64),
                       q_v + (2 : BitVec 64), end_v, ()) m_as (by omega)
-                      ⟨st3, rfl, ?_, hoom1, hm_as⟩
+                      ⟨st3, rfl, ?_, hoom1, hct1, hm_as⟩
                     exact
                       { len := hlen3, nw := hnw3
                         sw := by
@@ -1072,7 +1076,7 @@ theorem full_prop_lit_wp (Γ : Env)
                             exact propLit_measure_lt (Nat.le_trans hpi1.sw.q_ge hq_le)
                               hpi1.sw.p_le_end)
                         ⟨st4, rfl, ⟨hlen_p, hnw4, hsw4', hag4, hpi1.tr.congr rfl rfl rfl, hperm4,
-                          hsc4, hpi1.not_f⟩, hoom1, hm_p⟩
+                          hsc4, hpi1.not_f⟩, hoom1, hct1, hm_p⟩
                     · -- `pok = false` (OOM): swap back, keep watch, set `oom = 1` & break
                       have hfit4 : cref.toNat + 3 + fullArenaClauseSizeCore st4.core cref.toNat ≤
                           st1.core.arena_len := by
@@ -1102,16 +1106,17 @@ theorem full_prop_lit_wp (Γ : Env)
                       congr 1; exact h3_idx.symm)
                   (by change st.core.arena[cref.toNat + 4]'_ = l1; dsimp only [l1]; congr 1
                       exact h4_idx.symm) hm
-                exact hJ3 (l1, ()) m ⟨_, hpi1, hoom_st, rfl, href1, hng1, hcsz1, har3, har4, hm1⟩
+                exact hJ3 (l1, ()) m ⟨_, hpi1, hoom_st, hct_st, rfl, href1, hng1, hcsz1, har3,
+                  har4, hm1⟩
               · exact ih _ (off_v, p_v + (1 : BitVec 64) + (1 : BitVec 64), q_v, end_v, ()) m
                   (by omega) ⟨st_t, rfl, ⟨hlen_t, hpi.nw, by rw [hp2_nat]; exact hsw_drop, hpi.ag,
-                    hpi.tr, hpi.perm, hsc_t, hpi.not_f⟩, hoom_st, hm⟩
+                    hpi.tr, hpi.perm, hsc_t, hpi.not_f⟩, hoom_st, hct_st, hm⟩
               · let l0 := st.core.arena[(cref.setWidth 64 + (3 : BitVec 64)).toNat]'(by omega)
                 have hl1_not : st.core.arena[(cref.setWidth 64 + (4 : BitVec 64)).toNat]'(
                     by omega) = not_lit := hc
                 exact hJ3 (l0, ()) m ⟨st_t, ⟨hlen_t, hpi.nw, hsw_drop, hpi.ag,
                     hpi.tr, hpi.perm, hsc_t, hpi.not_f⟩,
-                  hoom_st, rfl, hcr_ref, hng_t, rfl,
+                  hoom_st, hct_st, rfl, hcr_ref, hng_t, rfl,
                   by change st.core.arena[cref.toNat + 3]? = some l0
                      rw [← h3_idx]; exact List.getElem?_eq_getElem (by omega),
                   by change st.core.arena[cref.toNat + 4]? = some not_lit
@@ -1120,10 +1125,11 @@ theorem full_prop_lit_wp (Γ : Env)
           · exact ih _ (off_v, p_v + (1 : BitVec 64) + (1 : BitVec 64), q_v + (2 : BitVec 64),
                 end_v, ()) m (by omega)
               ⟨_, rfl, propLit_inv_keep_large hpi hsw_drop hnot_st hq1_nat hq2_nat hp2_nat
-                (by omega) (by omega) hflag hcr_lt hcr_ref, hoom_st, hm⟩
+                (by omega) (by omega) hflag hcr_lt hcr_ref, hoom_st, hct_st, hm⟩
           · exact hJ2 () ml rfl
           · exact hJ2 () ml rfl
-      · exact hB (off_v, p_v, q_v, end_v, false, ()) ml ⟨st, hpi, fun _ => hoom_st, by simp, hml⟩
+      · exact hB (off_v, p_v, q_v, end_v, false, ()) ml
+          ⟨st, hpi, fun _ => ⟨hoom_st, hct_st⟩, by simp, hml⟩
     · intro _ L _ hL; fp_head_steps
       have hoff_bd := hwat0.layout.bounds not_lit.toNat hnot_lt
       have hwlen_le := hlen0.core_ok.wlen_le
@@ -1150,6 +1156,6 @@ theorem full_prop_lit_wp (Γ : Env)
             (1 : BitVec 64)).toNat]'h2).setWidth 64).toNat =
           fullWatchOffCore s.core not_lit.toNat + fullWatchSizeCore s.core not_lit.toNat :=
         fun _ _ => hend_nat
-      refine hL _ _ m ⟨st0, rfl, ?_, hoom0, hm⟩; rw [hend_g, hoff_g]; exact hpi0
+      refine hL _ _ m ⟨st0, rfl, ?_, hoom0, rfl, hm⟩; rw [hend_g, hoff_g]; exact hpi0
 
 end LeanQbe.T.Examples.Kissat.Full

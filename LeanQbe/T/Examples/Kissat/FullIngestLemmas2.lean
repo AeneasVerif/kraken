@@ -48,14 +48,13 @@ private theorem fullWitnessInv_subst_lvl_rsns {c : FullCfg} {F0 : CNF Nat}
     trail_lits_lt := hw.trail_lits_lt, trail_vars_nodup := hw.trail_vars_nodup,
     vals_domain := hw.vals_domain, vals_true_iff := hw.vals_true_iff,
     vals_false_iff := hw.vals_false_iff,
-    lvl_le := fun i hi => by have h := hw.lvl_le i hi; rw [hlvl i hi]; exact h,
+    lvl_le := fun i hi => by simpa [hlvl i hi] using hw.lvl_le i hi,
     dec_earliest := fun i j hi hj hleq hdec => by
       have h := hw.dec_earliest i j hi hj
       rw [hlvl i hi, hlvl j hj] at hleq; rw [hlvl j hj, hrsn j hj] at hdec; exact h hleq hdec,
-    levels_inhabited := fun L h1 h2 => by
-      obtain ⟨i, hi, heq⟩ := hw.levels_inhabited L h1 h2
-      exact ⟨i, hi, by rw [hlvl i hi]; exact heq⟩,
-    level0_sound := fun i hi hl0 => by rw [hlvl i hi] at hl0; exact hw.level0_sound i hi hl0,
+    levels_inhabited := fun L h1 h2 =>
+      let ⟨i, hi, heq⟩ := hw.levels_inhabited L h1 h2; ⟨i, hi, by rw [hlvl i hi]; exact heq⟩,
+    level0_sound := fun i hi hl0 => hw.level0_sound i hi (by simpa [hlvl i hi] using hl0),
     trail_pos_inv := hw.trail_pos_inv,
     level0_rsn_none := fun idx hidx hl0 => by
       rw [hlvl idx hidx] at hl0; rw [hrsn idx hidx]; exact hw.level0_rsn_none idx hidx hl0,
@@ -186,19 +185,13 @@ private theorem fullBtStepEq_init {s : FullState} {target_lvl q_start : Nat}
   intro hdist
   have hke : fullBtKeep s target_lvl q_start q_start = s.core.trl.take q_start := by
     unfold fullBtKeep; simp
+  have hno : ∀ w, ¬ ∃ j, q_start ≤ j ∧ j < q_start ∧
+      (s.core.trl[j]?.getD 0#32).toNat / 2 = w ∧
+      target_lvl < (s.core.lvl[w]?.getD 0#32).toNat := fun _ ⟨_, h1, h2, _⟩ => by omega
   refine ⟨by rw [hke, List.length_take, Nat.min_eq_left (by omega)], fun i hi => ?_,
-    fun i hi => ?_, fun l _ => ?_, fun v _ => ?_, fun v _ => ?_⟩
-  · rw [hke, List.getElem?_take]; simp [hi]
-  · exact hdist.2 i (by omega)
-  · simp [show ¬ ∃ j, q_start ≤ j ∧ j < q_start ∧
-      (s.core.trl[j]?.getD 0#32).toNat / 2 = l / 2 ∧
-      target_lvl < (s.core.lvl[l / 2]?.getD 0#32).toNat by rintro ⟨j, hj1, hj2, _⟩; omega]
-  · simp [show ¬ ∃ j, q_start ≤ j ∧ j < q_start ∧
-      (s.core.trl[j]?.getD 0#32).toNat / 2 = v ∧
-      target_lvl < (s.core.lvl[v]?.getD 0#32).toNat by rintro ⟨j, hj1, hj2, _⟩; omega]
-  · simp [show ¬ ∃ j, q_start ≤ j ∧ j < q_start ∧
-      (s.core.trl[j]?.getD 0#32).toNat / 2 = v ∧
-      target_lvl < (s.core.lvl[v]?.getD 0#32).toNat by rintro ⟨j, hj1, hj2, _⟩; omega]
+    fun i hi => hdist.2 i (by omega), fun l _ => by simp [hno (l / 2)],
+    fun v _ => by simp [hno v], fun v _ => by simp [hno v]⟩
+  rw [hke, List.getElem?_take]; simp [hi]
 
 private theorem fullBtStepEq_keep_ex {s : FullState} {target_lvl q_start p w : Nat}
     (hp : p < s.core.trail_end) (hte : s.core.trail_end ≤ s.core.trl.length)
@@ -382,8 +375,7 @@ private def btAuxList (c : FullCfg) (s : FullState) (target_lvl : Nat)
 
 private theorem btAuxList_len (c : FullCfg) (s : FullState) (target_lvl : Nat)
     (arr' arr0 : List (BitVec 32)) (df : BitVec 32) :
-    (btAuxList c s target_lvl arr' arr0 df).length = c.max_vars := by
-  simp [btAuxList]
+    (btAuxList c s target_lvl arr' arr0 df).length = c.max_vars := by simp [btAuxList]
 
 private theorem btAuxList_get (c : FullCfg) (s : FullState) (target_lvl q_start : Nat)
     (arr' arr0 : List (BitVec 32)) (df : BitVec 32)
@@ -453,10 +445,8 @@ private theorem le_of_surj_range1 {m k : Nat} (f : Nat → Nat)
     have ht' := List.mem_range.mp ht
     obtain ⟨i, hi, heq⟩ := h (t + 1) (by omega) (by omega)
     exact List.mem_map.mpr ⟨i, List.mem_range.mpr hi, heq⟩
-  have hnd : ys.Nodup := nodup_map_succ (List.range m) List.nodup_range
-  have hlen := hnd.length_le_of_subset hsub
-  simp only [ys, xs, List.length_map, List.length_range] at hlen
-  exact hlen
+  have hlen := (nodup_map_succ (List.range m) List.nodup_range).length_le_of_subset hsub
+  simpa only [ys, xs, List.length_map, List.length_range] using hlen
 
 private theorem chronoBacktrack_of_otfs {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s : FullState} (hlen0 : s.LengthsOk c) (hw : FullOtfsWitnessInv c F0 F_cur s.core)
@@ -786,6 +776,81 @@ private theorem chronoBacktrack_of_otfs {c : FullCfg} {F0 : CNF Nat} {F_cur : Li
         rw [htrl_idx idx hidx] at hkp
         exact hw.reason_lit_mem_below _ (hkept_lt idx hidx) (by omega) hne hlg }
 
+private theorem full_backtrack_noop_clear_of_otfs {c : FullCfg} {F0 : CNF Nat}
+    {F_cur : List (List Nat)} {s : FullState} {target_lvl : Nat}
+    (hw : FullOtfsWitnessInv c F0 F_cur s.core) (hle : s.core.cur_level ≤ target_lvl) :
+    (∀ l < 2 * s.core.cur_vars, s.core.vals[l]?.getD 0#8 =
+      if (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl then s.core.vals[l]?.getD 0#8
+      else 0#8) ∧
+    (∀ i < s.core.trail_end,
+      let v := (s.core.trl[i]?.getD 0#32).toNat / 2
+      s.core.lvl[v]?.getD 0#32 =
+        if (s.core.lvl[v]?.getD 0#32).toNat ≤ target_lvl then s.core.lvl[v]?.getD 0#32
+        else 0#32) :=
+  ⟨fun l hl => by
+    by_cases hlv : (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl
+    · simp [hlv]
+    · simp only [hlv, ↓reduceIte]
+      exact (otfs_vals_zero_iff hw hl).mpr fun i hi heq => by
+        have := hw.lvl_le i hi; rw [heq] at this; omega,
+   fun i hi => by
+    have hli := hw.lvl_le i hi; dsimp only; rw [ite_eq_left (by omega)]⟩
+
+private theorem full_backtrack_clear_of_otfs {c : FullCfg} {F0 : CNF Nat}
+    {F_cur : List (List Nat)} {s : FullState}
+    {target_lvl trail_end' q_start : Nat}
+    {vals' : List (BitVec 8)} {lvl' rsns' trl' tp' : List (BitVec 32)}
+    (hw : FullOtfsWitnessInv c F0 F_cur s.core) (hlt : target_lvl < s.core.cur_level)
+    (hq_def : q_start =
+      min (s.core.frame_trail[target_lvl + 1]?.getD 0#32).toNat s.core.trail_end)
+    (hstep : FullBtStepEq s target_lvl q_start trail_end' s.core.trail_end
+      vals' lvl' rsns' trl' tp') :
+    (∀ i < s.core.trail_end,
+      target_lvl < (s.core.lvl[(s.core.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat →
+      q_start ≤ i) ∧
+    (∀ l < 2 * s.core.cur_vars, vals'[l]?.getD 0#8 =
+      if (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl then s.core.vals[l]?.getD 0#8
+      else 0#8) ∧
+    (∀ i < s.core.trail_end,
+      let v := (s.core.trl[i]?.getD 0#32).toNat / 2
+      lvl'[v]?.getD 0#32 =
+        if (s.core.lvl[v]?.getD 0#32).toNat ≤ target_lvl then s.core.lvl[v]?.getD 0#32
+        else 0#32) := by
+  open Classical in
+  have hon : ∀ i < s.core.trail_end,
+      target_lvl < (s.core.lvl[(s.core.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat →
+      q_start ≤ i := fun i _ hgt => by
+    rcases Nat.lt_or_ge i q_start with hi_q | hge
+    · rw [hq_def] at hi_q
+      have hbf := hw.frame_trail_before_lt (target_lvl + 1) (by omega) hlt i (by omega)
+      omega
+    · exact hge
+  refine ⟨hon, fun l hl => ?_, fun i hi => ?_⟩
+  · rw [hstep.2.2.2.1 l hl]
+    by_cases hlv : (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl
+    · simp only [hlv, ↓reduceIte]
+      rw [ite_eq_right (fun ⟨_, _, _, _, hbad⟩ => absurd hbad (by omega))]
+    · have hgt : target_lvl < (s.core.lvl[l / 2]?.getD 0#32).toNat := by omega
+      simp only [hlv, ↓reduceIte]
+      by_cases hex : ∃ j, q_start ≤ j ∧ j < s.core.trail_end ∧
+          (s.core.trl[j]?.getD 0#32).toNat / 2 = l / 2 ∧
+          target_lvl < (s.core.lvl[l / 2]?.getD 0#32).toNat
+      · simp only [hex, ↓reduceIte]
+      · simp only [hex, ↓reduceIte]; apply (otfs_vals_zero_iff hw hl).mpr
+        intro i hi hveq; apply hex; exact ⟨i, hon i hi (by rwa [hveq]), hi, hveq, hgt⟩
+  · have hv_lt : (s.core.trl[i]?.getD 0#32).toNat / 2 < s.core.cur_vars :=
+      Nat.div_lt_of_lt_mul (hw.trail_lits_lt i hi)
+    dsimp only; rw [hstep.2.2.2.2.1 _ hv_lt]
+    by_cases hlv :
+        (s.core.lvl[(s.core.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ target_lvl
+    · simp only [hlv, ↓reduceIte]
+      exact ite_eq_right (fun ⟨_, _, _, _, hbad⟩ => absurd hbad (by omega))
+    · simp only [hlv, ↓reduceIte]
+      have hgt :
+          target_lvl < (s.core.lvl[(s.core.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat := by
+        omega
+      exact ite_eq_left ⟨i, hon i hi hgt, hi, rfl, hgt⟩
+
 private theorem full_backtrack_preserves_otfsWitness {c : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {s : FullState}
     {target_lvl trail_end' propagated' q_start : Nat}
@@ -817,29 +882,7 @@ private theorem full_backtrack_preserves_otfsWitness {c : FullCfg} {F0 : CNF Nat
   have hq_le : q_start ≤ s.core.trail_end := by rw [hq_def]; exact Nat.min_le_right _ _
   let lvlAux := btAuxList c s target_lvl lvl' s.core.lvl 0#32
   let rsnsAux := btAuxList c s target_lvl rsns' s.core.rsns 0xFFFFFFFF#32
-  have hon : ∀ i < s.core.trail_end,
-      target_lvl < (s.core.lvl[(s.core.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat →
-      q_start ≤ i := fun i _ hgt => by
-    rcases Nat.lt_or_ge i q_start with hi_q | hge
-    · rw [hq_def] at hi_q
-      have hbf := hw.frame_trail_before_lt (target_lvl + 1) (by omega) hlt i (by omega)
-      omega
-    · exact hge
-  have hvals_eq : ∀ l < 2 * s.core.cur_vars, vals'[l]?.getD 0#8 =
-      if (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl then s.core.vals[l]?.getD 0#8
-      else 0#8 := by
-    intro l hl; rw [hstep.2.2.2.1 l hl]
-    by_cases hlv : (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl
-    · simp only [hlv, ↓reduceIte]
-      rw [ite_eq_right (fun ⟨_, _, _, _, hbad⟩ => absurd hbad (by omega))]
-    · have hgt : target_lvl < (s.core.lvl[l / 2]?.getD 0#32).toNat := by omega
-      simp only [hlv, ↓reduceIte]
-      by_cases hex : ∃ j, q_start ≤ j ∧ j < s.core.trail_end ∧
-          (s.core.trl[j]?.getD 0#32).toNat / 2 = l / 2 ∧
-          target_lvl < (s.core.lvl[l / 2]?.getD 0#32).toNat
-      · simp only [hex, ↓reduceIte]
-      · simp only [hex, ↓reduceIte]; apply (otfs_vals_zero_iff hw hl).mpr
-        intro i hi hveq; apply hex; exact ⟨i, hon i hi (by rwa [hveq]), hi, hveq, hgt⟩
+  obtain ⟨hon, hvals_eq, _⟩ := full_backtrack_clear_of_otfs hw hlt hq_def hstep
   have hkeep_eq : fullBtKeep s target_lvl q_start s.core.trail_end =
       let qs := min (s.core.frame_trail[target_lvl + 1]?.getD 0#32).toNat s.core.trail_end
       s.core.trl.take qs ++ ((s.core.trl.take s.core.trail_end).drop qs).filter fun lit =>
@@ -953,12 +996,25 @@ private theorem full_backtrack_preserves_otfsWitness {c : FullCfg} {F0 : CNF Nat
 
 /-! ## 2. `full_backtrack` `Func.wp` proof -/
 
-theorem full_backtrack_wp (Γ : Env)
-    (hSave : ∀ a m Q X, fullSaveTargetBestSpec a m Q X →
+private theorem backtrackScrPres_step {w : Bool} {s s1 s2 : FullState} {coreU : FullCoreState}
+    (h1 : BacktrackScrPres w s s1)
+    (h2 : BacktrackScrPres w { core := coreU, scratch := s1.scratch } s2) :
+    BacktrackScrPres w s s2 :=
+  ⟨h1.1.trans h2.1, fun hw => (h2.2 hw).trans (h1.2 hw)⟩
+
+private theorem backtrackScrPres_qsearch {w : Bool} {s st : FullState}
+    {qi qs : BitVec 64} (h : BacktrackScrPres w s st) :
+    BacktrackScrPres w s
+      { st with scratch := { st.scratch with q_search_idx := qi, q_search_stamp := qs } } :=
+  ⟨h.1, fun hw => h.2 hw⟩
+
+private theorem full_backtrack_wp_gen (withShrink : Bool) (Γ : Env)
+    (hSave : ∀ a m Q X, fullSaveTargetBestGenSpec withShrink a m Q X →
       Γ "full_save_target_best" [i64] [] a m Q X)
-    (hHeapPush : ∀ a m Q X, fullHeapPushSpec a m Q X →
+    (hHeapPush : ∀ a m Q X, fullHeapPushGenSpec withShrink a m Q X →
       Γ "full_heap_push" [i64, i32] [] a m Q X) :
-    ∀ a m Q X, fullBacktrackSpec a m Q X → Func.wp Γ full_backtrack_body a m Q X := by
+    ∀ a m Q X, fullBacktrackGenSpec withShrink a m Q X →
+      Func.wp Γ full_backtrack_body a m Q X := by
   rintro ⟨h, target_lvl, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hcl64, htgt_mx, htrl_lits, hm, hQ⟩
   have hcl := hlen.core_ok; have hsl := hlen.scratch_ok
   have hmx : c.max_vars < 2 * dimacsBound := c.hmaxv; unfold dimacsBound at hmx
@@ -970,8 +1026,9 @@ theorem full_backtrack_wp (Γ : Env)
     exact hQ s.core.vals s.core.lvl s.core.rsns s.core.trl s.core.trail_pos s.core.trail_end
       s.core.propagated s.core.cur_level s.core.unassigned s.scratch m hlen hte_self
       hcl.propagated_le (Nat.min_eq_left hle).symm
-      ⟨⟨rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+      ⟨⟨⟨rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, fun _ => rfl⟩
       htrl_lits (fun _ _ _ => rfl) (fun _ _ _ => rfl)
+      (fun ⟨_, _, hw⟩ => full_backtrack_noop_clear_of_otfs (hw.elim FullWitnessInv.toOtfs id) hle)
       (fun _ _ hw _ => hw) (fun _ _ _ hlt => False.elim (by omega)) hm
   · have htgt_lt : target_lvl.toNat < s.core.cur_level := by
       rw [Nat.mod_eq_of_lt hcl64] at hc; omega
@@ -1009,7 +1066,7 @@ theorem full_backtrack_wp (Γ : Env)
               { core := { s.core with vals := vals1, lvl := lvl1, rsns := rsns1, trl := trl1,
                                       trail_pos := tp1, unassigned := unass1 }
                 scratch := scL }
-            sL.LengthsOk c ∧ FullProbeScratchPres s sL ∧
+            sL.LengthsOk c ∧ BacktrackScrPres withShrink s sL ∧
             (∀ i, p.toNat ≤ i → trl1[i]? = s.core.trl[i]?) ∧
             (∀ i < q.toNat, (trl1[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
             (∀ l < 2 * s.core.cur_vars,
@@ -1070,7 +1127,7 @@ theorem full_backtrack_wp (Γ : Env)
                   { core := { s.core with vals := valsK, lvl := lvlK, rsns := rsnsK,
                                           trl := trlK, trail_pos := tpK, unassigned := unassK }
                     scratch := scK }
-                sK.LengthsOk c ∧ FullProbeScratchPres s sK ∧
+                sK.LengthsOk c ∧ BacktrackScrPres withShrink s sK ∧
                 (∀ i, p.toNat + 1 ≤ i → trlK[i]? = s.core.trl[i]?) ∧
                 (∀ i < q'.toNat, (trlK[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
                 (∀ l < 2 * s.core.cur_vars,
@@ -1131,7 +1188,7 @@ theorem full_backtrack_wp (Γ : Env)
                 c0_to_group
                 refine wp_join_group
                   (fun _ mS => ∃ scS : FullScratch, scS.LengthsOk c ∧
-                    FullProbeScratchPres s { core := coreU, scratch := scS } ∧
+                    BacktrackScrPres withShrink s { core := coreU, scratch := scS } ∧
                     (FullMem c { core := coreU, scratch := scS } ⋆ R) mS)
                   ?_ ?_
                 · rintro _ _ mS ⟨scS, hslS, hscrS, hmS⟩
@@ -1191,7 +1248,7 @@ theorem full_backtrack_wp (Γ : Env)
                     rcases sS with ⟨cS, scS⟩; dsimp only at hcS; subst hcS
                     full_steps
                     exact hJS () mS ⟨scS, hlenS.scratch_ok,
-                      (hscrL : FullProbeScratchPres s { s with scratch := scL }).trans hscrS, hmS⟩
+                      backtrackScrPres_step hscrL hscrS, hmS⟩
                   · c0_split
                     · full_steps
                       exact hJS () _ ⟨{ scL with
@@ -1199,7 +1256,8 @@ theorem full_backtrack_wp (Γ : Env)
                         q_search_stamp :=
                           (scL.q_stamp[((trl1[p.toNat]'hlit_1_lt >>> 1).setWidth 64).toNat]'(by
                             omega)).setWidth 64 },
-                        { hslL with wsort_len := hslL.wsort_len }, hscrL, by assumption⟩
+                        { hslL with wsort_len := hslL.wsort_len },
+                        backtrackScrPres_qsearch hscrL, by assumption⟩
                     · full_steps; exact hJS () _ ⟨scL, hslL, hscrL, by assumption⟩
               · intro JU hJU; clear hQ hJQ_out hstepL hremL htrl_q_lits; c0_split
                 · full_steps; exact hJU () _ ⟨unass1 + 1, by assumption⟩
@@ -1290,6 +1348,10 @@ theorem full_backtrack_wp (Γ : Env)
                 (min (min s.core.propagated q_start) q.toNat) target_lvl.toNat unass1 scL m
                 hlenF hqp (Nat.min_le_right _ _) (Nat.min_eq_right (le_of_lt htgt_lt)).symm
                 hscrL htrl_q_lits hvals_lowL hlvl_fin
+                (fun ⟨_, _, hw⟩ =>
+                  let hot := hw.elim FullWitnessInv.toOtfs id
+                  (full_backtrack_clear_of_otfs hot htgt_lt hqs_eq
+                    (hstepL ⟨hot.trail_vars_nodup, hot.trail_pos_inv⟩)).2)
                 (fun F0 F_cur hw0 _ =>
                   full_backtrack_preserves_otfsWitness hlen (FullWitnessInv.toOtfs hw0)
                     htgt_lt hqs_eq hlenF (hstepL ⟨hw0.trail_vars_nodup, hw0.trail_pos_inv⟩))
@@ -1341,5 +1403,48 @@ theorem full_backtrack_wp (Γ : Env)
         exact hJQ _ _ ⟨by
           rw [Nat.min_eq_left hle_q, zext_toNat _ (by decide), ← htl1,
             List.getElem?_eq_getElem (by omega), Option.getD_some], rfl⟩
+
+private theorem adapt_save_false {Γ : Env}
+    (hSave : ∀ a m Q X, fullSaveTargetBestSpec a m Q X →
+      Γ "full_save_target_best" [i64] [] a m Q X) :
+    ∀ a m Q X, fullSaveTargetBestGenSpec false a m Q X →
+      Γ "full_save_target_best" [i64] [] a m Q X :=
+  fun a m Q X ⟨c, s, R, hc, hl, hm, hQ⟩ => hSave a m Q X
+    ⟨c, s, R, hc, hl, hm, fun r s' m' hc' hl' hp' => hQ r s' m' hc' hl' ⟨hp', fun h => by cases h⟩⟩
+
+private theorem adapt_hp_false {Γ : Env}
+    (hHeapPush : ∀ a m Q X, fullHeapPushSpec a m Q X →
+      Γ "full_heap_push" [i64, i32] [] a m Q X) :
+    ∀ a m Q X, fullHeapPushGenSpec false a m Q X → Γ "full_heap_push" [i64, i32] [] a m Q X :=
+  fun a m Q X ⟨c, s, R, hc, hl, hm, hQ⟩ => hHeapPush a m Q X
+    ⟨c, s, R, hc, hl, hm, fun r s' m' hc' hl' hp' => hQ r s' m' hc' hl' ⟨hp', fun h => by cases h⟩⟩
+
+theorem full_backtrack_wp (Γ : Env)
+    (hSave : ∀ a m Q X, fullSaveTargetBestSpec a m Q X →
+      Γ "full_save_target_best" [i64] [] a m Q X)
+    (hHeapPush : ∀ a m Q X, fullHeapPushSpec a m Q X →
+      Γ "full_heap_push" [i64, i32] [] a m Q X) :
+    ∀ a m Q X, fullBacktrackSpec a m Q X → Func.wp Γ full_backtrack_body a m Q X :=
+  fun a m Q X ⟨c, s, R, hc, hl, hcl, ht, htr, hm, hQ⟩ =>
+    full_backtrack_wp_gen false Γ (adapt_save_false hSave) (adapt_hp_false hHeapPush) a m Q X
+      ⟨c, s, R, hc, hl, hcl, ht, htr, hm, fun v l rs tr tp te pr cl un sc m' hl' hte' hp' hcl'
+        hscr' => hQ v l rs tr tp te pr cl un sc m' hl' hte' hp' hcl' hscr'.1⟩
+
+theorem full_backtrack_shrink_wp (Γ : Env)
+    (hSave : ∀ a m Q X, fullSaveTargetBestShrinkSpec a m Q X →
+      Γ "full_save_target_best" [i64] [] a m Q X)
+    (hHeapPush : ∀ a m Q X, fullHeapPushShrinkSpec a m Q X →
+      Γ "full_heap_push" [i64, i32] [] a m Q X) :
+    ∀ a m Q X, fullBacktrackShrinkSpec a m Q X → Func.wp Γ full_backtrack_body a m Q X :=
+  fun a m Q X ⟨c, s, R, hc, hl, hcl, ht, htr, hm, hQ⟩ =>
+    full_backtrack_wp_gen true Γ
+      (fun a m' Q' X' ⟨c1, s1, R1, hc1, hl1, hm1, hk⟩ => hSave a m' Q' X'
+        ⟨c1, s1, R1, hc1, hl1, hm1,
+          fun r s' m'' hc' hl' hp' => hk r s' m'' hc' hl' ⟨hp'.1, fun _ => hp'.2⟩⟩)
+      (fun a m' Q' X' ⟨c1, s1, R1, hc1, hl1, hm1, hk⟩ => hHeapPush a m' Q' X'
+        ⟨c1, s1, R1, hc1, hl1, hm1,
+          fun r s' m'' hc' hl' hp' => hk r s' m'' hc' hl' ⟨hp'.1, fun _ => hp'.2⟩⟩)
+      a m Q X ⟨c, s, R, hc, hl, hcl, ht, htr, hm, fun v l rs tr tp te pr cl un sc m' hl' hte' hp'
+        hcl' hscr' => hQ v l rs tr tp te pr cl un sc m' hl' hte' hp' hcl' hscr'.1 (hscr'.2 rfl)⟩
 
 end LeanQbe.T.Examples.Kissat.Full

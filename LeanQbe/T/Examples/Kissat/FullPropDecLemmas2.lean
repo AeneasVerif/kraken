@@ -1072,7 +1072,7 @@ theorem SplitWatchesInv.finish {c : FullCfg} {F_cur : List (List Nat)} {k0 : Ful
 
 /-- Conflict/OOM witness predicate for `full_prop_lit` (`ok = false` postcondition). -/
 def PropLitConfl (F_cur : List (List Nat)) (ignore_ref : BitVec 64) (k : FullCoreState) : Prop :=
-  k.oom ≠ 0#64 ∨ (FullConflAt F_cur k ∧ (k.confl_type = 2#64 → k.confl_ref ≠ ignore_ref))
+  k.oom ≠ 0#64 ∨ (FullConflOkW F_cur k ∧ (k.confl_type = 2#64 → k.confl_ref ≠ ignore_ref))
 
 theorem PropLitConfl.congr {F_cur : List (List Nat)} {ignore_ref : BitVec 64}
     {k k' : FullCoreState} (h : PropLitConfl F_cur ignore_ref k)
@@ -1087,7 +1087,7 @@ theorem PropLitConfl.congr {F_cur : List (List Nat)} {ignore_ref : BitVec 64}
     unfold fullArenaClauseGarbCore fullArenaHdrCore; rw [har]
   have hlt : ∀ r, fullArenaClauseLitsCore k' r = fullArenaClauseLitsCore k r := fun r => by
     unfold fullArenaClauseLitsCore fullArenaClauseSizeCore; rw [har]
-  unfold PropLitConfl FullConflAt at h ⊢
+  unfold PropLitConfl FullConflOkW at h ⊢
   rw [hoom, hct, hcr, hc0, hc1, hv, hcv, href, hgb, hlt]
   exact h
 
@@ -1382,7 +1382,8 @@ theorem propLit_large_confl {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat
               wstk := st2.core.wstk, confl_type := 2#64, confl_ref := cref.setWidth 64 })
             tr := hpi1.tr.congr rfl rfl rfl, perm := hpi1.perm
             sc_eq := hpi1.sc_eq, not_f := hpi1.not_f },
-    Or.inr ⟨Or.inr ⟨rfl, by change (cref.setWidth 64).toNat ∈ _; rwa [hcr64],
+    Or.inr ⟨Or.inr ⟨by show (2#64 : BitVec 64) ≠ 1#64; decide,
+      by change (cref.setWidth 64).toNat ∈ _; rwa [hcr64],
       by change fullArenaClauseGarbCore st1.core (cref.setWidth 64).toNat = false; rwa [hcr64],
       fun l hl => by
         change st1.core.vals[l]?.getD 0#8 = 0xFF#8
