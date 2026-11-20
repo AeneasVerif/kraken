@@ -191,6 +191,8 @@ u64 full_arena_sweep(FullHdr *h) {
   }
   h->arena_len = dst; h->arena_garbage = 0ULL;
   h->first_reducible = first_red; h->num_irred = irred; h->num_redundant = redd;
+  u32 *ll = (u32 *)h->last_learned; u64 li = 0ULL;
+  while (li < 16ULL) { ll[li] = 0xFFFFFFFFu; li = li + 1ULL; }
   if (unsat) { return 2ULL; }
   if (h->oom != 0ULL) { return 3ULL; }
   if (!full_rewatch_arena(h, dst)) { return 3ULL; }
@@ -823,6 +825,9 @@ void full_eager_subsume(FullHdr *h, u64 new_ref) {
   u32 *tmp = (u32 *)h->tmp_lits;
   u32 *ar = (u32 *)h->arena;
   u32 *ll = (u32 *)h->last_learned;
+  i8 *vals = (i8 *)h->values;
+  u32 *lvl = (u32 *)h->level;
+  u32 *rsns = (u32 *)h->reason;
   u64 tlen = h->tmp_len;
   u64 i = 0ULL;
   while (i < tlen) { lm[tmp[i]] = (u8)1; i = i + 1ULL; }
@@ -841,10 +846,19 @@ void full_eager_subsume(FullHdr *h, u64 new_ref) {
           j = j + 1u;
         }
         if (need == 0ULL) {
-          ar[cr] = hdr | PH_GARB;
-          h->arena_garbage = h->arena_garbage + 3ULL + (u64)csz;
-          ll[i] = 0xFFFFFFFFu;
-          h->eager_sub_cnt = h->eager_sub_cnt + 1ULL;
+          bool act = false; u32 rj = 0u;
+          while (rj < csz) {
+            u32 rl = ar[(u64)cr + 3ULL + (u64)rj];
+            if ((u64)rl < (h->cur_vars << 1) && vals[rl] > (i8)0 &&
+                lvl[rl >> 1] > 0u && rsns[rl >> 1] == cr) { act = true; break; }
+            rj = rj + 1u;
+          }
+          if (!act) {
+            ar[cr] = hdr | PH_GARB;
+            h->arena_garbage = h->arena_garbage + 3ULL + (u64)csz;
+            ll[i] = 0xFFFFFFFFu;
+            h->eager_sub_cnt = h->eager_sub_cnt + 1ULL;
+          }
         }
       }
     }
@@ -1254,7 +1268,7 @@ bool full_extend_push_cl(FullHdr *h, u32 blk_lit, u32 cref) {
   if ((u64)cref + 3ULL > h->arena_len) { return false; }
   u32 sz = ar[(u64)cref + 2ULL];
   if ((u64)cref + 3ULL + (u64)sz > h->arena_len) { return false; }
-  if (h->extend_len + (u64)sz > h->extend_cap) { return false; }
+  if (h->extend_len + (u64)sz + 1ULL > h->extend_cap) { return false; }
   u32 *ext = (u32 *)h->extend_stk;
   u64 p = h->extend_len;
   ext[p] = (blk_lit & PW_LIT_MASK) | EXT_BLK_FLAG;
