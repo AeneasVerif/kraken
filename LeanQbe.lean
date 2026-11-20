@@ -203,6 +203,8 @@ public import LeanQbe.T.Examples.Kissat.FullCongLemmas
 public import LeanQbe.T.Examples.Kissat.FullBveVarLemmas1
 public import LeanQbe.T.Examples.Kissat.FullBveVarLemmas2
 public import LeanQbe.T.Examples.Kissat.FullBveVarLemmas
+public import LeanQbe.T.Examples.Kissat.FullVivTopLemmas1
+public import LeanQbe.T.Examples.Kissat.FullVivTopLemmas
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
