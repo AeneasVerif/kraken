@@ -214,6 +214,9 @@ public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas3
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas1
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas2
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas
+public import LeanQbe.T.Examples.Kissat.FullLearnAnaLemmas1
+public import LeanQbe.T.Examples.Kissat.FullLearnAnaLemmas2
+public import LeanQbe.T.Examples.Kissat.FullLearnAnaLemmas
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
