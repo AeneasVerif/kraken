@@ -43,10 +43,14 @@ abbrev SavedXmm (t s : MachineData) : Prop :=
   ∧ s.zmms.get (.xmm .mm15) = t.zmms.get (.xmm .mm15)
 
 /-- Conditions that hold on procedure entry directly after a call (with `d` bytes of reserved stack).
-Note the shadow space reserved above rsp. Note that the conventions appear to require df = 0 only on
-entry to "C Runtime Library calls and Windows system calls". -/
+Note the shadow space reserved above rsp.
+
+Microsoft's documentation requires `df = 0` only on entry to "C Runtime Library calls and
+Windows system calls", but MSVC, clang-cl and `gcc -mabi=ms` all assume `df = 0` on entry to any
+procedure, so we require it here (otherwise ~every procedure would need to assume `df = 0` on its
+own to satisfy `CallPost`.) -/
 abbrev CallPre (d : Nat) (R : Mem 64 → Prop) (ra : Int64) (t : MachineData) : Prop :=
-  EntryAligned t
+  EntryAligned t ∧ t.df = false
   ∧ (t.dmem =⋆ RetCell ra (t.regs.get64 .rsp)
       ⋆ (Shadow (t.regs.get64 .rsp) ⋆ (Reserve d (t.regs.get64 .rsp) ⋆ R)))
 

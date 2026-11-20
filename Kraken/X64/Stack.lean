@@ -79,8 +79,6 @@ theorem Owned.split (i j : Nat) (a : BitVec 64) (h : i + j ≤ 2 ^ 64) :
 /-- `d` bytes of free stack just below `r`. -/
 abbrev Reserve (d : Nat) (r : BitVec 64) : Mem 64 → Prop := Owned d (r - .ofNat 64 d)
 
-theorem Reserve.zero (r : BitVec 64) : Reserve 0 r = emp := Owned.zero _
-
 /-- The 32 bytes above the return-address slot at `r` (the Windows x64 shadow space). -/
 abbrev Shadow (r : BitVec 64) : Mem 64 → Prop := Owned 32 (r + 8)
 

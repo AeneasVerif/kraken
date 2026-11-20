@@ -1,8 +1,9 @@
 module
 
+import Kraken.Tactics
 import Kraken.X64.Parser
-public import Kraken.X64.WP.Call
-import Kraken.X64.Examples.CallConv.RunStep
+import Kraken.X64.Sep
+public import Kraken.X64.ProcSpec
 public import Kraken.X64.Win64
 
 /-!
@@ -13,6 +14,7 @@ The same procedures as `CallConv.SysVInc`, but under `Kraken.X64.Win64`: the arg
 before reading it back.
 -/
 
+open Kraken (WellFormedLayout)
 open Kraken.X64.Parser
 open Kraken.X64.Stack
 open Kraken.X64.Win64
@@ -22,68 +24,12 @@ public section
 
 namespace CallConv.Win64Inc
 
-def inc_body : Program := ⸨prog|
+def prog : Program := ⸨prog|
 win64_inc:
   movq %rcx, 8(%rsp)
   movq 8(%rsp), %rax
   addq $1, %rax
-  ret⸩
-
-variable [Host]
-
--- Although the ABI doesn't require it, we'll insist on `df = false` on entry.
-abbrev IncSpec (d : Nat) (entry : Int64) : Prop :=
-  Host.exe.ProcSpec entry
-    (fun (x : BitVec 64 × (Mem 64 → Prop)) ra t => CallPre d x.2 ra t ∧ t.df = false ∧ ArgU64 t x.1)
-    (fun x ra t s => CallPost d x.2 ra t s ∧ RetU64 s (x.1 + 1))
-
-theorem inc_spec {j : Nat} (hj : inc_body.IsInfixAt Host.prog j)
-    (hfirst : ∀ i, i < j → Host.prog[i]? ≠ some (.label "win64_inc")) :
-    IncSpec 0 (label "win64_inc") := by
-  rw [Host.label_addrOf hj.cons.1 hfirst]
-  rintro ⟨n, R⟩ ra t ⟨⟨-, hmem⟩, hdf, harg⟩
-  have h1 := hj.cons.2
-  have h2 := h1.cons.2
-  have h3 := h2.cons.2
-  have h4 := h3.cons.2
-  run_step hj
-  rw [Shadow_split, sep_assoc, sep_comm_l] at hmem
-  obtain ⟨bs, hbs, hmem⟩ := Owned.elim hmem
-  have hslot := Mem.loadInt_sep bs _ 8 _ _ hmem hbs (by decide)
-  have hmem' := Mem.storeInt_sep _ 8 bs _ _ ⟨hmem, hbs⟩ (t.regs.get64 .rcx).toInt
-  have hhome := Mem.loadInt_sep _ _ 8 _ _ hmem' (Int.toBytes_length _ _) (by decide)
-  rw [sep_comm_l] at hmem'
-  have hret := Mem.loadInt_sep _ _ 8 _ _ hmem' (Int.toBytes_length _ _) (by decide)
-  have e8 : Int64.toBitVec 8 = 8 := rfl
-  -- movq %rcx, 8(%rsp)
-  run_step h1 [AddrExpr.interp_reg_disp, e8]
-  refine Effects.All_store (w := .W64) (by rw [hslot]; rfl) ?_
-  simp only [Effects.All]
-  -- movq 8(%rsp), %rax
-  run_step h2 [AddrExpr.interp_reg_disp, e8]
-  refine Effects.All_load (w := .W64) hhome ?_
-  simp only [Effects.All]
-  rw [show BitVec.ofInt Width.W64.bits (Int.ofBytes (Int.toBytes 8 (t.regs.get64 .rcx).toInt))
-    = t.regs.get64 .rcx from BitVec.ofInt_ofBytes_toBytes 64 8 rfl _]
-  -- addq $1, %rax
-  run_step h3
-  -- ret
-  run_step h4 [Reg64s.get64_set64, reduceCtorEq, ite_false]
-  refine Effects.All_load (w := .W64) hret ?_
-  simp only [Effects.All]
-  refine Eventually.done _ ⟨?_, ?_, ?_⟩
-  · show Int64.ofBitVec (BitVec.ofInt 64 _) = ra
-    rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, Int64.ofBitVec_toBitVec]
-  · refine ⟨?_, hdf, ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, ?_⟩
-    any_goals simp [Reg64s.get64_set64]
-    refine Owned.intro (sep_mono (fun _ h => h) (fun m hm => ?_) hmem') (Int.toBytes_length _ _)
-    rw [Shadow_split, sep_assoc]
-    exact Owned.intro hm (Int.toBytes_length _ _)
-  · simp only [RetU64, Reg64s.get64_set64, reduceCtorEq, ite_false, ite_true]
-    rw [show t.regs.get64 .rcx = n from harg, BitVec.add_comm]
-    rfl
-
-def caller : Program := ⸨prog|
+  ret
 win64_caller:
   -- Allocate the shadow space (32 bytes) and align the stack (8 more bytes).
   subq $40, %rsp
@@ -91,80 +37,116 @@ win64_caller:
   addq $40, %rsp
   ret⸩
 
-omit [Host] in
+variable [WellFormedLayout prog]
+
+/-- The address of label `l` in `prog`. -/
+abbrev lbl (l : String) : Int64 := @Labels.label (Executable.labels prog.toExecutable) l
+
+abbrev IncSpec (d : Nat) (entry : Int64) : Prop :=
+  prog.toExecutable.ProcSpec entry
+    (fun (x : BitVec 64 × (Mem 64 → Prop)) ra t => CallPre d x.2 ra t ∧ ArgU64 t x.1)
+    (fun x ra t s => CallPost d x.2 ra t s ∧ RetU64 s (x.1 + 1))
+
+theorem inc_spec : IncSpec 0 (lbl "win64_inc") := by
+  rintro ⟨n, R⟩ ra t ⟨⟨-, hdf, hmem⟩, harg⟩
+  rw [Shadow_split, sep_assoc, sep_comm_l] at hmem
+  obtain ⟨bs, hbs, hmem⟩ := Owned.elim hmem
+  simp only [Reg64s.get64] at hmem harg
+  have e8 : ∀ x : BitVec 64, x + 8 = BitVec.ofInt 64 (x.toInt + 8) := fun x => by
+    simp [BitVec.ofInt_add]
+  rw [e8] at hmem
+  have hmem' := Mem.storeInt_sep _ 8 bs _ _ ⟨hmem, hbs⟩ t.regs.rcx.toBitVec.toInt
+  have hmem'' := hmem'
+  rw [sep_comm_l] at hmem''
+  sym =>
+  kstep 1
+  case h_mem => tactic => simp; exact hmem
+  case h_len => exact hbs
+  kstep 1
+  case h_mem => tactic => simp; exact hmem'
+  case h_len => exact Int.toBytes_length _ _
+  kstep
+  case h_mem => tactic => simp (config := { zetaDelta := true }); exact hmem''
+  case h_len => exact Int.toBytes_length _ _
+  kstep 0
+  tactic =>
+  refine Eventually.done _ ⟨?_, ⟨?_, hdf, ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩,
+    ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, ?_⟩, ?_⟩
+  · rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, Int64.ofBitVec_toBitVec]
+  · simp (config := { zetaDelta := true })
+  · simp only [← e8] at hmem''
+    simp only [Nat.shiftRight_zero, BitVec.ofNat_toNat, BitVec.setWidth_eq, Int.add_zero]
+    rw [show Int64.toInt 8 = 8 from rfl, ← e8]
+    show (Owned 8 _ ⋆ (Shadow _ ⋆ _)) _
+    refine Owned.intro (sep_mono (fun _ h => h) (fun m hm => ?_) hmem'') (Int.toBytes_length _ _)
+    rw [Shadow_split, sep_assoc]
+    exact Owned.intro hm (Int.toBytes_length _ _)
+  · simp only [Reg64s.get64] at harg
+    simp (config := { zetaDelta := true }) [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, harg,
+      BitVec.add_comm]
+
+omit [WellFormedLayout prog] in
 /-- The caller's 48-byte reservation: the callee's return-address slot, its shadow space, and the padding. -/
 private theorem frame_eq (r : BitVec 64) :
-    Reserve 48 r = Owned 8 (r - 48) ⋆ (Shadow (r - 48) ⋆ Owned 8 (r - 8)) := by
+    Reserve 48 r = Owned 8 (r - 40 - 8) ⋆ (Shadow (r - 40 - 8) ⋆ Owned 8 (r - 8)) := by
   rw [Reserve, show (48 : Nat) = 8 + (32 + 8) from rfl, Owned.split 8 _ _ (by omega),
-    Owned.split 32 8 _ (by omega)]
+    Owned.split 32 8 _ (by omega), show r - 40 - 8 = r - BitVec.ofNat 64 48 by bv_omega]
   congr 3 <;> bv_omega
 
-theorem caller_spec {c : Nat} (hc : caller.IsInfixAt Host.prog c)
-    (hcfirst : ∀ i, i < c → Host.prog[i]? ≠ some (.label "win64_caller"))
-    (hinc : IncSpec 0 (label "win64_inc")) :
-    IncSpec 48 (label "win64_caller") := by
-  rw [Host.label_addrOf hc.cons.1 hcfirst]
-  rintro ⟨n, R⟩ ra t ⟨⟨hal, hmem⟩, hdf, harg⟩
-  have h1 := hc.cons.2
-  have h2 := h1.cons.2
-  have h3 := h2.cons.2
-  have h4 := h3.cons.2
+theorem caller_spec (hinc : IncSpec 0 (lbl "win64_inc")) : IncSpec 48 (lbl "win64_caller") := by
+  rintro ⟨n, R⟩ ra t ⟨⟨hal, hdf, hmem⟩, harg⟩
   rw [frame_eq] at hmem
   dsimp only at hmem
-  have hmem : t.dmem =⋆ Owned 8 (t.regs.get64 .rsp - 48) ⋆ (Shadow (t.regs.get64 .rsp - 48)
-      ⋆ (RetCell ra (t.regs.get64 .rsp) ⋆ (Shadow (t.regs.get64 .rsp)
-        ⋆ (Owned 8 (t.regs.get64 .rsp - 8) ⋆ R)))) :=
+  replace hmem : t.dmem =⋆ Owned 8 (t.regs.get64 .rsp - 40 - 8)
+      ⋆ (Shadow (t.regs.get64 .rsp - 40 - 8) ⋆ (RetCell ra (t.regs.get64 .rsp)
+        ⋆ (Shadow (t.regs.get64 .rsp) ⋆ (Owned 8 (t.regs.get64 .rsp - 8) ⋆ R)))) :=
     cast (congrFun (by ac_rfl) _) hmem
-  have e40 : BitVec.truncate Width.W64.bits (Int64.toBitVec 40) = 40 := rfl
-  have e48 : ∀ r : BitVec 64, r - 40 - 8 = r - 48 := fun _ => by bv_omega
-  have eal : ∀ r : BitVec 64, r.toNat % 16 = 8 → (r - 48).toNat % 16 = 8 := fun _ _ => by bv_omega
-  have eret : ∀ r : BitVec 64, 40 + (r - 48 + 8) = r := fun _ => by bv_omega
-  run_step hc
-  -- subq $40, %rsp
-  run_step h1 [e40]
-  -- call win64_inc
-  refine Host.run_wp h2 ?_
-  refine hinc.wp_call_owned
-    (n, RetCell ra (t.regs.get64 .rsp) ⋆ (Shadow (t.regs.get64 .rsp)
-      ⋆ (Owned 8 (t.regs.get64 .rsp - 8) ⋆ R)))
-    (by simpa only [Reg64s.get64_set64_self, e48]) ?_ ?_
-  · intro ra' hpushed
-    refine ⟨⟨?_, ?_⟩, by simpa using hdf, ?_⟩
-    · simp only [EntryAligned, MachineData.get64_pushRa, ite_true, Reg64s.get64_set64_self, e48]
-      exact eal _ hal
-    · simpa only [MachineData.get64_pushRa, ite_true, Reserve.zero, emp_sep,
-        Reg64s.get64_set64_self, e48] using hpushed
-    · simpa only [ArgU64, MachineData.get64_pushRa, reduceCtorEq, ite_false,
-        Reg64s.get64_set64_ne _ (show Reg64.rsp ≠ .rcx by decide)] using harg
-  · rintro ra' s' ⟨⟨hrsp, hdf', hsaved, hxmm, hm⟩, hret⟩
-    simp only [MachineData.get64_pushRa, ite_true, Reg64s.get64_set64_self, e48, Reserve.zero,
-      emp_sep] at hrsp hm
-    have er : 40 + s'.regs.get64 .rsp = t.regs.get64 .rsp := by rw [hrsp]; exact eret _
-    replace hm : s'.dmem =⋆ Owned 8 (t.regs.get64 .rsp - 48) ⋆ (Shadow (t.regs.get64 .rsp - 48)
-        ⋆ (RetCell ra (t.regs.get64 .rsp) ⋆ (Shadow (t.regs.get64 .rsp)
-          ⋆ (Owned 8 (t.regs.get64 .rsp - 8) ⋆ R)))) := hm
-    have hm' : s'.dmem =⋆ RetCell ra (t.regs.get64 .rsp) ⋆ (Shadow (t.regs.get64 .rsp)
-        ⋆ (Owned 8 (t.regs.get64 .rsp - 48) ⋆ (Shadow (t.regs.get64 .rsp - 48)
-          ⋆ (Owned 8 (t.regs.get64 .rsp - 8) ⋆ R)))) :=
-      cast (congrFun (by ac_rfl) _) hm
-    have hretld := Mem.loadInt_sep _ _ 8 _ _ hm' (Int.toBytes_length _ _) (by decide)
-    -- addq $40, %rsp
-    run_step h3 [e40]
-    -- ret
-    run_step h4 [er]
-    refine Effects.All_load (w := .W64) hretld ?_
-    simp only [Effects.All]
-    refine Eventually.done _ ⟨?_, ⟨?_, hdf', ?_, ?_, ?_⟩, ?_⟩
-    · show Int64.ofBitVec (BitVec.ofInt 64 _) = ra
-      rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, Int64.ofBitVec_toBitVec]
-    · simp
-    · obtain ⟨hbx, hbp, hdi, hsi, h12, h13, h14, h15⟩ := hsaved
-      simp_all [SavedRegs, Reg64s.get64_set64]
-    · simpa [SavedXmm] using hxmm
-    · refine Owned.intro (bs := Int.toBytes 8 ra.toBitVec.toInt) ?_ (Int.toBytes_length _ _)
-      rw [frame_eq]
-      simp only [RetCell] at hm'
-      exact cast (congrFun (by ac_rfl) _) hm'
-    · simpa [RetU64, Reg64s.get64_set64] using hret
+  obtain ⟨bs, hbs, hmem⟩ := Owned.elim hmem
+  simp only [Reg64s.get64] at hmem hal harg
+  sym =>
+  kstep 2
+  case h_mem => tactic => simp (config := { zetaDelta := true }); exact hmem
+  case h_len => exact hbs
+  kstep 0
+  tactic =>
+  rename_i v st r
+  have hr : r = t.regs.rsp.toBitVec - 40 - 8 := by simp (config := { zetaDelta := true })
+  clear_value v st r
+  subst hr
+  have hpush := Mem.storeInt_sep _ 8 bs _ _ ⟨hmem, hbs⟩ (prog.toExecutable.addrOf 8).toBitVec.toInt
+  refine eventually_trans _ _ _ _
+    (hinc (n, RetCell ra t.regs.rsp.toBitVec ⋆ (Shadow t.regs.rsp.toBitVec
+        ⋆ (Owned 8 (t.regs.rsp.toBitVec - 8) ⋆ R)))
+      (prog.toExecutable.addrOf 8) _ ⟨⟨?_, hdf, ?_⟩, harg⟩) ?_
+  · simp only [Reg64s.get64] at hal ⊢
+    bv_omega
+  · simp only [Reg64s.get64, Owned.zero, emp_sep]
+    exact hpush
+  rintro ⟨s', pc⟩ ⟨hpc, ⟨hrsp, hdf', hsaved, hxmm, hm⟩, hret⟩
+  dsimp only at hpc hdf' hrsp hsaved hm hret
+  subst hpc
+  simp only [Reg64s.get64, Owned.zero, emp_sep] at hrsp hsaved hm hret
+  have er : t.regs.rsp.toBitVec = 40 + s'.regs.rsp.toBitVec := by rw [hrsp]; bv_omega
+  have hm' : s'.dmem =⋆ RetCell ra t.regs.rsp.toBitVec ⋆ (Owned 8 (t.regs.rsp.toBitVec - 40 - 8)
+      ⋆ (Owned 32 (t.regs.rsp.toBitVec - 40 - 8 + 8) ⋆ (Shadow t.regs.rsp.toBitVec
+        ⋆ (Owned 8 (t.regs.rsp.toBitVec - 8) ⋆ R)))) :=
+    cast (congrFun (by ac_rfl) _) hm
+  have hret' := hm'
+  rw [er] at hret'
+  sym =>
+  kstep
+  case h_mem => tactic => simp (config := { zetaDelta := true }); exact hret'
+  case h_len => exact Int.toBytes_length _ _
+  kstep 0
+  tactic =>
+  obtain ⟨hbx, hbp, hdi, hsi, h12, h13, h14, h15⟩ := hsaved
+  refine Eventually.done _
+    ⟨?_, ⟨?_, hdf', ⟨hbx, hbp, hdi, hsi, h12, h13, h14, h15⟩, hxmm, ?_⟩, hret⟩
+  · rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, Int64.ofBitVec_toBitVec]
+  · simp (config := { zetaDelta := true }) [er]
+  · show (Owned 8 _ ⋆ (Shadow _ ⋆ (Reserve 48 _ ⋆ R))) s'.dmem
+    rw [frame_eq]
+    simp only [Shadow] at hm' ⊢
+    exact Owned.intro (cast (congrFun (by ac_rfl) _) hm') (Int.toBytes_length _ _)
 
 end CallConv.Win64Inc

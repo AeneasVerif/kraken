@@ -35,31 +35,6 @@ open Kraken (Layout WellFormedLayout)
   dsimp only [require_access]
   split <;> rfl
 
-/-! ### Memory accesses at a mapped address
-
-Backward rules for stepping a load or store by hand (`refine Effects.All_load h ?_`). -/
-
-theorem Effects.All_store {s : MachineData} {addr : BitVec 64} {w : Width} {v : w.type}
-    {ret : MachineData → Effects} {post : MachineState → Prop}
-    (h : (Mem.loadInt s.dmem addr w.bytes).isSome)
-    (hk : (ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }).All post) :
-    (s.store addr v ret).All post := by
-  unfold MachineData.store
-  rw [Effects.All_require_write_access]
-  obtain ⟨i, hi⟩ := Option.isSome_iff_exists.mp h
-  simp only [hi]
-  exact hk
-
-theorem Effects.All_load {s : MachineData} {addr : BitVec 64} {w : Width} {i : Int}
-    {ret : w.type → MachineData → Effects} {post : MachineState → Prop}
-    (h : Mem.loadInt s.dmem addr w.bytes = some i)
-    (hk : (ret (.ofInt _ i) s).All post) :
-    (s.load addr w ret).All post := by
-  unfold MachineData.load
-  rw [Effects.All_require_read_access]
-  simp only [h]
-  exact hk
-
 theorem Effects.All_storeAvx {s : MachineData} {addr : BitVec 64} {w : AvxWidth} {v : w.type}
     {ret : MachineData → Effects} {post : MachineState → Prop} {checkAlign : Bool}
     (ha : checkAlign → isAligned w.bytes addr)
