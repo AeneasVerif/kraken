@@ -356,6 +356,21 @@ info: ⸨prog|
 #guard_msgs (whitespace := lax) in
 #check ⸨prog| leaq 16(%rbp, %rcx, 4), %rax ⸩
 
+-- Test: an index register with no base register
+/--
+info: ⸨prog|
+  lea (, %rax, 8), %rdx⸩ : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog| leaq (, %rax, 8), %rdx ⸩
+
+/--
+info: ⸨prog|
+  movq 16(, %rcx, 4), %rax⸩ : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog| movq 16(,%rcx,4), %rax ⸩
+
 /--
 info: ⸨prog|
   lea 16(%ebp, %ecx, 4), %rax⸩ : List _root_.Directive
