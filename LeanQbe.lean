@@ -166,6 +166,9 @@ public import LeanQbe.T.Examples.Kissat.PlainReduceLemmas2
 public import LeanQbe.T.Examples.Kissat.PlainReduceLemmas3
 public import LeanQbe.T.Examples.Kissat.PlainReduceLemmas4
 public import LeanQbe.T.Examples.Kissat.PlainReduceLemmas
+public import LeanQbe.T.Examples.Kissat.PlainSearchLemmas1
+public import LeanQbe.T.Examples.Kissat.PlainSearchLemmas
+public import LeanQbe.T.Examples.Kissat.PlainLemmas
 public import LeanQbe.T.Examples.Kissat.Full1
 public import LeanQbe.T.Examples.Kissat.Full2
 public import LeanQbe.T.Examples.Kissat.Full3

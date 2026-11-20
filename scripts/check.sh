@@ -18,13 +18,13 @@
 #     complete line fails: Lean breaks a long report over several lines, and then it cannot be read.
 #     So does a headline theorem without a report, and a headline.txt that is missing or lists none.
 #  5. Standalone re-elaboration timing (enabled when `CHECK_TIMES=1`, skipped by default): checks
-#     CPU time of the five largest `*Lemmas*.lean` files and of the six files whose check makes
-#     the kernel run the whole compiler on LratBytes, Kissat, and KissatCorePlus
-#     (LeanQbe/T/{Amd64,Arm64}/{LratBytes,Kissat,KissatCorePlus}.lean). Printed for the record;
-#     only a file that fails to check fails this step. Step 1 (`lake build --wfail`) always
-#     enforces Lean's default `200,000` `maxHeartbeats` on every modified module (including
-#     `compiled_check` via `t_kernel_rfl` in those six files), while `CHECK_TIMES=1` enables
-#     standalone Step 5 re-elaboration timing (typically ~40 to 105 s CPU for the native certs).
+#     CPU time of the five largest `*Lemmas*.lean` files and of the native compiler-cert modules
+#     for LratBytes, Kissat, KissatCorePlus, and KissatPlain
+#     (LeanQbe/T/{Amd64,Arm64}/{LratBytes,Kissat,KissatCorePlus,KissatPlainCert1,KissatPlainCert,KissatPlain}.lean).
+#     Printed for the record; only a file that fails to check fails this step. Step 1
+#     (`lake build --wfail`) always enforces Lean's default `200,000` `maxHeartbeats` on every
+#     modified module (including `compiled_check` via `t_kernel_rfl`), while `CHECK_TIMES=1`
+#     enables standalone Step 5 re-elaboration timing.
 #
 # Every command runs under `timeout`. Exit code 0 iff all checks pass.
 set -uo pipefail
@@ -160,6 +160,9 @@ if [ "${CHECK_TIMES:-0}" = "1" ]; then
   { echo LeanQbe/T/Amd64/LratBytes.lean; echo LeanQbe/T/Arm64/LratBytes.lean
     echo LeanQbe/T/Amd64/Kissat.lean; echo LeanQbe/T/Arm64/Kissat.lean
     echo LeanQbe/T/Amd64/KissatCorePlus.lean; echo LeanQbe/T/Arm64/KissatCorePlus.lean
+    echo LeanQbe/T/Amd64/KissatPlainCert1.lean; echo LeanQbe/T/Arm64/KissatPlainCert1.lean
+    echo LeanQbe/T/Amd64/KissatPlainCert.lean; echo LeanQbe/T/Arm64/KissatPlainCert.lean
+    echo LeanQbe/T/Amd64/KissatPlain.lean; echo LeanQbe/T/Arm64/KissatPlain.lean
     git ls-files 'LeanQbe/*Lemmas*.lean' 'LeanQbe/**/*Lemmas*.lean' | sort -u | xargs wc -l \
       | grep -v ' total$' | sort -rn | head -n 5 | awk '{print $2}'; } >"$TMP/timed.txt"
   : >"$TMP/times.txt"

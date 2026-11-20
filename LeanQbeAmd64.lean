@@ -26,6 +26,7 @@ public import LeanQbe.T.Amd64.Kissat
 public import LeanQbe.T.Amd64.KissatCorePlus
 public import LeanQbe.T.Amd64.KissatPlainCert1
 public import LeanQbe.T.Amd64.KissatPlainCert
+public import LeanQbe.T.Amd64.KissatPlain
 public import LeanQbe.T.Amd64.KissatFullCert1
 public import LeanQbe.T.Amd64.KissatFullCert2
 public import LeanQbe.T.Amd64.KissatFullCert3
