@@ -741,3 +741,5 @@ LeanQbeTest.T.MainLinkArm64Test LeanQbeTest.T.MainLinkArm64Test.link_labels_ok
 LeanQbeTest.T.MainLinkArm64Test LeanQbeTest.T.MainLinkArm64Test.twoChunk_run_ret1_sep
 LeanQbeTest.T.MainLinkArm64Test LeanQbeTest.T.MainLinkArm64Test.threeChunk_link_check
 LeanQbeTest.T.MainLinkArm64Test LeanQbeTest.T.MainLinkArm64Test.threeChunk_run_ret1_sep
+LeanQbe.T.LeanLCNF.Lower1 LeanQbe.T.LeanLCNF.lcnfFns_wf
+LeanQbeTest.T.LeanLCNFTest LeanQbeTest.T.LeanLCNFTest.lcnf_demo_wf
