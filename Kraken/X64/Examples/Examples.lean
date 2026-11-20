@@ -299,7 +299,7 @@ theorem p6_correct [layout : WellFormedLayout p6] (s₀ : MachineData)
       ⟨s₀, layout.start⟩ := by
   kprologue p6 with s₀
   have h_bs : stack.length = 8 := h_len
-  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec - 8#64) 8 stack R mem ⟨h_mem, h_bs⟩ rax.toBitVec.toInt
+  have h_mem1 := Mem.storeInt_sep (s₀.regs.rsp.toBitVec - 8#64) 8 stack R s₀.dmem ⟨h_mem, h_bs⟩ s₀.regs.rax.toBitVec.toInt
   sym =>
   kstep
   tactic =>
@@ -410,13 +410,12 @@ theorem move_2_regs_to_heap_correct [layout : WellFormedLayout move_2_regs_to_he
 
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
   have h_bs2 : v2.toBytes.length = 8 := UInt64.toBytes_length v2
-  have h_mem1 := Mem.storeInt_sep rdi.toBitVec 8 v1.toBytes (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ R) mem ⟨by ecancel, h_bs1⟩ rax.toBitVec.toInt
-  have h_mem1' : (Eq (v2.At (rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
-  have h_mem2 := Mem.storeInt_sep (rdi.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ rcx.toBitVec.toInt
-  have h_mem2' : (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi) ⋆ (Eq ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
-  have h_mem2'' : (Eq ((Int.toBytes 8 rcx.toBitVec.toInt).At (rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 rax.toBitVec.toInt).At rdi.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
-  simp at h_mem
-  sym =>
+  have h_mem1 := Mem.storeInt_sep s₀.regs.rdi.toBitVec 8 v1.toBytes (Eq (v2.At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ R) s₀.dmem ⟨by ecancel, h_bs1⟩ s₀.regs.rax.toBitVec.toInt
+  have h_mem1' : (Eq (v2.At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 s₀.regs.rax.toBitVec.toInt).At s₀.regs.rdi) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
+  have h_mem2 := Mem.storeInt_sep (s₀.regs.rdi.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ s₀.regs.rcx.toBitVec.toInt
+  have h_mem2' : (Eq ((Int.toBytes 8 s₀.regs.rax.toBitVec.toInt).At s₀.regs.rdi) ⋆ (Eq ((Int.toBytes 8 s₀.regs.rcx.toBitVec.toInt).At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
+  have h_mem2'' : (Eq ((Int.toBytes 8 s₀.regs.rcx.toBitVec.toInt).At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 s₀.regs.rax.toBitVec.toInt).At s₀.regs.rdi.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
+    sym =>
   -- TODO: these would be prime examples for cancellation!
   -- TODO: the kstep tactic is supposed to apply `exact`, but `exact` only applies after `simp`, so
   -- clearly, stuff is missing from the simp-set in `kstep`
@@ -454,8 +453,7 @@ theorem sib_example_correct [layout : WellFormedLayout sib_example] (s₀ : Mach
       ⟨s₀, layout.start⟩ := by
   kprologue sib_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
-  simp at h_mem
-  have h_mem' := Mem.storeInt_sep (rdi.toBitVec + BitVec.ofInt 64 (r15.toBitVec.toInt * 8)) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
+    have h_mem' := Mem.storeInt_sep (s₀.regs.rdi.toBitVec + BitVec.ofInt 64 (s₀.regs.r15.toBitVec.toInt * 8)) 8 v.toBytes R s₀.dmem ⟨h_mem, h_bs⟩ 42
   sym =>
   kstep
   case h_mem => tactic => simp; exact h_mem
@@ -482,7 +480,7 @@ theorem alu_mem_example_correct [layout : WellFormedLayout alu_mem_example] (s�
       ⟨s₀, layout.start⟩ := by
   kprologue alu_mem_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
-  have h_mem1 := Mem.storeInt_sep (rdx.toBitVec + 136#64) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
+  have h_mem1 := Mem.storeInt_sep (s₀.regs.rdx.toBitVec + 136#64) 8 v.toBytes R s₀.dmem ⟨h_mem, h_bs⟩ 42
   sym =>
   kstep
   case h_mem => tactic => simp; exact h_mem
@@ -529,19 +527,19 @@ theorem dynamic_stack_example_correct [layout : WellFormedLayout dynamic_stack_e
   have h_len_drop : (stack.drop 1016).length = 8 := by
     rw [List.length_drop]
     rw [h_bs]
-  have h_At_append := Mem.At_append_sep (w := 64) (stack.take 1016) (stack.drop 1016) (rsp.toBitVec - 1024#64) (by
+  have h_At_append := Mem.At_append_sep (w := 64) (stack.take 1016) (stack.drop 1016) (s₀.regs.rsp.toBitVec - 1024#64) (by
     rw [h_len_take, h_len_drop]
     decide)
-  change (Eq ((stack.take 1016 ++ stack.drop 1016).At (rsp.toBitVec - 1024#64)) ⋆ R) mem at h_mem
+  change (Eq ((stack.take 1016 ++ stack.drop 1016).At (s₀.regs.rsp.toBitVec - 1024#64)) ⋆ R) s₀.dmem at h_mem
   rw [h_At_append] at h_mem
   rw [sep_assoc] at h_mem
-  have h_addr_eq : rsp.toBitVec - 1024#64 + BitVec.ofNat 64 (stack.take 1016).length = rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8) := by
+  have h_addr_eq : s₀.regs.rsp.toBitVec - 1024#64 + BitVec.ofNat 64 (stack.take 1016).length = s₀.regs.rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8) := by
     rw [h_len_take]
-    change rsp.toBitVec - 1024#64 + 1016#64 = rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)
+    change s₀.regs.rsp.toBitVec - 1024#64 + 1016#64 = s₀.regs.rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)
     bv_decide
   rw [h_addr_eq] at h_mem
-  replace h_mem : (Eq ((stack.drop 1016).At (rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8))) ⋆ (Eq ((stack.take 1016).At (rsp.toBitVec - 1024#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem
-  have h_mem1 := Mem.storeInt_sep (rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)) 8 (stack.drop 1016) (Eq ((stack.take 1016).At (rsp.toBitVec - 1024#64)) ⋆ R) mem ⟨h_mem, h_len_drop⟩ 99
+  replace h_mem : (Eq ((stack.drop 1016).At (s₀.regs.rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8))) ⋆ (Eq ((stack.take 1016).At (s₀.regs.rsp.toBitVec - 1024#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem
+  have h_mem1 := Mem.storeInt_sep (s₀.regs.rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)) 8 (stack.drop 1016) (Eq ((stack.take 1016).At (s₀.regs.rsp.toBitVec - 1024#64)) ⋆ R) s₀.dmem ⟨h_mem, h_len_drop⟩ 99
 
   sym =>
   kstep

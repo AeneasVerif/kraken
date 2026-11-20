@@ -121,11 +121,11 @@ theorem controlflow_jump_correct [layout : WellFormedLayout controlflow_jump] (d
   sym => kstep; tactic =>
   rename_i v v1
   have : v1 = 1 := by grind
-  simp [this]
+  simp only [this, show ((1 : BitVec 64) != 0) = true from rfl, eq_self, ↓reduceIte]
   sym => kstep; tactic =>
   rename_i v2
   have : v2 = 0 := by grind
-  simp [this]
+  simp only [this, show ((0 : BitVec 64) != 0) = false from rfl, Bool.false_eq_true, ↓reduceIte]
   sym => kstep; tactic =>
   refine .done _ ⟨rfl, ?_⟩
   simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl]
@@ -158,12 +158,11 @@ theorem move_2_regs_to_heap_correct [layout : WellFormedLayout move_2_regs_to_he
 
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
   have h_bs2 : v2.toBytes.length = 8 := UInt64.toBytes_length v2
-  have h_mem1 := Mem.storeInt_sep X2.toBitVec 8 v1.toBytes (Eq (v2.At (X2.toBitVec + 8#64)) ⋆ R) mem ⟨by ecancel, h_bs1⟩ X0.toBitVec.toInt
-  have h_mem1' : (Eq (v2.At (X2.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 X0.toBitVec.toInt).At X2) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
-  have h_mem2 := Mem.storeInt_sep (X2.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ X1.toBitVec.toInt
-  have h_mem2' : (Eq ((Int.toBytes 8 X0.toBitVec.toInt).At X2) ⋆ (Eq ((Int.toBytes 8 X1.toBitVec.toInt).At (X2.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
-  have h_mem2'' : (Eq ((Int.toBytes 8 X1.toBitVec.toInt).At (X2.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 X0.toBitVec.toInt).At X2.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
-  simp at h_mem
+  have h_mem1 := Mem.storeInt_sep s₀.regs.X2.toBitVec 8 v1.toBytes (Eq (v2.At (s₀.regs.X2.toBitVec + 8#64)) ⋆ R) s₀.dmem ⟨by ecancel, h_bs1⟩ s₀.regs.X0.toBitVec.toInt
+  have h_mem1' : (Eq (v2.At (s₀.regs.X2.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 s₀.regs.X0.toBitVec.toInt).At s₀.regs.X2) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
+  have h_mem2 := Mem.storeInt_sep (s₀.regs.X2.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ s₀.regs.X1.toBitVec.toInt
+  have h_mem2' : (Eq ((Int.toBytes 8 s₀.regs.X0.toBitVec.toInt).At s₀.regs.X2) ⋆ (Eq ((Int.toBytes 8 s₀.regs.X1.toBitVec.toInt).At (s₀.regs.X2.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
+  have h_mem2'' : (Eq ((Int.toBytes 8 s₀.regs.X1.toBitVec.toInt).At (s₀.regs.X2.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 s₀.regs.X0.toBitVec.toInt).At s₀.regs.X2.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
   sym =>
   kstep
   case h_mem => tactic => simp; ecancel
@@ -202,7 +201,7 @@ theorem reg_offset_example_correct [layout : WellFormedLayout reg_offset_example
   kprologue reg_offset_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   simp at h_mem
-  have h_mem' := Mem.storeInt_sep (X1.toBitVec + BitVec.ofInt 64 (X2.toBitVec.toNat <<< 3)) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
+  have h_mem' := Mem.storeInt_sep (s₀.regs.X1.toBitVec + BitVec.ofInt 64 (s₀.regs.X2.toBitVec.toNat <<< 3)) 8 v.toBytes R s₀.dmem ⟨h_mem, h_bs⟩ 42
   sym =>
   kstep
   case h_mem => tactic => simp; exact h_mem

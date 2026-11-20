@@ -19,18 +19,18 @@ initialize registerBuiltinAttribute {
     modifyEnv fun env => kstepExtension.addEntry env declName
 }
 
-initialize kspecExtension : SimpleScopedEnvExtension (Sym.Pattern × Name) (DiscrTree Name) ←
+initialize kmemExtension : SimpleScopedEnvExtension (Sym.Pattern × Name) (DiscrTree Name) ←
   registerSimpleScopedEnvExtension {
     addEntry := fun tree (pat, declName) => Sym.insertPattern tree pat declName
     initial := {}
   }
 
 initialize registerBuiltinAttribute {
-  name := `kspec
-  descr := "specification lemmas for built-in, in separation logic, to be leveraged by the kstep tactic"
+  name := `kmem
+  descr := "memory specification lemmas in separation logic, to be leveraged by the kstep tactic"
   add := fun declName _stx kind => do
     let (pat, _) ← (Sym.mkEqPatternFromDecl declName).run'
-    kspecExtension.add (pat, declName) kind
+    kmemExtension.add (pat, declName) kind
 }
 
 initialize ksimpExt : Sym.Simp.SymSimpExtension ←

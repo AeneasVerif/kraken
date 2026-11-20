@@ -273,15 +273,12 @@ private def stepAt? (maxInstrCount : Option (IO.Ref Nat)) (goal : Grind.Goal) :
     goal.mvarId.assign (mkApp stepFn mvarNew)
     return some { goal with mvarId := mvarNew.mvarId! }
 
-partial def kstepLoop
-    (config : KStepConfig)
-    (maxInstrCount : Option (IO.Ref Nat))
-    (goal : Grind.Goal) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
-  -- STEP 1: dsimp
-  let env ← getEnv
+/-- Step 1 of `kstep`: apply the `@[kstep]` `Sym.dsimp` rewrites and introduce binders. -/
+def applyKStepDSimp (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal := do
+    let env ← getEnv
   let dsimpMethods := mkDSimpMethods env
   let dsimpGroundMethods := mkDSimpMethods env (withEvalGround := true)
-  let goal ← goal.withContext do
+  goal.withContext do
     let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM <|
       Sym.dsimp
         (config := { maxSteps := 1000000 })
@@ -294,48 +291,45 @@ partial def kstepLoop
         (← mvarId.getType))
     introsIf ({ goal with mvarId })
 
-  if (← getOptions).get `debug false then
+  /-- Step 2 of `kstep`: apply the `@[ksimp]` `Sym.simp` rewrites. -/
+def applyKSimp (simpMethods : Sym.Simp.Methods) (goal : Grind.Goal) :
+    Grind.GrindTacticM (Bool × Grind.Goal) :=
     goal.withContext do
-      logInfo m!"MAIN LOOP, after step 1: {goal.mvarId}"
-
-  -- STEP 2: simp
-  let simpMethods ← mkSimpMethods
-  let (keepGoingSimp, goal) ← goal.withContext do
-    Grind.liftGrindM do
-      let simpResult ← Sym.simpGoal goal.mvarId simpMethods
-      match simpResult with
+          Grind.liftGrindM do
+      match ← Sym.simpGoal goal.mvarId simpMethods with
       | .noProgress => pure (false, goal)
       | .goal mvarId => pure (true, { goal with mvarId })
       | .closed => throwError "unexpected"
-  if (← getOptions).get `debug false then
-    goal.withContext do
-      let t ← goal.mvarId.getType
-      logInfo m!"MAIN LOOP, after step 2: {t}"
+  
+inductive KMemResult where
+  /-- Goal no longer has an `Effects.All` head; stop stepping. -/
+  | done (goal : Grind.Goal)
+  /-- No `@[kmem]` theorem matched. -/
+  | noMatch (goal : Grind.Goal)
+  /-- A `@[kmem]` theorem matched and all side goals were solved; continue stepping. -/
+  | progress (goal : Grind.Goal)
+  /-- A `@[kmem]` theorem matched but left unsolved side goals; pause and return them. -/
+  | subgoals (goal : Grind.Goal) (subGoals : List Grind.Goal)
 
-  if let some goal' ← resolveLabel? goal then
-    return ← kstepLoop config maxInstrCount goal'
-
-  if let some goal' ← stepAt? maxInstrCount goal then
-    return ← kstepLoop config maxInstrCount goal'
-
-  -- STEP 3: spec lemmas
+/-- Step 3 of `kstep`: match and rewrite using `@[kmem]` separation-logic memory lemmas. -/
+def applyKMem (simpMethods : Sym.Simp.Methods) (goal : Grind.Goal) :
+    Grind.GrindTacticM KMemResult :=
   goal.withContext do
     let goalT ← goal.mvarId.getType
     let goalT' ← instantiateMVars goalT
     -- No more Effects.All in the goal -- return to the user (we might be done,
     -- or realistically, we might need to debug).
-    let some goalState := getEffectsState goalT' | return (goal, [])
+    let some goalState := getEffectsState goalT' | return .done goal
 
-    let specTree := kspecExtension.getState (← getEnv)
-    let (keepGoingSpec, goal) ← do
-      let thmNames := Sym.getMatch (← getMCtx) specTree goalState
-      if thmNames.isEmpty then pure (false, goal) else
-      let #[thmName] := thmNames | throwError m!"Multiple spec theorems not yet supported"
+    let kmemTree := kmemExtension.getState (← getEnv)
+          let thmNames := Sym.getMatch (← getMCtx) kmemTree goalState
+      if thmNames.isEmpty then return .noMatch goal
+      let #[thmName] := thmNames | throwError m!"Multiple kmem theorems not yet supported"
       logInfo m!"Found a spec lemma: {thmName}"
       let (goal, subGoals) ← rwTarget goal false (mkConst thmName)
       logInfo m!"{subGoals.length} subgoals generated"
 
-      let subGoals ← subGoals.mapM fun (subGoal: Grind.Goal) => do
+      let subGoals ← subGoals.mapM fun (subGoal : Grind.Goal) => do
         -- Try simp -- who knows, one might get lucky
         let simpResult ← Grind.liftGrindM (Sym.simpGoal subGoal.mvarId simpMethods)
         match simpResult with
@@ -343,10 +337,10 @@ partial def kstepLoop
         | .goal mvarId => pure { subGoal with mvarId }
         | .closed => pure subGoal
 
-      -- Found a spec lemma, which will generate subgoals; for now, subgoals (if not solved
+      -- Found a kmem lemma, which will generate subgoals; for now, subgoals (if not solved
       -- already!) are solved via `exact` (which may pick any hypothesis in the context,
       -- beware), or grind.
-      let solveIfNotAlready: Grind.Goal → Grind.GrindTacticM Bool := fun subGoal => do
+      let solveIfNotAlready : Grind.Goal → Grind.GrindTacticM Bool := fun subGoal => do
         -- Already solved this subgoal; skip
         if ← subGoal.mvarId.isAssigned then
           let t ← subGoal.mvarId.getType
@@ -400,7 +394,7 @@ partial def kstepLoop
       if let some g := starGoal then
         let solved ← solveIfNotAlready g
         if not solved then
-          return (goal, subGoals)
+          return .subgoals goal subGoals
 
       -- Then, we repeatedly visit subgoals until we make no progress.
       while ← (
@@ -411,7 +405,7 @@ partial def kstepLoop
       ) do pure ()
 
       -- Unsolved goals left? Return control to the user
-      let unsolvedGoals ← subGoals.filterMapM fun (g: Grind.Goal) => do
+      let unsolvedGoals ← subGoals.filterMapM fun (g : Grind.Goal) => do
         if ← g.mvarId.isAssigned then
           return none
         else
@@ -420,13 +414,44 @@ partial def kstepLoop
         let t ← mvarId.mvarId.getType
         logInfo m!"Unsolved goal: {t}"
       if unsolvedGoals.length > 0 then
-        return (goal, unsolvedGoals)
+        return .subgoals goal unsolvedGoals
 
-      pure (true, goal)
+    return .progress goal
 
+partial def kstepLoop
+    (config : KStepConfig)
+    (maxInstrCount : Option (IO.Ref Nat))
+    (goal : Grind.Goal) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
+  -- STEP 1: kstep dsimp
+  let goal ← applyKStepDSimp goal
+  if (← getOptions).get `debug false then
+    goal.withContext do
+      logInfo m!"MAIN LOOP, after step 1: {goal.mvarId}"
+
+  -- STEP 2: ksimp
+  let simpMethods ← mkSimpMethods
+  let (keepGoingSimp, goal) ← applyKSimp simpMethods goal
+  if (← getOptions).get `debug false then
+    goal.withContext do
+      let t ← goal.mvarId.getType
+      logInfo m!"MAIN LOOP, after step 2: {t}"
+
+  if let some goal' ← resolveLabel? goal then
+    return ← kstepLoop config maxInstrCount goal'
+
+  if let some goal' ← stepAt? maxInstrCount goal then
+    return ← kstepLoop config maxInstrCount goal'
+
+  -- STEP 3: kmem lemmas
+  match ← applyKMem simpMethods goal with
+  | .done goal => pure (goal, [])
+  | .subgoals goal subGoals => pure (goal, subGoals)
+  | .progress goal =>
     logInfo m!"kstep: keepGoing = {keepGoingSimp}"
-
-    if keepGoingSimp || keepGoingSpec then
+    kstepLoop config maxInstrCount goal
+  | .noMatch goal =>
+    logInfo m!"kstep: keepGoing = {keepGoingSimp}"
+    if keepGoingSimp then
       kstepLoop config maxInstrCount goal
     else
       pure (goal, [])
