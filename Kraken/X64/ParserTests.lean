@@ -109,6 +109,14 @@ info: ⸨prog|
 #check ⸨prog| movq (%rsi, %r15, 8), %rax ⸩
 -- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .mov (.Reg (.low .rax .W64)) (.mem .rsi (some .r15) 8 0) }]
 
+run_meta do
+  let p ← Meta.parse "leaq 24(,%rcx,8), %rax\nleal (,%ecx,4), %edx"
+  assert! p == [
+    .instr (.regular .W64 .W64 (.lea .rax
+      { base := none, idx := some ⟨.rcx, .W64⟩, disp := .int64 24 })),
+    .instr (.regular .W32 .W32 (.lea .edx
+      { base := none, idx := some ⟨.rcx, .W32⟩ }))]
+
 -- Test: movsx/movzx with a memory source, movslq and movsxd
 /--
 info: ⸨prog|

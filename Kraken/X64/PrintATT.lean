@@ -7,9 +7,8 @@ public section
 # AT&T printer
 Prints Kraken x64 syntax in the AT&T dialect accepted by `Kraken.X64.Parser.parse`.
 The intended property is `parse (toATT p) = .ok p` for every program `p` that `parse`
-can produce (see `PrintATTTests.lean`). Values outside the parser's image (e.g. memory
-operands without a base register, or `ConstExpr` arithmetic) are still printed, but
-won't round-trip.
+can produce (see `PrintATTTests.lean`). Values outside the parser's image
+(e.g. `ConstExpr` arithmetic) are still printed, but won't round-trip.
 
 Mnemonics carry a width suffix whenever the operands may not determine the width
 (immediates, memory), and are unsuffixed when a register operand always does.

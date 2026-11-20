@@ -142,6 +142,7 @@ syntax "%" noWs &"cl" : x64_shift_count
 /-- X64 memory addressing operand (`disp(%base, %idx, scale)` or bare displacement). -/
 declare_syntax_cat x64_mem
 syntax (x64_const)? "(" x64_reg_or_rip (", " x64_reg (", " num)?)? ")" : x64_mem
+syntax (x64_const)? "(" "," x64_reg (", " num)? ")" : x64_mem
 syntax x64_const : x64_mem
 
 declare_syntax_cat x64_reg_or_mem
