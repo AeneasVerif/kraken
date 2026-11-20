@@ -211,21 +211,23 @@ def LcTy.needsRc : LcTy → Bool
   | .object | .tobject => true
   | _ => false
 
-/-- `inc x n` (scalar test only when `check` and `x` may be a scalar). -/
+/-- `inc x n` (scalar test only when `check` and `x` may be a scalar). The scalar test is emitted
+*before* the join is opened, so that it dominates the continuation `k` and `Gvn` reuses it for
+the later `inc`/`dec`/`cases` of the same `x`. -/
 def emitInc (x : LArg) (ty : LcTy) (n : Nat) (check : Bool) (k : LM LExpr) : LM LExpr :=
   if !ty.needsRc || n == 0 then k
   else if !check || ty == .object then incRef x n k
-  else withJoin [] (fun _ => k) fun j => do
+  else isScalarObj x fun s => withJoin [] (fun _ => k) fun j => do
     let e ← incRef x n (pure (j []))
-    isScalarObj x fun s => pure (.jnz s (j []) e)
+    pure (.jnz s (j []) e)
 
-/-- `dec x` (once). -/
+/-- `dec x` (once). As in `emitInc`, the scalar test is emitted before the join is opened. -/
 def emitDec1 (rt x : LArg) (ty : LcTy) (check : Bool) (k : LM LExpr) : LM LExpr :=
   if !ty.needsRc then k
-  else withJoin [] (fun _ => k) fun j => do
+  else if !check || ty == .object then withJoin [] (fun _ => k) fun j => decRefJ rt x (j [])
+  else isScalarObj x fun s => withJoin [] (fun _ => k) fun j => do
     let e ← decRefJ rt x (j [])
-    if !check || ty == .object then pure e
-    else isScalarObj x fun s => pure (.jnz s (j []) e)
+    pure (.jnz s (j []) e)
 
 /-- `dec x n`. -/
 def emitDec (rt x : LArg) (ty : LcTy) (n : Nat) (check : Bool) (k : LM LExpr) : LM LExpr :=
