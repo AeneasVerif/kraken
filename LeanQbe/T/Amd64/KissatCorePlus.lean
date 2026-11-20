@@ -1,0 +1,337 @@
+module
+
+public import LeanQbe.T.Amd64.TargLemmas
+public import LeanQbe.T.Examples.Kissat.CorePlusLemmas
+public import LeanQbe.T.MainSplice
+import all Kraken.Mem
+import all Kraken.Separation
+meta import Lean
+meta import LeanQbe.T.MainSplice
+meta import LeanQbe.T.Amd64.Targ
+meta import LeanQbe.T.Examples.Kissat.Dimacs
+meta import LeanQbe.T.Examples.Kissat.CorePlus
+
+/-!
+# Kissat `D-Core+` C0 SAT Solver (`coreplusFns`) on SysV x64 (`Stage 2`)
+
+Instantiates the 36-function typed-IR Kissat `D-Core+` SAT solver module `coreplusModule`
+(`dimacs_fns ++ coreplus_fns`) on `x64Target` (`x64LegalTarget`, `x64Layout`, `x64LabelClean`) with:
+* `cpHints` via `splice_module_hints`;
+* `compiled_check : checkCompile ... = true` proved in a single kernel reduction (`t_kernel_rfl`);
+* `cp_supportsSource` and `cp_legalSig` over all 36 functions;
+* `mk_module_fnspec` and closed `module_fnspec` over arbitrary `Host` instances;
+* closed Kraken-x64 `Eventually` theorems `solve_x64_of_fnspec`, `solve_x64_correct`, and
+  `solve_x64_sound`;
+* concrete non-vacuous UNSAT (`rax = 20` + `cpNvUnsatCnf.Unsat`) and SAT (`rax = 10` +
+  `¬ cpNvSatCnf.Unsat ∧ ∃ α, cpNvSatCnf.Sat α`) execution witnesses on `compiled.host`
+  via `x64Init`.
+-/
+
+set_option autoImplicit false
+
+@[expose] public section
+
+namespace LeanQbe.T.Amd64.KissatCorePlus
+
+open Std Std.ExtHashMap Std.Sat
+open LeanQbe.T LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Examples.LratBytes
+open LeanQbe.T.Amd64 Kraken
+
+splice_module_hints cpHints (x64Target.toIsa) x64LegalTarget coreplusFns
+
+theorem compiled_check :
+    checkCompile x64Target x64Layout x64LegalTarget [] [] 0 coreplusFns cpHints 2048 =
+      true := by
+  t_kernel_rfl
+
+/-- Single kernel evaluation of the compiler on `coreplusFns` (36 functions) for SysV x64. -/
+def compiled : Compiled x64Target x64LegalTarget [] [] 0 coreplusFns cpHints 2048 :=
+  compileChecked x64Target x64Layout x64LegalTarget x64LabelClean [] [] 0
+    coreplusFns cpHints 2048 compiled_check
+
+private theorem cpFns_supportsSource_all :
+    coreplusFns.all (fun f => (f.earlyOpt).body.supportsSource x64LegalTarget) = true := by
+  t_kernel_rfl
+
+theorem cp_supportsSource :
+    ∀ f ∈ coreplusModule.fns, (f.earlyOpt).body.supportsSource x64LegalTarget = true :=
+  supportsAll_to_forall cpFns_supportsSource_all
+
+private theorem cpFns_legalSig_all :
+    coreplusFns.all (fun f =>
+      (x64LegalTarget.legalSig f.as == f.as) &&
+      (x64LegalTarget.legalSig f.rs == f.rs)) = true := by
+  t_kernel_rfl
+
+theorem cp_legalSig :
+    ∀ f ∈ coreplusFns,
+      x64LegalTarget.legalSig f.as = f.as ∧ x64LegalTarget.legalSig f.rs = f.rs := by
+  intro f hf
+  have h := List.all_eq_true.mp cpFns_legalSig_all f hf
+  simp only [Bool.and_eq_true, beq_iff_eq] at h
+  exact h
+
+section Generic
+variable [hh : Host]
+
+/-- Generic `FnSpec` for every function in `coreplusModule` on `x64Target`, parameterized
+over a sound environment `Γ` whose contracts ignore exit continuations. -/
+theorem mk_module_fnspec (Γ : Env)
+    (hsound : ∀ f ∈ coreplusFns, ∀ args m Q X,
+      Γ f.name f.as f.rs args m Q X → Func.wp Γ f.body args m Q X)
+    (hnoex : ∀ g ∈ coreplusFns, ∀ args m Q X X',
+      Γ g.name g.as g.rs args m Q X → Γ g.name g.as g.rs args m Q X')
+    (k₀ : Nat) (hc : compiled.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    {f : Fn} (hf : f ∈ coreplusModule.fns) :
+    x64Target.Defined hh f.name ∧
+      x64Target.FnSpec hh f.name (Γ f.name f.as f.rs) (compiled.bound f.name) 0 :=
+  have ⟨has, hrs⟩ := cp_legalSig f hf
+  compiled.fnSpec_noExit_id coreplusModule rfl hh Γ k₀ hc hu
+    coreplus_acyclic coreplusFns_wf cp_supportsSource hsound hf
+    has hrs (hnoex f hf)
+
+/-- Closed `FnSpec` for every function in `coreplusModule` under `corePlusEnv` on `x64Target`. -/
+theorem module_fnspec (k₀ : Nat)
+    (hc : compiled.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    {f : Fn} (hf : f ∈ coreplusModule.fns) :
+    x64Target.Defined hh f.name ∧
+      x64Target.FnSpec hh f.name (corePlusEnv f.name f.as f.rs) (compiled.bound f.name) 0 :=
+  mk_module_fnspec corePlusEnv corePlusEnv_sound (fun _ _ => corePlusEnv_noExit _ _ _) k₀ hc hu hf
+
+private theorem mk_entry_fnspec
+    (mainSpec : Spec [i64, i64, i64, i64, i64] [i64])
+    (hsound : ∀ f ∈ coreplusFns, ∀ args m Q X,
+      mkCorePlusEnv mainSpec f.name f.as f.rs args m Q X →
+      Func.wp (mkCorePlusEnv mainSpec) f.body args m Q X)
+    (hno : ∀ xs m Q X, mainSpec xs m Q X → mainSpec xs m Q (fun _ _ _ _ => False))
+    (k₀ : Nat) (hc : compiled.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
+    x64Target.FnSpec hh "kissat_solve_bytes" mainSpec
+      (compiled.bound "kissat_solve_bytes") 0 :=
+  Target.FnSpec.of_spec x64Target
+    (mk_module_fnspec (mkCorePlusEnv mainSpec) hsound
+      (fun g _ => mkCorePlusEnv_noExit mainSpec g.name g.as g.rs) k₀ hc hu
+      (f := kissat_solve_bytes) (by simp [coreplusModule, coreplusFns, coreplus_fns])).2
+    (mkCorePlusEnv_solve_bytes mainSpec hno)
+
+/-- Lifting any `FnSpec` for `"kissat_solve_bytes"` at stack bound `b` and abstract contract
+`spec` to a concrete Kraken-x64 `Eventually` statement via `x64_of_returns`. -/
+theorem solve_x64_of_fnspec {b : Nat}
+    {spec : Spec [i64, i64, i64, i64, i64] [i64]}
+    (hfnspec : x64Target.FnSpec hh "kissat_solve_bytes" spec b 0)
+    (cnf_ptr cnf_len work_ptr work_len fuel : BitVec 64)
+    {m : Mem 64} {Q : Post [i64]}
+    (hspec : spec (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) m Q
+      (fun _ _ _ _ => False))
+    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
+    (hrdi : s.regs.get64 .rdi = cnf_ptr)
+    (hrsi : s.regs.get64 .rsi = cnf_len)
+    (hrdx : s.regs.get64 .rdx = work_ptr)
+    (hrcx : s.regs.get64 .rcx = work_len)
+    (hr8 : s.regs.get64 .r8 = fuel)
+    (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
+    (hmem : s.dmem =⋆ Eq m ⋆
+      (region (s.regs.get64 .rsp - BitVec.ofNat 64 b) b ⋆
+        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) :
+    Eventually (step1 Host.exe)
+      (fun st =>
+        st.pc = ra ∧
+        (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15],
+          st.data.regs.get64 r = s.regs.get64 r) ∧
+        st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
+        ∃ m', Q (st.data.regs.get64 .rax, ()) m' ∧
+          (st.data.dmem =⋆ Eq m' ⋆
+            region (s.regs.get64 .rsp - BitVec.ofNat 64 b) (b + 8) ⋆ R))
+      ⟨s, Labels.label "kissat_solve_bytes"⟩ := by
+  have hargs : x64Target.ArgsIn (as := [i64, i64, i64, i64, i64])
+      (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) s :=
+    ⟨_, rfl,
+      .cons ⟨by decide, by simpa using hrdi⟩
+        (.cons ⟨by decide, by simpa using hrsi⟩
+          (.cons ⟨by decide, by simpa using hrdx⟩
+            (.cons ⟨by decide, by simpa using hrcx⟩
+              (.cons ⟨by decide, by simpa using hr8⟩ .nil))))⟩
+  refine eventually_weaken _ _ _ _ ?_ (x64_of_returns hfnspec hspec s ra R hargs hsp hmem)
+  rintro st ⟨hpc, hcs, hsp', rets, m', hQ, hrets, hm'⟩
+  rcases rets with ⟨r, ⟨⟩⟩
+  have hrax : st.data.regs.get64 .rax = r := x64Init.retsIn_singleton r st.data hrets
+  rw [hrax]
+  exact ⟨hpc, hcs, hsp', m', hQ, hm'⟩
+
+/-- Closed end-to-end correctness of compiled `kissat_solve_bytes` on SysV x64: terminates
+cleanly, preserves callee-saved registers and read-only DIMACS bytes, restores workspace
+`region work_ptr wlen`, returns `rax ∈ {0, 10, 20}`, and certifies UNSAT (`20`) and SAT (`10`). -/
+theorem solve_x64_correct (k₀ : Nat)
+    (hc : compiled.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
+    (hrdi : s.regs.get64 .rdi = cnf_ptr)
+    (hrsi : s.regs.get64 .rsi = BitVec.ofNat 64 cnfBytes.length)
+    (hrdx : s.regs.get64 .rdx = work_ptr)
+    (hrcx : s.regs.get64 .rcx = BitVec.ofNat 64 wlen)
+    (hr8 : s.regs.get64 .r8 = fuel)
+    (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
+    (hmem : s.dmem =⋆
+      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) ⋆
+      (region (s.regs.get64 .rsp - BitVec.ofNat 64 (compiled.bound "kissat_solve_bytes"))
+          (compiled.bound "kissat_solve_bytes") ⋆
+        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) :
+    Eventually (step1 Host.exe)
+      (fun st =>
+        st.pc = ra ∧
+        (st.data.regs.get64 .rax = 0#64 ∨
+          st.data.regs.get64 .rax = 10#64 ∨
+          st.data.regs.get64 .rax = 20#64) ∧
+        (st.data.regs.get64 .rax = 20#64 →
+          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+        (st.data.regs.get64 .rax = 10#64 →
+          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α) ∧
+        (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15],
+          st.data.regs.get64 r = s.regs.get64 r) ∧
+        st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
+        (st.data.dmem =⋆
+          (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) ⋆
+          region (s.regs.get64 .rsp - BitVec.ofNat 64 (compiled.bound "kissat_solve_bytes"))
+            (compiled.bound "kissat_solve_bytes" + 8) ⋆ R))
+      ⟨s, Labels.label "kissat_solve_bytes"⟩ := by
+  obtain ⟨mf, mR, hu1, hd1, ⟨m, f, hu2, hd2, hm, hf⟩, hmR⟩ := hmem
+  have hmEq : s.dmem =⋆ Eq m ⋆
+      (region (s.regs.get64 .rsp - BitVec.ofNat 64 (compiled.bound "kissat_solve_bytes"))
+          (compiled.bound "kissat_solve_bytes") ⋆
+        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R :=
+    ⟨mf, mR, hu1, hd1, ⟨m, f, hu2, hd2, rfl, hf⟩, hmR⟩
+  have hfn : x64Target.FnSpec hh "kissat_solve_bytes" corePlusSolveBytesSpec
+      (compiled.bound "kissat_solve_bytes") 0 :=
+    mk_entry_fnspec corePlusSolveBytesSpec corePlusEnv_sound (fun _ _ _ _ h => h) k₀ hc hu
+  have hspec : corePlusSolveBytesSpec
+      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr, BitVec.ofNat 64 wlen, fuel, ())
+      m
+      (fun (r, ()) m' =>
+        (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+        (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+        (r = 10#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α) ∧
+        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) m')
+      (fun _ _ _ _ => False) :=
+    ⟨cnfBytes, wlen, emp, rfl, rfl, hcfit, hwfit, by rwa [sep_emp],
+      fun _ _ hdom hu hs hm' => ⟨hdom, hu, hs, by rwa [sep_emp] at hm'⟩⟩
+  refine eventually_weaken _ _ _ _ ?_
+    (solve_x64_of_fnspec hfn cnf_ptr (BitVec.ofNat 64 cnfBytes.length)
+      work_ptr (BitVec.ofNat 64 wlen) fuel hspec s ra R hrdi hrsi hrdx hrcx hr8 hsp hmEq)
+  rintro st ⟨hpc, hcs, hsp', m', ⟨hdom, hu, hs, hm'⟩, hmem'⟩
+  exact ⟨hpc, hdom, hu, hs, hcs, hsp',
+    sep_mono (fun _ => sep_mono (fun _ e => e ▸ hm')) hmem'⟩
+
+/-- Trivial-postcondition end-to-end Kraken-x64 soundness corollary for `kissat_solve_bytes`. -/
+theorem solve_x64_sound (k₀ : Nat)
+    (hc : compiled.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
+    (hrdi : s.regs.get64 .rdi = cnf_ptr)
+    (hrsi : s.regs.get64 .rsi = BitVec.ofNat 64 cnfBytes.length)
+    (hrdx : s.regs.get64 .rdx = work_ptr)
+    (hrcx : s.regs.get64 .rcx = BitVec.ofNat 64 wlen)
+    (hr8 : s.regs.get64 .r8 = fuel)
+    (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
+    (hmem : s.dmem =⋆
+      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) ⋆
+      (region (s.regs.get64 .rsp - BitVec.ofNat 64 (compiled.bound "kissat_solve_bytes"))
+          (compiled.bound "kissat_solve_bytes") ⋆
+        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) :
+    Eventually (step1 Host.exe)
+      (fun st =>
+        st.pc = ra ∧
+        (st.data.regs.get64 .rax = 0#64 ∨
+          st.data.regs.get64 .rax = 10#64 ∨
+          st.data.regs.get64 .rax = 20#64) ∧
+        (st.data.regs.get64 .rax = 20#64 →
+          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+        (st.data.regs.get64 .rax = 10#64 →
+          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α))
+      ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
+  eventually_weaken _ _ _ _ (fun _ ⟨hpc, hdom, hu, hs, _⟩ => ⟨hpc, hdom, hu, hs⟩)
+    (solve_x64_correct k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen
+      hcfit hwfit s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem)
+
+end Generic
+
+/-! ## Concrete SysV x64 Non-Vacuous Executions in `compiled.host` (`rax = 20` and `rax = 10`) -/
+
+abbrev cpHost : Host := compiled.host
+attribute [local instance] cpHost
+
+def cpArgs (cnfBytes : List UInt8) : Tup Val [i64, i64, i64, i64, i64] :=
+  (corePlusNvCnfPtr, BitVec.ofNat 64 cnfBytes.length,
+    corePlusNvWorkPtr cnfBytes, 1024#64, 16#64, ())
+
+def cpState (cnfBytes : List UInt8) : MachineData :=
+  x64Init.initState (as := [i64, i64, i64, i64, i64])
+    (compiled.bound "kissat_solve_bytes")
+    (corePlusPayload cnfBytes) (cpArgs cnfBytes)
+
+def cpUnsatState0 : MachineData :=
+  cpState cpNvUnsatBytes
+
+/-- Concrete UNSAT execution of compiled `kissat_solve_bytes` on Kraken x64 (`rax = 20`). -/
+theorem x64_unsat_nonvacuous :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = 0x1234 ∧ st.data.regs.get64 .rax = 20#64 ∧ cpNvUnsatCnf.Unsat)
+      ⟨cpUnsatState0, Labels.label "kissat_solve_bytes"⟩ := by
+  have hfn : x64Target.FnSpec cpHost "kissat_solve_bytes" corePlusUnsatWitnessSpec
+      (compiled.bound "kissat_solve_bytes") 0 :=
+    mk_entry_fnspec corePlusUnsatWitnessSpec cpUnsatEnv_sound (fun _ _ _ _ h => h)
+      0 compiled.code_infix_host compiled.labelsUnique
+  have hspec : corePlusUnsatWitnessSpec (cpArgs cpNvUnsatBytes)
+      ((corePlusPayload cpNvUnsatBytes).At 0x1000#64)
+      (fun rs _ => rs = (20#64, ()) ∧ cpNvUnsatCnf.Unsat) (fun _ _ _ _ => False) :=
+    ⟨emp, rfl, rfl, rfl, by decide, by decide,
+      by rw [sep_emp]; exact corePlusPayload_sep cpNvUnsatBytes (by decide),
+      fun _ hu _ => ⟨rfl, hu⟩⟩
+  refine x64Init.run_fnSpec compiled hfn (corePlusPayload cpNvUnsatBytes) (cpArgs cpNvUnsatBytes)
+    (by simp [corePlusPayload_length, cpNvUnsatBytes]) (by decide) hspec ?_
+  rintro st (⟨hpc, _, _, ⟨rfl, hu⟩, hrets, _⟩ | ⟨_, _, _, _, hx, _⟩)
+  · exact ⟨hpc, x64Init.retsIn_singleton 20#64 _ hrets, hu⟩
+  · exact hx.elim
+
+def cpSatState0 : MachineData :=
+  cpState cpNvSatBytes
+
+/-- Concrete SAT execution of compiled `kissat_solve_bytes` on Kraken x64 (`rax = 10`). -/
+theorem x64_sat_nonvacuous :
+    Eventually (step1 Host.exe)
+      (fun st =>
+        st.pc = 0x1234 ∧ st.data.regs.get64 .rax = 10#64 ∧
+        ¬ cpNvSatCnf.Unsat ∧ ∃ α, cpNvSatCnf.Sat α)
+      ⟨cpSatState0, Labels.label "kissat_solve_bytes"⟩ := by
+  have hfn : x64Target.FnSpec cpHost "kissat_solve_bytes" corePlusSatWitnessSpec
+      (compiled.bound "kissat_solve_bytes") 0 :=
+    mk_entry_fnspec corePlusSatWitnessSpec cpSatEnv_sound (fun _ _ _ _ h => h)
+      0 compiled.code_infix_host compiled.labelsUnique
+  have hspec : corePlusSatWitnessSpec (cpArgs cpNvSatBytes)
+      ((corePlusPayload cpNvSatBytes).At 0x1000#64)
+      (fun rs _ => rs = (10#64, ()) ∧ ¬ cpNvSatCnf.Unsat ∧ ∃ α, cpNvSatCnf.Sat α)
+      (fun _ _ _ _ => False) :=
+    ⟨emp, rfl, rfl, rfl, by decide, by decide,
+      by rw [sep_emp]; exact corePlusPayload_sep cpNvSatBytes (by decide),
+      fun _ hnu hsat _ => ⟨rfl, hnu, hsat⟩⟩
+  refine x64Init.run_fnSpec compiled hfn (corePlusPayload cpNvSatBytes) (cpArgs cpNvSatBytes)
+    (by simp [corePlusPayload_length, cpNvSatBytes]) (by decide) hspec ?_
+  rintro st (⟨hpc, _, _, ⟨rfl, hnu, hsat⟩, hrets, _⟩ | ⟨_, _, _, _, hx, _⟩)
+  · exact ⟨hpc, x64Init.retsIn_singleton 10#64 _ hrets, hnu, hsat⟩
+  · exact hx.elim
+
+#guard coreplusFns.length == 36
+
+#print axioms compiled_check
+#print axioms compiled
+#print axioms mk_module_fnspec
+#print axioms module_fnspec
+#print axioms solve_x64_of_fnspec
+#print axioms solve_x64_correct
+#print axioms solve_x64_sound
+#print axioms x64_unsat_nonvacuous
+#print axioms x64_sat_nonvacuous
+
+end LeanQbe.T.Amd64.KissatCorePlus

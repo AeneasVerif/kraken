@@ -772,3 +772,17 @@ LeanQbe.T.Examples.Kissat.PlainSpec1 LeanQbe.T.Examples.Kissat.Plain.plainInv_in
 LeanQbe.T.Examples.Kissat.PlainSpec2 LeanQbe.T.Examples.Kissat.Plain.plainMinMark_entails
 LeanQbe.T.Examples.Kissat.PlainSpec LeanQbe.T.Examples.Kissat.Plain.plainSpecTable_noExit
 LeanQbe.T.Examples.Kissat.PlainSpec LeanQbe.T.Examples.Kissat.Plain.plainSpecTable_sigs
+LeanQbe.T.Amd64.KissatCorePlus LeanQbe.T.Amd64.KissatCorePlus.compiled_check
+LeanQbe.T.Amd64.KissatCorePlus LeanQbe.T.Amd64.KissatCorePlus.module_fnspec
+LeanQbe.T.Amd64.KissatCorePlus LeanQbe.T.Amd64.KissatCorePlus.solve_x64_of_fnspec
+LeanQbe.T.Amd64.KissatCorePlus LeanQbe.T.Amd64.KissatCorePlus.solve_x64_correct
+LeanQbe.T.Amd64.KissatCorePlus LeanQbe.T.Amd64.KissatCorePlus.solve_x64_sound
+LeanQbe.T.Amd64.KissatCorePlus LeanQbe.T.Amd64.KissatCorePlus.x64_unsat_nonvacuous
+LeanQbe.T.Amd64.KissatCorePlus LeanQbe.T.Amd64.KissatCorePlus.x64_sat_nonvacuous
+LeanQbe.T.Arm64.KissatCorePlus LeanQbe.T.Arm64.KissatCorePlus.compiled_check
+LeanQbe.T.Arm64.KissatCorePlus LeanQbe.T.Arm64.KissatCorePlus.module_fnspec
+LeanQbe.T.Arm64.KissatCorePlus LeanQbe.T.Arm64.KissatCorePlus.solve_arm64_of_fnspec
+LeanQbe.T.Arm64.KissatCorePlus LeanQbe.T.Arm64.KissatCorePlus.solve_arm64_correct
+LeanQbe.T.Arm64.KissatCorePlus LeanQbe.T.Arm64.KissatCorePlus.solve_arm64_sound
+LeanQbe.T.Arm64.KissatCorePlus LeanQbe.T.Arm64.KissatCorePlus.arm64_unsat_nonvacuous
+LeanQbe.T.Arm64.KissatCorePlus LeanQbe.T.Arm64.KissatCorePlus.arm64_sat_nonvacuous
