@@ -41,10 +41,11 @@ theorem reserve24_eq (r : BitVec 64) :
 variable [WellFormedLayout prog]
 
 theorem spill_spec :
-    prog.toExecutable.ProcSpec (@Labels.label (Executable.labels prog.toExecutable) "win64_spill")
+    prog.toExecutable.ProcSpec (@Labels.label! (Executable.labels prog.toExecutable) "win64_spill")
       (fun (R : Mem 64 → Prop) ra t => CallPre 24 R ra t)
       (fun R ra t s => CallPost 24 R ra t s
         ∧ s.zmms.get (.xmm .mm1) = t.zmms.get (.xmm .mm0)) := by
+  rw [Labels.label!_of_label? (label?_eq_some_addrOf (p := prog) (k := 0) rfl)]
   rintro R ra t ⟨hal, hdf, hmem⟩
   rw [reserve24_eq, sep_assoc, sep_comm_l (Shadow _) (Owned 16 _),
     sep_comm_l (RetCell _ _) (Owned 16 _)] at hmem
@@ -66,7 +67,8 @@ theorem spill_spec :
   simp only [Nat.shiftRight_zero, BitVec.ofNat_toNat, BitVec.setWidth_eq, Reg64s.get64,
     BitVec.toAddressSize, BitVec.signed, BitVec.take, Int.add_zero, BitVec.ofInt_toInt, ex,
     Width.bits, Int64.toInt_zero]
-  refine Effects.All_storeAvx (fun _ => haligned)
+  refine @Effects.All_storeAvx (Executable.labels prog.toExecutable) _ _ _ _ _ _ _
+    (fun _ => haligned)
     (by show (Mem.loadInt t.dmem (t.regs.rsp.toBitVec - 24) 16).isSome = true; rw [hslot]; rfl) ?_
   simp only [Effects.All]
   sym =>
@@ -77,7 +79,8 @@ theorem spill_spec :
   simp (config := { zetaDelta := true }) only [AddrExpr.interp, ConstExpr.interp]
   simp only [BitVec.setWidth_eq, Reg64s.get64, BitVec.toAddressSize, BitVec.signed,
     BitVec.take, Int.add_zero, BitVec.ofInt_toInt, ex, Width.bits, Int64.toInt_zero]
-  refine Effects.All_loadAvx (fun _ => haligned)
+  refine @Effects.All_loadAvx (Executable.labels prog.toExecutable) _ _ _ _ _ _ _
+    (fun _ => haligned)
     (show Mem.loadInt (Mem.storeInt t.dmem (t.regs.rsp.toBitVec - 24) 16
       (t.zmms.get (AvxReg.xmm .mm0)).toInt) (t.regs.rsp.toBitVec - 24) 16 = _ from hval) ?_
   simp only [Effects.All, MachineData.setAvxLegacyReg]

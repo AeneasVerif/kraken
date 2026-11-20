@@ -40,7 +40,13 @@ win64_caller:
 variable [WellFormedLayout prog]
 
 /-- The address of label `l` in `prog`. -/
-abbrev lbl (l : String) : Int64 := @Labels.label (Executable.labels prog.toExecutable) l
+abbrev lbl (l : String) : Int64 := @Labels.label! (Executable.labels prog.toExecutable) l
+
+private theorem lbl_inc : lbl "win64_inc" = prog.toExecutable.addrOf 0 :=
+  Labels.label!_of_label? (label?_eq_some_addrOf rfl)
+
+private theorem lbl_caller : lbl "win64_caller" = prog.toExecutable.addrOf 5 :=
+  Labels.label!_of_label? (label?_eq_some_addrOf rfl)
 
 abbrev IncSpec (d : Nat) (entry : Int64) : Prop :=
   prog.toExecutable.ProcSpec entry
@@ -48,6 +54,7 @@ abbrev IncSpec (d : Nat) (entry : Int64) : Prop :=
     (fun x ra t s => CallPost d x.2 ra t s ∧ RetU64 s (x.1 + 1))
 
 theorem inc_spec : IncSpec 0 (lbl "win64_inc") := by
+  rw [lbl_inc]
   rintro ⟨n, R⟩ ra t ⟨⟨-, hdf, hmem⟩, harg⟩
   rw [Shadow_split, sep_assoc, sep_comm_l] at hmem
   obtain ⟨bs, hbs, hmem⟩ := Owned.elim hmem
@@ -94,6 +101,8 @@ private theorem frame_eq (r : BitVec 64) :
   congr 3 <;> bv_omega
 
 theorem caller_spec (hinc : IncSpec 0 (lbl "win64_inc")) : IncSpec 48 (lbl "win64_caller") := by
+  rw [lbl_inc] at hinc
+  rw [lbl_caller]
   rintro ⟨n, R⟩ ra t ⟨⟨hal, hdf, hmem⟩, harg⟩
   rw [frame_eq] at hmem
   dsimp only at hmem

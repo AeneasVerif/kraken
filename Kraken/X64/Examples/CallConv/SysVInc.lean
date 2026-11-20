@@ -38,7 +38,13 @@ sysv_caller:
 variable [WellFormedLayout prog]
 
 /-- The address of label `l` in `prog`. -/
-abbrev lbl (l : String) : Int64 := @Labels.label (Executable.labels prog.toExecutable) l
+abbrev lbl (l : String) : Int64 := @Labels.label! (Executable.labels prog.toExecutable) l
+
+private theorem lbl_inc : lbl "sysv_inc" = prog.toExecutable.addrOf 0 :=
+  Labels.label!_of_label? (label?_eq_some_addrOf rfl)
+
+private theorem lbl_caller : lbl "sysv_caller" = prog.toExecutable.addrOf 4 :=
+  Labels.label!_of_label? (label?_eq_some_addrOf rfl)
 
 /-- The specification of an increment procedure at `entry` that needs `d` bytes of stack. -/
 abbrev IncSpec (d : Nat) (entry : Int64) : Prop :=
@@ -47,6 +53,7 @@ abbrev IncSpec (d : Nat) (entry : Int64) : Prop :=
     (fun x ra t s => CallPost d x.2 ra t s ∧ RetU64 s (x.1 + 1))
 
 theorem inc_spec : IncSpec 0 (lbl "sysv_inc") := by
+  rw [lbl_inc]
   rintro ⟨n, R⟩ ra t ⟨⟨-, hdf, hmem⟩, harg⟩
   simp only [Reg64s.get64] at hmem
   sym => kstep; tactic =>
@@ -66,6 +73,8 @@ private theorem reserve16_eq (r : BitVec 64) :
 /-- The caller needs 16 bytes of stack: 8 of padding and 8 for the callee's return address. -/
 theorem caller_spec (hinc : IncSpec 0 (lbl "sysv_inc")) :
     IncSpec 16 (lbl "sysv_caller") := by
+  rw [lbl_inc] at hinc
+  rw [lbl_caller]
   rintro ⟨n, R⟩ ra t ⟨⟨hal, hdf, hmem⟩, harg⟩
   rw [reserve16_eq, sep_assoc, sep_comm_l] at hmem
   obtain ⟨bs, hbs, hmem⟩ := Owned.elim hmem
