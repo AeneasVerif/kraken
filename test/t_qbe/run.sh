@@ -26,19 +26,19 @@ done
 }
 
 QBE_SRC="${QBE_SRC:-$ROOT/qbe}"
-if [ ! -d "$QBE_SRC" ] && [ -d /usr/local/google/home/andreser/lean-qbe/qbe ]; then
-  QBE_SRC=/usr/local/google/home/andreser/lean-qbe/qbe
-fi
 if [ -z "${QBE:-}" ]; then
-  [ -d "$QBE_SRC" ] || {
-    echo "FAIL: QBE source directory not found: $QBE_SRC" >&2
+  if [ -d "$QBE_SRC" ]; then
+    rm -rf "$OUT/qbe-src"
+    cp -R "$QBE_SRC" "$OUT/qbe-src"
+    timeout 120 make -C "$OUT/qbe-src" clean >/dev/null 2>&1 || true
+    timeout 120 make -C "$OUT/qbe-src" -j"$(nproc)"
+    QBE="$OUT/qbe-src/qbe"
+  elif QBE="$(command -v qbe || true)" && [ -n "$QBE" ]; then
+    echo "Using stock qbe from PATH: $QBE"
+  else
+    echo "FAIL: QBE source directory ($QBE_SRC) and qbe binary not found; set QBE or QBE_SRC" >&2
     exit 1
-  }
-  rm -rf "$OUT/qbe-src"
-  cp -R "$QBE_SRC" "$OUT/qbe-src"
-  timeout 120 make -C "$OUT/qbe-src" clean >/dev/null 2>&1 || true
-  timeout 120 make -C "$OUT/qbe-src" -j"$(nproc)"
-  QBE="$OUT/qbe-src/qbe"
+  fi
 fi
 [ -x "$QBE" ] || {
   echo "FAIL: qbe binary not executable: $QBE" >&2

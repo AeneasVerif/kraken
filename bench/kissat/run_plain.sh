@@ -21,15 +21,9 @@ cleanup() {
 trap cleanup EXIT
 echo "outputs in $OUT"
 
-KISSAT_SCRATCH="/usr/local/google/home/andreser/.gemini/jetski/brain"
-KISSAT_SCRATCH="$KISSAT_SCRATCH/06d85d8f-79d2-4064-9941-37cb455b0e29/scratch/kissat"
 KISSAT_SRC="${KISSAT_SRC:-}"
-if [ -z "$KISSAT_SRC" ]; then
-  if [ -d "$ROOT/scratch/kissat" ]; then
-    KISSAT_SRC="$ROOT/scratch/kissat"
-  elif [ -d "$KISSAT_SCRATCH" ]; then
-    KISSAT_SRC="$KISSAT_SCRATCH"
-  fi
+if [ -z "$KISSAT_SRC" ] && [ -d "$ROOT/scratch/kissat" ]; then
+  KISSAT_SRC="$ROOT/scratch/kissat"
 fi
 WORK_BYTES="${WORK_BYTES:-8388608}"
 FUEL="${FUEL:-400000}"
@@ -106,13 +100,17 @@ if [ -z "${KISSAT_BIN:-}" ]; then
   fi
 fi
 if [ -n "${KISSAT_BIN:-}" ]; then
-  echo "Using stock kissat: $KISSAT_BIN"
-  printf 'p cnf 0 0\n' | timeout 10 "$KISSAT_BIN" --plain -q >/dev/null || {
-    rc=$?; [ "$rc" -eq 10 ]
-  }
+  rc=0
+  printf 'p cnf 0 0\n' | timeout 10 "$KISSAT_BIN" --plain -q >/dev/null 2>&1 || rc=$?
+  if [ "$rc" -eq 10 ]; then
+    echo "Using stock kissat: $KISSAT_BIN"
+  else
+    echo "NOTE: kissat binary '$KISSAT_BIN' unavailable or lacks --plain; skipping stock-kissat comparison."
+    KISSAT_BIN=""
+  fi
 else
   KISSAT_BIN=""
-  echo "NOTE: no stock kissat binary or KISSAT_SRC found; skipping stock-kissat comparison."
+  echo "NOTE: no stock kissat binary or KISSAT_SRC found (set KISSAT_BIN or KISSAT_SRC); skipping stock-kissat comparison."
 fi
 
 echo "== 5. Generate multi-family DIMACS CNFs + collect optional stock kissat test/cnf =="
