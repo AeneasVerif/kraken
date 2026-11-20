@@ -158,6 +158,9 @@ public import LeanQbe.T.Examples.Kissat.PlainPropLemmas1
 public import LeanQbe.T.Examples.Kissat.PlainPropLemmas
 public import LeanQbe.T.Examples.Kissat.PlainAnalyzeLemmas1
 public import LeanQbe.T.Examples.Kissat.PlainAnalyzeLemmas
+public import LeanQbe.T.Examples.Kissat.PlainIngestLemmas1
+public import LeanQbe.T.Examples.Kissat.PlainIngestLemmas2
+public import LeanQbe.T.Examples.Kissat.PlainIngestLemmas
 public import LeanQbe.T.Examples.Kissat.Full1
 public import LeanQbe.T.Examples.Kissat.Full2
 public import LeanQbe.T.Examples.Kissat.Full3
