@@ -230,6 +230,10 @@ public import LeanQbe.T.Examples.Kissat.FullLuckyLemmas
 public import LeanQbe.T.Examples.Kissat.FullSccLemmas1
 public import LeanQbe.T.Examples.Kissat.FullSccLemmas2
 public import LeanQbe.T.Examples.Kissat.FullSccLemmas
+public import LeanQbe.T.Examples.Kissat.FullBveBvaLemmas1
+public import LeanQbe.T.Examples.Kissat.FullBveBvaLemmas2
+public import LeanQbe.T.Examples.Kissat.FullBveBvaLemmas3
+public import LeanQbe.T.Examples.Kissat.FullBveBvaLemmas
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
