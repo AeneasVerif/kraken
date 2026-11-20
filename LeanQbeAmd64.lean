@@ -26,5 +26,13 @@ public import LeanQbe.T.Amd64.Kissat
 public import LeanQbe.T.Amd64.KissatCorePlus
 public import LeanQbe.T.Amd64.KissatPlainCert1
 public import LeanQbe.T.Amd64.KissatPlainCert
+public import LeanQbe.T.Amd64.KissatFullCert1
+public import LeanQbe.T.Amd64.KissatFullCert2
+public import LeanQbe.T.Amd64.KissatFullCert3
+public import LeanQbe.T.Amd64.KissatFullCert4
+public import LeanQbe.T.Amd64.KissatFullCert5
+public import LeanQbe.T.Amd64.KissatFullCert6
+public import LeanQbe.T.Amd64.KissatFullCert7
+public import LeanQbe.T.Amd64.KissatFullCert
 
 /-! Root of the x64 library: imports `Kraken.X64` and `LeanQbe.T.Amd64.*`. -/

@@ -21,5 +21,13 @@ public import LeanQbe.T.Arm64.Kissat
 public import LeanQbe.T.Arm64.KissatCorePlus
 public import LeanQbe.T.Arm64.KissatPlainCert1
 public import LeanQbe.T.Arm64.KissatPlainCert
+public import LeanQbe.T.Arm64.KissatFullCert1
+public import LeanQbe.T.Arm64.KissatFullCert2
+public import LeanQbe.T.Arm64.KissatFullCert3
+public import LeanQbe.T.Arm64.KissatFullCert4
+public import LeanQbe.T.Arm64.KissatFullCert5
+public import LeanQbe.T.Arm64.KissatFullCert6
+public import LeanQbe.T.Arm64.KissatFullCert7
+public import LeanQbe.T.Arm64.KissatFullCert
 
 /-! Root of the AArch64 library: imports `Kraken.AArch64` and `LeanQbe.T.Arm64.*`. -/
