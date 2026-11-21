@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.FullSpec
 public import LeanQbe.T.Examples.Kissat.FullOneLitConflLemmas
+public import LeanQbe.T.Examples.Kissat.FullDeduce1UipLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 
@@ -9,15 +10,15 @@ import all Kraken.Separation
 # Kissat `D-Full` Concrete `Mem 64` UNSAT Non-Vacuity for `full_deduce_1uip` (`Stage 4`)
 
 Provides a concrete `Mem 64` UNSAT non-vacuity witness (`XPost := False`, `0` SAT proofs) for
-`full_deduce_1uip` (`Full2.lean:765`, `fullFns[79]?`), parameterized over any proof of the canonical
-`FullSpec2.fullDeduce1uipSpec` contract:
+`full_deduce_1uip` (`Full2.lean:765`, `fullFns[79]?`), proved unconditionally via
+`FullDeduce1UipLemmas.full_deduce_1uip_bridge_wp` (plus parametric `*_of_wp` wrappers):
 - `nvDeduceF0 := cnfOfClauses [[0], [1]]` (`nvDeduceF0_unsat : nvDeduceF0.Unsat`).
 - `nvDeduceState`: `cur_level = 1` decision `x0` with falsified binary conflict `(¬x0 ∨ ¬x0)` on
   `nvOneLitCfg` (`hdr = 0x1000#64`, `avail = 1756`, `slack = 0`).
 - `nvDeduceMem`: concrete `1756`-byte `Mem 64` heap satisfying `FullMem nvOneLitCfg nvDeduceState`,
   reusing the public `nv_*` separation helpers from `FullOneLitConflLemmas`.
-- `nv_full_deduce_1uip_of_wp` & `nv_deduce_1uip_ex_of_wp`: parametric UNSAT non-vacuity
-  witnesses ready for one-line instantiation by `FullDeduce1UipLemmas` / Phase 2 assembly.
+- `nv_full_deduce_1uip` & `nv_deduce_1uip_ex`: unconditional UNSAT non-vacuity witnesses under
+  canonical `fullEnv`.
 -/
 
 set_option autoImplicit false
@@ -405,5 +406,51 @@ theorem nv_deduce_1uip_ex_of_wp
               FullConflictOkCut [[0], [1]] cut' s'))
         (fun _ _ _ _ => False) :=
   ⟨nvDeduceMem, nv_full_deduce_1uip_of_wp hwp⟩
+
+private theorem full_deduce_1uip_wp_fullEnv :
+    ∀ args m Q X, fullDeduce1uipSpec args m Q X →
+      Func.wp fullEnv full_deduce_1uip.body args m Q X := by
+  intro args m Q X hs
+  obtain ⟨fn', row', hfn, hrow, _, hwp⟩ := full_deduce_1uip_bridge_wp
+  rw [show fullFns[79]? = some full_deduce_1uip from rfl] at hfn; cases hfn
+  rw [show (fullSpecTable fullSolveBytesSpec)[79]? =
+    some ⟨"full_deduce_1uip", [i64], [i64], fullDeduce1uipSpec, true⟩ from rfl] at hrow
+  cases hrow
+  exact hwp args m Q X hs
+
+/-- Unconditional concrete `Mem 64` UNSAT non-vacuity for `full_deduce_1uip` (`fullFns[79]?`)
+under canonical `fullEnv` (`XPost := False`). -/
+theorem nv_full_deduce_1uip :
+    Func.wp fullEnv full_deduce_1uip.body (nvOneLitCfg.hdr, ()) nvDeduceMem
+      (fun (r, ()) m' =>
+        (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) ∧ nvDeduceF0.Unsat ∧
+        ∃ s' : FullState, s'.LengthsOk nvOneLitCfg ∧ FullMem nvOneLitCfg s' m' ∧
+          FullOtfsInvW nvOneLitCfg nvDeduceF0 [[0], [1]] s' ∧
+          (r = 1#64 → s'.core.cur_level = 1 ∧ 1 ≤ s'.core.tmp_len ∧
+            (cnfOfClauses [[0], [1]]).EntailsClause
+              (cnfClause ((s'.core.tmp.take s'.core.tmp_len).map BitVec.toNat))) ∧
+          (r = 2#64 → ∃ cut' ≤ s'.core.trail_end,
+            FullCutInvW nvOneLitCfg nvDeduceF0 [[0], [1]] cut' s' ∧
+            FullConflictOkCut [[0], [1]] cut' s'))
+      (fun _ _ _ _ => False) :=
+  nv_full_deduce_1uip_of_wp full_deduce_1uip_wp_fullEnv
+
+/-- Unconditional existential `Mem 64` UNSAT non-vacuity for `full_deduce_1uip` at `0x1000#64`.
+-/
+theorem nv_deduce_1uip_ex :
+    ∃ m₀ : Mem 64,
+      Func.wp fullEnv full_deduce_1uip.body (0x1000#64, ()) m₀
+        (fun (r, ()) m' =>
+          (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) ∧ nvDeduceF0.Unsat ∧
+          ∃ s' : FullState, s'.LengthsOk nvOneLitCfg ∧ FullMem nvOneLitCfg s' m' ∧
+            FullOtfsInvW nvOneLitCfg nvDeduceF0 [[0], [1]] s' ∧
+            (r = 1#64 → s'.core.cur_level = 1 ∧ 1 ≤ s'.core.tmp_len ∧
+              (cnfOfClauses [[0], [1]]).EntailsClause
+                (cnfClause ((s'.core.tmp.take s'.core.tmp_len).map BitVec.toNat))) ∧
+            (r = 2#64 → ∃ cut' ≤ s'.core.trail_end,
+              FullCutInvW nvOneLitCfg nvDeduceF0 [[0], [1]] cut' s' ∧
+              FullConflictOkCut [[0], [1]] cut' s'))
+        (fun _ _ _ _ => False) :=
+  nv_deduce_1uip_ex_of_wp full_deduce_1uip_wp_fullEnv
 
 end LeanQbe.T.Examples.Kissat.Full

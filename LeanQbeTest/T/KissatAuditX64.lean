@@ -40,12 +40,10 @@ and proves each restatement by the corresponding library theorem. It imports `Kr
 
 ## `D-Full` status
 
-The `D-Full` (166-function) theorems take one hypothesis, `hmok : ModuleOk fullEnv fullModule`:
-every function body of `fullModule` satisfies its row of `fullSpecTable` under `Func.wp`. This
-single remaining Stage-4 hypothesis is discharged for **165/166** rows by `FullProof` +
-`FullBridgeLemmas8a`/`8b` + `FullOneLitConflLemmas`; only row `[79]` (`full_deduce_1uip`,
-with parametric non-vacuity in `FullDeduce1UipNv`) remains open. Compilation certificates,
-link-level reasoning, and the top-level UNSAT proof are finished; `D-Plain` is unconditional.
+The `D-Full` (166-function) theorems are **unconditional** (`166/166` `ModuleOk fullEnv fullModule`
+discharged by `FullProof.fullEnv_moduleOk`, combining `FullBridgeLemmas1`–`9`,
+`FullOneLitConflLemmas`, and `FullDeduce1UipLemmas`), matching `D-Plain`. Model reconstruction
+after inprocessing is intentionally unverified, so `10` is not certified; only UNSAT (`20`) is.
 -/
 
 set_option autoImplicit false
@@ -143,15 +141,14 @@ theorem audit_plain_x64_sat_nonvacuous :
     (fun _ ⟨hpc, hrax, hnu, hs⟩ => ⟨hpc, hrax, Plain.parseDimacs_plainSat, hnu, hs⟩)
     KissatPlain.x64_sat_nonvacuous
 
-/-! ## 2. `D-Full` (166 functions, CDCL + inprocessing): UNSAT soundness, given `hmok` -/
+/-! ## 2. `D-Full` (166 functions, CDCL + inprocessing): UNSAT soundness, unconditional -/
 
 /-- **`D-Full` x86-64 end-to-end UNSAT correctness** (`KissatFull.full_solve_bytes_unsat_x64`):
-assuming `hmok : ModuleOk fullEnv fullModule` (the single remaining Stage-4 hypothesis), for any
-host containing the compiled 166-function module and any well-formed SysV call, the machine code
-returns to `ra` with `rax ∈ {0, 10, 20}`, `20` certifies UNSAT of `parseDimacs cnfBytes`,
+for any host containing the compiled 166-function module and any well-formed SysV call, the machine
+code returns to `ra` with `rax ∈ {0, 10, 20}`, `20` certifies UNSAT of `parseDimacs cnfBytes`,
 `rbx, rbp, r12..r15` are preserved, `rsp` is `+8`, `cnfBytes` are read-only, the workspace and
 stack frame are restored, and the frame `R` is preserved. No claim is made about `10`. -/
-theorem audit_full_x64_unsat [Host] (hmok : ModuleOk Full.fullEnv Full.fullModule) (k₀ : Nat)
+theorem audit_full_x64_unsat [Host] (k₀ : Nat)
     (hc : KissatFull.kissatFull_compiled_x64.code.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique)
     (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
@@ -186,13 +183,13 @@ theorem audit_full_x64_unsat [Host] (hmok : ModuleOk Full.fullEnv Full.fullModul
             (KissatFull.kissatFull_compiled_x64.bound "kissat_solve_bytes" + 8) ⋆ R)
           st.data.dmem)
       ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
-  KissatFull.full_solve_bytes_unsat_x64 hmok k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit
-    hwfit s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem
+  KissatFull.full_solve_bytes_unsat_x64 k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
+    s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem
 
 /-- **`D-Full` x86-64 UNSAT soundness** (`KissatFull.full_solve_bytes_unsat_sound_x64`): the
 answer-only corollary of `audit_full_x64_unsat` (return to `ra`, `rax ∈ {0, 10, 20}`, and
 `rax = 20 →` UNSAT). -/
-theorem audit_full_x64_unsat_sound [Host] (hmok : ModuleOk Full.fullEnv Full.fullModule)
+theorem audit_full_x64_unsat_sound [Host]
     (k₀ : Nat) (hc : KissatFull.kissatFull_compiled_x64.code.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique)
     (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
@@ -219,14 +216,14 @@ theorem audit_full_x64_unsat_sound [Host] (hmok : ModuleOk Full.fullEnv Full.ful
         (st.data.regs.get64 .rax = 20#64 →
           ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))
       ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
-  KissatFull.full_solve_bytes_unsat_sound_x64 hmok k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen
-    hcfit hwfit s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem
+  KissatFull.full_solve_bytes_unsat_sound_x64 k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit
+    hwfit s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem
 
-/-- **`D-Full` x86-64 UNSAT non-vacuity** (`KissatFull.full_unsat_nonvacuous_x64`): assuming
-`hmok`, in any host containing the compiled module there is a concrete well-formed SysV call
-(an UNSAT DIMACS input, a 2048-byte workspace, fuel 1, empty frame) on which the machine code
-really returns `rax = 20`, so the UNSAT branch of `audit_full_x64_unsat` is reachable. -/
-theorem audit_full_x64_unsat_nonvacuous [Host] (hmok : ModuleOk Full.fullEnv Full.fullModule)
+/-- **`D-Full` x86-64 UNSAT non-vacuity** (`KissatFull.full_unsat_nonvacuous_x64`): unconditionally,
+in any host containing the compiled module there is a concrete well-formed SysV call (an UNSAT
+DIMACS input, a 2048-byte workspace, fuel 1, empty frame) on which the machine code really returns
+`rax = 20`, so the UNSAT branch of `audit_full_x64_unsat` is reachable. -/
+theorem audit_full_x64_unsat_nonvacuous [Host]
     (k₀ : Nat) (hc : KissatFull.kissatFull_compiled_x64.code.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique) :
     ∃ (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
@@ -249,7 +246,7 @@ theorem audit_full_x64_unsat_nonvacuous [Host] (hmok : ModuleOk Full.fullEnv Ful
           st.pc = ra ∧ st.data.regs.get64 .rax = 20#64 ∧
           ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat)
         ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
-  KissatFull.full_unsat_nonvacuous_x64 hmok k₀ hc hu
+  KissatFull.full_unsat_nonvacuous_x64 k₀ hc hu
 
 /-! ## 3. Module shapes and `#print axioms` (one line each, standard axioms only) -/
 

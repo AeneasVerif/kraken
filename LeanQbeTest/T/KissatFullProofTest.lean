@@ -14,7 +14,7 @@ import all Kraken.Separation
 2. Concrete-memory source-level `Func.wp` sanity check (`full_unsat_payload`, `X = False`,
    canonical `fullEnv`, strictly UNSAT-only — ZERO SAT / model-finding checks).
 3. Single-line `#print axioms` audit (`<= 100` cols) on all exported Stage-4 top orchestrator,
-   `FullBridgeLemmas9`, and `151/166` `ModuleOk` assembly theorems
+   `FullBridgeLemmas9`, and unconditional `166/166` `ModuleOk` assembly theorems
    (strictly `⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
@@ -75,6 +75,10 @@ theorem full_unsat_payload :
 #print axioms LeanQbe.T.Examples.Kissat.Full.full_unsat_nonvacuous
 #print axioms LeanQbe.T.Examples.Kissat.Full.fullEnv_moduleOk_of_missing
 #print axioms LeanQbe.T.Examples.Kissat.Full.fullUnsatEnv_modOk_rem
+#print axioms LeanQbe.T.Examples.Kissat.Full.mkFullEnv_tableImpl
+#print axioms LeanQbe.T.Examples.Kissat.Full.mkFullEnv_moduleOk
+#print axioms LeanQbe.T.Examples.Kissat.Full.fullEnv_moduleOk
+#print axioms LeanQbe.T.Examples.Kissat.Full.fullUnsatEnv_moduleOk
 #print axioms full_unsat_payload
 
 end LeanQbeTest.T.KissatFullProofTest

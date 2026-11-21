@@ -41,7 +41,7 @@ correctness theorems:
 | Solver | Lean module | Functions | Algorithm | Proved |
 |---|---|---|---|---|
 | `D-Plain` | `LeanQbe.T.Examples.Kissat.Plain` | 59 | CDCL (`kissat --plain`): watched literals, 1UIP learning, minimization and shrinking, VSIDS heap / VMTF queue, restarts, rephasing, mode switching, lucky phases, clause reduction | **SAT and UNSAT**, x86-64 and AArch64, unconditional |
-| `D-Full` | `LeanQbe.T.Examples.Kissat.Full` | 166 | CDCL + inprocessing: probing, vivification, forward/OTFS subsumption, BVE and BVA, congruence closure, equivalent-literal substitution, transitive reduction, SAT sweeping, local-search walking, … | **UNSAT soundness + UNSAT non-vacuity**, x86-64 and AArch64, given `hmok` (**165/166** bridged; see below) |
+| `D-Full` | `LeanQbe.T.Examples.Kissat.Full` | 166 | CDCL + inprocessing: probing, vivification, forward/OTFS subsumption, BVE and BVA, congruence closure, equivalent-literal substitution, transitive reduction, SAT sweeping, local-search walking, … | **UNSAT soundness + UNSAT non-vacuity**, x86-64 and AArch64, unconditional |
 
 Both solvers export one C entry point:
 
@@ -118,17 +118,12 @@ inputs (`p cnf 1 2 / 1 0 / -1 0` returns 20, `p cnf 1 1 / 1 0` returns 10). Sour
 [`full_solve_bytes_unsat_x64`](LeanQbe/T/Amd64/KissatFull.lean#L45) /
 [`full_solve_bytes_unsat_arm64`](LeanQbe/T/Arm64/KissatFull.lean#L46) give the same guarantees
 for the 166-function solver except the `10 → SAT` clause, against the UNSAT-only contract
-[`fullSolveBytesSpec`](LeanQbe/T/Examples/Kissat/FullSpec.lean#L57). Model reconstruction after
-inprocessing is intentionally not verified, so `10` from `D-Full` is not a certified answer.
-[`full_unsat_nonvacuous_x64`](LeanQbe/T/Amd64/KissatFull.lean#L160) /
+[`fullSolveBytesSpec`](LeanQbe/T/Examples/Kissat/FullSpec.lean#L57), backed unconditionally by
+[`fullEnv_moduleOk`](LeanQbe/T/Examples/Kissat/FullProof.lean#L839) (all 166 functions proved).
+Model reconstruction after inprocessing is intentionally not verified, so `10` from `D-Full` is
+not a certified answer. [`full_unsat_nonvacuous_x64`](LeanQbe/T/Amd64/KissatFull.lean#L160) /
 [`full_unsat_nonvacuous_arm64`](LeanQbe/T/Arm64/KissatFull.lean#L160) exhibit a concrete call on
 which the machine code returns 20.
-
-> **Status.** The `D-Full` theorems take one hypothesis, `hmok : ModuleOk fullEnv fullModule`:
-> every one of the 166 function bodies satisfies its row of `fullSpecTable`. Compilation
-> certificates, linking, top-level UNSAT (`FullProof`), and **165/166** `Func.wp` bridges
-> (`FullBridgeLemmas1`–`9`, `FullOneLitConflLemmas`) are proved on `main`; only row `[79]`
-> (`full_deduce_1uip`; parametric `FullDeduce1UipNv` proved) remains. `plainEnv_moduleOk` is proved.
 
 #### Axioms
 

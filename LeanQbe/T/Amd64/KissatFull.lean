@@ -1,6 +1,6 @@
 module
 public import LeanQbe.T.Amd64.KissatFullCert
-public import LeanQbe.T.Examples.Kissat.FullSpec
+public import LeanQbe.T.Examples.Kissat.FullProof
 import LeanQbe.T.Amd64.TargLemmas
 import all Std.Sat.CNF.Basic
 import all Kraken.Mem
@@ -20,7 +20,7 @@ private theorem fullEnv_names_eq (spec : Spec [i64, i64, i64, i64, i64] [i64]) :
     (fullSpecTable spec).map SpecEntry.name = fullFns.map Fn.name := by
   have h := congrArg (List.map Prod.fst) (fullSpecTable_sigs spec)
   simp only [List.map_map] at h; exact h
-theorem full_module_fnspec [hh : Host] (hmok : ModuleOk fullEnv fullModule) (k₀ : Nat)
+theorem full_module_fnspec [hh : Host] (k₀ : Nat)
     (hc : kissatFull_compiled_x64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     {f : Fn} (hf : f ∈ fullModule.fns) : x64Target.Defined hh f.name ∧ x64Target.FnSpec hh
     f.name (fullEnv f.name f.as f.rs) (kissatFull_compiled_x64.bound f.name) 0 := by
@@ -28,9 +28,9 @@ theorem full_module_fnspec [hh : Host] (hmok : ModuleOk fullEnv fullModule) (k�
     X X' => Env.ofTable_noExit (fullSpecTable_noExit fullSolveBytesSpec) g.name g.as g.rs args m Q
     X X') k₀ hc hu hf
   obtain ⟨pre, post, hsp⟩ := List.mem_iff_append.mp hg
-  exact (hmok.fnsOk pre g post hsp).2.2 args m Q X hs
+  exact (fullEnv_moduleOk.fnsOk pre g post hsp).2.2 args m Q X hs
 section Unsat
-variable [hh : Host] (hmok : ModuleOk fullEnv fullModule) (k₀ : Nat) (hc :
+variable [hh : Host] (k₀ : Nat) (hc :
   kissatFull_compiled_x64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) (cnf_ptr work_ptr
   fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat) (hcfit : cnf_ptr.toNat + cnfBytes.length
   < 2 ^ 64) (hwfit : work_ptr.toNat + wlen < 2 ^ 64) (s : MachineData) (ra : Int64) (R : Mem 64 →
@@ -40,7 +40,7 @@ variable [hh : Host] (hmok : ModuleOk fullEnv fullModule) (k₀ : Nat) (hc :
   (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ (region (s.regs.get64 .rsp - BitVec.ofNat
     64 (kissatFull_compiled_x64.bound "kissat_solve_bytes")) (kissatFull_compiled_x64.bound
     "kissat_solve_bytes") ⋆ cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) s.dmem)
-include hh hmok k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit s ra R hrdi hrsi hrdx hrcx
+include hh k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit s ra R hrdi hrsi hrdx hrcx
   hr8 hsp hmem
 theorem full_solve_bytes_unsat_x64 :
     Eventually (step1 Host.exe) (fun st => st.pc = ra ∧ (st.data.regs.get64 .rax = 0#64 ∨
@@ -51,15 +51,15 @@ theorem full_solve_bytes_unsat_x64 :
       wlen ⋆ region (s.regs.get64 .rsp - BitVec.ofNat 64 (kissatFull_compiled_x64.bound
       "kissat_solve_bytes")) (kissatFull_compiled_x64.bound "kissat_solve_bytes" + 8) ⋆ R)
       st.data.dmem) ⟨s, Labels.label "kissat_solve_bytes"⟩ := by
-  have hfn := (full_module_fnspec hmok k₀ hc hu solve_in_fullModule).2
+  have hfn := (full_module_fnspec k₀ hc hu solve_in_fullModule).2
   rcases hmem with ⟨ms, mr, u1, d1, ⟨m, mc, u2, d2, hm_in, hc0⟩, hm_r⟩
   have hspec : fullEnv "kissat_solve_bytes" [i64, i64, i64, i64, i64] [i64] (cnf_ptr, BitVec.ofNat
       64 cnfBytes.length, work_ptr, BitVec.ofNat 64 wlen, fuel, ()) m (fun r m' => (r.fst = 0#64 ∨
       r.fst = 10#64 ∨ r.fst = 20#64) ∧ (r.fst = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧
       cnf.Unsat) ∧ (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) m') (fun _ _ _ _ => False) :=
     Env.ofTable_of_mem (List.mem_of_getElem? (rfl : (fullSpecTable _)[165]? = some _))
-      (fullEnv_names_eq fullSolveBytesSpec ▸ hmok.nodup) ⟨cnfBytes, wlen, emp, rfl, rfl, hcfit,
-        hwfit, by rw [sep_emp]; exact hm_in,
+      (fullEnv_names_eq fullSolveBytesSpec ▸ fullEnv_moduleOk.nodup) ⟨cnfBytes, wlen, emp, rfl,
+        rfl, hcfit, hwfit, by rw [sep_emp]; exact hm_in,
         fun _ _ h u' m' => by rw [sep_emp] at m'; exact ⟨h, u', m'⟩⟩
   refine eventually_weaken _ _ _ _ ?_ (KissatFullCert.solve_x64_of_fnspec hfn cnf_ptr _ work_ptr _
     fuel hspec s ra R hrdi hrsi hrdx hrcx hr8 hsp ⟨ms, mr, u1, d1, ⟨m, mc, u2, d2, rfl, hc0⟩, hm_r⟩)
@@ -70,8 +70,8 @@ theorem full_solve_bytes_unsat_sound_x64 :
       st.data.regs.get64 .rax = 10#64 ∨ st.data.regs.get64 .rax = 20#64) ∧ (st.data.regs.get64 .rax
       = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))
       ⟨s, Labels.label "kissat_solve_bytes"⟩ := eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, h.2.1,
-    h.2.2.1⟩) (full_solve_bytes_unsat_x64 hmok k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit
-    hwfit s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem)
+    h.2.2.1⟩) (full_solve_bytes_unsat_x64 k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit s
+    ra R hrdi hrsi hrdx hrcx hr8 hsp hmem)
 end Unsat
 
 private abbrev nvBytes : List UInt8 :=
@@ -157,7 +157,7 @@ private theorem pre_ne_solve {pre post : List Fn} {fn : Fn} (hsp : fullModule.fn
     have hnd' := List.nodup_append.mp (by rw [← List.map_append, ← hsp]; exact hnd)
     exact hnd'.2.2 _ (List.mem_map.mpr ⟨g, hg, hgn⟩) _ (List.mem_of_getLast? he) rfl
 
-theorem full_unsat_nonvacuous_x64 [hh : Host] (hmok : ModuleOk fullEnv fullModule) (k₀ : Nat)
+theorem full_unsat_nonvacuous_x64 [hh : Host] (k₀ : Nat)
     (hc : kissatFull_compiled_x64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
     ∃ (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat) (s : MachineData)
       (ra : Int64) (R : Mem 64 → Prop), cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧
@@ -169,7 +169,7 @@ theorem full_unsat_nonvacuous_x64 [hh : Host] (hmok : ModuleOk fullEnv fullModul
         "kissat_solve_bytes") ⋆ cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) s.dmem ∧
       Eventually (step1 Host.exe) (fun st => st.pc = ra ∧ st.data.regs.get64 .rax = 20#64 ∧ ∃ cnf,
         parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ⟨s, Labels.label "kissat_solve_bytes"⟩ := by
-  have hnd : (fullFns.map Fn.name).Nodup := hmok.nodup
+  have hnd : (fullFns.map Fn.name).Nodup := fullEnv_moduleOk.nodup
   have hfn : x64Target.FnSpec hh "kissat_solve_bytes" (nvEnv "kissat_solve_bytes" [i64, i64, i64,
       i64, i64] [i64]) (kissatFull_compiled_x64.bound "kissat_solve_bytes") 0 := by
     refine (KissatFullCert.mk_module_fnspec nvEnv (fun g hg args m Q X hs => ?_) (fun g _ args m Q
@@ -180,7 +180,7 @@ theorem full_unsat_nonvacuous_x64 [hh : Host] (hmok : ModuleOk fullEnv fullModul
     · have heq := eq_of_map_nodup hnd hg solve_in_fullModule hnm; subst heq
       exact nv_witness_wp hnd args m Q X hs
     · obtain ⟨pre, post, hsp⟩ := List.mem_iff_append.mp hg
-      obtain ⟨hwf, hca, hbd⟩ := hmok.fnsOk pre g post hsp
+      obtain ⟨hwf, hca, hbd⟩ := fullEnv_moduleOk.fnsOk pre g post hsp
       dsimp only [nvEnv, nvEntry] at hs; rw [Env.ofTable_cons_ne (Ne.symm hnm)] at hs
       refine wp_env_agree_of_callsOk (hwf _ (fun _ => Unit) _ (fun _ => Unit) args (Tup.units g.as))
         hca (fun fnm _ _ hc' _ _ _ _ hf => ?_) m (hbd args m Q X hs)

@@ -15,6 +15,7 @@ public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas9
 public import LeanQbe.T.Examples.Kissat.FullProof1
 public import LeanQbe.T.Examples.Kissat.FullProof
 public import LeanQbe.T.Examples.Kissat.FullOneLitConflLemmas
+public import LeanQbe.T.Examples.Kissat.FullDeduce1UipLemmas
 public import LeanQbe.T.Examples.Kissat.FullDeduce1UipNv
 public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas
 public import LeanQbe.T.Examples.Kissat.FullTransLemmas
@@ -25,6 +26,7 @@ meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7
 meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas8a
 meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas8b
 meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas9
+meta import LeanQbe.T.Examples.Kissat.FullDeduce1UipLemmas
 meta import LeanQbe.T.Examples.Kissat.FullProof
 import all Std.Sat.CNF.Basic
 import all Std.Sat.CNF.Sat
@@ -206,16 +208,17 @@ theorem audit_fullEnv_eq :
     Full.fullEnv = Env.ofTable (Full.fullSpecTable Full.fullSolveBytesSpec) :=
   rfl
 
-/-! ## 5. Verified Canonical `D-Full` Bridge Coverage (`165/166` + `FullProof` Assembly)
+/-! ## 5. Verified Canonical `D-Full` Bridge Coverage (`166/166` + `FullProof` Assembly)
 
 Canonical `Full.fullSpecTable Full.fullSolveBytesSpec` lists 166 functions (`FullSpec.lean`).
 Across `FullBridgeLemmas1`–`7` (`145`), `FullBridgeLemmas8a` (`6`: `[106..111]`),
-`FullBridgeLemmas8b` (`7`: `[62,63,64,66,67,68,77]`), `FullOneLitConflLemmas` (`1`: `[78]`), and
-`FullBridgeLemmas9` (`6`: `[160..165]`), `165` of `166` entries now have machine-checked
-`SpecEntry.Impl Full.fullEnv` bridges (`FullProof` proves top-level UNSAT + `ModuleOk` assembly,
-leaving only row `[79]` `full_deduce_1uip` open, with parametric non-vacuity in
-`FullDeduce1UipNv`), alongside Stage-4 component contracts (`FullVivifyLemmas`,
-`FullTransLemmas`, `FullProbeTransLemmas`), all verified with zero target-architecture imports. -/
+`FullBridgeLemmas8b` (`7`: `[62,63,64,66,67,68,77]`), `FullOneLitConflLemmas` (`1`: `[78]`),
+`FullDeduce1UipLemmas` (`1`: `[79]`), and `FullBridgeLemmas9` (`6`: `[160..165]`), all `166`
+of `166` entries now have machine-checked `SpecEntry.Impl Full.fullEnv` bridges (`FullProof`
+proves top-level UNSAT and unconditional `166/166` `ModuleOk` assembly, with UNSAT non-vacuity in
+`FullOneLitConflLemmas` and `FullDeduce1UipNv`), alongside Stage-4 component contracts
+(`FullVivifyLemmas`, `FullTransLemmas`, `FullProbeTransLemmas`), all verified with zero
+target-architecture imports. -/
 
 #guard Full.fullBridge7Indices.length == 22
 #guard Full.fullBridge8aIndices.length == 6
@@ -493,6 +496,14 @@ theorem audit_nv_full_one_lit_confl :
       (fun _ _ _ _ => False) :=
   Full.nv_full_one_lit_confl
 
+/-- **`D-Full` `full_deduce_1uip` bridge** (`FullDeduce1UipLemmas.full_deduce_1uip_bridge_wp`,
+row `[79]`). -/
+theorem audit_full_deduce_1uip_bridge_wp :
+    ∃ fn' row', Full.fullFns[79]? = some fn' ∧
+      (Full.fullSpecTable Full.fullSolveBytesSpec)[79]? = some row' ∧
+      SpecEntry.Impl Full.fullEnv fn' row' :=
+  Full.full_deduce_1uip_bridge_wp
+
 /-- **`D-Full` `full_deduce_1uip` parametric non-vacuity**
 (`FullDeduce1UipNv.nv_full_deduce_1uip_of_wp`): given the WP for row `[79]`, concrete `Mem 64`
 execution reaches a sound outcome under `XPost := False`. -/
@@ -515,14 +526,34 @@ theorem audit_nv_full_deduce_1uip_of_wp
       (fun _ _ _ _ => False) :=
   Full.nv_full_deduce_1uip_of_wp hwp
 
-/-- **`D-Full` 165/166 `ModuleOk` assembly**: combines `FullProof`, `FullBridgeLemmas8a`,
-`FullBridgeLemmas8b`, and `FullOneLitConflLemmas`; only row `[79]` (`full_deduce_1uip`) remains. -/
-theorem audit_fullEnv_moduleOk_of_79
-    (h79 : ∃ fn row, Full.fullFns[79]? = some fn ∧
-      (Full.fullSpecTable Full.fullSolveBytesSpec)[79]? = some row ∧
-      SpecEntry.Impl Full.fullEnv fn row) :
-    ModuleOk Full.fullEnv Full.fullModule :=
-  Full.fullEnv_moduleOk_of_79 h79
+/-- **`D-Full` `full_deduce_1uip` unconditional UNSAT non-vacuity**
+(`FullDeduce1UipNv.nv_full_deduce_1uip`). -/
+theorem audit_nv_full_deduce_1uip :
+    Func.wp Full.fullEnv Full.full_deduce_1uip.body (Full.nvOneLitCfg.hdr, ()) Full.nvDeduceMem
+      (fun (r, ()) m' =>
+        (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) ∧
+          Full.nvDeduceF0.Unsat ∧
+            ∃ s', Full.FullState.LengthsOk Full.nvOneLitCfg s' ∧
+              Full.FullMem Full.nvOneLitCfg s' m' ∧
+              Full.FullOtfsInvW Full.nvOneLitCfg Full.nvDeduceF0 [[0], [1]] s' ∧
+              (r = 1#64 → s'.core.cur_level = 1 ∧ 1 ≤ s'.core.tmp_len ∧
+                (cnfOfClauses [[0], [1]]).EntailsClause
+                  (cnfClause (List.map BitVec.toNat (List.take s'.core.tmp_len s'.core.tmp)))) ∧
+              (r = 2#64 → ∃ cut', cut' ≤ s'.core.trail_end ∧
+                Full.FullCutInvW Full.nvOneLitCfg Full.nvDeduceF0 [[0], [1]] cut' s' ∧
+                Full.FullConflictOkCut [[0], [1]] cut' s'))
+      (fun _ _ _ _ => False) :=
+  Full.nv_full_deduce_1uip
+
+/-- **`D-Full` unconditional `166/166` `ModuleOk fullEnv fullModule`**
+(`FullProof.fullEnv_moduleOk`). -/
+theorem audit_fullEnv_moduleOk : ModuleOk Full.fullEnv Full.fullModule :=
+  Full.fullEnv_moduleOk
+
+/-- **`D-Full` unconditional `166/166` `ModuleOk fullUnsatEnv fullModule`**
+(`FullProof.fullUnsatEnv_moduleOk`). -/
+theorem audit_fullUnsatEnv_moduleOk : ModuleOk Full.fullUnsatEnv Full.fullModule :=
+  Full.fullUnsatEnv_moduleOk
 
 /-! ## 6. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
 
@@ -561,5 +592,8 @@ theorem audit_fullEnv_moduleOk_of_79
 #print axioms audit_fullEnv_moduleOk_of_missing
 #print axioms audit_full_one_lit_confl_bridge_wp
 #print axioms audit_nv_full_one_lit_confl
+#print axioms audit_full_deduce_1uip_bridge_wp
 #print axioms audit_nv_full_deduce_1uip_of_wp
-#print axioms audit_fullEnv_moduleOk_of_79
+#print axioms audit_nv_full_deduce_1uip
+#print axioms audit_fullEnv_moduleOk
+#print axioms audit_fullUnsatEnv_moduleOk
