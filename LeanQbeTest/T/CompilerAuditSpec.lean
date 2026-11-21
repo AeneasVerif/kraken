@@ -1,6 +1,9 @@
 module
 
 public import LeanQbe.T.OptLemmas
+public import LeanQbe.T.LicmLemmas
+public import LeanQbe.T.DceParamLemmas
+public import LeanQbe.T.SimplifyGroupPlanLemmas
 public import LeanQbe.T.LegalLemmas
 public import LeanQbe.T.LegalCheck3
 public import LeanQbe.T.RegaLemmas4
@@ -21,9 +24,10 @@ compositional multi-chunk linker (`MainLink`), and measure-indexed cyclic/mutual
 linking (`LinkRec`).
 
 ## What This Workstream Proves
-1. **Mid-end optimization (`OptLemmas`)**: `Func.earlyOpt`, `Func.lateOpt`, legacy `Func.opt`,
-   and acyclic inlining + renormalization (`Module.optInline`) refine `Func.spec` and preserve
-   `ModuleOk`.
+1. **Mid-end optimization (`OptLemmas`, `LicmLemmas`, `DceParamLemmas`,
+   `SimplifyGroupPlanLemmas`)**: `Func.earlyOpt`, `Func.lateOpt`, legacy `Func.opt`,
+   `Func.licm`, `Func.dceP`, `Func.simplifyGroupPlan`, and acyclic inlining + renormalization
+   (`Module.optInline`) preserve `Func.Wf`, refine `Func.spec`, and preserve `ModuleOk`.
 2. **Type and opcode legalization (`LegalLemmas`, `LegalCheck3`)**: `Func.legal` / `Fn.legal`
    refine `Func.spec` into `legalEnv` / `legalPost` / `legalXPost` and guarantee target legality
    (`isLegal target = true`).
@@ -84,6 +88,55 @@ theorem audit_opt_inline {Γ : Env} {M : Module} (maxSize : Nat := 40)
     (hM : ModuleOk Γ M) :
     ModuleOk Γ (M.optInline maxSize) :=
   Module.optInline_ok maxSize hM
+
+theorem audit_licm_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.licm f).Wf :=
+  Func.licm_wf hf
+
+theorem audit_licm_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) :
+    Func.spec Γ (Func.licm f) xs m Q X :=
+  Func.licm_spec hf h
+
+theorem audit_licm_src (target : LegalTarget) {as rs : List Ty} {f : Func as rs}
+    (hf : f.Wf) (hsupp : f.supportsSource target = true) :
+    (Func.licm f).supportsSource target = true :=
+  Func.licm_supportsSource target hf hsupp
+
+theorem audit_dceP_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) (rounds : Nat := 0) :
+    (Func.dceP f rounds).Wf :=
+  Func.dceP_wf hf rounds
+
+theorem audit_dceP_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) (rounds : Nat := 0) :
+    Func.spec Γ (Func.dceP f rounds) xs m Q X :=
+  Func.dceP_spec hf h rounds
+
+theorem audit_dcePWith_spec (dl dld : Bool) (rounds : Nat := 0)
+    {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) :
+    Func.spec Γ (Func.dcePWith dl dld rounds f) xs m Q X :=
+  Func.dcePWith_spec dl dld rounds hf h
+
+theorem audit_sgp_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.simplifyGroupPlan f).Wf :=
+  Func.simplifyGroupPlan_wf hf
+
+theorem audit_sgp_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) :
+    Func.spec Γ (Func.simplifyGroupPlan f) xs m Q X :=
+  Func.simplifyGroupPlan_spec hf h
+
+theorem audit_sgp_plan_spec {as rs : List Ty} (plan : SgpImpl.SimpPlan)
+    {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) :
+    Func.spec Γ (Func.simplifyGroupWithPlan plan f) xs m Q X :=
+  Func.simplifyGroupWithPlan_spec plan hf h
 
 /-! ## 2. Legalization Correctness & Target Legality -/
 
@@ -325,6 +378,15 @@ theorem audit_rec_sum_ok :
 #print axioms audit_early_opt
 #print axioms audit_late_opt
 #print axioms audit_opt_inline
+#print axioms audit_licm_wf
+#print axioms audit_licm_spec
+#print axioms audit_licm_src
+#print axioms audit_dceP_wf
+#print axioms audit_dceP_spec
+#print axioms audit_dcePWith_spec
+#print axioms audit_sgp_wf
+#print axioms audit_sgp_spec
+#print axioms audit_sgp_plan_spec
 #print axioms audit_legal_spec
 #print axioms audit_legal_ok
 #print axioms audit_lower_fn

@@ -2,8 +2,19 @@ module
 
 public import LeanQbe.T.Examples.Kissat.PlainLemmas
 public import LeanQbe.T.Examples.Kissat.FullSpec
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas1
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas2
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas3
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas4
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas5
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas6
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7
+public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas
+public import LeanQbe.T.Examples.Kissat.FullTransLemmas
+public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas
 meta import LeanQbe.T.Examples.Kissat.PlainLemmas
 meta import LeanQbe.T.Examples.Kissat.FullSpec
+meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7
 import all Std.Sat.CNF.Basic
 import all Std.Sat.CNF.Sat
 
@@ -184,7 +195,125 @@ theorem audit_fullEnv_eq :
     Full.fullEnv = Env.ofTable (Full.fullSpecTable Full.fullSolveBytesSpec) :=
   rfl
 
-/-! ## 5. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
+/-! ## 5. Verified Canonical `D-Full` Bridge Coverage (`FullBridgeLemmas` + Stage-4 Components)
+
+Canonical `Full.fullSpecTable Full.fullSolveBytesSpec` lists 166 functions (`FullSpec.lean`).
+Across `FullBridgeLemmas1`–`7`, 145 of those 166 entries (`26 + 32 + 11 + 26 + 18 + 10 + 22`)
+now have machine-checked `SpecEntry.Impl Full.fullEnv` / `_bridge_wp` proofs targeting the
+canonical `fullEnv`, alongside landed Stage-4 solver component contracts (`FullVivifyLemmas`,
+`FullTransLemmas`, `FullProbeTransLemmas`), all verified with zero target-architecture imports. -/
+
+#guard Full.fullBridge7Indices.length == 22
+
+theorem audit_full_table_sigs :
+    (Full.fullSpecTable Full.fullSolveBytesSpec).map (fun e => (e.name, e.as, e.rs)) =
+      Full.fullModule.fns.map (fun f => (f.name, f.as, f.rs)) :=
+  Full.fullSpecTable_sigs Full.fullSolveBytesSpec
+
+theorem audit_full_table_noExit :
+    ∀ e ∈ Full.fullSpecTable Full.fullSolveBytesSpec, e.noExit = true :=
+  Full.fullSpecTable_noExit Full.fullSolveBytesSpec
+
+theorem audit_full_bridge7_ok (n : Nat) (hn : n ∈ Full.fullBridge7Indices) :
+    ∃ fn row,
+      Full.fullFns[n]? = some fn ∧
+        (Full.fullSpecTable Full.fullSolveBytesSpec)[n]? = some row ∧
+          SpecEntry.Impl Full.fullEnv fn row :=
+  Full.full_bridge_7_ok n hn
+
+theorem audit_full_qrenum_br (Γ : Env) :
+    ∀ a m Q X, Full.fullQueueRenumberSpec a m Q X →
+      Func.wp Γ Full.full_queue_renumber_body a m Q X :=
+  Full.full_queue_renumber_bridge_wp Γ
+
+theorem audit_full_isqrt_br (Γ : Env) :
+    ∀ a m Q X, Full.fullIsqrtSpec a m Q X →
+      Func.wp Γ Full.full_isqrt_body a m Q X :=
+  Full.full_isqrt_bridge_wp Γ
+
+theorem audit_full_walk_br (Γ : Env)
+    (hCol : ∀ (a : Tup Val [i64]) (m : Mem 64) (Q : Post [i64]) (X : XPost),
+      Full.fullWalkCollectSpec a m Q X → Γ "full_walk_collect" [i64] [i64] a m Q X)
+    (hSat : ∀ (a : Tup Val [i64, i64, i64]) (m : Mem 64) (Q : Post [.bool]) (X : XPost),
+      Full.fullWalkClSatSpec a m Q X → Γ "full_walk_cl_sat" [i64, i64, i64] [.bool] a m Q X)
+    (hRng : ∀ (a : Tup Val [i64]) (m : Mem 64) (Q : Post [i64]) (X : XPost),
+      Full.fullRngNextSpec a m Q X → Γ "full_rng_next" [i64] [i64] a m Q X)
+    (hPick : ∀ (a : Tup Val [i64, i64, i64]) (m : Mem 64) (Q : Post [i32]) (X : XPost),
+      Full.fullWalkPickLitSpec a m Q X →
+        Γ "full_walk_pick_lit" [i64, i64, i64] [i32] a m Q X) :
+    ∀ a m Q X, Full.fullWalkSpec a m Q X →
+      Func.wp Γ Full.full_walk_body a m Q X :=
+  Full.full_walk_bridge_wp Γ hCol hSat hRng hPick
+
+theorem audit_full_lucky_br (Γ : Env)
+    (hPol : ∀ (a : Tup Val [i64]) (m : Mem 64) (Q : Post [i64]) (X : XPost),
+      Full.fullLuckyPolarSpec a m Q X → Γ "full_lucky_polar" [i64] [i64] a m Q X)
+    (hScan : ∀ (a : Tup Val [i64, .bool, .bool]) (m : Mem 64) (Q : Post [i64]) (X : XPost),
+      Full.fullLuckyScanSpec a m Q X →
+        Γ "full_lucky_scan" [i64, .bool, .bool] [i64] a m Q X)
+    (hAsn : ∀ (a : Tup Val [i64, i32, i32]) (m : Mem 64) (Q : Post []) (X : XPost),
+      Full.fullAssignSpec a m Q X → Γ "full_assign" [i64, i32, i32] [] a m Q X)
+    (hBt : ∀ (a : Tup Val [i64, i64]) (m : Mem 64) (Q : Post []) (X : XPost),
+      Full.fullBacktrackSpec a m Q X → Γ "full_backtrack" [i64, i64] [] a m Q X)
+    (hProp : ∀ (a : Tup Val [i64]) (m : Mem 64) (Q : Post [i64]) (X : XPost),
+      Full.fullPropagateSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X) :
+    ∀ a m Q X, Full.fullLuckySpec a m Q X →
+      Func.wp Γ Full.full_lucky_body a m Q X :=
+  Full.full_lucky_bridge_wp Γ hPol hScan hAsn hBt hProp
+
+theorem audit_full_reduce_br (Γ : Env)
+    (hSqrt : ∀ (a : Tup Val [i64]) (m : Mem 64) (Q : Post [i64]) (X : XPost),
+      Full.fullIsqrtSpec a m Q X → Γ "full_isqrt" [i64] [i64] a m Q X)
+    (hLog : ∀ (a : Tup Val [i64]) (m : Mem 64) (Q : Post [i64]) (X : XPost),
+      Full.fullIlog10Spec a m Q X → Γ "full_ilog10" [i64] [i64] a m Q X)
+    (hNext : ∀ (a : Tup Val [i64, i32]) (m : Mem 64) (Q : Post [i32]) (X : XPost),
+      Full.fullArenaNextSpec a m Q X → Γ "full_arena_next" [i64, i32] [i32] a m Q X)
+    (hTiers : ∀ (a : Tup Val [i64]) (m : Mem 64) (Q : Post []) (X : XPost),
+      Full.fullRecomputeTiersSpec a m Q X → Γ "full_recompute_tiers" [i64] [] a m Q X)
+    (hMarks : ∀ (a : Tup Val [i64, .bool]) (m : Mem 64) (Q : Post []) (X : XPost),
+      Full.fullMarkReasonsSpec a m Q X → Γ "full_mark_reasons" [i64, .bool] [] a m Q X)
+    (hSort : ∀ (a : Tup Val [i64, i64]) (m : Mem 64) (Q : Post []) (X : XPost),
+      Full.fullSortRedsSpec a m Q X → Γ "full_sort_reds" [i64, i64] [] a m Q X)
+    (hBt : ∀ (a : Tup Val [i64, i64]) (m : Mem 64) (Q : Post []) (X : XPost),
+      Full.fullBacktrackSpec a m Q X → Γ "full_backtrack" [i64, i64] [] a m Q X)
+    (hProp : ∀ (a : Tup Val [i64]) (m : Mem 64) (Q : Post [i64]) (X : XPost),
+      Full.fullPropagateSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
+    (hSweep : ∀ (a : Tup Val [i64]) (m : Mem 64) (Q : Post [i64]) (X : XPost),
+      Full.fullArenaSweepSpec a m Q X → Γ "full_arena_sweep" [i64] [i64] a m Q X) :
+    ∀ a m Q X, Full.fullReduceSpec a m Q X →
+      Func.wp Γ Full.full_reduce_body a m Q X :=
+  Full.full_reduce_bridge_wp Γ hSqrt hLog hNext hTiers hMarks hSort hBt hProp hSweep
+
+theorem audit_full_viv_deduce_wp (Γ : Env) :
+    ∀ a m Q X, Full.FullVivifySpecs.fullVivDeduceSpec a m Q X →
+      Func.wp Γ Full.full_viv_deduce_body a m Q X :=
+  Full.full_viv_deduce_wp Γ
+
+theorem audit_full_trans_wp (Γ : Env)
+    (hBt : ∀ (args : Tup Val [i64, i64]) (m : Mem 64) (Q : Post []) (X : XPost),
+      Full.fullBacktrackSpec args m Q X → Γ "full_backtrack" [i64, i64] [] args m Q X)
+    (hLit : ∀ (args : Tup Val [i64, i32]) (m : Mem 64) (Q : Post [.bool]) (X : XPost),
+      Full.fullTransLitSpec args m Q X → Γ "full_trans_lit" [i64, i32] [.bool] args m Q X)
+    (hProp : ∀ (args : Tup Val [i64]) (m : Mem 64) (Q : Post [i64]) (X : XPost),
+      Full.fullPropagateSpec args m Q X → Γ "full_propagate" [i64] [i64] args m Q X)
+    (hDefrag : ∀ (args : Tup Val [i64]) (m : Mem 64) (Q : Post []) (X : XPost),
+      Full.fullWstackDefragSpec args m Q X → Γ "full_wstack_defrag" [i64] [] args m Q X) :
+    ∀ a m Q X, Full.fullTransitiveSpec a m Q X →
+      Func.wp Γ Full.full_transitive_body a m Q X :=
+  Full.full_transitive_wp Γ hBt hLit hProp hDefrag
+
+theorem audit_full_probe_run_wp (Γ : Env)
+    (hBt : ∀ (args : Tup Val [i64, i64]) (m : Mem 64) (Q : Post []) (X : XPost),
+      Full.FullProbeTransSpecs.fullBacktrackSpec args m Q X →
+        Γ "full_backtrack" [i64, i64] [] args m Q X)
+    (hAssume : ∀ (args : Tup Val [i64, i32]) (m : Mem 64) (Q : Post [i64]) (X : XPost),
+      Full.FullProbeTransSpecs.fullProbeAssumePairSpec args m Q X →
+        Γ "full_probe_assume_pair" [i64, i32] [i64] args m Q X) :
+    ∀ a m Q X, Full.FullProbeTransSpecs.fullProbeRunSpec a m Q X →
+      Func.wp Γ Full.full_probe_run_body a m Q X :=
+  Full.full_probe_run_wp Γ hBt hAssume
+
+/-! ## 6. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms audit_unsat_def
 #print axioms audit_sat_def
@@ -196,3 +325,14 @@ theorem audit_fullEnv_eq :
 #print axioms audit_plain_sat_nonvacuous
 #print axioms audit_full_spec_contract
 #print axioms audit_fullEnv_eq
+#print axioms audit_full_table_sigs
+#print axioms audit_full_table_noExit
+#print axioms audit_full_bridge7_ok
+#print axioms audit_full_qrenum_br
+#print axioms audit_full_isqrt_br
+#print axioms audit_full_walk_br
+#print axioms audit_full_lucky_br
+#print axioms audit_full_reduce_br
+#print axioms audit_full_viv_deduce_wp
+#print axioms audit_full_trans_wp
+#print axioms audit_full_probe_run_wp

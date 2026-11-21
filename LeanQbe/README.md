@@ -21,6 +21,7 @@ imports both `Kraken.X64` and `Kraken.AArch64`.
 | 3 | **Impure Lean 4 `LCNF` and `LeanLRC` lowering** | lowering of Lean's compiler IR (`LeanQbe/T/LeanLCNF`, `LeanQbe/T/LeanLRC`) into `LeanQbe.T` | [Audit](LeanQbeTest/T/LcnfAudit.lean) |
 | 4 | **Verified native LRAT proof checker** (`LratBytes`) | `lrat_check_bytes` returns `1` only for valid DIMACS of an unsatisfiable CNF | [Spec](LeanQbeTest/T/LratAuditSpec.lean), [X64](LeanQbeTest/T/LratAuditX64.lean), [Arm64](LeanQbeTest/T/LratAuditArm64.lean) |
 | 5 | **Cryptographic and data-structure workloads** (`ChaCha20` SIMD, 256-bit `Bignum`, `UnionFind`) | functional correctness of the example programs and their compiled code | [Spec](LeanQbeTest/T/WorkloadsAuditSpec.lean), [X64](LeanQbeTest/T/WorkloadsAuditX64.lean), [Arm64](LeanQbeTest/T/WorkloadsAuditArm64.lean) |
+| 6 | **C0 frontend & separation-logic proof tooling** | `Func.wp` core rules, C0 elaborator/`Wf`, `C0HeadStep`/`C0Agrees`, `SepTree`/`SlabChain`/`C0Lens`, `ControlComb`/`LegalEmit` | [Audit](LeanQbeTest/T/C0LogicAudit.lean) |
 
 Check all audit files (each one also builds as part of `scripts/check.sh`):
 
@@ -29,7 +30,7 @@ lake build --wfail LeanQbeTest.T.KissatAuditSpec LeanQbeTest.T.KissatAuditX64 \
   LeanQbeTest.T.KissatAuditArm64 LeanQbeTest.T.CompilerAuditSpec LeanQbeTest.T.CompilerAuditX64 \
   LeanQbeTest.T.CompilerAuditArm64 LeanQbeTest.T.LcnfAudit LeanQbeTest.T.LratAuditSpec \
   LeanQbeTest.T.LratAuditX64 LeanQbeTest.T.LratAuditArm64 LeanQbeTest.T.WorkloadsAuditSpec \
-  LeanQbeTest.T.WorkloadsAuditX64 LeanQbeTest.T.WorkloadsAuditArm64
+  LeanQbeTest.T.WorkloadsAuditX64 LeanQbeTest.T.WorkloadsAuditArm64 LeanQbeTest.T.C0LogicAudit
 ```
 
 ## Verified Kissat
@@ -155,6 +156,12 @@ inputs (and, for `D-Plain`, `s SATISFIABLE` only for satisfiable ones) you must 
 Not trusted: the C0 sources of both solvers, the C0 elaborator, every `LeanQbe.T` compiler pass
 (optimization, legalization, register allocation, instruction selection, linking), and all
 `Func.wp` proofs — all are checked by the kernel.
+
+**File-organization & verification policy.** Modules follow conceptual boundaries (`~1k–3k` LOC
+typical, shorter fine) bounded by per-file resource caps (`≤ 120s` / `≤ 300s` `*Cert*`,
+`≤ 2.5 GiB` RSS, default `200k` heartbeats, `≤ 100` cols) rather than rigid line limits.
+Source-level `Func.wp`/`ModuleOk` verification and differential testing run independently of
+native `LinkedCert` (`*Cert*`) kernel compilation proofs.
 
 ## Repository layout
 
