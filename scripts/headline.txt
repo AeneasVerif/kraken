@@ -830,3 +830,12 @@ LeanQbe.T.Arm64.KissatFull LeanQbe.T.Arm64.KissatFull.full_module_fnspec
 LeanQbe.T.Arm64.KissatFull LeanQbe.T.Arm64.KissatFull.full_solve_bytes_unsat_arm64
 LeanQbeTest.T.KissatAuditArm64 audit_full_arm64_unsat_sound
 LeanQbe.T.Arm64.KissatFull LeanQbe.T.Arm64.KissatFull.full_unsat_nonvacuous_arm64
+LeanQbe.T.LinkSccLemmas2 LeanQbe.T.LinkScc.link_scc_compiled
+LeanQbe.T.LinkLfp LeanQbe.T.link_scc_static
+LeanQbeTest.T.KissatAuditSpec audit_sched_ok
+LeanQbeTest.T.KissatAuditSpec audit_sched_nv
+LeanQbeTest.T.KissatAuditSpec audit_bve_modok
+LeanQbeTest.T.KissatAuditSpec audit_fcore_modok
+LeanQbeTest.T.KissatAuditSpec audit_fcore_nv
+LeanQbeTest.T.KissatAuditX64 audit_sched_x64_sound
+LeanQbeTest.T.KissatAuditArm64 audit_sched_arm_sound

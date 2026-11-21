@@ -11,6 +11,9 @@ public import LeanQbe.T.AbiLemmas
 public import LeanQbe.T.MainLemmas
 public import LeanQbe.T.MainLink
 public import LeanQbe.T.LinkRecLemmas
+public import LeanQbe.T.SccLemmas
+public import LeanQbe.T.LinkSccLemmas2
+public import LeanQbe.T.LinkLfp
 public import LeanQbe.T.Examples.LinkRec
 meta import LeanQbe.T.Module
 meta import LeanQbe.T.LinkRec
@@ -362,7 +365,126 @@ theorem audit_rec_sum_ok :
     ModuleRecOk recSumRecEnv (fun _ _ _ _ _ _ _ => False) recSumMod :=
   recSumMod_moduleRecOk
 
-/-! ## 7. Concrete Sanity Checks (`#guard`) -/
+/-! ## 7. Well-Founded SCC & LFP Linking (`SccLemmas`, `LinkSccLemmas2`, `LinkLfp`) -/
+
+section SccLfpAudit
+
+open LeanQbe.T
+open LeanQbe.T.LinkRec
+open LeanQbe.T.LinkScc
+
+theorem audit_scc_order_sound {sccs : List (List Fn)} {extSigs : List SigEntry}
+    {exits : List Sym} (h : checkSccOrder sccs extSigs exits = true) :
+    (sccs.flatten.map Fn.name ++ extSigs.map Prod.fst).Nodup ∧
+    ∀ (pre : List (List Fn)) (scc : List Fn) (post : List (List Fn)),
+      sccs = pre ++ scc :: post →
+      !scc.isEmpty = true ∧
+      ∀ fn ∈ scc,
+        fn.callsOk (pre.flatten.map Fn.sig ++ scc.map Fn.sig ++ extSigs) exits :=
+  checkSccOrder_sound h
+
+theorem audit_scc_acyclic {M : Module} (h : M.checkAcyclic = true) :
+    checkSccOrder (M.fns.map fun f => [f]) (M.externs.map Extern.sig) M.exits = true :=
+  checkSccOrder_of_acyclic h
+
+theorem audit_link_scc {ι : Type} (idx : RecIdx ι) {T : Target} {lt : LegalTarget}
+    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX fuel : Nat}
+    {fs : List Fn} {hints : List T.toIsa.Hints} {maxBound : Nat}
+    (M : CompiledRec T lt extCallees exits nX fuel fs hints maxBound)
+    (mod : Module) (hfs : mod.fns = fs) (h : T.mach.Host)
+    (Γrec : ι → Env) (Γext : Env) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
+    (hM : ModuleSccOk idx Γrec Γext (M.stepBound != 0) mod)
+    (hsupp : ∀ f ∈ mod.fns, (f.earlyOpt).body.supportsSource lt = true)
+    (hext : ∀ p ∈ extCallees,
+      T.FnSpec h p.1.1
+        (legalEnv lt (Env.restrict Γext (mod.externs.map Extern.sig)) p.1.1 p.1.2.1 p.1.2.2)
+        p.2 nX)
+    (hext_uniq : ∀ p ∈ extCallees, ∀ q ∈ extCallees, p.1.1 = q.1.1 → p.2 = q.2)
+    (hexits : ∀ g ∈ exits, T.Defined h g) (i : ι)
+    (hbound : M.baseBound + idx.depth i * M.stepBound ≤ maxBound)
+    (hra : M.baseBound + idx.depth i * M.stepBound + T.frame.raBytes ≤ 2 ^ 64) :
+    ∀ f ∈ mod.fns, T.Defined h f.name ∧
+      T.FnSpec h f.name
+        (legalEnv lt (Env.onlyFn f (Γrec i)) f.name (lt.legalSig f.as) (lt.legalSig f.rs))
+        (M.baseBound + idx.depth i * M.stepBound) nX :=
+  link_scc_compiled idx M mod hfs h Γrec Γext k₀ hc hu hM hsupp hext hext_uniq hexits i hbound hra
+
+theorem audit_scc_export_host {ι : Type} (idx : RecIdx ι) {T : Target} {lt : LegalTarget}
+    {exits : List Sym} {nX fuel : Nat} {fs : List Fn} {hints : List T.toIsa.Hints}
+    {maxBound : Nat}
+    (M : CompiledRec T lt [] exits nX fuel fs hints maxBound)
+    (mod : Module) (hfs : mod.fns = fs) (Γrec : ι → Env) (Γext : Env)
+    (hM : ModuleSccOk idx Γrec Γext (M.stepBound != 0) mod)
+    (hsupp : ∀ f ∈ mod.fns, (f.earlyOpt).body.supportsSource lt = true) :
+    ∀ f ∈ mod.fns, T.Defined M.host f.name ∧
+      T.FnSpec M.host f.name
+        (legalEnv lt (Env.onlyFn f (Env.exportScc idx Γrec fuel)) f.name
+          (lt.legalSig f.as) (lt.legalSig f.rs))
+        (M.baseBound + fuel * M.stepBound) nX :=
+  link_scc_export_host idx M mod hfs Γrec Γext hM hsupp
+
+theorem audit_link_rec_of_scc {T : Target} {lt : LegalTarget}
+    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX fuel : Nat}
+    {fs : List Fn} {hints : List T.toIsa.Hints} {maxBound : Nat}
+    (M : CompiledRec T lt extCallees exits nX fuel fs hints maxBound)
+    (mod : Module) (hfs : mod.fns = fs) (h : T.mach.Host)
+    (Γrec : Nat → Env) (Γext : Env) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
+    (hcyc : checkCyclic mod = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
+    (hsupp : ∀ f ∈ mod.fns, (f.earlyOpt).body.supportsSource lt = true)
+    (hrec : ∀ k ≤ fuel, ∀ f ∈ mod.fns, ∀ xs m Q X,
+      Γrec k f.name f.as f.rs xs m Q X →
+      Func.wp (Env.stepRec (mod.fns.map Fn.sig) (mod.externs.map Extern.sig) Γrec Γext k)
+        f.body xs m Q X)
+    (hext : ∀ p ∈ extCallees,
+      T.FnSpec h p.1.1
+        (legalEnv lt (Env.restrict Γext (mod.externs.map Extern.sig)) p.1.1 p.1.2.1 p.1.2.2)
+        p.2 nX)
+    (hext_uniq : ∀ p ∈ extCallees, ∀ q ∈ extCallees, p.1.1 = q.1.1 → p.2 = q.2)
+    (hexits : ∀ g ∈ exits, T.Defined h g) :
+    ∀ k ≤ fuel, ∀ f ∈ mod.fns, T.Defined h f.name ∧
+      T.FnSpec h f.name
+        (legalEnv lt (Env.onlyFn f (Γrec k)) f.name (lt.legalSig f.as) (lt.legalSig f.rs))
+        (M.boundAt k) nX :=
+  link_rec_of_scc M mod hfs h Γrec Γext k₀ hc hu hcyc hwf hsupp hrec hext hext_uniq hexits
+
+theorem audit_scc_le_sem {ι : Type} {idx : RecIdx ι} {Γrec : ι → Env} {Γext : Env}
+    {M : Module} (hM : ModuleSccOk idx Γrec Γext false M) :
+    ∀ i, Env.le (Env.restrict (Γrec i) (M.fns.map Fn.sig)) (Env.semScc M Γext) :=
+  moduleSccOk_le_semScc hM
+
+theorem audit_scc_le_unfold {ι : Type} {idx : RecIdx ι} {Γrec : ι → Env} {Γext : Env}
+    {M : Module} (hM : ModuleSccOk idx Γrec Γext true M) :
+    ∀ i, Env.le (Env.restrict (Γrec i) (M.fns.map Fn.sig))
+      (Env.unfoldRecAt M Γext (idx.depth i)) :=
+  moduleSccOk_le_unfoldRecAt hM
+
+theorem audit_link_scc_static {T : Target} {lt : LegalTarget}
+    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX fuel : Nat}
+    {fs : List Fn} {hints : List T.toIsa.Hints} {maxBound : Nat}
+    (M : CompiledRec T lt extCallees exits nX fuel fs hints maxBound)
+    (mod : Module) (hfs : mod.fns = fs) (h : T.mach.Host)
+    (Γext : Env) (k₀ : Nat)
+    (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
+    (hcyc : checkCyclic mod = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
+    (hsupp : ∀ f ∈ mod.fns, (f.earlyOpt).body.supportsSource lt = true)
+    (hext : ∀ p ∈ extCallees,
+      T.FnSpec h p.1.1
+        (legalEnv lt (Env.restrict Γext (mod.externs.map Extern.sig)) p.1.1 p.1.2.1 p.1.2.2)
+        p.2 nX)
+    (hext_uniq : ∀ p ∈ extCallees, ∀ q ∈ extCallees, p.1.1 = q.1.1 → p.2 = q.2)
+    (hexits : ∀ g ∈ exits, T.Defined h g) :
+    ∀ d ≤ fuel, ∀ f ∈ mod.fns, T.Defined h f.name ∧
+      T.FnSpec h f.name
+        (legalEnv lt (Env.onlyFn f (Env.unfoldRecAt mod Γext d)) f.name
+          (lt.legalSig f.as) (lt.legalSig f.rs))
+        (M.baseBound + d * M.stepBound) nX :=
+  link_scc_static M mod hfs h Γext k₀ hc hu hcyc hwf hsupp hext hext_uniq hexits
+
+end SccLfpAudit
+
+/-! ## 8. Concrete Sanity Checks (`#guard`) -/
 
 #guard evenOddRecMod.checkAcyclic == false
 #guard recSumMod.checkAcyclic == false
@@ -373,7 +495,7 @@ theorem audit_rec_sum_ok :
 #guard recSumOutcome 3#64 5 == .inl 6#64
 #guard recSumOutcome 5#64 2 == .inr 3#64
 
-/-! ## 8. Logical Foundations Audit (`#print axioms`) -/
+/-! ## 9. Logical Foundations Audit (`#print axioms`) -/
 
 #print axioms audit_early_opt
 #print axioms audit_late_opt
@@ -403,5 +525,13 @@ theorem audit_rec_sum_ok :
 #print axioms audit_link_rec
 #print axioms audit_even_odd_ok
 #print axioms audit_rec_sum_ok
+#print axioms audit_scc_order_sound
+#print axioms audit_scc_acyclic
+#print axioms audit_link_scc
+#print axioms audit_scc_export_host
+#print axioms audit_link_rec_of_scc
+#print axioms audit_scc_le_sem
+#print axioms audit_scc_le_unfold
+#print axioms audit_link_scc_static
 
 end CompilerAuditSpec

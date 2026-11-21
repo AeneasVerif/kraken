@@ -20,6 +20,9 @@ public import LeanQbe.T.Examples.Kissat.FullDeduce1UipNv
 public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas
 public import LeanQbe.T.Examples.Kissat.FullTransLemmas
 public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas
+public import LeanQbe.T.Examples.Kissat.FullFastSchedLemmas
+public import LeanQbe.T.Examples.Kissat.FullFastBveBudgetsLemmas
+public import LeanQbe.T.Examples.Kissat.FullFastCoreLemmas
 meta import LeanQbe.T.Examples.Kissat.PlainLemmas
 meta import LeanQbe.T.Examples.Kissat.FullSpec
 meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7
@@ -555,7 +558,173 @@ theorem audit_fullEnv_moduleOk : ModuleOk Full.fullEnv Full.fullModule :=
 theorem audit_fullUnsatEnv_moduleOk : ModuleOk Full.fullUnsatEnv Full.fullModule :=
   Full.fullUnsatEnv_moduleOk
 
-/-! ## 6. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
+/-! ## 6. M2a Fast Scheduler (`FullFastSched`: `173` fns) & `FullFastBveBudgets` -/
+
+-- Source-level only (`FullFastSched` + `FullFastBveBudgets`); no `*Cert*` or arch imports.
+-- Note: `schedEnv_moduleOk` does not exist on `a54ea11` (`sched_proved_rows_ok` covers `16/173`
+-- rows plus top-level `Func.wp`); `FullFastBveBudgets` has unconditional `ModuleOk` (`7/7` fns).
+
+section M2aFastSchedAudit
+
+open Std.Sat LeanQbe.T LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat.Full
+open Std.ExtHashMap (emp)
+open LeanQbe.T.Examples.Kissat.FullFastSched
+  (schedSplicedFns schedSplicedFns_wf schedModule sched_acyclic schedSpecTable mkSchedEnv
+    schedEnv schedProvedIndices sched_proved_rows_ok sched_solve_bytes_correct
+    sched_unsat_nonvacuous schedUnsatEnv schedNvUnsatBytes schedNvUnsatCnf schedNvCnfPtr
+    schedNvWorkPtr schedPayload)
+
+theorem audit_sched_wf : ∀ f ∈ schedSplicedFns, f.Wf :=
+  schedSplicedFns_wf
+
+theorem audit_sched_acyc : schedModule.checkAcyclic = true :=
+  sched_acyclic
+
+theorem audit_sched_rows (ms : Spec [i64, i64, i64, i64, i64] [i64])
+    (hw : ∀ a m Q X, ms a m Q X → fullSolveBytesCoreSpec a m Q X) :
+    ∀ n ∈ schedProvedIndices,
+      ∃ fn row, schedSplicedFns[n]? = some fn ∧ (schedSpecTable ms)[n]? = some row ∧
+        SpecEntry.Impl (mkSchedEnv ms) fn row :=
+  sched_proved_rows_ok ms hw
+
+theorem audit_sched_ok {cnf_ptr work_ptr fuel : BitVec 64} {cnfBytes : List UInt8} {wlen : Nat}
+    {R : Mem 64 → Prop} {m : Mem 64}
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (hm : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m) :
+    Func.wp schedEnv Full.kissat_solve_bytes_body
+      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr, BitVec.ofNat 64 wlen, fuel, ()) m
+      (fun (r, ()) m' =>
+        (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+        (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m')
+      (fun _ _ _ _ => False) :=
+  sched_solve_bytes_correct hcfit hwfit hm
+
+theorem audit_sched_nv :
+    let m0 : Mem 64 := (schedPayload schedNvUnsatBytes).At schedNvCnfPtr
+    Func.wp schedUnsatEnv Full.kissat_solve_bytes_body
+      (schedNvCnfPtr, BitVec.ofNat 64 schedNvUnsatBytes.length,
+        schedNvWorkPtr schedNvUnsatBytes, 4096#64, 16#64, ()) m0
+      (fun (r, ()) m' =>
+        r = 20#64 ∧ schedNvUnsatCnf.Unsat ∧
+        (bytes schedNvCnfPtr schedNvUnsatBytes ⋆
+          region (schedNvWorkPtr schedNvUnsatBytes) 4096 ⋆ emp) m')
+      (fun _ _ _ _ => False) :=
+  sched_unsat_nonvacuous
+
+end M2aFastSchedAudit
+
+section M2aBveBudgetsAudit
+
+open Std.Sat LeanQbe.T LeanQbe.T.Examples.Kissat.Full
+open LeanQbe.T.Examples.Kissat.FullFastBveBudgets
+  (TmkZero fastBveBudgetsModule fastBveBudgets_allFns_wf fastBveBudgets_acyclic
+    fastBveBudgetsSpecTable fastBveBudgets_tableImpl fastBveBudgetsEnv fastBveBudgets_moduleOk
+    full_bve_var_body bve_gate_pg_ng_extUnsatSound nvDenseUnsatState nvDenseUnsatMem
+    nv_fast_bve_var nv_fast_bve_var_def fullBveGatesDefFastSpec fullBveWeakenTmkSpec
+    fullBveCommitResTmkSpec fullExtendPush2TmkSpec fullExtendPushClTmkSpec)
+
+theorem audit_bve_wf : AllFns Fn.Wf fastBveBudgetsModule.fns :=
+  fastBveBudgets_allFns_wf
+
+theorem audit_bve_acyc : fastBveBudgetsModule.checkAcyclic = true :=
+  fastBveBudgets_acyclic
+
+theorem audit_bve_impl :
+    TableImpl fastBveBudgetsEnv fastBveBudgetsModule.fns fastBveBudgetsSpecTable :=
+  fastBveBudgets_tableImpl
+
+theorem audit_bve_modok : ModuleOk fastBveBudgetsEnv fastBveBudgetsModule :=
+  fastBveBudgets_moduleOk
+
+theorem audit_bve_ext {F0 : CNF Nat} {cur_vars v : Nat}
+    {Rest P N : List (List Nat)} {pg ng : Nat → Bool}
+    (hExt : ExtUnsatSound F0 cur_vars (Rest ++ P.map (fun C => (2 * v) :: C) ++
+      N.map (fun D => (2 * v + 1) :: D))) :
+    let Res := ((List.range P.length).flatMap fun i =>
+      (List.range N.length).filterMap fun j =>
+        if pg i || ng j then some (P[i]?.getD [] ++ N[j]?.getD []) else none)
+    ExtUnsatSound F0 cur_vars (Rest ++ Res) :=
+  bve_gate_pg_ng_extUnsatSound hExt
+
+theorem audit_bve_nv :
+    Func.wp fastBveBudgetsEnv FullFastBveBudgets.full_bve_var_body
+      (nvOneLitCfg.hdr, 0#32, ()) nvDenseUnsatMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInv nvOneLitCfg nvOneLitF0 s' ∧ (r = 1#64 ∨ r = 2#64 ∨ r = 20#64) ∧
+        nvOneLitF0.Unsat ∧ FullMem nvOneLitCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_fast_bve_var
+
+theorem audit_bve_nv_def :
+    let Γdef : Env := fun f as bs xs m Q X =>
+      if f = "full_bve_gates" then
+        ∃ (h1 : as = [i64, i32, i32, i32]) (h2 : bs = []),
+          fullBveGatesDefFastSpec (h1 ▸ xs) m (h2 ▸ Q) X
+      else if f = "full_bve_weaken" then
+        ∃ (h1 : as = [i64, i32, i32, i32]) (h2 : bs = [.bool]),
+          fullBveWeakenTmkSpec (h1 ▸ xs) m (h2 ▸ Q) X
+      else if f = "full_bve_commit_res" then
+        ∃ (h1 : as = [i64, i64, i64]) (h2 : bs = [i64]),
+          fullBveCommitResTmkSpec (h1 ▸ xs) m (h2 ▸ Q) X
+      else if f = "full_extend_push2" then
+        ∃ (h1 : as = [i64, i32, i32]) (h2 : bs = [.bool]),
+          fullExtendPush2TmkSpec (h1 ▸ xs) m (h2 ▸ Q) X
+      else if f = "full_extend_push_cl" then
+        ∃ (h1 : as = [i64, i32, i32]) (h2 : bs = [.bool]),
+          fullExtendPushClTmkSpec (h1 ▸ xs) m (h2 ▸ Q) X
+      else fastBveBudgetsEnv f as bs xs m Q X
+    Func.wp Γdef FullFastBveBudgets.full_bve_var_body
+      (nvOneLitCfg.hdr, 0#32, ()) nvDenseUnsatMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInv nvOneLitCfg nvOneLitF0 s' ∧ TmkZero s' ∧
+        (r = 1#64 ∨ r = 2#64 ∨ r = 20#64) ∧ nvOneLitF0.Unsat ∧ FullMem nvOneLitCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_fast_bve_var_def
+
+end M2aBveBudgetsAudit
+
+/-! ## 7. M2b Stage-5 Fast-Core BCP (`FullFastCore`: `[47..49]` splice & UNSAT soundness) -/
+
+section M2bFastCoreAudit
+
+open LeanQbe.T LeanQbe.T.Examples.Kissat
+open Std.ExtHashMap (emp)
+open LeanQbe.T.Examples.Kissat.FastCore
+  (fastCoreEnv fastCoreFullModule fastCore_fullEnv_moduleOk_of_missing
+    full_propagate_body nvFastPropCfg nvFastPropMem nv_fast_propagate_sound)
+
+/-- **`FullFastCore` spliced `ModuleOk` missing-slice lemma**
+(`FullFastCoreLemmas.fastCore_fullEnv_moduleOk_of_missing`): replaces `[47..49]` in
+`Full.fullModule` while preserving `151/166` closed proofs. -/
+theorem audit_fcore_modok
+    (mainSpec : Spec [i64, i64, i64, i64, i64] [i64])
+    (hweaken : ∀ a m Q X, mainSpec a m Q X → Full.fullSolveBytesCoreSpec a m Q X)
+    (h8a : ∀ n ∈ Full.fullRemaining8aIndices,
+      ∃ fn row, Full.fullFns[n]? = some fn ∧ (Full.fullSpecTable mainSpec)[n]? = some row ∧
+        SpecEntry.Impl (Full.mkFullEnv mainSpec) fn row)
+    (h8b : ∀ n ∈ Full.fullRemaining8bIndices,
+      ∃ fn row, Full.fullFns[n]? = some fn ∧ (Full.fullSpecTable mainSpec)[n]? = some row ∧
+        SpecEntry.Impl (Full.mkFullEnv mainSpec) fn row) :
+    ModuleOk (Full.mkFullEnv mainSpec) fastCoreFullModule :=
+  fastCore_fullEnv_moduleOk_of_missing mainSpec hweaken h8a h8b
+
+/-- **`FullFastCore` `full_propagate` concrete `Mem 64` UNSAT soundness**
+(`FullFastCoreLemmas.nv_fast_propagate_sound`): under `fastCoreEnv` and `XPost := False`,
+conflict return (`r = 1#64`) certifies `Full.nvOneLitF0.Unsat`. -/
+theorem audit_fcore_nv :
+    Func.wp fastCoreEnv full_propagate_body (nvFastPropCfg.hdr, ()) nvFastPropMem
+      (fun (r, ()) m' =>
+        (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) ∧
+        (r = 1#64 → Full.nvOneLitF0.Unsat) ∧
+        ∃ s', (Full.FullMem nvFastPropCfg s' ⋆ emp) m')
+      (fun _ _ _ _ => False) :=
+  nv_fast_propagate_sound
+
+end M2bFastCoreAudit
+
+/-! ## 8. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms audit_unsat_def
 #print axioms audit_sat_def
@@ -597,3 +766,17 @@ theorem audit_fullUnsatEnv_moduleOk : ModuleOk Full.fullUnsatEnv Full.fullModule
 #print axioms audit_nv_full_deduce_1uip
 #print axioms audit_fullEnv_moduleOk
 #print axioms audit_fullUnsatEnv_moduleOk
+#print axioms audit_sched_wf
+#print axioms audit_sched_acyc
+#print axioms audit_sched_rows
+#print axioms audit_sched_ok
+#print axioms audit_sched_nv
+#print axioms audit_bve_wf
+#print axioms audit_bve_acyc
+#print axioms audit_bve_impl
+#print axioms audit_bve_modok
+#print axioms audit_bve_ext
+#print axioms audit_bve_nv
+#print axioms audit_bve_nv_def
+#print axioms audit_fcore_modok
+#print axioms audit_fcore_nv

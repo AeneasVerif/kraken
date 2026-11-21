@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Arm64.KissatPlain
 public import LeanQbe.T.Arm64.KissatFull
+public import LeanQbe.T.Arm64.KissatFastSched
 meta import LeanQbe.T.Examples.Kissat.PlainLemmas
 meta import LeanQbe.T.Examples.Kissat.FullSpec
 
@@ -247,7 +248,115 @@ theorem audit_full_arm64_unsat_nonvacuous [Host]
         ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
   KissatFull.full_unsat_nonvacuous_arm64 k₀ hc hu
 
-/-! ## 3. Module shapes and `#print axioms` (one line each, standard axioms only) -/
+/-! ## 3. M2a Fast Scheduler (`Arm64.KissatFastSched`, parameterized over `ModuleOk schedEnv`) -/
+
+section M2aFastSchedArm64
+
+open Std.Sat LeanQbe.T LeanQbe.T.Arm64 Kraken
+open LeanQbe.T.Examples.LratBytes
+open LeanQbe.T.Examples.Kissat.FullFastSched (schedEnv schedModule)
+open LeanQbe.T.Arm64.KissatFastSched
+  (kissatFastSched_compiled_arm64 sched_module_fnspec sched_solve_bytes_unsat_arm64
+    sched_solve_bytes_unsat_sound_arm64 sched_unsat_nonvacuous_arm64)
+
+theorem audit_sched_arm_fnspec [hh : Host] (hmok : ModuleOk schedEnv schedModule) (k₀ : Nat)
+    (hc : kissatFastSched_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    {f : Fn} (hf : f ∈ schedModule.fns) :
+    armTarget.Defined hh f.name ∧
+      armTarget.FnSpec hh f.name (schedEnv f.name f.as f.rs)
+        (kissatFastSched_compiled_arm64.bound f.name) 0 :=
+  sched_module_fnspec hmok k₀ hc hu hf
+
+theorem audit_sched_arm_unsat [hh : Host] (hmok : ModuleOk schedEnv schedModule) (k₀ : Nat)
+    (hc : kissatFastSched_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
+    (hx0 : (s.regs.getXReg .X0).toBitVec = cnf_ptr)
+    (hx1 : (s.regs.getXReg .X1).toBitVec = BitVec.ofNat 64 cnfBytes.length)
+    (hx2 : (s.regs.getXReg .X2).toBitVec = work_ptr)
+    (hx3 : (s.regs.getXReg .X3).toBitVec = BitVec.ofNat 64 wlen)
+    (hx4 : (s.regs.getXReg .X4).toBitVec = fuel)
+    (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)
+    (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
+      region (s.regs.SP.toBitVec - BitVec.ofNat 64
+          (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes"))
+        (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes") ⋆ R) s.dmem) :
+    Eventually (step1 Host.exe)
+      (fun st =>
+        st.pc = ra ∧
+        ((st.data.regs.getXReg .X0).toBitVec = 0#64 ∨
+          (st.data.regs.getXReg .X0).toBitVec = 10#64 ∨
+          (st.data.regs.getXReg .X0).toBitVec = 20#64) ∧
+        ((st.data.regs.getXReg .X0).toBitVec = 20#64 →
+          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+        (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26, .X27, .X28, .X29],
+          st.data.regs.getXReg r = s.regs.getXReg r) ∧
+        st.data.regs.SP = s.regs.SP ∧
+        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
+          region (s.regs.SP.toBitVec - BitVec.ofNat 64
+              (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes"))
+            (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes") ⋆ R)
+          st.data.dmem)
+      ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
+  sched_solve_bytes_unsat_arm64 hmok k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
+    s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem
+
+theorem audit_sched_arm_sound [hh : Host] (hmok : ModuleOk schedEnv schedModule) (k₀ : Nat)
+    (hc : kissatFastSched_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
+    (hx0 : (s.regs.getXReg .X0).toBitVec = cnf_ptr)
+    (hx1 : (s.regs.getXReg .X1).toBitVec = BitVec.ofNat 64 cnfBytes.length)
+    (hx2 : (s.regs.getXReg .X2).toBitVec = work_ptr)
+    (hx3 : (s.regs.getXReg .X3).toBitVec = BitVec.ofNat 64 wlen)
+    (hx4 : (s.regs.getXReg .X4).toBitVec = fuel)
+    (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)
+    (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
+      region (s.regs.SP.toBitVec - BitVec.ofNat 64
+          (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes"))
+        (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes") ⋆ R) s.dmem) :
+    Eventually (step1 Host.exe)
+      (fun st =>
+        st.pc = ra ∧
+        ((st.data.regs.getXReg .X0).toBitVec = 0#64 ∨
+          (st.data.regs.getXReg .X0).toBitVec = 10#64 ∨
+          (st.data.regs.getXReg .X0).toBitVec = 20#64) ∧
+        ((st.data.regs.getXReg .X0).toBitVec = 20#64 →
+          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))
+      ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
+  sched_solve_bytes_unsat_sound_arm64 hmok k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit
+    hwfit s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem
+
+theorem audit_sched_arm_nv [hh : Host] (hmok : ModuleOk schedEnv schedModule) (k₀ : Nat)
+    (hc : kissatFastSched_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
+    ∃ (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
+      (s : MachineData) (ra : Int64) (R : Mem 64 → Prop),
+      cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧
+      work_ptr.toNat + wlen < 2 ^ 64 ∧
+      (s.regs.getXReg .X0).toBitVec = cnf_ptr ∧
+      (s.regs.getXReg .X1).toBitVec = BitVec.ofNat 64 cnfBytes.length ∧
+      (s.regs.getXReg .X2).toBitVec = work_ptr ∧
+      (s.regs.getXReg .X3).toBitVec = BitVec.ofNat 64 wlen ∧
+      (s.regs.getXReg .X4).toBitVec = fuel ∧
+      s.regs.X30 = ra.toUInt64 ∧
+      s.regs.SP.toNat % 16 = 0 ∧
+      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
+        region (s.regs.SP.toBitVec - BitVec.ofNat 64
+            (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes"))
+          (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes") ⋆ R) s.dmem ∧
+      Eventually (step1 Host.exe)
+        (fun st => st.pc = ra ∧ (st.data.regs.getXReg .X0).toBitVec = 20#64 ∧
+          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat)
+        ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
+  sched_unsat_nonvacuous_arm64 hmok k₀ hc hu
+
+end M2aFastSchedArm64
+
+/-! ## 4. Module shapes and `#print axioms` (one line each, standard axioms only) -/
 
 #guard Plain.plainFns.length == 59
 #guard Full.fullFns.length == 166
@@ -258,3 +367,7 @@ theorem audit_full_arm64_unsat_nonvacuous [Host]
 #print axioms audit_full_arm64_unsat
 #print axioms audit_full_arm64_unsat_sound
 #print axioms audit_full_arm64_unsat_nonvacuous
+#print axioms audit_sched_arm_fnspec
+#print axioms audit_sched_arm_unsat
+#print axioms audit_sched_arm_sound
+#print axioms audit_sched_arm_nv
