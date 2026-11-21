@@ -1,7 +1,6 @@
 module
 
-public import LeanQbe.T.LegalCheck1a
-public import LeanQbe.T.LegalWpBaseLemmas1
+public import LeanQbe.T.LegalBaseLemmas
 
 /-!
 # Bundled straight-line legalizer combinators (`Emit`, `LegalEmitSpec`)
@@ -12,8 +11,9 @@ single structural induction:
 
 * Master theorems: `Emit.run_isLegal`, `Emit.run_wf`, `Emit.wp_mono`, `Emit.run_wp`, and
   `Emit.bundle` / `Emit.bundlePure` returning `LegalEmitSpec`.
-* Definitional bridges (`*_eq_emit*`) and single-pass `LegalEmitSpec` bundles for the 5 `LegalBase`
-  builders: `emitBoolCmp`, `emitBoolSelect`, `emitMaskToN`, `emitSextToW`, and `emitTernlogBool`.
+* Definitional bridges (`*_eq_emit*`) and single-pass `LegalEmitSpec` bundles for the 6 `LegalBase`
+  builders: `emitBoolCmp`, `emitBoolSelect`, `emitMaskToN`, `emitSextToW`, `emitTernlogBool`, and
+  `emitTernlogBits`.
 -/
 
 set_option autoImplicit false
@@ -186,7 +186,11 @@ theorem Emit.run_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem
         exact OpCode.wp_mono code (x, y, ()) (fun (rv, ()) hrv => hrv (.var rv) rfl) hy) hx) hpost
   | _, _, .letE rhs body, env, _, hpost =>
     rhs.run_wp env <| rhs.wp_mono (fun _ hx rx hrx =>
-      body.run_wp (rx, env) (by simpa only [valsTup_cons, hrx] using hx)) hpost
+      body.run_wp (rx, env) (by dsimp only [valsTup, Tup.map]; rw [hrx]; exact hx)) hpost
+
+/-- Minimal target supporting `.bits w` (used to project `wf`/`wp` from width-indexed bundles). -/
+def LegalTarget.withWidth (w : Nat) : LegalTarget :=
+  { LegalTarget.aarch64 with bitWidths := [w] }
 
 /-- Bundled 3-in-1 specification record (`isLegal`, `Wf`, `wp`) for an `Emit` builder. -/
 structure LegalEmitSpec (target : LegalTarget) {inTys : List Ty} {t : Ty}
@@ -285,8 +289,8 @@ theorem boolCmpEmit_bundle (target : LegalTarget) (o : CmpOp) :
     (by cases o <;> simp [boolCmpEmit, Emit.IsLegal, OpCode.isPackBridge,
       LegalTarget.isLegalOp, LegalTarget.isLegalTy])
     (fun (a, b, ()) p hp => by
-      cases o <;> cases a <;> cases b <;>
-        simpa [boolCmpEmit, Emit.wp, Tup.get, OpCode.wp, lift1, lift2, CmpOp.evalBool] using hp)
+      have hsp := boolCmp_spec o a b
+      cases o <;> simpa [boolCmpEmit, Emit.wp, Tup.get, OpCode.wp, lift1, lift2, hsp] using hp)
 
 /-! ### `emitBoolSelect` -/
 
@@ -328,24 +332,27 @@ theorem maskToNEmit_eq_emitMaskToN {V L rs} (n w : Nat) (x : Arg V (.bits w))
   · rfl
   · split <;> rfl
 
+/-- Target legality of `maskToNEmit n w` for any `n` whenever `w ∈ target.bitWidths`. -/
+theorem maskToNEmit_isLegal (target : LegalTarget) {n w : Nat} (hw : w ∈ target.bitWidths) :
+    (maskToNEmit n w).IsLegal target := by
+  unfold maskToNEmit
+  split
+  · simp [Emit.IsLegal, LegalTarget.isLegalTy, hw]
+  · split
+    · trivial
+    · simp [Emit.IsLegal, OpCode.isPackBridge, LegalTarget.isLegalOp,
+        LegalTarget.isLegalTy, hw]
+
 /-- Single-pass `isLegal + Wf + wp` bundle for `maskToNEmit`. -/
 theorem maskToNEmit_bundle (target : LegalTarget) {n w : Nat} (hw : w ∈ target.bitWidths)
     (hnw : n ≤ w) :
     LegalEmitSpec target (maskToNEmit n w) (fun (x, ()) p => p ((x.setWidth n).setWidth w)) :=
-  (maskToNEmit n w).bundle target
-    (by
-      unfold maskToNEmit
-      split
-      · simp [Emit.IsLegal, LegalTarget.isLegalTy, hw]
-      · split
-        · trivial
-        · simp [Emit.IsLegal, OpCode.isPackBridge, LegalTarget.isLegalOp,
-            LegalTarget.isLegalTy, hw])
+  (maskToNEmit n w).bundle target (maskToNEmit_isLegal target hw)
     (fun (x, ()) p hp => by
       unfold maskToNEmit
       split
       · rename_i hn0; have : n = 0 := beq_iff_eq.mp hn0; subst this
-        simpa [Emit.wp, BitVec.eq_nil (x.setWidth 0)] using hp
+        simpa [Emit.wp, setWidth_zero_setWidth] using hp
       · split
         · rename_i hle; have : n = w := Nat.le_antisymm hnw hle; subst this
           simpa [Emit.wp, Tup.get, BitVec.setWidth_eq] using hp
@@ -366,41 +373,20 @@ theorem sextToWEmit_eq_emitSextToW {V L rs} (n w : Nat) (x : Arg V (.bits w))
     (sextToWEmit n w).run (x, ()) k = emitSextToW n w x k := by
   unfold sextToWEmit emitSextToW; split <;> rfl
 
-private theorem signExtend_eq_shl_ashr_aux {n w : Nat} (hn0 : 0 < n) (hnw : n < w)
-    (a : BitVec n) :
-    (a.setWidth w <<< (w - n)).sshiftRight (w - n) = a.signExtend w := by
-  ext i hi
-  simp only [← BitVec.getLsbD_eq_getElem, BitVec.getLsbD_sshiftRight, BitVec.getLsbD_shiftLeft,
-    BitVec.getLsbD_setWidth, BitVec.getLsbD_signExtend, hi]
-  have hmsb : ((a.setWidth w) <<< (w - n)).msb = a.msb := by
-    rw [BitVec.msb_eq_getLsbD_last, BitVec.msb_eq_getLsbD_last]
-    simp only [BitVec.getLsbD_shiftLeft, BitVec.getLsbD_setWidth]
-    have hd1 : decide (w - 1 < w) = true := decide_eq_true (by omega)
-    have hd2 : decide (w - 1 < w - n) = false := decide_eq_false (by omega)
-    have hd3 : decide (n - 1 < w) = true := decide_eq_true (by omega)
-    have hcancel : w - 1 - (w - n) = n - 1 := by omega
-    simp only [hd1, hd2, hd3, hcancel, Bool.not_false, Bool.true_and]
-  by_cases hin : i < n
-  · have hltw : w - n + i < w := by omega
-    have hnot2 : ¬ (w ≤ i) := by omega
-    have hge : ¬ (w - n + i < w - n) := by omega
-    have hcancel : w - n + i - (w - n) = i := by omega
-    simp [hltw, hnot2, hge, hcancel, hin, hi]
-  · have hge : ¬ (w - n + i < w) := by omega
-    have hnot2 : ¬ (w ≤ i) := by omega
-    simp [hge, hin, hmsb, hnot2]
+/-- Target legality of `sextToWEmit n w` for any `n` whenever `w ∈ target.bitWidths`. -/
+theorem sextToWEmit_isLegal (target : LegalTarget) {n w : Nat} (hw : w ∈ target.bitWidths) :
+    (sextToWEmit n w).IsLegal target := by
+  unfold sextToWEmit; split
+  · trivial
+  · simp [Emit.IsLegal, OpCode.isPackBridge, LegalTarget.isLegalOp,
+      LegalTarget.isLegalTy, hw]
 
 /-- Single-pass `isLegal + Wf + wp` bundle for `sextToWEmit`. -/
 theorem sextToWEmit_bundle (target : LegalTarget) {n w : Nat} (hw : w ∈ target.bitWidths)
     (hn0 : 0 < n) (hnw : n ≤ w) :
     LegalEmitSpec target (sextToWEmit n w)
       (fun (x, ()) p => ∃ a : BitVec n, x = a.setWidth w ∧ p (a.signExtend w)) :=
-  (sextToWEmit n w).bundle target
-    (by
-      unfold sextToWEmit; split
-      · trivial
-      · simp [Emit.IsLegal, OpCode.isPackBridge, LegalTarget.isLegalOp,
-          LegalTarget.isLegalTy, hw])
+  (sextToWEmit n w).bundle target (sextToWEmit_isLegal target hw)
     (fun (x, ()) p ⟨a, hx, hp⟩ => by
       subst hx; unfold sextToWEmit; split
       · rename_i hskip
@@ -417,44 +403,57 @@ theorem sextToWEmit_bundle (target : LegalTarget) {n w : Nat} (hw : w ∈ target
           rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (Nat.lt_trans (by omega) hpow),
             Nat.mod_eq_of_lt (by omega)]
         simp only [Emit.wp, Tup.get, OpCode.wp, lift2, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte]
-        rw [hsh, signExtend_eq_shl_ashr_aux hn0 hnwl a]
+        rw [hsh, signExtend_eq_shl_ashr hn0 hnwl a]
         exact hp)
 
-/-! ### `emitTernlogBool` -/
+/-! ### `emitTernlog` (`emitTernlogBool` and `emitTernlogBits`) -/
+
+/-- Shared structural AST builder for `emitTernlog` (context order `[nc, nb, na, a, b, c]`). -/
+def ternlogGo (t : Ty) (zeroVal : Val t) (imm : BitVec 8) :
+    Nat → Option (Emit [t, t, t, t, t, t] t) → Emit [t, t, t, t, t, t] t
+  | 0, some acc => acc
+  | 0, none => .imm zeroVal
+  | k + 1, acc =>
+    let idx := 7 - k
+    if imm.getLsbD idx then
+      let pa : Emit _ t := if idx / 4 % 2 == 1 then .arg (.there (.there (.there .here)))
+        else .arg (.there (.there .here))
+      let pb : Emit _ t :=
+        if idx / 2 % 2 == 1 then .arg (.there (.there (.there (.there .here))))
+        else .arg (.there .here)
+      let pc : Emit _ t :=
+        if idx % 2 == 1 then .arg (.there (.there (.there (.there (.there .here)))))
+        else .arg .here
+      let term := .op2 (.and t) (.op2 (.and t) pa pb) pc
+      let acc' := match acc with
+        | none => term
+        | some prev => .op2 (.or t) prev term
+      ternlogGo t zeroVal imm k (some acc')
+    else ternlogGo t zeroVal imm k acc
+
+/-- Shared `Emit` compilation of `LeanQbe.T.emitTernlog`. -/
+def ternlogEmit (t : Ty) (zeroVal onesVal : Val t) (imm : BitVec 8) : Emit [t, t, t] t :=
+  if imm == 0#8 then .imm zeroVal
+  else if imm == 0xff#8 then .imm onesVal
+  else
+    .letE (.op1 (.not t) (.arg .here)) <|
+    .letE (.op1 (.not t) (.arg (.there (.there .here)))) <|
+    .letE (.op1 (.not t) (.arg (.there (.there (.there (.there .here)))))) <|
+      ternlogGo t zeroVal imm 8 none
 
 /-- Structural AST builder for `emitTernlogBool` (context order `[nc, nb, na, a, b, c]`). -/
 def ternlogBoolGo (imm : BitVec 8) :
     Nat → Option (Emit [.bool, .bool, .bool, .bool, .bool, .bool] .bool) →
-    Emit [.bool, .bool, .bool, .bool, .bool, .bool] .bool
-  | 0, some acc => acc
-  | 0, none => .imm false
-  | k + 1, acc =>
-    let idx := 7 - k
-    if imm.getLsbD idx then
-      let pa : Emit _ .bool := if idx / 4 % 2 == 1 then .arg (.there (.there (.there .here)))
-        else .arg (.there (.there .here))
-      let pb : Emit _ .bool :=
-        if idx / 2 % 2 == 1 then .arg (.there (.there (.there (.there .here))))
-        else .arg (.there .here)
-      let pc : Emit _ .bool :=
-        if idx % 2 == 1 then .arg (.there (.there (.there (.there (.there .here)))))
-        else .arg .here
-      let term := .op2 (.and .bool) (.op2 (.and .bool) pa pb) pc
-      let acc' := match acc with
-        | none => term
-        | some prev => .op2 (.or .bool) prev term
-      ternlogBoolGo imm k (some acc')
-    else ternlogBoolGo imm k acc
+    Emit [.bool, .bool, .bool, .bool, .bool, .bool] .bool :=
+  ternlogGo .bool false imm
 
 /-- `Emit` compilation of `LeanQbe.T.emitTernlogBool`. -/
 def ternlogBoolEmit (imm : BitVec 8) : Emit [.bool, .bool, .bool] .bool :=
-  if imm == 0#8 then .imm false
-  else if imm == 0xff#8 then .imm true
-  else
-    .letE (.op1 (.not .bool) (.arg .here)) <|
-    .letE (.op1 (.not .bool) (.arg (.there (.there .here)))) <|
-    .letE (.op1 (.not .bool) (.arg (.there (.there (.there (.there .here)))))) <|
-      ternlogBoolGo imm 8 none
+  ternlogEmit .bool false true imm
+
+/-- `Emit` compilation of `LeanQbe.T.emitTernlogBits`. -/
+def ternlogBitsEmit (w : Nat) (imm : BitVec 8) : Emit [.bits w, .bits w, .bits w] (.bits w) :=
+  ternlogEmit (.bits w) 0#w (BitVec.allOnes w) imm
 
 private theorem ite_arg_run {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     {inTys : List Ty} {t : Ty} (b : Bool) (i j : Member t inTys)
@@ -463,66 +462,66 @@ private theorem ite_arg_run {V : Ty → Type} {L : List Ty → Type} {rs : List 
       k (if b then env.get i else env.get j) := by
   cases b <;> rfl
 
-private theorem ternlogBoolGo_run_eq {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    (imm : BitVec 8) (a b c : Arg V .bool) (na nb nc : V .bool)
-    (k : Arg V .bool → Expr V L rs) :
-    ∀ (d : Nat) (_hd : d ≤ 8)
-      (acc : Option (Emit [.bool, .bool, .bool, .bool, .bool, .bool] .bool)),
-      let env : Tup (Arg V) [.bool, .bool, .bool, .bool, .bool, .bool] :=
-        (.var nc, .var nb, .var na, a, b, c, ())
-      (ternlogBoolGo imm d acc).run env k =
+private theorem ternlogGo_run_eq {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (t : Ty) (zeroVal : Val t) (imm : BitVec 8) (a b c : Arg V t) (na nb nc : V t)
+    (k : Arg V t → Expr V L rs) :
+    ∀ (d : Nat) (_hd : d ≤ 8) (acc : Option (Emit [t, t, t, t, t, t] t)),
+      let env : Tup (Arg V) [t, t, t, t, t, t] := (.var nc, .var nb, .var na, a, b, c, ())
+      (ternlogGo t zeroVal imm d acc).run env k =
         match acc with
-        | none => emitTernlogBool.go imm k (8 - d) none a b c (.var na) (.var nb) (.var nc)
+        | none => emitTernlog.go t zeroVal imm k (8 - d) none a b c (.var na) (.var nb) (.var nc)
         | some prev => prev.run env fun p =>
-            emitTernlogBool.go imm k (8 - d) (some p) a b c (.var na) (.var nb) (.var nc)
+            emitTernlog.go t zeroVal imm k (8 - d) (some p) a b c (.var na) (.var nb) (.var nc)
   | 0, _, none => by
-    rw [emitTernlogBool.go.eq_def]
+    rw [emitTernlog.go.eq_def]
     rfl
   | 0, _, some prev => by
-    dsimp only [ternlogBoolGo]
+    dsimp only [ternlogGo]
     congr 1; funext p
-    rw [emitTernlogBool.go.eq_def]
+    rw [emitTernlog.go.eq_def]
     rfl
   | d + 1, hd, acc => by
     have hlt : ¬ (8 - (d + 1) ≥ 8) := by omega
     have hidx : 7 - d = 8 - (d + 1) := by omega
     have hnext : 8 - (d + 1) + 1 = 8 - d := by omega
-    dsimp only [ternlogBoolGo]
+    dsimp only [ternlogGo]
     rw [hidx]
     by_cases hbit : imm.getLsbD (8 - (d + 1)) = true
     · simp only [hbit, ↓reduceIte]
       cases acc with
       | none =>
-        rw [ternlogBoolGo_run_eq imm a b c na nb nc k d (by omega)]
-        rw [emitTernlogBool.go.eq_def imm k (8 - (d + 1)) none a b c (.var na) (.var nb) (.var nc)]
+        rw [ternlogGo_run_eq t zeroVal imm a b c na nb nc k d (by omega)]
+        rw [emitTernlog.go.eq_def t zeroVal imm k (8 - (d + 1)) none a b c
+          (.var na) (.var nb) (.var nc)]
         simp only [hlt, ↓reduceIte, hbit, hnext, Emit.run, ite_arg_run, Tup.get]
       | some prev =>
-        rw [ternlogBoolGo_run_eq imm a b c na nb nc k d (by omega)]
+        rw [ternlogGo_run_eq t zeroVal imm a b c na nb nc k d (by omega)]
         dsimp only [Emit.run]
         congr 1; funext p
-        rw [emitTernlogBool.go.eq_def imm k (8 - (d + 1)) (some p) a b c
+        rw [emitTernlog.go.eq_def t zeroVal imm k (8 - (d + 1)) (some p) a b c
           (.var na) (.var nb) (.var nc)]
         simp only [hlt, ↓reduceIte, hbit, hnext, ite_arg_run, Tup.get]
     · simp only [hbit, Bool.false_eq_true, ↓reduceIte]
       cases acc with
       | none =>
-        rw [ternlogBoolGo_run_eq imm a b c na nb nc k d (by omega)]
-        rw [emitTernlogBool.go.eq_def imm k (8 - (d + 1)) none a b c (.var na) (.var nb) (.var nc)]
+        rw [ternlogGo_run_eq t zeroVal imm a b c na nb nc k d (by omega)]
+        rw [emitTernlog.go.eq_def t zeroVal imm k (8 - (d + 1)) none a b c
+          (.var na) (.var nb) (.var nc)]
         simp only [hlt, ↓reduceIte, hbit, Bool.false_eq_true, hnext]
       | some prev =>
-        rw [ternlogBoolGo_run_eq imm a b c na nb nc k d (by omega)]
+        rw [ternlogGo_run_eq t zeroVal imm a b c na nb nc k d (by omega)]
         dsimp only
         congr 1; funext p
-        rw [emitTernlogBool.go.eq_def imm k (8 - (d + 1)) (some p) a b c
+        rw [emitTernlog.go.eq_def t zeroVal imm k (8 - (d + 1)) (some p) a b c
           (.var na) (.var nb) (.var nc)]
         simp only [hlt, ↓reduceIte, hbit, Bool.false_eq_true, hnext]
 
-/-- Exact correspondence between `(ternlogBoolEmit imm).run` and `emitTernlogBool` for all
-`imm : BitVec 8` (and `rfl` on `0#8`/`0xff#8` and loop-free cases). -/
-theorem ternlogBoolEmit_eq_emitTernlogBool {V L rs} (imm : BitVec 8) (a b c : Arg V .bool)
-    (k : Arg V .bool → Expr V L rs) :
-    (ternlogBoolEmit imm).run (a, b, c, ()) k = emitTernlogBool a b c imm k := by
-  unfold ternlogBoolEmit emitTernlogBool
+/-- Exact correspondence between `(ternlogEmit t z o imm).run` and `emitTernlog`. -/
+theorem ternlogEmit_eq_emitTernlog {V L rs} (t : Ty) (zeroVal onesVal : Val t)
+    (imm : BitVec 8) (a b c : Arg V t) (k : Arg V t → Expr V L rs) :
+    (ternlogEmit t zeroVal onesVal imm).run (a, b, c, ()) k =
+      emitTernlog t zeroVal onesVal a b c imm k := by
+  unfold ternlogEmit emitTernlog
   split
   · rfl
   · split
@@ -531,42 +530,78 @@ theorem ternlogBoolEmit_eq_emitTernlogBool {V L rs} (imm : BitVec 8) (a b c : Ar
       congr 1; funext (na, _)
       congr 1; funext (nb, _)
       congr 1; funext (nc, _)
-      exact ternlogBoolGo_run_eq imm a b c na nb nc k 8 (Nat.le_refl _) none
+      exact ternlogGo_run_eq t zeroVal imm a b c na nb nc k 8 (Nat.le_refl _) none
 
-private theorem ternlogBoolGo_isLegal (target : LegalTarget) (imm : BitVec 8) :
-    ∀ k acc, (∀ e, acc = some e → e.IsLegal target) → (ternlogBoolGo imm k acc).IsLegal target
+/-- Exact correspondence between `(ternlogBoolEmit imm).run` and `emitTernlogBool` for all
+`imm : BitVec 8` (and `rfl` on `0#8`/`0xff#8` and loop-free cases). -/
+theorem ternlogBoolEmit_eq_emitTernlogBool {V L rs} (imm : BitVec 8) (a b c : Arg V .bool)
+    (k : Arg V .bool → Expr V L rs) :
+    (ternlogBoolEmit imm).run (a, b, c, ()) k = emitTernlogBool a b c imm k :=
+  ternlogEmit_eq_emitTernlog .bool false true imm a b c k
+
+/-- Exact correspondence between `(ternlogBitsEmit w imm).run` and `emitTernlogBits`. -/
+theorem ternlogBitsEmit_eq_emitTernlogBits {V L rs} (w : Nat) (imm : BitVec 8)
+    (a b c : Arg V (.bits w)) (k : Arg V (.bits w) → Expr V L rs) :
+    (ternlogBitsEmit w imm).run (a, b, c, ()) k = emitTernlogBits w a b c imm k :=
+  ternlogEmit_eq_emitTernlog (.bits w) 0#w (BitVec.allOnes w) imm a b c k
+
+private theorem ternlogGo_isLegal (target : LegalTarget) (t : Ty) (zeroVal : Val t)
+    (ht : target.isLegalTy t = true)
+    (hand : ∀ u : Bool, target.isLegalOp (.and t) u = true)
+    (hor : ∀ u : Bool, target.isLegalOp (.or t) u = true)
+    (imm : BitVec 8) :
+    ∀ k acc, (∀ e, acc = some e → e.IsLegal target) →
+      (ternlogGo t zeroVal imm k acc).IsLegal target
   | 0, some e, h => h e rfl
-  | 0, none, _ => rfl
+  | 0, none, _ => ht
   | k + 1, acc, h => by
-    dsimp only [ternlogBoolGo]
+    dsimp only [ternlogGo]
     by_cases hbit : imm.getLsbD (7 - k) = true
     · simp only [hbit, ↓reduceIte]
-      refine ternlogBoolGo_isLegal target imm k _ fun e he => ?_
+      refine ternlogGo_isLegal target t zeroVal ht hand hor imm k _ fun e he => ?_
       cases he
       cases acc with
       | none =>
-        refine ⟨⟨?_, ?_, rfl, fun _ => rfl, rfl⟩, ?_, rfl, fun _ => rfl, rfl⟩ <;>
-          (split <;> trivial)
+        refine ⟨⟨?_, ?_, rfl, hand, ht⟩, ?_, rfl, hand, ht⟩ <;> (split <;> trivial)
       | some prev =>
-        refine ⟨h prev rfl, ⟨⟨?_, ?_, rfl, fun _ => rfl, rfl⟩, ?_, rfl, fun _ => rfl, rfl⟩,
-          rfl, fun _ => rfl, rfl⟩ <;> (split <;> trivial)
+        refine ⟨h prev rfl, ⟨⟨?_, ?_, rfl, hand, ht⟩, ?_, rfl, hand, ht⟩, rfl, hor, ht⟩ <;>
+          (split <;> trivial)
     · simp only [hbit]
-      exact ternlogBoolGo_isLegal target imm k acc h
+      exact ternlogGo_isLegal target t zeroVal ht hand hor imm k acc h
 
-private theorem ternlogBoolGo_wp (imm : BitVec 8) (a b c : Bool) :
-    ∀ k (_hk : k ≤ 8) acc (v0 : Bool),
-      (∀ e p, acc = some e → p v0 → e.wp (!c, !b, !a, a, b, c, ()) p) →
-      (acc = none → v0 = false) →
+private theorem ternlogEmit_isLegal (target : LegalTarget) (t : Ty) (zeroVal onesVal : Val t)
+    (ht : target.isLegalTy t = true)
+    (hnot : target.isLegalOp (.not t) false = true)
+    (hand : ∀ u : Bool, target.isLegalOp (.and t) u = true)
+    (hor : ∀ u : Bool, target.isLegalOp (.or t) u = true)
+    (imm : BitVec 8) :
+    (ternlogEmit t zeroVal onesVal imm).IsLegal target := by
+  unfold ternlogEmit; split
+  · exact ht
+  · split
+    · exact ht
+    · exact ⟨⟨trivial, rfl, hnot, ht⟩, ⟨trivial, rfl, hnot, ht⟩, ⟨trivial, rfl, hnot, ht⟩,
+        ternlogGo_isLegal target t zeroVal ht hand hor imm 8 none (fun _ h => by cases h)⟩
+
+private theorem ternlogGo_wp (t : Ty) (zeroVal : Val t)
+    (hzero : ∀ x : Val t, lift2 (· ||| ·) (· || ·) t zeroVal x = x)
+    (imm : BitVec 8) (a b c : Val t) :
+    let fnot := lift1 (~~~ ·) (! ·) t
+    let fand := lift2 (· &&& ·) (· && ·) t
+    let for_ := lift2 (· ||| ·) (· || ·) t
+    ∀ k (_hk : k ≤ 8) acc (v0 : Val t),
+      (∀ e p, acc = some e → p v0 → e.wp (fnot c, fnot b, fnot a, a, b, c, ()) p) →
+      (acc = none → v0 = zeroVal) →
       ∀ p, p (([0, 1, 2, 3, 4, 5, 6, 7].drop (8 - k)).foldl (fun cur i =>
         if imm.getLsbD i then
-          cur || ((if i / 4 % 2 == 1 then a else !a) &&
-                  (if i / 2 % 2 == 1 then b else !b) &&
-                  (if i % 2 == 1 then c else !c))
+          for_ cur (fand (fand (if i / 4 % 2 == 1 then a else fnot a)
+                               (if i / 2 % 2 == 1 then b else fnot b))
+                         (if i % 2 == 1 then c else fnot c))
         else cur) v0) →
-      (ternlogBoolGo imm k acc).wp (!c, !b, !a, a, b, c, ()) p
+      (ternlogGo t zeroVal imm k acc).wp (fnot c, fnot b, fnot a, a, b, c, ()) p
   | 0, _, some e, _, hacc, _, p, hp => hacc e p rfl hp
   | 0, _, none, _, _, hnone, p, hp => by
-    dsimp only [ternlogBoolGo, Emit.wp]
+    dsimp only [ternlogGo, Emit.wp]
     simpa [hnone rfl] using hp
   | k + 1, hk, acc, v0, hacc, hnone, p, hp => by
     have hdrop : [0, 1, 2, 3, 4, 5, 6, 7].drop (8 - (k + 1)) =
@@ -582,48 +617,43 @@ private theorem ternlogBoolGo_wp (imm : BitVec 8) (a b c : Bool) :
       · rfl
       · omega
     rw [hdrop, List.foldl_cons] at hp
-    dsimp only [ternlogBoolGo]
+    dsimp only [ternlogGo]
     by_cases hbit : imm.getLsbD (7 - k) = true
     · simp only [hbit, ↓reduceIte] at hp ⊢
-      refine ternlogBoolGo_wp imm a b c k (by omega) _ _
+      refine ternlogGo_wp t zeroVal hzero imm a b c k (by omega) _ _
         (fun e' q he' hq => ?_) (fun h => by cases h) p hp
       cases he'
       cases acc with
       | none =>
         have hv0 := hnone rfl; subst hv0
+        rw [hzero] at hq
         by_cases h1 : (7 - k) / 4 % 2 = 1 <;> by_cases h2 : (7 - k) / 2 % 2 = 1 <;>
           by_cases h3 : (7 - k) % 2 = 1 <;>
-          simpa [h1, h2, h3, Emit.wp, Tup.get, OpCode.wp, lift2] using hq
+          simpa [h1, h2, h3, Emit.wp, Tup.get, OpCode.wp] using hq
       | some prev =>
         exact hacc prev _ rfl (by
           by_cases h1 : (7 - k) / 4 % 2 = 1 <;> by_cases h2 : (7 - k) / 2 % 2 = 1 <;>
             by_cases h3 : (7 - k) % 2 = 1 <;>
-            simpa [h1, h2, h3, Emit.wp, Tup.get, OpCode.wp, lift2] using hq)
+            simpa [h1, h2, h3, Emit.wp, Tup.get, OpCode.wp] using hq)
     · simp only [hbit] at hp ⊢
-      exact ternlogBoolGo_wp imm a b c k (by omega) acc v0 hacc hnone p hp
+      exact ternlogGo_wp t zeroVal hzero imm a b c k (by omega) acc v0 hacc hnone p hp
 
 /-- Single-pass `isLegal + Wf + wp` bundle for `ternlogBoolEmit`. -/
 theorem ternlogBoolEmit_bundle (target : LegalTarget) (imm : BitVec 8) :
     LegalEmitSpec target (ternlogBoolEmit imm)
       (fun (a, b, c, ()) p => p (ternaryLogicBool a b c imm)) :=
   (ternlogBoolEmit imm).bundle target
-    (by
-      unfold ternlogBoolEmit; split
-      · rfl
-      · split
-        · rfl
-        · exact ⟨⟨trivial, rfl, rfl, rfl⟩, ⟨trivial, rfl, rfl, rfl⟩, ⟨trivial, rfl, rfl, rfl⟩,
-            ternlogBoolGo_isLegal target imm 8 none (fun _ h => by cases h)⟩)
+    (ternlogEmit_isLegal target .bool false true rfl rfl (fun _ => rfl) (fun _ => rfl) imm)
     (fun (a, b, c, ()) p hp => by
-      unfold ternlogBoolEmit; split
+      unfold ternlogBoolEmit ternlogEmit; split
       · rename_i h0; have := beq_iff_eq.mp h0; subst this
         simpa [Emit.wp, ternaryLogicBool] using hp
       · split
         · rename_i hff; have := beq_iff_eq.mp hff; subst this
           have hall : ∀ x y z : Bool, ternaryLogicBool x y z 0xff#8 = true := by decide
           simpa [Emit.wp, hall] using hp
-        · dsimp only [Emit.wp, Tup.get, OpCode.wp, lift1]
-          refine ternlogBoolGo_wp imm a b c 8 (Nat.le_refl _) none false
+        · dsimp only [Emit.wp, Tup.get, OpCode.wp]
+          refine ternlogGo_wp .bool false (fun _ => rfl) imm a b c 8 (Nat.le_refl _) none false
             (fun _ _ h => by cases h) (fun _ => rfl) p ?_
           have hfold : ∀ (va vb vc : Bool) (im : BitVec 8),
               ([0, 1, 2, 3, 4, 5, 6, 7].foldl (fun cur i =>
@@ -633,7 +663,33 @@ theorem ternlogBoolEmit_bundle (target : LegalTarget) (imm : BitVec 8) :
                           (if i % 2 == 1 then vc else !vc))
                 else cur) false) = ternaryLogicBool va vb vc im := by
             intro va vb vc im; cases va <;> cases vb <;> cases vc <;> simp [ternaryLogicBool]
+          dsimp only [lift1, lift2]
           rw [show [0, 1, 2, 3, 4, 5, 6, 7].drop 0 = [0, 1, 2, 3, 4, 5, 6, 7] from rfl, hfold]
+          exact hp)
+
+/-- Single-pass `isLegal + Wf + wp` bundle for `ternlogBitsEmit`. -/
+theorem ternlogBitsEmit_bundle (target : LegalTarget) {w : Nat} (hw : w ∈ target.bitWidths)
+    (imm : BitVec 8) :
+    LegalEmitSpec target (ternlogBitsEmit w imm)
+      (fun (a, b, c, ()) p => p (ternaryLogic a b c imm)) :=
+  (ternlogBitsEmit w imm).bundle target
+    (ternlogEmit_isLegal target (.bits w) 0#w (BitVec.allOnes w)
+      (by simpa [LegalTarget.isLegalTy] using hw)
+      (by simp [LegalTarget.isLegalOp, hw])
+      (fun _ => by simp [LegalTarget.isLegalOp, hw])
+      (fun _ => by simp [LegalTarget.isLegalOp, hw]) imm)
+    (fun (a, b, c, ()) p hp => by
+      unfold ternlogBitsEmit ternlogEmit; split
+      · rename_i h0; have := beq_iff_eq.mp h0; subst this
+        simpa [Emit.wp, ternaryLogic_zero] using hp
+      · split
+        · rename_i hff; have := beq_iff_eq.mp hff; subst this
+          simpa [Emit.wp, ternaryLogic_allOnes] using hp
+        · dsimp only [Emit.wp, Tup.get, OpCode.wp]
+          refine ternlogGo_wp (.bits w) 0#w (fun x => BitVec.zero_or (x := x)) imm a b c 8
+            (Nat.le_refl _) none 0#w (fun _ _ h => by cases h) (fun _ => rfl) p ?_
+          dsimp only [lift1, lift2]
+          rw [show [0, 1, 2, 3, 4, 5, 6, 7].drop 0 = List.range 8 from rfl]
           exact hp)
 
 end LeanQbe.T

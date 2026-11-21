@@ -14,9 +14,9 @@ import all Kraken.Separation
 # Verification and Axiom Audit for `ControlComb` and `LegalEmit`
 
 Exercises:
-1. All 5 `LegalBase` builders (`emitBoolCmp`, `emitBoolSelect`, `emitMaskToN`, `emitSextToW`,
-   `emitTernlogBool`) via `Emit` `rfl`-compatible compilation and single-pass `LegalEmitSpec`
-   bundles (`isLegal`, `Wf`, `wp`), plus a composed `Emit` pipeline.
+1. All 6 `LegalBase` builders (`emitBoolCmp`, `emitBoolSelect`, `emitMaskToN`, `emitSextToW`,
+   `emitTernlogBool`, `emitTernlogBits`) via `Emit` `rfl`-compatible compilation and single-pass
+   `LegalEmitSpec` bundles (`isLegal`, `Wf`, `wp`), plus a composed `Emit` pipeline.
 2. State-indexed PHOAS combinators (`wp_join_state`, `wp_join_state1`, `wp_while_state`,
    `wp_while_state1`, `wp_jnz_decide`) on real `LratBytes` code (`skipWs1Qbe` and `readLeb128`).
 3. Single-line `#print axioms` checks (`≤ 100` cols) strictly `⊆ [propext, Classical.choice,
@@ -35,7 +35,7 @@ open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.ProofUtil
 open Kraken.Bedrock2.Test
 
-/-! ## 1. Definitional (`rfl`) compatibility with all 5 `LegalBase` builders -/
+/-! ## 1. Definitional (`rfl`) compatibility with all 6 `LegalBase` builders -/
 
 section RflBridges
 
@@ -61,10 +61,14 @@ example {V L rs} (a b c : Arg V .bool) (k : Arg V .bool → Expr V L rs) :
     (ternlogBoolEmit 0#8).run (a, b, c, ()) k = emitTernlogBool a b c 0#8 k := rfl
 example {V L rs} (a b c : Arg V .bool) (k : Arg V .bool → Expr V L rs) :
     (ternlogBoolEmit 0xff#8).run (a, b, c, ()) k = emitTernlogBool a b c 0xff#8 k := rfl
+example {V L rs} (a b c : Arg V (.bits 32)) (k : Arg V (.bits 32) → Expr V L rs) :
+    (ternlogBitsEmit 32 0#8).run (a, b, c, ()) k = emitTernlogBits 32 a b c 0#8 k := rfl
+example {V L rs} (a b c : Arg V (.bits 32)) (k : Arg V (.bits 32) → Expr V L rs) :
+    (ternlogBitsEmit 32 0xff#8).run (a, b, c, ()) k = emitTernlogBits 32 a b c 0xff#8 k := rfl
 
 end RflBridges
 
-/-! ## 2. Exact `isLegal` + `Wf` + `wp` reconstruction for all 5 `LegalBase` builders -/
+/-! ## 2. Exact `isLegal` + `Wf` + `wp` reconstruction for all 6 `LegalBase` builders -/
 
 theorem test_emitBoolCmp_isLegal (target : LegalTarget) {Γ Δ rs} (o : CmpOp)
     (a b : Arg K .bool) (ha : ArgNormal target Γ .bool a) (hb : ArgNormal target Γ .bool b)
@@ -193,6 +197,35 @@ theorem test_emitTernlogBool_all (target : LegalTarget) (imm : BitVec 8) :
    fun a b c _ hk =>
     (ternlogBoolEmit_bundle target imm).wp_eq (a, b, c, ()) hk
       (ternlogBoolEmit_eq_emitTernlogBool imm a b c _)⟩
+
+theorem test_emitTernlogBits_all (target : LegalTarget) {w : Nat}
+    (hw : w ∈ target.bitWidths) (imm : BitVec 8) :
+    (∀ {Γ Δ rs} (a b c : Arg K (.bits w)),
+      ArgNormal target Γ (.bits w) a → ArgNormal target Γ (.bits w) b →
+      ArgNormal target Γ (.bits w) c →
+      ∀ {k : Arg K (.bits w) → Expr K KL rs},
+        IsLegalCont target Γ Δ (fun Γ' r => ArgNormal target Γ' (.bits w) r) k →
+        (toTFlat (emitTernlogBits w a b c imm k) Γ.length Δ.length).isLegal target Γ Δ = true) ∧
+    (∀ {V₁ V₂ L₁ L₂ rs} {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
+      {a₁ b₁ c₁ : Arg V₁ (.bits w)} {a₂ b₂ c₂ : Arg V₂ (.bits w)},
+      ArgRel G (.bits w) a₁ a₂ → ArgRel G (.bits w) b₁ b₂ → ArgRel G (.bits w) c₁ c₂ →
+      ∀ {k₁ : Arg V₁ (.bits w) → Expr V₁ L₁ rs} {k₂ : Arg V₂ (.bits w) → Expr V₂ L₂ rs},
+        (∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' (.bits w) y₁ y₂ →
+          Wf G' D (k₁ y₁) (k₂ y₂)) →
+        Wf G D (emitTernlogBits w a₁ b₁ c₁ imm k₁) (emitTernlogBits w a₂ b₂ c₂ imm k₂)) ∧
+    (∀ {Γ rs Q X m} (a b c : Arg Val (.bits w)) {k : Arg Val (.bits w) → Expr Val Cont rs},
+      (∀ r, r.val = ternaryLogic a.val b.val c.val imm → wp Γ Q X (k r) m) →
+      wp Γ Q X (emitTernlogBits w a b c imm k) m) :=
+  ⟨fun a b c ha hb hc _ hk =>
+    (ternlogBitsEmit_bundle target hw imm).isLegal_eq (a, b, c, ()) ⟨ha, hb, hc, trivial⟩ hk
+      (ternlogBitsEmit_eq_emitTernlogBits w imm a b c _),
+   fun ha hb hc k₁ k₂ hk =>
+    (ternlogBitsEmit_bundle target hw imm).wf_eq (.cons ha (.cons hb (.cons hc .nil))) hk
+      (ternlogBitsEmit_eq_emitTernlogBits w imm _ _ _ k₁)
+      (ternlogBitsEmit_eq_emitTernlogBits w imm _ _ _ k₂),
+   fun a b c _ hk =>
+    (ternlogBitsEmit_bundle target hw imm).wp_eq (a, b, c, ()) hk
+      (ternlogBitsEmit_eq_emitTernlogBits w imm a b c _)⟩
 
 /-- Composed custom `Emit` builder (`boolEqXorEmit`) verified with `Emit.bundlePure`. -/
 def boolIffXorEmit : Emit [.bool, .bool] .bool :=
@@ -407,8 +440,19 @@ theorem readLeb128_spec_comb {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
 #print axioms LeanQbe.T.maskToNEmit_bundle
 #print axioms LeanQbe.T.sextToWEmit_eq_emitSextToW
 #print axioms LeanQbe.T.sextToWEmit_bundle
+#print axioms LeanQbe.T.lowMask_and
+#print axioms LeanQbe.T.bitVec0_eq_zero
+#print axioms LeanQbe.T.setWidth_zero_setWidth
+#print axioms LeanQbe.T.signExtend_eq_shl_ashr
+#print axioms LeanQbe.T.boolCmp_spec
+#print axioms LeanQbe.T.ternaryLogic_zero
+#print axioms LeanQbe.T.ternaryLogic_allOnes
+#print axioms LeanQbe.T.isLegal_let_op1_normal
+#print axioms LeanQbe.T.isLegal_let_op2_normal
 #print axioms LeanQbe.T.ternlogBoolEmit_eq_emitTernlogBool
 #print axioms LeanQbe.T.ternlogBoolEmit_bundle
+#print axioms LeanQbe.T.ternlogBitsEmit_eq_emitTernlogBits
+#print axioms LeanQbe.T.ternlogBitsEmit_bundle
 #print axioms test_emitBoolCmp_isLegal
 #print axioms test_emitBoolCmp_wf
 #print axioms test_emitBoolCmp_wp
@@ -416,6 +460,7 @@ theorem readLeb128_spec_comb {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
 #print axioms test_emitMaskToN_all
 #print axioms test_emitSextToW_all
 #print axioms test_emitTernlogBool_all
+#print axioms test_emitTernlogBits_all
 #print axioms boolIffXorEmit_bundle
 #print axioms skipWs1Qbe_spec_comb
 #print axioms readLeb128_spec_comb

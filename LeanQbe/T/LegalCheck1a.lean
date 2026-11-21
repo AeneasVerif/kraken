@@ -1,5 +1,6 @@
 module
 
+public import LeanQbe.T.LegalBaseLemmas
 public import LeanQbe.T.LegalLemmas
 
 /-!
@@ -22,28 +23,6 @@ section LegalIsLegal
 /-! ## Section 5: `Func.legal_isLegal` (Decidable `Legal` target invariant) -/
 
 /-! ### Simp / equation helpers for `listGet?`, `pushTypes`, `toTFlat`, `TFlat.isLegal` -/
-
-theorem listGet?_append_add {α : Type} : (ext xs : List α) → (k : Nat) →
-    listGet? (ext ++ xs) (ext.length + k) = listGet? xs k
-  | [], xs, k => by simp
-  | _ :: ext, xs, k => by
-    simp only [List.cons_append, List.length_cons, Nat.succ_add, listGet?]
-    exact listGet?_append_add ext xs k
-
-theorem pushTypes_eq_reverse_append {α : Type} : (xs acc : List α) →
-    pushTypes xs acc = xs.reverse ++ acc
-  | [], _ => rfl
-  | a :: as, acc => by
-    simp only [pushTypes, pushTypes_eq_reverse_append as (a :: acc), List.reverse_cons,
-      List.append_assoc, List.cons_append, List.nil_append]
-
-theorem pushTypes_length {α : Type} (xs acc : List α) :
-    (pushTypes xs acc).length = xs.length + acc.length := by
-  rw [pushTypes_eq_reverse_append, List.length_append, List.length_reverse]
-
-theorem pushNormal_length (ts : List Ty) (Γ : List (Ty × VarKind)) :
-    (pushNormal ts Γ).length = ts.length + Γ.length := by
-  simp only [pushNormal, pushTypes_length, List.length_map]
 
 @[simp] theorem Tup.levels_nil {α : Type} (n : Nat) : Tup.levels ([] : List α) n = () := rfl
 @[simp] theorem Tup.levels_cons {α : Type} (a : α) (as : List α) (n : Nat) :
@@ -148,23 +127,6 @@ theorem checkLegalArgs_triple (Γ : List (Ty × VarKind)) {t₁ t₂ t₃ : Ty}
     (b : Tup K ts → Expr K KL rs) (bs : Blocks K KL rs sig) (nv nl : Nat) :
     toTBlocks (.cons b bs) nv nl = .cons (toTFlat (b (Tup.levels ts nv)) (nv + ts.length) nl)
       (toTBlocks bs nv nl) := rfl
-
-def OpCode.isPackBridge : {as rs : List Ty} → OpCode as rs → Bool
-  | _, _, .unpair _ _ => true
-  | _, _, .mkpair _ _ => true
-  | _, _, _ => false
-
-theorem TFlat.isLegal_let_of_normal (target : LegalTarget) (Γ : List (Ty × VarKind))
-  (Δ : List (List Ty))
-    {rs ts : List Ty} (op : Op K ts) (k : TFlat rs)
-    (hne : op.code.isPackBridge = false) :
-    (TFlat.let_ op k).isLegal target Γ Δ =
-      (target.isLegalOp op.code (isUniformImmShift op.code op.args) && target.isLegalSig ts &&
-        checkLegalArgs Γ op.args && k.isLegal target (pushNormal ts Γ) Δ) := by
-  rcases op with @⟨sig, code, args⟩
-  cases code <;>
-    (try (dsimp only [OpCode.isPackBridge] at hne; contradiction)) <;>
-    dsimp only [TFlat.isLegal, TFlat.isLegal._f]
 
 theorem TFlat.isLegal_let_unpair (target : LegalTarget) (Γ : List (Ty × VarKind))
   (Δ : List (List Ty))
@@ -285,133 +247,6 @@ theorem supportsTy_of_hasLegalLeaves {target : LegalTarget} (hv : target.valid =
     exact ⟨supportsTy_of_hasLegalLeaves hv hl.1, supportsTy_of_hasLegalLeaves hv hl.2⟩
 
 /-! ### Context extensions and normal invariants -/
-
-def CtxExtends {α : Type} (Γ Γ' : List α) : Prop :=
-  ∃ ext : List α, Γ' = ext ++ Γ
-
-theorem CtxExtends.refl {α : Type} (Γ : List α) : CtxExtends Γ Γ := ⟨[], rfl⟩
-
-theorem CtxExtends.trans {α : Type} {Γ₁ Γ₂ Γ₃ : List α}
-    (h1 : CtxExtends Γ₁ Γ₂) (h2 : CtxExtends Γ₂ Γ₃) : CtxExtends Γ₁ Γ₃ := by
-  rcases h1 with ⟨e1, rfl⟩
-  rcases h2 with ⟨e2, rfl⟩
-  exact ⟨e2 ++ e1, by simp [List.append_assoc]⟩
-
-theorem CtxExtends.cons {α : Type} (p : α) (Γ : List α) : CtxExtends Γ (p :: Γ) :=
-  ⟨[p], rfl⟩
-
-theorem CtxExtends.pushTypes {α : Type} (xs acc : List α) :
-  CtxExtends acc (LeanQbe.T.pushTypes xs acc) :=
-  ⟨xs.reverse, pushTypes_eq_reverse_append xs acc⟩
-
-theorem CtxExtends.pushNormal (ts : List Ty) (Γ : List (Ty × VarKind)) :
-    CtxExtends Γ (LeanQbe.T.pushNormal ts Γ) :=
-  CtxExtends.pushTypes _ Γ
-
-def LvlOk (Γ : List (Ty × VarKind)) (t : Ty) (allowed : VarKind → Bool) (lvl : Nat) : Prop :=
-  lvl < Γ.length ∧ ∃ k, listGet? Γ (Γ.length - 1 - lvl) = some (t, k) ∧ allowed k = true
-
-abbrev LvlNormal (Γ : List (Ty × VarKind)) (t : Ty) (lvl : Nat) : Prop :=
-  LvlOk Γ t (· == .normal) lvl
-
-theorem LvlOk.mono {Γ Γ' : List (Ty × VarKind)} (hExt : CtxExtends Γ Γ')
-    {t : Ty} {allowed : VarKind → Bool} {lvl : Nat}
-    (h : LvlOk Γ t allowed lvl) : LvlOk Γ' t allowed lvl := by
-  rcases hExt with ⟨ext, rfl⟩
-  rcases h with ⟨hlt, k, hget, hall⟩
-  refine ⟨by rw [List.length_append]; omega, k, ?_, hall⟩
-  have heq : (ext ++ Γ).length - 1 - lvl = ext.length + (Γ.length - 1 - lvl) := by
-    rw [List.length_append]; omega
-  rw [heq, listGet?_append_add]
-  exact hget
-
-theorem LvlOk.weaken_pred {Γ : List (Ty × VarKind)} {t : Ty} {p q : VarKind → Bool} {lvl : Nat}
-    (hpq : ∀ k, p k = true → q k = true) (h : LvlOk Γ t p lvl) : LvlOk Γ t q lvl := by
-  rcases h with ⟨hlt, k, hget, hp⟩
-  exact ⟨hlt, k, hget, hpq k hp⟩
-
-theorem LvlOk.checkVarKind {Γ : List (Ty × VarKind)} {t : Ty} {allowed : VarKind → Bool} {lvl : Nat}
-    (h : LvlOk Γ t allowed lvl) :
-    LeanQbe.T.checkVarKind Γ t allowed (if lvl < Γ.length then Γ.length - 1 - lvl else Γ.length) =
-      true := by
-  rcases h with ⟨hlt, k, hget, hall⟩
-  simp only [hlt, ↓reduceIte, LeanQbe.T.checkVarKind, hget]
-  cases hd : tyDecEq t t with
-  | isTrue _ => simpa using hall
-  | isFalse hf => exact absurd rfl hf
-
-theorem LvlNormal.of_head {Γ : List (Ty × VarKind)} {t : Ty} :
-    LvlNormal ((t, .normal) :: Γ) t Γ.length := by
-  refine ⟨by simp, .normal, ?_, rfl⟩
-  have h0 : ((t, .normal) :: Γ).length - 1 - Γ.length = 0 := by simp
-  rw [h0]; rfl
-
-theorem LvlOk.of_head {Γ : List (Ty × VarKind)} {t : Ty} {k : VarKind} {allowed : VarKind → Bool}
-    (hk : allowed k = true) :
-    LvlOk ((t, k) :: Γ) t allowed Γ.length := by
-  refine ⟨by simp, k, ?_, hk⟩
-  have h0 : ((t, k) :: Γ).length - 1 - Γ.length = 0 := by simp
-  rw [h0]; rfl
-
-def ArgNormal (target : LegalTarget) (Γ : List (Ty × VarKind)) (t : Ty) : Arg K t → Prop
-  | .var lvl => LvlNormal Γ t lvl ∧ target.isLegalTy t = true
-  | .imm _ => target.isLegalTy t = true
-
-theorem ArgNormal.isLegalTy {target : LegalTarget} {Γ : List (Ty × VarKind)} {t : Ty} {a : Arg K t}
-    (h : ArgNormal target Γ t a) : target.isLegalTy t = true := by
-  cases a with
-  | var _ => exact h.2
-  | imm _ => exact h
-
-theorem ArgNormal.mono {target : LegalTarget} {Γ Γ' : List (Ty × VarKind)} (hExt : CtxExtends Γ Γ')
-    {t : Ty} {a : Arg K t} (h : ArgNormal target Γ t a) : ArgNormal target Γ' t a := by
-  cases a with
-  | imm _ => exact h
-  | var _ => exact ⟨h.1.mono hExt, h.2⟩
-
-theorem ArgNormal.checkLegalArg {target : LegalTarget} {Γ : List (Ty × VarKind)} {t : Ty}
-  {a : Arg K t}
-    (h : ArgNormal target Γ t a) :
-    LeanQbe.T.checkLegalArg Γ t (idxArg Γ.length a) = true := by
-  cases a with
-  | imm _ => rfl
-  | var _ => exact h.1.checkVarKind
-
-theorem ArgNormal.head (target : LegalTarget) (Γ : List (Ty × VarKind)) {t : Ty}
-    (ht : target.isLegalTy t = true) :
-    ArgNormal target ((t, .normal) :: Γ) t (.var Γ.length) :=
-  ⟨LvlNormal.of_head, ht⟩
-
-theorem ArgNormal.cast {target : LegalTarget} {Γ : List (Ty × VarKind)} {m n : Nat} (h : m = n)
-    {x : Arg K (.bits m)} (hx : ArgNormal target Γ (.bits m) x) :
-    ArgNormal target Γ (.bits n) (castArgBits h x) := by
-  subst h; exact hx
-
-def ArgsNormal (target : LegalTarget) (Γ : List (Ty × VarKind)) :
-    {ts : List Ty} → Tup (Arg K) ts → Prop
-  | [], () => True
-  | _ :: _, (x, xs) => ArgNormal target Γ _ x ∧ ArgsNormal target Γ xs
-
-theorem ArgsNormal.mono {target : LegalTarget} {Γ Γ' : List (Ty × VarKind)} (hExt : CtxExtends Γ Γ')
-  :
-    {ts : List Ty} → {xs : Tup (Arg K) ts} → ArgsNormal target Γ xs → ArgsNormal target Γ' xs
-  | [], (), _ => trivial
-  | _ :: _, (_, _), h => ⟨h.1.mono hExt, ArgsNormal.mono hExt h.2⟩
-
-theorem ArgsNormal.isLegalSig {target : LegalTarget} {Γ : List (Ty × VarKind)} :
-    {ts : List Ty} → {xs : Tup (Arg K) ts} → ArgsNormal target Γ xs → target.isLegalSig ts = true
-  | [], (), _ => rfl
-  | _ :: _, (_, _), h => by
-    simp only [LegalTarget.isLegalSig, List.all_cons, Bool.and_eq_true]
-    exact ⟨h.1.isLegalTy, ArgsNormal.isLegalSig h.2⟩
-
-theorem ArgsNormal.checkLegalArgs {target : LegalTarget} {Γ : List (Ty × VarKind)} :
-    {ts : List Ty} → {xs : Tup (Arg K) ts} → ArgsNormal target Γ xs →
-      LeanQbe.T.checkLegalArgs Γ (idxArgs Γ.length xs) = true
-  | [], (), _ => rfl
-  | _ :: _, (_, _), h => by
-    simp only [idxArgs_cons, checkLegalArgs_cons, Bool.and_eq_true]
-    exact ⟨h.1.checkLegalArg, ArgsNormal.checkLegalArgs h.2⟩
 
 theorem ArgsNormal_tupAppend {target : LegalTarget} {Γ : List (Ty × VarKind)} :
     {as bs : List Ty} → {xs : Tup (Arg K) as} → {ys : Tup (Arg K) bs} →
@@ -668,11 +503,6 @@ theorem DLegal.pushLiftMap (target : LegalTarget) {Δ : List (List Ty)}
   · exact DLegal.pushLiftMap_aux target sig Δ (LeanQbe.T.pushTypes (sig.map target.legalSig) Δ)
       (pushTypes_eq_reverse_append _ _) hsig h
   · exact hd.mono (CtxExtends.pushTypes _ _) ts l₁ l₂ h
-
-abbrev IsLegalCont (target : LegalTarget) (Γ : List (Ty × VarKind)) (Δ : List (List Ty))
-    {α : Type} {rs : List Ty} (P : List (Ty × VarKind) → α → Prop) (k : α → Expr K KL rs) : Prop :=
-  ∀ (Γ' : List (Ty × VarKind)) (x : α),
-    CtxExtends Γ Γ' → P Γ' x → (toTFlat (k x) Γ'.length Δ.length).isLegal target Γ' Δ = true
 
 /-! ### Unpack/pack bridge lemmas (`unpackToLeaves`, `packFromLegal`, `unpackToLegal`) -/
 
@@ -1020,47 +850,6 @@ theorem unpackToLegal_isLegal (target : LegalTarget) {Δ : List (List Ty)} {rs :
           (ArgsNormal_tupToSplit hf (ArgsNormal_tupAppend (hla.mono hExt23) hlb))
 
 /-! ### Generic single-instruction & memory emitters -/
-
-theorem isLegal_let_op1_normal (target : LegalTarget) {Γ : List (Ty × VarKind)} {Δ : List (List Ty)}
-    {rs : List Ty} {t r : Ty} (code : OpCode [t] [r]) (x : Arg K t) (k : Tup K [r] → Expr K KL rs)
-    (hne : code.isPackBridge = false)
-    (hcode : target.isLegalOp code false = true)
-    (hx : ArgNormal target Γ t x) (hr : target.isLegalTy r = true)
-    (hk : (toTFlat (k (Γ.length, ())) ((r, .normal) :: Γ).length Δ.length).isLegal target
-      ((r, .normal) :: Γ) Δ = true) :
-    (toTFlat (.let_ (op1 code x) k) Γ.length Δ.length).isLegal target Γ Δ = true := by
-  rw [toTFlat_let]; dsimp only [op1, Tup.levels_cons, Tup.levels_nil]
-  rw [idxArgs_single, TFlat.isLegal_let_of_normal target Γ Δ _ _ hne]
-  have hunif : isUniformImmShift code (idxArg Γ.length x, ()) = false := by
-    cases code <;> rfl
-  have hchk : checkLegalArgs Γ (ts := [t]) (idxArg Γ.length x, ()) = true := by
-    rw [← idxArgs_single]; exact ArgsNormal.checkLegalArgs ⟨hx, trivial⟩
-  simp only [hunif, hcode, LegalTarget.isLegalSig, List.all_cons, List.all_nil, hr, Bool.and_true,
-    hchk, Bool.true_and]
-  have hlen : ((r, .normal) :: Γ).length = Γ.length + [r].length := by simp
-  rw [pushNormal, pushTypes_eq_reverse_append]
-  simpa [hlen] using hk
-
-theorem isLegal_let_op2_normal (target : LegalTarget) {Γ : List (Ty × VarKind)} {Δ : List (List Ty)}
-    {rs : List Ty} {t₁ t₂ r : Ty} (code : OpCode [t₁, t₂] [r]) (x : Arg K t₁) (y : Arg K t₂)
-    (k : Tup K [r] → Expr K KL rs)
-    (hne : code.isPackBridge = false)
-    (hcode : target.isLegalOp code
-      (isUniformImmShift code (idxArg Γ.length x, idxArg Γ.length y, ())) = true)
-    (hx : ArgNormal target Γ t₁ x) (hy : ArgNormal target Γ t₂ y) (hr : target.isLegalTy r = true)
-    (hk : (toTFlat (k (Γ.length, ())) ((r, .normal) :: Γ).length Δ.length).isLegal target
-      ((r, .normal) :: Γ) Δ = true) :
-    (toTFlat (.let_ (op2 code x y) k) Γ.length Δ.length).isLegal target Γ Δ = true := by
-  rw [toTFlat_let]; dsimp only [op2, Tup.levels_cons, Tup.levels_nil]
-  rw [idxArgs_pair, TFlat.isLegal_let_of_normal target Γ Δ _ _ hne]
-  have hchk : checkLegalArgs Γ (ts := [t₁, t₂]) (idxArg Γ.length x, idxArg Γ.length y, ()) = true :=
-    by
-    rw [← idxArgs_pair]; exact ArgsNormal.checkLegalArgs ⟨hx, hy, trivial⟩
-  simp only [hcode, LegalTarget.isLegalSig, List.all_cons, List.all_nil, hr, Bool.and_true,
-    hchk, Bool.true_and]
-  have hlen : ((r, .normal) :: Γ).length = Γ.length + [r].length := by simp
-  rw [pushNormal, pushTypes_eq_reverse_append]
-  simpa [hlen] using hk
 
 theorem isLegal_let_op2_2res (target : LegalTarget) {Γ : List (Ty × VarKind)} {Δ : List (List Ty)}
     {rs : List Ty} {t₁ t₂ r₁ r₂ : Ty} (code : OpCode [t₁, t₂] [r₁, r₂]) (x : Arg K t₁)

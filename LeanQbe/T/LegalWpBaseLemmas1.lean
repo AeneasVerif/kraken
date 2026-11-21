@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.LegalWfBaseLemmas
+public import LeanQbe.T.LegalEmit
 
 /-!
 # Legalization semantic preservation base and tree lemmas (`T5`, Part 1)
@@ -512,94 +513,21 @@ theorem packLeavesToLegal_wp (target : LegalTarget) {Γ : Env} {rs : List Ty} {Q
 
 /-! ### Scalar BitVec widening, masking, sign-extension, ternary logic, and bool-op `_wp` helpers -/
 
-theorem lowMask_and {n w : Nat} (hnw : n ≤ w) (x : BitVec w) :
-    x &&& lowMask n w = (x.setWidth n).setWidth w := by
-  ext i hi
-  simp only [← BitVec.getLsbD_eq_getElem, lowMask, BitVec.getLsbD_and, BitVec.getLsbD_ushiftRight,
-    BitVec.getLsbD_allOnes, BitVec.getLsbD_setWidth]
-  by_cases hin : i < n
-  · have hiw : w - n + i < w := by omega
-    simp [hi, hin, hiw]
-  · have hiw : ¬ (w - n + i < w) := by omega
-    simp [hi, hin, hiw]
-
-theorem bitVec0_eq_zero (x : BitVec 0) : x = 0#0 := Subsingleton.elim _ _
-
-private theorem setWidth_zero_setWidth {w : Nat} (x : BitVec w) :
-    (x.setWidth 0).setWidth w = 0#w := by
-  rw [bitVec0_eq_zero (x.setWidth 0)]; rfl
-
 theorem emitMaskToN_wp {target_Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {n w : Nat} (hnw : n ≤ w) {x : Arg Val (.bits w)} {v : BitVec w} (hx : x.val = v)
     {k : Arg Val (.bits w) → Expr Val Cont rs} {m : Mem 64}
     (hk : ∀ r, r.val = (v.setWidth n).setWidth w → wp target_Γ Q X (k r) m) :
-    wp target_Γ Q X (emitMaskToN n w x k) m := by
-  dsimp only [emitMaskToN]
-  by_cases hn0 : n = 0
-  · subst hn0
-    simp only [beq_self_eq_true, ↓reduceIte]
-    exact hk _ (setWidth_zero_setWidth v).symm
-  · have hn0' : (n == 0) = false := beq_false_of_ne hn0
-    simp only [hn0', Bool.false_eq_true, ↓reduceIte]
-    by_cases hwn : w ≤ n
-    · have heq : n = w := Nat.le_antisymm hnw hwn
-      subst heq
-      simp only [hwn, ↓reduceIte]
-      exact hk x (by rw [hx, BitVec.setWidth_eq, BitVec.setWidth_eq])
-    · simp only [hwn, ↓reduceIte, wp, Op.wp, OpCode.wp]
-      exact hk _ (by change x.val &&& lowMask n w = _; rw [hx, lowMask_and hnw])
-
-private theorem signExtend_eq_shl_ashr {n w : Nat} (hn0 : 0 < n) (hnw : n < w) (a : BitVec n) :
-    (a.setWidth w <<< (w - n)).sshiftRight (w - n) = a.signExtend w := by
-  ext i hi
-  simp only [← BitVec.getLsbD_eq_getElem, BitVec.getLsbD_sshiftRight, BitVec.getLsbD_shiftLeft,
-    BitVec.getLsbD_setWidth, BitVec.getLsbD_signExtend, hi]
-  have hmsb : ((a.setWidth w) <<< (w - n)).msb = a.msb := by
-    rw [BitVec.msb_eq_getLsbD_last, BitVec.msb_eq_getLsbD_last]
-    simp only [BitVec.getLsbD_shiftLeft, BitVec.getLsbD_setWidth]
-    have hd1 : decide (w - 1 < w) = true := decide_eq_true (by omega)
-    have hd2 : decide (w - 1 < w - n) = false := decide_eq_false (by omega)
-    have hd3 : decide (n - 1 < w) = true := decide_eq_true (by omega)
-    have hcancel : w - 1 - (w - n) = n - 1 := by omega
-    simp only [hd1, hd2, hd3, hcancel, Bool.not_false, Bool.true_and]
-  by_cases hin : i < n
-  · have hltw : w - n + i < w := by omega
-    have hnot2 : ¬ (w ≤ i) := by omega
-    have hge : ¬ (w - n + i < w - n) := by omega
-    have hcancel : w - n + i - (w - n) = i := by omega
-    simp [hltw, hnot2, hge, hcancel, hin, hi]
-  · have hge : ¬ (w - n + i < w) := by omega
-    have hnot2 : ¬ (w ≤ i) := by omega
-    simp [hge, hin, hmsb, hnot2]
+    wp target_Γ Q X (emitMaskToN n w x k) m :=
+  (maskToNEmit_bundle (.withWidth w) List.mem_cons_self hnw).wp_eq (x, ())
+    (fun r hr => hk r (hx ▸ hr)) (maskToNEmit_eq_emitMaskToN n w x k)
 
 theorem emitSextToW_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {n w : Nat} (hn0 : 0 < n) (hnw : n ≤ w) {x : Arg Val (.bits w)} {a : BitVec n}
     (hx : x.val = a.setWidth w) {k : Arg Val (.bits w) → Expr Val Cont rs} {m : Mem 64}
     (hk : ∀ r, r.val = a.signExtend w → wp Γ Q X (k r) m) :
-    wp Γ Q X (emitSextToW n w x k) m := by
-  dsimp only [emitSextToW]
-  by_cases hle : w ≤ n
-  · have heq : n = w := Nat.le_antisymm hnw hle
-    subst heq
-    have hcond : (n == 0 || decide (n ≤ n)) = true := by
-      simp only [Nat.le_refl, decide_true, Bool.or_true]
-    simp only [hcond]
-    exact hk x (by rw [hx, BitVec.setWidth_eq, BitVec.signExtend_eq])
-  · have hnwl : n < w := by omega
-    have hn0f : (n == 0) = false := beq_false_of_ne (by omega)
-    have hcond : (n == 0 || decide (w ≤ n)) = false := by
-      simp only [hn0f, Bool.false_or, decide_eq_false hle]
-    simp only [hcond, Bool.false_eq_true, ↓reduceIte]
-    dsimp only [wp, Op.wp, OpCode.wp, vals, lift2, Arg.val_imm]
-    have hpow : w < 2 ^ w := @Nat.lt_pow_self w 2 (by decide)
-    have hsh_mod : (BitVec.ofNat w (w - n)).toNat % w = w - n := by
-      rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (Nat.lt_trans (by omega) hpow),
-        Nat.mod_eq_of_lt (by omega)]
-    refine hk _ ?_
-    change (x.val <<< ((BitVec.ofNat w (w - n)).toNat % w)).sshiftRight
-      ((BitVec.ofNat w (w - n)).toNat % w) = a.signExtend w
-    rw [hx, hsh_mod]
-    exact signExtend_eq_shl_ashr hn0 hnwl a
+    wp Γ Q X (emitSextToW n w x k) m :=
+  (sextToWEmit_bundle (.withWidth w) List.mem_cons_self hn0 hnw).wp_eq (x, ()) ⟨a, hx, hk⟩
+    (sextToWEmit_eq_emitSextToW n w x k)
 
 theorem emitCountMod_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {n w : Nat} (hn0 : 0 < n) (hnw : n < w) {c : Arg Val (.bits w)} {b : BitVec n}
@@ -631,209 +559,33 @@ theorem emitCountMod_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
       symm
       exact Nat.mod_eq_of_lt (Nat.lt_trans (Nat.lt_trans (Nat.mod_lt _ hn0) hnw) hpow)
 
-private theorem boolCmp_spec (o : CmpOp) (a b : Bool) :
-    (match o with
-     | .eq => !(a ^^ b)
-     | .ne => a ^^ b
-     | .ult | .sgt => !a && b
-     | .ule | .sge => !a || b
-     | .ugt | .slt => a && !b
-     | .uge | .sle => a || !b) = o.evalBool a b := by
-  cases o <;> cases a <;> cases b <;> rfl
-
 theorem emitBoolCmp_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     (o : CmpOp) (a b : Arg Val .bool) {k : Arg Val .bool → Expr Val Cont rs} {m : Mem 64}
     (hk : ∀ r, r.val = o.evalBool a.val b.val → wp Γ Q X (k r) m) :
-    wp Γ Q X (emitBoolCmp o a b k) m := by
-  have hsp := boolCmp_spec o a.val b.val
-  cases o <;> dsimp only [emitBoolCmp, wp, Op.wp, OpCode.wp, vals, lift1, lift2] at * <;>
-    exact hk _ hsp
+    wp Γ Q X (emitBoolCmp o a b k) m :=
+  (boolCmpEmit_bundle .aarch64 o).wp_eq (a, b, ()) hk (boolCmpEmit_eq_emitBoolCmp o a b k)
 
 theorem emitBoolSelect_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     (c a b : Arg Val .bool) {k : Arg Val .bool → Expr Val Cont rs} {m : Mem 64}
     (hk : ∀ r, r.val = (if c.val then a.val else b.val) → wp Γ Q X (k r) m) :
-    wp Γ Q X (emitBoolSelect c a b k) m := by
-  dsimp only [emitBoolSelect, wp, Op.wp, OpCode.wp, vals, lift1, lift2]
-  exact hk _ (by cases c.val <;> cases a.val <;> cases b.val <;> rfl)
-
-private theorem list_drop_range8 :
-    ∀ idx < 8, (List.range 8).drop idx = idx :: (List.range 8).drop (idx + 1)
-  | 0, _ => rfl | 1, _ => rfl | 2, _ => rfl | 3, _ => rfl
-  | 4, _ => rfl | 5, _ => rfl | 6, _ => rfl | 7, _ => rfl
-
-private theorem ite_arg_val {t : Ty}
-    (c : Prop) [Decidable c] (a b : Arg Val t) :
-    (if c then a else b).val = if c then a.val else b.val := by
-  by_cases h : c
-  · rw [ite_eq_left h, ite_eq_left h]
-  · rw [ite_eq_right h, ite_eq_right h]
-
-private theorem emitTernlogBits_go_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {w : Nat}
-    (a b c na nb nc : Arg Val (.bits w))
-    (hna : na.val = ~~~a.val) (hnb : nb.val = ~~~b.val) (hnc : nc.val = ~~~c.val)
-    (imm : BitVec 8) :
-    ∀ (d idx : Nat), idx + d = 8 →
-      ∀ (acc : Option (Arg Val (.bits w)))
-        {k : Arg Val (.bits w) → Expr Val Cont rs} {m : Mem 64},
-        (∀ r, r.val =
-          ((List.range 8).drop idx).foldl (fun cur i =>
-            if imm.getLsbD i then
-              cur ||| ((if i / 4 % 2 == 1 then a.val else na.val) &&&
-                       (if i / 2 % 2 == 1 then b.val else nb.val) &&&
-                       (if i % 2 == 1 then c.val else nc.val))
-            else cur) (match acc with | some v => v.val | none => 0#w) →
-          wp Γ Q X (k r) m) →
-        wp Γ Q X (emitTernlogBits.go w imm k idx acc a b c na nb nc) m
-  | 0, idx, hd, acc, k, _, hk => by
-    have hge : idx ≥ 8 := by omega
-    have hdrop : (List.range 8).drop idx = [] := List.drop_eq_nil_of_le (by simp; omega)
-    rw [emitTernlogBits.go.eq_def, ite_eq_left hge]
-    cases acc with
-    | none => exact hk (.imm 0#w) (by simp [hdrop])
-    | some v => exact hk v (by simp [hdrop])
-  | d + 1, idx, hd, acc, k, m, hk => by
-    have hlt : ¬ (idx ≥ 8) := by omega
-    have hdrop := list_drop_range8 idx (by omega)
-    rw [emitTernlogBits.go.eq_def, ite_eq_right hlt]
-    by_cases himm : imm.getLsbD idx = true
-    · rw [ite_eq_left himm]
-      dsimp only [wp, Op.wp, OpCode.wp, vals, lift2]
-      cases acc with
-      | none =>
-        refine emitTernlogBits_go_wp a b c na nb nc hna hnb hnc imm d (idx + 1) (by omega)
-          (some (.var _)) fun r hr => hk r ?_
-        rw [hr, hdrop]
-        simp [himm, lift2, ite_arg_val]
-      | some prev =>
-        dsimp only [wp, Op.wp, OpCode.wp, vals, lift2]
-        refine emitTernlogBits_go_wp a b c na nb nc hna hnb hnc imm d (idx + 1) (by omega)
-          (some (.var _)) fun r hr => hk r ?_
-        rw [hr, hdrop]
-        simp [himm, lift2, ite_arg_val]
-    · rw [ite_eq_right himm]
-      refine emitTernlogBits_go_wp a b c na nb nc hna hnb hnc imm d (idx + 1) (by omega) acc
-        fun r hr => hk r ?_
-      rw [hr, hdrop]
-      simp [himm]
-
-private theorem ternaryLogic_allOnes {w : Nat} (a b c : BitVec w) :
-    ternaryLogic a b c 0xff#8 = BitVec.allOnes w := by
-  ext i hi
-  rw [show (0xff#8 : BitVec 8) = BitVec.allOnes 8 from rfl]
-  simp only [← BitVec.getLsbD_eq_getElem, ternaryLogic, BitVec.getLsbD_allOnes, hi, decide_true]
-  rw [show List.range 8 = [0, 1, 2, 3, 4, 5, 6, 7] from rfl]
-  simp only [List.foldl_cons, List.foldl_nil]
-  cases ha : a[i] <;> cases hb : b[i] <;> cases hc : c[i] <;>
-    simp [hi, ha, hb, hc]
-
-private theorem ternaryLogic_zero {w : Nat} (a b c : BitVec w) :
-    ternaryLogic a b c 0#8 = 0#w := by
-  simp [ternaryLogic, List.range_succ]
+    wp Γ Q X (emitBoolSelect c a b k) m :=
+  (boolSelectEmit_bundle .aarch64).wp_eq (c, a, b, ()) hk rfl
 
 theorem emitTernlogBits_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {w : Nat}
     (a b c : Arg Val (.bits w)) (imm : BitVec 8)
     {k : Arg Val (.bits w) → Expr Val Cont rs} {m : Mem 64}
     (hk : ∀ r, r.val = ternaryLogic a.val b.val c.val imm → wp Γ Q X (k r) m) :
-    wp Γ Q X (emitTernlogBits w a b c imm k) m := by
-  dsimp only [emitTernlogBits]
-  by_cases h0 : (imm == 0#8) = true
-  · rw [ite_eq_left h0]
-    have himm : imm = 0#8 := beq_iff_eq.mp h0
-    subst himm
-    exact hk (.imm 0#w) (ternaryLogic_zero a.val b.val c.val).symm
-  · rw [ite_eq_right h0]
-    by_cases hff : (imm == 0xff#8) = true
-    · rw [ite_eq_left hff]
-      have himm : imm = 0xff#8 := beq_iff_eq.mp hff
-      subst himm
-      exact hk (.imm (BitVec.allOnes w)) (ternaryLogic_allOnes a.val b.val c.val).symm
-    · rw [ite_eq_right hff]
-      dsimp only [wp, Op.wp, OpCode.wp, vals, lift1]
-      exact emitTernlogBits_go_wp a b c (.var _) (.var _) (.var _) rfl rfl rfl imm 8 0 rfl none
-        fun r hr => hk r (by simpa [ternaryLogic] using hr)
-
-private theorem emitTernlogBool_go_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
-    (a b c na nb nc : Arg Val .bool)
-    (hna : na.val = !a.val) (hnb : nb.val = !b.val) (hnc : nc.val = !c.val)
-    (imm : BitVec 8) :
-    ∀ (d idx : Nat), idx + d = 8 →
-      ∀ (acc : Option (Arg Val .bool))
-        {k : Arg Val .bool → Expr Val Cont rs} {m : Mem 64},
-        (∀ r, r.val =
-          ((List.range 8).drop idx).foldl (fun cur i =>
-            if imm.getLsbD i then
-              cur || ((if i / 4 % 2 == 1 then a.val else na.val) &&
-                      (if i / 2 % 2 == 1 then b.val else nb.val) &&
-                      (if i % 2 == 1 then c.val else nc.val))
-            else cur) (match acc with | some v => v.val | none => false) →
-          wp Γ Q X (k r) m) →
-        wp Γ Q X (emitTernlogBool.go imm k idx acc a b c na nb nc) m
-  | 0, idx, hd, acc, k, _, hk => by
-    have hge : idx ≥ 8 := by omega
-    have hdrop : (List.range 8).drop idx = [] := List.drop_eq_nil_of_le (by simp; omega)
-    rw [emitTernlogBool.go.eq_def, ite_eq_left hge]
-    cases acc with
-    | none => exact hk (.imm false) (by simp [hdrop])
-    | some v => exact hk v (by simp [hdrop])
-  | d + 1, idx, hd, acc, k, m, hk => by
-    have hlt : ¬ (idx ≥ 8) := by omega
-    have hdrop := list_drop_range8 idx (by omega)
-    rw [emitTernlogBool.go.eq_def, ite_eq_right hlt]
-    by_cases himm : imm.getLsbD idx = true
-    · rw [ite_eq_left himm]
-      dsimp only [wp, Op.wp, OpCode.wp, vals, lift2]
-      cases acc with
-      | none =>
-        refine emitTernlogBool_go_wp a b c na nb nc hna hnb hnc imm d (idx + 1) (by omega)
-          (some (.var _)) fun r hr => hk r ?_
-        rw [hr, hdrop]
-        simp [himm, lift2, ite_arg_val]
-      | some prev =>
-        dsimp only [wp, Op.wp, OpCode.wp, vals, lift2]
-        refine emitTernlogBool_go_wp a b c na nb nc hna hnb hnc imm d (idx + 1) (by omega)
-          (some (.var _)) fun r hr => hk r ?_
-        rw [hr, hdrop]
-        simp [himm, lift2, ite_arg_val]
-    · rw [ite_eq_right himm]
-      refine emitTernlogBool_go_wp a b c na nb nc hna hnb hnc imm d (idx + 1) (by omega) acc
-        fun r hr => hk r ?_
-      rw [hr, hdrop]
-      simp [himm]
+    wp Γ Q X (emitTernlogBits w a b c imm k) m :=
+  (ternlogBitsEmit_bundle (.withWidth w) List.mem_cons_self imm).wp_eq (a, b, c, ()) hk
+    (ternlogBitsEmit_eq_emitTernlogBits w imm a b c k)
 
 theorem emitTernlogBool_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     (a b c : Arg Val .bool) (imm : BitVec 8)
     {k : Arg Val .bool → Expr Val Cont rs} {m : Mem 64}
     (hk : ∀ r, r.val = ternaryLogicBool a.val b.val c.val imm → wp Γ Q X (k r) m) :
-    wp Γ Q X (emitTernlogBool a b c imm k) m := by
-  dsimp only [emitTernlogBool]
-  by_cases h0 : (imm == 0#8) = true
-  · rw [ite_eq_left h0]
-    have himm : imm = 0#8 := beq_iff_eq.mp h0
-    subst himm
-    exact hk (.imm false) (by simp [ternaryLogicBool])
-  · rw [ite_eq_right h0]
-    by_cases hff : (imm == 0xff#8) = true
-    · rw [ite_eq_left hff]
-      have himm : imm = 0xff#8 := beq_iff_eq.mp hff
-      subst himm
-      exact hk (.imm true) (by
-        have h : ∀ va vb vc : Bool, ternaryLogicBool va vb vc 0xff#8 = true := by decide
-        exact (h a.val b.val c.val).symm)
-    · rw [ite_eq_right hff]
-      dsimp only [wp, Op.wp, OpCode.wp, vals, lift1]
-      refine emitTernlogBool_go_wp a b c (.var _) (.var _) (.var _) rfl rfl rfl imm 8 0 rfl none
-        fun r hr => hk r ?_
-      have hfold : ∀ (va vb vc : Bool) (imm : BitVec 8),
-          ([0, 1, 2, 3, 4, 5, 6, 7].foldl (fun cur i =>
-            if imm.getLsbD i then
-              cur || ((if i / 4 % 2 == 1 then va else !va) &&
-                      (if i / 2 % 2 == 1 then vb else !vb) &&
-                      (if i % 2 == 1 then vc else !vc))
-            else cur) false) = ternaryLogicBool va vb vc imm := by
-        intro va vb vc imm
-        cases va <;> cases vb <;> cases vc <;> simp [ternaryLogicBool]
-      rw [hr, show (List.range 8).drop 0 = [0, 1, 2, 3, 4, 5, 6, 7] from rfl]
-      exact hfold a.val b.val c.val imm
+    wp Γ Q X (emitTernlogBool a b c imm k) m :=
+  (ternlogBoolEmit_bundle .aarch64 imm).wp_eq (a, b, c, ()) hk
+    (ternlogBoolEmit_eq_emitTernlogBool imm a b c k)
 
 
 end LegalWp

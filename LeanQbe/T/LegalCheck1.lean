@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.LegalCheck1a
+public import LeanQbe.T.LegalEmit
 
 /-!
 # Target legality proofs for `LeanQbe.T.Legal` (Part 1b: Bit, Word64 & Memory Helpers)
@@ -21,38 +22,18 @@ theorem emitMaskToN_isLegal (target : LegalTarget) {Γ : List (Ty × VarKind)} {
     (x : Arg K (.bits w)) (hx : ArgNormal target Γ (.bits w) x)
     {k : Arg K (.bits w) → Expr K KL rs}
     (hk : IsLegalCont target Γ Δ (fun Γ' r => ArgNormal target Γ' (.bits w) r) k) :
-    (toTFlat (emitMaskToN n w x k) Γ.length Δ.length).isLegal target Γ Δ = true := by
-  have hleg : target.isLegalTy (.bits w) = true := by simpa [LegalTarget.isLegalTy] using hw
-  simp only [emitMaskToN]
-  by_cases hn0 : (n == 0) = true
-  · simp only [hn0, ↓reduceIte]; exact hk Γ (.imm 0#w) (CtxExtends.refl Γ) hleg
-  · simp only [hn0, Bool.false_eq_true, ↓reduceIte]
-    by_cases hwn : w ≤ n
-    · simp only [hwn, ↓reduceIte]; exact hk Γ x (CtxExtends.refl Γ) hx
-    · simp only [hwn, ↓reduceIte]
-      refine isLegal_let_op2_normal target (.and (.bits w)) x (.imm _) _
-        rfl (by simp [LegalTarget.isLegalOp, hw]) hx hleg hleg ?_
-      exact hk ((.bits w, .normal) :: Γ) (.var Γ.length) (CtxExtends.cons _ _)
-        (ArgNormal.head target Γ hleg)
+    (toTFlat (emitMaskToN n w x k) Γ.length Δ.length).isLegal target Γ Δ = true :=
+  maskToNEmit_eq_emitMaskToN n w x k ▸
+    (maskToNEmit n w).run_isLegal target (x, ()) (maskToNEmit_isLegal target hw) ⟨hx, trivial⟩ hk
 
 theorem emitSextToW_isLegal (target : LegalTarget) {Γ : List (Ty × VarKind)} {Δ : List (List Ty)}
     {rs : List Ty} {n w : Nat} (hw : w ∈ target.bitWidths)
     (x : Arg K (.bits w)) (hx : ArgNormal target Γ (.bits w) x)
     {k : Arg K (.bits w) → Expr K KL rs}
     (hk : IsLegalCont target Γ Δ (fun Γ' r => ArgNormal target Γ' (.bits w) r) k) :
-    (toTFlat (emitSextToW n w x k) Γ.length Δ.length).isLegal target Γ Δ = true := by
-  have hleg : target.isLegalTy (.bits w) = true := by simpa [LegalTarget.isLegalTy] using hw
-  simp only [emitSextToW]
-  by_cases hskip : (n == 0 || decide (w ≤ n)) = true
-  · simp only [hskip, ↓reduceIte]; exact hk Γ x (CtxExtends.refl Γ) hx
-  · simp only [hskip, Bool.false_eq_true, ↓reduceIte]
-    refine isLegal_let_op2_normal target (.shl (.bits w)) x (.imm _) _ rfl
-      (by simp [LegalTarget.isLegalOp, hw]) hx hleg hleg ?_
-    let Γ1 := (.bits w, VarKind.normal) :: Γ
-    refine isLegal_let_op2_normal target (.ashr (.bits w)) (.var Γ.length) (.imm _) _
-      rfl (by simp [LegalTarget.isLegalOp, hw]) (ArgNormal.head target Γ hleg) hleg hleg ?_
-    exact hk ((.bits w, .normal) :: Γ1) (.var Γ1.length)
-      ((CtxExtends.cons _ Γ).trans (CtxExtends.cons _ Γ1)) (ArgNormal.head target Γ1 hleg)
+    (toTFlat (emitSextToW n w x k) Γ.length Δ.length).isLegal target Γ Δ = true :=
+  sextToWEmit_eq_emitSextToW n w x k ▸
+    (sextToWEmit n w).run_isLegal target (x, ()) (sextToWEmit_isLegal target hw) ⟨hx, trivial⟩ hk
 
 theorem emitCountMod_isLegal (target : LegalTarget) (hv : target.valid = true)
     {Γ : List (Ty × VarKind)} {Δ : List (List Ty)} {rs : List Ty} {n w : Nat}
@@ -77,56 +58,9 @@ theorem emitBoolCmp_isLegal (target : LegalTarget) {Γ : List (Ty × VarKind)} {
     (ha : ArgNormal target Γ .bool a) (hb : ArgNormal target Γ .bool b)
     {k : Arg K .bool → Expr K KL rs}
     (hk : IsLegalCont target Γ Δ (fun Γ' r => ArgNormal target Γ' .bool r) k) :
-    (toTFlat (emitBoolCmp o a b k) Γ.length Δ.length).isLegal target Γ Δ = true := by
-  have h1 : ∀ {Γ0 : List (Ty × VarKind)} (x : Arg K .bool), ArgNormal target Γ0 .bool x →
-      ∀ (k' : Arg K .bool → Expr K KL rs),
-      IsLegalCont target Γ0 Δ (fun Γ' r => ArgNormal target Γ' .bool r) k' →
-      (toTFlat (.let_ (op1 (.not .bool) x) fun (na, ()) => k' (.var na)) Γ0.length Δ.length).isLegal
-        target Γ0 Δ = true := by
-    intro Γ0 x hx k' hk'
-    refine isLegal_let_op1_normal target (.not .bool) x _ rfl rfl hx rfl ?_
-    exact hk' ((.bool, .normal) :: Γ0) (.var Γ0.length) (CtxExtends.cons _ _)
-      (ArgNormal.head target Γ0 rfl)
-  have h2 : ∀ {Γ0 : List (Ty × VarKind)} (mk : OpCode [.bool, .bool] [.bool])
-      (x y : Arg K .bool), mk.isPackBridge = false → target.isLegalOp mk false = true →
-      (∀ xs, isUniformImmShift mk xs = false) →
-      ArgNormal target Γ0 .bool x → ArgNormal target Γ0 .bool y →
-      ∀ (k' : Arg K .bool → Expr K KL rs),
-      IsLegalCont target Γ0 Δ (fun Γ' r => ArgNormal target Γ' .bool r) k' →
-      (toTFlat (.let_ (op2 mk x y) fun (r, ()) => k' (.var r)) Γ0.length Δ.length).isLegal target Γ0
-        Δ = true := by
-    intro Γ0 mk x y hne hcode hnu hx hy k' hk'
-    refine isLegal_let_op2_normal target mk x y _ hne (by rw [hnu]; exact hcode) hx hy rfl ?_
-    exact hk' ((.bool, .normal) :: Γ0) (.var Γ0.length) (CtxExtends.cons _ _)
-      (ArgNormal.head target Γ0 rfl)
-  cases o <;> simp only [emitBoolCmp]
-  · refine h2 (.xor .bool) a b rfl rfl (fun _ => rfl) ha hb _ fun Γ1 x h1x hx =>
-      h1 x hx _ fun Γ2 r h2r hr => hk Γ2 r (h1x.trans h2r) hr
-  · exact h2 (.xor .bool) a b rfl rfl (fun _ => rfl) ha hb _ hk
-  · refine h1 a ha _ fun Γ1 na h1x hna =>
-      h2 (.and .bool) na b rfl rfl (fun _ => rfl) hna (hb.mono h1x) _ fun Γ2 r h2r hr =>
-        hk Γ2 r (h1x.trans h2r) hr
-  · refine h1 a ha _ fun Γ1 na h1x hna =>
-      h2 (.or .bool) na b rfl rfl (fun _ => rfl) hna (hb.mono h1x) _ fun Γ2 r h2r hr =>
-        hk Γ2 r (h1x.trans h2r) hr
-  · refine h1 b hb _ fun Γ1 nb h1x hnb =>
-      h2 (.and .bool) a nb rfl rfl (fun _ => rfl) (ha.mono h1x) hnb _ fun Γ2 r h2r hr =>
-        hk Γ2 r (h1x.trans h2r) hr
-  · refine h1 b hb _ fun Γ1 nb h1x hnb =>
-      h2 (.or .bool) a nb rfl rfl (fun _ => rfl) (ha.mono h1x) hnb _ fun Γ2 r h2r hr =>
-        hk Γ2 r (h1x.trans h2r) hr
-  · refine h1 b hb _ fun Γ1 nb h1x hnb =>
-      h2 (.and .bool) a nb rfl rfl (fun _ => rfl) (ha.mono h1x) hnb _ fun Γ2 r h2r hr =>
-        hk Γ2 r (h1x.trans h2r) hr
-  · refine h1 b hb _ fun Γ1 nb h1x hnb =>
-      h2 (.or .bool) a nb rfl rfl (fun _ => rfl) (ha.mono h1x) hnb _ fun Γ2 r h2r hr =>
-        hk Γ2 r (h1x.trans h2r) hr
-  · refine h1 a ha _ fun Γ1 na h1x hna =>
-      h2 (.and .bool) na b rfl rfl (fun _ => rfl) hna (hb.mono h1x) _ fun Γ2 r h2r hr =>
-        hk Γ2 r (h1x.trans h2r) hr
-  · refine h1 a ha _ fun Γ1 na h1x hna =>
-      h2 (.or .bool) na b rfl rfl (fun _ => rfl) hna (hb.mono h1x) _ fun Γ2 r h2r hr =>
-        hk Γ2 r (h1x.trans h2r) hr
+    (toTFlat (emitBoolCmp o a b k) Γ.length Δ.length).isLegal target Γ Δ = true :=
+  (boolCmpEmit_bundle target o).isLegal_eq (a, b, ()) ⟨ha, hb, trivial⟩ hk
+    (boolCmpEmit_eq_emitBoolCmp o a b k)
 
 theorem emitBoolSelect_isLegal (target : LegalTarget) {Γ : List (Ty × VarKind)} {Δ : List (List Ty)}
     {rs : List Ty} (c a b : Arg K .bool)
@@ -134,204 +68,29 @@ theorem emitBoolSelect_isLegal (target : LegalTarget) {Γ : List (Ty × VarKind)
       (hb : ArgNormal target Γ .bool b)
     {k : Arg K .bool → Expr K KL rs}
     (hk : IsLegalCont target Γ Δ (fun Γ' r => ArgNormal target Γ' .bool r) k) :
-    (toTFlat (emitBoolSelect c a b k) Γ.length Δ.length).isLegal target Γ Δ = true := by
-  simp only [emitBoolSelect]
-  refine isLegal_let_op2_normal target (.and .bool) c a _ rfl rfl hc ha rfl ?_
-  let Γ1 := (.bool, VarKind.normal) :: Γ
-  have h1 : CtxExtends Γ Γ1 := CtxExtends.cons _ _
-  refine isLegal_let_op1_normal target (.not .bool) c _ rfl rfl (hc.mono h1) rfl ?_
-  let Γ2 := (.bool, VarKind.normal) :: Γ1
-  have h2 : CtxExtends Γ1 Γ2 := CtxExtends.cons _ _
-  refine isLegal_let_op2_normal target (.and .bool) (.var Γ1.length) b _ rfl rfl
-    (ArgNormal.head target Γ1 rfl) (hb.mono (h1.trans h2)) rfl ?_
-  let Γ3 := (.bool, VarKind.normal) :: Γ2
-  have h3 : CtxExtends Γ2 Γ3 := CtxExtends.cons _ _
-  refine isLegal_let_op2_normal target (.or .bool) (.var Γ.length) (.var Γ2.length) _
-    rfl rfl ((ArgNormal.head target Γ rfl).mono (h2.trans h3)) (ArgNormal.head target Γ2 rfl) rfl ?_
-  exact hk ((.bool, .normal) :: Γ3) (.var Γ3.length)
-    (h1.trans (h2.trans (h3.trans (CtxExtends.cons _ _)))) (ArgNormal.head target Γ3 rfl)
-
-theorem emitTernlogBool_go_isLegal (target : LegalTarget) {Δ : List (List Ty)} {rs : List Ty}
-    (imm : BitVec 8) (k : Arg K .bool → Expr K KL rs)
-    (a b c na nb nc : Arg K .bool) :
-    ∀ (idx : Nat) {Γ : List (Ty × VarKind)},
-      ArgNormal target Γ .bool a → ArgNormal target Γ .bool b → ArgNormal target Γ .bool c →
-      ArgNormal target Γ .bool na → ArgNormal target Γ .bool nb → ArgNormal target Γ .bool nc →
-      ∀ (acc : Option (Arg K .bool)),
-        (∀ x, acc = some x → ArgNormal target Γ .bool x) →
-        IsLegalCont target Γ Δ (fun Γ' r => ArgNormal target Γ' .bool r) k →
-        (toTFlat (emitTernlogBool.go imm k idx acc a b c na nb nc) Γ.length Δ.length).isLegal target
-          Γ Δ = true
-  | idx, Γ, ha, hb, hc, hna, hnb, hnc, acc, hacc, hk => by
-    rw [emitTernlogBool.go.eq_def]
-    split
-    · cases acc with
-      | some res => exact hk Γ res (CtxExtends.refl Γ) (hacc res rfl)
-      | none => exact hk Γ (.imm false) (CtxExtends.refl Γ) rfl
-    · split
-      · let pa := if (idx / 4 % 2 == 1) = true then a else na
-        let pb := if (idx / 2 % 2 == 1) = true then b else nb
-        let pc := if (idx % 2 == 1) = true then c else nc
-        have hpa : ArgNormal target Γ .bool pa := by
-          by_cases h : (idx / 4 % 2 == 1) = true <;> simp [pa, h, ha, hna]
-        have hpb : ArgNormal target Γ .bool pb := by
-          by_cases h : (idx / 2 % 2 == 1) = true <;> simp [pb, h, hb, hnb]
-        have hpc : ArgNormal target Γ .bool pc := by
-          by_cases h : (idx % 2 == 1) = true <;> simp [pc, h, hc, hnc]
-        refine isLegal_let_op2_normal target (.and .bool) pa pb _ rfl rfl hpa hpb rfl ?_
-        let Γ1 := (.bool, VarKind.normal) :: Γ
-        have h1 : CtxExtends Γ Γ1 := CtxExtends.cons _ _
-        refine isLegal_let_op2_normal target (.and .bool) (.var Γ.length) pc _ rfl rfl
-          (ArgNormal.head target Γ rfl) (hpc.mono h1) rfl ?_
-        let Γ2 := (.bool, VarKind.normal) :: Γ1
-        have h2 : CtxExtends Γ1 Γ2 := CtxExtends.cons _ _
-        have h12 : CtxExtends Γ Γ2 := h1.trans h2
-        cases acc with
-        | none =>
-          exact emitTernlogBool_go_isLegal target imm k a b c na nb nc (idx + 1)
-            (ha.mono h12) (hb.mono h12) (hc.mono h12) (hna.mono h12) (hnb.mono h12) (hnc.mono h12)
-            (some (.var Γ1.length)) (fun x hx => by cases hx; exact ArgNormal.head target Γ1 rfl)
-            (fun Γ' r hrExt hr => hk Γ' r (h12.trans hrExt) hr)
-        | some prev =>
-          have hprev : ArgNormal target Γ2 .bool prev := (hacc prev rfl).mono h12
-          refine isLegal_let_op2_normal target (.or .bool) prev (.var Γ1.length) _ rfl rfl
-            hprev (ArgNormal.head target Γ1 rfl) rfl ?_
-          let Γ3 := (.bool, VarKind.normal) :: Γ2
-          have h3 : CtxExtends Γ2 Γ3 := CtxExtends.cons _ _
-          have h13 : CtxExtends Γ Γ3 := h12.trans h3
-          exact emitTernlogBool_go_isLegal target imm k a b c na nb nc (idx + 1)
-            (ha.mono h13) (hb.mono h13) (hc.mono h13) (hna.mono h13) (hnb.mono h13) (hnc.mono h13)
-            (some (.var Γ2.length)) (fun x hx => by cases hx; exact ArgNormal.head target Γ2 rfl)
-            (fun Γ' r hrExt hr => hk Γ' r (h13.trans hrExt) hr)
-      · exact emitTernlogBool_go_isLegal target imm k a b c na nb nc (idx + 1) ha hb hc hna hnb hnc
-          acc hacc hk
-termination_by idx => 8 - idx
+    (toTFlat (emitBoolSelect c a b k) Γ.length Δ.length).isLegal target Γ Δ = true :=
+  (boolSelectEmit_bundle target).isLegal_eq (c, a, b, ()) ⟨hc, ha, hb, trivial⟩ hk rfl
 
 theorem emitTernlogBool_isLegal (target : LegalTarget) {Γ : List (Ty × VarKind)}
-  {Δ : List (List Ty)}
-    {rs : List Ty} (a b c : Arg K .bool) (imm : BitVec 8)
+    {Δ : List (List Ty)} {rs : List Ty} (a b c : Arg K .bool) (imm : BitVec 8)
     (ha : ArgNormal target Γ .bool a) (hb : ArgNormal target Γ .bool b)
-      (hc : ArgNormal target Γ .bool c)
+    (hc : ArgNormal target Γ .bool c)
     {k : Arg K .bool → Expr K KL rs}
     (hk : IsLegalCont target Γ Δ (fun Γ' r => ArgNormal target Γ' .bool r) k) :
-    (toTFlat (emitTernlogBool a b c imm k) Γ.length Δ.length).isLegal target Γ Δ = true := by
-  simp only [emitTernlogBool]
-  split
-  · exact hk Γ (.imm false) (CtxExtends.refl Γ) rfl
-  · split
-    · exact hk Γ (.imm true) (CtxExtends.refl Γ) rfl
-    · refine isLegal_let_op1_normal target (.not .bool) a _ rfl rfl ha rfl ?_
-      let Γ1 := (.bool, VarKind.normal) :: Γ
-      have h1 : CtxExtends Γ Γ1 := CtxExtends.cons _ _
-      refine isLegal_let_op1_normal target (.not .bool) b _ rfl rfl (hb.mono h1) rfl ?_
-      let Γ2 := (.bool, VarKind.normal) :: Γ1
-      have h2 : CtxExtends Γ1 Γ2 := CtxExtends.cons _ _
-      refine isLegal_let_op1_normal target (.not .bool) c _ rfl rfl (hc.mono (h1.trans h2)) rfl ?_
-      let Γ3 := (.bool, VarKind.normal) :: Γ2
-      have h3 : CtxExtends Γ2 Γ3 := CtxExtends.cons _ _
-      have h13 : CtxExtends Γ Γ3 := h1.trans (h2.trans h3)
-      exact emitTernlogBool_go_isLegal target imm k a b c (.var Γ.length) (.var Γ1.length)
-        (.var Γ2.length) 0
-        (ha.mono h13) (hb.mono h13) (hc.mono h13)
-        ((ArgNormal.head target Γ rfl).mono (h2.trans h3))
-        ((ArgNormal.head target Γ1 rfl).mono h3)
-        (ArgNormal.head target Γ2 rfl) none (fun _ h => by cases h)
-        (fun Γ' r hrExt hr => hk Γ' r (h13.trans hrExt) hr)
-
-theorem emitTernlogBits_go_isLegal (target : LegalTarget) {Δ : List (List Ty)} {rs : List Ty}
-    {w : Nat} (hw : w ∈ target.bitWidths) (imm : BitVec 8) (k : Arg K (.bits w) → Expr K KL rs)
-    (a b c na nb nc : Arg K (.bits w)) :
-    ∀ (idx : Nat) {Γ : List (Ty × VarKind)},
-      ArgNormal target Γ (.bits w) a → ArgNormal target Γ (.bits w) b →
-        ArgNormal target Γ (.bits w) c →
-      ArgNormal target Γ (.bits w) na → ArgNormal target Γ (.bits w) nb →
-        ArgNormal target Γ (.bits w) nc →
-      ∀ (acc : Option (Arg K (.bits w))),
-        (∀ x, acc = some x → ArgNormal target Γ (.bits w) x) →
-        IsLegalCont target Γ Δ (fun Γ' r => ArgNormal target Γ' (.bits w) r) k →
-        (toTFlat (emitTernlogBits.go w imm k idx acc a b c na nb nc) Γ.length Δ.length).isLegal
-          target Γ Δ = true
-  | idx, Γ, ha, hb, hc, hna, hnb, hnc, acc, hacc, hk => by
-    have hleg : target.isLegalTy (.bits w) = true := by simpa [LegalTarget.isLegalTy] using hw
-    rw [emitTernlogBits.go.eq_def]
-    split
-    · cases acc with
-      | some res => exact hk Γ res (CtxExtends.refl Γ) (hacc res rfl)
-      | none => exact hk Γ (.imm 0#w) (CtxExtends.refl Γ) hleg
-    · split
-      · let pa := if (idx / 4 % 2 == 1) = true then a else na
-        let pb := if (idx / 2 % 2 == 1) = true then b else nb
-        let pc := if (idx % 2 == 1) = true then c else nc
-        have hpa : ArgNormal target Γ (.bits w) pa := by
-          by_cases h : (idx / 4 % 2 == 1) = true <;> simp [pa, h, ha, hna]
-        have hpb : ArgNormal target Γ (.bits w) pb := by
-          by_cases h : (idx / 2 % 2 == 1) = true <;> simp [pb, h, hb, hnb]
-        have hpc : ArgNormal target Γ (.bits w) pc := by
-          by_cases h : (idx % 2 == 1) = true <;> simp [pc, h, hc, hnc]
-        refine isLegal_let_op2_normal target (.and (.bits w)) pa pb _ rfl
-          (by simp [LegalTarget.isLegalOp, hw]) hpa hpb hleg ?_
-        let Γ1 := (.bits w, VarKind.normal) :: Γ
-        have h1 : CtxExtends Γ Γ1 := CtxExtends.cons _ _
-        refine isLegal_let_op2_normal target (.and (.bits w)) (.var Γ.length) pc _ rfl
-          (by simp [LegalTarget.isLegalOp, hw]) (ArgNormal.head target Γ hleg) (hpc.mono h1) hleg ?_
-        let Γ2 := (.bits w, VarKind.normal) :: Γ1
-        have h2 : CtxExtends Γ1 Γ2 := CtxExtends.cons _ _
-        have h12 : CtxExtends Γ Γ2 := h1.trans h2
-        cases acc with
-        | none =>
-          exact emitTernlogBits_go_isLegal target hw imm k a b c na nb nc (idx + 1)
-            (ha.mono h12) (hb.mono h12) (hc.mono h12) (hna.mono h12) (hnb.mono h12) (hnc.mono h12)
-            (some (.var Γ1.length)) (fun x hx => by cases hx; exact ArgNormal.head target Γ1 hleg)
-            (fun Γ' r hrExt hr => hk Γ' r (h12.trans hrExt) hr)
-        | some prev =>
-          have hprev : ArgNormal target Γ2 (.bits w) prev := (hacc prev rfl).mono h12
-          refine isLegal_let_op2_normal target (.or (.bits w)) prev (.var Γ1.length) _ rfl
-            (by simp [LegalTarget.isLegalOp, hw]) hprev (ArgNormal.head target Γ1 hleg) hleg ?_
-          let Γ3 := (.bits w, VarKind.normal) :: Γ2
-          have h3 : CtxExtends Γ2 Γ3 := CtxExtends.cons _ _
-          have h13 : CtxExtends Γ Γ3 := h12.trans h3
-          exact emitTernlogBits_go_isLegal target hw imm k a b c na nb nc (idx + 1)
-            (ha.mono h13) (hb.mono h13) (hc.mono h13) (hna.mono h13) (hnb.mono h13) (hnc.mono h13)
-            (some (.var Γ2.length)) (fun x hx => by cases hx; exact ArgNormal.head target Γ2 hleg)
-            (fun Γ' r hrExt hr => hk Γ' r (h13.trans hrExt) hr)
-      · exact emitTernlogBits_go_isLegal target hw imm k a b c na nb nc (idx + 1) ha hb hc hna hnb
-          hnc acc hacc hk
-termination_by idx => 8 - idx
+    (toTFlat (emitTernlogBool a b c imm k) Γ.length Δ.length).isLegal target Γ Δ = true :=
+  (ternlogBoolEmit_bundle target imm).isLegal_eq (a, b, c, ()) ⟨ha, hb, hc, trivial⟩ hk
+    (ternlogBoolEmit_eq_emitTernlogBool imm a b c k)
 
 theorem emitTernlogBits_isLegal (target : LegalTarget) {Γ : List (Ty × VarKind)}
-  {Δ : List (List Ty)}
-    {rs : List Ty} {w : Nat} (hw : w ∈ target.bitWidths) (a b c : Arg K (.bits w)) (imm : BitVec 8)
+    {Δ : List (List Ty)} {rs : List Ty} {w : Nat} (hw : w ∈ target.bitWidths)
+    (a b c : Arg K (.bits w)) (imm : BitVec 8)
     (ha : ArgNormal target Γ (.bits w) a) (hb : ArgNormal target Γ (.bits w) b)
-      (hc : ArgNormal target Γ (.bits w) c)
+    (hc : ArgNormal target Γ (.bits w) c)
     {k : Arg K (.bits w) → Expr K KL rs}
     (hk : IsLegalCont target Γ Δ (fun Γ' r => ArgNormal target Γ' (.bits w) r) k) :
-    (toTFlat (emitTernlogBits w a b c imm k) Γ.length Δ.length).isLegal target Γ Δ = true := by
-  have hleg : target.isLegalTy (.bits w) = true := by simpa [LegalTarget.isLegalTy] using hw
-  simp only [emitTernlogBits]
-  split
-  · exact hk Γ (.imm 0#w) (CtxExtends.refl Γ) hleg
-  · split
-    · exact hk Γ (.imm (BitVec.allOnes w)) (CtxExtends.refl Γ) hleg
-    · refine isLegal_let_op1_normal target (.not (.bits w)) a _ rfl
-        (by simp [LegalTarget.isLegalOp, hw]) ha hleg ?_
-      let Γ1 := (.bits w, VarKind.normal) :: Γ
-      have h1 : CtxExtends Γ Γ1 := CtxExtends.cons _ _
-      refine isLegal_let_op1_normal target (.not (.bits w)) b _ rfl
-        (by simp [LegalTarget.isLegalOp, hw]) (hb.mono h1) hleg ?_
-      let Γ2 := (.bits w, VarKind.normal) :: Γ1
-      have h2 : CtxExtends Γ1 Γ2 := CtxExtends.cons _ _
-      refine isLegal_let_op1_normal target (.not (.bits w)) c _ rfl
-        (by simp [LegalTarget.isLegalOp, hw]) (hc.mono (h1.trans h2)) hleg ?_
-      let Γ3 := (.bits w, VarKind.normal) :: Γ2
-      have h3 : CtxExtends Γ2 Γ3 := CtxExtends.cons _ _
-      have h13 : CtxExtends Γ Γ3 := h1.trans (h2.trans h3)
-      exact emitTernlogBits_go_isLegal target hw imm k a b c (.var Γ.length) (.var Γ1.length)
-        (.var Γ2.length) 0
-        (ha.mono h13) (hb.mono h13) (hc.mono h13)
-        ((ArgNormal.head target Γ hleg).mono (h2.trans h3))
-        ((ArgNormal.head target Γ1 hleg).mono h3)
-        (ArgNormal.head target Γ2 hleg) none (fun _ h => by cases h)
-        (fun Γ' r hrExt hr => hk Γ' r (h13.trans hrExt) hr)
+    (toTFlat (emitTernlogBits w a b c imm k) Γ.length Δ.length).isLegal target Γ Δ = true :=
+  (ternlogBitsEmit_bundle target hw imm).isLegal_eq (a, b, c, ()) ⟨ha, hb, hc, trivial⟩ hk
+    (ternlogBitsEmit_eq_emitTernlogBits w imm a b c k)
 
 theorem legalBitsArith_isLegal (target : LegalTarget) (hv : target.valid = true)
     {Γ : List (Ty × VarKind)} {Δ : List (List Ty)} {rs : List Ty}

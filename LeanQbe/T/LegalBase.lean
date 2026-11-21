@@ -500,69 +500,50 @@ def packLeavesToLegal (target : LegalTarget) {V : Ty → Type} {L : List Ty → 
 
 /-! ## Ternary logic and boolean expansion helpers -/
 
-/-- Expand `ternlog (.bits w) imm` into `not`/`and`/`or` on `.bits w`. -/
-def emitTernlogBits {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (w : Nat)
-    (a b c : Arg V (.bits w)) (imm : BitVec 8)
-    (k : Arg V (.bits w) → Expr V L rs) : Expr V L rs :=
-  if imm == 0#8 then k (.imm 0#w)
-  else if imm == 0xff#8 then k (.imm (BitVec.allOnes w))
+/-- Expand `ternlog t imm` into `not`/`and`/`or` on scalar `t` (`.bool` or `.bits w`). -/
+def emitTernlog {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (t : Ty) (zeroVal onesVal : Val t)
+    (a b c : Arg V t) (imm : BitVec 8)
+    (k : Arg V t → Expr V L rs) : Expr V L rs :=
+  if imm == 0#8 then k (.imm zeroVal)
+  else if imm == 0xff#8 then k (.imm onesVal)
   else
-    .let_ (op1 (.not (.bits w)) a) fun (na, ()) =>
-    .let_ (op1 (.not (.bits w)) b) fun (nb, ()) =>
-    .let_ (op1 (.not (.bits w)) c) fun (nc, ()) =>
+    .let_ (op1 (.not t) a) fun (na, ()) =>
+    .let_ (op1 (.not t) b) fun (nb, ()) =>
+    .let_ (op1 (.not t) c) fun (nc, ()) =>
     go 0 none a b c (.var na) (.var nb) (.var nc)
 where
-  go (idx : Nat) (acc : Option (Arg V (.bits w)))
-      (a b c na nb nc : Arg V (.bits w)) : Expr V L rs :=
+  go (idx : Nat) (acc : Option (Arg V t))
+      (a b c na nb nc : Arg V t) : Expr V L rs :=
     if idx ≥ 8 then
       match acc with
       | some res => k res
-      | none => k (.imm 0#w)
+      | none => k (.imm zeroVal)
     else if imm.getLsbD idx then
       let pa := if idx / 4 % 2 == 1 then a else na
       let pb := if idx / 2 % 2 == 1 then b else nb
       let pc := if idx % 2 == 1 then c else nc
-      .let_ (op2 (.and (.bits w)) pa pb) fun (t1, ()) =>
-      .let_ (op2 (.and (.bits w)) (.var t1) pc) fun (term, ()) =>
+      .let_ (op2 (.and t) pa pb) fun (t1, ()) =>
+      .let_ (op2 (.and t) (.var t1) pc) fun (term, ()) =>
       match acc with
       | none => go (idx + 1) (some (.var term)) a b c na nb nc
       | some prev =>
-        .let_ (op2 (.or (.bits w)) prev (.var term)) fun (acc', ()) =>
+        .let_ (op2 (.or t) prev (.var term)) fun (acc', ()) =>
         go (idx + 1) (some (.var acc')) a b c na nb nc
     else go (idx + 1) acc a b c na nb nc
   termination_by 8 - idx
+
+/-- Expand `ternlog (.bits w) imm` into `not`/`and`/`or` on `.bits w`. -/
+def emitTernlogBits {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (w : Nat)
+    (a b c : Arg V (.bits w)) (imm : BitVec 8)
+    (k : Arg V (.bits w) → Expr V L rs) : Expr V L rs :=
+  emitTernlog (.bits w) 0#w (BitVec.allOnes w) a b c imm k
 
 /-- Expand `ternlog .bool imm` into `not`/`and`/`or` on `.bool`. -/
 def emitTernlogBool {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (a b c : Arg V .bool) (imm : BitVec 8)
     (k : Arg V .bool → Expr V L rs) : Expr V L rs :=
-  if imm == 0#8 then k (.imm false)
-  else if imm == 0xff#8 then k (.imm true)
-  else
-    .let_ (op1 (.not .bool) a) fun (na, ()) =>
-    .let_ (op1 (.not .bool) b) fun (nb, ()) =>
-    .let_ (op1 (.not .bool) c) fun (nc, ()) =>
-    go 0 none a b c (.var na) (.var nb) (.var nc)
-where
-  go (idx : Nat) (acc : Option (Arg V .bool))
-      (a b c na nb nc : Arg V .bool) : Expr V L rs :=
-    if idx ≥ 8 then
-      match acc with
-      | some res => k res
-      | none => k (.imm false)
-    else if imm.getLsbD idx then
-      let pa := if idx / 4 % 2 == 1 then a else na
-      let pb := if idx / 2 % 2 == 1 then b else nb
-      let pc := if idx % 2 == 1 then c else nc
-      .let_ (op2 (.and .bool) pa pb) fun (t1, ()) =>
-      .let_ (op2 (.and .bool) (.var t1) pc) fun (term, ()) =>
-      match acc with
-      | none => go (idx + 1) (some (.var term)) a b c na nb nc
-      | some prev =>
-        .let_ (op2 (.or .bool) prev (.var term)) fun (acc', ()) =>
-        go (idx + 1) (some (.var acc')) a b c na nb nc
-    else go (idx + 1) acc a b c na nb nc
-  termination_by 8 - idx
+  emitTernlog .bool false true a b c imm k
 
 /-- Expand `cmp o .bool a b` into pure `.bool` logic (`not`/`and`/`or`/`xor`). -/
 def emitBoolCmp {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}

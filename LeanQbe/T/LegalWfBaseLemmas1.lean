@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Legal
+public import LeanQbe.T.LegalEmit
 public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.FlatLemmas
 
@@ -344,9 +345,6 @@ termination_by b => b
 
 /-! ## Section 2: Tuple, list relation, encoding, and cast lemmas -/
 
-def valsTup {ts : List Ty} (xs : Tup (Arg Val) ts) : Tup Val ts :=
-  xs.map (fun _ a => a.val)
-
 def leafVals (target : LegalTarget) : (t : Ty) → Val t → Tup Val (target.leafTys t)
   | .bool, b => (b, ())
   | .bits n, x => (x.setWidth (target.widenWidth n), ())
@@ -432,11 +430,6 @@ theorem TRel_varsTup {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
   | [], (), (), _ => .nil
   | _ :: _, (_, _), (_, _), h =>
     .cons (.var (h _ .here)) (TRel_varsTup (fun t i => h t (.there i)))
-
-theorem TRel_argRel_weaken' {V₁ V₂ : Ty → Type} {G G' : Ctx V₁ V₂}
-    (hG : ∀ p ∈ G, p ∈ G') {ts : List Ty} {as₁ : Tup (Arg V₁) ts} {as₂ : Tup (Arg V₂) ts}
-    (h : TRel (ArgRel G) as₁ as₂) : TRel (ArgRel G') as₁ as₂ :=
-  TRel.argRel_weaken hG h
 
 theorem TRel_zip_varsTup {V₁ V₂ : Ty → Type} :
     {ts : List Ty} → (xs₁ : Tup V₁ ts) → (xs₂ : Tup V₂ ts) →
@@ -703,31 +696,6 @@ theorem joinArgs_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂}
   | _ :: _, (_, _), (_, _), .cons h hs =>
     TRel_tupAppend (legalArg_rel target hc h) (joinArgs_rel hc hs)
 
-theorem sub_trans {α : Type} {G₁ G₂ G₃ : List α}
-    (h₁ : ∀ p ∈ G₁, p ∈ G₂) (h₂ : ∀ p ∈ G₂, p ∈ G₃) : ∀ p ∈ G₁, p ∈ G₃ :=
-  fun p hp => h₂ p (h₁ p hp)
-
-theorem Wf.let1 {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {a u : Ty} (code : OpCode [a] [u])
-    {x₁ : Arg V₁ a} {x₂ : Arg V₂ a} (hx : ArgRel G a x₁ x₂)
-    {k₁ : Arg V₁ u → Expr V₁ L₁ rs} {k₂ : Arg V₂ u → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' u y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
-    Wf G D (.let_ (op1 code x₁) fun r => k₁ (.var r.fst))
-           (.let_ (op1 code x₂) fun r => k₂ (.var r.fst)) :=
-  .let_ (.mk code (.cons hx .nil)) fun r₁ r₂ =>
-    hk (fun _ hp => List.mem_cons_of_mem _ hp) (.var r₁.fst) (.var r₂.fst) (.var List.mem_cons_self)
-
-theorem Wf.let2 {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {a b u : Ty} (code : OpCode [a, b] [u])
-    {x₁ : Arg V₁ a} {x₂ : Arg V₂ a} {y₁ : Arg V₁ b} {y₂ : Arg V₂ b}
-    (hx : ArgRel G a x₁ x₂) (hy : ArgRel G b y₁ y₂)
-    {k₁ : Arg V₁ u → Expr V₁ L₁ rs} {k₂ : Arg V₂ u → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ r₁ r₂, ArgRel G' u r₁ r₂ → Wf G' D (k₁ r₁) (k₂ r₂)) :
-    Wf G D (.let_ (op2 code x₁ y₁) fun r => k₁ (.var r.fst))
-           (.let_ (op2 code x₂ y₂) fun r => k₂ (.var r.fst)) :=
-  .let_ (.mk code (.cons hx (.cons hy .nil))) fun r₁ r₂ =>
-    hk (fun _ hp => List.mem_cons_of_mem _ hp) (.var r₁.fst) (.var r₂.fst) (.var List.mem_cons_self)
-
 theorem Wf.let3 {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {a b c u : Ty} (code : OpCode [a, b, c] [u])
     {x₁ : Arg V₁ a} {x₂ : Arg V₂ a} {y₁ : Arg V₁ b} {y₂ : Arg V₂ b}
@@ -786,29 +754,21 @@ theorem emitSextToW_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} 
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (n w : Nat)
     {x₁ : Arg V₁ (.bits w)} {x₂ : Arg V₂ (.bits w)} (hx : ArgRel G (.bits w) x₁ x₂)
     {k₁ : Arg V₁ (.bits w) → Expr V₁ L₁ rs} {k₂ : Arg V₂ (.bits w) → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' (.bits w) y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂))
-      :
-    Wf G D (emitSextToW n w x₁ k₁) (emitSextToW n w x₂ k₂) := by
-  simp only [emitSextToW]
-  split
-  · exact hk (fun _ h => h) x₁ x₂ hx
-  · exact Wf.let2 _ hx (.imm _) fun h1 s₁ s₂ hs =>
-      Wf.let2 _ hs (.imm _) fun h2 r₁ r₂ hr =>
-        hk (sub_trans h1 h2) r₁ r₂ hr
+    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' (.bits w) y₁ y₂ →
+      Wf G' D (k₁ y₁) (k₂ y₂)) :
+    Wf G D (emitSextToW n w x₁ k₁) (emitSextToW n w x₂ k₂) :=
+  sextToWEmit_eq_emitSextToW n w x₁ k₁ ▸ sextToWEmit_eq_emitSextToW n w x₂ k₂ ▸
+    (sextToWEmit n w).run_wf (.cons hx .nil) hk
 
 theorem emitMaskToN_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (n w : Nat)
     {x₁ : Arg V₁ (.bits w)} {x₂ : Arg V₂ (.bits w)} (hx : ArgRel G (.bits w) x₁ x₂)
     {k₁ : Arg V₁ (.bits w) → Expr V₁ L₁ rs} {k₂ : Arg V₂ (.bits w) → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' (.bits w) y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂))
-      :
-    Wf G D (emitMaskToN n w x₁ k₁) (emitMaskToN n w x₂ k₂) := by
-  simp only [emitMaskToN]
-  split
-  · exact hk (fun _ h => h) _ _ (.imm _)
-  · split
-    · exact hk (fun _ h => h) x₁ x₂ hx
-    · exact Wf.let2 _ hx (.imm _) hk
+    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' (.bits w) y₁ y₂ →
+      Wf G' D (k₁ y₁) (k₂ y₂)) :
+    Wf G D (emitMaskToN n w x₁ k₁) (emitMaskToN n w x₂ k₂) :=
+  maskToNEmit_eq_emitMaskToN n w x₁ k₁ ▸ maskToNEmit_eq_emitMaskToN n w x₂ k₂ ▸
+    (maskToNEmit n w).run_wf (.cons hx .nil) hk
 
 theorem emitCountMod_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (n w : Nat)
@@ -977,182 +937,19 @@ theorem packLeavesToLegal_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → 
         (tupToSplit_rel (Bool.eq_false_iff.mpr h)
           (TRel_tupAppend (TRel_argRel_weaken' hGb hla) hlb))
 
-private theorem emitTernlogBits_go_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    (w : Nat) (imm : BitVec 8) :
-    ∀ (d idx : Nat), 8 - idx ≤ d → ∀ {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
-      {o₁ : Option (Arg V₁ (.bits w))} {o₂ : Option (Arg V₂ (.bits w))}
-      {a₁ na₁ b₁ nb₁ c₁ nc₁ : Arg V₁ (.bits w)}
-      {a₂ na₂ b₂ nb₂ c₂ nc₂ : Arg V₂ (.bits w)},
-      (match o₁, o₂ with
-       | none, none => True
-       | some u₁, some u₂ => ArgRel G (.bits w) u₁ u₂
-       | _, _ => False) →
-      ArgRel G (.bits w) a₁ a₂ → ArgRel G (.bits w) b₁ b₂ → ArgRel G (.bits w) c₁ c₂ →
-      ArgRel G (.bits w) na₁ na₂ → ArgRel G (.bits w) nb₁ nb₂ → ArgRel G (.bits w) nc₁ nc₂ →
-      ∀ {k₁ : Arg V₁ (.bits w) → Expr V₁ L₁ rs} {k₂ : Arg V₂ (.bits w) → Expr V₂ L₂ rs},
-      (∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' (.bits w) y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) →
-      Wf G D (emitTernlogBits.go w imm k₁ idx o₁ a₁ b₁ c₁ na₁ nb₁ nc₁)
-             (emitTernlogBits.go w imm k₂ idx o₂ a₂ b₂ c₂ na₂ nb₂ nc₂)
-  | 0, idx, hle, G, D, o₁, o₂, a₁, na₁, b₁, nb₁, c₁, nc₁, a₂, na₂, b₂, nb₂, c₂, nc₂, ho, _, _, _, _,
-      _, _, k₁, k₂, hk => by
-    have hge : idx ≥ 8 := by omega
-    have hlhs := emitTernlogBits.go.eq_def w imm k₁ idx o₁ a₁ b₁ c₁ na₁ nb₁ nc₁
-    have hrhs := emitTernlogBits.go.eq_def w imm k₂ idx o₂ a₂ b₂ c₂ na₂ nb₂ nc₂
-    rw [hlhs, hrhs]
-    simp only [hge, ↓reduceIte]
-    cases o₁ <;> cases o₂ <;> first
-      | exact False.elim ho | exact hk (fun _ p => p) _ _ (.imm _)
-      | exact hk (fun _ p => p) _ _ ho
-  | d' + 1, idx, hle, G, D, o₁, o₂, a₁, na₁, b₁, nb₁, c₁, nc₁, a₂, na₂, b₂, nb₂, c₂, nc₂, ho, ha,
-      hb, hc, hna, hnb, hnc, k₁, k₂, hk => by
-    have hlhs := emitTernlogBits.go.eq_def w imm k₁ idx o₁ a₁ b₁ c₁ na₁ nb₁ nc₁
-    have hrhs := emitTernlogBits.go.eq_def w imm k₂ idx o₂ a₂ b₂ c₂ na₂ nb₂ nc₂
-    rw [hlhs, hrhs]
-    by_cases hge : idx ≥ 8
-    · simp only [hge, ↓reduceIte]
-      cases o₁ <;> cases o₂ <;> first
-        | exact False.elim ho | exact hk (fun _ p => p) _ _ (.imm _)
-        | exact hk (fun _ p => p) _ _ ho
-    · simp only [hge, ↓reduceIte]
-      by_cases hbit : imm.getLsbD idx = true
-      · simp only [hbit, ↓reduceIte]
-        have hpa :
-          ArgRel G (.bits w) (if idx / 4 % 2 == 1 then a₁ else na₁)
-          (if idx / 4 % 2 == 1 then a₂ else na₂) := by
-          split <;> assumption
-        have hpb :
-          ArgRel G (.bits w) (if idx / 2 % 2 == 1 then b₁ else nb₁)
-          (if idx / 2 % 2 == 1 then b₂ else nb₂) := by
-          split <;> assumption
-        have hpc :
-          ArgRel G (.bits w) (if idx % 2 == 1 then c₁ else nc₁)
-          (if idx % 2 == 1 then c₂ else nc₂) := by
-          split <;> assumption
-        refine .let_ (.mk (.and (.bits w)) (.cons hpa (.cons hpb .nil))) fun t₁ t₂ => ?_
-        have h1 : ∀ p ∈ G, p ∈ ⟨.bits w, t₁.fst, t₂.fst⟩ :: G := fun _ hp =>
-          List.mem_cons_of_mem _ hp
-        have ht : ArgRel (⟨.bits w, t₁.fst, t₂.fst⟩ :: G) (.bits w) (.var t₁.fst) (.var t₂.fst) :=
-          .var List.mem_cons_self
-        refine .let_ (.mk (.and (.bits w)) (.cons ht (.cons (hpc.weaken h1) .nil))) fun tm₁ tm₂ =>
-          ?_
-        have h2 : ∀ p ∈ ⟨.bits w, t₁.fst, t₂.fst⟩ :: G,
-            p ∈ ⟨.bits w, tm₁.fst, tm₂.fst⟩ :: ⟨.bits w, t₁.fst, t₂.fst⟩ :: G :=
-          fun _ hp => List.mem_cons_of_mem _ hp
-        have hs := sub_trans h1 h2
-        have htm : ArgRel (⟨.bits w, tm₁.fst, tm₂.fst⟩ :: ⟨.bits w, t₁.fst, t₂.fst⟩ :: G) (.bits w)
-            (.var tm₁.fst) (.var tm₂.fst) := .var List.mem_cons_self
-        cases o₁ <;> cases o₂
-        · exact emitTernlogBits_go_wf w imm d' (idx + 1) (by omega) htm (ha.weaken hs)
-            (hb.weaken hs)
-            (hc.weaken hs) (hna.weaken hs) (hnb.weaken hs) (hnc.weaken hs)
-            fun h3 y₁ y₂ hy => hk (sub_trans hs h3) y₁ y₂ hy
-        · exact False.elim ho
-        · exact False.elim ho
-        · exact Wf.let2 _ (ho.weaken hs) htm fun h3 _ _ hac =>
-            have hs2 := sub_trans hs h3
-            emitTernlogBits_go_wf w imm d' (idx + 1) (by omega) hac (ha.weaken hs2) (hb.weaken hs2)
-              (hc.weaken hs2) (hna.weaken hs2) (hnb.weaken hs2) (hnc.weaken hs2)
-              fun h4 y₁ y₂ hy => hk (sub_trans hs2 h4) y₁ y₂ hy
-      · simp only [hbit, Bool.false_eq_true, ↓reduceIte]
-        exact emitTernlogBits_go_wf w imm d' (idx + 1) (by omega) ho ha hb hc hna hnb hnc hk
-
 theorem emitTernlogBits_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (w : Nat)
     {a₁ b₁ c₁ : Arg V₁ (.bits w)} {a₂ b₂ c₂ : Arg V₂ (.bits w)}
     (ha : ArgRel G (.bits w) a₁ a₂) (hb : ArgRel G (.bits w) b₁ b₂) (hc : ArgRel G (.bits w) c₁ c₂)
     (imm : BitVec 8)
     {k₁ : Arg V₁ (.bits w) → Expr V₁ L₁ rs} {k₂ : Arg V₂ (.bits w) → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' (.bits w) y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂))
-      :
-    Wf G D (emitTernlogBits w a₁ b₁ c₁ imm k₁) (emitTernlogBits w a₂ b₂ c₂ imm k₂) := by
-  simp only [emitTernlogBits]
-  split
-  · exact hk (fun _ h => h) _ _ (.imm _)
-  · split
-    · exact hk (fun _ h => h) _ _ (.imm _)
-    · refine Wf.let1 _ ha fun h1 na₁ na₂ hna =>
-        Wf.let1 _ (hb.weaken h1) fun h2 nb₁ nb₂ hnb =>
-          Wf.let1 _ (hc.weaken (sub_trans h1 h2)) fun h3 nc₁ nc₂ hnc => ?_
-      have hs := sub_trans h1 (sub_trans h2 h3)
-      exact emitTernlogBits_go_wf w imm 8 0 (Nat.le_refl _) trivial
-        (ha.weaken hs) (hb.weaken hs) (hc.weaken hs)
-        (hna.weaken (sub_trans h2 h3)) (hnb.weaken h3) hnc
-        fun h4 y₁ y₂ hy => hk (sub_trans hs h4) y₁ y₂ hy
-
-private theorem emitTernlogBool_go_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    (imm : BitVec 8) :
-    ∀ (d idx : Nat), 8 - idx ≤ d → ∀ {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
-      {o₁ : Option (Arg V₁ .bool)} {o₂ : Option (Arg V₂ .bool)}
-      {a₁ na₁ b₁ nb₁ c₁ nc₁ : Arg V₁ .bool}
-      {a₂ na₂ b₂ nb₂ c₂ nc₂ : Arg V₂ .bool},
-      (match o₁, o₂ with
-       | none, none => True
-       | some u₁, some u₂ => ArgRel G .bool u₁ u₂
-       | _, _ => False) →
-      ArgRel G .bool a₁ a₂ → ArgRel G .bool b₁ b₂ → ArgRel G .bool c₁ c₂ →
-      ArgRel G .bool na₁ na₂ → ArgRel G .bool nb₁ nb₂ → ArgRel G .bool nc₁ nc₂ →
-      ∀ {k₁ : Arg V₁ .bool → Expr V₁ L₁ rs} {k₂ : Arg V₂ .bool → Expr V₂ L₂ rs},
-      (∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' .bool y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) →
-      Wf G D (emitTernlogBool.go imm k₁ idx o₁ a₁ b₁ c₁ na₁ nb₁ nc₁)
-             (emitTernlogBool.go imm k₂ idx o₂ a₂ b₂ c₂ na₂ nb₂ nc₂)
-  | 0, idx, hle, G, D, o₁, o₂, a₁, na₁, b₁, nb₁, c₁, nc₁, a₂, na₂, b₂, nb₂, c₂, nc₂, ho, _, _, _, _,
-      _, _, k₁, k₂, hk => by
-    have hge : idx ≥ 8 := by omega
-    have hlhs := emitTernlogBool.go.eq_def imm k₁ idx o₁ a₁ b₁ c₁ na₁ nb₁ nc₁
-    have hrhs := emitTernlogBool.go.eq_def imm k₂ idx o₂ a₂ b₂ c₂ na₂ nb₂ nc₂
-    rw [hlhs, hrhs]
-    simp only [hge, ↓reduceIte]
-    cases o₁ <;> cases o₂ <;> first
-      | exact False.elim ho | exact hk (fun _ p => p) _ _ (.imm _)
-      | exact hk (fun _ p => p) _ _ ho
-  | d' + 1, idx, hle, G, D, o₁, o₂, a₁, na₁, b₁, nb₁, c₁, nc₁, a₂, na₂, b₂, nb₂, c₂, nc₂, ho, ha,
-      hb, hc, hna, hnb, hnc, k₁, k₂, hk => by
-    have hlhs := emitTernlogBool.go.eq_def imm k₁ idx o₁ a₁ b₁ c₁ na₁ nb₁ nc₁
-    have hrhs := emitTernlogBool.go.eq_def imm k₂ idx o₂ a₂ b₂ c₂ na₂ nb₂ nc₂
-    rw [hlhs, hrhs]
-    by_cases hge : idx ≥ 8
-    · simp only [hge, ↓reduceIte]
-      cases o₁ <;> cases o₂ <;> first
-        | exact False.elim ho | exact hk (fun _ p => p) _ _ (.imm _)
-        | exact hk (fun _ p => p) _ _ ho
-    · simp only [hge, ↓reduceIte]
-      by_cases hbit : imm.getLsbD idx = true
-      · simp only [hbit, ↓reduceIte]
-        have hpa :
-          ArgRel G .bool (if idx / 4 % 2 == 1 then a₁ else na₁)
-          (if idx / 4 % 2 == 1 then a₂ else na₂) := by
-          split <;> assumption
-        have hpb :
-          ArgRel G .bool (if idx / 2 % 2 == 1 then b₁ else nb₁)
-          (if idx / 2 % 2 == 1 then b₂ else nb₂) := by
-          split <;> assumption
-        have hpc :
-          ArgRel G .bool (if idx % 2 == 1 then c₁ else nc₁) (if idx % 2 == 1 then c₂ else nc₂) := by
-          split <;> assumption
-        refine .let_ (.mk (.and .bool) (.cons hpa (.cons hpb .nil))) fun t₁ t₂ => ?_
-        have h1 : ∀ p ∈ G, p ∈ ⟨.bool, t₁.fst, t₂.fst⟩ :: G := fun _ hp => List.mem_cons_of_mem _ hp
-        have ht : ArgRel (⟨.bool, t₁.fst, t₂.fst⟩ :: G) .bool (.var t₁.fst) (.var t₂.fst) :=
-          .var List.mem_cons_self
-        refine .let_ (.mk (.and .bool) (.cons ht (.cons (hpc.weaken h1) .nil))) fun tm₁ tm₂ => ?_
-        have h2 : ∀ p ∈ ⟨.bool, t₁.fst, t₂.fst⟩ :: G,
-            p ∈ ⟨.bool, tm₁.fst, tm₂.fst⟩ :: ⟨.bool, t₁.fst, t₂.fst⟩ :: G :=
-          fun _ hp => List.mem_cons_of_mem _ hp
-        have hs := sub_trans h1 h2
-        have htm : ArgRel (⟨.bool, tm₁.fst, tm₂.fst⟩ :: ⟨.bool, t₁.fst, t₂.fst⟩ :: G) .bool
-            (.var tm₁.fst) (.var tm₂.fst) := .var List.mem_cons_self
-        cases o₁ <;> cases o₂
-        · exact emitTernlogBool_go_wf imm d' (idx + 1) (by omega) htm (ha.weaken hs) (hb.weaken hs)
-            (hc.weaken hs) (hna.weaken hs) (hnb.weaken hs) (hnc.weaken hs)
-            fun h3 y₁ y₂ hy => hk (sub_trans hs h3) y₁ y₂ hy
-        · exact False.elim ho
-        · exact False.elim ho
-        · exact Wf.let2 _ (ho.weaken hs) htm fun h3 _ _ hac =>
-            have hs2 := sub_trans hs h3
-            emitTernlogBool_go_wf imm d' (idx + 1) (by omega) hac (ha.weaken hs2) (hb.weaken hs2)
-              (hc.weaken hs2) (hna.weaken hs2) (hnb.weaken hs2) (hnc.weaken hs2)
-              fun h4 y₁ y₂ hy => hk (sub_trans hs2 h4) y₁ y₂ hy
-      · simp only [hbit, Bool.false_eq_true, ↓reduceIte]
-        exact emitTernlogBool_go_wf imm d' (idx + 1) (by omega) ho ha hb hc hna hnb hnc hk
+    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' (.bits w) y₁ y₂ →
+      Wf G' D (k₁ y₁) (k₂ y₂)) :
+    Wf G D (emitTernlogBits w a₁ b₁ c₁ imm k₁) (emitTernlogBits w a₂ b₂ c₂ imm k₂) :=
+  (ternlogBitsEmit_bundle (.withWidth w) List.mem_cons_self imm).wf_eq
+    (.cons ha (.cons hb (.cons hc .nil))) hk
+    (ternlogBitsEmit_eq_emitTernlogBits w imm a₁ b₁ c₁ k₁)
+    (ternlogBitsEmit_eq_emitTernlogBits w imm a₂ b₂ c₂ k₂)
 
 theorem emitTernlogBool_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
@@ -1161,20 +958,10 @@ theorem emitTernlogBool_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Ty
     (imm : BitVec 8)
     {k₁ : Arg V₁ .bool → Expr V₁ L₁ rs} {k₂ : Arg V₂ .bool → Expr V₂ L₂ rs}
     (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' .bool y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
-    Wf G D (emitTernlogBool a₁ b₁ c₁ imm k₁) (emitTernlogBool a₂ b₂ c₂ imm k₂) := by
-  simp only [emitTernlogBool]
-  split
-  · exact hk (fun _ h => h) _ _ (.imm _)
-  · split
-    · exact hk (fun _ h => h) _ _ (.imm _)
-    · refine Wf.let1 _ ha fun h1 na₁ na₂ hna =>
-        Wf.let1 _ (hb.weaken h1) fun h2 nb₁ nb₂ hnb =>
-          Wf.let1 _ (hc.weaken (sub_trans h1 h2)) fun h3 nc₁ nc₂ hnc => ?_
-      have hs := sub_trans h1 (sub_trans h2 h3)
-      exact emitTernlogBool_go_wf imm 8 0 (Nat.le_refl _) trivial
-        (ha.weaken hs) (hb.weaken hs) (hc.weaken hs)
-        (hna.weaken (sub_trans h2 h3)) (hnb.weaken h3) hnc
-        fun h4 y₁ y₂ hy => hk (sub_trans hs h4) y₁ y₂ hy
+    Wf G D (emitTernlogBool a₁ b₁ c₁ imm k₁) (emitTernlogBool a₂ b₂ c₂ imm k₂) :=
+  (ternlogBoolEmit_bundle .aarch64 imm).wf_eq (.cons ha (.cons hb (.cons hc .nil))) hk
+    (ternlogBoolEmit_eq_emitTernlogBool imm a₁ b₁ c₁ k₁)
+    (ternlogBoolEmit_eq_emitTernlogBool imm a₂ b₂ c₂ k₂)
 
 theorem emitBoolCmp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (o : CmpOp)
@@ -1182,17 +969,9 @@ theorem emitBoolCmp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} 
     (ha : ArgRel G .bool a₁ a₂) (hb : ArgRel G .bool b₁ b₂)
     {k₁ : Arg V₁ .bool → Expr V₁ L₁ rs} {k₂ : Arg V₂ .bool → Expr V₂ L₂ rs}
     (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' .bool y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
-    Wf G D (emitBoolCmp o a₁ b₁ k₁) (emitBoolCmp o a₂ b₂ k₂) := by
-  cases o <;> simp only [emitBoolCmp]
-  · exact Wf.let2 _ ha hb fun h1 x₁ x₂ hx => Wf.let1 _ hx fun h2 r₁ r₂ hr =>
-      hk (sub_trans h1 h2) r₁ r₂ hr
-  · exact Wf.let2 _ ha hb hk
-  all_goals
-    first
-    | exact Wf.let1 _ ha fun h1 na₁ na₂ hna => Wf.let2 _ hna (hb.weaken h1) fun h2 r₁ r₂ hr =>
-        hk (sub_trans h1 h2) r₁ r₂ hr
-    | exact Wf.let1 _ hb fun h1 nb₁ nb₂ hnb => Wf.let2 _ (ha.weaken h1) hnb fun h2 r₁ r₂ hr =>
-        hk (sub_trans h1 h2) r₁ r₂ hr
+    Wf G D (emitBoolCmp o a₁ b₁ k₁) (emitBoolCmp o a₂ b₂ k₂) :=
+  (boolCmpEmit_bundle .aarch64 o).wf_eq (.cons ha (.cons hb .nil)) hk
+    (boolCmpEmit_eq_emitBoolCmp o a₁ b₁ k₁) (boolCmpEmit_eq_emitBoolCmp o a₂ b₂ k₂)
 
 theorem emitBoolSelect_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
@@ -1201,11 +980,7 @@ theorem emitBoolSelect_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Typ
     {k₁ : Arg V₁ .bool → Expr V₁ L₁ rs} {k₂ : Arg V₂ .bool → Expr V₂ L₂ rs}
     (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' .bool y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
     Wf G D (emitBoolSelect c₁ a₁ b₁ k₁) (emitBoolSelect c₂ a₂ b₂ k₂) :=
-  Wf.let2 _ hc ha fun h1 _ _ ht1 =>
-    Wf.let1 _ (hc.weaken h1) fun h2 _ _ hnc =>
-      Wf.let2 _ hnc (hb.weaken (sub_trans h1 h2)) fun h3 _ _ ht2 =>
-        Wf.let2 _ (ht1.weaken (sub_trans h2 h3)) ht2 fun h4 r₁ r₂ hr =>
-          hk (sub_trans h1 (sub_trans h2 (sub_trans h3 h4))) r₁ r₂ hr
+  (boolSelectEmit_bundle .aarch64).wf_eq (.cons hc (.cons ha (.cons hb .nil))) hk rfl rfl
 
 
 end LegalWf
