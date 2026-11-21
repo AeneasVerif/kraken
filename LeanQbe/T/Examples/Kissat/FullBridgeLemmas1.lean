@@ -10,12 +10,15 @@ import all Kraken.Separation
 /-!
 # Kissat `D-Full` Canonical `FullSpec` Bridge Proofs — Parts 1b–4 (`Stage 4`)
 
-Bridges canonical `FullSpec2`/`FullSpec3` table entries across the first 4 shards:
-- Part 1b (`FullHeurWalkLemmas`, #12–17): `full_queue_renumber`, `full_queue_mtf`,
+Bridges canonical `FullSpec2`/`FullSpec3` table entries across the first 4 shards (`26` fns):
+- Part 1b (`FullHeurWalkLemmas`, #12–17, `6` fns): `full_queue_renumber`, `full_queue_mtf`,
   `full_tick_rel`, `full_ema_update`, `full_save_target_best`, `full_recompute_tiers`.
-- Part 2 (`FullPropDecLemmas`): `full_find_repl`, `full_decide`, `full_rephase`, `full_restart`.
-- Part 3 (`FullMinLemmas`): `full_tmp_less`, `full_min_mark`.
-- Part 4 (`FullDimacsBodyLemmas`): `full_skip_cl`, `full_parse_body`.
+- Part 2 (`FullPropDecLemmas`, `9` fns): `full_find_repl`, `full_assign_level`, `full_prop_lit`,
+  `full_propagate_ignore`, `full_propagate`, `full_decide`, `full_warmup`, `full_rephase`,
+  `full_restart`.
+- Part 3 (`FullMinLemmas`, `8` fns): `full_tmp_less`, `full_min_mark`, `full_sort_tmp_sift`,
+  `full_sort_tmp`, `full_min_lit`, `full_shrink_lower`, `full_shrink_blk`, `full_min_shrink`.
+- Part 4 (`FullDimacsBodyLemmas`, `3` fns): `full_skip_cl`, `full_ingest_cl`, `full_parse_body`.
 -/
 
 set_option autoImplicit false
@@ -288,23 +291,31 @@ theorem full_save_target_best_bridge_wp (Γ : Env) :
   unfold dimacsBound at hmx
   obtain hok := hlen.core_ok; obtain hcv_le := hok.cur_vars_le; obtain hvl := hok.vals_len
   c0_to_group
-  · exact hQ () s m rfl hlen (probePres_refl s) hm
-  · exact hQ () s m rfl hlen (probePres_refl s) hm
+  · exact hQ () s m rfl hlen ⟨probePres_refl s, s.scratch.target_assigned,
+      s.scratch.best_assigned, s.scratch.phases_target, s.scratch.phases_best, rfl⟩ hm
+  · exact hQ () s m rfl hlen ⟨probePres_refl s, s.scratch.target_assigned,
+      s.scratch.best_assigned, s.scratch.phases_target, s.scratch.phases_best, rfl⟩ hm
   · refine wp_join_group
       (fun _ m1 => ∃ s1 : FullState, PreservesCoreSlice FullState.core s s1 ∧
-        s1.LengthsOk c ∧ FullProbeScratchPres s s1 ∧ (FullMem c s1 ⋆ R) m1)
-      (fun _ _ m1 ⟨s1, hcore1, hlen1, hpres1, hm1⟩ => ?_) ?_
+        s1.LengthsOk c ∧ FullProbeScratchPres s s1 ∧
+        (∃ ta' ba' pt' pb', s1.scratch = { s.scratch with
+          target_assigned := ta', best_assigned := ba',
+          phases_target := pt', phases_best := pb' }) ∧
+        (FullMem c s1 ⋆ R) m1)
+      (fun _ _ m1 ⟨s1, hcore1, hlen1, hpres1, ⟨ta1, ba1, pt1, pb1, hsc1⟩, hm1⟩ => ?_) ?_
     · rw [Blocks.get_here]
       have hceq1 : s1.core = s.core := hcore1
       obtain hsok1 := hlen1.scratch_ok; obtain hpbl1 := hsok1.phases_best_len
       c0_clean; c0_steps
       · refine wp_loop_safety_slice_pure (ts := [i64]) (fullSafetySlice c) s1 R
-          (fun s2 (k, ()) => k.toNat ≤ s.core.cur_vars ∧ FullProbeScratchPres s1 s2)
+          (fun s2 (k, ()) => k.toNat ≤ s.core.cur_vars ∧ FullProbeScratchPres s1 s2 ∧
+            ∃ ba' pb', s2.scratch = { s1.scratch with best_assigned := ba', phases_best := pb' })
           (fun (k, ()) => s.core.cur_vars - k.toNat)
           (fun J hLoop => ?_)
-          (fun J s2 (k, ()) m2 hcore2 hlen2 ⟨hk2, hpres2⟩ hm2 hLoop2 => ?_)
+          (fun J s2 (k, ()) m2 hcore2 hlen2 ⟨hk2, hpres2, ba2, pb2, hsc2⟩ hm2 hLoop2 => ?_)
         · c0_steps
-          refine hLoop _ (0#64, ()) m hm rfl ?_ ⟨by simp, probePres_refl s1⟩
+          refine hLoop _ (0#64, ()) m hm rfl ?_
+            ⟨by simp, probePres_refl s1, _, s1.scratch.phases_best, rfl⟩
           exact hlen_upd_phases hlen1 hsok1.phases_target_len hpbl1
         · rw [Blocks.get_here]; dsimp only [fullSafetySlice] at *
           have hceq2 : s2.core = s1.core := hcore2
@@ -320,19 +331,22 @@ theorem full_save_target_best_bridge_wp (Γ : Env) :
             have hkp1 : (k + 1).toNat = k.toNat + 1 := by bv_omega
             c0_clean; c0_steps
             refine hLoop2 _ (k + 1, ()) m hm (by dsimp only; omega) rfl ?_
-              ⟨by dsimp only; omega, hpres2⟩
+              ⟨by dsimp only; omega, hpres2, ba2, _, by dsimp only; rw [hsc2]⟩
             exact hlen_upd_phases hlen2 hsok2.phases_target_len (by simp [hpbl2])
-          · exact hQ () s2 m2 (hcore1.trans hcore2) hlen2 (probePres_trans hpres1 hpres2) hm2
-      · exact hQ () s1 m1 hcore1 hlen1 hpres1 hm1
+          · exact hQ () s2 m2 (hcore1.trans hcore2) hlen2
+              ⟨probePres_trans hpres1 hpres2, ta1, ba2, pt1, pb2, by rw [hsc2, hsc1]⟩ hm2
+      · exact hQ () s1 m1 hcore1 hlen1 ⟨hpres1, ta1, ba1, pt1, pb1, hsc1⟩ hm1
     · intro J1 hJ1; c0_steps
       · obtain hsok := hlen.scratch_ok; obtain hptl := hsok.phases_target_len
         refine wp_loop_safety_slice_pure (ts := [i64]) (fullSafetySlice c) s R
-          (fun s1 (k, ()) => k.toNat ≤ s.core.cur_vars ∧ FullProbeScratchPres s s1)
+          (fun s1 (k, ()) => k.toNat ≤ s.core.cur_vars ∧ FullProbeScratchPres s s1 ∧
+            ∃ ta' pt', s1.scratch = { s.scratch with target_assigned := ta', phases_target := pt' })
           (fun (k, ()) => s.core.cur_vars - k.toNat)
           (fun J hLoop => ?_)
-          (fun J s1 (k, ()) m1 hcore1 hlen1 ⟨hk1, hpres1⟩ hm1 hLoop1 => ?_)
+          (fun J s1 (k, ()) m1 hcore1 hlen1 ⟨hk1, hpres1, ta1, pt1, hsc1⟩ hm1 hLoop1 => ?_)
         · c0_steps
-          refine hLoop _ (0#64, ()) m hm rfl ?_ ⟨by simp, probePres_refl s⟩
+          refine hLoop _ (0#64, ()) m hm rfl ?_
+            ⟨by simp, probePres_refl s, _, s.scratch.phases_target, rfl⟩
           exact hlen_upd_phases hlen hptl hsok.phases_best_len
         · rw [Blocks.get_here]; dsimp only [fullSafetySlice] at *
           have hceq1 : s1.core = s.core := hcore1
@@ -348,10 +362,13 @@ theorem full_save_target_best_bridge_wp (Γ : Env) :
             have hkp1 : (k + 1).toNat = k.toNat + 1 := by bv_omega
             c0_clean; c0_steps
             refine hLoop1 _ (k + 1, ()) m hm (by dsimp only; omega) rfl ?_
-              ⟨by dsimp only; omega, hpres1⟩
+              ⟨by dsimp only; omega, hpres1, ta1, _, by dsimp only; rw [hsc1]⟩
             exact hlen_upd_phases hlen1 (by simp [hptl1]) hsok1.phases_best_len
-          · exact hJ1 () m1 ⟨s1, hcore1, hlen1, hpres1, hm1⟩
-      · exact hJ1 () m ⟨s, rfl, hlen, probePres_refl s, hm⟩
+          · exact hJ1 () m1 ⟨s1, hcore1, hlen1, hpres1,
+              ⟨ta1, s.scratch.best_assigned, pt1, s.scratch.phases_best, hsc1⟩, hm1⟩
+      · exact hJ1 () m ⟨s, rfl, hlen, probePres_refl s,
+          ⟨s.scratch.target_assigned, s.scratch.best_assigned, s.scratch.phases_target,
+            s.scratch.phases_best, rfl⟩, hm⟩
 
 theorem full_recompute_tiers_bridge_wp (Γ : Env) :
     ∀ a m Q X, fullRecomputeTiersSpec a m Q X →
@@ -424,6 +441,136 @@ theorem full_find_repl_bridge_wp (Γ : Env) :
   refine ⟨c, s, R, rfl, hlen, hc3, hsz, hfit, hm, ?_, hSome⟩
   intro hbad
   exact hNone fun k hk1 hk2 => hbad k hk1 hk2
+
+theorem full_assign_level_bridge_wp (Γ : Env) :
+    ∀ a m Q X, fullAssignLevelSpec a m Q X → Func.wp Γ full_assign_level_body a m Q X :=
+  full_assign_level_wp Γ
+
+private theorem fullConflOkW_to_conflict {F_cur : List (List Nat)} {s : FullState}
+    (h : FullPropDecSpecs.FullConflOkW F_cur s.core) : FullConflictOkW F_cur s := by
+  rcases h with ⟨ht, h0, h1, hent, hf0, hf1⟩ | hr
+  · exact Or.inl ⟨ht, h0, h1, hf0, hf1, hent⟩
+  · exact Or.inr hr
+
+private theorem fullConflictOkW_to_confl {F_cur : List (List Nat)} {s : FullState}
+    (h : FullConflictOkW F_cur s) : FullPropDecSpecs.FullConflOkW F_cur s.core := by
+  rcases h with ⟨ht, h0, h1, hf0, hf1, hent⟩ | hr
+  · exact Or.inl ⟨ht, h0, h1, hent, hf0, hf1⟩
+  · exact Or.inr hr
+
+private theorem pdTrailExt_to_canon {k1 k2 : FullCoreState}
+    (h : FullPropDecSpecs.FullTrailExt k1 k2) : FullTrailExt k1 k2 :=
+  ⟨h.te_ge, h.trl_pref, h.lvl_pres⟩
+
+private theorem canonTrailExt_to_pd {k1 k2 : FullCoreState}
+    (h : FullTrailExt k1 k2) : FullPropDecSpecs.FullTrailExt k1 k2 :=
+  ⟨h.1, h.2.1, h.2.2⟩
+
+private theorem pdArenaPerm_to_canon {k1 k2 : FullCoreState} (hal : k2.arena_len = k1.arena_len)
+    (h : FullPropDecSpecs.FullArenaPermEq k1 k2) : FullArenaPermEq k1 k2 :=
+  ⟨hal, h.1, h.2⟩
+
+private theorem canonArenaPerm_to_pd {k1 k2 : FullCoreState}
+    (h : FullArenaPermEq k1 k2) : FullPropDecSpecs.FullArenaPermEq k1 k2 :=
+  ⟨h.2.1, h.2.2⟩
+
+private theorem fullArenaPerm_refl (k : FullCoreState) : FullArenaPermEq k k :=
+  ⟨rfl, rfl, fun _ _ => ⟨rfl, rfl, List.Perm.refl _⟩⟩
+
+private theorem fullArenaPerm_trans {k1 k2 k3 : FullCoreState}
+    (h1 : FullArenaPermEq k1 k2) (h2 : FullArenaPermEq k2 k3) : FullArenaPermEq k1 k3 :=
+  ⟨h2.1.trans h1.1, h2.2.1.trans h1.2.1, fun r hr =>
+    let ⟨s1, g1, p1⟩ := h1.2.2 r hr
+    let ⟨s2, g2, p2⟩ := h2.2.2 r (h1.2.1.symm ▸ hr)
+    ⟨s2.trans s1, g2.trans g1, p2.trans p1⟩⟩
+
+theorem full_prop_lit_bridge_wp (Γ : Env)
+    (hFind : ∀ a m Q X, fullFindReplSpec a m Q X →
+      Γ "full_find_repl" [i64, i64] [i64] a m Q X)
+    (hPush : ∀ a m Q X, fullWatchPushSpec a m Q X →
+      Γ "full_watch_push" [i64, i32, i32, i32, i32] [.bool] a m Q X)
+    (hAssignLvl : ∀ a m Q X, fullAssignLvlSpec a m Q X →
+      Γ "full_assign_lvl" [i64, i32, i32, i32] [] a m Q X)
+    (hAssignLevel : ∀ a m Q X, fullAssignLevelSpec a m Q X →
+      Γ "full_assign_level" [i64, i32, i32] [i32] a m Q X) :
+    ∀ a m Q X, fullPropLitSpec a m Q X → Func.wp Γ full_prop_lit_body a m Q X := by
+  rintro ⟨h, lit, ign, ⟨⟩⟩ m Q X ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hoom, hm, hQ⟩
+  refine full_prop_lit_wp Γ ?_ ?_ ?_ hAssignLevel _ _ _ _
+    ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hoom, hm, ?_⟩
+  · rintro ⟨h', cr, ⟨⟩⟩ m' Q' X' ⟨c', s', R', rfl, hl', hc3, hsz, hfit, hm', hN, hS⟩
+    exact hFind _ _ _ _ ⟨c', s', R', rfl, hl', hc3, hsz, hfit, hm', hN, hS⟩
+  · rintro ⟨h', l', w0, w1, cnt, ⟨⟩⟩ m' Q' X' ⟨c', s', R', rfl, hl', hlay, hc1, hc2, hm', hQ'⟩
+    refine hPush _ _ _ _ ⟨c', s', R', rfl, hl', hlay, hc1, hc2, hm',
+      fun ok wv ws wl wu wso m'' hl'' hly'' hoth hT hF hm'' =>
+        hQ' ok wv ws wl wu wso m'' hl'' hly'' hoth hT (fun hf => (hF hf).1) hm''⟩
+  · rintro ⟨h', l', rsn, alvl, ⟨⟩⟩ m' Q' X' ⟨c', s', R', rfl, hl', hm', hQ'⟩
+    refine hAssignLvl _ _ _ _ ⟨c', s', R', rfl, hl', hm', ?_⟩
+    split
+    · next hgr => simpa only [hgr, ↓reduceIte] using hQ'
+    · next hngr =>
+      simp only [hngr, ↓reduceIte] at hQ' ⊢
+      intro fl' un' ph' m'' hfl hph hm''
+      exact hQ' fl' un'
+        (if alvl = 0#32 then s'.core.unflushed + 1#64 else s'.core.unflushed)
+        ph' m'' hfl hph hm''
+  · dsimp only
+    intro ok vals' flags' lvl' rsns' trl' tp' te' un' uf' wv' ar' ws' wl' wu' ct' cr' c0' c1' om'
+      tk' wso' ph' m' hlen' hw' htr hpm hT hF hm'
+    exact hQ ok vals' flags' lvl' rsns' trl' tp' te' un' uf' wv' ar' ws' wl' wu' ct' cr' c0' c1' om'
+      tk' wso' ph' m' hlen' hw' (pdTrailExt_to_canon htr) (pdArenaPerm_to_canon rfl hpm)
+      (fun hf => (hF hf).elim Or.inl fun ⟨hc, hign⟩ =>
+        Or.inr ⟨fullConflOkW_to_conflict hc, hign⟩) hT hm'
+
+theorem full_propagate_ignore_bridge_wp (Γ : Env)
+    (hPropLit : ∀ a m Q X, fullPropLitSpec a m Q X →
+      Γ "full_prop_lit" [i64, i32, i64] [.bool] a m Q X) :
+    ∀ a m Q X, fullPropagateIgnoreSpec a m Q X →
+      Func.wp Γ full_propagate_ignore_body a m Q X := by
+  rintro ⟨h, ign, ⟨⟩⟩ m Q X ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, hQ⟩
+  refine full_propagate_ignore_wp Γ ?_ _ _ _ _ ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, ?_⟩
+  · rintro ⟨h', l', ign', ⟨⟩⟩ m' Q' X' ⟨c', F0', Fc', s', R', rfl, hl', hw', hdm', hom', hm', hQ'⟩
+    refine hPropLit _ _ _ _ ⟨c', F0', Fc', s', R', rfl, hl', hw', hdm', hom', hm', ?_⟩
+    dsimp only
+    intro ok vals' flags' lvl' rsns' trl' tp' te' un' uf' wv' ar' ws' wl' wu' ct' cr' c0' c1' om'
+      tk' wso' ph' m'' hlen'' hw'' htr hpm hF hT hm''
+    exact hQ' ok vals' flags' lvl' rsns' trl' tp' te' un' uf' wv' ar' ws' wl' wu' ct' cr' c0' c1'
+      om' tk' wso' ph' m'' hlen'' hw'' (canonTrailExt_to_pd htr) (canonArenaPerm_to_pd hpm) hT
+      (fun hf => (hF hf).elim Or.inl fun ⟨hc, hign⟩ =>
+        Or.inr ⟨fullConflictOkW_to_confl hc, hign⟩) hm''
+  · dsimp only
+    intro r vals' flags' lvl' rsns' trl' tp' te' prop' un' uf' wv' ar' ws' wl' wu' fu'
+      ct' cr' c0' c1' om' tk' wso' ph' m' hlen' hw' htr hpm hfu hr hr0 hr1 hr2 hnp hm'
+    exact hQ r vals' flags' lvl' rsns' trl' tp' te' prop' un' uf' wv' ar' ws' wl' wu' fu'
+      ct' cr' c0' c1' om' tk' wso' ph' m' hlen' hw' (pdTrailExt_to_canon htr)
+      (pdArenaPerm_to_canon rfl hpm) hfu hr hr0
+      (fun h1 => let ⟨hf, ho, hc, hign, _⟩ := hr1 h1
+        ⟨hf, ho, fullConflOkW_to_conflict hc, hign⟩) hr2 hnp hm'
+
+theorem full_propagate_bridge_wp (Γ : Env)
+    (hPropIgn : ∀ a m Q X, fullPropagateIgnoreSpec a m Q X →
+      Γ "full_propagate_ignore" [i64, i64] [i64] a m Q X) :
+    ∀ a m Q X, fullPropagateSpec a m Q X → Func.wp Γ full_propagate_body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, hQ⟩
+  refine full_propagate_wp Γ ?_ _ _ _ _ ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, ?_⟩
+  · rintro ⟨h', ign', ⟨⟩⟩ m' Q' X' ⟨c', F0', Fc', s', R', rfl, hl', hw', hdm', hm', hQ'⟩
+    refine hPropIgn _ _ _ _ ⟨c', F0', Fc', s', R', rfl, hl', hw', hdm', hm', ?_⟩
+    dsimp only
+    intro r vals' flags' lvl' rsns' trl' tp' te' prop' un' uf' wv' ar' ws' wl' wu' fu'
+      ct' cr' c0' c1' om' tk' wso' ph' m'' hlen'' hw'' htr hpm hfu hr hr0 hr1 hr2 hnp hm''
+    exact hQ' r vals' flags' lvl' rsns' trl' tp' te' prop' un' uf' wv' ar' ws' wl' wu' fu'
+      ct' cr' c0' c1' om' tk' wso' ph' m'' hlen'' hw'' (canonTrailExt_to_pd htr)
+      (canonArenaPerm_to_pd hpm) hfu hr hr0
+      (fun h1 => let ⟨hf, ho, hc, hign⟩ := hr1 h1
+        ⟨hf, ho, fullConflictOkW_to_confl hc, hign,
+          fun hl0 => level0_unsat_of_conflict_okW hw'' hl0 hc⟩) hr2 hnp hm''
+  · dsimp only
+    intro r vals' flags' lvl' rsns' trl' tp' te' prop' un' uf' wv' ar' ws' wl' wu' fu'
+      ct' cr' c0' c1' om' tk' wso' ph' m' hlen' hw' htr hpm _ hfu hr hr0 hr1 hr2 hnp hm'
+    exact hQ r vals' flags' lvl' rsns' trl' tp' te' prop' un' uf' wv' ar' ws' wl' wu' fu'
+      ct' cr' c0' c1' om' tk' wso' ph' m' hlen' hw' (pdTrailExt_to_canon htr)
+      (pdArenaPerm_to_canon rfl hpm) hfu hr hr0
+      (fun h1 => let ⟨hf, ho, hc, _⟩ := hr1 h1; ⟨hf, ho, fullConflOkW_to_conflict hc⟩)
+      hr2 hnp hm'
 
 theorem full_decide_bridge_wp (Γ : Env)
     (hNextDec : ∀ a m Q X, fullNextDecVarSpec a m Q X →
@@ -723,11 +870,330 @@ theorem full_restart_bridge_wp (Γ : Env)
     · exact hJre (0#64, ()) m1 ⟨Nat.zero_le _, rfl⟩
     · exact hJre (0#64, ()) m1 ⟨Nat.zero_le _, rfl⟩
 
+private theorem warmup_bv32_dec_even {v : BitVec 64} (hv : v.toNat < 2 ^ 30) :
+    ((v <<< (1 : Nat)).setWidth 32).toNat = 2 * v.toNat := by
+  rw [BitVec.toNat_setWidth, BitVec.toNat_shiftLeft, Nat.shiftLeft_eq]
+  simp only [Nat.pow_one]
+  rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]; omega
+
+private theorem warmup_bv32_dec_odd {v : BitVec 64} (hv : v.toNat < 2 ^ 30) :
+    (((v <<< (1 : Nat)).setWidth 32) ||| 1#32).toNat = 2 * v.toNat + 1 := by
+  have hev := warmup_bv32_dec_even hv
+  rw [show (((v <<< (1 : Nat)).setWidth 32) ||| 1#32).toNat =
+      ((v <<< (1 : Nat)).setWidth 32).toNat ||| 1 from by simp [BitVec.toNat_or], hev]
+  apply Nat.eq_of_testBit_eq; intro i
+  rw [Nat.testBit_or]
+  cases i with
+  | zero => simp [Nat.testBit_zero]
+  | succ k =>
+    have h0 : Nat.testBit 1 (k + 1) = false := by rw [Nat.testBit_succ]; simp
+    rw [h0, Bool.or_false, Nat.testBit_succ, Nat.testBit_succ]; congr 1; omega
+
+private def warmupBridgeMask (k : FullCoreState) : FullCoreState :=
+  { k with
+    vals := [], flags := [], lvl := [], rsns := [], trl := [], trail_pos := [],
+    frame_trail := [], frame_dec := [], trail_end := 0, propagated := 0, cur_level := 0,
+    probing := 0#64, unassigned := 0#64, unflushed := 0#64, wvec := [], arena := [],
+    wstk := [], wlen := 0, wusable := 0#64, fuel := 0#64, confl_type := 0#64,
+    confl_ref := 0#64, confl_lit0 := 0#64, confl_lit1 := 0#64, oom := 0#64 }
+
+private theorem warmupBridge_eq_upd {s st : FullState}
+    (h : AgreesExcept warmupBridgeMask s.core st.core)
+    (hcl : st.core.cur_level = s.core.cur_level) :
+    st =
+      { core := { s.core with
+          vals := st.core.vals, flags := st.core.flags, lvl := st.core.lvl, rsns := st.core.rsns,
+          trl := st.core.trl, trail_pos := st.core.trail_pos, frame_trail := st.core.frame_trail,
+          frame_dec := st.core.frame_dec, trail_end := st.core.trail_end,
+          propagated := st.core.propagated, probing := st.core.probing,
+          unassigned := st.core.unassigned, unflushed := st.core.unflushed, wvec := st.core.wvec,
+          arena := st.core.arena, wstk := st.core.wstk, wlen := st.core.wlen,
+          wusable := st.core.wusable, fuel := st.core.fuel, confl_type := st.core.confl_type,
+          confl_ref := st.core.confl_ref, confl_lit0 := st.core.confl_lit0,
+          confl_lit1 := st.core.confl_lit1, oom := st.core.oom }
+        scratch := st.scratch } := by
+  have h1 := h.get FullCoreState.d_cur; have h2 := h.get FullCoreState.d_val
+  have h3 := h.get FullCoreState.cur_vars; have h4 := h.get FullCoreState.arena_len
+  have h5 := h.get FullCoreState.arena_garbage; have h6 := h.get FullCoreState.first_reducible
+  have h7 := h.get FullCoreState.num_irred; have h8 := h.get FullCoreState.num_redundant
+  have h9 := h.get FullCoreState.num_binary; have h10 := h.get FullCoreState.tmp_cnt
+  have h11 := h.get FullCoreState.tmp_len; have h12 := h.get FullCoreState.min_clr_len
+  have h13 := h.get FullCoreState.min_clr_full; have h14 := h.get FullCoreState.dense_mode
+  have h15 := h.get FullCoreState.inconsistent; have h16 := h.get FullCoreState.lit_mark
+  have h17 := h.get FullCoreState.mrk; have h18 := h.get FullCoreState.tmp
+  have h19 := h.get FullCoreState.min_clr; have h20 := h.get FullCoreState.repr
+  have h21 := h.get FullCoreState.min_stk
+  cases st with | mk stc stsc =>
+  cases s with | mk sc ssc =>
+  cases stc; cases sc; simp only at *; subst_vars; rfl
+
+theorem full_warmup_bridge_wp (Γ : Env)
+    (hNextDec : ∀ a m Q X, fullNextDecVarSpec a m Q X →
+      Γ "full_next_dec_var" [i64] [i64] a m Q X)
+    (hAssign : ∀ a m Q X, fullAssignSpec a m Q X → Γ "full_assign" [i64, i32, i32] [] a m Q X)
+    (hProp : ∀ a m Q X, fullPropagateSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
+    (hBt : ∀ a m Q X, fullBacktrackSpec a m Q X → Γ "full_backtrack" [i64, i64] [] a m Q X) :
+    ∀ a m Q X, fullWarmupSpec a m Q X → Func.wp Γ full_warmup_body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, s, R, rfl, hinv, hdense0, hm, hQ⟩
+  have hmaxv := c.hmaxv; unfold dimacsBound at hmaxv
+  have hret_noop : Q () m :=
+    hQ s.core.vals s.core.flags s.core.lvl s.core.rsns s.core.trl s.core.trail_pos
+      s.core.frame_trail s.core.frame_dec s.core.trail_end s.core.propagated s.core.probing
+      s.core.unassigned s.core.unflushed s.core.wvec s.core.arena s.core.wstk s.core.wlen
+      s.core.wusable s.core.fuel s.core.confl_type s.core.confl_ref s.core.confl_lit0
+      s.core.confl_lit1 s.core.oom s.scratch m hinv (fullArenaPerm_refl _) (Nat.le_refl _)
+      ⟨rfl, rfl⟩ (fun h => h) hm
+  have hcv0 := hinv.lengths.core_ok.cur_vars_le
+  have hte0 := hinv.lengths.core_ok.trail_end_le
+  obtain ⟨_, hw0⟩ := hinv.witness
+  have hcl0_le := hw0.cur_level_le
+  fp_nojoin
+  · exact hret_noop
+  · exact hret_noop
+  · have hcl0 : s.core.cur_level = 0 := by c0_bound
+    let st0 : FullState := { s with core := { s.core with probing := 1#64 } }
+    have hinv0 : FullCoreInv c F0 st0 := hinv.with_probing 1#64
+    refine wp_loop_break_group
+      (fun (_steps, ()) mb => ∃ st : FullState,
+        FullCoreInv c F0 st ∧ AgreesExcept warmupBridgeMask s.core st.core ∧
+        FullArenaPermEq s.core st.core ∧ st.core.fuel.toNat ≤ s.core.fuel.toNat ∧
+        st.scratch.last_learned = s.scratch.last_learned ∧
+        st.scratch.extend_len = s.scratch.extend_len ∧ (FullMem c st ⋆ R) mb)
+      (fun rem (steps, ()) ml => ∃ st : FullState,
+        rem = s.core.cur_vars - steps.toNat ∧ steps.toNat ≤ s.core.cur_vars ∧
+        FullCoreInv c F0 st ∧ AgreesExcept warmupBridgeMask s.core st.core ∧
+        FullArenaPermEq s.core st.core ∧ st.core.fuel.toNat ≤ s.core.fuel.toNat ∧
+        st.scratch.last_learned = s.scratch.last_learned ∧
+        st.scratch.extend_len = s.scratch.extend_len ∧ (FullMem c st ⋆ R) ml) ?_ ?_ ?_
+    · rintro _ ⟨_steps, ⟨⟩⟩ mb ⟨st, hst_inv, hag, hperm, hfl, hll, hext, hmb⟩
+      obtain ⟨Fc_b, hwb⟩ := hst_inv.witness
+      have hcb := hst_inv.lengths.core_ok
+      have hcl_lt64 : st.core.cur_level < 2 ^ 64 := by
+        have := hwb.cur_level_le; have := hcb.trail_end_le; have := hcb.cur_vars_le; omega
+      have hmaxv_pos : (0 : BitVec 64).toNat < st.core.cur_level →
+          (0 : BitVec 64).toNat < c.max_vars := by
+        intro _; have := hwb.cur_level_le; have := hcb.trail_end_le; have := hcb.cur_vars_le; omega
+      fp_steps; c0_call hBt
+      refine ⟨c, st, R, rfl, hst_inv.lengths, hcl_lt64, hmaxv_pos, hwb.trail_lits_lt, hmb,
+        fun vals' lvl' rsns' trl' tp' te' prop' cl' unas' sc' m1
+          hlen1 _ _ hcl' hpres1 _ _ _ hwinv1 _ hm1 => ?_⟩
+      have hcl'0 : cl' = 0 := by rw [hcl']; exact Nat.min_zero _
+      subst hcl'0
+      let st1 : FullState :=
+        { core := { st.core with
+            vals := vals', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp',
+            trail_end := te', propagated := prop', cur_level := 0, unassigned := unas' }
+          scratch := sc' }
+      have hinv1 : FullCoreInv c F0 st1 := ⟨hlen1, Fc_b, hwinv1 F0 Fc_b hwb (Nat.zero_le _)⟩
+      fp_steps
+      let st2 : FullState := { st1 with core := { st1.core with probing := 0#64 } }
+      have hinv2 : FullCoreInv c F0 st2 := hinv1.with_probing 0#64
+      have hag2 : AgreesExcept warmupBridgeMask s.core st2.core :=
+        hag.update (fun k => { k with
+          vals := vals', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp',
+          trail_end := te', propagated := prop', cur_level := 0,
+          unassigned := unas', probing := 0#64 })
+      have hst2_eq := warmupBridge_eq_upd hag2 (by dsimp [st2, st1]; omega)
+      have hinv2' := hinv2; have hm2' : (FullMem c st2 ⋆ R) m := hm
+      have hperm' : FullArenaPermEq s.core st2.core := hperm
+      rw [hst2_eq] at hinv2' hm2' hperm'
+      exact hQ st2.core.vals st2.core.flags st2.core.lvl st2.core.rsns st2.core.trl
+        st2.core.trail_pos st2.core.frame_trail st2.core.frame_dec st2.core.trail_end
+        st2.core.propagated st2.core.probing st2.core.unassigned st2.core.unflushed
+        st2.core.wvec st2.core.arena st2.core.wstk st2.core.wlen st2.core.wusable
+        st2.core.fuel st2.core.confl_type st2.core.confl_ref st2.core.confl_lit0
+        st2.core.confl_lit1 st2.core.oom st2.scratch m hinv2' hperm' hfl
+        ⟨hpres1.1.1.trans hll, hpres1.1.2.trans hext⟩ (fun _ => rfl) hm2'
+    · rintro B L rem ⟨steps, ⟨⟩⟩ ml hB ih
+        ⟨st, rfl, hst_le, hst_inv, hag, hperm, hfl, hll, hext, hml⟩
+      have hcv_eq : st.core.cur_vars = s.core.cur_vars := hag.get FullCoreState.cur_vars
+      have hdm_st : st.core.dense_mode = 0#64 := (hag.get FullCoreState.dense_mode).trans hdense0
+      have hcv_le := hst_inv.lengths.core_ok.cur_vars_le
+      fp_steps
+      · have hst_lt : steps.toNat < s.core.cur_vars := by
+          have h1 : steps.toNat < st.core.cur_vars % 2 ^ 64 := by assumption
+          rw [Nat.mod_eq_of_lt (by omega : st.core.cur_vars < 2 ^ 64)] at h1; omega
+        have hst1_nat : (steps + (1 : BitVec 64)).toNat = steps.toNat + 1 := bv64_add1_toNat
+          (by omega)
+        c0_call hNextDec
+        refine ⟨c, st, R, rfl, hst_inv.lengths, hml,
+          fun ⟨v, ⟨⟩⟩ s1 m1 hcore1 hlen1 ⟨hp1, hv⟩ hm1 => ?_⟩
+        rcases s1 with ⟨c1, sc1⟩; dsimp only [fullSafetySlice] at hcore1; cases hcore1
+        let st1 : FullState := { st with scratch := sc1 }
+        change (FullMem c { st with scratch := sc1 } ⋆ R) m1 at hm1
+        have hinv1 : FullCoreInv c F0 st1 := hst_inv.with_fuel_scratch hlen1.scratch_ok
+        have hcl1 := hinv1.lengths.core_ok
+        have hph1 : sc1.phases.length = c.max_vars := hlen1.scratch_ok.phases_len
+        have hftrl1 : st.core.frame_trail.length = c.max_vars + 1 := hcl1.frame_trail_len
+        have hfdec1 : st.core.frame_dec.length = c.max_vars + 1 := hcl1.frame_dec_len
+        fp_nojoin
+        · exact hB (steps + (1 : BitVec 64), ()) m1
+            ⟨st1, hinv1, hag, hperm, hfl, hp1.1.trans hll, hp1.2.trans hext, hm1⟩
+        · obtain ⟨hv_lt, hval0⟩ := hv.resolve_left hc
+          have hv_lt_max : v.toNat < c.max_vars := by omega
+          have hv_lt30 : v.toNat < 2 ^ 30 := by omega
+          refine wp_join_group (fun (lit, ()) m2 =>
+            m1 = m2 ∧ (lit.toNat = 2 * v.toNat ∨ lit.toNat = 2 * v.toNat + 1)) ?_ ?_
+          · rintro _ ⟨lit, ⟨⟩⟩ _ ⟨rfl, hlit_eq⟩
+            have hte1 : st.core.trail_end ≤ st.core.cur_vars := hcl1.trail_end_le
+            obtain ⟨_, hw1⟩ := hinv1.witness
+            have hcl1_le : st.core.cur_level ≤ st.core.trail_end := hw1.cur_level_le
+            have hcl1_lt : st.core.cur_level < 2 ^ 63 := by omega
+            have hnlvl_nat : (BitVec.ofNat 64 st.core.cur_level + (1 : BitVec 64)).toNat =
+                st.core.cur_level + 1 := by bv_omega
+            fp_steps
+            · exact hB (steps + (1 : BitVec 64), ()) m1
+                ⟨st1, hinv1, hag, hperm, hfl, hp1.1.trans hll, hp1.2.trans hext, hm1⟩
+            · have hnlvl_le : st.core.cur_level + 1 ≤ c.max_vars := by c0_bound
+              have ⟨_, hun, hte_lt, _⟩ := full_decide_preserves_fullCore hinv1 hlen1.scratch_ok
+                hcl1.flags_len hv_lt hval0 hlit_eq (flags' := st.core.flags)
+                (unas' := st.core.unassigned) (unfl' := st.core.unflushed)
+              have hte_lt' : st.core.trail_end < st.core.cur_vars := hte_lt
+              let nlvl := st.core.cur_level + 1
+              let ftrl' := st.core.frame_trail.set nlvl (BitVec.ofNat 32 st.core.trail_end)
+              let fdec' := st.core.frame_dec.set nlvl lit
+              let st2 : FullState :=
+                { core := { st.core with
+                    frame_trail := ftrl', frame_dec := fdec', cur_level := nlvl }
+                  scratch := sc1 }
+              have hlen2 : st2.LengthsOk c :=
+                ⟨{ hcl1 with frame_trail_len := by simp [st2, ftrl', hftrl1]
+                             frame_dec_len := by simp [st2, fdec', hfdec1] }, hlen1.scratch_ok⟩
+              have hm2 : (FullMem c st2 ⋆ R) m := by
+                have hte_bv : (BitVec.ofNat 64 st.core.trail_end).setWidth 32 =
+                    BitVec.ofNat 32 st.core.trail_end := by
+                  apply BitVec.eq_of_toNat_eq
+                  rw [BitVec.toNat_setWidth, BitVec.toNat_ofNat, BitVec.toNat_ofNat,
+                    Nat.mod_eq_of_lt (by omega : st.core.trail_end < 2 ^ 64),
+                    Nat.mod_eq_of_lt (by omega : st.core.trail_end < 2 ^ 32)]
+                simpa only [st2, ftrl', fdec', nlvl, hnlvl_nat, hte_bv] using hm
+              have hng : ¬ (st2.core.cur_vars ≤ lit.toNat / 2 ∨ c.max_vars ≤ st2.core.trail_end ∨
+                  st2.core.vals[lit.toNat]?.getD 0#8 ≠ 0#8) := by
+                change ¬ (st1.core.cur_vars ≤ lit.toNat / 2 ∨ c.max_vars ≤ st1.core.trail_end ∨
+                  st1.core.vals[lit.toNat]?.getD 0#8 ≠ 0#8)
+                simp only [hun, ne_eq, not_true_eq_false, or_false]
+                change ¬ (st.core.cur_vars ≤ lit.toNat / 2 ∨ c.max_vars ≤ st.core.trail_end)
+                omega
+              c0_call hAssign
+              refine ⟨c, st2, R, rfl, hlen2, by dsimp [st2, nlvl]; omega, hm2, ?_⟩
+              simp only [hng, ↓reduceIte]
+              intro flags' unas' phases' m3 hfl_l hph_l hm3
+              have hsc3 : ({ sc1 with phases := phases' } : FullScratch).LengthsOk c :=
+                { hlen1.scratch_ok with phases_len := hph_l }
+              have ⟨hinv3, _, _, _⟩ := full_decide_preserves_fullCore hinv1 hsc3 hfl_l hv_lt hval0
+                hlit_eq (flags' := flags') (unas' := unas') (unfl' := st.core.unflushed)
+              have hnl_ne0 : nlvl ≠ 0 := by dsimp [nlvl]; omega
+              have hff : (4294967295 : BitVec 32) = 0xFFFFFFFF#32 := rfl
+              let st3 : FullState :=
+                { core := { st.core with
+                    vals := (st.core.vals.set lit.toNat 1#8).set (lit.toNat ^^^ 1) 0xFF#8,
+                    flags := flags', lvl := st.core.lvl.set (lit.toNat / 2) (BitVec.ofNat 32 nlvl),
+                    rsns := st.core.rsns.set (lit.toNat / 2) 0xFFFFFFFF#32,
+                    trl := st.core.trl.set st.core.trail_end lit,
+                    trail_pos := st.core.trail_pos.set (lit.toNat / 2)
+                      (BitVec.ofNat 32 st.core.trail_end),
+                    frame_trail := ftrl', frame_dec := fdec', trail_end := st.core.trail_end + 1,
+                    cur_level := nlvl, unassigned := unas' }
+                  scratch := { sc1 with phases := phases' } }
+              have hm3' : (FullMem c st3 ⋆ R) m3 := by
+                simpa only [st3, st2, hnl_ne0, ↓reduceIte, hff] using hm3
+              have hag3 : AgreesExcept warmupBridgeMask s.core st3.core :=
+                hag.update (fun k => { k with
+                  vals := st3.core.vals, flags := flags', lvl := st3.core.lvl,
+                  rsns := st3.core.rsns, trl := st3.core.trl, trail_pos := st3.core.trail_pos,
+                  frame_trail := ftrl', frame_dec := fdec', trail_end := st.core.trail_end + 1,
+                  cur_level := nlvl, unassigned := unas' })
+              obtain ⟨F_cur, hw3⟩ := hinv3.witness
+              c0_call hProp
+              refine ⟨c, F0, F_cur, st3, R, rfl, hinv3.lengths, hw3, hdm_st, hm3', ?_⟩
+              dsimp only
+              intro r vals'' flags'' lvl'' rsns'' trl'' tp'' te'' prop'' unas'' unfl''
+                wvec'' arena'' wstk'' wlen'' wu'' fuel'' ctype'' cref'' c0'' c1'' oom''
+                ticks'' wsort'' phases'' m4 hlen4 hw4 _ hperm4 hfl4 _ _ _ _ _ hm4
+              let st4 : FullState :=
+                { core := { st3.core with
+                    vals := vals'', flags := flags'', lvl := lvl'', rsns := rsns'', trl := trl'',
+                    trail_pos := tp'', trail_end := te'', propagated := prop'',
+                    unassigned := unas'', unflushed := unfl'', wvec := wvec'', arena := arena'',
+                    wstk := wstk'', wlen := wlen'', wusable := wu'', fuel := fuel'',
+                    confl_type := ctype'', confl_ref := cref'', confl_lit0 := c0'',
+                    confl_lit1 := c1'', oom := oom'' }
+                  scratch := { st3.scratch with
+                    search_ticks := ticks'', wsort := wsort'', phases := phases'' } }
+              have hinv4 : FullCoreInv c F0 st4 := ⟨hlen4, F_cur, hw4⟩
+              have hag4 : AgreesExcept warmupBridgeMask s.core st4.core :=
+                hag3.update (fun k => { k with
+                  vals := vals'', flags := flags'', lvl := lvl'', rsns := rsns'', trl := trl'',
+                  trail_pos := tp'', trail_end := te'', propagated := prop'',
+                  unassigned := unas'', unflushed := unfl'', wvec := wvec'', arena := arena'',
+                  wstk := wstk'', wlen := wlen'', wusable := wu'', fuel := fuel'',
+                  confl_type := ctype'', confl_ref := cref'', confl_lit0 := c0'',
+                  confl_lit1 := c1'', oom := oom'' })
+              have hperm4' : FullArenaPermEq s.core st4.core :=
+                fullArenaPerm_trans hperm hperm4
+              have hfl4' : st4.core.fuel.toNat ≤ s.core.fuel.toNat := Nat.le_trans hfl4 hfl
+              fp_steps
+              · exact hB (steps + (1 : BitVec 64), ()) m4 ⟨st4, hinv4, hag4, hperm4', hfl4',
+                  hp1.1.trans hll, hp1.2.trans hext, hm4⟩
+              · exact ih (s.core.cur_vars - (steps + (1 : BitVec 64)).toNat)
+                  (steps + (1 : BitVec 64), ()) m4 (by omega)
+                  ⟨st4, rfl, by omega, hinv4, hag4, hperm4', hfl4', hp1.1.trans hll,
+                    hp1.2.trans hext, hm4⟩
+          · intro Jlit hJlit; fp_steps
+            · exact hJlit ((v <<< (1 : Nat)).setWidth 32 ||| 1#32, ()) m1
+                ⟨rfl, Or.inr (warmup_bv32_dec_odd hv_lt30)⟩
+            · exact hJlit ((v <<< (1 : Nat)).setWidth 32, ()) m1
+                ⟨rfl, Or.inl (warmup_bv32_dec_even hv_lt30)⟩
+      · exact hB (steps, ()) ml ⟨st, hst_inv, hag, hperm, hfl, hll, hext, hml⟩
+      · exact hB (steps, ()) ml ⟨st, hst_inv, hag, hperm, hfl, hll, hext, hml⟩
+      · exact hB (steps, ()) ml ⟨st, hst_inv, hag, hperm, hfl, hll, hext, hml⟩
+    · intro _ L _ hL; fp_steps
+      exact hL s.core.cur_vars (0#64, ()) m ⟨st0, by simp, Nat.zero_le _, hinv0,
+        (AgreesExcept.refl warmupBridgeMask s.core).update (fun k => { k with probing := 1#64 }),
+        fullArenaPerm_refl _, Nat.le_refl _, rfl, rfl, hm⟩
+
 end Part2
 
-/-! ## Part 3: `FullMinLemmas` (`2` fns) -/
+/-! ## Part 3: `FullMinLemmas` (`8` fns) -/
 
 section Part3
+
+private theorem minMarkInv_to_canon {k : FullCoreState} {keep : List Nat}
+    (h : FullMinSpecs.FullMinMarkInv k keep) : FullMinMarkInv k keep :=
+  ⟨h.mrk_dom, h.clr_cov, h.rem_sound⟩
+
+private theorem canon_to_minMarkInv {k : FullCoreState} {keep : List Nat}
+    (h : FullMinMarkInv k keep) : FullMinSpecs.FullMinMarkInv k keep :=
+  ⟨h.mrk_dom, h.clr_cov, h.rem_sound⟩
+
+private theorem fullMinMarkSpec_to_min {Γ : Env}
+    (hMm : ∀ a m Q X, fullMinMarkSpec a m Q X → Γ "full_min_mark" [i64, i32, i8] [] a m Q X) :
+    ∀ a m Q X, FullMinSpecs.fullMinMarkSpec a m Q X →
+      Γ "full_min_mark" [i64, i32, i8] [] a m Q X := by
+  rintro ⟨h, v, tag, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+  refine hMm _ m Q X ⟨c, s, R, rfl, hlen, hm, ?_⟩
+  dsimp only
+  split
+  · next hgr => simp only [hgr, ↓reduceIte] at hQ; exact hQ
+  · next hngr =>
+    simp only [hngr, ↓reduceIte] at hQ
+    intro m' hm'
+    dsimp only [fullMinMarkState, fullMinMarkCore] at hm'
+    by_cases hcur : s.core.mrk[v.toNat]?.getD 0#8 = 0#8
+    · have hne_f : (s.core.mrk[v.toNat]?.getD 0#8 ≠ 0#8) = False :=
+        eq_false (Classical.not_not.mpr hcur)
+      simp only [hne_f, ↓reduceIte] at hQ
+      by_cases hlt : s.core.min_clr_len < s.core.cur_vars
+      · simp only [hlt, ↓reduceIte, hcur] at hQ
+        have hbv : BitVec.ofNat 32 v.toNat = v := by bv_omega
+        simp only [hcur, true_and, hlt, ↓reduceIte, not_true_eq_false, hbv] at hm'
+        exact hQ m' hm'
+      · simp only [hlt, ↓reduceIte, hcur] at hQ
+        simp only [hcur, true_and, hlt, ↓reduceIte] at hm'
+        exact hQ m' hm'
+    · simp only [ne_eq, hcur, not_false_eq_true, ↓reduceIte] at hQ
+      simp only [hcur, false_and, ↓reduceIte] at hm'
+      exact hQ m' hm'
 
 theorem full_tmp_less_bridge_wp (Γ : Env) :
     ∀ a m Q X, fullTmpLessSpec a m Q X → Func.wp Γ full_tmp_less_body a m Q X :=
@@ -747,7 +1213,7 @@ theorem full_min_mark_bridge_wp (Γ : Env) :
     · next hcur =>
       intro m' hm'
       have hcur_f : (s.core.mrk[v.toNat]?.getD 0#8 = 0#8) = False := eq_false hcur
-      dsimp only [fullMinMarkState] at hQ
+      dsimp only [fullMinMarkState, fullMinMarkCore] at hQ
       simp only [hcur_f, false_and, ↓reduceIte] at hQ
       exact hQ m' hm'
     · next hncur =>
@@ -756,20 +1222,111 @@ theorem full_min_mark_bridge_wp (Γ : Env) :
       · next hlt =>
         intro m' hm'
         have hbv : BitVec.ofNat 32 v.toNat = v := by bv_omega
-        dsimp only [fullMinMarkState] at hQ
+        dsimp only [fullMinMarkState, fullMinMarkCore] at hQ
         simp only [hcur0, true_and, hlt, ↓reduceIte, not_true_eq_false, hbv] at hQ
         simp only [hcur0] at hm'
         exact hQ m' hm'
       · next hge =>
         intro m' hm'
-        dsimp only [fullMinMarkState] at hQ
+        dsimp only [fullMinMarkState, fullMinMarkCore] at hQ
         simp only [hcur0, true_and, hge, ↓reduceIte] at hQ
         simp only [hcur0] at hm'
         exact hQ m' hm'
 
+theorem full_sort_tmp_sift_bridge_wp (Γ : Env)
+    (hTl : ∀ a m Q X, fullTmpLessSpec a m Q X →
+      Γ "full_tmp_less" [i64, i64, i32, i32] [.bool] a m Q X) :
+    ∀ a m Q X, fullSortTmpSiftSpec a m Q X → Func.wp Γ full_sort_tmp_sift_body a m Q X :=
+  full_sort_tmp_sift_wp Γ hTl
+
+theorem full_sort_tmp_bridge_wp (Γ : Env)
+    (hSift : ∀ a m Q X, fullSortTmpSiftSpec a m Q X →
+      Γ "full_sort_tmp_sift" [i64, i64, i64, i64, i64] [] a m Q X) :
+    ∀ a m Q X, fullSortTmpSpec a m Q X → Func.wp Γ full_sort_tmp_body a m Q X :=
+  full_sort_tmp_wp Γ hSift
+
+private theorem fullMinLitSpec_to_min {Γ : Env}
+    (hMl : ∀ a m Q X, fullMinLitSpec a m Q X → Γ "full_min_lit" [i64, i32] [.bool] a m Q X) :
+    ∀ a m Q X, FullMinSpecs.fullMinLitSpec a m Q X →
+      Γ "full_min_lit" [i64, i32] [.bool] a m Q X := by
+  rintro ⟨h, rl, ⟨⟩⟩ m Q X ⟨c, F0, s, ks, R, rfl, ho, hmi, hrl, hv, hl, h8, hm, hQ⟩
+  refine hMl _ m Q X ⟨c, F0, s, ks, R, rfl, ho, minMarkInv_to_canon hmi, hrl, hv, hl, h8, hm,
+    fun ok mrk' mstk' mclr' mcl' mcf' m' hlen' habv h2 h8' hmi' hok hm' =>
+      hQ ok mrk' mstk' mclr' mcl' mcf' m' hlen' habv h2 h8' (canon_to_minMarkInv hmi')
+        (fun ht => let ⟨hk, hm2⟩ := hok ht
+          ⟨fun kp hsub => canon_to_minMarkInv (hk kp hsub), canon_to_minMarkInv hm2⟩) hm'⟩
+
+theorem full_min_lit_bridge_wp (Γ : Env)
+    (hMm : ∀ a m Q X, fullMinMarkSpec a m Q X → Γ "full_min_mark" [i64, i32, i8] [] a m Q X) :
+    ∀ a m Q X, fullMinLitSpec a m Q X → Func.wp Γ full_min_lit_body a m Q X := by
+  rintro ⟨h, rl, ⟨⟩⟩ m Q X ⟨c, F0, s, ks, R, rfl, ho, hmi, hrl, hv, hl, h8, hm, hQ⟩
+  refine full_min_lit_wp Γ (fullMinMarkSpec_to_min hMm) _ m Q X
+    ⟨c, F0, s, ks, R, rfl, ho, canon_to_minMarkInv hmi, hrl, hv, hl, h8, hm,
+      fun ok mrk' mstk' mclr' mcl' mcf' m' hlen' habv h2 h8' hmi' hok hm' =>
+        hQ ok mrk' mstk' mclr' mcl' mcf' m' hlen' habv h2 h8' (minMarkInv_to_canon hmi')
+          (fun ht => let ⟨hk, hm2⟩ := hok ht
+            ⟨fun kp hsub => minMarkInv_to_canon (hk kp hsub), minMarkInv_to_canon hm2⟩) hm'⟩
+
+private theorem fullShrinkLowerSpec_to_min {Γ : Env}
+    (hSl : ∀ a m Q X, fullShrinkLowerSpec a m Q X →
+      Γ "full_shrink_lower" [i64, i32, i32] [.bool] a m Q X) :
+    ∀ a m Q X, FullMinSpecs.fullShrinkLowerSpec a m Q X →
+      Γ "full_shrink_lower" [i64, i32, i32] [.bool] a m Q X := by
+  rintro ⟨h, ot, ov, ⟨⟩⟩ m Q X ⟨c, F0, s, ks, R, rfl, ho, hmi, hov, hot, hv, hl, h8, hm, hQ⟩
+  refine hSl _ m Q X ⟨c, F0, s, ks, R, rfl, ho, minMarkInv_to_canon hmi, hov, hot, hv, hl, h8, hm,
+    fun ok mrk' mstk' mclr' mcl' mcf' m' hlen' habv h2 h8' hmi' hok hm' =>
+      hQ ok mrk' mstk' mclr' mcl' mcf' m' hlen' habv h2 h8' (canon_to_minMarkInv hmi') hok hm'⟩
+
+theorem full_shrink_lower_bridge_wp (Γ : Env)
+    (hMm : ∀ a m Q X, fullMinMarkSpec a m Q X → Γ "full_min_mark" [i64, i32, i8] [] a m Q X)
+    (hMl : ∀ a m Q X, fullMinLitSpec a m Q X → Γ "full_min_lit" [i64, i32] [.bool] a m Q X) :
+    ∀ a m Q X, fullShrinkLowerSpec a m Q X → Func.wp Γ full_shrink_lower_body a m Q X := by
+  rintro ⟨h, ot, ov, ⟨⟩⟩ m Q X ⟨c, F0, s, ks, R, rfl, ho, hmi, hov, hot, hv, hl, h8, hm, hQ⟩
+  refine full_shrink_lower_wp Γ (fullMinMarkSpec_to_min hMm) (fullMinLitSpec_to_min hMl) _ m Q X
+    ⟨c, F0, s, ks, R, rfl, ho, canon_to_minMarkInv hmi, hov, hot, hv, hl, h8, hm,
+      fun ok mrk' mstk' mclr' mcl' mcf' m' hlen' habv h2 h8' hmi' hok hm' =>
+        hQ ok mrk' mstk' mclr' mcl' mcf' m' hlen' habv h2 h8' (minMarkInv_to_canon hmi') hok hm'⟩
+
+private theorem fullShrinkBlkSpec_to_min {Γ : Env}
+    (hSb : ∀ a m Q X, fullShrinkBlkSpec a m Q X →
+      Γ "full_shrink_blk" [i64, i64, i64, i32, i64] [] a m Q X) :
+    ∀ a m Q X, FullMinSpecs.fullShrinkBlkSpec a m Q X →
+      Γ "full_shrink_blk" [i64, i64, i64, i32, i64] [] a m Q X := by
+  rintro ⟨h, beg, eb, bl, mtr, ⟨⟩⟩ m Q X
+    ⟨c, F0, s, R, rfl, ho, hmi, h8, h1, h2, h3, h4, h5, h6, h7, h9, hm, hQ⟩
+  refine hSb _ m Q X ⟨c, F0, s, R, rfl, ho, minMarkInv_to_canon hmi, h8, h1, h2, h3, h4, h5, h6,
+    h7, h9, hm, fun tmp' mrk' mstk' mclr' mcl' mcf' sstk' m' ho' hmi' hab h8' h2' hout hbl hnd hent
+      hkeep hm' =>
+      hQ tmp' mrk' mstk' mclr' mcl' mcf' sstk' m' ho' (canon_to_minMarkInv hmi') hab h8' h2' hout
+        hbl hnd hent hkeep hm'⟩
+
+theorem full_shrink_blk_bridge_wp (Γ : Env)
+    (hSl : ∀ a m Q X, fullShrinkLowerSpec a m Q X →
+      Γ "full_shrink_lower" [i64, i32, i32] [.bool] a m Q X)
+    (hMm : ∀ a m Q X, fullMinMarkSpec a m Q X → Γ "full_min_mark" [i64, i32, i8] [] a m Q X) :
+    ∀ a m Q X, fullShrinkBlkSpec a m Q X → Func.wp Γ full_shrink_blk_body a m Q X := by
+  rintro ⟨h, beg, eb, bl, mtr, ⟨⟩⟩ m Q X
+    ⟨c, F0, s, R, rfl, ho, hmi, h8, h1, h2, h3, h4, h5, h6, h7, h9, hm, hQ⟩
+  refine full_shrink_blk_wp Γ (fullShrinkLowerSpec_to_min hSl) (fullMinMarkSpec_to_min hMm) _ m Q X
+    ⟨c, F0, s, R, rfl, ho, canon_to_minMarkInv hmi, h8, h1, h2, h3, h4, h5, h6, h7, h9, hm,
+      fun tmp' mrk' mstk' mclr' mcl' mcf' sstk' m' ho' hmi' hab h8' h2' hout hbl hnd hent
+        hkeep hm' =>
+        hQ tmp' mrk' mstk' mclr' mcl' mcf' sstk' m' ho' (minMarkInv_to_canon hmi') hab h8' h2' hout
+          hbl hnd hent hkeep hm'⟩
+
+theorem full_min_shrink_bridge_wp (Γ : Env)
+    (hSt : ∀ a m Q X, fullSortTmpSpec a m Q X → Γ "full_sort_tmp" [i64] [] a m Q X)
+    (hMm : ∀ a m Q X, fullMinMarkSpec a m Q X → Γ "full_min_mark" [i64, i32, i8] [] a m Q X)
+    (hMl : ∀ a m Q X, fullMinLitSpec a m Q X → Γ "full_min_lit" [i64, i32] [.bool] a m Q X)
+    (hSb : ∀ a m Q X, fullShrinkBlkSpec a m Q X →
+      Γ "full_shrink_blk" [i64, i64, i64, i32, i64] [] a m Q X) :
+    ∀ a m Q X, fullMinShrinkSpec a m Q X → Func.wp Γ full_min_shrink_body a m Q X :=
+  full_min_shrink_spec_wp Γ hSt (fullMinMarkSpec_to_min hMm) (fullMinLitSpec_to_min hMl)
+    (fullShrinkBlkSpec_to_min hSb)
+
 end Part3
 
-/-! ## Part 4: `FullDimacsBodyLemmas` (`2` fns) -/
+/-! ## Part 4: `FullDimacsBodyLemmas` (`3` fns) -/
 
 section Part4
 
@@ -777,6 +1334,15 @@ theorem full_skip_cl_bridge_wp (Γ : Env)
     (hLit : ∀ a m Q X, kissatNextLitSpec a m Q X → Γ "kissat_next_lit" [i64, i64] [i64] a m Q X) :
     ∀ a m Q X, fullSkipClSpec a m Q X → Func.wp Γ full_skip_cl_body a m Q X :=
   full_skip_cl_wp Γ hLit
+
+theorem full_ingest_cl_bridge_wp (Γ : Env)
+    (hLit : ∀ a m Q X, kissatNextLitSpec a m Q X → Γ "kissat_next_lit" [i64, i64] [i64] a m Q X)
+    (hAssign : ∀ a m Q X, fullAssignLvlSpec a m Q X →
+      Γ "full_assign_lvl" [i64, i32, i32, i32] [] a m Q X)
+    (hAddCl : ∀ a m Q X, fullAddClauseSpec a m Q X →
+      Γ "full_add_clause" [i64, i32, i32, .bool] [i64] a m Q X) :
+    ∀ a m Q X, fullIngestClSpec a m Q X → Func.wp Γ full_ingest_cl_body a m Q X :=
+  full_ingest_cl_wp Γ hLit hAssign hAddCl
 
 theorem full_parse_body_bridge_wp (Γ : Env)
     (hSkip : ∀ a m Q X, fullSkipClSpec a m Q X → Γ "full_skip_cl" [i64, i64] [.bool] a m Q X)

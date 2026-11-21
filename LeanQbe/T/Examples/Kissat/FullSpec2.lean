@@ -23,11 +23,8 @@ set_option autoImplicit false
 namespace LeanQbe.T.Examples.Kissat.Full
 
 open Std Std.Sat Std.ExtHashMap
-open LeanQbe.T
-open LeanQbe.T.ProofUtil
-open LeanQbe.T.Examples.LratBytes
-open LeanQbe.T.Examples.Kissat
-open Kraken.Bedrock2.Test
+open LeanQbe.T LeanQbe.T.ProofUtil
+open LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat Kraken.Bedrock2.Test
 
 /-! ## 1. Shared `fullSafetySlice` templates & `Full1` arithmetic / arena / watch specs -/
 
@@ -45,12 +42,31 @@ def fullTmpKeyLt (lvl tpos : List (BitVec 32)) (a b : BitVec 32) : Bool :=
   decide (la < lb ∨ (la = lb ∧ (tpos[a.toNat / 2]?.getD 0#32).toNat <
     (tpos[b.toNat / 2]?.getD 0#32).toNat))
 
-/-- Max-heap property on `tmp[1 + lo ..< 1 + n)` ordered by `fullTmpKeyLt`. -/
-def FullTmpMaxHeap (tmp lvl tpos : List (BitVec 32)) (lo n : Nat) : Prop :=
-  ∀ i, lo ≤ i → i < n →
-    let p := tmp[1 + i]?.getD 0#32
-    (2 * i + 1 < n → fullTmpKeyLt lvl tpos p (tmp[1 + (2 * i + 1)]?.getD 0#32) = false) ∧
-    (2 * i + 2 < n → fullTmpKeyLt lvl tpos p (tmp[1 + (2 * i + 2)]?.getD 0#32) = false)
+/-- Key and ordering predicates matching `FullMinSpecs` (`full_sort_tmp_sift`, `full_sort_tmp`). -/
+def fullTmpKey (lvl tpos : List (BitVec 32)) (x : BitVec 32) : Nat × Nat :=
+  let v := x.toNat / 2
+  ((lvl[v]?.getD 0#32).toNat, (tpos[v]?.getD 0#32).toNat)
+
+def fullTmpLt (lvl tpos : List (BitVec 32)) (a b : BitVec 32) : Prop :=
+  (fullTmpKey lvl tpos a).1 < (fullTmpKey lvl tpos b).1 ∨
+  ((fullTmpKey lvl tpos a).1 = (fullTmpKey lvl tpos b).1 ∧
+   (fullTmpKey lvl tpos a).2 < (fullTmpKey lvl tpos b).2)
+
+def fullTmpLe (lvl tpos : List (BitVec 32)) (a b : BitVec 32) : Prop :=
+  ¬ fullTmpLt lvl tpos b a
+
+def FullSortSliceEq (a b : List (BitVec 32)) (hi : Nat) : Prop :=
+  (∀ j, 1 ≤ j → j < hi → ∃ i, 1 ≤ i ∧ i < hi ∧ a[j]? = b[i]?) ∧
+  (∀ i, 1 ≤ i → i < hi → ∃ j, 1 ≤ j ∧ j < hi ∧ b[i]? = a[j]?)
+
+def FullTmpHeapAt (lvl tpos tmp : List (BitVec 32)) (i lim : Nat) : Prop :=
+  (2 * i + 1 < lim →
+    fullTmpLe lvl tpos (tmp[1 + (2 * i + 1)]?.getD 0#32) (tmp[1 + i]?.getD 0#32)) ∧
+  (2 * i + 2 < lim →
+    fullTmpLe lvl tpos (tmp[1 + (2 * i + 2)]?.getD 0#32) (tmp[1 + i]?.getD 0#32))
+
+def FullTmpMaxHeap (lvl tpos tmp : List (BitVec 32)) (lo lim : Nat) : Prop :=
+  ∀ i, lo ≤ i → i < lim → FullTmpHeapAt lvl tpos tmp i lim
 
 /-- Shared `fullSafetySlice` contract `(h) -> ()` preserving `FullState.core`, `LengthsOk`, and
 `FullProbeScratchPres`. -/
@@ -171,34 +187,40 @@ def fullWatchPushSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
 
 /-! ## 2. `Full1` VSIDS / VMTF / Luby / EMA heuristics (`fullSafetySlice`) -/
 
-abbrev fullHeapUpSpec := fullSafetyVarVoidSpec
-abbrev fullHeapPushSpec := fullSafetyVarVoidSpec
+def fullHeapUpSpec : Spec [i64, i32] [] :=
+  SafetySlice.spec fullSafetySlice (fun c (h, _v, ()) _ => h = c.hdr)
+    (fun _ _ _ s s' => FullProbeScratchPres s s' ∧
+      ∃ hp' ps', s'.scratch = { s.scratch with heap := hp', pos := ps' })
+def fullHeapPushSpec : Spec [i64, i32] [] :=
+  SafetySlice.spec fullSafetySlice (fun c (h, _v, ()) _ => h = c.hdr)
+    (fun _ _ _ s s' => FullProbeScratchPresWith s s'
+      (∃ hp' ps' hl', s'.scratch = { s.scratch with heap := hp', pos := ps', heap_len := hl' }))
 abbrev fullRescaleSpec := fullSafetyVoidSpec
 abbrev fullBumpVarSpec := fullSafetyVarVoidSpec
 abbrev fullBumpDecaySpec := fullSafetyVoidSpec
 abbrev fullQueueRenumberSpec := fullSafetyVoidSpec
 abbrev fullQueueMtfSpec := fullSafetyVarVoidSpec
 abbrev fullTickRelSpec := fullSafetyVoidSpec
-abbrev fullSaveTargetBestSpec := fullSafetyVoidSpec
+def fullSaveTargetBestSpec : Spec [i64] [] :=
+  SafetySlice.spec fullSafetySlice (fun c (h, ()) _ => h = c.hdr)
+    (fun _ _ _ s s' => FullProbeScratchPres s s' ∧
+      ∃ ta' ba' pt' pb', s'.scratch = { s.scratch with
+        target_assigned := ta', best_assigned := ba',
+        phases_target := pt', phases_best := pb' })
 abbrev fullRecomputeTiersSpec := fullSafetyVoidSpec
 
 def fullHeapDownSpec : Spec [i64, i32] [] :=
-  SafetySlice.spec fullSafetySlice
-    (fun c (h, _v, ()) _ => h = c.hdr)
+  SafetySlice.spec fullSafetySlice (fun c (h, _v, ()) _ => h = c.hdr)
     (fun _ _ _ s s' => s'.scratch.heap_len = s.scratch.heap_len ∧ FullProbeScratchPres s s')
 
 def fullHeapPopSpec : Spec [i64] [i64] :=
-  SafetySlice.spec fullSafetySlice
-    (fun c (h, ()) _ => h = c.hdr)
-    (fun _ _ (r, ()) s s' =>
-      (r = 0xFFFFFFFF#64 ∨ r.toNat < s.core.cur_vars) ∧
+  SafetySlice.spec fullSafetySlice (fun c (h, ()) _ => h = c.hdr)
+    (fun _ _ (r, ()) s s' => (r = 0xFFFFFFFF#64 ∨ r.toNat < s.core.cur_vars) ∧
       (0 < s.scratch.heap_len ∧ s.scratch.heap_len ≤ s.core.cur_vars →
-        s'.scratch.heap_len = s.scratch.heap_len - 1) ∧
-      FullProbeScratchPres s s')
+        s'.scratch.heap_len = s.scratch.heap_len - 1) ∧ FullProbeScratchPres s s')
 
 def fullEmaUpdateSpec : Spec [i64, i64] [] :=
-  SafetySlice.spec fullSafetySlice
-    (fun c (h, _glue, ()) _ => h = c.hdr)
+  SafetySlice.spec fullSafetySlice (fun c (h, _glue, ()) _ => h = c.hdr)
     (fun _ _ _ s s' => FullProbeScratchPres s s')
 
 /-! ## 3. `Full1` trail, clause addition, initialization & DIMACS ingestion -/
@@ -269,17 +291,18 @@ def fullBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
           scratch := sc' }
       s'.LengthsOk c → te' ≤ s.core.trail_end → prop' ≤ te' →
       cl' = min s.core.cur_level target_lvl.toNat → FullProbeScratchPres s s' →
-      sc'.shrink_stk = s.scratch.shrink_stk →
+      (∃ ta' ba' pt' pb' hp' ps' hl' qsi' qss', sc' = { s.scratch with
+        target_assigned := ta', best_assigned := ba', phases_target := pt', phases_best := pb',
+        heap := hp', pos := ps', heap_len := hl',
+        q_search_idx := qsi', q_search_stamp := qss' }) →
       (∀ i < te', (trl'[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) →
       ((∃ F0 F_cur, FullWitnessInv c F0 F_cur s.core ∨ FullOtfsWitnessInv c F0 F_cur s.core) →
-        (∀ l < 2 * s.core.cur_vars,
-          vals'[l]?.getD 0#8 =
-            if (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl.toNat then
-              s.core.vals[l]?.getD 0#8 else 0#8) ∧
-        (∀ v < s.core.cur_vars,
-          lvl'[v]?.getD 0#32 =
-            if (s.core.lvl[v]?.getD 0#32).toNat ≤ target_lvl.toNat then
-              s.core.lvl[v]?.getD 0#32 else 0#32)) →
+        (∀ l < 2 * s.core.cur_vars, vals'[l]?.getD 0#8 =
+          if (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl.toNat then
+            s.core.vals[l]?.getD 0#8 else 0#8) ∧
+        (∀ i < s.core.trail_end, let v := (s.core.trl[i]?.getD 0#32).toNat / 2
+          lvl'[v]?.getD 0#32 = if (s.core.lvl[v]?.getD 0#32).toNat ≤ target_lvl.toNat then
+            s.core.lvl[v]?.getD 0#32 else 0#32)) →
       (∀ F0 F_cur, FullWitnessInv c F0 F_cur s.core → target_lvl.toNat ≤ s.core.cur_level →
         FullWitnessInv c F0 F_cur s'.core) →
       (∀ F0 F_cur, FullOtfsWitnessInv c F0 F_cur s.core → target_lvl.toNat < s.core.cur_level →
@@ -297,32 +320,28 @@ def fullAddClauseSpec : Spec [i64, i32, i32, .bool] [i64] :=
         (cnfOfClauses F_cur).EntailsClause
           (cnfClause ((s.core.tmp.take len.toNat).map BitVec.toNat))) ∧
       (FullMem c s ⋆ R) m ∧
-      if len.toNat < 2 then
-        Q (0xFFFFFFFF#64, ()) m
+      if len.toNat < 2 then Q (0xFFFFFFFF#64, ()) m
       else if len.toNat = 2 then
         ∀ r wvec' wstk' wlen' wusable' nb' wsort' m',
           let s' : FullState :=
-            { s with
-              core := { s.core with wvec := wvec', wstk := wstk', wlen := wlen',
-                                    wusable := wusable', num_binary := nb' }
-              scratch := { s.scratch with wsort := wsort' } }
+            { s with core := { s.core with wvec := wvec', wstk := wstk', wlen := wlen',
+                                           wusable := wusable', num_binary := nb' }
+                     scratch := { s.scratch with wsort := wsort' } }
           (r = 0xFFFFFFFF#64 ∨ r = 0xFFFFFFFE#64) →
           s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core → (FullMem c s' ⋆ R) m' → Q (r, ()) m'
       else
         ∀ r arena' alen' wvec' wstk' wlen' wusable' fred' ni' nr' wsort' m',
           let s' : FullState :=
-            { s with
-              core := { s.core with arena := arena', arena_len := alen', wvec := wvec',
-                                    wstk := wstk', wlen := wlen', wusable := wusable',
-                                    first_reducible := fred', num_irred := ni',
-                                    num_redundant := nr' }
-              scratch := { s.scratch with wsort := wsort' } }
+            { s with core := { s.core with arena := arena', arena_len := alen', wvec := wvec',
+                                           wstk := wstk', wlen := wlen', wusable := wusable',
+                                           first_reducible := fred', num_irred := ni',
+                                           num_redundant := nr' }
+                     scratch := { s.scratch with wsort := wsort' } }
           (r = 0xFFFFFFFF#64 ∨ r = BitVec.ofNat 64 s.core.arena_len) →
           s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
           (∀ ref ∈ fullArenaClauseRefs s, ref ∈ fullArenaClauseRefs s') →
           (FullArenaVarsNodup s → FullArenaVarsNodup s') →
-          (r = BitVec.ofNat 64 s.core.arena_len →
-            alen' = s.core.arena_len + 3 + len.toNat ∧
+          (r = BitVec.ofNat 64 s.core.arena_len → alen' = s.core.arena_len + 3 + len.toNat ∧
             s.core.arena_len ∈ fullArenaClauseRefs s' ∧
             fullArenaClauseGarb s' s.core.arena_len = false ∧
             fullArenaClauseLits s' s.core.arena_len =
@@ -337,12 +356,11 @@ def fullZeroTables1Spec : Spec [i64] [] := fun (h, ()) m Q _ =>
       sc'.LengthsOk c → sc'.extend_len = s.scratch.extend_len →
       (∀ i < 16, sc'.last_learned[i]?.getD 0#32 = 0xFFFFFFFF#32) →
       let s' : FullState :=
-        { s with
-          core := { s.core with vals := List.replicate (2 * c.max_vars) 0#8
-                                lit_mark := List.replicate (2 * c.max_vars) 0#8
-                                wvec := List.replicate (4 * c.max_vars) 0#32
-                                wstk := wstk', min_stk := mstk', repr := repr' }
-          scratch := sc' }
+        { s with core := { s.core with vals := List.replicate (2 * c.max_vars) 0#8
+                                       lit_mark := List.replicate (2 * c.max_vars) 0#8
+                                       wvec := List.replicate (4 * c.max_vars) 0#32
+                                       wstk := wstk', min_stk := mstk', repr := repr' }
+                 scratch := sc' }
       (FullMem c s' ⋆ R) m' → Q () m'
 
 def fullZeroTables2Spec : Spec [i64] [] := fun (h, ()) m Q _ =>
@@ -352,14 +370,12 @@ def fullZeroTables2Spec : Spec [i64] [] := fun (h, ()) m Q _ =>
       flags'.length = c.max_vars → fdec'.length = c.max_vars + 1 →
       sc'.LengthsOk c → FullExtScratchPres s { s with scratch := sc' } →
       let s' : FullState :=
-        { s with
-          core := { s.core with mrk := List.replicate c.max_vars 0#8
-                                flags := flags'
-                                lvl := List.replicate c.max_vars 0#32
-                                rsns := List.replicate c.max_vars 0xFFFFFFFF#32
-                                frame_trail := List.replicate (c.max_vars + 1) 0#32
-                                frame_dec := fdec' }
-          scratch := sc' }
+        { s with core := { s.core with mrk := List.replicate c.max_vars 0#8, flags := flags'
+                                       lvl := List.replicate c.max_vars 0#32
+                                       rsns := List.replicate c.max_vars 0xFFFFFFFF#32
+                                       frame_trail := List.replicate (c.max_vars + 1) 0#32
+                                       frame_dec := fdec' }
+                 scratch := sc' }
       (FullMem c s' ⋆ R) m' → Q () m'
 
 def fullFixedBytesSpec : Spec [i64] [i64] := fun (max_v, ()) m Q _ =>
@@ -412,20 +428,16 @@ def fullInitHdrSpec : Spec [i64, i64, i64, i64] [] := fun (h, mv, max_v, fuel, (
 def fullCalcMaxVSpec : Spec [i64, i64, i64, i64] [i64] := fun (avail, mv, nc, f0, ()) m Q _ =>
   mv.toNat < dimacsBound ∧ nc.toNat < dimacsBound ∧
   f0.toNat = fullFixedBytes mv.toNat ∧ f0.toNat + nc.toNat * 40 + 136 ≤ avail.toNat ∧
-  ∀ r : BitVec 64,
-    mv.toNat ≤ r.toNat → r.toNat < 2 * dimacsBound →
-    fullFixedBytes r.toNat + nc.toNat * 40 + 136 ≤ avail.toNat →
-    Q (r, ()) m
+  ∀ r : BitVec 64, mv.toNat ≤ r.toNat → r.toNat < 2 * dimacsBound →
+    fullFixedBytes r.toNat + nc.toNat * 40 + 136 ≤ avail.toNat → Q (r, ()) m
 
 def fullCalcExtCapSpec : Spec [i64] [i64] := fun (rem, ()) m Q _ =>
-  ∀ r : BitVec 64,
-    r.toNat ≤ 131072 → (rem.toNat < 8192 → r = 0#64) → 4 * r.toNat ≤ rem.toNat / 8 →
-    Q (r, ()) m
+  ∀ r : BitVec 64, r.toNat ≤ 131072 → (rem.toNat < 8192 → r = 0#64) →
+    4 * r.toNat ≤ rem.toNat / 8 → Q (r, ()) m
 
 def fullCalcScrCapSpec : Spec [i64] [i64] := fun (rem, ()) m Q _ =>
-  ∀ r : BitVec 64,
-    r.toNat ≤ 32768 → (rem.toNat < 8192 → r = 0#64) → 4 * r.toNat ≤ rem.toNat / 4 →
-    Q (r, ()) m
+  ∀ r : BitVec 64, r.toNat ≤ 32768 → (rem.toNat < 8192 → r = 0#64) →
+    4 * r.toNat ≤ rem.toNat / 4 → Q (r, ()) m
 
 def fullInitArenasSpec : Spec [i64, i64, i64, i64] [] :=
   fun (h, hdr_addr, max_v, avail_dyn, ()) m Q _ =>
@@ -603,16 +615,17 @@ def fullFindReplSpec : Spec [i64, i64] [i64] := fun (h, cref, ()) m Q _ =>
       Q (BitVec.ofNat 64 r, ()) m')
 
 def fullAssignLevelSpec : Spec [i64, i32, i32] [i32] := fun (h, cref, forced_lit, ()) m Q _ =>
-  ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ FullCoreInv c F0 s ∧ cref.toNat ∈ fullArenaClauseRefs s ∧
-    fullArenaClauseGarb s cref.toNat = false ∧ (FullMem c s ⋆ R) m ∧
-    ∀ r : BitVec 32,
-      r.toNat ≤ s.core.cur_level →
+  ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ cref.toNat + 3 ≤ s.core.arena_len ∧
+    cref.toNat + 3 + fullArenaClauseSize s cref.toNat ≤ s.core.arena_len ∧
+    (∀ l ∈ fullArenaClauseLits s cref.toNat, l ≠ forced_lit.toNat → l / 2 < c.max_vars) ∧
+    (FullMem c s ⋆ R) m ∧
+    ∀ res : BitVec 32,
       (∀ l ∈ fullArenaClauseLits s cref.toNat, l ≠ forced_lit.toNat →
-        (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ r.toNat) →
-      (0 < r.toNat → ∃ l ∈ fullArenaClauseLits s cref.toNat, l ≠ forced_lit.toNat ∧
-        (s.core.lvl[l / 2]?.getD 0#32).toNat = r.toNat) →
-      Q (r, ()) m
+        (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ res.toNat) →
+      (res = 0#32 ∨ ∃ l ∈ fullArenaClauseLits s cref.toNat,
+        l ≠ forced_lit.toNat ∧ res = s.core.lvl[l / 2]?.getD 0#32) →
+      Q (res, ()) m
 
 def fullPropLitSpec : Spec [i64, i32, i64] [.bool] := fun (h, _lit, ignore_ref, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
@@ -690,16 +703,16 @@ def fullPropagateSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
 def fullMarkReasonsSpec : Spec [i64, .bool] [] := fun (h, set_flag, ()) m Q _ =>
-  ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ FullCoreInv c F0 s ∧ (FullMem c s ⋆ R) m ∧
+  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ (FullMem c s ⋆ R) m ∧
     ∀ arena' m',
       let s' : FullState := { s with core := { s.core with arena := arena' } }
-      fullArenaClauseRefs s' = fullArenaClauseRefs s →
+      s'.LengthsOk c → fullArenaClauseRefs s' = fullArenaClauseRefs s →
       (∀ r ∈ fullArenaClauseRefs s, fullArenaClauseSize s' r = fullArenaClauseSize s r ∧
         fullArenaClauseGarb s' r = fullArenaClauseGarb s r ∧
         fullArenaClauseLits s' r = fullArenaClauseLits s r) →
       (set_flag = true → FullReasonsMarked s') →
-      FullCoreInv c F0 s' → (FullMem c s' ⋆ R) m' → Q () m'
+      FullWitnessInv c F0 F_cur s'.core → (FullMem c s' ⋆ R) m' → Q () m'
 
 def fullRedLessSpec : Spec [i64, i32, i32] [.bool] := fun (ar_ptr, a, b, ()) m Q _ =>
   ∃ (ar : List (BitVec 32)) (R : Mem 64 → Prop),
@@ -708,19 +721,22 @@ def fullRedLessSpec : Spec [i64, i32, i32] [.bool] := fun (ar_ptr, a, b, ()) m Q
 
 def fullRedSiftSpec : Spec [i64, i64, i64, i64] [] := fun (ar_ptr, rr_ptr, start, n, ()) m Q _ =>
   ∃ (ar rr : List (BitVec 32)) (R : Mem 64 → Prop),
-    start.toNat < n.toNat ∧ n.toNat < 2 ^ 62 ∧ n.toNat ≤ rr.length ∧
+    start.toNat ≤ n.toNat ∧ n.toNat ≤ rr.length ∧ n.toNat < 2 ^ 62 ∧
     (∀ k < n.toNat, (rr[k]?.getD 0#32).toNat + 2 < ar.length) ∧
     (array (t := i32) ar_ptr ar ⋆ array (t := i32) rr_ptr rr ⋆ R) m ∧
-    ∀ rr' m', rr'.length = rr.length → rr'.Perm rr →
-      (∀ k, (k < start.toNat ∨ n.toNat ≤ k) → rr'[k]? = rr[k]?) →
+    ∀ rr' m', rr'.length = rr.length →
+      (∀ k, n.toNat ≤ k → rr'[k]? = rr[k]?) →
+      (∀ k < n.toNat, ∃ j < n.toNat, rr'[k]? = rr[j]?) →
       (array (t := i32) ar_ptr ar ⋆ array (t := i32) rr_ptr rr' ⋆ R) m' → Q () m'
 
-def fullSortRedsSpec : Spec [i64, i64] [] :=
-  SafetySlice.spec fullSafetySlice
-    (fun c (h, n, ()) s => h = c.hdr ∧ n.toNat ≤ c.red_cap ∧
-      ∀ k < n.toNat, (s.scratch.red_refs[k]?.getD 0#32).toNat + 2 < c.arena_cap)
-    (fun _ (_, n, ()) _ s s' => FullExtScratchPres s s' ∧
-      ∀ k < n.toNat, ∃ j < n.toNat, s'.scratch.red_refs[k]? = s.scratch.red_refs[j]?)
+def fullSortRedsSpec : Spec [i64, i64] [] := fun (h, n, ()) m Q _ =>
+  ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ n.toNat ≤ c.red_cap ∧
+    (∀ k < n.toNat, (s.scratch.red_refs[k]?.getD 0#32).toNat + 2 < c.arena_cap) ∧
+    (FullMem c s ⋆ R) m ∧
+    ∀ rr' m', rr'.length = c.red_cap →
+      (∀ k < n.toNat, ∃ j < n.toNat, rr'[k]? = s.scratch.red_refs[j]?) →
+      (FullMem c { s with scratch := { s.scratch with red_refs := rr' } } ⋆ R) m' → Q () m'
 
 def fullLitRankSpec : Spec [i64, i64, i32] [i64] := fun (vals_ptr, lvl_ptr, l, ()) m Q _ =>
   ∃ (vals : List (BitVec 8)) (lvl : List (BitVec 32)) (R : Mem 64 → Prop),
@@ -732,8 +748,7 @@ def fullUnwatchLargeSpec : Spec [i64, i32, i32] [] := fun (h, _lit, _cref, ()) m
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ WatchStackLayout s.core ∧ (FullMem c s ⋆ R) m ∧
     ∀ wvec' wstk' wu' m',
-      let s' : FullState :=
-        { s with core := { s.core with wvec := wvec', wstk := wstk', wusable := wu' } }
+      let s' := { s with core := { s.core with wvec := wvec', wstk := wstk', wusable := wu' } }
       s'.LengthsOk c → WatchStackLayout s'.core →
       (∀ F_cur, ModeWatchesInv F_cur s.core → ModeWatchesInv F_cur s'.core) →
       (FullMem c s' ⋆ R) m' → Q () m'
@@ -741,14 +756,14 @@ def fullUnwatchLargeSpec : Spec [i64, i32, i32] [] := fun (h, _lit, _cref, ()) m
 def fullSweepBinsSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ (FullMem c s ⋆ R) m ∧
-    ∀ wvec' wstk' wlen' wu' nb' wsort' m',
+    ∀ wvec' wstk' wlen' nb' wsort' m',
       let s' : FullState :=
         { s with
-          core := { s.core with wvec := wvec', wstk := wstk', wlen := wlen', wusable := wu',
+          core := { s.core with wvec := wvec', wstk := wstk', wlen := wlen', wusable := 0#64,
                                 num_binary := nb' }
           scratch := { s.scratch with wsort := wsort' } }
-      s'.LengthsOk c → FullBinOnlyWatchesInv F_cur s'.core → FullWitnessInv c F0 F_cur s'.core →
-      (FullMem c s' ⋆ R) m' → Q () m'
+      s'.LengthsOk c → FullBinOnlyWatchesInv F_cur s'.core → DenseWatchesInv F_cur s'.core →
+      FullWitnessInv c F0 F_cur s'.core → (FullMem c s' ⋆ R) m' → Q () m'
 
 def fullSweepCopySpec : Spec [i64, i64, i64, i32, .bool] [i64] :=
   fun (h, src, dst, old_sz, at_root, ()) m Q _ =>
@@ -791,7 +806,7 @@ def fullSweepCopySpec : Spec [i64, i64, i64, i32, .bool] [i64] :=
           FullBinOnlyWatchesInv F_cur s'.core ∧ s.core.trail_end ≤ te' ∧
           (r = 0xFFFFFFFE#64 ∨ r = 0xFFFFFFFD#64 ∨ r = 1#64 ∨ r = 0xFFFFFFFF#64 ∨
             (3 ≤ r.toNat ∧ r.toNat ≤ old_sz.toNat)) ∧
-          (r = 0xFFFFFFFE#64 → F0.Unsat) ∧ (r = 0xFFFFFFFD#64 → oom' ≠ 0#64) ∧
+          (r = 0xFFFFFFFE#64 → F0.Unsat) ∧ (r = 0xFFFFFFFD#64 → oom' = 1#64) ∧
           (r ≠ 0xFFFFFFFD#64 → oom' = s.core.oom) ∧ (r = 1#64 → s.core.trail_end < te') ∧
           (3 ≤ r.toNat ∧ r.toNat ≤ old_sz.toNat →
             (∀ j < r.toNat, (arena'[dst.toNat + 3 + j]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
@@ -817,7 +832,7 @@ def fullRewatchArenaSpec : Spec [i64, i64] [.bool] := fun (h, dst, ()) m Q _ =>
       s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
       (FullArenaVarsNodup s → FullArenaVarsNodup s') →
       fullArenaClauseRefs s' = fullArenaClauseRefs s →
-      (ok = false → oom' ≠ 0#64) → (ok = true → oom' = s.core.oom) →
+      (ok = false → oom' = 1#64) → (ok = true → oom' = s.core.oom) →
       (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
 def fullArenaSweepSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
@@ -840,7 +855,7 @@ def fullArenaSweepSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       sc'.extend_len = s.scratch.extend_len → sc'.work_stk2 = s.scratch.work_stk2 →
       FullLastLearnedWf s' → FullWitnessInv c F0 F_cur s'.core → FullArenaVarsNodup s' →
       (r = 0#64 ∨ r = 1#64 → oom' = 0#64) →
-      (0 < s.core.cur_level → r = 0#64 →
+      (0 < s.core.cur_level → r ≠ 1#64 ∧ r ≠ 2#64 ∧
         vals' = s.core.vals ∧ lvl' = s.core.lvl ∧ trl' = s.core.trl ∧
         tp' = s.core.trail_pos ∧ te' = s.core.trail_end) →
       (r = 1#64 → s.core.cur_level = 0 ∧ s.core.trail_end < te') →
@@ -1062,48 +1077,43 @@ def fullOtfsSubsumeSpec : Spec [i64, i32, i64, i64, .bool] [] :=
             fullArenaClauseGarb s' r = fullArenaClauseGarb s r)) →
         (FullMem c s' ⋆ R) m' → Q () m'
 
-/-- Minimization / block-shrinking mark invariant (`full_min_mark`, `full_min_lit`,
-`full_shrink_lower`, `full_shrink_blk`, `full_min_shrink`), parameterized over `F_cur`. -/
-structure FullMinMarkInv (c : FullCfg) (F_cur : List (List Nat)) (s : FullState)
-    (keep : List Nat) : Prop where
-  mrk_dom : ∀ v < c.max_vars, (s.core.mrk[v]?.getD 0#8 &&& 0xF1#8) = 0#8
-  clr_cov : s.core.min_clr_full = 0#64 → ∀ v < c.max_vars,
-    (s.core.mrk[v]?.getD 0#8 &&& 6#8) ≠ 0#8 →
-    ∃ i < s.core.min_clr_len, (s.core.min_clr[i]?.getD 0#32).toNat = v
-  rem_sound : ∀ idx < s.core.trail_end,
-    let p := (s.core.trl[idx]?.getD 0#32).toNat
-    (s.core.mrk[p / 2]?.getD 0#8 &&& 2#8) ≠ 0#8 →
+/-- Purely structural minimization mark invariant (`FullMinSpecs.FullMinMarkInv`). -/
+structure FullMinMarkInv (k : FullCoreState) (keep : List Nat) : Prop where
+  mrk_dom : ∀ v < k.cur_vars, (k.mrk[v]?.getD 0#8 &&& 0xF1#8) = 0#8
+  clr_cov : k.min_clr_full = 0#64 → ∀ v < k.cur_vars,
+    (k.mrk[v]?.getD 0#8 &&& 6#8) ≠ 0#8 →
+    ∃ j < k.min_clr_len, (k.min_clr[j]?.getD 0#32).toNat = v
+  rem_sound : ∀ idx < k.trail_end,
+    let p := (k.trl[idx]?.getD 0#32).toNat
+    (k.mrk[p / 2]?.getD 0#8 &&& 2#8) ≠ 0#8 →
     (p ^^^ 1) ∈ keep ∨
-      let rsn := s.core.rsns[p / 2]?.getD 0xFFFFFFFF#32
+      (k.lvl[p / 2]?.getD 0#32).toNat < k.cur_level ∧
+      let rsn := k.rsns[p / 2]?.getD 0xFFFFFFFF#32
       rsn ≠ 0xFFFFFFFF#32 ∧
       if (rsn &&& 0x80000000#32) ≠ 0#32 then
         let ot := (rsn &&& 0x7FFFFFFF#32).toNat
-        ot < 2 * s.core.cur_vars ∧
-        (cnfOfClauses F_cur).EntailsClause (cnfClause [p, ot]) ∧
-        ∃ k < idx, (s.core.trl[k]?.getD 0#32).toNat = ot ^^^ 1 ∧
-          ((s.core.lvl[ot / 2]?.getD 0#32).toNat = 0 ∨
-           (s.core.mrk[ot / 2]?.getD 0#8 &&& 2#8) ≠ 0#8)
+        ot < 2 * k.cur_vars ∧
+        ∃ j < idx, (k.trl[j]?.getD 0#32).toNat = ot ^^^ 1 ∧
+          ((k.lvl[ot / 2]?.getD 0#32).toNat = 0 ∨ (k.mrk[ot / 2]?.getD 0#8 &&& 2#8) ≠ 0#8)
       else
-        rsn.toNat ∈ fullArenaClauseRefs s ∧ fullArenaClauseGarb s rsn.toNat = false ∧
-        ∀ q ∈ fullArenaClauseLits s rsn.toNat,
-          q = p ∨ ∃ k < idx, (s.core.trl[k]?.getD 0#32).toNat = q ^^^ 1 ∧
-            ((s.core.lvl[q / 2]?.getD 0#32).toNat = 0 ∨
-             (s.core.mrk[q / 2]?.getD 0#8 &&& 2#8) ≠ 0#8)
+        rsn.toNat ∈ fullArenaClauseRefsCore k ∧ fullArenaClauseGarbCore k rsn.toNat = false ∧
+        ∀ q ∈ fullArenaClauseLitsCore k rsn.toNat,
+          q = p ∨ ∃ j < idx, (k.trl[j]?.getD 0#32).toNat = q ^^^ 1 ∧
+            ((k.lvl[q / 2]?.getD 0#32).toNat = 0 ∨ (k.mrk[q / 2]?.getD 0#8 &&& 2#8) ≠ 0#8)
+
+def fullMinMarkCore (k : FullCoreState) (v : Nat) (tag : BitVec 8) : FullCoreState :=
+  let cur := k.mrk[v]?.getD 0#8
+  let mclr' := if cur = 0#8 ∧ k.min_clr_len < k.cur_vars then
+                 k.min_clr.set k.min_clr_len (BitVec.ofNat 32 v)
+               else k.min_clr
+  let mcl' := if cur = 0#8 ∧ k.min_clr_len < k.cur_vars then k.min_clr_len + 1 else k.min_clr_len
+  let mcf' := if cur = 0#8 ∧ ¬ k.min_clr_len < k.cur_vars then 1#64 else k.min_clr_full
+  { k with mrk := k.mrk.set v (cur ||| tag),
+           min_clr := mclr', min_clr_len := mcl', min_clr_full := mcf' }
 
 /-- State update of `full_min_mark(h, v, tag)`. -/
 def fullMinMarkState (s : FullState) (v : Nat) (tag : BitVec 8) : FullState :=
-  let cur := s.core.mrk[v]?.getD 0#8
-  let mclr' := if cur = 0#8 ∧ s.core.min_clr_len < s.core.cur_vars then
-                 s.core.min_clr.set s.core.min_clr_len (BitVec.ofNat 32 v)
-               else s.core.min_clr
-  let mcl' := if cur = 0#8 ∧ s.core.min_clr_len < s.core.cur_vars then
-                s.core.min_clr_len + 1
-              else s.core.min_clr_len
-  let mcf' := if cur = 0#8 ∧ ¬ s.core.min_clr_len < s.core.cur_vars then 1#64
-              else s.core.min_clr_full
-  { s with core :=
-    { s.core with mrk := s.core.mrk.set v (cur ||| tag),
-                  min_clr := mclr', min_clr_len := mcl', min_clr_full := mcf' } }
+  { s with core := fullMinMarkCore s.core v tag }
 
 def fullMinMarkSpec : Spec [i64, i32, i8] [] := fun (h, v, tag, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
@@ -1115,12 +1125,11 @@ def fullMinMarkSpec : Spec [i64, i32, i8] [] := fun (h, v, tag, ()) m Q _ =>
       ∀ m', (FullMem c (fullMinMarkState s v.toNat tag) ⋆ R) m' → Q () m'
 
 def fullMinLitSpec : Spec [i64, i32] [.bool] := fun (h, root_lit, ()) m Q _ =>
-  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (keepSet : List Nat)
-    (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
-    FullMinMarkInv c F_cur s keepSet ∧
+  ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (keepSet : List Nat) (R : Mem 64 → Prop),
+    h = c.hdr ∧ FullOtfsCoreInv c F0 s ∧ FullMinMarkInv s.core keepSet ∧
     root_lit.toNat < 2 * s.core.cur_vars ∧ s.core.vals[root_lit.toNat]?.getD 0#8 = 0xFF#8 ∧
-    (∀ v < c.max_vars,
+    (s.core.lvl[root_lit.toNat / 2]?.getD 0#32).toNat < s.core.cur_level ∧
+    (∀ v < s.core.cur_vars,
       (s.core.lvl[v]?.getD 0#32).toNat ≤ (s.core.lvl[root_lit.toNat / 2]?.getD 0#32).toNat →
       (s.core.mrk[v]?.getD 0#8 &&& 8#8) = 0#8) ∧
     (FullMem c s ⋆ R) m ∧
@@ -1128,15 +1137,15 @@ def fullMinLitSpec : Spec [i64, i32] [.bool] := fun (h, root_lit, ()) m Q _ =>
       let s' : FullState :=
         { s with core := { s.core with mrk := mrk', min_stk := mstk', min_clr := mclr',
                                        min_clr_len := mcl', min_clr_full := mcf' } }
-      s'.LengthsOk c →
-      (∀ v < c.max_vars,
+      s'.LengthsOk c → (∀ v, s.core.cur_vars ≤ v → mrk'[v]? = s.core.mrk[v]?) →
+      (∀ v < s.core.cur_vars,
         (s.core.mrk[v]?.getD 0#8 &&& 2#8) ≠ 0#8 → (mrk'[v]?.getD 0#8 &&& 2#8) ≠ 0#8) →
-      (∀ v < c.max_vars, (mrk'[v]?.getD 0#8 &&& 8#8) = (s.core.mrk[v]?.getD 0#8 &&& 8#8)) →
-      FullMinMarkInv c F_cur s' keepSet →
+      (∀ v < s.core.cur_vars, (mrk'[v]?.getD 0#8 &&& 8#8) = (s.core.mrk[v]?.getD 0#8 &&& 8#8)) →
+      FullMinMarkInv s'.core keepSet →
       (ok = true →
         (∀ keep' : List Nat,
-          (∀ l ∈ keepSet, l = root_lit.toNat ∨ l ∈ keep') → FullMinMarkInv c F_cur s' keep') ∧
-        FullMinMarkInv c F_cur (fullMinMarkState s' (root_lit.toNat / 2) 2#8) keepSet) →
+          (∀ l ∈ keepSet, l = root_lit.toNat ∨ l ∈ keep') → FullMinMarkInv s'.core keep') ∧
+        FullMinMarkInv (fullMinMarkCore s'.core (root_lit.toNat / 2) 2#8) keepSet) →
       (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
 def fullTmpLessSpec : Spec [i64, i64, i32, i32] [.bool] :=
@@ -1150,39 +1159,43 @@ def fullTmpLessSpec : Spec [i64, i64, i32, i32] [.bool] :=
 def fullSortTmpSiftSpec : Spec [i64, i64, i64, i64, i64] [] :=
   fun (tmp_ptr, lvl_ptr, tpos_ptr, start, n, ()) m Q _ =>
     ∃ (tmp lvl tpos : List (BitVec 32)) (R : Mem 64 → Prop),
-      start.toNat < n.toNat ∧ n.toNat < 2 ^ 60 ∧ 1 + n.toNat ≤ tmp.length ∧
-      (∀ i < n.toNat, (tmp[1 + i]?.getD 0#32).toNat / 2 < lvl.length ∧
-        (tmp[1 + i]?.getD 0#32).toNat / 2 < tpos.length) ∧
-      FullTmpMaxHeap tmp lvl tpos (start.toNat + 1) n.toNat ∧
+      start.toNat < n.toNat ∧ 1 + n.toNat ≤ tmp.length ∧ n.toNat < 2 ^ 60 ∧
+      (∀ k, 1 ≤ k → k < 1 + n.toNat → (tmp[k]?.getD 0#32).toNat / 2 < lvl.length ∧
+        (tmp[k]?.getD 0#32).toNat / 2 < tpos.length) ∧
+      FullTmpMaxHeap lvl tpos tmp (start.toNat + 1) n.toNat ∧
       (array (t := i32) tmp_ptr tmp ⋆ array (t := i32) lvl_ptr lvl ⋆
         array (t := i32) tpos_ptr tpos ⋆ R) m ∧
       ∀ tmp' m', tmp'.length = tmp.length → tmp'.Perm tmp →
-        (∀ i, (i < 1 + start.toNat ∨ 1 + n.toNat ≤ i) → tmp'[i]? = tmp[i]?) →
-        FullTmpMaxHeap tmp' lvl tpos start.toNat n.toNat →
+        (∀ k, (k = 0 ∨ 1 + n.toNat ≤ k) → tmp'[k]? = tmp[k]?) →
+        FullSortSliceEq tmp' tmp (1 + n.toNat) →
+        FullTmpMaxHeap lvl tpos tmp' start.toNat n.toNat →
         (array (t := i32) tmp_ptr tmp' ⋆ array (t := i32) lvl_ptr lvl ⋆
           array (t := i32) tpos_ptr tpos ⋆ R) m' → Q () m'
 
 def fullSortTmpSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧ s.core.tmp_len ≤ s.core.cur_vars ∧
-    (∀ k, 1 ≤ k → k < s.core.tmp_len → (s.core.tmp[k]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
+    h = c.hdr ∧ s.LengthsOk c ∧ s.core.tmp_len ≤ c.max_vars ∧
+    (∀ k, 1 ≤ k → k < s.core.tmp_len → (s.core.tmp[k]?.getD 0#32).toNat < 2 * c.max_vars) ∧
     (FullMem c s ⋆ R) m ∧
     ∀ tmp' m', tmp'.length = c.max_vars →
-      (0 < s.core.tmp_len → tmp'[0]? = s.core.tmp[0]?) →
       (tmp'.take s.core.tmp_len).Perm (s.core.tmp.take s.core.tmp_len) →
+      (0 < s.core.tmp_len → tmp'[0]? = s.core.tmp[0]?) →
+      (∀ j, 1 ≤ j → j < s.core.tmp_len →
+        ∃ i, 1 ≤ i ∧ i < s.core.tmp_len ∧ tmp'[j]? = s.core.tmp[i]?) →
+      (∀ i, 1 ≤ i → i < s.core.tmp_len →
+        ∃ j, 1 ≤ j ∧ j < s.core.tmp_len ∧ s.core.tmp[i]? = tmp'[j]?) →
       (∀ i j, 1 ≤ i → i ≤ j → j < s.core.tmp_len →
         (s.core.lvl[(tmp'[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤
         (s.core.lvl[(tmp'[j]?.getD 0#32).toNat / 2]?.getD 0#32).toNat) →
       (FullMem c { s with core := { s.core with tmp := tmp' } } ⋆ R) m' → Q () m'
 
 def fullShrinkLowerSpec : Spec [i64, i32, i32] [.bool] := fun (h, ot, ov, ()) m Q _ =>
-  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (keepSet : List Nat)
-    (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
-    FullMinMarkInv c F_cur s keepSet ∧
+  ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (keepSet : List Nat) (R : Mem 64 → Prop),
+    h = c.hdr ∧ FullOtfsCoreInv c F0 s ∧ FullMinMarkInv s.core keepSet ∧
     ov.toNat = ot.toNat / 2 ∧ ot.toNat < 2 * s.core.cur_vars ∧
     s.core.vals[ot.toNat]?.getD 0#8 = 0xFF#8 ∧
-    (∀ v < c.max_vars,
+    (s.core.lvl[ov.toNat]?.getD 0#32).toNat < s.core.cur_level ∧
+    (∀ v < s.core.cur_vars,
       (s.core.lvl[v]?.getD 0#32).toNat ≤ (s.core.lvl[ov.toNat]?.getD 0#32).toNat →
       (s.core.mrk[v]?.getD 0#8 &&& 8#8) = 0#8) ∧
     (FullMem c s ⋆ R) m ∧
@@ -1190,25 +1203,23 @@ def fullShrinkLowerSpec : Spec [i64, i32, i32] [.bool] := fun (h, ot, ov, ()) m 
       let s' : FullState :=
         { s with core := { s.core with mrk := mrk', min_stk := mstk', min_clr := mclr',
                                        min_clr_len := mcl', min_clr_full := mcf' } }
-      s'.LengthsOk c →
-      (∀ v < c.max_vars,
+      s'.LengthsOk c → (∀ v, s.core.cur_vars ≤ v → mrk'[v]? = s.core.mrk[v]?) →
+      (∀ v < s.core.cur_vars,
         (s.core.mrk[v]?.getD 0#8 &&& 2#8) ≠ 0#8 → (mrk'[v]?.getD 0#8 &&& 2#8) ≠ 0#8) →
-      (∀ v < c.max_vars, (mrk'[v]?.getD 0#8 &&& 8#8) = (s.core.mrk[v]?.getD 0#8 &&& 8#8)) →
-      FullMinMarkInv c F_cur s' keepSet →
+      (∀ v < s.core.cur_vars, (mrk'[v]?.getD 0#8 &&& 8#8) = (s.core.mrk[v]?.getD 0#8 &&& 8#8)) →
+      FullMinMarkInv s'.core keepSet →
       (ok = true → (mrk'[ov.toNat]?.getD 0#8 &&& 2#8) ≠ 0#8) →
       (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
 def fullShrinkBlkSpec : Spec [i64, i64, i64, i32, i64] [] :=
   fun (h, beg, end_b, blvl, max_tr, ()) m Q _ =>
-    ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
-      h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
-      FullMinMarkInv c F_cur s
+    ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ FullOtfsCoreInv c F0 s ∧
+      FullMinMarkInv s.core
         (((s.core.tmp.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat) ∧
-      (∀ v < c.max_vars, (s.core.mrk[v]?.getD 0#8 &&& 8#8) = 0#8) ∧
+      (∀ v < s.core.cur_vars, (s.core.mrk[v]?.getD 0#8 &&& 8#8) = 0#8) ∧
       1 ≤ beg.toNat ∧ beg.toNat < end_b.toNat ∧ end_b.toNat ≤ s.core.tmp_len ∧
       s.core.tmp_len ≤ s.core.cur_vars ∧ 0 < blvl.toNat ∧ blvl.toNat < s.core.cur_level ∧
-      (cnfOfClauses F_cur).EntailsClause (cnfClause
-        (((s.core.tmp.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat)) ∧
       (∀ k, beg.toNat ≤ k → k < end_b.toNat →
         let l := (s.core.tmp[k]?.getD 0#32).toNat
         l < 2 * s.core.cur_vars ∧ s.core.vals[l]?.getD 0#8 = 0xFF#8 ∧
@@ -1221,22 +1232,32 @@ def fullShrinkBlkSpec : Spec [i64, i64, i64, i32, i64] [] :=
       (FullMem c s ⋆ R) m ∧
       ∀ tmp' mrk' mstk' mclr' mcl' mcf' sstk' m',
         let s' : FullState :=
-          { s with
-            core := { s.core with tmp := tmp', mrk := mrk', min_stk := mstk', min_clr := mclr',
+          { core := { s.core with tmp := tmp', mrk := mrk', min_stk := mstk', min_clr := mclr',
                                   min_clr_len := mcl', min_clr_full := mcf' }
             scratch := { s.scratch with shrink_stk := sstk' } }
-        s'.LengthsOk c →
-        FullMinMarkInv c F_cur s'
+        FullOtfsCoreInv c F0 s' →
+        FullMinMarkInv s'.core
           (((tmp'.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat) →
-        (∀ v < c.max_vars, (mrk'[v]?.getD 0#8 &&& 8#8) = 0#8) →
+        (∀ v, s.core.cur_vars ≤ v → mrk'[v]? = s.core.mrk[v]?) →
+        (∀ v < s.core.cur_vars, (mrk'[v]?.getD 0#8 &&& 8#8) = 0#8) →
+        (∀ v < s.core.cur_vars,
+          (s.core.mrk[v]?.getD 0#8 &&& 2#8) ≠ 0#8 → (mrk'[v]?.getD 0#8 &&& 2#8) ≠ 0#8) →
         (∀ k < s.core.tmp_len, (k < beg.toNat ∨ end_b.toNat ≤ k) → tmp'[k]? = s.core.tmp[k]?) →
         (∀ k, beg.toNat ≤ k → k < end_b.toNat → tmp'[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
           (s.core.lvl[(tmp'[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = blvl.toNat) →
-        ((((tmp'.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map fun x => x.toNat / 2).Nodup ∨
-          ¬ (((s.core.tmp.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map
+        ((((s.core.tmp.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map
+            fun x => x.toNat / 2).Nodup →
+          (∀ k < s.core.tmp_len, (k < beg.toNat ∨ end_b.toNat ≤ k) →
+            s.core.tmp[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
+            (s.core.lvl[(s.core.tmp[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≠ blvl.toNat) →
+          (((tmp'.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map
             fun x => x.toNat / 2).Nodup) →
-        (cnfOfClauses F_cur).EntailsClause (cnfClause
-          (((tmp'.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat)) →
+        (∀ F_cur, FullOtfsWitnessInv c F0 F_cur s.core →
+          (cnfOfClauses F_cur).EntailsClause (cnfClause
+            (((s.core.tmp.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat)) →
+          FullOtfsWitnessInv c F0 F_cur s'.core ∧
+          (cnfOfClauses F_cur).EntailsClause (cnfClause
+            (((tmp'.take s.core.tmp_len).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat))) →
         (∀ k < s.core.tmp_len, tmp'[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
           let l := (tmp'[k]?.getD 0#32).toNat
           l < 2 * s.core.cur_vars ∧ s'.core.vals[l]?.getD 0#8 = 0xFF#8 ∧
@@ -1255,6 +1276,7 @@ def fullMinShrinkSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
     (∀ k, 1 ≤ k → k < s.core.tmp_len →
       let lv := (s.core.lvl[(s.core.tmp[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat
       0 < lv ∧ lv < s.core.cur_level) ∧
+    (s.core.lvl[(s.core.tmp[0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = s.core.cur_level ∧
     (FullMem c s ⋆ R) m ∧
     ∀ tmp' tl' mrk' mstk' mclr' mcl' mcf' conf' llits' mrem' sstk' m',
       let s' : FullState :=
@@ -1278,11 +1300,9 @@ def fullMinShrinkSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
 def fullDetNewLevelSpec : Spec [i64, i64] [i64] := fun (h, jump, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ (FullMem c s ⋆ R) m ∧
-    ∀ r : BitVec 64,
-      (s.core.cur_level = 0 → r = 0#64) →
+    ∀ r : BitVec 64, (s.core.cur_level = 0 → r = 0#64) →
       (0 < s.core.cur_level → jump.toNat < s.core.cur_level →
-        jump.toNat ≤ r.toNat ∧ r.toNat < s.core.cur_level) →
-      Q (r, ()) m
+        jump.toNat ≤ r.toNat ∧ r.toNat < s.core.cur_level) → Q (r, ()) m
 
 def fullOneLitConflSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (cut : Nat) (s : FullState)
@@ -1292,7 +1312,8 @@ def fullOneLitConflSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
       s'.scratch.work_stk2 = s.scratch.work_stk2 →
-      (r = 20#64 → F0.Unsat) →
+      (r = 20#64 → F0.Unsat ∧ FullOtfsInvW c F0 F_cur s' ∧
+        s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
       (r = 1#64 → FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
       (r = 2#64 → FullOtfsInvW c F0 F_cur s') →
       (r = 0#64 → ∃ cut' ≤ s'.core.trail_end,
@@ -1309,7 +1330,8 @@ def fullDeduce1uipSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
       s'.scratch.work_stk2 = s.scratch.work_stk2 →
-      (r = 20#64 → F0.Unsat) →
+      (r = 20#64 → F0.Unsat ∧ FullOtfsInvW c F0 F_cur s' ∧
+        s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
       (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
       (r = 1#64 → FullOtfsInvW c F0 F_cur s' ∧ s'.core.cur_level = s.core.cur_level ∧
         1 ≤ s'.core.tmp_len ∧ s'.core.tmp_len ≤ s'.core.cur_vars ∧
@@ -1319,6 +1341,8 @@ def fullDeduce1uipSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
         (∀ k, 1 ≤ k → k < s'.core.tmp_len →
           let lv := (s'.core.lvl[(s'.core.tmp[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat
           0 < lv ∧ lv < s'.core.cur_level) ∧
+        (s'.core.lvl[(s'.core.tmp[0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat =
+          s'.core.cur_level ∧
         (cnfOfClauses F_cur).EntailsClause
           (cnfClause ((s'.core.tmp.take s'.core.tmp_len).map BitVec.toNat))) →
       (r = 2#64 → ∃ cut' ≤ s'.core.trail_end,
@@ -1330,13 +1354,10 @@ def fullEagerSubsumeSpec : Spec [i64, i64] [] := fun (h, new_ref, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInvW c F0 F_cur s ∧
     (∀ k < s.core.tmp_len, (s.core.tmp[k]?.getD 0#32).toNat < 2 * c.max_vars) ∧
-    (new_ref.toNat < 0x80000000 → new_ref.toNat ∈ fullArenaClauseRefs s) ∧
-    (FullMem c s ⋆ R) m ∧
+    (new_ref.toNat < 0x80000000 → new_ref.toNat ∈ fullArenaClauseRefs s) ∧ (FullMem c s ⋆ R) m ∧
     ∀ arena' ag' sc' m',
       let s' : FullState :=
-        { s with
-          core := { s.core with arena := arena', arena_garbage := ag' }
-          scratch := sc' }
+        { s with core := { s.core with arena := arena', arena_garbage := ag' }, scratch := sc' }
       FullSparseInvW c F0 F_cur s' → sc'.work_stk2 = s.scratch.work_stk2 →
       (FullMem c s' ⋆ R) m' → Q () m'
 
@@ -1352,13 +1373,13 @@ def fullLearnClauseSpec : Spec [i64, i64] [i64] := fun (h, _glue, ()) m Q _ =>
       0 < lv ∧ lv < s.core.cur_level ∧
       lv ≤ (s.core.lvl[(s.core.tmp[s.core.tmp_len - 1]?.getD 0#32).toNat / 2]?.getD 0#32).toNat) ∧
     (cnfOfClauses F_cur).EntailsClause
-      (cnfClause ((s.core.tmp.take s.core.tmp_len).map BitVec.toNat)) ∧
-    (FullMem c s ⋆ R) m ∧
+      (cnfClause ((s.core.tmp.take s.core.tmp_len).map BitVec.toNat)) ∧ (FullMem c s ⋆ R) m ∧
     ∀ r s' m',
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
       s'.scratch.work_stk2 = s.scratch.work_stk2 →
-      (r = 20#64 → F0.Unsat) →
+      (r = 20#64 → F0.Unsat ∧ FullSparseInvW c F0 F_cur s' ∧
+        s'.core.cur_level < s.core.cur_level) →
       (r = 0#64 → FullSparseInvW c F0 F_cur s') →
       (r = 1#64 → FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
@@ -1369,7 +1390,8 @@ def fullAnalyzeSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
     ∀ r s' m',
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
-      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      (s'.scratch.work_stk2 = s.scratch.work_stk2 ∧ (r = 20#64 → FullOtfsInvW c F0 F_cur s' ∧
+        s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode)) →
       (r = 20#64 → F0.Unsat) →
       (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
       (r = 1#64 → FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →

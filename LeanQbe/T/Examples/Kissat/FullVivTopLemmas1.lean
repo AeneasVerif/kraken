@@ -219,7 +219,7 @@ def FullConflictOkW (F_cur : List (List Nat)) (s : FullState) : Prop :=
     s.core.vals[s.core.confl_lit1.toNat]?.getD 0#8 = 0xFF#8 ∧
     (cnfOfClauses F_cur).EntailsClause
       (cnfClause [s.core.confl_lit0.toNat, s.core.confl_lit1.toNat])) ∨
-  (s.core.confl_type ≠ 1#64 ∧
+  (s.core.confl_type = 2#64 ∧
     s.core.confl_ref.toNat ∈ fullArenaClauseRefs s ∧
     fullArenaClauseGarb s s.core.confl_ref.toNat = false ∧
     ∀ l ∈ fullArenaClauseLits s s.core.confl_ref.toNat, s.core.vals[l]?.getD 0#8 = 0xFF#8)
