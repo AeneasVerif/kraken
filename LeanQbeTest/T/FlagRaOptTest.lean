@@ -322,4 +322,34 @@ meta def addrSibNoElideFn : Fn :=
 #guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrSibNoElideFn).elide.getD 3 false == false
 #guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrSibNoElideFn).elide.getD 6 false == false
 
+/-- Non-destructive 3-address `lea` (`C1b`) for live inputs (`x + y`, `x + 3`, `y - 2`) with both
+`x` and `y` live to the return tuple, emitting `lea` instead of `mov + add/sub`, plus `cmp`/`select`
+with `0 setcc` across `x + 3`/`y - 2`. -/
+meta def leaNonDestructFn : Fn :=
+  ⟨"leaNonDestructX64", [i64, i64], [i64, i64], fun _ _ (x, y, ()) =>
+    .let_ (op2 (.add i64) (.var x) (.var y)) fun (s1, ()) =>
+    .let_ (op2 (.cmp .ult i64) (.var x) (.var y)) fun (c, ()) =>
+    .let_ (op2 (.add i64) (.var x) (.imm 3)) fun (s2, ()) =>
+    .let_ (op2 (.sub i64) (.var y) (.imm 2)) fun (s3, ()) =>
+    .let_ (op3 (.select i64) (.var c) (.var s2) (.var s3)) fun (r0, ()) =>
+    .let_ (op2 (.xor i64) (.var x) (.var y)) fun (k0, ()) =>
+    .let_ (op2 (.xor i64) (.var r0) (.var k0)) fun (r1, ()) =>
+    .ret (.var s1, .var r1, ())⟩
+
+meta def isAddOrSubDir : Directive → Bool
+  | .instr (.regular _ .W64 (.add (.reg (.low .rsp .W64)) _))
+  | .instr (.regular _ .W64 (.sub (.reg (.low .rsp .W64)) _)) => false
+  | .instr (.regular _ _ (.add _ _))
+  | .instr (.regular _ _ (.sub _ _)) => true
+  | _ => false
+
+meta def isLeaDir : Directive → Bool
+  | .instr (.regular _ _ (.lea _ _)) => true
+  | _ => false
+
+#guard chk [leaNonDestructFn]
+#guard countDirs isAddOrSubDir (codeOf [leaNonDestructFn]) == 0
+#guard countDirs isLeaDir (codeOf [leaNonDestructFn]) == 3
+#guard countDirs isSetccDir (codeOf [leaNonDestructFn]) == 0
+
 end LeanQbeTest.T.FlagRaOptTest

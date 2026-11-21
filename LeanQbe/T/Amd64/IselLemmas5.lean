@@ -151,7 +151,7 @@ private theorem opBinIns_isSome (w : Width) (k : AluBinKind)
     (opBinIns w k pa pb rd .default).isSome = true := by
   cases pa <;> cases pb <;> first
     | exact absurd rfl (ha _) | exact absurd rfl (hb _)
-    | ((unfold opBinIns; dsimp only; repeat' split) <;> rfl)
+    | ((unfold opBinIns opBinLeaReg? opBinLeaImm?; dsimp only; repeat' split) <;> rfl)
 
 private theorem opShiftIns_isSome (w : Width) (sk : ShiftKind)
     {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} (rd : Reg64)

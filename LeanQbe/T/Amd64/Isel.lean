@@ -323,8 +323,29 @@ def opNotIns (w : Width) (pa : PArg Reg64 RegMm CondCode (.bits w.bits)) (rd : R
     some (pre ++ [x64InsI w (.not (.reg (regW w rd)))], maskNone)
   | .vec _  => none
 
+/-- Non-destructive 3-address `lea` for `add`/`sub` reg+imm (`ra != rd`) at `W32`/`W64`. -/
+def opBinLeaImm? (w : Width) (k : AluBinKind) (ra : Reg64) (cb : BitVec w.bits) (rd : Reg64) :
+    Option (List Instr × FlagMask) :=
+  if (w == .W32 || w == .W64) && ra != rd && (k == .add || k == .sub) then
+    let off64 : BitVec 64 := (if k == .add then cb else -cb).signExtend 64
+    if fitsImm32 off64 then
+      some ([x64InsI w (.lea (regW w rd) (atDisp ra (Int64.ofBitVec off64)))], maskNone)
+    else none
+  else none
+
+/-- Non-destructive 3-address `lea rd, [ra + rb*1]` for `add` (`ra != rd`, `rb != rd`)
+at `W32`/`W64`, swapping index if `rb = .rsp`. -/
+def opBinLeaReg? (w : Width) (k : AluBinKind) (ra rb rd : Reg64) :
+    Option (List Instr × FlagMask) :=
+  if k == .add && (w == .W32 || w == .W64) && ra != rd && rb != rd then
+    if rb != .rsp then some ([x64InsI w (.lea (regW w rd) (atSIB ra rb .s1 0))], maskNone)
+    else if ra != .rsp then some ([x64InsI w (.lea (regW w rd) (atSIB rb ra .s1 0))], maskNone)
+    else none
+  else none
+
 /-- Lower binary ALU ops (`add`, `sub`, `and`, `or`, `xor`, `mul`) at `w`,
-including `VariantHint.disp` (`lea`) and `VariantHint.decInc` (`inc`/`dec` preserving `CF`). -/
+including `VariantHint.disp` (`lea`), `VariantHint.decInc` (`inc`/`dec` preserving `CF`),
+and flag-free non-destructive 3-address `lea` for `add`/`sub` imm when `ra != rd`. -/
 def opBinIns (w : Width) (k : AluBinKind)
     (pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)) (rd : Reg64) (vh : VariantHint) :
     Option (List Instr × FlagMask) :=
@@ -397,17 +418,20 @@ def opBinIns (w : Width) (k : AluBinKind)
         else if k == .sub && rb == rd then
           some ([x64InsI w (.neg (.reg (regW w rd))),
                  aluBinI w .add rd (.reg (regW w ra))], maskAll)
-        else if rb != rd then
-          some ([movWI w rd ra, aluBinI w k rd (.reg (regW w rb))], maskAll)
-        else
-          some ([movWI w .r11 ra, aluBinI w k .r11 (.reg (regW w rb)),
-                 movWI w rd .r11], maskAll)
-      | .gpr ra, .imm cb => some (regImm ra cb)
+        else match opBinLeaReg? w k ra rb rd with
+          | some res => some res
+          | none =>
+            if rb != rd then
+              some ([movWI w rd ra, aluBinI w k rd (.reg (regW w rb))], maskAll)
+            else
+              some ([movWI w .r11 ra, aluBinI w k .r11 (.reg (regW w rb)),
+                     movWI w rd .r11], maskAll)
+      | .gpr ra, .imm cb => some ((opBinLeaImm? w k ra cb rd).getD (regImm ra cb))
       | .imm ca, .gpr rb =>
         if k == .sub && ca == 0 then
           let pre := if rb == rd then [] else [movWI w rd rb]
           some (pre ++ [x64InsI w (.neg (.reg (regW w rd)))], maskAll)
-        else if k.isComm then some (regImm rb ca)
+        else if k.isComm then some ((opBinLeaImm? w k rb ca rd).getD (regImm rb ca))
         else
           some ([moviI .r11 (ca.setWidth 64), aluBinI w .sub .r11 (.reg (regW w rb)),
                  movWI w rd .r11], maskAll)
