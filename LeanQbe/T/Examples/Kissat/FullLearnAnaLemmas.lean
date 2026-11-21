@@ -558,7 +558,7 @@ theorem full_learn_clause_wp (Γ : Env)
         have := hsw_lits_lt _ hmem; omega
       c0_to_group; c0_call hDnl
       have hml_bv64 : (BitVec.ofNat 64 max_lvl).toNat = max_lvl := bv64_ofNat_toNat (by omega)
-      refine ⟨c, s_sw, R, rfl, hsw_len, hm_sw', fun nlvl _ hnlvl_pos => ?_⟩
+      refine ⟨c, s_sw, R, rfl, hsw_len, by dsimp [s_sw]; omega, hm_sw', fun nlvl _ hnlvl_pos => ?_⟩
       obtain ⟨hnlvl_ge, hnlvl_lt⟩ :=
         hnlvl_pos hcur_pos (by dsimp [s_sw]; rw [hml_bv64]; exact hml_lt)
       dsimp only [s_sw] at hnlvl_ge hnlvl_lt

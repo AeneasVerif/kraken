@@ -628,7 +628,7 @@ def fullMinShrinkSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
 
 def fullDetNewLevelSpec : Spec [i64, i64] [i64] := fun (h, jump, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧ (FullMem c s ⋆ R) m ∧
+    h = c.hdr ∧ s.LengthsOk c ∧ s.core.cur_level < 2 ^ 64 ∧ (FullMem c s ⋆ R) m ∧
     ∀ r : BitVec 64,
       (s.core.cur_level = 0 → r = 0#64) →
       (0 < s.core.cur_level → jump.toNat < s.core.cur_level →
