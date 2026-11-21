@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.OptLemmas
+public import LeanQbe.T.MainInline
 public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Logic.Rules
@@ -291,5 +292,51 @@ theorem lateSynergyProg_lateOpt_spec (Γ : Env) (x ptr o : BitVec 64) (cond : Bo
 #print axioms LeanQbe.T.Func.lateOpt_spec
 #print axioms stagedDiamond_earlyLate_spec
 #print axioms lateSynergyProg_lateOpt_spec
+
+/-! ## `Module.optInline` + `MainLemmas` composition check -/
+
+def optInlineLeafBody : Func [i64] [i64] := fun _ _ (x, ()) =>
+  .let_ (op2 (.add i64) (.var x) (.imm 1)) fun (y, ()) =>
+    .ret (.var y, ())
+
+def optInlineCallerBody : Func [i64] [i64] := fun _ _ (x, ()) =>
+  .call "leaf_inc" (as := [i64]) (bs := [i64]) (.var x, ()) fun (y, ()) =>
+    .ret (.var y, ())
+
+def optInlineSampleMod : Module :=
+  { fns := [
+      ⟨"leaf_inc", [i64], [i64], optInlineLeafBody⟩,
+      ⟨"caller_inc", [i64], [i64], optInlineCallerBody⟩
+    ]
+    externs := []
+    exits := [] }
+
+theorem optInlineSampleMod_checkAcyclic : optInlineSampleMod.checkAcyclic = true := by
+  rfl
+
+theorem optInlineSampleMod_wf : ∀ f ∈ optInlineSampleMod.fns, f.Wf := by
+  intro f hf
+  rcases List.mem_cons.mp hf with rfl | hf
+  · t_wf_reify
+  · rcases List.mem_cons.mp hf with rfl | hf
+    · t_wf_reify
+    · cases hf
+
+theorem optInlineSampleMod_inlined_checkAcyclic :
+    (optInlineSampleMod.optInline 40).checkAcyclic = true :=
+  Module.optInline_checkAcyclic 40 optInlineSampleMod_checkAcyclic optInlineSampleMod_wf
+
+theorem optInlineSampleMod_inlined_wf :
+    ∀ f ∈ (optInlineSampleMod.optInline 40).fns, f.Wf :=
+  Module.optInline_wf 40 optInlineSampleMod_checkAcyclic optInlineSampleMod_wf
+
+#print axioms LeanQbe.T.Module.optInline_ok
+#print axioms LeanQbe.T.Module.optInline_checkAcyclic
+#print axioms LeanQbe.T.Module.optInline_wf
+#print axioms LeanQbe.T.compile_sound_optInline
+#print axioms LeanQbe.T.Compiled.fnSpec_optInline
+#print axioms LeanQbe.T.Compiled.fnSpec_host_optInline
+#print axioms LeanQbe.T.Compiled.fnSpec_noExit_id_optInline
+#print axioms optInlineSampleMod_inlined_checkAcyclic
 
 end LeanQbe.T.OptTest

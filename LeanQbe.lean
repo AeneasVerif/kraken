@@ -86,6 +86,7 @@ public import LeanQbe.T.RegaLemmas
 public import LeanQbe.T.StepSimp
 public import LeanQbe.T.Main
 public import LeanQbe.T.MainLemmas
+public import LeanQbe.T.MainInline
 public import LeanQbe.T.MainLink
 public import LeanQbe.T.MainLinkSplice
 public import LeanQbe.T.MainCert

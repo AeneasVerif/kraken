@@ -23,10 +23,22 @@ cleanup() {
 trap cleanup EXIT
 echo "outputs in $OUT"
 
+run_lean() {
+  local secs="$1"; shift
+  if [ -n "${STAGE_LEAN_PATH:-}" ]; then
+    LEAN_PATH="$STAGE_LEAN_PATH:$ROOT/.lake/build/lib/lean${LEAN_PATH:+:$LEAN_PATH}" \
+      timeout "$secs" lean "$@"
+  else
+    timeout "$secs" lake env lean "$@"
+  fi
+}
+
 echo "== 1. build Kissat Solver/Test and generate C++20 / QBE / corpus artifacts =="
-timeout 600 lake build --wfail LeanQbe.T.Examples.Kissat.Solver LeanQbe.T.Driver \
-  LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ LeanQbeTest.T.KissatC0Test
-timeout 120 lake env lean --run LeanQbeTest/T/KissatC0Test.lean "$OUT"
+if [ -z "${STAGE_LEAN_PATH:-}" ]; then
+  timeout 600 lake build --wfail LeanQbe.T.Examples.Kissat.Solver LeanQbe.T.Driver \
+    LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ LeanQbeTest.T.KissatC0Test
+fi
+run_lean 120 --run LeanQbeTest/T/KissatC0Test.lean "$OUT"
 
 RT_INC="$ROOT/LeanQbe/T/Runtime"
 KTEST_INC="$ROOT/test/kissat"
@@ -43,14 +55,14 @@ timeout 60 clang++ $COMMON_CXX -fsanitize=undefined,address -DTQBE_CATCH_UB \
 timeout 60 "$OUT/kissat_asan"
 
 echo "== 4. native x64 codegen (x64Target + gcc + mmap guard pages) =="
-timeout 120 lake env lean --run test/kissat/emit_x64.lean "$OUT/kissat_x64.s"
+run_lean 120 --run test/kissat/emit_x64.lean "$OUT/kissat_x64.s"
 timeout 60 gcc $COMMON_C -no-pie test/kissat/kissat_main.c "$OUT/kissat_x64.s" \
   -o "$OUT/kissat_x64"
 timeout 60 "$OUT/kissat_x64" > "$OUT/x64.out"
 tail -n 1 "$OUT/x64.out"
 
 echo "== 5. native Arm64 codegen (armTarget + aarch64-linux-gnu-gcc + qemu-aarch64) =="
-timeout 120 lake env lean --run test/kissat/emit_arm64.lean "$OUT/kissat_arm64.s"
+run_lean 120 --run test/kissat/emit_arm64.lean "$OUT/kissat_arm64.s"
 timeout 60 aarch64-linux-gnu-gcc $COMMON_C test/kissat/kissat_main.c "$OUT/kissat_arm64.s" \
   -o "$OUT/kissat_arm64" 2>"$OUT/arm64_cc.log" || { cat "$OUT/arm64_cc.log" >&2; exit 1; }
 grep -v -e 'SFrame' "$OUT/arm64_cc.log" >&2 || true
@@ -114,11 +126,13 @@ PY
 fi
 
 echo "== 8. FullM3 unified differential check (PrintCpp ASan/UBSan + Native x64 + Arm64) =="
-timeout 600 lake build --wfail LeanQbe.T.Examples.Kissat.FullM3 LeanQbe.T.PrintCpp \
-  LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ \
-  Kraken.X64.PrintATT Kraken.AArch64.Print
-timeout 180 lake env lean --run test/kissat/emit_m3_x64.lean "$OUT/m3_x64.s" "$OUT/m3_gen.hpp"
-timeout 180 lake env lean --run test/kissat/emit_m3_arm64.lean "$OUT/m3_arm64.s"
+if [ -z "${STAGE_LEAN_PATH:-}" ]; then
+  timeout 600 lake build --wfail LeanQbe.T.Examples.Kissat.FullM3 LeanQbe.T.PrintCpp \
+    LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ \
+    Kraken.X64.PrintATT Kraken.AArch64.Print
+fi
+run_lean 180 --run test/kissat/emit_m3_x64.lean "$OUT/m3_x64.s" "$OUT/m3_gen.hpp"
+run_lean 180 --run test/kissat/emit_m3_arm64.lean "$OUT/m3_arm64.s"
 
 cat > "$OUT/m3_bridge.cpp" <<'CPP'
 #include <cstdint>

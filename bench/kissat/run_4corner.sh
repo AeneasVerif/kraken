@@ -27,6 +27,7 @@ FUEL="${FUEL:-200000000}"
 PER_TIMEOUT="${PER_TIMEOUT:-5}"
 WITH_PERF="${WITH_PERF:-0}"
 KISSAT_BIN="${KISSAT_BIN:-}"
+INLINE_MAX_SIZE="${INLINE_MAX_SIZE:-40}"
 UPDATE_BASELINE=0
 STRICT_GAPS=0
 FILTER=""
@@ -39,6 +40,7 @@ usage: bench/kissat/run_4corner.sh [options]
   --work-bytes <N>                          Workspace bytes (default: 67108864)
   --fuel <N>                                Fuel budget (default: 200000000)
   --per-timeout <sec>                       Per-CNF timeout seconds (default: 5)
+  --inline-max <N>                          Module.optInline maxSize for C4 (default: 40; 0 off)
   --perf                                    Run perf stat hardware counter comparison (C3b vs C4)
   --update-baseline                         Update bench/kissat/canary_baseline.json
   --strict-gaps                             Fail on known pre-M3 gaps too
@@ -64,6 +66,7 @@ while [ $# -gt 0 ]; do
     --work-bytes) WORK_BYTES="$2"; shift 2 ;;
     --fuel) FUEL="$2"; shift 2 ;;
     --per-timeout) PER_TIMEOUT="$2"; shift 2 ;;
+    --inline-max) INLINE_MAX_SIZE="$2"; shift 2 ;;
     --perf) WITH_PERF=1; shift ;;
     --update-baseline) UPDATE_BASELINE=1; shift ;;
     --strict-gaps) STRICT_GAPS=1; shift ;;
@@ -97,7 +100,7 @@ run_lean_env() {
 
 if [ -z "${STAGE_LEAN_PATH:-}" ]; then
   LAKE_TARGETS=(
-    LeanQbe.T.PrintCpp LeanQbe.T.Driver
+    LeanQbe.T.PrintCpp LeanQbe.T.Opt LeanQbe.T.Driver
     LeanQbe.T.Amd64.Targ Kraken.X64.PrintATT
   )
   for m in "${MODULES[@]}"; do
@@ -134,6 +137,7 @@ for m in "${MODULES[@]}"; do
   cat > "$OUT/emit_${m}.lean" <<LEAN
 import LeanQbe.T.Examples.Kissat.${m}
 import LeanQbe.T.PrintCpp
+import LeanQbe.T.Opt
 import LeanQbe.T.Driver
 import LeanQbe.T.Amd64.Targ
 import Kraken.X64.PrintATT
@@ -147,7 +151,7 @@ public def main (args : List String) : IO Unit := do
     | .ok s => pure s
     | .error e => throw (IO.userError e)
   IO.FS.writeFile cppPath cpp
-  let fns := m.fns
+  let fns := if ${INLINE_MAX_SIZE} > 0 then (m.optInline ${INLINE_MAX_SIZE}).fns else m.fns
   let hints := fns.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
   let dirs ← match LeanQbe.T.compile x64Target.toIsa x64LegalTarget fns hints with
     | .ok d => pure d
