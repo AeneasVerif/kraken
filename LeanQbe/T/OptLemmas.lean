@@ -12,6 +12,7 @@ public import LeanQbe.T.MemLoadLemmas
 public import LeanQbe.T.PeelLemmas
 public import LeanQbe.T.IfOptLemmas
 public import LeanQbe.T.SimplifyGroupPlanLemmas
+public import LeanQbe.T.LicmLemmas
 public import LeanQbe.T.InlineLemmas
 
 /-!
@@ -168,7 +169,7 @@ theorem Func.lateCore_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : 
 theorem Func.lateCfg_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
     (Func.lateCfg f).Wf := by
   rw [Func.lateCfg_eq]
-  exact Func.dceP_wf (Func.renorm_wf _)
+  exact Func.dceP_wf (Func.licm_wf (Func.renorm_wf _))
 
 /-- `Func.lateCfg` refines function contracts. -/
 theorem Func.lateCfg_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
@@ -177,19 +178,20 @@ theorem Func.lateCfg_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : E
   rw [Func.lateCfg_eq]
   have hf0 := Func.renorm_wf f
   have hs0 := Func.renorm_spec hf h
-  let f2 := Func.ifOptBits (Func.renorm f)
   have hf2 := Func.ifOptBits_wf hf0
   have hs2 := Func.ifOptBits_spec hf0 hs0
-  have hf3 := Func.simplifyGroupFast_wf f2
+  have hf3 := Func.simplifyGroupFast_wf (Func.ifOptBits (Func.renorm f))
   have hs3 := Func.simplifyGroupFast_spec hf2 hs2
   have hf4 := Func.deadLoadElim_wf hf3
   have hs4 := Func.deadLoadElim_spec hf3 hs3
-  let f5 := Func.assumeElim (Func.deadLoadElim (Func.simplifyGroupFast f2))
   have hf5 := Func.assumeElim_wf hf4
   have hs5 := Func.assumeElim_spec hf4 hs4
-  have hf5r := Func.renorm_wf f5
+  have hf5r := Func.renorm_wf
+    (Func.assumeElim (Func.deadLoadElim (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f)))))
   have hs5r := Func.renorm_spec hf5 hs5
-  exact Func.dceP_spec hf5r hs5r
+  have hf6 := Func.licm_wf hf5r
+  have hs6 := Func.licm_spec hf5r hs5r
+  exact Func.dceP_spec hf6 hs6
 
 /-- Stage 2 (`Func.lateOpt`) preserves well-formedness. -/
 theorem Func.lateOpt_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :

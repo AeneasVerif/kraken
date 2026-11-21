@@ -145,6 +145,42 @@ def anyLive (b : Nat) : Nat → Trie Unit → Bool
   | 0, _ => false
   | k + 1, s => (s.find? b).isSome || anyLive (b + 1) k s
 
+/-! ## Shared CFG reachability fixpoint helpers (`#048-B1`) -/
+
+/-- Insert all elements of `xs` not already in `acc`, returning `(acc', changed)`. -/
+def unionNatsChanged (acc : List Nat) : List Nat → List Nat × Bool
+  | [] => (acc, false)
+  | x :: xs =>
+    if acc.contains x then unionNatsChanged acc xs
+    else
+      let (acc', _) := unionNatsChanged (x :: acc) xs
+      (acc', true)
+
+/-- One forward reachability step over adjacency list `adj`, expanding `reach` with successors of
+reached nodes. -/
+def forwardReachStep (adj : List (Nat × List Nat)) (reach : List Nat) : List Nat × Bool :=
+  adj.foldl (fun (acc, ch) (id, succs) =>
+    if reach.contains id then
+      let (acc', ch') := unionNatsChanged acc succs
+      (acc', ch || ch')
+    else (acc, ch)) (reach, false)
+
+/-- One backward reachability step over adjacency list `adj`, adding nodes with a successor in
+`reach`. -/
+def backReachStep (adj : List (Nat × List Nat)) (reach : List Nat) : List Nat × Bool :=
+  adj.foldl (fun (acc, ch) (id, succs) =>
+    if !acc.contains id && succs.any (fun s => acc.contains s) then
+      (id :: acc, true)
+    else (acc, ch)) (reach, false)
+
+/-- Bounded fixpoint reachability closure over adjacency list `adj` using step function `step`. -/
+def reachFixpoint (step : List (Nat × List Nat) → List Nat → List Nat × Bool)
+    (adj : List (Nat × List Nat)) : Nat → List Nat → List Nat
+  | 0, reach => reach
+  | fuel + 1, reach =>
+    let (reach', changed) := step adj reach
+    if changed then reachFixpoint step adj fuel reach' else reach
+
 /-! ## Shared `Tup` / `TRel` / `Ctx` transport lemmas -/
 
 theorem tupImms?_vals :

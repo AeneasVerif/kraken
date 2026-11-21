@@ -11,6 +11,7 @@ public import LeanQbe.T.MemLoad
 public import LeanQbe.T.Peel
 public import LeanQbe.T.IfOpt
 public import LeanQbe.T.SimplifyGroupPlan
+public import LeanQbe.T.Licm
 public import LeanQbe.T.Inline
 public import LeanQbe.T.Module
 
@@ -24,8 +25,8 @@ public import LeanQbe.T.Module
   chains).
 * `Func.lateOpt`: post-`Legal` pipeline (`renorm → fold → canon → divConst → copy → memLoad →
   gvn → renorm → simplifyGroupPlan → ifOptBits → simplifyGroupPlan → deadLoadElim → assumeElim →
-  dceP → renorm`), running target-safe scalar division reduction, memory load forwarding,
-  machine-width if-conversion, and cleanup on legalized IR.
+  renorm → licm → dceP → renorm`), running target-safe scalar division reduction, memory load
+  forwarding, machine-width if-conversion, loop-invariant code motion, and cleanup on legalized IR.
 * `Fn.renorm` / `Module.optInline`: acyclic small-callee inlining followed by AST renormalization.
 
 Correctness (`LeanQbe/T/OptLemmas.lean`): `Func.opt_wf`, `Func.opt_spec`, `Func.earlyOpt_wf`,
@@ -142,14 +143,14 @@ def Func.lateCore {as rs : List Ty} (f : Func as rs) : Func as rs :=
     (Func.fold f)))))))
 
 /-- Post-`Legal` CFG/cleanup core (`renorm → ifOptBits → simplifyGroupFast → deadLoadElim →
-assumeElim → renorm → dceP`). -/
+assumeElim → renorm → licm → dceP`). -/
 def Func.lateCfg {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.dceP (Func.renorm (Func.assumeElim (Func.deadLoadElim
-    (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f))))))
+  Func.dceP (Func.licm (Func.renorm (Func.assumeElim (Func.deadLoadElim
+    (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f)))))))
 
 /-- Stage 2 (`lateOpt`, post-`Legal`): strength-reduce constant division, forward memory loads,
-run machine-width `.bits` if-conversion (`ifOptBits`), clean up dead loads/blocks, and renormalize
-before `Rega`. -/
+run machine-width `.bits` if-conversion (`ifOptBits`), clean up dead loads/blocks, hoist
+loop-invariant pure operations (`licm`), and renormalize before `Rega`. -/
 def Func.lateOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.renorm (Func.lateCfg (Func.lateCore f))
 
@@ -171,8 +172,8 @@ theorem Func.lateCore_eq {as rs : List Ty} (f : Func as rs) :
 
 theorem Func.lateCfg_eq {as rs : List Ty} (f : Func as rs) :
     Func.lateCfg f =
-      Func.dceP (Func.renorm (Func.assumeElim (Func.deadLoadElim
-        (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f)))))) :=
+      Func.dceP (Func.licm (Func.renorm (Func.assumeElim (Func.deadLoadElim
+        (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f))))))) :=
   rfl
 
 theorem Func.lateOpt_eq {as rs : List Ty} (f : Func as rs) :

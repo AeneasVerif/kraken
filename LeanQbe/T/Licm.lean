@@ -136,35 +136,13 @@ def buildBlockAdj (m : Nat) {rs : List Ty} :
   | _, .nil => []
   | _ :: sig, .cons b bs => (sig.length, collectLocalJumps 0 m b []) :: buildBlockAdj m bs
 
-def unionNats (acc : List Nat) : List Nat → List Nat × Bool
-  | [] => (acc, false)
-  | x :: xs =>
-    if acc.contains x then unionNats acc xs
-    else
-      let (acc', _) := unionNats (x :: acc) xs
-      (acc', true)
-
-def reachAdjStep (adj : List (Nat × List Nat)) (reach : List Nat) : List Nat × Bool :=
-  adj.foldl (fun (acc, ch) (id, succs) =>
-    if reach.contains id then
-      let (acc', ch') := unionNats acc succs
-      (acc', ch || ch')
-    else (acc, ch)) (reach, false)
-
-/-- Bounded forward reachability closure over local block graph `adj`. -/
-def reachAdjLoop (adj : List (Nat × List Nat)) : Nat → List Nat → List Nat
-  | 0, reach => reach
-  | fuel + 1, reach =>
-    let (reach', changed) := reachAdjStep adj reach
-    if changed then reachAdjLoop adj fuel reach' else reach
-
 /-- Return all local block label indices in `bodies` that lie on a cycle (self-loop or
 multi-block cycle). Empty iff the `.group` is acyclic (not a loop). -/
 def computeLoopMask {rs : List Ty} {sig : List (List Ty)} (bodies : TBlocks rs sig) : List Nat :=
   let m := sig.length
   let adj := buildBlockAdj m bodies
   adj.foldl (fun acc (lbl, succs) =>
-    let reach := reachAdjLoop adj m succs
+    let reach := reachFixpoint forwardReachStep adj m succs
     if reach.contains lbl then lbl :: acc else acc) []
 
 mutual
@@ -193,18 +171,6 @@ def directOuterReach (outerMask : List Nat) {rs : List Ty} :
     let rest := directOuterReach outerMask bs
     if hasJumpInMask outerMask 0 b then sig.length :: rest else rest
 
-def backReachStep (adj : List (Nat × List Nat)) (reach : List Nat) : List Nat × Bool :=
-  adj.foldl (fun (acc, ch) (id, succs) =>
-    if !acc.contains id && succs.any (fun s => acc.contains s) then
-      (id :: acc, true)
-    else (acc, ch)) (reach, false)
-
-def backReachLoop (adj : List (Nat × List Nat)) : Nat → List Nat → List Nat
-  | 0, reach => reach
-  | fuel + 1, reach =>
-    let (reach', changed) := backReachStep adj reach
-    if changed then backReachLoop adj fuel reach' else reach
-
 /-- Compute local block label indices in `bodies` that can reach `outerMask` in `≥ 1` steps. -/
 def extReachMask (outerMask : List Nat) {rs : List Ty} {sig : List (List Ty)}
     (bodies : TBlocks rs sig) : List Nat :=
@@ -212,7 +178,7 @@ def extReachMask (outerMask : List Nat) {rs : List Ty} {sig : List (List Ty)}
   else
     let init := directOuterReach outerMask bodies
     if init.isEmpty then []
-    else backReachLoop (buildBlockAdj sig.length bodies) sig.length init
+    else reachFixpoint backReachStep (buildBlockAdj sig.length bodies) sig.length init
 
 mutual
 /-- Mirror tree annotating each subexpression with whether it can reach a loop backedge. -/

@@ -284,14 +284,77 @@ theorem lateSynergyProg_lateOpt_spec (Γ : Env) (x ptr o : BitVec 64) (cond : Bo
   refine ⟨x, hl, x, hl, by decide, ?_⟩
   exact ⟨fun _ => ⟨rfl, hm1⟩, fun h => by cases h⟩
 
+/-- Loop computing invariant clause-literal base `ar + ((zext cref + 3) * 4)` on every iteration
+while loading `i32` literals; `Func.lateOpt` folds `* 4` to `<< 2` and hoists the entire address
+chain before `.group` via `Func.licm`. -/
+def lateLicmAddrLoop : Func [i64, i32, i64] [i64] := fun _ _ (ar, cref, n, ()) =>
+  loop1 (ts := [i64, i64])
+    (fun lp (i, acc, ()) =>
+      .let_ (op2 (.cmp .eq i64) (.var i) (.imm 0)) fun (z, ()) =>
+      .jnz (.var z) (.ret (.var acc, ()))
+        (.let_ (op1 (.zext 32 64) (.var cref)) fun (c64, ()) =>
+         .let_ (op2 (.add i64) (.var c64) (.imm 3)) fun (c3, ()) =>
+         .let_ (op2 (.mul i64) (.var c3) (.imm 4)) fun (off, ()) =>
+         .let_ (op2 (.add i64) (.var ar) (.var off)) fun (base, ()) =>
+         .let_ (op2 (.mul i64) (.var i) (.imm 4)) fun (ioff, ()) =>
+         .let_ (op2 (.add i64) (.var base) (.var ioff)) fun (ptr, ()) =>
+         .load i32 (.var ptr) fun w =>
+         .let_ (op1 (.zext 32 64) (.var w)) fun (w64, ()) =>
+         .let_ (op2 (.add i64) (.var acc) (.var w64)) fun (acc', ()) =>
+         .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+         .jump lp (.var i', .var acc', ())))
+    (fun lp => .jump lp (.var n, .imm 0, ()))
+
+theorem lateLicmAddrLoop_lateOpt_out : Func.lateOpt lateLicmAddrLoop =
+    fun _ _ (ar, cref, n, ()) =>
+      .let_ (op1 (.zext 32 64) (.var cref)) fun (c64, ()) =>
+      .let_ (op2 (.add i64) (.var c64) (.imm 3)) fun (c3, ()) =>
+      .let_ (op2 (.shl i64) (.var c3) (.imm 2)) fun (off, ()) =>
+      .let_ (op2 (.add i64) (.var ar) (.var off)) fun (base, ()) =>
+      .group (sig := [[i64, i64]])
+        (fun (lp, ()) => .cons (fun (i, acc, ()) =>
+          .let_ (op2 (.cmp .eq i64) (.var i) (.imm 0)) fun (z, ()) =>
+          .jnz (.var z) (.ret (.var acc, ()))
+            (.let_ (op2 (.shl i64) (.var i) (.imm 2)) fun (ioff, ()) =>
+             .let_ (op2 (.add i64) (.var base) (.var ioff)) fun (ptr, ()) =>
+             .load i32 (.var ptr) fun w =>
+             .let_ (op1 (.zext 32 64) (.var w)) fun (w64, ()) =>
+             .let_ (op2 (.add i64) (.var acc) (.var w64)) fun (acc', ()) =>
+             .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+             .jump lp (.var i', .var acc', ()))) .nil)
+        (fun (lp, ()) => .jump lp (.var n, .imm 0, ())) := by
+  t_kernel_rfl
+
+theorem lateLicmAddrLoop_wf : lateLicmAddrLoop.Wf := by t_wf_reify
+
+theorem lateLicmAddrLoop_lateOpt_wf : (Func.lateOpt lateLicmAddrLoop).Wf :=
+  Func.lateOpt_wf lateLicmAddrLoop_wf
+
+theorem lateLicmAddrLoop_lateOpt_zero_spec (Γ : Env) (ar : BitVec 64) (cref : BitVec 32)
+    (m : Mem 64) (X : XPost) :
+    Func.spec Γ (Func.lateOpt lateLicmAddrLoop) (ar, cref, 0#64, ()) m
+      (fun (r, ()) m' => r = 0#64 ∧ m' = m) X := by
+  apply Func.lateOpt_spec lateLicmAddrLoop_wf
+  dsimp only [Func.spec, Func.wp, lateLicmAddrLoop]
+  refine wp_loop1 _ _
+    (fun k (x : Tup Val [i64, i64]) m' => k = 0 ∧ x.1 = 0#64 ∧ x.2.1 = 0#64 ∧ m' = m) ?_ ?_
+  · rintro _ _ ⟨i, acc, ⟨⟩⟩ m' _ ⟨_, rfl, rfl, rfl⟩
+    wp_unfold; simp
+  · intro J hJ
+    wp_unfold
+    exact hJ 0 (0#64, 0#64, ()) m ⟨rfl, rfl, rfl, rfl⟩
+
 #print axioms LeanQbe.T.Func.renorm_spec
 #print axioms LeanQbe.T.Func.simplifyGroupFast_spec
 #print axioms LeanQbe.T.Func.earlyOpt_wf
 #print axioms LeanQbe.T.Func.earlyOpt_spec
+#print axioms LeanQbe.T.Func.lateCfg_wf
+#print axioms LeanQbe.T.Func.lateCfg_spec
 #print axioms LeanQbe.T.Func.lateOpt_wf
 #print axioms LeanQbe.T.Func.lateOpt_spec
 #print axioms stagedDiamond_earlyLate_spec
 #print axioms lateSynergyProg_lateOpt_spec
+#print axioms lateLicmAddrLoop_lateOpt_zero_spec
 
 /-! ## `Module.optInline` + `MainLemmas` composition check -/
 

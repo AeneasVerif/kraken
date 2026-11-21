@@ -113,28 +113,6 @@ def collectLocal (lo len : Nat) (m : JumpMap) : List Nat :=
       go (cur + 1) rem acc'
   go lo len []
 
-def unionChanged : List Nat → List Nat → List Nat × Bool
-  | acc, [] => (acc, false)
-  | acc, x :: xs =>
-    if acc.contains x then unionChanged acc xs
-    else
-      let (acc', _) := unionChanged (x :: acc) xs
-      (acc', true)
-
-def reachStep (adj : List (Nat × List Nat)) (reach : List Nat) : List Nat × Bool :=
-  adj.foldl (fun (acc, ch) (id, succs) =>
-    if reach.contains id then
-      let (acc', ch') := unionChanged acc succs
-      (acc', ch || ch')
-    else (acc, ch)) (reach, false)
-
-/-- Fixpoint reachability loop over local block IDs in `[nl, nl + sig.length)`. -/
-def reachLoop (adj : List (Nat × List Nat)) : Nat → List Nat → List Nat
-  | 0, reach => reach
-  | fuel + 1, reach =>
-    let (reach', changed) := reachStep adj reach
-    if changed then reachLoop adj fuel reach' else reach
-
 /-- Exact post-simplification bottom-up summary of a `TFlat` subtree. -/
 structure PlanInfo where
   jumps : JumpMap
@@ -199,7 +177,7 @@ def decideGroup (nl : Nat) (sig : List (List Ty))
     let len := sig.length
     let init := collectLocal nl len ik.jumps
     let adj := buildAdj nl len nl bis
-    let reach := reachLoop adj (len + 1) init
+    let reach := reachFixpoint forwardReachStep adj (len + 1) init
     let (keep, keptIdxs) := buildKeepInfo nl reach 0 bis
     match keptIdxs with
     | [] =>
