@@ -284,6 +284,7 @@ theorem lateSynergyProg_lateOpt_spec (Γ : Env) (x ptr o : BitVec 64) (cond : Bo
   refine ⟨x, hl, x, hl, by decide, ?_⟩
   exact ⟨fun _ => ⟨rfl, hm1⟩, fun h => by cases h⟩
 
+<<<<<<< HEAD
 /-- Loop computing invariant clause-literal base `ar + ((zext cref + 3) * 4)` on every iteration
 while loading `i32` literals; `Func.lateOpt` folds `* 4` to `<< 2` and hoists the entire address
 chain before `.group` via `Func.licm`. -/
@@ -344,6 +345,54 @@ theorem lateLicmAddrLoop_lateOpt_zero_spec (Γ : Env) (ar : BitVec 64) (cref : B
     wp_unfold
     exact hJ 0 (0#64, 0#64, ()) m ⟨rfl, rfl, rfl, rfl⟩
 
+/-! ## 7. Compare-shape canonicalization & `sext`/`zext` compare narrowing (`C4(a)(b)`) -/
+
+/-- Exercises both C4 compare-shape optimizations through `Func.earlyOpt`:
+- `x >u 0 → x ≠ 0`, `x ≤u 5 → x <u 6`, `0 <s y → y ≥s 1`, `x <u 0 → false`,
+- `cmp .sgt (sext 8 32 b) 0 → cmp .sge i8 b 1` (dropping dead `sext 8 32`),
+- `cmp .slt (zext 8 32 u) 10 → cmp .ult i8 u 10` (signed `zext` narrows to unsigned, dropping
+  dead `zext 8 32`),
+- `cmp .eq (zext 8 32 u) (zext 8 32 v) → cmp .eq i8 u v`. -/
+def cmpShapeProg : Func [i64, i32, i8, i8, i8]
+    [.bool, .bool, .bool, .bool, .bool, .bool, .bool] := fun _ _ (x, y, b, u, v, ()) =>
+  .let_ (op2 (.ugt i64) (.var x) (.imm 0)) fun (c1, ()) =>
+  .let_ (op2 (.ule i64) (.var x) (.imm 5)) fun (c2, ()) =>
+  .let_ (op2 (.slt i32) (.imm 0) (.var y)) fun (c3, ()) =>
+  .let_ (op2 (.ult i64) (.var x) (.imm 0)) fun (c4, ()) =>
+  .let_ (op1 (.sext 8 32) (.var b)) fun (sb, ()) =>
+  .let_ (op2 (.sgt i32) (.var sb) (.imm 0)) fun (c5, ()) =>
+  .let_ (op1 (.zext 8 32) (.var u)) fun (zu, ()) =>
+  .let_ (op2 (.slt i32) (.var zu) (.imm 10)) fun (c6, ()) =>
+  .let_ (op1 (.zext 8 32) (.var v)) fun (zv, ()) =>
+  .let_ (op2 (.eq i32) (.var zu) (.var zv)) fun (c7, ()) =>
+  .ret (.var c1, .var c2, .var c3, .var c4, .var c5, .var c6, .var c7, ())
+
+theorem cmpShapeProg_earlyOpt_out : Func.earlyOpt cmpShapeProg =
+    fun _ _ (x, y, b, u, v, ()) =>
+      .let_ (op2 (.ne i64) (.var x) (.imm 0)) fun (c1, ()) =>
+      .let_ (op2 (.ult i64) (.var x) (.imm 6)) fun (c2, ()) =>
+      .let_ (op2 (.sge i32) (.var y) (.imm 1)) fun (c3, ()) =>
+      .let_ (op2 (.sge i8) (.var b) (.imm 1)) fun (c5, ()) =>
+      .let_ (op2 (.ult i8) (.var u) (.imm 10)) fun (c6, ()) =>
+      .let_ (op2 (.eq i8) (.var u) (.var v)) fun (c7, ()) =>
+      .ret (.var c1, .var c2, .var c3, .imm false, .var c5, .var c6, .var c7, ()) := by
+  t_kernel_rfl
+
+theorem cmpShapeProg_wf : cmpShapeProg.Wf := by t_wf_reify
+
+theorem cmpShapeProg_earlyOpt_spec (Γ : Env) (x : BitVec 64) (y : BitVec 32)
+    (b u v : BitVec 8) (m : Mem 64) :
+    Func.spec Γ (Func.earlyOpt cmpShapeProg) (x, y, b, u, v, ()) m
+      (fun (c1, c2, c3, c4, c5, c6, c7, ()) m' =>
+        c1 = (0#64).ult x ∧ c2 = x.ule 5#64 ∧ c3 = (0#32).slt y ∧ c4 = false ∧
+        c5 = (0#32).slt (b.signExtend 32) ∧ c6 = (u.setWidth 32).slt 10#32 ∧
+        c7 = (u.setWidth 32 == v.setWidth 32) ∧ m' = m)
+      (fun _ _ _ _ => False) := by
+  apply Func.earlyOpt_spec cmpShapeProg_wf
+  dsimp only [Func.spec, Func.wp, cmpShapeProg]
+  wp_unfold_all
+  simp [BitVec.ult]
+
 #print axioms LeanQbe.T.Func.renorm_spec
 #print axioms LeanQbe.T.Func.simplifyGroupFast_spec
 #print axioms LeanQbe.T.Func.earlyOpt_wf
@@ -355,6 +404,7 @@ theorem lateLicmAddrLoop_lateOpt_zero_spec (Γ : Env) (ar : BitVec 64) (cref : B
 #print axioms stagedDiamond_earlyLate_spec
 #print axioms lateSynergyProg_lateOpt_spec
 #print axioms lateLicmAddrLoop_lateOpt_zero_spec
+#print axioms cmpShapeProg_earlyOpt_spec
 
 /-! ## `Module.optInline` + `MainLemmas` composition check -/
 

@@ -6,9 +6,10 @@ public import LeanQbe.T.OptUtil
 # Constant folding, trivial-op simplification, algebraic rules, and strength reduction (`T6`)
 
 PHOAS-to-PHOAS optimisation pass `fold : Nat → Expr (FVal V) L rs → Expr V L rs` where
-`FVal V t = Arg V t × FKey t` (`FKey t = Arg K t`, `K _ = Nat`): every bound variable carries its
-replacement operand `Arg V t` in the output expression and a `V`-independent symbolic key `FKey t`
-so equal variables (`a.fkey == b.fkey`) can be detected without `DecidableEq V`.
+`FVal V t` carries a replacement operand `out : Arg V t`, a `V`-independent symbolic key
+`key : FKey t` (`FKey t = Arg K t`, `K _ = Nat`) so equal variables (`a.fkey == b.fkey`) can be
+detected without `DecidableEq V`, and optional `sext`/`zext` provenance `ext : ExtDef V t` for
+width-narrowing comparisons.
 
 1. **Constant folding (`OpCode.eval?`)**: evaluates all 64 `OpCode` constructors when all operands
    are immediate and preconditions hold (preserving UB `False` by keeping undefined constant ops).
@@ -20,10 +21,18 @@ so equal variables (`a.fkey == b.fkey`) can be detected without `DecidableEq V`.
    - leaf-wise annihilators, identities, and self-rules across `.bool`, `.bits n`, and non-float
      `pair`/vector trees (`add`, `sub`, `mul`, `and`, `or`, `xor`, `shl`, `lshr`, `ashr`, `rotl`,
      `rotr`, `cmp`, `select`, `blend`, `ternlog`, `addc`, `subb`, `umulw`, `smulw`, `udiv`/`sdiv`,
-     `urem`/`srem`, `udiv0`/`sdiv0`).
-3. **Strength reduction (`Op.rewrite`)**:
+     `urem`/`srem`, `udiv0`/`sdiv0`);
+   - extreme-bound scalar `.bits` comparison folds (`x <u 0 → false`, `x ≥u 0 → true`,
+     `x >u allOnes → false`, `x ≤u allOnes → true`, `x <s intMin → false`, `x ≥s intMin → true`,
+     `x >s intMax → false`, `x ≤s intMax → true`), after optional `sext`/`zext` narrowing.
+3. **Strength reduction & compare canonicalization (`Op.rewrite`, `Op.foldRewrite`)**:
    - leaf-wise power-of-two `mul t a (2^m) → shl t a m` (both operand orders, scalar & vector);
-   - power-of-two `udiv n a (2^m) → lshr n a m` and `urem n a (2^m) → and n a (2^m - 1)`.
+   - power-of-two `udiv n a (2^m) → lshr n a m` and `urem n a (2^m) → and n a (2^m - 1)`;
+   - immediate-on-right `cmp` orientation (`c op x → x op.swap c`), `sext`/`zext` compare width
+     narrowing (`cmp (sext m n x) c → cmp x c'`, `cmp (zext m n x) c → cmp_u x c'`, and
+     matching-width `ext`-vs-`ext`), and immediate comparison normalization (`x >u 0 → x ≠ 0`,
+     `x ≤u 0 → x = 0`, `x >u c → x ≥u c+1`, `x ≤u c → x <u c+1`, `x >s c → x ≥s c+1`,
+     `x ≤s c → x <s c+1`) so x64 flag coloring never swaps immediates back onto the left.
 4. **Static branches**: `jnz (.imm b) t e` keeps only the taken branch.
 
 Correctness (`LeanQbe/T/FoldLemmas.lean`): `fold_wp`, `fold_wf`, `Func.fold_spec`, `Func.fold_wf`.
@@ -35,28 +44,69 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 
-/-- Input representation of a value in `fold`: replacement operand paired with symbolic key. -/
-abbrev FVal (V : Ty → Type) (t : Ty) := Arg V t × FKey t
+/-- Kind of widening extension tracked by `ExtDef`. -/
+inductive ExtKind
+  | sext
+  | zext
+  deriving DecidableEq, Repr
+
+/-- Provenance recording that a `.bits n` value was produced by `sext m n` or `zext m n` with
+`0 < m < n`. -/
+structure BitsExt (V : Ty → Type) (n : Nat) : Type where
+  kind : ExtKind
+  m : Nat
+  hpos : 0 < m
+  hlt : m < n
+  src : Arg V (.bits m)
+  srcKey : FKey (.bits m)
+
+/-- Type-indexed extension provenance: `Option (BitsExt V n)` for `.bits n`, trivial otherwise. -/
+def ExtDef (V : Ty → Type) : Ty → Type
+  | .bits n => Option (BitsExt V n)
+  | .bool | .float _ | .pair _ _ => Unit
+
+/-- Absence of extension provenance at any type `t`. -/
+def ExtDef.none {V : Ty → Type} : {t : Ty} → ExtDef V t
+  | .bits _ => Option.none
+  | .bool | .float _ | .pair _ _ => ()
+
+/-- Input representation of a value in `fold`: replacement operand, symbolic key, and optional
+extension provenance. -/
+structure FVal (V : Ty → Type) (t : Ty) : Type where
+  out : Arg V t
+  key : FKey t
+  ext : ExtDef V t := .none
+
+/-- Wrap a fresh bound output variable `v` with symbolic key `next` and no extension provenance. -/
+def FVal.fresh {V : Ty → Type} {t : Ty} (v : V t) (next : Nat) : FVal V t :=
+  ⟨.var v, .var next, .none⟩
 
 /-- Output operand of an input operand. -/
 def Arg.fout {V : Ty → Type} {t : Ty} : Arg (FVal V) t → Arg V t
-  | .var p => p.1
+  | .var p => p.out
   | .imm c => .imm c
 
 /-- Symbolic key of an input operand. -/
 def Arg.fkey {V : Ty → Type} {t : Ty} : Arg (FVal V) t → FKey t
-  | .var p => p.2
+  | .var p => p.key
   | .imm c => .imm c
 
-/-- Pair `(fout, fkey)` of an input operand. -/
-def Arg.fpair {V : Ty → Type} {t : Ty} (a : Arg (FVal V) t) : FVal V t := (a.fout, a.fkey)
+/-- Extension provenance of an input operand. -/
+def Arg.fext {V : Ty → Type} {t : Ty} : Arg (FVal V) t → ExtDef V t
+  | .var p => p.ext
+  | .imm _ => .none
 
 /-- Constant `FVal` carrying immediate `c`. -/
-def fimm {V : Ty → Type} {t : Ty} (c : Val t) : FVal V t := (.imm c, .imm c)
+def fimm {V : Ty → Type} {t : Ty} (c : Val t) : FVal V t := ⟨.imm c, .imm c, .none⟩
+
+/-- Promote an `Arg (FVal V) t` to `FVal V t`, preserving extension provenance on variables. -/
+def Arg.fpair {V : Ty → Type} {t : Ty} : Arg (FVal V) t → FVal V t
+  | .var p => p
+  | .imm c => fimm c
 
 /-- Wrap bound output variables `xs : Tup V ts` into fresh `FVal V`s starting at `next`. -/
 abbrev freshFVals {V : Ty → Type} : (ts : List Ty) → Tup V ts → Nat → Tup (FVal V) ts :=
-  tupFreshWith fun x next => (.var x, .var next)
+  tupFreshWith fun x next => FVal.fresh x next
 
 /-! ## Canonical quiet NaN and total computable `OpCode` constant evaluator -/
 
@@ -323,6 +373,101 @@ def CmpOp.isRefl : CmpOp → Bool
   | .eq | .sle | .sge | .ule | .uge => true
   | .ne | .slt | .sgt | .ult | .ugt => false
 
+/-- Convert signed comparison predicates to their unsigned counterparts (sound on values known to
+be zero-extended from a strictly narrower width `m < n`, whose MSB is `0`). -/
+def CmpOp.toUnsigned : CmpOp → CmpOp
+  | .eq => .eq
+  | .ne => .ne
+  | .ult | .slt => .ult
+  | .ule | .sle => .ule
+  | .ugt | .sgt => .ugt
+  | .uge | .sge => .uge
+
+/-- Maximum signed `n`-bit two's-complement value (`2^(n-1) - 1` for `n > 0`, `0#0` for `0`). -/
+def bvIntMax (n : Nat) : BitVec n := ~~~(BitVec.intMin n)
+
+/-- Constant result for a scalar `.bits n` comparison `x o c` at an extreme bound `c`. -/
+def cmpImmBound? (o : CmpOp) (n : Nat) (c : BitVec n) : Option Bool :=
+  match o with
+  | .ult => if c == 0#n then some false else none
+  | .uge => if c == 0#n then some true else none
+  | .ugt => if c == BitVec.allOnes n then some false else none
+  | .ule => if c == BitVec.allOnes n then some true else none
+  | .slt => if c == BitVec.intMin n then some false else none
+  | .sge => if c == BitVec.intMin n then some true else none
+  | .sgt => if c == bvIntMax n then some false else none
+  | .sle => if c == bvIntMax n then some true else none
+  | .eq | .ne => none
+
+/-- Normalize a scalar `.bits n` immediate comparison `x o c` away from `.ugt`/`.ule`/`.sgt`/
+`.sle` (which x64 flag-coloring would otherwise swap back to `imm` on the left). -/
+def normBitsCmpImm (o : CmpOp) (n : Nat) (c : BitVec n) : CmpOp × BitVec n :=
+  match o with
+  | .ugt =>
+    if c == 0#n then (.ne, 0#n)
+    else if c != BitVec.allOnes n then (.uge, c + 1#n)
+    else (.ugt, c)
+  | .ule =>
+    if c == 0#n then (.eq, 0#n)
+    else if c != BitVec.allOnes n then (.ult, c + 1#n)
+    else (.ule, c)
+  | .sgt =>
+    if c != bvIntMax n then (.sge, c + 1#n)
+    else (.sgt, c)
+  | .sle =>
+    if c != bvIntMax n then (.slt, c + 1#n)
+    else (.sle, c)
+  | _ => (o, c)
+
+/-- Scalar `.bits` comparison after immediate-on-right orientation and optional `sext`/`zext`
+width narrowing. -/
+structure NarrowCmp (V : Ty → Type) : Type where
+  w : Nat
+  op : CmpOp
+  lhs : Arg V (.bits w)
+  rhs : Arg V (.bits w)
+  lhsKey : FKey (.bits w)
+  rhsKey : FKey (.bits w)
+
+/-- Narrow a scalar `.bits n` comparison through `sext` or `zext` once any immediate is on the
+right, when the constant fits or both operands share the same extension kind and source width. -/
+def narrowCmpCore {V : Ty → Type} (o : CmpOp) (n : Nat)
+    (a b : Arg (FVal V) (.bits n)) : NarrowCmp V :=
+  let base : NarrowCmp V := ⟨n, o, a.fout, b.fout, a.fkey, b.fkey⟩
+  match a.fext with
+  | none => base
+  | some ea =>
+    match b.fout.imm? with
+    | some c =>
+      let c' := c.setWidth ea.m
+      match ea.kind with
+      | .sext =>
+        if c'.signExtend n == c then ⟨ea.m, o, ea.src, .imm c', ea.srcKey, .imm c'⟩ else base
+      | .zext =>
+        if c'.setWidth n == c then ⟨ea.m, o.toUnsigned, ea.src, .imm c', ea.srcKey, .imm c'⟩
+        else base
+    | none =>
+      match b.fext with
+      | none => base
+      | some eb =>
+        match ea.kind, eb.kind with
+        | .sext, .sext =>
+          if h : ea.m = eb.m then ⟨ea.m, o, ea.src, h ▸ eb.src, ea.srcKey, h ▸ eb.srcKey⟩
+          else base
+        | .zext, .zext =>
+          if h : ea.m = eb.m then
+            ⟨ea.m, o.toUnsigned, ea.src, h ▸ eb.src, ea.srcKey, h ▸ eb.srcKey⟩
+          else base
+        | _, _ => base
+
+/-- Orient any immediate to the right and narrow a scalar `.bits n` comparison via
+`narrowCmpCore`. -/
+def narrowCmp {V : Ty → Type} (o : CmpOp) (n : Nat)
+    (a b : Arg (FVal V) (.bits n)) : NarrowCmp V :=
+  match a.fout.imm?, b.fout.imm? with
+  | some _, none => narrowCmpCore o.swap n b a
+  | _, _ => narrowCmpCore o n a b
+
 /-! ## Instruction elimination (`SimpAct`) -/
 
 /-- Replacement for one result of a `let_` instruction: either a constant or an operand of `op`.
@@ -400,6 +545,13 @@ def Op.simpAct {V : Ty → Type} {rs : List Ty} (op : Op (FVal V) rs) : Option (
     | .shl t, (_, b, ()) | .lshr t, (_, b, ()) | .ashr t, (_, b, ())
     | .rotl t, (_, b, ()) | .rotr t, (_, b, ()) =>
       if !t.hasFloat && isZeroArg? b.fout then some (.arg .here, ()) else none
+    | .cmp o (.bits n) _ h, (a, b, ()) =>
+      let nc := narrowCmp o n a b
+      if nc.lhsKey == nc.rhsKey then
+        some (.imm (cast (congrArg Val h.symm) o.isRefl), ())
+      else match nc.rhs.imm?.bind (cmpImmBound? nc.op nc.w) with
+      | some res => some (.imm (cast (congrArg Val h.symm) res), ())
+      | none => none
     | .cmp o t _ h, (a, b, ()) =>
       if !t.hasFloat && a.fkey == b.fkey then
         some (.imm (cast (congrArg Val h.symm) (splatMaskVal t o.isRefl)), ())
@@ -497,6 +649,46 @@ def Op.rewrite {V : Ty → Type} {rs : List Ty} (op : Op V rs) : Op V rs :=
     | none => ⟨.urem n, (a, b, ())⟩
   | code, args => ⟨code, args⟩
 
+/-- Rewrite a kept `Op (FVal V) rs` into an output `Op V rs`, applying compare narrowing/
+immediate canonicalization and delegating all other opcodes to `Op.rewrite`. -/
+def Op.foldRewrite {V : Ty → Type} {rs : List Ty} (op : Op (FVal V) rs) : Op V rs :=
+  let ⟨code, args⟩ := op
+  match code, args with
+  | .cmp o (.bits n) m h, (a, b, ()) =>
+    let nc := narrowCmp o n a b
+    match nc.rhs.imm? with
+    | some c =>
+      let (o', c') := normBitsCmpImm nc.op nc.w c
+      op2 (.cmp o' (.bits nc.w) m h) nc.lhs (.imm c')
+    | none =>
+      op2 (.cmp nc.op (.bits nc.w) m h) nc.lhs nc.rhs
+  | .cmp o t m h, (a, b, ()) =>
+    if !t.hasFloat && a.fout.imm?.isSome && b.fout.imm?.isNone then
+      op2 (.cmp o.swap t m h) b.fout a.fout
+    else
+      op2 (.cmp o t m h) a.fout b.fout
+  | code, args => (⟨code, tupMapArg (fun _ => Arg.fout) args⟩ : Op V rs).rewrite
+
+/-- Wrap the output binders of a kept `let_` operation into `FVal V`s, recording `sext`/`zext`
+provenance when `0 < m < n`. -/
+def Op.foldWrap {V : Ty → Type} {ts : List Ty} (op : Op (FVal V) ts) (next : Nat)
+    (xs : Tup V ts) : Tup (FVal V) ts :=
+  let ⟨code, args⟩ := op
+  match code, args, xs with
+  | .sext m n, (a, ()), (r, ()) =>
+    if hpos : 0 < m then
+      if hlt : m < n then
+        (⟨.var r, .var next, some ⟨.sext, m, hpos, hlt, a.fout, a.fkey⟩⟩, ())
+      else freshFVals [.bits n] (r, ()) next
+    else freshFVals [.bits n] (r, ()) next
+  | .zext m n, (a, ()), (r, ()) =>
+    if hpos : 0 < m then
+      if hlt : m < n then
+        (⟨.var r, .var next, some ⟨.zext, m, hpos, hlt, a.fout, a.fkey⟩⟩, ())
+      else freshFVals [.bits n] (r, ()) next
+    else freshFVals [.bits n] (r, ()) next
+  | _, _, xs => freshFVals ts xs next
+
 /-! ## PHOAS `fold` pass -/
 
 mutual
@@ -506,10 +698,9 @@ def fold {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (next : Nat) :
     match op.simpAct with
     | some act => fold next (k (act.apply op.args))
     | none =>
-      let op' : Op V ts := (⟨op.code, tupMapArg (fun _ => Arg.fout) op.args⟩ : Op V ts).rewrite
-      .let_ op' fun xs => fold (next + ts.length) (k (freshFVals ts xs next))
+      .let_ op.foldRewrite fun xs => fold (next + ts.length) (k (op.foldWrap next xs))
   | .load t a k =>
-    .load t a.fout fun v => fold (next + 1) (k (.var v, .var next))
+    .load t a.fout fun v => fold (next + 1) (k (FVal.fresh v next))
   | .store v a k =>
     .store v.fout a.fout (fold next k)
   | .call f (bs := bs) args k =>
