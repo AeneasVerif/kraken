@@ -23,6 +23,7 @@ public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastSchedLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastBveBudgetsLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastCoreLemmas
+public import LeanQbe.T.Examples.Kissat.FullBvaHeapLemmas
 meta import LeanQbe.T.Examples.Kissat.PlainLemmas
 meta import LeanQbe.T.Examples.Kissat.FullSpec
 meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7
@@ -724,7 +725,32 @@ theorem audit_fcore_nv :
 
 end M2bFastCoreAudit
 
-/-! ## 8. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
+/-! ## 8. M2b 3-Hop BVA & Max-Degree Binary Heap (`FullBvaHeap`: `13` fns) -/
+
+section M2bBvaHeapAudit
+
+open Std.Sat LeanQbe.T LeanQbe.T.Examples.Kissat.Full
+open LeanQbe.T.Examples.Kissat.FullBvaHeap
+  (bvaHeapEnv bvaHeapModule bvaHeap_moduleOk nvBvaDenseMem nv_bva_factor)
+
+/-- **`FullBvaHeap` closed `19`-row `ModuleOk` (`13` fns + `6` canonical `Full` externs)**
+(`FullBvaHeapLemmas.bvaHeap_moduleOk`). -/
+theorem audit_bva_modok : ModuleOk bvaHeapEnv bvaHeapModule :=
+  bvaHeap_moduleOk
+
+/-- **`FullBvaHeap` `full_factor` concrete `Mem 64` UNSAT non-vacuity (`XPost := False`)**
+(`FullBvaHeapLemmas.nv_bva_factor`). -/
+theorem audit_bva_nv_factor :
+    Func.wp bvaHeapEnv FullBvaHeap.full_factor_body (nvOneLitCfg.hdr, 10#64, ()) nvBvaDenseMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInv nvOneLitCfg nvOneLitF0 s' ∧ r = 1#64 ∧
+        nvOneLitF0.Unsat ∧ FullMem nvOneLitCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_bva_factor
+
+end M2bBvaHeapAudit
+
+/-! ## 9. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms audit_unsat_def
 #print axioms audit_sat_def
@@ -780,3 +806,5 @@ end M2bFastCoreAudit
 #print axioms audit_bve_nv_def
 #print axioms audit_fcore_modok
 #print axioms audit_fcore_nv
+#print axioms audit_bva_modok
+#print axioms audit_bva_nv_factor

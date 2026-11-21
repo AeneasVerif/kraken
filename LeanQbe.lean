@@ -276,6 +276,7 @@ public import LeanQbe.T.Examples.Kissat.FullProof
 public import LeanQbe.T.Examples.Kissat.FullFastSchedLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastBveBudgetsLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastCoreLemmas
+public import LeanQbe.T.Examples.Kissat.FullBvaHeapLemmas
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
