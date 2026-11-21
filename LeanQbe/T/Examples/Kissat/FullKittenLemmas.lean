@@ -1,5 +1,9 @@
 module
 
+public import LeanQbe.T.Examples.Kissat.FullKittenLemmas3
+public import LeanQbe.T.Examples.Kissat.FullKittenLemmas3a
+public import LeanQbe.T.Examples.Kissat.FullKittenLemmas4
+public import LeanQbe.T.Examples.Kissat.FullKittenLemmas5
 public import LeanQbe.T.Examples.Kissat.FullKittenLemmas6
 import all Kraken.Mem
 import all Kraken.Separation
@@ -7,10 +11,11 @@ import all Kraken.Separation
 /-!
 # Kissat `D-Full` Scratch `kitten` Module Assembly & Concrete `Mem 64` Non-Vacuity
 
-1. Environment helpers (`fullKittenEnv_noExit`, `fullKittenEnv_row`), `SpecEntry.Impl` witnesses
-   for `[1..7]` (plus parameterized `mkFullKittenEnv_moduleOk_of_parts` once `[15]` lands).
+1. Environment helpers (`fullKittenEnv_noExit`, `fullKittenEnv_row`), `SpecEntry.Impl` witnesses,
+   parameterized `mkFullKittenEnv_moduleOk_of_parts`, and unconditional `fullKittenEnv_moduleOk`
+   for all `15/15` functions of `fullKittenModule`.
 2. Concrete `Mem 64` UNSAT instance (`nvKittenCfg`, `nvKittenKs`, `nvKittenState`, `nvKittenMem`)
-   with `nvKittenMem_ok : FullMem nvKittenCfg nvKittenState nvKittenMem` and `nvKitten_inv`.
+   with `nvKittenMem_ok`, `nv_full_kitten_solve`, and `nv_full_kitten_solve_unsat20`.
 -/
 
 set_option autoImplicit false
@@ -728,6 +733,27 @@ theorem mkFullKittenEnv_moduleOk_of_parts
     ModuleOk fullKittenEnv fullKittenModule :=
   Env.ofTable_moduleOk fullKitten_acyclic fullKitten_allFns_wf
     (fullKitten_tableImpl_of_parts h8 h9 h10 h11 h12 h13 h14)
+
+/-- Unconditional `ModuleOk` certifying all `15/15` functions of `fullKittenModule` against
+`fullKittenEnv`. -/
+theorem fullKittenEnv_moduleOk : ModuleOk fullKittenEnv fullKittenModule :=
+  mkFullKittenEnv_moduleOk_of_parts
+    (full_kitten_build_failing_wp fullKittenEnv)
+    (full_kitten_flip_wp fullKittenEnv)
+    (full_kitten_propagate_wp fullKittenEnv
+      (fullKittenEnv_row (by simp [fullKittenSpecTable]) (fun _ _ _ _ h => h))
+      (fullKittenEnv_row (by simp [fullKittenSpecTable]) (fun _ _ _ _ h => h)))
+    (full_kitten_ana_clause_wp fullKittenEnv)
+    (full_kitten_analyze_wp fullKittenEnv
+      (fullKittenEnv_row (by simp [fullKittenSpecTable]) (fun _ _ _ _ h => h))
+      (fullKittenEnv_row (by simp [fullKittenSpecTable]) (fun _ _ _ _ h => h))
+      (fullKittenEnv_row (by simp [fullKittenSpecTable]) (fun _ _ _ _ h => h))
+      (fullKittenEnv_row (by simp [fullKittenSpecTable]) (fun _ _ _ _ h => h))
+      (fullKittenEnv_row (by simp [fullKittenSpecTable]) (fun _ _ _ _ h => h))
+      (fullKittenEnv_row (by simp [fullKittenSpecTable]) (fun _ _ _ _ h => h)))
+    (full_kitten_core_wp fullKittenEnv)
+    (full_kitten_shrink_wp fullKittenEnv
+      (fullKittenEnv_row (by simp [fullKittenSpecTable]) (fun _ _ _ _ h => h)))
 
 section SolveNonVacuity
 

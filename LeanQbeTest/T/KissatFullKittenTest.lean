@@ -6,16 +6,16 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Verification, UNSAT Non-Vacuity, and Axiom Audit for `FullKitten` (`[1..7, 15/15]`)
+# Verification, UNSAT Non-Vacuity, and Axiom Audit for `FullKitten` (`15/15`)
 
 1. Executable `#guard` checks on `fullKitten_fns` (`15` functions), names & signatures,
    `fullKittenModule.checkAcyclic`, `fullKittenSpecTable` (`15` rows, all `noExit = true`),
    and `nvKittenBytes.length == nvKittenCfg.avail` (`42716`).
 2. Short root-namespace audit theorems + single-line `#print axioms` (`<= 100` cols, every
    `depends on axioms: [...]` output `< 115` chars on one line) on `fullKitten_fns_wf`,
-   `fullKitten_acyclic`, `[1..7]` + `[15]` `Func.wp`, `fullKittenEnv_noExit`,
-   `mkFullKittenEnv_moduleOk_of_parts`, and concrete `Mem 64` UNSAT non-vacuity theorems
-   (`nv_full_kitten_solve`, `nv_full_kitten_solve_unsat20`).
+   `fullKitten_acyclic`, all `15/15` `Func.wp` proofs, `fullKittenEnv_noExit`,
+   `mkFullKittenEnv_moduleOk_of_parts`, unconditional `fullKittenEnv_moduleOk`, and concrete
+   `Mem 64` UNSAT non-vacuity (`nv_full_kitten_solve`, `nv_full_kitten_solve_unsat20`).
 -/
 
 set_option autoImplicit false
@@ -107,6 +107,57 @@ theorem fk_learn_unit0_wp (Γ : Env) :
       Func.wp Γ full_kitten_learn_unit0_body a m Q X :=
   full_kitten_learn_unit0_wp Γ
 
+theorem fk_propagate_wp (Γ : Env)
+    (hAssign : ∀ a m Q X, fullKittenAssignSpec a m Q X →
+      Γ "full_kitten_assign" [i64, i32, i32] [] a m Q X)
+    (hLearn : ∀ a m Q X, fullKittenLearnUnit0Spec a m Q X →
+      Γ "full_kitten_learn_unit0" [i64, i32, i32, .bool] [i32] a m Q X) :
+    ∀ a m Q X, fullKittenPropagateSpec a m Q X →
+      Func.wp Γ full_kitten_propagate_body a m Q X :=
+  full_kitten_propagate_wp Γ hAssign hLearn
+
+theorem fk_ana_clause_wp (Γ : Env) :
+    ∀ a m Q X, fullKittenAnaClauseSpec a m Q X →
+      Func.wp Γ full_kitten_ana_clause_body a m Q X :=
+  full_kitten_ana_clause_wp Γ
+
+theorem fk_analyze_wp (Γ : Env)
+    (hAnaCl : ∀ a m Q X, fullKittenAnaClauseSpec a m Q X →
+      Γ "full_kitten_ana_clause" [i64, i32, i32] [] a m Q X)
+    (hBt : ∀ a m Q X, fullKittenBacktrackSpec a m Q X →
+      Γ "full_kitten_backtrack" [i64, i32] [] a m Q X)
+    (hMtf : ∀ a m Q X, fullKittenMtfSpec a m Q X →
+      Γ "full_kitten_mtf" [i64, i32] [] a m Q X)
+    (hUnit0 : ∀ a m Q X, fullKittenLearnUnit0Spec a m Q X →
+      Γ "full_kitten_learn_unit0" [i64, i32, i32, .bool] [i32] a m Q X)
+    (hAssign : ∀ a m Q X, fullKittenAssignSpec a m Q X →
+      Γ "full_kitten_assign" [i64, i32, i32] [] a m Q X)
+    (hWatch : ∀ a m Q X, fullKittenWatchSpec a m Q X →
+      Γ "full_kitten_watch" [i64, i32, i32, i32] [] a m Q X) :
+    ∀ a m Q X, fullKittenAnalyzeSpec a m Q X →
+      Func.wp Γ full_kitten_analyze_body a m Q X :=
+  full_kitten_analyze_wp Γ hAnaCl hBt hMtf hUnit0 hAssign hWatch
+
+theorem fk_build_failing_wp (Γ : Env) :
+    ∀ a m Q X, fullKittenBuildFailingSpec a m Q X →
+      Func.wp Γ full_kitten_build_failing_body a m Q X :=
+  full_kitten_build_failing_wp Γ
+
+theorem fk_core_wp (Γ : Env) :
+    ∀ a m Q X, fullKittenCoreSpec a m Q X → Func.wp Γ full_kitten_core_body a m Q X :=
+  full_kitten_core_wp Γ
+
+theorem fk_shrink_wp (Γ : Env)
+    (hWatch : ∀ a m Q X, fullKittenWatchSpec a m Q X →
+      Γ "full_kitten_watch" [i64, i32, i32, i32] [] a m Q X) :
+    ∀ a m Q X, fullKittenShrinkSpec a m Q X →
+      Func.wp Γ full_kitten_shrink_body a m Q X :=
+  full_kitten_shrink_wp Γ hWatch
+
+theorem fk_flip_wp (Γ : Env) :
+    ∀ a m Q X, fullKittenFlipSpec a m Q X → Func.wp Γ full_kitten_flip_body a m Q X :=
+  full_kitten_flip_wp Γ
+
 theorem fk_solve_wp (Γ : Env)
     (hBt : ∀ a m Q X, fullKittenBacktrackSpec a m Q X →
       Γ "full_kitten_backtrack" [i64, i32] [] a m Q X)
@@ -143,6 +194,8 @@ theorem fk_moduleOk_of_parts
       Func.wp fullKittenEnv full_kitten_shrink_body a m Q X) :
     ModuleOk fullKittenEnv fullKittenModule :=
   mkFullKittenEnv_moduleOk_of_parts h8 h9 h10 h11 h12 h13 h14
+
+theorem fk_moduleOk : ModuleOk fullKittenEnv fullKittenModule := fullKittenEnv_moduleOk
 
 theorem fk_nv_mem_ok : FullMem nvKittenCfg nvKittenState nvKittenMem := nvKittenMem_ok
 
@@ -184,9 +237,17 @@ theorem fk_nv_solve20 :
 #print axioms fk_mtf_wp
 #print axioms fk_backtrack_wp
 #print axioms fk_learn_unit0_wp
+#print axioms fk_propagate_wp
+#print axioms fk_ana_clause_wp
+#print axioms fk_analyze_wp
+#print axioms fk_build_failing_wp
+#print axioms fk_core_wp
+#print axioms fk_shrink_wp
+#print axioms fk_flip_wp
 #print axioms fk_solve_wp
 #print axioms fk_env_noExit
 #print axioms fk_moduleOk_of_parts
+#print axioms fk_moduleOk
 #print axioms fk_nv_mem_ok
 #print axioms fk_nv_solve
 #print axioms fk_nv_solve20
