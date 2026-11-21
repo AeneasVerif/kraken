@@ -131,6 +131,14 @@ example : ⸨prog| movl $42, 8(%rdx) ⸩ =
     ((x64Store (.bits 32) (.imm 42#32) (.baseDisp .rdx 8)).get rfl).1 := rfl
 example : ⸨prog| movq %rsi, (%rdx) ⸩ =
     ((x64Store (.bits 64) (.gpr .rsi) (.baseDisp .rdx 0)).get rfl).1 := rfl
+example : ⸨prog| movl (%rdx,%rcx,4), %eax ⸩ =
+    ((x64Load (.bits 32) .rax (.baseIdxDisp .rdx .rcx .s4 0)).get rfl).1 := rfl
+example : ⸨prog| movl 8(%rdx,%rcx,4), %eax ⸩ =
+    ((x64Load (.bits 32) .rax (.baseIdxDisp .rdx .rcx .s4 8)).get rfl).1 := rfl
+example : ⸨prog| movzbl (%rdx,%rcx,1), %eax ⸩ =
+    ((x64Load .bool .rax (.baseIdxDisp .rdx .rcx .s1 0)).get rfl).1 := rfl
+example : ⸨prog| movq %rsi, -16(%rdx,%rcx,8) ⸩ =
+    ((x64Store (.bits 64) (.gpr .rsi) (.baseIdxDisp .rdx .rcx .s8 (-16))).get rfl).1 := rfl
 
 end ParserChecks
 
@@ -715,6 +723,43 @@ theorem wp_addrToExpr [Host] {E : Int64 → MachineData → Prop} (s s₀ : Mach
             Reg64s.get64_set64_of_ne _ .r10 r' _ hne.symm]
         · intro regs' hregs _ p
           exact hregs .r10 (by simp) ▸ (by rw [Reg64s.get64_set64_same]; rfl)
+  | baseIdxDisp rb ri sc off =>
+    have hrb := ne_of_not_mem_x64Scratch (ha rb (by simp [AddrArg.regs]))
+    have hri := ne_of_not_mem_x64Scratch (ha ri (by simp [AddrArg.regs]))
+    have hbr : s.regs.get64 rb = s₀.regs.get64 rb := hr rb (by simp [AddrArg.regs])
+    have hir : s.regs.get64 ri = s₀.regs.get64 ri := hr ri (by simp [AddrArg.regs])
+    simp only [addrToExpr, addrToExprIns]
+    split
+    · refine _root_.Program.wp_nil ⟨rfl, fun _ _ => rfl, rfl, rfl, ?_, updFlags_of_status_eq rfl _⟩
+      intro regs' hregs _ p
+      have hrr1 : regs'.get64 rb = s.regs.get64 rb := hregs rb (by simp [AddrArg.regs])
+      have hrr2 : regs'.get64 ri = s.regs.get64 ri := hregs ri (by simp [AddrArg.regs])
+      rw [atSIB_interp, hrr1, hrr2, hbr, hir]
+      rfl
+    · refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD s .r10 off.toBitVec)) ?_
+      rintro s1 rfl
+      refine _root_.Program.wp_singleton fun k _ => ?_
+      have hs1b : (s.regs.set64 .r10 off.toBitVec).get64 rb = s.regs.get64 rb :=
+        Reg64s.get64_set64_of_ne _ .r10 rb _ hrb.1.symm
+      have hs1i : (s.regs.set64 .r10 off.toBitVec).get64 ri = s.regs.get64 ri :=
+        Reg64s.get64_set64_of_ne _ .r10 ri _ hri.1.symm
+      simp only [t_step_simp, Reg64s.get64_set64_same, hs1b, hbr]
+      refine Or.inl ⟨trivial, ?_, ?_, trivial, trivial, ?_, updFlags_maskAll s _⟩
+      · rw [Reg64s.get64_set64_of_ne _ .r10 .r11 _ (by decide),
+          Reg64s.get64_set64_of_ne _ .r10 .r11 _ (by decide)]
+      · intro r' hne
+        rw [Reg64s.get64_set64_of_ne _ .r10 r' _ hne.symm,
+          Reg64s.get64_set64_of_ne _ .r10 r' _ hne.symm]
+      · intro regs' hregs _ p
+        have h10 : regs'.get64 .r10 = s₀.regs.get64 rb + off.toBitVec := by
+          rw [hregs .r10 (by simp), Reg64s.get64_set64_same]
+        have hrr2 : regs'.get64 ri = s₀.regs.get64 ri := by
+          rw [hregs ri (by simp [AddrArg.regs]),
+            Reg64s.get64_set64_of_ne _ .r10 ri _ hri.1.symm,
+            Reg64s.get64_set64_of_ne _ .r10 ri _ hri.1.symm, hir]
+        rw [atSIB_interp, h10, hrr2]
+        simp only [AddrArg.eval, Int64.toBitVec_zero, BitVec.add_zero]
+        ac_rfl
   | imm addr =>
     refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD s .r10 addr)) ?_
     rintro s1 rfl
@@ -939,17 +984,20 @@ theorem x64Gpr_load_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg64} {a : AddrArg
   have _ := hrd
   dsimp only [x64Gpr, x64Load] at hl0
   obtain ⟨ci, hl, rfl⟩ := emitCleanPair_eq_some.mp hl0
+  have hva : x64AddrValid a = true := by cases hv : x64AddrValid a <;> simp_all [x64LoadIns]
   have htail : ∃ d_last, emitClean ci = (addrToExpr a).1 ++ [d_last] ∧
       clob = (addrToExpr a).2.2 ∧ loadTailDir t rd (addrToExpr a).2.1 d_last := by
     cases t with
     | bool =>
-      simp only [x64LoadIns, Option.some.injEq, Prod.mk.injEq] at hl
+      simp only [x64LoadIns, hva, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
+        Option.some.injEq, Prod.mk.injEq] at hl
       rcases hl with ⟨rfl, rfl⟩
       exact ⟨_, by simp [addrToExpr, emitClean_append, emitClean_cons, emitClean_nil], rfl, rfl⟩
     | bits n =>
       rcases (by omega : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64 ∨ (n ≠ 8 ∧ n ≠ 16 ∧ n ≠ 32 ∧ n ≠ 64)) with
         rfl | rfl | rfl | rfl | hne <;>
-        simp only [x64LoadIns, Option.some.injEq, Prod.mk.injEq] at hl
+        simp only [x64LoadIns, hva, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
+          Option.some.injEq, Prod.mk.injEq] at hl
       · rcases hl with ⟨rfl, rfl⟩
         exact ⟨_, by simp [addrToExpr, emitClean_append, emitClean_cons, emitClean_nil], rfl, rfl⟩
       · rcases hl with ⟨rfl, rfl⟩
@@ -989,13 +1037,16 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
   obtain ⟨iload, hload⟩ := hok
   dsimp only [x64Gpr, x64Store] at hs0
   obtain ⟨ci, hs, rfl⟩ := emitCleanPair_eq_some.mp hs0
+  have hva : x64AddrValid a = true := by
+    cases hv : x64AddrValid a <;> cases t <;> simp_all [x64StoreIns]
   cases t with
   | bool =>
     have hload1 : s.dmem.loadInt (a.eval s.regs.get64) 1 = some iload := hload
     rw [storeMem_bool_eq]
     cases pa with
     | gpr rx =>
-      simp only [x64StoreIns, Option.some.injEq, Prod.mk.injEq] at hs
+      simp only [x64StoreIns, hva, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
+        Option.some.injEq, Prod.mk.injEq] at hs
       rcases hs with ⟨rfl, rfl⟩
       simp only [emitClean_append, emitClean_cons, emitClean_nil]
       have hrx : rx ≠ .r10 ∧ rx ≠ .r11 :=
@@ -1013,7 +1064,8 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
       exact Or.inl ⟨trivial, trivial, x64_frame_of_eq (fun r hr => hr1 r (ne_of_not_mem_x64Scratch hr).1)
         hz1 hf1⟩
     | imm b0 =>
-      simp only [x64StoreIns, Option.some.injEq, Prod.mk.injEq] at hs
+      simp only [x64StoreIns, hva, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
+        Option.some.injEq, Prod.mk.injEq] at hs
       rcases hs with ⟨rfl, rfl⟩
       rcases hpa with rfl
       simp only [emitClean_append, emitClean_cons, emitClean_nil]
@@ -1029,7 +1081,8 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
       exact Or.inl ⟨trivial, trivial, x64_frame_of_eq (fun r hr => hr1 r (ne_of_not_mem_x64Scratch hr).1)
         hz1 hf1⟩
     | flag cc =>
-      simp only [x64StoreIns, Option.some.injEq, Prod.mk.injEq] at hs
+      simp only [x64StoreIns, hva, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
+        Option.some.injEq, Prod.mk.injEq] at hs
       rcases hs with ⟨rfl, rfl⟩
       simp only [emitClean_cons, emitClean_append, emitClean_nil]
       have hcc : cc.interp s.status = v := hpa
@@ -1052,7 +1105,7 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
       rw [hr2 r hne.1, Reg64s.get64_set64_of_ne _ .r11 r _ hne.2.symm]
     | vec _ => simp [x64StoreIns] at hs
   | bits n =>
-    simp only [x64StoreIns] at hs
+    simp only [x64StoreIns, hva, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hs
     refine withWidth_elim hs fun w hn hw => ?_
     subst hn
     have hwn : w.bits = 8 ∨ w.bits = 16 ∨ w.bits = 32 ∨ w.bits = 64 := by

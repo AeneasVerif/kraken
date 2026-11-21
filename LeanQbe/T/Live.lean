@@ -152,10 +152,16 @@ def Tree.ofFn (f : Fn) : Tree × List (Nat × Ty) × Nat × Nat × Nat × Trie T
   let (t, nv, nl, nip, tys) := toTreeExpr (f.body VNat LNat (Tup.levels f.as 0)) f.as.length 0 0 (recordTypes ps .empty)
   (t, ps, nv, nl, nip, tys)
 
-/-! ## Address-Arithmetic Elision (`[base + disp]`, Stage 1a, untrusted) -/
+/-! ## Address-Arithmetic Elision (`[base + idx*scale + disp]`, Stage 1b, untrusted) -/
+
+structure ElideCand where
+  x : Nat
+  ip : Nat
+  opVars : List Nat
+  df : DefFact
 
 structure ElideScan where
-  cands : List (Nat × Nat × Nat × BitVec 64) := []
+  cands : List ElideCand := []
   addrUses : Trie (List Ty) := .empty
   badVars : Trie Bool := .empty
 
@@ -168,63 +174,118 @@ def addAddrUse (t : Ty) (a : Arg VNat i64) (st : ElideScan) : ElideScan :=
   | .imm _ => st
 
 mutual
-def scanElideTree (st : ElideScan) : Tree → ElideScan
+def scanElideTree (defs : Trie DefFact) (st : ElideScan) : Tree → ElideScan
   | .let_ _ ip nv0 ts op k =>
-    let st1 := match ts, recordDef op.code op.args with
-      | [.bits 64], some (.addImm64 base disp) =>
-        { st with cands := (nv0, ip, base, disp) :: st.cands }
-      | _, _ => st
-    scanElideTree (markBad (opVarIds op) st1) k
-  | .load _ _ _ t a k => scanElideTree (addAddrUse t a st) k
-  | .store _ _ t v a k => scanElideTree (addAddrUse t a (markBad (argVarIds v) st)) k
-  | .call _ _ _ _ _ _ args k => scanElideTree (markBad (tupVarIds args) st) k
-  | .jnz _ _ c _ t e => scanElideTree (scanElideTree (markBad [c] st) t) e
-  | .skip _ _ k => scanElideTree st k
+    let df? := if ts == [i64] then recordDef defs op.code op.args else none
+    let st1 := match df? with
+      | some df => { st with cands := ⟨nv0, ip, opVarIds op, df⟩ :: st.cands }
+      | none => markBad (opVarIds op) st
+    let defs1 := match df? with
+      | some df => defs.insert nv0 df
+      | none => defs
+    scanElideTree defs1 st1 k
+  | .load _ _ _ t a k => scanElideTree defs (addAddrUse t a st) k
+  | .store _ _ t v a k => scanElideTree defs (addAddrUse t a (markBad (argVarIds v) st)) k
+  | .call _ _ _ _ _ _ args k => scanElideTree defs (markBad (tupVarIds args) st) k
+  | .jnz _ _ c _ t e => scanElideTree defs (scanElideTree defs (markBad [c] st) t) e
+  | .skip _ _ k => scanElideTree defs st k
   | .jump _ _ _ _ args => markBad (tupVarIds args) st
   | .ret _ _ _ vs => markBad (tupVarIds vs) st
   | .exit _ _ _ _ args => markBad (tupVarIds args) st
   | .stop _ => st
-  | .group _ bs k => scanElideTree (scanElideBlocks st bs) k
+  | .group _ bs k => scanElideTree defs (scanElideBlocks defs st bs) k
 
-def scanElideBlocks (st : ElideScan) : TreeBlocks → ElideScan
+def scanElideBlocks (defs : Trie DefFact) (st : ElideScan) : TreeBlocks → ElideScan
   | .nil => st
-  | .cons _ _ b bs => scanElideBlocks (scanElideTree st b) bs
+  | .cons _ _ b bs => scanElideBlocks defs (scanElideTree defs st b) bs
 end
+
+def defFactRoots : DefFact → List Nat
+  | .imm64 _ => []
+  | .addImm64 b _ => [b]
+  | .scaleOff i _ _ => [i]
+  | .addrSum b i _ _ => if Nat.beq b i then [b] else [b, i]
+
+def supportsDefFact (I : Isa) (df : DefFact) (ts : List Ty) : Bool :=
+  match df with
+  | .addImm64 _ disp => ts.all (I.supportsAddrDisp · disp)
+  | .addrSum _ _ sh disp =>
+    match AddrScale.ofShift? sh with
+    | some sc => ts.all (I.supportsAddrIdx · sc disp)
+    | none => false
+  | _ => false
 
 mutual
-def rewriteElideTree (eb : Trie Nat) (eip : Trie Bool) : Tree → Tree
-  | .let_ lv ip nv0 ts op k =>
-    let k' := rewriteElideTree eb eip k
-    if eip.getD ip false then .skip lv ip k' else .let_ lv ip nv0 ts op k'
-  | .load lv ip x t (.var a) k =>
-    .load lv ip x t (.var (eb.getD a a)) (rewriteElideTree eb eip k)
-  | .load lv ip x t a k => .load lv ip x t a (rewriteElideTree eb eip k)
-  | .store lv ip t v (.var a) k =>
-    .store lv ip t v (.var (eb.getD a a)) (rewriteElideTree eb eip k)
-  | .store lv ip t v a k => .store lv ip t v a (rewriteElideTree eb eip k)
-  | .call lv ip nv0 g as bs args k => .call lv ip nv0 g as bs args (rewriteElideTree eb eip k)
-  | .jnz lv ip c l t e =>
-    .jnz lv ip c l (rewriteElideTree eb eip t) (rewriteElideTree eb eip e)
-  | .skip lv ip k => .skip lv ip (rewriteElideTree eb eip k)
-  | .group lv bs k => .group lv (rewriteElideBlocks eb eip bs) (rewriteElideTree eb eip k)
-  | t => t
+def collectElideTree (eb : Trie (List Nat)) (eip : Trie Bool) :
+    Tree → Trie (List Nat) → Tree × Trie (List Nat)
+  | .let_ lv ip nv0 ts op k, deps =>
+    let (k', deps') := collectElideTree eb eip k deps
+    (if eip.getD ip false then .skip lv ip k' else .let_ lv ip nv0 ts op k', deps')
+  | .load lv ip x t (.var a) k, deps =>
+    let (k', deps') := collectElideTree eb eip k deps
+    let deps'' := match eb.find? a with | some ds => deps'.insert ip ds | none => deps'
+    (.load lv ip x t (.var a) k', deps'')
+  | .load lv ip x t a k, deps =>
+    let (k', deps') := collectElideTree eb eip k deps
+    (.load lv ip x t a k', deps')
+  | .store lv ip t v (.var a) k, deps =>
+    let (k', deps') := collectElideTree eb eip k deps
+    let deps'' := match eb.find? a with | some ds => deps'.insert ip ds | none => deps'
+    (.store lv ip t v (.var a) k', deps'')
+  | .store lv ip t v a k, deps =>
+    let (k', deps') := collectElideTree eb eip k deps
+    (.store lv ip t v a k', deps')
+  | .call lv ip nv0 g as bs args k, deps =>
+    let (k', deps') := collectElideTree eb eip k deps
+    (.call lv ip nv0 g as bs args k', deps')
+  | .jnz lv ip c l t e, deps =>
+    let (t', deps1) := collectElideTree eb eip t deps
+    let (e', deps2) := collectElideTree eb eip e deps1
+    (.jnz lv ip c l t' e', deps2)
+  | .skip lv ip k, deps =>
+    let (k', deps') := collectElideTree eb eip k deps
+    (.skip lv ip k', deps')
+  | .group lv bs k, deps =>
+    let (bs', deps1) := collectElideBlocks eb eip bs deps
+    let (k', deps2) := collectElideTree eb eip k deps1
+    (.group lv bs' k', deps2)
+  | t, deps => (t, deps)
 
-def rewriteElideBlocks (eb : Trie Nat) (eip : Trie Bool) : TreeBlocks → TreeBlocks
-  | .nil => .nil
-  | .cons l ps b bs => .cons l ps (rewriteElideTree eb eip b) (rewriteElideBlocks eb eip bs)
+def collectElideBlocks (eb : Trie (List Nat)) (eip : Trie Bool) :
+    TreeBlocks → Trie (List Nat) → TreeBlocks × Trie (List Nat)
+  | .nil, deps => (.nil, deps)
+  | .cons l ps b bs, deps =>
+    let (b', deps1) := collectElideTree eb eip b deps
+    let (bs', deps2) := collectElideBlocks eb eip bs deps1
+    (.cons l ps b' bs', deps2)
 end
 
-/-- Elide address-only `add64`/`sub64` definitions whose uses are all valid `[base + disp]`
-load/store addresses per `I.supportsAddrDisp`, rewiring address uses in `Tree` to `base` so
-liveness and register allocation keep `base` live instead of the elided def. -/
+/-- Elide address-only `add64`/`sub64`/`shl64` chains whose uses are all valid `[base + disp]` or
+SIB `[base + idx*scale + disp]` load/store addresses per `I.supportsAddrDisp`/`I.supportsAddrIdx`,
+returning `(rewrittenTree, elideIps, addrDepsByMemIp)`. -/
+def elideAddrTreeDeps (I : Isa) (t : Tree) : Tree × Trie Bool × Trie (List Nat) :=
+  let st := scanElideTree .empty {} t
+  let (_, _, eb, eip) := st.cands.foldl
+    (fun (bad, used, eb, eip) c =>
+      let ts := st.addrUses.getD c.x []
+      let okUses := if ts.isEmpty then used.getD c.x false else supportsDefFact I c.df ts
+      if !bad.getD c.x false && okUses then
+        let roots := defFactRoots c.df
+        let bad' := roots.foldl (fun b r => b.insert r true) bad
+        let used' := c.opVars.foldl (fun u v =>
+          if natMem v roots then u else u.insert v true) used
+        (bad', used', eb.insert c.x roots, eip.insert c.ip true)
+      else
+        let bad' := c.opVars.foldl (fun b v => b.insert v true) bad
+        (bad', used, eb, eip))
+    (st.badVars, (.empty : Trie Bool), (.empty : Trie (List Nat)), (.empty : Trie Bool))
+  let (t', deps) := collectElideTree eb eip t .empty
+  (t', eip, deps)
+
+/-- Backward-compatible wrapper returning `(rewrittenTree, elideIps)`. -/
 def elideAddrTree (I : Isa) (t : Tree) : Tree × Trie Bool :=
-  let st := scanElideTree {} t
-  let (eb, eip) := st.cands.foldl (fun (eb, eip) (x, ip, base, disp) =>
-    let ts := st.addrUses.getD x []
-    if !st.badVars.getD x false && !ts.isEmpty && ts.all (I.supportsAddrDisp · disp) then
-      (eb.insert x base, eip.insert ip true)
-    else (eb, eip)) ((.empty : Trie Nat), (.empty : Trie Bool))
-  (rewriteElideTree eb eip t, eip)
+  let (t', eip, _) := elideAddrTreeDeps I t
+  (t', eip)
 
 /-! ## Join-Point Liveness Fixpoint, `acrossCalls`, and `loopBlocks` -/
 
@@ -254,44 +315,49 @@ def allJumpsB : TreeBlocks → List Nat
 end
 
 mutual
-def fillLive (lTrie : Trie (List Nat)) : Tree → List Nat × Tree
+def fillLive (lTrie : Trie (List Nat)) (addrDeps : Trie (List Nat) := .empty) :
+    Tree → List Nat × Tree
   | .let_ _ ip nv0 ts op k =>
-    let (klv, k) := fillLive lTrie k
+    let (klv, k) := fillLive lTrie addrDeps k
     let lv := union (eraseMany ((List.range ts.length).map (nv0 + ·)) klv) (opVarIds op)
     (lv, .let_ lv ip nv0 ts op k)
   | .load _ ip x t a k =>
-    let (klv, k) := fillLive lTrie k
-    let lv := union (erase x klv) (argVarIds a)
+    let (klv, k) := fillLive lTrie addrDeps k
+    let aUses := addrDeps.getD ip (argVarIds a)
+    let lv := union (erase x klv) aUses
     (lv, .load lv ip x t a k)
   | .store _ ip t v a k =>
-    let (klv, k) := fillLive lTrie k
-    let lv := union klv (dedup (argVarIds v ++ argVarIds a))
+    let (klv, k) := fillLive lTrie addrDeps k
+    let aUses := addrDeps.getD ip (argVarIds a)
+    let lv := union klv (dedup (argVarIds v ++ aUses))
     (lv, .store lv ip t v a k)
   | .call _ ip nv0 g as bs args k =>
-    let (klv, k) := fillLive lTrie k
+    let (klv, k) := fillLive lTrie addrDeps k
     let lv := union (eraseMany ((List.range bs.length).map (nv0 + ·)) klv) (tupVarIds args)
     (lv, .call lv ip nv0 g as bs args k)
   | .jnz _ ip c l t e =>
-    let (tlv, t) := fillLive lTrie t
-    let (elv, e) := fillLive lTrie e
+    let (tlv, t) := fillLive lTrie addrDeps t
+    let (elv, e) := fillLive lTrie addrDeps e
     let lv := union (union tlv elv) [c]
     (lv, .jnz lv ip c l t e)
-  | .skip _ ip k => let (klv, k) := fillLive lTrie k; (klv, .skip klv ip k)
+  | .skip _ ip k => let (klv, k) := fillLive lTrie addrDeps k; (klv, .skip klv ip k)
   | .jump _ ip j ts args => let lv := union (tupVarIds args) (lTrie.getD j []); (lv, .jump lv ip j ts args)
   | .ret _ ip rs vs => let lv := tupVarIds vs; (lv, .ret lv ip rs vs)
   | .exit _ ip g as args => let lv := tupVarIds args; (lv, .exit lv ip g as args)
   | .stop ip => ([], .stop ip)
   | .group _ bs k =>
-    let (klv, k) := fillLive lTrie k
-    (klv, .group klv (fillLiveB lTrie bs) k)
+    let (klv, k) := fillLive lTrie addrDeps k
+    (klv, .group klv (fillLiveB lTrie addrDeps bs) k)
 
-def fillLiveB (lTrie : Trie (List Nat)) : TreeBlocks → TreeBlocks
+def fillLiveB (lTrie : Trie (List Nat)) (addrDeps : Trie (List Nat) := .empty) :
+    TreeBlocks → TreeBlocks
   | .nil => .nil
-  | .cons l ps b bs => .cons l ps (fillLive lTrie b).2 (fillLiveB lTrie bs)
+  | .cons l ps b bs => .cons l ps (fillLive lTrie addrDeps b).2 (fillLiveB lTrie addrDeps bs)
 end
 
 /-- Live-in variables (excluding own parameters) for every block label, by fixpoint iteration. -/
-def liveLabels (bs0 : List (Nat × List (Nat × Ty) × Tree)) : Trie (List Nat) :=
+def liveLabels (bs0 : List (Nat × List (Nat × Ty) × Tree))
+    (addrDeps : Trie (List Nat) := .empty) : Trie (List Nat) :=
   let bs := bs0.map fun (l, ps, tb) => (l, ps.map Prod.fst, tb, allJumps tb)
   let rec go : Nat → Bool → Trie (List Nat) → Trie Bool → Trie (List Nat)
     | 0, _, lt, _ => lt
@@ -299,7 +365,7 @@ def liveLabels (bs0 : List (Nat × List (Nat × Ty) × Tree)) : Trie (List Nat) 
       let (lt', nextCh, ch) := bs.foldl (fun (lt, nch, ch) (l, pvars, tb, js) =>
         if !(first || js.any (fun j => prevCh.getD j false)) then (lt, nch, ch)
         else
-          let lv := eraseMany pvars (fillLive lt tb).1
+          let lv := eraseMany pvars (fillLive lt addrDeps tb).1
           if Nat.beq lv.length (lt.getD l []).length then (lt, nch, ch)
           else (lt.insert l lv, nch.insert l true, true))
         (lt, .empty, false)

@@ -139,6 +139,10 @@ def addrToExprIns : AddrArg Reg64 → List Instr × AddrExpr × FlagMask
     else if fitsImm32 off.toBitVec then ([], atDisp r off, maskNone)
     else ([moviI .r10 off.toBitVec, x64InsI .W64 (.add (.reg (q .r10)) (.reg (q r)))],
           atReg .r10, maskAll)
+  | .baseIdxDisp rb ri sc off =>
+    if fitsImm32 off.toBitVec then ([], atSIB rb ri sc off, maskNone)
+    else ([moviI .r10 off.toBitVec, x64InsI .W64 (.add (.reg (q .r10)) (.reg (q rb)))],
+          atSIB .r10 ri sc 0, maskAll)
   | .imm addr => ([moviI .r10 addr], atReg .r10, maskNone)
 
 /-- Lower `AddrArg Reg64` to prefix setup directives, a Kraken `AddrExpr`, and a flag mask. -/
@@ -1097,6 +1101,7 @@ def x64Op {sig rs : List Ty} (code : OpCode sig rs)
 
 /-- Lower a scalar memory load of type `t` into `rd` (instruction list). -/
 def x64LoadIns (t : Ty) (rd : Reg64) (a : AddrArg Reg64) : Option (List Instr × FlagMask) :=
+  if !x64AddrValid a then none else
   let pre := (addrToExprIns a).1
   let addr := (addrToExprIns a).2.1
   let clob := (addrToExprIns a).2.2
@@ -1119,6 +1124,7 @@ def x64Load (t : Ty) (rd : Reg64) (a : AddrArg Reg64) : Option (List Directive �
 def x64StoreIns : (t : Ty) → PArg Reg64 RegMm CondCode t → AddrArg Reg64 →
     Option (List Instr × FlagMask)
   | .bool, pa, a =>
+    if !x64AddrValid a then none else
     let pre := (addrToExprIns a).1
     let addr := (addrToExprIns a).2.1
     let clob := (addrToExprIns a).2.2
@@ -1131,6 +1137,7 @@ def x64StoreIns : (t : Ty) → PArg Reg64 RegMm CondCode t → AddrArg Reg64 →
             pre ++ [x64InsI .W8 (.mov (.mem addr) (.reg (b8 .r11)))], clob)
     | .vec _ => none
   | .bits n, pa, a =>
+    if !x64AddrValid a then none else
     withWidth (F := fun k => PArg Reg64 RegMm CondCode (.bits k)) n pa fun w pa' =>
       let pre := (addrToExprIns a).1
       let addr := (addrToExprIns a).2.1

@@ -172,6 +172,19 @@ def fnAddrCall : Fn := ⟨"addrCall", [i64], [i64], fun _ _ (p, ()) =>
   .let_ (op2 (.add i64) (.var r) (.var x)) fun (s, ()) =>
   .ret (.var s, ())⟩
 
+/-- Stage 1b SIB scaled-index elision: `(idx + 2) << 2 + p` and `((idx << 3) + p) - 8` both fold
+into `[base + idx*scale + disp]` with zero emitted shift/ALU/LEA instructions. -/
+def fnAddrSib : Fn := ⟨"addrSib", [i64, i64, i64], [i64], fun _ _ (p, idx, v, ()) =>
+  .let_ (op2 (.add i64) (.var idx) (.imm 2)) fun (i2, ()) =>
+  .let_ (op2 (.shl i64) (.var i2) (.imm 2)) fun (o2, ()) =>
+  .let_ (op2 (.add i64) (.var p) (.var o2)) fun (p2, ()) =>
+  .store (.var v) (.var p2) (
+  .let_ (op2 (.shl i64) (.var idx) (.imm 3)) fun (o3, ()) =>
+  .let_ (op2 (.add i64) (.var p) (.var o3)) fun (p3, ()) =>
+  .let_ (op2 (.sub i64) (.var p3) (.imm 8)) fun (p4, ()) =>
+  .load i64 (.var p4) fun x =>
+  .ret (.var x, ()))⟩
+
 def extCarryCall : Rega.Ext := { callees := [("inc", [i64], [i64])] }
 
 /-! ## 4. External Untrusted Hint & Code Splicing (`ToExpr`, zero kernel oracle execution) -/
@@ -236,6 +249,7 @@ splice_lower hintsCfLoop codeCfLoop (Spill.hints isa fnCfLoop) ({}) fnCfLoop
 splice_lower_on addrIsa hintsAddrDisp codeAddrDisp (Spill.hints addrIsa fnAddrDisp) ({}) fnAddrDisp
 splice_lower_on addrIsa hintsAddrCall codeAddrCall
   (Spill.hints addrIsa fnAddrCall) (extCarryCall) fnAddrCall
+splice_lower_on addrIsa hintsAddrSib codeAddrSib (Spill.hints addrIsa fnAddrSib) ({}) fnAddrSib
 
 /-! ## 5. Well-Formedness and Kernel-Checked Lowering -/
 
@@ -254,6 +268,7 @@ theorem adcxAdox_wf : fnAdcxAdox.Wf := by unfold Fn.Wf; t_wf_reify
 theorem cfLoop_wf : fnCfLoop.Wf := by unfold Fn.Wf; t_wf_reify
 theorem addrDisp_wf : fnAddrDisp.Wf := by unfold Fn.Wf; t_wf_reify
 theorem addrCall_wf : fnAddrCall.Wf := by unfold Fn.Wf; t_wf_reify
+theorem addrSib_wf : fnAddrSib.Wf := by unfold Fn.Wf; t_wf_reify
 
 theorem branches_lower : Rega.lowerFn isa hintsBranches {} fnBranches = .ok codeBranches := by
   t_kernel_rfl
@@ -280,6 +295,9 @@ theorem addrDisp_lower :
   t_kernel_rfl
 theorem addrCall_lower :
     Rega.lowerFn addrIsa hintsAddrCall extCarryCall fnAddrCall = .ok codeAddrCall := by
+  t_kernel_rfl
+theorem addrSib_lower :
+    Rega.lowerFn addrIsa hintsAddrSib {} fnAddrSib = .ok codeAddrSib := by
   t_kernel_rfl
 
 /-! ## 6. Emitted-Code Highlights (the flag paths are really taken) -/
@@ -359,6 +377,22 @@ theorem stage1a_addr_highlights :
       = true := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> t_kernel_rfl
 
+/-- Stage 1b elides all six address ops in `fnAddrSib` and folds `[base + idx*4 + 8]` and
+`[base + idx*8 - 8]` into `.st` and `.ld` with zero `.bin` or `.lea` emitted. -/
+theorem stage1b_sib_highlights :
+    hintsAddrSib.elide.getD 0 false = true ∧
+    hintsAddrSib.elide.getD 1 false = true ∧
+    hintsAddrSib.elide.getD 2 false = true ∧
+    hintsAddrSib.elide.getD 4 false = true ∧
+    hintsAddrSib.elide.getD 5 false = true ∧
+    hintsAddrSib.elide.getD 6 false = true ∧
+    codeAddrSib.any (fun i => match i with | .bin .. | .lea .. => true | _ => false) = false ∧
+    codeAddrSib.any (fun i => match i with
+      | .st (.bits 64) _ (.bid _ _ 2 8#64) => true | _ => false) = true ∧
+    codeAddrSib.any (fun i => match i with
+      | .ld (.bits 64) _ (.bid _ _ 3 (-8#64)) => true | _ => false) = true := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> t_kernel_rfl
+
 #print axioms branches_lower
 #print axioms loop_lower
 #print axioms evenOdd_lower
@@ -378,5 +412,7 @@ theorem stage1a_addr_highlights :
 #print axioms addrDisp_lower
 #print axioms addrCall_lower
 #print axioms stage1a_addr_highlights
+#print axioms addrSib_lower
+#print axioms stage1b_sib_highlights
 
 end LeanQbe.T.RegaLitmus

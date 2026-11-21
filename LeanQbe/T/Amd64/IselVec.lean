@@ -221,6 +221,11 @@ def x64AddrPrepIns : AddrArg Reg64 → List Instr × AddrExpr
     if x64FitsDisp32 disp then ([], atDisp rb disp)
     else
       ([x64MoviI .r10 disp.toBitVec, insI (.lea (q .r10) (x64AtBaseR10 rb))], atReg .r10)
+  | .baseIdxDisp rb ri sc disp =>
+    if x64FitsDisp32 disp then ([], atSIB rb ri sc disp)
+    else
+      ([x64MoviI .r10 disp.toBitVec, insI (.lea (q .r10) (x64AtBaseR10 rb))],
+        atSIB .r10 ri sc 0)
   | .imm c => ([x64MoviI .r10 c], atReg .r10)
 
 /-- Address preparation for `AddrArg Reg64`, using `%r10` if `imm`/disp exceeds int32. -/
@@ -229,7 +234,8 @@ def x64AddrPrep (a : AddrArg Reg64) : List Directive × AddrExpr :=
 
 /-- Internal instruction stream for `x64Vload`. -/
 def x64VloadIns (t : Ty) (vd : RegMm) (a : AddrArg Reg64) : Option (List Instr × FlagMask) :=
-  (x64VecSlotWidth t).map fun w =>
+  if !x64AddrValid a then none
+  else (x64VecSlotWidth t).map fun w =>
     let (pre, addr) := x64AddrPrepIns a
     (pre ++ [x64VmemI true w vd addr], maskNone)
 
@@ -239,7 +245,8 @@ def x64Vload (t : Ty) (vd : RegMm) (a : AddrArg Reg64) : Option (List Directive 
 
 /-- Internal instruction stream for `x64Vstore`. -/
 def x64VstoreIns (t : Ty) (vs : RegMm) (a : AddrArg Reg64) : Option (List Instr × FlagMask) :=
-  (x64VecSlotWidth t).map fun w =>
+  if !x64AddrValid a then none
+  else (x64VecSlotWidth t).map fun w =>
     let (pre, addr) := x64AddrPrepIns a
     (pre ++ [x64VmemI false w vs addr], maskNone)
 

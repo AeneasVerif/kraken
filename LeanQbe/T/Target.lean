@@ -107,17 +107,44 @@ def Hints.totalSlots {R V C : Type} (h : Hints R V C) : Nat :=
 
 /-! ## 3. Physical Snippet Operands and Disjoint `Isa` Sub-Records (`R5`) -/
 
+/-- Supported SIB / scaled-index address scale factors (`scale ∈ {1, 2, 4, 8}`). -/
+inductive AddrScale
+  | s1 | s2 | s4 | s8
+  deriving DecidableEq, Repr, Inhabited, Hashable, Lean.ToExpr
+
+def AddrScale.shift : AddrScale → Nat
+  | .s1 => 0
+  | .s2 => 1
+  | .s4 => 2
+  | .s8 => 3
+
+def AddrScale.bytes : AddrScale → Nat
+  | .s1 => 1
+  | .s2 => 2
+  | .s4 => 4
+  | .s8 => 8
+
+def AddrScale.ofShift? : Nat → Option AddrScale
+  | 0 => some .s1
+  | 1 => some .s2
+  | 2 => some .s4
+  | 3 => some .s8
+  | _ => none
+
 inductive AddrArg (Reg : Type) where
   | baseDisp (base : Reg) (disp : Int64 := 0)
+  | baseIdxDisp (base idx : Reg) (scale : AddrScale := .s1) (disp : Int64 := 0)
   | imm (addr : BitVec 64)
   deriving DecidableEq, Repr
 
 def AddrArg.eval {Reg : Type} (get : Reg → BitVec 64) : AddrArg Reg → BitVec 64
   | .baseDisp r d => get r + d.toBitVec
+  | .baseIdxDisp b i sc d => get b + (get i <<< sc.shift) + d.toBitVec
   | .imm a => a
 
 def AddrArg.regs {Reg : Type} : AddrArg Reg → List Reg
   | .baseDisp r _ => [r]
+  | .baseIdxDisp b i _ _ => [b, i]
   | .imm _ => []
 
 inductive PArg (Reg VReg Cond : Type) : Ty → Type where
@@ -297,6 +324,8 @@ structure Isa where
   frame : FrameIsa Reg Directive
   /-- Untrusted displacement legality predicate (`base + disp`) for address-op elision. -/
   supportsAddrDisp : Ty → BitVec 64 → Bool := fun _ _ => false
+  /-- Untrusted scaled-index legality predicate (`base + idx*scale + disp`) for elision. -/
+  supportsAddrIdx : Ty → AddrScale → BitVec 64 → Bool := fun _ _ _ => false
 
 attribute [instance] Isa.decEqReg Isa.decEqVReg Isa.decEqCond
 abbrev Isa.Loc (I : Isa) : Type := _root_.LeanQbe.T.Loc I.Reg I.VReg I.Cond

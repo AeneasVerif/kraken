@@ -54,7 +54,8 @@ theorem x64Target_toIsa :
     x64Target.toIsa =
       { Reg := Reg64, VReg := RegMm, Cond := CondCode, Directive := Directive,
         gpr := x64Gpr, vec := x64Vec, frame := x64Frame,
-        supportsAddrDisp := x64SupportsAddrDisp } :=
+        supportsAddrDisp := x64SupportsAddrDisp,
+        supportsAddrIdx := x64SupportsAddrIdx } :=
   rfl
 
 /-! ## 2. Parity Theorems (`x64LegalTarget` ↔ `x64Target.toIsa`) & Kernel Checks -/

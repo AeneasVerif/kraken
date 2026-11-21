@@ -381,6 +381,28 @@ theorem x64AddrPrep_fallsTo [Host] {a : AddrArg Reg64} {s : MachineData}
       · simp [Reg64s.get64_set64, hr.symm]
       · simp only [atReg_interp, Reg64s.get64_set64_same,
           Reg64s.get64_set64_of_ne _ _ _ _ hrb.symm]; rfl
+  | baseIdxDisp rb ri sc disp =>
+    have hrb := (ne_of_not_mem_x64Scratch (ha rb (by simp [AddrArg.regs]))).1
+    have hri := (ne_of_not_mem_x64Scratch (ha ri (by simp [AddrArg.regs]))).1
+    dsimp only [x64AddrPrep, x64AddrPrepIns]
+    split
+    · exact Program.wp_nil ⟨rfl, rfl, rfl, fun _ _ => rfl, fun {_} p => by
+        rw [atSIB_interp]; rfl⟩
+    · refine Program.wp.cons (Directive.FallsTo.wp (x64MoviD_fallsTo .r10 disp.toBitVec s)) ?_
+      rintro s₁ rfl
+      refine Program.wp.mono
+        (Directive.FallsTo.wp
+          (x64LeaBaseR10_fallsTo rb { s with regs := s.regs.set64 .r10 disp.toBitVec })) ?_
+      rintro s' rfl
+      refine ⟨rfl, rfl, rfl, fun r hr => ?_, fun {_} p => ?_⟩
+      · simp [Reg64s.get64_set64, hr.symm]
+      · rw [atSIB_interp, Reg64s.get64_set64_same,
+          Reg64s.get64_set64_of_ne _ _ _ _ hrb.symm,
+          Reg64s.get64_set64_of_ne _ _ _ _ hri.symm,
+          Reg64s.get64_set64_of_ne _ _ _ _ hri.symm,
+          Reg64s.get64_set64_same]
+        simp only [AddrArg.eval, Int64.toBitVec_zero, BitVec.add_zero]
+        ac_rfl
   | imm c =>
     dsimp only [x64AddrPrep, x64AddrPrepIns]
     refine Program.wp.mono (Directive.FallsTo.wp (x64MoviD_fallsTo .r10 c s)) ?_
@@ -1084,7 +1106,10 @@ theorem x64Vload_spec {h : Host} {k : Nat} {t : Ty} {vd : RegMm} {a : AddrArg Re
       (fun s' => VecHolds (x64Mach.getVec s' vd) t val ∧ x64Mach.mem s' = x64Mach.mem s) post := by
   dsimp only [x64Vload] at hv
   obtain ⟨ci, hci, rfl⟩ := emitCleanPair_eq_some.mp hv
+  have hva : x64AddrValid a = true := by cases h : x64AddrValid a <;> simp_all [x64VloadIns]
   dsimp only [x64VloadIns] at hci
+  rw [show (!x64AddrValid a) = false by simp [hva]] at hci
+  simp only [Bool.false_eq_true, ↓reduceIte] at hci
   cases hw : x64VecSlotWidth t with
   | none => simp [hw] at hci
   | some w =>
@@ -1151,7 +1176,10 @@ theorem x64Vstore_spec {h : Host} {k : Nat} {t : Ty} {vs : RegMm} {a : AddrArg R
       post := by
   dsimp only [x64Vstore] at hv
   obtain ⟨ci, hci, rfl⟩ := emitCleanPair_eq_some.mp hv
+  have hva : x64AddrValid a = true := by cases h : x64AddrValid a <;> simp_all [x64VstoreIns]
   dsimp only [x64VstoreIns] at hci
+  rw [show (!x64AddrValid a) = false by simp [hva]] at hci
+  simp only [Bool.false_eq_true, ↓reduceIte] at hci
   cases hw : x64VecSlotWidth t with
   | none => simp [hw] at hci
   | some w =>

@@ -30,6 +30,11 @@ def x64SupportsAddrDisp (t : Ty) (d : BitVec 64) : Bool :=
     | .float _ => false
   okTy && fitsImm32 d
 
+/-- True iff `x64Load`/`x64Store`/`x64Vload`/`x64Vstore` encodes `[base + idx*scale + disp]`
+in one SIB+disp operand without scratch materialization. -/
+def x64SupportsAddrIdx (t : Ty) (_sc : AddrScale) (d : BitVec 64) : Bool :=
+  x64SupportsAddrDisp t d
+
 /-- Pure SysV x64 `Isa` (zero `*Lemmas*` imports). -/
 @[reducible] def x64Isa : Isa where
   Reg := Reg64
@@ -40,6 +45,7 @@ def x64SupportsAddrDisp (t : Ty) (d : BitVec 64) : Bool :=
   vec := x64Vec
   frame := x64Frame
   supportsAddrDisp := x64SupportsAddrDisp
+  supportsAddrIdx := x64SupportsAddrIdx
 
 /-- SysV x64 legalization capability record aligned with `x64Isa` (`[8, 16, 32, 64]` scalar,
 `[128, 256, 512]` packed `[i32, f32]` SIMD, 128-bit SSE shuffle/float ops, no SHA-NI). -/

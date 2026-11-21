@@ -253,6 +253,7 @@ def hostAdcxAdox : LHost := mkHost codeAdcxAdox (by t_kernel_rfl)
 def hostCfLoop : LHost := mkHost codeCfLoop (by t_kernel_rfl)
 def hostAddrDisp : LHost := mkHost codeAddrDisp (by t_kernel_rfl)
 def hostAddrCall : LHost := mkHost (codeInc ++ codeAddrCall) (by t_kernel_rfl)
+def hostAddrSib : LHost := mkHost codeAddrSib (by t_kernel_rfl)
 
 abbrev ones64 : BitVec 64 := 0xFFFFFFFFFFFFFFFF#64
 
@@ -377,6 +378,17 @@ theorem addrCall_nonvacuous :
   returns_of_check (by t_kernel_rfl) 1000 (mkSt_rel (initMem_rel _ (by t_kernel_rfl)))
     (by t_kernel_rfl)
 
+/-- `addrSib 0x2000 10 0x2A`: stores `0x2A` at `0x2000 + 10*4 + 8 = 0x2030`, loads `0x99` from
+`0x2000 + 10*8 - 8 = 0x2048`. -/
+theorem addrSib_nonvacuous :
+    Eventually (mach.step hostAddrSib) (Returns ra0 sp0 [(0, 0x99#64)] [])
+      (mkSt [(4, sp0), (7, 0x2000#64), (6, 10#64), (2, 0x2A#64)]
+        (initMem (stackInit ++ [(0x2030#64, [0, 0, 0, 0, 0, 0, 0, 0]),
+          (0x2048#64, [0x99, 0, 0, 0, 0, 0, 0, 0])])),
+        labelAddr hostAddrSib "addrSib") :=
+  returns_of_check (by t_kernel_rfl) 1000 (mkSt_rel (initMem_rel _ (by t_kernel_rfl)))
+    (by t_kernel_rfl)
+
 #print axioms branches_nonvacuous
 #print axioms loop_nonvacuous
 #print axioms evenOdd_nonvacuous
@@ -391,6 +403,7 @@ theorem addrCall_nonvacuous :
 #print axioms cfLoop_nonvacuous
 #print axioms addrDisp_nonvacuous
 #print axioms addrCall_nonvacuous
+#print axioms addrSib_nonvacuous
 
 /-! ## 5. Host Facts for the `lowerFn_correct` Hooks (`IsInfixAt`, `LabelsUnique`, `Defined`) -/
 
@@ -419,8 +432,8 @@ theorem labelsUnique_of_ok {h : LHost} (hok : labelsOk h = true) :
   (labelAddr_of_labelsOk hok hi).symm.trans (labelAddr_of_labelsOk hok hj)
 
 theorem labels_ok_addr :
-    labelsOk hostAddrDisp = true ∧ labelsOk hostAddrCall = true :=
-  ⟨by t_kernel_rfl, by t_kernel_rfl⟩
+    labelsOk hostAddrDisp = true ∧ labelsOk hostAddrCall = true ∧ labelsOk hostAddrSib = true :=
+  ⟨by t_kernel_rfl, by t_kernel_rfl, by t_kernel_rfl⟩
 
 theorem addrCall_layout :
     codeInc.IsInfixAt hostAddrCall.prog 0 ∧
@@ -584,10 +597,17 @@ theorem addrDisp_correct :
     (labelsUnique_of_ok labels_ok_addr.1) (Nat.le_of_ble_eq_true (by t_kernel_rfl))
     (Nat.le_of_ble_eq_true (by t_kernel_rfl)) (fun _ _ _ h => nomatch h) (fun _ h => nomatch h)
 
+theorem addrSib_correct :
+    litmusAddrTarget.FnSpec hostAddrSib fnAddrSib.name (Func.spec Γ fnAddrSib.body) 0 0 :=
+  Rega.lowerFn_correct litmusAddrTarget hostAddrSib hintsAddrSib {} fnAddrSib Γ 0 0
+    (fun _ => 0) addrSib_wf addrSib_lower (code_infix_self codeAddrSib (by t_kernel_rfl))
+    (labelsUnique_of_ok labels_ok_addr.2.2) (Nat.le_of_ble_eq_true (by t_kernel_rfl))
+    (Nat.le_of_ble_eq_true (by t_kernel_rfl)) (fun _ _ _ h => nomatch h) (fun _ h => nomatch h)
+
 theorem inc_correct_addr :
     litmusAddrTarget.FnSpec hostAddrCall fnInc.name (Func.spec Γ fnInc.body) 0 0 :=
   Rega.lowerFn_correct litmusAddrTarget hostAddrCall hintsInc {} fnInc Γ 0 0 (fun _ => 0)
-    inc_wf inc_lower addrCall_layout.1 (labelsUnique_of_ok labels_ok_addr.2)
+    inc_wf inc_lower addrCall_layout.1 (labelsUnique_of_ok labels_ok_addr.2.1)
     (Nat.le_of_ble_eq_true (by t_kernel_rfl)) (Nat.le_of_ble_eq_true (by t_kernel_rfl))
     (fun _ _ _ h => nomatch h) (fun _ h => nomatch h)
 
@@ -595,7 +615,7 @@ theorem addrCall_correct (hΓ : Γ "inc" [i64] [i64] = Func.spec Γ fnInc.body) 
     litmusAddrTarget.FnSpec hostAddrCall fnAddrCall.name (Func.spec Γ fnAddrCall.body) 24 0 := by
   refine Rega.lowerFn_correct litmusAddrTarget hostAddrCall hintsAddrCall extCarryCall fnAddrCall
     Γ 24 0 (fun _ => 0) addrCall_wf addrCall_lower addrCall_layout.2
-    (labelsUnique_of_ok labels_ok_addr.2) (Nat.le_of_ble_eq_true (by t_kernel_rfl))
+    (labelsUnique_of_ok labels_ok_addr.2.1) (Nat.le_of_ble_eq_true (by t_kernel_rfl))
     (Nat.le_of_ble_eq_true (by t_kernel_rfl)) ?_ (fun _ h => nomatch h)
   intro g as bs hg
   simp only [extCarryCall, List.mem_singleton, Prod.mk.injEq] at hg
@@ -627,5 +647,6 @@ end Correct
 #print axioms evenOdd_correct
 #print axioms addrDisp_correct
 #print axioms addrCall_correct
+#print axioms addrSib_correct
 
 end LeanQbe.T.RegaLitmus

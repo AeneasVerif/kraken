@@ -226,6 +226,7 @@ structure Ctx (I : Isa) where
   (nGpr nVec : Nat) (gAlloc csIds vAlloc : List Nat) (gScr vScr : Option Nat)
   (cross loops : Trie Bool) (loopReach : Trie (List Nat)) (banks : Trie Bank)
   (flagHome : Trie I.Cond) (bparams lTrie : Trie (List Nat))
+  (addrDeps : Trie (List Nat) := .empty)
 
 /-- Gathered weights; `gprPts` records `(budget, liveThrough, creditVars)` where coloring any
 `u ∈ creditVars` with a callee-saved register credits `+1` back to that point's caller-saved
@@ -341,9 +342,9 @@ def gather {I : Isa} (c : Ctx I) : List Nat → List Nat → Nat → Tree → Ga
     gather c lps lr mult k { acc with
       weights := (mult, defs ++ uses) :: acc.weights, defInterf := di, affEdges := aff,
       gprPts := gPts, vecPts := vPts, defWT := dw }
-  | lps, lr, mult, .load lv _ x _ a k, acc =>
+  | lps, lr, mult, .load lv ip x _ a k, acc =>
     let la := k.lv
-    let uses := dedup (argVarIds a)
+    let uses := dedup (c.addrDeps.getD ip (argVarIds a))
     let di := if natMem x la then (x, la) :: acc.defInterf else acc.defInterf
     let (gLv, _) := splitBank c.banks c.flagHome lv
     let (gLa, vLa) := splitBank c.banks c.flagHome la
@@ -355,8 +356,8 @@ def gather {I : Isa} (c : Ctx I) : List Nat → List Nat → Nat → Tree → Ga
     gather c lps lr mult k { acc with
       weights := (mult, x :: uses) :: acc.weights, defInterf := di,
       gprPts := gPts, vecPts := vPts, defWT := acc.defWT.insert x mult }
-  | lps, lr, mult, .store lv _ _ v a k, acc =>
-    let uses := dedup (argVarIds v ++ argVarIds a)
+  | lps, lr, mult, .store lv ip _ v a k, acc =>
+    let uses := dedup (argVarIds v ++ c.addrDeps.getD ip (argVarIds a))
     let (gLv, vLv) := splitBank c.banks c.flagHome lv
     let (gUse, vUse) := splitBank c.banks c.flagHome uses
     gather c lps lr mult k { acc with
@@ -1015,7 +1016,7 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
       { st with dest := dest, pre := recordPre ip (clrAt.getD ip false) mvs st.pre,
                 variant := var' }
   | .load lv ip x _ a k, pd, ev, sv, gC, vC, st =>
-    let ops := argVarIds a
+    let ops := c.addrDeps.getD ip (argVarIds a)
     let rl := ops.filter (natMem · ev)
     let (rlWG, rlWV) := splitReloadRegs home rl
     let laAfter := erase x k.lv
@@ -1030,7 +1031,7 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
       (eraseMany rl ev) sv' gC2 vC2
       { st with dest := dest, pre := recordPre ip (clrAt.getD ip false) mvs st.pre }
   | .store lv ip _ v a k, pd, ev, sv, gC, vC, st =>
-    let ops := dedup (argVarIds v ++ argVarIds a)
+    let ops := dedup (argVarIds v ++ c.addrDeps.getD ip (argVarIds a))
     let rl := ops.filter (natMem · ev)
     let (rlWG, rlWV) := splitReloadRegs home rl
     let (mvs, gC1, vC1) := buildPre c home st.usedCs lv k.lv ops pd
@@ -1151,10 +1152,10 @@ def hints (I : Isa) (f : Fn)
   let nVec := I.vec.vecAllocatable.length
   let allVec := I.vec.vecAllocatable ++ I.vec.vecScratch ++ I.vec.vecArgRegs ++ I.vec.vecRetRegs
   let (t0, fnPs, nv, nl, nip, tys) := Tree.ofFn f
-  let (t1, elideIps) := elideAddrTree I t0
+  let (t1, elideIps, addrDeps) := elideAddrTreeDeps I t0
   let bs0 := t1.blocks
-  let lTrie := liveLabels bs0
-  let (_, t) := fillLive lTrie t1
+  let lTrie := liveLabels bs0 addrDeps
+  let (_, t) := fillLive lTrie addrDeps t1
   let crossList := acrossCalls t
   let crossTrie := crossList.foldl (fun a x => a.insert x true) .empty
   let bparamsTrie := bs0.foldl (fun a (l, ps, _) => a.insert l (ps.map Prod.fst)) .empty
@@ -1176,7 +1177,7 @@ def hints (I : Isa) (f : Fn)
     vScr := if I.vec.vecScratch.isEmpty then none else some nVec,
     cross := crossTrie, loops := loops, loopReach := loopReach,
     banks := (List.range nv).foldl (fun b x => b.insert x (bankOf I (tys.getD x i64))) .empty,
-    flagHome := fh.flagHome, bparams := bparamsTrie, lTrie := lTrie }
+    flagHome := fh.flagHome, bparams := bparamsTrie, lTrie := lTrie, addrDeps := addrDeps }
   let acc := gather c [] [] baseMult t {}
   let fnAbi := match I.assignArgs f.as with
     | some locs => abiIdList allGpr allVec locs | none => []

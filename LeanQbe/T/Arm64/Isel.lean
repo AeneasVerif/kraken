@@ -184,6 +184,7 @@ def armSetupAddrIns (scale : Nat) : AddrArg Reg → List Instr × AddrExpr
         armIselInsI (w := .W64) (.ADD_e (.low (.reg .X16) .W64) (.low .SP .W64)
           (.ext { reg := ⟨.W64, zr .X16 .W64⟩, ext := { type := .UXTX, amount := .E0 } }))],
         atReg .X16)
+  | .baseIdxDisp .. => ([], atReg .X16)
 
 /-- Byte scale of a scalar memory access type, or `none` if unsupported. -/
 def armMemScale : Ty → Option Nat
@@ -211,17 +212,24 @@ def armStoreDirI (t : Ty) (s : XReg) (addr : AddrExpr) : Option Instr :=
   | .bits 64 => some (armIselInsI (w := .W64) (.STR (zr s .W64) addr))
   | _ => none
 
+/-- Address validity gate for AArch64 scalar loads/stores (`baseIdxDisp` not yet wired). -/
+def armAddrValid : AddrArg Reg → Bool
+  | .baseIdxDisp .. => false
+  | _ => true
+
 /-- Load scalar `t` from `a` into `rd` (`Instr` builder). -/
 def armLoadIns (t : Ty) (rd : Reg) (a : AddrArg Reg) : Option (List Instr × FlagMask) := do
-  let scale ← armMemScale t
-  let (setup, addr) := armSetupAddrIns scale a
-  match rd with
-  | .reg d =>
-    let dir ← armLoadDirI t d addr
-    some (setup ++ [dir], maskNone)
-  | .SP =>
-    let dir ← armLoadDirI t .X16 addr
-    some (setup ++ [dir, armIselMovToSpI .X16], maskNone)
+  if !armAddrValid a then none
+  else
+    let scale ← armMemScale t
+    let (setup, addr) := armSetupAddrIns scale a
+    match rd with
+    | .reg d =>
+      let dir ← armLoadDirI t d addr
+      some (setup ++ [dir], maskNone)
+    | .SP =>
+      let dir ← armLoadDirI t .X16 addr
+      some (setup ++ [dir, armIselMovToSpI .X16], maskNone)
 
 /-- Load scalar `t` from `a` into `rd` (handling `.SP` base/destination), preserving all flags. -/
 def armLoad (t : Ty) (rd : Reg) (a : AddrArg Reg) : Option (List Directive × FlagMask) :=
@@ -241,11 +249,13 @@ def armStoreValInIns : (t : Ty) → PArg Reg Empty ArmCond t → Option (List In
 /-- Store scalar `pa` of type `t` to `a` (`Instr` builder). -/
 def armStoreIns (t : Ty) (pa : PArg Reg Empty ArmCond t) (a : AddrArg Reg) :
     Option (List Instr × FlagMask) := do
-  let scale ← armMemScale t
-  let (valSetup, rx) ← armStoreValInIns t pa
-  let (addrSetup, addr) := armSetupAddrIns scale a
-  let dir ← armStoreDirI t rx addr
-  some (valSetup ++ addrSetup ++ [dir], maskNone)
+  if !armAddrValid a then none
+  else
+    let scale ← armMemScale t
+    let (valSetup, rx) ← armStoreValInIns t pa
+    let (addrSetup, addr) := armSetupAddrIns scale a
+    let dir ← armStoreDirI t rx addr
+    some (valSetup ++ addrSetup ++ [dir], maskNone)
 
 /-- Store scalar `pa` of type `t` to `a`, preserving all flags. -/
 def armStore (t : Ty) (pa : PArg Reg Empty ArmCond t) (a : AddrArg Reg) :

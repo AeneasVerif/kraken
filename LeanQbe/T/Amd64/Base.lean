@@ -54,6 +54,22 @@ abbrev atReg (r : Reg64) : AddrExpr := { base := some (.reg r), idx := none }
 abbrev atDisp (r : Reg64) (off : Int64) : AddrExpr :=
   { base := some (.reg r), idx := none, disp := .int64 off }
 
+/-- Map `AddrScale` to Kraken SIB index `Width` (`1/2/4/8` bytes). -/
+def scaleWidth : AddrScale → Width
+  | .s1 => .W8
+  | .s2 => .W16
+  | .s4 => .W32
+  | .s8 => .W64
+
+/-- SIB scaled-index memory operand `[rb + ri * scale + off]`. -/
+abbrev atSIB (rb ri : Reg64) (sc : AddrScale) (off : Int64) : AddrExpr :=
+  { base := some (.reg rb), idx := some ⟨ri, scaleWidth sc⟩, disp := .int64 off }
+
+/-- True iff `a` is encodable in x64 SIB/disp hardware (`%rsp` cannot be a SIB index). -/
+def x64AddrValid : AddrArg Reg64 → Bool
+  | .baseIdxDisp _ .rsp _ _ => false
+  | _ => true
+
 /-! ## 2. Status-flag masks, `x64CondReads`, and `x64NegCond` (`CF=0, PF=1, AF=2, ZF=3, SF=4, OF=5`) -/
 
 def maskNone   : FlagMask := 0x00#8
@@ -239,5 +255,21 @@ theorem atReg_interp [Labels] (regs : Reg64s) (r : Reg64) (p : Std.Rco Int64) :
   intro i hi
   simp [AddrExpr.interp, ConstExpr.interp, BitVec.toAddressSize, BitVec.signed,
     BitVec.ofInt_toInt, BitVec.take, hi]
+
+theorem atSIB_interp [Labels] (regs : Reg64s) (rb ri : Reg64) (sc : AddrScale)
+    (off : Int64) (p : Std.Rco Int64) :
+    (@AddrExpr.interp _ ⟨.W64⟩ (atSIB rb ri sc off) regs p).zeroExtend 64 =
+      regs.get64 rb + (regs.get64 ri <<< sc.shift) + off.toBitVec := by
+  simp only [AddrExpr.interp, BitVec.toAddressSize, BitVec.take, ConstExpr.interp,
+    BitVec.signed, BitVec.extractLsb'_eq_self, BitVec.zeroExtend_eq_setWidth,
+    BitVec.setWidth_eq, Width.bits]
+  rw [BitVec.ofInt_add, BitVec.ofInt_add, BitVec.ofInt_mul]
+  simp only [BitVec.ofInt_toInt, BitVec.ofInt_natCast]
+  congr 1
+  · congr 1
+    cases sc <;> apply BitVec.eq_of_toNat_eq <;>
+      simp [scaleWidth, AddrScale.shift, Width.bytes, BitVec.toNat_mul,
+        BitVec.toNat_shiftLeft, Nat.shiftLeft_eq]
+  · rw [← Int64.toInt_toBitVec, BitVec.ofInt_toInt]
 
 end LeanQbe.T.Amd64

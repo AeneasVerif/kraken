@@ -414,6 +414,41 @@ theorem hints_and_wide_ops_rfl :
       some ([ins32 (.mov (.mem (atReg .rdi)) (immBitsOp .W32 7#32))], maskNone) :=
   ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
+theorem sib_addressing_rfl :
+    x64Gpr.load i8 .rax (.baseIdxDisp .rdi .rsi .s1 0) =
+      some ([ins32 (.movzx (.reg (d .rax)) (.mem (atSIB .rdi .rsi .s1 0) : RegOrMem .W8))],
+        maskNone) ∧
+    x64Gpr.load i16 .rax (.baseIdxDisp .rdi .rsi .s2 (-4)) =
+      some ([ins32 (.movzx (.reg (d .rax)) (.mem (atSIB .rdi .rsi .s2 (-4)) : RegOrMem .W16))],
+        maskNone) ∧
+    x64Gpr.load i32 .rax (.baseIdxDisp .rdi .rsi .s4 12) =
+      some ([ins32 (.mov (.reg (d .rax)) (.mem (atSIB .rdi .rsi .s4 12)))], maskNone) ∧
+    x64Gpr.store i64 (.gpr .rbx) (.baseIdxDisp .rdi .rsi .s8 24) =
+      some ([ins (.mov (.mem (atSIB .rdi .rsi .s8 24)) (.reg (q .rbx)))], maskNone) ∧
+    x64Gpr.load i64 .rax (.baseIdxDisp .rdi .rsi .s8 (Int64.ofInt (2 ^ 32))) =
+      some ([moviD .r10 (BitVec.ofNat 64 (2 ^ 32)),
+             ins (.add (.reg (q .r10)) (.reg (q .rdi))),
+             ins (.mov (.reg (q .rax)) (.mem (atSIB .r10 .rsi .s8 0)))], maskAll) ∧
+    x64Vec.vload v4i32 .mm0 (.baseIdxDisp .rdi .rsi .s4 16) =
+      some ([x64VmemDir true .w128 .mm0 (atSIB .rdi .rsi .s4 16)], maskNone) ∧
+    x64Vec.vstore v4i32 .mm1 (.baseIdxDisp .rdi .rsi .s8 (-32)) =
+      some ([x64VmemDir false .w128 .mm1 (atSIB .rdi .rsi .s8 (-32))], maskNone) ∧
+    x64Gpr.load i32 .rax (.baseIdxDisp .rdi .rsp .s4 0) = none ∧
+    x64Gpr.store i64 (.gpr .rax) (.baseIdxDisp .rdi .rsp .s8 8) = none ∧
+    x64Vec.vload v4i32 .mm0 (.baseIdxDisp .rdi .rsp .s4 0) = none ∧
+    x64Vec.vstore v4i32 .mm0 (.baseIdxDisp .rdi .rsp .s4 0) = none :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+theorem sib_load32_spec {h : x64Mach.Host} {k : Nat} {s : MachineData} {v : BitVec 32}
+    {post : MachineState → Prop}
+    (hlv : loadVal s.dmem i32
+      (s.regs.get64 .rdi + (s.regs.get64 .rsi <<< 2) + 12#64) = some v)
+    {c : List Directive} {clob : FlagMask}
+    (hc : x64Gpr.load i32 .rax (.baseIdxDisp .rdi .rsi .s4 12) = some (c, clob)) :
+    x64Mach.FallsTo x64Gpr.condReads h k c (.rax :: x64Scratch) [] clob s
+      (fun s' => GprHolds (s'.regs.get64 .rax) i32 v ∧ s'.dmem = s.dmem) post :=
+  x64GprSpec.load_spec hc (by simp [x64Scratch]) (by simp [AddrArg.regs, x64Scratch]) hlv
+
 theorem unsupported_ops_rejected_rfl :
     x64Gpr.supportsScalarOp (.rbit 64) (.var (), ()) = false ∧
     x64Gpr.supportsScalarOp (.udiv0 64) (.var (), .var (), ()) = false ∧
@@ -580,6 +615,7 @@ meta def isSetccDir : Directive → Bool
 #print axioms x64Gpr_jnzGpr_noLab
 #print axioms x64Gpr_load_noLab
 #print axioms x64Gpr_store_noLab
+#print axioms sib_load32_spec
 #print axioms bignum_mul4x4_backendOk
 #print axioms bignum_addMod25519_backendOk
 #print axioms bignum_subMod25519_backendOk

@@ -98,7 +98,12 @@ def ParamsOk (s : M.MData) (σ : List (BitVec 64)) : (ts : List Ty) → Tup Val 
 end Mach
 
 def DefOk (G : VCtx) (x : Nat) : DefFact → Prop
-  | .addImm64 b d => ∀ v, ⟨i64, v, x⟩ ∈ G → ∃ vb, ⟨i64, vb, b⟩ ∈ G ∧ v = vb + d
+  | .addImm64 b d => ∀ v, ⟨i64, v, x⟩ ∈ G → ∃ vb : BitVec 64, ⟨i64, vb, b⟩ ∈ G ∧ v = vb + d
+  | .scaleOff i sh d =>
+    ∀ v, ⟨i64, v, x⟩ ∈ G → ∃ vi : BitVec 64, ⟨i64, vi, i⟩ ∈ G ∧ v = (vi <<< sh) + d
+  | .addrSum b i sh d =>
+    ∀ v, ⟨i64, v, x⟩ ∈ G → ∃ vb vi : BitVec 64, ⟨i64, vb, b⟩ ∈ G ∧ ⟨i64, vi, i⟩ ∈ G ∧
+      v = vb + (vi <<< sh) + d
   | .imm64 c => ∀ v, ⟨i64, v, x⟩ ∈ G → v = c
 
 /-! ## 2. `Agree` -/
@@ -361,6 +366,11 @@ theorem DefOk.grow {G G' : VCtx} {nv x : Nat} {d : DefFact} (hG : ∀ p ∈ G', 
   have hm := mem_grow hG (sa := .var x) (by simp [symArgScopeOk, Nat.ble_eq]; omega) x rfl
   cases d with
   | addImm64 b c => intro v hv; obtain ⟨vb, h1, h2⟩ := h v (hm _ _ hv); exact ⟨vb, hsub _ h1, h2⟩
+  | scaleOff i sh d =>
+    intro v hv; obtain ⟨vi, h1, h2⟩ := h v (hm _ _ hv); exact ⟨vi, hsub _ h1, h2⟩
+  | addrSum b i sh d =>
+    intro v hv; obtain ⟨vb, vi, h1, h2, h3⟩ := h v (hm _ _ hv)
+    exact ⟨vb, vi, hsub _ h1, hsub _ h2, h3⟩
   | imm64 c => intro v hv; exact h v (hm _ _ hv)
 
 theorem keepRegLoc_frame {gClob : List T.Reg} {vClob : List T.VReg} {fClob : FlagMask}

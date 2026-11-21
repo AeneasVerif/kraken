@@ -225,4 +225,101 @@ meta def addrNoElideFn : Fn :=
 #guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrNoElideFn).elide.getD 0 false == false
 #guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrNoElideFn).elide.getD 2 false == false
 
+/-! ## 6. Stage 1b `[base + idx * scale + disp]` SIB addressing (`Hints.elide` + `DefFact`) -/
+
+meta def isSibMemDir : Directive → Bool
+  | .instr (.regular _ _ (.mov dst src)) =>
+    (match dst with | .mem e => e.idx.isSome | _ => false) ||
+    (match src with | .regOrMem (.mem e) => e.idx.isSome | _ => false)
+  | .instr (.regular _ _ (.movzx dst src)) =>
+    (match dst with | .mem e => e.idx.isSome | _ => false) ||
+    (match src with | .mem e => e.idx.isSome | _ => false)
+  | _ => false
+
+meta def isShlDir : Directive → Bool
+  | .instr (.regular _ _ (.shl _ _)) => true
+  | _ => false
+
+/-- Covers Kissat SIB patterns: `vals[lit]` (`scale=1`, `zext`), `ar[(idx+2)<<2]` &
+`ar[(idx+3)<<2]` (`scale=4, disp=8,12` across `cmp`/`select`), and `wvec[(lit<<1)+1]`
+(`scale=8, disp=4` store). Emits 4 SIB memory ops, 0 `shl`, 0 `add`/`sub`/`lea`, 0 `setcc`. -/
+meta def addrSibChainFn : Fn :=
+  ⟨"addrSibChainX64", [i64, i64, i64, i32, i64], [i32],
+    fun _ _ (vals, ar, wvec, lit, idx, ()) =>
+      .let_ (op1 (.zext 32 64) (.var lit)) fun (lit64, ()) =>
+      .let_ (op2 (.add i64) (.var vals) (.var lit64)) fun (pv, ()) =>
+      .load i8 (.var pv) fun vb =>
+      .let_ (op1 (.zext 8 32) (.var vb)) fun (vb32, ()) =>
+      .let_ (op2 (.cmp .ult i64) (.var idx) (.var vals)) fun (c, ()) =>
+      .let_ (op2 (.add i64) (.var idx) (.imm 2)) fun (c2, ()) =>
+      .let_ (op2 (.shl i64) (.var c2) (.imm 2)) fun (o2, ()) =>
+      .let_ (op2 (.add i64) (.var ar) (.var o2)) fun (pa2, ()) =>
+      .let_ (op2 (.add i64) (.var idx) (.imm 3)) fun (c3, ()) =>
+      .let_ (op2 (.shl i64) (.var c3) (.imm 2)) fun (o3, ()) =>
+      .let_ (op2 (.add i64) (.var ar) (.var o3)) fun (pa3, ()) =>
+      .load i32 (.var pa2) fun a2 =>
+      .load i32 (.var pa3) fun a3 =>
+      .let_ (op2 (.shl i64) (.var lit64) (.imm 3)) fun (wl, ()) =>
+      .let_ (op2 (.add i64) (.var wvec) (.var wl)) fun (pw0, ()) =>
+      .let_ (op2 (.add i64) (.var pw0) (.imm 4)) fun (pw1, ()) =>
+      .store (t := i32) (.var vb32) (.var pw1) (
+      .let_ (op3 (.select i32) (.var c) (.var a2) (.var a3)) fun (res, ()) =>
+      .ret (.var res, ()))⟩
+
+/-- Elides `(idx + 1) << 2` + `base` across `call slow`, preserving `p` and `idx` live. -/
+meta def addrSibCallFn : Fn :=
+  ⟨"addrSibCallX64", [i64, i64, i64], [i64], fun _ _ (p, idx, k, ()) =>
+    .let_ (op2 (.add i64) (.var idx) (.imm 1)) fun (i1, ()) =>
+    .let_ (op2 (.shl i64) (.var i1) (.imm 2)) fun (off, ()) =>
+    .let_ (op2 (.add i64) (.var p) (.var off)) fun (pa, ()) =>
+    .call "slow" (as := [i64]) (bs := [i64]) (.var k, ()) fun (_r, ()) =>
+    .load i64 (.var pa) fun x =>
+    .ret (.var x, ())⟩
+
+/-- Vector `vload` with `[base + idx * 8 + 16]` SIB elides `add`/`shl`. -/
+meta def addrSibVecFn : Fn :=
+  ⟨"addrSibVecX64", [i64, i64], [v4i32], fun _ _ (p, idx, ()) =>
+    .let_ (op2 (.add i64) (.var idx) (.imm 2)) fun (i2, ()) =>
+    .let_ (op2 (.shl i64) (.var i2) (.imm 3)) fun (off, ()) =>
+    .let_ (op2 (.add i64) (.var p) (.var off)) fun (pa, ()) =>
+    .load v4i32 (.var pa) fun v =>
+    .ret (.var v, ())⟩
+
+/-- Scale-shift overflow (`<< 4`), non-address value use, and int32 disp overflow prevent SIB
+elision cleanly. -/
+meta def addrSibNoElideFn : Fn :=
+  ⟨"addrSibNoElideX64", [i64, i64, i64], [i64], fun _ _ (p, idx, q, ()) =>
+    .let_ (op2 (.shl i64) (.var idx) (.imm 4)) fun (s16, ()) =>
+    .let_ (op2 (.add i64) (.var p) (.var s16)) fun (p16, ()) =>
+    .load i64 (.var p16) fun v0 =>
+    .let_ (op2 (.shl i64) (.var idx) (.imm 2)) fun (s4, ()) =>
+    .let_ (op2 (.add i64) (.var p) (.var s4)) fun (pEsc, ()) =>
+    .store (t := i64) (.var pEsc) (.var q) (
+    .let_ (op2 (.add i64) (.var idx) (.imm (BitVec.ofNat 64 (2 ^ 30)))) fun (ib, ()) =>
+    .let_ (op2 (.shl i64) (.var ib) (.imm 3)) fun (ob, ()) =>
+    .let_ (op2 (.add i64) (.var p) (.var ob)) fun (pBig, ()) =>
+    .load i64 (.var pBig) fun v1 =>
+    .let_ (op2 (.add i64) (.var v0) (.var v1)) fun (r, ()) =>
+    .ret (.var r, ()))⟩
+
+#guard chk [addrSibChainFn]
+#guard countDirs isSibMemDir (codeOf [addrSibChainFn]) == 4
+#guard countDirs isShlDir (codeOf [addrSibChainFn]) == 0
+#guard countDirs isAddSubLeaDir (codeOf [addrSibChainFn]) == 0
+#guard countDirs isSetccDir (codeOf [addrSibChainFn]) == 0
+#guard chk [slowFn, addrSibCallFn]
+#guard countDirs isSibMemDir (codeOf [slowFn, addrSibCallFn]) == 1
+#guard countDirs isShlDir (codeOf [slowFn, addrSibCallFn]) == 0
+#guard countDirs isAddSubLeaDir (codeOf [slowFn, addrSibCallFn]) == 0
+#guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrSibCallFn).elide.getD 0 false == true
+#guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrSibCallFn).elide.getD 1 false == true
+#guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrSibCallFn).elide.getD 2 false == true
+#guard chk [addrSibVecFn]
+#guard countDirs isShlDir (codeOf [addrSibVecFn]) == 0
+#guard countDirs isAddSubLeaDir (codeOf [addrSibVecFn]) == 0
+#guard chk [addrSibNoElideFn]
+#guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrSibNoElideFn).elide.getD 0 false == false
+#guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrSibNoElideFn).elide.getD 3 false == false
+#guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrSibNoElideFn).elide.getD 6 false == false
+
 end LeanQbeTest.T.FlagRaOptTest

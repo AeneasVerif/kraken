@@ -56,6 +56,7 @@ inductive Src where
 
 inductive Addr where
   | bd (base : Nat) (disp : BitVec 64)
+  | bid (base idx : Nat) (scale : Nat) (disp : BitVec 64)
   | abs (a : BitVec 64)
   deriving DecidableEq, Repr, Lean.ToExpr
 
@@ -161,6 +162,7 @@ def MDataG.src (s : MDataG M) : Src → BitVec 64
   | .imm c => c
 def MDataG.addr (s : MDataG M) : Addr → BitVec 64
   | .bd r d => s.gpr r + d
+  | .bid b i sc d => s.gpr b + (s.gpr i <<< sc) + d
   | .abs a => a
 
 end Sem
@@ -321,6 +323,7 @@ def srcOf : {t : Ty} → PArg Nat Nat Cond t → Option Src
   | _, _ => none
 def addrOf : AddrArg Nat → Addr
   | .baseDisp r d => .bd r d.toBitVec
+  | .baseIdxDisp b i sc d => .bid b i sc.shift d.toBitVec
   | .imm a => .abs a
 def isGprTy : Ty → Bool
   | .bool => true
@@ -1495,7 +1498,9 @@ theorem gprSpec : GprTarget mach gprIsa frameIsa.scratch where
 
 /-- Litmus `Isa` with `[base + disp]` displacement elision enabled for GPR memory types. -/
 def addrIsa : Isa :=
-  { isa with supportsAddrDisp := fun t _ => isGprTy t }
+  { isa with
+    supportsAddrDisp := fun t _ => isGprTy t
+    supportsAddrIdx := fun t _ _ => isGprTy t }
 
 /-- `Target` wrapper over `addrIsa`, sharing verified `gprSpec`/`frameSpec`/`vecSpec`. -/
 @[reducible] def litmusAddrTarget : Target where

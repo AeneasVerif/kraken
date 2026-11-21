@@ -37,6 +37,8 @@ def SlotEntry.slots : SlotEntry → Nat
 
 inductive DefFact where
   | addImm64 (base : Nat) (disp : BitVec 64)
+  | scaleOff (idx : Nat) (sh : Nat) (disp : BitVec 64)
+  | addrSum (base idx : Nat) (sh : Nat) (disp : BitVec 64)
   | imm64 (c : BitVec 64)
   deriving DecidableEq, Repr
 
@@ -431,15 +433,67 @@ def saveCs (I : Isa) (base : Nat) : List I.Reg → List I.Directive
 def restoreCs (I : Isa) (base : Nat) : List I.Reg → List I.Directive
   | [] => [] | r :: rs => I.frame.slotLd r base ++ restoreCs I (base + 1) rs
 
-def recordDef : {sig rs : List Ty} → OpCode sig rs → Tup (Arg VNat) sig → Option DefFact
+def recordAddVarImm (defs : Trie DefFact) (x : Nat) (c : BitVec 64) : DefFact :=
+  match defs.find? x with
+  | some (.imm64 c0) => .imm64 (c0 + c)
+  | some (.addImm64 b d) => .addImm64 b (d + c)
+  | some (.scaleOff idx sh d) => .scaleOff idx sh (d + c)
+  | some (.addrSum b idx sh d) => .addrSum b idx sh (d + c)
+  | none => .addImm64 x c
+
+def recordAddScale (dfx : DefFact) (dfy? : Option DefFact) (y : Nat) : Option DefFact :=
+  match dfx with
+  | .scaleOff idx sh d1 =>
+    if Nat.ble sh 3 then
+      match dfy? with
+      | some (.addImm64 b d2) => some (.addrSum b idx sh (d1 + d2))
+      | _ => some (.addrSum y idx sh d1)
+    else none
+  | _ => none
+
+def recordAddBase (dfx : DefFact) (y : Nat) (dfy? : Option DefFact) : Option DefFact :=
+  match dfx with
+  | .addImm64 b d1 =>
+    match dfy? with
+    | some (.addImm64 b2 d2) => some (.addrSum b b2 0 (d1 + d2))
+    | _ => some (.addrSum b y 0 d1)
+  | _ => none
+
+def recordAddVarVar (defs : Trie DefFact) (x y : Nat) : DefFact :=
+  let dfx? := defs.find? x
+  let dfy? := defs.find? y
+  match dfx?, dfy? with
+  | some (.imm64 c), _ => recordAddVarImm defs y c
+  | _, some (.imm64 c) => recordAddVarImm defs x c
+  | _, _ =>
+    let s1 := dfx?.bind (recordAddScale · dfy? y)
+    let s2 := dfy?.bind (recordAddScale · dfx? x)
+    let b1 := dfx?.bind (recordAddBase · y dfy?)
+    let b2 := dfy?.bind (recordAddBase · x dfx?)
+    (s1 <|> s2 <|> b1 <|> b2).getD (.addrSum x y 0 0)
+
+def recordDef (defs : Trie DefFact) :
+    {sig rs : List Ty} → OpCode sig rs → Tup (Arg VNat) sig → Option DefFact
   | _, _, .add (.bits n), (a, b, ()) =>
     if !Nat.beq n 64 then none else match a, b with
-      | .var x, .imm c | .imm c, .var x => some (.addImm64 x (c.setWidth 64))
+      | .var x, .imm c | .imm c, .var x => some (recordAddVarImm defs x (c.setWidth 64))
+      | .var x, .var y => some (recordAddVarVar defs x y)
       | _, _ => none
   | _, _, .sub (.bits n), (.var x, .imm c, ()) =>
-    if Nat.beq n 64 then some (.addImm64 x (-(c.setWidth 64))) else none
+    if Nat.beq n 64 then some (recordAddVarImm defs x (-(c.setWidth 64))) else none
+  | _, _, .shl (.bits n), (.var x, .imm k, ()) =>
+    let kn := k.toNat
+    if !Nat.beq n 64 || !Nat.blt kn 64 then none else
+      match defs.find? x with
+      | some (.imm64 c0) => some (.imm64 (c0 <<< kn))
+      | some (.addImm64 b d) => some (.scaleOff b kn (d <<< kn))
+      | some (.scaleOff idx sh d) =>
+        if Nat.blt (sh + kn) 64 then some (.scaleOff idx (sh + kn) (d <<< kn)) else none
+      | _ => some (.scaleOff x kn 0)
   | _, _, .copy (.bits n), (.imm c, ()) =>
     if Nat.beq n 64 then some (.imm64 (c.setWidth 64)) else none
+  | _, _, .copy (.bits n), (.var x, ()) =>
+    if Nat.beq n 64 then some ((defs.find? x).getD (.addImm64 x 0)) else none
   | _, _, _, _ => none
 
 def tupDstFlags {I : Isa} : {ts : List Ty} → Tup (PDst I.Reg I.VReg I.Cond) ts → List I.Cond
@@ -505,7 +559,7 @@ def pickPArgs (I : Isa) (st : SymState I) (pref : List I.Cond) {α : Type} :
 def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List Ty}
     (op : Op VNat ts) : Option (List I.Directive × SymState I) :=
   if h.elide.getD ip false then
-    match recordDef op.code op.args with
+    match recordDef st1.defs op.code op.args with
     | some df => some ([], { st1 with defs := st1.defs.insert nv df })
     | none => none
   else
@@ -521,7 +575,7 @@ def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List 
           let vClob := if isVec then dstVecs ++ I.vec.vecScratch else []
           let killed := killRegs I (dstGprs ++ I.frame.scratch) vClob clob st1.regs
           let (regs1, vw1) := bindDsts I dsts nv (killed, st1.vecWidths)
-          let defs1 := match recordDef op.code op.args with
+          let defs1 := match recordDef st1.defs op.code op.args with
             | some df => st1.defs.insert nv df
             | none => st1.defs
           (code, { regs := regs1, slots := st1.slots, defs := defs1, vecWidths := vw1 })
@@ -545,6 +599,11 @@ def tryAddr (I : Isa) (st : SymState I) (vh : VariantHint) {α : Type}
       | some (.addImm64 base d) =>
         (findGprFor I true st.regs (.var base)).bind fun rb =>
           k (.baseDisp rb (Int64.ofBitVec d))
+      | some (.addrSum base idx sh d) =>
+        (AddrScale.ofShift? sh).bind fun sc =>
+          (findGprFor I true st.regs (.var base)).bind fun rb =>
+            (findGprFor I true st.regs (.var idx)).bind fun ri =>
+              k (.baseIdxDisp rb ri sc (Int64.ofBitVec d))
       | some (.imm64 c) => k (.imm c)
       | _ => none
 

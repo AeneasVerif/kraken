@@ -378,7 +378,8 @@ private theorem armAtReg_eval [Labels] (s : MachineData) (rb : XReg) (p : Std.Rc
     BitVec.signed, Int.add_zero, BitVec.ofInt_toInt]
 
 theorem armSetupAddr_wp [Host] (scale : Nat) (a : AddrArg Reg) (s : MachineData)
-    (haregs : ∀ r ∈ a.regs, r ∉ armScratch) :
+    (haregs : ∀ r ∈ a.regs, r ∉ armScratch)
+    (hva : armAddrValid a = true) :
     let (setup, addr) := armSetupAddrIns scale a
     (∃ rx, addr.base = .low (.reg rx) .W64) ∧
     _root_.Program.wp (emitClean setup) (fun s' =>
@@ -387,6 +388,7 @@ theorem armSetupAddr_wp [Host] (scale : Nat) (a : AddrArg Reg) (s : MachineData)
       s'.regs.SP = s.regs.SP ∧ s'.dmem = s.dmem ∧ s'.status = s.status ∧
       armMach.Frame armCondReads s s' [.reg .X16] [] maskNone) (fun _ _ => False) s := by
   cases a with
+  | baseIdxDisp _ _ _ _ => simp [armAddrValid] at hva
   | imm addr =>
     simp only [armSetupAddrIns, emitClean_cons, emitClean_nil]
     refine ⟨⟨.X16, rfl⟩, armWp_mono (armLdrPoolBv_wp .X16 addr s) ?_⟩
@@ -532,9 +534,17 @@ theorem armLoad_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg} {a : AddrArg Reg}
       (fun s' => GprHolds (armMach.getGpr s' rd) t v ∧ armMach.mem s' = armMach.mem s) post := by
   letI := h
   obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc_in
-  simp only [armLoadIns, bind, Option.bind_eq_some_iff] at hc
+  have hva : armAddrValid a = true := by
+    cases a with
+    | imm _ | baseDisp _ _ => rfl
+    | baseIdxDisp _ _ _ _ =>
+      dsimp only [armLoadIns, armAddrValid] at hc
+      contradiction
+  dsimp only [armLoadIns] at hc
+  rw [show (!armAddrValid a) = false by simp [hva]] at hc
+  simp only [Bool.false_eq_true, ↓reduceIte, bind, Option.bind_eq_some_iff] at hc
   rcases hc with ⟨scale, _, hrest⟩
-  have hsetup := armSetupAddr_wp scale a s haregs
+  have hsetup := armSetupAddr_wp scale a s haregs hva
   generalize armSetupAddrIns scale a = sa at hrest hsetup
   rcases sa with ⟨setup, addr⟩
   rcases hsetup with ⟨hnoSp, hwpSetup⟩
@@ -731,7 +741,15 @@ theorem armStore_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg Empty ArmCond
       (fun s' => armMach.mem s' = storeMem (armMach.mem s) t (a.eval (get s)) v) post := by
   letI := h
   obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc_in
-  simp only [armStoreIns, bind, Option.bind_eq_some_iff] at hc
+  have hvaValid : armAddrValid a = true := by
+    cases a with
+    | imm _ | baseDisp _ _ => rfl
+    | baseIdxDisp _ _ _ _ =>
+      dsimp only [armStoreIns, armAddrValid] at hc
+      contradiction
+  dsimp only [armStoreIns] at hc
+  rw [show (!armAddrValid a) = false by simp [hvaValid]] at hc
+  simp only [Bool.false_eq_true, ↓reduceIte, bind, Option.bind_eq_some_iff] at hc
   rcases hc with ⟨scale, hsc, ⟨valSetup, rx⟩, hva, dir, hdir, rfl, rfl⟩
   have ht : t = .bool ∨ t = .bits 8 ∨ t = .bits 16 ∨ t = .bits 32 ∨ t = .bits 64 := by
     match t with
@@ -755,12 +773,13 @@ theorem armStore_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg Empty ArmCond
   simp only [emitClean_append, emitClean_cons, emitClean_nil]
   refine armFallsTo_of_wp (armWp_append (armStoreValIn_wp hva hp hpaRegs ht) ?_)
   rintro s₁ ⟨hrx16, ⟨w64, hrx₁, hw64⟩, hdmem₁, hst₁, hx₁, hsp₁⟩
-  have hsetup := armSetupAddr_wp scale a s₁ haRegs
+  have hsetup := armSetupAddr_wp scale a s₁ haRegs hvaValid
   generalize armSetupAddrIns scale a = sa at hdir hsetup
   rcases sa with ⟨addrSetup, addr⟩
   rcases hsetup with ⟨hnoSp, hwpAddr⟩
   have heqAddr : a.eval (get s₁) = a.eval (get s) := by
     cases a with
+    | baseIdxDisp _ _ _ _ => simp [armAddrValid] at hvaValid
     | imm _ => rfl
     | baseDisp b disp =>
       simp only [AddrArg.eval]
