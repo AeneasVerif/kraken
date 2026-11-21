@@ -90,6 +90,12 @@ public import LeanQbe.T.MainLinkSplice
 public import LeanQbe.T.MainCert
 public import LeanQbe.T.LinkRec
 public import LeanQbe.T.LinkRecLemmas
+public import LeanQbe.T.Scc
+public import LeanQbe.T.SccLemmas
+public import LeanQbe.T.LinkScc
+public import LeanQbe.T.LinkSccLemmas1
+public import LeanQbe.T.LinkSccLemmas2
+public import LeanQbe.T.LinkLfp
 public import LeanQbe.T.Examples.LinkRec
 public import LeanQbe.T.MainSplice
 public import LeanQbe.T.PrintCpp

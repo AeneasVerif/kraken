@@ -15,10 +15,6 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 
-private theorem flatten_map_sig_append (seen pre : List (List Fn)) :
-    seen.flatten.map Fn.sig ++ pre.flatten.map Fn.sig = (seen ++ pre).flatten.map Fn.sig := by
-  simp [List.flatten_append, List.map_append]
-
 theorem checkSccCalls_ok (exits : List Sym) (extSigs : List SigEntry) :
     ∀ (seen rest pre : List (List Fn)) (scc : List Fn) (post : List (List Fn)),
       checkSccCalls exits extSigs (seen.flatten.map Fn.sig) rest = true →

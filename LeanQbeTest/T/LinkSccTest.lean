@@ -305,7 +305,7 @@ theorem paritySum_linked_fnSpec {k : Nat} (hk : k ≤ 16) :
 
 /-! ## 2. Recovering `LinkRec` via `link_rec_of_scc` -/
 
-theorem isEven_recovered_via_link_rec_of_scc {k : Nat} (hk : k ≤ 16) :
+theorem isEven_link_rec_scc {k : Nat} (hk : k ≤ 16) :
     litmusTarget.Defined evenOddLitmusCompiled.host "isEven" ∧
       litmusTarget.FnSpec evenOddLitmusCompiled.host "isEven"
         (legalEnv LegalTarget.aarch64 (Env.onlyFn isEven (evenOddRecEnv k))
@@ -575,7 +575,7 @@ theorem ack_litmus_2_2 :
 #print axioms paritySumCombined_progSmall
 #print axioms paritySumCombined_labelsUnique
 #print axioms paritySum_linked_fnSpec
-#print axioms isEven_recovered_via_link_rec_of_scc
+#print axioms isEven_link_rec_scc
 #print axioms ackFn_wf
 #print axioms ackMod_checkCyclic
 #print axioms ack_litmus_check
