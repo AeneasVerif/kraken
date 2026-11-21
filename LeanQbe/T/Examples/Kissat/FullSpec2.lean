@@ -193,8 +193,8 @@ def fullHeapUpSpec : Spec [i64, i32] [] :=
       ∃ hp' ps', s'.scratch = { s.scratch with heap := hp', pos := ps' })
 def fullHeapPushSpec : Spec [i64, i32] [] :=
   SafetySlice.spec fullSafetySlice (fun c (h, _v, ()) _ => h = c.hdr)
-    (fun _ _ _ s s' => FullProbeScratchPres s s' ∧
-      ∃ hp' ps' hl', s'.scratch = { s.scratch with heap := hp', pos := ps', heap_len := hl' })
+    (fun _ _ _ s s' => FullProbeScratchPresWith s s'
+      (∃ hp' ps' hl', s'.scratch = { s.scratch with heap := hp', pos := ps', heap_len := hl' }))
 abbrev fullRescaleSpec := fullSafetyVoidSpec
 abbrev fullBumpVarSpec := fullSafetyVarVoidSpec
 abbrev fullBumpDecaySpec := fullSafetyVoidSpec
@@ -745,12 +745,13 @@ def fullLitRankSpec : Spec [i64, i64, i32] [i64] := fun (vals_ptr, lvl_ptr, l, (
     ∀ r : BitVec 64, Q (r, ()) m
 
 def fullUnwatchLargeSpec : Spec [i64, i32, i32] [] := fun (h, _lit, _cref, ()) m Q _ =>
-  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ (FullMem c s ⋆ R) m ∧
+  ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ WatchStackLayout s.core ∧ (FullMem c s ⋆ R) m ∧
     ∀ wvec' wstk' wu' m',
-      let s' : FullState :=
-        { s with core := { s.core with wvec := wvec', wstk := wstk', wusable := wu' } }
-      s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core → (FullMem c s' ⋆ R) m' → Q () m'
+      let s' := { s with core := { s.core with wvec := wvec', wstk := wstk', wusable := wu' } }
+      s'.LengthsOk c → WatchStackLayout s'.core →
+      (∀ F_cur, ModeWatchesInv F_cur s.core → ModeWatchesInv F_cur s'.core) →
+      (FullMem c s' ⋆ R) m' → Q () m'
 
 def fullSweepBinsSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),

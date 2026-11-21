@@ -367,11 +367,14 @@ theorem full_heap_push_bridge_wp (Γ : Env)
   obtain hhl := hsok.heap_len_arr; obtain hpl := hsok.pos_len
   c0_steps
   · exact hQ () s m rfl hlen
-      ⟨probePres_refl s, s.scratch.heap, s.scratch.pos, s.scratch.heap_len, rfl⟩ hm
+      ⟨⟨rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
+        s.scratch.heap, s.scratch.pos, s.scratch.heap_len, rfl⟩ hm
   · exact hQ () s m rfl hlen
-      ⟨probePres_refl s, s.scratch.heap, s.scratch.pos, s.scratch.heap_len, rfl⟩ hm
+      ⟨⟨rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
+        s.scratch.heap, s.scratch.pos, s.scratch.heap_len, rfl⟩ hm
   · exact hQ () s m rfl hlen
-      ⟨probePres_refl s, s.scratch.heap, s.scratch.pos, s.scratch.heap_len, rfl⟩ hm
+      ⟨⟨rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
+        s.scratch.heap, s.scratch.pos, s.scratch.heap_len, rfl⟩ hm
   · refine wp_safety_slice_call hUp (fun _ => True) trivial rfl ?_ hm
       fun _ s' m' hcore' hlen' _ hpres' hm' => ?_
     · exact hlen_upd_hp_ps hlen _ _ _ (by simp [hhl]) (by simp [hpl])
@@ -379,7 +382,8 @@ theorem full_heap_push_bridge_wp (Γ : Env)
       obtain ⟨hpr', hp', ps', hsc'⟩ := hpres'
       c0_steps
       exact hQ () s' m' ((PreservesCoreSlice.of_update _ s _ (fun _ => rfl)).trans hcore')
-        hlen' ⟨hpr', hp', ps', _, by rw [hsc']⟩ hm'
+        hlen' ⟨hpr'.1, hpr'.2.1, hpr'.2.2.1, hpr'.2.2.2.1, hpr'.2.2.2.2.1,
+          hpr'.2.2.2.2.2.1, hpr'.2.2.2.2.2.2.1, hpr'.2.2.2.2.2.2.2, hp', ps', _, by rw [hsc']⟩ hm'
 
 theorem full_heap_pop_bridge_wp (Γ : Env)
     (hDown : ∀ a m Q X, fullHeapDownSpec a m Q X → Γ "full_heap_down" [i64, i32] [] a m Q X) :

@@ -594,8 +594,13 @@ theorem full_backtrack_bridge_wp (Γ : Env)
       Γ "full_heap_push" [i64, i32] [] a m Q X) :
     ∀ a m Q X, fullBacktrackSpec a m Q X → Func.wp Γ full_backtrack_body a m Q X := by
   rintro ⟨h, tgt, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hcl64, htgt, htrl, hm, hQ⟩
-  refine full_backtrack_wp Γ hSave hHeapPush _ m Q X
-    ⟨c, s, R, rfl, hlen, hcl64, htgt, htrl, hm, ?_⟩
+  refine full_backtrack_wp Γ hSave
+    (fun a' m' Q' X' ⟨c', s', R', hh', hl', hm', hQ'⟩ =>
+      hHeapPush a' m' Q' X' ⟨c', s', R', hh', hl', hm', fun r' s'' m'' hc' hl'' hp' hm'' =>
+        hQ' r' s'' m'' hc' hl''
+          ⟨⟨hp'.1, hp'.2.1, hp'.2.2.1, hp'.2.2.2.1, hp'.2.2.2.2.1, hp'.2.2.2.2.2.1,
+            hp'.2.2.2.2.2.2.1, hp'.2.2.2.2.2.2.2.1⟩, hp'.2.2.2.2.2.2.2.2⟩ hm''⟩)
+    _ m Q X ⟨c, s, R, rfl, hlen, hcl64, htgt, htrl, hm, ?_⟩
   dsimp only
   intro vals' lvl' rsns' trl' tp' te' prop' cl' unass' sc' m'
     hlen' hte hprop hcl hfr htrl' _ _ hclr hw_w hw_o hm'

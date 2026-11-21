@@ -284,6 +284,10 @@ end Part14
 
 section Part15
 
+open LeanQbe.T.C0Step FullReduceHelpers
+open FullReduceSpecs (ModeWatchSliceOk)
+open scoped FullArenaTactics FullReduceTactics
+
 private theorem redBinOnlySlice_get {F_cur : List (List Nat)} {k : FullCoreState}
     {lit p rem : Nat} (h : FullReduceSpecs.BinOnlyWatchSliceOk F_cur k lit p rem) :
     ∀ i < rem, let w := k.wstk[p + i]?.getD 0#32
@@ -357,8 +361,267 @@ theorem full_lit_rank_bridge_wp (Γ : Env) :
   full_lit_rank_wp Γ
 
 theorem full_unwatch_large_bridge_wp (Γ : Env) :
-    ∀ a m Q X, fullUnwatchLargeSpec a m Q X → Func.wp Γ full_unwatch_large_body a m Q X :=
-  full_unwatch_large_wp Γ
+    ∀ a m Q X, fullUnwatchLargeSpec a m Q X → Func.wp Γ full_unwatch_large_body a m Q X := by
+  rintro ⟨h, lit, cref, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hlay, hm, hQ⟩
+  have hcv_le := hlen.core_ok.cur_vars_le; have hwv_len := hlen.core_ok.wvec_len
+  have hws_len := hlen.core_ok.wstk_len_arr; have hwl_le := hlen.core_ok.wlen_le
+  have hmax_lt : c.max_vars < 2 * 2 ^ 28 := c.hmaxv
+  have hwcap_lt : c.wcap < 2 * 2 ^ 28 := c.hwcap
+  let dense : Bool := decide (s.core.dense_mode ≠ 0#64)
+  fr_split
+  · fr_steps; exact hQ s.core.wvec s.core.wstk s.core.wusable m hlen hlay (fun _ hw => hw) hm
+  · have hlit_lt : lit.toNat < 2 * s.core.cur_vars := by
+      have hsh : ((BitVec.ofNat 64 s.core.cur_vars) <<< (1 : Nat)).toNat = 2 * s.core.cur_vars := by
+        rw [BitVec.toNat_shiftLeft]; simp [Nat.shiftLeft_eq]; omega
+      have : (lit.setWidth 64).toNat < ((BitVec.ofNat 64 s.core.cur_vars) <<< (1 : Nat)).toNat := by
+        c0_bound
+      rw [hsh, zext_toNat lit (by decide)] at this; exact this
+    have h2l_eq : (lit.setWidth 64 <<< (1 : Nat)).toNat = 2 * lit.toNat := by
+      rw [BitVec.toNat_shiftLeft, zext_toNat lit (by decide)]; simp [Nat.shiftLeft_eq]; omega
+    have h2l1_eq : ((lit.setWidth 64 <<< (1 : Nat)) + (1 : BitVec 64)).toNat =
+        2 * lit.toNat + 1 := by
+      rw [BitVec.toNat_add, h2l_eq]; simp; omega
+    have h2l_lt : 2 * lit.toNat < s.core.wvec.length := by omega
+    have h2l1_lt : 2 * lit.toNat + 1 < s.core.wvec.length := by omega
+    have hmod0 : 2 * lit.toNat % 2 ^ 64 = 2 * lit.toNat := by omega
+    have hmod1 : (2 * lit.toNat + BitVec.toNat (1 : BitVec 64)) % 2 ^ 64 = 2 * lit.toNat + 1 := by
+      simp; omega
+    let off0 : Nat := fullWatchOff s lit.toNat
+    let sz0 : Nat := fullWatchSize s lit.toNat
+    let offW : BitVec 32 := s.core.wvec[(lit.setWidth 64 <<< (1 : Nat)).toNat]'(by omega)
+    let szW : BitVec 32 :=
+      s.core.wvec[((lit.setWidth 64 <<< (1 : Nat)) + (1 : BitVec 64)).toNat]'(by omega)
+    have hoff_idx : (s.core.wvec[2 * lit.toNat]'h2l_lt).toNat = off0 := by
+      unfold off0 fullWatchOff fullWatchOffCore; simp [List.getElem?_eq_getElem h2l_lt]
+    have hsz_idx : (s.core.wvec[2 * lit.toNat + 1]'h2l1_lt).toNat = sz0 := by
+      unfold sz0 fullWatchSize fullWatchSizeCore; simp [List.getElem?_eq_getElem h2l1_lt]
+    have hoff_eq : offW.toNat = off0 := by
+      unfold offW; simp only [h2l_eq]; exact hoff_idx
+    have hsz_eq : szW.toNat = sz0 := by
+      unfold szW; simp only [h2l1_eq]; exact hsz_idx
+    have hbd_end : off0 + sz0 ≤ s.core.wlen := hlay.bounds lit.toNat hlit_lt
+    fr_steps
+    · exact hQ s.core.wvec s.core.wstk s.core.wusable m hlen hlay (fun _ hw => hw) hm
+    · have hsz_pos : 0 < sz0 := by
+        have hnz : sz0 ≠ 0 := fun h0 => hc (by
+          simp only [hmod1]; apply BitVec.eq_of_toNat_eq
+          rw [zext_toNat _ (by decide), hsz_idx, h0]; rfl)
+        omega
+      let end0 : Nat := off0 + sz0
+      refine wp_loop_inv
+        (fun (p, q, ()) m1 =>
+          off0 ≤ q.toNat ∧ q.toNat ≤ p.toNat ∧ p.toNat ≤ end0 ∧
+          ∃ wstk1 : List (BitVec 32), wstk1.length = c.wcap ∧
+            (∀ i, i < off0 ∨ p.toNat ≤ i → wstk1[i]? = s.core.wstk[i]?) ∧
+            (∀ j < q.toNat - off0, wstk1[off0 + j]? ≠ some 0xFFFFFFFF#32) ∧
+            (∀ F_cur, ModeWatchesInv F_cur s.core →
+              ModeWatchSliceOk dense F_cur s.core lit.toNat p.toNat (end0 - p.toNat) ∧
+              ModeWatchSliceOk dense F_cur { s.core with wstk := wstk1 } lit.toNat off0
+                (q.toNat - off0)) ∧
+            (FullMem c { s with core := { s.core with wstk := wstk1 } } ⋆ R) m1)
+        (fun (p, _, ()) _ => end0 - p.toNat)
+        (fun J1 hLoop1 => ?_) ?_
+      · fr_steps
+        have hoff64 : (offW.setWidth 64).toNat = off0 := by
+          rw [zext_toNat offW (by decide), hoff_eq]
+        refine hLoop1 _ m ⟨by rw [hoff64]; exact Nat.le_refl _,
+          by rw [hoff64]; exact Nat.le_refl _, by rw [hoff64]; omega,
+          s.core.wstk, hws_len, fun _ _ => rfl, fun j hj => by rw [hoff64] at hj; omega,
+          fun F_cur hw => ⟨by
+            rw [hoff64, show end0 - off0 = sz0 by omega]
+            exact modeWatchesInv_slice_of_lt hw hlit_lt,
+            by rw [hoff64, Nat.sub_self]; exact ModeWatchSliceOk.empty⟩, hm⟩
+      · rintro J1 ⟨p, q, ⟨⟩⟩ m1 ⟨hoq, hqp, hpe, wstk1, hlen1, hout1, hns1, hmod1', hm1⟩ hLoop1
+        fr_split
+        · have hp_lt : p.toNat < end0 := by
+            have h1 := hc; simp only [hmod0, hmod1, hoff_idx, hsz_idx] at h1; omega
+          have hp_w : p.toNat < wstk1.length := by omega
+          have hq_w : q.toNat < wstk1.length := by omega
+          let w0 := wstk1[p.toNat]'hp_w
+          have hw0_orig : s.core.wstk[p.toNat]? = some w0 := by
+            rw [← hout1 p.toNat (Or.inr (Nat.le_refl _)), List.getElem?_eq_getElem hp_w]
+          have hw0_ns : some w0 ≠ some 0xFFFFFFFF#32 := by
+            rw [← hw0_orig]
+            simpa [off0, show off0 + (p.toNat - off0) = p.toNat by omega] using
+              hlay.no_sentinel lit.toNat hlit_lt (p.toNat - off0)
+                (by change p.toNat - off0 < sz0; omega)
+          fr_split
+          · have hbin : (w0 &&& 0x80000000#32) ≠ 0#32 := by
+              change ((wstk1[p.toNat]'hp_w) &&& 0x80000000#32) ≠ 0#32; assumption
+            have hp1_eq : (p + 1#64).toNat = p.toNat + 1 := by bv_omega
+            have hq1_eq : (q + 1#64).toNat = q.toNat + 1 := by bv_omega
+            fr_steps
+            refine hLoop1 (p + 1#64, q + 1#64, ()) m (by dsimp only; rw [hp1_eq]; omega)
+              ⟨by rw [hq1_eq]; omega, by rw [hp1_eq, hq1_eq]; omega, by rw [hp1_eq]; omega,
+               wstk1.set q.toNat w0, by simp [hlen1],
+               fun i hi => by
+                 rw [hp1_eq] at hi; rw [List.getElem?_set_ne (by omega)]; exact hout1 i (by omega),
+               fun j hj => by
+                 rw [hq1_eq] at hj
+                 by_cases hje : off0 + j = q.toNat
+                 · rw [hje, List.getElem?_set_self hq_w]; exact hw0_ns
+                 · rw [List.getElem?_set_ne (Ne.symm hje)]; exact hns1 j (by omega),
+               fun F_cur hw => by
+                 obtain ⟨hrem1, hpre1⟩ := hmod1' F_cur hw
+                 obtain ⟨hne, hlt_o, hent_o, hrem'⟩ := (hrem1.step (by omega) hw0_orig).1 hbin
+                 refine ⟨by simpa [hp1_eq, show end0 - (p.toNat + 1) = end0 - p.toNat - 1 by omega]
+                     using hrem', ?_⟩
+                 rw [hq1_eq, show q.toNat + 1 - off0 = (q.toNat - off0) + 1 by omega]
+                 exact ModeWatchSliceOk.append_bin (k := { s.core with wstk := wstk1 })
+                   (k' := { s.core with wstk := wstk1.set q.toNat w0 }) (p := off0) (p' := off0)
+                   (Nat.le_refl _) (fun _ r => r)
+                   (fun j hj => List.getElem?_set_ne (by omega)) hpre1
+                   (by rw [show off0 + (q.toNat - off0) = q.toNat by omega]
+                       exact List.getElem?_set_self hq_w)
+                   hbin hne hlt_o hent_o, hm⟩
+          · have hlg : (w0 &&& 0x80000000#32) = 0#32 := by
+              change ((wstk1[p.toNat]'hp_w) &&& 0x80000000#32) = 0#32; assumption
+            have hp1_eq : (p + 1#64).toNat = p.toNat + 1 := by bv_omega
+            have hp2_eq : (p + 1#64 + 1#64).toNat = p.toNat + 2 := by
+              rw [BitVec.toNat_add, hp1_eq]; simp; omega
+            fr_split
+            · have hp1_lt : (p + 1#64).toNat < end0 := by
+                have h1 := hc; simp only [hmod0, hmod1, hoff_idx, hsz_idx] at h1; omega
+              have hp1_w : (p + 1#64).toNat < wstk1.length := by omega
+              let cr := wstk1[(p + 1#64).toNat]'hp1_w
+              have hcr_orig : s.core.wstk[p.toNat + 1]? = some cr := by
+                have h1 := hout1 (p.toNat + 1) (Or.inr (by omega))
+                rw [List.getElem?_eq_getElem (by omega : p.toNat + 1 < wstk1.length)] at h1
+                rw [← h1]; simp [cr, hp1_eq]
+              have hcr_ns : some cr ≠ some 0xFFFFFFFF#32 := by
+                rw [← hcr_orig]
+                simpa [off0, show off0 + (p.toNat + 1 - off0) = p.toNat + 1 by omega] using
+                  hlay.no_sentinel lit.toNat hlit_lt (p.toNat + 1 - off0)
+                    (by change p.toNat + 1 - off0 < sz0; omega)
+              fr_split
+              · have hq1_eq : (q + 1#64).toNat = q.toNat + 1 := by bv_omega
+                have hq2_eq : (q + 2#64).toNat = q.toNat + 2 := by bv_omega
+                fr_steps
+                let wstk2 := (wstk1.set q.toNat w0).set (q.toNat + 1) cr
+                have hm_eq : (wstk1.set q.toNat w0).set (q + 1#64).toNat
+                    (wstk1[(p + 1#64).toNat]'hp1_w) = wstk2 := by
+                  simp only [wstk2, hq1_eq, cr]
+                refine hLoop1 (p + 1#64 + 1#64, q + 2#64, ()) m
+                  (by dsimp only; rw [hp2_eq]; omega)
+                  ⟨by rw [hq2_eq]; omega, by rw [hp2_eq, hq2_eq]; omega, by rw [hp2_eq]; omega,
+                   wstk2, by simp [wstk2, hlen1],
+                   fun i hi => by
+                     rw [hp2_eq] at hi; dsimp only [wstk2]
+                     rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]
+                     exact hout1 i (by omega),
+                   fun j hj => by
+                     rw [hq2_eq] at hj; dsimp only [wstk2]
+                     by_cases h1 : off0 + j = q.toNat + 1
+                     · rw [h1, List.getElem?_set_self (by simp; omega)]; exact hcr_ns
+                     · rw [List.getElem?_set_ne (Ne.symm h1)]
+                       by_cases h0 : off0 + j = q.toNat
+                       · rw [h0, List.getElem?_set_self hq_w]; exact hw0_ns
+                       · rw [List.getElem?_set_ne (Ne.symm h0)]; exact hns1 j (by omega),
+                   fun F_cur hw => by
+                     obtain ⟨hrem1, hpre1⟩ := hmod1' F_cur hw
+                     obtain ⟨_, cr', hcr', hsz3, hcr_lt, hcr_ref, hrem'⟩ :=
+                       (hrem1.step (by omega) hw0_orig).2 hlg
+                     have hcr_eq' : cr' = cr := Option.some.inj (hcr'.symm.trans hcr_orig)
+                     subst hcr_eq'
+                     have hsub2 : end0 - (p.toNat + 2) = end0 - p.toNat - 2 := by omega
+                     refine ⟨by simpa [hp2_eq, hsub2] using hrem', ?_⟩
+                     rw [hq2_eq, show q.toNat + 2 - off0 = (q.toNat - off0) + 2 by omega]
+                     refine ModeWatchSliceOk.append_pair (k := { s.core with wstk := wstk1 })
+                       (k' := { s.core with wstk := wstk2 }) (p := off0) (p' := off0)
+                       (Nat.le_refl _) (fun _ r => r)
+                       (fun j hj => by
+                         dsimp only [wstk2]
+                         rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)])
+                       hpre1 ?_ ?_ hlg hsz3 hcr_lt hcr_ref
+                     · dsimp only [wstk2]
+                       rw [show off0 + (q.toNat - off0) = q.toNat by omega,
+                         List.getElem?_set_ne (by omega), List.getElem?_set_self hq_w]
+                     · dsimp only [wstk2]
+                       rw [show off0 + (q.toNat - off0) + 1 = q.toNat + 1 by omega,
+                         List.getElem?_set_self (by simp; omega)],
+                   by rw [← hm_eq]; exact hm⟩
+              · fr_steps
+                refine hLoop1 (p + 1#64 + 1#64, q, ()) m1 (by dsimp only; rw [hp2_eq]; omega)
+                  ⟨hoq, by rw [hp2_eq]; omega, by rw [hp2_eq]; omega, wstk1, hlen1,
+                   fun i hi => by rw [hp2_eq] at hi; exact hout1 i (by omega), hns1,
+                   fun F_cur hw => by
+                     obtain ⟨hrem1, hpre1⟩ := hmod1' F_cur hw
+                     obtain ⟨_, _, _, _, _, _, hrem'⟩ := (hrem1.step (by omega) hw0_orig).2 hlg
+                     have hsub2 : end0 - (p.toNat + 2) = end0 - p.toNat - 2 := by omega
+                     exact ⟨by simpa [hp2_eq, hsub2] using hrem', hpre1⟩, hm1⟩
+            · fr_steps
+              have hpe1 : p.toNat + 1 = end0 := by
+                have h1 := hc; simp only [hmod0, hmod1, hoff_idx, hsz_idx] at h1
+                rw [show (1 : BitVec 64).toNat = 1 from rfl] at h1; omega
+              refine hLoop1 (p + 1#64, q, ()) m1 (by dsimp only; rw [hp1_eq]; omega)
+                ⟨hoq, by rw [hp1_eq]; omega, by rw [hp1_eq]; omega, wstk1, hlen1,
+                 fun i hi => by rw [hp1_eq] at hi; exact hout1 i (by omega), hns1,
+                 fun F_cur hw => by
+                   obtain ⟨hrem1, _⟩ := hmod1' F_cur hw
+                   obtain ⟨h2rem, _⟩ := (hrem1.step (by omega) hw0_orig).2 hlg
+                   omega, hm1⟩
+        · have hp_end : p.toNat = end0 := by
+            have h1 := hc; simp only [hmod0, hmod1, hoff_idx, hsz_idx] at h1; omega
+          fr_steps
+          refine wp_loop_inv
+            (fun (k, ()) m2 =>
+              q.toNat ≤ k.toNat ∧ k.toNat ≤ end0 ∧
+              ∃ wstk2 : List (BitVec 32), wstk2.length = c.wcap ∧
+                (∀ i, i < q.toNat ∨ end0 ≤ i → wstk2[i]? = wstk1[i]?) ∧
+                (FullMem c { s with core := { s.core with wstk := wstk2 } } ⋆ R) m2)
+            (fun (k, ()) _ => end0 - k.toNat)
+            (fun J2 hLoop2 => ?_) ?_
+          · fr_steps; exact hLoop2 (q, ()) m1 ⟨Nat.le_refl _, by omega, wstk1, hlen1,
+              fun _ _ => rfl, hm1⟩
+          · rintro J2 ⟨k, ⟨⟩⟩ m2 ⟨hqk, hke, wstk2, hlen2, hout2, hm2⟩ hLoop2
+            fr_split
+            · have hk_lt : k.toNat < end0 := by
+                have h1 := hc; simp only [hmod0, hmod1, hoff_idx, hsz_idx] at h1; omega
+              have hk1_eq : (k + 1#64).toNat = k.toNat + 1 := by bv_omega
+              fr_steps
+              exact hLoop2 (k + 1#64, ()) m (by dsimp only; rw [hk1_eq]; omega)
+                ⟨by rw [hk1_eq]; omega, by rw [hk1_eq]; omega, wstk2.set k.toNat 0xFFFFFFFF#32,
+                 by simp [hlen2],
+                 fun i hi => by rw [List.getElem?_set_ne (by omega)]; exact hout2 i hi, hm⟩
+            · have hqoff_bv : (q - offW.setWidth 64).setWidth 32
+                  = BitVec.ofNat 32 (q.toNat - off0) := by
+                apply BitVec.eq_of_toNat_eq
+                rw [BitVec.toNat_setWidth, BitVec.toNat_sub, zext_toNat offW (by decide), hoff_eq]
+                have hlt32 : q.toNat - off0 < 2 ^ 32 := by omega
+                rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt32]
+                have : (2 ^ 64 - off0 + q.toNat) % 2 ^ 64 = q.toNat - off0 := by omega
+                rw [this, Nat.mod_eq_of_lt hlt32]
+              have hout_fin : ∀ i, i < off0 ∨ off0 + sz0 ≤ i → wstk2[i]? = s.core.wstk[i]? :=
+                fun i hi => by rw [hout2 i (by omega), hout1 i (by omega)]
+              have hns_fin : ∀ j < q.toNat - off0, wstk2[off0 + j]? ≠ some 0xFFFFFFFF#32 :=
+                fun j hj => by rw [hout2 (off0 + j) (Or.inl (by omega))]; exact hns1 j hj
+              fr_steps
+              let wvec' := s.core.wvec.set (2 * lit.toNat + 1) (BitVec.ofNat 32 (q.toNat - off0))
+              let wu' := s.core.wusable + ((offW.setWidth 64 + szW.setWidth 64) - q)
+              have hlay' : WatchStackLayout
+                  { s.core with wvec := wvec', wstk := wstk2, wusable := wu' } :=
+                (watchStackLayout_shrink_slice hlay hlen.core_ok hlit_lt (new_sz := q.toNat - off0)
+                  (show q.toNat - off0 ≤ sz0 by omega) hout_fin hns_fin wu' s.core.num_binary).1
+              have hmode' : ∀ F_cur, ModeWatchesInv F_cur s.core →
+                  ModeWatchesInv F_cur
+                    { s.core with wvec := wvec', wstk := wstk2, wusable := wu' } := by
+                intro F_cur hw
+                have hslice_fin : ModeWatchSliceOk dense F_cur { s.core with wstk := wstk2 }
+                    lit.toNat off0 (q.toNat - off0) :=
+                  ModeWatchSliceOk.relocate (k := { s.core with wstk := wstk1 })
+                    (k' := { s.core with wstk := wstk2 }) (p := off0) (p' := off0)
+                    (by rw [CNF.entails_def]; exact fun _ p => p) (Nat.le_refl _)
+                    (fun _ r => r) (fun j hj => hout2 (off0 + j) (Or.inl (by omega)))
+                    (hmod1' F_cur hw).2
+                exact modeWatchesInv_shrink_slice hw hlen.core_ok hlit_lt (new_sz := q.toNat - off0)
+                  (show q.toNat - off0 ≤ sz0 by omega) hout_fin wu' s.core.num_binary hslice_fin
+              have hwv_eq :
+                  s.core.wvec.set ((lit.setWidth 64 <<< (1 : Nat)) + (1 : BitVec 64)).toNat
+                    ((q - offW.setWidth 64).setWidth 32) = wvec' := by
+                simp only [wvec', h2l1_eq, hqoff_bv]
+              exact hQ wvec' wstk2 wu' m
+                ⟨{ hlen.core_ok with wvec_len := by simp [wvec', hwv_len], wstk_len_arr := hlen2 },
+                 hlen.scratch_ok⟩ hlay' hmode' (by rw [← hwv_eq]; exact hm)
 
 theorem full_sweep_bins_bridge_wp (Γ : Env)
     (hDefrag : ∀ a m Q X, fullWstackDefragSpec a m Q X → Γ "full_wstack_defrag" [i64] [] a m Q X) :

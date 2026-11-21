@@ -72,14 +72,16 @@ def FullExtScratchPres (s s' : FullState) : Prop :=
 /-- Extended scratch-frame predicate preserved by `full_backtrack`, `full_propagate*`,
 `full_add_unit`, and `full_sweep_copy` for probing, transitive, & kitten-sweeping callers. -/
 def FullProbeScratchPres (s s' : FullState) : Prop :=
-  FullExtScratchPres s s' ∧
-  s'.scratch.work_stk1 = s.scratch.work_stk1 ∧
-  s'.scratch.work_stk2 = s.scratch.work_stk2 ∧
-  s'.scratch.tarjan_mark = s.scratch.tarjan_mark ∧
-  s'.scratch.scratch_buf = s.scratch.scratch_buf ∧
-  s'.scratch.ant_sz = s.scratch.ant_sz ∧
-  s'.scratch.res_sz = s.scratch.res_sz ∧
-  s'.scratch.sim_sig = s.scratch.sim_sig
+  FullExtScratchPres s s' ∧ s'.scratch.work_stk1 = s.scratch.work_stk1 ∧
+  s'.scratch.work_stk2 = s.scratch.work_stk2 ∧ s'.scratch.tarjan_mark = s.scratch.tarjan_mark ∧
+  s'.scratch.scratch_buf = s.scratch.scratch_buf ∧ s'.scratch.ant_sz = s.scratch.ant_sz ∧
+  s'.scratch.res_sz = s.scratch.res_sz ∧ s'.scratch.sim_sig = s.scratch.sim_sig
+
+def FullProbeScratchPresWith (s s' : FullState) (P : Prop) : Prop :=
+  FullExtScratchPres s s' ∧ s'.scratch.work_stk1 = s.scratch.work_stk1 ∧
+  s'.scratch.work_stk2 = s.scratch.work_stk2 ∧ s'.scratch.tarjan_mark = s.scratch.tarjan_mark ∧
+  s'.scratch.scratch_buf = s.scratch.scratch_buf ∧ s'.scratch.ant_sz = s.scratch.ant_sz ∧
+  s'.scratch.res_sz = s.scratch.res_sz ∧ s'.scratch.sim_sig = s.scratch.sim_sig ∧ P
 
 /-- Explicit-witness sparse-mode invariant (`FullSparseInv c F0 s ↔ ∃ F_cur, ...`). -/
 def FullSparseInvW (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) : Prop :=
