@@ -1196,9 +1196,9 @@ def fullProbeSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInv c F0 s ∧ s.core.cur_level = 0 ∧ (FullMem c s ⋆ R) m ∧
     ∀ r s' m',
-      FullSparseInv c F0 s' → s'.core.cur_level = 0 →
-      s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      s'.LengthsOk c → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
       (r = 1#64 ∨ r = 20#64) → (r = 20#64 → F0.Unsat) →
+      (r = 1#64 → FullSparseInv c F0 s' ∧ s'.core.cur_level = 0) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
 def fullEliminateSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
@@ -1225,9 +1225,9 @@ def fullSimplifySpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInv c F0 s ∧ (FullMem c s ⋆ R) m ∧
     ∀ r s' m',
-      FullSparseInv c F0 s' → s'.core.cur_level = 0 →
-      s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      s'.LengthsOk c → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
       (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) → (r = 20#64 → F0.Unsat) →
+      (r = 1#64 → FullSparseInv c F0 s' ∧ s'.core.cur_level = 0) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
 def fullSearchSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
