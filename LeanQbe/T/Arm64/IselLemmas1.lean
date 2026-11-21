@@ -1129,84 +1129,67 @@ private theorem armStoreValIn_wp [Host] {t : Ty} {pa : PArg Reg Empty ArmCond t}
       s'.dmem = s.dmem ∧ s'.status = s.status ∧
       (∀ x, x ≠ .X17 → s'.regs.getXReg x = s.regs.getXReg x) ∧ s'.regs.SP = s.regs.SP)
       (fun _ _ => False) s := by
-  cases t with
-  | float _ | pair _ _ => rcases ht with h | h | h | h | h <;> cases h
-  | bool =>
-    cases pa with
-    | vec vr => exact vr.elim
-    | flag cond =>
-      simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
-      rcases hpa with ⟨rfl, rfl⟩
-      simp only [Machine.PArgHolds] at hp
-      simp only [emitClean_cons, emitClean_nil]
-      refine armWp_mono (armCset64_wp .X17 cond s) ?_
-      rintro s' rfl
-      refine ⟨by decide, ⟨_, rfl, ?_⟩, rfl, rfl,
-        fun x hx => Reg64s.getXReg_setXReg_of_ne _ _ _ _ hx.symm, rfl⟩
-      rw [Reg64s.getXReg_setXReg_same, hp]
-      cases v <;> rfl
-    | gpr r =>
+  have ht' : t = .bool ∨ ∃ n, n ≤ 64 ∧ t = .bits n := by
+    rcases ht with rfl | rfl | rfl | rfl | rfl
+    · exact Or.inl rfl
+    all_goals exact Or.inr ⟨_, by decide, rfl⟩
+  cases pa with
+  | vec vr => exact vr.elim
+  | flag cond =>
+    simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
+    rcases hpa with ⟨rfl, rfl⟩
+    simp only [Machine.PArgHolds] at hp
+    simp only [emitClean_cons, emitClean_nil]
+    refine armWp_mono (armCset64_wp .X17 cond s) ?_
+    rintro s' rfl
+    refine ⟨by decide, ⟨_, rfl, ?_⟩, rfl, rfl,
+      fun x hx => Reg64s.getXReg_setXReg_of_ne _ _ _ _ hx.symm, rfl⟩
+    rw [Reg64s.getXReg_setXReg_same, hp]
+    cases v <;> rfl
+  | gpr r =>
+    have hcases : (∃ x, r = .reg x ∧ valSetup = [] ∧ rx = x) ∨
+        (r = .SP ∧ valSetup = [armIselMovToXI .X17 .SP] ∧ rx = .X17) := by
       cases r with
       | reg x =>
-        simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
-        rcases hpa with ⟨rfl, rfl⟩
-        have hx16 : x ≠ .X16 := (xreg_ne_scratch_of_not_mem (hregs (.reg x) (by simp [PArg.gprs]))).1
-        refine armWp_nil ⟨hx16, ⟨_, rfl, ?_⟩, rfl, rfl, fun _ _ => rfl, rfl⟩
-        simpa [Machine.PArgHolds, armMach, get_reg] using hp
+        rcases ht' with rfl | ⟨n, _, rfl⟩ <;>
+          · simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
+            exact Or.inl ⟨x, rfl, hpa.1.symm, hpa.2.symm⟩
       | SP =>
-        simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
-        rcases hpa with ⟨rfl, rfl⟩
-        simp only [emitClean_cons, emitClean_nil]
-        refine armWp_mono (armMovToX_wp .X17 .SP s) ?_
-        rintro s' rfl
-        refine ⟨by decide, ⟨_, rfl, ?_⟩, rfl, rfl,
-          fun x hx => Reg64s.getXReg_setXReg_of_ne _ _ _ _ hx.symm, rfl⟩
-        rw [Reg64s.getXReg_setXReg_same]
-        simpa [Machine.PArgHolds, armMach, get_sp] using hp
-    | imm c =>
-      simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
-      rcases hpa with ⟨rfl, rfl⟩
-      simp only [Machine.PArgHolds] at hp
-      refine armWp_mono (armMovImm_wp .X17 _ s) ?_
+        rcases ht' with rfl | ⟨n, _, rfl⟩ <;>
+          · simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
+            exact Or.inr ⟨rfl, hpa.1.symm, hpa.2.symm⟩
+    rcases hcases with ⟨x, rfl, rfl, hrx⟩ | ⟨rfl, rfl, rfl⟩
+    · subst hrx
+      have hx16 : rx ≠ .X16 :=
+        (xreg_ne_scratch_of_not_mem (hregs (.reg rx) (by simp [PArg.gprs]))).1
+      refine armWp_nil ⟨hx16, ⟨_, rfl, ?_⟩, rfl, rfl, fun _ _ => rfl, rfl⟩
+      simpa [Machine.PArgHolds, armMach, get_reg] using hp
+    · simp only [emitClean_cons, emitClean_nil]
+      refine armWp_mono (armMovToX_wp .X17 .SP s) ?_
       rintro s' rfl
       refine ⟨by decide, ⟨_, rfl, ?_⟩, rfl, rfl,
         fun x hx => Reg64s.getXReg_setXReg_of_ne _ _ _ _ hx.symm, rfl⟩
       rw [Reg64s.getXReg_setXReg_same]
-      subst hp; cases c <;> rfl
-  | bits n =>
-    have hn64 : n ≤ 64 := by rcases ht with h | h | h | h | h <;> cases h <;> decide
-    cases pa with
-    | vec vr => exact vr.elim
-    | gpr r =>
-      cases r with
-      | reg x =>
-        simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
+      simpa [Machine.PArgHolds, armMach, get_sp] using hp
+  | imm c =>
+    have himm : ∃ w64 : BitVec 64,
+        valSetup = armMovImmI .X17 w64 ∧ rx = .X17 ∧ GprHolds w64 t v := by
+      rcases ht' with rfl | ⟨n, hn64, rfl⟩
+      · simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
         rcases hpa with ⟨rfl, rfl⟩
-        have hx16 : x ≠ .X16 := (xreg_ne_scratch_of_not_mem (hregs (.reg x) (by simp [PArg.gprs]))).1
-        refine armWp_nil ⟨hx16, ⟨_, rfl, ?_⟩, rfl, rfl, fun _ _ => rfl, rfl⟩
-        simpa [Machine.PArgHolds, armMach, get_reg] using hp
-      | SP =>
-        simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
+        simp only [Machine.PArgHolds] at hp; subst hp
+        exact ⟨_, rfl, rfl, by cases c <;> rfl⟩
+      · simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
         rcases hpa with ⟨rfl, rfl⟩
-        simp only [emitClean_cons, emitClean_nil]
-        refine armWp_mono (armMovToX_wp .X17 .SP s) ?_
-        rintro s' rfl
-        refine ⟨by decide, ⟨_, rfl, ?_⟩, rfl, rfl,
-          fun x hx => Reg64s.getXReg_setXReg_of_ne _ _ _ _ hx.symm, rfl⟩
-        rw [Reg64s.getXReg_setXReg_same]
-        simpa [Machine.PArgHolds, armMach, get_sp] using hp
-    | imm c =>
-      simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
-      rcases hpa with ⟨rfl, rfl⟩
-      simp only [Machine.PArgHolds] at hp
-      refine armWp_mono (armMovImm_wp .X17 _ s) ?_
-      rintro s' rfl
-      refine ⟨by decide, ⟨_, rfl, ?_⟩, rfl, rfl,
-        fun x hx => Reg64s.getXReg_setXReg_of_ne _ _ _ _ hx.symm, rfl⟩
-      rw [Reg64s.getXReg_setXReg_same]
-      dsimp only
-      refine ⟨hn64, ?_⟩; subst hp
-      rw [BitVec.setWidth_setWidth_of_le _ hn64, BitVec.setWidth_eq]
+        simp only [Machine.PArgHolds] at hp; subst hp
+        refine ⟨_, rfl, rfl, hn64, ?_⟩
+        rw [BitVec.setWidth_setWidth_of_le _ hn64, BitVec.setWidth_eq]
+    rcases himm with ⟨w64, rfl, rfl, hgh⟩
+    refine armWp_mono (armMovImm_wp .X17 _ s) ?_
+    rintro s' rfl
+    refine ⟨by decide, ⟨_, rfl, ?_⟩, rfl, rfl,
+      fun x hx => Reg64s.getXReg_setXReg_of_ne _ _ _ _ hx.symm, rfl⟩
+    rwa [Reg64s.getXReg_setXReg_same]
 
 private theorem take_setWidth_32_low {k : Nat} (hk : k ≤ 32) (v : BitVec 64) :
     ((v.setWidth 32).take k) = v.setWidth k := by

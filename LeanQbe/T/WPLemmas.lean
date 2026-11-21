@@ -90,59 +90,10 @@ theorem closed_iff (Γ : Env) {rs : List Ty} (Q : Post rs) (X : XPost) :
 
 /-! ## Monotonicity of `wp` and `Func.spec` -/
 
-/-- Consequence rule for `wp`, proved via `induction e using Expr.induct`. -/
-theorem wp_mono {Γ : Env} {rs : List Ty} {Q Q' : Post rs} {X X' : XPost}
-    (hQ : ∀ vs m, Q vs m → Q' vs m) (hX : ∀ f cs xs m, X f cs xs m → X' f cs xs m)
-    (e : Expr Val Cont rs) : ∀ m, wp Γ Q X e m → wp Γ Q' X' e m := by
-  induction e using Expr.induct with
-  | let_ op k ih =>
-    intro m h
-    dsimp only [wp] at h ⊢
-    exact Op.wp_mono (fun r => ih r m) h
-  | load t a k ih =>
-    intro m ⟨v, hv, h⟩
-    exact ⟨v, hv, ih v m h⟩
-  | store v a k ih =>
-    intro m ⟨hok, h⟩
-    exact ⟨hok, ih _ h⟩
-  | call f args k ih =>
-    intro m ⟨P, E, hΓ, hP, hE⟩
-    exact ⟨P, E, hΓ, fun r m' hr => ih r m' (hP r m' hr),
-      fun g cs xs m' he => hX g cs xs m' (hE g cs xs m' he)⟩
-  | jnz c t e iht ihe =>
-    intro m h
-    exact ⟨fun hc => iht m (h.1 hc), fun hc => ihe m (h.2 hc)⟩
-  | jump j args =>
-    intro m h
-    exact h
-  | ret vs =>
-    intro m h
-    exact hQ _ m h
-  | exit f args =>
-    intro m h
-    exact hX f _ _ m h
-  | hlt =>
-    intro m h
-    exact h
-  | group bodies k ihb ihk =>
-    intro m h Js hc
-    refine ihk Js m (h Js ?_)
-    rw [closed_iff] at hc ⊢
-    exact fun i xs m' hb => hc i xs m' (ihb Js i xs m' hb)
-
-/-- A typed function contract is monotone in both postconditions. -/
-@[expose] def Spec.Mono {as bs : List Ty} (spec : Spec as bs) : Prop :=
-  ∀ xs m (Q Q' : Post bs) (X X' : XPost),
-    (∀ vs m, Q vs m → Q' vs m) →
-    (∀ f cs ys m, X f cs ys m → X' f cs ys m) →
-    spec xs m Q X → spec xs m Q' X'
-
-theorem Func.spec_mono {as rs : List Ty} (Γ : Env) (f : Func as rs) : (Func.spec Γ f).Mono :=
-  fun xs m _ _ _ _ hQ hX h => wp_mono hQ hX (f Val Cont xs) m h
-
-theorem wp_env_mono {Γ Γ' : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+private theorem wp_conseq {Γ Γ' : Env} {rs : List Ty} {Q Q' : Post rs} {X X' : XPost}
     (hΓ : ∀ g as bs xs m P E, Γ g as bs xs m P E → Γ' g as bs xs m P E)
-    (e : Expr Val Cont rs) : ∀ m, wp Γ Q X e m → wp Γ' Q X e m := by
+    (hQ : ∀ vs m, Q vs m → Q' vs m) (hX : ∀ f cs xs m, X f cs xs m → X' f cs xs m)
+    (e : Expr Val Cont rs) : ∀ m, wp Γ Q X e m → wp Γ' Q' X' e m := by
   induction e using Expr.induct with
   | let_ op k ih =>
     intro m h
@@ -156,19 +107,41 @@ theorem wp_env_mono {Γ Γ' : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     exact ⟨hok, ih _ h⟩
   | call f args k ih =>
     intro m ⟨P, E, hG, hP, hE⟩
-    exact ⟨P, E, hΓ f _ _ _ m P E hG, fun r m' hr => ih r m' (hP r m' hr), hE⟩
+    exact ⟨P, E, hΓ f _ _ _ m P E hG, fun r m' hr => ih r m' (hP r m' hr),
+      fun g cs xs m' he => hX g cs xs m' (hE g cs xs m' he)⟩
   | jnz c t e iht ihe =>
     intro m h
     exact ⟨fun hc => iht m (h.1 hc), fun hc => ihe m (h.2 hc)⟩
   | jump j args => intro m h; exact h
-  | ret vs => intro m h; exact h
-  | exit f args => intro m h; exact h
+  | ret vs => intro m h; exact hQ _ m h
+  | exit f args => intro m h; exact hX f _ _ m h
   | hlt => intro m h; exact h
   | group bodies k ihb ihk =>
     intro m h Js hc
     refine ihk Js m (h Js ?_)
     rw [closed_iff] at hc ⊢
     exact fun i xs m' hb => hc i xs m' (ihb Js i xs m' hb)
+
+/-- Consequence rule for `wp`, proved via `wp_conseq`. -/
+theorem wp_mono {Γ : Env} {rs : List Ty} {Q Q' : Post rs} {X X' : XPost}
+    (hQ : ∀ vs m, Q vs m → Q' vs m) (hX : ∀ f cs xs m, X f cs xs m → X' f cs xs m)
+    (e : Expr Val Cont rs) : ∀ m, wp Γ Q X e m → wp Γ Q' X' e m :=
+  wp_conseq (fun _ _ _ _ _ _ _ h => h) hQ hX e
+
+/-- A typed function contract is monotone in both postconditions. -/
+@[expose] def Spec.Mono {as bs : List Ty} (spec : Spec as bs) : Prop :=
+  ∀ xs m (Q Q' : Post bs) (X X' : XPost),
+    (∀ vs m, Q vs m → Q' vs m) →
+    (∀ f cs ys m, X f cs ys m → X' f cs ys m) →
+    spec xs m Q X → spec xs m Q' X'
+
+theorem Func.spec_mono {as rs : List Ty} (Γ : Env) (f : Func as rs) : (Func.spec Γ f).Mono :=
+  fun xs m _ _ _ _ hQ hX h => wp_mono hQ hX (f Val Cont xs) m h
+
+theorem wp_env_mono {Γ Γ' : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+    (hΓ : ∀ g as bs xs m P E, Γ g as bs xs m P E → Γ' g as bs xs m P E)
+    (e : Expr Val Cont rs) : ∀ m, wp Γ Q X e m → wp Γ' Q X e m :=
+  wp_conseq hΓ (fun _ _ h => h) (fun _ _ _ _ h => h) e
 
 theorem Func.spec_env_mono {Γ Γ' : Env} {as rs : List Ty}
     (hΓ : ∀ g cs ds xs m P E, Γ g cs ds xs m P E → Γ' g cs ds xs m P E)

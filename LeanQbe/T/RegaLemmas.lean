@@ -12,3 +12,5 @@ Re-exports `RegaLemmas1`–`RegaLemmas4`. Headline theorems (namespace `LeanQbe.
   occur at pairwise-distinct positions (structural, Guardrail 5);
 * `lowerFn_label_mem`: every label of `code` is `f.name` or `lname f.name j`.
 -/
+
+set_option autoImplicit false

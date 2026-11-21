@@ -485,10 +485,11 @@ theorem eventually_ret1_i64 (cert : LinkedCert T L lt hcl mod [] exits nX maxBou
     Eventually (T.mach.step cert.host)
       (fun st => T.mach.pc st = I.ra0 ∧ T.mach.getGpr (T.mach.data st) I.ret0 = v)
       (T.mach.mkState (I.initState (cert.bound f.name) bsMem args)
-        (T.mach.labelAddr cert.host f.name)) := by
-  have hfn := (cert.fnSpec_host_src Γ hacyc hwf hwp hf has hrs hnoex).2
-  rw [hret] at hfn
-  exact cert.run_ret1_i64 I hfn bsMem args v hbs hargs hspec hQ hbound
+        (T.mach.labelAddr cert.host f.name)) :=
+  eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, h.2.1⟩)
+    (cert.eventually_ret1_sep_i64 I Γ hacyc hwf hwp hf hret has hrs hnoex
+      bsMem args v (fun _ => True) hbs hargs hspec
+      (fun rets m' hm' => ⟨hQ rets m' hm', trivial⟩) hbound)
 
 end ConcreteInit
 

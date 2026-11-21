@@ -289,18 +289,30 @@ theorem CtxTypes.push {α : Type} {f : α → Type} :
   | [], (), _, _, h => h
   | _ :: _, (_, xs), _, _, h => CtxTypes.push xs (.cons h)
 
-private theorem castTy_self {V : Ty → Type} : ∀ (t : Ty) (v : V t), (castTy t t v).isSome = true
+private theorem castTy_self_eq {V : Ty → Type} : ∀ (t : Ty) (v : V t), castTy t t v = some v
   | .bool, _ => rfl
-  | .bits n, _ => by dsimp only [castTy]; simp
-  | .float f, _ => by dsimp only [castTy]; simp
+  | .bits _, _ => by dsimp only [castTy]; simp
+  | .float _, _ => by dsimp only [castTy]; simp
   | .pair a b, v => by
     dsimp only [castTy]
     cases h1 : tyDecEq a a with
     | isFalse hne => exact absurd rfl hne
-    | isTrue _ =>
+    | isTrue heq1 =>
       cases h2 : tyDecEq b b with
       | isFalse hne => exact absurd rfl hne
-      | isTrue _ => rfl
+      | isTrue heq2 =>
+        have h1' : heq1 = rfl := rfl
+        have h2' : heq2 = rfl := rfl
+        rw [h1', h2']
+
+private theorem castListTy_self_eq {L : List Ty → Type} (ts : List Ty) (l : L ts) :
+    castListTy ts ts l = some l := by
+  dsimp only [castListTy]
+  cases h : listTyDecEq ts ts with
+  | isFalse hne => exact absurd rfl hne
+  | isTrue heq =>
+    have h' : heq = rfl := rfl
+    rw [h']
 
 theorem lookupV_isSome_of_check {V : Ty → Type} :
     {Γ : List Ty} → {vs : List ((t : Ty) × V t)} → CtxTypes Γ vs →
@@ -314,7 +326,7 @@ theorem lookupV_isSome_of_check {V : Ty → Type} :
     dsimp only [listGet?] at h
     cases hdec : tyDecEq t' t with
     | isFalse _ => simp [hdec] at h
-    | isTrue heq => subst heq; dsimp only [lookupV, listGet?]; exact castTy_self t' v
+    | isTrue heq => subst heq; dsimp only [lookupV, listGet?]; rw [castTy_self_eq]; rfl
   | _ :: _, _ :: _, .cons hrest, t, idx + 1, h => by
     dsimp only [lookupV, listGet?]; exact lookupV_isSome_of_check hrest h
 
@@ -330,12 +342,7 @@ theorem lookupL_isSome_of_check {L : List Ty → Type} :
     dsimp only [listGet?] at h
     cases hdec : listTyDecEq ts' ts with
     | isFalse _ => simp [hdec] at h
-    | isTrue heq =>
-      subst heq
-      dsimp only [lookupL, listGet?, castListTy]
-      cases h2 : listTyDecEq ts' ts' with
-      | isTrue _ => rfl
-      | isFalse hne => exact absurd rfl hne
+    | isTrue heq => subst heq; dsimp only [lookupL, listGet?]; rw [castListTy_self_eq]; rfl
   | _ :: _, _ :: _, .cons hrest, ts, idx + 1, h => by
     dsimp only [lookupL, listGet?]; exact lookupL_isSome_of_check hrest h
 
@@ -387,7 +394,8 @@ inductive Blocks.NoHlt {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
 end
 
 mutual
-/-- If `tf.wfCheck Γ Δ = true` and `tf.noHlt = true`, `denote` never hits `.hlt` fallback. -/
+/-- If `tf.wfCheck Γ Δ = true` and `tf.noHlt = true`, then `denote` never triggers `.hlt`
+fallback. -/
 theorem denote_noHlt_of_wfCheck {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
     (tf : TFlat rs) → {Γ : List Ty} → {Δ : List (List Ty)} →
     {vs : List ((t : Ty) × V t)} → {ls : List ((ts : List Ty) × L ts)} →
@@ -500,31 +508,6 @@ cleanly in the elaborator on large PHOAS terms. -/
 macro "t_wf_reify" : tactic => `(tactic| (refine Func.wf_of_reify ?_; t_kernel_rfl))
 
 /-! ## Reification-denotation round-trip (`Func.renorm`, `Func.renorm_wf`, `Func.renorm_spec`) -/
-
-private theorem castTy_self_eq {V : Ty → Type} : ∀ (t : Ty) (v : V t), castTy t t v = some v
-  | .bool, _ => rfl
-  | .bits _, _ => by dsimp only [castTy]; simp
-  | .float _, _ => by dsimp only [castTy]; simp
-  | .pair a b, v => by
-    dsimp only [castTy]
-    cases h1 : tyDecEq a a with
-    | isFalse hne => exact absurd rfl hne
-    | isTrue heq1 =>
-      cases h2 : tyDecEq b b with
-      | isFalse hne => exact absurd rfl hne
-      | isTrue heq2 =>
-        have h1' : heq1 = rfl := rfl
-        have h2' : heq2 = rfl := rfl
-        rw [h1', h2']
-
-private theorem castListTy_self_eq {L : List Ty → Type} (ts : List Ty) (l : L ts) :
-    castListTy ts ts l = some l := by
-  dsimp only [castListTy]
-  cases h : listTyDecEq ts ts with
-  | isFalse hne => exact absurd rfl hne
-  | isTrue heq =>
-    have h' : heq = rfl := rfl
-    rw [h']
 
 private theorem lookupV_head {V : Ty → Type} (t : Ty) (v : V t) (vs : List ((u : Ty) × V u)) :
     lookupV (⟨t, v⟩ :: vs) t 0 = some v := by

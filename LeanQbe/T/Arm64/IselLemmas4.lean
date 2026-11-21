@@ -443,13 +443,19 @@ private theorem armFunnelImmImm_wp [Host] (w : RegWidth)
     (hdm : s₂.dmem = s.dmem) (hkeep : ∀ r, r ∉ armScratch → get s₂ r = get s r) :
     _root_.Program.wp
       (if isLeft then
-        [ins (.ANDS_i (xzr w) (zr rc w) (armShiftMaskConst w.bits)), ins (.LSLV (zr .X16 w) (zr .X16 w) (zr rc w)),
-         ins (.SUB_s (zr d w) (xzr w) (sh rc)), ins (.LSRV (zr .X17 w) (zr .X17 w) (zr d w)),
-         ins (.ORR_s (zr d w) (zr .X16 w) (sh .X17)), ins (.CSEL (zr d w) (zr .X16 w) (zr d w) .EQ)]
+        [ins (.ANDS_i (xzr w) (zr rc w) (armShiftMaskConst w.bits)),
+         ins (.LSLV (zr .X16 w) (zr .X16 w) (zr rc w)),
+         ins (.SUB_s (zr d w) (xzr w) (sh rc)),
+         ins (.LSRV (zr .X17 w) (zr .X17 w) (zr d w)),
+         ins (.ORR_s (zr d w) (zr .X16 w) (sh .X17)),
+         ins (.CSEL (zr d w) (zr .X16 w) (zr d w) .EQ)]
        else
-        [ins (.ANDS_i (xzr w) (zr rc w) (armShiftMaskConst w.bits)), ins (.LSRV (zr .X17 w) (zr .X17 w) (zr rc w)),
-         ins (.SUB_s (zr d w) (xzr w) (sh rc)), ins (.LSLV (zr .X16 w) (zr .X16 w) (zr d w)),
-         ins (.ORR_s (zr d w) (zr .X17 w) (sh .X16)), ins (.CSEL (zr d w) (zr .X17 w) (zr d w) .EQ)])
+        [ins (.ANDS_i (xzr w) (zr rc w) (armShiftMaskConst w.bits)),
+         ins (.LSRV (zr .X17 w) (zr .X17 w) (zr rc w)),
+         ins (.SUB_s (zr d w) (xzr w) (sh rc)),
+         ins (.LSLV (zr .X16 w) (zr .X16 w) (zr d w)),
+         ins (.ORR_s (zr d w) (zr .X17 w) (sh .X16)),
+         ins (.CSEL (zr d w) (zr .X17 w) (zr d w) .EQ)])
       (fun s' =>
         GprHoldsZ (armMach.getGpr s' (.reg d)) w.bits
           (if isLeft then ((va ++ vb) <<< (vc.toNat % w.bits)).extractLsb' w.bits w.bits
@@ -460,75 +466,102 @@ private theorem armFunnelImmImm_wp [Host] (w : RegWidth)
   have hw64 : w.bits ≤ 64 := by cases w <;> decide
   have ⟨hd16, hd17⟩ := xreg_ne_scratch_of_not_mem hd
   have ⟨hrc16, hrc17⟩ := xreg_ne_scratch_of_not_mem hrcS
-  cases isLeft <;> dsimp only [Bool.false_eq_true, ↓reduceIte] <;>
-    refine armWp_cons (armAndsShiftMask_wp w rc s₂ hrc) fun s₃ ⟨st, hstEq, hst⟩ => ?_ <;>
-    subst hstEq
-  · refine armWp_cons (armShiftV_wp false w .X17 .X17 rc _) fun s₄ hs₄ => ?_
-    refine armWp_cons (armSubNegDir_wp w d rc s₄) fun s₅ hs₅ => ?_
-    refine armWp_cons (armShiftV_wp true w .X16 .X16 d s₅) fun s₆ hs₆ => ?_
-    refine armWp_cons (armOrrDir_wp w d .X17 .X16 s₆) fun s₇ hs₇ => ?_
-    refine armWp_mono (armCselDir_wp w d .X17 d .EQ s₇) fun s₈ hs₈ => ?_
-    subst hs₈ hs₇ hs₆ hs₅ hs₄
-    refine armFunnelRes_finish false d va vb vc hst
-      (fun heq => by
-        have hc0 : vc.toNat % w.bits = 0 := decide_eq_true_eq.mp (hst.symm.trans heq)
-        simp only [CondCode.interp] at heq
-        simp [heq, hc0, BitVec.setWidth_setWidth_of_le _ hw64, BitVec.ushiftRight_eq,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hd17, Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17, h17, hrc])
-      (fun hne hc0 => by
-        simp only [CondCode.interp] at hne ⊢
-        simp only [hne, Bool.false_eq_true, ↓reduceIte, BitVec.setWidth_setWidth_of_le _ hw64,
-          BitVec.setWidth_eq, BitVec.ushiftRight_eq, Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
+  let tMain : XReg := if isLeft then .X16 else .X17
+  let tComp : XReg := if isLeft then .X17 else .X16
+  have hcode : (if isLeft then
+        [ins (.ANDS_i (xzr w) (zr rc w) (armShiftMaskConst w.bits)),
+         ins (.LSLV (zr .X16 w) (zr .X16 w) (zr rc w)),
+         ins (.SUB_s (zr d w) (xzr w) (sh rc)),
+         ins (.LSRV (zr .X17 w) (zr .X17 w) (zr d w)),
+         ins (.ORR_s (zr d w) (zr .X16 w) (sh .X17)),
+         ins (.CSEL (zr d w) (zr .X16 w) (zr d w) .EQ)]
+       else
+        [ins (.ANDS_i (xzr w) (zr rc w) (armShiftMaskConst w.bits)),
+         ins (.LSRV (zr .X17 w) (zr .X17 w) (zr rc w)),
+         ins (.SUB_s (zr d w) (xzr w) (sh rc)),
+         ins (.LSLV (zr .X16 w) (zr .X16 w) (zr d w)),
+         ins (.ORR_s (zr d w) (zr .X17 w) (sh .X16)),
+         ins (.CSEL (zr d w) (zr .X17 w) (zr d w) .EQ)]) =
+      [ins (.ANDS_i (xzr w) (zr rc w) (armShiftMaskConst w.bits)),
+       if isLeft then ins (.LSLV (zr tMain w) (zr tMain w) (zr rc w))
+       else ins (.LSRV (zr tMain w) (zr tMain w) (zr rc w)),
+       ins (.SUB_s (zr d w) (xzr w) (sh rc)),
+       if !isLeft then ins (.LSLV (zr tComp w) (zr tComp w) (zr d w))
+       else ins (.LSRV (zr tComp w) (zr tComp w) (zr d w)),
+       ins (.ORR_s (zr d w) (zr tMain w) (sh tComp)),
+       ins (.CSEL (zr d w) (zr tMain w) (zr d w) .EQ)] := by
+    cases isLeft <;> rfl
+  rw [hcode]
+  refine armWp_cons (armAndsShiftMask_wp w rc s₂ hrc) fun s₃ ⟨st, hstEq, hst⟩ => ?_
+  subst hstEq
+  refine armWp_cons (armShiftV_wp isLeft w tMain tMain rc _) fun s₄ hs₄ => ?_
+  refine armWp_cons (armSubNegDir_wp w d rc s₄) fun s₅ hs₅ => ?_
+  refine armWp_cons (armShiftV_wp (!isLeft) w tComp tComp d s₅) fun s₆ hs₆ => ?_
+  refine armWp_cons (armOrrDir_wp w d tMain tComp s₆) fun s₇ hs₇ => ?_
+  refine armWp_mono (armCselDir_wp w d tMain d .EQ s₇) fun s₈ hs₈ => ?_
+  subst hs₈ hs₇ hs₆ hs₅ hs₄
+  refine armFunnelRes_finish isLeft d va vb vc hst
+    (fun heq => by
+      have hc0 : vc.toNat % w.bits = 0 := decide_eq_true_eq.mp (hst.symm.trans heq)
+      simp only [CondCode.interp] at heq
+      cases isLeft
+      · simp [tMain, tComp, heq, hc0, BitVec.setWidth_setWidth_of_le _ hw64,
+          BitVec.ushiftRight_eq, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hd17, h17, hrc]
+      · simp [tMain, tComp, heq, hc0, BitVec.setWidth_setWidth_of_le _ hw64,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hd16, h16, hrc])
+    (fun hne hc0 => by
+      simp only [CondCode.interp] at hne ⊢
+      cases isLeft
+      · simp only [tMain, tComp, Bool.not_false, Bool.false_eq_true, ↓reduceIte,
+          BitVec.setWidth_setWidth_of_le _ hw64, BitVec.setWidth_eq, BitVec.ushiftRight_eq,
+          Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
           Reg64s.getXReg_setXReg_of_ne _ _ _ _ hd16, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hd17,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17, Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17.symm,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc17.symm, h16, h17, hrc,
-          neg_mod_eq vc hc0, BitVec.or_comm])
-      (fun hw => by subst hw; simp [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq])
-      hdm fun r hr => ?_
-    · have hr' : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
-      rw [get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1,
-        get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2]; exact hkeep r hr'.2
-  · refine armWp_cons (armShiftV_wp true w .X16 .X16 rc _) fun s₄ hs₄ => ?_
-    refine armWp_cons (armSubNegDir_wp w d rc s₄) fun s₅ hs₅ => ?_
-    refine armWp_cons (armShiftV_wp false w .X17 .X17 d s₅) fun s₆ hs₆ => ?_
-    refine armWp_cons (armOrrDir_wp w d .X16 .X17 s₆) fun s₇ hs₇ => ?_
-    refine armWp_mono (armCselDir_wp w d .X16 d .EQ s₇) fun s₈ hs₈ => ?_
-    subst hs₈ hs₇ hs₆ hs₅ hs₄
-    refine armFunnelRes_finish true d va vb vc hst
-      (fun heq => by
-        have hc0 : vc.toNat % w.bits = 0 := decide_eq_true_eq.mp (hst.symm.trans heq)
-        simp only [CondCode.interp] at heq
-        simp [heq, hc0, BitVec.setWidth_setWidth_of_le _ hw64,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hd16, Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17.symm, h16, hrc])
-      (fun hne hc0 => by
-        simp only [CondCode.interp] at hne ⊢
-        simp only [hne, Bool.false_eq_true, ↓reduceIte, BitVec.setWidth_setWidth_of_le _ hw64,
-          BitVec.setWidth_eq, BitVec.ushiftRight_eq, Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17.symm,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc17.symm,
+          hne, h16, h17, hrc, neg_mod_eq vc hc0, BitVec.or_comm]
+      · simp only [tMain, tComp, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
+          BitVec.setWidth_setWidth_of_le _ hw64, BitVec.setWidth_eq, BitVec.ushiftRight_eq,
+          Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
           Reg64s.getXReg_setXReg_of_ne _ _ _ _ hd16, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hd17,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17, Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17.symm,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc16.symm, h16, h17, hrc, neg_mod_eq vc hc0])
-      (fun hw => by subst hw; simp [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq])
-      hdm fun r hr => ?_
-    · have hr' : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
-      rw [get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2,
-        get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1]; exact hkeep r hr'.2
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17.symm,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc16.symm,
+          hne, h16, h17, hrc, neg_mod_eq vc hc0])
+    (fun hw => by subst hw; simp [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq])
+    hdm fun r hr => ?_
+  have hr' : r ≠ .reg d ∧ r ∉ armScratch :=
+    ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
+  have ⟨hr16, hr17⟩ := ne_of_not_mem_armScratch hr'.2
+  have hrm : r ≠ .reg tMain := by cases isLeft <;> simp [tMain, hr16, hr17]
+  have hrc' : r ≠ .reg tComp := by cases isLeft <;> simp [tComp, hr16, hr17]
+  rw [get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ tComp _ r hrc',
+    get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ tMain _ r hrm]
+  exact hkeep r hr'.2
 
-private theorem armFunnelGprB_wp [Host] (w : RegWidth)
-    (isLeft : Bool) (d ra rb rc : XReg) (va vb vc : BitVec w.bits) {s s₂ : MachineData}
+private theorem armFunnelSubFirst_wp [Host] (w : RegWidth)
+    (isLeft : Bool) (d ra rb rc tNeg tMain tOr : XReg)
+    (va vb vc : BitVec w.bits) {s s₂ : MachineData}
     (hra : (s₂.regs.getXReg ra).toBitVec.setWidth w.bits = va)
     (hrb : (s₂.regs.getXReg rb).toBitVec.setWidth w.bits = vb)
     (hrc : (s₂.regs.getXReg rc).toBitVec.setWidth w.bits = vc)
-    (hneA : ra ≠ .X17) (hrbS : XRegOrSp.reg rb ∉ armScratch) (hrcS : XRegOrSp.reg rc ∉ armScratch)
+    (htNeg : tNeg = .X16 ∨ tNeg = .X17)
+    (htMain : tMain = .X16 ∨ tMain = .X17)
+    (htOr : tOr = .X16 ∨ tOr = .X17)
+    (htMainNeOr : tMain ≠ tOr)
+    (hnegA : tNeg ≠ ra) (hnegB : tNeg ≠ rb)
+    (horSrc : if isLeft then tOr ≠ ra else tOr ≠ rb)
+    (hrcS : XRegOrSp.reg rc ∉ armScratch)
     (hdm : s₂.dmem = s.dmem) (hkeep : ∀ r, r ∉ armScratch → get s₂ r = get s r) :
     _root_.Program.wp
-      (if isLeft then
-        [ins (.ANDS_i (xzr w) (zr rc w) (armShiftMaskConst w.bits)), ins (.SUB_s (zr .X17 w) (xzr w) (sh rc)),
-         ins (.LSRV (zr .X17 w) (zr rb w) (zr .X17 w)), ins (.LSLV (zr .X16 w) (zr ra w) (zr rc w)),
-         ins (.ORR_s (zr .X17 w) (zr .X16 w) (sh .X17)), ins (.CSEL (zr d w) (zr .X16 w) (zr .X17 w) .EQ)]
-       else
-        [ins (.ANDS_i (xzr w) (zr rc w) (armShiftMaskConst w.bits)), ins (.SUB_s (zr .X17 w) (xzr w) (sh rc)),
-         ins (.LSLV (zr .X17 w) (zr ra w) (zr .X17 w)), ins (.LSRV (zr .X16 w) (zr rb w) (zr rc w)),
-         ins (.ORR_s (zr .X17 w) (zr .X16 w) (sh .X17)), ins (.CSEL (zr d w) (zr .X16 w) (zr .X17 w) .EQ)])
+      [ins (.ANDS_i (xzr w) (zr rc w) (armShiftMaskConst w.bits)),
+       ins (.SUB_s (zr tNeg w) (xzr w) (sh rc)),
+       if isLeft then ins (.LSRV (zr tOr w) (zr rb w) (zr tNeg w))
+       else ins (.LSLV (zr tOr w) (zr ra w) (zr tNeg w)),
+       if isLeft then ins (.LSLV (zr tMain w) (zr ra w) (zr rc w))
+       else ins (.LSRV (zr tMain w) (zr rb w) (zr rc w)),
+       ins (.ORR_s (zr tOr w) (zr tMain w) (sh tOr)),
+       ins (.CSEL (zr d w) (zr tMain w) (zr tOr w) .EQ)]
       (fun s' =>
         GprHoldsZ (armMach.getGpr s' (.reg d)) w.bits
           (if isLeft then ((va ++ vb) <<< (vc.toNat % w.bits)).extractLsb' w.bits w.bits
@@ -537,136 +570,83 @@ private theorem armFunnelGprB_wp [Host] (w : RegWidth)
         armMach.Frame armCondReads s s' (.reg d :: armScratch) [] maskNZCV)
       (fun _ _ => False) s₂ := by
   have hw64 : w.bits ≤ 64 := by cases w <;> decide
-  have hrb17 := (xreg_ne_scratch_of_not_mem hrbS).2
-  have hrc17 := (xreg_ne_scratch_of_not_mem hrcS).2
-  cases isLeft <;> dsimp only [Bool.false_eq_true, ↓reduceIte] <;>
-    refine armWp_cons (armAndsShiftMask_wp w rc s₂ hrc) fun s₃ ⟨st, hstEq, hst⟩ => ?_ <;>
-    subst hstEq
-  · refine armWp_cons (armSubNegDir_wp w .X17 rc _) fun s₄ hs₄ => ?_
-    refine armWp_cons (armShiftV_wp true w .X17 ra .X17 s₄) fun s₅ hs₅ => ?_
-    refine armWp_cons (armShiftV_wp false w .X16 rb rc s₅) fun s₆ hs₆ => ?_
-    refine armWp_cons (armOrrDir_wp w .X17 .X16 .X17 s₆) fun s₇ hs₇ => ?_
-    refine armWp_mono (armCselDir_wp w d .X16 .X17 .EQ s₇) fun s₈ hs₈ => ?_
-    subst hs₈ hs₇ hs₆ hs₅ hs₄
-    refine armFunnelRes_finish false d va vb vc hst
-      (fun heq => by
-        have hc0 : vc.toNat % w.bits = 0 := decide_eq_true_eq.mp (hst.symm.trans heq)
-        simp only [CondCode.interp] at heq
-        simp [heq, hc0, BitVec.setWidth_setWidth_of_le _ hw64, BitVec.ushiftRight_eq,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrb17.symm, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc17.symm, hrb, hrc])
-      (fun hne hc0 => by
-        simp only [CondCode.interp] at hne ⊢
-        simp only [hne, Bool.false_eq_true, ↓reduceIte, BitVec.setWidth_setWidth_of_le _ hw64,
-          BitVec.setWidth_eq, BitVec.ushiftRight_eq, Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hneA.symm,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrb17.symm, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc17.symm,
-          hra, hrb, hrc, neg_mod_eq vc hc0, BitVec.or_comm])
-      (fun hw => by subst hw; simp [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq])
-      hdm fun r hr => ?_
-    · have hr' : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
-      rw [get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2]; exact hkeep r hr'.2
-  · refine armWp_cons (armSubNegDir_wp w .X17 rc _) fun s₄ hs₄ => ?_
-    refine armWp_cons (armShiftV_wp false w .X17 rb .X17 s₄) fun s₅ hs₅ => ?_
-    refine armWp_cons (armShiftV_wp true w .X16 ra rc s₅) fun s₆ hs₆ => ?_
-    refine armWp_cons (armOrrDir_wp w .X17 .X16 .X17 s₆) fun s₇ hs₇ => ?_
-    refine armWp_mono (armCselDir_wp w d .X16 .X17 .EQ s₇) fun s₈ hs₈ => ?_
-    subst hs₈ hs₇ hs₆ hs₅ hs₄
-    refine armFunnelRes_finish true d va vb vc hst
-      (fun heq => by
-        have hc0 : vc.toNat % w.bits = 0 := decide_eq_true_eq.mp (hst.symm.trans heq)
-        simp only [CondCode.interp] at heq
-        simp [heq, hc0, BitVec.setWidth_setWidth_of_le _ hw64,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hneA.symm, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc17.symm, hra, hrc])
-      (fun hne hc0 => by
-        simp only [CondCode.interp] at hne ⊢
-        simp only [hne, Bool.false_eq_true, ↓reduceIte, BitVec.setWidth_setWidth_of_le _ hw64,
-          BitVec.setWidth_eq, BitVec.ushiftRight_eq, Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hneA.symm,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrb17.symm, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc17.symm,
-          hra, hrb, hrc, neg_mod_eq vc hc0])
-      (fun hw => by subst hw; simp [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq])
-      hdm fun r hr => ?_
-    · have hr' : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
-      rw [get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2]; exact hkeep r hr'.2
-
-private theorem armFunnelImmB_wp [Host] (w : RegWidth)
-    (isLeft : Bool) (d ra rc : XReg) (va vb vc : BitVec w.bits) {s s₂ : MachineData}
-    (hra : (s₂.regs.getXReg ra).toBitVec.setWidth w.bits = va)
-    (h17 : (s₂.regs.getXReg .X17).toBitVec.setWidth w.bits = vb)
-    (hrc : (s₂.regs.getXReg rc).toBitVec.setWidth w.bits = vc)
-    (hraS : XRegOrSp.reg ra ∉ armScratch) (hrcS : XRegOrSp.reg rc ∉ armScratch)
-    (hdm : s₂.dmem = s.dmem) (hkeep : ∀ r, r ∉ armScratch → get s₂ r = get s r) :
-    _root_.Program.wp
-      (if isLeft then
-        [ins (.ANDS_i (xzr w) (zr rc w) (armShiftMaskConst w.bits)), ins (.SUB_s (zr .X16 w) (xzr w) (sh rc)),
-         ins (.LSRV (zr .X17 w) (zr .X17 w) (zr .X16 w)), ins (.LSLV (zr .X16 w) (zr ra w) (zr rc w)),
-         ins (.ORR_s (zr .X17 w) (zr .X16 w) (sh .X17)), ins (.CSEL (zr d w) (zr .X16 w) (zr .X17 w) .EQ)]
-       else
-        [ins (.ANDS_i (xzr w) (zr rc w) (armShiftMaskConst w.bits)), ins (.SUB_s (zr .X16 w) (xzr w) (sh rc)),
-         ins (.LSLV (zr .X16 w) (zr ra w) (zr .X16 w)), ins (.LSRV (zr .X17 w) (zr .X17 w) (zr rc w)),
-         ins (.ORR_s (zr .X16 w) (zr .X17 w) (sh .X16)), ins (.CSEL (zr d w) (zr .X17 w) (zr .X16 w) .EQ)])
-      (fun s' =>
-        GprHoldsZ (armMach.getGpr s' (.reg d)) w.bits
-          (if isLeft then ((va ++ vb) <<< (vc.toNat % w.bits)).extractLsb' w.bits w.bits
-           else ((va ++ vb) >>> (vc.toNat % w.bits)).extractLsb' 0 w.bits) ∧
-        armMach.mem s' = armMach.mem s ∧
-        armMach.Frame armCondReads s s' (.reg d :: armScratch) [] maskNZCV)
-      (fun _ _ => False) s₂ := by
-  have hw64 : w.bits ≤ 64 := by cases w <;> decide
-  have ⟨hra16, hra17⟩ := xreg_ne_scratch_of_not_mem hraS
   have ⟨hrc16, hrc17⟩ := xreg_ne_scratch_of_not_mem hrcS
-  cases isLeft <;> dsimp only [Bool.false_eq_true, ↓reduceIte] <;>
-    refine armWp_cons (armAndsShiftMask_wp w rc s₂ hrc) fun s₃ ⟨st, hstEq, hst⟩ => ?_ <;>
-    subst hstEq
-  · refine armWp_cons (armSubNegDir_wp w .X16 rc _) fun s₄ hs₄ => ?_
-    refine armWp_cons (armShiftV_wp true w .X16 ra .X16 s₄) fun s₅ hs₅ => ?_
-    refine armWp_cons (armShiftV_wp false w .X17 .X17 rc s₅) fun s₆ hs₆ => ?_
-    refine armWp_cons (armOrrDir_wp w .X16 .X17 .X16 s₆) fun s₇ hs₇ => ?_
-    refine armWp_mono (armCselDir_wp w d .X17 .X16 .EQ s₇) fun s₈ hs₈ => ?_
-    subst hs₈ hs₇ hs₆ hs₅ hs₄
-    refine armFunnelRes_finish false d va vb vc hst
-      (fun heq => by
-        have hc0 : vc.toNat % w.bits = 0 := decide_eq_true_eq.mp (hst.symm.trans heq)
-        simp only [CondCode.interp] at heq
-        simp [heq, hc0, BitVec.setWidth_setWidth_of_le _ hw64, BitVec.ushiftRight_eq,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc16.symm, h17, hrc])
-      (fun hne hc0 => by
-        simp only [CondCode.interp] at hne ⊢
-        simp only [hne, Bool.false_eq_true, ↓reduceIte, BitVec.setWidth_setWidth_of_le _ hw64,
-          BitVec.setWidth_eq, BitVec.ushiftRight_eq, Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17, Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17.symm,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hra16.symm, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc16.symm,
-          hra, h17, hrc, neg_mod_eq vc hc0, BitVec.or_comm])
-      (fun hw => by subst hw; simp [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq])
-      hdm fun r hr => ?_
-    · have hr' : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
-      rw [get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1]; exact hkeep r hr'.2
-  · refine armWp_cons (armSubNegDir_wp w .X16 rc _) fun s₄ hs₄ => ?_
-    refine armWp_cons (armShiftV_wp false w .X17 .X17 .X16 s₄) fun s₅ hs₅ => ?_
-    refine armWp_cons (armShiftV_wp true w .X16 ra rc s₅) fun s₆ hs₆ => ?_
-    refine armWp_cons (armOrrDir_wp w .X17 .X16 .X17 s₆) fun s₇ hs₇ => ?_
-    refine armWp_mono (armCselDir_wp w d .X16 .X17 .EQ s₇) fun s₈ hs₈ => ?_
-    subst hs₈ hs₇ hs₆ hs₅ hs₄
-    refine armFunnelRes_finish true d va vb vc hst
-      (fun heq => by
-        have hc0 : vc.toNat % w.bits = 0 := decide_eq_true_eq.mp (hst.symm.trans heq)
-        simp only [CondCode.interp] at heq
-        simp [heq, hc0, BitVec.setWidth_setWidth_of_le _ hw64,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17.symm, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hra17.symm,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hra16.symm, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc17.symm,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc16.symm, hra, hrc])
-      (fun hne hc0 => by
-        simp only [CondCode.interp] at hne ⊢
-        simp only [hne, Bool.false_eq_true, ↓reduceIte, BitVec.setWidth_setWidth_of_le _ hw64,
-          BitVec.setWidth_eq, BitVec.ushiftRight_eq, Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hra16.symm,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hra17.symm, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc17.symm,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc16.symm, hra, h17, hrc, neg_mod_eq vc hc0])
-      (fun hw => by subst hw; simp [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq])
-      hdm fun r hr => ?_
-    · have hr' : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
-      rw [get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1]; exact hkeep r hr'.2
+  have hnegRc : tNeg ≠ rc := by rcases htNeg with rfl | rfl; exact hrc16.symm; exact hrc17.symm
+  have horRc : tOr ≠ rc := by rcases htOr with rfl | rfl; exact hrc16.symm; exact hrc17.symm
+  have h3 :
+      (if isLeft then ins (.LSRV (zr tOr w) (zr rb w) (zr tNeg w))
+       else ins (.LSLV (zr tOr w) (zr ra w) (zr tNeg w))) =
+      (if !isLeft then ins (.LSLV (zr tOr w) (zr (if isLeft then rb else ra) w) (zr tNeg w))
+       else ins (.LSRV (zr tOr w) (zr (if isLeft then rb else ra) w) (zr tNeg w))) := by
+    cases isLeft <;> rfl
+  have h4 :
+      (if isLeft then ins (.LSLV (zr tMain w) (zr ra w) (zr rc w))
+       else ins (.LSRV (zr tMain w) (zr rb w) (zr rc w))) =
+      (if isLeft then ins (.LSLV (zr tMain w) (zr (if isLeft then ra else rb) w) (zr rc w))
+       else ins (.LSRV (zr tMain w) (zr (if isLeft then ra else rb) w) (zr rc w))) := by
+    cases isLeft <;> rfl
+  rw [h3, h4]
+  refine armWp_cons (armAndsShiftMask_wp w rc s₂ hrc) fun s₃ ⟨st, hstEq, hst⟩ => ?_
+  subst hstEq
+  refine armWp_cons (armSubNegDir_wp w tNeg rc _) fun s₄ hs₄ => ?_
+  refine armWp_cons (armShiftV_wp (!isLeft) w tOr (if isLeft then rb else ra) tNeg s₄)
+    fun s₅ hs₅ => ?_
+  refine armWp_cons (armShiftV_wp isLeft w tMain (if isLeft then ra else rb) rc s₅)
+    fun s₆ hs₆ => ?_
+  refine armWp_cons (armOrrDir_wp w tOr tMain tOr s₆) fun s₇ hs₇ => ?_
+  refine armWp_mono (armCselDir_wp w d tMain tOr .EQ s₇) fun s₈ hs₈ => ?_
+  subst hs₈ hs₇ hs₆ hs₅ hs₄
+  refine armFunnelRes_finish isLeft d va vb vc hst
+    (fun heq => by
+      have hc0 : vc.toNat % w.bits = 0 := decide_eq_true_eq.mp (hst.symm.trans heq)
+      simp only [CondCode.interp] at heq
+      cases isLeft <;> simp only [Bool.false_eq_true, ↓reduceIte] at horSrc
+      · simp [heq, hc0, BitVec.setWidth_setWidth_of_le _ hw64, BitVec.ushiftRight_eq,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ htMainNeOr.symm,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ horSrc,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hnegB,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ horRc,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hnegRc, hrb, hrc]
+      · simp [heq, hc0, BitVec.setWidth_setWidth_of_le _ hw64,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ htMainNeOr.symm,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ horSrc,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hnegA,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ horRc,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hnegRc, hra, hrc])
+    (fun hne hc0 => by
+      simp only [CondCode.interp] at hne ⊢
+      cases isLeft <;> simp only [Bool.false_eq_true, ↓reduceIte] at horSrc
+      · simp only [hne, Bool.not_false, Bool.false_eq_true, ↓reduceIte,
+          BitVec.setWidth_setWidth_of_le _ hw64, BitVec.setWidth_eq, BitVec.ushiftRight_eq,
+          Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ htMainNeOr,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ horSrc,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hnegA,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hnegB,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hnegRc,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ horRc,
+          hra, hrb, hrc, neg_mod_eq vc hc0, BitVec.or_comm]
+      · simp only [hne, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
+          BitVec.setWidth_setWidth_of_le _ hw64, BitVec.setWidth_eq, BitVec.ushiftRight_eq,
+          Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ htMainNeOr,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ horSrc,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hnegA,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hnegB,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hnegRc,
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ horRc,
+          hra, hrb, hrc, neg_mod_eq vc hc0])
+    (fun hw => by subst hw; simp [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq])
+    hdm fun r hr => ?_
+  have hr' : r ≠ .reg d ∧ r ∉ armScratch :=
+    ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
+  have ⟨hr16, hr17⟩ := ne_of_not_mem_armScratch hr'.2
+  have hrn : r ≠ .reg tNeg := by rcases htNeg with rfl | rfl <;> assumption
+  have hrm : r ≠ .reg tMain := by rcases htMain with rfl | rfl <;> assumption
+  have hro : r ≠ .reg tOr := by rcases htOr with rfl | rfl <;> assumption
+  rw [get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ tOr _ r hro, get_wr_of_ne _ tMain _ r hrm,
+    get_wr_of_ne _ tOr _ r hro, get_wr_of_ne _ tNeg _ r hrn]
+  exact hkeep r hr'.2
 
 theorem armFunnelOp_wp [Host] (isLeft : Bool) {n : Nat}
     (pa pb pc : PArg Reg Empty ArmCond (.bits n)) (d : XReg)
@@ -787,24 +767,41 @@ theorem armFunnelOp_wp [Host] (isLeft : Bool) {n : Nat}
         | gpr rb' => cases rb' with | SP => simp [armArgInIns] at hb | reg x =>
           simp only [armArgInIns, Option.some.injEq, Prod.mk.injEq] at hb; rcases hb with ⟨rfl, rfl⟩
           simp only [emitClean_ite, emitClean_cons, emitClean_nil]
+          have hx17 := (xreg_ne_scratch_of_not_mem (hgb (.reg x) (by simp [PArg.gprs]))).2
           rcases hn' with rfl | rfl <;>
-            exact armFunnelGprB_wp _ isLeft d ra x rc va vb vc hra hrb hrc₂ hneA
-              (hgb (.reg x) (by simp [PArg.gprs])) hrcS hd₂ hkeep₂
+            · have hsf := armFunnelSubFirst_wp _ isLeft d ra x rc .X17 .X16 .X17 va vb vc
+                hra hrb hrc₂ (.inr rfl) (.inl rfl) (.inr rfl) x16_ne_x17 hneA.symm hx17.symm
+                (by cases isLeft; exact hx17.symm; exact hneA.symm) hrcS hd₂ hkeep₂
+              cases isLeft <;> exact hsf
       | gpr ra' => cases ra' with | SP => simp [armArgInIns] at ha | reg xa => cases pb with
         | vec vr => exact vr.elim
         | imm _ =>
           simp only [armArgInIns, Option.some.injEq, Prod.mk.injEq] at ha hb
           rcases ha with ⟨rfl, rfl⟩; rcases hb with ⟨rfl, rfl⟩
           simp only [emitClean_ite, emitClean_cons, emitClean_nil]
+          have ⟨hxa16, hxa17⟩ := xreg_ne_scratch_of_not_mem (hga (.reg xa) (by simp [PArg.gprs]))
+          let tMain : XReg := if isLeft then .X16 else .X17
+          let tOr : XReg := if isLeft then .X17 else .X16
+          have htMain : tMain = .X16 ∨ tMain = .X17 := by
+            cases isLeft; exact .inr rfl; exact .inl rfl
+          have htOr : tOr = .X16 ∨ tOr = .X17 := by
+            cases isLeft; exact .inl rfl; exact .inr rfl
+          have hneMO : tMain ≠ tOr := by
+            cases isLeft; exact x16_ne_x17.symm; exact x16_ne_x17
           rcases hn' with rfl | rfl <;>
-            exact armFunnelImmB_wp _ isLeft d xa rc va vb vc hra hrb hrc₂
-              (hga (.reg xa) (by simp [PArg.gprs])) hrcS hd₂ hkeep₂
+            · have hsf := armFunnelSubFirst_wp _ isLeft d xa .X17 rc .X16 tMain tOr va vb vc
+                hra hrb hrc₂ (.inl rfl) htMain htOr hneMO hxa16.symm x16_ne_x17
+                (by cases isLeft; exact x16_ne_x17; exact hxa17.symm) hrcS hd₂ hkeep₂
+              cases isLeft <;> exact hsf
         | gpr rb' => cases rb' with | SP => simp [armArgInIns] at hb | reg xb =>
           simp only [armArgInIns, Option.some.injEq, Prod.mk.injEq] at hb; rcases hb with ⟨rfl, rfl⟩
           simp only [emitClean_ite, emitClean_cons, emitClean_nil]
+          have hxb17 := (xreg_ne_scratch_of_not_mem (hgb (.reg xb) (by simp [PArg.gprs]))).2
           rcases hn' with rfl | rfl <;>
-            exact armFunnelGprB_wp _ isLeft d ra xb rc va vb vc hra hrb hrc₂ hneA
-              (hgb (.reg xb) (by simp [PArg.gprs])) hrcS hd₂ hkeep₂
+            · have hsf := armFunnelSubFirst_wp _ isLeft d ra xb rc .X17 .X16 .X17 va vb vc
+                hra hrb hrc₂ (.inr rfl) (.inl rfl) (.inr rfl) x16_ne_x17 hneA.symm hxb17.symm
+                (by cases isLeft; exact hxb17.symm; exact hneA.symm) hrcS hd₂ hkeep₂
+              cases isLeft <;> exact hsf
 
 /-! ## 2. Top-level `armOp_spec` and `armGprSpec` -/
 

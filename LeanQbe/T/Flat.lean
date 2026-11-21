@@ -76,7 +76,8 @@ def idxArgs (nv : Nat) : {ts : List Ty} → Tup (Arg K) ts → Tup (Arg K) ts
   | _ :: _, (a, as) => (idxArg nv a, idxArgs nv as)
 
 mutual
-/-- Total reification of `Expr K KL rs` into `TFlat rs`, tracking current value/label depths `nv`, `nl`. -/
+/-- Total reification of `Expr K KL rs` into `TFlat rs`, tracking current value/label depths
+`nv`, `nl`. -/
 def toTFlat {rs : List Ty} : Expr K KL rs → Nat → Nat → TFlat rs
   | .let_ (ts := ts) op k, nv, nl =>
     .let_ ⟨op.code, idxArgs nv op.args⟩ (toTFlat (k (Tup.levels ts nv)) (nv + ts.length) nl)
@@ -95,7 +96,8 @@ def toTFlat {rs : List Ty} : Expr K KL rs → Nat → Nat → TFlat rs
     .group (toTBlocks (bodies ls') nv nl') (toTFlat (k ls') nv nl')
 
 /-- Reify `Blocks K KL rs sig` into `TBlocks rs sig`. -/
-def toTBlocks {rs : List Ty} : {sig : List (List Ty)} → Blocks K KL rs sig → Nat → Nat → TBlocks rs sig
+def toTBlocks {rs : List Ty} :
+    {sig : List (List Ty)} → Blocks K KL rs sig → Nat → Nat → TBlocks rs sig
   | _, .nil, _, _ => .nil
   | _, .cons (ts := ts) b bs, nv, nl =>
     .cons (toTFlat (b (Tup.levels ts nv)) (nv + ts.length) nl) (toTBlocks bs nv nl)
@@ -242,7 +244,8 @@ def checkArgs (Γ : List Ty) : {ts : List Ty} → Tup (Arg K) ts → Bool
   | t :: _, (a, as) => checkArg Γ t a && checkArgs Γ as
 
 mutual
-/-- Total computable scope/type checker for `TFlat rs` under value context `Γ` and label context `Δ`. -/
+/-- Total computable scope/type checker for `TFlat rs` under value context `Γ` and label
+context `Δ`. -/
 def TFlat.wfCheck {rs : List Ty} (Γ : List Ty) (Δ : List (List Ty)) : TFlat rs → Bool
   | .let_ (ts := ts) op k => checkArgs Γ op.args && k.wfCheck (pushTypes ts Γ) Δ
   | .load t a k => checkArg Γ i64 a && k.wfCheck (t :: Γ) Δ

@@ -1195,6 +1195,314 @@ private theorem armCarryFinish_wp [Host] {n : Nat} (hn : n = 32 ∨ n = 64)
         simp only [List.mem_cons] at hm; rcases hm with rfl | hm; exact hne.1 rfl
         exact hne.2.2 (by simpa [armScratch] using hm))
 
+private theorem armCarryOp_wp [Host] (isSub : Bool) {n : Nat}
+    (pa pb : PArg Reg Empty ArmCond (.bits n)) (cin : PArg Reg Empty ArmCond .bool)
+    (d : XReg) (cout : PDst Reg Empty ArmCond .bool) (vh : VariantHint)
+    {va vb : BitVec n} {vcin : Bool} {c : List Instr} {clob : FlagMask} {s : MachineData}
+    (hc : (if isSub then armSubbOpIns n pa pb cin d cout vh
+           else armAddcOpIns n pa pb cin d cout vh) = some (c, clob))
+    (hga : ∀ r ∈ pa.gprs, r ∉ armScratch) (hgb : ∀ r ∈ pb.gprs, r ∉ armScratch)
+    (hgc : ∀ r ∈ cin.gprs, r ∉ armScratch)
+    (hpa : armMach.PArgHolds s (.bits n) pa va) (hpb : armMach.PArgHolds s (.bits n) pb vb)
+    (hpc : armMach.PArgHolds s .bool cin vcin) :
+    _root_.Program.wp (emitClean c) (fun s' =>
+      (∃ rvs : Tup Val [.bits n, .bool],
+        rvs = (if isSub then va - vb - BitVec.ofNat n vcin.toNat
+               else va + vb + BitVec.ofNat n vcin.toNat,
+          if isSub then decide (va.toNat < vb.toNat + vcin.toNat)
+          else decide (2 ^ n ≤ va.toNat + vb.toNat + vcin.toNat), ()) ∧
+        TRel (armMach.PDstHolds s') (as := [.bits n, .bool])
+          ((PDst.gpr (.reg d) : PDst Reg Empty ArmCond (.bits n)), cout, ()) rvs) ∧
+      armMach.mem s' = armMach.mem s ∧
+      armMach.Frame armCondReads s s'
+        (tupDstGprs (ts := [.bits n, .bool])
+          ((PDst.gpr (.reg d) : PDst Reg Empty ArmCond (.bits n)), cout, ()) ++ armScratch)
+        [] clob) (fun _ _ => False) s := by
+  let flagCond : ArmCond := if isSub then .cc else .cs
+  let res : BitVec n :=
+    if isSub then va - vb - BitVec.ofNat n vcin.toNat
+    else va + vb + BitVec.ofNat n vcin.toNat
+  let cflag : Bool :=
+    if isSub then decide (va.toNat < vb.toNat + vcin.toNat)
+    else decide (2 ^ n ≤ va.toNat + vb.toNat + vcin.toNat)
+  have hunpack : ∃ (hn' : n = 32 ∨ n = 64) (post ca : List Instr) (ra : XReg)
+      (cb : List Instr) (rb : XReg) (m : List Instr),
+      armArgInIns .X16 pa = some (ca, ra) ∧
+      armArgInIns .X17 pb = some (cb, rb) ∧
+      ((cout = .flag flagCond ∧ post = []) ∨
+        (∃ dc, dc ≠ d ∧ cout = .gpr (.reg dc) ∧ post = [armCset64I dc flagCond])) ∧
+      (match cin with
+       | .flag cf => cf = flagCond ∧ m = ca ++ cb ++ [armIselInsI (if isSub
+           then .SBCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n))
+           else .ADCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n)))]
+       | .imm false => m = ca ++ cb ++ [armIselInsI (if isSub
+           then .SUBS_s (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (sh rb)
+           else .ADDS_s (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (sh rb))]
+       | .imm true => m = [armIselInsI (if isSub
+           then .ADDS_s (xzr .W32) (xzr .W32) { reg := xzr .W32, amount := 0, shift := .LSL }
+           else .SUBS_s (xzr .W32) (xzr .W32) { reg := xzr .W32, amount := 0, shift := .LSL })] ++
+           ca ++ cb ++ [armIselInsI (if isSub
+           then .SBCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n))
+           else .ADCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n)))]
+       | .gpr (.reg rc) =>
+           m = [armIselInsI (.AND_i (.low (.reg .X16) .W32) (zr rc .W32) (.int64 1)),
+           armIselInsI (if isSub then .SUBS_s (xzr .W32) (xzr .W32) (sh .X16)
+             else .SUBS_e (xzr .W32) (.low (.reg .X16) .W32)
+               (.imm { imm := .int64 1, shift := .S0 }))] ++
+           ca ++ cb ++ [armIselInsI (if isSub
+           then .SBCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n))
+           else .ADCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n)))]
+       | _ => False) ∧
+      c = m ++ post ∧ clob = maskNZCV := by
+    cases isSub <;>
+      (simp only [Bool.false_eq_true, ↓reduceIte] at hc;
+       dsimp only [armAddcOpIns, armSubbOpIns] at hc)
+    all_goals
+      split at hc
+      · simp at hc
+      · have hn' : n = 32 ∨ n = 64 := by
+          cases h32 : (n == 32) <;> cases h64 : (n == 64) <;> simp_all
+        simp only [bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hc
+        rcases hc with ⟨post, hpost, ⟨ca, ra⟩, ha, ⟨cb, rb⟩, hb, m, hm, rfl, rfl⟩
+        refine ⟨hn', post, ca, ra, cb, rb, m, ha, hb, ?_, ?_, rfl, rfl⟩
+        · cases cout with
+          | vec vr => exact vr.elim
+          | flag cf => cases cf <;> simp_all [flagCond]
+          | gpr r => cases r with
+            | SP => cases hpost
+            | reg dc =>
+              dsimp only at hpost; split at hpost
+              · cases hpost
+              · rename_i hne
+                exact Or.inr ⟨dc, fun h => by
+                  subst h; exact absurd (by cases dc <;> rfl : (dc == dc) = true) hne,
+                  rfl, (Option.some.inj hpost).symm⟩
+        · cases cin with
+          | vec vr => exact vr.elim
+          | flag cf =>
+            cases cf <;> dsimp only at hm <;>
+              first
+              | contradiction
+              | (rcases Option.some.inj hm with rfl; exact ⟨by simp [flagCond], by simp⟩)
+          | gpr r => cases r with
+            | SP => dsimp only at hm; cases hm
+            | reg rc => dsimp only at hm; rcases Option.some.inj hm with rfl; rfl
+          | imm bv =>
+            cases bv <;> dsimp only at hm <;> rcases Option.some.inj hm with rfl <;> rfl
+  rcases hunpack with ⟨hn', post, ca, ra, cb, rb, m, ha, hb, hpost', hm, rfl, rfl⟩
+  have hn64 : n ≤ 64 := by rcases hn' with rfl | rfl <;> decide
+  have hpostClean : (cout = .flag flagCond ∧ (emitClean post : List Directive) = []) ∨
+      (∃ dc, dc ≠ d ∧ cout = .gpr (.reg dc) ∧ emitClean post = [armCset64 dc flagCond]) := by
+    rcases hpost' with ⟨rfl, rfl⟩ | ⟨dc, hdc, rfl, rfl⟩
+    · exact Or.inl ⟨rfl, rfl⟩
+    · exact Or.inr ⟨dc, hdc, rfl, rfl⟩
+  let Q : MachineData → Prop := fun s' =>
+    (∃ rvs : Tup Val [.bits n, .bool],
+      rvs = (res, cflag, ()) ∧
+      TRel (armMach.PDstHolds s') (as := [.bits n, .bool])
+        ((PDst.gpr (.reg d) : PDst Reg Empty ArmCond (.bits n)), cout, ()) rvs) ∧
+    armMach.mem s' = armMach.mem s ∧
+    armMach.Frame armCondReads s s'
+      (tupDstGprs (ts := [.bits n, .bool])
+        ((PDst.gpr (.reg d) : PDst Reg Empty ArmCond (.bits n)), cout, ()) ++ armScratch)
+      [] maskNZCV
+  have runCarry : ∀ {pre : List Instr},
+      _root_.Program.wp (emitClean pre)
+        (fun sx => (∀ r, r ∉ armScratch → get sx r = get s r) ∧ sx.dmem = s.dmem ∧
+          (if isSub then (!sx.status.c) = vcin else sx.status.c = vcin))
+        (fun _ _ => False) s →
+      m = pre ++ ca ++ cb ++ [armIselInsI (if isSub
+          then .SBCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n))
+          else .ADCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n)))] →
+      _root_.Program.wp (emitClean (m ++ post)) Q (fun _ _ => False) s := by
+    intro pre hpre hmeq
+    have hp_eq : pre ++ ca ++ cb ++ [armIselInsI (if isSub
+          then .SBCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n))
+          else .ADCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n)))] =
+        pre ++ (ca ++ cb ++ [armIselInsI (if isSub
+          then .SBCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n))
+          else .ADCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n)))]) := by
+      simp [List.append_assoc]
+    rw [hmeq, emitClean_append, hp_eq, emitClean_append, List.append_assoc]
+    refine armWp_append hpre ?_; rintro sx ⟨hkeepx, hdmx, hcx⟩
+    have hfrx : armMach.Frame armCondReads s sx armScratch [] maskNZCV := armFrame_nzcv hkeepx
+    have hpax := Machine.PArgHolds.frame hfrx hpa
+      (fun r hr => hga r (hr ▸ by simp [PArg.gprs])) (fun v => v.elim) (fun _ ht => nomatch ht)
+    have hpbx := Machine.PArgHolds.frame hfrx hpb
+      (fun r hr => hgb r (hr ▸ by simp [PArg.gprs])) (fun v => v.elim) (fun _ ht => nomatch ht)
+    rw [emitClean_append, emitClean_cons, emitClean_nil, List.append_assoc]
+    refine armWp_append (armArgs2_wp hn64 hn64 ha hb hpax hpbx hga hgb) ?_
+    rintro s₂ ⟨hra, hrb, _, _, hd₂, hst₂, hfr₂⟩
+    have hcs₂ : s₂.status.c = if isSub then !vcin else vcin := by
+      cases isSub <;> simp only [Bool.false_eq_true, ↓reduceIte] at hcx ⊢
+      · rw [hst₂]; exact hcx
+      · rw [hst₂, ← hcx, Bool.not_not]
+    refine armWp_cons (armDirFallsTo_wp (Q := fun s' => ∃ st,
+        s' = { wr s₂ d (BitVec.setWidth 64 res) with status := st } ∧
+          flagCond.interp st = cflag)
+      fun {_} p next jmp Q' hk => by
+        cases isSub <;> simp only [Bool.false_eq_true, ↓reduceIte] at hcs₂ ⊢
+        · rcases hn' with rfl | rfl
+          · rw [show armWidthOf 32 = .W32 from rfl]
+            simp only [t_step_simp]; rw [hra, hrb, hcs₂]
+            cases vcin
+            · exact hk _ ⟨_, rfl, by
+                simpa [flagCond, cflag, ArmCond.interp, ArmCond.toKraken, CondCode.interp,
+                  StatusFlags.from_result] using adcs_carry_iff (Or.inl rfl) va vb false⟩
+            · exact hk _ ⟨_, rfl, by
+                simpa [flagCond, cflag, ArmCond.interp, ArmCond.toKraken, CondCode.interp,
+                  StatusFlags.from_result] using adcs_carry_iff (Or.inl rfl) va vb true⟩
+          · rw [show armWidthOf 64 = .W64 from rfl]
+            simp only [t_step_simp, BitVec.setWidth_eq] at hra hrb ⊢
+            rw [hra, hrb, hcs₂]
+            cases vcin
+            · exact hk _ ⟨_, rfl, by
+                simpa [flagCond, cflag, ArmCond.interp, ArmCond.toKraken, CondCode.interp,
+                  StatusFlags.from_result] using adcs_carry_iff (Or.inr rfl) va vb false⟩
+            · exact hk _ ⟨_, rfl, by
+                simpa [flagCond, cflag, ArmCond.interp, ArmCond.toKraken, CondCode.interp,
+                  StatusFlags.from_result] using adcs_carry_iff (Or.inr rfl) va vb true⟩
+        · rcases hn' with rfl | rfl
+          · rw [show armWidthOf 32 = .W32 from rfl]
+            simp only [t_step_simp]; rw [hra, hrb, hcs₂]
+            cases vcin
+            · exact hk _ ⟨_, rfl, by
+                have h := sbcs_borrow_iff va vb true
+                simpa [flagCond, cflag, ArmCond.interp, ArmCond.toKraken, CondCode.interp,
+                  StatusFlags.from_result] using h⟩
+            · exact hk _ ⟨_, rfl, by
+                have h := sbcs_borrow_iff va vb false
+                simpa [flagCond, cflag, ArmCond.interp, ArmCond.toKraken, CondCode.interp,
+                  StatusFlags.from_result] using h⟩
+          · rw [show armWidthOf 64 = .W64 from rfl]
+            simp only [t_step_simp, BitVec.setWidth_eq] at hra hrb ⊢
+            rw [hra, hrb, hcs₂]
+            cases vcin
+            · exact hk _ ⟨_, rfl, by
+                have h := sbcs_borrow_iff va vb true
+                simpa [flagCond, cflag, ArmCond.interp, ArmCond.toKraken, CondCode.interp,
+                  StatusFlags.from_result] using h⟩
+            · exact hk _ ⟨_, rfl, by
+                have h := sbcs_borrow_iff va vb false
+                simpa [flagCond, cflag, ArmCond.interp, ArmCond.toKraken, CondCode.interp,
+                  StatusFlags.from_result] using h⟩)
+      ?_
+    rintro s₃ ⟨st, rfl, hflag₃⟩
+    refine armCarryFinish_wp hn' res cflag d cout flagCond s
+      { wr s₂ d (BitVec.setWidth 64 res) with status := st }
+      (emitClean post) hpostClean (by rcases hn' with rfl | rfl <;> simp [BitVec.setWidth_eq])
+      hflag₃ (hd₂.trans hdmx) fun r hr => ?_
+    have hne : r ≠ .reg d ∧ r ∉ armScratch :=
+      ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
+    exact (get_wr_of_ne s₂ d _ r hne.1).trans ((hfr₂.1 r hne.2).trans (hkeepx r hne.2))
+  cases cin with
+  | vec vr => exact vr.elim
+  | flag cf =>
+    rcases hm with ⟨rfl, rfl⟩
+    exact runCarry (pre := []) (armWp_nil ⟨fun _ _ => rfl, rfl, by cases isSub <;> exact hpc⟩)
+      (by simp)
+  | gpr r => cases r with | SP => exact False.elim hm | reg rc =>
+    have hrc : (s.regs.getXReg rc).toBitVec.setWidth 8 = BitVec.ofNat 8 vcin.toNat := by
+      simpa [Machine.PArgHolds, GprHolds, get_reg] using hpc
+    have hpre := armAndi1Sub_wp isSub rc hrc
+      (xreg_ne_scratch_of_not_mem (hgc (.reg rc) (by simp [PArg.gprs]))).1
+    have hpre' : _root_.Program.wp (emitClean
+        [armIselInsI (.AND_i (.low (.reg .X16) .W32) (zr rc .W32) (.int64 1)),
+         armIselInsI (if isSub then .SUBS_s (xzr .W32) (xzr .W32) (sh .X16)
+           else .SUBS_e (xzr .W32) (.low (.reg .X16) .W32)
+             (.imm { imm := .int64 1, shift := .S0 }))])
+        (fun sx => (∀ r, r ∉ armScratch → get sx r = get s r) ∧ sx.dmem = s.dmem ∧
+          (if isSub then (!sx.status.c) = vcin else sx.status.c = vcin))
+        (fun _ _ => False) s := by
+      cases isSub <;> exact hpre
+    exact runCarry hpre' hm
+  | imm bv =>
+    simp only [Machine.PArgHolds] at hpc; subst hpc
+    cases bv
+    · rw [hm, emitClean_append, emitClean_append, emitClean_cons, emitClean_nil, List.append_assoc]
+      have hres0 : res = if isSub then va - vb else va + vb := by
+        cases isSub <;> simp [res]
+      have hcflag0 : cflag = if isSub then decide (va.toNat < vb.toNat)
+          else decide (2 ^ n ≤ va.toNat + vb.toNat) := by
+        cases isSub <;> simp [cflag]
+      refine armWp_append (armArgs2_wp hn64 hn64 ha hb hpa hpb hga hgb) ?_
+      rintro s₂ ⟨hra, hrb, _, _, hd₂, _, hfr₂⟩
+      refine armWp_cons (armDirFallsTo_wp (Q := fun s' => ∃ st,
+          s' = { wr s₂ d (BitVec.setWidth 64 (if isSub then va - vb else va + vb)) with
+            status := st } ∧
+            flagCond.interp st = cflag)
+        fun {_} p next jmp Q' hk => by
+          cases isSub <;> simp only [Bool.false_eq_true, ↓reduceIte]
+          · rcases hn' with rfl | rfl
+            · rw [show armWidthOf 32 = .W32 from rfl]
+              simp only [t_step_simp, Int64.toInt_zero, Int.toNat_zero, BitVec.shiftLeft_zero]
+              rw [hra, hrb]
+              exact hk _ ⟨_, rfl, by
+                simp only [flagCond, hcflag0, ArmCond.interp, ArmCond.toKraken, CondCode.interp]
+                exact adds_carry_iff va vb⟩
+            · rw [show armWidthOf 64 = .W64 from rfl]
+              simp only [t_step_simp, Int64.toInt_zero, Int.toNat_zero, BitVec.shiftLeft_zero,
+                BitVec.setWidth_eq] at hra hrb ⊢
+              rw [hra, hrb]
+              exact hk _ ⟨_, rfl, by
+                simp only [flagCond, hcflag0, ArmCond.interp, ArmCond.toKraken, CondCode.interp]
+                exact adds_carry_iff va vb⟩
+          · rcases hn' with rfl | rfl
+            · rw [show armWidthOf 32 = .W32 from rfl]
+              simp only [t_step_simp, Int64.toInt_zero, Int.toNat_zero, BitVec.shiftLeft_zero]
+              rw [hra, hrb]
+              exact hk _ ⟨_, rfl, by
+                simp only [flagCond, hcflag0, ArmCond.interp, ArmCond.toKraken, CondCode.interp]
+                exact subs_borrow_iff va vb⟩
+            · rw [show armWidthOf 64 = .W64 from rfl]
+              simp only [t_step_simp, Int64.toInt_zero, Int.toNat_zero, BitVec.shiftLeft_zero,
+                BitVec.setWidth_eq] at hra hrb ⊢
+              rw [hra, hrb]
+              exact hk _ ⟨_, rfl, by
+                simp only [flagCond, hcflag0, ArmCond.interp, ArmCond.toKraken, CondCode.interp]
+                exact subs_borrow_iff va vb⟩)
+        ?_
+      rintro s₃ ⟨st, rfl, hflag₃⟩
+      have hnil : ([] : List Directive).append (emitClean post) = emitClean post :=
+        List.nil_append _
+      have hres1 : (if isSub then va - vb - BitVec.ofNat n false.toNat
+          else va + vb + BitVec.ofNat n false.toNat) =
+          if isSub then va - vb else va + vb := by cases isSub <;> simp
+      have hcflag1 : (if isSub then decide (va.toNat < vb.toNat + false.toNat)
+          else decide (2 ^ n ≤ va.toNat + vb.toNat + false.toNat)) = cflag := hcflag0.symm
+      rw [hnil, hres1, hcflag1]
+      exact armCarryFinish_wp hn' (if isSub then va - vb else va + vb) cflag d
+        cout flagCond s
+        { wr s₂ d (BitVec.setWidth 64 (if isSub then va - vb else va + vb)) with status := st }
+        (emitClean post) hpostClean (by rcases hn' with rfl | rfl <;> simp [BitVec.setWidth_eq])
+        hflag₃ hd₂ fun r hr => by
+          have hne : r ≠ .reg d ∧ r ∉ armScratch :=
+            ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
+          exact (get_wr_of_ne s₂ d _ r hne.1).trans (hfr₂.1 r hne.2)
+    · cases isSub
+      · exact runCarry (pre := [armIselInsI
+            (.SUBS_s (xzr .W32) (xzr .W32) { reg := xzr .W32, amount := 0, shift := .LSL })])
+          (armWp_mono (armDirFallsTo_wp
+            (d := ins (.SUBS_s (xzr .W32) (xzr .W32)
+              { reg := xzr .W32, amount := 0, shift := .LSL }))
+            (Q := fun s' => s' = { s with status := StatusFlags.subs 0#32 0#32 0#32 })
+            fun {_} p next jmp Q' hk => by
+              simp only [t_step_simp, Int64.toInt_zero, Int.toNat_zero,
+                BitVec.shiftLeft_zero, BitVec.sub_zero]
+              dsimp only [xzr]; exact hk _ rfl)
+            fun sx hsx => by subst hsx; exact ⟨fun _ _ => rfl, rfl, rfl⟩) hm
+      · exact runCarry (pre := [armIselInsI
+            (.ADDS_s (xzr .W32) (xzr .W32) { reg := xzr .W32, amount := 0, shift := .LSL })])
+          (armWp_mono (armDirFallsTo_wp
+            (d := ins (.ADDS_s (xzr .W32) (xzr .W32)
+              { reg := xzr .W32, amount := 0, shift := .LSL }))
+            (Q := fun s' => s' = { s with status := StatusFlags.adds 0#32 0#32 0#32 })
+            fun {_} p next jmp Q' hk => by
+              simp only [t_step_simp, Int64.toInt_zero, Int.toNat_zero,
+                BitVec.shiftLeft_zero, BitVec.add_zero]
+              dsimp only [xzr]; exact hk _ rfl)
+            fun sx hsx => by subst hsx; exact ⟨fun _ _ => rfl, rfl, rfl⟩) hm
+
 theorem armAddcOp_wp [Host] {n : Nat}
     (pa pb : PArg Reg Empty ArmCond (.bits n)) (cin : PArg Reg Empty ArmCond .bool)
     (d : XReg) (cout : PDst Reg Empty ArmCond .bool) (vh : VariantHint)
@@ -1214,146 +1522,8 @@ theorem armAddcOp_wp [Host] {n : Nat}
       armMach.Frame armCondReads s s'
         (tupDstGprs (ts := [.bits n, .bool])
           ((PDst.gpr (.reg d) : PDst Reg Empty ArmCond (.bits n)), cout, ()) ++ armScratch)
-        [] clob) (fun _ _ => False) s := by
-  dsimp only [armAddcOpIns] at hc; split at hc
-  · simp at hc
-  · rename_i hok
-    have hn' : n = 32 ∨ n = 64 := by cases h32 : (n == 32) <;> cases h64 : (n == 64) <;> simp_all
-    have hn64 : n ≤ 64 := by rcases hn' with rfl | rfl <;> decide
-    simp only [bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hc
-    rcases hc with ⟨post, hpost, ⟨ca, ra⟩, ha, ⟨cb, rb⟩, hb, m, hm, rfl, rfl⟩
-    have hpost' : (cout = .flag .cs ∧ post = []) ∨
-        (∃ dc, dc ≠ d ∧ cout = .gpr (.reg dc) ∧ post = [armCset64I dc .cs]) := by
-      cases cout with
-      | vec vr => exact vr.elim
-      | flag cf => cases cf <;> simp_all
-      | gpr r => cases r with | SP => cases hpost | reg dc =>
-        dsimp only at hpost; split at hpost
-        · cases hpost
-        · rename_i hne
-          exact Or.inr ⟨dc, fun h => by
-            subst h; exact absurd (by cases dc <;> rfl : (dc == dc) = true) hne,
-            rfl, (Option.some.inj hpost).symm⟩
-    have hpostClean : (cout = .flag .cs ∧ (emitClean post : List Directive) = []) ∨
-        (∃ dc, dc ≠ d ∧ cout = .gpr (.reg dc) ∧ emitClean post = [armCset64 dc .cs]) := by
-      rcases hpost' with ⟨rfl, rfl⟩ | ⟨dc, hdc, rfl, rfl⟩
-      · exact Or.inl ⟨rfl, rfl⟩
-      · exact Or.inr ⟨dc, hdc, rfl, rfl⟩
-    let Q : MachineData → Prop := fun s' =>
-      (∃ rvs : Tup Val [.bits n, .bool],
-        rvs = (va + vb + BitVec.ofNat n vcin.toNat,
-          decide (2 ^ n ≤ va.toNat + vb.toNat + vcin.toNat), ()) ∧
-        TRel (armMach.PDstHolds s') (as := [.bits n, .bool])
-          ((PDst.gpr (.reg d) : PDst Reg Empty ArmCond (.bits n)), cout, ()) rvs) ∧
-      armMach.mem s' = armMach.mem s ∧
-      armMach.Frame armCondReads s s'
-        (tupDstGprs (ts := [.bits n, .bool])
-          ((PDst.gpr (.reg d) : PDst Reg Empty ArmCond (.bits n)), cout, ()) ++ armScratch)
-        [] maskNZCV
-    have runAdcs : ∀ {pre : List Instr},
-        _root_.Program.wp (emitClean pre)
-          (fun sx => (∀ r, r ∉ armScratch → get sx r = get s r) ∧ sx.dmem = s.dmem ∧
-            sx.status.c = vcin) (fun _ _ => False) s →
-        m = pre ++ ca ++ cb ++
-          [armIselInsI
-            (.ADCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n)))] →
-        _root_.Program.wp (emitClean (m ++ post)) Q (fun _ _ => False) s := by
-      intro pre hpre hmeq
-      rw [hmeq, emitClean_append]
-      have hp_eq : pre ++ ca ++ cb ++
-          [armIselInsI
-            (.ADCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n)))] =
-          pre ++ (ca ++ cb ++
-            [armIselInsI
-              (.ADCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n)))]) := by
-        simp [List.append_assoc]
-      rw [hp_eq, emitClean_append, List.append_assoc]
-      refine armWp_append hpre ?_; rintro sx ⟨hkeepx, hdmx, hcx⟩
-      have hfrx : armMach.Frame armCondReads s sx armScratch [] maskNZCV := armFrame_nzcv hkeepx
-      have hpax := Machine.PArgHolds.frame hfrx hpa (fun r hr => hga r (hr ▸ by simp [PArg.gprs])) (fun v => v.elim) (fun _ ht => nomatch ht)
-      have hpbx := Machine.PArgHolds.frame hfrx hpb (fun r hr => hgb r (hr ▸ by simp [PArg.gprs])) (fun v => v.elim) (fun _ ht => nomatch ht)
-      rw [emitClean_append, emitClean_cons, emitClean_nil, List.append_assoc]
-      refine armWp_append (armArgs2_wp hn64 hn64 ha hb hpax hpbx hga hgb) ?_
-      rintro s₂ ⟨hra, hrb, _, _, hd₂, hst₂, hfr₂⟩
-      refine armWp_cons (armDirFallsTo_wp (Q := fun s' => ∃ st,
-          s' = { wr s₂ d (BitVec.setWidth 64 (va + vb + BitVec.ofNat n vcin.toNat)) with status := st } ∧
-            ArmCond.cs.interp st = decide (2 ^ n ≤ va.toNat + vb.toNat + vcin.toNat))
-        fun {_} p next jmp Q' hk => by
-          rcases hn' with rfl | rfl
-          · rw [show armWidthOf 32 = .W32 from rfl]
-            simp only [t_step_simp]; rw [hra, hrb, hst₂, hcx]
-            cases vcin
-            · exact hk _ ⟨_, rfl, by simpa [ArmCond.interp, ArmCond.toKraken, CondCode.interp, StatusFlags.from_result] using adcs_carry_iff (Or.inl rfl) va vb false⟩
-            · exact hk _ ⟨_, rfl, by simpa [ArmCond.interp, ArmCond.toKraken, CondCode.interp, StatusFlags.from_result] using adcs_carry_iff (Or.inl rfl) va vb true⟩
-          · rw [show armWidthOf 64 = .W64 from rfl]
-            simp only [t_step_simp, BitVec.setWidth_eq] at hra hrb ⊢
-            rw [hra, hrb, hst₂, hcx]
-            cases vcin
-            · exact hk _ ⟨_, rfl, by simpa [ArmCond.interp, ArmCond.toKraken, CondCode.interp, StatusFlags.from_result] using adcs_carry_iff (Or.inr rfl) va vb false⟩
-            · exact hk _ ⟨_, rfl, by simpa [ArmCond.interp, ArmCond.toKraken, CondCode.interp, StatusFlags.from_result] using adcs_carry_iff (Or.inr rfl) va vb true⟩)
-        ?_
-      rintro s₃ ⟨st, rfl, hflag₃⟩
-      refine armCarryFinish_wp hn' _ _ d cout .cs s
-        { wr s₂ d (BitVec.setWidth 64 (va + vb + BitVec.ofNat n vcin.toNat)) with status := st }
-        (emitClean post) hpostClean (by rcases hn' with rfl | rfl <;> simp [BitVec.setWidth_eq])
-        hflag₃ (hd₂.trans hdmx) fun r hr => ?_
-      have hne : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
-      exact (get_wr_of_ne s₂ d _ r hne.1).trans ((hfr₂.1 r hne.2).trans (hkeepx r hne.2))
-    cases cin with
-    | vec vr => exact vr.elim
-    | flag cf =>
-      cases cf with
-      | cs =>
-        dsimp only at hm; rcases Option.some.inj hm with rfl
-        exact runAdcs (pre := []) (armWp_nil ⟨fun _ _ => rfl, rfl, hpc⟩) (by simp)
-      | _ => dsimp only at hm; cases hm
-    | gpr r => cases r with | SP => dsimp only at hm; cases hm | reg rc =>
-      dsimp only at hm; rcases Option.some.inj hm with rfl
-      have hrc : (s.regs.getXReg rc).toBitVec.setWidth 8 = BitVec.ofNat 8 vcin.toNat := by simpa [Machine.PArgHolds, GprHolds, get_reg] using hpc
-      exact runAdcs (pre := [armIselInsI (.AND_i (.low (.reg .X16) .W32) (zr rc .W32) (.int64 1)),
-        armIselInsI (.SUBS_e (xzr .W32) (.low (.reg .X16) .W32)
-          (.imm { imm := .int64 1, shift := .S0 }))])
-        (armAndi1Sub_wp false rc hrc (xreg_ne_scratch_of_not_mem (hgc (.reg rc) (by simp [PArg.gprs]))).1) rfl
-    | imm bv =>
-      simp only [Machine.PArgHolds] at hpc; subst hpc
-      cases bv
-      · dsimp only at hm; rcases Option.some.inj hm with rfl
-        rw [show decide (2 ^ n ≤ va.toNat + vb.toNat + false.toNat) = decide (2 ^ n ≤ va.toNat + vb.toNat) from rfl,
-          show va + vb + BitVec.ofNat n false.toNat = va + vb by simp,
-          emitClean_append, emitClean_append, emitClean_cons, emitClean_nil, List.append_assoc]
-        refine armWp_append (armArgs2_wp hn64 hn64 ha hb hpa hpb hga hgb) ?_
-        rintro s₂ ⟨hra, hrb, _, _, hd₂, _, hfr₂⟩
-        refine armWp_cons (armDirFallsTo_wp (Q := fun s' => ∃ st,
-            s' = { wr s₂ d (BitVec.setWidth 64 (va + vb)) with status := st } ∧
-              ArmCond.cs.interp st = decide (2 ^ n ≤ va.toNat + vb.toNat))
-          fun {_} p next jmp Q' hk => by
-            rcases hn' with rfl | rfl
-            · rw [show armWidthOf 32 = .W32 from rfl]
-              simp only [t_step_simp, Int64.toInt_zero, Int.toNat_zero, BitVec.shiftLeft_zero]
-              rw [hra, hrb]
-              exact hk _ ⟨_, rfl, by simp only [ArmCond.interp, ArmCond.toKraken, CondCode.interp]; exact adds_carry_iff va vb⟩
-            · rw [show armWidthOf 64 = .W64 from rfl]
-              simp only [t_step_simp, Int64.toInt_zero, Int.toNat_zero, BitVec.shiftLeft_zero, BitVec.setWidth_eq] at hra hrb ⊢
-              rw [hra, hrb]
-              exact hk _ ⟨_, rfl, by simp only [ArmCond.interp, ArmCond.toKraken, CondCode.interp]; exact adds_carry_iff va vb⟩)
-          ?_
-        rintro s₃ ⟨st, rfl, hflag₃⟩
-        refine armCarryFinish_wp hn' (va + vb) _ d cout .cs s
-          { wr s₂ d (BitVec.setWidth 64 (va + vb)) with status := st }
-          (emitClean post) hpostClean (by rcases hn' with rfl | rfl <;> simp [BitVec.setWidth_eq])
-          hflag₃ hd₂ fun r hr => ?_
-        have hne : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
-        exact (get_wr_of_ne s₂ d _ r hne.1).trans (hfr₂.1 r hne.2)
-      · dsimp only at hm; rcases Option.some.inj hm with rfl
-        refine runAdcs (pre := [armIselInsI
-            (.SUBS_s (xzr .W32) (xzr .W32) { reg := xzr .W32, amount := 0, shift := .LSL })])
-          (armWp_mono (armDirFallsTo_wp (d := ins (.SUBS_s (xzr .W32) (xzr .W32) { reg := xzr .W32, amount := 0, shift := .LSL }))
-            (Q := fun s' => s' = { s with status := StatusFlags.subs 0#32 0#32 0#32 })
-            fun {_} p next jmp Q' hk => by
-              simp only [t_step_simp, Int64.toInt_zero, Int.toNat_zero,
-                BitVec.shiftLeft_zero, BitVec.sub_zero]
-              dsimp only [xzr]; exact hk _ rfl)
-            fun sx hsx => by subst hsx; exact ⟨fun _ _ => rfl, rfl, rfl⟩) rfl
+        [] clob) (fun _ _ => False) s :=
+  armCarryOp_wp false pa pb cin d cout vh hc hga hgb hgc hpa hpb hpc
 
 theorem armSubbOp_wp [Host] {n : Nat}
     (pa pb : PArg Reg Empty ArmCond (.bits n)) (bin : PArg Reg Empty ArmCond .bool)
@@ -1374,153 +1544,7 @@ theorem armSubbOp_wp [Host] {n : Nat}
       armMach.Frame armCondReads s s'
         (tupDstGprs (ts := [.bits n, .bool])
           ((PDst.gpr (.reg d) : PDst Reg Empty ArmCond (.bits n)), bout, ()) ++ armScratch)
-        [] clob) (fun _ _ => False) s := by
-  dsimp only [armSubbOpIns] at hc; split at hc
-  · simp at hc
-  · rename_i hok
-    have hn' : n = 32 ∨ n = 64 := by cases h32 : (n == 32) <;> cases h64 : (n == 64) <;> simp_all
-    have hn64 : n ≤ 64 := by rcases hn' with rfl | rfl <;> decide
-    simp only [bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hc
-    rcases hc with ⟨post, hpost, ⟨ca, ra⟩, ha, ⟨cb, rb⟩, hb, m, hm, rfl, rfl⟩
-    have hpost' : (bout = .flag .cc ∧ post = []) ∨
-        (∃ dc, dc ≠ d ∧ bout = .gpr (.reg dc) ∧ post = [armCset64I dc .cc]) := by
-      cases bout with
-      | vec vr => exact vr.elim
-      | flag cf => cases cf <;> simp_all
-      | gpr r => cases r with | SP => cases hpost | reg dc =>
-        dsimp only at hpost; split at hpost
-        · cases hpost
-        · rename_i hne
-          exact Or.inr ⟨dc, fun h => by
-            subst h; exact absurd (by cases dc <;> rfl : (dc == dc) = true) hne,
-            rfl, (Option.some.inj hpost).symm⟩
-    have hpostClean : (bout = .flag .cc ∧ (emitClean post : List Directive) = []) ∨
-        (∃ dc, dc ≠ d ∧ bout = .gpr (.reg dc) ∧ emitClean post = [armCset64 dc .cc]) := by
-      rcases hpost' with ⟨rfl, rfl⟩ | ⟨dc, hdc, rfl, rfl⟩
-      · exact Or.inl ⟨rfl, rfl⟩
-      · exact Or.inr ⟨dc, hdc, rfl, rfl⟩
-    let Q : MachineData → Prop := fun s' =>
-      (∃ rvs : Tup Val [.bits n, .bool],
-        rvs = (va - vb - BitVec.ofNat n vbin.toNat,
-          decide (va.toNat < vb.toNat + vbin.toNat), ()) ∧
-        TRel (armMach.PDstHolds s') (as := [.bits n, .bool])
-          ((PDst.gpr (.reg d) : PDst Reg Empty ArmCond (.bits n)), bout, ()) rvs) ∧
-      armMach.mem s' = armMach.mem s ∧
-      armMach.Frame armCondReads s s'
-        (tupDstGprs (ts := [.bits n, .bool])
-          ((PDst.gpr (.reg d) : PDst Reg Empty ArmCond (.bits n)), bout, ()) ++ armScratch)
-        [] maskNZCV
-    have runSbcs : ∀ {pre : List Instr},
-        _root_.Program.wp (emitClean pre)
-          (fun sx => (∀ r, r ∉ armScratch → get sx r = get s r) ∧ sx.dmem = s.dmem ∧
-            (!sx.status.c) = vbin) (fun _ _ => False) s →
-        m = pre ++ ca ++ cb ++
-          [armIselInsI
-            (.SBCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n)))] →
-        _root_.Program.wp (emitClean (m ++ post)) Q (fun _ _ => False) s := by
-      intro pre hpre hmeq
-      rw [hmeq, emitClean_append]
-      have hp_eq : pre ++ ca ++ cb ++
-          [armIselInsI
-            (.SBCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n)))] =
-          pre ++ (ca ++ cb ++
-            [armIselInsI
-              (.SBCS (zr d (armWidthOf n)) (zr ra (armWidthOf n)) (zr rb (armWidthOf n)))]) := by
-        simp [List.append_assoc]
-      rw [hp_eq, emitClean_append, List.append_assoc]
-      refine armWp_append hpre ?_; rintro sx ⟨hkeepx, hdmx, hbx⟩
-      have hfrx : armMach.Frame armCondReads s sx armScratch [] maskNZCV := armFrame_nzcv hkeepx
-      have hpax := Machine.PArgHolds.frame hfrx hpa (fun r hr => hga r (hr ▸ by simp [PArg.gprs])) (fun v => v.elim) (fun _ ht => nomatch ht)
-      have hpbx := Machine.PArgHolds.frame hfrx hpb (fun r hr => hgb r (hr ▸ by simp [PArg.gprs])) (fun v => v.elim) (fun _ ht => nomatch ht)
-      rw [emitClean_append, emitClean_cons, emitClean_nil, List.append_assoc]
-      refine armWp_append (armArgs2_wp hn64 hn64 ha hb hpax hpbx hga hgb) ?_
-      rintro s₂ ⟨hra, hrb, _, _, hd₂, hst₂, hfr₂⟩
-      have hcs₂ : s₂.status.c = !vbin := by rw [hst₂, ← hbx, Bool.not_not]
-      refine armWp_cons (armDirFallsTo_wp (Q := fun s' => ∃ st,
-          s' = { wr s₂ d (BitVec.setWidth 64 (va - vb - BitVec.ofNat n vbin.toNat)) with status := st } ∧
-            ArmCond.cc.interp st = decide (va.toNat < vb.toNat + vbin.toNat))
-        fun {_} p next jmp Q' hk => by
-          rcases hn' with rfl | rfl
-          · rw [show armWidthOf 32 = .W32 from rfl]
-            simp only [t_step_simp]; rw [hra, hrb, hcs₂]
-            cases vbin
-            · exact hk _ ⟨_, rfl, by
-                have h := sbcs_borrow_iff va vb true
-                simpa [ArmCond.interp, ArmCond.toKraken, CondCode.interp, StatusFlags.from_result] using h⟩
-            · exact hk _ ⟨_, rfl, by
-                have h := sbcs_borrow_iff va vb false
-                simpa [ArmCond.interp, ArmCond.toKraken, CondCode.interp, StatusFlags.from_result] using h⟩
-          · rw [show armWidthOf 64 = .W64 from rfl]
-            simp only [t_step_simp, BitVec.setWidth_eq] at hra hrb ⊢
-            rw [hra, hrb, hcs₂]
-            cases vbin
-            · exact hk _ ⟨_, rfl, by
-                have h := sbcs_borrow_iff va vb true
-                simpa [ArmCond.interp, ArmCond.toKraken, CondCode.interp, StatusFlags.from_result] using h⟩
-            · exact hk _ ⟨_, rfl, by
-                have h := sbcs_borrow_iff va vb false
-                simpa [ArmCond.interp, ArmCond.toKraken, CondCode.interp, StatusFlags.from_result] using h⟩)
-        ?_
-      rintro s₃ ⟨st, rfl, hflag₃⟩
-      refine armCarryFinish_wp hn' _ _ d bout .cc s
-        { wr s₂ d (BitVec.setWidth 64 (va - vb - BitVec.ofNat n vbin.toNat)) with status := st }
-        (emitClean post) hpostClean (by rcases hn' with rfl | rfl <;> simp [BitVec.setWidth_eq])
-        hflag₃ (hd₂.trans hdmx) fun r hr => ?_
-      have hne : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
-      exact (get_wr_of_ne s₂ d _ r hne.1).trans ((hfr₂.1 r hne.2).trans (hkeepx r hne.2))
-    cases bin with
-    | vec vr => exact vr.elim
-    | flag cf =>
-      cases cf with
-      | cc =>
-        dsimp only at hm; rcases Option.some.inj hm with rfl
-        exact runSbcs (pre := []) (armWp_nil ⟨fun _ _ => rfl, rfl, hpb'⟩) (by simp)
-      | _ => dsimp only at hm; cases hm
-    | gpr r => cases r with | SP => dsimp only at hm; cases hm | reg rc =>
-      dsimp only at hm; rcases Option.some.inj hm with rfl
-      have hrc : (s.regs.getXReg rc).toBitVec.setWidth 8 = BitVec.ofNat 8 vbin.toNat := by simpa [Machine.PArgHolds, GprHolds, get_reg] using hpb'
-      exact runSbcs (pre := [armIselInsI (.AND_i (.low (.reg .X16) .W32) (zr rc .W32) (.int64 1)),
-        armIselInsI (.SUBS_s (xzr .W32) (xzr .W32) (sh .X16))])
-        (armAndi1Sub_wp true rc hrc (xreg_ne_scratch_of_not_mem (hgc (.reg rc) (by simp [PArg.gprs]))).1) rfl
-    | imm bv =>
-      simp only [Machine.PArgHolds] at hpb'; subst hpb'
-      cases bv
-      · dsimp only at hm; rcases Option.some.inj hm with rfl
-        rw [show decide (va.toNat < vb.toNat + false.toNat) = decide (va.toNat < vb.toNat) from rfl,
-          show va - vb - BitVec.ofNat n false.toNat = va - vb by simp,
-          emitClean_append, emitClean_append, emitClean_cons, emitClean_nil, List.append_assoc]
-        refine armWp_append (armArgs2_wp hn64 hn64 ha hb hpa hpb hga hgb) ?_
-        rintro s₂ ⟨hra, hrb, _, _, hd₂, _, hfr₂⟩
-        refine armWp_cons (armDirFallsTo_wp (Q := fun s' => ∃ st,
-            s' = { wr s₂ d (BitVec.setWidth 64 (va - vb)) with status := st } ∧
-              ArmCond.cc.interp st = decide (va.toNat < vb.toNat))
-          fun {_} p next jmp Q' hk => by
-            rcases hn' with rfl | rfl
-            · rw [show armWidthOf 32 = .W32 from rfl]
-              simp only [t_step_simp, Int64.toInt_zero, Int.toNat_zero, BitVec.shiftLeft_zero]
-              rw [hra, hrb]
-              exact hk _ ⟨_, rfl, by simp only [ArmCond.interp, ArmCond.toKraken, CondCode.interp]; exact subs_borrow_iff va vb⟩
-            · rw [show armWidthOf 64 = .W64 from rfl]
-              simp only [t_step_simp, Int64.toInt_zero, Int.toNat_zero, BitVec.shiftLeft_zero, BitVec.setWidth_eq] at hra hrb ⊢
-              rw [hra, hrb]
-              exact hk _ ⟨_, rfl, by simp only [ArmCond.interp, ArmCond.toKraken, CondCode.interp]; exact subs_borrow_iff va vb⟩)
-          ?_
-        rintro s₃ ⟨st, rfl, hflag₃⟩
-        refine armCarryFinish_wp hn' (va - vb) _ d bout .cc s
-          { wr s₂ d (BitVec.setWidth 64 (va - vb)) with status := st }
-          (emitClean post) hpostClean (by rcases hn' with rfl | rfl <;> simp [BitVec.setWidth_eq])
-          hflag₃ hd₂ fun r hr => ?_
-        have hne : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
-        exact (get_wr_of_ne s₂ d _ r hne.1).trans (hfr₂.1 r hne.2)
-      · dsimp only at hm; rcases Option.some.inj hm with rfl
-        refine runSbcs (pre := [armIselInsI
-            (.ADDS_s (xzr .W32) (xzr .W32) { reg := xzr .W32, amount := 0, shift := .LSL })])
-          (armWp_mono (armDirFallsTo_wp (d := ins (.ADDS_s (xzr .W32) (xzr .W32) { reg := xzr .W32, amount := 0, shift := .LSL }))
-            (Q := fun s' => s' = { s with status := StatusFlags.adds 0#32 0#32 0#32 })
-            fun {_} p next jmp Q' hk => by
-              simp only [t_step_simp, Int64.toInt_zero, Int.toNat_zero,
-                BitVec.shiftLeft_zero, BitVec.add_zero]
-              dsimp only [xzr]; exact hk _ rfl)
-            fun sx hsx => by subst hsx; exact ⟨fun _ _ => rfl, rfl, rfl⟩) rfl
+        [] clob) (fun _ _ => False) s :=
+  armCarryOp_wp true pa pb bin d bout vh hc hga hgb hgc hpa hpb hpb'
 
 end LeanQbe.T.Arm64
