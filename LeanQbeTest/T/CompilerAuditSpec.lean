@@ -14,6 +14,7 @@ public import LeanQbe.T.LinkRecLemmas
 public import LeanQbe.T.SccLemmas
 public import LeanQbe.T.LinkSccLemmas2
 public import LeanQbe.T.LinkLfp
+public import LeanQbe.T.IselStepAttr
 public import LeanQbe.T.Examples.LinkRec
 meta import LeanQbe.T.Module
 meta import LeanQbe.T.LinkRec
@@ -484,7 +485,48 @@ theorem audit_link_scc_static {T : Target} {lt : LegalTarget}
 
 end SccLfpAudit
 
-/-! ## 8. Concrete Sanity Checks (`#guard`) -/
+/-! ## 8. Arch-Free `IselStepAttr` (`emitClean*` & Generic `TRel` Inversions) -/
+
+section IselStepAttrAudit
+
+open LeanQbe.T
+
+theorem audit_trel1_inv {R V C : Type} {P : ∀ t, PArg R V C t → Val t → Prop} {t : Ty}
+    {pa : PArg R V C t} {v : Val t}
+    (h : TRel P (as := [t]) (pa, ()) (v, ())) : P t pa v :=
+  trel1_inv_generic h
+
+theorem audit_trel2_inv {R V C : Type} {P : ∀ t, PArg R V C t → Val t → Prop} {t₁ t₂ : Ty}
+    {pa : PArg R V C t₁} {pb : PArg R V C t₂} {va : Val t₁} {vb : Val t₂}
+    (h : TRel P (as := [t₁, t₂]) (pa, pb, ()) (va, vb, ())) : P t₁ pa va ∧ P t₂ pb vb :=
+  trel2_inv_generic h
+
+theorem audit_emit_clean_nil {I D : Type} :
+    emitClean (I := I) (D := D) [] = [] :=
+  emitClean_nil
+
+theorem audit_emit_clean_app {I D : Type} (a b : List I) :
+    emitClean (D := D) (a ++ b) = emitClean a ++ emitClean b :=
+  emitClean_append a b
+
+theorem audit_emit_clean_nl {I D : Type} (ins : List I) (l : String) :
+    (Kraken.Directive.label l : Kraken.Directive I D) ∉ emitClean ins :=
+  emitClean_noLab ins l
+
+theorem audit_clean_opt_nl {I D : Type} {x : Option (List I)}
+    {c : List (Kraken.Directive I D)} (h : emitCleanOpt x = some c) (l : String) :
+    (Kraken.Directive.label l : Kraken.Directive I D) ∉ c :=
+  emitCleanOpt_noLab h l
+
+theorem audit_clean_pair_nl {I D α : Type} {x : Option (List I × α)}
+    {c : List (Kraken.Directive I D)} {a : α}
+    (h : emitCleanPair x = some (c, a)) (l : String) :
+    (Kraken.Directive.label l : Kraken.Directive I D) ∉ c :=
+  emitCleanPair_noLab h l
+
+end IselStepAttrAudit
+
+/-! ## 9. Concrete Sanity Checks (`#guard`) -/
 
 #guard evenOddRecMod.checkAcyclic == false
 #guard recSumMod.checkAcyclic == false
@@ -495,7 +537,7 @@ end SccLfpAudit
 #guard recSumOutcome 3#64 5 == .inl 6#64
 #guard recSumOutcome 5#64 2 == .inr 3#64
 
-/-! ## 9. Logical Foundations Audit (`#print axioms`) -/
+/-! ## 10. Logical Foundations Audit (`#print axioms`) -/
 
 #print axioms audit_early_opt
 #print axioms audit_late_opt
@@ -533,5 +575,12 @@ end SccLfpAudit
 #print axioms audit_scc_le_sem
 #print axioms audit_scc_le_unfold
 #print axioms audit_link_scc_static
+#print axioms audit_trel1_inv
+#print axioms audit_trel2_inv
+#print axioms audit_emit_clean_nil
+#print axioms audit_emit_clean_app
+#print axioms audit_emit_clean_nl
+#print axioms audit_clean_opt_nl
+#print axioms audit_clean_pair_nl
 
 end CompilerAuditSpec

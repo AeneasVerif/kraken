@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Amd64.TargLemmas
+public import LeanQbe.T.Amd64.IselStepRules
 public import LeanQbe.T.Amd64.LinkRec
 public import LeanQbe.T.Amd64.Litmus
 public import LeanQbeTest.T.MainLinkAmd64Test
@@ -324,7 +325,43 @@ theorem audit_twice_exit :
       ⟨Amd64.Litmus.twiceState 20#64 0#64, Labels.label "twice"⟩ :=
   Amd64.Litmus.twice_x64_nonvacuous_exit
 
-/-! ## 5. Logical Foundations Audit (`#print axioms`) -/
+/-! ## 5. `Amd64.IselStepRules` Frame & `@[scoped isel_step]` Rules -/
+
+section IselStepX64Audit
+
+theorem audit_x64_frame_eq {s s' : MachineData} {g : List Reg64} {f : FlagMask}
+    (hregs : ∀ r, r ∉ g → s'.regs.get64 r = s.regs.get64 r)
+    (hzmms : s'.zmms = s.zmms)
+    (hflags : x64Mach.UpdFlags x64CondReads s s' f) :
+    x64Mach.Frame x64CondReads s s' g [] f :=
+  x64_frame_of_eq hregs hzmms hflags
+
+theorem audit_x64_upd_all (s s' : MachineData) :
+    x64Mach.UpdFlags x64CondReads s s' maskAll :=
+  updFlags_maskAll s s'
+
+theorem audit_x64_wp_dir [Host] {E : Int64 → MachineData → Prop}
+    {dir : Directive} {rest : List Directive} {s : MachineData} {P Q : MachineData → Prop}
+    (hd : Directive.FallsTo dir s P)
+    (hk : ∀ s', P s' → _root_.Program.wp rest Q E s') :
+    _root_.Program.wp (dir :: rest) Q E s :=
+  x64_wp_step_dir hd hk
+
+theorem audit_x64_mov_cons [Host] {E : Int64 → MachineData → Prop}
+    {rd rs : Reg64} {rest : List Directive} {s : MachineData} {Q : MachineData → Prop}
+    (hk : _root_.Program.wp rest Q E { s with regs := s.regs.set64 rd (s.regs.get64 rs) }) :
+    _root_.Program.wp (ins (.mov (.reg (q rd)) (.reg (q rs))) :: rest) Q E s :=
+  IselStep.x64_step_mov_cons hk
+
+theorem audit_x64_mov_last [Host] {E : Int64 → MachineData → Prop}
+    {rd rs : Reg64} {s : MachineData} {Q : MachineData → Prop}
+    (hk : Q { s with regs := s.regs.set64 rd (s.regs.get64 rs) }) :
+    _root_.Program.wp [ins (.mov (.reg (q rd)) (.reg (q rs)))] Q E s :=
+  IselStep.x64_step_mov_last hk
+
+end IselStepX64Audit
+
+/-! ## 6. Logical Foundations Audit (`#print axioms`) -/
 
 #print axioms audit_gpr
 #print axioms audit_vec
@@ -345,5 +382,10 @@ theorem audit_twice_exit :
 #print axioms audit_sumcall
 #print axioms audit_tracer_nv
 #print axioms audit_twice_exit
+#print axioms audit_x64_frame_eq
+#print axioms audit_x64_upd_all
+#print axioms audit_x64_wp_dir
+#print axioms audit_x64_mov_cons
+#print axioms audit_x64_mov_last
 
 end CompilerAuditX64

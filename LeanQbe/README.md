@@ -17,11 +17,11 @@ imports both `Kraken.X64` and `Kraken.AArch64`.
 | # | Workstream | What is audited | Audit files |
 |---|---|---|---|
 | 1 | **Verified Kissat SAT solver** (`D-Full`, `D-Plain`) | DIMACS spec; `D-Plain` SAT + UNSAT and `D-Full` UNSAT soundness of the x86-64 / AArch64 machine code ([details](#verified-kissat)) | [Spec](LeanQbeTest/T/KissatAuditSpec.lean), [X64](LeanQbeTest/T/KissatAuditX64.lean), [Arm64](LeanQbeTest/T/KissatAuditArm64.lean) |
-| 2 | **Verified compiler, linker, `LinkRec` and `LinkScc`/`LinkLfp`** | IR passes, legalization, instruction selection, `FlagRaOpt`, `LinkedCert`, cyclic & SCC-DAG modules | [Spec](LeanQbeTest/T/CompilerAuditSpec.lean), [X64](LeanQbeTest/T/CompilerAuditX64.lean), [Arm64](LeanQbeTest/T/CompilerAuditArm64.lean) |
+| 2 | **Verified compiler, linker, `LinkRec` and `LinkScc`/`LinkLfp`** | IR passes, legalization, instruction selection (`@[scoped isel_step]` & `emitClean` via `IselStepAttr`/`IselStepRules`), `FlagRaOpt`, `LinkedCert`, cyclic & SCC-DAG modules | [Spec](LeanQbeTest/T/CompilerAuditSpec.lean), [X64](LeanQbeTest/T/CompilerAuditX64.lean), [Arm64](LeanQbeTest/T/CompilerAuditArm64.lean) |
 | 3 | **Impure Lean 4 `LCNF` and `LeanLRC` lowering** | lowering of Lean's compiler IR (`LeanQbe/T/LeanLCNF`, `LeanQbe/T/LeanLRC`) into `LeanQbe.T` | [Audit](LeanQbeTest/T/LcnfAudit.lean) |
 | 4 | **Verified native LRAT proof checker** (`LratBytes`) | `lrat_check_bytes` returns `1` only for valid DIMACS of an unsatisfiable CNF | [Spec](LeanQbeTest/T/LratAuditSpec.lean), [X64](LeanQbeTest/T/LratAuditX64.lean), [Arm64](LeanQbeTest/T/LratAuditArm64.lean) |
 | 5 | **Cryptographic and data-structure workloads** (`ChaCha20` SIMD, 256-bit `Bignum`, `UnionFind`) | functional correctness of the example programs and their compiled code | [Spec](LeanQbeTest/T/WorkloadsAuditSpec.lean), [X64](LeanQbeTest/T/WorkloadsAuditX64.lean), [Arm64](LeanQbeTest/T/WorkloadsAuditArm64.lean) |
-| 6 | **C0 frontend & separation-logic proof tooling** | `Func.wp` core rules, C0 elaborator/`Wf`, `C0HeadStep`/`C0Agrees`, `SepTree`/`SlabChain`/`C0Lens`, `ControlComb`/`LegalEmit` | [Audit](LeanQbeTest/T/C0LogicAudit.lean) |
+| 6 | **C0 frontend & separation-logic proof tooling** | `Func.wp` core rules, C0 elaborator/`Wf`, `C0HeadStep`/`C0Agrees`, `SepTree`/`SlabChain`/`C0Lens`, `ControlComb` & deduplicated `LegalEmit` | [Audit](LeanQbeTest/T/C0LogicAudit.lean) |
 
 Check all audit files (each one also builds as part of `scripts/check.sh`):
 

@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Arm64.TargLemmas
+public import LeanQbe.T.Arm64.IselStepRules
 public import LeanQbe.T.Arm64.LinkRec
 public import LeanQbe.T.Arm64.Litmus
 public import LeanQbeTest.T.MainLinkArm64Test
@@ -315,7 +316,44 @@ theorem audit_twice_exit :
       ⟨Arm64.Litmus.twiceState 20#64 0#64, Labels.label "twice"⟩ :=
   Arm64.Litmus.twice_arm64_nonvacuous_exit
 
-/-! ## 5. Logical Foundations Audit (`#print axioms`) -/
+/-! ## 5. `Arm64.IselStepRules` Frame & `@[scoped isel_step]` Rules -/
+
+section IselStepArmAudit
+
+theorem audit_arm_upd_regs {s s' : MachineData} {gClob : List Reg} {fClob : FlagMask}
+    (hkeep : ∀ r, r ∉ gClob → get s' r = get s r)
+    (hflg : fClob = maskAll ∨ fClob = maskNZCV ∧
+      (∀ c, FlagMask.disjoint (armCondReads c) maskNZCV = true →
+        c.interp s'.status = c.interp s.status) ∨
+      s'.status = s.status) :
+    armMach.Frame armCondReads s s' gClob [] fClob :=
+  armFrame_upd_regs hkeep hflg
+
+theorem audit_arm_nzcv {s s' : MachineData} {gClob : List Reg}
+    (hkeep : ∀ r, r ∉ gClob → get s' r = get s r) :
+    armMach.Frame armCondReads s s' gClob [] maskNZCV :=
+  armFrame_nzcv hkeep
+
+theorem audit_arm_st_eq {s s' : MachineData} {gClob : List Reg} {fClob : FlagMask}
+    (hkeep : ∀ r, r ∉ gClob → get s' r = get s r) (hst : s'.status = s.status) :
+    armMach.Frame armCondReads s s' gClob [] fClob :=
+  armFrame_status_eq hkeep hst
+
+theorem audit_arm_ldr_cons [Host] {d : XReg} {c : BitVec 64} {rest : List Directive}
+    {s : MachineData} {Q : MachineData → Prop}
+    (hk : _root_.Program.wp rest Q (fun _ _ => False) (wr s d c)) :
+    _root_.Program.wp (armLdrPoolBv d c :: rest) Q (fun _ _ => False) s :=
+  IselStep.arm_step_ldrPool_cons hk
+
+theorem audit_arm_ldr_last [Host] {d : XReg} {c : BitVec 64}
+    {s : MachineData} {Q : MachineData → Prop}
+    (hk : Q (wr s d c)) :
+    _root_.Program.wp [armLdrPoolBv d c] Q (fun _ _ => False) s :=
+  IselStep.arm_step_ldrPool_last hk
+
+end IselStepArmAudit
+
+/-! ## 6. Logical Foundations Audit (`#print axioms`) -/
 
 #print axioms audit_gpr
 #print axioms audit_frame
@@ -335,5 +373,10 @@ theorem audit_twice_exit :
 #print axioms audit_sumcall
 #print axioms audit_tracer_nv
 #print axioms audit_twice_exit
+#print axioms audit_arm_upd_regs
+#print axioms audit_arm_nzcv
+#print axioms audit_arm_st_eq
+#print axioms audit_arm_ldr_cons
+#print axioms audit_arm_ldr_last
 
 end CompilerAuditArm64

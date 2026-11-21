@@ -446,6 +446,20 @@ theorem audit_ternlog_bundle (target : LegalTarget) (imm : BitVec 8) :
       | (a, b, c, PUnit.unit) => p (ternaryLogicBool a b c imm) :=
   ternlogBoolEmit_bundle target imm
 
+theorem audit_maskToN_legal (target : LegalTarget) {n w : Nat} (hw : w ∈ target.bitWidths) :
+    (maskToNEmit n w).IsLegal target :=
+  maskToNEmit_isLegal target hw
+
+theorem audit_sextToW_legal (target : LegalTarget) {n w : Nat} (hw : w ∈ target.bitWidths) :
+    (sextToWEmit n w).IsLegal target :=
+  sextToWEmit_isLegal target hw
+
+theorem audit_ternlogBits_b (target : LegalTarget) {w : Nat} (hw : w ∈ target.bitWidths)
+    (imm : BitVec 8) :
+    LegalEmitSpec target (ternlogBitsEmit w imm)
+      (fun (a, b, c, ()) p => p (ternaryLogic a b c imm)) :=
+  ternlogBitsEmit_bundle target hw imm
+
 /-! ## 5. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms audit_wp_mono
@@ -491,6 +505,9 @@ theorem audit_ternlog_bundle (target : LegalTarget) (imm : BitVec 8) :
 #print axioms audit_emit_bundle
 #print axioms audit_boolCmp_bundle
 #print axioms audit_ternlog_bundle
+#print axioms audit_maskToN_legal
+#print axioms audit_sextToW_legal
+#print axioms audit_ternlogBits_b
 
 end C0LogicAudit
 
