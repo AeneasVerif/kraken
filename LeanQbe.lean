@@ -60,6 +60,8 @@ public import LeanQbe.T.IfOptLemmas
 public import LeanQbe.T.SimplifyGroup
 public import LeanQbe.T.SimplifyGroupLemmas1
 public import LeanQbe.T.SimplifyGroupLemmas
+public import LeanQbe.T.Licm
+public import LeanQbe.T.LicmLemmas
 public import LeanQbe.T.Trie
 public import LeanQbe.T.Target
 public import LeanQbe.T.TargetLemmas
