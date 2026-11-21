@@ -14,6 +14,8 @@ public import LeanQbe.T.Logic.SlabLayoutElab
 public import LeanQbe.T.Logic.ControlComb
 public import LeanQbe.T.LegalEmit
 
+set_option autoImplicit false
+
 @[expose] public section
 
 /-!

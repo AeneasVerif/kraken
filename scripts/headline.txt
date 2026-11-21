@@ -844,3 +844,5 @@ LeanQbeTest.T.KissatAuditSpec audit_bva_nv_factor
 LeanQbeTest.T.KissatAuditSpec audit_fk_modok
 LeanQbeTest.T.KissatAuditSpec audit_fk_nv20
 LeanQbe.T.IselStepAttr LeanQbe.T.emitClean_noLab
+LeanQbeTest.T.KissatAuditSpec audit_fds_modok
+LeanQbeTest.T.KissatAuditSpec audit_fds_nv

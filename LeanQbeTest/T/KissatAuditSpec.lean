@@ -25,6 +25,7 @@ public import LeanQbe.T.Examples.Kissat.FullFastBveBudgetsLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastCoreLemmas
 public import LeanQbe.T.Examples.Kissat.FullBvaHeapLemmas
 public import LeanQbe.T.Examples.Kissat.FullKittenLemmas
+public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas
 meta import LeanQbe.T.Examples.Kissat.PlainLemmas
 meta import LeanQbe.T.Examples.Kissat.FullSpec
 meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7
@@ -779,7 +780,30 @@ theorem audit_fk_nv20 :
 
 end M2bFullKittenAudit
 
-/-! ## 10. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
+/-! ## 10. M2b `FullDefSweep` (`9/9` fns, `defSweepEnv_moduleOk`, NV) -/
+
+section M2bFullDefSweepAudit
+
+open LeanQbe.T.Examples.Kissat.FullDefSweep
+
+theorem _root_.audit_fds_modok :
+    ModuleOk defSweepEnv fullDefSweepModule :=
+  defSweepEnv_moduleOk
+
+theorem _root_.audit_fds_nv :
+    Func.wp defSweepEnv
+      LeanQbe.T.Examples.Kissat.FullDefSweep.full_sweep_dense_body
+      (nvDefSweepCfg.hdr, 10#64, 8192#64, ()) nvDefSweepMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInv nvDefSweepCfg Full.nvOneLitF0 s' ∧
+        (r = 1#64 ∨ r = 20#64) ∧
+        Full.nvOneLitF0.Unsat ∧ Full.FullMem nvDefSweepCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_full_def_sweep
+
+end M2bFullDefSweepAudit
+
+/-! ## 11. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms audit_unsat_def
 #print axioms audit_sat_def
@@ -839,3 +863,5 @@ end M2bFullKittenAudit
 #print axioms audit_bva_nv_factor
 #print axioms audit_fk_modok
 #print axioms audit_fk_nv20
+#print axioms audit_fds_modok
+#print axioms audit_fds_nv

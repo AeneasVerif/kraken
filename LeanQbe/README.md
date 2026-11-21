@@ -47,6 +47,7 @@ correctness theorems:
 | `D-Full M2b FastCore` | `LeanQbe.T.Examples.Kissat.FullFastCore` | 3 | Stage-5 fast-core BCP (`[47..49]` spliced into `Full.fullModule`) | **UNSAT soundness + NV**, standalone + splice `ModuleOk` |
 | `D-Full M2b BvaHeap` | `LeanQbe.T.Examples.Kissat.FullBvaHeap` | 13 | 3-hop BVA & max-degree binary heap factoring (`FullBvaHeapLemmas`) | **UNSAT soundness + NV**, `bvaHeap_moduleOk` |
 | `D-Full M2b FullKitten` | `LeanQbe.T.Examples.Kissat.Full` (`FullKitten`) | 15 | Embedded sub-solver (`FullKittenLemmas`) | **UNSAT soundness + NV**, unconditional `fullKittenEnv_moduleOk` |
+| `D-Full M2b DefSweep` | `LeanQbe.T.Examples.Kissat.FullDefSweep` | 9 | Definition extraction & kitten-backed variable sweeping (`FullDefSweepLemmas`) | **UNSAT soundness + NV**, unconditional `defSweepEnv_moduleOk` |
 
 Both solvers export one C entry point:
 
@@ -133,7 +134,7 @@ which the machine code returns 20.
 - **M2 fast-path components:** [`FullFastSchedLemmas`](LeanQbe/T/Examples/Kissat/FullFastSchedLemmas.lean)
   + [`KissatFastSched`](LeanQbe/T/Amd64/KissatFastSched.lean), [`FullFastBveBudgetsLemmas`](LeanQbe/T/Examples/Kissat/FullFastBveBudgetsLemmas.lean),
   [`FullFastCoreLemmas`](LeanQbe/T/Examples/Kissat/FullFastCoreLemmas.lean), [`FullBvaHeapLemmas`](LeanQbe/T/Examples/Kissat/FullBvaHeapLemmas.lean),
-  and [`FullKittenLemmas`](LeanQbe/T/Examples/Kissat/FullKittenLemmas.lean) stage M2 slices (`KissatAudit{Spec,X64,Arm64}.lean`).
+  [`FullKittenLemmas`](LeanQbe/T/Examples/Kissat/FullKittenLemmas.lean), and [`FullDefSweepLemmas`](LeanQbe/T/Examples/Kissat/FullDefSweepLemmas.lean) stage M2 slices (`KissatAudit{Spec,X64,Arm64}.lean`).
 
 #### Axioms
 
