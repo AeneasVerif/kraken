@@ -27,6 +27,10 @@ public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Logic.C0StepAttr
 public import LeanQbe.T.Logic.C0Step
 public import LeanQbe.T.Logic.C0Agrees
+public import LeanQbe.T.Logic.ControlComb
+public import LeanQbe.T.Logic.SepTree
+public import LeanQbe.T.Logic.SlabChain
+public import LeanQbe.T.Logic.SlabLayoutElab
 public import LeanQbe.T.Examples.UnionFind
 public import LeanQbe.T.Examples.UnionFindLemmas
 public import LeanQbe.T.Legal
@@ -34,6 +38,7 @@ public import LeanQbe.T.LegalLemmas
 public import LeanQbe.T.LegalCheck1
 public import LeanQbe.T.LegalCheck2
 public import LeanQbe.T.LegalCheck3
+public import LeanQbe.T.LegalEmit
 public import LeanQbe.T.Fold
 public import LeanQbe.T.FoldLemmas
 public import LeanQbe.T.Copy
