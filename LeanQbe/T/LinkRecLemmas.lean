@@ -899,7 +899,10 @@ private theorem compileFn_correct_stepRec (T : Target) (host : T.mach.Host) (lt 
     T.FnSpec host f.name
       (legalEnv lt (Env.onlyFn f (Γrec k)) f.name (lt.legalSig f.as) (lt.legalSig f.rs))
       n nX :=
-  fnSpec_of_spec_rec (compileFn_stepRec_mid hwf hsupp recSigs extSigs Γrec Γext k hsound)
+  fnSpec_of_spec_rec
+    (fun args m Q X h =>
+      fn_mid_spec_of_lateOpt hwf (legalEnv lt (Env.stepRec recSigs extSigs Γrec Γext k))
+        (compileFn_stepRec_mid hwf hsupp recSigs extSigs Γrec Γext k hsound args m Q X h))
     (Rega.lowerFn_correct T host hints E (f.mid lt)
       (legalEnv lt (Env.stepRec recSigs extSigs Γrec Γext k)) n nX bound
       (fn_mid_wf hwf) hl hc hu hfr hn hcal hex)

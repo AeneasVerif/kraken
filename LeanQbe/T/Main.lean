@@ -46,9 +46,11 @@ def Fn.earlyOpt (f : Fn) : Fn :=
 def Fn.lateOpt (f : Fn) : Fn :=
   ⟨f.name, f.as, f.rs, Func.lateOpt f.body⟩
 
-/-- Run the staged mid-end pipeline (`earlyOpt → Legal lt → lateOpt`) on a typed function. -/
+/-- Run the staged mid-end pipeline (`earlyOpt → Legal lt → lateOpt`) on a typed function,
+materializing the resulting `TFlat` body once so downstream traversals do not re-run it. -/
 def Fn.mid (lt : LegalTarget) (f : Fn) : Fn :=
-  ((f.earlyOpt).legal lt).lateOpt
+  let mf := ((f.earlyOpt).legal lt).lateOpt
+  ⟨mf.name, mf.as, mf.rs, let tf := reifyFunc mf.body; denoteFunc tf⟩
 
 /-- Compute register-allocation / spill hints for `f.mid lt`. For meta/CLI hint splicing ONLY;
 never invoked inside `compileFn`, `compile`, or `compileModule`. -/

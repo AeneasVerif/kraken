@@ -311,7 +311,11 @@ private theorem compileFn_correct_stepIdx {ι : Type} (idx : RecIdx ι) (T : Tar
     T.FnSpec host f.name
       (legalEnv lt (Env.onlyFn f (Γrec i)) f.name (lt.legalSig f.as) (lt.legalSig f.rs))
       n nX :=
-  fnSpec_of_spec_scc (compileFn_stepIdx_mid hwf hsupp recSigs extSigs Γrec Γext strict i hsound)
+  fnSpec_of_spec_scc
+    (fun args m Q X h =>
+      fn_mid_spec_of_lateOpt hwf
+        (legalEnv lt (Env.stepIdx idx recSigs extSigs Γrec Γext strict i))
+        (compileFn_stepIdx_mid hwf hsupp recSigs extSigs Γrec Γext strict i hsound args m Q X h))
     (Rega.lowerFn_correct T host hints E (f.mid lt)
       (legalEnv lt (Env.stepIdx idx recSigs extSigs Γrec Γext strict i)) n nX bound
       (fn_mid_wf hwf) hl hc hu hfr hn hcal hex)
