@@ -118,9 +118,9 @@ theorem full_analyze_lit_bridge_wp (Γ : Env) :
   refine full_analyze_lit_wp Γ _ m Q X
     ⟨c, s, R, rfl, hlen, hcl32, htl_cv, htc_fit, hwork, hm,
       fun ok mrk' tmp' ws1' mcl' tc' tl' ant' res' m' hlen' hwork' htl_le htl_ge htl_inc htc_ge
-        hmpres htpres hnewm hnewt _ _ htc_eq hok hm' => ?_⟩
+        hmpres htpres hnewm hnewt hant_eq hres_eq htc_eq hok hm' => ?_⟩
   refine hQ ok mrk' tmp' tc' tl' mcl' ws1' ant' res' m' hlen' (anaWorkInv_to_anaMarksCov hwork')
-    htl_ge htl_inc htl_le htc_ge htc_eq ?_ htpres ?_ hnewt hok hm'
+    htl_ge htl_inc htl_le htc_ge hant_eq hres_eq htc_eq ?_ htpres ?_ hnewt hok hm'
   · intro v hv hnz
     exact hmpres v (hwork.2.2.2 v hv hnz).1 hnz
   · intro v hv h0 hnz
@@ -216,9 +216,34 @@ private theorem fullMem_arena_gu_eq {c : FullCfg} {s : FullState} {R : Mem 64 �
     (FullMem c ⟨{ s.core with arena := ar2 }, { s.scratch with glue_used := gu }⟩ ⋆ R) m := by
   subst h; exact hm
 
+private theorem b8_bv64_ite_iff {P Q : Prop} [Decidable P] [Decidable Q] (h : P ↔ Q) :
+    (if P then (1#64 : BitVec 64) else 0#64) = BitVec.ofNat 64 (if Q then 1 else 0) := by
+  by_cases hp : P
+  · have hq : Q := h.mp hp; simp [hp, hq]
+  · have hnq : ¬Q := mt h.mpr hp; simp [hp, hnq]
+
+private theorem b8_res_step_of_lit {s_mrk mrk1 mrk2 : List (BitVec 8)} {mv v : Nat}
+    {r0 r1 r2 : BitVec 64}
+    (hmp0 : ∀ w < mv, s_mrk[w]?.getD 0#8 ≠ 0#8 → mrk1[w]?.getD 0#8 = s_mrk[w]?.getD 0#8)
+    (hmp1 : ∀ w < mv, mrk1[w]?.getD 0#8 ≠ 0#8 → mrk2[w]?.getD 0#8 = mrk1[w]?.getD 0#8)
+    (hnew1 : ∀ w < mv, mrk1[w]?.getD 0#8 = 0#8 → mrk2[w]?.getD 0#8 ≠ 0#8 → v = w)
+    (hr1 : r1 = r0 + BitVec.ofNat 64 ((List.range mv).filter fun w =>
+      decide (s_mrk[w]?.getD 0#8 = 0#8) && decide (mrk1[w]?.getD 0#8 ≠ 0#8)).length)
+    (hr2 : r2 = r1 + if v < mv ∧ mrk1[v]?.getD 0#8 = 0#8 ∧ mrk2[v]?.getD 0#8 ≠ 0#8
+      then 1#64 else 0#64) : r2 = r0 + BitVec.ofNat 64 ((List.range mv).filter fun w =>
+      decide (s_mrk[w]?.getD 0#8 = 0#8) && decide (mrk2[w]?.getD 0#8 ≠ 0#8)).length := by
+  let c1 := ((List.range mv).filter fun w =>
+    decide (s_mrk[w]?.getD 0#8 = 0#8) && decide (mrk1[w]?.getD 0#8 ≠ 0#8)).length
+  have hf := filter_step_of_lit (fun _ => true) (tc0 := 0) (tc1 := c1)
+    (tc2 := c1 + if v < mv ∧ mrk1[v]?.getD 0#8 = 0#8 ∧ mrk2[v]?.getD 0#8 ≠ 0#8 ∧
+      (true : Bool) = true then 1 else 0) hmp0 hmp1 hnew1 (Nat.zero_le _) (by simp [c1]) rfl
+  simp only [Nat.sub_zero, Bool.and_true, and_true] at hf
+  rw [hr2, hr1, BitVec.add_assoc]; congr 1; dsimp only [c1] at hf; rw [← hf]
+  split <;> simp [BitVec.ofNat_add]
+
 private abbrev CanonRsnPre (c : FullCfg) (s : FullState) (rsn_lits : List Nat)
     (skip_var : BitVec 32) (mrk' : List (BitVec 8)) (tmp' : List (BitVec 32))
-    (tc' tl' : Nat) : Prop :=
+    (tc' tl' : Nat) (res' : BitVec 64) : Prop :=
   (∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 ≠ 0#8 →
     mrk'[v]?.getD 0#8 = s.core.mrk[v]?.getD 0#8) ∧
   (∀ k < s.core.tmp_len, tmp'[k]? = s.core.tmp[k]?) ∧
@@ -229,15 +254,21 @@ private abbrev CanonRsnPre (c : FullCfg) (s : FullState) (rsn_lits : List Nat)
     l ∈ rsn_lits ∧ l < 2 * s.core.cur_vars ∧ l / 2 ≠ skip_var.toNat ∧
     s.core.mrk[l / 2]?.getD 0#8 = 0#8 ∧ 0 < (s.core.lvl[l / 2]?.getD 0#32).toNat ∧
     (s.core.lvl[l / 2]?.getD 0#32).toNat < s.core.cur_level ∧ mrk'[l / 2]?.getD 0#8 ≠ 0#8) ∧
+  (∀ j1 j2, s.core.tmp_len ≤ j1 → j1 < j2 → j2 < tl' →
+    (tmp'[j1]?.getD 0#32).toNat / 2 ≠ (tmp'[j2]?.getD 0#32).toNat / 2) ∧
   (tc' - s.core.tmp_cnt = ((List.range s.core.cur_vars).filter fun w =>
     decide (s.core.mrk[w]?.getD 0#8 = 0#8) && decide (mrk'[w]?.getD 0#8 ≠ 0#8) &&
-    decide ((s.core.lvl[w]?.getD 0#32).toNat = s.core.cur_level)).length)
+    decide ((s.core.lvl[w]?.getD 0#32).toNat = s.core.cur_level)).length) ∧
+  (res' = s.scratch.res_sz + BitVec.ofNat 64 ((List.range s.core.cur_vars).filter fun w =>
+    decide (s.core.mrk[w]?.getD 0#8 = 0#8) && decide (mrk'[w]?.getD 0#8 ≠ 0#8)).length)
 
 private theorem canon_rsn_step {c : FullCfg} {s : FullState} {l_bv skip_var : BitVec 32}
     {rsn_lits : List Nat} {mrk' mrk2 : List (BitVec 8)} {tmp' tmp2 : List (BitVec 32)}
-    {tc' tl' tc2 tl2 : Nat} (hcv_le : s.core.cur_vars ≤ c.max_vars) (htl_ge : s.core.tmp_len ≤ tl')
+    {tc' tl' tc2 tl2 : Nat} {res' res2 : BitVec 64}
+    (hcv_le : s.core.cur_vars ≤ c.max_vars) (htl_ge : s.core.tmp_len ≤ tl')
+    (htl2_ge : tl' ≤ tl2) (htl2_inc : tl2 ≤ tl' + 1)
     (htc_ge : s.core.tmp_cnt ≤ tc') (hl_mem : l_bv.toNat ∈ rsn_lits)
-    (hpre : CanonRsnPre c s rsn_lits skip_var mrk' tmp' tc' tl')
+    (hpre : CanonRsnPre c s rsn_lits skip_var mrk' tmp' tc' tl' res')
     (hmp2 : ∀ v < c.max_vars, mrk'[v]?.getD 0#8 ≠ 0#8 →
       mrk2[v]?.getD 0#8 = mrk'[v]?.getD 0#8) (htp2 : ∀ k < tl', tmp2[k]? = tmp'[k]?)
     (hnm2 : ∀ v < c.max_vars, mrk'[v]?.getD 0#8 = 0#8 → mrk2[v]?.getD 0#8 ≠ 0#8 →
@@ -248,14 +279,17 @@ private theorem canon_rsn_step {c : FullCfg} {s : FullState} {l_bv skip_var : Bi
       mrk'[l_bv.toNat / 2]?.getD 0#8 = 0#8 ∧ 0 < (s.core.lvl[l_bv.toNat / 2]?.getD 0#32).toNat ∧
       (s.core.lvl[l_bv.toNat / 2]?.getD 0#32).toNat < s.core.cur_level ∧
       mrk2[l_bv.toNat / 2]?.getD 0#8 ≠ 0#8)
+    (hres2 : res2 = res' + if l_bv.toNat / 2 < s.core.cur_vars ∧
+      mrk'[l_bv.toNat / 2]?.getD 0#8 = 0#8 ∧ mrk2[l_bv.toNat / 2]?.getD 0#8 ≠ 0#8
+      then 1#64 else 0#64)
     (htc2_eq : tc2 = tc' + if l_bv.toNat / 2 < s.core.cur_vars ∧
       mrk'[l_bv.toNat / 2]?.getD 0#8 = 0#8 ∧ mrk2[l_bv.toNat / 2]?.getD 0#8 ≠ 0#8 ∧
       (s.core.lvl[l_bv.toNat / 2]?.getD 0#32).toNat = s.core.cur_level then 1 else 0) :
-    CanonRsnPre c s rsn_lits skip_var mrk2 tmp2 tc2 tl2 := by
-  obtain ⟨hmp, htp, hnm, hnt, hcnt⟩ := hpre
+    CanonRsnPre c s rsn_lits skip_var mrk2 tmp2 tc2 tl2 res2 := by
+  obtain ⟨hmp, htp, hnm, hnt, hnd, hcnt, hres_l⟩ := hpre
   refine ⟨fun v hv hnz => by have h1 := hmp v hv hnz; rw [hmp2 v hv (by rwa [h1]), h1],
     fun k hk => by rw [htp2 k (by omega), htp k hk], fun v hv hs0 hmnz => ?_,
-    fun j hj1 hj2 => ?_, ?_⟩
+    fun j hj1 hj2 => ?_, fun j1 j2 hj1 hj12 hj2 => ?_, ?_, ?_⟩
   · by_cases hm1 : mrk'[v]?.getD 0#8 = 0#8
     · obtain ⟨rfl, hlt, hne', hpos, hle⟩ := hnm2 v hv hm1 hmnz
       exact ⟨l_bv.toNat, hl_mem, rfl, hlt, hne', hpos, hle⟩
@@ -269,11 +303,21 @@ private theorem canon_rsn_step {c : FullCfg} {s : FullState} {l_bv skip_var : Bi
           rw [hmp _ (by omega) hnz] at hm1_0; exact hnz hm1_0
       exact ⟨by rwa [heq], by omega, by omega, by rwa [heq], by rwa [heq], by rwa [heq],
         by rwa [heq]⟩
-  · exact filter_step_of_lit (fun w => decide ((s.core.lvl[w]?.getD 0#32).toNat = s.core.cur_level))
+  · by_cases hj2_old : j2 < tl'
+    · rw [htp2 j1 (by omega), htp2 j2 hj2_old]; exact hnd j1 j2 hj1 hj12 hj2_old
+    · have hj1_old : j1 < tl' := by omega
+      rw [htp2 j1 hj1_old]; have h1 := (hnt j1 hj1 hj1_old).2.2.2.2.2.2
+      obtain ⟨heq, _, _, hm1_0, _⟩ := hnt2 j2 (by omega) hj2
+      rw [heq]; intro heq_v; rw [← heq_v] at hm1_0; exact absurd hm1_0 h1
+  · exact filter_step_of_lit
+      (fun w => decide ((s.core.lvl[w]?.getD 0#32).toNat = s.core.cur_level))
       (mv := s.core.cur_vars) (tc0 := s.core.tmp_cnt) (tc1 := tc') (v := l_bv.toNat / 2)
       (fun w hw => hmp w (by omega)) (fun w hw => hmp2 w (by omega))
       (fun w hw h0 hnz => (hnm2 w (by omega) h0 hnz).1) htc_ge hcnt
       (by simpa only [decide_eq_true_eq] using htc2_eq)
+  · exact b8_res_step_of_lit (mv := s.core.cur_vars) (v := l_bv.toNat / 2)
+      (fun w hw => hmp w (by omega)) (fun w hw => hmp2 w (by omega))
+      (fun w hw h0 hnz => (hnm2 w (by omega) h0 hnz).1) hres_l hres2
 
 private abbrev canonRsnState (s : FullState) (mrk' : List (BitVec 8))
     (tmp' ws1' arena' gu' : List (BitVec 32)) (mcl' tc' tl' : Nat) (ant' res' : BitVec 64) :
@@ -298,7 +342,10 @@ theorem full_analyze_rsn_bridge_wp (Γ : Env)
     hQ false s.core.mrk s.core.tmp s.core.tmp_cnt s.core.tmp_len s.core.min_clr_len s.core.arena
       s.scratch m hlen hw hcov ⟨rfl, rfl⟩ rfl (Nat.le_refl _) htl_cv (Nat.le_refl _) rfl
       (fun _ _ => ⟨rfl, rfl, rfl⟩) (fun _ _ _ => rfl) (fun _ _ => rfl)
-      (fun _ _ h0 h => absurd h0 h) (fun _ h1 h2 => by omega) (fun hc => by cases hc) hm
+      (fun _ _ h0 h => absurd h0 h) (fun _ h1 h2 => by omega) (fun _ _ _ h1 h2 => by omega)
+      (by rw [Nat.sub_self, eq_comm, List.length_eq_zero_iff, List.filter_eq_nil_iff]
+          intro _ _; simp)
+      (by rw [List.filter_eq_nil_iff.mpr (fun _ _ => by simp)]; simp) (fun hc => by cases hc) hm
   fa_unmdata; c0_step; c0_step
   · exact hret_false_same
   · c0_step
@@ -306,8 +353,8 @@ theorem full_analyze_rsn_bridge_wp (Γ : Env)
       fa_steps
       refine wp_call_of_spec _ _ (hLit (c.hdr, rsn &&& 0x7FFFFFFF#32, skip_var, ()) _ _ _
         ⟨c, s, R, rfl, hlen, hcur32, htl_cv, by omega, hcov, hm, ?_⟩)
-      intro ok mrk' tmp' tc' tl' mcl' ws1' ant' res' m' _ hlen' hcov' htl_ge _ htl_le htc_ge _
-        hmpres htpres hnewm hnewt hok hm'
+      intro ok mrk' tmp' tc' tl' mcl' ws1' ant' res' m' _ hlen' hcov' htl_ge _ htl_le htc_ge
+        hant_eq hres_eq htc_eq hmpres htpres hnewm hnewt hok hm'
       fa_steps
       have hw' : FullWitnessCutInv c F0 F_cur cut
           (canonRsnState s mrk' tmp' ws1' s.core.arena s.scratch.glue_used
@@ -315,10 +362,22 @@ theorem full_analyze_rsn_bridge_wp (Γ : Env)
         anaCut_to_canonCut (same_core_fullWitnessCut (canonCut_to_anaCut hw)
           hlen'.core_ok.mrk_len hlen'.core_ok.tmp_len_arr hlen'.core_ok.min_clr_len_le htl_le
           (tc' := tc')) hw.cut_le
+      have htc_f := filter_step_of_lit
+        (fun w => decide ((s.core.lvl[w]?.getD 0#32).toNat = s.core.cur_level))
+        (mv := s.core.cur_vars) (tc0 := s.core.tmp_cnt) (tc1 := s.core.tmp_cnt)
+        (v := (rsn &&& 0x7FFFFFFF#32).toNat / 2) (fun _ _ _ => rfl)
+        (fun w hw_lt => hmpres w (by omega)) (fun w hw_lt h0 hnz => (hnewm w (by omega) h0 hnz).1)
+        (Nat.le_refl _) (by rw [Nat.sub_self, List.filter_eq_nil_iff.mpr (fun _ _ => by simp)]; rfl)
+        (by simpa only [decide_eq_true_eq] using htc_eq)
+      have hres_f := b8_res_step_of_lit (mv := s.core.cur_vars)
+        (v := (rsn &&& 0x7FFFFFFF#32).toNat / 2) (r0 := s.scratch.res_sz)
+        (r1 := s.scratch.res_sz) (fun _ _ _ => rfl) (fun w hw_lt => hmpres w (by omega))
+        (fun w hw_lt h0 hnz => (hnewm w (by omega) h0 hnz).1)
+        (by rw [List.filter_eq_nil_iff.mpr (fun _ _ => by simp)]; simp) hres_eq
       refine hQ ok mrk' tmp' tc' tl' mcl' s.core.arena
         { s.scratch with work_stk1 := ws1', ant_sz := ant', res_sz := res' } m'
         hlen' hw' hcov' ⟨rfl, rfl⟩ rfl htl_ge htl_le htc_ge rfl (fun _ _ => ⟨rfl, rfl, rfl⟩)
-        hmpres htpres ?_ ?_ ?_ hm'
+        hmpres htpres ?_ ?_ (fun _ _ _ h1 h2 => by omega) htc_f hres_f ?_ hm'
       · intro v hv h0 hnz; obtain ⟨rfl, hlt, hne', hpos, hle⟩ := hnewm v hv h0 hnz
         exact ⟨(rsn &&& 0x7FFFFFFF#32).toNat, (mem_fullRsnLits_bin hne hbin).mpr rfl,
           rfl, hlt, hne', hpos, hle⟩
@@ -326,14 +385,18 @@ theorem full_analyze_rsn_bridge_wp (Γ : Env)
         exact ⟨(mem_fullRsnLits_bin hne hbin).mpr heq, by omega, by omega, by rwa [heq],
           by rwa [heq], by rwa [heq], by rwa [heq]⟩
       · intro hok'; obtain ⟨hvlt, hrest⟩ := hok hok'
-        refine ⟨hne, fun l hl => ?_⟩
-        simp only [fullRsnLits, ite_eq_right (fun h => hne h), ite_eq_left hbin,
-          List.mem_singleton] at hl
-        subst hl; refine ⟨hvlt, fun hne' => ?_⟩
-        obtain ⟨hm1, h0r⟩ := hrest hne'; refine ⟨hm1, fun h0 => ?_⟩
-        obtain ⟨hle, _, hlow⟩ := h0r h0
-        exact ⟨hle, fun hpos hlt => let ⟨_, htget⟩ := hlow hpos hlt
-          ⟨s.core.tmp_len, Nat.le_refl _, by omega, by rw [htget]; rfl⟩⟩
+        refine ⟨hne, ?_, fun l hl => ?_⟩
+        · rw [hant_eq, fullRsnLits, ite_eq_right (fun h => hne h), ite_eq_left hbin,
+            List.countP_cons, List.countP_nil, Nat.zero_add]
+          exact congrArg (s.scratch.ant_sz + ·)
+            (b8_bv64_ite_iff (by simp only [decide_eq_true_eq]))
+        · simp only [fullRsnLits, ite_eq_right (fun h => hne h), ite_eq_left hbin,
+            List.mem_singleton] at hl
+          subst hl; refine ⟨hvlt, fun hne' => ?_⟩
+          obtain ⟨hm1, h0r⟩ := hrest hne'; refine ⟨hm1, fun h0 => ?_⟩
+          obtain ⟨hle, _, hlow⟩ := h0r h0
+          exact ⟨hle, fun hpos hlt => let ⟨_, htget⟩ := hlow hpos hlt
+            ⟨s.core.tmp_len, Nat.le_refl _, by omega, by rw [htget]; rfl⟩⟩
     · have hne : rsn ≠ 0xFFFFFFFF#32 := ‹_›; have hlarge : (rsn &&& 0x80000000#32) = 0#32 := ‹_›
       have href : rsn.toNat ∈ fullArenaClauseRefs s := hrsn_ref hne hlarge
       obtain ⟨hbd3, hsz3, hbd, hbd_le, _⟩ := hw.arena.refs_wf rsn.toNat href
@@ -365,6 +428,9 @@ theorem full_analyze_rsn_bridge_wp (Γ : Env)
         have har1_len : arena1.length = c.arena_cap := hlen1.core_ok.arena_len_arr
         have har1_le : s.core.arena_len ≤ c.arena_cap := hlen1.core_ok.arena_len_le
         let sz : Nat := fullArenaClauseSize s rsn.toNat
+        let antPred : Nat → Bool := fun l =>
+          decide (l / 2 < s.core.cur_vars ∧ 0 < (s.core.lvl[l / 2]?.getD 0#32).toNat ∧
+            (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ s.core.cur_level)
         let LoopInv : Nat → List (BitVec 8) → List (BitVec 32) → List (BitVec 32) →
             Nat → Nat → Nat → BitVec 64 → BitVec 64 → Prop :=
           fun i mrk' tmp' ws1' mcl' tc' tl' ant' res' =>
@@ -373,10 +439,12 @@ theorem full_analyze_rsn_bridge_wp (Γ : Env)
             s.core.tmp_len ≤ tl' ∧ tl' ≤ s.core.cur_vars ∧ s.core.tmp_cnt ≤ tc' ∧
             FullAnaMarksCov c (canonRsnState s1 mrk' tmp' ws1' arena1 gu1
               mcl' tc' tl' ant' res') ∧
-            CanonRsnPre c s (fullArenaClauseLits s rsn.toNat) skip_var mrk' tmp' tc' tl' ∧
+            CanonRsnPre c s (fullArenaClauseLits s rsn.toNat) skip_var mrk' tmp' tc' tl' res' ∧
             (∀ w < s.core.cur_vars, s.core.mrk[w]?.getD 0#8 = 0#8 → mrk'[w]?.getD 0#8 ≠ 0#8 →
               (s.core.lvl[w]?.getD 0#32).toNat < s.core.cur_level →
               ∃ j, s.core.tmp_len ≤ j ∧ j < tl' ∧ (tmp'[j]?.getD 0#32).toNat / 2 = w) ∧
+            ant' = s.scratch.ant_sz +
+              BitVec.ofNat 64 (((fullArenaClauseLits s rsn.toNat).take i).countP antPred) ∧
             ∀ k < i, let l := (s.core.arena[rsn.toNat + 3 + k]?.getD 0#32).toNat
               l / 2 < s.core.cur_vars ∧ (l / 2 ≠ skip_var.toNat →
                 (0 < (s.core.lvl[l / 2]?.getD 0#32).toNat → mrk'[l / 2]?.getD 0#8 ≠ 0#8) ∧
@@ -392,8 +460,8 @@ theorem full_analyze_rsn_bridge_wp (Γ : Env)
           ?_ ?_
         · rintro L r ⟨iv, ⟨⟩⟩ ml ih ⟨i, mrk', tmp', ws1', mcl', tc', tl', ant', res', rfl, rfl,
             ⟨hile, hml_l, htl_l, hws_l, hmcl_le, htl_ge, htl_le, htc_ge, hcov', hpre,
-              hnewlow, hdone⟩, hml⟩
-          have ⟨hmpres, htpres, hnewm, hnewt, hcnt⟩ := hpre
+              hnewlow, hant_l, hdone⟩, hml⟩
+          have ⟨hmpres, htpres, hnewm, hnewt, hnd_t, hcnt, hres_l⟩ := hpre
           have hsz_mod : (rsn.toNat + (2#64).toNat) % 2 ^ 64 = rsn.toNat + 2 := by
             change (rsn.toNat + 2) % 2 ^ 64 = rsn.toNat + 2; omega
           have hidx_eq : s.core.arena[(rsn.toNat + (2#64).toNat) % 2 ^ 64]'(by omega) =
@@ -431,14 +499,14 @@ theorem full_analyze_rsn_bridge_wp (Γ : Env)
             rw [getElem_eq_of_idx (hi := hidx_lt) (hj := by omega) hidx_l]
             refine wp_call_of_spec _ _ (hLit (c.hdr, l_bv, skip_var, ()) _ _ _
               ⟨c, st, R, rfl, hst_len, hcur32, htl_le, by dsimp [st]; omega, hcov', hml, ?_⟩)
-            intro ok2 mrk2 tmp2 tc2 tl2 mcl2 ws2 ant2 res2 m2 _ hlen2 hcov2 htl2_ge _
-              htl2_le htc2_ge htc2_eq hmpres2 htpres2 hnewm2 hnewt2 hok2 hm2
+            intro ok2 mrk2 tmp2 tc2 tl2 mcl2 ws2 ant2 res2 m2 _ hlen2 hcov2 htl2_ge htl2_inc
+              htl2_le htc2_ge hant2 hres2 htc2_eq hmpres2 htpres2 hnewm2 hnewt2 hok2 hm2
             dsimp only [st, s1] at *
-            have hpre2 := canon_rsn_step hcv_le htl_ge htc_ge hl_mem hpre hmpres2 htpres2
-              hnewm2 hnewt2 htc2_eq
+            have hpre2 := canon_rsn_step hcv_le htl_ge htl2_ge htl2_inc htc_ge hl_mem hpre hmpres2
+              htpres2 hnewm2 hnewt2 hres2 htc2_eq
             cases ok2 with
             | false =>
-              wp_unfold; obtain ⟨h1, h2, h3, h4, _⟩ := hpre2
+              wp_unfold; obtain ⟨h1, h2, h3, h4, h5, h6, h7⟩ := hpre2
               exact hQ false mrk2 tmp2 tc2 tl2 mcl2 arena1
                 { s.scratch with work_stk1 := ws2, glue_used := gu1,
                                  ant_sz := ant2, res_sz := res2 } m2
@@ -451,16 +519,30 @@ theorem full_analyze_rsn_bridge_wp (Γ : Env)
                   ⟨l, (mem_fullRsnLits_large hne hlarge).mpr hl, hr⟩)
                 (fun j hj1 hj2 => let ⟨ha, hr⟩ := h4 j hj1 hj2
                   ⟨(mem_fullRsnLits_large hne hlarge).mpr ha, hr⟩)
-                (fun hc => by cases hc) hm2
+                h5 h6 h7 (fun hc => by cases hc) hm2
             | true =>
               wp_unfold; obtain ⟨hvlt, hrest⟩ := hok2 rfl
+              have htake1 : (fullArenaClauseLits s rsn.toNat).take (i + 1) =
+                  (fullArenaClauseLits s rsn.toNat).take i ++ [l_bv.toNat] := by
+                have hlen_l : (fullArenaClauseLits s rsn.toNat).length = sz := by
+                  simp [fullArenaClauseLits, fullArenaClauseLitsCore, sz,
+                    fullArenaClauseSize]; omega
+                rw [List.take_add_one, List.getElem?_eq_getElem (by omega), Option.toList_some]
+                congr 2; unfold fullArenaClauseLits fullArenaClauseLitsCore
+                simp [List.getElem_map, List.getElem_take, List.getElem_drop, ← hl_eq]
+              have hant2_eq : ant2 = s.scratch.ant_sz + BitVec.ofNat 64
+                  (((fullArenaClauseLits s rsn.toNat).take (i + 1)).countP antPred) := by
+                rw [hant2, hant_l, htake1, List.countP_append, List.countP_cons, List.countP_nil,
+                  Nat.zero_add, BitVec.add_assoc, BitVec.ofNat_add]
+                exact congrArg (s.scratch.ant_sz + ·) (congrArg _
+                  (b8_bv64_ite_iff (by simp only [antPred, decide_eq_true_eq])))
               rw [show BitVec.ofNat 32 i + 1 = BitVec.ofNat 32 (i + 1) from
                 BitVec.eq_of_toNat_eq (by bv_omega)]
               refine ih (sz - (i + 1)) _ _ (by omega)
                 ⟨i + 1, mrk2, tmp2, ws2, mcl2, tc2, tl2, ant2, res2, rfl, rfl,
                   ⟨by omega, hlen2.core_ok.mrk_len, hlen2.core_ok.tmp_len_arr,
                     hlen2.scratch_ok.work_stk1_len, hlen2.core_ok.min_clr_len_le,
-                    by omega, htl2_le, by omega, hcov2, hpre2, ?_, ?_⟩, hm2⟩
+                    by omega, htl2_le, by omega, hcov2, hpre2, ?_, hant2_eq, ?_⟩, hm2⟩
               · intro w hw_lt hs0 hmnz2 hltcl
                 by_cases hm1_w : mrk'[w]?.getD 0#8 = 0#8
                 · obtain ⟨rfl, _, hne', hpos, _⟩ := hnewm2 w (by omega) hm1_w hmnz2
@@ -506,12 +588,17 @@ theorem full_analyze_rsn_bridge_wp (Γ : Env)
                 ⟨l, (mem_fullRsnLits_large hne hlarge).mpr hl, hr⟩)
               (fun j hj1 hj2 => let ⟨h1, hr⟩ := hnewt j hj1 hj2
                 ⟨(mem_fullRsnLits_large hne hlarge).mpr h1, hr⟩)
-              (fun _ => ⟨hne, fun l hl => by
+              hnd_t hcnt hres_l (fun _ => ⟨hne, ?_, fun l hl => by
                 simp only [fullRsnLits, hne, hlarge, ↓reduceIte] at hl
                 obtain ⟨k, hk, hget⟩ := (mem_fullArenaClauseLitsCore_iff (by omega)).mp hl
                 have hkget : (s.core.arena[rsn.toNat + 3 + k]?.getD 0#32).toNat = l := by
                   rw [List.getElem?_eq_getElem (by omega), Option.getD_some, hget]
                 have hd := hdone k (by rw [hieq]; exact hk); rwa [hkget] at hd⟩) hml
+            · have hlen_l : (fullArenaClauseLits s rsn.toNat).length = sz := by
+                simp only [fullArenaClauseLits, fullArenaClauseLitsCore, sz, fullArenaClauseSize,
+                  List.length_map, List.length_take, List.length_drop]; have := har_len; omega
+              rw [hant_l, hieq, List.take_of_length_le (Nat.le_of_eq hlen_l)]
+              simp [fullRsnLits, hne, hlarge, antPred]
         · intro L hL; fa_steps
           refine hL sz _ m1 ⟨0, s.core.mrk, s.core.tmp, s.scratch.work_stk1, s.core.min_clr_len,
             s.core.tmp_cnt, s.core.tmp_len, s.scratch.ant_sz, s.scratch.res_sz, by omega, rfl,
@@ -519,9 +606,11 @@ theorem full_analyze_rsn_bridge_wp (Γ : Env)
               hlen1.scratch_ok.work_stk1_len, hlen1.core_ok.min_clr_len_le, Nat.le_refl _,
               htl_cv, Nat.le_refl _, hcov, ⟨fun _ _ _ => rfl, fun _ _ => rfl,
                 fun _ _ h0 hnz => absurd h0 hnz, fun _ h1 h2 => by omega,
+                fun _ _ _ h1 h2 => by omega,
                 by rw [Nat.sub_self, eq_comm, List.length_eq_zero_iff, List.filter_eq_nil_iff]
-                   intro _ _; simp⟩,
-              fun _ _ h0 hnz _ => absurd h0 hnz, fun _ hk => by omega⟩, hm1⟩
+                   intro _ _; simp,
+                by rw [List.filter_eq_nil_iff.mpr (fun _ _ => by simp)]; simp⟩,
+              fun _ _ h0 hnz _ => absurd h0 hnz, (by simp), fun _ hk => by omega⟩, hm1⟩
       · intro Jred hJred
         clear hLit hQ htl_cv htc_fit hcov hrsn_ref hsz_get hret_false_same skip_var
         c0_let_simp; c0_step
@@ -581,9 +670,10 @@ theorem full_otfs_large_bridge_wp (Γ : Env)
   refine full_otfs_large_wp_weak Γ hUnw (anaWatchPush_adapter hPush) _ m Q X
     ⟨c, F0, F_cur, cut, idx_u, s, R, rfl, hlen, hdm, canonCut_to_anaCut hw, hnd, hcref, hng,
       hu_lt, hiu_cut, hiu_te, ht_u, hr_u, hlev_u, hent, hm,
-      fun ok ar' wv' ws' wl' wu' oom' sc' m' hlen' hw' hnd' hll hext hws2 hrefs hok hm' => ?_⟩
+      fun ok ar' wv' ws' wl' wu' oom' sc' m' hlen' hw' hnd' hll hext hws1 hws2 hres hrefs
+        hok hm' => ?_⟩
   refine hQ ok ar' wv' ws' wl' wu' oom' sc' m' hlen' (anaCut_to_canonCut hw' (by dsimp; omega)) hnd'
-    ⟨hll, hext⟩ hws2 hrefs (fun htrue => ?_) hm'
+    ⟨hll, hext⟩ hws1 hws2 hres hrefs (fun htrue => ?_) hm'
   obtain ⟨hr', hng', hlits⟩ := hok htrue
   exact ⟨hr', hng', fun l hl => let ⟨_, _, hv, hlvl⟩ := hlits l hl; ⟨hv, hlvl⟩⟩
 
@@ -600,10 +690,11 @@ theorem full_otfs_bin_bridge_wp (Γ : Env)
   refine full_otfs_bin_wp_weak Γ hUnw (anaWatchPush_adapter hPush) _ m Q X
     ⟨c, F0, F_cur, cut, idx_u, s, R, rfl, hlen, hdm, canonCut_to_anaCut hw, hnd, hcref, hng,
       hu_lt, hiu_cut, hiu_te, ht_u, hr_u, hlev_u, hent, hm,
-      fun ok ar' ag' nb' wv' ws' wl' wu' ct' c0' c1' cr' oom' sc' m' hlen' hw' hnd' hll hext
-        hws2 hrefs hok hm' => ?_⟩
+      fun ok ar' ag' nb' wv' ws' wl' wu' ct' c0' c1' cr' oom' sc' m' hlen' hw' hnd' hll hext hws1
+        hws2 hres hrefs hok hm' => ?_⟩
   refine hQ ok ar' ag' wv' ws' wl' wu' nb' ct' cr' c0' c1' oom' sc' m' hlen'
-    (anaCut_to_canonCut hw' (by dsimp; omega)) hnd' ⟨hll, hext⟩ hws2 hrefs (fun htrue => ?_) hm'
+    (anaCut_to_canonCut hw' (by dsimp; omega)) hnd' ⟨hll, hext⟩ hws1 hws2 hres hrefs
+    (fun htrue => ?_) hm'
   obtain ⟨hct, hcf⟩ := hok htrue
   exact ⟨hct, anaConflOk_to_canonCut hct hcf⟩
 
@@ -611,13 +702,21 @@ theorem full_otfs_subsume_bridge_wp (Γ : Env) :
     ∀ a m Q X, fullOtfsSubsumeSpec a m Q X → Func.wp Γ full_otfs_subsume_body a m Q X := by
   rintro ⟨h, new_confl, old_ctype, old_cref, to_bin, ⟨⟩⟩ m Q X
     ⟨c, F0, F_cur, cut, s, R, rfl, hlen, hw, hnd, hpre, hm, hQ⟩
-  refine full_otfs_subsume_wp Γ _ m Q X
-    ⟨c, F0, F_cur, cut, s, R, rfl, hlen, canonCut_to_anaCut hw, hnd, fun hct hcr => ?_, hm,
-      fun ar' ag' ni' nr' m' hlen' hw' hrefs hnd' hcl hm' =>
-        hQ ar' ag' ni' nr' m' hlen' (anaCut_to_canonCut hw' hw.cut_le) hnd' hrefs hcl hm'⟩
-  obtain ⟨hold, hnew, hnonact⟩ := hpre hct hcr
-  exact ⟨hold, fun hnt => hnew (Bool.eq_false_iff.mpr hnt),
-    fun idx hidx hcond hne hlg => hnonact idx hidx hcond hne hlg⟩
+  by_cases hct : old_ctype = 2#64
+  · subst old_ctype
+    refine full_otfs_subsume_wp Γ _ m Q X
+      ⟨c, F0, F_cur, cut, s, R, rfl, hlen, canonCut_to_anaCut hw, hnd, fun _ hcr => ?_, hm,
+        fun ar' ag' ni' nr' m' hlen' hw' hrefs hnd' hcl hm' =>
+          hQ ar' ag' ni' nr' m' hlen' (anaCut_to_canonCut hw' hw.cut_le) hnd' hrefs
+            (fun r hr => ⟨(hcl r hr).1, fun hf => (hcl r hr).2 rfl (hf rfl)⟩) hm'⟩
+    obtain ⟨hold, hnew, hnonact⟩ := hpre rfl hcr
+    exact ⟨hold, fun hnt => hnew (Bool.eq_false_iff.mpr hnt),
+      fun idx hidx hcond hne hlg => hnonact idx hidx hcond hne hlg⟩
+  · have hsame : Q () m := hQ s.core.arena s.core.arena_garbage s.core.num_irred
+      s.core.num_redundant m hlen hw hnd rfl (fun _ _ => ⟨rfl, fun _ => rfl⟩) hm
+    fa_fast_steps
+    · exact hsame
+    all_goals (exfalso; exact hct ‹_›)
 
 theorem full_det_new_level_bridge_wp (Γ : Env) :
     ∀ a m Q X, fullDetNewLevelSpec a m Q X → Func.wp Γ full_det_new_level_body a m Q X :=

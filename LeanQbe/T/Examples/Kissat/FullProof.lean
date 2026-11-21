@@ -4,7 +4,10 @@ public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas5
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas6
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas8a
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas8b
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas9
+public import LeanQbe.T.Examples.Kissat.FullOneLitConflLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 
@@ -794,5 +797,54 @@ theorem fullUnsatEnv_modOk_rem
     ModuleOk fullUnsatEnv fullModule :=
   mkFullEnv_moduleOk_of_missing fullUnsatWitnessSpec
     (fun _ _ _ _ => fullSolveBytesCoreSpec_of_unsatWitness) h8a h8b
+
+private theorem full_remaining_8b_of_79
+    (mainSpec : Spec [i64, i64, i64, i64, i64] [i64])
+    (h79 : ∃ fn row, fullFns[79]? = some fn ∧ (fullSpecTable mainSpec)[79]? = some row ∧
+      SpecEntry.Impl (mkFullEnv mainSpec) fn row) :
+    ∀ n ∈ fullRemaining8bIndices,
+      ∃ fn row, fullFns[n]? = some fn ∧ (fullSpecTable mainSpec)[n]? = some row ∧
+        SpecEntry.Impl (mkFullEnv mainSpec) fn row := by
+  intro n hn
+  simp only [fullRemaining8bIndices, List.mem_cons, List.not_mem_nil, or_false] at hn
+  rcases hn with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact full_bridge_8b_mk_ok mainSpec 62 (by simp [fullBridge8bIndices])
+  · exact full_bridge_8b_mk_ok mainSpec 63 (by simp [fullBridge8bIndices])
+  · exact full_bridge_8b_mk_ok mainSpec 64 (by simp [fullBridge8bIndices])
+  · exact full_bridge_8b_mk_ok mainSpec 66 (by simp [fullBridge8bIndices])
+  · exact full_bridge_8b_mk_ok mainSpec 67 (by simp [fullBridge8bIndices])
+  · exact full_bridge_8b_mk_ok mainSpec 68 (by simp [fullBridge8bIndices])
+  · exact full_bridge_8b_mk_ok mainSpec 77 (by simp [fullBridge8bIndices])
+  · exact full_one_lit_confl_mk_ok mainSpec
+  · exact h79
+
+/-- `ModuleOk` assembly for `mkFullEnv mainSpec` on `fullModule` discharging `165/166` rows
+unconditionally and parameterized strictly by row `[79]` (`full_deduce_1uip`). -/
+theorem mkFullEnv_moduleOk_of_79
+    (mainSpec : Spec [i64, i64, i64, i64, i64] [i64])
+    (hweaken : ∀ a m Q X, mainSpec a m Q X → fullSolveBytesCoreSpec a m Q X)
+    (h79 : ∃ fn row, fullFns[79]? = some fn ∧ (fullSpecTable mainSpec)[79]? = some row ∧
+      SpecEntry.Impl (mkFullEnv mainSpec) fn row) :
+    ModuleOk (mkFullEnv mainSpec) fullModule :=
+  mkFullEnv_moduleOk_of_missing mainSpec hweaken (full_bridge_8a_mk_ok mainSpec)
+    (full_remaining_8b_of_79 mainSpec h79)
+
+/-- `ModuleOk fullEnv fullModule` discharging `165/166` rows, parameterized only by `[79]`. -/
+theorem fullEnv_moduleOk_of_79
+    (h79 : ∃ fn row, fullFns[79]? = some fn ∧
+      (fullSpecTable fullSolveBytesSpec)[79]? = some row ∧
+      SpecEntry.Impl fullEnv fn row) :
+    ModuleOk fullEnv fullModule :=
+  mkFullEnv_moduleOk_of_79 fullSolveBytesSpec
+    (fun _ _ _ _ => fullSolveBytesCoreSpec_of_spec) h79
+
+/-- `ModuleOk fullUnsatEnv fullModule` discharging `165/166` rows, parameterized only by `[79]`. -/
+theorem fullUnsatEnv_moduleOk_of_79
+    (h79 : ∃ fn row, fullFns[79]? = some fn ∧
+      (fullSpecTable fullUnsatWitnessSpec)[79]? = some row ∧
+      SpecEntry.Impl fullUnsatEnv fn row) :
+    ModuleOk fullUnsatEnv fullModule :=
+  mkFullEnv_moduleOk_of_79 fullUnsatWitnessSpec
+    (fun _ _ _ _ => fullSolveBytesCoreSpec_of_unsatWitness) h79
 
 end LeanQbe.T.Examples.Kissat.Full

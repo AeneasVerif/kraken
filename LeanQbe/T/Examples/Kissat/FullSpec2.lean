@@ -893,6 +893,13 @@ def fullAnalyzeLitSpec : Spec [i64, i32, i32] [.bool] := fun (h, lit, skip_var, 
           scratch := { s.scratch with work_stk1 := ws1', ant_sz := ant', res_sz := res' } }
       s'.LengthsOk c → FullAnaMarksCov c s' → s.core.tmp_len ≤ tl' → tl' ≤ s.core.tmp_len + 1 →
       tl' ≤ s.core.cur_vars → s.core.tmp_cnt ≤ tc' →
+      ant' = s.scratch.ant_sz +
+        (if lit.toNat / 2 < s.core.cur_vars ∧ 0 < (s.core.lvl[lit.toNat / 2]?.getD 0#32).toNat ∧
+            (s.core.lvl[lit.toNat / 2]?.getD 0#32).toNat ≤ s.core.cur_level
+         then 1#64 else 0#64) →
+      res' = s.scratch.res_sz +
+        (if lit.toNat / 2 < s.core.cur_vars ∧ s.core.mrk[lit.toNat / 2]?.getD 0#8 = 0#8 ∧
+            mrk'[lit.toNat / 2]?.getD 0#8 ≠ 0#8 then 1#64 else 0#64) →
       tc' = s.core.tmp_cnt +
         (if lit.toNat / 2 < s.core.cur_vars ∧ s.core.mrk[lit.toNat / 2]?.getD 0#8 = 0#8 ∧
             mrk'[lit.toNat / 2]?.getD 0#8 ≠ 0#8 ∧
@@ -959,7 +966,17 @@ def fullAnalyzeRsnSpec : Spec [i64, i32, i32] [.bool] := fun (h, rsn, skip_var, 
         0 < (s.core.lvl[l / 2]?.getD 0#32).toNat ∧
         (s.core.lvl[l / 2]?.getD 0#32).toNat < s.core.cur_level ∧
         mrk'[l / 2]?.getD 0#8 ≠ 0#8) →
+      (∀ j1 j2, s.core.tmp_len ≤ j1 → j1 < j2 → j2 < tl' →
+        (tmp'[j1]?.getD 0#32).toNat / 2 ≠ (tmp'[j2]?.getD 0#32).toNat / 2) →
+      (tc' - s.core.tmp_cnt = ((List.range s.core.cur_vars).filter fun w =>
+        decide (s.core.mrk[w]?.getD 0#8 = 0#8) && decide (mrk'[w]?.getD 0#8 ≠ 0#8) &&
+        decide ((s.core.lvl[w]?.getD 0#32).toNat = s.core.cur_level)).length) →
+      (sc'.res_sz = s.scratch.res_sz + BitVec.ofNat 64 ((List.range s.core.cur_vars).filter fun w =>
+        decide (s.core.mrk[w]?.getD 0#8 = 0#8) && decide (mrk'[w]?.getD 0#8 ≠ 0#8)).length) →
       (ok = true → rsn ≠ 0xFFFFFFFF#32 ∧
+        sc'.ant_sz = s.scratch.ant_sz + BitVec.ofNat 64 ((fullRsnLits s rsn).countP fun l =>
+          decide (l / 2 < s.core.cur_vars ∧ 0 < (s.core.lvl[l / 2]?.getD 0#32).toNat ∧
+            (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ s.core.cur_level)) ∧
         ∀ l ∈ fullRsnLits s rsn, l / 2 < s.core.cur_vars ∧
           (l / 2 ≠ skip_var.toNat →
             (0 < (s.core.lvl[l / 2]?.getD 0#32).toNat → mrk'[l / 2]?.getD 0#8 ≠ 0#8) ∧
@@ -1013,7 +1030,8 @@ def fullOtfsLargeSpec : Spec [i64, i32, i32] [.bool] := fun (h, cref, uip, ()) m
                                 wusable := wu', oom := oom' }
           scratch := sc' }
       s'.LengthsOk c → FullWitnessCutInv c F0 F_cur idx_u s'.core → FullArenaVarsNodup s' →
-      FullExtScratchPres s s' → sc'.work_stk2 = s.scratch.work_stk2 →
+      FullExtScratchPres s s' → sc'.work_stk1 = s.scratch.work_stk1 →
+      sc'.work_stk2 = s.scratch.work_stk2 → sc'.res_sz = s.scratch.res_sz →
       fullArenaClauseRefs s' = fullArenaClauseRefs s →
       (ok = true → cref.toNat ∈ fullArenaClauseRefs s' ∧
         fullArenaClauseGarb s' cref.toNat = false ∧
@@ -1047,7 +1065,8 @@ def fullOtfsBinSpec : Spec [i64, i32, i32] [.bool] := fun (h, cref, uip, ()) m Q
                                 confl_lit1 := c1', oom := oom' }
           scratch := sc' }
       s'.LengthsOk c → FullWitnessCutInv c F0 F_cur idx_u s'.core → FullArenaVarsNodup s' →
-      FullExtScratchPres s s' → sc'.work_stk2 = s.scratch.work_stk2 →
+      FullExtScratchPres s s' → sc'.work_stk1 = s.scratch.work_stk1 →
+      sc'.work_stk2 = s.scratch.work_stk2 → sc'.res_sz = s.scratch.res_sz →
       fullArenaClauseRefs s' = fullArenaClauseRefs s →
       (ok = true → ctype' = 1#64 ∧ FullConflictOkCut F_cur idx_u s') →
       (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
@@ -1073,7 +1092,7 @@ def fullOtfsSubsumeSpec : Spec [i64, i32, i64, i64, .bool] [] :=
         s'.LengthsOk c → FullWitnessCutInv c F0 F_cur cut s'.core → FullArenaVarsNodup s' →
         fullArenaClauseRefs s' = fullArenaClauseRefs s →
         (∀ r ∈ fullArenaClauseRefs s, fullArenaClauseLits s' r = fullArenaClauseLits s r ∧
-          (old_ctype = 2#64 → r ≠ old_cref.toNat →
+          ((old_ctype = 2#64 → r ≠ old_cref.toNat) →
             fullArenaClauseGarb s' r = fullArenaClauseGarb s r)) →
         (FullMem c s' ⋆ R) m' → Q () m'
 

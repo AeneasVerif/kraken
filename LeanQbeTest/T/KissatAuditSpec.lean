@@ -521,22 +521,8 @@ theorem audit_fullEnv_moduleOk_of_79
     (h79 : ∃ fn row, Full.fullFns[79]? = some fn ∧
       (Full.fullSpecTable Full.fullSolveBytesSpec)[79]? = some row ∧
       SpecEntry.Impl Full.fullEnv fn row) :
-    ModuleOk Full.fullEnv Full.fullModule := by
-  apply Full.fullEnv_moduleOk_of_missing
-  · intro n hn
-    exact Full.full_bridge_8a_ok n hn
-  · intro n hn
-    simp only [Full.fullRemaining8bIndices, List.mem_cons, List.not_mem_nil, or_false] at hn
-    rcases hn with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-    · exact Full.full_bridge_8b_ok 62 (by simp [Full.fullBridge8bIndices])
-    · exact Full.full_bridge_8b_ok 63 (by simp [Full.fullBridge8bIndices])
-    · exact Full.full_bridge_8b_ok 64 (by simp [Full.fullBridge8bIndices])
-    · exact Full.full_bridge_8b_ok 66 (by simp [Full.fullBridge8bIndices])
-    · exact Full.full_bridge_8b_ok 67 (by simp [Full.fullBridge8bIndices])
-    · exact Full.full_bridge_8b_ok 68 (by simp [Full.fullBridge8bIndices])
-    · exact Full.full_bridge_8b_ok 77 (by simp [Full.fullBridge8bIndices])
-    · exact Full.full_one_lit_confl_bridge_wp
-    · exact h79
+    ModuleOk Full.fullEnv Full.fullModule :=
+  Full.fullEnv_moduleOk_of_79 h79
 
 /-! ## 6. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
 

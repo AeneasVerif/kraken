@@ -826,7 +826,8 @@ def fullOtfsLargeSpec : Spec [i64, i32, i32] [.bool] := fun (h, cref, uip, ()) m
           scratch := sc' }
       s'.LengthsOk c → FullWitnessCutInv c F0 F_cur idx_u s'.core → FullArenaVarsNodup s' →
       sc'.last_learned = s.scratch.last_learned → sc'.extend_len = s.scratch.extend_len →
-      sc'.work_stk2 = s.scratch.work_stk2 →
+      sc'.work_stk1 = s.scratch.work_stk1 → sc'.work_stk2 = s.scratch.work_stk2 →
+      sc'.res_sz = s.scratch.res_sz →
       fullArenaClauseRefs s' = fullArenaClauseRefs s →
       (ok = true → cref.toNat ∈ fullArenaClauseRefs s' ∧
         fullArenaClauseGarb s' cref.toNat = false ∧
@@ -865,7 +866,8 @@ def fullOtfsBinSpec : Spec [i64, i32, i32] [.bool] := fun (h, cref, uip, ()) m Q
           scratch := sc' }
       s'.LengthsOk c → FullWitnessCutInv c F0 F_cur idx_u s'.core → FullArenaVarsNodup s' →
       sc'.last_learned = s.scratch.last_learned → sc'.extend_len = s.scratch.extend_len →
-      sc'.work_stk2 = s.scratch.work_stk2 →
+      sc'.work_stk1 = s.scratch.work_stk1 → sc'.work_stk2 = s.scratch.work_stk2 →
+      sc'.res_sz = s.scratch.res_sz →
       fullArenaClauseRefs s' = fullArenaClauseRefs s →
       (ok = true → ct' = 1#64 ∧ FullConflOk F_cur idx_u s') →
       (FullMem c s' ⋆ R) m' → Q (ok, ()) m'

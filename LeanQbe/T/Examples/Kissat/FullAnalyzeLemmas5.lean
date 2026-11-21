@@ -714,7 +714,8 @@ private def OtfsLargePost (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
         scratch := sc' }
     s'.LengthsOk c → FullWitnessCutInv c F0 F_cur idx_u s'.core → FullArenaVarsNodup s' →
     sc'.last_learned = s.scratch.last_learned → sc'.extend_len = s.scratch.extend_len →
-    sc'.work_stk2 = s.scratch.work_stk2 → fullArenaClauseRefs s' = fullArenaClauseRefs s →
+    sc'.work_stk1 = s.scratch.work_stk1 → sc'.work_stk2 = s.scratch.work_stk2 →
+    sc'.res_sz = s.scratch.res_sz → fullArenaClauseRefs s' = fullArenaClauseRefs s →
     (ok = true → cref.toNat ∈ fullArenaClauseRefs s' ∧
       fullArenaClauseGarb s' cref.toNat = false ∧
       ∀ l ∈ fullArenaClauseLits s' cref.toNat,
@@ -1010,7 +1011,7 @@ private theorem otfs_large_fin_wp {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Li
       dsimp only [fullArenaClauseLits, fullArenaClauseLitsCore, fullArenaClauseSizeCore, s_fin,
         k_fin] at hl ⊢
       rw [← hs4_ar] at hl; exact hl))
-  exact hQ true ar4 wv5 ws_f wl5 wu5 s.core.oom sc_fin m_sc hlen_f hw_f hnd_f rfl rfl rfl
+  exact hQ true ar4 wv5 ws_f wl5 wu5 s.core.oom sc_fin m_sc hlen_f hw_f hnd_f rfl rfl rfl rfl rfl
     (hrefs_s4.trans hrefs4) (fun _ => ⟨hcref_f, hng_f, hlits_f⟩) hm_f'
 
 private theorem otfs_large_oom_wp {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
@@ -1043,7 +1044,7 @@ private theorem otfs_large_oom_wp {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Li
     rfl (by dsimp only [s5_o, k_o]; rw [hs4_core]) hs4_ar hnd4
   have hrefs_s4 : fullArenaClauseRefsCore s5_o.core = fullArenaClauseRefsCore s4.core := by
     change fullArenaClauseRefsCore k_o = _; rw [hk_eq, hs5_c]; rfl
-  exact hQ false ar4 wv5 ws5 wl5 wu5 1#64 sc_o m_o hlen_o hw_o hnd_o rfl rfl rfl
+  exact hQ false ar4 wv5 ws5 wl5 wu5 1#64 sc_o m_o hlen_o hw_o hnd_o rfl rfl rfl rfl rfl
     (hrefs_s4.trans hrefs4) (fun h => by cases h) hm_o'
 
 private theorem otfs_large_swap1_nl1 {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
@@ -1320,7 +1321,7 @@ theorem full_otfs_large_wp_weak (Γ : Env)
     simp [orig1, List.getElem?_eq_getElem (by omega : cref.toNat + 4 < s.core.arena.length)]
   have hfail : Q (false, ()) m :=
     hQ false s.core.arena s.core.wvec s.core.wstk s.core.wlen s.core.wusable s.core.oom
-      s.scratch _ hlen (hw.shrink_cut (Nat.le_of_lt hiu_cut)) hnd rfl rfl rfl rfl
+      s.scratch _ hlen (hw.shrink_cut (Nat.le_of_lt hiu_cut)) hnd rfl rfl rfl rfl rfl rfl
       (fun h => by cases h) hm
   fa_fast_steps_nogrp
   refine wp_join_group (ts := [i32]) (fun p ml0 => ml0 = m ∧

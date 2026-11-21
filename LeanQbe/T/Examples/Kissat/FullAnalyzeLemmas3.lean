@@ -854,7 +854,8 @@ private theorem otfs_bin_oom_exit {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Li
           scratch := sc' }
       s'.LengthsOk c → FullWitnessCutInv c F0 F_cur idx_u s'.core → FullArenaVarsNodup s' →
       sc'.last_learned = s.scratch.last_learned → sc'.extend_len = s.scratch.extend_len →
-      sc'.work_stk2 = s.scratch.work_stk2 → fullArenaClauseRefs s' = fullArenaClauseRefs s →
+      sc'.work_stk1 = s.scratch.work_stk1 → sc'.work_stk2 = s.scratch.work_stk2 →
+      sc'.res_sz = s.scratch.res_sz → fullArenaClauseRefs s' = fullArenaClauseRefs s →
       (ok = true → ct' = 1#64 ∧ FullConflOk F_cur idx_u s') →
       (FullMem c s' ⋆ R) m'' → Q (ok, ()) m'') :
     Q (false, ()) m' :=
@@ -864,7 +865,7 @@ private theorem otfs_bin_oom_exit {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Li
     ((hw_in.with_oom 1#64).shrink_cut (Nat.le_of_lt hiu))
     (by unfold FullArenaVarsNodup fullArenaClauseRefs fullArenaClauseGarb fullArenaClauseLits
         exact hnd)
-    rfl rfl rfl rfl (fun hc => by cases hc) hm'
+    rfl rfl rfl rfl rfl rfl (fun hc => by cases hc) hm'
 
 private theorem otfs_bin_mark_fin {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {cut idx_u : Nat} {s : FullState} {R : Mem 64 → Prop} {Q : Post [.bool]}
@@ -914,7 +915,8 @@ private theorem otfs_bin_mark_fin {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Li
           scratch := sc' }
       s'.LengthsOk c → FullWitnessCutInv c F0 F_cur idx_u s'.core → FullArenaVarsNodup s' →
       sc'.last_learned = s.scratch.last_learned → sc'.extend_len = s.scratch.extend_len →
-      sc'.work_stk2 = s.scratch.work_stk2 → fullArenaClauseRefs s' = fullArenaClauseRefs s →
+      sc'.work_stk1 = s.scratch.work_stk1 → sc'.work_stk2 = s.scratch.work_stk2 →
+      sc'.res_sz = s.scratch.res_sz → fullArenaClauseRefs s' = fullArenaClauseRefs s →
       (ok = true → ct' = 1#64 ∧ FullConflOk F_cur idx_u s') →
       (FullMem c s' ⋆ R) m'' → Q (ok, ()) m'') :
     Q (true, ()) m' := by
@@ -1006,7 +1008,7 @@ private theorem otfs_bin_mark_fin {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Li
     rw [h_ag5]; congr 1; congr 1; exact getElem_eq_of_idx hcr2_idx
   exact hQ true arena5 ag5 (s.core.num_binary + 1#64) wv4 ws4 wl2 wu4
     1#64 (f0.setWidth 64) (f1.setWidth 64) 0xFFFFFFFF#64 s.core.oom
-    s_fin.scratch m' hlen_fin hw_fin hnd_fin rfl rfl rfl hrefs5
+    s_fin.scratch m' hlen_fin hw_fin hnd_fin rfl rfl rfl rfl rfl hrefs5
     (fun _ => ⟨rfl, hconfl_ok⟩) (fullMem_of_eq hm' (by rw [har5_eq, hag5_eq]) rfl)
 
 theorem full_otfs_bin_wp_weak (Γ : Env)
@@ -1065,7 +1067,7 @@ theorem full_otfs_bin_wp_weak (Γ : Env)
     hQ false s.core.arena s.core.arena_garbage s.core.num_binary s.core.wvec s.core.wstk
       s.core.wlen s.core.wusable s.core.confl_type s.core.confl_lit0 s.core.confl_lit1
       s.core.confl_ref s.core.oom s.scratch m hlen (hw.shrink_cut (Nat.le_of_lt hiu_cut)) hnd
-      rfl rfl rfl rfl (fun hc => by cases hc) hm
+      rfl rfl rfl rfl rfl rfl (fun hc => by cases hc) hm
   fa_fast_steps_nogrp
   refine wp_join_group (ts := [i32, i32, i32]) (fun p ml =>
       let f0 := p.1; let f1 := p.2.1
