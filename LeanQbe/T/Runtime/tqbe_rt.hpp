@@ -809,8 +809,98 @@ inline T unpack_bits(bits<bit_size<T>()> b) {
 }
 
 // ============================================================================
-// Memory model (sparse paged byte map; unmapped read/write is TQBE_UB)
+// Memory model
+//   Default: sparse paged byte map; unmapped read/write is TQBE_UB.
+//   Opt-in `-DTQBE_NATIVE_MEM`: direct host-pointer load/store via std::memcpy
+//   for apples-to-apples C3b (`PrintCpp` -> `clang++ -O3`) benchmarking.
 // ============================================================================
+
+#ifdef TQBE_NATIVE_MEM
+
+class Mem {
+ public:
+  void alloc(uint64_t base, uint64_t len, uint8_t init = 0) {
+    if (len > 0) {
+      std::memset(reinterpret_cast<void*>(static_cast<uintptr_t>(base)), init, len);
+    }
+  }
+
+  void map_bytes(uint64_t base, const uint8_t* src, size_t len) {
+    if (len > 0) {
+      std::memcpy(reinterpret_cast<void*>(static_cast<uintptr_t>(base)), src, len);
+    }
+  }
+
+  void map_byte(uint64_t addr, uint8_t v = 0) {
+    *reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(addr)) = v;
+  }
+
+  uint8_t read_byte(uint64_t addr) const {
+    return *reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(addr));
+  }
+
+  void write_byte(uint64_t addr, uint8_t v) {
+    *reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(addr)) = v;
+  }
+
+  bool is_mapped(uint64_t) const { return true; }
+
+  template <typename T>
+  void init_val(uint64_t base, const T& val) {
+    constexpr size_t B = byte_size<T>();
+    if constexpr (B > 0) {
+      auto* dst = reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(base));
+      bits<bit_size<T>()> pk = pack_bits(val);
+      if constexpr (bit_size<T>() <= 64) {
+        std::memcpy(dst, &pk.data, B);
+      } else {
+        std::memcpy(dst, pk.data.data(), B);
+      }
+    }
+  }
+};
+
+template <typename T>
+inline T load(Mem&, bits<64> addr) {
+  constexpr size_t N = bit_size<T>();
+  constexpr size_t B = byte_size<T>();
+  const auto* ptr = reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(addr.data));
+  if constexpr (std::is_same_v<T, bool>) {
+    return (*ptr) != 0;
+  } else if constexpr (N == 0) {
+    return unpack_bits<T>(bits<0>{});
+  } else if constexpr (N <= 64) {
+    uint64_t acc = 0;
+    std::memcpy(&acc, ptr, B);
+    return unpack_bits<T>(bits<N>(acc));
+  } else {
+    bits<N> acc{};
+    std::memcpy(acc.data.data(), ptr, B);
+    acc.normalize();
+    return unpack_bits<T>(acc);
+  }
+}
+
+template <typename T>
+inline void store(Mem&, bits<64> addr, const T& val) {
+  constexpr size_t N = bit_size<T>();
+  constexpr size_t B = byte_size<T>();
+  if constexpr (N == 0) {
+    (void)addr;
+    (void)val;
+    return;
+  } else {
+    auto* ptr = reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(addr.data));
+    bits<N> pk = pack_bits(val);
+    if constexpr (N <= 64) {
+      std::memcpy(ptr, &pk.data, B);
+    } else {
+      std::memcpy(ptr, pk.data.data(), B);
+    }
+  }
+}
+
+#else
 
 class Mem {
  public:
@@ -931,6 +1021,8 @@ inline void store(Mem& mem, bits<64> addr, const T& val) {
     }
   }
 }
+
+#endif  // TQBE_NATIVE_MEM
 
 // ============================================================================
 // Integer & tree-lifted arithmetic / bitwise / comparison ops (matching Ops.lean)

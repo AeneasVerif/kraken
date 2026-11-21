@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 #include "kissat_verify.h"
@@ -67,20 +68,199 @@ static uint8_t *read_file_bytes(const char *path, size_t *out_len) {
   return buf;
 }
 
+/* FullHdr layout (144 u64 words = 1152 bytes, LeanQbe/T/Examples/Kissat/Full1.lean:35-69).
+ * Note: M2 (FullFastSched / FullFast) aliases hdr[140] (fwd_sub_cnt) -> last_probe_ticks
+ * and hdr[141] (fwd_str_cnt) -> last_elim_ticks. */
+#define FULL_HDR_BYTES 1152ULL
+
+typedef struct {
+  int ok;
+  int status;
+  double ms;
+  uint64_t conflicts;
+  uint64_t decisions;
+  uint64_t propagations;
+  uint64_t reductions;
+  uint64_t restarts;
+  uint64_t vivified;
+  uint64_t substituted;
+  uint64_t congruent;
+  uint64_t swept;
+  uint64_t eliminated;
+  uint64_t factored;
+  uint64_t transitive_reduced;
+} kissat_ref_stats_t;
+
+static int parse_kissat_stat(const char *line, const char *key, uint64_t *out) {
+  if (line[0] != 'c' || line[1] != ' ') return 0;
+  const char *p = line + 2;
+  while (*p == ' ') p++;
+  size_t klen = strlen(key);
+  if (strncmp(p, key, klen) != 0 || p[klen] != ':') return 0;
+  p += klen + 1;
+  while (*p == ' ') p++;
+  if (*p < '0' || *p > '9') return 0;
+  *out = (uint64_t)strtoull(p, NULL, 10);
+  return 1;
+}
+
+static kissat_ref_stats_t run_kissat_ref(const char *kbin, const char *cnf_path) {
+  kissat_ref_stats_t st;
+  memset(&st, 0, sizeof(st));
+  if (!kbin || access(kbin, X_OK) != 0) return st;
+
+  int pfd[2];
+  if (pipe(pfd) != 0) return st;
+
+  struct timespec t0, t1;
+  clock_gettime(CLOCK_MONOTONIC, &t0);
+  pid_t pid = fork();
+  if (pid < 0) {
+    close(pfd[0]);
+    close(pfd[1]);
+    return st;
+  }
+  if (pid == 0) {
+    close(pfd[0]);
+    dup2(pfd[1], STDOUT_FILENO);
+    close(pfd[1]);
+    char *argv_k[5];
+    argv_k[0] = (char *)kbin;
+    argv_k[1] = (char *)"-n";
+    argv_k[2] = (char *)"-v";
+    argv_k[3] = (char *)cnf_path;
+    argv_k[4] = NULL;
+    execv(kbin, argv_k);
+    _exit(127);
+  }
+  close(pfd[1]);
+  FILE *fp = fdopen(pfd[0], "r");
+  if (fp) {
+    char buf[512];
+    while (fgets(buf, sizeof(buf), fp)) {
+      if (parse_kissat_stat(buf, "conflicts", &st.conflicts)) continue;
+      if (parse_kissat_stat(buf, "decisions", &st.decisions)) continue;
+      if (parse_kissat_stat(buf, "propagations", &st.propagations)) continue;
+      if (parse_kissat_stat(buf, "reductions", &st.reductions)) continue;
+      if (parse_kissat_stat(buf, "restarts", &st.restarts)) continue;
+      if (parse_kissat_stat(buf, "vivified", &st.vivified)) continue;
+      if (parse_kissat_stat(buf, "substituted", &st.substituted)) continue;
+      if (parse_kissat_stat(buf, "congruent", &st.congruent)) continue;
+      if (parse_kissat_stat(buf, "swept", &st.swept)) continue;
+      if (parse_kissat_stat(buf, "eliminated", &st.eliminated)) continue;
+      if (parse_kissat_stat(buf, "factored", &st.factored)) continue;
+      if (parse_kissat_stat(buf, "transitive_reduced", &st.transitive_reduced)) continue;
+    }
+    fclose(fp);
+  } else {
+    close(pfd[0]);
+  }
+  int wstatus = 0;
+  if (waitpid(pid, &wstatus, 0) > 0 && WIFEXITED(wstatus)) {
+    int code = WEXITSTATUS(wstatus);
+    if (code == 10 || code == 20 || code == 0) {
+      st.ok = 1;
+      st.status = code;
+    }
+  }
+  clock_gettime(CLOCK_MONOTONIC, &t1);
+  st.ms = (double)(t1.tv_sec - t0.tv_sec) * 1000.0 +
+          (double)(t1.tv_nsec - t0.tv_nsec) / 1e6;
+  return st;
+}
+
+static void print_full_telemetry(
+    const char *path, uint64_t got, double ms,
+    const uint64_t *hdr, size_t work_len, uintptr_t pad,
+    int m2_alias, const kissat_ref_stats_t *kref) {
+  uint64_t z[144];
+  const uint64_t *h = z;
+  memset(z, 0, sizeof(z));
+  if (work_len >= pad + FULL_HDR_BYTES) {
+    h = hdr;
+  }
+  const char *slot140 = m2_alias ? "last_probe_ticks" : "fwd_sub";
+  const char *slot141 = m2_alias ? "last_elim_ticks" : "fwd_str";
+  printf(
+      "%s\t%llu\t%.3f"
+      "\tconflicts=%llu\tlearned_lits=%llu\tmin_removed=%llu"
+      "\tnum_irred=%llu\tnum_redundant=%llu\tnum_binary=%llu"
+      "\tswitched=%llu\tsearch_ticks=%llu\trephased=%llu"
+      "\treductions=%llu\ttier1=%llu\ttier2=%llu\trestarts=%llu"
+      "\toom=%llu\tmax_vars=%llu\tcur_vars=%llu\tunassigned=%llu"
+      "\totfs=%llu\teager_sub=%llu\tprobings=%llu\teliminations=%llu\telim_bound=%llu"
+      "\thbr=%llu\ttrans=%llu\tviv=%llu\tsubst=%llu"
+      "\tcong=%llu\tsweep=%llu\tbve=%llu\tbce=%llu"
+      "\tbva=%llu\twalks=%llu\t%s=%llu\t%s=%llu",
+      path, (unsigned long long)got, ms,
+      (unsigned long long)h[42], (unsigned long long)h[43], (unsigned long long)h[44],
+      (unsigned long long)h[61], (unsigned long long)h[62], (unsigned long long)h[63],
+      (unsigned long long)h[70], (unsigned long long)h[75], (unsigned long long)h[84],
+      (unsigned long long)h[86], (unsigned long long)h[87], (unsigned long long)h[88],
+      (unsigned long long)h[89],
+      (unsigned long long)h[95], (unsigned long long)h[96], (unsigned long long)h[97],
+      (unsigned long long)h[99],
+      (unsigned long long)h[120], (unsigned long long)h[121], (unsigned long long)h[123],
+      (unsigned long long)h[125], (unsigned long long)h[126],
+      (unsigned long long)h[130], (unsigned long long)h[131], (unsigned long long)h[132],
+      (unsigned long long)h[133],
+      (unsigned long long)h[134], (unsigned long long)h[135], (unsigned long long)h[136],
+      (unsigned long long)h[137],
+      (unsigned long long)h[138], (unsigned long long)h[139],
+      slot140, (unsigned long long)h[140],
+      slot141, (unsigned long long)h[141]);
+  if (kref && kref->ok) {
+    printf(
+        "\tk_status=%d\tk_ms=%.3f\tk_conflicts=%llu\tk_decisions=%llu"
+        "\tk_propagations=%llu\tk_reductions=%llu\tk_restarts=%llu"
+        "\tk_viv=%llu\tk_subst=%llu\tk_cong=%llu\tk_sweep=%llu"
+        "\tk_bve=%llu\tk_bva=%llu\tk_trans=%llu",
+        kref->status, kref->ms,
+        (unsigned long long)kref->conflicts, (unsigned long long)kref->decisions,
+        (unsigned long long)kref->propagations, (unsigned long long)kref->reductions,
+        (unsigned long long)kref->restarts, (unsigned long long)kref->vivified,
+        (unsigned long long)kref->substituted, (unsigned long long)kref->congruent,
+        (unsigned long long)kref->swept, (unsigned long long)kref->eliminated,
+        (unsigned long long)kref->factored, (unsigned long long)kref->transitive_reduced);
+  }
+  putchar('\n');
+}
+
 int main(int argc, char **argv) {
   int argi = 1;
   int telemetry = 0;
   int plain_tel = 0;
-  if (argi < argc && strcmp(argv[argi], "--telemetry") == 0) {
-    telemetry = 1;
-    argi++;
-  } else if (argi < argc && strcmp(argv[argi], "--plain-telemetry") == 0) {
-    plain_tel = 1;
-    argi++;
+  int full_tel = 0;
+  int m2_alias = 0;
+  const char *kissat_bin = NULL;
+  while (argi < argc && argv[argi][0] == '-') {
+    if (strcmp(argv[argi], "--telemetry") == 0) {
+      telemetry = 1;
+      argi++;
+    } else if (strcmp(argv[argi], "--plain-telemetry") == 0) {
+      plain_tel = 1;
+      argi++;
+    } else if (strcmp(argv[argi], "--full-telemetry") == 0) {
+      full_tel = 1;
+      argi++;
+    } else if (strcmp(argv[argi], "--full-telemetry-m2") == 0) {
+      full_tel = 1;
+      m2_alias = 1;
+      argi++;
+    } else if (strcmp(argv[argi], "--m2") == 0) {
+      m2_alias = 1;
+      argi++;
+    } else if (strcmp(argv[argi], "--kissat") == 0 && argi + 1 < argc) {
+      kissat_bin = argv[argi + 1];
+      argi += 2;
+    } else {
+      break;
+    }
   }
   if (argc - argi < 3) {
     fprintf(stderr,
-            "usage: %s [--telemetry|--plain-telemetry] <work_bytes> <fuel> <cnf>...\n",
+            "usage: %s [--telemetry|--plain-telemetry|--full-telemetry|--full-telemetry-m2]"
+            " [--m2] [--kissat <bin>] <work_bytes> <fuel> <cnf>...\n",
             argv[0]);
     return 2;
   }
@@ -126,7 +306,10 @@ int main(int argc, char **argv) {
       }
     }
     uint64_t conflicts = 0, learned = 0, min_rem = 0;
-    if (plain_tel) {
+    if (full_tel) {
+      kissat_ref_stats_t kref = run_kissat_ref(kissat_bin, path);
+      print_full_telemetry(path, got, ms, hdr, work_len, pad, m2_alias, &kref);
+    } else if (plain_tel) {
       uint64_t rst = 0, red = 0, rph = 0, sw = 0;
       if (work_len >= pad + 768ULL) {
         conflicts = hdr[42];
