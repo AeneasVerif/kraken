@@ -7,6 +7,7 @@ public import LeanQbe.T.CanonLemmas
 public import LeanQbe.T.CopyLemmas
 public import LeanQbe.T.GvnLemmas
 public import LeanQbe.T.DceLemmas
+public import LeanQbe.T.DceParamLemmas
 public import LeanQbe.T.DivConstLemmas
 public import LeanQbe.T.MemLoadLemmas
 public import LeanQbe.T.PeelLemmas
@@ -29,7 +30,7 @@ namespace LeanQbe.T
 
 /-- The legacy `T6` mid-end pipeline preserves well-formedness across every pass. -/
 theorem Func.opt_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) : (Func.opt f).Wf :=
-  Func.dce_wf (Func.fold_wf (Func.copy_wf (Func.gvn_wf (Func.copy_wf (Func.fold_wf hf)))))
+  Func.dceP_wf (Func.fold_wf (Func.copy_wf (Func.gvn_wf (Func.copy_wf (Func.fold_wf hf)))))
 
 /-- The legacy `T6` mid-end pipeline refines function contracts across every pass. -/
 theorem Func.opt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
@@ -45,7 +46,7 @@ theorem Func.opt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
   have hs4 := Func.copy_spec hf3 hs3
   have hf5 := Func.fold_wf hf4
   have hs5 := Func.fold_spec hf4 hs4
-  exact Func.dce_spec hf5 hs5
+  exact Func.dceP_spec hf5 hs5
 
 /-- `Func.simplifyGroupFast` preserves well-formedness. -/
 theorem Func.simplifyGroupFast_wf {as rs : List Ty} (f : Func as rs) :
@@ -132,8 +133,8 @@ theorem Func.earlyOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : 
   let f9 := Func.peelFast f8 24
   have hf9 := Func.peelFast_wf f8 24
   have hs9 := Func.peelFast_spec hf8 24 hs8
-  have hf10 := Func.dce_wf hf9
-  have hs10 := Func.dce_spec hf9 hs9
+  have hf10 := Func.dceP_wf hf9
+  have hs10 := Func.dceP_spec hf9 hs9
   exact Func.renorm_spec hf10 hs10
 
 /-- `Func.lateCore` preserves well-formedness. -/
@@ -168,7 +169,7 @@ theorem Func.lateCore_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : 
 theorem Func.lateCfg_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
     (Func.lateCfg f).Wf := by
   rw [Func.lateCfg_eq]
-  exact Func.dce_wf (Func.renorm_wf _)
+  exact Func.dceP_wf (Func.renorm_wf _)
 
 /-- `Func.lateCfg` refines function contracts. -/
 theorem Func.lateCfg_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
@@ -189,7 +190,7 @@ theorem Func.lateCfg_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : E
   have hs5 := Func.assumeElim_spec hf4 hs4
   have hf5r := Func.renorm_wf f5
   have hs5r := Func.renorm_spec hf5 hs5
-  exact Func.dce_spec hf5r hs5r
+  exact Func.dceP_spec hf5r hs5r
 
 /-- Stage 2 (`Func.lateOpt`) preserves well-formedness. -/
 theorem Func.lateOpt_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :

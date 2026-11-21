@@ -212,7 +212,7 @@ def fullAssignLvlSpec : Spec [i64, i32, i32, i32] [] :=
                   trail_end := s.core.trail_end + 1
                   unassigned := unass', unflushed := unfl' }
               scratch := { s.scratch with phases := phases' } }
-          s'.LengthsOk c → (FullMem c s' ⋆ R) m' → Q () m'
+          (FullMem c s' ⋆ R) m' → Q () m'
 
 def fullAddClauseSpec : Spec [i64, i32, i32, .bool] [i64] :=
   fun (h, len, _glue, _red, ()) m Q _ =>

@@ -1382,7 +1382,7 @@ theorem propLit_large_confl {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat
               wstk := st2.core.wstk, confl_type := 2#64, confl_ref := cref.setWidth 64 })
             tr := hpi1.tr.congr rfl rfl rfl, perm := hpi1.perm
             sc_eq := hpi1.sc_eq, not_f := hpi1.not_f },
-    Or.inr ⟨Or.inr ⟨by show (2#64 : BitVec 64) ≠ 1#64; decide,
+    Or.inr ⟨Or.inr ⟨rfl,
       by change (cref.setWidth 64).toNat ∈ _; rwa [hcr64],
       by change fullArenaClauseGarbCore st1.core (cref.setWidth 64).toNat = false; rwa [hcr64],
       fun l hl => by

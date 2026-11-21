@@ -9,6 +9,7 @@ public import LeanQbe.T.WP
 public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.Wf
 public import LeanQbe.T.WfLemmas
+public import LeanQbe.T.GroupLfpLemmas
 public import LeanQbe.T.Flat
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.OptUtilLemmas
@@ -26,6 +27,10 @@ public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Logic.C0StepAttr
 public import LeanQbe.T.Logic.C0Step
 public import LeanQbe.T.Logic.C0Agrees
+public import LeanQbe.T.Logic.ControlComb
+public import LeanQbe.T.Logic.SepTree
+public import LeanQbe.T.Logic.SlabChain
+public import LeanQbe.T.Logic.SlabLayoutElab
 public import LeanQbe.T.Examples.UnionFind
 public import LeanQbe.T.Examples.UnionFindLemmas
 public import LeanQbe.T.Legal
@@ -33,6 +38,7 @@ public import LeanQbe.T.LegalLemmas
 public import LeanQbe.T.LegalCheck1
 public import LeanQbe.T.LegalCheck2
 public import LeanQbe.T.LegalCheck3
+public import LeanQbe.T.LegalEmit
 public import LeanQbe.T.Fold
 public import LeanQbe.T.FoldLemmas
 public import LeanQbe.T.Copy
@@ -41,6 +47,8 @@ public import LeanQbe.T.Gvn
 public import LeanQbe.T.GvnLemmas
 public import LeanQbe.T.Dce
 public import LeanQbe.T.DceLemmas
+public import LeanQbe.T.DceParam
+public import LeanQbe.T.DceParamLemmas
 public import LeanQbe.T.Opt
 public import LeanQbe.T.OptLemmas
 public import LeanQbe.T.Module
@@ -59,6 +67,10 @@ public import LeanQbe.T.IfOptLemmas
 public import LeanQbe.T.SimplifyGroup
 public import LeanQbe.T.SimplifyGroupLemmas1
 public import LeanQbe.T.SimplifyGroupLemmas
+public import LeanQbe.T.SimplifyGroupPlan
+public import LeanQbe.T.SimplifyGroupPlanLemmas
+public import LeanQbe.T.Licm
+public import LeanQbe.T.LicmLemmas
 public import LeanQbe.T.Trie
 public import LeanQbe.T.Target
 public import LeanQbe.T.TargetLemmas
@@ -216,6 +228,7 @@ public import LeanQbe.T.Examples.Kissat.FullVivTopLemmas
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas3
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas1
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas2
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas4
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas
 public import LeanQbe.T.Examples.Kissat.FullLearnAnaLemmas1
 public import LeanQbe.T.Examples.Kissat.FullLearnAnaLemmas2
@@ -243,6 +256,10 @@ public import LeanQbe.T.Examples.Kissat.FullSweepFwdLemmas
 public import LeanQbe.T.Examples.Kissat.FullReduceLemmas
 public import LeanQbe.T.Examples.Kissat.FullWalkExtLemmas
 public import LeanQbe.T.Examples.Kissat.FullBvaFwdLemmas
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas5
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas6
+public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas
+public import LeanQbe.T.Examples.Kissat.FullTransLemmas
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT

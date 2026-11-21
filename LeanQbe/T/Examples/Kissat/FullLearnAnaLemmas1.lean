@@ -26,12 +26,8 @@ set_option autoImplicit false
 namespace LeanQbe.T.Examples.Kissat.Full
 
 open Std Std.Sat Std.ExtHashMap
-open LeanQbe.T
-open LeanQbe.T.ProofUtil
-open LeanQbe.T.C0Step
-open LeanQbe.T.Examples.LratBytes
-open LeanQbe.T.Examples.Kissat
-open Kraken.Bedrock2.Test
+open LeanQbe.T LeanQbe.T.ProofUtil LeanQbe.T.C0Step
+open LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat Kraken.Bedrock2.Test
 
 /-! ## 1. Strictly scoped `FullLearnAnaTactics` -/
 
@@ -265,7 +261,7 @@ def FullConflictOkW (F_cur : List (List Nat)) (s : FullState) : Prop :=
     s.core.vals[s.core.confl_lit1.toNat]?.getD 0#8 = 0xFF#8 ∧
     (cnfOfClauses F_cur).EntailsClause
       (cnfClause [s.core.confl_lit0.toNat, s.core.confl_lit1.toNat])) ∨
-  (s.core.confl_type ≠ 1#64 ∧
+  (s.core.confl_type = 2#64 ∧
     s.core.confl_ref.toNat ∈ fullArenaClauseRefs s ∧
     fullArenaClauseGarb s s.core.confl_ref.toNat = false ∧
     ∀ l ∈ fullArenaClauseLits s s.core.confl_ref.toNat, s.core.vals[l]?.getD 0#8 = 0xFF#8)
@@ -444,7 +440,7 @@ theorem FullConflictOkW.toCut {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List N
     rcases hc with ⟨_, h0lt, h1lt, hf0, hf1, _⟩ | ⟨hne, _⟩
     · exact ⟨fun _ => (hw.vals_false_iff _ h0lt).mp hf0,
         fun _ => (hw.vals_false_iff _ h1lt).mp hf1⟩
-    · exact absurd h1 hne
+    · exact absurd (h1.symm.trans hne) (by decide)
   · rename_i hne
     rcases hc with ⟨h1, _⟩ | ⟨_, href, hng, hfals⟩
     · exact absurd h1 hne
@@ -520,17 +516,18 @@ def fullBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
           scratch := sc' }
       s'.LengthsOk c → te' ≤ s.core.trail_end → prop' ≤ te' →
       cl' = min s.core.cur_level target_lvl.toNat → FullProbeScratchPres s s' →
-      sc'.shrink_stk = s.scratch.shrink_stk →
+      (∃ ta' ba' pt' pb' hp' ps' hl' qsi' qss', sc' = { s.scratch with
+        target_assigned := ta', best_assigned := ba', phases_target := pt', phases_best := pb',
+        heap := hp', pos := ps', heap_len := hl',
+        q_search_idx := qsi', q_search_stamp := qss' }) →
       (∀ i < te', (trl'[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) →
       ((∃ F0 F_cur, FullWitnessInv c F0 F_cur s.core ∨ FullOtfsWitnessInv c F0 F_cur s.core) →
-        (∀ l < 2 * s.core.cur_vars,
-          vals'[l]?.getD 0#8 =
-            if (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl.toNat then
-              s.core.vals[l]?.getD 0#8 else 0#8) ∧
-        (∀ v < s.core.cur_vars,
-          lvl'[v]?.getD 0#32 =
-            if (s.core.lvl[v]?.getD 0#32).toNat ≤ target_lvl.toNat then
-              s.core.lvl[v]?.getD 0#32 else 0#32)) →
+        (∀ l < 2 * s.core.cur_vars, vals'[l]?.getD 0#8 =
+          if (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ target_lvl.toNat then
+            s.core.vals[l]?.getD 0#8 else 0#8) ∧
+        (∀ i < s.core.trail_end, let v := (s.core.trl[i]?.getD 0#32).toNat / 2
+          lvl'[v]?.getD 0#32 = if (s.core.lvl[v]?.getD 0#32).toNat ≤ target_lvl.toNat then
+            s.core.lvl[v]?.getD 0#32 else 0#32)) →
       (∀ F0 F_cur, FullWitnessInv c F0 F_cur s.core → target_lvl.toNat ≤ s.core.cur_level →
         FullWitnessInv c F0 F_cur s'.core) →
       (∀ F0 F_cur, FullOtfsWitnessInv c F0 F_cur s.core → target_lvl.toNat < s.core.cur_level →
@@ -646,7 +643,8 @@ def fullOneLitConflSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
       s'.scratch.work_stk2 = s.scratch.work_stk2 →
-      (r = 20#64 → F0.Unsat) →
+      (r = 20#64 → F0.Unsat ∧ FullOtfsInvW c F0 F_cur s' ∧
+        s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
       (r = 1#64 → FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
       (r = 2#64 → FullOtfsInvW c F0 F_cur s') →
       (r = 0#64 → ∃ cut' ≤ s'.core.trail_end,
@@ -663,7 +661,8 @@ def fullDeduce1uipSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
       s'.scratch.work_stk2 = s.scratch.work_stk2 →
-      (r = 20#64 → F0.Unsat) →
+      (r = 20#64 → F0.Unsat ∧ FullOtfsInvW c F0 F_cur s' ∧
+        s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
       (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
       (r = 1#64 → FullOtfsInvW c F0 F_cur s' ∧ s'.core.cur_level = s.core.cur_level ∧
         1 ≤ s'.core.tmp_len ∧ s'.core.tmp_len ≤ s'.core.cur_vars ∧
@@ -714,7 +713,8 @@ def fullLearnClauseSpec : Spec [i64, i64] [i64] := fun (h, _glue, ()) m Q _ =>
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
       s'.scratch.work_stk2 = s.scratch.work_stk2 →
-      (r = 20#64 → F0.Unsat) →
+      (r = 20#64 → F0.Unsat ∧ FullSparseInvW c F0 F_cur s' ∧
+        s'.core.cur_level < s.core.cur_level) →
       (r = 0#64 → FullSparseInvW c F0 F_cur s') →
       (r = 1#64 → FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
@@ -726,7 +726,8 @@ def fullAnalyzeSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
       s'.scratch.work_stk2 = s.scratch.work_stk2 →
-      (r = 20#64 → F0.Unsat) →
+      (r = 20#64 → F0.Unsat ∧ FullOtfsInvW c F0 F_cur s' ∧
+        s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
       (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
       (r = 1#64 → FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'

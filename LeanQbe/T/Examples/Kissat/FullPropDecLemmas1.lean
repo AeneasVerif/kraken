@@ -98,7 +98,7 @@ def FullConflAt (F_cur : List (List Nat)) (k : FullCoreState) : Prop :=
     fullArenaClauseGarbCore k k.confl_ref.toNat = false ∧
     ∀ l ∈ fullArenaClauseLitsCore k k.confl_ref.toNat, k.vals[l]?.getD 0#8 = 0xFF#8)
 
-/-- Weak conflict witness matching `FullSpec1.FullConflictOkW` (`confl_type ≠ 1#64` for large). -/
+/-- Weak conflict witness matching `FullSpec1.FullConflictOkW` (`confl_type = 2#64` for large). -/
 def FullConflOkW (F_cur : List (List Nat)) (k : FullCoreState) : Prop :=
   (k.confl_type = 1#64 ∧ k.confl_lit0.toNat < 2 * k.cur_vars ∧
     k.confl_lit1.toNat < 2 * k.cur_vars ∧
@@ -106,13 +106,13 @@ def FullConflOkW (F_cur : List (List Nat)) (k : FullCoreState) : Prop :=
       (cnfClause [k.confl_lit0.toNat, k.confl_lit1.toNat]) ∧
     k.vals[k.confl_lit0.toNat]?.getD 0#8 = 0xFF#8 ∧
     k.vals[k.confl_lit1.toNat]?.getD 0#8 = 0xFF#8) ∨
-  (k.confl_type ≠ 1#64 ∧ k.confl_ref.toNat ∈ fullArenaClauseRefsCore k ∧
+  (k.confl_type = 2#64 ∧ k.confl_ref.toNat ∈ fullArenaClauseRefsCore k ∧
     fullArenaClauseGarbCore k k.confl_ref.toNat = false ∧
     ∀ l ∈ fullArenaClauseLitsCore k k.confl_ref.toNat, k.vals[l]?.getD 0#8 = 0xFF#8)
 
 theorem FullConflAt.toOkW {F_cur : List (List Nat)} {k : FullCoreState}
     (h : FullConflAt F_cur k) : FullConflOkW F_cur k :=
-  h.elim Or.inl fun ⟨h2, hr⟩ => Or.inr ⟨by rw [h2]; decide, hr⟩
+  h
 
 /-- Predicate expressing that candidate literal `k` of `cref` is unusable by `full_find_repl`. -/
 def fullFindReplBad (s : FullState) (cref k : Nat) : Prop :=
