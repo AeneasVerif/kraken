@@ -7,8 +7,10 @@ set_option autoImplicit false
 @[expose] public section
 namespace LeanQbe.T.Examples.Kissat.Full
 open Std Std.Sat Std.ExtHashMap LeanQbe.T LeanQbe.T.C0Step LeanQbe.T.ProofUtil
-open LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat Kraken.Bedrock2.Test FullTransSpecs
+open LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat Kraken.Bedrock2.Test
+open FullTransHelpers
 open scoped FullArenaTactics FullTransTactics
+namespace FullTransHelpers
 /-! ## 1. BFS & unroll invariants for `full_trans_lit` -/
 section TransBfsInvariants
 private theorem sat_pair_elim {α : Nat → Bool} {a b : Nat} (h : (cnfClause [a, b]).Sat α) :
@@ -410,137 +412,8 @@ theorem TransUnrollInv.done {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat
     src_rem := WatchSliceOk.relocate_same (k := st_pre.core) (k' := st.core)
       (by rw [hc_eq]; exact Nat.le_refl _) hrefs (fun _ _ => by rw [hc_eq]) ho.src_rem }
 end TransBfsInvariants
-/-! ## 2. `FullSparseInv` preservation wrappers & local `trans_lit` helpers -/
+/-! ## 2. Local `trans_lit` and `transitive` wrappers -/
 section TransitiveWrappers
-private theorem FullWitnessInv.with_flags_probing {c : FullCfg} {F0 : CNF Nat}
-    {F_cur : List (List Nat)} {k : FullCoreState} (hw : FullWitnessInv c F0 F_cur k)
-    (fl' : List (BitVec 32)) (pr' : BitVec 64) :
-    FullWitnessInv c F0 F_cur { k with flags := fl', probing := pr' } :=
-  let k' : FullCoreState := { k with flags := fl', probing := pr' }
-  { hw with
-    arena := ⟨hw.arena.len_ok, hw.arena.refs_wf, hw.arena.shrk_term, hw.arena.lits_lt,
-      hw.arena.entails⟩
-    watches := by
-      have hwm := hw.watches; unfold ModeWatchesInv at hwm ⊢; by_cases hc : k.dense_mode = 0#64
-      · rw [ite_eq_left_of_eq_true _ _ (eq_true hc)] at hwm
-        rw [ite_eq_left_of_eq_true _ _ (eq_true (show k'.dense_mode = 0#64 from hc))]
-        exact ⟨⟨hwm.layout.bounds, hwm.layout.pos_off, hwm.layout.disjoint, hwm.layout.no_sentinel⟩,
-          fun l hl => WatchSliceOk.relocate_same (k := k) (k' := k') (Nat.le_refl _)
-            (fun _ h => h) (fun _ _ => rfl) (hwm.slices l hl)⟩
-      · rw [ite_eq_right_of_eq_false _ _ (eq_false hc)] at hwm
-        rw [ite_eq_right_of_eq_false _ _ (eq_false (show k'.dense_mode ≠ 0#64 from hc))]
-        exact ⟨⟨hwm.layout.bounds, hwm.layout.pos_off, hwm.layout.disjoint, hwm.layout.no_sentinel⟩,
-          fun l hl => DenseWatchSliceOk.relocate_same (k := k) (k' := k') (Nat.le_refl _)
-            (fun _ h => h) (fun _ _ => rfl) (hwm.slices l hl)⟩ }
-private theorem fullSparseInv_frame {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
-    {s s' : FullState} (hsp : FullSparseInv c F0 s) (hlen' : s'.LengthsOk c)
-    (hw' : FullWitnessInv c F0 F_cur s'.core) (hmrk : s'.core.mrk = s.core.mrk)
-    (hlmk : s'.core.lit_mark = s.core.lit_mark) (har : s'.core.arena = s.core.arena)
-    (hal : s'.core.arena_len = s.core.arena_len) (hdm' : s'.core.dense_mode = 0#64)
-    (hll : s'.scratch.last_learned = s.scratch.last_learned)
-    (hel : s'.scratch.extend_len = s.scratch.extend_len)
-    (hrefs : ∀ r ∈ fullArenaClauseRefs s, r ∈ fullArenaClauseRefs s') : FullSparseInv c F0 s' := by
-  obtain ⟨_, ⟨hm, hlm⟩, hnd, ⟨hll0, hel0⟩, _⟩ := hsp
-  refine ⟨⟨hlen', F_cur, hw'⟩, ⟨fun v hv => by rw [hmrk]; exact hm v hv,
-    fun l hl => by rw [hlmk]; exact hlm l hl⟩, ?_, ⟨?_, by rw [hel]; exact hel0⟩, hdm'⟩
-  · intro r hr hng; unfold fullArenaClauseRefs fullArenaClauseRefsCore at hr
-    unfold fullArenaClauseGarb fullArenaClauseGarbCore fullArenaHdrCore at hng
-    unfold fullArenaClauseLits fullArenaClauseLitsCore fullArenaClauseSizeCore
-    rw [har, hal] at hr; rw [har] at hng ⊢; exact hnd r hr hng
-  · intro i hi; dsimp only; unfold FullLastLearnedWf at hll0; rw [hll]
-    exact (hll0 i hi).imp id (hrefs _)
-theorem fullSparseInv_with_probing {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hsp : FullSparseInv c F0 s) (pr' : BitVec 64) :
-    FullSparseInv c F0 { s with core := { s.core with probing := pr' } } :=
-  let ⟨⟨hlen, F_cur, hw⟩, hlm, hnd, hsc, hdm⟩ := hsp
-  ⟨⟨⟨{ hlen.core_ok with vals_len := hlen.core_ok.vals_len }, hlen.scratch_ok⟩,
-    F_cur, hw.with_flags_probing s.core.flags pr'⟩, hlm, hnd, hsc, hdm⟩
-theorem fullSparseInv_with_ant_sz {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hsp : FullSparseInv c F0 s) (asz' : BitVec 64) :
-    FullSparseInv c F0 { s with scratch := { s.scratch with ant_sz := asz' } } :=
-  let ⟨⟨hlen, F_cur, hw⟩, hlm, hnd, hsc, hdm⟩ := hsp
-  ⟨⟨⟨hlen.core_ok, { hlen.scratch_ok with walk_vals_len := hlen.scratch_ok.walk_vals_len }⟩,
-    F_cur, hw⟩, hlm, hnd, hsc, hdm⟩
-theorem fullSparseInv_clear_fl_trans {c : FullCfg} {F0 : CNF Nat} {s : FullState}
-    (hsp : FullSparseInv c F0 s) {v : Nat} {fv' : BitVec 32} :
-    FullSparseInv c F0 { s with core := { s.core with flags := s.core.flags.set v fv' } } :=
-  let ⟨⟨hlen, F_cur, hw⟩, hlm, hnd, hsc, hdm⟩ := hsp
-  ⟨⟨⟨{ hlen.core_ok with flags_len := by simp [hlen.core_ok.flags_len] }, hlen.scratch_ok⟩,
-    F_cur, hw.with_flags_probing (s.core.flags.set v fv') s.core.probing⟩, hlm, hnd, hsc, hdm⟩
-theorem fullSparseInv_with_trans_cnt {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
-    {s : FullState} (hsp : FullSparseInv c F0 s) (hw : FullWitnessInv c F0 F_cur s.core)
-    (tc' : BitVec 64) : let s' := { s with scratch := { s.scratch with trans_cnt := tc' } }
-    FullSparseInv c F0 s' ∧ FullWitnessInv c F0 F_cur s'.core :=
-  let ⟨⟨⟨hc, hs⟩, _, _⟩, hlm, hnd, hsc, hdm⟩ := hsp
-  ⟨⟨⟨⟨hc, { hs with walk_vals_len := hs.walk_vals_len }⟩, F_cur, hw⟩, hlm, hnd, hsc, hdm⟩, hw⟩
-theorem fullWstackDefrag_sparse {c : FullCfg} {F0 : CNF Nat} {s s' : FullState}
-    {wvec' wstk' : List (BitVec 32)} {wlen' : Nat} {wsort' : List (BitVec 32)}
-    (hsp : FullSparseInv c F0 s) (hs' : s' = { s with
-      core := { s.core with wvec := wvec', wstk := wstk', wlen := wlen', wusable := 0#64 },
-      scratch := { s.scratch with wsort := wsort' } })
-    (hlen' : s'.LengthsOk c) (hlay' : WatchStackLayout s'.core)
-    (hpres : ∀ l < 2 * s.core.cur_vars, fullWatchSize s' l = fullWatchSize s l ∧
-      ∀ k < fullWatchSize s l,
-        s'.core.wstk[fullWatchOff s' l + k]? = s.core.wstk[fullWatchOff s l + k]?) :
-    FullSparseInv c F0 s' := by
-  obtain ⟨⟨_, F_cur, hw⟩, _⟩ := id hsp
-  have hw' : FullWitnessInv c F0 F_cur s'.core := by
-    subst hs'; exact {
-      hw with
-      arena := ⟨hw.arena.len_ok, hw.arena.refs_wf, hw.arena.shrk_term, hw.arena.lits_lt,
-        hw.arena.entails⟩
-      watches := fullWstackDefrag_preserves_modeWatchesInv hw.watches hlay' rfl rfl
-        (fun _ h => h) hpres }
-  exact fullSparseInv_frame hsp hlen' hw' (by rw [hs']) (by rw [hs']) (by rw [hs']) (by rw [hs'])
-    (by rw [hs']; exact hsp.2.2.2.2) (by rw [hs']) (by rw [hs']) fun r hr => by
-      unfold fullArenaClauseRefs fullArenaClauseRefsCore at hr ⊢; rwa [hs']
-theorem fullBacktrack_sparse {c : FullCfg} {F0 : CNF Nat} {s s' : FullState}
-    {vals' : List (BitVec 8)} {lvl' rsns' trl' tp' : List (BitVec 32)} {te' prop' cl' : Nat}
-    {unass' : BitVec 64} {sc' : FullScratch} (hsp : FullSparseInv c F0 s) (hs' : s' = { s with
-      core := {
-        s.core with
-        vals := vals', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp', trail_end := te',
-        propagated := prop', cur_level := cl', unassigned := unass' },
-      scratch := sc' }) (hlen' : s'.LengthsOk c) (hpr' : FullProbeScratchPres s s')
-    (hw' : ∀ F0 F_cur, FullWitnessInv c F0 F_cur s.core → 0 ≤ s.core.cur_level →
-      FullWitnessInv c F0 F_cur s'.core) : FullSparseInv c F0 s' := by
-  obtain ⟨⟨_, F_cur, hw⟩, _⟩ := id hsp
-  exact fullSparseInv_frame hsp hlen' (hw' F0 F_cur hw (Nat.zero_le _)) (by rw [hs']) (by rw [hs'])
-    (by rw [hs']) (by rw [hs']) (by rw [hs']; exact hsp.2.2.2.2) hpr'.1.1 hpr'.1.2
-    fun r hr => by unfold fullArenaClauseRefs fullArenaClauseRefsCore at hr ⊢; rwa [hs']
-theorem fullPropagate_sparse {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
-    {s s' : FullState} {vals' : List (BitVec 8)} {flags' lvl' rsns' trl' tp' : List (BitVec 32)}
-    {te' prop' : Nat} {unass' unfl' : BitVec 64} {wvec' arena' wstk' : List (BitVec 32)}
-    {wlen' : Nat} {wu' fuel' ctype' cref' c0' c1' oom' : BitVec 64} {sc' : FullScratch}
-    (hsp : FullSparseInv c F0 s) (hs' : s' = { s with
-      core := {
-        s.core with
-        vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp',
-        trail_end := te', propagated := prop', unassigned := unass', unflushed := unfl',
-        wvec := wvec', arena := arena', wstk := wstk', wlen := wlen', wusable := wu',
-        fuel := fuel', confl_type := ctype', confl_ref := cref', confl_lit0 := c0',
-        confl_lit1 := c1', oom := oom' }, scratch := sc' })
-    (hlen' : s'.LengthsOk c) (hw' : FullWitnessInv c F0 F_cur s'.core)
-    (hnd' : FullArenaVarsNodup s') (hpr' : FullProbeScratchPres s s')
-    (hrefs : ∀ ref ∈ fullArenaClauseRefs s, ref ∈ fullArenaClauseRefs s') :
-    FullSparseInv c F0 s' := by
-  obtain ⟨_, ⟨hm, hlm⟩, _, ⟨hll0, hel0⟩, hdm⟩ := hsp; subst hs'
-  exact ⟨⟨hlen', F_cur, hw'⟩, ⟨hm, hlm⟩, hnd', ⟨fun i hi => by
-    dsimp only; unfold FullLastLearnedWf at hll0; rw [hpr'.1.1]
-    exact (hll0 i hi).imp id (hrefs _), by dsimp only; rw [hpr'.1.2]; exact hel0⟩, hdm⟩
-theorem fullAddUnit_sparse {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
-    {s s' : FullState} {vals' : List (BitVec 8)} {flags' lvl' rsns' trl' tp' : List (BitVec 32)}
-    {te' prop' cl' : Nat} {unass' unfl' inc' : BitVec 64} {sc' : FullScratch}
-    (hsp : FullSparseInv c F0 s) (hs' : s' = { s with
-      core := {
-        s.core with
-        vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp',
-        trail_end := te', propagated := prop', cur_level := cl', unassigned := unass',
-        unflushed := unfl', inconsistent := inc' }, scratch := sc' })
-    (hlen' : s'.LengthsOk c) (hw' : FullWitnessInv c F0 F_cur s'.core)
-    (hpr' : FullProbeScratchPres s s') : FullSparseInv c F0 s' := by
-  subst hs'; exact fullSparseInv_frame hsp hlen' hw' rfl rfl rfl rfl
-    hsp.2.2.2.2 hpr'.1.1 hpr'.1.2 (fun _ h => h)
 theorem TransUnrollInv.watch_slice {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s0 st_pre st : FullState} {src off p end_v reduced saved nl : Nat}
     (ho : TransOuterInv c F0 F_cur s0 src off p end_v reduced st_pre)
@@ -689,6 +562,7 @@ private theorem ft_unroll_c0_aux {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Lis
     by rw [hul_ge2, ft_bv32_setWidth64]; exact huln_vlen, hte1_bv,
     by rw [hul_ge2, ft_bv32_setWidth64, ft_bv32_setWidth64, hte1_bv, ft_bv32_xor1]; exact hu_r'⟩
 end TransitiveWrappers
+end FullTransHelpers
 /-! ## 3. Main `Func.wp` proofs (`full_trans_lit` and `full_transitive`) -/
 section MainWpProofs
 theorem full_trans_lit_wp (Γ : Env)
@@ -780,9 +654,19 @@ theorem full_trans_lit_wp (Γ : Env)
       ft_to_group; ft_call h_add_unit
       obtain ⟨hsp_tc, hw_tc⟩ := fullSparseInv_with_trans_cnt hspf hwf (stf.scratch.trans_cnt + 1#64)
       refine ⟨c, F0, F_cur, _, R, rfl, hsp_tc.1.lengths, hw_tc, fun _ => hfailf ‹_›, ‹_›,
-        fun ok _ _ _ _ _ _ _ _ _ _ _ _ _ m4 hlen4 hw4 hpr4 hcl4 huns4 _ hm4 =>
-        hQ ok _ m4 (fullAddUnit_sparse hsp_tc rfl hlen4 hw4 hpr4) hcl4 hcvf hfuelf
-          (fun hok => (huns4 (by dsimp only [Arg.val_var] at *; omega) hok).1) hm4⟩
+        fun ok vals' flags' lvl' rsns' trl' tp' te' prop' cl' unass' unfl' inc'
+          phases' ta' ba' pt' pb' hp' ps' hl' qsi' qss' m4 hlen4 hw4 hcl4 huns4 _ hm4 => ?_⟩
+      let st_au : FullState := { stf with
+        core := { stf.core with
+          vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp',
+          trail_end := te', propagated := prop', cur_level := cl', unassigned := unass',
+          unflushed := unfl', inconsistent := inc' },
+        scratch := { stf.scratch with
+          trans_cnt := stf.scratch.trans_cnt + 1#64, phases := phases', target_assigned := ta',
+          best_assigned := ba', phases_target := pt', phases_best := pb', heap := hp', pos := ps',
+          heap_len := hl', q_search_idx := qsi', q_search_stamp := qss' } }
+      exact hQ ok st_au m4 (fullAddUnit_sparse hsp_tc rfl hlen4 hw4) hcl4 hcvf hfuelf
+        (fun hok => (huns4 (by dsimp only [Arg.val_var] at *; omega) hok).1) hm4
     intro J6 hJ6; ft_split; rotate_left
     · have hred0 : reduced.toNat = 0 := by bv_omega
       ft_steps; rw [hred0] at hto2; obtain ⟨hsp2, hw2⟩ := hto2.of_reduced0_full hsp hw0
@@ -1344,15 +1228,18 @@ theorem full_transitive_wp (Γ : Env)
         ft_split; rotate_left; · ft_steps; exact hB (v, 20#64, ()) m3 ⟨s_t0, hspt0, hclt0,
           by rw [hfuelt0]; exact hfuell, Or.inr rfl, fun _ => huns0 (by cases ok <;> simp_all), hm3⟩
         obtain ⟨F_ct0, hwt0⟩ := hspt0.1.witness; ft_call h_propagate
-        refine ⟨c, F0, F_ct0, s_t0, R, rfl, hspt0.1.lengths, hwt0, hspt0.2.2.1, hspt0.2.2.2.2, hm3,
+        refine ⟨c, F0, F_ct0, s_t0, R, rfl, hspt0.1.lengths, hwt0, hspt0.2.2.2.2, hm3,
           fun r_p0 vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk'
-            wlen' wu' fuel' ctype' cref' c0' c1' oom' sc' m4 hlen4 hw4 hnd4 hpr4 _ hfu4 href4 _ hr0
-            _ hr1 _ _ hm4 => ?_⟩
-        have hsp_p0 := fullPropagate_sparse hspt0 rfl hlen4 hw4 hnd4 hpr4 href4; ft_split
+            wlen' wu' fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' m4 hlen4 hw4 _ hperm4
+            hfu4 _ _ hr1 _ _ hm4 => ?_⟩
+        have hsp_p0 := fullPropagate_sparse hspt0 rfl hlen4 hw4 hperm4; ft_split
         · ft_steps; exact hB (v, 20#64, ()) m4 ⟨_, hsp_p0, hclt0,
             Nat.le_trans (Nat.le_trans hfu4 (by rw [hfuelt0]; exact Nat.le_refl _)) hfuell,
             Or.inr rfl, fun _ => level0_unsat_of_conflict_okW hw4 hclt0 (hr1 ‹_›).2.2, hm4⟩
-        · let st_p0 : FullState := { s_t0 with scratch := sc', core := { s_t0.core with
+        · let st_p0 : FullState := { s_t0 with
+            scratch := { s_t0.scratch with
+              search_ticks := ticks', wsort := wsort', phases := phases' },
+            core := { s_t0.core with
               vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
               trail_pos := tp', trail_end := te', propagated := prop', unassigned := unass',
               unflushed := unfl', wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
@@ -1367,10 +1254,10 @@ theorem full_transitive_wp (Γ : Env)
             by rw [hfuelt1]; exact Nat.le_trans hfu4 (by rw [hfuelt0]; exact hfuell),
             Or.inr rfl, fun _ => huns1 (by cases ok2 <;> simp_all), hm5⟩
           obtain ⟨F_ct1, hwt1⟩ := hspt1.1.witness; ft_call h_propagate
-          refine ⟨c, F0, F_ct1, s_t1, R, rfl, hspt1.1.lengths, hwt1, hspt1.2.2.1, hspt1.2.2.2.2,
-            hm5, fun _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ fuel2 _ _ _ _ _ _ m6 hlen6 hw6 hnd6 hpr6 _
-              hfu6 href6 _ _ _ hr1_2 _ _ hm6 => ?_⟩
-          have hsp_p1 := fullPropagate_sparse hspt1 rfl hlen6 hw6 hnd6 hpr6 href6
+          refine ⟨c, F0, F_ct1, s_t1, R, rfl, hspt1.1.lengths, hwt1, hspt1.2.2.2.2, hm5,
+            fun _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ fuel2 _ _ _ _ _ _ _ _ m6 hlen6 hw6 _ hperm6
+              hfu6 _ _ hr1_2 _ _ hm6 => ?_⟩
+          have hsp_p1 := fullPropagate_sparse hspt1 rfl hlen6 hw6 hperm6
           have hfuel_p1 : fuel2.toNat ≤ s.core.fuel.toNat := Nat.le_trans hfu6
             (by rw [hfuelt1]; exact Nat.le_trans hfu4 (by rw [hfuelt0]; exact hfuell))
           ft_split
@@ -1380,17 +1267,18 @@ theorem full_transitive_wp (Γ : Env)
     · intro B L hB hL; ft_steps; exact hL s1.core.cur_vars (0#64, ()) _ ⟨_, Nat.zero_le _, rfl,
         fullSparseInv_with_ant_sz (fullSparseInv_with_probing hsp1 1#64) 100000#64,
         hcl1, rfl, hfuel1, by assumption⟩
-  · intro J hJ; have hlen := hsp.1.lengths; ft_split
-    · obtain ⟨F_cur, hw⟩ := hsp.1.witness; ft_call h_backtrack
+  · intro J hJ; have hlen := hsp.1.lengths; obtain ⟨F_cur, hw⟩ := hsp.1.witness
+    have hcl_lt : s.core.cur_level < 2 ^ 64 := by
+      have := hw.cur_level_le; have := (ft_bnds hlen.core_ok).2.2.2; omega
+    ft_split
+    · ft_call h_backtrack
       have htl0 : ((Arg.imm 0).val : Val i64).toNat = 0 := by decide
-      refine ⟨c, s, R, rfl, hlen, (fun hpos => by
+      refine ⟨c, s, R, rfl, hlen, hcl_lt, (fun hpos => by
           have := hlen.core_ok.cur_vars_le; have := hw.cur_level_le
           have := hlen.core_ok.trail_end_le; rw [htl0] at hpos ⊢; omega), hw.trail_lits_lt, hm,
-        fun _ _ _ _ _ _ _ _ _ _ _ hlen1 _ _ hcl1 hpr1 _ hw1 _ hm1 => hJ () _ ⟨_,
+        fun _ _ _ _ _ _ _ _ _ _ _ hlen1 _ _ hcl1 hpr1 _ _ _ hw1 _ hm1 => hJ () _ ⟨_,
           fullBacktrack_sparse hsp rfl hlen1 hpr1 hw1, by simp [hcl1], Nat.le_refl _, hm1⟩⟩
-    · ft_steps; obtain ⟨F_cur, hw⟩ := hsp.1.witness
-      have hcl_lt : s.core.cur_level < 2 ^ 64 := by
-        have := hw.cur_level_le; have := (ft_bnds hlen.core_ok).2.2.2; omega
+    · ft_steps
       have hcl0' : s.core.cur_level = 0 := by
         simpa [Nat.mod_eq_of_lt hcl_lt] using
           congrArg BitVec.toNat (‹BitVec.ofNat 64 s.core.cur_level = 0#64›)

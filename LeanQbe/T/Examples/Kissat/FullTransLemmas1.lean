@@ -1,5 +1,6 @@
 module
 public import LeanQbe.T.Examples.Kissat.Full3
+public import LeanQbe.T.Examples.Kissat.FullSpec
 public import LeanQbe.T.Examples.Kissat.FullInv2
 public import LeanQbe.T.Examples.Kissat.FullArena
 public import LeanQbe.T.Logic.C0Step
@@ -360,6 +361,7 @@ end FtMeta
 scoped macro "ft_call" h:term : tactic =>
   `(tactic| (refine LeanQbe.T.wp_call_of_spec _ _ ($h _ _ _ _ ?_)))
 end FullTransTactics
+namespace FullTransHelpers
 section Helpers
 theorem ft_bv32_setWidth64 (x : BitVec 32) : (BitVec.setWidth 64 x).toNat = x.toNat :=
   zext_toNat x (by decide)
@@ -396,240 +398,7 @@ theorem ft_i8_vals_slt0 {x : BitVec 8} (hx : x = 0#8 ∨ x = 1#8 ∨ x = 0xFF#8)
 theorem ft_tomb_mask7f : (0xFFFFFFFF#32 &&& 0x7FFFFFFF#32).toNat = 0x7FFFFFFF := by decide
 theorem ft_tomb_bin_flag : (0xFFFFFFFF#32 &&& 0x80000000#32) ≠ 0#32 := by decide
 end Helpers
-/-! ## 2. Canonical Stage-4 invariants and `FullTransSpecs` -/
-namespace FullTransSpecs
-def FullMrkZero (c : FullCfg) (s : FullState) : Prop :=
-  ∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8
-def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
-  FullMrkZero c s ∧ (∀ l < 2 * c.max_vars, s.core.lit_mark[l]?.getD 0#8 = 0#8)
-def FullArenaVarsNodup (s : FullState) : Prop :=
-  ∀ r ∈ fullArenaClauseRefs s, fullArenaClauseGarb s r = false →
-    ((fullArenaClauseLits s r).map (· / 2)).Nodup
-def FullLastLearnedWf (s : FullState) : Prop :=
-  ∀ i < 8, let cr := s.scratch.last_learned[i]?.getD 0xFFFFFFFF#32
-    cr = 0xFFFFFFFF#32 ∨ cr.toNat ∈ fullArenaClauseRefs s
-def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
-  FullLastLearnedWf s ∧ s.scratch.extend_len ≤ c.extend_cap
-def FullExtScratchPres (s s' : FullState) : Prop :=
-  s'.scratch.last_learned = s.scratch.last_learned ∧
-  s'.scratch.extend_len = s.scratch.extend_len
-def FullProbeScratchPres (s s' : FullState) : Prop :=
-  FullExtScratchPres s s' ∧ s'.scratch.work_stk1 = s.scratch.work_stk1 ∧
-  s'.scratch.work_stk2 = s.scratch.work_stk2 ∧ s'.scratch.tarjan_mark = s.scratch.tarjan_mark ∧
-  s'.scratch.scratch_buf = s.scratch.scratch_buf ∧ s'.scratch.ant_sz = s.scratch.ant_sz ∧
-  s'.scratch.res_sz = s.scratch.res_sz ∧ s'.scratch.sim_sig = s.scratch.sim_sig
-def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
-  FullCoreInv c F0 s ∧ FullLitMarksClear c s ∧ FullArenaVarsNodup s ∧
-  FullExtScratchOk c s ∧ s.core.dense_mode = 0#64
-def FullConflictOkW (F_cur : List (List Nat)) (s : FullState) : Prop :=
-  (s.core.confl_type = 1#64 ∧ s.core.confl_lit0.toNat < 2 * s.core.cur_vars ∧
-    s.core.confl_lit1.toNat < 2 * s.core.cur_vars ∧
-    s.core.vals[s.core.confl_lit0.toNat]?.getD 0#8 = 0xFF#8 ∧
-    s.core.vals[s.core.confl_lit1.toNat]?.getD 0#8 = 0xFF#8 ∧
-    (cnfOfClauses F_cur).EntailsClause
-      (cnfClause [s.core.confl_lit0.toNat, s.core.confl_lit1.toNat])) ∨
-  (s.core.confl_type ≠ 1#64 ∧ s.core.confl_ref.toNat ∈ fullArenaClauseRefs s ∧
-    fullArenaClauseGarb s s.core.confl_ref.toNat = false ∧
-    ∀ l ∈ fullArenaClauseLits s s.core.confl_ref.toNat, s.core.vals[l]?.getD 0#8 = 0xFF#8)
-theorem level0_unsat_of_conflict_okW {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
-    {s : FullState} (hw : FullWitnessInv c F0 F_cur s.core) (hl0 : s.core.cur_level = 0)
-    (hc : FullConflictOkW F_cur s) : F0.Unsat := by
-  rcases hc with ⟨_, h0lt, h1lt, hf0, hf1, hent⟩ | ⟨_, href, hng, hfals⟩
-  · refine hw.ext_sound.2 (unsat_of_entails_nil (entails_of_mem_or_false hent fun l hl => ?_))
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at hl; right; rcases hl with rfl | rfl
-    · obtain ⟨i, hi, heq⟩ := (hw.vals_false_iff _ h0lt).mp hf0
-      have hs := hw.level0_sound i hi (by have := hw.lvl_le i hi; omega); rwa [heq] at hs
-    · obtain ⟨i, hi, heq⟩ := (hw.vals_false_iff _ h1lt).mp hf1
-      have hs := hw.level0_sound i hi (by have := hw.lvl_le i hi; omega); rwa [heq] at hs
-  · refine hw.ext_sound.2
-      (unsat_of_entails_nil (entails_of_mem_or_false (hw.arena.entails _ href hng) fun l hl => ?_))
-    right; have hlt := hw.arena.lits_lt _ href hng l hl
-    obtain ⟨i, hi, heq⟩ := (hw.vals_false_iff l hlt).mp (hfals l hl)
-    have hs := hw.level0_sound i hi (by have := hw.lvl_le i hi; omega); rwa [heq] at hs
-/-- Relaxed witness invariant matching `FullSpec1.FullOtfsWitnessInv` for `fullBacktrackSpec`. -/
-structure FullOtfsWitnessInv (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
-    (k : FullCoreState) : Prop where
-  ext_sound : ExtUnsatSound F0 k.cur_vars F_cur
-  inconsistent_sound : k.inconsistent ≠ 0#64 → (cnfOfClauses F_cur).Unsat
-  arena : FullArenaClausesInv c F_cur k
-  watches : ModeWatchesInv F_cur k
-  cur_level_le : k.cur_level ≤ k.trail_end
-  trail_lits_lt : ∀ i < k.trail_end, (k.trl[i]?.getD 0#32).toNat < 2 * k.cur_vars
-  trail_vars_nodup : ∀ i j, i < k.trail_end → j < k.trail_end →
-    (k.trl[i]?.getD 0#32).toNat / 2 = (k.trl[j]?.getD 0#32).toNat / 2 → i = j
-  vals_domain : ∀ l < 2 * k.cur_vars,
-    k.vals[l]?.getD 0#8 = 0#8 ∨ k.vals[l]?.getD 0#8 = 1#8 ∨ k.vals[l]?.getD 0#8 = 0xFF#8
-  vals_true_iff : ∀ l < 2 * k.cur_vars,
-    k.vals[l]?.getD 0#8 = 1#8 ↔ ∃ i < k.trail_end, (k.trl[i]?.getD 0#32).toNat = l
-  vals_false_iff : ∀ l < 2 * k.cur_vars,
-    k.vals[l]?.getD 0#8 = 0xFF#8 ↔ ∃ i < k.trail_end, (k.trl[i]?.getD 0#32).toNat = l ^^^ 1
-  lvl_le : ∀ i < k.trail_end,
-    (k.lvl[(k.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ k.cur_level
-  dec_earliest : ∀ i j, i < k.trail_end → j < k.trail_end →
-    (k.lvl[(k.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat =
-      (k.lvl[(k.trl[j]?.getD 0#32).toNat / 2]?.getD 0#32).toNat →
-    0 < (k.lvl[(k.trl[j]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ∧
-    k.rsns[(k.trl[j]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32 = 0xFFFFFFFF#32 → j ≤ i
-  levels_inhabited : ∀ L, 1 ≤ L → L ≤ k.cur_level →
-    ∃ i < k.trail_end, (k.lvl[(k.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = L
-  level0_sound : ∀ i < k.trail_end,
-    (k.lvl[(k.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = 0 →
-    (cnfOfClauses F_cur).EntailsClause (cnfClause [(k.trl[i]?.getD 0#32).toNat])
-  trail_pos_inv : ∀ i < k.trail_end,
-    (k.trail_pos[(k.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = i
-  level0_rsn_none : ∀ idx < k.trail_end,
-    (k.lvl[(k.trl[idx]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = 0 →
-    k.rsns[(k.trl[idx]?.getD 0#32).toNat / 2]?.getD 0xFFFFFFFF#32 = 0xFFFFFFFF#32
-  frame_trail_lt : ∀ L ≤ k.cur_level, (k.frame_trail[L]?.getD 0#32).toNat ≤ k.trail_end
-  frame_trail_mono : ∀ L1 L2, L1 ≤ L2 → L2 ≤ k.cur_level →
-    (k.frame_trail[L1]?.getD 0#32).toNat ≤ (k.frame_trail[L2]?.getD 0#32).toNat
-  frame_trail_before_lt : ∀ L, 1 ≤ L → L ≤ k.cur_level →
-    ∀ i < (k.frame_trail[L]?.getD 0#32).toNat,
-      (k.lvl[(k.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat < L
-  frame_dec_lt : ∀ L, 1 ≤ L → L ≤ k.cur_level → (k.frame_dec[L]?.getD 0#32).toNat < 2 * k.cur_vars
-  reason_inv_below : ∀ idx < k.trail_end,
-    let p := (k.trl[idx]?.getD 0#32).toNat
-    let rsn := k.rsns[p / 2]?.getD 0xFFFFFFFF#32
-    (k.lvl[p / 2]?.getD 0#32).toNat < k.cur_level → rsn ≠ 0xFFFFFFFF#32 →
-    if (rsn &&& 0x80000000#32) ≠ 0#32 then
-      let ot := (rsn &&& 0x7FFFFFFF#32).toNat
-      ot < 2 * k.cur_vars ∧ (cnfOfClauses F_cur).EntailsClause (cnfClause [p, ot]) ∧
-      ∃ m < idx, (k.trl[m]?.getD 0#32).toNat = ot ^^^ 1 ∧
-        (k.lvl[ot / 2]?.getD 0#32).toNat ≤ (k.lvl[p / 2]?.getD 0#32).toNat
-    else
-      rsn.toNat ∈ fullArenaClauseRefsCore k ∧ fullArenaClauseGarbCore k rsn.toNat = false ∧
-      ∀ q ∈ fullArenaClauseLitsCore k rsn.toNat,
-        q = p ∨ ∃ m < idx, (k.trl[m]?.getD 0#32).toNat = q ^^^ 1 ∧
-          (k.lvl[q / 2]?.getD 0#32).toNat ≤ (k.lvl[p / 2]?.getD 0#32).toNat
-  reason_lit_mem_below : ∀ idx < k.trail_end,
-    let p := (k.trl[idx]?.getD 0#32).toNat
-    let rsn := k.rsns[p / 2]?.getD 0xFFFFFFFF#32
-    (k.lvl[p / 2]?.getD 0#32).toNat < k.cur_level → rsn ≠ 0xFFFFFFFF#32 →
-    (rsn &&& 0x80000000#32) = 0#32 → p ∈ fullArenaClauseLitsCore k rsn.toNat
-/-! ### Callee `Spec` contracts (`5` callees matching `FullSpec{2,3}` 1:1) -/
-
-def fullWstackDefragSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
-  ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧ WatchStackLayout s.core ∧ (FullMem c s ⋆ R) m ∧
-    ∀ wvec' wstk' wlen' wsort' m',
-      let s' : FullState :=
-        { s with
-          core := { s.core with wvec := wvec', wstk := wstk', wlen := wlen', wusable := 0#64 }
-          scratch := { s.scratch with wsort := wsort' } }
-      s'.LengthsOk c → WatchStackLayout s'.core → (1 ≤ s.core.wlen → 1 ≤ wlen') →
-      (∀ l < 2 * s.core.cur_vars, fullWatchSize s' l = fullWatchSize s l ∧
-        ∀ k < fullWatchSize s l,
-          s'.core.wstk[fullWatchOff s' l + k]? = s.core.wstk[fullWatchOff s l + k]?) →
-      (FullMem c s' ⋆ R) m' → Q () m'
-def fullBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
-  ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧
-    (target_lvl.toNat < s.core.cur_level → target_lvl.toNat < c.max_vars) ∧
-    (∀ i < s.core.trail_end, (s.core.trl[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
-    (FullMem c s ⋆ R) m ∧
-    ∀ vals' lvl' rsns' trl' tp' te' prop' cl' unass' sc' m',
-      let s' : FullState :=
-        { s with
-          core :=
-            { s.core with
-              vals := vals', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp'
-              trail_end := te', propagated := prop', cur_level := cl', unassigned := unass' }
-          scratch := sc' }
-      s'.LengthsOk c → te' ≤ s.core.trail_end → prop' ≤ te' →
-      cl' = min s.core.cur_level target_lvl.toNat → FullProbeScratchPres s s' →
-      (∀ i < te', (trl'[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) →
-      (∀ F0 F_cur, FullWitnessInv c F0 F_cur s.core → target_lvl.toNat ≤ s.core.cur_level →
-        FullWitnessInv c F0 F_cur s'.core) →
-      (∀ F0 F_cur, FullOtfsWitnessInv c F0 F_cur s.core → target_lvl.toNat < s.core.cur_level →
-        FullWitnessInv c F0 F_cur s'.core) →
-      (FullMem c s' ⋆ R) m' → Q () m'
-def fullPropagateSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
-  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ FullArenaVarsNodup s ∧
-    s.core.dense_mode = 0#64 ∧ (FullMem c s ⋆ R) m ∧
-    ∀ r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
-      fuel' ctype' cref' c0' c1' oom' sc' m',
-      let s' : FullState :=
-        { s with
-          core :=
-            { s.core with
-              vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl'
-              trail_pos := tp', trail_end := te', propagated := prop', unassigned := unass'
-              unflushed := unfl', wvec := wvec', arena := arena', wstk := wstk', wlen := wlen'
-              wusable := wu', fuel := fuel', confl_type := ctype', confl_ref := cref'
-              confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
-          scratch := sc' }
-      s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core → FullArenaVarsNodup s' →
-      FullProbeScratchPres s s' → s.core.trail_end ≤ te' → fuel'.toNat ≤ s.core.fuel.toNat →
-      (∀ ref ∈ fullArenaClauseRefs s, ref ∈ fullArenaClauseRefs s') →
-      (∀ i < s.core.trail_end, trl'[i]? = s.core.trl[i]?) → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
-      (r = 0#64 → prop' = te' ∧ (s.core.oom = 0#64 → oom' = 0#64) ∧
-        (s.core.propagated < s.core.trail_end → fuel'.toNat < s.core.fuel.toNat)) →
-      (r = 1#64 → fuel'.toNat < s.core.fuel.toNat ∧ oom' = 0#64 ∧ FullConflictOkW F_cur s') →
-      (r = 2#64 → oom' ≠ 0#64 ∨ fuel' = 0#64) →
-      (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
-      (FullMem c s' ⋆ R) m' → Q (r, ()) m'
-def fullDeleteBinSideSpec : Spec [i64, i32, i32] [] := fun (h, lit, _other, ()) m Q _ =>
-  ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧
-    (lit.toNat < 2 * s.core.cur_vars →
-      fullWatchOff s lit.toNat + fullWatchSize s lit.toNat ≤ s.core.wlen) ∧
-    (FullMem c s ⋆ R) m ∧
-    ∀ wvec' wstk' wu' m',
-      let s' : FullState :=
-        { s with core := { s.core with wvec := wvec', wstk := wstk', wusable := wu' } }
-      s'.LengthsOk c →
-      (lit.toNat < 2 * s.core.cur_vars →
-        fullWatchOff s' lit.toNat = fullWatchOff s lit.toNat ∧
-        fullWatchSize s' lit.toNat ≤ fullWatchSize s lit.toNat) →
-      (∀ l < 2 * s.core.cur_vars, l ≠ lit.toNat →
-        fullWatchOff s' l = fullWatchOff s l ∧ fullWatchSize s' l = fullWatchSize s l) →
-      (∀ idx < c.wcap, (lit.toNat < 2 * s.core.cur_vars → idx < fullWatchOff s lit.toNat ∨
-          fullWatchOff s lit.toNat + fullWatchSize s lit.toNat ≤ idx) →
-        wstk'[idx]? = s.core.wstk[idx]?) →
-      (∀ F_cur, WatchSliceOk F_cur s.core lit.toNat (fullWatchOff s lit.toNat)
-          (fullWatchSize s lit.toNat) → WatchSliceOk F_cur s'.core lit.toNat
-          (fullWatchOff s' lit.toNat) (fullWatchSize s' lit.toNat)) →
-      (∀ F_cur, DenseWatchSliceOk F_cur s.core lit.toNat (fullWatchOff s lit.toNat)
-          (fullWatchSize s lit.toNat) → DenseWatchSliceOk F_cur s'.core lit.toNat
-          (fullWatchOff s' lit.toNat) (fullWatchSize s' lit.toNat)) →
-      (WatchStackLayout s.core → WatchStackLayout s'.core) →
-      (∀ F_cur, ModeWatchesInv F_cur s.core → ModeWatchesInv F_cur s'.core) →
-      (FullMem c s' ⋆ R) m' → Q () m'
-def fullAddUnitSpec : Spec [i64, i32] [.bool] := fun (h, lit, ()) m Q _ =>
-  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
-    (lit.toNat < 2 * s.core.cur_vars → (cnfOfClauses F_cur).EntailsClause (cnfClause [lit.toNat])) ∧
-    (FullMem c s ⋆ R) m ∧
-    ∀ (ok : Bool) vals' flags' lvl' rsns' trl' tp' te' prop' cl' unass' unfl' inc' sc' m',
-      let s' : FullState :=
-        { s with
-          core :=
-            { s.core with
-              vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl'
-              trail_pos := tp', trail_end := te', propagated := prop', cur_level := cl'
-              unassigned := unass', unflushed := unfl', inconsistent := inc' }
-          scratch := sc' }
-      s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core → FullProbeScratchPres s s' → cl' = 0 →
-      (lit.toNat < 2 * s.core.cur_vars → ok = false → F0.Unsat ∧ inc' ≠ 0#64) →
-      (ok = false → 2 * s.core.cur_vars ≤ lit.toNat ∨ (F0.Unsat ∧ inc' ≠ 0#64)) →
-      (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
-def fullTransLitSpec : Spec [i64, i32] [.bool] := fun (h, src, ()) m Q _ =>
-  ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ FullSparseInv c F0 s ∧ s.core.cur_level = 0 ∧
-    src.toNat < 2 * s.core.cur_vars ∧ (FullMem c s ⋆ R) m ∧
-    ∀ (ok : Bool) s' m', FullSparseInv c F0 s' → s'.core.cur_level = 0 →
-      s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
-      (ok = false → F0.Unsat) → (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
-def fullTransitiveSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
-  ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ FullSparseInv c F0 s ∧ (FullMem c s ⋆ R) m ∧
-    ∀ r s' m', FullSparseInv c F0 s' → s'.core.cur_level = 0 → s'.core.probing = 0#64 →
-      s'.core.fuel.toNat ≤ s.core.fuel.toNat → (r = 1#64 ∨ r = 20#64) →
-      (r = 20#64 → F0.Unsat) → (FullMem c s' ⋆ R) m' → Q (r, ()) m'
-end FullTransSpecs
-open FullTransSpecs
-/-! ## 3. Watch-slice and tombstone lemmas -/
+/-! ## 2. Watch-slice and tombstone lemmas -/
 section WatchAndTombLemmas
 theorem watchSlice_inv_bin {F_cur : List (List Nat)} {k : FullCoreState} {lit p len : Nat}
     {w0 : BitVec 32} (h : WatchSliceOk F_cur k lit p len) (hlen : 0 < len)
@@ -785,19 +554,6 @@ theorem DenseWatchSliceOk.relocate_same {F_cur : List (List Nat)} {k k' : FullCo
     exact .occ (by simpa using (hwstk 0 (by omega)).trans hp)
       (by simpa using (hwstk 1 (by omega)).trans hp1) hf hs1 hl (hsub _ hr)
       (ih (p' := p' + 2) fun idx hi => by simpa [Nat.add_assoc] using hwstk (2 + idx) (by omega))
-theorem fullWstackDefrag_preserves_modeWatchesInv {F_cur : List (List Nat)}
-    {k k' : FullCoreState} (hw : ModeWatchesInv F_cur k) (hlay : WatchStackLayout k')
-    (hvars : k'.cur_vars = k.cur_vars) (hdm : k'.dense_mode = k.dense_mode)
-    (hsub : ∀ r ∈ fullArenaClauseRefsCore k, r ∈ fullArenaClauseRefsCore k')
-    (hpres : ∀ l < 2 * k.cur_vars, fullWatchSizeCore k' l = fullWatchSizeCore k l ∧
-      ∀ idx < fullWatchSizeCore k l,
-        k'.wstk[fullWatchOffCore k' l + idx]? = k.wstk[fullWatchOffCore k l + idx]?) :
-    ModeWatchesInv F_cur k' := by
-  unfold ModeWatchesInv at hw ⊢; rw [hdm]
-  by_cases hc : k.dense_mode = 0#64 <;> simp only [hc, ↓reduceIte] at hw ⊢ <;>
-    exact ⟨hlay, fun l hl => by
-      obtain ⟨hsz, hslice⟩ := hpres l (hvars ▸ hl); rw [hsz]
-      exact (hw.slices l (hvars ▸ hl)).relocate_same (by omega) hsub hslice⟩
 end WatchAndTombLemmas
 /-! ## 4. Outer-loop and compaction invariants for `full_trans_lit` -/
 section TransLitInvariants
@@ -1082,13 +838,15 @@ theorem TransOuterInv.of_delete_bin_side {c : FullCfg} {F0 : CNF Nat} {F_cur : L
     by_cases hld : l = dst
     · subst hld; exact hslice_dst
     · have hlws := hother_ws l hl hld; rw [hlws.1, hlws.2]
-      refine (hb.other_slices l hl hls).relocate_same (by omega) hrefs fun idx hidx =>
+      refine WatchSliceOk.relocate_same (hb.other_bounds l hl hls |> fun _ => by omega) hrefs
+        (fun idx hidx =>
         hout_range (fullWatchOffCore st.core l)
           (fullWatchOffCore st.core l + fullWatchSizeCore st.core l) (hb.other_bounds l hl hls) (by
             by_cases hdz : fullWatchSizeCore st.core dst = 0
             · exact Or.inl hdz
             · exact Or.inr (hb.disjoint_all l dst hl hdst_lt hld (by omega)
-                (Nat.pos_of_ne_zero hdz))) _ (by omega) (by omega)
+                (Nat.pos_of_ne_zero hdz))) _ (by omega) (by omega))
+        (hb.other_slices l hl hls)
   exact
     { base :=
         { len_ok := hlen', core_pres := by rw [hst'_eq]; simpa using hcp
@@ -1114,8 +872,8 @@ theorem TransOuterInv.of_delete_bin_side {c : FullCfg} {F0 : CNF Nat} {F_cur : L
       off_le_p := h.off_le_p, p_le_end := h.p_le_end, red_le := h.red_le
       src_pref := h.src_pref.mono (by omega) hrefs fun idx ha _ =>
         hsrc_wstk idx ha (by have := h.p_le_end; omega)
-      src_rem := h.src_rem.relocate_same (k := st.core) (by omega) hrefs fun idx _ =>
-        hsrc_wstk (p + idx) (by have := h.off_le_p; omega) (by omega) }
+      src_rem := WatchSliceOk.relocate_same (k := st.core) (by omega) hrefs (fun idx _ =>
+        hsrc_wstk (p + idx) (by have := h.off_le_p; omega) (by omega)) h.src_rem }
 theorem TransOuterInv.skip_bin {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s0 : FullState} {src off p end_v reduced : Nat} {st : FullState} {w0 : BitVec 32}
     (h : TransOuterInv c F0 F_cur s0 src off p end_v reduced st) (hp : p < end_v)
@@ -1394,4 +1152,149 @@ theorem TransOuterBase.of_compact_done {c : FullCfg} {F0 : CNF Nat} {F_cur : Lis
     FullSparseInv c F0 st' :=
   (hb.of_compact_done_full hsp0 hw0 hsrc_lt hred hsl).1
 end TransLitInvariants
+section SparsePreservation
+theorem FullWitnessInv.with_flags_probing {c : FullCfg} {F0 : CNF Nat}
+    {F_cur : List (List Nat)} {k : FullCoreState} (hw : FullWitnessInv c F0 F_cur k)
+    (fl' : List (BitVec 32)) (pr' : BitVec 64) :
+    FullWitnessInv c F0 F_cur { k with flags := fl', probing := pr' } :=
+  let k' : FullCoreState := { k with flags := fl', probing := pr' }
+  { hw with
+    arena := ⟨hw.arena.len_ok, hw.arena.refs_wf, hw.arena.shrk_term, hw.arena.lits_lt,
+      hw.arena.entails⟩
+    watches := by
+      have hwm := hw.watches; unfold ModeWatchesInv at hwm ⊢; by_cases hc : k.dense_mode = 0#64
+      · rw [ite_eq_left_of_eq_true _ _ (eq_true hc)] at hwm
+        rw [ite_eq_left_of_eq_true _ _ (eq_true (show k'.dense_mode = 0#64 from hc))]
+        exact ⟨⟨hwm.layout.bounds, hwm.layout.pos_off, hwm.layout.disjoint, hwm.layout.no_sentinel⟩,
+          fun l hl => WatchSliceOk.relocate_same (k := k) (k' := k') (Nat.le_refl _)
+            (fun _ h => h) (fun _ _ => rfl) (hwm.slices l hl)⟩
+      · rw [ite_eq_right_of_eq_false _ _ (eq_false hc)] at hwm
+        rw [ite_eq_right_of_eq_false _ _ (eq_false (show k'.dense_mode ≠ 0#64 from hc))]
+        exact ⟨⟨hwm.layout.bounds, hwm.layout.pos_off, hwm.layout.disjoint, hwm.layout.no_sentinel⟩,
+          fun l hl => DenseWatchSliceOk.relocate_same (k := k) (k' := k') (Nat.le_refl _)
+            (fun _ h => h) (fun _ _ => rfl) (hwm.slices l hl)⟩ }
+theorem fullSparseInv_frame {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+    {s s' : FullState} (hsp : FullSparseInv c F0 s) (hlen' : s'.LengthsOk c)
+    (hw' : FullWitnessInv c F0 F_cur s'.core) (hmrk : s'.core.mrk = s.core.mrk)
+    (hlmk : s'.core.lit_mark = s.core.lit_mark) (har : s'.core.arena = s.core.arena)
+    (hal : s'.core.arena_len = s.core.arena_len) (hdm' : s'.core.dense_mode = 0#64)
+    (hll : s'.scratch.last_learned = s.scratch.last_learned)
+    (hel : s'.scratch.extend_len = s.scratch.extend_len)
+    (hrefs : ∀ r ∈ fullArenaClauseRefs s, r ∈ fullArenaClauseRefs s') : FullSparseInv c F0 s' := by
+  obtain ⟨_, ⟨hm, hlm⟩, hnd, ⟨hll0, hel0⟩, _⟩ := hsp
+  refine ⟨⟨hlen', F_cur, hw'⟩, ⟨fun v hv => by rw [hmrk]; exact hm v hv,
+    fun l hl => by rw [hlmk]; exact hlm l hl⟩, ?_, ⟨?_, by rw [hel]; exact hel0⟩, hdm'⟩
+  · intro r hr hng; unfold fullArenaClauseRefs fullArenaClauseRefsCore at hr
+    unfold fullArenaClauseGarb fullArenaClauseGarbCore fullArenaHdrCore at hng
+    unfold fullArenaClauseLits fullArenaClauseLitsCore fullArenaClauseSizeCore
+    rw [har, hal] at hr; rw [har] at hng ⊢; exact hnd r hr hng
+  · intro i hi; dsimp only; unfold FullLastLearnedWf at hll0; rw [hll]
+    exact (hll0 i hi).imp id (hrefs _)
+theorem fullSparseInv_with_probing {c : FullCfg} {F0 : CNF Nat} {s : FullState}
+    (hsp : FullSparseInv c F0 s) (pr' : BitVec 64) :
+    FullSparseInv c F0 { s with core := { s.core with probing := pr' } } :=
+  let ⟨⟨hlen, F_cur, hw⟩, hlm, hnd, hsc, hdm⟩ := hsp
+  ⟨⟨⟨{ hlen.core_ok with vals_len := hlen.core_ok.vals_len }, hlen.scratch_ok⟩,
+    F_cur, FullWitnessInv.with_flags_probing hw s.core.flags pr'⟩, hlm, hnd, hsc, hdm⟩
+theorem fullSparseInv_with_ant_sz {c : FullCfg} {F0 : CNF Nat} {s : FullState}
+    (hsp : FullSparseInv c F0 s) (asz' : BitVec 64) :
+    FullSparseInv c F0 { s with scratch := { s.scratch with ant_sz := asz' } } :=
+  let ⟨⟨hlen, F_cur, hw⟩, hlm, hnd, hsc, hdm⟩ := hsp
+  ⟨⟨⟨hlen.core_ok, { hlen.scratch_ok with walk_vals_len := hlen.scratch_ok.walk_vals_len }⟩,
+    F_cur, hw⟩, hlm, hnd, hsc, hdm⟩
+theorem fullSparseInv_clear_fl_trans {c : FullCfg} {F0 : CNF Nat} {s : FullState}
+    (hsp : FullSparseInv c F0 s) {v : Nat} {fv' : BitVec 32} :
+    FullSparseInv c F0 { s with core := { s.core with flags := s.core.flags.set v fv' } } :=
+  let ⟨⟨hlen, F_cur, hw⟩, hlm, hnd, hsc, hdm⟩ := hsp
+  ⟨⟨⟨{ hlen.core_ok with flags_len := by simp [hlen.core_ok.flags_len] }, hlen.scratch_ok⟩,
+    F_cur, FullWitnessInv.with_flags_probing hw (s.core.flags.set v fv') s.core.probing⟩,
+    hlm, hnd, hsc, hdm⟩
+theorem fullSparseInv_with_trans_cnt {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+    {s : FullState} (hsp : FullSparseInv c F0 s) (hw : FullWitnessInv c F0 F_cur s.core)
+    (tc' : BitVec 64) : let s' := { s with scratch := { s.scratch with trans_cnt := tc' } }
+    FullSparseInv c F0 s' ∧ FullWitnessInv c F0 F_cur s'.core :=
+  let ⟨⟨⟨hc, hs⟩, _, _⟩, hlm, hnd, hsc, hdm⟩ := hsp
+  ⟨⟨⟨⟨hc, { hs with walk_vals_len := hs.walk_vals_len }⟩, F_cur, hw⟩, hlm, hnd, hsc, hdm⟩, hw⟩
+theorem fullWstackDefrag_sparse {c : FullCfg} {F0 : CNF Nat} {s s' : FullState}
+    {wvec' wstk' : List (BitVec 32)} {wlen' : Nat} {wsort' : List (BitVec 32)}
+    (hsp : FullSparseInv c F0 s) (hs' : s' = { s with
+      core := { s.core with wvec := wvec', wstk := wstk', wlen := wlen', wusable := 0#64 },
+      scratch := { s.scratch with wsort := wsort' } })
+    (hlen' : s'.LengthsOk c) (hlay' : WatchStackLayout s'.core)
+    (hpres : ∀ l < 2 * s.core.cur_vars, fullWatchSize s' l = fullWatchSize s l ∧
+      ∀ k < fullWatchSize s l,
+        s'.core.wstk[fullWatchOff s' l + k]? = s.core.wstk[fullWatchOff s l + k]?) :
+    FullSparseInv c F0 s' := by
+  obtain ⟨⟨_, F_cur, hw⟩, _⟩ := id hsp
+  have hw' : FullWitnessInv c F0 F_cur s'.core := by
+    subst hs'; exact {
+      hw with
+      arena := ⟨hw.arena.len_ok, hw.arena.refs_wf, hw.arena.shrk_term, hw.arena.lits_lt,
+        hw.arena.entails⟩
+      watches := fullWstackDefrag_preserves_modeWatchesInv hw.watches hlay' rfl rfl
+        (fun _ h => h) hpres }
+  exact fullSparseInv_frame hsp hlen' hw' (by rw [hs']) (by rw [hs']) (by rw [hs']) (by rw [hs'])
+    (by rw [hs']; exact hsp.2.2.2.2) (by rw [hs']) (by rw [hs']) fun r hr => by
+      unfold fullArenaClauseRefs fullArenaClauseRefsCore at hr ⊢; rwa [hs']
+theorem fullBacktrack_sparse {c : FullCfg} {F0 : CNF Nat} {s s' : FullState}
+    {vals' : List (BitVec 8)} {lvl' rsns' trl' tp' : List (BitVec 32)} {te' prop' cl' : Nat}
+    {unass' : BitVec 64} {sc' : FullScratch} (hsp : FullSparseInv c F0 s) (hs' : s' = { s with
+      core := {
+        s.core with
+        vals := vals', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp', trail_end := te',
+        propagated := prop', cur_level := cl', unassigned := unass' },
+      scratch := sc' }) (hlen' : s'.LengthsOk c) (hpr' : FullProbeScratchPres s s')
+    (hw' : ∀ F0 F_cur, FullWitnessInv c F0 F_cur s.core → 0 ≤ s.core.cur_level →
+      FullWitnessInv c F0 F_cur s'.core) : FullSparseInv c F0 s' := by
+  obtain ⟨⟨_, F_cur, hw⟩, _⟩ := id hsp
+  exact fullSparseInv_frame hsp hlen' (hw' F0 F_cur hw (Nat.zero_le _)) (by rw [hs']) (by rw [hs'])
+    (by rw [hs']) (by rw [hs']) (by rw [hs']; exact hsp.2.2.2.2) hpr'.1.1 hpr'.1.2
+    fun r hr => by unfold fullArenaClauseRefs fullArenaClauseRefsCore at hr ⊢; rwa [hs']
+theorem fullPropagate_sparse {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+    {s s' : FullState} {vals' : List (BitVec 8)} {flags' lvl' rsns' trl' tp' : List (BitVec 32)}
+    {te' prop' : Nat} {unass' unfl' : BitVec 64} {wvec' arena' wstk' : List (BitVec 32)}
+    {wlen' : Nat} {wu' fuel' ctype' cref' c0' c1' oom' ticks' : BitVec 64}
+    {wsort' : List (BitVec 32)} {phases' : List (BitVec 8)}
+    (hsp : FullSparseInv c F0 s) (hs' : s' = { s with
+      core := {
+        s.core with
+        vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp',
+        trail_end := te', propagated := prop', unassigned := unass', unflushed := unfl',
+        wvec := wvec', arena := arena', wstk := wstk', wlen := wlen', wusable := wu',
+        fuel := fuel', confl_type := ctype', confl_ref := cref', confl_lit0 := c0',
+        confl_lit1 := c1', oom := oom' },
+      scratch := { s.scratch with
+        search_ticks := ticks', wsort := wsort', phases := phases' } })
+    (hlen' : s'.LengthsOk c) (hw' : FullWitnessInv c F0 F_cur s'.core)
+    (hperm' : FullArenaPermEq s.core s'.core) : FullSparseInv c F0 s' := by
+  obtain ⟨_, ⟨hm, hlm⟩, hnd0, ⟨hll0, hel0⟩, hdm⟩ := hsp; subst hs'
+  refine ⟨⟨hlen', F_cur, hw'⟩, ⟨hm, hlm⟩, fun r hr hng => ?_, ⟨fun i hi => ?_, hel0⟩, hdm⟩
+  · have hr0 : r ∈ fullArenaClauseRefs s := by
+      unfold fullArenaClauseRefs at hr ⊢; rwa [hperm'.2.1] at hr
+    obtain ⟨_, hgb, hpm⟩ := hperm'.2.2 r hr0
+    have hng0 : fullArenaClauseGarb s r = false := by
+      unfold fullArenaClauseGarb at hng ⊢; exact hgb ▸ hng
+    unfold fullArenaClauseLits; exact (hpm.map (· / 2)).nodup_iff.mpr (hnd0 r hr0 hng0)
+  · dsimp only; unfold FullLastLearnedWf at hll0; unfold fullArenaClauseRefs
+    rw [hperm'.2.1]; exact hll0 i hi
+theorem fullAddUnit_sparse {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+    {s s' : FullState} {vals' : List (BitVec 8)} {flags' lvl' rsns' trl' tp' : List (BitVec 32)}
+    {te' prop' cl' : Nat} {unass' unfl' inc' : BitVec 64} {phases' : List (BitVec 8)}
+    {ta' ba' : BitVec 64} {pt' pb' : List (BitVec 8)} {hp' ps' : List (BitVec 32)} {hl' : Nat}
+    {qsi' qss' : BitVec 64} (hsp : FullSparseInv c F0 s) (hs' : s' = { s with
+      core := {
+        s.core with
+        vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp',
+        trail_end := te', propagated := prop', cur_level := cl', unassigned := unass',
+        unflushed := unfl', inconsistent := inc' },
+      scratch := { s.scratch with
+        phases := phases', target_assigned := ta', best_assigned := ba',
+        phases_target := pt', phases_best := pb', heap := hp', pos := ps',
+        heap_len := hl', q_search_idx := qsi', q_search_stamp := qss' } })
+    (hlen' : s'.LengthsOk c) (hw' : FullWitnessInv c F0 F_cur s'.core) :
+    FullSparseInv c F0 s' := by
+  subst hs'; exact fullSparseInv_frame hsp hlen' hw' rfl rfl rfl rfl
+    hsp.2.2.2.2 rfl rfl (fun _ h => h)
+end SparsePreservation
+end FullTransHelpers
 end LeanQbe.T.Examples.Kissat.Full
