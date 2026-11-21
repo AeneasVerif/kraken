@@ -26,6 +26,7 @@ public import LeanQbe.T.Logic.ZeroTerm
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Logic.C0StepAttr
 public import LeanQbe.T.Logic.C0Step
+public import LeanQbe.T.Logic.C0HeadStep
 public import LeanQbe.T.Logic.C0Agrees
 public import LeanQbe.T.Logic.ControlComb
 public import LeanQbe.T.Logic.SepTree
@@ -260,6 +261,7 @@ public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas5
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas6
 public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas
 public import LeanQbe.T.Examples.Kissat.FullTransLemmas
+public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
