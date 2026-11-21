@@ -260,6 +260,7 @@ public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas
 public import LeanQbe.T.Examples.Kissat.FullTransLemmas
 public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas8a
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
