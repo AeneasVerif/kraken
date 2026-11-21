@@ -465,6 +465,11 @@ def fullHbrDomSpec : Spec [i64, i32, i32] [i32] := fun (h, cref, implied, ()) m 
         (cnfOfClauses F_cur).EntailsClause (cnfClause [dom.toNat ^^^ 1, implied.toNat]))) →
       (FullMem c s' ⋆ R) m' → Q (dom, ()) m'
 
+/-- Trail-prefix, level, and reason preservation across level-1 probe propagation. -/
+def FullTrailRsnsExt (k k' : FullCoreState) : Prop :=
+  FullTrailExt k k' ∧ ∀ i < k.trail_end,
+    k'.rsns[(k.trl[i]?.getD 0#32).toNat / 2]? = k.rsns[(k.trl[i]?.getD 0#32).toNat / 2]?
+
 def fullProbePropLitSpec : Spec [i64, i32] [.bool] := fun (h, _lit, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ FullMrkZero c s ∧
@@ -476,7 +481,7 @@ def fullProbePropLitSpec : Spec [i64, i32] [.bool] := fun (h, _lit, ()) m Q _ =>
       FullArenaVarsNodup s' → FullExtScratchOk c s' → s'.core.dense_mode = 0#64 →
       s'.core.cur_level = 1 → s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
       s'.core.lit_mark = s.core.lit_mark → s'.scratch.work_stk1 = s.scratch.work_stk1 →
-      s.core.trail_end ≤ s'.core.trail_end → FullHbrBufOkW F_cur s' s'.core.tmp_cnt →
+      FullTrailRsnsExt s.core s'.core → FullHbrBufOkW F_cur s' s'.core.tmp_cnt →
       (ok = false → s'.core.oom ≠ 0#64 ∨ FullConflictOkW F_cur s') →
       (ok = true → s'.core.oom = 0#64) →
       (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
@@ -492,7 +497,7 @@ def fullProbePropSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       s'.core.cur_level = 1 → s'.core.cur_vars = s.core.cur_vars →
       s'.core.fuel.toNat ≤ s.core.fuel.toNat →
       s'.core.lit_mark = s.core.lit_mark → s'.scratch.work_stk1 = s.scratch.work_stk1 →
-      FullHbrBufOkW F_cur s' s'.core.tmp_cnt →
+      FullTrailRsnsExt s.core s'.core → FullHbrBufOkW F_cur s' s'.core.tmp_cnt →
       (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
       (r = 1#64 → FullConflictOkW F_cur s') →
       (r = 0#64 → s'.core.propagated = s'.core.trail_end) →
