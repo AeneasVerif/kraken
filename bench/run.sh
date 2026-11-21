@@ -17,7 +17,15 @@ cd "$ROOT"
 OUT="${OUT:-$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-bench.XXXXXX")}"
 mkdir -p "$OUT"
 QBE_SRC="${QBE_SRC:-$ROOT/qbe}"
-[ -d "$QBE_SRC" ] || QBE_SRC="/usr/local/google/home/andreser/lean-qbe/qbe"
+HAS_QBE_ABLATION=0
+if [ -d "$QBE_SRC" ]; then
+  HAS_QBE_ABLATION=1
+elif QBE="${QBE:-$(command -v qbe || true)}" && [ -n "$QBE" ]; then
+  echo "NOTE: QBE_SRC not found at $QBE_SRC; using $QBE (skipping pass-ablation variants)."
+else
+  echo "FAIL: QBE source directory ($QBE_SRC) and qbe binary not found; set QBE_SRC or QBE" >&2
+  exit 1
+fi
 
 echo "== 1. Emitting QBE IL and lean-qbe (x64 + arm64) assembly into $OUT"
 timeout 1800 lake build leanqbe leanqbe-arm64 >"$OUT/build.log" 2>&1 || { tail -20 "$OUT/build.log"; exit 1; }
@@ -30,11 +38,12 @@ timeout 60 "$LEANQBE" lrat_trim >"$OUT/lrat_trim.s"
 timeout 60 "$LEANQBE_ARM64" uf_bench >"$OUT/uf_arm64.s"
 timeout 60 "$LEANQBE_ARM64" lrat_trim >"$OUT/lrat_trim_arm64.s"
 
-echo "== 2. Building instrumented stock QBE (with env-var pass ablation switches) in $OUT/qbe-src"
-rm -rf "$OUT/qbe-src"
-cp -r "$QBE_SRC" "$OUT/qbe-src"
+if [ "$HAS_QBE_ABLATION" = "1" ]; then
+  echo "== 2. Building instrumented stock QBE (with env-var pass ablation switches) in $OUT/qbe-src"
+  rm -rf "$OUT/qbe-src"
+  cp -r "$QBE_SRC" "$OUT/qbe-src"
 
-python3 - "$OUT/qbe-src" <<'PY'
+  python3 - "$OUT/qbe-src" <<'PY'
 import sys, pathlib
 d = pathlib.Path(sys.argv[1])
 
@@ -80,8 +89,11 @@ s = s.replace("sethint(int t, int r)\n{", "sethint(int t, int r)\n{\n\tif (geten
 p.write_text(s)
 PY
 
-timeout 300 make -C "$OUT/qbe-src" -j8 >/dev/null
-QBE="$OUT/qbe-src/qbe"
+  timeout 300 make -C "$OUT/qbe-src" -j8 >/dev/null
+  QBE="$OUT/qbe-src/qbe"
+else
+  echo "== 2. Using prebuilt stock QBE: $QBE"
+fi
 
 insns() { # count instructions in a .s file (indented or unindented)
   grep -vE '^\s*($|\.|#|/\*|[A-Za-z0-9_.$]+:)' "$1" 2>/dev/null | wc -l | tr -d ' '
@@ -150,26 +162,31 @@ for cc in gcc clang; do
 done
 
 # QBE variants
-declare -a LABELS=(
-  "stock QBE (all passes)"
-  "QBE -fold"
-  "QBE -copy"
-  "QBE -gvn/gcm"
-  "QBE -simpl"
-  "QBE -isel-addr"
-  "QBE -rega-coalesce"
-  "QBE -all-opt"
-)
-declare -a ENVS=(
-  ""
-  "QBE_NO_FOLD=1"
-  "QBE_NO_COPY=1"
-  "QBE_NO_GVNGCM=1"
-  "QBE_NO_SIMPL=1"
-  "QBE_NO_ADDR=1"
-  "QBE_NO_COALESCE=1"
-  "QBE_NO_FOLD=1 QBE_NO_COPY=1 QBE_NO_GVNGCM=1 QBE_NO_SIMPL=1 QBE_NO_ADDR=1 QBE_NO_COALESCE=1"
-)
+if [ "$HAS_QBE_ABLATION" = "1" ]; then
+  declare -a LABELS=(
+    "stock QBE (all passes)"
+    "QBE -fold"
+    "QBE -copy"
+    "QBE -gvn/gcm"
+    "QBE -simpl"
+    "QBE -isel-addr"
+    "QBE -rega-coalesce"
+    "QBE -all-opt"
+  )
+  declare -a ENVS=(
+    ""
+    "QBE_NO_FOLD=1"
+    "QBE_NO_COPY=1"
+    "QBE_NO_GVNGCM=1"
+    "QBE_NO_SIMPL=1"
+    "QBE_NO_ADDR=1"
+    "QBE_NO_COALESCE=1"
+    "QBE_NO_FOLD=1 QBE_NO_COPY=1 QBE_NO_GVNGCM=1 QBE_NO_SIMPL=1 QBE_NO_ADDR=1 QBE_NO_COALESCE=1"
+  )
+else
+  declare -a LABELS=("stock QBE (all passes)")
+  declare -a ENVS=("")
+fi
 
 for idx in "${!LABELS[@]}"; do
   lbl="${LABELS[$idx]}"

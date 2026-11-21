@@ -6,6 +6,7 @@ public import LeanQbe.T.Canon
 public import LeanQbe.T.Copy
 public import LeanQbe.T.Gvn
 public import LeanQbe.T.Dce
+public import LeanQbe.T.DceParam
 public import LeanQbe.T.DivConst
 public import LeanQbe.T.MemLoad
 public import LeanQbe.T.Peel
@@ -17,13 +18,14 @@ public import LeanQbe.T.Module
 /-!
 # The Staged Typed-IR Mid-End Pipeline (`T6`, `O-M1`, `O-M2`)
 
-* `Func.opt`: legacy `T6` mid-end (`fold → copy → gvn → copy → fold → dce`).
+* `Func.opt`: legacy `T6` mid-end (`fold → copy → gvn → copy → fold → dceP`).
 * `Func.earlyOpt`: pre-`Legal` pipeline (`renorm → fold → canon → copy → gvn → copy → fold →
-  renorm → simplifyGroup → peel → dce → renorm`), simplifying source and inlined bodies and peeling
-  bounded loops while preserving `C4`–`C9` widening arithmetic (`addc`/`subb`/`mulx` chains).
+  renorm → simplifyGroup → peel → dceP → renorm`), simplifying source and inlined bodies and
+  peeling bounded loops while preserving `C4`–`C9` widening arithmetic (`addc`/`subb`/`mulx`
+  chains).
 * `Func.lateOpt`: post-`Legal` pipeline (`renorm → fold → canon → divConst → copy → memLoad →
-  gvn → renorm → simplifyGroup → ifOptBits → simplifyGroup → deadLoadElim → assumeElim → dce →
-  renorm`), running target-safe scalar division reduction, memory load forwarding, machine-width
+  gvn → renorm → simplifyGroup → ifOptBits → simplifyGroup → deadLoadElim → assumeElim → dceP
+  → renorm`), running target-safe scalar division reduction, memory load forwarding, machine-width
   if-conversion, and cleanup on legalized IR.
 * `Fn.renorm` / `Module.optInline`: acyclic small-callee inlining followed by AST renormalization.
 
@@ -39,7 +41,7 @@ namespace LeanQbe.T
 
 /-- Run the legacy `T6` mid-end optimization pipeline on a closed typed function. -/
 def Func.opt {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.dce (Func.fold (Func.copy (Func.gvn (Func.copy (Func.fold f)))))
+  Func.dceP (Func.fold (Func.copy (Func.gvn (Func.copy (Func.fold f)))))
 
 mutual
 /-- Count jumps targeting de Bruijn label index `d` inside a `TFlat` AST. -/
@@ -131,7 +133,7 @@ def Func.earlyCore {as rs : List Ty} (f : Func as rs) : Func as rs :=
 /-- Stage 1 (`earlyOpt`, pre-`Legal`): simplify source/inlined bodies and peel compact
 single-loop functions while keeping PHOAS closures flat via `Func.renorm` for `Legal`. -/
 def Func.earlyOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.renorm (Func.dce (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore f)) 24))
+  Func.renorm (Func.dceP (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore f)) 24))
 
 /-- Post-`Legal` value/memory optimization core (`fold → canon → divConst → copy → renorm →
 memLoad → gvn → fold`). -/
@@ -140,9 +142,9 @@ def Func.lateCore {as rs : List Ty} (f : Func as rs) : Func as rs :=
     (Func.fold f)))))))
 
 /-- Post-`Legal` CFG/cleanup core (`renorm → ifOptBits → simplifyGroupFast → deadLoadElim →
-assumeElim → renorm → dce`). -/
+assumeElim → renorm → dceP`). -/
 def Func.lateCfg {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.dce (Func.renorm (Func.assumeElim (Func.deadLoadElim
+  Func.dceP (Func.renorm (Func.assumeElim (Func.deadLoadElim
     (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f))))))
 
 /-- Stage 2 (`lateOpt`, post-`Legal`): strength-reduce constant division, forward memory loads,
@@ -158,7 +160,7 @@ theorem Func.earlyCore_eq {as rs : List Ty} (f : Func as rs) :
 
 theorem Func.earlyOpt_eq {as rs : List Ty} (f : Func as rs) :
     Func.earlyOpt f =
-      Func.renorm (Func.dce (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore f)) 24)) :=
+      Func.renorm (Func.dceP (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore f)) 24)) :=
   rfl
 
 theorem Func.lateCore_eq {as rs : List Ty} (f : Func as rs) :
@@ -169,7 +171,7 @@ theorem Func.lateCore_eq {as rs : List Ty} (f : Func as rs) :
 
 theorem Func.lateCfg_eq {as rs : List Ty} (f : Func as rs) :
     Func.lateCfg f =
-      Func.dce (Func.renorm (Func.assumeElim (Func.deadLoadElim
+      Func.dceP (Func.renorm (Func.assumeElim (Func.deadLoadElim
         (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f)))))) :=
   rfl
 

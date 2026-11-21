@@ -613,7 +613,7 @@ bool full_fwd_check_cl(FullHdr *h, u32 cref) {
       if ((w0 & PW_BIN_FLAG) != 0u) {
         u32 ot = w0 & PW_LIT_MASK;
         if (lm[ot] != (u8)0) { subsumed = true; break; }
-        if (lm[ot ^ 1u] != (u8)0) { drop = ot ^ 1u; break; }
+        if ((ot ^ 1u) != l && lm[ot ^ 1u] != (u8)0) { drop = ot ^ 1u; break; }
         continue;
       }
       if (p >= end) { break; }
@@ -861,9 +861,14 @@ u64 full_bve_commit_res(FullHdr *h, u64 r_off, u64 r_end) {
       u64 cr = full_alloc_cl(h, sz, 0u, false);
       if (cr == 0xFFFFFFFFULL) { h->oom = 1ULL; return 2ULL; }
       u32 *ar = (u32 *)h->arena; u32 k = 0u;
+      while (k < sz) { ar[cr + 3ULL + (u64)k] = scr[p + (u64)k]; k = k + 1u; }
+      k = 0u;
       while (k < sz) {
-        u32 l = scr[p + (u64)k]; ar[cr + 3ULL + (u64)k] = l;
-        if (!full_watch_push(h, l, sz & PW_LIT_MASK, (u32)cr, 2u)) { h->oom = 1ULL; return 2ULL; }
+        if (!full_watch_push(h, ar[cr + 3ULL + (u64)k], sz & PW_LIT_MASK, (u32)cr, 2u)) {
+          ar[cr] = ar[cr] | PH_GARB;
+          h->arena_garbage = h->arena_garbage + 3ULL + (u64)sz;
+          h->oom = 1ULL; return 2ULL;
+        }
         k = k + 1u;
       }
       h->num_irred = h->num_irred + 1ULL;
@@ -879,7 +884,7 @@ u64 full_bve_ext_need(FullHdr *h, u32 off, u32 cnt) {
   while (i < cnt) {
     u32 w = scr[off + i];
     if ((w & PW_BIN_FLAG) != 0u) { need = need + 2ULL; }
-    else { need = need + (u64)ar[(u64)w + 2ULL]; }
+    else { need = need + (u64)ar[(u64)w + 2ULL] + 1ULL; }
     i = i + 1u;
   }
   return need;
@@ -951,7 +956,9 @@ void full_init_fresh_var(FullHdr *h, u32 fv) {
   i8 *vals = (i8 *)h->values; u8 *mrk = (u8 *)h->mark; u32 *fl = (u32 *)h->flags;
   u32 *lvl = (u32 *)h->level; u32 *rsns = (u32 *)h->reason; u32 *ps = (u32 *)h->pos;
   u32 *qp = (u32 *)h->q_prev; u32 *qn = (u32 *)h->q_next; u32 *qs = (u32 *)h->q_stamp;
-  i8 *ph = (i8 *)h->phases;
+  i8 *ph = (i8 *)h->phases; u32 *wvec = (u32 *)h->watch_vec;
+  u64 wb = (u64)fv << 2;
+  wvec[wb] = 0u; wvec[wb + 1ULL] = 0u; wvec[wb + 2ULL] = 0u; wvec[wb + 3ULL] = 0u;
   vals[(u64)fv << 1] = (i8)0; vals[((u64)fv << 1) | 1ULL] = (i8)0;
   mrk[fv] = (u8)0; ph[fv] = (i8)1; lvl[fv] = 0u; rsns[fv] = 0xFFFFFFFFu; ps[fv] = 0xFFFFFFFFu;
   fl[fv] = FL_ACTIVE | FL_SUBSUME | FL_ELIM_C | FL_SWEEP;

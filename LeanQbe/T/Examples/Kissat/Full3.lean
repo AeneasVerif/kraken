@@ -474,6 +474,7 @@ u64 full_probe_assume_pair(FullHdr *h, u32 lit) {
   if (pr == 1ULL) {
     u64 ast = full_analyze(h);
     if (ast == 20ULL) { return 20ULL; }
+    if (ast != 1ULL) { full_backtrack(h, 0ULL); return 2ULL; }
     if (full_propagate(h) == 1ULL) { return 20ULL; }
     return full_probe_flush_hbr(h, hbr0);
   }
@@ -499,6 +500,7 @@ u64 full_probe_assume_pair(FullHdr *h, u32 lit) {
       k = 0ULL; while (k < sn) { lm[sav[k]] = (u8)0; k = k + 1ULL; }
       u64 ast = full_analyze(h);
       if (ast == 20ULL) { return 20ULL; }
+      if (ast != 1ULL) { full_backtrack(h, 0ULL); return 2ULL; }
       if (full_propagate(h) == 1ULL) { return 20ULL; }
       return full_probe_flush_hbr(h, hbr1);
     }
@@ -557,7 +559,7 @@ bool full_trans_lit(FullHdr *h, u32 src) {
     u32 w0 = wstk[p];
     if ((w0 & PW_BIN_FLAG) == 0u) { p = p + 2ULL; continue; }
     u32 dst = w0 & PW_LIT_MASK;
-    if ((u64)dst >= nlits || vals[dst] != (i8)0) { p = p + 1ULL; continue; }
+    if ((u64)dst >= nlits || dst == src || vals[dst] != (i8)0) { p = p + 1ULL; continue; }
     h->ant_sz = h->ant_sz - 1ULL;
     u64 saved = h->trail_end; u64 prop = saved; bool trans = false;
     vals[not_src] = (i8)1; vals[src] = (i8)(-1); trl[h->trail_end] = not_src;
@@ -696,7 +698,7 @@ u32 full_viv_deduce(FullHdr *h, u32 cref, u32 implied, u32 *out) {
   u32 *ar = (u32 *)h->arena; u8 *mrk = (u8 *)h->mark;
   u32 *lvl = (u32 *)h->level; u32 *rsns = (u32 *)h->reason;
   u32 *qstk = (u32 *)h->work_stk1; u64 cv = h->cur_vars;
-  u64 qlen = 0ULL; u64 qi = 0ULL; u32 olen = 0u;
+  u64 qlen = 0ULL; u64 qi = 0ULL; u32 olen = 0u; bool taut = false;
   h->res_sz = 0ULL;
   if (implied != 0xFFFFFFFFu) {
     u32 iv = implied >> 1;
@@ -730,7 +732,8 @@ u32 full_viv_deduce(FullHdr *h, u32 cref, u32 implied, u32 *out) {
     u32 rsn = rsns[v];
     if (rsn == 0xFFFFFFFFu) {
       u32 tl = trl[tpos[v]];
-      if (tl != implied && (u64)olen < cv) { out[olen] = tl ^ 1u; olen = olen + 1u; }
+      if (tl == implied) { taut = true; }
+      else if ((u64)olen < (cv << 1)) { out[olen] = tl ^ 1u; olen = olen + 1u; }
     } else if ((rsn & PW_BIN_FLAG) != 0u) {
       u32 ov = (rsn & PW_LIT_MASK) >> 1;
       if ((u64)ov < cv && lvl[ov] > 0u && mrk[ov] == (u8)0 && qlen < cv) {
@@ -749,6 +752,7 @@ u32 full_viv_deduce(FullHdr *h, u32 cref, u32 implied, u32 *out) {
     }
   }
   qi = 0ULL; while (qi < qlen) { mrk[qstk[qi]] = (u8)0; qi = qi + 1ULL; }
+  if (taut) { return ar[(u64)cref + 2ULL]; }
   return olen;
 }
 

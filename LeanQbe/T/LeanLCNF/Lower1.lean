@@ -152,13 +152,14 @@ def lowerReset (c : LCtx) (n : Nat) (x : LArg) (k : LArg → LM LExpr) : LM LExp
     let sh ← emitDec1 c.rt x .object false (pure (j (imm64 1)))
     loadAt i32 x 0 fun rc => cmpOp .eq 32 rc (imm 32 1) fun e => pure (.jnz e ex sh)
 
-/-- `reuse x in ctor_i ys`: reuse the cell unless `reset` produced `box(0)`. -/
+/-- `reuse x in ctor_i ys`: reuse the cell unless `reset` produced `box(0)` (the scalar test is
+emitted before the join is opened, see `emitInc`). -/
 def lowerReuse (c : LCtx) (x : LArg) (ci : LcCtor) (upd : Bool) (vs : List LArg)
     (k : LArg → LM LExpr) : LM LExpr :=
-  withJoin1 i64 (fun p => storeFields p 8 vs (k p)) fun j => do
+  isScalarObj x fun s => withJoin1 i64 (fun p => storeFields p 8 vs (k p)) fun j => do
     let fresh ← allocObj c.rt ci.byteSize ci.header fun p => pure (j p)
     let keep ← if upd then storeAt i8 (imm 8 ci.cidx) x 7 (pure (j x)) else pure (j x)
-    isScalarObj x fun s => pure (.jnz s fresh keep)
+    pure (.jnz s fresh keep)
 
 /-- Lower a `LetValue` bound at type `ty`. -/
 def lowerVal (env : LEnv) (c : LCtx) (ty : LcTy) (v : LcVal) (k : LArg → LM LExpr) :
@@ -270,7 +271,8 @@ partial def lowerStep (env : LEnv) (c : LCtx) : LcCode → LM LExpr
     emitDec c.rt xa xt n chk (lowerCode env c k)
   | .del x k => do call0 "lcnf_free_obj" [i64, i64] [c.rt, (← c.var x).1] (lowerCode env c k)
 
-/-- Lower `cases`: compute the tag once, then a `jnz` chain over the alternatives. -/
+/-- Lower `cases`: compute the tag once, then a `jnz` chain over the alternatives. For a
+`tobject` scrutinee the scalar test is emitted before the tag join is opened (see `emitInc`). -/
 partial def lowerCases (env : LEnv) (c : LCtx) (x : Nat) (alts : List (LcPat × LcCode)) :
     LM LExpr := do
   let (xa, xt) ← c.var x
@@ -283,10 +285,11 @@ partial def lowerCases (env : LEnv) (c : LCtx) (x : Nat) (alts : List (LcPat × 
     if xt.isScalar then dispatchAlts env c xa xt.width sorted
     else if xt == .object then loadAt i8 xa 7 fun t => dispatchAlts env c t 8 sorted
     else if xt == .tagged then lshr64 xa (imm64 1) fun t => dispatchAlts env c t 64 sorted
-    else withJoin1 i64 (fun t => dispatchAlts env c t 64 sorted) fun j => do
-      let ptr ← loadAt i8 xa 7 fun t8 => convW 8 64 t8 fun t => pure (j t)
-      let sc ← lshr64 xa (imm64 1) fun t => pure (j t)
-      isScalarObj xa fun s => pure (.jnz s sc ptr)
+    else isScalarObj xa fun s =>
+      withJoin1 i64 (fun t => dispatchAlts env c t 64 sorted) fun j => do
+        let ptr ← loadAt i8 xa 7 fun t8 => convW 8 64 t8 fun t => pure (j t)
+        let sc ← lshr64 xa (imm64 1) fun t => pure (j t)
+        pure (.jnz s sc ptr)
 
 /-- Dispatch on a computed tag of width `w`. -/
 partial def dispatchAlts (env : LEnv) (c : LCtx) (tag : LArg) (w : Nat) :

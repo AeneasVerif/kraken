@@ -211,21 +211,23 @@ def LcTy.needsRc : LcTy → Bool
   | .object | .tobject => true
   | _ => false
 
-/-- `inc x n` (scalar test only when `check` and `x` may be a scalar). -/
+/-- `inc x n` (scalar test only when `check` and `x` may be a scalar). The scalar test is emitted
+*before* the join is opened, so that it dominates the continuation `k` and `Gvn` reuses it for
+the later `inc`/`dec`/`cases` of the same `x`. -/
 def emitInc (x : LArg) (ty : LcTy) (n : Nat) (check : Bool) (k : LM LExpr) : LM LExpr :=
   if !ty.needsRc || n == 0 then k
   else if !check || ty == .object then incRef x n k
-  else withJoin [] (fun _ => k) fun j => do
+  else isScalarObj x fun s => withJoin [] (fun _ => k) fun j => do
     let e ← incRef x n (pure (j []))
-    isScalarObj x fun s => pure (.jnz s (j []) e)
+    pure (.jnz s (j []) e)
 
-/-- `dec x` (once). -/
+/-- `dec x` (once). As in `emitInc`, the scalar test is emitted before the join is opened. -/
 def emitDec1 (rt x : LArg) (ty : LcTy) (check : Bool) (k : LM LExpr) : LM LExpr :=
   if !ty.needsRc then k
-  else withJoin [] (fun _ => k) fun j => do
+  else if !check || ty == .object then withJoin [] (fun _ => k) fun j => decRefJ rt x (j [])
+  else isScalarObj x fun s => withJoin [] (fun _ => k) fun j => do
     let e ← decRefJ rt x (j [])
-    if !check || ty == .object then pure e
-    else isScalarObj x fun s => pure (.jnz s (j []) e)
+    pure (.jnz s (j []) e)
 
 /-- `dec x n`. -/
 def emitDec (rt x : LArg) (ty : LcTy) (n : Nat) (check : Bool) (k : LM LExpr) : LM LExpr :=
@@ -259,17 +261,19 @@ def boxU64 (rt x : LArg) (k : LArg → LM LExpr) : LM LExpr :=
 /-! ## Inline `Nat` (tagged fixnum) and `UIntN` primitives -/
 
 /-- Run `fast` when both tagged-`Nat` operands are scalars, else (or when `fast` reports
-overflow by calling its `slow` argument) call `lcnf_nat_slow(rt, op, a, b)`. -/
+overflow by calling its `slow` argument) call `lcnf_nat_slow(rt, op, a, b)`. The scalar test is
+emitted before the join is opened (see `emitInc`). -/
 def natBin (rt : LArg) (op : String) (resW : Nat) (a b : LArg)
     (fast : (slow : LM LExpr) → (LArg → LExpr) → LM LExpr)
     (k : LArg → LM LExpr) : LM LExpr :=
+  and64 a b fun ab => isScalarObj ab fun both =>
   withJoin1 (.bits resW) k fun j => do
     let slow : LM LExpr :=
       call1 "lcnf_nat_slow" [i64, i64, i64, i64] i64 [rt, imm64 (natOpCode op), a, b] fun r =>
         convW 64 resW r fun r' => pure (j r')
     let fastE ← fast slow j
     let slowE ← slow
-    and64 a b fun ab => isScalarObj ab fun both => pure (.jnz both fastE slowE)
+    pure (.jnz both fastE slowE)
 
 /-- Box an unboxed `i64` (`< 2^63`) as a tagged scalar. -/
 def boxSmall (x : LArg) (k : LArg → LM LExpr) : LM LExpr :=
@@ -352,11 +356,11 @@ def uintPrim (rt : LArg) (w : Nat) (op : String) (as : List LArg) (k : LArg → 
   | "decLt", [a, b] | "blt", [a, b] => cmpU .ult a b
   | "decLe", [a, b] | "ble", [a, b] => cmpU .ule a b
   | "ofNat", [a] | "ofNatLT", [a] =>
-    withJoin1 t k fun j => do
+    isScalarObj a fun s => withJoin1 t k fun j => do
       let slow ← call1 "lcnf_nat_slow" [i64, i64, i64, i64] i64
         [rt, imm64 (natOpCode "ofNat"), a, imm64 w] fun r => convW 64 w r fun r' => pure (j r')
       let fast ← lshr64 a (imm64 1) fun x => convW 64 w x fun r => pure (j r)
-      isScalarObj a fun s => pure (.jnz s fast slow)
+      pure (.jnz s fast slow)
   | "toNat", [a] =>
     convW w 64 a fun x =>
     if w < 64 then boxSmall x k
