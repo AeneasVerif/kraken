@@ -483,6 +483,39 @@ def ufFind (rep : Trie Nat) (x : Nat) : Nat :=
       | none => c
   go 64 x
 
+/-- One coloring round with candidates `isCand`; returns the final state and the candidates. -/
+def colorRound (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List I.Cond)
+    (nv : Nat) (lTrie : Trie (List Nat)) (t : Tree) (s0 : ScanInfo) (bf : Trie Bool)
+    (isCand : Nat → Bool) : FlagState I.Cond × List Nat :=
+  let info := scanRanges isCand lTrie none none t { s0 with badFlag := bf }
+  let rep := info.jumpEdges.foldl (fun rep (p, v) =>
+    if isCand p && isCand v then
+      let rp := ufFind rep p; let rv := ufFind rep v
+      if Nat.beq rp rv then rep else rep.insert rp rv
+    else rep) (.empty : Trie Nat)
+  let cands := (List.range nv).filter isCand
+  let groups := cands.foldl
+    (fun (g : Trie (List Nat)) x => let r := ufFind rep x; g.insert r (g.getD r [] ++ [x]))
+    .empty
+  let (bpWebs, locWebs) := (dedup (cands.map (ufFind rep))).foldl (fun (bps, locs) r =>
+    let vs := groups.getD r []
+    if vs.any (info.isBParam.getD · false) then (vs :: bps, locs)
+    else (bps, (info.defIp.getD (vs.headD 0) 0, vs) :: locs)) ([], [])
+  let st1 := bpWebs.foldl (fun st vs =>
+    if vs.any (fun v => (st.flagHome.find? v).isSome) then st else
+      match tryColorWeb I r0 r1 v0 v1 conds isCand info vs st with
+      | some st' => st'
+      | none =>
+        (vs.filter (!info.isBParam.getD · false)).foldl (fun stAcc v =>
+          (tryColorWeb I r0 r1 v0 v1 conds isCand info [v] stAcc).getD stAcc) st) {}
+  let st2 := ((locWebs.mergeSort (fun a b => a.1 ≤ b.1)).map Prod.snd).foldl (fun st vs =>
+    if vs.any (fun v => (st.flagHome.find? v).isSome) then st
+    else (tryColorWeb I r0 r1 v0 v1 conds isCand info vs st).getD st) st1
+  (st2, cands)
+
+/-- Flag-web coloring to a fixpoint: a candidate left uncolored (e.g. an `.addc`/`.subb` carry-out
+whose `adcx`/`adox` variant another web speculated on) is demoted to a non-candidate and the round
+is rerun, so no colored web relies on a speculation that did not materialize. -/
 def gatherFlags (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List I.Cond) (nv : Nat)
     (fnParams : List Nat) (cross : Trie Bool) (bparams : Trie (List Nat)) (tys : Trie Ty)
     (lTrie : Trie (List Nat)) (t : Tree) : FlagHints I.Cond :=
@@ -496,31 +529,16 @@ def gatherFlags (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List 
       s0.jumpEdges.foldl (fun bf (p, v) => if bf.getD v false then bf.insert p true else bf) bf)
       bf0
     let isCand (x : Nat) : Bool := isBool x && !bf.getD x false
-    let info := scanRanges isCand lTrie none none t { s0 with badFlag := bf }
-    let rep := info.jumpEdges.foldl (fun rep (p, v) =>
-      if isCand p && isCand v then
-        let rp := ufFind rep p; let rv := ufFind rep v
-        if Nat.beq rp rv then rep else rep.insert rp rv
-      else rep) (.empty : Trie Nat)
-    let cands := (List.range nv).filter isCand
-    let groups := cands.foldl
-      (fun (g : Trie (List Nat)) x => let r := ufFind rep x; g.insert r (g.getD r [] ++ [x]))
-      .empty
-    let (bpWebs, locWebs) := (dedup (cands.map (ufFind rep))).foldl (fun (bps, locs) r =>
-      let vs := groups.getD r []
-      if vs.any (info.isBParam.getD · false) then (vs :: bps, locs)
-      else (bps, (info.defIp.getD (vs.headD 0) 0, vs) :: locs)) ([], [])
-    let st1 := bpWebs.foldl (fun st vs =>
-      if vs.any (fun v => (st.flagHome.find? v).isSome) then st else
-        match tryColorWeb I r0 r1 v0 v1 conds isCand info vs st with
-        | some st' => st'
-        | none =>
-          (vs.filter (!info.isBParam.getD · false)).foldl (fun stAcc v =>
-            (tryColorWeb I r0 r1 v0 v1 conds isCand info [v] stAcc).getD stAcc) st) {}
-    let st2 := ((locWebs.mergeSort (fun a b => a.1 ≤ b.1)).map Prod.snd).foldl (fun st vs =>
-      if vs.any (fun v => (st.flagHome.find? v).isSome) then st
-      else (tryColorWeb I r0 r1 v0 v1 conds isCand info vs st).getD st) st1
-    { flagHome := st2.flagHome, variant := st2.variant, clearAt := st2.clearAt }
+    let rec loop : Nat → Std.HashSet Nat → FlagState I.Cond
+      | 0, failed => (colorRound I r0 r1 v0 v1 conds nv lTrie t s0 bf
+          fun x => isCand x && !failed.contains x).1
+      | fuel + 1, failed =>
+        let (st, cands) := colorRound I r0 r1 v0 v1 conds nv lTrie t s0 bf
+          fun x => isCand x && !failed.contains x
+        let newFail := cands.filter fun x => (st.flagHome.find? x).isNone
+        if newFail.isEmpty then st else loop fuel (newFail.foldl (·.insert ·) failed)
+    let st := loop (nv + 2) {}
+    { flagHome := st.flagHome, variant := st.variant, clearAt := st.clearAt }
 
 end SpillFlags
 end LeanQbe.T

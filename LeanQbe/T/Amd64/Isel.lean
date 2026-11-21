@@ -1108,5 +1108,6 @@ def x64Gpr : GprIsa Reg64 RegMm CondCode Directive where
   load := x64Load
   store := x64Store
   supportsScalarOp := x64SupportsScalarOp
+  cmpFlags := [.z, .nz, .l, .ge, .le, .g, .be, .a]
 
 end LeanQbe.T.Amd64
