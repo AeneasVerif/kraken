@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas3
-public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas4
+public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas5
 public import LeanQbe.T.Examples.Kissat.FullOneLitConflLemmas
 import all Kraken.Mem
 import all Kraken.Separation
@@ -12,11 +12,12 @@ import all Kraken.Separation
 1. Concrete `defSweepKInv` and `defSweepKInv_laws : KittenInvLaws defSweepKInv`.
 2. `21`-row `defSweepSpecTable` (`9` owned `FullDefSweep` fns + `12` canonical externs),
    `defSweepEnv := Env.ofTable defSweepSpecTable`, signature/no-exit lemmas, and
-   `SpecEntry.Impl` witnesses for the `7` functions from `FullDefSweepLemmas{2..4}`.
-3. Parameterized `defSweep_tableImpl_of_parts` and `mkDefSweepEnv_moduleOk_of_parts`
-   (parameterized on `full_sweep_var` / `full_sweep_dense`).
+   `SpecEntry.Impl` witnesses for all `9/9` functions of `fullDefSweepModule`.
+3. Parameterized `mkDefSweepEnv_moduleOk_of_parts` and unconditional
+   `defSweepEnv_moduleOk : ModuleOk defSweepEnv fullDefSweepModule`.
 4. Concrete `42716`-byte `Mem 64` UNSAT instance (`nvDefSweepCfg`, `nvDefSweepState`,
-   `nvDefSweepMem`) with `XPost := fun _ _ _ _ => False` non-vacuity witnesses (`0` SAT proofs).
+   `nvDefSweepMem`) with unconditional `XPost := fun _ _ _ _ => False` non-vacuity witnesses
+   (`0` SAT proofs).
 -/
 
 set_option autoImplicit false
@@ -217,6 +218,40 @@ theorem mkDefSweepEnv_moduleOk_of_parts
     ModuleOk defSweepEnv fullDefSweepModule :=
   Env.ofTable_moduleOk fullDefSweep_acyclic defSweep_allFns_wf
     (defSweep_tableImpl_of_parts hVar hDense)
+
+private theorem defSweep_sweep_var_wp_env :
+    ∀ args m Q X, fullSweepVarKittenSpec args m Q X →
+      Func.wp defSweepEnv full_sweep_var_body args m Q X :=
+  full_sweep_var_wp defSweepEnv defSweepKInv_laws
+    (defSweepEnv_row (by simp [defSweepSpecTable]) (fun _ _ _ _ h => h))
+    (defSweepEnv_row (by simp [defSweepSpecTable]) (fun _ _ _ _ h => h))
+    (defSweepEnv_row (by simp [defSweepSpecTable]) (fun _ _ _ _ h => h))
+    (defSweepEnv_row (by simp [defSweepSpecTable]) (fun _ _ _ _ h => h))
+    (defSweepEnv_row (by simp [defSweepSpecTable]) (fun _ _ _ _ h => h))
+    (defSweepEnv_row (by simp [defSweepSpecTable]) (fun _ _ _ _ h => h))
+
+private theorem defSweep_sweep_dense_wp_env :
+    ∀ args m Q X, fullSweepDenseSpec args m Q X →
+      Func.wp defSweepEnv full_sweep_dense_body args m Q X :=
+  full_sweep_dense_wp defSweepEnv
+    (defSweepEnv_row (by simp [defSweepSpecTable]) (fun _ _ _ _ h => h))
+
+theorem defSweep_sweep_var_impl :
+    SpecEntry.Impl defSweepEnv
+      ⟨"full_sweep_var", [i64, i32, i64], [i64], full_sweep_var_body⟩
+      ⟨"full_sweep_var", [i64, i32, i64], [i64], fullSweepVarKittenSpec, true⟩ :=
+  SpecEntry.Impl.of defSweep_sweep_var_wp_env
+
+theorem defSweep_sweep_dense_impl :
+    SpecEntry.Impl defSweepEnv
+      ⟨"full_sweep_dense", [i64, i64, i64], [i64], full_sweep_dense_body⟩
+      ⟨"full_sweep_dense", [i64, i64, i64], [i64], fullSweepDenseSpec, true⟩ :=
+  SpecEntry.Impl.of defSweep_sweep_dense_wp_env
+
+/-- Unconditional `ModuleOk` certifying all `9/9` functions of `fullDefSweepModule` against
+`defSweepEnv`. -/
+theorem defSweepEnv_moduleOk : ModuleOk defSweepEnv fullDefSweepModule :=
+  mkDefSweepEnv_moduleOk_of_parts defSweep_sweep_var_wp_env defSweep_sweep_dense_wp_env
 
 /-! ## 3. Concrete `Mem 64` UNSAT Non-Vacuity (`XPost := False`, `0` SAT proofs) -/
 
@@ -885,5 +920,39 @@ theorem nv_full_sweep_dense_of_wp
     ⟨nvDefSweepCfg, Full.nvOneLitF0, nvDefSweepState, emp, rfl,
      nvDefSweep_invW.toDense, hm, fun r s' m' hd _ _ hdom _ hm' => by
        rw [sep_emp] at hm'; exact ⟨s', hd, hdom, nvDefSweepF0_unsat, hm'⟩⟩
+
+/-- Unconditional concrete `Mem 64` UNSAT non-vacuity (`XPost := False`, `0` SAT proofs) for
+`full_sweep_var` under `defSweepEnv`. -/
+theorem nv_full_sweep_var :
+    Func.wp defSweepEnv full_sweep_var_body
+      (nvDefSweepCfg.hdr, 0#32, 8192#64, ()) nvDefSweepMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInvW nvDefSweepCfg Full.nvOneLitF0 [[0], [1]] s' ∧
+        TmkZero s' ∧ (r = 1#64 ∨ r = 20#64) ∧
+        Full.nvOneLitF0.Unsat ∧ FullMem nvDefSweepCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_full_sweep_var_of_wp defSweep_sweep_var_wp_env
+
+/-- Unconditional concrete `Mem 64` UNSAT non-vacuity (`XPost := False`, `0` SAT proofs) for
+`full_sweep_dense` under `defSweepEnv`. -/
+theorem nv_full_sweep_dense :
+    Func.wp defSweepEnv full_sweep_dense_body
+      (nvDefSweepCfg.hdr, 10#64, 8192#64, ()) nvDefSweepMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInv nvDefSweepCfg Full.nvOneLitF0 s' ∧
+        (r = 1#64 ∨ r = 20#64) ∧ Full.nvOneLitF0.Unsat ∧ FullMem nvDefSweepCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_full_sweep_dense_of_wp defSweep_sweep_dense_wp_env
+
+/-- Headline concrete `42716`-byte `Mem 64` UNSAT non-vacuity witness (`XPost := False`,
+`0` SAT proofs) for `FullDefSweep` (`full_sweep_dense` under `defSweepEnv`). -/
+theorem nv_full_def_sweep :
+    Func.wp defSweepEnv full_sweep_dense_body
+      (nvDefSweepCfg.hdr, 10#64, 8192#64, ()) nvDefSweepMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInv nvDefSweepCfg Full.nvOneLitF0 s' ∧
+        (r = 1#64 ∨ r = 20#64) ∧ Full.nvOneLitF0.Unsat ∧ FullMem nvDefSweepCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_full_sweep_dense
 
 end LeanQbe.T.Examples.Kissat.FullDefSweep

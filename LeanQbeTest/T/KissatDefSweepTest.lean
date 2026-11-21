@@ -124,6 +124,21 @@ theorem fds_refine_wp (Γ : Env) :
       Func.wp Γ full_sweep_refine_kitten_body a m Q X :=
   full_sweep_refine_kitten_wp Γ
 
+theorem fds_sweep_var_wp (Γ : Env) {KInv} (hL : KittenInvLaws KInv)
+    (hC : EnvSpec Γ "full_sweep_cone" (fullSweepConeKittenSpec KInv))
+    (hS : EnvSpec Γ "full_kitten_solve" (fullKittenSolveSpec KInv))
+    (hR : EnvSpec Γ "full_sweep_refine_kitten" fullSweepRefineKittenSpec)
+    (hF : EnvSpec Γ "full_kitten_flip" (fullKittenFlipSpec KInv))
+    (hU : EnvSpec Γ "full_add_unit" Full.FullSweepVarSpecs.fullAddUnitSpec)
+    (hB : EnvSpec Γ "full_add_bin" Full.FullSweepVarSpecs.fullAddBinSpec) :
+    ∀ a m Q X, fullSweepVarKittenSpec a m Q X → Func.wp Γ full_sweep_var_body a m Q X :=
+  full_sweep_var_wp Γ hL hC hS hR hF hU hB
+
+theorem fds_sweep_dense_wp (Γ : Env)
+    (hV : EnvSpec Γ "full_sweep_var" fullSweepVarKittenSpec) :
+    ∀ a m Q X, fullSweepDenseSpec a m Q X → Func.wp Γ full_sweep_dense_body a m Q X :=
+  full_sweep_dense_wp Γ hV
+
 theorem fds_env_noExit :
     ∀ f as bs xs m Q X X',
       defSweepEnv f as bs xs m Q X → defSweepEnv f as bs xs m Q X' :=
@@ -136,6 +151,8 @@ theorem fds_modOk_parts
       Func.wp defSweepEnv full_sweep_dense_body a m Q X) :
     ModuleOk defSweepEnv fullDefSweepModule :=
   mkDefSweepEnv_moduleOk_of_parts hVar hDense
+
+theorem fds_moduleOk : ModuleOk defSweepEnv fullDefSweepModule := defSweepEnv_moduleOk
 
 theorem fds_nv_mem_ok : Full.FullMem nvDefSweepCfg nvDefSweepState nvDefSweepMem :=
   nvDefSweepMem_ok
@@ -192,6 +209,34 @@ theorem fds_nv_dense_parts
       (fun _ _ _ _ => False) :=
   nv_full_sweep_dense_of_wp hDense
 
+theorem fds_nv_var :
+    Func.wp defSweepEnv full_sweep_var_body
+      (nvDefSweepCfg.hdr, 0#32, 8192#64, ()) nvDefSweepMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInvW nvDefSweepCfg Full.nvOneLitF0 [[0], [1]] s' ∧
+        TmkZero s' ∧ (r = 1#64 ∨ r = 20#64) ∧
+        Full.nvOneLitF0.Unsat ∧ Full.FullMem nvDefSweepCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_full_sweep_var
+
+theorem fds_nv_dense :
+    Func.wp defSweepEnv full_sweep_dense_body
+      (nvDefSweepCfg.hdr, 10#64, 8192#64, ()) nvDefSweepMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInv nvDefSweepCfg Full.nvOneLitF0 s' ∧
+        (r = 1#64 ∨ r = 20#64) ∧ Full.nvOneLitF0.Unsat ∧ Full.FullMem nvDefSweepCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_full_sweep_dense
+
+theorem fds_nv_def_sweep :
+    Func.wp defSweepEnv full_sweep_dense_body
+      (nvDefSweepCfg.hdr, 10#64, 8192#64, ()) nvDefSweepMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInv nvDefSweepCfg Full.nvOneLitF0 s' ∧
+        (r = 1#64 ∨ r = 20#64) ∧ Full.nvOneLitF0.Unsat ∧ Full.FullMem nvDefSweepCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_full_def_sweep
+
 #print axioms fds_fns_wf
 #print axioms fds_acyclic
 #print axioms fds_noExit
@@ -205,13 +250,19 @@ theorem fds_nv_dense_parts
 #print axioms fds_cong_dense_wp
 #print axioms fds_cone_wp
 #print axioms fds_refine_wp
+#print axioms fds_sweep_var_wp
+#print axioms fds_sweep_dense_wp
 #print axioms fds_env_noExit
 #print axioms fds_modOk_parts
+#print axioms fds_moduleOk
 #print axioms fds_nv_mem_ok
 #print axioms fds_nv_gates
 #print axioms fds_nv_find_def
 #print axioms fds_nv_cong
 #print axioms fds_nv_cone
 #print axioms fds_nv_dense_parts
+#print axioms fds_nv_var
+#print axioms fds_nv_dense
+#print axioms fds_nv_def_sweep
 
 end AxiomAudit
