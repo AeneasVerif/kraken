@@ -29,9 +29,10 @@ linking (`LinkRec`).
 
 ## What This Workstream Proves
 1. **Mid-end optimization (`OptLemmas`, `LicmLemmas`, `DceParamLemmas`,
-   `SimplifyGroupPlanLemmas`)**: `Func.earlyOpt`, `Func.lateOpt`, legacy `Func.opt`,
-   `Func.licm`, `Func.dceP`, `Func.simplifyGroupPlan`, and acyclic inlining + renormalization
-   (`Module.optInline`) preserve `Func.Wf`, refine `Func.spec`, and preserve `ModuleOk`.
+   `SimplifyGroupPlanLemmas`)**: `Func.earlyOpt`, `Func.lateCfg` (with `Func.licm`), `Func.lateOpt`,
+   legacy `Func.opt`, `Func.licm`, `Func.dceP`, `Func.simplifyGroupPlan`, and acyclic inlining +
+   renormalization (`Module.optInline`) preserve `Func.Wf`, refine `Func.spec`, and preserve
+   `ModuleOk`.
 2. **Type and opcode legalization (`LegalLemmas`, `LegalCheck3`)**: `Func.legal` / `Fn.legal`
    refine `Func.spec` into `legalEnv` / `legalPost` / `legalXPost` and guarantee target legality
    (`isLegal target = true`).
@@ -81,6 +82,16 @@ theorem audit_early_opt {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env
     (h : Func.spec Γ f xs m Q X) :
     Func.spec Γ (Func.earlyOpt f) xs m Q X :=
   Func.earlyOpt_spec hf h
+
+theorem audit_late_cfg_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.lateCfg f).Wf :=
+  Func.lateCfg_wf hf
+
+theorem audit_late_cfg {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) :
+    Func.spec Γ (Func.lateCfg f) xs m Q X :=
+  Func.lateCfg_spec hf h
 
 theorem audit_late_opt {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
@@ -158,6 +169,15 @@ theorem audit_legal_ok (target : LegalTarget) {as rs : List Ty} (f : Func as rs)
   Func.legal_isLegal target f hf hsupp
 
 /-! ## 3. Register Allocation Lowering & ABI Composition -/
+
+theorem audit_rec_elide {G : Rega.VCtx} {nv : Nat} {sig rs : List Ty} {code : OpCode sig rs}
+    {args₁ : Tup (Arg Val) sig} {args : Tup (Arg Rega.VNat) sig}
+    (hrel : TRel (ArgRel G) args₁ args) (hlt : ∀ p ∈ G, p.2.2 < nv)
+    {P : Tup Val rs → Prop} (hwp : code.wp (vals args₁) P) {df : Rega.DefFact}
+    (hd : Rega.recordDef code args = some df) :
+    ∃ (rvs : Tup Val rs), P rvs ∧ rs = [i64] ∧
+      Rega.DefOk (Tup.zip rvs (Tup.levels rs nv) ++ G) nv df :=
+  Rega.recordDef_elide_ok hrel hlt hwp hd
 
 theorem audit_lower_fn (T : Target) (host : T.mach.Host) (hints : T.toIsa.Hints)
     (E : Rega.Ext) (f : Fn) (Γ : Env) (n nX : Nat) (bound : Sym → Nat)
@@ -540,6 +560,8 @@ end IselStepAttrAudit
 /-! ## 10. Logical Foundations Audit (`#print axioms`) -/
 
 #print axioms audit_early_opt
+#print axioms audit_late_cfg_wf
+#print axioms audit_late_cfg
 #print axioms audit_late_opt
 #print axioms audit_opt_inline
 #print axioms audit_licm_wf
@@ -553,6 +575,7 @@ end IselStepAttrAudit
 #print axioms audit_sgp_plan_spec
 #print axioms audit_legal_spec
 #print axioms audit_legal_ok
+#print axioms audit_rec_elide
 #print axioms audit_lower_fn
 #print axioms audit_mono_stack
 #print axioms audit_abi_link

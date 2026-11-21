@@ -296,8 +296,9 @@ def Instr.flagMove : Instr → Bool
 
 /-- `cmp → jcc`: the comparison result never leaves `CF` (no `setcc`). -/
 theorem cmpJcc_code : codeCmpJcc =
-    [.label "cmpJcc", .spAdd 0#64, .mov 0 7, .cmp 64 (.reg 0) (.reg 6), .jcc .cf "cmpJcc.L0",
-     .mov 0 6, .spAdd 0#64, .ret, .label "cmpJcc.L0", .spAdd 0#64, .ret] := by t_kernel_rfl
+    [.label "cmpJcc", .spAdd 0#64, .cmp 64 (.reg 7) (.reg 6), .jcc .cf "cmpJcc.L0",
+     .mov 0 6, .spAdd 0#64, .ret, .label "cmpJcc.L0", .mov 0 7, .spAdd 0#64, .ret] := by
+  t_kernel_rfl
 
 /-- `adc` chain: one `xor` clears `CF`, then three `adc`s ripple the carry through `CF`; the dead
 final carry stays in `CF` (zero `setcc`). -/
@@ -316,13 +317,13 @@ theorem adcxAdox_code : codeAdcxAdox =
 /-- Loop-carried `CF`: `adc` produces it, `lea`/`dec`/`tstz`/`jcc`/`mov`/`jmp` preserve it around
 the back-edge into the next `adc`; it is materialised (`setc`) only on exit. -/
 theorem cfLoop_code : codeCfLoop =
-    [.label "cfLoop", .spAdd 0#64, .mov 0 6, .mov 2 7, .xorz 11, .movi 1 0#64,
-     .label "cfLoop.L0", .adc 64 1 (.reg 1) (.reg 0), .lea 6 0 8#64, .dec 64 0 (.reg 2),
-     .tstz 64 (.reg 0), .jcc .nzf "cfLoop.L1", .mov 0 1, .setcc 2 .cf, .zext 8 2, .spAdd 0#64, .ret,
-     .label "cfLoop.L1", .mov 2 0, .mov 0 6, .jmp "cfLoop.L0"] := by t_kernel_rfl
+    [.label "cfLoop", .spAdd 0#64, .mov 1 7, .xorz 11, .movi 0 0#64,
+     .label "cfLoop.L0", .adc 64 0 (.reg 0) (.reg 6), .lea 6 6 8#64, .dec 64 1 (.reg 1),
+     .tstz 64 (.reg 1), .jcc .nzf "cfLoop.L0", .setcc 2 .cf, .zext 8 2, .spAdd 0#64,
+     .ret] := by t_kernel_rfl
 
 theorem cfLoop_cf_writers :
-    codeCfLoop.filter Instr.writesCF = [.xorz 11, .adc 64 1 (.reg 1) (.reg 0)] ∧
+    codeCfLoop.filter Instr.writesCF = [.xorz 11, .adc 64 0 (.reg 0) (.reg 6)] ∧
     codeCfLoop.filter Instr.flagMove = [.setcc 2 .cf] := ⟨by t_kernel_rfl, by t_kernel_rfl⟩
 
 /-- `G12a` highlights: `jcc` on flags for every branch, `vmovi` + 2×i32 `vbin`, a carry spilled

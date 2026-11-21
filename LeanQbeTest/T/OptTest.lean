@@ -284,7 +284,6 @@ theorem lateSynergyProg_lateOpt_spec (Γ : Env) (x ptr o : BitVec 64) (cond : Bo
   refine ⟨x, hl, x, hl, by decide, ?_⟩
   exact ⟨fun _ => ⟨rfl, hm1⟩, fun h => by cases h⟩
 
-<<<<<<< HEAD
 /-- Loop computing invariant clause-literal base `ar + ((zext cref + 3) * 4)` on every iteration
 while loading `i32` literals; `Func.lateOpt` folds `* 4` to `<< 2` and hoists the entire address
 chain before `.group` via `Func.licm`. -/

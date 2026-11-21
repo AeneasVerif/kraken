@@ -69,6 +69,13 @@ theorem audit_frame : Nonempty (FrameTarget x64Mach x64Frame x64CondReads) :=
 theorem audit_label_clean : Rega.LabelClean x64Target.toIsa :=
   x64LabelClean
 
+theorem audit_x64_to_isa :
+    x64Target.toIsa =
+      { Reg := Reg64, VReg := RegMm, Cond := CondCode, Directive := Directive,
+        gpr := x64Gpr, vec := x64Vec, frame := x64Frame,
+        supportsAddrDisp := x64SupportsAddrDisp } :=
+  x64Target_toIsa
+
 theorem audit_parity (t : Ty) (hp : x64LegalTarget.keepsPacked t = true) (imm : BitVec 8)
     (u1 : Tup (Arg (fun _ => Unit)) [t])
     (u2 : Tup (Arg (fun _ => Unit)) [t, t])
@@ -367,6 +374,7 @@ end IselStepX64Audit
 #print axioms audit_vec
 #print axioms audit_frame
 #print axioms audit_label_clean
+#print axioms audit_x64_to_isa
 #print axioms audit_parity
 #print axioms audit_link2_run
 #print axioms audit_link3_run

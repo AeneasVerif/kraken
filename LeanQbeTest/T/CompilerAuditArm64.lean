@@ -67,6 +67,13 @@ theorem audit_frame : Nonempty (FrameTarget armMach armFrame armCondReads) :=
 theorem audit_label_clean : Rega.LabelClean armTarget.toIsa :=
   armLabelClean
 
+theorem audit_arm_to_isa :
+    armTarget.toIsa =
+      { Reg := Reg, VReg := Empty, Cond := ArmCond, Directive := Directive,
+        gpr := armGpr, vec := VecIsa.empty Reg ArmCond Directive, frame := armFrame,
+        supportsAddrDisp := armSupportsAddrDisp } :=
+  armTarget_toIsa
+
 theorem audit_parity (t : Ty) (f : Fmt) (n : Nat)
     (u1n : Tup (Arg (fun _ => Unit)) [.bits n])
     (u2n : Tup (Arg (fun _ => Unit)) [.bits n, .bits n])
@@ -358,6 +365,7 @@ end IselStepArmAudit
 #print axioms audit_gpr
 #print axioms audit_frame
 #print axioms audit_label_clean
+#print axioms audit_arm_to_isa
 #print axioms audit_parity
 #print axioms audit_link2_run
 #print axioms audit_link3_run
