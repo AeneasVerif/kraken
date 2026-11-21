@@ -105,6 +105,35 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {sig rs : List Ty} {code : OpCode sig
     · simp at hd
   · simp at hd
 
+theorem recordDef_elide_ok {G : VCtx} {nv : Nat} {sig rs : List Ty} {code : OpCode sig rs}
+    {args₁ : Tup (Arg Val) sig} {args : Tup (Arg VNat) sig}
+    (hrel : TRel (ArgRel G) args₁ args) (hlt : ∀ p ∈ G, p.2.2 < nv) {P : Tup Val rs → Prop}
+    (hwp : code.wp (vals args₁) P) {df : DefFact} (hd : recordDef code args = some df) :
+    ∃ (rvs : Tup Val rs), P rvs ∧ rs = [i64] ∧
+      DefOk (Tup.zip rvs (Tup.levels rs nv) ++ G) nv df := by
+  have hwp' := wp_recordDef hrel hlt hwp hd
+  unfold recordDef at hd
+  split at hd
+  · split at hd
+    · simp at hd
+    · next hn =>
+      simp only [Bool.not_eq_true', Bool.not_eq_false, Nat.beq_eq] at hn; subst hn
+      simp only [OpCode.wp_add, Ty.hasFloat, Bool.false_eq_true, ite_false] at hwp'
+      exact ⟨_, hwp'.1, rfl, hwp'.2.2⟩
+  · split at hd
+    · next hn =>
+      simp only [Nat.beq_eq] at hn; subst hn
+      simp only [OpCode.wp_sub, Ty.hasFloat, Bool.false_eq_true, ite_false] at hwp'
+      exact ⟨_, hwp'.1, rfl, hwp'.2.2⟩
+    · simp at hd
+  · split at hd
+    · next hn =>
+      simp only [Nat.beq_eq] at hn; subst hn
+      simp only [OpCode.wp_copy] at hwp'
+      exact ⟨_, hwp'.1, rfl, hwp'.2.2⟩
+    · simp at hd
+  · simp at hd
+
 theorem zip_levels_mem {G : VCtx} : ∀ {ts : List Ty} {rvs : Tup Val ts} {nv : Nat} {p},
     p ∈ (Tup.zip rvs (Tup.levels ts nv) : VCtx) ++ G → p ∈ G ∨ (nv ≤ p.2.2 ∧ p.2.2 < nv + ts.length)
   | [], _, _, _, h => Or.inl (by simpa [Tup.zip] using h)
@@ -306,6 +335,11 @@ theorem tryAddr_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MDa
     · obtain ⟨r, hr, hk⟩ := Option.bind_eq_some_iff.mp h
       exact reg hk (Or.inr ⟨_, _, hr, hm, rfl⟩) (by simp [Arg.val])
     · split at h
+      · next base d hdef =>
+        obtain ⟨rb, hr, hk⟩ := Option.bind_eq_some_iff.mp h
+        obtain ⟨vb, hmb, hv⟩ := hA.defs _ _ hdef v hm
+        exact reg hk (Or.inr ⟨_, _, hr, hmb, rfl⟩)
+          (by simp [Arg.val, hv, Int64.toBitVec_ofBitVec])
       · next c hdef => exact ⟨.imm c, h, by simp [AddrArg.regs], (hA.defs _ _ hdef v hm).symm⟩
       · simp at h
 
@@ -590,7 +624,36 @@ theorem lowerOp_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
   cases hop with
   | mk code hargs =>
   rename_i sig args₁ args
-  simp only [lowerOp, Option.bind_eq_some_iff] at hl
+  unfold lowerOp at hl
+  split at hl
+  · cases hd : recordDef code args with
+    | none => simp [hd] at hl
+    | some df =>
+      simp only [hd, Option.some.injEq, Prod.mk.injEq] at hl
+      rcases hl with ⟨rfl, rfl⟩
+      obtain ⟨rvs, hP, hrs, hdef⟩ := recordDef_elide_ok hargs hA.ctx_lt hwp hd
+      subst hrs
+      rcases rvs with ⟨rv, ⟨⟩⟩
+      have hvw0 : ∀ x < nv, st.vecWidths.find? x = st.vecWidths.find? x := fun _ _ => rfl
+      have hvw : ∀ w, st.vecWidths.find? nv = some w →
+          i64.size ≤ w.bits ∧ ∃ a b, i64 = .pair a b := fun w hw =>
+        absurd (hA.vw_lt _ _ hw) (Nat.lt_irrefl _)
+      have hvw1 : ∀ x, nv < x → st.vecWidths.find? x = none := fun x hx =>
+        Option.eq_none_iff_forall_ne_some.mpr fun w hw =>
+          absurd (hA.vw_lt _ _ hw) (Nat.not_lt.mpr (Nat.le_of_lt hx))
+      have hA1 := hA.push i64 rv st.vecWidths hvw0 hvw hvw1 (by intro _ a b h; cases h)
+      refine kont (rv, ()) s hP
+        { hA1 with
+          defs := fun x d hx => by
+            rw [Trie.find?_insert] at hx; split at hx
+            · cases hx; subst_vars; exact hdef
+            · exact hA1.defs x d hx
+          defs_lt := fun x d hx => by
+            rw [Trie.find?_insert] at hx; split at hx
+            · subst_vars; exact Nat.lt_succ_self _
+            · exact hA1.defs_lt x d hx }
+        hI
+  simp only [Option.bind_eq_some_iff] at hl
   obtain ⟨dsts, hdst, hl⟩ := hl
   obtain ⟨⟨c', clob, isVec⟩, hpick, heq⟩ := Option.map_eq_some_iff.mp hl
   cases heq
@@ -835,7 +898,10 @@ theorem tryAddr_some {st : SymState I} {vh : VariantHint} {α : Type} {a : Arg V
         first | (obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h; exact ⟨_, h⟩) | simp at h
     rcases orElse_eq_some h with h | h
     · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h; exact ⟨_, h⟩
-    · split at h <;> first | exact ⟨_, h⟩ | simp at h
+    · split at h
+      · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h; exact ⟨_, h⟩
+      · exact ⟨_, h⟩
+      · simp at h
 
 variable (hcl : LabelClean I)
 include hcl
@@ -904,7 +970,11 @@ theorem saveCs_clean : ∀ (base : Nat) (rs : List I.Reg), NoLab I (saveCs I bas
 theorem lowerOp_clean {h : I.Hints} {nv ip : Nat} {st st' : SymState I} {ts : List Ty}
     {op : Op VNat ts} {c : List I.Directive} (hl : lowerOp I h nv ip st op = some (c, st')) :
     NoLab I c := by
-  simp only [lowerOp, Option.bind_eq_some_iff] at hl
+  unfold lowerOp at hl
+  split at hl
+  · cases hd : recordDef op.code op.args <;> simp [hd] at hl
+    rcases hl with ⟨rfl, -⟩; exact NoLab.nil
+  simp only [Option.bind_eq_some_iff] at hl
   obtain ⟨dsts, -, hl⟩ := hl
   obtain ⟨⟨c', cl, iv⟩, hp, he⟩ := Option.map_eq_some_iff.mp hl
   cases he

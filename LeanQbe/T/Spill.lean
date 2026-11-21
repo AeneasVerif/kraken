@@ -637,9 +637,10 @@ def hints (I : Isa) (f : Fn)
   let nVec := I.vec.vecAllocatable.length
   let allVec := I.vec.vecAllocatable ++ I.vec.vecScratch ++ I.vec.vecArgRegs ++ I.vec.vecRetRegs
   let (t0, fnPs, nv, _, _, tys) := Tree.ofFn f
-  let bs0 := t0.blocks
+  let (t1, elideIps) := elideAddrTree I t0
+  let bs0 := t1.blocks
   let lTrie := liveLabels bs0
-  let (_, t) := fillLive lTrie t0
+  let (_, t) := fillLive lTrie t1
   let crossList := acrossCalls t
   let c : Ctx I := {
     allGpr := allGpr, allVec := allVec,
@@ -667,8 +668,8 @@ def hints (I : Isa) (f : Fn)
   let cs := colorVars c nv fh.flagHome acc (fnPs.map Prod.fst) fnAbi
   let st := emitAlloc c cs.hT cs.bk fh.clearAt t (pendFromArrivals cs.hT (fnPs.map Prod.fst) fnAbi)
     [] [] { usedCs := cs.usedCs }
-  { dest := st.dest, entry := st.entry, pre := st.pre, variant := fh.variant, nslots := cs.nslots,
-    saved := st.usedCs.map fun r => c.gReg.getD r I.frame.sp }
+  { dest := st.dest, entry := st.entry, pre := st.pre, variant := fh.variant, elide := elideIps,
+    nslots := cs.nslots, saved := st.usedCs.map fun r => c.gReg.getD r I.frame.sp }
 
 end Spill
 end LeanQbe.T

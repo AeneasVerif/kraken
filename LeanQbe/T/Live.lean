@@ -152,6 +152,80 @@ def Tree.ofFn (f : Fn) : Tree × List (Nat × Ty) × Nat × Nat × Nat × Trie T
   let (t, nv, nl, nip, tys) := toTreeExpr (f.body VNat LNat (Tup.levels f.as 0)) f.as.length 0 0 (recordTypes ps .empty)
   (t, ps, nv, nl, nip, tys)
 
+/-! ## Address-Arithmetic Elision (`[base + disp]`, Stage 1a, untrusted) -/
+
+structure ElideScan where
+  cands : List (Nat × Nat × Nat × BitVec 64) := []
+  addrUses : Trie (List Ty) := .empty
+  badVars : Trie Bool := .empty
+
+def markBad (xs : List Nat) (st : ElideScan) : ElideScan :=
+  { st with badVars := xs.foldl (fun b x => b.insert x true) st.badVars }
+
+def addAddrUse (t : Ty) (a : Arg VNat i64) (st : ElideScan) : ElideScan :=
+  match a with
+  | .var x => { st with addrUses := st.addrUses.insert x (t :: st.addrUses.getD x []) }
+  | .imm _ => st
+
+mutual
+def scanElideTree (st : ElideScan) : Tree → ElideScan
+  | .let_ _ ip nv0 ts op k =>
+    let st1 := match ts, recordDef op.code op.args with
+      | [.bits 64], some (.addImm64 base disp) =>
+        { st with cands := (nv0, ip, base, disp) :: st.cands }
+      | _, _ => st
+    scanElideTree (markBad (opVarIds op) st1) k
+  | .load _ _ _ t a k => scanElideTree (addAddrUse t a st) k
+  | .store _ _ t v a k => scanElideTree (addAddrUse t a (markBad (argVarIds v) st)) k
+  | .call _ _ _ _ _ _ args k => scanElideTree (markBad (tupVarIds args) st) k
+  | .jnz _ _ c _ t e => scanElideTree (scanElideTree (markBad [c] st) t) e
+  | .skip _ _ k => scanElideTree st k
+  | .jump _ _ _ _ args => markBad (tupVarIds args) st
+  | .ret _ _ _ vs => markBad (tupVarIds vs) st
+  | .exit _ _ _ _ args => markBad (tupVarIds args) st
+  | .stop _ => st
+  | .group _ bs k => scanElideTree (scanElideBlocks st bs) k
+
+def scanElideBlocks (st : ElideScan) : TreeBlocks → ElideScan
+  | .nil => st
+  | .cons _ _ b bs => scanElideBlocks (scanElideTree st b) bs
+end
+
+mutual
+def rewriteElideTree (eb : Trie Nat) (eip : Trie Bool) : Tree → Tree
+  | .let_ lv ip nv0 ts op k =>
+    let k' := rewriteElideTree eb eip k
+    if eip.getD ip false then .skip lv ip k' else .let_ lv ip nv0 ts op k'
+  | .load lv ip x t (.var a) k =>
+    .load lv ip x t (.var (eb.getD a a)) (rewriteElideTree eb eip k)
+  | .load lv ip x t a k => .load lv ip x t a (rewriteElideTree eb eip k)
+  | .store lv ip t v (.var a) k =>
+    .store lv ip t v (.var (eb.getD a a)) (rewriteElideTree eb eip k)
+  | .store lv ip t v a k => .store lv ip t v a (rewriteElideTree eb eip k)
+  | .call lv ip nv0 g as bs args k => .call lv ip nv0 g as bs args (rewriteElideTree eb eip k)
+  | .jnz lv ip c l t e =>
+    .jnz lv ip c l (rewriteElideTree eb eip t) (rewriteElideTree eb eip e)
+  | .skip lv ip k => .skip lv ip (rewriteElideTree eb eip k)
+  | .group lv bs k => .group lv (rewriteElideBlocks eb eip bs) (rewriteElideTree eb eip k)
+  | t => t
+
+def rewriteElideBlocks (eb : Trie Nat) (eip : Trie Bool) : TreeBlocks → TreeBlocks
+  | .nil => .nil
+  | .cons l ps b bs => .cons l ps (rewriteElideTree eb eip b) (rewriteElideBlocks eb eip bs)
+end
+
+/-- Elide address-only `add64`/`sub64` definitions whose uses are all valid `[base + disp]`
+load/store addresses per `I.supportsAddrDisp`, rewiring address uses in `Tree` to `base` so
+liveness and register allocation keep `base` live instead of the elided def. -/
+def elideAddrTree (I : Isa) (t : Tree) : Tree × Trie Bool :=
+  let st := scanElideTree {} t
+  let (eb, eip) := st.cands.foldl (fun (eb, eip) (x, ip, base, disp) =>
+    let ts := st.addrUses.getD x []
+    if !st.badVars.getD x false && !ts.isEmpty && ts.all (I.supportsAddrDisp · disp) then
+      (eb.insert x base, eip.insert ip true)
+    else (eb, eip)) ((.empty : Trie Nat), (.empty : Trie Bool))
+  (rewriteElideTree eb eip t, eip)
+
 /-! ## Join-Point Liveness Fixpoint, `acrossCalls`, and `loopBlocks` -/
 
 mutual

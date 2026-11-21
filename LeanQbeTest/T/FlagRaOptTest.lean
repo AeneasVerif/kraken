@@ -166,4 +166,63 @@ meta def selTree : Live.Tree × List (Nat × Ty) × Nat × Nat × Nat × Trie Ty
   let ips := slotMoveIps selHints selTree.2.2.2.2.1
   cs.length == 1 && ips.length == 2 && ips.all fun ip => cs.any fun c => ip == c || ip == c + 1
 
+/-! ## 5. Stage 1a `[base + disp]` addressing via `Hints.elide` + `DefFact.addImm64` -/
+
+meta def isAddSubLeaDir : Directive → Bool
+  | .instr (.regular _ .W64 (.add (.reg (.low .rsp .W64)) _))
+  | .instr (.regular _ .W64 (.sub (.reg (.low .rsp .W64)) _)) => false
+  | .instr (.regular _ _ (.add _ _))
+  | .instr (.regular _ _ (.sub _ _))
+  | .instr (.regular _ _ (.lea _ _)) => true
+  | _ => false
+
+/-- Elides both `add64 +16` and `sub64 8` (`[-8]`) into memory displacements; preserves `cmp`
+flags live across the elided `add64` (`0 setcc`). -/
+meta def addrDispFn : Fn :=
+  ⟨"addrDispX64", [i64, i64], [i64], fun _ _ (p, y, ()) =>
+    .let_ (op2 (.cmp .ult i64) (.var p) (.var y)) fun (c, ()) =>
+    .let_ (op2 (.add i64) (.var p) (.imm 16)) fun (p1, ()) =>
+    .let_ (op2 (.sub i64) (.var p) (.imm 8)) fun (p2, ()) =>
+    .load i32 (.var p1) fun a =>
+    .let_ (op1 (.zext 32 64) (.var a)) fun (az, ()) =>
+    .store (t := i64) (.var az) (.var p2) (
+    .let_ (op3 (.select i64) (.var c) (.var p) (.var y)) fun (r, ()) =>
+    .ret (.var r, ()))⟩
+
+/-- Elided address def whose base `p` crosses `call slow`, reloading `p` at the load site. -/
+meta def addrCallFn : Fn :=
+  ⟨"addrCallX64", [i64, i64], [i64], fun _ _ (p, k, ()) =>
+    .let_ (op2 (.add i64) (.var p) (.imm 24)) fun (p1, ()) =>
+    .call "slow" (as := [i64]) (bs := [i64]) (.var k, ()) fun (_r, ()) =>
+    .load i64 (.var p1) fun x =>
+    .ret (.var x, ())⟩
+
+/-- Vector `[base + disp]` (`v4i32` unaligned load at `base + 32`) elides `add64`. -/
+meta def addrVecFn : Fn :=
+  ⟨"addrVecX64", [i64], [v4i32], fun _ _ (p, ()) =>
+    .let_ (op2 (.add i64) (.var p) (.imm 32)) fun (p1, ()) =>
+    .load v4i32 (.var p1) fun v =>
+    .ret (.var v, ())⟩
+
+/-- Non-address use (value of `store`) prevents elision, and out-of-int32 disp (`2^33`) prevents
+elision so no fallback `movabs+add` inside `addrToExpr` is triggered. -/
+meta def addrNoElideFn : Fn :=
+  ⟨"addrNoElideX64", [i64, i64], [i64], fun _ _ (p, q, ()) =>
+    .let_ (op2 (.add i64) (.var p) (.imm 8)) fun (v1, ()) =>
+    .store (t := i64) (.var v1) (.var q) (
+    .let_ (op2 (.add i64) (.var p) (.imm (BitVec.ofNat 64 (2 ^ 33)))) fun (pBig, ()) =>
+    .load i64 (.var pBig) fun r =>
+    .ret (.var r, ()))⟩
+
+#guard chk [addrDispFn]
+#guard countDirs isAddSubLeaDir (codeOf [addrDispFn]) == 0
+#guard countDirs isSetccDir (codeOf [addrDispFn]) == 0
+#guard chk [slowFn, addrCallFn]
+#guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrCallFn).elide.getD 0 false == true
+#guard chk [addrVecFn]
+#guard countDirs isAddSubLeaDir (codeOf [addrVecFn]) == 0
+#guard chk [addrNoElideFn]
+#guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrNoElideFn).elide.getD 0 false == false
+#guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrNoElideFn).elide.getD 2 false == false
+
 end LeanQbeTest.T.FlagRaOptTest

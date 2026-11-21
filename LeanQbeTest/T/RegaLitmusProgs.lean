@@ -155,6 +155,23 @@ def fnCfLoop : Fn := ⟨"cfLoop", [i64, i64], [i64, .bool], fun _ _ (n, x, ()) =
     (fun loop => .jump loop (.var n, .imm 0, .var x, .imm false, ()))⟩
 
 
+/-- `[base + disp]` elision: `add`/`sub` feeds `store` and `load`, emitting zero address ALU ops. -/
+def fnAddrDisp : Fn := ⟨"addrDisp", [i64, i64], [i64], fun _ _ (p, v, ()) =>
+  .let_ (op2 (.add i64) (.var p) (.imm 16)) fun (p1, ()) =>
+  .store (.var v) (.var p1) (
+  .let_ (op2 (.sub i64) (.var p) (.imm (-8#64))) fun (p2, ()) =>
+  .load i64 (.var p2) fun x =>
+  .ret (.var x, ()))⟩
+
+/-- Elided `[base + disp]` across a `call`: keeps `base` live across the call and reloads/folds
+only at the post-call load. -/
+def fnAddrCall : Fn := ⟨"addrCall", [i64], [i64], fun _ _ (p, ()) =>
+  .let_ (op2 (.add i64) (.var p) (.imm 8)) fun (p1, ()) =>
+  .call "inc" (as := [i64]) (bs := [i64]) (.imm 41, ()) fun (r, ()) =>
+  .load i64 (.var p1) fun x =>
+  .let_ (op2 (.add i64) (.var r) (.var x)) fun (s, ()) =>
+  .ret (.var s, ())⟩
+
 def extCarryCall : Rega.Ext := { callees := [("inc", [i64], [i64])] }
 
 /-! ## 4. External Untrusted Hint & Code Splicing (`ToExpr`, zero kernel oracle execution) -/
@@ -162,10 +179,11 @@ def extCarryCall : Rega.Ext := { callees := [("inc", [i64], [i64])] }
 meta section
 open Lean Elab Command Term Meta
 
-/-- `splice_lower h c (hintsTerm) (extTerm) fn` evaluates `hintsTerm` (e.g. `Spill.hints isa fn`)
-and `Rega.lowerFn isa hints ext fn` in the interpreter and adds the results as literal
+/-- `splice_lower_on isaTerm h c (hintsTerm) (extTerm) fn` evaluates `hintsTerm` and
+`Rega.lowerFn isaTerm hints ext fn` in the interpreter and adds the results as literal
 definitions `h` and `c`. -/
-elab "splice_lower " hName:ident cName:ident "(" hT:term ")" "(" eT:term ")" fnId:ident : command => do
+elab "splice_lower_on " iT:ident hName:ident cName:ident "(" hT:term ")" "(" eT:term ")"
+    fnId:ident : command => do
   let hDeclNm := (← getCurrNamespace) ++ hName.getId
   let cDeclNm := (← getCurrNamespace) ++ cName.getId
   let hTy := mkApp3 (mkConst ``Hints) (mkConst ``Nat) (mkConst ``Nat) (mkConst ``Cond)
@@ -175,7 +193,7 @@ elab "splice_lower " hName:ident cName:ident "(" hT:term ")" "(" eT:term ")" fnI
     let hVal ← unsafe evalExpr (Hints Nat Nat Cond) hTy hTerm
     let hLit := toExpr hVal
     let resTy := mkApp2 (mkConst ``Except [0, 0]) (mkConst ``String) cTy
-    let isaE ← elabTerm (← `(isa)) none
+    let isaE ← elabTerm iT none
     let fnE ← elabTerm fnId none
     let extE ← elabTerm eT (some (mkConst ``Rega.Ext))
     let lowerTerm := mkApp4 (mkConst ``Rega.lowerFn) isaE hLit extE fnE
@@ -196,6 +214,10 @@ elab "splice_lower " hName:ident cName:ident "(" hT:term ")" "(" eT:term ")" fnI
     compileDecl hDecl
     compileDecl cDecl
 
+macro "splice_lower " hName:ident cName:ident "(" hT:term ")" "(" eT:term ")" fnId:ident :
+    command =>
+  `(splice_lower_on isa $hName $cName ($hT) ($eT) $fnId)
+
 end
 
 splice_lower hintsBranches codeBranches (Spill.hints isa fnBranches) ({}) fnBranches
@@ -211,6 +233,9 @@ splice_lower hintsCmpJcc codeCmpJcc (Spill.hints isa fnCmpJcc) ({}) fnCmpJcc
 splice_lower hintsAdcChain codeAdcChain (Spill.hints isa fnAdcChain) ({}) fnAdcChain
 splice_lower hintsAdcxAdox codeAdcxAdox (Spill.hints isa fnAdcxAdox) ({}) fnAdcxAdox
 splice_lower hintsCfLoop codeCfLoop (Spill.hints isa fnCfLoop) ({}) fnCfLoop
+splice_lower_on addrIsa hintsAddrDisp codeAddrDisp (Spill.hints addrIsa fnAddrDisp) ({}) fnAddrDisp
+splice_lower_on addrIsa hintsAddrCall codeAddrCall
+  (Spill.hints addrIsa fnAddrCall) (extCarryCall) fnAddrCall
 
 /-! ## 5. Well-Formedness and Kernel-Checked Lowering -/
 
@@ -227,6 +252,8 @@ theorem cmpJcc_wf : fnCmpJcc.Wf := by unfold Fn.Wf; t_wf_reify
 theorem adcChain_wf : fnAdcChain.Wf := by unfold Fn.Wf; t_wf_reify
 theorem adcxAdox_wf : fnAdcxAdox.Wf := by unfold Fn.Wf; t_wf_reify
 theorem cfLoop_wf : fnCfLoop.Wf := by unfold Fn.Wf; t_wf_reify
+theorem addrDisp_wf : fnAddrDisp.Wf := by unfold Fn.Wf; t_wf_reify
+theorem addrCall_wf : fnAddrCall.Wf := by unfold Fn.Wf; t_wf_reify
 
 theorem branches_lower : Rega.lowerFn isa hintsBranches {} fnBranches = .ok codeBranches := by
   t_kernel_rfl
@@ -248,6 +275,12 @@ theorem adcChain_lower : Rega.lowerFn isa hintsAdcChain {} fnAdcChain = .ok code
 theorem adcxAdox_lower : Rega.lowerFn isa hintsAdcxAdox {} fnAdcxAdox = .ok codeAdcxAdox := by
   t_kernel_rfl
 theorem cfLoop_lower : Rega.lowerFn isa hintsCfLoop {} fnCfLoop = .ok codeCfLoop := by t_kernel_rfl
+theorem addrDisp_lower :
+    Rega.lowerFn addrIsa hintsAddrDisp {} fnAddrDisp = .ok codeAddrDisp := by
+  t_kernel_rfl
+theorem addrCall_lower :
+    Rega.lowerFn addrIsa hintsAddrCall extCarryCall fnAddrCall = .ok codeAddrCall := by
+  t_kernel_rfl
 
 /-! ## 6. Emitted-Code Highlights (the flag paths are really taken) -/
 
@@ -309,6 +342,22 @@ theorem g12a_code_highlights :
     codeBits8.contains (.jcc .cf "bits8.L0") = true := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> t_kernel_rfl
 
+/-- Stage 1a elides both `add` (`+16`) and `sub` (`-(-8)`) in `fnAddrDisp` and elides `+8` across
+`"inc"` in `fnAddrCall`, folding `[rb + disp]` directly into `.st`/`.ld` with zero `lea`/ALU. -/
+theorem stage1a_addr_highlights :
+    hintsAddrDisp.elide.getD 0 false = true ∧
+    hintsAddrDisp.elide.getD 2 false = true ∧
+    hintsAddrCall.elide.getD 0 false = true ∧
+    codeAddrDisp.any (fun i => match i with | .bin .. | .lea .. => true | _ => false) = false ∧
+    codeAddrDisp.any (fun i => match i with | .st (.bits 64) _ (.bd _ 16#64) => true | _ => false)
+      = true ∧
+    codeAddrDisp.any (fun i => match i with | .ld (.bits 64) _ (.bd _ 8#64) => true | _ => false)
+      = true ∧
+    codeAddrCall.any (fun i => match i with | .lea .. => true | _ => false) = false ∧
+    codeAddrCall.any (fun i => match i with | .ld (.bits 64) _ (.bd _ 8#64) => true | _ => false)
+      = true := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> t_kernel_rfl
+
 #print axioms branches_lower
 #print axioms loop_lower
 #print axioms evenOdd_lower
@@ -325,5 +374,8 @@ theorem g12a_code_highlights :
 #print axioms cfLoop_wf
 #print axioms cfLoop_code
 #print axioms g12a_code_highlights
+#print axioms addrDisp_lower
+#print axioms addrCall_lower
+#print axioms stage1a_addr_highlights
 
 end LeanQbe.T.RegaLitmus

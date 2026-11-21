@@ -27,6 +27,13 @@ open LeanQbe.T
 
 /-! ## 1. Target Assembly (`armTarget`) and Legalization Profile (`armLegalTarget`) -/
 
+/-- True iff `armLoad`/`armStore` encodes `[base + disp]` as one scaled unsigned offset without
+literal-pool `.X16` fallback. -/
+def armSupportsAddrDisp (t : Ty) (d : BitVec 64) : Bool :=
+  match armMemScale t with
+  | some sc => armFitsScaledOff sc (Int64.ofBitVec d)
+  | none => false
+
 /-- Verified AAPCS64 Arm64 scalar `Target` (`VecIsa.empty` / `VecTarget.empty`, `raBytes = 0`). -/
 @[reducible] def armTarget : Target where
   Reg := Reg
@@ -36,6 +43,7 @@ open LeanQbe.T
   gpr := armGpr
   vec := VecIsa.empty Reg ArmCond Directive
   frame := armFrame
+  supportsAddrDisp := armSupportsAddrDisp
   mach := armMach
   gprSpec := armGprSpec
   frameSpec := armFrameSpec
@@ -44,7 +52,8 @@ open LeanQbe.T
 theorem armTarget_toIsa :
     armTarget.toIsa =
       { Reg := Reg, VReg := Empty, Cond := ArmCond, Directive := Directive,
-        gpr := armGpr, vec := VecIsa.empty Reg ArmCond Directive, frame := armFrame } :=
+        gpr := armGpr, vec := VecIsa.empty Reg ArmCond Directive, frame := armFrame,
+        supportsAddrDisp := armSupportsAddrDisp } :=
   rfl
 
 /-- AArch64 scalar legalization capability record (`LegalTarget.aarch64`, no vectors/floats). -/

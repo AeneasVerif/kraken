@@ -97,6 +97,7 @@ structure Hints (Reg VReg Cond : Type) where
   entry : Trie (Entry Reg VReg Cond) := .empty
   pre : Trie (PreStep Reg VReg Cond) := .empty
   variant : Trie VariantHint := .empty
+  elide : Trie Bool := .empty
   nslots : Nat := 0
   saved : List Reg := []
   deriving Repr, Lean.ToExpr
@@ -294,6 +295,8 @@ structure Isa where
   gpr : GprIsa Reg VReg Cond Directive
   vec : VecIsa Reg VReg Cond Directive
   frame : FrameIsa Reg Directive
+  /-- Untrusted displacement legality predicate (`base + disp`) for address-op elision. -/
+  supportsAddrDisp : Ty → BitVec 64 → Bool := fun _ _ => false
 
 attribute [instance] Isa.decEqReg Isa.decEqVReg Isa.decEqCond
 abbrev Isa.Loc (I : Isa) : Type := _root_.LeanQbe.T.Loc I.Reg I.VReg I.Cond

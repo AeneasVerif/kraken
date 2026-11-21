@@ -28,6 +28,16 @@ open LeanQbe.T
 
 /-! ## 1. Target Assembly (`x64Target`) and Legalization Profile (`x64LegalTarget`) -/
 
+/-- True iff `x64Load`/`x64Store`/`x64Vload`/`x64Vstore` encodes `[base + disp]` in one
+displacement operand without scratch materialization. -/
+def x64SupportsAddrDisp (t : Ty) (d : BitVec 64) : Bool :=
+  let okTy := match t with
+    | .bool => true
+    | .bits n => x64BitWidths.contains n
+    | .pair _ _ => (x64VecSlotWidth t).isSome
+    | .float _ => false
+  okTy && fitsImm32 d
+
 /-- Verified SysV x64 `Target` bundling scalar GPR, vector (`xmm`/`ymm`/`zmm`), and stack frame
 specifications. -/
 @[reducible] def x64Target : Target where
@@ -38,6 +48,7 @@ specifications. -/
   gpr := x64Gpr
   vec := x64Vec
   frame := x64Frame
+  supportsAddrDisp := x64SupportsAddrDisp
   mach := x64Mach
   gprSpec := x64GprSpec
   frameSpec := x64FrameSpec
@@ -46,7 +57,8 @@ specifications. -/
 theorem x64Target_toIsa :
     x64Target.toIsa =
       { Reg := Reg64, VReg := RegMm, Cond := CondCode, Directive := Directive,
-        gpr := x64Gpr, vec := x64Vec, frame := x64Frame } :=
+        gpr := x64Gpr, vec := x64Vec, frame := x64Frame,
+        supportsAddrDisp := x64SupportsAddrDisp } :=
   rfl
 
 /-- SysV x64 legalization capability record aligned with `x64Target` (`[8, 16, 32, 64]` scalar,

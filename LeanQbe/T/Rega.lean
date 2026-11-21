@@ -504,30 +504,49 @@ def pickPArgs (I : Isa) (st : SymState I) (pref : List I.Cond) {α : Type} :
 
 def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List Ty}
     (op : Op VNat ts) : Option (List I.Directive × SymState I) :=
-  (resolveDsts I h ts nv).bind fun dsts =>
-    let vh := h.variant.getD ip .default
-    let dstGprs := tupDstGprs dsts; let dstVecs := tupDstVecs dsts
-    (pickPArgs I st1 (tupDstFlags dsts) op.args fun pas =>
-      if dstVecs.isEmpty && (tupArgVecs pas).isEmpty then
-        ((I.gpr.op op.code pas dsts vh).map fun (c, cl) => (c, cl, false)) <|>
-        ((I.vec.vop op.code pas dsts vh).map fun (c, cl) => (c, cl, true))
-      else (I.vec.vop op.code pas dsts vh).map fun (c, cl) => (c, cl, true)).map fun (code, clob, isVec) =>
-        let vClob := if isVec then dstVecs ++ I.vec.vecScratch else []
-        let (regs1, vw1) := bindDsts I dsts nv (killRegs I (dstGprs ++ I.frame.scratch) vClob clob st1.regs, st1.vecWidths)
-        let defs1 := match recordDef op.code op.args with | some df => st1.defs.insert nv df | none => st1.defs
-        (code, { regs := regs1, slots := st1.slots, defs := defs1, vecWidths := vw1 })
+  if h.elide.getD ip false then
+    match recordDef op.code op.args with
+    | some df => some ([], { st1 with defs := st1.defs.insert nv df })
+    | none => none
+  else
+    (resolveDsts I h ts nv).bind fun dsts =>
+      let vh := h.variant.getD ip .default
+      let dstGprs := tupDstGprs dsts; let dstVecs := tupDstVecs dsts
+      (pickPArgs I st1 (tupDstFlags dsts) op.args fun pas =>
+        if dstVecs.isEmpty && (tupArgVecs pas).isEmpty then
+          ((I.gpr.op op.code pas dsts vh).map fun (c, cl) => (c, cl, false)) <|>
+          ((I.vec.vop op.code pas dsts vh).map fun (c, cl) => (c, cl, true))
+        else (I.vec.vop op.code pas dsts vh).map fun (c, cl) =>
+          (c, cl, true)).map fun (code, clob, isVec) =>
+          let vClob := if isVec then dstVecs ++ I.vec.vecScratch else []
+          let killed := killRegs I (dstGprs ++ I.frame.scratch) vClob clob st1.regs
+          let (regs1, vw1) := bindDsts I dsts nv (killed, st1.vecWidths)
+          let defs1 := match recordDef op.code op.args with
+            | some df => st1.defs.insert nv df
+            | none => st1.defs
+          (code, { regs := regs1, slots := st1.slots, defs := defs1, vecWidths := vw1 })
 
 def tryAddr (I : Isa) (st : SymState I) (vh : VariantHint) {α : Type}
     (a : Arg VNat i64) (k : AddrArg I.Reg → Option α) : Option α :=
   match a with
-  | .imm c => k (.imm c) <|> (findGprFor I true st.regs (.immBits 64 c)).bind fun r => k (.baseDisp r 0)
+  | .imm c =>
+    k (.imm c) <|>
+      (findGprFor I true st.regs (.immBits 64 c)).bind fun r => k (.baseDisp r 0)
   | .var x =>
     let foldDisp := match vh, st.defs.find? x with
       | .disp off, some (.addImm64 base d) =>
-        if d == off.toBitVec then (findGprFor I true st.regs (.var base)).bind fun rb => k (.baseDisp rb off) else none
+        if d == off.toBitVec then
+          (findGprFor I true st.regs (.var base)).bind fun rb => k (.baseDisp rb off)
+        else none
       | _, _ => none
-    foldDisp <|> ((findGprFor I true st.regs (.var x)).bind fun rx => k (.baseDisp rx 0)) <|>
-    match st.defs.find? x with | some (.imm64 c) => k (.imm c) | _ => none
+    foldDisp <|>
+      ((findGprFor I true st.regs (.var x)).bind fun rx => k (.baseDisp rx 0)) <|>
+      match st.defs.find? x with
+      | some (.addImm64 base d) =>
+        (findGprFor I true st.regs (.var base)).bind fun rb =>
+          k (.baseDisp rb (Int64.ofBitVec d))
+      | some (.imm64 c) => k (.imm c)
+      | _ => none
 
 /-! ## Block Entry, Jumps, and Core PHOAS Lowering -/
 

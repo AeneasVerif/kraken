@@ -145,4 +145,55 @@ meta def selTree : Live.Tree × List (Nat × Ty) × Nat × Nat × Nat × Trie Ty
   let ips := slotMoveIps selHints selTree.2.2.2.2.1
   cs.length == 1 && ips.length == 2 && ips.all fun ip => cs.any fun c => ip == c || ip == c + 1
 
+/-! ## 5. Stage 1a `[base + disp]` addressing on AArch64 (`armSupportsAddrDisp`) -/
+
+meta def isArmAddSubOrPoolDir (d : armTarget.toIsa.Directive) : Bool :=
+  let s := Kraken.AArch64.Print.directive d
+  !(s.startsWith "add sp," || s.startsWith "sub sp,") &&
+    (s.startsWith "add " || s.startsWith "sub " || s.contains '=')
+
+/-- Scaled positive offset (`+16` for `i32`/`i64`) is elided cleanly across `cmp` (`0 cset`). -/
+meta def addrDispFn : Fn :=
+  ⟨"addrDispArm64", [i64, i64], [i64], fun _ _ (p, y, ()) =>
+    .let_ (op2 (.cmp .ult i64) (.var p) (.var y)) fun (c, ()) =>
+    .let_ (op2 (.add i64) (.var p) (.imm 16)) fun (p1, ()) =>
+    .load i32 (.var p1) fun a =>
+    .let_ (op1 (.zext 32 64) (.var a)) fun (az, ()) =>
+    .store (t := i64) (.var az) (.var p1) (
+    .let_ (op3 (.select i64) (.var c) (.var p) (.var y)) fun (r, ()) =>
+    .ret (.var r, ()))⟩
+
+/-- Elided `add64 +24` across `call slow`: keeps `p` across the call and folds `[x, #24]`. -/
+meta def addrCallFn : Fn :=
+  ⟨"addrCallArm64", [i64, i64], [i64], fun _ _ (p, k, ()) =>
+    .let_ (op2 (.add i64) (.var p) (.imm 24)) fun (p1, ()) =>
+    .call "slow" (as := [i64]) (bs := [i64]) (.var k, ()) fun (_r, ()) =>
+    .load i64 (.var p1) fun x =>
+    .ret (.var x, ())⟩
+
+/-- Unaligned (`+4` for `i64`), negative (`sub 8`), and out-of-range (`4096 * 8`) offsets must NOT
+be elided on Arm64 (would force `.X16` literal-pool `ldr =...` fallback inside `armSetupAddr`). -/
+meta def addrSkipArm64Fn : Fn :=
+  ⟨"addrSkipArm64", [i64], [i64], fun _ _ (p, ()) =>
+    .let_ (op2 (.add i64) (.var p) (.imm 4)) fun (pUnalign, ()) =>
+    .load i64 (.var pUnalign) fun a =>
+    .let_ (op2 (.sub i64) (.var p) (.imm 8)) fun (pNeg, ()) =>
+    .load i32 (.var pNeg) fun b =>
+    .let_ (op2 (.add i64) (.var p) (.imm (BitVec.ofNat 64 (4096 * 8)))) fun (pOor, ()) =>
+    .load i64 (.var pOor) fun c =>
+    .let_ (op1 (.zext 32 64) (.var b)) fun (bz, ()) =>
+    .let_ (op2 (.add i64) (.var a) (.var bz)) fun (s1, ()) =>
+    .let_ (op2 (.add i64) (.var s1) (.var c)) fun (s2, ()) =>
+    .ret (.var s2, ())⟩
+
+#guard chk [addrDispFn]
+#guard countDirs isArmAddSubOrPoolDir (codeOf [addrDispFn]) == 0
+#guard countDirs isCsetDir (codeOf [addrDispFn]) == 0
+#guard chk [slowFn, addrCallFn]
+#guard (Fn.computeHints armTarget.toIsa armLegalTarget addrCallFn).elide.getD 0 false == true
+#guard chk [addrSkipArm64Fn]
+#guard (Fn.computeHints armTarget.toIsa armLegalTarget addrSkipArm64Fn).elide.getD 0 false == false
+#guard (Fn.computeHints armTarget.toIsa armLegalTarget addrSkipArm64Fn).elide.getD 2 false == false
+#guard (Fn.computeHints armTarget.toIsa armLegalTarget addrSkipArm64Fn).elide.getD 4 false == false
+
 end LeanQbeTest.T.FlagRaOptArm64Test

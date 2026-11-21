@@ -251,6 +251,8 @@ def hostCmpJcc : LHost := mkHost codeCmpJcc (by t_kernel_rfl)
 def hostAdcChain : LHost := mkHost codeAdcChain (by t_kernel_rfl)
 def hostAdcxAdox : LHost := mkHost codeAdcxAdox (by t_kernel_rfl)
 def hostCfLoop : LHost := mkHost codeCfLoop (by t_kernel_rfl)
+def hostAddrDisp : LHost := mkHost codeAddrDisp (by t_kernel_rfl)
+def hostAddrCall : LHost := mkHost (codeInc ++ codeAddrCall) (by t_kernel_rfl)
 
 abbrev ones64 : BitVec 64 := 0xFFFFFFFFFFFFFFFF#64
 
@@ -355,6 +357,26 @@ theorem cfLoop_nonvacuous :
   returns_of_check (by t_kernel_rfl) 1000 (mkSt_rel (initMem_rel _ (by t_kernel_rfl)))
     (by t_kernel_rfl)
 
+/-- `addrDisp 0x2000 0x2A`: stores `0x2A` at `0x2010`, loads `0x99` from `0x2008` (`p - (-8)`). -/
+theorem addrDisp_nonvacuous :
+    Eventually (mach.step hostAddrDisp) (Returns ra0 sp0 [(0, 0x99#64)] [])
+      (mkSt [(4, sp0), (7, 0x2000#64), (6, 0x2A#64)]
+        (initMem (stackInit ++ [(0x2008#64, [0x99, 0, 0, 0, 0, 0, 0, 0]),
+          (0x2010#64, [0, 0, 0, 0, 0, 0, 0, 0])])),
+        labelAddr hostAddrDisp "addrDisp") :=
+  returns_of_check (by t_kernel_rfl) 1000 (mkSt_rel (initMem_rel _ (by t_kernel_rfl)))
+    (by t_kernel_rfl)
+
+/-- `addrCall 0x2000`: elides `p + 8` before `call inc(41)`, loads `100` from `0x2008`, returns
+`42 + 100 = 142`. -/
+theorem addrCall_nonvacuous :
+    Eventually (mach.step hostAddrCall) (Returns ra0 sp0 [(0, 142#64)] [])
+      (mkSt [(4, sp0), (7, 0x2000#64)]
+        (initMem (stackInit ++ [(0x2008#64, [100, 0, 0, 0, 0, 0, 0, 0])])),
+        labelAddr hostAddrCall "addrCall") :=
+  returns_of_check (by t_kernel_rfl) 1000 (mkSt_rel (initMem_rel _ (by t_kernel_rfl)))
+    (by t_kernel_rfl)
+
 #print axioms branches_nonvacuous
 #print axioms loop_nonvacuous
 #print axioms evenOdd_nonvacuous
@@ -367,6 +389,8 @@ theorem cfLoop_nonvacuous :
 #print axioms adcChain_nonvacuous
 #print axioms adcxAdox_nonvacuous
 #print axioms cfLoop_nonvacuous
+#print axioms addrDisp_nonvacuous
+#print axioms addrCall_nonvacuous
 
 /-! ## 5. Host Facts for the `lowerFn_correct` Hooks (`IsInfixAt`, `LabelsUnique`, `Defined`) -/
 
@@ -393,6 +417,16 @@ theorem labelsUnique_of_ok {h : LHost} (hok : labelsOk h = true) :
     ∀ (i j : Nat) (l : String), h.prog[i]? = some (.label l) → h.prog[j]? = some (.label l) →
       i = j := fun _ _ _ hi hj =>
   (labelAddr_of_labelsOk hok hi).symm.trans (labelAddr_of_labelsOk hok hj)
+
+theorem labels_ok_addr :
+    labelsOk hostAddrDisp = true ∧ labelsOk hostAddrCall = true :=
+  ⟨by t_kernel_rfl, by t_kernel_rfl⟩
+
+theorem addrCall_layout :
+    codeInc.IsInfixAt hostAddrCall.prog 0 ∧
+    codeAddrCall.IsInfixAt hostAddrCall.prog codeInc.length := by
+  refine ⟨⟨codeAddrCall, by simp [hostAddrCall, mkHost]⟩, ⟨[], ?_⟩⟩
+  simp [hostAddrCall, mkHost]
 
 theorem labels_ok_all :
     labelsOk hostBranches = true ∧ labelsOk hostLoop = true ∧ labelsOk hostEvenOdd = true ∧
@@ -543,6 +577,32 @@ theorem cfLoop_correct :
     litmusTarget.FnSpec hostCfLoop fnCfLoop.name (Func.spec Γ fnCfLoop.body) 0 0 :=
   cfLoop_hook.correct Γ
 
+theorem addrDisp_correct :
+    litmusAddrTarget.FnSpec hostAddrDisp fnAddrDisp.name (Func.spec Γ fnAddrDisp.body) 0 0 :=
+  Rega.lowerFn_correct litmusAddrTarget hostAddrDisp hintsAddrDisp {} fnAddrDisp Γ 0 0
+    (fun _ => 0) addrDisp_wf addrDisp_lower (code_infix_self codeAddrDisp (by t_kernel_rfl))
+    (labelsUnique_of_ok labels_ok_addr.1) (Nat.le_of_ble_eq_true (by t_kernel_rfl))
+    (Nat.le_of_ble_eq_true (by t_kernel_rfl)) (fun _ _ _ h => nomatch h) (fun _ h => nomatch h)
+
+theorem inc_correct_addr :
+    litmusAddrTarget.FnSpec hostAddrCall fnInc.name (Func.spec Γ fnInc.body) 0 0 :=
+  Rega.lowerFn_correct litmusAddrTarget hostAddrCall hintsInc {} fnInc Γ 0 0 (fun _ => 0)
+    inc_wf inc_lower addrCall_layout.1 (labelsUnique_of_ok labels_ok_addr.2)
+    (Nat.le_of_ble_eq_true (by t_kernel_rfl)) (Nat.le_of_ble_eq_true (by t_kernel_rfl))
+    (fun _ _ _ h => nomatch h) (fun _ h => nomatch h)
+
+theorem addrCall_correct (hΓ : Γ "inc" [i64] [i64] = Func.spec Γ fnInc.body) :
+    litmusAddrTarget.FnSpec hostAddrCall fnAddrCall.name (Func.spec Γ fnAddrCall.body) 24 0 := by
+  refine Rega.lowerFn_correct litmusAddrTarget hostAddrCall hintsAddrCall extCarryCall fnAddrCall
+    Γ 24 0 (fun _ => 0) addrCall_wf addrCall_lower addrCall_layout.2
+    (labelsUnique_of_ok labels_ok_addr.2) (Nat.le_of_ble_eq_true (by t_kernel_rfl))
+    (Nat.le_of_ble_eq_true (by t_kernel_rfl)) ?_ (fun _ h => nomatch h)
+  intro g as bs hg
+  simp only [extCarryCall, List.mem_singleton, Prod.mk.injEq] at hg
+  obtain ⟨rfl, rfl, rfl⟩ := hg
+  refine ⟨?_, Nat.le_of_ble_eq_true (by t_kernel_rfl)⟩
+  rw [hΓ]; exact inc_correct_addr Γ
+
 /-- Carry chain across a `call`: the callee `inc` is discharged by `inc_correct`. -/
 theorem carryCall_correct (hΓ : Γ "inc" [i64] [i64] = Func.spec Γ fnInc.body) :
     litmusTarget.FnSpec hostCarryCall fnCarryCall.name (Func.spec Γ fnCarryCall.body) 24 0 := by
@@ -565,5 +625,7 @@ end Correct
 #print axioms carryCall_correct
 #print axioms vecLoop_correct
 #print axioms evenOdd_correct
+#print axioms addrDisp_correct
+#print axioms addrCall_correct
 
 end LeanQbe.T.RegaLitmus

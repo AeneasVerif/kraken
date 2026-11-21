@@ -1487,9 +1487,22 @@ theorem gprSpec : GprTarget mach gprIsa frameIsa.scratch where
   frameSpec := frameSpec
   vecSpec := vecSpec
 
+/-- Litmus `Isa` with `[base + disp]` displacement elision enabled for GPR memory types. -/
+def addrIsa : Isa :=
+  { isa with supportsAddrDisp := fun t _ => isGprTy t }
+
+/-- `Target` wrapper over `addrIsa`, sharing verified `gprSpec`/`frameSpec`/`vecSpec`. -/
+@[reducible] def litmusAddrTarget : Target where
+  toIsa := addrIsa
+  mach := mach
+  gprSpec := gprSpec
+  frameSpec := frameSpec
+  vecSpec := vecSpec
+
 #print axioms frameSpec
 #print axioms vecSpec
 #print axioms gprSpec
 #print axioms litmusTarget
+#print axioms litmusAddrTarget
 
 end LeanQbe.T.RegaLitmus
