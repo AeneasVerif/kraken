@@ -5,13 +5,12 @@ public import LeanQbe.T.Fold
 public import LeanQbe.T.Canon
 public import LeanQbe.T.Copy
 public import LeanQbe.T.Gvn
-public import LeanQbe.T.Dce
 public import LeanQbe.T.DceParam
 public import LeanQbe.T.DivConst
 public import LeanQbe.T.MemLoad
 public import LeanQbe.T.Peel
 public import LeanQbe.T.IfOpt
-public import LeanQbe.T.SimplifyGroup
+public import LeanQbe.T.SimplifyGroupPlan
 public import LeanQbe.T.Inline
 public import LeanQbe.T.Module
 
@@ -20,13 +19,13 @@ public import LeanQbe.T.Module
 
 * `Func.opt`: legacy `T6` mid-end (`fold → copy → gvn → copy → fold → dceP`).
 * `Func.earlyOpt`: pre-`Legal` pipeline (`renorm → fold → canon → copy → gvn → copy → fold →
-  renorm → simplifyGroup → peel → dceP → renorm`), simplifying source and inlined bodies and
+  renorm → simplifyGroupPlan → peel → dceP → renorm`), simplifying source and inlined bodies and
   peeling bounded loops while preserving `C4`–`C9` widening arithmetic (`addc`/`subb`/`mulx`
   chains).
 * `Func.lateOpt`: post-`Legal` pipeline (`renorm → fold → canon → divConst → copy → memLoad →
-  gvn → renorm → simplifyGroup → ifOptBits → simplifyGroup → deadLoadElim → assumeElim → dceP
-  → renorm`), running target-safe scalar division reduction, memory load forwarding, machine-width
-  if-conversion, and cleanup on legalized IR.
+  gvn → renorm → simplifyGroupPlan → ifOptBits → simplifyGroupPlan → deadLoadElim → assumeElim →
+  dceP → renorm`), running target-safe scalar division reduction, memory load forwarding,
+  machine-width if-conversion, and cleanup on legalized IR.
 * `Fn.renorm` / `Module.optInline`: acyclic small-callee inlining followed by AST renormalization.
 
 Correctness (`LeanQbe/T/OptLemmas.lean`): `Func.opt_wf`, `Func.opt_spec`, `Func.earlyOpt_wf`,
@@ -90,8 +89,8 @@ def tblocksLoops {rs : List Ty} : {sig : List (List Ty)} → TBlocks rs sig → 
 end
 
 mutual
-/-- True iff `tf` contains an eliminable single-block acyclic join group (avoiding `O(3^d)`
-`SimplifyGroup` re-traversal on deeply nested `while` loops that have nothing to simplify). -/
+/-- True iff `tf` contains an eliminable single-block acyclic join group (gating
+`simplifyGroupFast` so non-join functions bypass the pass until gate removal). -/
 def hasSimpGroup (allowSmall : Bool) {rs : List Ty} : TFlat rs → Bool
   | .let_ _ k | .load _ _ k | .store _ _ k | .call _ _ _ k => hasSimpGroup allowSmall k
   | .jnz _ t e => hasSimpGroup allowSmall t || hasSimpGroup allowSmall e
@@ -111,11 +110,12 @@ def hasSimpGroupB (allowSmall : Bool) {rs : List Ty} :
   | _, .cons b bs => hasSimpGroup allowSmall b || hasSimpGroupB allowSmall bs
 end
 
-/-- Renormalize and run `Func.simplifyGroup` (with trailing `Func.renorm`) only when an acyclic
-join candidate is present (gating single-use non-tail joins to functions with `≤ 1` loop). -/
+/-- Renormalize and run `Func.simplifyGroupPlan` (with trailing `Func.renorm`) only when an
+acyclic join candidate is present (gating single-use non-tail joins to `≤ 1` loop fns). -/
 def Func.simplifyGroupFast {as rs : List Ty} (f : Func as rs) : Func as rs :=
   let tf := reifyFunc f
-  if hasSimpGroup (tflatLoops tf ≤ 1) tf then Func.renorm (Func.simplifyGroup (denoteFunc tf))
+  if hasSimpGroup (tflatLoops tf ≤ 1) tf then
+    Func.renorm (Func.simplifyGroupPlan (denoteFunc tf))
   else denoteFunc tf
 
 /-- Renormalize and apply bounded loop peeling (`Func.peel`) only to compact single-loop

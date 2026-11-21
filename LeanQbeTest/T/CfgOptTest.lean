@@ -1,29 +1,30 @@
 module
 
 public import LeanQbe.T.IfOptLemmas
-public import LeanQbe.T.SimplifyGroupLemmas
+public import LeanQbe.T.SimplifyGroupPlanLemmas
 public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.FlatLemmas
 
 /-!
-# Tests of `LeanQbe.T.IfOpt` and `LeanQbe.T.SimplifyGroup` (`O-M2`, `CfgOpt`)
+# Tests of `LeanQbe.T.IfOpt` and `LeanQbe.T.SimplifyGroupPlan` (`O-M2`, `CfgOpt`)
 
 Covers:
-1. `IfOpt` (`MB3` diamond `jnz` → `select`) + `SimplifyGroup` straight-line collapse:
+1. `IfOpt` (`MB3` diamond `jnz` → `select`) + `SimplifyGroupPlan` straight-line collapse:
    - Classic `MB3` scalar arithmetic diamond,
    - Multi-arg (`≤ 4` safe ops + identical-operand passthrough),
    - Entry `.load`/`.let_` prefix + `.pair` component-wise `.select`,
    - Negative safety checks: partial op (`udiv`) NOT hoisted, `> 4` pure ops NOT hoisted,
      float signature/op NOT hoisted, existing `.select` NOT turned into `.jnz` (`G2`).
-2. `SimplifyGroup` PHOAS join-group elimination:
+2. `SimplifyGroupPlan` PHOAS join-group elimination:
    - Single-block tail join (`k = .jump J args`) spliced even over size 16,
-   - Small single-use block (`exprSizeJ ≤ 16 && countJumps == 1`) spliced,
-   - Multi-use (`countJumps == 2`) and self-loop (`hasJumpTo == true`) preserved,
-   - Dead single-block `.group` (`countJumps == 0`) unwrapped,
+   - Small single-use block (`size ≤ 16 && jumps == 1`) spliced,
+   - Multi-use (`jumps == 2`) and self-loop (`selfRec == true`) preserved,
+   - Dead single-block `.group` (`jumps == 0`) unwrapped,
    - Multi-block `.group` dead-block filtering & zero-jump unwrap,
    - Bottom-up nested `.group` elimination.
-3. Relational `Wf` (`Func.ifOpt_wf`, `Func.simplifyGroup_wf`), `Func.checkTFlat`, `wp`/`Func.spec`
-   refinement (`Func.ifOpt_spec`, `Func.simplifyGroup_spec`), and clean `#print axioms`.
+3. Relational `Wf` (`Func.ifOpt_wf`, `Func.simplifyGroupPlan_wf`), `Func.checkTFlat`,
+   `wp`/`Func.spec` refinement (`Func.ifOpt_spec`, `Func.simplifyGroupPlan_spec`), and clean
+   `#print axioms`.
 -/
 
 set_option autoImplicit false
@@ -34,19 +35,19 @@ namespace LeanQbeTest.T.CfgOptTest
 
 open LeanQbe.T
 
-/-- Combined `CfgOpt` pipeline: `IfOpt` followed by `SimplifyGroup`. -/
+/-- Combined `CfgOpt` pipeline: `IfOpt` followed by `SimplifyGroupPlan`. -/
 def ifSimp {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.simplifyGroup (Func.ifOpt f)
+  Func.simplifyGroupPlan (Func.ifOpt f)
 
 theorem ifSimp_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) : (ifSimp f).Wf :=
-  Func.simplifyGroup_wf (Func.ifOpt_wf hf)
+  Func.simplifyGroupPlan_wf (Func.ifOpt_wf hf)
 
 theorem ifSimp_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (ifSimp f) xs m Q X :=
-  Func.simplifyGroup_spec (Func.ifOpt_wf hf) (Func.ifOpt_spec hf h)
+  Func.simplifyGroupPlan_spec (Func.ifOpt_wf hf) (Func.ifOpt_spec hf h)
 
-/-! ## 1. `MB3` diamond `jnz` → `select` and `SimplifyGroup` collapse -/
+/-! ## 1. `MB3` diamond `jnz` → `select` and `SimplifyGroupPlan` collapse -/
 
 /-- `MB3`-style diamond: `if (x <s y) { a + 10 } else { a - 10 }` joining on `[i64]`. -/
 def mb3Diamond : Func [i64, i64, i64] [i64] := fun _ _ (x, y, a, ()) =>
@@ -211,7 +212,7 @@ def selectStayProg : Func [.bool, i64, i64] [i64] := fun _ _ (c, a, b, ()) =>
 
 theorem selectStay_unchanged : ifSimp selectStayProg = selectStayProg := by t_kernel_rfl
 
-/-! ## 3. `SimplifyGroup` join elimination, dead unwrapping, loops, and nested groups -/
+/-! ## 3. `SimplifyGroupPlan` join elimination, dead unwrapping, loops, and nested groups -/
 
 /-- Large non-recursive join block (`> 16` nodes) is still spliced when entry is `.jump J args`. -/
 def tailJoinLargeProg : Func [i64] [i64] := fun _ _ (x, ()) =>
@@ -237,7 +238,7 @@ def tailJoinLargeProg : Func [i64] [i64] := fun _ _ (x, ()) =>
         .ret (.var a16, ())) .nil)
     (fun (J, ()) => .jump J (.var x, ()))
 
-theorem tailJoinLargeProg_simp_out : Func.simplifyGroup tailJoinLargeProg = fun _ _ (a, ()) =>
+theorem tailJoinLargeProg_simp_out : Func.simplifyGroupPlan tailJoinLargeProg = fun _ _ (a, ()) =>
     .let_ (op2 (.add i64) (.var a) (.imm 1)) fun (a1, ()) =>
     .let_ (op2 (.add i64) (.var a1) (.imm 2)) fun (a2, ()) =>
     .let_ (op2 (.add i64) (.var a2) (.imm 3)) fun (a3, ()) =>
@@ -260,32 +261,32 @@ theorem tailJoinLargeProg_simp_out : Func.simplifyGroup tailJoinLargeProg = fun 
 theorem tailJoinLargeProg_wf : tailJoinLargeProg.Wf := by t_wf_reify
 
 theorem tailJoinLargeProg_checkTFlat :
-    (Func.simplifyGroup tailJoinLargeProg).checkTFlat = true := by
+    (Func.simplifyGroupPlan tailJoinLargeProg).checkTFlat = true := by
   t_kernel_rfl
 
-/-- Dead single-block `.group` (`countJumps == 0`) is unwrapped completely. -/
+/-- Dead single-block `.group` (`jumps == 0`) is unwrapped completely. -/
 def deadGroupProg : Func [i64] [i64] := fun _ _ (x, ()) =>
   .group (sig := [[i64]])
     (fun _ => .cons (fun (a, ()) => .ret (.var a, ())) .nil)
     (fun _ => .let_ (op2 (.add i64) (.var x) (.imm 7)) fun (y, ()) => .ret (.var y, ()))
 
-theorem deadGroupProg_simp_out : Func.simplifyGroup deadGroupProg = fun _ _ (x, ()) =>
+theorem deadGroupProg_simp_out : Func.simplifyGroupPlan deadGroupProg = fun _ _ (x, ()) =>
     .let_ (op2 (.add i64) (.var x) (.imm 7)) fun (y, ()) => .ret (.var y, ()) := by
   t_kernel_rfl
 
 theorem deadGroupProg_wf : deadGroupProg.Wf := by t_wf_reify
 
 theorem deadGroupProg_spec (Γ : Env) (x : BitVec 64) (m : Mem 64) :
-    Func.spec Γ (Func.simplifyGroup deadGroupProg) (x, ()) m
+    Func.spec Γ (Func.simplifyGroupPlan deadGroupProg) (x, ()) m
       (fun (r, ()) m' => r = x + 7#64 ∧ m' = m)
       (fun _ _ _ _ => False) := by
-  apply Func.simplifyGroup_spec deadGroupProg_wf
+  apply Func.simplifyGroupPlan_spec deadGroupProg_wf
   dsimp only [Func.spec, Func.wp, deadGroupProg]
   simp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, i64]
   intro _ _; simp
 
-/-- Small single-use join block (`exprSizeJ <= 16 && countJumps == 1`) with non-jump prefix in
-`k` is spliced by `SimplifyGroup`, whereas two jump sites (`countJumps == 2`) keep `.group`. -/
+/-- Small single-use join block (`size ≤ 16 && jumps == 1`) with non-jump prefix in
+`k` is spliced by `SimplifyGroupPlan`, whereas two jump sites (`jumps == 2`) keep `.group`. -/
 def smallSingleUseProg : Func [i64] [i64] := fun _ _ (x, ()) =>
   .group (sig := [[i64]])
     (fun _ =>
@@ -294,7 +295,7 @@ def smallSingleUseProg : Func [i64] [i64] := fun _ _ (x, ()) =>
     (fun (J, ()) =>
       .let_ (op2 (.add i64) (.var x) (.imm 2)) fun (y, ()) => .jump J (.var y, ()))
 
-theorem smallSingleUseProg_simp_out : Func.simplifyGroup smallSingleUseProg = fun _ _ (x, ()) =>
+theorem smallSingleUseProg_simp_out : Func.simplifyGroupPlan smallSingleUseProg = fun _ _ (x, ()) =>
     .let_ (op2 (.add i64) (.var x) (.imm 2)) fun (y, ()) =>
     .let_ (op2 (.mul i64) (.var y) (.imm 5)) fun (r, ()) =>
     .ret (.var r, ()) := by
@@ -309,7 +310,7 @@ def twoUseNotSplicedProg : Func [.bool, i64] [i64] := fun _ _ (c, x, ()) =>
       .jnz (.var c) (.jump J (.var x, ())) (.jump J (.imm 42, ())))
 
 theorem twoUseNotSpliced_simp_unchanged :
-    Func.simplifyGroup twoUseNotSplicedProg = twoUseNotSplicedProg := by
+    Func.simplifyGroupPlan twoUseNotSplicedProg = twoUseNotSplicedProg := by
   t_kernel_rfl
 
 /-- Zero local jumps in a multi-block `.group` unwraps the group completely to `k'`. -/
@@ -320,11 +321,12 @@ def multiBlockZeroJumpProg : Func [i64] [i64] := fun _ _ (x, ()) =>
       (.cons (fun (b, ()) => .ret (.var b, ())) .nil))
     (fun _ => .let_ (op2 (.sub i64) (.var x) (.imm 1)) fun (r, ()) => .ret (.var r, ()))
 
-theorem multiBlockZeroJump_simp_out : Func.simplifyGroup multiBlockZeroJumpProg = fun _ _ (x, ()) =>
+theorem multiBlockZeroJump_simp_out :
+    Func.simplifyGroupPlan multiBlockZeroJumpProg = fun _ _ (x, ()) =>
     .let_ (op2 (.sub i64) (.var x) (.imm 1)) fun (r, ()) => .ret (.var r, ()) := by
   t_kernel_rfl
 
-/-- Self-recursive single-block loop MUST NOT be spliced (`hasJumpTo == true`), even when entry
+/-- Self-recursive single-block loop MUST NOT be spliced (`selfRec == true`), even when entry
 is `.jump J args`. -/
 def selfLoopProg : Func [i64] [i64] := fun _ _ (n, ()) =>
   .group (sig := [[i64]])
@@ -336,12 +338,13 @@ def selfLoopProg : Func [i64] [i64] := fun _ _ (n, ()) =>
         .nil)
     (fun (loop, ()) => .jump loop (.var n, ()))
 
-theorem selfLoopProg_simp_unchanged : Func.simplifyGroup selfLoopProg = selfLoopProg := by
+theorem selfLoopProg_simp_unchanged : Func.simplifyGroupPlan selfLoopProg = selfLoopProg := by
   t_kernel_rfl
 
 theorem selfLoopProg_wf : selfLoopProg.Wf := by t_wf_reify
 
-theorem selfLoopProg_simp_checkTFlat : (Func.simplifyGroup selfLoopProg).checkTFlat = true := by
+theorem selfLoopProg_simp_checkTFlat :
+    (Func.simplifyGroupPlan selfLoopProg).checkTFlat = true := by
   t_kernel_rfl
 
 /-- Multi-block `.group` dead-block elimination (`sig = [i64, i64, i64]` where middle block `B1`
@@ -358,7 +361,7 @@ def multiBlockDeadProg : Func [i64] [i64] := fun _ _ (x, ()) =>
       .let_ (op2 (.cmp .eq i64) (.var x) (.imm 0)) fun (zc, ()) =>
       .jnz (.var zc) (.jump b0 (.var x, ())) (.jump b0 (.imm 9, ())))
 
-theorem multiBlockDeadProg_simp_out : Func.simplifyGroup multiBlockDeadProg = fun _ _ (x, ()) =>
+theorem multiBlockDeadProg_simp_out : Func.simplifyGroupPlan multiBlockDeadProg = fun _ _ (x, ()) =>
     .group (sig := [[i64], [i64]])
       (fun (_, b2, ()) =>
         .cons (fun (a, ()) => .jump b2 (.var a, ()))
@@ -372,11 +375,11 @@ theorem multiBlockDeadProg_simp_out : Func.simplifyGroup multiBlockDeadProg = fu
 
 theorem multiBlockDeadProg_wf : multiBlockDeadProg.Wf := by t_wf_reify
 
-theorem multiBlockDeadProg_simp_wf : (Func.simplifyGroup multiBlockDeadProg).Wf :=
-  Func.simplifyGroup_wf multiBlockDeadProg_wf
+theorem multiBlockDeadProg_simp_wf : (Func.simplifyGroupPlan multiBlockDeadProg).Wf :=
+  Func.simplifyGroupPlan_wf multiBlockDeadProg_wf
 
 theorem multiBlockDeadProg_checkTFlat :
-    (Func.simplifyGroup multiBlockDeadProg).checkTFlat = true := by
+    (Func.simplifyGroupPlan multiBlockDeadProg).checkTFlat = true := by
   t_kernel_rfl
 
 /-- Nested `.group` cleanup: dead multi-block inner group inside a small single-use outer join
@@ -395,7 +398,7 @@ def nestedGroupProg : Func [i64] [i64] := fun _ _ (x, ()) =>
       .let_ (op2 (.add i64) (.var x) (.imm 1)) fun (y, ()) =>
       .jump J (.var y, ()))
 
-theorem nestedGroupProg_simp_out : Func.simplifyGroup nestedGroupProg = fun _ _ (x, ()) =>
+theorem nestedGroupProg_simp_out : Func.simplifyGroupPlan nestedGroupProg = fun _ _ (x, ()) =>
     .let_ (op2 (.add i64) (.var x) (.imm 1)) fun (y, ()) =>
     .let_ (op2 (.mul i64) (.var y) (.imm 3)) fun (r, ()) =>
     .ret (.var r, ()) := by
@@ -404,10 +407,10 @@ theorem nestedGroupProg_simp_out : Func.simplifyGroup nestedGroupProg = fun _ _ 
 theorem nestedGroupProg_wf : nestedGroupProg.Wf := by t_wf_reify
 
 theorem nestedGroupProg_simp_spec (Γ : Env) (x : BitVec 64) (m : Mem 64) :
-    Func.spec Γ (Func.simplifyGroup nestedGroupProg) (x, ()) m
+    Func.spec Γ (Func.simplifyGroupPlan nestedGroupProg) (x, ()) m
       (fun (r, ()) m' => r = (x + 1#64) * 3#64 ∧ m' = m)
       (fun _ _ _ _ => False) := by
-  apply Func.simplifyGroup_spec nestedGroupProg_wf
+  apply Func.simplifyGroupPlan_spec nestedGroupProg_wf
   dsimp only [Func.spec, Func.wp, nestedGroupProg]
   simp only [wp, Op.wp, OpCode.wp, op2, Closed]
   intro ⟨J, ⟨⟩⟩ hJ
@@ -419,10 +422,8 @@ theorem nestedGroupProg_simp_spec (Γ : Env) (x : BitVec 64) (m : Mem 64) :
 #print axioms LeanQbe.T.Func.ifOpt_wf
 #print axioms LeanQbe.T.ifOpt_wp
 #print axioms LeanQbe.T.Func.ifOpt_spec
-#print axioms LeanQbe.T.simplifyGroup_wf
-#print axioms LeanQbe.T.Func.simplifyGroup_wf
-#print axioms LeanQbe.T.simplifyGroup_wp
-#print axioms LeanQbe.T.Func.simplifyGroup_spec
+#print axioms LeanQbe.T.Func.simplifyGroupPlan_wf
+#print axioms LeanQbe.T.Func.simplifyGroupPlan_spec
 #print axioms mb3Diamond_ifSimp_spec
 #print axioms deadGroupProg_spec
 #print axioms nestedGroupProg_simp_spec

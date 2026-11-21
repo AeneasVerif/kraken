@@ -19,7 +19,7 @@ Pure 100%-PHOAS if-conversion pass (`ifOpt` / `Func.ifOpt`) using local label ta
 * Hoists the pure prefixes of both arms, emits nested `.select`s across `.pair`s / elementwise
   tuple `.select`s onto `.bits`/`bool` (keeping identical operands un-selected via symbolic keys),
   and jumps to `J` with the selected arguments while preserving the `.group` structure for
-  `SimplifyGroup`. Never turns `.select` into `.jnz` (`G2`).
+  `SimplifyGroupPlan`. Never turns `.select` into `.jnz` (`G2`).
 
 Correctness (`LeanQbe/T/IfOptLemmas.lean`): `ifOpt_wp`, `ifOpt_wf`, `Func.ifOpt_wf`,
 `Func.ifOpt_spec`.

@@ -65,9 +65,6 @@ public import LeanQbe.T.Peel
 public import LeanQbe.T.PeelLemmas
 public import LeanQbe.T.IfOpt
 public import LeanQbe.T.IfOptLemmas
-public import LeanQbe.T.SimplifyGroup
-public import LeanQbe.T.SimplifyGroupLemmas1
-public import LeanQbe.T.SimplifyGroupLemmas
 public import LeanQbe.T.SimplifyGroupPlan
 public import LeanQbe.T.SimplifyGroupPlanLemmas
 public import LeanQbe.T.Licm

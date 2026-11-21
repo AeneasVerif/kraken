@@ -6,13 +6,12 @@ public import LeanQbe.T.FoldLemmas
 public import LeanQbe.T.CanonLemmas
 public import LeanQbe.T.CopyLemmas
 public import LeanQbe.T.GvnLemmas
-public import LeanQbe.T.DceLemmas
 public import LeanQbe.T.DceParamLemmas
 public import LeanQbe.T.DivConstLemmas
 public import LeanQbe.T.MemLoadLemmas
 public import LeanQbe.T.PeelLemmas
 public import LeanQbe.T.IfOptLemmas
-public import LeanQbe.T.SimplifyGroupLemmas
+public import LeanQbe.T.SimplifyGroupPlanLemmas
 public import LeanQbe.T.InlineLemmas
 
 /-!
@@ -66,7 +65,7 @@ theorem Func.simplifyGroupFast_spec {as rs : List Ty} {f : Func as rs} (hf : f.W
   unfold Func.simplifyGroupFast
   by_cases hc : hasSimpGroup (tflatLoops (reifyFunc f) ≤ 1) (reifyFunc f) <;>
     simp only [hc, ↓reduceIte, Bool.false_eq_true]
-  · exact Func.renorm_spec (Func.simplifyGroup_wf hwf) (Func.simplifyGroup_spec hwf hsp)
+  · exact Func.renorm_spec (Func.simplifyGroupPlan_wf hwf) (Func.simplifyGroupPlan_spec hwf hsp)
   · exact hsp
 
 /-- `Func.peelFast` preserves well-formedness. -/

@@ -1,7 +1,6 @@
 module
 
 public import LeanQbe.T.SimplifyGroupPlanLemmas
-public import LeanQbe.T.SimplifyGroup
 public import LeanQbe.T.IfOptLemmas
 public import LeanQbe.T.Opt
 public import LeanQbe.T.LeanLCNF.Lower1
@@ -9,7 +8,6 @@ public import LeanQbe.T.LeanLCNF.Demo
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.Examples.Kissat.Full
 meta import LeanQbe.T.SimplifyGroupPlan
-meta import LeanQbe.T.SimplifyGroup
 meta import LeanQbe.T.IfOpt
 meta import LeanQbe.T.Opt
 meta import LeanQbe.T.LeanLCNF.Lower1
@@ -18,24 +16,21 @@ meta import LeanQbe.T.Examples.LratBytes
 meta import LeanQbe.T.Examples.Kissat.Full
 
 /-!
-# Tests, Parity Audit, and Scaling Benchmarks for `LeanQbe.T.SimplifyGroupPlan`
+# Tests and Scaling Benchmarks for `LeanQbe.T.SimplifyGroupPlan`
 
 Covers:
-1. Exact kernel-checked (`t_kernel_rfl`) unit tests matching `CfgOptTest` plus cascading edge cases:
+1. Exact kernel-checked (`t_kernel_rfl`) unit tests plus cascading edge cases:
    - `IfOpt` + `SimplifyGroupPlan` diamond collapse,
-   - Large tail-jump join splice, small single-use splice, dead-group unwrap, multi-use & self-loop
-     preservation, multi-block dead-block filtering & zero-jump unwrap,
    - Multi-block group collapsing to 1 spliced block,
    - Chained nested tail-jump splice,
    - Inner dead group hiding jumps to an outer group (cascading unwrap & non-recursive splice),
    - Adversarial / invalid `SimpPlan` rejection via `Func.simplifyGroupWithPlan`.
 2. Deep synthetic `.group` ladder (`d = 60`) scaling test (`checkTFlat = true`, exact group count).
-3. Exact structural parity (`tflatEq`) vs `Func.simplifyGroup`, `checkTFlat = true`, and
-   sub-second (`< 1s`) benchmark across:
+3. `checkTFlat = true` and sub-second (`< 1s`) benchmark across:
    - All 102 `LeanLCNF.Demo` functions (including 622-deep `RBNode_balance` and 35-deep `run`,
      both unmodified and with deep dead + single-use joins injected at the bottom of the spine),
    - All 6 `LratBytes` functions (raw and post-`earlyCore`),
-   - All 166 `Kissat.Full` functions (raw and post-`earlyCore`).
+   - All 166 `Kissat.Full` functions (raw and post-`earlyCore` + `ifOptBits`).
 4. `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
@@ -50,71 +45,7 @@ open LeanQbe.T.SgpImpl
 open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat.Full
 
-/-! ## 1. Structural `TFlat` equality and metrics helpers -/
-
-/-- Boolean equality on typed `Tup (Arg K) ts`. -/
-def argsBeq : {ts : List Ty} → Tup (Arg K) ts → Tup (Arg K) ts → Bool
-  | [], (), () => true
-  | _ :: _, (a₁, as₁), (a₂, as₂) => fKeyBeq a₁ a₂ && argsBeq as₁ as₂
-
-/-- Boolean equality on `Op K ts₁` and `Op K ts₂` across possibly distinct signatures. -/
-def opBeq {ts₁ ts₂ : List Ty} (o₁ : Op K ts₁) (o₂ : Op K ts₂) : Bool :=
-  match listTyDecEq o₁.sig o₂.sig, listTyDecEq ts₁ ts₂ with
-  | isTrue hs, isTrue hr =>
-    let c₁ : OpCode o₂.sig ts₂ := hs ▸ hr ▸ o₁.code
-    let a₁ : Tup (Arg K) o₂.sig := hs ▸ o₁.args
-    (c₁ == o₂.code) && argsBeq a₁ o₂.args
-  | _, _ => false
-
-/-- Boolean equality on `List (List Ty)`. -/
-def sigDecEq : (s₁ s₂ : List (List Ty)) → Decidable (s₁ = s₂)
-  | [], [] => isTrue rfl
-  | a :: as, b :: bs =>
-    match listTyDecEq a b, sigDecEq as bs with
-    | isTrue h1, isTrue h2 => isTrue (h1 ▸ h2 ▸ rfl)
-    | isFalse h, _ => isFalse (fun e => by cases e; exact h rfl)
-    | _, isFalse h => isFalse (fun e => by cases e; exact h rfl)
-  | [], _ :: _ | _ :: _, [] => isFalse (fun e => by cases e)
-
-mutual
-/-- Exact structural equality on `TFlat rs`. -/
-def tflatEq {rs : List Ty} : TFlat rs → TFlat rs → Bool
-  | .let_ o₁ k₁, .let_ o₂ k₂ => opBeq o₁ o₂ && tflatEq k₁ k₂
-  | .load t₁ a₁ k₁, .load t₂ a₂ k₂ => (t₁ == t₂) && fKeyBeq a₁ a₂ && tflatEq k₁ k₂
-  | .store (t := t₁) v₁ a₁ k₁, .store (t := t₂) v₂ a₂ k₂ =>
-    match tyDecEq t₁ t₂ with
-    | isTrue h => fKeyBeq (h ▸ v₁) v₂ && fKeyBeq a₁ a₂ && tflatEq k₁ k₂
-    | isFalse _ => false
-  | .call f₁ (as := as₁) bs₁ args₁ k₁, .call f₂ (as := as₂) bs₂ args₂ k₂ =>
-    f₁ == f₂ && Ty.listBeq bs₁ bs₂ &&
-      (match listTyDecEq as₁ as₂ with
-       | isTrue h => argsBeq (h ▸ args₁) args₂
-       | isFalse _ => false) &&
-      tflatEq k₁ k₂
-  | .jnz c₁ t₁ e₁, .jnz c₂ t₂ e₂ => fKeyBeq c₁ c₂ && tflatEq t₁ t₂ && tflatEq e₁ e₂
-  | .jump (ts := ts₁) j₁ args₁, .jump (ts := ts₂) j₂ args₂ =>
-    j₁ == j₂ &&
-      match listTyDecEq ts₁ ts₂ with
-      | isTrue h => argsBeq (h ▸ args₁) args₂
-      | isFalse _ => false
-  | .ret vs₁, .ret vs₂ => argsBeq vs₁ vs₂
-  | .exit f₁ (as := as₁) args₁, .exit f₂ (as := as₂) args₂ =>
-    f₁ == f₂ &&
-      match listTyDecEq as₁ as₂ with
-      | isTrue h => argsBeq (h ▸ args₁) args₂
-      | isFalse _ => false
-  | .hlt, .hlt => true
-  | .group (sig := s₁) b₁ k₁, .group (sig := s₂) b₂ k₂ =>
-    match sigDecEq s₁ s₂ with
-    | isTrue h => tblocksEq (h ▸ b₁) b₂ && tflatEq k₁ k₂
-    | isFalse _ => false
-  | _, _ => false
-
-/-- Exact structural equality on `TBlocks rs sig`. -/
-def tblocksEq {rs : List Ty} : {sig : List (List Ty)} → TBlocks rs sig → TBlocks rs sig → Bool
-  | _, .nil, .nil => true
-  | _, .cons b₁ bs₁, .cons b₂ bs₂ => tflatEq b₁ b₂ && tblocksEq bs₁ bs₂
-end
+/-! ## 1. Group depth and count metrics helpers -/
 
 mutual
 /-- Maximum `.group` nesting depth of a `TFlat`. -/
@@ -178,12 +109,6 @@ where
       if ok then (.cons b' bs, true)
       else let (bs', ok2) := injectDeepCliffB bs; (.cons b bs', ok2)
 
-/-- Exact parity check between `Func.simplifyGroupPlan` and `Func.simplifyGroup`. -/
-def parityCheck {as rs : List Ty} (f : Func as rs) : Bool :=
-  let fp := Func.simplifyGroupPlan f
-  let fo := Func.simplifyGroup f
-  fp.checkTFlat && tflatEq (reifyFunc fp) (reifyFunc fo)
-
 /-! ## 2. Kernel-checked unit & edge-case tests (`t_kernel_rfl`, `Wf`, `spec`) -/
 
 def ifSimpPlan {as rs : List Ty} (f : Func as rs) : Func as rs :=
@@ -230,51 +155,6 @@ theorem mb3Diamond_spec (Γ : Env) (x y a : BitVec 64) (m : Mem 64) :
   · exact hJ.1 (a + 10#64, ()) m ⟨by simp [h], rfl⟩
   · exact hJ.1 (a - 10#64, ()) m ⟨by simp [h], rfl⟩
 
-/-- Large (`> 16` nodes) tail-jump join block is spliced unconditionally. -/
-def tailJoinLargeProg : Func [i64] [i64] := fun _ _ (x, ()) =>
-  .group (sig := [[i64]])
-    (fun _ =>
-      .cons (fun (a, ()) =>
-        .let_ (op2 (.add i64) (.var a) (.imm 1)) fun (a1, ()) =>
-        .let_ (op2 (.add i64) (.var a1) (.imm 2)) fun (a2, ()) =>
-        .let_ (op2 (.add i64) (.var a2) (.imm 3)) fun (a3, ()) =>
-        .let_ (op2 (.add i64) (.var a3) (.imm 4)) fun (a4, ()) =>
-        .let_ (op2 (.add i64) (.var a4) (.imm 5)) fun (a5, ()) =>
-        .let_ (op2 (.add i64) (.var a5) (.imm 6)) fun (a6, ()) =>
-        .let_ (op2 (.add i64) (.var a6) (.imm 7)) fun (a7, ()) =>
-        .let_ (op2 (.add i64) (.var a7) (.imm 8)) fun (a8, ()) =>
-        .let_ (op2 (.add i64) (.var a8) (.imm 9)) fun (a9, ()) =>
-        .let_ (op2 (.add i64) (.var a9) (.imm 10)) fun (a10, ()) =>
-        .let_ (op2 (.add i64) (.var a10) (.imm 11)) fun (a11, ()) =>
-        .let_ (op2 (.add i64) (.var a11) (.imm 12)) fun (a12, ()) =>
-        .let_ (op2 (.add i64) (.var a12) (.imm 13)) fun (a13, ()) =>
-        .let_ (op2 (.add i64) (.var a13) (.imm 14)) fun (a14, ()) =>
-        .let_ (op2 (.add i64) (.var a14) (.imm 15)) fun (a15, ()) =>
-        .let_ (op2 (.add i64) (.var a15) (.imm 16)) fun (a16, ()) =>
-        .ret (.var a16, ())) .nil)
-    (fun (J, ()) => .jump J (.var x, ()))
-
-theorem tailJoinLargeProg_parity :
-    Func.simplifyGroupPlan tailJoinLargeProg = Func.simplifyGroup tailJoinLargeProg := by
-  t_kernel_rfl
-
-/-- Multi-block group with dead middle block preserves the two reachable blocks. -/
-def multiBlockDeadProg : Func [i64] [i64] := fun _ _ (x, ()) =>
-  .group (sig := [[i64], [i64], [i64]])
-    (fun (b0, b1, b2, ()) =>
-      .cons (fun (a, ()) => .jump b2 (.var a, ()))
-      (.cons (fun (deadArg, ()) => .jump b1 (.var deadArg, ()))
-      (.cons (fun (c, ()) => .let_ (op2 (.add i64) (.var c) (.imm 5)) fun (r, ()) =>
-        .ret (.var r, ()))
-      .nil)))
-    (fun (b0, _, _, ()) =>
-      .let_ (op2 (.cmp .eq i64) (.var x) (.imm 0)) fun (zc, ()) =>
-      .jnz (.var zc) (.jump b0 (.var x, ())) (.jump b0 (.imm 9, ())))
-
-theorem multiBlockDeadProg_parity :
-    Func.simplifyGroupPlan multiBlockDeadProg = Func.simplifyGroup multiBlockDeadProg := by
-  t_kernel_rfl
-
 /-- Multi-block group where only the middle block (`idx = 1`) is reachable and small 1-use
 collapses completely via `.splice 1`. -/
 def multiBlockSpliceMidProg : Func [i64] [i64] := fun _ _ (x, ()) =>
@@ -296,11 +176,6 @@ theorem multiBlockSpliceMidProg_out : Func.simplifyGroupPlan multiBlockSpliceMid
       .ret (.var r, ()) := by
   t_kernel_rfl
 
-theorem multiBlockSpliceMidProg_parity :
-    Func.simplifyGroupPlan multiBlockSpliceMidProg =
-      Func.simplifyGroup multiBlockSpliceMidProg := by
-  t_kernel_rfl
-
 /-- Chained nested tail-jump splice: inner splice exposes outer tail jump. -/
 def chainedTailSpliceProg : Func [i64] [i64] := fun _ _ (x, ()) =>
   .group (sig := [[i64]])
@@ -315,11 +190,6 @@ def chainedTailSpliceProg : Func [i64] [i64] := fun _ _ (x, ()) =>
 theorem chainedTailSpliceProg_out : Func.simplifyGroupPlan chainedTailSpliceProg =
     fun _ _ (x, ()) =>
       .let_ (op2 (.add i64) (.var x) (.imm 100)) fun (r, ()) => .ret (.var r, ()) := by
-  t_kernel_rfl
-
-theorem chainedTailSpliceProg_parity :
-    Func.simplifyGroupPlan chainedTailSpliceProg =
-      Func.simplifyGroup chainedTailSpliceProg := by
   t_kernel_rfl
 
 /-- Inner dead group inside `b_outer` jumps to `L_outer`: after inner unwrap, `L_outer` becomes
@@ -340,11 +210,6 @@ theorem deadInnerHidesLoopProg_out : Func.simplifyGroupPlan deadInnerHidesLoopPr
       .let_ (op2 (.mul i64) (.var x) (.imm 2)) fun (y, ()) =>
       .let_ (op2 (.add i64) (.var y) (.imm 4)) fun (r, ()) =>
       .ret (.var r, ()) := by
-  t_kernel_rfl
-
-theorem deadInnerHidesLoopProg_parity :
-    Func.simplifyGroupPlan deadInnerHidesLoopProg =
-      Func.simplifyGroup deadInnerHidesLoopProg := by
   t_kernel_rfl
 
 /-- Self-recursive single-block loop is preserved untouched. -/
@@ -408,25 +273,22 @@ def deepLadderFn (n : Nat) : Func [i64] [i64] :=
 #guard tflatGroupCount (reifyFunc (deepLadderFn 60)) == 240
 #guard tflatGroupCount (reifyFunc (Func.simplifyGroupPlan (deepLadderFn 60))) == 60
 
-/-! ## 4. Real-corpus parity & soundness `#guard`s (`LratBytes`, `LeanLCNF.Demo`, `Kissat.Full`) -/
+/-! ## 4. Real-corpus soundness `#guard`s (`LratBytes`, `LeanLCNF.Demo`, `Kissat.Full`) -/
 
 def demoTfs : List LeanQbe.T.Frontend.C0.TFlatFn :=
   (LeanLCNF.lowerModule LeanLCNF.Demo.lcnfProgram).toOption.getD []
 
 def demoFns : List Fn := LeanLRC.tflatFnsToFns demoTfs
 
--- LratBytes: all 6 functions (raw + post-`earlyCore`), exact parity vs `Func.simplifyGroup`
+-- LratBytes: all 6 functions (raw + post-`earlyCore`)
 #guard lratBytesFns.length == 6
-#guard lratBytesFns.all fun fn => parityCheck fn.body
-#guard lratBytesFns.all fun fn => parityCheck (Func.earlyCore fn.body)
+#guard lratBytesFns.all fun fn => (Func.simplifyGroupPlan fn.body).checkTFlat
+#guard lratBytesFns.all fun fn => (Func.simplifyGroupPlan (Func.earlyCore fn.body)).checkTFlat
 
 -- LeanLCNF.Demo: all 102 functions (raw + post-`earlyCore`)
 #guard demoFns.length == 102
 #guard demoFns.all fun fn => (Func.simplifyGroupPlan fn.body).checkTFlat
 #guard demoFns.all fun fn => (Func.simplifyGroupPlan (Func.earlyCore fn.body)).checkTFlat
--- Exact parity vs old `Func.simplifyGroup` on all shallow (`depth ≤ 8`) `LeanLCNF.Demo` fns
-#guard demoFns.all fun fn =>
-  if tflatGroupDepth (reifyFunc fn.body) ≤ 8 then parityCheck fn.body else true
 
 -- Cliff stress test on 622-deep `RBNode_balance` and 35-deep `run`!
 def cliffCheckFn (suffix : String) : Bool :=
@@ -444,11 +306,9 @@ def cliffCheckFn (suffix : String) : Bool :=
 #guard cliffCheckFn "RBNode_balance"
 #guard cliffCheckFn "_run"
 
--- Kissat.Full: all 166 functions (`checkTFlat` + parity vs `Func.simplifyGroup` on depth ≤ 8)
+-- Kissat.Full: all 166 functions (`checkTFlat`)
 #guard fullFns.length == 166
 #guard fullFns.all fun fn => (Func.simplifyGroupPlan fn.body).checkTFlat
-#guard fullFns.all fun fn =>
-  if tflatGroupDepth (reifyFunc fn.body) ≤ 8 then parityCheck fn.body else true
 
 /-! ## 5. Axiom audits -/
 
@@ -458,7 +318,7 @@ def cliffCheckFn (suffix : String) : Bool :=
 #print axioms LeanQbe.T.Func.simplifyGroupPlan_spec
 #print axioms mb3Diamond_spec
 
-/-! ## 6. Wall-clock benchmark & full-corpus parity runner (`main`) -/
+/-! ## 6. Wall-clock benchmark (`main`) -/
 
 /-- Pre-reified function entry (`Type 0`) for isolating `Func.simplifyGroupPlan` timing. -/
 structure ReifiedEntry : Type where
@@ -509,16 +369,7 @@ def runBench : IO Unit := do
         throw (IO.userError s!"cliff check failed on {fn.name}: g0={g0} gp={gp}")
       IO.println s!"  cliff {fn.name}: depth={d0} groups {g0}+2 -> {gp} in {ts1 - ts0} ms"
 
-  -- Parity vs old Func.simplifyGroup on non-cliff LeanLCNF fns (depth ≤ 8, groups ≤ 25)
-  let mut lcnfParityChecked := 0
-  let mut lcnfParityFail := 0
-  for r in lcnfReified do
-    if tflatGroupDepth r.tf ≤ 8 && tflatGroupCount r.tf ≤ 25 then
-      lcnfParityChecked := lcnfParityChecked + 1
-      let f0 : Func r.as r.rs := denoteFunc r.tf
-      if !parityCheck f0 then lcnfParityFail := lcnfParityFail + 1
-
-  -- 2. LratBytes (all 6 fns: raw + post-earlyCore, full parity)
+  -- 2. LratBytes (all 6 fns)
   let lratReified := lratBytesFns.map reifyEntry
   let tLrat0 ← IO.monoMsNow
   let mut lratOut : Array ReifiedEntry := #[]
@@ -529,10 +380,6 @@ def runBench : IO Unit := do
   let mut lratOk := 0
   for r in lratOut do
     if r.tf.wfCheck (pushTypes r.as []) [] then lratOk := lratOk + 1
-  let mut lratParityFail := 0
-  for fn in lratBytesFns do
-    if !parityCheck fn.body || !parityCheck (Func.earlyCore fn.body) then
-      lratParityFail := lratParityFail + 1
 
   -- 3. Kissat.Full (all 166 fns: raw + post-earlyCore/ifOptBits)
   let kissatRaw := fullFns.map reifyEntry
@@ -568,41 +415,19 @@ def runBench : IO Unit := do
     kisOptAfter := kisOptAfter + tflatGroupCount r1.tf
     if r1.tf.wfCheck (pushTypes r1.as []) [] then kisOptOk := kisOptOk + 1
 
-  -- Parity vs old Func.simplifyGroup on non-cliff Kissat.Full (raw + post-earlyCore+ifOptBits)
-  let mut kisParityChecked := 0
-  let mut kisParityFail := 0
-  for r in kissatRaw do
-    if tflatGroupDepth r.tf ≤ 8 && tflatGroupCount r.tf ≤ 25 then
-      kisParityChecked := kisParityChecked + 1
-      let f0 : Func r.as r.rs := denoteFunc r.tf
-      if !parityCheck f0 then kisParityFail := kisParityFail + 1
-  let mut kisOptParityChecked := 0
-  let mut kisOptParityFail := 0
-  for r in kissatIfOpt do
-    if tflatGroupDepth r.tf ≤ 8 && tflatGroupCount r.tf ≤ 25 then
-      kisOptParityChecked := kisOptParityChecked + 1
-      let fOpt : Func r.as r.rs := denoteFunc r.tf
-      if !parityCheck fOpt then kisOptParityFail := kisOptParityFail + 1
-
   let lcnfMs := t1 - t0
   let lratMs := tLrat1 - tLrat0
   let kisMs := tKis1 - tKis0
   let kisOptMs := tKisOpt1 - tKisOpt0
   let totalMs := lcnfMs + cliffMs + lratMs + kisMs
-  let lcnfPar := s!"{lcnfParityChecked - lcnfParityFail}/{lcnfParityChecked}"
-  let kisParRaw := s!"{kisParityChecked - kisParityFail}/{kisParityChecked}"
-  let kisParOpt := s!"{kisOptParityChecked - kisOptParityFail}/{kisOptParityChecked}"
   IO.println (s!"LeanLCNF.Demo (102 fns): {lcnfMs} ms, ok={lcnfOk}/102, " ++
-    s!"groups={lcnfGroupsBefore}->{lcnfGroupsAfter}, parity={lcnfPar}")
-  IO.println (s!"LratBytes (6 fns):       {lratMs} ms, ok={lratOk}/6, " ++
-    s!"parityFail={lratParityFail}")
+    s!"groups={lcnfGroupsBefore}->{lcnfGroupsAfter}")
+  IO.println s!"LratBytes (6 fns):       {lratMs} ms, ok={lratOk}/6"
   IO.println (s!"Kissat.Full raw (166):   {kisMs} ms, ok={kisOk}/166, " ++
-    s!"groups={kisGroupsBefore}->{kisGroupsAfter}, parityRaw={kisParRaw}")
+    s!"groups={kisGroupsBefore}->{kisGroupsAfter}")
   IO.println (s!"Kissat.Full opt (166):   {kisOptMs} ms, ok={kisOptOk}/166, " ++
-    s!"groups={kisOptBefore}->{kisOptAfter}, parityOpt={kisParOpt}")
+    s!"groups={kisOptBefore}->{kisOptAfter}")
   IO.println s!"TOTAL simplifyGroupPlan (274 fns + cliff): {totalMs} ms"
-  if lcnfParityFail > 0 || lratParityFail > 0 || kisParityFail > 0 || kisOptParityFail > 0 then
-    throw (IO.userError "PARITY FAILURE DETECTED")
   if lcnfMs ≥ 1000 || cliffMs ≥ 1000 || lratMs ≥ 1000 || kisMs ≥ 1000 || kisOptMs ≥ 1000 then
     throw (IO.userError s!"PER-CORPUS SPEED REGRESSION: {lcnfMs}/{cliffMs}/{lratMs}/{kisMs} ms")
 

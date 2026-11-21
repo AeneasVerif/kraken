@@ -5,7 +5,7 @@ public import LeanQbe.T.OptUtil
 /-!
 # Linear Plan-Guided PHOAS Join-Group Simplification (`Func.simplifyGroupPlan`)
 
-Replaces `SimplifyGroup`'s bottom-up `O(3^d)` PHOAS re-traversal with a two-phase `O(N)` pass:
+Two-phase `O(N)` PHOAS `.group` simplification pass (avoiding `O(3^d)` bottom-up re-traversal):
 
 1. **Phase 1 (untrusted `TFlat` bottom-up oracle, `SgpImpl.buildPlan`)**: reifies `f` once via
    `reifyFunc`, computes exact post-simplification jump counts (`JumpMap`, small-to-large `Trie Nat`

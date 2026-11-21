@@ -574,7 +574,7 @@ LeanQbe.T.MemLoadLemmas LeanQbe.T.Func.memLoad_spec
 LeanQbe.T.DceLemmas LeanQbe.T.Func.deadLoadElim_spec
 LeanQbe.T.MemLoadLemmas LeanQbe.T.Func.assumeElim_spec
 LeanQbe.T.IfOptLemmas LeanQbe.T.Func.ifOpt_spec
-LeanQbe.T.SimplifyGroupLemmas LeanQbe.T.Func.simplifyGroup_spec
+LeanQbe.T.SimplifyGroupPlanLemmas LeanQbe.T.Func.simplifyGroupPlan_spec
 LeanQbe.T.PeelLemmas LeanQbe.T.Func.peel_spec
 LeanQbe.T.OptLemmas LeanQbe.T.Func.earlyOpt_spec
 LeanQbe.T.OptLemmas LeanQbe.T.Func.lateOpt_spec

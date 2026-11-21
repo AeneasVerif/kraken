@@ -8,8 +8,8 @@ public import LeanQbe.T.WPLemmas
 # Shared Mid-End Optimization Transport & Liveness Lemmas (`#015-B1`, `#016-B1`)
 
 Centralizes proof helpers shared across `FoldLemmas`, `GvnLemmas`, `CanonLemmas`, `MemLoadLemmas`,
-`IfOptLemmas`, `InlineLemmas`, `DivConstLemmas`, `PeelLemmas`, `SimplifyGroupLemmas1`,
-`SimplifyGroupLemmas`, and `DceLemmas`:
+`IfOptLemmas`, `InlineLemmas`, `DivConstLemmas`, `PeelLemmas`, `SimplifyGroupPlanLemmas`,
+and `DceLemmas`:
 
 * Symbolic `FKey` equality, evaluation environment `FEnv`, and update helpers (`valBeq_iff_eq`,
   `fKeyBeq_iff_eq`, `FKey.fev`, `FKey.FLt`, `fupd`, `fupdTup`, `fupd_eq`, `fupd_ne`,
