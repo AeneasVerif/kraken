@@ -841,3 +841,5 @@ LeanQbeTest.T.KissatAuditX64 audit_sched_x64_sound
 LeanQbeTest.T.KissatAuditArm64 audit_sched_arm_sound
 LeanQbeTest.T.KissatAuditSpec audit_bva_modok
 LeanQbeTest.T.KissatAuditSpec audit_bva_nv_factor
+LeanQbeTest.T.KissatAuditSpec audit_fk_modok
+LeanQbeTest.T.KissatAuditSpec audit_fk_nv20

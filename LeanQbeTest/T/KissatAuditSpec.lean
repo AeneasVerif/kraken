@@ -24,6 +24,7 @@ public import LeanQbe.T.Examples.Kissat.FullFastSchedLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastBveBudgetsLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastCoreLemmas
 public import LeanQbe.T.Examples.Kissat.FullBvaHeapLemmas
+public import LeanQbe.T.Examples.Kissat.FullKittenLemmas
 meta import LeanQbe.T.Examples.Kissat.PlainLemmas
 meta import LeanQbe.T.Examples.Kissat.FullSpec
 meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7
@@ -750,7 +751,35 @@ theorem audit_bva_nv_factor :
 
 end M2bBvaHeapAudit
 
-/-! ## 9. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
+/-! ## 9. M2b Embedded `kitten` (`FullKitten`: `15` fns) -/
+
+section M2bFullKittenAudit
+
+open LeanQbe.T LeanQbe.T.Examples.Kissat.Full
+
+/-- **`FullKitten` closed `ModuleOk` (`15/15` fns + `full_kitten_solve` dispatch)**
+(`FullKittenLemmas.fullKittenEnv_moduleOk`). -/
+theorem audit_fk_modok : ModuleOk fullKittenEnv fullKittenModule :=
+  fullKittenEnv_moduleOk
+
+/-- **`FullKitten` `full_kitten_solve` concrete `Mem 64` `r = 20#64` UNSAT non-vacuity
+(`XPost := False`)** (`FullKittenLemmas.nv_full_kitten_solve_unsat20`). -/
+theorem audit_fk_nv20 :
+    Func.wp fullKittenEnv full_kitten_solve_body
+      (nvKittenCfg.hdr, 8192#64, ()) nvKittenMem
+      (fun (r, ()) m' => ∃ scr',
+        r = 20#64 ∧
+        (kittenStateOfScratch scr').incons ≠ 0xFFFFFFFF#32 ∧
+        (cnfOfClauses (kittenOrigClausesS scr') ++ unitsCnf (kittenAssumpLitsS scr')).Unsat ∧
+        FullMem nvKittenCfg
+          { nvKittenState with
+            scratch := { nvKittenState.scratch with scratch_buf := scr' } } m')
+      (fun _ _ _ _ => False) :=
+  nv_full_kitten_solve_unsat20
+
+end M2bFullKittenAudit
+
+/-! ## 10. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms audit_unsat_def
 #print axioms audit_sat_def
@@ -808,3 +837,5 @@ end M2bBvaHeapAudit
 #print axioms audit_fcore_nv
 #print axioms audit_bva_modok
 #print axioms audit_bva_nv_factor
+#print axioms audit_fk_modok
+#print axioms audit_fk_nv20
