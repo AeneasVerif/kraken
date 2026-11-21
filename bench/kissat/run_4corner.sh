@@ -21,7 +21,7 @@ export PYTHONDONTWRITEBYTECODE=1
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-MODULES=(Full FullFast)
+MODULES=(Full FullFast FullM3)
 WORK_BYTES="${WORK_BYTES:-67108864}"
 FUEL="${FUEL:-200000000}"
 PER_TIMEOUT="${PER_TIMEOUT:-5}"
@@ -34,16 +34,16 @@ FILTER=""
 usage() {
   cat <<'EOF'
 usage: bench/kissat/run_4corner.sh [options]
-  --module <Full|FullFast|Both>  Module(s) to benchmark (default: Both)
-  --kissat <bin>                 Optional upstream Kissat 4.0.4 binary (C1)
-  --work-bytes <N>               Workspace bytes (default: 67108864)
-  --fuel <N>                     Fuel budget (default: 200000000)
-  --per-timeout <sec>            Per-CNF timeout seconds (default: 5)
-  --perf                         Run perf stat hardware counter comparison (C3b vs C4)
-  --update-baseline              Update bench/kissat/canary_baseline.json
-  --strict-gaps                  Fail on known pre-M3 gaps too
-  --filter <substr>              Filter canaries by filename substring
-  -h, --help                     Show help
+  --module <Full|FullFast|FullM3|Both|All>  Module(s) to benchmark (default: All)
+  --kissat <bin>                            Optional upstream Kissat 4.0.4 binary (C1)
+  --work-bytes <N>                          Workspace bytes (default: 67108864)
+  --fuel <N>                                Fuel budget (default: 200000000)
+  --per-timeout <sec>                       Per-CNF timeout seconds (default: 5)
+  --perf                                    Run perf stat hardware counter comparison (C3b vs C4)
+  --update-baseline                         Update bench/kissat/canary_baseline.json
+  --strict-gaps                             Fail on known pre-M3 gaps too
+  --filter <substr>                         Filter canaries by filename substring
+  -h, --help                                Show help
 EOF
 }
 
@@ -53,7 +53,9 @@ while [ $# -gt 0 ]; do
       case "${2,,}" in
         full) MODULES=(Full) ;;
         fullfast) MODULES=(FullFast) ;;
+        fullm3|m3) MODULES=(FullM3) ;;
         both) MODULES=(Full FullFast) ;;
+        all) MODULES=(Full FullFast FullM3) ;;
         *) echo "ERROR: unknown module '$2'" >&2; exit 2 ;;
       esac
       shift 2
@@ -111,6 +113,7 @@ mod_expr() {
   case "$1" in
     Full) echo "LeanQbe.T.Examples.Kissat.Full.fullModule" ;;
     FullFast) echo "LeanQbe.T.Examples.Kissat.FullFast.fastModule" ;;
+    FullM3) echo "LeanQbe.T.Examples.Kissat.FullM3.m3Module" ;;
   esac
 }
 
@@ -183,11 +186,11 @@ CPP
   timeout 300 "$CXX" -std=c++20 -O3 -Wall -Wextra -Werror -DTQBE_NATIVE_MEM \
     -I"$RT_INC" -I"$OUT" "$OUT/c3b_${m}_bridge.cpp" "$OUT/bench_main.o" -o "$OUT/c3b_${m}"
 
-  if [ "$m" = "Full" ]; then
-    CHECK_ARGS+=(--full-c4 "$OUT/c4_Full" --full-c3b "$OUT/c3b_Full")
-  else
-    CHECK_ARGS+=(--fast-c4 "$OUT/c4_FullFast" --fast-c3b "$OUT/c3b_FullFast")
-  fi
+  case "$m" in
+    Full) CHECK_ARGS+=(--full-c4 "$OUT/c4_Full" --full-c3b "$OUT/c3b_Full") ;;
+    FullFast) CHECK_ARGS+=(--fast-c4 "$OUT/c4_FullFast" --fast-c3b "$OUT/c3b_FullFast") ;;
+    FullM3) CHECK_ARGS+=(--m3-c4 "$OUT/c4_FullM3" --m3-c3b "$OUT/c3b_FullM3") ;;
+  esac
 done
 
 echo "== 5. Run 10-family canary check & C4 == C3b parity verification =="

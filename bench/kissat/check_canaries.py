@@ -167,6 +167,8 @@ def main():
     ap.add_argument("--full-c3b", help="Path to C3b PrintCpp-native-mem Full bench_main binary")
     ap.add_argument("--fast-c4", help="Path to C4 native x64 FullFast bench_main binary")
     ap.add_argument("--fast-c3b", help="Path to C3b PrintCpp-native-mem FullFast bench_main binary")
+    ap.add_argument("--m3-c4", help="Path to C4 native x64 FullM3 bench_main binary")
+    ap.add_argument("--m3-c3b", help="Path to C3b PrintCpp-native-mem FullM3 bench_main binary")
     ap.add_argument("--kissat", help="Optional path to upstream Kissat 4.0.4 binary")
     ap.add_argument("--work-bytes", type=int, default=67108864, help="Workspace bytes (default 64 MiB)")
     ap.add_argument("--fuel", type=int, default=200000000, help="Solver fuel budget")
@@ -178,8 +180,11 @@ def main():
     ap.add_argument("--filter", default="", help="Substring filter on canary filename")
     args = ap.parse_args()
 
-    if not any([args.full_c4, args.full_c3b, args.fast_c4, args.fast_c3b]):
-        ap.error("specify at least one solver binary (--full-c4/--full-c3b/--fast-c4/--fast-c3b)")
+    if not any([args.full_c4, args.full_c3b, args.fast_c4, args.fast_c3b, args.m3_c4, args.m3_c3b]):
+        ap.error(
+            "specify at least one solver binary "
+            "(--full-c4/--full-c3b/--fast-c4/--fast-c3b/--m3-c4/--m3-c3b)"
+        )
 
     tmp_ctx = None
     cnf_dir = args.cnf_dir
@@ -208,6 +213,11 @@ def main():
         configs.append(("FullFast_C4", args.fast_c4, True, args.kissat if not args.full_c4 else None))
     if args.fast_c3b:
         configs.append(("FullFast_C3b", args.fast_c3b, True, None))
+    if args.m3_c4:
+        k_m3 = args.kissat if not (args.full_c4 or args.fast_c4) else None
+        configs.append(("FullM3_C4", args.m3_c4, True, k_m3))
+    if args.m3_c3b:
+        configs.append(("FullM3_C3b", args.m3_c3b, True, None))
 
     results = {}
     hard_fails = []
@@ -246,7 +256,7 @@ def main():
                 all_gaps.append(f"{fname} [{name}]: {msg}")
 
         # Bit-identical work parity check: C4 == C3b
-        for base_mod in ("Full", "FullFast"):
+        for base_mod in ("Full", "FullFast", "FullM3"):
             c4_k, c3b_k = f"{base_mod}_C4", f"{base_mod}_C3b"
             if c4_k in row["runs"] and c3b_k in row["runs"]:
                 diffs = check_parity(base_mod, row["runs"][c4_k], row["runs"][c3b_k])
@@ -262,7 +272,7 @@ def main():
         tot_ms = sum(r["runs"][name]["ms"] for r in results.values())
         print(f"  {name:<14}: {solved:2d}/{tot} UNSAT solved  (total {tot_ms:.1f} ms)")
 
-    for base_mod in ("Full", "FullFast"):
+    for base_mod in ("Full", "FullFast", "FullM3"):
         c4_k, c3b_k = f"{base_mod}_C4", f"{base_mod}_C3b"
         if any(c4_k in r["runs"] and c3b_k in r["runs"] for r in results.values()):
             matched = 0

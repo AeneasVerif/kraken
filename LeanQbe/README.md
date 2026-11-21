@@ -16,7 +16,7 @@ imports both `Kraken.X64` and `Kraken.AArch64`.
 
 | # | Workstream | What is audited | Audit files |
 |---|---|---|---|
-| 1 | **Verified Kissat SAT solver** (`D-Full`, `D-Full M2 Fast`, `D-Plain`) | DIMACS spec; `D-Plain` SAT + UNSAT and `D-Full` / `D-Full M2 Fast` UNSAT soundness of the x86-64 / AArch64 machine code ([details](#verified-kissat)) | [Spec](LeanQbeTest/T/KissatAuditSpec.lean), [X64](LeanQbeTest/T/KissatAuditX64.lean), [Arm64](LeanQbeTest/T/KissatAuditArm64.lean) |
+| 1 | **Verified Kissat SAT solver** (`D-Full`, `D-Full M2 Fast`, `D-Full M3`, `D-Plain`) | DIMACS spec; `D-Plain` SAT+UNSAT and `D-Full` / `M2` / `M3` UNSAT soundness (`M2`/`M1`/`D-Full` x64+Arm64, `M3` source `ModuleOk`) ([details](#verified-kissat)) | [Spec](LeanQbeTest/T/KissatAuditSpec.lean), [X64](LeanQbeTest/T/KissatAuditX64.lean), [Arm64](LeanQbeTest/T/KissatAuditArm64.lean) |
 | 2 | **Verified compiler, linker, `LinkRec` and `LinkScc`/`LinkLfp`** | IR passes, legalization, instruction selection (`@[scoped isel_step]` & `emitClean` via `IselStepAttr`/`IselStepRules`), `FlagRaOpt`, `LinkedCert`, cyclic & SCC-DAG modules | [Spec](LeanQbeTest/T/CompilerAuditSpec.lean), [X64](LeanQbeTest/T/CompilerAuditX64.lean), [Arm64](LeanQbeTest/T/CompilerAuditArm64.lean) |
 | 3 | **Impure Lean 4 `LCNF` and `LeanLRC` lowering** | lowering of Lean's compiler IR (`LeanQbe/T/LeanLCNF`, `LeanQbe/T/LeanLRC`) into `LeanQbe.T` | [Audit](LeanQbeTest/T/LcnfAudit.lean) |
 | 4 | **Verified native LRAT proof checker** (`LratBytes`) | `lrat_check_bytes` returns `1` only for valid DIMACS of an unsatisfiable CNF | [Spec](LeanQbeTest/T/LratAuditSpec.lean), [X64](LeanQbeTest/T/LratAuditX64.lean), [Arm64](LeanQbeTest/T/LratAuditArm64.lean) |
@@ -43,8 +43,9 @@ correctness theorems:
 | `D-Plain` | `LeanQbe.T.Examples.Kissat.Plain` | 59 | CDCL (`kissat --plain`): watched literals, 1UIP learning, minimization and shrinking, VSIDS heap / VMTF queue, restarts, rephasing, mode switching, lucky phases, clause reduction | **SAT and UNSAT**, x86-64 and AArch64, unconditional |
 | `D-Full` | `LeanQbe.T.Examples.Kissat.Full` | 166 | CDCL + inprocessing: probing, vivification, forward/OTFS subsumption, BVE and BVA, congruence closure, equivalent-literal substitution, transitive reduction, SAT sweeping, local-search walking, … | **UNSAT soundness + UNSAT non-vacuity**, x86-64 and AArch64, unconditional |
 | `D-Full M2 Fast` | `LeanQbe.T.Examples.Kissat.FullFast` | 196 | `D-Full` + fast-core BCP, 3-hop BVA max-degree heap, embedded `kitten`, definition extraction & sweeping, budgeted BVE/Tarjan, fast scheduler | **UNSAT soundness + UNSAT non-vacuity**, x86-64 and AArch64, unconditional |
+| `D-Full M3` | `LeanQbe.T.Examples.Kissat.FullM3` | 204 | `D-Full M2 Fast` + M3a chrono/rephase & 4-tier vivify, M3b worklist congruence & neighbor BVE, M3c backbone & `probe_run` cursor | **Source `204/204` `ModuleOk` + UNSAT soundness/non-vacuity**, x64/Arm64 differential parity |
 
-All three solvers export one C entry point:
+All four solvers export one C entry point:
 
 ```c
 uint64_t kissat_solve_bytes(const uint8_t *cnf_ptr, uint64_t cnf_len,
@@ -130,6 +131,10 @@ which the machine code returns 20.
   unifies all 6 M2 fast-path slices (`FullFastCore`, `FullBvaHeap`, `FullKitten`, `FullDefSweep`,
   `FullFastBveBudgets`, `FullFastSched`), lifted unconditionally to x86-64 ([`Amd64/KissatFast.lean`](LeanQbe/T/Amd64/KissatFast.lean))
   and AArch64 ([`Arm64/KissatFast.lean`](LeanQbe/T/Arm64/KissatFast.lean)) (`KissatAudit{Spec,X64,Arm64}.lean`).
+- **`D-Full M3` (204 functions, unconditional):**
+  [`FullM3Proof.m3Env_moduleOk`](LeanQbe/T/Examples/Kissat/FullM3Proof.lean) combines M3a
+  (`FullM3VivChrono`), M3b (`FullM3CongBva`), and M3c (`FullM3Backbone`) with merged
+  `full_probe_tail` / `full_probe` (`m3_solve_bytes_correct`, `m3_unsat_nonvacuous`).
 
 #### Axioms
 
