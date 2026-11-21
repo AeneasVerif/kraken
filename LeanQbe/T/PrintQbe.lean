@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.IL
 public import LeanQbe.T.Module
+public import LeanQbe.T.PrintUtil
 
 /-!
 # Untrusted Stock-QBE `.ssa` Printer for `LeanQbe.T`
@@ -120,25 +121,13 @@ def argStr : {t : Ty} → Arg SV t → String
   | .float _, .imm v => toString v.toNat
   | .pair _ _, .imm _ => "0"
 
-def cmpOpName : CmpOp → String
-  | .eq  => "eq"
-  | .ne  => "ne"
-  | .ult => "ult"
-  | .ule => "ule"
-  | .ugt => "ugt"
-  | .uge => "uge"
-  | .slt => "slt"
-  | .sle => "sle"
-  | .sgt => "sgt"
-  | .sge => "sge"
-
 /-- Signed comparisons on 1-bit `.bool` (`true = -1, false = 0`) inverted relative to `0`/`1`. -/
 def boolCmpOpName : CmpOp → String
   | .slt => "ugt"
   | .sle => "uge"
   | .sgt => "ult"
   | .sge => "ule"
-  | o    => cmpOpName o
+  | o    => PrintUtil.cmpOpName o
 
 /-- Emit `{dst} =l ...` containing `src` zero-extended from `n` bits (`0 ≤ n ≤ 64`). -/
 def emitMask (dst src : String) (n : Nat) : M Unit := do
@@ -449,9 +438,9 @@ def emitOp : {sig rs : List Ty} → OpCode sig rs → Tup (Arg SV) sig → M (Tu
         | _ => "0"
       ins s!"{v} =l copy {r}"
     | some 64 =>
-      ins s!"{v} =l c{cmpOpName o}l {argStr a}, {argStr b}"
+      ins s!"{v} =l c{PrintUtil.cmpOpName o}l {argStr a}, {argStr b}"
     | some 32 =>
-      ins s!"{v} =l c{cmpOpName o}w {argStr a}, {argStr b}"
+      ins s!"{v} =l c{PrintUtil.cmpOpName o}w {argStr a}, {argStr b}"
     | some n =>
       match o with
       | .slt | .sle | .sgt | .sge =>
@@ -459,9 +448,9 @@ def emitOp : {sig rs : List Ty} → OpCode sig rs → Tup (Arg SV) sig → M (Tu
         let bx ← freshTmp "cy"
         emitSext64 ax (argStr a) n
         emitSext64 bx (argStr b) n
-        ins s!"{v} =l c{cmpOpName o}l {ax}, {bx}"
+        ins s!"{v} =l c{PrintUtil.cmpOpName o}l {ax}, {bx}"
       | _ =>
-        ins s!"{v} =l c{cmpOpName o}l {argStr a}, {argStr b}"
+        ins s!"{v} =l c{PrintUtil.cmpOpName o}l {argStr a}, {argStr b}"
     pure (v, ())
   | _, _, .select t, (c, a, b, ()) => do
     liftE (checkScalarTy t)
@@ -789,24 +778,11 @@ def emitJumpArgs : {ts : List Ty} → Tup SV ts → Tup (Arg SV) ts → M Unit
     ins s!"{p} =l copy {argStr a}"
     emitJumpArgs ps as
 
-def allocBlockParams (lid : Nat) : (idx : Nat) → (ts : List Ty) → M (Tup SV ts)
-  | _, [] => pure ()
-  | idx, t :: ts => do
-    liftE (checkScalarTy t)
-    let rest ← allocBlockParams lid (idx + 1) ts
-    pure (blockParamName lid idx, rest)
-
-def freshLabel (ts : List Ty) : M (SL ts) := do
-  let lid ← modifyGet fun st => (st.nl, { st with nl := st.nl + 1 })
-  let ps ← allocBlockParams lid 0 ts
-  pure (lid, ps)
-
-def allocLabels : (sig : List (List Ty)) → M (Tup SL sig)
-  | [] => pure ()
-  | ts :: sig => do
-    let l ← freshLabel ts
-    let ls ← allocLabels sig
-    pure (l, ls)
+def allocLabels : (sig : List (List Ty)) → M (Tup SL sig) :=
+  PrintUtil.allocLabelsWith
+    (modifyGet fun st => (st.nl, { st with nl := st.nl + 1 }))
+    (fun lid idx t => do liftE (checkScalarTy t); pure (blockParamName lid idx))
+    (fun lid ps => (lid, ps))
 
 def bindBlockParams : {ts : List Ty} → Tup SV ts → M (Tup SV ts)
   | [], () => pure ()
@@ -897,22 +873,6 @@ def buildEntryParams : (idx : Nat) → (ts : List Ty) → M (Tup SV ts × List S
     let (restVars, restDecls) ← buildEntryParams (idx + 1) ts
     pure ((pname, restVars), s!"l {rawName}" :: restDecls)
 
-def reachableBlockIds (blocks : Array Block) (seeds : Array Nat) : Array Nat := Id.run do
-  let mut visited : Array Nat := #[]
-  let mut queue : List Nat := seeds.toList
-  while !queue.isEmpty do
-    match queue with
-    | [] => pure ()
-    | id :: rest =>
-      queue := rest
-      if !visited.contains id then
-        visited := visited.push id
-        if let some blk := blocks.find? (fun b => b.id == id) then
-          for dst in blk.outJumps do
-            if !visited.contains dst then
-              queue := dst :: queue
-  pure visited
-
 /-- Print one `LeanQbe.T.Fn` to exported stock QBE IL text (`.ssa`). -/
 def fn (f : Fn) : Except String String := do
   if f.rs.length > 1 then
@@ -926,9 +886,7 @@ def fn (f : Fn) : Except String String := do
     goExpr (f.body SV SL entryVars)
     pure paramDecls
   let (paramDecls, st) ← action.run { curLines := #["@start"] }
-  let liveIds := reachableBlockIds st.blocks st.curJumps
-  let liveBlocks := (st.blocks.toList.filter fun b => liveIds.contains b.id).mergeSort
-    (fun a b => a.id ≤ b.id)
+  let liveBlocks := PrintUtil.liveSortedBlocks Block.id Block.outJumps st.blocks st.curJumps
   let allLines := st.curLines.toList ++ (liveBlocks.flatMap fun b => b.lines.toList)
   let retStr := if f.rs.isEmpty then "" else "l "
   let paramStr := ", ".intercalate paramDecls

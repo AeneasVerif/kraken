@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.IL
 public import LeanQbe.T.Module
+public import LeanQbe.T.PrintUtil
 
 set_option autoImplicit false
 
@@ -219,45 +220,16 @@ def freshTup : (ts : List Ty) → EmitM (Tup SV ts)
     let vs ← freshTup ts
     pure (v, vs)
 
-/-- Allocate hoisted block-parameter variables `b<lid>_p<idx>` for a basic block label. -/
-def allocBlockParams : (lid : Nat) → (idx : Nat) → (ts : List Ty) → EmitM (Tup SV ts)
-  | _, _, [] => pure PUnit.unit
-  | lid, idx, t :: ts => do
-    let name := s!"b{lid}_p{idx}"
-    let st ← get
-    let decl := s!"  [[maybe_unused]] {ppTy t} {name}" ++ "{};"
-    set { st with decls := st.decls.push decl }
-    let rest ← allocBlockParams lid (idx + 1) ts
-    pure (name, rest)
-
-/-- Allocate a fresh monotonic label ID `L_<lid>` and its block parameters. -/
-def freshLabel (ts : List Ty) : EmitM (SL ts) := do
-  let st ← get
-  let lid := st.nl
-  set { st with nl := lid + 1 }
-  let params ← allocBlockParams lid 0 ts
-  pure (lid, s!"L_{lid}", params)
-
-/-- Allocate labels for a block group signature `sig`. -/
-def allocLabels : (sig : List (List Ty)) → EmitM (Tup SL sig)
-  | [] => pure PUnit.unit
-  | ts :: sig => do
-    let l ← freshLabel ts
-    let ls ← allocLabels sig
-    pure (l, ls)
-
-/-- Render a `CmpOp` to its `::tqbe::CmpOp` enumerator name. -/
-def ppCmpOp : CmpOp → String
-  | .eq  => "eq"
-  | .ne  => "ne"
-  | .ult => "ult"
-  | .ule => "ule"
-  | .ugt => "ugt"
-  | .uge => "uge"
-  | .slt => "slt"
-  | .sle => "sle"
-  | .sgt => "sgt"
-  | .sge => "sge"
+/-- Allocate labels and hoisted block parameters for a block group signature `sig`. -/
+def allocLabels : (sig : List (List Ty)) → EmitM (Tup SL sig) :=
+  PrintUtil.allocLabelsWith
+    (modifyGet fun st => (st.nl, { st with nl := st.nl + 1 }))
+    (fun lid idx t => do
+      let name := s!"b{lid}_p{idx}"
+      let decl := s!"  [[maybe_unused]] {ppTy t} {name}" ++ "{};"
+      modify fun st => { st with decls := st.decls.push decl }
+      pure name)
+    (fun lid ps => (lid, s!"L_{lid}", ps))
 
 /-- Render an `FCmpOp` to its `::tqbe::FCmpOp` enumerator name. -/
 def ppFCmpOp : FCmpOp → String
@@ -299,7 +271,7 @@ def ppOpCode : {sig rs : List Ty} → OpCode sig rs → Tup SV rs → Tup (Arg S
   | _, _, .ctz n, (v, _), (a, _) => s!"  {v} = ::tqbe::op_ctz<{n}>({ppArg a});\n"
   | _, _, .popcnt n, (v, _), (a, _) => s!"  {v} = ::tqbe::op_popcnt<{n}>({ppArg a});\n"
   | _, _, .cmp op _ _ _, (v, _), (a, b, _) =>
-    s!"  {v} = ::tqbe::op_cmp<::tqbe::CmpOp::{ppCmpOp op}>({ppArg a}, {ppArg b});\n"
+    s!"  {v} = ::tqbe::op_cmp<::tqbe::CmpOp::{PrintUtil.cmpOpName op}>({ppArg a}, {ppArg b});\n"
   | _, _, .select _, (v, _), (c, a, b, _) =>
     s!"  {v} = ::tqbe::op_select({ppArg c}, {ppArg a}, {ppArg b});\n"
   | _, _, .blend _ _ _, (v, _), (m, a, b, _) =>
@@ -455,25 +427,7 @@ end
 
 /-- Compute block IDs reachable from entry jumps to avoid `-Wunused-label` on dead blocks. -/
 def reachableBlockIds (blocks : Array Block) (seeds : Array Nat) : Array Nat :=
-  Id.run do
-    let isKnown (id : Nat) : Bool := blocks.any fun b => b.id == id
-    let mut enqueued : Array Nat := #[]
-    let mut queue : List Nat := []
-    for s in seeds do
-      if isKnown s && !enqueued.contains s then
-        enqueued := enqueued.push s
-        queue := s :: queue
-    for _ in List.range (blocks.size + 1) do
-      match queue with
-      | [] => break
-      | id :: rest =>
-        queue := rest
-        if let some blk := blocks.find? (fun b => b.id == id) then
-          for dst in blk.outJumps do
-            if isKnown dst && !enqueued.contains dst then
-              enqueued := enqueued.push dst
-              queue := dst :: queue
-    pure enqueued
+  (PrintUtil.liveBlockSet Block.id Block.outJumps blocks seeds).toArray
 
 /-- Format C++ function parameter declarations and `(void)`-suppression lines. -/
 def ppFnSigParams (as : List Ty) : String × List String :=
@@ -506,8 +460,7 @@ def ppFn (symMap : SymMap := baseMangle) (fn : Fn) : String :=
   let (entryBody, st) := (ppE symMap (fn.body SV SL initParams)).run {}
   let declsStr := String.intercalate "\n" st.decls.toList
   let declBlock := if st.decls.isEmpty then "" else declsStr ++ "\n"
-  let liveIds := reachableBlockIds st.blocks st.curJumps
-  let sortedBlocks := (st.blocks.toList.filter fun b => liveIds.contains b.id).mergeSort (fun a b => a.id ≤ b.id)
+  let sortedBlocks := PrintUtil.liveSortedBlocks Block.id Block.outJumps st.blocks st.curJumps
   let blocksStr := String.join <| sortedBlocks.map fun blk =>
     s!"{blk.label}:\n{blk.body}"
   let voidStr := "  (void)mem;\n" ++ String.join paramVoids

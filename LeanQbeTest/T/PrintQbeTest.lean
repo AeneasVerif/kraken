@@ -383,6 +383,23 @@ def dupExternModule : Module where
   , (PrintQbe.fn { parallelSwapFn with name := "" }, "empty")
   ]
 
+#guard
+  let fnDead : Fn := {
+    name := "tq_dead_blk"
+    as := [i64]
+    rs := [i64]
+    body := fun _ _ (x, _) =>
+      .group (sig := [[i64], [i64], [i64]])
+        (fun (_, b1, b2, _) =>
+          .cons (fun (v, _) => .jump (ts := [i64]) b2 (.var v, ()))
+          (.cons (fun (v, _) => .jump (ts := [i64]) b1 (.var v, ()))
+          (.cons (fun (v, _) => .ret (.var v, ())) .nil)))
+        (fun (b0, _, _, _) => .jump (ts := [i64]) b0 (.var x, ()))
+  }
+  match PrintQbe.fn fnDead with
+  | .ok s => containsSubstr s "@L0" && !containsSubstr s "@L1" && containsSubstr s "@L2"
+  | .error _ => false
+
 /-! ## CLI `.ssa` Generator -/
 
 def writeSsa (outDir : System.FilePath) (filename : String)
