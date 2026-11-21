@@ -139,9 +139,11 @@ declare_syntax_cat x64_shift_count
 syntax x64_imm : x64_shift_count
 syntax "%" noWs &"cl" : x64_shift_count
 
-/-- X64 memory addressing operand (`disp(%base, %idx, scale)` or bare displacement). -/
+/-- X64 memory addressing operand (`disp(%base, %idx, scale)`, bare displacement, or `sym@GOTPCREL(%rip)`). -/
 declare_syntax_cat x64_mem
+syntax x64_ident "@GOTPCREL" "(" "%" noWs &"rip" ")" : x64_mem
 syntax (x64_const)? "(" x64_reg_or_rip (", " x64_reg (", " num)?)? ")" : x64_mem
+syntax (x64_const)? "(" "," x64_reg (", " num)? ")" : x64_mem
 syntax x64_const : x64_mem
 
 declare_syntax_cat x64_reg_or_mem
@@ -159,6 +161,11 @@ syntax "❰" term "❱" : x64_operand
 syntax x64_operand "+" num : x64_operand
 syntax x64_operand "-" num : x64_operand
 syntax x64_operand "-" x64_ident : x64_operand
+
+declare_syntax_cat x64_target
+syntax x64_reg_or_mem : x64_target
+syntax "*" x64_reg_or_mem : x64_target
+syntax "❰" term "❱" : x64_target
 
 /-- X64 AVX instruction operand (AVX register or memory). -/
 declare_syntax_cat x64_avx_operand
@@ -386,6 +393,10 @@ declare_syntax_cat x64_bswap_op (behavior := both)
 /-- Byte-order swap (endianness reversal). -/
 syntax_affixed (suffixes := lq) "bswap" : x64_bswap_op
 
+declare_syntax_cat x64_bit_test_op (behavior := both)
+syntax_affixed (suffixes := wlq) "bt" : x64_bit_test_op
+syntax_affixed (suffixes := wlq) "bts" : x64_bit_test_op
+
 /-- Stack push (`push*`) mnemonics (1 operand). -/
 declare_syntax_cat x64_push_op (behavior := both)
 /-- Push operand onto stack. -/
@@ -448,6 +459,7 @@ syntax withPosition(x64_shift_op ppSpace lineEq x64_operand) : x64_instr
 syntax withPosition(x64_shift_op ppSpace lineEq x64_shift_count ", " lineEq x64_operand) : x64_instr
 syntax withPosition(x64_shd_op ppSpace lineEq x64_shift_count ", " lineEq x64_reg ", " lineEq x64_operand) : x64_instr
 syntax withPosition(x64_bswap_op ppSpace lineEq x64_reg) : x64_instr
+syntax withPosition(x64_bit_test_op ppSpace lineEq x64_operand ", " lineEq x64_reg) : x64_instr
 syntax withPosition(x64_push_op ppSpace lineEq x64_operand) : x64_instr
 syntax withPosition(x64_pop_op ppSpace lineEq x64_operand) : x64_instr
 syntax x64_string_op : x64_instr
@@ -459,10 +471,10 @@ syntax &"ret"  : x64_instr
 syntax &"retq" : x64_instr
 syntax &"cld"  : x64_instr
 syntax &"std"  : x64_instr
-syntax withPosition(&"call"  ppSpace lineEq x64_operand) : x64_instr
-syntax withPosition(&"callq" ppSpace lineEq x64_operand) : x64_instr
-syntax withPosition(&"jmp"   ppSpace lineEq x64_operand) : x64_instr
-syntax withPosition(&"jmpq"  ppSpace lineEq x64_operand) : x64_instr
+syntax withPosition(&"call"  ppSpace lineEq x64_target) : x64_instr
+syntax withPosition(&"callq" ppSpace lineEq x64_target) : x64_instr
+syntax withPosition(&"jmp"   ppSpace lineEq x64_target) : x64_instr
+syntax withPosition(&"jmpq"  ppSpace lineEq x64_target) : x64_instr
 syntax &"nop" : x64_instr
 syntax withPosition(&"nop" ppSpace lineEq num) : x64_instr
 syntax withPosition(x64_jcc_op ppSpace lineEq x64_ident) : x64_instr

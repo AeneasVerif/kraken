@@ -61,6 +61,7 @@ instance : ToString RegOrRip where toString b := b.toStr
 
 def ConstExpr.toStr : ConstExpr → String
   | .label l => l
+  | .gotSlot l => s!"slot({l})"
   | .int64 i => s!"{i}"
   | .before_current_instruction => "."
   | .after_current_instruction => "."
@@ -78,6 +79,8 @@ def AddrExpr.toStr (a : AddrExpr) (addr_w : Width := .W64) : String :=
   let dispStr := match a.base, a.disp with
     -- Unwrap RIP-relative displacements back to just the label for printing
     -- (like RelRegOrMem.toStr below)
+    | .some .rip, .sub (.gotSlot l) .after_current_instruction =>
+      if a.idx.isNone then l ++ "@GOTPCREL" else toString (ConstExpr.gotSlot l)
     | .some .rip, .sub e .after_current_instruction => toString e
     | _, _ => toString a.disp
   "[" ++ "+".intercalate (
@@ -109,6 +112,11 @@ def Operand.toStr {w} (op : Operand w) (addr_w : Width := .W64) : String := matc
   -- In Intel syntax a bare symbol is a memory operand; its address needs OFFSET
   | .imm v => s!"OFFSET {v}"
 instance {w} : ToString (Operand w) where toString op := op.toStr
+
+instance {w} : ToString (BitOffset w) where
+  toString
+    | .reg r => toString r
+    | .imm v => (Operand.imm (w := w) v).toStr
 
 def AvxOperand.toStr {w} (op : AvxOperand w) (addr_w : Width := .W64) : String := match op with
   | .regOrMem rm => rm.toStr addr_w
@@ -181,6 +189,8 @@ def Operation.toStr {w} (op : Operation w) (addr_w : Width := .W64) : String := 
   | .rcl dst cnt => s!"rcl {dst.toStr addr_w}, {cnt}"
   | .rcr dst cnt => s!"rcr {dst.toStr addr_w}, {cnt}"
   | .bswap dst => s!"bswap {dst}"
+  | .bt base offset => s!"bt {base}, {offset}"
+  | .bts base offset => s!"bts {base}, {offset}"
   | .cld => "cld"
   | .std => "std"
   | .jcc cc l => s!"j{cc} {l}"

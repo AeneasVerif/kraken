@@ -44,6 +44,9 @@ def corpus : List String := [
   "addr32 movsb", "addr32 rep movsq", "addr32 stosl", "addr32 rep stosw",
   -- arithmetic
   "leaq 8(%rax,%rbx,4), %rcx", "leal (%eax), %ecx", "lea sym(%rip), %rax",
+  "leaq 24(,%rcx,8), %rax", "leaq (,%r9,4), %rax", "leal -8(,%ecx,2), %eax",
+  "movq sym(,%rdx), %rax", "movb %al, (,%ecx,1)", "leaq (,%ecx,8), %rax",
+  "\tmovq\t%rax,\t%r12", "\taddq\t$1,\t%rcx",
   "addq $1, %rax", "addb %al, (%rsp)", "adcl (%rsp), %eax", "adcx %rax, %rbx",
   "adox (%rsp), %ecx", "incq %rax", "incb (%rsp)", "decw %ax", "negl %eax",
   "subq %rax, %rbx", "sbbb $1, %al", "cmpq $0, (%rsp)", "cmpl %eax, %ebx",
@@ -57,12 +60,20 @@ def corpus : List String := [
   "shrw $2, %ax", "sarl %cl, %eax", "shldq $4, %rax, %rbx", "shrd %cl, %ax, (%rsp)",
   "rolq $1, %rax", "rorb %cl, %al", "rclq $1, %rax", "rcrl %cl, (%rsp)",
   "bswap %eax", "bswapq %rax",
+  "bt %rcx, %rax", "btq $63, %r15", "btl %ecx, %eax", "bt $31, %r9d",
+  "btw %cx, %ax", "bt $15, %r15w",
+  "bts %rax, %rax", "btsq $255, %r15", "btsl %r9d, %eax", "bts $32, %r9d",
+  "btsw %cx, %ax", "bts $15, %r15w",
+  "btq $sym, %rax", "btsl $sym+8, %eax", "btw $end-start, %ax",
   -- flag control
   "cld", "std",
   -- control flow
   "foo:\n  jmp foo", "je foo", "jne .L1", "jb foo", "jae foo", "ja foo", "jbe foo",
   "jl foo", "jle foo", "call foo", "call %rax", "jmp %rax",
   "jmp 8(%rax)", "call (%rsp)", "ret", "nop", "nop 5", ".align 16", ".align 16, 0x90",
+  "movq f@GOTPCREL(%rip), %rax",
+  "callq *f@GOTPCREL(%rip)", "jmpq *f@GOTPCREL(%rip)",
+  "callq *%rax", "jmpq *%r11", "call *8(%rsp)", "jmp *(%rax)",
   "a:\nb: ret\n\nc:",
   -- AVX
   "movups %xmm0, %xmm1", "vmovups (%rsp), %ymm2", "vmovups %zmm31, 64(%rsp)",
@@ -118,9 +129,44 @@ run_meta do
   let p ← Meta.parse "movq %rax, -16(%rbp,%rcx,8)\nfoo: imul $3, 8(%eax), %ebx\njne foo\nnop"
   assert! toATT p == "movq %rax, -16(%rbp,%rcx,8)\nfoo:\nimull $3, 8(%eax), %ebx\njne foo\nnop"
 
+run_meta do
+  let p ← Meta.parse "movq f@GOTPCREL(%rip), %rax\ncallq *f@GOTPCREL(%rip)\njmpq *%r11"
+  assert! toATT p == "movq f@GOTPCREL(%rip), %rax\ncall *f@GOTPCREL(%rip)\njmp *%r11"
+  assert! p == (⸨prog|
+    movq f@GOTPCREL(%rip), %rax
+    callq *f@GOTPCREL(%rip)
+    jmpq *%r11
+  ⸩ : Program)
+
+#guard (⸨mem| f@GOTPCREL(%rip) ⸩ : AddrExpr).toStr == "[rip+f@GOTPCREL]"
+#guard (RelRegOrMem.mem ⸨mem| f@GOTPCREL(%rip) ⸩).toStr ==
+  "QWORD PTR [rip+f@GOTPCREL]"
+#guard (RelRegOrMem.reg ⸨reg| %r11 ⸩).toStr == "r11"
+
+#guard
+  let a := AddrExpr.mk (some .rip) (some ⟨.rcx, .W64⟩)
+    (.sub (.gotSlot "f") .after_current_instruction)
+  ATT.addr .W64 a == "slot(f)(%rip,%rcx,8)" && a.toStr == "[rip+rcx*8+slot(f)]"
+
 -- Every program in the hardware test corpus round-trips.
 run_meta do
   for f in ← System.FilePath.readDir "Kraken/X64/Test/asm" do
     if f.path.extension == some "S" then
       unless ← roundtrips (stripDirectives (← IO.FS.readFile f.path)) do
         throwError s!"{f.path} does not round-trip"
+
+run_meta do
+  let p ← Meta.parse "btq %rcx, %rax\nbtsl $31, %eax\nbtw $sym, %ax"
+  assert! toATT p == "bt %rcx, %rax\nbts $31, %eax\nbt $sym, %ax"
+
+#guard (Operation.bt (.low .rax .W64) (.reg (.low .rcx .W64))).toStr ==
+  "bt rax, rcx"
+#guard (Operation.bts (.low .rax .W32) (.imm (.int64 31))).toStr ==
+  "bts eax, 31"
+#guard (Operation.bt (.low .rax .W16) (.imm (.label "sym"))).toStr ==
+  "bt ax, OFFSET sym"
+#guard (Operation.bts (.low .r15 .W64) (.imm (.int64 255))).toStr ==
+  "bts r15, 255"
+
+#guard stripDirectives ".text\n.L0:\tretq\n\t.ascii \"a:b\"\n\t.file \"path:source\"\n\t.size f, 8 # note:\n" ==
+  ".L0:\tretq\n"

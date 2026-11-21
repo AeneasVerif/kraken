@@ -19,6 +19,10 @@ open Kraken (Layout WellFormedLayout)
     match label? lbl with
     | .some a => (k a).All post
     | .none => False
+  | .resolve_got_slot lbl k =>
+    match gotSlot? lbl with
+    | .some a => (k a).All post
+    | .none => False
   | .gp_unaligned .. => False
   | .nonmem_load .. => False
   | .nonmem_store .. => False
@@ -33,6 +37,12 @@ open Kraken (Layout WellFormedLayout)
       (match label? lbl with | .some a => (k a).All post | .none => False) := by
   rw [Effects.All]
 
+@[ksimp] theorem Effects.All_resolve_got_slot [Labels] (lbl : Label) (k : Int64 → Effects)
+    (post : MachineState → Prop) :
+    (Effects.resolve_got_slot lbl k).All post =
+      (match gotSlot? lbl with | .some a => (k a).All post | .none => False) := by
+  rw [Effects.All]
+
 @[ksimp] theorem Effects.All_require_read_access [Labels] (addr : BitVec 64) (bytes : UInt64)
     (ok : Unit → Effects) (post : MachineState → Prop) :
     (require_access require_read_access addr bytes ok).All post = (ok ()).All post := by
@@ -45,22 +55,24 @@ open Kraken (Layout WellFormedLayout)
   dsimp only [require_access]
   split <;> rfl
 
-def step1 (e : Executable) (s : MachineState) (post : @Post MachineState) : Prop :=
-  letI := e.labels
+def step1 (e : Executable) (gotSlot : Label → Option Int64 := fun _ => none)
+    (s : MachineState) (post : @Post MachineState) : Prop :=
+  letI := e.labels gotSlot
   (Executable.step e s .done).All post
 
 theorem eventually_of_interp {p : Program} [l : WellFormedLayout p]
     {k : Nat} {d : Directive} (hd : p[k]? = some d) {post : @Post MachineState} {s : MachineData}
-    (h : letI := Executable.labels p.toExecutable
+    {gotSlot : Label → Option Int64}
+    (h : letI := Executable.labels p.toExecutable gotSlot
       (d.interp s
         ⟨p.toExecutable.addrOf k, p.toExecutable.addrOf (k + 1)⟩
         (fun s' => .done ⟨s', p.toExecutable.addrOf (k + 1)⟩)
         (fun a s' => .done ⟨s', a⟩)).All post) :
-    Eventually (step1 p.toExecutable) post ⟨s, p.toExecutable.addrOf k⟩ := by
+    Eventually (step1 p.toExecutable gotSlot) post ⟨s, p.toExecutable.addrOf k⟩ := by
   have hc : p.toExecutable.program[k]? = some {directive := d, size := l.size k} := by
     simp [Kraken.Layout.apply_getElem?, hd]
   have hsucc := p.toExecutable.addrOf_succ hc
-  letI : Labels := Executable.labels p.toExecutable
+  letI : Labels := Executable.labels p.toExecutable gotSlot
   match hsize : l.size k with
   | 0 =>
     apply Eventually.done
@@ -86,15 +98,17 @@ theorem eventually_of_interp {p : Program} [l : WellFormedLayout p]
 
 theorem step_at {p : Program} [WellFormedLayout p] {k : Nat} {d : Directive}
     (hd : p[k]? = some d) {post : @Post MachineState} {s : MachineData}
-    (h : letI := Executable.labels p.toExecutable
+    {gotSlot : Label → Option Int64}
+    (h : letI := Executable.labels p.toExecutable gotSlot
       (d.interp s
         ⟨p.toExecutable.addrOf k, p.toExecutable.addrOf (k + 1)⟩
         (fun s' => .done ⟨s', p.toExecutable.addrOf (k + 1)⟩)
-        (fun a s' => .done ⟨s', a⟩)).All (Eventually (step1 p.toExecutable) post)) :
-    Eventually (step1 p.toExecutable) post ⟨s, p.toExecutable.addrOf k⟩ :=
+        (fun a s' => .done ⟨s', a⟩)).All (Eventually (step1 p.toExecutable gotSlot) post)) :
+    Eventually (step1 p.toExecutable gotSlot) post ⟨s, p.toExecutable.addrOf k⟩ :=
   eventually_trans _ _ _ _ (eventually_of_interp hd h) fun _ => id
 
 theorem label?_eq_some_addrOf {p : Program} [l : Layout p] {lbl : Label} {k : Nat}
-    (hk : p.findIdx? (·.isLabel lbl) = some k) :
-    @Labels.label? (Executable.labels p.toExecutable) lbl = some (p.toExecutable.addrOf k) :=
+    (hk : p.findIdx? (·.isLabel lbl) = some k)
+    (gotSlot : Label → Option Int64 := fun _ => none) :
+    @Labels.label? (Executable.labels p.toExecutable gotSlot) lbl = some (p.toExecutable.addrOf k) :=
   Kraken.Layout.withAddresses_findSome?_label p lbl hk

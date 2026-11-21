@@ -7,9 +7,8 @@ public section
 # AT&T printer
 Prints Kraken x64 syntax in the AT&T dialect accepted by `Kraken.X64.Parser.parse`.
 The intended property is `parse (toATT p) = .ok p` for every program `p` that `parse`
-can produce (see `PrintATTTests.lean`). Values outside the parser's image (e.g. memory
-operands without a base register, or `ConstExpr` arithmetic) are still printed, but
-won't round-trip.
+can produce (see `PrintATTTests.lean`). Values outside the parser's image
+(e.g. `ConstExpr` arithmetic) are still printed, but won't round-trip.
 
 Mnemonics carry a width suffix whenever the operands may not determine the width
 (immediates, memory), and are unsuffixed when a register operand always does.
@@ -24,6 +23,7 @@ def avxReg {w} (r : AvxReg w) : String := "%" ++ toString r
 
 def const : ConstExpr → String
   | .label l => l
+  | .gotSlot l => s!"slot({l})"
   | .int64 i => toString i
   | .add a b => s!"{const a}+{const b}"
   | .sub a b => s!"{const a}-{const b}"
@@ -31,6 +31,8 @@ def const : ConstExpr → String
 
 def addr (aw : Width) (a : AddrExpr) : String :=
   let disp := match a.base, a.disp with
+    | some .rip, .sub (.gotSlot l) .after_current_instruction =>
+      if a.idx.isNone then l ++ "@GOTPCREL" else const (.gotSlot l)
     | some .rip, .sub e .after_current_instruction => const e
     | _, .int64 0 => ""
     | _, d => const d
@@ -60,11 +62,15 @@ def count : ShiftCountExpr → String
   | .cl => "%cl"
   | .imm8 e => "$" ++ const e
 
+def bitOffset {w} : BitOffset w → String
+  | .reg r => reg r
+  | .imm e => "$" ++ const e
+
 def target (aw : Width) : RelRegOrMem → String
   | .rel (.sub e .after_current_instruction) => const e
   | .rel e => const e
-  | .reg r => reg r
-  | .mem a => addr aw a
+  | .reg r => "*" ++ reg r
+  | .mem a => "*" ++ addr aw a
 
 def operation {w} (aw : Width) (op : Operation w) : String :=
   let s := suffix w
@@ -114,6 +120,8 @@ def operation {w} (aw : Width) (op : Operation w) : String :=
   | .rcl d c => two "rcl" (count c) (rm aw d)
   | .rcr d c => two "rcr" (count c) (rm aw d)
   | .bswap d => s!"bswap {reg d}"
+  | .bt base offset => s!"bt {bitOffset offset}, {reg base}"
+  | .bts base offset => s!"bts {bitOffset offset}, {reg base}"
   | .cld => "cld"
   | .std => "std"
   | .jcc cc l => s!"j{cc} {l}"

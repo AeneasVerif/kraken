@@ -1700,7 +1700,7 @@ private def replaceAArch64Comments (input : String) : String :=
 
 /-- Parse and elaborate an AArch64 assembly string into a `Lean.Expr` representing a Kraken `Program`. -/
 public def elabAArch64 (input : String) : TermElabM Expr :=
-  elabCategory `aarch64_prog elabProgram (replaceAArch64Comments input)
+  elabCategory `aarch64_prog elabProgram (replaceAArch64Comments (input.replace "\t" " "))
 
 -- ============================================================================
 -- Standalone Embeddings (`⸨instr|`, `⸨mem|`, `⸨reg|`, `⸨const|`, `⸨cc|`)

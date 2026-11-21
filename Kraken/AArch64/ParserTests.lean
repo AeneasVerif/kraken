@@ -14,6 +14,13 @@ section Tests
 open Kraken hiding Directive
 open AArch64.Parser
 
+run_meta do
+  let input := "\tsub\tsp, sp, #160\n\tstp\tx30, x23, [sp, #112]\n\tadd\tx23, x5, x6, lsl #4"
+  let actual ← (elabAArch64 input).run'
+  let expected ← (elabAArch64 (input.replace "\t" " ")).run'
+  unless ← Lean.Meta.isDefEq actual expected do
+    throwError "tab-separated rustc assembly parsed differently"
+
 -- ============================================================================
 -- 1. Memory Access: Loads and Stores (LDR, STR, LDUR, STUR, LDP, STP)
 -- ============================================================================

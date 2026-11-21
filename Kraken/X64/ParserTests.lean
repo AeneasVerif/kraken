@@ -109,6 +109,14 @@ info: ⸨prog|
 #check ⸨prog| movq (%rsi, %r15, 8), %rax ⸩
 -- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .mov (.Reg (.low .rax .W64)) (.mem .rsi (some .r15) 8 0) }]
 
+run_meta do
+  let p ← Meta.parse "leaq 24(,%rcx,8), %rax\nleal (,%ecx,4), %edx"
+  assert! p == [
+    .instr (.regular .W64 .W64 (.lea .rax
+      { base := none, idx := some ⟨.rcx, .W64⟩, disp := .int64 24 })),
+    .instr (.regular .W32 .W32 (.lea .edx
+      { base := none, idx := some ⟨.rcx, .W32⟩ }))]
+
 -- Test: movsx/movzx with a memory source, movslq and movsxd
 /--
 info: ⸨prog|
@@ -994,5 +1002,166 @@ info: ⸨prog|
 #check (⸨dir| addq $1, %rax ⸩ :: rest)
 
 end sse_and_vex
+
+section bit_tests
+
+/--
+info: ⸨prog|
+  bt %rcx, %rax
+  bt $31, %eax
+  bt %cx, %ax
+  bts $255, %r15
+  bts %r9d, %eax
+  bts $15, %ax
+  bt $sym+8, %rax
+  bts $end-start, %eax⸩ : List _root_.Directive
+-/
+#guard_msgs in
+#check ⸨prog|
+  btq %rcx, %rax
+  btl $31, %eax
+  btw %cx, %ax
+  btsq $255, %r15
+  btsl %r9d, %eax
+  btsw $15, %ax
+  btq $sym+8, %rax
+  btsl $end-start, %eax
+⸩
+
+example (offset : BitOffset .W64) (base : Reg .W64) :
+    (⸨instr| bt ❰offset❱, %❰base❱ ⸩ : Instr) = .regular .W64 .W64 (.bt base offset) := by
+  rfl
+
+run_meta do
+  assert! ← [⸨prog|
+    btq %rcx, %rax
+    btl $31, %eax
+    btw %cx, %ax
+    btsq $255, %r15
+    btsl %r9d, %eax
+    btsw $15, %ax
+    btq $sym+8, %rax
+    btsl $end-start, %eax
+  ⸩].allM agreesWithCombinatorParser
+
+private def rejectsBitTest (source : String) : MetaM Bool := do
+  try
+    let _ ← Kraken.X64.Parser.Meta.parse source
+    return false
+  catch _ =>
+    return true
+
+run_meta do
+  assert! ← [
+    "btq %rcx, (%rax)", "btsq $63, (%rax)", "btl %ecx, sym", "btsl $0, sym",
+    "btq (%rcx), %rax", "btsq sym, %rax",
+    "btb $0, %al", "btsb %cl, %al", "bt $0, %al", "bts %ah, %al",
+    "btq %ecx, %rax", "btsl %rcx, %eax", "btq $0, %eax", "btw %ecx, %ax"
+  ].allM rejectsBitTest
+
+end bit_tests
+
+section got_and_indirect_branches
+
+#guard (⸨mem| f@GOTPCREL(%rip) ⸩ : AddrExpr) ==
+  { base := some .rip, idx := none, disp := .sub (.gotSlot "f") .after_current_instruction }
+#guard (⸨instr| movq f@GOTPCREL(%rip), %rax ⸩ : Instr) ==
+  .regular .W64 .W64 (.mov (.reg (.low .rax .W64))
+    (.mem { base := some .rip, idx := none, disp := .sub (.gotSlot "f") .after_current_instruction }))
+#guard (⸨instr| leaq f@GOTPCREL(%rip), %rax ⸩ : Instr) ==
+  .regular .W64 .W64 (.lea (.low .rax .W64)
+    { base := some .rip, idx := none, disp := .sub (.gotSlot "f") .after_current_instruction })
+#guard (⸨mem| f(%rip) ⸩ : AddrExpr) ==
+  { base := some .rip, idx := none, disp := .sub (.label "f") .after_current_instruction }
+#guard (⸨instr| callq *f@GOTPCREL(%rip) ⸩ : Instr) ==
+  .regular .W64 .W64 (.call (.mem
+    { base := some .rip, idx := none, disp := .sub (.gotSlot "f") .after_current_instruction }))
+#guard (⸨instr| jmpq *f@GOTPCREL(%rip) ⸩ : Instr) ==
+  .regular .W64 .W64 (.jmp (.mem
+    { base := some .rip, idx := none, disp := .sub (.gotSlot "f") .after_current_instruction }))
+#guard (⸨instr| callq *%rsp ⸩ : Instr) ==
+  .regular .W64 .W64 (.call (.reg (.low .rsp .W64)))
+#guard (⸨instr| jmpq *%r11 ⸩ : Instr) ==
+  .regular .W64 .W64 (.jmp (.reg (.low .r11 .W64)))
+#guard (⸨instr| call *8(%rsp) ⸩ : Instr) ==
+  .regular .W64 .W64 (.call (.mem { base := some (.reg .rsp), idx := none, disp := .int64 8 }))
+
+/-- info: ConstExpr.gotSlot "f" : ConstExpr -/
+#guard_msgs in
+#check ConstExpr.gotSlot "f"
+
+/-- info: ⸨instr| call *f@GOTPCREL(%rip) ⸩ : Instr -/
+#guard_msgs in
+#check ⸨instr| callq *f@GOTPCREL(%rip) ⸩
+
+/-- info: ⸨instr| jmp *%r11 ⸩ : Instr -/
+#guard_msgs in
+#check ⸨instr| jmpq *%r11 ⸩
+
+/-- info: ⸨instr| jmp *sym(,%rax, 8) ⸩ : Instr -/
+#guard_msgs in
+#check ⸨instr| jmpq *sym(,%rax,8) ⸩
+
+/-- info: ⸨instr| call *4096 ⸩ : Instr -/
+#guard_msgs in
+#check ⸨instr| callq *4096 ⸩
+
+/--
+info: ⸨prog|
+  movq f@GOTPCREL(%rip), %rax
+  lea f@GOTPCREL(%rip), %rax
+  call *f@GOTPCREL(%rip)
+  jmp *f@GOTPCREL(%rip)⸩ : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog|
+  movq f@GOTPCREL(%rip), %rax
+  leaq f@GOTPCREL(%rip), %rax
+  callq *f@GOTPCREL(%rip)
+  jmpq *f@GOTPCREL(%rip)
+⸩
+
+run_meta do
+  assert! ← [
+    ⸨prog| movq f@GOTPCREL(%rip), %rax; leaq f@GOTPCREL(%rip), %rax ⸩,
+    ⸨prog| callq *f@GOTPCREL(%rip); jmpq *f@GOTPCREL(%rip) ⸩,
+    ⸨prog| callq *%rsp; jmpq *%r11; call *8(%rsp) ⸩,
+    ⸨prog| jmpq *sym(,%rax,8); callq *4096; jmp *sym ⸩
+  ].allM agreesWithCombinatorParser
+
+run_meta do
+  for source in [
+      "movq $f@GOTPCREL, %rax", "movq f@GOTPCREL, %rax",
+      "movq f@GOTPCREL(%rax), %rax", "movq f@GOTPCREL(%eax), %rax",
+      "movq f@GOTPCREL(,%rcx,8), %rax", "movq f@GOTPCREL(%rip,%rcx), %rax",
+      "movq f@GOTPCREL(%rip,%rcx,8), %rax",
+      "leaq f@GOTPCREL, %rax", "leaq f@GOTPCREL(%rax), %rax",
+      "callq f@GOTPCREL", "jmpq f@GOTPCREL", "addr32 movq f@GOTPCREL(%rip), %rax",
+      "callq *f@GOTPCREL", "jmpq *f@GOTPCREL(%rax)",
+      "movq f@GOTPCREL+8(%rip), %rax", "movq f@GOTPCREL-8(%rip), %rax",
+      "movq f+8@GOTPCREL(%rip), %rax", "movq f@GOTPCREL-f(%rip), %rax",
+      "movq $f@GOTPCREL+8, %rax", "btq $f@GOTPCREL, %rax",
+      ".byte f@GOTPCREL", ".short f@GOTPCREL", ".long f@GOTPCREL",
+      ".quad f@GOTPCREL", ".quad f@GOTPCREL+8", ".quad f@GOTPCREL(%rip)",
+      "movq *%rax, %rbx", "movq *(%rax), %rbx", "pushq *%rax", "addq *sym, %rax"] do
+    let rejected ← try
+      let _ ← Kraken.X64.Parser.Meta.parse source
+      pure false
+    catch _ => pure true
+    unless rejected do throwError "accepted invalid operand context: {source}"
+  assert! (Lean.Parser.runParserCategory (← getEnv) `x64_const "f@GOTPCREL").toOption.isNone
+
+end got_and_indirect_branches
+
+section preprocessing
+
+run_meta do
+  assert! (← Kraken.X64.Parser.Meta.parse "\tmovq\t%rax,\t%rbx\n\taddq\t$1,\t%rax") ==
+    ⸨prog| movq %rax, %rbx; addq $1, %rax ⸩
+  let source := ".text\n.L0:\tretq\n\t.ascii \"a:b\"\n\t.file \"path:source\"\n"
+  assert! (← Kraken.X64.Parser.Meta.parse (Kraken.Parser.stripDirectives source)) ==
+    ⸨prog| .L0: retq ⸩
+
+end preprocessing
 
 end Tests
