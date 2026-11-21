@@ -127,7 +127,8 @@ private theorem armSubSp_wp [Host] (n : Nat) (s : MachineData) :
       (fun s' => s'.regs.SP = UInt64.ofBitVec (get s .SP - BitVec.ofNat 64 n) ∧
         (∀ x, x ≠ .X16 → s'.regs.getXReg x = s.regs.getXReg x) ∧
         s'.status = s.status ∧ s'.dmem = s.dmem) (fun _ _ => False) s := by
-  dsimp only [armSubSp]
+  dsimp only [armSubSp, armSubSpIns]
+  simp only [emitClean_ite]
   split
   · refine armWp_mono (armDirFallsTo_wp (armSubSpImm_fallsTo n s)) ?_
     rintro s' rfl
@@ -146,7 +147,8 @@ private theorem armAddSp_wp [Host] (n : Nat) (s : MachineData) :
       (fun s' => s'.regs.SP = UInt64.ofBitVec (get s .SP + BitVec.ofNat 64 n) ∧
         (∀ x, x ≠ .X16 → s'.regs.getXReg x = s.regs.getXReg x) ∧
         s'.status = s.status ∧ s'.dmem = s.dmem) (fun _ _ => False) s := by
-  dsimp only [armAddSp]
+  dsimp only [armAddSp, armAddSpIns]
+  simp only [emitClean_ite]
   split
   · refine armWp_mono (armDirFallsTo_wp (armAddSpImm_fallsTo n s)) ?_
     rintro s' rfl
@@ -206,7 +208,8 @@ private theorem armStSpXReg_wp [Host] (r : XReg) (o : Nat) {R : Mem 64 → Prop}
         s'.status = s.status ∧
         (cell64 (get s .SP + BitVec.ofNat 64 o) (get s (.reg r)) ⋆ R) s'.dmem)
       (fun _ _ => False) s := by
-  dsimp only [armStSpXReg]
+  dsimp only [armStSpXReg, armStSpXRegIns]
+  simp only [emitClean_ite]
   split
   · refine armWp_mono
       (armDirFallsTo_wp (armStAddr_fallsTo r (atOff .SP o) (get s .SP + BitVec.ofNat 64 o) s
@@ -242,7 +245,8 @@ private theorem armLdSpXReg_wp [Host] (rd : XReg) (o : Nat) (v : BitVec 64) {R :
         (∀ x, x ≠ rd → x ≠ .X16 → s'.regs.getXReg x = s.regs.getXReg x) ∧
         s'.status = s.status ∧ s'.dmem = s.dmem)
       (fun _ _ => False) s := by
-  dsimp only [armLdSpXReg]
+  dsimp only [armLdSpXReg, armLdSpXRegIns]
+  simp only [emitClean_ite]
   split
   · refine armWp_mono
       (armDirFallsTo_wp (armLdAddr_fallsTo rd (atOff .SP o) (get s .SP + BitVec.ofNat 64 o) v s
@@ -357,7 +361,8 @@ theorem armPrologue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
         region (sp' + BitVec.ofNat 64 (8 * ns) + 8#64) (armFrameSize ns - 8 * ns - 8) ⋆ G) :=
     sep_cast hmem (by dsimp only [sp']; ac_rfl)
   apply armFallsTo_of_wp
-  dsimp only [armPrologue]
+  dsimp only [armPrologue, armPrologueIns]
+  rw [emitClean_append]
   refine armWp_append (armSubSp_wp (armFrameSize ns) s) ?_
   rintro s₁ ⟨hsp1, hx1, hst1, hdmem1⟩
   have hgetsp1 : get s₁ .SP = sp' := by simp [get_sp, hsp1, sp']
@@ -407,7 +412,8 @@ theorem armEpilogue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
       s.dmem :=
     sep_cast hmem (by ac_rfl)
   apply armFallsTo_of_wp
-  dsimp only [armEpilogue]
+  dsimp only [armEpilogue, armEpilogueIns]
+  rw [emitClean_append]
   refine armWp_append (armLdSpXReg_wp .X30 (8 * ns) ra.toBitVec s hsp hmem_reassoc) ?_
   rintro s₁ ⟨hsp1, hx30_1, hx1, hst1, hdmem1⟩
   refine armWp_mono (armAddSp_wp (armFrameSize ns) s₁) ?_
@@ -461,7 +467,8 @@ theorem armSlotSt_spec {h : Host} {k i : Nat} {r : Reg} {s : MachineData}
     refine ⟨hdmem', armFrame_upd_regs (armKeep_regs _ (fun _ => hsp') (fun y hy => ?_)) (Or.inr hst')⟩
     exact hx' y (fun e => hy (by simp [e, armScratch]))
   | SP =>
-    dsimp only [armSlotSt]
+    dsimp only [armSlotSt, armSlotStIns]
+    simp only [emitClean_append]
     refine armWp_cons (armMovToX_wp .X17 .SP s) ?_
     rintro s₁ rfl
     have hsp1 : (get (wr s .X17 (get s .SP)) .SP).toNat % 16 = 0 := by
@@ -498,7 +505,8 @@ theorem armSlotLd_spec {h : Host} {k i : Nat} {rd : Reg} {v : BitVec 64} {s : Ma
     have hy16 : y ≠ .X16 := fun e => hy (by simp [e, armScratch])
     exact hx' y hyx hy16
   | SP =>
-    dsimp only [armSlotLd]
+    dsimp only [armSlotLd, armSlotLdIns]
+    simp only [emitClean_append]
     refine armWp_append (armLdSpXReg_wp .X17 (8 * i) v s hsp hmem) ?_
     rintro s₁ ⟨hsp1, hx17, hx1, hst1, hdmem1⟩
     refine armWp_mono (armMovToSp_wp .X17 s₁) ?_
@@ -540,7 +548,8 @@ theorem armCanonAbi_spec {h : Host} {k : Nat} {t : Ty} {r : Reg} {v : Val t}
         rw [hregs]; exact Reg64s.getXReg_setXReg_of_ne _ _ _ _ hyx.symm
     | SP =>
       apply armFallsTo_of_wp
-      dsimp only [armCanonAbi]
+      dsimp only [armCanonAbi, armCanonAbiIns]
+      simp only [emitClean_append]
       refine armWp_cons (armMovToX_wp .X16 .SP s) ?_
       rintro s₁ rfl
       have hh1 : GprHolds (get (wr s .X16 (get s .SP)) (.reg .X16)) .bool v := by
@@ -570,8 +579,8 @@ theorem armCanonAbi_spec {h : Host} {k : Nat} {t : Ty} {r : Reg} {v : Val t}
         simp only [List.mem_cons, List.not_mem_nil, or_false] at hn
         rcases hn with rfl | rfl | rfl <;> decide
       apply armFallsTo_of_wp
-      dsimp only [armCanonAbi]
-      simp only [hcond, ↓reduceIte]
+      dsimp only [armCanonAbi, armCanonAbiIns]
+      simp only [hcond, ↓reduceIte, emitClean_append]
       refine armWp_cons (armMovToX_wp .X16 .SP s) ?_
       rintro s₁ rfl
       have hh1 : GprHolds (get (wr s .X16 (get s .SP)) (.reg .X16)) (.bits n) v := by
@@ -691,77 +700,36 @@ def armFrameSpec : FrameTarget armMach armFrame armCondReads where
 section NoLab
 
 theorem armPrologue_noLab (ns : Nat) (l : Sym) :
-    Kraken.Directive.label l ∉ (armFrame.prologue ns).1 := by
-  dsimp only [armFrame, armPrologue, armSubSp, armStSpXReg]
-  simp only [List.mem_append, not_or]
-  constructor <;> split <;> simp [armLdrPool, ins]
+    Kraken.Directive.label l ∉ (armFrame.prologue ns).1 :=
+  emitClean_noLab _ l
 
 theorem armEpilogue_noLab (ns : Nat) (l : Sym) :
-    Kraken.Directive.label l ∉ (armFrame.epilogue ns).1 := by
-  dsimp only [armFrame, armEpilogue, armLdSpXReg, armAddSp]
-  simp only [List.mem_append, not_or]
-  constructor <;> split <;> simp [armLdrPool, ins]
+    Kraken.Directive.label l ∉ (armFrame.epilogue ns).1 :=
+  emitClean_noLab _ l
 
 theorem armSlotSt_noLab (i : Nat) (r : Reg) (l : Sym) :
-    Kraken.Directive.label l ∉ armFrame.slotSt i r := by
-  cases r with
-  | reg x =>
-    dsimp only [armFrame, armSlotSt, armStSpXReg]
-    split <;> simp [armLdrPool, ins]
-  | SP =>
-    dsimp only [armFrame, armSlotSt, armStSpXReg]
-    simp only [List.mem_cons, List.singleton_append, not_or]
-    refine ⟨by simp [armMovToX, ins], ?_⟩
-    split <;> simp [armLdrPool, ins]
+    Kraken.Directive.label l ∉ armFrame.slotSt i r :=
+  emitClean_noLab _ l
 
 theorem armSlotLd_noLab (rd : Reg) (i : Nat) (l : Sym) :
-    Kraken.Directive.label l ∉ armFrame.slotLd rd i := by
-  cases rd with
-  | reg x =>
-    dsimp only [armFrame, armSlotLd, armLdSpXReg]
-    split <;> simp [armLdrPool, ins]
-  | SP =>
-    dsimp only [armFrame, armSlotLd, armLdSpXReg]
-    simp only [List.mem_append, List.mem_singleton, not_or]
-    refine ⟨?_, by simp [armMovToSp, ins]⟩
-    split <;> simp [armLdrPool, ins]
+    Kraken.Directive.label l ∉ armFrame.slotLd rd i :=
+  emitClean_noLab _ l
 
 theorem armCanonAbi_noLab (t : Ty) (r : Reg) (l : Sym) :
-    Kraken.Directive.label l ∉ (armFrame.canonAbi t r).1 := by
-  cases r with
-  | reg x =>
-    cases t with
-    | bool => simp [armCanonAbi, armCanonAbiXReg, ins]
-    | bits n =>
-      dsimp only [armFrame, armCanonAbi, armCanonAbiXReg]
-      repeat (split <;> try simp [ins])
-      all_goals simp [ins]
-    | float _ | pair _ _ => simp [armCanonAbi, armCanonAbiXReg]
-  | SP =>
-    cases t with
-    | bool => simp [armCanonAbi, armCanonAbiXReg, armMovToX, armMovToSp, ins]
-    | bits n =>
-      dsimp only [armFrame, armCanonAbi]
-      split
-      · simp only [List.append_assoc, List.mem_cons, List.mem_append, not_or]
-        refine ⟨by simp [armMovToX, ins], ?_, by simp [armMovToSp, ins]⟩
-        dsimp only [armCanonAbiXReg]
-        repeat (split <;> try simp [ins])
-        all_goals simp [ins]
-      · simp
-    | float _ | pair _ _ => simp [armCanonAbi]
+    Kraken.Directive.label l ∉ (armFrame.canonAbi t r).1 :=
+  emitClean_noLab _ l
 
 theorem armCall_noLab (sym : Sym) (l : Sym) :
-    Kraken.Directive.label l ∉ armFrame.call sym := by
-  simp [armCallD, ins]
+    Kraken.Directive.label l ∉ armFrame.call sym :=
+  emitClean_noLab _ l
 
 theorem armExitJmp_noLab (sym : Sym) (l : Sym) :
-    Kraken.Directive.label l ∉ armFrame.exitJmp sym := by
-  simp [armJmpD, ins]
+    Kraken.Directive.label l ∉ armFrame.exitJmp sym :=
+  emitClean_noLab _ l
 
 theorem armRet_noLab (l : Sym) :
-    Kraken.Directive.label l ∉ armFrame.ret := by
-  simp [armRetD, ins]
+    Kraken.Directive.label l ∉ armFrame.ret :=
+  emitClean_noLab _ l
 
 end NoLab
 

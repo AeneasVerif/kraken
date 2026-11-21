@@ -349,7 +349,7 @@ theorem x64AddrPrep_fallsTo [Host] {a : AddrArg Reg64} {s : MachineData}
   cases a with
   | baseDisp rb disp =>
     have hrb : rb ≠ .r10 := (ne_of_not_mem_x64Scratch (ha rb List.mem_cons_self)).1
-    dsimp only [x64AddrPrep]
+    dsimp only [x64AddrPrep, x64AddrPrepIns]
     split
     · exact Program.wp_nil ⟨rfl, rfl, rfl, fun _ _ => rfl, fun {_} p => by
         rw [AddrExpr.interp_base_disp, zeroExtend_eq_setWidth, BitVec.setWidth_eq]; rfl⟩
@@ -363,7 +363,7 @@ theorem x64AddrPrep_fallsTo [Host] {a : AddrArg Reg64} {s : MachineData}
       · simp only [atReg_interp, Reg64s.get64_set64_same,
           Reg64s.get64_set64_of_ne _ _ _ _ hrb.symm]; rfl
   | imm c =>
-    dsimp only [x64AddrPrep]
+    dsimp only [x64AddrPrep, x64AddrPrepIns]
     refine Program.wp.mono (Directive.FallsTo.wp (x64MoviD_fallsTo .r10 c s)) ?_
     rintro s' rfl
     refine ⟨rfl, rfl, rfl, fun r hr => Reg64s.get64_set64_of_ne _ _ _ _ hr.symm, fun {_} p => ?_⟩
@@ -377,7 +377,7 @@ theorem x64SlotAddr_fallsTo [Host] (i : Nat) (s : MachineData) :
           (@AddrExpr.interp _ ⟨.W64⟩ (x64SlotAddr i).2 s'.regs p).zeroExtend 64 =
             s.regs.get64 .rsp + BitVec.ofNat 64 (8 * i))
       (fun _ _ => False) s := by
-  dsimp only [x64SlotAddr]
+  dsimp only [x64SlotAddr, x64SlotAddrIns]
   split
   · exact Program.wp_nil ⟨rfl, rfl, rfl, fun _ _ => rfl, fun {_} p => by
       rw [x64AtSp_interp, Int64_toBitVec_ofNat]⟩
@@ -662,10 +662,12 @@ theorem x64VmoviWith_wp [Host] {tmp : RegMm} {w : SlotWidth} {vd : RegMm} {c : B
         (∀ vr, vr ≠ vd → vr ≠ tmp → s'.zmms.get512 vr = s.zmms.get512 vr) ∧
         (s'.zmms.get512 vd).setWidth w.bits = c.setWidth w.bits)
       (fun _ _ => False) s := by
+  dsimp only [x64VmoviWith] at hcode
+  obtain ⟨ci, hci, rfl⟩ := emitCleanOpt_eq_some.mp hcode
   cases w with
   | w64 =>
-    simp only [x64VmoviWith, Option.some.injEq] at hcode
-    subst hcode
+    simp only [x64VmoviWithIns, Option.some.injEq] at hci
+    subst hci
     refine Program.wp.mono (x64Movi64_wp vd (c.extractLsb' 0 64) s) ?_
     rintro s' ⟨hd, hs, hg, hv, hvd⟩
     refine ⟨hd, hs, hg, fun vr h1 _ => hv vr h1, ?_⟩
@@ -673,18 +675,18 @@ theorem x64VmoviWith_wp [Host] {tmp : RegMm} {w : SlotWidth} {vd : RegMm} {c : B
     apply BitVec.eq_of_getLsbD_eq; intro i hi
     simp [show (i : Nat) < 64 from hi]
   | w128 =>
-    simp only [x64VmoviWith, Option.some.injEq] at hcode
-    subst hcode
+    simp only [x64VmoviWithIns, Option.some.injEq] at hci
+    subst hci
     refine Program.wp.mono (x64Movi128_wp vd tmp hne c s) ?_
     rintro s' ⟨hd, hs, hg, hv, hvd⟩
     refine ⟨hd, hs, hg, hv, ?_⟩
     rw [hvd, BitVec.setWidth_setWidth_of_le _ (by decide), BitVec.setWidth_eq]
   | w256 | w512 =>
-    dsimp only [x64VmoviWith] at hcode
-    split at hcode
+    dsimp only [x64VmoviWithIns] at hci
+    split at hci
     · rename_i hz
-      simp only [Option.some.injEq] at hcode
-      subst hcode
+      simp only [Option.some.injEq] at hci
+      subst hci
       refine Program.wp.mono (Directive.FallsTo.wp (x64Vpternlogd_fallsTo _ vd vd vd 0x00#8 s)) ?_
       rintro s' rfl
       refine ⟨rfl, rfl, fun _ _ => rfl,
@@ -693,10 +695,10 @@ theorem x64VmoviWith_wp [Host] {tmp : RegMm} {w : SlotWidth} {vd : RegMm} {c : B
       rw [RegZmms.get512_set_avx_same, ternaryLogic_all0, BitVec.setWidth_setWidth_of_le _ (by decide),
         BitVec.setWidth_eq]
       exact (beq_iff_eq.mp hz).symm
-    · split at hcode
+    · split at hci
       · rename_i hones
-        simp only [Option.some.injEq] at hcode
-        subst hcode
+        simp only [Option.some.injEq] at hci
+        subst hci
         refine Program.wp.mono (Directive.FallsTo.wp (x64Vpternlogd_fallsTo _ vd vd vd 0xFF#8 s)) ?_
         rintro s' rfl
         refine ⟨rfl, rfl, fun _ _ => rfl,
@@ -705,7 +707,7 @@ theorem x64VmoviWith_wp [Host] {tmp : RegMm} {w : SlotWidth} {vd : RegMm} {c : B
         rw [RegZmms.get512_set_avx_same, ternaryLogic_all1, BitVec.setWidth_setWidth_of_le _ (by decide),
           BitVec.setWidth_eq]
         exact (beq_iff_eq.mp hones).symm
-      · simp at hcode
+      · simp at hci
 
 /-! ## 5. Slot `bytes64` / `Int.toBytes` bridge lemmas -/
 
@@ -929,7 +931,8 @@ theorem x64VslotSt_spec {h : Host} {k : Nat} {w : SlotWidth} {i : Nat} {vr : Reg
     rw [array64_eq_bytes64 a _ (by rw [unpackSlotWords_length]; exact hslots_le),
       bytes64_unpackSlotWords]
   apply vecFallsTo_of_wp
-  dsimp only [x64VslotSt]
+  dsimp only [x64VslotSt, x64VslotStIns]
+  simp only [emitClean_append, emitClean_cons, emitClean_nil]
   refine Program.wp.append (x64SlotAddr_fallsTo i s) ?_
   rintro s1 ⟨hdmem1, hst1, hzmms1, hgpr1, haddr1⟩
   have hload1 : Mem.loadInt s1.dmem a (8 * w.slots) = some (Int.ofBytes bs) := hdmem1 ▸ hload
@@ -946,7 +949,7 @@ theorem x64VslotSt_spec {h : Host} {k : Nat} {w : SlotWidth} {i : Nat} {vr : Reg
       rw [harr, hdmem', hzmms1]
       exact hst_mem
     · rw [hg']; exact hgpr1 r (ne_of_not_mem_x64Scratch hr).1
-  · dsimp only [x64VmemDir]; split
+  · dsimp only [x64VmemI]; split
     · exact absurd rfl hw64
     · refine Program.wp.mono (Directive.FallsTo.wp (vmovdqu32_store_fallsTo w hw64 (x64SlotAddr i).2 a vr
           s1 (fun {_} p => haddr1 p) ⟨_, hload1⟩)) ?_
@@ -982,7 +985,8 @@ theorem x64VslotLd_spec {h : Host} {k : Nat} {w : SlotWidth} {i : Nat} {vd : Reg
       some (Int.ofBytes (Int.toBytes (8 * w.slots) (bv.setWidth (64 * w.slots)).toInt)) :=
     Mem.loadInt_sep _ a (8 * w.slots) G s.dmem hmem_bs (Int.toBytes_length _ _) hslots_le
   apply vecFallsTo_of_wp
-  dsimp only [x64VslotLd]
+  dsimp only [x64VslotLd, x64VslotLdIns]
+  simp only [emitClean_append, emitClean_cons, emitClean_nil]
   refine Program.wp.append (x64SlotAddr_fallsTo i s) ?_
   rintro s1 ⟨hdmem1, hst1, hzmms1, hgpr1, haddr1⟩
   have hload1 : Mem.loadInt s1.dmem a (8 * w.slots) = _ := hdmem1 ▸ hload
@@ -1000,7 +1004,7 @@ theorem x64VslotLd_spec {h : Host} {k : Nat} {w : SlotWidth} {i : Nat} {vd : Reg
         BitVec.setWidth_setWidth_of_le _ (by decide : 64 ≤ 128),
         show SlotWidth.w64.slots = 1 from rfl, Nat.mul_one, hbv, BitVec.setWidth_eq]
     · rw [RegZmms.get512_set_xmm_of_ne _ (fun e => hv (by simp [e])), hzmms1]
-  · dsimp only [x64VmemDir]; split
+  · dsimp only [x64VmemI]; split
     · exact absurd rfl hw64
     · refine Program.wp.mono (Directive.FallsTo.wp (vmovdqu32_load_fallsTo w hw64 (x64SlotAddr i).2 a vd _ s1
           (fun {_} p => haddr1 p) hload1)) ?_
@@ -1037,12 +1041,15 @@ theorem x64Vload_spec {h : Host} {k : Nat} {t : Ty} {vd : RegMm} {a : AddrArg Re
     x64Mach.FallsTo x64CondReads h k c x64Scratch (vd :: x64VecScratch) clob s
       (fun s' => VecHolds (x64Mach.getVec s' vd) t val ∧ x64Mach.mem s' = x64Mach.mem s) post := by
   dsimp only [x64Vload] at hv
+  obtain ⟨ci, hci, rfl⟩ := emitCleanPair_eq_some.mp hv
+  dsimp only [x64VloadIns] at hci
   cases hw : x64VecSlotWidth t with
-  | none => simp [hw] at hv
+  | none => simp [hw] at hci
   | some w =>
-    rw [hw] at hv
-    simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at hv
-    rcases hv with ⟨rfl, rfl⟩
+    rw [hw] at hci
+    simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at hci
+    rcases hci with ⟨rfl, rfl⟩
+    simp only [emitClean_append, emitClean_cons, emitClean_nil]
     obtain ⟨x, y, rfl⟩ := x64VecSlotWidth_pair hw
     have hbytes : (Ty.pair x y).bytes = 8 * w.slots := x64VecSlotWidth_bytes hw
     have hbits : w.bits = (Ty.pair x y).size := x64VecSlotWidth_bits_eq hw
@@ -1071,7 +1078,7 @@ theorem x64Vload_spec {h : Host} {k : Nat} {t : Ty} {vd : RegMm} {a : AddrArg Re
       · rw [RegZmms.get512_set_xmm_of_ne _ (fun e => hv (by simp [e])), hzmms1]
     · have htsize : (Ty.pair x y).size = (x64AwOf w).bits := by
         rw [← hbits, x64AwOf_bits_of_ne_w64 hw64]
-      dsimp only [x64VmemDir]; split
+      dsimp only [x64VmemI]; split
       · exact absurd rfl hw64
       · refine Program.wp.mono (Directive.FallsTo.wp (vmovdqu32_load_fallsTo w hw64 (x64AddrPrep a).2
             (a.eval s.regs.get64) vd i_mem s1 (fun {_} p => haddr1 p) hi1)) ?_
@@ -1097,12 +1104,15 @@ theorem x64Vstore_spec {h : Host} {k : Nat} {t : Ty} {vs : RegMm} {a : AddrArg R
     x64Mach.FallsTo x64CondReads h k c x64Scratch x64VecScratch clob s
       (fun s' => x64Mach.mem s' = storeMem (x64Mach.mem s) t (a.eval (x64Mach.getGpr s)) val) post := by
   dsimp only [x64Vstore] at hv
+  obtain ⟨ci, hci, rfl⟩ := emitCleanPair_eq_some.mp hv
+  dsimp only [x64VstoreIns] at hci
   cases hw : x64VecSlotWidth t with
-  | none => simp [hw] at hv
+  | none => simp [hw] at hci
   | some w =>
-    rw [hw] at hv
-    simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at hv
-    rcases hv with ⟨rfl, rfl⟩
+    rw [hw] at hci
+    simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at hci
+    rcases hci with ⟨rfl, rfl⟩
+    simp only [emitClean_append, emitClean_cons, emitClean_nil]
     have hbytes : t.bytes = 8 * w.slots := x64VecSlotWidth_bytes hw
     have hbits : w.bits = t.size := x64VecSlotWidth_bits_eq hw
     have hb8 : 8 * t.bytes = t.size := by
@@ -1123,7 +1133,7 @@ theorem x64Vstore_spec {h : Host} {k : Nat} {t : Ty} {vs : RegMm} {a : AddrArg R
       rintro s' ⟨hg', hv', hst', hdmem'⟩
       refine ⟨?_, vecFrame_upd (fun r hr => hg' ▸ hgpr1 r (ne_of_not_mem_x64Scratch hr).1)
         (fun v _ => by rw [hv', hzmms1]) (Or.inr (hst'.trans hst1))⟩
-      dsimp only [x64Mach]
+      change s'.dmem = storeMem s.dmem t (a.eval (x64Mach.getGpr s)) val
       rw [hdmem', hdmem1, hzmms1]
       simp only [storeMem]
       congr 1
@@ -1137,7 +1147,7 @@ theorem x64Vstore_spec {h : Host} {k : Nat} {t : Ty} {vs : RegMm} {a : AddrArg R
         exact h2
     · have htsize : t.size = 64 * w.slots := by
         rw [← hbits, SlotWidth.bits_eq_64_mul_slots]
-      dsimp only [x64VmemDir]; split
+      dsimp only [x64VmemI]; split
       · exact absurd rfl hw64
       · refine Program.wp.mono (Directive.FallsTo.wp (vmovdqu32_store_fallsTo w hw64 (x64AddrPrep a).2
             (a.eval s.regs.get64) vs s1 (fun {_} p => haddr1 p) ⟨_, hi1⟩)) ?_
@@ -1160,80 +1170,31 @@ theorem x64Vstore_spec {h : Host} {k : Nat} {t : Ty} {vs : RegMm} {a : AddrArg R
 
 section NoLab
 
-theorem x64AddrPrep_noLab (a : AddrArg Reg64) (l : Sym) :
-    Kraken.Directive.label l ∉ (x64AddrPrep a).1 := by
-  cases a with
-  | baseDisp _ _ => dsimp only [x64AddrPrep]; split <;> simp [x64MoviD, ins]
-  | imm _ => simp [x64AddrPrep, x64MoviD, ins]
-
-theorem x64SlotAddr_noLab (i : Nat) (l : Sym) :
-    Kraken.Directive.label l ∉ (x64SlotAddr i).1 := by
-  dsimp only [x64SlotAddr]
-  split <;> simp [x64MoviD, ins]
-
-theorem x64Movi64_noLab (vd : RegMm) (lo : BitVec 64) (l : Sym) :
-    Kraken.Directive.label l ∉ x64Movi64 vd lo := by
-  simp [x64Movi64, x64MoviD, ins, x64Avx128]
-
-theorem x64Movi128_noLab (vd tmp : RegMm) (c : BitVec 512) (l : Sym) :
-    Kraken.Directive.label l ∉ x64Movi128 vd tmp c := by
-  simp [x64Movi128, x64MoviD, ins, x64Avx128]
-
-theorem x64VmoviWith_noLab {tmp : RegMm} {w : SlotWidth} {vd : RegMm} {c : BitVec 512}
-    {code : List Directive} (h : x64VmoviWith tmp w vd c = some code) (l : Sym) :
-    Kraken.Directive.label l ∉ code := by
-  cases w with
-  | w64 =>
-    simp only [x64VmoviWith, Option.some.injEq] at h
-    subst h; exact x64Movi64_noLab vd _ l
-  | w128 =>
-    simp only [x64VmoviWith, Option.some.injEq] at h
-    subst h; exact x64Movi128_noLab vd tmp c l
-  | w256 | w512 =>
-    dsimp only [x64VmoviWith] at h
-    split at h
-    · simp only [Option.some.injEq] at h; subst h; simp [x64Avx]
-    · split at h
-      · simp only [Option.some.injEq] at h; subst h; simp [x64Avx]
-      · simp at h
-
 theorem x64Vmov_noLab (w : SlotWidth) (vd vs : RegMm) (l : Sym) :
-    Kraken.Directive.label l ∉ x64Vmov w vd vs := by
-  simp [x64Vmov, x64Avx]
+    Kraken.Directive.label l ∉ x64Vmov w vd vs :=
+  emitClean_noLab _ l
 
 theorem x64Vmovi_noLab {w : SlotWidth} {vd : RegMm} {c : BitVec 512} {code : List Directive}
     (h : x64Vmovi w vd c = some code) (l : Sym) : Kraken.Directive.label l ∉ code :=
-  x64VmoviWith_noLab h l
+  emitCleanOpt_noLab h l
 
 theorem x64VslotSt_noLab (w : SlotWidth) (i : Nat) (vs : RegMm) (l : Sym) :
-    Kraken.Directive.label l ∉ x64VslotSt w i vs := by
-  dsimp only [x64VslotSt, x64VmemDir]
-  simp only [List.mem_append, x64SlotAddr_noLab, false_or]
-  split <;> simp [x64Avx128, x64Avx]
+    Kraken.Directive.label l ∉ x64VslotSt w i vs :=
+  emitClean_noLab _ l
 
 theorem x64VslotLd_noLab (w : SlotWidth) (vd : RegMm) (i : Nat) (l : Sym) :
-    Kraken.Directive.label l ∉ x64VslotLd w vd i := by
-  dsimp only [x64VslotLd, x64VmemDir]
-  simp only [List.mem_append, x64SlotAddr_noLab, false_or]
-  split <;> simp [x64Avx128, x64Avx]
+    Kraken.Directive.label l ∉ x64VslotLd w vd i :=
+  emitClean_noLab _ l
 
 theorem x64Vload_noLab {t : Ty} {vd : RegMm} {a : AddrArg Reg64} {c : List Directive}
     {clob : FlagMask} (h : x64Vload t vd a = some (c, clob)) (l : Sym) :
-    Kraken.Directive.label l ∉ c := by
-  dsimp only [x64Vload] at h
-  cases hw : x64VecSlotWidth t <;> simp [hw] at h
-  obtain ⟨rfl, _⟩ := h
-  simp only [List.mem_append, x64AddrPrep_noLab, false_or]
-  dsimp only [x64VmemDir]; split <;> simp [x64Avx128, x64Avx]
+    Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab h l
 
 theorem x64Vstore_noLab {t : Ty} {vs : RegMm} {a : AddrArg Reg64} {c : List Directive}
     {clob : FlagMask} (h : x64Vstore t vs a = some (c, clob)) (l : Sym) :
-    Kraken.Directive.label l ∉ c := by
-  dsimp only [x64Vstore] at h
-  cases hw : x64VecSlotWidth t <;> simp [hw] at h
-  obtain ⟨rfl, _⟩ := h
-  simp only [List.mem_append, x64AddrPrep_noLab, false_or]
-  dsimp only [x64VmemDir]; split <;> simp [x64Avx128, x64Avx]
+    Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab h l
 
 end NoLab
 

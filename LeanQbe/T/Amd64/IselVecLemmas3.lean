@@ -32,14 +32,14 @@ private theorem ternlog_1vec_finish {t : Ty} (ht : t.size ≤ 512)
 
 private theorem x64EmitTernlog_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bits)
     {vd : RegMm} {imm : BitVec 8} {pa pb pc : PArg Reg64 RegMm CondCode t}
-    {va vb vc : Val t} {c : List Directive} {s : MachineData}
-    (hc : x64EmitTernlog w t vd imm pa pb pc = some c) (hvd : vd ∉ x64VecScratch)
+    {va vb vc : Val t} {c : List Instr} {s : MachineData}
+    (hc : x64EmitTernlogIns w t vd imm pa pb pc = some c) (hvd : vd ∉ x64VecScratch)
     (hpaV : ∀ vr ∈ pargVecs pa, vr ∉ x64VecScratch)
     (hpbV : ∀ vr ∈ pargVecs pb, vr ∉ x64VecScratch)
     (hpcV : ∀ vr ∈ pargVecs pc, vr ∉ x64VecScratch)
     (hha : x64Mach.PArgHolds s t pa va) (hhb : x64Mach.PArgHolds s t pb vb)
     (hhc : x64Mach.PArgHolds s t pc vc) :
-    @Program.wp _ c (fun s' => VecStepFrame vd s s' ∧
+    @Program.wp _ (emitClean c) (fun s' => VecStepFrame vd s s' ∧
       (s'.zmms.get512 vd).setWidth t.size =
         BitVec.ternaryLogic (toBits t va) (toBits t vb) (toBits t vc) imm)
       (fun _ _ => False) s := by
@@ -51,35 +51,43 @@ private theorem x64EmitTernlog_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size =
       (s.zmms.get512 vr).setWidth w.bits = (toBits t v).setWidth w.bits :=
     fun hh => (setWidth_vecHolds ht _ _ hh).trans (setWidth_of_eq ht _).symm
   cases pa <;> cases pb <;> cases pc <;>
-    try (simp [x64EmitTernlog] at hc; done)
+    try (simp [x64EmitTernlogIns] at hc; done)
   · -- .vec, .vec, .vec
     rename_i ra rb rc
     have hra := hpaV ra (by simp [pargVecs])
     have hrb := hpbV rb (by simp [pargVecs])
     have hrc := hpcV rc (by simp [pargVecs])
-    simp only [x64EmitTernlog, Option.some.injEq] at hc; subst hc
+    simp only [x64EmitTernlogIns, Option.some.injEq] at hc; subst hc
+    simp only [emitClean_ite, emitClean_append, emitClean_cons, emitClean_nil]
     exact ternlog_3reg_wp w ht hvd hra (ne_of_not_mem_x64VecScratch hrb).2
       (ne_of_not_mem_x64VecScratch hrc).2 (swHold hha) (swHold hhb) (swHold hhc)
   · -- .vec, .vec, .imm
     rename_i ra rb cc
     rcases hhc with rfl
     have hra := hpaV ra (by simp [pargVecs]); have hrb := hpbV rb (by simp [pargVecs])
-    dsimp only [x64EmitTernlog] at hc
-    cases hv : x64VmoviWith .mm15 w .mm14 ((toBits t cc).setWidth 512) with
+    dsimp only [x64EmitTernlogIns] at hc
+    cases hv : x64VmoviWithIns .mm15 w .mm14 ((toBits t cc).setWidth 512) with
     | none => simp [hv] at hc
     | some pimm =>
       rw [hv] at hc; simp only [Option.map_some, Option.some.injEq] at hc; subst hc
-      have hsplit : (if ra == vd then pimm ++ [x64TernlogD w vd rb .mm14 imm]
-          else if rb != vd then pimm ++ x64Vmov w vd ra ++ [x64TernlogD w vd rb .mm14 imm]
-          else pimm ++ x64Vmov w .mm15 vd ++ x64Vmov w vd ra ++ [x64TernlogD w vd .mm15 .mm14 imm]) =
-          pimm ++ (if ra == vd then [x64TernlogD w vd rb .mm14 imm]
+      simp only [emitClean_ite, emitClean_append, emitClean_cons, emitClean_nil]
+      have hsplit : (if ra == vd then emitClean pimm ++ [.instr (x64TernlogI w vd rb .mm14 imm)]
+          else if rb != vd then
+            emitClean pimm ++ emitClean (x64VmovIns w vd ra) ++
+              [.instr (x64TernlogI w vd rb .mm14 imm)]
+          else
+            emitClean pimm ++ emitClean (x64VmovIns w .mm15 vd) ++
+              emitClean (x64VmovIns w vd ra) ++
+              [.instr (x64TernlogI w vd .mm15 .mm14 imm)]) =
+          emitClean pimm ++ (if ra == vd then [x64TernlogD w vd rb .mm14 imm]
           else if rb != vd && .mm14 != vd then x64Vmov w vd ra ++ [x64TernlogD w vd rb .mm14 imm]
           else x64Vmov w .mm15 vd ++ x64Vmov w vd ra ++
             [x64TernlogD w vd (if rb == vd then .mm15 else rb) (if .mm14 == vd then .mm15 else .mm14) imm]) := by
-        simp only [bne, regMm_beq_false h14d]
+        simp only [bne, regMm_beq_false h14d, x64TernlogD, x64Vmov]
         by_cases h1 : ra = vd
         · simp [regMm_beq_true h1]
-        · by_cases h2 : rb = vd <;> simp [regMm_beq_false h1, regMm_beq_true, regMm_beq_false, h2, List.append_assoc]
+        · by_cases h2 : rb = vd <;>
+            simp [regMm_beq_false h1, regMm_beq_true, regMm_beq_false, h2, List.append_assoc]
       rw [hsplit]
       refine Program.wp.append (x64Vmovi_step .mm15 w .mm14 vd (by simp [x64VecScratch])
         (by simp [x64VecScratch]) h154 _ hv s) ?_
@@ -97,22 +105,29 @@ private theorem x64EmitTernlog_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size =
     rename_i ra cb rc
     rcases hhb with rfl
     have hra := hpaV ra (by simp [pargVecs]); have hrc := hpcV rc (by simp [pargVecs])
-    dsimp only [x64EmitTernlog] at hc
-    cases hv : x64VmoviWith .mm15 w .mm14 ((toBits t cb).setWidth 512) with
+    dsimp only [x64EmitTernlogIns] at hc
+    cases hv : x64VmoviWithIns .mm15 w .mm14 ((toBits t cb).setWidth 512) with
     | none => simp [hv] at hc
     | some pimm =>
       rw [hv] at hc; simp only [Option.map_some, Option.some.injEq] at hc; subst hc
-      have hsplit : (if ra == vd then pimm ++ [x64TernlogD w vd .mm14 rc imm]
-          else if rc != vd then pimm ++ x64Vmov w vd ra ++ [x64TernlogD w vd .mm14 rc imm]
-          else pimm ++ x64Vmov w .mm15 vd ++ x64Vmov w vd ra ++ [x64TernlogD w vd .mm14 .mm15 imm]) =
-          pimm ++ (if ra == vd then [x64TernlogD w vd .mm14 rc imm]
+      simp only [emitClean_ite, emitClean_append, emitClean_cons, emitClean_nil]
+      have hsplit : (if ra == vd then emitClean pimm ++ [.instr (x64TernlogI w vd .mm14 rc imm)]
+          else if rc != vd then
+            emitClean pimm ++ emitClean (x64VmovIns w vd ra) ++
+              [.instr (x64TernlogI w vd .mm14 rc imm)]
+          else
+            emitClean pimm ++ emitClean (x64VmovIns w .mm15 vd) ++
+              emitClean (x64VmovIns w vd ra) ++
+              [.instr (x64TernlogI w vd .mm14 .mm15 imm)]) =
+          emitClean pimm ++ (if ra == vd then [x64TernlogD w vd .mm14 rc imm]
           else if .mm14 != vd && rc != vd then x64Vmov w vd ra ++ [x64TernlogD w vd .mm14 rc imm]
           else x64Vmov w .mm15 vd ++ x64Vmov w vd ra ++
             [x64TernlogD w vd (if .mm14 == vd then .mm15 else .mm14) (if rc == vd then .mm15 else rc) imm]) := by
-        simp only [bne, regMm_beq_false h14d]
+        simp only [bne, regMm_beq_false h14d, x64TernlogD, x64Vmov]
         by_cases h1 : ra = vd
         · simp [regMm_beq_true h1]
-        · by_cases h2 : rc = vd <;> simp [regMm_beq_false h1, regMm_beq_true, regMm_beq_false, h2, List.append_assoc]
+        · by_cases h2 : rc = vd <;>
+            simp [regMm_beq_false h1, regMm_beq_true, regMm_beq_false, h2, List.append_assoc]
       rw [hsplit]
       refine Program.wp.append (x64Vmovi_step .mm15 w .mm14 vd (by simp [x64VecScratch])
         (by simp [x64VecScratch]) h154 _ hv s) ?_
@@ -129,7 +144,7 @@ private theorem x64EmitTernlog_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size =
   · -- .vec, .imm, .imm
     rename_i ra cb cc
     rcases hhb with rfl; rcases hhc with rfl
-    dsimp only [x64EmitTernlog] at hc
+    dsimp only [x64EmitTernlogIns] at hc
     refine Program.wp.mono (x64EmitTernlog1Vec_wp w (x := (toBits t va).setWidth 512) hc hvd (by
       rw [swHold hha, BitVec.setWidth_setWidth_of_le _ w.bits_le_512])) ?_
     rintro s' ⟨hf, hvd'⟩; refine ⟨hf, ?_⟩
@@ -146,11 +161,12 @@ private theorem x64EmitTernlog_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size =
     rcases hha with rfl
     have hrb := hpbV rb (by simp [pargVecs])
     have hrc := hpcV rc (by simp [pargVecs])
-    dsimp only [x64EmitTernlog] at hc
-    cases hv : x64Vmovi w vd ((toBits t ca).setWidth 512) with
+    dsimp only [x64EmitTernlogIns] at hc
+    cases hv : x64VmoviIns w vd ((toBits t ca).setWidth 512) with
     | none => simp [hv] at hc
     | some p =>
       rw [hv] at hc; simp only [Option.map_some, Option.some.injEq] at hc; subst hc
+      simp only [emitClean_ite, emitClean_append, emitClean_cons, emitClean_nil]
       by_cases hbc : rb ≠ vd ∧ rc ≠ vd
       · simp only [bne, regMm_beq_false hbc.1, regMm_beq_false hbc.2, Bool.not_false, Bool.and_self, ↓reduceIte]
         refine Program.wp.append (x64Vmovi_step .mm14 w vd vd (by simp) (by simp [x64VecScratch]) h14d _ hv s) ?_
@@ -199,7 +215,7 @@ private theorem x64EmitTernlog_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size =
   · -- .imm, .vec, .imm
     rename_i ca rb cc
     rcases hha with rfl; rcases hhc with rfl
-    dsimp only [x64EmitTernlog] at hc
+    dsimp only [x64EmitTernlogIns] at hc
     refine Program.wp.mono (x64EmitTernlog1Vec_wp w (x := (toBits t vb).setWidth 512) hc hvd (by
       rw [swHold hhb, BitVec.setWidth_setWidth_of_le _ w.bits_le_512])) ?_
     rintro s' ⟨hf, hvd'⟩; refine ⟨hf, ?_⟩
@@ -214,7 +230,7 @@ private theorem x64EmitTernlog_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size =
   · -- .imm, .imm, .vec
     rename_i ca cb rc
     rcases hha with rfl; rcases hhb with rfl
-    dsimp only [x64EmitTernlog] at hc
+    dsimp only [x64EmitTernlogIns] at hc
     refine Program.wp.mono (x64EmitTernlog1Vec_wp w (x := (toBits t vc).setWidth 512) hc hvd (by
       rw [swHold hhc, BitVec.setWidth_setWidth_of_le _ w.bits_le_512])) ?_
     rintro s' ⟨hf, hvd'⟩; refine ⟨hf, ?_⟩
@@ -229,7 +245,7 @@ private theorem x64EmitTernlog_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size =
   · -- .imm, .imm, .imm
     rename_i ca cb cc
     rcases hha with rfl; rcases hhb with rfl; rcases hhc with rfl
-    dsimp only [x64EmitTernlog] at hc
+    dsimp only [x64EmitTernlogIns] at hc
     refine Program.wp.mono (x64Vmovi_step .mm14 w vd vd (by simp) (by simp [x64VecScratch]) h14d _ hc s) ?_
     rintro s' ⟨hf, _, hvd'⟩; refine ⟨hf, ?_⟩
     have hlt512 : t.size ≤ 512 := ht ▸ w.bits_le_512
@@ -239,17 +255,17 @@ private theorem x64WideTernlogBin_wp [Host] {t : Ty} {imm : BitVec 8}
     {fv : ∀ {m : Nat}, BitVec m → BitVec m → BitVec m}
     (htern : ∀ {m : Nat} (x y : BitVec m), BitVec.ternaryLogic x y y imm = fv x y)
     {pas : Tup (PArg Reg64 RegMm CondCode) [t, t]} {dsts : Tup (PDst Reg64 RegMm CondCode) [t]}
-    {c : List Directive} {clob : FlagMask} {va vb : Val t} {s : MachineData}
-    (hc : x64WideTernlogBin imm pas dsts = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {va vb : Val t} {s : MachineData}
+    (hc : x64WideTernlogBinIns imm pas dsts = some (c, clob))
     (hpaV : ∀ vr ∈ tupArgVecs pas, vr ∉ x64VecScratch)
     (hdV : ∀ vr ∈ tupDstVecs dsts, vr ∉ x64VecScratch)
     (hhold : TRel (x64Mach.PArgHolds s) pas (va, vb, ())) :
     ∃ vd, dsts = (.vec vd, ()) ∧ clob = maskNone ∧ x64IsVecBits t = true ∧ t.size ≤ 512 ∧
-      @Program.wp _ c (fun s' => VecStepFrame vd s s' ∧
+      @Program.wp _ (emitClean c) (fun s' => VecStepFrame vd s s' ∧
         (s'.zmms.get512 vd).setWidth t.size = fv (toBits t va) (toBits t vb))
         (fun _ _ => False) s := by
   rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩
-  dsimp only [x64WideTernlogBin] at hc
+  dsimp only [x64WideTernlogBinIns] at hc
   cases hw : x64VecSlotWidth t with
   | none => simp [hw] at hc
   | some w =>
@@ -292,24 +308,24 @@ private theorem mapLanes32_cast {p q : Nat} (f : BitVec 32 → BitVec 32) (h : p
   subst h; rfl
 
 private theorem x64UniformShiftI32_wp [Host] {t : Ty}
-    {mk : SlotWidth → Nat → RegMm → RegMm → Directive}
+    {mk : SlotWidth → Nat → RegMm → RegMm → Instr}
     {f : Nat → BitVec 32 → BitVec 32}
     (hmop : ∀ (w : SlotWidth) (cnt : Nat) (d src : RegMm) (st : MachineData), w ≠ .w64 → cnt < 32 →
-      Directive.FallsTo (mk w cnt d src) st
+      Directive.FallsTo (.instr (mk w cnt d src)) st
         (fun st' => st' = { st with zmms := (st.zmms.set (x64AvxRegOf w d)
           (((st.zmms.get512 src).setWidth (x64AwOf w).bits).mapLanes 32 (f cnt))) }))
     {pas : Tup (PArg Reg64 RegMm CondCode) [t, t]} {dsts : Tup (PDst Reg64 RegMm CondCode) [t]}
-    {c : List Directive} {clob : FlagMask} {va vb : Val t} {s : MachineData}
-    (hc : x64UniformShiftI32 pas dsts mk = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {va vb : Val t} {s : MachineData}
+    (hc : x64UniformShiftI32Ins pas dsts mk = some (c, clob))
     (hdV : ∀ vr ∈ tupDstVecs dsts, vr ∉ x64VecScratch)
     (hhold : TRel (x64Mach.PArgHolds s) pas (va, vb, ())) :
     ∃ vd, dsts = (.vec vd, ()) ∧ clob = maskNone ∧ x64IsI32Vec t = true ∧ t.size ≤ 512 ∧
       ∃ cnt, x64UniformI32Splat? t vb = some cnt ∧
-      @Program.wp _ c (fun s' => VecStepFrame vd s s' ∧
+      @Program.wp _ (emitClean c) (fun s' => VecStepFrame vd s s' ∧
         (s'.zmms.get512 vd).setWidth t.size = (toBits t va).mapLanes 32 (f cnt))
         (fun _ _ => False) s := by
   rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩
-  dsimp only [x64UniformShiftI32] at hc
+  dsimp only [x64UniformShiftI32Ins] at hc
   cases hi32 : x64IsI32Vec t
   · simp [hi32] at hc
   · simp only [hi32, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hc
@@ -356,21 +372,21 @@ private theorem x64UniformShiftI32_wp [Host] {t : Ty}
 private theorem x64BinInPlace128_wp [Host] {t : Ty} {ok : Bool}
     (hok : ok = true → t.size = 128)
     {pas : Tup (PArg Reg64 RegMm CondCode) [t, t]} {dsts : Tup (PDst Reg64 RegMm CondCode) [t]}
-    {emit : RegMm → RegMm → Directive} {f : BitVec 128 → BitVec 128 → BitVec 128}
-    (hemit : ∀ d src st, Directive.FallsTo (emit d src) st
+    {emit : RegMm → RegMm → Instr} {f : BitVec 128 → BitVec 128 → BitVec 128}
+    (hemit : ∀ d src st, Directive.FallsTo (.instr (emit d src)) st
       (fun st' => st' = { st with zmms := (st.zmms.setLegacy (.xmm d)
         (f ((st.zmms.get512 d).setWidth 128) ((st.zmms.get512 src).setWidth 128))) }))
-    {c : List Directive} {clob : FlagMask} {va vb : Val t} {s : MachineData}
-    (hc : x64BinInPlace128 ok pas dsts emit = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {va vb : Val t} {s : MachineData}
+    (hc : x64BinInPlace128Ins ok pas dsts emit = some (c, clob))
     (hpaV : ∀ vr ∈ tupArgVecs pas, vr ∉ x64VecScratch)
     (hdV : ∀ vr ∈ tupDstVecs dsts, vr ∉ x64VecScratch)
     (hhold : TRel (x64Mach.PArgHolds s) pas (va, vb, ())) :
     ∃ (vd : RegMm) (ht : t.size = 128), ok = true ∧ dsts = (.vec vd, ()) ∧ clob = maskNone ∧
-      @Program.wp _ c (fun s' => VecStepFrame vd s s' ∧
+      @Program.wp _ (emitClean c) (fun s' => VecStepFrame vd s s' ∧
         (s'.zmms.get512 vd).setWidth t.size = (f ((toBits t va).cast ht) ((toBits t vb).cast ht)).cast ht.symm)
         (fun _ _ => False) s := by
   rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩
-  dsimp only [x64BinInPlace128] at hc
+  dsimp only [x64BinInPlace128Ins] at hc
   cases hokv : ok
   · simp [hokv] at hc
   · simp only [hokv, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hc
@@ -399,15 +415,15 @@ private theorem x64BinInPlace128_wp [Host] {t : Ty} {ok : Bool}
       rintro s' ⟨hf, hval⟩; exact ⟨hf, hval⟩
 
 private theorem x64LoadI32ToGpr_wp [Host] (rd : Reg64) {pa : PArg Reg64 RegMm CondCode i32}
-    {va : Val i32} {c : List Directive} {s : MachineData}
-    (hc : x64LoadI32ToGpr rd pa = some c) (hhold : x64Mach.PArgHolds s i32 pa va) :
-    @Program.wp _ c (fun s' => s'.dmem = s.dmem ∧ s'.zmms = s.zmms ∧
+    {va : Val i32} {c : List Instr} {s : MachineData}
+    (hc : x64LoadI32ToGprIns rd pa = some c) (hhold : x64Mach.PArgHolds s i32 pa va) :
+    @Program.wp _ (emitClean c) (fun s' => s'.dmem = s.dmem ∧ s'.zmms = s.zmms ∧
       (∀ r, r ≠ rd → s'.regs.get64 r = s.regs.get64 r) ∧
       s'.regs.get64 rd = va.setWidth 64) (fun _ _ => False) s := by
   cases pa with
-  | vec _ => simp [x64LoadI32ToGpr] at hc
+  | vec _ => simp [x64LoadI32ToGprIns] at hc
   | gpr r =>
-    simp only [x64LoadI32ToGpr, Option.some.injEq] at hc; subst hc
+    simp only [x64LoadI32ToGprIns, Option.some.injEq] at hc; subst hc
     obtain ⟨_, h32⟩ := hhold
     refine Program.wp.mono (Directive.FallsTo.wp (x64Mov32_fallsTo rd r s)) ?_
     rintro s' rfl
@@ -415,23 +431,23 @@ private theorem x64LoadI32ToGpr_wp [Host] (rd : Reg64) {pa : PArg Reg64 RegMm Co
     rw [Reg64s.get64_set64_same, h32]
   | imm ca =>
     rcases hhold with rfl
-    simp only [x64LoadI32ToGpr, Option.some.injEq] at hc; subst hc
+    simp only [x64LoadI32ToGprIns, Option.some.injEq] at hc; subst hc
     refine Program.wp.mono (Directive.FallsTo.wp (x64MoviD_fallsTo rd (ca.setWidth 64) s)) ?_
     rintro s' rfl
     exact ⟨rfl, rfl, fun rr hrr => Reg64s.get64_set64_of_ne _ _ _ _ hrr.symm, Reg64s.get64_set64_same _ _ _⟩
 
 private theorem x64LoadSubVec64_wp [Host] {t : Ty} (ht : t.size = 64) (d vd : RegMm)
     (hd : d ∈ vd :: x64VecScratch) {pa : PArg Reg64 RegMm CondCode t} {va : Val t}
-    {c : List Directive} {s : MachineData}
-    (hc : x64LoadSubVec64 ht d pa = some c) (hhold : x64Mach.PArgHolds s t pa va) :
-    @Program.wp _ c (fun s' => VecStepFrame vd s s' ∧
+    {c : List Instr} {s : MachineData}
+    (hc : x64LoadSubVec64Ins ht d pa = some c) (hhold : x64Mach.PArgHolds s t pa va) :
+    @Program.wp _ (emitClean c) (fun s' => VecStepFrame vd s s' ∧
       (∀ vr, vr ≠ d → s'.zmms.get512 vr = s.zmms.get512 vr) ∧
       (s'.zmms.get512 d).setWidth 128 = ((toBits t va).cast ht).setWidth 128)
       (fun _ _ => False) s := by
   cases pa with
-  | gpr _ | flag _ => simp [x64LoadSubVec64] at hc
+  | gpr _ | flag _ => simp [x64LoadSubVec64Ins] at hc
   | vec r =>
-    simp only [x64LoadSubVec64, Option.some.injEq] at hc; subst hc
+    simp only [x64LoadSubVec64Ins, Option.some.injEq] at hc; subst hc
     refine Program.wp.mono (Directive.FallsTo.wp (x64Vmovq_fallsTo d r s)) ?_
     rintro s' rfl
     refine ⟨⟨rfl, rfl, fun _ _ => rfl, fun vr hvr =>
@@ -441,7 +457,7 @@ private theorem x64LoadSubVec64_wp [Host] {t : Ty} (ht : t.size = 64) (d vd : Re
       BitVec.setWidth_eq, setWidth_vecHolds ht _ _ hhold]
   | imm ca =>
     rcases hhold with rfl
-    simp only [x64LoadSubVec64, Option.some.injEq] at hc; subst hc
+    simp only [x64LoadSubVec64Ins, Option.some.injEq] at hc; subst hc
     refine Program.wp.mono (x64Movi64_wp d _ s) ?_
     rintro s' ⟨hd', hs', hr', hz', hval⟩
     refine ⟨⟨hd', hs', hr', fun vr hvr => hz' vr (fun e => hvr (by subst e; exact hd))⟩, hz', ?_⟩
@@ -461,15 +477,15 @@ private theorem mkpair32_bits (a b : BitVec 32) :
 
 private theorem x64EmitMkpair_subvec_aux {a b : Ty} (h32 : ¬(a = .bits 32 ∧ b = .bits 32))
     {pas : Tup (PArg Reg64 RegMm CondCode) [a, b]} {dsts : Tup (PDst Reg64 RegMm CondCode) [.pair a b]}
-    {vd : RegMm} (hd : dsts = (.vec vd, ())) {c : List Directive} {clob : FlagMask}
-    (hc : x64EmitMkpair pas dsts = some (c, clob)) :
+    {vd : RegMm} (hd : dsts = (.vec vd, ())) {c : List Instr} {clob : FlagMask}
+    (hc : x64EmitMkpairIns pas dsts = some (c, clob)) :
     ∃ pa pb, ∃ (h : a = b ∧ x64IsBridgeSubVec a ∧ a.size = 64),
       pas = (pa, pb, ()) ∧
-      ((x64LoadSubVec64 h.2.2 .mm14 pa).bind fun la =>
-        (x64LoadSubVec64 (h.1 ▸ h.2.2 : b.size = 64) vd pb).bind fun lb =>
-          some (la ++ lb ++ [x64Avx128 (.pshufd (.avx (.xmm vd)) (.avx (.xmm vd)) (.int64 0x4e)),
-            x64TernlogD .w128 vd .mm14 .mm14 0xFE], maskNone)) = some (c, clob) := by
-  dsimp only [x64EmitMkpair] at hc
+      ((x64LoadSubVec64Ins h.2.2 .mm14 pa).bind fun la =>
+        (x64LoadSubVec64Ins (h.1 ▸ h.2.2 : b.size = 64) vd pb).bind fun lb =>
+          some (la ++ lb ++ [x64Avx128I (.pshufd (.avx (.xmm vd)) (.avx (.xmm vd)) (.int64 0x4e)),
+            x64TernlogI .w128 vd .mm14 .mm14 0xFE], maskNone)) = some (c, clob) := by
+  dsimp only [x64EmitMkpairIns] at hc
   split at hc
   · exact absurd ⟨rfl, rfl⟩ h32
   · rename_i pa pb vd'
@@ -482,20 +498,20 @@ private theorem x64EmitMkpair_subvec_aux {a b : Ty} (h32 : ¬(a = .bits 32 ∧ b
 private theorem x64EmitMkpair_spec {h : Host} {k : Nat} {a b : Ty}
     {pas : Tup (PArg Reg64 RegMm CondCode) [a, b]}
     {dsts : Tup (PDst Reg64 RegMm CondCode) [.pair a b]}
-    {c : List Directive} {clob : FlagMask} {va : Val a} {vb : Val b} {P : Tup Val [.pair a b] → Prop}
+    {c : List Instr} {clob : FlagMask} {va : Val a} {vb : Val b} {P : Tup Val [.pair a b] → Prop}
     {s : MachineData} {post : MachineState → Prop}
-    (hc : x64EmitMkpair pas dsts = some (c, clob))
+    (hc : x64EmitMkpairIns pas dsts = some (c, clob))
     (hpaG : ∀ r ∈ tupArgGprs pas, r ∉ x64Scratch)
     (hpaV : ∀ vr ∈ tupArgVecs pas, vr ∉ x64VecScratch)
     (hdV : ∀ vr ∈ tupDstVecs dsts, vr ∉ x64VecScratch)
     (hhold : TRel (x64Mach.PArgHolds s) pas (va, vb, ()))
     (hwp : P ((va, vb), ())) :
-    x64Mach.FallsTo x64CondReads h k c (tupDstGprs dsts ++ x64Scratch)
+    x64Mach.FallsTo x64CondReads h k (emitClean c) (tupDstGprs dsts ++ x64Scratch)
       (tupDstVecs dsts ++ x64VecScratch) clob s
       (fun s' => (∃ rvs, P rvs ∧ TRel (x64Mach.PDstHolds s') dsts rvs) ∧ x64Mach.mem s' = x64Mach.mem s) post := by
   rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩
   cases d with
-  | gpr _ => simp [x64EmitMkpair] at hc
+  | gpr _ => simp [x64EmitMkpairIns] at hc
   | vec vd =>
     have hvd : vd ∉ x64VecScratch := hdV vd (by simp [tupDstVecs])
     have h14d : (.mm14 : RegMm) ≠ vd := (ne_of_not_mem_x64VecScratch hvd).1.symm
@@ -503,23 +519,23 @@ private theorem x64EmitMkpair_spec {h : Host} {k : Nat} {a b : Ty}
     rcases hrest with _ | ⟨hhb, _⟩
     by_cases h32 : a = .bits 32 ∧ b = .bits 32
     · rcases h32 with ⟨rfl, rfl⟩
-      simp only [x64EmitMkpair, Bind.bind, Option.bind] at hc
-      cases hla : x64LoadI32ToGpr .r10 pa with
+      simp only [x64EmitMkpairIns, Bind.bind, Option.bind] at hc
+      cases hla : x64LoadI32ToGprIns .r10 pa with
       | none => simp [hla] at hc
       | some la =>
-        cases hlb : x64LoadI32ToGpr .r11 pb with
+        cases hlb : x64LoadI32ToGprIns .r11 pb with
         | none => simp [hla, hlb] at hc
         | some lb =>
           rw [hla, hlb] at hc; simp only [Option.some.injEq, Prod.mk.injEq] at hc
           rcases hc with ⟨rfl, rfl⟩
           apply vecFallsTo_of_wp
-          rw [List.append_assoc]
+          simp only [emitClean_append, emitClean_cons, emitClean_nil, List.append_assoc]
           refine Program.wp.append (x64LoadI32ToGpr_wp .r10 hla hha) ?_
           rintro s1 ⟨hd1, hz1, hg1, h10_1⟩
           have hhb1 : x64Mach.PArgHolds s1 i32 pb vb := by
             cases pb with
             | imm _ => exact hhb
-            | vec _ => simp [x64LoadI32ToGpr] at hlb
+            | vec _ => simp [x64LoadI32ToGprIns] at hlb
             | gpr r =>
               have hr10 : r ≠ .r10 := (ne_of_not_mem_x64Scratch
                 (hpaG r (by cases pa <;> simp [tupArgGprs]))).1
@@ -565,22 +581,22 @@ private theorem x64EmitMkpair_spec {h : Host} {k : Nat} {a b : Ty}
     · obtain ⟨pa', pb', hcond, heq, hc'⟩ := x64EmitMkpair_subvec_aux h32 rfl hc
       rcases heq with ⟨rfl, rfl⟩
       have hb64 : b.size = 64 := hcond.1 ▸ hcond.2.2
-      cases hla : x64LoadSubVec64 hcond.2.2 .mm14 pa with
+      cases hla : x64LoadSubVec64Ins hcond.2.2 .mm14 pa with
       | none => simp [hla] at hc'
       | some la =>
-        cases hlb : x64LoadSubVec64 hb64 vd pb with
+        cases hlb : x64LoadSubVec64Ins hb64 vd pb with
         | none => simp [hla, hlb] at hc'
         | some lb =>
           rw [hla, hlb] at hc'; simp only [Option.bind_some, Option.some.injEq, Prod.mk.injEq] at hc'
           rcases hc' with ⟨rfl, rfl⟩
           have hle : (Ty.pair a b).size ≤ 512 := by simp only [Ty.size]; omega
           apply vecFallsTo_of_wp
-          rw [List.append_assoc]
+          simp only [emitClean_append, emitClean_cons, emitClean_nil, List.append_assoc]
           refine Program.wp.append (x64LoadSubVec64_wp hcond.2.2 .mm14 vd (by simp [x64VecScratch]) hla hha) ?_
           rintro s1 ⟨hf1, hz1, h14_1⟩
           have hpb1 : x64Mach.PArgHolds s1 b pb vb := by
             cases pb with
-            | gpr _ | flag _ => simp [x64LoadSubVec64] at hlb
+            | gpr _ | flag _ => simp [x64LoadSubVec64Ins] at hlb
             | imm _ => exact hhb
             | vec rb =>
               have hrb14 : rb ≠ .mm14 := (ne_of_not_mem_x64VecScratch
@@ -641,26 +657,26 @@ private theorem shufd_0x4e_hi64 (hi64 lo64 : BitVec 64) :
 private theorem x64EmitUnpair_spec {h : Host} {k : Nat} {a b : Ty}
     {pas : Tup (PArg Reg64 RegMm CondCode) [.pair a b]}
     {dsts : Tup (PDst Reg64 RegMm CondCode) [a, b]}
-    {c : List Directive} {clob : FlagMask} {v : Val (.pair a b)} {P : Tup Val [a, b] → Prop}
+    {c : List Instr} {clob : FlagMask} {v : Val (.pair a b)} {P : Tup Val [a, b] → Prop}
     {s : MachineData} {post : MachineState → Prop}
-    (hc : x64EmitUnpair pas dsts = some (c, clob))
+    (hc : x64EmitUnpairIns pas dsts = some (c, clob))
     (hpaV : ∀ vr ∈ tupArgVecs pas, vr ∉ x64VecScratch)
     (hdG : ∀ r ∈ tupDstGprs dsts, r ∉ x64Scratch)
     (hdV : ∀ vr ∈ tupDstVecs dsts, vr ∉ x64VecScratch)
     (hhold : TRel (x64Mach.PArgHolds s) pas (v, ()))
     (hwp : P (v.1, v.2, ())) :
-    x64Mach.FallsTo x64CondReads h k c (tupDstGprs dsts ++ x64Scratch)
+    x64Mach.FallsTo x64CondReads h k (emitClean c) (tupDstGprs dsts ++ x64Scratch)
       (tupDstVecs dsts ++ x64VecScratch) clob s
       (fun s' => (∃ rvs, P rvs ∧ TRel (x64Mach.PDstHolds s') dsts rvs) ∧ x64Mach.mem s' = x64Mach.mem s) post := by
   rcases pas with ⟨pa, ⟨⟩⟩; rcases dsts with ⟨d0, d1, ⟨⟩⟩
   rcases hhold with _ | ⟨hhv, _⟩
   cases d0 <;> cases d1 <;>
-    try (simp [x64EmitUnpair] at hc; done)
+    try (simp [x64EmitUnpairIns] at hc; done)
   · -- .gpr d0, .gpr d1
     rename_i r0 r1
     by_cases h32 : a = .bits 32 ∧ b = .bits 32
     · rcases h32 with ⟨rfl, rfl⟩
-      dsimp only [x64EmitUnpair] at hc
+      dsimp only [x64EmitUnpairIns] at hc
       by_cases heq : (r0 == r1) = true
       · simp [heq] at hc
       · have hne : r0 ≠ r1 := fun e => heq (by subst e; cases r0 <;> rfl)
@@ -668,10 +684,10 @@ private theorem x64EmitUnpair_spec {h : Host} {k : Nat} {a b : Ty}
         have hr1 : r1 ∉ x64Scratch := hdG r1 (by simp [tupDstGprs])
         have hr0_10 : r0 ≠ .r10 := (ne_of_not_mem_x64Scratch hr0).1
         have h10 : ∃ lp, (match pa with
-            | .vec vs => some [x64Avx128 (.vmovOut .W64 (.reg (q .r10)) (.xmm vs))]
-            | .imm cc => some [x64MoviD .r10 (toBits (.pair i32 i32) cc)]
+            | .vec vs => some [.instr (x64Avx128I (.vmovOut .W64 (.reg (q .r10)) (.xmm vs)))]
+            | .imm cc => some [.instr (x64MoviI .r10 (toBits (.pair i32 i32) cc))]
             | _ => none) = some lp ∧
-            c = lp ++ [ins32 (.mov (.reg (d r0)) (.reg (d .r10))),
+            emitClean c = lp ++ [ins32 (.mov (.reg (d r0)) (.reg (d .r10))),
               ins (.shr (.reg (q .r10)) (.imm8 (.int64 32))),
               ins32 (.mov (.reg (d r1)) (.reg (d .r10)))] ∧ clob = maskAll ∧
             @Program.wp _ lp (fun s1 => s1.dmem = s.dmem ∧ s1.zmms = s.zmms ∧
@@ -681,19 +697,24 @@ private theorem x64EmitUnpair_spec {h : Host} {k : Nat} {a b : Ty}
           | gpr _ => simp [heq] at hc
           | vec vs =>
             simp only [heq, Bool.false_eq_true, ↓reduceIte, Option.map_some, Option.some.injEq, Prod.mk.injEq] at hc
-            refine ⟨_, rfl, hc.1.symm, hc.2.symm, Program.wp.mono (Directive.FallsTo.wp (x64VmovOut64_reg_fallsTo .r10 vs s)) ?_⟩
+            rcases hc with ⟨rfl, rfl⟩
+            refine ⟨_, rfl, by simp [emitClean_cons, emitClean_nil], rfl,
+              Program.wp.mono (Directive.FallsTo.wp (x64VmovOut64_reg_fallsTo .r10 vs s)) ?_⟩
             rintro s1 rfl
             exact ⟨rfl, rfl, fun r hr => Reg64s.get64_set64_of_ne _ _ _ _ hr.symm, by
               rw [Reg64s.get64_set64_same]; exact hhv.2⟩
           | imm cc =>
             rcases hhv with rfl
             simp only [heq, Bool.false_eq_true, ↓reduceIte, Option.map_some, Option.some.injEq, Prod.mk.injEq] at hc
-            refine ⟨_, rfl, hc.1.symm, hc.2.symm, Program.wp.mono (Directive.FallsTo.wp (x64MoviD_fallsTo .r10 _ s)) ?_⟩
+            rcases hc with ⟨rfl, rfl⟩
+            refine ⟨_, rfl, by simp [emitClean_cons, emitClean_nil], rfl,
+              Program.wp.mono (Directive.FallsTo.wp (x64MoviD_fallsTo .r10 _ s)) ?_⟩
             rintro s1 rfl
             exact ⟨rfl, rfl, fun r hr => Reg64s.get64_set64_of_ne _ _ _ _ hr.symm,
               by dsimp only; exact Reg64s.get64_set64_same _ _ _⟩
-        obtain ⟨lp, _, rfl, rfl, hlp⟩ := h10
+        obtain ⟨lp, _, heqc, rfl, hlp⟩ := h10
         apply vecFallsTo_of_wp
+        rw [heqc]
         refine Program.wp.append hlp ?_
         rintro s1 ⟨hd1, hz1, hg1, h10⟩
         refine Program.wp.cons (Directive.FallsTo.wp (x64Mov32_fallsTo r0 .r10 s1)) ?_
@@ -743,13 +764,13 @@ private theorem x64EmitUnpair_spec {h : Host} {k : Nat} {a b : Ty}
         | bits m =>
           by_cases hn : n = 32
           · have hm2 : m ≠ 32 := fun hm => h32 ⟨congrArg Ty.bits hn, congrArg Ty.bits hm⟩
-            simp [x64EmitUnpair, hn, hm2] at hc
-          · simp [x64EmitUnpair, hn] at hc
-        | _ => simp [x64EmitUnpair] at hc
-      | _ => simp [x64EmitUnpair] at hc
+            simp [x64EmitUnpairIns, hn, hm2] at hc
+          · simp [x64EmitUnpairIns, hn] at hc
+        | _ => simp [x64EmitUnpairIns] at hc
+      | _ => simp [x64EmitUnpairIns] at hc
   · -- .vec v0, .vec v1
     rename_i v0 v1
-    dsimp only [x64EmitUnpair] at hc
+    dsimp only [x64EmitUnpairIns] at hc
     by_cases heq : (v0 == v1) = true
     · simp [heq] at hc
     · have hv01 : v0 ≠ v1 := fun e => heq (by subst e; exact regMm_beq_true rfl)
@@ -831,6 +852,7 @@ private theorem x64EmitUnpair_spec {h : Host} {k : Nat} {a b : Ty}
           simp only [Option.some.injEq, Prod.mk.injEq] at hc
           rcases hc with ⟨rfl, rfl⟩
           apply vecFallsTo_of_wp
+          rw [emitClean_append]
           refine Program.wp.append (x64Movi64_wp v0 _ s) ?_
           rintro s1 ⟨hd1, hs1, hr1, hz1, hv0_1⟩
           refine Program.wp.mono (x64Movi64_wp v1 _ s1) ?_
@@ -881,19 +903,19 @@ private theorem x64FloatBin128_wp {h : Host} {k : Nat} {t : Ty}
     (mop : Float.Model.Format → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)
     (hlane : ∀ x y k, floatResultWp .s (mop .binary32 (unpackFloat .s x) (unpackFloat .s y)) k →
       k (sseBinOp op x y))
-    {emit : RegMm → RegMm → Directive}
-    (hemit : ∀ d src st, Directive.FallsTo (emit d src) st
+    {emit : RegMm → RegMm → Instr}
+    (hemit : ∀ d src st, Directive.FallsTo (.instr (emit d src)) st
       (fun st' => st' = { st with zmms := (st.zmms.setLegacy (.xmm d)
         (BitVec.packedBinOp 32 (sseBinOp op) ((st.zmms.get512 d).setWidth 128) ((st.zmms.get512 src).setWidth 128))) }))
     {pas : Tup (PArg Reg64 RegMm CondCode) [t, t]} {dsts : Tup (PDst Reg64 RegMm CondCode) [t]}
-    {c : List Directive} {clob : FlagMask} {va vb : Val t} {P : Tup Val [t] → Prop}
+    {c : List Instr} {clob : FlagMask} {va vb : Val t} {P : Tup Val [t] → Prop}
     {s : MachineData} {post : MachineState → Prop}
-    (hc : x64BinInPlace128 (x64IsF32Vec t && t.size == 128) pas dsts emit = some (c, clob))
+    (hc : x64BinInPlace128Ins (x64IsF32Vec t && t.size == 128) pas dsts emit = some (c, clob))
     (hpaV : ∀ vr ∈ tupArgVecs pas, vr ∉ x64VecScratch)
     (hdV : ∀ vr ∈ tupDstVecs dsts, vr ∉ x64VecScratch)
     (hhold : TRel (x64Mach.PArgHolds s) pas (va, vb, ()))
     (hwp : (if !t.isFloatTree then False else liftFloatRel2 mop t va vb (fun r => P (r, ())))) :
-    x64Mach.FallsTo x64CondReads h k c (tupDstGprs dsts ++ x64Scratch)
+    x64Mach.FallsTo x64CondReads h k (emitClean c) (tupDstGprs dsts ++ x64Scratch)
       (tupDstVecs dsts ++ x64VecScratch) clob s
       (fun s' => (∃ rvs, P rvs ∧ TRel (x64Mach.PDstHolds s') dsts rvs) ∧ x64Mach.mem s' = x64Mach.mem s) post := by
   obtain ⟨vd, _, hok, rfl, rfl, hwp0⟩ := x64BinInPlace128_wp (ok := x64IsF32Vec t && t.size == 128)
@@ -912,7 +934,7 @@ theorem x64Vop_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig r
     {pas : Tup (PArg Reg64 RegMm CondCode) sig} {dsts : Tup (PDst Reg64 RegMm CondCode) rs}
     {vh : VariantHint} {c : List Directive} {clob : FlagMask} {vs : Tup Val sig}
     {P : Tup Val rs → Prop} {s : MachineData} {post : MachineState → Prop}
-    (hc : x64Vop code pas dsts vh = some (c, clob))
+    (hc_in : x64Vop code pas dsts vh = some (c, clob))
     (_hpaG : ∀ r ∈ tupArgGprs pas, r ∉ x64Scratch)
     (hpaV : ∀ vr ∈ tupArgVecs pas, vr ∉ x64VecScratch)
     (hdG : ∀ r ∈ tupDstGprs dsts, r ∉ x64Scratch)
@@ -921,10 +943,12 @@ theorem x64Vop_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig r
     x64Mach.FallsTo x64CondReads h k c (tupDstGprs dsts ++ x64Scratch)
       (tupDstVecs dsts ++ x64VecScratch) clob s
       (fun s' => (∃ rvs, P rvs ∧ TRel (x64Mach.PDstHolds s') dsts rvs) ∧ x64Mach.mem s' = x64Mach.mem s) post := by
+  dsimp only [x64Vop] at hc_in
+  obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc_in
   cases code with
   | copy t =>
     rcases vs with ⟨va, ⟨⟩⟩; rcases pas with ⟨pa, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩
-    dsimp only [x64Vop] at hc
+    dsimp only [x64VopIns] at hc
     cases hw : x64VecSlotWidth t with
     | none => simp [hw] at hc
     | some w =>
@@ -951,7 +975,7 @@ theorem x64Vop_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig r
         | imm ca =>
           rcases hha with rfl
           dsimp only at hc
-          cases hv : x64Vmovi w vd ((toBits t ca).setWidth 512) with
+          cases hv : x64VmoviIns w vd ((toBits t ca).setWidth 512) with
           | none => simp [hv] at hc
           | some p =>
             rw [hv] at hc; simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at hc
@@ -966,7 +990,7 @@ theorem x64Vop_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig r
             exact h1
   | add t =>
     rcases vs with ⟨va, vb, ⟨⟩⟩; rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩
-    dsimp only [x64Vop] at hc
+    dsimp only [x64VopIns] at hc
     cases hi32 : x64IsI32Vec t
     · simp [hi32] at hc
     · simp only [hi32, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hc
@@ -1012,7 +1036,7 @@ theorem x64Vop_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig r
     exact ⟨hf, by rw [hval, toBits_lift2_bitwise (· ^^^ ·) (· ^^ ·) (fun _ _ _ _ => BitVec.getLsbD_xor) hvb]⟩
   | not t =>
     rcases vs with ⟨va, ⟨⟩⟩; rcases pas with ⟨pa, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩
-    dsimp only [x64Vop] at hc
+    dsimp only [x64VopIns] at hc
     cases hw : x64VecSlotWidth t with
     | none => simp [hw] at hc
     | some w =>
@@ -1049,7 +1073,7 @@ theorem x64Vop_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig r
           exact ⟨hf, by rw [hval, BitVec.cast_cast, BitVec.cast_eq, toBits_lift1_not hvb]⟩
   | ternlog t imm =>
     rcases vs with ⟨va, vb, vc, ⟨⟩⟩; rcases pas with ⟨pa, pb, pc, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩
-    dsimp only [x64Vop] at hc
+    dsimp only [x64VopIns] at hc
     cases hw : x64VecSlotWidth t with
     | none => simp [hw] at hc
     | some w =>
@@ -1096,7 +1120,7 @@ theorem x64Vop_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig r
       (fun c x => x >>> c) cnt (fun _ _ hy => by rw [hy]) hi32 _ va vb hsp]⟩
   | shufd t imm =>
     rcases vs with ⟨va, ⟨⟩⟩; rcases pas with ⟨pa, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩
-    dsimp only [x64Vop] at hc
+    dsimp only [x64VopIns] at hc
     cases h128 : x64Is128Vec t
     · simp [h128] at hc
     · simp only [h128, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hc
@@ -1125,7 +1149,7 @@ theorem x64Vop_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig r
         exact (toBits_ofBits t _).symm
   | shufb t =>
     rcases vs with ⟨va, vb, ⟨⟩⟩
-    dsimp only [x64Vop] at hc
+    dsimp only [x64VopIns] at hc
     obtain ⟨vd, ht, _, rfl, rfl, hwp0⟩ := x64BinInPlace128_wp (ok := x64Is128Vec t)
       (fun h => by simp only [x64Is128Vec, Bool.and_eq_true, beq_iff_eq] at h; exact h.2)
       x64Pshufb_fallsTo hc hpaV hdV hhold
@@ -1136,7 +1160,7 @@ theorem x64Vop_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig r
     exact (toBits_ofBits t _).symm
   | alignr t imm =>
     rcases vs with ⟨va, vb, ⟨⟩⟩
-    dsimp only [x64Vop] at hc
+    dsimp only [x64VopIns] at hc
     obtain ⟨vd, ht, _, rfl, rfl, hwp0⟩ := x64BinInPlace128_wp (ok := x64Is128Vec t)
       (f := fun a b => BitVec.alignBytes a b imm)
       (fun h => by simp only [x64Is128Vec, Bool.and_eq_true, beq_iff_eq] at h; exact h.2)
@@ -1148,7 +1172,7 @@ theorem x64Vop_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig r
     exact (toBits_ofBits t _).symm
   | blendw t imm =>
     rcases vs with ⟨va, vb, ⟨⟩⟩
-    dsimp only [x64Vop] at hc
+    dsimp only [x64VopIns] at hc
     obtain ⟨vd, ht, _, rfl, rfl, hwp0⟩ := x64BinInPlace128_wp (ok := x64Is128Vec t)
       (f := fun a b => a.blendWords b imm)
       (fun h => by simp only [x64Is128Vec, Bool.and_eq_true, beq_iff_eq] at h; exact h.2)
@@ -1172,7 +1196,7 @@ theorem x64Vop_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig r
   | unpair _ _ =>
     rcases vs with ⟨v, ⟨⟩⟩
     exact x64EmitUnpair_spec hc hpaV hdG hdV hhold hwp
-  | _ => simp [x64Vop] at hc
+  | _ => simp [x64VopIns] at hc
 
 end OpSpecs
 
@@ -1180,241 +1204,12 @@ end OpSpecs
 
 section NoLab
 
-private theorem x64EmitUnary_noLab {w : SlotWidth} {t : Ty} {vd : RegMm}
-    {pa : PArg Reg64 RegMm CondCode t} {emit : RegMm → RegMm → Directive} {c : List Directive}
-    (hemit : ∀ d s l, Kraken.Directive.label l ∉ [emit d s])
-    (h : x64EmitUnary w t vd pa emit = some c) (l : Sym) : Kraken.Directive.label l ∉ c := by
-  cases pa with
-  | gpr _ | flag _ => simp [x64EmitUnary] at h
-  | vec r => simp only [x64EmitUnary, Option.some.injEq] at h; subst h; exact hemit vd r l
-  | imm ca =>
-    dsimp only [x64EmitUnary] at h
-    cases hv : x64Vmovi w vd ((toBits t ca).setWidth 512) with
-    | none => simp [hv] at h
-    | some p =>
-      rw [hv] at h; simp only [Option.map_some, Option.some.injEq] at h; subst h
-      simp [x64Vmovi_noLab hv l, hemit vd vd l]
-
-private theorem x64EmitBinInPlace_noLab {w : SlotWidth} {t : Ty} {vd : RegMm}
-    {pa pb : PArg Reg64 RegMm CondCode t} {emit : RegMm → RegMm → Directive} {c : List Directive}
-    (hemit : ∀ d s l, Kraken.Directive.label l ∉ [emit d s])
-    (h : x64EmitBinInPlace w t vd pa pb emit = some c) (l : Sym) : Kraken.Directive.label l ∉ c := by
-  cases pa <;> cases pb <;> try (simp [x64EmitBinInPlace] at h; done)
-  · simp only [x64EmitBinInPlace, Option.some.injEq] at h; subst h
-    split
-    · exact hemit vd _ l
-    · split <;> simp [x64Vmov_noLab, hemit]
-  · rename_i va cb
-    dsimp only [x64EmitBinInPlace] at h
-    cases hv : x64Vmovi w .mm15 ((toBits t cb).setWidth 512) <;> simp [hv] at h
-    rcases h with rfl
-    have h1 := x64Vmovi_noLab hv l
-    split <;> simp [h1, x64Vmov_noLab, hemit]
-  · rename_i ca vb
-    dsimp only [x64EmitBinInPlace] at h
-    cases hv : x64Vmovi w vd ((toBits t ca).setWidth 512) <;> simp [hv] at h
-    rcases h with rfl; split <;> simp [x64Vmovi_noLab hv l, x64Vmov_noLab, hemit]
-  · rename_i ca cb
-    dsimp only [x64EmitBinInPlace, Bind.bind, Option.bind] at h
-    cases h1 : x64Vmovi w vd ((toBits t ca).setWidth 512) <;> simp [h1] at h
-    cases h2 : x64Vmovi w .mm15 ((toBits t cb).setWidth 512) <;> simp [h2] at h
-    rcases h with rfl; simp [x64Vmovi_noLab h1 l, x64Vmovi_noLab h2 l, hemit]
-
-private theorem x64EmitTernlog_noLab {w : SlotWidth} {t : Ty} {vd : RegMm} {imm : BitVec 8}
-    {pa pb pc : PArg Reg64 RegMm CondCode t} {c : List Directive}
-    (h : x64EmitTernlog w t vd imm pa pb pc = some c) (l : Sym) :
-    Kraken.Directive.label l ∉ c := by
-  have h1vec : ∀ {rx : RegMm} {f0 f1 : BitVec 512} {c0 : List Directive},
-      x64EmitTernlog1Vec w vd rx f0 f1 = some c0 → Kraken.Directive.label l ∉ c0 := by
-    intro rx f0 f1 c0 hc0
-    dsimp only [x64EmitTernlog1Vec, Bind.bind, Option.bind] at hc0
-    cases hk : x64Vmovi w .mm15 (f1 ^^^ f0) <;> simp [hk] at hc0
-    cases hf : x64Vmovi w .mm15 f0 <;> simp [hf] at hc0
-    rcases hc0 with rfl
-    have hhk := x64Vmovi_noLab hk l
-    have hhf := x64Vmovi_noLab hf l
-    split <;> simp [hhk, hhf, x64Vmov_noLab, x64TernlogD, x64Avx]
-  cases pa <;> cases pb <;> cases pc <;> try (simp [x64EmitTernlog] at h; done)
-  · simp only [x64EmitTernlog, Option.some.injEq] at h; subst h
-    split
-    · simp [x64TernlogD, x64Avx]
-    · split <;> simp [x64Vmov_noLab, x64TernlogD, x64Avx]
-  · rename_i ra rb cc
-    dsimp only [x64EmitTernlog] at h
-    cases hv : x64VmoviWith .mm15 w .mm14 ((toBits t cc).setWidth 512) <;> simp [hv] at h
-    rcases h with rfl
-    split
-    · simp [x64VmoviWith_noLab hv l, x64TernlogD, x64Avx]
-    · split <;> simp [x64VmoviWith_noLab hv l, x64Vmov_noLab, x64TernlogD, x64Avx]
-  · rename_i ra cb rc
-    dsimp only [x64EmitTernlog] at h
-    cases hv : x64VmoviWith .mm15 w .mm14 ((toBits t cb).setWidth 512) <;> simp [hv] at h
-    rcases h with rfl
-    split
-    · simp [x64VmoviWith_noLab hv l, x64TernlogD, x64Avx]
-    · split <;> simp [x64VmoviWith_noLab hv l, x64Vmov_noLab, x64TernlogD, x64Avx]
-  · exact h1vec h
-  · rename_i ca rb rc
-    dsimp only [x64EmitTernlog] at h
-    cases hv : x64Vmovi w vd ((toBits t ca).setWidth 512) <;> simp [hv] at h
-    rcases h with rfl; split <;> simp [x64Vmovi_noLab hv l, x64Vmov_noLab, x64TernlogD, x64Avx]
-  · exact h1vec h
-  · exact h1vec h
-  · exact x64Vmovi_noLab h l
-
 theorem x64Vop_noLab {sig rs : List Ty} {code : OpCode sig rs}
     {pas : Tup (PArg Reg64 RegMm CondCode) sig} {dsts : Tup (PDst Reg64 RegMm CondCode) rs}
     {vh : VariantHint} {c : List Directive} {clob : FlagMask}
     (h : x64Vop code pas dsts vh = some (c, clob)) (l : Sym) :
-    Kraken.Directive.label l ∉ c := by
-  cases code with
-  | copy t =>
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩; dsimp only [x64Vop] at h
-    cases hw : x64VecSlotWidth t with
-    | none => simp [hw] at h
-    | some w =>
-      cases d <;> simp [hw] at h; rename_i vd
-      cases pa with
-      | gpr _ | flag _ => simp at h
-      | vec _ => rcases h with ⟨rfl, _⟩; exact x64Vmov_noLab _ _ _ l
-      | imm ca =>
-        cases hv : x64Vmovi w vd ((toBits t ca).setWidth 512) <;> simp [hv] at h
-        rcases h with ⟨rfl, _⟩; exact x64Vmovi_noLab hv l
-  | add t =>
-    rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩; dsimp only [x64Vop] at h
-    cases hi32 : x64IsI32Vec t <;> simp [hi32] at h
-    cases hw : x64VecSlotWidth t with
-    | none => simp [hw] at h
-    | some w =>
-      cases d <;> simp [hw] at h; rename_i vd
-      by_cases hw64 : w = .w64 <;> simp [hw64] at h
-      obtain ⟨c0, hc0, rfl, _⟩ := h
-      cases pa <;> cases pb <;> try (simp [x64EmitVpaddd] at hc0; done)
-      · simp only [x64EmitVpaddd, Option.some.injEq] at hc0; subst hc0; simp [x64Avx]
-      · rename_i ra cb; dsimp only [x64EmitVpaddd] at hc0
-        cases hv : x64Vmovi w .mm15 ((toBits t cb).setWidth 512) <;> simp [hv] at hc0
-        rcases hc0 with rfl; simp [x64Vmovi_noLab hv l, x64Avx]
-      · rename_i ca rb; dsimp only [x64EmitVpaddd] at hc0
-        cases hv : x64Vmovi w .mm15 ((toBits t ca).setWidth 512) <;> simp [hv] at hc0
-        rcases hc0 with rfl; simp [x64Vmovi_noLab hv l, x64Avx]
-      · rename_i ca cb; dsimp only [x64EmitVpaddd, Bind.bind, Option.bind] at hc0
-        cases h1 : x64Vmovi w vd ((toBits t ca).setWidth 512) <;> simp [h1] at hc0
-        cases h2 : x64Vmovi w .mm15 ((toBits t cb).setWidth 512) <;> simp [h2] at hc0
-        rcases hc0 with rfl; simp [x64Vmovi_noLab h1 l, x64Vmovi_noLab h2 l, x64Avx]
-  | «and» t | «or» t | xor t =>
-    rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩
-    dsimp only [x64Vop, x64WideTernlogBin] at h
-    cases hw : x64VecSlotWidth t with
-    | none => simp [hw] at h
-    | some w =>
-      cases d <;> simp [hw] at h
-      by_cases hw64 : w = .w64 <;> simp [hw64] at h
-      obtain ⟨c0, hc0, rfl, _⟩ := h
-      exact x64EmitBinInPlace_noLab (fun _ _ _ => by simp [x64TernlogD, x64Avx]) hc0 l
-  | not t =>
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩; dsimp only [x64Vop] at h
-    cases hw : x64VecSlotWidth t with
-    | none => simp [hw] at h
-    | some w =>
-      cases d <;> simp [hw] at h
-      by_cases hw64 : w = .w64 <;> simp [hw64] at h
-      obtain ⟨c0, hc0, rfl, _⟩ := h
-      exact x64EmitUnary_noLab (fun _ _ _ => by simp [x64TernlogD, x64Avx]) hc0 l
-  | ternlog t _ =>
-    rcases pas with ⟨pa, pb, pc, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩; dsimp only [x64Vop] at h
-    cases hw : x64VecSlotWidth t with
-    | none => simp [hw] at h
-    | some w =>
-      cases d <;> simp [hw] at h
-      by_cases hw64 : w = .w64 <;> simp [hw64] at h
-      obtain ⟨c0, hc0, rfl, _⟩ := h
-      exact x64EmitTernlog_noLab hc0 l
-  | rotr t | lshr t =>
-    rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩
-    dsimp only [x64Vop, x64UniformShiftI32] at h
-    cases hi32 : x64IsI32Vec t <;> simp [hi32] at h
-    cases hw : x64VecSlotWidth t with
-    | none => simp [hw] at h
-    | some w =>
-      cases pb <;> cases d <;> simp [hw] at h; rename_i cb vd
-      by_cases hw64 : w = .w64 <;> simp [hw64] at h
-      cases hs : x64UniformI32Splat? t cb <;> simp [hs] at h
-      obtain ⟨c0, hc0, rfl, _⟩ := h
-      exact x64EmitUnary_noLab (fun _ _ _ => by simp [x64Avx]) hc0 l
-  | shufd t _ =>
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩; dsimp only [x64Vop] at h
-    cases h128 : x64Is128Vec t
-    · simp [h128] at h
-    · simp only [h128, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at h
-      cases d <;> simp at h; obtain ⟨c0, hc0, rfl, _⟩ := h
-      exact x64EmitUnary_noLab (fun _ _ _ => by simp [x64Avx128]) hc0 l
-  | shufb t | alignr t _ | blendw t _ | fadd t | fsub t =>
-    rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases dsts with ⟨d, ⟨⟩⟩; dsimp only [x64Vop, x64BinInPlace128] at h
-    split at h; simp at h; cases d <;> simp at h; obtain ⟨c0, hc0, rfl, _⟩ := h
-    exact x64EmitBinInPlace_noLab (fun _ _ _ => by simp [x64Avx128]) hc0 l
-  | mkpair a b =>
-    dsimp only [x64Vop, x64EmitMkpair] at h
-    split at h
-    · simp only [Bind.bind, Option.bind] at h
-      obtain ⟨la, h1, h⟩ := Option.bind_eq_some_iff.mp h
-      obtain ⟨lb, h2, h⟩ := Option.bind_eq_some_iff.mp h
-      obtain ⟨rfl, _⟩ := Option.some.inj h
-      have hli : ∀ {rd p c0}, x64LoadI32ToGpr rd p = some c0 → Kraken.Directive.label l ∉ c0 := by
-        intro rd p c0 hc0; cases p <;> simp [x64LoadI32ToGpr, ins32, x64MoviD, ins] at hc0 <;> subst hc0 <;> simp
-      simp [hli h1, hli h2, ins, x64Avx128]
-    · split at h
-      · simp only [Bind.bind, Option.bind] at h
-        obtain ⟨la, h1, h⟩ := Option.bind_eq_some_iff.mp h
-        obtain ⟨lb, h2, h⟩ := Option.bind_eq_some_iff.mp h
-        obtain ⟨rfl, _⟩ := Option.some.inj h
-        have hls : ∀ {t : Ty} {ht : t.size = 64} {vd p c0}, x64LoadSubVec64 ht vd p = some c0 →
-            Kraken.Directive.label l ∉ c0 := by
-          intro t _ _ p c0 hc0; cases p <;> simp [x64LoadSubVec64, x64Avx128] at hc0
-          · subst hc0; simp
-          · subst hc0; exact x64Movi64_noLab _ _ l
-        simp [hls h1, hls h2, x64Avx128, x64TernlogD, x64Avx]
-      · simp at h
-    · simp at h
-  | unpair a b =>
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases dsts with ⟨d0, d1, ⟨⟩⟩; dsimp only [x64Vop, x64EmitUnpair] at h
-    cases d0 with
-    | flag _ => simp at h
-    | gpr r0 => cases d1 with
-      | vec _ | flag _ => simp at h
-      | gpr r1 =>
-        by_cases h32 : a = .bits 32 ∧ b = .bits 32
-        · rcases h32 with ⟨rfl, rfl⟩
-          by_cases heq : (r0 == r1) = true
-          · simp [heq] at h
-          · simp only [heq, Bool.false_eq_true, ↓reduceIte, Option.map_eq_some_iff, Prod.mk.injEq] at h
-            obtain ⟨lp, hlp, rfl, _⟩ := h
-            cases pa <;> simp at hlp <;> subst hlp <;> simp [x64Avx128, x64MoviD, ins, ins32]
-        · cases a with
-          | bits n => cases b with
-            | bits m =>
-              by_cases hn : n = 32
-              · have hm2 : m ≠ 32 := fun hm => h32 ⟨congrArg Ty.bits hn, congrArg Ty.bits hm⟩
-                simp [hn, hm2] at h
-              · simp [hn] at h
-            | _ => simp at h
-          | _ => simp at h
-    | vec v0 => cases d1 with
-      | gpr _ | flag _ => simp at h
-      | vec v1 =>
-        by_cases heq : (v0 == v1) = true
-        · simp [heq] at h
-        · simp only [heq, Bool.false_eq_true, ↓reduceIte] at h
-          split at h
-          · cases pa with
-            | gpr _ => simp at h
-            | vec vs =>
-              simp only [Option.some.injEq, Prod.mk.injEq] at h
-              rcases h with ⟨rfl, _⟩; simp [x64Avx128]
-            | imm cc =>
-              simp only [Option.some.injEq, Prod.mk.injEq] at h
-              rcases h with ⟨rfl, _⟩; simp [x64Movi64_noLab]
-          · simp at h
-  | _ => simp [x64Vop] at h
+    Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab h l
 
 end NoLab
 

@@ -19,343 +19,7 @@ namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
 
-/-! ## 1. `AllInstr` Lemmas for Part 2 Builders -/
-
-theorem opCopyBits_allInstr {w : Width} {pa : PArg Reg64 RegMm CondCode (.bits w.bits)}
-    {rd : Reg64} {c : List Directive} {clob : FlagMask}
-    (h : opCopyBits w pa rd = some (c, clob)) : AllInstr c := by
-  cases pa <;> simp only [opCopyBits, Option.some.injEq, Prod.mk.injEq, reduceCtorEq] at h
-  · split at h <;> rcases h with ⟨rfl, rfl⟩ <;> simp
-  · rcases h with ⟨rfl, rfl⟩; simp
-
-theorem opCopyBool_allInstr {pa : PArg Reg64 RegMm CondCode .bool}
-    {pd : PDst Reg64 RegMm CondCode .bool} {c : List Directive} {clob : FlagMask}
-    (h : opCopyBool pa pd = some (c, clob)) : AllInstr c := by
-  cases pd <;> cases pa <;> simp only [opCopyBool, Option.some.injEq, Prod.mk.injEq, reduceCtorEq] at h
-  · split at h <;> rcases h with ⟨rfl, rfl⟩ <;> simp
-  · rcases h with ⟨rfl, rfl⟩; simp
-  · rcases h with ⟨rfl, rfl⟩; simp
-
-theorem opBoolBin_allInstr {op : Bool → Bool → Bool} {insFn : Dst .W8 → Operand .W8 → Operation .W8}
-    {pa pb : PArg Reg64 RegMm CondCode .bool} {pd : PDst Reg64 RegMm CondCode .bool}
-    {c : List Directive} {clob : FlagMask}
-    (h : opBoolBin op insFn pa pb pd = some (c, clob)) : AllInstr c := by
-  cases pd with
-  | flag _ | vec _ => simp [opBoolBin] at h
-  | gpr rd =>
-    have hbind (hd : (boolArgTo8 .r11 pa >>= fun d1 =>
-        boolArgTo8 .r10 pb >>= fun d2 =>
-        some ([d1, d2, ins8 (insFn (.reg (b8 .r11)) (.reg (b8 .r10))),
-               ins32 (.movzx (.reg (d rd)) (.reg (b8 .r11)))], maskAll)) = some (c, clob)) :
-        AllInstr c := by
-      rcases Option.bind_eq_some_iff.mp hd with ⟨d1, hd1, hd'⟩
-      rcases Option.bind_eq_some_iff.mp hd' with ⟨d2, hd2, hd''⟩
-      simp only [Option.some.injEq, Prod.mk.injEq] at hd''
-      rcases hd'' with ⟨rfl, -⟩
-      obtain ⟨_, e1⟩ := isInstr_boolArgTo8 hd1
-      obtain ⟨_, e2⟩ := isInstr_boolArgTo8 hd2
-      simp [e1, e2]
-    cases pa with
-    | imm a0 =>
-      cases pb with
-      | imm b0 => simp only [opBoolBin, Option.some.injEq, Prod.mk.injEq] at h; rcases h with ⟨rfl, -⟩; simp
-      | gpr _ | flag _ | vec _ => exact hbind h
-    | gpr _ | flag _ | vec _ => exact hbind h
-
-theorem opBoolNot_allInstr {pa : PArg Reg64 RegMm CondCode .bool}
-    {pd : PDst Reg64 RegMm CondCode .bool} {c : List Directive} {clob : FlagMask}
-    (h : opBoolNot pa pd = some (c, clob)) : AllInstr c := by
-  cases pd with
-  | flag _ | vec _ => simp [opBoolNot] at h
-  | gpr rd =>
-    cases pa with
-    | imm _ => simp only [opBoolNot, Option.some.injEq, Prod.mk.injEq] at h; rcases h with ⟨rfl, -⟩; simp
-    | gpr _ | flag _ | vec _ =>
-      simp only [opBoolNot, Option.bind_eq_bind] at h
-      rcases Option.bind_eq_some_iff.mp h with ⟨d1, hd1, h'⟩
-      simp only [Option.some.injEq, Prod.mk.injEq] at h'
-      rcases h' with ⟨rfl, -⟩
-      obtain ⟨_, e1⟩ := isInstr_boolArgTo8 hd1
-      simp [e1]
-
-theorem opNeg_allInstr {w : Width} {pa : PArg Reg64 RegMm CondCode (.bits w.bits)}
-    {rd : Reg64} {c : List Directive} {clob : FlagMask}
-    (h : opNeg w pa rd = some (c, clob)) : AllInstr c := by
-  cases pa <;> simp only [opNeg, Option.some.injEq, Prod.mk.injEq, reduceCtorEq] at h <;>
-    rcases h with ⟨rfl, rfl⟩ <;> simp
-
-theorem opNot_allInstr {w : Width} {pa : PArg Reg64 RegMm CondCode (.bits w.bits)}
-    {rd : Reg64} {c : List Directive} {clob : FlagMask}
-    (h : opNot w pa rd = some (c, clob)) : AllInstr c := by
-  cases pa <;> simp only [opNot, Option.some.injEq, Prod.mk.injEq, reduceCtorEq] at h <;>
-    rcases h with ⟨rfl, rfl⟩ <;> simp
-
-private theorem optionMatch_ite {α : Type} (c : Bool) (x : α) (y : Option α) :
-    (match (if c = true then some x else none) with | some r => some r | none => y) =
-      if c = true then some x else y := by
-  cases c <;> rfl
-
-theorem opBin_allInstr {w : Width} {k : AluBinKind}
-    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64} {vh : VariantHint}
-    {c : List Directive} {clob : FlagMask}
-    (h : opBin w k pa pb rd vh = some (c, clob)) : AllInstr c := by
-  unfold opBin at h; dsimp +zetaHave only at h
-  have hcore : ∀ (pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)),
-      (match pa, pb with
-      | .imm ca, .imm cb => some ([moviD rd ((k.eval ca cb).setWidth 64)], maskNone)
-      | .gpr ra, .gpr rb =>
-        if ra == rd then some ([aluBinIns w k rd (.reg (regW w rb))], maskAll)
-        else if k.isComm && rb == rd then some ([aluBinIns w k rd (.reg (regW w ra))], maskAll)
-        else if k == .sub && rb == rd then
-          some ([insW w (.neg (.reg (regW w rd))), aluBinIns w .add rd (.reg (regW w ra))], maskAll)
-        else if rb != rd then
-          some ([movW w rd ra, aluBinIns w k rd (.reg (regW w rb))], maskAll)
-        else
-          some ([movW w .r11 ra, aluBinIns w k .r11 (.reg (regW w rb)), movW w rd .r11], maskAll)
-      | .gpr ra, .imm cb =>
-        some (if w != .W64 || fitsImm32 (cb.setWidth 64) then
-          ((if ra == rd then [] else [movW w rd ra]) ++ [aluBinIns w k rd (immBitsOp w cb)], maskAll)
-        else
-          ([moviD .r10 (cb.setWidth 64)] ++ (if ra == rd then [] else [movW w rd ra]) ++
-            [aluBinIns w k rd (.reg (regW w .r10))], maskAll))
-      | .imm ca, .gpr rb =>
-        if k == .sub && ca == 0 then
-          some ((if rb == rd then [] else [movW w rd rb]) ++ [insW w (.neg (.reg (regW w rd)))], maskAll)
-        else if k.isComm then
-          some (if w != .W64 || fitsImm32 (ca.setWidth 64) then
-            ((if rb == rd then [] else [movW w rd rb]) ++ [aluBinIns w k rd (immBitsOp w ca)], maskAll)
-          else
-            ([moviD .r10 (ca.setWidth 64)] ++ (if rb == rd then [] else [movW w rd rb]) ++
-              [aluBinIns w k rd (.reg (regW w .r10))], maskAll))
-        else
-          some ([moviD .r11 (ca.setWidth 64), aluBinIns w .sub .r11 (.reg (regW w rb)),
-                 movW w rd .r11], maskAll)
-      | _, _ => none) = some (c, clob) → AllInstr c := by
-    intro pa' pb' hm
-    cases pa' <;> cases pb' <;> simp only [Option.some.injEq, Prod.mk.injEq, reduceCtorEq] at hm
-    · split at hm <;> try (rcases hm with ⟨rfl, -⟩; simp; done)
-      split at hm <;> try (rcases hm with ⟨rfl, -⟩; simp; done)
-      split at hm <;> try (rcases hm with ⟨rfl, -⟩; simp; done)
-      split at hm <;> rcases hm with ⟨rfl, -⟩ <;> simp
-    · split at hm <;> simp only [Prod.mk.injEq] at hm <;> rcases hm with ⟨rfl, -⟩ <;> simp
-    · split at hm
-      · rcases hm with ⟨rfl, -⟩; simp
-      · split at hm
-        · split at hm <;> rcases hm with ⟨rfl, -⟩ <;> simp
-        · rcases hm with ⟨rfl, -⟩; simp
-    · rcases hm with ⟨rfl, -⟩; simp
-  cases vh with
-  | default | adcx | adox | mulxFast =>
-    cases pa with
-    | vec _ => simp at h
-    | gpr ra =>
-      cases pb with
-      | vec _ => simp at h
-      | gpr rb => dsimp +zetaHave only at h; exact hcore (.gpr ra) (.gpr rb) h
-      | imm cb => dsimp +zetaHave only at h; exact hcore (.gpr ra) (.imm cb) h
-    | imm ca =>
-      cases pb with
-      | vec _ => simp at h
-      | gpr rb => dsimp +zetaHave only at h; exact hcore (.imm ca) (.gpr rb) h
-      | imm cb => dsimp +zetaHave only at h; exact hcore (.imm ca) (.imm cb) h
-  | disp off =>
-    by_cases hwf : ((w == .W32 || w == .W64) && fitsImm32 off.toBitVec) = true
-    · simp only [hwf, ↓reduceIte] at h
-      cases k <;> cases pa <;> cases pb <;> (try dsimp +zetaHave only at h) <;> (
-        try (rename_i ra rb; exact hcore (.gpr ra) (.gpr rb) h);
-        try (rename_i ra cb; exact hcore (.gpr ra) (.imm cb) h);
-        try (rename_i ca rb; exact hcore (.imm ca) (.gpr rb) h);
-        try (rename_i ca cb; exact hcore (.imm ca) (.imm cb) h);
-        try contradiction)
-      · rename_i rb cb
-        by_cases hoff : (off.toBitVec.setWidth w.bits == cb) = true
-        · simp only [hoff, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at h
-          rcases h with ⟨rfl, -⟩; simp
-        · simp only [hoff, Bool.false_eq_true, ↓reduceIte] at h
-          exact hcore (.gpr rb) (.imm cb) h
-      · rename_i ca rb
-        by_cases hoff : (off.toBitVec.setWidth w.bits == ca) = true
-        · simp only [hoff, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at h
-          rcases h with ⟨rfl, -⟩; simp
-        · simp only [hoff, Bool.false_eq_true, ↓reduceIte] at h
-          exact hcore (.imm ca) (.gpr rb) h
-      · rename_i rb cb
-        by_cases hoff : ((-off.toBitVec).setWidth w.bits == cb) = true
-        · simp only [hoff, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at h
-          rcases h with ⟨rfl, -⟩; simp
-        · simp only [hoff, Bool.false_eq_true, ↓reduceIte] at h
-          exact hcore (.gpr rb) (.imm cb) h
-    · simp only [hwf, Bool.false_eq_true, ↓reduceIte] at h
-      cases pa with
-      | vec _ => simp at h
-      | gpr ra =>
-        cases pb with
-        | vec _ => simp at h
-        | gpr rb => dsimp +zetaHave only at h; exact hcore (.gpr ra) (.gpr rb) h
-        | imm cb => dsimp +zetaHave only at h; exact hcore (.gpr ra) (.imm cb) h
-      | imm ca =>
-        cases pb with
-        | vec _ => simp at h
-        | gpr rb => dsimp +zetaHave only at h; exact hcore (.imm ca) (.gpr rb) h
-        | imm cb => dsimp +zetaHave only at h; exact hcore (.imm ca) (.imm cb) h
-  | decInc =>
-    cases k <;> cases pa <;> cases pb <;> (try dsimp +zetaHave only at h) <;> (
-      try (rename_i ra rb; exact hcore (.gpr ra) (.gpr rb) h);
-      try (rename_i ra cb; exact hcore (.gpr ra) (.imm cb) h);
-      try (rename_i ca rb; exact hcore (.imm ca) (.gpr rb) h);
-      try (rename_i ca cb; exact hcore (.imm ca) (.imm cb) h);
-      try contradiction)
-    · rename_i ra cb
-      by_cases h1 : (cb == 1#w.bits) = true
-      · simp only [h1, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at h
-        rcases h with ⟨rfl, -⟩; simp
-      · simp only [h1, Bool.false_eq_true, ↓reduceIte] at h
-        by_cases h2 : (cb == -1#w.bits) = true
-        · simp only [h2, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at h
-          rcases h with ⟨rfl, -⟩; simp
-        · simp only [h2, Bool.false_eq_true, ↓reduceIte] at h
-          exact hcore (.gpr ra) (.imm cb) h
-    · rename_i ca rb
-      by_cases h1 : (ca == 1#w.bits) = true
-      · simp only [h1, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at h
-        rcases h with ⟨rfl, -⟩; simp
-      · simp only [h1, Bool.false_eq_true, ↓reduceIte] at h
-        exact hcore (.imm ca) (.gpr rb) h
-    · rename_i ra cb
-      by_cases h1 : (cb == 1#w.bits) = true
-      · simp only [h1, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at h
-        rcases h with ⟨rfl, -⟩; simp
-      · simp only [h1, Bool.false_eq_true, ↓reduceIte] at h
-        by_cases h2 : (cb == -1#w.bits) = true
-        · simp only [h2, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at h
-          rcases h with ⟨rfl, -⟩; simp
-        · simp only [h2, Bool.false_eq_true, ↓reduceIte] at h
-          exact hcore (.gpr ra) (.imm cb) h
-
-theorem cmpDirect_allInstr {w : Width} {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)}
-    {c : List Directive} (h : cmpDirect w pa pb = some c) : AllInstr c := by
-  cases pa <;> cases pb <;> simp only [cmpDirect, Option.some.injEq, reduceCtorEq] at h
-  · subst h; simp
-  · split at h <;> simp only [Option.some.injEq] at h <;> subst h <;> simp
-  · subst h; simp
-  · subst h; simp
-
-theorem opCmp_allInstr {w : Width} {co : CmpOp}
-    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {pd : PDst Reg64 RegMm CondCode .bool}
-    {c : List Directive} {clob : FlagMask}
-    (h : opCmp w co pa pb pd = some (c, clob)) : AllInstr c := by
-  have hbind (x y : PArg Reg64 RegMm CondCode (.bits w.bits))
-      (hd : (cmpDirect w x y >>= fun seq => some (seq, maskAll)) = some (c, clob)) : AllInstr c := by
-    rcases Option.bind_eq_some_iff.mp hd with ⟨seq, hseq, hm⟩
-    simp only [Option.some.injEq, Prod.mk.injEq] at hm
-    rcases hm with ⟨rfl, -⟩; exact cmpDirect_allInstr hseq
-  cases pd with
-  | vec _ => simp [opCmp] at h
-  | gpr rd =>
-    have hgpr (hd : (cmpDirect w pa pb >>= fun seq => some (seq ++ setccMove rd (condOf co), maskAll)) = some (c, clob)) :
-        AllInstr c := by
-      rcases Option.bind_eq_some_iff.mp hd with ⟨seq, hseq, hm⟩
-      simp only [Option.some.injEq, Prod.mk.injEq] at hm
-      rcases hm with ⟨rfl, -⟩; simp [cmpDirect_allInstr hseq]
-    cases pa with
-    | imm cx =>
-      cases pb with
-      | imm cy => simp only [opCmp, Option.some.injEq, Prod.mk.injEq] at h; rcases h with ⟨rfl, -⟩; simp
-      | gpr ry =>
-        simp only [opCmp] at h; split at h <;> simp only [Option.some.injEq, Prod.mk.injEq] at h <;>
-          rcases h with ⟨rfl, -⟩ <;> simp
-      | vec _ => simp [opCmp, cmpDirect] at h
-    | gpr _ =>
-      cases pb with
-      | gpr _ | imm _ => exact hgpr h
-      | vec _ => simp [opCmp, cmpDirect] at h
-    | vec _ => simp [opCmp, cmpDirect] at h
-  | flag cc =>
-    cases pa with
-    | imm cx =>
-      cases pb with
-      | gpr ry =>
-        simp only [opCmp] at h
-        split at h
-        · simp only [Option.some.injEq, Prod.mk.injEq] at h; rcases h with ⟨rfl, -⟩; simp
-        · split at h
-          · simp only [Option.some.injEq, Prod.mk.injEq] at h; rcases h with ⟨rfl, -⟩; simp
-          · split at h <;> try contradiction
-            simp only [Option.some.injEq, Prod.mk.injEq] at h; rcases h with ⟨rfl, -⟩; simp
-      | imm cy =>
-        simp only [opCmp] at h; split at h
-        · exact hbind _ _ h
-        · split at h <;> try contradiction
-          exact hbind _ _ h
-      | vec _ => simp [opCmp, cmpDirect] at h
-    | gpr rx =>
-      cases pb with
-      | vec _ => simp [opCmp, cmpDirect] at h
-      | gpr _ | imm _ =>
-        simp only [opCmp] at h; split at h
-        · exact hbind _ _ h
-        · split at h <;> try contradiction
-          exact hbind _ _ h
-    | vec _ => simp [opCmp, cmpDirect] at h
-
-theorem opOfBool_allInstr {pa : PArg Reg64 RegMm CondCode .bool} {rd : Reg64}
-    {c : List Directive} {clob : FlagMask}
-    (h : opOfBool pa rd = some (c, clob)) : AllInstr c := by
-  cases pa <;> simp only [opOfBool, Option.some.injEq, Prod.mk.injEq, reduceCtorEq] at h <;>
-    rcases h with ⟨rfl, -⟩ <;> simp
-
-theorem opZext_allInstr {m n : Nat} {pa : PArg Reg64 RegMm CondCode (.bits m)} {rd : Reg64}
-    {c : List Directive} {clob : FlagMask}
-    (h : opZext m n pa rd = some (c, clob)) : AllInstr c := by
-  unfold opZext at h; split at h <;> try contradiction
-  cases pa with
-  | imm _ => simp only [Option.some.injEq, Prod.mk.injEq] at h; rcases h with ⟨rfl, -⟩; simp
-  | gpr _ =>
-    dsimp only at h
-    split at h <;> (try contradiction) <;> simp only [Option.some.injEq, Prod.mk.injEq] at h <;>
-      rcases h with ⟨rfl, -⟩ <;> simp
-  | vec _ => simp at h
-
-theorem opSext_allInstr {m n : Nat} {pa : PArg Reg64 RegMm CondCode (.bits m)} {rd : Reg64}
-    {c : List Directive} {clob : FlagMask}
-    (h : opSext m n pa rd = some (c, clob)) : AllInstr c := by
-  unfold opSext at h; split at h <;> try contradiction
-  cases pa with
-  | imm _ => simp only [Option.some.injEq, Prod.mk.injEq] at h; rcases h with ⟨rfl, -⟩; simp
-  | gpr _ =>
-    dsimp only at h
-    split at h <;> (try contradiction) <;> simp only [Option.some.injEq, Prod.mk.injEq] at h <;>
-      rcases h with ⟨rfl, -⟩ <;> simp
-  | vec _ => simp at h
-
-theorem opTrunc_allInstr {m n : Nat} {pa : PArg Reg64 RegMm CondCode (.bits m)} {rd : Reg64}
-    {c : List Directive} {clob : FlagMask}
-    (h : opTrunc m n pa rd = some (c, clob)) : AllInstr c := by
-  unfold opTrunc at h; split at h <;> try contradiction
-  dsimp only at h
-  have hres (w : Width) (pa' : PArg Reg64 RegMm CondCode (.bits m)) (hw :
-      (match pa' with
-      | .imm c0 => some ([moviD rd ((c0.setWidth n).setWidth 64)], maskNone)
-      | .gpr r => if r == rd then some ([], maskNone) else some ([movW w rd r], maskNone)
-      | .vec _ => none) = some (c, clob)) : AllInstr c := by
-    cases pa' with
-    | imm _ => dsimp only at hw; simp only [Option.some.injEq, Prod.mk.injEq] at hw; rcases hw with ⟨rfl, -⟩; simp
-    | gpr _ => dsimp only at hw; split at hw <;> simp only [Option.some.injEq, Prod.mk.injEq] at hw <;> rcases hw with ⟨rfl, -⟩ <;> simp
-    | vec _ => simp at hw
-  split at h
-  · exact hres .W8 pa h
-  · exact hres .W16 pa h
-  · exact hres .W32 pa h
-  · contradiction
-
-theorem opBswap_allInstr {n : Nat} {pa : PArg Reg64 RegMm CondCode (.bits n)} {rd : Reg64}
-    {c : List Directive} {clob : FlagMask}
-    (h : opBswap n pa rd = some (c, clob)) : AllInstr c := by
-  unfold opBswap at h
-  split at h <;> simp only [Option.some.injEq, Prod.mk.injEq, reduceCtorEq] at h <;>
-    rcases h with ⟨rfl, -⟩ <;> simp
-
-/-! ## 3. Single-Directive `Directive.FallsTo` Lemmas (Part 2) -/
+/-! ## 1. Single-Directive `Directive.FallsTo` Lemmas (Part 2) -/
 
 theorem fallsTo_movzx8 (s : MachineData) (rd rs : Reg64) :
     Directive.FallsTo (ins32 (.movzx (.reg (d rd)) (.reg (b8 rs)))) s
@@ -510,23 +174,23 @@ theorem fallsTo_aluBinIns_reg (w : Width) (k : AluBinKind) (s : MachineData) (rd
   intro _ _ _ _ _ hk
   cases k with
   | add =>
-    cases w <;> simp only [aluBinIns, insW, regW, t_step_simp] <;>
+    cases w <;> simp only [aluBinIns, regW, t_step_simp] <;>
       refine hk _ ?_ <;> simp only [AluBinKind.eval, Width.bits]
     all_goals rw [BitVec.add_comm]; exact exists_setRegW_state _ s rd _ _
   | sub =>
-    cases w <;> simp only [aluBinIns, insW, regW, t_step_simp] <;>
+    cases w <;> simp only [aluBinIns, regW, t_step_simp] <;>
       refine hk _ ?_ <;> simp only [AluBinKind.eval, Width.bits]
     all_goals exact exists_setRegW_state _ s rd _ _
   | and =>
-    cases w <;> simp only [aluBinIns, insW, regW, t_step_simp, Effects.All] <;>
+    cases w <;> simp only [aluBinIns, regW, t_step_simp, Effects.All] <;>
       intro _ <;> refine hk _ ?_ <;> simp only [AluBinKind.eval, Width.bits]
     all_goals exact exists_setRegW_state _ s rd _ _
   | or =>
-    cases w <;> simp only [aluBinIns, insW, regW, t_step_simp, Effects.All] <;>
+    cases w <;> simp only [aluBinIns, regW, t_step_simp, Effects.All] <;>
       intro _ <;> refine hk _ ?_ <;> simp only [AluBinKind.eval, Width.bits]
     all_goals exact exists_setRegW_state _ s rd _ _
   | xor =>
-    cases w <;> simp only [aluBinIns, insW, regW, t_step_simp, Effects.All] <;>
+    cases w <;> simp only [aluBinIns, regW, t_step_simp, Effects.All] <;>
       intro _ <;> refine hk _ ?_ <;> simp only [AluBinKind.eval, Width.bits]
     all_goals exact exists_setRegW_state _ s rd _ _
   | mul =>
@@ -538,7 +202,7 @@ theorem fallsTo_aluBinIns_reg (w : Width) (k : AluBinKind) (s : MachineData) (rd
         setWidth_mul_le (by decide), BitVec.setWidth_setWidth_of_le _ (by decide),
         BitVec.setWidth_setWidth_of_le _ (by decide), AluBinKind.eval, BitVec.mul_comm]
     | W16 | W32 | W64 =>
-      simp only [aluBinIns, insW, regW, t_step_simp, Effects.All]
+      simp only [aluBinIns, regW, t_step_simp, Effects.All]
       intro _ _ _ _; refine hk _ ?_; simp only [AluBinKind.eval, Width.bits, BitVec.mul_comm]
       exact exists_setRegW_state _ s rd _ _
 
@@ -558,23 +222,23 @@ theorem fallsTo_aluBinIns_imm (w : Width) (k : AluBinKind) (s : MachineData) (rd
     fun x => by rw [Int64.toBitVec_ofBitVec]; exact truncate_signExtend_64 (by decide) x
   cases k with
   | add =>
-    cases w <;> simp only [aluBinIns, insW, immBitsOp, regW, t_step_simp] <;>
+    cases w <;> simp only [aluBinIns, immBitsOp, regW, t_step_simp] <;>
       refine hk _ ?_ <;> simp only [Width.bits, AluBinKind.eval]
     all_goals (first | rw [h8] | rw [h16] | rw [h32] | rw [h64]); rw [BitVec.add_comm]; exact exists_setRegW_state _ s rd _ _
   | sub =>
-    cases w <;> simp only [aluBinIns, insW, immBitsOp, regW, t_step_simp] <;>
+    cases w <;> simp only [aluBinIns, immBitsOp, regW, t_step_simp] <;>
       refine hk _ ?_ <;> simp only [Width.bits, AluBinKind.eval]
     all_goals (first | rw [h8] | rw [h16] | rw [h32] | rw [h64]); exact exists_setRegW_state _ s rd _ _
   | and =>
-    cases w <;> simp only [aluBinIns, insW, immBitsOp, regW, t_step_simp, Effects.All] <;>
+    cases w <;> simp only [aluBinIns, immBitsOp, regW, t_step_simp, Effects.All] <;>
       intro _ <;> refine hk _ ?_ <;> simp only [Width.bits, AluBinKind.eval]
     all_goals (first | rw [h8] | rw [h16] | rw [h32] | rw [h64]); exact exists_setRegW_state _ s rd _ _
   | or =>
-    cases w <;> simp only [aluBinIns, insW, immBitsOp, regW, t_step_simp, Effects.All] <;>
+    cases w <;> simp only [aluBinIns, immBitsOp, regW, t_step_simp, Effects.All] <;>
       intro _ <;> refine hk _ ?_ <;> simp only [Width.bits, AluBinKind.eval]
     all_goals (first | rw [h8] | rw [h16] | rw [h32] | rw [h64]); exact exists_setRegW_state _ s rd _ _
   | xor =>
-    cases w <;> simp only [aluBinIns, insW, immBitsOp, regW, t_step_simp, Effects.All] <;>
+    cases w <;> simp only [aluBinIns, immBitsOp, regW, t_step_simp, Effects.All] <;>
       intro _ <;> refine hk _ ?_ <;> simp only [Width.bits, AluBinKind.eval]
     all_goals (first | rw [h8] | rw [h16] | rw [h32] | rw [h64]); exact exists_setRegW_state _ s rd _ _
   | mul =>
@@ -589,7 +253,7 @@ theorem fallsTo_aluBinIns_imm (w : Width) (k : AluBinKind) (s : MachineData) (rd
         setWidth_mul_le (by decide), BitVec.setWidth_setWidth_of_le _ (by decide),
         BitVec.setWidth_setWidth_of_le _ (by decide), hcb, BitVec.mul_comm]
     | W16 | W32 | W64 =>
-      simp only [aluBinIns, insW, immBitsOp, regW, t_step_simp, Effects.All]
+      simp only [aluBinIns, immBitsOp, regW, t_step_simp, Effects.All]
       intro _ _ _ _; refine hk _ ?_; simp only [AluBinKind.eval, Width.bits]
       first
       | (rw [h16, BitVec.mul_comm]; exact exists_setRegW_state .W16 s rd _ _)
@@ -646,27 +310,29 @@ theorem fallsTo_bswap64 (s : MachineData) (rd : Reg64) :
 
 theorem opCopyBits_spec [Host] {E : Int64 → MachineData → Prop} (w : Width)
     {pa : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64}
-    {c : List Directive} {clob : FlagMask} {va : BitVec w.bits} {s : MachineData}
-    (hc : opCopyBits w pa rd = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {va : BitVec w.bits} {s : MachineData}
+    (hc : opCopyBitsIns w pa rd = some (c, clob))
     (hpa : x64Mach.PArgHolds s (.bits w.bits) pa va) :
-    _root_.Program.wp c (OpPost1 (.bits w.bits) rd va clob s) E s := by
+    _root_.Program.wp (emitClean c) (OpPost1 (.bits w.bits) rd va clob s) E s := by
   cases pa with
   | gpr rs =>
-    simp only [opCopyBits] at hc; split at hc
+    simp only [opCopyBitsIns] at hc; split at hc
     · rename_i hrs; have := (beq_reg64_iff rs rd).1 hrs; subst this
       simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
       exact _root_.Program.wp_nil ⟨hpa, rfl, Machine.Frame.refl _ _ _ _ _⟩
     · simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+      simp only [emitClean_cons, emitClean_nil]
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_movW w s rd rs)) ?_
       rintro s' rfl
       exact OpPost1.of_set64_bits (by rw [setWidth_64_setWidth, hpa.2]) (updFlags_of_status_eq rfl _)
   | imm ca =>
-    simp only [opCopyBits, Option.some.injEq, Prod.mk.injEq] at hc
+    simp only [opCopyBitsIns, Option.some.injEq, Prod.mk.injEq] at hc
     rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+    simp only [emitClean_cons, emitClean_nil]
     refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd (ca.setWidth 64))) ?_
     rintro s' rfl
     exact OpPost1.of_set64_bits (setWidth_64_setWidth w ca) (updFlags_of_status_eq rfl _)
-  | vec _ => simp [opCopyBits] at hc
+  | vec _ => simp [opCopyBitsIns] at hc
 
 theorem opPostDst_gpr_bool {rd : Reg64} {rv : BitVec 64} {st : StatusFlags}
     {clob : FlagMask} {s : MachineData} {b : Bool}
@@ -682,38 +348,40 @@ theorem opPostDst_gpr_bool {rd : Reg64} {rv : BitVec 64} {st : StatusFlags}
 
 theorem opCopyBool_spec [Host] {E : Int64 → MachineData → Prop}
     {pa : PArg Reg64 RegMm CondCode .bool} {pd : PDst Reg64 RegMm CondCode .bool}
-    {c : List Directive} {clob : FlagMask} {b : Bool} {s : MachineData}
-    (hc : opCopyBool pa pd = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {b : Bool} {s : MachineData}
+    (hc : opCopyBoolIns pa pd = some (c, clob))
     (hpa : x64Mach.PArgHolds s .bool pa b) :
-    _root_.Program.wp c (OpPostDst1 .bool pd b clob s) E s := by
+    _root_.Program.wp (emitClean c) (OpPostDst1 .bool pd b clob s) E s := by
   cases pd with
-  | flag _ | vec _ => simp [opCopyBool] at hc
+  | flag _ | vec _ => simp [opCopyBoolIns] at hc
   | gpr rd =>
     cases pa with
     | gpr rs =>
-      simp only [opCopyBool] at hc; split at hc
+      simp only [opCopyBoolIns] at hc; split at hc
       · rename_i hrs; have := (beq_reg64_iff rs rd).1 hrs; subst this
         simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
         exact _root_.Program.wp_nil ⟨hpa, rfl, Machine.Frame.refl _ _ _ _ _⟩
       · simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+        simp only [emitClean_cons, emitClean_nil]
         refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_movzx8 s rd rs)) ?_
         rintro s' rfl
         exact opPostDst_gpr_bool
           (by rw [BitVec.setWidth_setWidth_of_le _ (by decide), BitVec.setWidth_eq]; exact hpa)
           (updFlags_of_status_eq rfl _)
     | imm b0 =>
-      simp only [opCopyBool, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+      simp only [opCopyBoolIns, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
       rcases hpa with rfl
+      simp only [emitClean_cons, emitClean_nil]
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd (BitVec.ofNat 64 b0.toNat))) ?_
       rintro s' rfl
       exact opPostDst_gpr_bool (by cases b0 <;> rfl) (updFlags_of_status_eq rfl _)
     | flag cc =>
-      simp only [opCopyBool, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+      simp only [opCopyBoolIns, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
       have hcc : cc.interp s.status = b := hpa
       refine Program.wp.mono (wp_setccMove s rd cc) ?_
       rintro s' rfl
       exact opPostDst_gpr_bool (by rw [hcc]; cases b <;> rfl) (updFlags_of_status_eq rfl _)
-    | vec _ => simp [opCopyBool] at hc
+    | vec _ => simp [opCopyBoolIns] at hc
 
 theorem opBoolBin_spec [Host] {E : Int64 → MachineData → Prop} (op : Bool → Bool → Bool)
     (insFn : Dst .W8 → Operand .W8 → Operation .W8)
@@ -724,20 +392,21 @@ theorem opBoolBin_spec [Host] {E : Int64 → MachineData → Prop} (op : Bool �
           rv.setWidth 8 = BitVec.ofNat 8 (op a b).toNat) ∧
         s' = { s with regs := s.regs.set64 .r11 rv, status }))
     {pa pb : PArg Reg64 RegMm CondCode .bool} {pd : PDst Reg64 RegMm CondCode .bool}
-    {c : List Directive} {clob : FlagMask} {a b : Bool} {s : MachineData}
-    (hc : opBoolBin op insFn pa pb pd = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {a b : Bool} {s : MachineData}
+    (hc : opBoolBinIns op insFn pa pb pd = some (c, clob))
     (hpa : x64Mach.PArgHolds s .bool pa a) (hpb : x64Mach.PArgHolds s .bool pb b)
     (hargs : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch) :
-    _root_.Program.wp c (OpPostDst1 .bool pd (op a b) clob s) E s := by
+    _root_.Program.wp (emitClean c) (OpPostDst1 .bool pd (op a b) clob s) E s := by
   cases pd with
-  | flag _ | vec _ => simp [opBoolBin] at hc
+  | flag _ | vec _ => simp [opBoolBinIns] at hc
   | gpr rd =>
-    have hbody (d1 d2 : Directive) (hd1 : boolArgTo8 .r11 pa = some d1)
-        (hd2 : boolArgTo8 .r10 pb = some d2)
-        (heq : [d1, d2, ins8 (insFn (.reg (b8 .r11)) (.reg (b8 .r10))),
-          ins32 (.movzx (.reg (d rd)) (.reg (b8 .r11)))] = c) (hcl : maskAll = clob) :
-        _root_.Program.wp c (OpPostDst1 .bool (.gpr rd) (op a b) clob s) E s := by
+    have hbody (d1 d2 : Instr) (hd1 : boolArgTo8I .r11 pa = some d1)
+        (hd2 : boolArgTo8I .r10 pb = some d2)
+        (heq : [d1, d2, x64InsI .W8 (insFn (.reg (b8 .r11)) (.reg (b8 .r10))),
+          x64InsI .W32 (.movzx (.reg (d rd)) (.reg (b8 .r11)))] = c) (hcl : maskAll = clob) :
+        _root_.Program.wp (emitClean c) (OpPostDst1 .bool (.gpr rd) (op a b) clob s) E s := by
       subst heq; subst hcl
+      simp only [emitClean_cons, emitClean_nil]
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_boolArgTo8 s .r11 hd1 hpa)) ?_
       rintro s1 ⟨rv11, hrv11, rfl⟩
       have hpb1 : x64Mach.PArgHolds { s with regs := s.regs.set64 .r11 rv11 } .bool pb b := by
@@ -748,7 +417,7 @@ theorem opBoolBin_spec [Host] {E : Int64 → MachineData → Prop} (op : Bool �
           rw [Reg64s.get64_set64_of_ne _ .r11 rx _ hrx.2.symm]
           exact hpb
         | imm _ | flag _ => exact hpb
-        | vec _ => simp [boolArgTo8] at hd2
+        | vec _ => simp [boolArgTo8I] at hd2
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_boolArgTo8 _ .r10 hd2 hpb1)) ?_
       rintro s2 ⟨rv10, hrv10, rfl⟩
       refine Program.wp.cons (Directive.FallsTo.wp (h8 _)) ?_
@@ -773,11 +442,11 @@ theorem opBoolBin_spec [Host] {E : Int64 → MachineData → Prop} (op : Bool �
           Reg64s.get64_set64_of_ne _ .r11 r _ (Ne.symm hr.2.2.1),
           Reg64s.get64_set64_of_ne _ .r10 r _ (Ne.symm hr.2.1),
           Reg64s.get64_set64_of_ne _ .r11 r _ (Ne.symm hr.2.2.1)]
-    have hbind (hd : (boolArgTo8 .r11 pa >>= fun d1 =>
-        boolArgTo8 .r10 pb >>= fun d2 =>
-        some ([d1, d2, ins8 (insFn (.reg (b8 .r11)) (.reg (b8 .r10))),
-               ins32 (.movzx (.reg (d rd)) (.reg (b8 .r11)))], maskAll)) = some (c, clob)) :
-        _root_.Program.wp c (OpPostDst1 .bool (.gpr rd) (op a b) clob s) E s := by
+    have hbind (hd : (boolArgTo8I .r11 pa >>= fun d1 =>
+        boolArgTo8I .r10 pb >>= fun d2 =>
+        some ([d1, d2, x64InsI .W8 (insFn (.reg (b8 .r11)) (.reg (b8 .r10))),
+               x64InsI .W32 (.movzx (.reg (d rd)) (.reg (b8 .r11)))], maskAll)) = some (c, clob)) :
+        _root_.Program.wp (emitClean c) (OpPostDst1 .bool (.gpr rd) (op a b) clob s) E s := by
       rcases Option.bind_eq_some_iff.mp hd with ⟨d1, hd1, hd'⟩
       rcases Option.bind_eq_some_iff.mp hd' with ⟨d2, hd2, hd''⟩
       simp only [Option.some.injEq, Prod.mk.injEq] at hd''
@@ -786,8 +455,9 @@ theorem opBoolBin_spec [Host] {E : Int64 → MachineData → Prop} (op : Bool �
     | imm a0 =>
       cases pb with
       | imm b0 =>
-        simp only [opBoolBin, Option.some.injEq, Prod.mk.injEq] at hc
+        simp only [opBoolBinIns, Option.some.injEq, Prod.mk.injEq] at hc
         rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl; rcases hpb with rfl
+        simp only [emitClean_cons, emitClean_nil]
         refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd _)) ?_
         rintro s' rfl
         exact opPostDst_gpr_bool (by cases op a0 b0 <;> rfl) (updFlags_of_status_eq rfl _)
@@ -796,26 +466,28 @@ theorem opBoolBin_spec [Host] {E : Int64 → MachineData → Prop} (op : Bool �
 
 theorem opBoolNot_spec [Host] {E : Int64 → MachineData → Prop}
     {pa : PArg Reg64 RegMm CondCode .bool} {pd : PDst Reg64 RegMm CondCode .bool}
-    {c : List Directive} {clob : FlagMask} {a : Bool} {s : MachineData}
-    (hc : opBoolNot pa pd = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {a : Bool} {s : MachineData}
+    (hc : opBoolNotIns pa pd = some (c, clob))
     (hpa : x64Mach.PArgHolds s .bool pa a) :
-    _root_.Program.wp c (OpPostDst1 .bool pd (!a) clob s) E s := by
+    _root_.Program.wp (emitClean c) (OpPostDst1 .bool pd (!a) clob s) E s := by
   cases pd with
-  | flag _ | vec _ => simp [opBoolNot] at hc
+  | flag _ | vec _ => simp [opBoolNotIns] at hc
   | gpr rd =>
     cases pa with
     | imm b0 =>
-      simp only [opBoolNot, Option.some.injEq, Prod.mk.injEq] at hc
+      simp only [opBoolNotIns, Option.some.injEq, Prod.mk.injEq] at hc
       rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+      simp only [emitClean_cons, emitClean_nil]
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd _)) ?_
       rintro s' rfl
       exact opPostDst_gpr_bool (by cases b0 <;> rfl) (updFlags_of_status_eq rfl _)
-    | vec _ => simp [opBoolNot, boolArgTo8] at hc
+    | vec _ => simp [opBoolNotIns, boolArgTo8I] at hc
     | gpr _ | flag _ =>
-      simp only [opBoolNot, Option.bind_eq_bind] at hc
+      simp only [opBoolNotIns, Option.bind_eq_bind] at hc
       rcases Option.bind_eq_some_iff.mp hc with ⟨d1, hd1, hc'⟩
       simp only [Option.some.injEq, Prod.mk.injEq] at hc'
       rcases hc' with ⟨rfl, rfl⟩
+      simp only [emitClean_cons, emitClean_nil]
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_boolArgTo8 s .r11 hd1 hpa)) ?_
       rintro s1 ⟨rv11, hrv11, rfl⟩
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_xor8_one _ .r11)) ?_
@@ -837,30 +509,34 @@ theorem opBoolNot_spec [Host] {E : Int64 → MachineData → Prop}
 
 theorem opOfBool_spec [Host] {E : Int64 → MachineData → Prop} (w : Width)
     {pa : PArg Reg64 RegMm CondCode .bool} {rd : Reg64}
-    {c : List Directive} {clob : FlagMask} {b : Bool} {s : MachineData}
-    (hc : opOfBool pa rd = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {b : Bool} {s : MachineData}
+    (hc : opOfBoolIns pa rd = some (c, clob))
     (hpa : x64Mach.PArgHolds s .bool pa b) :
-    _root_.Program.wp c (OpPost1 (.bits w.bits) rd (BitVec.ofNat w.bits b.toNat) clob s) E s := by
+    _root_.Program.wp (emitClean c)
+      (OpPost1 (.bits w.bits) rd (BitVec.ofNat w.bits b.toNat) clob s) E s := by
   cases pa with
   | gpr rs =>
-    simp only [opOfBool, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+    simp only [opOfBoolIns, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+    simp only [emitClean_cons, emitClean_nil]
     refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_movzx8 s rd rs)) ?_
     rintro s' rfl
     exact OpPost1.of_set64_bits
       (by rw [hpa, BitVec.setWidth_setWidth_of_le _ (width_bits_le_64 w)]; cases w <;> cases b <;> rfl)
       (updFlags_of_status_eq rfl _)
   | imm b0 =>
-    simp only [opOfBool, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+    simp only [opOfBoolIns, Option.some.injEq, Prod.mk.injEq] at hc
+    rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+    simp only [emitClean_cons, emitClean_nil]
     refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd (BitVec.ofNat 64 b0.toNat))) ?_
     rintro s' rfl
     exact OpPost1.of_set64_bits (by cases w <;> cases b0 <;> rfl) (updFlags_of_status_eq rfl _)
   | flag cc =>
-    simp only [opOfBool, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+    simp only [opOfBoolIns, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
     have hcc : cc.interp s.status = b := hpa
     refine Program.wp.mono (wp_setccMove s rd cc) ?_
     rintro s' rfl
     exact OpPost1.of_set64_bits (by rw [hcc]; cases w <;> cases b <;> rfl) (updFlags_of_status_eq rfl _)
-  | vec _ => simp [opOfBool] at hc
+  | vec _ => simp [opOfBoolIns] at hc
 
 private theorem opExt_bounds {m n : Nat} (h : x64BitWidths.contains m && x64BitWidths.contains n && Nat.ble (m + 1) n = true) :
     (m = 8 ∨ m = 16 ∨ m = 32 ∨ m = 64) ∧ (n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64) ∧ m < n ∧ n ≤ 64 := by
@@ -870,16 +546,16 @@ private theorem opExt_bounds {m n : Nat} (h : x64BitWidths.contains m && x64BitW
 
 theorem opZext_spec [Host] {E : Int64 → MachineData → Prop} (m n : Nat)
     {pa : PArg Reg64 RegMm CondCode (.bits m)} {rd : Reg64}
-    {c : List Directive} {clob : FlagMask} {va : BitVec m} {s : MachineData}
-    (hc : opZext m n pa rd = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {va : BitVec m} {s : MachineData}
+    (hc : opZextIns m n pa rd = some (c, clob))
     (hpa : x64Mach.PArgHolds s (.bits m) pa va) :
-    m ≤ n ∧ _root_.Program.wp c (OpPost1 (.bits n) rd (va.setWidth n) clob s) E s := by
+    m ≤ n ∧ _root_.Program.wp (emitClean c) (OpPost1 (.bits n) rd (va.setWidth n) clob s) E s := by
   cases hmnb : x64BitWidths.contains m && x64BitWidths.contains n && Nat.ble (m + 1) n with
-  | false => unfold opZext at hc; rw [hmnb] at hc; cases hc
+  | false => unfold opZextIns at hc; rw [hmnb] at hc; cases hc
   | true =>
     obtain ⟨hm, hn, hlt, hle64⟩ := opExt_bounds hmnb
     refine ⟨Nat.le_of_lt hlt, ?_⟩
-    unfold opZext at hc; rw [hmnb] at hc
+    unfold opZextIns at hc; rw [hmnb] at hc
     simp only [Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hc
     have finish (rv : BitVec 64) (hrv : rv.setWidth n = va.setWidth n)
         {s' : MachineData} (hs' : s' = { s with regs := s.regs.set64 rd rv }) :
@@ -890,17 +566,21 @@ theorem opZext_spec [Host] {E : Int64 → MachineData → Prop} (m n : Nat)
     cases pa with
     | imm ca =>
       simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+      simp only [emitClean_cons, emitClean_nil]
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd (ca.setWidth 64))) ?_
       rintro s' rfl; exact finish _ (BitVec.setWidth_setWidth_of_le _ hle64) rfl
     | gpr rs =>
       rcases hm with rfl | rfl | rfl | rfl <;> try (exfalso; omega)
       · simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+        simp only [emitClean_cons, emitClean_nil]
         refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_movzx8 s rd rs)) ?_
         rintro s' rfl; exact finish _ (by rw [hpa.2, BitVec.setWidth_setWidth_of_le _ hle64]) rfl
       · simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+        simp only [emitClean_cons, emitClean_nil]
         refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_movzx16 s rd rs)) ?_
         rintro s' rfl; exact finish _ (by rw [hpa.2, BitVec.setWidth_setWidth_of_le _ hle64]) rfl
       · simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+        simp only [emitClean_cons, emitClean_nil]
         refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_movlD s rd rs)) ?_
         rintro s' rfl
         exact finish _ (by rw [hpa.2, BitVec.zeroExtend_eq_setWidth, BitVec.setWidth_setWidth_of_le _ hle64]) rfl
@@ -908,16 +588,17 @@ theorem opZext_spec [Host] {E : Int64 → MachineData → Prop} (m n : Nat)
 
 theorem opSext_spec [Host] {E : Int64 → MachineData → Prop} (m n : Nat)
     {pa : PArg Reg64 RegMm CondCode (.bits m)} {rd : Reg64}
-    {c : List Directive} {clob : FlagMask} {va : BitVec m} {s : MachineData}
-    (hc : opSext m n pa rd = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {va : BitVec m} {s : MachineData}
+    (hc : opSextIns m n pa rd = some (c, clob))
     (hpa : x64Mach.PArgHolds s (.bits m) pa va) :
-    m ≤ n ∧ _root_.Program.wp c (OpPost1 (.bits n) rd (va.signExtend n) clob s) E s := by
+    m ≤ n ∧
+      _root_.Program.wp (emitClean c) (OpPost1 (.bits n) rd (va.signExtend n) clob s) E s := by
   cases hmnb : x64BitWidths.contains m && x64BitWidths.contains n && Nat.ble (m + 1) n with
-  | false => unfold opSext at hc; rw [hmnb] at hc; cases hc
+  | false => unfold opSextIns at hc; rw [hmnb] at hc; cases hc
   | true =>
     obtain ⟨hm, hn, hlt, hle64⟩ := opExt_bounds hmnb
     refine ⟨Nat.le_of_lt hlt, ?_⟩
-    unfold opSext at hc; rw [hmnb] at hc
+    unfold opSextIns at hc; rw [hmnb] at hc
     simp only [Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hc
     have finish (rv : BitVec 64) (hrv : rv.setWidth n = va.signExtend n)
         {s' : MachineData} (hs' : s' = { s with regs := s.regs.set64 rd rv }) :
@@ -928,11 +609,14 @@ theorem opSext_spec [Host] {E : Int64 → MachineData → Prop} (m n : Nat)
     cases pa with
     | imm ca =>
       simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+      simp only [emitClean_cons, emitClean_nil]
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd ((ca.signExtend n).setWidth 64))) ?_
       rintro s' rfl; exact finish _ (by rw [BitVec.setWidth_setWidth_of_le _ hle64, BitVec.setWidth_eq]) rfl
     | gpr rs =>
       rcases hm with rfl | rfl | rfl | rfl <;> rcases hn with rfl | rfl | rfl | rfl <;> try (exfalso; omega)
-      all_goals simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+      all_goals
+        simp only [Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+        simp only [emitClean_cons, emitClean_nil]
       · refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_movsx8 .W32 (.inl rfl) s rd rs)) ?_
         rintro s' hs'; rw [hpa.2] at hs'
         exact finish ((va.signExtend 32).setWidth 64)
@@ -959,31 +643,32 @@ theorem opSext_spec [Host] {E : Int64 → MachineData → Prop} (m n : Nat)
 
 theorem opTrunc_spec [Host] {E : Int64 → MachineData → Prop} (m n : Nat)
     {pa : PArg Reg64 RegMm CondCode (.bits m)} {rd : Reg64}
-    {c : List Directive} {clob : FlagMask} {va : BitVec m} {s : MachineData}
-    (hc : opTrunc m n pa rd = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {va : BitVec m} {s : MachineData}
+    (hc : opTruncIns m n pa rd = some (c, clob))
     (hpa : x64Mach.PArgHolds s (.bits m) pa va) :
-    n ≤ m ∧ _root_.Program.wp c (OpPost1 (.bits n) rd (va.setWidth n) clob s) E s := by
+    n ≤ m ∧ _root_.Program.wp (emitClean c) (OpPost1 (.bits n) rd (va.setWidth n) clob s) E s := by
   cases hcond : x64BitWidths.contains m && x64BitWidths.contains n && Nat.ble (n + 1) m with
-  | false => unfold opTrunc at hc; rw [hcond] at hc; cases hc
+  | false => unfold opTruncIns at hc; rw [hcond] at hc; cases hc
   | true =>
     have hmnb : x64BitWidths.contains n && x64BitWidths.contains m && Nat.ble (n + 1) m = true := by
       simp only [Bool.and_eq_true] at hcond ⊢; exact ⟨⟨hcond.1.2, hcond.1.1⟩, hcond.2⟩
     obtain ⟨hn, _, hlt, _⟩ := opExt_bounds hmnb
     have hle : n ≤ m := Nat.le_of_lt hlt
     refine ⟨hle, ?_⟩
-    unfold opTrunc at hc; rw [hcond] at hc
+    unfold opTruncIns at hc; rw [hcond] at hc
     simp only [Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hc
     have harm (w : Width) (hw : w.bits = n) (pa' : PArg Reg64 RegMm CondCode (.bits m)) :
         (match pa' with
-        | .imm ca => some ([moviD rd ((ca.setWidth n).setWidth 64)], maskNone)
-        | .gpr r => if r == rd then some ([], maskNone) else some ([movW w rd r], maskNone)
+        | .imm ca => some ([moviI rd ((ca.setWidth n).setWidth 64)], maskNone)
+        | .gpr r => if r == rd then some ([], maskNone) else some ([movWI w rd r], maskNone)
         | .vec _ => none) = some (c, clob) →
         x64Mach.PArgHolds s (.bits m) pa' va →
-        _root_.Program.wp c (OpPost1 (.bits n) rd (va.setWidth n) clob s) E s := by
+        _root_.Program.wp (emitClean c) (OpPost1 (.bits n) rd (va.setWidth n) clob s) E s := by
       intro harm hpa'; subst hw
       cases pa' with
       | imm ca =>
         simp only [Option.some.injEq, Prod.mk.injEq] at harm; rcases harm with ⟨rfl, rfl⟩; rcases hpa' with rfl
+        simp only [emitClean_cons, emitClean_nil]
         refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd ((ca.setWidth w.bits).setWidth 64))) ?_
         rintro s' rfl; exact OpPost1.of_set64_bits (setWidth_64_setWidth w _) (updFlags_of_status_eq rfl _)
       | gpr rs =>
@@ -994,6 +679,7 @@ theorem opTrunc_spec [Host] {E : Int64 → MachineData → Prop} (m n : Nat)
           rw [← hpa'.2, BitVec.setWidth_setWidth_of_le _ hle]
         · simp only [hrr, Bool.false_eq_true, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at harm
           rcases harm with ⟨rfl, rfl⟩
+          simp only [emitClean_cons, emitClean_nil]
           refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_movW w s rd rs)) ?_
           rintro s' rfl
           exact OpPost1.of_set64_bits
@@ -1008,11 +694,11 @@ theorem opTrunc_spec [Host] {E : Int64 → MachineData → Prop} (m n : Nat)
 
 theorem opBswap_spec [Host] {E : Int64 → MachineData → Prop} (n : Nat)
     {pa : PArg Reg64 RegMm CondCode (.bits n)} {rd : Reg64}
-    {c : List Directive} {clob : FlagMask} {va : BitVec n} {s : MachineData}
-    (hc : opBswap n pa rd = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {va : BitVec n} {s : MachineData}
+    (hc : opBswapIns n pa rd = some (c, clob))
     (hpa : x64Mach.PArgHolds s (.bits n) pa va) :
     (Ty.bits n).bswapOk = true ∧
-      _root_.Program.wp c (OpPost1 (.bits n) rd (bswapBits va) clob s) E s := by
+      _root_.Program.wp (emitClean c) (OpPost1 (.bits n) rd (bswapBits va) clob s) E s := by
   have hn : n = 16 ∨ n = 32 ∨ n = 64 := by
     by_cases h16 : n = 16
     · exact Or.inl h16
@@ -1020,16 +706,19 @@ theorem opBswap_spec [Host] {E : Int64 → MachineData → Prop} (n : Nat)
       · exact Or.inr (Or.inl h32)
       · by_cases h64 : n = 64
         · exact Or.inr (Or.inr h64)
-        · cases pa <;> simp [opBswap, h16, h32, h64] at hc
+        · cases pa <;> simp [opBswapIns, h16, h32, h64] at hc
   refine ⟨by rcases hn with rfl | rfl | rfl <;> rfl, ?_⟩
   rcases hn with rfl | rfl | rfl
   · cases pa with
     | imm ca =>
-      simp only [opBswap, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+      simp only [opBswapIns, Option.some.injEq, Prod.mk.injEq] at hc
+      rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+      simp only [emitClean_cons, emitClean_nil]
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd ((bswapBits ca).setWidth 64))) ?_
       rintro s' rfl; exact OpPost1.of_set64_bits (setWidth_64_setWidth .W16 _) (updFlags_of_status_eq rfl _)
     | gpr rs =>
-      simp only [opBswap, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+      simp only [opBswapIns, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+      simp only [emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil]
       refine Program.wp.append (wp_optMovW .W16 s rd rs hpa.2) ?_
       rintro s1 ⟨hrd1, hr1, hm1, hz1, hst1⟩
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_rolw8 s1 rd)) ?_
@@ -1038,18 +727,21 @@ theorem opBswap_spec [Host] {E : Int64 → MachineData → Prop} (n : Nat)
       · intro r hr; simp only [List.mem_cons, not_or] at hr
         rw [Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1), hr1 r hr.1]
       · exact updFlags_maskCF_OF (by rw [hpf, hst1]) (by rw [hzf, hst1]) (by rw [hsf, hst1])
-    | vec _ => simp [opBswap] at hc
+    | vec _ => simp [opBswapIns] at hc
   · cases pa with
     | imm ca =>
-      simp only [opBswap, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+      simp only [opBswapIns, Option.some.injEq, Prod.mk.injEq] at hc
+      rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+      simp only [emitClean_cons, emitClean_nil]
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd ((bswapBits ca).setWidth 64))) ?_
       rintro s' rfl; exact OpPost1.of_set64_bits (setWidth_64_setWidth .W32 _) (updFlags_of_status_eq rfl _)
     | gpr rs =>
-      simp only [opBswap, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+      simp only [opBswapIns, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+      simp only [emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil]
       have hpre : _root_.Program.wp (if rs == rd then [] else [movlD rd rs]) (fun s1 =>
           (s1.regs.get64 rd).setWidth 32 = va ∧ (∀ r, r ≠ rd → s1.regs.get64 r = s.regs.get64 r) ∧
           s1.dmem = s.dmem ∧ s1.zmms = s.zmms ∧ s1.status = s.status) E s := by
-        simpa [movW] using wp_optMovW .W32 s rd rs hpa.2
+        simpa [movW, movlD] using wp_optMovW .W32 s rd rs hpa.2
       refine Program.wp.append hpre ?_
       rintro s1 ⟨hrd1, hr1, hm1, hz1, hst1⟩
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_bswap32 s1 rd)) ?_
@@ -1058,18 +750,21 @@ theorem opBswap_spec [Host] {E : Int64 → MachineData → Prop} (n : Nat)
         hm1, x64_frame_of_eq ?_ hz1 (updFlags_of_status_eq hst1 _)⟩
       intro r hr; simp only [List.mem_cons, not_or] at hr
       rw [Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1), hr1 r hr.1]
-    | vec _ => simp [opBswap] at hc
+    | vec _ => simp [opBswapIns] at hc
   · cases pa with
     | imm ca =>
-      simp only [opBswap, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+      simp only [opBswapIns, Option.some.injEq, Prod.mk.injEq] at hc
+      rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+      simp only [emitClean_cons, emitClean_nil]
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd (bswapBits ca))) ?_
       rintro s' rfl; exact OpPost1.of_set64_bits (w := .W64) (BitVec.setWidth_eq _) (updFlags_of_status_eq rfl _)
     | gpr rs =>
-      simp only [opBswap, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+      simp only [opBswapIns, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+      simp only [emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil]
       have hpre : _root_.Program.wp (if rs == rd then [] else [movD rd rs]) (fun s1 =>
           (s1.regs.get64 rd).setWidth 64 = va ∧ (∀ r, r ≠ rd → s1.regs.get64 r = s.regs.get64 r) ∧
           s1.dmem = s.dmem ∧ s1.zmms = s.zmms ∧ s1.status = s.status) E s := by
-        simpa [movW] using wp_optMovW .W64 s rd rs hpa.2
+        simpa [movW, movD] using wp_optMovW .W64 s rd rs hpa.2
       refine Program.wp.append hpre ?_
       rintro s1 ⟨hrd1, hr1, hm1, hz1, hst1⟩
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_bswap64 s1 rd)) ?_
@@ -1078,21 +773,24 @@ theorem opBswap_spec [Host] {E : Int64 → MachineData → Prop} (n : Nat)
         hm1, x64_frame_of_eq ?_ hz1 (updFlags_of_status_eq hst1 _)⟩
       intro r hr; simp only [List.mem_cons, not_or] at hr
       rw [Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1), hr1 r hr.1]
-    | vec _ => simp [opBswap] at hc
+    | vec _ => simp [opBswapIns] at hc
 
 theorem opNeg_spec [Host] {E : Int64 → MachineData → Prop} (w : Width)
     {pa : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64}
-    {c : List Directive} {clob : FlagMask} {va : BitVec w.bits} {s : MachineData}
-    (hc : opNeg w pa rd = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {va : BitVec w.bits} {s : MachineData}
+    (hc : opNegIns w pa rd = some (c, clob))
     (hpa : x64Mach.PArgHolds s (.bits w.bits) pa va) :
-    _root_.Program.wp c (OpPost1 (.bits w.bits) rd (-va) clob s) E s := by
+    _root_.Program.wp (emitClean c) (OpPost1 (.bits w.bits) rd (-va) clob s) E s := by
   cases pa with
   | imm ca =>
-    simp only [opNeg, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+    simp only [opNegIns, Option.some.injEq, Prod.mk.injEq] at hc
+    rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+    simp only [emitClean_cons, emitClean_nil]
     refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd ((-ca).setWidth 64))) ?_
     rintro s' rfl; exact OpPost1.of_set64_bits (setWidth_64_setWidth w _) (updFlags_of_status_eq rfl _)
   | gpr rs =>
-    simp only [opNeg, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+    simp only [opNegIns, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+    simp only [emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil]
     refine Program.wp.append (wp_optMovW w s rd rs hpa.2) ?_
     rintro s1 ⟨hrd1, hr1, hm1, hz1, _⟩
     refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_negW w s1 rd)) ?_
@@ -1101,21 +799,24 @@ theorem opNeg_spec [Host] {E : Int64 → MachineData → Prop} (w : Width)
       hm1, x64_frame_of_eq ?_ hz1 (updFlags_maskAll _ _)⟩
     intro r hr; simp only [List.mem_cons, not_or] at hr
     rw [Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1), hr1 r hr.1]
-  | vec _ => simp [opNeg] at hc
+  | vec _ => simp [opNegIns] at hc
 
 theorem opNot_spec [Host] {E : Int64 → MachineData → Prop} (w : Width)
     {pa : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64}
-    {c : List Directive} {clob : FlagMask} {va : BitVec w.bits} {s : MachineData}
-    (hc : opNot w pa rd = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {va : BitVec w.bits} {s : MachineData}
+    (hc : opNotIns w pa rd = some (c, clob))
     (hpa : x64Mach.PArgHolds s (.bits w.bits) pa va) :
-    _root_.Program.wp c (OpPost1 (.bits w.bits) rd (~~~va) clob s) E s := by
+    _root_.Program.wp (emitClean c) (OpPost1 (.bits w.bits) rd (~~~va) clob s) E s := by
   cases pa with
   | imm ca =>
-    simp only [opNot, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+    simp only [opNotIns, Option.some.injEq, Prod.mk.injEq] at hc
+    rcases hc with ⟨rfl, rfl⟩; rcases hpa with rfl
+    simp only [emitClean_cons, emitClean_nil]
     refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd ((~~~ca).setWidth 64))) ?_
     rintro s' rfl; exact OpPost1.of_set64_bits (setWidth_64_setWidth w _) (updFlags_of_status_eq rfl _)
   | gpr rs =>
-    simp only [opNot, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+    simp only [opNotIns, Option.some.injEq, Prod.mk.injEq] at hc; rcases hc with ⟨rfl, rfl⟩
+    simp only [emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil]
     refine Program.wp.append (wp_optMovW w s rd rs hpa.2) ?_
     rintro s1 ⟨hrd1, hr1, hm1, hz1, hst1⟩
     refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_notW w s1 rd)) ?_
@@ -1124,7 +825,7 @@ theorem opNot_spec [Host] {E : Int64 → MachineData → Prop} (w : Width)
       hm1, x64_frame_of_eq ?_ hz1 (updFlags_of_status_eq hst1 _)⟩
     intro r hr; simp only [List.mem_cons, not_or] at hr
     rw [Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1), hr1 r hr.1]
-  | vec _ => simp [opNot] at hc
+  | vec _ => simp [opNotIns] at hc
 
 /-! ## 5. `op_spec` Lemma: `opBin` -/
 
@@ -1141,19 +842,21 @@ private theorem opBin_regImm_spec [Host] {E : Int64 → MachineData → Prop} (w
     (k : AluBinKind) (ra rd : Reg64) (cb va : BitVec w.bits) (s : MachineData)
     (hrd : rd ∉ x64Scratch) (hra_g : ra ∉ x64Scratch)
     (hra : (s.regs.get64 ra).setWidth w.bits = va) :
-    let pre := if ra == rd then [] else [movW w rd ra]
-    let pair :=
+    let pre : List Instr := if ra == rd then [] else [movWI w rd ra]
+    let pair : List Instr × FlagMask :=
       if w != .W64 || fitsImm32 (cb.setWidth 64) then
-        (pre ++ [aluBinIns w k rd (immBitsOp w cb)], maskAll)
+        (pre ++ [aluBinI w k rd (immBitsOp w cb)], maskAll)
       else
-        ([moviD .r10 (cb.setWidth 64)] ++ pre ++ [aluBinIns w k rd (.reg (regW w .r10))], maskAll)
-    _root_.Program.wp pair.1 (OpPost1 (.bits w.bits) rd (k.eval va cb) pair.2 s) E s := by
+        ([moviI .r10 (cb.setWidth 64)] ++ pre ++ [aluBinI w k rd (.reg (regW w .r10))], maskAll)
+    _root_.Program.wp (emitClean pair.1)
+      (OpPost1 (.bits w.bits) rd (k.eval va cb) pair.2 s) E s := by
   intro pre pair
   have hrd10 := (ne_of_not_mem_x64Scratch hrd).1
   have hra10 := (ne_of_not_mem_x64Scratch hra_g).1
   dsimp only [pair, pre]
   split
-  · refine Program.wp.append (wp_optMovW w s rd ra hra) ?_
+  · simp only [emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil]
+    refine Program.wp.append (wp_optMovW w s rd ra hra) ?_
     rintro s1 ⟨hrd1, hr1, hm1, hz1, _⟩
     refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_aluBinIns_imm w k s1 rd cb)) ?_
     rintro s2 ⟨rv, st, hrv, rfl⟩
@@ -1161,7 +864,8 @@ private theorem opBin_regImm_spec [Host] {E : Int64 → MachineData → Prop} (w
       hm1, x64_frame_of_eq ?_ hz1 (updFlags_maskAll _ _)⟩
     intro r hr; simp only [List.mem_cons, not_or] at hr
     rw [Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1), hr1 r hr.1]
-  · refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD s .r10 (cb.setWidth 64))) ?_
+  · simp only [emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil]
+    refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD s .r10 (cb.setWidth 64))) ?_
     rintro s1 rfl
     have hra1 : ((s.regs.set64 .r10 (cb.setWidth 64)).get64 ra).setWidth w.bits = va := by
       rw [Reg64s.get64_set64_of_ne _ .r10 ra _ hra10.symm, hra]
@@ -1180,11 +884,13 @@ private theorem opBin_regImm_spec [Host] {E : Int64 → MachineData → Prop} (w
 private theorem opBin_incDec_spec [Host] {E : Int64 → MachineData → Prop} (w : Width)
     (isInc : Bool) (ra rd : Reg64) (va : BitVec w.bits) (s : MachineData)
     (hra : (s.regs.get64 ra).setWidth w.bits = va) :
-    let pre := if ra == rd then [] else [movW w rd ra]
-    let d := insW w (if isInc then .inc (.reg (regW w rd)) else .dec (.reg (regW w rd)))
+    let pre : List Instr := if ra == rd then [] else [movWI w rd ra]
+    let d : Instr := x64InsI w (if isInc then .inc (.reg (regW w rd)) else .dec (.reg (regW w rd)))
     let res := if isInc then va + 1#w.bits else va - 1#w.bits
-    _root_.Program.wp (pre ++ [d]) (OpPost1 (.bits w.bits) rd res maskDecInc s) E s := by
+    _root_.Program.wp (emitClean (pre ++ [d]))
+      (OpPost1 (.bits w.bits) rd res maskDecInc s) E s := by
   intro pre d res; dsimp only [pre, d, res]
+  simp only [emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil]
   refine Program.wp.append (wp_optMovW w s rd ra hra) ?_
   rintro s1 ⟨hrd1, hr1, hm1, hz1, hst1⟩
   cases isInc
@@ -1205,17 +911,18 @@ private theorem opBin_incDec_spec [Host] {E : Int64 → MachineData → Prop} (w
 
 theorem opBin_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (k : AluBinKind)
     {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64} {vh : VariantHint}
-    {c : List Directive} {clob : FlagMask} {va vb : BitVec w.bits} {s : MachineData}
-    (hc : opBin w k pa pb rd vh = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {va vb : BitVec w.bits} {s : MachineData}
+    (hc : opBinIns w k pa pb rd vh = some (c, clob))
     (hrd : rd ∉ x64Scratch) (hargs : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch)
     (hpa : x64Mach.PArgHolds s (.bits w.bits) pa va)
     (hpb : x64Mach.PArgHolds s (.bits w.bits) pb vb) :
-    _root_.Program.wp c (OpPost1 (.bits w.bits) rd (k.eval va vb) clob s) E s := by
+    _root_.Program.wp (emitClean c) (OpPost1 (.bits w.bits) rd (k.eval va vb) clob s) E s := by
   have hdisp_spec (off : Int64) (hwf : ((w == .W32 || w == .W64) && fitsImm32 off.toBitVec) = true)
       (rb : Reg64) (heqv : (s.regs.get64 rb).setWidth w.bits + off.toBitVec.setWidth w.bits = k.eval va vb)
-      (hc_eq : c = [insW w (.lea (regW w rd) (atDisp rb off))]) (hcl : clob = maskNone) :
-      _root_.Program.wp c (OpPost1 (.bits w.bits) rd (k.eval va vb) clob s) E s := by
+      (hc_eq : c = [x64InsI w (.lea (regW w rd) (atDisp rb off))]) (hcl : clob = maskNone) :
+      _root_.Program.wp (emitClean c) (OpPost1 (.bits w.bits) rd (k.eval va vb) clob s) E s := by
     subst hc_eq; subst hcl
+    simp only [emitClean_cons, emitClean_nil]
     have hw3264 : w = .W32 ∨ w = .W64 := by
       simp only [Bool.and_eq_true, Bool.or_eq_true, beq_width_iff] at hwf; exact hwf.1
     refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_leaDisp w hw3264 s rd rb off)) ?_
@@ -1224,47 +931,52 @@ theorem opBin_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (k : 
       x64Mach.PArgHolds s (.bits w.bits) pa va → x64Mach.PArgHolds s (.bits w.bits) pb vb →
       (∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch) →
       (match pa, pb with
-      | .imm ca, .imm cb => some ([moviD rd ((k.eval ca cb).setWidth 64)], maskNone)
+      | .imm ca, .imm cb => some ([moviI rd ((k.eval ca cb).setWidth 64)], maskNone)
       | .gpr ra, .gpr rb =>
-        if ra == rd then some ([aluBinIns w k rd (.reg (regW w rb))], maskAll)
-        else if k.isComm && rb == rd then some ([aluBinIns w k rd (.reg (regW w ra))], maskAll)
+        if ra == rd then some ([aluBinI w k rd (.reg (regW w rb))], maskAll)
+        else if k.isComm && rb == rd then some ([aluBinI w k rd (.reg (regW w ra))], maskAll)
         else if k == .sub && rb == rd then
-          some ([insW w (.neg (.reg (regW w rd))), aluBinIns w .add rd (.reg (regW w ra))], maskAll)
+          some ([x64InsI w (.neg (.reg (regW w rd))),
+                 aluBinI w .add rd (.reg (regW w ra))], maskAll)
         else if rb != rd then
-          some ([movW w rd ra, aluBinIns w k rd (.reg (regW w rb))], maskAll)
+          some ([movWI w rd ra, aluBinI w k rd (.reg (regW w rb))], maskAll)
         else
-          some ([movW w .r11 ra, aluBinIns w k .r11 (.reg (regW w rb)), movW w rd .r11], maskAll)
+          some ([movWI w .r11 ra, aluBinI w k .r11 (.reg (regW w rb)), movWI w rd .r11], maskAll)
       | .gpr ra, .imm cb =>
         some (if w != .W64 || fitsImm32 (cb.setWidth 64) then
-          ((if ra == rd then [] else [movW w rd ra]) ++ [aluBinIns w k rd (immBitsOp w cb)], maskAll)
+          ((if ra == rd then [] else [movWI w rd ra]) ++ [aluBinI w k rd (immBitsOp w cb)], maskAll)
         else
-          ([moviD .r10 (cb.setWidth 64)] ++ (if ra == rd then [] else [movW w rd ra]) ++
-            [aluBinIns w k rd (.reg (regW w .r10))], maskAll))
+          ([moviI .r10 (cb.setWidth 64)] ++ (if ra == rd then [] else [movWI w rd ra]) ++
+            [aluBinI w k rd (.reg (regW w .r10))], maskAll))
       | .imm ca, .gpr rb =>
         if k == .sub && ca == 0 then
-          some ((if rb == rd then [] else [movW w rd rb]) ++ [insW w (.neg (.reg (regW w rd)))], maskAll)
+          some ((if rb == rd then [] else [movWI w rd rb]) ++
+            [x64InsI w (.neg (.reg (regW w rd)))], maskAll)
         else if k.isComm then
           some (if w != .W64 || fitsImm32 (ca.setWidth 64) then
-            ((if rb == rd then [] else [movW w rd rb]) ++ [aluBinIns w k rd (immBitsOp w ca)], maskAll)
+            ((if rb == rd then [] else [movWI w rd rb]) ++
+              [aluBinI w k rd (immBitsOp w ca)], maskAll)
           else
-            ([moviD .r10 (ca.setWidth 64)] ++ (if rb == rd then [] else [movW w rd rb]) ++
-              [aluBinIns w k rd (.reg (regW w .r10))], maskAll))
+            ([moviI .r10 (ca.setWidth 64)] ++ (if rb == rd then [] else [movWI w rd rb]) ++
+              [aluBinI w k rd (.reg (regW w .r10))], maskAll))
         else
-          some ([moviD .r11 (ca.setWidth 64), aluBinIns w .sub .r11 (.reg (regW w rb)),
-                 movW w rd .r11], maskAll)
+          some ([moviI .r11 (ca.setWidth 64), aluBinI w .sub .r11 (.reg (regW w rb)),
+                 movWI w rd .r11], maskAll)
       | _, _ => none) = some (c, clob) →
-      _root_.Program.wp c (OpPost1 (.bits w.bits) rd (k.eval va vb) clob s) E s := by
+      _root_.Program.wp (emitClean c) (OpPost1 (.bits w.bits) rd (k.eval va vb) clob s) E s := by
     intro pa' pb' va' vb' hpa' hpb' hargs' hm
     cases pa' <;> cases pb' <;> simp only at hm <;> try contradiction
     · rename_i ra rb; have hra := hpa'.2; have hrb := hpb'.2
       by_cases h1 : ra == rd
       · have h1eq := (beq_reg64_iff ra rd).1 h1; subst ra
         simp only [h1, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at hm; rcases hm with ⟨rfl, rfl⟩
+        simp only [emitClean_cons, emitClean_nil]
         refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_aluBinIns_reg w k s rd rb)) ?_
         rintro s' ⟨rv, st, hrv, rfl⟩; exact OpPost1.of_set64_bits (by rw [hrv, hra, hrb]) (updFlags_maskAll _ _)
       · simp only [h1, Bool.false_eq_true, ↓reduceIte] at hm
         by_cases h2 : k.isComm && (rb == rd)
         · simp only [h2, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at hm; rcases hm with ⟨rfl, rfl⟩
+          simp only [emitClean_cons, emitClean_nil]
           simp only [Bool.and_eq_true, beq_reg64_iff] at h2; rcases h2 with ⟨hcomm, hrb_eq⟩; subst rb
           refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_aluBinIns_reg w k s rd ra)) ?_
           rintro s' ⟨rv, st, hrv, rfl⟩
@@ -1272,6 +984,7 @@ theorem opBin_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (k : 
         · simp only [h2, Bool.false_eq_true, ↓reduceIte] at hm
           by_cases h3 : (k == .sub) && (rb == rd)
           · simp only [h3, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at hm; rcases hm with ⟨rfl, rfl⟩
+            simp only [emitClean_cons, emitClean_nil]
             have h3' : k = .sub ∧ rb = rd := by cases k <;> simp_all [beq_reg64_iff]
             rcases h3' with ⟨rfl, rfl⟩
             have hra_ne : ra ≠ rb := fun h => h1 ((beq_reg64_iff ra rb).2 h)
@@ -1289,6 +1002,7 @@ theorem opBin_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (k : 
           · simp only [h3, Bool.false_eq_true, ↓reduceIte] at hm
             by_cases h4 : rb != rd
             · simp only [h4, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at hm; rcases hm with ⟨rfl, rfl⟩
+              simp only [emitClean_cons, emitClean_nil]
               have hrb_ne := (bne_reg64_iff rb rd).1 h4
               refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_movW w s rd ra)) ?_
               rintro s1 rfl
@@ -1302,6 +1016,7 @@ theorem opBin_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (k : 
                   Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1)]
             · simp only [h4, Bool.false_eq_true, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at hm
               rcases hm with ⟨rfl, rfl⟩
+              simp only [emitClean_cons, emitClean_nil]
               have hrb11 := (ne_of_not_mem_x64Scratch (hargs' rb (by simp [PArg.gprs]))).2
               refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_movW w s .r11 ra)) ?_
               rintro s1 rfl
@@ -1327,6 +1042,7 @@ theorem opBin_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (k : 
         have hsub0' : k = .sub ∧ ca = 0#w.bits := by cases k <;> simp_all [beq_iff_eq]
         rcases hsub0' with ⟨rfl, rfl⟩
         simp only [Option.some.injEq, Prod.mk.injEq] at hm; rcases hm with ⟨rfl, rfl⟩
+        simp only [emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil]
         rw [AluBinKind.eval, BitVec.zero_sub]
         refine Program.wp.append (wp_optMovW w s rd rb hrb) ?_
         rintro s1 ⟨hrd1, hr1, hm1, hz1, _⟩
@@ -1346,6 +1062,7 @@ theorem opBin_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (k : 
           have hk : k = .sub := by cases k <;> simp_all [AluBinKind.isComm]
           subst hk
           simp only [Option.some.injEq, Prod.mk.injEq] at hm; rcases hm with ⟨rfl, rfl⟩
+          simp only [emitClean_cons, emitClean_nil]
           have hrb11 := (ne_of_not_mem_x64Scratch (hargs' rb (by simp [PArg.gprs]))).2
           refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD s .r11 (ca.setWidth 64))) ?_
           rintro s1 rfl
@@ -1363,9 +1080,10 @@ theorem opBin_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (k : 
               Reg64s.get64_set64_of_ne _ .r11 r _ (Ne.symm hr.2.2.1)]
     · rename_i ca cb; rcases hpa' with rfl; rcases hpb' with rfl
       simp only [Option.some.injEq, Prod.mk.injEq] at hm; rcases hm with ⟨rfl, rfl⟩
+      simp only [emitClean_cons, emitClean_nil]
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd ((k.eval ca cb).setWidth 64))) ?_
       rintro s' rfl; exact OpPost1.of_set64_bits (setWidth_64_setWidth w _) (updFlags_of_status_eq rfl _)
-  unfold opBin at hc; dsimp +zetaHave only at hc
+  unfold opBinIns at hc; dsimp +zetaHave only at hc
   cases vh with
   | default | adcx | adox | mulxFast =>
     cases pa with

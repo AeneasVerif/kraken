@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Arm64.Base
 public import LeanQbe.T.AbiLemmas
+public import LeanQbe.T.IselStepAttr
 
 /-!
 # AAPCS64 Arm64 Frame ISA (`T11b`)
@@ -44,94 +45,157 @@ abbrev armMemUxtx (r : XReg) : MemExtRegExpr :=
 abbrev armAtSpIdx (r : XReg) : AddrExpr :=
   { base := .low .SP .W64, off := .reg (armMemUxtx r) }
 
+/-- AArch64 instruction constructor. -/
+abbrev armInsI {w : RegWidth} (op : Operation w) : Instr :=
+  { operation_size := w, operation := op }
+
+/-- Load unsigned 64-bit constant `c` into `x_d` via literal pool (`Instr`). -/
+abbrev armLdrPoolBvI (d : XReg) (c : BitVec 64) : Instr :=
+  armInsI (w := .W64) (.LDR (zr d .W64) (.lit (.pool { expr := .int64 (Int64.ofBitVec c) })))
+
+/-- Load unsigned 64-bit constant `n` into `x_d` via literal pool (`Instr`). -/
+abbrev armLdrPoolI (d : XReg) (n : Nat) : Instr :=
+  armLdrPoolBvI d (BitVec.ofNat 64 n)
+
 /-- Load unsigned 64-bit constant `n` into `x_d` via literal pool (`ldr xd, =n`). -/
 abbrev armLdrPool (d : XReg) (n : Nat) : Directive :=
   armLdrPoolBv d (BitVec.ofNat 64 n)
 
+/-- Copy 64-bit GP or stack register `s` into `x_d` (`Instr`). -/
+abbrev armMovToXI (d : XReg) (s : Reg) : Instr :=
+  armInsI (w := .W64) (.ADD_e (.low (.reg d) .W64) (.low s .W64) imm0)
+
+/-- Copy 64-bit GP register `s` into `sp` (`Instr`). -/
+abbrev armMovToSpI (s : XReg) : Instr :=
+  armInsI (w := .W64) (.ADD_e (.low .SP .W64) (.low (.reg s) .W64) imm0)
+
+/-- Internal instruction stream for `armSubSp`. -/
+def armSubSpIns (n : Nat) : List Instr :=
+  if armFitsImm12 n then
+    [armInsI (.SUB_e (.low .SP .W64) (.low .SP .W64)
+      (.imm { imm := .int64 (Int64.ofNat n), shift := .S0 }))]
+  else
+    [armLdrPoolI .X16 n, armInsI (.SUB_e (.low .SP .W64) (.low .SP .W64) (.ext (armUxtx .X16)))]
+
 /-- Allocate `n` bytes on `sp` (`sub sp, sp, #n`, or literal-pool `x16` fallback). -/
 def armSubSp (n : Nat) : List Directive :=
+  emitClean (armSubSpIns n)
+
+/-- Internal instruction stream for `armAddSp`. -/
+def armAddSpIns (n : Nat) : List Instr :=
   if armFitsImm12 n then
-    [ins (.SUB_e (.low .SP .W64) (.low .SP .W64) (.imm { imm := .int64 (Int64.ofNat n), shift := .S0 }))]
+    [armInsI (.ADD_e (.low .SP .W64) (.low .SP .W64)
+      (.imm { imm := .int64 (Int64.ofNat n), shift := .S0 }))]
   else
-    [armLdrPool .X16 n, ins (.SUB_e (.low .SP .W64) (.low .SP .W64) (.ext (armUxtx .X16)))]
+    [armLdrPoolI .X16 n, armInsI (.ADD_e (.low .SP .W64) (.low .SP .W64) (.ext (armUxtx .X16)))]
 
 /-- Deallocate `n` bytes on `sp` (`add sp, sp, #n`, or literal-pool `x16` fallback). -/
 def armAddSp (n : Nat) : List Directive :=
-  if armFitsImm12 n then
-    [ins (.ADD_e (.low .SP .W64) (.low .SP .W64) (.imm { imm := .int64 (Int64.ofNat n), shift := .S0 }))]
-  else
-    [armLdrPool .X16 n, ins (.ADD_e (.low .SP .W64) (.low .SP .W64) (.ext (armUxtx .X16)))]
+  emitClean (armAddSpIns n)
+
+/-- Internal instruction stream for `armStSpXReg`. -/
+def armStSpXRegIns (r : XReg) (o : Nat) : List Instr :=
+  if armFitsMemOff o then [armInsI (.STR (zr r .W64) (atOff .SP o))]
+  else [armLdrPoolI .X16 o, armInsI (.STR (zr r .W64) (armAtSpIdx .X16))]
 
 /-- Store 64-bit GP register `r` to `[sp, #o]` (with `x16` fallback for `o ≥ 32768`). -/
 def armStSpXReg (r : XReg) (o : Nat) : List Directive :=
-  if armFitsMemOff o then
-    [ins (.STR (zr r .W64) (atOff .SP o))]
-  else
-    [armLdrPool .X16 o, ins (.STR (zr r .W64) (armAtSpIdx .X16))]
+  emitClean (armStSpXRegIns r o)
+
+/-- Internal instruction stream for `armLdSpXReg`. -/
+def armLdSpXRegIns (rd : XReg) (o : Nat) : List Instr :=
+  if armFitsMemOff o then [armInsI (.LDR (zr rd .W64) (.addr (atOff .SP o)))]
+  else [armLdrPoolI .X16 o, armInsI (.LDR (zr rd .W64) (.addr (armAtSpIdx .X16)))]
 
 /-- Load 64-bit GP register `rd` from `[sp, #o]` (with `x16` fallback for `o ≥ 32768`). -/
 def armLdSpXReg (rd : XReg) (o : Nat) : List Directive :=
-  if armFitsMemOff o then
-    [ins (.LDR (zr rd .W64) (.addr (atOff .SP o)))]
-  else
-    [armLdrPool .X16 o, ins (.LDR (zr rd .W64) (.addr (armAtSpIdx .X16)))]
+  emitClean (armLdSpXRegIns rd o)
+
+/-- Internal instruction stream for `armPrologue`. -/
+def armPrologueIns (ns : Nat) : List Instr :=
+  armSubSpIns (armFrameSize ns) ++ armStSpXRegIns .X30 (8 * ns)
 
 /-- AAPCS64 prologue: decrement `sp` by `armFrameSize ns` and save `x30` at `[sp, #(8 * ns)]`. -/
 def armPrologue (ns : Nat) : List Directive × FlagMask :=
-  (armSubSp (armFrameSize ns) ++ armStSpXReg .X30 (8 * ns), maskNone)
+  (emitClean (armPrologueIns ns), maskNone)
+
+/-- Internal instruction stream for `armEpilogue`. -/
+def armEpilogueIns (ns : Nat) : List Instr :=
+  armLdSpXRegIns .X30 (8 * ns) ++ armAddSpIns (armFrameSize ns)
 
 /-- AAPCS64 epilogue: reload `x30` from `[sp, #(8 * ns)]` and increment `sp` by `armFrameSize ns`. -/
 def armEpilogue (ns : Nat) : List Directive × FlagMask :=
-  (armLdSpXReg .X30 (8 * ns) ++ armAddSp (armFrameSize ns), maskNone)
+  (emitClean (armEpilogueIns ns), maskNone)
+
+/-- Internal instruction stream for `armSlotSt`. -/
+def armSlotStIns (i : Nat) (r : Reg) : List Instr :=
+  match r with
+  | .reg x => armStSpXRegIns x (8 * i)
+  | .SP => [armMovToXI .X17 .SP] ++ armStSpXRegIns .X17 (8 * i)
 
 /-- Store 64-bit GP or stack register `r` to stack slot `i`. -/
 def armSlotSt (i : Nat) (r : Reg) : List Directive :=
-  match r with
-  | .reg x => armStSpXReg x (8 * i)
-  | .SP => [armMovToX .X17 .SP] ++ armStSpXReg .X17 (8 * i)
+  emitClean (armSlotStIns i r)
+
+/-- Internal instruction stream for `armSlotLd`. -/
+def armSlotLdIns (rd : Reg) (i : Nat) : List Instr :=
+  match rd with
+  | .reg x => armLdSpXRegIns x (8 * i)
+  | .SP => armLdSpXRegIns .X17 (8 * i) ++ [armMovToSpI .X17]
 
 /-- Load 64-bit GP or stack register `rd` from stack slot `i`. -/
 def armSlotLd (rd : Reg) (i : Nat) : List Directive :=
-  match rd with
-  | .reg x => armLdSpXReg x (8 * i)
-  | .SP => armLdSpXReg .X17 (8 * i) ++ [armMovToSp .X17]
+  emitClean (armSlotLdIns rd i)
 
-/-- ABI zero-extension canonicalization on a GP `XReg`. -/
-def armCanonAbiXReg (t : Ty) (x : XReg) : List Directive :=
+/-- Internal instruction stream for `armCanonAbiXReg`. -/
+def armCanonAbiXRegIns (t : Ty) (x : XReg) : List Instr :=
   match t with
-  | .bool => [ins (.UBFM (zr x .W64) (zr x .W64) 0 7)]
+  | .bool => [armInsI (.UBFM (zr x .W64) (zr x .W64) 0 7)]
   | .bits n =>
-    if n == 8 then [ins (.UBFM (zr x .W64) (zr x .W64) 0 7)]
-    else if n == 16 then [ins (.UBFM (zr x .W64) (zr x .W64) 0 15)]
-    else if n == 32 then [ins (.ORR_s (zr x .W32) (xzr .W32) (sh x))]
+    if n == 8 then [armInsI (.UBFM (zr x .W64) (zr x .W64) 0 7)]
+    else if n == 16 then [armInsI (.UBFM (zr x .W64) (zr x .W64) 0 15)]
+    else if n == 32 then [armInsI (.ORR_s (zr x .W32) (xzr .W32) (sh x))]
     else []
   | _ => []
 
-/-- Unified ABI zero-extension canonicalization for integer/bool types (`maskNone` flags). -/
-def armCanonAbi (t : Ty) (r : Reg) : List Directive × FlagMask :=
+/-- ABI zero-extension canonicalization on a GP `XReg`. -/
+def armCanonAbiXReg (t : Ty) (x : XReg) : List Directive :=
+  emitClean (armCanonAbiXRegIns t x)
+
+/-- Internal instruction stream for `armCanonAbi`. -/
+def armCanonAbiIns (t : Ty) (r : Reg) : List Instr :=
   match r with
-  | .reg x => (armCanonAbiXReg t x, maskNone)
+  | .reg x => armCanonAbiXRegIns t x
   | .SP =>
     match t with
-    | .bool => ([armMovToX .X16 .SP] ++ armCanonAbiXReg t .X16 ++ [armMovToSp .X16], maskNone)
+    | .bool => [armMovToXI .X16 .SP] ++ armCanonAbiXRegIns t .X16 ++ [armMovToSpI .X16]
     | .bits n =>
       if n == 8 || n == 16 || n == 32 then
-        ([armMovToX .X16 .SP] ++ armCanonAbiXReg t .X16 ++ [armMovToSp .X16], maskNone)
-      else
-        ([], maskNone)
-    | _ => ([], maskNone)
+        [armMovToXI .X16 .SP] ++ armCanonAbiXRegIns t .X16 ++ [armMovToSpI .X16]
+      else []
+    | _ => []
+
+/-- Unified ABI zero-extension canonicalization for integer/bool types (`maskNone` flags). -/
+def armCanonAbi (t : Ty) (r : Reg) : List Directive × FlagMask :=
+  (emitClean (armCanonAbiIns t r), maskNone)
 
 /-- Direct function call `bl sym`. -/
-def armCallD (sym : Sym) : Directive :=
-  ins (.BL (.label sym))
+abbrev armCallI (sym : Sym) : Instr := armInsI (.BL (.label sym))
+
+/-- Direct function call `bl sym`. -/
+def armCallD (sym : Sym) : Directive := .instr (armCallI sym)
 
 /-- Direct tail jump `b sym`. -/
-def armJmpD (sym : Sym) : Directive :=
-  ins (.B (.label sym))
+abbrev armJmpI (sym : Sym) : Instr := armInsI (.B (.label sym))
+
+/-- Direct tail jump `b sym`. -/
+def armJmpD (sym : Sym) : Directive := .instr (armJmpI sym)
 
 /-- Function return `ret` (branch to `x30`). -/
-def armRetD : Directive :=
-  ins (.RET (.low (.reg .X30) .W64))
+abbrev armRetI : Instr := armInsI (.RET (.low (.reg .X30) .W64))
+
+/-- Function return `ret` (branch to `x30`). -/
+def armRetD : Directive := .instr armRetI
 
 /-- AAPCS64 Arm64 `FrameIsa` instance (`allocatable`: `x0..x15`, `calleeSaved`: `x19..x29`,
 `scratch`: `x16..x17`, `raRegs`: `[x30]`, `argRegs`/`retRegs`: `x0..x7`). -/
@@ -158,8 +222,8 @@ def armRetD : Directive :=
   slotSt := armSlotSt
   slotLd := armSlotLd
   canonAbi := armCanonAbi
-  call sym := [armCallD sym]
-  exitJmp sym := [armJmpD sym]
-  ret := [armRetD]
+  call sym := emitClean [armCallI sym]
+  exitJmp sym := emitClean [armJmpI sym]
+  ret := emitClean [armRetI]
 
 end LeanQbe.T.Arm64

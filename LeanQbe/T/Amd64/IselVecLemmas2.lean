@@ -991,14 +991,16 @@ theorem x64Vmov_step [Host] (w : SlotWidth) (d vs vd : RegMm)
 
 theorem x64Vmovi_step [Host] (tmp : RegMm) (w : SlotWidth) (d vd : RegMm)
     (hd : d ∈ vd :: x64VecScratch) (htmp : tmp ∈ vd :: x64VecScratch) (hne : tmp ≠ d)
-    (c : BitVec 512) {p : List Directive} (hv : x64VmoviWith tmp w d c = some p)
+    (c : BitVec 512) {p : List Instr} (hv : x64VmoviWithIns tmp w d c = some p)
     (s : MachineData) :
-    @Program.wp _ p
+    @Program.wp _ (emitClean p)
       (fun s' => VecStepFrame vd s s' ∧
         (∀ vr, vr ≠ d → vr ≠ tmp → s'.zmms.get512 vr = s.zmms.get512 vr) ∧
         (s'.zmms.get512 d).setWidth w.bits = c.setWidth w.bits)
       (fun _ _ => False) s := by
-  refine Program.wp.mono (x64VmoviWith_wp hv hne s) ?_
+  have hwp := x64VmoviWith_wp (w := w) (c := c) (code := emitClean p)
+    (by simp [x64VmoviWith, emitCleanOpt, hv]) hne s
+  refine Program.wp.mono hwp ?_
   rintro s' ⟨hd', hs', hr', hz', hval⟩
   exact ⟨⟨hd', hs', hr', fun vr hvr => hz' vr (fun e => hvr (by simp [e, hd]))
     (fun e => hvr (by simp [e, htmp]))⟩, hz', hval⟩
@@ -1029,34 +1031,35 @@ theorem vecOpFallsTo {h : Host} {k : Nat} {c : List Directive} {vd : RegMm} {t :
       (fun vr hvm => hz vr (by simpa using hvm)) (Or.inr hs)⟩
 
 theorem x64EmitUnary_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bits)
-    {vd : RegMm} {pa : PArg Reg64 RegMm CondCode t} {va : Val t} {c : List Directive} {s : MachineData}
-    {emit : RegMm → RegMm → Directive} {upd : BitVec 512 → BitVec w.bits → BitVec 512}
+    {vd : RegMm} {pa : PArg Reg64 RegMm CondCode t} {va : Val t} {c : List Instr} {s : MachineData}
+    {emit : RegMm → RegMm → Instr} {upd : BitVec 512 → BitVec w.bits → BitVec 512}
     {res : BitVec w.bits → BitVec t.size}
     (hupd : ∀ old x, (upd old x).setWidth t.size = res x)
-    (hemit : ∀ d src st, Directive.FallsTo (emit d src) st
+    (hemit : ∀ d src st, Directive.FallsTo (.instr (emit d src)) st
       (fun st' => st'.dmem = st.dmem ∧ st'.status = st.status ∧ st'.regs = st.regs ∧
         (∀ vr, vr ≠ d → st'.zmms.get512 vr = st.zmms.get512 vr) ∧
         st'.zmms.get512 d = upd (st.zmms.get512 d) ((st.zmms.get512 src).setWidth w.bits)))
-    (hc : x64EmitUnary w t vd pa emit = some c) (hvd : vd ∉ x64VecScratch)
+    (hc : x64EmitUnaryIns w t vd pa emit = some c) (hvd : vd ∉ x64VecScratch)
     (hhold : x64Mach.PArgHolds s t pa va) :
-    @Program.wp _ c (fun s' => VecStepFrame vd s s' ∧
+    @Program.wp _ (emitClean c) (fun s' => VecStepFrame vd s s' ∧
       (s'.zmms.get512 vd).setWidth t.size = res ((toBits t va).cast ht)) (fun _ _ => False) s := by
   have hne14 : .mm14 ≠ vd := (ne_of_not_mem_x64VecScratch hvd).1.symm
   cases pa with
-  | gpr _ | flag _ => simp [x64EmitUnary] at hc
+  | gpr _ | flag _ => simp [x64EmitUnaryIns] at hc
   | vec vr =>
-    simp only [x64EmitUnary, Option.some.injEq] at hc; subst hc
+    simp only [x64EmitUnaryIns, Option.some.injEq] at hc; subst hc
     refine Program.wp.mono (Directive.FallsTo.wp (hemit vd vr s)) ?_
     rintro s' ⟨hd, hs, hr, hz, hres⟩
     exact ⟨⟨hd, hs, fun _ _ => hr ▸ rfl, fun v hv => hz v (fun e => hv (e ▸ List.mem_cons_self))⟩,
       by rw [hres, setWidth_vecHolds ht _ _ hhold, hupd]⟩
   | imm ca =>
     rcases hhold with rfl
-    dsimp only [x64EmitUnary] at hc
-    cases hv : x64Vmovi w vd ((toBits t ca).setWidth 512) with
+    dsimp only [x64EmitUnaryIns] at hc
+    cases hv : x64VmoviIns w vd ((toBits t ca).setWidth 512) with
     | none => simp [hv] at hc
     | some p =>
       rw [hv] at hc; simp only [Option.map_some, Option.some.injEq] at hc; subst hc
+      simp only [emitClean_append, emitClean_cons, emitClean_nil]
       refine Program.wp.append (x64Vmovi_step .mm14 w vd vd (by simp) (by simp [x64VecScratch]) hne14 _ hv s) ?_
       rintro s1 ⟨hf1, _, hv1⟩
       refine Program.wp.mono (Directive.FallsTo.wp (hemit vd vd s1)) ?_
@@ -1067,11 +1070,11 @@ theorem x64EmitUnary_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bits)
       rw [hres, hv1, BitVec.setWidth_setWidth_of_le _ w.bits_le_512, setWidth_of_eq ht, hupd]
 
 theorem x64EmitVpaddd_wp [Host] (w : SlotWidth) (hw : w ≠ .w64) {t : Ty} (ht : t.size = w.bits)
-    {vd : RegMm} {pa pb : PArg Reg64 RegMm CondCode t} {va vb : Val t} {c : List Directive}
-    {s : MachineData} (hc : x64EmitVpaddd w t vd pa pb = some c) (hvd : vd ∉ x64VecScratch)
+    {vd : RegMm} {pa pb : PArg Reg64 RegMm CondCode t} {va vb : Val t} {c : List Instr}
+    {s : MachineData} (hc : x64EmitVpadddIns w t vd pa pb = some c) (hvd : vd ∉ x64VecScratch)
     (hpaV : ∀ vr ∈ pargVecs pa, vr ∉ x64VecScratch) (hpbV : ∀ vr ∈ pargVecs pb, vr ∉ x64VecScratch)
     (hha : x64Mach.PArgHolds s t pa va) (hhb : x64Mach.PArgHolds s t pb vb) :
-    @Program.wp _ c (fun s' => VecStepFrame vd s s' ∧
+    @Program.wp _ (emitClean c) (fun s' => VecStepFrame vd s s' ∧
       (s'.zmms.get512 vd).setWidth t.size =
         (BitVec.packedBinOp 32 (· + ·) ((toBits t va).cast ht) ((toBits t vb).cast ht)).cast ht.symm)
       (fun _ _ => False) s := by
@@ -1098,21 +1101,22 @@ theorem x64EmitVpaddd_wp [Host] (w : SlotWidth) (hw : w ≠ .w64) {t : Ty} (ht :
       dsimp only [x64AwOf, AvxWidth.bits] at *
       rw [setWidth_of_eq ht.symm, ha, hb]
   cases pa with
-  | gpr _ | flag _ => simp [x64EmitVpaddd] at hc
+  | gpr _ | flag _ => simp [x64EmitVpadddIns] at hc
   | vec r1 =>
     have hr1 : r1 ∉ x64VecScratch := hpaV r1 (by simp [pargVecs])
     cases pb with
-    | gpr _ | flag _ => simp [x64EmitVpaddd] at hc
+    | gpr _ | flag _ => simp [x64EmitVpadddIns] at hc
     | vec r2 =>
-      simp only [x64EmitVpaddd, Option.some.injEq] at hc; subst hc
+      simp only [x64EmitVpadddIns, Option.some.injEq] at hc; subst hc
       exact step_padd s r1 r2 (setWidth_vecHolds ht _ _ hha) (setWidth_vecHolds ht _ _ hhb)
     | imm cb =>
       rcases hhb with rfl
-      dsimp only [x64EmitVpaddd] at hc
-      cases hv : x64Vmovi w .mm15 ((toBits t cb).setWidth 512) with
+      dsimp only [x64EmitVpadddIns] at hc
+      cases hv : x64VmoviIns w .mm15 ((toBits t cb).setWidth 512) with
       | none => simp [hv] at hc
       | some p =>
         rw [hv] at hc; simp only [Option.map_some, Option.some.injEq] at hc; subst hc
+        simp only [emitClean_append, emitClean_cons, emitClean_nil]
         refine Program.wp.append (x64Vmovi_step .mm14 w .mm15 vd (by simp [x64VecScratch])
           (by simp [x64VecScratch]) hne145 _ hv s) ?_
         rintro s1 ⟨hf1, hz1, hv1⟩
@@ -1123,14 +1127,15 @@ theorem x64EmitVpaddd_wp [Host] (w : SlotWidth) (hw : w ≠ .w64) {t : Ty} (ht :
   | imm ca =>
     rcases hha with rfl
     cases pb with
-    | gpr _ | flag _ => simp [x64EmitVpaddd] at hc
+    | gpr _ | flag _ => simp [x64EmitVpadddIns] at hc
     | vec r2 =>
       have hr2 : r2 ∉ x64VecScratch := hpbV r2 (by simp [pargVecs])
-      dsimp only [x64EmitVpaddd] at hc
-      cases hv : x64Vmovi w .mm15 ((toBits t ca).setWidth 512) with
+      dsimp only [x64EmitVpadddIns] at hc
+      cases hv : x64VmoviIns w .mm15 ((toBits t ca).setWidth 512) with
       | none => simp [hv] at hc
       | some p =>
         rw [hv] at hc; simp only [Option.map_some, Option.some.injEq] at hc; subst hc
+        simp only [emitClean_append, emitClean_cons, emitClean_nil]
         refine Program.wp.append (x64Vmovi_step .mm14 w .mm15 vd (by simp [x64VecScratch])
           (by simp [x64VecScratch]) hne145 _ hv s) ?_
         rintro s1 ⟨hf1, hz1, hv1⟩
@@ -1140,15 +1145,15 @@ theorem x64EmitVpaddd_wp [Host] (w : SlotWidth) (hw : w ≠ .w64) {t : Ty} (ht :
         rintro s' ⟨hf2, hres⟩; exact ⟨hf1.trans hf2, hres⟩
     | imm cb =>
       rcases hhb with rfl
-      dsimp only [x64EmitVpaddd, Bind.bind, Option.bind] at hc
-      cases hv1 : x64Vmovi w vd ((toBits t ca).setWidth 512) with
+      dsimp only [x64EmitVpadddIns, Bind.bind, Option.bind] at hc
+      cases hv1 : x64VmoviIns w vd ((toBits t ca).setWidth 512) with
       | none => simp [hv1] at hc
       | some p1 =>
-        cases hv2 : x64Vmovi w .mm15 ((toBits t cb).setWidth 512) with
+        cases hv2 : x64VmoviIns w .mm15 ((toBits t cb).setWidth 512) with
         | none => simp [hv1, hv2] at hc
         | some p2 =>
           rw [hv1, hv2] at hc; simp only [Option.some.injEq] at hc; subst hc
-          rw [List.append_assoc]
+          simp only [emitClean_append, emitClean_cons, emitClean_nil, List.append_assoc]
           refine Program.wp.append (x64Vmovi_step .mm14 w vd vd (by simp)
             (by simp [x64VecScratch]) hne14d _ hv1 s) ?_
           rintro s1 ⟨hf1, _, hvd1⟩
@@ -1161,20 +1166,20 @@ theorem x64EmitVpaddd_wp [Host] (w : SlotWidth) (hw : w ≠ .w64) {t : Ty} (ht :
           rintro s' ⟨hf3, hres⟩; exact ⟨(hf1.trans hf2).trans hf3, hres⟩
 
 theorem x64EmitBinInPlace_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bits)
-    {vd : RegMm} {pa pb : PArg Reg64 RegMm CondCode t} {va vb : Val t} {c : List Directive}
-    {s : MachineData} {emit : RegMm → RegMm → Directive}
+    {vd : RegMm} {pa pb : PArg Reg64 RegMm CondCode t} {va vb : Val t} {c : List Instr}
+    {s : MachineData} {emit : RegMm → RegMm → Instr}
     {upd : BitVec 512 → BitVec w.bits → BitVec w.bits → BitVec 512}
     {res : BitVec w.bits → BitVec w.bits → BitVec t.size}
     (hupd : ∀ old x y, (upd old x y).setWidth t.size = res x y)
-    (hemit : ∀ d src st, Directive.FallsTo (emit d src) st
+    (hemit : ∀ d src st, Directive.FallsTo (.instr (emit d src)) st
       (fun st' => st'.dmem = st.dmem ∧ st'.status = st.status ∧ st'.regs = st.regs ∧
         (∀ vr, vr ≠ d → st'.zmms.get512 vr = st.zmms.get512 vr) ∧
         st'.zmms.get512 d = upd (st.zmms.get512 d)
           ((st.zmms.get512 d).setWidth w.bits) ((st.zmms.get512 src).setWidth w.bits)))
-    (hc : x64EmitBinInPlace w t vd pa pb emit = some c) (hvd : vd ∉ x64VecScratch)
+    (hc : x64EmitBinInPlaceIns w t vd pa pb emit = some c) (hvd : vd ∉ x64VecScratch)
     (hpaV : ∀ vr ∈ pargVecs pa, vr ∉ x64VecScratch) (hpbV : ∀ vr ∈ pargVecs pb, vr ∉ x64VecScratch)
     (hha : x64Mach.PArgHolds s t pa va) (hhb : x64Mach.PArgHolds s t pb vb) :
-    @Program.wp _ c (fun s' => VecStepFrame vd s s' ∧
+    @Program.wp _ (emitClean c) (fun s' => VecStepFrame vd s s' ∧
       (s'.zmms.get512 vd).setWidth t.size = res ((toBits t va).cast ht) ((toBits t vb).cast ht))
       (fun _ _ => False) s := by
   have hne14d : .mm14 ≠ vd := (ne_of_not_mem_x64VecScratch hvd).1.symm
@@ -1183,7 +1188,7 @@ theorem x64EmitBinInPlace_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bi
   have finish : ∀ (s1 : MachineData) (src : RegMm),
       (s1.zmms.get512 vd).setWidth w.bits = (toBits t va).cast ht →
       (s1.zmms.get512 src).setWidth w.bits = (toBits t vb).cast ht →
-      @Program.wp _ [emit vd src] (fun s' => VecStepFrame vd s1 s' ∧
+      @Program.wp _ [.instr (emit vd src)] (fun s' => VecStepFrame vd s1 s' ∧
         (s'.zmms.get512 vd).setWidth t.size = res ((toBits t va).cast ht) ((toBits t vb).cast ht))
         (fun _ _ => False) s1 := by
     intro s1 src hvd1 hsrc1
@@ -1192,20 +1197,21 @@ theorem x64EmitBinInPlace_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bi
     exact ⟨⟨hd', hs', fun _ _ => hr' ▸ rfl, fun v hvm => hz' v (fun e => hvm (e ▸ List.mem_cons_self))⟩,
       by rw [hres, hvd1, hsrc1, hupd]⟩
   cases pa with
-  | gpr _ | flag _ => simp [x64EmitBinInPlace] at hc
+  | gpr _ | flag _ => simp [x64EmitBinInPlaceIns] at hc
   | vec r1 =>
     have hr1 : r1 ∉ x64VecScratch := hpaV r1 (by simp [pargVecs])
     cases pb with
-    | gpr _ | flag _ => simp [x64EmitBinInPlace] at hc
+    | gpr _ | flag _ => simp [x64EmitBinInPlaceIns] at hc
     | vec r2 =>
       have hr2 : r2 ∉ x64VecScratch := hpbV r2 (by simp [pargVecs])
-      simp only [x64EmitBinInPlace, Option.some.injEq] at hc; subst hc
+      simp only [x64EmitBinInPlaceIns, Option.some.injEq] at hc; subst hc
       by_cases h1 : r1 = vd
-      · subst h1; simp only [regMm_beq_true rfl, ↓reduceIte]
+      · subst h1; simp only [regMm_beq_true rfl, ↓reduceIte, emitClean_cons, emitClean_nil]
         exact finish s r2 (setWidth_vecHolds ht _ _ hha) (setWidth_vecHolds ht _ _ hhb)
       · by_cases h2 : r2 = vd
-        · subst h2; simp only [regMm_beq_false h1, Bool.false_eq_true, ↓reduceIte, regMm_beq_true rfl]
-          rw [List.append_assoc]
+        · subst h2
+          simp only [regMm_beq_false h1, Bool.false_eq_true, ↓reduceIte, regMm_beq_true rfl,
+            emitClean_append, emitClean_cons, emitClean_nil, List.append_assoc]
           refine Program.wp.append (x64Vmov_step w .mm15 r2 r2 (by simp [x64VecScratch]) s) ?_
           rintro s1 ⟨hf1, hz1, h15⟩
           refine Program.wp.append (x64Vmov_step w r2 r1 r2 (by simp) s1) ?_
@@ -1214,7 +1220,8 @@ theorem x64EmitBinInPlace_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bi
             (by rw [hrd2, hz1 r1 (ne_of_not_mem_x64VecScratch hr1).2]; exact setWidth_vecHolds ht _ _ hha)
             (by rw [hz2 .mm15 hne15d, h15]; exact setWidth_vecHolds ht _ _ hhb)) ?_
           rintro s' ⟨hf3, hres⟩; exact ⟨(hf1.trans hf2).trans hf3, hres⟩
-        · simp only [regMm_beq_false h1, regMm_beq_false h2, Bool.false_eq_true, ↓reduceIte]
+        · simp only [regMm_beq_false h1, regMm_beq_false h2, Bool.false_eq_true, ↓reduceIte,
+            emitClean_append, emitClean_cons, emitClean_nil]
           refine Program.wp.append (x64Vmov_step w vd r1 vd (by simp) s) ?_
           rintro s1 ⟨hf1, hz1, hrd1⟩
           refine Program.wp.mono (finish s1 r2
@@ -1223,12 +1230,13 @@ theorem x64EmitBinInPlace_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bi
           rintro s' ⟨hf2, hres⟩; exact ⟨hf1.trans hf2, hres⟩
     | imm cb =>
       rcases hhb with rfl
-      dsimp only [x64EmitBinInPlace] at hc
-      cases hv : x64Vmovi w .mm15 ((toBits t cb).setWidth 512) with
+      dsimp only [x64EmitBinInPlaceIns] at hc
+      cases hv : x64VmoviIns w .mm15 ((toBits t cb).setWidth 512) with
       | none => simp [hv] at hc
       | some p =>
         rw [hv] at hc; simp only [Option.map_some, Option.some.injEq] at hc; subst hc
-        rw [List.append_assoc]
+        simp only [emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil,
+          List.append_assoc]
         refine Program.wp.append (x64Vmovi_step .mm14 w .mm15 vd (by simp [x64VecScratch])
           (by simp [x64VecScratch]) hne145 _ hv s) ?_
         rintro s1 ⟨hf1, hz1, h15⟩
@@ -1250,16 +1258,18 @@ theorem x64EmitBinInPlace_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bi
   | imm ca =>
     rcases hha with rfl
     cases pb with
-    | gpr _ | flag _ => simp [x64EmitBinInPlace] at hc
+    | gpr _ | flag _ => simp [x64EmitBinInPlaceIns] at hc
     | vec r2 =>
       have hr2 : r2 ∉ x64VecScratch := hpbV r2 (by simp [pargVecs])
-      dsimp only [x64EmitBinInPlace] at hc
-      cases hv : x64Vmovi w vd ((toBits t ca).setWidth 512) with
+      dsimp only [x64EmitBinInPlaceIns] at hc
+      cases hv : x64VmoviIns w vd ((toBits t ca).setWidth 512) with
       | none => simp [hv] at hc
       | some p =>
         rw [hv] at hc; simp only [Option.map_some, Option.some.injEq] at hc; subst hc
         by_cases h2 : r2 = vd
-        · subst h2; simp only [regMm_beq_true rfl, ↓reduceIte, List.append_assoc]
+        · subst h2
+          simp only [regMm_beq_true rfl, ↓reduceIte, emitClean_append, emitClean_cons,
+            emitClean_nil, List.append_assoc]
           refine Program.wp.append (x64Vmov_step w .mm15 r2 r2 (by simp [x64VecScratch]) s) ?_
           rintro s1 ⟨hf1, _, h15⟩
           refine Program.wp.append (x64Vmovi_step .mm14 w r2 r2 (by simp)
@@ -1269,7 +1279,8 @@ theorem x64EmitBinInPlace_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bi
             (by rw [hrd2, BitVec.setWidth_setWidth_of_le _ w.bits_le_512, setWidth_of_eq ht])
             (by rw [hz2 .mm15 hne15d hne145.symm, h15]; exact setWidth_vecHolds ht _ _ hhb)) ?_
           rintro s' ⟨hf3, hres⟩; exact ⟨(hf1.trans hf2).trans hf3, hres⟩
-        · simp only [regMm_beq_false h2, Bool.false_eq_true, ↓reduceIte]
+        · simp only [regMm_beq_false h2, Bool.false_eq_true, ↓reduceIte, emitClean_append,
+            emitClean_cons, emitClean_nil]
           refine Program.wp.append (x64Vmovi_step .mm14 w vd vd (by simp)
             (by simp [x64VecScratch]) hne14d _ hv s) ?_
           rintro s1 ⟨hf1, hz1, hrd1⟩
@@ -1279,15 +1290,15 @@ theorem x64EmitBinInPlace_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bi
           rintro s' ⟨hf2, hres⟩; exact ⟨hf1.trans hf2, hres⟩
     | imm cb =>
       rcases hhb with rfl
-      dsimp only [x64EmitBinInPlace, Bind.bind, Option.bind] at hc
-      cases hv1 : x64Vmovi w vd ((toBits t ca).setWidth 512) with
+      dsimp only [x64EmitBinInPlaceIns, Bind.bind, Option.bind] at hc
+      cases hv1 : x64VmoviIns w vd ((toBits t ca).setWidth 512) with
       | none => simp [hv1] at hc
       | some p1 =>
-        cases hv2 : x64Vmovi w .mm15 ((toBits t cb).setWidth 512) with
+        cases hv2 : x64VmoviIns w .mm15 ((toBits t cb).setWidth 512) with
         | none => simp [hv1, hv2] at hc
         | some p2 =>
           rw [hv1, hv2] at hc; simp only [Option.some.injEq] at hc; subst hc
-          rw [List.append_assoc]
+          simp only [emitClean_append, emitClean_cons, emitClean_nil, List.append_assoc]
           refine Program.wp.append (x64Vmovi_step .mm14 w vd vd (by simp)
             (by simp [x64VecScratch]) hne14d _ hv1 s) ?_
           rintro s1 ⟨hf1, _, hrd1⟩
@@ -1318,20 +1329,20 @@ theorem x64TernlogD_step [Host] (w : SlotWidth) (vd dst s2 s3 : RegMm)
     BitVec.setWidth_setWidth_of_le _ (x64W_bits_le_awBits w)]
 
 theorem x64EmitTernlog1Vec_wp [Host] (w : SlotWidth) {vd rx : RegMm}
-    {f0 f1 x : BitVec 512} {c : List Directive} {s : MachineData}
-    (hc : x64EmitTernlog1Vec w vd rx f0 f1 = some c) (hvd : vd ∉ x64VecScratch)
+    {f0 f1 x : BitVec 512} {c : List Instr} {s : MachineData}
+    (hc : x64EmitTernlog1VecIns w vd rx f0 f1 = some c) (hvd : vd ∉ x64VecScratch)
     (hx : (s.zmms.get512 rx).setWidth w.bits = x.setWidth w.bits) :
-    @Program.wp _ c (fun s' => VecStepFrame vd s s' ∧
+    @Program.wp _ (emitClean c) (fun s' => VecStepFrame vd s s' ∧
       (s'.zmms.get512 vd).setWidth w.bits = ((x &&& (f1 ^^^ f0)) ^^^ f0).setWidth w.bits)
       (fun _ _ => False) s := by
   have hne14d : .mm14 ≠ vd := (ne_of_not_mem_x64VecScratch hvd).1.symm
   have hne15d : .mm15 ≠ vd := (ne_of_not_mem_x64VecScratch hvd).2.symm
   have hne145 : (.mm14 : RegMm) ≠ .mm15 := by decide
-  dsimp only [x64EmitTernlog1Vec, Bind.bind, Option.bind] at hc
-  cases hk : x64Vmovi w .mm15 (f1 ^^^ f0) with
+  dsimp only [x64EmitTernlog1VecIns, Bind.bind, Option.bind] at hc
+  cases hk : x64VmoviIns w .mm15 (f1 ^^^ f0) with
   | none => simp [hk] at hc
   | some pk =>
-    cases hf : x64Vmovi w .mm15 f0 with
+    cases hf : x64VmoviIns w .mm15 f0 with
     | none => simp [hk, hf] at hc
     | some pf =>
       rw [hk, hf] at hc; simp only [Option.some.injEq] at hc; subst hc
@@ -1344,7 +1355,8 @@ theorem x64EmitTernlog1Vec_wp [Host] (w : SlotWidth) {vd rx : RegMm}
         · simp only [regMm_beq_false hrv, Bool.false_eq_true, ↓reduceIte]
           refine Program.wp.mono (x64Vmov_step w vd rx vd (by simp) s) ?_
           rintro s1 ⟨hf1, _, hv1⟩; exact ⟨hf1, hv1.trans hx⟩
-      simp only [List.append_assoc, List.cons_append, List.nil_append]
+      simp only [emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil,
+        List.append_assoc, List.cons_append, List.nil_append]
       refine Program.wp.append hprep ?_
       rintro s1 ⟨hf1, hvd1⟩
       refine Program.wp.append (x64Vmovi_step .mm14 w .mm15 vd (by simp [x64VecScratch])

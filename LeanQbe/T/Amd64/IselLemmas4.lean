@@ -243,49 +243,63 @@ private theorem fallsTo_divCore (w : Width) (hw : w = .W32 ∨ w = .W64) (isSign
 private def divExt32 (w : Width) (isSigned : Bool) (v : BitVec w.bits) : BitVec 32 :=
   if isSigned then v.signExtend 32 else v.setWidth 32
 
-private def divArgExt (w : Width) (isSigned : Bool) (t : Reg64) : PArg Reg64 RegMm CondCode (.bits w.bits) → Option Directive
+private def divArgExtI (w : Width) (isSigned : Bool) (t : Reg64) :
+    PArg Reg64 RegMm CondCode (.bits w.bits) → Option Instr
   | .gpr r => match w with
-    | .W8 => some (ins32 (if isSigned then .movsx (.reg (d t)) (.reg (b8 r)) else .movzx (.reg (d t)) (.reg (b8 r))))
-    | .W16 => some (ins32 (if isSigned then .movsx (.reg (d t)) (.reg (h16 r)) else .movzx (.reg (d t)) (.reg (h16 r))))
-    | .W32 => some (movlD t r) | .W64 => some (movD t r)
-  | .imm c => some (moviD t (if isSigned then c.signExtend 64 else c.setWidth 64))
+    | .W8 => some (x64InsI .W32
+      (if isSigned then .movsx (.reg (d t)) (.reg (b8 r)) else .movzx (.reg (d t)) (.reg (b8 r))))
+    | .W16 => some (x64InsI .W32
+      (if isSigned then .movsx (.reg (d t)) (.reg (h16 r)) else .movzx (.reg (d t)) (.reg (h16 r))))
+    | .W32 => some (movlI t r) | .W64 => some (movI t r)
+  | .imm c => some (moviI t (if isSigned then c.signExtend 64 else c.setWidth 64))
   | .vec _ => none
 
-private def divCoreDirs (w : Width) (isSigned : Bool) : List Directive :=
-  if w == .W64 then if isSigned then [movD .rdx .rax, ins (.sar (.reg (q .rdx)) (.imm8 (.int64 63))), ins (.idiv (.reg (q .r11)))]
-    else [moviD .rdx 0, ins (.div (.reg (q .r11)))]
-  else if isSigned then [movlD .rdx .rax, ins32 (.sar (.reg (d .rdx)) (.imm8 (.int64 31))), ins32 (.idiv (.reg (d .r11)))]
-    else [moviD .rdx 0, ins32 (.div (.reg (d .r11)))]
+private def divCoreIns (w : Width) (isSigned : Bool) : List Instr :=
+  if w == .W64 then
+    if isSigned then
+      [movI .rdx .rax, x64InsI .W64 (.sar (.reg (q .rdx)) (.imm8 (.int64 63))),
+       x64InsI .W64 (.idiv (.reg (q .r11)))]
+    else [moviI .rdx 0, x64InsI .W64 (.div (.reg (q .r11)))]
+  else if isSigned then
+    [movlI .rdx .rax, x64InsI .W32 (.sar (.reg (d .rdx)) (.imm8 (.int64 31))),
+     x64InsI .W32 (.idiv (.reg (d .r11)))]
+  else [moviI .rdx 0, x64InsI .W32 (.div (.reg (d .r11)))]
 
 private theorem opDiv_eq_parts (w : Width) (isSigned isRem : Bool)
     (pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)) (rd : Reg64) :
-    opDiv w isSigned isRem pa pb rd =
+    opDivIns w isSigned isRem pa pb rd =
       (if rd == .r10 || rd == .r11 then none else do
-         let da ← divArgExt w isSigned .r10 pa; let db ← divArgExt w isSigned .r11 pb
-         let core := divCoreDirs w isSigned; let res : Reg64 := if isRem then .rdx else .rax
-         let seq := if rd == .rax then [da, db, movD .rax .r10, movD .r10 .rdx] ++ core ++ [movD .rax res, movD .rdx .r10]
-           else if rd == .rdx then [da, db, movD .rdx .rax, movD .rax .r10, movD .r10 .rdx] ++ core ++ [movD .rdx res, movD .rax .r10]
-           else [da, db, movD rd .rax, movD .rax .r10, movD .r10 .rdx] ++ core ++ [movD .r11 res, movD .rdx .r10, movD .rax rd, movD rd .r11]
+         let da ← divArgExtI w isSigned .r10 pa; let db ← divArgExtI w isSigned .r11 pb
+         let core := divCoreIns w isSigned; let res : Reg64 := if isRem then .rdx else .rax
+         let seq := if rd == .rax then
+             [da, db, movI .rax .r10, movI .r10 .rdx] ++ core ++ [movI .rax res, movI .rdx .r10]
+           else if rd == .rdx then
+             [da, db, movI .rdx .rax, movI .rax .r10, movI .r10 .rdx] ++ core ++
+               [movI .rdx res, movI .rax .r10]
+           else
+             [da, db, movI rd .rax, movI .rax .r10, movI .r10 .rdx] ++ core ++
+               [movI .r11 res, movI .rdx .r10, movI .rax rd, movI rd .r11]
          some (seq, maskAll)) := by
-  cases w <;> cases pa <;> cases pb <;> simp only [opDiv, divArgExt, divCoreDirs] <;> rfl
+  cases w <;> cases pa <;> cases pb <;> simp only [opDivIns, divArgExtI, divCoreIns] <;> rfl
 
 private theorem fallsTo_divArgExt (w : Width) (isSigned : Bool) (s0 : MachineData) (t : Reg64)
-    (p : PArg Reg64 RegMm CondCode (.bits w.bits)) (v : BitVec w.bits) {d0 : Directive}
-    (hd : divArgExt w isSigned t p = some d0) (hp0 : x64Mach.PArgHolds s0 (.bits w.bits) p v) :
-    Directive.FallsTo d0 s0 (fun s' => ∃ rv : BitVec 64,
+    (p : PArg Reg64 RegMm CondCode (.bits w.bits)) (v : BitVec w.bits) {d0 : Instr}
+    (hd : divArgExtI w isSigned t p = some d0) (hp0 : x64Mach.PArgHolds s0 (.bits w.bits) p v) :
+    Directive.FallsTo (.instr d0) s0 (fun s' => ∃ rv : BitVec 64,
       (if w == .W64 then rv = v.setWidth 64 else rv.setWidth 32 = divExt32 w isSigned v) ∧ s' = { s0 with regs := s0.regs.set64 t rv }) := by
   have h32 : ∀ x : BitVec 32, (x.setWidth 64).setWidth 32 = x := fun x => setWidth_64_setWidth .W32 x
   cases p with
-  | vec _ => cases w <;> simp [divArgExt] at hd
+  | vec _ => cases w <;> simp [divArgExtI] at hd
   | imm c0 =>
-    rcases hp0 with rfl; simp only [divArgExt, Option.some.injEq] at hd; subst hd
+    rcases hp0 with rfl; simp only [divArgExtI, Option.some.injEq] at hd; subst hd
     intro _ p0 next0 jmp0 P0 hk; refine fallsTo_moviD s0 t _ p0 next0 jmp0 P0 fun s' rfl => hk _ ⟨_, ?_, rfl⟩
     cases w <;> cases isSigned <;> dsimp only [divExt32] <;> first
       | exact BitVec.setWidth_setWidth_of_le c0 (by decide) | exact setWidth_signExtend_of_le (by decide) (by decide) c0
       | rfl | exact BitVec.eq_of_toInt_eq (BitVec.toInt_signExtend_of_le (by decide : 64 ≤ 64))
   | gpr rs =>
     have hrs := (GprHolds.bits_iff w _ _).1 hp0; intro _ p0 next0 jmp0 P0 hk
-    cases w <;> cases isSigned <;> simp only [divArgExt, Option.some.injEq] at hd <;> subst hd <;> simp only [Width.bits] at hrs
+    cases w <;> cases isSigned <;> simp only [divArgExtI, Option.some.injEq] at hd <;>
+      subst hd <;> simp only [Width.bits] at hrs
     · refine fallsTo_movzx8 s0 t rs p0 next0 jmp0 P0 fun _ rfl => hk _ ⟨_, by simp [divExt32, BitVec.setWidth_setWidth_of_le _ (by decide : 32 ≤ 64), hrs], rfl⟩
     · refine fallsTo_movsx8 .W32 (.inl rfl) s0 t rs p0 next0 jmp0 P0 fun _ rfl => hk _ ⟨_, by simp [divExt32, h32, hrs], rfl⟩
     · refine fallsTo_movzx16 s0 t rs p0 next0 jmp0 P0 fun _ rfl => hk _ ⟨_, by simp [divExt32, BitVec.setWidth_setWidth_of_le _ (by decide : 32 ≤ 64), hrs], rfl⟩
@@ -369,7 +383,7 @@ private theorem wp_divCoreRun [Host] {E : Int64 → MachineData → Prop} (w : W
     (va vb : BitVec w.bits) (hdef : if isSigned then sdivDefined va vb = true else vb ≠ 0#w.bits) (st0 : MachineData)
     (ha_ok : if (w == .W64) = true then st0.regs.get64 .rax = va.setWidth 64 else (st0.regs.get64 .rax).setWidth 32 = divExt32 w isSigned va)
     (hb_ok : if (w == .W64) = true then st0.regs.get64 .r11 = vb.setWidth 64 else (st0.regs.get64 .r11).setWidth 32 = divExt32 w isSigned vb) :
-    _root_.Program.wp (divCoreDirs w isSigned) (fun s' => ∃ rax' rdx' status',
+    _root_.Program.wp (emitClean (divCoreIns w isSigned)) (fun s' => ∃ rax' rdx' status',
       (if isRem then rdx' else rax').setWidth w.bits =
         (if isSigned then (if isRem then va.srem vb else va.sdiv vb) else (if isRem then va % vb else va / vb)) ∧
       s' = { st0 with regs := (st0.regs.set64 .rax rax').set64 .rdx rdx', status := status' }) E st0 := by
@@ -378,11 +392,13 @@ private theorem wp_divCoreRun [Host] {E : Int64 → MachineData → Prop} (w : W
     have hra : (st0.regs.get64 .rax).setWidth 64 = va := by rw [ha_ok, BitVec.setWidth_eq]
     have hrb : (st0.regs.get64 .r11).setWidth 64 = vb := by rw [hb_ok, BitVec.setWidth_eq]
     cases isSigned
-    · simp only [divCoreDirs, show (Width.W64 == .W64) = true by decide, Bool.false_eq_true, ↓reduceIte]
+    · simp only [divCoreIns, show (Width.W64 == .W64) = true by decide,
+        Bool.false_eq_true, ↓reduceIte, emitClean_cons, emitClean_nil]
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD st0 .rdx 0)) ?_; rintro s1 rfl
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_divCore .W64 (.inr rfl) false st0 va vb hra hrb hdef)) ?_
       rintro s' ⟨a', b', st', ha, hb, hs'⟩; exact ⟨a', b', st', by cases isRem <;> simpa using (by assumption), hs'⟩
-    · simp only [divCoreDirs, show (Width.W64 == .W64) = true by decide, ↓reduceIte]
+    · simp only [divCoreIns, show (Width.W64 == .W64) = true by decide, ↓reduceIte,
+        emitClean_cons, emitClean_nil]
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_movD st0 .rdx .rax)) ?_; rintro s1 rfl
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_sarSign .W64 (.inr rfl) _ va
         (by rw [Reg64s.get64_set64_of_ne _ .rdx .rax _ (by decide)]; exact hra) (by rw [Reg64s.get64_set64_same]; rfl))) ?_
@@ -406,10 +422,10 @@ private theorem wp_divCoreRun [Host] {E : Int64 → MachineData → Prop} (w : W
         (divExt32 w isSigned va) (divExt32 w isSigned vb) ha_ok hb_ok hds)) ?_
       rintro s' ⟨a', b', st', ha, hb, hs'⟩; exact ⟨a', b', st', by cases isRem <;> simpa using (by assumption), hs'⟩
     cases isSigned
-    · simp only [divCoreDirs, hbeq, Bool.false_eq_true, ↓reduceIte]
+    · simp only [divCoreIns, hbeq, Bool.false_eq_true, ↓reduceIte, emitClean_cons, emitClean_nil]
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD st0 .rdx 0)) ?_; rintro s1 rfl
       exact Program.wp.mono (fin32 false hdef32 st0.status) fun s' ⟨a', b', st', hfin, hs'⟩ => ⟨a', b', st', by rw [← BitVec.setWidth_setWidth_of_le _ hwle, hfin]; exact hres32, hs'⟩
-    · simp only [divCoreDirs, hbeq, Bool.false_eq_true, ↓reduceIte]
+    · simp only [divCoreIns, hbeq, Bool.false_eq_true, ↓reduceIte, emitClean_cons, emitClean_nil]
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_movlD st0 .rdx .rax)) ?_; rintro s1 rfl
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_sarSign .W32 (.inl rfl) _ (divExt32 w true va)
         (by rw [Reg64s.get64_set64_of_ne _ .rdx .rax _ (by decide)]; exact ha_ok) (by rw [Reg64s.get64_set64_same]; simp))) ?_
@@ -418,19 +434,20 @@ private theorem wp_divCoreRun [Host] {E : Int64 → MachineData → Prop} (w : W
       rw [hs2']; exact Program.wp.mono (fin32 true hdef32 s2.status) fun s' ⟨a', b', st', hfin, hs'⟩ => ⟨a', b', st', by rw [← BitVec.setWidth_setWidth_of_le _ hwle, hfin]; exact hres32, hs'⟩
 
 theorem opDiv_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (isSigned isRem : Bool)
-    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64} {c : List Directive} {clob : FlagMask}
-    {va vb : BitVec w.bits} {s : MachineData} (hc : opDiv w isSigned isRem pa pb rd = some (c, clob))
+    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64}
+    {c : List Instr} {clob : FlagMask} {va vb : BitVec w.bits} {s : MachineData}
+    (hc : opDivIns w isSigned isRem pa pb rd = some (c, clob))
     (hrd : rd ∉ x64Scratch) (hargs : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch)
     (hpa : x64Mach.PArgHolds s (.bits w.bits) pa va) (hpb : x64Mach.PArgHolds s (.bits w.bits) pb vb)
     (hdef : if isSigned then sdivDefined va vb = true else vb ≠ 0#w.bits) :
-    _root_.Program.wp c (OpPost1 (.bits w.bits) rd
+    _root_.Program.wp (emitClean c) (OpPost1 (.bits w.bits) rd
       (if isSigned then (if isRem then va.srem vb else va.sdiv vb) else (if isRem then va % vb else va / vb)) clob s) E s := by
   have hrd_sc := ne_of_not_mem_x64Scratch hrd; rw [opDiv_eq_parts] at hc
   have hguard : (rd == .r10 || rd == .r11) = false := by rcases hrd_sc with ⟨h1, h2⟩; cases rd <;> first | exact absurd rfl h1 | exact absurd rfl h2 | rfl
   rw [hguard] at hc; simp only [Bool.false_eq_true, ↓reduceIte, Option.bind_eq_bind] at hc
   rcases Option.bind_eq_some_iff.mp hc with ⟨da, hda, h1⟩; rcases Option.bind_eq_some_iff.mp h1 with ⟨db, hdb, h2⟩
   simp only [Option.some.injEq, Prod.mk.injEq] at h2; rcases h2 with ⟨hseq, rfl⟩; rw [← hseq]
-  have hp_prefix : _root_.Program.wp [da, db] (fun s2 => ∃ rv10 rv11 : BitVec 64,
+  have hp_prefix : _root_.Program.wp [.instr da, .instr db] (fun s2 => ∃ rv10 rv11 : BitVec 64,
       (if (w == .W64) = true then rv10 = va.setWidth 64 else rv10.setWidth 32 = divExt32 w isSigned va) ∧
       (if (w == .W64) = true then rv11 = vb.setWidth 64 else rv11.setWidth 32 = divExt32 w isSigned vb) ∧
       s2 = { s with regs := (s.regs.set64 .r10 rv10).set64 .r11 rv11 }) E s := by
@@ -441,18 +458,22 @@ theorem opDiv_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (isSi
         dsimp only [Machine.PArgHolds, Machine.getGpr, x64Mach] at hpb ⊢; rw [Reg64s.get64_set64_of_ne _ .r10 rx _ hrx.symm]; exact hpb
     refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_divArgExt w isSigned _ .r11 pb vb hdb hpb1)) ?_
     rintro s2 ⟨rv11, h11, rfl⟩; exact ⟨rv10, rv11, h10, h11, rfl⟩
-  have hprefix_cons : ∀ (xs : List Directive),
+  have hprefix_cons : ∀ (xs : List Instr),
       (∀ rv10 rv11 : BitVec 64, (if (w == .W64) = true then rv10 = va.setWidth 64 else rv10.setWidth 32 = divExt32 w isSigned va) →
         (if (w == .W64) = true then rv11 = vb.setWidth 64 else rv11.setWidth 32 = divExt32 w isSigned vb) →
-        _root_.Program.wp xs (OpPost1 (.bits w.bits) rd (if isSigned then (if isRem then va.srem vb else va.sdiv vb)
-          else (if isRem then va % vb else va / vb)) maskAll s) E { s with regs := (s.regs.set64 .r10 rv10).set64 .r11 rv11 }) →
-      _root_.Program.wp (da :: db :: xs) (OpPost1 (.bits w.bits) rd
+        _root_.Program.wp (emitClean xs) (OpPost1 (.bits w.bits) rd
+          (if isSigned then (if isRem then va.srem vb else va.sdiv vb)
+           else (if isRem then va % vb else va / vb)) maskAll s)
+          E { s with regs := (s.regs.set64 .r10 rv10).set64 .r11 rv11 }) →
+      _root_.Program.wp (emitClean (da :: db :: xs)) (OpPost1 (.bits w.bits) rd
         (if isSigned then (if isRem then va.srem vb else va.sdiv vb) else (if isRem then va % vb else va / vb)) maskAll s) E s := fun xs hxs => by
-    change _root_.Program.wp ([da, db] ++ xs) _ E s
+    change _root_.Program.wp ([.instr da, .instr db] ++ emitClean xs) _ E s
     exact Program.wp.append hp_prefix fun _ ⟨rv10, rv11, h10, h11, hs2⟩ => hs2 ▸ hxs rv10 rv11 h10 h11
-  have movStep : ∀ (a b : Reg64) (st : MachineData) (rest : List Directive) (Q : MachineData → Prop),
-      _root_.Program.wp rest Q E { st with regs := st.regs.set64 a (st.regs.get64 b) } → _root_.Program.wp (movD a b :: rest) Q E st := fun a b st rest Q h =>
-    Program.wp.cons (Directive.FallsTo.wp (fallsTo_movD st a b)) fun _ hr => hr ▸ h
+  have movStep : ∀ (a b : Reg64) (st : MachineData) (rest : List Instr) (Q : MachineData → Prop),
+      _root_.Program.wp (emitClean rest) Q E { st with regs := st.regs.set64 a (st.regs.get64 b) } →
+      _root_.Program.wp (emitClean (movI a b :: rest)) Q E st := fun a b st rest Q h => by
+    rw [emitClean_cons]
+    exact Program.wp.cons (Directive.FallsTo.wp (fallsTo_movD st a b)) fun _ hr => hr ▸ h
   clear hc h1 hda hdb hseq hargs hpa hpb hp_prefix
   by_cases hrax : rd = .rax
   rotate_left
@@ -464,10 +485,12 @@ theorem opDiv_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (isSi
     | (have hrax_f : (rd == .rax) = false := by cases rd <;> first | exact absurd rfl hrax | rfl
        have hrdx_f : (rd == .rdx) = false := by cases rd <;> first | exact absurd rfl hrdx | rfl
        simp only [hrax_f, hrdx_f, Bool.false_eq_true, ↓reduceIte])
+    simp only [List.cons_append, List.nil_append]
     refine hprefix_cons _ fun rv10 rv11 h10 h11 => ?_; clear hprefix_cons
     repeat' refine movStep _ _ _ _ _ ?_
     have h10' : ∀ x : BitVec 64, rv10 = x → (if (w == .W64) = true then x = va.setWidth 64 else x.setWidth 32 = divExt32 w isSigned va) := fun _ e => e ▸ h10
     have h11' : ∀ x : BitVec 64, rv11 = x → (if (w == .W64) = true then x = vb.setWidth 64 else x.setWidth 32 = divExt32 w isSigned vb) := fun _ e => e ▸ h11
+    rw [emitClean_append]
     refine Program.wp.append (wp_divCoreRun w isSigned isRem va vb hdef _ ?_ ?_) ?_
     · exact h10' _ (by simp only [Reg64s.get64_set64]; grind)
     · exact h11' _ (by simp only [Reg64s.get64_set64]; grind)
@@ -476,6 +499,7 @@ theorem opDiv_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (isSi
     all_goals
       repeat' refine movStep _ _ _ _ _ ?_
       clear movStep
+      rw [emitClean_nil]
       refine _root_.Program.wp_nil ⟨(GprHolds.bits_iff w _ _).2 ?_, rfl, x64_frame_of_eq (fun r hr => ?_) rfl (updFlags_maskAll _ _)⟩
       · dsimp only [Machine.getGpr, x64Mach]; exact (congrArg (BitVec.setWidth w.bits) (by simp only [Reg64s.get64_set64]; grind)).trans hres
       · simp only [List.mem_cons, List.mem_nil_iff, not_or, x64Scratch] at hr
@@ -497,63 +521,71 @@ theorem opPost2_fallsTo {t0 t1 : Ty} {pd0 : PDst Reg64 RegMm CondCode t0} {pd1 :
   refine x64_fallsTo_of_wp fun {_} _ => Program.wp.mono (hwp _) ?_
   rintro s' ⟨h0, h1, hmem, hfr⟩; exact ⟨⟨⟨(v0, v1, ()), hp, TRel.cons h0 (TRel.cons h1 .nil)⟩, hmem⟩, hfr⟩
 
-private def x64SetupCf : PArg Reg64 RegMm CondCode .bool → Option (List Directive)
+private def x64SetupCfIns : PArg Reg64 RegMm CondCode .bool → Option (List Instr)
   | .flag .c => some []
-  | .flag cc => some [ins8 (.setcc cc (.reg (b8 .r10))), ins8 (.neg (.reg (b8 .r10)))]
-  | .gpr rc => some [ins8 (.mov (.reg (b8 .r10)) (.reg (b8 rc))), ins8 (.neg (.reg (b8 .r10)))]
-  | .imm false => some [ins32 (.xor (.reg (d .r10)) (.reg (d .r10)))]
-  | .imm true => some [moviD .r10 1, ins8 (.neg (.reg (b8 .r10)))]
+  | .flag cc => some [x64InsI .W8 (.setcc cc (.reg (b8 .r10))), x64InsI .W8 (.neg (.reg (b8 .r10)))]
+  | .gpr rc => some
+    [x64InsI .W8 (.mov (.reg (b8 .r10)) (.reg (b8 rc))), x64InsI .W8 (.neg (.reg (b8 .r10)))]
+  | .imm false => some [x64InsI .W32 (.xor (.reg (d .r10)) (.reg (d .r10)))]
+  | .imm true => some [moviI .r10 1, x64InsI .W8 (.neg (.reg (b8 .r10)))]
   | .vec _ => none
 
-private def x64CarryOutSeq (flagCc : CondCode) : PDst Reg64 RegMm CondCode .bool → Option (List Directive)
+private def x64CarryOutSeqIns (flagCc : CondCode) :
+    PDst Reg64 RegMm CondCode .bool → Option (List Instr)
   | .flag cc => if cc == flagCc then some [] else none
-  | .gpr rc => some (setccMove rc flagCc) | .vec _ => none
+  | .gpr rc => some (setccMoveIns rc flagCc) | .vec _ => none
 
-private def x64AdcFallback (w : Width) (pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)) (pc : PArg Reg64 RegMm CondCode .bool)
-    (rd : Reg64) (dc : PDst Reg64 RegMm CondCode .bool) : Option (List Directive × FlagMask) := do
-  let setupCf ← x64SetupCf pc
-  let core ← carryCore w true (fun dst src => insW w (.adc (.reg (regW w dst)) (.reg (regW w src))))
-    (fun dst imm => insW w (.adc (.reg (regW w dst)) (immBitsOp w imm))) true pa pb rd
-  let tail ← x64CarryOutSeq .c dc; some (setupCf ++ core ++ tail, maskAll)
+private def x64AdcFallbackIns (w : Width) (pa pb : PArg Reg64 RegMm CondCode (.bits w.bits))
+    (pc : PArg Reg64 RegMm CondCode .bool) (rd : Reg64) (dc : PDst Reg64 RegMm CondCode .bool) :
+    Option (List Instr × FlagMask) := do
+  let setupCf ← x64SetupCfIns pc
+  let core ← carryCoreIns w true
+    (fun dst src => x64InsI w (.adc (.reg (regW w dst)) (.reg (regW w src))))
+    (fun dst imm => x64InsI w (.adc (.reg (regW w dst)) (immBitsOp w imm))) true pa pb rd
+  let tail ← x64CarryOutSeqIns .c dc; some (setupCf ++ core ++ tail, maskAll)
 
 private def x64DistinctDst (rd : Reg64) : PDst Reg64 RegMm CondCode .bool → Bool
   | .gpr rc => rc != rd | _ => true
 
 private theorem opAddc_eq (w : Width) (pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)) (pc : PArg Reg64 RegMm CondCode .bool)
     (rd : Reg64) (dc : PDst Reg64 RegMm CondCode .bool) (vh : VariantHint) :
-    opAddc w pa pb pc (.gpr rd) dc vh =
+    opAddcIns w pa pb pc (.gpr rd) dc vh =
       (if !x64DistinctDst rd dc then none else match vh with
        | .adcx => match pc with
          | .flag .c => do
-           let core ← carryCore w true (fun dst src => insW w (.adcx (regW w dst) (.reg (regW w src))))
-             (fun dst _ => insW w (.adcx (regW w dst) (.reg (regW w dst)))) false pa pb rd
-           let tail ← x64CarryOutSeq .c dc
+           let core ← carryCoreIns w true
+             (fun dst src => x64InsI w (.adcx (regW w dst) (.reg (regW w src))))
+             (fun dst _ => x64InsI w (.adcx (regW w dst) (.reg (regW w dst)))) false pa pb rd
+           let tail ← x64CarryOutSeqIns .c dc
            some (core ++ tail, maskCF)
-         | _ => x64AdcFallback w pa pb pc rd dc
+         | _ => x64AdcFallbackIns w pa pb pc rd dc
        | .adox => match pc with
          | .flag .o => do
-           let core ← carryCore w true (fun dst src => insW w (.adox (regW w dst) (.reg (regW w src))))
-             (fun dst _ => insW w (.adox (regW w dst) (.reg (regW w dst)))) false pa pb rd
-           let tail ← x64CarryOutSeq .o dc
+           let core ← carryCoreIns w true
+             (fun dst src => x64InsI w (.adox (regW w dst) (.reg (regW w src))))
+             (fun dst _ => x64InsI w (.adox (regW w dst) (.reg (regW w dst)))) false pa pb rd
+           let tail ← x64CarryOutSeqIns .o dc
            some (core ++ tail, maskOF)
-         | _ => x64AdcFallback w pa pb pc rd dc
-       | _ => x64AdcFallback w pa pb pc rd dc) := by
-  unfold opAddc; dsimp +zetaHave only
+         | _ => x64AdcFallbackIns w pa pb pc rd dc
+       | _ => x64AdcFallbackIns w pa pb pc rd dc) := by
+  unfold opAddcIns; dsimp +zetaHave only
   cases vh <;> cases pc <;> (try cases ‹Bool›) <;> (try cases ‹CondCode›) <;>
-    cases dc <;> simp [x64DistinctDst, x64AdcFallback, x64SetupCf, x64CarryOutSeq]
+    cases dc <;> simp [x64DistinctDst, x64AdcFallbackIns, x64SetupCfIns, x64CarryOutSeqIns]
 
 private theorem opSubb_eq (w : Width) (pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)) (pc : PArg Reg64 RegMm CondCode .bool)
     (rd : Reg64) (db : PDst Reg64 RegMm CondCode .bool) :
-    opSubb w pa pb pc (.gpr rd) db =
+    opSubbIns w pa pb pc (.gpr rd) db =
       (if !x64DistinctDst rd db then none else do
-         let setupCf ← x64SetupCf pc
-         let core ← carryCore w false (fun dst src => insW w (.sbb (.reg (regW w dst)) (.reg (regW w src))))
-           (fun dst imm => insW w (.sbb (.reg (regW w dst)) (immBitsOp w imm))) true pa pb rd
-         let tail ← x64CarryOutSeq .c db
+         let setupCf ← x64SetupCfIns pc
+         let core ← carryCoreIns w false
+           (fun dst src => x64InsI w (.sbb (.reg (regW w dst)) (.reg (regW w src))))
+           (fun dst imm => x64InsI w (.sbb (.reg (regW w dst)) (immBitsOp w imm))) true pa pb rd
+         let tail ← x64CarryOutSeqIns .c db
          some (setupCf ++ core ++ tail, maskAll)) := by
-  unfold opSubb; dsimp +zetaHave only
+  unfold opSubbIns; dsimp +zetaHave only
   cases pc <;> (try cases ‹Bool›) <;> (try cases ‹CondCode›) <;>
-    cases db <;> (try (rename_i cc; cases cc)) <;> simp [x64DistinctDst, x64SetupCf, x64CarryOutSeq]
+    cases db <;> (try (rename_i cc; cases cc)) <;>
+    simp [x64DistinctDst, x64SetupCfIns, x64CarryOutSeqIns]
 
 private theorem setRegW_eq_st (w : Width) (s : MachineData) (d : Reg64) (v : w.type) (st : StatusFlags) :
     ∃ rv : BitVec 64, rv.setWidth w.bits = v ∧ ({ s with regs := s.regs.set (regW w d) v, status := st } : MachineData) = { s with regs := s.regs.set64 d rv, status := st } := by
@@ -571,24 +603,31 @@ private theorem pargholds_set64_r10 {s : MachineData} {w : Width} {p : PArg Reg6
     have hr := (ne_of_not_mem_x64Scratch (hg r (by simp [PArg.gprs]))).1
     dsimp only [Machine.PArgHolds, Machine.getGpr, x64Mach] at hp ⊢; rw [Reg64s.get64_set64_of_ne _ .r10 r _ hr.symm]; exact hp
 
-private theorem wp_setupCarryCf [Host] {E : Int64 → MachineData → Prop} {pc : PArg Reg64 RegMm CondCode .bool}
-    {vc : Bool} {s : MachineData} {sc : List Directive} (hsc : x64SetupCf pc = some sc) (hpc : x64Mach.PArgHolds s .bool pc vc) :
-    _root_.Program.wp sc (fun s' => ∃ rv10 st', st'.cf = vc ∧ s' = { s with regs := s.regs.set64 .r10 rv10, status := st' }) E s := by
+private theorem wp_setupCarryCf [Host] {E : Int64 → MachineData → Prop}
+    {pc : PArg Reg64 RegMm CondCode .bool} {vc : Bool} {s : MachineData} {sc : List Instr}
+    (hsc : x64SetupCfIns pc = some sc) (hpc : x64Mach.PArgHolds s .bool pc vc) :
+    _root_.Program.wp (emitClean sc)
+      (fun s' => ∃ rv10 st', st'.cf = vc ∧
+        s' = { s with regs := s.regs.set64 .r10 rv10, status := st' })
+      E s := by
   have fallsTo_negb_r10 : ∀ (st : MachineData) (b : Bool), ((st.regs.get64 .r10).setWidth 8 = BitVec.ofNat 8 b.toNat) →
       Directive.FallsTo (ins8 (.neg (.reg (b8 .r10)))) st (fun s' => ∃ rv st', st'.cf = b ∧ s' = { st with regs := st.regs.set64 .r10 rv, status := st' }) := by
     intro st b hr10 _ _ _ _ _ hk; simp only [t_step_simp, hr10, StatusFlags.from_result, Effects.All, Reg64s.set]
     exact hk _ ⟨_, _, by cases b <;> rfl, rfl⟩
   cases pc with
-  | vec _ => simp [x64SetupCf] at hsc
+  | vec _ => simp [x64SetupCfIns] at hsc
   | imm b0 =>
-    cases b0 <;> rcases hpc with rfl <;> simp only [x64SetupCf, Option.some.injEq] at hsc <;> subst hsc
+    cases b0 <;> rcases hpc with rfl <;>
+      simp only [x64SetupCfIns, Option.some.injEq] at hsc <;> subst hsc <;>
+      simp only [emitClean_cons, emitClean_nil]
     · refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_clearFlags s)) ?_; rintro s' ⟨st', rfl, hcf, -⟩; exact ⟨0#64, st', hcf, rfl⟩
     · refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD s .r10 1)) ?_; rintro s1 rfl
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_negb_r10 _ true (by rw [Reg64s.get64_set64_same]; rfl))) ?_
       rintro s2 ⟨rv, st', hcf, rfl⟩; exact ⟨rv, st', hcf, rfl⟩
   | gpr rc =>
     have hrc : (s.regs.get64 rc).setWidth 8 = BitVec.ofNat 8 vc.toNat := hpc
-    simp only [x64SetupCf, Option.some.injEq] at hsc; subst hsc
+    simp only [x64SetupCfIns, Option.some.injEq] at hsc; subst hsc
+    simp only [emitClean_cons, emitClean_nil]
     refine Program.wp.cons (Directive.FallsTo.wp (d := ins8 (.mov (.reg (b8 .r10)) (.reg (b8 rc)))) (s := s)
       (Q := fun s1 => ∃ rv10 : BitVec 64, rv10.setWidth 8 = BitVec.ofNat 8 vc.toNat ∧ s1 = { s with regs := s.regs.set64 .r10 rv10 })
       (by intro _ _ _ _ _ hk; simp only [t_step_simp, hrc, Reg64s.set]; exact hk _ ⟨_, replaceLow_setWidth_le (by decide) _ _, rfl⟩)) ?_
@@ -598,34 +637,51 @@ private theorem wp_setupCarryCf [Host] {E : Int64 → MachineData → Prop} {pc 
   | flag cc =>
     have hcc : cc.interp s.status = vc := hpc
     cases cc with
-    | c => simp only [x64SetupCf, Option.some.injEq] at hsc; subst hsc; exact _root_.Program.wp_nil ⟨s.regs.get64 .r10, s.status, hcc, by congr 1⟩
+    | c =>
+      simp only [x64SetupCfIns, Option.some.injEq] at hsc; subst hsc
+      exact _root_.Program.wp_nil ⟨s.regs.get64 .r10, s.status, hcc, by congr 1⟩
     | o | no | nc | z | nz | be | a | s | ns | p | np | l | ge | le | g =>
-      simp only [x64SetupCf, Option.some.injEq] at hsc; subst hsc
+      simp only [x64SetupCfIns, Option.some.injEq] at hsc; subst hsc
+      simp only [emitClean_cons, emitClean_nil]
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_setcc s _ .r10)) ?_; rintro s1 rfl
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_negb_r10 _ vc (by rw [Reg64s.get64_set64_same, replaceLow_setWidth_le (by decide), hcc]))) ?_
       rintro s2 ⟨rv, st', hcf, rfl⟩; exact ⟨rv, st', hcf, rfl⟩
 
 private theorem wp_carryCore [Host] {E : Int64 → MachineData → Prop} (w : Width) (isComm supportsImm : Bool)
-    (mkReg : Reg64 → Reg64 → Directive) (mkImm : Reg64 → BitVec w.bits → Directive)
+    (mkReg : Reg64 → Reg64 → Instr) (mkImm : Reg64 → BitVec w.bits → Instr)
     (evalRes : BitVec w.bits → BitVec w.bits → Bool → BitVec w.bits) (evalSt : StatusFlags → BitVec w.bits → BitVec w.bits → StatusFlags → Prop)
     (hcomm : isComm = true → ∀ a b c, evalRes a b c = evalRes b a c ∧ ∀ st st', evalSt st a b st' ↔ evalSt st b a st')
     (getFlag : StatusFlags → Bool)
-    (hstepReg : ∀ (st0 : MachineData) (d sreg : Reg64) (a b : BitVec w.bits), (st0.regs.get64 d).setWidth w.bits = a → (st0.regs.get64 sreg).setWidth w.bits = b →
-      Directive.FallsTo (mkReg d sreg) st0 (fun s' => ∃ rv' st', rv'.setWidth w.bits = evalRes a b (getFlag st0.status) ∧ evalSt st0.status a b st' ∧ s' = { st0 with regs := st0.regs.set64 d rv', status := st' }))
-    (hstepImm : supportsImm = true → ∀ (st0 : MachineData) (d : Reg64) (a b : BitVec w.bits), (w != .W64 || fitsImm32 (b.setWidth 64)) = true →
-      (st0.regs.get64 d).setWidth w.bits = a → Directive.FallsTo (mkImm d b) st0 (fun s' => ∃ rv' st', rv'.setWidth w.bits = evalRes a b (getFlag st0.status) ∧ evalSt st0.status a b st' ∧ s' = { st0 with regs := st0.regs.set64 d rv', status := st' }))
-    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64} {cr : List Directive} {va vb : BitVec w.bits} {s0 s_orig : MachineData}
-    (hcr : carryCore w isComm mkReg mkImm supportsImm pa pb rd = some cr) (hrd : rd ∉ x64Scratch) (hargs : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch)
+    (hstepReg : ∀ (st0 : MachineData) (d sreg : Reg64) (a b : BitVec w.bits),
+      (st0.regs.get64 d).setWidth w.bits = a → (st0.regs.get64 sreg).setWidth w.bits = b →
+      Directive.FallsTo (.instr (mkReg d sreg)) st0 (fun s' => ∃ rv' st',
+        rv'.setWidth w.bits = evalRes a b (getFlag st0.status) ∧
+        evalSt st0.status a b st' ∧
+        s' = { st0 with regs := st0.regs.set64 d rv', status := st' }))
+    (hstepImm : supportsImm = true → ∀ (st0 : MachineData) (d : Reg64) (a b : BitVec w.bits),
+      (w != .W64 || fitsImm32 (b.setWidth 64)) = true → (st0.regs.get64 d).setWidth w.bits = a →
+      Directive.FallsTo (.instr (mkImm d b)) st0 (fun s' => ∃ rv' st',
+        rv'.setWidth w.bits = evalRes a b (getFlag st0.status) ∧
+        evalSt st0.status a b st' ∧
+        s' = { st0 with regs := st0.regs.set64 d rv', status := st' }))
+    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64} {cr : List Instr}
+    {va vb : BitVec w.bits} {s0 s_orig : MachineData}
+    (hcr : carryCoreIns w isComm mkReg mkImm supportsImm pa pb rd = some cr)
+    (hrd : rd ∉ x64Scratch) (hargs : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch)
     (hpa : x64Mach.PArgHolds s0 (.bits w.bits) pa va) (hpb : x64Mach.PArgHolds s0 (.bits w.bits) pb vb)
     (hregs0 : ∀ r, r ∉ x64Scratch → s0.regs.get64 r = s_orig.regs.get64 r) (hm0 : s0.dmem = s_orig.dmem) (hz0 : s0.zmms = s_orig.zmms) :
-    _root_.Program.wp cr (fun s' => ∃ rv' st', rv'.setWidth w.bits = evalRes va vb (getFlag s0.status) ∧ evalSt s0.status va vb st' ∧
-      (∀ r, r ≠ rd → r ∉ x64Scratch → s'.regs.get64 r = s_orig.regs.get64 r) ∧ s'.regs.get64 rd = rv' ∧ s'.dmem = s_orig.dmem ∧ s'.zmms = s_orig.zmms ∧ s'.status = st') E s0 := by
+    _root_.Program.wp (emitClean cr) (fun s' => ∃ rv' st',
+      rv'.setWidth w.bits = evalRes va vb (getFlag s0.status) ∧ evalSt s0.status va vb st' ∧
+      (∀ r, r ≠ rd → r ∉ x64Scratch → s'.regs.get64 r = s_orig.regs.get64 r) ∧
+      s'.regs.get64 rd = rv' ∧ s'.dmem = s_orig.dmem ∧
+      s'.zmms = s_orig.zmms ∧ s'.status = st') E s0 := by
   have hrd_sc := ne_of_not_mem_x64Scratch hrd
   have runRegImm : ∀ (s1 : MachineData) (ra : Reg64) (cb xa : BitVec w.bits),
       ra ≠ .r10 → (s1.regs.get64 ra).setWidth w.bits = xa → (∀ r, r ≠ rd → r ∉ x64Scratch → s1.regs.get64 r = s_orig.regs.get64 r) →
       s1.dmem = s_orig.dmem → s1.zmms = s_orig.zmms → s1.status = s0.status →
-      _root_.Program.wp (let pre := if ra == rd then [] else [movW w rd ra]
-         if supportsImm && (w != .W64 || fitsImm32 (cb.setWidth 64)) then pre ++ [mkImm rd cb] else [moviD .r10 (cb.setWidth 64)] ++ pre ++ [mkReg rd .r10])
+      _root_.Program.wp (emitClean (let pre := if ra == rd then [] else [movWI w rd ra]
+         if supportsImm && (w != .W64 || fitsImm32 (cb.setWidth 64)) then pre ++ [mkImm rd cb]
+         else [moviI .r10 (cb.setWidth 64)] ++ pre ++ [mkReg rd .r10]))
         (fun s' => ∃ rv' st', rv'.setWidth w.bits = evalRes xa cb (getFlag s0.status) ∧ evalSt s0.status xa cb st' ∧
           (∀ r, r ≠ rd → r ∉ x64Scratch → s'.regs.get64 r = s_orig.regs.get64 r) ∧ s'.regs.get64 rd = rv' ∧ s'.dmem = s_orig.dmem ∧ s'.zmms = s_orig.zmms ∧ s'.status = st') E s1 := by
     intro s1 ra cb xa hra_ne10 hra1 hr1 hm1 hz1 hst1
@@ -637,12 +693,15 @@ private theorem wp_carryCore [Host] {E : Int64 → MachineData → Prop} (w : Wi
       rintro sc ⟨hcrd, hne, hmc, hzc, hstc⟩
       exact ⟨hcrd, fun r hrd' hsc' => (hne r hrd').trans (hfrb r hrd' hsc'), hne .r10 hrd_sc.1.symm, hmc.trans hmb, hzc.trans hzb, hstc.trans hstb⟩
     by_cases him : (supportsImm && (w != .W64 || fitsImm32 (cb.setWidth 64))) = true
-    · simp only [him, ↓reduceIte]; simp only [Bool.and_eq_true] at him
+    · simp only [him, ↓reduceIte, emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil]
+      simp only [Bool.and_eq_true] at him
       refine Program.wp.append (hpre_wp s1 hra1 hr1 hm1 hz1 hst1) ?_; rintro sc ⟨hcrd, hfr, _, hmc, hzc, hstc⟩
       refine Program.wp.mono (Directive.FallsTo.wp (hstepImm him.1 sc rd xa cb him.2 hcrd)) ?_; rintro s' ⟨rv', st', hrv', hest', rfl⟩; rw [hstc] at hrv' hest'
       exact ⟨rv', st', hrv', hest', fun r hr' hsc' => (Reg64s.get64_set64_of_ne _ rd r _ hr'.symm).trans (hfr r hr' hsc'), Reg64s.get64_set64_same .., hmc, hzc, rfl⟩
-    · simp only [him, Bool.false_eq_true, ↓reduceIte]
-      change _root_.Program.wp (moviD .r10 (cb.setWidth 64) :: ((if ra == rd then [] else [movW w rd ra]) ++ [mkReg rd .r10])) _ E s1
+    · simp only [him, Bool.false_eq_true, ↓reduceIte, emitClean_append,
+        emitClean_ite, emitClean_cons, emitClean_nil]
+      change _root_.Program.wp (moviD .r10 (cb.setWidth 64) ::
+        ((if ra == rd then [] else [movW w rd ra]) ++ [.instr (mkReg rd .r10)])) _ E s1
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD s1 .r10 (cb.setWidth 64))) ?_; rintro _ rfl
       refine Program.wp.append (hpre_wp _ (by rw [Reg64s.get64_set64_of_ne _ .r10 ra _ hra_ne10.symm, hra1])
         (fun r hrd' hsc' => by rw [Reg64s.get64_set64_of_ne _ .r10 r _ (ne_of_not_mem_x64Scratch hsc').1.symm]; exact hr1 r hrd' hsc') hm1 hz1 hst1) ?_
@@ -653,80 +712,101 @@ private theorem wp_carryCore [Host] {E : Int64 → MachineData → Prop} (w : Wi
   have runViaR11 : ∀ (s1 : MachineData) (rb : Reg64) (a b : BitVec w.bits),
       (s1.regs.get64 .r11).setWidth w.bits = a → (s1.regs.get64 rb).setWidth w.bits = b →
       (∀ r, r ∉ x64Scratch → s1.regs.get64 r = s_orig.regs.get64 r) → s1.dmem = s_orig.dmem → s1.zmms = s_orig.zmms → s1.status = s0.status →
-      _root_.Program.wp [mkReg .r11 rb, movW w rd .r11] (fun s' => ∃ rv' st', rv'.setWidth w.bits = evalRes a b (getFlag s0.status) ∧ evalSt s0.status a b st' ∧
-        (∀ r, r ≠ rd → r ∉ x64Scratch → s'.regs.get64 r = s_orig.regs.get64 r) ∧ s'.regs.get64 rd = rv' ∧ s'.dmem = s_orig.dmem ∧ s'.zmms = s_orig.zmms ∧ s'.status = st') E s1 := by
+      _root_.Program.wp (emitClean [mkReg .r11 rb, movWI w rd .r11]) (fun s' => ∃ rv' st',
+        rv'.setWidth w.bits = evalRes a b (getFlag s0.status) ∧ evalSt s0.status a b st' ∧
+        (∀ r, r ≠ rd → r ∉ x64Scratch → s'.regs.get64 r = s_orig.regs.get64 r) ∧
+        s'.regs.get64 rd = rv' ∧ s'.dmem = s_orig.dmem ∧
+        s'.zmms = s_orig.zmms ∧ s'.status = st') E s1 := by
     intro s1 rb a b hr11 hrb hfr1 hm1 hz1 hst1
+    simp only [emitClean_cons, emitClean_nil]
     refine Program.wp.cons (Directive.FallsTo.wp (hstepReg s1 .r11 rb a b hr11 hrb)) ?_; rintro s2 ⟨rv2, st', hrv2, hest', rfl⟩
     refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_movW w _ rd .r11)) ?_; rintro _ rfl; rw [hst1] at hrv2 hest'
     exact ⟨_, st', (setWidth_64_setWidth w _).trans hrv2, hest', fun r hr' hsc' => by
       rw [Reg64s.get64_set64_of_ne _ rd r _ hr'.symm, Reg64s.get64_set64_of_ne _ .r11 r _ (ne_of_not_mem_x64Scratch hsc').2.symm, hfr1 r hsc'],
       by rw [Reg64s.get64_set64_same, Reg64s.get64_set64_same], hm1, hz1, rfl⟩
   cases pa with
-  | vec _ => simp [carryCore] at hcr
+  | vec _ => simp [carryCoreIns] at hcr
   | imm ca =>
     rcases hpa with rfl; cases pb with
-    | vec _ => simp [carryCore] at hcr
+    | vec _ => simp [carryCoreIns] at hcr
     | imm cb =>
-      rcases hpb with rfl; unfold carryCore at hcr; simp only [Option.some.injEq] at hcr; subst hcr
+      rcases hpb with rfl; unfold carryCoreIns at hcr
+      simp only [Option.some.injEq] at hcr; subst hcr
+      simp only [emitClean_cons]
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD s0 rd (ca.setWidth 64))) ?_; rintro _ rfl
       exact runRegImm _ rd cb ca hrd_sc.1 (by rw [Reg64s.get64_set64_same, setWidth_64_setWidth]) (fun r hr hsc => by rw [Reg64s.get64_set64_of_ne _ rd r _ hr.symm, hregs0 r hsc]) hm0 hz0 rfl
     | gpr rb =>
-      have hrb_sc := ne_of_not_mem_x64Scratch (hargs rb (by simp [PArg.gprs])); have hrb := (GprHolds.bits_iff w _ _).1 hpb; unfold carryCore at hcr; dsimp +zetaHave only at hcr
+      have hrb_sc := ne_of_not_mem_x64Scratch (hargs rb (by simp [PArg.gprs]))
+      have hrb := (GprHolds.bits_iff w _ _).1 hpb
+      unfold carryCoreIns at hcr; dsimp +zetaHave only at hcr
       by_cases hc : isComm = true
       · simp only [hc, ↓reduceIte, Option.some.injEq] at hcr; subst hcr; obtain ⟨heq, hest⟩ := hcomm hc ca vb (getFlag s0.status)
         refine Program.wp.mono (runRegImm s0 rb ca vb hrb_sc.1 hrb (fun r _ hsc => hregs0 r hsc) hm0 hz0 rfl) ?_
         rintro s' ⟨rv', st', hrv', hest', hfr', hrd', hm', hz', hst'⟩; exact ⟨rv', st', hrv'.trans heq.symm, (hest s0.status st').2 hest', hfr', hrd', hm', hz', hst'⟩
       · simp only [hc, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at hcr; subst hcr
+        simp only [emitClean_cons]
         refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD s0 .r11 (ca.setWidth 64))) ?_; rintro _ rfl
         exact runViaR11 _ rb ca vb (by rw [Reg64s.get64_set64_same, setWidth_64_setWidth]) (by rw [Reg64s.get64_set64_of_ne _ .r11 rb _ hrb_sc.2.symm, hrb])
           (fun r hsc => by rw [Reg64s.get64_set64_of_ne _ .r11 r _ (ne_of_not_mem_x64Scratch hsc).2.symm, hregs0 r hsc]) hm0 hz0 rfl
   | gpr ra =>
     have hra_sc := ne_of_not_mem_x64Scratch (hargs ra (by simp [PArg.gprs])); have hra := (GprHolds.bits_iff w _ _).1 hpa
     cases pb with
-    | vec _ => simp [carryCore] at hcr
-    | imm cb => rcases hpb with rfl; unfold carryCore at hcr; simp only [Option.some.injEq] at hcr; subst hcr; exact runRegImm s0 ra cb va hra_sc.1 hra (fun r _ hsc => hregs0 r hsc) hm0 hz0 rfl
+    | vec _ => simp [carryCoreIns] at hcr
+    | imm cb =>
+      rcases hpb with rfl; unfold carryCoreIns at hcr
+      simp only [Option.some.injEq] at hcr; subst hcr
+      exact runRegImm s0 ra cb va hra_sc.1 hra (fun r _ hsc => hregs0 r hsc) hm0 hz0 rfl
     | gpr rb =>
-      have hrb_sc := ne_of_not_mem_x64Scratch (hargs rb (by simp [PArg.gprs])); have hrb := (GprHolds.bits_iff w _ _).1 hpb; unfold carryCore at hcr
+      have hrb_sc := ne_of_not_mem_x64Scratch (hargs rb (by simp [PArg.gprs]))
+      have hrb := (GprHolds.bits_iff w _ _).1 hpb; unfold carryCoreIns at hcr
       by_cases h1 : ra == rd
       · have := (beq_reg64_iff ra rd).1 h1; subst ra; simp only [h1, ↓reduceIte, Option.some.injEq] at hcr; subst hcr
+        simp only [emitClean_cons, emitClean_nil]
         refine Program.wp.mono (Directive.FallsTo.wp (hstepReg s0 rd rb va vb hra hrb)) ?_; rintro s' ⟨rv', st', hrv', hest', rfl⟩
         exact ⟨rv', st', hrv', hest', fun r hr hsc => by rw [Reg64s.get64_set64_of_ne _ rd r _ hr.symm, hregs0 r hsc], Reg64s.get64_set64_same .., hm0, hz0, rfl⟩
       · simp only [h1, Bool.false_eq_true, ↓reduceIte] at hcr
         by_cases h2 : isComm && (rb == rd)
         · simp only [h2, ↓reduceIte, Option.some.injEq] at hcr; subst hcr; simp only [Bool.and_eq_true, beq_reg64_iff] at h2; rcases h2 with ⟨hc, rfl⟩
           obtain ⟨heq, hest⟩ := hcomm hc va vb (getFlag s0.status)
+          simp only [emitClean_cons, emitClean_nil]
           refine Program.wp.mono (Directive.FallsTo.wp (hstepReg s0 rb ra vb va hrb hra)) ?_; rintro s' ⟨rv', st', hrv', hest', rfl⟩
           exact ⟨rv', st', hrv'.trans heq.symm, (hest s0.status st').2 hest', fun r hr hsc => by rw [Reg64s.get64_set64_of_ne _ rb r _ hr.symm, hregs0 r hsc], Reg64s.get64_set64_same .., hm0, hz0, rfl⟩
         · simp only [h2, Bool.false_eq_true, ↓reduceIte] at hcr
           by_cases h3 : rb != rd
           · simp only [h3, ↓reduceIte, Option.some.injEq] at hcr; subst hcr; have hrb_rd := (bne_reg64_iff rb rd).1 h3
+            simp only [emitClean_cons, emitClean_nil]
             refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_movW w s0 rd ra)) ?_; rintro _ rfl
             refine Program.wp.mono (Directive.FallsTo.wp (hstepReg _ rd rb va vb (by rw [Reg64s.get64_set64_same, setWidth_64_setWidth, hra])
               (by rw [Reg64s.get64_set64_of_ne _ rd rb _ hrb_rd.symm, hrb]))) ?_; rintro s' ⟨rv', st', hrv', hest', rfl⟩
             exact ⟨rv', st', hrv', hest', fun r hr hsc => by rw [Reg64s.get64_set64_of_ne _ rd r _ hr.symm, Reg64s.get64_set64_of_ne _ rd r _ hr.symm, hregs0 r hsc],
               Reg64s.get64_set64_same .., hm0, hz0, rfl⟩
           · simp only [h3, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at hcr; subst hcr
+            simp only [emitClean_cons]
             refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_movW w s0 .r11 ra)) ?_; rintro _ rfl
             exact runViaR11 _ rb va vb (by rw [Reg64s.get64_set64_same, setWidth_64_setWidth, hra]) (by rw [Reg64s.get64_set64_of_ne _ .r11 rb _ hrb_sc.2.symm, hrb])
               (fun r hsc => by rw [Reg64s.get64_set64_of_ne _ .r11 r _ (ne_of_not_mem_x64Scratch hsc).2.symm, hregs0 r hsc]) hm0 hz0 rfl
 
 private theorem wp_coutSeq [Host] {E : Int64 → MachineData → Prop} (w : Width) (flagCc : CondCode)
-    {dsum : Reg64} {dc : PDst Reg64 RegMm CondCode .bool} {tl : List Directive} {clob : FlagMask} {vsum : BitVec w.bits} {vc : Bool} {s s_mid : MachineData}
-    (htl : x64CarryOutSeq flagCc dc = some tl) (hdist : x64DistinctDst dsum dc = true) (hvsum : (s_mid.regs.get64 dsum).setWidth w.bits = vsum)
+    {dsum : Reg64} {dc : PDst Reg64 RegMm CondCode .bool} {tl : List Instr} {clob : FlagMask}
+    {vsum : BitVec w.bits} {vc : Bool} {s s_mid : MachineData}
+    (htl : x64CarryOutSeqIns flagCc dc = some tl) (hdist : x64DistinctDst dsum dc = true)
+    (hvsum : (s_mid.regs.get64 dsum).setWidth w.bits = vsum)
     (hfc : flagCc.interp s_mid.status = vc) (hregs : ∀ r, r ≠ dsum → r ∉ x64Scratch → s_mid.regs.get64 r = s.regs.get64 r)
     (hm : s_mid.dmem = s.dmem) (hz : s_mid.zmms = s.zmms) (hup : x64Mach.UpdFlags x64CondReads s s_mid clob) :
-    _root_.Program.wp tl (OpPost2 (.bits w.bits) .bool (.gpr dsum) dc vsum vc clob s) E s_mid := by
+    _root_.Program.wp (emitClean tl)
+      (OpPost2 (.bits w.bits) .bool (.gpr dsum) dc vsum vc clob s) E s_mid := by
   cases dc with
-  | vec _ => simp [x64CarryOutSeq] at htl
+  | vec _ => simp [x64CarryOutSeqIns] at htl
   | flag cc =>
     by_cases heq : cc == flagCc
-    · have := (beq_cond_iff cc flagCc).1 heq; subst cc; simp only [x64CarryOutSeq, heq, ↓reduceIte, Option.some.injEq] at htl; subst htl
+    · have := (beq_cond_iff cc flagCc).1 heq; subst cc
+      simp only [x64CarryOutSeqIns, heq, ↓reduceIte, Option.some.injEq] at htl; subst htl
       exact _root_.Program.wp_nil ⟨(GprHolds.bits_iff w _ _).2 hvsum, hfc, hm,
         x64_frame_of_eq (fun r hr => hregs r (fun h => hr (by subst h; simp [tupDstGprs])) (fun h => hr (by simp [h]))) hz hup⟩
-    · simp [x64CarryOutSeq, heq] at htl
+    · simp [x64CarryOutSeqIns, heq] at htl
   | gpr rc =>
     have hrc_ne : rc ≠ dsum := (bne_reg64_iff rc dsum).1 hdist
-    simp only [x64CarryOutSeq, Option.some.injEq] at htl; subst htl
+    simp only [x64CarryOutSeqIns, Option.some.injEq] at htl; subst htl
     refine Program.wp.mono (wp_setccMove s_mid rc flagCc) ?_; rintro _ rfl
     refine ⟨(GprHolds.bits_iff w _ _).2 ?_, ?_, hm, x64_frame_of_eq (fun r hr => ?_) hz hup⟩
     · dsimp only [Machine.getGpr]; rw [Reg64s.get64_set64_of_ne _ rc dsum _ hrc_ne, hvsum]
@@ -736,34 +816,48 @@ private theorem wp_coutSeq [Host] {E : Int64 → MachineData → Prop} (w : Widt
 
 private theorem wp_cfCarrySeq [Host] {E : Int64 → MachineData → Prop} (w : Width) (hw : w = .W32 ∨ w = .W64) (isSub : Bool)
     {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {pc : PArg Reg64 RegMm CondCode .bool} {rd : Reg64} {dc : PDst Reg64 RegMm CondCode .bool}
-    {c : List Directive} {clob : FlagMask} {va vb : BitVec w.bits} {vc : Bool} {s : MachineData}
+    {c : List Instr} {clob : FlagMask} {va vb : BitVec w.bits} {vc : Bool} {s : MachineData}
     (hrd : rd ∉ x64Scratch) (hargs : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch) (hdist : x64DistinctDst rd dc = true)
     (hpa : x64Mach.PArgHolds s (.bits w.bits) pa va) (hpb : x64Mach.PArgHolds s (.bits w.bits) pb vb) (hpc : x64Mach.PArgHolds s .bool pc vc)
     (hc : (do
-      let sc ← x64SetupCf pc
-      let cr ← carryCore w (!isSub)
-        (fun dst src => insW w (if isSub then .sbb (.reg (regW w dst)) (.reg (regW w src)) else .adc (.reg (regW w dst)) (.reg (regW w src))))
-        (fun dst imm => insW w (if isSub then .sbb (.reg (regW w dst)) (immBitsOp w imm) else .adc (.reg (regW w dst)) (immBitsOp w imm))) true pa pb rd
-      let tl ← x64CarryOutSeq .c dc
+      let sc ← x64SetupCfIns pc
+      let cr ← carryCoreIns w (!isSub)
+        (fun dst src => x64InsI w
+          (if isSub then .sbb (.reg (regW w dst)) (.reg (regW w src))
+           else .adc (.reg (regW w dst)) (.reg (regW w src))))
+        (fun dst imm => x64InsI w
+          (if isSub then .sbb (.reg (regW w dst)) (immBitsOp w imm)
+           else .adc (.reg (regW w dst)) (immBitsOp w imm))) true pa pb rd
+      let tl ← x64CarryOutSeqIns .c dc
       some (sc ++ cr ++ tl, maskAll)) = some (c, clob)) :
-    _root_.Program.wp c (OpPost2 (.bits w.bits) .bool (.gpr rd) dc (if isSub then va - vb - BitVec.ofNat w.bits vc.toNat else va + vb + BitVec.ofNat w.bits vc.toNat)
-      (if isSub then decide (va.toNat < vb.toNat + vc.toNat) else decide (2 ^ w.bits ≤ va.toNat + vb.toNat + vc.toNat)) clob s) E s := by
+    _root_.Program.wp (emitClean c)
+      (OpPost2 (.bits w.bits) .bool (.gpr rd) dc
+        (if isSub then va - vb - BitVec.ofNat w.bits vc.toNat
+         else va + vb + BitVec.ofNat w.bits vc.toNat)
+        (if isSub then decide (va.toNat < vb.toNat + vc.toNat)
+         else decide (2 ^ w.bits ≤ va.toNat + vb.toNat + vc.toNat)) clob s) E s := by
   simp only [Option.bind_eq_bind] at hc
   rcases Option.bind_eq_some_iff.mp hc with ⟨sc, hsc, h1⟩; rcases Option.bind_eq_some_iff.mp h1 with ⟨cr, hcr, h2⟩; rcases Option.bind_eq_some_iff.mp h2 with ⟨tl, htl, h3⟩
-  simp only [Option.some.injEq, Prod.mk.injEq] at h3; rcases h3 with ⟨rfl, rfl⟩; rw [List.append_assoc]
+  simp only [Option.some.injEq, Prod.mk.injEq] at h3; rcases h3 with ⟨rfl, rfl⟩
+  rw [List.append_assoc, emitClean_append, emitClean_append]
   refine Program.wp.append (wp_setupCarryCf hsc hpc) ?_; rintro s1 ⟨rv10, st1, hcf1, rfl⟩
   have hpa1 := pargholds_set64_r10 hpa (fun r hr => hargs r (List.mem_append.2 (.inl hr))) (rv10 := rv10) (st1 := st1)
   have hpb1 := pargholds_set64_r10 hpb (fun r hr => hargs r (List.mem_append.2 (.inr hr))) (rv10 := rv10) (st1 := st1)
   have hcore := wp_carryCore (E := E) w (!isSub) true
-    (fun dst src => insW w (if isSub then .sbb (.reg (regW w dst)) (.reg (regW w src)) else .adc (.reg (regW w dst)) (.reg (regW w src))))
-    (fun dst imm => insW w (if isSub then .sbb (.reg (regW w dst)) (immBitsOp w imm) else .adc (.reg (regW w dst)) (immBitsOp w imm)))
+    (fun dst src => x64InsI w
+      (if isSub then .sbb (.reg (regW w dst)) (.reg (regW w src))
+       else .adc (.reg (regW w dst)) (.reg (regW w src))))
+    (fun dst imm => x64InsI w
+      (if isSub then .sbb (.reg (regW w dst)) (immBitsOp w imm)
+       else .adc (.reg (regW w dst)) (immBitsOp w imm)))
     (fun a b c => if isSub then a - b - BitVec.ofNat w.bits c.toNat else a + b + BitVec.ofNat w.bits c.toNat)
     (fun st a b st' => st'.cf = if isSub then decide (a.toNat < b.toNat + st.cf.toNat) else decide (2 ^ w.bits ≤ a.toNat + b.toNat + st.cf.toNat))
     (fun hc a b c => by
       have his : isSub = false := by cases isSub <;> simp_all
       subst his; exact ⟨by simp [BitVec.add_comm a b], fun _ _ => by simp [Nat.add_comm a.toNat b.toNat]⟩) StatusFlags.cf
     (fun st0 d sreg a b hd hs _ _ _ _ _ hk => by
-      rcases hw with rfl | rfl <;> cases isSub <;> simp only [insW, Width.bits, Bool.false_eq_true, ↓reduceIte, t_step_simp, hd, hs] <;>
+      rcases hw with rfl | rfl <;> cases isSub <;>
+        simp only [Width.bits, Bool.false_eq_true, ↓reduceIte, t_step_simp, hd, hs] <;>
         first
         | (obtain ⟨rv', hrv', heq⟩ := setRegW_eq_st _ st0 d (b + a + BitVec.ofNat _ st0.status.cf.toNat) _
            refine hk _ ⟨rv', _, by simp only [Bool.false_eq_true, ↓reduceIte]; rw [hrv', BitVec.add_comm b a],
@@ -771,7 +865,9 @@ private theorem wp_cfCarrySeq [Host] {E : Int64 → MachineData → Prop} (w : W
         | (obtain ⟨rv', hrv', heq⟩ := setRegW_eq_st _ st0 d (a - b - BitVec.ofNat _ st0.status.cf.toNat) _
            refine hk _ ⟨rv', _, by simp only [↓reduceIte, hrv'], by simp only [↓reduceIte, StatusFlags.from_result]; exact cf_sbb_eq a b st0.status.cf, heq⟩))
     (fun _ st0 d a b _ hd _ _ _ _ _ hk => by
-      rcases hw with rfl | rfl <;> cases isSub <;> simp only [insW, immBitsOp, Width.bits, Bool.false_eq_true, ↓reduceIte, t_step_simp, hd, Int64.toBitVec_ofBitVec] <;>
+      rcases hw with rfl | rfl <;> cases isSub <;>
+        simp only [immBitsOp, Width.bits, Bool.false_eq_true, ↓reduceIte,
+          t_step_simp, hd, Int64.toBitVec_ofBitVec] <;>
         rw [truncate_signExtend_64 (by decide)] <;>
         first
         | (obtain ⟨rv', hrv', heq⟩ := setRegW_eq_st _ st0 d (b + a + BitVec.ofNat _ st0.status.cf.toNat) _
@@ -784,39 +880,56 @@ private theorem wp_cfCarrySeq [Host] {E : Int64 → MachineData → Prop} (w : W
   exact wp_coutSeq w .c htl hdist (by rw [hrd2, hrv']) (by rw [hst2]; exact hest2) hfr2 hm2 hz2 (updFlags_maskAll _ _)
 
 private theorem wp_adx_gen [Host] {E : Int64 → MachineData → Prop} (w : Width)
-    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64} {dc : PDst Reg64 RegMm CondCode .bool} {cr tl : List Directive}
-    {va vb : BitVec w.bits} {vc : Bool} {s : MachineData} (mkReg : Reg64 → Reg64 → Directive) (mkDummy : Reg64 → BitVec w.bits → Directive)
+    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64}
+    {dc : PDst Reg64 RegMm CondCode .bool} {cr tl : List Instr}
+    {va vb : BitVec w.bits} {vc : Bool} {s : MachineData}
+    (mkReg : Reg64 → Reg64 → Instr) (mkDummy : Reg64 → BitVec w.bits → Instr)
     (flagCc : CondCode) (getF : StatusFlags → Bool) (updSt : StatusFlags → Bool → StatusFlags) (clob : FlagMask)
     (hrd : rd ∉ x64Scratch) (hargs : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch) (hdist : x64DistinctDst rd dc = true)
     (hpa : x64Mach.PArgHolds s (.bits w.bits) pa va) (hpb : x64Mach.PArgHolds s (.bits w.bits) pb vb) (hpc : getF s.status = vc)
-    (hcr : carryCore w true mkReg mkDummy false pa pb rd = some cr) (htl : x64CarryOutSeq flagCc dc = some tl)
+    (hcr : carryCoreIns w true mkReg mkDummy false pa pb rd = some cr)
+    (htl : x64CarryOutSeqIns flagCc dc = some tl)
     (hstep : ∀ (st0 : MachineData) (d sreg : Reg64) (a b : BitVec w.bits), (st0.regs.get64 d).setWidth w.bits = a → (st0.regs.get64 sreg).setWidth w.bits = b →
-      Directive.FallsTo (mkReg d sreg) st0 (fun s' => ∃ rv' st', rv'.setWidth w.bits = a + b + BitVec.ofNat w.bits (getF st0.status).toNat ∧
-        st' = updSt st0.status (decide (2 ^ w.bits ≤ a.toNat + b.toNat + (getF st0.status).toNat)) ∧ s' = { st0 with regs := st0.regs.set64 d rv', status := st' }))
+      Directive.FallsTo (.instr (mkReg d sreg)) st0 (fun s' => ∃ rv' st',
+        rv'.setWidth w.bits = a + b + BitVec.ofNat w.bits (getF st0.status).toNat ∧
+        st' = updSt st0.status (decide (2 ^ w.bits ≤ a.toNat + b.toNat + (getF st0.status).toNat)) ∧
+        s' = { st0 with regs := st0.regs.set64 d rv', status := st' }))
     (hgetF : ∀ st b, flagCc.interp (updSt st b) = b) (hupd : ∀ (s0 s1 : MachineData) (b : Bool), s1.status = updSt s0.status b → x64Mach.UpdFlags x64CondReads s0 s1 clob) :
-    _root_.Program.wp (cr ++ tl) (OpPost2 (.bits w.bits) .bool (.gpr rd) dc (va + vb + BitVec.ofNat w.bits vc.toNat) (decide (2 ^ w.bits ≤ va.toNat + vb.toNat + vc.toNat)) clob s) E s := by
+    _root_.Program.wp (emitClean (cr ++ tl))
+      (OpPost2 (.bits w.bits) .bool (.gpr rd) dc (va + vb + BitVec.ofNat w.bits vc.toNat)
+        (decide (2 ^ w.bits ≤ va.toNat + vb.toNat + vc.toNat)) clob s) E s := by
   have hcore := wp_carryCore (E := E) w true false mkReg mkDummy (fun a b c => a + b + BitVec.ofNat w.bits c.toNat)
     (fun st a b st' => st' = updSt st (decide (2 ^ w.bits ≤ a.toNat + b.toNat + (getF st).toNat)))
     (fun _ a b c => ⟨by rw [BitVec.add_comm a b], fun _ _ => by rw [Nat.add_comm a.toNat b.toNat]⟩) getF hstep (fun h => by cases h)
     hcr hrd hargs hpa hpb (fun _ _ => rfl) rfl rfl
+  rw [emitClean_append]
   refine Program.wp.append hcore ?_; rintro s2 ⟨rv', st2, hrv', hest2, hfr2, hrd2, hm2, hz2, hst2⟩; rw [hpc] at hrv' hest2
   exact wp_coutSeq w flagCc htl hdist (by rw [hrd2, hrv']) (by rw [hst2, hest2, hgetF]) hfr2 hm2 hz2 (hupd s s2 _ (hst2.trans hest2))
 
 private theorem wp_adx [Host] {E : Int64 → MachineData → Prop} (w : Width) (hw : w = .W32 ∨ w = .W64) (isCf : Bool)
-    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64} {dc : PDst Reg64 RegMm CondCode .bool} {cr tl : List Directive}
+    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64}
+    {dc : PDst Reg64 RegMm CondCode .bool} {cr tl : List Instr}
     {va vb : BitVec w.bits} {vc : Bool} {s : MachineData} (hrd : rd ∉ x64Scratch) (hargs : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch)
     (hdist : x64DistinctDst rd dc = true) (hpa : x64Mach.PArgHolds s (.bits w.bits) pa va) (hpb : x64Mach.PArgHolds s (.bits w.bits) pb vb)
     (hpc : (if isCf then s.status.cf else s.status.of) = vc)
-    (hcr : carryCore w true (fun dst src => insW w (if isCf then .adcx (regW w dst) (.reg (regW w src)) else .adox (regW w dst) (.reg (regW w src))))
-      (fun dst _ => insW w (if isCf then .adcx (regW w dst) (.reg (regW w dst)) else .adox (regW w dst) (.reg (regW w dst)))) false pa pb rd = some cr)
-    (htl : x64CarryOutSeq (if isCf then .c else .o) dc = some tl) :
-    _root_.Program.wp (cr ++ tl) (OpPost2 (.bits w.bits) .bool (.gpr rd) dc (va + vb + BitVec.ofNat w.bits vc.toNat) (decide (2 ^ w.bits ≤ va.toNat + vb.toNat + vc.toNat))
-      (if isCf then maskCF else maskOF) s) E s := by
+    (hcr : carryCoreIns w true
+      (fun dst src => x64InsI w
+        (if isCf then .adcx (regW w dst) (.reg (regW w src))
+         else .adox (regW w dst) (.reg (regW w src))))
+      (fun dst _ => x64InsI w
+        (if isCf then .adcx (regW w dst) (.reg (regW w dst))
+         else .adox (regW w dst) (.reg (regW w dst)))) false pa pb rd = some cr)
+    (htl : x64CarryOutSeqIns (if isCf then .c else .o) dc = some tl) :
+    _root_.Program.wp (emitClean (cr ++ tl))
+      (OpPost2 (.bits w.bits) .bool (.gpr rd) dc (va + vb + BitVec.ofNat w.bits vc.toNat)
+        (decide (2 ^ w.bits ≤ va.toNat + vb.toNat + vc.toNat))
+        (if isCf then maskCF else maskOF) s) E s := by
   cases isCf <;> simp only [Bool.false_eq_true, ↓reduceIte] at hpc hcr htl ⊢ <;> first
     | refine wp_adx_gen w _ _ .o StatusFlags.of (fun st b => { st with of := b }) maskOF hrd hargs hdist hpa hpb hpc hcr htl ?_ (fun _ _ => rfl) (fun _ _ _ h => updFlags_maskOF (by rw [h]) (by rw [h]) (by rw [h]) (by rw [h]))
     | refine wp_adx_gen w _ _ .c StatusFlags.cf (fun st b => { st with cf := b }) maskCF hrd hargs hdist hpa hpb hpc hcr htl ?_ (fun _ _ => rfl) (fun _ _ _ h => updFlags_maskCF (by rw [h]) (by rw [h]) (by rw [h]) (by rw [h]))
   all_goals
-    intro st0 d sreg a b hd hs _ _ _ _ _ hk; rcases hw with rfl | rfl <;> simp only [insW, regW, Width.bits] at hd hs ⊢
+    intro st0 d sreg a b hd hs _ _ _ _ _ hk
+    rcases hw with rfl | rfl <;> simp only [x64InsI, regW, Width.bits] at hd hs ⊢
     · simp only [t_step_simp, Reg.interp, Reg64s.get_low32, hd, hs, Reg64s.set, BitVec.zeroExtend_eq_setWidth]
       refine hk _ ⟨_, _, by rw [BitVec.setWidth_setWidth_of_le _ (by decide : 32 ≤ 64), BitVec.setWidth_eq, BitVec.add_comm b a],
         by simp only [← cf_adc_eq a b _, BitVec.add_comm a b, Int.add_comm a.unsigned b.unsigned], rfl⟩
@@ -824,21 +937,27 @@ private theorem wp_adx [Host] {E : Int64 → MachineData → Prop} (w : Width) (
       refine hk _ ⟨_, _, by rw [BitVec.setWidth_eq, BitVec.add_comm b a], by simp only [← cf_adc_eq a b _, BitVec.add_comm a b, Int.add_comm a.unsigned b.unsigned], rfl⟩
 
 theorem opAddc_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (hw : w = .W32 ∨ w = .W64)
-    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {pc : PArg Reg64 RegMm CondCode .bool} {dsum : PDst Reg64 RegMm CondCode (.bits w.bits)}
-    {dc : PDst Reg64 RegMm CondCode .bool} {vh : VariantHint} {c : List Directive} {clob : FlagMask} {va vb : BitVec w.bits} {vc : Bool} {s : MachineData}
-    (hc : opAddc w pa pb pc dsum dc vh = some (c, clob)) (hargs : ∀ r ∈ pa.gprs ++ pb.gprs ++ pc.gprs, r ∉ x64Scratch)
+    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {pc : PArg Reg64 RegMm CondCode .bool}
+    {dsum : PDst Reg64 RegMm CondCode (.bits w.bits)} {dc : PDst Reg64 RegMm CondCode .bool}
+    {vh : VariantHint} {c : List Instr} {clob : FlagMask}
+    {va vb : BitVec w.bits} {vc : Bool} {s : MachineData}
+    (hc : opAddcIns w pa pb pc dsum dc vh = some (c, clob))
+    (hargs : ∀ r ∈ pa.gprs ++ pb.gprs ++ pc.gprs, r ∉ x64Scratch)
     (hdst : ∀ r ∈ @tupDstGprs Reg64 RegMm CondCode [.bits w.bits, .bool] (dsum, dc, ()), r ∉ x64Scratch)
     (hpa : x64Mach.PArgHolds s (.bits w.bits) pa va) (hpb : x64Mach.PArgHolds s (.bits w.bits) pb vb) (hpc : x64Mach.PArgHolds s .bool pc vc) :
-    _root_.Program.wp c (OpPost2 (.bits w.bits) .bool dsum dc (va + vb + BitVec.ofNat w.bits vc.toNat) (decide (2 ^ w.bits ≤ va.toNat + vb.toNat + vc.toNat)) clob s) E s := by
+    _root_.Program.wp (emitClean c)
+      (OpPost2 (.bits w.bits) .bool dsum dc (va + vb + BitVec.ofNat w.bits vc.toNat)
+        (decide (2 ^ w.bits ≤ va.toNat + vb.toNat + vc.toNat)) clob s) E s := by
   cases dsum with
-  | vec _ => simp [opAddc] at hc
+  | vec _ => simp [opAddcIns] at hc
   | gpr rd =>
     have hrd : rd ∉ x64Scratch := hdst rd (by simp [tupDstGprs])
     have hargs_ab : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch := fun r hr => hargs r (List.mem_append.2 (.inl hr))
     rw [opAddc_eq] at hc
     by_cases hdist : x64DistinctDst rd dc = true
     · simp only [hdist, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hc
-      have fb : x64AdcFallback w pa pb pc rd dc = some (c, clob) → _root_.Program.wp c (OpPost2 (.bits w.bits) .bool (.gpr rd) dc
+      have fb : x64AdcFallbackIns w pa pb pc rd dc = some (c, clob) →
+          _root_.Program.wp (emitClean c) (OpPost2 (.bits w.bits) .bool (.gpr rd) dc
           (va + vb + BitVec.ofNat w.bits vc.toNat) (decide (2 ^ w.bits ≤ va.toNat + vb.toNat + vc.toNat)) clob s) E s :=
         fun h => wp_cfCarrySeq w hw false hrd hargs_ab hdist hpa hpb hpc h
       cases vh <;> cases pc <;> try exact fb hc
@@ -851,14 +970,18 @@ theorem opAddc_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (hw 
     · simp [hdist] at hc
 
 theorem opSubb_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (hw : w = .W32 ∨ w = .W64)
-    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {pc : PArg Reg64 RegMm CondCode .bool} {ddiff : PDst Reg64 RegMm CondCode (.bits w.bits)}
-    {db : PDst Reg64 RegMm CondCode .bool} {c : List Directive} {clob : FlagMask} {va vb : BitVec w.bits} {vc : Bool} {s : MachineData}
-    (hc : opSubb w pa pb pc ddiff db = some (c, clob)) (hargs : ∀ r ∈ pa.gprs ++ pb.gprs ++ pc.gprs, r ∉ x64Scratch)
+    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {pc : PArg Reg64 RegMm CondCode .bool}
+    {ddiff : PDst Reg64 RegMm CondCode (.bits w.bits)} {db : PDst Reg64 RegMm CondCode .bool}
+    {c : List Instr} {clob : FlagMask} {va vb : BitVec w.bits} {vc : Bool} {s : MachineData}
+    (hc : opSubbIns w pa pb pc ddiff db = some (c, clob))
+    (hargs : ∀ r ∈ pa.gprs ++ pb.gprs ++ pc.gprs, r ∉ x64Scratch)
     (hdst : ∀ r ∈ @tupDstGprs Reg64 RegMm CondCode [.bits w.bits, .bool] (ddiff, db, ()), r ∉ x64Scratch)
     (hpa : x64Mach.PArgHolds s (.bits w.bits) pa va) (hpb : x64Mach.PArgHolds s (.bits w.bits) pb vb) (hpc : x64Mach.PArgHolds s .bool pc vc) :
-    _root_.Program.wp c (OpPost2 (.bits w.bits) .bool ddiff db (va - vb - BitVec.ofNat w.bits vc.toNat) (decide (va.toNat < vb.toNat + vc.toNat)) clob s) E s := by
+    _root_.Program.wp (emitClean c)
+      (OpPost2 (.bits w.bits) .bool ddiff db (va - vb - BitVec.ofNat w.bits vc.toNat)
+        (decide (va.toNat < vb.toNat + vc.toNat)) clob s) E s := by
   cases ddiff with
-  | vec _ => simp [opSubb] at hc
+  | vec _ => simp [opSubbIns] at hc
   | gpr rd =>
     have hrd : rd ∉ x64Scratch := hdst rd (by simp [tupDstGprs])
     have hargs_ab : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch := fun r hr => hargs r (List.mem_append.2 (.inl hr))
@@ -925,24 +1048,24 @@ private theorem fallsTo_mulCore (w : Width) (hw : w = .W32 ∨ w = .W64) (isSign
 theorem opMulw_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (hw : w = .W32 ∨ w = .W64)
     (isSigned : Bool) {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)}
     {dlo dhi : PDst Reg64 RegMm CondCode (.bits w.bits)} {vh : VariantHint}
-    {c : List Directive} {clob : FlagMask} {va vb : BitVec w.bits} {s : MachineData}
-    (hc : opMulw w isSigned pa pb dlo dhi vh = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {va vb : BitVec w.bits} {s : MachineData}
+    (hc : opMulwIns w isSigned pa pb dlo dhi vh = some (c, clob))
     (hargs : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch)
     (hdst : ∀ r ∈ @tupDstGprs Reg64 RegMm CondCode [.bits w.bits, .bits w.bits] (dlo, dhi, ()), r ∉ x64Scratch)
     (hpa : x64Mach.PArgHolds s (.bits w.bits) pa va)
     (hpb : x64Mach.PArgHolds s (.bits w.bits) pb vb) :
-    _root_.Program.wp c (OpPost2 (.bits w.bits) (.bits w.bits) dlo dhi (va * vb)
+    _root_.Program.wp (emitClean c) (OpPost2 (.bits w.bits) (.bits w.bits) dlo dhi (va * vb)
       (if isSigned then (BitVec.ofInt (w.bits + w.bits) (va.toInt * vb.toInt)).extractLsb' w.bits w.bits
        else BitVec.ofNat w.bits (va.toNat * vb.toNat / 2 ^ w.bits)) clob s) E s := by
   cases dlo with
-  | vec _ => simp [opMulw] at hc
+  | vec _ => simp [opMulwIns] at hc
   | gpr rlo =>
     cases dhi with
-    | vec _ => simp [opMulw] at hc
+    | vec _ => simp [opMulwIns] at hc
     | gpr rhi =>
       have hrlo_sc := ne_of_not_mem_x64Scratch (hdst rlo (by simp [tupDstGprs]))
       have hrhi_sc := ne_of_not_mem_x64Scratch (hdst rhi (by simp [tupDstGprs]))
-      unfold opMulw at hc; dsimp +zetaHave only at hc
+      unfold opMulwIns at hc; dsimp +zetaHave only at hc
       by_cases heq : rlo == rhi
       · simp [heq] at hc
       · have hrlo_hi : rlo ≠ rhi := fun h => heq ((beq_reg64_iff rlo rhi).2 h)
@@ -962,21 +1085,25 @@ theorem opMulw_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (hw 
               have hrx := hargs rx (by simp [PArg.gprs])
               dsimp only [Machine.PArgHolds, Machine.getGpr, x64Mach] at hp ⊢
               rw [hfr rx (fun h => hrx (h ▸ ht))]; exact hp
-          have hfin : ∀ (loadB : List Directive),
-              c = ([da] ++ (if rlo == .rdx || rhi == .rdx then [] else [movD .r10 .rdx]) ++ loadB ++
-                [insW w (.mulx (regW w rhi) (regW w rlo) (.reg (regW w .r11)))] ++
-                (if rlo == .rdx || rhi == .rdx then [] else [movD .rdx .r10])) → clob = maskNone →
+          have hfin : ∀ (loadB : List Instr),
+              c = ([da] ++ (if rlo == .rdx || rhi == .rdx then [] else [movI .r10 .rdx]) ++ loadB ++
+                [x64InsI w (.mulx (regW w rhi) (regW w rlo) (.reg (regW w .r11)))] ++
+                (if rlo == .rdx || rhi == .rdx then [] else [movI .rdx .r10])) → clob = maskNone →
               (∀ s2, (s2.regs.get64 .r11).setWidth w.bits = va → x64Mach.PArgHolds s2 (.bits w.bits) pb vb →
                 (rlo ≠ .rdx ∧ rhi ≠ .rdx → s2.regs.get64 .r10 = s.regs.get64 .rdx) →
                 (∀ r, r ≠ .r10 → r ≠ .r11 → s2.regs.get64 r = s.regs.get64 r) → s2.dmem = s.dmem → s2.zmms = s.zmms → s2.status = s.status →
-                _root_.Program.wp loadB (fun s3 => (s3.regs.get64 .r11).setWidth w.bits = va ∧ (s3.regs.get64 .rdx).setWidth w.bits = vb ∧
+                _root_.Program.wp (emitClean loadB) (fun s3 =>
+                  (s3.regs.get64 .r11).setWidth w.bits = va ∧
+                  (s3.regs.get64 .rdx).setWidth w.bits = vb ∧
                   (rlo ≠ .rdx ∧ rhi ≠ .rdx → s3.regs.get64 .r10 = s.regs.get64 .rdx) ∧
                   (∀ r, r ≠ .rdx → r ≠ .r10 → r ≠ .r11 → s3.regs.get64 r = s.regs.get64 r) ∧
                   s3.dmem = s.dmem ∧ s3.zmms = s.zmms ∧ s3.status = s.status) E s2) →
-              _root_.Program.wp c (OpPost2 (.bits w.bits) (.bits w.bits) (.gpr rlo) (.gpr rhi) (va * vb)
+              _root_.Program.wp (emitClean c)
+                (OpPost2 (.bits w.bits) (.bits w.bits) (.gpr rlo) (.gpr rhi) (va * vb)
                 (BitVec.ofNat w.bits (va.toNat * vb.toNat / 2 ^ w.bits)) clob s) E s := by
             intro loadB rfl rfl hload_wp
-            simp only [List.cons_append, List.nil_append, List.append_assoc]
+            simp only [List.cons_append, List.nil_append, List.append_assoc,
+              emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil]
             refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_argToBits s .r11 hda hpa)) ?_
             rintro _ ⟨rv11, hrv11, rfl⟩
             have hpb1 : x64Mach.PArgHolds { s with regs := s.regs.set64 .r11 rv11 } (.bits w.bits) pb vb :=
@@ -1036,19 +1163,24 @@ theorem opMulw_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (hw 
                     Reg64s.get64_set64_of_ne _ rlo .r10 _ hrlo_sc.1, hr10_3 hne_rdx]
                 · rw [Reg64s.get64_set64_of_ne _ .rdx r _ (Ne.symm hdr), Reg64s.get64_set64_of_ne _ rhi r _ (Ne.symm hr2),
                     Reg64s.get64_set64_of_ne _ rlo r _ (Ne.symm hr1), hfr3 r hdr hr10 hr11]
-          have hfin_db : ∀ {db : Directive}, argToBits w .rdx pb = some db →
-              some ([da] ++ (if rlo == .rdx || rhi == .rdx then [] else [movD .r10 .rdx]) ++ [db] ++
-                [insW w (.mulx (regW w rhi) (regW w rlo) (.reg (regW w .r11)))] ++
-                (if rlo == .rdx || rhi == .rdx then [] else [movD .rdx .r10]), maskNone) = some (c, clob) →
-              _root_.Program.wp c (OpPost2 (.bits w.bits) (.bits w.bits) (.gpr rlo) (.gpr rhi) (va * vb)
+          have hfin_db : ∀ {db : Instr}, argToBitsI w .rdx pb = some db →
+              some ([da] ++ (if rlo == .rdx || rhi == .rdx then [] else [movI .r10 .rdx]) ++ [db] ++
+                [x64InsI w (.mulx (regW w rhi) (regW w rlo) (.reg (regW w .r11)))] ++
+                (if rlo == .rdx || rhi == .rdx then [] else [movI .rdx .r10]), maskNone) =
+                some (c, clob) →
+              _root_.Program.wp (emitClean c)
+                (OpPost2 (.bits w.bits) (.bits w.bits) (.gpr rlo) (.gpr rhi) (va * vb)
                 (BitVec.ofNat w.bits (va.toNat * vb.toNat / 2 ^ w.bits)) clob s) E s := by
             intro db hdb h2; simp only [Option.some.injEq, Prod.mk.injEq] at h2
-            refine hfin [db] h2.1.symm h2.2.symm fun s2 h11 hpb2 hr10 hfr hm hz hst =>
-              Program.wp.mono (Directive.FallsTo.wp (fallsTo_argToBits s2 .rdx hdb hpb2)) ?_
-            rintro _ ⟨_, hrvd, rfl⟩
-            exact ⟨by rw [Reg64s.get64_set64_of_ne _ .rdx .r11 _ (by decide), h11], by rw [Reg64s.get64_set64_same, hrvd],
-              fun hn => by rw [Reg64s.get64_set64_of_ne _ .rdx .r10 _ (by decide), hr10 hn],
-              fun r hdr h10 h11' => by rw [Reg64s.get64_set64_of_ne _ .rdx r _ hdr.symm, hfr r h10 h11'], hm, hz, hst⟩
+            refine hfin [db] h2.1.symm h2.2.symm fun s2 h11 hpb2 hr10 hfr hm hz hst => by
+              rw [emitClean_cons, emitClean_nil]
+              refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_argToBits s2 .rdx hdb hpb2)) ?_
+              rintro _ ⟨_, hrvd, rfl⟩
+              exact ⟨by rw [Reg64s.get64_set64_of_ne _ .rdx .r11 _ (by decide), h11],
+                by rw [Reg64s.get64_set64_same, hrvd],
+                fun hn => by rw [Reg64s.get64_set64_of_ne _ .rdx .r10 _ (by decide), hr10 hn],
+                fun r hdr h10 h11' =>
+                  by rw [Reg64s.get64_set64_of_ne _ .rdx r _ hdr.symm, hfr r h10 h11'], hm, hz, hst⟩
           cases pb with
           | gpr rx =>
             cases rx <;> simp only [Option.bind_some, Option.some.injEq, Prod.mk.injEq] at h1
@@ -1066,7 +1198,7 @@ theorem opMulw_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (hw 
           rcases Option.bind_eq_some_iff.mp hc with ⟨da, hda, h1⟩
           rcases Option.bind_eq_some_iff.mp h1 with ⟨db, hdb, h2⟩
           simp only [Option.some.injEq, Prod.mk.injEq] at h2; rcases h2 with ⟨hseq, rfl⟩; rw [← hseq]
-          have hp_pre : _root_.Program.wp [da, db] (fun s2 => ∃ rv10 rv11 : BitVec 64,
+          have hp_pre : _root_.Program.wp [.instr da, .instr db] (fun s2 => ∃ rv10 rv11 : BitVec 64,
               rv10.setWidth w.bits = va ∧ rv11.setWidth w.bits = vb ∧
               s2 = { s with regs := (s.regs.set64 .r10 rv10).set64 .r11 rv11 }) E s := by
             refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_argToBits s .r10 hda hpa)) ?_
@@ -1078,28 +1210,41 @@ theorem opMulw_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (hw 
                 rw [Reg64s.get64_set64_of_ne _ .r10 rx _ hrx.symm]; exact hpb
             refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_argToBits _ .r11 hdb hpb1)) ?_
             rintro _ ⟨rv11, hrv11, rfl⟩; exact ⟨rv10, rv11, hrv10, hrv11, rfl⟩
-          have hp_cons : ∀ (xs : List Directive),
+          have hp_cons : ∀ (xs : List Instr),
               (∀ rv10 rv11, rv10.setWidth w.bits = va → rv11.setWidth w.bits = vb →
-                _root_.Program.wp xs (OpPost2 (.bits w.bits) (.bits w.bits) (.gpr rlo) (.gpr rhi) (va * vb)
+                _root_.Program.wp (emitClean xs)
+                  (OpPost2 (.bits w.bits) (.bits w.bits) (.gpr rlo) (.gpr rhi) (va * vb)
                   (if isSigned then (BitVec.ofInt (w.bits + w.bits) (va.toInt * vb.toInt)).extractLsb' w.bits w.bits
                    else BitVec.ofNat w.bits (va.toNat * vb.toNat / 2 ^ w.bits)) maskAll s) E
                   { s with regs := (s.regs.set64 .r10 rv10).set64 .r11 rv11 }) →
-              _root_.Program.wp (da :: db :: xs) (OpPost2 (.bits w.bits) (.bits w.bits) (.gpr rlo) (.gpr rhi) (va * vb)
+              _root_.Program.wp (emitClean (da :: db :: xs))
+                (OpPost2 (.bits w.bits) (.bits w.bits) (.gpr rlo) (.gpr rhi) (va * vb)
                 (if isSigned then (BitVec.ofInt (w.bits + w.bits) (va.toInt * vb.toInt)).extractLsb' w.bits w.bits
                  else BitVec.ofNat w.bits (va.toNat * vb.toNat / 2 ^ w.bits)) maskAll s) E s := fun xs hxs =>
-            Program.wp.append (p := [da, db]) hp_pre fun _ ⟨rv10, rv11, h10, h11, hs2⟩ => hs2 ▸ hxs rv10 rv11 h10 h11
-          have movStep : ∀ (a b : Reg64) (st : MachineData) (rest : List Directive) (Q : MachineData → Prop),
-              _root_.Program.wp rest Q E { st with regs := st.regs.set64 a (st.regs.get64 b) } →
-              _root_.Program.wp (movD a b :: rest) Q E st := fun a b st rest Q h =>
-            Program.wp.cons (Directive.FallsTo.wp (fallsTo_movD st a b)) fun _ hr => hr ▸ h
-          have mulStep : ∀ (st : MachineData) (rest : List Directive) (Q : MachineData → Prop),
+            Program.wp.append (p := [.instr da, .instr db]) hp_pre
+              fun _ ⟨rv10, rv11, h10, h11, hs2⟩ => hs2 ▸ hxs rv10 rv11 h10 h11
+          have movStep : ∀ (a b : Reg64) (st : MachineData) (rest : List Instr)
+              (Q : MachineData → Prop),
+              _root_.Program.wp (emitClean rest) Q E
+                { st with regs := st.regs.set64 a (st.regs.get64 b) } →
+              _root_.Program.wp (emitClean (movI a b :: rest)) Q E st := fun a b st rest Q h => by
+            rw [emitClean_cons]
+            exact Program.wp.cons (Directive.FallsTo.wp (fallsTo_movD st a b)) fun _ hr => hr ▸ h
+          have mulStep : ∀ (st : MachineData) (rest : List Instr) (Q : MachineData → Prop),
               (st.regs.get64 .rax).setWidth w.bits = va → (st.regs.get64 .r11).setWidth w.bits = vb →
               (∀ rax' rdx' st', rax'.setWidth w.bits = va * vb →
                 rdx'.setWidth w.bits = (if isSigned then (BitVec.ofInt (w.bits + w.bits) (va.toInt * vb.toInt)).extractLsb' w.bits w.bits
                                         else BitVec.ofNat w.bits (va.toNat * vb.toNat / 2 ^ w.bits)) →
-                _root_.Program.wp rest Q E { st with regs := (st.regs.set64 .rax rax').set64 .rdx rdx', status := st' }) →
-              _root_.Program.wp (insW w (if isSigned then .imul1 (.reg (regW w .r11)) else .mul (.reg (regW w .r11))) :: rest) Q E st :=
-            fun st rest Q ha hb h => Program.wp.cons (Directive.FallsTo.wp (fallsTo_mulCore w hw isSigned st va vb ha hb)) fun _ ⟨a', d', st', ha', hd', hr⟩ => hr ▸ h a' d' st' ha' hd'
+                _root_.Program.wp (emitClean rest) Q E
+                  { st with regs := (st.regs.set64 .rax rax').set64 .rdx rdx', status := st' }) →
+              _root_.Program.wp (emitClean (x64InsI w
+                (if isSigned then .imul1 (.reg (regW w .r11))
+                 else .mul (.reg (regW w .r11))) :: rest)) Q E st :=
+            fun st rest Q ha hb h => by
+              rw [emitClean_cons]
+              exact Program.wp.cons
+                (Directive.FallsTo.wp (fallsTo_mulCore w hw isSigned st va vb ha hb))
+                fun _ ⟨a', d', st', ha', hd', hr⟩ => hr ▸ h a' d' st' ha' hd'
           clear hc h1 hda hdb hseq hargs hdst hpa hpb hmx heq hp_pre
           split; rotate_left
           split; rotate_left
@@ -1117,6 +1262,7 @@ theorem opMulw_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (hw 
             · exact (congrArg (BitVec.setWidth w.bits) (by simp [Reg64s.get64_set64] <;> grind)).trans h11
             repeat' refine movStep _ _ _ _ _ ?_
             clear movStep mulStep
+            rw [emitClean_nil]
             refine _root_.Program.wp_nil ⟨(GprHolds.bits_iff w _ _).2 ?_, (GprHolds.bits_iff w _ _).2 ?_, rfl,
               x64_frame_of_eq (fun r hr => ?_) rfl (updFlags_maskAll _ _)⟩
             · dsimp [Machine.getGpr]

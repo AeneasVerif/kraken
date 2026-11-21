@@ -135,7 +135,7 @@ end ParserChecks
 
 @[expose] public section
 
-/-! ## 2. Width Eliminators and `NoLab` (`AllInstr` / `Kraken.Directive.label l ∉ ...`) -/
+/-! ## 2. Width Eliminators and `NoLab` (`Kraken.Directive.label l ∉ ...`) -/
 
 theorem withWidth_elim {F : Nat → Type} {α : Type} {n : Nat} {x : F n}
     {k : (w : Width) → F w.bits → Option α} {res : α} {P : Prop}
@@ -161,153 +161,32 @@ theorem withWideWidth_elim {F : Nat → Type} {α : Type} {n : Nat} {x : F n}
   · unfold withWideWidth at h
     split at h <;> first | contradiction | exact False.elim (Option.noConfusion h)
 
-/-- Every element of `p` is an `.instr` directive (hence contains no `.label` or data words). -/
-def AllInstr (p : List Directive) : Prop :=
-  ∀ d ∈ p, ∃ i, d = .instr i
-
-theorem AllInstr.noLabel {p : List Directive} (h : AllInstr p) :
-    ∀ l, Kraken.Directive.label l ∉ p := by
-  intro l hl
-  obtain ⟨i, hi⟩ := h _ hl
-  cases hi
-
-@[simp] theorem allInstr_nil : AllInstr [] := fun _ h => nomatch h
-
-@[simp] theorem allInstr_cons {d : Directive} {p : List Directive} :
-    AllInstr (d :: p) ↔ (∃ i, d = .instr i) ∧ AllInstr p := by
-  constructor
-  · intro h; exact ⟨h d List.mem_cons_self, fun x hx => h x (List.mem_cons_of_mem _ hx)⟩
-  · rintro ⟨hd, hp⟩ x hx
-    rcases List.mem_cons.mp hx with rfl | hx
-    · exact hd
-    · exact hp x hx
-
-@[simp] theorem allInstr_append {p q : List Directive} :
-    AllInstr (p ++ q) ↔ AllInstr p ∧ AllInstr q := by
-  constructor
-  · intro h
-    exact ⟨fun d hd => h d (List.mem_append_left q hd), fun d hd => h d (List.mem_append_right p hd)⟩
-  · rintro ⟨hp, hq⟩ d hd
-    rcases List.mem_append.mp hd with hd | hd
-    · exact hp d hd
-    · exact hq d hd
-
-@[simp] theorem isInstr_mk (i : Instr) : ∃ j, (Kraken.Directive.instr i : Directive) = .instr j :=
-  ⟨i, rfl⟩
-@[simp] theorem isInstr_ins (op : Operation .W64) : ∃ i, ins op = .instr i := ⟨_, rfl⟩
-@[simp] theorem isInstr_ins32 (op : Operation .W32) : ∃ i, ins32 op = .instr i := ⟨_, rfl⟩
-@[simp] theorem isInstr_ins16 (op : Operation .W16) : ∃ i, ins16 op = .instr i := ⟨_, rfl⟩
-@[simp] theorem isInstr_ins8 (op : Operation .W8) : ∃ i, ins8 op = .instr i := ⟨_, rfl⟩
-@[simp] theorem isInstr_insW (w : Width) (op : Operation w) : ∃ i, insW w op = .instr i := by
-  cases w <;> simp [insW]
-@[simp] theorem isInstr_movD (rd rs : Reg64) : ∃ i, movD rd rs = .instr i := ⟨_, rfl⟩
-@[simp] theorem isInstr_movlD (rd rs : Reg64) : ∃ i, movlD rd rs = .instr i := ⟨_, rfl⟩
-@[simp] theorem isInstr_moviD (rd : Reg64) (c : BitVec 64) : ∃ i, moviD rd c = .instr i := ⟨_, rfl⟩
-@[simp] theorem isInstr_movW (w : Width) (rd rs : Reg64) : ∃ i, movW w rd rs = .instr i := by
-  cases w <;> simp [movW]
-@[simp] theorem isInstr_aluBinIns (w : Width) (k : AluBinKind) (rd : Reg64) (src : Operand w) :
-    ∃ i, aluBinIns w k rd src = .instr i := by
-  cases k <;> try exact isInstr_insW ..
-  cases w with
-  | W8 =>
-    cases src with
-    | regOrMem rm => cases rm <;> simp [aluBinIns]
-    | imm _ => simp [aluBinIns]
-  | W16 | W32 | W64 => simp [aluBinIns]
-@[simp] theorem allInstr_setccMove (rd : Reg64) (cc : CondCode) : AllInstr (setccMove rd cc) := by
-  simp [setccMove]
-@[simp] theorem allInstr_shiftMaskRcx (w : Width) : AllInstr (shiftMaskRcx w) := by
-  cases w <;> simp [shiftMaskRcx]
-@[simp] theorem allInstr_addrToExpr (a : AddrArg Reg64) : AllInstr (addrToExpr a).1 := by
-  cases a with
-  | baseDisp r off =>
-    by_cases h0 : off = 0 <;> by_cases h1 : fitsImm32 off.toBitVec <;> simp [addrToExpr, h0, h1]
-  | imm _ => simp [addrToExpr]
-
-theorem isInstr_argToBits {w : Width} {rd : Reg64} {pa : PArg Reg64 RegMm CondCode (.bits w.bits)}
-    {d : Directive} (h : argToBits w rd pa = some d) : ∃ i, d = .instr i := by
-  cases pa <;> simp only [argToBits, Option.some.injEq, reduceCtorEq] at h <;> subst h <;> simp
-
-theorem isInstr_boolArgTo8 {rd : Reg64} {pa : PArg Reg64 RegMm CondCode .bool} {d : Directive}
-    (h : boolArgTo8 rd pa = some d) : ∃ i, d = .instr i := by
-  cases pa <;> simp only [boolArgTo8, Option.some.injEq, reduceCtorEq] at h <;> subst h <;> simp
-
-@[simp] theorem allInstr_ite_p (p : Prop) [Decidable p] (xs ys : List Directive) :
-    AllInstr (if p then xs else ys) ↔ (p → AllInstr xs) ∧ (¬p → AllInstr ys) := by
-  split <;> simp_all
-
-theorem allInstr_carryCore {w : Width} {isComm : Bool}
-    {mkReg : Reg64 → Reg64 → Directive} {mkImm : Reg64 → BitVec w.bits → Directive}
-    (hreg : ∀ rd rs, ∃ i, mkReg rd rs = .instr i)
-    (himm : ∀ rd imm, ∃ i, mkImm rd imm = .instr i)
-    {supp : Bool} {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64}
-    {c : List Directive} (h : carryCore w isComm mkReg mkImm supp pa pb rd = some c) :
-    AllInstr c := by
-  cases pa <;> cases pb <;> simp only [carryCore, Option.some.injEq, reduceCtorEq] at h
-  · repeat' (split at h)
-    all_goals simp only [Option.some.injEq] at h; subst h; simp [hreg]
-  · subst h; simp [hreg, himm]
-  · by_cases hc : isComm = true <;> simp [hc] at h <;> subst h <;> simp [hreg, himm]
-  · subst h; simp [hreg, himm]
-
-theorem x64Gpr_clearFlags_allInstr : AllInstr x64Gpr.clearFlags := by simp [x64Gpr]
-theorem x64Gpr_mov_allInstr (rd rs : Reg64) : AllInstr (x64Gpr.mov rd rs) := by simp [x64Gpr]
-theorem x64Gpr_movi_allInstr (rd : Reg64) (c : BitVec 64) : AllInstr (x64Gpr.movi rd c) := by
-  simp [x64Gpr]
-theorem x64Gpr_setcc_allInstr (rd : Reg64) (cc : CondCode) : AllInstr (x64Gpr.setcc rd cc) := by
-  simp [x64Gpr]
-theorem x64Gpr_jmp_allInstr (l : Sym) : AllInstr (x64Gpr.jmp l) := by simp [x64Gpr]
-theorem x64Gpr_jcc_allInstr (cc : CondCode) (l : Sym) : AllInstr (x64Gpr.jcc cc l) := by
-  simp [x64Gpr]
-theorem x64Gpr_jnzGpr_allInstr (r : Reg64) (l : Sym) : AllInstr (x64Gpr.jnzGpr r l).1 := by
-  simp [x64Gpr]
-
-theorem x64Load_allInstr {t : Ty} {rd : Reg64} {a : AddrArg Reg64} {c : List Directive}
-    {clob : FlagMask} (h : x64Load t rd a = some (c, clob)) : AllInstr c := by
-  unfold x64Load at h
-  dsimp only at h
-  split at h <;> first | contradiction | (simp only [Option.some.injEq, Prod.mk.injEq] at h; rcases h with ⟨rfl, -⟩; simp)
-
-theorem x64Store_allInstr {t : Ty} {pa : PArg Reg64 RegMm CondCode t} {a : AddrArg Reg64}
-    {c : List Directive} {clob : FlagMask} (h : x64Store t pa a = some (c, clob)) : AllInstr c := by
-  cases t with
-  | bool =>
-    cases pa <;> simp only [x64Store, Option.some.injEq, Prod.mk.injEq, reduceCtorEq] at h <;>
-      rcases h with ⟨rfl, -⟩ <;> simp
-  | bits n =>
-    simp only [x64Store] at h
-    refine withWidth_elim h fun w hn hw => ?_
-    subst hn
-    cases pa <;> simp only [Option.some.injEq, Prod.mk.injEq, reduceCtorEq] at hw <;>
-      (try split at hw) <;> rcases hw with ⟨rfl, -⟩ <;> simp
-  | float _ | pair _ _ => simp [x64Store] at h
-
 theorem x64Gpr_clearFlags_noLab : ∀ l, Kraken.Directive.label l ∉ x64Gpr.clearFlags :=
-  x64Gpr_clearFlags_allInstr.noLabel
+  emitClean_noLab _
 theorem x64Gpr_mov_noLab (rd rs : Reg64) : ∀ l, Kraken.Directive.label l ∉ x64Gpr.mov rd rs :=
-  (x64Gpr_mov_allInstr rd rs).noLabel
+  emitClean_noLab _
 theorem x64Gpr_movi_noLab (rd : Reg64) (c : BitVec 64) :
     ∀ l, Kraken.Directive.label l ∉ x64Gpr.movi rd c :=
-  (x64Gpr_movi_allInstr rd c).noLabel
+  emitClean_noLab _
 theorem x64Gpr_setcc_noLab (rd : Reg64) (cc : CondCode) :
     ∀ l, Kraken.Directive.label l ∉ x64Gpr.setcc rd cc :=
-  (x64Gpr_setcc_allInstr rd cc).noLabel
+  emitClean_noLab _
 theorem x64Gpr_jmp_noLab (lbl : Sym) : ∀ l, Kraken.Directive.label l ∉ x64Gpr.jmp lbl :=
-  (x64Gpr_jmp_allInstr lbl).noLabel
+  emitClean_noLab _
 theorem x64Gpr_jcc_noLab (cc : CondCode) (lbl : Sym) :
     ∀ l, Kraken.Directive.label l ∉ x64Gpr.jcc cc lbl :=
-  (x64Gpr_jcc_allInstr cc lbl).noLabel
+  emitClean_noLab _
 theorem x64Gpr_jnzGpr_noLab (r : Reg64) (lbl : Sym) :
     ∀ l, Kraken.Directive.label l ∉ (x64Gpr.jnzGpr r lbl).1 :=
-  (x64Gpr_jnzGpr_allInstr r lbl).noLabel
+  emitClean_noLab _
 theorem x64Gpr_load_noLab {t : Ty} {rd : Reg64} {a : AddrArg Reg64} {c : List Directive}
     {clob : FlagMask} (h : x64Gpr.load t rd a = some (c, clob)) :
     ∀ l, Kraken.Directive.label l ∉ c :=
-  (x64Load_allInstr h).noLabel
+  emitCleanPair_noLab h
 theorem x64Gpr_store_noLab {t : Ty} {pa : PArg Reg64 RegMm CondCode t} {a : AddrArg Reg64}
     {c : List Directive} {clob : FlagMask} (h : x64Gpr.store t pa a = some (c, clob)) :
     ∀ l, Kraken.Directive.label l ∉ c :=
-  (x64Store_allInstr h).noLabel
+  emitCleanPair_noLab h
 
 /-! ## 3. Shared BitVec, Register, Flag-Frame, `subFlags`, and Memory Helpers -/
 
@@ -679,34 +558,34 @@ theorem fallsTo_movW (w : Width) (s : MachineData) (rd rs : Reg64) :
     rw [setWidth_32_64 (by decide)]
     exact hk _ rfl
   | W32 =>
-    simp only [movW, movlD, t_step_simp, BitVec.zeroExtend_eq_setWidth, Width.bits]
+    simp only [movW, t_step_simp, BitVec.zeroExtend_eq_setWidth, Width.bits]
     exact hk _ rfl
   | W64 =>
-    simp only [movW, movD, t_step_simp]
+    simp only [movW, t_step_simp]
     refine hk _ ?_
     simp [Width.bits, BitVec.setWidth_eq]
 
 theorem fallsTo_argToBits {w : Width} (s : MachineData) (rd : Reg64)
-    {pa : PArg Reg64 RegMm CondCode (.bits w.bits)} {v : BitVec w.bits} {dir : Directive}
-    (hd : argToBits w rd pa = some dir) (hpa : x64Mach.PArgHolds s (.bits w.bits) pa v) :
-    Directive.FallsTo dir s (fun s' =>
+    {pa : PArg Reg64 RegMm CondCode (.bits w.bits)} {v : BitVec w.bits} {dir : Instr}
+    (hd : argToBitsI w rd pa = some dir) (hpa : x64Mach.PArgHolds s (.bits w.bits) pa v) :
+    Directive.FallsTo (.instr dir) s (fun s' =>
       ∃ rv, rv.setWidth w.bits = v ∧ s' = { s with regs := s.regs.set64 rd rv }) := by
   cases pa with
   | gpr rs =>
-    simp only [argToBits, Option.some.injEq] at hd; subst hd
+    simp only [argToBitsI, Option.some.injEq] at hd; subst hd
     have hrs : (s.regs.get64 rs).setWidth w.bits = v := (GprHolds.bits_iff w _ _).1 hpa
     intro _ _ _ _ _ hk
     refine fallsTo_movW w s rd rs _ _ _ _ ?_
     rintro s' rfl
     exact hk _ ⟨_, by rw [setWidth_64_setWidth, hrs], rfl⟩
   | imm c0 =>
-    simp only [argToBits, Option.some.injEq] at hd; subst hd
+    simp only [argToBitsI, Option.some.injEq] at hd; subst hd
     simp only [Machine.PArgHolds] at hpa; subst hpa
     intro _ _ _ _ _ hk
     refine fallsTo_moviD s rd (c0.setWidth 64) _ _ _ _ ?_
     rintro s' rfl
     exact hk _ ⟨c0.setWidth 64, setWidth_64_setWidth w c0, rfl⟩
-  | vec _ => simp [argToBits] at hd
+  | vec _ => simp [argToBitsI] at hd
 
 theorem fallsTo_setcc (s : MachineData) (cc : CondCode) (rd : Reg64) :
     Directive.FallsTo (ins8 (.setcc cc (.reg (b8 rd)))) s
@@ -721,7 +600,7 @@ theorem wp_setccMove [Host] {E : Int64 → MachineData → Prop} (s : MachineDat
     _root_.Program.wp (setccMove rd cc)
       (· = { s with regs := s.regs.set64 rd (BitVec.ofNat 64 (cc.interp s.status).toNat) })
       E s := by
-  simp only [setccMove]
+  simp only [setccMove, setccMoveIns, emitClean_cons, emitClean_nil]
   refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_setcc s cc rd)) ?_
   rintro s1 rfl
   refine _root_.Program.wp_singleton ?_
@@ -736,34 +615,34 @@ theorem wp_setccMove [Host] {E : Int64 → MachineData → Prop} (s : MachineDat
   exact Or.inl ⟨trivial, rfl⟩
 
 theorem fallsTo_boolArgTo8 (s : MachineData) (rd : Reg64)
-    {pa : PArg Reg64 RegMm CondCode .bool} {b : Bool} {dir : Directive}
-    (hd : boolArgTo8 rd pa = some dir) (hpa : x64Mach.PArgHolds s .bool pa b) :
-    Directive.FallsTo dir s (fun s' =>
+    {pa : PArg Reg64 RegMm CondCode .bool} {b : Bool} {dir : Instr}
+    (hd : boolArgTo8I rd pa = some dir) (hpa : x64Mach.PArgHolds s .bool pa b) :
+    Directive.FallsTo (.instr dir) s (fun s' =>
       ∃ rv, rv.setWidth 8 = BitVec.ofNat 8 b.toNat ∧
         s' = { s with regs := s.regs.set64 rd rv }) := by
   cases pa with
   | gpr rs =>
-    simp only [boolArgTo8, Option.some.injEq] at hd; subst hd
+    simp only [boolArgTo8I, Option.some.injEq] at hd; subst hd
     have hrs : (s.regs.get64 rs).setWidth 8 = BitVec.ofNat 8 b.toNat := hpa
     intro _ _ _ _ _ hk
     simp only [t_step_simp, hrs, Reg64s.set]
     exact hk _ ⟨_, replaceLow_setWidth_le (by decide) _ _, rfl⟩
   | imm b0 =>
-    simp only [boolArgTo8, Option.some.injEq] at hd; subst hd
+    simp only [boolArgTo8I, Option.some.injEq] at hd; subst hd
     simp only [Machine.PArgHolds] at hpa; subst hpa
     intro _ _ _ _ _ hk
     refine fallsTo_moviD s rd (BitVec.ofNat 64 b0.toNat) _ _ _ _ ?_
     rintro s' rfl
     exact hk _ ⟨BitVec.ofNat 64 b0.toNat, by cases b0 <;> rfl, rfl⟩
   | flag cc =>
-    simp only [boolArgTo8, Option.some.injEq] at hd; subst hd
+    simp only [boolArgTo8I, Option.some.injEq] at hd; subst hd
     have hcc : cc.interp s.status = b := hpa
     intro _ _ _ _ _ hk
     refine fallsTo_setcc s cc rd _ _ _ _ ?_
     rintro s' rfl
     rw [hcc]
     exact hk _ ⟨_, replaceLow_setWidth_le (by decide) _ _, rfl⟩
-  | vec _ => simp [boolArgTo8] at hd
+  | vec _ => simp [boolArgTo8I] at hd
 
 theorem fallsTo_clearFlags (s : MachineData) :
     Directive.FallsTo (ins32 (.xor (.reg (d .r10)) (.reg (d .r10)))) s (fun s' =>
@@ -806,7 +685,7 @@ theorem wp_addrToExpr [Host] {E : Int64 → MachineData → Prop} (s s₀ : Mach
   | baseDisp r off =>
     have hnr := ne_of_not_mem_x64Scratch (ha r (by simp [AddrArg.regs]))
     have hr' : s.regs.get64 r = s₀.regs.get64 r := hr r (by simp [AddrArg.regs])
-    simp only [addrToExpr]
+    simp only [addrToExpr, addrToExprIns]
     split
     · rename_i h0
       have hoff : off = 0 := beq_iff_eq.mp h0
@@ -1051,29 +930,37 @@ private theorem wp_load_tail [Host] {E : Int64 → MachineData → Prop} (s : Ma
 theorem x64Gpr_load_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg64} {a : AddrArg Reg64}
     {c : List Directive} {clob : FlagMask} {v : Val t} {s : MachineData}
     {post : MachineState → Prop}
-    (hl : x64Gpr.load t rd a = some (c, clob))
+    (hl0 : x64Gpr.load t rd a = some (c, clob))
     (hrd : rd ∉ x64Scratch) (ha : ∀ r ∈ a.regs, r ∉ x64Scratch)
     (hlv : loadVal s.dmem t (a.eval s.regs.get64) = some v) :
     x64Mach.FallsTo x64Gpr.condReads h k c (rd :: x64Scratch) [] clob s
       (fun s' => GprHolds (s'.regs.get64 rd) t v ∧ s'.dmem = s.dmem) post := by
   have _ := hrd
-  have htail : ∃ d_last, c = (addrToExpr a).1 ++ [d_last] ∧ clob = (addrToExpr a).2.2 ∧
-      loadTailDir t rd (addrToExpr a).2.1 d_last := by
+  dsimp only [x64Gpr, x64Load] at hl0
+  obtain ⟨ci, hl, rfl⟩ := emitCleanPair_eq_some.mp hl0
+  have htail : ∃ d_last, emitClean ci = (addrToExpr a).1 ++ [d_last] ∧
+      clob = (addrToExpr a).2.2 ∧ loadTailDir t rd (addrToExpr a).2.1 d_last := by
     cases t with
     | bool =>
-      simp only [x64Gpr, x64Load, Option.some.injEq, Prod.mk.injEq] at hl
-      rcases hl with ⟨rfl, rfl⟩; exact ⟨_, rfl, rfl, rfl⟩
+      simp only [x64LoadIns, Option.some.injEq, Prod.mk.injEq] at hl
+      rcases hl with ⟨rfl, rfl⟩
+      exact ⟨_, by simp [addrToExpr, emitClean_append, emitClean_cons, emitClean_nil], rfl, rfl⟩
     | bits n =>
       rcases (by omega : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64 ∨ (n ≠ 8 ∧ n ≠ 16 ∧ n ≠ 32 ∧ n ≠ 64)) with
         rfl | rfl | rfl | rfl | hne <;>
-        simp only [x64Gpr, x64Load, Option.some.injEq, Prod.mk.injEq] at hl
-      · rcases hl with ⟨rfl, rfl⟩; exact ⟨_, rfl, rfl, rfl⟩
-      · rcases hl with ⟨rfl, rfl⟩; exact ⟨_, rfl, rfl, rfl⟩
-      · rcases hl with ⟨rfl, rfl⟩; exact ⟨_, rfl, rfl, rfl⟩
-      · rcases hl with ⟨rfl, rfl⟩; exact ⟨_, rfl, rfl, rfl⟩
+        simp only [x64LoadIns, Option.some.injEq, Prod.mk.injEq] at hl
+      · rcases hl with ⟨rfl, rfl⟩
+        exact ⟨_, by simp [addrToExpr, emitClean_append, emitClean_cons, emitClean_nil], rfl, rfl⟩
+      · rcases hl with ⟨rfl, rfl⟩
+        exact ⟨_, by simp [addrToExpr, emitClean_append, emitClean_cons, emitClean_nil], rfl, rfl⟩
+      · rcases hl with ⟨rfl, rfl⟩
+        exact ⟨_, by simp [addrToExpr, emitClean_append, emitClean_cons, emitClean_nil], rfl, rfl⟩
+      · rcases hl with ⟨rfl, rfl⟩
+        exact ⟨_, by simp [addrToExpr, emitClean_append, emitClean_cons, emitClean_nil], rfl, rfl⟩
       · simp [hne.1, hne.2.1, hne.2.2.1, hne.2.2.2] at hl
-    | float _ | pair _ _ => simp [x64Gpr, x64Load] at hl
-  obtain ⟨d_last, rfl, rfl, hdl⟩ := htail
+    | float _ | pair _ _ => simp [x64LoadIns] at hl
+  obtain ⟨d_last, hci_eq, rfl, hdl⟩ := htail
+  rw [hci_eq]
   refine x64_fallsTo_of_wp fun {_} _ => ?_
   refine Program.wp.append (wp_addrToExpr s s a ha fun _ _ => rfl) ?_
   rintro s1 ⟨_, hr1, hm1, hz1, haddr1, hf1⟩
@@ -1091,7 +978,7 @@ theorem x64Gpr_load_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg64} {a : AddrArg
 theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm CondCode t}
     {a : AddrArg Reg64} {c : List Directive} {clob : FlagMask} {v : Val t} {s : MachineData}
     {post : MachineState → Prop}
-    (hs : x64Gpr.store t pa a = some (c, clob))
+    (hs0 : x64Gpr.store t pa a = some (c, clob))
     (hregs : ∀ r ∈ pa.gprs ++ a.regs, r ∉ x64Scratch)
     (hpa : x64Mach.PArgHolds s t pa v)
     (hok : storeOk s.dmem t (a.eval s.regs.get64)) :
@@ -1099,20 +986,24 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
       (fun s' => s'.dmem = storeMem s.dmem t (a.eval s.regs.get64) v) post := by
   have ha : ∀ r ∈ a.regs, r ∉ x64Scratch := fun r hr => hregs r (List.mem_append_right _ hr)
   obtain ⟨iload, hload⟩ := hok
+  dsimp only [x64Gpr, x64Store] at hs0
+  obtain ⟨ci, hs, rfl⟩ := emitCleanPair_eq_some.mp hs0
   cases t with
   | bool =>
     have hload1 : s.dmem.loadInt (a.eval s.regs.get64) 1 = some iload := hload
     rw [storeMem_bool_eq]
     cases pa with
     | gpr rx =>
-      simp only [x64Gpr, x64Store, Option.some.injEq, Prod.mk.injEq] at hs
+      simp only [x64StoreIns, Option.some.injEq, Prod.mk.injEq] at hs
       rcases hs with ⟨rfl, rfl⟩
+      simp only [emitClean_append, emitClean_cons, emitClean_nil]
       have hrx : rx ≠ .r10 ∧ rx ≠ .r11 :=
         ne_of_not_mem_x64Scratch (hregs rx (by simp [PArg.gprs]))
       have hrx8 : (s.regs.get64 rx).setWidth 8 = BitVec.ofNat 8 v.toNat := hpa
       refine x64_fallsTo_of_wp fun {_} _ => ?_
       refine Program.wp.append (wp_addrToExpr s s a ha fun _ _ => rfl) ?_
       rintro s1 ⟨_, hr1, hm1, hz1, haddr1, hf1⟩
+      dsimp only [addrToExpr] at haddr1
       refine _root_.Program.wp_singleton fun k' _ => ?_
       have hs1x : (s1.regs.get64 rx).setWidth 8 = BitVec.ofNat 8 v.toNat := by
         rw [hr1 rx hrx.1, hrx8]
@@ -1121,12 +1012,14 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
       exact Or.inl ⟨trivial, trivial, x64_frame_of_eq (fun r hr => hr1 r (ne_of_not_mem_x64Scratch hr).1)
         hz1 hf1⟩
     | imm b0 =>
-      simp only [x64Gpr, x64Store, Option.some.injEq, Prod.mk.injEq] at hs
+      simp only [x64StoreIns, Option.some.injEq, Prod.mk.injEq] at hs
       rcases hs with ⟨rfl, rfl⟩
       rcases hpa with rfl
+      simp only [emitClean_append, emitClean_cons, emitClean_nil]
       refine x64_fallsTo_of_wp fun {_} _ => ?_
       refine Program.wp.append (wp_addrToExpr s s a ha fun _ _ => rfl) ?_
       rintro s1 ⟨_, hr1, hm1, hz1, haddr1, hf1⟩
+      dsimp only [addrToExpr] at haddr1
       refine _root_.Program.wp_singleton fun k' _ => ?_
       have htrunc : (Int64.ofNat b0.toNat).toBitVec.truncate 8 = BitVec.ofNat 8 b0.toNat := by
         cases b0 <;> rfl
@@ -1135,8 +1028,9 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
       exact Or.inl ⟨trivial, trivial, x64_frame_of_eq (fun r hr => hr1 r (ne_of_not_mem_x64Scratch hr).1)
         hz1 hf1⟩
     | flag cc =>
-      simp only [x64Gpr, x64Store, Option.some.injEq, Prod.mk.injEq] at hs
+      simp only [x64StoreIns, Option.some.injEq, Prod.mk.injEq] at hs
       rcases hs with ⟨rfl, rfl⟩
+      simp only [emitClean_cons, emitClean_append, emitClean_nil]
       have hcc : cc.interp s.status = v := hpa
       refine x64_fallsTo_of_wp fun {_} _ => ?_
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_setcc s cc .r11)) ?_
@@ -1145,6 +1039,7 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
         Reg64s.get64_set64_of_ne _ .r11 r _ (ne_of_not_mem_x64Scratch (ha r hr)).2.symm
       refine Program.wp.append (wp_addrToExpr _ s a ha (hr1a _)) ?_
       rintro s2 ⟨hr2_11, hr2, hm2, hz2, haddr2, hf2⟩
+      dsimp only [addrToExpr] at haddr2
       refine _root_.Program.wp_singleton fun k' _ => ?_
       have hs2_11 : (s2.regs.get64 .r11).setWidth 8 = BitVec.ofNat 8 v.toNat := by
         rw [hr2_11, Reg64s.get64_set64_same, replaceLow_setWidth_le (by decide), hcc]
@@ -1154,9 +1049,9 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
       intro r hr
       have hne := ne_of_not_mem_x64Scratch hr
       rw [hr2 r hne.1, Reg64s.get64_set64_of_ne _ .r11 r _ hne.2.symm]
-    | vec _ => simp [x64Gpr, x64Store] at hs
+    | vec _ => simp [x64StoreIns] at hs
   | bits n =>
-    simp only [x64Gpr, x64Store] at hs
+    simp only [x64StoreIns] at hs
     refine withWidth_elim hs fun w hn hw => ?_
     subst hn
     have hwn : w.bits = 8 ∨ w.bits = 16 ∨ w.bits = 32 ∨ w.bits = 64 := by
@@ -1170,17 +1065,19 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
     | gpr rx =>
       simp only [Option.some.injEq, Prod.mk.injEq] at hw
       rcases hw with ⟨rfl, rfl⟩
+      simp only [emitClean_append, emitClean_cons, emitClean_nil]
       have hrx : rx ≠ .r10 ∧ rx ≠ .r11 :=
         ne_of_not_mem_x64Scratch (hregs rx (by simp [PArg.gprs]))
       have hrxw : (s.regs.get64 rx).setWidth w.bits = v := (GprHolds.bits_iff w _ _).1 hpa
       refine x64_fallsTo_of_wp fun {_} _ => ?_
       refine Program.wp.append (wp_addrToExpr s s a ha fun _ _ => rfl) ?_
       rintro s1 ⟨_, hr1, hm1, hz1, haddr1, hf1⟩
+      dsimp only [addrToExpr] at haddr1
       refine _root_.Program.wp_singleton fun k' _ => ?_
       have hs1x : (s1.regs.get64 rx).setWidth w.bits = v := by rw [hr1 rx hrx.1, hrxw]
       have haddr_eq := haddr1 s1.regs (fun _ _ => rfl)
       cases w <;>
-        simp only [insW, t_step_simp, MachineData.store, Effects.All_require_write_access,
+        simp only [t_step_simp, MachineData.store, Effects.All_require_write_access,
           haddr_eq, hm1, hload, hs1x] <;>
         exact Or.inl ⟨trivial, trivial, x64_frame_of_eq
           (fun r hr => hr1 r (ne_of_not_mem_x64Scratch hr).1) hz1 hf1⟩
@@ -1190,15 +1087,17 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
       split at hw
       · simp only [Option.some.injEq, Prod.mk.injEq] at hw
         rcases hw with ⟨rfl, rfl⟩
+        simp only [emitClean_append, emitClean_cons, emitClean_nil]
         refine x64_fallsTo_of_wp fun {_} _ => ?_
         refine Program.wp.append (wp_addrToExpr s s a ha fun _ _ => rfl) ?_
         rintro s1 ⟨_, hr1, hm1, hz1, haddr1, hf1⟩
+        dsimp only [addrToExpr] at haddr1
         refine _root_.Program.wp_singleton fun k' _ => ?_
         have haddr_eq := haddr1 s1.regs (fun _ _ => rfl)
         have htr : (c0.signExtend 64).truncate w.bits = c0 :=
           truncate_signExtend_64 (width_bits_le_64 w) c0
         cases w <;>
-          simp only [insW, immBitsOp, t_step_simp, Int64.toBitVec_ofBitVec,
+          simp only [immBitsOp, t_step_simp, Int64.toBitVec_ofBitVec,
             htr, MachineData.store, Effects.All_require_write_access,
             haddr_eq, hm1, hload] <;>
           exact Or.inl ⟨trivial, trivial, x64_frame_of_eq
@@ -1211,9 +1110,11 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
         subst hw64
         simp only [Width.bits, BitVec.setWidth_eq, Option.some.injEq, Prod.mk.injEq] at hw
         rcases hw with ⟨rfl, rfl⟩
+        simp only [emitClean_append, emitClean_cons, emitClean_nil]
         refine x64_fallsTo_of_wp fun {_} _ => ?_
         refine Program.wp.append (wp_addrToExpr s s a ha fun _ _ => rfl) ?_
         rintro s1 ⟨_, hr1, hm1, hz1, haddr1, hf1⟩
+        dsimp only [addrToExpr] at haddr1
         refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD s1 .r11 c0)) ?_
         rintro s2 rfl
         refine _root_.Program.wp_singleton fun k' _ => ?_
@@ -1230,7 +1131,7 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
         have hne := ne_of_not_mem_x64Scratch hr
         rw [Reg64s.get64_set64_of_ne _ .r11 r _ hne.2.symm, hr1 r hne.1]
     | vec _ => simp at hw
-  | float _ | pair _ _ => simp [x64Gpr, x64Store] at hs
+  | float _ | pair _ _ => simp [x64StoreIns] at hs
 
 /-! ## 6. Shared `BEq`, `BitVec`, `bswap`, `atDisp`, and `OpPost` Combinators (`IselLemmas2`–`3`) -/
 

@@ -2,6 +2,7 @@ module
 
 public import LeanQbe
 public import LeanQbe.T.Arm64.Base
+public import LeanQbe.T.Arm64.IselStepRules
 public import LeanQbe.T.Arm64.Frame
 public import LeanQbe.T.Arm64.FrameLemmas
 public import LeanQbe.T.Arm64.Isel

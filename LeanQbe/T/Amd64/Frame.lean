@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Amd64.Base
 public import LeanQbe.T.AbiLemmas
+public import LeanQbe.T.IselStepAttr
 
 /-!
 # SysV x64 Frame ISA (`T11b`)
@@ -33,17 +34,32 @@ def x64FrameSize (ns : Nat) : Nat :=
 def x64FitsImm31 (n : Nat) : Bool :=
   Nat.blt n 0x80000000
 
+/-- 64-bit x64 instruction constructor. -/
+abbrev insI (op : Operation .W64) : Instr := .regular .W64 .W64 op
+
+/-- 32-bit x64 instruction constructor (64-bit address size). -/
+abbrev ins32I (op : Operation .W32) : Instr := .regular .W64 .W32 op
+
 /-- `subq $c, %rsp`. -/
-def x64SubSpD (c : Int64) : Directive :=
-  ins (.sub (.reg (q .rsp)) (.imm (.int64 c)))
+abbrev x64SubSpI (c : Int64) : Instr :=
+  insI (.sub (.reg (q .rsp)) (.imm (.int64 c)))
+
+/-- `subq $c, %rsp`. -/
+def x64SubSpD (c : Int64) : Directive := .instr (x64SubSpI c)
 
 /-- `addq $c, %rsp`. -/
-def x64AddSpD (c : Int64) : Directive :=
-  ins (.add (.reg (q .rsp)) (.imm (.int64 c)))
+abbrev x64AddSpI (c : Int64) : Instr :=
+  insI (.add (.reg (q .rsp)) (.imm (.int64 c)))
+
+/-- `addq $c, %rsp`. -/
+def x64AddSpD (c : Int64) : Directive := .instr (x64AddSpI c)
 
 /-- `movabs $c, %rd` (64-bit immediate move, preserving flags). -/
-def x64MoviD (rd : Reg64) (c : BitVec 64) : Directive :=
-  ins (.mov (.reg (q rd)) (.imm (.int64 (Int64.ofBitVec c))))
+abbrev x64MoviI (rd : Reg64) (c : BitVec 64) : Instr :=
+  insI (.mov (.reg (q rd)) (.imm (.int64 (Int64.ofBitVec c))))
+
+/-- `movabs $c, %rd` (64-bit immediate move, preserving flags). -/
+def x64MoviD (rd : Reg64) (c : BitVec 64) : Directive := .instr (x64MoviI rd c)
 
 /-- `[rsp + off]`. -/
 abbrev x64AtSp (off : Int64) : AddrExpr :=
@@ -54,64 +70,90 @@ abbrev x64AtSpR10 : AddrExpr :=
   { base := some (.reg .rsp), idx := some ⟨.r10, .W8⟩ }
 
 /-- `movq %rv, off(%rsp)`. -/
-def x64StSpD (rv : Reg64) (off : Int64) : Directive :=
-  ins (.mov (.mem (x64AtSp off)) (.reg (q rv)))
+abbrev x64StSpI (rv : Reg64) (off : Int64) : Instr :=
+  insI (.mov (.mem (x64AtSp off)) (.reg (q rv)))
+
+/-- `movq %rv, off(%rsp)`. -/
+def x64StSpD (rv : Reg64) (off : Int64) : Directive := .instr (x64StSpI rv off)
 
 /-- `movq off(%rsp), %rd`. -/
-def x64LdSpD (rd : Reg64) (off : Int64) : Directive :=
-  ins (.mov (.reg (q rd)) (.mem (x64AtSp off)))
+abbrev x64LdSpI (rd : Reg64) (off : Int64) : Instr :=
+  insI (.mov (.reg (q rd)) (.mem (x64AtSp off)))
 
-/-- Allocate `x64FrameSize ns` bytes on `%rsp` (`subq $F, %rsp` or `movabs $F, %r10; subq %r10, %rsp`). -/
+/-- `movq off(%rsp), %rd`. -/
+def x64LdSpD (rd : Reg64) (off : Int64) : Directive := .instr (x64LdSpI rd off)
+
+/-- Internal instruction stream for `x64Prologue`. -/
+def x64PrologueIns (ns : Nat) : List Instr :=
+  let sz := x64FrameSize ns
+  if x64FitsImm31 sz then [x64SubSpI (Int64.ofNat sz)]
+  else [x64MoviI .r10 (BitVec.ofNat 64 sz), insI (.sub (.reg (q .rsp)) (.reg (q .r10)))]
+
+/-- Allocate `x64FrameSize ns` bytes on `%rsp`. -/
 def x64Prologue (ns : Nat) : List Directive × FlagMask :=
-  let sz := x64FrameSize ns
-  if x64FitsImm31 sz then
-    ([x64SubSpD (Int64.ofNat sz)], maskAll)
-  else
-    ([x64MoviD .r10 (BitVec.ofNat 64 sz), ins (.sub (.reg (q .rsp)) (.reg (q .r10)))], maskAll)
+  (emitClean (x64PrologueIns ns), maskAll)
 
-/-- Deallocate `x64FrameSize ns` bytes on `%rsp` (`addq $F, %rsp` or `movabs $F, %r10; addq %r10, %rsp`). -/
-def x64Epilogue (ns : Nat) : List Directive × FlagMask :=
+/-- Internal instruction stream for `x64Epilogue`. -/
+def x64EpilogueIns (ns : Nat) : List Instr :=
   let sz := x64FrameSize ns
-  if x64FitsImm31 sz then
-    ([x64AddSpD (Int64.ofNat sz)], maskAll)
-  else
-    ([x64MoviD .r10 (BitVec.ofNat 64 sz), ins (.add (.reg (q .rsp)) (.reg (q .r10)))], maskAll)
+  if x64FitsImm31 sz then [x64AddSpI (Int64.ofNat sz)]
+  else [x64MoviI .r10 (BitVec.ofNat 64 sz), insI (.add (.reg (q .rsp)) (.reg (q .r10)))]
+
+/-- Deallocate `x64FrameSize ns` bytes on `%rsp`. -/
+def x64Epilogue (ns : Nat) : List Directive × FlagMask :=
+  (emitClean (x64EpilogueIns ns), maskAll)
+
+/-- Internal instruction stream for `x64SlotSt`. -/
+def x64SlotStIns (i : Nat) (r : Reg64) : List Instr :=
+  let off := 8 * i
+  if x64FitsImm31 off then [x64StSpI r (Int64.ofNat off)]
+  else [x64MoviI .r10 (BitVec.ofNat 64 off), insI (.mov (.mem x64AtSpR10) (.reg (q r)))]
 
 /-- Store 64-bit register `r` into stack slot `i` (`[rsp + 8*i]`), preserving all flags. -/
 def x64SlotSt (i : Nat) (r : Reg64) : List Directive :=
+  emitClean (x64SlotStIns i r)
+
+/-- Internal instruction stream for `x64SlotLd`. -/
+def x64SlotLdIns (rd : Reg64) (i : Nat) : List Instr :=
   let off := 8 * i
-  if x64FitsImm31 off then
-    [x64StSpD r (Int64.ofNat off)]
-  else
-    [x64MoviD .r10 (BitVec.ofNat 64 off), ins (.mov (.mem x64AtSpR10) (.reg (q r)))]
+  if x64FitsImm31 off then [x64LdSpI rd (Int64.ofNat off)]
+  else [x64MoviI .r10 (BitVec.ofNat 64 off), insI (.mov (.reg (q rd)) (.mem x64AtSpR10))]
 
 /-- Load stack slot `i` (`[rsp + 8*i]`) into 64-bit register `rd`, preserving all flags. -/
 def x64SlotLd (rd : Reg64) (i : Nat) : List Directive :=
-  let off := 8 * i
-  if x64FitsImm31 off then
-    [x64LdSpD rd (Int64.ofNat off)]
-  else
-    [x64MoviD .r10 (BitVec.ofNat 64 off), ins (.mov (.reg (q rd)) (.mem x64AtSpR10))]
+  emitClean (x64SlotLdIns rd i)
+
+/-- Internal instruction stream for `x64CanonAbi`. -/
+def x64CanonAbiIns (t : Ty) (r : Reg64) : List Instr :=
+  match t with
+  | .bool | .bits 8  => [ins32I (.movzx (.reg (d r)) (.reg (b8 r)))]
+  | .bits 16         => [ins32I (.movzx (.reg (d r)) (.reg (h16 r)))]
+  | .bits 32         => [ins32I (.mov (.reg (d r)) (.reg (d r)))]
+  | _                => []
 
 /-- Zero-extend low bits of `r` to 64 bits (`AbiGprHolds`), preserving all flags. -/
 def x64CanonAbi (t : Ty) (r : Reg64) : List Directive × FlagMask :=
-  match t with
-  | .bool | .bits 8  => ([ins32 (.movzx (.reg (d r)) (.reg (b8 r)))], maskNone)
-  | .bits 16         => ([ins32 (.movzx (.reg (d r)) (.reg (h16 r)))], maskNone)
-  | .bits 32         => ([ins32 (.mov (.reg (d r)) (.reg (d r)))], maskNone)
-  | _                => ([], maskNone)
+  (emitClean (x64CanonAbiIns t r), maskNone)
 
 /-- `call sym`. -/
-def x64CallD (sym : Sym) : Directive :=
-  ins (.call (.rel (.sub (.label sym) .after_current_instruction)))
+abbrev x64CallI (sym : Sym) : Instr :=
+  insI (.call (.rel (.sub (.label sym) .after_current_instruction)))
+
+/-- `call sym`. -/
+def x64CallD (sym : Sym) : Directive := .instr (x64CallI sym)
 
 /-- `jmp sym`. -/
-def x64JmpD (sym : Sym) : Directive :=
-  ins (.jmp (.rel (.sub (.label sym) .after_current_instruction)))
+abbrev x64JmpI (sym : Sym) : Instr :=
+  insI (.jmp (.rel (.sub (.label sym) .after_current_instruction)))
+
+/-- `jmp sym`. -/
+def x64JmpD (sym : Sym) : Directive := .instr (x64JmpI sym)
 
 /-- `ret`. -/
-def x64RetD : Directive :=
-  ins .ret
+abbrev x64RetI : Instr := insI .ret
+
+/-- `ret`. -/
+def x64RetD : Directive := .instr x64RetI
 
 /-- SysV x64 `FrameIsa` instance. -/
 @[reducible] def x64Frame : FrameIsa Reg64 Directive where
@@ -131,8 +173,8 @@ def x64RetD : Directive :=
   slotSt := x64SlotSt
   slotLd := x64SlotLd
   canonAbi := x64CanonAbi
-  call sym := [x64CallD sym]
-  exitJmp sym := [x64JmpD sym]
-  ret := [x64RetD]
+  call sym := emitClean [x64CallI sym]
+  exitJmp sym := emitClean [x64JmpI sym]
+  ret := emitClean [x64RetI]
 
 end LeanQbe.T.Amd64

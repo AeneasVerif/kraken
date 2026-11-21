@@ -16,6 +16,8 @@ set_option autoImplicit false
 
 namespace LeanQbe.T.Arm64
 
+open LeanQbe.T
+
 /-! ## 1. Double-width multiply (`armMulwOp_wp`) and funnel shift (`armFunnelOp_wp`) -/
 
 private theorem armShiftV_wp [Host] (isLeft : Bool) (w : RegWidth) (d ra rb : XReg)
@@ -208,12 +210,12 @@ private theorem x16_ne_x17 : XReg.X16 ≠ XReg.X17 := by decide
 
 theorem armMulwOp_wp [Host] (isSigned : Bool) {n : Nat}
     (pa pb : PArg Reg Empty ArmCond (.bits n)) (dlo dhi : XReg)
-    {va vb : BitVec n} {c : List Directive} {clob : FlagMask} {s : MachineData}
-    (hc : armMulwOp isSigned n pa pb dlo dhi = some (c, clob))
+    {va vb : BitVec n} {c : List Instr} {clob : FlagMask} {s : MachineData}
+    (hc : armMulwOpIns isSigned n pa pb dlo dhi = some (c, clob))
     (hga : ∀ r ∈ pa.gprs, r ∉ armScratch) (hgb : ∀ r ∈ pb.gprs, r ∉ armScratch)
     (hd : XRegOrSp.reg dlo ∉ armScratch ∧ XRegOrSp.reg dhi ∉ armScratch)
     (hpa : armMach.PArgHolds s (.bits n) pa va) (hpb : armMach.PArgHolds s (.bits n) pb vb) :
-    _root_.Program.wp c (fun s' =>
+    _root_.Program.wp (emitClean c) (fun s' =>
       (∃ rvs : Tup Val [.bits n, .bits n],
         rvs = (va * vb,
           if isSigned then (BitVec.ofInt (n + n) (va.toInt * vb.toInt)).extractLsb' n n
@@ -224,7 +226,7 @@ theorem armMulwOp_wp [Host] (isSigned : Bool) {n : Nat}
       armMach.Frame armCondReads s s'
         (tupDstGprs (ts := [.bits n, .bits n]) ((PDst.gpr (.reg dlo) : PDst Reg Empty ArmCond (.bits n)), .gpr (.reg dhi), ()) ++ armScratch)
         [] clob) (fun _ _ => False) s := by
-  dsimp only [armMulwOp] at hc; split at hc
+  dsimp only [armMulwOpIns] at hc; split at hc
   · simp at hc
   · rename_i hok
     have hneq : dlo ≠ dhi := fun h => by
@@ -236,8 +238,9 @@ theorem armMulwOp_wp [Host] (isSigned : Bool) {n : Nat}
     simp only [bind, Option.bind_eq_some_iff] at hc
     rcases hc with ⟨⟨ca, ra⟩, ha, ⟨cb, rb⟩, hb, htail⟩
     have mulH_wp : ∀ (dst : XReg) (sx : MachineData),
-        _root_.Program.wp [if isSigned then ins (.SMULH (zr dst .W64) (zr ra .W64) (zr rb .W64))
-                            else ins (.UMULH (zr dst .W64) (zr ra .W64) (zr rb .W64))]
+        _root_.Program.wp [Kraken.Directive.instr (if isSigned then
+            armIselInsI (.SMULH (zr dst .W64) (zr ra .W64) (zr rb .W64))
+            else armIselInsI (.UMULH (zr dst .W64) (zr ra .W64) (zr rb .W64)))]
           (fun s' => s' = wr sx dst
             (if isSigned then (BitVec.ofInt 128 ((sx.regs.getXReg ra).toBitVec.signed * (sx.regs.getXReg rb).toBitVec.signed)).extractLsb' 64 64
              else BitVec.ofNat 64 ((sx.regs.getXReg ra).toBitVec.toNat * (sx.regs.getXReg rb).toBitVec.toNat / 2 ^ 64)))
@@ -259,12 +262,13 @@ theorem armMulwOp_wp [Host] (isSigned : Bool) {n : Nat}
     rcases hn' with rfl | rfl
     · simp only [beq_self_eq_true, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at htail
       rcases htail with ⟨rfl, rfl⟩
-      simp only [List.append_assoc]; rw [← List.append_assoc ca cb]
+      simp only [List.append_assoc]; rw [← List.append_assoc ca cb, emitClean_append]
       refine armWp_append (armArgs2_wp hn64 hn64 ha hb hpa hpb hga hgb) ?_
       rintro s₂ ⟨hra, hrb, _, _, hd₂, hst₂, hfr₂⟩
-      have hmul64 : _root_.Program.wp
-          [if isSigned then ins (.SMADDL (zr dlo .W64) (zr ra .W32) (zr rb .W32) (xzr .W64))
-           else ins (.UMADDL (zr dlo .W64) (zr ra .W32) (zr rb .W32) (xzr .W64))]
+      simp only [emitClean_cons, emitClean_nil]
+      have hmul64 : _root_.Program.wp [Kraken.Directive.instr (if isSigned then
+            armIselInsI (.SMADDL (zr dlo .W64) (zr ra .W32) (zr rb .W32) (xzr .W64))
+            else armIselInsI (.UMADDL (zr dlo .W64) (zr ra .W32) (zr rb .W32) (xzr .W64)))]
           (fun s' => s' = wr s₂ dlo (BitVec.ofInt 64 (if isSigned then va.signed * vb.signed + (0#64).signed
                                                      else va.unsigned * vb.unsigned + (0#64).signed)))
           (fun _ _ => False) s₂ := by
@@ -298,9 +302,10 @@ theorem armMulwOp_wp [Host] (isSigned : Bool) {n : Nat}
           simp only [Bool.and_eq_true] at hfreeH
           exact ⟨fun h => by subst h; exact Bool.noConfusion ((xreg_bne_self dhi).symm.trans hfreeH.1),
                  fun h => by subst h; exact Bool.noConfusion ((xreg_bne_self dhi).symm.trans hfreeH.2)⟩
-        simp only [List.append_assoc]; rw [← List.append_assoc ca cb]
+        simp only [List.append_assoc]; rw [← List.append_assoc ca cb, emitClean_append]
         refine armWp_append (armArgs2_wp hn64 hn64 ha hb hpa hpb hga hgb) ?_
         rintro s₂ ⟨hra, hrb, _, _, hd₂, hst₂, hfr₂⟩
+        simp only [emitClean_cons, emitClean_nil]
         simp only [BitVec.setWidth_eq] at hra hrb
         refine armWp_cons (mulH_wp dhi s₂) fun s₃ hs₃ => ?_
         refine armWp_mono (mulL_wp dlo s₃) fun s₄ hs₄ => ?_
@@ -322,9 +327,10 @@ theorem armMulwOp_wp [Host] (isSigned : Bool) {n : Nat}
             simp only [Bool.and_eq_true] at hfreeL
             exact ⟨fun h => by subst h; exact Bool.noConfusion ((xreg_bne_self dlo).symm.trans hfreeL.1),
                    fun h => by subst h; exact Bool.noConfusion ((xreg_bne_self dlo).symm.trans hfreeL.2)⟩
-          simp only [List.append_assoc]; rw [← List.append_assoc ca cb]
+          simp only [List.append_assoc]; rw [← List.append_assoc ca cb, emitClean_append]
           refine armWp_append (armArgs2_wp hn64 hn64 ha hb hpa hpb hga hgb) ?_
           rintro s₂ ⟨hra, hrb, _, _, hd₂, hst₂, hfr₂⟩
+          simp only [emitClean_cons, emitClean_nil]
           simp only [BitVec.setWidth_eq] at hra hrb
           refine armWp_cons (mulL_wp dlo s₂) fun s₃ hs₃ => ?_
           refine armWp_mono (mulH_wp dhi s₃) fun s₄ hs₄ => ?_
@@ -342,9 +348,10 @@ theorem armMulwOp_wp [Host] (isSigned : Bool) {n : Nat}
         · rename_i hbusyH hbusyL
           rcases Option.some.inj htail with ⟨rfl, rfl⟩
           simp only [Bool.not_eq_true, Bool.and_eq_false_iff] at hbusyH hbusyL
-          simp only [List.append_assoc]; rw [← List.append_assoc ca cb]
+          simp only [List.append_assoc]; rw [← List.append_assoc ca cb, emitClean_append]
           refine armWp_append (armArgs2_wp hn64 hn64 ha hb hpa hpb hga hgb) ?_
           rintro s₂ ⟨hra, hrb, _, hneB, hd₂, hst₂, hfr₂⟩
+          simp only [emitClean_cons, emitClean_nil]
           simp only [BitVec.setWidth_eq] at hra hrb
           have hneA : .X16 ≠ ra := by
             rcases hbusyH with h1 | h1 <;> rcases hbusyL with h2 | h2
@@ -643,20 +650,20 @@ private theorem armFunnelImmB_wp [Host] (w : RegWidth)
 
 theorem armFunnelOp_wp [Host] (isLeft : Bool) {n : Nat}
     (pa pb pc : PArg Reg Empty ArmCond (.bits n)) (d : XReg)
-    {va vb vc : BitVec n} {c : List Directive} {clob : FlagMask} {s : MachineData}
-    (hc : armFunnelOp isLeft n pa pb pc d = some (c, clob))
+    {va vb vc : BitVec n} {c : List Instr} {clob : FlagMask} {s : MachineData}
+    (hc : armFunnelOpIns isLeft n pa pb pc d = some (c, clob))
     (hd : XRegOrSp.reg d ∉ armScratch)
     (hga : ∀ r ∈ pa.gprs, r ∉ armScratch) (hgb : ∀ r ∈ pb.gprs, r ∉ armScratch)
     (hgc : ∀ r ∈ pc.gprs, r ∉ armScratch)
     (hpa : armMach.PArgHolds s (.bits n) pa va) (hpb : armMach.PArgHolds s (.bits n) pb vb)
     (hpc : armMach.PArgHolds s (.bits n) pc vc) :
-    _root_.Program.wp c (fun s' =>
+    _root_.Program.wp (emitClean c) (fun s' =>
       GprHolds (armMach.getGpr s' (.reg d)) (.bits n)
         (if isLeft then ((va ++ vb) <<< (vc.toNat % n)).extractLsb' n n
          else ((va ++ vb) >>> (vc.toNat % n)).extractLsb' 0 n) ∧
       armMach.mem s' = armMach.mem s ∧
       armMach.Frame armCondReads s s' (.reg d :: armScratch) [] clob) (fun _ _ => False) s := by
-  dsimp only [armFunnelOp] at hc; split at hc
+  dsimp only [armFunnelOpIns] at hc; split at hc
   · simp at hc
   · rename_i hok
     have hn' : n = 32 ∨ n = 64 := by cases h32 : (n == 32) <;> cases h64 : (n == 64) <;> simp_all
@@ -671,6 +678,7 @@ theorem armFunnelOp_wp [Host] (isLeft : Bool) {n : Nat}
       cases isLeft
       · simp only [Bool.false_eq_true, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at htail
         rcases htail with ⟨rfl, rfl⟩
+        rw [emitClean_append, emitClean_cons, emitClean_nil]
         refine armWp_append (armArgs2_wp hn64 hn64 ha hb hpa hpb hga hgb) ?_
         rintro s₂ ⟨hra, hrb, _, _, hd₂, _, hfr₂⟩
         have hklt : cc.toNat % n < n := Nat.mod_lt _ hn_pos
@@ -691,6 +699,7 @@ theorem armFunnelOp_wp [Host] (isLeft : Bool) {n : Nat}
         split at htail
         · rename_i hk0; simp only [beq_iff_eq] at hk0
           rcases Option.some.inj htail with ⟨rfl, rfl⟩
+          rw [emitClean_append, emitClean_cons, emitClean_nil]
           refine armWp_append (armArgIn_wp hn64 ha hpa) ?_
           rintro s₁ ⟨hra, hd₁, _, hfr₁⟩
           have hfr₁' : armMach.Frame armCondReads s s₁ armScratch [] maskNone :=
@@ -703,6 +712,7 @@ theorem armFunnelOp_wp [Host] (isLeft : Bool) {n : Nat}
           · simp only [armWidthOf, RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq] at hra ⊢; exact hra
         · rename_i hkn0; simp only [beq_iff_eq] at hkn0
           rcases Option.some.inj htail with ⟨rfl, rfl⟩
+          rw [emitClean_append, emitClean_cons, emitClean_nil]
           refine armWp_append (armArgs2_wp hn64 hn64 ha hb hpa hpb hga hgb) ?_
           rintro s₂ ⟨hra, hrb, _, _, hd₂, _, hfr₂⟩
           have hklt : cc.toNat % n < n := Nat.mod_lt _ hn_pos
@@ -728,7 +738,7 @@ theorem armFunnelOp_wp [Host] (isLeft : Bool) {n : Nat}
       rcases Option.some.inj htail with ⟨rfl, rfl⟩
       have hrcS : XRegOrSp.reg rc ∉ armScratch := hgc (.reg rc) (by simp [PArg.gprs])
       have hrc0 : (s.regs.getXReg rc).toBitVec.setWidth n = vc := by simpa [Machine.PArgHolds, GprHolds, get_reg] using hpc.2
-      simp only [List.append_assoc]; rw [← List.append_assoc ca cb]
+      simp only [List.append_assoc]; rw [← List.append_assoc ca cb, emitClean_append]
       refine armWp_append (armArgs2_wp hn64 hn64 ha hb hpa hpb hga hgb) ?_
       rintro s₂ ⟨hra, hrb, hneA, _, hd₂, _, hfr₂⟩
       have hrc₂ : (s₂.regs.getXReg rc).toBitVec.setWidth n = vc := by
@@ -739,23 +749,29 @@ theorem armFunnelOp_wp [Host] (isLeft : Bool) {n : Nat}
       | imm _ => cases pb with
         | vec vr => exact vr.elim
         | imm _ =>
-          simp only [armArgIn, Option.some.injEq, Prod.mk.injEq] at ha hb; rcases ha with ⟨rfl, rfl⟩; rcases hb with ⟨rfl, rfl⟩
+          simp only [armArgInIns, Option.some.injEq, Prod.mk.injEq] at ha hb
+          rcases ha with ⟨rfl, rfl⟩; rcases hb with ⟨rfl, rfl⟩
+          simp only [emitClean_ite, emitClean_cons, emitClean_nil]
           rcases hn' with rfl | rfl <;>
             exact armFunnelImmImm_wp _ isLeft d rc va vb vc hra hrb hrc₂ hd hrcS hd₂ hkeep₂
-        | gpr rb' => cases rb' with | SP => simp [armArgIn] at hb | reg x =>
-          simp only [armArgIn, Option.some.injEq, Prod.mk.injEq] at hb; rcases hb with ⟨rfl, rfl⟩
+        | gpr rb' => cases rb' with | SP => simp [armArgInIns] at hb | reg x =>
+          simp only [armArgInIns, Option.some.injEq, Prod.mk.injEq] at hb; rcases hb with ⟨rfl, rfl⟩
+          simp only [emitClean_ite, emitClean_cons, emitClean_nil]
           rcases hn' with rfl | rfl <;>
             exact armFunnelGprB_wp _ isLeft d ra x rc va vb vc hra hrb hrc₂ hneA
               (hgb (.reg x) (by simp [PArg.gprs])) hrcS hd₂ hkeep₂
-      | gpr ra' => cases ra' with | SP => simp [armArgIn] at ha | reg xa => cases pb with
+      | gpr ra' => cases ra' with | SP => simp [armArgInIns] at ha | reg xa => cases pb with
         | vec vr => exact vr.elim
         | imm _ =>
-          simp only [armArgIn, Option.some.injEq, Prod.mk.injEq] at ha hb; rcases ha with ⟨rfl, rfl⟩; rcases hb with ⟨rfl, rfl⟩
+          simp only [armArgInIns, Option.some.injEq, Prod.mk.injEq] at ha hb
+          rcases ha with ⟨rfl, rfl⟩; rcases hb with ⟨rfl, rfl⟩
+          simp only [emitClean_ite, emitClean_cons, emitClean_nil]
           rcases hn' with rfl | rfl <;>
             exact armFunnelImmB_wp _ isLeft d xa rc va vb vc hra hrb hrc₂
               (hga (.reg xa) (by simp [PArg.gprs])) hrcS hd₂ hkeep₂
-        | gpr rb' => cases rb' with | SP => simp [armArgIn] at hb | reg xb =>
-          simp only [armArgIn, Option.some.injEq, Prod.mk.injEq] at hb; rcases hb with ⟨rfl, rfl⟩
+        | gpr rb' => cases rb' with | SP => simp [armArgInIns] at hb | reg xb =>
+          simp only [armArgInIns, Option.some.injEq, Prod.mk.injEq] at hb; rcases hb with ⟨rfl, rfl⟩
+          simp only [emitClean_ite, emitClean_cons, emitClean_nil]
           rcases hn' with rfl | rfl <;>
             exact armFunnelGprB_wp _ isLeft d ra xb rc va vb vc hra hrb hrc₂ hneA
               (hgb (.reg xb) (by simp [PArg.gprs])) hrcS hd₂ hkeep₂
@@ -800,12 +816,12 @@ private theorem dst1_gpr {t : Ty} {d : XReg}
 private theorem armOp_bool_fallsTo {h : Host} {k : Nat} {sig : List Ty}
     {code : OpCode sig [.bool]} {pas : Tup (PArg Reg Empty ArmCond) sig}
     {vs : Tup Val sig} {P : Tup Val [.bool] → Prop} {s : MachineData} {post : MachineState → Prop}
-    {r : XReg} {c : List Directive} {clob : FlagMask}
-    (hc : armBoolOp code pas r = some (c, clob))
+    {r : XReg} {c : List Instr} {clob : FlagMask}
+    (hc : armBoolOpIns code pas r = some (c, clob))
     (hdsts : ∀ x ∈ tupDstGprs (R := Reg) (V := Empty) (C := ArmCond) (ts := [.bool]) (.gpr (.reg r), ()), x ∉ armScratch)
     (hargs : ∀ x ∈ tupArgGprs pas, x ∉ armScratch)
     (hrel : TRel (armMach.PArgHolds s) pas vs) (hwp : code.wp vs P) :
-    armMach.FallsTo armCondReads h k c
+    armMach.FallsTo armCondReads h k (emitClean c)
       (tupDstGprs (R := Reg) (V := Empty) (C := ArmCond) (ts := [.bool]) (.gpr (.reg r), ()) ++ armScratch)
       [] clob s (fun s' => (∃ rvs, P rvs ∧ TRel (armMach.PDstHolds s') (.gpr (.reg r), ()) rvs) ∧ armMach.mem s' = armMach.mem s) post :=
   armFallsTo_of_wp (armWp_mono (armBoolOp_wp code pas r hc (dst1_gpr hdsts) hargs hrel hwp) fun _ ⟨hp, hm, hfr⟩ => ⟨⟨hp, hm⟩, hfr⟩)
@@ -829,7 +845,7 @@ theorem armOp_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig rs
     {pas : Tup (PArg Reg Empty ArmCond) sig} {dsts : Tup (PDst Reg Empty ArmCond) rs}
     {vh : VariantHint} {c : List Directive} {clob : FlagMask} {vs : Tup Val sig}
     {P : Tup Val rs → Prop} {s : MachineData} {post : MachineState → Prop}
-    (hc : armOp code pas dsts vh = some (c, clob))
+    (hc_in : armOp code pas dsts vh = some (c, clob))
     (hargs : ∀ r ∈ tupArgGprs pas, r ∉ armScratch)
     (hdsts : ∀ r ∈ tupDstGprs dsts, r ∉ armScratch)
     (hrel : TRel (armMach.PArgHolds s) pas vs) (hwp : code.wp vs P) :
@@ -837,140 +853,141 @@ theorem armOp_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig rs
       (fun s' => (∃ rvs, P rvs ∧ TRel (armMach.PDstHolds s') dsts rvs) ∧ armMach.mem s' = armMach.mem s)
       post := by
   letI := h
+  obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc_in
   cases code with
   | copy t =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
     all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    · dsimp only [armOp] at hc; exact armOp_bool_fallsTo hc hdsts hargs hrel hwp
-    · rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; dsimp only [armOp] at hc; split at hc
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
+    · dsimp only [armOpIns] at hc; exact armOp_bool_fallsTo hc hdsts hargs hrel hwp
+    · rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; dsimp only [armOpIns] at hc; split at hc
       · rename_i hn; simp only [List.contains_eq_mem, decide_eq_true_eq] at hn
         exact armOp_fallsTo_bits (armCopyBits_wp hn _ hc (trel1_inv hrel)) hwp
       · cases hc
   | «and» t | «or» t | xor t =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
     all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    · dsimp only [armOp] at hc; exact armOp_bool_fallsTo hc hdsts hargs hrel hwp
-    · dsimp only [armOp] at hc; rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
+    · dsimp only [armOpIns] at hc; exact armOp_bool_fallsTo hc hdsts hargs hrel hwp
+    · dsimp only [armOpIns] at hc; rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
       have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
       exact armOp_fallsTo_bits (armBinOp_wp _ pa pb _ hc hga hgb hpa hpb) hwp
   | add t | sub t | mul t =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
     all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    dsimp only [armOp] at hc; rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
+    dsimp only [armOpIns] at hc; rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
     have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
     exact armOp_fallsTo_bits (armBinOp_wp _ pa pb _ hc hga hgb hpa hpb) hwp
   | «not» t =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
     all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    · dsimp only [armOp] at hc; exact armOp_bool_fallsTo hc hdsts hargs hrel hwp
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
+    · dsimp only [armOpIns] at hc; exact armOp_bool_fallsTo hc hdsts hargs hrel hwp
     · rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
       exact armOp_fallsTo_bits (armNotOp_wp pa _ hc (trel1_inv hrel)) hwp
   | bitcast t u htu =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
     all_goals try cases t
     all_goals try cases u
-    all_goals try (dsimp only [armOp] at hc; cases hc)
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
     rename_i m n; have hmn : m = n := htu; subst hmn
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; dsimp only [armOp] at hc; split at hc
+    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; dsimp only [armOpIns] at hc; split at hc
     · rename_i hok; simp only [Bool.and_self, List.contains_eq_mem, decide_eq_true_eq] at hok
       exact armOp_fallsTo_bits (armCopyBits_wp hok _ hc (trel1_inv hrel)) (by simpa [OpCode.wp, toBits, ofBits] using hwp)
     · cases hc
   | zext m n =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
     rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; exact armOp_fallsTo_bits (armZextOp_wp pa _ hc (trel1_inv hrel) hwp.1) hwp.2
   | sext m n =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
     rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; exact armOp_fallsTo_bits (armSextOp_wp pa _ hc (trel1_inv hrel) hwp.1) hwp.2
   | trunc m n =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
     rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; exact armOp_fallsTo_bits (armTruncOp_wp pa _ hc (trel1_inv hrel) hwp.1) hwp.2
   | ofBool n =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
     rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨b, ⟨⟩⟩; exact armOp_fallsTo_bits (armOfBoolOp_wp pa _ hc (trel1_inv hrel)) hwp
   | shl t | lshr t | ashr t =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
     all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    dsimp only [armOp] at hc; rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
+    dsimp only [armOpIns] at hc; rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
     have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
     exact armOp_fallsTo_bits (armShiftOp_wp _ pa pb _ hc hga hgb hpa hpb) hwp
   | neg t =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
     all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
     rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; exact armOp_fallsTo_bits (armNegOp_wp pa _ hc (trel1_inv hrel)) hwp
   | rotl t | rotr t =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
     all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    dsimp only [armOp] at hc; rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
+    dsimp only [armOpIns] at hc; rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
     have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
     exact armOp_fallsTo_bits (armRotOp_wp _ pa pb _ hc hga hgb hpa hpb) hwp
   | udiv n =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
     rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩; have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
     have hdiv := armDivRemOp_wp .udiv pa pb _ hc (dst1_gpr hdsts) hga hgb hpa hpb (fun h => by rcases h with h | h <;> cases h)
     simp only [armDivEval, beq_false_of_ne hwp.1, Bool.false_eq_true, ↓reduceIte] at hdiv; exact armOp_fallsTo_bits hdiv hwp.2
   | udiv0 n =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
     rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩; have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
     have hdiv := armDivRemOp_wp .udiv pa pb _ hc (dst1_gpr hdsts) hga hgb hpa hpb (fun h => by rcases h with h | h <;> cases h)
     have heq : armDivEval .udiv va vb = if vb = 0 then 0 else va / vb := by by_cases h : vb = 0 <;> simp [armDivEval, h]
     exact armOp_fallsTo_bits (heq ▸ hdiv) hwp
   | sdiv n =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
     rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩; have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
     have hb0 : vb ≠ 0 := by simp only [OpCode.wp, sdivDefined, Bool.and_eq_true, bne_iff_ne] at hwp; exact hwp.1.1
     have hdiv := armDivRemOp_wp .sdiv pa pb _ hc (dst1_gpr hdsts) hga hgb hpa hpb (fun h => by rcases h with h | h <;> cases h)
     simp only [armDivEval, beq_false_of_ne hb0, Bool.false_eq_true, ↓reduceIte] at hdiv; exact armOp_fallsTo_bits hdiv hwp.2
   | sdiv0 n =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
     rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩; have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
     have hdiv := armDivRemOp_wp .sdiv pa pb _ hc (dst1_gpr hdsts) hga hgb hpa hpb (fun h => by rcases h with h | h <;> cases h)
     have heq : armDivEval .sdiv va vb = if vb = 0 then 0 else va.sdiv vb := by by_cases h : vb = 0 <;> simp [armDivEval, h]
     exact armOp_fallsTo_bits (heq ▸ hdiv) hwp
   | urem n =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
     rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩; have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
     exact armOp_fallsTo_bits (armDivRemOp_wp .urem pa pb _ hc (dst1_gpr hdsts) hga hgb hpa hpb (fun _ => hwp.1)) hwp.2
   | srem n =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
     rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩; have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
     have hb0 : vb ≠ 0 := by simp only [OpCode.wp, sdivDefined, Bool.and_eq_true, bne_iff_ne] at hwp; exact hwp.1.1
     exact armOp_fallsTo_bits (armDivRemOp_wp .srem pa pb _ hc (dst1_gpr hdsts) hga hgb hpa hpb (fun _ => hb0)) hwp.2
   | bswap t =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
     all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
     rename_i m
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; dsimp only [armOp] at hc; split at hc
+    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; dsimp only [armOpIns] at hc; split at hc
     · cases hc
     · rename_i hok
       have hm : m = 16 ∨ m = 32 ∨ m = 64 := by cases h : ([16, 32, 64].contains m) <;> simp_all
       rcases hm with rfl | rfl | rfl <;> exact armOp_fallsTo_bits (armBswap_wp pa _ hc (trel1_inv hrel)) hwp
   | clz n | cls n | rbit n | ctz n =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; dsimp only [armOp] at hc
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
+    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; dsimp only [armOpIns] at hc
     refine armOp_fallsTo_bits ?_ hwp
     first | exact armBitOp_wp .clz pa _ hc (trel1_inv hrel) | exact armBitOp_wp .cls pa _ hc (trel1_inv hrel)
           | exact armBitOp_wp .rbit pa _ hc (trel1_inv hrel) | exact armBitOp_wp .ctz pa _ hc (trel1_inv hrel)
   | cmp o t m hm =>
-    subst hm; cases t <;> try (dsimp only [armOp] at hc; cases hc)
+    subst hm; cases t <;> try (dsimp only [armOpIns] at hc; cases hc)
     rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩; rcases dsts with ⟨dst, ⟨⟩⟩
     have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
     exact armFallsTo_of_wp (armWp_mono (armCmpOp_wp o pa pb dst hc hga hgb hdsts hpa hpb)
@@ -978,27 +995,27 @@ theorem armOp_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig rs
   | select t =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
     all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
+    all_goals try (dsimp only [armOpIns] at hc; cases hc)
     rcases pas with ⟨pc, pa, pb, ⟨⟩⟩; rcases vs with ⟨vc, va, vb, ⟨⟩⟩
     have ⟨hpc, hpa, hpb⟩ := trel3_inv hrel; have ⟨hgc, hga, hgb⟩ := arg3_gprs hargs
     exact armOp_fallsTo_bits (armSelectOp_wp pc pa pb _ hc hga hgb hgc hpc hpa hpb) hwp
   | addc n =>
     rcases pas with ⟨pa, pb, cin, ⟨⟩⟩; rcases vs with ⟨va, vb, vcin, ⟨⟩⟩
-    rcases dsts with ⟨⟨r | _⟩ | _ | ⟨⟩, cout, ⟨⟩⟩ <;> try (dsimp only [armOp] at hc; cases hc)
+    rcases dsts with ⟨⟨r | _⟩ | _ | ⟨⟩, cout, ⟨⟩⟩ <;> try (dsimp only [armOpIns] at hc; cases hc)
     have ⟨hpa, hpb, hpc⟩ := trel3_inv hrel; have ⟨hga, hgb, hgc⟩ := arg3_gprs hargs
     exact armFallsTo_of_wp (armWp_mono (armAddcOp_wp pa pb cin _ cout vh hc hga hgb hgc hpa hpb hpc)
       fun _ ⟨⟨rvs, hr, htr⟩, hdm, hfr⟩ => ⟨⟨⟨rvs, hr ▸ hwp, htr⟩, hdm⟩, hfr⟩)
   | subb n =>
-    rcases pas with ⟨pa, pb, cin, ⟨⟩⟩; rcases vs with ⟨va, vb, vcin, ⟨⟩⟩
-    rcases dsts with ⟨⟨r | _⟩ | _ | ⟨⟩, cout, ⟨⟩⟩ <;> try (dsimp only [armOp] at hc; cases hc)
+    rcases pas with ⟨pa, pb, bin, ⟨⟩⟩; rcases vs with ⟨va, vb, vbin, ⟨⟩⟩
+    rcases dsts with ⟨⟨r | _⟩ | _ | ⟨⟩, bout, ⟨⟩⟩ <;> try (dsimp only [armOpIns] at hc; cases hc)
     have ⟨hpa, hpb, hpc⟩ := trel3_inv hrel; have ⟨hga, hgb, hgc⟩ := arg3_gprs hargs
-    exact armFallsTo_of_wp (armWp_mono (armSubbOp_wp pa pb cin _ cout vh hc hga hgb hgc hpa hpb hpc)
+    exact armFallsTo_of_wp (armWp_mono (armSubbOp_wp pa pb bin _ bout vh hc hga hgb hgc hpa hpb hpc)
       fun _ ⟨⟨rvs, hr, htr⟩, hdm, hfr⟩ => ⟨⟨⟨rvs, hr ▸ hwp, htr⟩, hdm⟩, hfr⟩)
   | umulw n | smulw n =>
     rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
-    rcases dsts with ⟨⟨dlo | _⟩ | _ | ⟨⟩, d1, ⟨⟩⟩ <;> try (dsimp only [armOp] at hc; cases hc)
-    rcases d1 with ⟨dhi | _⟩ | _ | ⟨⟩ <;> try (dsimp only [armOp] at hc; cases hc)
-    dsimp only [armOp] at hc
+    rcases dsts with ⟨⟨dlo | _⟩ | _ | ⟨⟩, d1, ⟨⟩⟩ <;> try (dsimp only [armOpIns] at hc; cases hc)
+    rcases d1 with ⟨dhi | _⟩ | _ | ⟨⟩ <;> try (dsimp only [armOpIns] at hc; cases hc)
+    dsimp only [armOpIns] at hc
     have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
     have hd : XRegOrSp.reg dlo ∉ armScratch ∧ XRegOrSp.reg dhi ∉ armScratch :=
       ⟨hdsts (.reg dlo) (by simp [tupDstGprs]), hdsts (.reg dhi) (by simp [tupDstGprs])⟩
@@ -1006,8 +1023,8 @@ theorem armOp_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig rs
     first | simp only [Bool.false_eq_true, ↓reduceIte] at hmul | simp only [↓reduceIte] at hmul
     exact armFallsTo_of_wp (armWp_mono hmul fun _ ⟨⟨rvs, hr, htr⟩, hdm, hfr⟩ => ⟨⟨⟨rvs, hr ▸ hwp, htr⟩, hdm⟩, hfr⟩)
   | fshl n | fshr n =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | ⟨⟩, ⟨⟩⟩ <;> try (dsimp only [armOp] at hc; cases hc)
-    dsimp only [armOp] at hc; rcases pas with ⟨pa, pb, pc, ⟨⟩⟩; rcases vs with ⟨va, vb, vc, ⟨⟩⟩
+    rcases dsts with ⟨⟨r | _⟩ | _ | ⟨⟩, ⟨⟩⟩ <;> try (dsimp only [armOpIns] at hc; cases hc)
+    dsimp only [armOpIns] at hc; rcases pas with ⟨pa, pb, pc, ⟨⟩⟩; rcases vs with ⟨va, vb, vc, ⟨⟩⟩
     have ⟨hpa, hpb, hpc⟩ := trel3_inv hrel; have ⟨hga, hgb, hgc⟩ := arg3_gprs hargs
     have hf := armFunnelOp_wp _ pa pb pc _ hc (dst1_gpr hdsts) hga hgb hgc hpa hpb hpc
     first | simp only [↓reduceIte] at hf | simp only [Bool.false_eq_true, ↓reduceIte] at hf
@@ -1016,7 +1033,7 @@ theorem armOp_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig rs
   | shufd _ _ | shufb _ | alignr _ _ | blendw _ _ | sha256rnds2 | sha256msg1 | sha256msg2
   | fadd _ | fsub _ | fmul _ | fdiv _ | ffma _ | fsqrt _ | fneg _ | fabs _
   | fcmp _ _ _ _ | fptoui _ _ | fptosi _ _ | uitofp _ _ | sitofp _ _ | fcvt _ _ =>
-    dsimp only [armOp] at hc; cases hc
+    dsimp only [armOpIns] at hc; cases hc
 
 /-- Verified AArch64 scalar `GprTarget` specification (`T9`). -/
 theorem armGprSpec : GprTarget armMach armGpr armScratch where
@@ -1035,382 +1052,12 @@ theorem armGprSpec : GprTarget armMach armGpr armScratch where
 
 /-! ## 3. `armOp_noLab` for downstream `Rega.LabelClean` -/
 
-private theorem noLab_app {l : Sym} {a b : List Directive}
-    (ha : Kraken.Directive.label l ∉ a) (hb : Kraken.Directive.label l ∉ b) :
-    Kraken.Directive.label l ∉ a ++ b := by
-  simp [List.mem_append, ha, hb]
-
-private theorem armBoolOp_noLab {sig : List Ty} (code : OpCode sig [.bool])
-    (pas : Tup (PArg Reg Empty ArmCond) sig) (d : XReg) {c : List Directive} {clob : FlagMask}
-    (hc : armBoolOp code pas d = some (c, clob)) (l : Sym) : Kraken.Directive.label l ∉ c := by
-  cases code with
-  | copy _ =>
-    rcases pas with ⟨pa, ⟨⟩⟩; cases pa with
-    | vec vr => exact vr.elim
-    | gpr r => cases r with
-      | SP => dsimp only [armBoolOp] at hc; cases hc
-      | reg _ => dsimp only [armBoolOp] at hc; rcases Option.some.inj hc with ⟨rfl, rfl⟩; simp [ins]
-    | imm _ | flag _ => dsimp only [armBoolOp] at hc; rcases Option.some.inj hc with ⟨rfl, rfl⟩; simp [armLdrPoolBv, armCset64, ins]
-  | «not» _ =>
-    rcases pas with ⟨pa, ⟨⟩⟩
-    dsimp only [armBoolOp, bind] at hc
-    rcases Option.bind_eq_some_iff.mp hc with ⟨⟨ca, ra⟩, ha, hc⟩
-    rcases Option.some.inj hc with ⟨rfl, rfl⟩
-    exact noLab_app (noLab_boolArgIn _ pa ha l) (by simp [ins])
-  | «and» _ | «or» _ | xor _ =>
-    rcases pas with ⟨pa, pb, ⟨⟩⟩
-    dsimp only [armBoolOp, bind] at hc
-    rcases Option.bind_eq_some_iff.mp hc with ⟨⟨ca, ra⟩, ha, hc⟩
-    rcases Option.bind_eq_some_iff.mp hc with ⟨⟨cb, rb⟩, hb, hc⟩
-    rcases Option.some.inj hc with ⟨rfl, rfl⟩
-    exact noLab_app (noLab_app (noLab_boolArgIn _ pa ha l) (noLab_boolArgIn _ pb hb l)) (by simp [ins])
-  | _ => delta armBoolOp at hc; cases hc
-
-private theorem armCopyBits_noLab {n : Nat} {pa : PArg Reg Empty ArmCond (.bits n)} {d : XReg}
-    {c : List Directive} {clob : FlagMask} (hc : armCopyBits n pa d = some (c, clob)) (l : Sym) :
-    Kraken.Directive.label l ∉ c := by
-  cases pa with
-  | vec vr => exact vr.elim
-  | gpr r => cases r <;> simp [armCopyBits] at hc; rcases hc with ⟨rfl, rfl⟩; simp [ins]
-  | imm _ => simp [armCopyBits] at hc; rcases hc with ⟨rfl, rfl⟩; simp [armLdrPoolBv, ins]
-
-private theorem armBinOp_noLab {k : ArmBinK} {n : Nat} {pa pb : PArg Reg Empty ArmCond (.bits n)}
-    {d : XReg} {c : List Directive} {clob : FlagMask}
-    (hc : armBinOp k n pa pb d = some (c, clob)) (l : Sym) : Kraken.Directive.label l ∉ c := by
-  dsimp only [armBinOp] at hc; split at hc
-  · simp at hc
-  · have hfb : (armArgIn .X16 pa >>= fun a => armArgIn .X17 pb >>= fun b =>
-        some (a.1 ++ b.1 ++ [armBinDir k (armWidthOf n) d a.2 b.2], maskNone)) = some (c, clob) →
-        Kraken.Directive.label l ∉ c := fun h => by
-      simp only [bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at h
-      rcases h with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, rfl, rfl⟩
-      exact noLab_app (noLab_app (noLab_argIn _ pa ha l) (noLab_argIn _ pb hb l)) (by cases k <;> simp [armBinDir, ins])
-    cases k
-    case mul | «and» | «or» | xor => exact hfb hc
-    all_goals cases pa with
-      | vec vr => exact vr.elim
-      | imm _ => cases pb with
-        | vec vr => exact vr.elim
-        | imm _ => exact hfb hc
-        | gpr r => cases r with
-          | SP => simp [armArgIn] at hc
-          | reg _ =>
-            first
-            | exact hfb hc
-            | (dsimp only at hc; split at hc
-               · rcases Option.some.inj hc with ⟨rfl, rfl⟩; simp [ins]
-               · simp only [bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hc
-                 rcases hc with ⟨⟨_, _⟩, ha, rfl, rfl⟩; exact noLab_app (noLab_argIn _ _ ha l) (by simp [armBinDir, ins]))
-      | gpr r => cases r with
-        | SP => simp [armArgIn] at hc
-        | reg _ => cases pb with
-          | vec vr => exact vr.elim
-          | gpr _ => exact hfb hc
-          | imm _ =>
-            dsimp only at hc; split at hc
-            · rcases Option.some.inj hc with ⟨rfl, rfl⟩; simp [ins]
-            · simp only [bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hc
-              rcases hc with ⟨⟨_, _⟩, hb, rfl, rfl⟩; exact noLab_app (noLab_argIn _ _ hb l) (by simp [armBinDir, ins])
-
-private theorem armShiftOp_noLab {k : ArmShiftK} {n : Nat} {pa pb : PArg Reg Empty ArmCond (.bits n)}
-    {d : XReg} {c : List Directive} {clob : FlagMask}
-    (hc : armShiftOp k n pa pb d = some (c, clob)) (l : Sym) : Kraken.Directive.label l ∉ c := by
-  dsimp only [armShiftOp] at hc; split at hc
-  · simp at hc
-  · split at hc
-    · have hfb : (armArgIn .X16 pa >>= fun a => armArgIn .X17 pb >>= fun b =>
-          some (a.1 ++ b.1 ++ [match k with
-            | .shl => ins (.LSLV (zr d (armWidthOf n)) (zr a.2 (armWidthOf n)) (zr b.2 (armWidthOf n)))
-            | .lshr => ins (.LSRV (zr d (armWidthOf n)) (zr a.2 (armWidthOf n)) (zr b.2 (armWidthOf n)))
-            | .ashr => ins (.ASRV (zr d (armWidthOf n)) (zr a.2 (armWidthOf n)) (zr b.2 (armWidthOf n)))], maskNone)) = some (c, clob) →
-          Kraken.Directive.label l ∉ c := fun h => by
-        simp only [bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at h
-        rcases h with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, rfl, rfl⟩
-        exact noLab_app (noLab_app (noLab_argIn _ pa ha l) (noLab_argIn _ pb hb l)) (by cases k <;> simp [ins])
-      cases pa with | vec vr => exact vr.elim | imm _ => exact hfb hc | gpr r => cases r with
-        | SP => simp [armArgIn] at hc
-        | reg _ => cases pb with | vec vr => exact vr.elim | gpr _ => exact hfb hc | imm _ =>
-          rcases Option.some.inj hc with ⟨rfl, rfl⟩; cases k <;> simp [ins]
-    · simp only [bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hc
-      rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, rfl, rfl⟩
-      simp only [List.mem_append, not_or]
-      exact ⟨⟨⟨⟨noLab_argIn _ pa ha l, noLab_argIn _ pb hb l⟩, by cases k <;> simp [armExt32, ins]⟩,
-        by simp [ins]⟩, by cases k <;> simp [ins]⟩
-
-private theorem armRotOp_noLab {isLeft : Bool} {n : Nat} {pa pb : PArg Reg Empty ArmCond (.bits n)}
-    {d : XReg} {c : List Directive} {clob : FlagMask}
-    (hc : armRotOp isLeft n pa pb d = some (c, clob)) (l : Sym) : Kraken.Directive.label l ∉ c := by
-  dsimp only [armRotOp] at hc; split at hc
-  · simp at hc
-  · split at hc
-    · have hfb : (armArgIn .X16 pa >>= fun a => armArgIn .X17 pb >>= fun b =>
-          if isLeft then some (a.1 ++ b.1 ++ [ins (.SUB_s (zr .X17 (armWidthOf n)) (xzr (armWidthOf n)) (sh b.2)),
-            ins (.RORV (zr d (armWidthOf n)) (zr a.2 (armWidthOf n)) (zr .X17 (armWidthOf n)))], maskNone)
-          else some (a.1 ++ b.1 ++ [ins (.RORV (zr d (armWidthOf n)) (zr a.2 (armWidthOf n)) (zr b.2 (armWidthOf n)))], maskNone)) = some (c, clob) →
-          Kraken.Directive.label l ∉ c := fun h => by
-        simp only [bind, Option.bind_eq_some_iff] at h
-        rcases h with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, ht⟩
-        cases isLeft <;> simp only [Bool.false_eq_true, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at ht <;>
-          rcases ht with ⟨rfl, rfl⟩ <;>
-          exact noLab_app (noLab_app (noLab_argIn _ pa ha l) (noLab_argIn _ pb hb l)) (by simp [ins])
-      cases pa with | vec vr => exact vr.elim | imm _ => exact hfb hc | gpr r => cases r with
-        | SP => simp [armArgIn] at hc
-        | reg _ => cases pb with | vec vr => exact vr.elim | gpr _ => exact hfb hc | imm _ =>
-          rcases Option.some.inj hc with ⟨rfl, rfl⟩; simp [ins]
-    · simp only [bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hc
-      rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, rfl, rfl⟩
-      simp only [List.mem_append, not_or]
-      exact ⟨⟨⟨⟨noLab_argIn _ pa ha l, noLab_argIn _ pb hb l⟩, by simp [armExt32, ins]⟩,
-        by cases isLeft <;> simp [ins]⟩, by simp [ins]⟩
-
-private theorem armCmpOp_noLab {o : CmpOp} {n : Nat} {pa pb : PArg Reg Empty ArmCond (.bits n)}
-    {dst : PDst Reg Empty ArmCond .bool} {c : List Directive} {clob : FlagMask}
-    (hc : armCmpOp o n pa pb dst = some (c, clob)) (l : Sym) : Kraken.Directive.label l ∉ c := by
-  dsimp only [armCmpOp] at hc; split at hc
-  · simp at hc
-  · have hfin : ∀ {cmp cond}, (match dst with
-        | .flag cf => if cf == cond then some (cmp, maskNZCV) else none
-        | .gpr (.reg d) => some (cmp ++ [armCset64 d cond], maskNZCV)
-        | .gpr .SP | .vec _ => none) = some (c, clob) →
-        Kraken.Directive.label l ∉ cmp → Kraken.Directive.label l ∉ c := fun h hcmp => by
-      cases dst with
-      | vec vr => exact vr.elim
-      | flag _ => dsimp only at h; split at h <;> cases h; exact hcmp
-      | gpr r => cases r <;> simp at h; rcases h with ⟨rfl, rfl⟩; simp [hcmp, armCset64, ins]
-    split at hc
-    · cases pa with
-      | vec vr => exact vr.elim
-      | gpr r => cases r with
-        | SP => simp [armArgIn] at hc
-        | reg _ => cases pb with
-          | vec vr => exact vr.elim
-          | gpr _ =>
-            simp only [bind, Option.bind_eq_some_iff] at hc; rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, hf⟩
-            exact hfin hf (noLab_app (noLab_app (noLab_argIn _ _ ha l) (noLab_argIn _ _ hb l)) (by simp [ins]))
-          | imm _ =>
-            dsimp only at hc; split at hc
-            · exact hfin hc (by simp [ins])
-            · simp only [bind, Option.bind_eq_some_iff] at hc; rcases hc with ⟨⟨_, _⟩, hb, hf⟩
-              exact hfin hf (noLab_app (noLab_argIn _ _ hb l) (by simp [ins]))
-      | imm _ => cases pb with
-        | vec vr => exact vr.elim
-        | imm _ =>
-          simp only [bind, Option.bind_eq_some_iff] at hc; rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, hf⟩
-          exact hfin hf (noLab_app (noLab_app (noLab_argIn _ _ ha l) (noLab_argIn _ _ hb l)) (by simp [ins]))
-        | gpr r => cases r with
-          | SP => simp [armArgIn] at hc
-          | reg _ =>
-            dsimp only at hc; split at hc
-            · exact hfin hc (by simp [ins])
-            · simp only [bind, Option.bind_eq_some_iff] at hc; rcases hc with ⟨⟨_, _⟩, ha, hf⟩
-              exact hfin hf (noLab_app (noLab_argIn _ _ ha l) (by simp [ins]))
-    · simp only [bind, Option.bind_eq_some_iff] at hc; rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, hf⟩
-      exact hfin hf (noLab_app (noLab_app (noLab_argIn _ _ ha l) (noLab_argIn _ _ hb l)) (by cases o <;> simp [armExt32, armIsSignedCmp, ins]))
-
-private theorem armCarry_noLab {isSubb : Bool} {n : Nat}
-    {pa pb : PArg Reg Empty ArmCond (.bits n)} {cin : PArg Reg Empty ArmCond .bool}
-    {d : XReg} {cout : PDst Reg Empty ArmCond .bool} {vh : VariantHint}
-    {c : List Directive} {clob : FlagMask}
-    (hc : (if isSubb then armSubbOp n pa pb cin d cout vh else armAddcOp n pa pb cin d cout vh) = some (c, clob))
-    (l : Sym) : Kraken.Directive.label l ∉ c := by
-  cases isSubb <;>
-    (simp only [Bool.false_eq_true, ↓reduceIte, eq_self] at hc; dsimp only [armAddcOp, armSubbOp] at hc; split at hc) <;>
-    first
-    | cases hc
-    | (simp only [bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hc
-       rcases hc with ⟨post, hpost, ⟨_, _⟩, ha, ⟨_, _⟩, hb, m, hm, rfl, rfl⟩
-       have hpl : Kraken.Directive.label l ∉ post := by
-         cases cout with
-         | vec vr => exact vr.elim
-         | flag cf => cases cf <;> simp at hpost; cases hpost; simp
-         | gpr r => cases r with | SP => cases hpost | reg _ => dsimp only at hpost; split at hpost <;> cases hpost; simp [armCset64, ins]
-       cases cin with
-       | vec vr => exact vr.elim
-       | flag cf => cases cf <;> simp at hm; rcases hm with rfl; simp [noLab_argIn _ _ ha l, noLab_argIn _ _ hb l, hpl, ins]
-       | imm bv => cases bv <;> simp at hm <;> rcases hm with rfl <;> simp [noLab_argIn _ _ ha l, noLab_argIn _ _ hb l, hpl, ins]
-       | gpr r => cases r <;> simp at hm; rcases hm with rfl; simp [noLab_argIn _ _ ha l, noLab_argIn _ _ hb l, hpl, ins])
-
 theorem armOp_noLab {sig rs : List Ty} {code : OpCode sig rs}
     {pas : Tup (PArg Reg Empty ArmCond) sig} {dsts : Tup (PDst Reg Empty ArmCond) rs}
     {vh : VariantHint} {c : List Directive} {clob : FlagMask}
     (hc : armGpr.op code pas dsts vh = some (c, clob)) (l : Sym) :
-    Kraken.Directive.label l ∉ c := by
-  dsimp only [armGpr] at hc
-  cases code with
-  | copy t =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    · dsimp only [armOp] at hc; exact armBoolOp_noLab _ pas _ hc l
-    · dsimp only [armOp] at hc; split at hc
-      · rcases pas with ⟨pa, ⟨⟩⟩; exact armCopyBits_noLab hc l
-      · cases hc
-  | «and» t | «or» t | xor t =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    · dsimp only [armOp] at hc; exact armBoolOp_noLab _ pas _ hc l
-    · dsimp only [armOp] at hc; rcases pas with ⟨pa, pb, ⟨⟩⟩; exact armBinOp_noLab hc l
-  | add t | sub t | mul t =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    dsimp only [armOp] at hc; rcases pas with ⟨pa, pb, ⟨⟩⟩; exact armBinOp_noLab hc l
-  | «not» t =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    · dsimp only [armOp] at hc; exact armBoolOp_noLab _ pas _ hc l
-    · rcases pas with ⟨pa, ⟨⟩⟩; dsimp only [armOp] at hc; split at hc; cases hc
-      cases pa with
-      | vec vr => exact vr.elim
-      | imm _ => simp at hc; rcases hc with ⟨rfl, rfl⟩; simp [armLdrPoolBv, ins]
-      | gpr r => cases r <;> simp at hc; rcases hc with ⟨rfl, rfl⟩; simp [ins]
-  | neg t =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    rcases pas with ⟨pa, ⟨⟩⟩; dsimp only [armOp] at hc; split at hc; cases hc
-    cases pa with
-    | vec vr => exact vr.elim
-    | imm _ => simp at hc; rcases hc with ⟨rfl, rfl⟩; simp [armLdrPoolBv, ins]
-    | gpr r => cases r <;> simp at hc; rcases hc with ⟨rfl, rfl⟩; simp [ins]
-  | bitcast t u _ =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try cases t
-    all_goals try cases u
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    dsimp only [armOp] at hc; split at hc; exact armCopyBits_noLab hc l; cases hc
-  | zext _ _ | sext _ _ =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    rcases pas with ⟨pa, ⟨⟩⟩; dsimp only [armOp, armZextOp, armSextOp] at hc; split at hc; simp at hc
-    cases pa with
-    | vec vr => exact vr.elim
-    | imm _ => rcases Option.some.inj hc with ⟨rfl, rfl⟩; simp [armLdrPoolBv, ins]
-    | gpr r => cases r with | SP => simp at hc | reg _ => dsimp only at hc; repeat (first | (rcases Option.some.inj hc with ⟨rfl, rfl⟩; simp [ins]) | split at hc)
-  | trunc _ _ =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    rcases pas with ⟨pa, ⟨⟩⟩; dsimp only [armOp, armTruncOp] at hc; split at hc; simp at hc
-    cases pa with
-    | vec vr => exact vr.elim
-    | imm _ => rcases Option.some.inj hc with ⟨rfl, rfl⟩; simp [armLdrPoolBv, ins]
-    | gpr r => cases r <;> simp at hc; rcases hc with ⟨rfl, rfl⟩; simp [ins]
-  | ofBool _ =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    rcases pas with ⟨pa, ⟨⟩⟩; dsimp only [armOp, armOfBoolOp] at hc; split at hc; simp at hc
-    cases pa with
-    | vec vr => exact vr.elim
-    | gpr r => cases r <;> simp at hc; rcases hc with ⟨rfl, rfl⟩; simp [ins]
-    | imm _ | flag _ => simp at hc; rcases hc with ⟨rfl, rfl⟩; simp [armLdrPoolBv, armCset64, ins]
-  | shl t | lshr t | ashr t =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    dsimp only [armOp] at hc; rcases pas with ⟨pa, pb, ⟨⟩⟩; exact armShiftOp_noLab hc l
-  | rotl t | rotr t =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    dsimp only [armOp] at hc; rcases pas with ⟨pa, pb, ⟨⟩⟩; exact armRotOp_noLab hc l
-  | udiv _ | udiv0 _ | sdiv _ | sdiv0 _ | urem _ | srem _ =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    rcases pas with ⟨pa, pb, ⟨⟩⟩; dsimp only [armOp, armDivRemOp] at hc; split at hc; simp at hc
-    split at hc
-    · cases pa with
-      | vec v => exact v.elim
-      | imm _ =>
-        cases pb with
-        | vec v => exact v.elim
-        | imm _ => rcases Option.some.inj hc with ⟨rfl, rfl⟩; simp [armLdrPoolBv, ins]
-        | gpr _ =>
-          simp only [bind, Option.bind_eq_some_iff] at hc; rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, ht⟩
-          try dsimp only [Bool.false_eq_true, ↓reduceIte] at ht
-          rcases Option.some.inj ht with ⟨rfl, rfl⟩; exact noLab_app (noLab_app (noLab_argIn _ _ ha l) (noLab_argIn _ _ hb l)) (by simp [ins])
-      | gpr _ =>
-        simp only [bind, Option.bind_eq_some_iff] at hc; rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, ht⟩
-        try dsimp only [Bool.false_eq_true, ↓reduceIte] at ht
-        rcases Option.some.inj ht with ⟨rfl, rfl⟩; exact noLab_app (noLab_app (noLab_argIn _ _ ha l) (noLab_argIn _ _ hb l)) (by simp [ins])
-    · simp only [bind, Option.bind_eq_some_iff] at hc; rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, ht⟩
-      try dsimp only [Bool.false_eq_true, ↓reduceIte] at ht
-      rcases Option.some.inj ht with ⟨rfl, rfl⟩
-      exact noLab_app (noLab_app (noLab_app (noLab_argIn _ _ ha l) (noLab_argIn _ _ hb l)) (by simp [armExt32, ins])) (by simp [ins])
-  | bswap t =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    rcases pas with ⟨pa, ⟨⟩⟩; dsimp only [armOp] at hc; split at hc; cases hc
-    simp only [bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hc
-    rcases hc with ⟨⟨_, _⟩, ha, rfl, rfl⟩; exact noLab_app (noLab_argIn _ pa ha l) (by split; simp [ins]; split <;> simp [ins])
-  | clz _ | cls _ | rbit _ | ctz _ =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    rcases pas with ⟨pa, ⟨⟩⟩; dsimp only [armOp] at hc; split at hc; cases hc
-    simp only [bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hc
-    rcases hc with ⟨⟨_, _⟩, ha, rfl, rfl⟩; exact noLab_app (noLab_argIn _ pa ha l) (by simp [ins])
-  | cmp _ t _ hm =>
-    subst hm; cases t <;> try (dsimp only [armOp] at hc; cases hc)
-    rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases dsts with ⟨dst, ⟨⟩⟩; exact armCmpOp_noLab hc l
-  | select t =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try cases t
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    rcases pas with ⟨pc, pa, pb, ⟨⟩⟩; dsimp only [armOp, armSelectOp] at hc; split at hc; simp at hc
-    cases pc with
-    | vec vr => exact vr.elim
-    | imm b => cases b <;> exact armCopyBits_noLab hc l
-    | flag _ =>
-      simp only [bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hc
-      rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, rfl, rfl⟩; exact noLab_app (noLab_app (noLab_argIn _ _ ha l) (noLab_argIn _ _ hb l)) (by simp [ins])
-    | gpr r => cases r with
-      | SP => simp at hc
-      | reg _ =>
-        simp only [bind, Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hc
-        rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, rfl, rfl⟩; exact noLab_app (noLab_app (noLab_argIn _ _ ha l) (noLab_argIn _ _ hb l)) (by simp [ins])
-  | addc _ =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, cout, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    rcases pas with ⟨pa, pb, cin, ⟨⟩⟩; exact armCarry_noLab (isSubb := false) hc l
-  | subb _ =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, cout, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    rcases pas with ⟨pa, pb, cin, ⟨⟩⟩; exact armCarry_noLab (isSubb := true) hc l
-  | umulw _ | smulw _ =>
-    rcases dsts with ⟨⟨r0 | _⟩ | _ | vr0, d1, ⟨⟩⟩ <;> try exact False.elim vr0.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    rcases d1 with ⟨r1 | _⟩ | _ | vr1 <;> try exact False.elim vr1.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    rcases pas with ⟨pa, pb, ⟨⟩⟩; dsimp only [armOp, armMulwOp] at hc; split at hc; simp at hc
-    simp only [bind, Option.bind_eq_some_iff] at hc; rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, ht⟩
-    repeat (first | (rcases Option.some.inj ht with ⟨rfl, rfl⟩; exact noLab_app (noLab_app (noLab_argIn _ _ ha l) (noLab_argIn _ _ hb l)) (by simp [ins])) | split at ht)
-  | fshl _ | fshr _ =>
-    rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
-    all_goals try (dsimp only [armOp] at hc; cases hc)
-    rcases pas with ⟨pa, pb, pc, ⟨⟩⟩; dsimp only [armOp, armFunnelOp] at hc; split at hc; simp at hc
-    simp only [bind, Option.bind_eq_some_iff] at hc; rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, ht⟩
-    cases pc with
-    | vec vr => exact vr.elim
-    | imm _ =>
-      first | simp only [↓reduceIte] at ht | simp only [Bool.false_eq_true, ↓reduceIte] at ht
-      repeat (first
-        | (rcases Option.some.inj ht with ⟨rfl, rfl⟩; first
-          | exact noLab_app (noLab_argIn _ _ ha l) (by simp [ins])
-          | exact noLab_app (noLab_app (noLab_argIn _ _ ha l) (noLab_argIn _ _ hb l)) (by simp [ins]))
-        | split at ht)
-    | gpr r => cases r with
-      | SP => simp at ht
-      | reg _ =>
-        rcases Option.some.inj ht with ⟨rfl, rfl⟩
-        exact noLab_app (noLab_app (noLab_argIn _ _ ha l) (noLab_argIn _ _ hb l))
-          (by cases pa with | vec v => exact v.elim | _ => cases pb with | vec v => exact v.elim | _ => simp [ins])
-  | ternlog _ _ | popcnt _ | blend _ _ _ | mkpair _ _ | unpair _ _
-  | shufd _ _ | shufb _ | alignr _ _ | blendw _ _ | sha256rnds2 | sha256msg1 | sha256msg2
-  | fadd _ | fsub _ | fmul _ | fdiv _ | ffma _ | fsqrt _ | fneg _ | fabs _
-  | fcmp _ _ _ _ | fptoui _ _ | fptosi _ _ | uitofp _ _ | sitofp _ _ | fcvt _ _ =>
-    dsimp only [armOp] at hc; cases hc
+    Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab hc l
 
 /-! ## 4. Kernel `rfl` `ParserChecks` against `Kraken.AArch64.Parser` -/
 

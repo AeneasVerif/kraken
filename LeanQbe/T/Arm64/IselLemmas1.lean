@@ -20,6 +20,8 @@ set_option autoImplicit false
 
 namespace LeanQbe.T.Arm64
 
+open LeanQbe.T
+
 /-! ## 1. Framing helpers -/
 
 theorem armFrame_upd_regs {s s' : MachineData} {gClob : List Reg} {fClob : FlagMask}
@@ -101,9 +103,9 @@ theorem armImm12_some {n : Nat} {c : BitVec n} {ei : ExtOrImmReg}
   · cases h
 
 theorem armArgIn_wp [Host] {n : Nat} (hn : n ≤ 64) {tmp : XReg} {pa : PArg Reg Empty ArmCond (.bits n)}
-    {v : BitVec n} {s : MachineData} {ca : List Directive} {ra : XReg}
-    (ha : armArgIn tmp pa = some (ca, ra)) (hp : armMach.PArgHolds s (.bits n) pa v) :
-    _root_.Program.wp ca (fun s' =>
+    {v : BitVec n} {s : MachineData} {ca : List Instr} {ra : XReg}
+    (ha : armArgInIns tmp pa = some (ca, ra)) (hp : armMach.PArgHolds s (.bits n) pa v) :
+    _root_.Program.wp (emitClean ca) (fun s' =>
       (s'.regs.getXReg ra).toBitVec.setWidth n = v ∧
       s'.dmem = s.dmem ∧ s'.status = s.status ∧
       armMach.Frame armCondReads s s' [.reg tmp] [] maskNone) (fun _ _ => False) s := by
@@ -111,25 +113,26 @@ theorem armArgIn_wp [Host] {n : Nat} (hn : n ≤ 64) {tmp : XReg} {pa : PArg Reg
   | vec vr => exact vr.elim
   | gpr r =>
     cases r with
-    | SP => simp [armArgIn] at ha
+    | SP => simp [armArgInIns] at ha
     | reg x =>
-      simp only [armArgIn, Option.some.injEq, Prod.mk.injEq] at ha
+      simp only [armArgInIns, Option.some.injEq, Prod.mk.injEq] at ha
       rcases ha with ⟨rfl, rfl⟩
       refine armWp_nil ⟨?_, rfl, rfl, Machine.Frame.refl (M := armMach) armCondReads s [.reg tmp] [] maskNone⟩
       simpa [Machine.PArgHolds, GprHolds, armMach, get_reg] using hp.2
   | imm c =>
-    simp only [armArgIn, Option.some.injEq, Prod.mk.injEq] at ha
+    simp only [armArgInIns, Option.some.injEq, Prod.mk.injEq] at ha
     rcases ha with ⟨rfl, rfl⟩
     simp only [Machine.PArgHolds] at hp
+    simp only [emitClean_cons, emitClean_nil]
     refine armWp_mono (armLdrPoolBv_wp tmp (c.setWidth 64) s) ?_
     rintro s' rfl
     refine ⟨?_, rfl, rfl, frame_wr tmp (c.setWidth 64) List.mem_cons_self maskNone⟩
     rw [← get_reg, get_wr_same, BitVec.setWidth_setWidth_of_le _ hn, BitVec.setWidth_eq, hp]
 
 theorem armBoolArgIn_wp [Host] {tmp : XReg} {pa : PArg Reg Empty ArmCond .bool}
-    {b : Bool} {s : MachineData} {ca : List Directive} {ra : XReg}
-    (ha : armBoolArgIn tmp pa = some (ca, ra)) (hp : armMach.PArgHolds s .bool pa b) :
-    _root_.Program.wp ca (fun s' =>
+    {b : Bool} {s : MachineData} {ca : List Instr} {ra : XReg}
+    (ha : armBoolArgInIns tmp pa = some (ca, ra)) (hp : armMach.PArgHolds s .bool pa b) :
+    _root_.Program.wp (emitClean ca) (fun s' =>
       (s'.regs.getXReg ra).toBitVec.setWidth 8 = BitVec.ofNat 8 b.toNat ∧
       s'.dmem = s.dmem ∧ s'.status = s.status ∧
       armMach.Frame armCondReads s s' [.reg tmp] [] maskNone) (fun _ _ => False) s := by
@@ -137,26 +140,28 @@ theorem armBoolArgIn_wp [Host] {tmp : XReg} {pa : PArg Reg Empty ArmCond .bool}
   | vec vr => exact vr.elim
   | gpr r =>
     cases r with
-    | SP => simp [armBoolArgIn] at ha
+    | SP => simp [armBoolArgInIns] at ha
     | reg x =>
-      simp only [armBoolArgIn, Option.some.injEq, Prod.mk.injEq] at ha
+      simp only [armBoolArgInIns, Option.some.injEq, Prod.mk.injEq] at ha
       rcases ha with ⟨rfl, rfl⟩
       refine armWp_nil ⟨?_, rfl, rfl, Machine.Frame.refl (M := armMach) armCondReads s [.reg tmp] [] maskNone⟩
       simpa [Machine.PArgHolds, GprHolds, armMach, get_reg] using hp
   | imm cv =>
-    simp only [armBoolArgIn, Option.some.injEq, Prod.mk.injEq] at ha
+    simp only [armBoolArgInIns, Option.some.injEq, Prod.mk.injEq] at ha
     rcases ha with ⟨rfl, rfl⟩
     simp only [Machine.PArgHolds] at hp
     subst hp
+    simp only [emitClean_cons, emitClean_nil]
     refine armWp_mono (armLdrPoolBv_wp tmp (BitVec.ofNat 64 cv.toNat) s) ?_
     rintro s' rfl
     refine ⟨?_, rfl, rfl, frame_wr tmp _ List.mem_cons_self maskNone⟩
     rw [← get_reg, get_wr_same]
     cases cv <;> rfl
   | flag cond =>
-    simp only [armBoolArgIn, Option.some.injEq, Prod.mk.injEq] at ha
+    simp only [armBoolArgInIns, Option.some.injEq, Prod.mk.injEq] at ha
     rcases ha with ⟨rfl, rfl⟩
     simp only [Machine.PArgHolds] at hp
+    simp only [emitClean_cons, emitClean_nil]
     refine armWp_mono (armCset64_wp tmp cond s) ?_
     rintro s' rfl
     refine ⟨?_, rfl, rfl, frame_wr tmp _ List.mem_cons_self maskNone⟩
@@ -329,7 +334,8 @@ theorem armJnzGpr_spec {h : Host} {k j : Nat} {r : Reg} {l : Sym} {b : Bool} {s 
     · simp only [hbit]; exact hrun.2 rfl
     · simp only [hbit]; rw [hl']; exact hrun.1 rfl
   | SP =>
-    dsimp only [armJnzGpr] at hc
+    dsimp only [armJnzGpr, armJnzGprIns] at hc
+    simp only [emitClean_cons, emitClean_nil] at hc
     rw [show [armMovToX .X16 .SP, ins (.TBNZ (zr .X16 .W32) 0 (.label l))] =
       [armMovToX .X16 .SP] ++ [ins (.TBNZ (zr .X16 .W32) 0 (.label l))] from rfl] at hc
     have hpair := hc.append
@@ -373,15 +379,16 @@ private theorem armAtReg_eval [Labels] (s : MachineData) (rb : XReg) (p : Std.Rc
 
 theorem armSetupAddr_wp [Host] (scale : Nat) (a : AddrArg Reg) (s : MachineData)
     (haregs : ∀ r ∈ a.regs, r ∉ armScratch) :
-    let (setup, addr) := armSetupAddr scale a
+    let (setup, addr) := armSetupAddrIns scale a
     (∃ rx, addr.base = .low (.reg rx) .W64) ∧
-    _root_.Program.wp setup (fun s' =>
+    _root_.Program.wp (emitClean setup) (fun s' =>
       (∀ [Labels] p, addr.eval s' p = (a.eval (get s), s')) ∧
       (∀ x, x ≠ .X16 → s'.regs.getXReg x = s.regs.getXReg x) ∧
       s'.regs.SP = s.regs.SP ∧ s'.dmem = s.dmem ∧ s'.status = s.status ∧
       armMach.Frame armCondReads s s' [.reg .X16] [] maskNone) (fun _ _ => False) s := by
   cases a with
   | imm addr =>
+    simp only [armSetupAddrIns, emitClean_cons, emitClean_nil]
     refine ⟨⟨.X16, rfl⟩, armWp_mono (armLdrPoolBv_wp .X16 addr s) ?_⟩
     rintro s' rfl
     refine ⟨by intro _ p; rw [armAtReg_eval, ← get_reg, get_wr_same, AddrArg.eval],
@@ -391,7 +398,7 @@ theorem armSetupAddr_wp [Host] (scale : Nat) (a : AddrArg Reg) (s : MachineData)
     cases base with
     | reg rb =>
       have hrb16 : rb ≠ .X16 := fun h => haregs (.reg rb) (by simp [AddrArg.regs]) (by simp [h, armScratch])
-      dsimp only [armSetupAddr]
+      dsimp only [armSetupAddrIns]
       split
       · rename_i h0
         have hd : disp.toBitVec = 0#64 := by
@@ -403,7 +410,8 @@ theorem armSetupAddr_wp [Host] (scale : Nat) (a : AddrArg Reg) (s : MachineData)
         · refine ⟨⟨rb, rfl⟩, armWp_nil ⟨by intro _ p; rw [armAtDisp_eval, AddrArg.eval, get_reg],
             fun _ _ => rfl, rfl, rfl, rfl,
             Machine.Frame.refl (M := armMach) armCondReads s [.reg .X16] [] maskNone⟩⟩
-        · refine ⟨⟨rb, rfl⟩, armWp_mono (armLdrPoolBv_wp .X16 disp.toBitVec s) ?_⟩
+        · simp only [emitClean_cons, emitClean_nil]
+          refine ⟨⟨rb, rfl⟩, armWp_mono (armLdrPoolBv_wp .X16 disp.toBitVec s) ?_⟩
           rintro s' rfl
           refine ⟨by
               intro _ p
@@ -412,18 +420,20 @@ theorem armSetupAddr_wp [Host] (scale : Nat) (a : AddrArg Reg) (s : MachineData)
             fun x hx => Reg64s.getXReg_setXReg_of_ne _ _ _ _ hx.symm,
             rfl, rfl, rfl, frame_wr .X16 _ List.mem_cons_self maskNone⟩
     | SP =>
-      dsimp only [armSetupAddr]
+      dsimp only [armSetupAddrIns]
       split
       · rename_i h0
         have hd : disp.toBitVec = 0#64 := by
           have := beq_iff_eq.mp h0; subst this; rfl
+        simp only [emitClean_cons, emitClean_nil]
         refine ⟨⟨.X16, rfl⟩, armWp_mono (armMovToX_wp .X16 .SP s) ?_⟩
         rintro s' rfl
         refine ⟨by intro _ p; rw [armAtReg_eval, AddrArg.eval, hd, BitVec.add_zero, ← get_reg, get_wr_same],
           fun x hx => Reg64s.getXReg_setXReg_of_ne _ _ _ _ hx.symm,
           rfl, rfl, rfl, frame_wr .X16 (get s .SP) List.mem_cons_self maskNone⟩
       · split
-        · refine ⟨⟨.X16, rfl⟩, armWp_mono (armDirFallsTo_wp (by
+        · simp only [emitClean_cons, emitClean_nil]
+          refine ⟨⟨.X16, rfl⟩, armWp_mono (armDirFallsTo_wp (by
             intro _ p next jmp P hk
             simp only [t_step_simp, Reg64s.setRegOrSp, Reg64s.setRegOrSp64,
               Reg64s.getRegOrSp_sp64, ConstExpr.interp, RegWidth.bits]
@@ -435,7 +445,8 @@ theorem armSetupAddr_wp [Host] (scale : Nat) (a : AddrArg Reg) (s : MachineData)
               simp only [armAtReg_eval, AddrArg.eval, get_sp, Reg64s.getXReg_setXReg_same],
             fun x hx => Reg64s.getXReg_setXReg_of_ne _ _ _ _ hx.symm,
             rfl, rfl, rfl, frame_wr .X16 _ List.mem_cons_self maskNone⟩
-        · refine ⟨⟨.X16, rfl⟩, armWp_cons (armLdrPoolBv_wp .X16 disp.toBitVec s) ?_⟩
+        · simp only [emitClean_cons, emitClean_nil]
+          refine ⟨⟨.X16, rfl⟩, armWp_cons (armLdrPoolBv_wp .X16 disp.toBitVec s) ?_⟩
           rintro s₁ rfl
           refine armWp_mono (armDirFallsTo_wp (by
             intro _ p next jmp P hk
@@ -464,17 +475,17 @@ private theorem Reg64s_getXReg_setSP' (regs : Reg64s) (v : UInt64) (x : XReg) :
   cases x <;> rfl
 
 private theorem armLoadDir_wp [Host] {t : Ty} {d : XReg} {addr : AddrExpr} {a : BitVec 64}
-    {v : Val t} {s : MachineData} {dir : Directive}
-    (hdir : armLoadDir t d addr = some dir) (hnoSp : ∃ rx, addr.base = .low (.reg rx) .W64)
+    {v : Val t} {s : MachineData} {dir : Instr}
+    (hdir : armLoadDirI t d addr = some dir) (hnoSp : ∃ rx, addr.base = .low (.reg rx) .W64)
     (heval : ∀ [Labels] p, addr.eval s p = (a, s)) (hload : loadVal s.dmem t a = some v) :
-    _root_.Program.wp [dir] (fun s' =>
+    _root_.Program.wp [.instr dir] (fun s' =>
       ∃ w64 : BitVec 64, s' = wr s d w64 ∧ GprHolds w64 t v) (fun _ _ => False) s := by
   obtain ⟨rx, hrx⟩ := hnoSp
   simp only [loadVal, Option.bind_eq_some_iff] at hload
   rcases hload with ⟨i, hi, hv⟩
   cases t with
   | bool =>
-    simp only [armLoadDir, Option.some.injEq] at hdir; subst hdir
+    simp only [armLoadDirI, Option.some.injEq] at hdir; subst hdir
     simp only [Ty.bytes, Ty.size] at hi
     cases hb : (i == 0 || i == 1) <;> simp only [hb, Bool.false_eq_true, ↓reduceIte,
       Option.some.injEq, reduceCtorEq] at hv
@@ -496,9 +507,9 @@ private theorem armLoadDir_wp [Host] {t : Ty} {d : XReg} {addr : AddrExpr} {a : 
       · exact Or.inl (Or.inr h)
       · exact Or.inr (Or.inl h)
       · exact Or.inr (Or.inr h)
-      · exfalso; revert hdir; simp [armLoadDir, h1, h2, h3, h4]
+      · exfalso; revert hdir; simp [armLoadDirI, h1, h2, h3, h4]
     rcases hns with (rfl | rfl) | (rfl | rfl) <;>
-      (simp only [armLoadDir, Option.some.injEq] at hdir; subst hdir;
+      (simp only [armLoadDirI, Option.some.injEq] at hdir; subst hdir;
        simp only [Ty.bytes, Ty.size, ofBits, Option.some.injEq] at hi hv; subst hv;
        refine armDirFallsTo_wp (by
          intro _ p next jmp P hk
@@ -511,25 +522,27 @@ private theorem armLoadDir_wp [Host] {t : Ty} {d : XReg} {addr : AddrExpr} {a : 
          first
          | exact zeroExtend_setWidth_low (by decide : _ ≤ 32) (by decide) _
          | simp))
-  | float _ | pair _ _ => simp [armLoadDir] at hdir
+  | float _ | pair _ _ => simp [armLoadDirI] at hdir
 
 theorem armLoad_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg} {a : AddrArg Reg}
     {c : List Directive} {clob : FlagMask} {v : Val t} {s : MachineData} {post : MachineState → Prop}
-    (hc : armLoad t rd a = some (c, clob)) (_ : rd ∉ armScratch)
+    (hc_in : armLoad t rd a = some (c, clob)) (_ : rd ∉ armScratch)
     (haregs : ∀ r ∈ a.regs, r ∉ armScratch) (hv : loadVal (armMach.mem s) t (a.eval (get s)) = some v) :
     armMach.FallsTo armCondReads h k c (rd :: armScratch) [] clob s
       (fun s' => GprHolds (armMach.getGpr s' rd) t v ∧ armMach.mem s' = armMach.mem s) post := by
   letI := h
-  simp only [armLoad, bind, Option.bind_eq_some_iff] at hc
+  obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc_in
+  simp only [armLoadIns, bind, Option.bind_eq_some_iff] at hc
   rcases hc with ⟨scale, _, hrest⟩
   have hsetup := armSetupAddr_wp scale a s haregs
-  generalize armSetupAddr scale a = sa at hrest hsetup
+  generalize armSetupAddrIns scale a = sa at hrest hsetup
   rcases sa with ⟨setup, addr⟩
   rcases hsetup with ⟨hnoSp, hwpSetup⟩
   cases rd with
   | reg d =>
     simp only [Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hrest
     rcases hrest with ⟨dir, hdir, rfl, rfl⟩
+    simp only [emitClean_append, emitClean_cons, emitClean_nil]
     refine armFallsTo_of_wp (armWp_append hwpSetup ?_)
     rintro s₁ ⟨heval, _, _, hdmem₁, hst₁, hfr₁⟩
     refine armWp_mono (armLoadDir_wp hdir hnoSp heval (by simpa [armMach, hdmem₁] using hv)) ?_
@@ -542,6 +555,7 @@ theorem armLoad_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg} {a : AddrArg Reg}
   | SP =>
     simp only [Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hrest
     rcases hrest with ⟨dir, hdir, rfl, rfl⟩
+    simp only [emitClean_append, emitClean_cons, emitClean_nil]
     refine armFallsTo_of_wp (armWp_append hwpSetup ?_)
     rintro s₁ ⟨heval, hx₁, _, hdmem₁, hst₁, _⟩
     refine armWp_cons (armLoadDir_wp hdir hnoSp heval (by simpa [armMach, hdmem₁] using hv)) ?_
@@ -562,12 +576,12 @@ theorem armLoad_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg} {a : AddrArg Reg}
         exact congrArg UInt64.toBitVec h1
 
 private theorem armStoreValIn_wp [Host] {t : Ty} {pa : PArg Reg Empty ArmCond t}
-    {v : Val t} {s : MachineData} {valSetup : List Directive} {rx : XReg}
-    (hpa : armStoreValIn t pa = some (valSetup, rx))
+    {v : Val t} {s : MachineData} {valSetup : List Instr} {rx : XReg}
+    (hpa : armStoreValInIns t pa = some (valSetup, rx))
     (hp : armMach.PArgHolds s t pa v)
     (hregs : ∀ r ∈ pa.gprs, r ∉ armScratch)
     (ht : t = .bool ∨ t = .bits 8 ∨ t = .bits 16 ∨ t = .bits 32 ∨ t = .bits 64) :
-    _root_.Program.wp valSetup (fun s' =>
+    _root_.Program.wp (emitClean valSetup) (fun s' =>
       rx ≠ .X16 ∧
       (∃ w64 : BitVec 64, (s'.regs.getXReg rx).toBitVec = w64 ∧ GprHolds w64 t v) ∧
       s'.dmem = s.dmem ∧ s'.status = s.status ∧
@@ -579,9 +593,10 @@ private theorem armStoreValIn_wp [Host] {t : Ty} {pa : PArg Reg Empty ArmCond t}
     cases pa with
     | vec vr => exact vr.elim
     | flag cond =>
-      simp only [armStoreValIn, Option.some.injEq, Prod.mk.injEq] at hpa
+      simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
       rcases hpa with ⟨rfl, rfl⟩
       simp only [Machine.PArgHolds] at hp
+      simp only [emitClean_cons, emitClean_nil]
       refine armWp_mono (armCset64_wp .X17 cond s) ?_
       rintro s' rfl
       refine ⟨by decide, ⟨_, rfl, ?_⟩, rfl, rfl,
@@ -591,14 +606,15 @@ private theorem armStoreValIn_wp [Host] {t : Ty} {pa : PArg Reg Empty ArmCond t}
     | gpr r =>
       cases r with
       | reg x =>
-        simp only [armStoreValIn, Option.some.injEq, Prod.mk.injEq] at hpa
+        simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
         rcases hpa with ⟨rfl, rfl⟩
         have hx16 : x ≠ .X16 := (xreg_ne_scratch_of_not_mem (hregs (.reg x) (by simp [PArg.gprs]))).1
         refine armWp_nil ⟨hx16, ⟨_, rfl, ?_⟩, rfl, rfl, fun _ _ => rfl, rfl⟩
         simpa [Machine.PArgHolds, armMach, get_reg] using hp
       | SP =>
-        simp only [armStoreValIn, Option.some.injEq, Prod.mk.injEq] at hpa
+        simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
         rcases hpa with ⟨rfl, rfl⟩
+        simp only [emitClean_cons, emitClean_nil]
         refine armWp_mono (armMovToX_wp .X17 .SP s) ?_
         rintro s' rfl
         refine ⟨by decide, ⟨_, rfl, ?_⟩, rfl, rfl,
@@ -606,9 +622,10 @@ private theorem armStoreValIn_wp [Host] {t : Ty} {pa : PArg Reg Empty ArmCond t}
         rw [Reg64s.getXReg_setXReg_same]
         simpa [Machine.PArgHolds, armMach, get_sp] using hp
     | imm c =>
-      simp only [armStoreValIn, Option.some.injEq, Prod.mk.injEq] at hpa
+      simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
       rcases hpa with ⟨rfl, rfl⟩
       simp only [Machine.PArgHolds] at hp
+      simp only [emitClean_cons, emitClean_nil]
       refine armWp_mono (armLdrPoolBv_wp .X17 _ s) ?_
       rintro s' rfl
       refine ⟨by decide, ⟨_, rfl, ?_⟩, rfl, rfl,
@@ -622,14 +639,15 @@ private theorem armStoreValIn_wp [Host] {t : Ty} {pa : PArg Reg Empty ArmCond t}
     | gpr r =>
       cases r with
       | reg x =>
-        simp only [armStoreValIn, Option.some.injEq, Prod.mk.injEq] at hpa
+        simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
         rcases hpa with ⟨rfl, rfl⟩
         have hx16 : x ≠ .X16 := (xreg_ne_scratch_of_not_mem (hregs (.reg x) (by simp [PArg.gprs]))).1
         refine armWp_nil ⟨hx16, ⟨_, rfl, ?_⟩, rfl, rfl, fun _ _ => rfl, rfl⟩
         simpa [Machine.PArgHolds, armMach, get_reg] using hp
       | SP =>
-        simp only [armStoreValIn, Option.some.injEq, Prod.mk.injEq] at hpa
+        simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
         rcases hpa with ⟨rfl, rfl⟩
+        simp only [emitClean_cons, emitClean_nil]
         refine armWp_mono (armMovToX_wp .X17 .SP s) ?_
         rintro s' rfl
         refine ⟨by decide, ⟨_, rfl, ?_⟩, rfl, rfl,
@@ -637,9 +655,10 @@ private theorem armStoreValIn_wp [Host] {t : Ty} {pa : PArg Reg Empty ArmCond t}
         rw [Reg64s.getXReg_setXReg_same]
         simpa [Machine.PArgHolds, armMach, get_sp] using hp
     | imm c =>
-      simp only [armStoreValIn, Option.some.injEq, Prod.mk.injEq] at hpa
+      simp only [armStoreValInIns, Option.some.injEq, Prod.mk.injEq] at hpa
       rcases hpa with ⟨rfl, rfl⟩
       simp only [Machine.PArgHolds] at hp
+      simp only [emitClean_cons, emitClean_nil]
       refine armWp_mono (armLdrPoolBv_wp .X17 _ s) ?_
       rintro s' rfl
       refine ⟨by decide, ⟨_, rfl, ?_⟩, rfl, rfl,
@@ -654,19 +673,19 @@ private theorem take_setWidth_32_low {k : Nat} (hk : k ≤ 32) (v : BitVec 64) :
   ext i hi; simp [BitVec.take, show (i : Nat) < 32 by omega]
 
 private theorem armStoreDir_wp [Host] {t : Ty} {rx : XReg} {addr : AddrExpr} {a : BitVec 64}
-    {v : Val t} {s : MachineData} {dir : Directive}
-    (hdir : armStoreDir t rx addr = some dir) (hnoSp : ∃ r, addr.base = .low (.reg r) .W64)
+    {v : Val t} {s : MachineData} {dir : Instr}
+    (hdir : armStoreDirI t rx addr = some dir) (hnoSp : ∃ r, addr.base = .low (.reg r) .W64)
     (heval : ∀ [Labels] p, addr.eval s p = (a, s))
     (hval : GprHolds (s.regs.getXReg rx).toBitVec t v)
     (hok : storeOk s.dmem t a) :
-    _root_.Program.wp [dir] (fun s' =>
+    _root_.Program.wp [.instr dir] (fun s' =>
       s'.regs = s.regs ∧ s'.status = s.status ∧ s'.dmem = storeMem s.dmem t a v)
       (fun _ _ => False) s := by
   obtain ⟨r, hr⟩ := hnoSp
   rcases hok with ⟨i, hi⟩
   cases t with
   | bool =>
-    simp only [armStoreDir, Option.some.injEq] at hdir; subst hdir
+    simp only [armStoreDirI, Option.some.injEq] at hdir; subst hdir
     simp only [Ty.bytes, Ty.size] at hi
     refine armDirFallsTo_wp (by
       intro _ p next jmp P hk
@@ -686,9 +705,9 @@ private theorem armStoreDir_wp [Host] {t : Ty} {rx : XReg} {addr : AddrExpr} {a 
       · exact Or.inr (Or.inl h)
       · exact Or.inr (Or.inr (Or.inl h))
       · exact Or.inr (Or.inr (Or.inr h))
-      · exfalso; revert hdir; simp [armStoreDir, h1, h2, h3, h4]
+      · exfalso; revert hdir; simp [armStoreDirI, h1, h2, h3, h4]
     rcases hns with rfl | rfl | rfl | rfl <;>
-      (simp only [armStoreDir, Option.some.injEq] at hdir; subst hdir;
+      (simp only [armStoreDirI, Option.some.injEq] at hdir; subst hdir;
        simp only [Ty.bytes, Ty.size] at hi;
        refine armDirFallsTo_wp (by
          intro _ p next jmp P hk
@@ -700,18 +719,19 @@ private theorem armStoreDir_wp [Host] {t : Ty} {rx : XReg} {addr : AddrExpr} {a 
          simp only [storeMem, Ty.bytes, Ty.size, toBits, GprHolds] at hval ⊢
          try rw [take_setWidth_32_low (by decide : _ ≤ 32)]
          rw [hval.2]; rfl))
-  | float _ | pair _ _ => simp [armStoreDir] at hdir
+  | float _ | pair _ _ => simp [armStoreDirI] at hdir
 
 theorem armStore_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg Empty ArmCond t}
     {a : AddrArg Reg} {c : List Directive} {clob : FlagMask} {v : Val t} {s : MachineData}
     {post : MachineState → Prop}
-    (hc : armStore t pa a = some (c, clob))
+    (hc_in : armStore t pa a = some (c, clob))
     (hregs : ∀ r ∈ pa.gprs ++ a.regs, r ∉ armScratch)
     (hp : armMach.PArgHolds s t pa v) (hok : storeOk (armMach.mem s) t (a.eval (get s))) :
     armMach.FallsTo armCondReads h k c armScratch [] clob s
       (fun s' => armMach.mem s' = storeMem (armMach.mem s) t (a.eval (get s)) v) post := by
   letI := h
-  simp only [armStore, bind, Option.bind_eq_some_iff] at hc
+  obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc_in
+  simp only [armStoreIns, bind, Option.bind_eq_some_iff] at hc
   rcases hc with ⟨scale, hsc, ⟨valSetup, rx⟩, hva, dir, hdir, rfl, rfl⟩
   have ht : t = .bool ∨ t = .bits 8 ∨ t = .bits 16 ∨ t = .bits 32 ∨ t = .bits 64 := by
     match t with
@@ -732,10 +752,11 @@ theorem armStore_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg Empty ArmCond
   have hpaRegs : ∀ r ∈ pa.gprs, r ∉ armScratch := fun r hr => hregs r (List.mem_append_left _ hr)
   have haRegs : ∀ r ∈ a.regs, r ∉ armScratch := fun r hr => hregs r (List.mem_append_right _ hr)
   rw [List.append_assoc]
+  simp only [emitClean_append, emitClean_cons, emitClean_nil]
   refine armFallsTo_of_wp (armWp_append (armStoreValIn_wp hva hp hpaRegs ht) ?_)
   rintro s₁ ⟨hrx16, ⟨w64, hrx₁, hw64⟩, hdmem₁, hst₁, hx₁, hsp₁⟩
   have hsetup := armSetupAddr_wp scale a s₁ haRegs
-  generalize armSetupAddr scale a = sa at hdir hsetup
+  generalize armSetupAddrIns scale a = sa at hdir hsetup
   rcases sa with ⟨addrSetup, addr⟩
   rcases hsetup with ⟨hnoSp, hwpAddr⟩
   have heqAddr : a.eval (get s₁) = a.eval (get s) := by
@@ -1010,95 +1031,40 @@ theorem srem_subword_32 {n : Nat} (hn : n = 8 ∨ n = 16) (a b : BitVec n) :
   rw [srem_eq_sub, srem_eq_sub, setWidth_sub_of_le hle, setWidth_mul_of_le hle,
     sdiv_subword_32 hn, setWidth_signExtend_self hle, setWidth_signExtend_self hle]
 
-/-! ## 5. Shared `NoLab` helpers & non-`op` `NoLab` theorems -/
+/-! ## 5. Non-`op` `NoLab` theorems -/
 
-theorem noLab_ins {w} (l : Sym) (o : Operation w) : Kraken.Directive.label l ≠ ins o := by
-  simp [ins]
+theorem armClearFlags_noLab (l : Sym) : Kraken.Directive.label l ∉ armGpr.clearFlags :=
+  emitClean_noLab _ l
 
-theorem noLab_argIn {n : Nat} (tmp : XReg) (pa : PArg Reg Empty ArmCond (.bits n))
-    {ca : List Directive} {ra : XReg} (ha : armArgIn tmp pa = some (ca, ra)) (l : Sym) :
-    Kraken.Directive.label l ∉ ca := by
-  cases pa with
-  | vec vr => exact vr.elim
-  | gpr r => cases r <;> simp [armArgIn] at ha; rcases ha with ⟨rfl, rfl⟩; simp
-  | imm c => simp [armArgIn] at ha; rcases ha with ⟨rfl, rfl⟩; simp [armLdrPoolBv, ins]
-
-theorem noLab_boolArgIn (tmp : XReg) (pa : PArg Reg Empty ArmCond .bool)
-    {ca : List Directive} {ra : XReg} (ha : armBoolArgIn tmp pa = some (ca, ra)) (l : Sym) :
-    Kraken.Directive.label l ∉ ca := by
-  cases pa with
-  | vec vr => exact vr.elim
-  | gpr r => cases r <;> simp [armBoolArgIn] at ha; rcases ha with ⟨rfl, rfl⟩; simp
-  | imm c => simp [armBoolArgIn] at ha; rcases ha with ⟨rfl, rfl⟩; simp [armLdrPoolBv, ins]
-  | flag c => simp [armBoolArgIn] at ha; rcases ha with ⟨rfl, rfl⟩; simp [armCset64, ins]
-
-theorem noLab_setupAddr (scale : Nat) (a : AddrArg Reg) (l : Sym) :
-    Kraken.Directive.label l ∉ (armSetupAddr scale a).1 := by
-  cases a with
-  | imm _ => simp [armSetupAddr, armLdrPoolBv, ins]
-  | baseDisp base disp =>
-    cases base <;> dsimp only [armSetupAddr]
-    · split
-      · simp
-      · split <;> simp [armLdrPoolBv, ins]
-    · split
-      · simp [armMovToX, ins]
-      · split <;> simp [armLdrPoolBv, ins]
-
-theorem armClearFlags_noLab (l : Sym) : Kraken.Directive.label l ∉ armGpr.clearFlags := by
-  simp [armClearFlags, ins]
-
-theorem armMov_noLab (rd rs : Reg) (l : Sym) : Kraken.Directive.label l ∉ armGpr.mov rd rs := by
-  simp [armMov, ins]
+theorem armMov_noLab (rd rs : Reg) (l : Sym) : Kraken.Directive.label l ∉ armGpr.mov rd rs :=
+  emitClean_noLab _ l
 
 theorem armMovi_noLab (rd : Reg) (c : BitVec 64) (l : Sym) :
-    Kraken.Directive.label l ∉ armGpr.movi rd c := by
-  cases rd <;> simp [armMovi, armLdrPoolBv, armMovToSp, ins]
+    Kraken.Directive.label l ∉ armGpr.movi rd c :=
+  emitClean_noLab _ l
 
 theorem armSetcc_noLab (rd : Reg) (c : ArmCond) (l : Sym) :
-    Kraken.Directive.label l ∉ armGpr.setcc rd c := by
-  cases rd <;> simp [armSetcc, armCset64, armMovToSp, ins]
+    Kraken.Directive.label l ∉ armGpr.setcc rd c :=
+  emitClean_noLab _ l
 
-theorem armJmp_noLab (tgt l : Sym) : Kraken.Directive.label l ∉ armGpr.jmp tgt := by
-  simp [armJmp, ins]
+theorem armJmp_noLab (tgt l : Sym) : Kraken.Directive.label l ∉ armGpr.jmp tgt :=
+  emitClean_noLab _ l
 
-theorem armJcc_noLab (c : ArmCond) (tgt l : Sym) : Kraken.Directive.label l ∉ armGpr.jcc c tgt := by
-  simp [armJcc, ins]
+theorem armJcc_noLab (c : ArmCond) (tgt l : Sym) : Kraken.Directive.label l ∉ armGpr.jcc c tgt :=
+  emitClean_noLab _ l
 
 theorem armJnzGpr_noLab (r : Reg) (tgt l : Sym) :
-    Kraken.Directive.label l ∉ (armGpr.jnzGpr r tgt).1 := by
-  cases r <;> simp [armJnzGpr, armMovToX, ins]
+    Kraken.Directive.label l ∉ (armGpr.jnzGpr r tgt).1 :=
+  emitClean_noLab _ l
 
 theorem armLoad_noLab {t : Ty} {rd : Reg} {a : AddrArg Reg} {c : List Directive} {clob : FlagMask}
-    (hc : armGpr.load t rd a = some (c, clob)) (l : Sym) : Kraken.Directive.label l ∉ c := by
-  simp only [armLoad, bind, Option.bind_eq_some_iff] at hc
-  rcases hc with ⟨scale, _, hrest⟩
-  have hsa := noLab_setupAddr scale a l
-  cases rd <;> simp only [Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hrest
-  · rcases hrest with ⟨dir, hdir, rfl, rfl⟩
-    simp only [List.mem_append, List.mem_singleton, not_or]
-    refine ⟨hsa, ?_⟩
-    dsimp [armLoadDir] at hdir
-    split at hdir <;> cases hdir <;> simp [ins]
-  · rcases hrest with ⟨dir, hdir, rfl, rfl⟩
-    simp only [List.mem_append, List.mem_cons, not_or]
-    refine ⟨hsa, ?_, by simp [armMovToSp, ins]⟩
-    dsimp [armLoadDir] at hdir
-    split at hdir <;> cases hdir <;> simp [ins]
+    (hc : armGpr.load t rd a = some (c, clob)) (l : Sym) : Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab hc l
 
 theorem armStore_noLab {t : Ty} {pa : PArg Reg Empty ArmCond t} {a : AddrArg Reg}
     {c : List Directive} {clob : FlagMask} (hc : armGpr.store t pa a = some (c, clob)) (l : Sym) :
-    Kraken.Directive.label l ∉ c := by
-  simp only [armStore, bind, Option.bind_eq_some_iff] at hc
-  rcases hc with ⟨scale, _, ⟨valSetup, rx⟩, hva, dir, hdir, rfl, rfl⟩
-  simp only [List.mem_append, List.mem_singleton, not_or]
-  refine ⟨⟨?_, noLab_setupAddr scale a l⟩, ?_⟩
-  · cases t <;> cases pa <;> try simp [armStoreValIn] at hva
-    all_goals first
-      | (rcases hva with ⟨rfl, rfl⟩; simp [armLdrPoolBv, armCset64, ins])
-      | (rename_i r; cases r <;> rcases hva with ⟨rfl, rfl⟩ <;> simp [armMovToX, ins])
-  · dsimp [armStoreDir] at hdir
-    split at hdir <;> cases hdir <;> simp [ins]
+    Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab hc l
 
 end LeanQbe.T.Arm64
 

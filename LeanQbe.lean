@@ -72,6 +72,7 @@ public import LeanQbe.T.LicmLemmas
 public import LeanQbe.T.Trie
 public import LeanQbe.T.Target
 public import LeanQbe.T.TargetLemmas
+public import LeanQbe.T.IselStepAttr
 public import LeanQbe.T.AbiLemmas
 public import LeanQbe.T.Live
 public import LeanQbe.T.SpillFlags

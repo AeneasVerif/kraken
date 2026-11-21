@@ -173,7 +173,8 @@ theorem x64Prologue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
     rw [hsplit] at hmem
     exact sep_cast hmem (by ac_rfl)
   apply fallsTo_of_wp
-  dsimp only [x64Prologue]
+  dsimp only [x64Prologue, x64PrologueIns]
+  simp only [emitClean_ite]
   split
   · refine Program.wp.mono (Directive.FallsTo.wp (x64SubSpD_fallsTo (Int64.ofNat (x64FrameSize ns)) s)) ?_
     rintro s' ⟨hregs, hzmms, hdmem⟩
@@ -218,7 +219,8 @@ theorem x64Epilogue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
       region (s.regs.get64 .rsp + BitVec.ofNat 64 (8 * ns)) (x64FrameSize ns - 8 * ns) ⋆ G) :=
     sep_cast hmem (by ac_rfl)
   apply fallsTo_of_wp
-  dsimp only [x64Epilogue]
+  dsimp only [x64Epilogue, x64EpilogueIns]
+  simp only [emitClean_ite]
   split
   · refine Program.wp.mono (Directive.FallsTo.wp (x64AddSpD_fallsTo (Int64.ofNat (x64FrameSize ns)) s)) ?_
     rintro s' ⟨hregs, hzmms, hdmem⟩
@@ -254,7 +256,8 @@ theorem x64SlotSt_spec {h : Host} {k i : Nat} {r : Reg64} {s : MachineData}
   letI := h
   have ⟨hr10, _⟩ := ne_of_not_mem_x64Scratch hr
   apply fallsTo_of_wp
-  dsimp only [x64SlotSt]
+  dsimp only [x64SlotSt, x64SlotStIns]
+  simp only [emitClean_ite]
   split
   · refine Program.wp.mono
       (Directive.FallsTo.wp (x64StAddr_fallsTo r (x64AtSp (Int64.ofNat (8 * i)))
@@ -291,7 +294,8 @@ theorem x64SlotLd_spec {h : Host} {k i : Nat} {rd : Reg64} {v : BitVec 64} {s : 
   letI := h
   have ⟨hrd10, _⟩ := ne_of_not_mem_x64Scratch hrd
   apply fallsTo_of_wp
-  dsimp only [x64SlotLd]
+  dsimp only [x64SlotLd, x64SlotLdIns]
+  simp only [emitClean_ite]
   split
   · refine Program.wp.mono
       (Directive.FallsTo.wp (x64LdAddr_fallsTo rd (x64AtSp (Int64.ofNat (8 * i)))
@@ -498,45 +502,36 @@ def x64FrameSpec : FrameTarget x64Mach x64Frame x64CondReads where
 section NoLab
 
 theorem x64Prologue_noLab (ns : Nat) (l : Sym) :
-    Kraken.Directive.label l ∉ (x64Frame.prologue ns).1 := by
-  dsimp only [x64Frame, x64Prologue]
-  split <;> simp [x64SubSpD, x64MoviD, ins]
+    Kraken.Directive.label l ∉ (x64Frame.prologue ns).1 :=
+  emitClean_noLab _ l
 
 theorem x64Epilogue_noLab (ns : Nat) (l : Sym) :
-    Kraken.Directive.label l ∉ (x64Frame.epilogue ns).1 := by
-  dsimp only [x64Frame, x64Epilogue]
-  split <;> simp [x64AddSpD, x64MoviD, ins]
+    Kraken.Directive.label l ∉ (x64Frame.epilogue ns).1 :=
+  emitClean_noLab _ l
 
 theorem x64SlotSt_noLab (i : Nat) (r : Reg64) (l : Sym) :
-    Kraken.Directive.label l ∉ x64Frame.slotSt i r := by
-  dsimp only [x64Frame, x64SlotSt]
-  split <;> simp [x64StSpD, x64MoviD, ins]
+    Kraken.Directive.label l ∉ x64Frame.slotSt i r :=
+  emitClean_noLab _ l
 
 theorem x64SlotLd_noLab (rd : Reg64) (i : Nat) (l : Sym) :
-    Kraken.Directive.label l ∉ x64Frame.slotLd rd i := by
-  dsimp only [x64Frame, x64SlotLd]
-  split <;> simp [x64LdSpD, x64MoviD, ins]
+    Kraken.Directive.label l ∉ x64Frame.slotLd rd i :=
+  emitClean_noLab _ l
 
 theorem x64CanonAbi_noLab (t : Ty) (r : Reg64) (l : Sym) :
-    Kraken.Directive.label l ∉ (x64Frame.canonAbi t r).1 := by
-  cases t with
-  | bool => simp [x64CanonAbi, ins32]
-  | bits n =>
-    dsimp only [x64Frame, x64CanonAbi]
-    split <;> simp [ins32]
-  | float _ | pair _ _ => simp [x64CanonAbi]
+    Kraken.Directive.label l ∉ (x64Frame.canonAbi t r).1 :=
+  emitClean_noLab _ l
 
 theorem x64Call_noLab (sym : Sym) (l : Sym) :
-    Kraken.Directive.label l ∉ x64Frame.call sym := by
-  simp [x64CallD, ins]
+    Kraken.Directive.label l ∉ x64Frame.call sym :=
+  emitClean_noLab _ l
 
 theorem x64ExitJmp_noLab (sym : Sym) (l : Sym) :
-    Kraken.Directive.label l ∉ x64Frame.exitJmp sym := by
-  simp [x64JmpD, ins]
+    Kraken.Directive.label l ∉ x64Frame.exitJmp sym :=
+  emitClean_noLab _ l
 
 theorem x64Ret_noLab (l : Sym) :
-    Kraken.Directive.label l ∉ x64Frame.ret := by
-  simp [x64RetD, ins]
+    Kraken.Directive.label l ∉ x64Frame.ret :=
+  emitClean_noLab _ l
 
 end NoLab
 

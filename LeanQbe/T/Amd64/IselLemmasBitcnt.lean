@@ -416,17 +416,17 @@ private theorem bitcnt_narrow_step_wp [Host] {E : Int64 → MachineData → Prop
 
 theorem opBitcnt_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (bk : BitcntKind)
     {pa : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64}
-    {c : List Directive} {clob : FlagMask} {va : BitVec w.bits} {s : MachineData}
-    (hc : opBitcnt w bk pa rd = some (c, clob))
+    {c : List Instr} {clob : FlagMask} {va : BitVec w.bits} {s : MachineData}
+    (hc : opBitcntIns w bk pa rd = some (c, clob))
     (hrd : rd ∉ x64Scratch)
     (hargs : ∀ r ∈ pa.gprs, r ∉ x64Scratch)
     (hpa : x64Mach.PArgHolds s (.bits w.bits) pa va) :
-    _root_.Program.wp c (OpPost1 (.bits w.bits) rd (bk.eval w va) clob s) E s := by
+    _root_.Program.wp (emitClean c) (OpPost1 (.bits w.bits) rd (bk.eval w va) clob s) E s := by
   cases pa with
-  | vec _ => simp [opBitcnt] at hc
+  | vec _ => simp [opBitcntIns] at hc
   | imm ca =>
     rcases hpa with rfl
-    simp only [opBitcnt, Option.some.injEq, Prod.mk.injEq] at hc
+    simp only [opBitcntIns, Option.some.injEq, Prod.mk.injEq] at hc
     rcases hc with ⟨rfl, rfl⟩
     refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd _)) ?_
     rintro s' rfl
@@ -437,22 +437,22 @@ theorem opBitcnt_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (b
   | gpr ra =>
     have ha := hargs ra (by simp [PArg.gprs])
     have hpa' := (GprHolds.bits_iff w _ _).1 hpa
-    dsimp only [opBitcnt] at hc
+    dsimp only [opBitcntIns] at hc
     simp only [Option.some.injEq, Prod.mk.injEq] at hc
     rcases hc with ⟨hc_eq, rfl⟩
     cases w with
     | W8 =>
       refine bitcnt_narrow_step_wp .W8 (.inl rfl) bk ra rd s hrd hpa' ?_
-      cases bk <;> exact hc_eq
+      rw [← hc_eq]; cases bk <;> rfl
     | W16 =>
       refine bitcnt_narrow_step_wp .W16 (.inr rfl) bk ra rd s hrd hpa' ?_
-      cases bk <;> exact hc_eq
+      rw [← hc_eq]; cases bk <;> rfl
     | W32 =>
       refine bitcnt_wide_step_wp .W32 (.inl rfl) bk ra rd s ha hpa' ?_
-      cases bk <;> exact hc_eq
+      rw [← hc_eq]; cases bk <;> rfl
     | W64 =>
       refine bitcnt_wide_step_wp .W64 (.inr rfl) bk ra rd s ha hpa' ?_
-      cases bk <;> exact hc_eq
+      rw [← hc_eq]; cases bk <;> rfl
 
 end
 
