@@ -31,5 +31,6 @@ public import LeanQbe.T.Arm64.KissatFullCert6
 public import LeanQbe.T.Arm64.KissatFullCert7
 public import LeanQbe.T.Arm64.KissatFullCert
 public import LeanQbe.T.Arm64.KissatFull
+public import LeanQbe.T.Arm64.KissatFastSched
 
 /-! Root of the AArch64 library: imports `Kraken.AArch64` and `LeanQbe.T.Arm64.*`. -/

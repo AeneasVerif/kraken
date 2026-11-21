@@ -36,5 +36,6 @@ public import LeanQbe.T.Amd64.KissatFullCert6
 public import LeanQbe.T.Amd64.KissatFullCert7
 public import LeanQbe.T.Amd64.KissatFullCert
 public import LeanQbe.T.Amd64.KissatFull
+public import LeanQbe.T.Amd64.KissatFastSched
 
 /-! Root of the x64 library: imports `Kraken.X64` and `LeanQbe.T.Amd64.*`. -/

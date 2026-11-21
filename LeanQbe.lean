@@ -267,6 +267,8 @@ public import LeanQbe.T.Examples.Kissat.FullDeduce1UipLemmas1
 public import LeanQbe.T.Examples.Kissat.FullDeduce1UipLemmas
 public import LeanQbe.T.Examples.Kissat.FullDeduce1UipNv
 public import LeanQbe.T.Examples.Kissat.FullProof
+public import LeanQbe.T.Examples.Kissat.FullFastSchedLemmas
+public import LeanQbe.T.Examples.Kissat.FullFastBveBudgetsLemmas
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
