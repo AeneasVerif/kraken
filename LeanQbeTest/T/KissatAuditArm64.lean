@@ -42,10 +42,10 @@ corresponding library theorem. It imports `Kraken.AArch64` only (never `Kraken.X
 
 The `D-Full` (166-function) theorems take one hypothesis, `hmok : ModuleOk fullEnv fullModule`:
 every function body of `fullModule` satisfies its row of `fullSpecTable` under `Func.wp`. This
-is the single remaining Stage-4 hypothesis; it is discharged by the `FullProof` assembly once
-the remaining per-function `Func.wp` leaves are finished. The compilation certificate, the
-link-level reasoning and the top-level UNSAT argument are already fully proved. The `D-Plain`
-(59-function) theorems are unconditional.
+single remaining Stage-4 hypothesis is discharged for **165/166** rows by `FullProof` +
+`FullBridgeLemmas8a`/`8b` + `FullOneLitConflLemmas`; only row `[79]` (`full_deduce_1uip`,
+with parametric non-vacuity in `FullDeduce1UipNv`) remains open. Compilation certificates,
+link-level reasoning, and the top-level UNSAT proof are finished; `D-Plain` is unconditional.
 -/
 
 set_option autoImplicit false

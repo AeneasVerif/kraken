@@ -9,12 +9,23 @@ public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas4
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas5
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas6
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas8a
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas8b
+public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas9
+public import LeanQbe.T.Examples.Kissat.FullProof1
+public import LeanQbe.T.Examples.Kissat.FullProof
+public import LeanQbe.T.Examples.Kissat.FullOneLitConflLemmas
+public import LeanQbe.T.Examples.Kissat.FullDeduce1UipNv
 public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas
 public import LeanQbe.T.Examples.Kissat.FullTransLemmas
 public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas
 meta import LeanQbe.T.Examples.Kissat.PlainLemmas
 meta import LeanQbe.T.Examples.Kissat.FullSpec
 meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7
+meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas8a
+meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas8b
+meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas9
+meta import LeanQbe.T.Examples.Kissat.FullProof
 import all Std.Sat.CNF.Basic
 import all Std.Sat.CNF.Sat
 
@@ -195,15 +206,24 @@ theorem audit_fullEnv_eq :
     Full.fullEnv = Env.ofTable (Full.fullSpecTable Full.fullSolveBytesSpec) :=
   rfl
 
-/-! ## 5. Verified Canonical `D-Full` Bridge Coverage (`FullBridgeLemmas` + Stage-4 Components)
+/-! ## 5. Verified Canonical `D-Full` Bridge Coverage (`165/166` + `FullProof` Assembly)
 
 Canonical `Full.fullSpecTable Full.fullSolveBytesSpec` lists 166 functions (`FullSpec.lean`).
-Across `FullBridgeLemmas1`–`7`, 145 of those 166 entries (`26 + 32 + 11 + 26 + 18 + 10 + 22`)
-now have machine-checked `SpecEntry.Impl Full.fullEnv` / `_bridge_wp` proofs targeting the
-canonical `fullEnv`, alongside landed Stage-4 solver component contracts (`FullVivifyLemmas`,
+Across `FullBridgeLemmas1`–`7` (`145`), `FullBridgeLemmas8a` (`6`: `[106..111]`),
+`FullBridgeLemmas8b` (`7`: `[62,63,64,66,67,68,77]`), `FullOneLitConflLemmas` (`1`: `[78]`), and
+`FullBridgeLemmas9` (`6`: `[160..165]`), `165` of `166` entries now have machine-checked
+`SpecEntry.Impl Full.fullEnv` bridges (`FullProof` proves top-level UNSAT + `ModuleOk` assembly,
+leaving only row `[79]` `full_deduce_1uip` open, with parametric non-vacuity in
+`FullDeduce1UipNv`), alongside Stage-4 component contracts (`FullVivifyLemmas`,
 `FullTransLemmas`, `FullProbeTransLemmas`), all verified with zero target-architecture imports. -/
 
 #guard Full.fullBridge7Indices.length == 22
+#guard Full.fullBridge8aIndices.length == 6
+#guard Full.fullBridge8bIndices.length == 7
+#guard Full.fullBridge9Indices.length == 6
+#guard Full.fullBridge8aIndices == Full.fullRemaining8aIndices
+#guard (Full.fullBridge8bIndices ++ [78, 79]) == Full.fullRemaining8bIndices
+#guard Full.fullRemaining8bIndices.length == 9
 
 theorem audit_full_table_sigs :
     (Full.fullSpecTable Full.fullSolveBytesSpec).map (fun e => (e.name, e.as, e.rs)) =
@@ -313,6 +333,211 @@ theorem audit_full_probe_run_wp (Γ : Env)
       Func.wp Γ Full.full_probe_run_body a m Q X :=
   Full.full_probe_run_wp Γ hBt hAssume
 
+/-- **`D-Full` Bridge 8a** (`FullBridgeLemmas8a.full_bridge_8a_ok`): all 6 `ProbeTrans` indices
+`[106..111]` satisfy `SpecEntry.Impl Full.fullEnv`. -/
+theorem audit_full_bridge_8a_ok :
+    ∀ n ∈ Full.fullBridge8aIndices,
+      ∃ fn row, Full.fullFns[n]? = some fn ∧
+        (Full.fullSpecTable Full.fullSolveBytesSpec)[n]? = some row ∧
+        SpecEntry.Impl Full.fullEnv fn row :=
+  Full.full_bridge_8a_ok
+
+/-- **`D-Full` `full_probe_run` bridge** (`FullBridgeLemmas8a.full_probe_run_bridge_wp`): links
+the Stage-4 probe-run contract to `Full.fullProbeRunSpec` under `Γ`. -/
+theorem audit_full_probe_run_bridge_wp (Γ : Env)
+    (hBt : ∀ a m Q X, Full.fullBacktrackSpec a m Q X →
+      Γ "full_backtrack" [i64, i64] [] a m Q X)
+    (hAssumePair : ∀ a m Q X, Full.fullProbeAssumePairSpec a m Q X →
+      Γ "full_probe_assume_pair" [i64, i32] [i64] a m Q X) :
+    ∀ a m Q X, Full.fullProbeRunSpec a m Q X →
+      Func.wp Γ Full.full_probe_run_body a m Q X :=
+  Full.full_probe_run_bridge_wp Γ hBt hAssumePair
+
+/-- **`D-Full` Bridge 8b** (`FullBridgeLemmas8b.full_bridge_8b_ok`): all 7 Analyze/OTFS indices
+`[62, 63, 64, 66, 67, 68, 77]` satisfy `SpecEntry.Impl Full.fullEnv`. -/
+theorem audit_full_bridge_8b_ok :
+    ∀ n ∈ Full.fullBridge8bIndices,
+      ∃ fn row, Full.fullFns[n]? = some fn ∧
+        (Full.fullSpecTable Full.fullSolveBytesSpec)[n]? = some row ∧
+        SpecEntry.Impl Full.fullEnv fn row :=
+  Full.full_bridge_8b_ok
+
+/-- **`D-Full` `full_analyze_rsn` bridge** (`FullBridgeLemmas8b.full_analyze_rsn_bridge_wp`). -/
+theorem audit_full_analyze_rsn_bridge_wp (Γ : Env)
+    (hLit : ∀ a m Q X, Full.fullAnalyzeLitSpec a m Q X →
+      Γ "full_analyze_lit" [i64, i32, i32] [.bool] a m Q X) :
+    ∀ a m Q X, Full.fullAnalyzeRsnSpec a m Q X →
+      Func.wp Γ Full.full_analyze_rsn_body a m Q X :=
+  Full.full_analyze_rsn_bridge_wp Γ hLit
+
+/-- **`D-Full` `full_otfs_large` bridge** (`FullBridgeLemmas8b.full_otfs_large_bridge_wp`). -/
+theorem audit_full_otfs_large_bridge_wp (Γ : Env)
+    (hUnw : ∀ a m Q X, Full.fullUnwatchLargeSpec a m Q X →
+      Γ "full_unwatch_large" [i64, i32, i32] [] a m Q X)
+    (hPush : ∀ a m Q X, Full.fullWatchPushSpec a m Q X →
+      Γ "full_watch_push" [i64, i32, i32, i32, i32] [.bool] a m Q X) :
+    ∀ a m Q X, Full.fullOtfsLargeSpec a m Q X →
+      Func.wp Γ Full.full_otfs_large_body a m Q X :=
+  Full.full_otfs_large_bridge_wp Γ hUnw hPush
+
+/-- **`D-Full` `full_otfs_bin` bridge** (`FullBridgeLemmas8b.full_otfs_bin_bridge_wp`). -/
+theorem audit_full_otfs_bin_bridge_wp (Γ : Env)
+    (hUnw : ∀ a m Q X, Full.fullUnwatchLargeSpec a m Q X →
+      Γ "full_unwatch_large" [i64, i32, i32] [] a m Q X)
+    (hPush : ∀ a m Q X, Full.fullWatchPushSpec a m Q X →
+      Γ "full_watch_push" [i64, i32, i32, i32, i32] [.bool] a m Q X) :
+    ∀ a m Q X, Full.fullOtfsBinSpec a m Q X →
+      Func.wp Γ Full.full_otfs_bin_body a m Q X :=
+  Full.full_otfs_bin_bridge_wp Γ hUnw hPush
+
+/-- **`D-Full` Bridge 9** (`FullBridgeLemmas9.full_bridge_9_ok`): all 6 top-level orchestrator
+indices `[160..165]` satisfy `SpecEntry.Impl Full.fullEnv`. -/
+theorem audit_full_bridge_9_ok :
+    ∀ n ∈ Full.fullBridge9Indices,
+      ∃ fn row, Full.fullFns[n]? = some fn ∧
+        (Full.fullSpecTable Full.fullSolveBytesSpec)[n]? = some row ∧
+        SpecEntry.Impl Full.fullEnv fn row :=
+  Full.full_bridge_9_ok
+
+/-- **`D-Full` top-level `kissat_solve_bytes` WP** (`FullProof1.kissat_solve_bytes_wp`). -/
+theorem audit_kissat_solve_bytes_wp (Γ : Env)
+    (hInit : ∀ a m Q X, Full.fullInitStateSpec a m Q X →
+      Γ "full_init_state" [i64, i64, i64, i64, i64] [.bool] a m Q X)
+    (hParse : ∀ a m Q X, Full.fullParseBodySpec a m Q X →
+      Γ "full_parse_body" [i64, i64] [i64] a m Q X)
+    (hPre : ∀ a m Q X, Full.fullPreprocessSpec a m Q X →
+      Γ "full_preprocess" [i64] [i64] a m Q X)
+    (hSearch : ∀ a m Q X, Full.fullSearchSpec a m Q X →
+      Γ "full_search" [i64] [i64] a m Q X)
+    (hExt : ∀ a m Q X, Full.fullExtendSpec a m Q X →
+      Γ "full_extend" [i64] [] a m Q X)
+    (hCheck : ∀ a m Q X, kissatCheckModelExactSpec a m Q X →
+      Γ "kissat_check_model" [i64, i64, i64, i64, i64] [i64] a m Q X) :
+    ∀ args m Q X, Full.fullSolveBytesSpec args m Q X →
+      Func.wp Γ Full.kissat_solve_bytes_body args m Q X :=
+  Full.kissat_solve_bytes_wp Γ hInit hParse hPre hSearch hExt hCheck
+
+/-- **`D-Full` `kissat_solve_bytes` bridge** (`FullBridgeLemmas9.kissat_solve_bytes_bridge_wp`).
+-/
+theorem audit_kissat_solve_bytes_bridge_wp (Γ : Env)
+    (hInit : ∀ a m Q X, Full.fullInitStateSpec a m Q X →
+      Γ "full_init_state" [i64, i64, i64, i64, i64] [.bool] a m Q X)
+    (hParse : ∀ a m Q X, Full.fullParseBodySpec a m Q X →
+      Γ "full_parse_body" [i64, i64] [i64] a m Q X)
+    (hPre : ∀ a m Q X, Full.fullPreprocessSpec a m Q X →
+      Γ "full_preprocess" [i64] [i64] a m Q X)
+    (hSearch : ∀ a m Q X, Full.fullSearchSpec a m Q X →
+      Γ "full_search" [i64] [i64] a m Q X)
+    (hExt : ∀ a m Q X, Full.fullExtendSpec a m Q X →
+      Γ "full_extend" [i64] [] a m Q X)
+    (hCheck : ∀ a m Q X, kissatCheckModelExactSpec a m Q X →
+      Γ "kissat_check_model" [i64, i64, i64, i64, i64] [i64] a m Q X) :
+    ∀ a m Q X, Full.fullSolveBytesSpec a m Q X →
+      Func.wp Γ Full.kissat_solve_bytes_body a m Q X :=
+  Full.kissat_solve_bytes_bridge_wp Γ hInit hParse hPre hSearch hExt hCheck
+
+/-- **`D-Full` source-level UNSAT soundness** (`FullProof.full_solve_bytes_correct`): under
+`Full.fullEnv`, `kissat_solve_bytes` returns `{0, 10, 20}`, `20` certifies `cnf.Unsat`, and the
+input bytes, workspace, and frame `R` are preserved. -/
+theorem audit_full_solve_bytes_correct {cnf_ptr work_ptr fuel : BitVec 64}
+    {cnfBytes : List UInt8} {wlen : Nat} {R : Mem 64 → Prop} {m : Mem 64} {X : XPost}
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (hm : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m) :
+    Func.wp Full.fullEnv Full.kissat_solve_bytes_body
+      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr, BitVec.ofNat 64 wlen, fuel, ()) m
+      (fun (r, ()) m' => (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+        (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m') X :=
+  Full.full_solve_bytes_correct hcfit hwfit hm
+
+/-- **`D-Full` source-level UNSAT non-vacuity** (`FullProof.full_unsat_nonvacuous`): concrete
+`Mem 64` witness showing `kissat_solve_bytes` reaches `20` with `fullNvUnsatCnf.Unsat` under
+`XPost := False`. -/
+theorem audit_full_unsat_nonvacuous :
+    let m0 : Mem 64 := (Full.fullPayload Full.fullNvUnsatBytes).At Full.fullNvCnfPtr
+    Func.wp Full.fullUnsatEnv Full.kissat_solve_bytes_body
+      (Full.fullNvCnfPtr, BitVec.ofNat 64 Full.fullNvUnsatBytes.length,
+        Full.fullNvWorkPtr Full.fullNvUnsatBytes, 4096#64, 16#64, ())
+      m0 (fun rs _ => rs = (20#64, ()) ∧ Full.fullNvUnsatCnf.Unsat)
+      (fun _ _ _ _ => False) :=
+  Full.full_unsat_nonvacuous
+
+/-- **`D-Full` `ModuleOk` missing-slice lemma** (`FullProof.fullEnv_moduleOk_of_missing`): reduces
+`ModuleOk Full.fullEnv Full.fullModule` to `fullRemaining8aIndices` (`6`) and
+`fullRemaining8bIndices` (`9`). -/
+theorem audit_fullEnv_moduleOk_of_missing
+    (h8a : ∀ n ∈ Full.fullRemaining8aIndices, ∃ fn row, Full.fullFns[n]? = some fn ∧
+      (Full.fullSpecTable Full.fullSolveBytesSpec)[n]? = some row ∧
+      SpecEntry.Impl Full.fullEnv fn row)
+    (h8b : ∀ n ∈ Full.fullRemaining8bIndices, ∃ fn row, Full.fullFns[n]? = some fn ∧
+      (Full.fullSpecTable Full.fullSolveBytesSpec)[n]? = some row ∧
+      SpecEntry.Impl Full.fullEnv fn row) :
+    ModuleOk Full.fullEnv Full.fullModule :=
+  Full.fullEnv_moduleOk_of_missing h8a h8b
+
+/-- **`D-Full` `full_one_lit_confl` bridge** (`FullOneLitConflLemmas.full_one_lit_confl_bridge_wp`,
+row `[78]`). -/
+theorem audit_full_one_lit_confl_bridge_wp :
+    ∃ fn' row', Full.fullFns[78]? = some fn' ∧
+      (Full.fullSpecTable Full.fullSolveBytesSpec)[78]? = some row' ∧
+      SpecEntry.Impl Full.fullEnv fn' row' :=
+  Full.full_one_lit_confl_bridge_wp
+
+/-- **`D-Full` `full_one_lit_confl` concrete UNSAT non-vacuity**
+(`FullOneLitConflLemmas.nv_full_one_lit_confl`). -/
+theorem audit_nv_full_one_lit_confl :
+    Func.wp Full.fullEnv Full.full_one_lit_confl_body (Full.nvOneLitCfg.hdr, ()) Full.nvOneLitMem
+      (fun (r, ()) m' => r = 20#64 ∧ Full.nvOneLitF0.Unsat ∧
+        Full.FullMem Full.nvOneLitCfg Full.nvOneLitState m')
+      (fun _ _ _ _ => False) :=
+  Full.nv_full_one_lit_confl
+
+/-- **`D-Full` `full_deduce_1uip` parametric non-vacuity**
+(`FullDeduce1UipNv.nv_full_deduce_1uip_of_wp`): given the WP for row `[79]`, concrete `Mem 64`
+execution reaches a sound outcome under `XPost := False`. -/
+theorem audit_nv_full_deduce_1uip_of_wp
+    (hwp : ∀ args m Q X, Full.fullDeduce1uipSpec args m Q X →
+      Func.wp Full.fullEnv Full.full_deduce_1uip.body args m Q X) :
+    Func.wp Full.fullEnv Full.full_deduce_1uip.body (Full.nvOneLitCfg.hdr, ()) Full.nvDeduceMem
+      (fun (r, ()) m' =>
+        (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) ∧
+          Full.nvDeduceF0.Unsat ∧
+            ∃ s', Full.FullState.LengthsOk Full.nvOneLitCfg s' ∧
+              Full.FullMem Full.nvOneLitCfg s' m' ∧
+              Full.FullOtfsInvW Full.nvOneLitCfg Full.nvDeduceF0 [[0], [1]] s' ∧
+              (r = 1#64 → s'.core.cur_level = 1 ∧ 1 ≤ s'.core.tmp_len ∧
+                (cnfOfClauses [[0], [1]]).EntailsClause
+                  (cnfClause (List.map BitVec.toNat (List.take s'.core.tmp_len s'.core.tmp)))) ∧
+              (r = 2#64 → ∃ cut', cut' ≤ s'.core.trail_end ∧
+                Full.FullCutInvW Full.nvOneLitCfg Full.nvDeduceF0 [[0], [1]] cut' s' ∧
+                Full.FullConflictOkCut [[0], [1]] cut' s'))
+      (fun _ _ _ _ => False) :=
+  Full.nv_full_deduce_1uip_of_wp hwp
+
+/-- **`D-Full` 165/166 `ModuleOk` assembly**: combines `FullProof`, `FullBridgeLemmas8a`,
+`FullBridgeLemmas8b`, and `FullOneLitConflLemmas`; only row `[79]` (`full_deduce_1uip`) remains. -/
+theorem audit_fullEnv_moduleOk_of_79
+    (h79 : ∃ fn row, Full.fullFns[79]? = some fn ∧
+      (Full.fullSpecTable Full.fullSolveBytesSpec)[79]? = some row ∧
+      SpecEntry.Impl Full.fullEnv fn row) :
+    ModuleOk Full.fullEnv Full.fullModule := by
+  apply Full.fullEnv_moduleOk_of_missing
+  · intro n hn
+    exact Full.full_bridge_8a_ok n hn
+  · intro n hn
+    simp only [Full.fullRemaining8bIndices, List.mem_cons, List.not_mem_nil, or_false] at hn
+    rcases hn with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    · exact Full.full_bridge_8b_ok 62 (by simp [Full.fullBridge8bIndices])
+    · exact Full.full_bridge_8b_ok 63 (by simp [Full.fullBridge8bIndices])
+    · exact Full.full_bridge_8b_ok 64 (by simp [Full.fullBridge8bIndices])
+    · exact Full.full_bridge_8b_ok 66 (by simp [Full.fullBridge8bIndices])
+    · exact Full.full_bridge_8b_ok 67 (by simp [Full.fullBridge8bIndices])
+    · exact Full.full_bridge_8b_ok 68 (by simp [Full.fullBridge8bIndices])
+    · exact Full.full_bridge_8b_ok 77 (by simp [Full.fullBridge8bIndices])
+    · exact Full.full_one_lit_confl_bridge_wp
+    · exact h79
+
 /-! ## 6. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms audit_unsat_def
@@ -336,3 +561,19 @@ theorem audit_full_probe_run_wp (Γ : Env)
 #print axioms audit_full_viv_deduce_wp
 #print axioms audit_full_trans_wp
 #print axioms audit_full_probe_run_wp
+#print axioms audit_full_bridge_8a_ok
+#print axioms audit_full_probe_run_bridge_wp
+#print axioms audit_full_bridge_8b_ok
+#print axioms audit_full_analyze_rsn_bridge_wp
+#print axioms audit_full_otfs_large_bridge_wp
+#print axioms audit_full_otfs_bin_bridge_wp
+#print axioms audit_full_bridge_9_ok
+#print axioms audit_kissat_solve_bytes_wp
+#print axioms audit_kissat_solve_bytes_bridge_wp
+#print axioms audit_full_solve_bytes_correct
+#print axioms audit_full_unsat_nonvacuous
+#print axioms audit_fullEnv_moduleOk_of_missing
+#print axioms audit_full_one_lit_confl_bridge_wp
+#print axioms audit_nv_full_one_lit_confl
+#print axioms audit_nv_full_deduce_1uip_of_wp
+#print axioms audit_fullEnv_moduleOk_of_79

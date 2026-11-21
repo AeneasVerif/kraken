@@ -17,7 +17,7 @@ imports both `Kraken.X64` and `Kraken.AArch64`.
 | # | Workstream | What is audited | Audit files |
 |---|---|---|---|
 | 1 | **Verified Kissat SAT solver** (`D-Full`, `D-Plain`) | DIMACS spec; `D-Plain` SAT + UNSAT and `D-Full` UNSAT soundness of the x86-64 / AArch64 machine code ([details](#verified-kissat)) | [Spec](LeanQbeTest/T/KissatAuditSpec.lean), [X64](LeanQbeTest/T/KissatAuditX64.lean), [Arm64](LeanQbeTest/T/KissatAuditArm64.lean) |
-| 2 | **Verified compiler pipeline, linker and `LinkRec`** | IR passes, legalization, instruction selection, linking certificates (`LinkedCert`), recursive modules | [Spec](LeanQbeTest/T/CompilerAuditSpec.lean), [X64](LeanQbeTest/T/CompilerAuditX64.lean), [Arm64](LeanQbeTest/T/CompilerAuditArm64.lean) |
+| 2 | **Verified compiler pipeline, linker and `LinkRec`** | IR passes, legalization, instruction selection, RA/flag/spill hints (`FlagRaOpt`), `LinkedCert`, recursive modules | [Spec](LeanQbeTest/T/CompilerAuditSpec.lean), [X64](LeanQbeTest/T/CompilerAuditX64.lean), [Arm64](LeanQbeTest/T/CompilerAuditArm64.lean) |
 | 3 | **Impure Lean 4 `LCNF` and `LeanLRC` lowering** | lowering of Lean's compiler IR (`LeanQbe/T/LeanLCNF`, `LeanQbe/T/LeanLRC`) into `LeanQbe.T` | [Audit](LeanQbeTest/T/LcnfAudit.lean) |
 | 4 | **Verified native LRAT proof checker** (`LratBytes`) | `lrat_check_bytes` returns `1` only for valid DIMACS of an unsatisfiable CNF | [Spec](LeanQbeTest/T/LratAuditSpec.lean), [X64](LeanQbeTest/T/LratAuditX64.lean), [Arm64](LeanQbeTest/T/LratAuditArm64.lean) |
 | 5 | **Cryptographic and data-structure workloads** (`ChaCha20` SIMD, 256-bit `Bignum`, `UnionFind`) | functional correctness of the example programs and their compiled code | [Spec](LeanQbeTest/T/WorkloadsAuditSpec.lean), [X64](LeanQbeTest/T/WorkloadsAuditX64.lean), [Arm64](LeanQbeTest/T/WorkloadsAuditArm64.lean) |
@@ -41,7 +41,7 @@ correctness theorems:
 | Solver | Lean module | Functions | Algorithm | Proved |
 |---|---|---|---|---|
 | `D-Plain` | `LeanQbe.T.Examples.Kissat.Plain` | 59 | CDCL (`kissat --plain`): watched literals, 1UIP learning, minimization and shrinking, VSIDS heap / VMTF queue, restarts, rephasing, mode switching, lucky phases, clause reduction | **SAT and UNSAT**, x86-64 and AArch64, unconditional |
-| `D-Full` | `LeanQbe.T.Examples.Kissat.Full` | 166 | CDCL + inprocessing: probing, vivification, forward/OTFS subsumption, BVE and BVA, congruence closure, equivalent-literal substitution, transitive reduction, SAT sweeping, local-search walking, … | **UNSAT soundness + UNSAT non-vacuity**, x86-64 and AArch64, given `hmok` (see below) |
+| `D-Full` | `LeanQbe.T.Examples.Kissat.Full` | 166 | CDCL + inprocessing: probing, vivification, forward/OTFS subsumption, BVE and BVA, congruence closure, equivalent-literal substitution, transitive reduction, SAT sweeping, local-search walking, … | **UNSAT soundness + UNSAT non-vacuity**, x86-64 and AArch64, given `hmok` (**165/166** bridged; see below) |
 
 Both solvers export one C entry point:
 
@@ -125,10 +125,10 @@ inprocessing is intentionally not verified, so `10` from `D-Full` is not a certi
 which the machine code returns 20.
 
 > **Status.** The `D-Full` theorems take one hypothesis, `hmok : ModuleOk fullEnv fullModule`:
-> every one of the 166 function bodies satisfies its row of `fullSpecTable`. The compilation
-> certificates, the link-level reasoning and the top-level UNSAT argument are proved; `hmok` is
-> discharged by the `FullProof` assembly once the remaining per-function `Func.wp` leaves are
-> finished. `D-Plain` has no such hypothesis (`plainEnv_moduleOk` is proved).
+> every one of the 166 function bodies satisfies its row of `fullSpecTable`. Compilation
+> certificates, linking, top-level UNSAT (`FullProof`), and **165/166** `Func.wp` bridges
+> (`FullBridgeLemmas1`–`9`, `FullOneLitConflLemmas`) are proved on `main`; only row `[79]`
+> (`full_deduce_1uip`; parametric `FullDeduce1UipNv` proved) remains. `plainEnv_moduleOk` is proved.
 
 #### Axioms
 
