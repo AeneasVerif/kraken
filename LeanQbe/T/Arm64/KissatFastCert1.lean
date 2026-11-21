@@ -8,7 +8,7 @@ meta import LeanQbe.T.Arm64.KissatFullCert1
 /-!
 # Kissat M2 Unified Fast (`FullFast`) Certificate Slice 1/9 on AAPCS64 Arm64
 
-Reuses the first `11` compiled chunks (`[0, 36)`, `36` functions) of
+Reuses the first `10` compiled chunks (`[0, 36)`, `36` functions) of
 `KissatFullCert1.cert1` via `FullFast.fastFns_take_36` on `armTarget`.
 -/
 
@@ -33,14 +33,14 @@ theorem chunksMaxBound_take_le {T : Target} {lt : LegalTarget} {exits : List Sym
     ⟨Nat.le_max_left _ _, Nat.le_trans (chunksMaxBound_take_le n cs) (Nat.le_max_right _ _)⟩
 
 theorem slice1_fns_eq :
-    slice1Mod.fns = chunksFns (KissatFullCert1.cert1.chunks.take 11) := by
-  have hlen : (chunksFns (KissatFullCert1.cert1.chunks.take 11)).length = 36 := by
+    slice1Mod.fns = chunksFns (KissatFullCert1.cert1.chunks.take 10) := by
+  have hlen : (chunksFns (KissatFullCert1.cert1.chunks.take 10)).length = 36 := by
     t_kernel_rfl
   have h36 : Full.fullFns.take 36 = (Full.fullFns.take 38).take 36 := by
     rw [List.take_take, Nat.min_eq_left (by omega)]
   have hcf : chunksFns KissatFullCert1.cert1.chunks =
-      chunksFns (KissatFullCert1.cert1.chunks.take 11) ++
-        chunksFns (KissatFullCert1.cert1.chunks.drop 11) := by
+      chunksFns (KissatFullCert1.cert1.chunks.take 10) ++
+        chunksFns (KissatFullCert1.cert1.chunks.drop 10) := by
     rw [← chunksFns_append, List.take_append_drop]
   change fastFns.take 36 = _
   rw [fastFns_take_36, h36]
@@ -61,11 +61,11 @@ theorem slice1_supportsAll :
 /-- Linked certificate for prefix `[0, 36)` reusing `KissatFullCert1.cert1`. -/
 def cert1 :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean slice1Mod [] [] 0 2048 where
-  chunks := KissatFullCert1.cert1.chunks.take 11
+  chunks := KissatFullCert1.cert1.chunks.take 10
   linkCheck := by t_kernel_rfl
   fns_eq := slice1_fns_eq
   supportsAll := slice1_supportsAll
   maxBound_le :=
-    Nat.le_trans (chunksMaxBound_take_le 11 _) KissatFullCert1.cert1.maxBound_le
+    Nat.le_trans (chunksMaxBound_take_le 10 _) KissatFullCert1.cert1.maxBound_le
 
 end LeanQbe.T.Arm64.KissatFastCert1

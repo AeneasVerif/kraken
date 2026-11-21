@@ -13,10 +13,9 @@ meta import LeanQbe.T.Arm64.KissatFastCert2
 /-!
 # Kissat M3 (`FullM3`) Certificate Slice 1/17 on AAPCS64 Arm64
 
-Reuses `KissatFastCert1.cert1` chunks `[0..6]` (`[0, 24)`) and `[8..10]` (`[27, 36)`), compiles
-`[24, 27)` (`full_queue_mtf`, `full_tick_rel`, `full_ema_update`), and reuses
-`KissatFastCert2.cert2` chunks `[0..3]` (`[36, 47)`), assembling `cert1` over
-`FullM3.m3Fns.take 47` (`47` functions; `44` reused).
+Reuses `KissatFastCert1.cert1` chunks `[0..5]` (`[0, 21)`) and `[8..9]` (`[29, 36)`), compiles
+`[21, 29)` (`8` functions including `full_tick_rel`), and reuses `KissatFastCert2.cert2` chunks
+`[0..3]` (`[36, 47)`), assembling `cert1` over `FullM3.m3Fns.take 47` (`47` fns; `39` reused).
 -/
 
 set_option autoImplicit false
@@ -32,17 +31,16 @@ private theorem fullFns_len : Full.fullFns.length = 166 := by t_kernel_rfl
 private theorem bveBudgets_len : FullFastBveBudgets.fastBveBudgets_fns.length = 7 := by
   t_kernel_rfl
 
-/-- Stack bounds for `[0, 24)` matching `KissatFastCert1.cert1.chunks.take 7`. -/
+/-- Stack bounds for `[0, 21)` matching `KissatFastCert1.cert1.chunks.take 6`. -/
 def slice0Bounds : List Nat :=
-  [16, 16, 48, 64, 80, 128, 112, 176, 16, 16, 16, 16, 16, 16, 80, 176, 16, 32, 32, 64, 16, 48, 48,
-   16]
+  [16, 16, 48, 64, 80, 112, 112, 160, 16, 16, 16, 16, 16, 16, 80, 176, 16, 32, 32, 64, 16]
 
-/-- Exported callee signatures and stack bounds for prefix `[0, 24)`. -/
+/-- Exported callee signatures and stack bounds for prefix `[0, 21)`. -/
 def ext0 : List (SigEntry × Nat) :=
-  (m3Fns.take 24).zipWith (fun f b => (⟨f.name, f.as, f.rs⟩, b)) slice0Bounds
+  (m3Fns.take 21).zipWith (fun f b => (⟨f.name, f.as, f.rs⟩, b)) slice0Bounds
 
-/-- Mid slice `[24, 27)` (`full_queue_mtf`, `full_tick_rel`, `full_ema_update`, `3` fns). -/
-def sliceMidMod : Module := { fns := (m3Fns.drop 24).take 3 }
+/-- Mid slice `[21, 29)` (`8` functions including `full_tick_rel`). -/
+def sliceMidMod : Module := { fns := (m3Fns.drop 21).take 8 }
 
 compile_linked_chunks! certMid armTarget armLayout armLegalTarget armLabelClean
   sliceMidMod 4 (ext := ext0) (maxDirs := 450)
@@ -97,19 +95,25 @@ private theorem take_append3_ge {α : Type _} {xs ys ws zs : List α} {n : Nat}
 
 private theorem m3_take_47_eq :
     m3Fns.take 47 =
-      Full.fullFns.take 24 ++ ((m3Fns.drop 24).take 3 ++
-        ((Full.fullFns.drop 27).take 9 ++
+      Full.fullFns.take 21 ++ ((m3Fns.drop 21).take 8 ++
+        ((Full.fullFns.drop 29).take 7 ++
           (FullFastBveBudgets.fastBveBudgets_fns.take 1 ++ (Full.fullFns.drop 37).take 10))) := by
+  have h24 : Full.fullFns.take 24 = Full.fullFns.take 21 ++ (Full.fullFns.drop 21).take 3 := by
+    simpa using List.take_add (l := Full.fullFns) (i := 21) (j := 3)
   have h25 : Full.fullFns.take 25 = Full.fullFns.take 24 ++ (Full.fullFns.drop 24).take 1 := by
     simpa using List.take_add (l := Full.fullFns) (i := 24) (j := 1)
+  have h21_4 : (Full.fullFns.drop 21).take 3 ++ (Full.fullFns.drop 24).take 1 =
+      (Full.fullFns.drop 21).take 4 := by
+    have h := List.take_add (l := Full.fullFns.drop 21) (i := 3) (j := 1)
+    simpa [List.drop_drop] using h.symm
   have h26 : (Full.fullFns.drop 26).take 10 =
-      (Full.fullFns.drop 26).take 1 ++ (Full.fullFns.drop 27).take 9 := by
-    have h := List.take_add (l := Full.fullFns.drop 26) (i := 1) (j := 9)
+      (Full.fullFns.drop 26).take 3 ++ (Full.fullFns.drop 29).take 7 := by
+    have h := List.take_add (l := Full.fullFns.drop 26) (i := 3) (j := 7)
     simpa [List.drop_drop] using h
   have hp : m3FnsPrefix =
-      Full.fullFns.take 24 ++ ((Full.fullFns.drop 24).take 1 ++ [FullM3VivChrono.m3TickRelFn] ++
-        (Full.fullFns.drop 26).take 1 ++
-        ((Full.fullFns.drop 27).take 9 ++ (FullFastBveBudgets.fastBveBudgets_fns.take 1 ++
+      Full.fullFns.take 21 ++ ((Full.fullFns.drop 21).take 4 ++ [FullM3VivChrono.m3TickRelFn] ++
+        (Full.fullFns.drop 26).take 3 ++
+        ((Full.fullFns.drop 29).take 7 ++ (FullFastBveBudgets.fastBveBudgets_fns.take 1 ++
           ((Full.fullFns.drop 37).take 10 ++
             ([m3PropLitRawFn, FullM3VivChrono.m3PropLitFn] ++
               FastCore.fastCore_fns.drop 1 ++ (Full.fullFns.drop 50).take 7 ++
@@ -122,40 +126,41 @@ private theorem m3_take_47_eq :
               (FullFastBveBudgets.fastBveBudgets_fns.drop 4).take 1 ++
               (Full.fullFns.drop 122).take 3 ++ (FullFastSched.sched_fns.drop 1).take 2 ++
               (Full.fullFns.drop 127).take 1))))) := by
-    simp only [m3FnsPrefix, h25, h26, List.append_assoc]
-  have h24len : (Full.fullFns.take 24).length = 24 := by simp [fullFns_len]
-  have h3len : ((Full.fullFns.drop 24).take 1).length +
-      ([FullM3VivChrono.m3TickRelFn]).length + ((Full.fullFns.drop 26).take 1).length = 3 := by
+    simp only [m3FnsPrefix, h25, h24, h26, List.append_assoc]
+    rw [← List.append_assoc ((Full.fullFns.drop 21).take 3), h21_4]
+  have h21len : (Full.fullFns.take 21).length = 21 := by simp [fullFns_len]
+  have h8len : ((Full.fullFns.drop 21).take 4).length +
+      ([FullM3VivChrono.m3TickRelFn]).length + ((Full.fullFns.drop 26).take 3).length = 8 := by
     simp [fullFns_len]
-  have h9len : ((Full.fullFns.drop 27).take 9).length = 9 := by simp [fullFns_len]
+  have h7len : ((Full.fullFns.drop 29).take 7).length = 7 := by simp [fullFns_len]
   have h11len : (FullFastBveBudgets.fastBveBudgets_fns.take 1).length +
       ((Full.fullFns.drop 37).take 10).length = 11 := by
     simp [fullFns_len, bveBudgets_len]
-  have h24_27 : (m3Fns.drop 24).take 3 =
-      (Full.fullFns.drop 24).take 1 ++ [FullM3VivChrono.m3TickRelFn] ++
-        (Full.fullFns.drop 26).take 1 := by
+  have h21_29 : (m3Fns.drop 21).take 8 =
+      (Full.fullFns.drop 21).take 4 ++ [FullM3VivChrono.m3TickRelFn] ++
+        (Full.fullFns.drop 26).take 3 := by
     rw [m3Fns, hp]; simp only [List.append_assoc]
-    rw [drop_append_left h24len]
-    exact take_append3_left h3len
-  rw [h24_27, m3Fns, hp]; simp only [List.append_assoc]
-  rw [take_append_ge (by omega), h24len, show 47 - 24 = 23 from rfl]
-  rw [take_append3_ge (by omega), h3len, show 23 - 3 = 20 from rfl]
-  rw [take_append_ge (by omega), h9len, show 20 - 9 = 11 from rfl]
+    rw [drop_append_left h21len]
+    exact take_append3_left h8len
+  rw [h21_29, m3Fns, hp]; simp only [List.append_assoc]
+  rw [take_append_ge (by omega), h21len, show 47 - 21 = 26 from rfl]
+  rw [take_append3_ge (by omega), h8len, show 26 - 8 = 18 from rfl]
+  rw [take_append_ge (by omega), h7len, show 18 - 7 = 11 from rfl]
   rw [take_append2_left h11len]
 
 def slice1Chunks :
     List (CompiledChunk armTarget armLegalTarget [] 0) :=
-  KissatFastCert1.cert1.chunks.take 7 ++
+  KissatFastCert1.cert1.chunks.take 6 ++
     (certMid.chunks ++ (KissatFastCert1.cert1.chunks.drop 8 ++
       KissatFastCert2.cert2.chunks.take 4))
 
 theorem slice1_fns_eq : slice1Mod.fns = chunksFns slice1Chunks := by
-  have h7len : (chunksFns (KissatFastCert1.cert1.chunks.take 7)).length = 24 := by t_kernel_rfl
-  have h8len : (chunksFns (KissatFastCert1.cert1.chunks.take 8)).length = 27 := by t_kernel_rfl
+  have h6len : (chunksFns (KissatFastCert1.cert1.chunks.take 6)).length = 21 := by t_kernel_rfl
+  have h8len : (chunksFns (KissatFastCert1.cert1.chunks.take 8)).length = 29 := by t_kernel_rfl
   have h4len : (chunksFns (KissatFastCert2.cert2.chunks.take 4)).length = 11 := by t_kernel_rfl
   have hcf1a : chunksFns KissatFastCert1.cert1.chunks =
-      chunksFns (KissatFastCert1.cert1.chunks.take 7) ++
-        chunksFns (KissatFastCert1.cert1.chunks.drop 7) := by
+      chunksFns (KissatFastCert1.cert1.chunks.take 6) ++
+        chunksFns (KissatFastCert1.cert1.chunks.drop 6) := by
     rw [← chunksFns_append, List.take_append_drop]
   have hcf1b : chunksFns KissatFastCert1.cert1.chunks =
       chunksFns (KissatFastCert1.cert1.chunks.take 8) ++
@@ -165,17 +170,17 @@ theorem slice1_fns_eq : slice1Mod.fns = chunksFns slice1Chunks := by
       chunksFns (KissatFastCert2.cert2.chunks.take 4) ++
         chunksFns (KissatFastCert2.cert2.chunks.drop 4) := by
     rw [← chunksFns_append, List.take_append_drop]
-  have hcA : chunksFns (KissatFastCert1.cert1.chunks.take 7) = Full.fullFns.take 24 := by
-    have h := congrArg (List.take 24) KissatFastCert1.cert1.fns_eq
-    change (FullFast.fastFns.take 36).take 24 =
-      (chunksFns KissatFastCert1.cert1.chunks).take 24 at h
+  have hcA : chunksFns (KissatFastCert1.cert1.chunks.take 6) = Full.fullFns.take 21 := by
+    have h := congrArg (List.take 21) KissatFastCert1.cert1.fns_eq
+    change (FullFast.fastFns.take 36).take 21 =
+      (chunksFns KissatFastCert1.cert1.chunks).take 21 at h
     rw [FullFast.fastFns_take_36, List.take_take, Nat.min_eq_left (by omega), hcf1a,
-      take_append_left h7len] at h
+      take_append_left h6len] at h
     exact h.symm
-  have hcB : chunksFns (KissatFastCert1.cert1.chunks.drop 8) = (Full.fullFns.drop 27).take 9 := by
-    have h := congrArg (List.drop 27) KissatFastCert1.cert1.fns_eq
-    change (FullFast.fastFns.take 36).drop 27 =
-      (chunksFns KissatFastCert1.cert1.chunks).drop 27 at h
+  have hcB : chunksFns (KissatFastCert1.cert1.chunks.drop 8) = (Full.fullFns.drop 29).take 7 := by
+    have h := congrArg (List.drop 29) KissatFastCert1.cert1.fns_eq
+    change (FullFast.fastFns.take 36).drop 29 =
+      (chunksFns KissatFastCert1.cert1.chunks).drop 29 at h
     rw [FullFast.fastFns_take_36, List.drop_take, hcf1b, drop_append_left h8len] at h
     simpa using h.symm
   have hcC : chunksFns (KissatFastCert2.cert2.chunks.take 4) =
@@ -221,7 +226,7 @@ theorem slice1_supportsAll :
   simp only [slice1Chunks, chunksFns_append, List.mem_append] at hf
   rcases hf with h1 | h2 | h3 | h4
   · have hm : f ∈ chunksFns KissatFastCert1.cert1.chunks := by
-      rw [← List.take_append_drop 7 KissatFastCert1.cert1.chunks, chunksFns_append]
+      rw [← List.take_append_drop 6 KissatFastCert1.cert1.chunks, chunksFns_append]
       exact List.mem_append_left _ h1
     exact KissatFastCert1.cert1.supportsAll f (KissatFastCert1.cert1.fns_eq ▸ hm)
   · exact certMid.supportsAll f (certMid.fns_eq ▸ h2)
@@ -244,7 +249,7 @@ def cert1 :
   maxBound_le := by
     simp only [slice1Chunks, chunksMaxBound_append]
     exact Nat.max_le.mpr
-      ⟨Nat.le_trans (chunksMaxBound_take_le 7 _) KissatFastCert1.cert1.maxBound_le,
+      ⟨Nat.le_trans (chunksMaxBound_take_le 6 _) KissatFastCert1.cert1.maxBound_le,
         Nat.max_le.mpr
           ⟨certMid.maxBound_le,
             Nat.max_le.mpr

@@ -26,9 +26,9 @@ open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Examples.Kissat.FullFastSched
 /-- Exported stack bounds for `[0, 61)` verified against `cert1..2` by
 `KissatFastSchedCert`. -/
 def slice2Bounds : List Nat :=
-  [8, 8, 40, 56, 72, 120, 104, 168, 24, 8, 8, 8, 24, 40, 120, 232, 56, 104, 88, 152, 8, 88, 40, 24,
-   136, 56, 24, 72, 88, 40, 216, 296, 72, 168, 8, 40, 8, 56, 8, 8, 104, 248, 136, 360, 408, 40, 40,
-   440, 488, 504, 40, 56, 8, 72, 120, 8, 56, 232, 312, 344, 504]
+  [8, 8, 40, 56, 72, 104, 104, 152, 8, 8, 8, 8, 8, 8, 72, 168, 40, 88, 56, 120, 8, 72, 24, 8, 88,
+   8, 8, 56, 72, 24, 168, 232, 56, 152, 8, 8, 8, 56, 8, 8, 72, 232, 136, 296, 344, 24, 8, 376,
+   408, 424, 24, 40, 8, 72, 120, 8, 40, 184, 232, 280, 424]
 
 /-- Exported callee signatures and stack bounds for prefix `[0, 61)`. -/
 def ext2 : List (SigEntry × Nat) :=

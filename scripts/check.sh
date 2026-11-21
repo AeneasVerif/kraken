@@ -75,7 +75,10 @@ open Lean in
 EOF
   timeout "$LEAN_TIMEOUT" lake env lean "$TMP/Closure_$1.lean" 2>&1 | sed -n 's/^MOD //p'
 }
-for r in LeanQbe LeanQbeAmd64 LeanQbeArm64; do closure "$r" | sort >"$TMP/closure_$r.txt"; done
+for r in LeanQbe LeanQbeAmd64 LeanQbeArm64; do
+  closure "$r" | sort >"$TMP/closure_$r.txt" &
+done
+wait
 if grep -E '^Kraken\.(X64|AArch64)(\.|$)' "$TMP/closure_LeanQbe.txt"; then
   err "the generic LeanQbe imports an architecture (modules above)"
 fi
@@ -117,17 +120,30 @@ grep -E "depends on axioms|does not depend on any axioms" "$TMP/build.log" >"$TM
 # Headline theorems: lines `<Module> <constant>` in scripts/headline.txt, grouped by module so that
 # x64 and AArch64 modules are never imported together.
 n=0
+mods=()
 if [ -f scripts/headline.txt ]; then
   for mod in $(grep -vE '^\s*(#|$)' scripts/headline.txt | awk '{print $1}' | sort -u); do
     n=$((n + 1))
+    mods+=("$mod")
     f="$TMP/Audit_$n.lean"
     echo "import $mod" >"$f"
     grep -vE '^\s*(#|$)' scripts/headline.txt | awk -v m="$mod" '$1 == m {print "#print axioms " $2}' >>"$f"
-    if ! timeout "$LEAN_TIMEOUT" lake env lean "$f" >"$TMP/audit_$n.out" 2>&1; then
-      cat "$TMP/audit_$n.out"; err "axiom audit of $mod failed to elaborate"
+    (
+      timeout "$LEAN_TIMEOUT" lake env lean "$f" >"$TMP/audit_$n.out" 2>&1
+      echo $? >"$TMP/audit_$n.rc"
+    ) &
+    while [ "$(jobs -rp | wc -l)" -ge 8 ]; do wait -n 2>/dev/null || true; done
+  done
+  wait
+  for i in $(seq 1 "$n"); do
+    rc="$(cat "$TMP/audit_$i.rc" 2>/dev/null || echo 1)"
+    if [ "$rc" -ne 0 ]; then
+      cat "$TMP/audit_$i.out" 2>/dev/null || true
+      err "axiom audit of ${mods[$((i - 1))]} failed to elaborate"
+    else
+      sed 's/^/headline: /' "$TMP/audit_$i.out"
+      cat "$TMP/audit_$i.out" >>"$TMP/axioms.txt"
     fi
-    sed 's/^/headline: /' "$TMP/audit_$n.out"
-    cat "$TMP/audit_$n.out" >>"$TMP/axioms.txt"
   done
 fi
 [ $n -gt 0 ] || err "no headline theorem to audit: scripts/headline.txt is missing or lists none"
@@ -166,7 +182,10 @@ if [ "${CHECK_TIMES:-0}" = "1" ]; then
     git ls-files 'LeanQbe/*Lemmas*.lean' 'LeanQbe/**/*Lemmas*.lean' | sort -u | xargs wc -l \
       | grep -v ' total$' | sort -rn | head -n 5 | awk '{print $2}'; } >"$TMP/timed.txt"
   : >"$TMP/times.txt"
-  while IFS= read -r f; do time_check "$f" & done <"$TMP/timed.txt"
+  while IFS= read -r f; do
+    time_check "$f" &
+    while [ "$(jobs -rp | wc -l)" -ge 4 ]; do wait -n 2>/dev/null || true; done
+  done <"$TMP/timed.txt"
   wait
   while read -r cpu rc f; do
     printf '%4d s  %s\n' "$cpu" "$f"
