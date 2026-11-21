@@ -49,5 +49,24 @@ public import LeanQbe.T.Amd64.KissatFastCert8
 public import LeanQbe.T.Amd64.KissatFastCert9
 public import LeanQbe.T.Amd64.KissatFastCert
 public import LeanQbe.T.Amd64.KissatFast
+public import LeanQbe.T.Amd64.KissatM3Cert1
+public import LeanQbe.T.Amd64.KissatM3Cert2
+public import LeanQbe.T.Amd64.KissatM3Cert3
+public import LeanQbe.T.Amd64.KissatM3Cert4
+public import LeanQbe.T.Amd64.KissatM3Cert5
+public import LeanQbe.T.Amd64.KissatM3Cert6
+public import LeanQbe.T.Amd64.KissatM3Cert7
+public import LeanQbe.T.Amd64.KissatM3Cert8
+public import LeanQbe.T.Amd64.KissatM3Cert9
+public import LeanQbe.T.Amd64.KissatM3Cert10
+public import LeanQbe.T.Amd64.KissatM3Cert11
+public import LeanQbe.T.Amd64.KissatM3Cert12
+public import LeanQbe.T.Amd64.KissatM3Cert13
+public import LeanQbe.T.Amd64.KissatM3Cert14
+public import LeanQbe.T.Amd64.KissatM3Cert15
+public import LeanQbe.T.Amd64.KissatM3Cert16
+public import LeanQbe.T.Amd64.KissatM3Cert17
+public import LeanQbe.T.Amd64.KissatM3Cert
+public import LeanQbe.T.Amd64.KissatM3
 
 /-! Root of the x64 library: imports `Kraken.X64` and `LeanQbe.T.Amd64.*`. -/

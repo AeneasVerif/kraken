@@ -4,9 +4,11 @@ public import LeanQbe.T.Arm64.KissatPlain
 public import LeanQbe.T.Arm64.KissatFull
 public import LeanQbe.T.Arm64.KissatFastSched
 public import LeanQbe.T.Arm64.KissatFast
+public import LeanQbe.T.Arm64.KissatM3
 meta import LeanQbe.T.Examples.Kissat.PlainLemmas
 meta import LeanQbe.T.Examples.Kissat.FullSpec
 meta import LeanQbe.T.Examples.Kissat.FullFast
+meta import LeanQbe.T.Examples.Kissat.FullM3
 
 /-!
 # Kissat audit, part 3: AAPCS64 AArch64 machine-code theorems
@@ -470,11 +472,124 @@ theorem audit_fast_arm_nv [hh : Host] (k₀ : Nat)
 
 end M2FastArm64
 
-/-! ## 5. Module shapes and `#print axioms` (one line each, standard axioms only) -/
+/-! ## 5. `D-Full M3` (`Arm64.KissatM3`, `204` fns): UNSAT soundness, unconditional -/
+
+section M3Arm64
+
+open Std.Sat LeanQbe.T LeanQbe.T.Arm64 Kraken
+open LeanQbe.T.Examples.LratBytes
+open LeanQbe.T.Examples.Kissat.FullM3 (m3Env m3Module)
+open LeanQbe.T.Arm64.KissatM3
+  (kissatM3_compiled_arm64 m3_module_fnspec m3_solve_bytes_unsat_arm64
+    m3_solve_bytes_unsat_sound_arm64 m3_arm64_unsat_nonvacuous)
+
+/-- **`D-Full M3` AArch64 whole-module `Defined` + `FnSpec`** (`204/204`, unconditional). -/
+theorem audit_m3_arm_fnspec [hh : Host] (k₀ : Nat)
+    (hc : kissatM3_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    {f : Fn} (hf : f ∈ m3Module.fns) :
+    armTarget.Defined hh f.name ∧
+      armTarget.FnSpec hh f.name (m3Env f.name f.as f.rs)
+        (kissatM3_compiled_arm64.bound f.name) 0 :=
+  m3_module_fnspec k₀ hc hu hf
+
+/-- **`D-Full M3` AArch64 end-to-end UNSAT soundness + framing** (`204` fns, unconditional). -/
+theorem audit_m3_arm_unsat [hh : Host] (k₀ : Nat)
+    (hc : kissatM3_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
+    (hx0 : (s.regs.getXReg .X0).toBitVec = cnf_ptr)
+    (hx1 : (s.regs.getXReg .X1).toBitVec = BitVec.ofNat 64 cnfBytes.length)
+    (hx2 : (s.regs.getXReg .X2).toBitVec = work_ptr)
+    (hx3 : (s.regs.getXReg .X3).toBitVec = BitVec.ofNat 64 wlen)
+    (hx4 : (s.regs.getXReg .X4).toBitVec = fuel)
+    (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)
+    (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
+      region (s.regs.SP.toBitVec - BitVec.ofNat 64
+          (kissatM3_compiled_arm64.bound "kissat_solve_bytes"))
+        (kissatM3_compiled_arm64.bound "kissat_solve_bytes") ⋆ R) s.dmem) :
+    Eventually (step1 Host.exe)
+      (fun st =>
+        st.pc = ra ∧
+        ((st.data.regs.getXReg .X0).toBitVec = 0#64 ∨
+          (st.data.regs.getXReg .X0).toBitVec = 10#64 ∨
+          (st.data.regs.getXReg .X0).toBitVec = 20#64) ∧
+        ((st.data.regs.getXReg .X0).toBitVec = 20#64 →
+          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+        (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26, .X27, .X28, .X29],
+          st.data.regs.getXReg r = s.regs.getXReg r) ∧
+        st.data.regs.SP = s.regs.SP ∧
+        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
+          region (s.regs.SP.toBitVec - BitVec.ofNat 64
+              (kissatM3_compiled_arm64.bound "kissat_solve_bytes"))
+            (kissatM3_compiled_arm64.bound "kissat_solve_bytes") ⋆ R)
+          st.data.dmem)
+      ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
+  m3_solve_bytes_unsat_arm64 k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
+    s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem
+
+/-- **`D-Full M3` AArch64 answer-only UNSAT soundness** (`204` fns, unconditional). -/
+theorem audit_m3_arm_sound [hh : Host] (k₀ : Nat)
+    (hc : kissatM3_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+    (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
+    (hx0 : (s.regs.getXReg .X0).toBitVec = cnf_ptr)
+    (hx1 : (s.regs.getXReg .X1).toBitVec = BitVec.ofNat 64 cnfBytes.length)
+    (hx2 : (s.regs.getXReg .X2).toBitVec = work_ptr)
+    (hx3 : (s.regs.getXReg .X3).toBitVec = BitVec.ofNat 64 wlen)
+    (hx4 : (s.regs.getXReg .X4).toBitVec = fuel)
+    (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)
+    (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
+      region (s.regs.SP.toBitVec - BitVec.ofNat 64
+          (kissatM3_compiled_arm64.bound "kissat_solve_bytes"))
+        (kissatM3_compiled_arm64.bound "kissat_solve_bytes") ⋆ R) s.dmem) :
+    Eventually (step1 Host.exe)
+      (fun st =>
+        st.pc = ra ∧
+        ((st.data.regs.getXReg .X0).toBitVec = 0#64 ∨
+          (st.data.regs.getXReg .X0).toBitVec = 10#64 ∨
+          (st.data.regs.getXReg .X0).toBitVec = 20#64) ∧
+        ((st.data.regs.getXReg .X0).toBitVec = 20#64 →
+          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))
+      ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
+  m3_solve_bytes_unsat_sound_arm64 k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
+    s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem
+
+/-- **`D-Full M3` AArch64 UNSAT non-vacuity** (`204` fns, unconditional). -/
+theorem audit_m3_arm_nv [hh : Host] (k₀ : Nat)
+    (hc : kissatM3_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
+    ∃ (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
+      (s : MachineData) (ra : Int64) (R : Mem 64 → Prop),
+      cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧
+      work_ptr.toNat + wlen < 2 ^ 64 ∧
+      (s.regs.getXReg .X0).toBitVec = cnf_ptr ∧
+      (s.regs.getXReg .X1).toBitVec = BitVec.ofNat 64 cnfBytes.length ∧
+      (s.regs.getXReg .X2).toBitVec = work_ptr ∧
+      (s.regs.getXReg .X3).toBitVec = BitVec.ofNat 64 wlen ∧
+      (s.regs.getXReg .X4).toBitVec = fuel ∧
+      s.regs.X30 = ra.toUInt64 ∧
+      s.regs.SP.toNat % 16 = 0 ∧
+      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
+        region (s.regs.SP.toBitVec - BitVec.ofNat 64
+            (kissatM3_compiled_arm64.bound "kissat_solve_bytes"))
+          (kissatM3_compiled_arm64.bound "kissat_solve_bytes") ⋆ R) s.dmem ∧
+      Eventually (step1 Host.exe)
+        (fun st => st.pc = ra ∧ (st.data.regs.getXReg .X0).toBitVec = 20#64 ∧
+          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat)
+        ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
+  m3_arm64_unsat_nonvacuous k₀ hc hu
+
+end M3Arm64
+
+/-! ## 6. Module shapes and `#print axioms` (one line each, standard axioms only) -/
 
 #guard Plain.plainFns.length == 59
 #guard Full.fullFns.length == 166
 #guard FullFast.fastFns.length == 196
+#guard FullM3.m3Fns.length == 204
 
 #print axioms audit_plain_arm64_correct
 #print axioms audit_plain_arm64_unsat_nonvacuous
@@ -490,3 +605,7 @@ end M2FastArm64
 #print axioms audit_fast_arm_unsat
 #print axioms audit_fast_arm_sound
 #print axioms audit_fast_arm_nv
+#print axioms audit_m3_arm_fnspec
+#print axioms audit_m3_arm_unsat
+#print axioms audit_m3_arm_sound
+#print axioms audit_m3_arm_nv
