@@ -69,12 +69,14 @@ def altVariantsFor {ts : List Ty} (op : Op VNat ts) : List VariantHint :=
   | .umulw _, _ => [.mulxFast]
   | .add (.bits w), (.var _, .imm c, ()) =>
     let dec := if c == 1#w || c == -(1#w) then [.decInc] else []
-    if Nat.beq w 64 then .disp ⟨⟨c.setWidth 64⟩⟩ :: dec else dec
+    if Nat.beq w 64 || Nat.beq w 32 then .disp (Int64.ofBitVec (c.signExtend 64)) :: dec else dec
   | .add (.bits w), (.imm c, .var _, ()) =>
-    if c == 1#w || c == -(1#w) then [.decInc] else []
+    let dec := if c == 1#w || c == -(1#w) then [.decInc] else []
+    if Nat.beq w 64 || Nat.beq w 32 then .disp (Int64.ofBitVec (c.signExtend 64)) :: dec else dec
   | .sub (.bits w), (.var _, .imm c, ()) =>
     let dec := if c == 1#w || c == -(1#w) then [.decInc] else []
-    if Nat.beq w 64 then .disp (-⟨⟨c.setWidth 64⟩⟩) :: dec else dec
+    if Nat.beq w 64 || Nat.beq w 32 then .disp (Int64.ofBitVec (-(c.signExtend 64))) :: dec
+    else dec
   | _, _ => []
 
 structure FlagHints (Cond : Type) where
