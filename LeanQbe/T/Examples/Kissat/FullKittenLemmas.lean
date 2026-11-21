@@ -286,7 +286,7 @@ theorem nvKitten_scratchInv : KittenScratchInv nvKittenScratchBuf := by
         change l ∈ kittenClauseLits nvKittenKs 0 at hl
         rw [nvKitten_cl0_lits] at hl
         nomatch hl
-      failing_ok := fun hf => absurd rfl hf
+      failing_ok := fun _ hf => absurd rfl hf
       assump_ok := fun i hi => by change i < 0 at hi; omega
       flags_clean := fun v hv => by change v < 0 at hv; omega }
   have hw : KittenWatchesOk nvKittenKs :=

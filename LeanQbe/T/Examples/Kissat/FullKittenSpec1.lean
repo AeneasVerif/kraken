@@ -152,7 +152,7 @@ structure KittenClausesOk (acap : Nat) (ks : KittenState) : Prop where
       (ks.ante ≠ 0#32 →
         let r := (ks.rsn[l / 2]?.getD 0xFFFFFFFF#32).toNat
         r < ks.nc.toNat ∧ kittenClauseLits ks r = [l ^^^ 1]))
-  failing_ok : ks.failing ≠ 0xFFFFFFFF#32 →
+  failing_ok : ks.ante ≠ 0#32 → ks.failing ≠ 0xFFFFFFFF#32 →
     (cnfOfClauses
       (((List.range ks.nc.toNat).filter fun ci =>
         (kittenClauseMeta ks ci &&& kmCore) != 0#32).map (kittenClauseLits ks)) ++
@@ -214,6 +214,11 @@ def ReasonOk (ks : KittenState) : Prop :=
      l ∈ kittenClauseLits ks r.toNat ∧
      ∀ x ∈ kittenClauseLits ks r.toNat, x ≠ l →
        ∃ j < i, (ks.trl[j]?.getD 0#32).toNat = x ^^^ 1)
+
+/-- Every watched clause's blocker literal `wblit[w]` belongs to that clause's literals. -/
+def KittenWblitInClause (ks : KittenState) : Prop :=
+  ∀ w < 2 * ks.nc.toNat, 2 ≤ kittenClauseSize ks (w / 2) →
+    (ks.wblit[w]?.getD 0#32).toNat ∈ kittenClauseLits ks (w / 2)
 
 /-- Combined internal `KittenState` invariant (excluding `TrailSynced`, so `flip` preserves it). -/
 structure KittenInv (acap : Nat) (ks : KittenState) : Prop where
@@ -673,7 +678,11 @@ def fullKittenAddClauseSpec : Spec [i64, i32, i64, i32] [.bool] :=
           (∀ ci < ks.orig_nc.toNat, ks'.clAux[ci]? = ks.clAux[ci]?) ∧
           (ks'.clMeta[ks.orig_nc.toNat]?.getD 0#32 &&& 0xFFFF#32) = sz ∧
           kittenOrigClausesS scr' =
-            kittenOrigClausesS scr ++ [(xs.take sz.toNat).map BitVec.toNat]) →
+            kittenOrigClausesS scr ++ [(xs.take sz.toNat).map BitVec.toNat] ∧
+          (∀ w < 2 * ks.nc.toNat, ks'.wblit[w]? = ks.wblit[w]?) ∧
+          (2 ≤ sz.toNat →
+            ks'.wblit[2 * ks.nc.toNat]? = xs[1]? ∧
+            ks'.wblit[2 * ks.nc.toNat + 1]? = xs[0]?)) →
         (array64 (c.hdr + 32) (hdrTailWords c s') ⋆
           array (t := i32) c.pScratchBuf scr' ⋆ array (t := i32) lits_ptr xs ⋆ R) m' →
         Q (ok, ()) m'
@@ -749,6 +758,7 @@ def fullKittenShrinkSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
         ((List.range ks.orig_nc.toNat).filter fun ci =>
           (kittenClauseMeta ks ci &&& kmCore) != 0#32).map (kittenClauseAux ks)) →
       (∀ ci < ks'.orig_nc.toNat, (kittenClauseMeta ks' ci &&& kmCore) = 0#32) →
+      KittenWblitInClause ks' →
       (FullMem c s' ⋆ R) m' → Q () m'
 
 def fullKittenFlipSpec : Spec [i64, i32] [.bool] := fun (h, lit, ()) m Q _ =>

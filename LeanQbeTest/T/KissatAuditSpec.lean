@@ -26,6 +26,7 @@ public import LeanQbe.T.Examples.Kissat.FullFastCoreLemmas
 public import LeanQbe.T.Examples.Kissat.FullBvaHeapLemmas
 public import LeanQbe.T.Examples.Kissat.FullKittenLemmas
 public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas
+public import LeanQbe.T.Examples.Kissat.FullFastProof
 meta import LeanQbe.T.Examples.Kissat.PlainLemmas
 meta import LeanQbe.T.Examples.Kissat.FullSpec
 meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7
@@ -34,6 +35,7 @@ meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas8b
 meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas9
 meta import LeanQbe.T.Examples.Kissat.FullDeduce1UipLemmas
 meta import LeanQbe.T.Examples.Kissat.FullProof
+meta import LeanQbe.T.Examples.Kissat.FullFast
 import all Std.Sat.CNF.Basic
 import all Std.Sat.CNF.Sat
 
@@ -569,7 +571,7 @@ theorem audit_fullUnsatEnv_moduleOk : ModuleOk Full.fullUnsatEnv Full.fullModule
 
 section M2aFastSchedAudit
 
-open Std.Sat LeanQbe.T LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat.Full
+open Std.Sat Std.ExtHashMap LeanQbe.T LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat.Full
 open Std.ExtHashMap (emp)
 open LeanQbe.T.Examples.Kissat.FullFastSched
   (schedSplicedFns schedSplicedFns_wf schedModule sched_acyclic schedSpecTable mkSchedEnv
@@ -803,7 +805,54 @@ theorem _root_.audit_fds_nv :
 
 end M2bFullDefSweepAudit
 
-/-! ## 11. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
+/-! ## 11. `D-Full M2 Fast` (`FullFastProof`, `196/196` unconditional, UNSAT-only) -/
+
+section M2FullFastAudit
+
+open Std.Sat Std.ExtHashMap LeanQbe.T LeanQbe.T.Examples.LratBytes
+open LeanQbe.T.Examples.Kissat.Full
+open LeanQbe.T.Examples.Kissat.FullFast
+
+#guard fastFns.length == 196
+#guard fastModule.checkAcyclic == true
+
+theorem _root_.audit_fast_wf : ∀ f ∈ fastFns, f.Wf := fastFns_wf
+
+theorem _root_.audit_fast_acyc : fastModule.checkAcyclic = true := fast_acyclic
+
+theorem _root_.audit_fast_modok : ModuleOk fastEnv fastModule := fastEnv_moduleOk
+
+theorem _root_.audit_fast_umodok : ModuleOk fastUnsatEnv fastModule := fastUnsatEnv_moduleOk
+
+theorem _root_.audit_fast_ok
+    {cnf_ptr work_ptr fuel : BitVec 64} {cnfBytes : List UInt8} {wlen : Nat}
+    {R : Mem 64 → Prop} {m : Mem 64} {X : XPost}
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (hm : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m) :
+    Func.wp fastEnv Full.kissat_solve_bytes_body
+      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr, BitVec.ofNat 64 wlen, fuel, ()) m
+      (fun (r, ()) m' =>
+        (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+        (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m') X :=
+  fast_solve_bytes_correct hcfit hwfit hm
+
+theorem _root_.audit_fast_nv :
+    let m0 : Mem 64 := (fullPayload fullNvUnsatBytes).At fullNvCnfPtr
+    Func.wp fastUnsatEnv Full.kissat_solve_bytes_body
+      (fullNvCnfPtr, BitVec.ofNat 64 fullNvUnsatBytes.length,
+        fullNvWorkPtr fullNvUnsatBytes, 4096#64, 16#64, ()) m0
+      (fun (r, ()) m' =>
+        r = 20#64 ∧ fullNvUnsatCnf.Unsat ∧
+        (bytes fullNvCnfPtr fullNvUnsatBytes ⋆
+          region (fullNvWorkPtr fullNvUnsatBytes) 4096 ⋆ emp) m')
+      (fun _ _ _ _ => False) :=
+  fast_unsat_nonvacuous
+
+end M2FullFastAudit
+
+/-! ## 12. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms audit_unsat_def
 #print axioms audit_sat_def
@@ -865,3 +914,9 @@ end M2bFullDefSweepAudit
 #print axioms audit_fk_nv20
 #print axioms audit_fds_modok
 #print axioms audit_fds_nv
+#print axioms audit_fast_wf
+#print axioms audit_fast_acyc
+#print axioms audit_fast_modok
+#print axioms audit_fast_umodok
+#print axioms audit_fast_ok
+#print axioms audit_fast_nv

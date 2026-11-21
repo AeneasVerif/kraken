@@ -694,8 +694,8 @@ private theorem kittenWatchReloc_preserves {acap : Nat} {ks : KittenState}
       have hlits_rr : kittenClauseLits ks' rr = kittenClauseLits ks rr :=
         hlits_other rr hrr.1 hne_c
       exact ⟨hrr.1, by change kittenClauseLits ks' rr = [l ^^^ 1]; rw [hlits_rr]; exact hrr.2⟩
-    · intro hf
-      have hfa := h0.failing_ok hf
+    · intro ha hf
+      have hfa := h0.failing_ok ha hf
       have hp_fail : KittenCnfPermEquiv
           (((List.range ks'.nc.toNat).filter fun ci =>
             (kittenClauseMeta ks' ci &&& kmCore) != 0#32).map (kittenClauseLits ks'))

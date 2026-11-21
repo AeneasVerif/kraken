@@ -276,8 +276,8 @@ theorem kittenBumpPropTicks_preserves_inv {acap : Nat} {ks : KittenState}
       refine ⟨hr.1, hr.2.1, fun ha => ?_⟩
       have hrr := hr.2.2 ha
       exact ⟨hrr.1, by rw [hlits_eq]; exact hrr.2⟩
-    · intro hf; rw [e_fa] at hf
-      have hfa := h0.failing_ok hf
+    · intro ha hf; rw [e_fa] at hf
+      have hfa := h0.failing_ok ha hf
       have hcm' : (fun ci => (kittenClauseMeta ks' ci &&& kmCore) != 0#32) =
           (fun ci => (kittenClauseMeta ks ci &&& kmCore) != 0#32) :=
         funext fun ci => by rw [hcm_eq]
@@ -820,8 +820,8 @@ theorem kittenWatchReloc_preserves {acap : Nat} {ks : KittenState}
       have hlits_rr : kittenClauseLits ks' rr = kittenClauseLits ks rr :=
         hlits_other rr hrr.1 hne_c
       exact ⟨hrr.1, by change kittenClauseLits ks' rr = [l ^^^ 1]; rw [hlits_rr]; exact hrr.2⟩
-    · intro hf
-      have hfa := h0.failing_ok hf
+    · intro ha hf
+      have hfa := h0.failing_ok ha hf
       have hp_fail : KittenCnfPermEquiv
           (((List.range ks'.nc.toNat).filter fun ci =>
             (kittenClauseMeta ks' ci &&& kmCore) != 0#32).map (kittenClauseLits ks'))
@@ -1539,7 +1539,7 @@ private theorem failingFinish_preserves {acap : Nat} {ks : KittenState}
       have hrr := hr.2.2 ha
       have hl_r := hlits_eq _ hrr.1
       exact ⟨hrr.1, by rw [hl_r]; exact hrr.2⟩
-    · intro _
+    · intro _ _
       rw [CNF.unsat_iff_not_sat]
       intro α hα
       have hsat : (cnfOfClauses (((List.range ks.nc.toNat).filter fun ci =>

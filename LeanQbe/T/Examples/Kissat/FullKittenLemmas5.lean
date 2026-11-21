@@ -330,6 +330,8 @@ private structure ShrinkP3Inv (acap : Nat) (st3 : KittenState) (i : BitVec 32)
       w < 2 * i.toNat ∧ 2 ≤ kittenClauseSize st3 (w / 2) ∧
       (st3.arena[kittenClauseOff st3 (w / 2) + (w % 2)]?.getD 0#32).toNat = l ∧
       (st.wblit[w]?.getD 0#32).toNat < 2 * st3.nv.toNat)
+  wblit_ok : ∀ w < 2 * i.toNat, 2 ≤ kittenClauseSize st3 (w / 2) →
+    (st.wblit[w]?.getD 0#32).toNat ∈ kittenClauseLits st3 (w / 2)
 
 private theorem shrinkP2_build_st3 {acap : Nat} {ks st1 st3 : KittenState} {dst ap : BitVec 32}
     (hinv : ks.Inv acap) (hp1 : ShrinkP1Inv acap ks ks.orig_nc dst ap st1)
@@ -463,7 +465,7 @@ private theorem shrinkP2_build_st3 {acap : Nat} {ks st1 st3 : KittenState} {dst 
       exact hp1.comp_mono d1 d2 h12 hd2
     · intro ui hui; rw [e_nu] at hui; simp at hui
     · intro hi; exact absurd e_in hi
-    · intro hf; exact absurd e_fa hf
+    · intro _ hf; exact absurd e_fa hf
     · intro i hi; rw [e_as, e_nv]; exact hinv.clauses.assump_ok i (e_na ▸ hi)
     · intro v hv; rw [e_fl]; exact hinv.clauses.flags_clean v (e_nv ▸ hv)
   have hw_empty : ∃ chains : List (List Nat),
@@ -513,19 +515,26 @@ private theorem shrinkP2_build_st3 {acap : Nat} {ks st1 st3 : KittenState} {dst 
   have hp3 : ShrinkP3Inv acap st3 0#32 st3 :=
     ⟨by cases st3; rfl, hsh3, Nat.zero_le _, by rw [e_nu]; decide,
      fun _ hu => by rw [e_nu] at hu; simp at hu,
-     fun hi => absurd e_in hi, hw_empty⟩
+     fun hi => absurd e_in hi, hw_empty, fun _ hw _ => by simp at hw⟩
   exact ⟨⟨hsh3, hcl3, hw3, hba3, hrsn3⟩, hsync3, hp3, e_nv, e_lv, e_te,
     by rw [e_nc, e_on], e_an, e_na, by unfold kittenAssumpLits; rw [e_na, e_as],
     hcore_eq, hsub, hmem, haux_eq, hnocore⟩
 
 private theorem shrinkP3_step_noop {acap : Nat} {st3 st : KittenState} {i : BitVec 32}
-    (hp : ShrinkP3Inv acap st3 i st) (hi : i.toNat < st3.nc.toNat) (hnc : st3.nc.toNat ≤ kMaxCl) :
+    (hp : ShrinkP3Inv acap st3 i st) (hi : i.toNat < st3.nc.toNat) (hnc : st3.nc.toNat ≤ kMaxCl)
+    (hsz_lt : kittenClauseSize st3 i.toNat < 2) :
     ShrinkP3Inv acap st3 (i + 1#32) st := by
   have hi1 : (i + 1#32).toNat = i.toNat + 1 := by unfold kMaxCl at hnc; bv_omega
   obtain ⟨ch, h1, h2, h3, h4⟩ := hp.watches_lt
   exact ⟨hp.eq_with, hp.sh, by rw [hi1]; omega, hp.nunits_le, hp.units_ok, hp.incons_ok,
     ⟨ch, h1, h2, h3, fun l hl w hw => by
-      have hb := h4 l hl w hw; exact ⟨by rw [hi1]; omega, hb.2⟩⟩⟩
+      have hb := h4 l hl w hw; exact ⟨by rw [hi1]; omega, hb.2⟩⟩,
+    fun w hw hsz => by
+      rw [hi1] at hw
+      by_cases hlt : w < 2 * i.toNat
+      · exact hp.wblit_ok w hlt hsz
+      · have hdiv : w / 2 = i.toNat := by omega
+        rw [hdiv] at hsz; omega⟩
 
 private theorem shrinkP3_step_incons {acap : Nat} {st3 st : KittenState} {i : BitVec 32}
     (hp : ShrinkP3Inv acap st3 i st) (hi : i.toNat < st3.nc.toNat) (hnc : st3.nc.toNat ≤ kMaxCl)
@@ -536,7 +545,13 @@ private theorem shrinkP3_step_incons {acap : Nat} {st3 st : KittenState} {i : Bi
   refine ⟨by rw [hp.eq_with]; rfl, hp.sh.putHdr .incons i, by rw [hi1]; omega,
     by kp_field; exact hp.nunits_le, by kp_field; exact hp.units_ok, ?_,
     ⟨ch, h1, h2, by kp_field; exact h3, fun l hl w hw => by
-      have hb := h4 l hl w hw; kp_field; exact ⟨by rw [hi1]; omega, hb.2⟩⟩⟩
+      have hb := h4 l hl w hw; kp_field; exact ⟨by rw [hi1]; omega, hb.2⟩⟩,
+    fun w hw hsz => by
+      rw [hi1] at hw; kp_field
+      by_cases hlt : w < 2 * i.toNat
+      · exact hp.wblit_ok w hlt hsz
+      · have hdiv : w / 2 = i.toNat := by omega
+        rw [hdiv, hsz0] at hsz; omega⟩
   intro _
   kp_field
   exact ⟨hi, by unfold kittenClauseLits; rw [hsz0]; simp⟩
@@ -554,7 +569,13 @@ private theorem shrinkP3_step_unit {acap : Nat} {st3 st : KittenState} {i : BitV
     by rw [hi1]; omega, by kp_field; rw [hnu1]; unfold kMaxL; omega, ?_,
     by kp_field; exact hp.incons_ok,
     ⟨ch, h1, h2, by kp_field; exact h3, fun l hl w hw => by
-      have hb := h4 l hl w hw; kp_field; exact ⟨by rw [hi1]; omega, hb.2⟩⟩⟩
+      have hb := h4 l hl w hw; kp_field; exact ⟨by rw [hi1]; omega, hb.2⟩⟩,
+    fun w hw hsz => by
+      rw [hi1] at hw; kp_field
+      by_cases hlt : w < 2 * i.toNat
+      · exact hp.wblit_ok w hlt hsz
+      · have hdiv : w / 2 = i.toNat := by omega
+        rw [hdiv, hsz1] at hsz; omega⟩
   intro ui hui
   have hui' : ui < st.nunits.toNat + 1 := by
     revert hui; kp_field; intro hui; rwa [hnu1] at hui
@@ -631,35 +652,75 @@ private theorem shrinkP3_step_watch {acap : Nat} {st3 st : KittenState} {i l0 l1
       · omega
       · exact absurd (hfresh _ hmem) (by omega))
   refine ⟨by rw [hp.eq_with]; rfl, kittenWatchStep_preserves_shapes hp.sh i l0 l1,
-    by rw [hi1]; omega, hp.nunits_le, hp.units_ok, hp.incons_ok, ?_⟩
-  have hlen1 : ((ch.set l0.toNat (w0.toNat :: ch[l0.toNat]'(by omega))).set l1.toNat
-      (w1.toNat :: (ch.set l0.toNat (w0.toNat :: ch[l0.toNat]'(by omega)))[l1.toNat]'(by
-        simp; omega))).length = 2 * st3.nv.toNat := by
-    simp [List.length_set, hlen]
-  refine ⟨_, hlen1, hstep1.2.1,
-    fun l hl => hstep1.2.2.1 l (e_nv ▸ hl), fun l hl u hu => ?_⟩
-  have hb := hstep1.2.2.2.1 l (e_nv ▸ hl) u hu
-  have hu_mem : u ∈ ((ch.set l0.toNat (w0.toNat :: ch[l0.toNat]'(by omega))).set l1.toNat
-      (w1.toNat :: (ch.set l0.toNat (w0.toNat :: ch[l0.toNat]'(by omega)))[l1.toNat]'(by
-        simp; omega))).flatten := by
-    rw [List.mem_flatten]
-    have hl_len : l < ((ch.set l0.toNat (w0.toNat :: ch[l0.toNat]'(by omega))).set l1.toNat
+    by rw [hi1]; omega, hp.nunits_le, hp.units_ok, hp.incons_ok, ?_, ?_⟩
+  · have hlen1 : ((ch.set l0.toNat (w0.toNat :: ch[l0.toNat]'(by omega))).set l1.toNat
         (w1.toNat :: (ch.set l0.toNat (w0.toNat :: ch[l0.toNat]'(by omega)))[l1.toNat]'(by
-          simp; omega))).length := by simp [hlen, hl]
-    exact ⟨_, List.getElem_mem hl_len, by simpa [List.getElem?_eq_getElem hl_len] using hu⟩
-  have hu_lt : u < 2 * (i + 1#32).toNat := by
-    rw [hi1]
-    rcases (hstep1.2.2.2.2 u).mp hu_mem with rfl | hm0
-    · omega
-    · rcases (hstep0.2.2.2.2 u).mp hm0 with rfl | hm_old
+          simp; omega))).length = 2 * st3.nv.toNat := by
+      simp [List.length_set, hlen]
+    refine ⟨_, hlen1, hstep1.2.1,
+      fun l hl => hstep1.2.2.1 l (e_nv ▸ hl), fun l hl u hu => ?_⟩
+    have hb := hstep1.2.2.2.1 l (e_nv ▸ hl) u hu
+    have hu_mem : u ∈ ((ch.set l0.toNat (w0.toNat :: ch[l0.toNat]'(by omega))).set l1.toNat
+        (w1.toNat :: (ch.set l0.toNat (w0.toNat :: ch[l0.toNat]'(by omega)))[l1.toNat]'(by
+          simp; omega))).flatten := by
+      rw [List.mem_flatten]
+      have hl_len : l < ((ch.set l0.toNat (w0.toNat :: ch[l0.toNat]'(by omega))).set l1.toNat
+          (w1.toNat :: (ch.set l0.toNat (w0.toNat :: ch[l0.toNat]'(by omega)))[l1.toNat]'(by
+            simp; omega))).length := by simp [hlen, hl]
+      exact ⟨_, List.getElem_mem hl_len, by simpa [List.getElem?_eq_getElem hl_len] using hu⟩
+    have hu_lt : u < 2 * (i + 1#32).toNat := by
+      rw [hi1]
+      rcases (hstep1.2.2.2.2 u).mp hu_mem with rfl | hm0
       · omega
-      · have := hfresh u hm_old; omega
-  refine ⟨hu_lt, ?_, ?_, ?_⟩
-  · have h1 := hb.2.1; change 2 ≤ kittenClauseSize st (u / 2) at h1; rwa [hsz_st] at h1
-  · have h2 := hb.2.2.1
-    change (st.arena[kittenClauseOff st (u / 2) + (u % 2)]?.getD 0#32).toNat = l at h2
-    rwa [e_ar, hoff_st] at h2
-  · have h3 := hb.2.2.2; rwa [← e_nv]
+      · rcases (hstep0.2.2.2.2 u).mp hm0 with rfl | hm_old
+        · omega
+        · have := hfresh u hm_old; omega
+    refine ⟨hu_lt, ?_, ?_, ?_⟩
+    · have h1 := hb.2.1; change 2 ≤ kittenClauseSize st (u / 2) at h1; rwa [hsz_st] at h1
+    · have h2 := hb.2.2.1
+      change (st.arena[kittenClauseOff st (u / 2) + (u % 2)]?.getD 0#32).toNat = l at h2
+      rwa [e_ar, hoff_st] at h2
+    · have h3 := hb.2.2.2; rwa [← e_nv]
+  · intro w hw hsz_w
+    rw [hi1] at hw
+    have hwb_len : st.wblit.length = 1792 := hp.sh.wblit_len
+    have hspan_i :
+        kittenClauseOff st3 i.toNat + kittenClauseSize st3 i.toNat ≤ st3.arena.length := by
+      have hwf := hinv3.clauses.cl_wf i.toNat hi
+      have h1 := hwf.2.2.1; unfold kittenClauseSpan at h1
+      have h2 := hinv3.clauses.alen_le
+      rw [hinv3.shapes.arena_len]; omega
+    have hmem_ar : ∀ k < 2, (st3.arena[kittenClauseOff st3 i.toNat + k]?.getD 0#32).toNat ∈
+        kittenClauseLits st3 i.toNat := by
+      intro k hk
+      unfold kittenClauseLits
+      rw [List.mem_map]
+      have hlt_a : kittenClauseOff st3 i.toNat + k < st3.arena.length := by omega
+      refine ⟨st3.arena[kittenClauseOff st3 i.toNat + k]'hlt_a, ?_, by
+        rw [List.getElem?_eq_getElem hlt_a, Option.getD_some]⟩
+      have hlen_t : ((st3.arena.drop (kittenClauseOff st3 i.toNat)).take
+          (kittenClauseSize st3 i.toNat)).length = kittenClauseSize st3 i.toNat := by
+        simp [List.length_take, List.length_drop]; omega
+      have hget : ((st3.arena.drop (kittenClauseOff st3 i.toNat)).take
+          (kittenClauseSize st3 i.toNat))[k]'(by omega) =
+          st3.arena[kittenClauseOff st3 i.toNat + k]'hlt_a := by
+        simp [List.getElem_take, List.getElem_drop]
+      rw [← hget]
+      exact List.getElem_mem (by omega)
+    change (((st.wblit.set w0.toNat l1).set w1.toNat l0)[w]?.getD 0#32).toNat ∈
+      kittenClauseLits st3 (w / 2)
+    rw [hw0_nat, hw1_nat]
+    by_cases hlt : w < 2 * i.toNat
+    · rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]
+      exact hp.wblit_ok w hlt hsz_w
+    · rcases (by omega : w = 2 * i.toNat ∨ w = 2 * i.toNat + 1) with rfl | rfl
+      · rw [List.getElem?_set_ne (by omega),
+          List.getElem?_set_self (by rw [hwb_len]; unfold kMaxCl at hnc; omega),
+          Option.getD_some, show 2 * i.toNat / 2 = i.toNat by omega, ← har1]
+        exact hmem_ar 1 (by omega)
+      · rw [List.getElem?_set_self (by rw [List.length_set, hwb_len]; unfold kMaxCl at hnc; omega),
+          Option.getD_some, show (2 * i.toNat + 1) / 2 = i.toNat by omega, ← har0]
+        simpa [Nat.add_zero] using hmem_ar 0 (by omega)
 
 private theorem shrinkP3_finish {acap : Nat} {st3 st : KittenState}
     (hinv3 : st3.Inv acap) (hsync3 : KittenTrailSynced st3)
@@ -758,8 +819,8 @@ private theorem shrinkP3_finish {acap : Nat} {st3 st : KittenState}
       have hsat := (cnf_sat_cnfOfClauses_iff α _).mp hα [] hmem
       rw [clause_sat_cnfClause_iff] at hsat
       obtain ⟨_, hl, _⟩ := hsat; nomatch hl
-    · intro hf
-      have hfa := hinv3.clauses.failing_ok (e_fa ▸ hf)
+    · intro ha hf
+      have hfa := hinv3.clauses.failing_ok (e_an ▸ ha) (e_fa ▸ hf)
       have hcm_eq : (fun ci => (kittenClauseMeta st ci &&& kmCore) != 0#32) =
           (fun ci => (kittenClauseMeta st3 ci &&& kmCore) != 0#32) :=
         funext fun ci => by rw [(hcl_eq ci).2.1]
@@ -1198,7 +1259,7 @@ theorem full_kitten_shrink_wp (Γ : Env)
                       · exact hJ5 _ _
                           ⟨shrinkP3_step_incons hp4 hci_lt hinv3.clauses.nc_le hsz0, hm⟩
                       · exact hJ5 _ _
-                          ⟨shrinkP3_step_noop hp4 hci_lt hinv3.clauses.nc_le, hm4⟩
+                          ⟨shrinkP3_step_noop hp4 hci_lt hinv3.clauses.nc_le (by omega), hm4⟩
                     · c0_hstep; c0_hsplit
                       · have hsz1 : kittenClauseSize st3 ci.toNat = 1 := by
                           rw [← hsz_eq, show sz = 1#32 from ‹_›]; rfl
@@ -1211,7 +1272,7 @@ theorem full_kitten_shrink_wp (Γ : Env)
                             ⟨shrinkP3_step_unit hp4 hci_lt hinv3.clauses.nc_le hnu_lt hsz1, hm⟩
                         · c0_hsteps!
                           exact hJ5 _ _
-                            ⟨shrinkP3_step_noop hp4 hci_lt hinv3.clauses.nc_le, hm4⟩
+                            ⟨shrinkP3_step_noop hp4 hci_lt hinv3.clauses.nc_le (by omega), hm4⟩
                       · have hsz2 : 2 ≤ kittenClauseSize st3 ci.toNat := by
                           have hne0 : sz ≠ 0#32 := ‹_›
                           have hne1 : sz ≠ 1#32 := ‹_›
@@ -1339,6 +1400,19 @@ theorem full_kitten_shrink_wp (Γ : Env)
                         rw [hof, show kittenClauseMeta st4 ci = kittenClauseMeta st3 ci by
                           unfold kittenClauseMeta; rw [hp4.eq_with]]
                         exact hb3.2.2.2.2.2.2.2.2.2.2.2.2.2.2 ci hci)
+                    (by rw [hof]; intro w hw hsz
+                        have hw3 : w < 2 * st3.nc.toNat := by
+                          rwa [show st4.nc = st3.nc by rw [hp4.eq_with]] at hw
+                        have hsz_eq :
+                            kittenClauseSize st4 (w / 2) = kittenClauseSize st3 (w / 2) := by
+                          unfold kittenClauseSize kittenClauseMeta; rw [hp4.eq_with]
+                        have hlits_eq :
+                            kittenClauseLits st4 (w / 2) = kittenClauseLits st3 (w / 2) := by
+                          unfold kittenClauseLits kittenClauseOff kittenClauseSize kittenClauseMeta
+                          rw [hp4.eq_with]
+                        rw [hsz_eq] at hsz
+                        rw [hlits_eq]
+                        exact hp4.wblit_ok w hw3 hsz)
                     hmJ
 
 end LeanQbe.T.Examples.Kissat.Full

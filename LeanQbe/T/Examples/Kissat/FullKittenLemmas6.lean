@@ -597,7 +597,7 @@ theorem inv_set_tick_lim {acap : Nat} {ks : KittenState}
 theorem inv_set_failing_none {acap : Nat} {ks : KittenState} (hinv : ks.Inv acap) :
     (ks.putHdr .failing 0xFFFFFFFF#32).Inv acap :=
   ⟨hinv.shapes.putHdr .failing 0xFFFFFFFF#32,
-   { hinv.clauses with failing_ok := fun hf => absurd rfl hf }, hinv.watches,
+   { hinv.clauses with failing_ok := fun _ hf => absurd rfl hf }, hinv.watches,
    baseAssignOk_of_unchanged (ks' := ks.putHdr .failing 0xFFFFFFFF#32)
      hinv.assign rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl,
    reasonOk_of_unchanged (ks' := ks.putHdr .failing 0xFFFFFFFF#32)

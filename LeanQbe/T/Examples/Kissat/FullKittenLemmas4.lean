@@ -98,8 +98,8 @@ private theorem kana_clauses_of_eq {acap : Nat} {ks1 ks2 : KittenState}
     refine ⟨by rw [hvals]; exact h2.1, by rw [hlvA]; exact h2.2.1, fun ha => ?_⟩
     rw [hante] at ha; have h3 := h2.2.2 ha
     dsimp only; rw [hnc, hrsn, (hcl _).2.2.2.2.2.2.1]; exact h3
-  · intro hf; rw [hfail] at hf
-    have h1 := h.failing_ok hf
+  · intro ha hf; rw [hante] at ha; rw [hfail] at hf
+    have h1 := h.failing_ok ha hf
     have hcm' : (fun ci => (kittenClauseMeta ks2 ci &&& kmCore) != 0#32) =
         (fun ci => (kittenClauseMeta ks1 ci &&& kmCore) != 0#32) :=
       funext fun ci => by rw [(hcl ci).2.1]
@@ -931,11 +931,12 @@ private theorem kana_append_lrn_inv {acap : Nat} {ks : KittenState}
       dsimp only; rw [(hcl_old _ hrr.1).2.2.2.2.2.2.1]
       exact ⟨by change (ks.rsn[l / 2]?.getD 0xFFFFFFFF#32).toNat < (ks.nc + 1#32).toNat; omega,
         hrr.2⟩
-    · exact failingOk_append_nonCore (ks := ks) (ks' := stMeta)
+    · intro ha
+      exact failingOk_append_nonCore (ks := ks) (ks' := stMeta)
         (by change (ks.nc + 1#32).toNat = ks.nc.toNat + 1; exact hnc1)
         rfl rfl rfl (by rw [hcl_new.2.1]; exact hmb_core)
         (fun c hc => ⟨(hcl_old c hc).2.1, (hcl_old c hc).2.2.2.2.2.2.1⟩)
-        hinv.clauses.failing_ok
+        (hinv.clauses.failing_ok ha)
   have hwM : KittenWatchesOk stMeta := by
     obtain ⟨ch, h1, h2, h3, h4⟩ := hinv.watches
     refine ⟨ch, h1, h2, h3, fun l hl w hw => ?_⟩

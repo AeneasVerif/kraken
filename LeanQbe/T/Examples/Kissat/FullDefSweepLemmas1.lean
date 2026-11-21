@@ -606,12 +606,12 @@ structure KittenInvLaws
     (∀ c ∈ cls, ∀ l ∈ c.2, l < 2 * nv') →
     KInv nv' cls ta .fresh
       ((scr.set 256 (BitVec.ofNat 32 nv')).set 262 (BitVec.ofNat 32 nv'))
-  set_assumps : ∀ {nv cls ta ph scr scr'}, KInv nv cls ta ph scr →
+  set_assumps : ∀ {nv cls ph scr scr'}, KInv nv cls false ph scr →
     scr'.length = scr.length →
     (∀ i, i ≠ 256 + 18 → i ≠ 256 + 1184 → i ≠ 256 + 1185 → scr'[i]? = scr[i]?) →
     (scr'[256 + 18]?.getD 0#32).toNat ≤ 2 →
     (∀ i < (scr'[256 + 18]?.getD 0#32).toNat, (scr'[256 + 1184 + i]?.getD 0#32).toNat < 2 * nv) →
-    KInv nv cls ta .solved scr'
+    KInv nv cls false .solved scr'
 
 def fullKittenInitSpec
     (KInv : Nat → List (Nat × List Nat) → Bool → KittenPhase → List (BitVec 32) → Prop) :

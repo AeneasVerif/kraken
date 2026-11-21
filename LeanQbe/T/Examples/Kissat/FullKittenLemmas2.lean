@@ -868,7 +868,12 @@ theorem full_kitten_add_clause_wp (Γ : Env)
             (fun _ => ⟨by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.1,
               by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.1,
               by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.2.2,
-              by rw [hof_slab hsh', hsz0]; exact hpres.2.2.2.2.2.2.2.1, horig'⟩)
+              by rw [hof_slab hsh', hsz0]; exact hpres.2.2.2.2.2.2.2.1, horig',
+              fun _ _ => by
+                rw [hof_slab hsh']
+                have hwb : ks'.wblit = ks.wblit := by dsimp only [ks', st1, st0]; split <;> kp_field
+                rw [hwb],
+              fun h2 => by rw [hsz0] at h2; simp at h2⟩)
             hmF.2.2
         · have hin_ne : (ks.incons == 0xFFFFFFFF#32) = false := beq_false_of_ne ‹_›
           have hpres := addClause_empty_preserves (cid := cid) hinv hsync hlvl0 hte0 heq_nc hnc_lt
@@ -908,7 +913,12 @@ theorem full_kitten_add_clause_wp (Γ : Env)
             (fun _ => ⟨by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.1,
               by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.1,
               by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.2.2,
-              by rw [hof_slab hsh', hsz0]; exact hpres.2.2.2.2.2.2.2.1, horig'⟩)
+              by rw [hof_slab hsh', hsz0]; exact hpres.2.2.2.2.2.2.2.1, horig',
+              fun _ _ => by
+                rw [hof_slab hsh']
+                have hwb : ks'.wblit = ks.wblit := by dsimp only [ks', st1, st0]; split <;> kp_field
+                rw [hwb],
+              fun h2 => by rw [hsz0] at h2; simp at h2⟩)
             hmF.2.2
       · have hsz_pos : 1 ≤ sz.toNat := by
           have hne : sz ≠ 0#32 := ‹_›
@@ -1012,7 +1022,10 @@ theorem full_kitten_add_clause_wp (Γ : Env)
                   (fun _ => ⟨by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.1,
                     by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.1,
                     by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.2.2.2.2,
-                    by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.2.1, horig'⟩)
+                    by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.2.1, horig',
+                    fun _ _ => by rw [hof_slab hsh']; rfl,
+                    fun h2 => by
+                      have hsz1 : sz = 1#32 := beq_iff_eq.mp h1; rw [hsz1] at h2; simp at h2⟩)
                   hmF.2.2
                 exact ⟨h1, by kp_field; exact hnu_lt⟩
               · have hnu_ge : ¬ (ks.nunits.toNat < 256) := by
@@ -1052,7 +1065,10 @@ theorem full_kitten_add_clause_wp (Γ : Env)
                   (fun _ => ⟨by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.1,
                     by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.1,
                     by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.2.2.2.2,
-                    by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.2.1, horig'⟩)
+                    by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.2.1, horig',
+                    fun _ _ => by rw [hof_slab hsh']; rfl,
+                    fun h2 => by
+                      have hsz1 : sz = 1#32 := beq_iff_eq.mp h1; rw [hsz1] at h2; simp at h2⟩)
                   hmF.2.2
                 exact fun h => hnu_ge (by have h2 := h.2; revert h2; kp_field; exact id)
             · have hne1 : (sz == 1#32) = false := beq_false_of_ne ‹_›
@@ -1105,6 +1121,30 @@ theorem full_kitten_add_clause_wp (Γ : Env)
               have horig' : kittenOrigClausesS (scr.take 256 ++ ks'.toSlab) =
                   kittenOrigClausesS scr ++ [(xs.take sz.toNat).map BitVec.toNat] := by
                 unfold kittenOrigClausesS; rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.2.2.1
+              have hw0_n : (ks.nc <<< (1 : Nat)).toNat = 2 * ks.nc.toNat :=
+                (bv32_cid_to_w0_lt hnc_896 (Nat.le_refl _)).1
+              have hw1_n : ((ks.nc <<< (1 : Nat)) ||| 1#32).toNat = 2 * ks.nc.toNat + 1 :=
+                (bv32_cid_to_w1_lt hnc_896 (Nat.le_refl _)).1
+              have hwb_len : stMeta.wblit.length = 1792 := hsh_meta.wblit_len
+              have hwb_old : ∀ w < 2 * ks.nc.toNat, ks'.wblit[w]? = ks.wblit[w]? := by
+                intro w hw
+                change ((stMeta.wblit.set (ks.nc <<< (1 : Nat)).toNat (xs[1]!)).set
+                  ((ks.nc <<< (1 : Nat)) ||| 1#32).toNat (xs[0]!))[w]? = ks.wblit[w]?
+                rw [hw0_n, hw1_n, List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]
+                rfl
+              have hwb_new : ks'.wblit[2 * ks.nc.toNat]? = xs[1]? ∧
+                  ks'.wblit[2 * ks.nc.toNat + 1]? = xs[0]? := by
+                constructor
+                · change ((stMeta.wblit.set (ks.nc <<< (1 : Nat)).toNat (xs[1]!)).set
+                    ((ks.nc <<< (1 : Nat)) ||| 1#32).toNat (xs[0]!))[2 * ks.nc.toNat]? = xs[1]?
+                  rw [hw0_n, hw1_n, List.getElem?_set_ne (by omega),
+                    List.getElem?_set_self (by rw [hwb_len]; omega),
+                    List.getElem?_eq_getElem h1_lt, hx1_bang]
+                · change ((stMeta.wblit.set (ks.nc <<< (1 : Nat)).toNat (xs[1]!)).set
+                    ((ks.nc <<< (1 : Nat)) ||| 1#32).toNat (xs[0]!))[2 * ks.nc.toNat + 1]? = xs[0]?
+                  rw [hw0_n, hw1_n,
+                    List.getElem?_set_self (by rw [List.length_set, hwb_len]; omega),
+                    List.getElem?_eq_getElem h0_lt, hx0_bang]
               exact hQ true _ _ hmF.1 hmF.2.1 hinv'
                 (by rw [hof_slab hsh']; exact hpres.2.1)
                 (by rw [hof_slab hsh']; exact hpres.2.2.1)
@@ -1119,7 +1159,9 @@ theorem full_kitten_add_clause_wp (Γ : Env)
                 (fun _ => ⟨by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.1,
                   by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.1,
                   by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.2.2.2.2,
-                  by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.2.1, horig'⟩)
+                  by rw [hof_slab hsh']; exact hpres.2.2.2.2.2.2.2.2.2.1, horig',
+                  fun w hw => by rw [hof_slab hsh']; exact hwb_old w hw,
+                  fun _ => by rw [hof_slab hsh']; exact hwb_new⟩)
                 hmF.2.2
 
 /-! ### `full_kitten_learn_unit0` Pure Helpers & `Func.wp` Proof (`7/15`) -/
@@ -1608,10 +1650,11 @@ private theorem learnUnit0Meta_preserves {acap : Nat} {ks : KittenState} {lit sr
       have hrr := hr.2.2 (by rwa [← hst_an])
       rw [(hcl_old _ hrr.1).2.2.2.2.2.2.1]
       exact ⟨Nat.lt_trans hrr.1 (Nat.lt_succ_self _), hrr.2⟩
-    · refine failingOk_append_nonCore (ks := ks) (ks' := stMeta)
+    · intro ha
+      refine failingOk_append_nonCore (ks := ks) (ks' := stMeta)
         (by change (nc + 1#32).toNat = ks.nc.toNat + 1; dsimp only [nc]; rw [hnc1])
         rfl rfl rfl ?_ (fun c hc => ⟨(hcl_old c hc).2.1, (hcl_old c hc).2.2.2.2.2.2.1⟩)
-        hcl.failing_ok
+        (hcl.failing_ok ha)
       change (kittenClauseMeta stMeta nc.toNat &&& kmCore) = 0#32
       rw [hcm_new]; decide
     · exact hcl.assump_ok

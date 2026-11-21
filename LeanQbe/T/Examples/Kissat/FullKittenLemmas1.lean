@@ -1509,8 +1509,8 @@ theorem bt_loopInv_finish {acap : Nat} {ks : KittenState} {target_lvl te : BitVe
          have hr := hll.2.2 (by rwa [← e_ant])
          dsimp only at hr ⊢
          rw [e_nc, (hcl_eq _).2.2.2.2.2.2]; exact hr,
-      by intro hf
-         have hfa := hinv.clauses.failing_ok (by rw [e_fail] at hf; exact hf)
+      by intro ha hf
+         have hfa := hinv.clauses.failing_ok (by rwa [← e_ant]) (by rw [e_fail] at hf; exact hf)
          have hcm_eq : (fun ci => (kittenClauseMeta ks' ci &&& kmCore) != 0#32) =
              (fun ci => (kittenClauseMeta ks ci &&& kmCore) != 0#32) :=
            funext fun ci => by rw [(hcl_eq ci).2.1]
@@ -1777,7 +1777,7 @@ theorem init_finish_inv {acap : Nat} {ks : KittenState} {nv : BitVec 32}
     · intro _ _ _ hc; rw [e_nc] at hc; simp at hc
     · intro ui hu; rw [e_nu] at hu; simp at hu
     · intro hi; exact absurd e_inc hi
-    · intro hf; exact absurd e_fail hf
+    · intro _ hf; exact absurd e_fail hf
     · intro i hi; rw [e_na] at hi; simp at hi
     · intro v hv; rw [e_nv] at hv; simp [(hvars v hv).2.2]
   have hw : KittenWatchesOk ks := by
@@ -2120,10 +2120,11 @@ theorem addClause_empty_preserves {acap : Nat} {ks : KittenState} {cid : BitVec 
         have hrr := hr.2.2 (by rwa [← e_ant])
         rw [(hcl_old _ hrr.1).2.2.2.2.2.2]
         exact ⟨by omega, hrr.2⟩
-    · exact failingOk_append_nonCore (by rw [e_nc, hnc1]) e_fail e_na e_ass
+    · intro ha
+      exact failingOk_append_nonCore (by rw [e_nc, hnc1]) e_fail e_na e_ass
         (by rw [hcl_new.2.1]; decide)
         (fun c hc => ⟨(hcl_old c hc).2.1, (hcl_old c hc).2.2.2.2.2.2⟩)
-        hinv.clauses.failing_ok
+        (hinv.clauses.failing_ok (by rwa [← e_ant]))
     · intro i hi; rw [e_ass, e_nv]; exact hinv.clauses.assump_ok i (by rw [e_na] at hi; exact hi)
     · intro v hv; rw [e_fl]; exact hinv.clauses.flags_clean v (by rw [e_nv] at hv; exact hv)
   have hw' : KittenWatchesOk ks' := by
@@ -2448,10 +2449,11 @@ theorem addClause_nonempty_preserves {acap : Nat} {ks : KittenState} {cid : BitV
         have hrr := hr.2.2 (by rwa [← m_an])
         rw [(hcl_old _ hrr.1).2.2.2.2.2.2]
         exact ⟨by rw [hnc_def]; omega, hrr.2⟩
-    · exact failingOk_append_nonCore (by rw [m_nc, hnc1]) m_fa m_na m_as
+    · intro ha
+      exact failingOk_append_nonCore (by rw [m_nc, hnc1]) m_fa m_na m_as
         (by rw [hcl_new.2.1]; exact bv32_lt2p16_and_core_zero sz hsz_max)
         (fun c hc => ⟨(hcl_old c hc).2.1, (hcl_old c hc).2.2.2.2.2.2⟩)
-        hinv.clauses.failing_ok
+        (hinv.clauses.failing_ok (by rwa [← m_an]))
     · intro i hi; rw [m_as, m_nv]; exact hinv.clauses.assump_ok i (by rw [m_na] at hi; exact hi)
     · intro v hv; rw [m_fl]; exact hinv.clauses.flags_clean v (by rw [m_nv] at hv; exact hv)
   have hba_meta : KittenBaseAssignOk stMeta :=
@@ -2606,8 +2608,8 @@ theorem addClause_nonempty_preserves {acap : Nat} {ks : KittenState} {cid : BitV
           have hrr := hr.2.2 (by rwa [← u_an])
           simpa only [kittenClauseLits, kittenClauseOff, kittenClauseSize, kittenClauseMeta,
             u_co, u_cm, u_ar] using hrr
-        · intro hf
-          have hfa0 := hcl_meta.failing_ok (by rwa [← u_fa])
+        · intro ha hf
+          have hfa0 := hcl_meta.failing_ok (by rwa [← u_an]) (by rwa [← u_fa])
           have hcm_eq : (fun ci => (kittenClauseMeta stU ci &&& kmCore) != 0#32) =
               (fun ci => (kittenClauseMeta stMeta ci &&& kmCore) != 0#32) :=
             funext fun ci => by simp only [kittenClauseMeta, u_cm]
@@ -2787,8 +2789,8 @@ theorem addClause_nonempty_preserves {acap : Nat} {ks : KittenState} {cid : BitV
         rw [hin, hc, horig_w, hva, hla, hant, hrs]
         simpa only [kittenClauseLits, kittenClauseOff, kittenClauseSize, kittenClauseMeta,
           hco, hcm, har] using hcl_meta.incons_ok hi
-      · intro hf
-        have hfa0 := hcl_meta.failing_ok (by rwa [← hfa])
+      · intro han hf
+        have hfa0 := hcl_meta.failing_ok (by rwa [← hant]) (by rwa [← hfa])
         have hcm_eq : (fun ci => (kittenClauseMeta stW ci &&& kmCore) != 0#32) =
             (fun ci => (kittenClauseMeta stMeta ci &&& kmCore) != 0#32) :=
           funext fun ci => by simp only [kittenClauseMeta, hcm]

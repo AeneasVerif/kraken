@@ -155,7 +155,7 @@ private theorem CoreMetaRel.toInv {acap : Nat} {ks0 st : KittenState}
       by rw [e_on]; exact hinv.clauses.orig_nc_max, by rw [e_al]; exact hinv.clauses.alen_le,
       by rw [e_na]; exact hinv.clauses.nassump_le, by rw [e_nu]; exact hinv.clauses.nunits_le,
       by rw [e_nr]; exact hinv.clauses.nres_le, by rw [e_nk]; exact hinv.clauses.nkl_le,
-      by rw [e_nn]; exact hinv.clauses.nana_le, ?_, ?_, ?_, ?_, hfail, ?_, ?_⟩
+      by rw [e_nn]; exact hinv.clauses.nana_le, ?_, ?_, ?_, ?_, fun _ => hfail, ?_, ?_⟩
     · intro cid hcid
       have hw := hinv.clauses.cl_wf cid (e_nc ▸ hcid)
       have hf := h.clause_fields cid
@@ -906,6 +906,6 @@ theorem full_kitten_core_wp (Γ : Env) :
           · exfalso; exact hinc_ne (hinc_eq ▸ ‹_›)
     · c0_hsteps!
       have hfail_ne : ks0.failing ≠ 0xFFFFFFFF#32 := ‹_›
-      refine hJ1 ks0 m ⟨CoreMetaRel.refl hsh0, hcl0.failing_ok hfail_ne, hmA⟩
+      refine hJ1 ks0 m ⟨CoreMetaRel.refl hsh0, hcl0.failing_ok hante hfail_ne, hmA⟩
 
 end LeanQbe.T.Examples.Kissat.Full
