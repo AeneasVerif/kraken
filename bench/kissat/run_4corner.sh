@@ -4,13 +4,14 @@
 # Builds & benchmarks `Full` and/or `FullFast` across:
 #   - C3b: `PrintCpp` -> `clang++ -std=c++20 -O3 -DTQBE_NATIVE_MEM` linked with `bench_main.c`
 #   - C4 : `lean-qbe` native x64 `.s` -> `clang -O3 -no-pie` linked with `bench_main.c`
-#   - Optional C1: upstream Kissat 4.0.4 (`--kissat <bin>`) if available
+#   - Optional C1: upstream Kissat 4.0.4 (`--kissat <bin>`, `KISSAT_BIN`, or `kissat` in `PATH`)
 #
 # Asserts BIT-IDENTICAL `(status, conflicts, learned_lits, min_removed, search_ticks)`
 # between C3b and C4, separating `C0 -> T` lowering from `lean-qbe` backend codegen.
 #
 # Environment knobs:
 #   STAGE_LEAN_PATH - Optional read-only prebuilt `.lake/build/lib/lean` path (avoids rebuild)
+#   KISSAT_BIN      - Optional upstream Kissat 4.0.4 binary (auto-detected via PATH if unset)
 #   WORK_BYTES      - Workspace bytes (default: 67108864 = 64 MiB)
 #   FUEL            - Solver fuel budget (default: 200000000)
 #   PER_TIMEOUT     - Per-CNF timeout seconds (default: 5)
@@ -27,6 +28,7 @@ FUEL="${FUEL:-200000000}"
 PER_TIMEOUT="${PER_TIMEOUT:-5}"
 WITH_PERF="${WITH_PERF:-0}"
 KISSAT_BIN="${KISSAT_BIN:-}"
+NO_KISSAT=0
 INLINE_MAX_SIZE="${INLINE_MAX_SIZE:-40}"
 UPDATE_BASELINE=0
 STRICT_GAPS=0
@@ -37,6 +39,7 @@ usage() {
 usage: bench/kissat/run_4corner.sh [options]
   --module <Full|FullFast|FullM3|Both|All>  Module(s) to benchmark (default: All)
   --kissat <bin>                            Optional upstream Kissat 4.0.4 binary (C1)
+  --no-kissat                               Disable C1 comparison even if kissat is in PATH/KISSAT_BIN
   --work-bytes <N>                          Workspace bytes (default: 67108864)
   --fuel <N>                                Fuel budget (default: 200000000)
   --per-timeout <sec>                       Per-CNF timeout seconds (default: 5)
@@ -62,7 +65,10 @@ while [ $# -gt 0 ]; do
       esac
       shift 2
       ;;
-    --kissat) KISSAT_BIN="$2"; shift 2 ;;
+    --kissat)
+      [ $# -ge 2 ] || { echo "ERROR: --kissat requires an argument" >&2; exit 2; }
+      KISSAT_BIN="$2"; shift 2 ;;
+    --no-kissat) NO_KISSAT=1; KISSAT_BIN=""; shift ;;
     --work-bytes) WORK_BYTES="$2"; shift 2 ;;
     --fuel) FUEL="$2"; shift 2 ;;
     --per-timeout) PER_TIMEOUT="$2"; shift 2 ;;
@@ -124,6 +130,22 @@ CC="${CC:-clang}"
 CXX="${CXX:-clang++}"
 KTEST_INC="$ROOT/test/kissat"
 RT_INC="$ROOT/LeanQbe/T/Runtime"
+
+if [ "$NO_KISSAT" -eq 0 ] && [ -z "$KISSAT_BIN" ]; then
+  SYS_KISSAT="$(command -v kissat 2>/dev/null || true)"
+  if [ -n "$SYS_KISSAT" ] && [ -x "$SYS_KISSAT" ]; then
+    KISSAT_BIN="$SYS_KISSAT"
+  fi
+fi
+if [ -n "$KISSAT_BIN" ]; then
+  RESOLVED_KISSAT="$(command -v "$KISSAT_BIN" 2>/dev/null || true)"
+  if [ -z "$RESOLVED_KISSAT" ] || [ ! -x "$RESOLVED_KISSAT" ]; then
+    echo "ERROR: kissat binary '$KISSAT_BIN' not found or not executable" >&2
+    exit 2
+  fi
+  KISSAT_BIN="$RESOLVED_KISSAT"
+  echo "C1 oracle: $KISSAT_BIN"
+fi
 
 CHECK_ARGS=(--cnf-dir "$OUT/cnfs" --work-bytes "$WORK_BYTES" --fuel "$FUEL" --per-timeout "$PER_TIMEOUT")
 [ -n "$KISSAT_BIN" ] && CHECK_ARGS+=(--kissat "$KISSAT_BIN")
