@@ -178,6 +178,18 @@ theorem findJnzCond_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach
           simp only [RegLocOk, symArgMatchesGpr_var hc2, GprSym] at h1
           exact h1 _ _ hmem
         · cases he
+      | gprZ g' =>
+        simp only at he
+        split at he
+        · cases he
+          rename_i hc
+          simp only [Bool.and_eq_true] at hc
+          obtain ⟨hc1, hc2⟩ := hc
+          refine ⟨fun hm => by simp [hm] at hc1, ?_⟩
+          have h1 := (hA.regs _ hp).1
+          simp only [symArgMatchesGpr_var hc2, GprSym] at h1
+          exact h1 _ _ hmem
+        · cases he
       | _ => simp at he
 
 end Basic

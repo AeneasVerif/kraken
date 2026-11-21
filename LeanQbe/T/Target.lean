@@ -266,6 +266,13 @@ structure GprIsa (Reg VReg Cond Directive : Type) where
     Tup (Arg (fun _ => Unit)) sig → Bool
   /-- Comparison condition codes `Spill` may keep a `cmp` result in (untrusted hint input). -/
   cmpFlags : List Cond := []
+  /-- `true` when `load (.bits 32)` zeroes bits `32..63` of `rd`. -/
+  zeroUpper32Load : Bool := false
+  /-- `true` when `op` writes `[.bits 32]` to `.gpr rd` with bits `32..63` zeroed. -/
+  zeroUpper32Op : {sig rs : List Ty} → OpCode sig rs → Tup (PArg Reg VReg Cond) sig →
+    Tup (PDst Reg VReg Cond) rs → Bool := fun _ _ _ => false
+  /-- `true` when `.zext 32 64` into `.gpr rd` may be elided when the input is upper-32 zero. -/
+  elideZext32 : Bool := false
 
 structure VecIsa (Reg VReg Cond Directive : Type) where
   vecScratch : List VReg
@@ -545,6 +552,23 @@ structure GprTarget {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
     M.PArgHolds s t pa v → storeOk (M.mem s) t (a.eval (M.getGpr s)) →
     M.FallsTo g.condReads h k c scratch [] clob s
       (fun s' => M.mem s' = storeMem (M.mem s) t (a.eval (M.getGpr s)) v) post
+  load_zero32 : g.zeroUpper32Load = true →
+    ∀ {h k rd a c clob s post} {v : BitVec 32},
+    g.load (.bits 32) rd a = some (c, clob) → rd ∉ scratch → (∀ r ∈ a.regs, r ∉ scratch) →
+    loadVal (M.mem s) (.bits 32) (a.eval (M.getGpr s)) = some v →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => M.getGpr s' rd = v.setWidth 64 ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  op_zero32 : ∀ {h k sig} {code : OpCode sig [.bits 32]} {pas dsts rd vh c clob vs P s post},
+    g.zeroUpper32Op code pas dsts = true →
+    g.op code pas dsts vh = some (c, clob) →
+    dsts = (.gpr rd, ()) →
+    (∀ r ∈ tupArgGprs pas, r ∉ scratch) → rd ∉ scratch →
+    TRel (M.PArgHolds s) pas vs → code.wp vs P →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ M.getGpr s' rd = rv.setWidth 64) ∧
+        M.mem s' = M.mem s) post :=
+    by intros; contradiction
 
 structure FramePreds {R V C D : Type} (M : Machine R V C D) : Type where
   RetAddr : BitVec 64 → M.Addr → Mem 64 → Prop

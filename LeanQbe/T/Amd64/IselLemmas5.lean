@@ -527,6 +527,72 @@ theorem x64Gpr_op_spec {h : x64Mach.Host} {k : Nat} {sig rs : List Ty} {code : O
     exact withWidth_elim hc fun w hn hw => by
       subst hn; dsimp only [OpCode.wp, toBits, ofBits, BitVec.cast] at hwp; exact opPost1_fallsTo hwp fun {_} _ => opCopyBits_spec w hw ha
 
+theorem x64Gpr_op_zero32 {h : x64Mach.Host} {k : Nat} {sig : List Ty}
+    {code : OpCode sig [.bits 32]} {pas : Tup (PArg Reg64 RegMm CondCode) sig}
+    {dsts : Tup (PDst Reg64 RegMm CondCode) [.bits 32]} {rd : Reg64} {vh : VariantHint}
+    {c : List Directive} {clob : FlagMask} {vs : Tup Val sig} {P : Tup Val [.bits 32] → Prop}
+    {s : MachineData} {post : MachineState → Prop}
+    (hz : x64Gpr.zeroUpper32Op code pas dsts = true)
+    (hc0 : x64Gpr.op code pas dsts vh = some (c, clob)) (hd : dsts = (.gpr rd, ()))
+    (hargs : ∀ r ∈ tupArgGprs pas, r ∉ x64Scratch) (hrd : rd ∉ x64Scratch)
+    (hvs : TRel (x64Mach.PArgHolds s) pas vs) (hwp : code.wp vs P) :
+    x64Mach.FallsTo x64Gpr.condReads h k c (rd :: x64Scratch) [] clob s
+      (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ s'.regs.get64 rd = rv.setWidth 64) ∧
+        s'.dmem = s.dmem) post := by
+  subst hd
+  dsimp only [x64Gpr, x64Op] at hc0 hz
+  obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc0
+  cases code <;>
+    (try exact absurd hz Bool.false_ne_true)
+  case copy =>
+    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; have ha := trel1 hvs
+    dsimp only [x64OpIns, withWidth] at hc
+    have hne : pa ≠ .gpr rd := by
+      intro h; subst h; cases rd <;> exact Bool.false_ne_true hz
+    exact opPostZ_fallsTo hwp fun {_} _ => opCopyBits_zero32_spec hne hc ha
+  case add | sub | mul | and | or | xor =>
+    rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+    obtain ⟨ha, hb⟩ := trel2 hvs; dsimp only [x64OpIns, withWidth] at hc
+    dsimp only [OpCode.wp, Ty.hasFloat, lift2] at hwp
+    exact opPostZ_fallsTo hwp fun {_} _ =>
+      opBin_zero32_spec _ hc hrd (arg2_not_sc hargs) ha hb
+  case neg | not =>
+    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+    have ha := trel1 hvs; dsimp only [x64OpIns, withWidth] at hc
+    dsimp only [OpCode.wp, Ty.hasFloat, lift1] at hwp
+    exact opPostZ_fallsTo hwp fun {_} _ => by
+      first | exact opNeg_zero32_spec hc ha | exact opNot_zero32_spec hc ha
+  case shl | lshr | ashr | rotl | rotr =>
+    rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+    obtain ⟨ha, hb⟩ := trel2 hvs; dsimp only [x64OpIns, withWidth] at hc
+    dsimp only [OpCode.wp, Ty.hasFloat, lift2] at hwp
+    exact opPostZ_fallsTo hwp fun {_} _ =>
+      opShift_zero32_spec _ (pa := pa) (pb := pb) (by
+        cases pb with
+        | gpr _ => exact rfl
+        | vec _ => exact Bool.false_ne_true hz
+        | imm cb => change (cb.toNat % 32 != 0) = true at hz; exact bne_iff_ne.mp hz)
+        hc hrd (arg2_not_sc hargs) ha hb
+  case bswap =>
+    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+    have ha := trel1 hvs; dsimp only [x64OpIns] at hc
+    have hok := (@opBswap_spec _ (fun _ _ => True) 32 pa _ ci clob va s hc ha).1
+    dsimp only [OpCode.wp, lift1] at hwp
+    simp only [hok, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hwp
+    exact opPostZ_fallsTo hwp fun {_} _ => opBswap_zero32_spec hc ha
+  case zext m =>
+    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+    have ha := trel1 hvs; dsimp only [x64OpIns] at hc
+    exact opPostZ_fallsTo hwp.2 fun {_} _ => opZext_zero32_spec m hc ha
+  case sext m =>
+    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+    have ha := trel1 hvs; dsimp only [x64OpIns] at hc
+    exact opPostZ_fallsTo hwp.2 fun {_} _ => opSext_zero32_spec m hc ha
+  case ofBool =>
+    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+    have ha := trel1 hvs; dsimp only [x64OpIns] at hc
+    exact opPostZ_fallsTo hwp fun {_} _ => opOfBool_zero32_spec hc ha
+
 /-- Assembled `GprTarget` proof package for `x64Gpr` over `x64Mach` and `x64Scratch`. -/
 theorem x64GprSpec : GprTarget x64Mach x64Gpr x64Scratch where
   negCond_reads := x64Gpr_negCond_reads; negCond_eval := x64Gpr_negCond_eval
@@ -534,6 +600,9 @@ theorem x64GprSpec : GprTarget x64Mach x64Gpr x64Scratch where
   setcc_spec := x64Gpr_setcc_spec; jmp_spec := x64Gpr_jmp_spec; jcc_spec := x64Gpr_jcc_spec
   jnzGpr_spec := x64Gpr_jnzGpr_spec; op_spec := x64Gpr_op_spec
   load_spec := x64Gpr_load_spec; store_spec := x64Gpr_store_spec
+  load_zero32 := fun h0 {_ _ _ _ _ _ s post v} hc hrd ha hlv =>
+    x64Gpr_load_zero32 h0 (s := s) (post := post) (v := v) hc hrd ha hlv
+  op_zero32 := x64Gpr_op_zero32
 
 end
 

@@ -24,16 +24,17 @@ abbrev VNat : Ty → Type := fun _ => Nat
 abbrev LNat : List Ty → Type := fun _ => Nat
 
 inductive RegLoc (Reg VReg Cond : Type) where
-  | gpr (r : Reg) | vec (v : VReg) | flag (c : Cond)
+  | gpr (r : Reg) | gprZ (r : Reg) | vec (v : VReg) | flag (c : Cond)
   deriving DecidableEq, Repr
 
 inductive SlotEntry where
   | gpr (sas : List SymArg)
+  | gprZ (sas : List (SymArg × Bool))
   | vec (w : SlotWidth) (sas : List SymArg)
   deriving DecidableEq, Repr
 
 def SlotEntry.slots : SlotEntry → Nat
-  | .gpr _ => 1 | .vec w _ => w.slots
+  | .gpr _ | .gprZ _ => 1 | .vec w _ => w.slots
 
 inductive DefFact where
   | addImm64 (base : Nat) (disp : BitVec 64)
@@ -69,8 +70,15 @@ def symArgEq : SymArg → SymArg → Bool
   | _, _ => false
 
 def regLocEq {I : Isa} : RegLoc I.Reg I.VReg I.Cond → RegLoc I.Reg I.VReg I.Cond → Bool
-  | .gpr a, .gpr b => a == b | .vec a, .vec b => a == b | .flag a, .flag b => a == b
+  | .gpr a, .gpr b | .gprZ a, .gprZ b => a == b
+  | .vec a, .vec b => a == b
+  | .flag a, .flag b => a == b
   | _, _ => false
+
+def regLocMatchesGpr {I : Isa} (rl : RegLoc I.Reg I.VReg I.Cond) (r : I.Reg) : Bool :=
+  match rl with
+  | .gpr r' | .gprZ r' => r' == r
+  | _ => false
 
 def locEq {I : Isa} : I.Loc → I.Loc → Bool
   | .gpr a, .gpr b => a == b | .vec a, .vec b => a == b | .flag a, .flag b => a == b
@@ -142,7 +150,7 @@ def entryScopeOk {I : Isa} (nv : Nat) (en : Entry I.Reg I.VReg I.Cond) : Bool :=
 
 def keepRegLoc (I : Isa) (gClob : List I.Reg) (vClob : List I.VReg) (fClob : FlagMask) :
     RegLoc I.Reg I.VReg I.Cond → Bool
-  | .gpr r => !(gClob.contains r)
+  | .gpr r | .gprZ r => !(gClob.contains r)
   | .vec v => !(vClob.contains v)
   | .flag c => FlagMask.disjoint (I.gpr.condReads c) fClob
 
@@ -185,7 +193,16 @@ def addSlotEntry (vw : Trie SlotWidth) (sa : SymArg) (i : Nat) (w : SlotWidth)
 /-! ## Checked Moves and `PreStep` (`L3`, `L4`, `L7`, `L10`) -/
 
 def gprEntries {I : Isa} (r : I.Reg) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) : List SymArg :=
-  R.filterMap fun (sa, rl) => match rl with | .gpr r' => if r' == r then some sa else none | _ => none
+  R.filterMap fun (sa, rl) =>
+    match rl with | .gpr r' | .gprZ r' => if r' == r then some sa else none | _ => none
+
+def gprTaggedEntries {I : Isa} (r : I.Reg)
+    (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) : List (SymArg × Bool) :=
+  R.filterMap fun (sa, rl) =>
+    match rl with
+    | .gpr r' => if r' == r then some (sa, false) else none
+    | .gprZ r' => if r' == r then some (sa, true) else none
+    | _ => none
 
 def vecEntries {I : Isa} (vw : Trie SlotWidth) (w : SlotWidth) (v : I.VReg)
     (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) : List SymArg :=
@@ -207,7 +224,9 @@ def execMove (I : Isa) (nslots : Nat) (saved : List I.Reg) (mv : I.Move) (st : S
     if !isMoveGpr I saved d then none
     else if d == s then some (I.gpr.mov d s, st)
     else some (I.gpr.mov d s,
-      { st with regs := (gprEntries s st.regs).map (·, .gpr d) ++ killRegs I [d] [] FlagMask.none st.regs })
+      { st with regs := (gprTaggedEntries s st.regs).map (fun (sa, z) =>
+                          (sa, if z then RegLoc.gprZ d else .gpr d)) ++
+                        killRegs I [d] [] FlagMask.none st.regs })
   | .movi d c =>
     if !isMoveGpr I saved d then none
     else some (I.gpr.movi d c,
@@ -215,14 +234,18 @@ def execMove (I : Isa) (nslots : Nat) (saved : List I.Reg) (mv : I.Move) (st : S
   | .ld d i =>
     if !(isAllocGpr I saved d && Nat.ble (i + 1) nslots) then none
     else
-      let copied := match st.slots.find? i with | some (.gpr sas) => sas.map (·, .gpr d) | _ => []
+      let copied := match st.slots.find? i with
+        | some (.gpr sas) => sas.map (·, RegLoc.gpr d)
+        | some (.gprZ sas) => sas.map fun (sa, z) => (sa, if z then .gprZ d else .gpr d)
+        | _ => []
       some (I.frame.slotLd d i,
         { st with regs := copied ++ killRegs I (d :: I.frame.scratch) [] FlagMask.none st.regs })
   | .st i s =>
     if !(!(I.frame.scratch.contains s) && Nat.ble (i + 1) nslots) then none
     else some (I.frame.slotSt i s,
-      { st with regs := killRegs I I.frame.scratch [] FlagMask.none st.regs,
-                slots := (clearSlotRange i 1 st.slots).insert i (.gpr (gprEntries s st.regs)) })
+      { st with
+        regs := killRegs I I.frame.scratch [] FlagMask.none st.regs
+        slots := (clearSlotRange i 1 st.slots).insert i (.gprZ (gprTaggedEntries s st.regs)) })
   | .setcc d c =>
     if !isAllocGpr I saved d then none
     else some (I.gpr.setcc d c,
@@ -272,7 +295,8 @@ def stepPre (I : Isa) (h : I.Hints) (ip : Nat) (st : SymState I) : Option (List 
 /-! ## Target Presence Checking and Untrusted Parallel-Move Shuffle -/
 
 def holdsLoc (I : Isa) (st : SymState I) (sa : SymArg) : I.Loc → Bool
-  | .gpr r => st.regs.any fun (sa', rl) => match rl with | .gpr r' => r' == r && symArgMatchesGpr sa' sa | _ => false
+  | .gpr r => st.regs.any fun (sa', rl) =>
+    match rl with | .gpr r' | .gprZ r' => r' == r && symArgMatchesGpr sa' sa | _ => false
   | .vec v => st.regs.any fun (sa', rl) => match rl with | .vec v' => v' == v && symArgEq sa' sa | _ => false
   | .flag c => st.regs.any fun (sa', rl) => match rl with | .flag c' => c' == c && symArgEq sa' sa | _ => false
   | .slot i w =>
@@ -282,11 +306,17 @@ def holdsLoc (I : Isa) (st : SymState I) (sa : SymArg) : I.Loc → Bool
       match st.slots.find? i with | some (.vec w' sas) => slotWidthEq w' w && sas.any (symArgEq · sa) | _ => false
     | none =>
       slotWidthEq w .w64 &&
-      match st.slots.find? i with | some (.gpr sas) => sas.any (symArgMatchesGpr · sa) | _ => false
+      match st.slots.find? i with
+      | some (.gpr sas) => sas.any (symArgMatchesGpr · sa)
+      | some (.gprZ sas) => sas.any fun (sa', _) => symArgMatchesGpr sa' sa
+      | _ => false
 
 def findGprFor (I : Isa) (noScr : Bool) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) (sa : SymArg) : Option I.Reg :=
   R.findSome? fun (sa', rl) =>
-    match rl with | .gpr r => if (!noScr || !(I.frame.scratch.contains r)) && symArgMatchesGpr sa' sa then some r else none | _ => none
+    match rl with
+    | .gpr r | .gprZ r =>
+      if (!noScr || !(I.frame.scratch.contains r)) && symArgMatchesGpr sa' sa then some r else none
+    | _ => none
 
 def findVecFor (I : Isa) (noScr : Bool) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) (sa : SymArg) : Option I.VReg :=
   R.findSome? fun (sa', rl) =>
@@ -301,6 +331,8 @@ def findSlotFor (nslots : Nat) (slots : Trie SlotEntry) (sa : SymArg) : Option (
     | fuel + 1 =>
       match slots.find? i with
       | some (.gpr sas) => if sas.any (symArgMatchesGpr · sa) then some (i, .w64) else go (i + 1) fuel
+      | some (.gprZ sas) =>
+        if sas.any fun (sa', _) => symArgMatchesGpr sa' sa then some (i, .w64) else go (i + 1) fuel
       | some (.vec w sas) => if sas.any (symArgEq · sa) then some (i, w) else go (i + 1) fuel
       | none => go (i + 1) fuel
   go 0 nslots
@@ -336,8 +368,8 @@ def locBlocked (I : Isa) (st : SymState I) (pend : List (SymArg × I.Loc)) (d : 
     !(locEq d' d) && isVarSymArg sa &&
     match d with
     | .gpr r =>
-      st.regs.all (fun (sa', rl) => !symArgEq sa' sa || regLocEq rl (.gpr r)) &&
-      st.regs.any (fun (sa', rl) => symArgEq sa' sa && regLocEq rl (.gpr r))
+      st.regs.all (fun (sa', rl) => !symArgEq sa' sa || regLocMatchesGpr rl r) &&
+      st.regs.any (fun (sa', rl) => symArgEq sa' sa && regLocMatchesGpr rl r)
     | .vec v =>
       st.regs.all (fun (sa', rl) => !symArgEq sa' sa || regLocEq rl (.vec v)) &&
       st.regs.any (fun (sa', rl) => symArgEq sa' sa && regLocEq rl (.vec v))
@@ -529,7 +561,10 @@ def tryFlag (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) (pref : 
 def tryGpr (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) {α : Type}
     (sa : SymArg) (k : I.Reg → Option α) : Option α :=
   R.findSome? fun (sa', rl) =>
-    match rl with | .gpr r => if !(I.frame.scratch.contains r) && symArgMatchesGpr sa' sa then k r else none | _ => none
+    match rl with
+    | .gpr r | .gprZ r =>
+      if !(I.frame.scratch.contains r) && symArgMatchesGpr sa' sa then k r else none
+    | _ => none
 
 def tryVec (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) {α : Type}
     (sa : SymArg) (k : I.VReg → Option α) : Option α :=
@@ -556,6 +591,25 @@ def pickPArgs (I : Isa) (st : SymState I) (pref : List I.Cond) {α : Type} :
   | [], (), k => k ()
   | t :: _, (a, as), k => tryArg I st pref t a fun pa => pickPArgs I st pref as fun pas => k (pa, pas)
 
+def hasVarGprZ (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond))
+    (x : Nat) (rd : I.Reg) : Bool :=
+  R.any fun (sa, rl) => symArgEq sa (.var x) && regLocEq rl (.gprZ rd)
+
+def elideZext32? (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) :
+    {sig ts : List Ty} → OpCode sig ts → Tup (Arg VNat) sig →
+    Tup (PDst I.Reg I.VReg I.Cond) ts → Bool
+  | _, _, .zext m n, (.var x, ()), (.gpr rd, ()) =>
+    Nat.beq m 32 && Nat.beq n 64 && I.gpr.elideZext32 && hasVarGprZ I R x rd
+  | _, _, _, _, _ => false
+
+def opProducesZ32 (I : Isa) {sig : List Ty} : {rs : List Ty} → OpCode sig rs →
+    Tup (PArg I.Reg I.VReg I.Cond) sig → Tup (PDst I.Reg I.VReg I.Cond) rs → Bool
+  | [.bits n], code, pas, dsts =>
+    Nat.beq n 32 && match dsts with
+    | (.gpr _, ()) => I.gpr.zeroUpper32Op code pas dsts
+    | _ => false
+  | _, _, _, _ => false
+
 def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List Ty}
     (op : Op VNat ts) : Option (List I.Directive × SymState I) :=
   if h.elide.getD ip false then
@@ -566,15 +620,24 @@ def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List 
     (resolveDsts I h ts nv).bind fun dsts =>
       let vh := h.variant.getD ip .default
       let dstGprs := tupDstGprs dsts; let dstVecs := tupDstVecs dsts
-      (pickPArgs I st1 (tupDstFlags dsts) op.args fun pas =>
-        if dstVecs.isEmpty && (tupArgVecs pas).isEmpty then
-          ((I.gpr.op op.code pas dsts vh).map fun (c, cl) => (c, cl, false)) <|>
-          ((I.vec.vop op.code pas dsts vh).map fun (c, cl) => (c, cl, true))
-        else (I.vec.vop op.code pas dsts vh).map fun (c, cl) =>
-          (c, cl, true)).map fun (code, clob, isVec) =>
+      (if elideZext32? I st1.regs op.code op.args dsts then
+        some ([], FlagMask.none, false, false)
+      else
+        pickPArgs I st1 (tupDstFlags dsts) op.args fun pas =>
+          if dstVecs.isEmpty && (tupArgVecs pas).isEmpty then
+            ((I.gpr.op op.code pas dsts vh).map fun (c, cl) =>
+              (c, cl, false, opProducesZ32 I op.code pas dsts)) <|>
+            ((I.vec.vop op.code pas dsts vh).map fun (c, cl) => (c, cl, true, false))
+          else (I.vec.vop op.code pas dsts vh).map fun (c, cl) =>
+            (c, cl, true, false)).map fun (code, clob, isVec, z32) =>
           let vClob := if isVec then dstVecs ++ I.vec.vecScratch else []
           let killed := killRegs I (dstGprs ++ I.frame.scratch) vClob clob st1.regs
-          let (regs1, vw1) := bindDsts I dsts nv (killed, st1.vecWidths)
+          let (regs1, vw1) :=
+            if z32 then
+              match ts, dsts with
+              | [.bits 32], (.gpr rd, ()) => ((.var nv, RegLoc.gprZ rd) :: killed, st1.vecWidths)
+              | _, _ => bindDsts I dsts nv (killed, st1.vecWidths)
+            else bindDsts I dsts nv (killed, st1.vecWidths)
           let defs1 := match recordDef st1.defs op.code op.args with
             | some df => st1.defs.insert nv df
             | none => st1.defs
@@ -648,7 +711,10 @@ def bindBlockParams (I : Isa) (nslots : Nat) :
 def bindAbiParams (I : Isa) : {ts : List Ty} → Tup (AbiReg I.Reg I.VReg) ts → Nat → SymState I → Option (SymState I)
   | [], (), _, st => some st
   | t :: _, (.gpr r, locs), nv, st =>
-    if isGprTy I t then bindAbiParams I locs (nv + 1) { st with regs := (.var nv, .gpr r) :: st.regs } else none
+    if isGprTy I t then
+      let rl := if tyEq t (.bits 32) then RegLoc.gprZ r else .gpr r
+      bindAbiParams I locs (nv + 1) { st with regs := (.var nv, rl) :: st.regs }
+    else none
   | t :: _, (.vec v, locs), nv, st => (vecWidth? I t).bind fun w =>
     bindAbiParams I locs (nv + 1) { st with regs := (.var nv, .vec v) :: st.regs, vecWidths := st.vecWidths.insert nv w }
 
@@ -663,7 +729,8 @@ def jumpLocOk (I : Isa) (nslots : Nat) : I.Loc → Bool
   | .flag _ => true | .slot i w => Nat.ble (i + w.slots) nslots
 
 def afterCallState (I : Isa) (saved : List I.Reg) (st : SymState I) : SymState I :=
-  { st with regs := st.regs.filter fun (_, rl) => match rl with | .gpr r => saved.contains r | _ => false }
+  { st with regs := st.regs.filter fun (_, rl) =>
+      match rl with | .gpr r | .gprZ r => saved.contains r | _ => false }
 def calleeAllowed (E : Ext) (f : Sym) (as bs : List Ty) : Bool :=
   E.callees.any fun (g, gas, gbs) => g == f && listTyEq gas as && listTyEq gbs bs
 def prepend {I : Isa} (pre : List I.Directive) : Res I → Res I
@@ -728,7 +795,8 @@ def lowerLoad (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) (t : Ty) 
   | some (.gpr d) =>
     if !(isAllocGpr I h.saved d && isGprTy I t) then none
     else (tryAddr I st1 vh a (I.gpr.load t d)).map fun (c, clob) =>
-      (c, { st1 with regs := (.var nv, .gpr d) :: killRegs I (d :: I.frame.scratch) [] clob st1.regs })
+      let rl := if I.gpr.zeroUpper32Load && tyEq t (.bits 32) then RegLoc.gprZ d else .gpr d
+      (c, { st1 with regs := (.var nv, rl) :: killRegs I (d :: I.frame.scratch) [] clob st1.regs })
   | some (.vec vd) => (vecWidth? I t).bind fun w =>
     if !isAllocVec I vd then none
     else (tryAddr I st1 vh a (I.vec.vload t vd)).map fun (c, clob) =>

@@ -1182,6 +1182,37 @@ def x64Store (t : Ty) (pa : PArg Reg64 RegMm CondCode t) (a : AddrArg Reg64) :
     Option (List Directive × FlagMask) :=
   emitCleanPair (x64StoreIns t pa a)
 
+/-- `true` when `x64Op` writes `[.bits 32]` to `.gpr rd` with bits `32..63` guaranteed zero. -/
+def x64ZeroUpper32Op : {sig rs : List Ty} → OpCode sig rs →
+    Tup (PArg Reg64 RegMm CondCode) sig → Tup (PDst Reg64 RegMm CondCode) rs → Bool
+  | _, _, .add (.bits 32), _, (.gpr _, ())
+  | _, _, .sub (.bits 32), _, (.gpr _, ())
+  | _, _, .mul (.bits 32), _, (.gpr _, ())
+  | _, _, .and (.bits 32), _, (.gpr _, ())
+  | _, _, .or (.bits 32), _, (.gpr _, ())
+  | _, _, .xor (.bits 32), _, (.gpr _, ())
+  | _, _, .neg (.bits 32), _, (.gpr _, ())
+  | _, _, .not (.bits 32), _, (.gpr _, ())
+  | _, _, .ofBool 32, _, (.gpr _, ())
+  | _, _, .bswap (.bits 32), _, (.gpr _, ()) => true
+  | _, _, .zext m 32, _, (.gpr _, ())
+  | _, _, .sext m 32, _, (.gpr _, ()) => m == 8 || m == 16
+  | _, _, .shl (.bits 32), (_, pb, ()), (.gpr _, ())
+  | _, _, .lshr (.bits 32), (_, pb, ()), (.gpr _, ())
+  | _, _, .ashr (.bits 32), (_, pb, ()), (.gpr _, ())
+  | _, _, .rotl (.bits 32), (_, pb, ()), (.gpr _, ())
+  | _, _, .rotr (.bits 32), (_, pb, ()), (.gpr _, ()) =>
+    match pb with
+    | .imm cb => cb.toNat % 32 != 0
+    | .gpr _ => true
+    | _ => false
+  | _, _, .copy (.bits 32), (pa, ()), (.gpr rd, ()) =>
+    match pa with
+    | .imm _ => true
+    | .gpr rs => rs != rd
+    | _ => false
+  | _, _, _, _, _ => false
+
 /-- Typed x64 scalar `GprIsa` instance (`T8`). -/
 def x64Gpr : GprIsa Reg64 RegMm CondCode Directive where
   condReads := x64CondReads
@@ -1200,5 +1231,8 @@ def x64Gpr : GprIsa Reg64 RegMm CondCode Directive where
   store := x64Store
   supportsScalarOp := x64SupportsScalarOp
   cmpFlags := [.z, .nz, .l, .ge, .le, .g, .be, .a]
+  zeroUpper32Load := true
+  zeroUpper32Op := x64ZeroUpper32Op
+  elideZext32 := true
 
 end LeanQbe.T.Amd64

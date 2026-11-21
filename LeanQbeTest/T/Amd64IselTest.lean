@@ -489,6 +489,46 @@ theorem lea_nondestructive_add_spec {h : x64Mach.Host} {k : Nat} {s : MachineDat
   refine hspec hinf fun s' ⟨⟨⟨rv, ()⟩, hrv, hdst⟩, hm⟩ hfr => ?_
   dsimp at hrv; subst hrv; cases hdst with | cons hd _ => exact hcont s' ⟨hd, hm⟩ hfr
 
+theorem zero32_load_op_rfl :
+    x64Gpr.zeroUpper32Load = true ∧
+    x64Gpr.zeroUpper32Op (.add i32) (.gpr .rdi, .gpr .rsi, ()) (.gpr .rax, ()) = true ∧
+    x64Gpr.zeroUpper32Op (.and i32) (.gpr .rax, .imm 15#32, ()) (.gpr .rax, ()) = true ∧
+    x64Gpr.zeroUpper32Op (.lshr i32) (.gpr .rax, .imm 1#32, ()) (.gpr .rax, ()) = true ∧
+    x64Gpr.zeroUpper32Op (.lshr i32) (.gpr .rax, .imm 0#32, ()) (.gpr .rax, ()) = false ∧
+    x64Gpr.zeroUpper32Op (.trunc 64 32) (.gpr .rdi, ()) (.gpr .rax, ()) = false ∧
+    x64Gpr.zeroUpper32Op (.copy i32) (.gpr .rax, ()) (.gpr .rax, ()) = false :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+theorem zero32_load_spec {h : x64Mach.Host} {k : Nat} {s : MachineData} {v : BitVec 32}
+    {post : MachineState → Prop}
+    (hlv : loadVal s.dmem i32 (s.regs.get64 .rdi + 8#64) = some v)
+    {c : List Directive} {clob : FlagMask}
+    (hc : x64Gpr.load i32 .rax (.baseDisp .rdi 8) = some (c, clob)) :
+    x64Mach.FallsTo x64Gpr.condReads h k c (.rax :: x64Scratch) [] clob s
+      (fun s' => s'.regs.get64 .rax = v.setWidth 64 ∧ s'.dmem = s.dmem) post :=
+  x64GprSpec.load_zero32 rfl hc (by simp [x64Scratch]) (by simp [AddrArg.regs, x64Scratch]) hlv
+
+theorem zero32_add_spec {h : x64Mach.Host} {k : Nat} {s : MachineData}
+    {va vb : BitVec 32} {post : MachineState → Prop}
+    (ha0 : (s.regs.get64 .rdi).setWidth 32 = va)
+    (hb0 : (s.regs.get64 .rsi).setWidth 32 = vb)
+    {c : List Directive} {clob : FlagMask}
+    (hc : x64Gpr.op (.add i32) (.gpr .rdi, .gpr .rsi, ()) (.gpr .rax, ()) .default =
+      some (c, clob)) :
+    x64Mach.FallsTo x64Gpr.condReads h k c (.rax :: x64Scratch) [] clob s
+      (fun s' => s'.regs.get64 .rax = (va + vb).setWidth 64 ∧ s'.dmem = s.dmem) post := by
+  have ha : x64Mach.PArgHolds s i32 (.gpr .rdi) va := by
+    dsimp [Machine.PArgHolds, x64Mach, Machine.getGpr, GprHolds]; rw [ha0]; exact ⟨by decide, rfl⟩
+  have hb : x64Mach.PArgHolds s i32 (.gpr .rsi) vb := by
+    dsimp [Machine.PArgHolds, x64Mach, Machine.getGpr, GprHolds]; rw [hb0]; exact ⟨by decide, rfl⟩
+  have hwp : (OpCode.add i32).wp (va, vb, ()) (fun (r : Tup Val [i32]) => r.1 = va + vb) := rfl
+  have hspec := x64GprSpec.op_zero32 (h := h) (k := k) (post := post) rfl hc rfl
+    (by simp [tupArgGprs, x64Scratch]) (by simp [x64Scratch])
+    (TRel.cons ha (TRel.cons hb .nil)) hwp
+  intro hinf hcont
+  refine hspec hinf fun s' ⟨⟨rv, hrv, hreg⟩, hm⟩ hfr => ?_
+  dsimp at hrv; subst hrv; exact hcont s' ⟨hreg, hm⟩ hfr
+
 theorem unsupported_ops_rejected_rfl :
     x64Gpr.supportsScalarOp (.rbit 64) (.var (), ()) = false ∧
     x64Gpr.supportsScalarOp (.udiv0 64) (.var (), .var (), ()) = false ∧
@@ -657,6 +697,9 @@ meta def isSetccDir : Directive → Bool
 #print axioms x64Gpr_store_noLab
 #print axioms sib_load32_spec
 #print axioms lea_nondestructive_add_spec
+#print axioms zero32_load_op_rfl
+#print axioms zero32_load_spec
+#print axioms zero32_add_spec
 #print axioms bignum_mul4x4_backendOk
 #print axioms bignum_addMod25519_backendOk
 #print axioms bignum_subMod25519_backendOk

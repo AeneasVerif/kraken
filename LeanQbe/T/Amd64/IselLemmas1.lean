@@ -1024,6 +1024,43 @@ theorem x64Gpr_load_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg64} {a : AddrArg
     simp only [hst2]
     exact hf1 cc hdisj
 
+/-- Narrow `i32` load specification strengthening `GprHolds` to full 64-bit upper-zero. -/
+theorem x64Gpr_load_zero32 (_ : x64Gpr.zeroUpper32Load = true) {h : Host} {k : Nat}
+    {rd : Reg64} {a : AddrArg Reg64} {c : List Directive} {clob : FlagMask} {v : BitVec 32}
+    {s : MachineData} {post : MachineState → Prop}
+    (hl0 : x64Gpr.load (.bits 32) rd a = some (c, clob))
+    (hrd : rd ∉ x64Scratch) (ha : ∀ r ∈ a.regs, r ∉ x64Scratch)
+    (hlv : loadVal s.dmem (.bits 32) (a.eval s.regs.get64) = some v) :
+    x64Mach.FallsTo x64Gpr.condReads h k c (rd :: x64Scratch) [] clob s
+      (fun s' => s'.regs.get64 rd = v.setWidth 64 ∧ s'.dmem = s.dmem) post := by
+  have _ := hrd
+  dsimp only [x64Gpr, x64Load] at hl0
+  obtain ⟨ci, hl, rfl⟩ := emitCleanPair_eq_some.mp hl0
+  have hva : x64AddrValid a = true := by cases hv : x64AddrValid a <;> simp_all [x64LoadIns]
+  simp only [x64LoadIns, hva, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
+    Option.some.injEq, Prod.mk.injEq] at hl
+  rcases hl with ⟨rfl, rfl⟩
+  rw [show emitClean ((addrToExprIns a).1 ++
+        [x64InsI .W32 (.mov (.reg (d rd)) (.mem (addrToExprIns a).2.1))]) =
+      (addrToExpr a).1 ++ [ins32 (.mov (.reg (d rd)) (.mem (addrToExpr a).2.1))] by
+    simp [addrToExpr, emitClean_append, emitClean_cons, emitClean_nil]]
+  refine x64_fallsTo_of_wp fun {_} _ => ?_
+  refine Program.wp.append (wp_addrToExpr s s a ha fun _ _ => rfl) ?_
+  rintro s1 ⟨_, hr1, hm1, hz1, haddr1, hf1⟩
+  obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec (Or.inr (Or.inr (Or.inl rfl))) (hm1 ▸ hlv)
+  refine Program.wp.mono (Q := fun s2 => s2.regs.get64 rd = (BitVec.ofInt 32 i).setWidth 64 ∧
+      (∀ r, r ≠ rd → s2.regs.get64 r = s1.regs.get64 r) ∧
+      s2.dmem = s1.dmem ∧ s2.zmms = s1.zmms ∧ s2.status = s1.status)
+    (_root_.Program.wp_singleton fun _ _ => ?_) ?_
+  · simp only [t_step_simp, MachineData.load, Effects.All_require_read_access, Width.bytes,
+      haddr1 s1.regs (fun _ _ => rfl), hi, Reg64s.get64_set64_same, BitVec.zeroExtend_eq_setWidth]
+    exact Or.inl ⟨trivial, trivial, fun r hr => Reg64s.get64_set64_of_ne _ rd r _ hr.symm,
+      trivial, trivial, trivial⟩
+  rintro s2 ⟨hhold, hr2, hm2, hz2, hst2⟩
+  refine ⟨⟨hhold, hm2.trans hm1⟩, x64_frame_of_eq ?_ (hz2.trans hz1) ?_⟩
+  · intro r hr; simp only [List.mem_cons, not_or] at hr; rw [hr2 r hr.1, hr1 r hr.2.1]
+  · intro cc hdisj; simp only [hst2]; exact hf1 cc hdisj
+
 theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm CondCode t}
     {a : AddrArg Reg64} {c : List Directive} {clob : FlagMask} {v : Val t} {s : MachineData}
     {post : MachineState → Prop}
@@ -1409,6 +1446,32 @@ theorem OpPost1.of_set64_bits {w : Width} {rd : Reg64} {rv : BitVec 64} {st : St
     x64_frame_of_eq ?_ rfl hup⟩
   intro r hr; simp only [List.mem_cons, not_or] at hr
   exact Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1)
+
+/-- `OpPost1` parameterized by upper-32-zero guarantee when `z32 = true` and `w = .W32`. -/
+abbrev OpPostZ (z32 : Bool) (w : Width) (rd : Reg64) (v : BitVec w.bits) (clob : FlagMask)
+    (s s' : MachineData) : Prop :=
+  OpPost1 (.bits w.bits) rd v clob s s' ∧
+    (z32 = true → w = .W32 → s'.regs.get64 rd = v.setWidth 64)
+
+theorem OpPostZ.of_set64 {z32 : Bool} {w : Width} {rd : Reg64} {rv : BitVec 64}
+    {st : StatusFlags} {clob : FlagMask} {s : MachineData} {v : BitVec w.bits}
+    (hrv : rv.setWidth w.bits = v) (hrvz : z32 = true → w = .W32 → rv = v.setWidth 64)
+    (hup : x64Mach.UpdFlags x64CondReads s
+      { s with regs := s.regs.set64 rd rv, status := st } clob) :
+    OpPostZ z32 w rd v clob s { s with regs := s.regs.set64 rd rv, status := st } :=
+  ⟨OpPost1.of_set64_bits hrv hup, fun hz hw => by rw [Reg64s.get64_set64_same, hrvz hz hw]⟩
+
+theorem opPostZ_fallsTo {P : Tup Val [.bits 32] → Prop} {rd : Reg64} {c : List Directive}
+    {clob : FlagMask} {s : MachineData} {v : BitVec 32} (hp : P (v, ()))
+    (hwp : ∀ [Host] (E : Int64 → MachineData → Prop),
+      _root_.Program.wp c (OpPostZ true .W32 rd v clob s) E s)
+    {h : Host} {k : Nat} {post : MachineState → Prop} :
+    x64Mach.FallsTo x64Gpr.condReads h k c (rd :: x64Scratch) [] clob s
+      (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ s'.regs.get64 rd = rv.setWidth 64) ∧
+        s'.dmem = s.dmem) post := by
+  refine x64_fallsTo_of_wp fun {_} _ => Program.wp.mono (hwp _) ?_
+  rintro s' ⟨⟨_, hmem, hfr⟩, hz⟩
+  exact ⟨⟨⟨v, hp, hz rfl rfl⟩, hmem⟩, hfr⟩
 
 theorem wp_optMovW [Host] {E : Int64 → MachineData → Prop} (w : Width) (s : MachineData)
     (rd rs : Reg64) {va : BitVec w.bits} (hrs : (s.regs.get64 rs).setWidth w.bits = va) :

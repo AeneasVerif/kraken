@@ -352,4 +352,48 @@ meta def isLeaDir : Directive → Bool
 #guard countDirs isLeaDir (codeOf [leaNonDestructFn]) == 3
 #guard countDirs isSetccDir (codeOf [leaNonDestructFn]) == 0
 
+/-! ## 7. Upper-32 zero tracking: `zext 32 64` elision (`C1c`) -/
+
+meta def isMovlRegDir : Directive → Bool
+  | .instr (.regular _ .W32 (.mov (.reg (.low _ .W32)) (.regOrMem (.reg (.low _ .W32))))) => true
+  | _ => false
+
+meta def isSelfMovlDir : Directive → Bool
+  | .instr (.regular _ .W32 (.mov (.reg (.low rd .W32)) (.regOrMem (.reg (.low rs .W32))))) =>
+    rd == rs
+  | _ => false
+
+/-- `load i32` directly followed by `zext 32 64` emits zero reg-to-reg `movl`. -/
+meta def zext32LoadRetFn : Fn :=
+  ⟨"zext32LoadRetX64", [i64], [i64], fun _ _ (p, ()) =>
+    .load i32 (.var p) fun a =>
+    .let_ (op1 (.zext 32 64) (.var a)) fun (z, ()) =>
+    .ret (.var z, ())⟩
+
+/-- `load i32`, `and i32`, and `lshr i32` preserve zero upper 32 bits even across `call slow`,
+eliminating any self-`movl` at `zext 32 64`. -/
+meta def zext32UpperZeroFn : Fn :=
+  ⟨"zext32UpperZeroX64", [i64, i64], [i64], fun _ _ (p, k, ()) =>
+    .load i32 (.var p) fun a =>
+    .let_ (op2 (.and i32) (.var a) (.imm 0xfff)) fun (b, ()) =>
+    .let_ (op2 (.lshr i32) (.var b) (.imm 1)) fun (c, ()) =>
+    .call "slow" (as := [i64]) (bs := [i64]) (.var k, ()) fun (r0, ()) =>
+    .let_ (op1 (.zext 32 64) (.var c)) fun (z, ()) =>
+    .let_ (op2 (.add i64) (.var z) (.var r0)) fun (ans, ()) =>
+    .ret (.var ans, ())⟩
+
+/-- `trunc 64 32` can leave non-zero upper bits; `zext 32 64` MUST retain a `movl`. -/
+meta def zext32AfterTruncFn : Fn :=
+  ⟨"zext32AfterTruncX64", [i64], [i64], fun _ _ (x, ()) =>
+    .let_ (op1 (.trunc 64 32) (.var x)) fun (y, ()) =>
+    .let_ (op1 (.zext 32 64) (.var y)) fun (z, ()) =>
+    .ret (.var z, ())⟩
+
+#guard chk [zext32LoadRetFn]
+#guard countDirs isMovlRegDir (codeOf [zext32LoadRetFn]) == 0
+#guard chk [slowFn, zext32UpperZeroFn]
+#guard countDirs isSelfMovlDir (codeOf [slowFn, zext32UpperZeroFn]) == 0
+#guard chk [zext32AfterTruncFn]
+#guard countDirs isMovlRegDir (codeOf [zext32AfterTruncFn]) >= 1
+
 end LeanQbeTest.T.FlagRaOptTest

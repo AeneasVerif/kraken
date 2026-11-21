@@ -760,6 +760,15 @@ theorem call_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q 
             show GprSym G _ sa
             rw [hkeep r (hsub r hs'), hcs1 r (hsub r hs')]
             exact h
+          | gprZ r =>
+            have hs' : r ∈ hints.saved := by simpa using hs
+            refine ⟨?_, ?_⟩
+            · show GprSym G _ sa
+              rw [hkeep r (hsub r hs'), hcs1 r (hsub r hs')]
+              exact h.1
+            · show SymZ32 G _ sa
+              rw [hkeep r (hsub r hs'), hcs1 r (hsub r hs')]
+              exact h.2
           | vec _ => simp at hs
           | flag _ => simp at hs
         regs_lt := fun p hp => hA.regs_lt p (List.mem_filter.mp hp).1 }
