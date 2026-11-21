@@ -7,7 +7,7 @@ or capacity cliff audited in `kissat_c0_faithfulness_and_benchmarking_plan.md`:
   02_deep_miter       - 16/32-bit adder miters (depth > 6), 5x5 mult, pure-3-CNF XOR/ITE
   03_sweep_algebraic  - Non-structural algebraic sweeping miters (cones 120..240 vars)
   04_pure3cnf_tseitin - Pure-3-CNF 3-regular Tseitin (n=40..60), Urquhart U3/U4, 3-XOR
-  05_tail_vivify      - 2500..3000 decoy 5-clauses + tail-hidden vivifiable UNSAT core
+  05_bve_vivify       - BVE-resistant balanced 3-SAT core + ternary-trigger vivifiable 8-clauses
   06_deep_chrono      - Multi-component decision depth >= 180 (> chrono_levels=100)
   07_high_fanout_bve  - Reverse-ordered gate-BVE chains with occ in [45..100]
   08_long_horizon     - Long-horizon search/reduction (ordering, pebbling, Mycielski, 3-SAT)
@@ -566,65 +566,83 @@ def gen_family_04(out_dir, manifest):
 
 
 # ---------------------------------------------------------------------------
-# Family 5: Tail-Hidden Bloated-DB Vivification Trap (2500..3000 decoys + tail)
+# Family 5: BVE-Resistant Balanced-Core + Ternary-Trigger Vivification Canary
 # ---------------------------------------------------------------------------
+def _exact_balanced_3sat(rng, n_core, deg_each=7):
+    """Build collision-free 3-CNF where every var 1..n_core has >= deg_each + and - occs."""
+    assert n_core % 3 == 0
+    signs = {}
+    for v in range(1, n_core + 1):
+        s = [1] * deg_each + [-1] * deg_each
+        rng.shuffle(s)
+        signs[v] = s
+    clauses = []
+    for p in range(2 * deg_each):
+        perm = list(range(1, n_core + 1))
+        rng.shuffle(perm)
+        for i in range(0, n_core, 3):
+            a, b, c = perm[i], perm[i + 1], perm[i + 2]
+            clauses.append([signs[a][p] * a, signs[b][p] * b, signs[c][p] * c])
+    return clauses
+
+
+def _viv_trigger_gadget(rng, base_var, k_vars, n_trigs, n_bloat):
+    """Build BVE-resistant ternary vivification triggers + bloated 8-clauses.
+
+    Each trigger triple T_i = (l1, l2, l3) satisfies a fixed witness W on >= 1 literal,
+    with clauses (l1 v l2 v l3 v tvar) and (l1 v l2 v l3 v -tvar). Every bloated 8-clause
+    T_i + 5 random distinct gadget literals is NOT self-subsumable by any single clause,
+    and every gadget/bridge variable resists preprocessing BVE via high occ / fanout.
+    """
+    tvar = base_var
+    gvars = [base_var + 1 + i for i in range(k_vars)]
+    witness = {v: rng.choice([-1, 1]) for v in gvars}
+    triples = []
+    seen = set()
+    trigs = []
+    while len(triples) < n_trigs:
+        u, v, w = rng.sample(gvars, 3)
+        lits = [rng.choice([-1, 1]) * u, rng.choice([-1, 1]) * v, rng.choice([-1, 1]) * w]
+        if not any((l > 0 and witness[abs(l)] == 1) or (l < 0 and witness[abs(l)] == -1) for l in lits):
+            idx = rng.randrange(3)
+            lits[idx] = -lits[idx]
+        key = tuple(sorted(lits))
+        if key not in seen:
+            seen.add(key)
+            triples.append(lits)
+            trigs.append(lits + [tvar])
+            trigs.append(lits + [-tvar])
+    bloated = []
+    for idx in range(n_bloat):
+        t = triples[idx % len(triples)]
+        tv = {abs(x) for x in t}
+        rs = rng.sample([x for x in gvars if x not in tv], 5)
+        bloated.append(t + [r * rng.choice([-1, 1]) for r in rs])
+    return base_var + k_vars, trigs, bloated
+
+
 def gen_family_05(out_dir, manifest):
-    fam = "05_tail_vivify"
-    for n_decoy in (2500, 3000):
-        rng = random.Random(500000 + n_decoy)
-        n_dec_vars = 120
-        dec_model = [False] + [bool(rng.getrandbits(1)) for _ in range(n_dec_vars)]
-        clauses = []
-        # Head: n_decoy satisfiable 5-clauses filling arena slots 0..n_decoy-1
-        for _ in range(n_decoy):
-            vs = rng.sample(range(1, n_dec_vars + 1), 5)
-            ti = rng.randrange(5)
-            cl = []
-            for idx, v in enumerate(vs):
-                if idx == ti:
-                    cl.append(v if dec_model[v] else -v)
-                else:
-                    cl.append(v if rng.getrandbits(1) else -v)
-            clauses.append(cl)
-
-        # Tail (strictly after index n_decoy):
-        # Contradictory implication cycle u_0 -> u_1 -> ... -> u_{L-1} -> -u_0 -> ... -> u_0
-        # where each implication (-a v b) is hidden in a bloated 10-clause
-        #   [-a, b, -t0, -t1, ..., -t7]
-        # accompanied by binary chain a -> t0 -> t1 -> ... -> t7!
-        # Vivification assumes a, propagates t0..t7, and shrinks all 10-clauses to binaries!
-        nxt = n_dec_vars + 1
-        half = 12
-        cyc_vars = list(range(nxt, nxt + half))
-        nxt += half
-        cyc = [cyc_vars[0]] + cyc_vars[1:] + [-cyc_vars[0]] + [-v for v in cyc_vars[1:]]
-        tail_bin = []
-        tail_bloated = []
-        for i in range(len(cyc)):
-            a = cyc[i]
-            b = cyc[(i + 1) % len(cyc)]
-            ts = list(range(nxt, nxt + 7))
-            nxt += 7
-            # a -> ts[0] -> ts[1] -> ... -> ts[6]
-            tail_bin.append([-a, ts[0]])
-            for j in range(len(ts) - 1):
-                tail_bin.append([-ts[j], ts[j + 1]])
-            # Bloated 9-clause equivalent to [-a, b] modulo tail_bin
-            tail_bloated.append([-a, b] + [-t for t in ts])
-            # Second redundant copy with reversed aux order to ensure >= 20 vivifications
-            tail_bloated.append([-a, b] + [-t for t in reversed(ts)])
-
-        # Put decoys first, then tail binaries + tail bloated clauses strictly past index n_decoy
-        clauses.extend(tail_bin)
-        clauses.extend(tail_bloated)
-        nvars = nxt - 1
+    fam = "05_bve_vivify"
+    configs = [
+        ("c05_bve_vivify_2600.cnf", 1, 132, 30, 450, 1100),
+        ("c05_bve_vivify_3200.cnf", 3, 150, 30, 500, 1500),
+    ]
+    for fname, seed, n_core, k_vars, n_trigs, n_bloat in configs:
+        core_rng = random.Random(seed)
+        gadget_rng = random.Random(seed + 500)
+        core = _exact_balanced_3sat(core_rng, n_core, deg_each=7)
+        nvars, trigs, bloated = _viv_trigger_gadget(gadget_rng, n_core + 1, k_vars, n_trigs, n_bloat)
+        clauses = trigs + bloated[: n_bloat // 2] + core + bloated[n_bloat // 2 :]
         record(
-            manifest, out_dir, f"c05_tail_vivify_{n_decoy}.cnf", fam, nvars, clauses,
+            manifest, out_dir, fname, fam, nvars, clauses,
             {
-                "desc": f"{n_decoy} decoy 5-clauses + 48 tail-hidden vivifiable 9-clauses",
-                "cliff": "PH_VIV full-arena bit wipe after 1024 clauses (Full3.lean:859-865)",
-                "expected_gap": "M3-vivify-cursor",
-                "min_counters": {"viv": 20},
+                "desc": (
+                    f"BVE-resistant balanced 3-SAT core ({n_core}v) + {n_trigs} viv trigger pairs "
+                    f"+ {n_bloat} bloated 8-clauses"
+                ),
+                "cliff": "Preproc BVE resistance (deg=7 core + high-occ viv triggers) exercising full_vivify",
+                "expected_gap": "M3-bve-resistant-vivify",
+                "min_counters": {"viv": 200, "conflicts": 1000, "probings": 1},
                 "kissat_confl_mult": 2.0,
                 "kissat_confl_add": 100,
             },
