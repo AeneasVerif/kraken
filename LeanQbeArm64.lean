@@ -63,5 +63,6 @@ public import LeanQbe.T.Arm64.KissatM3Cert16
 public import LeanQbe.T.Arm64.KissatM3Cert17
 public import LeanQbe.T.Arm64.KissatM3Cert
 public import LeanQbe.T.Arm64.KissatM3
+public import LeanQbe.T.Arm64.DebugAsm
 
 /-! Root of the AArch64 library: imports `Kraken.AArch64` and `LeanQbe.T.Arm64.*`. -/

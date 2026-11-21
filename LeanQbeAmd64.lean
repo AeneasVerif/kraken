@@ -68,5 +68,6 @@ public import LeanQbe.T.Amd64.KissatM3Cert16
 public import LeanQbe.T.Amd64.KissatM3Cert17
 public import LeanQbe.T.Amd64.KissatM3Cert
 public import LeanQbe.T.Amd64.KissatM3
+public import LeanQbe.T.Amd64.DebugAsm
 
 /-! Root of the x64 library: imports `Kraken.X64` and `LeanQbe.T.Amd64.*`. -/

@@ -2,7 +2,7 @@
 # Build a native `kissat-leanqbe` binary from the verified LeanQbe Kissat solver.
 #
 #   bash bench/kissat/build_solver.sh [--module Full|FullFast|FullM3|Plain] [--arch x64|arm64] \
-#     [--inline-max <N>] [-o <output_bin>]
+#     [--inline-max <N>] [--debug|-g] [--keep-asm] [--save-asm <path>] [-o <output_bin>]
 #
 # 1. `lake build`s the solver module `LeanQbe.T.Examples.Kissat.<Module>` and the code generator
 #    (skipped when `STAGE_LEAN_PATH` is set).
@@ -24,23 +24,30 @@ MODULE=Full
 ARCH=x64
 INLINE_MAX="${INLINE_MAX:-40}"
 OUTPUT=""
+DEBUG=0
+KEEP_ASM=0
+SAVE_ASM=""
 
 usage() {
   echo "usage: bash bench/kissat/build_solver.sh" \
-    "[--module Full|FullFast|FullM3|Plain] [--arch x64|arm64] [--inline-max <N>] [-o <output_bin>]"
+    "[--module Full|FullFast|FullM3|Plain] [--arch x64|arm64]" \
+    "[--inline-max <N>] [--debug|-g] [--keep-asm] [--save-asm <path>] [-o <output_bin>]"
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --module|--arch|--inline-max|-o)
+    --module|--arch|--inline-max|--save-asm|-o)
       [ $# -ge 2 ] || { echo "ERROR: $1 requires an argument" >&2; usage >&2; exit 2; }
       case "$1" in
         --module) MODULE="$2" ;;
         --arch) ARCH="$2" ;;
         --inline-max) INLINE_MAX="$2" ;;
+        --save-asm) SAVE_ASM="$2" ;;
         -o) OUTPUT="$2" ;;
       esac
       shift 2 ;;
+    --debug|-g) DEBUG=1; shift ;;
+    --keep-asm) KEEP_ASM=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
   esac
@@ -61,6 +68,11 @@ esac
 OUTPUT="${OUTPUT:-/tmp/kissat-leanqbe-${MODULE,,}$SUFFIX}"
 case "$OUTPUT" in /*) ;; *) OUTPUT="$CALLER_PWD/$OUTPUT" ;; esac
 
+CFLAGS_DEBUG=()
+if [ "$DEBUG" = 1 ]; then
+  CFLAGS_DEBUG=(-g)
+fi
+
 if [ "$ARCH" = x64 ]; then
   CC="${CC:-gcc}"
   CFLAGS_ARCH=(-no-pie)
@@ -70,6 +82,14 @@ import Kraken.X64.PrintATT"
   TGT=x64Target; LEGAL=x64LegalTarget
   PRINT='fun c => Kraken.X64.toATT c ++ "\n"'
   LAKE_EXTRA=(LeanQbe.T.Amd64.Targ Kraken.X64.PrintATT)
+  if [ "$DEBUG" = 1 ]; then
+    IMPORTS="$IMPORTS
+import LeanQbe.T.Amd64.DebugAsm"
+    EMIT_ASM='emitX64DebugAsm fns dirs (comments := true)'
+    LAKE_EXTRA+=(LeanQbe.T.Amd64.DebugAsm)
+  else
+    EMIT_ASM="Driver.emitAsm ($PRINT) fns dirs"
+  fi
 else
   if [ "$(uname -m)" = aarch64 ]; then CC="${CC:-gcc}"; else CC="${CC:-aarch64-linux-gnu-gcc}"; fi
   CFLAGS_ARCH=()
@@ -79,6 +99,14 @@ import Kraken.AArch64.Print"
   TGT=armTarget; LEGAL=armLegalTarget
   PRINT='fun c => ".p2align 2\n" ++ String.intercalate "\n" (c.map Kraken.AArch64.Print.directive) ++ "\n"'
   LAKE_EXTRA=(LeanQbe.T.Arm64.Targ Kraken.AArch64.Print)
+  if [ "$DEBUG" = 1 ]; then
+    IMPORTS="$IMPORTS
+import LeanQbe.T.Arm64.DebugAsm"
+    EMIT_ASM='emitArm64DebugAsm fns dirs (comments := true)'
+    LAKE_EXTRA+=(LeanQbe.T.Arm64.DebugAsm)
+  else
+    EMIT_ASM="Driver.emitAsm ($PRINT) fns dirs"
+  fi
 fi
 command -v "$CC" >/dev/null || { echo "ERROR: C compiler '$CC' not found (set CC=...)" >&2; exit 1; }
 
@@ -111,7 +139,7 @@ def main (args : List String) : IO Unit := do
   let dirs ← match LeanQbe.T.compile $TGT.toIsa $LEGAL fns hints with
     | .ok d => pure d
     | .error e => throw (IO.userError e)
-  IO.FS.writeFile out (Driver.emitAsm ($PRINT) fns dirs)
+  IO.FS.writeFile out ($EMIT_ASM)
 LEAN
 if [ -n "${STAGE_LEAN_PATH:-}" ]; then
   LEAN_PATH="$STAGE_LEAN_PATH" timeout 600 lean --run "$TMP/Emit.lean" "$TMP/solver.s"
@@ -120,8 +148,21 @@ else
 fi
 
 echo "== [3/3] $CC: kissat_cli.c + solver.s -> $OUTPUT"
-timeout 300 "$CC" -std=c99 -O2 -Wall -Wextra -Werror "${CFLAGS_ARCH[@]}" \
-  bench/kissat/kissat_cli.c "$TMP/solver.s" -o "$TMP/kissat-leanqbe" 2>"$TMP/cc.log" || {
+ASM_SRC="$TMP/solver.s"
+if [ -n "$SAVE_ASM" ] || [ "$KEEP_ASM" = 1 ] || [ "$DEBUG" = 1 ]; then
+  if [ -n "$SAVE_ASM" ]; then
+    case "$SAVE_ASM" in /*) ASM_SRC="$SAVE_ASM" ;; *) ASM_SRC="$CALLER_PWD/$SAVE_ASM" ;; esac
+  elif [ -n "$OUTPUT" ]; then
+    case "$OUTPUT" in /*) ASM_SRC="${OUTPUT}.s" ;; *) ASM_SRC="$CALLER_PWD/${OUTPUT}.s" ;; esac
+  else
+    ASM_SRC="/tmp/kissat-${MODULE}-${ARCH}.s"
+  fi
+  mkdir -p "$(dirname "$ASM_SRC")"
+  cp "$TMP/solver.s" "$ASM_SRC"
+  echo "== kept debug assembly: $ASM_SRC"
+fi
+timeout 300 "$CC" -std=c99 -O2 -Wall -Wextra -Werror "${CFLAGS_ARCH[@]}" "${CFLAGS_DEBUG[@]}" \
+  bench/kissat/kissat_cli.c "$ASM_SRC" -o "$TMP/kissat-leanqbe" 2>"$TMP/cc.log" || {
     cat "$TMP/cc.log" >&2; exit 1; }
 grep -v -e 'SFrame' "$TMP/cc.log" >&2 || true
 mkdir -p "$(dirname "$OUTPUT")"
