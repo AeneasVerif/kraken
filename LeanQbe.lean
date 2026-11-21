@@ -262,6 +262,7 @@ public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas8a
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas8b
+public import LeanQbe.T.Examples.Kissat.FullOneLitConflLemmas
 public import LeanQbe.T.Examples.Kissat.FullProof
 public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
