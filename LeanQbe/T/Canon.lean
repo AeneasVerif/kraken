@@ -147,27 +147,25 @@ def canonAssocStep {V : Ty → Type} (next : Nat) (aop : AssocOp) (t : Ty)
     (a b : Arg (CanonVal V) t) : CanonLetStep V [t] :=
   if shouldSwap a b then canonAssocCore next aop t b a else canonAssocCore next aop t a b
 
+/-- Canonicalize `aop` when float constraints permit (`!aop.needsNoFloat || !t.hasFloat`),
+otherwise preserve operand order without constant-chain provenance. -/
+def canonAssocStepIf {V : Ty → Type} (next : Nat) (aop : AssocOp) (t : Ty)
+    (a b : Arg (CanonVal V) t) : CanonLetStep V [t] :=
+  if aop.needsNoFloat && t.hasFloat then
+    ⟨op2 (aop.toOpCode t) a.cnout b.cnout, fun xs => freshCanonVals [t] xs next⟩
+  else canonAssocStep next aop t a b
+
 /-- Lower one `OpCode` with canonicalized operands in `canon`. -/
 def OpCode.canonLet {V : Ty → Type} :
     {sig ts : List Ty} → OpCode sig ts → Tup (Arg (CanonVal V)) sig → Nat → CanonLetStep V ts
-  | _, _, .add t, (a, b, ()), next =>
-    if t.hasFloat then
-      ⟨op2 (.add t) a.cnout b.cnout, fun xs => freshCanonVals [t] xs next⟩
-    else canonAssocStep next .add t a b
-  | _, _, .mul t, (a, b, ()), next =>
-    if t.hasFloat then
-      ⟨op2 (.mul t) a.cnout b.cnout, fun xs => freshCanonVals [t] xs next⟩
-    else canonAssocStep next .mul t a b
-  | _, _, .and t, (a, b, ()), next => canonAssocStep next .and t a b
-  | _, _, .or t, (a, b, ()), next => canonAssocStep next .or t a b
-  | _, _, .xor t, (a, b, ()), next => canonAssocStep next .xor t a b
+  | _, _, .add t, (a, b, ()), next => canonAssocStepIf next .add t a b
+  | _, _, .mul t, (a, b, ()), next => canonAssocStepIf next .mul t a b
+  | _, _, .and t, (a, b, ()), next => canonAssocStepIf next .and t a b
+  | _, _, .or t, (a, b, ()), next => canonAssocStepIf next .or t a b
+  | _, _, .xor t, (a, b, ()), next => canonAssocStepIf next .xor t a b
   | _, _, .cmp o t m h, (a, b, ()), next =>
-    if t.hasFloat then
-      ⟨op2 (.cmp o t m h) a.cnout b.cnout, fun xs => freshCanonVals [m] xs next⟩
-    else if shouldSwap a b then
-      ⟨op2 (.cmp o.swap t m h) b.cnout a.cnout, fun xs => freshCanonVals [m] xs next⟩
-    else
-      ⟨op2 (.cmp o t m h) a.cnout b.cnout, fun xs => freshCanonVals [m] xs next⟩
+    let (o', a', b') := if !t.hasFloat && shouldSwap a b then (o.swap, b, a) else (o, a, b)
+    ⟨op2 (.cmp o' t m h) a'.cnout b'.cnout, fun xs => freshCanonVals [m] xs next⟩
   | _, ts, code, args, next =>
     ⟨⟨code, tupCnOut args⟩, fun xs => freshCanonVals ts xs next⟩
 

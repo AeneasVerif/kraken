@@ -182,6 +182,20 @@ theorem canonAssocStep_wp {G : Ctx (CanonVal Val) Val} (hG : CanonGood G) (b : N
       rw [AssocOp.eval_comm]; exact hw
     exact canonAssocCore_wp hG b aop t ht hb ha hw'
 
+private theorem canonAssocStepIf_wp {G : Ctx (CanonVal Val) Val} (hG : CanonGood G) (b : Nat)
+    (aop : AssocOp) (t : Ty) {a₁ b₁ : Arg (CanonVal Val) t} {a₂ b₂ : Arg Val t}
+    (ha : ArgRel G t a₁ a₂) (hb : ArgRel G t b₁ b₂)
+    {P : Tup Val [t] → Prop} (hw : (aop.toOpCode t).wp (a₂.val, b₂.val, ()) P) :
+    let step := canonAssocStepIf b aop t a₁ b₁
+    step.op.wp fun ys => P ys ∧ CanonGood (Tup.zip (step.wrap ys) ys ++ G) := by
+  dsimp only [canonAssocStepIf]
+  split
+  · dsimp only [Op.wp, op2, vals]
+    rw [ha.cnout_val hG, hb.cnout_val hG]
+    exact OpCode.wp_mono _ _ (fun ys hys => ⟨hys, hG.freshCanonVals ys b⟩) hw
+  · rename_i hnf
+    exact canonAssocStep_wp hG b aop t (fun h => by simp_all) ha hb hw
+
 theorem OpRel.canonLet_wp {G : Ctx (CanonVal Val) Val} (hG : CanonGood G) (b : Nat)
     {sig ts : List Ty} {code : OpCode sig ts}
     {args₁ : Tup (Arg (CanonVal Val)) sig} {args₂ : Tup (Arg Val) sig}
@@ -192,50 +206,23 @@ theorem OpRel.canonLet_wp {G : Ctx (CanonVal Val) Val} (hG : CanonGood G) (b : N
   unfold Op.canonLet
   dsimp only
   cases code with
-  | add t =>
+  | add t | mul t | and t | or t | xor t =>
     rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
     rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
-    cases hf : t.hasFloat
-    · simp only [OpCode.canonLet, hf, Bool.false_eq_true, ↓reduceIte]
-      exact canonAssocStep_wp hG b .add t (fun _ => hf) ha hb hw
-    · simp only [OpCode.wp_add, hf, ↓reduceIte] at hw
-  | mul t =>
-    rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
-    rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
-    cases hf : t.hasFloat
-    · simp only [OpCode.canonLet, hf, Bool.false_eq_true, ↓reduceIte]
-      exact canonAssocStep_wp hG b .mul t (fun _ => hf) ha hb hw
-    · simp only [OpCode.wp_mul, hf, ↓reduceIte] at hw
-  | and t =>
-    rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
-    rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
-    exact canonAssocStep_wp hG b .and t (fun h => by cases h) ha hb hw
-  | or t =>
-    rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
-    rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
-    exact canonAssocStep_wp hG b .or t (fun h => by cases h) ha hb hw
-  | xor t =>
-    rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
-    rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
-    exact canonAssocStep_wp hG b .xor t (fun h => by cases h) ha hb hw
+    exact canonAssocStepIf_wp hG b _ t ha hb hw
   | cmp o t m h =>
     subst h
     rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
     rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
-    cases hf : t.hasFloat
-    · simp only [OpCode.canonLet, hf, Bool.false_eq_true, ↓reduceIte]
-      cases hsw : shouldSwap a₁ b₁
-      · simp only [Bool.false_eq_true, ↓reduceIte]
-        simp only [Op.wp, op2, OpCode.wp_cmp, hf, cast_eq, vals,
-          ha.cnout_val hG, hb.cnout_val hG] at hw ⊢
-        simp only [Bool.false_eq_true, ↓reduceIte] at hw ⊢
-        exact ⟨hw, hG.freshCanonVals _ b⟩
-      · simp only [↓reduceIte]
-        simp only [Op.wp, op2, OpCode.wp_cmp, hf, cast_eq, vals,
-          ha.cnout_val hG, hb.cnout_val hG, liftCmp_swap] at hw ⊢
-        simp only [Bool.false_eq_true, ↓reduceIte] at hw ⊢
-        exact ⟨hw, hG.freshCanonVals _ b⟩
-    · simp only [OpCode.wp_cmp, hf, ↓reduceIte] at hw
+    dsimp only [OpCode.canonLet, Op.wp, op2, vals]
+    split
+    · rename_i hcond
+      simp only [Bool.and_eq_true, Bool.not_eq_true'] at hcond
+      simp only [OpCode.wp_cmp, hcond.1, Bool.false_eq_true, ↓reduceIte, cast_eq,
+        ha.cnout_val hG, hb.cnout_val hG, liftCmp_swap] at hw ⊢
+      exact ⟨hw, hG.freshCanonVals _ b⟩
+    · rw [ha.cnout_val hG, hb.cnout_val hG]
+      exact OpCode.wp_mono _ _ (fun ys hys => ⟨hys, hG.freshCanonVals ys b⟩) hw
   | _ =>
     all_goals
       (dsimp only [OpCode.canonLet, Op.wp]
@@ -502,6 +489,17 @@ private theorem canonAssocStep_rel {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁)
   · simp only [↓reduceIte]
     exact canonAssocCore_rel hG b aop t hb ha
 
+private theorem canonAssocStepIf_rel {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (CanonVal V₂)}
+    (hG : CanonRelG G' G) (b : Nat) (aop : AssocOp) (t : Ty)
+    {a₁ b₁ : Arg (CanonVal V₁) t} {a₂ b₂ : Arg (CanonVal V₂) t}
+    (ha : ArgRel G t a₁ a₂) (hb : ArgRel G t b₁ b₂) :
+    CanonStepRel G' (canonAssocStepIf b aop t a₁ b₁) (canonAssocStepIf b aop t a₂ b₂) := by
+  dsimp only [canonAssocStepIf]
+  split
+  · exact ⟨.mk (aop.toOpCode t) (.cons (ha.cnout hG) (.cons (hb.cnout hG) .nil)),
+      fun xs₁ xs₂ => TRel.freshCanonVals_rel xs₁ xs₂ b⟩
+  · exact canonAssocStep_rel hG b aop t ha hb
+
 theorem OpRel.canonLet_rel {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (CanonVal V₂)}
     (hG : CanonRelG G' G) (b : Nat) {sig ts : List Ty} {code : OpCode sig ts}
     {args₁ : Tup (Arg (CanonVal V₁)) sig} {args₂ : Tup (Arg (CanonVal V₂)) sig}
@@ -512,51 +510,19 @@ theorem OpRel.canonLet_rel {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (CanonV
   unfold Op.canonLet
   dsimp only
   cases code with
-  | add t =>
+  | add t | mul t | and t | or t | xor t =>
     rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
     rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
-    cases hf : t.hasFloat
-    · simp only [OpCode.canonLet, hf, Bool.false_eq_true, ↓reduceIte]
-      exact canonAssocStep_rel hG b .add t ha hb
-    · simp only [OpCode.canonLet, hf, ↓reduceIte]
-      exact ⟨.mk (.add t) (.cons (ha.cnout hG) (.cons (hb.cnout hG) .nil)),
-        fun xs₁ xs₂ => TRel.freshCanonVals_rel xs₁ xs₂ b⟩
-  | mul t =>
-    rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
-    rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
-    cases hf : t.hasFloat
-    · simp only [OpCode.canonLet, hf, Bool.false_eq_true, ↓reduceIte]
-      exact canonAssocStep_rel hG b .mul t ha hb
-    · simp only [OpCode.canonLet, hf, ↓reduceIte]
-      exact ⟨.mk (.mul t) (.cons (ha.cnout hG) (.cons (hb.cnout hG) .nil)),
-        fun xs₁ xs₂ => TRel.freshCanonVals_rel xs₁ xs₂ b⟩
-  | and t =>
-    rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
-    rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
-    exact canonAssocStep_rel hG b .and t ha hb
-  | or t =>
-    rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
-    rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
-    exact canonAssocStep_rel hG b .or t ha hb
-  | xor t =>
-    rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
-    rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
-    exact canonAssocStep_rel hG b .xor t ha hb
+    exact canonAssocStepIf_rel hG b _ t ha hb
   | cmp o t m h =>
     subst h
     rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
     rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
-    cases hf : t.hasFloat
-    · simp only [OpCode.canonLet, hf, Bool.false_eq_true, ↓reduceIte, shouldSwap_eq hG ha hb]
-      cases shouldSwap a₂ b₂
-      · simp only [Bool.false_eq_true, ↓reduceIte]
-        exact ⟨.mk (.cmp o t) (.cons (ha.cnout hG) (.cons (hb.cnout hG) .nil)),
-          fun xs₁ xs₂ => TRel.freshCanonVals_rel xs₁ xs₂ b⟩
-      · simp only [↓reduceIte]
-        exact ⟨.mk (.cmp o.swap t) (.cons (hb.cnout hG) (.cons (ha.cnout hG) .nil)),
-          fun xs₁ xs₂ => TRel.freshCanonVals_rel xs₁ xs₂ b⟩
-    · simp only [OpCode.canonLet, hf, ↓reduceIte]
-      exact ⟨.mk (.cmp o t) (.cons (ha.cnout hG) (.cons (hb.cnout hG) .nil)),
+    simp only [OpCode.canonLet, shouldSwap_eq hG ha hb]
+    split
+    · exact ⟨.mk (.cmp o.swap t) (.cons (hb.cnout hG) (.cons (ha.cnout hG) .nil)),
+        fun xs₁ xs₂ => TRel.freshCanonVals_rel xs₁ xs₂ b⟩
+    · exact ⟨.mk (.cmp o t) (.cons (ha.cnout hG) (.cons (hb.cnout hG) .nil)),
         fun xs₁ xs₂ => TRel.freshCanonVals_rel xs₁ xs₂ b⟩
   | _ =>
     all_goals

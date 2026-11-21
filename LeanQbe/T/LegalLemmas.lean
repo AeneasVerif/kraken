@@ -16,3 +16,5 @@ Re-exports `LegalWfBaseLemmas`, `LegalWfOpsLemmas`, `LegalWpBaseLemmas`, `LegalW
 * `Func.legal_wf` / `Fn.legal_wf`: well-formedness preservation;
 * `Func.legal_wp` / `Func.legal_spec` / `Fn.legal_spec`: semantic preservation.
 -/
+
+set_option autoImplicit false

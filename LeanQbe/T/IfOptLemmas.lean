@@ -213,16 +213,8 @@ private theorem emitSelectTy_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
     (∀ next' (r : Arg Val t), next ≤ next' →
       r.val = (if c.val then vT else vE) → wp Γ Q X (cont next' r) m) →
     wp Γ Q X (emitSelectTy c t next aT aE cont) m
-  | .bool, _, ρ, next, aT, aE, vT, vE, hT, hE, cont, hcont => by
-    simp only [emitSelectTy]
-    cases hbeq : fKeyBeq (ikey aT) (ikey aE)
-    · simp only [Bool.false_eq_true, ↓reduceIte, wp_let_op3, OpCode.wp_select]
-      exact hcont next _ (Nat.le_refl _) (by rw [hT.1, hE.1]; rfl)
-    · have heq : ikey aT = ikey aE := fKeyBeq_iff_eq.1 hbeq
-      have hveq : vT = vE := by rw [← hT.2.1, heq, hE.2.1]
-      simp only [↓reduceIte]
-      exact hcont next _ (Nat.le_refl _) (by rw [hT.1, hveq]; cases c.val <;> rfl)
-  | .bits n, _, ρ, next, aT, aE, vT, vE, hT, hE, cont, hcont => by
+  | .bool, _, ρ, next, aT, aE, vT, vE, hT, hE, cont, hcont
+  | .bits _, _, ρ, next, aT, aE, vT, vE, hT, hE, cont, hcont => by
     simp only [emitSelectTy]
     cases hbeq : fKeyBeq (ikey aT) (ikey aE)
     · simp only [Bool.false_eq_true, ↓reduceIte, wp_let_op3, OpCode.wp_select]
@@ -447,20 +439,12 @@ private theorem emitSelectTy_wf {rs : List Ty} {G' : Ctx V₁ V₂} {D' : Ctx L�
     (∀ G'' next' r₁ r₂, (∀ p ∈ G', p ∈ G'') → ArgRel G'' t r₁ r₂ →
       Wf G'' D' (cont₁ next' r₁) (cont₂ next' r₂)) →
     Wf G' D' (emitSelectTy c₁ t next aT₁ aE₁ cont₁) (emitSelectTy c₂ t next aT₂ aE₂ cont₂)
-  | .bool, next, aT₁, aE₁, aT₂, aE₂, hT, hE, cont₁, cont₂, hcont => by
+  | .bool, next, aT₁, aE₁, aT₂, aE₂, hT, hE, cont₁, cont₂, hcont
+  | .bits _, next, aT₁, aE₁, aT₂, aE₂, hT, hE, cont₁, cont₂, hcont => by
     simp only [emitSelectTy, hT.2, hE.2]
     cases fKeyBeq (ikey aT₂) (ikey aE₂)
     · simp only [Bool.false_eq_true, ↓reduceIte]
-      refine .let_ (.mk (.select .bool) (.cons hc (.cons hT.1 (.cons hE.1 .nil))))
-        fun (r₁, ()) (r₂, ()) => ?_
-      exact hcont _ next (.var r₁) (.var r₂) (fun _ hq => List.mem_cons_of_mem _ hq)
-        (.var List.mem_cons_self)
-    · exact hcont G' next (iout aT₁) (iout aT₂) (fun _ h => h) hT.1
-  | .bits n, next, aT₁, aE₁, aT₂, aE₂, hT, hE, cont₁, cont₂, hcont => by
-    simp only [emitSelectTy, hT.2, hE.2]
-    cases fKeyBeq (ikey aT₂) (ikey aE₂)
-    · simp only [Bool.false_eq_true, ↓reduceIte]
-      refine .let_ (.mk (.select (.bits n)) (.cons hc (.cons hT.1 (.cons hE.1 .nil))))
+      refine .let_ (.mk (.select _) (.cons hc (.cons hT.1 (.cons hE.1 .nil))))
         fun (r₁, ()) (r₂, ()) => ?_
       exact hcont _ next (.var r₁) (.var r₂) (fun _ hq => List.mem_cons_of_mem _ hq)
         (.var List.mem_cons_self)
@@ -627,45 +611,76 @@ private theorem hasArmShape_of_checkArm {rs : List Ty} (jId : Nat) (jTs : List T
   | _, _, _, _, _, _, _, .hlt, hc | _, _, _, _, _, _, _, .group _ _, hc => by
     simp [checkArm] at hc
 
-private theorem hasDiamondShape_of_checkDiamond {rs : List Ty}
-    (bitsOnly : Bool) (jId : Nat) (jTs : List Ty) :
-    ∀ (next : Nat) (plan : DiamondPlan) {G : Ctx (IVal V₁) (IVal V₂)}
-      {D : Ctx (JLabel L₁) (JLabel L₂)}
-      {e₁ : Expr (IVal V₁) (JLabel L₁) rs} {e₂ : Expr (IVal V₂) (JLabel L₂) rs},
-    Wf G D e₁ e₂ → checkDiamondWith bitsOnly jId jTs next e₁ = some plan →
-    HasDiamondShape jTs plan e₂
-  | next, plan, _, _, _, _, .let_ _ hk, hc => by
+private theorem checkDiamond_peel_of_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
+    {rs : List Ty} (bitsOnly : Bool) (jId : Nat) (jTs : List Ty)
+    {D : Ctx (JLabel L₁) L₂}
+    (P : DiamondPlan → Expr V₂ L₂ rs → Prop)
+    (hlet : ∀ {rest ts op k},
+      (∀ xs, P rest (k xs)) → P (.let_ rest) (.let_ (ts := ts) op k))
+    (hload : ∀ {rest t a k}, (∀ v, P rest (k v)) → P (.load rest) (.load t a k))
+    (hstore : ∀ {rest t v a k}, P rest k → P (.store rest) (.store (t := t) v a k))
+    (hcall : ∀ {rest f as bs args k},
+      (∀ xs, P rest (k xs)) → P (.call rest) (.call f (as := as) (bs := bs) args k))
+    (hjnz : ∀ {nT nE c G} {t₁ e₁ : Expr (IVal V₁) (JLabel L₁) rs}
+      {t₂ e₂ : Expr V₂ L₂ rs},
+      Wf G D t₁ t₂ → Wf G D e₁ e₂ →
+      isSelectSigWith bitsOnly jTs = true →
+      (∃ next, checkArm jId jTs 4 next t₁ = some nT ∧
+        checkArm jId jTs 4 next e₁ = some nE) →
+      P (.jnz nT nE) (.jnz c t₂ e₂)) :
+    ∀ (next : Nat) (plan : DiamondPlan) {G : Ctx (IVal V₁) V₂}
+      {e₁ : Expr (IVal V₁) (JLabel L₁) rs} {e₂ : Expr V₂ L₂ rs},
+    Wf G D e₁ e₂ → checkDiamondWith bitsOnly jId jTs next e₁ = some plan → P plan e₂
+  | next, _, _, _, _, .let_ _ hk, hc => by
     simp only [checkDiamondWith, Option.map_eq_some_iff] at hc
     rcases hc with ⟨rest, hr, rfl⟩
-    exact fun xs₂ => hasDiamondShape_of_checkDiamond bitsOnly jId jTs (next + _) rest
-      (hk (dummyIVals _ next) xs₂) hr
-  | next, plan, _, _, _, _, .load _ _ hk, hc => by
+    exact hlet fun xs₂ =>
+      checkDiamond_peel_of_wf bitsOnly jId jTs P hlet hload hstore hcall hjnz
+        (next + _) rest (hk (dummyIVals _ next) xs₂) hr
+  | next, _, _, _, _, .load _ _ hk, hc => by
     simp only [checkDiamondWith, Option.map_eq_some_iff] at hc
     rcases hc with ⟨rest, hr, rfl⟩
-    exact fun v₂ => hasDiamondShape_of_checkDiamond bitsOnly jId jTs (next + 1) rest
-      (hk (.imm default, .var next) v₂) hr
-  | next, plan, _, _, _, _, .store _ _ hk, hc => by
+    exact hload fun v₂ =>
+      checkDiamond_peel_of_wf bitsOnly jId jTs P hlet hload hstore hcall hjnz
+        (next + 1) rest (hk (.imm default, .var next) v₂) hr
+  | next, _, _, _, _, .store _ _ hk, hc => by
     simp only [checkDiamondWith, Option.map_eq_some_iff] at hc
     rcases hc with ⟨rest, hr, rfl⟩
-    exact hasDiamondShape_of_checkDiamond bitsOnly jId jTs next rest hk hr
-  | next, plan, _, _, _, _, .call _ _ hk, hc => by
+    exact hstore
+      (checkDiamond_peel_of_wf bitsOnly jId jTs P hlet hload hstore hcall hjnz
+        next rest hk hr)
+  | next, _, _, _, _, .call _ _ hk, hc => by
     simp only [checkDiamondWith, Option.map_eq_some_iff] at hc
     rcases hc with ⟨rest, hr, rfl⟩
-    exact fun xs₂ => hasDiamondShape_of_checkDiamond bitsOnly jId jTs (next + _) rest
-      (hk (dummyIVals _ next) xs₂) hr
-  | next, plan, _, _, .jnz _ t₁ e₁, _, .jnz _ ht he, hc => by
+    exact hcall fun xs₂ =>
+      checkDiamond_peel_of_wf bitsOnly jId jTs P hlet hload hstore hcall hjnz
+        (next + _) rest (hk (dummyIVals _ next) xs₂) hr
+  | next, _, _, .jnz _ t₁ e₁, _, .jnz _ ht he, hc => by
     dsimp only [checkDiamondWith] at hc
     cases hsel : isSelectSigWith bitsOnly jTs <;> rw [hsel] at hc
     · simp at hc
     · cases h1 : checkArm jId jTs 4 next t₁ <;> cases h2 : checkArm jId jTs 4 next e₁ <;>
         simp [h1, h2] at hc
       · subst hc
-        exact ⟨hasArmShape_of_checkArm jId jTs 4 next _ ht h1,
-               hasArmShape_of_checkArm jId jTs 4 next _ he h2⟩
-  | _, _, _, _, _, _, .jump _ _, hc | _, _, _, _, _, _, .ret _, hc
-  | _, _, _, _, _, _, .exit _ _, hc | _, _, _, _, _, _, .hlt, hc
-  | _, _, _, _, _, _, .group _ _, hc => by
+        exact hjnz ht he hsel ⟨next, h1, h2⟩
+  | _, _, _, _, _, .jump _ _, hc | _, _, _, _, _, .ret _, hc
+  | _, _, _, _, _, .exit _ _, hc | _, _, _, _, _, .hlt, hc
+  | _, _, _, _, _, .group _ _, hc => by
     simp [checkDiamondWith] at hc
+
+private theorem hasDiamondShape_of_checkDiamond {rs : List Ty}
+    (bitsOnly : Bool) (jId : Nat) (jTs : List Ty)
+    (next : Nat) (plan : DiamondPlan) {G : Ctx (IVal V₁) (IVal V₂)}
+    {D : Ctx (JLabel L₁) (JLabel L₂)}
+    {e₁ : Expr (IVal V₁) (JLabel L₁) rs} {e₂ : Expr (IVal V₂) (JLabel L₂) rs}
+    (hwf : Wf G D e₁ e₂) (hc : checkDiamondWith bitsOnly jId jTs next e₁ = some plan) :
+    HasDiamondShape jTs plan e₂ :=
+  checkDiamond_peel_of_wf bitsOnly jId jTs (HasDiamondShape jTs)
+    (fun h => h) (fun h => h) (fun h => h) (fun h => h)
+    (fun ht he _ ⟨_, h1, h2⟩ =>
+      ⟨hasArmShape_of_checkArm jId jTs 4 _ _ ht h1,
+       hasArmShape_of_checkArm jId jTs 4 _ _ he h2⟩)
+    next plan hwf hc
 
 private theorem hasArmShape_of_rhs {rs : List Ty} (jTs : List Ty) :
     ∀ (n : Nat) {G : Ctx (IVal V₁) (IVal V₂)} {D : Ctx (JLabel L₁) (JLabel L₂)}
@@ -938,44 +953,18 @@ private theorem armSpec_of_checkArm {rs : List Ty} (jId : Nat) {jTs : List Ty} (
       simp [checkArm] at hc
 
 private theorem diamondSpec_of_checkDiamond {rs : List Ty} (bitsOnly : Bool)
-    (jId : Nat) {jTs : List Ty} (j : Cont jTs) :
-    ∀ (next : Nat) (plan : DiamondPlan) {G : Ctx (IVal Val) Val} {D : Ctx (JLabel Cont) Cont}
-      {e₁ : Expr (IVal Val) (JLabel Cont) rs} {e₂ : Expr Val Cont rs},
-    OuterContD D → Wf G (⟨jTs, .loc jId, j⟩ :: D) e₁ e₂ →
-    checkDiamondWith bitsOnly jId jTs next e₁ = some plan → DiamondSpec j plan e₂
-  | next, plan, _, D, _, _, hD, (.let_ _ hk), hc => by
-    simp only [checkDiamondWith, Option.map_eq_some_iff] at hc
-    rcases hc with ⟨rest, hr, rfl⟩
-    exact fun xs₂ => diamondSpec_of_checkDiamond bitsOnly jId j (next + _) rest hD
-      (hk (dummyIVals _ next) xs₂) hr
-  | next, plan, _, D, _, _, hD, (.load _ _ hk), hc => by
-    simp only [checkDiamondWith, Option.map_eq_some_iff] at hc
-    rcases hc with ⟨rest, hr, rfl⟩
-    exact fun v₂ => diamondSpec_of_checkDiamond bitsOnly jId j (next + 1) rest hD
-      (hk (.imm default, .var next) v₂) hr
-  | next, plan, _, D, _, _, hD, (.store _ _ hk), hc => by
-    simp only [checkDiamondWith, Option.map_eq_some_iff] at hc
-    rcases hc with ⟨rest, hr, rfl⟩
-    exact diamondSpec_of_checkDiamond bitsOnly jId j next rest hD hk hr
-  | next, plan, _, D, _, _, hD, (.call _ _ hk), hc => by
-    simp only [checkDiamondWith, Option.map_eq_some_iff] at hc
-    rcases hc with ⟨rest, hr, rfl⟩
-    exact fun xs₂ => diamondSpec_of_checkDiamond bitsOnly jId j (next + _) rest hD
-      (hk (dummyIVals _ next) xs₂) hr
-  | next, plan, _, D, .jnz _ t₁ e₁, _, hD, (.jnz _ ht he), hc => by
-    dsimp only [checkDiamondWith] at hc
-    cases hsel : isSelectSigWith bitsOnly jTs <;> rw [hsel] at hc
-    · simp at hc
-    · cases h1 : checkArm jId jTs 4 next t₁ <;> cases h2 : checkArm jId jTs 4 next e₁ <;>
-        simp [h1, h2] at hc
-      · subst hc
-        exact ⟨isSelectSigWith_imp bitsOnly jTs hsel,
-               armSpec_of_checkArm jId j 4 next _ hD ht h1,
-               armSpec_of_checkArm jId j 4 next _ hD he h2⟩
-  | _, _, _, _, _, _, _, (.jump _ _), hc | _, _, _, _, _, _, _, (.ret _), hc
-  | _, _, _, _, _, _, _, (.exit _ _), hc | _, _, _, _, _, _, _, .hlt, hc
-  | _, _, _, _, _, _, _, (.group _ _), hc => by
-    simp [checkDiamondWith] at hc
+    (jId : Nat) {jTs : List Ty} (j : Cont jTs)
+    (next : Nat) (plan : DiamondPlan) {G : Ctx (IVal Val) Val} {D : Ctx (JLabel Cont) Cont}
+    {e₁ : Expr (IVal Val) (JLabel Cont) rs} {e₂ : Expr Val Cont rs}
+    (hD : OuterContD D) (hwf : Wf G (⟨jTs, .loc jId, j⟩ :: D) e₁ e₂)
+    (hc : checkDiamondWith bitsOnly jId jTs next e₁ = some plan) : DiamondSpec j plan e₂ :=
+  checkDiamond_peel_of_wf bitsOnly jId jTs (DiamondSpec j)
+    (fun h => h) (fun h => h) (fun h => h) (fun h => h)
+    (fun ht he hsel ⟨_, h1, h2⟩ =>
+      ⟨isSelectSigWith_imp bitsOnly jTs hsel,
+       armSpec_of_checkArm jId j 4 _ _ hD ht h1,
+       armSpec_of_checkArm jId j 4 _ _ hD he h2⟩)
+    next plan hwf hc
 
 private theorem bool_val_cases {c₁ : Arg (IVal Val) .bool} {c₂ : Arg Val .bool}
     (hce : (iout c₁).val = c₂.val) {P : Prop}

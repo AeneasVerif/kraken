@@ -838,4 +838,195 @@ theorem storeOk_storeMem (m : Mem 64) (t u : Ty) (a b : BitVec 64) (v : Val t)
   refine ⟨Int.ofBytes bs', ?_⟩
   simp only [Mem.loadInt, Mem.loadBytes, hbs', Option.map_some]
 
+/-! ## `OpCode.wp_exists`: witness existence for dropped pure operations -/
+
+private theorem floatResultWp_exists (f : Fmt) (res : Float.Model.UnpackedFloat)
+    (P : BitVec f.width → Prop) (hw : floatResultWp f res P) :
+    ∃ r : BitVec f.width, P r := by
+  simp only [floatResultWp] at hw
+  split at hw
+  · exact ⟨(Float.Model.UnpackedFloat.packedNaN f.format).cast (Fmt.format_numBits f),
+      hw _ (isFloatNaN_packedNaN f)⟩
+  · exact ⟨_, hw⟩
+
+private theorem liftFloatRel1_exists
+    (op : Float.Model.Format → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat) :
+    ∀ (t : Ty), t.isFloatTree = true → ∀ (a : Val t) (P : Val t → Prop),
+      liftFloatRel1 op t a P → ∃ r : Val t, P r
+  | .float f, _, a, P, hw => floatResultWp_exists f _ P hw
+  | .pair s u, ht, (a₁, a₂), P, hw => by
+    simp only [Ty.isFloatTree, Bool.and_eq_true] at ht
+    have hw1 := liftFloatRel1_mono op s a₁ _ _
+      (fun r₁ hr₁ => liftFloatRel1_exists op u ht.2 a₂ _ hr₁) hw
+    obtain ⟨r₁, r₂, hr₂⟩ := liftFloatRel1_exists op s ht.1 a₁ _ hw1
+    exact ⟨(r₁, r₂), hr₂⟩
+  | .bool, ht, _, _, _ | .bits _, ht, _, _, _ => by simp [Ty.isFloatTree] at ht
+
+private theorem liftFloatRel2_exists
+    (op : Float.Model.Format → Float.Model.UnpackedFloat →
+      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat) :
+    ∀ (t : Ty), t.isFloatTree = true → ∀ (a b : Val t) (P : Val t → Prop),
+      liftFloatRel2 op t a b P → ∃ r : Val t, P r
+  | .float f, _, a, b, P, hw => floatResultWp_exists f _ P hw
+  | .pair s u, ht, (a₁, a₂), (b₁, b₂), P, hw => by
+    simp only [Ty.isFloatTree, Bool.and_eq_true] at ht
+    have hw1 := liftFloatRel2_mono op s a₁ b₁ _ _
+      (fun r₁ hr₁ => liftFloatRel2_exists op u ht.2 a₂ b₂ _ hr₁) hw
+    obtain ⟨r₁, r₂, hr₂⟩ := liftFloatRel2_exists op s ht.1 a₁ b₁ _ hw1
+    exact ⟨(r₁, r₂), hr₂⟩
+  | .bool, ht, _, _, _, _ | .bits _, ht, _, _, _, _ => by simp [Ty.isFloatTree] at ht
+
+private theorem liftFloatRel3_exists
+    (op : Float.Model.Format → Float.Model.UnpackedFloat →
+      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat) :
+    ∀ (t : Ty), t.isFloatTree = true → ∀ (a b c : Val t) (P : Val t → Prop),
+      liftFloatRel3 op t a b c P → ∃ r : Val t, P r
+  | .float f, _, a, b, c, P, hw => floatResultWp_exists f _ P hw
+  | .pair s u, ht, (a₁, a₂), (b₁, b₂), (c₁, c₂), P, hw => by
+    simp only [Ty.isFloatTree, Bool.and_eq_true] at ht
+    have hw1 := liftFloatRel3_mono op s a₁ b₁ c₁ _ _
+      (fun r₁ hr₁ => liftFloatRel3_exists op u ht.2 a₂ b₂ c₂ _ hr₁) hw
+    obtain ⟨r₁, r₂, hr₂⟩ := liftFloatRel3_exists op s ht.1 a₁ b₁ c₁ _ hw1
+    exact ⟨(r₁, r₂), hr₂⟩
+  | .bool, ht, _, _, _, _, _ | .bits _, ht, _, _, _, _, _ => by simp [Ty.isFloatTree] at ht
+
+private theorem convertFloat_exists (src dst : Fmt) (a : BitVec src.width)
+    (P : BitVec dst.width → Prop) (hw : convertFloat src dst a P) :
+    ∃ r : BitVec dst.width, P r := by
+  simp only [convertFloat] at hw
+  cases hu : unpackFloat src a with
+  | notANumber =>
+    simp only [hu] at hw
+    exact ⟨(Float.Model.UnpackedFloat.packedNaN dst.format).cast (Fmt.format_numBits dst),
+      hw _ (isFloatNaN_packedNaN dst)⟩
+  | finite _ _ _ _ => simp only [hu] at hw; exact ⟨_, hw⟩
+  | infinity _ => simp only [hu] at hw; exact ⟨_, hw⟩
+  | zero _ => simp only [hu] at hw; exact ⟨_, hw⟩
+
+private theorem of_hasFloat_exists {t : Ty} {rs : List Ty} {r : Tup Val rs}
+    {P : Tup Val rs → Prop} (h : if t.hasFloat then False else P r) : ∃ x, P x := by
+  cases hb : t.hasFloat
+  · simp only [hb, Bool.false_eq_true, ↓reduceIte] at h; exact ⟨r, h⟩
+  · simp only [hb, ↓reduceIte] at h
+
+private theorem of_isFloatTree_exists {t : Ty} {rs : List Ty} {r : Tup Val rs}
+    {P : Tup Val rs → Prop} (h : if !t.isFloatTree then False else P r) : ∃ x, P x := by
+  cases hb : t.isFloatTree
+  · simp only [hb, Bool.not_false, ↓reduceIte] at h
+  · simp only [hb, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at h; exact ⟨r, h⟩
+
+private theorem liftFloatRel2_exists_ite
+    (op : Float.Model.Format → Float.Model.UnpackedFloat →
+      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)
+    {t : Ty} {a b : Val t} {P : Tup Val [t] → Prop}
+    (h : if !t.isFloatTree then False else liftFloatRel2 op t a b fun x => P (x, ())) :
+    ∃ r : Tup Val [t], P r := by
+  cases ht : t.isFloatTree
+  · simp only [ht, Bool.not_false, ↓reduceIte] at h
+  · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at h
+    obtain ⟨r, hr⟩ := liftFloatRel2_exists op t ht a b (fun x => P (x, ())) h
+    exact ⟨(r, ()), hr⟩
+
+/-- Any satisfied `OpCode.wp` witnesses an output tuple satisfying `P` (using a canonical
+quiet NaN when NaNs quantify universally over `isFloatNaN`, and `False.elim` on UB). -/
+theorem OpCode.wp_exists : {sig rs : List Ty} → (c : OpCode sig rs) → (args : Tup Val sig) →
+    {P : Tup Val rs → Prop} → c.wp args P → ∃ r : Tup Val rs, P r
+  | _, _, .add _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_add] at hw; exact hw)
+  | _, _, .sub _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_sub] at hw; exact hw)
+  | _, _, .mul _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_mul] at hw; exact hw)
+  | _, _, .neg _, (_, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_neg] at hw; exact hw)
+  | _, _, .shl _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_shl] at hw; exact hw)
+  | _, _, .lshr _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_lshr] at hw; exact hw)
+  | _, _, .ashr _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_ashr] at hw; exact hw)
+  | _, _, .rotl _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_rotl] at hw; exact hw)
+  | _, _, .rotr _, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_rotr] at hw; exact hw)
+  | _, _, .bswap t, (_, ()), _, hw => by
+    simp only [OpCode.wp_bswap] at hw
+    cases hb : t.bswapOk
+    · simp only [hb, Bool.not_false, ↓reduceIte] at hw
+    · simp only [hb, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw; exact ⟨_, hw⟩
+  | _, _, .cmp _ _ _ rfl, (_, _, ()), _, hw =>
+    of_hasFloat_exists (by simp only [OpCode.wp_cmp, cast_eq] at hw; exact hw)
+  | _, _, .zext _ _, (_, ()), _, hw => by simp only [OpCode.wp_zext] at hw; exact ⟨_, hw.2⟩
+  | _, _, .sext _ _, (_, ()), _, hw => by simp only [OpCode.wp_sext] at hw; exact ⟨_, hw.2⟩
+  | _, _, .trunc _ _, (_, ()), _, hw => by simp only [OpCode.wp_trunc] at hw; exact ⟨_, hw.2⟩
+  | _, _, .udiv _, (_, _, ()), _, hw => by simp only [OpCode.wp_udiv] at hw; exact ⟨_, hw.2⟩
+  | _, _, .sdiv _, (_, _, ()), _, hw => by simp only [OpCode.wp_sdiv] at hw; exact ⟨_, hw.2⟩
+  | _, _, .urem _, (_, _, ()), _, hw => by simp only [OpCode.wp_urem] at hw; exact ⟨_, hw.2⟩
+  | _, _, .srem _, (_, _, ()), _, hw => by simp only [OpCode.wp_srem] at hw; exact ⟨_, hw.2⟩
+  | _, _, .shufd _ _, (_, ()), _, hw => by simp only [OpCode.wp_shufd] at hw; exact ⟨_, hw.2.2⟩
+  | _, _, .shufb _, (_, _, ()), _, hw => by simp only [OpCode.wp_shufb] at hw; exact ⟨_, hw.2.2⟩
+  | _, _, .alignr _ _, (_, _, ()), _, hw => by simp only [OpCode.wp_alignr] at hw; exact ⟨_, hw.2.2⟩
+  | _, _, .blendw _ _, (_, _, ()), _, hw => by simp only [OpCode.wp_blendw] at hw; exact ⟨_, hw.2.2⟩
+  | _, _, .fadd _, (_, _, ()), _, hw =>
+    liftFloatRel2_exists_ite _ (by simp only [OpCode.wp_fadd] at hw; exact hw)
+  | _, _, .fsub _, (_, _, ()), _, hw =>
+    liftFloatRel2_exists_ite _ (by simp only [OpCode.wp_fsub] at hw; exact hw)
+  | _, _, .fmul _, (_, _, ()), _, hw =>
+    liftFloatRel2_exists_ite _ (by simp only [OpCode.wp_fmul] at hw; exact hw)
+  | _, _, .fdiv _, (_, _, ()), _, hw =>
+    liftFloatRel2_exists_ite _ (by simp only [OpCode.wp_fdiv] at hw; exact hw)
+  | _, _, .ffma t, (a, b, c, ()), P, hw => by
+    simp only [OpCode.wp_ffma] at hw
+    cases ht : t.isFloatTree
+    · simp only [ht, Bool.not_false, ↓reduceIte] at hw
+    · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw
+      obtain ⟨r, hr⟩ := liftFloatRel3_exists Float.Model.UnpackedFloat.fma t ht a b c
+        (fun x => P (x, ())) hw
+      exact ⟨(r, ()), hr⟩
+  | _, _, .fsqrt t, (a, ()), P, hw => by
+    simp only [OpCode.wp_fsqrt] at hw
+    cases ht : t.isFloatTree
+    · simp only [ht, Bool.not_false, ↓reduceIte] at hw
+    · simp only [ht, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw
+      obtain ⟨r, hr⟩ := liftFloatRel1_exists Float.Model.UnpackedFloat.sqrt t ht a
+        (fun x => P (x, ())) hw
+      exact ⟨(r, ()), hr⟩
+  | _, _, .fneg _, (_, ()), _, hw =>
+    of_isFloatTree_exists (by simp only [OpCode.wp_fneg] at hw; exact hw)
+  | _, _, .fabs _, (_, ()), _, hw =>
+    of_isFloatTree_exists (by simp only [OpCode.wp_fabs] at hw; exact hw)
+  | _, _, .fcmp _ _ _ rfl, (_, _, ()), _, hw =>
+    of_isFloatTree_exists (by simp only [OpCode.wp_fcmp, cast_eq] at hw; exact hw)
+  | _, _, .fptoui f n, (a, ()), _, hw => by
+    simp only [OpCode.wp_fptoui] at hw
+    cases htr : truncToInt (unpackFloat f a) with
+    | none => simp only [htr] at hw
+    | some _ => simp only [htr] at hw; exact ⟨_, hw.2.2⟩
+  | _, _, .fptosi f n, (a, ()), _, hw => by
+    simp only [OpCode.wp_fptosi] at hw
+    have hw2 := hw.2
+    cases htr : truncToInt (unpackFloat f a) with
+    | none => simp only [htr] at hw2
+    | some _ => simp only [htr] at hw2; exact ⟨_, hw2.2.2⟩
+  | _, _, .fcvt f g, (a, ()), P, hw => by
+    simp only [OpCode.wp_fcvt] at hw
+    obtain ⟨r, hr⟩ := convertFloat_exists f g a (fun x => P (x, ())) hw
+    exact ⟨(r, ()), hr⟩
+  | _, _, .copy _, (_, ()), _, hw | _, _, .and _, (_, _, ()), _, hw
+  | _, _, .or _, (_, _, ()), _, hw | _, _, .xor _, (_, _, ()), _, hw
+  | _, _, .not _, (_, ()), _, hw | _, _, .ternlog _ _, (_, _, _, ()), _, hw
+  | _, _, .fshl _, (_, _, _, ()), _, hw | _, _, .fshr _, (_, _, _, ()), _, hw
+  | _, _, .clz _, (_, ()), _, hw | _, _, .cls _, (_, ()), _, hw
+  | _, _, .rbit _, (_, ()), _, hw | _, _, .ctz _, (_, ()), _, hw
+  | _, _, .popcnt _, (_, ()), _, hw | _, _, .select _, (_, _, _, ()), _, hw
+  | _, _, .blend _ _ rfl, (_, _, _, ()), _, hw => ⟨_, hw⟩
+  | _, _, .ofBool _, (_, ()), _, hw
+  | _, _, .addc _, (_, _, _, ()), _, hw | _, _, .subb _, (_, _, _, ()), _, hw
+  | _, _, .umulw _, (_, _, ()), _, hw | _, _, .smulw _, (_, _, ()), _, hw
+  | _, _, .udiv0 _, (_, _, ()), _, hw | _, _, .sdiv0 _, (_, _, ()), _, hw
+  | _, _, .mkpair _ _, (_, _, ()), _, hw | _, _, .unpair _ _, (_, ()), _, hw
+  | _, _, .bitcast _ _ _, (_, ()), _, hw | _, _, .sha256rnds2, (_, _, _, ()), _, hw
+  | _, _, .sha256msg1, (_, _, ()), _, hw | _, _, .sha256msg2, (_, _, ()), _, hw
+  | _, _, .uitofp _ _, (_, ()), _, hw | _, _, .sitofp _ _, (_, ()), _, hw => ⟨_, hw⟩
+
 end LeanQbe.T

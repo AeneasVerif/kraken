@@ -248,20 +248,16 @@ theorem dceP_wp (dl dld : Bool) {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
           exact ih (someTup ts xs) xs hD (SomeEq.append_some hG xs) g.sub1
             (b + ts.length) (kk (Tup.levels ts b))
             (hkk (Tup.levels ts b) (someTup ts xs)) hMk hok
-            (NoneDead.append_some (NoneDead.sub (TrieSub.addArgKeys argsk _) hnd)
-              (Tup.levels ts b) xs) m hkx
+            (NoneDead.append_some_addArgKeys argsk b xs hnd) m hkx
         | false =>
           simp only [hkeep, Bool.false_eq_true, ↓reduceIte] at hnd hok ⊢
-          have hal : anyLive b ts.length
-              (liveVarsP dl dld g.sub1 (b + ts.length) (kk (Tup.levels ts b))).1 = false := by
-            cases dl <;> simp at hkeep ⊢; exact hkeep
           simp only [dceSweepP]
           simp only [wp, Op.wp] at hw
           obtain ⟨xs₂, hxs₂⟩ := OpCode.wp_exists code (vals args₂) hw
           exact ih (noneTup ts) xs₂ hD (SomeEq.append_none hG xs₂) g.sub1
             (b + ts.length) (kk (Tup.levels ts b))
             (hkk (Tup.levels ts b) (noneTup ts)) hMk hok
-            (NoneDead.append_none hnd b (anyLive_eq_false ts.length b _ hal)) m hxs₂
+            (NoneDead.append_none_of_not_keep b hkeep hnd) m hxs₂
   | load t ha _ ih =>
     intro hD hG Gk Dk g b ek hwk hMk hok hnd m hw
     rcases hwk.rhs_load with ⟨ak, kk, rfl, hak, hkk⟩
@@ -276,26 +272,21 @@ theorem dceP_wp (dl dld : Bool) {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
       rw [hval]
       refine ⟨v, hv, ?_⟩
       exact ih (some v) v hD (SomeEq.cons_some hG v) g.sub1 (b + 1) (kk b) (hkk b (some v))
-        hMk hok (NoneDead.cons_some (NoneDead.sub (TrieSub.addArgKey ak _) hnd) b v) m hk
+        hMk hok (NoneDead.cons_some_addArgKey ak b v hnd) m hk
     | false =>
       simp only [hkeep, Bool.false_eq_true, ↓reduceIte] at hnd hok ⊢
-      have hmem : ((liveVarsP dl dld g.sub1 (b + 1) (kk b)).1.find? b).isSome = false := by
-        cases dld <;> simp at hkeep ⊢; exact hkeep
       simp only [dceSweepP]
       exact ih none v hD (SomeEq.cons_none hG v) g.sub1 (b + 1) (kk b) (hkk b none) hMk hok
-        (NoneDead.cons_none hnd b hmem) m hk
+        (NoneDead.cons_none_of_not_keep b hkeep hnd) m hk
   | store hv ha _ ih =>
     intro hD hG Gk Dk g b ek hwk hMk hok hnd m hw
     rcases hwk.rhs_store with ⟨vk, ak, kk, rfl, hvk, hak, hkk⟩
     simp only [liveVarsP] at hnd hok ⊢
     simp only [dceSweepP, wp] at hw ⊢
     have hvval := argSweep_val_of_inSet hnd hG hvk hv (Arg.InSet.addArgKey vk _)
-    have haval := argSweep_val_of_inSet hnd hG hak ha
-      ((Arg.InSet.addArgKey ak _).mono (TrieSub.addArgKey vk _))
+    have haval := argSweep_val_of_inSet hnd hG hak ha (Arg.InSet.addArgKey2 vk ak _)
     rw [hvval, haval]
-    refine ⟨hw.1, ?_⟩
-    exact ih hD hG g.sub1 b kk hkk hMk hok
-      (hnd.sub (TrieSub.trans (TrieSub.addArgKey ak _) (TrieSub.addArgKey vk _))) _ hw.2
+    exact ⟨hw.1, ih hD hG g.sub1 b kk hkk hMk hok (NoneDead.sub_addArgKey2 vk ak hnd) _ hw.2⟩
   | @call _ _ f _ bs _ _ _ _ hargs _ ih =>
     intro hD hG Gk Dk g b ek hwk hMk hok hnd m hw
     rcases hwk.rhs_call with ⟨argsk, kk, rfl, hargsk, hkk⟩
@@ -307,8 +298,7 @@ theorem dceP_wp (dl dld : Bool) {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
     refine ⟨P, E, hΓ, fun r m' hp => ?_, hE⟩
     exact ih (someTup bs r) r hD (SomeEq.append_some hG r) g.sub1 (b + bs.length)
       (kk (Tup.levels bs b)) (hkk (Tup.levels bs b) (someTup bs r)) hMk hok
-      (NoneDead.append_some (NoneDead.sub (TrieSub.addArgKeys argsk _) hnd) (Tup.levels bs b) r)
-      m' (hP r m' hp)
+      (NoneDead.append_some_addArgKeys argsk b r hnd) m' (hP r m' hp)
   | jnz hc _ _ iht ihe =>
     intro hD hG Gk Dk g b ek hwk hMk hok hnd m hw
     rcases hwk.rhs_jnz with ⟨ck, tk, ek', rfl, hck, htk, hek⟩
@@ -317,11 +307,9 @@ theorem dceP_wp (dl dld : Bool) {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
     have hval := argSweep_val_of_inSet hnd hG hck hc (Arg.InSet.addArgKey ck _)
     rw [hval]
     exact ⟨fun h => iht hD hG g.subT b tk htk hMk hok.1
-              (hnd.sub (TrieSub.trans (TrieSub.union_left _ _) (TrieSub.addArgKey ck _))) m
-              (hw.1 h),
+              (NoneDead.sub_union_left_addArgKey ck hnd) m (hw.1 h),
            fun h => ihe hD hG g.subE b ek' hek hMk hok.2
-              (hnd.sub (TrieSub.trans (TrieSub.union_right _ _) (TrieSub.addArgKey ck _))) m
-              (hw.2 h)⟩
+              (NoneDead.sub_union_right_addArgKey ck hnd) m (hw.2 h)⟩
   | @jump G D ts j₁ j₂ args₁ args₂ hj hargs =>
     intro hD hG Gk Dk g b ek hwk hMk hok hnd m hw
     rcases hwk.rhs_jump with ⟨mk, argsk, rfl, hjk, hargsk⟩
@@ -483,18 +471,14 @@ theorem dceP_wf (dl dld : Bool) {rs : List Ty}
           exact ih (someTup ts xs₁) (someTup ts xs₂) (DceRel.append_some hrel xs₁ xs₂) hD g.sub1
             (b + ts.length) (kk (Tup.levels ts b))
             (hkk (Tup.levels ts b) (someTup ts xs₁)) hMk hok
-            (NoneDead.append_some (NoneDead.sub (TrieSub.addArgKeys argsk _) hnd)
-              (Tup.levels ts b) xs₁)
+            (NoneDead.append_some_addArgKeys argsk b xs₁ hnd)
         | false =>
           simp only [hkeep, Bool.false_eq_true, ↓reduceIte] at hnd hok ⊢
-          have hal : anyLive b ts.length
-              (liveVarsP dl dld g.sub1 (b + ts.length) (kk (Tup.levels ts b))).1 = false := by
-            cases dl <;> simp at hkeep ⊢; exact hkeep
           simp only [dceSweepP]
           exact ih (noneTup ts) (noneTup ts) (DceRel.append_none hrel) hD g.sub1
             (b + ts.length) (kk (Tup.levels ts b))
             (hkk (Tup.levels ts b) (noneTup ts)) hMk hok
-            (NoneDead.append_none hnd b (anyLive_eq_false ts.length b _ hal))
+            (NoneDead.append_none_of_not_keep b hkeep hnd)
   | load t ha _ ih =>
     intro G' D' hrel hD Gk Dk g b ek hwk hMk hok hnd
     rcases hwk.rhs_load with ⟨ak, kk, rfl, hak, hkk⟩
@@ -507,25 +491,20 @@ theorem dceP_wf (dl dld : Bool) {rs : List Ty}
       refine .load t (argSweep_rel_of_inSet hnd hrel hak ha (Arg.InSet.addArgKey ak _))
         fun v₁ v₂ => ?_
       exact ih (some v₁) (some v₂) (DceRel.cons_some hrel v₁ v₂) hD g.sub1 (b + 1) (kk b)
-        (hkk b (some v₁)) hMk hok
-        (NoneDead.cons_some (NoneDead.sub (TrieSub.addArgKey ak _) hnd) b v₁)
+        (hkk b (some v₁)) hMk hok (NoneDead.cons_some_addArgKey ak b v₁ hnd)
     | false =>
       simp only [hkeep, Bool.false_eq_true, ↓reduceIte] at hnd hok ⊢
-      have hmem : ((liveVarsP dl dld g.sub1 (b + 1) (kk b)).1.find? b).isSome = false := by
-        cases dld <;> simp at hkeep ⊢; exact hkeep
       simp only [dceSweepP]
       exact ih none none (DceRel.cons_none hrel) hD g.sub1 (b + 1) (kk b) (hkk b none) hMk hok
-        (NoneDead.cons_none hnd b hmem)
+        (NoneDead.cons_none_of_not_keep b hkeep hnd)
   | store hv ha _ ih =>
     intro G' D' hrel hD Gk Dk g b ek hwk hMk hok hnd
     rcases hwk.rhs_store with ⟨vk, ak, kk, rfl, hvk, hak, hkk⟩
     simp only [liveVarsP] at hnd hok ⊢
     simp only [dceSweepP]
     exact .store (argSweep_rel_of_inSet hnd hrel hvk hv (Arg.InSet.addArgKey vk _))
-      (argSweep_rel_of_inSet hnd hrel hak ha
-        ((Arg.InSet.addArgKey ak _).mono (TrieSub.addArgKey vk _)))
-      (ih hrel hD g.sub1 b kk hkk hMk hok
-        (hnd.sub (TrieSub.trans (TrieSub.addArgKey ak _) (TrieSub.addArgKey vk _))))
+      (argSweep_rel_of_inSet hnd hrel hak ha (Arg.InSet.addArgKey2 vk ak _))
+      (ih hrel hD g.sub1 b kk hkk hMk hok (NoneDead.sub_addArgKey2 vk ak hnd))
   | @call _ _ f _ bs _ _ _ _ hargs _ ih =>
     intro G' D' hrel hD Gk Dk g b ek hwk hMk hok hnd
     rcases hwk.rhs_call with ⟨argsk, kk, rfl, hargsk, hkk⟩
@@ -535,17 +514,15 @@ theorem dceP_wf (dl dld : Bool) {rs : List Ty}
       fun xs₁ xs₂ => ?_
     exact ih (someTup bs xs₁) (someTup bs xs₂) (DceRel.append_some hrel xs₁ xs₂) hD g.sub1
       (b + bs.length) (kk (Tup.levels bs b)) (hkk (Tup.levels bs b) (someTup bs xs₁)) hMk hok
-      (NoneDead.append_some (NoneDead.sub (TrieSub.addArgKeys argsk _) hnd) (Tup.levels bs b) xs₁)
+      (NoneDead.append_some_addArgKeys argsk b xs₁ hnd)
   | jnz hc _ _ iht ihe =>
     intro G' D' hrel hD Gk Dk g b ek hwk hMk hok hnd
     rcases hwk.rhs_jnz with ⟨ck, tk, ek', rfl, hck, htk, hek⟩
     simp only [liveVarsP, Bool.and_eq_true] at hnd hok ⊢
     simp only [dceSweepP]
     exact .jnz (argSweep_rel_of_inSet hnd hrel hck hc (Arg.InSet.addArgKey ck _))
-      (iht hrel hD g.subT b tk htk hMk hok.1
-        (hnd.sub (TrieSub.trans (TrieSub.union_left _ _) (TrieSub.addArgKey ck _))))
-      (ihe hrel hD g.subE b ek' hek hMk hok.2
-        (hnd.sub (TrieSub.trans (TrieSub.union_right _ _) (TrieSub.addArgKey ck _))))
+      (iht hrel hD g.subT b tk htk hMk hok.1 (NoneDead.sub_union_left_addArgKey ck hnd))
+      (ihe hrel hD g.subE b ek' hek hMk hok.2 (NoneDead.sub_union_right_addArgKey ck hnd))
   | @jump G D ts j₁ j₂ args₁ args₂ hj hargs =>
     intro G' D' hrel hD Gk Dk g b ek hwk hMk hok hnd
     rcases hwk.rhs_jump with ⟨mk, argsk, rfl, hjk, hargsk⟩
@@ -663,12 +640,6 @@ end DceParam
 /-! ## Closed functions -/
 
 open DceParam in
-private theorem noneDead_fresh {V : Ty → Type} (s : Trie Unit) {as : List Ty} (xs : Tup V as) :
-    NoneDead s (Tup.zip (Tup.levels as 0) (someTup as xs)) := by
-  rw [← List.append_nil (Tup.zip (Tup.levels as 0) (someTup as xs))]
-  exact NoneDead.append_some (Gk := []) (fun {_ _ _} hm => nomatch hm) (Tup.levels as 0) xs
-
-open DceParam in
 /-- `Func.dcePWith` preserves relational well-formedness. -/
 theorem Func.dcePWith_wf (dl dld : Bool) (rounds : Nat := 0) {as rs : List Ty} {f : Func as rs}
     (hf : f.Wf) : (Func.dcePWith dl dld rounds f).Wf := by
@@ -677,15 +648,12 @@ theorem Func.dcePWith_wf (dl dld : Bool) (rounds : Nat := 0) {as rs : List Ty} {
   split
   · rename_i hok
     intro V₁ V₂ L₁ L₂ xs₁ xs₂
-    have hrel : DceRel (Tup.zip (someTup as xs₁) (someTup as xs₂)) (Tup.zip xs₁ xs₂) := by
-      rw [← List.append_nil (Tup.zip (someTup as xs₁) (someTup as xs₂)),
-          ← List.append_nil (Tup.zip xs₁ xs₂)]
-      exact DceRel.append_some (G := []) (G' := []) (fun {_ _ _} hm => nomatch hm) xs₁ xs₂
     exact DceParam.dceP_wf dl dld
       (hf (OptV V₁) (OptV V₂) (NLabel L₁) (NLabel L₂) (someTup as xs₁) (someTup as xs₂))
-      hrel (fun _ hm => nomatch hm) _ as.length (f K KLM (Tup.levels as 0))
+      (DceRel.fresh_nil xs₁ xs₂) (fun _ hm => nomatch hm) _ as.length
+      (f K KLM (Tup.levels as 0))
       (hf K (OptV V₁) KLM (NLabel L₁) (Tup.levels as 0) (someTup as xs₁))
-      (fun _ hm => nomatch hm) hok (noneDead_fresh _ xs₁)
+      (fun _ hm => nomatch hm) hok (NoneDead.fresh_nil _ xs₁)
   · exact Func.dceWith_wf dl dld hf
 
 open DceParam in
@@ -698,13 +666,10 @@ theorem Func.dcePWith_spec (dl dld : Bool) (rounds : Nat := 0) {as rs : List Ty}
   dsimp only
   split
   · rename_i hok
-    have hG : SomeEq (Tup.zip (someTup as xs) xs) := by
-      rw [← List.append_nil (Tup.zip (someTup as xs) xs)]
-      exact SomeEq.append_some (G := []) (fun {_ _ _} hm => nomatch hm) xs
     exact DceParam.dceP_wp dl dld (hf (OptV Val) Val (NLabel Cont) Cont (someTup as xs) xs)
-      (fun _ hm => nomatch hm) hG _ as.length (f K KLM (Tup.levels as 0))
+      (fun _ hm => nomatch hm) (SomeEq.fresh_nil xs) _ as.length (f K KLM (Tup.levels as 0))
       (hf K (OptV Val) KLM (NLabel Cont) (Tup.levels as 0) (someTup as xs))
-      (fun _ hm => nomatch hm) hok (noneDead_fresh _ xs) m h
+      (fun _ hm => nomatch hm) hok (NoneDead.fresh_nil _ xs) m h
   · exact Func.dceWith_spec dl dld hf h
 
 /-- `Func.dceP` preserves relational well-formedness. -/
