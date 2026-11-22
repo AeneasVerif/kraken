@@ -8,10 +8,11 @@ Core tactics and theorems for stepping through Kraken assembly proofs.
 
 public import Kraken.Attribute
 import Kraken.Layout
+import Kraken.Separation
 
 public meta section
 
-open Lean Meta Elab Tactic Kraken
+open Lean Meta Elab Tactic.Grind MainGoal Kraken
 
 /-- Set up a straight-line proof for `p` from `s`, naming the state fields and
 general-purpose registers. `status` and `dmem` are called `flags` and `mem`. -/
@@ -23,7 +24,7 @@ private def kprologueBinderName (field : Lean.Name) : Lean.Name :=
   else field
 
 elab_rules : tactic
-  | `(tactic| kprologue $p:ident with $s:ident) => withMainContext do
+  | `(tactic| kprologue $p:ident with $s:ident) => Tactic.withMainContext do
       let env ← getEnv
       let state ← Term.elabTerm s none
       let stateType ← whnf (← inferType state)
@@ -83,7 +84,7 @@ elab_rules : tactic
       let straightlineStepId := mkIdent `straightlineStep
       let execStraightlineId := mkIdent `Executable.straightline
 
-      evalTactic (← `(tactic|
+      Tactic.evalTactic (← `(tactic|
         (let ss := $s
          change ($straightlineStepId:ident _ ⟨ss, _⟩ _)
          obtain $statePat:rcasesPat := $s
@@ -147,55 +148,56 @@ def kdeltaBetaOnly (targets: List Name) (maxInstrCount : Option (IO.Ref Nat)) : 
   -- argument position, which we know for a fact happens quite a bunch in our
   -- semantics. Concretely: `f (let x = ... in arg)` => `let x = ... in f arg`.
   peelArgsLets args 0 #[] #[] fun (args : Array Expr) (fvars : Array Expr) => do
+    if f.isConstOf `Effects.All then
+      if hArg : 1 < args.size then
+        if args[1].isApp && args[1].getAppFn'.isConstOf `Directives.interp then
+          -- We optionally track how many times we've hit Directives.interp -- this tracks how
+          -- many instructions we've stepped through.
+          if (← maxInstrCount.mapM (·.get)) = .some 0 then
+            return .rfl
+          maxInstrCount.forM (fun r => r.modify (· - 1))
 
-    if f.isConstOf `Effects.All && args[1]!.isApp && args[1]!.getAppFn'.isConstOf `Directives.interp then
-      -- We optionally track how many times we've hit Directives.interp -- this tracks how
-      -- many instructions we've stepped through.
-      if (← maxInstrCount.mapM (·.get)) = .some 0 then
-        return .rfl
-      maxInstrCount.forM (fun r => r.modify (· - 1))
+          -- Finding a node of the form `Effects.All ... (Directives.interp ...)`
+          -- means that we are ready to step through. We manually force reduction of
+          -- Directives.interp (since it is *not* is our list of targets), then let
+          -- everything simplify until we're called again.
+          let some arg1 ← Meta.unfoldDefinition? args[1] true | throwError "can't unfold Directives.interp"
+          let e := mkAppN f (args.set 1 arg1)
+          let e' ← shareCommon e
+          let e'' ← mkLetFVars fvars e'
+          return .step e''
+          -- TODO: we could here have a post := in the simproc that forces the
+          -- result to be .step ... (done := true) to prevent the next unrolling of
+          -- Directives.interp from being applied. This would essentially allow
+          -- implementing a kstep1 tactic (and leave it to done := false to keep
+          -- stepping until something blocks).
 
-      -- Finding a node of the form `Effects.All ... (Directives.interp ...)`
-      -- means that we are ready to step through. We manually force reduction of
-      -- Directives.interp (since it is *not* is our list of targets), then let
-      -- everything simplify until we're called again.
-      let some arg1 ← Meta.unfoldDefinition? args[1]! true | throwError "can't unfold Directives.interp"
-      let e := mkAppN f (args.set! 1 arg1)
-      let e' ← shareCommon e
-      let e'' ← mkLetFVars fvars e'
+          -- Essentially this behavior allows us to keep reducing and stepping,
+          -- until we have no steps left to apply and YET the goal has landed us
+          -- back on something that is neither Effects.All ... (Directives.interp
+          -- ...), nor Effects.All ... (require_exec_access ...), handled in the
+          -- case below.
+
+    -- Application, *sans* the let-bindings in the arguments.
+    let e_rebuilt := mkAppN f args
+    -- Remember that `Meta.unfoldDefinition` is "smart" and wants to see the whole
+    -- application node `f ...` before deciding whether it's worth doing a step of
+    -- delta and replacing `f` with its definition.
+    if let some e' ← Meta.unfoldDefinition? e_rebuilt true then
+      /- let step := (← get).numSteps -/
+      /- logInfo m!"deltaBetaOnly {step}: {e_rebuilt}\nunfolds to:{e'}" -/
+      let e' ← shareCommon e'
+      let e'' ← betaRevS e'.getAppFn e'.getAppRevArgs
+      let e'' ← mkLetFVars fvars e''
+      /- logInfo m!"deltaBetaOnly {step}: {e}\nunfolds to:{e'}\nreduces to: {e''}" -/
       return .step e''
-      -- TODO: we could here have a post := in the simproc that forces the
-      -- result to be .step ... (done := true) to prevent the next unrolling of
-      -- Directives.interp from being applied. This would essentially allow
-      -- implementing a kstep1 tactic (and leave it to done := false to keep
-      -- stepping until something blocks).
-
-      -- Essentially this behavior allows us to keep reducing and stepping,
-      -- until we have no steps left to apply and YET the goal has landed us
-      -- back on something that is neither Effects.All ... (Directives.interp
-      -- ...), nor Effects.All ... (require_exec_access ...), handled in the
-      -- case below.
+    else if fvars.size > 0 then
+      -- Can't reduce application, but we should at least hoist the lets!
+      let e ← mkLetFVars fvars e_rebuilt
+      return .step e
     else
-      -- Application, *sans* the let-bindings in the arguments.
-      let e_rebuilt := mkAppN f args
-      -- Remember that `Meta.unfoldDefinition` is "smart" and wants to see the whole
-      -- application node `f ...` before deciding whether it's worth doing a step of
-      -- delta and replacing `f` with its definition.
-      if let some e' ← Meta.unfoldDefinition? e_rebuilt true then
-        /- let step := (← get).numSteps -/
-        /- logInfo m!"deltaBetaOnly {step}: {e_rebuilt}\nunfolds to:{e'}" -/
-        let e' ← shareCommon e'
-        let e'' ← betaRevS e'.getAppFn e'.getAppRevArgs
-        let e'' ← mkLetFVars fvars e''
-        /- logInfo m!"deltaBetaOnly {step}: {e}\nunfolds to:{e'}\nreduces to: {e''}" -/
-        return .step e''
-      else if fvars.size > 0 then
-        -- Can't reduce application, but we should at least hoist the lets!
-        let e ← mkLetFVars fvars e_rebuilt
-        return .step e
-      else
-        -- Really nothing to do here.
-        return .rfl
+      -- Really nothing to do here.
+      return .rfl
 
 def gimmickId (p: Prop): Prop := p
 
@@ -219,8 +221,8 @@ def klog : DSimproc := fun e => do
   let s := (← get).numSteps
   /- if s = 789 then -/
   /-   return .rfl (done := true) -/
-  if e.isApp && e.getAppFn'.isConstOf ``gimmickId then
-    trace[Kraken.kstep] "step {s} visiting\n{e.getAppRevArgs[0]!}"
+  if let `(gimmickId ?inner) := e then
+    trace[Kraken.kstep] "step {s} visiting\n{inner}"
   return .rfl
 
 structure KStepConfig where
@@ -277,269 +279,162 @@ def kLiftLets : DSimproc := fun e => do
   /- logInfo m!"liftLets produces {e'}" -/
   return .step e'
 
--- FIXME: a copy-paste of the Lean implementation since it's marked as private
-def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
-  goal.withContext do
-    let mvarCounterSaved := (← getMCtx).mvarCounter
-    let r ← Term.withSynthesize do
-      let heq := term
-      /-
-      The target is in `sym` normal form (e.g., reducible constants have been unfolded), but the
-      given equation is not. We unfold reducible constants in its statement so that `kabstract`
-      key-matching can find occurrences of the lhs in the target, and the rhs requires less
-      normalization after the rewrite.
-      -/
-      let heqType ← instantiateMVars (← inferType heq)
-      let heqType' ← Sym.unfoldReducible heqType
-      let heq ← if isSameExpr heqType heqType' then pure heq else mkExpectedTypeHint heq heqType'
-      goal.mvarId.rewrite (← goal.mvarId.getType) heq symm
-    let mctx ← getMCtx
-    let mvarIds := r.mvarIds.filter fun mvarId => (mctx.getDecl mvarId |>.index) >= mvarCounterSaved
-    let eNew ← Grind.liftSymM <| Sym.preprocessExpr r.eNew
-    let mvarId ← goal.mvarId.replaceTargetEq eNew r.eqProof
-    let mvarIds ← mvarIds.filterM fun mvarId => return !(← mvarId.isAssigned)
-    let sideGoals ← mvarIds.mapM fun mvarId => do
-      let target ← mvarId.getType
-      let target' ← Grind.liftSymM <| Sym.preprocessExpr target
-      if isSameExpr target target' then
-        -- The metavariable was created by `forallMetaTelescopeReducing` with kind `.natural`;
-        -- prevent it from being assigned by unification in later steps.
-        mvarId.setKind .syntheticOpaque
-        return { goal with mvarId }
-      else
-        let mvarId ← mvarId.replaceTargetDefEq target'
-        return { goal with mvarId }
-    pure ({ goal with mvarId }, sideGoals)
+private def stripLeadingLets : Expr → Expr
+  | .letE _ _ _ body _ => stripLeadingLets body
+  | .mdata _ e         => stripLeadingLets e
+  | e                  => e
 
 @[grind_tactic symKStep]
-partial def evalSymKStep : Grind.GrindTactic :=
-  fun stx : Syntax => do
-  let cfg := stx[1]
-  let config ← elabKStepConfig cfg
+def evalSymKStep : GrindTactic := fun stx => do
+  let config ← elabKStepConfig stx[1]
   let maxSteps? : Option Nat := if stx[2].isNone then none else some stx[2][0].toNat
-  -- A `sym` tactic operates over a pair of the grind state and an MVarId. To avoid scope mistakes,
-  -- we only ever use `goal` and never let-bind mvarId.
-  let goal : Grind.Goal ← Grind.getMainGoal
-
-  let gimmickRule ← mkBackwardRuleFromDecl ``gimmick
-  let insertGimmick (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
-    let .goals [mvarId] ← Grind.liftGrindM (gimmickRule.apply goal.mvarId) | failure
-    pure { goal with mvarId }
-
-  let gimmickRule ← mkBackwardRuleFromDecl ``gimmickInv
-  let removeGimmick (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
-    let mvarId ← Grind.liftGrindM (do
-      let .goals [mvarId] ← gimmickRule.apply goal.mvarId | failure
-      pure mvarId
-    )
-    pure { goal with mvarId }
-
-  -- Apply the debug gimmick. We actually *do* expect the goal to be in this form (see comment in
-  -- kdeltaBetaOnly).
-  let goal ← insertGimmick goal
 
   let env ← getEnv
 
   let declsForDSimp := (kstepExtension.getState env).toList
   let maxInstrCount ← maxSteps?.mapM (IO.mkRef ·)
   let kdsimpDecls := kdeltaBetaOnly declsForDSimp maxInstrCount
+  let dsimpMethods : Sym.DSimp.Methods := {
+    pre := klog >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta
+  }
 
   -- https://lean-lang.org/doc/api/Lean/Meta/Sym/Simp/SimpM.html
   -- note the "contextual ite handling" --> are we doing this?
   let simpTheorems ← ksimpExt.getTheorems
-  let simpMethods: Sym.Simp.Methods := { post := Sym.Simp.evalGround >> simpTheorems.rewrite }
+  let simpMethods : Sym.Simp.Methods := { post := Sym.Simp.evalGround >> simpTheorems.rewrite }
 
   let specLemmas := (kspecExtension.getState env).toList
-  let specTree: DiscrTree Name ← specLemmas.foldlM (fun specTree name => do
+  let specTree : DiscrTree Name ← specLemmas.foldlM (fun specTree name => do
     -- NOTE: hardcoding left-to-right order, for now
     let (pat, _) ← mkEqPatternFromDecl name
     pure (insertPattern specTree pat name)
   ) {}
 
   -- TODO: remove once we have lift_lets
-  let introsIf (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
-    let goal ← removeGimmick goal
-    let goal ← match ← Grind.liftGrindM (goal.intros #[]) with
-      | Grind.IntrosResult.failed => pure goal
-      | .goal _ goal => pure goal
-    pure (← insertGimmick goal)
+  let introsIf : GrindTacticM Unit := do
+    if let `(gimmickId ?inner) := ← getMainTarget then
+      let inner := inner.consumeMData
+      unless inner.isForall || inner.isLet || inner.getAppFn.isMVar do
+        return
+    applyDecl ``gimmickInv
+    discard intros
+    applyDecl ``gimmick
 
-  -- MAIN LOOP
-  let rec go (goal: Grind.Goal): Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
-    -- STEP 1: dsimp
-    let goal ← do
-      let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM $
-        Sym.dsimp
-          (config := { maxSteps := 1000000 })
-          (methods := {
-            pre := klog >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> kbeta })
-          (← goal.mvarId.getType))
-      introsIf ({ goal with mvarId })
+  -- Found a spec lemma, which will generate subgoals; for now, subgoals (if not solved
+  -- already!) are solved via `assumption?` (which may pick any hypothesis in the context, beware),
+  -- `refl`, or `finish`.
+  let solveSubgoal : GrindTacticM Unit := solve1 do
+    if ← withReducible assumption? then return
+    if ← tryCommit refl then return
+    internalizeAll
+    finish
 
-    if config.debug then
-      let t ← goal.mvarId.getType
-      logInfo m!"MAIN LOOP, after step 1: {goal.mvarId}"
+  let solveSideGoals : GrindTacticM (List Grind.Goal) := do
+    let sideCount := (← getUnsolvedGoals).length
+    logInfo m!"{sideCount} subgoals generated"
+    if sideCount == 0 then return []
+    -- Try simp -- who knows, one might get lucky
+    allGoals (discard <| simpMainGoal simpMethods)
 
-    -- TEMPORARY: trying to simplify binders in the goal
-    /- let goal ← Meta.letToHave goal -/
-    /- let goal ← Grind.liftGrindM $ shareCommon goal -/
-    /- let mvarId ← mvarId.replaceTargetDefEq goal -/
+    -- For this reason, we try to be intentional about the order in which we solve subgoals:
+    -- solving the ⋆ separation logic predicate first allows making sensible decisions about
+    -- metavariables, rather than picking any random hypothesis in the context
+    if let some solved ← firstGoal? do
+        let t ← getMainTarget
+        let `(Std.ExtHashMap.sep _ _ _) := t | failure
+        logInfo m!"Found sep goal: {t}"
+        tryCommit solveSubgoal then
+      -- If we couldn't solve the ⋆ goal, we are likely going to make bad
+      -- decisions and instantiate metavariables randomly. Abort.
+      unless solved do
+        return ← getUnsolvedGoals
 
-    -- STEP 2: simp
-    let (keepGoingSimp, goal) ← Grind.liftGrindM $ do
-      let simpResult ← Sym.simpGoal goal.mvarId simpMethods
-      match simpResult with
-      | .noProgress => pure (false, goal)
-      | .goal mvarId => pure (true, { goal with mvarId })
-      | .closed => throwError "unexpected"
-    if config.debug then
-      let t ← goal.mvarId.getType
-      logInfo m!"MAIN LOOP, after step 2: {t}"
+    -- Then, we repeatedly visit unsolved subgoals until we make no progress.
+    while (← tryCommit (anyGoals solveSubgoal)) do
+      pure ()
 
-    -- STEP 3: spec lemmas
-    let goalState ← do
-      let goalT ← goal.mvarId.getType
-      let_expr gimmickId goalT' := goalT | throwError "missing gimmick"
-      let goalT' ← instantiateMVars goalT'
-      let rec getEffectsState (e : Expr) : Option Expr :=
-        match e with
-        | .letE _ _ _ body _ => getEffectsState body
-        | .mdata _ e => getEffectsState e
-        | _ =>
-          if e.isApp && e.getAppFn.isConstOf `Effects.All && e.getAppArgs.size == 2 then
-            some e.getAppArgs[1]!
-          else
-            none
+    allGoals do
+      logInfo m!"Unsolved goal: {← getMainTarget}"
+    getUnsolvedGoals
+
+  -- A `sym` tactic operates over a pair of the grind state and an MVarId. To avoid scope mistakes,
+  -- we only ever use `Grind.MainGoal` primitives and never let-bind `mvarId`.
+  -- Apply the debug gimmick. We actually *do* expect the goal to be in this form (see comment in
+  -- kdeltaBetaOnly).
+  focus do
+    applyDecl ``gimmick
+    let mut subGoals : List Grind.Goal := []
+
+    -- MAIN LOOP
+    repeat do
+      -- STEP 1: dsimp
+      discard <| dsimpMainGoal dsimpMethods { maxSteps := 1000000 }
+      introsIf
+
+      if config.debug then
+        withMainContext do
+          logInfo m!"MAIN LOOP, after step 1: {← getMainTarget}"
+
+      -- TEMPORARY: trying to simplify binders in the goal
+      /- let goal ← Meta.letToHave goal -/
+      /- let goal ← Grind.liftGrindM $ shareCommon goal -/
+      /- let mvarId ← mvarId.replaceTargetDefEq goal -/
+
+      -- STEP 2: simp
+      let keepGoingSimp ← match ← simpMainGoalResult simpMethods with
+        | .noProgress => pure false
+        | .simplified => pure true
+        | .closed     => throwError "unexpected"
+      if config.debug then
+        withMainContext do
+          logInfo m!"MAIN LOOP, after step 2: {← getMainTarget}"
+
+      -- STEP 3: spec lemmas
+      let `(gimmickId ?goalT') := ← getMainTarget | throwError "missing gimmick"
       -- No more Effects.All in the goal -- return to the user (we might be done,
       -- or realistically, we might need to debug).
-      let some state := getEffectsState goalT' | return (goal, [])
-      pure state
+      let goalBody := stripLeadingLets goalT'
+      unless goalBody.isApp && goalBody.getAppFn.isConstOf `Effects.All &&
+          goalBody.getAppArgs.size == 2 do
+        break
+      let goalState := goalBody.getAppArgs[1]!
 
-    let (keepGoingSpec, goal) ←
+      let mut keepGoingSpec := false
       match Sym.getMatch (← getMCtx) specTree goalState with
       | #[ thmName ] =>
         logInfo m!"Found a spec lemma: {thmName}"
-        let (goal, subGoals) ← rwTarget goal false (mkConst thmName)
-        logInfo m!"{subGoals.length} subgoals generated"
+        rwTarget (mkConstWithFreshMVarLevels thmName) (allowMVars := true)
+        let mainGoal :: sideGoals ← getUnsolvedGoals | throwError "unexpected"
+        let remaining ← try setGoals sideGoals; solveSideGoals finally setGoals [mainGoal]
+        unless remaining.isEmpty do
+          subGoals := remaining
+          break
+        keepGoingSpec := true
+      | #[] => pure ()
+      | _ => throwError "TODO"
 
-        let subGoals ← subGoals.mapM fun (subGoal: Grind.Goal) => do
-          -- Try simp -- who knows, one might get lucky
-          let simpResult ← Grind.liftGrindM (Sym.simpGoal subGoal.mvarId simpMethods)
-          match simpResult with
-          | .noProgress => pure subGoal
-          | .goal mvarId => pure { subGoal with mvarId }
-          | .closed => pure subGoal
+      logInfo m!"kstep: keepGoing = {keepGoingSimp}"
 
-        -- Found a spec lemma, which will generate subgoals; for now, subgoals (if not solved
-        -- already!) are solved via `exact` (which may pick any hypothesis in the context, beware),
-        -- or grind.
-        let solveIfNotAlready: Grind.Goal → Grind.GrindTacticM Bool := fun subGoal => do
-          -- Already solved this subgoal; skip
-          if ← subGoal.mvarId.isAssigned then
-            let t ← subGoal.mvarId.getType
-            logInfo m!"Already solved: {t}"
-            return false
+      unless keepGoingSimp || keepGoingSpec do
+        break
 
-          -- Solvable with exact; we made progress
-          if ← withReducible subGoal.mvarId.assumptionCore then
-            let t ← subGoal.mvarId.getType
-            let .some e ← getExprMVarAssignment? subGoal.mvarId | throwError "oh noes"
-            logInfo m!"Solved by exact: {t} by {e}"
-            return true
+    -- Remove the gimmick debug marker.
+    applyDecl ``gimmickInv
 
-          -- Solvable with refl, maybe.
-          try
-            subGoal.mvarId.refl
-            let t ← subGoal.mvarId.getType
-            logInfo m!"Solved by refl: {t}"
-            return true
-          catch _ => pure ()
+    logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
 
-          -- Try solving with grind, roll back state otherwise (we don't want to
-          -- return the failed Grind state).
-          try
-            let subGoal ← Grind.liftGrindM subGoal.internalizeAll
-            let t ← subGoal.mvarId.getType
-            match ← Grind.liftGrindM subGoal.grind with
-            | .closed =>
-                logInfo m!"Solved by grind: {t}"
-                return true
-            | .failed _ =>
-                logInfo m!"NOT solved by grind: {t}"
-                throwError "catch me"
-          catch _ =>
-            return false
+    if let .some r := maxInstrCount then
+      let remaining ← r.get
+      if remaining > 0 then
+        throwError m!"kstep could not step through the remaining {remaining} steps"
 
-        -- For this reason, we try to be intentional about the order in which we solve subgoals:
-        -- solving the ⋆ separation logic predicate first allows making sensible decisions about
-        -- metavariables, rather than picking any random hypothesis in the context
-        let starGoal ← subGoals.findM? (fun g => do
-          let t ← g.mvarId.getType
-          if t.getAppFn.isConstOf `Std.ExtHashMap.sep then
-            logInfo m!"Found sep goal: {t}"
-            return true
-          else
-            return false
-        )
-
-        -- If we couldn't solve the ⋆ goal, we are likely going to make bad
-        -- decisions and instantiate metavariables randomly. Abort.
-        if let some g := starGoal then
-          let solved ← solveIfNotAlready g
-          if not solved then
-            return (goal, subGoals)
-
-        -- Then, we repeatedly visit subgoals until we make no progress.
-        while ← (
-          subGoals.foldlM (fun progress subGoal => do
-            let r ← solveIfNotAlready subGoal
-            pure (r || progress)
-          ) false
-        ) do pure ()
-
-        -- Unsolved goals left? Return control to the user
-        let unsolvedGoals ← subGoals.filterMapM fun (g: Grind.Goal) => do
-          if ← g.mvarId.isAssigned then
-            return none
-          else
-            return some g
-        unsolvedGoals.forM fun mvarId => do
-          let t ← mvarId.mvarId.getType
-          logInfo m!"Unsolved goal: {t}"
-        if unsolvedGoals.length > 0 then
-          return (goal, unsolvedGoals)
-
-        pure (true, goal)
-      | #[] =>
-        pure (false, goal)
-      | _ =>
-        throwError "TODO"
-
-    logInfo m!"kstep: keepGoing = {keepGoingSimp}"
-
-    if keepGoingSimp || keepGoingSpec then
-      go goal
-    else
-      pure (goal, [])
-
-  let (goal, subGoals) ← go goal
-
-  -- Remove the gimmick debug marker.
-  let goal ← removeGimmick goal
-
-  logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
-
-  if let .some r := maxInstrCount then
-    let remaining ← r.get
-    if remaining > 0 then
-      throwError m!"kstep could not step through the remaining {remaining} steps"
-
-  Grind.setGoals (subGoals ++ [ goal ])
+    let mainGoals ← getUnsolvedGoals
+    setGoals (subGoals ++ mainGoals)
 
 syntax (name := symRotateRight) "rotate_right" (ppSpace num)? : grind
 
 @[grind_tactic symRotateRight]
-def evalSymRotateRight : Grind.GrindTactic := fun stx => do
+def evalSymRotateRight : GrindTactic := fun stx => do
   let n := if stx[1].isNone then 1 else stx[1][0].toNat
-  let goals ← Grind.getGoals
-  Grind.setGoals (goals.rotateRight n)
+  let goals ← getUnsolvedGoals
+  setGoals (goals.rotateRight n)

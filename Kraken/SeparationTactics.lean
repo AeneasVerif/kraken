@@ -6,7 +6,7 @@ public meta import Lean.Meta.Tactic.AC
 
 public meta section
 
-open Lean Elab Tactic Meta
+open Lean Elab Tactic Meta MainGoal
 
 namespace Kraken.Tactic
 
@@ -20,14 +20,10 @@ private partial def denoteClauses (predType : Expr) : List Expr → MetaM Expr
 
 private partial def reifyClauses (e : Expr) : MetaM (List Expr) := do
   let e ← instantiateMVars e
-  if e.getAppFn.constName? == some ``Std.ExtHashMap.emp then
-    return []
-  if e.getAppFn.constName? == some ``Std.ExtHashMap.sep then
-    let args := e.getAppArgs
-    let p ← reifyClauses args[args.size - 2]!
-    let q ← reifyClauses args[args.size - 1]!
-    return p ++ q
-  return [e]
+  match e with
+  | `(Std.ExtHashMap.emp) => return []
+  | `(Std.ExtHashMap.sep ?p ?q) => return (← reifyClauses p) ++ (← reifyClauses q)
+  | _ => return [e]
 
 private def assignNaked (predType : Expr) (lhs rhs : List Expr) : MetaM Bool := do
   let [.mvar mvarId] := lhs | return false
@@ -121,16 +117,16 @@ Returns some (rebuilt expr, unused clauses) otherwise.
 private partial def canonicalize (e : Expr) (clauses : List Expr) :
     MetaM (Option (Expr × List Expr)) := do
   let e ← instantiateMVars e
-  if e.getAppFn.constName? == some ``Std.ExtHashMap.emp then
-    return some (e, clauses)
-  if e.getAppFn.constName? == some ``Std.ExtHashMap.sep then
-    let args := e.getAppArgs
-    let some (p, clauses) ← canonicalize args[args.size - 2]! clauses | return none
-    let some (q, clauses) ← canonicalize args[args.size - 1]! clauses | return none
+  match e with
+  | `(Std.ExtHashMap.emp) => return some (e, clauses)
+  | `(Std.ExtHashMap.sep ?p ?q) =>
+    let some (p, clauses) ← canonicalize p clauses | return none
+    let some (q, clauses) ← canonicalize q clauses | return none
     return some (← mkAppM ``Std.ExtHashMap.sep #[p, q], clauses)
-  return match clauses with
-  | c :: clauses => some (c, clauses)
-  | [] => none
+  | _ =>
+    return match clauses with
+    | c :: clauses => some (c, clauses)
+    | [] => none
 
 private def proveSeqEq (lhs rhs : Expr) : MetaM (Option Expr) :=
   commitWhenSomeNoEx? do
@@ -156,41 +152,31 @@ private def solveSepEq (lhs rhs : Expr) : MetaM (Option Expr) := do
   unless ← cancelClauses predType lhsClauses rhsClauses do return none
   proveSeqEq lhs rhs
 
-private def solveFromHypothesis (target : Expr) (localDecl : LocalDecl) : MetaM (Option Expr) := do
-  let target ← instantiateMVars target
-  let hypType ← instantiateMVars localDecl.type
-  unless hypType.isApp do return none
-  let targetFn := target.appFn!
-  let targetArg := target.appArg!
-  let hypFn := hypType.appFn!
-  let hypArg := hypType.appArg!
+private def solveFromHypothesis (target hyp hypType : Expr) : MetaM (Option Expr) := do
+  let .app targetFn targetArg := target | return none
+  let .app hypFn hypArg := hypType | return none
   unless ← matchAtom (← reduceProjectionApp targetArg) (← reduceProjectionApp hypArg) do
     return none
   let some hSeps ← solveSepEq hypFn targetFn | return none
   let hFunEq ← mkAppM ``congrFun #[hSeps, hypArg]
-  return some (← mkAppM ``Eq.mp #[hFunEq, localDecl.toExpr])
+  return some (← mkAppM ``Eq.mp #[hFunEq, hyp])
 
 syntax (name := ecancel) "ecancel" : tactic
 
 @[tactic ecancel]
-def evalEcancel : Tactic :=
-  fun _stx : Syntax => withMainContext do
-  let goal ← getMainGoal
-  let target ← goal.getType
+def evalEcancel : Tactic := fun _stx => withMainContext do
+  let target ← getMainTarget
   -- Existential witnesses introduced by tactics are synthetic-opaque goals;
   -- `ecancel` intentionally instantiates them as part of cancellation.
-  let solved ← withConfig (fun config => { config with assignSyntheticOpaque := true }) do
-    if target.isAppOfArity ``Eq 3 then
-      let args := target.getAppArgs
-      if let some proof ← solveSepEq args[1]! args[2]! then
-        goal.assign proof
-        return true
-    for localDecl? in (← getLCtx).decls.toArray.reverse do
-      if let some localDecl := localDecl? then
-        if let some proof ← solveFromHypothesis target localDecl then
-          goal.assign proof
-          return true
-    return false
-  unless solved do
-    throwError "ecancel: could not automatically solve goal {target}"
+  withAssignableSyntheticOpaque do
+    first [
+      do
+        let `(?lhs = ?rhs) := target | failure
+        let some proof ← solveSepEq lhs rhs | failure
+        exact proof (check := false) (allowMVars := true),
+      firstHyp fun hyp hypType => do
+        let some proof ← solveFromHypothesis target hyp hypType | failure
+        exact proof (check := false) (allowMVars := true),
+      throwError "ecancel: could not automatically solve goal {target}"
+    ]
 end Kraken.Tactic
