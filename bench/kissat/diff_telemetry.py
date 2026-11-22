@@ -12,21 +12,39 @@ import json
 import math
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
 import time
 
+from diff_lockstep import prepare_c3b_wrapped_hpp
+
 TELEM_METRICS = [
-    "conflicts", "search_ticks", "propagations", "restarts", "switched",
-    "reductions", "vivified", "eliminated", "substituted", "congruent",
-    "swept", "factored", "otfs", "hbr", "compactions",
+    "conflicts", "decisions", "search_ticks", "propagations", "restarts",
+    "switched", "reductions", "vivified", "eliminated", "substituted",
+    "congruent", "swept", "factored", "otfs", "hbr", "compactions",
+    "chrono_bt_cnt", "kitten_calls", "backbone_units", "reduced_clauses",
+    "probe_ticks", "elim_ticks", "vivify_ticks", "sweep_ticks",
+    "cong_ticks", "factor_ticks",
 ]
 INPROC_METRICS = [
     "vivified", "eliminated", "substituted", "congruent", "swept", "factored",
 ]
+EXT_KEYS = [
+    "decisions", "propagations", "chrono_bt_cnt", "kitten_calls",
+    "kitten_ticks", "backbone_units", "reduced_clauses",
+    "probe_ticks", "probe_wall_ns", "elim_ticks", "elim_wall_ns",
+    "vivify_ticks", "vivify_wall_ns", "sweep_ticks", "sweep_wall_ns",
+    "cong_ticks", "cong_wall_ns", "factor_ticks", "factor_wall_ns",
+    "subst_wall_ns", "trans_wall_ns", "backbone_wall_ns",
+    "fwd_sub_wall_ns", "compact_cnt", "compact_wall_ns",
+    "otfs_subsume", "restarts_reused_levels",
+    "stable_decisions", "focused_decisions", "probe_calls", "vivify_calls",
+]
 C1_STAT_ALIASES = {
     "conflicts": ("conflicts",),
+    "decisions": ("decisions",),
     "search_ticks": ("search_ticks",),
     "propagations": ("propagations",),
     "restarts": ("restarts",),
@@ -41,6 +59,12 @@ C1_STAT_ALIASES = {
     "otfs": ("on_the_fly_strengthened",),
     "hbr": ("hyper_binary_resolved",),
     "compactions": ("compacted",),
+    "chrono_bt_cnt": ("chronological",),
+    "kitten_calls": ("kitten_solved",),
+    "backbone_units": ("backbone_units",),
+    "reduced_clauses": ("clauses_reduced",),
+    "probe_ticks": ("probing_ticks",),
+    "factor_ticks": ("factor_ticks",),
 }
 
 C3B_TELEM_CPP = r"""
@@ -134,13 +158,21 @@ int main(int argc, char **argv) {
   auto t1 = std::chrono::steady_clock::now();
   double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
   const void *h = hp;
+  uint64_t ext[32]{};
+  bool has_ext = false;
+  uint64_t del_addr = ok ? rd64(h, 16) : 0ULL;
+  uint64_t del_cap = ok ? rd64(h, 56) : 0ULL;
+  if (del_addr && del_cap >= 22ULL) {
+    std::memcpy(ext, reinterpret_cast<const void *>(static_cast<uintptr_t>(del_addr)), sizeof(ext));
+    has_ext = (ext[0] == 0x4B54454C4D303031ULL);
+  }
   std::printf(
       "{\"status\":%llu,\"ms\":%.3f,\"oom\":%llu,"
       "\"conflicts\":%llu,\"search_ticks\":%llu,\"restarts\":%llu,\"switched\":%llu,"
       "\"reductions\":%llu,\"vivified\":%llu,\"eliminated\":%llu,\"substituted\":%llu,"
       "\"congruent\":%llu,\"swept\":%llu,\"factored\":%llu,\"otfs\":%llu,\"hbr\":%llu,"
       "\"arena_len\":%llu,\"arena_cap\":%llu,\"wlen\":%llu,\"wcap\":%llu,"
-      "\"extend_len\":%llu,\"extend_cap\":%llu,\"scratch_cap\":%llu}\n",
+      "\"extend_len\":%llu,\"extend_cap\":%llu,\"scratch_cap\":%llu",
       (unsigned long long)st, ms,
       (unsigned long long)(ok ? rd64(h, 95) : 1ULL),
       (unsigned long long)(ok ? rd64(h, 42) : 0ULL),
@@ -163,25 +195,50 @@ int main(int argc, char **argv) {
       (unsigned long long)(ok ? rd64(h, 114) : 0ULL),
       (unsigned long long)(ok ? rd64(h, 113) : 0ULL),
       (unsigned long long)(ok ? rd64(h, 116) : 0ULL));
+  if (has_ext) {
+    static const char *const kNames[31] = {
+        "decisions", "propagations", "chrono_bt_cnt", "kitten_calls",
+        "kitten_ticks", "backbone_units", "reduced_clauses",
+        "probe_ticks", "probe_wall_ns", "elim_ticks", "elim_wall_ns",
+        "vivify_ticks", "vivify_wall_ns", "sweep_ticks", "sweep_wall_ns",
+        "cong_ticks", "cong_wall_ns", "factor_ticks", "factor_wall_ns",
+        "subst_wall_ns", "trans_wall_ns", "backbone_wall_ns",
+        "fwd_sub_wall_ns", "compact_cnt", "compact_wall_ns",
+        "otfs_subsume", "restarts_reused_levels",
+        "stable_decisions", "focused_decisions", "probe_calls", "vivify_calls"};
+    for (int j = 0; j < 31; ++j) {
+      std::printf(",\"%s\":%llu", kNames[j], (unsigned long long)ext[j + 1]);
+    }
+  }
+  std::printf("}\n");
   return 0;
 }
 """
 
 
-def compile_c3b_runner(gen_hpp, tmp_dir, repo_root):
-    """Build C3b FullHdr telemetry binary."""
+def compile_c3b_runner(gen_hpp, tmp_dir, repo_root, ext_telem=False):
+    """Build C3b FullHdr (and optional extended) telemetry binary."""
     hpp_abs = os.path.abspath(gen_hpp)
+    use_hpp = hpp_abs
+    if ext_telem:
+        use_hpp = os.path.join(tmp_dir, "c3b_telem_wrapped.hpp")
+        prepare_c3b_wrapped_hpp(hpp_abs, use_hpp)
     cpp_path = os.path.join(tmp_dir, "c3b_telem.cpp")
     bin_path = os.path.join(tmp_dir, "c3b_telem")
     with open(cpp_path, "w", encoding="utf-8") as f:
-        f.write(C3B_TELEM_CPP.replace("__GEN_HPP__", hpp_abs))
+        f.write(C3B_TELEM_CPP.replace("__GEN_HPP__", use_hpp))
     cmd = [
-        "timeout", "180", "clang++", "-std=c++20", "-O3", "-DTQBE_NATIVE_MEM",
+        "timeout", "180", "clang++", "-std=c++20", "-O3",
+        "-Wall", "-Wextra", "-Werror", "-DTQBE_NATIVE_MEM",
         f"-I{os.path.join(repo_root, 'LeanQbe', 'T', 'Runtime')}",
         f"-I{os.path.join(repo_root, 'test', 'kissat')}",
+        f"-I{os.path.join(repo_root, 'bench', 'kissat')}",
+        f"-I{os.path.dirname(use_hpp)}",
         f"-I{os.path.dirname(hpp_abs)}",
-        cpp_path, "-o", bin_path,
     ]
+    if ext_telem:
+        cmd.append("-DKISSAT_EXTENDED_TELEM")
+    cmd.extend([cpp_path, "-o", bin_path])
     subprocess.run(cmd, check=True)
     return bin_path
 
@@ -231,11 +288,12 @@ def run_c3b_runner(bin_path, cnf_path, work_bytes, fuel, timeout_s):
     return {"status": -1, "timeout": False, "crash": True, "ms": 0.0}
 
 
-def run_c3b_cli(c3b_bin, cnf_path, work_bytes, fuel, timeout_s):
-    """Fallback telemetry runner using bench_main --full-telemetry-m2."""
+def run_c3b_cli(c3b_bin, cnf_path, work_bytes, fuel, timeout_s, ext_telem=False):
+    """Fallback telemetry runner using bench_main --full/extended-telemetry-m2."""
     t0 = time.monotonic()
+    flag = "--extended-telemetry-m2" if ext_telem else "--full-telemetry-m2"
     proc = subprocess.run(
-        ["timeout", str(timeout_s), c3b_bin, "--full-telemetry-m2",
+        ["timeout", str(timeout_s), c3b_bin, flag,
          str(work_bytes), str(fuel), cnf_path],
         capture_output=True, text=True,
     )
@@ -256,6 +314,8 @@ def run_c3b_cli(c3b_bin, cnf_path, work_bytes, fuel, timeout_s):
                 "subst": "substituted", "cong": "congruent", "sweep": "swept",
                 "bva": "factored", "otfs": "otfs", "hbr": "hbr", "oom": "oom",
             }
+            for ek in EXT_KEYS:
+                remap[ek] = ek
             for tok in parts[3:]:
                 if "=" in tok:
                     k, v = tok.split("=", 1)
@@ -403,6 +463,8 @@ def main():
     ap.add_argument("--timeout", type=int, default=15, help="Per-solver timeout (seconds)")
     ap.add_argument("--inproc-min-c1", type=int, default=5, help="Min C1 count for 5x collapse")
     ap.add_argument("--ticks-min-confl", type=int, default=10, help="Min conflicts for ticks/confl")
+    ap.add_argument("--extended-telemetry", action="store_true",
+                    help="Collect §3 Layer 2 extended per-pass counters via h->delayed")
     ap.add_argument("--json-out", default="", help="Output JSON report path")
     ap.add_argument("--md-out", default="", help="Output Markdown table path")
     ap.add_argument("--fail-on-alarm", action="store_true", help="Exit 1 if any drift alarm fires")
@@ -415,7 +477,10 @@ def main():
     repo_root = os.path.abspath(os.path.join(bench_dir, "..", ".."))
 
     with tempfile.TemporaryDirectory(prefix="kissat-telem-") as tmp_dir:
-        c3b_runner = compile_c3b_runner(args.gen_hpp, tmp_dir, repo_root) if args.gen_hpp else None
+        c3b_runner = (
+            compile_c3b_runner(args.gen_hpp, tmp_dir, repo_root, ext_telem=args.extended_telemetry)
+            if args.gen_hpp else None
+        )
         cases = load_benchmarks(args, tmp_dir, bench_dir)
         results = []
         total_alarms = 0
@@ -426,7 +491,8 @@ def main():
             c3b = (
                 run_c3b_runner(c3b_runner, c["path"], wb, args.fuel, args.timeout)
                 if c3b_runner else
-                run_c3b_cli(args.c3b_bin, c["path"], wb, args.fuel, args.timeout)
+                run_c3b_cli(args.c3b_bin, c["path"], wb, args.fuel, args.timeout,
+                            ext_telem=args.extended_telemetry)
             )
             wm, alarms = detect_alarms(c1, c3b, args.inproc_min_c1, args.ticks_min_confl)
             total_alarms += len(alarms)

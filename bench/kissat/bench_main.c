@@ -72,6 +72,8 @@ static uint8_t *read_file_bytes(const char *path, size_t *out_len) {
  * Note: M2 (FullFastSched / FullFast) aliases hdr[140] (fwd_sub_cnt) -> last_probe_ticks
  * and hdr[141] (fwd_str_cnt) -> last_elim_ticks. */
 #define FULL_HDR_BYTES 1152ULL
+#define KT_EXT_MAGIC   0x4B54454C4D303031ULL
+#define KT_EXT_WORDS   32ULL
 
 typedef struct {
   int ok;
@@ -169,10 +171,55 @@ static kissat_ref_stats_t run_kissat_ref(const char *kbin, const char *cnf_path)
   return st;
 }
 
+static void print_extended_telemetry(const uint64_t *hdr, size_t work_len, uintptr_t pad) {
+  if (work_len < pad + FULL_HDR_BYTES) return;
+  uintptr_t del_addr = (uintptr_t)hdr[16];
+  uint64_t del_cap = hdr[56];
+  if (!del_addr || del_cap < 22ULL) {
+    printf("\text_telem=0");
+    return;
+  }
+  uint64_t ext[KT_EXT_WORDS];
+  memcpy(ext, (const void *)del_addr, sizeof(ext));
+  if (ext[0] != KT_EXT_MAGIC) {
+    printf("\text_telem=0");
+    return;
+  }
+  printf(
+      "\text_telem=1"
+      "\tdecisions=%llu\tpropagations=%llu\tchrono_bt_cnt=%llu"
+      "\tkitten_calls=%llu\tkitten_ticks=%llu\tbackbone_units=%llu"
+      "\treduced_clauses=%llu\tprobe_ticks=%llu\tprobe_wall_ns=%llu"
+      "\telim_ticks=%llu\telim_wall_ns=%llu\tvivify_ticks=%llu"
+      "\tvivify_wall_ns=%llu\tsweep_ticks=%llu\tsweep_wall_ns=%llu"
+      "\tcong_ticks=%llu\tcong_wall_ns=%llu\tfactor_ticks=%llu"
+      "\tfactor_wall_ns=%llu\tsubst_wall_ns=%llu\ttrans_wall_ns=%llu"
+      "\tbackbone_wall_ns=%llu\tfwd_sub_wall_ns=%llu\tcompact_cnt=%llu"
+      "\tcompact_wall_ns=%llu\totfs_subsume=%llu\trestarts_reused_levels=%llu"
+      "\tstable_decisions=%llu\tfocused_decisions=%llu\tprobe_calls=%llu"
+      "\tvivify_calls=%llu",
+      (unsigned long long)ext[1], (unsigned long long)ext[2],
+      (unsigned long long)ext[3], (unsigned long long)ext[4],
+      (unsigned long long)ext[5], (unsigned long long)ext[6],
+      (unsigned long long)ext[7], (unsigned long long)ext[8],
+      (unsigned long long)ext[9], (unsigned long long)ext[10],
+      (unsigned long long)ext[11], (unsigned long long)ext[12],
+      (unsigned long long)ext[13], (unsigned long long)ext[14],
+      (unsigned long long)ext[15], (unsigned long long)ext[16],
+      (unsigned long long)ext[17], (unsigned long long)ext[18],
+      (unsigned long long)ext[19], (unsigned long long)ext[20],
+      (unsigned long long)ext[21], (unsigned long long)ext[22],
+      (unsigned long long)ext[23], (unsigned long long)ext[24],
+      (unsigned long long)ext[25], (unsigned long long)ext[26],
+      (unsigned long long)ext[27], (unsigned long long)ext[28],
+      (unsigned long long)ext[29], (unsigned long long)ext[30],
+      (unsigned long long)ext[31]);
+}
+
 static void print_full_telemetry(
     const char *path, uint64_t got, double ms,
     const uint64_t *hdr, size_t work_len, uintptr_t pad,
-    int m2_alias, const kissat_ref_stats_t *kref) {
+    int m2_alias, int ext_tel, const kissat_ref_stats_t *kref) {
   uint64_t z[144];
   const uint64_t *h = z;
   memset(z, 0, sizeof(z));
@@ -209,6 +256,9 @@ static void print_full_telemetry(
       (unsigned long long)h[138], (unsigned long long)h[139],
       slot140, (unsigned long long)h[140],
       slot141, (unsigned long long)h[141]);
+  if (ext_tel) {
+    print_extended_telemetry(hdr, work_len, pad);
+  }
   if (kref && kref->ok) {
     printf(
         "\tk_status=%d\tk_ms=%.3f\tk_conflicts=%llu\tk_decisions=%llu"
@@ -231,6 +281,7 @@ int main(int argc, char **argv) {
   int telemetry = 0;
   int plain_tel = 0;
   int full_tel = 0;
+  int ext_tel = 0;
   int m2_alias = 0;
   const char *kissat_bin = NULL;
   while (argi < argc && argv[argi][0] == '-') {
@@ -247,6 +298,15 @@ int main(int argc, char **argv) {
       full_tel = 1;
       m2_alias = 1;
       argi++;
+    } else if (strcmp(argv[argi], "--extended-telemetry") == 0) {
+      full_tel = 1;
+      ext_tel = 1;
+      argi++;
+    } else if (strcmp(argv[argi], "--extended-telemetry-m2") == 0) {
+      full_tel = 1;
+      ext_tel = 1;
+      m2_alias = 1;
+      argi++;
     } else if (strcmp(argv[argi], "--m2") == 0) {
       m2_alias = 1;
       argi++;
@@ -259,7 +319,8 @@ int main(int argc, char **argv) {
   }
   if (argc - argi < 3) {
     fprintf(stderr,
-            "usage: %s [--telemetry|--plain-telemetry|--full-telemetry|--full-telemetry-m2]"
+            "usage: %s [--telemetry|--plain-telemetry|--full-telemetry|--full-telemetry-m2|"
+            "--extended-telemetry|--extended-telemetry-m2]"
             " [--m2] [--kissat <bin>] <work_bytes> <fuel> <cnf>...\n",
             argv[0]);
     return 2;
@@ -308,7 +369,7 @@ int main(int argc, char **argv) {
     uint64_t conflicts = 0, learned = 0, min_rem = 0;
     if (full_tel) {
       kissat_ref_stats_t kref = run_kissat_ref(kissat_bin, path);
-      print_full_telemetry(path, got, ms, hdr, work_len, pad, m2_alias, &kref);
+      print_full_telemetry(path, got, ms, hdr, work_len, pad, m2_alias, ext_tel, &kref);
     } else if (plain_tel) {
       uint64_t rst = 0, red = 0, rph = 0, sw = 0;
       if (work_len >= pad + 768ULL) {

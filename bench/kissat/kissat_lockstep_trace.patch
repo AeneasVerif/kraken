@@ -1,0 +1,814 @@
+diff --git a/src/lockstep_trace.h b/src/lockstep_trace.h
+new file mode 100644
+--- /dev/null
++++ b/src/lockstep_trace.h
+@@ -0,0 +1,28 @@
++#ifndef _lockstep_trace_h_INCLUDED
++#define _lockstep_trace_h_INCLUDED
++
++#ifdef KISSAT_LOCKSTEP_TRACE
++
++#include <stdint.h>
++
++struct kissat;
++struct clause;
++
++void kissat_lt_dec (struct kissat *solver, unsigned lit);
++void kissat_lt_confl (struct kissat *solver, const struct clause *c);
++void kissat_lt_learn (struct kissat *solver, unsigned glue,
++                      unsigned jlvl, unsigned nlvl);
++void kissat_lt_rst (struct kissat *solver, unsigned reuse);
++void kissat_lt_mode (struct kissat *solver);
++void kissat_lt_red (struct kissat *solver, unsigned del, uint64_t kept);
++void kissat_lt_unit0 (struct kissat *solver, unsigned lit, unsigned reason);
++const char *kissat_lt_push_unit_src (const char *src);
++void kissat_lt_pop_unit_src (const char *prev);
++const char *kissat_lt_enter_inproc (struct kissat *solver, const char *pass,
++                                    uint64_t *u0, uint64_t *b0, uint64_t *e0);
++void kissat_lt_leave_inproc (struct kissat *solver, const char *pass,
++                             const char *prev, uint64_t u0, uint64_t b0, uint64_t e0);
++void kissat_lt_end (struct kissat *solver, int res);
++
++#endif
++#endif
+diff --git a/src/search.c b/src/search.c
+--- a/src/search.c
++++ b/src/search.c
+@@ -23,6 +23,194 @@
+ #include "trail.h"
+ #include "walk.h"
+ 
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++static FILE *g_lt_fp = 0;
++static int g_lt_init = 0;
++static uint64_t g_lt_seq = 0;
++static const char *g_lt_unit_src = 0;
++static const char *g_lt_inproc_src = 0;
++
++static FILE *lt_file (void) {
++  if (!g_lt_init) {
++    g_lt_init = 1;
++    const char *p = getenv ("KISSAT_LOCKSTEP_TRACE");
++    if (p && p[0]) {
++      if (!strcmp (p, "stderr") || !strcmp (p, "-"))
++        g_lt_fp = stderr;
++      else
++        g_lt_fp = fopen (p, "w");
++    }
++  }
++  return g_lt_fp;
++}
++
++static int lt_cmp_i32 (const void *a, const void *b) {
++  int32_t va = *(const int32_t *) a;
++  int32_t vb = *(const int32_t *) b;
++  return (va > vb) - (va < vb);
++}
++
++static int32_t lt_export_lit (kissat *solver, unsigned ilit) {
++  int elit = kissat_export_literal (solver, ilit);
++  if (elit)
++    return (int32_t) elit;
++  int32_t mag = (int32_t) (1000000000u + IDX (ilit));
++  return NEGATED (ilit) ? -mag : mag;
++}
++
++static uint64_t lt_fnv64_lits (kissat *solver, const unsigned *lits, size_t n) {
++  int32_t stack_buf[128];
++  int32_t *buf = stack_buf;
++  if (n > 128)
++    buf = (int32_t *) malloc (n * sizeof (int32_t));
++  for (size_t i = 0; i < n; i++)
++    buf[i] = lt_export_lit (solver, lits[i]);
++  if (n > 1)
++    qsort (buf, n, sizeof (int32_t), lt_cmp_i32);
++  uint64_t h = 14695981039346656037ULL;
++  for (size_t i = 0; i < n; i++) {
++    uint32_t x = (uint32_t) buf[i];
++    for (int b = 0; b < 4; b++) {
++      h ^= (x >> (b * 8)) & 0xffu;
++      h *= 1099511628211ULL;
++    }
++  }
++  if (buf != stack_buf)
++    free (buf);
++  return h;
++}
++
++void kissat_lt_dec (kissat *solver, unsigned lit) {
++  FILE *fp = lt_file ();
++  if (!fp)
++    return;
++  fprintf (fp, "E %" PRIu64 " DEC lvl=%u lit=%d mode=%u\n",
++           g_lt_seq++, solver->level, (int) lt_export_lit (solver, lit),
++           solver->stable ? 1u : 0u);
++}
++
++void kissat_lt_confl (kissat *solver, const clause *c) {
++  FILE *fp = lt_file ();
++  if (!fp || !c || solver->probing)
++    return;
++  uint64_t h = lt_fnv64_lits (solver, c->lits, c->size);
++  fprintf (fp, "E %" PRIu64 " CONFL c=%" PRIu64 " lvl=%u sz=%u hash=%016" PRIx64 "\n",
++           g_lt_seq++, CONFLICTS, solver->level, c->size, h);
++}
++
++void kissat_lt_learn (kissat *solver, unsigned glue,
++                      unsigned jlvl, unsigned nlvl) {
++  FILE *fp = lt_file ();
++  if (!fp || solver->probing)
++    return;
++  const unsigned *lits = BEGIN_STACK (solver->clause);
++  const size_t sz = SIZE_STACK (solver->clause);
++  if (!sz)
++    return;
++  uint64_t h = lt_fnv64_lits (solver, lits, sz);
++  fprintf (fp,
++           "E %" PRIu64 " LEARN c=%" PRIu64 " sz=%zu glue=%u uip=%d"
++           " jlvl=%u nlvl=%u hash=%016" PRIx64 "\n",
++           g_lt_seq++, CONFLICTS, sz, glue, (int) lt_export_lit (solver, lits[0]),
++           jlvl, nlvl, h);
++}
++
++void kissat_lt_rst (kissat *solver, unsigned reuse) {
++  FILE *fp = lt_file ();
++  if (!fp)
++    return;
++  fprintf (fp, "E %" PRIu64 " RST c=%" PRIu64 " reuse=%u mode=%u ticks=%" PRIu64 "\n",
++           g_lt_seq++, CONFLICTS, reuse, solver->stable ? 1u : 0u,
++           solver->statistics.search_ticks);
++}
++
++void kissat_lt_mode (kissat *solver) {
++  FILE *fp = lt_file ();
++  if (!fp)
++    return;
++  fprintf (fp, "E %" PRIu64 " MODE c=%" PRIu64 " to_stable=%u ticks=%" PRIu64 "\n",
++           g_lt_seq++, CONFLICTS, solver->stable ? 1u : 0u,
++           solver->statistics.search_ticks);
++}
++
++void kissat_lt_red (kissat *solver, unsigned del, uint64_t kept) {
++  FILE *fp = lt_file ();
++  if (!fp)
++    return;
++  fprintf (fp, "E %" PRIu64 " RED c=%" PRIu64 " tier1=%u tier2=%u del=%u kept=%" PRIu64 "\n",
++           g_lt_seq++, CONFLICTS, solver->tier1[solver->stable],
++           solver->tier2[solver->stable], del, kept);
++}
++
++void kissat_lt_unit0 (kissat *solver, unsigned lit, unsigned reason) {
++  FILE *fp = lt_file ();
++  if (!fp)
++    return;
++  const char *src = g_lt_unit_src;
++  if (!src)
++    src = g_lt_inproc_src ? g_lt_inproc_src : (reason == UNIT_REASON ? "learn" : "prop");
++  fprintf (fp, "E %" PRIu64 " UNIT0 lit=%d src=%s\n",
++           g_lt_seq++, (int) lt_export_lit (solver, lit), src);
++}
++
++const char *kissat_lt_push_unit_src (const char *src) {
++  const char *prev = g_lt_unit_src;
++  g_lt_unit_src = src ? src : (g_lt_inproc_src ? g_lt_inproc_src : "learn");
++  return prev;
++}
++
++void kissat_lt_pop_unit_src (const char *prev) {
++  g_lt_unit_src = prev;
++}
++
++const char *kissat_lt_enter_inproc (kissat *solver, const char *pass,
++                                    uint64_t *u0, uint64_t *b0, uint64_t *e0) {
++  (void) pass;
++  *u0 = (uint64_t) SIZE_ARRAY (solver->trail);
++  *b0 = BINARY_CLAUSES;
++  *e0 = solver->statistics.eliminated;
++  const char *prev = g_lt_inproc_src;
++  g_lt_inproc_src = pass;
++  return prev;
++}
++
++void kissat_lt_leave_inproc (kissat *solver, const char *pass,
++                             const char *prev, uint64_t u0, uint64_t b0, uint64_t e0) {
++  g_lt_inproc_src = prev;
++  FILE *fp = lt_file ();
++  if (!fp)
++    return;
++  int64_t du = (int64_t) SIZE_ARRAY (solver->trail) - (int64_t) u0;
++  int64_t db = (int64_t) BINARY_CLAUSES - (int64_t) b0;
++  int64_t de = (int64_t) solver->statistics.eliminated - (int64_t) e0;
++  fprintf (fp,
++           "E %" PRIu64 " INPROC c=%" PRIu64 " pass=%s units=%" PRId64
++           " bins=%" PRId64 " elim=%" PRId64 " ticks=%" PRIu64 "\n",
++           g_lt_seq++, CONFLICTS, pass, du, db, de,
++           solver->statistics.search_ticks);
++}
++
++void kissat_lt_end (kissat *solver, int res) {
++  FILE *fp = lt_file ();
++  if (!fp)
++    return;
++  fprintf (fp,
++           "E %" PRIu64 " END status=%d conflicts=%" PRIu64 " decisions=%" PRIu64
++           " props=%" PRIu64 " ticks=%" PRIu64 "\n",
++           g_lt_seq++, res, CONFLICTS, DECISIONS,
++           solver->statistics.propagations, solver->statistics.search_ticks);
++  fflush (fp);
++  if (fp != stderr)
++    fclose (fp);
++  g_lt_fp = 0;
++}
++#endif
++
+ #include <inttypes.h>
+ 
+ static void init_tiers (kissat *solver) {
+diff --git a/src/inlineassign.h b/src/inlineassign.h
+--- a/src/inlineassign.h
++++ b/src/inlineassign.h
+@@ -1,6 +1,10 @@
+ #ifndef _inlineassign_h_INLCUDED
+ #define _inlineassign_h_INLCUDED
+ 
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
++
+ #ifdef FAST_ASSIGN
+ #define kissat_assign kissat_fast_assign
+ #endif
+@@ -33,6 +37,9 @@ static inline void kissat_assign (kissat *solver, const bool probing,
+   solver->unassigned--;
+ 
+   if (!level) {
++#ifdef KISSAT_LOCKSTEP_TRACE
++    kissat_lt_unit0 (solver, lit, reason);
++#endif
+     kissat_mark_fixed_literal (solver, lit);
+     assert (solver->unflushed < UINT_MAX);
+     solver->unflushed++;
+diff --git a/src/assign.c b/src/assign.c
+--- a/src/assign.c
++++ b/src/assign.c
+@@ -2,6 +2,9 @@
+ #include "inline.h"
+ #include "inlineassign.h"
+ #include "logging.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <limits.h>
+ 
+@@ -14,13 +17,25 @@ void kissat_assign_unit (kissat *solver, unsigned lit, const char *reason) {
+ }
+ 
+ void kissat_learned_unit (kissat *solver, unsigned lit) {
++#ifdef KISSAT_LOCKSTEP_TRACE
++  const char *prev = kissat_lt_push_unit_src (0);
++#endif
+   kissat_assign_unit (solver, lit, "learned reason");
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_pop_unit_src (prev);
++#endif
+   CHECK_AND_ADD_UNIT (lit);
+   ADD_UNIT_TO_PROOF (lit);
+ }
+ 
+ void kissat_original_unit (kissat *solver, unsigned lit) {
++#ifdef KISSAT_LOCKSTEP_TRACE
++  const char *prev = kissat_lt_push_unit_src ("parse");
++#endif
+   kissat_assign_unit (solver, lit, "original reason");
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_pop_unit_src (prev);
++#endif
+ }
+ 
+ void kissat_assign_decision (kissat *solver, unsigned lit) {
+diff --git a/src/decide.c b/src/decide.c
+--- a/src/decide.c
++++ b/src/decide.c
+@@ -3,6 +3,9 @@
+ #include "inlineheap.h"
+ #include "inlinequeue.h"
+ #include "print.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <inttypes.h>
+ 
+@@ -228,6 +231,9 @@ void kissat_decide (kissat *solver) {
+   kissat_push_frame (solver, lit);
+   assert (solver->level < SIZE_STACK (solver->frames));
+   LOG ("decide literal %s", LOGLIT (lit));
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_dec (solver, lit);
++#endif
+   kissat_assign_decision (solver, lit);
+   STOP (decide);
+ }
+diff --git a/src/analyze.c b/src/analyze.c
+--- a/src/analyze.c
++++ b/src/analyze.c
+@@ -10,6 +10,9 @@
+ #include "shrink.h"
+ #include "sort.h"
+ #include "tiers.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <inttypes.h>
+ 
+@@ -541,6 +544,9 @@ int kissat_analyze (kissat *solver, clause *conflict) {
+   int res;
+   do {
+     LOGCLS (conflict, "analyzing conflict %" PRIu64, CONFLICTS);
++#ifdef KISSAT_LOCKSTEP_TRACE
++    kissat_lt_confl (solver, conflict);
++#endif
+     unsigned conflict_level;
+     if (one_literal_on_conflict_level (solver, conflict, &conflict_level))
+       res = 1;
+diff --git a/src/learn.c b/src/learn.c
+--- a/src/learn.c
++++ b/src/learn.c
+@@ -2,6 +2,9 @@
+ #include "backtrack.h"
+ #include "inline.h"
+ #include "reluctant.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <inttypes.h>
+ 
+@@ -45,6 +48,9 @@ static void learn_unit (kissat *solver, unsigned not_uip) {
+   assert (not_uip == PEEK_STACK (solver->clause, 0));
+   LOG ("learned unit clause %s triggers iteration", LOGLIT (not_uip));
+   const unsigned new_level = kissat_determine_new_level (solver, 0);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_learn (solver, 0, 0, new_level);
++#endif
+   kissat_backtrack_after_conflict (solver, new_level);
+   kissat_learned_unit (solver, not_uip);
+   if (!solver->probing) {
+@@ -58,6 +64,9 @@ static void learn_binary (kissat *solver, unsigned not_uip) {
+   const unsigned jump_level = LEVEL (other);
+   const unsigned new_level =
+       kissat_determine_new_level (solver, jump_level);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_learn (solver, 1, jump_level, new_level);
++#endif
+   kissat_backtrack_after_conflict (solver, new_level);
+ #ifndef NDEBUG
+   const reference ref =
+@@ -110,6 +119,9 @@ static reference learn_reference (kissat *solver, unsigned not_uip,
+   c->used = MAX_USED;
+   const unsigned new_level =
+       kissat_determine_new_level (solver, jump_level);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_learn (solver, glue, jump_level, new_level);
++#endif
+   kissat_backtrack_after_conflict (solver, new_level);
+   kissat_assign_reference (solver, not_uip, ref, c);
+   return ref;
+diff --git a/src/restart.c b/src/restart.c
+--- a/src/restart.c
++++ b/src/restart.c
+@@ -8,6 +8,9 @@
+ #include "print.h"
+ #include "reluctant.h"
+ #include "report.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <inttypes.h>
+ 
+@@ -118,6 +121,9 @@ void kissat_restart (kissat *solver) {
+   else
+     INC (focused_restarts);
+   unsigned level = reuse_trail (solver);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_rst (solver, level);
++#endif
+   kissat_extremely_verbose (solver,
+                             "restarting after %" PRIu64 " conflicts"
+                             " (limit %" PRIu64 ")",
+diff --git a/src/mode.c b/src/mode.c
+--- a/src/mode.c
++++ b/src/mode.c
+@@ -5,6 +5,9 @@
+ #include "report.h"
+ #include "resources.h"
+ #include "restart.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <inttypes.h>
+ 
+@@ -208,6 +211,9 @@ void kissat_switch_search_mode (kissat *solver) {
+     switch_to_focused_mode (solver);
+   else
+     switch_to_stable_mode (solver);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_mode (solver);
++#endif
+ 
+   solver->averages[solver->stable].saved_decisions = DECISIONS;
+ 
+diff --git a/src/reduce.c b/src/reduce.c
+--- a/src/reduce.c
++++ b/src/reduce.c
+@@ -7,6 +7,9 @@
+ #include "rank.h"
+ #include "report.h"
+ #include "tiers.h"
+ #include "trail.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <inttypes.h>
+@@ -148,6 +151,9 @@ static void mark_less_useful_clauses_as_garbage (kissat *solver,
+   ADD (clauses_reduced_tier2, reduced2);
+   ADD (clauses_reduced_tier3, reduced3);
+   ADD (clauses_reduced, reduced);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_red (solver, reduced, solver->statistics.clauses_redundant);
++#endif
+ }
+ 
+ int kissat_reduce (kissat *solver) {
+diff --git a/src/congruence.c b/src/congruence.c
+--- a/src/congruence.c
++++ b/src/congruence.c
+@@ -13,6 +13,9 @@
+ #include "sort.h"
+ #include "terminate.h"
+ #include "trail.h"
+ #include "utilities.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <stddef.h>
+@@ -4595,6 +4598,10 @@ bool kissat_congruence (kissat *solver) {
+     return false;
+   START (congruence);
+   INC (closures);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  uint64_t lt_u0 = 0, lt_b0 = 0, lt_e0 = 0;
++  const char *lt_prev = kissat_lt_enter_inproc (solver, "cong", &lt_u0, &lt_b0, &lt_e0);
++#endif
+   closure closure;
+   init_closure (solver, &closure);
+   extract_gates (&closure);
+@@ -4631,6 +4638,9 @@ bool kissat_congruence (kissat *solver) {
+   else
+     REDUCE_DELAY (congruence);
+   STOP (congruence);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_leave_inproc (solver, "cong", lt_prev, lt_u0, lt_b0, lt_e0);
++#endif
+   kissat_check_statistics (solver);
+   return equivalent;
+ }
+diff --git a/src/sweep.c b/src/sweep.c
+--- a/src/sweep.c
++++ b/src/sweep.c
+@@ -11,6 +11,9 @@
+ #include "rank.h"
+ #include "report.h"
+ #include "terminate.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <inttypes.h>
+ 
+@@ -1658,6 +1661,10 @@ bool kissat_sweep (kissat *solver) {
+   assert (!solver->unflushed);
+   START (sweep);
+   INC (sweep);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  uint64_t lt_u0 = 0, lt_b0 = 0, lt_e0 = 0;
++  const char *lt_prev = kissat_lt_enter_inproc (solver, "sweep", &lt_u0, &lt_b0, &lt_e0);
++#endif
+   statistics *statistics = &solver->statistics;
+   uint64_t equivalences = statistics->sweep_equivalences;
+   uint64_t units = statistics->sweep_units;
+@@ -1720,5 +1727,8 @@ bool kissat_sweep (kissat *solver) {
+   else
+     REDUCE_DELAY (sweep);
+   STOP (sweep);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_leave_inproc (solver, "sweep", lt_prev, lt_u0, lt_b0, lt_e0);
++#endif
+   return eliminated;
+ }
+diff --git a/src/substitute.c b/src/substitute.c
+--- a/src/substitute.c
++++ b/src/substitute.c
+@@ -8,6 +8,9 @@
+ #include "terminate.h"
+ #include "trail.h"
+ #include "weaken.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <string.h>
+ 
+@@ -613,5 +616,12 @@ void kissat_substitute (kissat *solver, bool complete) {
+     return;
+   if (TERMINATED (substitute_terminated_1))
+     return;
++#ifdef KISSAT_LOCKSTEP_TRACE
++  uint64_t lt_u0 = 0, lt_b0 = 0, lt_e0 = 0;
++  const char *lt_prev = kissat_lt_enter_inproc (solver, "subst", &lt_u0, &lt_b0, &lt_e0);
++#endif
+   substitute_rounds (solver, complete);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_leave_inproc (solver, "subst", lt_prev, lt_u0, lt_b0, lt_e0);
++#endif
+ }
+diff --git a/src/transitive.c b/src/transitive.c
+--- a/src/transitive.c
++++ b/src/transitive.c
+@@ -11,6 +11,9 @@
+ #include "sort.h"
+ #include "terminate.h"
+ #include "trail.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <stddef.h>
+ 
+@@ -308,6 +311,10 @@ void kissat_transitive_reduction (kissat *solver) {
+     return;
+   START (transitive);
+   INC (transitive_reductions);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  uint64_t lt_u0 = 0, lt_b0 = 0, lt_e0 = 0;
++  const char *lt_prev = kissat_lt_enter_inproc (solver, "trans", &lt_u0, &lt_b0, &lt_e0);
++#endif
+ #if !defined(NDEBUG) || defined(METRICS)
+   assert (!solver->transitive_reducing);
+   solver->transitive_reducing = true;
+@@ -383,6 +390,9 @@ void kissat_transitive_reduction (kissat *solver) {
+ #endif
+   REPORT (!success, 't');
+   STOP (transitive);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_leave_inproc (solver, "trans", lt_prev, lt_u0, lt_b0, lt_e0);
++#endif
+ #ifdef QUIET
+   (void) success;
+ #endif
+diff --git a/src/vivify.c b/src/vivify.c
+--- a/src/vivify.c
++++ b/src/vivify.c
+@@ -14,7 +14,10 @@
+ #include "sort.h"
+ #include "terminate.h"
+ #include "tiers.h"
+ #include "trail.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include "cover.h"
+ 
+@@ -1414,6 +1417,10 @@ void kissat_vivify (kissat *solver) {
+ 
+   START (vivify);
+   INC (vivifications);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  uint64_t lt_u0 = 0, lt_b0 = 0, lt_e0 = 0;
++  const char *lt_prev = kissat_lt_enter_inproc (solver, "viv", &lt_u0, &lt_b0, &lt_e0);
++#endif
+ #if !defined(NDEBUG) || defined(METRICS)
+   assert (!solver->vivifying);
+   solver->vivifying = true;
+@@ -1477,4 +1484,7 @@ void kissat_vivify (kissat *solver) {
+   solver->vivifying = false;
+ #endif
+   STOP (vivify);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_leave_inproc (solver, "viv", lt_prev, lt_u0, lt_b0, lt_e0);
++#endif
+ }
+diff --git a/src/backbone.c b/src/backbone.c
+--- a/src/backbone.c
++++ b/src/backbone.c
+@@ -12,6 +12,9 @@
+ #include "terminate.h"
+ #include "trail.h"
+ #include "utilities.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ static void schedule_backbone_candidates (kissat *solver,
+                                           unsigneds *candidates) {
+@@ -581,6 +584,10 @@ void kissat_binary_clauses_backbone (kissat *solver) {
+   assert (!solver->level);
+   START (backbone);
+   INC (backbone_computations);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  uint64_t lt_u0 = 0, lt_b0 = 0, lt_e0 = 0;
++  const char *lt_prev = kissat_lt_enter_inproc (solver, "backbone", &lt_u0, &lt_b0, &lt_e0);
++#endif
+ #if !defined(NDEBUG) || defined(METRICS)
+   assert (!solver->backbone_computing);
+   solver->backbone_computing = true;
+@@ -595,4 +602,7 @@ void kissat_binary_clauses_backbone (kissat *solver) {
+   solver->backbone_computing = false;
+ #endif
+   STOP (backbone);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_leave_inproc (solver, "backbone", lt_prev, lt_u0, lt_b0, lt_e0);
++#endif
+ }
+diff --git a/src/forward.c b/src/forward.c
+--- a/src/forward.c
++++ b/src/forward.c
+@@ -7,6 +7,9 @@
+ #include "rank.h"
+ #include "report.h"
+ #include "sort.h"
+ #include "terminate.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <inttypes.h>
+@@ -680,10 +683,17 @@ bool kissat_forward_subsume_during_elimination (kissat *solver) {
+   START (forward);
+   assert (GET_OPTION (forward));
+   INC (forward_subsumptions);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  uint64_t lt_u0 = 0, lt_b0 = 0, lt_e0 = 0;
++  const char *lt_prev = kissat_lt_enter_inproc (solver, "fwd", &lt_u0, &lt_b0, &lt_e0);
++#endif
+   assert (!solver->watching);
+   remove_all_duplicated_binary_clauses (solver);
+   bool complete = true;
+   if (!solver->inconsistent)
+     complete = forward_subsume_all_clauses (solver);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_leave_inproc (solver, "fwd", lt_prev, lt_u0, lt_b0, lt_e0);
++#endif
+   STOP (forward);
+   STOP (subsume);
+diff --git a/src/eliminate.c b/src/eliminate.c
+--- a/src/eliminate.c
++++ b/src/eliminate.c
+@@ -12,6 +12,9 @@
+ #include "propdense.h"
+ #include "report.h"
+ #include "resolve.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ #include "terminate.h"
+ #include "trail.h"
+ 
+@@ -584,9 +587,16 @@ static void eliminate (kissat *solver) {
+   kissat_phase (solver, "eliminate", GET (eliminations),
+                 "elimination limit of %" PRIu64 " conflicts hit",
+                 solver->limits.eliminate.conflicts);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  uint64_t lt_u0 = 0, lt_b0 = 0, lt_e0 = 0;
++  const char *lt_prev = kissat_lt_enter_inproc (solver, "bve", &lt_u0, &lt_b0, &lt_e0);
++#endif
+   init_map_and_kitten (solver);
+   kissat_enter_dense_mode (solver, 0);
+   eliminate_variables (solver);
+   kissat_resume_sparse_mode (solver, true, 0);
+   reset_map_and_kitten (solver);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_leave_inproc (solver, "bve", lt_prev, lt_u0, lt_b0, lt_e0);
++#endif
+   kissat_check_statistics (solver);
+diff --git a/src/factor.c b/src/factor.c
+--- a/src/factor.c
++++ b/src/factor.c
+@@ -16,5 +16,8 @@
+ #include "terminate.h"
+ #include "vector.h"
+ #include "watch.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <math.h>
+@@ -1101,8 +1104,12 @@ void kissat_factor (kissat *solver) {
+   }
+   START (factor);
+   INC (factorizations);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  uint64_t lt_u0 = 0, lt_b0 = 0, lt_e0 = 0;
++  const char *lt_prev = kissat_lt_enter_inproc (solver, "bva", &lt_u0, &lt_b0, &lt_e0);
++#endif
+   kissat_phase (solver, "factorization", GET (factorizations),
+                 "binary clause bounded variable addition");
+   uint64_t limit = GET_OPTION (factoriniticks);
+   if (s->factorizations > 1) {
+     SET_EFFORT_LIMIT (tmp, factor, factor_ticks);
+@@ -1153,4 +1160,7 @@ void kissat_factor (kissat *solver) {
+   if (completed)
+     solver->limits.factor.marked = s->literals_factor;
+   STOP (factor);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_leave_inproc (solver, "bva", lt_prev, lt_u0, lt_b0, lt_e0);
++#endif
+ }
+diff --git a/src/probe.c b/src/probe.c
+--- a/src/probe.c
++++ b/src/probe.c
+@@ -11,6 +11,9 @@
+ #include "terminate.h"
+ #include "transitive.h"
+ #include "vivify.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <inttypes.h>
+ 
+@@ -71,5 +74,9 @@ int kissat_probe (kissat *solver) {
+   assert (!solver->inconsistent);
+   INC (probings);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  uint64_t lt_u0 = 0, lt_b0 = 0, lt_e0 = 0;
++  const char *lt_prev = kissat_lt_enter_inproc (solver, "probe", &lt_u0, &lt_b0, &lt_e0);
++#endif
+   assert (!solver->probing);
+   solver->probing = true;
+   const unsigned max_rounds = GET_OPTION (proberounds);
+@@ -87,6 +94,9 @@ int kissat_probe (kissat *solver) {
+   solver->last.ticks.probe = solver->statistics.search_ticks;
+   assert (solver->probing);
+   solver->probing = false;
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_leave_inproc (solver, "probe", lt_prev, lt_u0, lt_b0, lt_e0);
++#endif
+   return solver->inconsistent ? 20 : 0;
+ }
+ 
+@@ -94,12 +104,19 @@ int kissat_probe_initially (kissat *solver) {
+   assert (!solver->level);
+   assert (!solver->inconsistent);
+   INC (probings);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  uint64_t lt_u0 = 0, lt_b0 = 0, lt_e0 = 0;
++  const char *lt_prev = kissat_lt_enter_inproc (solver, "probe", &lt_u0, &lt_b0, &lt_e0);
++#endif
+   START (probe);
+   assert (!solver->probing);
+   solver->probing = true;
+   probe_initially (solver);
+   assert (solver->probing);
+   solver->probing = false;
+   STOP (probe);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_leave_inproc (solver, "probe", lt_prev, lt_u0, lt_b0, lt_e0);
++#endif
+   return solver->inconsistent ? 20 : 0;
+ }
+diff --git a/src/application.c b/src/application.c
+--- a/src/application.c
++++ b/src/application.c
+@@ -11,6 +11,9 @@
+ #include "print.h"
+ #include "proof.h"
+ #include "resources.h"
+ #include "witness.h"
++#ifdef KISSAT_LOCKSTEP_TRACE
++#include "lockstep_trace.h"
++#endif
+ 
+ #include <inttypes.h>
+@@ -805,6 +808,9 @@ static int run_application (kissat *solver, int argc, char **argv,
+   kissat_section (solver, "solving");
+ #endif
+   int res = kissat_solve (solver);
++#ifdef KISSAT_LOCKSTEP_TRACE
++  kissat_lt_end (solver, res);
++#endif
+ #ifndef NPROOFS
+   close_proof (&application);
+ #endif

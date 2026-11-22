@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import statistics
 import subprocess
@@ -94,13 +95,13 @@ def run_one(bin_path, cnf_path, work_bytes, fuel, per_timeout, m2_alias=False, k
     return rec
 
 
-def run_kissat_one(kissat_bin, cnf_path, per_timeout):
+def run_kissat_one(kissat_bin, cnf_path, per_timeout, extra_flags=None):
     t0 = time.monotonic()
-    proc = subprocess.run(
-        ["timeout", str(per_timeout), kissat_bin, "-n", "-s", cnf_path],
-        capture_output=True,
-        text=True,
-    )
+    cmd = ["timeout", str(per_timeout), kissat_bin, "-n", "-s"]
+    if extra_flags:
+        cmd.extend(extra_flags)
+    cmd.append(cnf_path)
+    proc = subprocess.run(cmd, capture_output=True, text=True)
     dt_ms = round((time.monotonic() - t0) * 1000.0, 3)
     if proc.returncode == 124:
         return {"k_status": -1, "k_timeout": True, "k_ms": float(per_timeout * 1000)}
@@ -224,8 +225,8 @@ def fmt_median_ratio(vals):
     return f"{med:.2f}x (n={len(vals)}, {min(vals):.2f}..{max(vals):.2f}x)"
 
 
-def collect_c1_ratios(results, cfg_k):
-    """Collect non-trivial time & conflict ratios vs C1 on instances solved by both."""
+def collect_c1_ratios(results, cfg_k, oracle_key="c1"):
+    """Collect non-trivial time & conflict ratios vs C1/C2 on mutually solved cases."""
     matched = 0
     time_max10 = []
     time_both5 = []
@@ -233,7 +234,7 @@ def collect_c1_ratios(results, cfg_k):
     confl_both100 = []
     for r in results.values():
         m = r["runs"].get(cfg_k)
-        k = r.get("c1")
+        k = r.get(oracle_key)
         if not m or not k:
             continue
         if m.get("status") != 20 or m.get("timeout"):
@@ -255,6 +256,30 @@ def collect_c1_ratios(results, cfg_k):
             if mc >= 100:
                 confl_both100.append(mc / kc)
     return matched, time_max10, time_both5, confl_k100, confl_both100
+
+
+def collect_c2_vs_c1_ratios(results):
+    """Collect algorithmic gap ratios C2 / C1 across mutually solved UNSAT canaries."""
+    matched = 0
+    time_max10 = []
+    confl_k100 = []
+    for r in results.values():
+        c1 = r.get("c1")
+        c2 = r.get("c2")
+        if not c1 or not c2:
+            continue
+        if c1.get("k_status") != 20 or c1.get("k_timeout"):
+            continue
+        if c2.get("k_status") != 20 or c2.get("k_timeout"):
+            continue
+        matched += 1
+        t1, t2 = c1.get("k_ms", 0.0), c2.get("k_ms", 0.0)
+        if t1 > 0.0 and max(t1, t2) >= 10.0:
+            time_max10.append(t2 / t1)
+        k1, k2 = c1.get("k_conflicts", 0), c2.get("k_conflicts", 0)
+        if k1 >= 100:
+            confl_k100.append(k2 / k1)
+    return matched, time_max10, confl_k100
 
 
 C3B_HARNESS_CPP = r"""
@@ -421,6 +446,7 @@ def main():
     ap.add_argument("--m4-c4", help="Path to C4 native x64 FullM4 bench_main binary")
     ap.add_argument("--m4-c3b", help="Path to C3b PrintCpp-native-mem FullM4 bench_main binary")
     ap.add_argument("--kissat", help="Optional path to upstream Kissat 4.0.4 binary")
+    ap.add_argument("--c2-flags", default="", help="Optional C2 flag-matched Kissat flags")
     ap.add_argument("--work-bytes", type=int, default=67108864, help="Workspace bytes (default 64 MiB)")
     ap.add_argument("--fuel", type=int, default=200000000, help="Solver fuel budget")
     ap.add_argument("--per-timeout", type=int, default=5, help="Per-CNF timeout in seconds (default 5)")
@@ -517,8 +543,11 @@ def main():
         f"{'Canary':<28} {'Cfg':<12} {'St':>3} {'ms':>8} {'Confl':>8} "
         f"{'Ticks':>10} {'BVA':>4} {'Cong':>4} {'Swp':>4} {'Viv':>4} {'BVE':>4} {'Trns':>5} {'Red':>4}"
     )
+    c2_flags = shlex.split(args.c2_flags) if args.c2_flags else []
     if kissat_bin:
         hdr += f" | {'K_St':>4} {'K_ms':>8} {'K_confl':>8}"
+        if c2_flags:
+            hdr += f" | {'C2_St':>5} {'C2_ms':>8} {'C2_cnfl':>8}"
     print(hdr)
     print("-" * len(hdr))
 
@@ -527,11 +556,21 @@ def main():
         cpath = os.path.join(cnf_dir, fname)
         row = {"family": entry["family"], "expected_gap": entry.get("expected_gap", ""), "runs": {}}
         k_rec = run_kissat_one(kissat_bin, cpath, args.per_timeout) if kissat_bin else None
+        c2_rec = (
+            run_kissat_one(kissat_bin, cpath, args.per_timeout, c2_flags)
+            if (kissat_bin and c2_flags) else None
+        )
         if k_rec is not None:
             row["c1"] = k_rec
             if k_rec.get("k_status") == 10:
                 hard_fails.append(
                     f"{fname} [C1]: SOUNDNESS BUG: got SAT (10) on UNSAT canary {fname}!"
+                )
+        if c2_rec is not None:
+            row["c2"] = c2_rec
+            if c2_rec.get("k_status") == 10:
+                hard_fails.append(
+                    f"{fname} [C2]: SOUNDNESS BUG: got SAT (10) on UNSAT canary {fname}!"
                 )
 
         for name, bpath, is_m2 in configs:
@@ -549,6 +588,10 @@ def main():
                 kst_s = "TO" if k_rec.get("k_timeout") else str(k_rec.get("k_status", -1))
                 kcf_s = "-" if k_rec.get("k_timeout") else str(k_rec.get("k_conflicts", 0))
                 line += f" | {kst_s:>4} {k_rec['k_ms']:>8.2f} {kcf_s:>8}"
+                if c2_rec is not None:
+                    c2s = "TO" if c2_rec.get("k_timeout") else str(c2_rec.get("k_status", -1))
+                    c2c = "-" if c2_rec.get("k_timeout") else str(c2_rec.get("k_conflicts", 0))
+                    line += f" | {c2s:>5} {c2_rec['k_ms']:>8.2f} {c2c:>8}"
             print(line)
             base_rec = None
             if baseline and fname in baseline.get("canaries", {}):
@@ -639,6 +682,20 @@ def main():
                 f"    confl/C1 ratio (K>=100)  : median={fmt_median_ratio(confl_k100)}"
                 f"  | (both>=100): median={fmt_median_ratio(confl_both100)}"
             )
+            if c2_flags:
+                c2_m, c2_t, c2_c = collect_c2_vs_c1_ratios(results)
+                print(
+                    f"    [C2/C1 Algorithmic Gap]  : matched={c2_m}, "
+                    f"time(max>=10ms)={fmt_median_ratio(c2_t)}, "
+                    f"confl(K>=100)={fmt_median_ratio(c2_c)}"
+                )
+                if has_c3b:
+                    m32, t32, _, c32, _ = collect_c1_ratios(results, c3b_k, oracle_key="c2")
+                    print(
+                        f"    [C3b/C2 Port/Layout Gap] : matched={m32}, "
+                        f"time(max>=10ms)={fmt_median_ratio(t32)}, "
+                        f"confl(C2>=100)={fmt_median_ratio(c32)}"
+                    )
 
     if all_gaps:
         print(f"\nKnown pre-M3 gaps observed ({len(all_gaps)}):")

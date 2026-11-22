@@ -29,6 +29,8 @@ PER_TIMEOUT="${PER_TIMEOUT:-5}"
 WITH_PERF="${WITH_PERF:-0}"
 KISSAT_BIN="${KISSAT_BIN:-}"
 NO_KISSAT=0
+C2_FLAGS=""
+C2_PRESET=""
 INLINE_MAX_SIZE="${INLINE_MAX_SIZE:-40}"
 UPDATE_BASELINE=0
 STRICT_GAPS=0
@@ -41,6 +43,8 @@ usage: bench/kissat/run_4corner.sh [options]
                                             Module(s) to benchmark (default: All)
   --kissat <bin>                            Optional upstream Kissat 4.0.4 binary (C1)
   --no-kissat                               Disable C1 even if kissat is in PATH/KISSAT_BIN
+  --c2-flags "<flags>"                      Flag-matched Kissat 4.0.4 corner (C2)
+  --c2-preset <plain|m4|m5>                 Preset flags for C2 corner
   --work-bytes <N>                          Workspace bytes (default: 67108864)
   --fuel <N>                                Fuel budget (default: 200000000)
   --per-timeout <sec>                       Per-CNF timeout seconds (default: 5)
@@ -71,6 +75,12 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || { echo "ERROR: --kissat requires an argument" >&2; exit 2; }
       KISSAT_BIN="$2"; shift 2 ;;
     --no-kissat) NO_KISSAT=1; KISSAT_BIN=""; shift ;;
+    --c2-flags)
+      [ $# -ge 2 ] || { echo "ERROR: --c2-flags requires an argument" >&2; exit 2; }
+      C2_FLAGS="$2"; shift 2 ;;
+    --c2-preset)
+      [ $# -ge 2 ] || { echo "ERROR: --c2-preset requires an argument" >&2; exit 2; }
+      C2_PRESET="${2,,}"; shift 2 ;;
     --work-bytes) WORK_BYTES="$2"; shift 2 ;;
     --fuel) FUEL="$2"; shift 2 ;;
     --per-timeout) PER_TIMEOUT="$2"; shift 2 ;;
@@ -150,8 +160,23 @@ if [ -n "$KISSAT_BIN" ]; then
   echo "C1 oracle: $KISSAT_BIN"
 fi
 
+if [ -n "$C2_PRESET" ] && [ -z "$C2_FLAGS" ]; then
+  case "$C2_PRESET" in
+    plain)
+      C2_FLAGS="--plain --seed=0 --phase=1 --tumble=0 --reorder=0 --stable=1 --rephase=1 --target=1" ;;
+    m4)
+      C2_FLAGS="--seed=0 --phase=1 --jumpreasons=0 --randec=0 --vivifysort=0 --eliminatebound=8 --eliminateocclim=64 --congruencexorarity=2 --sweepvars=128 --sweepmaxvars=128 --factorsize=5" ;;
+    m5)
+      C2_FLAGS="--seed=0 --phase=1 --jumpreasons=0 --randec=0" ;;
+    *)
+      echo "ERROR: unknown --c2-preset '$C2_PRESET' (expected plain|m4|m5)" >&2
+      exit 2 ;;
+  esac
+fi
+
 CHECK_ARGS=(--cnf-dir "$OUT/cnfs" --work-bytes "$WORK_BYTES" --fuel "$FUEL" --per-timeout "$PER_TIMEOUT")
 [ -n "$KISSAT_BIN" ] && CHECK_ARGS+=(--kissat "$KISSAT_BIN")
+[ -n "$C2_FLAGS" ] && CHECK_ARGS+=(--c2-flags "$C2_FLAGS")
 [ "$UPDATE_BASELINE" -eq 1 ] && CHECK_ARGS+=(--update-baseline --commit "$(git rev-parse HEAD)")
 [ "$STRICT_GAPS" -eq 1 ] && CHECK_ARGS+=(--strict-gaps)
 [ -n "$FILTER" ] && CHECK_ARGS+=(--filter "$FILTER")
