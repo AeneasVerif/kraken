@@ -7,11 +7,12 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kissat M4e Stage 1 (B1): Hot-Loop BCP `Func.wp` & UNSAT Soundness Proofs
+# Kissat M4e/M5 Stage 1 (B1): Hot-Loop BCP `Func.wp` & UNSAT Soundness Proofs
 
 Proves canonical `FullSpec2` contracts, `FullSparseInv` preservation, UNSAT soundness, closed
 `ModuleOk`, and concrete `Mem 64` UNSAT non-vacuity (`XPost := False`) for `FullM4Bcp`:
-1. `full_prop_lit_m4_wp` (`Full.fullPropLitSpec`) with restored dead-tail `0xFFFFFFFFu` fill.
+1. `full_prop_lit_m4_wp` (`Full.fullPropLitSpec`) with `vals[blk] > 0`-first watch branch,
+   cache-line/propagation ticks gated on `h->probing == 0ULL`, and dead-tail `0xFFFFFFFFu` fill.
 2. `full_propagate_ignore_m4_wp` (`Full.fullPropagateIgnoreSpec`).
 3. `full_bcp_m4_wp` (`Full.fullPropagateSpec`), `full_bcp_m4_preserves_sparseInv`, and
    `full_bcp_m4_unsat_of_confl`.
@@ -106,16 +107,29 @@ private def m4PropFinishExpr (h_p pWvec pWstk : Val i64) (not_lit : Val i32)
                     .store (.var unass_v) (.var v103.1) (
                       .let_ (Op.mk (.add i64) (.var h_p, (.imm (512 : BitVec 64), ()))) fun v104 =>
                       .store (.var unfl_v) (.var v104.1) (
-                        .let_ (Op.mk (.add i64) (.var h_p, (.imm (600 : BitVec 64), ())))
-                          fun v105 =>
-                        .load i64 (.var v105.1) fun v106 =>
-                        .let_ (Op.mk (.add i64) (.var v106, (.var ticks_v, ()))) fun v107 =>
-                        .let_ (Op.mk (.add i64) (.var h_p, (.imm (600 : BitVec 64), ())))
-                          fun v108 =>
-                        .store (.var v107.1) (.var v108.1) (
-                          .let_ (Op.mk (.not .bool) (.var confl_v, ())) fun v109 =>
-                          .ret (.var v109.1, ())
-                        )
+                        .group (sig := [[]])
+                          (fun L4 => .cons (fun _ =>
+                            .let_ (Op.mk (.not .bool) (.var confl_v, ())) fun v109 =>
+                            .ret (.var v109.1, ())
+                          ) .nil)
+                          (fun L4 =>
+                            .let_ (Op.mk (.add i64) (.var h_p, (.imm (520 : BitVec 64), ())))
+                              fun vp0 =>
+                            .load i64 (.var vp0.1) fun vp1 =>
+                            .let_ (Op.mk (.cmp .eq i64) (.var vp1, (.imm (0 : BitVec 64), ())))
+                              fun vp2 =>
+                            .jnz (.var vp2.1) (
+                              .let_ (Op.mk (.add i64) (.var h_p, (.imm (600 : BitVec 64), ())))
+                                fun v105 =>
+                              .load i64 (.var v105.1) fun v106 =>
+                              .let_ (Op.mk (.add i64) (.var v106, (.var ticks_v, ()))) fun v107 =>
+                              .let_ (Op.mk (.add i64) (.var h_p, (.imm (600 : BitVec 64), ())))
+                                fun v108 =>
+                              .store (.var v107.1) (.var v108.1) (
+                                .jump L4.1 ()
+                              )
+                            ) (.jump L4.1 ())
+                          )
                       )
                     )
                   )
@@ -220,28 +234,62 @@ private theorem m4Prop_finish_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {F_cur 
           propLit_loop3_step hk_ge hk_lt hkeep, by
             simpa only [fastPropMem_wstk, fastPropMem_with_wstk] using hm⟩
     · have hk_eq : k_c.toNat = end_v.toNat := by c0_bound
-      let sem' : FullState :=
-        { sem with scratch :=
-            { sem.scratch with search_ticks := s.scratch.search_ticks + ticks_v } }
-      have hpi' : PropLitInv c F0 F_cur s sem' not_lit.toNat off_v.toNat q_v.toNat p_v.toNat
-          end_v.toNat :=
-        { len := ⟨hpi.len.core_ok, hpi.len.scratch_ok.with_ticks _⟩
-          nw := hpi.nw, sw := hpi.sw, ag := hpi.ag, tr := hpi.tr, perm := hpi.perm
-          sc_eq := by dsimp only [sem']; rw [hpi.sc_eq]
-          not_f := hpi.not_f }
-      have hm_rew :
+      refine wp_join_group (ts := [])
+        (fun () m4 => ∃ ticks_fin : BitVec 64,
+          let sem' : FullState :=
+            { sem with scratch := { sem.scratch with search_ticks := ticks_fin } }
+          PropLitInv c F0 F_cur s sem' not_lit.toNat off_v.toNat q_v.toNat p_v.toNat
+            end_v.toNat ∧
           (FullMem c { sem' with core := { sem'.core with
               wstk := wstk_k
               wvec := sem'.core.wvec.set (2 * not_lit.toNat + 1) ((q_c - off_v).setWidth 32)
-              wusable := sem'.core.wusable + (end_v - q_c) } } ⋆ R) m := by
-        simp only [hidx1_nat, fastPropMem_wvec, fastPropMem_wusable, fastPropMem_search_ticks] at hm
-        rw [htend_eq, hunass_eq, hunfl_eq] at hm
-        rw [fastPropMem_finish_eq] at hm
-        exact hm
-      have ⟨hl_f, hw_f, hag_f, htr_f, hperm_f, hsc_f, hcf_f', hoom_f, hm_f⟩ :=
-        propLit_finish (ctype0 := s.core.confl_type) hpi' hdense0 hnot_st hwl3 hqfin_eq rfl
-          hpre (fun k hk => hsuf k (by omega)) hout hkeep hcf_f hcf_t hm_rew
-      exact hret_st (!confl_v) _ m hl_f hw_f hag_f htr_f hperm_f hsc_f hcf_f' hoom_f hm_f
+              wusable := sem'.core.wusable + (end_v - q_c) } } ⋆ R) m4)
+        ?_ ?_
+      · rintro _ ⟨⟩ m4 ⟨ticks_fin, hpi', hm_rew⟩
+        fc_head_steps
+        have ⟨hl_f, hw_f, hag_f, htr_f, hperm_f, hsc_f, hcf_f', hoom_f, hm_f⟩ :=
+          propLit_finish (ctype0 := s.core.confl_type) hpi' hdense0 hnot_st hwl3 hqfin_eq rfl
+            hpre (fun k hk => hsuf k (by omega)) hout hkeep hcf_f hcf_t hm_rew
+        exact hret_st (!confl_v) _ m4 hl_f hw_f hag_f htr_f hperm_f hsc_f hcf_f' hoom_f hm_f
+      · intro L4 hL4
+        fc_head_steps
+        · let sem' : FullState :=
+            { sem with scratch :=
+                { sem.scratch with search_ticks := s.scratch.search_ticks + ticks_v } }
+          have hpi' : PropLitInv c F0 F_cur s sem' not_lit.toNat off_v.toNat q_v.toNat p_v.toNat
+              end_v.toNat :=
+            { len := ⟨hpi.len.core_ok, hpi.len.scratch_ok.with_ticks _⟩
+              nw := hpi.nw, sw := hpi.sw, ag := hpi.ag, tr := hpi.tr, perm := hpi.perm
+              sc_eq := by dsimp only [sem']; rw [hpi.sc_eq]
+              not_f := hpi.not_f }
+          have hm_rew :
+              (FullMem c { sem' with core := { sem'.core with
+                  wstk := wstk_k
+                  wvec := sem'.core.wvec.set (2 * not_lit.toNat + 1) ((q_c - off_v).setWidth 32)
+                  wusable := sem'.core.wusable + (end_v - q_c) } } ⋆ R) m := by
+            simp only [hidx1_nat, fastPropMem_wvec, fastPropMem_wusable,
+              fastPropMem_search_ticks] at hm
+            rw [htend_eq, hunass_eq, hunfl_eq] at hm
+            rw [fastPropMem_finish_eq] at hm
+            exact hm
+          exact hL4 () m ⟨s.scratch.search_ticks + ticks_v, hpi', hm_rew⟩
+        · let sem' : FullState :=
+            { sem with scratch := { sem.scratch with search_ticks := s.scratch.search_ticks } }
+          have hpi' : PropLitInv c F0 F_cur s sem' not_lit.toNat off_v.toNat q_v.toNat p_v.toNat
+              end_v.toNat :=
+            { len := ⟨hpi.len.core_ok, hpi.len.scratch_ok.with_ticks _⟩
+              nw := hpi.nw, sw := hpi.sw, ag := hpi.ag, tr := hpi.tr, perm := hpi.perm
+              sc_eq := by dsimp only [sem']; rw [hpi.sc_eq]
+              not_f := hpi.not_f }
+          have hm_rew :
+              (FullMem c { sem' with core := { sem'.core with
+                  wstk := wstk_k
+                  wvec := sem'.core.wvec.set (2 * not_lit.toNat + 1) ((q_c - off_v).setWidth 32)
+                  wusable := sem'.core.wusable + (end_v - q_c) } } ⋆ R) m := by
+            simp only [hidx1_nat, fastPropMem_wvec, fastPropMem_wusable] at hm
+            rw [htend_eq, hunass_eq, hunfl_eq, fastPropMem_def] at hm
+            exact hm
+          exact hL4 () m ⟨s.scratch.search_ticks, hpi', hm_rew⟩
 
 /-! ## 2. Parametric `(Γ : Env)` `Func.wp` Contracts (`full_prop_lit_m4`, `ignore`, `bcp`) -/
 
@@ -436,94 +484,209 @@ theorem full_prop_lit_m4_wp (Γ : Env)
             (Nat.add_le_add_right (Nat.le_trans hq_le (Nat.le_trans hp_le hend_wcap)) 1) hwc64)
         have hq_lt_ws : q_v.toNat < sem.core.wstk.length :=
           hwstk_len ▸ Nat.lt_of_lt_of_le (Nat.lt_of_le_of_lt hq_le hp_lt) hend_wcap
-        fc_head_split
-        · have hflag : (sem.core.wstk[p_v.toNat]'hp_lt_w &&& 0x80000000#32) ≠ 0#32 := by
-            simpa only [ne_eq, ← BitVec.ofNat_eq_ofNat, fc_getElem_wstk, fastPropMem_wstk]
-              using hc
-          refine fastProp_bin_watch_wp
-            (ignore_ref := ignore_ref)
-            (q_v := q_v) (tend_v := tend_v) (unass_v := unass_v) (unfl_v := unfl_v)
-            (nl_lvl0 := nl_lvl0)
-            (rsn_bin := ((lit ^^^ 1#32) &&& 0x7FFFFFFF#32) ||| 0x80000000#32)
-            (rec_ph := s.core.probing == 0#64)
-            (k_cont := fun te un uf qn => .jump L (.var off_v, (.var te, (.var un,
-              (.var uf, (.var ticks_v, (.var (p_v + (1 : BitVec 64)), (.var qn,
-              (.var end_v, ())))))))))
-            (k_confl := fun qn => .jump B (.var off_v, (.var tend_v, (.var unass_v,
-              (.var unfl_v, (.var ticks_v, (.var (p_v + (1 : BitVec 64)), (.var qn,
-              (.var end_v, (.imm true, ()))))))))))
-            c.hmaxv c.hwcap hlen0 hcv0 hpi hlen_mem ?_ hp_lt
-            hend_wcap hp_lt_w (fc_getElem_wstk s sem)
-            ((fc_getElem_wstk s sem).symm ▸ hflag) rfl hnot_st hnl_eq htend_eq
-            hunass_eq hunfl_eq hoom_st hct_st hp1_nat hq1_nat hq_lt_ws hml ?_ ?_
-          · rw [BitVec.toNat_shiftLeft, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hcv_lt64,
-              Nat.shiftLeft_eq, Nat.pow_one, Nat.mul_comm, Nat.mod_eq_of_lt h2cv_lt64]
-          · intro sem' tend_n unass_n unfl_n m' hpi' ht' hu' huf' hnl' hoom' hct' hm'
-            exact ih (end_v.toNat - (p_v.toNat + 1)) (off_v, tend_n, unass_n, unfl_n, ticks_v,
-              p_v + 1#64, q_v + 1#64, end_v, ()) m'
-              (Nat.sub_lt hp_rem_pos Nat.zero_lt_one)
-              ⟨sem', by rw [hp1_nat], by rwa [hp1_nat], ht', hu', huf', hnl',
-                hoom', hct', hm'⟩
-          · intro sem' m' hpi' ht' hu' huf' hcf' hm'
-            exact hB (off_v, tend_v, unass_v, unfl_v, ticks_v, p_v + 1#64, q_v + 1#64, end_v,
-              true, ()) m' ⟨sem', by rwa [hp1_nat], ht', hu', huf', by simp,
-                fun _ => hcf', hm'⟩
-        · have hw0_get : sem.core.wstk[p_v.toNat]? = some (sem.core.wstk[p_v.toNat]'hp_lt_w) :=
-            List.getElem?_eq_getElem hp_lt_w
-          have hflag : (sem.core.wstk[p_v.toNat]'hp_lt_w &&& 0x80000000#32) = 0#32 := by
-            simpa only [← BitVec.ofNat_eq_ofNat, fc_getElem_wstk, fastPropMem_wstk] using hc
-          have ⟨h2le, cref0, hcr_get, hcr_lt, hcr_ref, hrem2⟩ :=
-            watchSlice_inv_large hpi.sw.rem_slice hp_rem_pos hw0_get hflag
+        let w0_v := sem.core.wstk[p_v.toNat]'hp_lt_w
+        have hw0_get : sem.core.wstk[p_v.toNat]? = some w0_v := List.getElem?_eq_getElem hp_lt_w
+        fc_head_steps
+        refine wp_join_group (ts := [])
+          (fun () m1 => m1 = ml ∧
+            ∀ hlt : (w0_v &&& 0x7FFFFFFF#32).toNat < 2 * sem.core.cur_vars,
+              (0#32).slt ((sem.core.vals[(w0_v &&& 0x7FFFFFFF#32).toNat]'(fastProp_lt_vals
+                hpi.len.core_ok hlt)).signExtend 32) = false)
+          ?_ ?_
+        · rintro _ ⟨⟩ ml1 ⟨hml1, hblk_nsgt⟩
+          subst ml1
           fc_head_split
-          · have hge : end_v.toNat ≤ (p_v + (1 : BitVec 64)).toNat := hc
-            rw [hp1_pre] at hge
-            have h2_le_end : p_v.toNat + 2 ≤ end_v.toNat :=
-              Nat.add_sub_cancel' hp_le ▸ Nat.add_le_add_left h2le p_v.toNat
-            exact absurd hge (Nat.not_le.mpr (Nat.lt_of_succ_le h2_le_end))
-          · fc_head_steps
-            have h2_le_end : p_v.toNat + 2 ≤ end_v.toNat :=
-              Nat.add_sub_cancel' hp_le ▸ Nat.add_le_add_left h2le p_v.toNat
-            have hrem_dec : end_v.toNat - (p_v.toNat + 2) < end_v.toNat - p_v.toNat :=
-              fc_rem2_lt h2_le_end
-            have hp2_wcap : p_v.toNat + 2 ≤ c.wcap := Nat.le_trans h2_le_end hend_wcap
-            have hp2_64 : p_v.toNat + 2 < 2 ^ 64 :=
-              Nat.lt_of_le_of_lt hp2_wcap (Nat.lt_trans hwc (by decide))
-            have hp2_nat : (p_v + 1#64 + 1#64).toNat = p_v.toNat + 2 := by
-              rw [bv64_add_toNat (a := p_v + 1#64) (b := 1#64) (by rw [hp1_nat]; exact hp2_64),
-                hp1_nat]; rfl
-            have hq2_nat : (q_v + 2#64).toNat = q_v.toNat + 2 :=
-              bv64_add2_toNat (a := q_v) (Nat.lt_of_le_of_lt
-                (Nat.add_le_add_right (Nat.le_trans hq_le (Nat.le_trans hp_le hend_wcap)) 2)
-                hwc64_2)
-            have hq_lt_ws2 : q_v.toNat < sem.core.wstk.length :=
-              hwstk_len ▸ Nat.lt_of_lt_of_le (Nat.lt_of_le_of_lt hq_le
-                (Nat.lt_of_lt_of_le (Nat.lt_add_of_pos_right (by decide : 0 < 2)) h2_le_end))
-                hend_wcap
-            have hq1_lt_ws2 : q_v.toNat + 1 < sem.core.wstk.length :=
-              hwstk_len ▸ Nat.lt_of_lt_of_le
-                (Nat.lt_of_le_of_lt (Nat.add_le_add_right hq_le 1)
-                  (Nat.lt_of_lt_of_le (Nat.lt_succ_self (p_v.toNat + 1)) h2_le_end)) hend_wcap
-            have hcr_idx_lt : (p_v + 1#64).toNat < sem.core.wstk.length := by
-              rw [hp1_nat, hwstk_len]
-              exact Nat.lt_of_lt_of_le (Nat.lt_of_succ_le h2_le_end) hend_wcap
-            have hcr_eq : sem.core.wstk[(p_v + 1#64).toNat]'hcr_idx_lt = cref0 := by
-              have h1 : sem.core.wstk[p_v.toNat + 1]? =
-                  some (sem.core.wstk[(p_v + 1#64).toNat]'hcr_idx_lt) := by
-                rw [← hp1_nat]; exact List.getElem?_eq_getElem hcr_idx_lt
-              exact Option.some.inj (h1.symm.trans hcr_get)
-            simp only [fastPropMem_wstk]
-            generalize hcr_gen :
-              sem.core.wstk[(p_v + 1#64).toNat]'hcr_idx_lt = cref at hcr_eq ⊢
-            generalize hw0_gen : sem.core.wstk[p_v.toNat]'(hwstk_len ▸
-              Nat.lt_of_lt_of_le (Nat.lt_of_lt_of_le (Nat.lt_add_of_pos_right (by decide : 0 < 2))
-                h2_le_end) hend_wcap) = w0 at hflag ⊢
-            rw [← hcr_eq] at hcr_lt hcr_ref
-            have hsw_drop : SplitWatchesInv F_cur sem.core not_lit.toNat off_v.toNat q_v.toNat
-                (p_v.toNat + 2) end_v.toNat :=
-              hpi.sw.advance_rem (p' := p_v.toNat + 2) (by omega) h2_le_end
-                (by simpa [Nat.sub_sub] using hrem2)
-            refine wp_join_group (fun () m1 => m1 = ml) ?_ ?_
-            · rintro _ ⟨⟩ ml1 hml1; subst ml1
+          · have hflag : (w0_v &&& 0x80000000#32) ≠ 0#32 := by
+              simpa only [ne_eq, ← BitVec.ofNat_eq_ofNat, fc_getElem_wstk, fastPropMem_wstk]
+                using hc
+            obtain ⟨hother_lt, hent, hrem1⟩ :=
+              watchSlice_inv_bin hpi.sw.rem_slice hp_rem_pos hw0_get hflag
+            have hsw1 := (hpi.sw.advance_rem (p' := p_v.toNat + 1) (Nat.le_succ _) hp_lt
+              (by simpa [Nat.sub_sub] using hrem1)).write_bin
+              (c := c) hpi.len.core_ok.cur_vars_le hnot_st hq_le hq_lt_ws hflag hother_lt hent
+            let other := w0_v &&& 0x7FFFFFFF#32
+            let wstk1 := sem.core.wstk.set q_v.toNat w0_v
+            let sem1 : FullState := { sem with core := { sem.core with wstk := wstk1 } }
+            have hlen1 : sem1.LengthsOk c :=
+              ⟨{ hpi.len.core_ok with wstk_len_arr := by simp [sem1, wstk1, hwstk_len] },
+               hpi.len.scratch_ok⟩
+            have hnw1 : FullWitnessInv c F0 F_cur (withEmptyWatchesCore c sem1.core) :=
+              fullWitnessInv_nw_congr hlen1.core_ok.cur_vars_le hpi.nw
+                rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+            have hpi1 : PropLitInv c F0 F_cur s sem1 not_lit.toNat off_v.toNat (q_v + 1#64).toNat
+                (p_v.toNat + 1) end_v.toNat :=
+              { len := hlen1, nw := hnw1, sw := by rw [hq1_nat]; exact hsw1
+                ag := hpi.ag.update (fun k => { k with wstk := wstk1 })
+                tr := hpi.tr.congr rfl rfl rfl, perm := hpi.perm, sc_eq := hpi.sc_eq,
+                not_f := hpi.not_f }
+            have hother_vals1 : (w0_v &&& 2147483647#32).toNat < sem1.core.vals.length :=
+              fastProp_lt_vals hlen1.core_ok hother_lt
+            have hother_vals0 : (w0_v &&& 2147483647#32).toNat < sem.core.vals.length :=
+              fastProp_lt_vals hpi.len.core_ok hother_lt
+            have hov_nsgt : (0#32).slt
+                ((sem1.core.vals[other.toNat]'hother_vals1).signExtend 32) = false :=
+              hblk_nsgt hother_lt
+            have hq_lt_mem : q_v.toNat < (fastPropMem s sem).core.wstk.length := by
+              rw [fastPropMem_wstk]; exact hq_lt_ws
+            have hother_vals_mem : (BitVec.setWidth 64
+                ((fastPropMem s sem).core.wstk[p_v.toNat]'(fastPropMem_wstk s sem ▸ hp_lt_w) &&&
+                  2147483647)).toNat <
+                ({ fastPropMem s sem with core := { (fastPropMem s sem).core with
+                  wstk := (fastPropMem s sem).core.wstk.set q_v.toNat
+                    ((fastPropMem s sem).core.wstk[p_v.toNat]'(fastPropMem_wstk s sem ▸
+                      hp_lt_w)) } }).core.vals.length := by
+              dsimp only [w0_v] at hother_vals0
+              simp only [bv_c0_zext32_64, fc_getElem_wstk, fastPropMem_vals]
+              exact hother_vals0
+            fc_head_steps
+            · have hge : 2 * s.core.cur_vars ≤ other.toNat := by
+                dsimp only [other, w0_v]
+                simpa only [← BitVec.ofNat_eq_ofNat, BitVec.toNat_ofNat,
+                  Nat.mod_eq_of_lt hcv_lt64, Nat.mod_eq_of_lt h2cv_lt64,
+                  fc_getElem_wstk, fastPropMem_wstk] using hc
+              exact absurd hother_lt (Nat.not_lt.mpr (hcv_eq.symm ▸ hge))
+            · have hov_f := propLit_vals_neg hpi.nw hother_lt
+                (fastProp_lt_vals hpi.len.core_ok hother_lt)
+                (by simpa only [BitVec.ofNat_eq_ofNat, fastPropMem_wstk,
+                  fastPropMem_vals] using hc)
+              have ⟨hpi_c, hcf_c⟩ := propLit_bin_confl (ignore_ref := ignore_ref) hpi hsw1 hnot_st
+                hother_lt hent hov_f hp1_nat hq1_nat
+              let sem_c : FullState :=
+                { sem with core :=
+                    { sem.core with
+                      wstk := wstk1, confl_type := 1#64,
+                      confl_lit0 := not_lit.setWidth 64, confl_lit1 := other.setWidth 64,
+                      confl_ref := 0xFFFFFFFF#64 } }
+              exact hB (off_v, tend_v, unass_v, unfl_v, ticks_v, p_v + 1#64, q_v + 1#64, end_v,
+                true, ()) m ⟨sem_c, hpi_c, htend_eq, hunass_eq, hunfl_eq, by simp, fun _ => hcf_c,
+                by simpa only [sem_c, wstk1, not_lit, other, BitVec.ofNat_eq_ofNat,
+                  fastPropMem_wstk, fastPropMem_with_bin_confl_wstk] using hm⟩
+            · have hov_un : sem1.core.vals[other.toNat]?.getD 0#8 = 0#8 :=
+                propLit_vals_un hnw1 hother_lt hother_vals1 hov_nsgt
+                  (by simpa only [other, BitVec.ofNat_eq_ofNat, fastPropMem_wstk,
+                    fastPropMem_vals] using hc)
+              have hte_lt : sem.core.trail_end < sem.core.cur_vars :=
+                hnw1.trail_end_lt_of_unassigned hother_lt hov_un
+              have hlen1_mem := fastPropMem_lengthsOk hlen0 hlen1 hcv_eq
+                (hpi.ag.get FullCoreState.propagated) rfl
+              rw [show ((fastPropMem s sem).core.wstk[p_v.toNat]'(by
+                    rw [fastPropMem_wstk]; exact hp_lt_w) &&& (2147483647 : BitVec 32)) =
+                  other from by
+                rw [show (2147483647 : BitVec 32) = 2147483647#32 from rfl, fc_getElem_wstk]]
+              dsimp only
+              refine fastProp_assign_wp (k_next := fun tn un uf => .jump L (.var off_v, (.var tn,
+                (.var un, (.var uf, (.var (ticks_v + 1#64), (.var (p_v + 1#64),
+                (.var (q_v + 1#64), (.var end_v, ())))))))))
+                hmaxv hcv0 hlen1_mem hpi.cur_vars_eq hother_lt hte_lt
+                htend_eq (by simpa only [BitVec.ofNat_eq_ofNat, fastPropMem_wstk,
+                  fastPropMem_with_wstk] using hm) ?_
+              intro flags' ph' unass_n unfl_n m' hfl' hph' hm'
+              dsimp only at hm'
+              simp only [BitVec.ofNat_eq_ofNat] at hm'
+              rw [fastPropMem_assign_eq (te' := sem.core.trail_end + 1)
+                (un' := unass_n) (uf' := unfl_n)] at hm'
+              have hassign := full_bin_assign_nw_step hlen1.core_ok hnw1 hnot_st hother_lt hov_un
+                hpi.not_f hent (flags' := flags') (unas' := unass_n) (unfl' := unfl_n)
+              rw [show sem1.core.lvl[not_lit.toNat / 2]?.getD 0#32 = nl_lvl0 from hnl_eq]
+                at hassign
+              have ⟨hlen2, hnw2, hsw2, hag2, htr2, hperm2, hsc2, hnot_f2, hnl2⟩ :=
+                fastPropMem_eq_of_eq hpi hsw1 (by simp [hwstk_len]) hfl' hph' hnot_st
+                  hother_lt hov_un hnl_eq hassign
+              have hmv64 : c.max_vars + 1 < 2 ^ 64 :=
+                Nat.lt_trans (Nat.add_lt_add_right hmaxv 1) (by decide)
+              have htend_max : tend_v.toNat < c.max_vars := by
+                rw [htend_eq]; exact Nat.lt_of_lt_of_le hte_lt hpi.len.core_ok.cur_vars_le
+              have ht1_lt : tend_v.toNat + 1 < 2 ^ 64 :=
+                Nat.lt_of_le_of_lt (Nat.add_le_add_right (Nat.le_of_lt htend_max) 1) hmv64
+              have htend1 : (tend_v + 1#64).toNat = sem.core.trail_end + 1 := by
+                rw [BitVec.toNat_add, htend_eq]
+                change (sem.core.trail_end + 1) % 2 ^ 64 = sem.core.trail_end + 1
+                exact Nat.mod_eq_of_lt (htend_eq ▸ ht1_lt)
+              exact ih (end_v.toNat - (p_v.toNat + 1)) (off_v, tend_v + 1#64, unass_n, unfl_n,
+                ticks_v + 1#64, p_v + 1#64, q_v + 1#64, end_v, ()) m'
+                (Nat.sub_lt hp_rem_pos Nat.zero_lt_one)
+                ⟨_, by rw [hp1_nat], ⟨hlen2, hnw2, (by rw [hp1_nat, hq1_nat]; exact hsw2),
+                  hag2, htr2, hperm2, hsc2, hnot_f2⟩, htend1, rfl, rfl, hnl2, hoom_st,
+                  hct_st, hm'⟩
+          · have hflag : (w0_v &&& 0x80000000#32) = 0#32 := by
+              simpa only [← BitVec.ofNat_eq_ofNat, fc_getElem_wstk, fastPropMem_wstk] using hc
+            have ⟨h2le, cref0, hcr_get, hcr_lt, hcr_ref, hrem2⟩ :=
+              watchSlice_inv_large hpi.sw.rem_slice hp_rem_pos hw0_get hflag
+            fc_head_split
+            · have hge : end_v.toNat ≤ (p_v + (1 : BitVec 64)).toNat := hc
+              rw [hp1_pre] at hge
+              have h2_le_end : p_v.toNat + 2 ≤ end_v.toNat :=
+                Nat.add_sub_cancel' hp_le ▸ Nat.add_le_add_left h2le p_v.toNat
+              exact absurd hge (Nat.not_le.mpr (Nat.lt_of_succ_le h2_le_end))
+            · fc_head_split
+              · have halen_eq : sem.core.arena_len = s.core.arena_len :=
+                  hpi.ag.get FullCoreState.arena_len
+                have h2_le_end : p_v.toNat + 2 ≤ end_v.toNat :=
+                  Nat.add_sub_cancel' hp_le ▸ Nat.add_le_add_left h2le p_v.toNat
+                have hcr_idx0 : (p_v + 1#64).toNat < sem.core.wstk.length := by
+                  rw [hp1_nat, hwstk_len]
+                  exact Nat.lt_of_lt_of_le (by omega) hend_wcap
+                have hc_alen : sem.core.arena_len % 2 ^ 64 <
+                    ((sem.core.wstk[(p_v + 1#64).toNat]'hcr_idx0).toNat + 3) % 2 ^ 64 := by
+                  have hp1_mod : (p_v.toNat + 1) % 2 ^ 64 = (p_v + 1#64).toNat := by
+                    rw [hp1_nat]
+                    exact Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt (by omega)
+                      (Nat.lt_trans hwc (by decide)))
+                  have hc' := hc
+                  simp only [fastPropMem_wstk, BitVec.reduceToNat] at hc'
+                  rw [← halen_eq] at hc'
+                  simp only [hp1_mod] at hc'
+                  exact hc'
+                have hcr_eq0 : sem.core.wstk[(p_v + 1#64).toNat]'hcr_idx0 = cref0 := by
+                  have h1 : sem.core.wstk[p_v.toNat + 1]? =
+                      some (sem.core.wstk[(p_v + 1#64).toNat]'hcr_idx0) := by
+                    rw [← hp1_nat]; exact List.getElem?_eq_getElem hcr_idx0
+                  exact Option.some.inj (h1.symm.trans hcr_get)
+                have hwf0 := hpi.nw.arena.refs_wf cref0.toNat hcr_ref
+                have hal_lt64 : sem.core.arena_len < 2 ^ 64 :=
+                  Nat.lt_of_le_of_lt hpi.len.core_ok.arena_len_le (Nat.lt_trans har (by decide))
+                have hcr3_lt64 : cref0.toNat + 3 < 2 ^ 64 :=
+                  Nat.lt_of_le_of_lt hwf0.1 hal_lt64
+                rw [hcr_eq0, Nat.mod_eq_of_lt hal_lt64, Nat.mod_eq_of_lt hcr3_lt64] at hc_alen
+                exact absurd hc_alen (Nat.not_lt.mpr hwf0.1)
+              have h2_le_end : p_v.toNat + 2 ≤ end_v.toNat :=
+                Nat.add_sub_cancel' hp_le ▸ Nat.add_le_add_left h2le p_v.toNat
+              have hrem_dec : end_v.toNat - (p_v.toNat + 2) < end_v.toNat - p_v.toNat :=
+                fc_rem2_lt h2_le_end
+              have hp2_wcap : p_v.toNat + 2 ≤ c.wcap := Nat.le_trans h2_le_end hend_wcap
+              have hp2_64 : p_v.toNat + 2 < 2 ^ 64 :=
+                Nat.lt_of_le_of_lt hp2_wcap (Nat.lt_trans hwc (by decide))
+              have hp2_nat : (p_v + 1#64 + 1#64).toNat = p_v.toNat + 2 := by
+                rw [bv64_add_toNat (a := p_v + 1#64) (b := 1#64) (by rw [hp1_nat]; exact hp2_64),
+                  hp1_nat]; rfl
+              have hq2_nat : (q_v + 2#64).toNat = q_v.toNat + 2 :=
+                bv64_add2_toNat (a := q_v) (Nat.lt_of_le_of_lt
+                  (Nat.add_le_add_right (Nat.le_trans hq_le (Nat.le_trans hp_le hend_wcap)) 2)
+                  hwc64_2)
+              have hq_lt_ws2 : q_v.toNat < sem.core.wstk.length :=
+                hwstk_len ▸ Nat.lt_of_lt_of_le (Nat.lt_of_le_of_lt hq_le
+                  (Nat.lt_of_lt_of_le (Nat.lt_add_of_pos_right (by decide : 0 < 2)) h2_le_end))
+                  hend_wcap
+              have hq1_lt_ws2 : q_v.toNat + 1 < sem.core.wstk.length :=
+                hwstk_len ▸ Nat.lt_of_lt_of_le
+                  (Nat.lt_of_le_of_lt (Nat.add_le_add_right hq_le 1)
+                    (Nat.lt_of_lt_of_le (Nat.lt_succ_self (p_v.toNat + 1)) h2_le_end)) hend_wcap
+              have hcr_idx_lt : (p_v + 1#64).toNat < sem.core.wstk.length := by
+                rw [hp1_nat, hwstk_len]
+                exact Nat.lt_of_lt_of_le (Nat.lt_of_succ_le h2_le_end) hend_wcap
+              have hcr_eq : sem.core.wstk[(p_v + 1#64).toNat]'hcr_idx_lt = cref0 := by
+                have h1 : sem.core.wstk[p_v.toNat + 1]? =
+                    some (sem.core.wstk[(p_v + 1#64).toNat]'hcr_idx_lt) := by
+                  rw [← hp1_nat]; exact List.getElem?_eq_getElem hcr_idx_lt
+                exact Option.some.inj (h1.symm.trans hcr_get)
+              simp only [← BitVec.ofNat_eq_ofNat, fastPropMem_wstk]
+              generalize hcr_gen :
+                sem.core.wstk[(p_v + 1#64).toNat]'hcr_idx_lt = cref at hcr_eq ⊢
+              rw [← hcr_eq] at hcr_lt hcr_ref
+              have hsw_drop : SplitWatchesInv F_cur sem.core not_lit.toNat off_v.toNat q_v.toNat
+                  (p_v.toNat + 2) end_v.toNat :=
+                hpi.sw.advance_rem (p' := p_v.toNat + 2) (by omega) h2_le_end
+                  (by simpa [Nat.sub_sub] using hrem2)
               have hcr_wf := hpi.nw.arena.refs_wf cref.toNat hcr_ref
               have hcr3_le : cref.toNat + 3 ≤ sem.core.arena_len := hcr_wf.1
               have hcsz3 : 3 ≤ fullArenaClauseSizeCore sem.core cref.toNat := hcr_wf.2.1
@@ -550,12 +713,6 @@ theorem full_prop_lit_m4_wp (Γ : Env)
               have h4_idx : (cref.setWidth 64 + 4#64).toNat = cref.toNat + 4 := by
                 rw [bv64_add_toNat (a := cref.setWidth 64) (b := 4#64) hcr_u64, hcr64]; rfl
               fc_head_steps
-              · have halen_eq : sem.core.arena_len = s.core.arena_len :=
-                  hpi.ag.get FullCoreState.arena_len
-                have hgt : sem.core.arena_len % 2 ^ 64 < (cref.toNat + 3) % 2 ^ 64 := by
-                  simpa only [halen_eq, fastPropMem_arena_len, hcr64, BitVec.reduceToNat] using hc
-                rw [Nat.mod_eq_of_lt hal_lt64, Nat.mod_eq_of_lt hcr3_lt64] at hgt
-                exact absurd hgt (Nat.not_lt.mpr hcr3_le)
               · exact ih _ (off_v, tend_v, unass_v, unfl_v, ticks_v + 1#64, p_v + 1#64 + 1#64,
                   q_v, end_v, ()) ml hrem_dec
                   ⟨sem, by rw [hp2_nat], propLit_inv_drop (ticks' := sem.scratch.search_ticks) hpi
@@ -658,7 +815,11 @@ theorem full_prop_lit_m4_wp (Γ : Env)
                       (fc_getElem_eq_of_idx h2_idx (h2_idx ▸ hcr2_lt_ar1) hcr2_lt_ar1)
                   fc_head_steps
                   · have hge : 2 * (s.core.cur_vars % 2 ^ 64) % 2 ^ 64 ≤ other.toNat := by
-                      simpa only [fastPropMem_cur_vars] using hc
+                      have hcu_bv : BitVec.toNat (OfNat.ofNat s.core.cur_vars : BitVec 64) =
+                          s.core.cur_vars % 2 ^ 64 := @BitVec.toNat_ofNat s.core.cur_vars 64
+                      have hc' := hc
+                      rw [hcu_bv] at hc'
+                      exact hc'
                     rw [Nat.mod_eq_of_lt hcv_lt64, Nat.mod_eq_of_lt h2cv_lt64] at hge
                     exact absurd (hcv1_eq ▸ hother_lt) (Nat.not_lt.mpr hge)
                   · exact ih _ (off_v, tend_v, unass_v, unfl_v, ticks_v + 1#64,
@@ -724,45 +885,95 @@ theorem full_prop_lit_m4_wp (Γ : Env)
                             exact congrArg BitVec.toNat (Option.some.inj
                               ((List.getElem?_eq_getElem hcr4_lt_ar1).symm.trans har4))
                           have hcur_eq1 :
-                              ((BitVec.ofNat 64 s.core.cur_level).setWidth 32).toNat =
-                                s.core.cur_level := by
+                              (BitVec.ofNat 64 s.core.cur_level).setWidth 32 =
+                                BitVec.ofNat 32 s.core.cur_level := by
+                            apply BitVec.eq_of_toNat_eq
                             have hcl64 : s.core.cur_level < 2 ^ 64 :=
                               Nat.lt_trans hclv_lt32 (by decide)
                             rw [BitVec.toNat_setWidth, BitVec.toNat_ofNat,
-                              Nat.mod_eq_of_lt hcl64, Nat.mod_eq_of_lt hclv_lt32]
-                          fc_head_split
-                          all_goals first
-                            | exact absurd rfl hc
-                            | exact fastProp_large_norepl_wp
-                                (nl_lvl0 := nl_lvl0)
-                                (cur_lvl := (BitVec.ofNat 64 s.core.cur_level).setWidth 32)
-                                (rec_ph := s.core.probing == 0#64)
-                                (k_cont := fun te un uf qn => .jump L (.var off_v, (.var te,
-                                  (.var un, (.var uf, (.var (ticks_v + 1#64),
-                                  (.var (p_v + 1#64 + 1#64), (.var qn, (.var end_v, ())))))))))
-                                (k_confl := fun qn => .jump B (.var off_v, (.var tend_v,
-                                  (.var unass_v, (.var unfl_v, (.var (ticks_v + 1#64),
-                                  (.var (p_v + 1#64 + 1#64), (.var qn, (.var end_v,
-                                  (.imm true, ()))))))))))
-                                c.hmaxv c.harena c.hwcap hlen0 hcv0
-                                hpi1 hlen1_mem hcr_lt hcr_ref1 hng1 hfit1 hother_lt hnot_st1
-                                hother_mem hnot_mem hunit hother_lt1_vals (fc_getElem_vals s sem1)
-                                hov_np hnl1 hcur_eq1 hclv_lt32 hcsz32_nat h3_idx htend1_eq
-                                hunass1_eq hunfl1_eq hoom1 hct1 hq1_nat hq2_nat hp2_nat
-                                hq_le hq_lt_ws1 hq1_lt_ws1 hmj
-                                (fun sem' tend_n unass_n unfl_n m' hpi' ht' hu' huf' hnl'
-                                    hoom' hct' hm' => by
-                                  fc_head_steps
-                                  exact ih _ (off_v, tend_n, unass_n, unfl_n, ticks_v + 1#64,
-                                    p_v + 1#64 + 1#64, q_v + 2#64, end_v, ()) m' hrem_dec
-                                    ⟨sem', by rw [hp2_nat], by rwa [hp2_nat], ht', hu', huf',
-                                     hnl', hoom', hct', hm'⟩)
-                                (fun sem' m' hpi' ht' hu' huf' hcf' hm' => by
-                                  fc_head_steps
-                                  exact hB (off_v, tend_v, unass_v, unfl_v, ticks_v + 1#64,
-                                    p_v + 1#64 + 1#64, q_v + 2#64, end_v, true, ()) m'
-                                    ⟨sem', by rwa [hp2_nat], ht', hu', huf', by simp,
-                                     fun _ => hcf', hm'⟩)
+                              Nat.mod_eq_of_lt hcl64, Nat.mod_eq_of_lt hclv_lt32,
+                              BitVec.toNat_ofNat, Nat.mod_eq_of_lt hclv_lt32]
+                          have hsw2 := hpi1.sw.write_large hnot_st1 hq_le
+                            hq_lt_ws1 hq1_lt_ws1 (bv32_mask7f_flag0 other) hcr_lt hcr_ref1
+                          let wstk2 := (sem1.core.wstk.set q_v.toNat
+                            (other &&& 0x7FFFFFFF#32)).set (q_v.toNat + 1) cref
+                          let sem2 : FullState :=
+                            { sem1 with core := { sem1.core with wstk := wstk2 } }
+                          have hlen2 : sem2.LengthsOk c :=
+                            ⟨{ hpi1.len.core_ok with
+                                 wstk_len_arr := by simp [sem2, wstk2, hwstk1] },
+                             hpi1.len.scratch_ok⟩
+                          have hlen2_mem := fastPropMem_lengthsOk hlen0 hlen2 hpi1.cur_vars_eq
+                            (hpi1.ag.get FullCoreState.propagated) rfl
+                          have hnw2 :
+                              FullWitnessInv c F0 F_cur (withEmptyWatchesCore c sem2.core) :=
+                            fullWitnessInv_nw_congr hlen2.core_ok.cur_vars_le hpi1.nw
+                              rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+                          have hpi2 : PropLitInv c F0 F_cur s sem2 not_lit.toNat off_v.toNat
+                              (q_v + 2#64).toNat (p_v.toNat + 2) end_v.toNat :=
+                            { len := hlen2, nw := hnw2, sw := by rw [hq2_nat]; exact hsw2
+                              ag := hpi1.ag.update (fun k => { k with wstk := wstk2 })
+                              tr := hpi1.tr.congr rfl rfl rfl, perm := hpi1.perm,
+                              sc_eq := hpi1.sc_eq, not_f := hpi1.not_f }
+                          have hclv_sem2 : sem2.core.cur_level < 2 ^ 32 := by
+                            rw [hpi2.ag.get FullCoreState.cur_level]; exact hclv_lt32
+                          have hcur_eq2 : (BitVec.ofNat 64 s.core.cur_level).setWidth 32 =
+                              BitVec.ofNat 32 sem2.core.cur_level := by
+                            rw [hcur_eq1, hpi2.ag.get FullCoreState.cur_level]
+                          fc_head_steps
+                          · have hinv2 := propLit_inv_keep_large hpi1 hpi1.sw hnot_st1 hq1_nat
+                              hq2_nat hp2_nat (Nat.add_le_add_right hq_le 2) hpi1.sw.p_le_end
+                              (bv32_mask7f_flag0 other) hcr_lt hcr_ref1
+                            simp only [BitVec.ofNat_eq_ofNat, hp2_nat] at hinv2
+                            exact ih _ (off_v, tend_v, unass_v, unfl_v, ticks_v + 1#64,
+                              p_v + 1#64 + 1#64, q_v + 2#64, end_v, ()) m hrem_dec
+                              ⟨sem2, by rw [hp2_nat], by rwa [hp2_nat], htend1_eq, hunass1_eq,
+                                hunfl1_eq, hnl1, hoom1, hct1, by
+                                  simpa only [sem2, wstk2, BitVec.ofNat_eq_ofNat, hq1_nat,
+                                    fastPropMem_wstk, fastPropMem_with_wstk] using hm⟩
+                          · have hne_ign : cref.setWidth 64 ≠ ignore_ref := by assumption
+                            have hov_f := propLit_vals_neg hpi1.nw hother_lt hother_lt1_vals
+                              (by simpa only [fastPropMem_vals] using hc)
+                            have ⟨hpi_c, hcf_c⟩ := propLit_large_confl hpi1 hnot_st1 hq_le
+                              hq1_nat hq2_nat hp2_nat hcr_lt hcr_ref1 hng1 hne_ign hov_f hunit
+                            let sem_c : FullState :=
+                              { sem1 with core :=
+                                  { sem1.core with
+                                    wstk := wstk2, confl_type := 2#64,
+                                    confl_ref := cref.setWidth 64 } }
+                            simp only [BitVec.ofNat_eq_ofNat, hp2_nat] at hpi_c
+                            have hm_c : (FullMem c (fastPropMem s sem_c) ⋆ R) m := by
+                              simpa only [sem_c, wstk2,
+                                show (2147483647 : BitVec 32) = 0x7FFFFFFF#32 from rfl,
+                                show (1 : BitVec 64) = 1#64 from rfl,
+                                show (2 : BitVec 64) = 2#64 from rfl, hq1_nat,
+                                fastPropMem_wstk, fastPropMem_with_large_confl_wstk] using hm
+                            exact hB (off_v, tend_v, unass_v, unfl_v, ticks_v + 1#64,
+                              p_v + 1#64 + 1#64, q_v + 2#64, end_v, true, ()) m
+                              ⟨sem_c, by simpa only [hq1_nat, hp2_nat, hq2_nat] using hpi_c,
+                                htend1_eq, hunass1_eq, hunfl1_eq, by simp, fun _ => hcf_c, hm_c⟩
+                          · have hov_un := propLit_vals_un hpi1.nw hother_lt hother_lt1_vals
+                              hov_np (by simpa only [fastPropMem_vals] using hc)
+                            dsimp only
+                            have hm2 : (FullMem c (fastPropMem s sem2) ⋆ R) m := by
+                              simpa only [sem2, wstk2,
+                                show (2147483647 : BitVec 32) = 0x7FFFFFFF#32 from rfl,
+                                show (1 : BitVec 64) = 1#64 from rfl,
+                                hq1_nat, fastPropMem_wstk, fastPropMem_with_wstk] using hm
+                            refine fastProp_large_assign_wp (k_next := fun tn un uf => .jump L
+                              (.var off_v, (.var tn, (.var un, (.var uf,
+                              (.var (ticks_v + 1#64 + 1#64), (.var (p_v + 1#64 + 1#64),
+                              (.var (q_v + 2#64), (.var end_v, ())))))))))
+                              hmaxv har hcv0 hpi2 hlen2_mem hcr_lt
+                              hcr_ref1 hng1 hfit1 hother_lt hov_un hnot_st1 hother_mem hnot_mem
+                              hunit hnl1 hcur_eq2 hclv_sem2 hcsz32_nat h3_idx htend1_eq hoom1 hct1
+                              hm2 ?_
+                            intro sem3 tend_n unass_n unfl_n m' hpi3 ht3 hu3 huf3 hnl3 hoom3
+                              hct3 hm'
+                            exact ih _ (off_v, tend_n, unass_n, unfl_n, ticks_v + 1#64 + 1#64,
+                              p_v + 1#64 + 1#64, q_v + 2#64, end_v, ()) m' hrem_dec
+                              ⟨sem3, by rw [hp2_nat], by rwa [hp2_nat], ht3, hu3, huf3, hnl3,
+                                hoom3, hct3, hm'⟩
                         · have hri_ne : ri_f ≠ 0xFFFFFFFF#32 := hri_ne
                           have h3_1_idx : (cref.setWidth 64 + 3#64 + 1#64).toNat =
                               cref.toNat + 4 := by
@@ -773,10 +984,10 @@ theorem full_prop_lit_m4_wp (Γ : Env)
                           fc_head_split
                           · refine fastProp_large_push_wp hPush (nl_lvl0 := nl_lvl0)
                               (k_ok := fun o4 pn qn en => .jump L (.var o4, (.var tend_v,
-                                (.var unass_v, (.var unfl_v, (.var (ticks_v + 1#64),
+                                (.var unass_v, (.var unfl_v, (.var (ticks_v + 1#64 + 1#64),
                                 (.var pn, (.var qn, (.var en, ())))))))))
                               (k_oom := fun o4 pn qn en => .jump B (.var o4, (.var tend_v,
-                                (.var unass_v, (.var unfl_v, (.var (ticks_v + 1#64),
+                                (.var unass_v, (.var unfl_v, (.var (ticks_v + 1#64 + 1#64),
                                 (.var pn, (.var qn, (.var en, (.imm true, ()))))))))))
                               c.hmaxv c.harena hlen0 hcv0
                               hpi1 hlen1_mem hcr_lt hcr_ref1 hfit1 har4 hnot_st1 hother_lt
@@ -784,12 +995,12 @@ theorem full_prop_lit_m4_wp (Γ : Env)
                               htend1_eq hunass1_eq hunfl1_eq hnl1 hoom1 hct1 hp2_nat hq_le
                               (hwstk1 ▸ hq_lt_ws1) hmj ?_ ?_
                             · intro st4 off4_v m_p hdec4 hpi4 ht4 hu4 huf4 hnl4 hoom4 hct4 hm4
-                              exact ih _ (off4_v, tend_v, unass_v, unfl_v, ticks_v + 1#64,
+                              exact ih _ (off4_v, tend_v, unass_v, unfl_v, ticks_v + 1#64 + 1#64,
                                 off4_v + (p_v + 1#64 + 1#64 - off_v), off4_v + (q_v - off_v),
                                 off4_v + (end_v - off_v), ()) m_p hdec4
                                 ⟨st4, rfl, hpi4, ht4, hu4, huf4, hnl4, hoom4, hct4, hm4⟩
                             · intro st6 off4_v m_f hpi6 ht6 hu6 huf6 hoom6 hm6
-                              exact hB (off4_v, tend_v, unass_v, unfl_v, ticks_v + 1#64,
+                              exact hB (off4_v, tend_v, unass_v, unfl_v, ticks_v + 1#64 + 1#64,
                                 off4_v + (p_v + 1#64 + 1#64 - off_v),
                                 off4_v + (q_v - off_v) + 2#64,
                                 off4_v + (end_v - off_v), true, ()) m_f
@@ -908,15 +1119,122 @@ theorem full_prop_lit_m4_wp (Γ : Env)
                       by change sem.core.arena[cref.toNat + 4]? = some not_lit
                          rw [← hl1_eq4]; exact List.getElem?_eq_getElem hcr4_lt_ar,
                       hml⟩
-            · intro J2 hJ2; fc_head_steps
-              · exact ih _ (off_v, tend_v, unass_v, unfl_v, ticks_v, p_v + 1#64 + 1#64,
-                  q_v + 2#64, end_v, ()) m hrem_dec
-                  ⟨_, by rw [hp2_nat], propLit_inv_keep_large hpi hsw_drop hnot_st hq1_nat hq2_nat
-                    hp2_nat (Nat.add_le_add_right hq_le 2) h2_le_end hflag hcr_lt hcr_ref,
-                    htend_eq, hunass_eq, hunfl_eq, hnl_eq, hoom_st, hct_st, by
-                      simpa only [fastPropMem_wstk, fastPropMem_with_wstk] using hm⟩
-              · exact hJ2 () ml rfl
-              · exact hJ2 () ml rfl
+        · intro J2 hJ2
+          fc_head_split
+          · have hblk_lt_2cv : (w0_v &&& 2147483647#32).toNat < 2 * sem.core.cur_vars := by
+              rw [hcv_eq]
+              have hc' := hc
+              simp only [fastPropMem_wstk] at hc'
+              rw [Nat.mod_eq_of_lt hcv_lt64, Nat.mod_eq_of_lt h2cv_lt64] at hc'
+              exact hc'
+            have hblk_vals_lt : (w0_v &&& 2147483647#32).toNat < sem.core.vals.length :=
+              fastProp_lt_vals hpi.len.core_ok hblk_lt_2cv
+            have hblk_vals_mem : (BitVec.setWidth 64
+                ((fastPropMem s sem).core.wstk[p_v.toNat]'(fastPropMem_wstk s sem ▸ hp_lt_w) &&&
+                  2147483647)).toNat < (fastPropMem s sem).core.vals.length := by
+              dsimp only [w0_v] at hblk_vals_lt
+              simp only [bv_c0_zext32_64, fc_getElem_wstk, fastPropMem_vals]
+              exact hblk_vals_lt
+            fc_head_split
+            · fc_head_split
+              · have hflag : (w0_v &&& 0x80000000#32) ≠ 0#32 := by
+                  simpa only [ne_eq, ← BitVec.ofNat_eq_ofNat, fc_getElem_wstk, fastPropMem_wstk]
+                    using hc
+                obtain ⟨hother_lt, hent, hrem1⟩ :=
+                  watchSlice_inv_bin hpi.sw.rem_slice hp_rem_pos hw0_get hflag
+                have hsw1 := (hpi.sw.advance_rem (p' := p_v.toNat + 1) (Nat.le_succ _) hp_lt
+                  (by simpa [Nat.sub_sub] using hrem1)).write_bin
+                  (c := c) hpi.len.core_ok.cur_vars_le hnot_st hq_le hq_lt_ws hflag hother_lt hent
+                let wstk1 := sem.core.wstk.set q_v.toNat w0_v
+                let sem1 : FullState := { sem with core := { sem.core with wstk := wstk1 } }
+                have hlen1 : sem1.LengthsOk c :=
+                  ⟨{ hpi.len.core_ok with wstk_len_arr := by simp [sem1, wstk1, hwstk_len] },
+                   hpi.len.scratch_ok⟩
+                have hnw1 : FullWitnessInv c F0 F_cur (withEmptyWatchesCore c sem1.core) :=
+                  fullWitnessInv_nw_congr hlen1.core_ok.cur_vars_le hpi.nw
+                    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+                have hsw1_rw : SplitWatchesInv F_cur sem1.core not_lit.toNat off_v.toNat
+                    (q_v + 1#64).toNat (p_v.toNat + 1) end_v.toNat := by
+                  rw [hq1_nat]; exact hsw1
+                have hpi1 : PropLitInv c F0 F_cur s sem1 not_lit.toNat off_v.toNat
+                    (q_v + 1#64).toNat (p_v + 1#64).toNat end_v.toNat := by
+                  rw [hp1_nat]
+                  exact ⟨hlen1, hnw1, hsw1_rw,
+                    hpi.ag.update (fun k => { k with wstk := wstk1 }),
+                    hpi.tr.congr rfl rfl rfl, hpi.perm, hpi.sc_eq, hpi.not_f⟩
+                have hq_lt_mem : q_v.toNat < (fastPropMem s sem).core.wstk.length := by
+                  rw [fastPropMem_wstk]; exact hq_lt_ws
+                fc_head_steps
+                exact ih (end_v.toNat - (p_v.toNat + 1)) (off_v, tend_v, unass_v, unfl_v, ticks_v,
+                  p_v + 1#64, q_v + 1#64, end_v, ()) m (Nat.sub_lt hp_rem_pos Nat.zero_lt_one)
+                  ⟨sem1, by rw [hp1_nat], hpi1, htend_eq, hunass_eq, hunfl_eq, hnl_eq, hoom_st,
+                    hct_st, by simpa only [BitVec.ofNat_eq_ofNat, fastPropMem_wstk,
+                      fastPropMem_with_wstk] using hm⟩
+              · have hflag : (w0_v &&& 0x80000000#32) = 0#32 := by
+                  simpa only [← BitVec.ofNat_eq_ofNat, fc_getElem_wstk, fastPropMem_wstk] using hc
+                have ⟨h2le, cref0, hcr_get, hcr_lt, hcr_ref, hrem2⟩ :=
+                  watchSlice_inv_large hpi.sw.rem_slice hp_rem_pos hw0_get hflag
+                fc_head_split
+                · have hp1_lt : (p_v + (1 : BitVec 64)).toNat < end_v.toNat := hc
+                  have h2_le_end : p_v.toNat + 2 ≤ end_v.toNat :=
+                    Nat.add_sub_cancel' hp_le ▸ Nat.add_le_add_left h2le p_v.toNat
+                  have hp2_wcap : p_v.toNat + 2 ≤ c.wcap := Nat.le_trans h2_le_end hend_wcap
+                  have hp2_64 : p_v.toNat + 2 < 2 ^ 64 :=
+                    Nat.lt_of_le_of_lt hp2_wcap (Nat.lt_trans hwc (by decide))
+                  have hp2_nat : (p_v + 1#64 + 1#64).toNat = p_v.toNat + 2 := by
+                    rw [bv64_add_toNat (a := p_v + 1#64) (b := 1#64)
+                      (by rw [hp1_nat]; exact hp2_64), hp1_nat]; rfl
+                  have hq2_nat : (q_v + 2#64).toNat = q_v.toNat + 2 :=
+                    bv64_add2_toNat (a := q_v) (Nat.lt_of_le_of_lt
+                      (Nat.add_le_add_right (Nat.le_trans hq_le (Nat.le_trans hp_le hend_wcap)) 2)
+                      hwc64_2)
+                  have hcr_idx_lt : (p_v + 1#64).toNat < sem.core.wstk.length := by
+                    rw [hp1_nat, hwstk_len]
+                    exact Nat.lt_of_lt_of_le (Nat.lt_of_succ_le h2_le_end) hend_wcap
+                  have hcr_eq : sem.core.wstk[(p_v + 1#64).toNat]'hcr_idx_lt = cref0 := by
+                    have h1 : sem.core.wstk[p_v.toNat + 1]? =
+                        some (sem.core.wstk[(p_v + 1#64).toNat]'hcr_idx_lt) := by
+                      rw [← hp1_nat]; exact List.getElem?_eq_getElem hcr_idx_lt
+                    exact Option.some.inj (h1.symm.trans hcr_get)
+                  have hsw_drop : SplitWatchesInv F_cur sem.core not_lit.toNat off_v.toNat q_v.toNat
+                      (p_v.toNat + 2) end_v.toNat :=
+                    hpi.sw.advance_rem (p' := p_v.toNat + 2) (by omega) h2_le_end
+                      (by simpa [Nat.sub_sub] using hrem2)
+                  have hcr_eq_c0 : sem.core.wstk[(p_v + 1).toNat]'(by
+                      rw [show (1 : BitVec 64) = 1#64 from rfl]; exact hcr_idx_lt) = cref0 := hcr_eq
+                  fc_head_steps
+                  exact ih (end_v.toNat - (p_v.toNat + 2)) (off_v, tend_v, unass_v, unfl_v,
+                    ticks_v, p_v + 1#64 + 1#64, q_v + 2#64, end_v, ()) m (fc_rem2_lt h2_le_end)
+                    ⟨_, by rw [hp2_nat], propLit_inv_keep_large hpi hsw_drop hnot_st hq1_nat hq2_nat
+                      hp2_nat (Nat.add_le_add_right hq_le 2) h2_le_end hflag hcr_lt
+                      (hcr_eq ▸ hcr_ref),
+                      htend_eq, hunass_eq, hunfl_eq, hnl_eq, hoom_st, hct_st, by
+                        dsimp only [w0_v]
+                        simpa only [hq1_nat, hcr_eq_c0, fc_getElem_wstk,
+                          fastPropMem_wstk, fastPropMem_with_wstk] using hm⟩
+                · have hge : end_v.toNat ≤ (p_v + (1 : BitVec 64)).toNat := by
+                    have hc' : ¬ (p_v.toNat + (1 : BitVec 64).toNat) % 2 ^ 64 < end_v.toNat := hc
+                    rw [show (1 : BitVec 64).toNat = 1 from rfl,
+                      Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt (Nat.add_le_add_right hp_le 1)
+                        (Nat.lt_of_le_of_lt (Nat.add_le_add_right hend_wcap 1) hwc64)),
+                      ← hp1_pre] at hc'
+                    exact Nat.not_lt.mp hc'
+                  rw [hp1_pre] at hge
+                  have h2_le_end : p_v.toNat + 2 ≤ end_v.toNat :=
+                    Nat.add_sub_cancel' hp_le ▸ Nat.add_le_add_left h2le p_v.toNat
+                  exact absurd hge (Nat.not_le.mpr (Nat.lt_of_succ_le h2_le_end))
+            · fc_head_steps
+              exact hJ2 () ml ⟨rfl, fun hlt => by
+                dsimp only [w0_v]
+                simpa only [← BitVec.ofNat_eq_ofNat, fc_getElem_wstk, fastPropMem_wstk,
+                  fc_getElem_vals, fastPropMem_vals] using hc⟩
+          · fc_head_steps
+            exact hJ2 () ml ⟨rfl, fun hlt => by
+              have hc' := hc
+              simp only [fastPropMem_wstk] at hc'
+              rw [Nat.mod_eq_of_lt hcv_lt64, Nat.mod_eq_of_lt h2cv_lt64] at hc'
+              dsimp only [w0_v]
+              exact absurd (hcv_eq ▸ hlt) hc'⟩
       · exact hB (off_v, tend_v, unass_v, unfl_v, ticks_v, p_v, q_v, end_v, false, ()) ml
           ⟨sem, hpi, htend_eq, hunass_eq, hunfl_eq, fun _ => ⟨hoom_st, hct_st⟩, by simp, hml⟩
     · intro B L _ hL; fc_head_steps

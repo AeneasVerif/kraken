@@ -5,13 +5,15 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat M4e Stage 1 (B1): Hot-Loop BCP Dead-Tail Sentinel Restore (`FullM4Bcp`)
+# Kissat M4e/M5 Stage 1 (B1): Hot-Loop BCP Branch Order, Ticks, & Sentinel (`FullM4Bcp`)
 
-Stage 1 (`B1`) of `kissat-m4e-bcp-hot`: preserves byte-identical `FullHdr` and exact canonical
-`FullSpec2` contracts (`fullPropLitSpec`, `fullPropagateIgnoreSpec`, `fullPropagateSpec`) while
-restoring M1's dropped 2-line dead-tail sentinel fill (`k = q; while (k < end) { wstk[k] = ... }`)
-after `full_prop_lit_m4`'s watch compaction loop, eliminating the stale-tail watch-list relocation
-storm in downstream `full_watch_push` calls.
+Stage 1 (`B1`) of `kissat-m4e-bcp-hot` + Wave 1 `PR-W1B` (`RC-11`): preserves byte-identical
+`FullHdr` and exact canonical `FullSpec2` contracts (`fullPropLitSpec`,
+`fullPropagateIgnoreSpec`, `fullPropagateSpec`) while:
+1. Checking `vals[w0 & PW_LIT_MASK] > 0` before branching on `(w0 & PW_BIN_FLAG) != 0u`.
+2. Tracking cache-line + binary/replacement/large propagation ticks and gating `search_ticks`
+   strictly on `h->probing == 0ULL`.
+3. Restoring M1's dead-tail `0xFFFFFFFFu` sentinel fill after watch compaction.
 -/
 
 set_option autoImplicit false
@@ -99,7 +101,7 @@ bool full_prop_lit_m4(FullHdr *h, u32 lit, u64 ignore_ref) {
   u32 cur_lvl = (u32)h->cur_level;
   u32 nl_lvl = lvl[not_lit >> 1];
   bool rec_ph = (h->probing == 0ULL);
-  u64 ticks = 1ULL;
+  u64 ticks = 1ULL + ((sz + 31ULL) >> 5);
   u64 p = off;
   u64 q = off;
   u64 end = off + sz;
@@ -107,37 +109,43 @@ bool full_prop_lit_m4(FullHdr *h, u32 lit, u64 ignore_ref) {
   u32 bin_rsn = (not_lit & PW_LIT_MASK) | PW_BIN_FLAG;
   while (p < end) {
     u32 w0 = wstk[p]; p = p + 1ULL;
+    u32 blk = w0 & PW_LIT_MASK;
+    if ((u64)blk < nlits && vals[blk] > (i8)0) {
+      if ((w0 & PW_BIN_FLAG) != 0u) {
+        wstk[q] = w0; q = q + 1ULL; continue;
+      }
+      if (p < end) {
+        u32 cref = wstk[p]; p = p + 1ULL;
+        wstk[q] = w0; wstk[q + 1ULL] = cref; q = q + 2ULL; continue;
+      }
+      break;
+    }
     if ((w0 & PW_BIN_FLAG) != 0u) {
       wstk[q] = w0; q = q + 1ULL;
-      u32 other = w0 & PW_LIT_MASK;
-      if ((u64)other >= nlits) { continue; }
-      i8 ov = vals[other];
-      if (ov > (i8)0) { continue; }
+      if ((u64)blk >= nlits) { continue; }
+      i8 ov = vals[blk];
       if (ov < (i8)0) {
         h->confl_type = 1ULL; h->confl_lit0 = (u64)not_lit;
-        h->confl_lit1 = (u64)other; h->confl_ref = 0xFFFFFFFFULL;
+        h->confl_lit1 = (u64)blk; h->confl_ref = 0xFFFFFFFFULL;
         confl = true; break;
       }
+      ticks = ticks + 1ULL;
       if (tend < max_v) {
-        u32 ov_v = other >> 1;
-        vals[other] = (i8)1; vals[other ^ 1u] = (i8)(-1);
+        u32 ov_v = blk >> 1;
+        vals[blk] = (i8)1; vals[blk ^ 1u] = (i8)(-1);
         if ((fl[ov_v] & FL_ACTIVE) != 0u && unass > 0ULL) { unass = unass - 1ULL; }
-        if (rec_ph) { ph[ov_v] = ((other & 1u) != 0u) ? (i8)(-1) : (i8)1; }
+        if (rec_ph) { ph[ov_v] = ((blk & 1u) != 0u) ? (i8)(-1) : (i8)1; }
         lvl[ov_v] = nl_lvl;
         if (nl_lvl == 0u) {
           rsns[ov_v] = 0xFFFFFFFFu; fl[ov_v] = fl[ov_v] & (~FL_ACTIVE);
           unfl = unfl + 1ULL;
         } else { rsns[ov_v] = bin_rsn; }
-        tpos[ov_v] = (u32)tend; trl[tend] = other; tend = tend + 1ULL;
+        tpos[ov_v] = (u32)tend; trl[tend] = blk; tend = tend + 1ULL;
       }
       continue;
     }
     if (p >= end) { break; }
     u32 cref = wstk[p]; p = p + 1ULL;
-    u32 blk = w0 & PW_LIT_MASK;
-    if ((u64)blk < nlits && vals[blk] > (i8)0) {
-      wstk[q] = w0; wstk[q + 1ULL] = cref; q = q + 2ULL; continue;
-    }
     if ((u64)cref + 3ULL > alen) { continue; }
     ticks = ticks + 1ULL;
     u32 hdr = ar[cref]; u32 csz = ar[(u64)cref + 2ULL];
@@ -169,6 +177,7 @@ bool full_prop_lit_m4(FullHdr *h, u32 lit, u64 ignore_ref) {
       }
     }
     if (ri != 0xFFFFFFFFu) {
+      ticks = ticks + 1ULL;
       ar[(u64)cref + 1ULL] = ri;
       ar[cbase + 1ULL] = repl; ar[cbase + (u64)ri] = not_lit;
       u64 pr = p - off; u64 qr = q - off; u64 er = end - off;
@@ -186,6 +195,7 @@ bool full_prop_lit_m4(FullHdr *h, u32 lit, u64 ignore_ref) {
     if (ov < (i8)0) {
       h->confl_type = 2ULL; h->confl_ref = (u64)cref; confl = true; break;
     }
+    ticks = ticks + 1ULL;
     u32 alvl = nl_lvl;
     if (nl_lvl < cur_lvl) {
       alvl = 0u; u32 li = 0u;
@@ -217,7 +227,7 @@ bool full_prop_lit_m4(FullHdr *h, u32 lit, u64 ignore_ref) {
   wvec[((u64)not_lit << 1) + 1ULL] = (u32)(q - off);
   h->wusable = h->wusable + (end - q);
   h->trail_end = tend; h->unassigned = unass; h->unflushed = unfl;
-  h->search_ticks = h->search_ticks + ticks;
+  if (h->probing == 0ULL) { h->search_ticks = h->search_ticks + ticks; }
   return !confl;
 }
 
