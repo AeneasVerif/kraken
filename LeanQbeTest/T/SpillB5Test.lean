@@ -288,4 +288,21 @@ meta def propLitRaw : Fn := midOf "full_prop_lit_raw"
   "full_analyze_lit"].all fun n => noWorse (midOf n)
 #guard Examples.LratBytes.lratBytesFns.all fun f => noWorse (f.mid x64LegalTarget)
 
+/-! ## 6. Leaf & low-call caller-saved preference (Rank #6) -/
+
+/-- Leaf function with 3 returns avoids saving callee-saved registers. -/
+meta def leafFn : Fn :=
+  ⟨"leafB5", [i64, i64], [i64], fun _ _ (a, b, ()) =>
+    .let_ (op2 (.cmp .eq i64) (.var a) (.imm 0)) fun (c1, ()) =>
+    .jnz (.var c1) (.ret (.imm 1, ()))
+      (.let_ (op2 (.cmp .eq i64) (.var b) (.imm 0)) fun (c2, ()) =>
+       .jnz (.var c2) (.ret (.imm 2, ()))
+         (.let_ (op2 (.add i64) (.var a) (.var b)) fun (s, ()) =>
+          .ret (.var s, ())))⟩
+
+#guard allCfgs.all (lowers · leafFn)
+#guard (hintsOf {} leafFn).saved.isEmpty
+#guard (hintsOf {} (midOf "full_decide")).saved.isEmpty
+#guard (hintsOf {} (midOf "full_analyze")).saved.length ≤ 2
+
 end LeanQbeTest.T.SpillB5Test
