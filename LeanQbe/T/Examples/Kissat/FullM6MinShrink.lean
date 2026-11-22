@@ -369,7 +369,7 @@ bool full_min_lit_dfs_m6(FullHdr *h, u32 root_lit, bool minimizing, bool check_u
         if ((mu & (u8)2) != (u8)0) { continue; }
         if ((mu & (u8)4) != (u8)0) { break; }
         if (rsns[u] == 0xFFFFFFFFu) { full_min_mark(h, u, (u8)4); break; }
-        if (check_used && (u64)ul < cv && (u64)ul < h->cur_level && used[ul] <= 1u) { break; }
+        if (check_used && (u64)ul < cv && (u64)ul < h->cur_level && used[ul] == 0u) { break; }
         if (sp + 1ULL >= h->min_depth) { break; }
         sp = sp + 1ULL; stk[sp << 1] = u; stk[(sp << 1) + 1ULL] = 0u;
         continue;
@@ -394,7 +394,7 @@ bool full_min_lit_dfs_m6(FullHdr *h, u32 root_lit, bool minimizing, bool check_u
       if ((mu & (u8)2) != (u8)0) { continue; }
       if ((mu & (u8)4) != (u8)0) { break; }
       if (rsns[u] == 0xFFFFFFFFu) { full_min_mark(h, u, (u8)4); break; }
-      if (check_used && (u64)ul < cv && (u64)ul < h->cur_level && used[ul] <= 1u) { break; }
+      if (check_used && (u64)ul < cv && (u64)ul < h->cur_level && used[ul] == 0u) { break; }
       if (cur_depth + 1ULL >= h->min_depth || sp + 1ULL >= h->min_depth) { break; }
       cur_depth = cur_depth + 1ULL;
       sp = sp + 1ULL; stk[sp << 1] = u; stk[(sp << 1) + 1ULL] = 0x80000000u;
@@ -510,22 +510,14 @@ void full_min_shrink_m6(FullHdr *h) {
   u64 i = 0ULL;
   while (i < orig_tlen) { full_min_mark(h, tmp[i] >> 1, (u8)2); i = i + 1ULL; }
   u32 *sstk = (u32 *)h->shrink_stk;
+  u64 lim = h->cur_level;
+  if (cv < lim) { lim = cv; }
+  u64 zi = 0ULL;
+  while (zi < lim) { sstk[zi] = 0u; zi = zi + 1ULL; }
   u32 *ana = (u32 *)h->work_stk1;
   u64 ana_n = h->res_sz;
   if (ana_n > cv) { ana_n = cv; }
   u64 ai = 0ULL;
-  while (ai < ana_n) {
-    u32 av = ana[ai];
-    if ((u64)av < cv) { u32 al = lvl[av]; if ((u64)al < cv) { sstk[al] = 0u; } }
-    ai = ai + 1ULL;
-  }
-  ai = 0ULL;
-  while (ai < orig_tlen) {
-    u32 al = lvl[tmp[ai] >> 1];
-    if ((u64)al < cv) { sstk[al] = 0u; }
-    ai = ai + 1ULL;
-  }
-  ai = 0ULL;
   while (ai < ana_n) {
     u32 av = ana[ai];
     if ((u64)av < cv) {
@@ -538,18 +530,6 @@ void full_min_shrink_m6(FullHdr *h) {
   while (i < orig_tlen) {
     if (full_min_lit_dfs_m6(h, tmp[i], true, true)) { tmp[i] = 0xFFFFFFFFu; }
     i = i + 1ULL;
-  }
-  ai = 0ULL;
-  while (ai < ana_n) {
-    u32 av = ana[ai];
-    if ((u64)av < cv) { u32 al = lvl[av]; if ((u64)al < cv) { sstk[al] = 0u; } }
-    ai = ai + 1ULL;
-  }
-  ai = 0ULL;
-  while (ai < orig_tlen) {
-    u32 tv = tmp[ai];
-    if (tv != 0xFFFFFFFFu) { u32 al = lvl[tv >> 1]; if ((u64)al < cv) { sstk[al] = 0u; } }
-    ai = ai + 1ULL;
   }
   u64 mk = 1ULL; u64 mp = 1ULL;
   while (mp < orig_tlen) {

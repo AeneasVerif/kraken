@@ -1277,8 +1277,8 @@ private def minLitDfsBigExpr
                                               .let_ (op64 (.add i64) (.var pShrinkStk)
                                                 (.var p_um.fst)) fun p_ua =>
                                               .load i32 (.var p_ua.fst) fun ld_used =>
-                                              .let_ (Op.mk (.cmp .ule i32 .bool rfl)
-                                                  (.var ld_used, .imm 1, ())) fun p_le1 =>
+                                              .let_ (Op.mk (.cmp .eq i32 .bool rfl)
+                                                  (.var ld_used, .imm 0, ())) fun p_le1 =>
                                               .jnz (.var p_le1.fst)
                                                 (.jump B (.var sp, .var cd, .imm false,
                                                   .var steps1, ()))

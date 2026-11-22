@@ -12,7 +12,8 @@ import Kraken.Separation
 
 Proves `Func.wp` for `full_min_shrink_m6_body` certifying `Full.fullMinShrinkSpec` (UNSAT-only,
 no `@[expose]`, zero `FullHdr` changes):
-- `analyzed`-based `shrink_stk` (`frame->used`) counts via `Loops 1..5`,
+- `analyzed`-based `shrink_stk` (`frame->used`) zero/count via `minShrinkZeroLvlsExpr` and
+  `minShrinkCountAnaExpr`,
 - initial forward minimization pass with `full_min_lit_dfs_m6(..., true, true)`,
 - low-to-high level block iteration with `full_shrink_blk_bool_m6` and per-block DFS fallback
   `full_min_lit_dfs_m6(..., false, false)`,
@@ -357,63 +358,17 @@ private def minShrinkMarkInitExpr {V : Ty → Type} {C : List Ty → Type} (p or
       cont) .nil)
     fun Js => .jump Js.fst (.imm 0, ())
 
-private def minShrinkZeroAnaExpr {V : Ty → Type} {C : List Ty → Type}
-    (cv pLvl pSstk pAna ana_n : V i64) (cont : Expr V C []) : Expr V C [] :=
+private def minShrinkZeroLvlsExpr {V : Ty → Type} {C : List Ty → Type}
+    (pSstk lim : V i64) (cont : Expr V C []) : Expr V C [] :=
   let op64 (c : OpCode [i64, i64] [i64]) (a b : Arg V i64) := Op.mk c (a, b, ())
-  .group (sig := [[i64]]) (fun Js => .cons (fun p_20 =>
-    .let_ (Op.mk (.cmp .ult i64 .bool rfl) (.var p_20.fst, .var ana_n, ())) fun p_21 =>
-    .jnz (.var p_21.fst)
-      (.let_ (op64 (.mul i64) (.var p_20.fst) (.imm 4)) fun p =>
-       .let_ (op64 (.add i64) (.var pAna) (.var p.fst)) fun p =>
-       .load i32 (.var p.fst) fun ld_9 =>
-       .group (sig := [[]]) (fun _ => .cons (fun _ =>
-         .let_ (op64 (.add i64) (.var p_20.fst) (.imm 1)) fun p =>
-         .jump Js.fst (.var p.fst, ())) .nil) fun Js =>
-       .let_ (Op.mk (.zext 32 64) (.var ld_9, ())) fun p =>
-       .let_ (Op.mk (.cmp .ult i64 .bool rfl) (.var p.fst, .var cv, ())) fun p =>
-       .jnz (.var p.fst)
-         (.let_ (Op.mk (.zext 32 64) (.var ld_9, ())) fun p =>
-          .let_ (op64 (.mul i64) (.var p.fst) (.imm 4)) fun p =>
-          .let_ (op64 (.add i64) (.var pLvl) (.var p.fst)) fun p =>
-          .load i32 (.var p.fst) fun ld_10 =>
-          .group (sig := [[]]) (fun _ => .cons (fun _ => .jump Js.fst ()) .nil) fun Js =>
-          .let_ (Op.mk (.zext 32 64) (.var ld_10, ())) fun p =>
-          .let_ (Op.mk (.cmp .ult i64 .bool rfl) (.var p.fst, .var cv, ())) fun p =>
-          .jnz (.var p.fst)
-            (.let_ (Op.mk (.zext 32 64) (.var ld_10, ())) fun p =>
-             .let_ (op64 (.mul i64) (.var p.fst) (.imm 4)) fun p =>
-             .let_ (op64 (.add i64) (.var pSstk) (.var p.fst)) fun p =>
-             .store (t := i32) (.imm 0) (.var p.fst) (.jump Js.fst ()))
-            (.jump Js.fst ()))
-         (.jump Js.fst ()))
-      cont) .nil)
-    fun Js => .jump Js.fst (.imm 0, ())
-
-private def minShrinkZeroTmpExpr {V : Ty → Type} {C : List Ty → Type}
-    (cv orig_tlen pTmp pLvl pSstk : V i64) (cont : Expr V C []) : Expr V C [] :=
-  let op64 (c : OpCode [i64, i64] [i64]) (a b : Arg V i64) := Op.mk c (a, b, ())
-  .group (sig := [[i64]]) (fun Js => .cons (fun p_22 =>
-    .let_ (Op.mk (.cmp .ult i64 .bool rfl) (.var p_22.fst, .var orig_tlen, ())) fun p_23 =>
-    .jnz (.var p_23.fst)
-      (.let_ (op64 (.mul i64) (.var p_22.fst) (.imm 4)) fun p =>
-       .let_ (op64 (.add i64) (.var pTmp) (.var p.fst)) fun p =>
-       .load i32 (.var p.fst) fun ld_9 =>
-       .let_ (Op.mk (.lshr i32) (.var ld_9, .imm 1, ())) fun p =>
-       .let_ (Op.mk (.zext 32 64) (.var p.fst, ())) fun p =>
-       .let_ (op64 (.mul i64) (.var p.fst) (.imm 4)) fun p =>
-       .let_ (op64 (.add i64) (.var pLvl) (.var p.fst)) fun p =>
-       .load i32 (.var p.fst) fun ld_10 =>
-       .group (sig := [[]]) (fun _ => .cons (fun _ =>
-         .let_ (op64 (.add i64) (.var p_22.fst) (.imm 1)) fun p =>
-         .jump Js.fst (.var p.fst, ())) .nil) fun Js =>
-       .let_ (Op.mk (.zext 32 64) (.var ld_10, ())) fun p =>
-       .let_ (Op.mk (.cmp .ult i64 .bool rfl) (.var p.fst, .var cv, ())) fun p =>
-       .jnz (.var p.fst)
-         (.let_ (Op.mk (.zext 32 64) (.var ld_10, ())) fun p =>
-          .let_ (op64 (.mul i64) (.var p.fst) (.imm 4)) fun p =>
-          .let_ (op64 (.add i64) (.var pSstk) (.var p.fst)) fun p =>
-          .store (t := i32) (.imm 0) (.var p.fst) (.jump Js.fst ()))
-         (.jump Js.fst ()))
+  .group (sig := [[i64]]) (fun Js => .cons (fun p_19 =>
+    .let_ (Op.mk (.cmp .ult i64 .bool rfl) (.var p_19.fst, .var lim, ())) fun p_20 =>
+    .jnz (.var p_20.fst)
+      (.let_ (op64 (.mul i64) (.var p_19.fst) (.imm 4)) fun p =>
+       .let_ (op64 (.add i64) (.var pSstk) (.var p.fst)) fun p =>
+       .store (t := i32) (.imm 0) (.var p.fst)
+         (.let_ (op64 (.add i64) (.var p_19.fst) (.imm 1)) fun p =>
+          .jump Js.fst (.var p.fst, ())))
       cont) .nil)
     fun Js => .jump Js.fst (.imm 0, ())
 
@@ -484,38 +439,6 @@ private def minShrinkPass1Expr {V : Ty → Type} {C : List Ty → Type} (p orig_
          (.jump Js.fst ()))
       cont) .nil)
     fun Js => .jump Js.fst (.imm 1, ())
-
-private def minShrinkZeroTmpNsExpr {V : Ty → Type} {C : List Ty → Type}
-    (cv orig_tlen pTmp pLvl pSstk : V i64) (cont : Expr V C []) : Expr V C [] :=
-  let op64 (c : OpCode [i64, i64] [i64]) (a b : Arg V i64) := Op.mk c (a, b, ())
-  .group (sig := [[i64]]) (fun Js => .cons (fun p_30 =>
-    .let_ (Op.mk (.cmp .ult i64 .bool rfl) (.var p_30.fst, .var orig_tlen, ())) fun p_31 =>
-    .jnz (.var p_31.fst)
-      (.let_ (op64 (.mul i64) (.var p_30.fst) (.imm 4)) fun p =>
-       .let_ (op64 (.add i64) (.var pTmp) (.var p.fst)) fun p =>
-       .load i32 (.var p.fst) fun ld_9 =>
-       .group (sig := [[]]) (fun _ => .cons (fun _ =>
-         .let_ (op64 (.add i64) (.var p_30.fst) (.imm 1)) fun p =>
-         .jump Js.fst (.var p.fst, ())) .nil) fun Js =>
-       .let_ (Op.mk (.cmp .ne i32 .bool rfl) (.var ld_9, .imm 4294967295, ())) fun p =>
-       .jnz (.var p.fst)
-         (.let_ (Op.mk (.lshr i32) (.var ld_9, .imm 1, ())) fun p =>
-          .let_ (Op.mk (.zext 32 64) (.var p.fst, ())) fun p =>
-          .let_ (op64 (.mul i64) (.var p.fst) (.imm 4)) fun p =>
-          .let_ (op64 (.add i64) (.var pLvl) (.var p.fst)) fun p =>
-          .load i32 (.var p.fst) fun ld_10 =>
-          .group (sig := [[]]) (fun _ => .cons (fun _ => .jump Js.fst ()) .nil) fun Js =>
-          .let_ (Op.mk (.zext 32 64) (.var ld_10, ())) fun p =>
-          .let_ (Op.mk (.cmp .ult i64 .bool rfl) (.var p.fst, .var cv, ())) fun p =>
-          .jnz (.var p.fst)
-            (.let_ (Op.mk (.zext 32 64) (.var ld_10, ())) fun p =>
-             .let_ (op64 (.mul i64) (.var p.fst) (.imm 4)) fun p =>
-             .let_ (op64 (.add i64) (.var pSstk) (.var p.fst)) fun p =>
-             .store (t := i32) (.imm 0) (.var p.fst) (.jump Js.fst ()))
-            (.jump Js.fst ()))
-         (.jump Js.fst ()))
-      cont) .nil)
-    fun Js => .jump Js.fst (.imm 0, ())
 
 private def minShrinkCompactLoopExpr {V : Ty → Type} {C : List Ty → Type} (bound pTmp : V i64)
     (after : V i64 → Expr V C []) : Expr V C [] :=
@@ -729,153 +652,63 @@ private theorem full_min_shrink_m6_body_eq :
                     (minShrinkMarkInitExpr p.fst ld_1 ld_3
                       (.let_ (op64 (.add i64) (.var p.fst) (.imm 416)) fun p_16 =>
                        .load i64 (.var p_16.fst) fun ld_6 =>
-                       .let_ (op64 (.add i64) (.var p.fst) (.imm 848)) fun p_17 =>
+                       .let_ (op64 (.add i64) (.var p.fst) (.imm 160)) fun p_17 =>
                        .load i64 (.var p_17.fst) fun ld_7 =>
-                       .let_ (op64 (.add i64) (.var p.fst) (.imm 1144)) fun p_18 =>
-                       .load i64 (.var p_18.fst) fun ld_8 =>
-                       .group (sig := [[i64]]) (fun _Js => .cons (fun p_19 =>
-                         minShrinkZeroAnaExpr ld ld_4 ld_6 ld_7 p_19.fst
-                           (minShrinkZeroTmpExpr ld ld_1 ld_3 ld_4 ld_6
-                             (minShrinkCountAnaExpr p.fst ld ld_4 ld_6 ld_7 p_19.fst
-                               (minShrinkPass1Expr p.fst ld_1 ld_3
-                                 (minShrinkZeroAnaExpr ld ld_4 ld_6 ld_7 p_19.fst
-                                   (minShrinkZeroTmpNsExpr ld ld_1 ld_3 ld_4 ld_6
-                                     (minShrinkCompactLoopExpr ld_1 ld_3 fun tlen =>
-                                       minShrinkBlkLoopExpr p.fst ld ld_1 ld_3 ld_4 ld_5 tlen)))))))
+                       .group (sig := [[i64]]) (fun _Js => .cons (fun p_18 =>
+                         minShrinkZeroLvlsExpr ld_6 p_18.fst
+                           (.let_ (op64 (.add i64) (.var p.fst) (.imm 848)) fun p_21 =>
+                            .load i64 (.var p_21.fst) fun ld_8 =>
+                            .let_ (op64 (.add i64) (.var p.fst) (.imm 1144)) fun p_22 =>
+                            .load i64 (.var p_22.fst) fun ld_9 =>
+                            .group (sig := [[i64]]) (fun _Js => .cons (fun p_23 =>
+                              minShrinkCountAnaExpr p.fst ld ld_4 ld_6 ld_8 p_23.fst
+                                (minShrinkPass1Expr p.fst ld_1 ld_3
+                                  (minShrinkCompactLoopExpr ld_1 ld_3 fun tlen =>
+                                    minShrinkBlkLoopExpr p.fst ld ld_1 ld_3 ld_4 ld_5 tlen)))
+                              .nil) fun Js =>
+                            .let_ (Op.mk (.cmp .ugt i64 .bool rfl) (.var ld_9, .var ld, ()))
+                              fun p =>
+                            .jnz (.var p.fst) (.jump Js.fst (.var ld, ()))
+                              (.jump Js.fst (.var ld_9, ()))))
                          .nil) fun Js =>
-                       .let_ (Op.mk (.cmp .ugt i64 .bool rfl) (.var ld_8, .var ld, ())) fun p =>
+                       .let_ (Op.mk (.cmp .ult i64 .bool rfl) (.var ld, .var ld_7, ())) fun p =>
                        .jnz (.var p.fst) (.jump Js.fst (.var ld, ()))
-                         (.jump Js.fst (.var ld_8, ())))))))) := by
+                         (.jump Js.fst (.var ld_7, ())))))))) := by
   rfl
 
-/-! ## 3. Sub-expression `wp` lemmas (`Loops 1..5`, `Pass 1`, `Compact`, `Clean`, `BlockLoop`) -/
+/-! ## 3. Sub-expression `wp` lemmas (`ZeroLvls`, `CountAna`, `Pass 1`, `Compact`, `Clean`) -/
 
-private theorem min_shrink_zero_ana_wp {Γ : Env} {c : FullCfg} {s : FullState}
-    {ana_n : BitVec 64} {R : Mem 64 → Prop} {cont : Expr Val Cont []} {Q : Post []} {X : XPost}
-    (hlen : s.LengthsOk c) (hana_le : ana_n.toNat ≤ s.core.cur_vars)
+private theorem min_shrink_zero_lvls_wp {Γ : Env} {c : FullCfg} {s : FullState}
+    {lim : BitVec 64} {R : Mem 64 → Prop} {cont : Expr Val Cont []} {Q : Post []} {X : XPost}
+    (hlen : s.LengthsOk c) (hlim_le : lim.toNat ≤ s.core.cur_vars)
     {m : Mem 64} (hm_in : (FullMem c s ⋆ R) m)
     (hcont : ∀ sstk' m',
       sstk'.length = c.max_vars →
       (FullMem c { s with scratch := { s.scratch with shrink_stk := sstk' } } ⋆ R) m' →
       wp Γ Q X cont m') :
-    wp Γ Q X (minShrinkZeroAnaExpr (BitVec.ofNat 64 s.core.cur_vars) c.pLevel c.pShrinkStk
-      c.pWorkStk1 ana_n cont) m := by
+    wp Γ Q X (minShrinkZeroLvlsExpr c.pShrinkStk lim cont) m := by
   have hmx := c.hmaxv; unfold dimacsBound at hmx
   have hcv := hlen.core_ok.cur_vars_le
-  have hcv_bv : (BitVec.ofNat 64 s.core.cur_vars).toNat = s.core.cur_vars := by
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
   have h0v : (0#64 : BitVec 64).toNat = 0 := rfl
-  dsimp only [minShrinkZeroAnaExpr]
+  dsimp only [minShrinkZeroLvlsExpr]
   refine wp_loop_group (ts := [i64]) (fun n (i_bv, ()) mi =>
-      n = ana_n.toNat - i_bv.toNat ∧ i_bv.toNat ≤ ana_n.toNat ∧ ∃ sstk_i,
+      n = lim.toNat - i_bv.toNat ∧ i_bv.toNat ≤ lim.toNat ∧ ∃ sstk_i,
       sstk_i.length = c.max_vars ∧
       (FullMem c { s with scratch := { s.scratch with shrink_stk := sstk_i } } ⋆ R) mi) ?_
     (fun Js hJs => by
-      ml_lets; exact hJs (ana_n.toNat - 0) (0#64, ()) m
+      ml_lets; exact hJs (lim.toNat - 0) (0#64, ()) m
         ⟨by rw [h0v], by rw [h0v]; exact Nat.zero_le _, s.scratch.shrink_stk,
          hlen.scratch_ok.shrink_stk_len, hm_in⟩)
   rintro Js n ⟨i_bv, ⟨⟩⟩ mi hJs ⟨rfl, hile, sstk_i, hsstkl, hm_i⟩
   let st_i : FullState := { s with scratch := { s.scratch with shrink_stk := sstk_i } }
   rw [Blocks.get_here]; ml_lets; ml_jnz; refine ⟨fun hlt => ?_, fun hge => ?_⟩
-  · c0_cond hlt; have hi_ws : i_bv.toNat < st_i.scratch.work_stk1.length := by
-      dsimp only [st_i]; rw [hlen.scratch_ok.work_stk1_len]; omega
-    ml_ld c0_load_full_work_stk1 (s := st_i) (i := i_bv) hi_ws hm_i
-    let av32 := s.scratch.work_stk1[i_bv.toNat]'(by rw [hlen.scratch_ok.work_stk1_len]; omega)
+  · c0_cond hlt; have hi_stk : i_bv.toNat < st_i.scratch.shrink_stk.length := by
+      dsimp only [st_i]; rw [hsstkl]; omega
+    ml_st mn, hmn := c0_store_full_shrink_stk (s := st_i) (i := i_bv) 0#32 hi_stk hm_i
     have hi1 : (i_bv + 1).toNat = i_bv.toNat + 1 := min_bv64_add1 (by omega)
-    refine wp_join_group (ts := []) (fun () mn => ∃ sstk_n, sstk_n.length = c.max_vars ∧
-        (FullMem c { s with scratch := { s.scratch with shrink_stk := sstk_n } } ⋆ R) mn)
-      (fun _ ⟨⟩ mn ⟨sstk_n, hsnl, hm_n⟩ => by
-        rw [Blocks.get_here]; ml_lets
-        exact hJs (ana_n.toNat - (i_bv + 1).toNat) (i_bv + 1, ()) mn (by omega)
-          ⟨rfl, by omega, sstk_n, hsnl, hm_n⟩) ?_
-    rintro J1 hJ1; ml_lets; ml_jnz; refine ⟨fun hav => ?_, fun _ => by
-      ml_lets; exact hJ1 () mi ⟨sstk_i, hsstkl, hm_i⟩⟩
-    have hav_lt : av32.toNat < s.core.cur_vars := by
-      rw [BitVec.ult, decide_eq_true_eq, bv_c0_zext32_64, hcv_bv] at hav; exact hav
-    have hav_lvl : (av32.setWidth 64).toNat < st_i.core.lvl.length := by
-      dsimp only [st_i]; rw [hlen.core_ok.lvl_len, bv_c0_zext32_64]; omega
-    ml_ld c0_load_full_lvl (s := st_i) (i := av32.setWidth 64) hav_lvl hm_i
-    let al32 := s.core.lvl[(av32.setWidth 64).toNat]'(by
-      rw [hlen.core_ok.lvl_len, bv_c0_zext32_64]; omega)
-    refine wp_join_group (ts := []) (fun () mn => ∃ sstk_n, sstk_n.length = c.max_vars ∧
-        (FullMem c { s with scratch := { s.scratch with shrink_stk := sstk_n } } ⋆ R) mn)
-      (fun _ ⟨⟩ mn ⟨sstk_n, hsnl, hm_n⟩ => by
-        rw [Blocks.get_here]; exact hJ1 () mn ⟨sstk_n, hsnl, hm_n⟩) ?_
-    rintro J2 hJ2; ml_lets; ml_jnz; refine ⟨fun hal => ?_, fun _ => by
-      ml_lets; exact hJ2 () mi ⟨sstk_i, hsstkl, hm_i⟩⟩
-    have hal_lt : al32.toNat < s.core.cur_vars := by
-      rw [BitVec.ult, decide_eq_true_eq, bv_c0_zext32_64, hcv_bv] at hal; exact hal
-    have hal_stk : (al32.setWidth 64).toNat < st_i.scratch.shrink_stk.length := by
-      dsimp only [st_i]; rw [hsstkl, bv_c0_zext32_64]; omega
-    ml_lets
-    ml_st mn, hmn := c0_store_full_shrink_stk (s := st_i) (i := al32.setWidth 64) 0#32 hal_stk hm_i
-    exact hJ2 () mn ⟨sstk_i.set (al32.setWidth 64).toNat 0#32, by rw [List.length_set, hsstkl], hmn⟩
+    ml_lets; exact hJs (lim.toNat - (i_bv + 1).toNat) (i_bv + 1, ()) mn (by omega)
+      ⟨rfl, by omega, sstk_i.set i_bv.toNat 0#32, by rw [List.length_set, hsstkl], hmn⟩
   · c0_cond hge; exact hcont sstk_i mi hsstkl hm_i
-
-private theorem min_shrink_zero_tmp_wp {Γ : Env} {c : FullCfg} {s : FullState}
-    {R : Mem 64 → Prop} {cont : Expr Val Cont []} {Q : Post []} {X : XPost}
-    (hlen : s.LengthsOk c) (htl_cv : s.core.tmp_len ≤ s.core.cur_vars)
-    (htmp_lt : ∀ k < s.core.tmp_len, (s.core.tmp[k]?.getD 0#32).toNat < 2 * s.core.cur_vars)
-    {m : Mem 64} (hm_in : (FullMem c s ⋆ R) m)
-    (hcont : ∀ sstk' m',
-      sstk'.length = c.max_vars →
-      (FullMem c { s with scratch := { s.scratch with shrink_stk := sstk' } } ⋆ R) m' →
-      wp Γ Q X cont m') :
-    wp Γ Q X (minShrinkZeroTmpExpr (BitVec.ofNat 64 s.core.cur_vars)
-      (BitVec.ofNat 64 s.core.tmp_len) c.pTmp c.pLevel c.pShrinkStk cont) m := by
-  have hmx := c.hmaxv; unfold dimacsBound at hmx
-  have hcv := hlen.core_ok.cur_vars_le
-  have hcv_bv : (BitVec.ofNat 64 s.core.cur_vars).toNat = s.core.cur_vars := by
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
-  have htl_bv : (BitVec.ofNat 64 s.core.tmp_len).toNat = s.core.tmp_len := by
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
-  have h0v : (0#64 : BitVec 64).toNat = 0 := rfl
-  dsimp only [minShrinkZeroTmpExpr]
-  refine wp_loop_group (ts := [i64]) (fun n (i_bv, ()) mi =>
-      n = s.core.tmp_len - i_bv.toNat ∧ i_bv.toNat ≤ s.core.tmp_len ∧ ∃ sstk_i,
-      sstk_i.length = c.max_vars ∧
-      (FullMem c { s with scratch := { s.scratch with shrink_stk := sstk_i } } ⋆ R) mi) ?_
-    (fun Js hJs => by
-      ml_lets; exact hJs (s.core.tmp_len - 0) (0#64, ()) m
-        ⟨by rw [h0v], by rw [h0v]; exact Nat.zero_le _, s.scratch.shrink_stk,
-         hlen.scratch_ok.shrink_stk_len, hm_in⟩)
-  rintro Js n ⟨i_bv, ⟨⟩⟩ mi hJs ⟨rfl, hile, sstk_i, hsstkl, hm_i⟩
-  let st_i : FullState := { s with scratch := { s.scratch with shrink_stk := sstk_i } }
-  rw [Blocks.get_here]; ml_lets; ml_jnz; refine ⟨fun hlt => ?_, fun hge => ?_⟩
-  · have hi_x : i_bv.toNat < s.core.tmp_len := by
-      rw [BitVec.ult, decide_eq_true_eq, htl_bv] at hlt; exact hlt
-    have hi_tl : i_bv.toNat < st_i.core.tmp.length := by
-      dsimp only [st_i]; rw [hlen.core_ok.tmp_len_arr]; omega
-    ml_ld c0_load_full_tmp (s := st_i) (i := i_bv) hi_tl hm_i
-    let lit32 := s.core.tmp[i_bv.toNat]'(by rw [hlen.core_ok.tmp_len_arr]; omega)
-    have hlt_l : lit32.toNat < 2 * s.core.cur_vars := by
-      have := htmp_lt i_bv.toNat hi_x
-      rwa [List.getElem?_eq_getElem (by rw [hlen.core_ok.tmp_len_arr]; omega),
-        Option.getD_some] at this
-    have hv_lvl : ((lit32 >>> 1).setWidth 64).toNat < st_i.core.lvl.length := by
-      dsimp only [st_i]; rw [hlen.core_ok.lvl_len, bv_c0_zext32_64, bv32_lshr_1]; omega
-    ml_lets; ml_ld c0_load_full_lvl (s := st_i) (i := (lit32 >>> 1).setWidth 64) hv_lvl hm_i
-    let al32 := s.core.lvl[((lit32 >>> 1).setWidth 64).toNat]'(by
-      rw [hlen.core_ok.lvl_len, bv_c0_zext32_64, bv32_lshr_1]; omega)
-    have hi1 : (i_bv + 1).toNat = i_bv.toNat + 1 := min_bv64_add1 (by omega)
-    refine wp_join_group (ts := []) (fun () mn => ∃ sstk_n, sstk_n.length = c.max_vars ∧
-        (FullMem c { s with scratch := { s.scratch with shrink_stk := sstk_n } } ⋆ R) mn)
-      (fun _ ⟨⟩ mn ⟨sstk_n, hsnl, hm_n⟩ => by
-        rw [Blocks.get_here]; ml_lets
-        exact hJs (s.core.tmp_len - (i_bv + 1).toNat) (i_bv + 1, ()) mn (by omega)
-          ⟨rfl, by omega, sstk_n, hsnl, hm_n⟩) ?_
-    rintro J1 hJ1; ml_lets; ml_jnz; refine ⟨fun hal => ?_, fun _ => by
-      ml_lets; exact hJ1 () mi ⟨sstk_i, hsstkl, hm_i⟩⟩
-    have hal_lt : al32.toNat < s.core.cur_vars := by
-      rw [BitVec.ult, decide_eq_true_eq, bv_c0_zext32_64, hcv_bv] at hal; exact hal
-    have hal_stk : (al32.setWidth 64).toNat < st_i.scratch.shrink_stk.length := by
-      dsimp only [st_i]; rw [hsstkl, bv_c0_zext32_64]; omega
-    ml_lets
-    ml_st mn, hmn := c0_store_full_shrink_stk (s := st_i) (i := al32.setWidth 64) 0#32 hal_stk hm_i
-    exact hJ1 () mn ⟨sstk_i.set (al32.setWidth 64).toNat 0#32, by rw [List.length_set, hsstkl], hmn⟩
-  · have hie : i_bv.toNat = s.core.tmp_len := by
-      rw [BitVec.ult, decide_eq_false_iff_not, htl_bv] at hge; omega
-    exact hcont sstk_i mi hsstkl hm_i
 
 private theorem min_shrink_count_ana_wp {Γ : Env} {c : FullCfg} {s : FullState}
     {ana_n : BitVec 64} {R : Mem 64 → Prop} {cont : Expr Val Cont []} {Q : Post []} {X : XPost}
@@ -1202,80 +1035,6 @@ private theorem min_shrink_pass1_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s_o
       rw [BitVec.ult, decide_eq_false_iff_not, htl_bv] at hge; omega
     exact hcont tmp_i mrk_i mstk_i mclr_i mcl_i mcf_i mi
       hcore_i hmin_i hent_i hnd_i hab_i hno8_i hrem_i h0_i hpre_i hm_i
-
-private theorem min_shrink_zero_tmp_ns_wp {Γ : Env} {c : FullCfg} {s : FullState}
-    {R : Mem 64 → Prop} {cont : Expr Val Cont []} {Q : Post []} {X : XPost}
-    (hlen : s.LengthsOk c) (htl_cv : s.core.tmp_len ≤ s.core.cur_vars)
-    (htmp_lt : ∀ k < s.core.tmp_len, s.core.tmp[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
-      (s.core.tmp[k]?.getD 0#32).toNat < 2 * s.core.cur_vars)
-    {m : Mem 64} (hm_in : (FullMem c s ⋆ R) m)
-    (hcont : ∀ sstk' m',
-      sstk'.length = c.max_vars →
-      (FullMem c { s with scratch := { s.scratch with shrink_stk := sstk' } } ⋆ R) m' →
-      wp Γ Q X cont m') :
-    wp Γ Q X (minShrinkZeroTmpNsExpr (BitVec.ofNat 64 s.core.cur_vars)
-      (BitVec.ofNat 64 s.core.tmp_len) c.pTmp c.pLevel c.pShrinkStk cont) m := by
-  have hmx := c.hmaxv; unfold dimacsBound at hmx
-  have hcv := hlen.core_ok.cur_vars_le
-  have hcv_bv : (BitVec.ofNat 64 s.core.cur_vars).toNat = s.core.cur_vars := by
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
-  have htl_bv : (BitVec.ofNat 64 s.core.tmp_len).toNat = s.core.tmp_len := by
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
-  have h0v : (0#64 : BitVec 64).toNat = 0 := rfl
-  dsimp only [minShrinkZeroTmpNsExpr]
-  refine wp_loop_group (ts := [i64]) (fun n (i_bv, ()) mi =>
-      n = s.core.tmp_len - i_bv.toNat ∧ i_bv.toNat ≤ s.core.tmp_len ∧ ∃ sstk_i,
-      sstk_i.length = c.max_vars ∧
-      (FullMem c { s with scratch := { s.scratch with shrink_stk := sstk_i } } ⋆ R) mi) ?_
-    (fun Js hJs => by
-      ml_lets; exact hJs (s.core.tmp_len - 0) (0#64, ()) m
-        ⟨by rw [h0v], by rw [h0v]; exact Nat.zero_le _, s.scratch.shrink_stk,
-         hlen.scratch_ok.shrink_stk_len, hm_in⟩)
-  rintro Js n ⟨i_bv, ⟨⟩⟩ mi hJs ⟨rfl, hile, sstk_i, hsstkl, hm_i⟩
-  let st_i : FullState := { s with scratch := { s.scratch with shrink_stk := sstk_i } }
-  rw [Blocks.get_here]; ml_lets; ml_jnz; refine ⟨fun hlt => ?_, fun hge => ?_⟩
-  · have hi_x : i_bv.toNat < s.core.tmp_len := by
-      rw [BitVec.ult, decide_eq_true_eq, htl_bv] at hlt; exact hlt
-    have hi_tl : i_bv.toNat < st_i.core.tmp.length := by
-      dsimp only [st_i]; rw [hlen.core_ok.tmp_len_arr]; omega
-    ml_ld c0_load_full_tmp (s := st_i) (i := i_bv) hi_tl hm_i
-    let lit32 := s.core.tmp[i_bv.toNat]'(by rw [hlen.core_ok.tmp_len_arr]; omega)
-    have hi1 : (i_bv + 1).toNat = i_bv.toNat + 1 := min_bv64_add1 (by omega)
-    refine wp_join_group (ts := []) (fun () mn => ∃ sstk_n, sstk_n.length = c.max_vars ∧
-        (FullMem c { s with scratch := { s.scratch with shrink_stk := sstk_n } } ⋆ R) mn)
-      (fun _ ⟨⟩ mn ⟨sstk_n, hsnl, hm_n⟩ => by
-        rw [Blocks.get_here]; ml_lets
-        exact hJs (s.core.tmp_len - (i_bv + 1).toNat) (i_bv + 1, ()) mn (by omega)
-          ⟨rfl, by omega, sstk_n, hsnl, hm_n⟩) ?_
-    rintro J1 hJ1; ml_lets; ml_jnz; refine ⟨fun hne => ?_, fun _ => by
-      ml_lets; exact hJ1 () mi ⟨sstk_i, hsstkl, hm_i⟩⟩
-    have hlt_l : lit32.toNat < 2 * s.core.cur_vars := by
-      have hne' : lit32 ≠ 0xFFFFFFFF#32 := bne_iff_ne.mp hne
-      have h1 := htmp_lt i_bv.toNat hi_x
-      rw [List.getElem?_eq_getElem (by rw [hlen.core_ok.tmp_len_arr]; omega),
-        Option.getD_some] at h1
-      exact h1 hne'
-    have hv_lvl : ((lit32 >>> 1).setWidth 64).toNat < st_i.core.lvl.length := by
-      dsimp only [st_i]; rw [hlen.core_ok.lvl_len, bv_c0_zext32_64, bv32_lshr_1]; omega
-    ml_lets; ml_ld c0_load_full_lvl (s := st_i) (i := (lit32 >>> 1).setWidth 64) hv_lvl hm_i
-    let al32 := s.core.lvl[((lit32 >>> 1).setWidth 64).toNat]'(by
-      rw [hlen.core_ok.lvl_len, bv_c0_zext32_64, bv32_lshr_1]; omega)
-    refine wp_join_group (ts := []) (fun () mn => ∃ sstk_n, sstk_n.length = c.max_vars ∧
-        (FullMem c { s with scratch := { s.scratch with shrink_stk := sstk_n } } ⋆ R) mn)
-      (fun _ ⟨⟩ mn ⟨sstk_n, hsnl, hm_n⟩ => by
-        rw [Blocks.get_here]; exact hJ1 () mn ⟨sstk_n, hsnl, hm_n⟩) ?_
-    rintro J2 hJ2; ml_lets; ml_jnz; refine ⟨fun hal => ?_, fun _ => by
-      ml_lets; exact hJ2 () mi ⟨sstk_i, hsstkl, hm_i⟩⟩
-    have hal_lt : al32.toNat < s.core.cur_vars := by
-      rw [BitVec.ult, decide_eq_true_eq, bv_c0_zext32_64, hcv_bv] at hal; exact hal
-    have hal_stk : (al32.setWidth 64).toNat < st_i.scratch.shrink_stk.length := by
-      dsimp only [st_i]; rw [hsstkl, bv_c0_zext32_64]; omega
-    ml_lets
-    ml_st mn, hmn := c0_store_full_shrink_stk (s := st_i) (i := al32.setWidth 64) 0#32 hal_stk hm_i
-    exact hJ2 () mn ⟨sstk_i.set (al32.setWidth 64).toNat 0#32, by rw [List.length_set, hsstkl], hmn⟩
-  · have hie : i_bv.toNat = s.core.tmp_len := by
-      rw [BitVec.ult, decide_eq_false_iff_not, htl_bv] at hge; omega
-    exact hcont sstk_i mi hsstkl hm_i
 
 private theorem min_shrink_compact_loop_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     {bound_bv : BitVec 64} {bound_n : Nat} {after : Val i64 → Expr Val Cont []}
@@ -2439,138 +2198,146 @@ theorem full_min_shrink_m6_wp (Γ : Env)
         exact hmono2_n _ hjlt (hmark_i j (by omega))
     · c0_cond hge; have hie : i_bv.toNat = s.core.tmp_len := by bv_omega
       ml_ld load_full_shrink_stk_ptr (s := cur) hm_i
-      ml_ld load_full_work_stk1_ptr (s := cur) hm_i
-      ml_ld load_full_res_sz (s := cur) hm_i
+      ml_ld load_full_cur_level (s := cur) hm_i
       have hcore_i : FullOtfsCoreInv c F0 cur :=
         fullOtfsCoreInv_with_min hs2_core hmrkl hs2_core.1.core_ok.min_stk_len hmclrl hmcll
-      refine wp_join_group (ts := [i64]) (fun (ana_n, ()) ma =>
-          ma = mi ∧ ana_n.toNat ≤ s.core.cur_vars) ?_ ?_
-      · rintro Js_a ⟨ana_n, ⟨⟩⟩ ma ⟨rfl, hana_le⟩
+      refine wp_join_group (ts := [i64]) (fun (lim, ()) ml =>
+          ml = mi ∧ lim.toNat ≤ s.core.cur_vars) ?_ ?_
+      · rintro Js_l ⟨lim, ⟨⟩⟩ ml ⟨rfl, hlim_le⟩
         rw [Blocks.get_here]
-        refine min_shrink_zero_ana_wp hcore_i.1 hana_le hm_i fun sstk1 _m1 hs1l hm_s1 => ?_
+        refine min_shrink_zero_lvls_wp hcore_i.1 hlim_le hm_i fun sstk1 _m1 hs1l hm_s1 => ?_
         let cur1 := { cur with scratch := { cur.scratch with shrink_stk := sstk1 } }
         have hcore1 : FullOtfsCoreInv c F0 cur1 := min_shrink_with_sstk_core hcore_i hs1l
-        refine min_shrink_zero_tmp_wp hcore1.1 htl_cv
-          (fun k hk => (htmp1_vals k hk).2.1) hm_s1 fun sstk2 _m2 hs2l hm_s2 => ?_
-        let cur2 := { cur1 with scratch := { cur1.scratch with shrink_stk := sstk2 } }
-        have hcore2 : FullOtfsCoreInv c F0 cur2 := min_shrink_with_sstk_core hcore1 hs2l
-        refine min_shrink_count_ana_wp hcore2.1 hana_le hm_s2 fun sstk3 _m3 hs3l hm_s3 => ?_
-        let cur3 := { cur2 with scratch := { cur2.scratch with shrink_stk := sstk3 } }
-        have hcore3 : FullOtfsCoreInv c F0 cur3 := min_shrink_with_sstk_core hcore2 hs3l
-        refine min_shrink_pass1_wp hDfs htl1 htl_cv hcore3 rfl rfl rfl rfl rfl
-          (fun k hk => (htmp1_vals k hk).1) hmin_i
-          (fun F_c hw hE => ⟨fullOtfsWitness_with_min hw, hEnt1 F_c hE⟩)
-          (fun hnd _ => by
-            dsimp only [cur3, cur2, cur1, cur, s2, s1, s0]
-            rw [list_filter_ne_eq_self (by rw [ht1_len]; omega) fun j hj => by
-              have := (htmp1_vals j hj).2.1; omega]
-            exact nodup_take_map_div2_of_perm ht1_perm hnd)
-          hab_i hno8_i
-          (fun k hk _ => let hkv := htmp1_vals k hk; ⟨hkv.2.1, hkv.2.2.1, hmark_i k (hie ▸ hk)⟩)
-          (fun k hk1 hk2 => htmp1_lvls k hk1 hk2) ht1_sort hm_s3
-          fun tmp_p1 mrk_p1 mstk_p1 mclr_p1 mcl_p1 mcf_p1 m_p1
-            hcore_p1 hmin_p1 hent_p1 hnd_p1 hab_p1 hno8_p1 hrem_p1 h0_p1 hpre_p1 hm_p1 => ?_
-        let s_p1 : FullState := { minLitState cur3 mrk_p1 mstk_p1 mclr_p1 mcl_p1 mcf_p1 with
-          core := { (minLitState cur3 mrk_p1 mstk_p1 mclr_p1 mcl_p1 mcf_p1).core with
-            tmp := tmp_p1 } }
-        refine min_shrink_zero_ana_wp hcore_p1.1 hana_le hm_p1 fun sstk4 _m4 hs4l hm_s4 => ?_
-        let cur4 := { s_p1 with scratch := { s_p1.scratch with shrink_stk := sstk4 } }
-        have hcore4 : FullOtfsCoreInv c F0 cur4 := min_shrink_with_sstk_core hcore_p1 hs4l
-        refine min_shrink_zero_tmp_ns_wp hcore4.1 htl_cv
-          (fun k hk hne => (hrem_p1 k hk hne).1) hm_s4 fun sstk5 _m5 hs5l hm_s5 => ?_
-        let cur5 := { cur4 with scratch := { cur4.scratch with shrink_stk := sstk5 } }
-        have hcore5 : FullOtfsCoreInv c F0 cur5 := min_shrink_with_sstk_core hcore4 hs5l
-        have h0_p1_ne : cur5.core.tmp[0]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 := by
-          dsimp only [cur5, cur4, s_p1]; rw [h0_p1]; exact (htmp1_vals 0 htl1).1
-        have h0_p1_val : let l0 := (cur5.core.tmp[0]?.getD 0#32).toNat
-            l0 < 2 * cur5.core.cur_vars ∧ cur5.core.vals[l0]?.getD 0#8 = 0xFF#8 ∧
-            (cur5.core.mrk[l0 / 2]?.getD 0#8 &&& 2#8) ≠ 0#8 :=
-          hrem_p1 0 htl1 h0_p1_ne
-        have htl_bv : (BitVec.ofNat 64 s.core.tmp_len).toNat = s.core.tmp_len := by
-          rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
-        refine min_shrink_compact_loop_wp hcore5 htl_bv htl1 htl_cv h0_p1_ne h0_p1_val ?_ ?_ hm_s5
-          fun tmp_c1 tlen_bv m_c1 htl_c1 htlen1 htlen_le h0_c1 htake_c1 hne_c1 hval_c1 hns_c1
-            hsort_c1 hm_c1 => ?_
-        · intro k hk1 hk2 hne; have hrk := hrem_p1 k hk2 hne
-          have hpre := hpre_p1 k hk2 hne; have hlvk := htmp1_lvls k hk1 hk2
-          dsimp only [cur5, cur4, s_p1, minLitState, cur3, cur2, cur1, cur, s2, s1, s0] at hpre
-          rw [← hpre] at hlvk
-          exact ⟨hrk.1, hrk.2.1, hlvk.1, hlvk.2, hrk.2.2⟩
-        · intro i j hi1 hij hj hne_i hne_j
-          rw [hpre_p1 i (by omega) hne_i, hpre_p1 j hj hne_j]; exact ht1_sort i j hi1 hij hj
-        · let s_c1 : FullState := { cur5 with core := { cur5.core with tmp := tmp_c1 } }
-          have hcore_c1 : FullOtfsCoreInv c F0 s_c1 :=
-            fullOtfsCoreInv_with_min_tmp hcore5 htl_c1 (le_trans htl_cv hcv)
-              hcore5.1.core_ok.mrk_len hcore5.1.core_ok.min_stk_len
-              hcore5.1.core_ok.min_clr_len_arr hcore5.1.core_ok.min_clr_len_le
-              hcore5.1.scratch_ok
-          have hflt_c1 : (tmp_c1.take tlen_bv.toNat).filter (· ≠ 0xFFFFFFFF#32) =
-              tmp_c1.take tlen_bv.toNat := by
-            rw [List.filter_eq_self]; intro x hx; rw [List.mem_iff_getElem] at hx
-            obtain ⟨j, hj, rfl⟩ := hx; rw [List.length_take] at hj
-            have hne := hne_c1 j (by omega); rw [List.getElem_take]
-            rw [List.getElem?_eq_getElem (by omega), Option.getD_some] at hne
-            exact decide_eq_true hne
-          have hmin_c1 : FullMinMarkInv s_c1.core
-              (((tmp_c1.take tlen_bv.toNat).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat) := by
-            rw [hflt_c1, htake_c1]
-            exact ⟨hmin_p1.mrk_dom, hmin_p1.clr_cov, hmin_p1.rem_sound⟩
-          have hc1_inv : BlkLoopInv c F0 s s_c1 tlen_bv.toNat 1 s_c1 :=
-            ⟨hcore_c1, hmin_c1,
-             fun F_c hw hE => by
-               obtain ⟨hwc, hEc⟩ := hent_p1 F_c hw hE
-               exact ⟨fullOtfsWitness_with_min hwc, by rw [hflt_c1, htake_c1]; exact hEc⟩,
-             fun hnd_u hne_u => by rw [hflt_c1, htake_c1]; exact hnd_p1 hnd_u hne_u,
-             hab_p1, hno8_p1, rfl, rfl, rfl, rfl, rfl, rfl, rfl, fun _ _ _ => rfl,
-             fun h1 _ => absurd h1 (by omega),
-             fun k hk _ => by
-               simpa [s_c1, cur5, cur4, s_p1, minLitState, cur3, cur2, cur1, cur, s2, s1, s0]
-                 using hval_c1 k hk,
-             fun _ _ _ _ => rfl⟩
-          have h0_c1_ne : s_c1.core.tmp[0]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 := hne_c1 0 htlen1
-          have h0eq : s_c1.core.tmp[0]? = s.core.tmp[0]? :=
-            h0_c1.trans (h0_p1.trans (ht1_0 htl1))
-          have hc1_0lv :
-              (s.core.lvl[(s_c1.core.tmp[0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat =
-              s.core.cur_level := by
-            rw [h0eq]; exact h0_lvl
-          refine min_shrink_blk_loop_wp hDfs hSb rfl htlen1 (le_trans htlen_le htl_cv)
-            htlen_le hc1_inv
-            h0eq h0_c1_ne hc1_0lv hne_c1
-            (fun k hk1 hk2 => let h := hns_c1 k hk1 hk2; ⟨h.2.2.1, h.2.2.2.1⟩)
-            hsort_c1 hm_c1 fun tmp' tl' mrk' mstk' mclr' sstk' mcl' mcf' llits' mrem' m'
-              htlf hmlf hmstkf hmclrf hmclf hsstkf habf hmcf h1f htl_lef h0f hndf hnsf _
-              hentf hm' => ?_
-          let sf := { s with
-            core := { s.core with tmp := tmp', tmp_len := tl', mrk := mrk', min_stk := mstk',
-                                  min_clr := mclr', min_clr_len := mcl', min_clr_full := mcf' },
-            scratch := { s.scratch with conflicts := s.scratch.conflicts + 1,
-                                        learned_lits := llits', min_removed := mrem',
-                                        shrink_stk := sstk' } }
-          have hlen_f : sf.LengthsOk c :=
-            ⟨{ hlen0.core_ok with
-                tmp_len_arr := htlf, tmp_len_le := le_trans (le_trans htl_lef htl_cv) hcv,
-                mrk_len := hmlf, min_stk_len := hmstkf, min_clr_len_arr := hmclrf,
-                min_clr_len_le := hmclf },
-             min_shrink_scratch_ok hlen0.scratch_ok hsstkf⟩
-          obtain ⟨hw', hEc'⟩ := hentf F_cur hw0 hEnt0
-          have hlm' : FullLitMarksClear c sf :=
-            fullLitMarksClear_of_clear hlm0 rfl hmcf habf rfl
-          exact hQ tmp' tl' mrk' mstk' mclr' mcl' mcf' (s.scratch.conflicts + 1) llits' mrem'
-            sstk' m' hlen_f hw' hlm' h1f htl_lef h0f (hndf hnd0 hne0) hnsf
-            hEc' (by
-              simpa [sf, minShrinkRes, s_c1, cur5, cur4, s_p1, minLitState,
-                cur3, cur2, cur1, cur, s2, s1, s0] using hm')
-      · rintro Js_a hJs_a; ml_lets; ml_jnz; refine ⟨fun hgt => ?_, fun hle => ?_⟩
+        ml_ld load_full_work_stk1_ptr (s := cur1) hm_s1
+        ml_ld load_full_res_sz (s := cur1) hm_s1
+        refine wp_join_group (ts := [i64]) (fun (ana_n, ()) ma =>
+            ma = _m1 ∧ ana_n.toNat ≤ s.core.cur_vars) ?_ ?_
+        · rintro Js_a ⟨ana_n, ⟨⟩⟩ ma ⟨rfl, hana_le⟩
+          rw [Blocks.get_here]
+          refine min_shrink_count_ana_wp hcore1.1 hana_le hm_s1 fun sstk2 _m2 hs2l hm_s2 => ?_
+          let cur2 := { cur1 with scratch := { cur1.scratch with shrink_stk := sstk2 } }
+          have hcore2 : FullOtfsCoreInv c F0 cur2 := min_shrink_with_sstk_core hcore1 hs2l
+          refine min_shrink_pass1_wp hDfs htl1 htl_cv hcore2 rfl rfl rfl rfl rfl
+            (fun k hk => (htmp1_vals k hk).1) hmin_i
+            (fun F_c hw hE => ⟨fullOtfsWitness_with_min hw, hEnt1 F_c hE⟩)
+            (fun hnd _ => by
+              dsimp only [cur2, cur1, cur, s2, s1, s0]
+              rw [list_filter_ne_eq_self (by rw [ht1_len]; omega) fun j hj => by
+                have := (htmp1_vals j hj).2.1; omega]
+              exact nodup_take_map_div2_of_perm ht1_perm hnd)
+            hab_i hno8_i
+            (fun k hk _ => let hkv := htmp1_vals k hk; ⟨hkv.2.1, hkv.2.2.1, hmark_i k (hie ▸ hk)⟩)
+            (fun k hk1 hk2 => htmp1_lvls k hk1 hk2) ht1_sort hm_s2
+            fun tmp_p1 mrk_p1 mstk_p1 mclr_p1 mcl_p1 mcf_p1 m_p1
+              hcore_p1 hmin_p1 hent_p1 hnd_p1 hab_p1 hno8_p1 hrem_p1 h0_p1 hpre_p1 hm_p1 => ?_
+          let s_p1 : FullState := { minLitState cur2 mrk_p1 mstk_p1 mclr_p1 mcl_p1 mcf_p1 with
+            core := { (minLitState cur2 mrk_p1 mstk_p1 mclr_p1 mcl_p1 mcf_p1).core with
+              tmp := tmp_p1 } }
+          have h0_p1_ne : s_p1.core.tmp[0]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 := by
+            dsimp only [s_p1]; rw [h0_p1]; exact (htmp1_vals 0 htl1).1
+          have h0_p1_val : let l0 := (s_p1.core.tmp[0]?.getD 0#32).toNat
+              l0 < 2 * s_p1.core.cur_vars ∧ s_p1.core.vals[l0]?.getD 0#8 = 0xFF#8 ∧
+              (s_p1.core.mrk[l0 / 2]?.getD 0#8 &&& 2#8) ≠ 0#8 :=
+            hrem_p1 0 htl1 h0_p1_ne
+          have htl_bv : (BitVec.ofNat 64 s.core.tmp_len).toNat = s.core.tmp_len := by
+            rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+          refine min_shrink_compact_loop_wp hcore_p1 htl_bv htl1 htl_cv h0_p1_ne h0_p1_val
+            ?_ ?_ hm_p1
+            fun tmp_c1 tlen_bv m_c1 htl_c1 htlen1 htlen_le h0_c1 htake_c1 hne_c1 hval_c1 hns_c1
+              hsort_c1 hm_c1 => ?_
+          · intro k hk1 hk2 hne; have hrk := hrem_p1 k hk2 hne
+            have hpre := hpre_p1 k hk2 hne; have hlvk := htmp1_lvls k hk1 hk2
+            dsimp only [s_p1, minLitState, cur2, cur1, cur, s2, s1, s0] at hpre
+            rw [← hpre] at hlvk
+            exact ⟨hrk.1, hrk.2.1, hlvk.1, hlvk.2, hrk.2.2⟩
+          · intro i j hi1 hij hj hne_i hne_j
+            rw [hpre_p1 i (by omega) hne_i, hpre_p1 j hj hne_j]; exact ht1_sort i j hi1 hij hj
+          · let s_c1 : FullState := { s_p1 with core := { s_p1.core with tmp := tmp_c1 } }
+            have hcore_c1 : FullOtfsCoreInv c F0 s_c1 :=
+              fullOtfsCoreInv_with_min_tmp hcore_p1 htl_c1 (le_trans htl_cv hcv)
+                hcore_p1.1.core_ok.mrk_len hcore_p1.1.core_ok.min_stk_len
+                hcore_p1.1.core_ok.min_clr_len_arr hcore_p1.1.core_ok.min_clr_len_le
+                hcore_p1.1.scratch_ok
+            have hflt_c1 : (tmp_c1.take tlen_bv.toNat).filter (· ≠ 0xFFFFFFFF#32) =
+                tmp_c1.take tlen_bv.toNat := by
+              rw [List.filter_eq_self]; intro x hx; rw [List.mem_iff_getElem] at hx
+              obtain ⟨j, hj, rfl⟩ := hx; rw [List.length_take] at hj
+              have hne := hne_c1 j (by omega); rw [List.getElem_take]
+              rw [List.getElem?_eq_getElem (by omega), Option.getD_some] at hne
+              exact decide_eq_true hne
+            have hmin_c1 : FullMinMarkInv s_c1.core
+                (((tmp_c1.take tlen_bv.toNat).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat) := by
+              rw [hflt_c1, htake_c1]
+              exact ⟨hmin_p1.mrk_dom, hmin_p1.clr_cov, hmin_p1.rem_sound⟩
+            have hc1_inv : BlkLoopInv c F0 s s_c1 tlen_bv.toNat 1 s_c1 :=
+              ⟨hcore_c1, hmin_c1,
+               fun F_c hw hE => by
+                 obtain ⟨hwc, hEc⟩ := hent_p1 F_c hw hE
+                 exact ⟨fullOtfsWitness_with_min hwc, by rw [hflt_c1, htake_c1]; exact hEc⟩,
+               fun hnd_u hne_u => by rw [hflt_c1, htake_c1]; exact hnd_p1 hnd_u hne_u,
+               hab_p1, hno8_p1, rfl, rfl, rfl, rfl, rfl, rfl, rfl, fun _ _ _ => rfl,
+               fun h1 _ => absurd h1 (by omega),
+               fun k hk _ => by
+                 simpa [s_c1, s_p1, minLitState, cur2, cur1, cur, s2, s1, s0] using hval_c1 k hk,
+               fun _ _ _ _ => rfl⟩
+            have h0_c1_ne : s_c1.core.tmp[0]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 := hne_c1 0 htlen1
+            have h0eq : s_c1.core.tmp[0]? = s.core.tmp[0]? :=
+              h0_c1.trans (h0_p1.trans (ht1_0 htl1))
+            have hc1_0lv :
+                (s.core.lvl[(s_c1.core.tmp[0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat =
+                s.core.cur_level := by
+              rw [h0eq]; exact h0_lvl
+            refine min_shrink_blk_loop_wp hDfs hSb rfl htlen1 (le_trans htlen_le htl_cv)
+              htlen_le hc1_inv
+              h0eq h0_c1_ne hc1_0lv hne_c1
+              (fun k hk1 hk2 => let h := hns_c1 k hk1 hk2; ⟨h.2.2.1, h.2.2.2.1⟩)
+              hsort_c1 hm_c1 fun tmp' tl' mrk' mstk' mclr' sstk' mcl' mcf' llits' mrem' m'
+                htlf hmlf hmstkf hmclrf hmclf hsstkf habf hmcf h1f htl_lef h0f hndf hnsf _
+                hentf hm' => ?_
+            let sf := { s with
+              core := { s.core with tmp := tmp', tmp_len := tl', mrk := mrk', min_stk := mstk',
+                                    min_clr := mclr', min_clr_len := mcl', min_clr_full := mcf' },
+              scratch := { s.scratch with conflicts := s.scratch.conflicts + 1,
+                                          learned_lits := llits', min_removed := mrem',
+                                          shrink_stk := sstk' } }
+            have hlen_f : sf.LengthsOk c :=
+              ⟨{ hlen0.core_ok with
+                  tmp_len_arr := htlf, tmp_len_le := le_trans (le_trans htl_lef htl_cv) hcv,
+                  mrk_len := hmlf, min_stk_len := hmstkf, min_clr_len_arr := hmclrf,
+                  min_clr_len_le := hmclf },
+               min_shrink_scratch_ok hlen0.scratch_ok hsstkf⟩
+            obtain ⟨hw', hEc'⟩ := hentf F_cur hw0 hEnt0
+            have hlm' : FullLitMarksClear c sf :=
+              fullLitMarksClear_of_clear hlm0 rfl hmcf habf rfl
+            exact hQ tmp' tl' mrk' mstk' mclr' mcl' mcf' (s.scratch.conflicts + 1) llits' mrem'
+              sstk' m' hlen_f hw' hlm' h1f htl_lef h0f (hndf hnd0 hne0) hnsf
+              hEc' (by
+                simpa [sf, minShrinkRes, s_c1, s_p1, minLitState,
+                  cur2, cur1, cur, s2, s1, s0] using hm')
+        · rintro Js_a hJs_a; ml_lets; ml_jnz; refine ⟨fun hgt => ?_, fun hle => ?_⟩
+          · have hcv_bv : (BitVec.ofNat 64 s.core.cur_vars).toNat = s.core.cur_vars := by
+              rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+            exact hJs_a (BitVec.ofNat 64 s.core.cur_vars, ()) _m1
+              ⟨rfl, by rw [hcv_bv]; exact le_refl _⟩
+          · rw [BitVec.ult, decide_eq_false_iff_not] at hle
+            have hcv_bv : (BitVec.ofNat 64 s.core.cur_vars).toNat = s.core.cur_vars := by
+              rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+            dsimp only [cur1, cur, s2, s1, s0] at hle
+            rw [hcv_bv] at hle
+            exact hJs_a (s.scratch.res_sz, ()) _m1 ⟨rfl, Nat.le_of_not_lt hle⟩
+      · rintro Js_l hJs_l; ml_lets; ml_jnz; refine ⟨fun hlt => ?_, fun hge => ?_⟩
         · have hcv_bv : (BitVec.ofNat 64 s.core.cur_vars).toNat = s.core.cur_vars := by
             rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
-          exact hJs_a (BitVec.ofNat 64 s.core.cur_vars, ()) mi
+          exact hJs_l (BitVec.ofNat 64 s.core.cur_vars, ()) mi
             ⟨rfl, by rw [hcv_bv]; exact le_refl _⟩
-        · rw [BitVec.ult, decide_eq_false_iff_not] at hle
+        · have hcl_bv : (BitVec.ofNat 64 s.core.cur_level).toNat = s.core.cur_level := by
+            have hcl_cv := le_trans hw0.cur_level_le hlen0.core_ok.trail_end_le
+            rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
           have hcv_bv : (BitVec.ofNat 64 s.core.cur_vars).toNat = s.core.cur_vars := by
             rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
-          dsimp only [cur, s2, s1, s0] at hle
-          rw [hcv_bv] at hle
-          exact hJs_a (s.scratch.res_sz, ()) mi ⟨rfl, Nat.le_of_not_lt hle⟩
+          dsimp only [cur, s2, s1, s0] at hge
+          rw [BitVec.ult, decide_eq_false_iff_not, hcv_bv, hcl_bv] at hge
+          exact hJs_l (BitVec.ofNat 64 s.core.cur_level, ()) mi
+            ⟨rfl, by rw [hcl_bv]; exact Nat.le_of_not_lt hge⟩
 
 end LeanQbe.T.Examples.Kissat.FullM6MinShrink
