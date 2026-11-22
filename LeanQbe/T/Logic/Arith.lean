@@ -36,7 +36,8 @@ def limbsArg {n : Nat} : List (Arg Val (.bits n)) → Nat
     limbsVal (a :: as) = a.toNat + 2 ^ n * limbsVal as := rfl
 
 @[simp, grind =] theorem limbsArg_nil {n : Nat} : limbsArg (n := n) [] = 0 := rfl
-@[simp, grind =] theorem limbsArg_cons {n : Nat} (a : Arg Val (.bits n)) (as : List (Arg Val (.bits n))) :
+@[simp, grind =] theorem limbsArg_cons {n : Nat}
+    (a : Arg Val (.bits n)) (as : List (Arg Val (.bits n))) :
     limbsArg (a :: as) = a.val.toNat + 2 ^ n * limbsArg as := rfl
 
 theorem limbsVal_append {n : Nat} (xs ys : List (BitVec n)) :
@@ -97,14 +98,16 @@ theorem mul_lt_pow2_two {n : Nat} (a b : BitVec n) :
     a.toNat * b.toNat < 2 ^ n * 2 ^ n :=
   Nat.mul_lt_mul_of_lt_of_lt a.isLt b.isLt
 
-/-- Generic 2-limb subtraction borrow identity (`ult128` via `subb` + `subb`, avoiding `omega` at `2^128`). -/
+/-- Generic 2-limb subtraction borrow identity (`ult128` via `subb` + `subb`,
+avoiding `omega` at `2^128`). -/
 theorem subb2_borrow_eq_decide {n : Nat} {a0 a1 b0 b1 d0 d1 : Nat} {ci w0 w1 : Bool}
     (hd0 : d0 < 2 ^ n) (hd1 : d1 < 2 ^ n)
     (h0 : d0 + b0 + ci.toNat = a0 + w0.toNat * 2 ^ n)
     (h1 : d1 + b1 + w0.toNat = a1 + w1.toNat * 2 ^ n) :
     w1 = decide (a1 * 2 ^ n + a0 < b1 * 2 ^ n + b0 + ci.toNat) := by
   have hD : d1 * 2 ^ n + d0 < 2 ^ n * 2 ^ n :=
-    Nat.lt_of_lt_of_le (Nat.add_lt_add_left hd0 _) (by rw [← Nat.succ_mul]; exact Nat.mul_le_mul_right _ hd1)
+    Nat.lt_of_lt_of_le (Nat.add_lt_add_left hd0 _)
+      (by rw [← Nat.succ_mul]; exact Nat.mul_le_mul_right _ hd1)
   have hsum : (d1 * 2 ^ n + d0) + (b1 * 2 ^ n + b0 + ci.toNat) =
       (a1 * 2 ^ n + a0) + w1.toNat * (2 ^ n * 2 ^ n) := by
     calc (d1 * 2 ^ n + d0) + (b1 * 2 ^ n + b0 + ci.toNat)
@@ -139,7 +142,8 @@ theorem mac_bound {n : Nat} (a b c d : BitVec n) :
   rw [Nat.succ_mul, Nat.mul_succ]
   omega
 
-/-- Generic 2-limb addition with carry in/out in factored `2 ^ n * 2 ^ n` form (no kernel `2^128` reduction). -/
+/-- Generic 2-limb addition with carry in/out in factored `2 ^ n * 2 ^ n` form
+(no kernel `2^128` reduction). -/
 theorem add2_combine_mul {n : Nat} {a0 a1 b0 b1 s0 s1 : Nat} {ci c0 c1 : Bool}
     (h0 : c0.toNat * 2 ^ n + s0 = a0 + b0 + ci.toNat)
     (h1 : c1.toNat * 2 ^ n + s1 = a1 + b1 + c0.toNat) :
@@ -164,15 +168,18 @@ theorem add2_combine {n : Nat} {a0 a1 b0 b1 s0 s1 : Nat} {ci c0 c1 : Bool}
   rw [show 2 * n = n + n by omega, Nat.pow_add]
   exact add2_combine_mul h0 h1
 
-/-- `add2_combine` specialized for 128-bit addition (`n = 64`, arbitrary carry-in) without kernel `2^128` reduction. -/
+/-- `add2_combine` specialized for 128-bit addition (`n = 64`, arbitrary carry-in)
+without kernel `2^128` reduction. -/
 theorem add128_combine_ci {a0 a1 b0 b1 s0 s1 : Nat} {ci c0 c1 : Bool}
     (h0 : c0.toNat * 2 ^ 64 + s0 = a0 + b0 + ci.toNat)
     (h1 : c1.toNat * 2 ^ 64 + s1 = a1 + b1 + c0.toNat) :
-    c1.toNat * 2 ^ 128 + (s1 * 2 ^ 64 + s0) = (a1 * 2 ^ 64 + a0) + (b1 * 2 ^ 64 + b0) + ci.toNat := by
+    c1.toNat * 2 ^ 128 + (s1 * 2 ^ 64 + s0) =
+      (a1 * 2 ^ 64 + a0) + (b1 * 2 ^ 64 + b0) + ci.toNat := by
   have h := add2_combine (n := 64) h0 h1
   rwa [show (2 : Nat) ^ (2 * 64) = 2 ^ 128 from congrArg (2 ^ ·) (by decide)] at h
 
-/-- `add2_combine` specialized for 128-bit addition (`n = 64`, `false.toNat` carry-in) without kernel `2^128` reduction. -/
+/-- `add2_combine` specialized for 128-bit addition (`n = 64`, `false.toNat` carry-in)
+without kernel `2^128` reduction. -/
 theorem add128_combine {a0 a1 b0 b1 s0 s1 : Nat} {c0 c1 : Bool}
     (h0 : c0.toNat * 2 ^ 64 + s0 = a0 + b0 + false.toNat)
     (h1 : c1.toNat * 2 ^ 64 + s1 = a1 + b1 + c0.toNat) :
@@ -185,9 +192,10 @@ theorem add128_combine0 {a0 a1 b0 b1 s0 s1 : Nat} {c0 c1 : Bool}
     (h0 : c0.toNat * 2 ^ 64 + s0 = a0 + b0)
     (h1 : c1.toNat * 2 ^ 64 + s1 = a1 + b1 + c0.toNat) :
     c1.toNat * 2 ^ 128 + (s1 * 2 ^ 64 + s0) = (a1 * 2 ^ 64 + a0) + (b1 * 2 ^ 64 + b0) :=
-  add128_combine (by simpa using h0) h1
+  add128_combine (by rw [Bool.toNat_false, Nat.add_zero]; exact h0) h1
 
-/-- 4-limb 256-bit addition (`n = 64`, arbitrary carry-in) without `omega` or kernel `2^256` reduction. -/
+/-- 4-limb 256-bit addition (`n = 64`, arbitrary carry-in)
+without `omega` or kernel `2^256` reduction. -/
 theorem add256_combine_ci {a0 a1 a2 a3 b0 b1 b2 b3 s0 s1 s2 s3 : Nat} {ci c0 c1 c2 c3 : Bool}
     (h0 : c0.toNat * 2 ^ 64 + s0 = a0 + b0 + ci.toNat)
     (h1 : c1.toNat * 2 ^ 64 + s1 = a1 + b1 + c0.toNat)
@@ -196,25 +204,9 @@ theorem add256_combine_ci {a0 a1 a2 a3 b0 b1 b2 b3 s0 s1 s2 s3 : Nat} {ci c0 c1 
     c3.toNat * 2 ^ 256 + (s3 * 2 ^ 192 + s2 * 2 ^ 128 + s1 * 2 ^ 64 + s0) =
       (a3 * 2 ^ 192 + a2 * 2 ^ 128 + a1 * 2 ^ 64 + a0) +
       (b3 * 2 ^ 192 + b2 * 2 ^ 128 + b1 * 2 ^ 64 + b0) + ci.toNat := by
-  have lo := add128_combine_ci h0 h1
-  have hi := add128_combine_ci h2 h3
-  have hp192 : (2 : Nat) ^ 128 * 2 ^ 64 = 2 ^ 192 := by
-    rw [← Nat.pow_add]
-  have hp256 : (2 : Nat) ^ 128 * 2 ^ 128 = 2 ^ 256 := by
-    rw [← Nat.pow_add]
-  calc c3.toNat * 2 ^ 256 + (s3 * 2 ^ 192 + s2 * 2 ^ 128 + s1 * 2 ^ 64 + s0)
-      = (c3.toNat * 2 ^ 128 + (s3 * 2 ^ 64 + s2)) * 2 ^ 128 + (s1 * 2 ^ 64 + s0) := by
-          rw [Nat.add_mul, Nat.add_mul, Nat.mul_assoc, Nat.mul_assoc, hp192, hp256]; ac_rfl
-    _ = ((a3 * 2 ^ 64 + a2) + (b3 * 2 ^ 64 + b2) + c1.toNat) * 2 ^ 128 + (s1 * 2 ^ 64 + s0) := by
-          rw [hi]
-    _ = (a3 * 2 ^ 192 + a2 * 2 ^ 128 + b3 * 2 ^ 192 + b2 * 2 ^ 128) +
-          (c1.toNat * 2 ^ 128 + (s1 * 2 ^ 64 + s0)) := by
-          simp only [Nat.add_mul, Nat.mul_assoc, hp192]; ac_rfl
-    _ = (a3 * 2 ^ 192 + a2 * 2 ^ 128 + b3 * 2 ^ 192 + b2 * 2 ^ 128) +
-          ((a1 * 2 ^ 64 + a0) + (b1 * 2 ^ 64 + b0) + ci.toNat) := by
-          rw [lo]
-    _ = (a3 * 2 ^ 192 + a2 * 2 ^ 128 + a1 * 2 ^ 64 + a0) +
-          (b3 * 2 ^ 192 + b2 * 2 ^ 128 + b1 * 2 ^ 64 + b0) + ci.toNat := by ac_rfl
+  have h := add2_combine (n := 128) (add128_combine_ci h0 h1) (add128_combine_ci h2 h3)
+  rw [show (2 : Nat) ^ (2 * 128) = 2 ^ 256 from congrArg (2 ^ ·) rfl] at h
+  simpa only [Nat.add_mul, Nat.mul_assoc, ← Nat.pow_add, Nat.add_assoc] using h
 
 /-- `add256_combine_ci` specialized to zero carry-in (`h0` without `+ ci.toNat`). -/
 theorem add256_combine0 {a0 a1 a2 a3 b0 b1 b2 b3 s0 s1 s2 s3 : Nat} {c0 c1 c2 c3 : Bool}
@@ -270,7 +262,8 @@ theorem sub4_base {B a0 a1 a2 a3 b0 b1 b2 b3 d0 d1 d2 d3 : Nat} {w0 w1 w2 w3 : B
     _ = (a0 + B * (a1 + B * (a2 + B * a3))) + w3.toNat * (B * (B * (B * B))) := by
           simp only [Nat.mul_add, ← Nat.mul_assoc]; ac_rfl
 
-/-- `subb2_borrow_eq_decide` specialized for 128-bit comparison (`n = 64`, `false.toNat` borrow-in). -/
+/-- `subb2_borrow_eq_decide` specialized for 128-bit comparison
+(`n = 64`, `false.toNat` borrow-in). -/
 theorem subb128_borrow_eq_decide {a0 a1 b0 b1 d0 d1 : BitVec 64} {w0 w1 : Bool}
     (h0 : d0.toNat + b0.toNat + false.toNat = a0.toNat + w0.toNat * 2 ^ 64)
     (h1 : d1.toNat + b1.toNat + w0.toNat = a1.toNat + w1.toNat * 2 ^ 64) :
@@ -487,7 +480,8 @@ theorem smulw_toInt {n : Nat} (a b : BitVec n) :
         rw [Int.natCast_emod, Int.natCast_pow, Int.cast_ofNat_Int,
           Int.toNat_of_nonneg hnn1, Int.toNat_of_nonneg hnn2, Int.emod_emod_of_dvd _ hdvd]
       rw [hmod1]
-      have hmod2 : (a.toInt * b.toInt) % (2 : Int) ^ n = ((a.toNat * b.toNat : Nat) : Int) % (2 : Int) ^ n := by
+      have hmod2 : (a.toInt * b.toInt) % (2 : Int) ^ n =
+          ((a.toNat * b.toNat : Nat) : Int) % (2 : Int) ^ n := by
         rw [Int.mul_emod, BitVec.toInt_emod_two_pow, BitVec.toInt_emod_two_pow,
           ← Int.natCast_mul]
       rw [hmod2, show (2 : Int) ^ n = ((2 ^ n : Nat) : Int) by push_cast; rfl,
@@ -506,10 +500,12 @@ theorem smulw_hi_toInt {n : Nat} (a b : BitVec n) :
   calc (a.toInt * b.toInt) / (2 ^ n : Int)
       = ((BitVec.extractLsb' n n (BitVec.ofInt (n + n) (a.toInt * b.toInt))).toInt * (2 ^ n : Int) +
           ((a * b).toNat : Int)) / (2 ^ n : Int) := congrArg (· / (2 ^ n : Int)) h.symm
-    _ = ((BitVec.extractLsb' n n (BitVec.ofInt (n + n) (a.toInt * b.toInt))).toInt * (2 ^ n : Int)) / (2 ^ n : Int) +
+    _ = ((BitVec.extractLsb' n n (BitVec.ofInt (n + n) (a.toInt * b.toInt))).toInt *
+            (2 ^ n : Int)) / (2 ^ n : Int) +
           ((a * b).toNat : Int) / (2 ^ n : Int) := Int.add_ediv_of_dvd_left (Int.dvd_mul_left _ _)
     _ = (BitVec.extractLsb' n n (BitVec.ofInt (n + n) (a.toInt * b.toInt))).toInt := by
-          rw [Int.mul_ediv_cancel _ (Int.ne_of_gt hpos), Int.ediv_eq_zero_of_lt hnn hlt, Int.add_zero]
+          rw [Int.mul_ediv_cancel _ (Int.ne_of_gt hpos),
+            Int.ediv_eq_zero_of_lt hnn hlt, Int.add_zero]
 
 theorem smulw_lo_toNat {n : Nat} (a b : BitVec n) :
     ((a * b).toNat : Int) = (a.toInt * b.toInt) % (2 ^ n : Int) := by
@@ -560,43 +556,43 @@ theorem toNat_sub_of_le' {n : Nat} {a b : BitVec n} (h : b.toNat ≤ a.toNat) :
     (a - b).toNat = a.toNat - b.toNat :=
   BitVec.toNat_sub_of_le (BitVec.le_def.mpr h)
 
-@[simp] theorem evalBits_eq_iff {n : Nat} (a b : BitVec n) :
+@[scoped simp] theorem evalBits_eq_iff {n : Nat} (a b : BitVec n) :
     CmpOp.evalBits .eq a b = true ↔ a = b := by
   simp [CmpOp.evalBits]
 
-@[simp] theorem evalBits_ne_iff {n : Nat} (a b : BitVec n) :
+@[scoped simp] theorem evalBits_ne_iff {n : Nat} (a b : BitVec n) :
     CmpOp.evalBits .ne a b = true ↔ a ≠ b := by
   simp [CmpOp.evalBits]
 
-@[simp] theorem evalBits_ult_iff {n : Nat} (a b : BitVec n) :
+@[scoped simp] theorem evalBits_ult_iff {n : Nat} (a b : BitVec n) :
     CmpOp.evalBits .ult a b = true ↔ a.toNat < b.toNat := by
   simp [CmpOp.evalBits, BitVec.ult]
 
-@[simp] theorem evalBits_ule_iff {n : Nat} (a b : BitVec n) :
+@[scoped simp] theorem evalBits_ule_iff {n : Nat} (a b : BitVec n) :
     CmpOp.evalBits .ule a b = true ↔ a.toNat ≤ b.toNat := by
   simp [CmpOp.evalBits, BitVec.ule]
 
-@[simp] theorem evalBits_ugt_iff {n : Nat} (a b : BitVec n) :
+@[scoped simp] theorem evalBits_ugt_iff {n : Nat} (a b : BitVec n) :
     CmpOp.evalBits .ugt a b = true ↔ b.toNat < a.toNat := by
   simp [CmpOp.evalBits, BitVec.ult]
 
-@[simp] theorem evalBits_uge_iff {n : Nat} (a b : BitVec n) :
+@[scoped simp] theorem evalBits_uge_iff {n : Nat} (a b : BitVec n) :
     CmpOp.evalBits .uge a b = true ↔ b.toNat ≤ a.toNat := by
   simp [CmpOp.evalBits, BitVec.ule]
 
-@[simp] theorem evalBits_slt_iff {n : Nat} (a b : BitVec n) :
+@[scoped simp] theorem evalBits_slt_iff {n : Nat} (a b : BitVec n) :
     CmpOp.evalBits .slt a b = true ↔ a.toInt < b.toInt := by
   simp [CmpOp.evalBits, BitVec.slt]
 
-@[simp] theorem evalBits_sle_iff {n : Nat} (a b : BitVec n) :
+@[scoped simp] theorem evalBits_sle_iff {n : Nat} (a b : BitVec n) :
     CmpOp.evalBits .sle a b = true ↔ a.toInt ≤ b.toInt := by
   simp [CmpOp.evalBits, BitVec.sle]
 
-@[simp] theorem evalBits_sgt_iff {n : Nat} (a b : BitVec n) :
+@[scoped simp] theorem evalBits_sgt_iff {n : Nat} (a b : BitVec n) :
     CmpOp.evalBits .sgt a b = true ↔ b.toInt < a.toInt := by
   simp [CmpOp.evalBits, BitVec.slt]
 
-@[simp] theorem evalBits_sge_iff {n : Nat} (a b : BitVec n) :
+@[scoped simp] theorem evalBits_sge_iff {n : Nat} (a b : BitVec n) :
     CmpOp.evalBits .sge a b = true ↔ b.toInt ≤ a.toInt := by
   simp [CmpOp.evalBits, BitVec.sle]
 

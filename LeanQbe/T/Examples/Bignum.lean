@@ -618,11 +618,16 @@ private theorem mulRowAccK_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty →
   unfold mulRowAccK; t_wf_tac
   refine (hk _ _ _ _ _ _ _ _ _ _).weaken_G fun q hq => by simp [Tup.zip] at hq ⊢; grind
 
-private theorem add4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
+private theorem bin4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
     {a0₁ a1₁ a2₁ a3₁ b0₁ b1₁ b2₁ b3₁ : V₁ i64} {a0₂ a1₂ a2₂ a3₂ b0₂ b1₂ b2₂ b3₂ : V₂ i64}
     {k₁ : V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ .bool → Expr V₁ L₁ rs}
     {k₂ : V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ .bool → Expr V₂ L₂ rs}
+    (f₁ : V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 →
+      (V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ .bool → Expr V₁ L₁ rs) → Expr V₁ L₁ rs)
+    (f₂ : V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 →
+      (V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ .bool → Expr V₂ L₂ rs) → Expr V₂ L₂ rs)
+    (hf : (f₁ = add4K ∧ f₂ = add4K) ∨ (f₁ = sub4K ∧ f₂ = sub4K))
     (ha0 : ⟨i64, a0₁, a0₂⟩ ∈ G) (ha1 : ⟨i64, a1₁, a1₂⟩ ∈ G)
     (ha2 : ⟨i64, a2₁, a2₂⟩ ∈ G) (ha3 : ⟨i64, a3₁, a3₂⟩ ∈ G)
     (hb0 : ⟨i64, b0₁, b0₂⟩ ∈ G) (hb1 : ⟨i64, b1₁, b1₂⟩ ∈ G)
@@ -631,28 +636,12 @@ private theorem add4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type
       Wf (⟨.bool, c3₁, c3₂⟩ :: ⟨i64, s3₁, s3₂⟩ :: ⟨i64, s2₁, s2₂⟩ ::
         ⟨i64, s1₁, s1₂⟩ :: ⟨i64, s0₁, s0₂⟩ :: G) D
         (k₁ s0₁ s1₁ s2₁ s3₁ c3₁) (k₂ s0₂ s1₂ s2₂ s3₂ c3₂)) :
-    Wf G D (add4K a0₁ a1₁ a2₁ a3₁ b0₁ b1₁ b2₁ b3₁ k₁)
-      (add4K a0₂ a1₂ a2₂ a3₂ b0₂ b1₂ b2₂ b3₂ k₂) := by
-  unfold add4K; t_wf_tac
-  refine (hk _ _ _ _ _ _ _ _ _ _).weaken_G fun q hq => by simp [Tup.zip] at hq ⊢; grind
-
-private theorem sub4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
-    {a0₁ a1₁ a2₁ a3₁ b0₁ b1₁ b2₁ b3₁ : V₁ i64} {a0₂ a1₂ a2₂ a3₂ b0₂ b1₂ b2₂ b3₂ : V₂ i64}
-    {k₁ : V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ .bool → Expr V₁ L₁ rs}
-    {k₂ : V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ .bool → Expr V₂ L₂ rs}
-    (ha0 : ⟨i64, a0₁, a0₂⟩ ∈ G) (ha1 : ⟨i64, a1₁, a1₂⟩ ∈ G)
-    (ha2 : ⟨i64, a2₁, a2₂⟩ ∈ G) (ha3 : ⟨i64, a3₁, a3₂⟩ ∈ G)
-    (hb0 : ⟨i64, b0₁, b0₂⟩ ∈ G) (hb1 : ⟨i64, b1₁, b1₂⟩ ∈ G)
-    (hb2 : ⟨i64, b2₁, b2₂⟩ ∈ G) (hb3 : ⟨i64, b3₁, b3₂⟩ ∈ G)
-    (hk : ∀ d0₁ d0₂ d1₁ d1₂ d2₁ d2₂ d3₁ d3₂ w3₁ w3₂,
-      Wf (⟨.bool, w3₁, w3₂⟩ :: ⟨i64, d3₁, d3₂⟩ :: ⟨i64, d2₁, d2₂⟩ ::
-        ⟨i64, d1₁, d1₂⟩ :: ⟨i64, d0₁, d0₂⟩ :: G) D
-        (k₁ d0₁ d1₁ d2₁ d3₁ w3₁) (k₂ d0₂ d1₂ d2₂ d3₂ w3₂)) :
-    Wf G D (sub4K a0₁ a1₁ a2₁ a3₁ b0₁ b1₁ b2₁ b3₁ k₁)
-      (sub4K a0₂ a1₂ a2₂ a3₂ b0₂ b1₂ b2₂ b3₂ k₂) := by
-  unfold sub4K; t_wf_tac
-  refine (hk _ _ _ _ _ _ _ _ _ _).weaken_G fun q hq => by simp [Tup.zip] at hq ⊢; grind
+    Wf G D (f₁ a0₁ a1₁ a2₁ a3₁ b0₁ b1₁ b2₁ b3₁ k₁)
+      (f₂ a0₂ a1₂ a2₂ a3₂ b0₂ b1₂ b2₂ b3₂ k₂) := by
+  rcases hf with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;> (
+    dsimp only [add4K, sub4K]
+    t_wf_tac
+    refine (hk _ _ _ _ _ _ _ _ _ _).weaken_G fun q hq => by simp [Tup.zip] at hq ⊢; grind)
 
 theorem mul4x4_wf : Func.Wf mul4x4 := by
   intro V₁ V₂ L₁ L₂ xs₁ xs₂
@@ -674,7 +663,7 @@ theorem addMod25519_wf : Func.Wf addMod25519 := by
   dsimp only [addMod25519]
   refine load4K_wf (by simp [Tup.zip]) fun _ _ _ _ _ _ _ _ => ?_
   refine load4K_wf (by simp [Tup.zip]) fun _ _ _ _ _ _ _ _ => ?_
-  refine add4K_wf (by simp) (by simp) (by simp) (by simp)
+  refine bin4K_wf add4K add4K (Or.inl ⟨rfl, rfl⟩) (by simp) (by simp) (by simp) (by simp)
     (by simp) (by simp) (by simp) (by simp) fun _ _ _ _ _ _ _ _ _ _ => ?_
   t_wf_tac
 
@@ -683,7 +672,7 @@ theorem subMod25519_wf : Func.Wf subMod25519 := by
   dsimp only [subMod25519]
   refine load4K_wf (by simp [Tup.zip]) fun _ _ _ _ _ _ _ _ => ?_
   refine load4K_wf (by simp [Tup.zip]) fun _ _ _ _ _ _ _ _ => ?_
-  refine sub4K_wf (by simp) (by simp) (by simp) (by simp)
+  refine bin4K_wf sub4K sub4K (Or.inr ⟨rfl, rfl⟩) (by simp) (by simp) (by simp) (by simp)
     (by simp) (by simp) (by simp) (by simp) fun _ _ _ _ _ _ _ _ _ _ => ?_
   t_wf_tac
 

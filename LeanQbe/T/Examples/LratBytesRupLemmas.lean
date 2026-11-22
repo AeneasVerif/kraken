@@ -750,61 +750,6 @@ private theorem wsRup_load_cb {c : WorkCfg} {prf_ptr pcur cur0 : BitVec 64}
   dsimp only [wsRupRest] at hm
   exact load_word8Array haid (by ecancel)
 
-/-- Shared basic-block stepper for the hint-ID decoding and clause-table lookup in `@cloop` and
-`@outer`: checks `u % 2 == 0`, computes `aid = u / 2`, checks `aid < id`, loads `als = ptrs[aid]`
-from `c.cb + 8 * aid`, and branches on `als ≠ 0` against `TableRel`. -/
-private theorem hint_lookup_step {c : WorkCfg} {prf_ptr pcur cur0 te : BitVec 64}
-    {prfBytes : List UInt8} {ptrs : List (BitVec 64)} {table : List (Option (List (BitVec 64)))}
-    {PoolUsed R : Mem 64 → Prop} {poolRem id u : Nat} {assign : Assignment}
-    {trail tf : List (BitVec 64)} {m : Mem 64} {P : BitVec 64 → Prop} {Q : Prop}
-    (hid_cap : id < c.cap) (hu : u < 2 ^ 28)
-    (htbl : TableRel c.mv c.cap ptrs table PoolUsed)
-    (hm : (Eq (prfBytes.At prf_ptr) ⋆ PState c.mv c.vb c.tb te assign trail tf (c.mv + 1) ⋆
-      wsRupRest c pcur cur0 ptrs PoolUsed poolRem ⋆ R) m)
-    (hodd : (u % 2 != 0) = true → Q)
-    (hge_id : (u % 2 != 0) = false → ¬ (u / 2 < id) → Q)
-    (hnone : u / 2 < id → (u % 2 != 0) = false → table[u / 2]? = some none → Q)
-    (hsome : ∀ (_haid_lt : u / 2 < id) (haid_plen : u / 2 < ptrs.length)
-      (alits : List (BitVec 64)) (R_a : Mem 64 → Prop),
-      (u % 2 != 0) = false →
-      table[u / 2]? = some (some alits) →
-      (∀ x ∈ alits, IsValidLit c.mv x) →
-      PoolUsed = (ZeroTermInts (ptrs[u / 2]'haid_plen) alits ⋆ R_a) →
-      P (ptrs[u / 2]'haid_plen)) :
-    (BitVec.ofNat 64 u &&& (1 : BitVec 64) ≠ 0 → Q) ∧
-    (BitVec.ofNat 64 u &&& (1 : BitVec 64) = 0 →
-      ((BitVec.ofNat 64 u >>> (1 : Nat)).ult (BitVec.ofNat 64 id) = true →
-        ∃ v, loadVal m i64
-          (c.cb + BitVec.ofNat 64 (8 * (BitVec.ofNat 64 u >>> (1 : Nat)).toNat)) = some v ∧
-          ((v ≠ 0 → P v) ∧ (v = 0 → Q))) ∧
-      ((BitVec.ofNat 64 u >>> (1 : Nat)).ult (BitVec.ofNat 64 id) = false → Q)) := by
-  have hfa := c.fit_active; unfold WorkCfg.activeBytes at hfa
-  refine ⟨(bv_odd_branch (u := u) (by omega : u < 2 ^ 64) hodd (fun _ => True.intro)).1,
-    (bv_odd_branch (u := u) (by omega : u < 2 ^ 64) (fun _ => True.intro)
-      (fun heven_b => ?_)).2⟩
-  rw [bv_shr_one (by omega : u < 2 ^ 64)]
-  refine ult_branch (by omega : u / 2 < 2 ^ 64) (by omega : id < 2 ^ 64)
-    (fun haid_lt => ?_) (fun hnaid_lt => hge_id heven_b hnaid_lt)
-  have haid_cap : u / 2 < c.cap := by omega
-  rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : u / 2 < 2 ^ 64)]
-  obtain ⟨hplen, htlen, hrel⟩ := htbl
-  refine ⟨_, wsRup_load_cb (hplen ▸ haid_cap) hm, fun hact => ?_, fun hnact => ?_⟩
-  · have hspec_a := hrel (u / 2) haid_cap
-    have hget : table[u / 2]? = some (table[u / 2]'(htlen ▸ haid_cap)) :=
-      List.getElem?_eq_getElem (htlen ▸ haid_cap)
-    cases ht_a : table[u / 2]'(htlen ▸ haid_cap) with
-    | none => rw [ht_a] at hspec_a; exact absurd hspec_a hact
-    | some alits =>
-      rw [ht_a] at hspec_a hget
-      obtain ⟨_, hvalid_a, R_a, hpu_a⟩ := hspec_a
-      exact hsome haid_lt (hplen ▸ haid_cap) alits R_a heven_b hget hvalid_a hpu_a
-  · have hspec_a := hrel (u / 2) haid_cap
-    have hget : table[u / 2]? = some (table[u / 2]'(htlen ▸ haid_cap)) :=
-      List.getElem?_eq_getElem (htlen ▸ haid_cap)
-    cases ht_a : table[u / 2]'(htlen ▸ haid_cap) with
-    | none => rw [ht_a] at hget; exact hnone haid_lt heven_b hget
-    | some alits => rw [ht_a] at hspec_a; exact absurd hnact hspec_a.1
-
 theorem lbRupCheck_correct (Γ : Env) :
     ∀ args m Q X, lbRupCheckSpec args m Q X → Func.spec Γ lbRupCheck args m Q X := by
   rintro _ m Q X ⟨c, id, c_ptr, prf_ptr, prfBytes, idx0, poolUsed, poolRem, clits, ptrs,
@@ -850,6 +795,84 @@ theorem lbRupCheck_correct (Γ : Env) :
         (Eq (prfBytes.At prf_ptr) ⋆ R)) m' := sep_ac hm'
     exact hJfail () m' ⟨hnone,
       sep_ac (sep_mono (fun _ => pstate_rupRest_to_region hsum htbl hpu) hm1)⟩
+  have rupStep : ∀ {idx : Nat} {te : BitVec 64} {assign : Assignment}
+      {trail tf : List (BitVec 64)} {m' : Mem 64}
+      {kZero : BitVec 64 → Expr Val Cont [i64]}
+      {kHint : BitVec 64 → BitVec 64 → Expr Val Cont [i64]},
+      idx ≤ prfBytes.length →
+      (Eq (prfBytes.At prf_ptr) ⋆ PState c.mv c.vb c.tb te assign trail tf (c.mv + 1) ⋆
+        wsRupRest c pcur cur0 ptrs PoolUsed poolRem ⋆ R) m' →
+      (readLeb128Pure (prfBytes.drop idx) = none →
+        rupCheckPure c.mv id clits table (prfBytes.drop idx0) = none) →
+      (∀ bs', readLeb128Pure (prfBytes.drop idx) = some (0, bs') →
+        bs' = prfBytes.drop (prfBytes.length - bs'.length) →
+        prfBytes.length - bs'.length ≤ prfBytes.length →
+        wp Γ Q X (kZero (prf_ptr + BitVec.ofNat 64 (prfBytes.length - bs'.length))) m') →
+      (∀ u_pred bs', readLeb128Pure (prfBytes.drop idx) = some (u_pred + 1, bs') →
+        (((u_pred + 1) % 2 != 0) = true ∨ ¬ ((u_pred + 1) / 2 < id) ∨
+          table[(u_pred + 1) / 2]? = some none) →
+        rupCheckPure c.mv id clits table (prfBytes.drop idx0) = none) →
+      (∀ u_pred bs' alits R_a,
+        readLeb128Pure (prfBytes.drop idx) = some (u_pred + 1, bs') →
+        bs'.length < (prfBytes.drop idx).length →
+        bs' = prfBytes.drop (prfBytes.length - bs'.length) →
+        prfBytes.length - bs'.length ≤ prfBytes.length →
+        (u_pred + 1) % 2 = 0 → (u_pred + 1) / 2 < id →
+        table[(u_pred + 1) / 2]? = some (some alits) → (∀ x ∈ alits, IsValidLit c.mv x) →
+        ∀ als, PoolUsed = (ZeroTermInts als alits ⋆ R_a) →
+        wp Γ Q X (kHint als (prf_ptr + BitVec.ofNat 64 (prfBytes.length - bs'.length))) m') →
+      wp Γ Q X
+        (readLeb128 Jfail (prf_ptr + BitVec.ofNat 64 idx)
+          (prf_ptr + BitVec.ofNat 64 prfBytes.length)
+          fun u p2 => tqbe {
+            %uz:b = ceql ⟨.var u⟩, 0
+            jnz %uz, { ⟨kZero p2⟩ }, {
+              %odd:l = and ⟨.var u⟩, 1
+              %is_odd:b = cnel %odd, 0
+              jnz %is_odd, { ⟨.jump Jfail ()⟩ }, {
+                %aid:l = shr ⟨.var u⟩, 1
+                %lt_id:b = cultl %aid, ⟨.var (BitVec.ofNat 64 id)⟩
+                jnz %lt_id, {
+                  %off:l = shl %aid, 3
+                  %slot:l = add ⟨.var c.cb⟩, %off
+                  %als:l = load %slot
+                  %act:b = cnel %als, 0
+                  jnz %act, { ⟨kHint als p2⟩ }, { ⟨.jump Jfail ()⟩ }
+                }, { ⟨.jump Jfail ()⟩ } } } }) m' := by
+    intro idx te assign trail tf m' kZero kHint hidx hm' hnone_leb hzero hbad hhint
+    have hfa := c.fit_active; unfold WorkCfg.activeBytes at hfa
+    refine readLeb128_spec hprf_fit hidx rfl rfl (by ecancel)
+      (fun hnone => goFail _ _ _ _ _ (hnone_leb hnone) hm')
+      (fun u bs' hleb hu hlt hbs' _ => ?_)
+    have hidx'_le : prfBytes.length - bs'.length ≤ prfBytes.length := by omega
+    wp_unfold
+    refine bv_eq_zero_branch (by omega : u < 2 ^ 64)
+      (fun hu0 => by subst hu0; exact hzero bs' hleb hbs' hidx'_le) (fun hu_ne0 => ?_)
+    obtain ⟨u_pred, hu_succ⟩ : ∃ k, u = k + 1 := ⟨u - 1, by omega⟩
+    subst hu_succ
+    refine bv_odd_branch (u := u_pred + 1) (by omega : u_pred + 1 < 2 ^ 64)
+      (fun hodd => goFail _ _ _ _ _ (hbad u_pred bs' hleb (Or.inl hodd)) hm') (fun heven_b => ?_)
+    rw [bv_shr_one (by omega : u_pred + 1 < 2 ^ 64)]
+    refine ult_branch (by omega : (u_pred + 1) / 2 < 2 ^ 64) (by omega : id < 2 ^ 64)
+      (fun haid_lt => ?_)
+      (fun hge => goFail _ _ _ _ _ (hbad u_pred bs' hleb (Or.inr (Or.inl hge))) hm')
+    have haid_cap : (u_pred + 1) / 2 < c.cap := by omega
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : (u_pred + 1) / 2 < 2 ^ 64)]
+    obtain ⟨hplen, htlen, hrel⟩ := htbl
+    have hspec_a := hrel ((u_pred + 1) / 2) haid_cap
+    have hget : table[(u_pred + 1) / 2]? = some (table[(u_pred + 1) / 2]'(htlen ▸ haid_cap)) :=
+      List.getElem?_eq_getElem (htlen ▸ haid_cap)
+    refine ⟨_, wsRup_load_cb (hplen ▸ haid_cap) hm', ?_⟩
+    cases ht_a : table[(u_pred + 1) / 2]'(htlen ▸ haid_cap) with
+    | none =>
+      rw [ht_a] at hspec_a hget
+      exact ⟨fun h => absurd hspec_a h,
+        fun _ => goFail _ _ _ _ _ (hbad u_pred bs' hleb (Or.inr (Or.inr hget))) hm'⟩
+    | some alits =>
+      rw [ht_a] at hspec_a hget
+      obtain ⟨hne, hvalid_a, R_a, hpu_a⟩ := hspec_a
+      exact ⟨fun _ => hhint u_pred bs' alits R_a hleb hlt hbs' hidx'_le (by grind) haid_lt
+        hget hvalid_a _ hpu_a, fun h => absurd h hne⟩
   -- `@consume(%ccur, %cte)`
   refine wp_join_group (fun (ccur_v, cte_v, ()) m' =>
     ∃ (idx_c : Nat) (cte : BitVec 64) (assign : Assignment) (trail tf : List (BitVec 64)),
@@ -874,59 +897,52 @@ theorem lbRupCheck_correct (Γ : Env) :
     · rintro Jcloop fuel ⟨p_v, ⟨⟩⟩ m' ih ⟨idx, hfuel_gt, hidx, rfl, hpure, hm'⟩
       obtain ⟨fuel', rfl⟩ : ∃ fuel', fuel = fuel' + 1 := ⟨fuel - 1, by omega⟩
       dsimp only [Blocks.get_here]
-      refine readLeb128_spec hprf_fit hidx rfl rfl (by ecancel)
-        (fun hleb_none => ?_)
-        (fun u bs' hleb_some hu _ hbs' _ => ?_)
-      · rw [consumeHintsAux_succ, hleb_none] at hpure
-        exact goFail cte assign_c trail_c tf_c m' hpure hm'
-      · let idx' := prfBytes.length - bs'.length
-        have hidx'_le : idx' ≤ prfBytes.length := by omega
+      refine rupStep hidx hm'
+        (fun hnone => by rw [consumeHintsAux_succ, hnone] at hpure; exact hpure)
+        (fun bs' hleb hbs' hidx'_le => ?_)
+        (fun u_pred bs' hleb hbad => by
+          rw [consumeHintsAux_succ, hleb] at hpure
+          rcases hbad with hodd | hge | hnone
+          · simp only [hodd, ↓reduceIte] at hpure; exact hpure
+          · grind
+          · grind)
+        (fun u_pred bs' alits _ hleb hlt hbs' hidx'_le heven haid hsome _ _ _ => by
+          rw [consumeHintsAux_succ, hleb] at hpure
+          have heven_b : ((u_pred + 1) % 2 != 0) = false := by simp [heven]
+          simp only [heven_b, Bool.false_eq_true, ↓reduceIte, haid, hsome] at hpure
+          exact ih fuel' _ _ (by omega)
+            ⟨prfBytes.length - bs'.length, by rw [← hbs']; omega, hidx'_le, rfl,
+              by rwa [← hbs'], hm'⟩)
+      · rw [consumeHintsAux_succ, hleb] at hpure
+        obtain ⟨hte_c, hcov_c, htv_c, hlen_c, hm_ps⟩ := pstate_sep.mp (sep_ac hm' :
+          (PState c.mv c.vb c.tb cte assign_c trail_c tf_c (c.mv + 1) ⋆
+            (Eq (prfBytes.At prf_ptr) ⋆ wsRupRest c pcur cur0 ptrs PoolUsed poolRem ⋆ R)) m')
+        have hmv_lt := c.hmv; unfold dimacsBound at hmv_lt
+        refine backtrack_spec hte_c htv_c (by omega) hcov_c hm_ps (fun m_bt hm_bt => ?_)
         wp_unfold
-        refine bv_eq_zero_branch (by omega : u < 2 ^ 64) (fun hu0 => ?_) (fun hu_ne0 => ?_)
-        · subst hu0
-          rw [consumeHintsAux_succ, hleb_some] at hpure
-          obtain ⟨hte_c, hcov_c, htv_c, hlen_c, hm_ps⟩ := pstate_sep.mp (sep_ac hm' :
-            (PState c.mv c.vb c.tb cte assign_c trail_c tf_c (c.mv + 1) ⋆
-              (Eq (prfBytes.At prf_ptr) ⋆ wsRupRest c pcur cur0 ptrs PoolUsed poolRem ⋆ R)) m')
-          have hmv_lt := c.hmv; unfold dimacsBound at hmv_lt
-          refine backtrack_spec hte_c htv_c (by omega) hcov_c hm_ps (fun m_bt hm_bt => ?_)
-          wp_unfold
-          have hm_bt_tr :
+        have hm_bt_hdr :
+            (word8Array c.hdr (c.hdrWords pcur cur0) ⋆
+              (wsFixed c ptrs PoolUsed ⋆ region pcur (4 * poolRem) ⋆
+                Eq (prfBytes.At prf_ptr) ⋆ R)) m_bt := by
+          unfold wsFixed
+          exact sep_cast (sep_mono (P' := region c.tb c.tRaw)
+            (fun _ hf => trail_to_tRaw_region c (by rw [List.length_append]; exact hlen_c) hf)
+            (sep_ac hm_bt :
               (int4Array c.tb (trail_c ++ tf_c) ⋆
                 (byte1Array c.vb (assignBytes c.mv Assignment.empty) ⋆
-                  Eq (prfBytes.At prf_ptr) ⋆ wsRupRest c pcur cur0 ptrs PoolUsed poolRem ⋆ R))
-                m_bt := sep_ac hm_bt
-          have hm_bt_reg := sep_mono (P' := region c.tb c.tRaw)
-            (fun _ hf => trail_to_tRaw_region c (by rw [List.length_append]; exact hlen_c) hf)
-            hm_bt_tr
-          have hm_bt_hdr :
-              (word8Array c.hdr (c.hdrWords pcur cur0) ⋆
-                (wsFixed c ptrs PoolUsed ⋆ region pcur (4 * poolRem) ⋆
-                  Eq (prfBytes.At prf_ptr) ⋆ R)) m_bt := by
-            unfold wsFixed; exact sep_cast hm_bt_reg (by dsimp only [wsRupRest]; ac_rfl)
-          let p2 : BitVec 64 := prf_ptr + BitVec.ofNat 64 idx'
-          obtain ⟨ok_p72, hm_fin⟩ := store_word8Array (i := 9) p2
-            (by simp [WorkCfg.hdrWords]) hm_bt_hdr
-          have hhdr_eq : (c.hdrWords pcur cur0).set 9 p2 = c.hdrWords pcur p2 := rfl
-          rw [hhdr_eq] at hm_fin
-          have hws_fin : (WorkState c poolUsed poolRem p2 ptrs table PoolUsed ⋆
-              (Eq (prfBytes.At prf_ptr) ⋆ R)) (storeMem m_bt i64 (c.hdr + 72) p2) :=
-            workState_sep.mpr ⟨hsum, htbl, hpu, by
-              unfold wsFixed at hm_fin; exact sep_cast hm_fin (by dsimp only [pcur]; ac_rfl)⟩
-          exact ⟨ok_p72, hQ 1 _ (by rw [hpure]; exact ⟨rfl, hbs', hidx'_le, sep_ac hws_fin⟩)⟩
-        · obtain ⟨u_pred, hu_succ⟩ : ∃ k, u = k + 1 := ⟨u - 1, by omega⟩
-          rw [hu_succ] at hleb_some
-          rw [consumeHintsAux_succ, hleb_some] at hpure
-          rw [← hu_succ] at hpure hleb_some
-          exact hint_lookup_step hid_cap hu htbl hm'
-            (fun _ => by grind) (fun _ _ => by grind)
-            (fun haid heven hnone => by
-              simp only [heven, Bool.false_eq_true, ↓reduceIte, haid, hnone] at hpure
-              exact goFail _ _ _ _ _ hpure hm')
-            (fun haid _ alits _ heven hsome _ _ => by
-              simp only [heven, Bool.false_eq_true, ↓reduceIte, haid, hsome] at hpure
-              exact ih fuel' _ _ (by omega) ⟨idx', by rw [← hbs']; omega, hidx'_le, rfl,
-                by rwa [← hbs'], hm'⟩)
+                  Eq (prfBytes.At prf_ptr) ⋆
+                  wsRupRest c pcur cur0 ptrs PoolUsed poolRem ⋆ R)) m_bt))
+            (by dsimp only [wsRupRest]; ac_rfl)
+        let p2 : BitVec 64 := prf_ptr + BitVec.ofNat 64 (prfBytes.length - bs'.length)
+        obtain ⟨ok_p72, hm_fin⟩ := store_word8Array (i := 9) p2
+          (by simp [WorkCfg.hdrWords]) hm_bt_hdr
+        have hhdr_eq : (c.hdrWords pcur cur0).set 9 p2 = c.hdrWords pcur p2 := rfl
+        rw [hhdr_eq] at hm_fin
+        have hws_fin : (WorkState c poolUsed poolRem p2 ptrs table PoolUsed ⋆
+            (Eq (prfBytes.At prf_ptr) ⋆ R)) (storeMem m_bt i64 (c.hdr + 72) p2) :=
+          workState_sep.mpr ⟨hsum, htbl, hpu, by
+            unfold wsFixed at hm_fin; exact sep_cast hm_fin (by dsimp only [pcur]; ac_rfl)⟩
+        exact ⟨ok_p72, hQ 1 _ (by rw [hpure]; exact ⟨rfl, hbs', hidx'_le, sep_ac hws_fin⟩)⟩
     · intro Jcloop hJcloop; wp_unfold
       exact hJcloop ((prfBytes.drop idx_c).length + 1) _ _
         ⟨idx_c, by omega, hidx_c, rfl, hpure_c, hm_c⟩
@@ -958,56 +974,50 @@ theorem lbRupCheck_correct (Γ : Env) :
         ⟨idx, te', assign, trail, tf, hfuel_gt, hidx, rfl, rfl, hpure, hm'⟩
       obtain ⟨fuel', rfl⟩ : ∃ fuel', fuel = fuel' + 1 := ⟨fuel - 1, by omega⟩
       dsimp only [Blocks.get_here]
-      refine readLeb128_spec hprf_fit hidx rfl rfl (by ecancel)
-        (fun hleb_none => ?_)
-        (fun u bs' hleb_some hu _ hbs' _ => ?_)
-      · rw [rupPhase2Aux_succ, hleb_none] at hpure
-        exact goFail te assign trail tf m' hpure hm'
-      · let idx' := prfBytes.length - bs'.length
-        have hidx'_le : idx' ≤ prfBytes.length := by omega
-        wp_unfold
-        refine bv_eq_zero_branch (by omega : u < 2 ^ 64) (fun hu0 => ?_) (fun hu_ne0 => ?_)
-        · subst hu0; rw [rupPhase2Aux_succ, hleb_some] at hpure
-          exact goFail te assign trail tf m' hpure hm'
-        · obtain ⟨u_pred, hu_succ⟩ : ∃ k, u = k + 1 := ⟨u - 1, by omega⟩
-          rw [hu_succ] at hleb_some
-          rw [rupPhase2Aux_succ, hleb_some] at hpure
-          rw [← hu_succ] at hpure hleb_some
-          refine hint_lookup_step hid_cap hu htbl hm'
-            (fun _ => by grind) (fun _ _ => by grind)
-            (fun haid heven hnone => by
-              simp only [heven, Bool.false_eq_true, ↓reduceIte, haid, hnone] at hpure
-              exact goFail _ _ _ _ _ hpure hm')
-            (fun haid _ alits R_a heven hsome hvalid_a hpu_a => ?_)
-          simp only [heven, Bool.false_eq_true, ↓reduceIte, haid, hsome] at hpure
-          -- `@idone(%unit, %t2)`
-          refine wp_join_group (fun (unit_v, t2_v, ()) m'' =>
-            ∃ (unit t2 : BitVec 64) (assign2 : Assignment) (trail2 tf2 : List (BitVec 64)),
-              unit_v = unit ∧ t2_v = t2 ∧
-              rupInnerPure c.mv alits 0 (assignBytes c.mv assign) trail.length =
-                some (unit, assignBytes c.mv assign2, trail2.length) ∧
-              (Eq (prfBytes.At prf_ptr) ⋆
-                PState c.mv c.vb c.tb t2 assign2 trail2 tf2 (c.mv + 1) ⋆
-                wsRupRest c pcur cur0 ptrs PoolUsed poolRem ⋆ R) m'') ?_ ?_
-          · rintro _ ⟨unit, t2, ⟨⟩⟩ m''
-              ⟨unit', t2', assign2, trail2, tf2, rfl, rfl, hinner_ok, hm''⟩
-            dsimp only [Blocks.get_here]; wp_unfold
-            simp only [hinner_ok] at hpure
-            refine ⟨fun htu => ?_, fun hntu => ?_⟩
-            · have htu_b : (unit != 0) = true := bne_iff_ne.mpr htu
-              simp only [htu_b, ↓reduceIte] at hpure
-              exact ih fuel' _ _ (by omega) ⟨idx', t2, assign2, trail2, tf2,
-                by rw [← hbs']; omega, hidx'_le, rfl, rfl, by rwa [← hbs'], hm''⟩
-            · have : (unit != 0) = false := bne_eq_false_iff_eq.mpr hntu
-              grind
-          · intro Jidone hJidone
-            refine rupInner_spec hvalid_a rfl htfit (wsRup_focus hpu_a hm')
-              (fun m'' t2 assign2 trail2 tf2 hinner_none hm''_in => ?_)
-              (fun m'' unit t2 assign2 trail2 tf2 hinner_ok hm''_in => ?_)
-            · simp only [hinner_none] at hpure
-              exact goFail t2 assign2 trail2 tf2 m'' hpure (wsRup_unfocus hpu_a hm''_in)
-            · exact hJidone _ m'' ⟨unit, t2, assign2, trail2, tf2, rfl, rfl, hinner_ok,
-                wsRup_unfocus hpu_a hm''_in⟩
+      refine rupStep hidx hm'
+        (fun hnone => by rw [rupPhase2Aux_succ, hnone] at hpure; exact hpure)
+        (fun bs' hleb _ _ => by
+          rw [rupPhase2Aux_succ, hleb] at hpure
+          exact goFail te assign trail tf m' hpure hm')
+        (fun u_pred bs' hleb hbad => by
+          rw [rupPhase2Aux_succ_some_nz hleb] at hpure
+          rcases hbad with hodd | hge | hnone
+          · simp only [hodd, ↓reduceIte] at hpure; exact hpure
+          · grind
+          · grind)
+        (fun u_pred bs' alits R_a hleb hlt hbs' hidx'_le heven haid hsome hvalid_a _ hpu_a => ?_)
+      rw [rupPhase2Aux_succ_some_nz hleb] at hpure
+      have heven_b : ((u_pred + 1) % 2 != 0) = false := by simp [heven]
+      simp only [heven_b, Bool.false_eq_true, ↓reduceIte, haid, hsome] at hpure
+      let idx' := prfBytes.length - bs'.length
+      -- `@idone(%unit, %t2)`
+      refine wp_join_group (fun (unit_v, t2_v, ()) m'' =>
+        ∃ (unit t2 : BitVec 64) (assign2 : Assignment) (trail2 tf2 : List (BitVec 64)),
+          unit_v = unit ∧ t2_v = t2 ∧
+          rupInnerPure c.mv alits 0 (assignBytes c.mv assign) trail.length =
+            some (unit, assignBytes c.mv assign2, trail2.length) ∧
+          (Eq (prfBytes.At prf_ptr) ⋆
+            PState c.mv c.vb c.tb t2 assign2 trail2 tf2 (c.mv + 1) ⋆
+            wsRupRest c pcur cur0 ptrs PoolUsed poolRem ⋆ R) m'') ?_ ?_
+      · rintro _ ⟨unit, t2, ⟨⟩⟩ m''
+          ⟨unit', t2', assign2, trail2, tf2, rfl, rfl, hinner_ok, hm''⟩
+        dsimp only [Blocks.get_here]; wp_unfold
+        simp only [hinner_ok] at hpure
+        refine ⟨fun htu => ?_, fun hntu => ?_⟩
+        · have htu_b : (unit != 0) = true := bne_iff_ne.mpr htu
+          simp only [htu_b, ↓reduceIte] at hpure
+          exact ih fuel' _ _ (by omega) ⟨idx', t2, assign2, trail2, tf2,
+            by rw [← hbs']; omega, hidx'_le, rfl, rfl, by rwa [← hbs'], hm''⟩
+        · have : (unit != 0) = false := bne_eq_false_iff_eq.mpr hntu
+          grind
+      · intro Jidone hJidone
+        refine rupInner_spec hvalid_a rfl htfit (wsRup_focus hpu_a hm')
+          (fun m'' t2 assign2 trail2 tf2 hinner_none hm''_in => ?_)
+          (fun m'' unit t2 assign2 trail2 tf2 hinner_ok hm''_in => ?_)
+        · simp only [hinner_none] at hpure
+          exact goFail t2 assign2 trail2 tf2 m'' hpure (wsRup_unfocus hpu_a hm''_in)
+        · exact hJidone _ m'' ⟨unit, t2, assign2, trail2, tf2, rfl, rfl, hinner_ok,
+            wsRup_unfocus hpu_a hm''_in⟩
     · intro Jouter hJouter; wp_unfold
       exact hJouter ((prfBytes.drop idx0).length + 1) _ _
         ⟨idx0, hte, assign0, trail0, tf0_p2, by omega, hidx0, rfl, rfl, hpure_p2, hm_p2⟩
