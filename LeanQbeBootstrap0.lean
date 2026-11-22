@@ -40,6 +40,7 @@ public import LeanQbe.T.Bootstrap0.Sound0Part7
 public import LeanQbe.T.Bootstrap0.Sound0Part8
 public import LeanQbe.T.Bootstrap0.Sound0Part9
 public import LeanQbe.T.Bootstrap0.Splice0
+public import LeanQbe.T.Bootstrap0.StageC
 public import LeanQbe.T.Bootstrap0.Types0
 
 set_option autoImplicit false
