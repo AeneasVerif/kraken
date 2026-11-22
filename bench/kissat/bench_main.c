@@ -31,8 +31,12 @@ static guarded_buf_t alloc_guarded(const uint8_t *init, size_t len, int writable
   uint8_t *mid = base + pg;
   int rc = mprotect(mid, data_pages * pg, PROT_READ | PROT_WRITE);
   assert(rc == 0);
-  memset(mid, 0xAA, data_pages * pg);
   uint8_t *ptr = mid + data_pages * pg - len;
+  size_t prefix = (size_t)(ptr - mid);
+  if (prefix > 0) {
+    /* Only fill the <1-page pre-buffer slack; MAP_ANONYMOUS pages are already OS-zeroed. */
+    memset(mid, 0xAA, prefix);
+  }
   if (init && len > 0) {
     memcpy(ptr, init, len);
   }
@@ -286,6 +290,7 @@ int main(int argc, char **argv) {
   int full_tel = 0;
   int ext_tel = 0;
   int m2_alias = 0;
+  int poison_work = 0;
   const char *kissat_bin = NULL;
   while (argi < argc && argv[argi][0] == '-') {
     if (strcmp(argv[argi], "--telemetry") == 0) {
@@ -313,6 +318,9 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[argi], "--m2") == 0) {
       m2_alias = 1;
       argi++;
+    } else if (strcmp(argv[argi], "--poison-work") == 0) {
+      poison_work = 1;
+      argi++;
     } else if (strcmp(argv[argi], "--kissat") == 0 && argi + 1 < argc) {
       kissat_bin = argv[argi + 1];
       argi += 2;
@@ -324,7 +332,7 @@ int main(int argc, char **argv) {
     fprintf(stderr,
             "usage: %s [--telemetry|--plain-telemetry|--full-telemetry|--full-telemetry-m2|"
             "--extended-telemetry|--extended-telemetry-m2]"
-            " [--m2] [--kissat <bin>] <work_bytes> <fuel> <cnf>...\n",
+            " [--m2] [--poison-work] [--kissat <bin>] <work_bytes> <fuel> <cnf>...\n",
             argv[0]);
     return 2;
   }
@@ -339,7 +347,7 @@ int main(int argc, char **argv) {
     guarded_buf_t gc = alloc_guarded(raw, cnf_len, 0);
     guarded_buf_t gw = alloc_guarded(NULL, work_len, 1);
     uint8_t *w_mid = (uint8_t *)gw.base + pg;
-    if (work_len > 0) memset(gw.ptr, 0xA5, work_len);
+    if (poison_work && work_len > 0) memset(gw.ptr, 0xA5, work_len);
 
     struct timespec t0, t1;
     clock_gettime(CLOCK_MONOTONIC, &t0);
