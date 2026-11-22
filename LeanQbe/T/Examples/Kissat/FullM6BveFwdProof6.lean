@@ -1067,7 +1067,37 @@ theorem full_elim_bve_m6_wp (Γ : Env)
       Func.wp Γ full_elim_bve_m6_body a m Q X := by
   rintro ⟨h, bve_lim, ⟨⟩⟩ m0 Q X ⟨c, F0, s0, R, rfl, hden0, htmk0, hm0, hQ⟩
   have hmx := c.hmaxv; unfold dimacsBound at hmx
+  have hcv0_le := hden0.lengths.core_ok.cur_vars_le
+  have hmcl0 := hden0.lengths.core_ok.min_clr_len_arr
   unfold Func.wp full_elim_bve_m6_body
+  c0_hsteps_nogrp
+  -- Zero stale `min_clr[0..cur_vars)` marks left by `full_min_mark`/`full_hbr_dom`
+  refine wp_loop_group (ts := [i64])
+    (fun rem_c (ci, ()) mc => ∃ mclrc : List (BitVec 32),
+      mclrc.length = c.max_vars ∧ ci.toNat ≤ s0.core.cur_vars ∧
+      rem_c = s0.core.cur_vars - ci.toNat ∧
+      (FullMem c { s0 with core := { s0.core with min_clr := mclrc } } ⋆ R) mc)
+    ?_ (fun Lc hLc => by
+      c0_hsteps!
+      exact hLc s0.core.cur_vars (0#64, ()) m0
+        ⟨s0.core.min_clr, hmcl0, Nat.zero_le _, by simp, hm0⟩)
+  rintro Lc rem_c ⟨ci, ⟨⟩⟩ mc hLc ⟨mclrc, hmclrc, hci_le, rfl, hmc⟩
+  c0_hsplit
+  · have hci_lt : ci.toNat < s0.core.cur_vars := by
+      rw [Nat.mod_eq_of_lt (by omega)] at hc; exact hc
+    have hmcl_b : ci.toNat < mclrc.length := by omega
+    have hci1 : (ci + 1#64).toNat = ci.toNat + 1 := by c0_bound
+    c0_hsteps!
+    exact hLc (s0.core.cur_vars - (ci + 1#64).toNat) (ci + 1#64, ()) _ (by omega)
+      ⟨_, by simp [hmclrc], by omega, rfl, hm⟩
+  let sz : FullState := { s0 with core := { s0.core with min_clr := mclrc } }
+  have hdenz : FullDenseInv c F0 sz := by
+    obtain ⟨F_cur, hw0⟩ := hden0.exists_witness
+    exact FullDenseInvW.toDense
+      ⟨⟨{ hw0.1.core_ok with min_clr_len_arr := hmclrc }, hw0.1.scratch_ok⟩,
+       fullWitnessInv_with_min_clr hw0.2.1 mclrc, hw0.2.2.1, hw0.2.2.2.1,
+       hw0.2.2.2.2.1, hw0.2.2.2.2.2.1, hw0.2.2.2.2.2.2⟩
+  have htmkz : TmkZero sz := htmk0.congr rfl rfl
   c0_hsteps_nogrp
   -- Outer 16-round BVE loop
   refine wp_loop_break_group (brkTs := [i64, i64, .bool, i64]) (lpTs := [i64, i64, .bool, i64])
@@ -1684,8 +1714,8 @@ theorem full_elim_bve_m6_wp (Γ : Env)
       · c0_hsteps!; exact hbrk_r
     · c0_hsteps!; exact hbrk_r
   · intro _ Lr _ hLr; c0_hsteps!
-    exact hLr 16 (0#64, 0#64, false, 0#64, ()) m0
-      ⟨s0, Nat.zero_le _, rfl, Nat.zero_le _, Nat.zero_le _, hden0, htmk0, Nat.le_refl _, hm0⟩
+    exact hLr 16 (0#64, 0#64, false, 0#64, ()) mc
+      ⟨sz, Nat.zero_le _, rfl, Nat.zero_le _, Nat.zero_le _, hdenz, htmkz, Nat.le_refl _, hmc⟩
 
 /-! ## 5. `full_eliminate_m6_wp` (Canonical `FullFastSched.schedEliminateSpec`) -/
 

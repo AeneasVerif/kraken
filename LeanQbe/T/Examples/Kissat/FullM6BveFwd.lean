@@ -1152,6 +1152,10 @@ u64 full_elim_bve_m6(FullHdr *h, u64 bve_lim) {
   u32 *hp = (u32 *)h->work_stk1;
   u32 *nbrs = (u32 *)h->work_stk2;
   u64 mv = h->max_vars;
+  u32 *mclr = (u32 *)h->min_clr;
+  u64 cv0 = h->cur_vars;
+  u64 ci = 0ULL;
+  while (ci < cv0) { mclr[ci] = 0u; ci = ci + 1ULL; }
   u64 tried = 0ULL;
   u64 hlen = 0ULL;
   bool last_round_elim = false;
