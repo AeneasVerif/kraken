@@ -69,6 +69,10 @@ def argVarIds {t : Ty} (a : Arg VNat t) : List Nat := a.vars.map (·.2)
 def tupVarIds {ts : List Ty} (as : Tup (Arg VNat) ts) : List Nat := dedup ((tupVars as).map (·.2))
 def opVarIds {ts : List Ty} (op : Op VNat ts) : List Nat := dedup (op.vars.map (·.2))
 
+def storeVarIds (addrDeps rmwDeps : Trie (List Nat)) (ip : Nat) {t : Ty}
+    (v : Arg VNat t) (a : Arg VNat i64) : List Nat :=
+  rmwDeps.getD ip (dedup (argVarIds v ++ addrDeps.getD ip (argVarIds a)))
+
 def levelTypes (nv : Nat) : List Ty → List (Nat × Ty)
   | [] => [] | t :: ts => (nv, t) :: levelTypes (nv + 1) ts
 
@@ -513,6 +517,124 @@ def elideCmpTreeDeps (I : Isa) (t : Tree) (elideIps : Trie Bool)
     let (newEip, newDeps) := scanCmpElide I useCnt addrDeps .empty .empty t (elideIps, addrDeps)
     (rewriteCmpElide newEip t, newEip, newDeps)
 
+/-! ## Memory Read-Modify-Write Elision (`load; alu; store -> rmwMem`, untrusted) -/
+
+structure RmwCand where
+  ipL : Nat
+  ipA : Nat
+  w : Nat
+  x : Nat
+  aL : Arg VNat i64
+  ldeps : List Nat
+  rhsVars : List Nat
+
+mutual
+def scanRmwElide (I : Isa) (useCnt : Trie Nat) (addrDeps : Trie (List Nat))
+    (defs : Trie DefFact) (elidedVars : Trie Bool)
+    (availLoad : Trie (Nat × Nat × Arg VNat i64 × List Nat)) (availRmw : Trie RmwCand) :
+    Tree → Trie Bool × Trie (List Nat) → Trie Bool × Trie (List Nat)
+  | .let_ _ ip nv0 ts op k, acc =>
+    let { sig := _, code, args } := op
+    let df? := recordDef defs code args
+    let defs' := match df? with | some df => defs.insert nv0 df | none => defs
+    if acc.1.getD ip false then
+      scanRmwElide I useCnt addrDeps defs' (elidedVars.insert nv0 true) availLoad availRmw k acc
+    else
+      let r0? := I.frame.allocatable.head?
+      let rmwOk (w : Nat) (rop : RmwOp) (isVar : Bool) : Bool :=
+        match (if isVar then r0?.map .gpr else some (.imm 0#w)) with
+        | some pb => (I.gpr.rmwMem w (rop.toOpCode w) (.baseDisp I.frame.sp 0) pb).isSome
+        | none => false
+      let cand? : Option RmwCand :=
+        if !(Nat.beq (useCnt.getD nv0 0) 1) then none
+        else match ts, df? with
+          | [.bits w], some df =>
+            if !(Nat.ble w 64 && I.frame.bitWidths.contains w) then none
+            else (rmwFact w df).bind fun (rop, a1, rhs) =>
+              let trySide (x : Nat) (rhsVars : List Nat) : Option RmwCand :=
+                match availLoad.find? x with
+                | some (ipL, lw, aL, ldeps) =>
+                  if Nat.beq lw w && !(rhsVars.any (elidedVars.getD · false)) &&
+                     rmwOk w rop !rhsVars.isEmpty then
+                    some ⟨ipL, ip, w, x, aL, ldeps, rhsVars⟩
+                  else none
+                | none => none
+              let rv1 := match rhs with | .var z => [z] | .imm _ => []
+              trySide a1 rv1 <|>
+                if rop.isComm then
+                  match rhs with | .var a2 => trySide a2 [a1] | .imm _ => none
+                else none
+          | _, _ => none
+      let availRmw' := match cand? with
+        | some c => availRmw.insert nv0 c
+        | none => availRmw
+      scanRmwElide I useCnt addrDeps defs' elidedVars availLoad availRmw' k acc
+  | .load _ ip x t a k, acc =>
+    if acc.1.getD ip false then
+      scanRmwElide I useCnt addrDeps defs (elidedVars.insert x true) availLoad availRmw k acc
+    else
+      let availLoad' :=
+        if Nat.beq (useCnt.getD x 0) 1 then
+          match t with
+          | .bits w =>
+            if Nat.ble w 64 && I.frame.bitWidths.contains w then
+              availLoad.insert x (ip, w, a, addrDeps.getD ip (argVarIds a))
+            else availLoad
+          | _ => availLoad
+        else availLoad
+      scanRmwElide I useCnt addrDeps defs elidedVars availLoad' availRmw k acc
+  | .store _ ip t v a k, (eip, rdeps) =>
+    let (eip', rdeps') := match t, v with
+      | .bits wS, .var y =>
+        match availRmw.find? y with
+        | some c =>
+          let sameAddr := c.aL == a ||
+            (match c.aL, a with
+             | .var pL, .var pS =>
+               elidedVars.getD pL false && elidedVars.getD pS false &&
+                 defs.find? pL == defs.find? pS && (defs.find? pL).isSome
+             | _, _ => false)
+          if Nat.beq c.w wS && sameAddr then
+            let newEip := (eip.insert c.ipL true).insert c.ipA true
+            let newDeps := dedup (c.ldeps ++ c.rhsVars ++ addrDeps.getD ip (argVarIds a))
+            (newEip, rdeps.insert ip newDeps)
+          else (eip, rdeps)
+        | none => (eip, rdeps)
+      | _, _ => (eip, rdeps)
+    scanRmwElide I useCnt addrDeps defs elidedVars .empty .empty k (eip', rdeps')
+  | .call _ _ _ _ _ _ _ k, acc =>
+    scanRmwElide I useCnt addrDeps defs elidedVars .empty .empty k acc
+  | .jnz _ _ _ _ t e, acc =>
+    let acc1 := scanRmwElide I useCnt addrDeps defs elidedVars .empty .empty t acc
+    scanRmwElide I useCnt addrDeps defs elidedVars .empty .empty e acc1
+  | .skip _ _ k, acc =>
+    scanRmwElide I useCnt addrDeps defs elidedVars availLoad availRmw k acc
+  | .group _ bs k, acc =>
+    let acc1 := scanRmwElideB I useCnt addrDeps defs elidedVars bs acc
+    scanRmwElide I useCnt addrDeps defs elidedVars .empty .empty k acc1
+  | _, acc => acc
+
+def scanRmwElideB (I : Isa) (useCnt : Trie Nat) (addrDeps : Trie (List Nat))
+    (defs : Trie DefFact) (elidedVars : Trie Bool) :
+    TreeBlocks → Trie Bool × Trie (List Nat) → Trie Bool × Trie (List Nat)
+  | .nil, acc => acc
+  | .cons _ _ b bs, acc =>
+    let acc1 := scanRmwElide I useCnt addrDeps defs elidedVars .empty .empty b acc
+    scanRmwElideB I useCnt addrDeps defs elidedVars bs acc1
+end
+
+/-- Elide straight-line `load; alu; store` at the same address when `I.gpr.rmwMem` handles it. -/
+def elideRmwTreeDeps (I : Isa) (t : Tree) (elideIps : Trie Bool)
+    (addrDeps : Trie (List Nat)) : Tree × Trie Bool × Trie (List Nat) :=
+  let enabled := I.frame.bitWidths.any fun w =>
+    (I.gpr.rmwMem w (.add (.bits w)) (.baseDisp I.frame.sp 0) (.imm 0#w)).isSome
+  if !enabled then (t, elideIps, .empty)
+  else
+    let useCnt := countRawUses addrDeps t .empty
+    let (newEip, rmwDeps) :=
+      scanRmwElide I useCnt addrDeps .empty .empty .empty .empty t (elideIps, .empty)
+    (rewriteCmpElide newEip t, newEip, rmwDeps)
+
 /-! ## Join-Point Liveness Fixpoint, `acrossCalls`, and `loopBlocks` -/
 
 mutual
@@ -541,50 +663,53 @@ def allJumpsB : TreeBlocks → List Nat
 end
 
 mutual
-def fillLive (lTrie : Trie (List Nat)) (addrDeps : Trie (List Nat) := .empty) :
-    Tree → List Nat × Tree
+def fillLive (lTrie : Trie (List Nat)) (addrDeps : Trie (List Nat) := .empty)
+    (rmwDeps : Trie (List Nat) := .empty) : Tree → List Nat × Tree
   | .let_ _ ip nv0 ts op k =>
-    let (klv, k) := fillLive lTrie addrDeps k
+    let (klv, k) := fillLive lTrie addrDeps rmwDeps k
     let ops := addrDeps.getD ip (opVarIds op)
     let lv := union (eraseMany ((List.range ts.length).map (nv0 + ·)) klv) ops
     (lv, .let_ lv ip nv0 ts op k)
   | .load _ ip x t a k =>
-    let (klv, k) := fillLive lTrie addrDeps k
+    let (klv, k) := fillLive lTrie addrDeps rmwDeps k
     let aUses := addrDeps.getD ip (argVarIds a)
     let lv := union (erase x klv) aUses
     (lv, .load lv ip x t a k)
   | .store _ ip t v a k =>
-    let (klv, k) := fillLive lTrie addrDeps k
-    let aUses := addrDeps.getD ip (argVarIds a)
-    let lv := union klv (dedup (argVarIds v ++ aUses))
+    let (klv, k) := fillLive lTrie addrDeps rmwDeps k
+    let lv := union klv (storeVarIds addrDeps rmwDeps ip v a)
     (lv, .store lv ip t v a k)
   | .call _ ip nv0 g as bs args k =>
-    let (klv, k) := fillLive lTrie addrDeps k
+    let (klv, k) := fillLive lTrie addrDeps rmwDeps k
     let lv := union (eraseMany ((List.range bs.length).map (nv0 + ·)) klv) (tupVarIds args)
     (lv, .call lv ip nv0 g as bs args k)
   | .jnz _ ip c l t e =>
-    let (tlv, t) := fillLive lTrie addrDeps t
-    let (elv, e) := fillLive lTrie addrDeps e
+    let (tlv, t) := fillLive lTrie addrDeps rmwDeps t
+    let (elv, e) := fillLive lTrie addrDeps rmwDeps e
     let lv := union (union tlv elv) [c]
     (lv, .jnz lv ip c l t e)
-  | .skip _ ip k => let (klv, k) := fillLive lTrie addrDeps k; (klv, .skip klv ip k)
+  | .skip _ ip k =>
+    let (klv, k) := fillLive lTrie addrDeps rmwDeps k
+    (klv, .skip klv ip k)
   | .jump _ ip j ts args => let lv := union (tupVarIds args) (lTrie.getD j []); (lv, .jump lv ip j ts args)
   | .ret _ ip rs vs => let lv := tupVarIds vs; (lv, .ret lv ip rs vs)
   | .exit _ ip g as args => let lv := tupVarIds args; (lv, .exit lv ip g as args)
   | .stop ip => ([], .stop ip)
   | .group _ bs k =>
-    let (klv, k) := fillLive lTrie addrDeps k
-    (klv, .group klv (fillLiveB lTrie addrDeps bs) k)
+    let (klv, k) := fillLive lTrie addrDeps rmwDeps k
+    (klv, .group klv (fillLiveB lTrie addrDeps rmwDeps bs) k)
 
-def fillLiveB (lTrie : Trie (List Nat)) (addrDeps : Trie (List Nat) := .empty) :
-    TreeBlocks → TreeBlocks
+def fillLiveB (lTrie : Trie (List Nat)) (addrDeps : Trie (List Nat) := .empty)
+    (rmwDeps : Trie (List Nat) := .empty) : TreeBlocks → TreeBlocks
   | .nil => .nil
-  | .cons l ps b bs => .cons l ps (fillLive lTrie addrDeps b).2 (fillLiveB lTrie addrDeps bs)
+  | .cons l ps b bs =>
+    .cons l ps (fillLive lTrie addrDeps rmwDeps b).2 (fillLiveB lTrie addrDeps rmwDeps bs)
 end
 
 /-- Live-in variables (excluding own parameters) for every block label, by fixpoint iteration. -/
 def liveLabels (bs0 : List (Nat × List (Nat × Ty) × Tree))
-    (addrDeps : Trie (List Nat) := .empty) : Trie (List Nat) :=
+    (addrDeps : Trie (List Nat) := .empty) (rmwDeps : Trie (List Nat) := .empty) :
+    Trie (List Nat) :=
   let bs := bs0.map fun (l, ps, tb) => (l, ps.map Prod.fst, tb, allJumps tb)
   let rec go : Nat → Bool → Trie (List Nat) → Trie Bool → Trie (List Nat)
     | 0, _, lt, _ => lt
@@ -592,7 +717,7 @@ def liveLabels (bs0 : List (Nat × List (Nat × Ty) × Tree))
       let (lt', nextCh, ch) := bs.foldl (fun (lt, nch, ch) (l, pvars, tb, js) =>
         if !(first || js.any (fun j => prevCh.getD j false)) then (lt, nch, ch)
         else
-          let lv := eraseMany pvars (fillLive lt addrDeps tb).1
+          let lv := eraseMany pvars (fillLive lt addrDeps rmwDeps tb).1
           if Nat.beq lv.length (lt.getD l []).length then (lt, nch, ch)
           else (lt.insert l lv, nch.insert l true, true))
         (lt, .empty, false)

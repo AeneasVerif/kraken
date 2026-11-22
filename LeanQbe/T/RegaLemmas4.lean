@@ -164,10 +164,12 @@ private theorem findGprFor_var_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} 
 theorem findJnzCond_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MData}
     {σ : List (BitVec 64)} (hA : Agree T G nv st s σ) {cv : Bool} {cx : Nat}
     (hmem : (⟨.bool, cv, cx⟩ : (t : Ty) × Val t × VNat t) ∈ G) :
-    ∀ {r}, findJnzCond T.toIsa st cx = some r →
+    ∀ {r}, findJnzCond T.toIsa hints.nslots st cx = some r →
     match r with
     | .flag c => T.mach.evalCond s c = cv
     | .gpr g => g ∉ T.frame.scratch ∧ GprHolds (T.mach.getGpr s g) .bool cv
+    | .slot idx =>
+      idx < hints.nslots ∧ ∃ w, σ[idx]? = some w ∧ GprHolds w .bool cv
     | .cmpZero co w g =>
       g ∉ T.frame.scratch ∧ ∃ va : BitVec w, GprHolds (T.mach.getGpr s g) (.bits w) va ∧
         cv = co.evalBits va 0#w
@@ -176,50 +178,50 @@ theorem findJnzCond_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach
         cv = (if neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& mask) 0#w := by
   intro r hr
   unfold findJnzCond at hr
-  cases hf : findFlagFor T.toIsa st.regs (.var cx) with
-  | some c =>
-    rw [hf] at hr; simp only [Option.map_some] at hr; cases hr
-    unfold findFlagFor at hf
-    obtain ⟨⟨sa, rl⟩, hp, he⟩ := findSome_mem hf
+  rcases orElse_eq_some hr with hf | hr
+  · obtain ⟨c, hf', he⟩ := Option.map_eq_some_iff.mp hf
+    cases he
+    unfold findFlagFor at hf'
+    obtain ⟨⟨sa, rl⟩, hp, he'⟩ := findSome_mem hf'
     cases rl with
     | flag c' =>
-      simp only at he; split at he
-      · cases he
+      simp only at he'; split at he'
+      · cases he'
         have h1 := hA.regs _ hp
         simp only [RegLocOk, symArgEq_var ‹_›, FlagSym] at h1
         exact (h1 _ _ hmem).symm
-      · cases he
-    | _ => simp at he
-  | none =>
-    rw [hf] at hr; simp only [Option.map_none] at hr
-    cases hg : findGprFor T.toIsa true st.regs (.var cx) with
-    | some g =>
-      rw [hg] at hr; cases hr
-      have ⟨hns, hsym⟩ := findGprFor_var_ok hA hg
-      exact ⟨hns, hsym _ _ hmem⟩
-    | none =>
-      rw [hg] at hr
-      simp only [HOrElse.hOrElse, OrElse.orElse, Option.orElse] at hr
-      cases hd : st.defs.find? cx with
-      | none => simp [hd] at hr
-      | some df =>
-        have hdef := hA.defs cx df hd
-        cases df with
-        | cmpZeroVar co w y =>
-          simp only [hd] at hr
-          obtain ⟨g, hgy, heq⟩ := Option.map_eq_some_iff.mp hr
-          subst heq
-          have ⟨hns, hsym⟩ := findGprFor_var_ok hA hgy
-          obtain ⟨va, hmy, hcv⟩ := hdef.2 cv hmem
-          exact ⟨hns, va, hsym _ _ hmy, hcv⟩
-        | testBitVar neg w y c =>
-          simp only [hd] at hr
-          obtain ⟨g, hgy, heq⟩ := Option.map_eq_some_iff.mp hr
-          subst heq
-          have ⟨hns, hsym⟩ := findGprFor_var_ok hA hgy
-          obtain ⟨va, hmy, hcv⟩ := hdef.2 cv hmem
-          exact ⟨hns, va, hsym _ _ hmy, hcv⟩
-        | _ => simp [hd] at hr
+      · cases he'
+    | _ => simp at he'
+  rcases orElse_eq_some hr with hg | hr
+  · obtain ⟨g, hg', he⟩ := Option.map_eq_some_iff.mp hg
+    cases he
+    have ⟨hns, hsym⟩ := findGprFor_var_ok hA hg'
+    exact ⟨hns, hsym _ _ hmem⟩
+  rcases orElse_eq_some hr with hd | hs
+  · cases hdx : st.defs.find? cx with
+    | none => simp [hdx] at hd
+    | some df =>
+      have hdef := hA.defs cx df hdx
+      cases df with
+      | cmpZeroVar co w y =>
+        simp only [hdx] at hd
+        obtain ⟨g, hgy, heq⟩ := Option.map_eq_some_iff.mp hd
+        subst heq
+        have ⟨hns, hsym⟩ := findGprFor_var_ok hA hgy
+        obtain ⟨va, hmy, hcv⟩ := hdef.2 cv hmem
+        exact ⟨hns, va, hsym _ _ hmy, hcv⟩
+      | testBitVar neg w y c =>
+        simp only [hdx] at hd
+        obtain ⟨g, hgy, heq⟩ := Option.map_eq_some_iff.mp hd
+        subst heq
+        have ⟨hns, hsym⟩ := findGprFor_var_ok hA hgy
+        obtain ⟨va, hmy, hcv⟩ := hdef.2 cv hmem
+        exact ⟨hns, va, hsym _ _ hmy, hcv⟩
+      | _ => simp [hdx] at hd
+  · obtain ⟨idx, hs', he⟩ := Option.map_eq_some_iff.mp hs
+    cases he
+    obtain ⟨hlt, w, hσ, hgpr⟩ := findSlotGpr_ok hA hs'
+    exact ⟨hlt, w, hσ, hgpr _ _ hmem⟩
 
 end Basic
 
@@ -537,6 +539,14 @@ theorem jnzSetup_thread {I : Isa} {h : I.Hints} {nl ipT ipE : Nat} {st1 : SymSta
               split at h2 <;> simp_all
       subst hj; exact h2
     · cases h2
+  | slot idx =>
+    simp only [jnzSetup, Option.bind_eq_some_iff] at hs
+    obtain ⟨⟨_, _⟩, -, hc⟩ := hs
+    split at hc
+    · simp only [Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨h1, h2, -, rfl⟩ := hc
+      exact jnzMode_spec (Prod.ext h1 h2)
+    · simp at hc
   | cmpZero co w r =>
     simp only [jnzSetup] at hs
     exact (fuseJnzChoice_spec hs).2.2 j rfl
@@ -551,15 +561,22 @@ theorem jnzSetup_memDefs {I : Isa} {h : I.Hints} {nl ipT ipE : Nat} {st1 : SymSt
     stBr.memDefs = st1.memDefs := by
   cases cond with
   | flag _ | gpr _ => simp only [jnzSetup, Option.some.injEq, Prod.mk.injEq] at hs; rw [← hs.2.2.2]
+  | slot _ =>
+    simp only [jnzSetup, Option.bind_eq_some_iff] at hs
+    obtain ⟨⟨_, _⟩, -, hc⟩ := hs
+    split at hc
+    · simp only [Option.some.injEq, Prod.mk.injEq] at hc
+      rw [← hc.2.2.2]
+    · simp at hc
   | cmpZero _ _ _ | testImm _ _ _ _ => simp only [jnzSetup] at hs; exact (fuseJnzChoice_spec hs).1
 
-/-- Branch on the `jnz` condition (`jcc`, `jnzGpr`, `cmpZeroJcc`, or `testJcc`). -/
+/-- Branch on the `jnz` condition (`jcc`, `jnzGpr`, `jnzMem`, `cmpZeroJcc`, or `testJcc`). -/
 theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCtx}
     {nv nl ipT ipE : Nat} {st1 stBr : SymState T.toIsa} {s1 : T.mach.MData}
     {σ1 : List (BitVec 64)} {m : Mem 64} {cv : Bool} {cx : Nat}
     (hmem : (⟨.bool, cv, cx⟩ : (t : Ty) × Val t × VNat t) ∈ G)
     (hA1 : Agree T G nv st1 s1 σ1) (hI1 : Inv T hints s₀ ra n Rf m s1 σ1 zl)
-    {cond : JnzCond T.toIsa} (hfc : findJnzCond T.toIsa st1 cx = some cond)
+    {cond : JnzCond T.toIsa} (hfc : findJnzCond T.toIsa hints.nslots st1 cx = some cond)
     {t e : Expr VNat LNat rs} {ft : Option Nat} {inv : Bool} {tgt : Option Nat}
     {br : List T.Directive}
     (hs : jnzSetup T.toIsa hints fn nl ipT ipE st1 t e ft cond = some (inv, tgt, br, stBr))
@@ -593,6 +610,23 @@ theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G :
     refine T.gprSpec.jnzGpr_spec hbr hla hc.1 hc.2 fun s' hfr hm => ?_
     have := kont s' (hA1.kill hfr) (hI1.keep hm (keep_of_frame_scratch hfr))
     simpa using this
+  | slot idx =>
+    simp only at hc
+    simp only [jnzSetup, Option.bind_eq_some_iff] at hs
+    obtain ⟨⟨br', cl'⟩, hjbr, hcl⟩ := hs
+    split at hcl
+    · rename_i hclAll
+      simp only [Option.some.injEq, Prod.mk.injEq] at hcl
+      obtain ⟨rfl, rfl, rfl, rfl⟩ := hcl
+      obtain rfl : cl' = FlagMask.all := beq_iff_eq.mp hclAll
+      obtain ⟨w64, hσ, hgpr⟩ := hc.2
+      obtain ⟨v8, hlv, hv8⟩ := spAddr_load_bool hc.1 hI1 hσ hgpr
+      have hsp : ∀ r ∈ (spAddr T.toIsa idx).regs, r ∉ T.frame.scratch := fun r hr => by
+        simp only [spAddr, AddrArg.regs, List.mem_singleton] at hr; subst hr
+        exact T.frameSpec.sp_disj.1
+      refine T.gprSpec.jnzMem_spec hjbr hbr hla hsp hlv hv8 fun s' hfr hm => ?_
+      exact kont s' (hA1.kill hfr) (hI1.keep hm (keep_of_frame_scratch hfr))
+    · cases hcl
   | cmpZero co w r =>
     obtain ⟨hns, va, hgp, hcv⟩ := hc
     simp only [jnzSetup] at hs
@@ -698,7 +732,7 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
           (hD.weaken fun _ hp => List.mem_cons_of_mem _ hp) hA2 hM2 hI2 hwk)
   · -- store
     intro G D t v₁ v₂ a₁ a₂ k₁ k₂ hv ha _ ih nv nl ip st ft c nv' nl' ip' k s σ m
-      hl hc hft hD hA _hM hI hwp
+      hl hc hft hD hA hM hI hwp
     simp only [lowerExpr] at hl
     cases hp : stepPre T.toIsa hints ip st with
     | none => simp [hp] at hl
@@ -713,8 +747,9 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
         obtain ⟨hc1, hck⟩ := List.IsInfixAt.append hc
         obtain ⟨hmc, hco⟩ := List.IsInfixAt.append hc1
         simp only [wp] at hwp
+        have hM1 : MemDefsOk G m nv st1.memDefs := stepPre_memDefs hp ▸ hM
         refine stepPre_ok hy.spE hp hmc hA hI fun s1 σ1 hA1 hI1 => ?_
-        refine lowerStore_ok hy.spE hv ha hls hco hA1 hI1 hwp.1 fun s2 hA2 hM2 hI2 => ?_
+        refine lowerStore_ok hy.spE hv ha hls hco hA1 hM1 hI1 hwp.1 fun s2 hA2 hM2 hI2 => ?_
         refine run_congr (by simp [Nat.add_assoc]) (ih nv nl (ip + 1) st2 ft ck nv' nl' ip' _ s2 σ1 _ hlk hck
           (FT_congr (by simp [Nat.add_assoc]) hft) hD hA2 hM2 hI2 hwp.2)
   · -- call
@@ -793,84 +828,86 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
       | none => simp [hp] at hl
       | some p1 =>
         obtain ⟨mc, st1⟩ := p1
-        cases hfc : findJnzCond T.toIsa st1 cx with
+        cases hfc : findJnzCond T.toIsa hints.nslots st1 cx with
         | none => simp [hp, hfc] at hl
         | some cond =>
-          obtain ⟨inv, tgt, br, stBr, hs⟩ : ∃ inv tgt br stBr,
-              jnzSetup T.toIsa hints fn nl (jnzIpT nv nl ip t₂ e₂) (ip + 1)
-                st1 t₂ e₂ ft cond = some (inv, tgt, br, stBr) := by
-            cases h : jnzSetup T.toIsa hints fn nl (jnzIpT nv nl ip t₂ e₂) (ip + 1)
-                st1 t₂ e₂ ft cond
-            · simp [hp, hfc, h] at hl
-            · exact ⟨_, _, _, _, rfl⟩
-          simp only [hp, hfc, hs] at hl
-          split at hl; · simp at hl
-          rename_i ce nv1 nl1 ip1 hle
-          split at hl; · simp at hl
-          rename_i ct nv2 nl2 ip2 hlt
-          obtain ⟨cf, hfin, rfl⟩ := prepend_ok hl
-          obtain ⟨hmc, hcf⟩ := List.IsInfixAt.append hc
-          simp only [wp, Arg.val] at hwp
-          have hnv1 := (lowerExpr_nv_le hle).1
-          have hMBr : MemDefsOk G m nv stBr.memDefs :=
-            ((jnzSetup_memDefs hs).trans (stepPre_memDefs hp)) ▸ hM
-          have hMBr1 : MemDefsOk G m nv1 stBr.memDefs :=
-            hMBr.grow hnv1 (fun _ h => Or.inl h) (fun _ h => h)
-          refine stepPre_ok hy.spE hp hmc hA hI fun s1 σ1 hA1 hI1 => ?_
-          cases tgt with
-          | none =>
-            have hcf' := hcf
-            cases inv with
-            | false =>
-              simp only [Bool.false_eq_true, ite_false] at hle hlt hfin
-              obtain ⟨hcfe, rfl, rfl, rfl⟩ := finishJnzBranch_none hfin
-              rw [hcfe] at hcf' hft
-              obtain ⟨hbr, h2⟩ := List.IsInfixAt.append hcf'
-              obtain ⟨hce, h3⟩ := List.IsInfixAt.append h2
-              obtain ⟨hlab, hct⟩ := List.IsInfixAt.cons h3
-              refine branch_ok hy hmem hA1 hI1 hfc hs hbr hlab fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
-              · refine T.frameSpec.label_spec hlab ?_
-                exact iht nv1 nl1 ip1 stBr ft ct _ _ _ _ s' σ1 m hlt hct
-                  (FT_congr (by simp; omega) hft) hD (hA'.mono_nv hnv1) hMBr1 hI'
-                  (hwp.1 (by simpa using htk))
-              · exact ihe nv (nl + 1) (ip + 1) stBr none ce nv1 nl1 ip1 _ s' σ1 m
-                  hle hce (FT_none _) hD hA' hMBr hI' (hwp.2 (by simpa using hnt))
-            | true =>
-              simp only [ite_true] at hle hlt hfin
-              obtain ⟨hcfe, rfl, rfl, rfl⟩ := finishJnzBranch_none hfin
-              rw [hcfe] at hcf' hft
-              obtain ⟨hbr, h2⟩ := List.IsInfixAt.append hcf'
-              obtain ⟨hct, h3⟩ := List.IsInfixAt.append h2
-              obtain ⟨hlab, hce⟩ := List.IsInfixAt.cons h3
-              refine branch_ok hy hmem hA1 hI1 hfc hs hbr hlab fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
-              · refine T.frameSpec.label_spec hlab ?_
-                exact ihe nv (nl + 1) (ip + 1) stBr ft ce nv1 nl1 ip1 _ s' σ1 m hle hce
-                  (FT_congr (by simp; omega) hft) hD hA' hMBr hI' (hwp.2 (by simpa using htk))
-              · exact iht nv1 nl1 ip1 stBr none ct _ _ _ _ s' σ1 m hlt hct (FT_none _) hD
-                  (hA'.mono_nv hnv1) hMBr1 hI' (hwp.1 (by simpa using hnt))
-          | some j =>
-            have hth := jnzSetup_thread hs
-            cases inv with
-            | false =>
-              simp only [Bool.false_eq_true, ite_false] at hle hlt hfin
-              obtain ⟨rfl, rfl, rfl, rfl⟩ := finishJnzBranch_some hfin
-              obtain ⟨hbr, hce⟩ := List.IsInfixAt.append hcf
-              obtain ⟨kj, hlab, hrun⟩ := thread_ok hy ht hD (hth.1 rfl)
-              refine branch_ok hy hmem hA1 hI1 hfc hs hbr hlab fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
-              · exact hrun (hwp.1 (by simpa using htk)) nv s' σ1 hA' hI'
-              · exact ihe nv (nl + 1) (ip + 1) stBr ft ce nv1 nl1 ip1 _ s' σ1 m hle hce
-                  (FT_congr (by simp [Nat.add_assoc]) hft) hD hA' hMBr hI'
-                  (hwp.2 (by simpa using hnt))
-            | true =>
-              simp only [ite_true] at hle hlt hfin
-              obtain ⟨rfl, rfl, rfl, rfl⟩ := finishJnzBranch_some hfin
-              obtain ⟨hbr, hct⟩ := List.IsInfixAt.append hcf
-              obtain ⟨kj, hlab, hrun⟩ := thread_ok hy he hD (hth.2 rfl)
-              refine branch_ok hy hmem hA1 hI1 hfc hs hbr hlab fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
-              · exact hrun (hwp.2 (by simpa using htk)) nv s' σ1 hA' hI'
-              · exact iht nv1 nl1 ip1 stBr ft ct _ _ _ _ s' σ1 m hlt hct
-                  (FT_congr (by simp [Nat.add_assoc]) hft) hD (hA'.mono_nv hnv1) hMBr1 hI'
-                  (hwp.1 (by simpa using hnt))
+          cases hs : jnzSetup T.toIsa hints fn nl
+              (jnzIpT nv nl ip t₂ e₂) (ip + 1) st1 t₂ e₂ ft cond with
+          | none => simp [hp, hfc, hs] at hl
+          | some q =>
+            rcases q with ⟨inv, tgt, br, stBr⟩
+            simp only [hp, hfc, hs] at hl
+            split at hl; · simp at hl
+            rename_i ce nv1 nl1 ip1 hle
+            split at hl; · simp at hl
+            rename_i ct nv2 nl2 ip2 hlt
+            obtain ⟨cf, hfin, rfl⟩ := prepend_ok hl
+            obtain ⟨hmc, hcf⟩ := List.IsInfixAt.append hc
+            simp only [wp, Arg.val] at hwp
+            have hnv1 := (lowerExpr_nv_le hle).1
+            have hMBr : MemDefsOk G m nv stBr.memDefs :=
+              ((jnzSetup_memDefs hs).trans (stepPre_memDefs hp)) ▸ hM
+            have hMBr1 : MemDefsOk G m nv1 stBr.memDefs :=
+              hMBr.grow hnv1 (fun _ h => Or.inl h) (fun _ h => h)
+            refine stepPre_ok hy.spE hp hmc hA hI fun s1 σ1 hA1 hI1 => ?_
+            cases tgt with
+            | none =>
+              have hcf' := hcf
+              cases inv with
+              | false =>
+                simp only [Bool.false_eq_true, ite_false] at hle hlt hfin
+                obtain ⟨hcfe, rfl, rfl, rfl⟩ := finishJnzBranch_none hfin
+                rw [hcfe] at hcf' hft
+                obtain ⟨hbr, h2⟩ := List.IsInfixAt.append hcf'
+                obtain ⟨hce, h3⟩ := List.IsInfixAt.append h2
+                obtain ⟨hlab, hct⟩ := List.IsInfixAt.cons h3
+                refine branch_ok hy hmem hA1 hI1 hfc hs hbr hlab
+                  fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
+                · refine T.frameSpec.label_spec hlab ?_
+                  exact iht nv1 nl1 ip1 stBr ft ct _ _ _ _ s' σ1 m hlt hct
+                    (FT_congr (by simp; omega) hft) hD (hA'.mono_nv hnv1) hMBr1 hI'
+                    (hwp.1 (by simpa using htk))
+                · exact ihe nv (nl + 1) (ip + 1) stBr none ce nv1 nl1 ip1 _ s' σ1 m
+                    hle hce (FT_none _) hD hA' hMBr hI' (hwp.2 (by simpa using hnt))
+              | true =>
+                simp only [ite_true] at hle hlt hfin
+                obtain ⟨hcfe, rfl, rfl, rfl⟩ := finishJnzBranch_none hfin
+                rw [hcfe] at hcf' hft
+                obtain ⟨hbr, h2⟩ := List.IsInfixAt.append hcf'
+                obtain ⟨hct, h3⟩ := List.IsInfixAt.append h2
+                obtain ⟨hlab, hce⟩ := List.IsInfixAt.cons h3
+                refine branch_ok hy hmem hA1 hI1 hfc hs hbr hlab
+                  fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
+                · refine T.frameSpec.label_spec hlab ?_
+                  exact ihe nv (nl + 1) (ip + 1) stBr ft ce nv1 nl1 ip1 _ s' σ1 m hle hce
+                    (FT_congr (by simp; omega) hft) hD hA' hMBr hI' (hwp.2 (by simpa using htk))
+                · exact iht nv1 nl1 ip1 stBr none ct _ _ _ _ s' σ1 m hlt hct (FT_none _) hD
+                    (hA'.mono_nv hnv1) hMBr1 hI' (hwp.1 (by simpa using hnt))
+            | some j =>
+              have hth := jnzSetup_thread hs
+              cases inv with
+              | false =>
+                simp only [Bool.false_eq_true, ite_false] at hle hlt hfin
+                obtain ⟨rfl, rfl, rfl, rfl⟩ := finishJnzBranch_some hfin
+                obtain ⟨hbr, hce⟩ := List.IsInfixAt.append hcf
+                obtain ⟨kj, hlab, hrun⟩ := thread_ok hy ht hD (hth.1 rfl)
+                refine branch_ok hy hmem hA1 hI1 hfc hs hbr hlab
+                  fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
+                · exact hrun (hwp.1 (by simpa using htk)) nv s' σ1 hA' hI'
+                · exact ihe nv (nl + 1) (ip + 1) stBr ft ce nv1 nl1 ip1 _ s' σ1 m hle hce
+                    (FT_congr (by simp [Nat.add_assoc]) hft) hD hA' hMBr hI'
+                    (hwp.2 (by simpa using hnt))
+              | true =>
+                simp only [ite_true] at hle hlt hfin
+                obtain ⟨rfl, rfl, rfl, rfl⟩ := finishJnzBranch_some hfin
+                obtain ⟨hbr, hct⟩ := List.IsInfixAt.append hcf
+                obtain ⟨kj, hlab, hrun⟩ := thread_ok hy he hD (hth.2 rfl)
+                refine branch_ok hy hmem hA1 hI1 hfc hs hbr hlab
+                  fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
+                · exact hrun (hwp.2 (by simpa using htk)) nv s' σ1 hA' hI'
+                · exact iht nv1 nl1 ip1 stBr ft ct _ _ _ _ s' σ1 m hlt hct
+                    (FT_congr (by simp [Nat.add_assoc]) hft) hD (hA'.mono_nv hnv1) hMBr1 hI'
+                    (hwp.1 (by simpa using hnt))
   · -- jump
     intro G D ts j₁ j₂ args₁ args₂ hj hargs nv nl ip st ft c nv' nl' ip' k s σ m
       hl hc hft hD hA _hM hI hwp

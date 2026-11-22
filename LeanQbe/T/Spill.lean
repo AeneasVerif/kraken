@@ -191,6 +191,11 @@ def opAffVars {ts : List Ty} (op : Op VNat ts) (la : List Nat) : List (Nat × Na
 def prefOpVar {ts : List Ty} (op : Op VNat ts) (la : List Nat) : Option Nat :=
   (opAffVars op la).head?.map Prod.fst <|> (firstOpVar op).1
 
+/-- Variant of `prefOpVar` skipping slot operands kept directly in memory (`noLoadOps`). -/
+def prefOpVarSkip {ts : List Ty} (op : Op VNat ts) (la skip : List Nat) : Option Nat :=
+  let vs := (opAffVars op la).filterMap fun (x, _) => if natMem x skip then none else some x
+  vs.head? <|> ((firstOpVar op).1.filter (!natMem · skip))
+
 /-- Probe whether `VariantHint.disp` produces strictly fewer directives than `.default` for an
 `add`/`sub` immediate with distinct src/dst registers (e.g. x64 `lea` vs `mov; add`). -/
 def tryDispHint (I : Isa) (r0 r1 : I.Reg) {ts : List Ty} (op : Op VNat ts)
@@ -288,6 +293,8 @@ structure Ctx (I : Isa) where
   (flagHome : Trie I.Cond) (bparams lTrie : Trie (List Nat))
   (addrDeps : Trie (List Nat) := .empty)
   (isLeaf : Bool := false)
+  (rmwDeps : Trie (List Nat) := .empty)
+  (regionReused : Trie (List Nat) := .empty)
   (cfg : Cfg := {})
   (csCost : Nat := 2 * baseMult)
   (brW : Trie (Nat × Nat × Nat) := .empty)
@@ -470,7 +477,7 @@ def gather {I : Isa} (c : Ctx I) :
       weights := (mult, x :: uses) :: acc.weights, defInterf := di,
       gprPts := gPts, vecPts := vPts, defWT := acc.defWT.insert x mult }
   | lps, lr, mult, isZ32, .store lv ip _ v a k, acc =>
-    let uses := dedup (argVarIds v ++ c.addrDeps.getD ip (argVarIds a))
+    let uses := storeVarIds c.addrDeps c.rmwDeps ip v a
     let (gLv, vLv) := splitBank c.banks c.flagHome lv
     let (gUse, vUse) := splitBank c.banks c.flagHome uses
     gather c lps lr mult isZ32 k { acc with
@@ -1119,7 +1126,8 @@ operands. With `cfg.sink`, a live slot-home GPR store stays deferred (`Pend.gDf`
 as its register survives in `gCache'`; otherwise it is emitted here. -/
 def buildPre {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List Nat)
     (ipLive liveAfter ops : List Nat) (pd : Pend) (extra : List I.Move)
-    (extraWG extraWV : List Nat) (gCache vCache : List (Nat × Nat)) :
+    (extraWG extraWV : List Nat) (gCache vCache : List (Nat × Nat))
+    (noLoadOps : List Nat := []) :
     List I.Move × List (Nat × Nat) × List (Nat × Nat) × List (Nat × Nat × Nat) :=
   let gOf (r : Nat) := c.gReg.getD r I.frame.sp
   let wG := pd.gRg.map fun (_, d, _) => d
@@ -1157,7 +1165,8 @@ def buildPre {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List Na
     if isSlotHome x && natMem x ipLive && !natMem v clobV then
       (x, v) :: vc.filter fun (_, v') => !Nat.beq v' v
     else vc) vCache0
-  if !(ops.any isSlotHome) then
+  let needOps := ops.filter (!natMem · noLoadOps)
+  if !(needOps.any isSlotHome) then
     let (mvs, kept) := flushDf c (!inCache gCache1 ·) baseMvs candDf
     (mvs, gCache1, vCache1, kept)
   else
@@ -1179,6 +1188,7 @@ def buildPre {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List Na
             | none => (gb, vb, gc, vc, mvs)
         else
           if gc.any (fun (y, _) => Nat.beq y x) then (gb, vb, gc, vc, mvs)
+          else if natMem x noLoadOps then (gb, vb, gc, vc, mvs)
           else
             let cachedG := gc.map Prod.snd
             match freshRegAvoid (c.gAlloc ++ usedCs) gb cachedG (candDf.map (·.2.2)) with
@@ -1357,6 +1367,114 @@ def jumpSlotMoves {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (slotOk : Tr
         | _ => mvs
       | _ => mvs) []
 
+/-- Slot-homed uncached operands that `Rega.trySlotOp` can keep in `[%rsp+off]` directly. -/
+private def slotOpNoLoad {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (r0? : Option I.Reg)
+    (lv _la : List Nat) (pd : Pend) (rl : List Nat) (gC : List (Nat × Nat))
+    (ip nv0 : Nat) {ts : List Ty} (op : Op VNat ts) : List Nat :=
+  if (c.addrDeps.find? ip).isSome then []
+  else
+    let (rlWG, _) := splitReloadRegs home rl
+    let clobG := (pd.gRg.map fun (_, d, _) => d) ++ rlWG
+    let isSlot (x : Nat) : Bool :=
+      match home.getD x .none with | .slot _ .w64 => true | _ => false
+    let inCache (x : Nat) : Bool :=
+      gC.any (fun (y, r) => Nat.beq y x && natMem x lv && !natMem r clobG) ||
+      pd.gSt.any fun (y, _, r) => Nat.beq y x && isSlot y && natMem x lv && !natMem r clobG
+    let isUncachedSlot (x : Nat) : Bool := isSlot x && !inCache x
+    let hasGprAt (x : Nat) : Bool :=
+      (match home.getD x .none with | .gpr _ => true | _ => false) || inCache x
+    let tryAlu {n : Nat} (isAddSub : Bool) (code : OpCode [.bits n, .bits n] [.bits n])
+        (a b : Arg VNat (.bits n)) : List Nat :=
+      let aluOk (memRhs : Bool) : Bool := isStdBitWidth n &&
+        (r0?.map fun r => (I.gpr.aluMem n code memRhs (.baseDisp I.frame.sp 0) (.gpr r) r).isSome
+          ).getD false
+      let sameReg (src : Nat) : Bool :=
+        match home.getD nv0 .none, home.getD src .none with
+        | .gpr rd, .gpr rs => Nat.beq rd rs
+        | _, _ => false
+      match a, b with
+      | .var x, .var y =>
+        if isUncachedSlot y && hasGprAt x && aluOk true && (!natMem x _la || sameReg x) then [y]
+        else if isUncachedSlot x && hasGprAt y && aluOk false && (!natMem y _la || sameReg y)
+          then [x]
+        else []
+      | .var x, .imm _ =>
+        if isUncachedSlot x && aluOk false && (!isAddSub || !natMem x _la) then [x] else []
+      | .imm _, .var y =>
+        if isUncachedSlot y && aluOk true && (!isAddSub || !natMem y _la) then [y] else []
+      | _, _ => []
+    let { sig := _, code, args } := op
+    match code, args with
+    | .cmp co (.bits n) .bool _, (a, b, ()) =>
+      let pdProbe? (r : I.Reg) : PDst I.Reg I.VReg I.Cond .bool :=
+        match home.getD nv0 .none with | .flag cc => .flag cc | _ => .gpr r
+      let cmpOk (co' : CmpOp) : Bool := I.supportsCmpMem (.bits n) && isStdBitWidth n &&
+        (r0?.map fun r => (I.gpr.cmpMem co' n (.baseDisp I.frame.sp 0) (.imm 0#n)
+          (pdProbe? r)).isSome).getD false
+      match a, b with
+      | .var x, .var y =>
+        if Nat.beq x y then []
+        else if isUncachedSlot x && cmpOk co && (!natMem x _la || !isUncachedSlot y) then [x]
+        else if isUncachedSlot y && cmpOk co.swap then [y]
+        else []
+      | .var x, .imm _ => if isUncachedSlot x && cmpOk co then [x] else []
+      | .imm _, .var y => if isUncachedSlot y && cmpOk co.swap then [y] else []
+      | _, _ => []
+    | .add (.bits n), (a, b, ()) => tryAlu true (.add (.bits n)) a b
+    | .sub (.bits n), (a, b, ()) => tryAlu true (.sub (.bits n)) a b
+    | .mul (.bits n), (a, b, ()) => tryAlu false (.mul (.bits n)) a b
+    | .and (.bits n), (a, b, ()) => tryAlu false (.and (.bits n)) a b
+    | .or  (.bits n), (a, b, ()) => tryAlu false (.or  (.bits n)) a b
+    | .xor (.bits n), (a, b, ()) => tryAlu false (.xor (.bits n)) a b
+    | _, _ => []
+
+private abbrev RegionVarSet := List Nat × Trie Unit
+
+private def rvsAdd (s : RegionVarSet) (xs : List Nat) : RegionVarSet :=
+  xs.foldl (fun (ks, t) x => if trieMem t x then (ks, t) else (x :: ks, t.insert x ())) s
+
+private def rvsUnion (a b : RegionVarSet) : RegionVarSet :=
+  if Nat.ble a.1.length b.1.length then rvsAdd b a.1 else rvsAdd a b.1
+
+mutual
+/-- Linear bottom-up pass recording, at each `.let_` `ip`, the continuation live-ins reused
+within the same extended-basic-block region before `.call`/`.ret`/`.exit`/`.stop`. -/
+private def buildRegionReused {I : Isa} (c : Ctx I) :
+    Tree → Trie (List Nat) → RegionVarSet × Trie (List Nat)
+  | .let_ _ ip _ _ op k, acc =>
+    let ((ksK, mK), acc1) := buildRegionReused c k acc
+    let both := k.lv.filter (trieMem mK ·)
+    let acc2 := if both.isEmpty then acc1 else acc1.insert ip both
+    (rvsAdd (ksK, mK) (c.addrDeps.getD ip (opVarIds op)), acc2)
+  | .load _ ip _ _ a k, acc =>
+    let (vsK, acc1) := buildRegionReused c k acc
+    (rvsAdd vsK (c.addrDeps.getD ip (argVarIds a)), acc1)
+  | .store _ ip _ v a k, acc =>
+    let (vsK, acc1) := buildRegionReused c k acc
+    (rvsAdd vsK (storeVarIds c.addrDeps c.rmwDeps ip v a), acc1)
+  | .skip _ _ k, acc => buildRegionReused c k acc
+  | .group _ bs k, acc =>
+    let acc1 := buildRegionReusedB c bs acc
+    buildRegionReused c k acc1
+  | .jnz _ _ cx _ t e, acc =>
+    let (vsT, acc1) := buildRegionReused c t acc
+    let (vsE, acc2) := buildRegionReused c e acc1
+    (rvsAdd (rvsUnion vsT vsE) [cx], acc2)
+  | .jump _ _ j _ args, acc =>
+    (rvsAdd (rvsAdd ([], .empty) (tupVarIds args)) (c.lTrie.getD j []), acc)
+  | .call _ _ _ _ _ _ args k, acc =>
+    let (_, acc1) := buildRegionReused c k acc
+    (rvsAdd ([], .empty) (tupVarIds args), acc1)
+  | .ret _ _ _ args, acc | .exit _ _ _ _ args, acc =>
+    (rvsAdd ([], .empty) (tupVarIds args), acc)
+  | .stop _, acc => (([], .empty), acc)
+
+private def buildRegionReusedB {I : Isa} (c : Ctx I) :
+    TreeBlocks → Trie (List Nat) → Trie (List Nat)
+  | .nil, acc => acc
+  | .cons _ _ b bs, acc => buildRegionReusedB c bs (buildRegionReused c b acc).2
+end
+
 /-! Hint emission. Besides pending arrival moves, each path threads `ev` (split variables currently
 only in their backup slot), `sv` (split variables whose backup slot holds their value), and
 `(gCache, vCache)` (spilled variables whose values remain untouched in registers). -/
@@ -1405,8 +1523,14 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
         (eraseMany rl ev) sv gC2 vC2
         { st with dest := dest, pre := recordPre ip (clrAt.getD ip false) mvs0 st.pre }
     | none =>
+      let noLoad := (slotOpNoLoad c home r0 lv laAfter pd rl gC ip nv0 op).filter
+        (!natMem · (c.regionReused.getD ip []))
+      let (mvs0, gC1, vC1, df1) :=
+        if noLoad.isEmpty then (mvs0, gC1, vC1, df1)
+        else buildPre c home st.usedCs lv laAfter ops pd
+          (splitMoves c home bk false rl) rlWG rlWV gC vC noLoad
       let (dest, gSt', vSt', wG, wV) := allocDefs c home bk st.usedCs defs k.lv
-        (prefOpVar op k.lv) gC1 (vC1.map Prod.snd) st.dest
+        (prefOpVarSkip op k.lv noLoad) gC1 (vC1.map Prod.snd) st.dest
       let (mvs, df2) := flushDf c (natMem ·.2.2 wG) mvs0 df1
       let var' := match r0, r1, st.variant.find? ip, dest.find? nv0 with
         | some a0, some a1, none, some (.gpr rd) =>
@@ -1443,7 +1567,7 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
       (eraseMany rl ev) sv' gC2 vC2
       { st with dest := dest, pre := recordPre ip (clrAt.getD ip false) mvs st.pre }
   | .store lv ip _ v a k, pd, ev, sv, gC, vC, st =>
-    let ops := dedup (argVarIds v ++ c.addrDeps.getD ip (argVarIds a))
+    let ops := storeVarIds c.addrDeps c.rmwDeps ip v a
     let rl := ops.filter (natMem · ev)
     let (rlWG, rlWV) := splitReloadRegs home rl
     let (mvs, gC1, vC1, df1) := buildPre c home st.usedCs lv k.lv ops pd
@@ -1469,8 +1593,12 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     let rl := if natMem cx ev then [cx] else []
     let (rlWG, rlWV) := splitReloadRegs home rl
     let laAfter := union t.lv e.lv
+    let noLoad := match home.getD cx .none with
+      | .slot _ .w64 =>
+        if (I.gpr.jnzMem (.baseDisp I.frame.sp 0) false "").isSome then [cx] else []
+      | _ => []
     let (mvs0, gC1, vC1, df1) := buildPre c home st.usedCs lv laAfter [cx] pd
-      (splitMoves c home bk false rl) rlWG rlWV gC vC
+      (splitMoves c home bk false rl) rlWG rlWV gC vC noLoad
     let (mvs, df2) := flushDf c (fun d => !sinkOk c ip t e d.1) mvs0 df1
     let ev' := eraseMany rl ev
     let st1 := emitAlloc c home bk slotOk clrAt r0 r1 e
@@ -1647,10 +1775,11 @@ def hints (I : Isa) (f : Fn)
   let allVec := I.vec.vecAllocatable ++ I.vec.vecScratch ++ I.vec.vecArgRegs ++ I.vec.vecRetRegs
   let (t0, fnPs, nv, nl, nip, tys) := Tree.ofFn f
   let (t1a, elideIps0, addrDeps0) := elideAddrTreeDeps I t0
-  let (t1, elideIps, addrDeps) := elideCmpTreeDeps I t1a elideIps0 addrDeps0
+  let (t1b, elideIps1, addrDeps) := elideCmpTreeDeps I t1a elideIps0 addrDeps0
+  let (t1, elideIps, rmwDeps) := elideRmwTreeDeps I t1b elideIps1 addrDeps
   let bs0 := t1.blocks
-  let lTrie := liveLabels bs0 addrDeps
-  let (_, t) := fillLive lTrie addrDeps t1
+  let lTrie := liveLabels bs0 addrDeps rmwDeps
+  let (_, t) := fillLive lTrie addrDeps rmwDeps t1
   let crossList := acrossCalls t
   let crossTrie := crossList.foldl (fun a x => a.insert x true) .empty
   let isLeaf := crossList.isEmpty
@@ -1676,11 +1805,13 @@ def hints (I : Isa) (f : Fn)
     cross := crossTrie, loops := loops, loopReach := loopReach,
     banks := (List.range nv).foldl (fun b x => b.insert x (bankOf I (tys.getD x i64))) .empty,
     flagHome := fh.flagHome, bparams := bparamsTrie, lTrie := lTrie, addrDeps := addrDeps,
-    isLeaf := isLeaf, cfg := cfg, csCost := csCost, r0? := I.frame.allocatable.head? }
+    rmwDeps := rmwDeps, isLeaf := isLeaf, cfg := cfg, csCost := csCost,
+    r0? := I.frame.allocatable.head? }
+  let regionReused := (buildRegionReused c t .empty).2
   let initZ32 : Trie Bool := fnPs.foldl (fun z (p, ty) =>
     if isGprTy I ty then z.insert p true else z) .empty
   let acc := gather c [] [] baseMult initZ32 t {}
-  let c := { c with brW := acc.brW, zextElide := acc.zextElide }
+  let c := { c with brW := acc.brW, zextElide := acc.zextElide, regionReused := regionReused }
   let fnAbi := match I.assignArgs f.as with
     | some locs => abiIdList allGpr allVec locs | none => []
   let cs := colorVars c nv fh.flagHome acc (fnPs.map Prod.fst) fnAbi

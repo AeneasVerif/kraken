@@ -324,6 +324,39 @@ theorem store_toBytes_bits {n : Nat} {a : BitVec 64} {x : Int} (v : BitVec n)
   rw [hst, heq]
   exact Mem.storeInt_sep a (Ty.bits n).bytes _ R m ⟨h, Int.toBytes_length _ _⟩ v.toInt
 
+private theorem toBytes_take_le : ∀ {b m : Nat} (v : Int),
+    b ≤ m → (Int.toBytes m v).take b = Int.toBytes b v
+  | 0, _, _, _ => by simp [Int.toBytes]
+  | b + 1, m + 1, v, h => by
+    simp only [Int.toBytes, List.take_succ_cons]
+    congr 1
+    exact toBytes_take_le (v / 256) (by omega)
+
+/-- Reading a sub-word (`8/16/32/64` bits) from a 64-bit `cell64` yields `v64.setWidth n`. -/
+theorem loadVal_bits_of_cell64 {n : Nat} {a v64 : BitVec 64} {R : Mem 64 → Prop} {m : Mem 64}
+    (hn : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64) (h : (cell64 a v64 ⋆ R) m) :
+    loadVal m (.bits n) a = some (v64.setWidth n) := by
+  have hb8 : (Ty.bits n).bytes ≤ 8 := by rcases hn with rfl | rfl | rfl | rfl <;> decide
+  have hbw : (Ty.bits n).bytes ≤ 2 ^ 64 := Nat.le_trans hb8 (by decide)
+  have hnle : n ≤ 64 := by rcases hn with rfl | rfl | rfl | rfl <;> decide
+  let b := (Ty.bits n).bytes
+  let bs := Int.toBytes 8 v64.toInt
+  have hsplit : bs = Int.toBytes b v64.toInt ++ bs.drop b := by
+    rw [← toBytes_take_le v64.toInt hb8, List.take_append_drop]
+  have hlen : (Int.toBytes b v64.toInt).length + (bs.drop b).length ≤ 2 ^ 64 := by
+    simp only [Int.toBytes_length, List.length_drop, bs]; omega
+  have heq : cell64 a v64 =
+      (Eq ((Int.toBytes b v64.toInt).At a) ⋆
+        Eq ((bs.drop b).At (a + BitVec.ofNat 64 b))) := by
+    change Eq (bs.At a) = _
+    conv => lhs; rw [hsplit]
+    have ha := Mem.At_append_sep (Int.toBytes b v64.toInt) (bs.drop b) a hlen
+    simpa [Int.toBytes_length] using ha
+  have hm' : (Eq ((Int.toBytes b v64.toInt).At a) ⋆
+      (Eq ((bs.drop b).At (a + BitVec.ofNat 64 b)) ⋆ R)) m := by
+    rw [heq] at h; exact sep_cast h (by ac_rfl)
+  rw [loadVal_toBytes_bits hbw hm', ← ofInt_setWidth_le hnle, BitVec.ofInt_toInt]
+
 /-! ## Framing `T.loadVal`, `T.storeOk`, `T.storeMem` over `(Eq m ⋆ F) M` -/
 
 private theorem allSome_isSome {α : Type} :
