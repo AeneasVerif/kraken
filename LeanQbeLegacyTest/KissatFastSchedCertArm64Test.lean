@@ -28,9 +28,9 @@ open LeanQbe.T.Examples.Kissat.Full
 open LeanQbe.T.Examples.Kissat.FullFastSched
 
 example : schedCert.numChunks > 0 := by decide
-example : schedCert.bound "kissat_solve_bytes" = 960 := by decide
-example : schedCert.bound "full_sweep_bins" = 112 := by decide
-example : schedCert.bound "full_substitute" = 528 := by decide
+example : schedCert.bound "kissat_solve_bytes" = 976 := by decide
+example : schedCert.bound "full_sweep_bins" = 96 := by decide
+example : schedCert.bound "full_substitute" = 512 := by decide
 example : schedCert.bound "full_enter_dense" = 512 := by decide
 example : schedCert.bound "full_search" = 928 := by decide
 example : schedCert.bound "full_preprocess" = 896 := by decide
