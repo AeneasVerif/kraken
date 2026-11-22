@@ -182,13 +182,71 @@ theorem oolPol_excludes_ool :
       Expr.checkCallsOk [] [] body = false := by
   decide
 
-/-! ## 5. `InlinePolicy.b5` & full soundness (`optInlinePolicy_*`) -/
+/-! ## 5. Structural gates (`requireLoopSite`, `maxTotalDup`, `maxCalleeLoops`, `maxCallerCalls`) -/
+
+def loopCallee : Fn := ⟨"loopCallee", [i64], [i64], fun _ _ (x, ()) => addChain 7 (.var x)⟩
+
+def flatCallee : Fn := ⟨"flatCallee", [i64], [i64], fun _ _ (x, ()) => addChain 7 (.var x)⟩
+
+def loopCaller : Fn := ⟨"loopCaller", [i64], [i64], fun _ _ (x, ()) =>
+  .group (sig := [[i64]])
+    (fun (lp, ()) => .cons (fun (v, ()) =>
+      .call "loopCallee" (as := [i64]) (bs := [i64]) (.var v, ()) fun (r, ()) =>
+      .jnz (.imm false) (.jump lp (.var r, ())) (.ret (.var r, ()))) .nil)
+    (fun (lp, ()) =>
+      .call "flatCallee" (as := [i64]) (bs := [i64]) (.var x, ()) fun (y, ()) =>
+      .jump lp (.var y, ()))⟩
+
+def loopMod : Module where
+  fns := [loopCallee, flatCallee, loopCaller]
+
+def loopPol : InlinePolicy :=
+  { budget := fun _ => 5, leafMax := 20, requireLoopSite := true }
+
+theorem loopSitePol_filters :
+    let body :=
+      ((loopMod.inlinePolicy loopPol).fns.getD 2 dummyFn).body
+        (fun _ => Unit) (fun _ => Unit) (Tup.units [i64])
+    Expr.checkCallsOk [⟨"flatCallee", [i64], [i64]⟩] [] body = true ∧
+      Expr.checkCallsOk [] [] body = false := by
+  decide
+
+def dupCallee1 : Fn := ⟨"dupCallee1", [i64], [i64], fun _ _ (x, ()) => addChain 7 (.var x)⟩
+
+def dupCallee2 : Fn := ⟨"dupCallee2", [i64], [i64], fun _ _ (x, ()) => addChain 7 (.var x)⟩
+
+def dupCaller : Fn := ⟨"dupCaller", [i64], [i64], fun _ _ (x, ()) =>
+  .call "dupCallee1" (as := [i64]) (bs := [i64]) (.var x, ()) fun (a, ()) =>
+  .call "dupCallee2" (as := [i64]) (bs := [i64]) (.var a, ()) fun (b, ()) =>
+  .call "dupCallee2" (as := [i64]) (bs := [i64]) (.var b, ()) fun (c, ()) =>
+  .ret (.var c, ())⟩
+
+def dupMod : Module where
+  fns := [dupCallee1, dupCallee2, dupCaller]
+
+def dupPol : InlinePolicy :=
+  { budget := fun _ => 5, leafMax := 20, maxTotalDup := 10 }
+
+theorem dupPol_filters :
+    let body :=
+      ((dupMod.inlinePolicy dupPol).fns.getD 2 dummyFn).body
+        (fun _ => Unit) (fun _ => Unit) (Tup.units [i64])
+    Expr.checkCallsOk [⟨"dupCallee2", [i64], [i64]⟩] [] body = true ∧
+      Expr.checkCallsOk [] [] body = false := by
+  decide
+
+/-! ## 6. `InlinePolicy.b5` & full soundness (`optInlinePolicy_*`) -/
 
 theorem b5_params :
     InlinePolicy.b5.leafMax = 106 ∧
       InlinePolicy.b5.singleSiteMax = 190 ∧
       InlinePolicy.b5.maxCallerSize = 660 ∧
-      "full_watch_push" ∈ InlinePolicy.b5.keepOutOfLine := by
+      InlinePolicy.b5.maxCalleeCalls = 2 ∧
+      InlinePolicy.b5.maxCalleeLoops = some 2 ∧
+      InlinePolicy.b5.maxTotalDup = 450 ∧
+      InlinePolicy.b5.requireLoopSite = true ∧
+      InlinePolicy.b5.maxCallerCalls = 4 ∧
+      InlinePolicy.b5.keepOutOfLine = [] := by
   decide
 
 theorem capMod_checkAcyclic : capMod.checkAcyclic = true := by rfl
@@ -271,7 +329,7 @@ theorem cap_b5_supp :
       f.body.supportsSource LegalTarget.x64AVX512 = true :=
   Module.optInlinePolicy_supportsSource LegalTarget.x64AVX512 InlinePolicy.b5 capMod_wf capMod_supp
 
-/-! ## 6. Axiom Audit -/
+/-! ## 7. Axiom Audit -/
 
 #print axioms LeanQbe.T.Module.optInlinePolicy_wf
 #print axioms LeanQbe.T.Module.optInlinePolicy_spec
@@ -282,6 +340,8 @@ theorem cap_b5_supp :
 #print axioms ssPol_single_only
 #print axioms capPol_caller_cap
 #print axioms oolPol_excludes_ool
+#print axioms loopSitePol_filters
+#print axioms dupPol_filters
 #print axioms b5_params
 #print axioms cap_wf
 #print axioms cap_spec

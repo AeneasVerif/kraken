@@ -312,8 +312,8 @@ private theorem inlineExpr_supportsSource (target : LegalTarget) {cands : List F
           obtain ⟨hwf_fn, hsupp_fn⟩ := hcands fn hfn
           dsimp only [Func.supportsSource] at hsupp_fn
           rw [Bool.and_eq_true] at hsupp_fn
-          simp only [toTFlat, toTBlocks, TFlat.supportsSource, TBlocks.supportsSource, List.all,
-            Bool.and_true, Bool.and_eq_true]
+          dsimp only [toTFlat, toTBlocks, TFlat.supportsSource, TBlocks.supportsSource, List.all]
+          simp only [Bool.and_true, Bool.and_eq_true]
           refine ⟨⟨hs.1.2, ⟨hs.1.2, ih (Tup.levels fn.rs nv₁) (Tup.levels fn.rs nv₂)
             (nv₁ + fn.rs.length) (nl₁ + 1) (nv₂ + fn.rs.length) nl₂ hs.2⟩⟩, ?_⟩
           exact spliceRet_supportsSource target
@@ -465,7 +465,8 @@ theorem Module.inlinePolicy_supportsSource (lt : LegalTarget) {M : Module}
     ∀ f ∈ (M.inlinePolicy policy).fns, f.body.supportsSource lt = true := by
   have hP := inlineFnsPolicy_preserve
     (fun fn => fn.Wf ∧ fn.body.supportsSource lt = true)
-    policy (if policy.singleSiteMax > 0 then fnsCallSites M.fns else [])
+    policy (if policy.singleSiteMax > 0 || policy.maxTotalDup > 0 then fnsCallSites M.fns else [])
+    (if policy.requireLoopSite then fnsLoopCallSites M.fns else [])
     (M.externs.map Extern.sig) M.exits
     (fun cands fn hc hfn => by
       refine ⟨Fn.inline_wf (fun c hc' => (hc c hc').1) hfn.1, ?_⟩
