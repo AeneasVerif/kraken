@@ -29,10 +29,10 @@ open LeanQbe.T.Examples.Kissat.FullFast
 
 #guard fastFns.length == 196
 example : fastCert.numChunks > 0 := by decide
-example : fastCert.bound "kissat_solve_bytes" = 1056 := by decide
+example : fastCert.bound "kissat_solve_bytes" = 1072 := by decide
 example : fastCert.bound "full_prop_lit" = 464 := by decide
 example : fastCert.bound "full_propagate" = 528 := by decide
-example : fastCert.bound "full_sweep_bins" = 112 := by decide
+example : fastCert.bound "full_sweep_bins" = 96 := by decide
 example : fastCert.bound "full_kitten_solve" = 128 := by decide
 example : fastCert.bound "full_find_definition" = 288 := by decide
 example : fastCert.bound "full_bve_var" = 528 := by decide

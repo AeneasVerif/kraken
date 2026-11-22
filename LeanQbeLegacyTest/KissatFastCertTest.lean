@@ -29,16 +29,16 @@ open LeanQbe.T.Examples.Kissat.FullFast
 
 #guard fastFns.length == 196
 example : fastCert.numChunks > 0 := by decide
-example : fastCert.bound "kissat_solve_bytes" = 1080 := by decide
-example : fastCert.bound "full_prop_lit" = 472 := by decide
-example : fastCert.bound "full_propagate" = 536 := by decide
-example : fastCert.bound "full_sweep_bins" = 168 := by decide
+example : fastCert.bound "kissat_solve_bytes" = 1112 := by decide
+example : fastCert.bound "full_prop_lit" = 504 := by decide
+example : fastCert.bound "full_propagate" = 568 := by decide
+example : fastCert.bound "full_sweep_bins" = 184 := by decide
 example : fastCert.bound "full_kitten_solve" = 200 := by decide
 example : fastCert.bound "full_find_definition" = 392 := by decide
 example : fastCert.bound "full_bve_var" = 632 := by decide
-example : fastCert.bound "full_factor" = 728 := by decide
-example : fastCert.bound "full_preprocess" = 1000 := by decide
-example : fastCert.bound "full_search" = 1032 := by decide
+example : fastCert.bound "full_factor" = 760 := by decide
+example : fastCert.bound "full_preprocess" = 1032 := by decide
+example : fastCert.bound "full_search" = 1064 := by decide
 
 theorem audit_unsat [Host] (k₀ : Nat)
     (hc : kissatFast_compiled_x64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
