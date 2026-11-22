@@ -579,10 +579,15 @@ def closure(root):
 for arch in ("Amd64", "Arm64"):
     mods = closure(f"LeanQbeLegacy{arch}")
     (tmp / f"legacy_closure_{arch}.txt").write_text("\n".join(mods) + "\n")
+(tmp / "bootstrap0_closure.txt").write_text("\n".join(closure("LeanQbeBootstrap0")) + "\n")
 PY
 if [ "$RESOLVED_SCOPE" != "arm64" ] \
    && grep -E '^Kraken\.AArch64(\.|$)|^LeanQbe\.T\.Arm64\.' "$TMP/legacy_closure_Amd64.txt"; then
   err "LeanQbeLegacyAmd64 imports AArch64/Arm64 modules (modules above)"
+fi
+if [ "$RESOLVED_SCOPE" != "arm64" ] \
+   && grep -E '^Kraken\.AArch64(\.|$)|^LeanQbe\.T\.Arm64\.' "$TMP/bootstrap0_closure.txt"; then
+  err "LeanQbeBootstrap0 imports AArch64/Arm64 modules (modules above)"
 fi
 if [ "$RESOLVED_SCOPE" != "x64" ] \
    && grep -E '^Kraken\.X64(\.|$)|^LeanQbe\.T\.Amd64\.' "$TMP/legacy_closure_Arm64.txt"; then
@@ -605,6 +610,11 @@ while IFS= read -r f; do
       grep -qx "$m" "$TMP/closure_LeanQbeAmd64.txt" ||
         grep -qx "$m" "$TMP/legacy_closure_Amd64.txt" ||
         err "$f is not imported by LeanQbeAmd64.lean or LeanQbeLegacyAmd64.lean"
+      ;;
+    LeanQbe.T.Bootstrap0.*)
+      [ "$RESOLVED_SCOPE" = "arm64" ] && continue
+      grep -qx "$m" "$TMP/bootstrap0_closure.txt" ||
+        err "$f is not imported by LeanQbeBootstrap0.lean"
       ;;
     LeanQbe.T.Arm64.*)
       [ "$RESOLVED_SCOPE" = "x64" ] && continue

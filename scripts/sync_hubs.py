@@ -2,10 +2,11 @@
 """Check and generate LeanQbe barrel and subsystem hub modules.
 
 Inspects tracked `.lean` files under `LeanQbe/` and validates or generates the
-13 pure re-export barrel/hub files (`LeanQbe.lean`, `LeanQbeAmd64.lean`,
-`LeanQbeArm64.lean`, `LeanQbeLegacyAmd64.lean`, `LeanQbeLegacyArm64.lean`, and
-the 8 subsystem `*Hub.lean` files), respecting the exact active-vs-legacy and
-arch-isolation partition from `lakefile.toml` and `scripts/check.sh`.
+14 pure re-export barrel/hub files (`LeanQbe.lean`, `LeanQbeAmd64.lean`,
+`LeanQbeArm64.lean`, `LeanQbeLegacyAmd64.lean`, `LeanQbeLegacyArm64.lean`,
+`LeanQbeBootstrap0.lean`, and the 8 subsystem `*Hub.lean` files), respecting
+the exact active-vs-legacy and arch-isolation partition from `lakefile.toml`
+and `scripts/check.sh`.
 
 Usage:
   python3 -B scripts/sync_hubs.py --check [--strict] [--root .]
@@ -49,6 +50,7 @@ ROOT_LIBS: tuple[str, ...] = (
     "LeanQbeArm64",
     "LeanQbeLegacyAmd64",
     "LeanQbeLegacyArm64",
+    "LeanQbeBootstrap0",
 )
 
 HUB_DOCSTRINGS: dict[str, str] = {
@@ -69,6 +71,10 @@ HUB_DOCSTRINGS: dict[str, str] = {
     ),
     "LeanQbeLegacyArm64": (
         "/-! Root of the optional legacy AArch64 Kissat certificate library. -/"
+    ),
+    "LeanQbeBootstrap0": (
+        "/-! Root of the optional Stage-A bootstrap compiler library "
+        "(`LeanQbe.T.Bootstrap0.*`). -/"
     ),
     "LeanQbe.T.CoreHub": (
         "/-! Subsystem hub re-exporting core compiler IR, passes, lemmas, "
@@ -347,6 +353,8 @@ def classify_module(mod: str, legacy_re: re.Pattern[str]) -> str | None:
         return "LeanQbe.T.Examples.Kissat.BaseHub"
     if mod.startswith("LeanQbe.T.Examples."):
         return "LeanQbe.T.Examples.Hub"
+    if mod.startswith("LeanQbe.T.Bootstrap0."):
+        return "LeanQbeBootstrap0"
     if mod.startswith("LeanQbe.T."):
         return "LeanQbe.T.CoreHub"
     return "E1_FORBIDDEN"
@@ -380,6 +388,7 @@ def compute_closure(
 ARCH_FORBIDDEN: dict[str, tuple[str, tuple[str, ...], bool]] = {
     "LeanQbeAmd64": ("x64", ("Kraken.AArch64", "LeanQbe.T.Arm64."), True),
     "LeanQbeLegacyAmd64": ("x64", ("Kraken.AArch64", "LeanQbe.T.Arm64."), False),
+    "LeanQbeBootstrap0": ("x64", ("Kraken.AArch64", "LeanQbe.T.Arm64."), False),
     "LeanQbeArm64": ("Arm64", ("Kraken.X64", "LeanQbe.T.Amd64."), True),
     "LeanQbeLegacyArm64": ("Arm64", ("Kraken.X64", "LeanQbe.T.Amd64."), False),
 }
@@ -471,7 +480,7 @@ def render_hub(hub: str, imports: list[str]) -> str:
 
 
 def run_check(root: Path, strict: bool) -> int:
-    """Verify all 13 hub/barrel files against tracked modules and invariants."""
+    """Verify all 14 hub/barrel files against tracked modules and invariants."""
     errors = verify_lakefile(root)
     legacy_re = load_legacy_regex(root)
     tracked = list_tracked_lean_modules(root)
@@ -562,7 +571,7 @@ def run_check(root: Path, strict: bool) -> int:
 
 
 def run_write(root: Path) -> int:
-    """Regenerate all 13 hub/barrel files deterministically from tracked files."""
+    """Regenerate all 14 hub/barrel files deterministically from tracked files."""
     errors = verify_lakefile(root)
     legacy_re = load_legacy_regex(root)
     tracked = list_tracked_lean_modules(root)

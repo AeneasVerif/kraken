@@ -39,6 +39,15 @@ name = "LeanQbeLegacyArm64"
 name = "LeanQbeLegacyTest"
 globs = ["LeanQbeLegacyTest.+"]
 
+# Optional Stage-A bootstrap compiler and kernel certificates (`LeanQbe.T.Bootstrap0.*`).
+[[lean_lib]]
+name = "LeanQbeBootstrap0"
+
+# Optional Stage-A bootstrap validation and kernel certificate tests.
+[[lean_lib]]
+name = "LeanQbeBootstrap0Test"
+globs = ["LeanQbeBootstrap0Test.+"]
+
 # The executables only instantiate the generic driver `LeanQbe.T.Driver`, one per target: no module
 # can import both Kraken.X64 and Kraken.AArch64, so there is no single executable with a target flag.
 [[lean_exe]]
