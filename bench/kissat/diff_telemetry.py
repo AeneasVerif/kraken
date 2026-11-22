@@ -260,9 +260,11 @@ def run_c1(kissat_bin, cnf_path, timeout_s):
         m = re.match(r"^c\s+([a-z0-9_]+):\s+(\d+)\b", line)
         if m:
             raw[m.group(1)] = int(m.group(2))
+    is_to = proc.returncode == 124
     out = {
-        "status": 0 if proc.returncode == 124 else proc.returncode,
-        "timeout": proc.returncode == 124,
+        "status": 0 if is_to else proc.returncode,
+        "timeout": is_to,
+        "crash": (not is_to) and (proc.returncode not in (0, 10, 20)),
         "ms": round(ms, 3),
     }
     for k, aliases in C1_STAT_ALIASES.items():
@@ -279,13 +281,14 @@ def run_c3b_runner(bin_path, cnf_path, work_bytes, fuel, timeout_s):
         capture_output=True, text=True,
     )
     if proc.returncode == 124:
-        return {"status": 0, "timeout": True, "ms": timeout_s * 1000.0}
+        return {"status": 0, "timeout": True, "crash": False, "ms": timeout_s * 1000.0}
     if proc.returncode != 0:
         return {"status": -1, "timeout": False, "crash": True, "ms": 0.0}
     for line in proc.stdout.splitlines():
         if line.strip().startswith("{"):
             rec = json.loads(line.strip())
             rec["timeout"] = False
+            rec["crash"] = False
             rec.setdefault("propagations", None)
             rec.setdefault("compactions", None)
             return rec
@@ -302,8 +305,11 @@ def run_c3b_cli(c3b_bin, cnf_path, work_bytes, fuel, timeout_s, ext_telem=False)
         capture_output=True, text=True,
     )
     ms = (time.monotonic() - t0) * 1000.0
-    rec = {"status": 0 if proc.returncode == 124 else proc.returncode,
-           "timeout": proc.returncode == 124, "ms": round(ms, 3),
+    is_to = proc.returncode == 124
+    rec = {"status": 0 if is_to else proc.returncode,
+           "timeout": is_to,
+           "crash": (not is_to) and (proc.returncode not in (0, 3, 10, 20)),
+           "ms": round(ms, 3),
            "propagations": None, "compactions": None, "factored": None}
     lines = [l.strip() for l in proc.stdout.splitlines() if l.strip()]
     if lines and "\t" in lines[0]:
@@ -346,8 +352,12 @@ def detect_alarms(c1, c3b, inproc_min_c1, ticks_min_confl):
         else:
             watermarks[label] = None
 
+    if c1.get("crash") or (not c1.get("timeout") and c1.get("status") not in (0, 10, 20)):
+        alarms.append(f"C1_CRASH(status={c1.get('status')})")
     if c3b.get("status") == 3:
         alarms.append("WITNESS_CHECK_FAIL(status=3)")
+    elif c3b.get("crash") or (not c3b.get("timeout") and c3b.get("status") not in (0, 10, 20)):
+        alarms.append(f"C3B_CRASH(status={c3b.get('status')})")
     elif c1.get("status") in (10, 20) and c3b.get("status") in (10, 20):
         if c1["status"] != c3b["status"]:
             alarms.append(f"VERDICT_MISMATCH(C1={c1['status']},C3b={c3b['status']})")
@@ -479,7 +489,7 @@ def main():
     ap.add_argument("--fail-on-alarm", action="store_true", help="Exit 1 if any drift alarm fires")
     ap.add_argument(
         "--fail-on-critical", action="store_true",
-        help="Exit 1 on soundness failure, verdict mismatch, or OOM",
+        help="Exit 1 on soundness failure, verdict mismatch, solver crash, or OOM",
     )
     args = ap.parse_args()
 
@@ -547,7 +557,8 @@ def main():
         ]
         crit_alarms = [
             (r["name"], a) for r in results for a in r["alarms"]
-            if a == "C3B_OOM"
+            if (a == "C3B_OOM" or a.startswith("C3B_CRASH")
+                or a.startswith("C1_CRASH"))
         ]
         triggered = list(sound_alarms) + (list(crit_alarms) if args.fail_on_critical else [])
         print(f"Summary: cases={len(results)} total_alarms={total_alarms}")

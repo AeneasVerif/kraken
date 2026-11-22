@@ -500,14 +500,20 @@ def merge_baseline_doc(existing, results, configs, args):
         if c not in cfg_names:
             cfg_names.append(c)
 
+    preserve_base_meta = args.c11_only and bool(prev)
     out_doc = {
-        "schema_version": 1,
+        "schema_version": prev.get("schema_version", 1),
         "base_commit": prev.get("base_commit", "") if args.c11_only else (
             args.commit or prev.get("base_commit", "")
         ),
-        "work_bytes": args.work_bytes,
-        "fuel": args.fuel,
-        "per_timeout_sec": args.per_timeout,
+        "work_bytes": (
+            prev.get("work_bytes", args.work_bytes) if preserve_base_meta else args.work_bytes
+        ),
+        "fuel": prev.get("fuel", args.fuel) if preserve_base_meta else args.fuel,
+        "per_timeout_sec": (
+            prev.get("per_timeout_sec", args.per_timeout)
+            if preserve_base_meta else args.per_timeout
+        ),
         "configs": cfg_names,
     }
     if "c11_base_commit" in prev or args.c11_only or args.include_c11:
@@ -766,7 +772,7 @@ def main():
             f"  C1 (Kissat)   : {c1_solved:2d}/{tot} UNSAT solved"
             f"  (total {c1_tot_ms:.1f} ms, solved-only {c1_solved_ms:.1f} ms)"
         )
-        for base_mod in ("Full", "FullFast", "FullM3", "FullM4"):
+        for base_mod in collect_parity_models(configs):
             c3b_k, c4_k = f"{base_mod}_C3b", f"{base_mod}_C4"
             has_c3b = any(c3b_k in r["runs"] for r in results.values())
             has_c4 = any(c4_k in r["runs"] for r in results.values())

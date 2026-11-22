@@ -158,6 +158,65 @@ timeout 60 "$CXX" -std=c++20 -O2 -Wall -Wextra -Werror $SAN_FLAGS -DKISSAT_C3B_C
   -I"$ROOT" "$TMP_DIR/test_inv.cpp" -o "$TMP_DIR/test_inv_on"
 timeout 30 "$TMP_DIR/test_inv_on"
 echo "check_c3b_invariants.hpp compile+unit checks PASSED"
+timeout 60 python3 -B - "$TMP_DIR" "$ROOT" <<'PYEOF'
+import os, stat, subprocess, sys
+tmp_dir, root = sys.argv[1], sys.argv[2]
+sys.path.insert(0, os.path.join(root, "bench", "kissat"))
+import check_canaries as cc
+import diff_telemetry as dt
+
+# Unit: detect_alarms flags C3b & C1 crash records
+_, al3 = dt.detect_alarms(
+    {"status": 20, "timeout": False, "crash": False},
+    {"status": -1, "timeout": False, "crash": True, "ms": 0.0}, 5, 10,
+)
+assert any(a.startswith("C3B_CRASH(") for a in al3), al3
+_, al1 = dt.detect_alarms(
+    {"status": -1, "timeout": False, "crash": True, "ms": 0.0},
+    {"status": 20, "timeout": False, "crash": False}, 5, 10,
+)
+assert any(a.startswith("C1_CRASH(") for a in al1), al1
+
+# Unit: check_canaries merge_baseline_doc preserves base metadata under --c11-only
+class Args:
+    c11_only, include_c11, commit = True, False, "deadbeef"
+    work_bytes, fuel, per_timeout = 123, 456, 99
+prev = {"schema_version": 1, "base_commit": "abc", "work_bytes": 67108864,
+        "fuel": 200000000, "per_timeout_sec": 5, "configs": [], "canaries": {}}
+merged = cc.merge_baseline_doc(prev, {}, [("FullM5_C3b", "p", True)], Args)
+assert (merged["work_bytes"], merged["fuel"], merged["per_timeout_sec"]) == (
+    67108864, 200000000, 5), merged
+assert cc.collect_parity_models([("FullM5_C3b", "p", True)]) == ["FullM5"]
+
+# Mock CLI: --fail-on-critical and --fail-on-alarm exit 1 on rc=139
+mdir = os.path.join(tmp_dir, "mock_telem")
+cdir = os.path.join(mdir, "cnfs")
+os.makedirs(cdir, exist_ok=True)
+with open(os.path.join(cdir, "t.cnf"), "w") as f:
+    f.write("p cnf 1 1\n1 0\n")
+def mk(name, body):
+    p = os.path.join(mdir, name)
+    with open(p, "w") as f:
+        f.write("#!/usr/bin/env bash\n" + body + "\n")
+    os.chmod(p, os.stat(p).st_mode | stat.S_IXUSR)
+    return p
+k20, k139 = mk("k20", "exit 20"), mk("k139", "exit 139")
+c20, c139 = mk("c20", 'printf "t.cnf\\t20\\t0.1\\n"; exit 0'), mk("c139", "exit 139")
+script = os.path.join(root, "bench", "kissat", "diff_telemetry.py")
+for kb, cb, flag, tag in [
+    (k20, c139, "--fail-on-critical", "C3B_CRASH(status=139)"),
+    (k20, c139, "--fail-on-alarm", "C3B_CRASH(status=139)"),
+    (k139, c20, "--fail-on-critical", "C1_CRASH(status=139)"),
+]:
+    pr = subprocess.run(
+        ["timeout", "30", sys.executable, "-B", script, "--kissat", kb,
+         "--c3b-bin", cb, "--cnf-dir", cdir, flag],
+        capture_output=True, text=True,
+    )
+    assert pr.returncode == 1 and tag in (pr.stdout + pr.stderr), (
+        flag, tag, pr.returncode, pr.stdout, pr.stderr)
+print("Harness crash/metadata regression checks PASSED")
+PYEOF
 
 echo "[3/5] Running check_canaries.py (--c11-only)..."
 CANARY_ARGS=(--per-timeout "$PER_TIMEOUT")
