@@ -78,6 +78,8 @@ theorem audit_arm_to_isa :
         supportsTestFuse := true } :=
   armTarget_toIsa
 
+theorem audit_leaf_zero_frame : armFrame.leafZeroFrame = true := rfl
+
 theorem audit_parity (t : Ty) (f : Fmt) (n : Nat)
     (u1n : Tup (Arg (fun _ => Unit)) [.bits n])
     (u2n : Tup (Arg (fun _ => Unit)) [.bits n, .bits n])
@@ -370,6 +372,7 @@ end IselStepArmAudit
 #print axioms audit_frame
 #print axioms audit_label_clean
 #print axioms audit_arm_to_isa
+#print axioms audit_leaf_zero_frame
 #print axioms audit_parity
 #print axioms audit_link2_run
 #print axioms audit_link3_run

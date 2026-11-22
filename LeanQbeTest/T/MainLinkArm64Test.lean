@@ -231,7 +231,7 @@ def chunk2Compiled :
     chunk2Code chunk2Bounds chunk2_cm chunk2_meta
 
 /-- Parallel chunk 2 compiled against a standalone literal `ext` (independent of `chunk1`). -/
-def parBumpExt : List (SigEntry × Nat) := [(("bump", [i64, i64], [i64]), 16)]
+def parBumpExt : List (SigEntry × Nat) := [(("bump", [i64, i64], [i64]), 0)]
 
 splice_chunk_literals chunk2ParCode chunk2ParBounds chunk2ParSigs
   armTarget.toIsa armLegalTarget armTarget.frame.raBytes

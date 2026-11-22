@@ -188,6 +188,10 @@ def main (args : List String) : IO Unit := do
   let fns := baseFns ++ [callZero, multiExit, deepCaller, loopBranch]
   let hs := baseFns.map (Fn.computeHints armTarget.toIsa armLegalTarget) ++
     [czHint, meHint, dcHint, Fn.computeHints armTarget.toIsa armLegalTarget loopBranch]
+  for fn in [evenodd, sumto, callZero] do
+    let h := Fn.computeHints armTarget.toIsa armLegalTarget fn
+    if h.nslots != 0 || !h.saved.isEmpty then
+      throw (IO.userError s!"expected 0 slots for arm64 {fn.name}")
   let dirs ← IO.ofExcept (compile armTarget.toIsa armLegalTarget fns hs)
   let printArm := fun c => ".p2align 2\n" ++
     String.intercalate "\n" (c.map Kraken.AArch64.Print.directive) ++ "\n"
@@ -356,7 +360,39 @@ awk '/\.size big_pool_fn/{sz=NR} /\.ltorg/{lt=NR} END{exit !(sz>0 && lt>sz)}' \
   "$TMP/arm64_big.s" || {
     echo "FAIL: .ltorg not strictly after .size in arm64_big.s"; exit 1
   }
-echo "  arm64 nm=0 local leaks, all FUNC+Size>0, CFI + post-.size .ltorg clean!"
+grep -q '^// fn evenodd: frame=0B cfa=sp+0 saved=\[\]$' "$TMP/arm64_dbg.s" || {
+  echo "FAIL: missing arm64 zero-frame leaf CFI header for evenodd"; exit 1
+}
+grep -q '^// fn sumto: frame=0B cfa=sp+0 saved=\[\]$' "$TMP/arm64_dbg.s" || {
+  echo "FAIL: missing arm64 zero-frame leaf CFI header for sumto"; exit 1
+}
+grep -q '^// fn call_zero: frame=16B cfa=sp+16 saved=\[\]$' "$TMP/arm64_dbg.s" || {
+  echo "FAIL: missing arm64 non-leaf 0-slot CFI header for call_zero"; exit 1
+}
+for fn in evenodd sumto; do
+  awk -v fn="$fn" '
+    $0 == fn ":" { in_fn=1; next }
+    $0 ~ "\\.size " fn "," { in_fn=0 }
+    in_fn && (/, sp,/ || /\[sp/ || /\.cfi_def_cfa_offset/ || /\.cfi_offset/) { bad++ }
+    END { exit !(bad == 0) }
+  ' "$TMP/arm64_dbg.s" || {
+    echo "FAIL: arm64 $fn zero-frame leaf sp / CFI check failed"; exit 1
+  }
+done
+awk '
+  /^call_zero:/ { in_fn=1; next }
+  /\.size call_zero,/ { in_fn=0 }
+  in_fn && /sub sp, sp, #16/ { sub16++ }
+  in_fn && /add sp, sp, #16/ { add16++ }
+  in_fn && /\.cfi_def_cfa_offset 16/ { cfa16++ }
+  in_fn && /\.cfi_offset x30, -16/ { off30++ }
+  in_fn && /\.cfi_restore x30/ { res30++ }
+  in_fn && /\.cfi_def_cfa_offset 0/ { cfa0++ }
+  END { exit !(sub16 == 1 && add16 == 1 && cfa16 == 1 && off30 == 1 && res30 == 1 && cfa0 == 1) }
+' "$TMP/arm64_dbg.s" || {
+  echo "FAIL: arm64 call_zero non-leaf 0-slot CFI check failed"; exit 1
+}
+echo "  arm64 nm=0 local leaks, all FUNC+Size>0, zero-frame + CFI + post-.size .ltorg clean!"
 
 echo "== [4/6] Executing -O2 -fomit-frame-pointer C+Asm harness on x64 and Arm64 (QEMU)"
 cat > "$TMP/harness.c" <<'C'
@@ -521,7 +557,7 @@ def main (args : List String) : IO Unit := do
   IO.FS.writeFile s!"{outDir}/m4_raw.s" raw
   IO.FS.writeFile s!"{outDir}/m4_dbg.s" dbgSome
 LEAN
-  LEAN_PATH="$LP" timeout 180 lean --run "$TMP/gen_m4.lean" "$TMP"
+  LEAN_PATH="$LP" timeout 600 lean --run "$TMP/gen_m4.lean" "$TMP"
   gcc -c "$TMP/m4_raw.s" -o "$TMP/m4_raw.o"
   gcc -g -c "$TMP/m4_dbg.s" -o "$TMP/m4_dbg.o"
   objcopy -O binary -j .text "$TMP/m4_raw.o" "$TMP/m4_raw.text"
@@ -545,6 +581,61 @@ LEAN
     > "$TMP/m4_cli_frames.txt" 2>"$TMP/m4_cli_frames.err"
   [ ! -s "$TMP/m4_cli_frames.err" ] || { cat "$TMP/m4_cli_frames.err"; exit 1; }
   echo "  Kissat FullM4 x64 --debug verified ($zero_cnt zero-frame leaves, .text=id, CFI clean)!"
+
+  cat > "$TMP/gen_m4_arm64.lean" <<'LEAN'
+import LeanQbe.T.Examples.Kissat.FullM4
+import LeanQbe.T.Arm64.Targ
+import LeanQbe.T.Arm64.DebugAsm
+import LeanQbe.T.Driver
+import Kraken.AArch64.Print
+
+open LeanQbe.T LeanQbe.T.Arm64
+
+def main (args : List String) : IO Unit := do
+  let outDir := args[0]!
+  let m := LeanQbe.T.Examples.Kissat.FullM4.m4Module
+  let hs := m.fns.map (Fn.computeHints armTarget.toIsa armLegalTarget)
+  let dirs ← IO.ofExcept (compile armTarget.toIsa armLegalTarget m.fns hs)
+  let printArm := fun c => ".p2align 2\n" ++
+    String.intercalate "\n" (c.map Kraken.AArch64.Print.directive) ++ "\n"
+  let raw := Driver.emitAsm printArm m.fns dirs
+  let dbgSome ← IO.ofExcept (emitArm64DebugAsmChecked m.fns dirs (some hs) m.exits true)
+  let dbgNone ← IO.ofExcept (emitArm64DebugAsmChecked m.fns dirs none m.exits true)
+  if dbgSome != dbgNone then
+    throw (IO.userError "FullM4 arm64 emitArm64DebugAsm some vs none mismatch")
+  IO.FS.writeFile s!"{outDir}/m4_arm64_raw.s" raw
+  IO.FS.writeFile s!"{outDir}/m4_arm64_dbg.s" dbgSome
+LEAN
+  LEAN_PATH="$LP" timeout 600 lean --run "$TMP/gen_m4_arm64.lean" "$TMP"
+  awk '/^[A-Za-z_][A-Za-z0-9_]*:/ { if (seen++) print "\t.ltorg" } { print }
+    END { print "\t.ltorg" }' "$TMP/m4_arm64_raw.s" > "$TMP/m4_arm64_raw_ltorg.s"
+  aarch64-linux-gnu-gcc -c "$TMP/m4_arm64_raw_ltorg.s" -o "$TMP/m4_arm64_raw.o"
+  aarch64-linux-gnu-gcc -g -c "$TMP/m4_arm64_dbg.s" -o "$TMP/m4_arm64_dbg.o"
+  aarch64-linux-gnu-objcopy -O binary -j .text "$TMP/m4_arm64_raw.o" "$TMP/m4_arm64_raw.text"
+  aarch64-linux-gnu-objcopy -O binary -j .text "$TMP/m4_arm64_dbg.o" "$TMP/m4_arm64_dbg.text"
+  cmp -s "$TMP/m4_arm64_raw.text" "$TMP/m4_arm64_dbg.text" || {
+    echo "FAIL: FullM4 arm64 .text mismatch"; exit 1
+  }
+  if aarch64-linux-gnu-nm "$TMP/m4_arm64_dbg.o" | grep -E '\.L[0-9]+' ; then
+    echo "FAIL: FullM4 m4_arm64_dbg.o leaked local .L symbols"; exit 1
+  fi
+  timeout 30 aarch64-linux-gnu-readelf --debug-dump=frames "$TMP/m4_arm64_dbg.o" \
+    > "$TMP/m4_arm64_frames.txt" 2>"$TMP/m4_arm64_frames.err"
+  [ ! -s "$TMP/m4_arm64_frames.err" ] || { cat "$TMP/m4_arm64_frames.err"; exit 1; }
+  arm_zero_cnt="$(grep -c '^// fn .*: frame=0B cfa=sp+0 saved=\[\]$' "$TMP/m4_arm64_dbg.s" || true)"
+  [ "$arm_zero_cnt" -ge 30 ] || {
+    echo "FAIL: expected >=30 arm64 zero-frame leaves in FullM4, got $arm_zero_cnt"; exit 1
+  }
+  aarch64-linux-gnu-gcc -std=c99 -O2 -Wall -Wextra -Werror -g -DKISSAT_UNSAT_ONLY=1 \
+    bench/kissat/kissat_cli.c "$TMP/m4_arm64_dbg.o" \
+    -o "$TMP/kissat_m4_arm64" 2>"$TMP/m4_arm_cc.err" || {
+      cat "$TMP/m4_arm_cc.err"; exit 1
+    }
+  timeout 30 aarch64-linux-gnu-readelf --debug-dump=frames "$TMP/kissat_m4_arm64" \
+    > "$TMP/m4_arm64_cli_frames.txt" 2>"$TMP/m4_arm64_cli_frames.err"
+  [ ! -s "$TMP/m4_arm64_cli_frames.err" ] || { cat "$TMP/m4_arm64_cli_frames.err"; exit 1; }
+  echo "  Kissat FullM4 arm64 --debug verified" \
+    "($arm_zero_cnt zero-frame leaves, .text=id, CFI clean)!"
 else
   echo "  SKIP Kissat FullM4 smoke check (FullM4.olean not prebuilt)"
 fi

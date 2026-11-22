@@ -274,7 +274,6 @@ theorem x64Scalar_frameSpec :
   ret_spec hc hra hmem hk :=
     x64FrameSpec.spec.ret_spec hc hra hmem fun s' hkg _ hsp hm' =>
       hk s' hkg (fun v _ => v.elim) hsp hm'
-  leafZeroFrame_ok := x64FrameSpec.spec.leafZeroFrame_ok
 
 /-- `FrameTarget` for `x64ScalarMach` from `x64ScalarFramePreds` and `x64Scalar_frameSpec`. -/
 @[expose] def x64ScalarFrameTarget : FrameTarget x64ScalarMach x64Frame x64CondReads where

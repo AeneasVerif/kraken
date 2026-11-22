@@ -267,10 +267,8 @@ theorem Agree.consReg {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.
     (hA : Agree T G nv st s σ) (h : RegLocOk T.mach G s sa rl) (hlt : symArgScopeOk nv sa = true) :
     Agree T G nv { st with regs := (sa, rl) :: st.regs } s σ :=
   { hA with
-    regs := fun p hp => by
-      rcases List.mem_cons.mp hp with rfl | hp <;> first | exact h | exact hA.regs p hp
-    regs_lt := fun p hp => by
-      rcases List.mem_cons.mp hp with rfl | hp <;> first | exact hlt | exact hA.regs_lt p hp }
+    regs := fun p hp => (List.mem_cons.mp hp).elim (fun he => he ▸ h) (hA.regs p)
+    regs_lt := fun p hp => (List.mem_cons.mp hp).elim (fun he => he ▸ hlt) (hA.regs_lt p) }
 
 theorem Agree.consRegZ {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MData}
     {σ : List (BitVec 64)} {sa : SymArg} {r : T.Reg}
@@ -279,14 +277,9 @@ theorem Agree.consRegZ {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach
     (hz : T.mach.getGpr s r = ((T.mach.getGpr s r).setWidth 32).setWidth 64) :
     Agree T G nv { st with regs := (sa, .gprZ r) :: st.regs, zeroExt32 := r :: st.zeroExt32 } s σ :=
   { hA with
-    regs := fun p hp => by
-      rcases List.mem_cons.mp hp with rfl | hp <;> first | exact h | exact hA.regs p hp
-    regs_lt := fun p hp => by
-      rcases List.mem_cons.mp hp with rfl | hp <;> first | exact hlt | exact hA.regs_lt p hp
-    zeroExt32_ok := fun q hq => by
-      rcases List.mem_cons.mp hq with rfl | hq
-      · exact hz
-      · exact hA.zeroExt32_ok q hq }
+    regs := fun p hp => (List.mem_cons.mp hp).elim (fun he => he ▸ h) (hA.regs p)
+    regs_lt := fun p hp => (List.mem_cons.mp hp).elim (fun he => he ▸ hlt) (hA.regs_lt p)
+    zeroExt32_ok := fun q hq => (List.mem_cons.mp hq).elim (fun he => he ▸ hz) (hA.zeroExt32_ok q) }
 
 theorem isGprTy_ne_pair {I : Isa} {t : Ty} (h : isGprTy I t = true) : ∀ a b, t ≠ .pair a b := by
   rintro a b rfl; simp [isGprTy] at h
@@ -336,10 +329,12 @@ theorem Inv.store {zl : Bool} {m : Mem 64} {s s' : T.mach.MData} {σ : List (Bit
     (hm : T.mach.mem s' = storeMem (T.mach.mem s) t a v) :
     Inv T hints s₀ ra n Rf (storeMem m t a v) s' σ zl := by
   obtain ⟨h1, h2, h3, h4, h5, h6, h7⟩ := hI
-  refine ⟨h1, ?_, fun r hr hns => ?_, ?_, h5, h6, h7⟩
-  · rw [hk _ T.frameSpec.sp_disj.1]; exact h2
-  · rw [hk r (fun h => (T.frameSpec.scratch_disj r h).2.1 hr)]; exact h3 r hr hns
-  · rw [hm]; exact storeMem_frame h4 hok v
+  exact ⟨h1, by rw [hk _ T.frameSpec.sp_disj.1]; exact h2,
+    fun r hr hns => by
+      rw [hk r (fun h => (T.frameSpec.scratch_disj r h).2.1 hr)]; exact h3 r hr hns,
+    by rw [hm]; exact storeMem_frame h4 hok v, h5, h6,
+    fun h => ⟨(h7 h).1, T.frameSpec.raReg_of_raRegs s s' ra
+      (fun r hr => hk r (T.frameSpec.ra_disj r hr).2.1) (h7 h).2⟩⟩
 
 /-! ## Loads and stores -/
 

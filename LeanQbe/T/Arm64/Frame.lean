@@ -265,6 +265,7 @@ def armRetD : Directive := .instr armRetI
   call sym := emitClean [armCallI sym]
   exitJmp sym := emitClean [armJmpI sym]
   ret := emitClean [armRetI]
+  leafZeroFrame := true
 
 /-- AAPCS64 Arm64 frame predicates (`Prop`-valued invariants, zero `*Lemmas*` imports). -/
 @[reducible] def armFramePreds : FramePreds armMach where

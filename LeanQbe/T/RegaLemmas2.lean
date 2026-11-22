@@ -713,15 +713,13 @@ private theorem leave_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {k : Nat}
   | true =>
     rw [hzl] at hI
     obtain ⟨hσ, hsp, hcs, hmem, -, -, hzlI⟩ := hI
-    obtain ⟨htot0, hra0, hraRegs⟩ := hzlI rfl
+    obtain ⟨htot0, hra⟩ := hzlI rfl
     have htot0' : hints.nslots + hints.saved.length = 0 := htot0
     have hns0 : hints.nslots = 0 := by omega
     have hsaved : hints.saved = [] := List.eq_nil_of_length_eq_zero (by omega)
     have hσnil : σ = [] := List.eq_nil_of_length_eq_zero (hσ.trans hns0)
     have hsp' : T.mach.getGpr s T.frame.sp = T.mach.getGpr s₀ T.frame.sp := by
       simpa [baseZ, frameZ] using hsp
-    have hra : T.frameSpec.raReg s ra :=
-      T.frameSpec.raReg_of_raRegs s₀ s ra (fun r hr => by rw [hraRegs] at hr; cases hr) hra0
     have hm : T.mach.mem s =⋆ Eq m ⋆ (T.Entry (T.mach.getGpr s₀ T.frame.sp) ra n ⋆ Rf) := by
       subst hσnil
       simp only [FrZ, csSlotsZ, hsaved, List.map_nil, array64_nil, frameZ, ↓reduceIte,
@@ -1060,13 +1058,13 @@ theorem fn_entry_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {as : List Ty}
   | true =>
     have hzl' := hzl
     simp only [isZeroLeaf, Bool.and_eq_true, Nat.beq_eq] at hzl'
-    obtain ⟨⟨hleaf, htot0⟩, -⟩ := hzl'
+    obtain ⟨⟨-, htot0⟩, -⟩ := hzl'
     have htot0' : hints.nslots + hints.saved.length = 0 := htot0
     have hns0 : hints.nslots = 0 := by omega
     have hsaved : hints.saved = [] := List.eq_nil_of_length_eq_zero (by omega)
     have hI0 : Inv T hints s₀ ra n Rf m s₀ [] true := by
       refine ⟨hns0.symm, by simp [baseZ, frameZ], fun _ _ _ => rfl, ?_, hy.saved_cs,
-        hy.saved_nodup, fun _ => ⟨htot0, hra, T.frameSpec.leafZeroFrame_ok hleaf⟩⟩
+        hy.saved_nodup, fun _ => ⟨htot0, hra⟩⟩
       simp only [FrZ, csSlotsZ, hsaved, List.map_nil, array64_nil, frameZ, ↓reduceIte,
         Nat.sub_zero, emp_sep]
       unfold Target.Entry at hmem
