@@ -402,6 +402,9 @@ def uintPrim (rt : LArg) (w : Nat) (op : String) (as : List LArg) (k : LArg → 
   let t : Ty := .bits w
   let bin (code : OpCode [t, t] [t]) (a b : LArg) := op1 t code [a, b] k
   let cmpU (o : CmpOp) (a b : LArg) := cmpOp o w a b fun c => boolToU8 c k
+  let divMod (code : OpCode [t, t] [t]) (a b zVal : LArg) := withJoin1 t k fun j => do
+    let e ← op1 t code [a, b] fun q => pure (j q)
+    cmpOp .eq w b (imm w 0) fun z => pure (.jnz z (j zVal) e)
   match op, as with
   | "add", [a, b] => bin (.add t) a b
   | "sub", [a, b] => bin (.sub t) a b
@@ -413,12 +416,8 @@ def uintPrim (rt : LArg) (w : Nat) (op : String) (as : List LArg) (k : LArg → 
   | "shiftRight", [a, b] => op1 t (.and t) [b, imm w (w - 1)] fun s => bin (.lshr t) a s
   | "complement", [a] => op1 t (.not t) [a] k
   | "neg", [a] => op1 t (.neg t) [a] k
-  | "div", [a, b] => withJoin1 t k fun j => do
-      let e ← op1 t (.udiv w) [a, b] fun q => pure (j q)
-      cmpOp .eq w b (imm w 0) fun z => pure (.jnz z (j (imm w 0)) e)
-  | "mod", [a, b] => withJoin1 t k fun j => do
-      let e ← op1 t (.urem w) [a, b] fun q => pure (j q)
-      cmpOp .eq w b (imm w 0) fun z => pure (.jnz z (j a) e)
+  | "div", [a, b] => divMod (.udiv w) a b (imm w 0)
+  | "mod", [a, b] => divMod (.urem w) a b a
   | "decEq", [a, b] | "beq", [a, b] => cmpU .eq a b
   | "decLt", [a, b] | "blt", [a, b] => cmpU .ult a b
   | "decLe", [a, b] | "ble", [a, b] => cmpU .ule a b
@@ -446,80 +445,67 @@ def uintPrim (rt : LArg) (w : Nat) (op : String) (as : List LArg) (k : LArg → 
 
 /-- Inline/runtime `Array.*` externs. -/
 def arrayPrim (rt : LArg) (op : String) (as : List LArg) (k : LArg → LM LExpr) : LM LExpr :=
+  let call (fn : Sym) (args : List LArg) := rtCall1 rt fn args 64 k
+  let get (dv arr i : LArg) (m : Nat) := call "lcnf_array_get" [dv, arr, i, imm64 m]
+  let set (arr i v : LArg) (m : Nat) := call "lcnf_array_set" [arr, i, v, imm64 m]
   match op, as with
-  | "empty", [_] => rtCall1 rt "lcnf_array_mk_empty" [imm64 1] 64 k
-  | "mkEmpty", [_, cap] | "emptyWithCapacity", [_, cap] =>
-    rtCall1 rt "lcnf_array_mk_empty" [cap] 64 k
-  | "mk", [_, xs] => rtCall1 rt "lcnf_array_mk" [xs] 64 k
-  | "toList", [_, arr] => rtCall1 rt "lcnf_array_to_list" [arr] 64 k
-  | "push", [_, arr, v] => rtCall1 rt "lcnf_array_push" [arr, v] 64 k
-  | "replicate", [_, n, v] => rtCall1 rt "lcnf_array_replicate" [n, v] 64 k
+  | "empty", [_] => call "lcnf_array_mk_empty" [imm64 1]
+  | "mkEmpty", [_, cap] | "emptyWithCapacity", [_, cap] => call "lcnf_array_mk_empty" [cap]
+  | "mk", [_, xs] => call "lcnf_array_mk" [xs]
+  | "toList", [_, arr] => call "lcnf_array_to_list" [arr]
+  | "push", [_, arr, v] => call "lcnf_array_push" [arr, v]
+  | "replicate", [_, n, v] => call "lcnf_array_replicate" [n, v]
   | "size", [_, arr] => loadAt i64 arr 8 fun sz => boxSmall sz k
   | "usize", [_, arr] => loadAt i64 arr 8 k
-  | "get!Internal", [_, dv, arr, i] =>
-    rtCall1 rt "lcnf_array_get" [dv, arr, i, imm64 0] 64 k
-  | "get!InternalBorrowed", [_, dv, arr, i] =>
-    rtCall1 rt "lcnf_array_get" [dv, arr, i, imm64 1] 64 k
-  | "getInternal", [_, arr, i, _] =>
-    rtCall1 rt "lcnf_array_get" [imm64 1, arr, i, imm64 0] 64 k
-  | "getInternalBorrowed", [_, arr, i, _] =>
-    rtCall1 rt "lcnf_array_get" [imm64 1, arr, i, imm64 1] 64 k
-  | "uget", [_, arr, i, _] =>
-    rtCall1 rt "lcnf_array_get" [imm64 1, arr, i, imm64 2] 64 k
-  | "ugetBorrowed", [_, arr, i, _] =>
-    rtCall1 rt "lcnf_array_get" [imm64 1, arr, i, imm64 3] 64 k
-  | "set!", [_, arr, i, v] | "set", [_, arr, i, v, _] =>
-    rtCall1 rt "lcnf_array_set" [arr, i, v, imm64 0] 64 k
-  | "uset", [_, arr, i, v, _] =>
-    rtCall1 rt "lcnf_array_set" [arr, i, v, imm64 1] 64 k
-  | "pop", [_, arr] => rtCall1 rt "lcnf_array_pop" [arr] 64 k
-  | "swap", [_, arr, i, j, _, _] =>
-    rtCall1 rt "lcnf_array_swap" [arr, i, j, imm64 0] 64 k
-  | "swapIfInBounds", [_, arr, i, j] =>
-    rtCall1 rt "lcnf_array_swap" [arr, i, j, imm64 1] 64 k
+  | "get!Internal", [_, dv, arr, i] => get dv arr i 0
+  | "get!InternalBorrowed", [_, dv, arr, i] => get dv arr i 1
+  | "getInternal", [_, arr, i, _] => get (imm64 1) arr i 0
+  | "getInternalBorrowed", [_, arr, i, _] => get (imm64 1) arr i 1
+  | "uget", [_, arr, i, _] => get (imm64 1) arr i 2
+  | "ugetBorrowed", [_, arr, i, _] => get (imm64 1) arr i 3
+  | "set!", [_, arr, i, v] | "set", [_, arr, i, v, _] => set arr i v 0
+  | "uset", [_, arr, i, v, _] => set arr i v 1
+  | "pop", [_, arr] => call "lcnf_array_pop" [arr]
+  | "swap", [_, arr, i, j, _, _] => call "lcnf_array_swap" [arr, i, j, imm64 0]
+  | "swapIfInBounds", [_, arr, i, j] => call "lcnf_array_swap" [arr, i, j, imm64 1]
   | _, _ => lfail s!"LeanLCNF: unsupported Array primitive Array.{op}/{as.length}"
 
 /-- Inline/runtime `String.*` externs. -/
 def stringPrim (rt : LArg) (parts : List String) (as : List LArg) (k : LArg → LM LExpr) :
     LM LExpr :=
-  match parts, as with
-  | ["push"], [s, c] => rtCall1 rt "lcnf_string_push" [s, c] 64 k
-  | ["append"], [s1, s2] | ["Internal", "append"], [s1, s2] =>
-    rtCall1 rt "lcnf_string_append" [s1, s2] 64 k
-  | ["length"], [s] | ["Internal", "length"], [s] =>
-    loadAt i64 s 24 fun n => boxSmall n k
-  | ["utf8ByteSize"], [s] =>
-    loadAt i64 s 8 fun n => sub64 n (imm64 1) fun b => boxSmall b k
-  | ["toListImpl"], [s] | ["data"], [s] => rtCall1 rt "lcnf_string_to_list" [s] 64 k
-  | ["ofList"], [cs] | ["mk"], [cs] => rtCall1 rt "lcnf_string_mk" [cs] 64 k
-  | ["decEq"], [s1, s2] => rtCall1 rt "lcnf_string_cmp_op" [imm64 0, s1, s2] 8 k
-  | ["decidableLT"], [s1, s2] => rtCall1 rt "lcnf_string_cmp_op" [imm64 1, s1, s2] 8 k
-  | ["compare"], [s1, s2] => rtCall1 rt "lcnf_string_cmp_op" [imm64 2, s1, s2] 8 k
-  | ["Pos", "Raw", "get"], [s, i] | ["Pos", "Raw", "get!"], [s, i]
-  | ["get"], [s, i] | ["get!"], [s, i] | ["Internal", "get"], [s, i] =>
-    rtCall1 rt "lcnf_string_pos_op" [imm64 0, s, i, imm64 0] 32 k
-  | ["Pos", "Raw", "get'"], [s, i, _] | ["get'"], [s, i, _]
-  | ["decodeChar"], [s, i, _] =>
-    rtCall1 rt "lcnf_string_pos_op" [imm64 0, s, i, imm64 0] 32 k
-  | ["Pos", "Raw", "next"], [s, i] | ["next"], [s, i]
-  | ["Internal", "next"], [s, i] =>
-    rtCall1 rt "lcnf_string_pos_op" [imm64 1, s, i, imm64 0] 64 k
-  | ["Pos", "Raw", "next'"], [s, i, _] | ["Pos", "next"], [s, i, _] =>
-    rtCall1 rt "lcnf_string_pos_op" [imm64 1, s, i, imm64 0] 64 k
-  | ["Pos", "Raw", "atEnd"], [s, i] | ["atEnd"], [s, i]
-  | ["Internal", "atEnd"], [s, i] =>
-    rtCall1 rt "lcnf_string_pos_op" [imm64 2, s, i, imm64 0] 8 k
-  | ["Pos", "Raw", "extract"], [s, b, e] | ["extract"], [s, b, e]
-  | ["Internal", "extract"], [s, b, e] =>
-    rtCall1 rt "lcnf_string_pos_op" [imm64 3, s, b, e] 64 k
-  | ["getUTF8Byte"], [s, i, _] | ["getUtf8Byte"], [s, i, _]
-  | ["Internal", "getUTF8Byte"], [s, i, _] =>
-    rtCall1 rt "lcnf_string_pos_op" [imm64 4, s, i, imm64 0] 8 k
-  | ["Pos", "Raw", "isValid"], [s, i] =>
-    rtCall1 rt "lcnf_string_pos_op" [imm64 5, s, i, imm64 0] 8 k
-  | _, _ =>
+  let call (fn : Sym) (args : List LArg) := rtCall1 rt fn args 64 k
+  let cmp (c : Nat) (s1 s2 : LArg) := rtCall1 rt "lcnf_string_cmp_op" [imm64 c, s1, s2] 8 k
+  let pos (c rw : Nat) (s a1 : LArg) (a2 := imm64 0) :=
+    rtCall1 rt "lcnf_string_pos_op" [imm64 c, s, a1, a2] rw k
+  let fail (_ : Unit) :=
     let p := String.intercalate "." parts
     lfail s!"LeanLCNF: unsupported String primitive String.{p}/{as.length}"
+  match as with
+  | [s] => match parts with
+    | ["length"] | ["Internal", "length"] => loadAt i64 s 24 fun n => boxSmall n k
+    | ["utf8ByteSize"] => loadAt i64 s 8 fun n => sub64 n (imm64 1) fun b => boxSmall b k
+    | ["toListImpl"] | ["data"] => call "lcnf_string_to_list" [s]
+    | ["ofList"] | ["mk"] => call "lcnf_string_mk" [s]
+    | _ => fail ()
+  | [s, i] => match parts with
+    | ["push"] => call "lcnf_string_push" [s, i]
+    | ["append"] | ["Internal", "append"] => call "lcnf_string_append" [s, i]
+    | ["decEq"] => cmp 0 s i
+    | ["decidableLT"] => cmp 1 s i
+    | ["compare"] => cmp 2 s i
+    | ["Pos", "Raw", "get"] | ["Pos", "Raw", "get!"]
+    | ["get"] | ["get!"] | ["Internal", "get"] => pos 0 32 s i
+    | ["Pos", "Raw", "next"] | ["next"] | ["Internal", "next"] => pos 1 64 s i
+    | ["Pos", "Raw", "atEnd"] | ["atEnd"] | ["Internal", "atEnd"] => pos 2 8 s i
+    | ["Pos", "Raw", "isValid"] => pos 5 8 s i
+    | _ => fail ()
+  | [s, a1, a2] => match parts with
+    | ["Pos", "Raw", "get'"] | ["get'"] | ["decodeChar"] => pos 0 32 s a1
+    | ["Pos", "Raw", "next'"] | ["Pos", "next"] => pos 1 64 s a1
+    | ["Pos", "Raw", "extract"] | ["extract"] | ["Internal", "extract"] => pos 3 64 s a1 a2
+    | ["getUTF8Byte"] | ["getUtf8Byte"] | ["Internal", "getUTF8Byte"] => pos 4 8 s a1
+    | _ => fail ()
+  | _ => fail ()
 
 /-- Inline/runtime `ByteArray.*` externs. -/
 def byteArrayPrim (rt : LArg) (op : String) (as : List LArg) (k : LArg → LM LExpr) :

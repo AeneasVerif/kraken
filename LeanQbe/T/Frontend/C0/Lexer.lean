@@ -129,17 +129,6 @@ private def parseIntSuffix (cs : List Char) : IntSuffix × Nat :=
   | 'l' :: _ => (.l, 1)
   | _ => (.none, 0)
 
-private def parseScientificFloat (mantDigits : List Char) (expSign : Bool) (expDigits : List Char) :
-    Except String UInt64 := do
-  let mut mant : Nat := 0
-  for d in mantDigits do
-    mant := mant * 10 + (d.toNat - '0'.toNat)
-  let mut exp : Nat := 0
-  for d in expDigits do
-    exp := exp * 10 + (d.toNat - '0'.toNat)
-  let f := Float.ofScientific mant expSign exp
-  pure f.toBits
-
 private partial def lexNumber (s : LexState) : Except String (Tok × LexState) := do
   let line := s.line
   let mut cur := s

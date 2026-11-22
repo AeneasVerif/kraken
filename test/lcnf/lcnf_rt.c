@@ -226,45 +226,37 @@ void LCNF_FN(lcnf_free_obj)(u64 rt, u64 o) {
   if (!is_scalar(o)) free_cell(lcnf_state(rt), o);
 }
 
-void LCNF_FN(lcnf_dec_ref_cold)(u64 rt, u64 o) {
-  LcnfState *s = lcnf_state(rt);
+static inline void dfs_walk(LcnfState *s, u64 o, int persist) {
   u64 len = 0;
-  s->st.cold_decs++;
   work_push(s, &len, o);
   while (len > 0) {
-    u64 x = s->work[--len];
-    u64 n, off;
+    u64 x = s->work[--len], n, off;
     obj_fields(x, &n, &off);
     for (u64 i = 0; i < n; i++) {
       u64 c = ld64(x + off + 8 * i);
       if (is_scalar(c)) continue;
       int32_t rc = get_rc(c);
-      if (rc == 1) work_push(s, &len, c);
+      if (persist) {
+        if (rc != 0) { set_rc(c, 0); s->st.persistent++; work_push(s, &len, c); }
+      } else if (rc == 1) work_push(s, &len, c);
       else if (rc > 1) set_rc(c, rc - 1);
     }
-    free_cell(s, x);
+    if (!persist) free_cell(s, x);
   }
+}
+
+void LCNF_FN(lcnf_dec_ref_cold)(u64 rt, u64 o) {
+  LcnfState *s = lcnf_state(rt);
+  s->st.cold_decs++;
+  dfs_walk(s, o, 0);
 }
 
 void LCNF_FN(lcnf_mark_persistent)(u64 rt, u64 o) {
   LcnfState *s = lcnf_state(rt);
-  u64 len = 0;
   if (is_scalar(o) || get_rc(o) == 0) return;
   set_rc(o, 0);
   s->st.persistent++;
-  work_push(s, &len, o);
-  while (len > 0) {
-    u64 x = s->work[--len];
-    u64 n, off;
-    obj_fields(x, &n, &off);
-    for (u64 i = 0; i < n; i++) {
-      u64 c = ld64(x + off + 8 * i);
-      if (is_scalar(c) || get_rc(c) == 0) continue;
-      set_rc(c, 0);
-      s->st.persistent++;
-      work_push(s, &len, c);
-    }
-  }
+  dfs_walk(s, o, 1);
 }
 
 static inline void inc_obj(u64 o) {

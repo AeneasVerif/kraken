@@ -508,6 +508,11 @@ def x64BinInPlace128Ins {t : Ty} (ok : Bool)
 def x64VopIns {sig rs : List Ty} (code : OpCode sig rs)
     (pas : Tup (PArg Reg64 RegMm CondCode) sig)
     (dsts : Tup (PDst Reg64 RegMm CondCode) rs) : Option (List Instr × FlagMask) :=
+  let withWide (t : Ty) (dsts : Tup (PDst Reg64 RegMm CondCode) [t])
+      (f : SlotWidth → RegMm → Option (List Instr)) : Option (List Instr × FlagMask) :=
+    match x64VecSlotWidth t, dsts with
+    | some w, (.vec vd, ()) => if w == .w64 then none else (f w vd).map (·, maskNone)
+    | _, _ => none
   match code with
   | .copy t =>
     match x64VecSlotWidth t, pas, dsts with
@@ -519,24 +524,18 @@ def x64VopIns {sig rs : List Ty} (code : OpCode sig rs)
     | _, _, _ => none
   | .add t =>
     if !x64IsI32Vec t then none
-    else match x64VecSlotWidth t, pas, dsts with
-      | some w, (pa, pb, ()), (.vec vd, ()) =>
-        if w == .w64 then none else (x64EmitVpadddIns w t vd pa pb).map (·, maskNone)
-      | _, _, _ => none
+    else match pas with
+      | (pa, pb, ()) => withWide t dsts fun w vd => x64EmitVpadddIns w t vd pa pb
   | .and _ => x64WideTernlogBinIns 0xC0 pas dsts
   | .or _ => x64WideTernlogBinIns 0xFC pas dsts
   | .xor _ => x64WideTernlogBinIns 0x3C pas dsts
   | .not t =>
-    match x64VecSlotWidth t, pas, dsts with
-    | some w, (pa, ()), (.vec vd, ()) =>
-      if w == .w64 then none
-      else (x64EmitUnaryIns w t vd pa (fun d s => x64TernlogI w d s s 0x33)).map (·, maskNone)
-    | _, _, _ => none
+    match pas with
+    | (pa, ()) => withWide t dsts fun w vd =>
+      x64EmitUnaryIns w t vd pa (fun d s => x64TernlogI w d s s 0x33)
   | .ternlog t imm =>
-    match x64VecSlotWidth t, pas, dsts with
-    | some w, (pa, pb, pc, ()), (.vec vd, ()) =>
-      if w == .w64 then none else (x64EmitTernlogIns w t vd imm pa pb pc).map (·, maskNone)
-    | _, _, _ => none
+    match pas with
+    | (pa, pb, pc, ()) => withWide t dsts fun w vd => x64EmitTernlogIns w t vd imm pa pb pc
   | .rotr _ =>
     x64UniformShiftI32Ins pas dsts fun w cnt d s =>
       x64AvxI w

@@ -343,15 +343,7 @@ mutual
         e := .arrow e fld
       | .sym "(" =>
         match e with
-        | .var fn =>
-          let _ ← nextTok
-          let mut args : List Expr := []
-          if !(← matchSym ")") then
-            args := args ++ [← parseExpr]
-            while ← matchSym "," do
-              args := args ++ [← parseExpr]
-            expectSym ")"
-          e := .call fn args
+        | .var fn => e := .call fn (← parseCallArgs)
         | _ => failAt s!"indirect function calls are not supported in C0 (got {tokDesc tok.kind})"
       | _ => break
     pure e
@@ -481,6 +473,16 @@ mutual
     else
       pure c
 
+  private partial def parseCallArgs : ParserM (List Expr) := do
+    expectSym "("
+    let mut args : List Expr := []
+    if !(← matchSym ")") then
+      args := args ++ [← parseExpr]
+      while ← matchSym "," do
+        args := args ++ [← parseExpr]
+      expectSym ")"
+    pure args
+
   private partial def parseExpr : ParserM Expr :=
     parseTernary
 end
@@ -516,14 +518,7 @@ private def parseAssignOp? : ParserM (Option (Option BinOp)) := do
 
 private def parseSimpleCall : ParserM (String × List Expr) := do
   let fn ← expectIdent
-  expectSym "("
-  let mut args : List Expr := []
-  if !(← matchSym ")") then
-    args := args ++ [← parseExpr]
-    while ← matchSym "," do
-      args := args ++ [← parseExpr]
-    expectSym ")"
-  pure (fn, args)
+  pure (fn, ← parseCallArgs)
 
 private def parseInitVal : ParserM InitVal := do
   expectSym "="
