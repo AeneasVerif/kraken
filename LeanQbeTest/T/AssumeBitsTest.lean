@@ -221,11 +221,17 @@ theorem maskInLoop_ab_wf : (Func.assumeBits maskInLoop).Wf :=
 
 /-! ## 5. Real-corpus checks (`FullM4` hot BCP loops and `LratBytes`) -/
 
-/-- Number of eliminated operations and the `checkTFlat` verdict after `Fn.mid` on x64. -/
+/-- Eliminated op count at the `lateCore` `assumeBits` point and `Fn.mid` `checkTFlat`. -/
 def abDelta (f : Fn) : Nat × Bool :=
+  let lf := (f.earlyOpt).legal LegalTarget.x64
+  let pre := Func.gvn (Func.memLoad (Func.renorm (Func.copy
+    (Func.divConst (Func.canon (Func.fold lf.body))))))
+  let a := Func.assumeBits pre
   let mf := f.mid LegalTarget.x64
-  let a := Func.assumeBits mf.body
-  (tflatSize (reifyFunc mf.body) - tflatSize (reifyFunc (as := mf.as) a), Func.checkTFlat a)
+  let postMid := Func.assumeBits mf.body
+  (tflatSize (reifyFunc pre) - tflatSize (reifyFunc (as := lf.as) a),
+    Func.checkTFlat a && Func.checkTFlat mf.body &&
+      tflatSize (reifyFunc mf.body) == tflatSize (reifyFunc (as := mf.as) postMid))
 
 /-- The five `FullM4` functions with a branch-implied redundant `and $0x7fffffff` at `main @
 990af364` (one elimination each, incl. `full_prop_lit_raw.L5`). The guards below only require

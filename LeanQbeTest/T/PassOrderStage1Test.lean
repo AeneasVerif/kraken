@@ -78,6 +78,10 @@ theorem peel_early_loops :
     ZeroPeel.zpLoops (reifyFunc (Func.earlyOpt peelLoop)) = 1 := by
   decide +kernel
 
+theorem peel_early_size :
+    tflatSize (reifyFunc (Func.earlyOpt peelLoop)) = 17 := by
+  decide +kernel
+
 /-! ## 2. `AssumeBits` wired in `Func.lateCore` / `Func.lateOpt` -/
 
 /-- `(w0 & 0x80000000) == 0` eliminates `w0 & 0x7fffffff` in `Func.lateOpt`. -/
@@ -167,6 +171,7 @@ theorem fnRenorm_spec (Γ : Env) (w0 : BitVec 32) (m : Mem 64) :
 #print axioms fill_early_loops
 #print axioms peel_early_check
 #print axioms peel_early_loops
+#print axioms peel_early_size
 #print axioms abMask_late_spec
 #print axioms cf_lateCfg_spec
 #print axioms fnRenorm_wf
