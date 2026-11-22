@@ -514,7 +514,18 @@ def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Tri
   let cheapSplit :=
     isX && !loopCall.getD x false && splitOk && Nat.ble (splitCost + 1) (2 * baseMult)
   let toSlot (w : SlotWidth) : ColorSt I.Cond :=
-    let b := firstFreeSlotRange w.slots forbSlots
+    let prefB := (affT.getD x []).foldl (fun best (y, wy) =>
+      match s.hT.getD y .none with
+      | .slot b0 w0 =>
+        let ok := slotWidthEq w0 w &&
+          !(forbSlots.any fun (bi, ki) => rangesOverlap b0 w.slots bi ki)
+        if ok then
+          match best with
+          | some (_, bw) => if Nat.blt bw wy then some (b0, wy) else best
+          | none => some (b0, wy)
+        else best
+      | _ => best) none
+    let b := match prefB with | some (bp, _) => bp | none => firstFreeSlotRange w.slots forbSlots
     { s with hT := s.hT.insert x (.slot b w), nslots := max s.nslots (b + w.slots) }
   let withBk (w : SlotWidth) (s1 : ColorSt I.Cond) : ColorSt I.Cond :=
     let b := firstFreeSlotRange w.slots forbSlots
@@ -528,7 +539,8 @@ def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Tri
     let caller := if pids.all (fun p => Nat.ble 1 (s.gPb.getD p 0)) then
         c.gAlloc.filter (!natMem · forb) else []
     let csFree := s.usedCs.filter (!natMem · forb)
-    let newCs := if Nat.ble (3 * baseMult) wx then
+    let csThresh := if Nat.ble c.nGpr 8 then 2 * baseMult + 1 else 3 * baseMult
+    let newCs := if Nat.ble csThresh wx then
         c.csIds.filter (fun r => !natMem r s.usedCs && !natMem r forb) else []
     let prefs := (affT.getD x []).foldl (fun ps (y, w) =>
       match s.hT.getD y .none with
@@ -831,10 +843,12 @@ def buildPre {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List Na
 
 def allocDefs {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     (bk : Trie (Nat × SlotWidth × Bool)) (usedCs : List Nat) (defs la : List Nat)
-    (prefVar? : Option Nat) (cachedG cachedV : List Nat) (dest : Trie I.Loc) :
+    (prefVar? : Option Nat) (cachedGPairs : List (Nat × Nat)) (cachedV : List Nat)
+    (dest : Trie I.Loc) :
     Trie I.Loc × List (Nat × Nat × Nat) × List (Nat × Nat × SlotWidth × Nat) ×
       List Nat × List Nat :=
   let gOf (r : Nat) := c.gReg.getD r I.frame.sp
+  let cachedG := cachedGPairs.filterMap fun (y, r) => if natMem y la then some r else none
   let pickG (gb sibG : List Nat) (pref : Option Nat) :=
     pref.filter (!natMem · sibG) <|> freshRegAvoid (c.gAlloc ++ usedCs) gb cachedG <|>
       c.gAlloc.find? (!natMem · sibG) <|> c.gAlloc.head?
@@ -874,9 +888,15 @@ def allocDefs {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
           | none => (dT, gb, vb, sibG, sibV, gS, vS, wg, wv)
         else
           let pref :=
-            if spill?.isSome then prefVar?.bind fun a => match home.getD a .none with
-              | .gpr ra => if Nat.ble (ra + 1) c.nGpr && !natMem ra gb then some ra else none
-              | _ => none
+            if spill?.isSome then prefVar?.bind fun a =>
+              let ra? : Option Nat := match home.getD a .none with
+                | .gpr ra => some ra
+                | _ =>
+                  if natMem a la then none
+                  else (cachedGPairs.find? fun (y, _) => Nat.beq y a).map Prod.snd
+              ra?.filter fun ra =>
+                (Nat.ble (ra + 1) c.nGpr || natMem ra usedCs) && !natMem ra gb &&
+                  !(cachedGPairs.any fun (y, r) => Nat.beq r ra && natMem y la)
             else none
           match pickG gb sibG pref with
           | some r =>
@@ -996,7 +1016,7 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     let (mvs, gC1, vC1) := buildPre c home st.usedCs lv laAfter ops pd
       (splitMoves c home bk false rl) rlWG rlWV gC vC
     let (dest, gSt', vSt', wG, wV) := allocDefs c home bk st.usedCs defs k.lv
-      (prefOpVar op k.lv) (gC1.map Prod.snd) (vC1.map Prod.snd) st.dest
+      (prefOpVar op k.lv) gC1 (vC1.map Prod.snd) st.dest
     let var' := match r0, r1, st.variant.find? ip, dest.find? nv0 with
       | some a0, some a1, none, some (.gpr rd) =>
         let ra? := (opImmSrcVar op).bind fun a =>
@@ -1023,7 +1043,7 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     let (mvs, gC1, vC1) := buildPre c home st.usedCs lv laAfter ops pd
       (splitMoves c home bk false rl) rlWG rlWV gC vC
     let (dest, gSt', vSt', wG, wV) := allocDefs c home bk st.usedCs [x] k.lv none
-      (gC1.map Prod.snd) (vC1.map Prod.snd) st.dest
+      gC1 (vC1.map Prod.snd) st.dest
     let gC2 := gC1.filter fun (y, r) => natMem y k.lv && !natMem r wG
     let vC2 := vC1.filter fun (y, v) => natMem y k.lv && !natMem v wV
     let sv' := if isEagerBk bk x then union sv [x] else sv
