@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.T.Logic.Mem
-public import LeanQbe.T.OpsLemmas
+import LeanQbe.T.OpsLemmas
 public import Kraken.SeparationMem
 import all Kraken.Separation
 import all Kraken.Mem
@@ -22,7 +22,7 @@ import all Kraken.Mem
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -419,7 +419,8 @@ theorem storeMem_frame {m M : Mem 64} {F : Mem 64 → Prop} (hM : (Eq m ⋆ F) M
 /-! ## Satisfiability (`bytes64`, `array64_bytes`, `bytesOf`, `array_bytes`) -/
 
 /-- The bytes of a list of 64-bit words, 8 per word, little-endian. -/
-def bytes64 (xs : List (BitVec 64)) : List UInt8 := xs.flatMap fun v => Int.toBytes 8 v.toInt
+@[expose] def bytes64 (xs : List (BitVec 64)) : List UInt8 :=
+  xs.flatMap fun v => Int.toBytes 8 v.toInt
 
 theorem bytes64_length (xs : List (BitVec 64)) : (bytes64 xs).length = 8 * xs.length := by
   induction xs with
@@ -446,7 +447,7 @@ theorem array64_bytes (a : BitVec 64) (xs : List (BitVec 64)) (h : 8 * xs.length
     exact ⟨_, _, rfl, hd, rfl, ih _ (by simp at h; omega)⟩
 
 /-- The bytes of a list of typed values, `t.bytes` per element, little-endian. -/
-def bytesOf {t : Ty} (xs : List (Val t)) : List UInt8 :=
+@[expose] def bytesOf {t : Ty} (xs : List (Val t)) : List UInt8 :=
   xs.flatMap fun v => Int.toBytes t.bytes ((toBits t v).setWidth (8 * t.bytes)).toInt
 
 theorem bytesOf_length {t : Ty} (xs : List (Val t)) :

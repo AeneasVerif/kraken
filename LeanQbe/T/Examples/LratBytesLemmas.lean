@@ -1,10 +1,8 @@
 module
 
 public import LeanQbe.T.Examples.LratBytesDimacsLemmas
-public import LeanQbe.T.Examples.LratBytesRupLemmas
-public import LeanQbe.T.Examples.LratBytesCheckLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Examples.LratBytesRupLemmas
+import LeanQbe.T.Examples.LratBytesCheckLemmas
 
 /-!
 # Total-Correctness and `ModuleOk` Proofs for `lratBytesModule` in `LeanQbe.T` (`T16` / `K1a`)
@@ -22,12 +20,14 @@ and exports:
    `∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat`.
 2. `lratBytesExactEnv`, `lratBytesExactEnv_sound`, `lratBytesExactEnv_moduleOk`: exact decision
    contract (`r = if runLratCheckBytes cnfBytes prfBytes work_len then 1 else 0`).
-3. `lratBytesEnv`, `lratBytesEnv_sound`, `lratBytesEnv_moduleOk : ModuleOk lratBytesEnv lratBytesModule`:
+3. `lratBytesEnv`, `lratBytesEnv_sound`,
+   `lratBytesEnv_moduleOk : ModuleOk lratBytesEnv lratBytesModule`:
    top-level soundness contract `lratCheckBytesSpec` (`r = 0 ∨ r = 1`,
    `r = 1 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat`, memory restored, `exits = []`).
 4. `lratCheckBytesEncodedSpec` + `lratCheckBytes_encoded_correct`: combining `lratCheckBytesSpec`
-   with `parseDimacs_encodeDimacs` so callers starting from `ValidDimacsCnf cnf` get `r = 1 → cnf.Unsat`.
-5. Concrete accepting (`nvDimacsBytes`, `nvLratAcceptBytes`, `work_len = 512` → `r = 1 ∧ nvBytesCnf.Unsat`)
+   with `parseDimacs_encodeDimacs` so callers with `ValidDimacsCnf cnf` get `r = 1 → cnf.Unsat`.
+5. Concrete accepting (`nvDimacsBytes`, `nvLratAcceptBytes`, `work_len = 512`,
+   `r = 1 ∧ nvBytesCnf.Unsat`)
    and rejecting (`nvDimacsBytes`, `nvLratRejectBytes`, `work_len = 512` → `r = 0`) instances
    (`nvAccept_run`, `nvReject_run`, `nvBytesCnf_unsat`, `lratCheckBytes_accepts_nonvacuous`,
    `lratCheckBytes_rejects_nonvacuous`, plus `@[simp]` length exports `nvDimacsBytes_length`,
@@ -36,7 +36,7 @@ and exports:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.LratBytes
 
@@ -45,8 +45,8 @@ open LeanQbe.T
 
 /-! ## 1. Pure mirror soundness -/
 
-/-- Pure soundness of `runLratCheckBytes`: whenever the mirror returns `true`, `parseDimacs cnfBytes`
-succeeds on an unsatisfiable `CNF Nat`. -/
+/-- Pure soundness of `runLratCheckBytes`: whenever the mirror returns `true`,
+`parseDimacs cnfBytes` succeeds on an unsatisfiable `CNF Nat`. -/
 theorem runLratCheckBytes_sound {cnfBytes prfBytes : List UInt8} {work_len : Nat}
     (hrun : runLratCheckBytes cnfBytes prfBytes work_len = true) :
     ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat :=
@@ -77,7 +77,8 @@ theorem lratCheckBytes_exact (Γ : Env)
     ∀ args m Q X, lratCheckBytesExactSpec args m Q X → Func.spec Γ lratCheckBytes args m Q X :=
   lratCheckBytes_exact_of Γ hParseHeader hParseBody hCheckPrf
 
-/-- Weakening from `lratCheckBytesSpec` to `lratCheckBytesExactSpec` via `runLratCheckBytes_sound`. -/
+/-- Weakening from `lratCheckBytesSpec` to `lratCheckBytesExactSpec`
+via `runLratCheckBytes_sound`. -/
 theorem lratCheckBytesExactSpec_of_spec {args : Tup Val [i64, i64, i64, i64, i64, i64]}
     {m : Mem 64} {Q : Post [i64]} {X : XPost}
     (h : lratCheckBytesSpec args m Q X) :
@@ -111,13 +112,14 @@ theorem lratCheckBytes_correct (Γ : Env)
 
 /-- Parameterized typed specification environment for `lratBytesModule` with configurable
 `"lrat_check_bytes"` contract `mainSpec`. -/
-def mkLratBytesEnv (mainSpec : Spec [i64, i64, i64, i64, i64, i64] [i64]) : Env
+@[expose] def mkLratBytesEnv (mainSpec : Spec [i64, i64, i64, i64, i64, i64] [i64]) : Env
   | "lb_parse_dimacs_header", [.bits 64, .bits 64, .bits 64], [.bits 64] => lbParseDimacsHeaderSpec
   | "lb_parse_dimacs_body",   [.bits 64, .bits 64], [.bits 64]           => lbParseDimacsBodySpec
   | "lb_read_add_lits",       [.bits 64, .bits 64], [.bits 64]           => lbReadAddLitsSpec
   | "lb_rup_check",           [.bits 64, .bits 64, .bits 64, .bits 64], [.bits 64] => lbRupCheckSpec
   | "lb_check_prf",           [.bits 64, .bits 64], [.bits 64]           => lbCheckPrfSpec
-  | "lrat_check_bytes",       [.bits 64, .bits 64, .bits 64, .bits 64, .bits 64, .bits 64], [.bits 64] => mainSpec
+  | "lrat_check_bytes", [.bits 64, .bits 64, .bits 64, .bits 64, .bits 64, .bits 64],
+      [.bits 64] => mainSpec
   | _, _, _ => fun _ _ _ _ => False
 
 private theorem mkLratBytesEnv_sound (mainSpec : Spec [i64, i64, i64, i64, i64, i64] [i64])
@@ -148,7 +150,7 @@ private theorem mkLratBytesEnv_moduleOk (mainSpec : Spec [i64, i64, i64, i64, i6
 
 /-- Function-specification environment giving `lrat_check_bytes` its exact decision contract
 `lratCheckBytesExactSpec` (`r = if runLratCheckBytes cnfBytes prfBytes work_len then 1 else 0`). -/
-def lratBytesExactEnv : Env := mkLratBytesEnv lratCheckBytesExactSpec
+@[expose] def lratBytesExactEnv : Env := mkLratBytesEnv lratCheckBytesExactSpec
 
 @[simp] theorem lratBytesExactEnv_entry :
     lratBytesExactEnv "lrat_check_bytes" [i64, i64, i64, i64, i64, i64] [i64] =
@@ -168,7 +170,7 @@ theorem lratBytesExactEnv_moduleOk : ModuleOk lratBytesExactEnv lratBytesModule 
 /-! ## 3. Top-level soundness environment (`lratBytesEnv`, `lratBytesEnv_moduleOk`) -/
 
 /-- Function-specification environment exposing `lratCheckBytesSpec` at `"lrat_check_bytes"`. -/
-def lratBytesEnv : Env := mkLratBytesEnv lratCheckBytesSpec
+@[expose] def lratBytesEnv : Env := mkLratBytesEnv lratCheckBytesSpec
 
 @[simp] theorem lratBytesEnv_entry :
     lratBytesEnv "lrat_check_bytes" [i64, i64, i64, i64, i64, i64] [i64] =
@@ -193,8 +195,10 @@ theorem lratBytesEnv_ofModule_ok :
 /-! ## 4. Trivial-postcondition corollary for encoded `CNF Nat` formulas -/
 
 /-- Source contract specialized to `(encodeDimacs cnf)` for any `ValidDimacsCnf cnf`:
-the postcondition mentions only `r = 0 ∨ r = 1` and `r = 1 → cnf.Unsat` (no parser in the conclusion). -/
-def lratCheckBytesEncodedSpec (cnf : CNF Nat) : Spec [i64, i64, i64, i64, i64, i64] [i64] :=
+the postcondition mentions only `r = 0 ∨ r = 1` and `r = 1 → cnf.Unsat`
+(no parser in the conclusion). -/
+@[expose] def lratCheckBytesEncodedSpec (cnf : CNF Nat) :
+    Spec [i64, i64, i64, i64, i64, i64] [i64] :=
   fun args m Q _ =>
     ValidDimacsCnf cnf ∧
     ∃ (cnf_ptr prf_ptr work_ptr : BitVec 64) (prfBytes : List UInt8) (work_len : Nat)
@@ -210,8 +214,8 @@ def lratCheckBytesEncodedSpec (cnf : CNF Nat) : Spec [i64, i64, i64, i64, i64, i
       ∀ (r : BitVec 64) (m' : Mem 64),
         (r = 0 ∨ r = 1) →
         (r = 1 → cnf.Unsat) →
-        ((Eq ((encodeDimacs cnf).At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ region work_ptr work_len) ⋆
-          R_mem) m' →
+        ((Eq ((encodeDimacs cnf).At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆
+          region work_ptr work_len) ⋆ R_mem) m' →
         Q (r, ()) m'
 
 theorem lratCheckBytesSpec_of_encoded {cnf : CNF Nat}
@@ -264,12 +268,14 @@ theorem nvDimacsBytes_eq :
 theorem nvDimacsBytes_parse : parseDimacs nvDimacsBytes = some nvBytesCnf :=
   parseDimacs_encodeDimacs nvBytesCnf_valid
 
-/-- Concrete accepting execution: `runLratCheckBytes` accepts `(nvDimacsBytes, nvLratAcceptBytes, 512)`
+/-- Concrete accepting execution: `runLratCheckBytes` accepts
+`(nvDimacsBytes, nvLratAcceptBytes, 512)`
 (exercising DIMACS parsing, `'a'` RUP step, `'d'` clause deletion, and empty-clause derivation). -/
 theorem nvAccept_run : runLratCheckBytes nvDimacsBytes nvLratAcceptBytes 512 = true := by
   rw [nvDimacsBytes_eq]; rfl
 
-/-- Concrete rejecting execution: `runLratCheckBytes` rejects `(nvDimacsBytes, nvLratRejectBytes, 512)`. -/
+/-- Concrete rejecting execution: `runLratCheckBytes` rejects
+`(nvDimacsBytes, nvLratRejectBytes, 512)`. -/
 theorem nvReject_run : runLratCheckBytes nvDimacsBytes nvLratRejectBytes 512 = false := by
   rw [nvDimacsBytes_eq]; rfl
 
@@ -281,7 +287,8 @@ theorem nvBytesCnf_unsat : nvBytesCnf.Unsat := by
 
 /-- Specialized accepting contract for `(nvDimacsBytes, nvLratAcceptBytes, 512)`:
 returns `r = 1` and `nvBytesCnf.Unsat` with `X` unconstrained (`exits = []`). -/
-def lratCheckBytesAcceptSpec : Spec [i64, i64, i64, i64, i64, i64] [i64] := fun args m Q _ =>
+@[expose] def lratCheckBytesAcceptSpec :
+    Spec [i64, i64, i64, i64, i64, i64] [i64] := fun args m Q _ =>
   ∃ (cnf_ptr prf_ptr work_ptr : BitVec 64) (R_mem : Mem 64 → Prop),
     args = (cnf_ptr, BitVec.ofNat 64 nvDimacsBytes.length,
             prf_ptr, BitVec.ofNat 64 nvLratAcceptBytes.length,
@@ -310,7 +317,7 @@ theorem lratCheckBytesExactSpec_of_accept {args : Tup Val [i64, i64, i64, i64, i
   exact hQ m' nvBytesCnf_unsat hm'
 
 /-- Function environment exposing `lratCheckBytesAcceptSpec` at `"lrat_check_bytes"`. -/
-def lratBytesAcceptEnv : Env := mkLratBytesEnv lratCheckBytesAcceptSpec
+@[expose] def lratBytesAcceptEnv : Env := mkLratBytesEnv lratCheckBytesAcceptSpec
 
 @[simp] theorem lratBytesAcceptEnv_entry :
     lratBytesAcceptEnv "lrat_check_bytes" [i64, i64, i64, i64, i64, i64] [i64] =
@@ -328,7 +335,8 @@ theorem lratBytesAcceptEnv_moduleOk : ModuleOk lratBytesAcceptEnv lratBytesModul
 
 /-- Specialized rejecting contract for `(nvDimacsBytes, nvLratRejectBytes, 512)`:
 returns `r = 0` with `X` unconstrained (`exits = []`). -/
-def lratCheckBytesRejectSpec : Spec [i64, i64, i64, i64, i64, i64] [i64] := fun args m Q _ =>
+@[expose] def lratCheckBytesRejectSpec :
+    Spec [i64, i64, i64, i64, i64, i64] [i64] := fun args m Q _ =>
   ∃ (cnf_ptr prf_ptr work_ptr : BitVec 64) (R_mem : Mem 64 → Prop),
     args = (cnf_ptr, BitVec.ofNat 64 nvDimacsBytes.length,
             prf_ptr, BitVec.ofNat 64 nvLratRejectBytes.length,
@@ -354,7 +362,7 @@ theorem lratCheckBytesExactSpec_of_reject {args : Tup Val [i64, i64, i64, i64, i
   grind
 
 /-- Function environment exposing `lratCheckBytesRejectSpec` at `"lrat_check_bytes"`. -/
-def lratBytesRejectEnv : Env := mkLratBytesEnv lratCheckBytesRejectSpec
+@[expose] def lratBytesRejectEnv : Env := mkLratBytesEnv lratCheckBytesRejectSpec
 
 @[simp] theorem lratBytesRejectEnv_entry :
     lratBytesRejectEnv "lrat_check_bytes" [i64, i64, i64, i64, i64, i64] [i64] =
@@ -378,7 +386,7 @@ abbrev nvPrfPtr (cnfBytes : List UInt8) : BitVec 64 :=
 abbrev nvWorkPtr (cnfBytes prfBytes : List UInt8) : BitVec 64 :=
   nvPrfPtr cnfBytes + BitVec.ofNat 64 prfBytes.length
 
-def lratBytesPayload (cnfBytes prfBytes : List UInt8) : List UInt8 :=
+@[expose] def lratBytesPayload (cnfBytes prfBytes : List UInt8) : List UInt8 :=
   (cnfBytes ++ prfBytes) ++ List.replicate 512 0
 
 theorem lratBytesPayload_length (cnfBytes prfBytes : List UInt8) :

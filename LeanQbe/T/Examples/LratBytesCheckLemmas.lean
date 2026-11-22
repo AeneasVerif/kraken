@@ -1,7 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.LratBytesSpec
-import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
@@ -16,7 +15,7 @@ Proves:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.LratBytes
 
@@ -42,24 +41,354 @@ private theorem drop_trans_len {full bs' : List UInt8} {idx : Nat} (hidx : idx �
   rw [List.drop_drop] at h
   grind
 
-private theorem readAddLitsAux_lt {fuel mv poolRem : Nat} {acc : List (BitVec 64)} {bs : List UInt8}
-    {clits : List (BitVec 64)} {poolRem' : Nat} {bs' : List UInt8}
+private theorem readAddLitsAux_zero {mv poolRem : Nat} {acc : List (BitVec 64)}
+    {bs : List UInt8} :
+    readAddLitsAux 0 mv poolRem acc bs = none := rfl
+
+private theorem readAddLitsAux_succ {fuel mv poolRem : Nat} {acc : List (BitVec 64)}
+    {bs : List UInt8} :
+    readAddLitsAux (fuel + 1) mv poolRem acc bs =
+      if poolRem == 0 then none
+      else match readLeb128Pure bs with
+      | none => none
+      | some (0, bs') => some (acc.reverse, poolRem - 1, bs')
+      | some (u, bs') =>
+        let v := u / 2
+        if v == 0 || mv < v then none
+        else readAddLitsAux fuel mv (poolRem - 1) (decodeZigZag u :: acc) bs' := rfl
+
+private theorem readAddLitsAux_succ_none {fuel mv poolRem : Nat} {acc : List (BitVec 64)}
+    {bs : List UInt8} (hp : (poolRem == 0) = false) (h : readLeb128Pure bs = none) :
+    readAddLitsAux (fuel + 1) mv poolRem acc bs = none := by
+  rw [readAddLitsAux_succ, hp, h]; rfl
+
+private theorem readAddLitsAux_succ_zero {fuel mv poolRem : Nat} {acc : List (BitVec 64)}
+    {bs bs' : List UInt8} (hp : (poolRem == 0) = false)
+    (h : readLeb128Pure bs = some (0, bs')) :
+    readAddLitsAux (fuel + 1) mv poolRem acc bs = some (acc.reverse, poolRem - 1, bs') := by
+  rw [readAddLitsAux_succ, hp, h]; rfl
+
+private theorem readAddLitsAux_succ_nz {fuel mv poolRem : Nat} {acc : List (BitVec 64)}
+    {bs bs' : List UInt8} {u_pred : Nat} (hp : (poolRem == 0) = false)
+    (h : readLeb128Pure bs = some (u_pred + 1, bs')) :
+    readAddLitsAux (fuel + 1) mv poolRem acc bs =
+      (let v := (u_pred + 1) / 2
+       if v == 0 || mv < v then none
+       else readAddLitsAux fuel mv (poolRem - 1) (decodeZigZag (u_pred + 1) :: acc) bs') := by
+  rw [readAddLitsAux_succ, hp, h]; rfl
+
+private theorem consumeHintsAux_zero {id : Nat} {table : List (Option (List (BitVec 64)))}
+    {bs : List UInt8} :
+    consumeHintsAux 0 id table bs = none := rfl
+
+private theorem consumeHintsAux_succ {fuel id : Nat}
+    {table : List (Option (List (BitVec 64)))} {bs : List UInt8} :
+    consumeHintsAux (fuel + 1) id table bs =
+      match readLeb128Pure bs with
+      | none => none
+      | some (0, bs') => some bs'
+      | some (u, bs') =>
+        if u % 2 != 0 then none
+        else
+          let aid := u / 2
+          if aid < id then
+            match table[aid]? with
+            | some (some _) => consumeHintsAux fuel id table bs'
+            | _ => none
+          else none := rfl
+
+private theorem consumeHintsAux_succ_none {fuel id : Nat}
+    {table : List (Option (List (BitVec 64)))} {bs : List UInt8}
+    (h : readLeb128Pure bs = none) :
+    consumeHintsAux (fuel + 1) id table bs = none := by
+  rw [consumeHintsAux_succ, h]
+
+private theorem consumeHintsAux_succ_zero {fuel id : Nat}
+    {table : List (Option (List (BitVec 64)))} {bs bs' : List UInt8}
+    (h : readLeb128Pure bs = some (0, bs')) :
+    consumeHintsAux (fuel + 1) id table bs = some bs' := by
+  rw [consumeHintsAux_succ, h]; rfl
+
+private theorem consumeHintsAux_succ_nz {fuel id : Nat}
+    {table : List (Option (List (BitVec 64)))} {bs bs' : List UInt8} {u_pred : Nat}
+    (h : readLeb128Pure bs = some (u_pred + 1, bs')) :
+    consumeHintsAux (fuel + 1) id table bs =
+      (if (u_pred + 1) % 2 != 0 then none
+       else if (u_pred + 1) / 2 < id then
+         match table[(u_pred + 1) / 2]? with
+         | some (some _) => consumeHintsAux fuel id table bs'
+         | _ => none
+       else none) := by
+  rw [consumeHintsAux_succ, h]; rfl
+
+private theorem rupPhase2Aux_zero {mv id : Nat} {table : List (Option (List (BitVec 64)))}
+    {vals : List (BitVec 64)} {tl : Nat} {bs : List UInt8} :
+    rupPhase2Aux 0 mv id table vals tl bs = none := rfl
+
+private theorem rupPhase2Aux_succ {fuel mv id : Nat}
+    {table : List (Option (List (BitVec 64)))} {vals : List (BitVec 64)} {tl : Nat}
+    {bs : List UInt8} :
+    rupPhase2Aux (fuel + 1) mv id table vals tl bs =
+      match readLeb128Pure bs with
+      | none => none
+      | some (0, _) => none
+      | some (u, bs') =>
+        if u % 2 != 0 then none
+        else
+          let aid := u / 2
+          if aid < id then
+            match table[aid]? with
+            | some (some alits) =>
+              match rupInnerPure mv alits 0 vals tl with
+              | none => none
+              | some (unit, vals', trailLen') =>
+                if unit != 0 then
+                  rupPhase2Aux fuel mv id table vals' trailLen' bs'
+                else
+                  consumeHintsPure id table bs'
+            | _ => none
+          else none := rfl
+
+private theorem rupPhase2Aux_succ_none {fuel mv id : Nat}
+    {table : List (Option (List (BitVec 64)))} {vals : List (BitVec 64)} {tl : Nat}
+    {bs : List UInt8} (h : readLeb128Pure bs = none) :
+    rupPhase2Aux (fuel + 1) mv id table vals tl bs = none := by
+  rw [rupPhase2Aux_succ, h]
+
+private theorem rupPhase2Aux_succ_zero {fuel mv id : Nat}
+    {table : List (Option (List (BitVec 64)))} {vals : List (BitVec 64)} {tl : Nat}
+    {bs bs' : List UInt8} (h : readLeb128Pure bs = some (0, bs')) :
+    rupPhase2Aux (fuel + 1) mv id table vals tl bs = none := by
+  rw [rupPhase2Aux_succ, h]; rfl
+
+private theorem rupPhase2Aux_succ_nz {fuel mv id : Nat}
+    {table : List (Option (List (BitVec 64)))} {vals : List (BitVec 64)} {tl : Nat}
+    {bs bs' : List UInt8} {u_pred : Nat}
+    (h : readLeb128Pure bs = some (u_pred + 1, bs')) :
+    rupPhase2Aux (fuel + 1) mv id table vals tl bs =
+      (if (u_pred + 1) % 2 != 0 then none
+       else if (u_pred + 1) / 2 < id then
+         match table[(u_pred + 1) / 2]? with
+         | some (some alits) =>
+           match rupInnerPure mv alits 0 vals tl with
+           | none => none
+           | some (unit, vals', trailLen') =>
+             if unit != 0 then
+               rupPhase2Aux fuel mv id table vals' trailLen' bs'
+             else
+               consumeHintsPure id table bs'
+         | _ => none
+       else none) := by
+  rw [rupPhase2Aux_succ, h]; rfl
+
+private theorem rupCheckPure_def (mv id : Nat) (clits : List (BitVec 64))
+    (table : List (Option (List (BitVec 64)))) (bs : List UInt8) :
+    rupCheckPure mv id clits table bs =
+      match rupPhase1Pure mv clits (List.replicate (mv + 1) 0) 0 with
+      | .fail => none
+      | .taut => consumeHintsPure id table bs
+      | .ok vals trailLen =>
+        rupPhase2Aux (bs.length + 1) mv id table vals trailLen bs := rfl
+
+private theorem delLoopAux_zero {cap : Nat} {table : List (Option (List (BitVec 64)))}
+    {bs : List UInt8} :
+    delLoopAux 0 cap table bs = none := rfl
+
+private theorem delLoopAux_succ {fuel cap : Nat}
+    {table : List (Option (List (BitVec 64)))} {bs : List UInt8} :
+    delLoopAux (fuel + 1) cap table bs =
+      match readLeb128Pure bs with
+      | none => none
+      | some (0, bs') => some (table, bs')
+      | some (u, bs') =>
+        if u % 2 != 0 then none
+        else
+          let did := u / 2
+          if did == 0 || !(did < cap) then none
+          else match table[did]? with
+          | some (some _) => delLoopAux fuel cap (table.set did none) bs'
+          | _ => none := rfl
+
+private theorem delLoopAux_succ_none {fuel cap : Nat}
+    {table : List (Option (List (BitVec 64)))} {bs : List UInt8}
+    (h : readLeb128Pure bs = none) :
+    delLoopAux (fuel + 1) cap table bs = none := by
+  rw [delLoopAux_succ, h]
+
+private theorem delLoopAux_succ_zero {fuel cap : Nat}
+    {table : List (Option (List (BitVec 64)))} {bs bs' : List UInt8}
+    (h : readLeb128Pure bs = some (0, bs')) :
+    delLoopAux (fuel + 1) cap table bs = some (table, bs') := by
+  rw [delLoopAux_succ, h]; rfl
+
+private theorem delLoopAux_succ_nz {fuel cap : Nat}
+    {table : List (Option (List (BitVec 64)))} {bs bs' : List UInt8} {u_pred : Nat}
+    (h : readLeb128Pure bs = some (u_pred + 1, bs')) :
+    delLoopAux (fuel + 1) cap table bs =
+      (if (u_pred + 1) % 2 != 0 then none
+       else if (u_pred + 1) / 2 == 0 || !((u_pred + 1) / 2 < cap) then none
+       else match table[(u_pred + 1) / 2]? with
+       | some (some _) => delLoopAux fuel cap (table.set ((u_pred + 1) / 2) none) bs'
+       | _ => none) := by
+  rw [delLoopAux_succ, h]; rfl
+
+private theorem delLoopAux_succ_step {fuel cap : Nat}
+    {table : List (Option (List (BitVec 64)))} {bs bs' : List UInt8}
+    {u_pred : Nat} {dlits : List (BitVec 64)}
+    (hleb : readLeb128Pure bs = some (u_pred + 1, bs'))
+    (heven : ((u_pred + 1) % 2 != 0) = false)
+    (hnz : (((u_pred + 1) / 2) == 0) = false)
+    (hlt : (u_pred + 1) / 2 < cap)
+    (hget : table[(u_pred + 1) / 2]? = some (some dlits)) :
+    delLoopAux (fuel + 1) cap table bs =
+      delLoopAux fuel cap (table.set ((u_pred + 1) / 2) none) bs' := by
+  rw [delLoopAux_succ_nz hleb, heven, hnz]
+  simp only [hlt, decide_true, Bool.false_or, Bool.not_true, Bool.false_eq_true, ↓reduceIte]
+  rw [hget]
+
+private theorem checkPrfAux_zero {mv nc poolRem : Nat}
+    {table : List (Option (List (BitVec 64)))} {bs : List UInt8} :
+    checkPrfAux 0 mv nc poolRem table bs = false := rfl
+
+private theorem checkPrfAux_nil {fuel mv nc poolRem : Nat}
+    {table : List (Option (List (BitVec 64)))} :
+    checkPrfAux fuel mv nc poolRem table [] = false := by
+  cases fuel <;> rfl
+
+private theorem checkPrfAux_succ {fuel mv nc poolRem : Nat}
+    {table : List (Option (List (BitVec 64)))} {tag : UInt8} {bs1 : List UInt8} :
+    checkPrfAux (fuel + 1) mv nc poolRem table (tag :: bs1) =
+      if tag == 97 then
+        match readLeb128Pure bs1 with
+        | none => false
+        | some (uid, bs2) =>
+          if uid % 2 != 0 then false
+          else
+            let id := uid / 2
+            if !(nc < id) || !(id < table.length) then false
+            else match table[id]? with
+            | some none =>
+              match readAddLitsPure mv poolRem bs2 with
+              | none => false
+              | some (clits, poolRem', bs3) =>
+                match rupCheckPure mv id clits table bs3 with
+                | none => false
+                | some bs4 =>
+                  if clits.isEmpty then true
+                  else checkPrfAux fuel mv nc poolRem' (table.set id (some clits)) bs4
+            | _ => false
+      else if tag == 100 then
+        match delLoopAux (bs1.length + 1) table.length table bs1 with
+        | none => false
+        | some (table', bs2) => checkPrfAux fuel mv nc poolRem table' bs2
+      else false := rfl
+
+private theorem checkPrfAux_succ_97_empty {fuel mv nc poolRem : Nat}
+    {table : List (Option (List (BitVec 64)))} {tag : UInt8}
+    {bs1 bs2 bs3 bs4 : List UInt8} {uid poolRem' : Nat} {clits : List (BitVec 64)}
+    (htag : (tag == 97) = true)
+    (hleb : readLeb128Pure bs1 = some (uid, bs2))
+    (heven : (uid % 2 != 0) = false)
+    (hlo : nc < uid / 2) (hhi : uid / 2 < table.length)
+    (hti : table[uid / 2]? = some none)
+    (hread : readAddLitsPure mv poolRem bs2 = some (clits, poolRem', bs3))
+    (hrup : rupCheckPure mv (uid / 2) clits table bs3 = some bs4)
+    (hemp : clits.isEmpty = true) :
+    checkPrfAux (fuel + 1) mv nc poolRem table (tag :: bs1) = true := by
+  have hbnd : (!(nc < uid / 2) || !(uid / 2 < table.length)) = false := by
+    simp only [hlo, hhi, decide_true, Bool.not_true, Bool.false_or]
+  rw [checkPrfAux_succ, htag]
+  simp only [↓reduceIte, hleb, heven, Bool.false_eq_true, hbnd, hti, hread, hrup, hemp]
+
+private theorem checkPrfAux_succ_97_nonempty {fuel mv nc poolRem : Nat}
+    {table : List (Option (List (BitVec 64)))} {tag : UInt8}
+    {bs1 bs2 bs3 bs4 : List UInt8} {uid poolRem' : Nat} {clits : List (BitVec 64)}
+    (htag : (tag == 97) = true)
+    (hleb : readLeb128Pure bs1 = some (uid, bs2))
+    (heven : (uid % 2 != 0) = false)
+    (hlo : nc < uid / 2) (hhi : uid / 2 < table.length)
+    (hti : table[uid / 2]? = some none)
+    (hread : readAddLitsPure mv poolRem bs2 = some (clits, poolRem', bs3))
+    (hrup : rupCheckPure mv (uid / 2) clits table bs3 = some bs4)
+    (hnemp : clits.isEmpty = false) :
+    checkPrfAux (fuel + 1) mv nc poolRem table (tag :: bs1) =
+      checkPrfAux fuel mv nc poolRem' (table.set (uid / 2) (some clits)) bs4 := by
+  have hbnd : (!(nc < uid / 2) || !(uid / 2 < table.length)) = false := by
+    simp only [hlo, hhi, decide_true, Bool.not_true, Bool.false_or]
+  rw [checkPrfAux_succ, htag]
+  simp only [↓reduceIte, hleb, heven, Bool.false_eq_true, hbnd, hti, hread, hrup, hnemp]
+
+private theorem checkPrfAux_succ_100_step {fuel mv nc poolRem : Nat}
+    {table table' : List (Option (List (BitVec 64)))} {tag : UInt8}
+    {bs1 bs2 : List UInt8}
+    (htag_ne : (tag == 97) = false) (htag : (tag == 100) = true)
+    (hdel : delLoopAux (bs1.length + 1) table.length table bs1 = some (table', bs2)) :
+    checkPrfAux (fuel + 1) mv nc poolRem table (tag :: bs1) =
+      checkPrfAux fuel mv nc poolRem table' bs2 := by
+  rw [checkPrfAux_succ, htag_ne, htag]
+  simp only [Bool.false_eq_true, ↓reduceIte, hdel]
+
+private theorem initClauseTable_def (cap : Nat) (clauses : List (List (BitVec 64))) :
+    initClauseTable cap clauses =
+      none :: clauses.map some ++ List.replicate (cap - (clauses.length + 1)) none := rfl
+
+private theorem runLratCheckBytes_def (cnfBytes prfBytes : List UInt8) (work_len : Nat) :
+    runLratCheckBytes cnfBytes prfBytes work_len =
+      if work_len < 128 then false
+      else match parseHeader cnfBytes with
+      | none => false
+      | some (mv, nc, bodyRest) =>
+        let v_bytes := ((mv + 8) / 8) * 8
+        let t_raw := 4 * (mv + 1)
+        let t_bytes := ((t_raw + 7) / 8) * 8
+        let fixed := 80 + v_bytes + t_bytes
+        if work_len < fixed then false
+        else
+          let rem := work_len - fixed
+          let c_half := rem / 16
+          let p_cap := prfBytes.length % 268435456
+          let want := nc + p_cap + 32
+          let cap := if c_half < want then c_half else want
+          if cap ≤ nc then false
+          else
+            let cb_bytes := 8 * cap
+            let pool_rem := rem - cb_bytes
+            let pool_ints := pool_rem / 4
+            match parseBodyPure mv nc pool_ints [] bodyRest with
+            | none => false
+            | some (clauses, pool_ints') =>
+              checkPrfPure mv nc pool_ints' (initClauseTable cap clauses) prfBytes := rfl
+
+private theorem runLratCheckBytes_lt128 {cnfBytes prfBytes : List UInt8} {work_len : Nat}
+    (h : work_len < 128) : runLratCheckBytes cnfBytes prfBytes work_len = false := by
+  rw [runLratCheckBytes_def]; simp only [h, ↓reduceIte]
+
+private theorem runLratCheckBytes_hdr_none {cnfBytes prfBytes : List UInt8} {work_len : Nat}
+    (h128 : ¬ (work_len < 128)) (hhdr : parseHeader cnfBytes = none) :
+    runLratCheckBytes cnfBytes prfBytes work_len = false := by
+  rw [runLratCheckBytes_def]; simp only [h128, ↓reduceIte]; rw [hhdr]
+
+private theorem readAddLitsAux_lt {fuel mv poolRem : Nat} {acc : List (BitVec 64)}
+    {bs : List UInt8} {clits : List (BitVec 64)} {poolRem' : Nat} {bs' : List UInt8}
     (h : readAddLitsAux fuel mv poolRem acc bs = some (clits, poolRem', bs')) :
     bs'.length < bs.length := by
   induction fuel generalizing poolRem acc bs with
-  | zero => simp [readAddLitsAux] at h
+  | zero => rw [readAddLitsAux_zero] at h; nomatch h
   | succ fuel ih =>
-    simp only [readAddLitsAux] at h
-    split at h
-    · simp at h
-    · split at h
-      · simp at h
-      · rename_i bs1 heq
-        obtain ⟨_, hlt1, _⟩ := readLeb128Pure_props heq
-        grind
-      · rename_i u bs1 _ heq
-        obtain ⟨_, hlt1, _⟩ := readLeb128Pure_props heq
-        grind
+    cases hpool : (poolRem == 0)
+    · rcases heq : readLeb128Pure bs with _ | ⟨_ | u_pred, bs1⟩
+      · rw [readAddLitsAux_succ_none hpool heq] at h; nomatch h
+      · rw [readAddLitsAux_succ_zero hpool heq] at h
+        obtain ⟨_, _, rfl⟩ := Option.some.inj h
+        exact (readLeb128Pure_props heq).2.1
+      · rw [readAddLitsAux_succ_nz hpool heq] at h; dsimp only at h
+        cases hv : ((u_pred + 1) / 2 == 0 || mv < (u_pred + 1) / 2)
+        · rw [hv] at h; simp only [Bool.false_eq_true, ↓reduceIte] at h
+          have hlt1 := (readLeb128Pure_props heq).2.1
+          have hlt2 := ih h
+          omega
+        · rw [hv] at h; nomatch h
+    · rw [readAddLitsAux_succ, hpool] at h; nomatch h
 
 private theorem readAddLitsPure_lt {mv poolRem : Nat} {bs : List UInt8}
     {clits : List (BitVec 64)} {poolRem' : Nat} {bs' : List UInt8}
@@ -71,78 +400,96 @@ private theorem consumeHintsAux_lt {fuel id : Nat} {table : List (Option (List (
     {bs bs' : List UInt8} (h : consumeHintsAux fuel id table bs = some bs') :
     bs'.length < bs.length := by
   induction fuel generalizing bs with
-  | zero => simp [consumeHintsAux] at h
+  | zero => rw [consumeHintsAux_zero] at h; nomatch h
   | succ fuel ih =>
-    simp only [consumeHintsAux] at h
-    split at h
-    · simp at h
-    · rename_i bs1 heq
-      obtain ⟨_, hlt1, _⟩ := readLeb128Pure_props heq
-      simp only [Option.some.injEq] at h; subst h; exact hlt1
-    · rename_i u bs1 _ heq
-      obtain ⟨_, hlt1, _⟩ := readLeb128Pure_props heq
-      grind
+    rcases heq : readLeb128Pure bs with _ | ⟨_ | u_pred, bs1⟩
+    · rw [consumeHintsAux_succ_none heq] at h; nomatch h
+    · rw [consumeHintsAux_succ_zero heq] at h
+      obtain rfl := Option.some.inj h
+      exact (readLeb128Pure_props heq).2.1
+    · rw [consumeHintsAux_succ_nz heq] at h
+      have hlt1 := (readLeb128Pure_props heq).2.1
+      cases hodd : ((u_pred + 1) % 2 != 0)
+      · rw [hodd] at h; simp only [Bool.false_eq_true, ↓reduceIte] at h
+        by_cases haid : (u_pred + 1) / 2 < id
+        · simp only [haid, ↓reduceIte] at h
+          rcases htbl : table[(u_pred + 1) / 2]? with _ | _ | alits
+          · rw [htbl] at h; nomatch h
+          · rw [htbl] at h; nomatch h
+          · rw [htbl] at h; dsimp only at h
+            have hlt2 := ih h; omega
+        · simp only [haid, ↓reduceIte] at h; nomatch h
+      · rw [hodd] at h; nomatch h
 
 private theorem rupPhase2Aux_lt {fuel mv id : Nat} {table : List (Option (List (BitVec 64)))}
     {vals : List (BitVec 64)} {tl : Nat} {bs bs' : List UInt8}
     (h : rupPhase2Aux fuel mv id table vals tl bs = some bs') :
     bs'.length < bs.length := by
   induction fuel generalizing vals tl bs with
-  | zero => simp [rupPhase2Aux] at h
+  | zero => rw [rupPhase2Aux_zero] at h; nomatch h
   | succ fuel ih =>
-    simp only [rupPhase2Aux] at h
-    split at h
-    · simp at h
-    · simp at h
-    · rename_i u bs1 _ heq
-      obtain ⟨_, hlt1, _⟩ := readLeb128Pure_props heq
-      split at h
-      · simp at h
-      · split at h
-        · split at h
-          · split at h
-            · simp at h
-            · split at h
-              · have hlt2 := ih h; omega
-              · have hlt2 := consumeHintsAux_lt h; omega
-          · simp at h
-        · simp at h
+    rcases heq : readLeb128Pure bs with _ | ⟨_ | u_pred, bs1⟩
+    · rw [rupPhase2Aux_succ_none heq] at h; nomatch h
+    · rw [rupPhase2Aux_succ_zero heq] at h; nomatch h
+    · rw [rupPhase2Aux_succ_nz heq] at h
+      have hlt1 := (readLeb128Pure_props heq).2.1
+      cases hodd : ((u_pred + 1) % 2 != 0)
+      · rw [hodd] at h; simp only [Bool.false_eq_true, ↓reduceIte] at h
+        by_cases haid : (u_pred + 1) / 2 < id
+        · simp only [haid, ↓reduceIte] at h
+          rcases htbl : table[(u_pred + 1) / 2]? with _ | _ | alits
+          · rw [htbl] at h; nomatch h
+          · rw [htbl] at h; nomatch h
+          · rw [htbl] at h; dsimp only at h
+            rcases hinner : rupInnerPure mv alits 0 vals tl with _ | ⟨unit, vals', tl'⟩
+            · rw [hinner] at h; nomatch h
+            · rw [hinner] at h; dsimp only at h
+              cases hu : (unit != 0)
+              · rw [hu] at h; simp only [Bool.false_eq_true, ↓reduceIte] at h
+                have hlt2 := consumeHintsAux_lt h; omega
+              · rw [hu] at h; simp only [↓reduceIte] at h
+                have hlt2 := ih h; omega
+        · simp only [haid, ↓reduceIte] at h; nomatch h
+      · rw [hodd] at h; nomatch h
 
 private theorem rupCheckPure_lt {mv id : Nat} {clits : List (BitVec 64)}
     {table : List (Option (List (BitVec 64)))} {bs bs' : List UInt8}
     (h : rupCheckPure mv id clits table bs = some bs') :
     bs'.length < bs.length := by
-  unfold rupCheckPure at h
-  split at h
-  · simp at h
-  · exact consumeHintsAux_lt h
-  · exact rupPhase2Aux_lt h
+  rw [rupCheckPure_def] at h
+  cases hp1 : rupPhase1Pure mv clits (List.replicate (mv + 1) 0) 0 with
+  | fail => rw [hp1] at h; nomatch h
+  | taut => rw [hp1] at h; dsimp only at h; exact consumeHintsAux_lt h
+  | ok vals tl => rw [hp1] at h; dsimp only at h; exact rupPhase2Aux_lt h
 
 private theorem delLoopAux_props {fuel cap : Nat} {table : List (Option (List (BitVec 64)))}
     {bs : List UInt8} {table' : List (Option (List (BitVec 64)))} {bs' : List UInt8}
     (h : delLoopAux fuel cap table bs = some (table', bs')) :
     bs'.length < bs.length ∧ bs' = bs.drop (bs.length - bs'.length) := by
   induction fuel generalizing table bs with
-  | zero => simp [delLoopAux] at h
+  | zero => rw [delLoopAux_zero] at h; nomatch h
   | succ fuel ih =>
-    simp only [delLoopAux] at h
-    split at h
-    · simp at h
-    · rename_i bs1 heq
+    rcases heq : readLeb128Pure bs with _ | ⟨_ | u_pred, bs1⟩
+    · rw [delLoopAux_succ_none heq] at h; nomatch h
+    · rw [delLoopAux_succ_zero heq] at h
+      obtain ⟨_, rfl⟩ := Option.some.inj h
+      exact ⟨(readLeb128Pure_props heq).2.1, (readLeb128Pure_props heq).2.2⟩
+    · rw [delLoopAux_succ_nz heq] at h
       obtain ⟨_, hlt1, hdrop1⟩ := readLeb128Pure_props heq
-      grind
-    · rename_i u bs1 _ heq
-      obtain ⟨_, hlt1, hdrop1⟩ := readLeb128Pure_props heq
-      split at h
-      · simp at h
-      · split at h
-        · simp at h
-        · split at h
-          · obtain ⟨hlt2, hdrop2⟩ := ih h
+      cases hodd : ((u_pred + 1) % 2 != 0)
+      · rw [hodd] at h; simp only [Bool.false_eq_true, ↓reduceIte] at h
+        cases hbnd : ((u_pred + 1) / 2 == 0 || !((u_pred + 1) / 2 < cap))
+        · rw [hbnd] at h; simp only [Bool.false_eq_true, ↓reduceIte] at h
+          rcases htbl : table[(u_pred + 1) / 2]? with _ | _ | dlits
+          · rw [htbl] at h; nomatch h
+          · rw [htbl] at h; nomatch h
+          · rw [htbl] at h; dsimp only at h
+            obtain ⟨hlt2, hdrop2⟩ := ih h
             refine ⟨by omega, ?_⟩
             rw [hdrop1] at hdrop2
             exact (drop_trans_len (by omega) hdrop2 (by rw [← hdrop1]; omega)).1
-          · simp at h
+        · rw [hbnd] at h; nomatch h
+      · rw [hodd] at h; nomatch h
 
 private theorem delLoopAux_fuel_irrel {f1 f2 cap : Nat} {table : List (Option (List (BitVec 64)))}
     {bs : List UInt8} (hf1 : bs.length < f1) (hf2 : bs.length < f2) :
@@ -153,13 +500,22 @@ private theorem delLoopAux_fuel_irrel {f1 f2 cap : Nat} {table : List (Option (L
     cases f2 with
     | zero => omega
     | succ f2 =>
-      simp only [delLoopAux]
-      split
-      · rfl
-      · rfl
-      · rename_i u bs1 _ heq
-        obtain ⟨_, hlt1, _⟩ := readLeb128Pure_props heq
-        grind
+      rcases heq : readLeb128Pure bs with _ | ⟨_ | u_pred, bs1⟩
+      · rw [delLoopAux_succ_none heq, delLoopAux_succ_none heq]
+      · rw [delLoopAux_succ_zero heq, delLoopAux_succ_zero heq]
+      · rw [delLoopAux_succ_nz heq, delLoopAux_succ_nz heq]
+        have hlt1 := (readLeb128Pure_props heq).2.1
+        cases hodd : ((u_pred + 1) % 2 != 0)
+        · simp only [Bool.false_eq_true, ↓reduceIte]
+          cases hbnd : ((u_pred + 1) / 2 == 0 || !((u_pred + 1) / 2 < cap))
+          · simp only [Bool.false_eq_true, ↓reduceIte]
+            rcases htbl : table[(u_pred + 1) / 2]? with _ | _ | dlits
+            · rfl
+            · rfl
+            · dsimp only
+              exact ih (by omega) (by omega)
+          · simp only [↓reduceIte]
+        · simp only [↓reduceIte]
 
 private theorem checkPrfAux_fuel_irrel {f1 f2 mv nc poolRem : Nat}
     {table : List (Option (List (BitVec 64)))} {bs : List UInt8}
@@ -172,37 +528,48 @@ private theorem checkPrfAux_fuel_irrel {f1 f2 mv nc poolRem : Nat}
     | zero => omega
     | succ f2 =>
       cases bs with
-      | nil => simp [checkPrfAux]
+      | nil => rw [checkPrfAux_nil, checkPrfAux_nil]
       | cons tag bs1 =>
         have hbs1 : bs1.length < f1 ∧ bs1.length < f2 := by simp at hf1 hf2; omega
-        simp only [checkPrfAux]
-        split
-        · split
-          · rfl
-          · rename_i uid bs2 heq1
-            obtain ⟨_, hlt1, _⟩ := readLeb128Pure_props heq1
-            split
+        rw [checkPrfAux_succ, checkPrfAux_succ]
+        cases h97 : (tag == 97)
+        · simp only [Bool.false_eq_true, ↓reduceIte]
+          cases h100 : (tag == 100)
+          · simp only [Bool.false_eq_true, ↓reduceIte]
+          · simp only [↓reduceIte]
+            rcases heqd : delLoopAux (bs1.length + 1) table.length table bs1 with
+              _ | ⟨table', bs2⟩
             · rfl
-            · split
-              · rfl
-              · split
-                · split
-                  · rfl
-                  · rename_i clits poolRem' bs3 heq2
-                    have hlt2 := readAddLitsPure_lt heq2
-                    split
-                    · rfl
-                    · rename_i bs4 heq3
-                      have hlt3 := rupCheckPure_lt heq3
-                      grind
-                · rfl
-        · split
-          · split
-            · rfl
-            · rename_i table' bs2 heqd
+            · dsimp only
               obtain ⟨hltd, _⟩ := delLoopAux_props heqd
               exact ih (by omega) (by omega)
+        · simp only [↓reduceIte]
+          rcases heq1 : readLeb128Pure bs1 with _ | ⟨uid, bs2⟩
           · rfl
+          · dsimp only
+            have hlt1 := (readLeb128Pure_props heq1).2.1
+            cases hodd : (uid % 2 != 0)
+            · simp only [Bool.false_eq_true, ↓reduceIte]
+              cases hbnd : (!(nc < uid / 2) || !(uid / 2 < table.length))
+              · simp only [Bool.false_eq_true, ↓reduceIte]
+                rcases htbl : table[uid / 2]? with _ | _ | _
+                · rfl
+                · dsimp only
+                  rcases heq2 : readAddLitsPure mv poolRem bs2 with _ | ⟨clits, poolRem', bs3⟩
+                  · rfl
+                  · dsimp only
+                    have hlt2 := readAddLitsPure_lt heq2
+                    rcases heq3 : rupCheckPure mv (uid / 2) clits table bs3 with _ | bs4
+                    · rfl
+                    · dsimp only
+                      have hlt3 := rupCheckPure_lt heq3
+                      cases hemp : clits.isEmpty
+                      · simp only [Bool.false_eq_true, ↓reduceIte]
+                        exact ih (by omega) (by omega)
+                      · simp only [↓reduceIte]
+                · rfl
+              · simp only [↓reduceIte]
+            · simp only [↓reduceIte]
 
 private theorem readAddLitsAux_valid {fuel mv poolRem : Nat} {acc : List (BitVec 64)}
     {bs : List UInt8} {clits : List (BitVec 64)} {poolRem' : Nat} {bs' : List UInt8}
@@ -210,23 +577,26 @@ private theorem readAddLitsAux_valid {fuel mv poolRem : Nat} {acc : List (BitVec
     (h : readAddLitsAux fuel mv poolRem acc bs = some (clits, poolRem', bs')) :
     ∀ x ∈ clits, IsValidLit mv x := by
   induction fuel generalizing poolRem acc bs with
-  | zero => simp [readAddLitsAux] at h
+  | zero => rw [readAddLitsAux_zero] at h; nomatch h
   | succ fuel ih =>
-    simp only [readAddLitsAux] at h
-    split at h
-    · simp at h
-    · split at h
-      · simp at h
-      · grind
-      · rename_i u bs1 _ heq
+    cases hpool : (poolRem == 0)
+    · rcases heq : readLeb128Pure bs with _ | ⟨_ | u_pred, bs1⟩
+      · rw [readAddLitsAux_succ_none hpool heq] at h; nomatch h
+      · rw [readAddLitsAux_succ_zero hpool heq] at h
+        obtain ⟨rfl, _, _⟩ := Option.some.inj h
+        intro x hx; exact hacc x (List.mem_reverse.mp hx)
+      · rw [readAddLitsAux_succ_nz hpool heq] at h; dsimp only at h
         obtain ⟨hu, _, _⟩ := readLeb128Pure_props heq
-        split at h
-        · simp at h
-        · rename_i hgood
-          simp only [Bool.not_eq_true, Bool.or_eq_false_iff, beq_eq_false_iff_ne,
-            decide_eq_false_iff_not] at hgood
+        cases hbad : ((u_pred + 1) / 2 == 0 || mv < (u_pred + 1) / 2)
+        · rw [hbad] at h; simp only [Bool.false_eq_true, ↓reduceIte] at h
+          simp only [Bool.or_eq_false_iff, beq_eq_false_iff_ne, decide_eq_false_iff_not] at hbad
           have hv_valid := isValidLit_decodeZigZag hu (by omega) (by omega) hmv
-          grind
+          exact ih (fun x hx => by
+            rcases List.mem_cons.mp hx with rfl | hx
+            · exact hv_valid
+            · exact hacc x hx) h
+        · rw [hbad] at h; nomatch h
+    · rw [readAddLitsAux_succ, hpool] at h; nomatch h
 
 private theorem readAddLitsPure_valid {mv poolRem : Nat} {bs : List UInt8}
     {clits : List (BitVec 64)} {poolRem' : Nat} {bs' : List UInt8}
@@ -238,7 +608,8 @@ private theorem readAddLitsPure_valid {mv poolRem : Nat} {bs : List UInt8}
 /-! ## 2. Pure LRAT proof soundness (`checkPrfAux_sound_of`, `runLratCheckBytes_sound_of`) -/
 
 /-- Every active clause in `table` has valid literals in `1..mv` and is entailed by `F`. -/
-abbrev TableSound (mv : Nat) (F : CNF Nat) (table : List (Option (List (BitVec 64)))) : Prop :=
+private abbrev TableSound (mv : Nat) (F : CNF Nat)
+    (table : List (Option (List (BitVec 64)))) : Prop :=
   ∀ (i : Nat) (lits : List (BitVec 64)), table[i]? = some (some lits) →
     (∀ x ∈ lits, IsValidLit mv x) ∧ CNF.EntailsClause F (toClause lits)
 
@@ -274,12 +645,40 @@ private theorem foldl_mem_entails {clauses : List (List (BitVec 64))} {F : CNF N
         (entailsClause_add_self F (toClause lits))
     · exact ih htl
 
-theorem initClauseTable_sound {mv cap : Nat} {clauses : List (List (BitVec 64))}
+private theorem tableSound_set_none {mv : Nat} {F : CNF Nat}
+    {table : List (Option (List (BitVec 64)))} (ht : TableSound mv F table) (did : Nat) :
+    TableSound mv F (table.set did none) := by
+  intro i lits hi
+  by_cases h : i = did
+  · subst h
+    by_cases hlt : i < table.length
+    · rw [List.getElem?_set_self hlt] at hi; nomatch hi
+    · rw [List.getElem?_eq_none (by rw [List.length_set]; omega)] at hi; nomatch hi
+  · rw [List.getElem?_set_ne (Ne.symm h)] at hi
+    exact ht i lits hi
+
+private theorem tableSound_set_some {mv : Nat} {F : CNF Nat}
+    {table : List (Option (List (BitVec 64)))} (ht : TableSound mv F table) (id : Nat)
+    {clits : List (BitVec 64)} (hval : ∀ x ∈ clits, IsValidLit mv x)
+    (hent : CNF.EntailsClause F (toClause clits)) :
+    TableSound mv F (table.set id (some clits)) := by
+  intro i lits hi
+  by_cases h : i = id
+  · subst h
+    by_cases hlt : i < table.length
+    · rw [List.getElem?_set_self hlt] at hi
+      obtain rfl := Option.some.inj (Option.some.inj hi)
+      exact ⟨hval, hent⟩
+    · rw [List.getElem?_eq_none (by rw [List.length_set]; omega)] at hi; nomatch hi
+  · rw [List.getElem?_set_ne (Ne.symm h)] at hi
+    exact ht i lits hi
+
+private theorem initClauseTable_sound {mv cap : Nat} {clauses : List (List (BitVec 64))}
     (hvalid : ∀ cl ∈ clauses, ∀ x ∈ cl, IsValidLit mv x) :
     TableSound mv (clauses.foldl (fun acc lits => acc.add (toClause lits)) CNF.empty)
       (initClauseTable cap clauses) := by
   intro i lits hget
-  unfold initClauseTable at hget
+  rw [initClauseTable_def] at hget
   cases i with
   | zero => simp at hget
   | succ j =>
@@ -299,10 +698,25 @@ private theorem delLoopAux_sound {fuel cap mv : Nat} {F : CNF Nat}
     (h : delLoopAux fuel cap table bs = some (table', bs')) :
     TableSound mv F table' := by
   induction fuel generalizing table bs with
-  | zero => simp [delLoopAux] at h
+  | zero => rw [delLoopAux_zero] at h; nomatch h
   | succ fuel ih =>
-    simp only [delLoopAux] at h
-    grind
+    rcases heq : readLeb128Pure bs with _ | ⟨_ | u_pred, bs1⟩
+    · rw [delLoopAux_succ_none heq] at h; nomatch h
+    · rw [delLoopAux_succ_zero heq] at h
+      obtain ⟨rfl, _⟩ := Option.some.inj h
+      exact ht
+    · rw [delLoopAux_succ_nz heq] at h
+      cases hodd : ((u_pred + 1) % 2 != 0)
+      · rw [hodd] at h; simp only [Bool.false_eq_true, ↓reduceIte] at h
+        cases hbnd : ((u_pred + 1) / 2 == 0 || !((u_pred + 1) / 2 < cap))
+        · rw [hbnd] at h; simp only [Bool.false_eq_true, ↓reduceIte] at h
+          rcases htbl : table[(u_pred + 1) / 2]? with _ | _ | dlits
+          · rw [htbl] at h; nomatch h
+          · rw [htbl] at h; nomatch h
+          · rw [htbl] at h; dsimp only at h
+            exact ih (tableSound_set_none ht ((u_pred + 1) / 2)) h
+        · rw [hbnd] at h; nomatch h
+      · rw [hodd] at h; nomatch h
 
 private theorem unsat_of_entails_empty {cnf₀ F : CNF Nat}
     (hent : cnf₀.Entails F) (hemp : CNF.EntailsClause F (toClause [])) :
@@ -319,7 +733,7 @@ private theorem unsat_of_entails_empty {cnf₀ F : CNF Nat}
   grind
 
 /-- Pure soundness of `checkPrfAux` given RUP step soundness `hrup_sound`. -/
-theorem checkPrfAux_sound_of
+private theorem checkPrfAux_sound_of
     (hrup_sound : ∀ {mv id : Nat} {clits : List (BitVec 64)}
       {table : List (Option (List (BitVec 64)))} {bs bs' : List UInt8} {F : CNF Nat},
       mv < dimacsBound →
@@ -336,45 +750,52 @@ theorem checkPrfAux_sound_of
     (hchk : checkPrfAux fuel mv nc poolRem table bs = true) :
     cnf₀.Unsat := by
   induction fuel generalizing poolRem table bs F with
-  | zero => simp [checkPrfAux] at hchk
+  | zero => rw [checkPrfAux_zero] at hchk; cases hchk
   | succ fuel ih =>
     cases bs with
-    | nil => simp [checkPrfAux] at hchk
+    | nil => rw [checkPrfAux_nil] at hchk; cases hchk
     | cons tag bs1 =>
-      simp only [checkPrfAux] at hchk
-      split at hchk
-      · split at hchk
-        · simp at hchk
-        · rename_i uid bs2 heq_uid
-          split at hchk
-          · simp at hchk
-          · split at hchk
-            · simp at hchk
-            · split at hchk
-              · split at hchk
-                · simp at hchk
-                · rename_i clits poolRem' bs3 hread
+      rw [checkPrfAux_succ] at hchk
+      cases h97 : (tag == 97)
+      · rw [h97] at hchk; simp only [Bool.false_eq_true, ↓reduceIte] at hchk
+        cases h100 : (tag == 100)
+        · rw [h100] at hchk; simp only [Bool.false_eq_true, ↓reduceIte] at hchk
+        · rw [h100] at hchk; simp only [↓reduceIte] at hchk
+          rcases hdel : delLoopAux (bs1.length + 1) table.length table bs1 with _ | ⟨table', bs2⟩
+          · rw [hdel] at hchk; cases hchk
+          · rw [hdel] at hchk; dsimp only at hchk
+            exact ih hent (delLoopAux_sound htable hdel) hchk
+      · rw [h97] at hchk; simp only [↓reduceIte] at hchk
+        rcases heq_uid : readLeb128Pure bs1 with _ | ⟨uid, bs2⟩
+        · rw [heq_uid] at hchk; cases hchk
+        · rw [heq_uid] at hchk; dsimp only at hchk
+          cases hodd : (uid % 2 != 0)
+          · rw [hodd] at hchk; simp only [Bool.false_eq_true, ↓reduceIte] at hchk
+            cases hbnd : (!(nc < uid / 2) || !(uid / 2 < table.length))
+            · rw [hbnd] at hchk; simp only [Bool.false_eq_true, ↓reduceIte] at hchk
+              rcases htbl : table[uid / 2]? with _ | _ | _
+              · rw [htbl] at hchk; cases hchk
+              · rw [htbl] at hchk; dsimp only at hchk
+                rcases hread : readAddLitsPure mv poolRem bs2 with _ | ⟨clits, poolRem', bs3⟩
+                · rw [hread] at hchk; cases hchk
+                · rw [hread] at hchk; dsimp only at hchk
                   have hclits := readAddLitsPure_valid hmv hread
-                  split at hchk
-                  · simp at hchk
-                  · rename_i bs4 hrup
+                  rcases hrup : rupCheckPure mv (uid / 2) clits table bs3 with _ | bs4
+                  · rw [hrup] at hchk; cases hchk
+                  · rw [hrup] at hchk; dsimp only at hchk
                     have hent_cl : CNF.EntailsClause F (toClause clits) :=
                       hrup_sound hmv hclits (fun aid _ alits hget => htable aid alits hget) hrup
-                    split at hchk
-                    · rename_i hemp
-                      have hnil : clits = [] := List.isEmpty_iff.mp hemp
+                    cases hemp : clits.isEmpty
+                    · rw [hemp] at hchk; simp only [Bool.false_eq_true, ↓reduceIte] at hchk
+                      exact ih hent (tableSound_set_some htable (uid / 2) hclits hent_cl) hchk
+                    · have hnil : clits = [] := List.isEmpty_iff.mp hemp
                       subst hnil
                       exact unsat_of_entails_empty hent hent_cl
-                    · grind
-              · simp at hchk
-      · split at hchk
-        · split at hchk
-          · simp at hchk
-          · rename_i table' bs2 hdel
-            exact ih hent (delLoopAux_sound htable hdel) hchk
-        · simp at hchk
+              · rw [htbl] at hchk; cases hchk
+            · rw [hbnd] at hchk; cases hchk
+          · rw [hodd] at hchk; cases hchk
 
-theorem parseHeader_bounds {bs : List UInt8} {mv nc : Nat} {rest : List UInt8}
+private theorem parseHeader_bounds {bs : List UInt8} {mv nc : Nat} {rest : List UInt8}
     (h : parseHeader bs = some (mv, nc, rest)) : mv < dimacsBound ∧ nc < dimacsBound := by
   unfold parseHeader at h
   simp only [bind, Option.bind] at h
@@ -429,17 +850,19 @@ theorem runLratCheckBytes_sound_of
     {cnfBytes prfBytes : List UInt8} {work_len : Nat}
     (hrun : runLratCheckBytes cnfBytes prfBytes work_len = true) :
     ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat := by
-  unfold runLratCheckBytes at hrun
-  split at hrun
-  · simp at hrun
-  · split at hrun
-    · simp at hrun
-    · rename_i mv nc bodyRest hhdr
+  rw [runLratCheckBytes_def] at hrun
+  by_cases h128 : work_len < 128
+  · simp only [h128, ↓reduceIte] at hrun; cases hrun
+  · simp only [h128, ↓reduceIte] at hrun
+    rcases hhdr : parseHeader cnfBytes with _ | ⟨mv, nc, bodyRest⟩
+    · rw [hhdr] at hrun; cases hrun
+    · rw [hhdr] at hrun; dsimp only at hrun
       have hmv := (parseHeader_bounds hhdr).1
-      dsimp only at hrun
-      split at hrun
-      · simp at hrun
-      · let fixed := 80 + ((mv + 8) / 8) * 8 + ((4 * (mv + 1) + 7) / 8) * 8
+      let fixed := 80 + ((mv + 8) / 8) * 8 + ((4 * (mv + 1) + 7) / 8) * 8
+      change (if work_len < fixed then false else _) = true at hrun
+      by_cases hfix : work_len < fixed
+      · simp only [hfix, ↓reduceIte] at hrun; cases hrun
+      · simp only [hfix, ↓reduceIte] at hrun
         let rem := work_len - fixed
         let c_half := rem / 16
         let want := nc + prfBytes.length % 268435456 + 32
@@ -449,11 +872,13 @@ theorem runLratCheckBytes_sound_of
           | none => false
           | some (clauses, pool_ints') =>
             checkPrfPure mv nc pool_ints' (initClauseTable cap clauses) prfBytes) = true at hrun
-        split at hrun
-        · simp at hrun
-        · split at hrun
-          · simp at hrun
-          · rename_i clauses pool_ints' hbody
+        by_cases hcap : cap ≤ nc
+        · simp only [hcap, ↓reduceIte] at hrun; cases hrun
+        · simp only [hcap, ↓reduceIte] at hrun
+          rcases hbody : parseBodyPure mv nc ((rem - 8 * cap) / 4) [] bodyRest with
+            _ | ⟨clauses, pool_ints'⟩
+          · rw [hbody] at hrun; cases hrun
+          · rw [hbody] at hrun; dsimp only at hrun
             obtain ⟨hdimacs, _, hcl_valid⟩ := hbody_sound hhdr hmv hbody
             let cnf₀ := clauses.foldl (fun c lits => c.add (toClause lits)) CNF.empty
             have hunsat : cnf₀.Unsat :=
@@ -483,7 +908,8 @@ private theorem workState_tableRel {B R : Mem 64 → Prop} {c : WorkCfg}
     {table : List (Option (List (BitVec 64)))} {PoolUsed : Mem 64 → Prop} {m : Mem 64}
     (hm : (B ⋆ WorkState c poolUsed poolRem cur ptrs table PoolUsed ⋆ R) m) :
     TableRel c.mv c.cap ptrs table PoolUsed :=
-  (workState_sep.mp (sep_ac hm : (WorkState c poolUsed poolRem cur ptrs table PoolUsed ⋆ (B ⋆ R)) m)).2.1
+  (workState_sep.mp (sep_ac hm :
+    (WorkState c poolUsed poolRem cur ptrs table PoolUsed ⋆ (B ⋆ R)) m)).2.1
 
 private theorem workState_ld_hdr {B R : Mem 64 → Prop} {c : WorkCfg}
     {poolUsed poolRem : Nat} {cur p v : BitVec 64} {ptrs : List (BitVec 64)}
@@ -713,8 +1139,8 @@ theorem lbCheckPrf_correct_of (Γ : Env)
                 refine hQ 1 m2 ?_ (workState_collapse hm2)
                 have htrue : checkPrfPure c.mv c.nc poolRem0 table0 prfBytes = true := by
                   rw [hpure, hdrop_idx]
-                  simp [checkPrfAux, tag, htag97, bs1, hleb_uid, heven', hlen_cap, hnc_lt_id,
-                    hid_lt_cap, id, hti_none, hread_eq, hrup_eq, hemp', -getElem?_pos]
+                  exact checkPrfAux_succ_97_empty htag97 hleb_uid heven' hnc_lt_id
+                    (hlen_cap ▸ hid_lt_cap) hti_none hread_eq hrup_eq hemp'
                 simp [htrue]
               · have hnemp' : clits.isEmpty = false := by
                   cases hb : clits.isEmpty
@@ -742,10 +1168,9 @@ theorem lbCheckPrf_correct_of (Γ : Env)
                 have hstep_aux :
                     checkPrfAux ((tag :: bs1).length + 1) c.mv c.nc poolRem table (tag :: bs1) =
                     checkPrfAux (bs1.length + 1) c.mv c.nc poolRem'
-                      (table.set id (some clits)) bs4 := by
-                  simp [checkPrfAux, tag, -List.getElem_cons_drop, -getElem?_pos, htag97, bs1,
-                    hleb_uid, heven', hlen_cap, hnc_lt_id, hid_lt_cap, id, hti_none, hread_eq,
-                    hrup_eq, hnemp']
+                      (table.set id (some clits)) bs4 :=
+                  checkPrfAux_succ_97_nonempty htag97 hleb_uid heven' hnc_lt_id
+                    (hlen_cap ▸ hid_lt_cap) hti_none hread_eq hrup_eq hnemp'
                 rw [hstep_aux, ← hbs4_drop]
                 exact checkPrfAux_fuel_irrel
                   (by have : bs1.length = prfBytes.length - (idx + 1) := List.length_drop; omega)
@@ -783,17 +1208,15 @@ theorem lbCheckPrf_correct_of (Γ : Env)
                 refine ⟨hok_dcur, ?_⟩
                 have hdel_done :
                     delLoopAux (bs1.length + 1) c.cap table bs1 = some (dtable, bs_d) := by
-                  rw [hdel_eq]; simp [delLoopAux, hleb_u]
+                  rw [hdel_eq, delLoopAux_succ_zero hleb_u]
                 refine ih (prfBytes.length - didx2) () _ (by omega)
                   ⟨didx2, poolUsed, poolRem, dptrs, dtable, PoolUsed,
                     hdidx2_le, rfl, ?_, hdm_cur⟩
                 rw [hpure, hdrop_idx]
                 have hstep_d :
                     checkPrfAux ((tag :: bs1).length + 1) c.mv c.nc poolRem table (tag :: bs1) =
-                    checkPrfAux (bs1.length + 1) c.mv c.nc poolRem dtable bs_d := by
-                  simp only [checkPrfAux, tag, htag_not97, htag100, hlen_cap, ↓reduceIte,
-                    Bool.false_eq_true]
-                  rw [hdel_done]; rfl
+                    checkPrfAux (bs1.length + 1) c.mv c.nc poolRem dtable bs_d :=
+                  checkPrfAux_succ_100_step htag_not97 htag100 (hlen_cap.symm ▸ hdel_done)
                 rw [hstep_d, hbsd_drop]
                 exact checkPrfAux_fuel_irrel
                   (by have : bs1.length = prfBytes.length - (idx + 1) := List.length_drop; omega)
@@ -826,9 +1249,8 @@ theorem lbCheckPrf_correct_of (Γ : Env)
                   have hstep_del :
                       delLoopAux ((prfBytes.drop didx).length + 1) c.cap dtable
                         (prfBytes.drop didx) =
-                      delLoopAux (prfBytes.drop didx).length c.cap (dtable.set did none) bs_d := by
-                    simp [delLoopAux, hleb_u, hdeven', did, hdid_nz, hdid_lt_cap, hdget_eq, u,
-                      -getElem?_pos]
+                      delLoopAux (prfBytes.drop didx).length c.cap (dtable.set did none) bs_d :=
+                    delLoopAux_succ_step hleb_u hdeven' hdid_nz hdid_lt_cap hdget_eq
                   rw [hstep_del, hbsd_drop]
                   exact delLoopAux_fuel_irrel
                     (by have : bs_d.length = prfBytes.length - didx2 := by
@@ -886,7 +1308,8 @@ private theorem split_workspace (c : WorkCfg) (work_len : Nat)
   have ht_fit : c.tBytes ≤ 2 ^ 64 := by omega
   have hcb_fit : 8 * c.cap + 4 * c.poolInts ≤ 2 ^ 64 := by omega
   have htc_fit : c.tBytes + (8 * c.cap + 4 * c.poolInts) ≤ 2 ^ 64 := by omega
-  have hptr : c.vb + BitVec.ofNat 64 (c.activeBytes - 80) = c.hdr + BitVec.ofNat 64 c.activeBytes := by
+  have hptr : c.vb + BitVec.ofNat 64 (c.activeBytes - 80) =
+      c.hdr + BitVec.ofNat 64 c.activeBytes := by
     apply BitVec.eq_of_toNat_eq
     unfold WorkCfg.vb WorkCfg.activeBytes WorkCfg.vBytes WorkCfg.tBytes WorkCfg.tRaw at *
     simp [BitVec.toNat_add]; omega
@@ -910,7 +1333,8 @@ private theorem split_workspace (c : WorkCfg) (work_len : Nat)
   have hm_ord : (region c.vb (c.mv + 1) ⋆ region c.cb (8 * c.cap) ⋆
       (word8Array c.hdr hdrInit ⋆
         (region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1)) ⋆
-          region c.tb c.tRaw ⋆ region c.tlim (c.tBytes - c.tRaw) ⋆ region c.pbase (4 * c.poolInts)) ⋆
+          region c.tb c.tRaw ⋆ region c.tlim (c.tBytes - c.tRaw) ⋆
+          region c.pbase (4 * c.poolInts)) ⋆
         region (c.hdr + BitVec.ofNat 64 c.activeBytes) (work_len - c.activeBytes) ⋆ R_rest)) m :=
     sep_ac hm
   obtain ⟨f_vc, f_rem, hu1, hd1, ⟨f_v, f_c, hu2, hd2, hrv, hrc⟩, hrem⟩ := hm_ord
@@ -952,8 +1376,7 @@ private theorem runLratCheckBytes_of_header {cnfBytes prfBytes bodyRest : List U
           | none => false
           | some (clauses, pool_ints') =>
             checkPrfPure mv nc pool_ints' (initClauseTable cap clauses) prfBytes := by
-  unfold runLratCheckBytes
-  grind
+  rw [runLratCheckBytes_def]; simp only [h128, ↓reduceIte]; rw [hhdr]
 
 /-- Verification of `lratCheckBytes` against `lratCheckBytesExactSpec`, parameterized by `Γ`
 providing `lbParseDimacsHeaderSpec`, `lbParseDimacsBodySpec`, and `lbCheckPrfSpec`. -/
@@ -973,7 +1396,7 @@ theorem lratCheckBytes_exact_of (Γ : Env)
   unfold lratCheckBytes Func.spec Func.wp
   wp_unfold
   refine ult_branch (a := work_len) (b := 128) (by omega) (by decide)
-    (fun hlt128 => hQ 0 m0 (by simp [runLratCheckBytes, hlt128]) hm0)
+    (fun hlt128 => hQ 0 m0 (by simp [runLratCheckBytes_lt128 hlt128]) hm0)
     (fun hnot_lt128 => by
       have hsplit80 : region work_ptr work_len =
           (region work_ptr 80 ⋆ region (work_ptr + 80) (work_len - 80)) := by
@@ -1001,7 +1424,7 @@ theorem lratCheckBytes_exact_of (Γ : Env)
             sep_cast hm1_reg (by dsimp [R80]; ac_rfl)
           rw [← hsplit80] at h1
           exact sep_cast h1 (by ac_rfl)
-        exact hQ 0 m1 (by simp [runLratCheckBytes, hnot_lt128, hhdr_eq]) hm1_full
+        exact hQ 0 m1 (by simp [runLratCheckBytes_hdr_none hnot_lt128 hhdr_eq]) hm1_full
       | some val_hdr =>
         rcases val_hdr with ⟨mv, nc, bodyRest⟩
         rw [hhdr_eq] at hhdr_res
@@ -1037,8 +1460,10 @@ theorem lratCheckBytes_exact_of (Γ : Env)
         have hbv_traw : (BitVec.ofNat 64 (mv + 1)) <<< (2 : Nat) = BitVec.ofNat 64 t_raw := by
           rw [bv_shl_ofNat (by omega) (by decide),
             show (mv + 1) <<< 2 = t_raw by simp [t_raw, Nat.shiftLeft_eq]; omega]
-        rw [show BitVec.ofNat 64 mv + (1 : BitVec 64) = BitVec.ofNat 64 (mv + 1) from bv_add_ofNat mv 1,
-          show BitVec.ofNat 64 mv + (8 : BitVec 64) = BitVec.ofNat 64 (mv + 8) from bv_add_ofNat mv 8,
+        rw [show BitVec.ofNat 64 mv + (1 : BitVec 64) = BitVec.ofNat 64 (mv + 1) from
+            bv_add_ofNat mv 1,
+          show BitVec.ofNat 64 mv + (8 : BitVec 64) = BitVec.ofNat 64 (mv + 8) from
+            bv_add_ofNat mv 8,
           show (-8 : BitVec 64) = -(BitVec.ofNat 64 (2 ^ 3)) from rfl,
           bv_align_pow2 (by decide) (by omega),
           hbv_traw,
@@ -1046,8 +1471,10 @@ theorem lratCheckBytes_exact_of (Γ : Env)
             bv_add_ofNat t_raw 7,
           bv_align_pow2 (by decide) (by dsimp [t_raw]; omega),
           bv_add_ofNat v_bytes t_bytes,
-          show (80 : BitVec 64) + BitVec.ofNat 64 (v_bytes + t_bytes) = BitVec.ofNat 64 fixed from
-            by rw [show (80 : BitVec 64) = BitVec.ofNat 64 80 from rfl, bv_add_ofNat]; congr 1; omega]
+          show (80 : BitVec 64) + BitVec.ofNat 64 (v_bytes + t_bytes) =
+              BitVec.ofNat 64 fixed from by
+            rw [show (80 : BitVec 64) = BitVec.ofNat 64 80 from rfl, bv_add_ofNat]
+            congr 1; omega]
         refine ult_branch (by omega : work_len < 2 ^ 64)
           (by dsimp [fixed, v_bytes, t_bytes, t_raw]; omega : fixed < 2 ^ 64)
           (fun hlt_fixed => by
@@ -1079,7 +1506,8 @@ theorem lratCheckBytes_exact_of (Γ : Env)
                 (fun hcap_le_nc => by
                   refine hQ 0 m1 ?_ hcollapse_init
                   rw [runLratCheckBytes_of_header hnot_lt128 hhdr_eq]
-                  dsimp only [cap, c_half, want, p_cap, rem, fixed, v_bytes, t_bytes, t_raw] at hnot_lt_fixed hcap_le_nc
+                  dsimp only [cap, c_half, want, p_cap, rem, fixed, v_bytes, t_bytes,
+                    t_raw] at hnot_lt_fixed hcap_le_nc
                   simp only [hnot_lt_fixed, hcap_le_nc, ↓reduceIte]; rfl)
                 (fun hnot_cap_le_nc => by
                   have hnc_cap : nc < cap := by omega
@@ -1108,10 +1536,12 @@ theorem lratCheckBytes_exact_of (Γ : Env)
                     sep_cast hm1 (by dsimp [c, R80, hdrInit, cur0, idx0]; ac_rfl)
                   obtain ⟨vs0, cs0, hvs0, hcs0, hm1_split⟩ :=
                     split_workspace c work_len hc_act_le hwork_fit hm1_ws_in
-                  let WMid := region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1)) ⋆
+                  let WMid :=
+                    region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1)) ⋆
                     region c.tb c.tRaw ⋆ region c.tlim (c.tBytes - c.tRaw) ⋆
                     region c.pbase (4 * c.poolInts)
-                  let RTail := region (c.hdr + BitVec.ofNat 64 c.activeBytes) (work_len - c.activeBytes)
+                  let RTail :=
+                    region (c.hdr + BitVec.ofNat 64 c.activeBytes) (work_len - c.activeBytes)
                   let RRest := Eq (cnfBytes.At cnf_ptr) ⋆ Eq (prfBytes.At prf_ptr) ⋆ R_mem
                   -- `@zv_done()`
                   refine wp_join_group (fun () m_zv =>
@@ -1121,51 +1551,74 @@ theorem lratCheckBytes_exact_of (Γ : Env)
                     dsimp only [Blocks.get_here]
                     -- `@zcb_done()`
                     refine wp_join_group (fun () m_zcb =>
-                      (word8Array c.hdr hdrInit ⋆ byte1Array c.vb (List.replicate (c.mv + 1) 0) ⋆
-                        word8Array c.cb (List.replicate c.cap 0) ⋆ WMid ⋆ RTail ⋆ RRest) m_zcb) ?_ ?_
+                      (word8Array c.hdr hdrInit ⋆
+                        byte1Array c.vb (List.replicate (c.mv + 1) 0) ⋆
+                        word8Array c.cb (List.replicate c.cap 0) ⋆
+                        WMid ⋆ RTail ⋆ RRest) m_zcb) ?_ ?_
                     · rintro _ ⟨⟩ m_zcb hm_zcb
                       dsimp only [Blocks.get_here]; wp_unfold
                       let TailZ := byte1Array c.vb (List.replicate (c.mv + 1) 0) ⋆
                         word8Array c.cb (List.replicate c.cap 0) ⋆ WMid ⋆ RTail ⋆ RRest
                       have hm_s0 : (word8Array c.hdr hdrInit ⋆ TailZ) m_zcb :=
                         sep_cast hm_zcb (by dsimp [TailZ]; ac_rfl)
-                      have hp16 : work_ptr + (16 : BitVec 64) = c.hdr + BitVec.ofNat 64 (8 * 2) := rfl
-                      have hp24 : work_ptr + (24 : BitVec 64) = c.hdr + BitVec.ofNat 64 (8 * 3) := rfl
-                      have hp32 : work_ptr + (32 : BitVec 64) = c.hdr + BitVec.ofNat 64 (8 * 4) := rfl
-                      have hp40 : work_ptr + (40 : BitVec 64) = c.hdr + BitVec.ofNat 64 (8 * 5) := rfl
-                      have hp48 : work_ptr + (48 : BitVec 64) = c.hdr + BitVec.ofNat 64 (8 * 6) := rfl
-                      have hp56 : work_ptr + (56 : BitVec 64) = c.hdr + BitVec.ofNat 64 (8 * 7) := rfl
-                      have hp64 : work_ptr + (64 : BitVec 64) = c.hdr + BitVec.ofNat 64 (8 * 8) := rfl
+                      have hp16 :
+                          work_ptr + (16 : BitVec 64) = c.hdr + BitVec.ofNat 64 (8 * 2) := rfl
+                      have hp24 :
+                          work_ptr + (24 : BitVec 64) = c.hdr + BitVec.ofNat 64 (8 * 3) := rfl
+                      have hp32 :
+                          work_ptr + (32 : BitVec 64) = c.hdr + BitVec.ofNat 64 (8 * 4) := rfl
+                      have hp40 :
+                          work_ptr + (40 : BitVec 64) = c.hdr + BitVec.ofNat 64 (8 * 5) := rfl
+                      have hp48 :
+                          work_ptr + (48 : BitVec 64) = c.hdr + BitVec.ofNat 64 (8 * 6) := rfl
+                      have hp56 :
+                          work_ptr + (56 : BitVec 64) = c.hdr + BitVec.ofNat 64 (8 * 7) := rfl
+                      have hp64 :
+                          work_ptr + (64 : BitVec 64) = c.hdr + BitVec.ofNat 64 (8 * 8) := rfl
                       rw [hp16, hp24, hp32, hp40, hp48, hp56, hp64]
-                      obtain ⟨hok2, hm_s2⟩ := store_word8Array (i := 2) (BitVec.ofNat 64 c.cap) (by simp [hdrInit]) hm_s0
-                      obtain ⟨hok3, hm_s3⟩ := store_word8Array (i := 3) c.vb (by simp [hdrInit]) hm_s2
-                      obtain ⟨hok4, hm_s4⟩ := store_word8Array (i := 4) c.tb (by simp [hdrInit]) hm_s3
-                      obtain ⟨hok5, hm_s5⟩ := store_word8Array (i := 5) c.tlim (by simp [hdrInit]) hm_s4
-                      obtain ⟨hok6, hm_s6⟩ := store_word8Array (i := 6) c.cb (by simp [hdrInit]) hm_s5
-                      obtain ⟨hok7, hm_s7⟩ := store_word8Array (i := 7) c.plim (by simp [hdrInit]) hm_s6
-                      obtain ⟨hok8, hm_s8⟩ := store_word8Array (i := 8) c.pbase (by simp [hdrInit]) hm_s7
+                      obtain ⟨hok2, hm_s2⟩ :=
+                        store_word8Array (i := 2) (BitVec.ofNat 64 c.cap) (by simp [hdrInit]) hm_s0
+                      obtain ⟨hok3, hm_s3⟩ :=
+                        store_word8Array (i := 3) c.vb (by simp [hdrInit]) hm_s2
+                      obtain ⟨hok4, hm_s4⟩ :=
+                        store_word8Array (i := 4) c.tb (by simp [hdrInit]) hm_s3
+                      obtain ⟨hok5, hm_s5⟩ :=
+                        store_word8Array (i := 5) c.tlim (by simp [hdrInit]) hm_s4
+                      obtain ⟨hok6, hm_s6⟩ :=
+                        store_word8Array (i := 6) c.cb (by simp [hdrInit]) hm_s5
+                      obtain ⟨hok7, hm_s7⟩ :=
+                        store_word8Array (i := 7) c.plim (by simp [hdrInit]) hm_s6
+                      obtain ⟨hok8, hm_s8⟩ :=
+                        store_word8Array (i := 8) c.pbase (by simp [hdrInit]) hm_s7
                       refine ⟨hok2, hok3, hok4, hok5, hok6, hok7, hok8, ?_⟩
                       let m_hdr := storeMem (storeMem (storeMem (storeMem (storeMem (storeMem
-                        (storeMem m_zcb i64 (c.hdr + BitVec.ofNat 64 (8 * 2)) (BitVec.ofNat 64 c.cap))
+                        (storeMem m_zcb i64
+                          (c.hdr + BitVec.ofNat 64 (8 * 2)) (BitVec.ofNat 64 c.cap))
                         i64 (c.hdr + BitVec.ofNat 64 (8 * 3)) c.vb)
                         i64 (c.hdr + BitVec.ofNat 64 (8 * 4)) c.tb)
                         i64 (c.hdr + BitVec.ofNat 64 (8 * 5)) c.tlim)
                         i64 (c.hdr + BitVec.ofNat 64 (8 * 6)) c.cb)
                         i64 (c.hdr + BitVec.ofNat 64 (8 * 7)) c.plim)
                         i64 (c.hdr + BitVec.ofNat 64 (8 * 8)) c.pbase
-                      have hhdr_eq_words : (((((((hdrInit.set 2 (BitVec.ofNat 64 c.cap)).set 3 c.vb).set
+                      have hhdr_eq_words :
+                          (((((((hdrInit.set 2 (BitVec.ofNat 64 c.cap)).set 3 c.vb).set
                           4 c.tb).set 5 c.tlim).set 6 c.cb).set 7 c.plim).set 8 c.pbase) =
                           c.hdrWords (c.pbase + BitVec.ofNat 64 (4 * 0)) cur0 := by
-                        simp [hdrInit, WorkCfg.hdrWords, c]
+                        dsimp only [c, hdrInit, WorkCfg.hdrWords]
+                        simp only [List.set_cons_zero, List.set_cons_succ, Nat.mul_zero]
+                        rw [BitVec.add_zero]
                       rw [hhdr_eq_words] at hm_s8
                       let RBody := RTail ⋆ Eq (prfBytes.At prf_ptr) ⋆ R_mem
                       have hm_ws0 : (Eq (cnfBytes.At cnf_ptr) ⋆
                           WorkState c 0 c.poolInts cur0
-                            (List.replicate c.cap 0) (List.replicate c.cap none) emp ⋆ RBody) m_hdr := by
-                        have hm_tmp : (word8Array c.hdr (c.hdrWords (c.pbase + BitVec.ofNat 64 (4 * 0)) cur0) ⋆
+                            (List.replicate c.cap 0) (List.replicate c.cap none) emp ⋆
+                          RBody) m_hdr := by
+                        have hm_tmp : (word8Array c.hdr
+                            (c.hdrWords (c.pbase + BitVec.ofNat 64 (4 * 0)) cur0) ⋆
                             TailZ) m_hdr := hm_s8
                         dsimp only [TailZ, WMid, RRest] at hm_tmp
-                        rw [← assignBytes_empty c.mv, ← sep_emp (region c.pbase (4 * c.poolInts))] at hm_tmp
+                        rw [← assignBytes_empty c.mv,
+                          ← sep_emp (region c.pbase (4 * c.poolInts))] at hm_tmp
                         conv at hm_tmp =>
                           pattern (region c.pbase (4 * c.poolInts))
                           rw [show c.pbase = c.pbase + BitVec.ofNat 64 (4 * 0) from
@@ -1183,7 +1636,8 @@ theorem lratCheckBytes_exact_of (Γ : Env)
                           fun r m_b hr => hr⟩) ?_
                       rintro bok m_b hbody_res
                       wp_unfold
-                      cases hbody_eq : parseBodyPure c.mv c.nc c.poolInts [] (cnfBytes.drop idx0) with
+                      cases hbody_eq :
+                          parseBodyPure c.mv c.nc c.poolInts [] (cnfBytes.drop idx0) with
                       | none =>
                         rw [hbody_eq] at hbody_res
                         obtain ⟨rfl, hm_b_reg⟩ := hbody_res
@@ -1197,7 +1651,8 @@ theorem lratCheckBytes_exact_of (Γ : Env)
                           rw [merge_workspace_tail c work_len hc_act_le hwork_fit] at h1
                           exact h1
                         have hbody_eq' : parseBodyPure mv nc pool_ints [] bodyRest = none := by
-                          simpa [c, idx0, ← hbody_drop] using hbody_eq
+                          dsimp only [c, idx0] at hbody_eq
+                          rwa [← hbody_drop] at hbody_eq
                         refine hQ 0 m_b ?_ hm_b_full
                         rw [runLratCheckBytes_of_header hnot_lt128 hhdr_eq]
                         dsimp only [pool_ints, pool_rem, cb_bytes, cap, c_half, want, p_cap, rem,
@@ -1218,7 +1673,8 @@ theorem lratCheckBytes_exact_of (Γ : Env)
                           sep_cast hm_b2 (by dsimp [RBody, RPrf]; ac_rfl)
                         refine wp_call_ret1 _ _
                           (fun r m_fin =>
-                            r = (if checkPrfPure c.mv c.nc poolRem' (initClauseTable c.cap clauses) prfBytes = true
+                            r = (if checkPrfPure c.mv c.nc poolRem'
+                                  (initClauseTable c.cap clauses) prfBytes = true
                               then 1 else 0) ∧
                             (Eq (prfBytes.At prf_ptr) ⋆ region c.hdr c.activeBytes ⋆ RPrf) m_fin)
                           (hCheckPrf _ _ _ _ ⟨c, prf_ptr, prfBytes, c.poolInts - poolRem', poolRem',
@@ -1237,11 +1693,14 @@ theorem lratCheckBytes_exact_of (Γ : Env)
                           exact h1
                         have hbody_eq' : parseBodyPure mv nc pool_ints [] bodyRest =
                             some (clauses, poolRem') := by
-                          simpa [c, idx0, ← hbody_drop] using hbody_eq
+                          dsimp only [c, idx0] at hbody_eq
+                          rwa [← hbody_drop] at hbody_eq
                         refine hQ pok m_fin ?_ hm_fin_full
                         rw [hpok, runLratCheckBytes_of_header hnot_lt128 hhdr_eq]
-                        dsimp only [c, pool_ints, pool_rem, cb_bytes, cap, c_half, want, p_cap, rem,
-                          fixed, v_bytes, t_bytes, t_raw] at hnot_lt_fixed hnot_cap_le_nc hbody_eq' ⊢
+                        dsimp only [c, pool_ints, pool_rem, cb_bytes, cap, c_half, want, p_cap,
+                          rem, fixed, v_bytes, t_bytes, t_raw] at hnot_lt_fixed hnot_cap_le_nc
+                        dsimp only [c, pool_ints, pool_rem, cb_bytes, cap, c_half, want, p_cap,
+                          rem, fixed, v_bytes, t_bytes, t_raw] at hbody_eq' ⊢
                         simp only [hnot_lt_fixed, hnot_cap_le_nc, hbody_eq', ↓reduceIte]
                     · -- `@zcb(%j)` loop
                       intro Jzcb_done hJzcb_done
@@ -1255,12 +1714,16 @@ theorem lratCheckBytes_exact_of (Γ : Env)
                         have hc_cap : c.cap = cap := rfl
                         refine ult_branch (by rw [hc_cap] at hj_le; omega : j < 2 ^ 64) hcap_lt64
                           (fun hj_lt => by
-                            rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by rw [hc_cap] at hj_le; omega : j < 2 ^ 64)]
-                            obtain ⟨hok_j, hm_j'⟩ := store_word8Array (i := j) 0 (by simp [hcs0]; dsimp [c]; omega) hm_j
+                            rw [BitVec.toNat_ofNat,
+                              Nat.mod_eq_of_lt (by rw [hc_cap] at hj_le; omega : j < 2 ^ 64)]
+                            obtain ⟨hok_j, hm_j'⟩ := store_word8Array (i := j) 0
+                              (by simp [hcs0]; dsimp [c]; omega) hm_j
                             rw [replicate_zero_set (hcs0 ▸ (by dsimp [c]; exact hj_lt))] at hm_j'
-                            rw [show work_ptr + (80 : BitVec 64) + BitVec.ofNat 64 ((mv + 8) / 2 ^ 3 * 2 ^ 3) +
+                            rw [show work_ptr + (80 : BitVec 64) +
+                                  BitVec.ofNat 64 ((mv + 8) / 2 ^ 3 * 2 ^ 3) +
                                   BitVec.ofNat 64 ((t_raw + 7) / 2 ^ 3 * 2 ^ 3) = c.cb from rfl,
-                              show BitVec.ofNat 64 j + (1 : BitVec 64) = BitVec.ofNat 64 (j + 1) from bv_add_ofNat j 1]
+                              show BitVec.ofNat 64 j + (1 : BitVec 64) =
+                                  BitVec.ofNat 64 (j + 1) from bv_add_ofNat j 1]
                             exact ⟨hok_j, ih_zcb (c.cap - (j + 1)) _ _ (by dsimp [c]; omega)
                               ⟨j + 1, rfl, by dsimp [c]; omega, rfl, hm_j'⟩⟩)
                           (fun hj_ge => by
@@ -1273,20 +1736,25 @@ theorem lratCheckBytes_exact_of (Γ : Env)
                           sep_cast (by simpa using hm_zv) (by dsimp [RestZcb]; ac_rfl)⟩
                   · -- `@zv(%i)` loop
                     intro Jzv_done hJzv_done
-                    let RestZv := word8Array c.cb cs0 ⋆ word8Array c.hdr hdrInit ⋆ WMid ⋆ RTail ⋆ RRest
+                    let RestZv := word8Array c.cb cs0 ⋆ word8Array c.hdr hdrInit ⋆
+                      WMid ⋆ RTail ⋆ RRest
                     refine wp_loop_group (fun r (i_v, ()) m => ∃ i,
                       i_v = BitVec.ofNat 64 i ∧ i ≤ c.mv + 1 ∧ r = (c.mv + 1) - i ∧
                       (byte1Array c.vb (List.replicate i 0 ++ vs0.drop i) ⋆ RestZv) m) ?_ ?_
                     · rintro Jzv r ⟨i_v, ⟨⟩⟩ m ih_zv ⟨i, rfl, hi_le, rfl, hm_i⟩
                       dsimp only [Blocks.get_here]; wp_unfold
                       have hc_mv : c.mv = mv := rfl
-                      refine ule_branch (by rw [hc_mv] at hi_le; omega : i < 2 ^ 64) (by omega : mv < 2 ^ 64)
+                      refine ule_branch (by rw [hc_mv] at hi_le; omega : i < 2 ^ 64)
+                        (by omega : mv < 2 ^ 64)
                         (fun hi_le_mv => by
-                          obtain ⟨hok_i, hm_i'⟩ := store_byte1Array (i := i) 0#8 (by simp [hvs0, hc_mv]; omega) hm_i
+                          obtain ⟨hok_i, hm_i'⟩ := store_byte1Array (i := i) 0#8
+                            (by simp [hvs0, hc_mv]; omega) hm_i
                           rw [show (0#8).setWidth 64 = (0 : BitVec 64) from rfl,
-                            replicate_zero_set (hvs0 ▸ (by rw [hc_mv]; omega : i < c.mv + 1))] at hm_i'
+                            replicate_zero_set
+                              (hvs0 ▸ (by rw [hc_mv]; omega : i < c.mv + 1))] at hm_i'
                           rw [show work_ptr + (80 : BitVec 64) = c.vb from rfl,
-                            show BitVec.ofNat 64 i + (1 : BitVec 64) = BitVec.ofNat 64 (i + 1) from bv_add_ofNat i 1]
+                            show BitVec.ofNat 64 i + (1 : BitVec 64) =
+                                BitVec.ofNat 64 (i + 1) from bv_add_ofNat i 1]
                           exact ⟨hok_i, ih_zv ((c.mv + 1) - (i + 1)) _ _ (by dsimp [c]; omega)
                             ⟨i + 1, rfl, by dsimp [c]; omega, rfl, hm_i'⟩⟩)
                         (fun hi_gt => by
@@ -1297,7 +1765,10 @@ theorem lratCheckBytes_exact_of (Γ : Env)
                       wp_unfold
                       have hm1_split' : (byte1Array c.vb (List.replicate 0 0 ++ vs0.drop 0) ⋆
                           word8Array c.cb cs0 ⋆ word8Array c.hdr hdrInit ⋆ WMid ⋆
-                          RTail ⋆ RRest) m1 := by simpa [WMid, RTail, RRest] using hm1_split
+                          RTail ⋆ RRest) m1 := by
+                        dsimp only [WMid, RTail, RRest] at hm1_split ⊢
+                        rw [List.replicate_zero, List.nil_append, List.drop_zero]
+                        exact hm1_split
                       exact hJzv (c.mv + 1) _ _ ⟨0, rfl, Nat.zero_le _, by simp,
                         sep_cast hm1_split' (by dsimp [RestZv]; ac_rfl)⟩)
             · intro Jgot_cap hJgot_cap

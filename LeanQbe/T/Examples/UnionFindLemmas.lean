@@ -2,7 +2,7 @@ module
 
 public import LeanQbe.T.Examples.UnionFind
 public import LeanQbe.T.Logic.Rules
-public import LeanQbe.T.WfLemmas
+import LeanQbe.T.WfLemmas
 
 /-!
 # Verification of Union-Find in `LeanQbe.T` (`T4`)
@@ -14,7 +14,7 @@ using `LeanQbe.T.Logic` (`wp_loop_group`, `wp_unfold`, `wp_load_array64`, `wp_st
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.UnionFind
 
@@ -168,7 +168,7 @@ theorem union_wf : Func.Wf union := by t_wf_tac
 theorem unionInline_wf : Func.Wf unionInline := by t_wf_tac
 
 /-- Non-vacuous concrete `n`-element initialization: every element points to itself. -/
-def init (n : Nat) : List (BitVec 64) :=
+@[expose] def init (n : Nat) : List (BitVec 64) :=
   (List.range n).map (BitVec.ofNat 64)
 
 theorem forest_init {n : Nat} (_hn : n ≤ 2 ^ 64) :
@@ -196,7 +196,8 @@ theorem union_nonvacuous :
     unionSpec (4096, 1, 2, ()) ((bytes64 (init 4)).At 4096)
       (fun r m' => r = () ∧ (uf 4096 4 (merge id 1 2) ⋆ emp) m')
       (fun _ _ _ _ => False) :=
-  ⟨4, id, emp, by rw [sep_emp]; exact uf_init 4096 (by decide), by decide, by decide, fun _ h => ⟨rfl, h⟩⟩
+  ⟨4, id, emp, by rw [sep_emp]; exact uf_init 4096 (by decide), by decide, by decide,
+    fun _ h => ⟨rfl, h⟩⟩
 
 theorem find_nonvacuous :
     findSpec (4096, 3, ()) ((bytes64 (init 4)).At 4096)

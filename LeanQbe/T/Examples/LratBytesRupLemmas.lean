@@ -1,8 +1,7 @@
 module
 
 public import LeanQbe.T.Examples.LratBytesSpec
-public import Kraken.SeparationTactics
-import all Kraken.Mem
+import Kraken.SeparationTactics
 import all Kraken.Separation
 
 /-!
@@ -17,7 +16,7 @@ Self-contained (`G5`) typed-IR proofs of:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.LratBytes
 
@@ -38,6 +37,114 @@ private theorem zigzag_eq {u : Nat} (_hu : u < 2 ^ 28) :
   have hmask : (0 : BitVec 64) - (BitVec.ofNat 64 u &&& 1) = if u % 2 == 1 then -1 else 0 := by
     grind
   rw [hmask, negif]
+
+private theorem readAddLitsAux_succ (fuel mv poolRem : Nat) (acc : List (BitVec 64))
+    (bs : List UInt8) :
+    readAddLitsAux (fuel + 1) mv poolRem acc bs =
+      (if poolRem == 0 then none
+       else match readLeb128Pure bs with
+       | none => none
+       | some (0, bs') => some (acc.reverse, poolRem - 1, bs')
+       | some (u, bs') =>
+         let v := u / 2
+         if v == 0 || mv < v then none
+         else readAddLitsAux fuel mv (poolRem - 1) (decodeZigZag u :: acc) bs') := rfl
+
+private theorem rupPhase1Pure_nil (mv : Nat) (vals : List (BitVec 64)) (trailLen : Nat) :
+    rupPhase1Pure mv [] vals trailLen = .ok vals trailLen := rfl
+
+private theorem rupPhase1Pure_cons (mv : Nat) (lit : BitVec 64)
+    (lits vals : List (BitVec 64)) (trailLen : Nat) :
+    rupPhase1Pure mv (lit :: lits) vals trailLen =
+      (let val := evalAssignedLit (vals.getD (bvAbs lit).toNat 0) lit
+       if val.slt 0 then rupPhase1Pure mv lits vals trailLen
+       else if (0 : BitVec 64).slt val then .taut
+       else if trailLen == mv + 1 then .fail
+       else rupPhase1Pure mv lits (vals.set (bvAbs lit).toNat (bvSignByte (-lit)))
+         (trailLen + 1)) := rfl
+
+private theorem rupInnerPure_nil (mv : Nat) (unit : BitVec 64) (vals : List (BitVec 64))
+    (trailLen : Nat) :
+    rupInnerPure mv [] unit vals trailLen = some (unit, vals, trailLen) := rfl
+
+private theorem rupInnerPure_cons (mv : Nat) (lit : BitVec 64) (lits : List (BitVec 64))
+    (unit : BitVec 64) (vals : List (BitVec 64)) (trailLen : Nat) :
+    rupInnerPure mv (lit :: lits) unit vals trailLen =
+      (let val := evalAssignedLit (vals.getD (bvAbs lit).toNat 0) lit
+       if val.slt 0 then
+         if unit == -lit then none else rupInnerPure mv lits unit vals trailLen
+       else
+         let stepUnit : Option (BitVec 64 × List (BitVec 64) × Nat) :=
+           if val == 0 then
+             if trailLen == mv + 1 then none
+             else rupInnerPure mv lits lit (vals.set (bvAbs lit).toNat (bvSignByte lit))
+               (trailLen + 1)
+           else rupInnerPure mv lits lit vals trailLen
+         if unit != 0 then (if unit == lit then stepUnit else none) else stepUnit) := rfl
+
+private theorem consumeHintsAux_succ (fuel id : Nat)
+    (table : List (Option (List (BitVec 64)))) (bs : List UInt8) :
+    consumeHintsAux (fuel + 1) id table bs =
+      (match readLeb128Pure bs with
+       | none => none
+       | some (0, bs') => some bs'
+       | some (u, bs') =>
+         if u % 2 != 0 then none
+         else
+           let aid := u / 2
+           if aid < id then
+             match table[aid]? with
+             | some (some _) => consumeHintsAux fuel id table bs'
+             | _ => none
+           else none) := rfl
+
+private theorem rupPhase2Aux_succ (fuel mv id : Nat)
+    (table : List (Option (List (BitVec 64)))) (vals : List (BitVec 64))
+    (trailLen : Nat) (bs : List UInt8) :
+    rupPhase2Aux (fuel + 1) mv id table vals trailLen bs =
+      (match readLeb128Pure bs with
+       | none => none
+       | some (0, _) => none
+       | some (u, bs') =>
+         if u % 2 != 0 then none
+         else
+           let aid := u / 2
+           if aid < id then
+             match table[aid]? with
+             | some (some alits) =>
+               match rupInnerPure mv alits 0 vals trailLen with
+               | none => none
+               | some (unit, vals', trailLen') =>
+                 if unit != 0 then rupPhase2Aux fuel mv id table vals' trailLen' bs'
+                 else consumeHintsPure id table bs'
+             | _ => none
+           else none) := rfl
+
+private theorem rupPhase2Aux_succ_some_nz {fuel mv id : Nat}
+    {table : List (Option (List (BitVec 64)))} {vals : List (BitVec 64)}
+    {trailLen : Nat} {bs : List UInt8} {u_pred : Nat} {bs' : List UInt8}
+    (h : readLeb128Pure bs = some (u_pred + 1, bs')) :
+    rupPhase2Aux (fuel + 1) mv id table vals trailLen bs =
+      (if (u_pred + 1) % 2 != 0 then none
+       else if (u_pred + 1) / 2 < id then
+         match table[(u_pred + 1) / 2]? with
+         | some (some alits) =>
+           match rupInnerPure mv alits 0 vals trailLen with
+           | none => none
+           | some (unit, vals', trailLen') =>
+             if unit != 0 then rupPhase2Aux fuel mv id table vals' trailLen' bs'
+             else consumeHintsPure id table bs'
+         | _ => none
+       else none) := by
+  rw [rupPhase2Aux_succ, h]; rfl
+
+private theorem rupCheckPure_def (mv id : Nat) (clits : List (BitVec 64))
+    (table : List (Option (List (BitVec 64)))) (bs : List UInt8) :
+    rupCheckPure mv id clits table bs =
+      (match rupPhase1Pure mv clits (List.replicate (mv + 1) 0) 0 with
+       | .fail => none
+       | .taut => consumeHintsPure id table bs
+       | .ok vals trailLen => rupPhase2Aux (bs.length + 1) mv id table vals trailLen bs) := rfl
 
 theorem lbReadAddLits_correct (Γ : Env) :
     ∀ args m Q X, lbReadAddLitsSpec args m Q X → Func.spec Γ lbReadAddLits args m Q X := by
@@ -78,7 +185,8 @@ theorem lbReadAddLits_correct (Γ : Env) :
       Jfail () m' := fun acc rem m' hlen_rem hnone hm' =>
     hJfail () m' ⟨hnone, wsFixed_fail_collapse c htbl.1 (by omega) hpu hm'⟩
   -- `@rd_loop(%cur, %wcur)`
-  refine wp_loop_group (fun fuel (cur_v, wcur_v, ()) m' => ∃ (idx rem : Nat) (acc : List (BitVec 64)),
+  refine wp_loop_group (fun fuel (cur_v, wcur_v, ()) m' =>
+    ∃ (idx rem : Nat) (acc : List (BitVec 64)),
     (prfBytes.drop idx).length < fuel ∧ idx ≤ prfBytes.length ∧ acc.length + rem = poolRem ∧
     (∀ x ∈ acc, IsValidLit c.mv x) ∧
     cur_v = prf_ptr + BitVec.ofNat 64 idx ∧ wcur_v = c_ptr + BitVec.ofNat 64 (4 * acc.length) ∧
@@ -97,7 +205,8 @@ theorem lbReadAddLits_correct (Γ : Env) :
     wp_unfold
     refine ⟨fun hfull => ?_, fun hnfull => ?_⟩
     · obtain rfl : rem = 0 := (c.pcur_eq_plim_iff (by omega)).mp (hwcur_eq ▸ hfull)
-      simp only [readAddLitsAux, beq_self_eq_true, ↓reduceIte] at hpure
+      rw [readAddLitsAux_succ] at hpure
+      simp only [beq_self_eq_true, ↓reduceIte] at hpure
       exact collapseFail acc 0 m' hrem_sum hpure hm'
     · have hrem_pos : 0 < rem := Nat.pos_of_ne_zero fun h0 => hnfull (by
         rw [show c_ptr + BitVec.ofNat 64 (4 * acc.length) = wcur from rfl, hwcur_eq]
@@ -106,14 +215,16 @@ theorem lbReadAddLits_correct (Γ : Env) :
       refine readLeb128_spec hprf_fit hidx rfl rfl (by ecancel)
         (fun hleb_none => ?_)
         (fun u bs' hleb_some hu _ hbs' _ => ?_)
-      · simp only [readAddLitsAux, hrem_b, Bool.false_eq_true, ↓reduceIte, hleb_none] at hpure
+      · rw [readAddLitsAux_succ, hleb_none] at hpure
+        simp only [hrem_b, Bool.false_eq_true, ↓reduceIte] at hpure
         exact collapseFail acc rem m' hrem_sum hpure hm'
       · let idx' := prfBytes.length - bs'.length
         have hidx'_le : idx' ≤ prfBytes.length := by omega
         wp_unfold
         refine bv_eq_zero_branch (by omega : u < 2 ^ 64) (fun hu0 => ?_) (fun hu_ne0 => ?_)
         · subst hu0
-          simp only [readAddLitsAux, hrem_b, Bool.false_eq_true, ↓reduceIte, hleb_some] at hpure
+          rw [readAddLitsAux_succ, hleb_some] at hpure
+          simp only [hrem_b, Bool.false_eq_true, ↓reduceIte] at hpure
           have hfa := c.fit_active; unfold WorkCfg.activeBytes at hfa
           obtain ⟨ok_z, hpu', hm1_hdr⟩ := wsFixed_finish_clause hrem_pos (by omega) hpu hm'
           let cur2 : BitVec 64 := prf_ptr + BitVec.ofNat 64 idx'
@@ -151,7 +262,8 @@ theorem lbReadAddLits_correct (Γ : Env) :
             cases u with
             | zero => exact absurd rfl hu_ne0
             | succ _ =>
-              simp only [readAddLitsAux, hrem_b, Bool.false_eq_true, ↓reduceIte, hleb_some]
+              rw [readAddLitsAux_succ, hleb_some]
+              simp only [hrem_b, Bool.false_eq_true, ↓reduceIte]
           rw [hpure_step] at hpure
           rw [bv_shr_one (by omega : u < 2 ^ 64)]
           have hmv_lt64 : c.mv < 2 ^ 64 := by have := c.hmv; unfold dimacsBound at this; omega
@@ -263,13 +375,13 @@ private theorem backtrack_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPos
 
 /-- The values array represents `assign`, the trail array holds `trail` and then the free space
 `tf` (total length `N`), and `te` points just after `trail`. -/
-def PState (mv : Nat) (vb tb te : BitVec 64) (assign : Assignment)
+private def PState (mv : Nat) (vb tb te : BitVec 64) (assign : Assignment)
     (trail tf : List (BitVec 64)) (N : Nat) : Mem 64 → Prop := fun m =>
   te = tb + BitVec.ofNat 64 (4 * trail.length) ∧ TrailCoversAssign mv assign trail ∧
     (∀ t ∈ trail, IsValidLit mv t) ∧ trail.length + tf.length = N ∧
     (byte1Array vb (assignBytes mv assign) ⋆ int4Array tb (trail ++ tf)) m
 
-theorem pstate_sep {mv : Nat} {vb tb te : BitVec 64} {assign : Assignment}
+private theorem pstate_sep {mv : Nat} {vb tb te : BitVec 64} {assign : Assignment}
     {trail tf : List (BitVec 64)} {N : Nat} {F : Mem 64 → Prop} {m : Mem 64} :
     (PState mv vb tb te assign trail tf N ⋆ F) m ↔
       te = tb + BitVec.ofNat 64 (4 * trail.length) ∧ TrailCoversAssign mv assign trail ∧
@@ -318,7 +430,7 @@ private theorem store_assignLit_pstate {mv N : Nat} {vb tb te wlit : BitVec 64}
 
 /-- The state of the inner loop after `i` literals of the antecedent: no unit yet and everything
 falsified, or a unit literal `unit` that is now true and everything else falsified. -/
-def InnerSt (mv : Nat) (clits : List (BitVec 64)) (curAssign : Assignment) (i : Nat)
+private def InnerSt (mv : Nat) (clits : List (BitVec 64)) (curAssign : Assignment) (i : Nat)
     (unit : BitVec 64) (assign : Assignment) : Prop :=
   (unit = 0 ∧ assign = curAssign ∧
       ∀ x : Literal Nat, x ∈ (clits.take i).map toLiteral → curAssign.get? x.1 = some !x.2) ∨
@@ -367,7 +479,8 @@ private theorem innerSt_step_satisfied {mv : Nat} {clits : List (BitVec 64)}
 
 /-! ## 3. `assignLitChecked_spec`, `rupPhase1_spec`, `rupInner_spec`, and `lbRupCheck_correct` -/
 
-theorem assignLitChecked_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {fail : Cont []}
+private theorem assignLitChecked_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+    {fail : Cont []}
     {vb tb tlim te wlit idx : BitVec 64} {mv : Nat}
     {assign : Assignment} {trail tf : List (BitVec 64)} {R : Mem 64 → Prop}
     {m : Mem 64} {k : BitVec 64 → Expr Val Cont rs}
@@ -391,7 +504,7 @@ theorem assignLitChecked_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost
   obtain ⟨ok1, ok2, tf', _, hm'⟩ := store_assignLit_pstate hwlit hm (by omega)
   exact ⟨ok1, ok2, hk _ tf' hne_len hm'⟩
 
-theorem rupPhase1_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+private theorem rupPhase1_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {fail : Cont []} {taut ph2 : Cont [i64, i64]}
     {vb tb tlim c_ptr cur0 : BitVec 64} {mv : Nat} {clits tf0 : List (BitVec 64)}
     {R : Mem 64 → Prop} {m : Mem 64}
@@ -428,7 +541,7 @@ theorem rupPhase1_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     · have hlit := hvalid clits[i] (List.getElem_mem hlt)
       rw [sext32 _ hlit.1]
       rw [List.drop_eq_getElem_cons hlt] at hpure
-      simp only [rupPhase1Pure, assignBytes_getD assign hlit] at hpure
+      rw [rupPhase1Pure_cons, assignBytes_getD assign hlit] at hpure
       refine assignedLit_pstate hlit hm' ?_
       wp_unfold
       refine ⟨fun hneg => ?_, fun hnneg => ⟨fun _ => by grind, fun hnpos => ?_⟩⟩
@@ -446,13 +559,13 @@ theorem rupPhase1_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
         wp_unfold
         exact ih _ _ _ (by omega) ⟨i + 1, te + 4, _, trail ++ [-clits[i]], tf',
           by rw [ptr4], rfl, hlt, rfl, hm'', by simpa using hpure⟩
-    · subst heq; simp only [List.drop_length, rupPhase1Pure] at hpure
+    · subst heq; rw [List.drop_length, rupPhase1Pure_nil] at hpure
       exact hph2 m' te assign trail tf hpure hm'
   · intro J hJ; wp_unfold
     exact hJ _ _ _ ⟨0, tb, Assignment.empty, [], tf0, by simp, rfl, Nat.zero_le _, rfl, hm,
       by simp [assignBytes_empty]⟩
 
-theorem rupInner_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+private theorem rupInner_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {fail : Cont []} {done : Cont [i64, i64]}
     {vb tb tlim als te0 : BitVec 64} {mv : Nat} {alits : List (BitVec 64)}
     {curAssign : Assignment} {curTrail curTf : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64}
@@ -487,7 +600,7 @@ theorem rupInner_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     · have hlit := hvalid alits[i] (List.getElem_mem hlt)
       rw [sext32 _ hlit.1]
       rw [List.drop_eq_getElem_cons hlt] at hpure
-      simp only [rupInnerPure, assignBytes_getD assign hlit] at hpure
+      rw [rupInnerPure_cons, assignBytes_getD assign hlit] at hpure
       refine assignedLit_pstate hlit hm' ?_
       wp_unfold
       let val := evalAssignedLit (assignByte assign (toLiteral alits[i]).1) alits[i]
@@ -534,7 +647,7 @@ theorem rupInner_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
           refine ⟨fun htu => ?_, fun hntu => ?_⟩
           · have : (unit != 0) = true := bne_iff_ne.mpr htu; grind
           · have : (unit != 0) = false := bne_eq_false_iff_eq.mpr hntu; grind
-    · subst heq; simp only [List.drop_length, rupInnerPure] at hpure
+    · subst heq; rw [List.drop_length, rupInnerPure_nil] at hpure
       exact hdone m' unit te assign trail tf hpure hm'
   · intro J hJ; wp_unfold
     exact hJ _ _ _ ⟨0, 0, te0, curAssign, curTrail, curTf, by simp, rfl, rfl, Nat.zero_le _, rfl,
@@ -764,14 +877,14 @@ theorem lbRupCheck_correct (Γ : Env) :
       refine readLeb128_spec hprf_fit hidx rfl rfl (by ecancel)
         (fun hleb_none => ?_)
         (fun u bs' hleb_some hu _ hbs' _ => ?_)
-      · simp only [consumeHintsAux, hleb_none] at hpure
+      · rw [consumeHintsAux_succ, hleb_none] at hpure
         exact goFail cte assign_c trail_c tf_c m' hpure hm'
       · let idx' := prfBytes.length - bs'.length
         have hidx'_le : idx' ≤ prfBytes.length := by omega
         wp_unfold
         refine bv_eq_zero_branch (by omega : u < 2 ^ 64) (fun hu0 => ?_) (fun hu_ne0 => ?_)
         · subst hu0
-          simp only [consumeHintsAux, hleb_some] at hpure
+          rw [consumeHintsAux_succ, hleb_some] at hpure
           obtain ⟨hte_c, hcov_c, htv_c, hlen_c, hm_ps⟩ := pstate_sep.mp (sep_ac hm' :
             (PState c.mv c.vb c.tb cte assign_c trail_c tf_c (c.mv + 1) ⋆
               (Eq (prfBytes.At prf_ptr) ⋆ wsRupRest c pcur cur0 ptrs PoolUsed poolRem ⋆ R)) m')
@@ -803,12 +916,13 @@ theorem lbRupCheck_correct (Γ : Env) :
           exact ⟨ok_p72, hQ 1 _ (by rw [hpure]; exact ⟨rfl, hbs', hidx'_le, sep_ac hws_fin⟩)⟩
         · obtain ⟨u_pred, hu_succ⟩ : ∃ k, u = k + 1 := ⟨u - 1, by omega⟩
           rw [hu_succ] at hleb_some
-          simp only [consumeHintsAux, hleb_some] at hpure
+          rw [consumeHintsAux_succ, hleb_some] at hpure
           rw [← hu_succ] at hpure hleb_some
           exact hint_lookup_step hid_cap hu htbl hm'
             (fun _ => by grind) (fun _ _ => by grind)
             (fun haid heven hnone => by
-              simp [heven, haid, hnone] at hpure; exact goFail _ _ _ _ _ hpure hm')
+              simp only [heven, Bool.false_eq_true, ↓reduceIte, haid, hnone] at hpure
+              exact goFail _ _ _ _ _ hpure hm')
             (fun haid _ alits _ heven hsome _ _ => by
               simp only [heven, Bool.false_eq_true, ↓reduceIte, haid, hsome] at hpure
               exact ih fuel' _ _ (by omega) ⟨idx', by rw [← hbs']; omega, hidx'_le, rfl,
@@ -847,22 +961,23 @@ theorem lbRupCheck_correct (Γ : Env) :
       refine readLeb128_spec hprf_fit hidx rfl rfl (by ecancel)
         (fun hleb_none => ?_)
         (fun u bs' hleb_some hu _ hbs' _ => ?_)
-      · simp only [rupPhase2Aux, hleb_none] at hpure
+      · rw [rupPhase2Aux_succ, hleb_none] at hpure
         exact goFail te assign trail tf m' hpure hm'
       · let idx' := prfBytes.length - bs'.length
         have hidx'_le : idx' ≤ prfBytes.length := by omega
         wp_unfold
         refine bv_eq_zero_branch (by omega : u < 2 ^ 64) (fun hu0 => ?_) (fun hu_ne0 => ?_)
-        · subst hu0; simp only [rupPhase2Aux, hleb_some] at hpure
+        · subst hu0; rw [rupPhase2Aux_succ, hleb_some] at hpure
           exact goFail te assign trail tf m' hpure hm'
         · obtain ⟨u_pred, hu_succ⟩ : ∃ k, u = k + 1 := ⟨u - 1, by omega⟩
           rw [hu_succ] at hleb_some
-          simp only [rupPhase2Aux, hleb_some] at hpure
+          rw [rupPhase2Aux_succ, hleb_some] at hpure
           rw [← hu_succ] at hpure hleb_some
           refine hint_lookup_step hid_cap hu htbl hm'
             (fun _ => by grind) (fun _ _ => by grind)
             (fun haid heven hnone => by
-              simp [heven, haid, hnone] at hpure; exact goFail _ _ _ _ _ hpure hm')
+              simp only [heven, Bool.false_eq_true, ↓reduceIte, haid, hnone] at hpure
+              exact goFail _ _ _ _ _ hpure hm')
             (fun haid _ alits R_a heven hsome hvalid_a hpu_a => ?_)
           simp only [heven, Bool.false_eq_true, ↓reduceIte, haid, hsome] at hpure
           -- `@idone(%unit, %t2)`
@@ -925,14 +1040,14 @@ theorem lbRupCheck_correct (Γ : Env) :
         (wsRupRest c pcur cur0 ptrs PoolUsed poolRem ⋆ Eq (prfBytes.At prf_ptr) ⋆ R)) m)
   refine rupPhase1_spec hvalid_c rfl htfit (wsRup_focus hpu_c hm_ps0)
     (fun m' te assign trail tf hp1_fail hm' =>
-      goFail te assign trail tf m' (by unfold rupCheckPure; rw [hp1_fail])
+      goFail te assign trail tf m' (by rw [rupCheckPure_def, hp1_fail])
         (wsRup_unfocus hpu_c hm'))
     (fun m' te assign trail tf hp1_taut hm' =>
       hJconsume _ m' ⟨idx0, te, assign, trail, tf, rfl, rfl, hidx0,
-        by unfold rupCheckPure; rw [hp1_taut], wsRup_unfocus hpu_c hm'⟩)
+        by rw [rupCheckPure_def, hp1_taut], wsRup_unfocus hpu_c hm'⟩)
     (fun m' te assign trail tf hp1_ok hm' =>
       hJph2 _ m' ⟨te, assign, trail, tf, rfl, rfl,
-        by unfold rupCheckPure; rw [hp1_ok], wsRup_unfocus hpu_c hm'⟩)
+        by rw [rupCheckPure_def, hp1_ok], wsRup_unfocus hpu_c hm'⟩)
 
 /-! ## 4. Pure RUP soundness (`rupCheckPure_sound`) -/
 
@@ -986,7 +1101,7 @@ private theorem rupPhase1Pure_loop_sound {mv : Nat} {clits : List (BitVec 64)}
           ∀ x : Literal Nat, x ∈ toClause clits ↔ assign'.get? x.1 = some !x.2)
   | 0, i, assign, trailLen, hi, hrem, hinv => by
     obtain rfl : i = clits.length := by omega
-    simp only [List.drop_length, rupPhase1Pure]
+    rw [List.drop_length, rupPhase1Pure_nil]
     refine ⟨fun h => (nomatch h), fun vals' trailLen' h => ?_⟩
     injection h with hvals _; subst hvals; rw [List.take_length] at hinv
     exact ⟨assign, rfl, fun x => by rw [← CNF.Clause.mem_literals_iff, literals_toClause, hinv x]⟩
@@ -995,7 +1110,8 @@ private theorem rupPhase1Pure_loop_sound {mv : Nat} {clits : List (BitVec 64)}
     have hlit : IsValidLit mv clits[i] := hvalid clits[i] (List.getElem_mem hlt)
     have hcases := evalAssignedLit_cases assign hlit
     rw [List.drop_eq_getElem_cons hlt]
-    simp only [rupPhase1Pure, assignBytes_getD assign hlit]
+    rw [rupPhase1Pure_cons, assignBytes_getD assign hlit]
+    dsimp only
     cases hneg : (evalAssignedLit (assignByte assign (toLiteral clits[i]).1) clits[i]).slt 0
     · simp only [Bool.false_eq_true, ↓reduceIte]
       let eval := evalAssignedLit (assignByte assign (toLiteral clits[i]).1) clits[i]
@@ -1034,7 +1150,7 @@ private theorem rupInnerPure_loop_sound {mv : Nat} {alits : List (BitVec 64)} {F
         CNF.Entails (F ++ initAssign.toCNF) (F ++ assign'.toCNF))
   | 0, i, unit, assign, trailLen, unit', vals', trailLen', hi, hrem, hst, hres => by
     obtain rfl : i = alits.length := by omega
-    simp only [List.drop_length, rupInnerPure] at hres
+    rw [List.drop_length, rupInnerPure_nil] at hres
     cases hres; rw [InnerSt, List.take_length] at hst
     rcases hst with ⟨rfl, rfl, hall⟩ | ⟨hu, _, _, hrel, hinv⟩
     · refine Or.inl ⟨by decide, unsat_of_entailsClause_all_falsified hcl hent fun x hx => ?_⟩
@@ -1049,7 +1165,8 @@ private theorem rupInnerPure_loop_sound {mv : Nat} {alits : List (BitVec 64)} {F
     have hlit : IsValidLit mv alits[i] := hvalid alits[i] (List.getElem_mem hlt)
     have hcases := evalAssignedLit_cases assign hlit
     rw [List.drop_eq_getElem_cons hlt] at hres
-    simp only [rupInnerPure, assignBytes_getD assign hlit] at hres
+    rw [rupInnerPure_cons, assignBytes_getD assign hlit] at hres
+    dsimp only at hres
     cases hneg : (evalAssignedLit (assignByte assign (toLiteral alits[i]).1) alits[i]).slt 0
     · simp only [hneg, Bool.false_eq_true, ↓reduceIte] at hres
       let stepUnit : Option (BitVec 64 × List (BitVec 64) × Nat) :=
@@ -1107,22 +1224,22 @@ private theorem rupPhase2Aux_sound {mv id : Nat} {table : List (Option (List (Bi
   | 0, _, _, _, _, _, hp2 => nomatch hp2
   | fuel + 1, curAssign, trailLen, bs, bs_out, hent, hp2 => by
     rcases hleb : readLeb128Pure bs with _ | ⟨_ | u_pred, bs'⟩
-    · simp only [rupPhase2Aux, hleb] at hp2; nomatch hp2
-    · simp only [rupPhase2Aux, hleb] at hp2; nomatch hp2
-    simp only [rupPhase2Aux, hleb] at hp2
+    · rw [rupPhase2Aux_succ, hleb] at hp2; nomatch hp2
+    · rw [rupPhase2Aux_succ, hleb] at hp2; nomatch hp2
+    rw [rupPhase2Aux_succ_some_nz hleb] at hp2
     cases hodd : ((u_pred + 1) % 2 != 0)
     · rw [hodd] at hp2; simp only [Bool.false_eq_true, ↓reduceIte] at hp2
       by_cases haid : (u_pred + 1) / 2 < id
       · simp only [haid, ↓reduceIte] at hp2
         rcases htbl : table[(u_pred + 1) / 2]? with _ | _ | alits
-        · simp only [htbl] at hp2; nomatch hp2
-        · simp only [htbl] at hp2; nomatch hp2
-        simp only [htbl] at hp2
+        · rw [htbl] at hp2; nomatch hp2
+        · rw [htbl] at hp2; nomatch hp2
+        rw [htbl] at hp2; dsimp only at hp2
         obtain ⟨halits_valid, halits_ent⟩ := htable ((u_pred + 1) / 2) haid alits htbl
         rcases hinner : rupInnerPure mv alits 0 (assignBytes mv curAssign) trailLen with
           _ | ⟨unit, vals', trailLen'⟩
-        · simp only [hinner] at hp2; nomatch hp2
-        simp only [hinner] at hp2
+        · rw [hinner] at hp2; nomatch hp2
+        rw [hinner] at hp2; dsimp only at hp2
         have hsound := rupInnerPure_loop_sound halits_valid halits_ent hent
           alits.length 0 0 curAssign trailLen unit vals' trailLen'
           (Nat.zero_le _) (by simp) (Or.inl ⟨rfl, rfl, by simp⟩) (by simpa using hinner)
@@ -1141,7 +1258,7 @@ theorem rupCheckPure_sound {mv id : Nat} {clits : List (BitVec 64)}
       (∀ x ∈ alits, IsValidLit mv x) ∧ CNF.EntailsClause F (toClause alits))
     (hrup : rupCheckPure mv id clits table bs = some bs') :
     CNF.EntailsClause F (toClause clits) := by
-  unfold rupCheckPure at hrup
+  rw [rupCheckPure_def] at hrup
   rw [← assignBytes_empty mv] at hrup
   have hp1_sound := rupPhase1Pure_loop_sound hclits clits.length 0 Assignment.empty 0
     (Nat.zero_le _) (by simp) (by simp)
