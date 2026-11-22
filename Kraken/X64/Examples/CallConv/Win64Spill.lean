@@ -15,6 +15,7 @@ public import Kraken.X64.Win64
 -/
 
 open Kraken (WellFormedLayout)
+open Kraken.X64
 open Kraken.X64.Parser
 open Kraken.X64.Stack
 open Kraken.X64.Win64
@@ -40,17 +41,16 @@ theorem reserve24_eq (r : BitVec 64) :
 
 variable [WellFormedLayout prog]
 
-theorem spill_spec :
-    prog.toExecutable.ProcSpec (@Labels.label! (Executable.labels prog.toExecutable) "win64_spill")
-      (fun (R : Mem 64 → Prop) ra t => CallPre 24 R ra t)
-      (fun R ra t s => CallPost 24 R ra t s
-        ∧ s.zmms.get (.xmm .mm1) = t.zmms.get (.xmm .mm0)) := by
+theorem spill_spec (R : Mem 64 → Prop) (ra : Int64) :
+    prog.toExecutable.ProcSpec
+      (@Labels.label! (Executable.labels prog.toExecutable) "win64_spill") ra
+      (fun t => Win64.Call 24 R ra t)
+      (fun t s => Win64.Ret 24 R ra t s ∧ s.zmms.get (.xmm .mm1) = t.zmms.get (.xmm .mm0)) := by
   rw [Labels.label!_of_label? (label?_eq_some_addrOf (p := prog) (k := 0) rfl)]
-  rintro R ra t ⟨hal, hdf, hmem⟩
+  rintro t ⟨hal, hdf, hmem⟩
   rw [reserve24_eq, sep_assoc, sep_comm_l (Shadow _) (Owned 16 _),
     sep_comm_l (RetCell _ _) (Owned 16 _)] at hmem
   obtain ⟨bs, hbs, hmem⟩ := Owned.elim hmem
-  simp only [Reg64s.get64] at hmem hal
   have ex : ∀ x : BitVec 64, BitVec.extractLsb' 0 64 x = x := fun x => by ext i; simp
   have hal' : t.regs.rsp.toBitVec.toNat % 16 = 8 := hal
   have haligned : isAligned AvxWidth.W128.bytes (t.regs.rsp.toBitVec - 24) := by
@@ -67,9 +67,9 @@ theorem spill_spec :
   simp only [Nat.shiftRight_zero, BitVec.ofNat_toNat, BitVec.setWidth_eq, Reg64s.get64,
     BitVec.toAddressSize, BitVec.signed, BitVec.take, Int.add_zero, BitVec.ofInt_toInt, ex,
     Width.bits, Int64.toInt_zero]
-  refine @Effects.All_storeAvx (Executable.labels prog.toExecutable) _ _ _ _ _ _ _
+  refine @Effects.All_storeAvx (Executable.labels prog.toExecutable) _ _ _ _ _ _ _ _
     (fun _ => haligned)
-    (by show (Mem.loadInt t.dmem (t.regs.rsp.toBitVec - 24) 16).isSome = true; rw [hslot]; rfl) ?_
+    (show Mem.loadInt t.dmem (t.regs.rsp.toBitVec - 24) 16 = _ from hslot) ?_
   simp only [Effects.All]
   sym =>
   kstep 1

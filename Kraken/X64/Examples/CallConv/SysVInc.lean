@@ -14,6 +14,7 @@ Both satisfy `IncSpec`.
 -/
 
 open Kraken (WellFormedLayout)
+open Kraken.X64
 open Kraken.X64.Parser
 open Kraken.X64.Stack
 open Kraken.X64.SysV
@@ -48,21 +49,20 @@ private theorem lbl_caller : lbl "sysv_caller" = prog.toExecutable.addrOf 4 :=
 
 /-- The specification of an increment procedure at `entry` that needs `d` bytes of stack. -/
 abbrev IncSpec (d : Nat) (entry : Int64) : Prop :=
-  prog.toExecutable.ProcSpec entry
-    (fun (x : BitVec 64 × (Mem 64 → Prop)) ra t => CallPre d x.2 ra t ∧ ArgU64 t x.1)
-    (fun x ra t s => CallPost d x.2 ra t s ∧ RetU64 s (x.1 + 1))
+  ∀ (n : BitVec 64) (R : Mem 64 → Prop) (ra : Int64),
+    prog.toExecutable.ProcSpec entry ra
+      (fun t => SysV.Call d R ra t ∧ ArgU64 t n)
+      (fun t s => SysV.Ret d R ra t s ∧ RetU64 s (n + 1))
 
 theorem inc_spec : IncSpec 0 (lbl "sysv_inc") := by
   rw [lbl_inc]
-  rintro ⟨n, R⟩ ra t ⟨⟨-, hdf, hmem⟩, harg⟩
-  simp only [Reg64s.get64] at hmem
+  rintro n R ra t ⟨⟨-, hdf, hmem⟩, harg⟩
   sym => kstep; tactic =>
   refine Eventually.done _ ⟨?_, ⟨?_, hdf, ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩, ?_⟩, ?_⟩
   · rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, Int64.ofBitVec_toBitVec]
   · simp (config := { zetaDelta := true })
   · exact Owned.intro hmem (Int.toBytes_length _ _)
-  · simp only [Reg64s.get64] at harg
-    simp (config := { zetaDelta := true }) [harg, BitVec.add_comm]
+  · simp (config := { zetaDelta := true }) [harg, BitVec.add_comm]
 
 omit [WellFormedLayout prog] in
 private theorem reserve16_eq (r : BitVec 64) :
@@ -75,10 +75,9 @@ theorem caller_spec (hinc : IncSpec 0 (lbl "sysv_inc")) :
     IncSpec 16 (lbl "sysv_caller") := by
   rw [lbl_inc] at hinc
   rw [lbl_caller]
-  rintro ⟨n, R⟩ ra t ⟨⟨hal, hdf, hmem⟩, harg⟩
+  rintro n R ra t ⟨⟨hal, hdf, hmem⟩, harg⟩
   rw [reserve16_eq, sep_assoc, sep_comm_l] at hmem
   obtain ⟨bs, hbs, hmem⟩ := Owned.elim hmem
-  simp only [Reg64s.get64] at hmem hal harg
   sym =>
   kstep 2
   case h_mem => tactic => simp (config := { zetaDelta := true }); exact hmem
@@ -91,16 +90,16 @@ theorem caller_spec (hinc : IncSpec 0 (lbl "sysv_inc")) :
   subst hr
   have hpush := Mem.storeInt_sep _ 8 bs _ _ ⟨hmem, hbs⟩ (prog.toExecutable.addrOf 7).toBitVec.toInt
   refine eventually_trans _ _ _ _
-    (hinc (n, RetCell ra t.regs.rsp.toBitVec ⋆ (Owned 8 (t.regs.rsp.toBitVec - 8) ⋆ R))
+    (hinc n (RetCell ra t.regs.rsp.toBitVec ⋆ (Owned 8 (t.regs.rsp.toBitVec - 8) ⋆ R))
       (prog.toExecutable.addrOf 7) _ ⟨⟨?_, hdf, ?_⟩, harg⟩) ?_
-  · simp only [Reg64s.get64] at hal ⊢
+  · dsimp only at hal ⊢
     bv_omega
-  · simp only [Reg64s.get64, Owned.zero, emp_sep]
+  · simp only [Owned.zero, emp_sep]
     exact hpush
   rintro ⟨s', pc⟩ ⟨hpc, ⟨hrsp, hdf', hsaved, hm⟩, hret⟩
   dsimp only at hpc hdf' hrsp hsaved hm hret
   subst hpc
-  simp only [Reg64s.get64, Owned.zero, emp_sep] at hrsp hsaved hm hret
+  simp only [Owned.zero, emp_sep] at hrsp hsaved hm hret
   have er : t.regs.rsp.toBitVec = 8 + s'.regs.rsp.toBitVec := by rw [hrsp]; bv_omega
   rw [sep_comm_l, er] at hm
   sym =>

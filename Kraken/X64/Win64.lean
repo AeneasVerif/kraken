@@ -24,10 +24,10 @@ open Kraken.X64.Stack
 namespace Kraken.X64.Win64
 
 abbrev SavedRegs (t s : MachineData) : Prop :=
-  s.regs.get64 .rbx = t.regs.get64 .rbx ∧ s.regs.get64 .rbp = t.regs.get64 .rbp
-  ∧ s.regs.get64 .rdi = t.regs.get64 .rdi ∧ s.regs.get64 .rsi = t.regs.get64 .rsi
-  ∧ s.regs.get64 .r12 = t.regs.get64 .r12 ∧ s.regs.get64 .r13 = t.regs.get64 .r13
-  ∧ s.regs.get64 .r14 = t.regs.get64 .r14 ∧ s.regs.get64 .r15 = t.regs.get64 .r15
+  s.regs.rbx = t.regs.rbx ∧ s.regs.rbp = t.regs.rbp
+  ∧ s.regs.rdi = t.regs.rdi ∧ s.regs.rsi = t.regs.rsi
+  ∧ s.regs.r12 = t.regs.r12 ∧ s.regs.r13 = t.regs.r13
+  ∧ s.regs.r14 = t.regs.r14 ∧ s.regs.r15 = t.regs.r15
 
 /-- xmm0-xmm5; x,y,zmms 16-31 are caller-save, as are the upper bits of ymm0-ymm15 / zmm0-zmm15 -/
 abbrev SavedXmm (t s : MachineData) : Prop :=
@@ -48,24 +48,24 @@ Note the shadow space reserved above rsp.
 Microsoft's documentation requires `df = 0` only on entry to "C Runtime Library calls and
 Windows system calls", but MSVC, clang-cl and `gcc -mabi=ms` all assume `df = 0` on entry to any
 procedure, so we require it here (otherwise ~every procedure would need to assume `df = 0` on its
-own to satisfy `CallPost`.) -/
-abbrev CallPre (d : Nat) (R : Mem 64 → Prop) (ra : Int64) (t : MachineData) : Prop :=
+own to satisfy `Ret`.) -/
+abbrev Call (d : Nat) (R : Mem 64 → Prop) (ra : Int64) (t : MachineData) : Prop :=
   EntryAligned t ∧ t.df = false
-  ∧ (t.dmem =⋆ RetCell ra (t.regs.get64 .rsp)
-      ⋆ (Shadow (t.regs.get64 .rsp) ⋆ (Reserve d (t.regs.get64 .rsp) ⋆ R)))
+  ∧ (t.dmem =⋆ RetCell ra t.regs.rsp.toBitVec
+      ⋆ (Shadow t.regs.rsp.toBitVec ⋆ (Reserve d t.regs.rsp.toBitVec ⋆ R)))
 
-/-- Conditions that hold immediately after the `ret` (where `t` was the state in `CallPre`).
+/-- Conditions that hold immediately after the `ret` (where `t` was the state in `Call`).
 df = 0 is mandated here. -/
-abbrev CallPost (d : Nat) (R : Mem 64 → Prop) (_ra : Int64) (t s : MachineData) : Prop :=
-  s.regs.get64 .rsp = t.regs.get64 .rsp + 8 ∧ s.df = false
+abbrev Ret (d : Nat) (R : Mem 64 → Prop) (_ra : Int64) (t s : MachineData) : Prop :=
+  s.regs.rsp.toBitVec = t.regs.rsp.toBitVec + 8 ∧ s.df = false
   ∧ SavedRegs t s ∧ SavedXmm t s
-  ∧ (s.dmem =⋆ Owned 8 (t.regs.get64 .rsp)
-      ⋆ (Shadow (t.regs.get64 .rsp) ⋆ (Reserve d (t.regs.get64 .rsp) ⋆ R)))
+  ∧ (s.dmem =⋆ Owned 8 t.regs.rsp.toBitVec
+      ⋆ (Shadow t.regs.rsp.toBitVec ⋆ (Reserve d t.regs.rsp.toBitVec ⋆ R)))
 
 /-- Convenience function for the first argument in `rcx`. The rest are rdx, r8, and r9. -/
-abbrev ArgU64 (t : MachineData) (n : BitVec 64) : Prop := t.regs.get64 .rcx = n
+abbrev ArgU64 (t : MachineData) (n : BitVec 64) : Prop := t.regs.rcx.toBitVec = n
 
 /-- Convenience function for the integer return in `rax`. -/
-abbrev RetU64 (s : MachineData) (v : BitVec 64) : Prop := s.regs.get64 .rax = v
+abbrev RetU64 (s : MachineData) (v : BitVec 64) : Prop := s.regs.rax.toBitVec = v
 
 end Kraken.X64.Win64

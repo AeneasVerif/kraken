@@ -46,17 +46,16 @@ open Kraken (Layout WellFormedLayout)
   split <;> rfl
 
 theorem Effects.All_storeAvx [Labels] {s : MachineData} {addr : BitVec 64} {w : AvxWidth}
-    {v : w.type} {ret : MachineData → Effects} {post : MachineState → Prop} {checkAlign : Bool}
-    (ha : checkAlign → isAligned w.bytes addr)
-    (h : (Mem.loadInt s.dmem addr w.bytes).isSome)
+    {v : w.type} {i : Int} {ret : MachineData → Effects} {post : MachineState → Prop}
+    {checkAlign : Bool} (ha : checkAlign → isAligned w.bytes addr)
+    (h : Mem.loadInt s.dmem addr w.bytes = some i)
     (hk : (ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }).All post) :
     (s.storeAvx addr v ret checkAlign).All post := by
   unfold MachineData.storeAvx
   split
   · cases checkAlign <;> simp_all
   rw [Effects.All_require_write_access]
-  obtain ⟨i, hi⟩ := Option.isSome_iff_exists.mp h
-  simp only [hi]
+  simp only [h]
   exact hk
 
 theorem Effects.All_loadAvx [Labels] {s : MachineData} {addr : BitVec 64} {w : AvxWidth} {i : Int}
