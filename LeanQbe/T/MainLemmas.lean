@@ -630,26 +630,48 @@ theorem compile_of_compileModule {I : Isa} {lt : LegalTarget} {raBytes : Nat}
 
 /-! ## `compileFn_correct` and `compile_sound` -/
 
+private theorem fn_mid_body_eq (lt : LegalTarget) (f : Fn) :
+    (f.mid lt).body =
+      Func.renorm (Func.lateLoopRotate (Func.renorm (Func.lateCfgPre
+        (Func.renorm (Func.lateCorePost (Func.renorm (Func.lateCorePre
+          (Func.legal lt (Func.earlyOpt f.body))))))))) := by
+  dsimp only [Fn.mid, Fn.midFromEarly, Fn.earlyOpt]
+  exact Fn.midStage_eq lt f.earlyOpt
+
 theorem fn_mid_wf {lt : LegalTarget} {f : Fn} (hwf : f.Wf) : (f.mid lt).Wf := by
   have _ := hwf
+  dsimp only [Fn.Wf]
+  rw [fn_mid_body_eq]
   exact Func.renorm_wf _
 
-private theorem mid_pipeline_spec {lt : LegalTarget} {as rs : List Ty} (g : Func as rs)
-    (hg : g.Wf) (hsupp : (Func.earlyOpt g).supportsSource lt = true) (Γ : Env)
-    (xs : Tup Val as) (xs' : Tup Val (lt.legalSig as)) (hxs : encodeTup lt as xs = xs')
-    (m : Mem 64) (P : Post rs) (E : XPost)
-    (Q' : Post (lt.legalSig rs)) (X' : XPost)
+/-- End-to-end WP refinement across the staged `Fn.mid` pipeline (`earlyOpt → Legal lt →
+lateCorePre → renorm → lateCorePost → renorm → lateCfgPre → renorm → lateCfgPost →
+loopRotate → renorm`). -/
+theorem fn_mid_spec {lt : LegalTarget} {f : Fn} (hwf : f.Wf)
+    (hsupp : (f.earlyOpt).body.supportsSource lt = true) (Γ : Env)
+    {xs : Tup Val f.as} {xs' : Tup Val (lt.legalSig f.as)} (hxs : encodeTup lt f.as xs = xs')
+    {m : Mem 64} {P : Post f.rs} {E : XPost}
+    {Q' : Post (lt.legalSig f.rs)} {X' : XPost}
     (hQ : ∀ r m₁, legalPost lt P r m₁ → Q' r m₁)
-    (hX : ∀ f cs ys m₁, legalXPost lt E f cs ys m₁ → X' f cs ys m₁)
-    (hs : Func.spec Γ g xs m P E) :
-    Func.spec (legalEnv lt Γ) (Func.lateOpt (Func.legal lt (Func.earlyOpt g))) xs' m Q' X' := by
+    (hX : ∀ g cs ys m₁, legalXPost lt E g cs ys m₁ → X' g cs ys m₁)
+    (hs : Func.spec Γ f.body xs m P E) :
+    Func.spec (legalEnv lt Γ) (f.mid lt).body xs' m Q' X' := by
   subst hxs
-  have hwf₁ : (Func.earlyOpt g).Wf := Func.earlyOpt_wf hg
-  have hopt : Func.spec Γ (Func.earlyOpt g) xs m P E := Func.earlyOpt_spec hg hs
-  have hleg := Func.legal_spec lt (Func.earlyOpt g) hwf₁ hsupp Γ xs m P E hopt
-  have hmono := Func.spec_mono (legalEnv lt Γ) (Func.legal lt (Func.earlyOpt g))
-    (encodeTup lt as xs) m (legalPost lt P) Q' (legalXPost lt E) X' hQ hX hleg
-  exact Func.lateOpt_spec (Func.legal_wf lt hwf₁) hmono
+  have hwf₁ : (Func.earlyOpt f.body).Wf := Func.earlyOpt_wf hwf
+  have hopt : Func.spec Γ (Func.earlyOpt f.body) xs m P E := Func.earlyOpt_spec hwf hs
+  have hleg := Func.legal_spec lt (Func.earlyOpt f.body) hwf₁ hsupp Γ xs m P E hopt
+  have hmono := Func.spec_mono (legalEnv lt Γ) (Func.legal lt (Func.earlyOpt f.body))
+    (encodeTup lt f.as xs) m (legalPost lt P) Q' (legalXPost lt E) X' hQ hX hleg
+  have h1 := Func.renorm_spec (Func.lateCorePre_wf (Func.legal_wf lt hwf₁))
+    (Func.lateCorePre_spec (Func.legal_wf lt hwf₁) hmono)
+  have h2 := Func.renorm_spec (Func.lateCorePost_wf (Func.renorm_wf _))
+    (Func.lateCorePost_spec (Func.renorm_wf _) h1)
+  have h3 := Func.renorm_spec (Func.lateCfgPre_wf (Func.renorm_wf _))
+    (Func.lateCfgPre_spec (Func.renorm_wf _) h2)
+  have h4 := Func.renorm_spec (Func.lateLoopRotate_wf (Func.renorm_wf _))
+    (Func.lateLoopRotate_spec (Func.renorm_wf _) h3)
+  exact (congrArg (fun b => Func.spec (legalEnv lt Γ) b (encodeTup lt f.as xs) m Q' X')
+    (fn_mid_body_eq lt f)).mpr h4
 
 private theorem legalEnv_elim_mid {lt : LegalTarget} {f : Fn} {Γ_src : Env}
     (hiso : ∀ as bs xs m P E, Γ_src f.name as bs xs m P E → as = f.as ∧ bs = f.rs)
@@ -665,33 +687,21 @@ private theorem legalEnv_elim_mid {lt : LegalTarget} {f : Fn} {Γ_src : Env}
   · simpa only [cast_eq] using hxs
   · intro r m₁ hp; have := hQ r m₁ hp; rwa [cast_eq] at this
 
-/-- Reified body of `f.mid lt` equals `Func.renorm` of the staged `earlyOpt → legal → lateOpt`
-pipeline. -/
-theorem fn_mid_body_eq (lt : LegalTarget) (f : Fn) :
-    (f.mid lt).body = Func.renorm (Func.lateOpt (Func.legal lt (Func.earlyOpt f.body))) := by
-  delta Fn.mid Fn.lateOpt Fn.legal Fn.earlyOpt Func.renorm
-  rfl
-
-/-- Lift a WP contract on the un-materialized `Func.lateOpt` body to `(f.mid lt).body`. -/
-theorem fn_mid_spec_of_lateOpt {lt : LegalTarget} {f : Fn} (hwf : f.Wf) (Γ : Env)
-    {xs : Tup Val (lt.legalSig f.as)} {m : Mem 64} {Q : Post (lt.legalSig f.rs)} {X : XPost}
-    (h : Func.spec Γ (Func.lateOpt (Func.legal lt (Func.earlyOpt f.body))) xs m Q X) :
-    Func.spec Γ (f.mid lt).body xs m Q X :=
-  (congrArg (fun b => Func.spec Γ b xs m Q X) (fn_mid_body_eq lt f)).mpr
-    (Func.renorm_spec (Func.lateOpt_wf (Func.legal_wf lt (Func.earlyOpt_wf hwf))) h)
-
 private theorem compileFn_mid_spec {lt : LegalTarget} {f : Fn} (hwf : f.Wf)
-    (hsupp : (Func.earlyOpt f.body).supportsSource lt = true) (Γ_src : Env)
+    (hsupp : (f.earlyOpt).body.supportsSource lt = true) (Γ_src : Env)
     (hiso : ∀ as bs xs m P E, Γ_src f.name as bs xs m P E → as = f.as ∧ bs = f.rs)
     (hsound : ∀ xs m P E, Γ_src f.name f.as f.rs xs m P E → Func.spec Γ_src f.body xs m P E) :
     ∀ xs' m Q' X',
       legalEnv lt Γ_src f.name (lt.legalSig f.as) (lt.legalSig f.rs) xs' m Q' X' →
-      Func.spec (legalEnv lt Γ_src)
-        (Func.lateOpt (Func.legal lt (Func.earlyOpt f.body))) xs' m Q' X' := by
+      Func.spec (legalEnv lt Γ_src) (f.mid lt).body xs' m Q' X' := by
   intro xs' m Q' X' h
-  obtain ⟨xs, P, E, hxs', hQ', hX, hΓ⟩ := legalEnv_elim_mid hiso h
-  exact mid_pipeline_spec f.body hwf hsupp Γ_src xs xs' hxs' m P E Q' X' hQ' hX
-    (hsound xs m P E hΓ)
+  have hel := legalEnv_elim_mid hiso h
+  exact @fn_mid_spec lt f hwf hsupp Γ_src hel.choose xs'
+    hel.choose_spec.choose_spec.choose_spec.1 m
+    hel.choose_spec.choose hel.choose_spec.choose_spec.choose Q' X'
+    hel.choose_spec.choose_spec.choose_spec.2.1
+    hel.choose_spec.choose_spec.choose_spec.2.2.1
+    (hsound _ m _ _ hel.choose_spec.choose_spec.choose_spec.2.2.2)
 
 /-- Generalized `compileFn_correct` for any signature-isolated source environment `Γ_src`. -/
 theorem compileFn_correct_iso (T : Target) (host : T.mach.Host) (lt : LegalTarget)
@@ -709,10 +719,7 @@ theorem compileFn_correct_iso (T : Target) (host : T.mach.Host) (lt : LegalTarge
     (hex : ∀ g, g ∈ E.exits → T.Defined host g ∧ nX ≤ n) :
     T.FnSpec host f.name
       (legalEnv lt Γ_src f.name (lt.legalSig f.as) (lt.legalSig f.rs)) n nX :=
-  fnSpec_of_spec
-    (fun args m Q X h =>
-      fn_mid_spec_of_lateOpt hwf (legalEnv lt Γ_src)
-        (compileFn_mid_spec hwf hsupp Γ_src hiso hsound args m Q X h))
+  fnSpec_of_spec (compileFn_mid_spec hwf hsupp Γ_src hiso hsound)
     (Rega.lowerFn_correct T host hints E (f.mid lt) (legalEnv lt Γ_src) n nX bound
       (fn_mid_wf hwf) hl hc hu hfr hn hcal hex)
 

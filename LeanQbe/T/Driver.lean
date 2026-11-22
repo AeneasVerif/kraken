@@ -55,8 +55,7 @@ def compileFns (I : Isa) (lt : LegalTarget) :
   | [] => .ok []
   | f :: fs =>
     let ef := matFn f.earlyOpt
-    let lf := matFn (ef.legal lt)
-    let mf := matFn lf.lateOpt
+    let mf := Fn.midFromEarly lt ef
     let h := Spill.hints I mf
     match Rega.lowerFn I h mf.ext mf, compileFns I lt fs with
     | .ok c, .ok cs => .ok (c ++ cs)

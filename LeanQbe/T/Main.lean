@@ -46,11 +46,39 @@ def Fn.earlyOpt (f : Fn) : Fn :=
 def Fn.lateOpt (f : Fn) : Fn :=
   ⟨f.name, f.as, f.rs, Func.lateOpt f.body⟩
 
+/-- Data wrapper keeping materialized mid-end `Func` closures out of LCNF eta-expansion. -/
+structure MidBody (as rs : List Ty) where
+  body : Func as rs
+
+/-- Materialize the post-`earlyOpt` mid-end pipeline (`Legal lt → lateCorePre → renorm →
+lateCorePost → renorm → lateCfgPre → renorm → lateCfgPost → loopRotate → renorm`), using
+`Fn.renorm` at every stage boundary so PHOAS closures stay flat. -/
+def Fn.midStage (lt : LegalTarget) (ef : Fn) :
+    MidBody (lt.legalSig ef.as) (lt.legalSig ef.rs) :=
+  let lf := ef.legal lt
+  let s1 := Fn.renorm ⟨lf.name, lf.as, lf.rs, Func.lateCorePre lf.body⟩
+  let s2 := Fn.renorm ⟨s1.name, s1.as, s1.rs, Func.lateCorePost s1.body⟩
+  let s3 := Fn.renorm ⟨s2.name, s2.as, s2.rs, Func.lateCfgPre s2.body⟩
+  ⟨(Fn.renorm ⟨s3.name, s3.as, s3.rs, Func.lateLoopRotate s3.body⟩).body⟩
+
+theorem Fn.midStage_eq (lt : LegalTarget) (ef : Fn) :
+    (Fn.midStage lt ef).body =
+      Func.renorm (Func.lateLoopRotate (Func.renorm (Func.lateCfgPre
+        (Func.renorm (Func.lateCorePost (Func.renorm (Func.lateCorePre
+          (Func.legal lt ef.body)))))))) := by
+  dsimp only [Fn.midStage, Fn.renorm, Fn.legal, Func.renorm]
+
+attribute [irreducible] Fn.midStage
+
+/-- Wrapper exposing `(ef.name, lt.legalSig ef.as, lt.legalSig ef.rs)` transparently while
+keeping `Fn.midStage` irreducible to tactics/elaboration. -/
+def Fn.midFromEarly (lt : LegalTarget) (ef : Fn) : Fn :=
+  ⟨ef.name, lt.legalSig ef.as, lt.legalSig ef.rs, (Fn.midStage lt ef).body⟩
+
 /-- Run the staged mid-end pipeline (`earlyOpt → Legal lt → lateOpt`) on a typed function,
-materializing the resulting `TFlat` body once so downstream traversals do not re-run it. -/
+materializing each stage boundary via `Fn.renorm`. -/
 def Fn.mid (lt : LegalTarget) (f : Fn) : Fn :=
-  let mf := ((f.earlyOpt).legal lt).lateOpt
-  ⟨mf.name, mf.as, mf.rs, let tf := reifyFunc mf.body; denoteFunc tf⟩
+  Fn.midFromEarly lt f.earlyOpt
 
 /-- Compute register-allocation / spill hints for `f.mid lt`. For meta/CLI hint splicing ONLY;
 never invoked inside `compileFn`, `compile`, or `compileModule`. -/
@@ -173,8 +201,7 @@ def compileModule (I : Isa) (lt : LegalTarget) (raBytes : Nat)
   | f :: fs, h :: hs =>
     let ef := f.earlyOpt
     if ef.body.supportsSource lt then
-      let mf0 := (ef.legal lt).lateOpt
-      let mf : Fn := ⟨mf0.name, mf0.as, mf0.rs, let tf := reifyFunc mf0.body; denoteFunc tf⟩
+      let mf := Fn.midFromEarly lt ef
       let ext := mf.ext
       match Rega.lowerFn I h ext mf,
             checkAndBoundExt I raBytes exits nX extCallees h ext with

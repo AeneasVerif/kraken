@@ -195,23 +195,6 @@ theorem Env.sound_scc_idx {ι : Type} (idx : RecIdx ι) {as bs : List Ty}
 
 /-! ## 2. Core Well-Founded Machine Linking (`compileScc_sound`) -/
 
-private theorem mid_pipeline_spec {lt : LegalTarget} {as rs : List Ty} (g : Func as rs)
-    (hg : g.Wf) (hsupp : (Func.earlyOpt g).supportsSource lt = true) (Γ : Env)
-    (xs : Tup Val as) (xs' : Tup Val (lt.legalSig as)) (hxs : encodeTup lt as xs = xs')
-    (m : Mem 64) (P : Post rs) (E : XPost)
-    (Q' : Post (lt.legalSig rs)) (X' : XPost)
-    (hQ : ∀ r m₁, legalPost lt P r m₁ → Q' r m₁)
-    (hX : ∀ f cs ys m₁, legalXPost lt E f cs ys m₁ → X' f cs ys m₁)
-    (hs : Func.spec Γ g xs m P E) :
-    Func.spec (legalEnv lt Γ) (Func.lateOpt (Func.legal lt (Func.earlyOpt g))) xs' m Q' X' := by
-  subst hxs
-  have hwf₁ : (Func.earlyOpt g).Wf := Func.earlyOpt_wf hg
-  have hopt : Func.spec Γ (Func.earlyOpt g) xs m P E := Func.earlyOpt_spec hg hs
-  have hleg := Func.legal_spec lt (Func.earlyOpt g) hwf₁ hsupp Γ xs m P E hopt
-  have hmono := Func.spec_mono (legalEnv lt Γ) (Func.legal lt (Func.earlyOpt g))
-    (encodeTup lt as xs) m (legalPost lt P) Q' (legalXPost lt E) X' hQ hX hleg
-  exact Func.lateOpt_spec (Func.legal_wf lt hwf₁) hmono
-
 private theorem defined_of_lowerFn {T : Target} {host : T.mach.Host}
     {hints : T.toIsa.Hints} {E : Rega.Ext} {f : Fn} {code : List T.Directive} {k₀ : Nat}
     (hl : Rega.lowerFn T.toIsa hints E f = .ok code)
@@ -278,6 +261,21 @@ private theorem fnSpec_of_spec_scc {T : Target} {h : T.mach.Host} {sym : Sym} {a
     (hf : T.FnSpec h sym spec₁ n nX) : T.FnSpec h sym spec₂ n nX :=
   fun args m Q X hs => hf args m Q X (him args m Q X hs)
 
+private theorem legalEnv_onlyFn_elim {lt : LegalTarget} {f : Fn} (Γ : Env)
+    {xs' : Tup Val (lt.legalSig f.as)} {m : Mem 64}
+    {Q' : Post (lt.legalSig f.rs)} {X' : XPost}
+    (h : legalEnv lt (Env.onlyFn f Γ) f.name (lt.legalSig f.as) (lt.legalSig f.rs)
+      xs' m Q' X') :
+    ∃ (xs : Tup Val f.as) (P : Post f.rs) (E' : XPost),
+      encodeTup lt f.as xs = xs' ∧ (∀ r m₁, legalPost lt P r m₁ → Q' r m₁) ∧
+      (∀ g cs ys m₁, legalXPost lt E' g cs ys m₁ → X' g cs ys m₁) ∧
+      Γ f.name f.as f.rs xs m P E' := by
+  rcases h with ⟨as, bs, has, hbs, xs, P, E', hxs, hQ, hX, _, ha, hb, hΓ⟩
+  subst ha; subst hb
+  refine ⟨xs, P, E', ?_, ?_, hX, hΓ⟩
+  · simpa only [cast_eq] using hxs
+  · intro r m₁ hp; have := hQ r m₁ hp; rwa [cast_eq] at this
+
 private theorem compileFn_stepIdx_mid {ι : Type} {idx : RecIdx ι} {lt : LegalTarget} {f : Fn}
     (hwf : f.Wf) (hsupp : (f.earlyOpt).body.supportsSource lt = true)
     (recSigs extSigs : List SigEntry) (Γrec : ι → Env) (Γext : Env) (strict : Bool) (i : ι)
@@ -287,15 +285,15 @@ private theorem compileFn_stepIdx_mid {ι : Type} {idx : RecIdx ι} {lt : LegalT
       legalEnv lt (Env.onlyFn f (Γrec i)) f.name (lt.legalSig f.as) (lt.legalSig f.rs)
         xs' m Q' X' →
       Func.spec (legalEnv lt (Env.stepIdx idx recSigs extSigs Γrec Γext strict i))
-        (Func.lateOpt (Func.legal lt (Func.earlyOpt f.body))) xs' m Q' X' := by
-  intro xs' m Q' X' ⟨as, bs, has, hbs, xs, P, E', hxs, hQ, hX, _, ha, hb, hΓ⟩
-  subst ha; subst hb
-  have hxs' : encodeTup lt f.as xs = xs' := by simpa only [cast_eq] using hxs
-  have hQ' : ∀ r m₁, legalPost lt P r m₁ → Q' r m₁ := fun r m₁ hp => by
-    have := hQ r m₁ hp; rwa [cast_eq] at this
-  exact mid_pipeline_spec f.body hwf hsupp
-    (Env.stepIdx idx recSigs extSigs Γrec Γext strict i)
-    xs xs' hxs' m P E' Q' X' hQ' hX (hsound xs m P E' hΓ)
+        (f.mid lt).body xs' m Q' X' := by
+  intro xs' m Q' X' h
+  have hel := legalEnv_onlyFn_elim (Γrec i) h
+  exact @fn_mid_spec lt f hwf hsupp (Env.stepIdx idx recSigs extSigs Γrec Γext strict i)
+    hel.choose xs' hel.choose_spec.choose_spec.choose_spec.1 m
+    hel.choose_spec.choose hel.choose_spec.choose_spec.choose Q' X'
+    hel.choose_spec.choose_spec.choose_spec.2.1
+    hel.choose_spec.choose_spec.choose_spec.2.2.1
+    (hsound _ m _ _ hel.choose_spec.choose_spec.choose_spec.2.2.2)
 
 private theorem compileFn_correct_stepIdx {ι : Type} (idx : RecIdx ι) (T : Target)
     (host : T.mach.Host) (lt : LegalTarget) (hints : T.toIsa.Hints) (E : Rega.Ext) (f : Fn)
@@ -316,10 +314,7 @@ private theorem compileFn_correct_stepIdx {ι : Type} (idx : RecIdx ι) (T : Tar
       (legalEnv lt (Env.onlyFn f (Γrec i)) f.name (lt.legalSig f.as) (lt.legalSig f.rs))
       n nX :=
   fnSpec_of_spec_scc
-    (fun args m Q X h =>
-      fn_mid_spec_of_lateOpt hwf
-        (legalEnv lt (Env.stepIdx idx recSigs extSigs Γrec Γext strict i))
-        (compileFn_stepIdx_mid hwf hsupp recSigs extSigs Γrec Γext strict i hsound args m Q X h))
+    (compileFn_stepIdx_mid hwf hsupp recSigs extSigs Γrec Γext strict i hsound)
     (Rega.lowerFn_correct T host hints E (f.mid lt)
       (legalEnv lt (Env.stepIdx idx recSigs extSigs Γrec Γext strict i)) n nX bound
       (fn_mid_wf hwf) hl hc hu (Nat.le_trans (Rega.effFrame_le T.toIsa hints E) hfr) hn

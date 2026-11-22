@@ -114,8 +114,7 @@ before lowering, eliminating duplicate `earlyOpt` kernel reduction for `.recSCC`
   | f :: fs, h :: hs =>
     let ef := f.earlyOpt
     if ef.body.supportsSource lt then
-      let mf0 := (ef.legal lt).lateOpt
-      let mf : Fn := ⟨mf0.name, mf0.as, mf0.rs, let tf := reifyFunc mf0.body; denoteFunc tf⟩
+      let mf := Fn.midFromEarly lt ef
       let ext := mf.ext
       match Rega.lowerFn I h ext mf,
             checkAndBoundRecExt I raBytes recSigs extCallees exits nX h ext with
@@ -226,8 +225,7 @@ before lowering, eliminating duplicate `earlyOpt` kernel reduction for `.recBudg
     let f := bfn.toFn
     let ef := f.earlyOpt
     if ef.body.supportsSource lt then
-      let mf0 := (ef.legal lt).lateOpt
-      let mf : Fn := ⟨mf0.name, mf0.as, mf0.rs, let tf := reifyFunc mf0.body; denoteFunc tf⟩
+      let mf := Fn.midFromEarly lt ef
       let ext := mf.ext
       match Rega.lowerFn I h ext mf,
             checkAndBoundBudgetRecExt I raBytes recSigs extCallees exits nX h ext bfn with

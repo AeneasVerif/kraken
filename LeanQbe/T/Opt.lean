@@ -143,17 +143,37 @@ def Func.earlyOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.renorm (Func.dceP (Func.fold (Func.copy (Func.zeroPeelWith { peelBudget := 24 }
     (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore f)) 24)))))
 
+/-- Post-`Legal` pre-`renorm` value core (`fold → canon → divConst → copy`). -/
+def Func.lateCorePre {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  Func.copy (Func.divConst (Func.canon (Func.fold f)))
+
+/-- Post-`Legal` post-`renorm` memory/known-bits core (`memLoad → gvn → assumeBits → fold`). -/
+def Func.lateCorePost {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  Func.fold (Func.assumeBits (Func.gvn (Func.memLoad f)))
+
 /-- Post-`Legal` value/memory optimization core (`fold → canon → divConst → copy → renorm →
 memLoad → gvn → assumeBits → fold`). -/
 def Func.lateCore {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.fold (Func.assumeBits (Func.gvn (Func.memLoad (Func.renorm (Func.copy
-    (Func.divConst (Func.canon (Func.fold f))))))))
+  Func.lateCorePost (Func.renorm (Func.lateCorePre f))
+
+/-- Post-`Legal` CFG/cleanup pre-`licm` core (`ifOptBits → simplifyGroupFast → deadLoadElim →
+assumeElim → fold → gvn`). -/
+def Func.lateCfgPre {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  Func.gvn (Func.fold (Func.assumeElim (Func.deadLoadElim
+    (Func.simplifyGroupFast (Func.ifOptBits f)))))
+
+/-- Post-`Legal` CFG/cleanup post-`licm` core (`licm → dceP`). -/
+def Func.lateCfgPost {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  Func.dceP (Func.licm f)
+
+/-- Post-`Legal` tail (`licm → dceP → loopRotate`) prior to final renormalization. -/
+def Func.lateLoopRotate {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  Func.loopRotate (Func.lateCfgPost f)
 
 /-- Post-`Legal` CFG/cleanup core (`renorm → ifOptBits → simplifyGroupFast → deadLoadElim →
 assumeElim → fold → gvn → renorm → licm → dceP`). -/
 def Func.lateCfg {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.dceP (Func.licm (Func.renorm (Func.gvn (Func.fold (Func.assumeElim
-    (Func.deadLoadElim (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f)))))))))
+  Func.lateCfgPost (Func.renorm (Func.lateCfgPre (Func.renorm f)))
 
 /-- Stage 2 (`lateOpt`, post-`Legal`): strength-reduce constant division, forward memory loads,
 run machine-width `.bits` if-conversion (`ifOptBits`), clean up dead loads/blocks, hoist
@@ -188,10 +208,32 @@ theorem Func.earlyOpt_eq {as rs : List Ty} (f : Func as rs) :
         (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore f)) 24))))) :=
   rfl
 
+theorem Func.lateCorePre_eq {as rs : List Ty} (f : Func as rs) :
+    Func.lateCorePre f = Func.copy (Func.divConst (Func.canon (Func.fold f))) :=
+  rfl
+
+theorem Func.lateCorePost_eq {as rs : List Ty} (f : Func as rs) :
+    Func.lateCorePost f = Func.fold (Func.assumeBits (Func.gvn (Func.memLoad f))) :=
+  rfl
+
 theorem Func.lateCore_eq {as rs : List Ty} (f : Func as rs) :
     Func.lateCore f =
       Func.fold (Func.assumeBits (Func.gvn (Func.memLoad (Func.renorm (Func.copy
         (Func.divConst (Func.canon (Func.fold f)))))))) :=
+  rfl
+
+theorem Func.lateCfgPre_eq {as rs : List Ty} (f : Func as rs) :
+    Func.lateCfgPre f =
+      Func.gvn (Func.fold (Func.assumeElim (Func.deadLoadElim
+        (Func.simplifyGroupFast (Func.ifOptBits f))))) :=
+  rfl
+
+theorem Func.lateCfgPost_eq {as rs : List Ty} (f : Func as rs) :
+    Func.lateCfgPost f = Func.dceP (Func.licm f) :=
+  rfl
+
+theorem Func.lateLoopRotate_eq {as rs : List Ty} (f : Func as rs) :
+    Func.lateLoopRotate f = Func.loopRotate (Func.lateCfgPost f) :=
   rfl
 
 theorem Func.lateCfg_eq {as rs : List Ty} (f : Func as rs) :
@@ -205,7 +247,10 @@ theorem Func.lateOpt_eq {as rs : List Ty} (f : Func as rs) :
   rfl
 
 attribute [irreducible] Func.simplifyGroupFast Func.peelFast
-attribute [irreducible] Func.earlyCore Func.earlyOpt Func.lateCore Func.lateCfg Func.lateOpt
+attribute [irreducible] Func.earlyCore Func.earlyOpt
+attribute [irreducible] Func.lateCorePre Func.lateCorePost Func.lateCore
+attribute [irreducible] Func.lateCfgPre Func.lateCfgPost Func.lateLoopRotate
+attribute [irreducible] Func.lateCfg Func.lateOpt
 
 /-- Renormalize a named function's body to flat canonical AST form once, preserving metadata. -/
 def Fn.renorm (fn : Fn) : Fn :=
