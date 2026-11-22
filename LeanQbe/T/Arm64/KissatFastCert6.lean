@@ -23,18 +23,8 @@ namespace LeanQbe.T.Arm64.KissatFastCert6
 
 open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Examples.Kissat.FullFast
 
-/-- Exported stack bounds for `[0, 122)` verified against `cert1..5` by `KissatFastCert`. -/
-def slice5Bounds : List Nat :=
-  [16, 16, 48, 64, 80, 112, 112, 160, 16, 16, 16, 16, 16, 16, 80, 176, 16, 32, 32, 64, 16, 48,
-   32, 16, 64, 16, 16, 16, 32, 16, 144, 240, 16, 80, 16, 16, 16, 64, 16, 16, 80, 192, 144, 304,
-   352, 16, 16, 464, 512, 528, 16, 16, 16, 80, 128, 16, 16, 112, 208, 288, 432, 624, 16, 80, 16,
-   112, 288, 256, 16, 16, 112, 16, 80, 128, 144, 336, 416, 16, 272, 416, 64, 688, 736, 112, 128,
-   576, 64, 16, 96, 208, 256, 64, 16, 160, 16, 16, 16, 16, 224, 16, 48, 16, 176, 832, 96, 896,
-   32, 368, 400, 576, 832, 896, 320, 576, 336, 16, 80, 336, 608, 688, 16, 160]
-
-/-- Exported callee signatures and stack bounds for prefix `[0, 122)`. -/
-def ext5 : List (SigEntry × Nat) :=
-  (fastFns.take 122).zipWith (fun f b => (⟨f.name, f.as, f.rs⟩, b)) slice5Bounds
+-- Auto-computed callee signatures and stack bounds for prefix.
+eval_prefix_ext! ext5 armTarget armLegalTarget (fastFns.take 122)
 
 /-- Slice 6 sub-module (`[122, 144)`, `22` functions). -/
 def slice6Mod : Module := { fns := (fastFns.drop 122).take 22 }

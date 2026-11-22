@@ -23,18 +23,8 @@ namespace LeanQbe.T.Arm64.KissatFastSchedCert5
 
 open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Examples.Kissat.FullFastSched
 
-/-- Exported stack bounds for `[0, 107)` verified against `cert1..4` by
-`KissatFastSchedCert`. -/
-def slice4Bounds : List Nat :=
-  [16, 16, 48, 64, 80, 112, 112, 160, 16, 16, 16, 16, 16, 16, 80, 176, 16, 32, 32, 64, 16, 48,
-   32, 16, 64, 16, 16, 16, 32, 16, 144, 240, 16, 80, 16, 16, 16, 64, 16, 16, 80, 192, 144, 304,
-   352, 16, 16, 368, 400, 416, 16, 16, 16, 80, 128, 16, 16, 112, 208, 288, 432, 528, 16, 80, 16,
-   112, 288, 256, 16, 16, 112, 16, 80, 128, 144, 336, 416, 16, 272, 416, 64, 592, 640, 112, 128,
-   464, 64, 16, 96, 208, 256, 64, 16, 160, 16, 16, 16, 16, 224, 16, 48, 16, 176, 736, 96, 800, 32]
-
-/-- Exported callee signatures and stack bounds for prefix `[0, 107)`. -/
-def ext4 : List (SigEntry × Nat) :=
-  (schedSplicedFns.take 107).zipWith (fun f b => (⟨f.name, f.as, f.rs⟩, b)) slice4Bounds
+-- Auto-computed callee signatures and stack bounds for prefix.
+eval_prefix_ext! ext4 armTarget armLegalTarget (schedSplicedFns.take 107)
 
 /-- Slice 5 sub-module (`[107, 130)`, `23` functions). -/
 def slice5Mod : Module := { fns := (schedSplicedFns.drop 107).take 23 }

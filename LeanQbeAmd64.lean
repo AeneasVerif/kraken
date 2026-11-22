@@ -32,10 +32,12 @@ public import LeanQbe.T.Amd64.KissatPlainCert5
 public import LeanQbe.T.Amd64.KissatPlainCert6
 public import LeanQbe.T.Amd64.KissatPlainCert
 public import LeanQbe.T.Amd64.KissatPlain
+public import LeanQbe.T.Amd64.KissatM3Bounds
 public import LeanQbe.T.Amd64.KissatM3Cert1a
 public import LeanQbe.T.Amd64.KissatM3Cert1b
 public import LeanQbe.T.Amd64.KissatM3Cert1c
-public import LeanQbe.T.Amd64.KissatM3Cert2
+public import LeanQbe.T.Amd64.KissatM3Cert2a
+public import LeanQbe.T.Amd64.KissatM3Cert2b
 public import LeanQbe.T.Amd64.KissatM3Cert3
 public import LeanQbe.T.Amd64.KissatM3Cert4
 public import LeanQbe.T.Amd64.KissatM3Cert5
@@ -50,7 +52,8 @@ public import LeanQbe.T.Amd64.KissatM3Cert13
 public import LeanQbe.T.Amd64.KissatM3Cert14
 public import LeanQbe.T.Amd64.KissatM3Cert15
 public import LeanQbe.T.Amd64.KissatM3Cert16
-public import LeanQbe.T.Amd64.KissatM3Cert17
+public import LeanQbe.T.Amd64.KissatM3Cert17a
+public import LeanQbe.T.Amd64.KissatM3Cert17b
 public import LeanQbe.T.Amd64.KissatM3Cert
 public import LeanQbe.T.Amd64.KissatM3
 public import LeanQbe.T.Amd64.DebugAsm

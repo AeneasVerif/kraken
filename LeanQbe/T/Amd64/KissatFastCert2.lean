@@ -23,14 +23,8 @@ namespace LeanQbe.T.Amd64.KissatFastCert2
 
 open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Examples.Kissat.FullFast
 
-/-- Exported stack bounds for `[0, 36)` verified against `cert1..1` by `KissatFastCert`. -/
-def slice1Bounds : List Nat :=
-  [8, 8, 40, 56, 72, 104, 104, 152, 8, 8, 8, 8, 8, 8, 72, 168, 40, 88, 56, 120, 8, 72, 24, 8, 88,
-   8, 8, 56, 72, 24, 168, 232, 56, 152, 8, 8]
-
-/-- Exported callee signatures and stack bounds for prefix `[0, 36)`. -/
-def ext1 : List (SigEntry × Nat) :=
-  (fastFns.take 36).zipWith (fun f b => (⟨f.name, f.as, f.rs⟩, b)) slice1Bounds
+-- Auto-computed callee signatures and stack bounds for prefix.
+eval_prefix_ext! ext1 x64Target x64LegalTarget (fastFns.take 36)
 
 /-- Slice 2 sub-module (`[36, 56)`, `20` functions). -/
 def slice2Mod : Module := { fns := (fastFns.drop 36).take 20 }

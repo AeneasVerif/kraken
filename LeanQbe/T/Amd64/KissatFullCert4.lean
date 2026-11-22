@@ -23,16 +23,8 @@ namespace LeanQbe.T.Amd64.KissatFullCert4
 
 open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Examples.Kissat.Full
 
-/-- Exported stack bounds for `[0, 88)` verified against `cert1..3` by `KissatFullCert`. -/
-def slice3Bounds : List Nat :=
-  [8, 8, 40, 56, 72, 104, 104, 152, 8, 8, 8, 8, 8, 8, 72, 168, 40, 88, 56, 120, 8, 72, 24, 8, 88,
-   8, 8, 56, 72, 24, 168, 232, 56, 152, 8, 8, 8, 56, 8, 8, 72, 232, 136, 296, 344, 24, 8, 376,
-   408, 424, 24, 40, 8, 72, 120, 8, 40, 168, 232, 280, 424, 520, 40, 104, 8, 200, 280, 248, 8, 8,
-   120, 8, 72, 120, 152, 360, 440, 8, 264, 408, 120, 584, 632, 168, 184, 472, 88, 8]
-
-/-- Exported callee signatures and stack bounds for prefix `[0, 88)`. -/
-def ext3 : List (SigEntry × Nat) :=
-  (fullFns.take 88).zipWith (fun f b => (⟨f.name, f.as, f.rs⟩, b)) slice3Bounds
+-- Auto-computed callee signatures and stack bounds for prefix.
+eval_prefix_ext! ext3 x64Target x64LegalTarget (fullFns.take 88)
 
 /-- Slice 4 sub-module (`[88, 111)`, `23` functions). -/
 def slice4Mod : Module := { fns := (fullFns.drop 88).take 23 }

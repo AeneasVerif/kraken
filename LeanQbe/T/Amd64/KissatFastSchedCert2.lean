@@ -23,15 +23,8 @@ namespace LeanQbe.T.Amd64.KissatFastSchedCert2
 
 open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Examples.Kissat.FullFastSched
 
-/-- Exported stack bounds for `[0, 38)` verified against `cert1` by
-`KissatFastSchedCert`. -/
-def slice1Bounds : List Nat :=
-  [8, 8, 40, 56, 72, 104, 104, 152, 8, 8, 8, 8, 8, 8, 72, 168, 40, 88, 56, 120, 8, 72, 24, 8, 88,
-   8, 8, 56, 72, 24, 168, 232, 56, 152, 8, 8, 8, 56]
-
-/-- Exported callee signatures and stack bounds for prefix `[0, 38)`. -/
-def ext1 : List (SigEntry × Nat) :=
-  (schedSplicedFns.take 38).zipWith (fun f b => (⟨f.name, f.as, f.rs⟩, b)) slice1Bounds
+-- Auto-computed callee signatures and stack bounds for prefix.
+eval_prefix_ext! ext1 x64Target x64LegalTarget (schedSplicedFns.take 38)
 
 /-- Slice 2 sub-module (`[38, 61)`, `23` functions). -/
 def slice2Mod : Module := { fns := (schedSplicedFns.drop 38).take 23 }

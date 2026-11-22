@@ -23,21 +23,8 @@ namespace LeanQbe.T.Amd64.KissatFastCert9
 
 open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Examples.Kissat.FullFast
 
-/-- Exported stack bounds for `[0, 184)` verified against `cert1..8` by `KissatFastCert`. -/
-def slice8Bounds : List Nat :=
-  [8, 8, 40, 56, 72, 104, 104, 152, 8, 8, 8, 8, 8, 8, 72, 168, 40, 88, 56, 120, 8, 72, 24, 8, 88,
-   8, 8, 56, 72, 24, 168, 232, 56, 152, 8, 8, 8, 56, 8, 8, 72, 232, 136, 296, 344, 24, 8, 504,
-   552, 568, 24, 40, 8, 72, 120, 8, 40, 184, 232, 280, 424, 664, 40, 104, 8, 200, 280, 248, 8, 8,
-   120, 8, 72, 120, 152, 360, 440, 8, 264, 408, 120, 728, 776, 168, 184, 616, 88, 8, 88, 200,
-   248, 136, 8, 200, 8, 24, 8, 8, 216, 40, 72, 8, 200, 872, 88, 936, 104, 360, 392, 616, 872,
-   936, 376, 616, 328, 24, 152, 328, 648, 728, 72, 248, 632, 344, 344, 664, 648, 600, 8, 8, 56,
-   8, 8, 8, 56, 152, 40, 104, 24, 200, 24, 56, 72, 8, 264, 88, 8, 200, 8, 296, 440, 440, 488,
-   232, 24, 376, 440, 280, 408, 472, 40, 56, 392, 472, 72, 152, 56, 312, 8, 632, 88, 104, 264,
-   392, 24, 200, 520, 184, 408, 616, 40, 56, 744, 24]
-
-/-- Exported callee signatures and stack bounds for prefix `[0, 184)`. -/
-def ext8 : List (SigEntry × Nat) :=
-  (fastFns.take 184).zipWith (fun f b => (⟨f.name, f.as, f.rs⟩, b)) slice8Bounds
+-- Auto-computed callee signatures and stack bounds for prefix.
+eval_prefix_ext! ext8 x64Target x64LegalTarget (fastFns.take 184)
 
 /-- Slice 9 sub-module (`[184, 196)`, `12` functions). -/
 def slice9Mod : Module := { fns := fastFns.drop 184 }

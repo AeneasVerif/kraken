@@ -84,14 +84,8 @@ def prefCert :
   maxBound_le :=
     Nat.le_trans (chunksMaxBound_take_le 10 _) KissatFullCert1.cert1.maxBound_le
 
-/-- Exported stack bounds for `[0, 34)` verified against `prefCert`. -/
-def slice34Bounds : List Nat :=
-  [8, 8, 40, 56, 72, 104, 104, 152, 8, 8, 8, 8, 8, 8, 72, 168, 40, 88, 56, 120, 8, 72, 24, 8, 88,
-   8, 8, 56, 72, 24, 168, 232, 56, 152]
-
-/-- Exported callee signatures and stack bounds for prefix `[0, 34)`. -/
-def ext34 : List (SigEntry × Nat) :=
-  (fastFns.take 34).zipWith (fun f b => (⟨f.name, f.as, f.rs⟩, b)) slice34Bounds
+-- Auto-computed callee signatures and stack bounds for prefix.
+eval_prefix_ext! ext34 x64Target x64LegalTarget (fastFns.take 34)
 
 compile_linked_chunks! tailCert x64Target x64Layout x64LegalTarget x64LabelClean
   tail1Mod 2 (ext := ext34) (maxDirs := 450)
