@@ -45,6 +45,8 @@ public import LeanQbe.T.Examples.Kissat.FullM5SchedLemmas
 public import LeanQbe.T.Examples.Kissat.FullM6BcpS15
 public import LeanQbe.T.Examples.Kissat.FullM6BcpS15Proof
 public import LeanQbe.T.Examples.Kissat.FullM6BcpS15Proof1
+public import LeanQbe.T.Examples.Kissat.FullM6BvaNoHops
+public import LeanQbe.T.Examples.Kissat.FullM6BvaNoHopsProof
 public import LeanQbe.T.Examples.Kissat.FullM6BveFwd
 public import LeanQbe.T.Examples.Kissat.FullM6BveFwdProof
 public import LeanQbe.T.Examples.Kissat.FullM6BveFwdProof1
