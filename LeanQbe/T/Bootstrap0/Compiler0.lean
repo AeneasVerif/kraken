@@ -832,7 +832,9 @@ structure RegaSt0 where
   remUses : Array Nat
   revDirs : List Dir0
 
-/-- Compact 3-field control/label state passed only where blocks/labels change. -/
+/-- Compact 3-field control/label state passed only where blocks/labels change. Invariant:
+`lblSlots.size = nextLbl`, with `lblSlots[l]` the parameter slots of label `l` (`[]` for the
+entry and `.jnz` labels). -/
 structure CtrlSt0 where
   fnIdx : UInt32
   nextLbl : UInt32
@@ -1196,11 +1198,13 @@ def jnzPrep0 (esc : Array Nat) (c : Arg0) (cur : RegaTask0) (st : RegaSt0)
   let r1 := releaseArg0 esc st.vslot cur.venv (RelRes0.mk st.remUses cur.freeSlots) c
   (r1, d2)
 
-/-- Wrap `jnzPrep0` results into `JnzRes0` with updated `st` and `ctrl` (`3` args). -/
+/-- Wrap `jnzPrep0` results into `JnzRes0` with updated `st` and `ctrl` (`3` args). The fresh
+`.jnz` label gets an empty `lblSlots` entry so `lblSlots` stays indexed by label id (`.group`
+labels allocated afterwards must land at index `lbl` for `emitJump0`). -/
 def jnzWrapRes0 (rd : RelRes0 × List Dir0) (st : RegaSt0) (ctrl : CtrlSt0) : JnzRes0 :=
   let lblT := ctrl.nextLbl
   let st2 : RegaSt0 := { st with remUses := rd.1.remUses, revDirs := rd.2 }
-  let ctrl2 : CtrlSt0 := { ctrl with nextLbl := lblT + 1 }
+  let ctrl2 : CtrlSt0 := { ctrl with nextLbl := lblT + 1, lblSlots := ctrl.lblSlots.push [] }
   JnzRes0.mk st2 ctrl2 lblT rd.1.free
 
 /-- Build `JnzRes0` updating `st` and `ctrl` for `.jnz` (`5` args). -/

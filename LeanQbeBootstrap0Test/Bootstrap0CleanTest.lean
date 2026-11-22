@@ -28,7 +28,8 @@ Verifies that `leanqbe0Compile` (general `TFlatModule0 → CompileRes0`):
    IR (`leanqbe0Tfs.take 15` to AT&T, all `124` functions to `Dir0`) into valid x86-64 assembly, and
    rejects malformed IR cleanly.
 4. Regression witnesses: multi-block `.group`s (`PrePass0` and `Rega0` must number `vid`s in the
-   same block order; exact `Dir0` pin plus reference execution) and `.un .neg .bool` rejection.
+   same block order; exact `Dir0` pin plus reference execution), `.jump`s into `.group`s opened
+   after a `.jnz` (`lblSlots` must stay indexed by label id), and `.un .neg .bool` rejection.
 -/
 
 set_option autoImplicit false
@@ -289,6 +290,49 @@ private def runMod0 (m : TFlatModule0) (a0 a1 a2 : UInt64) : Option UInt64 :=
 #guard runMod0 group3Mod0 1 1 10 == some 11
 #guard runMod0 group3Mod0 0 1 10 == some 12
 #guard runMod0 group3Mod0 0 0 10 == some 26
+
+/-! ## Regression: `.jump` into a `.group` opened after a `.jnz` (`lblSlots` indexing) -/
+
+/-- `jnzGroup(c, a, b) = if c then b else a`: the else-arm opens a `.group` after the `.jnz` label
+was allocated, then enters it with a `1`-argument `.jump` (whose parameter move must be emitted). -/
+def jnzGroupFn0 : TFlatFn0 :=
+  { name := 0
+    as := [.bool, .b64, .b64]
+    rs := [.b64]
+    body :=
+      .jnz (.var 2) (.ret [.var 0]) <|
+        .group [([.b64], .ret [.var 0])] <|
+          .jump 0 [.var 1] }
+
+/-- Single-function module for `jnzGroupFn0`. -/
+def jnzGroupMod0 : TFlatModule0 := { fns := [jnzGroupFn0], externs := [], exits := [] }
+
+/-- `jnzGroup2(c1, c2, a) = if c1 then a else if c2 then a - 3 else 30 - a`: a `2`-parameter
+`.group` opened after one `.jnz` and entered by multi-argument `.jump`s from both arms of a second
+`.jnz` (the staged moves must target the block's own parameter slots, in order). -/
+def jnzGroup2Fn0 : TFlatFn0 :=
+  { name := 0
+    as := [.bool, .bool, .b64]
+    rs := [.b64]
+    body :=
+      let blk : TFlat0 :=
+        .let1 (.bin .sub .b64) [.var 1, .var 0] <|
+          .ret [.var 0]
+      .jnz (.var 2) (.ret [.var 0]) <|
+        .group [([.b64, .b64], blk)] <|
+          .jnz (.var 1)
+            (.jump 0 [.var 0, .immBits .W64 3])
+            (.jump 0 [.immBits .W64 30, .var 0]) }
+
+/-- Single-function module for `jnzGroup2Fn0`. -/
+def jnzGroup2Mod0 : TFlatModule0 := { fns := [jnzGroup2Fn0], externs := [], exits := [] }
+
+#guard runMod0 jnzGroupMod0 1 5 7 == some 7
+#guard runMod0 jnzGroupMod0 0 5 7 == some 5
+#guard runMod0 jnzGroup2Mod0 1 0 10 == some 10
+#guard runMod0 jnzGroup2Mod0 1 1 10 == some 10
+#guard runMod0 jnzGroup2Mod0 0 1 10 == some 7
+#guard runMod0 jnzGroup2Mod0 0 0 10 == some 20
 
 /-! ## Regression: `.un .neg .bool` is rejected by `checkOpArith0` -/
 
