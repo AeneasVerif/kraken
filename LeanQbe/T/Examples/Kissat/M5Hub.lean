@@ -90,6 +90,8 @@ public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof3a
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof3b
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof3b1
 public import LeanQbe.T.Examples.Kissat.FullM6ProofUtil
+public import LeanQbe.T.Examples.Kissat.FullM6SatNv
+public import LeanQbe.T.Examples.Kissat.FullM6SatSound
 public import LeanQbe.T.Examples.Kissat.FullM6Tiers
 public import LeanQbe.T.Examples.Kissat.FullM6TiersProof
 public import LeanQbe.T.Examples.Kissat.FullM6TiersProof0
@@ -111,6 +113,16 @@ public import LeanQbe.T.Examples.Kissat.FullM6WalkParseLemmas
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof1
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof2
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof3
+public import LeanQbe.T.Examples.Kissat.FullM6WatchGc
+public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof
+public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof1
+public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof1b
+public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof2
+public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof2a
+public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof2b
+public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof2c
+public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof2d
+public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProofWatch
 public import LeanQbe.T.Examples.Kissat.FullM7Reorder
 public import LeanQbe.T.Examples.Kissat.FullM7ReorderProof
 
