@@ -40,6 +40,11 @@ public import LeanQbe.T.Examples.Kissat.FullM6CompactFlush
 public import LeanQbe.T.Examples.Kissat.FullM6CompactFlushLemmas
 public import LeanQbe.T.Examples.Kissat.FullM6CompactFlushProof1
 public import LeanQbe.T.Examples.Kissat.FullM6CompactFlushProof2
+public import LeanQbe.T.Examples.Kissat.FullM6Tiers
+public import LeanQbe.T.Examples.Kissat.FullM6TiersProof
+public import LeanQbe.T.Examples.Kissat.FullM6TiersProof0
+public import LeanQbe.T.Examples.Kissat.FullM6TiersProof1a
+public import LeanQbe.T.Examples.Kissat.FullM6TiersProof1b
 
 set_option autoImplicit false
 
