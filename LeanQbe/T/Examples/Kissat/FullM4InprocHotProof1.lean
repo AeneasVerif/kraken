@@ -12,8 +12,6 @@ Proves `full_kitten_init_m4_wp` under exact `Full.fullKittenInitSpec`
 
 set_option autoImplicit false
 
-@[expose] public section
-
 namespace LeanQbe.T.Examples.Kissat.FullM4InprocHot
 
 open Std Std.Sat Std.ExtHashMap
@@ -84,7 +82,7 @@ private theorem InitM4ScalarState.putArr {nv ta ac : BitVec 32} {st : KittenStat
   cases f <;> exact ⟨h.nv, h.nc, h.orig_nc, h.lvl, h.prop, h.trl_end, h.unass, h.acap,
     h.alen, h.incons, h.failing, h.ante, h.nassump, h.nunits, h.nres, h.nkl, h.nana⟩
 
-private def kPutArr64 (ks : KittenState) (f : KArrField) (idx : Nat) (v : BitVec 64) :
+private noncomputable def kPutArr64 (ks : KittenState) (f : KArrField) (idx : Nat) (v : BitVec 64) :
     KittenState :=
   (ks.putArr f (2 * idx) (v.setWidth 32)).putArr f (2 * idx + 1) ((v >>> 32).setWidth 32)
 
@@ -123,9 +121,7 @@ private theorem store_ka64_lvlArr {kPtr : BitVec 64} {acap : Nat} {ks : KittenSt
       (KittenMemA kPtr acap (kPutArr64 ks .lvlArr idx v) ⋆ R)
         (storeMem m i64 (kPtr + 128#64 + BitVec.ofNat 64 (8 * idx)) v) :=
   kArrPut64_gen (kPath 1) 128#64 ks.lvlArr .lvlArr v (by rw [hsh.lvlArr_len]; exact hi) hsh
-    (by simp only [KittenTree, kPath, SepTree.get])
-    (by simp only [KittenMem, KittenTree, kPath, SepTree.set, SepTree.eval, kittenHdrWords,
-      kPutArr64, KittenState.putArr]) hm
+    rfl rfl hm
 
 private theorem store_ka64_rsn {kPtr : BitVec 64} {acap : Nat} {ks : KittenState}
     (v : BitVec 64) {idx : Nat} (hi : 2 * idx + 1 < 128) (hsh : ks.ShapesOk acap)
@@ -134,9 +130,7 @@ private theorem store_ka64_rsn {kPtr : BitVec 64} {acap : Nat} {ks : KittenState
       (KittenMemA kPtr acap (kPutArr64 ks .rsn idx v) ⋆ R)
         (storeMem m i64 (kPtr + 640#64 + BitVec.ofNat 64 (8 * idx)) v) :=
   kArrPut64_gen (kPath 2) 640#64 ks.rsn .rsn v (by rw [hsh.rsn_len]; exact hi) hsh
-    (by simp only [KittenTree, kPath, SepTree.get])
-    (by simp only [KittenMem, KittenTree, kPath, SepTree.set, SepTree.eval, kittenHdrWords,
-      kPutArr64, KittenState.putArr]) hm
+    rfl rfl hm
 
 private theorem store_ka64_qprev {kPtr : BitVec 64} {acap : Nat} {ks : KittenState}
     (v : BitVec 64) {idx : Nat} (hi : 2 * idx + 1 < 128) (hsh : ks.ShapesOk acap)
@@ -145,9 +139,7 @@ private theorem store_ka64_qprev {kPtr : BitVec 64} {acap : Nat} {ks : KittenSta
       (KittenMemA kPtr acap (kPutArr64 ks .qprev idx v) ⋆ R)
         (storeMem m i64 (kPtr + 1152#64 + BitVec.ofNat 64 (8 * idx)) v) :=
   kArrPut64_gen (kPath 3) 1152#64 ks.qprev .qprev v (by rw [hsh.qprev_len]; exact hi) hsh
-    (by simp only [KittenTree, kPath, SepTree.get])
-    (by simp only [KittenMem, KittenTree, kPath, SepTree.set, SepTree.eval, kittenHdrWords,
-      kPutArr64, KittenState.putArr]) hm
+    rfl rfl hm
 
 private theorem store_ka64_qnext {kPtr : BitVec 64} {acap : Nat} {ks : KittenState}
     (v : BitVec 64) {idx : Nat} (hi : 2 * idx + 1 < 128) (hsh : ks.ShapesOk acap)
@@ -156,9 +148,7 @@ private theorem store_ka64_qnext {kPtr : BitVec 64} {acap : Nat} {ks : KittenSta
       (KittenMemA kPtr acap (kPutArr64 ks .qnext idx v) ⋆ R)
         (storeMem m i64 (kPtr + 1664#64 + BitVec.ofNat 64 (8 * idx)) v) :=
   kArrPut64_gen (kPath 4) 1664#64 ks.qnext .qnext v (by rw [hsh.qnext_len]; exact hi) hsh
-    (by simp only [KittenTree, kPath, SepTree.get])
-    (by simp only [KittenMem, KittenTree, kPath, SepTree.set, SepTree.eval, kittenHdrWords,
-      kPutArr64, KittenState.putArr]) hm
+    rfl rfl hm
 
 private theorem store_ka64_qstampArr {kPtr : BitVec 64} {acap : Nat} {ks : KittenState}
     (v : BitVec 64) {idx : Nat} (hi : 2 * idx + 1 < 128) (hsh : ks.ShapesOk acap)
@@ -167,10 +157,7 @@ private theorem store_ka64_qstampArr {kPtr : BitVec 64} {acap : Nat} {ks : Kitte
       (KittenMemA kPtr acap (kPutArr64 ks .qstampArr idx v) ⋆ R)
         (storeMem m i64 (kPtr + 2176#64 + BitVec.ofNat 64 (8 * idx)) v) :=
   kArrPut64_gen (kPath 5) 2176#64 ks.qstampArr .qstampArr v
-    (by rw [hsh.qstampArr_len]; exact hi) hsh
-    (by simp only [KittenTree, kPath, SepTree.get])
-    (by simp only [KittenMem, KittenTree, kPath, SepTree.set, SepTree.eval, kittenHdrWords,
-      kPutArr64, KittenState.putArr]) hm
+    (by rw [hsh.qstampArr_len]; exact hi) hsh rfl rfl hm
 
 private theorem store_ka64_flags {kPtr : BitVec 64} {acap : Nat} {ks : KittenState}
     (v : BitVec 64) {idx : Nat} (hi : 2 * idx + 1 < 128) (hsh : ks.ShapesOk acap)
@@ -179,9 +166,7 @@ private theorem store_ka64_flags {kPtr : BitVec 64} {acap : Nat} {ks : KittenSta
       (KittenMemA kPtr acap (kPutArr64 ks .flags idx v) ⋆ R)
         (storeMem m i64 (kPtr + 3200#64 + BitVec.ofNat 64 (8 * idx)) v) :=
   kArrPut64_gen (kPath 7) 3200#64 ks.flags .flags v (by rw [hsh.flags_len]; exact hi) hsh
-    (by simp only [KittenTree, kPath, SepTree.get])
-    (by simp only [KittenMem, KittenTree, kPath, SepTree.set, SepTree.eval, kittenHdrWords,
-      kPutArr64, KittenState.putArr]) hm
+    rfl rfl hm
 
 private theorem store_ka64_vals {kPtr : BitVec 64} {acap : Nat} {ks : KittenState}
     (v : BitVec 64) {idx : Nat} (hi : 2 * idx + 1 < 256) (hsh : ks.ShapesOk acap)
@@ -190,9 +175,7 @@ private theorem store_ka64_vals {kPtr : BitVec 64} {acap : Nat} {ks : KittenStat
       (KittenMemA kPtr acap (kPutArr64 ks .vals idx v) ⋆ R)
         (storeMem m i64 (kPtr + 3712#64 + BitVec.ofNat 64 (8 * idx)) v) :=
   kArrPut64_gen (kPath 8) 3712#64 ks.vals .vals v (by rw [hsh.vals_len]; exact hi) hsh
-    (by simp only [KittenTree, kPath, SepTree.get])
-    (by simp only [KittenMem, KittenTree, kPath, SepTree.set, SepTree.eval, kittenHdrWords,
-      kPutArr64, KittenState.putArr]) hm
+    rfl rfl hm
 
 private theorem store_ka64_whead {kPtr : BitVec 64} {acap : Nat} {ks : KittenState}
     (v : BitVec 64) {idx : Nat} (hi : 2 * idx + 1 < 256) (hsh : ks.ShapesOk acap)
@@ -201,40 +184,39 @@ private theorem store_ka64_whead {kPtr : BitVec 64} {acap : Nat} {ks : KittenSta
       (KittenMemA kPtr acap (kPutArr64 ks .whead idx v) ⋆ R)
         (storeMem m i64 (kPtr + 8320#64 + BitVec.ofNat 64 (8 * idx)) v) :=
   kArrPut64_gen (kPath 14) 8320#64 ks.whead .whead v (by rw [hsh.whead_len]; exact hi) hsh
-    (by simp only [KittenTree, kPath, SepTree.get])
-    (by simp only [KittenMem, KittenTree, kPath, SepTree.set, SepTree.eval, kittenHdrWords,
-      kPutArr64, KittenState.putArr]) hm
+    rfl rfl hm
 
 private theorem kPutArr64_get_other_lvl {ks : KittenState} {f : KArrField} (hf : f ≠ .lvlArr)
     (idx : Nat) (val : BitVec 64) (v : Nat) :
     (kPutArr64 ks f idx val).lvlArr[v]? = ks.lvlArr[v]? := by
-  cases f <;> simp [kPutArr64, KittenState.putArr] at hf ⊢
+  cases f <;> dsimp only [kPutArr64, KittenState.putArr] <;> simp at hf ⊢
 
 private theorem kPutArr64_get_other_rsn {ks : KittenState} {f : KArrField} (hf : f ≠ .rsn)
     (idx : Nat) (val : BitVec 64) (v : Nat) :
     (kPutArr64 ks f idx val).rsn[v]? = ks.rsn[v]? := by
-  cases f <;> simp [kPutArr64, KittenState.putArr] at hf ⊢
+  cases f <;> dsimp only [kPutArr64, KittenState.putArr] <;> simp at hf ⊢
 
 private theorem kPutArr64_get_other_flags {ks : KittenState} {f : KArrField} (hf : f ≠ .flags)
     (idx : Nat) (val : BitVec 64) (v : Nat) :
     (kPutArr64 ks f idx val).flags[v]? = ks.flags[v]? := by
-  cases f <;> simp [kPutArr64, KittenState.putArr] at hf ⊢
+  cases f <;> dsimp only [kPutArr64, KittenState.putArr] <;> simp at hf ⊢
 
 private theorem kPutArr64_get_other_vals {ks : KittenState} {f : KArrField} (hf : f ≠ .vals)
     (idx : Nat) (val : BitVec 64) (v : Nat) :
     (kPutArr64 ks f idx val).vals[v]? = ks.vals[v]? := by
-  cases f <;> simp [kPutArr64, KittenState.putArr] at hf ⊢
+  cases f <;> dsimp only [kPutArr64, KittenState.putArr] <;> simp at hf ⊢
 
 private theorem kPutArr64_get_other_whead {ks : KittenState} {f : KArrField} (hf : f ≠ .whead)
     (idx : Nat) (val : BitVec 64) (v : Nat) :
     (kPutArr64 ks f idx val).whead[v]? = ks.whead[v]? := by
-  cases f <;> simp [kPutArr64, KittenState.putArr] at hf ⊢
+  cases f <;> dsimp only [kPutArr64, KittenState.putArr] <;> simp at hf ⊢
 
 private theorem kitten_m4_shl1_toNat (x : BitVec 32) :
     (x <<< (1 : Nat)).toNat = 2 * x.toNat % 2 ^ 32 := by
   simp [BitVec.toNat_shiftLeft, Nat.shiftLeft_eq, Nat.mul_comm]
 
-private def kPutArr64Step (ks : KittenState) (idx : Nat) (qn : BitVec 64) : KittenState :=
+private noncomputable def kPutArr64Step (ks : KittenState) (idx : Nat) (qn : BitVec 64) :
+    KittenState :=
   let ks1 := kPutArr64 ks .lvlArr idx 0#64
   let ks2 := kPutArr64 ks1 .rsn idx 0xFFFFFFFFFFFFFFFF#64
   let ks3 := kPutArr64 ks2 .qprev idx (qn - 0x0000000200000002#64)
@@ -303,8 +285,8 @@ private theorem kPutArr64Step_vars {ks : KittenState} {acap idx : Nat} (qn : Bit
       (kPutArr64Step ks idx qn).flags[v]? =
         ((ks.flags.set (2 * idx) 0#32).set (2 * idx + 1) 0#32)[v]? := by
     refine ⟨?_, ?_, ?_⟩ <;>
-      simp only [kPutArr64Step, kPutArr64, KittenState.putArr,
-        bv64_zero_lo, bv64_zero_hi, bv64_ff_lo, bv64_ff_hi]
+      (dsimp only [kPutArr64Step, kPutArr64, KittenState.putArr]
+       simp only [bv64_zero_lo, bv64_zero_hi, bv64_ff_lo, bv64_ff_hi])
   rw [hget.1, hget.2.1, hget.2.2]
   by_cases hv1 : v = 2 * idx + 1
   · subst hv1
@@ -339,10 +321,10 @@ private theorem kPutArr64Step_lits {ks : KittenState} {acap idx : Nat} (qn : Bit
         ((((ks.whead.set (4 * idx) 0xFFFFFFFF#32).set (4 * idx + 1) 0xFFFFFFFF#32).set
           (4 * idx + 2) 0xFFFFFFFF#32).set (4 * idx + 3) 0xFFFFFFFF#32)[l]? := by
     refine ⟨?_, ?_⟩ <;>
-      simp only [kPutArr64Step, kPutArr64, KittenState.putArr,
-        bv64_zero_lo, bv64_zero_hi, bv64_ff_lo, bv64_ff_hi,
-        show 2 * (2 * idx) = 4 * idx by omega,
-        show 2 * (2 * idx + 1) = 4 * idx + 2 by omega]
+      (dsimp only [kPutArr64Step, kPutArr64, KittenState.putArr]
+       simp only [bv64_zero_lo, bv64_zero_hi, bv64_ff_lo, bv64_ff_hi,
+         show 2 * (2 * idx) = 4 * idx by omega,
+         show 2 * (2 * idx + 1) = 4 * idx + 2 by omega])
   rw [hget.1, hget.2]
   by_cases hl3 : l = 4 * idx + 3
   · subst hl3
@@ -366,7 +348,7 @@ private theorem kPutArr64Step_lits {ks : KittenState} {acap idx : Nat} (qn : Bit
         · rw [List.getElem?_set_ne (Ne.symm hl0), List.getElem?_set_ne (Ne.symm hl0)]
           exact hprev l (by omega)
 
-private def kPutArr32OddStep (ks : KittenState) (i : BitVec 32) : KittenState :=
+private noncomputable def kPutArr32OddStep (ks : KittenState) (i : BitVec 32) : KittenState :=
   let ks1 := ks.putArr .lvlArr i.toNat 0#32
   let ks2 := ks1.putArr .rsn i.toNat 0xFFFFFFFF#32
   let ks3 := ks2.putArr .flags i.toNat 0#32
@@ -445,7 +427,8 @@ private theorem kPutArr32OddStep_lits {ks : KittenState} {acap : Nat} {i : BitVe
       (kPutArr32OddStep ks i).whead[l]? =
         ((ks.whead.set (2 * i.toNat) 0xFFFFFFFF#32).set
           (2 * i.toNat + 1) 0xFFFFFFFF#32)[l]? := by
-    refine ⟨?_, ?_⟩ <;> simp only [kPutArr32OddStep, KittenState.putArr, hl0_eq, hl01_eq]
+    refine ⟨?_, ?_⟩ <;>
+      (dsimp only [kPutArr32OddStep, KittenState.putArr]; rw [hl0_eq, hl01_eq])
   rw [hget.1, hget.2]
   have hv_len : ks.vals.length = 256 := hsh.vals_len
   have hw_len : ks.whead.length = 256 := hsh.whead_len
@@ -506,7 +489,7 @@ private theorem bv64_off_384 :
 
 /-- **#2 (`full_kitten_init_m4`)**: proves `Full.fullKittenInitSpec` using `u64`-widened
 header clearing and pointer-stepped paired table initialization. -/
-theorem full_kitten_init_m4_wp (Γ : Env) :
+public theorem full_kitten_init_m4_wp (Γ : Env) :
     ∀ args m Q X, Full.fullKittenInitSpec args m Q X →
       Func.wp Γ full_kitten_init_m4_body args m Q X := by
   rintro ⟨hPtr, nv, track_ante, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
@@ -619,7 +602,7 @@ theorem full_kitten_init_m4_wp (Γ : Env) :
         have hunf : (KittenMem kPtr ks1 ⋆ (FullKittenFrame c s ⋆ R)) m' := by
           refine KittenMemTactics.unfocus_kitten_hdr (ks := ks0) (ks' := ks1)
             (hdr' := List.replicate 32 0#32) ?_ hm'k
-          simp only [KittenMem, KittenTree, kPath, SepTree.set, SepTree.eval, kittenHdrWords,
+          dsimp only [KittenMem, KittenTree, kPath, SepTree.set, SepTree.eval, kittenHdrWords,
             ks1, List.replicate]
           congr 1
         let kPtr0 := c.pScratchBuf + BitVec.ofNat 64 256 * 4
@@ -1091,7 +1074,9 @@ end KittenInitM4
 
 /-! ## Concrete `Mem 64` Fixture for Track A6 Non-Vacuity -/
 
-def nvM4Cfg : FullCfg where
+public section
+
+@[expose] def nvM4Cfg : FullCfg where
   hdr := 0x2000000#64; avail := 42716; mv := 1; max_vars := 1; bva_cap := 0; nc := 0
   arena_cap := 0; wcap := 1; delayed_cap := 0; red_cap := 0; extend_cap := 0
   scratch_cap := 10240; hbva := rfl
@@ -1107,7 +1092,7 @@ def nvM4Cfg : FullCfg where
   havail_fit := by decide
   hsize := by decide
 
-def nvM4Scratch : FullScratch where
+noncomputable def nvM4Scratch : FullScratch where
   heap_len := 0; scinc := 0#64; rel_period := 0#64; rel_limit := 0#64; rel_wait := 0#64
   rel_u := 0#64; rel_v := 0#64; rel_trigger := 0#64; conflicts := 0#64
   learned_lits := 0#64; min_removed := 0#64; delayed_len := 0; stable := 0#64
@@ -1137,7 +1122,7 @@ def nvM4Scratch : FullScratch where
   delayed := []; red_refs := []; extend_stk := []
   scratch_buf := List.replicate 10240 0#32
 
-def nvM4State : FullState where
+noncomputable def nvM4State : FullState where
   core :=
     { d_cur := 0#64, d_val := 0#64, cur_vars := 1, unassigned := 2#64
       arena_len := 0, wlen := 1, wusable := 0#64, arena_garbage := 0#64
@@ -1161,10 +1146,10 @@ theorem nvM4State_lengths : nvM4State.LengthsOk nvM4Cfg :=
    ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
     rfl, rfl, rfl, rfl, rfl, List.length_replicate⟩⟩
 
-def nvM4BlockHdr : List UInt8 :=
+noncomputable def nvM4BlockHdr : List UInt8 :=
   bytes64 [1#64, 0#64, 0#64, 0#64] ++ bytes64 (Full.hdrTailWords nvM4Cfg nvM4State)
 
-def nvM4BlockBytes : List UInt8 :=
+noncomputable def nvM4BlockBytes : List UInt8 :=
   (bytesOf (t := i8) nvM4State.core.vals ++ List.replicate 6 0) ++
   (bytesOf (t := i8) nvM4State.scratch.walk_vals ++ List.replicate 6 0) ++
   (bytesOf (t := i8) nvM4State.core.lit_mark ++ List.replicate 6 0) ++
@@ -1174,28 +1159,28 @@ def nvM4BlockBytes : List UInt8 :=
   (bytesOf (t := i8) nvM4State.scratch.phases_best ++ List.replicate 7 0) ++
   (bytesOf (t := i8) nvM4State.scratch.walk_best ++ List.replicate 7 0)
 
-def nvM4BlockU32A : List UInt8 :=
+noncomputable def nvM4BlockU32A : List UInt8 :=
   (bytesOf (t := i32) nvM4State.core.flags ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvM4State.core.lvl ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvM4State.core.rsns ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvM4State.core.trl ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvM4State.core.trail_pos ++ List.replicate 4 0)
 
-def nvM4BlockU32B : List UInt8 :=
+noncomputable def nvM4BlockU32B : List UInt8 :=
   (bytesOf (t := i32) nvM4State.core.tmp ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvM4State.scratch.heap ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvM4State.scratch.pos ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvM4State.core.min_clr ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvM4State.scratch.shrink_stk ++ List.replicate 4 0)
 
-def nvM4BlockU32C : List UInt8 :=
+noncomputable def nvM4BlockU32C : List UInt8 :=
   (bytesOf (t := i32) nvM4State.scratch.q_prev ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvM4State.scratch.q_next ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvM4State.scratch.q_stamp ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvM4State.core.frame_trail ++ List.replicate 0 0) ++
   (bytesOf (t := i32) nvM4State.core.frame_dec ++ List.replicate 0 0)
 
-def nvM4BlockWvec : List UInt8 :=
+noncomputable def nvM4BlockWvec : List UInt8 :=
   bytesOf (t := i32) nvM4State.core.wvec ++
   bytesOf (t := i32) nvM4State.core.repr ++
   bytesOf (t := i32) nvM4State.scratch.wsort ++
@@ -1206,7 +1191,7 @@ def nvM4BlockWvec : List UInt8 :=
   bytes64 nvM4State.scratch.score ++
   bytes64 nvM4State.scratch.sim_sig
 
-def nvM4BlockTail : List UInt8 :=
+noncomputable def nvM4BlockTail : List UInt8 :=
   bytesOf (t := i32) nvM4State.core.min_stk ++
   bytesOf (t := i32) nvM4State.scratch.glue_used ++
   bytesOf (t := i32) nvM4State.scratch.last_learned ++
@@ -1218,11 +1203,11 @@ def nvM4BlockTail : List UInt8 :=
   bytesOf (t := i32) nvM4State.scratch.scratch_buf ++
   List.replicate 0 0
 
-def nvM4Bytes : List UInt8 :=
+noncomputable def nvM4Bytes : List UInt8 :=
   nvM4BlockHdr ++ nvM4BlockBytes ++ nvM4BlockU32A ++ nvM4BlockU32B ++
   nvM4BlockU32C ++ nvM4BlockWvec ++ nvM4BlockTail
 
-def nvM4Mem : Mem 64 := nvM4Bytes.At nvM4Cfg.hdr
+noncomputable def nvM4Mem : Mem 64 := nvM4Bytes.At nvM4Cfg.hdr
 
 private theorem nvM4_sep_append {P Q : Mem 64 → Prop} {a b : BitVec 64}
     {bs1 bs2 : List UInt8}
@@ -1448,7 +1433,9 @@ theorem nvM4Mem_ok : FullMem nvM4Cfg nvM4State nvM4Mem := by
         FullScrMetaArrs FullCfg.pad
       exact sep_ac hm).2
 
-theorem nvM4_refs_nil : fullArenaClauseRefsCore nvM4State.core = [] := rfl
+theorem nvM4_refs_nil : fullArenaClauseRefsCore nvM4State.core = [] := by rfl
+theorem nvM4_cur_level : nvM4State.core.cur_level = 0 := by rfl
+theorem nvM4_cur_vars : nvM4State.core.cur_vars = 1 := by rfl
 
 theorem nvM4_witness : FullWitnessInv nvM4Cfg (cnfOfClauses []) [] nvM4State.core where
   ext_sound := ⟨fun _ h => by simp at h, fun h => h⟩
@@ -1514,5 +1501,7 @@ theorem nvM4_witness : FullWitnessInv nvM4Cfg (cnfOfClauses []) [] nvM4State.cor
 
 theorem nvM4_layout : WatchStackLayout nvM4State.core :=
   nvM4_witness.watches.layout
+
+end
 
 end LeanQbe.T.Examples.Kissat.FullM4InprocHot

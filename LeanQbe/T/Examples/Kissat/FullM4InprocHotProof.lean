@@ -17,8 +17,6 @@ Plus closed `3`-row `ModuleOk m4InprocHotEnv m4InprocHotModule` and concrete `Me
 
 set_option autoImplicit false
 
-@[expose] public section
-
 namespace LeanQbe.T.Examples.Kissat.FullM4InprocHot
 
 open Std Std.Sat Std.ExtHashMap
@@ -125,352 +123,447 @@ private theorem m4_ptr_mul4_add1 (p a : BitVec 64) (ha : a.toNat + 1 < 2 ^ 64) :
   rw [ptr_mul4_eq, BitVec.toNat_add, show ((1 : BitVec 64) : BitVec 64).toNat = 1 from rfl,
     Nat.mod_eq_of_lt ha]
 
-local macro "m4_sift_inner"
-    key:ident "," ws0:ident "," _lim:ident "," rl0:ident "," n_nat:term "," mv:term ","
-    wvec1:ident "," c:ident "," s:ident "," R:ident "," hdone_br:ident ","
-    lo_nat:term "," lim_nat:term "," initTac:term : tactic =>
-  `(tactic| (
-    refine wp_join_group
-      (fun (root, ()) mD =>
-        $lo_nat ≤ root.toNat ∧ root.toNat < $lim_nat ∧
-        ∃ (wsL : List (BitVec 32)),
-          wsL.length = 2 * ($mv) ∧
-          (∀ p, $lim_nat ≤ p → wsL[p]? = ($ws0)[p]?) ∧
-          ($rl0).toNat < 2 * ($s).core.cur_vars ∧
-          (∀ i < $n_nat, i ≠ root.toNat → (wsL[i]?.getD 0#32).toNat < 2 * ($s).core.cur_vars) ∧
-          (let wsV := wsL.set root.toNat $rl0;
-           wsV.Perm $ws0 ∧ (∀ p, $lim_nat ≤ p → wsV[p]? = ($ws0)[p]?) ∧
-           FullWsortMaxHeap $wvec1 wsV $lo_nat $lim_nat) ∧
-          DefragMem $c $s $wvec1 wsL ($s).core.wstk $R mD)
-      ?_ ?_
-    · rintro _ ⟨root, ⟨⟩⟩ mD ⟨hlo_r, hr_lim, wsL, hwsL, hsufL, hrl_lt, hbdL,
-        ⟨hpermV, hsufV, hmaxV⟩, hmD⟩
-      m4_wp_lets
-      refine wp_store_sep_at (ptr := ($c).pWsort + BitVec.ofNat 64 (4 * root.toNat))
-        (by try simp only [LeanQbe.T.Arg.val_var]; rw [ptr_mul4_eq])
-        (dsm_store_ws (i := root.toNat) $rl0 (by rw [hwsL]; omega) hmD) fun mS hmS => ?_
-      m4_wp_lets; m4_wp_jump
-      exact $hdone_br mS ⟨wsL.set root.toNat $rl0, by rw [List.length_set, hwsL],
-        hpermV, hsufV, hmaxV, hmS⟩
-    · intro JB hJB
-      m4_wp_lets
-      refine wp_loop_inv
-        (fun (root, ()) mL =>
-          $lo_nat ≤ root.toNat ∧ root.toNat < $lim_nat ∧
-          ∃ (wsL : List (BitVec 32)),
-            wsL.length = 2 * ($mv) ∧
-            (∀ p, $lim_nat ≤ p → wsL[p]? = ($ws0)[p]?) ∧
-            ($rl0).toNat < 2 * ($s).core.cur_vars ∧
-            (∀ i < $n_nat, i ≠ root.toNat → (wsL[i]?.getD 0#32).toNat < 2 * ($s).core.cur_vars) ∧
-            (let wsV := wsL.set root.toNat $rl0;
-             wsV.Perm $ws0 ∧ (∀ p, $lim_nat ≤ p → wsV[p]? = ($ws0)[p]?) ∧
-             M4MaxHeapHole $key wsV $lo_nat $lim_nat root.toNat ∧
-             M4HoleParent $key wsV $lo_nat $lim_nat root.toNat) ∧
-            DefragMem $c $s $wvec1 wsL ($s).core.wstk $R mL)
-        (fun (root, ()) _ => $lim_nat - root.toNat) ?_ ?_
-      · exact $initTac
-      · rintro JL ⟨root, ⟨⟩⟩ mL ⟨hlo_r, hr_lim, wsL, hwsL, hsufL, hrl_lt, hbdL,
-          ⟨hpermV, hsufV, hmaxV, hparV⟩, hmL⟩ hJL
-        m4_wp_lets
-        simp only [LeanQbe.T.wp_jnz, LeanQbe.T.Arg.val_imm]
-        refine ⟨fun _ => ?_, fun hfalse => Bool.noConfusion hfalse⟩
-        let wsV := wsL.set root.toNat $rl0
-        have hwsV_len : wsV.length = 2 * ($mv) := by rw [List.length_set, hwsL]
-        m4_wp_lets
-        simp only [LeanQbe.T.wp_jnz, LeanQbe.T.Arg.val_var]
-        have hch1 : ((root <<< (1 : Nat)) + (1 : BitVec 64)).toNat = 2 * root.toNat + 1 := by
-          rw [BitVec.toNat_add, m4_bv64_shl1 (by omega),
-            show ((1 : BitVec 64) : BitVec 64).toNat = 1 from rfl]; omega
-        refine ⟨fun hch_ge_c => ?_, fun hch_lt_c => ?_⟩
-        · have hch_ge : $lim_nat ≤ 2 * root.toNat + 1 := by
-            try unfold BitVec.ule at hch_ge_c
-            have := of_decide_eq_true hch_ge_c
-            rw [hch1] at this; exact this
-          m4_wp_lets; m4_wp_jump
-          exact hJB _ _ ⟨hlo_r, hr_lim, wsL, hwsL, hsufL, hrl_lt, hbdL,
-            ⟨hpermV, hsufV, m4Wsort_sift_done hmaxV (fun h1 => by omega) (fun h2 => by omega)⟩,
-            hmL⟩
-        · have hch_lt : 2 * root.toNat + 1 < $lim_nat := by
-            try unfold BitVec.ule at hch_lt_c
-            have := Nat.not_le.mp (of_decide_eq_false hch_lt_c)
-            rw [hch1] at this; exact this
-          have hch_ne : 2 * root.toNat + 1 ≠ root.toNat := by omega
-          have hcl_lt : 2 * root.toNat + 1 < wsL.length := by rw [hwsL]; omega
-          have hcl_cv : (wsL[2 * root.toNat + 1]'hcl_lt).toNat < 2 * ($s).core.cur_vars := by
-            have := hbdL (2 * root.toNat + 1) (by omega) hch_ne
-            rwa [List.getElem?_eq_getElem hcl_lt, Option.getD_some] at this
-          have hcl2_lt : 2 * (wsL[2 * root.toNat + 1]'hcl_lt).toNat < ($wvec1).length := by omega
-          m4_wp_lets
-          refine wp_load_sep_at (ptr := ($c).pWsort + BitVec.ofNat 64 (4 * (2 * root.toNat + 1)))
-            (by try simp only [LeanQbe.T.Arg.val_var]; rw [ptr_mul4_eq, hch1])
-            (dsm_load_ws hcl_lt hmL) ?_
-          m4_wp_lets
-          refine wp_load_sep_at
-            (ptr := ($c).pWvec + BitVec.ofNat 64 (4 * (2 * (wsL[2 * root.toNat + 1]'hcl_lt).toNat)))
-            (by try simp only [LeanQbe.T.Arg.val_var]; rw [ptr_mul4_eq, m4_zext_shl1])
-            (dsm_load_wvec hcl2_lt hmL) ?_
-          m4_wp_lets
-          refine wp_join_group
-            (fun (ch, cl, co, ()) mC =>
-              mC = mL ∧ ch.toNat < $lim_nat ∧ (ch.toNat = 2 * root.toNat + 1 ∨
-                ch.toNat = 2 * root.toNat + 2) ∧
-              wsL[ch.toNat]? = some cl ∧ ($wvec1)[2 * cl.toNat]? = some co ∧
-              (2 * root.toNat + 1 < $lim_nat →
-                $key (m4WsVal wsV (2 * root.toNat + 1)) ≤ co.toNat) ∧
-              (2 * root.toNat + 2 < $lim_nat →
-                $key (m4WsVal wsV (2 * root.toNat + 2)) ≤ co.toNat))
-            ?_ ?_
-          · rintro _ ⟨ch, cl, co, ⟨⟩⟩ mC ⟨hmC_eq, hch_lim, hch_disj, hcl_opt, hco_opt, hs1, hs2⟩
-            subst hmC_eq
-            have hrc : root.toNat ≠ ch.toNat := by rcases hch_disj with h | h <;> omega
-            have hcl_len_ch : ch.toNat < wsL.length := by rw [hwsL]; omega
-            have hcl_eq : cl = wsL[ch.toNat]'hcl_len_ch := by
-              rw [List.getElem?_eq_getElem hcl_len_ch] at hcl_opt
-              exact (Option.some.inj hcl_opt).symm
-            have hcl_cv_ch : cl.toNat < 2 * ($s).core.cur_vars := by
-              have := hbdL ch.toNat (by omega) hrc.symm
-              rwa [hcl_opt, Option.getD_some] at this
-            have hco_len_ch : 2 * cl.toNat < ($wvec1).length := by omega
-            have hco_eq : co = ($wvec1)[2 * cl.toNat]'hco_len_ch := by
-              rw [List.getElem?_eq_getElem hco_len_ch] at hco_opt
-              exact (Option.some.inj hco_opt).symm
-            have hro_val : m4WvecOff ($wvec1) (m4WsVal wsV root.toNat) =
-                (($wvec1)[2 * ($rl0).toNat]'(by omega)).toNat := by
-              unfold m4WsVal m4WvecOff
-              dsimp only [wsV]
-              rw [List.getElem?_set_self (by rw [hwsL]; omega), Option.getD_some,
-                List.getElem?_eq_getElem (by omega), Option.getD_some]
-            have hco_val : m4WvecOff ($wvec1) (m4WsVal wsV ch.toNat) = co.toNat := by
-              unfold m4WsVal m4WvecOff
-              dsimp only [wsV]
-              rw [List.getElem?_set_ne hrc,
-                hcl_opt, Option.getD_some, hco_opt, Option.getD_some]
-            m4_wp_lets
-            simp only [LeanQbe.T.wp_jnz, LeanQbe.T.Arg.val_var]
-            refine ⟨fun hbro => ?_, fun hbro => ?_⟩
-            · have hge_co : co.toNat ≤ (($wvec1)[2 * ($rl0).toNat]'(by omega)).toNat := by
-                try unfold BitVec.ule at hbro
-                exact of_decide_eq_true hbro
-              m4_wp_lets; m4_wp_jump
-              have hs1' : ∀ h1 : 2 * root.toNat + 1 < $lim_nat,
-                  m4WvecOff ($wvec1) (m4WsVal wsV (2 * root.toNat + 1)) ≤ co.toNat := hs1
-              have hs2' : ∀ h2 : 2 * root.toNat + 2 < $lim_nat,
-                  m4WvecOff ($wvec1) (m4WsVal wsV (2 * root.toNat + 2)) ≤ co.toNat := hs2
-              exact hJB _ _ ⟨hlo_r, hr_lim, wsL, hwsL, hsufL, hrl_lt, hbdL,
-                ⟨hpermV, hsufV, m4Wsort_sift_done hmaxV
-                  (fun h1 => by rw [hro_val]; exact Nat.le_trans (hs1' h1) hge_co)
-                  (fun h2 => by rw [hro_val]; exact Nat.le_trans (hs2' h2) hge_co)⟩, hmL⟩
-            · have hlt_co : (($wvec1)[2 * ($rl0).toNat]'(by omega)).toNat < co.toNat := by
-                try unfold BitVec.ule at hbro
-                exact Nat.lt_of_not_le (of_decide_eq_false hbro)
-              m4_wp_lets
-              refine wp_store_sep_at (ptr := ($c).pWsort + BitVec.ofNat 64 (4 * root.toNat))
-                (by try simp only [LeanQbe.T.Arg.val_var]; rw [ptr_mul4_eq])
-                (dsm_store_ws (i := root.toNat) cl (by rw [hwsL]; omega) hmL) fun mS hmS => ?_
-              m4_wp_lets; m4_wp_jump
-              have hs1' : ∀ h1 : 2 * root.toNat + 1 < $lim_nat,
-                  m4WvecOff ($wvec1) (m4WsVal wsV (2 * root.toNat + 1)) ≤ co.toNat := hs1
-              have hs2' : ∀ h2 : 2 * root.toNat + 2 < $lim_nat,
-                  m4WvecOff ($wvec1) (m4WsVal wsV (2 * root.toNat + 2)) ≤ co.toNat := hs2
-              have hsib : (2 * root.toNat + 1 < $lim_nat →
-                    $key (m4WsVal wsV (2 * root.toNat + 1)) ≤ $key (m4WsVal wsV ch.toNat)) ∧
-                  (2 * root.toNat + 2 < $lim_nat →
-                    $key (m4WsVal wsV (2 * root.toNat + 2)) ≤ $key (m4WsVal wsV ch.toNat)) :=
-                ⟨fun h1 => by
-                   change m4WvecOff ($wvec1) _ ≤ m4WvecOff ($wvec1) _
-                   rw [hco_val]; exact hs1' h1,
-                 fun h2 => by
-                   change m4WvecOff ($wvec1) _ ≤ m4WvecOff ($wvec1) _
-                   rw [hco_val]; exact hs2' h2⟩
-              have ⟨hmax', hpar'⟩ := m4Wsort_sift_step (lo := $lo_nat) (hi := $lim_nat)
-                hlo_r hch_lim (by rw [List.length_set, hwsL]; omega) hch_disj hmaxV hparV
-                (by
-                  change m4WvecOff ($wvec1) _ < m4WvecOff ($wvec1) _
-                  rw [hro_val, hco_val]; exact hlt_co) hsib
-              have hsw_eq := m4Set_virt_swap_eq (ws := wsL) (root := root.toNat) (ch := ch.toNat)
-                (cl := cl) (rl := $rl0) (by rw [hwsL]; omega) (by rw [hwsL]; omega) hrc hcl_eq
-              rw [← hsw_eq] at hmax' hpar'
-              have hperm' : ((wsL.set root.toNat cl).set ch.toNat $rl0).Perm $ws0 := by
-                rw [hsw_eq]
-                exact (m4WsSwap_perm (i := root.toNat) (j := ch.toNat)
-                  (by rw [List.length_set, hwsL]; omega)
-                  (by rw [List.length_set, hwsL]; omega)).trans hpermV
-              have hsuf' : ∀ p, $lim_nat ≤ p →
-                  ((wsL.set root.toNat cl).set ch.toNat $rl0)[p]? = ($ws0)[p]? := fun p hp => by
-                rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]
-                exact hsufL p hp
-              refine hJL _ _ (by dsimp only; omega)
-                ⟨by omega, hch_lim, wsL.set root.toNat cl, by rw [List.length_set, hwsL],
-                 fun p hp => by rw [List.getElem?_set_ne (by omega)]; exact hsufL p hp,
-                 hrl_lt, fun i hi hne => ?_, ⟨hperm', hsuf', hmax', hpar'⟩, hmS⟩
-              by_cases hir : i = root.toNat
-              · subst hir; rw [List.getElem?_set_self (by rw [hwsL]; omega),
-                  Option.getD_some]
-                exact hcl_cv_ch
-              · rw [List.getElem?_set_ne (Ne.symm hir)]
-                exact hbdL i hi hir
-          · intro JC hJC
-            m4_wp_lets
-            simp only [LeanQbe.T.wp_jnz, LeanQbe.T.Arg.val_var]
-            refine ⟨fun hc2 => ?_, fun hc2 => ?_⟩
-            · have hch2_lt : 2 * root.toNat + 2 < $lim_nat := by
-                try unfold BitVec.ult at hc2
-                have := of_decide_eq_true hc2
-                rw [BitVec.toNat_add, hch1,
-                  show ((1 : BitVec 64) : BitVec 64).toNat = 1 from rfl] at this
-                omega
-              have hch2_eq : ((root <<< (1 : Nat)) + (1 : BitVec 64) + (1 : BitVec 64)).toNat =
-                  2 * root.toNat + 2 := by
-                rw [BitVec.toNat_add, hch1, show ((1 : BitVec 64) : BitVec 64).toNat = 1 from rfl]
-                omega
-              have hch2_ne : 2 * root.toNat + 2 ≠ root.toNat := by omega
-              have hch2_len : 2 * root.toNat + 2 < wsL.length := by rw [hwsL]; omega
-              have hsl_cv : (wsL[2 * root.toNat + 2]'hch2_len).toNat < 2 * ($s).core.cur_vars := by
-                have := hbdL (2 * root.toNat + 2) (by omega) hch2_ne
-                rwa [List.getElem?_eq_getElem hch2_len, Option.getD_some] at this
-              have hsl2_lt : 2 * (wsL[2 * root.toNat + 2]'hch2_len).toNat < ($wvec1).length := by
-                omega
-              m4_wp_lets
-              refine wp_load_sep_at
-                (ptr := ($c).pWsort + BitVec.ofNat 64 (4 * (2 * root.toNat + 2)))
-                (by try simp only [LeanQbe.T.Arg.val_var]; rw [ptr_mul4_eq, hch2_eq])
-                (dsm_load_ws hch2_len hmL) ?_
-              m4_wp_lets
-              refine wp_load_sep_at
-                (ptr := ($c).pWvec + BitVec.ofNat 64
-                  (4 * (2 * (wsL[2 * root.toNat + 2]'hch2_len).toNat)))
-                (by try simp only [LeanQbe.T.Arg.val_var]; rw [ptr_mul4_eq, m4_zext_shl1])
-                (dsm_load_wvec hsl2_lt hmL) ?_
-              m4_wp_lets
-              refine wp_join_group
-                (fun (ch, cl, co, ()) m2 =>
-                  m2 = mL ∧ ch.toNat < $lim_nat ∧
-                  (ch.toNat = 2 * root.toNat + 1 ∨ ch.toNat = 2 * root.toNat + 2) ∧
-                  wsL[ch.toNat]? = some cl ∧ ($wvec1)[2 * cl.toNat]? = some co ∧
-                  $key (m4WsVal wsV (2 * root.toNat + 1)) ≤ co.toNat ∧
-                  $key (m4WsVal wsV (2 * root.toNat + 2)) ≤ co.toNat)
-                ?_ ?_
-              · rintro _ ⟨ch, cl, co, ⟨⟩⟩ m2 ⟨hm2_eq, hch_l, hch_d, hcl_e, hco_e, hs1, hs2⟩
-                subst hm2_eq
-                m4_wp_jump
-                exact hJC _ _ ⟨_root_.rfl, hch_l, hch_d, hcl_e, hco_e, fun _ => hs1, fun _ => hs2⟩
-              · intro J2 hJ2
-                m4_wp_lets
-                simp only [LeanQbe.T.wp_jnz, LeanQbe.T.Arg.val_var]
-                have hk1 : m4WvecOff ($wvec1) (m4WsVal wsV (2 * root.toNat + 1)) =
-                    (($wvec1)[2 * (wsL[2 * root.toNat + 1]'hcl_lt).toNat]'hcl2_lt).toNat := by
-                  unfold m4WsVal m4WvecOff
-                  dsimp only [wsV]
-                  rw [List.getElem?_set_ne (Ne.symm hch_ne),
-                    List.getElem?_eq_getElem hcl_lt, Option.getD_some,
-                    List.getElem?_eq_getElem hcl2_lt, Option.getD_some]
-                have hk2 : m4WvecOff ($wvec1) (m4WsVal wsV (2 * root.toNat + 2)) =
-                    (($wvec1)[2 * (wsL[2 * root.toNat + 2]'hch2_len).toNat]'hsl2_lt).toNat := by
-                  unfold m4WsVal m4WvecOff
-                  dsimp only [wsV]
-                  rw [List.getElem?_set_ne (Ne.symm hch2_ne),
-                    List.getElem?_eq_getElem hch2_len, Option.getD_some,
-                    List.getElem?_eq_getElem hsl2_lt, Option.getD_some]
-                refine ⟨fun hgt => ?_, fun hle => ?_⟩
-                · have hgt' :
-                      (($wvec1)[2 * (wsL[2 * root.toNat + 1]'hcl_lt).toNat]'hcl2_lt).toNat <
-                      (($wvec1)[2 * (wsL[2 * root.toNat + 2]'hch2_len).toNat]'hsl2_lt).toNat := by
-                    try unfold BitVec.ult at hgt
-                    exact of_decide_eq_true hgt
-                  m4_wp_lets
-                  m4_wp_jump
-                  refine hJ2 _ _ ⟨_root_.rfl, by rw [hch2_eq]; exact hch2_lt,
-                    Or.inr hch2_eq, ?_, ?_, ?_, ?_⟩
-                  · try simp only [LeanQbe.T.Arg.val_var, LeanQbe.T.Arg.val_imm]
-                    try dsimp only [LeanQbe.T.lift2]
-                    rw [hch2_eq, List.getElem?_eq_getElem hch2_len]
-                  · try simp only [LeanQbe.T.Arg.val_var, LeanQbe.T.Arg.val_imm]
-                    try dsimp only [LeanQbe.T.lift2]
-                    rw [List.getElem?_eq_getElem hsl2_lt]
-                  · change m4WvecOff ($wvec1) _ ≤ _; rw [hk1]; exact Nat.le_of_lt hgt'
-                  · change m4WvecOff ($wvec1) _ ≤ _; rw [hk2]; exact le_refl _
-                · have hle' :
-                      (($wvec1)[2 * (wsL[2 * root.toNat + 2]'hch2_len).toNat]'hsl2_lt).toNat ≤
-                      (($wvec1)[2 * (wsL[2 * root.toNat + 1]'hcl_lt).toNat]'hcl2_lt).toNat := by
-                    try unfold BitVec.ult at hle
-                    exact Nat.not_lt.mp (of_decide_eq_false hle)
-                  m4_wp_jump
-                  refine hJ2 _ _
-                    ⟨_root_.rfl, by rw [hch1]; exact hch_lt, Or.inl hch1, ?_, ?_, ?_, ?_⟩
-                  · try simp only [LeanQbe.T.Arg.val_var, LeanQbe.T.Arg.val_imm]
-                    try dsimp only [LeanQbe.T.lift2]
-                    rw [hch1, List.getElem?_eq_getElem hcl_lt]
-                  · try simp only [LeanQbe.T.Arg.val_var, LeanQbe.T.Arg.val_imm]
-                    try dsimp only [LeanQbe.T.lift2]
-                    rw [List.getElem?_eq_getElem hcl2_lt]
-                  · change m4WvecOff ($wvec1) _ ≤ _; rw [hk1]; exact le_refl _
-                  · change m4WvecOff ($wvec1) _ ≤ _; rw [hk2]; exact hle'
-            · have hch2_ge : $lim_nat ≤ 2 * root.toNat + 2 := by
-                try unfold BitVec.ult at hc2
-                have := Nat.not_lt.mp (of_decide_eq_false hc2)
-                rw [BitVec.toNat_add, hch1,
-                  show ((1 : BitVec 64) : BitVec 64).toNat = 1 from _root_.rfl] at this
-                omega
-              m4_wp_jump
-              refine hJC _ _ ⟨_root_.rfl, by rw [hch1]; exact hch_lt, Or.inl hch1,
-                (by try simp only [LeanQbe.T.Arg.val_var]
-                    rw [hch1, List.getElem?_eq_getElem hcl_lt]),
-                (by try simp only [LeanQbe.T.Arg.val_var]
-                    rw [List.getElem?_eq_getElem hcl2_lt]),
-                fun _ => by
-                  change m4WvecOff ($wvec1) _ ≤ _
-                  unfold m4WsVal m4WvecOff
-                  dsimp only [wsV]
-                  rw [List.getElem?_set_ne (Ne.symm hch_ne),
-                    List.getElem?_eq_getElem hcl_lt, Option.getD_some,
-                    List.getElem?_eq_getElem hcl2_lt, Option.getD_some]
-                  exact le_refl _,
-                fun h2 => by omega⟩))
+private noncomputable def m4Let2 {t1 t2 r : Ty} (c : OpCode [t1, t2] [r])
+    (a : Arg Val t1) (b : Arg Val t2) (k : Tup Val [r] → Expr Val Cont []) : Expr Val Cont [] :=
+  Expr.let_ (Op.mk c (a, b, ())) k
 
-private def m4ExLetI64 (v : Val i64) (e : Expr Val Cont []) : Expr Val Cont [] :=
+private noncomputable def m4Addr4 (base off idx : Val i64)
+    (k : Val i64 → Expr Val Cont []) : Expr Val Cont [] :=
+  m4Let2 (.add i64) (.var off) (.var idx) fun s =>
+  m4Let2 (.mul i64) (.var s.1) (.imm (4 : BitVec 64)) fun b =>
+  m4Let2 (.add i64) (.var base) (.var b.1) fun p => k p.1
+
+private noncomputable def m4LoadArr32 (base off idx : Val i64)
+    (k : Val i32 → Expr Val Cont []) : Expr Val Cont [] :=
+  m4Addr4 base off idx fun p => Expr.load i32 (.var p) k
+
+private noncomputable def m4LoadKey (pWvec : Val i64) (v : Val i32)
+    (k : Val i32 → Expr Val Cont []) : Expr Val Cont [] :=
+  Expr.let_ (Op.mk (.zext 32 64) (.var v, ())) fun z =>
+  Expr.let_ (Op.mk (.sext 32 64) (.imm (1 : BitVec 32), ())) fun o =>
+  m4Let2 (.shl i64) (.var z.1) (.var o.1) fun sh =>
+  m4Let2 (.mul i64) (.var sh.1) (.imm (4 : BitVec 64)) fun b =>
+  m4Let2 (.add i64) (.var pWvec) (.var b.1) fun p =>
+  Expr.load i32 (.var p.1) k
+
+private noncomputable def m4SiftInnerAst (pWsort pWvec lim root0 : Val i64)
+    (rl0 ro0 : Val i32) (kDone : Expr Val Cont []) : Expr Val Cont [] :=
+  @Expr.group Val Cont [] [[i64]] (fun _Js => Blocks.cons (fun p_1 =>
+    m4Let2 (.mul i64) (.var p_1.1) (.imm (4 : BitVec 64)) fun p_2 =>
+    m4Let2 (.add i64) (.var pWsort) (.var p_2.1) fun p_3 =>
+    .store (.var rl0) (.var p_3.1) kDone) Blocks.nil)
+  fun Js =>
+  @Expr.group Val Cont [] [[i64]] (fun Js_1 => Blocks.cons (fun p_1 =>
+    .jnz (.imm true)
+      (.let_ (Op.mk (.sext 32 64) (.imm (1 : BitVec 32), ())) fun p_2 =>
+       m4Let2 (.shl i64) (.var p_1.1) (.var p_2.1) fun p_3 =>
+       m4Let2 (.add i64) (.var p_3.1) (.imm (1 : BitVec 64)) fun p_4 =>
+       m4Let2 (.cmp .uge i64 .bool rfl) (.var p_4.1) (.var lim) fun p_5 =>
+       .jnz (.var p_5.1) (.jump Js.1 (.var p_1.1, ()))
+         (m4Let2 (.mul i64) (.var p_4.1) (.imm (4 : BitVec 64)) fun p_6 =>
+          m4Let2 (.add i64) (.var pWsort) (.var p_6.1) fun p_7 =>
+          .load i32 (.var p_7.1) fun ld =>
+          m4LoadKey pWvec ld fun ld_1 =>
+          @Expr.group Val Cont [] [[i64, i32, i32]] (fun _Js_2 => Blocks.cons (fun p_13 =>
+            m4Let2 (.cmp .uge i32 .bool rfl) (.var ro0) (.var p_13.2.2.1) fun p_14 =>
+            .jnz (.var p_14.1) (.jump Js.1 (.var p_1.1, ()))
+              (m4Let2 (.mul i64) (.var p_1.1) (.imm (4 : BitVec 64)) fun p_15 =>
+               m4Let2 (.add i64) (.var pWsort) (.var p_15.1) fun p_16 =>
+               .store (.var p_13.2.1) (.var p_16.1)
+                 (.jump Js_1.1 (.var p_13.1, ())))) Blocks.nil)
+          fun Js_2 =>
+          m4Let2 (.add i64) (.var p_4.1) (.imm (1 : BitVec 64)) fun p_13 =>
+          m4Let2 (.cmp .ult i64 .bool rfl) (.var p_13.1) (.var lim) fun p_14 =>
+          .jnz (.var p_14.1)
+            (m4Let2 (.add i64) (.var p_4.1) (.imm (1 : BitVec 64)) fun p_15 =>
+             m4Let2 (.mul i64) (.var p_15.1) (.imm (4 : BitVec 64)) fun p_16 =>
+             m4Let2 (.add i64) (.var pWsort) (.var p_16.1) fun p_17 =>
+             .load i32 (.var p_17.1) fun ld_2 =>
+             m4LoadKey pWvec ld_2 fun ld_3 =>
+             @Expr.group Val Cont [] [[i64, i32, i32]] (fun _Js_3 => Blocks.cons (fun p_s =>
+               .jump Js_2.1 (.var p_s.1, .var p_s.2.1, .var p_s.2.2.1, ())) Blocks.nil)
+             fun Js_3 =>
+             m4Let2 (.cmp .ugt i32 .bool rfl) (.var ld_3) (.var ld_1) fun p_g =>
+             .jnz (.var p_g.1)
+               (m4Let2 (.add i64) (.var p_4.1) (.imm (1 : BitVec 64)) fun p_c =>
+                .jump Js_3.1 (.var p_c.1, .var ld_2, .var ld_3, ()))
+               (.jump Js_3.1 (.var p_4.1, .var ld, .var ld_1, ())))
+            (.jump Js_2.1 (.var p_4.1, .var ld, .var ld_1, ()))))
+      (.jump Js.1 (.var p_1.1, ()))) Blocks.nil)
+  fun Js_1 => .jump Js_1.1 (.var root0, ())
+
+private theorem m4_sift_inner_wp
+    {Γ : Env} {Q : Post []} {X : XPost} {c : FullCfg} {s : FullState}
+    {wvec1 ws0 : List (BitVec 32)} {R : Mem 64 → Prop}
+    {lim root0 : BitVec 64} {rl0 : BitVec 32} {lo_nat n_nat : Nat}
+    {kDone : Expr Val Cont []} {m0 : Mem 64}
+    (hmx : c.max_vars < 2 * 2 ^ 28) (hcv_le : s.core.cur_vars ≤ c.max_vars)
+    (hwv1 : wvec1.length = 4 * c.max_vars) (hlim_le : lim.toNat ≤ n_nat)
+    (hn_le : n_nat ≤ 2 * c.max_vars) (hrl2_lt : 2 * rl0.toNat < wvec1.length)
+    (hdone_br : ∀ mD,
+      (∃ wsD : List (BitVec 32), wsD.length = 2 * c.max_vars ∧
+        wsD.Perm ws0 ∧ (∀ p, lim.toNat ≤ p → wsD[p]? = ws0[p]?) ∧
+        FullWsortMaxHeap wvec1 wsD lo_nat lim.toNat ∧
+        DefragMem c s wvec1 wsD s.core.wstk R mD) →
+      wp Γ Q X kDone mD)
+    (hinit :
+      lo_nat ≤ root0.toNat ∧ root0.toNat < lim.toNat ∧
+      ∃ wsL : List (BitVec 32),
+        wsL.length = 2 * c.max_vars ∧
+        (∀ p, lim.toNat ≤ p → wsL[p]? = ws0[p]?) ∧
+        rl0.toNat < 2 * s.core.cur_vars ∧
+        (∀ i < n_nat, i ≠ root0.toNat → (wsL[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
+        (let wsV := wsL.set root0.toNat rl0;
+         wsV.Perm ws0 ∧ (∀ p, lim.toNat ≤ p → wsV[p]? = ws0[p]?) ∧
+         M4MaxHeapHole (m4WvecOff wvec1) wsV lo_nat lim.toNat root0.toNat ∧
+         M4HoleParent (m4WvecOff wvec1) wsV lo_nat lim.toNat root0.toNat) ∧
+        DefragMem c s wvec1 wsL s.core.wstk R m0) :
+    wp Γ Q X
+      (m4SiftInnerAst c.pWsort c.pWvec lim root0 rl0 (wvec1[2 * rl0.toNat]'hrl2_lt) kDone) m0 := by
+  let key := m4WvecOff wvec1
+  dsimp only [m4SiftInnerAst, m4LoadKey, m4Let2]
+  refine wp_join_group
+    (fun (root, ()) mD =>
+      lo_nat ≤ root.toNat ∧ root.toNat < lim.toNat ∧
+      ∃ (wsL : List (BitVec 32)),
+        wsL.length = 2 * c.max_vars ∧
+        (∀ p, lim.toNat ≤ p → wsL[p]? = ws0[p]?) ∧
+        rl0.toNat < 2 * s.core.cur_vars ∧
+        (∀ i < n_nat, i ≠ root.toNat → (wsL[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
+        (let wsV := wsL.set root.toNat rl0;
+         wsV.Perm ws0 ∧ (∀ p, lim.toNat ≤ p → wsV[p]? = ws0[p]?) ∧
+         FullWsortMaxHeap wvec1 wsV lo_nat lim.toNat) ∧
+        DefragMem c s wvec1 wsL s.core.wstk R mD)
+    ?_ ?_
+  · rintro _ ⟨root, ⟨⟩⟩ mD ⟨hlo_r, hr_lim, wsL, hwsL, hsufL, hrl_lt, hbdL,
+      ⟨hpermV, hsufV, hmaxV⟩, hmD⟩
+    m4_wp_lets
+    refine wp_store_sep_at (ptr := c.pWsort + BitVec.ofNat 64 (4 * root.toNat))
+      (by try simp only [LeanQbe.T.Arg.val_var]; rw [ptr_mul4_eq])
+      (dsm_store_ws (i := root.toNat) rl0 (by rw [hwsL]; omega) hmD) fun mS hmS => ?_
+    exact hdone_br mS ⟨wsL.set root.toNat rl0, by rw [List.length_set, hwsL],
+      hpermV, hsufV, hmaxV, hmS⟩
+  · intro JB hJB
+    m4_wp_lets
+    refine wp_loop_inv
+      (fun (root, ()) mL =>
+        lo_nat ≤ root.toNat ∧ root.toNat < lim.toNat ∧
+        ∃ (wsL : List (BitVec 32)),
+          wsL.length = 2 * c.max_vars ∧
+          (∀ p, lim.toNat ≤ p → wsL[p]? = ws0[p]?) ∧
+          rl0.toNat < 2 * s.core.cur_vars ∧
+          (∀ i < n_nat, i ≠ root.toNat → (wsL[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
+          (let wsV := wsL.set root.toNat rl0;
+           wsV.Perm ws0 ∧ (∀ p, lim.toNat ≤ p → wsV[p]? = ws0[p]?) ∧
+           M4MaxHeapHole key wsV lo_nat lim.toNat root.toNat ∧
+           M4HoleParent key wsV lo_nat lim.toNat root.toNat) ∧
+          DefragMem c s wvec1 wsL s.core.wstk R mL)
+      (fun (root, ()) _ => lim.toNat - root.toNat) ?_ ?_
+    · intro JL hJL; m4_wp_lets; m4_wp_jump; exact hJL _ _ hinit
+    · rintro JL ⟨root, ⟨⟩⟩ mL ⟨hlo_r, hr_lim, wsL, hwsL, hsufL, hrl_lt, hbdL,
+        ⟨hpermV, hsufV, hmaxV, hparV⟩, hmL⟩ hJL
+      m4_wp_lets
+      simp only [LeanQbe.T.wp_jnz, LeanQbe.T.Arg.val_imm]
+      refine ⟨fun _ => ?_, fun hfalse => Bool.noConfusion hfalse⟩
+      let wsV := wsL.set root.toNat rl0
+      have hwsV_len : wsV.length = 2 * c.max_vars := by rw [List.length_set, hwsL]
+      m4_wp_lets
+      simp only [LeanQbe.T.wp_jnz, LeanQbe.T.Arg.val_var]
+      have hch1 : ((root <<< (1 : Nat)) + (1 : BitVec 64)).toNat = 2 * root.toNat + 1 := by
+        rw [BitVec.toNat_add, m4_bv64_shl1 (by omega),
+          show ((1 : BitVec 64) : BitVec 64).toNat = 1 from rfl]; omega
+      refine ⟨fun hch_ge_c => ?_, fun hch_lt_c => ?_⟩
+      · have hch_ge : lim.toNat ≤ 2 * root.toNat + 1 := by
+          try unfold BitVec.ule at hch_ge_c
+          have := of_decide_eq_true hch_ge_c
+          rw [hch1] at this; exact this
+        m4_wp_lets; m4_wp_jump
+        exact hJB _ _ ⟨hlo_r, hr_lim, wsL, hwsL, hsufL, hrl_lt, hbdL,
+          ⟨hpermV, hsufV, m4Wsort_sift_done hmaxV (fun h1 => by omega) (fun h2 => by omega)⟩,
+          hmL⟩
+      · have hch_lt : 2 * root.toNat + 1 < lim.toNat := by
+          try unfold BitVec.ule at hch_lt_c
+          have := Nat.not_le.mp (of_decide_eq_false hch_lt_c)
+          rw [hch1] at this; exact this
+        have hch_ne : 2 * root.toNat + 1 ≠ root.toNat := by omega
+        have hcl_lt : 2 * root.toNat + 1 < wsL.length := by rw [hwsL]; omega
+        have hcl_cv : (wsL[2 * root.toNat + 1]'hcl_lt).toNat < 2 * s.core.cur_vars := by
+          have := hbdL (2 * root.toNat + 1) (by omega) hch_ne
+          rwa [List.getElem?_eq_getElem hcl_lt, Option.getD_some] at this
+        have hcl2_lt : 2 * (wsL[2 * root.toNat + 1]'hcl_lt).toNat < wvec1.length := by omega
+        m4_wp_lets
+        refine wp_load_sep_at (ptr := c.pWsort + BitVec.ofNat 64 (4 * (2 * root.toNat + 1)))
+          (by try simp only [LeanQbe.T.Arg.val_var]; rw [ptr_mul4_eq, hch1])
+          (dsm_load_ws hcl_lt hmL) ?_
+        m4_wp_lets
+        refine wp_load_sep_at
+          (ptr := c.pWvec + BitVec.ofNat 64 (4 * (2 * (wsL[2 * root.toNat + 1]'hcl_lt).toNat)))
+          (by try simp only [LeanQbe.T.Arg.val_var]; rw [ptr_mul4_eq, m4_zext_shl1])
+          (dsm_load_wvec hcl2_lt hmL) ?_
+        m4_wp_lets
+        refine wp_join_group
+          (fun (ch, cl, co, ()) mC =>
+            mC = mL ∧ ch.toNat < lim.toNat ∧ (ch.toNat = 2 * root.toNat + 1 ∨
+              ch.toNat = 2 * root.toNat + 2) ∧
+            wsL[ch.toNat]? = some cl ∧ wvec1[2 * cl.toNat]? = some co ∧
+            (2 * root.toNat + 1 < lim.toNat →
+              key (m4WsVal wsV (2 * root.toNat + 1)) ≤ co.toNat) ∧
+            (2 * root.toNat + 2 < lim.toNat →
+              key (m4WsVal wsV (2 * root.toNat + 2)) ≤ co.toNat))
+          ?_ ?_
+        · rintro _ ⟨ch, cl, co, ⟨⟩⟩ mC ⟨hmC_eq, hch_lim, hch_disj, hcl_opt, hco_opt, hs1, hs2⟩
+          subst hmC_eq
+          have hrc : root.toNat ≠ ch.toNat := by rcases hch_disj with h | h <;> omega
+          have hcl_len_ch : ch.toNat < wsL.length := by rw [hwsL]; omega
+          have hcl_eq : cl = wsL[ch.toNat]'hcl_len_ch := by
+            rw [List.getElem?_eq_getElem hcl_len_ch] at hcl_opt
+            exact (Option.some.inj hcl_opt).symm
+          have hcl_cv_ch : cl.toNat < 2 * s.core.cur_vars := by
+            have := hbdL ch.toNat (by omega) hrc.symm
+            rwa [hcl_opt, Option.getD_some] at this
+          have hco_len_ch : 2 * cl.toNat < wvec1.length := by omega
+          have hco_eq : co = wvec1[2 * cl.toNat]'hco_len_ch := by
+            rw [List.getElem?_eq_getElem hco_len_ch] at hco_opt
+            exact (Option.some.inj hco_opt).symm
+          have hro_val : m4WvecOff wvec1 (m4WsVal wsV root.toNat) =
+              (wvec1[2 * rl0.toNat]'hrl2_lt).toNat := by
+            unfold m4WsVal m4WvecOff
+            dsimp only [wsV]
+            rw [List.getElem?_set_self (by rw [hwsL]; omega), Option.getD_some,
+              List.getElem?_eq_getElem hrl2_lt, Option.getD_some]
+          have hco_val : m4WvecOff wvec1 (m4WsVal wsV ch.toNat) = co.toNat := by
+            unfold m4WsVal m4WvecOff
+            dsimp only [wsV]
+            rw [List.getElem?_set_ne hrc,
+              hcl_opt, Option.getD_some, hco_opt, Option.getD_some]
+          m4_wp_lets
+          simp only [LeanQbe.T.wp_jnz, LeanQbe.T.Arg.val_var]
+          refine ⟨fun hbro => ?_, fun hbro => ?_⟩
+          · have hge_co : co.toNat ≤ (wvec1[2 * rl0.toNat]'hrl2_lt).toNat := by
+              try unfold BitVec.ule at hbro
+              exact of_decide_eq_true hbro
+            m4_wp_lets; m4_wp_jump
+            have hs1' : ∀ h1 : 2 * root.toNat + 1 < lim.toNat,
+                m4WvecOff wvec1 (m4WsVal wsV (2 * root.toNat + 1)) ≤ co.toNat := hs1
+            have hs2' : ∀ h2 : 2 * root.toNat + 2 < lim.toNat,
+                m4WvecOff wvec1 (m4WsVal wsV (2 * root.toNat + 2)) ≤ co.toNat := hs2
+            exact hJB _ _ ⟨hlo_r, hr_lim, wsL, hwsL, hsufL, hrl_lt, hbdL,
+              ⟨hpermV, hsufV, m4Wsort_sift_done hmaxV
+                (fun h1 => by rw [hro_val]; exact Nat.le_trans (hs1' h1) hge_co)
+                (fun h2 => by rw [hro_val]; exact Nat.le_trans (hs2' h2) hge_co)⟩, hmL⟩
+          · have hlt_co : (wvec1[2 * rl0.toNat]'hrl2_lt).toNat < co.toNat := by
+              try unfold BitVec.ule at hbro
+              exact Nat.lt_of_not_le (of_decide_eq_false hbro)
+            m4_wp_lets
+            refine wp_store_sep_at (ptr := c.pWsort + BitVec.ofNat 64 (4 * root.toNat))
+              (by try simp only [LeanQbe.T.Arg.val_var]; rw [ptr_mul4_eq])
+              (dsm_store_ws (i := root.toNat) cl (by rw [hwsL]; omega) hmL) fun mS hmS => ?_
+            m4_wp_lets; m4_wp_jump
+            have hs1' : ∀ h1 : 2 * root.toNat + 1 < lim.toNat,
+                m4WvecOff wvec1 (m4WsVal wsV (2 * root.toNat + 1)) ≤ co.toNat := hs1
+            have hs2' : ∀ h2 : 2 * root.toNat + 2 < lim.toNat,
+                m4WvecOff wvec1 (m4WsVal wsV (2 * root.toNat + 2)) ≤ co.toNat := hs2
+            have hsib : (2 * root.toNat + 1 < lim.toNat →
+                  key (m4WsVal wsV (2 * root.toNat + 1)) ≤ key (m4WsVal wsV ch.toNat)) ∧
+                (2 * root.toNat + 2 < lim.toNat →
+                  key (m4WsVal wsV (2 * root.toNat + 2)) ≤ key (m4WsVal wsV ch.toNat)) :=
+              ⟨fun h1 => by
+                 change m4WvecOff wvec1 _ ≤ m4WvecOff wvec1 _
+                 rw [hco_val]; exact hs1' h1,
+               fun h2 => by
+                 change m4WvecOff wvec1 _ ≤ m4WvecOff wvec1 _
+                 rw [hco_val]; exact hs2' h2⟩
+            have ⟨hmax', hpar'⟩ := m4Wsort_sift_step (lo := lo_nat) (hi := lim.toNat)
+              hlo_r hch_lim (by rw [List.length_set, hwsL]; omega) hch_disj hmaxV hparV
+              (by
+                change m4WvecOff wvec1 _ < m4WvecOff wvec1 _
+                rw [hro_val, hco_val]; exact hlt_co) hsib
+            have hsw_eq := m4Set_virt_swap_eq (ws := wsL) (root := root.toNat) (ch := ch.toNat)
+              (cl := cl) (rl := rl0) (by rw [hwsL]; omega) (by rw [hwsL]; omega) hrc hcl_eq
+            rw [← hsw_eq] at hmax' hpar'
+            have hperm' : ((wsL.set root.toNat cl).set ch.toNat rl0).Perm ws0 := by
+              rw [hsw_eq]
+              exact (m4WsSwap_perm (i := root.toNat) (j := ch.toNat)
+                (by rw [List.length_set, hwsL]; omega)
+                (by rw [List.length_set, hwsL]; omega)).trans hpermV
+            have hsuf' : ∀ p, lim.toNat ≤ p →
+                ((wsL.set root.toNat cl).set ch.toNat rl0)[p]? = ws0[p]? := fun p hp => by
+              rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]
+              exact hsufL p hp
+            refine hJL _ _ (by dsimp only; omega)
+              ⟨by omega, hch_lim, wsL.set root.toNat cl, by rw [List.length_set, hwsL],
+               fun p hp => by rw [List.getElem?_set_ne (by omega)]; exact hsufL p hp,
+               hrl_lt, fun i hi hne => ?_, ⟨hperm', hsuf', hmax', hpar'⟩, hmS⟩
+            by_cases hir : i = root.toNat
+            · subst hir; rw [List.getElem?_set_self (by rw [hwsL]; omega),
+                Option.getD_some]
+              exact hcl_cv_ch
+            · rw [List.getElem?_set_ne (Ne.symm hir)]
+              exact hbdL i hi hir
+        · intro JC hJC
+          m4_wp_lets
+          simp only [LeanQbe.T.wp_jnz, LeanQbe.T.Arg.val_var]
+          refine ⟨fun hc2 => ?_, fun hc2 => ?_⟩
+          · have hch2_lt : 2 * root.toNat + 2 < lim.toNat := by
+              try unfold BitVec.ult at hc2
+              have := of_decide_eq_true hc2
+              rw [BitVec.toNat_add, hch1,
+                show ((1 : BitVec 64) : BitVec 64).toNat = 1 from rfl] at this
+              omega
+            have hch2_eq : ((root <<< (1 : Nat)) + (1 : BitVec 64) + (1 : BitVec 64)).toNat =
+                2 * root.toNat + 2 := by
+              rw [BitVec.toNat_add, hch1, show ((1 : BitVec 64) : BitVec 64).toNat = 1 from rfl]
+              omega
+            have hch2_ne : 2 * root.toNat + 2 ≠ root.toNat := by omega
+            have hch2_len : 2 * root.toNat + 2 < wsL.length := by rw [hwsL]; omega
+            have hsl_cv : (wsL[2 * root.toNat + 2]'hch2_len).toNat < 2 * s.core.cur_vars := by
+              have := hbdL (2 * root.toNat + 2) (by omega) hch2_ne
+              rwa [List.getElem?_eq_getElem hch2_len, Option.getD_some] at this
+            have hsl2_lt : 2 * (wsL[2 * root.toNat + 2]'hch2_len).toNat < wvec1.length := by
+              omega
+            m4_wp_lets
+            refine wp_load_sep_at
+              (ptr := c.pWsort + BitVec.ofNat 64 (4 * (2 * root.toNat + 2)))
+              (by try simp only [LeanQbe.T.Arg.val_var]; rw [ptr_mul4_eq, hch2_eq])
+              (dsm_load_ws hch2_len hmL) ?_
+            m4_wp_lets
+            refine wp_load_sep_at
+              (ptr := c.pWvec + BitVec.ofNat 64
+                (4 * (2 * (wsL[2 * root.toNat + 2]'hch2_len).toNat)))
+              (by try simp only [LeanQbe.T.Arg.val_var]; rw [ptr_mul4_eq, m4_zext_shl1])
+              (dsm_load_wvec hsl2_lt hmL) ?_
+            m4_wp_lets
+            refine wp_join_group
+              (fun (ch, cl, co, ()) m2 =>
+                m2 = mL ∧ ch.toNat < lim.toNat ∧
+                (ch.toNat = 2 * root.toNat + 1 ∨ ch.toNat = 2 * root.toNat + 2) ∧
+                wsL[ch.toNat]? = some cl ∧ wvec1[2 * cl.toNat]? = some co ∧
+                key (m4WsVal wsV (2 * root.toNat + 1)) ≤ co.toNat ∧
+                key (m4WsVal wsV (2 * root.toNat + 2)) ≤ co.toNat)
+              ?_ ?_
+            · rintro _ ⟨ch, cl, co, ⟨⟩⟩ m2 ⟨hm2_eq, hch_l, hch_d, hcl_e, hco_e, hs1, hs2⟩
+              subst hm2_eq
+              m4_wp_jump
+              exact hJC _ _ ⟨_root_.rfl, hch_l, hch_d, hcl_e, hco_e, fun _ => hs1, fun _ => hs2⟩
+            · intro J2 hJ2
+              m4_wp_lets
+              simp only [LeanQbe.T.wp_jnz, LeanQbe.T.Arg.val_var]
+              have hk1 : m4WvecOff wvec1 (m4WsVal wsV (2 * root.toNat + 1)) =
+                  (wvec1[2 * (wsL[2 * root.toNat + 1]'hcl_lt).toNat]'hcl2_lt).toNat := by
+                unfold m4WsVal m4WvecOff
+                dsimp only [wsV]
+                rw [List.getElem?_set_ne (Ne.symm hch_ne),
+                  List.getElem?_eq_getElem hcl_lt, Option.getD_some,
+                  List.getElem?_eq_getElem hcl2_lt, Option.getD_some]
+              have hk2 : m4WvecOff wvec1 (m4WsVal wsV (2 * root.toNat + 2)) =
+                  (wvec1[2 * (wsL[2 * root.toNat + 2]'hch2_len).toNat]'hsl2_lt).toNat := by
+                unfold m4WsVal m4WvecOff
+                dsimp only [wsV]
+                rw [List.getElem?_set_ne (Ne.symm hch2_ne),
+                  List.getElem?_eq_getElem hch2_len, Option.getD_some,
+                  List.getElem?_eq_getElem hsl2_lt, Option.getD_some]
+              refine ⟨fun hgt => ?_, fun hle => ?_⟩
+              · have hgt' :
+                    (wvec1[2 * (wsL[2 * root.toNat + 1]'hcl_lt).toNat]'hcl2_lt).toNat <
+                    (wvec1[2 * (wsL[2 * root.toNat + 2]'hch2_len).toNat]'hsl2_lt).toNat := by
+                  try unfold BitVec.ult at hgt
+                  exact of_decide_eq_true hgt
+                m4_wp_lets
+                m4_wp_jump
+                refine hJ2 _ _ ⟨_root_.rfl, by rw [hch2_eq]; exact hch2_lt,
+                  Or.inr hch2_eq, ?_, ?_, ?_, ?_⟩
+                · try simp only [LeanQbe.T.Arg.val_var, LeanQbe.T.Arg.val_imm]
+                  try dsimp only [LeanQbe.T.lift2]
+                  rw [hch2_eq, List.getElem?_eq_getElem hch2_len]
+                · try simp only [LeanQbe.T.Arg.val_var, LeanQbe.T.Arg.val_imm]
+                  try dsimp only [LeanQbe.T.lift2]
+                  rw [List.getElem?_eq_getElem hsl2_lt]
+                · change m4WvecOff wvec1 _ ≤ _; rw [hk1]; exact Nat.le_of_lt hgt'
+                · change m4WvecOff wvec1 _ ≤ _; rw [hk2]; exact le_refl _
+              · have hle' :
+                    (wvec1[2 * (wsL[2 * root.toNat + 2]'hch2_len).toNat]'hsl2_lt).toNat ≤
+                    (wvec1[2 * (wsL[2 * root.toNat + 1]'hcl_lt).toNat]'hcl2_lt).toNat := by
+                  try unfold BitVec.ult at hle
+                  exact Nat.not_lt.mp (of_decide_eq_false hle)
+                m4_wp_jump
+                refine hJ2 _ _
+                  ⟨_root_.rfl, by rw [hch1]; exact hch_lt, Or.inl hch1, ?_, ?_, ?_, ?_⟩
+                · try simp only [LeanQbe.T.Arg.val_var, LeanQbe.T.Arg.val_imm]
+                  try dsimp only [LeanQbe.T.lift2]
+                  rw [hch1, List.getElem?_eq_getElem hcl_lt]
+                · try simp only [LeanQbe.T.Arg.val_var, LeanQbe.T.Arg.val_imm]
+                  try dsimp only [LeanQbe.T.lift2]
+                  rw [List.getElem?_eq_getElem hcl2_lt]
+                · change m4WvecOff wvec1 _ ≤ _; rw [hk1]; exact le_refl _
+                · change m4WvecOff wvec1 _ ≤ _; rw [hk2]; exact hle'
+          · have hch2_ge : lim.toNat ≤ 2 * root.toNat + 2 := by
+              try unfold BitVec.ult at hc2
+              have := Nat.not_lt.mp (of_decide_eq_false hc2)
+              rw [BitVec.toNat_add, hch1,
+                show ((1 : BitVec 64) : BitVec 64).toNat = 1 from _root_.rfl] at this
+              omega
+            m4_wp_jump
+            refine hJC _ _ ⟨_root_.rfl, by rw [hch1]; exact hch_lt, Or.inl hch1,
+              (by try simp only [LeanQbe.T.Arg.val_var]
+                  rw [hch1, List.getElem?_eq_getElem hcl_lt]),
+              (by try simp only [LeanQbe.T.Arg.val_var]
+                  rw [List.getElem?_eq_getElem hcl2_lt]),
+              fun _ => by
+                change m4WvecOff wvec1 _ ≤ _
+                unfold m4WsVal m4WvecOff
+                dsimp only [wsV]
+                rw [List.getElem?_set_ne (Ne.symm hch_ne),
+                  List.getElem?_eq_getElem hcl_lt, Option.getD_some,
+                  List.getElem?_eq_getElem hcl2_lt, Option.getD_some]
+                exact le_refl _,
+              fun h2 => by omega⟩
+
+private noncomputable def m4ExLetI64 (v : Val i64) (e : Expr Val Cont []) : Expr Val Cont [] :=
   match e with | @Expr.let_ _ _ _ [Ty.bits 64] _ k => k (v, ()) | _ => e
 
-private def m4ExLetBool (v : Bool) (e : Expr Val Cont []) : Expr Val Cont [] :=
+private noncomputable def m4ExLetBool (v : Bool) (e : Expr Val Cont []) : Expr Val Cont [] :=
   match e with | @Expr.let_ _ _ _ [Ty.bool] _ k => k (v, ()) | _ => e
 
-private def m4ExLdI64 (v : Val i64) (e : Expr Val Cont []) : Expr Val Cont [] :=
+private noncomputable def m4ExLdI64 (v : Val i64) (e : Expr Val Cont []) : Expr Val Cont [] :=
   match e with | .load (Ty.bits 64) _ k => k v | _ => e
 
-private def m4ExJnz (b : Bool) (e : Expr Val Cont []) : Expr Val Cont [] :=
+private noncomputable def m4ExJnz (b : Bool) (e : Expr Val Cont []) : Expr Val Cont [] :=
   match e with | .jnz _ e1 e2 => if b then e1 else e2 | _ => e
 
-private def m4ExGrp0 (c : Cont []) (e : Expr Val Cont []) : Expr Val Cont [] :=
+private noncomputable def m4ExGrp0 (c : Cont []) (e : Expr Val Cont []) : Expr Val Cont [] :=
   match e with
   | @Expr.group _ _ _ [[]] bodies _ =>
     match bodies (c, ()) with | .cons f _ => f () | _ => e
   | _ => e
 
-private def m4ExGrp1 (c : Cont [i64]) (x : Val i64) (e : Expr Val Cont []) : Expr Val Cont [] :=
+private noncomputable def m4ExGrp1 (c : Cont [i64]) (x : Val i64) (e : Expr Val Cont []) :
+    Expr Val Cont [] :=
   match e with
   | @Expr.group _ _ _ [[Ty.bits 64]] bodies _ =>
     match bodies (c, ()) with | .cons f _ => f (x, ()) | _ => e
   | _ => e
 
-private def m4ExGrp3 (c : Cont [i64, i64, i64]) (x y z : Val i64) (e : Expr Val Cont []) :
-    Expr Val Cont [] :=
+private noncomputable def m4ExGrp3 (c : Cont [i64, i64, i64]) (x y z : Val i64)
+    (e : Expr Val Cont []) : Expr Val Cont [] :=
   match e with
   | @Expr.group _ _ _ [[Ty.bits 64, Ty.bits 64, Ty.bits 64]] bodies _ =>
     match bodies (c, ()) with | .cons f _ => f (x, y, z, ()) | _ => e
   | _ => e
 
-private def m4ExGrp4 (c : Cont [i64, i64, i32, .bool]) (a b : Val i64) (d : Val i32) (g : Bool)
-    (e : Expr Val Cont []) : Expr Val Cont [] :=
+private noncomputable def m4ExGrp4 (c : Cont [i64, i64, i32, .bool]) (a b : Val i64)
+    (d : Val i32) (g : Bool) (e : Expr Val Cont []) : Expr Val Cont [] :=
   match e with
   | @Expr.group _ _ _ [[Ty.bits 64, Ty.bits 64, Ty.bits 32, Ty.bool]] bodies _ =>
     match bodies (c, ()) with | .cons f _ => f (a, b, d, g, ()) | _ => e
   | _ => e
 
-private def m4ExGrpK0 (J : Cont []) (e : Expr Val Cont []) : Expr Val Cont [] :=
+private noncomputable def m4ExGrpK0 (J : Cont []) (e : Expr Val Cont []) : Expr Val Cont [] :=
   match e with
   | @Expr.group _ _ _ [[]] _ k => k (J, ())
   | _ => e
 
-private def m4MergeSortExpr (pWvec pWsort n : Val i64) (J7 : Cont []) : Expr Val Cont [] :=
+private noncomputable def m4MergeSortExpr (pWvec pWsort n : Val i64) (J7 : Cont []) :
+    Expr Val Cont [] :=
   let dummyLoop : Cont [i64, i64, i32, .bool] := fun _ _ => True
   let dummy0 : Cont [] := fun _ _ => True
   let e0 := full_wstack_defrag_m4_body Val Cont (0#64, ())
@@ -486,12 +579,13 @@ private def m4MergeSortExpr (pWvec pWsort n : Val i64) (J7 : Cont []) : Expr Val
   let e7 := m4ExGrpK0 J7 e6
   m4ExJnz true (m4ExLetBool true (m4ExLetI64 0#64 e7))
 
-private def m4MergeOuterExpr (pWvec pWsort n : Val i64) (J7 : Cont []) : Expr Val Cont [] :=
+private noncomputable def m4MergeOuterExpr (pWvec pWsort n : Val i64) (J7 : Cont []) :
+    Expr Val Cont [] :=
   let dummyJB : Cont [i64] := fun _ _ => True
   m4ExJnz false (m4ExLetBool false
     (m4ExGrp1 dummyJB 0#64 (m4MergeSortExpr pWvec pWsort n J7)))
 
-private def m4MergePairExpr
+private noncomputable def m4MergePairExpr
     (pWvec pWsort n src_off dst_off width lo mid hi : Val i64)
     (JLo : Cont [i64]) : Expr Val Cont [] :=
   let dummy0 : Cont [] := fun _ _ => True
@@ -506,86 +600,67 @@ private def m4MergePairExpr
   let eMid := m4ExGrp1 dummy1 mid (m4ExLetI64 0#64 eLo)
   m4ExGrp1 dummy1 hi (m4ExLetI64 0#64 eMid)
 
-local macro "m4_let2" c:term "," a:term "," b:term "," k:term : term =>
-  `(Expr.let_ (Op.mk $c ($a, $b, ())) $k)
-
-local macro "m4_addr4" base:term "," off:term "," idx:term "," k:term : term =>
-  `(m4_let2 (OpCode.add i64), Arg.var $off, Arg.var $idx, fun s =>
-    m4_let2 (OpCode.mul i64), Arg.var s.1, Arg.imm (4 : BitVec 64), fun b =>
-    m4_let2 (OpCode.add i64), Arg.var $base, Arg.var b.1, fun p => $k p.1)
-
-local macro "m4_load_arr32" base:term "," off:term "," idx:term "," k:term : term =>
-  `(m4_addr4 $base, $off, $idx, fun p => Expr.load i32 (Arg.var p) $k)
-
-local macro "m4_load_key" pWvec:term "," v:term "," k:term : term =>
-  `(Expr.let_ (Op.mk (OpCode.zext 32 64) (Arg.var $v, ())) fun z =>
-    Expr.let_ (Op.mk (OpCode.sext 32 64) (Arg.imm (1 : BitVec 32), ())) fun o =>
-    m4_let2 (OpCode.shl i64), Arg.var z.1, Arg.var o.1, fun sh =>
-    m4_let2 (OpCode.mul i64), Arg.var sh.1, Arg.imm (4 : BitVec 64), fun b =>
-    m4_let2 (OpCode.add i64), Arg.var $pWvec, Arg.var b.1, fun p =>
-    Expr.load i32 (Arg.var p.1) $k)
-
-private def m4MergeRiTailAst
+private noncomputable def m4MergeRiTailAst
     (pWsort src_off dst_off width lo hi ri_init ki_init : Val i64)
     (JLo : Cont [i64]) : Expr Val Cont [] :=
   @Expr.group Val Cont [] [[i64, i64]] (fun Js_3 => Blocks.cons (fun p_4 =>
-    m4_let2 (.cmp .ult i64 .bool rfl), Arg.var p_4.1, Arg.var hi, fun p_5 =>
+    m4Let2 (.cmp .ult i64 .bool rfl) (.var p_4.1) (.var hi) fun p_5 =>
     .jnz (Arg.var p_5.1)
-      (m4_addr4 pWsort, dst_off, p_4.2.1, fun pDst =>
-        m4_load_arr32 pWsort, src_off, p_4.1, fun ld =>
+      (m4Addr4 pWsort dst_off p_4.2.1 fun pDst =>
+        m4LoadArr32 pWsort src_off p_4.1 fun ld =>
         .store (Arg.var ld) (Arg.var pDst)
-          (m4_let2 (.add i64), Arg.var p_4.1, Arg.imm (1 : BitVec 64), fun nr =>
-           m4_let2 (.add i64), Arg.var p_4.2.1, Arg.imm (1 : BitVec 64), fun nk =>
+          (m4Let2 (.add i64) (.var p_4.1) (.imm (1 : BitVec 64)) fun nr =>
+           m4Let2 (.add i64) (.var p_4.2.1) (.imm (1 : BitVec 64)) fun nk =>
            .jump Js_3.1 (Arg.var nr.1, Arg.var nk.1, ())))
       (.let_ (Op.mk (.sext 32 64) (Arg.imm 1#32, ())) fun s1 =>
-       m4_let2 (.shl i64), Arg.var width, Arg.var s1.1, fun w2 =>
-       m4_let2 (.add i64), Arg.var lo, Arg.var w2.1, fun lo2 =>
+       m4Let2 (.shl i64) (.var width) (.var s1.1) fun w2 =>
+       m4Let2 (.add i64) (.var lo) (.var w2.1) fun lo2 =>
        .jump JLo (Arg.var lo2.1, ()))) Blocks.nil)
     fun Js_3 => .jump Js_3.1 (Arg.var ri_init, Arg.var ki_init, ())
 
-private def m4MergeTailAst
+private noncomputable def m4MergeTailAst
     (pWsort src_off dst_off width lo mid hi li_init ri_init ki_init : Val i64)
     (JLo : Cont [i64]) : Expr Val Cont [] :=
   @Expr.group Val Cont [] [[i64, i64]] (fun Js_2 => Blocks.cons (fun p_2 =>
-    m4_let2 (.cmp .ult i64 .bool rfl), Arg.var p_2.1, Arg.var mid, fun p_3 =>
+    m4Let2 (.cmp .ult i64 .bool rfl) (.var p_2.1) (.var mid) fun p_3 =>
     .jnz (Arg.var p_3.1)
-      (m4_addr4 pWsort, dst_off, p_2.2.1, fun pDst =>
-        m4_load_arr32 pWsort, src_off, p_2.1, fun ld =>
+      (m4Addr4 pWsort dst_off p_2.2.1 fun pDst =>
+        m4LoadArr32 pWsort src_off p_2.1 fun ld =>
         .store (Arg.var ld) (Arg.var pDst)
-          (m4_let2 (.add i64), Arg.var p_2.1, Arg.imm (1 : BitVec 64), fun nl =>
-           m4_let2 (.add i64), Arg.var p_2.2.1, Arg.imm (1 : BitVec 64), fun nk =>
+          (m4Let2 (.add i64) (.var p_2.1) (.imm (1 : BitVec 64)) fun nl =>
+           m4Let2 (.add i64) (.var p_2.2.1) (.imm (1 : BitVec 64)) fun nk =>
            .jump Js_2.1 (Arg.var nl.1, Arg.var nk.1, ())))
       (m4MergeRiTailAst pWsort src_off dst_off width lo hi ri_init p_2.2.1 JLo)) Blocks.nil)
     fun Js_2 => .jump Js_2.1 (Arg.var li_init, Arg.var ki_init, ())
 
-private def m4MergePairAst
+private noncomputable def m4MergePairAst
     (pWvec pWsort src_off dst_off width lo mid hi : Val i64)
     (JLo : Cont [i64]) : Expr Val Cont [] :=
   @Expr.group Val Cont [] [[i64, i64, i64]] (fun Js => Blocks.cons (fun p =>
     @Expr.group Val Cont [] [[]] (fun _Js_1 => Blocks.cons (fun _ =>
       m4MergeTailAst pWsort src_off dst_off width lo mid hi p.1 p.2.1 p.2.2.1 JLo) Blocks.nil)
     fun Js_1 =>
-    m4_let2 (.cmp .ult i64 .bool rfl), Arg.var p.1, Arg.var mid, fun p_1 =>
+    m4Let2 (.cmp .ult i64 .bool rfl) (.var p.1) (.var mid) fun p_1 =>
     .jnz (Arg.var p_1.1)
-      (m4_let2 (.cmp .ult i64 .bool rfl), Arg.var p.2.1, Arg.var hi, fun p_2 =>
+      (m4Let2 (.cmp .ult i64 .bool rfl) (.var p.2.1) (.var hi) fun p_2 =>
        .jnz (Arg.var p_2.1)
-         (m4_load_arr32 pWsort, src_off, p.1, fun ld =>
-          m4_load_arr32 pWsort, src_off, p.2.1, fun ld_1 =>
+         (m4LoadArr32 pWsort src_off p.1 fun ld =>
+          m4LoadArr32 pWsort src_off p.2.1 fun ld_1 =>
           @Expr.group Val Cont [] [[i64, i64]] (fun _Js_2 => Blocks.cons (fun p_9 =>
-            m4_let2 (.add i64), Arg.var p.2.2.1, Arg.imm (1 : BitVec 64), fun nk =>
+            m4Let2 (.add i64) (.var p.2.2.1) (.imm (1 : BitVec 64)) fun nk =>
             .jump Js.1 (Arg.var p_9.1, Arg.var p_9.2.1, Arg.var nk.1, ())) Blocks.nil)
             fun Js_2 =>
-            m4_load_key pWvec, ld, fun ld_2 =>
-            m4_load_key pWvec, ld_1, fun ld_3 =>
-            m4_let2 (.cmp .ule i32 .bool rfl), Arg.var ld_2, Arg.var ld_3, fun p_19 =>
+            m4LoadKey pWvec ld fun ld_2 =>
+            m4LoadKey pWvec ld_1 fun ld_3 =>
+            m4Let2 (.cmp .ule i32 .bool rfl) (.var ld_2) (.var ld_3) fun p_19 =>
             .jnz (Arg.var p_19.1)
-              (m4_addr4 pWsort, dst_off, p.2.2.1, fun pDst =>
+              (m4Addr4 pWsort dst_off p.2.2.1 fun pDst =>
                .store (Arg.var ld) (Arg.var pDst)
-                 (m4_let2 (.add i64), Arg.var p.1, Arg.imm (1 : BitVec 64), fun nl =>
+                 (m4Let2 (.add i64) (.var p.1) (.imm (1 : BitVec 64)) fun nl =>
                   .jump Js_2.1 (Arg.var nl.1, Arg.var p.2.1, ())))
-              (m4_addr4 pWsort, dst_off, p.2.2.1, fun pDst =>
+              (m4Addr4 pWsort dst_off p.2.2.1 fun pDst =>
                .store (Arg.var ld_1) (Arg.var pDst)
-                 (m4_let2 (.add i64), Arg.var p.2.1, Arg.imm (1 : BitVec 64), fun nr =>
+                 (m4Let2 (.add i64) (.var p.2.1) (.imm (1 : BitVec 64)) fun nr =>
                   .jump Js_2.1 (Arg.var p.1, Arg.var nr.1, ()))))
          (.jump Js_1.1 ()))
       (.jump Js_1.1 ())) Blocks.nil)
@@ -648,6 +723,7 @@ private theorem m4_merge_ri_tail_wp
         JLo ys m') :
     wp Γ Q X (m4MergeRiTailAst c.pWsort src_off dst_off width lo hi ri ki JLo) m4 := by
   let key := m4WvecOff wvec1
+  dsimp only [m4MergeRiTailAst, m4LoadArr32, m4Addr4, m4Let2]
   m4_wp_lets
   refine wp_loop_inv
     (fun (ri1, ki2, ()) m5 =>
@@ -825,6 +901,7 @@ private theorem m4_merge_tail_wp
         JLo ys m') :
     wp Γ Q X (m4MergeTailAst c.pWsort src_off dst_off width lo mid hi li ri ki JLo) m3' := by
   let key := m4WvecOff wvec1
+  dsimp only [m4MergeTailAst, m4LoadArr32, m4Addr4, m4Let2]
   m4_wp_lets
   refine wp_loop_inv
     (fun (li1, ki1, ()) m4 =>
@@ -936,6 +1013,7 @@ private theorem m4_merge_pair_wp
         JLo ys m') :
     wp Γ Q X (m4MergePairAst c.pWvec c.pWsort src_off dst_off width lo mid hi JLo) mD := by
   let key := m4WvecOff wvec1
+  dsimp only [m4MergePairAst, m4LoadKey, m4LoadArr32, m4Addr4, m4Let2]
   m4_wp_lets
   refine wp_loop_inv
     (fun (li, ri, ki, ()) m3 =>
@@ -1788,7 +1866,7 @@ private theorem m4_mergesort_wp
         (fun q hq => hsrtB q (by rw [Nat.min_eq_right hbn_ge]; exact hq))
         hmB hJ7
 
-theorem full_wstack_defrag_m4_wp (Γ : Env) :
+public theorem full_wstack_defrag_m4_wp (Γ : Env) :
     ∀ a m Q X, fullWstackDefragSpec a m Q X → Func.wp Γ full_wstack_defrag_m4_body a m Q X := by
   rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hlay, hm, hQ⟩
   have hcl := hlen.core_ok; have hsl := hlen.scratch_ok
@@ -2472,21 +2550,19 @@ theorem full_wstack_defrag_m4_wp (Γ : Env) :
                           rw [List.getElem?_eq_getElem (by m4_omega), Option.getD_some, ← hget]
                           have := hbdB j (by m4_omega); unfold m4WsVal at this
                           rwa [List.getElem?_eq_getElem (by m4_omega), Option.getD_some] at this
-                        m4_sift_inner key, wsB, n, rlB, n.toNat, c.max_vars, wvec1, c, s, R,
-                          hdoneB, (st.toNat - 1), n.toNat,
-                          (by
-                            intro JL hJL
-                            m4_wp_lets; m4_wp_jump
-                            refine hJL _ _ ⟨by rw [hstm1]; exact le_refl _,
-                              by rw [hstm1]; m4_omega, wsB,
-                              hwsB, fun _ _ => rfl, hrl_cv, fun i hi _ => by
-                                have := hbdB i hi; unfold m4WsVal at this; exact this,
-                              ⟨by rw [hstm1, List.set_getElem_self hstm1_ws],
-                               by rw [hstm1, List.set_getElem_self hstm1_ws]; exact fun _ _ => rfl,
-                               fun p hp1 hp2 hp3 => by
-                                 rw [hstm1, List.set_getElem_self hstm1_ws]
-                                 exact hmaxB p (by m4_omega) hp2,
-                               fun hlt _ => by rw [hstm1] at hlt; m4_omega⟩, hmB⟩)
+                        exact m4_sift_inner_wp (lo_nat := st.toNat - 1) (n_nat := n.toNat)
+                          (root0 := st - (1 : BitVec 64))
+                          hmx hcv_le hwv1 (le_refl _) (by m4_omega) hrl2_lt hdoneB
+                          ⟨by rw [hstm1]; exact le_refl _,
+                           by rw [hstm1]; m4_omega, wsB,
+                           hwsB, fun _ _ => rfl, hrl_cv, fun i hi _ => by
+                             have := hbdB i hi; unfold m4WsVal at this; exact this,
+                           ⟨by rw [hstm1, List.set_getElem_self hstm1_ws],
+                            by rw [hstm1, List.set_getElem_self hstm1_ws]; exact fun _ _ => rfl,
+                            fun p hp1 hp2 hp3 => by
+                              rw [hstm1, List.set_getElem_self hstm1_ws]
+                              exact hmaxB p (by m4_omega) hp2,
+                            fun hlt _ => by rw [hstm1] at hlt; m4_omega⟩, hmB⟩
                       · have hst0 : st.toNat = 0 := by
                           try unfold BitVec.ult at hst0_c
                           have := Nat.not_lt.mp (of_decide_eq_false hst0_c)
@@ -2620,42 +2696,40 @@ theorem full_wstack_defrag_m4_wp (Γ : Env) :
                               · unfold m4WsVal
                                 rw [hsufD i (by m4_omega), hwsSwap_suf i (by m4_omega)]
                                 exact hbdE i hi
-                            m4_sift_inner key, wsSwap, e, rlE, n.toNat, c.max_vars, wvec1, c, s, R,
-                              hdoneE, 0, e.toNat,
-                              (by
-                                intro JL hJL
-                                m4_wp_lets; m4_wp_jump
-                                refine hJL _ _ ⟨Nat.zero_le _, he_pos, wsE1,
-                                  by simp [wsE1, hwsE],
-                                  fun p hp => by
-                                    by_cases hpe : p = e.toNat
-                                    · subst hpe; dsimp only [wsE1, wsSwap]
-                                      rw [List.getElem?_set_self he_ws, List.getElem?_set_self
-                                        (by rw [List.length_set]; exact he_ws)]
-                                    · simp [wsE1, wsSwap, List.getElem?_set_ne (Ne.symm hpe),
-                                        List.getElem?_set_ne (by m4_omega : 0 ≠ p)],
-                                  hrl_cv, fun i hi hne => ?_,
-                                  ⟨by
-                                     rw [show ((0 : BitVec 64) : BitVec 64).toNat = 0 from rfl,
-                                       hsw_eq],
-                                   by
-                                     rw [show ((0 : BitVec 64) : BitVec 64).toNat = 0 from rfl,
-                                       hsw_eq]
-                                     exact fun _ _ => rfl,
-                                   by
-                                     rw [show ((0 : BitVec 64) : BitVec 64).toNat = 0 from rfl,
-                                       hsw_eq]
-                                     dsimp only [wsSwap, rlE]
-                                     exact fun p _ hp2 hp3 =>
-                                       hsw_step.1 p (Nat.pos_of_ne_zero hp3) hp2 hp3,
-                                   fun h0 => absurd h0 (Nat.lt_irrefl 0)⟩, hmE1⟩
-                                by_cases hie : i = e.toNat
-                                · subst hie; simp only [wsE1, List.getElem?_set_self he_ws,
-                                    Option.getD_some]
-                                  have := hbdE 0 (by m4_omega); unfold m4WsVal at this
-                                  rwa [List.getElem?_eq_getElem h0_ws, Option.getD_some] at this
-                                · simp only [wsE1, List.getElem?_set_ne (Ne.symm hie)]
-                                  exact hbdE i hi)
+                            exact m4_sift_inner_wp (lo_nat := 0) (n_nat := n.toNat) (ws0 := wsSwap)
+                              (lim := e) (root0 := (0 : BitVec 64)) (rl0 := rlE)
+                              hmx hcv_le hwv1 (by m4_omega) (by m4_omega) hrl2_lt hdoneE
+                              ⟨Nat.zero_le _, he_pos, wsE1,
+                                by simp [wsE1, hwsE],
+                                fun p hp => by
+                                  by_cases hpe : p = e.toNat
+                                  · subst hpe; dsimp only [wsE1, wsSwap]
+                                    rw [List.getElem?_set_self he_ws, List.getElem?_set_self
+                                      (by rw [List.length_set]; exact he_ws)]
+                                  · simp [wsE1, wsSwap, List.getElem?_set_ne (Ne.symm hpe),
+                                      List.getElem?_set_ne (by m4_omega : 0 ≠ p)],
+                                hrl_cv, fun i hi _ => by
+                                  by_cases hie : i = e.toNat
+                                  · subst hie; simp only [wsE1, List.getElem?_set_self he_ws,
+                                      Option.getD_some]
+                                    have := hbdE 0 (by m4_omega); unfold m4WsVal at this
+                                    rwa [List.getElem?_eq_getElem h0_ws, Option.getD_some] at this
+                                  · simp only [wsE1, List.getElem?_set_ne (Ne.symm hie)]
+                                    exact hbdE i hi,
+                                ⟨by
+                                   rw [show ((0 : BitVec 64) : BitVec 64).toNat = 0 from rfl,
+                                     hsw_eq],
+                                 by
+                                   rw [show ((0 : BitVec 64) : BitVec 64).toNat = 0 from rfl,
+                                     hsw_eq]
+                                   exact fun _ _ => rfl,
+                                 by
+                                   rw [show ((0 : BitVec 64) : BitVec 64).toNat = 0 from rfl,
+                                     hsw_eq]
+                                   dsimp only [wsSwap, rlE]
+                                   exact fun p _ hp2 hp3 =>
+                                     hsw_step.1 p (Nat.pos_of_ne_zero hp3) hp2 hp3,
+                                 fun h0 => absurd h0 (Nat.lt_irrefl 0)⟩, hmE1⟩
                           · have he0 : e.toNat = 0 := by
                               try unfold BitVec.ult at he0_c
                               have := Nat.not_lt.mp (of_decide_eq_false he0_c)
@@ -2685,13 +2759,15 @@ end DefragM4
 
 /-! ## 5. Closed `3`-Row `ModuleOk` Assembly & Concrete `Mem 64` Non-Vacuity -/
 
+@[expose] public section
+
 def m4InprocHotSpecTable : List SpecEntry :=
   [ ⟨"full_has_ternary_m4", [i64, i32, i32, i32], [.bool], Full.fullHasTernarySpec, true⟩
   , ⟨"full_kitten_init_m4", [i64, i32, i32], [], Full.fullKittenInitSpec, true⟩
   , ⟨"full_wstack_defrag_m4", [i64], [], Full.fullWstackDefragSpec, true⟩
   ]
 
-def m4InprocHotEnv : Env := Env.ofTable m4InprocHotSpecTable
+noncomputable def m4InprocHotEnv : Env := Env.ofTable m4InprocHotSpecTable
 
 theorem m4InprocHotSpecTable_sigs :
     m4InprocHotSpecTable.map (fun e => (e.name, e.as, e.rs)) =
@@ -2728,7 +2804,8 @@ theorem nv_m4_has_ternary :
      (fun _ h _ => by
        change _ ∈ fullArenaClauseRefsCore nvM4State.core at h
        rw [nvM4_refs_nil] at h; cases h),
-     rfl, (by decide), (by rw [sep_emp]; exact nvM4Mem_ok), fun _ _ _ hne => hne rfl⟩
+     nvM4_cur_level, (by rw [nvM4_cur_vars]; decide), (by rw [sep_emp]; exact nvM4Mem_ok),
+     fun _ _ _ hne => hne rfl⟩
 
 /-- Concrete `Mem 64` non-vacuity (`XPost := False`) for `full_kitten_init_m4`. -/
 theorem nv_m4_kitten_init :
@@ -2736,7 +2813,7 @@ theorem nv_m4_kitten_init :
       (fun _ _ => True) (fun _ _ _ _ => False) :=
   full_kitten_init_m4_wp m4InprocHotEnv _ nvM4Mem _ (fun _ _ _ _ => False)
     ⟨nvM4Cfg, nvM4State, emp, rfl, nvM4State_lengths, (by rw [sep_emp]; exact nvM4Mem_ok),
-     by simp [kMinScratchCap, kMaxV, nvM4Cfg]⟩
+     by split <;> intros <;> trivial⟩
 
 /-- Concrete `Mem 64` non-vacuity (`XPost := False`) for `full_wstack_defrag_m4`. -/
 theorem nv_m4_wstack_defrag :
@@ -2745,5 +2822,7 @@ theorem nv_m4_wstack_defrag :
   full_wstack_defrag_m4_wp m4InprocHotEnv _ nvM4Mem _ (fun _ _ _ _ => False)
     ⟨nvM4Cfg, nvM4State, emp, rfl, nvM4State_lengths, nvM4_layout,
      (by rw [sep_emp]; exact nvM4Mem_ok), fun _ _ _ _ _ _ _ _ _ _ => trivial⟩
+
+end
 
 end LeanQbe.T.Examples.Kissat.FullM4InprocHot
