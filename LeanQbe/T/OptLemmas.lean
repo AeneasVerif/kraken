@@ -158,8 +158,47 @@ theorem Func.earlyOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : 
   rw [Func.earlyOpt_eq]
   apply earlyOpt_tail_spec (Func.peelFast_wf _ 24)
   apply Func.peelFast_spec (Func.simplifyGroupFast_wf _) 24
-  apply Func.simplifyGroupFast_spec (Func.earlyCore_wf hf)
+  apply Func.simplifyGroupFast_spec (Func.ifOpt_wf (Func.earlyCore_wf hf))
+  apply Func.ifOpt_spec (Func.earlyCore_wf hf)
   exact Func.earlyCore_spec hf h
+
+/-- `Func.lateCorePre` preserves well-formedness. -/
+theorem Func.lateCorePre_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.lateCorePre f).Wf := by
+  rw [Func.lateCorePre_eq]
+  exact Func.copy_wf (Func.divConst_wf (Func.canon_wf (Func.fold_wf hf)))
+
+/-- `Func.lateCorePre` refines function contracts. -/
+theorem Func.lateCorePre_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateCorePre f) xs m Q X := by
+  rw [Func.lateCorePre_eq]
+  have hf1 := Func.fold_wf hf
+  have hs1 := Func.fold_spec hf h
+  have hf2 := Func.canon_wf hf1
+  have hs2 := Func.canon_spec hf1 hs1
+  have hf3 := Func.divConst_wf hf2
+  have hs3 := Func.divConst_spec hf2 hs2
+  exact Func.copy_spec hf3 hs3
+
+/-- `Func.lateCorePost` preserves well-formedness. -/
+theorem Func.lateCorePost_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.lateCorePost f).Wf := by
+  rw [Func.lateCorePost_eq]
+  exact Func.fold_wf (Func.assumeBits_wf (Func.gvn_wf (Func.memLoad_wf hf)))
+
+/-- `Func.lateCorePost` refines function contracts. -/
+theorem Func.lateCorePost_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateCorePost f) xs m Q X := by
+  rw [Func.lateCorePost_eq]
+  have hf5 := Func.memLoad_wf hf
+  have hs5 := Func.memLoad_spec hf h
+  have hf6 := Func.gvn_wf hf5
+  have hs6 := Func.gvn_spec hf5 hs5
+  have hf7 := Func.assumeBits_wf hf6
+  have hs7 := Func.assumeBits_spec hf6 hs6
+  exact Func.fold_spec hf7 hs7
 
 /-- `Func.lateCore` preserves well-formedness. -/
 theorem Func.lateCore_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
@@ -171,25 +210,65 @@ theorem Func.lateCore_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
 theorem Func.lateCore_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateCore f) xs m Q X := by
+  have h1 := Func.lateCorePre_wf hf
+  have hs1 := Func.lateCorePre_spec hf h
+  have h1r := Func.renorm_wf (Func.lateCorePre f)
+  have hs1r := Func.renorm_spec h1 hs1
+  have h2 := Func.lateCorePost_spec h1r hs1r
+  rw [Func.lateCorePre_eq, Func.lateCorePost_eq] at h2
   rw [Func.lateCore_eq]
-  have hf1 := Func.fold_wf hf
-  have hs1 := Func.fold_spec hf h
-  have hf2 := Func.canon_wf hf1
-  have hs2 := Func.canon_spec hf1 hs1
-  have hf3 := Func.divConst_wf hf2
-  have hs3 := Func.divConst_spec hf2 hs2
-  let f4 := Func.copy (Func.divConst (Func.canon (Func.fold f)))
-  have hf4 := Func.copy_wf hf3
-  have hs4 := Func.copy_spec hf3 hs3
-  have hf4r := Func.renorm_wf f4
-  have hs4r := Func.renorm_spec hf4 hs4
-  have hf5 := Func.memLoad_wf hf4r
-  have hs5 := Func.memLoad_spec hf4r hs4r
-  have hf6 := Func.gvn_wf hf5
-  have hs6 := Func.gvn_spec hf5 hs5
-  have hf7 := Func.assumeBits_wf hf6
-  have hs7 := Func.assumeBits_spec hf6 hs6
-  exact Func.fold_spec hf7 hs7
+  exact h2
+
+/-- `Func.lateCfgPre` preserves well-formedness. -/
+theorem Func.lateCfgPre_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
+    (Func.lateCfgPre f).Wf := by
+  rw [Func.lateCfgPre_eq]
+  exact Func.gvn_wf (Func.fold_wf (Func.assumeElim_wf
+    (Func.deadLoadElim_wf (Func.simplifyGroupFast_wf (Func.ifOptBits f)))))
+
+/-- `Func.lateCfgPre` refines function contracts. -/
+theorem Func.lateCfgPre_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateCfgPre f) xs m Q X := by
+  rw [Func.lateCfgPre_eq]
+  have hf1 := Func.ifOptBits_wf hf
+  have hs1 := Func.ifOptBits_spec hf h
+  have hf2 := Func.simplifyGroupFast_wf (Func.ifOptBits f)
+  have hs2 := Func.simplifyGroupFast_spec hf1 hs1
+  have hf3 := Func.deadLoadElim_wf hf2
+  have hs3 := Func.deadLoadElim_spec hf2 hs2
+  have hf4 := Func.assumeElim_wf hf3
+  have hs4 := Func.assumeElim_spec hf3 hs3
+  have hf5 := Func.fold_wf hf4
+  have hs5 := Func.fold_spec hf4 hs4
+  exact Func.gvn_spec hf5 hs5
+
+/-- `Func.lateCfgPost` preserves well-formedness. -/
+theorem Func.lateCfgPost_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.lateCfgPost f).Wf := by
+  rw [Func.lateCfgPost_eq]
+  exact Func.dceP_wf (Func.licm_wf hf)
+
+/-- `Func.lateCfgPost` refines function contracts. -/
+theorem Func.lateCfgPost_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateCfgPost f) xs m Q X := by
+  rw [Func.lateCfgPost_eq]
+  exact Func.dceP_spec (Func.licm_wf hf) (Func.licm_spec hf h)
+
+/-- `Func.lateLoopRotate` preserves well-formedness. -/
+theorem Func.lateLoopRotate_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.lateLoopRotate f).Wf := by
+  rw [Func.lateLoopRotate_eq]
+  exact Func.loopRotate_wf (Func.lateCfgPost_wf hf)
+
+/-- `Func.lateLoopRotate` refines function contracts. -/
+theorem Func.lateLoopRotate_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateLoopRotate f) xs m Q X := by
+  rw [Func.lateLoopRotate_eq]
+  exact Func.loopRotate_spec (Func.lateCfgPost_wf hf) LoopRotate.defaultRotConfig
+    (Func.lateCfgPost_spec hf h)
 
 /-- `Func.lateCfg` preserves well-formedness. -/
 theorem Func.lateCfg_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
@@ -197,34 +276,20 @@ theorem Func.lateCfg_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
   rw [Func.lateCfg_eq]
   exact Func.dceP_wf (Func.licm_wf (Func.renorm_wf _))
 
-private theorem lateCfg_tail_spec {as rs : List Ty} {g : Func as rs} (hg : g.Wf) {Γ : Env}
-    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
-    (h : Func.spec Γ g xs m Q X) :
-    Func.spec Γ (Func.dceP (Func.licm (Func.renorm (Func.gvn (Func.fold
-      (Func.assumeElim g)))))) xs m Q X := by
-  have hf1 := Func.assumeElim_wf hg
-  have hs1 := Func.assumeElim_spec hg h
-  have hf2 := Func.fold_wf hf1
-  have hs2 := Func.fold_spec hf1 hs1
-  have hf3 := Func.gvn_wf hf2
-  have hs3 := Func.gvn_spec hf2 hs2
-  have hf4 := Func.renorm_wf (Func.gvn (Func.fold (Func.assumeElim g)))
-  have hs4 := renorm_spec' hf3 hs3
-  have hf5 := Func.licm_wf hf4
-  have hs5 := Func.licm_spec hf4 hs4
-  exact Func.dceP_spec hf5 hs5
-
 /-- `Func.lateCfg` refines function contracts. -/
 theorem Func.lateCfg_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateCfg f) xs m Q X := by
+  have h1r := Func.renorm_wf f
+  have hs1r := Func.renorm_spec hf h
+  have h2 := Func.lateCfgPre_wf h1r
+  have hs2 := Func.lateCfgPre_spec h1r hs1r
+  have h2r := Func.renorm_wf (Func.lateCfgPre (Func.renorm f))
+  have hs2r := Func.renorm_spec h2 hs2
+  have h3 := Func.lateCfgPost_spec h2r hs2r
+  rw [Func.lateCfgPre_eq, Func.lateCfgPost_eq] at h3
   rw [Func.lateCfg_eq]
-  apply lateCfg_tail_spec
-  · exact Func.deadLoadElim_wf (Func.simplifyGroupFast_wf (Func.ifOptBits (Func.renorm f)))
-  · apply Func.deadLoadElim_spec (Func.simplifyGroupFast_wf (Func.ifOptBits (Func.renorm f)))
-    apply Func.simplifyGroupFast_spec (Func.ifOptBits_wf (Func.renorm_wf f))
-    apply Func.ifOptBits_spec (Func.renorm_wf f)
-    exact renorm_spec' hf h
+  exact h3
 
 /-- Stage 2 (`Func.lateOpt`) preserves well-formedness. -/
 theorem Func.lateOpt_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :

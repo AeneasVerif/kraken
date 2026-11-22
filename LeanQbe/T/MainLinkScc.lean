@@ -105,23 +105,6 @@ theorem legalEnv_pullEnv_le (lt : LegalTarget) {G : Env}
   exact hconseq f (lt.legalSig as) (lt.legalSig bs) (encodeTup lt as xs) m
     (legalPost lt P) Q' (legalXPost lt E) X' hQ' hX hpull
 
-private theorem mid_pipeline_spec {lt : LegalTarget} {as rs : List Ty} (g : Func as rs)
-    (hg : g.Wf) (hsupp : (Func.earlyOpt g).supportsSource lt = true) (Γ : Env)
-    (xs : Tup Val as) (xs' : Tup Val (lt.legalSig as)) (hxs : encodeTup lt as xs = xs')
-    (m : Mem 64) (P : Post rs) (E : XPost)
-    (Q' : Post (lt.legalSig rs)) (X' : XPost)
-    (hQ : ∀ r m₁, legalPost lt P r m₁ → Q' r m₁)
-    (hX : ∀ f cs ys m₁, legalXPost lt E f cs ys m₁ → X' f cs ys m₁)
-    (hs : Func.spec Γ g xs m P E) :
-    Func.spec (legalEnv lt Γ) (Func.lateOpt (Func.legal lt (Func.earlyOpt g))) xs' m Q' X' := by
-  subst hxs
-  have hwf₁ : (Func.earlyOpt g).Wf := Func.earlyOpt_wf hg
-  have hopt : Func.spec Γ (Func.earlyOpt g) xs m P E := Func.earlyOpt_spec hg hs
-  have hleg := Func.legal_spec lt (Func.earlyOpt g) hwf₁ hsupp Γ xs m P E hopt
-  have hmono := Func.spec_mono (legalEnv lt Γ) (Func.legal lt (Func.earlyOpt g))
-    (encodeTup lt as xs) m (legalPost lt P) Q' (legalXPost lt E) X' hQ hX hleg
-  exact Func.lateOpt_spec (Func.legal_wf lt hwf₁) hmono
-
 private theorem compileFn_body_correct (T : Target) (host : T.mach.Host) (lt : LegalTarget)
     (hints : T.toIsa.Hints) (E : Rega.Ext) (f : Fn) (Γcall : Env)
     (n nX : Nat) (bound : Sym → Nat) {code : List T.Directive} {k₀ : Nat}
@@ -145,9 +128,8 @@ private theorem compileFn_body_correct (T : Target) (host : T.mach.Host) (lt : L
         (fn_mid_wf hwf) hl hc hu hfr hn hcal hex) ?_
     rintro args' m' Q' X' ⟨rfl, hm, rfl, rfl⟩
     subst m'
-    exact fn_mid_spec_of_lateOpt hwf (legalEnv lt Γcall)
-      (mid_pipeline_spec f.body hwf hsupp Γcall xs _ rfl m P E' _ _
-        (fun _ _ h => h) (fun _ _ _ _ h => h) hwp)
+    exact @fn_mid_spec lt f hwf hsupp Γcall xs (encodeTup lt f.as xs) rfl m P E'
+      (legalPost lt P) (legalXPost lt E') (fun _ _ h => h) (fun _ _ _ _ h => h) hwp
   exact hspec (encodeTup lt f.as xs) m (legalPost lt P) (legalXPost lt E') ⟨rfl, rfl, rfl, rfl⟩
 
 private theorem defined_of_lowerFn' {T : Target} {host : T.mach.Host}

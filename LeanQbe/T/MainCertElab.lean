@@ -63,8 +63,7 @@ def evalOneFnStage1 (I : Isa) (lt : LegalTarget) (f : Fn) :
   if !ef.body.supportsSource lt then
     .error s!"{f.name}: unsupported source op for target"
   else
-    let lf := matFn (ef.legal lt)
-    let mf := matFn lf.lateOpt
+    let mf := Fn.midFromEarly lt ef
     let h := Spill.hints I mf
     .ok (f.name, h, mf, mf.ext)
 

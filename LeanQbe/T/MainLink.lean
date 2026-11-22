@@ -115,7 +115,7 @@ private theorem sigBoundsOf_cons (lt : LegalTarget) (f : Fn) (fs : List Fn)
       ((f.mid lt).sig, b) :: sigBoundsOf lt fs bs := by
   have hhead : ((f.name, lt.legalSig f.as, lt.legalSig f.rs),
       (lookupFnBound ((f.name, b) :: bs) f.name).getD 0) = ((f.mid lt).sig, b) := by
-    dsimp only [Fn.mid, Fn.lateOpt, Fn.legal, Fn.earlyOpt, Fn.sig, lookupFnBound]
+    dsimp only [Fn.mid, Fn.midFromEarly, Fn.earlyOpt, Fn.sig, lookupFnBound]
     simp
   have htail : fs.map (fun g => ((g.name, lt.legalSig g.as, lt.legalSig g.rs),
         (lookupFnBound ((f.name, b) :: bs) g.name).getD 0)) = sigBoundsOf lt fs bs := by

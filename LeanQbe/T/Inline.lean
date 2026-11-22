@@ -292,13 +292,44 @@ def blocksLoopSitesAux {rs : List Ty} (nl : Nat) (inLoop : Bool) (acc : List (Sy
       blocksLoopSitesAux nl inLoop (exprLoopSitesAux nl inLoop acc (b (Tup.units _))) bs
 end
 
-/-- Count static `.call` sites occurring inside loops across a function list. -/
+/-- Record the minimum transitive hop distance `d` from a loop-hot call site for `k`. -/
+def setMinLoopDepth : List (Sym × Nat) → Sym → Nat → List (Sym × Nat)
+  | [], k, d => [(k, d)]
+  | (s, n) :: rest, k, d =>
+      if s == k then (s, Nat.min n d) :: rest else (s, n) :: setMinLoopDepth rest k d
+
+/-- Look up the minimum transitive hop distance from a loop (`none` if unreachable). -/
+def lookupLoopDepth? : List (Sym × Nat) → Sym → Option Nat
+  | [], _ => none
+  | (s, n) :: rest, k => if s == k then some n else lookupLoopDepth? rest k
+
+/-- Count static `.call` sites inside loops across `fns`, propagating loop-hotness
+top-down across caller-before-callee `fns.reverse` up to `maxHops` callee hops. -/
+def fnsLoopCallSitesBounded (maxHops : Nat) (fns : List Fn) : List (Sym × Nat) :=
+  let step (st : List (Sym × Nat) × List (Sym × Nat)) (fn : Fn) :=
+    let (acc, depths) := st
+    let bodyLoop := fn.body (fun _ => Unit) (fun _ => Nat) (Tup.units fn.as)
+    let direct := exprLoopSitesAux 0 false [] bodyLoop
+    let acc1 := exprLoopSitesAux 0 false acc bodyLoop
+    let depths1 := direct.foldl (fun dep (s, _) => setMinLoopDepth dep s 0) depths
+    match lookupLoopDepth? depths fn.name with
+    | some d =>
+        if d < maxHops then
+          let bodyCalls := fn.body (fun _ => Unit) (fun _ => Unit) (Tup.units fn.as)
+          let callees := exprCallSites [] bodyCalls
+          let acc2 := callees.foldl
+            (fun a (s, _) => if lookupCallSite a s > 0 then a else incCallSite a s) acc1
+          let depths2 := callees.foldl
+            (fun dep (s, _) => setMinLoopDepth dep s (d + 1)) depths1
+          (acc2, depths2)
+        else (acc1, depths1)
+    | none => (acc1, depths1)
+  (fns.reverse.foldl step ([], [])).1
+
+/-- Count static `.call` sites occurring inside loops across a function list,
+propagating 1 transitive hop to direct callees of loop-hot functions. -/
 def fnsLoopCallSites (fns : List Fn) : List (Sym × Nat) :=
-  fns.foldl
-    (fun acc fn =>
-      exprLoopSitesAux 0 false acc
-        (fn.body (fun _ => Unit) (fun _ => Nat) (Tup.units fn.as)))
-    []
+  fnsLoopCallSitesBounded 1 fns
 
 /-- Policy controlling per-callee size budgets, leaf/single-site elevation, structural caps,
 caller caps, and optional explicit out-of-line exclusions. -/
