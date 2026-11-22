@@ -28,6 +28,8 @@
 #  3. Checks import closures (`LeanQbe` arch-free, `LeanQbeAmd64` no AArch64, `LeanQbeArm64` no X64,
 #     0 legacy Kissat certs in active `LeanQbe{Amd64,Arm64}` closures, reachability of `LeanQbe/T/`
 #     from active or `LeanQbeLegacy{Amd64,Arm64}` roots, no retired E1 files or imports).
+#  3b. Incrementality firewall (`check_firewall.py --require-isa`) and barrel/hub lint
+#      (`sync_hubs.py --check` when present).
 #  4. Parallel axiom audit (`Audit_generic`, `Audit_x64`, `Audit_arm64`, isolated root-`main`
 #     batches, with 16-way per-module fallback) for active `scripts/headlines.d/*.txt` (or
 #     `scripts/headline.txt` if `headlines.d` is absent).
@@ -111,7 +113,7 @@ while [ $# -gt 0 ]; do
     --classify-stdin) MODE="classify_stdin"; shift ;;
     --print-scope) MODE="print_scope"; shift ;;
     -h|--help)
-      sed -n '2,37p' "${BASH_SOURCE[0]}"
+      sed -n '2,38p' "${BASH_SOURCE[0]}"
       exit 0 ;;
     *)
       echo "check.sh: unknown option: $1" >&2
@@ -265,6 +267,205 @@ if [ "$RESOLVED_SCOPE" = "class0" ]; then
   exit $fail
 fi
 
+# Shared arch-classifier & batch helper for Step 1 (`scoped-tests`) and Step 4 (`audit-batches`)
+cat >"$TMP/arch_scope.py" <<'PY'
+import pathlib, re, sys
+
+IMP_RE = re.compile(
+    r"^\s*(?:public\s+|meta\s+)*(?:import\s+all\s+|import\s+)([A-Za-z0-9_.']+)"
+)
+X64_PFX = ("Kraken.X64", "LeanQbe.T.Amd64.")
+ARM_PFX = ("Kraken.AArch64", "LeanQbe.T.Arm64.")
+
+
+def make_classifier(c_gen=frozenset(), x64_only=frozenset(), arm_only=frozenset()):
+    memo = {}
+
+    def classify(mod, stack):
+        if mod in memo:
+            return memo[mod]
+        if mod in c_gen:
+            memo[mod] = "generic"
+            return "generic"
+        if mod in x64_only or mod == "LeanQbeAmd64" or mod.startswith(X64_PFX):
+            memo[mod] = "x64"
+            return "x64"
+        if mod in arm_only or mod == "LeanQbeArm64" or mod.startswith(ARM_PFX):
+            memo[mod] = "arm64"
+            return "arm64"
+        if mod in stack:
+            return "generic"
+        p = pathlib.Path(mod.replace(".", "/") + ".lean")
+        if not p.is_file():
+            return "conflict"
+        arches = set()
+        nxt = stack | {mod}
+        for line in p.read_text().splitlines():
+            m = IMP_RE.match(line)
+            if not m:
+                continue
+            imp = m.group(1)
+            if imp == "LeanQbeAmd64" or imp in x64_only or imp.startswith(X64_PFX):
+                arches.add("x64")
+            elif imp == "LeanQbeArm64" or imp in arm_only or imp.startswith(ARM_PFX):
+                arches.add("arm64")
+            elif imp not in c_gen and imp.startswith(("LeanQbe.", "LeanQbeTest.")):
+                sub = classify(imp, nxt)
+                if sub in ("x64", "arm64", "conflict"):
+                    arches.add(sub)
+        if "conflict" in arches or ("x64" in arches and "arm64" in arches):
+            res = "conflict"
+        elif "x64" in arches:
+            res = "x64"
+        elif "arm64" in arches:
+            res = "arm64"
+        else:
+            res = "generic"
+        memo[mod] = res
+        return res
+
+    return classify
+
+
+def run_scoped_tests(scope, hpath, changed_path):
+    classify = make_classifier()
+    want_mods = []
+    seen = set()
+    for raw in hpath.read_text().splitlines():
+        parts = raw.split()
+        if len(parts) < 2:
+            continue
+        mod = parts[0]
+        if not mod.startswith("LeanQbeTest.") or mod in seen:
+            continue
+        if classify(mod, set()) in ("generic", scope):
+            seen.add(mod)
+            want_mods.append(mod)
+
+    changed = [l.strip() for l in changed_path.read_text().splitlines() if l.strip()]
+    for f in changed:
+        if f.startswith("LeanQbeTest/") and f.endswith(".lean") and pathlib.Path(f).is_file():
+            mod = f[:-5].replace("/", ".")
+            if mod not in seen:
+                seen.add(mod)
+                want_mods.append(mod)
+
+    for m in want_mods:
+        print(m)
+
+
+def run_audit_batches(tmp, scope):
+    def read_set(name):
+        p = tmp / f"closure_{name}.txt"
+        return set(p.read_text().splitlines()) if p.exists() else set()
+
+    c_gen = read_set("LeanQbe")
+    c_x64 = read_set("LeanQbeAmd64")
+    c_arm = read_set("LeanQbeArm64")
+    classify = make_classifier(c_gen, c_x64 - c_gen, c_arm - c_gen)
+
+    ns_re = re.compile(r"^\s*namespace\s+\S+")
+    sec_re = re.compile(
+        r"^\s*(?:@\[[^\]]*\]\s+|public\s+|private\s+|protected\s+)*section(?:\s|$)"
+    )
+    end_re = re.compile(r"^\s*end(?:\s|$)")
+    def_main_re = re.compile(
+        r"^(?:(?:public|private|protected|noncomputable)\s+)*def\s+main\b"
+    )
+
+    main_memo = {}
+
+    def has_root_main(mod, stack):
+        if mod in main_memo:
+            return main_memo[mod]
+        if mod in stack:
+            return False
+        p = pathlib.Path(mod.replace(".", "/") + ".lean")
+        if not p.is_file():
+            return False
+        scopes = []
+        nxt = stack | {mod}
+        found = False
+        for line in p.read_text().splitlines():
+            m = IMP_RE.match(line)
+            if m:
+                imp = m.group(1)
+                if imp.startswith(("LeanQbe.", "LeanQbeTest.")) and has_root_main(imp, nxt):
+                    found = True
+                    break
+            if ns_re.match(line):
+                scopes.append("ns")
+            elif sec_re.match(line):
+                scopes.append("sec")
+            elif end_re.match(line) and scopes:
+                scopes.pop()
+            elif "ns" not in scopes and def_main_re.match(line):
+                found = True
+                break
+        main_memo[mod] = found
+        return found
+
+    buckets = {b: ([], []) for b in ("generic", "x64", "arm64")}
+    solo_buckets = {}
+    conflict_mods = []
+    seen_mods = {b: set() for b in ("generic", "x64", "arm64")}
+    seen_conf = set()
+    selected = []
+
+    for raw in (tmp / "headlines_all.txt").read_text().splitlines():
+        s = raw.strip()
+        if not s or s.startswith("#"):
+            continue
+        parts = s.split()
+        if len(parts) < 2:
+            continue
+        mod, const = parts[0], parts[1]
+        b = classify(mod, set())
+        if scope == "x64" and b == "arm64":
+            continue
+        if scope == "arm64" and b == "x64":
+            continue
+        selected.append(f"{mod} {const}")
+        if b == "conflict":
+            if mod not in seen_conf:
+                seen_conf.add(mod)
+                conflict_mods.append(mod)
+            continue
+        if has_root_main(mod, set()):
+            solo_buckets.setdefault(mod, []).append(const)
+            continue
+        if mod not in seen_mods[b]:
+            seen_mods[b].add(mod)
+            buckets[b][0].append(mod)
+        buckets[b][1].append(const)
+
+    out_sel = "\n".join(selected) + ("\n" if selected else "")
+    (tmp / "selected_headlines.txt").write_text(out_sel)
+
+    for b, (mods, consts) in buckets.items():
+        if not mods:
+            continue
+        lines = [f"import {m}" for m in mods] + [f"#print axioms {c}" for c in consts]
+        (tmp / f"Batch_{b}.lean").write_text("\n".join(lines) + "\n")
+        (tmp / f"mods_batch_{b}.txt").write_text("\n".join(mods) + "\n")
+    for idx, (mod, consts) in enumerate(solo_buckets.items(), 1):
+        b = f"solo_{idx}"
+        lines = [f"import {mod}"] + [f"#print axioms {c}" for c in consts]
+        (tmp / f"Batch_{b}.lean").write_text("\n".join(lines) + "\n")
+        (tmp / f"mods_batch_{b}.txt").write_text(f"{mod}\n")
+    if conflict_mods:
+        (tmp / "mods_conflict.txt").write_text("\n".join(conflict_mods) + "\n")
+
+
+mode = sys.argv[1]
+if mode == "scoped-tests":
+    run_scoped_tests(sys.argv[2], pathlib.Path(sys.argv[3]), pathlib.Path(sys.argv[4]))
+elif mode == "audit-batches":
+    run_audit_batches(pathlib.Path(sys.argv[2]), sys.argv[3])
+else:
+    raise SystemExit(f"unknown arch_scope mode: {mode}")
+PY
+
 # Determine scoped Step 1 build targets
 if [ "$RESOLVED_SCOPE" = "full" ]; then
   TARGETS=(LeanQbe LeanQbeAmd64 LeanQbeArm64 LeanQbeTest leanqbe leanqbe-arm64)
@@ -277,82 +478,9 @@ else
   fi
   printf '%s\n' "$CHANGED_FILES" >"$TMP/changed_files.txt"
   mapfile -t SCOPED_TESTS < <(
-    python3 - "$RESOLVED_SCOPE" "$TMP/headlines_all.txt" "$TMP/changed_files.txt" <<'PY'
-import pathlib, re, sys
-
-scope = sys.argv[1]
-hpath = pathlib.Path(sys.argv[2])
-changed = [l.strip() for l in pathlib.Path(sys.argv[3]).read_text().splitlines() if l.strip()]
-
-imp_re = re.compile(
-    r"^\s*(?:public\s+|meta\s+)*(?:import\s+all\s+|import\s+)([A-Za-z0-9_.']+)"
-)
-x64_pfx = ("Kraken.X64", "LeanQbe.T.Amd64.")
-arm_pfx = ("Kraken.AArch64", "LeanQbe.T.Arm64.")
-memo = {}
-def classify(mod, stack):
-    if mod in memo:
-        return memo[mod]
-    if mod == "LeanQbeAmd64" or mod.startswith(x64_pfx):
-        memo[mod] = "x64"; return "x64"
-    if mod == "LeanQbeArm64" or mod.startswith(arm_pfx):
-        memo[mod] = "arm64"; return "arm64"
-    if mod in stack:
-        return "generic"
-    p = pathlib.Path(mod.replace(".", "/") + ".lean")
-    if not p.is_file():
-        return "conflict"
-    arches = set()
-    nxt = stack | {mod}
-    for line in p.read_text().splitlines():
-        m = imp_re.match(line)
-        if not m:
-            continue
-        imp = m.group(1)
-        if imp == "LeanQbeAmd64" or imp.startswith(x64_pfx):
-            arches.add("x64")
-        elif imp == "LeanQbeArm64" or imp.startswith(arm_pfx):
-            arches.add("arm64")
-        elif imp.startswith(("LeanQbe.", "LeanQbeTest.")):
-            sub = classify(imp, nxt)
-            if sub in ("x64", "arm64", "conflict"):
-                arches.add(sub)
-    if "conflict" in arches or ("x64" in arches and "arm64" in arches):
-        res = "conflict"
-    elif "x64" in arches:
-        res = "x64"
-    elif "arm64" in arches:
-        res = "arm64"
-    else:
-        res = "generic"
-    memo[mod] = res
-    return res
-
-want_mods = []
-seen = set()
-for raw in hpath.read_text().splitlines():
-    parts = raw.split()
-    if len(parts) < 2:
-        continue
-    mod = parts[0]
-    if not mod.startswith("LeanQbeTest.") or mod in seen:
-        continue
-    c = classify(mod, set())
-    if c in ("generic", scope):
-        seen.add(mod)
-        want_mods.append(mod)
-
-for f in changed:
-    if f.startswith("LeanQbeTest/") and f.endswith(".lean") and pathlib.Path(f).is_file():
-        mod = f[:-5].replace("/", ".")
-        if mod not in seen:
-            seen.add(mod)
-            want_mods.append(mod)
-
-for m in want_mods:
-    print(m)
-PY
-)
+    timeout 60 python3 -B "$TMP/arch_scope.py" scoped-tests \
+      "$RESOLVED_SCOPE" "$TMP/headlines_all.txt" "$TMP/changed_files.txt"
+  )
   TARGETS+=("${SCOPED_TESTS[@]}")
 fi
 
@@ -495,6 +623,18 @@ if git ls-files -z 'LeanQbe/T/*.lean' 'LeanQbe/T/**/*.lean' \
   err "LeanQbe/T module imports untyped E1 module (G5 violation)"
 fi
 
+echo "== 3b. incrementality firewall & barrel hub lint"
+if [ -f "$ROOT/scripts/check_firewall.py" ]; then
+  timeout 60 python3 -B "$ROOT/scripts/check_firewall.py" --root "$ROOT" --require-isa \
+    || err "incrementality firewall check failed (check_firewall.py)"
+else
+  err "missing $ROOT/scripts/check_firewall.py"
+fi
+if [ -f "$ROOT/scripts/sync_hubs.py" ]; then
+  timeout 60 python3 -B "$ROOT/scripts/sync_hubs.py" --root "$ROOT" --check \
+    || err "barrel/hub check failed (sync_hubs.py --check)"
+fi
+
 echo "== 4. axiom audit"
 # Build log: every `#print axioms` that the build printed.
 grep -E "depends on axioms|does not depend on any axioms" "$TMP/build.log" >"$TMP/axioms.txt" || true
@@ -503,157 +643,8 @@ grep -E "depends on axioms|does not depend on any axioms" "$TMP/build.log" >"$TM
 # parallel batches (generic, x64, arm64, plus isolated root-`main` modules so separate
 # executables never collide on `main`). Falls back to 16-way per-module audit if needed.
 if [ "$headline_total" -gt 0 ]; then
-  python3 - "$TMP" "$RESOLVED_SCOPE" <<'PY'
-import pathlib, re, sys
-
-tmp = pathlib.Path(sys.argv[1])
-scope = sys.argv[2]
-
-def read_set(name):
-    p = tmp / f"closure_{name}.txt"
-    return set(p.read_text().splitlines()) if p.exists() else set()
-
-c_gen = read_set("LeanQbe")
-c_x64 = read_set("LeanQbeAmd64")
-c_arm = read_set("LeanQbeArm64")
-x64_only = c_x64 - c_gen
-arm_only = c_arm - c_gen
-x64_pfx = ("Kraken.X64", "LeanQbe.T.Amd64.")
-arm_pfx = ("Kraken.AArch64", "LeanQbe.T.Arm64.")
-
-imp_re = re.compile(
-    r"^\s*(?:public\s+|meta\s+)*(?:import\s+all\s+|import\s+)([A-Za-z0-9_.']+)"
-)
-ns_re = re.compile(r"^\s*namespace\s+\S+")
-sec_re = re.compile(
-    r"^\s*(?:@\[[^\]]*\]\s+|public\s+|private\s+|protected\s+)*section(?:\s|$)"
-)
-end_re = re.compile(r"^\s*end(?:\s|$)")
-def_main_re = re.compile(
-    r"^(?:(?:public|private|protected|noncomputable)\s+)*def\s+main\b"
-)
-
-memo = {}
-def classify(mod, stack):
-    if mod in memo:
-        return memo[mod]
-    if mod in c_gen:
-        memo[mod] = "generic"; return "generic"
-    if mod in x64_only or mod == "LeanQbeAmd64" or mod.startswith(x64_pfx):
-        memo[mod] = "x64"; return "x64"
-    if mod in arm_only or mod == "LeanQbeArm64" or mod.startswith(arm_pfx):
-        memo[mod] = "arm64"; return "arm64"
-    if mod in stack:
-        return "generic"
-    p = pathlib.Path(mod.replace(".", "/") + ".lean")
-    if not p.is_file():
-        return "conflict"
-    arches = set()
-    nxt = stack | {mod}
-    for line in p.read_text().splitlines():
-        m = imp_re.match(line)
-        if not m:
-            continue
-        imp = m.group(1)
-        if imp == "LeanQbeAmd64" or imp in x64_only or imp.startswith(x64_pfx):
-            arches.add("x64")
-        elif imp == "LeanQbeArm64" or imp in arm_only or imp.startswith(arm_pfx):
-            arches.add("arm64")
-        elif imp not in c_gen and imp.startswith(("LeanQbe.", "LeanQbeTest.")):
-            sub = classify(imp, nxt)
-            if sub in ("x64", "arm64", "conflict"):
-                arches.add(sub)
-    if "conflict" in arches or ("x64" in arches and "arm64" in arches):
-        res = "conflict"
-    elif "x64" in arches:
-        res = "x64"
-    elif "arm64" in arches:
-        res = "arm64"
-    else:
-        res = "generic"
-    memo[mod] = res
-    return res
-
-main_memo = {}
-def has_root_main(mod, stack):
-    if mod in main_memo:
-        return main_memo[mod]
-    if mod in stack:
-        return False
-    p = pathlib.Path(mod.replace(".", "/") + ".lean")
-    if not p.is_file():
-        return False
-    scopes = []
-    nxt = stack | {mod}
-    found = False
-    for line in p.read_text().splitlines():
-        m = imp_re.match(line)
-        if m:
-            imp = m.group(1)
-            if imp.startswith(("LeanQbe.", "LeanQbeTest.")) and has_root_main(imp, nxt):
-                found = True
-                break
-        if ns_re.match(line):
-            scopes.append("ns")
-        elif sec_re.match(line):
-            scopes.append("sec")
-        elif end_re.match(line) and scopes:
-            scopes.pop()
-        elif "ns" not in scopes and def_main_re.match(line):
-            found = True
-            break
-    main_memo[mod] = found
-    return found
-
-buckets = {b: ([], []) for b in ("generic", "x64", "arm64")}
-solo_buckets = {}
-conflict_mods = []
-seen_mods = {b: set() for b in ("generic", "x64", "arm64")}
-seen_conf = set()
-selected = []
-
-for raw in (tmp / "headlines_all.txt").read_text().splitlines():
-    s = raw.strip()
-    if not s or s.startswith("#"):
-        continue
-    parts = s.split()
-    if len(parts) < 2:
-        continue
-    mod, const = parts[0], parts[1]
-    b = classify(mod, set())
-    if scope == "x64" and b == "arm64":
-        continue
-    if scope == "arm64" and b == "x64":
-        continue
-    selected.append(f"{mod} {const}")
-    if b == "conflict":
-        if mod not in seen_conf:
-            seen_conf.add(mod); conflict_mods.append(mod)
-        continue
-    if has_root_main(mod, set()):
-        solo_buckets.setdefault(mod, []).append(const)
-        continue
-    if mod not in seen_mods[b]:
-        seen_mods[b].add(mod); buckets[b][0].append(mod)
-    buckets[b][1].append(const)
-
-out_sel = "\n".join(selected) + ("\n" if selected else "")
-(tmp / "selected_headlines.txt").write_text(out_sel)
-
-for b, (mods, consts) in buckets.items():
-    if not mods:
-        continue
-    lines = [f"import {m}" for m in mods] + [f"#print axioms {c}" for c in consts]
-    (tmp / f"Batch_{b}.lean").write_text("\n".join(lines) + "\n")
-    (tmp / f"mods_batch_{b}.txt").write_text("\n".join(mods) + "\n")
-for idx, (mod, consts) in enumerate(solo_buckets.items(), 1):
-    b = f"solo_{idx}"
-    lines = [f"import {mod}"] + [f"#print axioms {c}" for c in consts]
-    (tmp / f"Batch_{b}.lean").write_text("\n".join(lines) + "\n")
-    (tmp / f"mods_batch_{b}.txt").write_text(f"{mod}\n")
-if conflict_mods:
-    (tmp / "mods_conflict.txt").write_text("\n".join(conflict_mods) + "\n")
-PY
+  timeout 60 python3 -B "$TMP/arch_scope.py" audit-batches "$TMP" "$RESOLVED_SCOPE" \
+    || err "headline audit batching failed"
 
   want="$(wc -l <"$TMP/selected_headlines.txt" | tr -d ' ')"
   if [ "$want" -gt 0 ]; then
