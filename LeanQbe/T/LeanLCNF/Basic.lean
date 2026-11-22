@@ -196,9 +196,16 @@ def LcModule.papTargets (m : LcModule) : List String :=
 def LcModule.maxAp (m : LcModule) : Nat :=
   m.decls.foldl (fun a d => Nat.max a d.body.refs.2.2) 0
 
+/-- Mangle one character: ASCII alphanumerics and `_` are kept, other ASCII characters become `_`,
+and a non-ASCII character `c` becomes `u<hex c>_` (so `σ₀`/`σ₁`/`Σ₀`/`Σ₁` stay distinct). -/
+def mangleChar (c : Char) : String :=
+  if c.isAlphanum || c == '_' then c.toString
+  else if c.toNat < 128 then "_"
+  else "u" ++ String.ofList (Nat.toDigits 16 c.toNat) ++ "_"
+
 /-- Mangle a Lean name into a C/assembly symbol (`l_` prefix, no `.L` substrings). -/
 def mangleLc (s : String) : String :=
-  "l_" ++ String.ofList (s.toList.map fun c => if c.isAlphanum || c == '_' then c else '_')
+  s.toList.foldl (fun acc c => acc ++ mangleChar c) "l_"
 
 /-! ## Meta extraction from `impureExt` -/
 

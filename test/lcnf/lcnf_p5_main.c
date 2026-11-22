@@ -25,6 +25,13 @@ u64 COV(arrLinear)(u64 rt, u64 n, u64 reps);
 u64 COV(arrShared)(u64 rt, u64 n, u64 reps);
 u64 COV(byteArrBench)(u64 rt, u64 n);
 u64 COV(floatBench)(u64 rt, u64 n);
+u64 COV(intBench)(u64 rt, u64 n);
+u64 COV(bitVecIntBench)(u64 rt, u64 n);
+u64 COV(int64Bench)(u64 rt, u64 n);
+u64 COV(uintBvBench)(u64 rt, u64 n);
+u64 COV(shapeBench)(u64 rt, u64 n);
+u64 COV(usizeBench)(u64 rt, u64 n);
+u64 COV(shaMix)(u64 rt, u64 n);
 static LcnfRt g_rtblock;
 static u64 g_rt;
 #define CALL1(f, a) COV(f)(g_rt, a)
@@ -128,6 +135,42 @@ int main(int argc, char **argv) {
     u64 r = CALL1(floatBench, bx(fltN[i]));
     leak_check("floatBench");
     printf("FLT n=%llu r=%llu\n", (unsigned long long)fltN[i], (unsigned long long)r);
+  }
+
+  /* Int (small + bignum, all sign combinations), BitVec.toInt/ofInt, Int64, UIntN.ofBitVec,
+   * getObjTagNat (derived DecidableEq / ctorIdx), USize.{ofNatLT,repr}, non-ASCII symbols. */
+  static const u64 intN[] = {0, 1, 5, 977};
+  for (size_t i = 0; i < sizeof intN / sizeof intN[0]; i++) {
+    if (quick && intN[i] > 5) continue;
+    u64 r = ub("intBench", CALL1(intBench, bx(intN[i])));
+    leak_check("intBench");
+    printf("INT n=%llu r=%llu\n", (unsigned long long)intN[i], (unsigned long long)r);
+  }
+  static const u64 bviN[] = {0, 1, 7, 42, 89, 1000};
+  for (size_t i = 0; i < sizeof bviN / sizeof bviN[0]; i++) {
+    u64 r = ub("bitVecIntBench", CALL1(bitVecIntBench, bx(bviN[i])));
+    leak_check("bitVecIntBench");
+    printf("BVI n=%llu r=%llu\n", (unsigned long long)bviN[i], (unsigned long long)r);
+  }
+  static const u64 i64N[] = {0, 1, 7, 123456789};
+  for (size_t i = 0; i < sizeof i64N / sizeof i64N[0]; i++) {
+    u64 a = ub("int64Bench", CALL1(int64Bench, bx(i64N[i])));
+    leak_check("int64Bench");
+    u64 b = ub("uintBvBench", CALL1(uintBvBench, bx(i64N[i])));
+    leak_check("uintBvBench");
+    u64 c = ub("shapeBench", CALL1(shapeBench, bx(i64N[i] % 100)));
+    leak_check("shapeBench");
+    printf("I64 n=%llu r=%llu ubv=%llu sh=%llu\n", (unsigned long long)i64N[i],
+           (unsigned long long)a, (unsigned long long)b, (unsigned long long)c);
+  }
+  static const u64 miscN[] = {0, 9, 4294967296ULL};
+  for (size_t i = 0; i < sizeof miscN / sizeof miscN[0]; i++) {
+    u64 a = ub("usizeBench", CALL1(usizeBench, bx(miscN[i])));
+    leak_check("usizeBench");
+    u64 b = ub("shaMix", CALL1(shaMix, bx(miscN[i])));
+    leak_check("shaMix");
+    printf("MISC n=%llu us=%llu sha=%llu\n", (unsigned long long)miscN[i], (unsigned long long)a,
+           (unsigned long long)b);
   }
 
   lcnf_rt_print_stats(g_rt, "total", stderr);

@@ -64,6 +64,20 @@ theorem lcnf_cov_wf : ∀ f ∈ covFns, f.Wf := LeanLRC.tflatFnsToFns_wf covTfs
 #guard (PrintCpp.ppTModule (lcnfTModule covTfs)).isOk
 #guard (PrintQbe.module (lcnfTModule covTfs)).isOk
 
+/-! Bootstrap prims: all 23 externs the full `leanqbe` closure needs (+ `Int.tdiv`/`tmod`) are
+reached from `covMod` and lowered; non-ASCII names mangle injectively. -/
+def bootExterns : List String :=
+  [ "getObjTagNat", "UInt64.ofBitVec", "UInt32.ofBitVec", "UInt64.toBitVec", "USize.ofNatLT"
+  , "USize.repr", "Int64.ofNat", "Int64.decEq", "Int64.toInt", "System.Platform.getNumBits"
+  , "Int.ofNat", "Int.negSucc", "Int.neg", "Int.add", "Int.sub", "Int.mul", "Int.ediv"
+  , "Int.emod", "Int.natAbs", "Int.decEq", "Int.decLt", "Int.decLe", "Int.tdiv", "Int.tmod" ]
+#guard bootExterns.all fun n => Coverage.covMod.externs.any (·.name == n)
+#guard mangleLc "Sha256.σ₀" == "l_Sha256_u3c3_u2080_"
+#guard [mangleLc "Sha256.σ₀", mangleLc "Sha256.σ₁", mangleLc "Sha256.«Σ₀»",
+  mangleLc "Sha256.«Σ₁»"].eraseDups.length == 4
+#guard covTfs.any (·.name == mangleLc "LeanQbe.T.LeanLCNF.Coverage.Sha.«Σ₁»")
+#guard rtGlobalSlots == 4096
+
 #print axioms lcnf_cov_wf
 
 def generateArtifacts (outDir : System.FilePath) : IO Unit := do

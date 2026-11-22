@@ -18,7 +18,7 @@ extern "C" {
 typedef uint64_t u64;
 
 #define LCNF_EXTRA_SLOTS 32
-#define LCNF_GLOBAL_SLOTS 1024
+#define LCNF_GLOBAL_SLOTS 4096
 #define LCNF_RT_T_BYTES (8 * (LCNF_EXTRA_SLOTS + LCNF_GLOBAL_SLOTS))
 #define LCNF_NUM_CLASSES 64 /* size classes of 8..504 bytes (index = bytes / 8) */
 #define LCNF_CLOSURE_TAG 245
@@ -95,6 +95,7 @@ u64 lcnf_ba_cmp_op(u64 rt, u64 op, u64 a, u64 b);
 u64 lcnf_float_bin(u64 rt, u64 op, u64 a, u64 b);
 u64 lcnf_float_un(u64 rt, u64 op, u64 a);
 u64 lcnf_float_of_sci(u64 rt, u64 m, u64 neg, u64 e);
+u64 lcnf_int_op(u64 rt, u64 op, u64 a, u64 b);
 #ifndef LCNF_TQBE
 void lcnf_panic(u64 rt, u64 code) __attribute__((noreturn));
 #endif

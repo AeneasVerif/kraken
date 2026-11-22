@@ -177,10 +177,157 @@ def floatBench (n : Nat) : UInt64 :=
   let rt := Float.ofBits bits
   let neg := (-rt).abs
   neg.toBits ^^^ UInt64.ofNat (c1 + c2) + neg.toUInt64
+
+/-! ### 6. `Int` (tagged small ints + sign-magnitude bignums) -/
+
+/-- Decimal rendering through `cases` on `Int` (`Int.decLt` + `Int.natAbs` after `toMono`). -/
+def intStr (x : Int) : String :=
+  match x with
+  | .ofNat m => toString m
+  | .negSucc m => "-" ++ toString (m + 1)
+
+def intMix (acc : Nat) (x : Int) : Nat := (acc * 1000003 + strChecksum (intStr x)) % covModP
+
+def intMixList : List Int → Nat → Nat
+  | [], acc => acc
+  | x :: xs, acc => intMixList xs (intMix acc x)
+
+/-- Small, tagged-boundary (`±2^62`, `±2^63`), `> 2^64`, and `> 2^128` samples. -/
+def intSamples (n : Nat) : List Int :=
+  let m : Int := Int.ofNat n
+  let b62 : Int := 4611686018427387904
+  let b64 : Int := 18446744073709551616
+  let b128 : Int := 340282366920938463463374607431768211456
+  [0, 1, -1, 7, -7, m + 2, -m - 3, b62 - 1, b62, -b62, -b62 - 1, b62 * 2 - 1, -(b62 * 2),
+    b64 + m, -b64 - m, b128 * (m + 1) + 12345, m - b128 * b128, Int.negSucc (n * n)]
+
+/-- Every binary `Int` operation on one pair (`ediv`/`emod`/`tdiv`/`tmod` on all four sign
+combinations and by zero, comparisons, `neg`, `natAbs`). -/
+def intPairMix (acc : Nat) (a b : Int) : Nat :=
+  let c : Int := (if a == b then 1 else 0) + (if a < b then 2 else 0) + (if a ≤ b then 4 else 0)
+  intMixList [a + b, a - b, a * b, a / b, a % b, a.tdiv b, a.tmod b, -a, Int.ofNat a.natAbs, c]
+    acc
+
+def intPairsWith (a : Int) : List Int → Nat → Nat
+  | [], acc => acc
+  | b :: bs, acc => intPairsWith a bs (intPairMix acc a b)
+
+def intPairsAll (ys : List Int) : List Int → Nat → Nat
+  | [], acc => acc
+  | a :: as, acc => intPairsAll ys as (intPairsWith a ys acc)
+
+/-- Euclidean laws `a = b * (a / b) + a % b` and `0 ≤ a % b < |b|` (`b ≠ 0`). -/
+def intLawsWith (a : Int) : List Int → Nat → Nat
+  | [], acc => acc
+  | b :: bs, acc =>
+    let ok := b == 0 || (a == b * (a / b) + a % b && 0 ≤ a % b && a % b < Int.ofNat b.natAbs)
+    intLawsWith a bs (if ok then acc + 1 else acc)
+
+def intLawsAll (ys : List Int) : List Int → Nat → Nat
+  | [], acc => acc
+  | a :: as, acc => intLawsAll ys as (intLawsWith a ys acc)
+
+def intBench (n : Nat) : Nat :=
+  let xs := intSamples n
+  intPairsAll xs xs (n % 1000) * 1024 + intLawsAll xs xs 0
+
+/-- `BitVec.toInt` at width `w` of the `BitVec` value `x` (written out locally, as are `bvOfInt`
+and `intToNat`: imported Lean-defined callees are not extracted by `lcnf_of_lean!`). -/
+def bvToInt (w x : Nat) : Int :=
+  if 2 * x < 2 ^ w then Int.ofNat x else Int.ofNat x - Int.ofNat (2 ^ w)
+
+def intToNat : Int → Nat
+  | .ofNat n => n
+  | .negSucc _ => 0
+
+def bvOfInt (w : Nat) (i : Int) : Nat := intToNat (i % Int.ofNat (2 ^ w))
+
+/-- Arbitrary-width `BitVec.toInt`/`ofInt` round trips and `DivConst`-style `2^128` magic. -/
+def bitVecIntBench (n : Nat) : Nat :=
+  let w := 60 + n % 90
+  let x := (2 ^ (w - 1) + n * 977) % 2 ^ w
+  let i := bvToInt w x
+  let d : Int := Int.ofNat n + 7
+  let magic : Int := (340282366920938463463374607431768211456 : Int) / d + 1
+  let back := bvToInt 130 (bvOfInt 130 (-magic * Int.ofNat (n + 1)))
+  intMixList [i, bvToInt w (bvOfInt w (-i - 1)), magic, back, (magic * d) / 3 - magic % d,
+    Int.ofNat (bvOfInt 200 (-(magic * magic)))] 0
+
+/-! ### 7. `Int64`, `UIntN.{ofBitVec,toBitVec}`, `getObjTagNat`, `USize`, non-ASCII names -/
+
+def int64Bench (n : Nat) : Nat :=
+  let a := Int64.ofNat n
+  let b := Int64.ofNat (18446744073709551616 - 5 - n)
+  let c := Int64.ofNat (9223372036854775808 + n)
+  let eqs := (if a = Int64.ofNat n then 1 else 0) + (if a = b then 2 else 0) +
+    (if b = Int64.ofNat (18446744073709551611 - n) then 4 else 0)
+  intMixList [a.toInt, b.toInt, c.toInt, (Int64.ofNat (4611686018427387904 + n)).toInt] eqs
+
+def u64OfBv (x : Nat) : UInt64 :=
+  UInt64.ofBitVec (BitVec.ofFin ⟨x % 2 ^ 64, Nat.mod_lt _ (by decide)⟩)
+
+def uintBvBench (n : Nat) : Nat :=
+  let big := 340282366920938463463374607431768211457 * (n + 1) + n
+  let u := u64OfBv big
+  let v := u64OfBv (n * 31)
+  let w := UInt32.ofBitVec (BitVec.ofFin ⟨(big + n) % 2 ^ 32, Nat.mod_lt _ (by decide)⟩)
+  (u.toBitVec.toFin.val + (u * v + 12345).toBitVec.toFin.val + w.toBitVec.toFin.val * 3 +
+    (u ^^^ 0xffffffffffffffff).toBitVec.toFin.val) % covModP
+
+inductive Shape where
+  | circle (r : Nat)
+  | rect (w h : Nat)
+  | dot
+  | tri (a b c : Nat)
+  deriving DecidableEq
+
+def shapeOf (k : Nat) : Shape :=
+  match k % 4 with
+  | 0 => .circle k
+  | 1 => .rect k (k + 1)
+  | 2 => .dot
+  | _ => .tri k 1 2
+
+def shapeLoop : Nat → Nat → Nat
+  | 0, acc => acc
+  | k + 1, acc =>
+    let s := shapeOf k
+    let t := shapeOf (k / 2 * 2 + k % 2 * 4)
+    shapeLoop k ((acc * 7 + s.ctorIdx + (if s = t then 100 else 0)) % covModP)
+
+def shapeBench (n : Nat) : Nat := shapeLoop n 0
+
+/-- `System.Platform.numBits` (local copy, so `getNumBits` is reached from this module). -/
+def platformBits : Nat := (System.Platform.getNumBits ()).val
+
+def usizeRepr (n : Nat) : String :=
+  if h : n < 2 ^ platformBits then (USize.ofNatLT n h).repr else "big"
+
+def usizeBench (n : Nat) : Nat :=
+  strChecksum (usizeRepr n ++ "/" ++ usizeRepr (n * 1000003 + 18446744073709551615))
+
+namespace Sha
+def σ₀ (x : UInt32) : UInt32 := (x >>> 7 ||| x <<< 25) ^^^ (x >>> 18 ||| x <<< 14) ^^^ (x >>> 3)
+def σ₁ (x : UInt32) : UInt32 := (x >>> 17 ||| x <<< 15) ^^^ (x >>> 19 ||| x <<< 13) ^^^ (x >>> 10)
+def «Σ₀» (x : UInt32) : UInt32 :=
+  (x >>> 2 ||| x <<< 30) ^^^ (x >>> 13 ||| x <<< 19) ^^^ (x >>> 22 ||| x <<< 10)
+def «Σ₁» (x : UInt32) : UInt32 :=
+  (x >>> 6 ||| x <<< 26) ^^^ (x >>> 11 ||| x <<< 21) ^^^ (x >>> 25 ||| x <<< 7)
+end Sha
+
+/-- Closures over the non-ASCII-named functions (so each stays its own symbol, `pap` target). -/
+def shaFns : List (UInt32 → UInt32) := [Sha.σ₀, Sha.σ₁, Sha.«Σ₀», Sha.«Σ₁»]
+
+def shaApply : List (UInt32 → UInt32) → UInt32 → Nat → Nat
+  | [], _, acc => acc
+  | f :: fs, x, acc => shaApply fs x ((acc * 31 + (f x).toNat) % covModP)
+
+def shaMix (n : Nat) : Nat := shaApply shaFns (UInt32.ofNat (n * 2654435761 + 1)) 0
 -- END LCNF COVERAGE
 
 lcnf_of_lean! covMod
-  [strLitTest, strBuildBench, bigNatBench, arrBench, arrLinear, arrShared, byteArrBench, floatBench]
+  [strLitTest, strBuildBench, bigNatBench, arrBench, arrLinear, arrShared, byteArrBench, floatBench,
+   intBench, bitVecIntBench, int64Bench, uintBvBench, shapeBench, usizeBench, shaMix]
 
 def covProgram : LcModule := covMod
 

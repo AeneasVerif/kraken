@@ -21,3 +21,12 @@ def main (args : List String) : IO Unit := do
     IO.println s!"BA n={n} r={byteArrBench n}"
   for n in [0, 1, 7, 42] do
     IO.println s!"FLT n={n} r={floatBench n}"
+  for n in [0, 1, 5, 977] do
+    if quick && n > 5 then continue
+    IO.println s!"INT n={n} r={intBench n}"
+  for n in [0, 1, 7, 42, 89, 1000] do
+    IO.println s!"BVI n={n} r={bitVecIntBench n}"
+  for n in [0, 1, 7, 123456789] do
+    IO.println s!"I64 n={n} r={int64Bench n} ubv={uintBvBench n} sh={shapeBench (n % 100)}"
+  for n in [0, 9, 4294967296] do
+    IO.println s!"MISC n={n} us={usizeBench n} sha={shaMix n}"

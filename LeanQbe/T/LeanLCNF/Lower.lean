@@ -23,6 +23,9 @@ Runtime conventions (shared with `test/lcnf/lcnf_rt.c`):
   and an inline `m_rc` update (the cold runtime is called only when `m_rc` drops `1 → 0`),
   `UIntN`/`USize` arithmetic, and tagged-fixnum `Nat` fast paths (runtime called only on
   non-scalar/overflow).
+* `Int`: tagged small ints `2 * v + 1` (`-2^62 ≤ v < 2^62`) with inline `ofNat`/`natAbs`/`add`/
+  `sub`/comparison fast paths; sign-magnitude bignums (the `Nat` limb layout + a sign byte) in
+  `lcnf_int_op`.
 -/
 
 set_option autoImplicit false
@@ -45,7 +48,7 @@ def rtExtraSlots : Nat := 32
 /-- Offset of `rt->globals[0]` (once-cells of closed constants). -/
 def rtGlobalsOff : Nat := 256
 /-- Number of global once-cells. -/
-def rtGlobalSlots : Nat := 1024
+def rtGlobalSlots : Nat := 4096
 /-- Closure object tag (`LeanClosure`). -/
 def closureTag : Nat := 245
 
@@ -87,7 +90,8 @@ def rtCalls : List (Sym × List Ty × List Ty) :=
   , ("lcnf_ba_cmp_op", [i64, i64, i64, i64], [i64])
   , ("lcnf_float_bin", [i64, i64, i64, i64], [i64])
   , ("lcnf_float_un", [i64, i64, i64], [i64])
-  , ("lcnf_float_of_sci", [i64, i64, i64, i64], [i64]) ]
+  , ("lcnf_float_of_sci", [i64, i64, i64, i64], [i64])
+  , ("lcnf_int_op", [i64, i64, i64, i64], [i64]) ]
 
 /-- Exit (never-returning) runtime symbols. -/
 def rtExitSyms : List Sym := ["lcnf_panic"]
@@ -98,6 +102,13 @@ def natOpCode : String → Nat
   | "decEq" => 6 | "decLt" => 7 | "decLe" => 8 | "shiftRight" => 9
   | "land" => 10 | "lor" => 11 | "xor" => 12 | "ofNat" => 13 | "toNat" => 14
   | "shiftLeft" => 15 | "pow" => 16 | "pred" => 17 | "gcd" => 18 | "log2" => 19
+  | _ => 0
+
+/-- `lcnf_int_op` operation codes (`ofInt64` is `Int64.toInt`, `divExact` is `tdiv`). -/
+def intOpCode : String → Nat
+  | "ofNat" => 1 | "negSucc" => 2 | "neg" => 3 | "add" => 4 | "sub" => 5 | "mul" => 6
+  | "ediv" => 7 | "emod" => 8 | "natAbs" => 9 | "decEq" => 10 | "decLt" => 11 | "decLe" => 12
+  | "ofInt64" => 13 | "tdiv" => 14 | "divExact" => 14 | "tmod" => 15 | "decNonneg" => 16
   | _ => 0
 
 /-- Panic codes passed to `lcnf_panic`. -/
@@ -307,20 +318,26 @@ def boxU64 (rt x : LArg) (k : LArg → LM LExpr) : LM LExpr :=
 
 /-! ## Inline `Nat` (tagged fixnum) and `UIntN` primitives -/
 
-/-- Run `fast` when both tagged-`Nat` operands are scalars, else (or when `fast` reports
-overflow by calling its `slow` argument) call `lcnf_nat_slow(rt, op, a, b)`. The scalar test is
-emitted before the join is opened (see `emitInc`). -/
-def natBin (rt : LArg) (op : String) (resW : Nat) (a b : LArg)
+/-- Run `fast` when both tagged operands are scalars, else (or when `fast` reports overflow by
+calling its `slow` argument) call the runtime `fn(rt, code, a, b)`. The scalar test is emitted
+before the join is opened (see `emitInc`). -/
+def tagBin (rt : LArg) (fn : Sym) (code resW : Nat) (a b : LArg)
     (fast : (slow : LM LExpr) → (LArg → LExpr) → LM LExpr)
     (k : LArg → LM LExpr) : LM LExpr :=
   and64 a b fun ab => isScalarObj ab fun both =>
   withJoin1 (.bits resW) k fun j => do
     let slow : LM LExpr :=
-      call1 "lcnf_nat_slow" [i64, i64, i64, i64] i64 [rt, imm64 (natOpCode op), a, b] fun r =>
+      call1 fn [i64, i64, i64, i64] i64 [rt, imm64 code, a, b] fun r =>
         convW 64 resW r fun r' => pure (j r')
     let fastE ← fast slow j
     let slowE ← slow
     pure (.jnz both fastE slowE)
+
+/-- `tagBin` for tagged-`Nat` operands (`lcnf_nat_slow(rt, op, a, b)` on the slow path). -/
+def natBin (rt : LArg) (op : String) (resW : Nat) (a b : LArg)
+    (fast : (slow : LM LExpr) → (LArg → LExpr) → LM LExpr)
+    (k : LArg → LM LExpr) : LM LExpr :=
+  tagBin rt "lcnf_nat_slow" (natOpCode op) resW a b fast k
 
 /-- Box an unboxed `i64` (`< 2^63`) as a tagged scalar. -/
 def boxSmall (x : LArg) (k : LArg → LM LExpr) : LM LExpr :=
@@ -396,7 +413,29 @@ def uintWidth? : String → Option Nat
   | "UInt64" => some 64 | "USize" => some 64
   | _ => none
 
-/-- Inline `UIntN.*` / `USize.*` externs at width `w`. -/
+/-- `UIntN.ofNat` (borrowed tagged `Nat` → `bits w`, wrapping). -/
+def uintOfNat (rt : LArg) (w : Nat) (a : LArg) (k : LArg → LM LExpr) : LM LExpr :=
+  let t : Ty := .bits w
+  isScalarObj a fun s => withJoin1 t k fun j => do
+    let slow ← call1 "lcnf_nat_slow" [i64, i64, i64, i64] i64
+      [rt, imm64 (natOpCode "ofNat"), a, imm64 w] fun r => convW 64 w r fun r' => pure (j r')
+    let fast ← lshr64 a (imm64 1) fun x => convW 64 w x fun r => pure (j r)
+    pure (.jnz s fast slow)
+
+/-- `UIntN.toNat` (`bits w` → fresh tagged `Nat`). -/
+def uintToNat (rt : LArg) (w : Nat) (a : LArg) (k : LArg → LM LExpr) : LM LExpr :=
+  convW w 64 a fun x =>
+  if w < 64 then boxSmall x k
+  else withJoin1 i64 k fun j => do
+    let slow ← call1 "lcnf_nat_slow" [i64, i64, i64, i64] i64
+      [rt, imm64 (natOpCode "toNat"), x, imm64 0] fun r => pure (j r)
+    let fast ← boxSmall x fun r => pure (j r)
+    lshr64 x (imm64 63) fun top => cmpOp .eq 64 top (imm64 0) fun ok =>
+      pure (.jnz ok fast slow)
+
+/-- Inline `UIntN.*` / `USize.*` externs at width `w`. `BitVec w` is a `Nat` at runtime, so
+`ofBitVec`/`toBitVec` are `ofNat`/`toNat`; `ofBitVec` consumes its argument
+(`lean_uintN_of_nat_mk`). -/
 def uintPrim (rt : LArg) (w : Nat) (op : String) (as : List LArg) (k : LArg → LM LExpr) :
     LM LExpr := do
   let t : Ty := .bits w
@@ -421,21 +460,10 @@ def uintPrim (rt : LArg) (w : Nat) (op : String) (as : List LArg) (k : LArg → 
   | "decEq", [a, b] | "beq", [a, b] => cmpU .eq a b
   | "decLt", [a, b] | "blt", [a, b] => cmpU .ult a b
   | "decLe", [a, b] | "ble", [a, b] => cmpU .ule a b
-  | "ofNat", [a] | "ofNatLT", [a] =>
-    isScalarObj a fun s => withJoin1 t k fun j => do
-      let slow ← call1 "lcnf_nat_slow" [i64, i64, i64, i64] i64
-        [rt, imm64 (natOpCode "ofNat"), a, imm64 w] fun r => convW 64 w r fun r' => pure (j r')
-      let fast ← lshr64 a (imm64 1) fun x => convW 64 w x fun r => pure (j r)
-      pure (.jnz s fast slow)
-  | "toNat", [a] =>
-    convW w 64 a fun x =>
-    if w < 64 then boxSmall x k
-    else withJoin1 i64 k fun j => do
-      let slow ← call1 "lcnf_nat_slow" [i64, i64, i64, i64] i64
-        [rt, imm64 (natOpCode "toNat"), x, imm64 0] fun r => pure (j r)
-      let fast ← boxSmall x fun r => pure (j r)
-      lshr64 x (imm64 63) fun top => cmpOp .eq 64 top (imm64 0) fun ok =>
-        pure (.jnz ok fast slow)
+  | "ofNat", [a] | "ofNatLT", [a] | "ofNatLT", [a, _] => uintOfNat rt w a k
+  | "ofBitVec", [a] => uintOfNat rt w a fun r => emitDec1 rt a .tobject true (k r)
+  | "toNat", [a] | "toBitVec", [a] => uintToNat rt w a k
+  | "repr", [a] => uintToNat rt w a fun n => rtCall1 rt "lcnf_nat_to_str" [n] 64 k
   | "toUInt8", [a] => convW w 8 a k
   | "toUInt16", [a] => convW w 16 a k
   | "toUInt32", [a] => convW w 32 a k
@@ -468,6 +496,7 @@ def arrayPrim (rt : LArg) (op : String) (as : List LArg) (k : LArg → LM LExpr)
   | "pop", [_, arr] => call "lcnf_array_pop" [arr]
   | "swap", [_, arr, i, j, _, _] => call "lcnf_array_swap" [arr, i, j, imm64 0]
   | "swapIfInBounds", [_, arr, i, j] => call "lcnf_array_swap" [arr, i, j, imm64 1]
+  | "propagateMark", [_, _, _, ys] => k ys
   | _, _ => lfail s!"LeanLCNF: unsupported Array primitive Array.{op}/{as.length}"
 
 /-- Inline/runtime `String.*` externs. -/
@@ -489,6 +518,7 @@ def stringPrim (rt : LArg) (parts : List String) (as : List LArg) (k : LArg → 
     | _ => fail ()
   | [s, i] => match parts with
     | ["push"] => call "lcnf_string_push" [s, i]
+    | ["propagateMark"] => k i
     | ["append"] | ["Internal", "append"] => call "lcnf_string_append" [s, i]
     | ["decEq"] => cmp 0 s i
     | ["decidableLT"] => cmp 1 s i
@@ -527,6 +557,7 @@ def byteArrayPrim (rt : LArg) (op : String) (as : List LArg) (k : LArg → LM LE
   | "beq", [a, b] | "decEq", [a, b] => rtCall1 rt "lcnf_ba_cmp_op" [imm64 0, a, b] 8 k
   | "decidableLT", [a, b] => rtCall1 rt "lcnf_ba_cmp_op" [imm64 1, a, b] 8 k
   | "compare", [a, b] => rtCall1 rt "lcnf_ba_cmp_op" [imm64 2, a, b] 8 k
+  | "propagateMark", [_, b] => k b
   | _, _ => lfail s!"LeanLCNF: unsupported ByteArray primitive ByteArray.{op}/{as.length}"
 
 /-- `Float.*` operation code and result bit width. -/
@@ -572,6 +603,73 @@ def charPrim (rt : LArg) (op : String) (as : List LArg) (k : LArg → LM LExpr) 
   | "utf8Size", [c] => rtCall1 rt "lcnf_char_op" [imm64 1, c] 64 k
   | _, _ => lfail s!"LeanLCNF: unsupported Char primitive Char.{op}/{as.length}"
 
+/-! ## `Int` (tagged small ints + sign-magnitude bignums) and `Int64` -/
+
+/-- Call `lcnf_int_op(rt, intOpCode op, a, b)` with result width `resW`. -/
+def intCall (rt : LArg) (op : String) (a b : LArg) (resW : Nat) (k : LArg → LM LExpr) :
+    LM LExpr :=
+  rtCall1 rt "lcnf_int_op" [imm64 (intOpCode op), a, b] resW k
+
+/-- `-2^62 ≤ x < 2^62` (`x + 2^62 <u 2^63`): does the `i64` `x` fit a tagged small `Int`? -/
+def intFitsSmall (x : LArg) (k : LArg → LM LExpr) : LM LExpr :=
+  add64 x (imm64 (2 ^ 62)) fun t => cmpOp .ult 64 t (imm64 (2 ^ 63)) k
+
+/-- Inline/runtime `Int.*` externs. A small `Int` `v` (`-2^62 ≤ v < 2^62`) is the tagged word
+`2 * v + 1`, so signed comparison of tagged words orders the values, and a tagged word `< 2^63` is
+a non-negative small `Int` with the encoding of the equal `Nat`; every other value is a
+sign-magnitude bignum handled by `lcnf_int_op`. `ofNat`/`negSucc` consume their `Nat`; all other
+operands are borrowed (`@&`). -/
+def intPrim (rt : LArg) (op : String) (as : List LArg) (k : LArg → LM LExpr) : LM LExpr :=
+  let cmpI (o : CmpOp) (a b : LArg) := tagBin rt "lcnf_int_op" (intOpCode op) 8 a b
+    (fun _ j => cmpOp o 64 a b fun c => boolToU8 c fun r => pure (j r)) k
+  let addSub (code : OpCode [i64, i64] [i64]) (a b : LArg) :=
+    tagBin rt "lcnf_int_op" (intOpCode op) 64 a b (fun slow j =>
+      op1 i64 (.ashr i64) [a, imm64 1] fun x => op1 i64 (.ashr i64) [b, imm64 1] fun y =>
+      op1 i64 code [x, y] fun s => intFitsSmall s fun ok => do
+        let e ← boxSmall s fun r => pure (j r)
+        pure (.jnz ok e (← slow))) k
+  let natLike (a : LArg) := isScalarObj a fun s => withJoin1 i64 k fun j => do
+    let slow : LM LExpr := intCall rt op a (imm64 1) 64 fun r => pure (j r)
+    let fast ← lshr64 a (imm64 63) fun top => cmpOp .eq 64 top (imm64 0) fun ok => do
+      pure (.jnz ok (j a) (← slow))
+    pure (.jnz s fast (← slow))
+  match op, as with
+  | "ofNat", [a] | "natAbs", [a] => natLike a
+  | "add", [a, b] => addSub (.add i64) a b
+  | "sub", [a, b] => addSub (.sub i64) a b
+  | "decEq", [a, b] => cmpI .eq a b
+  | "decLt", [a, b] => cmpI .slt a b
+  | "decLe", [a, b] => cmpI .sle a b
+  | "negSucc", [a] | "neg", [a] => intCall rt op a (imm64 1) 64 k
+  | "decNonneg", [a] => intCall rt op a (imm64 1) 8 k
+  | "mul", [a, b] | "ediv", [a, b] | "emod", [a, b] | "tdiv", [a, b] | "tmod", [a, b]
+  | "divExact", [a, b, _] => intCall rt op a b 64 k
+  | _, _ => lfail s!"LeanLCNF: unsupported Int primitive Int.{op}/{as.length}"
+
+/-- `Int64.*` externs (`Int64` is an unboxed `bits 64`; two's-complement wrapping ops are the
+`UInt64` ones). -/
+def int64Prim (rt : LArg) (op : String) (as : List LArg) (k : LArg → LM LExpr) : LM LExpr :=
+  match op, as with
+  | "ofNat", [n] => uintOfNat rt 64 n k
+  | "decEq", [a, b] => cmpOp .eq 64 a b fun c => boolToU8 c k
+  | "decLt", [a, b] => cmpOp .slt 64 a b fun c => boolToU8 c k
+  | "decLe", [a, b] => cmpOp .sle 64 a b fun c => boolToU8 c k
+  | "add", _ | "sub", _ | "mul", _ | "land", _ | "lor", _ | "xor", _ | "neg", _
+  | "complement", _ => uintPrim rt 64 op as k
+  | "toInt", [a] =>
+    convW (argBitsWidth a) 64 a fun x => withJoin1 i64 k fun j => do
+      let slow ← intCall rt "ofInt64" x (imm64 1) 64 fun r => pure (j r)
+      let fast ← boxSmall x fun r => pure (j r)
+      intFitsSmall x fun ok => pure (.jnz ok fast slow)
+  | _, _ => lfail s!"LeanLCNF: unsupported Int64 primitive Int64.{op}/{as.length}"
+
+/-- `getObjTagNat {α} (x : @& α) : Nat` (`lean_obj_tag_nat`): a tagged scalar is its own tag,
+else `box m_tag`. -/
+def objTagNat (x : LArg) (k : LArg → LM LExpr) : LM LExpr :=
+  isScalarObj x fun s => withJoin1 i64 k fun j => do
+    let e ← loadAt i8 x 7 fun t => convW 8 64 t fun t64 => boxSmall t64 fun r => pure (j r)
+    pure (.jnz s (j x) e)
+
 /-- Inline an imported extern by its Lean name, or fail. -/
 def externPrim (rt : LArg) (name : String) (as : List LArg) (k : LArg → LM LExpr) :
     LM LExpr :=
@@ -582,6 +680,13 @@ def externPrim (rt : LArg) (name : String) (as : List LArg) (k : LArg → LM LEx
   | ["ByteArray", op] => byteArrayPrim rt op as k
   | ["Float", op] => floatPrim rt op as k
   | ["Char", op] => charPrim rt op as k
+  | ["Int", op] => intPrim rt op as k
+  | ["Int64", op] => int64Prim rt op as k
+  | ["getObjTagNat"] =>
+    match as with
+    | [_, x] | [x] => objTagNat x k
+    | _ => lfail s!"LeanLCNF: unsupported getObjTagNat arity {as.length}"
+  | ["System", "Platform", "getNumBits"] => k (imm64 (2 * 64 + 1))
   | ["outOfBounds", "_redArg"] =>
     match as with
     | [dv] => rtCall1 rt "lcnf_oob" [dv] 64 k

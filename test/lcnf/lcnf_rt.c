@@ -6,7 +6,8 @@
  *   Array (246): m_size @8, m_capacity @16, m_data @24.
  *   ScalarArray (248): m_size @8, m_capacity @16, m_data @24.
  *   String (249): m_size @8 (incl. NUL), m_capacity @16, m_length @24, m_data @32.
- *   MPZ (250): m_cap:u32 @8, m_len:u32 @12, limbs:u64[] @16 (canonical: >= 2^63).
+ *   MPZ (250): m_cap:u32 @8, m_len:u32 @12, limbs:u64[] @16 (canonical: >= 2^63); as an Int,
+ *   the magnitude with the sign in m_other @6 (small Ints -2^62 <= v < 2^62 are tagged 2v+1).
  * - Size-class free-list allocator + large-object free list over bump-allocated chunks.
  * - Iterative lcnf_dec_ref_cold and lcnf_mark_persistent (no recursion).
  * - Telemetry (allocs, frees, live, peak, persistent, reused, cold decs) for leak checks.
@@ -681,6 +682,151 @@ u64 LCNF_FN(lcnf_nat_slow)(u64 rt, u64 op, u64 a, u64 b) {
   }
   nat_view_free(&va);
   nat_view_free(&vb);
+  return res;
+}
+
+/* ---- Arbitrary-precision Int (tagged small ints + sign-magnitude LeanMPZ) ----
+ * A small Int v (-2^62 <= v < 2^62) is the tagged word 2v+1. Every other value is an MPZ object
+ * (tag 250, the Nat limb layout) holding |v| with the sign in m_other (@6: 1 = negative). The
+ * representation is canonical, so a big Nat (>= 2^63) is already the equal positive Int. */
+
+#define INT_SMALL_LIM (1ULL << 62)
+
+typedef struct {
+  NatView m; /* magnitude */
+  int neg;
+} IntView;
+
+static void int_view(u64 x, IntView *v) {
+  if (is_scalar(x)) {
+    int64_t s = (int64_t)x >> 1;
+    v->neg = s < 0;
+    v->m.heap = 0;
+    v->m.inline_buf[0] = s < 0 ? (u64)0 - (u64)s : (u64)s;
+    v->m.d = v->m.inline_buf;
+    v->m.n = s != 0;
+    return;
+  }
+  nat_view(x, &v->m);
+  v->neg = (ld8(x + 6) & 1ULL) != 0;
+}
+
+static u64 int_from_limbs(u64 rt, int neg, const u64 *d, uint32_t n) {
+  n = trim_limbs(d, n);
+  if (n == 0) return box_nat(0);
+  if (n == 1 && (d[0] < INT_SMALL_LIM || (neg && d[0] == INT_SMALL_LIM)))
+    return ((neg ? (u64)0 - d[0] : d[0]) << 1) | 1ULL;
+  u64 p = LCNF_FN(lcnf_nat_alloc)(rt, n);
+  for (uint32_t i = 0; i < n; i++) st64(p + 16 + 8 * i, d[i]);
+  st8(p + 6, neg ? 1 : 0);
+  return p;
+}
+
+/* a + b, where b's sign is flipped when `flip` (subtraction). */
+static u64 int_add_op(u64 rt, const IntView *a, const IntView *b, int flip) {
+  const NatView *x = &a->m, *y = &b->m;
+  int bneg = b->neg ^ flip;
+  u64 *out = alloc_limbs((x->n > y->n ? x->n : y->n) + 1);
+  u64 r;
+  if (a->neg == bneg) {
+    r = int_from_limbs(rt, a->neg, out, add_limbs(x->d, x->n, y->d, y->n, out));
+  } else if (cmp_limbs(x->d, x->n, y->d, y->n) >= 0) {
+    r = int_from_limbs(rt, a->neg, out, sub_limbs(x->d, x->n, y->d, y->n, out));
+  } else {
+    r = int_from_limbs(rt, bneg, out, sub_limbs(y->d, y->n, x->d, x->n, out));
+  }
+  free(out);
+  return r;
+}
+
+static u64 int_mul_op(u64 rt, const IntView *a, const IntView *b) {
+  u64 *out = alloc_limbs(a->m.n + b->m.n);
+  uint32_t on = mul_limbs(a->m.d, a->m.n, b->m.d, b->m.n, out);
+  u64 r = int_from_limbs(rt, a->neg ^ b->neg, out, on);
+  free(out);
+  return r;
+}
+
+/* Division by b != 0 of |a| = |b| Q + R. T-rounding: q = sgn(a)sgn(b) Q, r = sgn(a) R.
+ * Euclidean (Lean `Int.ediv`/`Int.emod`): 0 <= r < |b|, so for a < 0 and R != 0,
+ * q = -sgn(b) (Q + 1) and r = |b| - R. b = 0: q = 0 and r = a (both roundings). */
+static u64 int_div_op(u64 rt, const IntView *a, const IntView *b, int euclid, int want_mod) {
+  if (b->m.n == 0) return want_mod ? int_from_limbs(rt, a->neg, a->m.d, a->m.n) : box_nat(0);
+  uint32_t na = a->m.n, nb = b->m.n, qn = 0, rn = 0;
+  u64 *q = alloc_limbs(na + 1), *r = alloc_limbs((na > nb ? na : nb) + 1);
+  divmod_limbs(a->m.d, na, b->m.d, nb, q, &qn, r, &rn);
+  int rneg = a->neg;
+  if (euclid) {
+    if (a->neg && rn > 0) {
+      u64 one = 1;
+      qn = add_limbs(q, qn, &one, 1, q);
+      rn = sub_limbs(b->m.d, nb, r, rn, r);
+    }
+    rneg = 0;
+  }
+  u64 res = want_mod ? int_from_limbs(rt, rneg, r, rn) : int_from_limbs(rt, a->neg ^ b->neg, q, qn);
+  free(q);
+  free(r);
+  return res;
+}
+
+static int int_cmp(const IntView *a, const IntView *b) {
+  if (a->neg != b->neg) return a->neg ? -1 : 1;
+  int c = cmp_limbs(a->m.d, a->m.n, b->m.d, b->m.n);
+  return a->neg ? -c : c;
+}
+
+/* op: 1 ofNat (owned Nat), 2 negSucc (owned Nat), 3 neg, 4 add, 5 sub, 6 mul, 7 ediv, 8 emod,
+ * 9 natAbs, 10 decEq, 11 decLt, 12 decLe, 13 Int64.toInt (raw i64), 14 tdiv, 15 tmod,
+ * 16 decNonneg. Int operands are borrowed. */
+u64 LCNF_FN(lcnf_int_op)(u64 rt, u64 op, u64 a, u64 b) {
+  if (op == 1) {
+    if (!is_scalar(a)) return a;
+    u64 v = unbox_nat(a);
+    return v < INT_SMALL_LIM ? a : int_from_limbs(rt, 0, &v, 1);
+  }
+  if (op == 2) {
+    NatView va;
+    nat_view(a, &va);
+    u64 one = 1, *out = alloc_limbs(va.n + 1);
+    u64 r = int_from_limbs(rt, 1, out, add_limbs(va.d, va.n, &one, 1, out));
+    free(out);
+    nat_view_free(&va);
+    dec_obj(rt, a);
+    return r;
+  }
+  if (op == 13) {
+    int64_t s = (int64_t)a;
+    u64 mag = s < 0 ? (u64)0 - a : a;
+    return int_from_limbs(rt, s < 0, &mag, 1);
+  }
+  IntView va, vb;
+  int_view(a, &va);
+  u64 res = box_nat(0);
+  if (op == 3) {
+    res = int_from_limbs(rt, !va.neg, va.m.d, va.m.n);
+  } else if (op == 9) {
+    res = nat_from_limbs(rt, va.m.d, va.m.n);
+  } else if (op == 16) {
+    res = va.neg ? 0 : 1;
+  } else {
+    int_view(b, &vb);
+    switch (op) {
+      case 4: res = int_add_op(rt, &va, &vb, 0); break;
+      case 5: res = int_add_op(rt, &va, &vb, 1); break;
+      case 6: res = int_mul_op(rt, &va, &vb); break;
+      case 7: res = int_div_op(rt, &va, &vb, 1, 0); break;
+      case 8: res = int_div_op(rt, &va, &vb, 1, 1); break;
+      case 10: res = int_cmp(&va, &vb) == 0 ? 1 : 0; break;
+      case 11: res = int_cmp(&va, &vb) < 0 ? 1 : 0; break;
+      case 12: res = int_cmp(&va, &vb) <= 0 ? 1 : 0; break;
+      case 14: res = int_div_op(rt, &va, &vb, 0, 0); break;
+      case 15: res = int_div_op(rt, &va, &vb, 0, 1); break;
+      default: LCNF_PANIC(200 + op); break;
+    }
+    nat_view_free(&vb.m);
+  }
+  nat_view_free(&va.m);
   return res;
 }
 

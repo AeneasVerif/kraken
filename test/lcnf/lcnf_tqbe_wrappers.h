@@ -120,6 +120,9 @@ W lcnf_float_un(::tqbe::Mem &, W rt, W op, W a) {
 W lcnf_float_of_sci(::tqbe::Mem &, W rt, W m, W neg, W e) {
   return w(rt_lcnf_float_of_sci(rt.word(0), m.word(0), neg.word(0), e.word(0)));
 }
+W lcnf_int_op(::tqbe::Mem &, W rt, W op, W a, W b) {
+  return w(rt_lcnf_int_op(rt.word(0), op.word(0), a.word(0), b.word(0)));
+}
 
 static void rt_setup(void) {
   lcnf_tqbe_mem = &g_mem;

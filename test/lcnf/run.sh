@@ -146,7 +146,8 @@ run_err "$OUT/cpp.err" timeout 120 "$OUT/lcnf_cpp" quick > "$OUT/cpp.out"
 check_run printcpp-asan "$OUT/cpp.out" "$OUT/cpp.err" "$OUT/ref_quick.out"
 if grep -E 'ERROR: AddressSanitizer|runtime error' "$OUT/cpp.err"; then exit 1; fi
 
-echo "== 4e. P5 Coverage (strings, big Nats, Array, ByteArray, Float) across all 4 backends =="
+echo "== 4e. P5 Coverage (strings, big Nats, Array, ByteArray, Float, Int, Int64, UIntN.ofBitVec," \
+  "getObjTagNat, USize, non-ASCII symbols) across all 4 backends =="
 { echo "namespace LeanQbe.T.LeanLCNF.Coverage"
   sed -n '/^-- BEGIN LCNF COVERAGE$/,/^-- END LCNF COVERAGE$/p' LeanQbe/T/LeanLCNF/Coverage.lean
   echo "end LeanQbe.T.LeanLCNF.Coverage"
@@ -173,6 +174,19 @@ timeout 300 clang++ -std=c++20 -O2 -Wall -Wextra -Werror -fsanitize=address,unde
 run_err "$OUT/p5_cpp.err" timeout 120 "$OUT/lcnf_p5_cpp" quick > "$OUT/p5_cpp.out"
 check_run p5-printcpp-asan "$OUT/p5_cpp.out" "$OUT/p5_cpp.err" "$OUT/ref_p5_quick.out"
 if grep -E 'ERROR: AddressSanitizer|runtime error' "$OUT/p5_cpp.err"; then exit 1; fi
+
+echo "== 4f. lcnf_int_op fuzz vs __int128 (x86-64 ASan+UBSan, Arm64 qemu) =="
+timeout 120 gcc -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
+  -fno-sanitize-recover=all -I"$T" "$T/lcnf_int_test.c" "$T/lcnf_rt.c" -lm -o "$OUT/int_test_x64"
+run_err "$OUT/int_x64.err" timeout 300 "$OUT/int_test_x64"
+grep '^INTFUZZ' "$OUT/int_x64.err"
+grep -q '^LEAKCHECK ok' "$OUT/int_x64.err"
+timeout 120 aarch64-linux-gnu-gcc $CFLAGS_RT "$T/lcnf_int_test.c" "$T/lcnf_rt.c" -lm \
+  -o "$OUT/int_test_arm64" 2>&1 | { grep -v -e 'SFrame' || true; }
+run_err "$OUT/int_arm64.err" timeout 300 qemu-aarch64 -L /usr/aarch64-linux-gnu \
+  "$OUT/int_test_arm64"
+grep -q '^LEAKCHECK ok' "$OUT/int_arm64.err"
+echo "int-fuzz: x64 + arm64 LEAKCHECK ok"
 
 echo "== 5. benchmark: LeanQbe.T x86-64 vs leanc -O2 (wall clock ms) =="
 timeout 120 "$OUT/ref_lean" bench > "$OUT/bench_ref.out"
