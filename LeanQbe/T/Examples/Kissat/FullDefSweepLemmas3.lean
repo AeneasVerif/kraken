@@ -1,6 +1,7 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas2
+public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas1
+import LeanQbe.T.Logic.ControlComb
 import all Kraken.Mem
 import all Kraken.Separation
 
@@ -13,7 +14,7 @@ Proves the parametric `(Γ : Env)` `Func.wp` contract `full_find_definition_wp`.
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.FullDefSweep
 

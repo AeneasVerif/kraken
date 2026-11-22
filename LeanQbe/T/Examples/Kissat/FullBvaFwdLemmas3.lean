@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.FullBvaFwdLemmas2
+public import LeanQbe.T.Examples.Kissat.FullBvaFwdSpec
 import all Kraken.Mem
 import all Kraken.Separation
 
@@ -14,7 +14,7 @@ Proves parametric `(Γ : Env)` `Func.wp` contracts for BVA (`Full.lean`):
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

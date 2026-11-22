@@ -26,7 +26,7 @@ Defines:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -703,6 +703,7 @@ theorem entails_strengthen_of_clause {f : CNF Nat} {C D : List Nat} {cand : Nat}
 
 /-- Fresh-variable BVA binary extension formula: keeps `F_cur` verbatim and adjoins
 `[2 * fv, f]` (`f ∈ L`) and `[2 * fv + 1, q]` (`q ∈ Q`). -/
+@[expose]
 def bvaExtendFormula (fv : Nat) (L Q : List Nat) (F_cur : List (List Nat)) : List (List Nat) :=
   L.map (fun f => [2 * fv, f]) ++ Q.map (fun q => [2 * fv + 1, q]) ++ F_cur
 
@@ -1322,6 +1323,7 @@ theorem fwd_shrink_litsCore_eq {st_u : FullState} {cref nsz : Nat}
         rw [fullArenaClauseLitsCore_length (by rw [hsz_new]; exact harena_len), hsz_new]; omega),
       List.getElem?_eq_none (by rw [hfilt_len]; omega)]
 
+@[expose]
 def fwdLmMask (t : FullState) : FullState := { t with core := { t.core with lit_mark := [] } }
 theorem fwd_lm_reconstruct {s st : FullState} (h : AgreesExcept fwdLmMask s st) :
     st = { s with core := { s.core with lit_mark := st.core.lit_mark } } := by
@@ -1331,6 +1333,7 @@ theorem fwd_lm_reconstruct {s st : FullState} (h : AgreesExcept fwdLmMask s st) 
     cases c1; cases c2; simp only [fwdLmMask] at h1; cases h1; rfl
   cases st; cases s; simp only at hsc hc; rw [hsc]; exact congrArg (fun x => FullState.mk x _) hc
 
+@[expose]
 def fwdArenaMask (t : FullState) : FullState := { t with core := { t.core with arena := [] } }
 theorem fwd_arena_reconstruct {s st : FullState} (h : AgreesExcept fwdArenaMask s st) :
     st = { s with core := { s.core with arena := st.core.arena } } := by
@@ -1340,7 +1343,7 @@ theorem fwd_arena_reconstruct {s st : FullState} (h : AgreesExcept fwdArenaMask 
     cases c1; cases c2; simp only [fwdArenaMask] at h1; cases h1; rfl
   cases st; cases s; simp only at hsc hc; rw [hsc]; exact congrArg (fun x => FullState.mk x _) hc
 
-def FwdDropOk (F_cur : List (List Nat)) (C : List Nat) (drop : BitVec 32) : Prop :=
+@[expose] def FwdDropOk (F_cur : List (List Nat)) (C : List Nat) (drop : BitVec 32) : Prop :=
   drop ≠ 0xFFFFFFFF#32 →
     drop.toNat ∈ C ∧ (cnfOfClauses F_cur).EntailsClause (cnfClause (C.filter (· != drop.toNat)))
 

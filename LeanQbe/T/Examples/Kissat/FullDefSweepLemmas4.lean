@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas1
+import LeanQbe.T.Logic.ControlComb
 import all Kraken.Mem
 import all Kraken.Separation
 
@@ -15,7 +16,7 @@ in `FullDefSweep`:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.FullDefSweep
 
@@ -26,42 +27,9 @@ open LeanQbe.T.Examples.Kissat.Full
 open Kraken.Bedrock2.Test
 open FullArenaTactics FullSweepFwdHelpers FullSweepVarHelpers
 
-theorem dsSweep_ptr_k_256_eq (p i : BitVec 64) :
-    (p + BitVec.ofNat 64 256 * 4) + i * 4 = p + BitVec.ofNat 64 (4 * (256 + i.toNat)) := by
-  have hmul : i * 4 = BitVec.ofNat 64 (i.toNat * 4) := by
-    apply BitVec.eq_of_toNat_eq; simp [BitVec.toNat_mul]
-  rw [BitVec.add_assoc]; congr 1
-  rw [hmul, show (BitVec.ofNat 64 256 * 4 : BitVec 64) = BitVec.ofNat 64 1024 from rfl,
-    ← BitVec.ofNat_add, show 1024 + i.toNat * 4 = 4 * (256 + i.toNat) by omega]
-
-namespace FullDefSweepTactics
-
-@[scoped c0_load] theorem load_k_256_dyn {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
-    {m : Mem 64} {i : BitVec 64} (hi : 256 + i.toNat < s.scratch.scratch_buf.length)
-    (hm : (FullMem c s ⋆ R) m) :
-    loadVal m i32 (c.pScratchBuf + BitVec.ofNat 64 256 * 4 + i * 4) =
-      some s.scratch.scratch_buf[256 + i.toNat] := by
-  rw [dsSweep_ptr_k_256_eq]; exact load_full_scratch_buf hi hm
-
-@[scoped c0_store] theorem store_k_256_dyn {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
-    {m : Mem 64} {i : BitVec 64} (v : BitVec 32)
-    (hi : 256 + i.toNat < s.scratch.scratch_buf.length) (hm : (FullMem c s ⋆ R) m) :
-    storeOk m i32 (c.pScratchBuf + BitVec.ofNat 64 256 * 4 + i * 4) ∧
-      (FullMem c { s with scratch := { s.scratch with
-        scratch_buf := s.scratch.scratch_buf.set (256 + i.toNat) v } } ⋆ R)
-        (storeMem m i32 (c.pScratchBuf + BitVec.ofNat 64 256 * 4 + i * 4) v) := by
-  rw [dsSweep_ptr_k_256_eq]; exact store_full_scratch_buf v hi hm
-
-@[scoped bv_c0] theorem bv32_shl1_mod32 (x : BitVec 32) :
-    x <<< ((1#32 : BitVec 32).toNat % 32) = x <<< (1 : Nat) := rfl
-
-end FullDefSweepTactics
 
 open scoped FullArenaTactics FullCongTactics FullDefSweepTactics
 
-theorem fullSweepGlobalLit_eq_coneLift' (s : FullState) :
-    fullSweepGlobalLit s = FullSweepFwdSpecs.coneLift s.scratch.work_stk1 := by
-  funext ll; unfold fullSweepGlobalLit FullSweepFwdSpecs.coneLift; omega
 
 /-! ## 1. Pure, Separation, & Semantic Helpers for `kitten` Cone Sweeping -/
 
@@ -72,9 +40,6 @@ private theorem getElem_eq_getElem?_getD {α : Type} (xs : List α) {i : Nat}
 private theorem list_getElem_congr {α : Type} {xs : List α} {i j : Nat}
     (hij : i = j) (hi : i < xs.length) (hj : j < xs.length) :
     xs[i]'hi = xs[j]'hj := by subst hij; rfl
-
-theorem dsSweep_bv32_add1_lt {x : BitVec 32} (h : x.toNat < 2 ^ 31) :
-    (x + 1#32).toNat = x.toNat + 1 := by bv_omega
 
 private theorem bv32_sub1_nat {x : BitVec 32} (hpos : 1 ≤ x.toNat) (hle : x.toNat ≤ 128) :
     (x - 1#32).toNat = x.toNat - 1 := by bv_omega
@@ -375,9 +340,6 @@ private theorem sweepKittenConeOk_to_spec
   exact ⟨⟨hlen.core_ok, { hlen.scratch_ok with scratch_buf_len := hscr_l }⟩,
     ⟨hnv1, hnv128, hnv_cv, hnc_len, hcls_512, fun i hi => (hfwd i hi).1, hcls⟩,
     hK', hroot, hrev'⟩
-
-private theorem bv32_shr1_toNat (x : BitVec 32) : (x >>> (1 : Nat)).toNat = x.toNat / 2 := by
-  simp [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow]
 
 private theorem bv32_and1_toNat (x : BitVec 32) : (x &&& 1#32).toNat = x.toNat % 2 := by
   rw [BitVec.toNat_and, show (1#32).toNat = 1 from rfl]

@@ -1,6 +1,8 @@
 module
 
+public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas2
 public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas3
+public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas4
 public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas5
 public import LeanQbe.T.Examples.Kissat.FullOneLitConflLemmas
 import all Kraken.Mem
@@ -22,7 +24,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.FullDefSweep
 
@@ -35,7 +37,7 @@ open Kraken.Bedrock2.Test
 /-! ## 1. Concrete `Kitten` Invariant (`defSweepKInv`) -/
 
 /-- Minimal structural scratch invariant satisfying all `KittenInvLaws` for `FullDefSweep`. -/
-def defSweepKInv (nv : Nat) (cls : List (Nat × List Nat)) (_ta : Bool) (_ph : KittenPhase)
+@[expose] def defSweepKInv (nv : Nat) (cls : List (Nat × List Nat)) (_ta : Bool) (_ph : KittenPhase)
     (scr : List (BitVec 32)) : Prop :=
   10240 ≤ scr.length ∧ 1 ≤ nv ∧ nv ≤ 128 ∧ cls.length ≤ 512 ∧
   (scr[256 + 2]?.getD 0#32).toNat = cls.length ∧
@@ -75,7 +77,7 @@ theorem defSweepKInv_laws : KittenInvLaws defSweepKInv where
 /-! ## 2. Specification Table (`21` rows), `defSweepEnv`, & Parameterized `ModuleOk` -/
 
 /-- `21`-row specification table: `9` owned `FullDefSweep` functions + `12` canonical externs. -/
-def defSweepSpecTable : List SpecEntry :=
+@[expose] def defSweepSpecTable : List SpecEntry :=
   [ ⟨"full_bve_mark_and", [i64, i32, i32, i32, i32], [.bool], fullBveMarkAndDefSpec, true⟩
   , ⟨"full_find_definition", [i64, i32, i32, i32], [], fullFindDefinitionSpec, true⟩
   , ⟨"full_bve_gates", [i64, i32, i32, i32], [], fullBveGatesDefSpec, true⟩
@@ -103,7 +105,7 @@ def defSweepSpecTable : List SpecEntry :=
   ]
 
 /-- Closed specification environment for `fullDefSweepModule`. -/
-def defSweepEnv : Env := Env.ofTable defSweepSpecTable
+@[expose] def defSweepEnv : Env := Env.ofTable defSweepSpecTable
 
 theorem defSweepSpecTable_nodup : (defSweepSpecTable.map SpecEntry.name).Nodup := by
   decide
@@ -256,7 +258,7 @@ theorem defSweepEnv_moduleOk : ModuleOk defSweepEnv fullDefSweepModule :=
 /-! ## 3. Concrete `Mem 64` UNSAT Non-Vacuity (`XPost := False`, `0` SAT proofs) -/
 
 /-- Concrete `FullCfg` (`max_vars = 1`, `wcap = 1`, `scratch_cap = 10240`, `avail = 42716`). -/
-def nvDefSweepCfg : FullCfg where
+@[expose] def nvDefSweepCfg : FullCfg where
   hdr := 0x1000#64
   avail := 42716
   mv := 1
@@ -283,7 +285,7 @@ def nvDefSweepCfg : FullCfg where
   hsize := by decide
 
 /-- Concrete `10240`-word `scratch_buf` holding complementary binary entries `x0` / `¬x0`. -/
-def nvDefSweepScratchBuf : List (BitVec 32) :=
+@[expose] def nvDefSweepScratchBuf : List (BitVec 32) :=
   ((List.replicate 10240 0#32).set 0 0x80000000#32).set 64 0x80000001#32
 
 theorem nvDefSweepScratchBuf_length : nvDefSweepScratchBuf.length = 10240 := by
@@ -291,7 +293,7 @@ theorem nvDefSweepScratchBuf_length : nvDefSweepScratchBuf.length = 10240 := by
   rw [List.length_set, List.length_set, List.length_replicate]
 
 /-- Zero-initialized `FullScratch` for `nvDefSweepCfg` carrying `nvDefSweepScratchBuf`. -/
-def nvDefSweepScratch : FullScratch where
+@[expose] def nvDefSweepScratch : FullScratch where
   heap_len := 0
   scinc := 0#64; rel_period := 0#64; rel_limit := 0#64; rel_wait := 0#64
   rel_u := 0#64; rel_v := 0#64; rel_trigger := 0#64; conflicts := 0#64
@@ -336,7 +338,7 @@ def nvDefSweepScratch : FullScratch where
 
 /-- Concrete dense-mode UNSAT `FullState` (`FL_ACTIVE | FL_SWEEP`, `dense_mode = 1`,
 `inconsistent = 1`, `fuel = 1`, zero trail & `TmkZero`) for `nvOneLitF0 = {(x0), (¬x0)}`. -/
-def nvDefSweepState : FullState where
+@[expose] def nvDefSweepState : FullState where
   core :=
     { d_cur := 0#64, d_val := 0#64, cur_vars := 1, unassigned := 1#64
       arena_len := 0, wlen := 1, wusable := 0#64, arena_garbage := 0#64
@@ -372,11 +374,11 @@ theorem nvDefSweepState_lengths : nvDefSweepState.LengthsOk nvDefSweepCfg :=
    ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
     rfl, rfl, rfl, rfl, rfl, nvDefSweepScratchBuf_length⟩⟩
 
-def nvDsBlockHdr : List UInt8 :=
+@[expose] def nvDsBlockHdr : List UInt8 :=
   bytes64 [1#64, 2#64, 0#64, 0#64] ++
   bytes64 (Full.hdrTailWords nvDefSweepCfg nvDefSweepState)
 
-def nvDsBlockBytes : List UInt8 :=
+@[expose] def nvDsBlockBytes : List UInt8 :=
   (bytesOf (t := i8) nvDefSweepState.core.vals ++ List.replicate 6 0) ++
   (bytesOf (t := i8) nvDefSweepState.scratch.walk_vals ++ List.replicate 6 0) ++
   (bytesOf (t := i8) nvDefSweepState.core.lit_mark ++ List.replicate 6 0) ++
@@ -386,28 +388,28 @@ def nvDsBlockBytes : List UInt8 :=
   (bytesOf (t := i8) nvDefSweepState.scratch.phases_best ++ List.replicate 7 0) ++
   (bytesOf (t := i8) nvDefSweepState.scratch.walk_best ++ List.replicate 7 0)
 
-def nvDsBlockU32A : List UInt8 :=
+@[expose] def nvDsBlockU32A : List UInt8 :=
   (bytesOf (t := i32) nvDefSweepState.core.flags ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvDefSweepState.core.lvl ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvDefSweepState.core.rsns ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvDefSweepState.core.trl ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvDefSweepState.core.trail_pos ++ List.replicate 4 0)
 
-def nvDsBlockU32B : List UInt8 :=
+@[expose] def nvDsBlockU32B : List UInt8 :=
   (bytesOf (t := i32) nvDefSweepState.core.tmp ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvDefSweepState.scratch.heap ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvDefSweepState.scratch.pos ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvDefSweepState.core.min_clr ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvDefSweepState.scratch.shrink_stk ++ List.replicate 4 0)
 
-def nvDsBlockU32C : List UInt8 :=
+@[expose] def nvDsBlockU32C : List UInt8 :=
   (bytesOf (t := i32) nvDefSweepState.scratch.q_prev ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvDefSweepState.scratch.q_next ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvDefSweepState.scratch.q_stamp ++ List.replicate 4 0) ++
   (bytesOf (t := i32) nvDefSweepState.core.frame_trail ++ List.replicate 0 0) ++
   (bytesOf (t := i32) nvDefSweepState.core.frame_dec ++ List.replicate 0 0)
 
-def nvDsBlockWvec : List UInt8 :=
+@[expose] def nvDsBlockWvec : List UInt8 :=
   bytesOf (t := i32) nvDefSweepState.core.wvec ++
   bytesOf (t := i32) nvDefSweepState.core.repr ++
   bytesOf (t := i32) nvDefSweepState.scratch.wsort ++
@@ -418,7 +420,7 @@ def nvDsBlockWvec : List UInt8 :=
   bytes64 nvDefSweepState.scratch.score ++
   bytes64 nvDefSweepState.scratch.sim_sig
 
-def nvDsBlockTail : List UInt8 :=
+@[expose] def nvDsBlockTail : List UInt8 :=
   bytesOf (t := i32) nvDefSweepState.core.min_stk ++
   bytesOf (t := i32) nvDefSweepState.scratch.glue_used ++
   bytesOf (t := i32) nvDefSweepState.scratch.last_learned ++
@@ -431,12 +433,12 @@ def nvDsBlockTail : List UInt8 :=
   List.replicate 0 0
 
 /-- Concrete `42716`-byte image encoding `nvDefSweepCfg` and `nvDefSweepState`. -/
-def nvDefSweepBytes : List UInt8 :=
+@[expose] def nvDefSweepBytes : List UInt8 :=
   nvDsBlockHdr ++ nvDsBlockBytes ++ nvDsBlockU32A ++ nvDsBlockU32B ++
   nvDsBlockU32C ++ nvDsBlockWvec ++ nvDsBlockTail
 
 /-- Concrete `Mem 64` heap mapped at `nvDefSweepCfg.hdr` (`0x1000#64`). -/
-def nvDefSweepMem : Mem 64 := nvDefSweepBytes.At nvDefSweepCfg.hdr
+@[expose] def nvDefSweepMem : Mem 64 := nvDefSweepBytes.At nvDefSweepCfg.hdr
 
 theorem nvDefSweepBytes_length : nvDefSweepBytes.length = 42716 := by
   simp only [nvDefSweepBytes, nvDsBlockHdr, nvDsBlockBytes, nvDsBlockU32A, nvDsBlockU32B,

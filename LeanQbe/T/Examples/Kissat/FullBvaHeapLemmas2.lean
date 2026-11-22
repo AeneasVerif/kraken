@@ -1,13 +1,14 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.FullBvaHeapLemmas1
+public import LeanQbe.T.Examples.Kissat.FullBvaHeapSpec
+import LeanQbe.T.Logic.ControlComb
 import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` 3-Hop BVA & Heap Factoring Proofs — Part 2 (`Match, Pick, Scan`)
 
-Proves parametric `(Γ : Env)` `Func.wp` contracts for 3 matrix-construction functions of
+Proves parametric `(Γ : Env)` `Func.wp` contracts for `3` matrix-construction functions of
 `FullBvaHeap.lean`:
 1. `full_bva_match_large` (`full_bva_match_large_wp` → `fullBvaMatchLargeSpec`)
 2. `full_bva_pick_cand` (`full_bva_pick_cand_wp` → `fullBvaPickCandSpec`)
@@ -16,7 +17,7 @@ Proves parametric `(Γ : Env)` `Func.wp` contracts for 3 matrix-construction fun
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.FullBvaHeap
 
@@ -26,195 +27,6 @@ open LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.K
 open Kraken.Bedrock2.Test
 open FullBvaHeapHelpers FullBvaHeapTactics
 open scoped FullArenaTactics FullBvaHeapTactics
-
-/-! ## 1. Pure Bit-Mask & Exact-Restoration Helpers -/
-
-namespace FullBvaHeapScanHelpers
-
-theorem bv32_garb_zero_of_and_580000 {x : BitVec 32} (h : (x &&& 0x00580000#32) = 0#32) :
-    (x &&& 0x00080000#32) = 0#32 := by
-  have h1 := congrArg (· &&& 0x00080000#32) h
-  rw [BitVec.and_assoc, show (0x00580000#32 &&& 0x00080000#32) = 0x00080000#32 from rfl,
-    BitVec.zero_and] at h1
-  exact h1
-
-theorem bv32_viv_zero_of_and_580000 {x : BitVec 32} (h : (x &&& 0x00580000#32) = 0#32) :
-    (x &&& 0x00100000#32) = 0#32 := by
-  have h1 := congrArg (· &&& 0x00100000#32) h
-  rw [BitVec.and_assoc, show (0x00580000#32 &&& 0x00100000#32) = 0x00100000#32 from rfl,
-    BitVec.zero_and] at h1
-  exact h1
-
-theorem bv8_bit_zero_of_and_fe {x : BitVec 8} (h : (x &&& 0xFE#8) = 0#8) :
-    (x &&& 2#8) = 0#8 ∧ (x &&& 4#8) = 0#8 := by
-  constructor
-  · have h1 := congrArg (· &&& 2#8) h
-    rw [BitVec.and_assoc, show (0xFE#8 &&& 2#8) = 2#8 from rfl, BitVec.zero_and] at h1; exact h1
-  · have h1 := congrArg (· &&& 4#8) h
-    rw [BitVec.and_assoc, show (0xFE#8 &&& 4#8) = 4#8 from rfl, BitVec.zero_and] at h1; exact h1
-
-theorem bv8_clear_bit1_of_zero {x : BitVec 8} (hx : (x &&& 2#8) = 0#8) :
-    (x &&& 0xFD#8) = x := by
-  have h1 : x = x &&& (0xFD#8 ||| 2#8) := by
-    rw [show (0xFD#8 ||| 2#8) = BitVec.allOnes 8 from rfl, BitVec.and_allOnes]
-  conv => rhs; rw [h1, BitVec.and_or_distrib_left, hx, BitVec.or_zero]
-
-theorem bv8_clear_bit2_of_zero {x : BitVec 8} (hx : (x &&& 4#8) = 0#8) :
-    (x &&& 0xFB#8) = x := by
-  have h1 : x = x &&& (0xFB#8 ||| 4#8) := by
-    rw [show (0xFB#8 ||| 4#8) = BitVec.allOnes 8 from rfl, BitVec.and_allOnes]
-  conv => rhs; rw [h1, BitVec.and_or_distrib_left, hx, BitVec.or_zero]
-
-theorem bv8_clear_bit1_eq_of_or2 {x y : BitVec 8} (hx : (x &&& 2#8) = 0#8)
-    (hy : y = x ∨ y = (x ||| 2#8)) : (y &&& 0xFD#8) = x := by
-  rcases hy with rfl | rfl
-  · exact bv8_clear_bit1_of_zero hx
-  · rw [BitVec.and_or_distrib_right, show (2#8 &&& 0xFD#8) = 0#8 from rfl, BitVec.or_zero]
-    exact bv8_clear_bit1_of_zero hx
-
-theorem bv8_clear_bit2_eq_of_or4 {x y : BitVec 8} (hx : (x &&& 4#8) = 0#8)
-    (hy : y = x ∨ y = (x ||| 4#8)) : (y &&& 0xFB#8) = x := by
-  rcases hy with rfl | rfl
-  · exact bv8_clear_bit2_of_zero hx
-  · rw [BitVec.and_or_distrib_right, show (4#8 &&& 0xFB#8) = 0#8 from rfl, BitVec.or_zero]
-    exact bv8_clear_bit2_of_zero hx
-
-theorem bv8_or2_and_bit2 (x : BitVec 8) : ((x ||| 2#8) &&& 4#8) = (x &&& 4#8) := by
-  rw [BitVec.and_or_distrib_right, show (2#8 &&& 4#8) = 0#8 from rfl, BitVec.or_zero]
-
-theorem bv8_or2_and_bit0 (x : BitVec 8) : ((x ||| 2#8) &&& 1#8) = (x &&& 1#8) := by
-  rw [BitVec.and_or_distrib_right, show (2#8 &&& 1#8) = 0#8 from rfl, BitVec.or_zero]
-
-theorem bv8_or4_and_bit1 (x : BitVec 8) : ((x ||| 4#8) &&& 2#8) = (x &&& 2#8) := by
-  rw [BitVec.and_or_distrib_right, show (4#8 &&& 2#8) = 0#8 from rfl, BitVec.or_zero]
-
-theorem bv8_or2_idem (x : BitVec 8) : ((x ||| 2#8) ||| 2#8) = (x ||| 2#8) := by
-  rw [BitVec.or_assoc, show (2#8 ||| 2#8) = 2#8 from rfl]
-
-theorem bv8_or4_idem (x : BitVec 8) : ((x ||| 4#8) ||| 4#8) = (x ||| 4#8) := by
-  rw [BitVec.or_assoc, show (4#8 ||| 4#8) = 4#8 from rfl]
-
-theorem bv32_clear_viv_of_zero {x : BitVec 32} (hx : (x &&& 0x00100000#32) = 0#32) :
-    (x &&& ~~~0x00100000#32) = x := by
-  have h1 : x = x &&& (~~~0x00100000#32 ||| 0x00100000#32) := by
-    rw [show (~~~0x00100000#32 ||| 0x00100000#32) = BitVec.allOnes 32 from rfl, BitVec.and_allOnes]
-  conv => rhs; rw [h1, BitVec.and_or_distrib_left, hx, BitVec.or_zero]
-
-theorem bv32_clear_viv_eq_of_or {x y : BitVec 32} (hx : (x &&& 0x00100000#32) = 0#32)
-    (hy : y = x ∨ y = (x ||| 0x00100000#32)) : (y &&& ~~~0x00100000#32) = x := by
-  rcases hy with rfl | rfl
-  · exact bv32_clear_viv_of_zero hx
-  · exact bv32_viv_roundtrip hx
-
-theorem bv32_or_viv_idem (x : BitVec 32) :
-    ((x ||| 0x00100000#32) ||| 0x00100000#32) = (x ||| 0x00100000#32) := by
-  rw [BitVec.or_assoc, show (0x00100000#32 ||| 0x00100000#32) = 0x00100000#32 from rfl]
-
-theorem bv32_and_not_viv_eq (x : BitVec 32) :
-    (x &&& (0x00100000#32 ^^^ 0xFFFFFFFF#32)) = (x &&& ~~~0x00100000#32) := rfl
-
-theorem list_eq_of_getElem?_eq {α : Type _} {xs ys : List α} (hlen : xs.length = ys.length)
-    (h : ∀ i < ys.length, xs[i]? = ys[i]?) : xs = ys := by
-  apply List.ext_getElem?; intro i
-  by_cases hi : i < ys.length
-  · exact h i hi
-  · rw [List.getElem?_eq_none (by omega), List.getElem?_eq_none (by omega)]
-
-/-- Preserve `FullArenaVarsNodup` across bit-20 (`PH_VIV`) header updates. -/
-theorem fullArenaVarsNodup_of_bit20 {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
-    {s : FullState} {cref : Nat} {v : BitVec 32} (hlen : s.core.LengthsOk c)
-    (hw : FullWitnessInv c F0 F_cur s.core) (hl0 : s.core.cur_level = 0)
-    (hnodup : FullArenaVarsNodup s) (href : cref ∈ fullArenaClauseRefsCore s.core)
-    (h19 : (v &&& 0x00080000#32) = (fullArenaHdrCore s.core cref &&& 0x00080000#32))
-    (h23 : (v &&& 0x00800000#32) = (fullArenaHdrCore s.core cref &&& 0x00800000#32)) :
-    FullArenaVarsNodup { s with core := { s.core with arena := s.core.arena.set cref v } } := by
-  have ⟨_, hrefs, _, hall⟩ := fullWitnessInv_set_hdr_bit20 hlen hw hl0 href v h19 h23
-  intro r hr hng
-  change r ∈ fullArenaClauseRefsCore { s.core with arena := s.core.arena.set cref v } at hr
-  rw [hrefs] at hr
-  have ⟨hgb, _, hlts⟩ := hall r hr
-  change fullArenaClauseGarbCore { s.core with arena := s.core.arena.set cref v } r = false at hng
-  rw [hgb] at hng
-  change ((fullArenaClauseLitsCore { s.core with arena := s.core.arena.set cref v } r).map
-    (· / 2)).Nodup
-  rw [hlts]; exact hnodup r hr hng
-
-theorem fullArenaClauseLitsCore_congr {k1 k2 : FullCoreState} {r : Nat}
-    (hsz : fullArenaClauseSizeCore k2 r = fullArenaClauseSizeCore k1 r)
-    (hlits : ∀ j < fullArenaClauseSizeCore k1 r, k2.arena[r + 3 + j]? = k1.arena[r + 3 + j]?) :
-    fullArenaClauseLitsCore k2 r = fullArenaClauseLitsCore k1 r := by
-  unfold fullArenaClauseLitsCore; rw [hsz]
-  apply congrArg (List.map BitVec.toNat)
-  apply List.ext_getElem?; intro j
-  by_cases hj : j < fullArenaClauseSizeCore k1 r
-  · simp only [List.getElem?_take_of_lt hj, List.getElem?_drop]; exact hlits j hj
-  · rw [List.getElem?_eq_none (by simp; omega), List.getElem?_eq_none (by simp; omega)]
-
-/-- Zero-AST-duplication HOAS `Expr` slicers for factoring inner loop `wp` sub-theorems. -/
-def eLet64 {rs : List Ty} (v : Val i64) : Expr Val Cont rs → Expr Val Cont rs
-  | .let_ (ts := [.bits 64]) _ k => k (v, ()) | _ => .hlt
-
-def eLet32 {rs : List Ty} (v : Val i32) : Expr Val Cont rs → Expr Val Cont rs
-  | .let_ (ts := [.bits 32]) _ k => k (v, ()) | _ => .hlt
-
-def eLetBool {rs : List Ty} (v : Val .bool) : Expr Val Cont rs → Expr Val Cont rs
-  | .let_ (ts := [.bool]) _ k => k (v, ()) | _ => .hlt
-
-def eLoad64 {rs : List Ty} (v : Val i64) : Expr Val Cont rs → Expr Val Cont rs
-  | .load (.bits 64) _ k => k v | _ => .hlt
-
-def eLoad32 {rs : List Ty} (v : Val i32) : Expr Val Cont rs → Expr Val Cont rs
-  | .load (.bits 32) _ k => k v | _ => .hlt
-
-def eThen {rs : List Ty} : Expr Val Cont rs → Expr Val Cont rs
-  | .jnz _ t _ => t | _ => .hlt
-
-def eElse {rs : List Ty} : Expr Val Cont rs → Expr Val Cont rs
-  | .jnz _ _ e => e | _ => .hlt
-
-def eGrp0_3 {rs : List Ty} (J : Cont [i32, i32, i32]) (xs : Tup Val [i32, i32, i32]) :
-    Expr Val Cont rs → Expr Val Cont rs
-  | .group (sig := [[.bits 32, .bits 32, .bits 32]]) bs _ =>
-    match bs (J, ()) with | .cons f .nil => f xs
-  | _ => .hlt
-
-def eGrp0_4 {rs : List Ty} (J : Cont [i32, i32, i32, i32]) (xs : Tup Val [i32, i32, i32, i32]) :
-    Expr Val Cont rs → Expr Val Cont rs
-  | .group (sig := [[.bits 32, .bits 32, .bits 32, .bits 32]]) bs _ =>
-    match bs (J, ()) with | .cons f .nil => f xs
-  | _ => .hlt
-
-def eGrpBody_2 {rs : List Ty} (J : Cont [i32, i32]) : Expr Val Cont rs → Expr Val Cont rs
-  | .group (sig := [[.bits 32, .bits 32]]) _ body => body (J, ()) | _ => .hlt
-
-def eGrpBody_3 {rs : List Ty} (J : Cont [i32, i32, i32]) : Expr Val Cont rs → Expr Val Cont rs
-  | .group (sig := [[.bits 32, .bits 32, .bits 32]]) _ body => body (J, ()) | _ => .hlt
-
-def eGrpBody_mp {rs : List Ty} (J : Cont [i32, i32, i64, i32]) : Expr Val Cont rs → Expr Val Cont rs
-  | .group (sig := [[.bits 32, .bits 32, .bits 64, .bits 32]]) _ body => body (J, ()) | _ => .hlt
-
-def eGrp0_mp {rs : List Ty} (J : Cont [i32, i32, i64, i32]) (xs : Tup Val [i32, i32, i64, i32]) :
-    Expr Val Cont rs → Expr Val Cont rs
-  | .group (sig := [[.bits 32, .bits 32, .bits 64, .bits 32]]) bs _ =>
-    match bs (J, ()) with | .cons f .nil => f xs
-  | _ => .hlt
-
-def eGrp0_dj {rs : List Ty} (J : Cont [i32, .bool, i32]) (xs : Tup Val [i32, .bool, i32]) :
-    Expr Val Cont rs → Expr Val Cont rs
-  | .group (sig := [[.bits 32, .bool, .bits 32]]) bs _ =>
-    match bs (J, ()) with | .cons f .nil => f xs
-  | _ => .hlt
-
-def eSkip {rs : List Ty} : Nat → Expr Val Cont rs → Expr Val Cont rs
-  | 0, e => e
-  | n + 1, .let_ (ts := [.bits 64]) _ k => eSkip n (k (0#64, ()))
-  | n + 1, .let_ (ts := [.bits 32]) _ k => eSkip n (k (0#32, ()))
-  | n + 1, .let_ (ts := [.bool]) _ k => eSkip n (k (true, ()))
-  | n + 1, .load (.bits 64) _ k => eSkip n (k 0#64)
-  | n + 1, .load (.bits 32) _ k => eSkip n (k 0#32)
-  | _, e => e
-
-end FullBvaHeapScanHelpers
 
 open FullBvaHeapScanHelpers
 
@@ -552,50 +364,6 @@ private theorem scanArVivInv_init {c : FullCfg} {s : FullState} (hlen : s.Length
   ⟨hlen.core_ok.arena_len_arr, hlen.scratch_ok.work_stk2_len, Nat.zero_le _,
    fun _ _ h => by omega, fun _ _ => Or.inl rfl⟩
 
-theorem bv8_trunc_and_w (x y : BitVec 8) :
-    BitVec.setWidth 8 (BitVec.setWidth 32 x &&& BitVec.setWidth 32 y) = x &&& y := by
-  apply BitVec.eq_of_toNat_eq
-  simp only [BitVec.toNat_setWidth, BitVec.toNat_and]
-  have hx := x.isLt; have hy := y.isLt
-  rw [Nat.mod_eq_of_lt (Nat.lt_trans hx (by decide)),
-    Nat.mod_eq_of_lt (Nat.lt_trans hy (by decide)),
-    Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt Nat.and_le_left hx)]
-
-theorem bv8_trunc_or_w (x y : BitVec 8) :
-    BitVec.setWidth 8 (BitVec.setWidth 32 x ||| BitVec.setWidth 32 y) = x ||| y := by
-  apply BitVec.eq_of_toNat_eq
-  simp only [BitVec.toNat_setWidth, BitVec.toNat_or]
-  have hx := x.isLt; have hy := y.isLt
-  rw [Nat.mod_eq_of_lt (Nat.lt_trans hx (by decide)),
-    Nat.mod_eq_of_lt (Nat.lt_trans hy (by decide)),
-    Nat.mod_eq_of_lt (Nat.or_lt_two_pow (n := 8) hx hy)]
-
-theorem bv8_trunc_and_fb (x : BitVec 8) :
-    BitVec.setWidth 8 (BitVec.setWidth 32 x &&&
-      BitVec.ofNat (OfNat.ofNat 32) (OfNat.ofNat 251)) = x &&& 0xFB#8 :=
-  bv8_trunc_and_w x 0xFB#8
-
-theorem bv8_trunc_and_fd (x : BitVec 8) :
-    BitVec.setWidth 8 (BitVec.setWidth 32 x &&&
-      BitVec.ofNat (OfNat.ofNat 32) (OfNat.ofNat 253)) = x &&& 0xFD#8 :=
-  bv8_trunc_and_w x 0xFD#8
-
-theorem bv8_trunc_or_2 (x : BitVec 8) :
-    BitVec.setWidth 8 (BitVec.setWidth 32 x |||
-      BitVec.ofNat (OfNat.ofNat 32) (OfNat.ofNat 2)) = x ||| 2#8 :=
-  bv8_trunc_or_w x 2#8
-
-theorem bv8_trunc_or_4 (x : BitVec 8) :
-    BitVec.setWidth 8 (BitVec.setWidth 32 x |||
-      BitVec.ofNat (OfNat.ofNat 32) (OfNat.ofNat 4)) = x ||| 4#8 :=
-  bv8_trunc_or_w x 4#8
-
-theorem fullWitnessInv_with_litMark {c : FullCfg} {F0 : CNF Nat}
-    {F_cur : List (List Nat)} {k : FullCoreState} (h : FullWitnessInv c F0 F_cur k)
-    (lm : List (BitVec 8)) : FullWitnessInv c F0 F_cur { k with lit_mark := lm } :=
-  { h with arena := { h.arena with len_ok := h.arena.len_ok }
-           watches := h.watches.with_wstk rfl rfl rfl rfl rfl (fun _ hr => hr) }
-
 private theorem scanArVivInv_set_ql_hi {c : FullCfg} {s : FullState} {ar ql : List (BitVec 32)}
     {nql : Nat} (h : ScanArVivInv c s ar ql 0 nql) {idx : Nat} (hidx : c.max_vars ≤ idx)
     (v : BitVec 32) : ScanArVivInv c s ar (ql.set idx v) 0 nql := by
@@ -681,63 +449,6 @@ private theorem scanArVivInv_clear_step {c : FullCfg} {s : FullState} {ar ql : L
     · have htne : t ≠ ci := fun h => by subst h; rw [hidx_eq] at hqt; exact hid hqt.symm
       exact Or.inr ⟨t, by omega, ht2, hqt, h0v, hset⟩
 
-theorem arViv_congr {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
-    {s : FullState} (hcl : s.core.LengthsOk c) (hw : FullWitnessInv c F0 F_cur s.core)
-    {ar : List (BitVec 32)}
-    (hpt : ∀ i < c.arena_cap, ar[i]? = s.core.arena[i]? ∨
-      (i ∈ fullArenaClauseRefsCore s.core ∧
-        ar[i]? = some (s.core.arena[i]?.getD 0#32 ||| 0x00100000#32))) :
-    fullArenaClauseRefsCore { s.core with arena := ar } = fullArenaClauseRefsCore s.core ∧
-    (∀ r ∈ fullArenaClauseRefsCore s.core,
-      fullArenaClauseGarbCore { s.core with arena := ar } r = fullArenaClauseGarbCore s.core r ∧
-      fullArenaClauseSizeCore { s.core with arena := ar } r = fullArenaClauseSizeCore s.core r ∧
-      fullArenaClauseLitsCore { s.core with arena := ar } r =
-        fullArenaClauseLitsCore s.core r) := by
-  have hal_le := hcl.arena_len_le
-  have hgt_eq : ∀ r ∈ fullArenaClauseRefsCore s.core, ∀ i,
-      r < i → i < fullArenaNextOff s.core.arena s.core.arena_len r →
-      ar[i]? = s.core.arena[i]? := by
-    intro r hr i hgt hlt
-    have hwf := hw.arena.refs_wf r hr
-    rcases hpt i (by omega) with heq | ⟨hi_ref, _⟩
-    · exact heq
-    · exfalso; have := fullArenaScanRefs_disjoint hr hi_ref hgt; omega
-  have hnxt : ∀ r ∈ fullArenaClauseRefsCore s.core,
-      fullArenaNextOff ar s.core.arena_len r =
-      fullArenaNextOff s.core.arena s.core.arena_len r := by
-    intro r hr
-    have hwf := hw.arena.refs_wf r hr
-    have h2eq : ar[r + 2]? = s.core.arena[r + 2]? := hgt_eq r hr (r + 2) (by omega) (by omega)
-    rcases hpt r (by omega) with heq | ⟨_, hset_r⟩
-    · exact fullArenaNextOff_congr_block heq h2eq fun i hi1 hi2 => hgt_eq r hr i (by omega) hi2
-    · have h1 : ¬ (r + 3 > s.core.arena_len) := by omega
-      have h2 : ¬ (r + 3 + (s.core.arena[r + 2]?.getD 0#32).toNat > s.core.arena_len) := by
-        unfold fullArenaClauseSizeCore at hwf; omega
-      unfold fullArenaNextOff
-      simp only [h1, ↓reduceIte, h2eq, h2, hset_r, Option.getD_some, bv32_or_viv_shrk]
-      split
-      · rename_i hshrk
-        have hnxt_eq : fullArenaNextOff s.core.arena s.core.arena_len r =
-            fullArenaSkipShrk s.core.arena s.core.arena_len
-              (r + 3 + (s.core.arena[r + 2]?.getD 0#32).toNat)
-              (s.core.arena_len - (r + 3 + (s.core.arena[r + 2]?.getD 0#32).toNat)) := by
-          unfold fullArenaNextOff; simp only [h1, ↓reduceIte, h2]; rw [ite_eq_left hshrk]
-        exact fullArenaSkipShrk_congr fun i hi1 hi2 =>
-          hgt_eq r hr i (by omega) (by rw [hnxt_eq]; exact hi2)
-      · rfl
-  refine ⟨fullArenaClauseRefsCore_congr rfl hnxt, fun r hr => ?_⟩
-  have hwf := hw.arena.refs_wf r hr
-  have h2eq : ar[r + 2]? = s.core.arena[r + 2]? := hgt_eq r hr (r + 2) (by omega) (by omega)
-  have hsz : fullArenaClauseSizeCore { s.core with arena := ar } r =
-      fullArenaClauseSizeCore s.core r := by unfold fullArenaClauseSizeCore; rw [h2eq]
-  refine ⟨?_, hsz, ?_⟩
-  · unfold fullArenaClauseGarbCore fullArenaHdrCore
-    rcases hpt r (by omega) with heq | ⟨_, hset_r⟩
-    · rw [heq]
-    · rw [hset_r, Option.getD_some, bv32_or_viv_garb]
-  · exact fullArenaClauseLitsCore_congr hsz fun j hj =>
-      hgt_eq r hr (r + 3 + j) (by omega) (by omega)
-
 private theorem scanArVivInv_done {c : FullCfg} {s : FullState} {ar ql : List (BitVec 32)}
     {nql : Nat} (hs_ar : s.core.arena.length = c.arena_cap)
     (h : ScanArVivInv c s ar ql nql nql) : ar = s.core.arena := by
@@ -747,103 +458,6 @@ private theorem scanArVivInv_done {c : FullCfg} {s : FullState} {ar ql : List (B
   · exact heq
   · omega
 
-/-- Bit-2 `lit_mark` restoration invariant over literals `ar[qw + 3 + lo ..< qw + 3 + hi)`. -/
-def LmBit2Inv (c : FullCfg) (ar : List (BitVec 32)) (lm0 : List (BitVec 8))
-    (qw lo hi : Nat) (lm : List (BitVec 8)) : Prop :=
-  lm.length = 2 * c.max_vars ∧
-  ∀ l < 2 * c.max_vars, lm[l]? = lm0[l]? ∨
-    (∃ k, lo ≤ k ∧ k < hi ∧ (ar[qw + 3 + k]?.getD 0#32).toNat = l ∧
-      lm[l]? = some (lm0[l]?.getD 0#8 ||| 2#8))
-
-theorem lmBit2Inv_init {c : FullCfg} {ar : List (BitVec 32)} {lm0 : List (BitVec 8)}
-    {qw : Nat} (hlm0 : lm0.length = 2 * c.max_vars) : LmBit2Inv c ar lm0 qw 0 0 lm0 :=
-  ⟨hlm0, fun _ _ => Or.inl rfl⟩
-
-theorem lmBit2Inv_skip {c : FullCfg} {ar : List (BitVec 32)} {lm0 lm : List (BitVec 8)}
-    {qw j : Nat} (h : LmBit2Inv c ar lm0 qw 0 j lm) : LmBit2Inv c ar lm0 qw 0 (j + 1) lm :=
-  ⟨h.1, fun l hl => by
-    rcases h.2 l hl with heq | ⟨k, h0, hk, har, hset⟩
-    · exact Or.inl heq
-    · exact Or.inr ⟨k, h0, by omega, har, hset⟩⟩
-
-theorem lmBit2Inv_or2 {c : FullCfg} {ar : List (BitVec 32)} {lm0 lm : List (BitVec 8)}
-    {qw j : Nat} (_hlm0 : lm0.length = 2 * c.max_vars) (h : LmBit2Inv c ar lm0 qw 0 j lm)
-    (hj_ar : qw + 3 + j < ar.length)
-    (hl_lt : (ar[qw + 3 + j]'hj_ar).toNat < 2 * c.max_vars) :
-    let l := (ar[qw + 3 + j]'hj_ar).toNat
-    LmBit2Inv c ar lm0 qw 0 (j + 1) (lm.set l ((lm[l]'(by rw [h.1]; exact hl_lt)) ||| 2#8)) := by
-  obtain ⟨hlm, hall⟩ := h
-  intro l
-  refine ⟨by simp [hlm], fun i hi => ?_⟩
-  by_cases hil : i = l
-  · subst hil
-    refine Or.inr ⟨j, Nat.zero_le _, by omega,
-      by rw [List.getElem?_eq_getElem hj_ar, Option.getD_some], ?_⟩
-    rw [List.getElem?_set_self (by omega)]
-    rcases hall l hl_lt with heq | ⟨_, _, _, _, hset⟩
-    · have : lm[l]'(by omega) = lm0[l]?.getD 0#8 := by
-        rw [← heq, List.getElem?_eq_getElem (by omega), Option.getD_some]
-      rw [this]
-    · rw [List.getElem?_eq_getElem (by omega)] at hset
-      rw [Option.some.inj hset, bv8_or2_idem]
-  · rw [List.getElem?_set_ne (Ne.symm hil)]
-    rcases hall i hi with heq | ⟨k, h0, hk, har, hset⟩
-    · exact Or.inl heq
-    · exact Or.inr ⟨k, h0, by omega, har, hset⟩
-
-theorem lmBit2Inv_clear_step {c : FullCfg} {ar : List (BitVec 32)}
-    {lm0 lm : List (BitVec 8)}
-    {qw j csz : Nat} (hlm0 : lm0.length = 2 * c.max_vars)
-    (hlm0_b1 : ∀ l < 2 * c.max_vars, (lm0[l]?.getD 0#8 &&& 2#8) = 0#8)
-    (h : LmBit2Inv c ar lm0 qw j csz lm) (hj : j < csz) (hj_ar : qw + 3 + j < ar.length)
-    (hl_lt : (ar[qw + 3 + j]'hj_ar).toNat < 2 * c.max_vars) :
-    let cj := (ar[qw + 3 + j]'hj_ar).toNat
-    LmBit2Inv c ar lm0 qw (j + 1) csz
-      (lm.set cj ((lm[cj]'(by rw [h.1]; exact hl_lt)) &&& 0xFD#8)) := by
-  obtain ⟨hlm, hall⟩ := h
-  intro cj
-  have hcj_eq : (ar[qw + 3 + j]?.getD 0#32).toNat = cj := by
-    rw [List.getElem?_eq_getElem hj_ar, Option.getD_some]
-  have hclr : ((lm[cj]'(by omega)) &&& 0xFD#8) = lm0[cj]?.getD 0#8 := by
-    apply bv8_clear_bit1_eq_of_or2 (hlm0_b1 cj hl_lt)
-    rcases hall cj hl_lt with heq | ⟨_, _, _, _, hset⟩
-    · left; rw [← heq, List.getElem?_eq_getElem (by omega), Option.getD_some]
-    · right; rw [List.getElem?_eq_getElem (by omega)] at hset; exact Option.some.inj hset
-  refine ⟨by simp [hlm], fun i hi => ?_⟩
-  by_cases hic : i = cj
-  · subst hic; left
-    rw [List.getElem?_set_self (by omega), hclr,
-      List.getElem?_eq_getElem (by omega), Option.getD_some]
-  · rw [List.getElem?_set_ne (Ne.symm hic)]
-    rcases hall i hi with heq | ⟨k, hk1, hk2, har, hset⟩
-    · exact Or.inl heq
-    · have hkne : k ≠ j := fun h => by subst h; rw [hcj_eq] at har; exact hic har.symm
-      exact Or.inr ⟨k, by omega, hk2, har, hset⟩
-
-theorem lmBit2Inv_done {c : FullCfg} {ar : List (BitVec 32)} {lm0 lm : List (BitVec 8)}
-    {qw csz : Nat} (hlm0 : lm0.length = 2 * c.max_vars)
-    (h : LmBit2Inv c ar lm0 qw csz csz lm) : lm = lm0 := by
-  apply list_eq_of_getElem?_eq (by rw [h.1, hlm0])
-  intro i hi
-  rcases h.2 i (by omega) with heq | ⟨k, hk1, hk2, _⟩
-  · exact heq
-  · omega
-
-theorem lmBit2Inv_preserves_bit0 {c : FullCfg} {ar : List (BitVec 32)}
-    {lm0 lm : List (BitVec 8)} {qw lo hi : Nat} (h : LmBit2Inv c ar lm0 qw lo hi lm)
-    {l : Nat} (hl : l < 2 * c.max_vars) :
-    (lm[l]?.getD 0#8 &&& 1#8) = (lm0[l]?.getD 0#8 &&& 1#8) := by
-  rcases h.2 l hl with heq | ⟨_, _, _, _, hset⟩
-  · rw [heq]
-  · rw [hset, Option.getD_some, bv8_or2_and_bit0]
-
-theorem lmBit2Inv_preserves_bit2 {c : FullCfg} {ar : List (BitVec 32)}
-    {lm0 lm : List (BitVec 8)} {qw lo hi : Nat} (h : LmBit2Inv c ar lm0 qw lo hi lm)
-    {l : Nat} (hl : l < 2 * c.max_vars) :
-    (lm[l]?.getD 0#8 &&& 4#8) = (lm0[l]?.getD 0#8 &&& 4#8) := by
-  rcases h.2 l hl with heq | ⟨_, _, _, _, hset⟩
-  · rw [heq]
-  · rw [hset, Option.getD_some, bv8_or2_and_bit2]
 
 /-- Bit-4 `lit_mark` restoration invariant over `ql[mxv + lo ..< mxv + hi)`. -/
 private def LmBit4Inv (c : FullCfg) (lm1 : List (BitVec 8)) (ql : List (BitVec 32))

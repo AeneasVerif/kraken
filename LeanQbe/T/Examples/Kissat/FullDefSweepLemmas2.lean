@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas1
-public import LeanQbe.T.Examples.Kissat.FullBveVarLemmas1
+import LeanQbe.T.Logic.ControlComb
 import all Kraken.Mem
 import all Kraken.Separation
 
@@ -18,7 +18,7 @@ ticks-bounded congruence functions in `FullDefSweep`:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.FullDefSweep
 
@@ -91,9 +91,6 @@ private theorem nodup_of_map_div2 {xs : List Nat} (h : (xs.map (· / 2)).Nodup) 
     simp only [List.map_cons, List.nodup_cons, List.mem_map] at h ⊢
     exact ⟨fun hx => h.1 ⟨x, hx, rfl⟩, ih h.2⟩
 
-theorem nat_xor1_cancel (x : Nat) : (x ^^^ 1) ^^^ 1 = x := by
-  rw [Nat.xor_assoc, Nat.xor_self, Nat.xor_zero]
-
 private theorem countP_inc_unique {xs : List Nat} (hnd : xs.Nodup) {x : Nat} (hx : x ∈ xs)
     (p q : Nat → Bool) (hpx : p x = false) (hqx : q x = true)
     (hother : ∀ y ∈ xs, y ≠ x → q y = p y) :
@@ -131,18 +128,6 @@ private theorem forall_of_length_le_countP {α : Type} {xs : List α} {p : α �
       · exact hpa
       · exact ih (by omega) x hmem
 
-theorem bv64_mask_split_32 (x : BitVec 64) :
-    (x.setWidth 32).setWidth 64 ||| (((x >>> 32).setWidth 32).setWidth 64 <<< 32) = x := by
-  apply BitVec.eq_of_getLsbD_eq; intro i hi
-  simp only [BitVec.getLsbD_or, BitVec.getLsbD_shiftLeft, BitVec.getLsbD_setWidth,
-    BitVec.getLsbD_ushiftRight, hi, decide_true, Bool.true_and]
-  by_cases h32 : i < 32
-  · simp [h32]
-  · have hlt : i - 32 < 32 := by omega
-    have hlt64 : i - 32 < 64 := by omega
-    have hm : ¬ (i < 32) := h32
-    simp [hm, hlt, hlt64, show 32 + (i - 32) = i by omega]
-
 private theorem bv64_shl_shr_hi (m : BitVec 64) {j nn : Nat}
     (_hj : j < nn) (_hnn : nn ≤ 64) (hm : m >>> j = 0#64) :
     (m ||| (1#64 <<< j)) >>> (j + 1) = 0#64 := by
@@ -154,59 +139,12 @@ private theorem bv64_shl_shr_hi (m : BitVec 64) {j nn : Nat}
   have hneq : ¬ (j + (k + 1) < j) := by omega
   simp [show j + 1 + k = j + (k + 1) by omega, hm_bit, hneq]
 
-private theorem bv64_shl_testBit_self {k : Nat} (hk : k < 64) :
-    (((1#64 : BitVec 64) <<< k) >>> k) &&& 1#64 ≠ 0#64 := by
-  have hk0 : ((((1#64 : BitVec 64) <<< k) >>> k) &&& 1#64).getLsbD 0 = true := by
-    simp [hk]
-  intro h; rw [h] at hk0; simp at hk0
-
-theorem bv64_or_shl_testBit_self (m : BitVec 64) {k : Nat} (hk : k < 64) :
-    (((m ||| (1#64 <<< k)) >>> k) &&& 1#64) ≠ 0#64 := by
-  have hk0 : ((((m ||| (1#64 <<< k)) >>> k) &&& 1#64)).getLsbD 0 = true := by
-    simp [hk]
-  intro h; rw [h] at hk0; simp at hk0
-
-private theorem bv64_shl_testBit_ne {i k : Nat} (hne : k ≠ i) :
-    (((1#64 : BitVec 64) <<< i) >>> k) &&& 1#64 = 0#64 := by
-  apply BitVec.eq_of_getLsbD_eq; intro b _
-  cases b with
-  | zero =>
-    simp only [BitVec.getLsbD_and, BitVec.getLsbD_ushiftRight, BitVec.getLsbD_shiftLeft,
-      BitVec.getLsbD_one, BitVec.getLsbD_zero, Nat.add_zero]
-    by_cases hk : k < 64
-    · by_cases hlt : k < i
-      · simp [hk, hlt]
-      · simp [hk, show ¬ (k < i) by omega, show k - i ≠ 0 by omega]
-    · simp [hk]
-  | succ _ => simp [BitVec.getLsbD_and, BitVec.getLsbD_one]
-
-theorem bv64_or_bit_pres_other {m : BitVec 64} {j k : Nat} (hk : k < 64)
-    (hprev : (m >>> k) &&& 1#64 ≠ 0#64) :
-    ((m ||| (1#64 <<< j)) >>> k) &&& 1#64 ≠ 0#64 := by
-  intro h; apply hprev
-  apply BitVec.eq_of_getLsbD_eq; intro b _
-  have h2 := congrArg (·.getLsbD b) h
-  cases b with
-  | zero =>
-    simp [hk] at h2 ⊢
-    exact h2.1
-  | succ _ => simp [BitVec.getLsbD_and, BitVec.getLsbD_one]
-
 private theorem bv64_shr_zero_imp_le {m : BitVec 64} {a b : Nat} (hab : a ≤ b)
     (ha : m >>> a = 0#64) : m >>> b = 0#64 := by
   apply BitVec.eq_of_getLsbD_eq; intro k _
   have hm := congrArg (fun v => v.getLsbD (k + (b - a))) ha
   simp only [BitVec.getLsbD_ushiftRight, BitVec.getLsbD_zero] at hm ⊢
   rwa [show a + (k + (b - a)) = b + k by omega] at hm
-
-theorem maskedOccRestCls_mem {s : FullState} {except off cnt : Nat} {mask : BitVec 64}
-    {k : Nat} (hk : k < cnt) (hbit : (mask >>> k) &&& 1#64 ≠ 0#64) :
-    bveOccRestLits s except (s.scratch.scratch_buf[off + k]?.getD 0#32) ∈
-      maskedOccRestCls s except off cnt mask := by
-  unfold maskedOccRestCls
-  rw [List.mem_filterMap]
-  refine ⟨k, List.mem_range.mpr hk, ?_⟩
-  simp [hbit]
 
 private theorem unsat_of_filter_res {s : FullState} {v_lit : BitVec 32} {cr n_off nn : Nat}
     {nmask : BitVec 64}
@@ -240,151 +178,6 @@ private theorem unsat_of_filter_res {s : FullState} {v_lit : BitVec 32} {cr n_of
   rw [hdv] at hsat_neg
   rcases Nat.mod_two_eq_zero_or_one l with h | h <;> cases ha : α (l / 2) <;>
     simp [h, ha] at hsat_l hsat_neg <;> omega
-
-theorem bv32_shr1_toNat (x : BitVec 32) : (x >>> (1 : Nat)).toNat = x.toNat / 2 := by
-  simp [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow]
-
-theorem bv32_lit_shl_or (v l : BitVec 32) (hv : v.toNat < 2 ^ 30) :
-    ((v <<< (1 : Nat)) ||| (l &&& 1#32)).toNat = 2 * v.toNat + l.toNat % 2 := by
-  have h1 : (l &&& 1#32).toNat = l.toNat % 2 := by
-    rw [BitVec.toNat_and, show (1#32 : BitVec 32).toNat = 1 from rfl, Nat.and_one_is_mod]
-  exact (FullSweepFwdHelpers.bv32_shl1_or_pol v (l &&& 1#32) (by omega) (by omega)).trans
-    (by rw [h1])
-
-private theorem filterMap_single_bit {α : Type} {f : Nat → α} {i : Nat} (hi : i < 64) :
-    ∀ m ≤ 64,
-      (List.range m).filterMap (fun k =>
-        if (((1#64 : BitVec 64) <<< i) >>> k) &&& 1#64 ≠ 0#64 then some (f k) else none) =
-      if i < m then [f i] else []
-  | 0, _ => by simp
-  | m + 1, hm => by
-    have ih := filterMap_single_bit (f := f) hi m (by omega)
-    rw [List.range_succ, List.filterMap_append, ih]
-    by_cases hmi : m = i
-    · subst hmi
-      have hs := bv64_shl_testBit_self hi
-      simp [hs]
-    · have hz := bv64_shl_testBit_ne hmi
-      simp only [List.filterMap_cons, hz, ne_eq, not_true_eq_false, ↓reduceIte, List.filterMap_nil,
-        List.append_nil]
-      split <;> split <;> first | rfl | omega
-
-theorem maskedOccRestCls_single_bit {s : FullState} {except off n i : Nat}
-    (hi : i < n) (hn : n ≤ 64) :
-    maskedOccRestCls s except off n (1#64 <<< i) =
-      [bveOccRestLits s except (s.scratch.scratch_buf[off + i]?.getD 0#32)] := by
-  unfold maskedOccRestCls
-  have h := filterMap_single_bit
-    (f := fun k => bveOccRestLits s except (s.scratch.scratch_buf[off + k]?.getD 0#32))
-    (by omega : i < 64) n hn
-  simpa [hi] using h
-
-theorem fullDefGateUnsat_of_unsat {s : FullState} {v : Nat} {pmask nmask : BitVec 64}
-    {np nn : Nat}
-    (hpm : np ≤ 64 → pmask >>> np = 0#64)
-    (hnm : nn ≤ 64 → nmask >>> nn = 0#64)
-    (hu : (cnfOfClauses (level0ForcedUnits s ++
-      maskedOccRestCls s (2 * v) 0 np pmask ++
-      maskedOccRestCls s (2 * v + 1) 64 nn nmask)).Unsat) :
-    FullDefGateUnsat s v pmask nmask np nn := by
-  rintro ⟨hnp, hnn, _⟩
-  exact ⟨hpm hnp, hnm hnn, hu⟩
-
-theorem unsat_of_subclauses {cs1 cs2 : List (List Nat)}
-    (hsub : ∀ cl ∈ cs1, cl ∈ cs2) (hu : (cnfOfClauses cs1).Unsat) :
-    (cnfOfClauses cs2).Unsat := by
-  rw [CNF.unsat_iff_not_sat] at hu ⊢
-  intro α hSat; apply hu α
-  rw [cnf_sat_cnfOfClauses_iff]; intro cl hcl
-  exact (cnf_sat_cnfOfClauses_iff α _).mp hSat cl (hsub cl hcl)
-
-theorem range_filterMap_congr {α : Type} {n : Nat} {f g : Nat → Option α}
-    (h : ∀ i < n, f i = g i) : (List.range n).filterMap f = (List.range n).filterMap g := by
-  induction n with
-  | zero => rfl
-  | succ k ih =>
-    rw [List.range_succ, List.filterMap_append, List.filterMap_append,
-      ih (fun i hi => h i (Nat.lt_succ_of_lt hi))]
-    congr 1; simp only [List.filterMap_cons, List.filterMap_nil, h k (Nat.lt_succ_self k)]
-
-theorem maskedOccRestCls_congr {s1 s2 : FullState} {except off cnt : Nat}
-    {mask : BitVec 64} (har : s2.core.arena = s1.core.arena)
-    (hbd : off + cnt ≤ 128)
-    (hscr : ∀ i < 128, s2.scratch.scratch_buf[i]? = s1.scratch.scratch_buf[i]?) :
-    maskedOccRestCls s2 except off cnt mask = maskedOccRestCls s1 except off cnt mask := by
-  unfold maskedOccRestCls; apply range_filterMap_congr; intro i hi
-  split
-  · congr 1
-    simp only [bveOccRestLits, fullArenaClauseLits, fullArenaClauseLitsCore,
-      fullArenaClauseSizeCore, har, hscr (off + i) (by omega)]
-  · rfl
-
-theorem fullDefGateUnsat_congr {s1 s2 : FullState} {v : Nat} {pmask nmask : BitVec 64}
-    {np nn : Nat} (hcv : s2.core.cur_vars = s1.core.cur_vars)
-    (hvals : s2.core.vals = s1.core.vals) (har : s2.core.arena = s1.core.arena)
-    (hscr : ∀ i < 128, s2.scratch.scratch_buf[i]? = s1.scratch.scratch_buf[i]?)
-    (h : FullDefGateUnsat s2 v pmask nmask np nn) :
-    FullDefGateUnsat s1 v pmask nmask np nn := by
-  intro hp
-  have ⟨h1, h2, h3⟩ := h hp
-  have huf : level0ForcedUnits s2 = level0ForcedUnits s1 := by
-    unfold level0ForcedUnits; rw [hcv, hvals]
-  have hm1 := maskedOccRestCls_congr (s1 := s1) (s2 := s2) (except := 2 * v)
-    (off := 0) (cnt := np) (mask := pmask) har (by omega) hscr
-  have hm2 := maskedOccRestCls_congr (s1 := s1) (s2 := s2) (except := 2 * v + 1)
-    (off := 64) (cnt := nn) (mask := nmask) har (by omega) hscr
-  rw [huf, hm1, hm2] at h3
-  exact ⟨h1, h2, h3⟩
-
-theorem fullBveEntryOkW_congr {F_cur : List (List Nat)} {s1 s2 : FullState} {l : Nat}
-    {w : BitVec 32} (hcv : s2.core.cur_vars = s1.core.cur_vars)
-    (_hvals : s2.core.vals = s1.core.vals) (har : s2.core.arena = s1.core.arena)
-    (hal : s2.core.arena_len = s1.core.arena_len) :
-    FullBveEntryOkW F_cur s1 l w ↔ FullBveEntryOkW F_cur s2 l w := by
-  unfold FullDefSweep.FullBveEntryOkW Full.FullBveEntryOkW
-    fullArenaClauseRefs fullArenaClauseRefsCore
-    fullArenaClauseGarb fullArenaClauseGarbCore fullArenaHdrCore
-  rw [hcv, har, hal]
-
-theorem unsat_of_unit_pair {l : Nat} : (cnfOfClauses [[l], [l ^^^ 1]]).Unsat := by
-  rw [CNF.unsat_iff_not_sat]; intro α hSat
-  have h1 := (cnf_sat_cnfOfClauses_iff α _).mp hSat [l] List.mem_cons_self
-  have h2 := (cnf_sat_cnfOfClauses_iff α _).mp hSat [l ^^^ 1]
-    (List.mem_cons_of_mem _ List.mem_cons_self)
-  rw [clause_sat_cnfClause_iff] at h1 h2
-  obtain ⟨l1, hl1, hs1⟩ := h1
-  obtain ⟨l2, hl2, hs2⟩ := h2
-  rcases List.mem_singleton.mp hl1 with rfl
-  rcases List.mem_singleton.mp hl2 with rfl
-  have hxor_if : l1 ^^^ 1 = if l1 % 2 = 0 then l1 + 1 else l1 - 1 := by
-    apply Nat.eq_of_testBit_eq; intro k
-    cases k with
-    | zero =>
-      rw [Nat.testBit_xor, Nat.testBit_zero, Nat.testBit_zero]
-      rcases Nat.mod_two_eq_zero_or_one l1 with h | h
-      · simp [h, show (l1 + 1) % 2 = 1 by omega]
-      · simp [h, show (l1 - 1) % 2 = 0 by omega]
-    | succ k =>
-      rw [Nat.testBit_xor, Nat.testBit_succ, show (1 : Nat).testBit (k + 1) = false by
-        rw [Nat.testBit_succ]; simp]
-      rcases Nat.mod_two_eq_zero_or_one l1 with h | h
-      · simp [h, Nat.testBit_succ, show (l1 + 1) / 2 = l1 / 2 by omega]
-      · simp [h, Nat.testBit_succ, show (l1 - 1) / 2 = l1 / 2 by omega]
-  have hev := evalLitVal_litNeg α l1
-  rw [litNeg_eq, ← hxor_if] at hev
-  dsimp only [evalLitVal] at hev
-  rw [hs1, hs2] at hev
-  cases hbs1 : litSign l1 <;> cases hbs2 : litSign (l1 ^^^ 1) <;> simp_all
-
-theorem list_set_eq_self_of_getElem? {α : Type} {xs : List α} {i : Nat} {v : α}
-    (h : xs[i]? = some v) : xs.set i v = xs := by
-  have hi : i < xs.length := (List.getElem?_eq_some_iff.mp h).1
-  have hv : xs[i]'hi = v := (List.getElem?_eq_some_iff.mp h).2
-  apply List.ext_getElem (by simp)
-  intro j hj1 _
-  by_cases hji : j = i
-  · subst hji; rw [List.getElem_set_self (by simpa using hj1), ← hv]
-  · rw [List.getElem_set_ne (Ne.symm hji)]
 
 /-! ## 2. `full_bve_mark_and_wp` (`FullDefSweep` #1) -/
 

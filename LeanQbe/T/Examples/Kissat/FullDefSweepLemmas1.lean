@@ -9,7 +9,6 @@ public import LeanQbe.T.Examples.Kissat.FullBveBvaLemmas1
 public import LeanQbe.T.Examples.Kissat.FullSweepFwdLemmas1
 public import LeanQbe.T.Examples.Kissat.FullSweepVarLemmas1
 public import LeanQbe.T.Logic.C0HeadStep
-public import LeanQbe.T.Logic.ControlComb
 public meta import LeanQbe.T.Logic.C0Step
 import all Kraken.Mem
 import all Kraken.Separation
@@ -29,7 +28,7 @@ Defines:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.FullDefSweep
 
@@ -247,7 +246,7 @@ abbrev FullBveEntryOkW := Full.FullBveEntryOkW
 
 /-- Zero-initialized `tarjan_mark[0 ..< cur_vars)` used by `full_find_definition`,
 `full_sweep_cone`, `full_sweep_var`, and `full_sweep_dense`. -/
-def TmkZero (s : FullState) : Prop :=
+@[expose] def TmkZero (s : FullState) : Prop :=
   ∀ v < s.core.cur_vars, s.scratch.tarjan_mark[v]?.getD 0#32 = 0#32
 
 theorem TmkZero.congr {s s' : FullState} (h : TmkZero s)
@@ -260,19 +259,19 @@ end CanonicalAliases
 /-! ### BVE gate-restricted resolution equisatisfiability (`P_ng × N_ng` skipping) -/
 
 /-- Rest literals of an occurrence entry `w` after stripping `except`. -/
-def bveOccRestLits (s : FullState) (except : Nat) (w : BitVec 32) : List Nat :=
+@[expose] def bveOccRestLits (s : FullState) (except : Nat) (w : BitVec 32) : List Nat :=
   if (w &&& 0x80000000#32) ≠ 0#32 then
     [(w &&& 0x7FFFFFFF#32).toNat]
   else
     (fullArenaClauseLits s w.toNat).filter (· != except)
 
 /-- Unit clauses `[l ^^^ 1]` forced at level 0 in `s.core.vals`. -/
-def level0ForcedUnits (s : FullState) : List (List Nat) :=
+@[expose] def level0ForcedUnits (s : FullState) : List (List Nat) :=
   (List.range (2 * s.core.cur_vars)).filterMap fun l =>
     if s.core.vals[l]?.getD 0#8 = 0xFF#8 then some [l ^^^ 1] else none
 
 /-- Subset of occurrence clauses selected by `mask` in `scr[off ..< off + cnt)`. -/
-def maskedOccRestCls (s : FullState) (except off cnt : Nat) (mask : BitVec 64) :
+@[expose] def maskedOccRestCls (s : FullState) (except off cnt : Nat) (mask : BitVec 64) :
     List (List Nat) :=
   (List.range cnt).filterMap fun i =>
     if (mask >>> i) &&& 1#64 ≠ 0#64 then
@@ -282,7 +281,7 @@ def maskedOccRestCls (s : FullState) (except off cnt : Nat) (mask : BitVec 64) :
 /-- Semantic definition/gate soundness certificate: the selected positive gate bodies
 `P_g`, negative gate bodies `N_g`, and level-0 forced units in `s.core.vals` are jointly
 unsatisfiable. -/
-def FullDefGateUnsat (s : FullState) (v : Nat) (pmask nmask : BitVec 64) (np nn : Nat) :
+@[expose] def FullDefGateUnsat (s : FullState) (v : Nat) (pmask nmask : BitVec 64) (np nn : Nat) :
     Prop :=
   np ≤ 64 ∧ nn ≤ 64 ∧ (pmask ≠ 0#64 ∨ nmask ≠ 0#64) →
   (pmask >>> np) = 0#64 ∧ (nmask >>> nn) = 0#64 ∧
@@ -553,7 +552,7 @@ theorem fullDefGateUnsat_zero (s : FullState) (v np nn : Nat) :
 /-! ## 3. Parameterized `Kitten` Scratch Model & `EnvSpec`s -/
 
 /-- Original clauses selected into the UNSAT core (`(KO_CL_META[ci] & KM_CORE) ≠ 0`). -/
-def kittenCoreClauses (cls : List (Nat × List Nat)) (scr : List (BitVec 32)) :
+@[expose] def kittenCoreClauses (cls : List (Nat × List Nat)) (scr : List (BitVec 32)) :
     List (Nat × List Nat) :=
   (List.range cls.length).filterMap fun ci =>
     if (scr[256 + 6816 + ci]?.getD 0#32 &&& 0x10000#32) ≠ 0#32 then cls[ci]? else none
@@ -573,7 +572,7 @@ theorem kittenCoreClauses_length_le (cls : List (Nat × List Nat)) (scr : List (
   exact Nat.le_trans (List.length_filterMap_le ..) (by rw [List.length_range]; exact Nat.le_refl _)
 
 /-- Assumption unit clauses active in `k[KO_ASSUMP ..< KO_ASSUMP + k[KH_NASSUMP])`. -/
-def kittenAssumpClauses (scr : List (BitVec 32)) : List (List Nat) :=
+@[expose] def kittenAssumpClauses (scr : List (BitVec 32)) : List (List Nat) :=
   (List.range (scr[256 + 18]?.getD 0#32).toNat).map fun i =>
     [(scr[256 + 1184 + i]?.getD 0#32).toNat]
 
@@ -613,7 +612,7 @@ structure KittenInvLaws
     (∀ i < (scr'[256 + 18]?.getD 0#32).toNat, (scr'[256 + 1184 + i]?.getD 0#32).toNat < 2 * nv) →
     KInv nv cls false .solved scr'
 
-def fullKittenInitSpec
+@[expose] def fullKittenInitSpec
     (KInv : Nat → List (Nat × List Nat) → Bool → KittenPhase → List (BitVec 32) → Prop) :
     Spec [i64, i32, i32] [] := fun (h, nv, ta, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
@@ -627,7 +626,7 @@ def fullKittenInitSpec
       KInv nv.toNat [] (ta ≠ 0#32) .fresh scr' →
       (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullKittenAddClauseSpec
+@[expose] def fullKittenAddClauseSpec
     (KInv : Nat → List (Nat × List Nat) → Bool → KittenPhase → List (BitVec 32) → Prop) :
     Spec [i64, i32, i64, i32] [.bool] := fun (h, eid, lits_ptr, sz, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (nv : Nat) (cls : List (Nat × List Nat)) (ta : Bool)
@@ -652,7 +651,7 @@ def fullKittenAddClauseSpec
         array (t := i32) lits_ptr xs ⋆ R) m' →
       Q (ok, ()) m'
 
-def fullKittenSolveSpec
+@[expose] def fullKittenSolveSpec
     (KInv : Nat → List (Nat × List Nat) → Bool → KittenPhase → List (BitVec 32) → Prop) :
     Spec [i64, i64] [i64] := fun (h, _tick_lim, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (nv : Nat) (cls : List (Nat × List Nat))
@@ -679,7 +678,7 @@ def fullKittenSolveSpec
           (s.scratch.scratch_buf[256 + 6816 + i]?.getD 0#32 &&& 0x10000#32)) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
-def fullKittenCoreSpec
+@[expose] def fullKittenCoreSpec
     (KInv : Nat → List (Nat × List Nat) → Bool → KittenPhase → List (BitVec 32) → Prop) :
     Spec [i64] [i32] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (nv : Nat) (cls : List (Nat × List Nat))
@@ -695,7 +694,7 @@ def fullKittenCoreSpec
       (cnfOfClauses ((kittenCoreClauses cls scr').map Prod.snd)).Unsat →
       (FullMem c s' ⋆ R) m' → Q (red, ()) m'
 
-def fullKittenShrinkSpec
+@[expose] def fullKittenShrinkSpec
     (KInv : Nat → List (Nat × List Nat) → Bool → KittenPhase → List (BitVec 32) → Prop) :
     Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (nv : Nat) (cls : List (Nat × List Nat))
@@ -712,7 +711,7 @@ def fullKittenShrinkSpec
       (∀ i < cls'.length, (scr'[256 + 6816 + i]?.getD 0#32 &&& 0x10000#32) = 0#32) →
       (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullKittenFlipSpec
+@[expose] def fullKittenFlipSpec
     (KInv : Nat → List (Nat × List Nat) → Bool → KittenPhase → List (BitVec 32) → Prop) :
     Spec [i64, i32] [.bool] := fun (h, lit, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (nv : Nat) (cls : List (Nat × List Nat))
@@ -729,7 +728,7 @@ def fullKittenFlipSpec
 
 /-! ## 4. Target `Spec` Contracts (`9` fns) & Canonical Bridges -/
 
-def fullBveMarkAndDefSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
+@[expose] def fullBveMarkAndDefSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
   fun (h, v_lit, cr, n_off, nn, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
       h = c.hdr ∧ FullDenseInvW c F0 F_cur s ∧ 132 ≤ c.scratch_cap ∧
@@ -762,6 +761,7 @@ theorem fullBveMarkAndDefSpec_to_base {args m Q X} (h : fullBveMarkAndSpec args 
   exact ⟨c, F0, F_cur, s, R, rfl, hdw, h132, hcr, hng, hnd, hok, hm,
     fun ok lm' scr' m' hdw' hpre _ _ hm' => hQ ok lm' scr' m' hdw' hpre hm'⟩
 
+@[expose]
 def fullFindDefinitionSpec : Spec [i64, i32, i32, i32] [] := fun (h, v, np, nn, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullDenseInvW c F0 F_cur s ∧ 132 ≤ c.scratch_cap ∧ TmkZero s ∧
@@ -787,7 +787,7 @@ def fullFindDefinitionSpec : Spec [i64, i32, i32, i32] [] := fun (h, v, np, nn, 
         FullDefGateUnsat s v.toNat pmask nmask np.toNat nn.toNat) →
       (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullBveGatesDefSpec : Spec [i64, i32, i32, i32] [] := fun (h, v, np, nn, ()) m Q _ =>
+@[expose] def fullBveGatesDefSpec : Spec [i64, i32, i32, i32] [] := fun (h, v, np, nn, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullDenseInvW c F0 F_cur s ∧ 132 ≤ c.scratch_cap ∧ TmkZero s ∧
     v.toNat < s.core.cur_vars ∧ np.toNat ≤ 64 ∧ nn.toNat ≤ 64 ∧
@@ -811,6 +811,7 @@ def fullBveGatesDefSpec : Spec [i64, i32, i32, i32] [] := fun (h, v, np, nn, ())
       FullDefGateUnsat s v.toNat pmask nmask np.toNat nn.toNat →
       (FullMem c s' ⋆ R) m' → Q () m'
 
+@[expose]
 def fullCongExtractTickSpec : Spec [i64, i64, i64] [i64] := fun (h, g_cap, _tick_lim, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
@@ -824,7 +825,7 @@ def fullCongExtractTickSpec : Spec [i64, i64, i64] [i64] := fun (h, g_cap, _tick
       FullCongSpecs.GateSeqOk F_cur s.core.cur_vars scr' ret.toNat 0 →
       (FullMem c s' ⋆ R) m' → Q (ret, ()) m'
 
-def fullCongruenceDenseSpec : Spec [i64, i64] [i64] := fun (h, _tick_lim, ()) m Q _ =>
+@[expose] def fullCongruenceDenseSpec : Spec [i64, i64] [i64] := fun (h, _tick_lim, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullDenseInv c F0 s ∧ (FullMem c s ⋆ R) m ∧
     ∀ (r : BitVec 64) (s' : FullState) (m' : Mem 64),
@@ -834,7 +835,7 @@ def fullCongruenceDenseSpec : Spec [i64, i64] [i64] := fun (h, _tick_lim, ()) m 
       (r = 20#64 → F0.Unsat) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
-def fullSweepKittenConeOk (F_cur : List (List Nat)) (s : FullState)
+@[expose] def fullSweepKittenConeOk (F_cur : List (List Nat)) (s : FullState)
     (cls : List (Nat × List Nat)) (nv nc : Nat) : Prop :=
   1 ≤ nv ∧ nv ≤ 128 ∧ nv ≤ s.core.cur_vars ∧ nc = cls.length ∧ cls.length ≤ 512 ∧
   (∀ i < nv, (s.scratch.work_stk1[i]?.getD 0#32).toNat < s.core.cur_vars) ∧
@@ -842,7 +843,7 @@ def fullSweepKittenConeOk (F_cur : List (List Nat)) (s : FullState)
     (∀ l ∈ c.2, l < 2 * nv) ∧
     (cnfOfClauses F_cur).EntailsClause (cnfClause (c.2.map (fullSweepGlobalLit s)))
 
-def fullSweepConeKittenSpec
+@[expose] def fullSweepConeKittenSpec
     (KInv : Nat → List (Nat × List Nat) → Bool → KittenPhase → List (BitVec 32) → Prop) :
     Spec [i64, i32] [i64] := fun (h, root_v, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
@@ -867,6 +868,7 @@ def fullSweepConeKittenSpec
           ∃ i < nv, (ws1'[i]?.getD 0#32).toNat = v) →
         (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
+@[expose]
 def fullSweepRefineKittenSpec : Spec [i64, i32, i32] [] := fun (h, nv, _bit_idx, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ 10240 ≤ c.scratch_cap ∧
@@ -876,6 +878,7 @@ def fullSweepRefineKittenSpec : Spec [i64, i32, i32] [] := fun (h, nv, _bit_idx,
     ∀ sig' m', sig'.length = c.max_vars →
       (FullMem c { s with scratch := { s.scratch with sim_sig := sig' } } ⋆ R) m' → Q () m'
 
+@[expose]
 def fullSweepVarKittenSpec : Spec [i64, i32, i64] [i64] := fun (h, root_v, _tick_lim, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullDenseInvW c F0 F_cur s ∧ 10240 ≤ c.scratch_cap ∧
@@ -889,6 +892,7 @@ def fullSweepVarKittenSpec : Spec [i64, i32, i64] [i64] := fun (h, root_v, _tick
       (r = 20#64 → F0.Unsat) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
+@[expose]
 def fullSweepDenseSpec : Spec [i64, i64, i64] [i64] := fun (h, _budget, _tick_lim, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullDenseInv c F0 s ∧ (FullMem c s ⋆ R) m ∧
@@ -912,5 +916,270 @@ theorem gateSeqOk_to_full {F_cur : List (List Nat)} {cur_vars : Nat} {scr : List
   induction hs with
   | done => exact .done
   | step hg _ ih => exact .step (gateAt_to_full hg) ih
+
+
+/-! ## 5. Shared BitVec, Clause & Cone Helpers (Extracted from Parts 2 & 4) -/
+
+section FullDefSweepSharedHelpers
+
+open FullCongSpecs FullCongHelpers
+open FullSweepFwdHelpers FullSweepVarHelpers
+
+theorem nat_xor1_cancel (x : Nat) : (x ^^^ 1) ^^^ 1 = x := by
+  rw [Nat.xor_assoc, Nat.xor_self, Nat.xor_zero]
+
+
+theorem bv64_mask_split_32 (x : BitVec 64) :
+    (x.setWidth 32).setWidth 64 ||| (((x >>> 32).setWidth 32).setWidth 64 <<< 32) = x := by
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  simp only [BitVec.getLsbD_or, BitVec.getLsbD_shiftLeft, BitVec.getLsbD_setWidth,
+    BitVec.getLsbD_ushiftRight, hi, decide_true, Bool.true_and]
+  by_cases h32 : i < 32
+  · simp [h32]
+  · have hlt : i - 32 < 32 := by omega
+    have hlt64 : i - 32 < 64 := by omega
+    have hm : ¬ (i < 32) := h32
+    simp [hm, hlt, hlt64, show 32 + (i - 32) = i by omega]
+
+
+private theorem bv64_shl_testBit_self {k : Nat} (hk : k < 64) :
+    (((1#64 : BitVec 64) <<< k) >>> k) &&& 1#64 ≠ 0#64 := by
+  have hk0 : ((((1#64 : BitVec 64) <<< k) >>> k) &&& 1#64).getLsbD 0 = true := by
+    simp [hk]
+  intro h; rw [h] at hk0; simp at hk0
+
+theorem bv64_or_shl_testBit_self (m : BitVec 64) {k : Nat} (hk : k < 64) :
+    (((m ||| (1#64 <<< k)) >>> k) &&& 1#64) ≠ 0#64 := by
+  have hk0 : ((((m ||| (1#64 <<< k)) >>> k) &&& 1#64)).getLsbD 0 = true := by
+    simp [hk]
+  intro h; rw [h] at hk0; simp at hk0
+
+private theorem bv64_shl_testBit_ne {i k : Nat} (hne : k ≠ i) :
+    (((1#64 : BitVec 64) <<< i) >>> k) &&& 1#64 = 0#64 := by
+  apply BitVec.eq_of_getLsbD_eq; intro b _
+  cases b with
+  | zero =>
+    simp only [BitVec.getLsbD_and, BitVec.getLsbD_ushiftRight, BitVec.getLsbD_shiftLeft,
+      BitVec.getLsbD_one, BitVec.getLsbD_zero, Nat.add_zero]
+    by_cases hk : k < 64
+    · by_cases hlt : k < i
+      · simp [hk, hlt]
+      · simp [hk, show ¬ (k < i) by omega, show k - i ≠ 0 by omega]
+    · simp [hk]
+  | succ _ => simp [BitVec.getLsbD_and, BitVec.getLsbD_one]
+
+theorem bv64_or_bit_pres_other {m : BitVec 64} {j k : Nat} (hk : k < 64)
+    (hprev : (m >>> k) &&& 1#64 ≠ 0#64) :
+    ((m ||| (1#64 <<< j)) >>> k) &&& 1#64 ≠ 0#64 := by
+  intro h; apply hprev
+  apply BitVec.eq_of_getLsbD_eq; intro b _
+  have h2 := congrArg (·.getLsbD b) h
+  cases b with
+  | zero =>
+    simp [hk] at h2 ⊢
+    exact h2.1
+  | succ _ => simp [BitVec.getLsbD_and, BitVec.getLsbD_one]
+
+
+theorem maskedOccRestCls_mem {s : FullState} {except off cnt : Nat} {mask : BitVec 64}
+    {k : Nat} (hk : k < cnt) (hbit : (mask >>> k) &&& 1#64 ≠ 0#64) :
+    bveOccRestLits s except (s.scratch.scratch_buf[off + k]?.getD 0#32) ∈
+      maskedOccRestCls s except off cnt mask := by
+  unfold maskedOccRestCls
+  rw [List.mem_filterMap]
+  refine ⟨k, List.mem_range.mpr hk, ?_⟩
+  simp [hbit]
+
+
+theorem bv32_shr1_toNat (x : BitVec 32) : (x >>> (1 : Nat)).toNat = x.toNat / 2 := by
+  simp [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow]
+
+theorem bv32_lit_shl_or (v l : BitVec 32) (hv : v.toNat < 2 ^ 30) :
+    ((v <<< (1 : Nat)) ||| (l &&& 1#32)).toNat = 2 * v.toNat + l.toNat % 2 := by
+  have h1 : (l &&& 1#32).toNat = l.toNat % 2 := by
+    rw [BitVec.toNat_and, show (1#32 : BitVec 32).toNat = 1 from rfl, Nat.and_one_is_mod]
+  exact (FullSweepFwdHelpers.bv32_shl1_or_pol v (l &&& 1#32) (by omega) (by omega)).trans
+    (by rw [h1])
+
+private theorem filterMap_single_bit {α : Type} {f : Nat → α} {i : Nat} (hi : i < 64) :
+    ∀ m ≤ 64,
+      (List.range m).filterMap (fun k =>
+        if (((1#64 : BitVec 64) <<< i) >>> k) &&& 1#64 ≠ 0#64 then some (f k) else none) =
+      if i < m then [f i] else []
+  | 0, _ => by simp
+  | m + 1, hm => by
+    have ih := filterMap_single_bit (f := f) hi m (by omega)
+    rw [List.range_succ, List.filterMap_append, ih]
+    by_cases hmi : m = i
+    · subst hmi
+      have hs := bv64_shl_testBit_self hi
+      simp [hs]
+    · have hz := bv64_shl_testBit_ne hmi
+      simp only [List.filterMap_cons, hz, ne_eq, not_true_eq_false, ↓reduceIte, List.filterMap_nil,
+        List.append_nil]
+      split <;> split <;> first | rfl | omega
+
+theorem maskedOccRestCls_single_bit {s : FullState} {except off n i : Nat}
+    (hi : i < n) (hn : n ≤ 64) :
+    maskedOccRestCls s except off n (1#64 <<< i) =
+      [bveOccRestLits s except (s.scratch.scratch_buf[off + i]?.getD 0#32)] := by
+  unfold maskedOccRestCls
+  have h := filterMap_single_bit
+    (f := fun k => bveOccRestLits s except (s.scratch.scratch_buf[off + k]?.getD 0#32))
+    (by omega : i < 64) n hn
+  simpa [hi] using h
+
+theorem fullDefGateUnsat_of_unsat {s : FullState} {v : Nat} {pmask nmask : BitVec 64}
+    {np nn : Nat}
+    (hpm : np ≤ 64 → pmask >>> np = 0#64)
+    (hnm : nn ≤ 64 → nmask >>> nn = 0#64)
+    (hu : (cnfOfClauses (level0ForcedUnits s ++
+      maskedOccRestCls s (2 * v) 0 np pmask ++
+      maskedOccRestCls s (2 * v + 1) 64 nn nmask)).Unsat) :
+    FullDefGateUnsat s v pmask nmask np nn := by
+  rintro ⟨hnp, hnn, _⟩
+  exact ⟨hpm hnp, hnm hnn, hu⟩
+
+theorem unsat_of_subclauses {cs1 cs2 : List (List Nat)}
+    (hsub : ∀ cl ∈ cs1, cl ∈ cs2) (hu : (cnfOfClauses cs1).Unsat) :
+    (cnfOfClauses cs2).Unsat := by
+  rw [CNF.unsat_iff_not_sat] at hu ⊢
+  intro α hSat; apply hu α
+  rw [cnf_sat_cnfOfClauses_iff]; intro cl hcl
+  exact (cnf_sat_cnfOfClauses_iff α _).mp hSat cl (hsub cl hcl)
+
+theorem range_filterMap_congr {α : Type} {n : Nat} {f g : Nat → Option α}
+    (h : ∀ i < n, f i = g i) : (List.range n).filterMap f = (List.range n).filterMap g := by
+  induction n with
+  | zero => rfl
+  | succ k ih =>
+    rw [List.range_succ, List.filterMap_append, List.filterMap_append,
+      ih (fun i hi => h i (Nat.lt_succ_of_lt hi))]
+    congr 1; simp only [List.filterMap_cons, List.filterMap_nil, h k (Nat.lt_succ_self k)]
+
+theorem maskedOccRestCls_congr {s1 s2 : FullState} {except off cnt : Nat}
+    {mask : BitVec 64} (har : s2.core.arena = s1.core.arena)
+    (hbd : off + cnt ≤ 128)
+    (hscr : ∀ i < 128, s2.scratch.scratch_buf[i]? = s1.scratch.scratch_buf[i]?) :
+    maskedOccRestCls s2 except off cnt mask = maskedOccRestCls s1 except off cnt mask := by
+  unfold maskedOccRestCls; apply range_filterMap_congr; intro i hi
+  split
+  · congr 1
+    simp only [bveOccRestLits, fullArenaClauseLits, fullArenaClauseLitsCore,
+      fullArenaClauseSizeCore, har, hscr (off + i) (by omega)]
+  · rfl
+
+theorem fullDefGateUnsat_congr {s1 s2 : FullState} {v : Nat} {pmask nmask : BitVec 64}
+    {np nn : Nat} (hcv : s2.core.cur_vars = s1.core.cur_vars)
+    (hvals : s2.core.vals = s1.core.vals) (har : s2.core.arena = s1.core.arena)
+    (hscr : ∀ i < 128, s2.scratch.scratch_buf[i]? = s1.scratch.scratch_buf[i]?)
+    (h : FullDefGateUnsat s2 v pmask nmask np nn) :
+    FullDefGateUnsat s1 v pmask nmask np nn := by
+  intro hp
+  have ⟨h1, h2, h3⟩ := h hp
+  have huf : level0ForcedUnits s2 = level0ForcedUnits s1 := by
+    unfold level0ForcedUnits; rw [hcv, hvals]
+  have hm1 := maskedOccRestCls_congr (s1 := s1) (s2 := s2) (except := 2 * v)
+    (off := 0) (cnt := np) (mask := pmask) har (by omega) hscr
+  have hm2 := maskedOccRestCls_congr (s1 := s1) (s2 := s2) (except := 2 * v + 1)
+    (off := 64) (cnt := nn) (mask := nmask) har (by omega) hscr
+  rw [huf, hm1, hm2] at h3
+  exact ⟨h1, h2, h3⟩
+
+theorem fullBveEntryOkW_congr {F_cur : List (List Nat)} {s1 s2 : FullState} {l : Nat}
+    {w : BitVec 32} (hcv : s2.core.cur_vars = s1.core.cur_vars)
+    (_hvals : s2.core.vals = s1.core.vals) (har : s2.core.arena = s1.core.arena)
+    (hal : s2.core.arena_len = s1.core.arena_len) :
+    FullBveEntryOkW F_cur s1 l w ↔ FullBveEntryOkW F_cur s2 l w := by
+  unfold FullDefSweep.FullBveEntryOkW Full.FullBveEntryOkW
+    fullArenaClauseRefs fullArenaClauseRefsCore
+    fullArenaClauseGarb fullArenaClauseGarbCore fullArenaHdrCore
+  rw [hcv, har, hal]
+
+theorem unsat_of_unit_pair {l : Nat} : (cnfOfClauses [[l], [l ^^^ 1]]).Unsat := by
+  rw [CNF.unsat_iff_not_sat]; intro α hSat
+  have h1 := (cnf_sat_cnfOfClauses_iff α _).mp hSat [l] List.mem_cons_self
+  have h2 := (cnf_sat_cnfOfClauses_iff α _).mp hSat [l ^^^ 1]
+    (List.mem_cons_of_mem _ List.mem_cons_self)
+  rw [clause_sat_cnfClause_iff] at h1 h2
+  obtain ⟨l1, hl1, hs1⟩ := h1
+  obtain ⟨l2, hl2, hs2⟩ := h2
+  rcases List.mem_singleton.mp hl1 with rfl
+  rcases List.mem_singleton.mp hl2 with rfl
+  have hxor_if : l1 ^^^ 1 = if l1 % 2 = 0 then l1 + 1 else l1 - 1 := by
+    apply Nat.eq_of_testBit_eq; intro k
+    cases k with
+    | zero =>
+      rw [Nat.testBit_xor, Nat.testBit_zero, Nat.testBit_zero]
+      rcases Nat.mod_two_eq_zero_or_one l1 with h | h
+      · simp [h, show (l1 + 1) % 2 = 1 by omega]
+      · simp [h, show (l1 - 1) % 2 = 0 by omega]
+    | succ k =>
+      rw [Nat.testBit_xor, Nat.testBit_succ, show (1 : Nat).testBit (k + 1) = false by
+        rw [Nat.testBit_succ]; simp]
+      rcases Nat.mod_two_eq_zero_or_one l1 with h | h
+      · simp [h, Nat.testBit_succ, show (l1 + 1) / 2 = l1 / 2 by omega]
+      · simp [h, Nat.testBit_succ, show (l1 - 1) / 2 = l1 / 2 by omega]
+  have hev := evalLitVal_litNeg α l1
+  rw [litNeg_eq, ← hxor_if] at hev
+  dsimp only [evalLitVal] at hev
+  rw [hs1, hs2] at hev
+  cases hbs1 : litSign l1 <;> cases hbs2 : litSign (l1 ^^^ 1) <;> simp_all
+
+theorem list_set_eq_self_of_getElem? {α : Type} {xs : List α} {i : Nat} {v : α}
+    (h : xs[i]? = some v) : xs.set i v = xs := by
+  have hi : i < xs.length := (List.getElem?_eq_some_iff.mp h).1
+  have hv : xs[i]'hi = v := (List.getElem?_eq_some_iff.mp h).2
+  apply List.ext_getElem (by simp)
+  intro j hj1 _
+  by_cases hji : j = i
+  · subst hji; rw [List.getElem_set_self (by simpa using hj1), ← hv]
+  · rw [List.getElem_set_ne (Ne.symm hji)]
+
+
+
+theorem dsSweep_ptr_k_256_eq (p i : BitVec 64) :
+    (p + BitVec.ofNat 64 256 * 4) + i * 4 = p + BitVec.ofNat 64 (4 * (256 + i.toNat)) := by
+  have hmul : i * 4 = BitVec.ofNat 64 (i.toNat * 4) := by
+    apply BitVec.eq_of_toNat_eq; simp [BitVec.toNat_mul]
+  rw [BitVec.add_assoc]; congr 1
+  rw [hmul, show (BitVec.ofNat 64 256 * 4 : BitVec 64) = BitVec.ofNat 64 1024 from rfl,
+    ← BitVec.ofNat_add, show 1024 + i.toNat * 4 = 4 * (256 + i.toNat) by omega]
+
+namespace FullDefSweepTactics
+
+open FullArenaTactics FullSweepVarTactics
+
+@[scoped c0_load] theorem load_k_256_dyn {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
+    {m : Mem 64} {i : BitVec 64} (hi : 256 + i.toNat < s.scratch.scratch_buf.length)
+    (hm : (FullMem c s ⋆ R) m) :
+    loadVal m i32 (c.pScratchBuf + BitVec.ofNat 64 256 * 4 + i * 4) =
+      some s.scratch.scratch_buf[256 + i.toNat] := by
+  rw [dsSweep_ptr_k_256_eq]; exact load_full_scratch_buf hi hm
+
+@[scoped c0_store] theorem store_k_256_dyn {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
+    {m : Mem 64} {i : BitVec 64} (v : BitVec 32)
+    (hi : 256 + i.toNat < s.scratch.scratch_buf.length) (hm : (FullMem c s ⋆ R) m) :
+    storeOk m i32 (c.pScratchBuf + BitVec.ofNat 64 256 * 4 + i * 4) ∧
+      (FullMem c { s with scratch := { s.scratch with
+        scratch_buf := s.scratch.scratch_buf.set (256 + i.toNat) v } } ⋆ R)
+        (storeMem m i32 (c.pScratchBuf + BitVec.ofNat 64 256 * 4 + i * 4) v) := by
+  rw [dsSweep_ptr_k_256_eq]; exact store_full_scratch_buf v hi hm
+
+@[scoped bv_c0] theorem bv32_shl1_mod32 (x : BitVec 32) :
+    x <<< ((1#32 : BitVec 32).toNat % 32) = x <<< (1 : Nat) := rfl
+
+end FullDefSweepTactics
+
+theorem fullSweepGlobalLit_eq_coneLift' (s : FullState) :
+    fullSweepGlobalLit s = FullSweepFwdSpecs.coneLift s.scratch.work_stk1 := by
+  funext ll; unfold fullSweepGlobalLit FullSweepFwdSpecs.coneLift; omega
+
+theorem dsSweep_bv32_add1_lt {x : BitVec 32} (h : x.toNat < 2 ^ 31) :
+    (x + 1#32).toNat = x.toNat + 1 := by bv_omega
+
+
+
+end FullDefSweepSharedHelpers
 
 end LeanQbe.T.Examples.Kissat.FullDefSweep

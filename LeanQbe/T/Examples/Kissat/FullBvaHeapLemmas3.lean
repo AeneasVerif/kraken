@@ -1,6 +1,7 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.FullBvaHeapLemmas2
+public import LeanQbe.T.Examples.Kissat.FullBvaHeapSpec
+import LeanQbe.T.Logic.ControlComb
 import all Kraken.Mem
 import all Kraken.Separation
 
@@ -15,7 +16,7 @@ and large clause filtering plus `PH_VIV` cleanup.
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.FullBvaHeap
 

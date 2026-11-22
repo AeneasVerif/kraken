@@ -1,5 +1,6 @@
 module
 
+public import LeanQbe.T.Examples.Kissat.FullBvaFwdSpec
 public import LeanQbe.T.Examples.Kissat.FullBvaFwdLemmas2
 public import LeanQbe.T.Examples.Kissat.FullBvaFwdLemmas3
 public import LeanQbe.T.Examples.Kissat.FullBvaFwdLemmas4
@@ -14,7 +15,7 @@ Variable Addition (`Full.lean`), and proves `full_fwd_check_cl_wp`.
 -/
 
 set_option autoImplicit false
-@[expose] public section
+public section
 namespace LeanQbe.T.Examples.Kissat.Full
 
 open Std Std.Sat Std.ExtHashMap LeanQbe.T LeanQbe.T.ProofUtil LeanQbe.T.C0Step

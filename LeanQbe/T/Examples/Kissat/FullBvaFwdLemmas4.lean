@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.FullBvaFwdLemmas2
+public import LeanQbe.T.Examples.Kissat.FullBvaFwdSpec
 import all Kraken.Mem
 import all Kraken.Separation
 
@@ -13,7 +13,7 @@ lemmas, and the factored compaction `wp` lemmas (`fwd_compaction_exit`, `fwd_com
 -/
 
 set_option autoImplicit false
-@[expose] public section
+public section
 namespace LeanQbe.T.Examples.Kissat.Full
 
 open Std Std.Sat Std.ExtHashMap LeanQbe.T LeanQbe.T.ProofUtil LeanQbe.T.C0Step
@@ -133,42 +133,42 @@ theorem fwd_shrink_done {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
       (hrefs_u.trans hrefs_c))
     (by simp) hm
 
-def fwdZext64 (a : Arg Val i32) (k : Val i64 → Expr Val Cont [.bool]) :
+@[expose] def fwdZext64 (a : Arg Val i32) (k : Val i64 → Expr Val Cont [.bool]) :
     Expr Val Cont [.bool] :=
   Expr.let_ { sig := [i32], code := OpCode.zext 32 64, args := (a, ()) } fun p => k p.fst
 
-def fwdOp64 (c : OpCode [i64, i64] [i64]) (a b : Arg Val i64)
+@[expose] def fwdOp64 (c : OpCode [i64, i64] [i64]) (a b : Arg Val i64)
     (k : Val i64 → Expr Val Cont [.bool]) : Expr Val Cont [.bool] :=
   Expr.let_ { sig := [i64, i64], code := c, args := (a, b, ()) } fun p => k p.fst
 
-def fwdCmp32 (op : CmpOp) (a b : Arg Val i32) (k : Val .bool → Expr Val Cont [.bool]) :
+@[expose] def fwdCmp32 (op : CmpOp) (a b : Arg Val i32) (k : Val .bool → Expr Val Cont [.bool]) :
     Expr Val Cont [.bool] :=
   Expr.let_ { sig := [i32, i32], code := OpCode.cmp op i32, args := (a, b, ()) } fun p => k p.fst
 
-def fwdCmp64 (op : CmpOp) (a b : Arg Val i64) (k : Val .bool → Expr Val Cont [.bool]) :
+@[expose] def fwdCmp64 (op : CmpOp) (a b : Arg Val i64) (k : Val .bool → Expr Val Cont [.bool]) :
     Expr Val Cont [.bool] :=
   Expr.let_ { sig := [i64, i64], code := OpCode.cmp op i64, args := (a, b, ()) } fun p => k p.fst
 
-def fwdLd32 (base idx : Val i64) (k : Val i32 → Expr Val Cont [.bool]) :
+@[expose] def fwdLd32 (base idx : Val i64) (k : Val i32 → Expr Val Cont [.bool]) :
     Expr Val Cont [.bool] :=
   fwdOp64 (.mul i64) (Arg.var idx) (Arg.imm 4) fun p1 =>
   fwdOp64 (.add i64) (Arg.var base) (Arg.var p1) fun p2 => Expr.load i32 (Arg.var p2) k
 
-def fwdSt32 (base idx : Val i64) (v : Arg Val i32) (k : Expr Val Cont [.bool]) :
+@[expose] def fwdSt32 (base idx : Val i64) (v : Arg Val i32) (k : Expr Val Cont [.bool]) :
     Expr Val Cont [.bool] :=
   fwdOp64 (.mul i64) (Arg.var idx) (Arg.imm 4) fun p1 =>
   fwdOp64 (.add i64) (Arg.var base) (Arg.var p1) fun p2 => Expr.store v (Arg.var p2) k
 
-def fwdArOff (cr : Val i32) (off : BitVec 64) (k : Val i64 → Expr Val Cont [.bool]) :
+@[expose] def fwdArOff (cr : Val i32) (off : BitVec 64) (k : Val i64 → Expr Val Cont [.bool]) :
     Expr Val Cont [.bool] :=
   fwdZext64 (Arg.var cr) fun p1 => fwdOp64 (.add i64) (Arg.var p1) (Arg.imm off) k
 
-def fwdArIdx3 (cr idx : Val i32) (k : Val i64 → Expr Val Cont [.bool]) :
+@[expose] def fwdArIdx3 (cr idx : Val i32) (k : Val i64 → Expr Val Cont [.bool]) :
     Expr Val Cont [.bool] :=
   fwdArOff cr 3 fun p1 => fwdZext64 (Arg.var idx) fun p2 =>
   fwdOp64 (.add i64) (Arg.var p1) (Arg.var p2) k
 
-def fwdCompExitExpr (h pAr : Val i64) (sz cref hdr ik nsz : Val i32)
+@[expose] def fwdCompExitExpr (h pAr : Val i64) (sz cref hdr ik nsz : Val i32)
     (JsOuter : Cont [i32]) : Expr Val Cont [.bool] :=
   fwdCmp32 .ule (Arg.var nsz) (Arg.imm 2) fun cu => Expr.jnz (Arg.var cu)
     (fwdZext64 (Arg.var cref) fun p43 => fwdOp64 (.mul i64) (Arg.var p43) (Arg.imm 4) fun p44 =>
@@ -214,7 +214,7 @@ def fwdCompExitExpr (h pAr : Val i64) (sz cref hdr ik nsz : Val i32)
              fwdSt32 pAr p8 (Arg.imm 4294967295) (Expr.jump Js.fst ())))
          (Expr.jump Js.fst ()))))
 
-def fwdCompactionExpr (h pAr : Val i64) (sz cref drop hdr : Val i32)
+@[expose] def fwdCompactionExpr (h pAr : Val i64) (sz cref drop hdr : Val i32)
     (JsOuter : Cont [i32]) : Expr Val Cont [.bool] :=
   Expr.group (fun Js_1 => Blocks.cons (fun (p40 : Tup Val [i32, i32]) =>
     fwdCmp32 .ult (Arg.var p40.fst) (Arg.var sz) fun c =>
