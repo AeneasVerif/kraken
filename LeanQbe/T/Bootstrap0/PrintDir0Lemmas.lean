@@ -688,7 +688,7 @@ private theorem emitLabel0_eq_emitStr (symBytes : ByteArray) (symOffs : Array Na
 
 private theorem dir0ToAmd64_ne_nil (symName : Sym0 → Sym) (d : Dir0) :
     dir0ToAmd64 symName d ≠ [] := by
-  cases d <;> simp only [dir0ToAmd64]
+  cases d <;> dsimp only [dir0ToAmd64]
   · intro h; cases h
   · intro h; cases h
   · intro h; cases h
@@ -721,7 +721,7 @@ private theorem dir0ToAmd64_dirSubset0_aux (symName : Sym0 → Sym) (d : Dir0) :
     ∀ x ∈ dir0ToAmd64 symName d, DirSubset0 x := by
   cases d <;> intro x hx
   all_goals
-    simp only [dir0ToAmd64] at hx
+    dsimp only [dir0ToAmd64] at hx
   · simp only [List.mem_singleton] at hx; subst hx; rfl
   · simp only [List.mem_singleton] at hx; subst hx; cases ‹Width› <;> rfl
   · simp only [List.mem_singleton] at hx; subst hx
