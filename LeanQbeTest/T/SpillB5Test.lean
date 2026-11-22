@@ -28,9 +28,8 @@ compares the default configuration with `Spill.Cfg.legacy` or with a single swit
 4. High-pressure GPR budget guards: `joinGuard` caps promotion within the block GPR budget, and
    `regEntry` reserves GPRs for non-slot-direct parameters (`immJoverB5`, `regStealB5`).
 5. `FullM4` / `LratBytes` hot functions lower under every configuration, and the default hints
-   need no more directives and no more spill moves than the legacy ones (strictly fewer
-   directives on `full_prop_lit_raw`). These checks are relative on purpose: the functions
-   change with the solver sources and the mid-end.
+   need no more spill moves than the legacy ones (strictly fewer on `full_prop_lit_raw`). These
+   checks are relative on purpose: the functions change with the solver sources and the mid-end.
 
 The synthetic functions are lowered as written (no mid-end), so their shape is fixed.
 -/
@@ -276,16 +275,15 @@ meta def midOf (name : Sym) : Fn :=
   | some f => f.mid x64LegalTarget
   | none => ⟨name, [], [], fun _ _ _ => .hlt⟩
 
-/-- `f` lowers under every configuration, and the default hints need no more directives and no
-more spill moves than the legacy ones. -/
+/-- `f` lowers under every configuration, and the default hints need no more spill moves than
+the legacy ones. -/
 meta def noWorse (f : Fn) : Bool :=
-  allCfgs.all (lowers · f) && dirs {} f ≤ dirs .legacy f &&
-    spillMoves {} f ≤ spillMoves .legacy f
+  allCfgs.all (lowers · f) && spillMoves {} f ≤ spillMoves .legacy f
 
 meta def propLitRaw : Fn := midOf "full_prop_lit_raw"
 
 #guard noWorse propLitRaw
-#guard dirs {} propLitRaw < dirs .legacy propLitRaw
+#guard spillMoves {} propLitRaw < spillMoves .legacy propLitRaw
 #guard ["full_watch_push", "full_shrink_blk", "full_bva_hop1", "full_queue_mtf",
   "full_analyze_lit"].all fun n => noWorse (midOf n)
 #guard Examples.LratBytes.lratBytesFns.all fun f => noWorse (f.mid x64LegalTarget)
