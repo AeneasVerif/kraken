@@ -57,6 +57,11 @@ public import LeanQbe.T.Examples.Kissat.FullM6CompactFlush
 public import LeanQbe.T.Examples.Kissat.FullM6CompactFlushLemmas
 public import LeanQbe.T.Examples.Kissat.FullM6CompactFlushProof1
 public import LeanQbe.T.Examples.Kissat.FullM6CompactFlushProof2
+public import LeanQbe.T.Examples.Kissat.FullM6Hdr
+public import LeanQbe.T.Examples.Kissat.FullM6HdrProof
+public import LeanQbe.T.Examples.Kissat.FullM6HdrProof0
+public import LeanQbe.T.Examples.Kissat.FullM6HdrProof1
+public import LeanQbe.T.Examples.Kissat.FullM6HdrProof2
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrink
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof0
