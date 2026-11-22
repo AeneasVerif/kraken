@@ -67,6 +67,117 @@ theorem supportsAll_leaf {lt : LegalTarget} {fs : List Fn}
     ∀ f ∈ fs, (f.earlyOpt).body.supportsSource lt = true :=
   fun f hf => List.all_eq_true.mp h f hf
 
+/-- Variant of `LinkRec.compileModuleRecAux` gating `supportsSource lt` once on `f.earlyOpt`
+before lowering, eliminating duplicate `earlyOpt` kernel reduction for `.recSCC` sub-chunks. -/
+@[expose] def compileModuleRecAuxSupp (I : Isa) (lt : LegalTarget) (raBytes : Nat)
+    (recSigs : List SigEntry) (extCallees : List (SigEntry × Nat))
+    (exits : List Sym) (nX : Nat) :
+    List Fn → List I.Hints → Except String (List I.Directive × Nat × Nat)
+  | [], [] => .ok ([], 0, 0)
+  | f :: fs, h :: hs =>
+    let ef := f.earlyOpt
+    if ef.body.supportsSource lt then
+      let mf0 := (ef.legal lt).lateOpt
+      let mf : Fn := ⟨mf0.name, mf0.as, mf0.rs, let tf := reifyFunc mf0.body; denoteFunc tf⟩
+      let ext := mf.ext
+      match Rega.lowerFn I h ext mf,
+            checkAndBoundRecExt I raBytes recSigs extCallees exits nX h ext with
+      | .ok c, some (bf, sf) =>
+        match compileModuleRecAuxSupp I lt raBytes recSigs extCallees exits nX fs hs with
+        | .ok (cs, brest, srest) => .ok (c ++ cs, Nat.max bf brest, Nat.max sf srest)
+        | .error e => .error e
+      | .error e, _ => .error s!"{f.name}: {e}"
+      | _, none => .error s!"{f.name}: unknown callee or undeclared exit"
+    else
+      .error s!"{f.name}: unsupported source op for target"
+  | _, _ => .error "compileModuleRec: fn/hints length mismatch"
+
+private theorem compileModuleRecAuxSupp_cons_supportsSource {I : Isa} {lt : LegalTarget}
+    {raBytes : Nat} {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)}
+    {exits : List Sym} {nX : Nat} {f : Fn} {fs : List Fn} {h : I.Hints} {hs : List I.Hints}
+    {res : List I.Directive × Nat × Nat}
+    (hok : compileModuleRecAuxSupp I lt raBytes recSigs extCallees exits nX
+      (f :: fs) (h :: hs) = .ok res) :
+    (f.earlyOpt).body.supportsSource lt = true := by
+  dsimp only [compileModuleRecAuxSupp] at hok
+  cases hs' : (f.earlyOpt).body.supportsSource lt
+  · simp only [hs', Bool.false_eq_true, ↓reduceIte] at hok; cases hok
+  · rfl
+
+private theorem compileModuleRecAuxSupp_cons_mid {I : Isa} {lt : LegalTarget} {raBytes : Nat}
+    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
+    {f : Fn} {fs : List Fn} {h : I.Hints} {hs : List I.Hints}
+    (hsupp : (f.earlyOpt).body.supportsSource lt = true) :
+    compileModuleRecAuxSupp I lt raBytes recSigs extCallees exits nX (f :: fs) (h :: hs) =
+      match Rega.lowerFn I h (f.mid lt).ext (f.mid lt),
+            checkAndBoundRecExt I raBytes recSigs extCallees exits nX h (f.mid lt).ext with
+      | .ok c, some (bf, sf) =>
+        match compileModuleRecAuxSupp I lt raBytes recSigs extCallees exits nX fs hs with
+        | .ok (cs, brest, srest) => .ok (c ++ cs, Nat.max bf brest, Nat.max sf srest)
+        | .error e => .error e
+      | .error e, _ => .error s!"{f.name}: {e}"
+      | _, none => .error s!"{f.name}: unknown callee or undeclared exit" := by
+  dsimp only [compileModuleRecAuxSupp]
+  simp only [hsupp, ↓reduceIte]
+  rfl
+
+theorem compileModuleRecAux_of_supp {I : Isa} {lt : LegalTarget} {raBytes : Nat}
+    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)}
+    {exits : List Sym} {nX : Nat} :
+    ∀ {fs : List Fn} {hints : List I.Hints} {res : List I.Directive × Nat × Nat},
+      compileModuleRecAuxSupp I lt raBytes recSigs extCallees exits nX fs hints = .ok res →
+      compileModuleRecAux I lt raBytes recSigs extCallees exits nX fs hints = .ok res
+  | [], [], _, h => h
+  | [], _ :: _, _, h => by dsimp only [compileModuleRecAuxSupp] at h; cases h
+  | _ :: _, [], _, h => by dsimp only [compileModuleRecAuxSupp] at h; cases h
+  | f :: fs, hint :: hints, _, h => by
+    have hsupp := compileModuleRecAuxSupp_cons_supportsSource h
+    rw [compileModuleRecAuxSupp_cons_mid hsupp] at h
+    dsimp only [compileModuleRecAux]
+    cases hl : Rega.lowerFn I hint (f.mid lt).ext (f.mid lt) with
+    | error _ => simp only [hl] at h; cases h
+    | ok _ =>
+      cases hchk : checkAndBoundRecExt I raBytes recSigs extCallees exits nX hint
+          (f.mid lt).ext with
+      | none => simp only [hl, hchk] at h; cases h
+      | some _ =>
+        simp only [hl, hchk] at h ⊢
+        cases hrest : compileModuleRecAuxSupp I lt raBytes recSigs extCallees exits nX
+            fs hints with
+        | error _ => simp only [hrest] at h; cases h
+        | ok _ =>
+          simp only [hrest] at h
+          rw [compileModuleRecAux_of_supp hrest]
+          exact h
+
+theorem supportsAll_of_compileModuleRecAuxSupp {I : Isa} {lt : LegalTarget} {raBytes : Nat}
+    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)}
+    {exits : List Sym} {nX : Nat} :
+    ∀ {fs : List Fn} {hints : List I.Hints} {res : List I.Directive × Nat × Nat},
+      compileModuleRecAuxSupp I lt raBytes recSigs extCallees exits nX fs hints = .ok res →
+      ∀ f ∈ fs, (f.earlyOpt).body.supportsSource lt = true
+  | [], [], _, _, _, hf => nomatch hf
+  | [], _ :: _, _, h, _, _ => by dsimp only [compileModuleRecAuxSupp] at h; cases h
+  | _ :: _, [], _, h, _, _ => by dsimp only [compileModuleRecAuxSupp] at h; cases h
+  | f :: fs, hint :: hints, _, h, g, hg => by
+    have hsupp := compileModuleRecAuxSupp_cons_supportsSource h
+    rw [compileModuleRecAuxSupp_cons_mid hsupp] at h
+    cases hl : Rega.lowerFn I hint (f.mid lt).ext (f.mid lt) with
+    | error _ => simp only [hl] at h; cases h
+    | ok _ =>
+      cases hchk : checkAndBoundRecExt I raBytes recSigs extCallees exits nX hint
+          (f.mid lt).ext with
+      | none => simp only [hl, hchk] at h; cases h
+      | some _ =>
+        simp only [hl, hchk] at h
+        cases hrest : compileModuleRecAuxSupp I lt raBytes recSigs extCallees exits nX
+            fs hints with
+        | error _ => simp only [hrest] at h; cases h
+        | ok _ =>
+          rcases List.mem_cons.mp hg with rfl | hg'
+          · exact hsupp
+          · exact supportsAll_of_compileModuleRecAuxSupp hrest g hg'
+
 /-- Accumulated signature list produced by threading `checkChunksCalls` across `chunks`. -/
 @[expose] def sccChunksSigAcc {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat} :
     List SigEntry → List (Chunk T lt exits nX) → List SigEntry
@@ -914,13 +1025,13 @@ private structure EmittedLeafNames where
   baseNm : Name
   stepNm : Name
   cmAuxNm : Name
-  suppNm : Name
+  resPair : Lean.Expr
   subNm : Name
   deriving Inhabited
 
 private inductive EmittedChunkMeta where
   | acyc (startIdx fnCount : Nat) (fnsNm hintsNm extNm codeNm boundsNm : Name)
-      (cmNm metaNm suppNm compNm : Name)
+      (cmNm metaNm compNm : Name)
   | recSCC (extNm recSigsNm scsNm chkNm chunkNm : Name) (fuel : Nat)
       (leaves : Array EmittedLeafNames)
   deriving Inhabited
@@ -930,7 +1041,8 @@ private inductive EmittedChunkMeta where
 [(fuel := ...)] [(fuels := ...)] [(maxDirs := ...)] [(compile := ...)] [(compileExt := ...)]`
 partitions `mod.fns` in list order into `.acyc` spans and closed `.recSCC` SCC chunks, splits
 large SCCs into `RecSubChunk`s capped at `chunkSize` / `maxDirs`, checks per-leaf theorems in
-parallel via the kernel, links all chunks via `checkLinkSccList` + `checkChunksCalls`, and
+parallel via the kernel (with `supportsSource` fused into `compileModule` /
+`compileModuleRecAuxSupp`), links all chunks via `checkLinkSccList` + `checkChunksCalls`, and
 defines `certName : LinkedCertScc ...` with `std3` axioms only. -/
 scoped syntax "compile_linked_scc! " ident
     term:arg term:arg term:arg term:arg term:arg num
@@ -962,6 +1074,7 @@ scoped elab_rules : command
       (mkApp2 (Lean.mkConst ``Prod [.zero, .zero]) natTy natTy)
     let recExcTy := mkApp2 (Lean.mkConst ``Except [.zero, .zero])
       (Lean.mkConst ``String) recTripleTy
+    let pairTy := mkApp2 (Lean.mkConst ``Prod [.zero, .zero]) natTy natTy
     let fnsBaseE := mkApp (Lean.mkConst ``LeanQbe.T.Module.fns) inp.modE
     -- Pass 1: emit pure literal definitions for all `.acyc` chunks and `.recSCC` sub-chunks.
     let mut emitted : Array EmittedChunkMeta := #[]
@@ -987,7 +1100,7 @@ scoped elab_rules : command
             addCertDef boundsNm listBoundsTy boundsLit inp.compileCert
           emitted := emitted.push (.acyc startIdx fnCount fnsNm hintsNm extNm codeNm boundsNm
             (auxNs ++ Name.mkSimple s!"{pfx}_cm") (auxNs ++ Name.mkSimple s!"{pfx}_meta")
-            (auxNs ++ Name.mkSimple s!"{pfx}_supp") (auxNs ++ Name.mkSimple s!"{pfx}_compiled"))
+            (auxNs ++ Name.mkSimple s!"{pfx}_compiled"))
       | .recSCC extLit recSigsLit fuel leaves =>
           let extNm := auxNs ++ Name.mkSimple s!"{pfx}_ext"
           let recSigsNm := auxNs ++ Name.mkSimple s!"{pfx}_recsigs"
@@ -1014,10 +1127,14 @@ scoped elab_rules : command
               addCertDef codeNm inp.listDirTy lf.codeLit inp.compileCert
               addCertDef baseNm natTy lf.baseLit inp.compileCert
               addCertDef stepNm natTy lf.stepLit inp.compileCert
+            let stepPair := mkApp4 (Lean.mkConst ``Prod.mk [.zero, .zero])
+              natTy natTy (Lean.mkConst baseNm) (Lean.mkConst stepNm)
+            let resPair := mkApp4 (Lean.mkConst ``Prod.mk [.zero, .zero])
+              inp.listDirTy pairTy (Lean.mkConst codeNm) stepPair
             leafArr := leafArr.push {
               leaf := lf, fnsNm, hintsNm, codeNm, baseNm, stepNm
               cmAuxNm := auxNs ++ Name.mkSimple s!"{spfx}_cm"
-              suppNm := auxNs ++ Name.mkSimple s!"{spfx}_supp"
+              resPair
               subNm := auxNs ++ Name.mkSimple s!"{spfx}_sub"
             }
             sj := sj + 1
@@ -1028,7 +1145,7 @@ scoped elab_rules : command
     -- Pass 2: queue all per-chunk and per-subchunk kernel theorems in parallel.
     for em in emitted do
       match em with
-      | .acyc _ _ fnsNm hintsNm extNm codeNm boundsNm cmNm metaNm suppNm _ =>
+      | .acyc _ _ fnsNm hintsNm extNm codeNm boundsNm cmNm metaNm _ =>
           let cmLhs := mkAppN (Lean.mkConst ``LeanQbe.T.compileModule)
             #[inp.isaE, inp.ltE, inp.raE, Lean.mkConst extNm, inp.exitsE, inp.nXE,
               Lean.mkConst fnsNm, Lean.mkConst hintsNm]
@@ -1044,34 +1161,21 @@ scoped elab_rules : command
               fnNamesE, inp.exitsE, inp.maxBE]
           liftCoreM <| addKernelEqThm metaNm (Lean.mkConst ``Bool)
             metaLhs (Lean.mkConst ``Bool.true) .zero
-          let suppLhs := mkApp2 (Lean.mkConst ``LeanQbe.T.checkSupportsChunk)
-            inp.ltE (Lean.mkConst fnsNm)
-          liftCoreM <| addKernelEqThm suppNm (Lean.mkConst ``Bool)
-            suppLhs (Lean.mkConst ``Bool.true) .zero
       | .recSCC extNm recSigsNm _ _ _ _ leaves =>
           for lfn in leaves do
-            let cmLhs := mkAppN (Lean.mkConst ``LeanQbe.T.LinkRec.compileModuleRecAux)
+            let cmLhs := mkAppN (Lean.mkConst ``LeanQbe.T.compileModuleRecAuxSupp)
               #[inp.isaE, inp.ltE, inp.raE, Lean.mkConst recSigsNm, Lean.mkConst extNm,
                 inp.exitsE, inp.nXE, Lean.mkConst lfn.fnsNm, Lean.mkConst lfn.hintsNm]
-            let stepPair := mkApp4 (Lean.mkConst ``Prod.mk [.zero, .zero])
-              natTy natTy (Lean.mkConst lfn.baseNm) (Lean.mkConst lfn.stepNm)
-            let pairTy := mkApp2 (Lean.mkConst ``Prod [.zero, .zero]) natTy natTy
             let cmRhs := mkApp3 (Lean.mkConst ``Except.ok [.zero, .zero])
-              (Lean.mkConst ``String) recTripleTy
-              (mkApp4 (Lean.mkConst ``Prod.mk [.zero, .zero]) inp.listDirTy pairTy
-                (Lean.mkConst lfn.codeNm) stepPair)
+              (Lean.mkConst ``String) recTripleTy lfn.resPair
             liftCoreM <| addKernelEqThm lfn.cmAuxNm recExcTy cmLhs cmRhs .zero
-            let suppLhs := mkApp2 (Lean.mkConst ``LeanQbe.T.checkSupportsChunk)
-              inp.ltE (Lean.mkConst lfn.fnsNm)
-            liftCoreM <| addKernelEqThm lfn.suppNm (Lean.mkConst ``Bool)
-              suppLhs (Lean.mkConst ``Bool.true) .zero
     -- Pass 3: assemble `.acyc` and `.recSCC` `Chunk` entries and validate link/call checks.
     let chunkTy := mkAppN (Lean.mkConst ``LeanQbe.T.Chunk)
       #[inp.targE, inp.ltE, inp.exitsE, inp.nXE]
     let mut chunkEntries : Array Lean.Expr := #[]
     for em in emitted do
       match em with
-      | .acyc _ _ fnsNm hintsNm extNm codeNm boundsNm cmNm metaNm _ compNm =>
+      | .acyc _ _ fnsNm hintsNm extNm codeNm boundsNm cmNm metaNm compNm =>
           let compTy := mkAppN (Lean.mkConst ``LeanQbe.T.Compiled)
             #[inp.targE, inp.ltE, Lean.mkConst extNm, inp.exitsE, inp.nXE,
               Lean.mkConst fnsNm, Lean.mkConst hintsNm, inp.maxBE]
@@ -1092,10 +1196,14 @@ scoped elab_rules : command
           let listSubTy := mkApp (Lean.mkConst ``List [1]) subTy
           let mut subConsts : List Lean.Expr := []
           for lfn in leaves do
+            let auxEq := mkAppN (Lean.mkConst ``LeanQbe.T.compileModuleRecAux_of_supp)
+              #[inp.isaE, inp.ltE, inp.raE, Lean.mkConst recSigsNm, Lean.mkConst extNm,
+                inp.exitsE, inp.nXE, Lean.mkConst lfn.fnsNm, Lean.mkConst lfn.hintsNm,
+                lfn.resPair, Lean.mkConst lfn.cmAuxNm]
             let subVal := mkAppN (Lean.mkConst ``LeanQbe.T.RecSubChunk.mk)
               #[inp.targE, inp.ltE, Lean.mkConst recSigsNm, Lean.mkConst extNm, inp.exitsE, inp.nXE,
                 Lean.mkConst lfn.fnsNm, Lean.mkConst lfn.hintsNm, Lean.mkConst lfn.codeNm,
-                Lean.mkConst lfn.baseNm, Lean.mkConst lfn.stepNm, Lean.mkConst lfn.cmAuxNm]
+                Lean.mkConst lfn.baseNm, Lean.mkConst lfn.stepNm, auxEq]
             liftCoreM <| addCertDef lfn.subNm subTy subVal inp.compileCert
             subConsts := subConsts ++ [Lean.mkConst lfn.subNm]
           let scsVal := subConsts.foldr
@@ -1149,7 +1257,7 @@ scoped elab_rules : command
       let em := emitted[i]!
       let chunkVal := chunkEntries[i]!
       match em with
-      | .acyc startIdx fnCount fnsNm _ _ _ _ _ _ suppNm _ =>
+      | .acyc startIdx fnCount fnsNm hintsNm extNm _ _ _ _ compNm =>
           let curFnsE := Lean.mkConst fnsNm
           if revIdx == 0 then
             fnsEqProof := mkApp3 (Lean.mkConst ``LeanQbe.T.slice_last_eq [1])
@@ -1157,10 +1265,13 @@ scoped elab_rules : command
           else
             fnsEqProof := mkApp6 (Lean.mkConst ``LeanQbe.T.slice_cons_eq [1])
               fnTy fnsBaseE restFnsE (mkNatLit startIdx) (mkNatLit fnCount) fnsEqProof
-          suppProof := mkApp5 (Lean.mkConst ``LeanQbe.T.supportsAll_append)
-            inp.ltE curFnsE restFnsE (Lean.mkConst suppNm) suppProof
+          let acycSupp := mkAppN (Lean.mkConst ``LeanQbe.T.Compiled.supportsSource)
+            #[inp.targE, inp.ltE, Lean.mkConst extNm, inp.exitsE, inp.nXE,
+              curFnsE, Lean.mkConst hintsNm, inp.maxBE, Lean.mkConst compNm]
+          suppProof := mkApp5 (Lean.mkConst ``LeanQbe.T.supportsAll_append_pred)
+            inp.ltE curFnsE restFnsE acycSupp suppProof
           restFnsE := mkApp3 (Lean.mkConst ``List.append [1]) fnTy curFnsE restFnsE
-      | .recSCC _ _ _ _ chunkNm _ leaves =>
+      | .recSCC extNm recSigsNm _ _ chunkNm _ leaves =>
           let tailFnsE := restFnsE
           let mut curScsFnsE : Lean.Expr := mkApp (Lean.mkConst ``List.nil [1]) fnTy
           let mut curScsSupp : Lean.Expr := mkApp (Lean.mkConst ``LeanQbe.T.supportsAll_nil) inp.ltE
@@ -1181,8 +1292,11 @@ scoped elab_rules : command
               fnsEqProof := mkAppN (Lean.mkConst ``LeanQbe.T.slice_sub_cons_eq [1])
                 #[fnTy, fnsBaseE, curScsFnsE, tailFnsE, mkNatLit lfn.leaf.startIdx,
                   mkNatLit lfn.leaf.fnCount, fnsEqProof]
-            let leafSuppVal := mkApp3 (Lean.mkConst ``LeanQbe.T.supportsAll_leaf)
-              inp.ltE leafFnsE (Lean.mkConst lfn.suppNm)
+            let leafSuppVal := mkAppN
+              (Lean.mkConst ``LeanQbe.T.supportsAll_of_compileModuleRecAuxSupp)
+              #[inp.isaE, inp.ltE, inp.raE, Lean.mkConst recSigsNm, Lean.mkConst extNm,
+                inp.exitsE, inp.nXE, leafFnsE, Lean.mkConst lfn.hintsNm,
+                lfn.resPair, Lean.mkConst lfn.cmAuxNm]
             curScsSupp := mkApp5 (Lean.mkConst ``LeanQbe.T.supportsAll_append_pred)
               inp.ltE leafFnsE curScsFnsE leafSuppVal curScsSupp
             curScsFnsE := mkApp3 (Lean.mkConst ``List.append [1]) fnTy leafFnsE curScsFnsE

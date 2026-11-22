@@ -59,6 +59,18 @@ theorem supportsAll_of_eq {lt : LegalTarget} {fs₁ fs₂ : List Fn} (heq : fs�
     ∀ f ∈ fs₁, (f.earlyOpt).body.supportsSource lt = true :=
   heq ▸ h
 
+/-- Derive `supportsSource lt` for every function in `chunksFns cs` directly from each chunk's
+`compileModule_eq` proof, with zero redundant `earlyOpt` kernel evaluation. -/
+theorem supportsAll_of_chunks {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat} :
+    ∀ (cs : List (CompiledChunk T lt exits nX)),
+      ∀ f ∈ chunksFns cs, (f.earlyOpt).body.supportsSource lt = true
+  | [], _, hf => nomatch hf
+  | c :: cs, f, hf => by
+    dsimp only [chunksFns] at hf
+    rcases List.mem_append.mp hf with h1 | h2
+    · exact c.compiled.supportsSource f h1
+    · exact supportsAll_of_chunks cs f h2
+
 /-- Every function in `fs` has identity legalization (`lt.legalSig f.as = f.as` and
 `lt.legalSig f.rs = f.rs`). -/
 @[expose] def LegalSigAll (lt : LegalTarget) (fs : List Fn) : Prop :=

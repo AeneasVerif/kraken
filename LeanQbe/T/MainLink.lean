@@ -64,6 +64,11 @@ theorem compileModule_bounds_names {I : Isa} {lt : LegalTarget} {raBytes : Nat}
   | _, _ :: _, [], _, _, h => by dsimp only [compileModule] at h; cases h
   | _, f :: _, _ :: _, _, _, h => by
     dsimp only [compileModule] at h
+    have hsupp : (f.earlyOpt).body.supportsSource lt = true := by
+      cases hs : (f.earlyOpt).body.supportsSource lt
+      · simp only [hs, Bool.false_eq_true, ↓reduceIte] at h; cases h
+      · rfl
+    simp only [hsupp, ↓reduceIte] at h
     split at h
     · split at h
       · rename_i hrest
@@ -202,7 +207,8 @@ theorem compileModule_mono_lookupBound {I : Isa} {lt : LegalTarget} {raBytes : N
   | _, _, [], _ :: _, _, _, _, h => by dsimp only [compileModule] at h; cases h
   | _, _, _ :: _, [], _, _, _, h => by dsimp only [compileModule] at h; cases h
   | ext₁, ext₂, f :: fs, hint :: hints, code, bounds, hmono, h => by
-    dsimp only [compileModule] at h ⊢
+    have hsupp := compileModule_cons_supportsSource h
+    rw [compileModule_cons_mid hsupp] at h ⊢
     cases hl : Rega.lowerFn I hint (f.mid lt).ext (f.mid lt) with
     | error e => simp [hl] at h
     | ok c =>
@@ -245,7 +251,8 @@ theorem compileModule_append {I : Isa} {lt : LegalTarget} {raBytes : Nat}
   | ext₀, ext₂, f :: fs₁, hint :: hints₁, fs₂, hints₂, code₁, code₂, bounds₁, bounds₂,
       h₁, h₂, hnd, hsig => by
     simp only [List.map_cons, List.nodup_cons] at hnd
-    dsimp only [compileModule] at h₁ ⊢
+    have hsupp := compileModule_cons_supportsSource h₁
+    rw [compileModule_cons_mid hsupp] at h₁
     cases hl : Rega.lowerFn I hint (f.mid lt).ext (f.mid lt) with
     | error e => simp [hl] at h₁
     | ok c =>
@@ -279,9 +286,7 @@ theorem compileModule_append {I : Isa} {lt : LegalTarget} {raBytes : Nat}
             have h0 := hsig g bg hg
             rwa [hsb, List.cons_append] at h0
           have ih := compileModule_append hrest h₂ hnd.2 hsig'
-          rw [List.cons_append, List.cons_append]
-          dsimp only [compileModule]
-          rw [hl, hchk]
+          rw [List.cons_append, List.cons_append, compileModule_cons_mid hsupp, hl, hchk]
           dsimp only
           rw [ih]
           simp only [List.append_assoc, List.cons_append]

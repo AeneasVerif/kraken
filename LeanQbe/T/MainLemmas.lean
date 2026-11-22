@@ -303,6 +303,11 @@ theorem compileModule_code_labels {T : Target} (hcl : Rega.LabelClean T.toIsa)
     simp only [List.map_cons, List.nodup_cons, List.mem_map, not_exists, not_and] at hnd
     simp only [List.all_cons, Bool.and_eq_true] at hok
     dsimp only [compileModule] at hcm
+    have hsupp : (f.earlyOpt).body.supportsSource lt = true := by
+      cases hs : (f.earlyOpt).body.supportsSource lt
+      · simp only [hs, Bool.false_eq_true, ↓reduceIte] at hcm; cases hcm
+      · rfl
+    simp only [hsupp, ↓reduceIte] at hcm
     split at hcm
     · rename_i c b hl hcnd
       split at hcm
@@ -564,6 +569,36 @@ theorem checkAndBoundExt_spec {I : Isa} {raBytes : Nat} {exits : List Sym} {nX :
             cases he : ext.exits with | nil => simp [he] at hg | cons _ _ => rfl
           dsimp only [n₁']; simp [hne, Nat.le_max_right]
 
+theorem compileModule_cons_supportsSource {I : Isa} {lt : LegalTarget} {raBytes : Nat}
+    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
+    {f : Fn} {fs : List Fn} {h : I.Hints} {hs : List I.Hints}
+    {res : List I.Directive × List (Sym × Nat)}
+    (hok : compileModule I lt raBytes extCallees exits nX (f :: fs) (h :: hs) = .ok res) :
+    (f.earlyOpt).body.supportsSource lt = true := by
+  dsimp only [compileModule] at hok
+  cases hs' : (f.earlyOpt).body.supportsSource lt
+  · simp only [hs', Bool.false_eq_true, ↓reduceIte] at hok; cases hok
+  · rfl
+
+/-- Unfold one cons step of `compileModule` under known source support, folding the mid-end
+function back to `f.mid lt`. -/
+theorem compileModule_cons_mid {I : Isa} {lt : LegalTarget} {raBytes : Nat}
+    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
+    {f : Fn} {fs : List Fn} {h : I.Hints} {hs : List I.Hints}
+    (hsupp : (f.earlyOpt).body.supportsSource lt = true) :
+    compileModule I lt raBytes extCallees exits nX (f :: fs) (h :: hs) =
+      match Rega.lowerFn I h (f.mid lt).ext (f.mid lt),
+            checkAndBoundExt I raBytes exits nX extCallees h (f.mid lt).ext with
+      | .ok c, some b =>
+        match compileModule I lt raBytes (((f.mid lt).sig, b) :: extCallees) exits nX fs hs with
+        | .ok (cs, bs) => .ok (c ++ cs, (f.name, b) :: bs)
+        | .error e => .error e
+      | .error e, _ => .error s!"{f.name}: {e}"
+      | _, none => .error s!"{f.name}: unknown callee, undeclared exit, or stack overflow" := by
+  dsimp only [compileModule]
+  simp only [hsupp, ↓reduceIte]
+  rfl
+
 theorem compile_of_compileModule {I : Isa} {lt : LegalTarget} {raBytes : Nat}
     {exits : List Sym} {nX : Nat} :
     ∀ {extCallees : List (SigEntry × Nat)} {fs : List Fn} {hints : List I.Hints}
@@ -573,8 +608,13 @@ theorem compile_of_compileModule {I : Isa} {lt : LegalTarget} {raBytes : Nat}
   | _, [], [], _, _, h => by dsimp only [compileModule] at h; cases h; rfl
   | _, [], _ :: _, _, _, h => by dsimp only [compileModule] at h; cases h
   | _, _ :: _, [], _, _, h => by dsimp only [compileModule] at h; cases h
-  | _, _ :: _, _ :: _, _, _, h => by
+  | _, f :: fs, _ :: _, _, _, h => by
     dsimp only [compileModule] at h
+    have hsupp : (f.earlyOpt).body.supportsSource lt = true := by
+      cases hs : (f.earlyOpt).body.supportsSource lt
+      · simp only [hs, Bool.false_eq_true, ↓reduceIte] at h; cases h
+      · rfl
+    simp only [hsupp, ↓reduceIte] at h
     split at h
     · rename_i c b hl _
       split at h
@@ -764,7 +804,8 @@ private theorem compile_sound_aux (T : Target) (host : T.mach.Host) (lt : LegalT
   | f :: fs, hint :: hints, extCallees, code, bounds, k₀, hcm, hc, hu, hfsnd, hfns,
       hext, hext_eq, hext_disj, p, hp => by
     simp only [List.map_cons, List.nodup_cons] at hfsnd
-    dsimp only [compileModule] at hcm
+    obtain ⟨hfM, hfwf, hfsupp, hfwp⟩ := hfns f List.mem_cons_self
+    rw [compileModule_cons_mid hfsupp] at hcm
     cases hl : Rega.lowerFn T.toIsa hint (f.mid lt).ext (f.mid lt) with
     | error e => simp [hl] at hcm
     | ok c =>
@@ -781,7 +822,6 @@ private theorem compile_sound_aux (T : Target) (host : T.mach.Host) (lt : LegalT
           simp only [hrest, Except.ok.injEq, Prod.mk.injEq] at hcm
           rcases hcm with ⟨rfl, rfl⟩
           obtain ⟨hc_inf, hcs_inf⟩ := List.IsInfixAt.append hc
-          obtain ⟨hfM, hfwf, hfsupp, hfwp⟩ := hfns f List.mem_cons_self
           have hfns' : ∀ g ∈ fs, g ∈ M.fns ∧ g.Wf ∧ (g.earlyOpt).body.supportsSource lt = true ∧
               ∀ xs m P E, Env.ofModule M Γ g.name g.as g.rs xs m P E →
                 Func.wp (Env.ofModule M Γ) g.body xs m P E :=
@@ -1079,6 +1119,39 @@ theorem fnSpec_noExit_id (M : Compiled T lt [] [] nX fs hints maxBound)
     (fun _ h => nomatch h) hf
   exact ⟨hdef, fnSpec_of_legalEnv_legalSig_eq_noExit has hrs
     (List.mem_append_left _ (List.mem_map_of_mem hf)) hnoex hspec⟩
+
+/-- Every function accepted by `compileModule` passes `(f.earlyOpt).body.supportsSource lt`. -/
+theorem compileModule_supportsSource {I : Isa} {lt : LegalTarget} {raBytes : Nat}
+    {exits : List Sym} {nX : Nat} :
+    ∀ {extCallees : List (SigEntry × Nat)} {fs : List Fn} {hints : List I.Hints}
+      {code : List I.Directive} {bounds : List (Sym × Nat)},
+      compileModule I lt raBytes extCallees exits nX fs hints = .ok (code, bounds) →
+      ∀ f ∈ fs, (f.earlyOpt).body.supportsSource lt = true
+  | _, [], [], _, _, _, _, hf => nomatch hf
+  | _, [], _ :: _, _, _, h, _, _ => by dsimp only [compileModule] at h; cases h
+  | _, _ :: _, [], _, _, h, _, _ => by dsimp only [compileModule] at h; cases h
+  | extCallees, f :: fs, hint :: hints, _, _, h, g, hg => by
+    have hsupp := compileModule_cons_supportsSource h
+    rw [compileModule_cons_mid hsupp] at h
+    cases hl : Rega.lowerFn I hint (f.mid lt).ext (f.mid lt) with
+    | error _ => simp only [hl] at h; cases h
+    | ok _ =>
+      cases hchk : checkAndBoundExt I raBytes exits nX extCallees hint (f.mid lt).ext with
+      | none => simp only [hl, hchk] at h; cases h
+      | some b =>
+        simp only [hl, hchk] at h
+        cases hrest : compileModule I lt raBytes (((f.mid lt).sig, b) :: extCallees)
+            exits nX fs hints with
+        | error _ => simp only [hrest] at h; cases h
+        | ok _ =>
+          rcases List.mem_cons.mp hg with rfl | hg'
+          · exact hsupp
+          · exact compileModule_supportsSource hrest g hg'
+
+/-- Every function in `M`'s compiled chunk passed `supportsSource lt` during `compileModule`. -/
+theorem supportsSource (M : Compiled T lt extCallees exits nX fs hints maxBound) :
+    ∀ f ∈ fs, (f.earlyOpt).body.supportsSource lt = true :=
+  compileModule_supportsSource M.compileModule_eq
 
 end Compiled
 

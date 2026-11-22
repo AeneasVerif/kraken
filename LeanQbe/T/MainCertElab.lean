@@ -362,8 +362,8 @@ def elabAndEvalChunks (targT layoutT ltT clT modT : Term) (chunkSize : Nat)
 [(compile := ...)] [(compileExt := ...)]` splits `mod.fns` into callee-first chunks of at most
 `chunkSize` functions (and optional `maxDirs` directives), evaluates hints and `compileModule` in
 a single fused meta pass, splices literal `(ext, hints, code, bounds)` per chunk, checks each
-chunk independently in the kernel (`compileModule`, `checkCompileLit`, `checkSupportsChunk`), links
-all chunks via O(N) metadata-only `checkLinkList`, and defines `certName : LinkedCert ...`. -/
+chunk independently in the kernel (`compileModule` with fused `supportsSource`, `checkCompileLit`),
+links all chunks via O(N) metadata-only `checkLinkList`, and defines `certName : LinkedCert ...`. -/
 scoped syntax "compile_linked_chunks! " ident
     term:arg term:arg term:arg term:arg term:arg num
     ("(" ident " := " term ")")* : command
@@ -390,7 +390,7 @@ scoped elab_rules : command
     let excTy := mkApp2 (Lean.mkConst ``Except [.zero, .zero]) (Lean.mkConst ``String) okPairTy
     let fnsBaseE := mkApp (Lean.mkConst ``LeanQbe.T.Module.fns) inp.modE
     -- Pass 1: emit all chunks' pure literal definitions (`fns`, `hints`, `ext`, `code`, `bounds`).
-    let mut chunkNames : Array (Name × Name × Name × Name × Name × Name × Name × Name × Name ×
+    let mut chunkNames : Array (Name × Name × Name × Name × Name × Name × Name × Name ×
       EvalChunkData) := #[]
     let mut ci : Nat := 0
     for ch in inp.chunks do
@@ -402,7 +402,6 @@ scoped elab_rules : command
       let boundsNm := auxNs ++ Name.mkSimple s!"{pfx}_bounds"
       let cmNm := auxNs ++ Name.mkSimple s!"{pfx}_cm"
       let metaNm := auxNs ++ Name.mkSimple s!"{pfx}_meta"
-      let suppNm := auxNs ++ Name.mkSimple s!"{pfx}_supp"
       let compNm := auxNs ++ Name.mkSimple s!"{pfx}_compiled"
       let dropE := mkApp3 (Lean.mkConst ``List.drop [1]) fnTy (mkNatLit ch.startIdx) fnsBaseE
       let sliceE :=
@@ -415,11 +414,12 @@ scoped elab_rules : command
         addCertDef codeNm inp.listDirTy ch.codeLit inp.compileCert
         addCertDef boundsNm listBoundsTy ch.boundsLit inp.compileCert
       chunkNames := chunkNames.push
-        (fnsNm, hintsNm, extNm, codeNm, boundsNm, cmNm, metaNm, suppNm, compNm, ch)
+        (fnsNm, hintsNm, extNm, codeNm, boundsNm, cmNm, metaNm, compNm, ch)
       ci := ci + 1
-    -- Pass 2: queue ALL per-chunk kernel theorems (`cm`, `meta`, `supp`) together so Lean's
-    -- async kernel threadpool checks all chunks in parallel across CPU cores.
-    for (fnsNm, hintsNm, extNm, codeNm, boundsNm, cmNm, metaNm, suppNm, _, _) in chunkNames do
+    -- Pass 2: queue ALL per-chunk kernel theorems (`cm`, `meta`) together so Lean's async
+    -- kernel threadpool checks all chunks in parallel across CPU cores (`compileModule` gates
+    -- `supportsSource` on the single `earlyOpt` pass, avoiding duplicate reduction).
+    for (fnsNm, hintsNm, extNm, codeNm, boundsNm, cmNm, metaNm, _, _) in chunkNames do
       let cmLhs := mkAppN (Lean.mkConst ``LeanQbe.T.compileModule)
         #[inp.isaE, inp.ltE, inp.raE, Lean.mkConst extNm, inp.exitsE, inp.nXE,
           Lean.mkConst fnsNm, Lean.mkConst hintsNm]
@@ -435,13 +435,9 @@ scoped elab_rules : command
           fnNamesE, inp.exitsE, inp.maxBE]
       liftCoreM <| addKernelEqThm metaNm (Lean.mkConst ``Bool)
         metaLhs (Lean.mkConst ``Bool.true) .zero
-      let suppLhs := mkApp2 (Lean.mkConst ``LeanQbe.T.checkSupportsChunk)
-        inp.ltE (Lean.mkConst fnsNm)
-      liftCoreM <| addKernelEqThm suppNm (Lean.mkConst ``Bool)
-        suppLhs (Lean.mkConst ``Bool.true) .zero
     -- Pass 3: assemble per-chunk `Compiled` bundles and `CompiledChunk` entries.
     let mut chunkEntries : List Lean.Expr := []
-    for (fnsNm, hintsNm, extNm, codeNm, boundsNm, cmNm, metaNm, _, compNm, _) in chunkNames do
+    for (fnsNm, hintsNm, extNm, codeNm, boundsNm, cmNm, metaNm, compNm, _) in chunkNames do
       let compTy := mkAppN (Lean.mkConst ``LeanQbe.T.Compiled)
         #[inp.targE, inp.ltE, Lean.mkConst extNm, inp.exitsE, inp.nXE,
           Lean.mkConst fnsNm, Lean.mkConst hintsNm, inp.maxBE]
@@ -477,14 +473,13 @@ scoped elab_rules : command
     let fnsEqTy := mkApp3 (Lean.mkConst ``Eq [2]) listFnTy fnsBaseE chunksFnsE
     let mut fnsEqProof : Lean.Expr := default
     let mut restFnsE : Lean.Expr := mkApp (Lean.mkConst ``List.nil [1]) fnTy
-    let mut suppProof : Lean.Expr := mkApp (Lean.mkConst ``LeanQbe.T.supportsAll_nil) inp.ltE
     let mut maxBProof : Lean.Expr := mkAppN (Lean.mkConst ``LeanQbe.T.chunksMaxBound_nil)
       #[inp.targE, inp.ltE, inp.exitsE, inp.nXE, inp.maxBE]
     let mut restChunksE : Lean.Expr := mkApp (Lean.mkConst ``List.nil [1]) chunkTy
     let nChunks := chunkNames.size
     for revIdx in [:nChunks] do
       let i := nChunks - 1 - revIdx
-      let (fnsNm, _, _, _, _, _, _, suppNm, _, ch) := chunkNames[i]!
+      let (fnsNm, _, _, _, _, _, _, _, ch) := chunkNames[i]!
       let chunkVal := chunkEntries[i]!
       let curFnsE := Lean.mkConst fnsNm
       if revIdx == 0 then
@@ -493,8 +488,6 @@ scoped elab_rules : command
       else
         fnsEqProof := mkApp6 (Lean.mkConst ``LeanQbe.T.slice_cons_eq [1])
           fnTy fnsBaseE restFnsE (mkNatLit ch.startIdx) (mkNatLit ch.fnCount) fnsEqProof
-      suppProof := mkApp5 (Lean.mkConst ``LeanQbe.T.supportsAll_append)
-        inp.ltE curFnsE restFnsE (Lean.mkConst suppNm) suppProof
       maxBProof := mkAppN (Lean.mkConst ``LeanQbe.T.chunksMaxBound_cons)
         #[inp.targE, inp.ltE, inp.exitsE, inp.nXE, inp.maxBE, chunkVal, restChunksE,
           mkApp (Lean.mkConst ``Nat.le_refl) inp.maxBE, maxBProof]
@@ -503,7 +496,9 @@ scoped elab_rules : command
     -- Emit `fns_eq`, `supportsAll`, `maxBound_le`, and the final `LinkedCert`
     liftCoreM <| addCertThm fnsEqNm fnsEqTy fnsEqProof
     let (suppAllTy, suppAllVal, maxBLeProp) ← liftTermElabM do
-      let sVal ← mkAppM ``LeanQbe.T.supportsAll_of_eq #[Lean.mkConst fnsEqNm, suppProof]
+      let suppChunks := mkAppN (Lean.mkConst ``LeanQbe.T.supportsAll_of_chunks)
+        #[inp.targE, inp.ltE, inp.exitsE, inp.nXE, Lean.mkConst chunksNm]
+      let sVal ← mkAppM ``LeanQbe.T.supportsAll_of_eq #[Lean.mkConst fnsEqNm, suppChunks]
       let sTy ← inferType sVal
       let lhs := mkAppN (Lean.mkConst ``LeanQbe.T.chunksMaxBound)
         #[inp.targE, inp.ltE, inp.exitsE, inp.nXE, Lean.mkConst chunksNm]

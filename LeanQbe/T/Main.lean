@@ -164,22 +164,28 @@ def checkAndBound (I : Isa) (lt : LegalTarget) (raBytes : Nat) (exits : List Sym
   checkAndBoundMid I raBytes exits nX bounds h (f.mid lt)
 
 /-- Compile an acyclic callee-first list of functions with externally supplied `hints`, checking
-callee bounds (by legalized `SigEntry`), exit targets, and 64-bit stack bounds incrementally. -/
+source support (`supportsSource`), callee bounds (by legalized `SigEntry`), exit targets, and
+64-bit stack bounds incrementally. -/
 def compileModule (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX : Nat) :
     List Fn → List I.Hints → Except String (List I.Directive × List (Sym × Nat))
   | [], [] => .ok ([], [])
   | f :: fs, h :: hs =>
-    let mf := f.mid lt
-    let ext := mf.ext
-    match Rega.lowerFn I h ext mf,
-          checkAndBoundExt I raBytes exits nX extCallees h ext with
-    | .ok c, some b =>
-      match compileModule I lt raBytes ((mf.sig, b) :: extCallees) exits nX fs hs with
-      | .ok (cs, bs) => .ok (c ++ cs, (f.name, b) :: bs)
-      | .error e => .error e
-    | .error e, _ => .error s!"{f.name}: {e}"
-    | _, none => .error s!"{f.name}: unknown callee, undeclared exit, or stack overflow"
+    let ef := f.earlyOpt
+    if ef.body.supportsSource lt then
+      let mf0 := (ef.legal lt).lateOpt
+      let mf : Fn := ⟨mf0.name, mf0.as, mf0.rs, let tf := reifyFunc mf0.body; denoteFunc tf⟩
+      let ext := mf.ext
+      match Rega.lowerFn I h ext mf,
+            checkAndBoundExt I raBytes exits nX extCallees h ext with
+      | .ok c, some b =>
+        match compileModule I lt raBytes ((mf.sig, b) :: extCallees) exits nX fs hs with
+        | .ok (cs, bs) => .ok (c ++ cs, (f.name, b) :: bs)
+        | .error e => .error e
+      | .error e, _ => .error s!"{f.name}: {e}"
+      | _, none => .error s!"{f.name}: unknown callee, undeclared exit, or stack overflow"
+    else
+      .error s!"{f.name}: unsupported source op for target"
   | _, _ => .error "compileModule: fn/hints length mismatch"
 
 /-! ## Cross-function label hygiene, fast `Nodup`, and kernel check helpers -/

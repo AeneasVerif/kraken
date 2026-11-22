@@ -341,6 +341,23 @@ def eoDirectCompiled :
 #guard !Module.checkAcyclic ⟨[fnEven, fnOdd], [], []⟩
 #guard !LinkRec.checkCyclic ⟨[fnTop], [], []⟩
 
+private def fnUnsupportedW128 : Fn :=
+  ⟨"bad_w128", [.bits 128], [.bits 128], fun _ _ (x, ()) => .ret (.var x, ())⟩
+
+#guard
+  match compileModule litmusTarget.toIsa LegalTarget.aarch64
+      litmusTarget.frame.raBytes [] [] 0 [fnUnsupportedW128]
+      [Fn.computeHints litmusTarget.toIsa LegalTarget.aarch64 fnUnsupportedW128] with
+  | .error "bad_w128: unsupported source op for target" => true
+  | _ => false
+
+#guard
+  match compileModuleRecAuxSupp litmusTarget.toIsa LegalTarget.aarch64
+      litmusTarget.frame.raBytes [] [] [] 0 [fnUnsupportedW128]
+      [Fn.computeHints litmusTarget.toIsa LegalTarget.aarch64 fnUnsupportedW128] with
+  | .error "bad_w128: unsupported source op for target" => true
+  | _ => false
+
 theorem neg_ext_collision_rejected :
     checkLinkSccList litmusLayout [(("even", [i64], [i64]), 0)]
       [.recSCC [] 8 [fnEven, fnOdd] evenOddHintsOnly 2048 eoDirectCompiled] = false := by
