@@ -14,38 +14,6 @@ public import LeanQbe.T.Arm64.IselLemmas2
 public import LeanQbe.T.Arm64.IselLemmas3
 public import LeanQbe.T.Arm64.IselLemmas4
 public import LeanQbe.T.Arm64.IselStepRules
-public import LeanQbe.T.Arm64.KissatM4
-public import LeanQbe.T.Arm64.KissatM4Bounds
-public import LeanQbe.T.Arm64.KissatM4Cert
-public import LeanQbe.T.Arm64.KissatM4Cert1
-public import LeanQbe.T.Arm64.KissatM4Cert10
-public import LeanQbe.T.Arm64.KissatM4Cert11
-public import LeanQbe.T.Arm64.KissatM4Cert12
-public import LeanQbe.T.Arm64.KissatM4Cert13
-public import LeanQbe.T.Arm64.KissatM4Cert14
-public import LeanQbe.T.Arm64.KissatM4Cert15
-public import LeanQbe.T.Arm64.KissatM4Cert16
-public import LeanQbe.T.Arm64.KissatM4Cert17
-public import LeanQbe.T.Arm64.KissatM4Cert18
-public import LeanQbe.T.Arm64.KissatM4Cert19
-public import LeanQbe.T.Arm64.KissatM4Cert2
-public import LeanQbe.T.Arm64.KissatM4Cert20
-public import LeanQbe.T.Arm64.KissatM4Cert21
-public import LeanQbe.T.Arm64.KissatM4Cert22
-public import LeanQbe.T.Arm64.KissatM4Cert23
-public import LeanQbe.T.Arm64.KissatM4Cert24
-public import LeanQbe.T.Arm64.KissatM4Cert25
-public import LeanQbe.T.Arm64.KissatM4Cert26
-public import LeanQbe.T.Arm64.KissatM4Cert27
-public import LeanQbe.T.Arm64.KissatM4Cert3
-public import LeanQbe.T.Arm64.KissatM4Cert4
-public import LeanQbe.T.Arm64.KissatM4Cert5
-public import LeanQbe.T.Arm64.KissatM4Cert6
-public import LeanQbe.T.Arm64.KissatM4Cert7
-public import LeanQbe.T.Arm64.KissatM4Cert8
-public import LeanQbe.T.Arm64.KissatM4Cert9
-public import LeanQbe.T.Arm64.KissatM4CertLink
-public import LeanQbe.T.Arm64.KissatM4Sound
 public import LeanQbe.T.Arm64.KissatM5
 public import LeanQbe.T.Arm64.KissatM5Bounds
 public import LeanQbe.T.Arm64.KissatM5Cert
@@ -84,6 +52,7 @@ public import LeanQbe.T.Arm64.KissatM5Cert7
 public import LeanQbe.T.Arm64.KissatM5Cert8
 public import LeanQbe.T.Arm64.KissatM5Cert9
 public import LeanQbe.T.Arm64.KissatM5CertLink
+public import LeanQbe.T.Arm64.KissatM5Sound
 public import LeanQbe.T.Arm64.LinkRec
 public import LeanQbe.T.Arm64.Litmus
 public import LeanQbe.T.Arm64.LratBytes
@@ -93,4 +62,7 @@ public import LeanQbe.T.Arm64.UnionFind
 
 set_option autoImplicit false
 
-/-! Root of the active AArch64 library: imports `Kraken.AArch64` and active `LeanQbe.T.Arm64.*` modules. -/
+/-!
+Root of the active AArch64 library: imports `Kraken.AArch64` and active `LeanQbe.T.Arm64.*`
+modules.
+-/

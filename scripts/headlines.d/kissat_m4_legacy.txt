@@ -1,5 +1,5 @@
 # One per line: <module to import> <fully qualified constant>.
-# Kissat M4 (`FullM4`, 231/231 unconditional source-level `ModuleOk` + `Mem 64` NV).
+# Retired legacy CDCL+inprocessing Kissat M4 specs, audits, and native certs — audited in Tier 3.
 LeanQbe.T.Examples.Kissat.FullM4Proof LeanQbe.T.Examples.Kissat.FullM4.mkM4Env_moduleOk
 LeanQbe.T.Examples.Kissat.FullM4Proof LeanQbe.T.Examples.Kissat.FullM4.m4Env_moduleOk
 LeanQbe.T.Examples.Kissat.FullM4Proof LeanQbe.T.Examples.Kissat.FullM4.m4UnsatEnv_moduleOk
@@ -17,19 +17,29 @@ LeanQbe.T.Amd64.KissatM4CertLink LeanQbe.T.Amd64.KissatM4CertLink.solve_x64_of_f
 LeanQbe.T.Amd64.KissatM4 LeanQbe.T.Amd64.KissatM4.m4_module_fnspec
 LeanQbe.T.Amd64.KissatM4 LeanQbe.T.Amd64.KissatM4.m4_solve_bytes_unsat_x64
 LeanQbe.T.Amd64.KissatM4 LeanQbe.T.Amd64.KissatM4.m4_x64_unsat_nonvacuous
-LeanQbeTest.T.KissatM4AuditX64 audit_m4_x64_fnspec
-LeanQbeTest.T.KissatM4AuditX64 audit_m4_x64_unsat
-LeanQbeTest.T.KissatM4AuditX64 audit_m4_x64_sound
-LeanQbeTest.T.KissatM4AuditX64 audit_m4_x64_nv
-LeanQbeTest.T.KissatM4AuditX64 audit_m4_x64_nv_closed
+LeanQbeLegacyTest.KissatM4LegacyAuditX64 audit_m4_x64_fnspec
+LeanQbeLegacyTest.KissatM4LegacyAuditX64 audit_m4_x64_unsat
+LeanQbeLegacyTest.KissatM4LegacyAuditX64 audit_m4_x64_sound
+LeanQbeLegacyTest.KissatM4LegacyAuditX64 audit_m4_x64_nv
+LeanQbeLegacyTest.KissatM4LegacyAuditX64 audit_m4_x64_nv_closed
+LeanQbeLegacyTest.KissatM4LegacyAuditX64 audit_m4_x64_sat_fnspec
+LeanQbeLegacyTest.KissatM4LegacyAuditX64 audit_m4_x64_model
+LeanQbeLegacyTest.KissatM4LegacyAuditX64 audit_m4_x64_sat_sound
+LeanQbeLegacyTest.KissatM4LegacyAuditX64 audit_m4_x64_model_only
+LeanQbeLegacyTest.KissatM4LegacyAuditX64 audit_m4_x64_sound_only
 LeanQbe.T.Arm64.KissatM4CertLink LeanQbe.T.Arm64.KissatM4CertLink.m4_legalSig
 LeanQbe.T.Arm64.KissatM4CertLink LeanQbe.T.Arm64.KissatM4CertLink.mk_module_fnspec
 LeanQbe.T.Arm64.KissatM4CertLink LeanQbe.T.Arm64.KissatM4CertLink.solve_arm64_of_fnspec
 LeanQbe.T.Arm64.KissatM4 LeanQbe.T.Arm64.KissatM4.m4_module_fnspec
 LeanQbe.T.Arm64.KissatM4 LeanQbe.T.Arm64.KissatM4.m4_solve_bytes_unsat_arm64
 LeanQbe.T.Arm64.KissatM4 LeanQbe.T.Arm64.KissatM4.m4_arm64_unsat_nonvacuous
-LeanQbeTest.T.KissatM4AuditArm64 audit_m4_arm_fnspec
-LeanQbeTest.T.KissatM4AuditArm64 audit_m4_arm_unsat
-LeanQbeTest.T.KissatM4AuditArm64 audit_m4_arm_sound
-LeanQbeTest.T.KissatM4AuditArm64 audit_m4_arm_nv
-LeanQbeTest.T.KissatM4AuditArm64 audit_m4_arm_nv_closed
+LeanQbeLegacyTest.KissatM4LegacyAuditArm64 audit_m4_arm_fnspec
+LeanQbeLegacyTest.KissatM4LegacyAuditArm64 audit_m4_arm_unsat
+LeanQbeLegacyTest.KissatM4LegacyAuditArm64 audit_m4_arm_sound
+LeanQbeLegacyTest.KissatM4LegacyAuditArm64 audit_m4_arm_nv
+LeanQbeLegacyTest.KissatM4LegacyAuditArm64 audit_m4_arm_nv_closed
+LeanQbeLegacyTest.KissatM4LegacyAuditArm64 audit_m4_arm_sat_fnspec
+LeanQbeLegacyTest.KissatM4LegacyAuditArm64 audit_m4_arm_model
+LeanQbeLegacyTest.KissatM4LegacyAuditArm64 audit_m4_arm_sat_sound
+LeanQbeLegacyTest.KissatM4LegacyAuditArm64 audit_m4_arm_model_only
+LeanQbeLegacyTest.KissatM4LegacyAuditArm64 audit_m4_arm_sound_only
