@@ -151,21 +151,21 @@ theorem fullSparseInv_init {c : FullCfg} {F0 : CNF Nat} {s : FullState}
 @[expose] def fullInitDelCap (rem : Nat) : Nat :=
   if 524288 ≤ rem then 4096 else 8
 
-private def fullInitExtCap (nc rem : Nat) : Nat :=
+@[expose] def fullInitExtCap (nc rem : Nat) : Nat :=
   let del_b := fullInitDelCap rem * 12
   let e := fullCalcExtCap rem
   let s := fullCalcScrCap rem
   let dyn := del_b + 4 * e + 4 * s
   if rem < dyn + nc * 40 + 136 then 0 else e
 
-private def fullInitScrCap (nc rem : Nat) : Nat :=
+@[expose] def fullInitScrCap (nc rem : Nat) : Nat :=
   let del_b := fullInitDelCap rem * 12
   let e := fullCalcExtCap rem
   let s := fullCalcScrCap rem
   let dyn := del_b + 4 * e + 4 * s
   if rem < dyn + nc * 40 + 136 then 0 else s
 
-private def fullInitDyn (nc rem : Nat) : Nat :=
+@[expose] def fullInitDyn (nc rem : Nat) : Nat :=
   fullInitDelCap rem * 12 + 4 * fullInitExtCap nc rem + 4 * fullInitScrCap nc rem
 
 @[expose] def fullInitAp (avail_dyn : Nat) : Nat :=

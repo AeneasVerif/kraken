@@ -28,16 +28,16 @@ open scoped FullArenaTactics FullAnalyzeTactics
 
 /-! ## 1. `full_otfs_large` invariant & shrink helpers -/
 
-private def otfsActCnt (k : FullCoreState) (cref j : Nat) : Nat :=
+@[expose] def otfsActCnt (k : FullCoreState) (cref j : Nat) : Nat :=
   ((List.range j).drop 2).countP fun q =>
     decide (0 < (k.lvl[(k.arena[cref + 3 + q]?.getD 0#32).toNat / 2]?.getD 0#32).toNat)
 
-private theorem otfsActCnt_le (k : FullCoreState) (cref j : Nat) :
+theorem otfsActCnt_le (k : FullCoreState) (cref j : Nat) :
     otfsActCnt k cref j ≤ j - 2 := by
   unfold otfsActCnt; refine Nat.le_trans List.countP_le_length ?_
   simp [List.length_drop, List.length_range]
 
-private theorem otfsActCnt_succ {k : FullCoreState} {cref j : Nat} (hj : 2 ≤ j) :
+theorem otfsActCnt_succ {k : FullCoreState} {cref j : Nat} (hj : 2 ≤ j) :
     otfsActCnt k cref (j + 1) = otfsActCnt k cref j +
       if 0 < (k.lvl[(k.arena[cref + 3 + j]?.getD 0#32).toNat / 2]?.getD 0#32).toNat then 1
       else 0 := by
@@ -45,7 +45,7 @@ private theorem otfsActCnt_succ {k : FullCoreState} {cref j : Nat} (hj : 2 ≤ j
   rw [List.range_succ, List.drop_append_of_le_length (by simp [List.length_range]; omega),
     List.countP_append]; simp [List.countP_cons]
 
-private theorem otfs_large_swap01 {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+theorem otfs_large_swap01 {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {cut : Nat} {s : FullState} (hlen : s.LengthsOk c)
     (hw : FullWitnessCutInv c F0 F_cur cut s.core) (hnd : FullArenaVarsNodup s)
     {cref l0 uip : BitVec 32} (hcref : cref.toNat ∈ fullArenaClauseRefs s)
@@ -109,7 +109,7 @@ private theorem pw_lt_map_nodup {α : Type} (f : Nat → α) (bd : Nat)
     have heq := hinj q p (hlt q (List.mem_cons_of_mem _ hq)) (hlt p List.mem_cons_self) hfeq
     have := hpw.1 q hq; omega
 
-private theorem otfs_large_shrink_ok {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+theorem otfs_large_shrink_ok {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {cut idx_u nsz : Nat} {s s2 : FullState} {cref l0 uip : BitVec 32}
     {ar3 : List (BitVec 32)} {origMap : List Nat}
     (hlen : s.LengthsOk c) (hw : FullWitnessCutInv c F0 F_cur cut s.core)
