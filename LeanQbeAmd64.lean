@@ -25,6 +25,7 @@ public import LeanQbe.T.Amd64.Bignum
 public import LeanQbe.T.Amd64.ChaCha
 public import LeanQbe.T.Amd64.LratBytes
 public import LeanQbe.T.Amd64.LinkRec
+public import LeanQbe.T.Amd64.KissatPlainBounds
 public import LeanQbe.T.Amd64.KissatPlainCert1
 public import LeanQbe.T.Amd64.KissatPlainCert2
 public import LeanQbe.T.Amd64.KissatPlainCert3

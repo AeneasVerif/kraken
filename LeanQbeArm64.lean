@@ -19,6 +19,7 @@ public import LeanQbe.T.Arm64.Bignum
 public import LeanQbe.T.Arm64.ChaCha
 public import LeanQbe.T.Arm64.LratBytes
 public import LeanQbe.T.Arm64.LinkRec
+public import LeanQbe.T.Arm64.KissatPlainBounds
 public import LeanQbe.T.Arm64.KissatPlainCert1
 public import LeanQbe.T.Arm64.KissatPlainCert2
 public import LeanQbe.T.Arm64.KissatPlainCert3
