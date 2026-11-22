@@ -45,6 +45,17 @@ public import LeanQbe.T.Examples.Kissat.FullM6TiersProof
 public import LeanQbe.T.Examples.Kissat.FullM6TiersProof0
 public import LeanQbe.T.Examples.Kissat.FullM6TiersProof1a
 public import LeanQbe.T.Examples.Kissat.FullM6TiersProof1b
+public import LeanQbe.T.Examples.Kissat.FullM6VivBackbone
+public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof
+public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof0
+public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof1
+public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof2a
+public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof2b
+public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof3a
+public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof3b
+public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof4a
+public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof4b
+public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof4c
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParse
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseLemmas
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof1
