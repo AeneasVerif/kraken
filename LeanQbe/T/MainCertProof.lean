@@ -162,6 +162,100 @@ theorem fnSpec_noExit_of_legalSigAll (cert : LinkedCert T L lt hcl mod [] [] nX 
   have ⟨has, hrs⟩ := hleg f hf
   cert.fnSpec_noExit_id h Γ k₀ hc hu hacyc hwf hwp hf has hrs hnoex
 
+/-- General module linking theorem accessed directly by index `i < mod.fns.length`. -/
+theorem fnSpec_at_idx (cert : LinkedCert T L lt hcl mod ext₀ exits nX maxBound)
+    (h : T.mach.Host) (Γ : Env) (k₀ : Nat)
+    (hc : cert.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
+    (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
+    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
+    (hext : ∀ p ∈ ext₀,
+      T.FnSpec h p.1.1 (legalEnv lt (Env.ofModule mod Γ) p.1.1 p.1.2.1 p.1.2.2) p.2 nX)
+    (hext_uniq : (∀ p ∈ ext₀, ∀ q ∈ ext₀, p.1.1 = q.1.1 → p.2 = q.2) ∧
+      (∀ p ∈ ext₀, p.1.1 ∉ mod.fns.map Fn.name))
+    (hexits : ∀ g ∈ exits, T.Defined h g) {i : Nat} (hi : i < mod.fns.length) :
+    T.Defined h (mod.fns[i]).name ∧ T.FnSpec h (mod.fns[i]).name
+      (legalEnv lt (Env.ofModule mod Γ) (mod.fns[i]).name (lt.legalSig (mod.fns[i]).as)
+        (lt.legalSig (mod.fns[i]).rs))
+      (cert.bound (mod.fns[i]).name) nX :=
+  cert.fnSpec h Γ k₀ hc hu hacyc hwf hwp hext hext_uniq hexits (List.getElem_mem hi)
+
+/-- Self-contained `Defined` + `FnSpec` on `cert.host` (`ext₀ = []`) accessed by index. -/
+theorem fnSpec_host_at_idx (cert : LinkedCert T L lt hcl mod [] exits nX maxBound)
+    (Γ : Env) (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
+    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
+    {i : Nat} (hi : i < mod.fns.length) :
+    T.Defined cert.host (mod.fns[i]).name ∧ T.FnSpec cert.host (mod.fns[i]).name
+      (legalEnv lt (Env.ofModule mod Γ) (mod.fns[i]).name (lt.legalSig (mod.fns[i]).as)
+        (lt.legalSig (mod.fns[i]).rs))
+      (cert.bound (mod.fns[i]).name) nX :=
+  cert.fnSpec_host Γ hacyc hwf hwp (List.getElem_mem hi)
+
+/-- Source-level `Defined` + `FnSpec` on `cert.host` (`ext₀ = []`) accessed by index. -/
+theorem fnSpec_host_src_at_idx (cert : LinkedCert T L lt hcl mod [] exits nX maxBound)
+    (Γ : Env) (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
+    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
+    {i : Nat} (hi : i < mod.fns.length)
+    (has : lt.legalSig (mod.fns[i]).as = (mod.fns[i]).as)
+    (hrs : lt.legalSig (mod.fns[i]).rs = (mod.fns[i]).rs)
+    (hnoex : ∀ (args : Tup Val (mod.fns[i]).as) (m : Mem 64) (Q : Post (mod.fns[i]).rs)
+      (X X' : XPost),
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X →
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X') :
+    T.Defined cert.host (mod.fns[i]).name ∧
+      T.FnSpec cert.host (mod.fns[i]).name (Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs)
+        (cert.bound (mod.fns[i]).name) nX :=
+  cert.fnSpec_host_src Γ hacyc hwf hwp (List.getElem_mem hi) has hrs hnoex
+
+/-- Source-level `Defined` + `FnSpec` on `cert.host` (`ext₀ = []`) with `LegalSigAll` by index. -/
+theorem fnSpec_host_sig_idx
+    (cert : LinkedCert T L lt hcl mod [] exits nX maxBound)
+    (Γ : Env) (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
+    (hleg : LegalSigAll lt mod.fns)
+    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
+    {i : Nat} (hi : i < mod.fns.length)
+    (hnoex : ∀ (args : Tup Val (mod.fns[i]).as) (m : Mem 64) (Q : Post (mod.fns[i]).rs)
+      (X X' : XPost),
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X →
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X') :
+    T.Defined cert.host (mod.fns[i]).name ∧
+      T.FnSpec cert.host (mod.fns[i]).name (Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs)
+        (cert.bound (mod.fns[i]).name) nX :=
+  cert.fnSpec_host_of_legalSigAll Γ hacyc hwf hleg hwp (List.getElem_mem hi) hnoex
+
+/-- Arbitrary-host `fnSpec_noExit_id` accessed by index (`ext₀ = []`, `exits = []`). -/
+theorem fnSpec_noExit_id_at_idx (cert : LinkedCert T L lt hcl mod [] [] nX maxBound)
+    (h : T.mach.Host) (Γ : Env) (k₀ : Nat)
+    (hc : cert.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
+    (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
+    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
+    {i : Nat} (hi : i < mod.fns.length)
+    (has : lt.legalSig (mod.fns[i]).as = (mod.fns[i]).as)
+    (hrs : lt.legalSig (mod.fns[i]).rs = (mod.fns[i]).rs)
+    (hnoex : ∀ (args : Tup Val (mod.fns[i]).as) (m : Mem 64) (Q : Post (mod.fns[i]).rs)
+      (X X' : XPost),
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X →
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X') :
+    T.Defined h (mod.fns[i]).name ∧ T.FnSpec h (mod.fns[i]).name
+      (Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs) (cert.bound (mod.fns[i]).name) nX :=
+  cert.fnSpec_noExit_id h Γ k₀ hc hu hacyc hwf hwp (List.getElem_mem hi) has hrs hnoex
+
+/-- Arbitrary-host `fnSpec_noExit_of_legalSigAll` accessed by index. -/
+theorem fnSpec_noExit_sig_idx
+    (cert : LinkedCert T L lt hcl mod [] [] nX maxBound)
+    (h : T.mach.Host) (Γ : Env) (k₀ : Nat)
+    (hc : cert.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
+    (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
+    (hleg : LegalSigAll lt mod.fns)
+    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
+    {i : Nat} (hi : i < mod.fns.length)
+    (hnoex : ∀ (args : Tup Val (mod.fns[i]).as) (m : Mem 64) (Q : Post (mod.fns[i]).rs)
+      (X X' : XPost),
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X →
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X') :
+    T.Defined h (mod.fns[i]).name ∧ T.FnSpec h (mod.fns[i]).name
+      (Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs) (cert.bound (mod.fns[i]).name) nX :=
+  cert.fnSpec_noExit_of_legalSigAll h Γ k₀ hc hu hacyc hwf hleg hwp (List.getElem_mem hi) hnoex
+
 /-! ### Concrete `TargetInit` `Eventually` lifts -/
 
 section ConcreteInit
@@ -345,6 +439,122 @@ theorem eventually_ret1_i64 (cert : LinkedCert T L lt hcl mod [] exits nX maxBou
         (T.mach.labelAddr cert.host f.name)) :=
   eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, h.2.1⟩)
     (cert.eventually_ret1_sep_i64 I Γ hacyc hwf hwp hf hret has hrs hnoex
+      bsMem args v (fun _ => True) hbs hargs hspec
+      (fun rets m' hm' => ⟨hQ rets m' hm', trivial⟩) hbound)
+
+/-- One-shot `Eventually` theorem accessed by index `i < mod.fns.length`. -/
+theorem eventually_fnSpec_at_idx (cert : LinkedCert T L lt hcl mod [] exits nX maxBound)
+    (I : TargetInit T maxStack maxMem) (Γ : Env)
+    (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
+    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
+    {i : Nat} (hi : i < mod.fns.length)
+    (has : lt.legalSig (mod.fns[i]).as = (mod.fns[i]).as)
+    (hrs : lt.legalSig (mod.fns[i]).rs = (mod.fns[i]).rs)
+    (hnoex : ∀ (args : Tup Val (mod.fns[i]).as) (m : Mem 64) (Q : Post (mod.fns[i]).rs)
+      (X X' : XPost),
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X →
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X')
+    (bsMem : List UInt8) (args : Tup Val (mod.fns[i]).as) (hbs : bsMem.length ≤ maxMem)
+    (hargs : (T.toIsa.assignArgs (mod.fns[i]).as).isSome = true)
+    {Q : Post (mod.fns[i]).rs} {X : XPost}
+    (hspec : Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args (bsMem.At 0x1000#64) Q X)
+    {post : T.mach.State → Prop}
+    (hpost : ∀ st,
+      (T.mach.pc st = I.ra0 ∧ ∃ rets m', Q rets m' ∧ T.RetsIn rets (T.mach.data st) ∧
+        (T.mach.mem (T.mach.data st) =⋆ Eq m' ⋆ T.Exit I.sp0 (cert.bound (mod.fns[i]).name) ⋆
+          Std.ExtHashMap.emp)) ∨
+      (∃ (sym' : Sym) (cs : List Ty) (xs : Tup Val cs) (m' : Mem 64), X sym' cs xs m' ∧
+        T.mach.pc st = T.mach.labelAddr cert.host sym' ∧ T.ArgsIn xs (T.mach.data st)) →
+      post st)
+    (hbound : maxBound ≤ maxStack := by omega) :
+    Eventually (T.mach.step cert.host) post
+      (T.mach.mkState (I.initState (cert.bound (mod.fns[i]).name) bsMem args)
+        (T.mach.labelAddr cert.host (mod.fns[i]).name)) :=
+  cert.eventually_fnSpec I Γ hacyc hwf hwp (List.getElem_mem hi) has hrs hnoex
+    bsMem args hbs hargs hspec hpost hbound
+
+/-- One-shot `eventually_ret1_sep_i64` theorem accessed by index `i < mod.fns.length`. -/
+theorem eventually_ret1_sep_idx (cert : LinkedCert T L lt hcl mod [] exits nX maxBound)
+    (I : TargetInit T maxStack maxMem) (Γ : Env)
+    (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
+    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
+    {i : Nat} (hi : i < mod.fns.length) (hret : (mod.fns[i]).rs = [i64])
+    (has : lt.legalSig (mod.fns[i]).as = (mod.fns[i]).as)
+    (hrs : lt.legalSig (mod.fns[i]).rs = (mod.fns[i]).rs)
+    (hnoex : ∀ (args : Tup Val (mod.fns[i]).as) (m : Mem 64) (Q : Post (mod.fns[i]).rs)
+      (X X' : XPost),
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X →
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X')
+    (bsMem : List UInt8) (args : Tup Val (mod.fns[i]).as) (v : Val i64) (P : Mem 64 → Prop)
+    (hbs : bsMem.length ≤ maxMem) (hargs : (T.toIsa.assignArgs (mod.fns[i]).as).isSome = true)
+    {Q : Post [i64]}
+    (hspec : Γ (mod.fns[i]).name (mod.fns[i]).as [i64] args (bsMem.At 0x1000#64) Q
+      (fun _ _ _ _ => False))
+    (hQ : ∀ rets m', Q rets m' → rets = (v, ()) ∧ P m')
+    (hbound : maxBound ≤ maxStack := by omega) :
+    Eventually (T.mach.step cert.host)
+      (fun st => T.mach.pc st = I.ra0 ∧ T.mach.getGpr (T.mach.data st) I.ret0 = v ∧
+        (T.mach.mem (T.mach.data st) =⋆ P ⋆ T.Exit I.sp0 (cert.bound (mod.fns[i]).name) ⋆
+          Std.ExtHashMap.emp))
+      (T.mach.mkState (I.initState (cert.bound (mod.fns[i]).name) bsMem args)
+        (T.mach.labelAddr cert.host (mod.fns[i]).name)) :=
+  cert.eventually_ret1_sep_i64 I Γ hacyc hwf hwp (List.getElem_mem hi) hret has hrs hnoex
+    bsMem args v P hbs hargs hspec hQ hbound
+
+/-- One-shot `eventually_ret1_sep_i64_of_legalSigAll` accessed by index. -/
+theorem eventually_ret1_sep_sig_idx
+    (cert : LinkedCert T L lt hcl mod [] exits nX maxBound)
+    (I : TargetInit T maxStack maxMem) (Γ : Env)
+    (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
+    (hleg : LegalSigAll lt mod.fns)
+    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
+    {i : Nat} (hi : i < mod.fns.length) (hret : (mod.fns[i]).rs = [i64])
+    (hnoex : ∀ (args : Tup Val (mod.fns[i]).as) (m : Mem 64) (Q : Post (mod.fns[i]).rs)
+      (X X' : XPost),
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X →
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X')
+    (bsMem : List UInt8) (args : Tup Val (mod.fns[i]).as) (v : Val i64) (P : Mem 64 → Prop)
+    (hbs : bsMem.length ≤ maxMem) (hargs : (T.toIsa.assignArgs (mod.fns[i]).as).isSome = true)
+    {Q : Post [i64]}
+    (hspec : Γ (mod.fns[i]).name (mod.fns[i]).as [i64] args (bsMem.At 0x1000#64) Q
+      (fun _ _ _ _ => False))
+    (hQ : ∀ rets m', Q rets m' → rets = (v, ()) ∧ P m')
+    (hbound : maxBound ≤ maxStack := by omega) :
+    Eventually (T.mach.step cert.host)
+      (fun st => T.mach.pc st = I.ra0 ∧ T.mach.getGpr (T.mach.data st) I.ret0 = v ∧
+        (T.mach.mem (T.mach.data st) =⋆ P ⋆ T.Exit I.sp0 (cert.bound (mod.fns[i]).name) ⋆
+          Std.ExtHashMap.emp))
+      (T.mach.mkState (I.initState (cert.bound (mod.fns[i]).name) bsMem args)
+        (T.mach.labelAddr cert.host (mod.fns[i]).name)) :=
+  have ⟨has, hrs⟩ := hleg (mod.fns[i]) (List.getElem_mem hi)
+  cert.eventually_ret1_sep_idx I Γ hacyc hwf hwp hi hret has hrs hnoex
+    bsMem args v P hbs hargs hspec hQ hbound
+
+/-- One-shot `eventually_ret1_i64` theorem accessed by index `i < mod.fns.length`. -/
+theorem eventually_ret1_idx (cert : LinkedCert T L lt hcl mod [] exits nX maxBound)
+    (I : TargetInit T maxStack maxMem) (Γ : Env)
+    (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
+    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
+    {i : Nat} (hi : i < mod.fns.length) (hret : (mod.fns[i]).rs = [i64])
+    (has : lt.legalSig (mod.fns[i]).as = (mod.fns[i]).as)
+    (hrs : lt.legalSig (mod.fns[i]).rs = (mod.fns[i]).rs)
+    (hnoex : ∀ (args : Tup Val (mod.fns[i]).as) (m : Mem 64) (Q : Post (mod.fns[i]).rs)
+      (X X' : XPost),
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X →
+      Γ (mod.fns[i]).name (mod.fns[i]).as (mod.fns[i]).rs args m Q X')
+    (bsMem : List UInt8) (args : Tup Val (mod.fns[i]).as) (v : Val i64)
+    (hbs : bsMem.length ≤ maxMem) (hargs : (T.toIsa.assignArgs (mod.fns[i]).as).isSome = true)
+    {Q : Post [i64]}
+    (hspec : Γ (mod.fns[i]).name (mod.fns[i]).as [i64] args (bsMem.At 0x1000#64) Q
+      (fun _ _ _ _ => False))
+    (hQ : ∀ rets m', Q rets m' → rets = (v, ()))
+    (hbound : maxBound ≤ maxStack := by omega) :
+    Eventually (T.mach.step cert.host)
+      (fun st => T.mach.pc st = I.ra0 ∧ T.mach.getGpr (T.mach.data st) I.ret0 = v)
+      (T.mach.mkState (I.initState (cert.bound (mod.fns[i]).name) bsMem args)
+        (T.mach.labelAddr cert.host (mod.fns[i]).name)) :=
+  eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, h.2.1⟩)
+    (cert.eventually_ret1_sep_idx I Γ hacyc hwf hwp hi hret has hrs hnoex
       bsMem args v (fun _ => True) hbs hargs hspec
       (fun rets m' hm' => ⟨hQ rets m' hm', trivial⟩) hbound)
 
