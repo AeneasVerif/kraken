@@ -1731,6 +1731,123 @@ private theorem m4_bva_try_lit_lm1_init {maxv cap : Nat} {sb : List (BitVec 32)}
     · subst hlf; exact ⟨0, by omega, by rw [hs0]⟩
     · rw [List.getElem?_set_ne (Ne.symm hlf), hlm_zero l hl] at hne; exact absurd rfl hne
 
+private def BvaTouchedInv (c : FullCfg) (stc : FullState) (R : Mem 64 → Prop)
+    (nt : BitVec 64) (st : FullState) (m : Mem 64) : Prop :=
+  st.core = stc.core ∧
+  st.scratch.scratch_buf = stc.scratch.scratch_buf ∧
+  st.scratch.tarjan_mark = stc.scratch.tarjan_mark ∧
+  st.scratch.tarjan_reach = stc.scratch.tarjan_reach ∧
+  st.scratch.last_learned = stc.scratch.last_learned ∧
+  st.scratch.extend_len = stc.scratch.extend_len ∧
+  st.scratch.LengthsOk c ∧
+  nt.toNat ≤ 2 * stc.core.cur_vars ∧
+  (∀ k < nt.toNat, (st.scratch.work_stk2[k]?.getD 0#32).toNat < 2 * stc.core.cur_vars) ∧
+  (FullMem c st ⋆ R) m
+
+private theorem bva_touched_push {c : FullCfg} {stc st : FullState} {R : Mem 64 → Prop}
+    {nt : BitVec 64} {m : Mem 64} {l : BitVec 32} {idx : Nat}
+    (hcv_le : stc.core.cur_vars ≤ c.max_vars) (hmx : c.max_vars < 2 * 2 ^ 28)
+    (hnt_lt : nt.toNat < 2 * stc.core.cur_vars) (hl_lt : l.toNat < 2 * stc.core.cur_vars)
+    (hcore : st.core = stc.core) (hsb : st.scratch.scratch_buf = stc.scratch.scratch_buf)
+    (htm : st.scratch.tarjan_mark = stc.scratch.tarjan_mark)
+    (htr : st.scratch.tarjan_reach = stc.scratch.tarjan_reach)
+    (hll : st.scratch.last_learned = stc.scratch.last_learned)
+    (hel : st.scratch.extend_len = stc.scratch.extend_len)
+    (hscl : st.scratch.LengthsOk c)
+    (hws2_ok : ∀ k < nt.toNat,
+      (st.scratch.work_stk2[k]?.getD 0#32).toNat < 2 * stc.core.cur_vars)
+    (hm : (FullMem c { st with scratch := { st.scratch with
+      wsort := st.scratch.wsort.set idx 1#32,
+      work_stk2 := st.scratch.work_stk2.set nt.toNat l } } ⋆ R) m) :
+    BvaTouchedInv c stc R (nt + 1#64) { st with scratch := { st.scratch with
+      wsort := st.scratch.wsort.set idx 1#32,
+      work_stk2 := st.scratch.work_stk2.set nt.toNat l } } m := by
+  have hws_l := hscl.wsort_len
+  have hws2_l := hscl.work_stk2_len
+  have hnt1 : (nt + 1#64).toNat = nt.toNat + 1 := by simp only [bv_c0]; omega
+  refine ⟨hcore, hsb, htm, htr, hll, hel,
+    { hscl with wsort_len := by simp [hws_l], work_stk2_len := by simp [hws2_l] },
+    by omega, fun k hk => ?_, hm⟩
+  rw [hnt1] at hk
+  by_cases hkn : k = nt.toNat
+  · subst hkn; rw [List.getElem?_set_self (by omega), Option.getD_some]; exact hl_lt
+  · rw [List.getElem?_set_ne (Ne.symm hkn)]; exact hws2_ok k (by omega)
+
+private theorem bva_touched_clear_step {c : FullCfg} {stc stm stz : FullState}
+    {R : Mem 64 → Prop} {ntm tz : BitVec 64} {m : Mem 64} {idx : Nat}
+    (htz_lt : tz.toNat < ntm.toNat) (htz1 : (tz + 1#64).toNat = tz.toNat + 1)
+    (hcorez : stz.core = stc.core) (hsbz : stz.scratch.scratch_buf = stc.scratch.scratch_buf)
+    (htmz : stz.scratch.tarjan_mark = stc.scratch.tarjan_mark)
+    (htrz : stz.scratch.tarjan_reach = stc.scratch.tarjan_reach)
+    (hllz : stz.scratch.last_learned = stc.scratch.last_learned)
+    (helz : stz.scratch.extend_len = stc.scratch.extend_len)
+    (hws2z : stz.scratch.work_stk2 = stm.scratch.work_stk2)
+    (hsclz : stz.scratch.LengthsOk c)
+    (hm : (FullMem c { stz with scratch :=
+      { stz.scratch with wsort := stz.scratch.wsort.set idx 0#32 } } ⋆ R) m) :
+    ∃ stz' : FullState, (tz + 1#64).toNat ≤ ntm.toNat ∧ stz'.core = stc.core ∧
+      stz'.scratch.scratch_buf = stc.scratch.scratch_buf ∧
+      stz'.scratch.tarjan_mark = stc.scratch.tarjan_mark ∧
+      stz'.scratch.tarjan_reach = stc.scratch.tarjan_reach ∧
+      stz'.scratch.last_learned = stc.scratch.last_learned ∧
+      stz'.scratch.extend_len = stc.scratch.extend_len ∧
+      stz'.scratch.work_stk2 = stm.scratch.work_stk2 ∧
+      stz'.scratch.LengthsOk c ∧ (FullMem c stz' ⋆ R) m :=
+  ⟨{ stz with scratch := { stz.scratch with wsort := stz.scratch.wsort.set idx 0#32 } },
+   by rw [htz1]; exact htz_lt, hcorez, hsbz, htmz, htrz, hllz, helz, hws2z,
+   { hsclz with wsort_len := by rw [List.length_set, hsclz.wsort_len] }, hm⟩
+
+private theorem bva_bv64_add2_mod {x : BitVec 32} :
+    (x.toNat + BitVec.toNat (2 : BitVec 64)) % 2 ^ 64 = x.toNat + 2 := by
+  rw [show BitVec.toNat (2 : BitVec 64) = 2 from rfl]; omega
+
+private theorem bva_bv32_step_row_n {step : BitVec 32} (h1 : 1 ≤ step.toNat)
+    (h2 : step.toNat < 32) :
+    ((64 : BitVec 32) + (step - 1) * 256).toNat = 64 + (step.toNat - 1) * 256 := by
+  simp only [BitVec.toNat_add, BitVec.toNat_mul,
+    BitVec.toNat_sub_of_le (show (1 : BitVec 32).toNat ≤ step.toNat from h1),
+    show (64 : BitVec 32).toNat = 64 from rfl, show (256 : BitVec 32).toNat = 256 from rfl,
+    show (1 : BitVec 32).toNat = 1 from rfl]; omega
+
+private theorem bva_bv32_nrow_n {step : BitVec 32} (h : step.toNat < 32) :
+    ((64 : BitVec 32) + step * 256).toNat = 64 + step.toNat * 256 := by
+  simp only [BitVec.toNat_add, BitVec.toNat_mul, show (64 : BitVec 32).toNat = 64 from rfl,
+    show (256 : BitVec 32).toNat = 256 from rfl]; omega
+
+private theorem bva_bv32_par_n {step : BitVec 32} (h : step.toNat < 32) :
+    ((8256 : BitVec 32) + step * 256).toNat = 8256 + step.toNat * 256 := by
+  simp only [BitVec.toNat_add, BitVec.toNat_mul, show (8256 : BitVec 32).toNat = 8256 from rfl,
+    show (256 : BitVec 32).toNat = 256 from rfl]; omega
+
+private theorem bva_bv32_add1_n {x : BitVec 32} (h : x.toNat < 1000) :
+    (x + 1#32).toNat = x.toNat + 1 := by simp only [bv_c0]; omega
+
+private theorem bva_bv32_32add_n {x : BitVec 32} (h : x.toNat < 32) :
+    ((32 : BitVec 32) + x).toNat = 32 + x.toNat := by
+  change (32#32 + x).toNat = _; simp only [bv_c0]; omega
+
+private theorem bva_bv32_row_idx_n {bk tm : BitVec 32} (hbk : bk.toNat < 32)
+    (htm : tm.toNat < 256) :
+    (64 + bk * 256 + tm).toNat = 64 + bk.toNat * 256 + tm.toNat := by
+  change (64#32 + bk * 256#32 + tm).toNat = _; simp only [bv_c0]; omega
+
+private theorem bva_bv32_row_mod_n {bk tm : BitVec 32} (hbk : bk.toNat < 32)
+    (htm : tm.toNat < 256) :
+    ((64 : BitVec 32).toNat + bk.toNat * (256 : BitVec 32).toNat + tm.toNat) % 2 ^ 32 =
+      64 + bk.toNat * 256 + tm.toNat := by
+  change (64 + bk.toNat * 256 + tm.toNat) % 2 ^ 32 = _; omega
+
+private theorem bva_bv64_add2_n {ct : BitVec 32} :
+    (BitVec.setWidth 64 ct + 2).toNat = ct.toNat + 2 := by
+  change (BitVec.setWidth 64 ct + 2#64).toNat = _; simp only [bv_c0]; omega
+
+private theorem bva_bv64_add3_n {ct tj : BitVec 32} :
+    (BitVec.setWidth 64 ct + 3 + BitVec.setWidth 64 tj).toNat = ct.toNat + 3 + tj.toNat := by
+  change (BitVec.setWidth 64 ct + 3#64 + BitVec.setWidth 64 tj).toNat = _; simp only [bv_c0]; omega
+
+private theorem bva_bv64_add1_n {tz : BitVec 64} (h : tz.toNat < 4 * 2 ^ 28) :
+    (tz + 1#64).toNat = tz.toNat + 1 := by simp only [bv_c0]; omega
+
 end M4BvaTryLitHelpers
 
 theorem m4_bva_try_lit_wp (Γ : Env)
@@ -1842,6 +1959,8 @@ theorem m4_bva_try_lit_wp (Γ : Env)
             have hqn1_n : (qn + 1#32).toNat = qn.toNat + 1 := by simp only [bv_c0]; omega
             have h64qn : ((64 : BitVec 32) + qn).toNat = 64 + qn.toNat := by
               simp only [BitVec.toNat_add, show (64 : BitVec 32).toNat = 64 from rfl]; omega
+            have h64qn_sb : (BitVec.setWidth 64 ((64 : BitVec 32) + qn)).toNat < sb.length := by
+              rw [bv64_setWidth_32, h64qn, hsb_l]; omega
             c0_hsteps_nogrp
             c0_hstep
             c0_hsplit
@@ -1942,14 +2061,18 @@ theorem m4_bva_try_lit_wp (Γ : Env)
                         rw [hcr_mod, hcr2_mod]; omega)).toNat ≤ (256 : BitVec 32).toNat := by
                     assumption
                   simp only [hcr_mod, hcr2_mod] at h1; exact h1
-                refine wp_join_state (α := BitVec 32 × Bool)
-                  (fun ⟨hkf, hf⟩ => (hkf, hf, ()))
-                  (fun ⟨_, hf⟩ mhf =>
+                refine wp_join_state (α := BitVec 32 × Bool × Bool)
+                  (fun ⟨hkf, hf, sf⟩ => (hkf, hf, sf, ()))
+                  (fun ⟨_, hf, _⟩ mhf =>
                     (hf = true → f0.toNat ∈ fullArenaClauseLitsCore s.core cr.toNat) ∧ mhf = mp)
-                  (fun _ ⟨_, has_f0⟩ mhf ⟨hhf_ok, hmhf⟩ => ?_)
+                  (fun _ ⟨_, has_f0, sat⟩ mhf ⟨hhf_ok, hmhf⟩ => ?_)
                   (fun Jhf hJhf => ?_)
                 · subst mhf
                   c0_hfast
+                  · exact ihp (qn, p + 1#64 + 1#64, ()) mp (by dsimp only; rw [hp2_n]; omega)
+                      ⟨sb, by rw [hp2_n]; omega, by rw [hp2_n]; omega, hqn_le, hsb_l,
+                       by rw [hp2_n, show off0 + sz0 - (p.toNat + 2) = off0 + sz0 - p.toNat - 2
+                            by omega]; exact hrem_next, hrow0, hmp⟩
                   · obtain ⟨res, hres_lt, hres_nd, hok, hent⟩ :=
                       m4BvaRowEntryOk_of_large_f0 hinv hcr_ref hng_cr hsz3 hsz256
                         (hhf_ok (by assumption))
@@ -1975,11 +2098,16 @@ theorem m4_bva_try_lit_wp (Γ : Env)
                             by omega]; exact hrem_next, hrow0, hmp⟩
                 · clear hQ
                   refine wp_loop_inv
-                    (fun (hk, ()) mhk =>
-                      hk.toNat ≤ (s.core.arena[cr.toNat + 2]'(by omega)).toNat ∧ mhk = mp)
-                    (fun (hk, _) _ => (s.core.arena[cr.toNat + 2]'(by omega)).toNat - hk.toNat)
-                    (fun Jhk hJhk => by c0_hfast; exact hJhk (0#32, ()) mp ⟨Nat.zero_le _, rfl⟩)
-                    (fun Jhk (hk, ()) mhk ⟨hhk_le, hmhk⟩ ihhk => ?_)
+                    (fun (hk, hf, ()) mhk =>
+                      hk.toNat ≤ (s.core.arena[cr.toNat + 2]'(by omega)).toNat ∧
+                      (hf = true → f0.toNat ∈ fullArenaClauseLitsCore s.core cr.toNat) ∧
+                      mhk = mp)
+                    (fun (hk, _, _) _ => (s.core.arena[cr.toNat + 2]'(by omega)).toNat - hk.toNat)
+                    (fun Jhk hJhk => by
+                      c0_hfast
+                      exact hJhk (0#32, false, ()) mp
+                        ⟨Nat.zero_le _, (fun h => by cases h), rfl⟩)
+                    (fun Jhk (hk, hf, ()) mhk ⟨hhk_le, hhf_in, hmhk⟩ ihhk => ?_)
                   subst mhk; c0_hsplit
                   · have hhk_lt : hk.toNat < (s.core.arena[cr.toNat + 2]'(by omega)).toNat := by
                       have h1 : hk.toNat < (s.core.arena[(BitVec.setWidth 64
@@ -1995,29 +2123,39 @@ theorem m4_bva_try_lit_wp (Γ : Env)
                         (s.core.wstk[(p + 1#64).toNat]'(by rw [hp1_n]; exact hp1_ws)) + 3 +
                         BitVec.setWidth 64 hk).toNat < s.core.arena.length := by
                       rw [hcrk_eq]; omega
+                    have hmem_hl : (s.core.arena[cr.toNat + 3 + hk.toNat]'(by omega)).toNat ∈
+                        fullArenaClauseLitsCore s.core cr.toNat :=
+                      List.mem_of_getElem? (FullBvaFwdHelpers.fullArenaClauseLitsCore_getElem
+                        (k := s.core) (r := cr.toNat) (j := hk.toNat)
+                        (by rw [← hsz_cr]; exact hhk_lt) (by omega))
+                    have hhl_lt : (s.core.arena[cr.toNat + 3 + hk.toNat]'(by omega)).toNat <
+                        2 * s.core.cur_vars :=
+                      hinv.2.1.arena.lits_lt cr.toNat hcr_ref hng_cr _ hmem_hl
+                    have hhl_vals : (BitVec.setWidth 64
+                        (s.core.arena[(BitVec.setWidth 64
+                          (s.core.wstk[(p + 1#64).toNat]'(by rw [hp1_n]; exact hp1_ws)) + 3 +
+                          BitVec.setWidth 64 hk).toNat]'hcrk_b)).toNat < s.core.vals.length := by
+                      rw [bv64_setWidth_32]; simp only [hcrk_eq]; omega
                     have hhk1 : (hk + 1#32).toNat = hk.toNat + 1 := by simp only [bv_c0]; omega
                     c0_hsplit
+                    · c0_hfast; exact hJhf ⟨hk, hf, true⟩ mp ⟨hhf_in, rfl⟩
                     · c0_hfast
-                      refine hJhf ⟨hk, true⟩ mp ⟨fun _ => ?_, rfl⟩
-                      have hmem := List.mem_of_getElem?
-                        (FullBvaFwdHelpers.fullArenaClauseLitsCore_getElem
-                          (k := s.core) (r := cr.toNat) (j := hk.toNat)
-                          (by rw [← hsz_cr]; exact hhk_lt) (by omega))
-                      have hcrk_mod : (cr.toNat + BitVec.toNat (3 : BitVec 64) + hk.toNat) %
-                          2 ^ 64 = cr.toNat + 3 + hk.toNat := by
-                        rw [show BitVec.toNat (3 : BitVec 64) = 3 from rfl]; omega
-                      have heq : s.core.arena[cr.toNat + 3 + hk.toNat]'(by omega) = f0 := by
-                        have h1 : s.core.arena[((s.core.wstk[(p.toNat +
-                            BitVec.toNat (1 : BitVec 64)) % 2 ^ 64]'(by
-                              rw [hp1_mod]; exact hp1_ws)).toNat +
-                            BitVec.toNat (3 : BitVec 64) + hk.toNat) % 2 ^ 64]'(by
-                              rw [hcr_mod, hcrk_mod]; omega) = f0 := by assumption
-                        simpa only [hcr_mod, hcrk_mod] using h1
-                      rwa [heq] at hmem
-                    · c0_hfast
-                      exact ihhk (hk + 1#32, ()) mp (by dsimp only; rw [hhk1]; omega)
-                        ⟨by rw [hhk1]; omega, rfl⟩
-                  · c0_hfast; exact hJhf ⟨hk, false⟩ mp ⟨(fun h => by cases h), rfl⟩
+                      · refine ihhk (hk + 1#32, true, ()) mp (by dsimp only; rw [hhk1]; omega)
+                          ⟨by rw [hhk1]; omega, fun _ => ?_, rfl⟩
+                        have hcrk_mod : (cr.toNat + BitVec.toNat (3 : BitVec 64) + hk.toNat) %
+                            2 ^ 64 = cr.toNat + 3 + hk.toNat := by
+                          rw [show BitVec.toNat (3 : BitVec 64) = 3 from rfl]; omega
+                        have heq : s.core.arena[cr.toNat + 3 + hk.toNat]'(by omega) = f0 := by
+                          have h1 : s.core.arena[((s.core.wstk[(p.toNat +
+                              BitVec.toNat (1 : BitVec 64)) % 2 ^ 64]'(by
+                                rw [hp1_mod]; exact hp1_ws)).toNat +
+                              BitVec.toNat (3 : BitVec 64) + hk.toNat) % 2 ^ 64]'(by
+                                rw [hcr_mod, hcrk_mod]; omega) = f0 := by assumption
+                          simpa only [hcr_mod, hcrk_mod] using h1
+                        rwa [heq] at hmem_hl
+                      · exact ihhk (hk + 1#32, hf, ()) mp (by dsimp only; rw [hhk1]; omega)
+                          ⟨by rw [hhk1]; omega, hhf_in, rfl⟩
+                  · c0_hfast; exact hJhf ⟨hk, hf, false⟩ mp ⟨hhf_in, rfl⟩
               all_goals
                 exact ihp (qn, p + 1#64 + 1#64, ()) mp (by dsimp only; rw [hp2_n]; omega)
                   ⟨sb, by rw [hp2_n]; omega, by rw [hp2_n]; omega, hqn_le, hsb_l,
@@ -2038,8 +2176,9 @@ theorem m4_bva_try_lit_wp (Γ : Env)
             change ¬ qn.toNat < 2 at h1; omega
           have hsb0_lt : (BitVec.ofNat 64 0).toNat < sb.length := by
             simp only [BitVec.toNat_ofNat]; rw [hsb_l]; omega
-          have hsb32_lt : (BitVec.ofNat 64 32).toNat < sb.length := by
-            simp only [BitVec.toNat_ofNat]; rw [hsb_l]; omega
+          have hsb32_lt : (BitVec.ofNat 64 32).toNat <
+              (sb.set (BitVec.ofNat 64 0).toNat f0).length := by
+            rw [List.length_set]; simp only [BitVec.toNat_ofNat]; rw [hsb_l]; omega
           have hlm_f0 : (BitVec.setWidth 64 f0).toNat < s.core.lit_mark.length := by
             rw [bv64_setWidth_32, hlm_len]; omega
           have hinit_lits : (init_cv <<< (1 : Nat)).toNat = 2 * init_cv.toNat := by
@@ -2103,12 +2242,13 @@ theorem m4_bva_try_lit_wp (Γ : Env)
                   2 * stf.core.cur_vars := by
                 have h1 := (hmatf.2.2.2 si.toNat hsi_lt).1
                 rwa [List.getElem?_eq_getElem (by omega), Option.getD_some] at h1
+              have hsi_sb : (BitVec.setWidth 64 si).toNat < stf.scratch.scratch_buf.length := by
+                rw [bv64_setWidth_32, hsbf_l]; omega
               have hscr_si_b : (BitVec.setWidth 64 (stf.scratch.scratch_buf[
-                  (BitVec.setWidth 64 si).toNat]'(by
-                    rw [bv64_setWidth_32, hsbf_l]; omega))).toNat < lmi.length := by
+                  (BitVec.setWidth 64 si).toNat]'hsi_sb)).toNat < lmi.length := by
                 simp only [bv64_setWidth_32]; omega
               let xl := (stf.scratch.scratch_buf[si.toNat]'(by omega)).toNat
-              c0_hfast
+              c0_hsteps_nogrp
               have ⟨hhi', honly'⟩ := m4_bva_try_lit_clear_lm_step hsi_lt (by omega) hlmi_l
                 (by omega) hlmi_hi hlmi_only
               refine ihsi (si + 1#32, ()) m (by dsimp only; rw [hsi1]; omega)
@@ -2136,14 +2276,423 @@ theorem m4_bva_try_lit_wp (Γ : Env)
                   hfuelf htmf htrf hmsi
               · rcases hbkf with h0 | ⟨hbk1, hbk_lt⟩
                 · exact absurd h0 (by assumption)
-                · c0_call hCommit
-                  refine ⟨c, F0, F_cur, st_clr, R, rfl, hinv_clr, hbk1, by omega,
+                · have hmat_c : M4BvaMatrixInv c F_cur st_clr (bestkf.toNat + 1) :=
                     m4BvaMatrixInv_weaken_step (by omega) (by omega)
-                      (m4BvaMatrixInv_congr rfl rfl rfl rfl hmatf),
-                    hmsi, fun ok s' m' hinv' hcv' hfuel' htm' htr' hm' =>
-                      hQ ok s' m' hinv' (by dsimp only [st_clr] at hcv'; omega)
-                        (hfuel'.trans hfuelf) (htm'.trans htmf) (htr'.trans htrf) hm'⟩
+                      (m4BvaMatrixInv_congr rfl rfl rfl rfl hmatf)
+                  have hbk_lt32 : bestkf.toNat < 32 := by omega
+                  have hcv_c : st_clr.core.cur_vars = s.core.cur_vars := hcvf
+                  have hcv_c_le : st_clr.core.cur_vars ≤ c.max_vars := hlenf.core_ok.cur_vars_le
+                  have h2cv_c : (BitVec.ofNat 64 stf.core.cur_vars <<< (1 : Nat)).toNat =
+                      2 * st_clr.core.cur_vars := by
+                    rw [bv64_shl1_nat, BitVec.toNat_ofNat]; dsimp only [st_clr]; omega
+                  have hdm_n : (bestkf + 1#32).toNat = bestkf.toNat + 1 :=
+                    bva_bv32_add1_n (by omega)
+                  have hws_l0 : st_clr.scratch.wsort.length = 2 * c.max_vars :=
+                    hlenf.scratch_ok.wsort_len
+                  have hws2_l0 : st_clr.scratch.work_stk2.length = 2 * c.max_vars :=
+                    hlenf.scratch_ok.work_stk2_len
+                  have hsb_c : st_clr.scratch.scratch_buf.length = c.scratch_cap := hsbf_l
+                  have har_c : st_clr.core.arena.length = c.arena_cap :=
+                    hlenf.core_ok.arena_len_arr
+                  have halen_c : st_clr.core.arena_len ≤ c.arena_cap := hlenf.core_ok.arena_len_le
+                  have hlen_c : st_clr.LengthsOk c := hinv_clr.1
+                  have hmsi_c : (FullMem c st_clr ⋆ R) msi := hmsi
+                  have hfuel_c : st_clr.core.fuel = s.core.fuel := hfuelf
+                  have htm_c : st_clr.scratch.tarjan_mark = s.scratch.tarjan_mark := htmf
+                  have htr_c : st_clr.scratch.tarjan_reach = s.scratch.tarjan_reach := htrf
+                  obtain ⟨stc, hstc_eq⟩ : ∃ x : FullState, x = st_clr := ⟨st_clr, rfl⟩
+                  rw [← hstc_eq] at hinv_clr hmat_c hcv_c hcv_c_le h2cv_c hws_l0 hws2_l0
+                  rw [← hstc_eq] at hsb_c har_c halen_c hlen_c hmsi_c hfuel_c htm_c htr_c
+                  generalize htcap_eq : (BitVec.ofNat 64 stf.core.cur_vars <<< (1 : Nat)) = tcap
+                    at h2cv_c ⊢
+                  clear htcap_eq
+                  clear hinv1_core hsb1_l hlm1_l sb1 lm1 hend_mod hmod0 hmod1 hoff_c0
+                  clear hstc_eq st_clr hmsi hScan hPick hFilter hinv hdw hbd_f0 hslice_f0 h2f0 h2f1
+                  clear hoff_eq hsz_eq hoff_sz_le hmat1 hmatf hlmf_hi hlmf_only hlmi_hi hlmi_only
+                  clear hlm_clr hsi_eq hsi_le hrow0 hlenf hwf hndf hextf hlv0f hdmf hcvf hmrkf
+                  clear hlmi_l hsbf_l hbk_lt hcap_ge hinit_lits hcl hsc hsb_len hlm_len
+                  clear hqn2 hqn_le hst1 hst32 hmf harf half hfuelf htmf htrf hrem hp_ge hp_le
+                  clear hsb_l lmi
+                  -- Loop 1: collect divider literals `scr[0..dm)` and their negations
+                  c0_hsteps_nogrp
+                  refine wp_loop_inv
+                    (fun (nt, ti, ()) mti => ∃ st1 : FullState,
+                      ti.toNat ≤ bestkf.toNat + 1 ∧ BvaTouchedInv c stc R nt st1 mti)
+                    (fun (_, ti, _) _ => bestkf.toNat + 1 - ti.toNat)
+                    (fun Jt1 hJt1 => by
+                      exact hJt1 (0#64, 0#32, ()) msi ⟨stc, Nat.zero_le _, rfl, rfl, rfl, rfl, rfl,
+                        rfl, hlen_c.scratch_ok, Nat.zero_le _,
+                        fun _ h => absurd h (Nat.not_lt_zero _), hmsi_c⟩)
+                    (fun Jt1 (nt, ti, ()) mti ⟨st1, hti_le, hcore1, hsb1, htm1, htr1, hll1, hel1,
+                        hscl1, hnt_le, hws2_ok, hmti⟩ iht1 => ?_)
+                  c0_hsplit
+                  · have hti_lt : ti.toNat < bestkf.toNat + 1 := by
+                      have h1 : ti.toNat < (bestkf + 1#32).toNat := by assumption
+                      rwa [hdm_n] at h1
+                    have hti1 : (ti + 1#32).toNat = ti.toNat + 1 :=
+                      bva_bv32_add1_n (Nat.lt_trans hti_lt (Nat.lt_trans (Nat.succ_lt_succ hbk_lt32)
+                        (by decide)))
+                    have hti_sb_lt : ti.toNat < st1.scratch.scratch_buf.length := by
+                      rw [hsb1, hsb_c]
+                      exact Nat.lt_of_lt_of_le (Nat.lt_trans hti_lt (Nat.succ_lt_succ hbk_lt32))
+                        (Nat.le_trans (by decide) hmat_c.1)
+                    have hfl_lt : (st1.scratch.scratch_buf[ti.toNat]'hti_sb_lt).toNat <
+                        2 * stc.core.cur_vars := by
+                      have h1 := (hmat_c.2.2.2 ti.toNat hti_lt).1
+                      have hti_sb_c : ti.toNat < stc.scratch.scratch_buf.length := by
+                        rwa [← hsb1]
+                      rw [List.getElem?_eq_getElem hti_sb_c, Option.getD_some] at h1
+                      simpa only [hsb1] using h1
+                    have hti_sb : (BitVec.setWidth 64 ti).toNat <
+                        st1.scratch.scratch_buf.length := by
+                      rw [bv64_setWidth_32]; exact hti_sb_lt
+                    let flit := st1.scratch.scratch_buf[(BitVec.setWidth 64 ti).toNat]'hti_sb
+                    have hfl_eq : flit = st1.scratch.scratch_buf[ti.toNat]'hti_sb_lt := by
+                      simp only [flit, bv64_setWidth_32]
+                    have hfl_lt' : flit.toNat < 2 * stc.core.cur_vars := by
+                      rw [hfl_eq]; exact hfl_lt
+                    have hfl_ws : (BitVec.setWidth 64 flit).toNat < st1.scratch.wsort.length := by
+                      rw [bv64_setWidth_32, hscl1.wsort_len]
+                      exact Nat.lt_of_lt_of_le hfl_lt' (Nat.mul_le_mul_left 2 hcv_c_le)
+                    have hnfl_lt : (flit ^^^ 1#32).toNat < 2 * stc.core.cur_vars := by
+                      rw [BitVec.toNat_xor]; exact litNeg_lt_two_mul hfl_lt'
+                    c0_hsteps_nogrp
+                    refine wp_join_state1 (t := i64) (α := BitVec 64 × FullState) (fun x => x.1)
+                      (fun ⟨nt1, sta⟩ m1 => BvaTouchedInv c stc R nt1 sta m1)
+                      (fun _ ⟨nt1, sta⟩ m1 ⟨hcorea, hsba, htma, htra, hlla, hela, hscla, hnt1_le,
+                          hws2a_ok, hm1⟩ => ?_)
+                      (fun Jf1 hJf1 => ?_)
+                    · have hnfl_ws : (BitVec.setWidth 64 (flit ^^^ 1#32)).toNat <
+                          sta.scratch.wsort.length := by
+                        rw [bv64_setWidth_32, hscla.wsort_len]
+                        exact Nat.lt_of_lt_of_le hnfl_lt (Nat.mul_le_mul_left 2 hcv_c_le)
+                      c0_hsteps_nogrp
+                      refine wp_join_state1 (t := i64) (α := BitVec 64 × FullState) (fun x => x.1)
+                        (fun ⟨nt2, stb⟩ m2 => BvaTouchedInv c stc R nt2 stb m2)
+                        (fun _ ⟨nt2, stb⟩ m2 hinv2 => by
+                          c0_hsteps_nogrp
+                          exact iht1 (nt2, ti + 1#32, ()) m2
+                            (by dsimp only; rw [hti1]
+                                exact Nat.sub_lt_sub_left hti_lt (Nat.lt_succ_self _))
+                            ⟨stb, by rw [hti1]; exact hti_lt, hinv2⟩)
+                        (fun Jf2 hJf2 => ?_)
+                      c0_hsplit
+                      · c0_hsplit
+                        · have hnt1_lt : nt1.toNat < 2 * stc.core.cur_vars := by
+                            have h1 : nt1.toNat < tcap.toNat := by assumption
+                            rwa [h2cv_c] at h1
+                          have hnt1_ws2 : nt1.toNat < sta.scratch.work_stk2.length := by
+                            rw [hscla.work_stk2_len]
+                            exact Nat.lt_of_lt_of_le hnt1_lt (Nat.mul_le_mul_left 2 hcv_c_le)
+                          c0_hsteps_nogrp; dsimp only at hm
+                          exact hJf2 ⟨nt1 + 1#64, _⟩ m
+                            (bva_touched_push hcv_c_le hmx hnt1_lt hnfl_lt
+                              hcorea hsba htma htra hlla hela hscla hws2a_ok hm)
+                        · exact hJf2 ⟨nt1, sta⟩ m1
+                            ⟨hcorea, hsba, htma, htra, hlla, hela, hscla, hnt1_le, hws2a_ok, hm1⟩
+                      · exact hJf2 ⟨nt1, sta⟩ m1
+                          ⟨hcorea, hsba, htma, htra, hlla, hela, hscla, hnt1_le, hws2a_ok, hm1⟩
+                    · c0_hsplit
+                      · c0_hsplit
+                        · have hnt_lt : nt.toNat < 2 * stc.core.cur_vars := by
+                            have h1 : nt.toNat < tcap.toNat := by assumption
+                            rwa [h2cv_c] at h1
+                          have hnt_ws2 : nt.toNat < st1.scratch.work_stk2.length := by
+                            rw [hscl1.work_stk2_len]
+                            exact Nat.lt_of_lt_of_le hnt_lt (Nat.mul_le_mul_left 2 hcv_c_le)
+                          c0_hsteps_nogrp; dsimp only at hm
+                          exact hJf1 ⟨nt + 1#64, _⟩ m
+                            (bva_touched_push hcv_c_le hmx hnt_lt hfl_lt'
+                              hcore1 hsb1 htm1 htr1 hll1 hel1 hscl1 hws2_ok hm)
+                        · exact hJf1 ⟨nt, st1⟩ mti
+                            ⟨hcore1, hsb1, htm1, htr1, hll1, hel1, hscl1, hnt_le, hws2_ok, hmti⟩
+                      · exact hJf1 ⟨nt, st1⟩ mti
+                          ⟨hcore1, hsb1, htm1, htr1, hll1, hel1, hscl1, hnt_le, hws2_ok, hmti⟩
+                  · -- Loop 2: collect quotient literals from top row `scr[64 + best_k*256 + tm]`
+                    have h32bk_n : ((32 : BitVec 32) + bestkf).toNat = 32 + bestkf.toNat :=
+                      bva_bv32_32add_n hbk_lt32
+                    have h32bk_lt_c : 32 + bestkf.toNat < stc.scratch.scratch_buf.length := by
+                      rw [hsb_c]; exact Nat.lt_of_lt_of_le (Nat.add_lt_add_left hbk_lt32 32)
+                        (Nat.le_trans (by decide) hmat_c.1)
+                    have h32bk_sb : (BitVec.setWidth 64 ((32 : BitVec 32) + bestkf)).toNat <
+                        st1.scratch.scratch_buf.length := by
+                      rw [bv64_setWidth_32, h32bk_n, hsb1]; exact h32bk_lt_c
+                    have hbk_sb : (BitVec.setWidth 64 bestkf).toNat <
+                        st1.scratch.scratch_buf.length := by
+                      rw [bv64_setWidth_32, hsb1, hsb_c]
+                      exact Nat.lt_of_lt_of_le hbk_lt32 (Nat.le_trans (by decide) hmat_c.1)
+                    let mn_bv := stc.scratch.scratch_buf[32 + bestkf.toNat]'h32bk_lt_c
+                    have hmn_row := hmat_c.2.2.2 bestkf.toNat (Nat.lt_succ_self _)
+                    have hmn_getD :
+                        (stc.scratch.scratch_buf[32 + bestkf.toNat]?.getD 0#32).toNat =
+                          mn_bv.toNat := by
+                      dsimp only [mn_bv]
+                      rw [List.getElem?_eq_getElem h32bk_lt_c, Option.getD_some]
+                    have hmn_hi : mn_bv.toNat ≤ 256 := by rw [← hmn_getD]; exact hmn_row.2.2.1
+                    have hmn_entries := hmn_row.2.2.2
+                    rw [hmn_getD] at hmn_entries
+                    c0_hsteps_nogrp
+                    refine wp_loop_inv
+                      (fun (ntm, tm, ()) mtm => ∃ stm : FullState,
+                        tm.toNat ≤ mn_bv.toNat ∧ BvaTouchedInv c stc R ntm stm mtm)
+                      (fun (_, tm, _) _ => mn_bv.toNat - tm.toNat)
+                      (fun Jt2 hJt2 => by
+                        exact hJt2 (nt, 0#32, ()) mti ⟨st1, Nat.zero_le _, hcore1, hsb1, htm1,
+                          htr1, hll1, hel1, hscl1, hnt_le, hws2_ok, hmti⟩)
+                      (fun Jt2 (ntm, tm, ()) mtm ⟨stm, htm_le, hcorem, hsbm, htmm, htrm, hllm,
+                          helm, hsclm, hntm_le, hws2m_ok, hmtm⟩ iht2 => ?_)
+                    c0_hsplit
+                    · have htm_lt : tm.toNat < mn_bv.toNat := by
+                        have h1 : tm.toNat < (st1.scratch.scratch_buf[(BitVec.setWidth 64
+                            ((32 : BitVec 32) + bestkf)).toNat]'h32bk_sb).toNat := by assumption
+                        simpa only [mn_bv, bv64_setWidth_32, h32bk_n, hsb1] using h1
+                      have htm_256 : tm.toNat < 256 := Nat.lt_of_lt_of_le htm_lt hmn_hi
+                      have htm1 : (tm + 1#32).toNat = tm.toNat + 1 :=
+                        bva_bv32_add1_n (Nat.lt_trans htm_256 (by decide))
+                      have hct_idx : (64 + bestkf * 256 + tm).toNat =
+                          64 + bestkf.toNat * 256 + tm.toNat :=
+                        bva_bv32_row_idx_n hbk_lt32 htm_256
+                      have hct_mod := bva_bv32_row_mod_n hbk_lt32 htm_256
+                      have hct_lt_c : 64 + bestkf.toNat * 256 + tm.toNat <
+                          stc.scratch.scratch_buf.length := by
+                        rw [hsb_c]
+                        exact Nat.lt_of_lt_of_le (by omega) hmat_c.1
+                      have hct_sb : (BitVec.setWidth 64 (64 + bestkf * 256 + tm)).toNat <
+                          stm.scratch.scratch_buf.length := by
+                        rw [bv64_setWidth_32, hct_idx, hsbm]; exact hct_lt_c
+                      let ct_bv := stm.scratch.scratch_buf[
+                        (BitVec.setWidth 64 (64 + bestkf * 256 + tm)).toNat]'hct_sb
+                      let ct := stm.scratch.scratch_buf[((64 : BitVec 32).toNat +
+                        bestkf.toNat * (256 : BitVec 32).toNat + tm.toNat) % 2 ^ 32]'(by
+                          rw [hct_mod, hsbm]; exact hct_lt_c)
+                      have hct_bv_eq : ct_bv = ct := by
+                        dsimp only [ct_bv, ct]; congr 1
+                        rw [bv64_setWidth_32, hct_idx, hct_mod]
+                      obtain ⟨_, _, _, hct_ok, _, _⟩ := hmn_entries tm.toNat htm_lt
+                      have hct_getD :
+                          stc.scratch.scratch_buf[64 + bestkf.toNat * 256 + tm.toNat]?.getD
+                            0#32 = ct := by
+                        dsimp only [ct]; simp only [hct_mod, hsbm]
+                        rw [List.getElem?_eq_getElem hct_lt_c, Option.getD_some]
+                      rw [hct_getD] at hct_ok
+                      c0_hsteps_nogrp
+                      refine wp_join_state1 (t := i64) (α := BitVec 64 × FullState) (fun x => x.1)
+                        (fun ⟨ntm1, stm1⟩ mm1 => BvaTouchedInv c stc R ntm1 stm1 mm1)
+                        (fun _ ⟨ntm1, stm1⟩ mm1 hinv2 => by
+                          c0_hsteps_nogrp
+                          exact iht2 (ntm1, tm + 1#32, ()) mm1
+                            (by dsimp only; rw [htm1]
+                                exact Nat.sub_lt_sub_left htm_lt (Nat.lt_succ_self _))
+                            ⟨stm1, by rw [htm1]; exact htm_lt, hinv2⟩)
+                        (fun Jtm hJtm => ?_)
+                      c0_hsplit
+                      · have hbin_ct : (ct &&& 0x80000000#32) ≠ 0#32 := by assumption
+                        unfold M4BvaRowEntryOk at hct_ok; rw [ite_eq_left hbin_ct] at hct_ok
+                        have hql_lt : (ct &&& 0x7FFFFFFF#32).toNat < 2 * stc.core.cur_vars :=
+                          hct_ok.1
+                        have hql_lt_bv :
+                            (ct_bv &&& 0x7FFFFFFF#32).toNat < 2 * stc.core.cur_vars := by
+                          rw [hct_bv_eq]; exact hql_lt
+                        have hql_ws : (BitVec.setWidth 64 (ct_bv &&& 0x7FFFFFFF#32)).toNat <
+                            stm.scratch.wsort.length := by
+                          rw [bv64_setWidth_32, hsclm.wsort_len]
+                          exact Nat.lt_of_lt_of_le hql_lt_bv (Nat.mul_le_mul_left 2 hcv_c_le)
+                        c0_hsteps_nogrp
+                        refine wp_join_state1 (t := i64) (α := BitVec 64 × FullState) (fun x => x.1)
+                          (fun ⟨ntb, stb⟩ mb => BvaTouchedInv c stc R ntb stb mb)
+                          (fun _ ⟨ntb, stb⟩ mb hinvb => by exact hJtm ⟨ntb, stb⟩ mb hinvb)
+                          (fun Jql hJql => ?_)
+                        c0_hsplit
+                        · c0_hsplit
+                          · have hntm_lt : ntm.toNat < 2 * stc.core.cur_vars := by
+                              have h1 : ntm.toNat < tcap.toNat := by assumption
+                              rwa [h2cv_c] at h1
+                            have hntm_ws2 : ntm.toNat < stm.scratch.work_stk2.length := by
+                              rw [hsclm.work_stk2_len]
+                              exact Nat.lt_of_lt_of_le hntm_lt (Nat.mul_le_mul_left 2 hcv_c_le)
+                            c0_hsteps_nogrp; dsimp only at hm
+                            exact hJql ⟨ntm + 1#64, _⟩ m
+                              (bva_touched_push hcv_c_le hmx hntm_lt hql_lt_bv
+                                hcorem hsbm htmm htrm hllm helm hsclm hws2m_ok hm)
+                          · exact hJql ⟨ntm, stm⟩ mtm
+                              ⟨hcorem, hsbm, htmm, htrm, hllm, helm, hsclm, hntm_le, hws2m_ok, hmtm⟩
+                        · exact hJql ⟨ntm, stm⟩ mtm
+                            ⟨hcorem, hsbm, htmm, htrm, hllm, helm, hsclm, hntm_le, hws2m_ok, hmtm⟩
+                      · have hbin_ct : (ct &&& 0x80000000#32) = 0#32 := by assumption
+                        unfold M4BvaRowEntryOk at hct_ok
+                        rw [ite_eq_right (fun h' => h' hbin_ct)] at hct_ok
+                        obtain ⟨hct_ref, hct_ng, _, hct_sz256, _, _, _⟩ := hct_ok
+                        have hct_wf := hinv_clr.2.1.arena.refs_wf ct.toNat hct_ref
+                        have hct2_n : (BitVec.setWidth 64 ct + 2).toNat = ct.toNat + 2 :=
+                          bva_bv64_add2_n
+                        have hct2_lt_c : ct.toNat + 2 < stc.core.arena.length := by
+                          rw [har_c]; have := hct_wf.1; exact Nat.lt_of_lt_of_le (by omega) halen_c
+                        have hct2_ar : (BitVec.setWidth 64 ct_bv + 2).toNat <
+                            stm.core.arena.length := by
+                          rw [hct_bv_eq, hct2_n, hcorem]; exact hct2_lt_c
+                        have hct_sz_eq : (stc.core.arena[ct.toNat + 2]'hct2_lt_c).toNat =
+                            fullArenaClauseSizeCore stc.core ct.toNat := by
+                          unfold fullArenaClauseSizeCore
+                          rw [List.getElem?_eq_getElem hct2_lt_c, Option.getD_some]
+                        let csz_t := stc.core.arena[ct.toNat + 2]'hct2_lt_c
+                        have hcsz_256 : csz_t.toNat ≤ 256 := by
+                          dsimp only [csz_t]; rw [hct_sz_eq]; exact hct_sz256
+                        have hct_end_ar : ct.toNat + 3 + csz_t.toNat ≤ stc.core.arena.length := by
+                          rw [har_c]; dsimp only [csz_t]; rw [hct_sz_eq]
+                          exact Nat.le_trans hct_wf.2.2.1 (Nat.le_trans hct_wf.2.2.2.1 halen_c)
+                        c0_hsteps_nogrp
+                        refine wp_loop_inv
+                          (fun (ntj, tj, ()) mtj => ∃ stj : FullState,
+                            tj.toNat ≤ csz_t.toNat ∧ BvaTouchedInv c stc R ntj stj mtj)
+                          (fun (_, tj, _) _ => csz_t.toNat - tj.toNat)
+                          (fun Jtj hJtj => by
+                            exact hJtj (ntm, 0#32, ()) mtm ⟨stm, Nat.zero_le _, hcorem, hsbm,
+                              htmm, htrm, hllm, helm, hsclm, hntm_le, hws2m_ok, hmtm⟩)
+                          (fun Jtj (ntj, tj, ()) mtj ⟨stj, htj_le, hcorej, hsbj, htmj, htrj, hllj,
+                              helj, hsclj, hntj_le, hws2j_ok, hmtj⟩ ihtj => ?_)
+                        c0_hsplit
+                        · have htj_lt : tj.toNat < csz_t.toNat := by
+                            have hmod2 : (ct.toNat + BitVec.toNat (2 : BitVec 64)) % 2 ^ 64 =
+                                ct.toNat + 2 := bva_bv64_add2_mod
+                            have h1 : tj.toNat < (stm.core.arena[
+                                (ct.toNat + BitVec.toNat (2 : BitVec 64)) % 2 ^ 64]'(by
+                                  rw [hmod2, hcorem]; exact hct2_lt_c)).toNat := by assumption
+                            simpa only [csz_t, hmod2, hcorem] using h1
+                          have htj1 : (tj + 1#32).toNat = tj.toNat + 1 :=
+                            bva_bv32_add1_n (Nat.lt_trans (Nat.lt_of_lt_of_le htj_lt hcsz_256)
+                              (by decide))
+                          have hctj_n : (BitVec.setWidth 64 ct + 3 + BitVec.setWidth 64 tj).toNat =
+                              ct.toNat + 3 + tj.toNat := bva_bv64_add3_n
+                          have hctj_ar_c : ct.toNat + 3 + tj.toNat < stc.core.arena.length :=
+                            Nat.lt_of_lt_of_le
+                              (Nat.add_lt_add_left htj_lt (ct.toNat + 3)) hct_end_ar
+                          have hctj_ar_bv :
+                              (BitVec.setWidth 64 ct_bv + 3 + BitVec.setWidth 64 tj).toNat <
+                                stj.core.arena.length := by
+                            rw [hct_bv_eq, hctj_n, hcorej]; exact hctj_ar_c
+                          have hql_mem : (stc.core.arena[ct.toNat + 3 + tj.toNat]'hctj_ar_c).toNat ∈
+                              fullArenaClauseLitsCore stc.core ct.toNat :=
+                            List.mem_of_getElem? (FullBvaFwdHelpers.fullArenaClauseLitsCore_getElem
+                              (k := stc.core) (r := ct.toNat) (j := tj.toNat)
+                              (by rw [← hct_sz_eq]; exact htj_lt) hctj_ar_c)
+                          have hql_lt : (stc.core.arena[ct.toNat + 3 + tj.toNat]'hctj_ar_c).toNat <
+                              2 * stc.core.cur_vars :=
+                            hinv_clr.2.1.arena.lits_lt ct.toNat hct_ref hct_ng _ hql_mem
+                          have hql_lt_bv :
+                              (stj.core.arena[(BitVec.setWidth 64 ct_bv + 3 +
+                                BitVec.setWidth 64 tj).toNat]'hctj_ar_bv).toNat <
+                                2 * stc.core.cur_vars := by
+                            simpa only [hct_bv_eq, hctj_n, hcorej] using hql_lt
+                          have hql_ws_bv : (BitVec.setWidth 64
+                              (stj.core.arena[(BitVec.setWidth 64 ct_bv + 3 +
+                                BitVec.setWidth 64 tj).toNat]'hctj_ar_bv)).toNat <
+                              stj.scratch.wsort.length := by
+                            rw [bv64_setWidth_32, hsclj.wsort_len]
+                            exact Nat.lt_of_lt_of_le hql_lt_bv (Nat.mul_le_mul_left 2 hcv_c_le)
+                          c0_hsteps_nogrp
+                          refine wp_join_state1 (t := i64) (α := BitVec 64 × FullState)
+                            (fun x => x.1)
+                            (fun ⟨ntj1, stj1⟩ mj1 => BvaTouchedInv c stc R ntj1 stj1 mj1)
+                            (fun _ ⟨ntj1, stj1⟩ mj1 hinvj => by
+                              c0_hsteps_nogrp
+                              exact ihtj (ntj1, tj + 1#32, ()) mj1
+                                (by dsimp only; rw [htj1]
+                                    exact Nat.sub_lt_sub_left htj_lt (Nat.lt_succ_self _))
+                                ⟨stj1, by rw [htj1]; exact htj_lt, hinvj⟩)
+                            (fun Jq1 hJq1 => ?_)
+                          c0_hsplit
+                          · c0_hsplit
+                            · c0_hsplit
+                              · have hntj_lt : ntj.toNat < 2 * stc.core.cur_vars := by
+                                  have h1 : ntj.toNat < tcap.toNat := by assumption
+                                  rwa [h2cv_c] at h1
+                                have hntj_ws2 : ntj.toNat < stj.scratch.work_stk2.length := by
+                                  rw [hsclj.work_stk2_len]
+                                  exact Nat.lt_of_lt_of_le hntj_lt (Nat.mul_le_mul_left 2 hcv_c_le)
+                                c0_hsteps_nogrp; dsimp only at hm
+                                exact hJq1 ⟨ntj + 1#64, _⟩ m
+                                  (bva_touched_push hcv_c_le hmx hntj_lt hql_lt_bv
+                                    hcorej hsbj htmj htrj hllj helj hsclj hws2j_ok hm)
+                              · exact hJq1 ⟨ntj, stj⟩ mtj
+                                  ⟨hcorej, hsbj, htmj, htrj, hllj, helj, hsclj, hntj_le, hws2j_ok,
+                                   hmtj⟩
+                            · exact hJq1 ⟨ntj, stj⟩ mtj
+                                ⟨hcorej, hsbj, htmj, htrj, hllj, helj, hsclj, hntj_le, hws2j_ok,
+                                 hmtj⟩
+                          · exact hJq1 ⟨ntj, stj⟩ mtj
+                              ⟨hcorej, hsbj, htmj, htrj, hllj, helj, hsclj, hntj_le, hws2j_ok, hmtj⟩
+                        · exact hJtm ⟨ntj, stj⟩ mtj
+                            ⟨hcorej, hsbj, htmj, htrj, hllj, helj, hsclj, hntj_le, hws2j_ok, hmtj⟩
+                    · -- Loop 3: clear `tcnt[touched[tz]] = 0`, store `h->res_sz = ntm`, call commit
+                      c0_hsteps_nogrp
+                      refine wp_loop_inv
+                        (fun (tz, ()) mtz => ∃ stz : FullState,
+                          tz.toNat ≤ ntm.toNat ∧ stz.core = stc.core ∧
+                          stz.scratch.scratch_buf = stc.scratch.scratch_buf ∧
+                          stz.scratch.tarjan_mark = stc.scratch.tarjan_mark ∧
+                          stz.scratch.tarjan_reach = stc.scratch.tarjan_reach ∧
+                          stz.scratch.last_learned = stc.scratch.last_learned ∧
+                          stz.scratch.extend_len = stc.scratch.extend_len ∧
+                          stz.scratch.work_stk2 = stm.scratch.work_stk2 ∧
+                          stz.scratch.LengthsOk c ∧ (FullMem c stz ⋆ R) mtz)
+                        (fun (tz, _) _ => ntm.toNat - tz.toNat)
+                        (fun Jtz hJtz => by
+                          exact hJtz (0#64, ()) mtm ⟨stm, Nat.zero_le _, hcorem, hsbm, htmm, htrm,
+                            hllm, helm, rfl, hsclm, hmtm⟩)
+                        (fun Jtz (tz, ()) mtz ⟨stz, htz_le, hcorez, hsbz, htmz, htrz, hllz, helz,
+                            hws2z, hsclz, hmtz⟩ ihtz => ?_)
+                      c0_hsplit
+                      · have htz_lt : tz.toNat < ntm.toNat := by assumption
+                        have htz_max : tz.toNat < 2 * c.max_vars :=
+                          Nat.lt_of_lt_of_le (Nat.lt_of_lt_of_le htz_lt hntm_le)
+                            (Nat.mul_le_mul_left 2 hcv_c_le)
+                        have htz1 : (tz + 1#64).toNat = tz.toNat + 1 :=
+                          bva_bv64_add1_n (Nat.lt_trans htz_max (by omega))
+                        have htz_ws2 : tz.toNat < stz.scratch.work_stk2.length := by
+                          rw [hsclz.work_stk2_len]; exact htz_max
+                        have htl_lt : (stz.scratch.work_stk2[tz.toNat]'htz_ws2).toNat <
+                            2 * stc.core.cur_vars := by
+                          have h1 := hws2m_ok tz.toNat htz_lt
+                          have htz_m : tz.toNat < stm.scratch.work_stk2.length := by
+                            rwa [← hws2z]
+                          rw [List.getElem?_eq_getElem htz_m, Option.getD_some] at h1
+                          simpa only [hws2z] using h1
+                        have htl_wsz : (BitVec.setWidth 64
+                            (stz.scratch.work_stk2[tz.toNat]'htz_ws2)).toNat <
+                            stz.scratch.wsort.length := by
+                          rw [bv64_setWidth_32, hsclz.wsort_len]
+                          exact Nat.lt_of_lt_of_le htl_lt (Nat.mul_le_mul_left 2 hcv_c_le)
+                        c0_hsteps_nogrp; dsimp only at hm
+                        exact ihtz (tz + 1#64, ()) m
+                          (by dsimp only; rw [htz1]
+                              exact Nat.sub_lt_sub_left htz_lt (Nat.lt_succ_self _))
+                          (bva_touched_clear_step htz_lt htz1 hcorez hsbz htmz htrz hllz helz hws2z
+                            hsclz hm)
+                      · c0_hsteps
+                        let st_tc : FullState :=
+                          { stz with scratch := { stz.scratch with res_sz := ntm } }
+                        have hinv_tc : FullDenseInvW c F0 F_cur st_tc := by
+                          have htc_eq : st_tc = { stc with scratch := st_tc.scratch } := by
+                            cases stz; cases stc; dsimp only at hcorez; cases hcorez; rfl
+                          rw [htc_eq]
+                          exact fullDenseInv_with_core_aux (tc' := stc.core.tmp_cnt)
+                            (tl' := stc.core.tmp_len) (sc' := st_tc.scratch) hinv_clr
+                            hlen_c.core_ok.repr_len hlen_c.core_ok.min_clr_len_arr
+                            hlen_c.core_ok.tmp_len_arr hlen_c.core_ok.flags_len
+                            hlen_c.core_ok.tmp_len_le
+                            { hsclz with wsort_len := hsclz.wsort_len } hllz helz
+                        c0_call hCommit
+                        refine ⟨c, F0, F_cur, st_tc, R, rfl, hinv_tc, hbk1, hbk_lt32,
+                          m4BvaMatrixInv_congr (by rw [hcorez]) (by rw [hcorez]) (by rw [hcorez])
+                            (by exact hsbz) hmat_c, hm,
+                          fun ok s' m' hinv' hcv' hfuel' htm' htr' hm' =>
+                            hQ ok s' m' hinv' (by rw [← hcv_c, ← hcorez]; exact hcv')
+                              (hfuel'.trans (by rw [hcorez]; exact hfuel_c))
+                              (htm'.trans (htmz.trans htm_c))
+                              (htr'.trans (htrz.trans htr_c)) hm'⟩
           · -- Main `while (step < 32u && cur_qn >= 2u)` loop
+            clear hCommit hbd_f0 hslice_f0 h2f0 h2f1 hoff_eq hsz_eq hoff_sz_le hoff_c0
+            clear hend_mod hmod0 hmod1 hrow0 hrem hp_ge hp_le hqn2 hqn_le
             refine wp_loop_inv
               (fun (step, cur_qn, best_k, best_red, ()) ml => ∃ stl : FullState,
                 (FullMem c stl ⋆ R) ml ∧
@@ -2188,18 +2737,14 @@ theorem m4_bva_try_lit_wp (Γ : Env)
                   ⟨stl, hml, hlenl, hwl, hndl, hextl, hlv0l, hdml, hcvl, hfuell, harl, hall,
                    hmrkl, html, htrl, hst1, hst32, hcurqn_eq, hmatl, hbkl, hlml_hi, hlml_set,
                    hlml_only⟩ ihst => ?_)
+            clear hinv1_core hsb1_l hlm1_l hlm1_hi hlm1_set hlm1_only hmat1 sb1 lm1
             c0_hfast
             · have hst_lt : step.toNat < 32 := by
                 have h1 : step.toNat < (32 : BitVec 32).toNat := by assumption
                 exact h1
               have hrow_off :
-                  ((64 : BitVec 32) + (step - 1) * 256).toNat = 64 + (step.toNat - 1) * 256 := by
-                simp only [BitVec.toNat_add, BitVec.toNat_mul,
-                  BitVec.toNat_sub_of_le (show (1 : BitVec 32).toNat ≤ step.toNat from hst1),
-                  show (64 : BitVec 32).toNat = 64 from rfl,
-                  show (256 : BitVec 32).toNat = 256 from rfl,
-                  show (1 : BitVec 32).toNat = 1 from rfl]
-                omega
+                  ((64 : BitVec 32) + (step - 1) * 256).toNat = 64 + (step.toNat - 1) * 256 :=
+                bva_bv32_step_row_n hst1 hst_lt
               have hqn256_l : cur_qn.toNat ≤ 256 := by
                 rw [hcurqn_eq]; exact (hmatl.2.2.2 (step.toNat - 1) (by omega)).2.2.1
               c0_call hScan
@@ -2244,23 +2789,18 @@ theorem m4_bva_try_lit_wp (Γ : Env)
                     · exact absurd hff (by assumption)
                     · dsimp only [st1] at hlt; omega
                   have hnrow_off :
-                      ((64 : BitVec 32) + step * 256).toNat = 64 + step.toNat * 256 := by
-                    simp only [BitVec.toNat_add, BitVec.toNat_mul,
-                      show (64 : BitVec 32).toNat = 64 from rfl,
-                      show (256 : BitVec 32).toNat = 256 from rfl]
-                    omega
+                      ((64 : BitVec 32) + step * 256).toNat = 64 + step.toNat * 256 :=
+                    bva_bv32_nrow_n hst_lt
                   have hpar_off :
-                      ((8256 : BitVec 32) + step * 256).toNat = 8256 + step.toNat * 256 := by
-                    simp only [BitVec.toNat_add, BitVec.toNat_mul,
-                      show (8256 : BitVec 32).toNat = 8256 from rfl,
-                      show (256 : BitVec 32).toNat = 256 from rfl]
-                    omega
+                      ((8256 : BitVec 32) + step * 256).toNat = 8256 + step.toNat * 256 :=
+                    bva_bv32_par_n hst_lt
                   c0_call hFilter
                   refine ⟨c, F0, F_cur, st2, R, step.toNat, rfl, hinv2.1, hinv2.2.1,
                     hinv2.2.2.1, hinv2.2.2.2.1, hinv2.2.2.2.2.1, hinv2.2.2.2.2.2, hst1, hst_lt,
                     hcap_ge, hrow_off, hnrow_off, hpar_off, hcurqn_eq,
                     by dsimp only [st2, st1]; omega, hmat2, hlml_hi, hlml_set, hm2,
                     fun new_qn sb3 m3 hlen3 hnq256 hpres3 hnew3 hm3 => ?_⟩
+                  clear hScan hPick hFilter
                   let st3 : FullState :=
                     { st2 with scratch := { st2.scratch with scratch_buf := sb3 } }
                   have hpres3' : ∀ idx < c.scratch_cap,
@@ -2269,7 +2809,7 @@ theorem m4_bva_try_lit_wp (Γ : Env)
                       sb3[idx]? = st2.scratch.scratch_buf[idx]? := fun idx hi h1 h2 =>
                     hpres3 idx hi (by rw [hnrow_off]; exact h1) (by rw [hpar_off]; exact h2)
                   c0_hsplit
-                  · c0_hfast
+                  · c0_hsteps_nogrp
                     refine hJstep ⟨step, cur_qn, best_k, best_red, st3⟩ m3 ⟨hm3, hlen3, hinv2.2.1,
                       hinv2.2.2.1, hinv2.2.2.2.1, hinv2.2.2.2.2.1, hinv2.2.2.2.2.2, hcvl, hfuell,
                       harl, hall, hmrkl, html, htrl, hst1, hst32,
@@ -2281,17 +2821,19 @@ theorem m4_bva_try_lit_wp (Γ : Env)
                   · have hnq2 : 2 ≤ new_qn.toNat := by
                       have h1 : ¬ new_qn.toNat < (2 : BitVec 32).toNat := by assumption
                       change ¬ new_qn.toNat < 2 at h1; omega
-                    have h32step : ((32 : BitVec 32) + step).toNat = 32 + step.toNat := by
-                      simp only [BitVec.toNat_add, show (32 : BitVec 32).toNat = 32 from rfl]; omega
-                    have hstep1_n : (step + 1#32).toNat = step.toNat + 1 := by
-                      simp only [BitVec.toNat_add, show (1#32).toNat = 1 from rfl]; omega
+                    have h32step : ((32 : BitVec 32) + step).toNat = 32 + step.toNat :=
+                      bva_bv32_32add_n hst_lt
+                    have hstep1_n : (step + 1#32).toNat = step.toNat + 1 :=
+                      bva_bv32_add1_n (Nat.lt_trans hst_lt (by decide))
                     let sb4 := (sb3.set step.toNat bl).set (32 + step.toNat) new_qn
                     let lm4 := st2.core.lit_mark.set bl.toNat 1#8
                     have hsb3_l : sb3.length = c.scratch_cap := hlen3.scratch_ok.scratch_buf_len
                     have hlm3_l : st2.core.lit_mark.length = 2 * c.max_vars :=
                       hlen3.core_ok.lit_mark_len
-                    have hsb4_l : sb4.length = c.scratch_cap := by simp [sb4, hsb3_l]
-                    have hlm4_l : lm4.length = 2 * c.max_vars := by simp [lm4, hlm3_l]
+                    have hsb4_l : sb4.length = c.scratch_cap := by
+                      dsimp only [sb4]; rw [List.length_set, List.length_set, hsb3_l]
+                    have hlm4_l : lm4.length = 2 * c.max_vars := by
+                      dsimp only [lm4]; rw [List.length_set, hlm3_l]
                     have hmat4 := m4BvaMatrixInv_extend_step hst1 hst_lt hmat2 hsb3_l
                       (by dsimp only [st2, st1]; rw [hcvl]; exact hbl_lt) hnq2 hnq256 hpres3'
                       (fun nm hnm => by
@@ -2300,11 +2842,13 @@ theorem m4_bva_try_lit_wp (Γ : Env)
                     let st4 : FullState :=
                       { core := { st2.core with lit_mark := lm4 }
                         scratch := { st2.scratch with scratch_buf := sb4 } }
+                    have hst_sb : (BitVec.setWidth 64 step).toNat < sb3.length := by
+                      rw [bv64_setWidth_32, hsb3_l]; omega
+                    have h32st_b : (BitVec.setWidth 64 ((32 : BitVec 32) + step)).toNat <
+                        (sb3.set (BitVec.setWidth 64 step).toNat bl).length := by
+                      rw [bv64_setWidth_32, h32step, List.length_set, hsb3_l]; omega
                     have hbl_lm : (BitVec.setWidth 64 bl).toNat < st2.core.lit_mark.length := by
                       rw [bv64_setWidth_32, hlm3_l]; omega
-                    have h32st_b : (BitVec.setWidth 64 ((32 : BitVec 32) + step)).toNat <
-                        (sb3.set step.toNat bl).length := by
-                      rw [bv64_setWidth_32, h32step, List.length_set, hsb3_l]; omega
                     c0_hsteps_nogrp
                     refine wp_join_state (α := BitVec 32 × BitVec 64)
                       (fun ⟨bk', br'⟩ => (bk', br', ()))
@@ -2313,12 +2857,13 @@ theorem m4_bva_try_lit_wp (Γ : Env)
                       (fun _ ⟨bk', br'⟩ mf4 ⟨hbk', hmf4⟩ => ?_)
                       (fun Jbk hJbk => ?_)
                     · subst mf4
-                      c0_hfast
+                      c0_hsteps_nogrp
                       have ⟨hlm4_hi, hlm4_set, hlm4_only⟩ := m4_bva_try_lit_extend_lm (bl := bl)
                         (new_qn := new_qn) hcap_ge hst_lt hlm3_l hsb3_l (by omega) hpres3'
                         hlml_hi hlml_set hlml_only
                       refine ihst (step + 1#32, new_qn, bk', br', ()) m
-                        (by dsimp only; rw [hstep1_n]; omega)
+                        (by dsimp only; rw [hstep1_n]
+                            exact Nat.sub_lt_sub_left hst_lt (Nat.lt_succ_self _))
                         ⟨st4, by simp only [bv64_setWidth_32, h32step] at hm; exact hm,
                          ⟨{ hlen3.core_ok with lit_mark_len := hlm4_l },
                           { hlen3.scratch_ok with scratch_buf_len := hsb4_l }⟩,
@@ -2327,20 +2872,25 @@ theorem m4_bva_try_lit_wp (Γ : Env)
                            watches := hinv2.2.1.watches.with_wstk rfl rfl rfl rfl rfl
                              (fun _ hr => hr) },
                          hinv2.2.2.1, hinv2.2.2.2.1, hinv2.2.2.2.2.1, hinv2.2.2.2.2.2,
-                         hcvl, hfuell, harl, hall, hmrkl, html, htrl, by rw [hstep1_n]; omega,
-                         by rw [hstep1_n]; omega,
+                         hcvl, hfuell, harl, hall, hmrkl, html, htrl,
+                         by rw [hstep1_n]; exact Nat.le_trans hst1 (Nat.le_succ _),
+                         by rw [hstep1_n]; exact hst_lt,
                          by dsimp only [st4, sb4]
                             rw [hstep1_n, Nat.add_sub_cancel,
-                              List.getElem?_set_self (by simp [hsb3_l]; omega), Option.getD_some],
+                              List.getElem?_set_self (by rw [List.length_set, hsb3_l]; omega),
+                              Option.getD_some],
                          by rw [hstep1_n]; exact m4BvaMatrixInv_congr rfl rfl rfl rfl hmat4,
                          by rw [hstep1_n]; exact hbk',
                          hlm4_hi, by rw [hstep1_n]; exact hlm4_set,
                          by rw [hstep1_n]; exact hlm4_only⟩
-                    · c0_hfast
-                      · exact hJbk ⟨step, _⟩ m ⟨Or.inr ⟨hst1, by omega⟩, rfl⟩
+                    · clear hmat4 hmat2 hmatl hml hm1 hm2 hm hinv2 hlen3 hlenl hwl hndl hextl
+                      clear hpres3 hpres3' hnew3 hlml_hi hlml_set hlml_only hst_sb h32st_b hbl_lm
+                      clear hsb4_l hlm4_l hsb3_l hlm3_l hinv1_nl hbl_ok st4 st3 st2 st1 sb4 lm4
+                      c0_hfast
+                      · exact hJbk ⟨step, _⟩ m ⟨Or.inr ⟨hst1, Nat.lt_succ_self _⟩, rfl⟩
                       all_goals
                         exact hJbk ⟨best_k, best_red⟩ m
-                          ⟨hbkl.imp id (fun ⟨h1, h2⟩ => ⟨h1, by omega⟩), rfl⟩
+                          ⟨hbkl.imp id (fun ⟨h1, h2⟩ => ⟨h1, Nat.lt_succ_of_lt h2⟩), rfl⟩
             all_goals
               exact hJstep ⟨step, cur_qn, best_k, best_red, stl⟩ ml ⟨hml, hlenl, hwl, hndl, hextl,
                 hlv0l, hdml, hcvl, hfuell, harl, hall, hmrkl, html, htrl, hst1, hst32, hmatl, hbkl,

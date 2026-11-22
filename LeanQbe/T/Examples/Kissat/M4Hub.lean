@@ -14,6 +14,10 @@ public import LeanQbe.T.Examples.Kissat.FullM4Compact
 public import LeanQbe.T.Examples.Kissat.FullM4CompactLemmas
 public import LeanQbe.T.Examples.Kissat.FullM4CompactPart1
 public import LeanQbe.T.Examples.Kissat.FullM4CompactProof
+public import LeanQbe.T.Examples.Kissat.FullM4InprocHot
+public import LeanQbe.T.Examples.Kissat.FullM4InprocHotProof
+public import LeanQbe.T.Examples.Kissat.FullM4InprocHotProof0
+public import LeanQbe.T.Examples.Kissat.FullM4InprocHotProof1
 public import LeanQbe.T.Examples.Kissat.FullM4Proof
 public import LeanQbe.T.Examples.Kissat.FullM4Proof1
 public import LeanQbe.T.Examples.Kissat.FullM4ReduceLemmas

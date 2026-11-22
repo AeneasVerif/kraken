@@ -375,9 +375,88 @@ theorem full_factor_wp (Γ : Env)
               c0_hfast
               exact ihf (i + 1#64, ()) m (by dsimp only; rw [hi1]; omega)
                 ⟨_, _, by rw [hi1]; omega, by simp [hhpf_l], by simp [hpsf_l], hm⟩
-            · c0_hfast
-              exact hQ 1#64 _ mfi (fullDenseInv_set_fheap hwl.toDense hhpf_l hpsf_l) hcv_ge hfuell
-                rfl hmfi
+            · let st_f : FullState :=
+                { stl with scratch := { stl.scratch with tarjan_mark := hpf, tarjan_reach := psf } }
+              have hinv_f : FullDenseInv c F0 st_f :=
+                fullDenseInv_set_fheap hwl.toDense hhpf_l hpsf_l
+              c0_hsteps_nogrp
+              refine wp_join_state0 (α := FullState)
+                (fun stq mq => FullDenseInv c F0 stq ∧ stq.core.cur_vars = stl.core.cur_vars ∧
+                  stq.core.fuel = stl.core.fuel ∧ (FullMem c stq ⋆ R) mq)
+                (fun _ stq mq ⟨hinvq, hcvq, hfuelq, hmq⟩ => by
+                  c0_hfast; exact hQ 1#64 stq mq hinvq (by omega) (hfuelq.trans hfuell) rfl hmq)
+                (fun Jq hJq => ?_)
+              c0_hsplit
+              · have hqn_l := hscl.q_next_len; have hqs_l := hscl.q_stamp_len
+                c0_hsteps_nogrp
+                refine wp_loop_inv
+                  (fun (qst, qidx, ()) mqi => ∃ qsi : List (BitVec 32),
+                    qst.toNat ≤ stl.core.cur_vars ∧ qsi.length = c.max_vars ∧
+                    (FullMem c { st_f with scratch := { st_f.scratch with q_stamp := qsi } } ⋆
+                      R) mqi)
+                  (fun (qst, _, _) _ => stl.core.cur_vars - qst.toNat)
+                  (fun Jql hJql => by
+                    c0_hfast
+                    exact hJql (0#64, _, ()) mfi ⟨st_f.scratch.q_stamp, Nat.zero_le _, hqs_l, hmfi⟩)
+                  (fun Jql (qst, qidx, ()) mqi ⟨qsi, hqst_le, hqsi_l, hmqi⟩ ihql => ?_)
+                refine wp_join_state0 (α := Unit) (fun _ mx => mx = mqi)
+                  (fun _ _ mx hmx => ?_) (fun Jqx hJqx => ?_)
+                · subst mx
+                  c0_hsteps_nogrp
+                  refine wp_join_state0 (α := FullState)
+                    (fun stq mq => FullDenseInv c F0 stq ∧ stq.core.cur_vars = stl.core.cur_vars ∧
+                      stq.core.fuel = stl.core.fuel ∧ (FullMem c stq ⋆ R) mq)
+                    (fun _ stq mq h => hJq stq mq h)
+                    (fun Jql2 hJql2 => ?_)
+                  c0_hsplit
+                  · have hql_lt : st_f.scratch.q_last.toNat < stl.core.cur_vars := by
+                      have h1 : st_f.scratch.q_last.toNat < stl.core.cur_vars % 2 ^ 64 := by
+                        assumption
+                      omega
+                    have hql_qs : st_f.scratch.q_last.toNat < qsi.length := by omega
+                    c0_hfast
+                    let sc' : FullScratch :=
+                      { st_f.scratch with
+                        q_stamp := qsi, q_cur_stamp := qst,
+                        q_search_idx := st_f.scratch.q_last,
+                        q_search_stamp :=
+                          BitVec.setWidth 64 (qsi[st_f.scratch.q_last.toNat]'hql_qs) }
+                    exact hJql2 _ m
+                      ⟨(fullDenseInv_with_core_aux (tc' := stl.core.tmp_cnt)
+                          (tl' := stl.core.tmp_len) (sc' := sc')
+                          hwl hcll.repr_len hcll.min_clr_len_arr hcll.tmp_len_arr hcll.flags_len
+                          hcll.tmp_len_le
+                          { hscl with tarjan_mark_len := hhpf_l, tarjan_reach_len := hpsf_l,
+                                      q_stamp_len := hqsi_l } rfl rfl).toDense,
+                       rfl, rfl, hm⟩
+                  · c0_hfast
+                    exact hJql2 _ m
+                      ⟨(fullDenseInv_with_core_aux (tc' := stl.core.tmp_cnt)
+                          (tl' := stl.core.tmp_len)
+                          (sc' := { st_f.scratch with q_stamp := qsi, q_cur_stamp := qst })
+                          hwl hcll.repr_len hcll.min_clr_len_arr hcll.tmp_len_arr hcll.flags_len
+                          hcll.tmp_len_le
+                          { hscl with tarjan_mark_len := hhpf_l, tarjan_reach_len := hpsf_l,
+                                      q_stamp_len := hqsi_l } rfl rfl).toDense,
+                       rfl, rfl, hm⟩
+                · c0_hsplit
+                  · c0_hsplit
+                    · have hqidx_lt : qidx.toNat < stl.core.cur_vars := by
+                        have h1 : qidx.toNat < stl.core.cur_vars % 2 ^ 64 := by assumption
+                        omega
+                      have hqst_lt : qst.toNat < stl.core.cur_vars := by
+                        have h1 : qst.toNat < stl.core.cur_vars % 2 ^ 64 := by assumption
+                        omega
+                      have hqst1 : (qst + 1#64).toNat = qst.toNat + 1 := by simp only [bv_c0]; omega
+                      have hqi_qs : qidx.toNat < qsi.length := by omega
+                      have hqi_qn : qidx.toNat < st_f.scratch.q_next.length := by
+                        dsimp only [st_f]; omega
+                      c0_hfast
+                      exact ihql (qst + 1#64, _, ()) m (by dsimp only; rw [hqst1]; omega)
+                        ⟨_, by rw [hqst1]; omega, by simp [hqsi_l], hm⟩
+                    · c0_hfast; exact hJqx () mqi rfl
+                  · c0_hfast; exact hJqx () mqi rfl
+              · c0_hfast; exact hJq st_f mfi ⟨hinv_f, rfl, rfl, hmfi⟩
           · c0_hsplit
             · c0_hsplit
               · c0_hsplit

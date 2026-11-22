@@ -1,5 +1,10 @@
 module
 
+public import LeanQbe.T.Examples.Kissat.FullM5CongBins
+public import LeanQbe.T.Examples.Kissat.FullM5CongBinsLemmas
+public import LeanQbe.T.Examples.Kissat.FullM5CongFix
+public import LeanQbe.T.Examples.Kissat.FullM5CongFixProof
+public import LeanQbe.T.Examples.Kissat.FullM5CongFixProof1
 public import LeanQbe.T.Examples.Kissat.FullM5DenseSafe
 public import LeanQbe.T.Examples.Kissat.FullM5DenseSafeProof
 public import LeanQbe.T.Examples.Kissat.FullM5DenseSafeProof0

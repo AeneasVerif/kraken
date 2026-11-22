@@ -11,7 +11,7 @@ Additive port of the Stage-5 BVA + max-degree factoring upgrades from
 `prototype/kissat-fast-c0:LeanQbe/T/Examples/Kissat/Fast.lean` onto the exact existing
 `FullHdr` (`144` `u64` words = `1,152` bytes) and `Full` external callees:
 
-1. `full_init_fresh_var`: initializes a fresh extension variable with `q_last` VMTF placement
+1. `full_init_fresh_var`: initializes a fresh extension variable with `q_first` VMTF placement
    and VSIDS score `0` (no heap push).
 2. `full_bva_hop1`, `full_bva_hop2`, `full_bva_hop3`: budget-bounded 3-hop structural overlap
    tie-breaking scorer using `h->repr` (`u64[max_vars]`), `h->sim_sig` (`u64[max_vars]`),
@@ -109,9 +109,10 @@ void full_init_fresh_var(FullHdr *h, u32 fv) {
   mrk[fv] = (u8)0; ph[fv] = (i8)1; lvl[fv] = 0u; rsns[fv] = 0xFFFFFFFFu;
   ps[fv] = 0xFFFFFFFFu; sc[fv] = 0ULL;
   fl[fv] = FL_ACTIVE | FL_SUBSUME | FL_ELIM_C | FL_SWEEP | FL_FACT_P | FL_FACT_N;
-  u32 ol = (u32)h->q_last; qp[fv] = ol; qn[fv] = 0xFFFFFFFFu;
-  if ((u64)ol < h->cur_vars) { qn[ol] = fv; } else { h->q_first = (u64)fv; }
-  h->q_last = (u64)fv; h->q_cur_stamp = h->q_cur_stamp + 1ULL; qs[fv] = (u32)h->q_cur_stamp;
+  u32 of = (u32)h->q_first; qp[fv] = 0xFFFFFFFFu;
+  if ((u64)of < h->cur_vars) { qn[fv] = of; qp[of] = fv; }
+  else { qn[fv] = 0xFFFFFFFFu; h->q_last = (u64)fv; }
+  h->q_first = (u64)fv; qs[fv] = 0u;
   h->unassigned = h->unassigned + 1ULL;
 }
 
@@ -618,6 +619,20 @@ u64 full_factor(FullHdr *h, u64 budget) {
     }
   }
   i = 0ULL; while (i < (h->cur_vars << 1)) { hp[i] = 0u; ps[i] = 0u; i = i + 1ULL; }
+  if (h->cur_vars > init_cv) {
+    u64 fcv = h->cur_vars;
+    u32 *qn = (u32 *)h->q_next; u32 *qs = (u32 *)h->q_stamp;
+    u64 qst = 0ULL; u64 qidx = h->q_first;
+    while (qidx < fcv && qst < fcv) {
+      qst = qst + 1ULL; qs[qidx] = (u32)qst;
+      qidx = (u64)qn[qidx];
+    }
+    h->q_cur_stamp = qst;
+    if (h->q_last < fcv) {
+      h->q_search_idx = h->q_last;
+      h->q_search_stamp = (u64)qs[h->q_last];
+    }
+  }
   return 1ULL;
 }
 "

@@ -356,8 +356,11 @@ bool full_bva_commit(FullHdr *h, u32 best_k) {
   m = 0u;
   while (m < mn) {
     u32 idx = m; u32 c_top = scr[64u + best_k * 256u + m];
-    if ((c_top & PW_BIN_FLAG) != 0u) { full_add_bin(h, fresh ^ 1u, c_top & PW_LIT_MASK); }
-    else {
+    if ((c_top & PW_BIN_FLAG) != 0u) {
+      u32 q = c_top & PW_LIT_MASK;
+      full_add_bin(h, fresh ^ 1u, q);
+      fl[q >> 1] = fl[q >> 1] | (((q & 1u) != 0u) ? FL_FACT_N : FL_FACT_P);
+    } else {
       u32 csz = ar[(u64)c_top + 2ULL]; u32 flit = scr[best_k]; u32 tk = 1u; u32 j = 0u;
       tmp[0] = fresh ^ 1u;
       while (j < csz) {
@@ -384,13 +387,11 @@ bool full_bva_commit(FullHdr *h, u32 best_k) {
       if ((cs & PW_BIN_FLAG) != 0u) {
         u32 q = cs & PW_LIT_MASK;
         full_delete_binary(h, fs, q);
-        fl[q >> 1] = fl[q >> 1] | (((q & 1u) != 0u) ? FL_FACT_N : FL_FACT_P);
       } else {
         u32 csz = ar[(u64)cs + 2ULL]; u32 k = 0u;
         while (k < csz) {
           u32 dl = ar[(u64)cs + 3ULL + (u64)k];
           full_unwatch_large(h, dl, cs);
-          fl[dl >> 1] = fl[dl >> 1] | (((dl & 1u) != 0u) ? FL_FACT_N : FL_FACT_P);
           k = k + 1u;
         }
         ar[cs] = ar[cs] | PH_GARB; h->arena_garbage = h->arena_garbage + 3ULL + (u64)csz;
@@ -403,7 +404,7 @@ bool full_bva_commit(FullHdr *h, u32 best_k) {
   u32 si = 0u;
   while (si < dm) {
     u32 fs = scr[si]; full_add_bin(h, fresh, fs);
-    fl[fs >> 1] = fl[fs >> 1] | FL_FACT_P | FL_FACT_N;
+    fl[fs >> 1] = fl[fs >> 1] | (((fs & 1u) != 0u) ? FL_FACT_N : FL_FACT_P);
     si = si + 1u;
   }
   u64 zi = 0ULL; u64 zl = h->cur_vars << 1;
@@ -428,12 +429,14 @@ bool full_bva_try_lit(FullHdr *h, u32 f0, u64 init_cv) {
     } else if (p < end) {
       u32 cr = wstk[p]; p = p + 1ULL; u32 sz = ar[(u64)cr + 2ULL];
       if ((ar[cr] & (PH_GARB | PH_RED)) == 0u && sz >= 3u && sz <= 256u) {
-        u32 hk = 0u; bool has_f0 = false;
+        u32 hk = 0u; bool has_f0 = false; bool sat = false;
         while (hk < sz) {
-          if (ar[(u64)cr + 3ULL + (u64)hk] == f0) { has_f0 = true; break; }
+          u32 hl = ar[(u64)cr + 3ULL + (u64)hk];
+          if (vals[hl] > (i8)0) { sat = true; break; }
+          if (hl == f0) { has_f0 = true; }
           hk = hk + 1u;
         }
-        if (has_f0) { scr[64u + qn] = cr; qn = qn + 1u; }
+        if (has_f0 && !sat) { scr[64u + qn] = cr; qn = qn + 1u; }
       }
     }
   }
@@ -459,6 +462,36 @@ bool full_bva_try_lit(FullHdr *h, u32 f0, u64 init_cv) {
   u32 si = 0u;
   while (si < step) { lm[scr[si]] = lm[scr[si]] & (u8)0xFE; si = si + 1u; }
   if (best_k == 0u) { return false; }
+  u32 *touched = (u32 *)h->work_stk2; u32 *tcnt = (u32 *)h->wsort;
+  u64 tcap = h->cur_vars << 1; u64 nt = 0ULL; u32 dm = best_k + 1u; u32 ti = 0u;
+  while (ti < dm) {
+    u32 flit = scr[ti];
+    if (tcnt[flit] == 0u && nt < tcap) { tcnt[flit] = 1u; touched[nt] = flit; nt = nt + 1ULL; }
+    u32 nflit = flit ^ 1u;
+    if (tcnt[nflit] == 0u && nt < tcap) { tcnt[nflit] = 1u; touched[nt] = nflit; nt = nt + 1ULL; }
+    ti = ti + 1u;
+  }
+  u32 mn = scr[32u + best_k]; u32 bk_lit = scr[best_k]; u32 tm = 0u;
+  while (tm < mn) {
+    u32 c_top = scr[64u + best_k * 256u + tm];
+    if ((c_top & PW_BIN_FLAG) != 0u) {
+      u32 ql = c_top & PW_LIT_MASK;
+      if (tcnt[ql] == 0u && nt < tcap) { tcnt[ql] = 1u; touched[nt] = ql; nt = nt + 1ULL; }
+    } else {
+      u32 csz = ar[(u64)c_top + 2ULL]; u32 tj = 0u;
+      while (tj < csz) {
+        u32 ql = ar[(u64)c_top + 3ULL + (u64)tj];
+        if (ql != bk_lit && tcnt[ql] == 0u && nt < tcap) {
+          tcnt[ql] = 1u; touched[nt] = ql; nt = nt + 1ULL;
+        }
+        tj = tj + 1u;
+      }
+    }
+    tm = tm + 1u;
+  }
+  u64 tz = 0ULL;
+  while (tz < nt) { tcnt[touched[tz]] = 0u; tz = tz + 1ULL; }
+  h->res_sz = nt;
   return full_bva_commit(h, best_k);
 }
 
@@ -493,24 +526,48 @@ u64 full_factor(FullHdr *h, u64 budget) {
     if ((fl[fv] & FL_ACTIVE) == 0u || (fl[fv] & fbit) == 0u || vals[f0] != (i8)0) { continue; }
     fl[fv] = fl[fv] & (~fbit); budget = budget - 1ULL;
     if (full_bva_try_lit(h, f0, init_cv)) {
-      u32 hi = hlen;
-      while (hi > 0u) {
-        hi = hi - 1u;
-        full_fheap_down(hp, ps, wvec, hi, hlen);
-      }
-      u64 check_l = init_cv << 1; u64 ci = 0ULL;
-      while (ci < check_l && (u64)hlen < mx_lits) {
-        u32 cv_i = (u32)(ci >> 1); u32 cbit = ((ci & 1ULL) != 0ULL) ? FL_FACT_N : FL_FACT_P;
-        if ((fl[cv_i] & FL_ACTIVE) != 0u && (fl[cv_i] & cbit) != 0u &&
-            wvec[(ci << 1) + 1ULL] > 1u && vals[ci] == (i8)0 && ps[ci] == 0xFFFFFFFFu) {
-          hp[hlen] = (u32)ci; ps[ci] = hlen; full_fheap_up(hp, ps, wvec, hlen);
-          hlen = hlen + 1u;
+      u64 check_l = init_cv << 1;
+      u32 *touched = (u32 *)h->work_stk2;
+      u64 nt = h->res_sz;
+      if (nt > check_l) { nt = check_l; }
+      u64 ti = 0ULL;
+      while (ti < nt) {
+        u32 tl = touched[ti];
+        if ((u64)tl < check_l) {
+          u32 pos_tl = ps[tl];
+          if (pos_tl < hlen) {
+            full_fheap_up(hp, ps, wvec, pos_tl);
+            u32 pos2 = ps[tl];
+            if (pos2 < hlen) { full_fheap_down(hp, ps, wvec, pos2, hlen); }
+          } else if ((u64)hlen < mx_lits) {
+            u32 tv = tl >> 1; u32 tbit = ((tl & 1u) != 0u) ? FL_FACT_N : FL_FACT_P;
+            if ((fl[tv] & FL_ACTIVE) != 0u && (fl[tv] & tbit) != 0u &&
+                wvec[((u64)tl << 1) + 1ULL] > 1u && vals[tl] == (i8)0 &&
+                pos_tl == 0xFFFFFFFFu) {
+              hp[hlen] = tl; ps[tl] = hlen; full_fheap_up(hp, ps, wvec, hlen);
+              hlen = hlen + 1u;
+            }
+          }
         }
-        ci = ci + 1ULL;
+        ti = ti + 1ULL;
       }
     }
   }
   i = 0ULL; while (i < (h->cur_vars << 1)) { hp[i] = 0u; ps[i] = 0u; i = i + 1ULL; }
+  if (h->cur_vars > init_cv) {
+    u64 fcv = h->cur_vars;
+    u32 *qn = (u32 *)h->q_next; u32 *qs = (u32 *)h->q_stamp;
+    u64 qst = 0ULL; u64 qidx = h->q_first;
+    while (qidx < fcv && qst < fcv) {
+      qst = qst + 1ULL; qs[qidx] = (u32)qst;
+      qidx = (u64)qn[qidx];
+    }
+    h->q_cur_stamp = qst;
+    if (h->q_last < fcv) {
+      h->q_search_idx = h->q_last;
+      h->q_search_stamp = (u64)qs[h->q_last];
+    }
+  }
   return 1ULL;
 }
 

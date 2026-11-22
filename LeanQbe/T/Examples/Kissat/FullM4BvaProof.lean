@@ -392,9 +392,88 @@ theorem m4_factor_wp (Γ : Env)
               c0_hfast
               exact ihf (i + 1#64, ()) m (by dsimp only; rw [hi1]; omega)
                 ⟨_, _, by rw [hi1]; omega, by simp [hhpf_l], by simp [hpsf_l], hm⟩
-            · c0_hfast
-              exact hQ 1#64 _ mfi (fullDenseInv_set_fheap hwl.toDense hhpf_l hpsf_l) hcv_ge hfuell
-                rfl hmfi
+            · let st_f : FullState :=
+                { stl with scratch := { stl.scratch with tarjan_mark := hpf, tarjan_reach := psf } }
+              have hinv_f : FullDenseInv c F0 st_f :=
+                fullDenseInv_set_fheap hwl.toDense hhpf_l hpsf_l
+              c0_hsteps_nogrp
+              refine wp_join_state0 (α := FullState)
+                (fun stq mq => FullDenseInv c F0 stq ∧ stq.core.cur_vars = stl.core.cur_vars ∧
+                  stq.core.fuel = stl.core.fuel ∧ (FullMem c stq ⋆ R) mq)
+                (fun _ stq mq ⟨hinvq, hcvq, hfuelq, hmq⟩ => by
+                  c0_hfast; exact hQ 1#64 stq mq hinvq (by omega) (hfuelq.trans hfuell) rfl hmq)
+                (fun Jq hJq => ?_)
+              c0_hsplit
+              · have hqn_l := hscl.q_next_len; have hqs_l := hscl.q_stamp_len
+                c0_hsteps_nogrp
+                refine wp_loop_inv
+                  (fun (qst, qidx, ()) mqi => ∃ qsi : List (BitVec 32),
+                    qst.toNat ≤ stl.core.cur_vars ∧ qsi.length = c.max_vars ∧
+                    (FullMem c { st_f with scratch := { st_f.scratch with q_stamp := qsi } } ⋆
+                      R) mqi)
+                  (fun (qst, _, _) _ => stl.core.cur_vars - qst.toNat)
+                  (fun Jql hJql => by
+                    c0_hfast
+                    exact hJql (0#64, _, ()) mfi ⟨st_f.scratch.q_stamp, Nat.zero_le _, hqs_l, hmfi⟩)
+                  (fun Jql (qst, qidx, ()) mqi ⟨qsi, hqst_le, hqsi_l, hmqi⟩ ihql => ?_)
+                refine wp_join_state0 (α := Unit) (fun _ mx => mx = mqi)
+                  (fun _ _ mx hmx => ?_) (fun Jqx hJqx => ?_)
+                · subst mx
+                  c0_hsteps_nogrp
+                  refine wp_join_state0 (α := FullState)
+                    (fun stq mq => FullDenseInv c F0 stq ∧ stq.core.cur_vars = stl.core.cur_vars ∧
+                      stq.core.fuel = stl.core.fuel ∧ (FullMem c stq ⋆ R) mq)
+                    (fun _ stq mq h => hJq stq mq h)
+                    (fun Jql2 hJql2 => ?_)
+                  c0_hsplit
+                  · have hql_lt : st_f.scratch.q_last.toNat < stl.core.cur_vars := by
+                      have h1 : st_f.scratch.q_last.toNat < stl.core.cur_vars % 2 ^ 64 := by
+                        assumption
+                      omega
+                    have hql_qs : st_f.scratch.q_last.toNat < qsi.length := by omega
+                    c0_hfast
+                    let sc' : FullScratch :=
+                      { st_f.scratch with
+                        q_stamp := qsi, q_cur_stamp := qst,
+                        q_search_idx := st_f.scratch.q_last,
+                        q_search_stamp :=
+                          BitVec.setWidth 64 (qsi[st_f.scratch.q_last.toNat]'hql_qs) }
+                    exact hJql2 _ m
+                      ⟨(fullDenseInv_with_core_aux (tc' := stl.core.tmp_cnt)
+                          (tl' := stl.core.tmp_len) (sc' := sc')
+                          hwl hcll.repr_len hcll.min_clr_len_arr hcll.tmp_len_arr hcll.flags_len
+                          hcll.tmp_len_le
+                          { hscl with tarjan_mark_len := hhpf_l, tarjan_reach_len := hpsf_l,
+                                      q_stamp_len := hqsi_l } rfl rfl).toDense,
+                       rfl, rfl, hm⟩
+                  · c0_hfast
+                    exact hJql2 _ m
+                      ⟨(fullDenseInv_with_core_aux (tc' := stl.core.tmp_cnt)
+                          (tl' := stl.core.tmp_len)
+                          (sc' := { st_f.scratch with q_stamp := qsi, q_cur_stamp := qst })
+                          hwl hcll.repr_len hcll.min_clr_len_arr hcll.tmp_len_arr hcll.flags_len
+                          hcll.tmp_len_le
+                          { hscl with tarjan_mark_len := hhpf_l, tarjan_reach_len := hpsf_l,
+                                      q_stamp_len := hqsi_l } rfl rfl).toDense,
+                       rfl, rfl, hm⟩
+                · c0_hsplit
+                  · c0_hsplit
+                    · have hqidx_lt : qidx.toNat < stl.core.cur_vars := by
+                        have h1 : qidx.toNat < stl.core.cur_vars % 2 ^ 64 := by assumption
+                        omega
+                      have hqst_lt : qst.toNat < stl.core.cur_vars := by
+                        have h1 : qst.toNat < stl.core.cur_vars % 2 ^ 64 := by assumption
+                        omega
+                      have hqst1 : (qst + 1#64).toNat = qst.toNat + 1 := by simp only [bv_c0]; omega
+                      have hqi_qs : qidx.toNat < qsi.length := by omega
+                      have hqi_qn : qidx.toNat < st_f.scratch.q_next.length := by
+                        dsimp only [st_f]; omega
+                      c0_hfast
+                      exact ihql (qst + 1#64, _, ()) m (by dsimp only; rw [hqst1]; omega)
+                        ⟨_, by rw [hqst1]; omega, by simp [hqsi_l], hm⟩
+                    · c0_hfast; exact hJqx () mqi rfl
+                  · c0_hfast; exact hJqx () mqi rfl
+              · c0_hfast; exact hJq st_f mfi ⟨hinv_f, rfl, rfl, hmfi⟩
           · c0_hsplit
             · c0_hsplit
               · c0_hsplit
@@ -488,79 +567,211 @@ theorem m4_factor_wp (Γ : Env)
                             intro k hk; rw [htm3, htm2]; have := hhp1_ok k hk
                             dsimp only [st1] at hcv2 ⊢; omega
                           c0_hsplit
-                          · -- `try_lit == true`: bottom-up resift `hi = hlen..1`, then re-insert
+                          · -- `try_lit == true`: touched-literal sift & re-insert over `work_stk2`
                             c0_hsteps_nogrp
-                            refine wp_loop_inv
-                              (fun (hi, ()) mhi => ∃ hpr psr : List (BitVec 32),
-                                hi.toNat ≤ (hlen - 1#32).toNat ∧
-                                hpr.length = 2 * c.max_vars ∧ psr.length = 2 * c.max_vars ∧
-                                (∀ k < (hlen - 1#32).toNat,
-                                  (hpr[k]?.getD 0#32).toNat < 2 * st3.core.cur_vars) ∧
-                                (FullMem c { st3 with scratch :=
-                                  { st3.scratch with tarjan_mark := hpr,
-                                                     tarjan_reach := psr } } ⋆ R) mhi)
-                              (fun (hi, _) _ => hi.toNat)
-                              (fun Jhi hJhi => by
-                                c0_hfast
-                                exact hJhi (hlen - 1#32, ()) m3
-                                  ⟨st3.scratch.tarjan_mark, st3.scratch.tarjan_reach,
-                                   Nat.le_refl _, hsc3.tarjan_mark_len, hsc3.tarjan_reach_len,
-                                   hhp3_ok, hm3⟩)
-                              (fun Jhi (hi, ()) mhi ⟨hpr, psr, hhi_le, hhpr_l, hpsr_l, hhpr_ok,
-                                  hmhi⟩ ihhi => ?_)
-                            c0_hsplit
-                            · have hhi_pos : 0 < hi.toNat := by
-                                have h1 : (0 : BitVec 32).toNat < hi.toNat := by assumption
-                                exact h1
-                              have hhi1 : (hi - 1#32).toNat = hi.toNat - 1 := by
-                                simp only [BitVec.toNat_sub_of_le
-                                    (show (1#32).toNat ≤ hi.toNat from hhi_pos),
-                                  show (1#32).toNat = 1 from rfl]
-                              c0_hfast
-                              c0_call hDown
-                              refine ⟨2 * c.max_vars, hpr, psr, st3.core.wvec,
-                                FullMemFheapRest c st3 ⋆ R,
-                                Nat.le_of_eq hhpr_l.symm, Nat.le_of_eq hpsr_l.symm,
-                                by rw [hcl3.wvec_len]; omega, hnl_lt,
-                                by simp only [show (1 : BitVec 32) = 1#32 from rfl, hhi1]; omega,
-                                by simp only [show (1 : BitVec 32) = 1#32 from rfl, hhl1]; omega,
-                                fun i hi_lt => by
-                                  have h1 : i < (hlen - 1#32).toNat := by
-                                    simpa only [show (1 : BitVec 32) = 1#32 from rfl] using hi_lt
-                                  have := hhpr_ok i h1; omega,
-                                focus_fheap hmhi,
-                                fun hpr' psr' mhi' hhpr'_l hpsr'_l hsubr _ hmhi' => ?_⟩
-                              c0_hfast
-                              refine ihhi (hi - 1#32, ()) mhi' (by dsimp only; rw [hhi1]; omega)
-                                ⟨hpr', psr', by rw [hhi1]; omega,
-                                 hhpr'_l.trans hhpr_l, hpsr'_l.trans hpsr_l, fun k hk => ?_,
-                                 unfocus_fheap hmhi'⟩
-                              obtain ⟨j, hj, heq⟩ := hsubr k (by
-                                simpa only [show (1 : BitVec 32) = 1#32 from rfl] using hk)
-                              rw [heq]; exact hhpr_ok j (by
-                                simpa only [show (1 : BitVec 32) = 1#32 from rfl] using hj)
-                            · -- After resift: re-insert original vars `ci < init_cv << 1`
+                            refine wp_join_state1 (t := i64) (α := BitVec 64) (fun x => x)
+                              (fun ntv mnt => ntv.toNat ≤ 2 * s.core.cur_vars ∧ mnt = m3)
+                              (fun _ nt mnt ⟨hnt_le, hmnt⟩ => ?_)
+                              (fun Jnt hJnt => ?_)
+                            · rcases hmnt.symm with rfl
                               c0_hsteps_nogrp
                               refine wp_loop_inv
-                                (fun (hlc, ci, ()) mc => ∃ hpc psc : List (BitVec 32),
-                                  ci.toNat ≤ 2 * s.core.cur_vars ∧ hlc.toNat ≤ 2 * c.max_vars ∧
+                                (fun (hlc, ti, ()) mc => ∃ hpc psc : List (BitVec 32),
+                                  ti.toNat ≤ nt.toNat ∧ hlc.toNat ≤ 2 * c.max_vars ∧
                                   hpc.length = 2 * c.max_vars ∧ psc.length = 2 * c.max_vars ∧
                                   (∀ k < hlc.toNat,
                                     (hpc[k]?.getD 0#32).toNat < 2 * st3.core.cur_vars) ∧
                                   (FullMem c { st3 with scratch :=
                                     { st3.scratch with tarjan_mark := hpc,
                                                        tarjan_reach := psc } } ⋆ R) mc)
-                                (fun (_, ci, _) _ => 2 * s.core.cur_vars - ci.toNat)
-                                (fun Jci hJci => by
+                                (fun (_, ti, _) _ => nt.toNat - ti.toNat)
+                                (fun Jti hJti => by
                                   c0_hfast
-                                  exact hJci (hlen - 1#32, 0#64, ()) mhi
-                                    ⟨hpr, psr, Nat.zero_le _, by rw [hhl1]; omega, hhpr_l, hpsr_l,
-                                     hhpr_ok, hmhi⟩)
-                                (fun Jci (hlc, ci, ()) mc
-                                    ⟨hpc, psc, hci_le, hhlc_le, hhpc_l, hpsc_l, hhpc_ok, hmc⟩
-                                    ihci => ?_)
-                              have hExit : wp Γ Q X (Expr.jump J (Arg.var hlc, ())) mc := by
-                                c0_hfast
+                                  exact hJti (hlen - 1#32, 0#64, ()) m3
+                                    ⟨st3.scratch.tarjan_mark, st3.scratch.tarjan_reach,
+                                     Nat.zero_le _, by rw [hhl1]; omega, hsc3.tarjan_mark_len,
+                                     hsc3.tarjan_reach_len, hhp3_ok, hm3⟩)
+                                (fun Jti (hlc, ti, ()) mc
+                                    ⟨hpc, psc, hti_le, hhlc_le, hhpc_l, hpsc_l, hhpc_ok, hmc⟩
+                                    ihti => ?_)
+                              c0_hsplit
+                              · have hti_lt : ti.toNat < nt.toNat := by assumption
+                                have hti1 : (ti + 1#64).toNat = ti.toNat + 1 := by
+                                  simp only [bv_c0]; omega
+                                have hti_ws2 : ti.toNat < st3.scratch.work_stk2.length := by
+                                  have := hsc3.work_stk2_len; omega
+                                let tl := st3.scratch.work_stk2[ti.toNat]'hti_ws2
+                                c0_hsteps_nogrp
+                                refine wp_join_state1 (t := i32)
+                                  (α := BitVec 32 × List (BitVec 32) × List (BitVec 32))
+                                  (fun x => x.1)
+                                  (fun ⟨hlc', hpc', psc'⟩ mc' =>
+                                    hlc'.toNat ≤ 2 * c.max_vars ∧
+                                    hpc'.length = 2 * c.max_vars ∧
+                                    psc'.length = 2 * c.max_vars ∧
+                                    (∀ k < hlc'.toNat,
+                                      (hpc'[k]?.getD 0#32).toNat < 2 * st3.core.cur_vars) ∧
+                                    (FullMem c { st3 with scratch :=
+                                      { st3.scratch with tarjan_mark := hpc',
+                                                         tarjan_reach := psc' } } ⋆ R) mc')
+                                  (fun _ ⟨hlc', hpc', psc'⟩ mc'
+                                      ⟨hhlc', hhpc', hpsc', hhpc_ok', hmc'⟩ => by
+                                    c0_hsteps_nogrp
+                                    exact ihti (hlc', ti + 1#64, ()) mc'
+                                      (by dsimp only; rw [hti1]; omega)
+                                      ⟨hpc', psc', by rw [hti1]; omega, hhlc', hhpc', hpsc',
+                                       hhpc_ok', hmc'⟩)
+                                  (fun Jtl hJtl => ?_)
+                                c0_hsplit
+                                · have htl_lt : tl.toNat < 2 * s.core.cur_vars := by
+                                    have h1 : (BitVec.setWidth 64 tl).toNat <
+                                        (BitVec.ofNat 64 s.core.cur_vars <<< (1 : Nat)).toNat := by
+                                      assumption
+                                    rwa [bv64_setWidth_32, h2init] at h1
+                                  have htl_lt3 : tl.toNat < 2 * st3.core.cur_vars := by omega
+                                  have htl_ps : (BitVec.setWidth 64 tl).toNat < psc.length := by
+                                    rw [bv64_setWidth_32]; omega
+                                  c0_hsteps_nogrp; c0_hstep; c0_hsplit
+                                  · -- `pos_tl < hlen`: sift up, then re-read `pos2` and sift down
+                                    have hptl_lt :
+                                        (psc[(BitVec.setWidth 64 tl).toNat]'htl_ps).toNat <
+                                          hlc.toNat := by assumption
+                                    dsimp only [tl] at hptl_lt
+                                    have hptl_lt2 :
+                                        (psc[(st3.scratch.work_stk2[ti.toNat]'hti_ws2).toNat]'(by
+                                          rw [bv64_setWidth_32] at htl_ps; exact htl_ps)).toNat <
+                                          hlc.toNat := by
+                                      simpa only [bv64_setWidth_32] using hptl_lt
+                                    c0_hsteps_nogrp
+                                    c0_call hUp
+                                    refine ⟨2 * c.max_vars, hpc, psc, st3.core.wvec,
+                                      FullMemFheapRest c st3 ⋆ R,
+                                      Nat.le_of_eq hhpc_l.symm, Nat.le_of_eq hpsc_l.symm,
+                                      by rw [hcl3.wvec_len]; omega, hnl_lt, by omega,
+                                      fun i hi => by have := hhpc_ok i (by omega); omega,
+                                      focus_fheap hmc,
+                                      fun hpc1 psc1 m1 hhpc1_l hpsc1_l hsub1 hhi1 hm1 => ?_⟩
+                                    have hhpc1_ok : ∀ k < hlc.toNat,
+                                        (hpc1[k]?.getD 0#32).toNat < 2 * st3.core.cur_vars := by
+                                      intro k hk
+                                      by_cases hkle : k ≤
+                                          (psc[(BitVec.setWidth 64
+                                            (st3.scratch.work_stk2[ti.toNat]'hti_ws2)).toNat]'
+                                              htl_ps).toNat
+                                      · obtain ⟨j, hj, heq⟩ := hsub1 k hkle
+                                        rw [heq]; exact hhpc_ok j (by omega)
+                                      · rw [hhi1 k (by omega)]; exact hhpc_ok k hk
+                                    have hmc1 := unfocus_fheap hm1
+                                    have htl_ps1 : (BitVec.setWidth 64 tl).toNat < psc1.length := by
+                                      rw [hpsc1_l]; exact htl_ps
+                                    c0_hsteps_nogrp; c0_hstep; c0_hsplit
+                                    · have hp2_lt :
+                                          (psc1[(BitVec.setWidth 64 tl).toNat]'htl_ps1).toNat <
+                                            hlc.toNat := by assumption
+                                      c0_hsteps_nogrp
+                                      c0_call hDown
+                                      refine ⟨2 * c.max_vars, hpc1, psc1, st3.core.wvec,
+                                        FullMemFheapRest c st3 ⋆ R,
+                                        by omega, by omega, by rw [hcl3.wvec_len]; omega, hnl_lt,
+                                        hp2_lt, hhlc_le,
+                                        fun i hi => by have := hhpc1_ok i hi; omega,
+                                        focus_fheap hmc1,
+                                        fun hpc2 psc2 m2 hhpc2_l hpsc2_l hsub2 _ hm2 => ?_⟩
+                                      c0_hfast
+                                      refine hJtl ⟨hlc, hpc2, psc2⟩ m2
+                                        ⟨hhlc_le, hhpc2_l.trans (hhpc1_l.trans hhpc_l),
+                                         hpsc2_l.trans (hpsc1_l.trans hpsc_l),
+                                         fun k hk => by
+                                           obtain ⟨j, hj, heq⟩ := hsub2 k hk
+                                           rw [heq]; exact hhpc1_ok j hj,
+                                         unfocus_fheap hm2⟩
+                                    · c0_hfast
+                                      exact hJtl ⟨hlc, hpc1, psc1⟩ m1
+                                        ⟨hhlc_le, hhpc1_l.trans hhpc_l, hpsc1_l.trans hpsc_l,
+                                         hhpc1_ok, hmc1⟩
+                                  · -- `else if (hlen < mx_lits)`: check active/flag/deg/val/unpush
+                                    c0_hsteps_nogrp; c0_hstep; c0_hsplit
+                                    · have hhlc_lt : hlc.toNat < 2 * c.max_vars := by
+                                        have h1 : (BitVec.setWidth 64 hlc).toNat <
+                                            (BitVec.ofNat 64 c.max_vars <<< (1 : Nat)).toNat := by
+                                          assumption
+                                        rwa [bv64_setWidth_32, hmx2] at h1
+                                      have hhlc1 : (hlc + 1#32).toNat = hlc.toNat + 1 := by
+                                        simp only [bv_c0]; omega
+                                      c0_hsteps_nogrp
+                                      refine wp_join_state1 (t := i32) (α := BitVec 32) (fun b => b)
+                                        (fun _ mcb => mcb = mc)
+                                        (fun _ tbit mcb hmcb => ?_)
+                                        (fun Jtb hJtb => ?_)
+                                      · subst mcb
+                                        have htv_fl :
+                                            (BitVec.setWidth 64 (tl >>> (1 : Nat))).toNat <
+                                              st3.core.flags.length := by
+                                          rw [bv64_setWidth_32, hcl3.flags_len, bv32_lshr1_nat]
+                                          omega
+                                        have htl_wv : ((BitVec.setWidth 64 tl <<< (1 : Nat)) +
+                                            1).toNat < st3.core.wvec.length := by
+                                          change ((BitVec.setWidth 64 tl <<< (1 : Nat)) +
+                                            1#64).toNat < _
+                                          rw [hcl3.wvec_len, BitVec.toNat_add, bv64_shl1_nat,
+                                            bv64_setWidth_32, show (1#64).toNat = 1 from rfl]; omega
+                                        have htl_v : (BitVec.setWidth 64 tl).toNat <
+                                            st3.core.vals.length := by
+                                          rw [bv64_setWidth_32, hcl3.vals_len]; omega
+                                        have hhlc_hp : (BitVec.setWidth 64 hlc).toNat <
+                                            hpc.length := by
+                                          rw [bv64_setWidth_32, hhpc_l]; exact hhlc_lt
+                                        c0_hfast
+                                        · let hpca := hpc.set hlc.toNat tl
+                                          let psca := psc.set tl.toNat hlc
+                                          have hmca : (FullMem c { st3 with scratch :=
+                                              { st3.scratch with tarjan_mark := hpca,
+                                                                 tarjan_reach := psca } } ⋆ R) m :=
+                                            by simp only [hpca, psca, bv64_setWidth_32] at hm ⊢
+                                               exact hm
+                                          c0_call hUp
+                                          refine ⟨2 * c.max_vars, hpca, psca, st3.core.wvec,
+                                            FullMemFheapRest c st3 ⋆ R,
+                                            by simp [hpca, hhpc_l], by simp [psca, hpsc_l],
+                                            by rw [hcl3.wvec_len]; omega, hnl_lt, hhlc_lt,
+                                            fun i hi => by
+                                              dsimp only [hpca]
+                                              by_cases hie : i = hlc.toNat
+                                              · subst hie
+                                                rw [List.getElem?_set_self (by omega),
+                                                  Option.getD_some]; omega
+                                              · rw [List.getElem?_set_ne (Ne.symm hie)]
+                                                have := hhpc_ok i (by omega); omega,
+                                            focus_fheap hmca,
+                                            fun hpc' psc' mc' hhpc'_l hpsc'_l hsubc _ hmc' => ?_⟩
+                                          c0_hfast
+                                          refine hJtl ⟨hlc + 1#32, hpc', psc'⟩ mc'
+                                            ⟨by rw [hhlc1]; omega,
+                                             by simp [hpca, hhpc_l] at hhpc'_l; exact hhpc'_l,
+                                             by simp [psca, hpsc_l] at hpsc'_l; exact hpsc'_l,
+                                             fun k hk => ?_, unfocus_fheap hmc'⟩
+                                          rw [hhlc1] at hk
+                                          obtain ⟨j, hj, heq⟩ := hsubc k (by omega)
+                                          rw [heq]; dsimp only [hpca]
+                                          by_cases hje : j = hlc.toNat
+                                          · subst hje
+                                            rw [List.getElem?_set_self (by omega), Option.getD_some]
+                                            exact htl_lt3
+                                          · rw [List.getElem?_set_ne (Ne.symm hje)]
+                                            exact hhpc_ok j (by omega)
+                                        all_goals
+                                          exact hJtl ⟨hlc, hpc, psc⟩ mc
+                                            ⟨hhlc_le, hhpc_l, hpsc_l, hhpc_ok, hmc⟩
+                                      · c0_hfast
+                                        · exact hJtb 64#32 mc rfl
+                                        · exact hJtb 32#32 mc rfl
+                                    · c0_hfast
+                                      exact hJtl ⟨hlc, hpc, psc⟩ mc
+                                        ⟨hhlc_le, hhpc_l, hpsc_l, hhpc_ok, hmc⟩
+                                · c0_hfast
+                                  exact hJtl ⟨hlc, hpc, psc⟩ mc
+                                    ⟨hhlc_le, hhpc_l, hpsc_l, hhpc_ok, hmc⟩
+                              · c0_hfast
                                 exact ihm (budget - 1#64, hlc, ()) mc
                                   (by dsimp only; rw [hbud1]
                                       have hm1 : (budget.toNat - 1) * (2 * c.max_vars + 1) +
@@ -574,99 +785,13 @@ theorem m4_factor_wp (Γ : Env)
                                    hmc, fullDenseInv_set_fheap hw3.toDense hhpc_l hpsc_l,
                                    hcv3_ge_init, hfuel3.trans (hfuel2.trans hfuell), hhlc_le,
                                    hhpc_ok⟩
-                              c0_hsplit
-                              · c0_hsplit
-                                · have hci_lt : ci.toNat < 2 * s.core.cur_vars := by
-                                    have h1 : ci.toNat <
-                                        (BitVec.ofNat 64 s.core.cur_vars <<< (1 : Nat)).toNat :=
-                                      by assumption
-                                    rwa [h2init] at h1
-                                  have hci_lt3 : ci.toNat < 2 * st3.core.cur_vars := by omega
-                                  have hhlc_lt : hlc.toNat < 2 * c.max_vars := by
-                                    have h1 : (BitVec.setWidth 64 hlc).toNat <
-                                        (BitVec.ofNat 64 c.max_vars <<< (1 : Nat)).toNat := by
-                                      assumption
-                                    rwa [bv64_setWidth_32, hmx2] at h1
-                                  have hci1 : (ci + 1#64).toNat = ci.toNat + 1 := by
-                                    simp only [bv_c0]; omega
-                                  have hhlc1 : (hlc + 1#32).toNat = hlc.toNat + 1 := by
-                                    simp only [bv_c0]; omega
-                                  c0_hsteps_nogrp
-                                  refine wp_join_state1 (t := i32) (α := BitVec 32) (fun b => b)
-                                    (fun _ mcb => mcb = mc)
-                                    (fun _ cbit mcb hmcb => ?_)
-                                    (fun Jcb hJcb => ?_)
-                                  · subst mcb
-                                    have hcvi_lt : (BitVec.setWidth 64
-                                        (BitVec.setWidth 32 (ci >>> (1 : Nat)))).toNat <
-                                        st3.core.flags.length := by
-                                      rw [bv64_setWidth_32, hcl3.flags_len]
-                                      have := hcl3.cur_vars_le
-                                      simp only [BitVec.toNat_setWidth, bv64_lshr1_nat]; omega
-                                    have hwv_ci : ((ci <<< (1 : Nat)) + 1).toNat <
-                                        st3.core.wvec.length := by
-                                      change ((ci <<< (1 : Nat)) + 1#64).toNat < _
-                                      rw [hcl3.wvec_len, BitVec.toNat_add, bv64_shl1_nat,
-                                        show (1#64).toNat = 1 from rfl]
-                                      have := hcl3.cur_vars_le; omega
-                                    have hhlc_hp : (BitVec.setWidth 64 hlc).toNat < hpc.length := by
-                                      rw [bv64_setWidth_32, hhpc_l]; exact hhlc_lt
-                                    have hci_ps : ci.toNat < psc.length := by omega
-                                    have hci_vals : ci.toNat < st3.core.vals.length := by omega
-                                    c0_hfast
-                                    · -- Insert `ci` into heap and call `full_fheap_up`
-                                      have hci32_nat : (BitVec.setWidth 32 ci).toNat = ci.toNat :=
-                                        by have := hcl3.cur_vars_le
-                                           simp only [BitVec.toNat_setWidth]; omega
-                                      let hpca := hpc.set hlc.toNat (BitVec.setWidth 32 ci)
-                                      let psca := psc.set ci.toNat hlc
-                                      have hmca : (FullMem c { st3 with scratch :=
-                                          { st3.scratch with tarjan_mark := hpca,
-                                                             tarjan_reach := psca } } ⋆ R) m := by
-                                        simp only [hpca, psca, bv64_setWidth_32] at hm ⊢; exact hm
-                                      c0_call hUp
-                                      refine ⟨2 * c.max_vars, hpca, psca, st3.core.wvec,
-                                        FullMemFheapRest c st3 ⋆ R,
-                                        by simp [hpca, hhpc_l], by simp [psca, hpsc_l],
-                                        by rw [hcl3.wvec_len]; omega, hnl_lt, hhlc_lt,
-                                        fun i hi => by
-                                          dsimp only [hpca]
-                                          by_cases hie : i = hlc.toNat
-                                          · subst hie
-                                            rw [List.getElem?_set_self (by omega), Option.getD_some,
-                                              hci32_nat]
-                                            have := hcl3.cur_vars_le; omega
-                                          · rw [List.getElem?_set_ne (Ne.symm hie)]
-                                            have := hhpc_ok i (by omega)
-                                            have := hcl3.cur_vars_le; omega,
-                                        focus_fheap hmca,
-                                        fun hpc' psc' mc' hhpc'_l hpsc'_l hsubc _ hmc' => ?_⟩
-                                      c0_hfast
-                                      refine ihci (hlc + 1#32, ci + 1#64, ()) mc'
-                                        (by dsimp only; rw [hci1]; omega)
-                                        ⟨hpc', psc', by rw [hci1]; omega, by rw [hhlc1]; omega,
-                                         by simp [hpca, hhpc_l] at hhpc'_l; exact hhpc'_l,
-                                         by simp [psca, hpsc_l] at hpsc'_l; exact hpsc'_l,
-                                         fun k hk => ?_, unfocus_fheap hmc'⟩
-                                      rw [hhlc1] at hk
-                                      obtain ⟨j, hj, heq⟩ := hsubc k (by omega)
-                                      rw [heq]; dsimp only [hpca]
-                                      by_cases hje : j = hlc.toNat
-                                      · subst hje
-                                        rw [List.getElem?_set_self (by omega), Option.getD_some,
-                                          hci32_nat]; exact hci_lt3
-                                      · rw [List.getElem?_set_ne (Ne.symm hje)]
-                                        exact hhpc_ok j (by omega)
-                                    all_goals
-                                      exact ihci (hlc, ci + 1#64, ()) mc
-                                        (by dsimp only; rw [hci1]; omega)
-                                        ⟨hpc, psc, by rw [hci1]; omega, hhlc_le, hhpc_l, hpsc_l,
-                                         hhpc_ok, hmc⟩
-                                  · c0_hfast
-                                    · exact hJcb 64#32 mc rfl
-                                    · exact hJcb 32#32 mc rfl
-                                · exact hExit
-                              · exact hExit
+                            · c0_hfast
+                              · exact hJnt _ m3 ⟨by rw [h2init]; exact Nat.le_refl _, rfl⟩
+                              · exact hJnt _ m3 ⟨by
+                                  have h1 :
+                                      ¬ (BitVec.ofNat 64 s.core.cur_vars <<< (1 : Nat)).toNat <
+                                        st3.scratch.res_sz.toNat := by assumption
+                                  rw [h2init] at h1; omega, rfl⟩
                           · -- `try_lit == false`
                             c0_hfast
                             exact ihm (budget - 1#64, hlen - 1#32, ()) m3

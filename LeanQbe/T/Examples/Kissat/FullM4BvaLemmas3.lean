@@ -615,27 +615,16 @@ private theorem m4_commit_del_loop_wp {Γ : Env} {Q : Post [.bool]} {X : XPost}
         rw [h1]; exact hpi_lt
     · -- Delete binary or large `cs`
       c0_hsteps
-      · -- Binary `cs`: `full_delete_binary(h, fs, q); fl[q >> 1] |= ...`
+      · -- Binary `cs`: `full_delete_binary(h, fs, q)`
         have hbin_cs : (cs &&& 0x80000000#32) ≠ 0#32 := by
           simpa only [← hcs_mod] using (by assumption : _)
         unfold M4BvaRowEntryOk at hcs_ok; rw [ite_eq_left hbin_cs] at hcs_ok
-        have hq_lt : (cs &&& 0x7FFFFFFF#32).toNat < 2 * old_cv := hcs_ok.1
         c0_call hDelBin
         refine ⟨c, stv, R, rfl, hinvv.1, hinvv.2.1.watches.layout, hmsv,
           fun wvec' wstk' wu' nb' md1 hlen_d _ hwat_d hmd1 => ?_⟩
         have hinv_d := fullDenseInvW_of_delBin hinvv hlen_d (hwat_d F_next hinvv.2.1.watches)
-        have hq_shr : (BitVec.setWidth 64 ((stv.scratch.scratch_buf[(BitVec.setWidth 64
-            (64 + sv * 256 + idx)).toNat]'hcs_sb &&& 0x7FFFFFFF#32) >>> (1 : BitVec 32))).toNat <
-            stv.core.flags.length := by
-          rw [bv64_setWidth_32, hcs_eq, bv32_lshr1_bv, hclv.flags_len]; omega
-        have hq_shr_n : (BitVec.setWidth 64 ((stv.scratch.scratch_buf[(BitVec.setWidth 64
-            (64 + sv * 256 + idx)).toNat]'hcs_sb &&& 0x7FFFFFFF#32) >>> (1 : Nat))).toNat <
-            stv.core.flags.length := by
-          rw [bv64_setWidth_32, hcs_eq, bv32_lshr1_nat, hclv.flags_len]; omega
         c0_hsteps
-        all_goals
-          exact hJcs _ m ⟨hm, fullDenseInvW_set_flags hinv_d (by simp [hlen_d.core_ok.flags_len]),
-            hcvv, hfuelv, hsbv, htmv, htrv, hmonov⟩
+        exact hJcs _ md1 ⟨hmd1, hinv_d, hcvv, hfuelv, hsbv, htmv, htrv, hmonov⟩
       · -- Large `cs`: `unwatch_large` loop, then `ar[cs] |= PH_GARB; arena_garbage += 3+csz`
         have hbin_cs : (cs &&& 0x80000000#32) = 0#32 := by
           simpa only [← hcs_mod] using (by assumption : _)
@@ -711,24 +700,10 @@ private theorem m4_commit_del_loop_wp {Γ : Env} {Q : Post [.bool]} {X : XPost}
             fun wvec' wstk' wu' mu hlen_u _ hwat_u hmu => ?_⟩
           have hinv_u := fullDenseInvW_of_unwatchLarge hinvk hlen_u
             (hwat_u F_next hinvk.2.1.watches)
-          have hdl_shr : (BitVec.setWidth 64 ((stk.core.arena[(BitVec.setWidth 64
-              (stv.scratch.scratch_buf[(BitVec.setWidth 64 (64 + sv * 256 + idx)).toNat]'hcs_sb) +
-              3 + BitVec.setWidth 64 k).toNat]'hdl_ar_sb) >>> (1 : BitVec 32))).toNat <
-              stk.core.flags.length := by
-            rw [bv64_setWidth_32, hclk.flags_len]
-            simp only [hcs_eq, hcsk_n, bv32_lshr1_bv]; omega
-          have hdl_shr_n : (BitVec.setWidth 64 ((stk.core.arena[(BitVec.setWidth 64
-              (stv.scratch.scratch_buf[(BitVec.setWidth 64 (64 + sv * 256 + idx)).toNat]'hcs_sb) +
-              3 + BitVec.setWidth 64 k).toNat]'hdl_ar_sb) >>> (1 : Nat))).toNat <
-              stk.core.flags.length := by
-            rw [bv64_setWidth_32, hclk.flags_len]
-            simp only [hcs_eq, hcsk_n, bv32_lshr1_nat]; omega
           c0_hsteps
-          all_goals
-            exact ihk (k + 1#32, ()) m (by dsimp only; rw [hk1]; omega)
-              ⟨_, by rw [hk1]; omega,
-               fullDenseInvW_set_flags hinv_u (by simp [hlen_u.core_ok.flags_len]),
-               hcvk, hfuelk, hark, halk, hsbk, htmk, htrk, hmonok, hm⟩
+          exact ihk (k + 1#32, ()) mu (by dsimp only; rw [hk1]; omega)
+            ⟨_, by rw [hk1]; omega, hinv_u, hcvk, hfuelk, hark, halk, hsbk, htmk, htrk, hmonok,
+             hmu⟩
         · -- Exit `k < csz` -> `ar[cs] |= PH_GARB; arena_garbage += 3 + csz`
           have hcs_refk : cs.toNat ∈ fullArenaClauseRefsCore stk.core :=
             (hmonok cs.toNat hcs_ref0).1
@@ -1263,10 +1238,11 @@ private theorem m4_commit_tail_wp {Γ : Env} {Q : Post [.bool]} {X : XPost}
         si).toNat]'hfs_sb) >>> (1 : Nat))).toNat < fl_s1.length := by
       rw [bv64_setWidth_32, bv32_lshr1_nat, hlen_s1.core_ok.flags_len]; omega
     c0_hsteps
-    exact ihs (si + 1#32, ()) m (by dsimp only; rw [hsi1]; omega)
-      ⟨_, by rw [hsi1]; omega,
-       fullDenseInvW_set_flags hinv_s1 (by simp [hlen_s1.core_ok.flags_len]),
-       hcvs, hfuels, hsbs, htms, htrs, hm⟩
+    all_goals
+      exact ihs (si + 1#32, ()) m (by dsimp only; rw [hsi1]; omega)
+        ⟨_, by rw [hsi1]; omega,
+         fullDenseInvW_set_flags hinv_s1 (by simp [hlen_s1.core_ok.flags_len]),
+         hcvs, hfuels, hsbs, htms, htrs, hm⟩
   · -- Cleanup `cnt[0..2*cur_vars) = 0`, `bva_cnt++`, `return true`
     have h2cv :
         (BitVec.ofNat 64 sts.core.cur_vars <<< (1 : Nat)).toNat = 2 * (old_cv + 1) := by
@@ -1624,24 +1600,36 @@ theorem m4_bva_commit_wp (Γ : Env)
           exact hdel
         · -- Branch `c_top` binary vs large
           c0_hsplit
-          · -- Binary `c_top`: `full_add_bin(h, fresh ^ 1, c_top & 0x7FFFFFFF)`
+          · -- Binary `c_top`: `full_add_bin(h, fresh ^ 1, q); fl[q >> 1] |= ...`
             c0_hsteps
             have hbin_ct : (c_top &&& 0x80000000#32) ≠ 0#32 := by
               simpa only [← hctop_mod] using (by assumption : _)
             unfold M4BvaRowEntryOk at hctop_ok; rw [ite_eq_left hbin_ct] at hctop_ok
-            obtain ⟨_, hres_q, _⟩ := hctop_ok
+            obtain ⟨hq_lt, hres_q, _⟩ := hctop_ok
             c0_call hAddBin
             refine ⟨c, F0, F_next, stm, R, rfl, hinvm.1, hinvm.2.1, hinvm.2.2.2.2.2.1,
               fun _ _ => ?_, hmm,
-              fun _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ m1 hlen1' hw1' _ _ _ hm1' => ?_⟩
+              fun _ _ fl_b1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ m1 hlen1' hw1' _ _ _ hm1' => ?_⟩
             · rw [hctop_eq]; rw [hres_q] at hresm_ent
               have hfx : (BitVec.setWidth 32 (BitVec.ofNat 64 sd.core.cur_vars) <<<
                   (OfNat.ofNat 1 : Nat) ^^^ (1 : BitVec 32)).toNat = 2 * old_cv + 1 :=
                 hfresh1_nat
               simpa only [hfx, show (2147483647 : BitVec 32) = 0x7FFFFFFF#32 from rfl]
                 using hresm_ent
-            · exact hJtop _ m1 ⟨hm1', fullDenseInvW_of_addBin hinvm hlen1' hw1', hcvm, hfuelm,
-                hsbm, htmm, htrm, hmono⟩
+            · have hinv_b1 := fullDenseInvW_of_addBin hinvm hlen1' hw1'
+              have hq_shr : (BitVec.setWidth 64 ((stm.scratch.scratch_buf[(BitVec.setWidth 64
+                  (64 + best_k * 256 + mi)).toNat]'hctop_sb &&& 0x7FFFFFFF#32) >>>
+                  (1 : BitVec 32))).toNat < fl_b1.length := by
+                rw [bv64_setWidth_32, hctop_eq, bv32_lshr1_bv, hlen1'.core_ok.flags_len]; omega
+              have hq_shr_n : (BitVec.setWidth 64 ((stm.scratch.scratch_buf[(BitVec.setWidth 64
+                  (64 + best_k * 256 + mi)).toNat]'hctop_sb &&& 0x7FFFFFFF#32) >>>
+                  (1 : Nat))).toNat < fl_b1.length := by
+                rw [bv64_setWidth_32, hctop_eq, bv32_lshr1_nat, hlen1'.core_ok.flags_len]; omega
+              c0_hsteps
+              all_goals
+                exact hJtop _ m ⟨hm,
+                  fullDenseInvW_set_flags hinv_b1 (by simp [hlen1'.core_ok.flags_len]),
+                  hcvm, hfuelm, hsbm, htmm, htrm, hmono⟩
           · -- Large `c_top` (delegated to `m4_commit_large_top_wp`)
             have hbin_ct : (c_top &&& 0x80000000#32) = 0#32 := by
               simpa only [← hctop_mod] using (by assumption : _)
