@@ -16,6 +16,7 @@ public import LeanQbe.T.Amd64.IselLemmas2
 public import LeanQbe.T.Amd64.IselLemmas3
 public import LeanQbe.T.Amd64.IselLemmas4
 public import LeanQbe.T.Amd64.IselLemmas5
+public import LeanQbe.T.Amd64.ScalarTarg
 public import LeanQbe.T.Amd64.Targ
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Amd64.Litmus
