@@ -84,10 +84,14 @@ theorem sumWhileLoop_rot_zero_spec (Γ : Env) (m : Mem 64) (X : XPost) :
       (fun (r, ()) m' => r = 0#64 ∧ m' = m) X := by
   rw [sumWhileLoop_rot_out]
   dsimp only [Func.spec, Func.wp]
-  simp only [wp]
   intro _ _
-  wp_unfold
-  simp [Op.wp, OpCode.wp, liftCmp, CmpOp.evalBits, vals, Arg.val]
+  dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, liftCmp,
+    CmpOp.evalBits, CmpOp.evalBool, Ty.hasFloat, i64, Closed]
+  constructor
+  · intro h
+    cases h
+  · intro _
+    exact ⟨rfl, rfl⟩
 
 theorem sumWhileLoop_spec (Γ : Env) (n : BitVec 64) (m : Mem 64) (X : XPost) :
     Func.spec Γ sumWhileLoop (n, ()) m
@@ -101,38 +105,48 @@ theorem sumWhileLoop_spec (Γ : Env) (n : BitVec 64) (m : Mem 64) (X : XPost) :
     ?_ ?_
   · rintro J k ⟨i, acc, ⟨⟩⟩ m' hJ ⟨hk, rfl, hinv⟩
     dsimp only at hk hinv
-    wp_unfold
+    dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift1, lift2, lift3, liftCmp,
+      CmpOp.evalBits, CmpOp.evalBool, Ty.hasFloat, i64, Closed]
     by_cases hz : i = 0
     · subst hz
       simp at hk
       subst hk
-      simp only [true_implies, not_true_eq_false, false_implies, true_and]
-      simpa using hinv
-    · have hi0 : i.toNat ≠ 0 := fun h => hz (BitVec.eq_of_toNat_eq (by simpa using h))
-      simp only [hz, false_implies, not_false_eq_true, true_implies, and_true]
-      refine hJ (k - 1) _ m' (by omega) ?_
-      have hsub : (i - 1).toNat = i.toNat - 1 :=
-        BitVec.toNat_sub_of_le (by rw [BitVec.le_def]; simp; omega)
-      refine ⟨by dsimp only; rw [hsub]; omega, rfl, ?_⟩
-      dsimp only
-      have hmod : (acc + i).toNat = (acc.toNat + i.toNat) % 2 ^ 64 := BitVec.toNat_add acc i
-      have hk1 : (k - 1) * (k - 1 + 1) + 2 * i.toNat = k * (k + 1) := by
-        have hkpos : k ≥ 1 := by omega
-        have hkm : k - 1 + 1 = k := by omega
-        rw [hkm, hk]
-        calc (k - 1) * k + 2 * k = (k - 1 + 2) * k := by rw [Nat.add_mul]
-          _ = (k + 1) * k := by congr 1; omega
-          _ = k * (k + 1) := Nat.mul_comm _ _
-      rw [hmod]
-      calc (2 * ((acc.toNat + i.toNat) % 2 ^ 64) + (k - 1) * (k - 1 + 1)) % 2 ^ 64
-          = (2 * (acc.toNat + i.toNat) + (k - 1) * (k - 1 + 1)) % 2 ^ 64 := by
-              rw [Nat.add_mod, Nat.mul_mod, Nat.mod_mod, ← Nat.mul_mod, ← Nat.add_mod]
-        _ = (2 * acc.toNat + ((k - 1) * (k - 1 + 1) + 2 * i.toNat)) % 2 ^ 64 := by
-              congr 1; omega
-        _ = (2 * acc.toNat + k * (k + 1)) % 2 ^ 64 := by rw [hk1]
-        _ = (n.toNat * (n.toNat + 1)) % 2 ^ 64 := hinv
+      constructor
+      · intro h
+        cases h
+      · intro _
+        exact ⟨by simpa using hinv, rfl⟩
+    · have hi0 : decide (i ≠ 0) = true := decide_eq_true_iff.mpr hz
+      have hi_pos : i.toNat ≠ 0 := fun h => hz (BitVec.eq_of_toNat_eq (by simpa using h))
+      have : k ≥ 1 := by omega
+      constructor
+      · intro _
+        refine hJ (k - 1) _ m' (by omega) ?_
+        have hsub : (i - 1).toNat = i.toNat - 1 :=
+          BitVec.toNat_sub_of_le (by rw [BitVec.le_def]; simp; omega)
+        refine ⟨by dsimp only; rw [hsub]; omega, rfl, ?_⟩
+        dsimp only
+        have hmod : (acc + i).toNat = (acc.toNat + i.toNat) % 2 ^ 64 := BitVec.toNat_add acc i
+        have hk1 : (k - 1) * (k - 1 + 1) + 2 * i.toNat = k * (k + 1) := by
+          have hkpos : k ≥ 1 := by omega
+          have hkm : k - 1 + 1 = k := by omega
+          rw [hkm, hk]
+          calc (k - 1) * k + 2 * k = (k - 1 + 2) * k := by rw [Nat.add_mul]
+            _ = (k + 1) * k := by congr 1; omega
+            _ = k * (k + 1) := Nat.mul_comm _ _
+        rw [hmod]
+        calc (2 * ((acc.toNat + i.toNat) % 2 ^ 64) + (k - 1) * (k - 1 + 1)) % 2 ^ 64
+            = (2 * (acc.toNat + i.toNat) + (k - 1) * (k - 1 + 1)) % 2 ^ 64 := by
+                rw [Nat.add_mod, Nat.mul_mod, Nat.mod_mod, ← Nat.mul_mod, ← Nat.add_mod]
+          _ = (2 * acc.toNat + ((k - 1) * (k - 1 + 1) + 2 * i.toNat)) % 2 ^ 64 := by
+                congr 1; omega
+          _ = (2 * acc.toNat + k * (k + 1)) % 2 ^ 64 := by rw [hk1]
+          _ = (n.toNat * (n.toNat + 1)) % 2 ^ 64 := hinv
+      · intro h
+        rw [hi0] at h
+        cases h
   · intro J hJ
-    wp_unfold
+    dsimp only [wp, vals, Arg.val, Closed]
     exact hJ n.toNat (n, 0#64, ()) m ⟨rfl, rfl, by simp⟩
 
 theorem sumWhileLoop_rot_spec (Γ : Env) (n : BitVec 64) (m : Mem 64) (X : XPost) :
@@ -424,17 +438,21 @@ theorem sumWhileFn_rot_callsOk : (Fn.loopRotate sumWhileFn).callsOk [] [] :=
 /-! ## 5. Pipeline integration (`Func.lateOpt`) -/
 
 theorem sumWhile_lateOpt_out : Func.lateOpt sumWhileLoop = fun _ _ (n, ()) =>
-    .group (sig := [[i64, i64]])
-      (fun (loopRot, ()) => .cons (fun (i, acc, ()) =>
-        .let_ (op2 (.add i64) (.var i) (.var acc)) fun (acc', ()) =>
-        .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
-        .let_ (op2 (.ne i64) (.var i') (.imm 0)) fun (c1, ()) =>
-        .jnz (.var c1)
-          (.jump loopRot (.var i', .var acc', ()))
-          (.ret (.var acc', ()))) .nil)
-      (fun (loopRot, ()) =>
-        .let_ (op2 (.ne i64) (.var n) (.imm 0)) fun (c0, ()) =>
-        .jnz (.var c0) (.jump loopRot (.var n, .imm 0, ())) (.ret (.imm 0, ()))) := by
+    .group (sig := [[i64]])
+      (fun (_, ()) => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
+      (fun (exit_lbl, ()) =>
+        .group (sig := [[i64, i64]])
+          (fun (loopRot, ()) => .cons (fun (i, acc, ()) =>
+            .let_ (op2 (.add i64) (.var i) (.var acc)) fun (acc', ()) =>
+            .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+            .let_ (op2 (.ne i64) (.var i') (.imm 0)) fun (c1, ()) =>
+            .jnz (.var c1)
+              (.jump loopRot (.var i', .var acc', ()))
+              (.jump exit_lbl (.var acc', ()))) .nil)
+          (fun (loopRot, ()) =>
+            .let_ (op2 (.ne i64) (.var n) (.imm 0)) fun (c0, ()) =>
+            .jnz (.var c0) (.jump loopRot (.var n, .imm 0, ()))
+              (.jump exit_lbl (.imm 0, ())))) := by
   t_kernel_rfl
 
 theorem sumWhile_lateOpt_wf : (Func.lateOpt sumWhileLoop).Wf :=
@@ -447,16 +465,20 @@ theorem sumWhile_lateOpt_spec (Γ : Env) (n : BitVec 64) (m : Mem 64) (X : XPost
   Func.lateOpt_spec sumWhileLoop_wf (sumWhileLoop_spec Γ n m X)
 
 theorem exitTrue_lateOpt_out : Func.lateOpt exitTrueLoop = fun _ _ (n, ()) =>
-    .group (sig := [[i64, i64]])
-      (fun (loopRot, ()) => .cons (fun (i, acc, ()) =>
-        .let_ (op2 (.add i64) (.var i) (.var acc)) fun (acc', ()) =>
-        .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
-        .let_ (op2 (.eq i64) (.var i') (.imm 0)) fun (z1, ()) =>
-        .jnz (.var z1) (.ret (.var acc', ()))
-          (.jump loopRot (.var i', .var acc', ()))) .nil)
-      (fun (loopRot, ()) =>
-        .let_ (op2 (.eq i64) (.var n) (.imm 0)) fun (z0, ()) =>
-        .jnz (.var z0) (.ret (.imm 0, ())) (.jump loopRot (.var n, .imm 0, ()))) := by
+    .group (sig := [[i64]])
+      (fun (_, ()) => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
+      (fun (exit_lbl, ()) =>
+        .group (sig := [[i64, i64]])
+          (fun (loopRot, ()) => .cons (fun (i, acc, ()) =>
+            .let_ (op2 (.add i64) (.var i) (.var acc)) fun (acc', ()) =>
+            .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+            .let_ (op2 (.eq i64) (.var i') (.imm 0)) fun (z1, ()) =>
+            .jnz (.var z1) (.jump exit_lbl (.var acc', ()))
+              (.jump loopRot (.var i', .var acc', ()))) .nil)
+          (fun (loopRot, ()) =>
+            .let_ (op2 (.eq i64) (.var n) (.imm 0)) fun (z0, ()) =>
+            .jnz (.var z0) (.jump exit_lbl (.imm 0, ()))
+              (.jump loopRot (.var n, .imm 0, ())))) := by
   t_kernel_rfl
 
 /-! ## 6. Real-corpus validation (`LratBytes` & `Kissat.Full`) -/

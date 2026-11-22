@@ -55,8 +55,8 @@ theorem prog_opt_spec (Γ : Env) (a : BitVec 64) (m : Mem 64) :
       (fun (r0, r1, ()) m' => r0 = a + 3#64 ∧ r1 = a + 3#64 ∧ m' = m)
       (fun _ _ _ _ => False) := by
   apply Func.opt_spec prog_wf
-  dsimp only [Func.spec, Func.wp, prog]
-  wp_unfold
+  dsimp only [Func.spec, Func.wp, prog, wp, Op.wp, OpCode.wp, op2, vals, Arg.val,
+    lift1, lift2, lift3, Closed]
   simp
 
 /-! ## 2. Five-pass synergy (`Fold → Copy → Gvn → Fold → Dce`) -/
@@ -87,8 +87,8 @@ theorem synergyProg_opt_spec (Γ : Env) (a : BitVec 64) (m : Mem 64) :
       (fun (r, ()) m' => r = 0#64 ∧ m' = m)
       (fun _ _ _ _ => False) := by
   apply Func.opt_spec synergyProg_wf
-  dsimp only [Func.spec, Func.wp, synergyProg]
-  wp_unfold
+  dsimp only [Func.spec, Func.wp, synergyProg, wp, Op.wp, OpCode.wp, op1, op2, vals, Arg.val,
+    lift1, lift2, lift3, Closed]
   simp [BitVec.sub_self]
 
 /-! ## 3. End-to-end vector, multi-result, memory, and `group` pipeline test -/
@@ -165,8 +165,9 @@ theorem gvnCopyPairProg_opt_spec (Γ : Env) (a b : BitVec 64 × BitVec 64) (m : 
       (fun (r, ()) m' => r = (a.1 + b.1, a.2 + b.2) ∧ m' = m)
       (fun _ _ _ _ => False) := by
   apply Func.opt_spec gvnCopyPairProg_wf
-  dsimp only [Func.spec, Func.wp, gvnCopyPairProg]
-  wp_unfold
+  dsimp only [Func.spec, Func.wp, gvnCopyPairProg, wp, Op.wp, OpCode.wp, op1, op2, vals, Arg.val,
+    lift1, lift2, lift3, Closed]
+  exact ⟨rfl, rfl⟩
 
 /-! ## 5. Real `tqbe` program (`UnionFind`) & 250-instruction full-pipeline scaling -/
 
@@ -240,8 +241,8 @@ theorem stagedDiamond_earlyLate_spec (Γ : Env) (x y a : BitVec 64) (m : Mem 64)
       (fun _ _ _ _ => False) := by
   apply Func.lateOpt_spec stagedDiamond_earlyOpt_wf
   apply Func.earlyOpt_spec stagedDiamond_wf
-  dsimp only [Func.spec, Func.wp, stagedDiamond]
-  simp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, liftCmp, CmpOp.evalBits, i64, Closed]
+  dsimp only [Func.spec, Func.wp, stagedDiamond, wp, Op.wp, OpCode.wp, op2, vals, Arg.val, liftCmp,
+    CmpOp.evalBits, i64, Closed]
   intro ⟨J, ⟨⟩⟩ hJ
   refine ⟨fun h => ?_, fun h => ?_⟩
   · exact hJ.1 (a + 10#64, ()) m ⟨by simp [h], rfl⟩
@@ -274,8 +275,8 @@ theorem lateSynergyProg_lateOpt_spec (Γ : Env) (x ptr o : BitVec 64) (cond : Bo
       (fun _ _ _ _ => False) := by
   subst hcond
   apply Func.lateOpt_spec lateSynergyProg_wf
-  dsimp only [Func.spec, Func.wp, lateSynergyProg]
-  wp_unfold
+  dsimp only [Func.spec, Func.wp, lateSynergyProg, wp, Op.wp, OpCode.wp, op2, vals, Arg.val,
+    lift1, lift2, lift3, Closed]
   obtain ⟨hst, hm1⟩ := store_cell64 x hm
   refine ⟨hst, ?_⟩
   have hl : loadVal _ i64 ptr = some x := loadVal_cell64 hm1
@@ -306,23 +307,27 @@ def lateLicmAddrLoop : Func [i64, i32, i64] [i64] := fun _ _ (ar, cref, n, ()) =
 
 theorem lateLicmAddrLoop_lateOpt_out : Func.lateOpt lateLicmAddrLoop =
     fun _ _ (ar, cref, n, ()) =>
-      .let_ (op1 (.zext 32 64) (.var cref)) fun (c64, ()) =>
-      .let_ (op2 (.add i64) (.var c64) (.imm 3)) fun (c3, ()) =>
-      .let_ (op2 (.shl i64) (.var c3) (.imm 2)) fun (off, ()) =>
-      .let_ (op2 (.add i64) (.var ar) (.var off)) fun (base, ()) =>
-      .group (sig := [[i64, i64]])
-        (fun (lp, ()) => .cons (fun (i, acc, ()) =>
-          .let_ (op2 (.shl i64) (.var i) (.imm 2)) fun (ioff, ()) =>
-          .let_ (op2 (.add i64) (.var base) (.var ioff)) fun (ptr, ()) =>
-          .load i32 (.var ptr) fun w =>
-          .let_ (op1 (.zext 32 64) (.var w)) fun (w64, ()) =>
-          .let_ (op2 (.add i64) (.var acc) (.var w64)) fun (acc', ()) =>
-          .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
-          .let_ (op2 (.cmp .eq i64) (.var i') (.imm 0)) fun (z1, ()) =>
-          .jnz (.var z1) (.ret (.var acc', ())) (.jump lp (.var i', .var acc', ()))) .nil)
-        (fun (lp, ()) =>
-          .let_ (op2 (.cmp .eq i64) (.var n) (.imm 0)) fun (z0, ()) =>
-          .jnz (.var z0) (.ret (.imm 0, ())) (.jump lp (.var n, .imm 0, ()))) := by
+      .group (sig := [[i64]])
+        (fun (_, ()) => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
+        (fun (exit_lbl, ()) =>
+          .let_ (op1 (.zext 32 64) (.var cref)) fun (c64, ()) =>
+          .let_ (op2 (.add i64) (.var c64) (.imm 3)) fun (c3, ()) =>
+          .let_ (op2 (.shl i64) (.var c3) (.imm 2)) fun (off, ()) =>
+          .let_ (op2 (.add i64) (.var ar) (.var off)) fun (base, ()) =>
+          .group (sig := [[i64, i64]])
+            (fun (lp, ()) => .cons (fun (i, acc, ()) =>
+              .let_ (op2 (.shl i64) (.var i) (.imm 2)) fun (ioff, ()) =>
+              .let_ (op2 (.add i64) (.var base) (.var ioff)) fun (ptr, ()) =>
+              .load i32 (.var ptr) fun w =>
+              .let_ (op1 (.zext 32 64) (.var w)) fun (w64, ()) =>
+              .let_ (op2 (.add i64) (.var acc) (.var w64)) fun (acc', ()) =>
+              .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+              .let_ (op2 (.cmp .eq i64) (.var i') (.imm 0)) fun (z1, ()) =>
+              .jnz (.var z1) (.jump exit_lbl (.var acc', ()))
+                (.jump lp (.var i', .var acc', ()))) .nil)
+            (fun (lp, ()) =>
+              .let_ (op2 (.cmp .eq i64) (.var n) (.imm 0)) fun (z0, ()) =>
+              .jnz (.var z0) (.jump exit_lbl (.imm 0, ())) (.jump lp (.var n, .imm 0, ())))) := by
   t_kernel_rfl
 
 theorem lateLicmAddrLoop_wf : lateLicmAddrLoop.Wf := by t_wf_reify
@@ -339,9 +344,15 @@ theorem lateLicmAddrLoop_lateOpt_zero_spec (Γ : Env) (ar : BitVec 64) (cref : B
   refine wp_loop1 _ _
     (fun k (x : Tup Val [i64, i64]) m' => k = 0 ∧ x.1 = 0#64 ∧ x.2.1 = 0#64 ∧ m' = m) ?_ ?_
   · rintro _ _ ⟨i, acc, ⟨⟩⟩ m' _ ⟨_, rfl, rfl, rfl⟩
-    wp_unfold; simp
+    dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, liftCmp, CmpOp.evalBits, CmpOp.evalBool,
+      Ty.hasFloat, i64, Closed]
+    constructor
+    · intro _
+      exact ⟨rfl, rfl⟩
+    · intro h
+      cases h
   · intro J hJ
-    wp_unfold
+    dsimp only [wp, vals, Arg.val, Closed]
     exact hJ 0 (0#64, 0#64, ()) m ⟨rfl, rfl, rfl, rfl⟩
 
 /-! ## 7. Compare-shape canonicalization & `sext`/`zext` compare narrowing (`C4(a)(b)`) -/
@@ -388,9 +399,10 @@ theorem cmpShapeProg_earlyOpt_spec (Γ : Env) (x : BitVec 64) (y : BitVec 32)
         c7 = (u.setWidth 32 == v.setWidth 32) ∧ m' = m)
       (fun _ _ _ _ => False) := by
   apply Func.earlyOpt_spec cmpShapeProg_wf
-  dsimp only [Func.spec, Func.wp, cmpShapeProg]
-  wp_unfold_all
+  dsimp only [Func.spec, Func.wp, cmpShapeProg, wp, Op.wp, OpCode.wp, op1, op2, vals, Arg.val,
+    lift1, lift2, lift3, liftCmp, CmpOp.evalBits, i8, i32, i64, Closed]
   simp [BitVec.ult]
+  rfl
 
 #print axioms LeanQbe.T.Func.renorm_spec
 #print axioms LeanQbe.T.Func.simplifyGroupFast_spec
@@ -450,5 +462,83 @@ theorem optInlineSampleMod_inlined_wf :
 #print axioms LeanQbe.T.Compiled.fnSpec_host_optInline
 #print axioms LeanQbe.T.Compiled.fnSpec_noExit_id_optInline
 #print axioms optInlineSampleMod_inlined_checkAcyclic
+
+/-! ## 8. Unified Epilogue Merging (`Func.mergeRets`) tests -/
+
+/-- Single-return function (`retCount = 1`): `Func.mergeRets` is identity with zero overhead. -/
+def singleRetProg : Func [i64] [i64] := fun _ _ (x, ()) =>
+  .let_ (op2 (.add i64) (.var x) (.imm 1)) fun (y, ()) =>
+    .ret (.var y, ())
+
+theorem singleRet_rets : tflatRets (reifyFunc singleRetProg) = 1 := by
+  rfl
+
+theorem singleRet_mergeRets_eq : Func.mergeRets singleRetProg = singleRetProg := by
+  rw [Func.mergeRets_eq]
+  rfl
+
+/-- Two-return function (`retCount = 2`): `Func.mergeRets` rewrites into shared exit group. -/
+def twoRetProg : Func [i64, .bool] [i64] := fun _ _ (x, c, ()) =>
+  .jnz (.var c)
+    (.ret (.var x, ()))
+    (.let_ (op2 (.add i64) (.var x) (.imm 42)) fun (y, ()) =>
+      .ret (.var y, ()))
+
+theorem twoRet_rets : tflatRets (reifyFunc twoRetProg) = 2 := by
+  rfl
+
+theorem twoRet_merge_out : Func.mergeRets twoRetProg = fun _ _ (x, c, ()) =>
+    .group (sig := [[i64]])
+      (fun (_, ()) => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
+      (fun (exit_lbl, ()) =>
+        .jnz (.var c)
+          (.jump exit_lbl (.var x, ()))
+          (.let_ (op2 (.add i64) (.var x) (.imm 42)) fun (y, ()) =>
+            .jump exit_lbl (.var y, ()))) := by
+  t_kernel_rfl
+
+theorem twoRet_wf : twoRetProg.Wf := by t_wf_reify
+
+theorem twoRet_merge_wf : (Func.mergeRets twoRetProg).Wf :=
+  Func.mergeRets_wf twoRet_wf
+
+theorem twoRet_src_spec (Γ : Env) (x : BitVec 64) (c : Bool) (m : Mem 64) :
+    Func.spec Γ twoRetProg (x, c, ()) m
+      (fun (r, ()) m' => r = (if c then x else x + 42#64) ∧ m' = m)
+      (fun _ _ _ _ => False) := by
+  dsimp only [Func.spec, Func.wp, twoRetProg, wp, Op.wp, OpCode.wp, op2, vals, Arg.val,
+    lift1, lift2, lift3, Closed]
+  cases c <;> simp
+
+theorem twoRet_merge_spec (Γ : Env) (x : BitVec 64) (c : Bool) (m : Mem 64) :
+    Func.spec Γ (Func.mergeRets twoRetProg) (x, c, ()) m
+      (fun (r, ()) m' => r = (if c then x else x + 42#64) ∧ m' = m)
+      (fun _ _ _ _ => False) :=
+  Func.mergeRets_spec twoRet_wf (twoRet_src_spec Γ x c m)
+
+/-- Three-return function (`retCount = 3`): `Func.mergeRets` replaces all 3 returns. -/
+def threeRetProg : Func [i64, .bool, .bool] [i64] := fun _ _ (x, c1, c2, ()) =>
+  .jnz (.var c1)
+    (.ret (.imm 1#64, ()))
+    (.jnz (.var c2)
+      (.ret (.imm 2#64, ()))
+      (.ret (.var x, ())))
+
+theorem threeRet_rets : tflatRets (reifyFunc threeRetProg) = 3 := by
+  rfl
+
+theorem threeRet_merge_out : Func.mergeRets threeRetProg = fun _ _ (x, c1, c2, ()) =>
+    .group (sig := [[i64]])
+      (fun (_, ()) => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
+      (fun (exit_lbl, ()) =>
+        .jnz (.var c1)
+          (.jump exit_lbl (.imm 1#64, ()))
+          (.jnz (.var c2)
+            (.jump exit_lbl (.imm 2#64, ()))
+            (.jump exit_lbl (.var x, ())))) := by
+  t_kernel_rfl
+
+#print axioms LeanQbe.T.Func.mergeRets_wf
+#print axioms LeanQbe.T.Func.mergeRets_spec
 
 end LeanQbe.T.OptTest

@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Flat
+public import LeanQbe.T.OptUtil
 public import LeanQbe.T.Fold
 public import LeanQbe.T.Canon
 public import LeanQbe.T.Copy
@@ -133,6 +134,60 @@ def Func.peelFast {as rs : List Ty} (f : Func as rs) (budget : Nat := 24) : Func
   if tflatLoops tf ≤ 1 && tflatSize tf ≤ 40 then Func.renorm (Func.peel (denoteFunc tf) budget)
   else denoteFunc tf
 
+mutual
+/-- Count `.ret` sites inside a `TFlat` AST. -/
+def tflatRets {rs : List Ty} : TFlat rs → Nat
+  | .let_ _ k | .load _ _ k | .store _ _ k | .call _ _ _ k => tflatRets k
+  | .jnz _ t e => tflatRets t + tflatRets e
+  | .jump _ _ | .exit _ _ | .hlt => 0
+  | .ret _ => 1
+  | .group bodies k => tblocksRets bodies + tflatRets k
+
+/-- Block-list companion of `tflatRets`. -/
+def tblocksRets {rs : List Ty} : {sig : List (List Ty)} → TBlocks rs sig → Nat
+  | _, .nil => 0
+  | _, .cons b bs => tflatRets b + tblocksRets bs
+end
+
+mutual
+/-- Replace all `.ret vs` with `.jump exit_lbl vs` throughout an `Expr`. -/
+def Expr.mergeRets {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (exit_lbl : L rs) : Expr V L rs → Expr V L rs
+  | .let_ op k => .let_ op fun xs => (k xs).mergeRets exit_lbl
+  | .load t a k => .load t a fun v => (k v).mergeRets exit_lbl
+  | .store v a k => .store v a (k.mergeRets exit_lbl)
+  | .call f args k => .call f args fun xs => (k xs).mergeRets exit_lbl
+  | .jnz c t e => .jnz c (t.mergeRets exit_lbl) (e.mergeRets exit_lbl)
+  | .jump j args => .jump j args
+  | .ret vs => .jump exit_lbl vs
+  | .exit f args => .exit f args
+  | .hlt => .hlt
+  | .group bodies k =>
+    .group (fun Js => (bodies Js).mergeRets exit_lbl)
+      (fun Js => (k Js).mergeRets exit_lbl)
+
+/-- Block-list companion of `Expr.mergeRets`. -/
+def Blocks.mergeRets {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (exit_lbl : L rs) : {sig : List (List Ty)} → Blocks V L rs sig → Blocks V L rs sig
+  | _, .nil => .nil
+  | _, .cons b bs =>
+    .cons (fun xs => (b xs).mergeRets exit_lbl) (bs.mergeRets exit_lbl)
+end
+
+/-- Unified Epilogue Merging (`Func.mergeRets`): when a function has `≥ 2` `.ret` sites,
+rewrite the body into a single outer `Expr.group` with one shared exit join block
+`exit_blk(ret_vals) -> .ret ret_vals`, replacing every interior `.ret xs` with
+`.jump exit_blk xs`. Single-return (`retCount ≤ 1`) functions bypass rewriting with
+zero overhead. -/
+def Func.mergeRets {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  let tf := reifyFunc f
+  if tflatRets tf ≥ 2 then
+    fun V L params =>
+      .group (sig := [rs])
+        (fun (_, ()) => .cons (fun r_params => .ret (toArgTup r_params)) .nil)
+        (fun (exit_lbl, ()) => (f V L params).mergeRets exit_lbl)
+  else f
+
 /-- Pre-`Legal` value-optimization core (`fold → canon → copy → gvn → copy → fold`). -/
 def Func.earlyCore {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.fold (Func.copy (Func.gvn (Func.copy (Func.canon (Func.fold f)))))
@@ -167,9 +222,9 @@ def Func.lateCfgPre {as rs : List Ty} (f : Func as rs) : Func as rs :=
 def Func.lateCfgPost {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.dceP (Func.licm f)
 
-/-- Post-`Legal` tail (`licm → dceP → loopRotate`) prior to final renormalization. -/
+/-- Post-`Legal` tail (`licm → dceP → loopRotate → mergeRets`) prior to final renormalization. -/
 def Func.lateLoopRotate {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.loopRotate (Func.lateCfgPost f)
+  Func.mergeRets (Func.loopRotate (Func.lateCfgPost f))
 
 /-- Post-`Legal` CFG/cleanup core (`renorm → ifOptBits → simplifyGroupFast → deadLoadElim →
 assumeElim → fold → gvn → renorm → licm → dceP`). -/
@@ -178,10 +233,21 @@ def Func.lateCfg {as rs : List Ty} (f : Func as rs) : Func as rs :=
 
 /-- Stage 2 (`lateOpt`, post-`Legal`): strength-reduce constant division, forward memory loads,
 run machine-width `.bits` if-conversion (`ifOptBits`), clean up dead loads/blocks, hoist
-loop-invariant pure operations (`licm`), rotate header-tested loops (`loopRotate`), and
-renormalize before `Rega`. -/
+loop-invariant pure operations (`licm`), rotate header-tested loops (`loopRotate`), merge
+duplicate epilogues (`mergeRets`), and renormalize before `Rega`. -/
 def Func.lateOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.renorm (Func.loopRotate (Func.lateCfg (Func.lateCore f)))
+  Func.renorm (Func.lateLoopRotate (Func.lateCfg (Func.lateCore f)))
+
+theorem Func.mergeRets_eq {as rs : List Ty} (f : Func as rs) :
+    Func.mergeRets f =
+      let tf := reifyFunc f
+      if tflatRets tf ≥ 2 then
+        fun V L params =>
+          .group (sig := [rs])
+            (fun (_, ()) => .cons (fun r_params => .ret (toArgTup r_params)) .nil)
+            (fun (exit_lbl, ()) => (f V L params).mergeRets exit_lbl)
+      else f :=
+  rfl
 
 theorem Func.simplifyGroupFast_eq {as rs : List Ty} (f : Func as rs) :
     Func.simplifyGroupFast f =
@@ -234,7 +300,7 @@ theorem Func.lateCfgPost_eq {as rs : List Ty} (f : Func as rs) :
   rfl
 
 theorem Func.lateLoopRotate_eq {as rs : List Ty} (f : Func as rs) :
-    Func.lateLoopRotate f = Func.loopRotate (Func.lateCfgPost f) :=
+    Func.lateLoopRotate f = Func.mergeRets (Func.loopRotate (Func.lateCfgPost f)) :=
   rfl
 
 theorem Func.lateCfg_eq {as rs : List Ty} (f : Func as rs) :
@@ -244,10 +310,10 @@ theorem Func.lateCfg_eq {as rs : List Ty} (f : Func as rs) :
   rfl
 
 theorem Func.lateOpt_eq {as rs : List Ty} (f : Func as rs) :
-    Func.lateOpt f = Func.renorm (Func.loopRotate (Func.lateCfg (Func.lateCore f))) :=
+    Func.lateOpt f = Func.renorm (Func.lateLoopRotate (Func.lateCfg (Func.lateCore f))) :=
   rfl
 
-attribute [irreducible] Func.simplifyGroupFast Func.peelFast
+attribute [irreducible] Func.mergeRets Func.simplifyGroupFast Func.peelFast
 attribute [irreducible] Func.earlyCore Func.earlyOpt
 attribute [irreducible] Func.lateCorePre Func.lateCorePost Func.lateCore
 attribute [irreducible] Func.lateCfgPre Func.lateCfgPost Func.lateLoopRotate
