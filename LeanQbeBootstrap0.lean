@@ -24,6 +24,8 @@ public import LeanQbe.T.Bootstrap0.Codec0Lemmas1
 public import LeanQbe.T.Bootstrap0.Compiler0
 public import LeanQbe.T.Bootstrap0.Dummies0
 public import LeanQbe.T.Bootstrap0.Mod0
+public import LeanQbe.T.Bootstrap0.PrintDir0
+public import LeanQbe.T.Bootstrap0.PrintDir0Lemmas
 public import LeanQbe.T.Bootstrap0.Splice0
 public import LeanQbe.T.Bootstrap0.Types0
 
