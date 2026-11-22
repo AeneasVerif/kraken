@@ -56,7 +56,7 @@ theorem lookupCallee_mem :
       · obtain ⟨g, hg, hgn, hga, hgr, hgb⟩ := lookupCallee_mem h
         exact ⟨g, List.mem_cons_of_mem _ hg, hgn, hga, hgr, hgb⟩
 
-@[simp] theorem spliceRetB_get {V : Ty → Type} {L : List Ty → Type} {calleeRs callerRs : List Ty}
+theorem spliceRetB_get {V : Ty → Type} {L : List Ty → Type} {calleeRs callerRs : List Ty}
     (joinLbl : L calleeRs) :
     {sig : List (List Ty)} → {bs : Blocks (Arg V) L calleeRs sig} →
     {ts : List Ty} → (i : Member ts sig) → (xs : Tup V ts) →
@@ -65,7 +65,7 @@ theorem lookupCallee_mem :
   | _, .cons _ _, _, Member.here, _ => rfl
   | _, .cons _ _, _, Member.there i, xs => spliceRetB_get joinLbl i xs
 
-@[simp] theorem inlineBlocks_get (cands : List Fn) {V : Ty → Type} {L : List Ty → Type}
+theorem inlineBlocks_get (cands : List Fn) {V : Ty → Type} {L : List Ty → Type}
     {rs : List Ty} :
     {sig : List (List Ty)} → {bs : Blocks V L rs sig} →
     {ts : List Ty} → (i : Member ts sig) → (xs : Tup V ts) →
@@ -274,7 +274,7 @@ theorem CandsWpOk.wfOk {Γ : Env} {cands : List Fn} (h : CandsWpOk Γ cands) : C
   fun fn hfn => (h fn hfn).1
 
 /-- Expression-level WP soundness of `inlineExpr` under `CandsWpOk Γ cands`. -/
-private theorem inlineExpr_call (cands : List Fn) {V : Ty → Type} {L : List Ty → Type}
+theorem inlineExpr_call (cands : List Fn) {V : Ty → Type} {L : List Ty → Type}
     {as bs rs : List Ty} (f : Sym) (args : Tup (Arg V) as) (k : Tup V bs → Expr V L rs) :
     inlineExpr cands (.call f args k) =
       match lookupCallee cands f as bs with
@@ -479,6 +479,86 @@ theorem Module.inline_externs (M : Module) (maxSize : Nat := 40) :
 theorem Module.inline_exits (M : Module) (maxSize : Nat := 40) :
     (M.inline maxSize).exits = M.exits := rfl
 
+private theorem insertBySize_mem (fn : Fn) :
+    ∀ (cs : List Fn) {g : Fn}, g ∈ insertBySize fn cs → g = fn ∨ g ∈ cs
+  | [], g, hg => by
+      dsimp only [insertBySize] at hg
+      exact Or.inl (List.mem_singleton.mp hg)
+  | c :: cs, g, hg => by
+      dsimp only [insertBySize] at hg
+      split at hg
+      · rcases List.mem_cons.1 hg with rfl | hg
+        · exact Or.inl rfl
+        · exact Or.inr hg
+      · rcases List.mem_cons.1 hg with rfl | hg
+        · exact Or.inr List.mem_cons_self
+        · rcases insertBySize_mem fn cs hg with rfl | hrest
+          · exact Or.inl rfl
+          · exact Or.inr (List.mem_cons_of_mem _ hrest)
+
+private theorem sortCandsBySize_mem :
+    ∀ {cs : List Fn} {g : Fn}, g ∈ sortCandsBySize cs → g ∈ cs
+  | [], _, hg => by dsimp only [sortCandsBySize] at hg; cases hg
+  | c :: cs, g, hg => by
+      dsimp only [sortCandsBySize] at hg
+      rcases insertBySize_mem c (sortCandsBySize cs) hg with rfl | hrest
+      · exact List.mem_cons_self
+      · exact List.mem_cons_of_mem _ (sortCandsBySize_mem hrest)
+
+private theorem selectCandsAux_mem (callerCalls : List (Sym × Nat)) (maxSz : Nat) :
+    ∀ (curSz : Nat) (cs : List Fn) {g : Fn},
+      g ∈ selectCandsAux callerCalls maxSz curSz cs → g ∈ cs
+  | _, [], _, hg => by dsimp only [selectCandsAux] at hg; cases hg
+  | curSz, c :: cs, g, hg => by
+      dsimp only [selectCandsAux] at hg
+      split at hg
+      · exact List.mem_cons_of_mem _ (selectCandsAux_mem callerCalls maxSz curSz cs hg)
+      · split at hg
+        · rcases List.mem_cons.1 hg with rfl | hrest
+          · exact List.mem_cons_self
+          · exact List.mem_cons_of_mem _ (selectCandsAux_mem callerCalls maxSz _ cs hrest)
+        · exact List.mem_cons_of_mem _ (selectCandsAux_mem callerCalls maxSz curSz cs hg)
+
+theorem selectCandsForCaller_mem (policy : InlinePolicy) (cands : List Fn) (fn : Fn) :
+    ∀ g ∈ selectCandsForCaller policy cands fn, g ∈ cands := by
+  intro g hg
+  dsimp only [selectCandsForCaller] at hg
+  split at hg
+  · exact hg
+  · split at hg
+    · cases hg
+    · exact sortCandsBySize_mem (selectCandsAux_mem _ _ _ _ hg)
+
+theorem inlineFnsPolicy_preserve (P : Fn → Prop) (policy : InlinePolicy)
+    (siteCounts : List (Sym × Nat)) (extSigs : List SigEntry) (exits : List Sym)
+    (hInl : ∀ (cands : List Fn) (fn : Fn),
+      (∀ c ∈ cands, P c) → P fn → P (fn.inline cands)) :
+    ∀ (seenSigs : List SigEntry) (cands rest : List Fn),
+      (∀ c ∈ cands, P c) → (∀ f ∈ rest, P f) →
+      ∀ f ∈ inlineFnsPolicy policy siteCounts extSigs exits seenSigs cands rest, P f
+  | _, _, [], _, _, _, hf => by dsimp only [inlineFnsPolicy] at hf; cases hf
+  | seenSigs, cands, fn :: rest, hcands, hrest, f, hf => by
+      dsimp only [inlineFnsPolicy] at hf
+      let candsFn := selectCandsForCaller policy cands fn
+      have hfn' : P (fn.inline candsFn) :=
+        hInl candsFn fn (fun c hc => hcands c (selectCandsForCaller_mem policy cands fn c hc))
+          (hrest fn List.mem_cons_self)
+      rcases List.mem_cons.1 hf with rfl | htl
+      · exact hfn'
+      · have hcands' : ∀ c ∈
+            (if inlineCandidateOkPolicy policy (lookupCallSite siteCounts (fn.inline candsFn).name)
+                (seenSigs ++ extSigs) exits (fn.inline candsFn)
+             then fn.inline candsFn :: cands else cands), P c := by
+          intro c hc
+          split at hc
+          · rcases List.mem_cons.1 hc with rfl | hc'
+            · exact hfn'
+            · exact hcands c hc'
+          · exact hcands c hc
+        exact inlineFnsPolicy_preserve P policy siteCounts extSigs exits hInl
+          (seenSigs ++ [fn.sig]) _ rest hcands'
+          (fun g hg => hrest g (List.mem_cons_of_mem _ hg)) f htl
+
 private theorem inlineFnsPolicy_ok {Γ : Env} (policy : InlinePolicy)
     (siteCounts : List (Sym × Nat)) (extSigs : List SigEntry) (exits : List Sym) :
     ∀ (seenSigs : List SigEntry) (cands rest : List Fn),
@@ -497,13 +577,18 @@ private theorem inlineFnsPolicy_ok {Γ : Env} (policy : InlinePolicy)
   | seenSigs, cands, fn :: rest, hwp, hcalls, hrest, pre', fn', post', hsplit => by
       have ⟨hfn_wf, hfn_calls, hfn_spec⟩ := hrest [] fn rest rfl
       simp only [List.map_nil, List.append_nil] at hfn_calls
-      let fn0 := fn.inline cands
-      have hfn0_wf : fn0.Wf := Func.inline_wf hwp.wfOk hfn_wf
+      let candsFn := selectCandsForCaller policy cands fn
+      have hsubFn : ∀ g ∈ candsFn, g ∈ cands := selectCandsForCaller_mem policy cands fn
+      have hwpFn : CandsWpOk Γ candsFn := fun g hg => hwp g (hsubFn g hg)
+      have hcallsFn : CandsCallsOk (seenSigs ++ extSigs) exits candsFn :=
+        fun g hg => hcalls g (hsubFn g hg)
+      let fn0 := fn.inline candsFn
+      have hfn0_wf : fn0.Wf := Func.inline_wf hwpFn.wfOk hfn_wf
       have hfn0_calls : fn0.callsOk (seenSigs ++ extSigs) exits :=
-        inline_callsOk hcalls _ hfn_calls
+        inline_callsOk hcallsFn _ hfn_calls
       have hfn0_spec : ∀ xs m Q X, Γ fn0.name fn0.as fn0.rs xs m Q X →
           Func.wp Γ fn0.body xs m Q X :=
-        fun xs m Q X hg => Func.inline_spec hwp fn.body (hfn_spec xs m Q X hg)
+        fun xs m Q X hg => Func.inline_spec hwpFn fn.body (hfn_spec xs m Q X hg)
       let allowed := seenSigs ++ extSigs
       let sites := lookupCallSite siteCounts fn0.name
       let cands' :=
@@ -547,7 +632,7 @@ private theorem inlineFnsPolicy_ok {Γ : Env} (policy : InlinePolicy)
           dsimp only [inlineFnsPolicy] at hsplit
           simp only [List.cons_append, List.cons.injEq] at hsplit
           rcases hsplit with ⟨rfl, htl⟩
-          have hsig : (fn.inline cands).sig = fn.sig := rfl
+          have hsig : (fn.inline (selectCandsForCaller policy cands fn)).sig = fn.sig := rfl
           have ih := inlineFnsPolicy_ok policy siteCounts extSigs exits (seenSigs ++ [fn.sig])
             cands' rest hwp' hcalls' hrest' tl fn' post' htl
           simpa [hsig, List.append_assoc] using ih
@@ -566,6 +651,30 @@ theorem Module.inlinePolicy_ok {Γ : Env} {M : Module} (policy : InlinePolicy :=
 theorem Module.inline_ok {Γ : Env} {M : Module} (maxSize : Nat := 40) :
     ModuleOk Γ M → ModuleOk Γ (M.inline maxSize) :=
   Module.inlinePolicy_ok (InlinePolicy.const maxSize)
+
+/-- `Module.inlinePolicy` preserves `Fn.Wf` for every function in `M`. -/
+theorem Module.inlinePolicy_wf {Γ : Env} {M : Module} (policy : InlinePolicy := {})
+    (hM : ModuleOk Γ M) : ∀ fn ∈ (M.inlinePolicy policy).fns, fn.Wf := by
+  intro fn hfn
+  obtain ⟨pre, post, hsp⟩ := List.mem_iff_append.mp hfn
+  exact ((Module.inlinePolicy_ok policy hM).fnsOk pre fn post hsp).1
+
+/-- `Module.inlinePolicy` preserves `Fn.callsOk` along the module function list. -/
+theorem Module.inlinePolicy_callsOk {Γ : Env} {M : Module} (policy : InlinePolicy := {})
+    (hM : ModuleOk Γ M) :
+    ∀ pre fn post, (M.inlinePolicy policy).fns = pre ++ fn :: post →
+      fn.callsOk (pre.map Fn.sig ++ M.externs.map Extern.sig) M.exits := by
+  intro pre fn post hsp
+  exact ((Module.inlinePolicy_ok policy hM).fnsOk pre fn post hsp).2.1
+
+/-- `Module.inlinePolicy` preserves `Func.wp` contracts for every function in `M`. -/
+theorem Module.inlinePolicy_spec {Γ : Env} {M : Module} (policy : InlinePolicy := {})
+    (hM : ModuleOk Γ M) :
+    ∀ fn ∈ (M.inlinePolicy policy).fns, ∀ xs m Q X,
+      Γ fn.name fn.as fn.rs xs m Q X → Func.wp Γ fn.body xs m Q X := by
+  intro fn hfn
+  obtain ⟨pre, post, hsp⟩ := List.mem_iff_append.mp hfn
+  exact ((Module.inlinePolicy_ok policy hM).fnsOk pre fn post hsp).2.2
 
 private theorem Blocks.checkCallsOk_of_get {allowed : List SigEntry} {exits : List Sym}
     {rs : List Ty} :
@@ -631,6 +740,12 @@ theorem Module.inlinePolicy_checkAcyclic {M : Module} (policy : InlinePolicy := 
   simp only [Module.checkAcyclic, Bool.and_eq_true]
   refine ⟨listNodup_iff.mpr hm.nodup, checkFnsCallsOk_of_forall _ _ [] _ fun pre fn post hsp => ?_⟩
   simpa using (hm.fnsOk pre fn post hsp).2.1
+
+/-- `Module.inlinePolicy` preserves acyclicity (`checkAcyclic = true`). -/
+theorem Module.inlinePolicy_acyclic {M : Module} (policy : InlinePolicy := {})
+    (hchk : M.checkAcyclic = true) (hwf : ∀ fn ∈ M.fns, fn.Wf) :
+    (M.inlinePolicy policy).checkAcyclic = true :=
+  Module.inlinePolicy_checkAcyclic policy hchk hwf
 
 /-- `Module.inline` preserves the decidable `Module.checkAcyclic` certificate when all functions
 are well-formed. -/

@@ -146,6 +146,12 @@ theorem Module.optInlinePolicy_checkAcyclic {M : Module} (policy : InlinePolicy 
     (M.optInlinePolicy policy).checkAcyclic = true :=
   checkAcyclic_of_moduleOk (optInlinePolicy_moduleOk_bot policy hchk hwf)
 
+/-- Alias for `Module.optInlinePolicy_checkAcyclic`. -/
+theorem Module.optInlinePolicy_acyclic {M : Module} (policy : InlinePolicy := {})
+    (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
+    (M.optInlinePolicy policy).checkAcyclic = true :=
+  Module.optInlinePolicy_checkAcyclic policy hchk hwf
+
 /-- `Module.optInlinePolicy` preserves `Fn.Wf` for every function in an acyclic module. -/
 theorem Module.optInlinePolicy_wf {M : Module} (policy : InlinePolicy := {})
     (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
@@ -154,6 +160,334 @@ theorem Module.optInlinePolicy_wf {M : Module} (policy : InlinePolicy := {})
   intro f hf
   obtain ⟨pre, post, hsp⟩ := List.mem_iff_append.mp hf
   exact (hm.fnsOk pre f post hsp).1
+
+/-- `Module.optInlinePolicy` preserves `Fn.callsOk` along the acyclic module function list. -/
+theorem Module.optInlinePolicy_callsOk {M : Module} (policy : InlinePolicy := {})
+    (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
+    ∀ pre fn post, (M.optInlinePolicy policy).fns = pre ++ fn :: post →
+      fn.callsOk (pre.map Fn.sig ++ M.externs.map Extern.sig) M.exits := by
+  have hm := optInlinePolicy_moduleOk_bot policy hchk hwf
+  intro pre fn post hsp
+  exact (hm.fnsOk pre fn post hsp).2.1
+
+/-- `Module.optInlinePolicy` preserves `Func.wp` contracts for every function in an acyclic
+module. -/
+theorem Module.optInlinePolicy_spec {Γ : Env} {M : Module} (policy : InlinePolicy := {})
+    (hM : ModuleOk Γ M) :
+    ∀ f ∈ (M.optInlinePolicy policy).fns, ∀ xs m Q X,
+      Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X := by
+  have hm := Module.optInlinePolicy_ok policy hM
+  intro f hf
+  obtain ⟨pre, post, hsp⟩ := List.mem_iff_append.mp hf
+  exact (hm.fnsOk pre f post hsp).2.2
+
+private theorem tblocks_supportsSource_get (target : LegalTarget) {rs : List Ty} :
+    ∀ {sig : List (List Ty)} (bs : Blocks K KL rs sig) {nv nl : Nat},
+      (toTBlocks bs nv nl).supportsSource target = true →
+      ∀ {ts} (i : Member ts sig),
+        ts.all target.supportsTy = true ∧
+        (toTFlat (bs.get i (Tup.levels ts nv)) (nv + ts.length) nl).supportsSource target = true
+  | _, .cons _ _, _, _, hs, _, .here => by
+      dsimp only [toTBlocks, TBlocks.supportsSource] at hs
+      rw [Bool.and_eq_true, Bool.and_eq_true] at hs
+      exact ⟨hs.1.1, hs.1.2⟩
+  | _, .cons _ bs, _, _, hs, _, .there i => by
+      dsimp only [toTBlocks, TBlocks.supportsSource] at hs
+      rw [Bool.and_eq_true] at hs
+      exact tblocks_supportsSource_get target bs hs.2 i
+
+private theorem tblocks_supportsSource_of_get (target : LegalTarget) {rs : List Ty} :
+    ∀ {sig : List (List Ty)} (bs : Blocks K KL rs sig) (nv nl : Nat),
+      (∀ {ts} (i : Member ts sig),
+        ts.all target.supportsTy = true ∧
+        (toTFlat (bs.get i (Tup.levels ts nv)) (nv + ts.length) nl).supportsSource target = true) →
+      (toTBlocks bs nv nl).supportsSource target = true
+  | _, .nil, _, _, _ => rfl
+  | _, .cons _ bs, nv, nl, h => by
+      dsimp only [toTBlocks, TBlocks.supportsSource]
+      rw [Bool.and_eq_true, Bool.and_eq_true]
+      have h0 := h .here
+      exact ⟨⟨h0.1, h0.2⟩, tblocks_supportsSource_of_get target bs nv nl fun i => h (.there i)⟩
+
+private theorem spliceRet_supportsSource (target : LegalTarget) {calleeRs callerRs : List Ty}
+    {j₁ : KL calleeRs}
+    {G : Ctx (Arg K) K} {D : Ctx KL KL}
+    {e₁ : Expr (Arg K) KL calleeRs} {e₂ : Expr K KL calleeRs}
+    (hwf : Wf G D e₁ e₂) :
+    ∀ nv₁ nl₁ nv₂ nl₂,
+      (toTFlat e₂ nv₂ nl₂).supportsSource target = true →
+      (toTFlat (spliceRet (callerRs := callerRs) j₁ e₁) nv₁ nl₁).supportsSource target = true := by
+  induction hwf using Wf.induct with
+  | let_ hop _ ih =>
+      intro nv₁ nl₁ nv₂ nl₂ hs
+      cases hop with
+      | mk code _ =>
+          dsimp only [spliceRet, flattenOp, toTFlat, TFlat.supportsSource] at hs ⊢
+          rw [Bool.and_eq_true] at hs ⊢
+          exact ⟨hs.1, ih _ _ _ _ _ _ hs.2⟩
+  | load t _ _ ih =>
+      intro nv₁ nl₁ nv₂ nl₂ hs
+      dsimp only [spliceRet, toTFlat, TFlat.supportsSource] at hs ⊢
+      rw [Bool.and_eq_true] at hs ⊢
+      exact ⟨hs.1, ih _ _ _ _ _ _ hs.2⟩
+  | store _ _ _ ih =>
+      intro nv₁ nl₁ nv₂ nl₂ hs
+      dsimp only [spliceRet, toTFlat, TFlat.supportsSource] at hs ⊢
+      rw [Bool.and_eq_true] at hs ⊢
+      exact ⟨hs.1, ih _ _ _ _ hs.2⟩
+  | call f _ _ ih =>
+      intro nv₁ nl₁ nv₂ nl₂ hs
+      dsimp only [spliceRet, toTFlat, TFlat.supportsSource] at hs ⊢
+      rw [Bool.and_eq_true] at hs ⊢
+      exact ⟨hs.1, ih _ _ _ _ _ _ hs.2⟩
+  | jnz _ _ _ iht ihe =>
+      intro nv₁ nl₁ nv₂ nl₂ hs
+      dsimp only [spliceRet, toTFlat, TFlat.supportsSource] at hs ⊢
+      rw [Bool.and_eq_true] at hs ⊢
+      exact ⟨iht _ _ _ _ hs.1, ihe _ _ _ _ hs.2⟩
+  | jump _ _ =>
+      intro _ _ _ _ hs
+      exact hs
+  | ret _ =>
+      intro _ _ _ _ hs
+      exact hs
+  | exit _ _ =>
+      intro _ _ _ _ hs
+      exact hs
+  | hlt =>
+      intro _ _ _ _ _
+      rfl
+  | @group _ _ sig b₁ b₂ _ _ _ _ ihb ihk =>
+      intro nv₁ nl₁ nv₂ nl₂ hs
+      dsimp only [spliceRet, toTFlat, TFlat.supportsSource] at hs ⊢
+      rw [Bool.and_eq_true, Bool.and_eq_true] at hs ⊢
+      refine ⟨⟨hs.1.1, tblocks_supportsSource_of_get target _ nv₁ (nl₁ + sig.length) fun i => ?_⟩,
+        ihk (Tup.levels sig nl₁) (Tup.levels sig nl₂) nv₁ (nl₁ + sig.length) nv₂
+          (nl₂ + sig.length) hs.2⟩
+      have hget := tblocks_supportsSource_get target (b₂ (Tup.levels sig nl₂)) hs.1.2 i
+      refine ⟨hget.1, ?_⟩
+      rw [spliceRetB_get]
+      exact ihb (Tup.levels sig nl₁) (Tup.levels sig nl₂) i (toArgTup _) (Tup.levels _ nv₂)
+        (nv₁ + _) (nl₁ + sig.length) (nv₂ + _) (nl₂ + sig.length) hget.2
+
+private def CandsSupportsSource (target : LegalTarget) (cands : List Fn) : Prop :=
+  ∀ fn ∈ cands, fn.Wf ∧ fn.body.supportsSource target = true
+
+private theorem inlineExpr_supportsSource (target : LegalTarget) {cands : List Fn}
+    (hcands : CandsSupportsSource target cands) {rs : List Ty}
+    {G : Ctx K K} {D : Ctx KL KL} {e₁ e₂ : Expr K KL rs} (hwf : Wf G D e₁ e₂) :
+    ∀ nv₁ nl₁ nv₂ nl₂, (toTFlat e₂ nv₂ nl₂).supportsSource target = true →
+      (toTFlat (inlineExpr cands e₁) nv₁ nl₁).supportsSource target = true := by
+  induction hwf using Wf.induct with
+  | let_ hop _ ih =>
+      intro nv₁ nl₁ nv₂ nl₂ hs
+      cases hop with
+      | mk code _ =>
+          dsimp only [inlineExpr, toTFlat, TFlat.supportsSource] at hs ⊢
+          rw [Bool.and_eq_true] at hs ⊢
+          exact ⟨hs.1, ih _ _ _ _ _ _ hs.2⟩
+  | load t _ _ ih =>
+      intro nv₁ nl₁ nv₂ nl₂ hs
+      dsimp only [inlineExpr, toTFlat, TFlat.supportsSource] at hs ⊢
+      rw [Bool.and_eq_true] at hs ⊢
+      exact ⟨hs.1, ih _ _ _ _ _ _ hs.2⟩
+  | store _ _ _ ih =>
+      intro nv₁ nl₁ nv₂ nl₂ hs
+      dsimp only [inlineExpr, toTFlat, TFlat.supportsSource] at hs ⊢
+      rw [Bool.and_eq_true] at hs ⊢
+      exact ⟨hs.1, ih _ _ _ _ hs.2⟩
+  | @call _ _ f as bs args₁ _ _ _ _ _ ih =>
+      intro nv₁ nl₁ nv₂ nl₂ hs
+      dsimp only [toTFlat, TFlat.supportsSource] at hs
+      rw [Bool.and_eq_true, Bool.and_eq_true] at hs
+      rw [inlineExpr_call]
+      cases hlook : lookupCallee cands f as bs with
+      | none =>
+          dsimp only [toTFlat, TFlat.supportsSource]
+          rw [Bool.and_eq_true, Bool.and_eq_true]
+          exact ⟨hs.1, ih _ _ _ _ _ _ hs.2⟩
+      | some callee =>
+          obtain ⟨fn, hfn, _, ha, hr, rfl⟩ := lookupCallee_mem hlook
+          subst ha; subst hr
+          obtain ⟨hwf_fn, hsupp_fn⟩ := hcands fn hfn
+          dsimp only [Func.supportsSource] at hsupp_fn
+          rw [Bool.and_eq_true] at hsupp_fn
+          simp only [toTFlat, toTBlocks, TFlat.supportsSource, TBlocks.supportsSource, List.all,
+            Bool.and_true, Bool.and_eq_true]
+          refine ⟨⟨hs.1.2, ⟨hs.1.2, ih (Tup.levels fn.rs nv₁) (Tup.levels fn.rs nv₂)
+            (nv₁ + fn.rs.length) (nl₁ + 1) (nv₂ + fn.rs.length) nl₂ hs.2⟩⟩, ?_⟩
+          exact spliceRet_supportsSource target
+            (hwf_fn (Arg K) K KL KL args₁ (Tup.levels fn.as 0))
+            nv₁ (nl₁ + 1) fn.as.length 0 hsupp_fn.2
+  | jnz _ _ _ iht ihe =>
+      intro nv₁ nl₁ nv₂ nl₂ hs
+      dsimp only [inlineExpr, toTFlat, TFlat.supportsSource] at hs ⊢
+      rw [Bool.and_eq_true] at hs ⊢
+      exact ⟨iht _ _ _ _ hs.1, ihe _ _ _ _ hs.2⟩
+  | jump _ _ =>
+      intro _ _ _ _ hs
+      exact hs
+  | ret _ =>
+      intro _ _ _ _ hs
+      exact hs
+  | exit _ _ =>
+      intro _ _ _ _ hs
+      exact hs
+  | hlt =>
+      intro _ _ _ _ _
+      rfl
+  | @group _ _ sig _ b₂ _ _ _ _ ihb ihk =>
+      intro nv₁ nl₁ nv₂ nl₂ hs
+      dsimp only [inlineExpr, toTFlat, TFlat.supportsSource] at hs ⊢
+      rw [Bool.and_eq_true, Bool.and_eq_true] at hs ⊢
+      refine ⟨⟨hs.1.1, tblocks_supportsSource_of_get target _ nv₁ (nl₁ + sig.length) fun i => ?_⟩,
+        ihk (Tup.levels sig nl₁) (Tup.levels sig nl₂) nv₁ (nl₁ + sig.length) nv₂
+          (nl₂ + sig.length) hs.2⟩
+      have hget := tblocks_supportsSource_get target (b₂ (Tup.levels sig nl₂)) hs.1.2 i
+      rw [inlineBlocks_get]
+      exact ⟨hget.1, ihb (Tup.levels sig nl₁) (Tup.levels sig nl₂) i (Tup.levels _ nv₁)
+        (Tup.levels _ nv₂) (nv₁ + _) (nl₁ + sig.length) (nv₂ + _) (nl₂ + sig.length) hget.2⟩
+
+private theorem toTFlat_denote_supportsSource (target : LegalTarget) :
+    {rs : List Ty} → (tf : TFlat rs) → tf.supportsSource target = true →
+    ∀ (vs : List ((t : Ty) × K t)) (ls : List ((ts : List Ty) × KL ts)) (nv nl : Nat),
+      (toTFlat (denote K KL tf vs ls) nv nl).supportsSource target = true
+  | _, .let_ op k, hs, vs, ls, nv, nl => by
+      dsimp only [TFlat.supportsSource] at hs
+      rw [Bool.and_eq_true] at hs
+      dsimp only [denote]
+      cases denoteArgs vs op.args with
+      | none => rfl
+      | some _ =>
+          dsimp only [toTFlat, TFlat.supportsSource]
+          rw [Bool.and_eq_true]
+          exact ⟨hs.1, toTFlat_denote_supportsSource target k hs.2 _ ls _ nl⟩
+  | _, .load t a k, hs, vs, ls, nv, nl => by
+      dsimp only [TFlat.supportsSource] at hs
+      rw [Bool.and_eq_true] at hs
+      dsimp only [denote]
+      cases denoteArg vs a with
+      | none => rfl
+      | some _ =>
+          dsimp only [toTFlat, TFlat.supportsSource]
+          rw [Bool.and_eq_true]
+          exact ⟨hs.1, toTFlat_denote_supportsSource target k hs.2 _ ls _ nl⟩
+  | _, .store v a k, hs, vs, ls, nv, nl => by
+      dsimp only [TFlat.supportsSource] at hs
+      rw [Bool.and_eq_true] at hs
+      dsimp only [denote]
+      cases denoteArg vs v with
+      | none => rfl
+      | some _ =>
+          cases denoteArg vs a with
+          | none => rfl
+          | some _ =>
+              dsimp only [toTFlat, TFlat.supportsSource]
+              rw [Bool.and_eq_true]
+              exact ⟨hs.1, toTFlat_denote_supportsSource target k hs.2 vs ls nv nl⟩
+  | _, .call f bs args k, hs, vs, ls, nv, nl => by
+      dsimp only [TFlat.supportsSource] at hs
+      rw [Bool.and_eq_true] at hs
+      dsimp only [denote]
+      cases denoteArgs vs args with
+      | none => rfl
+      | some _ =>
+          dsimp only [toTFlat, TFlat.supportsSource]
+          rw [Bool.and_eq_true]
+          exact ⟨hs.1, toTFlat_denote_supportsSource target k hs.2 _ ls _ nl⟩
+  | _, .jnz c t e, hs, vs, ls, nv, nl => by
+      dsimp only [TFlat.supportsSource] at hs
+      rw [Bool.and_eq_true] at hs
+      dsimp only [denote]
+      cases denoteArg vs c with
+      | none => rfl
+      | some _ =>
+          dsimp only [toTFlat, TFlat.supportsSource]
+          rw [Bool.and_eq_true]
+          exact ⟨toTFlat_denote_supportsSource target t hs.1 vs ls nv nl,
+                 toTFlat_denote_supportsSource target e hs.2 vs ls nv nl⟩
+  | _, .jump j args, hs, vs, ls, nv, nl => by
+      dsimp only [denote]
+      cases lookupL ls _ j with
+      | none => rfl
+      | some _ =>
+          cases denoteArgs vs args with
+          | none => rfl
+          | some _ => exact hs
+  | _, .ret vs', hs, vs, _, _, _ => by
+      dsimp only [denote]
+      cases denoteArgs vs vs' with
+      | none => rfl
+      | some _ => exact hs
+  | _, .exit f args, hs, vs, _, _, _ => by
+      dsimp only [denote]
+      cases denoteArgs vs args with
+      | none => rfl
+      | some _ => exact hs
+  | _, .hlt, _, _, _, _, _ => rfl
+  | _, .group (sig := sig) bodies k, hs, vs, ls, nv, nl => by
+      dsimp only [TFlat.supportsSource] at hs
+      rw [Bool.and_eq_true, Bool.and_eq_true] at hs
+      dsimp only [denote, toTFlat, TFlat.supportsSource]
+      rw [Bool.and_eq_true, Bool.and_eq_true]
+      refine ⟨⟨hs.1.1, tblocks_supportsSource_of_get target _ nv (nl + sig.length) fun i => ?_⟩,
+        toTFlat_denote_supportsSource target k hs.2 vs _ nv (nl + sig.length)⟩
+      exact toTBlocks_denote_supportsSource target bodies hs.1.2 vs _ nv (nl + sig.length) i
+where
+  toTBlocks_denote_supportsSource (target : LegalTarget) {rs : List Ty} :
+      {sig : List (List Ty)} → (bs : TBlocks rs sig) → bs.supportsSource target = true →
+      ∀ (vs : List ((t : Ty) × K t)) (ls : List ((ts : List Ty) × KL ts)) (nv nl : Nat)
+        {ts} (i : Member ts sig),
+        ts.all target.supportsTy = true ∧
+        (toTFlat ((denoteB K KL bs vs ls).get i (Tup.levels ts nv)) (nv + ts.length)
+          nl).supportsSource target = true
+    | _, .cons b bs, hs, vs, ls, nv, nl, _, .here => by
+        dsimp only [TBlocks.supportsSource] at hs
+        rw [Bool.and_eq_true, Bool.and_eq_true] at hs
+        exact ⟨hs.1.1, toTFlat_denote_supportsSource target b hs.1.2 _ ls _ nl⟩
+    | _, .cons _ bs, hs, vs, ls, nv, nl, _, .there i => by
+        dsimp only [TBlocks.supportsSource] at hs
+        rw [Bool.and_eq_true] at hs
+        exact toTBlocks_denote_supportsSource target bs hs.2 vs ls nv nl i
+
+private theorem Func.renorm_supportsSource (target : LegalTarget) {as rs : List Ty}
+    (f : Func as rs) (hsupp : f.supportsSource target = true) :
+    (Func.renorm f).supportsSource target = true := by
+  dsimp only [Func.supportsSource] at hsupp ⊢
+  rw [Bool.and_eq_true] at hsupp ⊢
+  refine ⟨hsupp.1, ?_⟩
+  exact toTFlat_denote_supportsSource target (reifyFunc f) hsupp.2 _ _ _ _
+
+/-- `Module.inlinePolicy` preserves `Func.supportsSource lt` for every function in `M`. -/
+theorem Module.inlinePolicy_supportsSource (lt : LegalTarget) {M : Module}
+    (policy : InlinePolicy := {}) (hwf : ∀ f ∈ M.fns, f.Wf)
+    (hsupp : ∀ f ∈ M.fns, f.body.supportsSource lt = true) :
+    ∀ f ∈ (M.inlinePolicy policy).fns, f.body.supportsSource lt = true := by
+  have hP := inlineFnsPolicy_preserve
+    (fun fn => fn.Wf ∧ fn.body.supportsSource lt = true)
+    policy (if policy.singleSiteMax > 0 then fnsCallSites M.fns else [])
+    (M.externs.map Extern.sig) M.exits
+    (fun cands fn hc hfn => by
+      refine ⟨Fn.inline_wf (fun c hc' => (hc c hc').1) hfn.1, ?_⟩
+      dsimp only [Func.supportsSource] at hfn ⊢
+      rw [Bool.and_eq_true] at hfn ⊢
+      exact ⟨hfn.2.1, inlineExpr_supportsSource lt hc
+        (hfn.1 K K KL KL (Tup.levels fn.as 0) (Tup.levels fn.as 0))
+        fn.as.length 0 fn.as.length 0 hfn.2.2⟩)
+    [] [] M.fns (fun _ h => nomatch h) (fun f hf => ⟨hwf f hf, hsupp f hf⟩)
+  intro f hf
+  exact (hP f hf).2
+
+/-- `Module.optInlinePolicy` preserves `Func.supportsSource lt` for every function in `M`. -/
+theorem Module.optInlinePolicy_supportsSource (lt : LegalTarget) {M : Module}
+    (policy : InlinePolicy := {}) (hwf : ∀ f ∈ M.fns, f.Wf)
+    (hsupp : ∀ f ∈ M.fns, f.body.supportsSource lt = true) :
+    ∀ f ∈ (M.optInlinePolicy policy).fns, f.body.supportsSource lt = true := by
+  have hInl := Module.inlinePolicy_supportsSource lt policy hwf hsupp
+  intro f hf
+  dsimp only [Module.optInlinePolicy] at hf
+  obtain ⟨f₀, hf₀, rfl⟩ := List.mem_map.mp hf
+  exact Func.renorm_supportsSource lt f₀.body (hInl f₀ hf₀)
 
 /-- `Module.optInline` preserves `Module.checkAcyclic` when all source functions are `Wf`. -/
 theorem Module.optInline_checkAcyclic {M : Module} (maxSize : Nat)

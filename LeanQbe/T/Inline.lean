@@ -183,28 +183,138 @@ def fnsCallSites (fns : List Fn) : List (Sym × Nat) :=
       exprCallSites acc (fn.body (fun _ => Unit) (fun _ => Unit) (Tup.units fn.as)))
     []
 
-/-- Policy controlling per-callee size budgets and single-call-site elevation. -/
+mutual
+/-- True iff `Expr` contains at least one `.call` node. -/
+def exprHasCall {rs : List Ty} : Expr (fun _ => Unit) (fun _ => Unit) rs → Bool
+  | .let_ _ k => exprHasCall (k (Tup.units _))
+  | .load _ _ k => exprHasCall (k ())
+  | .store _ _ k => exprHasCall k
+  | .call _ _ _ => true
+  | .jnz _ t e => exprHasCall t || exprHasCall e
+  | .jump _ _ | .ret _ | .exit _ _ | .hlt => false
+  | .group (sig := sig) bodies k =>
+      blocksHasCall (bodies (Tup.units sig)) || exprHasCall (k (Tup.units sig))
+
+/-- Block-list companion of `exprHasCall`. -/
+def blocksHasCall {rs : List Ty} :
+    {sig : List (List Ty)} → Blocks (fun _ => Unit) (fun _ => Unit) rs sig → Bool
+  | _, .nil => false
+  | _, .cons b bs => exprHasCall (b (Tup.units _)) || blocksHasCall bs
+end
+
+/-- True iff `fn` makes zero `.call`s (a leaf function). -/
+def Fn.isLeaf (fn : Fn) : Bool :=
+  !exprHasCall (fn.body (fun _ => Unit) (fun _ => Unit) (Tup.units fn.as))
+
+/-- Policy controlling per-callee size budgets, leaf/single-site elevation, caller size caps,
+and explicit out-of-line exclusions. -/
 structure InlinePolicy where
   /-- Base IR node-count budget per callee symbol. -/
   budget : Sym → Nat := fun _ => 40
+  /-- Elevated node-count cap for call-free (leaf) callees (`0` off). -/
+  leafMax : Nat := 0
   /-- Elevated node-count cap when a callee has exactly 1 static call site (`0` off). -/
   singleSiteMax : Nat := 0
+  /-- Maximum caller IR node count allowed when inlining callees (`0` uncapped). -/
+  maxCallerSize : Nat := 0
+  /-- Callee symbols that must always stay out-of-line. -/
+  keepOutOfLine : List String := []
 
 /-- Constant-budget policy matching the legacy `maxSize : Nat` threshold. -/
 def InlinePolicy.const (maxSize : Nat := 40) : InlinePolicy :=
-  { budget := fun _ => maxSize, singleSiteMax := 0 }
+  { budget := fun _ => maxSize }
 
-/-- Effective size budget for `sym` given its static call-site count `sites`. -/
-def InlinePolicy.effectiveBudget (policy : InlinePolicy) (sites : Nat) (sym : Sym) : Nat :=
-  if policy.singleSiteMax > 0 && sites == 1 then
-    Nat.max (policy.budget sym) policy.singleSiteMax
+/-- Tuned Train B5-4 inline policy: keeps `full_watch_push` and cold/bloating helpers
+out-of-line while elevating leaf (`≤ 106`) and single-site (`≤ 190`) hot callees under a
+`660`-node caller cap. -/
+def InlinePolicy.b5 : InlinePolicy :=
+  { budget := fun _ => 40
+    leafMax := 106
+    singleSiteMax := 190
+    maxCallerSize := 660
+    keepOutOfLine :=
+      [ "full_watch_push", "full_search", "full_extend", "full_init_state", "full_init_arenas",
+        "full_init_hdr", "full_init_ptrs", "full_zero_tables1", "full_zero_tables2",
+        "full_parse_body", "full_ingest_cl", "kissat_parse_header", "kissat_check_model",
+        "kissat_read_nat", "kissat_skip_ws1", "kissat_skip_ws_comments", "full_cong_extract",
+        "full_cong_try_xor_ite", "full_compact_bins", "full_compact_vars",
+        "full_compact_record_ext", "full_compact_vmtf", "full_compact_arena",
+        "full_compact_mark_live", "full_compact_assign_map", "full_compact_sift_q",
+        "full_compact_sift_h", "full_compact_flush", "full_subst_elim_vars",
+        "full_subst_rewrite_bins", "full_subst_rewrite_ar", "full_lucky_scan", "full_lucky",
+        "full_congruence_dense", "full_bve_gates", "full_bve_try_bce", "full_bve_commit_res",
+        "full_bve_collect", "full_bve_mark_and", "full_eager_subsume", "full_learn_clause",
+        "full_ema_update", "full_tick_rel", "full_rephase", "full_switch_mode", "full_warmup",
+        "full_decide", "full_restart", "full_restart_due", "full_simplify", "full_reorder",
+        "full_tumble_clauses", "full_sweep_dense", "full_forward_sub", "full_fwd_dedup_bins",
+        "full_elim_bve", "full_elim_collect_nbrs", "full_bva_pick_cand", "full_bva_hop3",
+        "full_bva_match_large", "full_init_fresh_var", "full_tarjan_pop_scc", "full_kitten_mtf",
+        "full_kitten_build_failing", "full_kitten_assign", "full_kitten_watch",
+        "full_kitten_backtrack", "full_viv_clause", "full_viv_sort_lits", "full_promote_reasons",
+        "full_promote_clause", "full_compute_lbd", "full_mark_reasons", "full_recompute_tiers",
+        "full_otfs_subsume", "full_red_sift", "full_heap_down", "full_heap_pop",
+        "full_sweep_copy", "full_arena_next", "full_fheap_up", "full_fheap_down",
+        "full_wsort_sift", "full_walk_pick_lit", "full_walk_collect", "full_save_target_best",
+        "full_bump_decay", "full_queue_renumber", "full_unwatch_large", "full_viv_simplify",
+        "full_viv_commit", "full_otfs_bin", "full_one_lit_confl", "full_ternary_collect",
+        "full_ternary_resolve_bin", "full_ternary_round", "full_ternary_match_bin",
+        "full_ternary", "full_cong_mark_trail", "full_cong_emit_xor", "full_cong_and_match",
+        "full_cong_equiv_fold", "full_delete_bin_side", "full_score_sift", "full_has_bin",
+        "full_find_repl", "full_extend_push_cl", "full_sweep_refine_kitten",
+        "full_reorder_queue", "full_cong_merge", "full_set_inactive", "full_calc_max_v",
+        "full_probe_tail", "lb_check_prf" ] }
+
+/-- Effective size budget for `sym` given its static call-site count `sites` and leaf flag. -/
+def InlinePolicy.effectiveBudget (policy : InlinePolicy) (sites : Nat) (isLeaf : Bool)
+    (sym : Sym) : Nat :=
+  if policy.keepOutOfLine.contains sym then 0
   else
-    policy.budget sym
+    let base := policy.budget sym
+    let withLeaf := if policy.leafMax > 0 && isLeaf then Nat.max base policy.leafMax else base
+    if policy.singleSiteMax > 0 && sites == 1 then
+      Nat.max withLeaf policy.singleSiteMax
+    else
+      withLeaf
 
-/-- True iff `fn` satisfies `policy`'s effective size budget and `checkCallsOk`. -/
+/-- True iff `fn` is not in `keepOutOfLine`, satisfies `policy`'s effective size budget,
+and passes `checkCallsOk`. -/
 def inlineCandidateOkPolicy (policy : InlinePolicy) (sites : Nat)
     (allowed : List SigEntry) (exits : List Sym) (fn : Fn) : Bool :=
-  Nat.ble fn.size (policy.effectiveBudget sites fn.name) && fn.checkCallsOk allowed exits
+  !policy.keepOutOfLine.contains fn.name &&
+  Nat.ble fn.size (policy.effectiveBudget sites fn.isLeaf fn.name) &&
+  fn.checkCallsOk allowed exits
+
+/-- Insert `fn` into a `Fn` list sorted ascending by `Fn.size`. -/
+def insertBySize (fn : Fn) : List Fn → List Fn
+  | [] => [fn]
+  | c :: cs => if fn.size ≤ c.size then fn :: c :: cs else c :: insertBySize fn cs
+
+/-- Sort `cands` ascending by `Fn.size` so smallest callees fit first under `maxCallerSize`. -/
+def sortCandsBySize : List Fn → List Fn
+  | [] => []
+  | c :: cs => insertBySize c (sortCandsBySize cs)
+
+/-- Greedily filter `cands` so `curSz + ∑ (sitesInCaller * callee.size) ≤ maxSz`. -/
+def selectCandsAux (callerCalls : List (Sym × Nat)) (maxSz : Nat) :
+    Nat → List Fn → List Fn
+  | _, [] => []
+  | curSz, c :: cs =>
+      let k := lookupCallSite callerCalls c.name
+      if k == 0 then selectCandsAux callerCalls maxSz curSz cs
+      else
+        let add := k * c.size
+        if curSz + add ≤ maxSz then
+          c :: selectCandsAux callerCalls maxSz (curSz + add) cs
+        else
+          selectCandsAux callerCalls maxSz curSz cs
+
+/-- Filter `cands` for caller `fn` according to `policy.maxCallerSize`. -/
+def selectCandsForCaller (policy : InlinePolicy) (cands : List Fn) (fn : Fn) : List Fn :=
+  if policy.maxCallerSize == 0 then cands
+  else if fn.size > policy.maxCallerSize then []
+  else
+    let callerCalls := exprCallSites [] (fn.body (fun _ => Unit) (fun _ => Unit) (Tup.units fn.as))
+    selectCandsAux callerCalls policy.maxCallerSize fn.size (sortCandsBySize cands)
 
 /-- Incrementally inline prior eligible callees across a callee-first function list under
 `policy` and precomputed `siteCounts`, keeping the original function order and signatures. -/
@@ -213,7 +323,8 @@ def inlineFnsPolicy (policy : InlinePolicy) (siteCounts : List (Sym × Nat))
     List SigEntry → List Fn → List Fn → List Fn
   | _, _, [] => []
   | seenSigs, cands, fn :: rest =>
-      let fn' := fn.inline cands
+      let candsFn := selectCandsForCaller policy cands fn
+      let fn' := fn.inline candsFn
       let allowed := seenSigs ++ extSigs
       let sites := lookupCallSite siteCounts fn'.name
       let cands' :=
