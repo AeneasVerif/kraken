@@ -335,6 +335,12 @@ structure FrameIsa (Reg Directive : Type) where
   /-- `true` when 0-slot leaf functions (`callees = []`, `totalSlots = 0`) elide prologue/epilogue
   completely (`effFrame = 0`, `prologue = []`, `epilogue = []`). -/
   leafZeroFrame : Bool := false
+  /-- Optional target override for saving callee-saved registers `[base .. base + rs.length)`
+  (default `none` falls back to `Rega.saveCsList` via `slotSt`). -/
+  saveRegs? : Option (Nat → List Reg → List Directive) := none
+  /-- Optional target override for restoring callee-saved registers `[base .. base + rs.length)`
+  (default `none` falls back to `Rega.restoreCsList` via `slotLd`). -/
+  restoreRegs? : Option (Nat → List Reg → List Directive) := none
 
 structure Isa where
   Reg : Type
@@ -720,6 +726,23 @@ structure FrameSpec {R V C D : Type} (M : Machine R V C D) (f : FrameIsa R D)
       M.mem s' = M.mem s → Eventually (M.step h) post (M.mkState s' ra)) →
     M.Run h k s post
   leafZeroFrame_ok : f.leafZeroFrame = true → f.raRegs = [] := by intro h; cases h
+  saveRegs_spec : ∀ {fn h k i rs s G post},
+    f.saveRegs? = some fn → 8 * i + 8 * rs.length ≤ 2 ^ 64 →
+    (∀ r ∈ rs, r ∉ f.scratch) → P.spOk (M.getGpr s f.sp) →
+    (M.mem s =⋆ region (M.getGpr s f.sp + BitVec.ofNat 64 (8 * i)) (8 * rs.length) ⋆ G) →
+    M.FallsTo condReads h k (fn i rs) f.scratch [] FlagMask.none s
+      (fun s' => M.mem s' =⋆
+        array64 (M.getGpr s f.sp + BitVec.ofNat 64 (8 * i)) (rs.map (M.getGpr s)) ⋆ G)
+      post := by
+    intro _ _ _ _ _ _ _ _ h; cases h
+  restoreRegs_spec : ∀ {fn h k i rs s₀ s G post},
+    f.restoreRegs? = some fn →
+    rs.Nodup → (∀ r ∈ rs, r ∈ f.calleeSaved) → P.spOk (M.getGpr s f.sp) →
+    (M.mem s =⋆
+      array64 (M.getGpr s f.sp + BitVec.ofNat 64 (8 * i)) (rs.map (M.getGpr s₀)) ⋆ G) →
+    M.FallsTo condReads h k (fn i rs) (rs ++ f.scratch) [] FlagMask.none s
+      (fun s' => (∀ r ∈ rs, M.getGpr s' r = M.getGpr s₀ r) ∧ M.mem s' = M.mem s) post := by
+    intro _ _ _ _ _ _ _ _ _ _ _ h; cases h
 
 structure FrameTarget {R V C D : Type} (M : Machine R V C D) (f : FrameIsa R D)
     (condReads : C → FlagMask) : Type extends FramePreds M where
@@ -853,6 +876,25 @@ theorem ret_spec (ft : FrameTarget M f condReads) : ∀ {h k s ra R post},
 theorem leafZeroFrame_ok (ft : FrameTarget M f condReads) :
     f.leafZeroFrame = true → f.raRegs = [] :=
   ft.spec.leafZeroFrame_ok
+
+theorem saveRegs_spec (ft : FrameTarget M f condReads) : ∀ {fn h k i rs s G post},
+    f.saveRegs? = some fn → 8 * i + 8 * rs.length ≤ 2 ^ 64 →
+    (∀ r ∈ rs, r ∉ f.scratch) → ft.spOk (M.getGpr s f.sp) →
+    (M.mem s =⋆ region (M.getGpr s f.sp + BitVec.ofNat 64 (8 * i)) (8 * rs.length) ⋆ G) →
+    M.FallsTo condReads h k (fn i rs) f.scratch [] FlagMask.none s
+      (fun s' => M.mem s' =⋆
+        array64 (M.getGpr s f.sp + BitVec.ofNat 64 (8 * i)) (rs.map (M.getGpr s)) ⋆ G)
+      post :=
+  ft.spec.saveRegs_spec
+
+theorem restoreRegs_spec (ft : FrameTarget M f condReads) : ∀ {fn h k i rs s₀ s G post},
+    f.restoreRegs? = some fn →
+    rs.Nodup → (∀ r ∈ rs, r ∈ f.calleeSaved) → ft.spOk (M.getGpr s f.sp) →
+    (M.mem s =⋆
+      array64 (M.getGpr s f.sp + BitVec.ofNat 64 (8 * i)) (rs.map (M.getGpr s₀)) ⋆ G) →
+    M.FallsTo condReads h k (fn i rs) (rs ++ f.scratch) [] FlagMask.none s
+      (fun s' => (∀ r ∈ rs, M.getGpr s' r = M.getGpr s₀ r) ∧ M.mem s' = M.mem s) post :=
+  ft.spec.restoreRegs_spec
 
 end FrameTarget
 

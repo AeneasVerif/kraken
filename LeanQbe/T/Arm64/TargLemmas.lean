@@ -58,6 +58,8 @@ theorem armLabelClean : Rega.LabelClean armTarget.toIsa where
   epilogue := armEpilogue_noLab
   slotSt := armSlotSt_noLab
   slotLd := armSlotLd_noLab
+  saveRegs := fun _ base rs h l => by cases h; exact armSaveRegs_noLab base rs l
+  restoreRegs := fun _ base rs h l => by cases h; exact armRestoreRegs_noLab base rs l
   canonAbi := armCanonAbi_noLab
   call := armCall_noLab
   exitJmp := armExitJmp_noLab

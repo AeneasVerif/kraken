@@ -478,9 +478,9 @@ theorem skipOk_of_abiSkips {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.
 
 /-! ## Helpers: `saveCs`/`restoreCs` -/
 
-private theorem saveCs_ok {post : T.mach.State → Prop} :
+private theorem saveCsList_ok {post : T.mach.State → Prop} :
     ∀ (i : Nat) (rs : List T.Reg) (k : Nat) (s : T.mach.MData) (G : Mem 64 → Prop),
-    (saveCs T.toIsa i rs).IsInfixAt (T.mach.prog host) k →
+    (saveCsList T.toIsa i rs).IsInfixAt (T.mach.prog host) k →
     T.frameSpec.spOk (T.mach.getGpr s T.frame.sp) → 8 * i + 8 * rs.length ≤ 2 ^ 64 →
     (∀ r ∈ rs, r ∉ T.frame.scratch) →
     (T.mach.mem s =⋆
@@ -488,14 +488,15 @@ private theorem saveCs_ok {post : T.mach.State → Prop} :
     (∀ s', T.mach.KeepsGpr s s' T.frame.scratch → (∀ v, T.mach.getVec s' v = T.mach.getVec s v) →
       (T.mach.mem s' =⋆ array64 (T.mach.getGpr s T.frame.sp + BitVec.ofNat 64 (8 * i))
         (rs.map (T.mach.getGpr s)) ⋆ G) →
-      T.mach.Run host (k + (saveCs T.toIsa i rs).length) s' post) →
+      T.mach.Run host (k + (saveCsList T.toIsa i rs).length) s' post) →
     T.mach.Run host k s post
   | _, [], k, s, G, _, _, _, _, hmem, kont => by
     simp only [List.length_nil, Nat.mul_zero, region_zero, emp_sep] at hmem
-    simpa [saveCs] using kont s (fun _ _ => rfl) (fun _ => rfl) (by simpa [emp_sep] using hmem)
+    simpa [saveCsList] using
+      kont s (fun _ _ => rfl) (fun _ => rfl) (by simpa [emp_sep] using hmem)
   | i, r :: rs, k, s, G, hc, hsp, hlen, hns, hmem, kont => by
-    have hc' : (T.frame.slotSt i r ++ saveCs T.toIsa (i + 1) rs).IsInfixAt (T.mach.prog host) k :=
-      hc
+    have hc' : (T.frame.slotSt i r ++ saveCsList T.toIsa (i + 1) rs).IsInfixAt
+        (T.mach.prog host) k := hc
     have hmem1 : T.mach.mem s =⋆
         region (T.mach.getGpr s T.frame.sp + BitVec.ofNat 64 (8 * i)) 8 ⋆
         (region (T.mach.getGpr s T.frame.sp + BitVec.ofNat 64 (8 * (i + 1))) (8 * rs.length) ⋆
@@ -507,7 +508,7 @@ private theorem saveCs_ok {post : T.mach.State → Prop} :
       fun s1 hm1 hfr1 => ?_
     have hsp1 : T.mach.getGpr s1 T.frame.sp = T.mach.getGpr s T.frame.sp :=
       hfr1.1 _ T.frameSpec.sp_disj.1
-    refine saveCs_ok (i + 1) rs _ s1
+    refine saveCsList_ok (i + 1) rs _ s1
       (cell64 (T.mach.getGpr s T.frame.sp + BitVec.ofNat 64 (8 * i)) (T.mach.getGpr s r) ⋆ G)
       hc'.append.2 (hsp1 ▸ hsp)
       (by simp at hlen; omega) (fun q hq => hns q (List.mem_cons_of_mem _ hq))
@@ -520,11 +521,42 @@ private theorem saveCs_ok {post : T.mach.State → Prop} :
         simp only [List.map_cons, array64_cons]
         rw [add_ofNat_8]
         exact sep_cast hm' (by ac_rfl))
-    simpa [saveCs, Nat.add_assoc] using this
+    simpa [saveCsList, Nat.add_assoc] using this
 
-private theorem restoreCs_ok {post : T.mach.State → Prop} {s₀ : T.mach.MData} :
+private theorem saveCs_ok {post : T.mach.State → Prop}
+    (i : Nat) (rs : List T.Reg) (k : Nat) (s : T.mach.MData) (G : Mem 64 → Prop)
+    (hc : (saveCs T.toIsa i rs).IsInfixAt (T.mach.prog host) k)
+    (hsp : T.frameSpec.spOk (T.mach.getGpr s T.frame.sp)) (hlen : 8 * i + 8 * rs.length ≤ 2 ^ 64)
+    (hns : ∀ r ∈ rs, r ∉ T.frame.scratch)
+    (hmem : T.mach.mem s =⋆
+      region (T.mach.getGpr s T.frame.sp + BitVec.ofNat 64 (8 * i)) (8 * rs.length) ⋆ G)
+    (kont : ∀ s', T.mach.KeepsGpr s s' T.frame.scratch →
+      (∀ v, T.mach.getVec s' v = T.mach.getVec s v) →
+      (T.mach.mem s' =⋆ array64 (T.mach.getGpr s T.frame.sp + BitVec.ofNat 64 (8 * i))
+        (rs.map (T.mach.getGpr s)) ⋆ G) →
+      T.mach.Run host (k + (saveCs T.toIsa i rs).length) s' post) :
+    T.mach.Run host k s post := by
+  cases rs with
+  | nil =>
+    simp only [List.length_nil, Nat.mul_zero, region_zero, emp_sep] at hmem
+    simpa [saveCs] using kont s (fun _ _ => rfl) (fun _ => rfl) (by simpa [emp_sep] using hmem)
+  | cons r rs' =>
+    cases hfn : T.frame.saveRegs? with
+    | none =>
+      have hc' : (saveCsList T.toIsa i (r :: rs')).IsInfixAt (T.mach.prog host) k := by
+        simpa [saveCs, hfn] using hc
+      simpa [saveCs, hfn] using
+        saveCsList_ok i (r :: rs') k s G hc' hsp hlen hns hmem (by simpa [saveCs, hfn] using kont)
+    | some fn =>
+      have hc' : (fn i (r :: rs')).IsInfixAt (T.mach.prog host) k := by
+        simpa [saveCs, hfn] using hc
+      refine T.frameSpec.saveRegs_spec hfn hlen hns hsp hmem hc' fun s' hm' hfr => ?_
+      have := kont s' hfr.1 (fun v => hfr.2.1 v List.not_mem_nil) hm'
+      simpa [saveCs, hfn] using this
+
+private theorem restoreCsList_ok {post : T.mach.State → Prop} {s₀ : T.mach.MData} :
     ∀ (i : Nat) (rs : List T.Reg) (k : Nat) (s : T.mach.MData) (G : Mem 64 → Prop),
-    (restoreCs T.toIsa i rs).IsInfixAt (T.mach.prog host) k →
+    (restoreCsList T.toIsa i rs).IsInfixAt (T.mach.prog host) k →
     T.frameSpec.spOk (T.mach.getGpr s T.frame.sp) → rs.Nodup →
     (∀ r ∈ rs, r ∈ T.frame.calleeSaved) →
     (T.mach.mem s =⋆ array64 (T.mach.getGpr s T.frame.sp + BitVec.ofNat 64 (8 * i))
@@ -532,12 +564,12 @@ private theorem restoreCs_ok {post : T.mach.State → Prop} {s₀ : T.mach.MData
     (∀ s', (∀ r ∈ rs, T.mach.getGpr s' r = T.mach.getGpr s₀ r) →
       T.mach.KeepsGpr s s' (rs ++ T.frame.scratch) →
       (∀ v, T.mach.getVec s' v = T.mach.getVec s v) → T.mach.mem s' = T.mach.mem s →
-      T.mach.Run host (k + (restoreCs T.toIsa i rs).length) s' post) →
+      T.mach.Run host (k + (restoreCsList T.toIsa i rs).length) s' post) →
     T.mach.Run host k s post
   | _, [], k, s, _, _, _, _, _, _, kont => by
-    simpa [restoreCs] using kont s (fun _ h => nomatch h) (fun _ _ => rfl) (fun _ => rfl) rfl
+    simpa [restoreCsList] using kont s (fun _ h => nomatch h) (fun _ _ => rfl) (fun _ => rfl) rfl
   | i, r :: rs, k, s, G, hc, hsp, hnd, hsub, hmem, kont => by
-    have hc' : (T.frame.slotLd r i ++ restoreCs T.toIsa (i + 1) rs).IsInfixAt
+    have hc' : (T.frame.slotLd r i ++ restoreCsList T.toIsa (i + 1) rs).IsInfixAt
       (T.mach.prog host) k := hc
     obtain ⟨hrn, hnd'⟩ := List.nodup_cons.mp hnd
     have hrc := hsub r List.mem_cons_self
@@ -552,7 +584,7 @@ private theorem restoreCs_ok {post : T.mach.State → Prop} {s₀ : T.mach.MData
     have hsp1 : T.mach.getGpr s1 T.frame.sp = T.mach.getGpr s T.frame.sp :=
       hfr1.1 _ (by simp only [List.mem_cons, not_or]
                    exact ⟨fun e => cs_ne_sp hrc e.symm, T.frameSpec.sp_disj.1⟩)
-    refine restoreCs_ok (i + 1) rs _ s1
+    refine restoreCsList_ok (i + 1) rs _ s1
       (cell64 (T.mach.getGpr s T.frame.sp + BitVec.ofNat 64 (8 * i)) (T.mach.getGpr s₀ r) ⋆ G)
       hc'.append.2 (hsp1 ▸ hsp) hnd'
       (fun q hq => hsub q (List.mem_cons_of_mem _ hq))
@@ -567,7 +599,37 @@ private theorem restoreCs_ok {post : T.mach.State → Prop} {s₀ : T.mach.MData
         rw [hk' q (by simp only [List.mem_append, not_or]; exact ⟨hq.1.2, hq.2⟩),
           hfr1.1 q (by simp only [List.mem_cons, not_or]; exact ⟨hq.1.1, hq.2⟩)])
       (fun v => (hv' v).trans (hfr1.2.1 v List.not_mem_nil)) (hm'.trans hq1.2)
-    simpa [restoreCs, Nat.add_assoc] using this
+    simpa [restoreCsList, Nat.add_assoc] using this
+
+private theorem restoreCs_ok {post : T.mach.State → Prop} {s₀ : T.mach.MData}
+    (i : Nat) (rs : List T.Reg) (k : Nat) (s : T.mach.MData) (G : Mem 64 → Prop)
+    (hc : (restoreCs T.toIsa i rs).IsInfixAt (T.mach.prog host) k)
+    (hsp : T.frameSpec.spOk (T.mach.getGpr s T.frame.sp)) (hnd : rs.Nodup)
+    (hsub : ∀ r ∈ rs, r ∈ T.frame.calleeSaved)
+    (hmem : T.mach.mem s =⋆ array64 (T.mach.getGpr s T.frame.sp + BitVec.ofNat 64 (8 * i))
+      (rs.map (T.mach.getGpr s₀)) ⋆ G)
+    (kont : ∀ s', (∀ r ∈ rs, T.mach.getGpr s' r = T.mach.getGpr s₀ r) →
+      T.mach.KeepsGpr s s' (rs ++ T.frame.scratch) →
+      (∀ v, T.mach.getVec s' v = T.mach.getVec s v) → T.mach.mem s' = T.mach.mem s →
+      T.mach.Run host (k + (restoreCs T.toIsa i rs).length) s' post) :
+    T.mach.Run host k s post := by
+  cases rs with
+  | nil =>
+    simpa [restoreCs] using kont s (fun _ h => nomatch h) (fun _ _ => rfl) (fun _ => rfl) rfl
+  | cons r rs' =>
+    cases hfn : T.frame.restoreRegs? with
+    | none =>
+      have hc' : (restoreCsList T.toIsa i (r :: rs')).IsInfixAt (T.mach.prog host) k := by
+        simpa [restoreCs, hfn] using hc
+      simpa [restoreCs, hfn] using
+        restoreCsList_ok i (r :: rs') k s G hc' hsp hnd hsub hmem
+          (by simpa [restoreCs, hfn] using kont)
+    | some fn =>
+      have hc' : (fn i (r :: rs')).IsInfixAt (T.mach.prog host) k := by
+        simpa [restoreCs, hfn] using hc
+      refine T.frameSpec.restoreRegs_spec hfn hnd hsub hsp hmem hc' fun s' hq hfr => ?_
+      have := kont s' hq.1 hfr.1 (fun v => hfr.2.1 v List.not_mem_nil) hq.2
+      simpa [restoreCs, hfn] using this
 
 end AbiH
 

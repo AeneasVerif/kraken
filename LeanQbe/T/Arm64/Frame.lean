@@ -32,6 +32,9 @@ abbrev armFitsImm12 (n : Nat) : Bool := Nat.blt n 4096
 /-- Boolean check whether byte offset `o` fits in scaled unsigned 64-bit `LDR`/`STR` (`< 32768`). -/
 abbrev armFitsMemOff (o : Nat) : Bool := Nat.blt o 32768
 
+/-- Boolean check whether byte offset `o` fits in signed scaled 64-bit `LDP`/`STP` (`≤ 504`). -/
+abbrev armFitsPairOff (o : Nat) : Bool := Nat.blt o 505
+
 /-- 64-bit unsigned-extended arithmetic operand `x_r, uxtx #0`. -/
 abbrev armUxtx (r : XReg) : ExtRegExpr :=
   { reg := ⟨.W64, zr r .W64⟩, ext := { type := .UXTX, amount := .E0 } }
@@ -146,6 +149,42 @@ def armSlotLdIns (rd : Reg) (i : Nat) : List Instr :=
 def armSlotLd (rd : Reg) (i : Nat) : List Directive :=
   emitClean (armSlotLdIns rd i)
 
+/-- Internal instruction stream for `armStpSpXReg`. -/
+def armStpSpXRegIns (r1 r2 : XReg) (o : Nat) : List Instr :=
+  if armFitsPairOff o then [armInsI (.STP (zr r1 .W64) (zr r2 .W64) (atOff .SP o))]
+  else armStSpXRegIns r1 o ++ armStSpXRegIns r2 (o + 8)
+
+/-- Internal instruction stream for `armLdpSpXReg`. -/
+def armLdpSpXRegIns (rd1 rd2 : XReg) (o : Nat) : List Instr :=
+  if armFitsPairOff o then [armInsI (.LDP (zr rd1 .W64) (zr rd2 .W64) (atOff .SP o))]
+  else armLdSpXRegIns rd1 o ++ armLdSpXRegIns rd2 (o + 8)
+
+/-- Internal instruction stream for `armSaveRegs`. -/
+def armSaveRegsIns : Nat → List Reg → List Instr
+  | _, [] => []
+  | i, [r] => armSlotStIns i r
+  | i, .reg r1 :: .reg r2 :: rs =>
+    armStpSpXRegIns r1 r2 (8 * i) ++ armSaveRegsIns (i + 2) rs
+  | i, r :: rs => armSlotStIns i r ++ armSaveRegsIns (i + 1) rs
+
+/-- Save callee-saved registers `[base .. base + rs.length)` pairing adjacent GP registers into
+`stp x1, x2, [sp, #off]` when `off ≤ 504` (falling back to `str` otherwise). -/
+def armSaveRegs (base : Nat) (rs : List Reg) : List Directive :=
+  emitClean (armSaveRegsIns base rs)
+
+/-- Internal instruction stream for `armRestoreRegs`. -/
+def armRestoreRegsIns : Nat → List Reg → List Instr
+  | _, [] => []
+  | i, [r] => armSlotLdIns r i
+  | i, .reg r1 :: .reg r2 :: rs =>
+    armLdpSpXRegIns r1 r2 (8 * i) ++ armRestoreRegsIns (i + 2) rs
+  | i, r :: rs => armSlotLdIns r i ++ armRestoreRegsIns (i + 1) rs
+
+/-- Restore callee-saved registers `[base .. base + rs.length)` pairing adjacent GP registers into
+`ldp x1, x2, [sp, #off]` when `off ≤ 504` (falling back to `ldr` otherwise). -/
+def armRestoreRegs (base : Nat) (rs : List Reg) : List Directive :=
+  emitClean (armRestoreRegsIns base rs)
+
 /-- Internal instruction stream for `armCanonAbiXReg`. -/
 def armCanonAbiXRegIns (t : Ty) (x : XReg) : List Instr :=
   match t with
@@ -220,6 +259,8 @@ def armRetD : Directive := .instr armRetI
   epilogue := armEpilogue
   slotSt := armSlotSt
   slotLd := armSlotLd
+  saveRegs? := some armSaveRegs
+  restoreRegs? := some armRestoreRegs
   canonAbi := armCanonAbi
   call sym := emitClean [armCallI sym]
   exitJmp sym := emitClean [armJmpI sym]

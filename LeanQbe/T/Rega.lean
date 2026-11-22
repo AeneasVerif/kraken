@@ -491,11 +491,25 @@ def canonAbiCode (I : Isa) :
     (if sk.headD false then [] else (I.frame.canonAbi t r).1) ++ canonAbiCode I locs sk.tail
   | _ :: _, (.vec _, locs), sk => canonAbiCode I locs sk.tail
 
-def saveCs (I : Isa) (base : Nat) : List I.Reg → List I.Directive
-  | [] => [] | r :: rs => I.frame.slotSt base r ++ saveCs I (base + 1) rs
+def saveCsList (I : Isa) (base : Nat) : List I.Reg → List I.Directive
+  | [] => [] | r :: rs => I.frame.slotSt base r ++ saveCsList I (base + 1) rs
 
-def restoreCs (I : Isa) (base : Nat) : List I.Reg → List I.Directive
-  | [] => [] | r :: rs => I.frame.slotLd r base ++ restoreCs I (base + 1) rs
+def restoreCsList (I : Isa) (base : Nat) : List I.Reg → List I.Directive
+  | [] => [] | r :: rs => I.frame.slotLd r base ++ restoreCsList I (base + 1) rs
+
+def saveCs (I : Isa) (base : Nat) (rs : List I.Reg) : List I.Directive :=
+  match rs with
+  | [] => []
+  | _ => match I.frame.saveRegs? with
+    | some fn => fn base rs
+    | none => saveCsList I base rs
+
+def restoreCs (I : Isa) (base : Nat) (rs : List I.Reg) : List I.Directive :=
+  match rs with
+  | [] => []
+  | _ => match I.frame.restoreRegs? with
+    | some fn => fn base rs
+    | none => restoreCsList I base rs
 
 def recordAddVarImm (defs : Trie DefFact) (x : Nat) (c : BitVec 64) : DefFact :=
   match defs.find? x with
@@ -1247,6 +1261,10 @@ structure LabelClean (I : Isa) : Prop where
   (prologue : ∀ n, NoLab I (I.frame.prologue n).1)
   (epilogue : ∀ n, NoLab I (I.frame.epilogue n).1)
   (slotSt : ∀ i r, NoLab I (I.frame.slotSt i r)) (slotLd : ∀ r i, NoLab I (I.frame.slotLd r i))
+  saveRegs : ∀ fn base rs, I.frame.saveRegs? = some fn → NoLab I (fn base rs) :=
+    by intro _ _ _ h; cases h
+  restoreRegs : ∀ fn base rs, I.frame.restoreRegs? = some fn → NoLab I (fn base rs) :=
+    by intro _ _ _ h; cases h
   (canonAbi : ∀ t r, NoLab I (I.frame.canonAbi t r).1) (call : ∀ f, NoLab I (I.frame.call f))
   (exitJmp : ∀ f, NoLab I (I.frame.exitJmp f)) (ret : NoLab I I.frame.ret)
 

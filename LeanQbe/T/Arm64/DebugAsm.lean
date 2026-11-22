@@ -195,19 +195,63 @@ private def matchArmStSpX (ds : List Directive) :
     else none
   | _ => none
 
+private def matchArmStpSpX (ds : List Directive) :
+    Option (Nat × XReg × XReg × List Directive × List Directive) :=
+  match ds with
+  | .instr ⟨.W64, .STP (.low (.reg r1) .W64) (.low (.reg r2) .W64)
+      ⟨.low .SP .W64, .imm ⟨.int64 c, none⟩⟩⟩ :: rest =>
+    if c.toInt >= 0 && c.toInt % 8 == 0 then
+      let off := c.toInt.toNat
+      if armFitsPairOff off && ds.take 1 == emitClean (armStpSpXRegIns r1 r2 off) then
+        some (off, r1, r2, ds.take 1, rest)
+      else none
+    else none
+  | _ => none
+
 private def collectSavePrefix (ns : Nat) :
     Nat → Option Nat → List Reg → List Directive → List (Nat × Reg)
   | 0, _, _, _ => []
   | fuel + 1, expSlot, seen, ds =>
-    match matchArmStSpX ds with
-    | some (off, x, _, rest) =>
-      let r : Reg := .reg x
+    match matchArmStpSpX ds with
+    | some (off, x1, x2, _, rest) =>
+      let r1 : Reg := .reg x1
+      let r2 : Reg := .reg x2
       let slot := off / 8
       let contiguous := match expSlot with | none => true | some exp => slot == exp
-      if contiguous && slot < ns && armFrame.calleeSaved.contains r && !seen.contains r then
-        (slot, r) :: collectSavePrefix ns fuel (some (slot + 1)) (r :: seen) rest
+      if contiguous && slot + 1 < ns && armFrame.calleeSaved.contains r1 &&
+          armFrame.calleeSaved.contains r2 && r1 != r2 &&
+          !seen.contains r1 && !seen.contains r2 then
+        (slot, r1) :: (slot + 1, r2) ::
+          collectSavePrefix ns fuel (some (slot + 2)) (r2 :: r1 :: seen) rest
       else []
-    | none => []
+    | none =>
+      match matchArmStSpX ds with
+      | some (off, x, _, rest) =>
+        let r : Reg := .reg x
+        let slot := off / 8
+        let contiguous := match expSlot with | none => true | some exp => slot == exp
+        if contiguous && slot < ns && armFrame.calleeSaved.contains r && !seen.contains r then
+          (slot, r) :: collectSavePrefix ns fuel (some (slot + 1)) (r :: seen) rest
+        else []
+      | none => []
+
+private def matchArmLdpSpXRev (dsRev : List Directive) :
+    Option (Nat × Reg × Reg × List Directive) :=
+  match dsRev with
+  | .instr ⟨.W64, .LDP (.low (.reg x1) .W64) (.low (.reg x2) .W64)
+      ⟨.low .SP .W64, .imm ⟨.int64 c, none⟩⟩⟩ :: prev =>
+    let r1 : Reg := .reg x1
+    let r2 : Reg := .reg x2
+    if c.toInt >= 0 && c.toInt % 8 == 0 && r1 != r2 &&
+        armFrame.calleeSaved.contains r1 && armFrame.calleeSaved.contains r2 then
+      let off := c.toInt.toNat
+      let slot := off / 8
+      let expected := emitClean (armLdpSpXRegIns x1 x2 off)
+      if armFitsPairOff off && expected.length == 1 && dsRev.take 1 == expected.reverse then
+        some (slot, r1, r2, prev)
+      else none
+    else none
+  | _ => none
 
 private def matchArmLdSpXRev (dsRev : List Directive) :
     Option (Nat × Reg × List Directive) :=
@@ -237,15 +281,25 @@ private def collectRestoreRev :
     Nat → Option Nat → List Reg → List Directive → List (Nat × Reg)
   | 0, _, _, _ => []
   | fuel + 1, expSlot?, seen, dsRev =>
-    match matchArmLdSpXRev dsRev with
-    | some (slot, r, prev) =>
-      let contiguous := match expSlot? with | none => true | some exp => slot == exp
-      if contiguous && !seen.contains r && slot > 0 then
-        (slot, r) :: collectRestoreRev fuel (some (slot - 1)) (r :: seen) prev
-      else if contiguous && !seen.contains r && slot == 0 then
-        [(slot, r)]
+    match matchArmLdpSpXRev dsRev with
+    | some (slot, r1, r2, prev) =>
+      let contiguous := match expSlot? with | none => true | some exp => slot + 1 == exp
+      if contiguous && !seen.contains r1 && !seen.contains r2 && slot > 0 then
+        (slot + 1, r2) :: (slot, r1) ::
+          collectRestoreRev fuel (some (slot - 1)) (r1 :: r2 :: seen) prev
+      else if contiguous && !seen.contains r1 && !seen.contains r2 && slot == 0 then
+        [(slot + 1, r2), (slot, r1)]
       else []
-    | none => []
+    | none =>
+      match matchArmLdSpXRev dsRev with
+      | some (slot, r, prev) =>
+        let contiguous := match expSlot? with | none => true | some exp => slot == exp
+        if contiguous && !seen.contains r && slot > 0 then
+          (slot, r) :: collectRestoreRev fuel (some (slot - 1)) (r :: seen) prev
+        else if contiguous && !seen.contains r && slot == 0 then
+          [(slot, r)]
+        else []
+      | none => []
 
 private def collectTailRestores (fn : Sym) (nonLocal : HashSet Sym) (epi : List Directive) :
     List Directive → List Directive → List (List (Nat × Reg)) → List (List (Nat × Reg))
@@ -298,7 +352,7 @@ private def pushDirLines (fn : Sym) (nonLocal : HashSet Sym) (ds : List Directiv
   ds.foldl (fun acc d => acc.push (Print.directive (scrubDir fn nonLocal d))) out
 
 private def emitBodyTails (fn : Sym) (nonLocal : HashSet Sym) (comments : Bool)
-    (restoreChunks : List (Reg × List Directive)) (restoreFlat : List Directive)
+    (restoreChunks : List (List Reg × List Directive)) (restoreFlat : List Directive)
     (ldX30 addSp : List Directive) : Nat → List Directive → Array String → Array String
   | 0, rem, out => pushDirLines fn nonLocal rem out
   | _ + 1, [], out => out
@@ -314,8 +368,9 @@ private def emitBodyTails (fn : Sym) (nonLocal : HashSet Sym) (comments : Bool)
             let needState := !afterTail.isEmpty
             let out := if comments then out.push s!"\t// epilogue ({kind})" else out
             let out := if needState then out.push "\t.cfi_remember_state" else out
-            let out := restoreChunks.foldl (fun acc (r, lds) =>
-              (pushDirLines fn nonLocal lds acc).push s!"\t.cfi_restore {cfiReg r}") out
+            let out := restoreChunks.foldl (fun acc (rs, lds) =>
+              rs.foldl (fun a r => a.push s!"\t.cfi_restore {cfiReg r}")
+                (pushDirLines fn nonLocal lds acc)) out
             let out := (pushDirLines fn nonLocal ldX30 out).push "\t.cfi_restore x30"
             let out := (pushDirLines fn nonLocal addSp out).push "\t.cfi_def_cfa_offset 0"
             let out := out.push (Print.directive (scrubDir fn nonLocal tailD))
@@ -335,6 +390,14 @@ private def emitBodyTails (fn : Sym) (nonLocal : HashSet Sym) (comments : Bool)
       emitBodyTails fn nonLocal comments restoreChunks restoreFlat ldX30 addSp fuel ds
         (out.push (Print.directive (scrubDir fn nonLocal d)))
 
+private def armRestoreChunks : Nat → List Reg → List (List Reg × List Directive)
+  | _, [] => []
+  | i, [r] => [([r], armSlotLd r i)]
+  | i, .reg r1 :: .reg r2 :: rs =>
+    ([.reg r1, .reg r2], emitClean (armLdpSpXRegIns r1 r2 (8 * i))) ::
+      armRestoreChunks (i + 2) rs
+  | i, r :: rs => ([r], armSlotLd r i) :: armRestoreChunks (i + 1) rs
+
 private def emitArm64Fn (fn : Sym) (nslots : Nat) (saved : List Reg) (nonLocal : HashSet Sym)
     (comments : Bool) (body : List Directive) (out : Array String) :
     Except String (Array String) :=
@@ -351,6 +414,28 @@ private def emitArm64Fn (fn : Sym) (nslots : Nat) (saved : List Reg) (nonLocal :
       let rec consumeSaves (idx : Nat) (ds : List Directive) (acc : Array String) :
           List Reg → Except String (Array String × List Directive)
         | [] => .ok (acc, ds)
+        | [r] =>
+          let st := armSlotSt idx r
+          match dropPrefix? st ds with
+          | none =>
+            .error s!"function '{fn}': saveCs mismatch for {cfiReg r} at slot {idx}"
+          | some rest =>
+            let cfaOff := sz - 8 * idx
+            let acc := (pushDirLines fn nonLocal st acc).push
+              s!"\t.cfi_offset {cfiReg r}, -{cfaOff}"
+            .ok (acc, rest)
+        | .reg r1 :: .reg r2 :: rs =>
+          let st := emitClean (armStpSpXRegIns r1 r2 (8 * idx))
+          match dropPrefix? st ds with
+          | none =>
+            .error s!"function '{fn}': saveCs mismatch for {cfiReg (.reg r1)} at slot {idx}"
+          | some rest =>
+            let cfaOff1 := sz - 8 * idx
+            let cfaOff2 := sz - 8 * (idx + 1)
+            let acc := (pushDirLines fn nonLocal st acc)
+              |>.push s!"\t.cfi_offset {cfiReg (.reg r1)}, -{cfaOff1}"
+              |>.push s!"\t.cfi_offset {cfiReg (.reg r2)}, -{cfaOff2}"
+            consumeSaves (idx + 2) rest acc rs
         | r :: rs =>
           let st := armSlotSt idx r
           match dropPrefix? st ds with
@@ -378,8 +463,7 @@ private def emitArm64Fn (fn : Sym) (nslots : Nat) (saved : List Reg) (nonLocal :
       match consumeSaves nslots afterRa out saved with
       | .error e => .error e
       | .ok (out, restBody) =>
-        let restoreChunks := (List.range saved.length).zip saved |>.map fun (k, r) =>
-          (r, armSlotLd r (nslots + k))
+        let restoreChunks := armRestoreChunks nslots saved
         let restoreFlat := restoreChunks.flatMap Prod.snd
         let ldX30 := emitClean (armLdSpXRegIns .X30 (8 * ns))
         let addSp := emitClean (armAddSpIns sz)

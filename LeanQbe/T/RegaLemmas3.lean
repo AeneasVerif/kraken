@@ -1984,13 +1984,31 @@ theorem canonAbiCode_clean : ∀ {ts : List Ty} (locs : Tup (AbiReg I.Reg I.VReg
     · exact hcl.canonAbi _ _
   | _ :: _, (.vec _, locs), sk => canonAbiCode_clean locs sk.tail
 
-theorem restoreCs_clean : ∀ (base : Nat) (rs : List I.Reg), NoLab I (restoreCs I base rs)
+theorem restoreCsList_clean : ∀ (base : Nat) (rs : List I.Reg), NoLab I (restoreCsList I base rs)
   | _, [] => NoLab.nil
-  | _, _ :: rs => (hcl.slotLd _ _).append (restoreCs_clean _ rs)
+  | _, _ :: rs => (hcl.slotLd _ _).append (restoreCsList_clean _ rs)
 
-theorem saveCs_clean : ∀ (base : Nat) (rs : List I.Reg), NoLab I (saveCs I base rs)
+theorem saveCsList_clean : ∀ (base : Nat) (rs : List I.Reg), NoLab I (saveCsList I base rs)
   | _, [] => NoLab.nil
-  | _, _ :: rs => (hcl.slotSt _ _).append (saveCs_clean _ rs)
+  | _, _ :: rs => (hcl.slotSt _ _).append (saveCsList_clean _ rs)
+
+theorem restoreCs_clean (base : Nat) (rs : List I.Reg) : NoLab I (restoreCs I base rs) := by
+  cases rs with
+  | nil => exact NoLab.nil
+  | cons r rs' =>
+    dsimp only [restoreCs]
+    cases hfn : I.frame.restoreRegs? with
+    | none => exact restoreCsList_clean hcl base (r :: rs')
+    | some fn => exact hcl.restoreRegs fn base (r :: rs') hfn
+
+theorem saveCs_clean (base : Nat) (rs : List I.Reg) : NoLab I (saveCs I base rs) := by
+  cases rs with
+  | nil => exact NoLab.nil
+  | cons r rs' =>
+    dsimp only [saveCs]
+    cases hfn : I.frame.saveRegs? with
+    | none => exact saveCsList_clean hcl base (r :: rs')
+    | some fn => exact hcl.saveRegs fn base (r :: rs') hfn
 
 omit hcl in
 private theorem tryGpr_some {st : SymState I} {α : Type} {sa : SymArg}
