@@ -1,5 +1,11 @@
 module
 
+public import LeanQbe.T.Examples.Kissat.FullM5HeurCore
+public import LeanQbe.T.Examples.Kissat.FullM5HeurCoreProof
+public import LeanQbe.T.Examples.Kissat.FullM5HeurCoreProof0
+public import LeanQbe.T.Examples.Kissat.FullM5HeurCoreProof1
+public import LeanQbe.T.Examples.Kissat.FullM5HeurCoreProof2a
+public import LeanQbe.T.Examples.Kissat.FullM5HeurCoreProof2b
 public import LeanQbe.T.Examples.Kissat.FullM5KittenDefFix
 public import LeanQbe.T.Examples.Kissat.FullM5KittenDefFixProof
 public import LeanQbe.T.Examples.Kissat.FullM5KittenDefFixProof1
