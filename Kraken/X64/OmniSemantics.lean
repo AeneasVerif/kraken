@@ -45,6 +45,32 @@ open Kraken (Layout WellFormedLayout)
   dsimp only [require_access]
   split <;> rfl
 
+theorem Effects.All_storeAvx [Labels] {s : MachineData} {addr : BitVec 64} {w : AvxWidth}
+    {v : w.type} {i : Int} {ret : MachineData → Effects} {post : MachineState → Prop}
+    {checkAlign : Bool} (ha : checkAlign → isAligned w.bytes addr)
+    (h : Mem.loadInt s.dmem addr w.bytes = some i)
+    (hk : (ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }).All post) :
+    (s.storeAvx addr v ret checkAlign).All post := by
+  unfold MachineData.storeAvx
+  split
+  · cases checkAlign <;> simp_all
+  rw [Effects.All_require_write_access]
+  simp only [h]
+  exact hk
+
+theorem Effects.All_loadAvx [Labels] {s : MachineData} {addr : BitVec 64} {w : AvxWidth} {i : Int}
+    {ret : w.type → MachineData → Effects} {post : MachineState → Prop} {checkAlign : Bool}
+    (ha : checkAlign → isAligned w.bytes addr)
+    (h : Mem.loadInt s.dmem addr w.bytes = some i)
+    (hk : (ret (.ofInt _ i) s).All post) :
+    (s.loadAvx addr w ret checkAlign).All post := by
+  unfold MachineData.loadAvx
+  split
+  · cases checkAlign <;> simp_all
+  rw [Effects.All_require_read_access]
+  simp only [h]
+  exact hk
+
 def step1 (e : Executable) (s : MachineState) (post : @Post MachineState) : Prop :=
   letI := e.labels
   (Executable.step e s .done).All post
