@@ -14,7 +14,8 @@ echo "outputs in $OUT"
 
 echo "== 1. build ChaCha modules =="
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  timeout 900 lake build --wfail LeanQbe.T.Amd64.ChaCha LeanQbe.T.Arm64.ChaCha
+  timeout 900 lake build --wfail LeanQbe.T.Amd64.ChaCha LeanQbe.T.Amd64.PrintATTAlign \
+    LeanQbe.T.Arm64.ChaCha
 else
   echo "SKIP_BUILD=1: skipping lake build LeanQbe.T.Amd64.ChaCha LeanQbe.T.Arm64.ChaCha"
 fi

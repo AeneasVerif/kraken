@@ -53,11 +53,11 @@ export LEAN_PATH="$LP"
 
 cat > "$TMP/gen_x64.lean" <<'LEAN'
 import LeanQbe.T.Amd64.DebugAsm
+import LeanQbe.T.Amd64.PrintATTAlign
 import LeanQbe.T.Amd64.Targ
 import LeanQbe.T.Driver
 import LeanQbe.T.Examples.LitmusProgs
 import LeanQbe.T.Notation
-import Kraken.X64.PrintATT
 
 open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Examples.Litmus LeanQbe.T.Notation
 
@@ -124,7 +124,7 @@ def main (args : List String) : IO Unit := do
   let hs := baseFns.map (Fn.computeHints x64Target.toIsa x64LegalTarget) ++
     [meHint, dcHint, Fn.computeHints x64Target.toIsa x64LegalTarget loopBranch]
   let dirs ← IO.ofExcept (compile x64Target.toIsa x64LegalTarget fns hs)
-  let raw := Driver.emitAsm (fun c => Kraken.X64.toATT c ++ "\n") fns dirs
+  let raw := Driver.emitAsm (fun c => toATTAligned c ++ "\n") fns dirs
   let dbgSome ← IO.ofExcept (emitX64DebugAsmChecked fns dirs (some hs) ["c_fail_exit"] true)
   let dbgNone ← IO.ofExcept (emitX64DebugAsmChecked fns dirs none ["c_fail_exit"] true)
   if dbgSome != dbgNone then

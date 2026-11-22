@@ -1,5 +1,7 @@
 import LeanQbe.T.Amd64.Bignum
-import Kraken.X64.PrintATT
+import LeanQbe.T.Amd64.PrintATTAlign
+
+set_option autoImplicit false
 
 open LeanQbe.T.Amd64.Bignum
 
@@ -10,9 +12,9 @@ private def emitFn (name body : String) : String :=
 def main (args : List String) : IO UInt32 := do
   let outDir := args.headD "/tmp/leanqbe-tbignum"
   IO.FS.writeFile s!"{outDir}/mul4x4_x64.s"
-    (emitFn "mul4x4" (Kraken.X64.toATT mul4x4Compiled.code))
+    (emitFn "mul4x4" (LeanQbe.T.Amd64.toATTAligned mul4x4Compiled.code))
   IO.FS.writeFile s!"{outDir}/addMod25519_x64.s"
-    (emitFn "addMod25519" (Kraken.X64.toATT addMod25519Compiled.code))
+    (emitFn "addMod25519" (LeanQbe.T.Amd64.toATTAligned addMod25519Compiled.code))
   IO.FS.writeFile s!"{outDir}/subMod25519_x64.s"
-    (emitFn "subMod25519" (Kraken.X64.toATT subMod25519Compiled.code))
+    (emitFn "subMod25519" (LeanQbe.T.Amd64.toATTAligned subMod25519Compiled.code))
   return 0

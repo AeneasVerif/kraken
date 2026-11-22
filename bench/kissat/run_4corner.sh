@@ -119,7 +119,7 @@ run_lean_env() {
 if [ -z "${STAGE_LEAN_PATH:-}" ]; then
   LAKE_TARGETS=(
     LeanQbe.T.PrintCpp LeanQbe.T.Opt LeanQbe.T.Driver
-    LeanQbe.T.Amd64.Targ Kraken.X64.PrintATT
+    LeanQbe.T.Amd64.Targ LeanQbe.T.Amd64.PrintATTAlign
   )
   for m in "${MODULES[@]}"; do
     LAKE_TARGETS+=("LeanQbe.T.Examples.Kissat.$m")
@@ -190,7 +190,7 @@ import LeanQbe.T.PrintCpp
 import LeanQbe.T.Opt
 import LeanQbe.T.Driver
 import LeanQbe.T.Amd64.Targ
-import Kraken.X64.PrintATT
+import LeanQbe.T.Amd64.PrintATTAlign
 
 open LeanQbe.T LeanQbe.T.PrintCpp LeanQbe.T.Amd64
 
@@ -206,7 +206,7 @@ public def main (args : List String) : IO Unit := do
   let dirs ← match LeanQbe.T.compile x64Target.toIsa x64LegalTarget fns hints with
     | .ok d => pure d
     | .error e => throw (IO.userError e)
-  IO.FS.writeFile x64Path (Driver.emitAsm (fun c => Kraken.X64.toATT c ++ "\n") fns dirs)
+  IO.FS.writeFile x64Path (Driver.emitAsm (fun c => toATTAligned c ++ "\n") fns dirs)
 LEAN
   run_lean_env "$OUT/emit_${m}.lean" "$OUT/${m}_gen.hpp" "$OUT/${m}_x64.s"
 

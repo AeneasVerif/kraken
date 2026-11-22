@@ -70,7 +70,8 @@ native_exe() {
   timeout 300 leanc -o "$OUT/bin/$exe" "${objs[@]}"
 }
 native_exe emit_x64 "$T/emit_x64.lean" LeanQbe.T.LeanLCNF.Lower1 LeanQbe.T.LeanLCNF.Demo \
-  LeanQbe.T.LeanLCNF.Coverage LeanQbe.T.Driver LeanQbe.T.Amd64.Targ Kraken.X64.PrintATT
+  LeanQbe.T.LeanLCNF.Coverage LeanQbe.T.Driver LeanQbe.T.Amd64.Targ \
+  LeanQbe.T.Amd64.PrintATTAlign
 native_exe emit_arm64 "$T/emit_arm64.lean" LeanQbe.T.LeanLCNF.Lower1 LeanQbe.T.LeanLCNF.Demo \
   LeanQbe.T.LeanLCNF.Coverage LeanQbe.T.Driver LeanQbe.T.Arm64.Targ Kraken.AArch64.Print
 native_exe lcnf_test - LeanQbeTest.T.LeanLCNFTest

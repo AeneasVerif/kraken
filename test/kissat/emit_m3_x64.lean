@@ -2,7 +2,9 @@ import LeanQbe.T.Examples.Kissat.FullM3
 import LeanQbe.T.PrintCpp
 import LeanQbe.T.Driver
 import LeanQbe.T.Amd64.Targ
-import Kraken.X64.PrintATT
+import LeanQbe.T.Amd64.PrintATTAlign
+
+set_option autoImplicit false
 
 set_option autoImplicit false
 
@@ -18,7 +20,7 @@ public def main (args : List String) : IO Unit := do
   let dirs ← match LeanQbe.T.compile x64Target.toIsa x64LegalTarget fns hints with
     | .ok d => pure d
     | .error e => throw (IO.userError e)
-  let asm := Driver.emitAsm (fun c => Kraken.X64.toATT c ++ "\n") fns dirs
+  let asm := Driver.emitAsm (fun c => toATTAligned c ++ "\n") fns dirs
   IO.FS.writeFile outPath asm
   if let some cppPath := cppPath? then
     let cpp ← match ppTModule m3Module with

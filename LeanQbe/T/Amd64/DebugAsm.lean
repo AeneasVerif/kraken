@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Main
 public import LeanQbe.T.Amd64.Frame
+public import LeanQbe.T.Amd64.PrintATTAlign
 public import Kraken.X64.PrintATT
 import Std.Data.HashSet
 
@@ -352,14 +353,21 @@ private def inferFnSaved (fn : Sym) (nonLocal : HashSet Sym) (body : List Direct
     | some res => .ok res
     | none => .error s!"function '{fn}': could not infer x64 callee-saved slots"
 
+private def pushDirLine (fn : Sym) (nonLocal : HashSet Sym) (loopHdrs : HashSet Sym)
+    (loopAlign : Bool) (d : Directive) (out : Array String) : Array String :=
+  let out := match d with
+    | .label l => if loopAlign && loopHdrs.contains l then out.push loopAlignDirective else out
+    | _ => out
+  out.push (ATT.directive (scrubDir fn nonLocal d))
+
 private def pushDirLines (fn : Sym) (nonLocal : HashSet Sym) (ds : List Directive)
     (out : Array String) : Array String :=
   ds.foldl (fun acc d => acc.push (ATT.directive (scrubDir fn nonLocal d))) out
 
-private def emitBodyTails (fn : Sym) (nonLocal : HashSet Sym) (comments : Bool)
-    (restoreChunks : List (Reg64 × List Directive)) (restoreFlat epi : List Directive) :
-    Nat → List Directive → Array String → Array String
-  | 0, rem, out => pushDirLines fn nonLocal rem out
+private def emitBodyTails (fn : Sym) (nonLocal : HashSet Sym) (loopHdrs : HashSet Sym)
+    (loopAlign comments : Bool) (restoreChunks : List (Reg64 × List Directive))
+    (restoreFlat epi : List Directive) : Nat → List Directive → Array String → Array String
+  | 0, rem, out => rem.foldl (fun acc d => pushDirLine fn nonLocal loopHdrs loopAlign d acc) out
   | _ + 1, [], out => out
   | fuel + 1, rem@(d :: ds), out =>
     match dropPrefix? restoreFlat rem with
@@ -376,19 +384,20 @@ private def emitBodyTails (fn : Sym) (nonLocal : HashSet Sym) (comments : Bool)
           let out := (pushDirLines fn nonLocal epi out).push "\t.cfi_def_cfa_offset 8"
           let out := out.push (ATT.directive (scrubDir fn nonLocal tailD))
           let out := if needState then out.push "\t.cfi_restore_state" else out
-          emitBodyTails fn nonLocal comments restoreChunks restoreFlat epi fuel afterTail out
+          emitBodyTails fn nonLocal loopHdrs loopAlign comments restoreChunks restoreFlat epi
+            fuel afterTail out
         | none =>
-          emitBodyTails fn nonLocal comments restoreChunks restoreFlat epi fuel ds
-            (out.push (ATT.directive (scrubDir fn nonLocal d)))
+          emitBodyTails fn nonLocal loopHdrs loopAlign comments restoreChunks restoreFlat epi
+            fuel ds (pushDirLine fn nonLocal loopHdrs loopAlign d out)
       | _ =>
-        emitBodyTails fn nonLocal comments restoreChunks restoreFlat epi fuel ds
-          (out.push (ATT.directive (scrubDir fn nonLocal d)))
+        emitBodyTails fn nonLocal loopHdrs loopAlign comments restoreChunks restoreFlat epi
+          fuel ds (pushDirLine fn nonLocal loopHdrs loopAlign d out)
     | none =>
-      emitBodyTails fn nonLocal comments restoreChunks restoreFlat epi fuel ds
-        (out.push (ATT.directive (scrubDir fn nonLocal d)))
+      emitBodyTails fn nonLocal loopHdrs loopAlign comments restoreChunks restoreFlat epi
+        fuel ds (pushDirLine fn nonLocal loopHdrs loopAlign d out)
 
 private def emitX64Fn (fn : Sym) (nslots : Nat) (saved : List Reg64) (nonLocal : HashSet Sym)
-    (comments : Bool) (body : List Directive) (out : Array String) :
+    (loopAlign comments : Bool) (body : List Directive) (out : Array String) :
     Except String (Array String) :=
   let ns := nslots + saved.length
   let sz := x64FrameSize ns
@@ -426,8 +435,10 @@ private def emitX64Fn (fn : Sym) (nslots : Nat) (saved : List Reg64) (nonLocal :
         (r, x64SlotLd r (nslots + k))
       let restoreFlat := restoreChunks.flatMap Prod.snd
       let epi := emitClean (x64EpilogueIns ns)
-      let out := emitBodyTails fn nonLocal comments restoreChunks restoreFlat epi
-        restBody.length restBody out
+      let loopHdrs : HashSet Sym :=
+        if loopAlign then (detectLoopHeaders body).foldl (fun s l => s.insert l) {} else {}
+      let out := emitBodyTails fn nonLocal loopHdrs loopAlign comments restoreChunks
+        restoreFlat epi restBody.length restBody out
       .ok (out |>.push "\t.cfi_endproc" |>.push s!"\t.size {fn}, .-{fn}")
 
 /-- Emit ELF + DWARF CFI + `.L`-scrubbed x64 assembly from compiled `fs` and `code`.
@@ -435,7 +446,7 @@ When `hints?` is supplied, exact `(nslots, saved)` values are enforced against `
 they are inferred and cross-checked across prologue and all exit tails. -/
 def emitX64DebugAsmChecked (fs : List Fn) (code : List Directive)
     (hints? : Option (List X64Hints) := none) (exits : List Sym := [])
-    (comments : Bool := false) : Except String String := do
+    (comments : Bool := false) (loopAlign : Bool := true) : Except String String := do
   let names := fs.map (·.name)
   let slices ← splitFnSlices names code
   let nonLocal := (names ++ exits).foldl (fun s k => s.insert k) ({} : HashSet Sym)
@@ -452,14 +463,14 @@ def emitX64DebugAsmChecked (fs : List Fn) (code : List Directive)
         .ok ((fn, body), info)
   let mut out : Array String := #[".text"]
   for ((fn, body), (nslots, saved)) in pairs do
-    out ← emitX64Fn fn nslots saved nonLocal comments body out
+    out ← emitX64Fn fn nslots saved nonLocal loopAlign comments body out
   return String.intercalate "\n" out.toList ++ "\n"
 
 /-- Infallible wrapper around `emitX64DebugAsmChecked` for CLI assembly emission. -/
 def emitX64DebugAsm (fs : List Fn) (code : List Directive)
     (hints? : Option (List X64Hints) := none) (exits : List Sym := [])
-    (comments : Bool := false) : String :=
-  match emitX64DebugAsmChecked fs code hints? exits comments with
+    (comments : Bool := false) (loopAlign : Bool := true) : String :=
+  match emitX64DebugAsmChecked fs code hints? exits comments loopAlign with
   | .ok s => s
   | .error e => panic! s!"emitX64DebugAsm: {e}"
 

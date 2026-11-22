@@ -129,7 +129,7 @@ echo "== 8. FullM3 unified differential check (PrintCpp ASan/UBSan + Native x64 
 if [ -z "${STAGE_LEAN_PATH:-}" ] && [ "${SKIP_BUILD:-0}" != "1" ]; then
   timeout 600 lake build --wfail LeanQbe.T.Examples.Kissat.FullM3 LeanQbe.T.PrintCpp \
     LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ \
-    Kraken.X64.PrintATT Kraken.AArch64.Print
+    Kraken.X64.PrintATT Kraken.AArch64.Print LeanQbe.T.Amd64.PrintATTAlign
 fi
 run_lean 180 --run test/kissat/emit_m3_x64.lean "$OUT/m3_x64.s" "$OUT/m3_gen.hpp"
 run_lean 180 --run test/kissat/emit_m3_arm64.lean "$OUT/m3_arm64.s"
@@ -224,7 +224,7 @@ echo "== 9. FullM4 unified differential check (PrintCpp ASan/UBSan + Native x64 
 if [ -z "${STAGE_LEAN_PATH:-}" ] && [ "${SKIP_BUILD:-0}" != "1" ]; then
   timeout 600 lake build --wfail LeanQbe.T.Examples.Kissat.FullM4 LeanQbe.T.PrintCpp \
     LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ \
-    Kraken.X64.PrintATT Kraken.AArch64.Print
+    Kraken.X64.PrintATT Kraken.AArch64.Print LeanQbe.T.Amd64.PrintATTAlign
 fi
 run_lean 180 --run test/kissat/emit_m4_x64.lean "$OUT/m4_x64.s" "$OUT/m4_gen.hpp"
 run_lean 180 --run test/kissat/emit_m4_arm64.lean "$OUT/m4_arm64.s"

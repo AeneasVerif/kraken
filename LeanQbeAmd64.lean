@@ -59,6 +59,7 @@ public import LeanQbe.T.Amd64.KissatM3Cert17b
 public import LeanQbe.T.Amd64.KissatM3Cert
 public import LeanQbe.T.Amd64.KissatM3
 public import LeanQbe.T.Amd64.DebugAsm
+public import LeanQbe.T.Amd64.PrintATTAlign
 public import LeanQbe.T.Amd64.PrintAsm0
 public import LeanQbe.T.Amd64.PrintAsm0Lemmas
 

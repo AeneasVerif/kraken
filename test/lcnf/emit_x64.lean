@@ -3,7 +3,7 @@ import LeanQbe.T.LeanLCNF.Demo
 import LeanQbe.T.LeanLCNF.Coverage
 import LeanQbe.T.Driver
 import LeanQbe.T.Amd64.Targ
-import Kraken.X64.PrintATT
+import LeanQbe.T.Amd64.PrintATTAlign
 
 /-! `emit_x64 <out.s> [cov_out.s]`: lower the spliced impure-LCNF demo and coverage programs
 to `LeanQbe.T`, compile with `x64Target`, and print GNU assembler input. -/
@@ -18,7 +18,7 @@ private def emitOne (tag : String) (m : LcModule) (out : System.FilePath) : IO U
   let fns := LeanLRC.tflatFnsToFns tfs
   let hints := fns.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
   let dirs ← IO.ofExcept (LeanQbe.T.compile x64Target.toIsa x64LegalTarget fns hints)
-  IO.FS.writeFile out (Driver.emitAsm (fun c => Kraken.X64.toATT c ++ "\n") fns dirs)
+  IO.FS.writeFile out (Driver.emitAsm (fun c => toATTAligned c ++ "\n") fns dirs)
   IO.eprintln s!"emit_x64 ({tag}): {fns.length} functions in {(← IO.monoMsNow) - t0} ms"
 
 def main (args : List String) : IO Unit := do

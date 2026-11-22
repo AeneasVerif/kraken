@@ -118,11 +118,11 @@ if [ "$ARCH" = x64 ]; then
   CC="${CC:-gcc}"
   CFLAGS_ARCH=(-no-pie)
   IMPORTS="import LeanQbe.T.Amd64.Targ
-import Kraken.X64.PrintATT"
+import LeanQbe.T.Amd64.PrintATTAlign"
   OPENS="open LeanQbe.T LeanQbe.T.Amd64"
   TGT=x64Target; LEGAL=x64LegalTarget
-  PRINT='fun c => Kraken.X64.toATT c ++ "\n"'
-  LAKE_EXTRA=(LeanQbe.T.Amd64.Targ Kraken.X64.PrintATT)
+  PRINT='fun c => toATTAligned c ++ "\n"'
+  LAKE_EXTRA=(LeanQbe.T.Amd64.Targ LeanQbe.T.Amd64.PrintATTAlign)
   if [ "$DEBUG" = 1 ]; then
     IMPORTS="$IMPORTS
 import LeanQbe.T.Amd64.DebugAsm"
