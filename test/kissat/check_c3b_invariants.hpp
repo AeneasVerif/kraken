@@ -5,6 +5,7 @@
 // Compile with -DKISSAT_C3B_CHECK_INV to enable runtime checks; when omitted,
 // all hooks compile away to trivial inline no-ops with zero runtime overhead.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -43,6 +44,7 @@ enum FullHdrWord : uint64_t {
   W_SCRATCH_BUF = 115,
   W_SCRATCH_CAP = 116,
   W_DENSE_MODE = 127,
+  W_INCONSISTENT = 128,
 };
 
 struct ProbeIsoSnapshot {
@@ -188,9 +190,19 @@ inline bool check_2wl_impl(const View& v, uint64_t hdr, std::string* err) {
   uint64_t alen = rd_word(v, hdr, W_ARENA_LEN);
   uint64_t wcap = rd_word(v, hdr, W_WCAP);
   uint64_t wlen = rd_word(v, hdr, W_WLEN);
+  uint64_t trl_end = rd_word(v, hdr, W_TRAIL_END);
+  uint64_t prop = rd_word(v, hdr, W_PROPAGATED);
+  uint64_t cur_lvl = rd_word(v, hdr, W_CUR_LEVEL);
+  uint64_t vals_ptr = rd_word(v, hdr, W_VALUES);
+  uint64_t lvl_ptr = rd_word(v, hdr, W_LEVEL);
+  bool check_val_lvl = (prop == trl_end && vals_ptr != 0ULL && lvl_ptr != 0ULL &&
+                        rd_word(v, hdr, W_INCONSISTENT) == 0ULL &&
+                        rd_word(v, hdr, W_OOM) == 0ULL);
   if (cv > mv) return fail(err, "cur_vars > max_vars");
   if (alen > acap || wlen > wcap) return fail(err, "arena/watch len exceeds cap");
-  if (rd_word(v, hdr, W_TRAIL_END) > cv) return fail(err, "trail_end > cur_vars");
+  if (trl_end > cv) return fail(err, "trail_end > cur_vars");
+  if (prop > trl_end) return fail(err, "propagated > trail_end");
+  if (cur_lvl > mv) return fail(err, "cur_level > max_vars");
   if (rd_word(v, hdr, W_DENSE_MODE) != 0ULL) return true;
 
   uint64_t wvec = rd_word(v, hdr, W_WATCH_VEC);
@@ -200,6 +212,8 @@ inline bool check_2wl_impl(const View& v, uint64_t hdr, std::string* err) {
   uint64_t nlits = cv * 2ULL;
 
   std::vector<uint8_t> watch_mask(alen, 0);
+  std::vector<uint32_t> blk0(check_val_lvl ? alen : 0ULL, 0xFFFFFFFFu);
+  std::vector<uint32_t> blk1(check_val_lvl ? alen : 0ULL, 0xFFFFFFFFu);
   for (uint64_t l = 0; l < nlits; ++l) {
     uint64_t off = rd_u32(v, wvec, l * 2ULL);
     uint64_t sz = rd_u32(v, wvec, l * 2ULL + 1ULL);
@@ -238,6 +252,10 @@ inline bool check_2wl_impl(const View& v, uint64_t hdr, std::string* err) {
         return fail(err, "large watch mismatched/duplicate for cref " + std::to_string(cr));
       }
       watch_mask[cr] |= bit;
+      if (check_val_lvl) {
+        if (bit == 1u) blk0[cr] = blk;
+        else blk1[cr] = blk;
+      }
       k += 2;
     }
   }
@@ -251,6 +269,35 @@ inline bool check_2wl_impl(const View& v, uint64_t hdr, std::string* err) {
       uint32_t l1 = rd_u32(v, arena, p + 4ULL);
       if (l0 == l1 || l0 >= nlits || l1 >= nlits || watch_mask[p] != 3u) {
         return fail(err, "live large clause missing 2WL at cref " + std::to_string(p));
+      }
+      if (check_val_lvl) {
+        int8_t v0 = v.template load<int8_t>(vals_ptr + static_cast<uint64_t>(l0));
+        int8_t v1 = v.template load<int8_t>(vals_ptr + static_cast<uint64_t>(l1));
+        auto chk_watch = [&](
+            uint32_t w, int8_t vw, uint32_t o, int8_t vo, uint32_t blk) -> bool {
+          if (vw >= 0) return true;
+          uint32_t lw = rd_u32(v, lvl_ptr, static_cast<uint64_t>(w >> 1));
+          uint32_t lo = rd_u32(v, lvl_ptr, static_cast<uint64_t>(o >> 1));
+          if (lw > cur_lvl) return fail(err, "watch level exceeds cur_level");
+          if (vo > 0 && lo <= lw) return true;
+          bool blk_sat = false;
+          bool bad_nw = false;
+          for (uint32_t k = 2; k < csz; ++k) {
+            uint32_t lk = rd_u32(v, arena, p + 3ULL + static_cast<uint64_t>(k));
+            if (lk >= nlits) return fail(err, "clause literal out of range");
+            int8_t vk = v.template load<int8_t>(vals_ptr + static_cast<uint64_t>(lk));
+            uint32_t llk = rd_u32(v, lvl_ptr, static_cast<uint64_t>(lk >> 1));
+            if (lk == blk && vk > 0 && llk <= lw) blk_sat = true;
+            if (vk >= 0 || llk > lw) bad_nw = true;
+          }
+          if (bad_nw && !blk_sat) {
+            return fail(err, "2WL value/level violation at cref " + std::to_string(p));
+          }
+          return true;
+        };
+        if (!chk_watch(l0, v0, l1, v1, blk0[p]) || !chk_watch(l1, v1, l0, v0, blk1[p])) {
+          return false;
+        }
       }
     }
     uint64_t np = arena_step(v, arena, alen, p);
@@ -297,17 +344,15 @@ inline bool check_bins_impl(const View& v, uint64_t hdr, std::string* err) {
       k += 1;
     }
   }
+  std::vector<uint64_t> rev;
+  rev.reserve(edges.size());
   for (uint64_t e : edges) {
-    uint64_t rev = ((e & 0xFFFFFFFFULL) << 32) | (e >> 32);
-    size_t fwd_cnt = 0;
-    size_t rev_cnt = 0;
-    for (uint64_t x : edges) {
-      if (x == e) ++fwd_cnt;
-      if (x == rev) ++rev_cnt;
-    }
-    if (fwd_cnt != rev_cnt) {
-      return fail(err, "asymmetric binary implication watch pair");
-    }
+    rev.push_back(((e & 0xFFFFFFFFULL) << 32) | (e >> 32));
+  }
+  std::sort(edges.begin(), edges.end());
+  std::sort(rev.begin(), rev.end());
+  if (edges != rev) {
+    return fail(err, "asymmetric binary implication watch pair");
   }
   return true;
 }
@@ -320,7 +365,7 @@ inline bool check_kitten_impl(const View& v, uint64_t hdr, std::string* err) {
     return fail(err, "scratch_buf unallocated/too small for kitten");
   }
   uint64_t kbase = sbuf + static_cast<uint64_t>(kBase) * 4ULL;
-  auto kr = [&](uint32_t off) { return rd_u32(v, kbase, off); };
+  auto kr = [&](uint64_t off) { return rd_u32(v, kbase, off); };
 
   uint32_t nv = kr(0u);
   uint32_t nc = kr(1u);
@@ -331,6 +376,7 @@ inline bool check_kitten_impl(const View& v, uint64_t hdr, std::string* err) {
   uint32_t unass = kr(6u);
   uint32_t qfirst = kr(10u);
   uint32_t qlast = kr(11u);
+  uint32_t qsearch = kr(12u);
   uint32_t alen = kr(16u);
   uint32_t acap = kr(17u);
   uint32_t nassump = kr(18u);
@@ -339,10 +385,14 @@ inline bool check_kitten_impl(const View& v, uint64_t hdr, std::string* err) {
   if (nv > kMaxV || nc > kMaxCl || orig_nc > nc || orig_nc > kMaxOrig) {
     return fail(err, "kitten variable/clause count out of bounds");
   }
-  if (trl_end > nv || prop > trl_end || lvl > trl_end || unass + trl_end != nv) {
+  if (trl_end > nv || prop > trl_end || lvl > trl_end ||
+      static_cast<uint64_t>(unass) + static_cast<uint64_t>(trl_end) != static_cast<uint64_t>(nv)) {
     return fail(err, "kitten trail/level/unassigned mismatch");
   }
-  if (alen > acap || kBase + kArenaOff + acap > scap || nassump > nv || nunits > 256u) {
+  if (alen > acap ||
+      static_cast<uint64_t>(kBase) + static_cast<uint64_t>(kArenaOff) +
+              static_cast<uint64_t>(acap) > scap ||
+      nassump > nv || nunits > 256u) {
     return fail(err, "kitten arena/assump/units bounds invalid");
   }
 
@@ -363,7 +413,12 @@ inline bool check_kitten_impl(const View& v, uint64_t hdr, std::string* err) {
     }
   }
 
-  if (nv > 0) {
+  if (nv == 0u) {
+    if (qfirst != 0xFFFFFFFFu || qlast != 0xFFFFFFFFu || qsearch != 0xFFFFFFFFu) {
+      return fail(err, "non-empty kitten queue sentinels when nv == 0");
+    }
+  } else {
+    if (qsearch >= nv) return fail(err, "kitten qsearch out of range");
     std::vector<uint8_t> seen(nv, 0);
     uint32_t cur = qfirst;
     uint32_t prev = 0xFFFFFFFFu;
@@ -382,11 +437,14 @@ inline bool check_kitten_impl(const View& v, uint64_t hdr, std::string* err) {
   }
 
   for (uint32_t cid = 0; cid < nc; ++cid) {
-    uint32_t off = kr(5920u + cid);
-    uint32_t sz = kr(6816u + cid) & 0xFFFFu;
-    if (off + sz > alen) return fail(err, "kitten clause exceeds arena_len");
-    for (uint32_t j = 0; j < sz; ++j) {
-      if (kr(kArenaOff + off + j) >= nv * 2u) {
+    uint64_t off = static_cast<uint64_t>(kr(5920ULL + static_cast<uint64_t>(cid)));
+    uint64_t sz = static_cast<uint64_t>(kr(6816ULL + static_cast<uint64_t>(cid)) & 0xFFFFu);
+    if (off + sz > static_cast<uint64_t>(alen)) {
+      return fail(err, "kitten clause exceeds arena_len");
+    }
+    for (uint64_t j = 0; j < sz; ++j) {
+      uint64_t lit = static_cast<uint64_t>(kr(static_cast<uint64_t>(kArenaOff) + off + j));
+      if (lit >= static_cast<uint64_t>(nv) * 2ULL) {
         return fail(err, "kitten clause literal out of bounds");
       }
     }

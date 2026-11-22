@@ -311,16 +311,19 @@ int main(int argc, char **argv) {
   ::tqbe::Mem mem;
   uint64_t cnf_addr = reinterpret_cast<uint64_t>(cnf.data());
   uint64_t cnf_end = cnf_addr + static_cast<uint64_t>(cnf.size());
-  uint64_t hdr_addr = reinterpret_cast<uint64_t>(work.data());
-  uint64_t avail = work_bytes > 1152ULL ? (work_bytes - 1152ULL) : 0ULL;
+  uint64_t raw_ptr = reinterpret_cast<uint64_t>(work.data());
+  uint64_t pad = (8ULL - (raw_ptr & 7ULL)) & 7ULL;
+  uint64_t hdr_addr = raw_ptr + pad;
+  uint64_t avail = work_bytes > pad ? (work_bytes - pad) : 0ULL;
+  uint8_t *hp = work.data() + pad;
 
   auto t0 = std::chrono::steady_clock::now();
-  bool ok = tqbe_gen::full_init_state(
+  bool ok = (avail >= 1152ULL) && tqbe_gen::full_init_state(
       mem, ::tqbe::bits<64>(cnf_addr), ::tqbe::bits<64>(cnf_end),
       ::tqbe::bits<64>(hdr_addr), ::tqbe::bits<64>(avail), ::tqbe::bits<64>(fuel));
   uint64_t st = 0;
   if (ok) {
-    uint64_t orig_mv = rd64(work.data(), 0);
+    uint64_t orig_mv = rd64(hp, 0);
     uint64_t pb = tqbe_gen::full_parse_body(
         mem, ::tqbe::bits<64>(hdr_addr), ::tqbe::bits<64>(cnf_end)).data;
     if (pb != 1ULL) {
@@ -331,9 +334,9 @@ int main(int argc, char **argv) {
     }
     if (st == 10ULL) {
       tqbe_gen::full_extend(mem, ::tqbe::bits<64>(hdr_addr));
-      wr64(work.data(), 0, orig_mv);
-      wr64(work.data(), 98, rd64(work.data(), 96) - orig_mv);
-      uint64_t vp = rd64(work.data(), 8);
+      wr64(hp, 0, orig_mv);
+      wr64(hp, 98, rd64(hp, 96) - orig_mv);
+      uint64_t vp = rd64(hp, 8);
       uint64_t chk = tqbe_gen::kissat_check_model(
           mem, ::tqbe::bits<64>(cnf_addr), ::tqbe::bits<64>(cnf_end),
           ::tqbe::bits<64>(hdr_addr), ::tqbe::bits<64>(vp), ::tqbe::bits<64>(orig_mv)).data;
@@ -346,7 +349,7 @@ int main(int argc, char **argv) {
   }
   auto t1 = std::chrono::steady_clock::now();
   double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-  const void *h = work.data();
+  const void *h = hp;
   std::printf(
       "%s\t%llu\t%.3f\tconflicts=%llu\tlearned_lits=%llu\tmin_removed=%llu\t"
       "search_ticks=%llu\tswitched=%llu\trestarts=%llu\treductions=%llu\trephased=%llu\toom=%llu\t"

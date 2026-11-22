@@ -78,6 +78,7 @@ int main(int argc, char **argv) {
   bool check_oom_mono = false;
   bool force_oom_sticky = false;
   bool check_inv = false;
+  bool check_search_inv = false;
   for (int i = 2; i < argc; ++i) {
     if (std::strncmp(argv[i], "--work-bytes=", 13) == 0) {
       work_bytes = std::strtoull(argv[i] + 13, nullptr, 10);
@@ -90,6 +91,8 @@ int main(int argc, char **argv) {
       check_oom_mono = true;
     } else if (std::strcmp(argv[i], "--check-inv") == 0) {
       check_inv = true;
+    } else if (std::strcmp(argv[i], "--check-search-inv") == 0) {
+      check_search_inv = true;
     }
   }
   std::vector<uint8_t> cnf;
@@ -98,20 +101,23 @@ int main(int argc, char **argv) {
   ::tqbe::Mem mem;
   uint64_t cnf_addr = reinterpret_cast<uint64_t>(cnf.data());
   uint64_t cnf_end = cnf_addr + static_cast<uint64_t>(cnf.size());
-  uint64_t hdr_addr = reinterpret_cast<uint64_t>(work.data());
-  uint64_t avail = work_bytes > 1152ULL ? (work_bytes - 1152ULL) : 0ULL;
-  if (work_bytes < 1152ULL) {
+  uint64_t raw_ptr = reinterpret_cast<uint64_t>(work.data());
+  uint64_t pad = (8ULL - (raw_ptr & 7ULL)) & 7ULL;
+  uint64_t hdr_addr = raw_ptr + pad;
+  uint64_t avail = work_bytes > pad ? (work_bytes - pad) : 0ULL;
+  if (work_bytes < pad + 1152ULL) {
     std::printf(
         "{\"status\":0,\"oom\":1,\"init_ok\":0,\"oom_monotone_ok\":1,\"inv_ok\":1,"
         "\"arena_len\":0,\"arena_cap\":0,\"wlen\":0,\"wcap\":0,"
         "\"extend_len\":0,\"extend_cap\":0,\"scratch_cap\":0,\"conflicts\":0,\"ticks\":0}\n");
     return 0;
   }
+  uint8_t *hp = work.data() + pad;
 
   bool init_ok = tqbe_gen::full_init_state(
       mem, ::tqbe::bits<64>(cnf_addr), ::tqbe::bits<64>(cnf_end),
       ::tqbe::bits<64>(hdr_addr), ::tqbe::bits<64>(avail), ::tqbe::bits<64>(fuel));
-  uint64_t oom_init = rd_hdr_u64(work.data(), 95);
+  uint64_t oom_init = rd_hdr_u64(hp, 95);
   bool mono_ok = true;
   bool inv_ok = true;
   std::string inv_err;
@@ -123,38 +129,42 @@ int main(int argc, char **argv) {
   uint64_t oom_search = oom_init;
   uint64_t oom_ext = oom_init;
   if (init_ok) {
-    uint64_t orig_mv = rd_hdr_u64(work.data(), 0);
+    uint64_t orig_mv = rd_hdr_u64(hp, 0);
     uint64_t pb = tqbe_gen::full_parse_body(
         mem, ::tqbe::bits<64>(hdr_addr), ::tqbe::bits<64>(cnf_end)).data;
-    oom_parse = rd_hdr_u64(work.data(), 95);
+    oom_parse = rd_hdr_u64(hp, 95);
     if (oom_init == 1ULL && oom_parse == 0ULL) mono_ok = false;
     if (check_inv && pb == 1ULL && oom_parse == 0ULL) {
-      inv_ok = inv_ok && kissat_c3b_inv::check_bins(work.data(), &inv_err)
-                      && kissat_c3b_inv::check_2wl(work.data(), &inv_err);
+      inv_ok = inv_ok && kissat_c3b_inv::check_bins(hp, &inv_err)
+                      && kissat_c3b_inv::check_2wl(hp, &inv_err);
     }
     if (pb != 1ULL) {
       status = pb;
     } else {
       uint64_t pp = tqbe_gen::full_preprocess(mem, ::tqbe::bits<64>(hdr_addr)).data;
-      oom_pre = rd_hdr_u64(work.data(), 95);
+      oom_pre = rd_hdr_u64(hp, 95);
       if ((oom_parse == 1ULL || oom_init == 1ULL) && oom_pre == 0ULL) mono_ok = false;
       if (check_inv && pp == 1ULL && oom_pre == 0ULL) {
-        inv_ok = inv_ok && kissat_c3b_inv::check_bins(work.data(), &inv_err)
-                        && kissat_c3b_inv::check_2wl(work.data(), &inv_err);
+        inv_ok = inv_ok && kissat_c3b_inv::check_bins(hp, &inv_err)
+                        && kissat_c3b_inv::check_2wl(hp, &inv_err);
       }
-      if (force_oom_sticky && oom_pre == 0ULL) wr_hdr_u64(work.data(), 95, 1ULL);
-      uint64_t pre_search_oom = rd_hdr_u64(work.data(), 95);
+      if (force_oom_sticky && oom_pre == 0ULL) wr_hdr_u64(hp, 95, 1ULL);
+      uint64_t pre_search_oom = rd_hdr_u64(hp, 95);
       status = (pp == 1ULL) ? tqbe_gen::full_search(mem, ::tqbe::bits<64>(hdr_addr)).data : pp;
-      oom_search = rd_hdr_u64(work.data(), 95);
+      oom_search = rd_hdr_u64(hp, 95);
       if (pre_search_oom == 1ULL && oom_search == 0ULL) mono_ok = false;
     }
     if (status == 10ULL) {
+      if (check_search_inv && oom_search == 0ULL) {
+        inv_ok = inv_ok && kissat_c3b_inv::check_bins(hp, &inv_err)
+                        && kissat_c3b_inv::check_2wl(hp, &inv_err);
+      }
       tqbe_gen::full_extend(mem, ::tqbe::bits<64>(hdr_addr));
-      oom_ext = rd_hdr_u64(work.data(), 95);
+      oom_ext = rd_hdr_u64(hp, 95);
       if (oom_search == 1ULL && oom_ext == 0ULL) mono_ok = false;
-      wr_hdr_u64(work.data(), 0, orig_mv);
-      wr_hdr_u64(work.data(), 98, rd_hdr_u64(work.data(), 96) - orig_mv);
-      uint64_t vals_ptr = rd_hdr_u64(work.data(), 8);
+      wr_hdr_u64(hp, 0, orig_mv);
+      wr_hdr_u64(hp, 98, rd_hdr_u64(hp, 96) - orig_mv);
+      uint64_t vals_ptr = rd_hdr_u64(hp, 8);
       uint64_t chk = tqbe_gen::kissat_check_model(
           mem, ::tqbe::bits<64>(cnf_addr), ::tqbe::bits<64>(cnf_end),
           ::tqbe::bits<64>(hdr_addr), ::tqbe::bits<64>(vals_ptr),
@@ -171,7 +181,7 @@ int main(int argc, char **argv) {
   } else {
     oom_search = 1ULL;
   }
-  uint64_t final_oom = rd_hdr_u64(work.data(), 95);
+  uint64_t final_oom = rd_hdr_u64(hp, 95);
   if (!check_oom_mono) mono_ok = true;
   std::printf(
       "{\"status\":%llu,\"oom\":%llu,\"init_ok\":%d,\"witness_ok\":%llu,"
@@ -186,15 +196,15 @@ int main(int argc, char **argv) {
       mono_ok ? 1 : 0,
       inv_ok ? 1 : 0,
       inv_err.c_str(),
-      (unsigned long long)(init_ok ? rd_hdr_u64(work.data(), 6) : 0ULL),
-      (unsigned long long)(init_ok ? rd_hdr_u64(work.data(), 4) : 0ULL),
-      (unsigned long long)(init_ok ? rd_hdr_u64(work.data(), 7) : 0ULL),
-      (unsigned long long)(init_ok ? rd_hdr_u64(work.data(), 5) : 0ULL),
-      (unsigned long long)(init_ok ? rd_hdr_u64(work.data(), 114) : 0ULL),
-      (unsigned long long)(init_ok ? rd_hdr_u64(work.data(), 113) : 0ULL),
-      (unsigned long long)(init_ok ? rd_hdr_u64(work.data(), 116) : 0ULL),
-      (unsigned long long)(init_ok ? rd_hdr_u64(work.data(), 42) : 0ULL),
-      (unsigned long long)(init_ok ? rd_hdr_u64(work.data(), 75) : 0ULL));
+      (unsigned long long)(init_ok ? rd_hdr_u64(hp, 6) : 0ULL),
+      (unsigned long long)(init_ok ? rd_hdr_u64(hp, 4) : 0ULL),
+      (unsigned long long)(init_ok ? rd_hdr_u64(hp, 7) : 0ULL),
+      (unsigned long long)(init_ok ? rd_hdr_u64(hp, 5) : 0ULL),
+      (unsigned long long)(init_ok ? rd_hdr_u64(hp, 114) : 0ULL),
+      (unsigned long long)(init_ok ? rd_hdr_u64(hp, 113) : 0ULL),
+      (unsigned long long)(init_ok ? rd_hdr_u64(hp, 116) : 0ULL),
+      (unsigned long long)(init_ok ? rd_hdr_u64(hp, 42) : 0ULL),
+      (unsigned long long)(init_ok ? rd_hdr_u64(hp, 75) : 0ULL));
   return 0;
 }
 """
@@ -327,7 +337,7 @@ def parse_dimacs_header(cnf_path):
 
 
 def run_driver(driver_bin, cnf_path, work_bytes, fuel, timeout_s, oom_mono=False,
-               check_inv=False, sticky=False):
+               check_inv=False, sticky=False, check_search_inv=False):
     """Execute compiled driver once and return parsed status/watermark dict."""
     cmd = [
         "timeout", str(timeout_s), driver_bin, cnf_path,
@@ -339,6 +349,8 @@ def run_driver(driver_bin, cnf_path, work_bytes, fuel, timeout_s, oom_mono=False
         cmd.append("--test-oom-sticky")
     if check_inv:
         cmd.append("--check-inv")
+    if check_search_inv:
+        cmd.append("--check-search-inv")
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode == 124:
         return {"status": 0, "timeout": True, "crash": False, "oom": 0}
@@ -447,6 +459,8 @@ def main():
     ap.add_argument("--check-oom-monotone", action="store_true", help="Assert h->oom monotonicity")
     ap.add_argument("--test-oom-sticky", action="store_true", help="Probe h->oom stickiness")
     ap.add_argument("--check-inv", action="store_true", help="Enable -DKISSAT_C3B_CHECK_INV")
+    ap.add_argument("--check-search-inv", action="store_true",
+                    help="Check bins/2wl after full_search before full_extend")
     ap.add_argument("--fast", action="store_true", help="Use reduced fine-offset grid")
     ap.add_argument("--json-out", default="", help="Write full JSON report")
     args = ap.parse_args()
@@ -461,10 +475,11 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="kissat-fuzz-oom-") as tmp_dir:
         if args.gen_hpp:
-            driver = compile_driver(args.gen_hpp, tmp_dir, runtime_dir, verify_dir, args.check_inv)
+            use_inv = args.check_inv or args.check_search_inv
+            driver = compile_driver(args.gen_hpp, tmp_dir, runtime_dir, verify_dir, use_inv)
             def invoke(cnf_p, wb, fl, to):
                 return run_driver(driver, cnf_p, wb, fl, to, args.check_oom_monotone,
-                                  args.check_inv, args.test_oom_sticky)
+                                  args.check_inv, args.test_oom_sticky, args.check_search_inv)
         else:
             def invoke(cnf_p, wb, fl, to):
                 return run_bench_cli(args.c3b_bin, cnf_p, wb, fl, to)
