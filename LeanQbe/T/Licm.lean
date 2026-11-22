@@ -194,10 +194,6 @@ inductive ReachBlocks : Type
   | cons (hd : ReachTree) (tl : ReachBlocks)
 end
 
-/-- Extract the root reachability flag of a `ReachTree`. -/
-def ReachTree.reaches : ReachTree → Bool
-  | .leaf r | .node1 r _ | .node2 r _ _ | .groupNode r _ _ => r
-
 /-- Record outer variable indices (`idx ≥ depth`, normalized by `idx - depth`) in `s`. -/
 def addOuterArg (depth : Nat) {t : Ty} : Arg K t → Trie Unit → Trie Unit
   | .var idx, s => if depth ≤ idx then s.insert (idx - depth) () else s
@@ -281,12 +277,7 @@ def buildReachWithB (highPress : Bool) (jnzD : Nat) (mask : List Nat) {rs : List
     (rbReach || rbsReach, .cons rb rt)
 end
 
-/-- Compute bottom-up backedge-reachability tree for `tf` against target label mask `mask`. -/
-def buildReach (mask : List Nat) {rs : List Ty} (tf : TFlat rs) : ReachTree :=
-  (buildReachWith false 0 mask tf).2
-
-/-- Block-list companion of `buildReach`, enabling the cold-branch pressure gate when `bodies`
-references `> 8` distinct outer live-in variables. -/
+/-- Enable the cold-branch pressure gate when `bodies` references `> 8` outer live-in vars. -/
 def buildReachB (mask : List Nat) {rs : List Ty} {sig : List (List Ty)}
     (bodies : TBlocks rs sig) : Bool × ReachBlocks :=
   let highPress := Nat.blt 8 (trieCard (collectOuterB 0 bodies .empty))
@@ -582,9 +573,297 @@ def licmSweepB {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
       (licmSweepB next env tbl pt bs)
 end
 
-/-- Run Loop-Invariant Code Motion (`LICM`) on a closed function `Func`. Returns `f` unchanged
-when no loop-invariant pure total operations are found. -/
-def Func.licm {as rs : List Ty} (f : Func as rs) : Func as rs :=
+/-! ## Read-only loop load hoisting and dominating load forwarding -/
+
+/-- A hoisted read-only load descriptor (`load ty addr`) with outer level address `addr`. -/
+structure HoistLoad : Type where
+  ty : Ty
+  addr : Arg K (.bits 64)
+
+mutual
+/-- Structural plan for read-only loop load hoisting and dominating load forwarding. -/
+inductive RoPlan : Type
+  | leaf : RoPlan
+  | node1 (k : RoPlan) : RoPlan
+  | fwdLoad (lvl : Nat) (k : RoPlan) : RoPlan
+  | node2 (t e : RoPlan) : RoPlan
+  | groupNode (hoists : List HoistLoad) (bs : RoBlocks) (k : RoPlan) : RoPlan
+
+/-- Block-list companion of `RoPlan`. -/
+inductive RoBlocks : Type
+  | nil : RoBlocks
+  | cons (hd : RoPlan) (tl : RoBlocks) : RoBlocks
+end
+
+mutual
+/-- True iff `p` performs at least one load hoist or forwarded load. -/
+def RoPlan.hasChanges : RoPlan → Bool
+  | .leaf => false
+  | .node1 k => k.hasChanges
+  | .fwdLoad _ _ => true
+  | .node2 t e => t.hasChanges || e.hasChanges
+  | .groupNode hs bs k => !hs.isEmpty || bs.hasChanges || k.hasChanges
+
+/-- Block-list companion of `RoPlan.hasChanges`. -/
+def RoBlocks.hasChanges : RoBlocks → Bool
+  | .nil => false
+  | .cons hd tl => hd.hasChanges || tl.hasChanges
+end
+
+namespace Licm
+
+/-- Maximum outer live-in variables for hoisting guaranteed header loads into preheader. -/
+def roLoadPressCap : Nat := 12
+
+mutual
+/-- True iff `tf` contains no `.jump j` with `lo ≤ j ∧ j < hi`. -/
+def noJumpInRange (lo hi : Nat) {rs : List Ty} : TFlat rs → Bool
+  | .let_ _ k | .load _ _ k | .store _ _ k | .call _ _ _ k => noJumpInRange lo hi k
+  | .jnz _ t e => noJumpInRange lo hi t && noJumpInRange lo hi e
+  | .jump j _ => !(Nat.ble lo j && Nat.blt j hi)
+  | .ret _ | .exit _ _ | .hlt => true
+  | .group (sig := sig) bodies k =>
+    noJumpInRangeB (lo + sig.length) (hi + sig.length) bodies &&
+    noJumpInRange (lo + sig.length) (hi + sig.length) k
+
+/-- Block-list companion of `noJumpInRange`. -/
+def noJumpInRangeB (lo hi : Nat) {rs : List Ty} :
+    {sig : List (List Ty)} → TBlocks rs sig → Bool
+  | _, .nil => true
+  | _, .cons b bs => noJumpInRange lo hi b && noJumpInRangeB lo hi bs
+end
+
+mutual
+/-- True iff no `.store` or `.call` in `tf` can reach a `.jump j` with `lo ≤ j ∧ j < hi`. -/
+def memCleanReaches (lo hi : Nat) {rs : List Ty} : TFlat rs → Bool
+  | .let_ _ k | .load _ _ k => memCleanReaches lo hi k
+  | .store _ _ k | .call _ _ _ k => noJumpInRange lo hi k
+  | .jnz _ t e => memCleanReaches lo hi t && memCleanReaches lo hi e
+  | .jump _ _ | .ret _ | .exit _ _ | .hlt => true
+  | .group (sig := sig) bodies k =>
+    let lo' := lo + sig.length
+    let hi' := hi + sig.length
+    if noJumpInRangeB lo' hi' bodies && noJumpInRange lo' hi' k then true
+    else memCleanReachesB 0 hi' bodies && memCleanReaches 0 hi' k
+
+/-- Block-list companion of `memCleanReaches`. -/
+def memCleanReachesB (lo hi : Nat) {rs : List Ty} :
+    {sig : List (List Ty)} → TBlocks rs sig → Bool
+  | _, .nil => true
+  | _, .cons b bs => memCleanReaches lo hi b && memCleanReachesB lo hi bs
+end
+
+/-- Lookup `(t, addrLvl)` in `ldTbl : List (Ty × Nat × Nat)` (`(t, addrLvl, valLvl)`). -/
+def lookupLd (t : Ty) (alvl : Nat) : List (Ty × Nat × Nat) → Option Nat
+  | [] => none
+  | (t', a', v') :: rest => if t' == t && a' == alvl then some v' else lookupLd t alvl rest
+
+/-- Map a `.bits 64` address arg through `senv` (outer levels or `none` for local/variant). -/
+def mapRoAddr (senv : List (Option Nat)) : Arg K (.bits 64) → Option (Arg K (.bits 64))
+  | .imm c => some (.imm c)
+  | .var idx =>
+    match listGet? senv idx with
+    | some (some lvl) => some (.var lvl)
+    | _ => none
+
+/-- Collect safe invariant loads along a straight-line prefix (`isLicmPure` `.let_` + invariant
+`.load`s), stopping at any branch/mem-op/variant-load or non-pure op, returning
+`(hoists, newLdTbl, endJump?)`. -/
+def scanPrefixLoads (cap : Nat) (next : Nat) (senv : List (Option Nat))
+    (ldTbl : List (Ty × Nat × Nat)) {rs : List Ty} :
+    TFlat rs → List HoistLoad × List (Ty × Nat × Nat) × Option Nat
+  | .let_ (ts := ts) op k =>
+    if op.code.isLicmPure then
+      scanPrefixLoads cap next (pushNones ts.length senv) ldTbl k
+    else ([], ldTbl, none)
+  | .load t a k =>
+    match mapRoAddr senv a with
+    | some ka =>
+      let already? := match ka with | .var alvl => lookupLd t alvl ldTbl | .imm _ => none
+      match already? with
+      | some vlvl =>
+        scanPrefixLoads cap next (some vlvl :: senv) ldTbl k
+      | none =>
+        if Nat.ble cap 0 then
+          ([], ldTbl, none)
+        else
+          let ldTbl' := match ka with | .var alvl => (t, alvl, next) :: ldTbl | .imm _ => ldTbl
+          let (hs, lds, jmp?) :=
+            scanPrefixLoads (cap - 1) (next + 1) (some next :: senv) ldTbl' k
+          (⟨t, ka⟩ :: hs, lds, jmp?)
+    | none => ([], ldTbl, none)
+  | .jump i _ => ([], ldTbl, some i)
+  | _ => ([], ldTbl, none)
+
+/-- Extract `block[idx]` from `TBlocks` with its outer parameter binder count. -/
+def getBlock? {rs : List Ty} :
+    {sig : List (List Ty)} → TBlocks rs sig → Nat → Option (Nat × TFlat rs)
+  | _, .nil, _ => none
+  | ts :: _, .cons b _, 0 => some (ts.length, b)
+  | _ :: _, .cons _ bs, n + 1 => getBlock? bs n
+
+/-- Decompose a `ReachTree` node for straight-line constructors. -/
+def roRtStep1 : ReachTree → Bool × ReachTree
+  | .node1 r rk => (r, rk)
+  | _ => (false, .leaf false)
+
+mutual
+/-- Top-down read-only loop load hoist and dominating load forwarding planner.
+When `inLoop` is `some rt`, forwards `ldTbl` hits only when `rt` can reach a backedge
+so cold exit paths never extend live ranges across the loop. -/
+def analyzeRoTFlat {rs : List Ty} (next : Nat) (env : List Nat)
+    (ldTbl : List (Ty × Nat × Nat)) (inLoop : Option ReachTree) : TFlat rs → RoPlan
+  | .let_ (ts := ts) _ k =>
+    let inL' := inLoop.map (fun rt => (roRtStep1 rt).2)
+    .node1 (analyzeRoTFlat (next + ts.length) (pushLevels ts.length next env) ldTbl inL' k)
+  | .load t a k =>
+    let (allowFwd, inL') := match inLoop with
+      | none => (true, none)
+      | some rt => let (r, rk) := roRtStep1 rt; (r, some rk)
+    let alvl? := match a with | .var idx => listGet? env idx | .imm _ => none
+    match if allowFwd then alvl?.bind (fun alvl => lookupLd t alvl ldTbl) else none with
+    | some vlvl => .fwdLoad vlvl (analyzeRoTFlat next (vlvl :: env) ldTbl inL' k)
+    | none =>
+      let ldTbl' := match alvl? with | some alvl => (t, alvl, next) :: ldTbl | none => ldTbl
+      .node1 (analyzeRoTFlat (next + 1) (next :: env) ldTbl' inL' k)
+  | .store _ _ k =>
+    let inL' := inLoop.map (fun rt => (roRtStep1 rt).2)
+    .node1 (analyzeRoTFlat next env [] inL' k)
+  | .call _ (bs := bs) _ k =>
+    let inL' := inLoop.map (fun rt => (roRtStep1 rt).2)
+    .node1 (analyzeRoTFlat (next + bs.length) (pushLevels bs.length next env) [] inL' k)
+  | .jnz _ t e =>
+    let (inT, inE) := match inLoop with
+      | some (.node2 _ rt re) => (some rt, some re)
+      | some _ => (some (.leaf false), some (.leaf false))
+      | none => (none, none)
+    .node2 (analyzeRoTFlat next env ldTbl inT t) (analyzeRoTFlat next env ldTbl inE e)
+  | .jump _ _ | .ret _ | .exit _ _ | .hlt => .leaf
+  | .group (sig := sig) bodies k =>
+    let loopMask := computeLoopMask bodies
+    let inK := inLoop.map (fun rt => match rt with | .groupNode _ _ rk => rk | _ => .leaf false)
+    let cleanGroup :=
+      Nat.blt 0 sig.length &&
+      memCleanReachesB 0 sig.length bodies &&
+      memCleanReaches 0 sig.length k
+    if !cleanGroup then
+      .groupNode [] (analyzeRoTBlocks next env [] .nil false bodies)
+        (analyzeRoTFlat next env ldTbl inK k)
+    else if loopMask.isEmpty then
+      let rbsSub := match inLoop with
+        | some (.groupNode _ rbs _) => rbs
+        | _ => .nil
+      .groupNode [] (analyzeRoTBlocks next env ldTbl rbsSub inLoop.isSome bodies)
+        (analyzeRoTFlat next env ldTbl inK k)
+    else
+      let outerCard := trieCard (collectOuterB 0 bodies .empty)
+      let lowPress := Nat.blt outerCard roLoadPressCap
+      let budget := if lowPress then roLoadPressCap - outerCard else 0
+      let senv := env.map some
+      let (hsE, ldE, jmp?) :=
+        if lowPress then scanPrefixLoads budget next senv ldTbl k else ([], ldTbl, none)
+      let nextE := next + hsE.length
+      let rem := budget - hsE.length
+      let (hsB, ldB) :=
+        if Nat.blt 0 rem then
+          let getBlk := fun j =>
+            if Nat.blt j sig.length then getBlock? bodies (sig.length - 1 - j) else none
+          match jmp?.bind getBlk with
+          | some (nPars, b) =>
+            let (hs2, ld2, _) := scanPrefixLoads rem nextE (pushNones nPars senv) ldE b
+            (hs2, ld2)
+          | none => ([], ldE)
+        else ([], ldE)
+      let hoists := hsE ++ hsB
+      let next' := next + hoists.length
+      let rbsLoop := (buildReachWithB false 0 loopMask bodies).2
+      let bsLd := if lowPress then ldB else []
+      .groupNode hoists (analyzeRoTBlocks next' env bsLd rbsLoop true bodies)
+        (analyzeRoTFlat next' env ldB inK k)
+
+/-- Block-list companion of `analyzeRoTFlat`. -/
+def analyzeRoTBlocks {rs : List Ty} (next : Nat) (env : List Nat)
+    (ldTbl : List (Ty × Nat × Nat)) (rbs : ReachBlocks) (gateReach : Bool) :
+    {sig : List (List Ty)} → TBlocks rs sig → RoBlocks
+  | _, .nil => .nil
+  | ts :: _, .cons b bs =>
+    let (rh, rtl) := match rbs with | .cons rh rtl => (rh, rtl) | _ => (.leaf false, .nil)
+    let inB := if gateReach then some rh else none
+    .cons (analyzeRoTFlat (next + ts.length) (pushLevels ts.length next env) ldTbl inB b)
+      (analyzeRoTBlocks next env ldTbl rtl gateReach bs)
+end
+
+/-- Compute the `RoPlan` for a reified function body with `nParams` parameters. -/
+def buildRoPlan {rs : List Ty} (nParams : Nat) (tf : TFlat rs) : RoPlan :=
+  analyzeRoTFlat nParams (pushLevels nParams 0 []) [] none tf
+
+end Licm
+
+/-- Emit hoisted `.load`s before a clean `.group`. -/
+def emitRoHoists {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (hoists : List HoistLoad) (next : Nat) (env : VEnv V)
+    (cont : Nat → VEnv V → Expr V L rs) : Expr V L rs :=
+  match hoists with
+  | [] => cont next env
+  | h :: rest =>
+    match resolveArg env h.addr with
+    | some va =>
+      .load h.ty va fun v => emitRoHoists rest (next + 1) (env.insert next ⟨h.ty, v⟩) cont
+    | none => emitRoHoists rest next env cont
+
+mutual
+/-- Apply a `RoPlan` over `Expr V L rs`, hoisting safe loads and forwarding dominated loads. -/
+def roSweep {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (next : Nat) (env : VEnv V) (plan : RoPlan) : Expr V L rs → Expr V L rs
+  | .let_ (ts := ts) op k =>
+    let kPlan := match plan with | .node1 p => p | _ => .leaf
+    .let_ op fun xs => roSweep (next + ts.length) (envInsertTup env next xs) kPlan (k xs)
+  | .load t a k =>
+    match plan with
+    | .fwdLoad lvl kPlan =>
+      match env.find? lvl with
+      | some ⟨t', v⟩ =>
+        if h : t' = t then roSweep next env kPlan (k (h ▸ v))
+        else .load t a fun v => roSweep (next + 1) (env.insert next ⟨t, v⟩) kPlan (k v)
+      | none => .load t a fun v => roSweep (next + 1) (env.insert next ⟨t, v⟩) kPlan (k v)
+    | _ =>
+      let kPlan := match plan with | .node1 p => p | _ => .leaf
+      .load t a fun v => roSweep (next + 1) (env.insert next ⟨t, v⟩) kPlan (k v)
+  | .store v a k =>
+    let kPlan := match plan with | .node1 p => p | _ => .leaf
+    .store v a (roSweep next env kPlan k)
+  | .call f (bs := bs) args k =>
+    let kPlan := match plan with | .node1 p => p | _ => .leaf
+    .call f args fun xs => roSweep (next + bs.length) (envInsertTup env next xs) kPlan (k xs)
+  | .jnz c t e =>
+    let (tPlan, ePlan) := match plan with | .node2 tp ep => (tp, ep) | _ => (.leaf, .leaf)
+    .jnz c (roSweep next env tPlan t) (roSweep next env ePlan e)
+  | .jump lbl args => .jump lbl args
+  | .ret vs => .ret vs
+  | .exit f args => .exit f args
+  | .hlt => .hlt
+  | .group bodies k =>
+    let (hoists, bsPlan, kPlan) := match plan with
+      | .groupNode hs bsP kP => (hs, bsP, kP)
+      | _ => ([], .nil, .leaf)
+    emitRoHoists hoists next env fun next' env' =>
+      .group
+        (fun Js => roSweepB next' env' bsPlan (bodies Js))
+        (fun Js => roSweep next' env' kPlan (k Js))
+
+/-- Block-list companion of `roSweep`. -/
+def roSweepB {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (next : Nat) (env : VEnv V) (plan : RoBlocks) :
+    {sig : List (List Ty)} → Blocks V L rs sig → Blocks V L rs sig
+  | _, .nil => .nil
+  | ts :: _, .cons b bs =>
+    let (hdP, tlP) := match plan with | .cons hd tl => (hd, tl) | _ => (.leaf, .nil)
+    .cons (fun xs => roSweep (next + ts.length) (envInsertTup env next xs) hdP (b xs))
+      (roSweepB next env tlP bs)
+end
+
+/-- Run pure Loop-Invariant Code Motion (`LICM`) on a closed function `Func`. -/
+def Func.licmPure {as rs : List Ty} (f : Func as rs) : Func as rs :=
   let plan := Licm.buildHoistPlan as.length (reifyFunc f)
   if plan.hasHoists then
     fun V L xs =>
@@ -592,6 +871,26 @@ def Func.licm {as rs : List Ty} (f : Func as rs) : Func as rs :=
         (f (GVal V) L (freshGVals as xs 0))
   else
     f
+
+/-- Read-only loop load hoisting and dominating load forwarding on a closed function `Func`. -/
+def Func.licmRoLoad {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  let plan := Licm.buildRoPlan as.length (reifyFunc f)
+  if plan.hasChanges then
+    fun V L xs => roSweep as.length (envInsertTup .empty 0 xs) plan (f V L xs)
+  else
+    f
+
+/-- Run Loop-Invariant Code Motion (`LICM`) on a closed function `Func`: pure invariant hoisting,
+read-only loop load hoisting/forwarding, and a follow-up pure pass when loads move. -/
+def Func.licm {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  let f1 := f.licmPure
+  let plan := Licm.buildRoPlan as.length (reifyFunc f1)
+  if plan.hasChanges then
+    let f2 : Func as rs :=
+      fun V L xs => roSweep as.length (envInsertTup .empty 0 xs) plan (f1 V L xs)
+    f2.licmPure
+  else
+    f1
 
 /-- Run Loop-Invariant Code Motion (`LICM`) on a named function `Fn`. -/
 def Fn.licm (fn : Fn) : Fn :=

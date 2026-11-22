@@ -119,52 +119,77 @@ theorem mb2ArithLoop_licm_supportsArm64 :
     (Func.licm mb2ArithLoop).supportsSource LegalTarget.aarch64 = true :=
   Func.licm_supportsSource _ mb2ArithLoop_wf (by t_kernel_rfl)
 
+macro "lwp_base" : tactic => `(tactic|
+  simp only [op1_eq_mk, op2_eq_mk, op3_eq_mk,
+    wp_let_copy_eq, wp_let_add_eq, wp_let_sub_eq, wp_let_mul_eq, wp_let_neg_eq,
+    wp_let_and_eq, wp_let_or_eq, wp_let_xor_eq, wp_let_not_eq, wp_let_shl_eq,
+    wp_let_lshr_eq, wp_let_ashr_eq, wp_let_cmp_eq, wp_let_select_eq, wp_let_zext_eq,
+    wp_let_sext_eq, wp_let_trunc_eq, wp_let_ofBool_eq, wp_let_udiv0_eq, wp_let_sdiv0_eq,
+    wp_load, wp_store, wp_jnz, wp_jump, wp_ret,
+    OpCode.eq, OpCode.ne, OpCode.ult, OpCode.ule, OpCode.ugt, OpCode.uge,
+    OpCode.slt, OpCode.sle, OpCode.sgt, OpCode.sge,
+    vals_nil, vals_cons, Arg.val_var, Arg.val_imm, Blocks.get_here, Blocks.get_there,
+    Ty.hasFloat_vec, Ty.hasFloat, Ty.isFloatTree,
+    evalBits_eq_beq, evalBits_ne_bne, evalBits_ult_eq, evalBits_ule_eq,
+    evalBits_ugt_eq, evalBits_uge_eq, liftCmp, shl_three, cast_eq, ite_self,
+    Bool.false_or, Bool.or_false, Bool.true_and, Bool.and_true,
+    Bool.not_true, Bool.not_false, Bool.false_eq_true, Bool.true_eq_false,
+    ite_true, ite_false, true_and, and_true, false_implies, true_implies,
+    Option.some.injEq, exists_eq_left', decide_eq_true_eq, decide_eq_false_iff_not,
+    beq_iff_eq, bne_iff_ne, ne_eq, Bool.not_eq_true, beq_eq_false_iff_ne,
+    bne_eq_false_iff_eq, beq_self_eq_true, BitVec.reduceToNat, Nat.reduceMod,
+    Nat.reduceLeDiff] <;> try dsimp only [lift1, lift2, lift3])
+
 theorem mb2ArithLoop_licm_zero_spec (Γ : Env) (a b d : BitVec 64) (m : Mem 64) (X : XPost) :
     Func.spec Γ (Func.licm mb2ArithLoop) (0#64, a, b, d, ()) m
-      (fun (r, ()) m' => r = 0#64 ∧ m' = m) X := by
-  rw [mb2ArithLoop_licm_out]
-  dsimp only [Func.spec, Func.wp]
-  wp_unfold
-  refine wp_loop1 _ _
-    (fun k (x : Tup Val [i64, i64]) m' => k = 0 ∧ x.1 = 0#64 ∧ x.2.1 = 0#64 ∧ m' = m) ?_ ?_
-  · rintro _ _ ⟨i, acc, ⟨⟩⟩ m' _ ⟨_, rfl, rfl, rfl⟩
-    wp_unfold; simp
-  · intro J hJ
-    wp_unfold
-    exact hJ 0 (0#64, 0#64, ()) m ⟨rfl, rfl, rfl, rfl⟩
+      (fun (r, ()) m' => r = 0#64 ∧ m' = m) X :=
+  Func.licm_spec mb2ArithLoop_wf (by
+    dsimp only [Func.spec, Func.wp, mb2ArithLoop]
+    refine wp_loop1 _ _
+      (fun k (x : Tup Val [i64, i64]) m' => k = 0 ∧ x.1 = 0#64 ∧ x.2.1 = 0#64 ∧ m' = m) ?_ ?_
+    · rintro _ _ ⟨i, acc, ⟨⟩⟩ m' _ ⟨_, rfl, rfl, rfl⟩
+      lwp_base; exact ⟨fun _ => trivial, fun h => False.elim (h rfl)⟩
+    · intro J hJ
+      lwp_base
+      exact hJ 0 (0#64, 0#64, ()) m ⟨rfl, rfl, rfl, rfl⟩)
+
+private theorem countdown_mul_step {i acc c n : BitVec 64} {k : Nat}
+    (hz : i ≠ 0) (hk : i.toNat = k) (hinv : acc + i * c = n * c) :
+    (i - 1).toNat = k - 1 ∧ acc + c + (i - 1) * c = n * c := by
+  have hi0 : i.toNat ≠ 0 := fun h => hz (BitVec.eq_of_toNat_eq (by simpa using h))
+  have hsub : (i - 1).toNat = i.toNat - 1 :=
+    BitVec.toNat_sub_of_le (by rw [BitVec.le_def]; simp; omega)
+  refine ⟨by rw [hsub, hk], ?_⟩
+  calc acc + c + (i - 1) * c
+      = acc + ((1 : BitVec 64) * c + (i - 1) * c) := by simp [BitVec.one_mul]; ac_rfl
+    _ = acc + (1 + (i - 1)) * c := by rw [← BitVec.add_mul]
+    _ = acc + i * c := by rw [BitVec.add_comm 1 (i - 1), BitVec.sub_add_cancel]
+    _ = n * c := hinv
 
 theorem mb2ArithLoop_licm_spec (Γ : Env) (n a b d : BitVec 64) (m : Mem 64) (X : XPost) :
     Func.spec Γ (Func.licm mb2ArithLoop) (n, a, b, d, ()) m
-      (fun (r, ()) m' => r = n * (((a + b) * 3#64) ^^^ d) ∧ m' = m) X := by
-  apply Func.licm_spec mb2ArithLoop_wf
-  dsimp only [Func.spec, Func.wp, mb2ArithLoop]
-  let c := ((a + b) * 3#64) ^^^ d
-  refine wp_loop1 _ _
-    (fun k (x : Tup Val [i64, i64]) m' =>
-      x.1.toNat = k ∧ m' = m ∧ x.2.1 + x.1 * c = n * c)
-    ?_ ?_
-  · rintro J k ⟨i, acc, ⟨⟩⟩ m' hJ ⟨hk, rfl, hinv⟩
-    dsimp only at hk hinv
-    wp_unfold
-    by_cases hz : i = 0
-    · subst hz
-      simp only [true_implies, not_true_eq_false, false_implies, and_true]
-      simpa using hinv
-    · have hi0 : i.toNat ≠ 0 := fun h => hz (BitVec.eq_of_toNat_eq (by simpa using h))
-      simp only [hz, false_implies, not_false_eq_true, true_implies, true_and]
-      refine hJ (k - 1) _ m' (by omega) ?_
-      have hsub : (i - 1).toNat = i.toNat - 1 :=
-        BitVec.toNat_sub_of_le (by rw [BitVec.le_def]; simp; omega)
-      refine ⟨by dsimp only; rw [hsub]; omega, rfl, ?_⟩
-      dsimp only
-      calc acc + c + (i - 1) * c
-          = acc + ((1 : BitVec 64) * c + (i - 1) * c) := by simp [BitVec.one_mul]; ac_rfl
-        _ = acc + (1 + (i - 1)) * c := by rw [← BitVec.add_mul]
-        _ = acc + i * c := by rw [BitVec.add_comm 1 (i - 1), BitVec.sub_add_cancel]
-        _ = n * c := hinv
-  · intro J hJ
-    wp_unfold
-    exact hJ n.toNat (n, 0#64, ()) m ⟨rfl, rfl, by simp⟩
+      (fun (r, ()) m' => r = n * (((a + b) * 3#64) ^^^ d) ∧ m' = m) X :=
+  Func.licm_spec mb2ArithLoop_wf (by
+    dsimp only [Func.spec, Func.wp, mb2ArithLoop]
+    let c := ((a + b) * 3#64) ^^^ d
+    refine wp_loop1 _ _
+      (fun k (x : Tup Val [i64, i64]) m' =>
+        x.1.toNat = k ∧ m' = m ∧ x.2.1 + x.1 * c = n * c)
+      ?_ ?_
+    · rintro J k ⟨i, acc, ⟨⟩⟩ m' hJ ⟨hk, rfl, hinv⟩
+      dsimp only at hk hinv
+      lwp_base
+      by_cases hz : i = 0
+      · subst hz
+        simp only [true_implies, not_true_eq_false, false_implies, and_true]
+        simpa using hinv
+      · simp only [hz, false_implies, not_false_eq_true, true_implies, true_and]
+        have hi0 : i.toNat ≠ 0 := fun h => hz (BitVec.eq_of_toNat_eq (by simpa using h))
+        obtain ⟨hkt, hinv'⟩ := countdown_mul_step hz hk hinv
+        exact hJ (k - 1) _ m' (by omega) ⟨hkt, rfl, hinv'⟩
+    · intro J hJ
+      lwp_base
+      exact hJ n.toNat (n, 0#64, ()) m ⟨rfl, rfl, by simp⟩)
 
 /-! ## 2. `mb2`-style row-address + mask load loop (`mb2AddrLoop`) -/
 
@@ -216,38 +241,30 @@ theorem mb2AddrLoop_licm_spec (Γ : Env) (base row stride n k1 k2 v : BitVec 64)
     (R : Mem 64 → Prop) (m : Mem 64)
     (hm : (cell64 (base + ((row * stride) <<< 3)) v ⋆ R) m) (X : XPost) :
     Func.spec Γ (Func.licm mb2AddrLoop) (base, row, stride, n, k1, k2, ()) m
-      (fun (r, ()) m' => r = n * (v ^^^ ((k1 * k2) ^^^ 0x5A5A#64)) ∧ m' = m) X := by
-  apply Func.licm_spec mb2AddrLoop_wf
-  dsimp only [Func.spec, Func.wp, mb2AddrLoop]
-  let c := v ^^^ ((k1 * k2) ^^^ 0x5A5A#64)
-  refine wp_loop1 _ _
-    (fun k (x : Tup Val [i64, i64]) m' =>
-      x.1.toNat = k ∧ m' = m ∧ x.2.1 + x.1 * c = n * c)
-    ?_ ?_
-  · rintro J k ⟨i, acc, ⟨⟩⟩ m' hJ ⟨hk, rfl, hinv⟩
-    dsimp only at hk hinv
-    wp_unfold
-    by_cases hz : i = 0
-    · subst hz
-      simp only [true_implies, not_true_eq_false, false_implies, and_true]
-      simpa using hinv
-    · have hi0 : i.toNat ≠ 0 := fun h => hz (BitVec.eq_of_toNat_eq (by simpa using h))
-      simp only [hz, false_implies, not_false_eq_true, true_implies, true_and]
-      have hsh : (row * stride) <<< ((3#64).toNat % 64) = (row * stride) <<< 3 := rfl
-      refine ⟨v, by simpa [hsh] using loadVal_cell64 hm, ?_⟩
-      refine hJ (k - 1) _ m' (by omega) ?_
-      have hsub : (i - 1).toNat = i.toNat - 1 :=
-        BitVec.toNat_sub_of_le (by rw [BitVec.le_def]; simp; omega)
-      refine ⟨by dsimp only; rw [hsub]; omega, rfl, ?_⟩
-      dsimp only
-      calc acc + c + (i - 1) * c
-          = acc + ((1 : BitVec 64) * c + (i - 1) * c) := by simp [BitVec.one_mul]; ac_rfl
-        _ = acc + (1 + (i - 1)) * c := by rw [← BitVec.add_mul]
-        _ = acc + i * c := by rw [BitVec.add_comm 1 (i - 1), BitVec.sub_add_cancel]
-        _ = n * c := hinv
-  · intro J hJ
-    wp_unfold
-    exact hJ n.toNat (n, 0#64, ()) m ⟨rfl, rfl, by simp⟩
+      (fun (r, ()) m' => r = n * (v ^^^ ((k1 * k2) ^^^ 0x5A5A#64)) ∧ m' = m) X :=
+  Func.licm_spec mb2AddrLoop_wf (by
+    dsimp only [Func.spec, Func.wp, mb2AddrLoop]
+    let c := v ^^^ ((k1 * k2) ^^^ 0x5A5A#64)
+    refine wp_loop1 _ _
+      (fun k (x : Tup Val [i64, i64]) m' =>
+        x.1.toNat = k ∧ m' = m ∧ x.2.1 + x.1 * c = n * c)
+      ?_ ?_
+    · rintro J k ⟨i, acc, ⟨⟩⟩ m' hJ ⟨hk, rfl, hinv⟩
+      dsimp only at hk hinv
+      lwp_base
+      by_cases hz : i = 0
+      · subst hz
+        simp only [true_implies, not_true_eq_false, false_implies, and_true]
+        simpa using hinv
+      · simp only [hz, false_implies, not_false_eq_true, true_implies, true_and]
+        have hsh : (row * stride) <<< ((3#64).toNat % 64) = (row * stride) <<< 3 := rfl
+        refine ⟨v, by simpa [hsh] using loadVal_cell64 hm, ?_⟩
+        have hi0 : i.toNat ≠ 0 := fun h => hz (BitVec.eq_of_toNat_eq (by simpa using h))
+        obtain ⟨hkt, hinv'⟩ := countdown_mul_step hz hk hinv
+        exact hJ (k - 1) _ m' (by omega) ⟨hkt, rfl, hinv'⟩
+    · intro J hJ
+      lwp_base
+      exact hJ n.toNat (n, 0#64, ()) m ⟨rfl, rfl, by simp⟩)
 
 /-! ## 3. Nested 2D `mb2` loop (`mb2NestedLoop`) and `> 24`-node loop (`mb2LargeLoop`) -/
 
@@ -474,16 +491,16 @@ theorem guardedDivLoop_licm_out : Func.licm guardedDivLoop = fun _ _ (n, a, b, (
 /-- Concrete `0`-trip safety with divisor `b = 0`: `Func.licm` does not introduce division UB. -/
 theorem guardedDivLoop_licm_zero_spec (Γ : Env) (a : BitVec 64) (m : Mem 64) (X : XPost) :
     Func.spec Γ (Func.licm guardedDivLoop) (0#64, a, 0#64, ()) m
-      (fun (r, ()) m' => r = 0#64 ∧ m' = m) X := by
-  apply Func.licm_spec guardedDivLoop_wf
-  dsimp only [Func.spec, Func.wp, guardedDivLoop]
-  refine wp_loop1 _ _
-    (fun k (x : Tup Val [i64, i64]) m' => k = 0 ∧ x.1 = 0#64 ∧ x.2.1 = 0#64 ∧ m' = m) ?_ ?_
-  · rintro _ _ ⟨i, acc, ⟨⟩⟩ m' _ ⟨_, rfl, rfl, rfl⟩
-    wp_unfold; simp
-  · intro J hJ
-    wp_unfold
-    exact hJ 0 (0#64, 0#64, ()) m ⟨rfl, rfl, rfl, rfl⟩
+      (fun (r, ()) m' => r = 0#64 ∧ m' = m) X :=
+  Func.licm_spec guardedDivLoop_wf (by
+    dsimp only [Func.spec, Func.wp, guardedDivLoop]
+    refine wp_loop1 _ _
+      (fun k (x : Tup Val [i64, i64]) m' => k = 0 ∧ x.1 = 0#64 ∧ x.2.1 = 0#64 ∧ m' = m) ?_ ?_
+    · rintro _ _ ⟨i, acc, ⟨⟩⟩ m' _ ⟨_, rfl, rfl, rfl⟩
+      lwp_base; exact ⟨fun _ => trivial, fun h => False.elim (h rfl)⟩
+    · intro J hJ
+      lwp_base
+      exact hJ 0 (0#64, 0#64, ()) m ⟨rfl, rfl, rfl, rfl⟩)
 
 /-! ## 6. Multi-block cycle (`twoBlockLoop`), multi-result (`umulwLoop`), acyclic join -/
 
@@ -559,36 +576,28 @@ theorem umulwLoop_wf : umulwLoop.Wf := by t_wf_reify
 theorem umulwLoop_licm_spec (Γ : Env) (n a b : BitVec 64) (m : Mem 64) (X : XPost) :
     Func.spec Γ (Func.licm umulwLoop) (n, a, b, ()) m
       (fun (r, ()) m' =>
-        r = n * (a * b ^^^ BitVec.ofNat 64 (a.toNat * b.toNat / 2 ^ 64)) ∧ m' = m) X := by
-  apply Func.licm_spec umulwLoop_wf
-  dsimp only [Func.spec, Func.wp, umulwLoop]
-  let c := a * b ^^^ BitVec.ofNat 64 (a.toNat * b.toNat / 2 ^ 64)
-  refine wp_loop1 _ _
-    (fun k (x : Tup Val [i64, i64]) m' =>
-      x.1.toNat = k ∧ m' = m ∧ x.2.1 + x.1 * c = n * c)
-    ?_ ?_
-  · rintro J k ⟨i, acc, ⟨⟩⟩ m' hJ ⟨hk, rfl, hinv⟩
-    dsimp only at hk hinv
-    wp_unfold_all
-    by_cases hz : i = 0
-    · subst hz
-      simp only [true_implies, not_true_eq_false, false_implies, and_true]
-      simpa using hinv
-    · have hi0 : i.toNat ≠ 0 := fun h => hz (BitVec.eq_of_toNat_eq (by simpa using h))
-      simp only [hz, false_implies, not_false_eq_true, true_implies, true_and]
-      refine hJ (k - 1) _ m' (by omega) ?_
-      have hsub : (i - 1).toNat = i.toNat - 1 :=
-        BitVec.toNat_sub_of_le (by rw [BitVec.le_def]; simp; omega)
-      refine ⟨by dsimp only; rw [hsub]; omega, rfl, ?_⟩
-      dsimp only
-      calc acc + c + (i - 1) * c
-          = acc + ((1 : BitVec 64) * c + (i - 1) * c) := by simp [BitVec.one_mul]; ac_rfl
-        _ = acc + (1 + (i - 1)) * c := by rw [← BitVec.add_mul]
-        _ = acc + i * c := by rw [BitVec.add_comm 1 (i - 1), BitVec.sub_add_cancel]
-        _ = n * c := hinv
-  · intro J hJ
-    wp_unfold
-    exact hJ n.toNat (n, 0#64, ()) m ⟨rfl, rfl, by simp⟩
+        r = n * (a * b ^^^ BitVec.ofNat 64 (a.toNat * b.toNat / 2 ^ 64)) ∧ m' = m) X :=
+  Func.licm_spec umulwLoop_wf (by
+    dsimp only [Func.spec, Func.wp, umulwLoop]
+    let c := a * b ^^^ BitVec.ofNat 64 (a.toNat * b.toNat / 2 ^ 64)
+    refine wp_loop1 _ _
+      (fun k (x : Tup Val [i64, i64]) m' =>
+        x.1.toNat = k ∧ m' = m ∧ x.2.1 + x.1 * c = n * c)
+      ?_ ?_
+    · rintro J k ⟨i, acc, ⟨⟩⟩ m' hJ ⟨hk, rfl, hinv⟩
+      dsimp only at hk hinv
+      lwp_base
+      by_cases hz : i = 0
+      · subst hz
+        simp only [true_implies, not_true_eq_false, false_implies, and_true]
+        simpa using hinv
+      · simp only [hz, false_implies, not_false_eq_true, true_implies, true_and]
+        have hi0 : i.toNat ≠ 0 := fun h => hz (BitVec.eq_of_toNat_eq (by simpa using h))
+        obtain ⟨hkt, hinv'⟩ := countdown_mul_step hz hk hinv
+        exact hJ (k - 1) _ m' (by omega) ⟨hkt, rfl, hinv'⟩
+    · intro J hJ
+      lwp_base
+      exact hJ n.toNat (n, 0#64, ()) m ⟨rfl, rfl, by simp⟩)
 
 /-- Acyclic diamond join `.group` is not a loop: fast-path leaves it completely untouched. -/
 def acyclicJoin : Func [.bool, i64, i64] [i64] := fun _ _ (c, a, b, ()) =>
@@ -687,6 +696,304 @@ theorem mb2ArithFn_licm_spec (Γ : Env) (n a b d : BitVec 64) (m : Mem 64) (X : 
       (fun (r, ()) m' => r = n * (((a + b) * 3#64) ^^^ d) ∧ m' = m) X :=
   mb2ArithLoop_licm_spec Γ n a b d m X
 
+/-! ## 9. Read-only loop load hoisting, forwarding & pressure/alias guards -/
+
+/-- Guaranteed header `.load` hoists before a read-only loop even when the cold `ret` exit
+performs a `.store` (`cleanGroup = true`), forwarding repeat backedge-reachable loads and
+unlocking follow-up pure hoisting of `v * 3`. -/
+def roColdExitLoop : Func [i64, i64, i64] [i64] := fun _ _ (n, ptr, ext, ()) =>
+  loop1 (ts := [i64, i64])
+    (fun lp (i, acc, ()) =>
+      .load i64 (.var ptr) fun v =>
+      .let_ (op2 (.eq i64) (.var i) (.imm 0)) fun (z, ()) =>
+      .jnz (.var z)
+        (.store (.var acc) (.var ext) (.ret (.var acc, ())))
+        (.load i64 (.var ptr) fun v2 =>
+         .let_ (op2 (.mul i64) (.var v2) (.imm 3)) fun (scaled, ()) =>
+         .let_ (op2 (.add i64) (.var v) (.var scaled)) fun (step, ()) =>
+         .let_ (op2 (.add i64) (.var acc) (.var step)) fun (acc', ()) =>
+         .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+         .jump lp (.var i', .var acc', ())))
+    (fun lp => .jump lp (.var n, .imm 0, ()))
+
+theorem roColdExitLoop_licm_out : Func.licm roColdExitLoop = fun _ _ (n, ptr, ext, ()) =>
+    .load i64 (.var ptr) fun v =>
+    .let_ (op2 (.mul i64) (.var v) (.imm 3)) fun (scaled, ()) =>
+    .let_ (op2 (.add i64) (.var v) (.var scaled)) fun (step, ()) =>
+    loop1 (ts := [i64, i64])
+      (fun lp (i, acc, ()) =>
+        .let_ (op2 (.eq i64) (.var i) (.imm 0)) fun (z, ()) =>
+        .jnz (.var z)
+          (.store (.var acc) (.var ext) (.ret (.var acc, ())))
+          (.let_ (op2 (.add i64) (.var acc) (.var step)) fun (acc', ()) =>
+           .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+           .jump lp (.var i', .var acc', ())))
+      (fun lp => .jump lp (.var n, .imm 0, ())) := by
+  t_kernel_rfl
+
+theorem roColdExitLoop_wf : roColdExitLoop.Wf := by t_wf_reify
+
+theorem roColdExit_spec (Γ : Env) (n ptr ext v : BitVec 64)
+    (R : Mem 64 → Prop) (m : Mem 64) (hm : (cell64 ptr v ⋆ R) m)
+    (hSt : storeOk m i64 ext) (X : XPost) :
+    Func.spec Γ (Func.licm roColdExitLoop) (n, ptr, ext, ()) m
+      (fun (r, ()) m' =>
+        r = n * (v + v * 3#64) ∧ storeOk m i64 ext ∧ m' = storeMem m i64 ext r)
+      X :=
+  Func.licm_spec roColdExitLoop_wf (by
+    dsimp only [Func.spec, Func.wp, roColdExitLoop]
+    let c := v + v * 3#64
+    refine wp_loop1 _ _
+      (fun k (x : Tup Val [i64, i64]) m' =>
+        x.1.toNat = k ∧ m' = m ∧ x.2.1 + x.1 * c = n * c)
+      ?_ ?_
+    · rintro J k ⟨i, acc, ⟨⟩⟩ m' hJ ⟨hk, rfl, hinv⟩
+      dsimp only at hk hinv
+      lwp_base
+      refine ⟨v, loadVal_cell64 hm, ?_⟩
+      by_cases hz : i = 0
+      · subst hz
+        simp only [true_implies, not_true_eq_false, false_implies, and_true]
+        exact ⟨hSt, by simpa using hinv, hSt⟩
+      · simp only [hz, false_implies, not_false_eq_true, true_implies, true_and]
+        refine ⟨v, loadVal_cell64 hm, ?_⟩
+        have hi0 : i.toNat ≠ 0 := fun h => hz (BitVec.eq_of_toNat_eq (by simpa using h))
+        obtain ⟨hkt, hinv'⟩ := countdown_mul_step hz hk hinv
+        exact hJ (k - 1) _ m' (by omega) ⟨hkt, rfl, hinv'⟩
+    · intro J hJ
+      lwp_base
+      exact hJ n.toNat (n, 0#64, ()) m ⟨rfl, rfl, by simp⟩)
+
+/-- Two-block cycle (`sig.length = 2`) entered at block `1` (`j = 0`): verifies
+`sig.length - 1 - j` indexing hoists block `1`'s guaranteed `.load` and forwards it to block `0`. -/
+def twoBlkRoB1 : Func [i64, i64] [i64] := fun _ _ (n, ptr, ()) =>
+  .group (sig := [[i64, i64], [i64, i64]])
+    (fun (b0, b1, ()) =>
+      .cons (fun (i, acc, ()) =>
+        .load i64 (.var ptr) fun v0 =>
+        .let_ (op2 (.add i64) (.var acc) (.var v0)) fun (acc1, ()) =>
+        .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+        .jump b1 (.var i', .var acc1, ()))
+      (.cons (fun (i, acc, ()) =>
+        .load i64 (.var ptr) fun v1 =>
+        .let_ (op2 (.eq i64) (.var i) (.imm 0)) fun (z, ()) =>
+        .jnz (.var z) (.ret (.var acc, ()))
+          (.let_ (op2 (.add i64) (.var acc) (.var v1)) fun (acc2, ()) =>
+           .jump b0 (.var i, .var acc2, ())))
+      .nil))
+    (fun (_b0, b1, ()) => .jump b1 (.var n, .imm 0, ()))
+
+theorem twoBlkRoB1_licm_out : Func.licm twoBlkRoB1 = fun _ _ (n, ptr, ()) =>
+    .load i64 (.var ptr) fun v =>
+    .group (sig := [[i64, i64], [i64, i64]])
+      (fun (b0, b1, ()) =>
+        .cons (fun (i, acc, ()) =>
+          .let_ (op2 (.add i64) (.var acc) (.var v)) fun (acc1, ()) =>
+          .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+          .jump b1 (.var i', .var acc1, ()))
+        (.cons (fun (i, acc, ()) =>
+          .let_ (op2 (.eq i64) (.var i) (.imm 0)) fun (z, ()) =>
+          .jnz (.var z) (.ret (.var acc, ()))
+            (.let_ (op2 (.add i64) (.var acc) (.var v)) fun (acc2, ()) =>
+             .jump b0 (.var i, .var acc2, ())))
+        .nil))
+      (fun (_b0, b1, ()) => .jump b1 (.var n, .imm 0, ())) := by
+  t_kernel_rfl
+
+/-- Preheader load in `k` forwards into a read-only loop (`bsLd`), eliminating the redundant
+in-loop `.load` and unlocking follow-up pure hoisting of `v * 5`. -/
+def prehdrFwdLoop : Func [i64, i64] [i64] := fun _ _ (n, ptr, ()) =>
+  loop1 (ts := [i64, i64])
+    (fun lp (i, acc, ()) =>
+      .let_ (op2 (.eq i64) (.var i) (.imm 0)) fun (z, ()) =>
+      .jnz (.var z) (.ret (.var acc, ()))
+        (.load i64 (.var ptr) fun v =>
+         .let_ (op2 (.mul i64) (.var v) (.imm 5)) fun (m5, ()) =>
+         .let_ (op2 (.add i64) (.var acc) (.var m5)) fun (acc', ()) =>
+         .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+         .jump lp (.var i', .var acc', ())))
+    (fun lp => .load i64 (.var ptr) fun c0 => .jump lp (.var n, .var c0, ()))
+
+theorem prehdrFwdLoop_licm_out : Func.licm prehdrFwdLoop = fun _ _ (n, ptr, ()) =>
+    .load i64 (.var ptr) fun c0 =>
+    .let_ (op2 (.mul i64) (.var c0) (.imm 5)) fun (m5, ()) =>
+    .group (sig := [[i64, i64]])
+      (fun (lp, ()) => .cons (fun (i, acc, ()) =>
+        .let_ (op2 (.eq i64) (.var i) (.imm 0)) fun (z, ()) =>
+        .jnz (.var z) (.ret (.var acc, ()))
+          (.let_ (op2 (.add i64) (.var acc) (.var m5)) fun (acc', ()) =>
+           .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+           .jump lp (.var i', .var acc', ()))) .nil)
+      (fun (lp, ()) => .jump lp (.var n, .var c0, ())) := by
+  t_kernel_rfl
+
+theorem prehdrFwdLoop_wf : prehdrFwdLoop.Wf := by t_wf_reify
+
+theorem prehdrFwd_spec (Γ : Env) (n ptr v : BitVec 64) (R : Mem 64 → Prop)
+    (m : Mem 64) (hm : (cell64 ptr v ⋆ R) m) (X : XPost) :
+    Func.spec Γ (Func.licm prehdrFwdLoop) (n, ptr, ()) m
+      (fun (r, ()) m' => r = v + n * (v * 5#64) ∧ m' = m) X :=
+  Func.licm_spec prehdrFwdLoop_wf (by
+    dsimp only [Func.spec, Func.wp, prehdrFwdLoop]
+    let c := v * 5#64
+    refine wp_loop1 _ _
+      (fun k (x : Tup Val [i64, i64]) m' =>
+        x.1.toNat = k ∧ m' = m ∧ (x.2.1 - v) + x.1 * c = n * c)
+      ?_ ?_
+    · rintro J k ⟨i, acc, ⟨⟩⟩ m' hJ ⟨hk, rfl, hinv⟩
+      dsimp only at hk hinv
+      lwp_base
+      by_cases hz : i = 0
+      · subst hz
+        simp only [true_implies, not_true_eq_false, false_implies, and_true]
+        calc acc = acc - v + v := (BitVec.sub_add_cancel acc v).symm
+          _ = n * c + v := by rw [(by simpa using hinv : acc - v = n * c)]
+          _ = v + n * c := BitVec.add_comm _ _
+      · simp only [hz, false_implies, not_false_eq_true, true_implies, true_and]
+        refine ⟨v, loadVal_cell64 hm, ?_⟩
+        have hi0 : i.toNat ≠ 0 := fun h => hz (BitVec.eq_of_toNat_eq (by simpa using h))
+        obtain ⟨hkt, hinv'⟩ := countdown_mul_step hz hk hinv
+        have hsub : acc - v + c = acc + c - v := by
+          rw [BitVec.sub_eq_add_neg, BitVec.sub_eq_add_neg,
+            BitVec.add_assoc, BitVec.add_comm (-v) c, ← BitVec.add_assoc]
+        rw [hsub] at hinv'
+        exact hJ (k - 1) _ m' (by omega) ⟨hkt, rfl, hinv'⟩
+    · intro J hJ
+      lwp_base
+      refine ⟨v, loadVal_cell64 hm, ?_⟩
+      exact hJ n.toNat (n, v, ()) m ⟨rfl, rfl, by simp⟩)
+
+/-- Negative test: a store reachable on the backedge blocks both preheader forwarding
+and in-loop load hoisting. -/
+def storeReachLoop : Func [i64, i64, i64] [i64] := fun _ _ (n, ptr, out, ()) =>
+  loop1 (ts := [i64, i64])
+    (fun lp (i, acc, ()) =>
+      .let_ (op2 (.eq i64) (.var i) (.imm 0)) fun (z, ()) =>
+      .jnz (.var z) (.ret (.var acc, ()))
+        (.load i64 (.var ptr) fun v =>
+         .store (.var v) (.var out)
+           (.let_ (op2 (.add i64) (.var acc) (.var v)) fun (acc', ()) =>
+            .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+            .jump lp (.var i', .var acc', ()))))
+    (fun lp => .load i64 (.var ptr) fun c0 => .jump lp (.var n, .var c0, ()))
+
+theorem storeReachLoop_licm_out : Func.licm storeReachLoop = storeReachLoop := by
+  t_kernel_rfl
+
+/-- Negative test: a call reachable on the backedge blocks both preheader forwarding
+and in-loop load hoisting. -/
+def callReachLoop : Func [i64, i64] [i64] := fun _ _ (n, ptr, ()) =>
+  loop1 (ts := [i64, i64])
+    (fun lp (i, acc, ()) =>
+      .let_ (op2 (.eq i64) (.var i) (.imm 0)) fun (z, ()) =>
+      .jnz (.var z) (.ret (.var acc, ()))
+        (.load i64 (.var ptr) fun v =>
+         .call (as := []) (bs := []) "tick" () fun () =>
+         .let_ (op2 (.add i64) (.var acc) (.var v)) fun (acc', ()) =>
+         .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+         .jump lp (.var i', .var acc', ())))
+    (fun lp => .load i64 (.var ptr) fun c0 => .jump lp (.var n, .var c0, ()))
+
+theorem callReachLoop_licm_out : Func.licm callReachLoop = callReachLoop := by
+  t_kernel_rfl
+
+/-- Negative test: when outer pressure meets `roLoadPressCap` (`12`), read-only load
+hoisting refuses to hoist an extra value out of the loop. -/
+def hiPressRoLoop : Func
+    [i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64] [i64] :=
+  fun _ _ (n, ptr, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, ()) =>
+    loop1 (ts := [i64, i64])
+      (fun lp (i, acc, ()) =>
+        .load i64 (.var ptr) fun v =>
+        .let_ (op2 (.eq i64) (.var i) (.imm 0)) fun (z, ()) =>
+        .jnz (.var z) (.ret (.var acc, ()))
+          (.let_ (op2 (.add i64) (.var acc) (.var v)) fun (s0, ()) =>
+           .let_ (op2 (.add i64) (.var s0) (.var a0)) fun (s1, ()) =>
+           .let_ (op2 (.add i64) (.var s1) (.var a1)) fun (s2, ()) =>
+           .let_ (op2 (.add i64) (.var s2) (.var a2)) fun (s3, ()) =>
+           .let_ (op2 (.add i64) (.var s3) (.var a3)) fun (s4, ()) =>
+           .let_ (op2 (.add i64) (.var s4) (.var a4)) fun (s5, ()) =>
+           .let_ (op2 (.add i64) (.var s5) (.var a5)) fun (s6, ()) =>
+           .let_ (op2 (.add i64) (.var s6) (.var a6)) fun (s7, ()) =>
+           .let_ (op2 (.add i64) (.var s7) (.var a7)) fun (s8, ()) =>
+           .let_ (op2 (.add i64) (.var s8) (.var a8)) fun (s9, ()) =>
+           .let_ (op2 (.add i64) (.var s9) (.var a9)) fun (s10, ()) =>
+           .let_ (op2 (.add i64) (.var s10) (.var a10)) fun (acc', ()) =>
+           .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+           .jump lp (.var i', .var acc', ())))
+      (fun lp => .jump lp (.var n, .imm 0, ()))
+
+theorem hiPressRoLoop_licm_out : Func.licm hiPressRoLoop = hiPressRoLoop := by
+  t_kernel_rfl
+
+/-- Negative test: a cold `ret` arm (`reaches = false`) does not hoist or forward loads
+after the exit branch, while a pre-`jnz` read-only header load still hoists. -/
+def coldExitNoFwdLoop : Func [i64, i64, i64] [i64] := fun _ _ (n, ptr, ptr2, ()) =>
+  loop1 (ts := [i64, i64])
+    (fun lp (i, acc, ()) =>
+      .load i64 (.var ptr) fun v =>
+      .let_ (op2 (.eq i64) (.var i) (.imm 0)) fun (z, ()) =>
+      .jnz (.var z)
+        (.load i64 (.var ptr2) fun w1 =>
+         .load i64 (.var ptr2) fun w2 =>
+         .let_ (op2 (.add i64) (.var w1) (.var w2)) fun (s, ()) =>
+         .ret (.var s, ()))
+        (.let_ (op2 (.add i64) (.var acc) (.var v)) fun (acc', ()) =>
+         .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+         .jump lp (.var i', .var acc', ())))
+    (fun lp => .jump lp (.var n, .imm 0, ()))
+
+theorem coldExitNoFwdLoop_licm_out : Func.licm coldExitNoFwdLoop =
+    fun _ _ (n, ptr, ptr2, ()) =>
+      .load i64 (.var ptr) fun v =>
+      .group (sig := [[i64, i64]])
+        (fun (lp, ()) => .cons (fun (i, acc, ()) =>
+          .let_ (op2 (.eq i64) (.var i) (.imm 0)) fun (z, ()) =>
+          .jnz (.var z)
+            (.load i64 (.var ptr2) fun w1 =>
+             .load i64 (.var ptr2) fun w2 =>
+             .let_ (op2 (.add i64) (.var w1) (.var w2)) fun (s, ()) =>
+             .ret (.var s, ()))
+            (.let_ (op2 (.add i64) (.var acc) (.var v)) fun (acc', ()) =>
+             .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+             .jump lp (.var i', .var acc', ()))) .nil)
+        (fun (lp, ()) => .jump lp (.var n, .imm 0, ())) := by
+  t_kernel_rfl
+
+/-- Negative test: conditional load guarded by loop condition does not hoist, and preserves
+safety at `n = 0` with an unmapped pointer. -/
+def condLoadLoop : Func [i64, i64] [i64] := fun _ _ (n, ptr, ()) =>
+  loop1 (ts := [i64, i64])
+    (fun lp (i, acc, ()) =>
+      .let_ (op2 (.eq i64) (.var i) (.imm 0)) fun (z, ()) =>
+      .jnz (.var z) (.ret (.var acc, ()))
+        (.load i64 (.var ptr) fun v =>
+         .let_ (op2 (.add i64) (.var acc) (.var v)) fun (acc', ()) =>
+         .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+         .jump lp (.var i', .var acc', ())))
+    (fun lp => .jump lp (.var n, .imm 0, ()))
+
+theorem condLoadLoop_licm_out : Func.licm condLoadLoop = condLoadLoop := by
+  t_kernel_rfl
+
+theorem condLoadLoop_wf : condLoadLoop.Wf := by t_wf_reify
+
+theorem condLoad_zero_spec (Γ : Env) (m : Mem 64) (X : XPost) :
+    Func.spec Γ (Func.licm condLoadLoop) (0#64, 0#64, ()) m
+      (fun (r, ()) m' => r = 0#64 ∧ m' = m) X :=
+  Func.licm_spec condLoadLoop_wf (by
+    dsimp only [Func.spec, Func.wp, condLoadLoop]
+    refine wp_loop1 _ _
+      (fun k (x : Tup Val [i64, i64]) m' =>
+        x.1 = 0#64 ∧ k = 0 ∧ x.2.1 = 0#64 ∧ m' = m)
+      ?_ ?_
+    · rintro J k ⟨i, acc, ⟨⟩⟩ m' _ ⟨rfl, rfl, rfl, rfl⟩
+      lwp_base
+      exact ⟨fun _ => trivial, fun h => False.elim (h rfl)⟩
+    · intro J hJ
+      lwp_base
+      exact hJ 0 (0#64, 0#64, ()) m ⟨rfl, rfl, rfl, rfl⟩)
+
 #print axioms LeanQbe.T.OpCode.isLicmPure_spec
 #print axioms LeanQbe.T.licmSweep_wf
 #print axioms LeanQbe.T.licmSweep_wp
@@ -699,5 +1006,8 @@ theorem mb2ArithFn_licm_spec (Γ : Env) (n a b d : BitVec 64) (m : Mem 64) (X : 
 #print axioms LeanQbe.T.LicmTest.mb2AddrLoop_licm_spec
 #print axioms LeanQbe.T.LicmTest.guardedDivLoop_licm_zero_spec
 #print axioms LeanQbe.T.LicmTest.umulwLoop_licm_spec
+#print axioms LeanQbe.T.LicmTest.roColdExit_spec
+#print axioms LeanQbe.T.LicmTest.prehdrFwd_spec
+#print axioms LeanQbe.T.LicmTest.condLoad_zero_spec
 
 end LeanQbe.T.LicmTest

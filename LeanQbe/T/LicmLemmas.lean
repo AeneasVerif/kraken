@@ -4,6 +4,7 @@ public import LeanQbe.T.Licm
 public import LeanQbe.T.GvnLemmas
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Legal
+public import LeanQbe.T.LicmRoLemmas
 
 /-!
 # Correctness of Loop-Invariant Code Motion (`Func.licm`)
@@ -117,38 +118,6 @@ theorem OpCode.isLicmPure_spec : {as rs : List Ty} → (c : OpCode as rs) →
   | _, _, .sitofp _ _, h, _ | _, _, .fcvt _ _, h, _ => nomatch h
 
 /-! ## Lexical environment WP invariants (`EnvWp`, `resolveArgs_wp`, `emitHoists_wp`) -/
-
-private theorem castTy_some_eq {V : Ty → Type} :
-    {t' t : Ty} → {v : V t'} → {v' : V t} →
-    castTy t' t v = some v' → ∃ h : t' = t, h ▸ v = v'
-  | .bool, .bool, _, _, h => by cases h; exact ⟨rfl, rfl⟩
-  | .bits m, .bits n, _, _, h => by
-    simp only [castTy] at h
-    split at h
-    · next heq => subst heq; cases h; exact ⟨rfl, rfl⟩
-    · cases h
-  | .float f, .float g, _, _, h => by
-    simp only [castTy] at h
-    split at h
-    · next heq => subst heq; cases h; exact ⟨rfl, rfl⟩
-    · cases h
-  | .pair a1 b1, .pair a2 b2, _, _, h => by
-    simp only [castTy] at h
-    cases h1 : tyDecEq a1 a2 with
-    | isFalse _ => simp [h1] at h
-    | isTrue heq1 =>
-      subst heq1
-      cases h2 : tyDecEq b1 b2 with
-      | isFalse _ => simp [h1, h2] at h
-      | isTrue heq2 =>
-        subst heq2
-        simp only [h1, h2, Option.some.injEq] at h
-        exact ⟨rfl, h⟩
-  | .bool, .bits _, _, _, h | .bool, .float _, _, _, h | .bool, .pair _ _, _, _, h
-  | .bits _, .bool, _, _, h | .bits _, .float _, _, _, h | .bits _, .pair _ _, _, _, h
-  | .float _, .bool, _, _, h | .float _, .bits _, _, _, h | .float _, .pair _ _, _, _, h
-  | .pair _ _, .bool, _, _, h | .pair _ _, .bits _, _, _, h | .pair _ _, .float _, _, _, h =>
-    nomatch h
 
 /-- Every entry in `env : VEnv Val` has level `< b` and agrees with valuation `ρ`. -/
 def EnvWp (ρ : FEnv) (b : Nat) (env : VEnv Val) : Prop :=
@@ -390,78 +359,6 @@ theorem licmSweep_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
 
 section
 variable {V₁ V₂ : Ty → Type}
-
-/-- Pointwise relational correspondence between two lexical `VEnv` tries under `G'`. -/
-def EnvRel (G' : Ctx V₁ V₂) (env₁ : VEnv V₁) (env₂ : VEnv V₂) : Prop :=
-  ∀ lvl : Nat, ORel (fun p q => ∃ t v₁ v₂, p = ⟨t, v₁⟩ ∧ q = ⟨t, v₂⟩ ∧ ⟨t, v₁, v₂⟩ ∈ G')
-    (env₁.find? lvl) (env₂.find? lvl)
-
-theorem EnvRel.empty {G' : Ctx V₁ V₂} : EnvRel G' .empty .empty := fun _ => trivial
-
-theorem EnvRel.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂)
-    {env₁ : VEnv V₁} {env₂ : VEnv V₂} (hE : EnvRel G₁ env₁ env₂) : EnvRel G₂ env₁ env₂ := by
-  intro lvl
-  have hl := hE lvl
-  cases h1 : env₁.find? lvl <;> cases h2 : env₂.find? lvl <;> rw [h1, h2] at hl <;>
-    simp only [ORel] at hl ⊢
-  rcases hl with ⟨t, v₁, v₂, rfl, rfl, hm⟩
-  exact ⟨t, v₁, v₂, rfl, rfl, hsub _ hm⟩
-
-theorem EnvRel.insert {G' : Ctx V₁ V₂} {env₁ : VEnv V₁} {env₂ : VEnv V₂}
-    (hE : EnvRel G' env₁ env₂) (b : Nat) {t : Ty} {v₁ : V₁ t} {v₂ : V₂ t}
-    (hm : ⟨t, v₁, v₂⟩ ∈ G') : EnvRel G' (env₁.insert b ⟨t, v₁⟩) (env₂.insert b ⟨t, v₂⟩) := by
-  intro lvl
-  rw [Trie.find?_insert, Trie.find?_insert]
-  split
-  · exact ⟨t, v₁, v₂, rfl, rfl, hm⟩
-  · exact hE lvl
-
-private theorem envRel_insertTup_aux {G' : Ctx V₁ V₂} :
-    {ts : List Ty} → {xs₁ : Tup V₁ ts} → {xs₂ : Tup V₂ ts} →
-    {env₁ : VEnv V₁} → {env₂ : VEnv V₂} → (b : Nat) →
-    (∀ p ∈ Tup.zip xs₁ xs₂, p ∈ G') →
-    EnvRel G' env₁ env₂ → EnvRel G' (envInsertTup env₁ b xs₁) (envInsertTup env₂ b xs₂)
-  | [], (), (), _, _, _, _, hE => hE
-  | _ :: _, (_, _), (_, _), _, _, b, hsub, hE =>
-    envRel_insertTup_aux (b + 1) (fun _ hp => hsub _ (List.mem_cons_of_mem _ hp))
-      (hE.insert b (hsub _ List.mem_cons_self))
-
-theorem EnvRel.insertTup {G' : Ctx V₁ V₂} {env₁ : VEnv V₁} {env₂ : VEnv V₂}
-    (hE : EnvRel G' env₁ env₂) {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
-    EnvRel (Tup.zip xs₁ xs₂ ++ G') (envInsertTup env₁ b xs₁) (envInsertTup env₂ b xs₂) :=
-  envRel_insertTup_aux b (fun _ hp => List.mem_append_left G' hp)
-    (hE.weaken fun _ hp => List.mem_append_right _ hp)
-
-theorem resolveArg_rel {G' : Ctx V₁ V₂} {env₁ : VEnv V₁} {env₂ : VEnv V₂}
-    (hE : EnvRel G' env₁ env₂) {t : Ty} (a : Arg K t) :
-    ORel (ArgRel G' t) (resolveArg env₁ a) (resolveArg env₂ a) := by
-  cases a with
-  | imm c => exact .imm c
-  | var lvl =>
-    have hl := hE lvl
-    dsimp only [resolveArg]
-    cases e₁ : env₁.find? lvl <;> cases e₂ : env₂.find? lvl <;> rw [e₁, e₂] at hl <;>
-      simp only [ORel] at hl ⊢
-    rcases hl with ⟨t', v₁, v₂, rfl, rfl, hm⟩
-    have hc := castTy_rel (t := t) hm
-    cases c₁ : castTy t' t v₁ <;> cases c₂ : castTy t' t v₂ <;> rw [c₁, c₂] at hc <;>
-      simp only [ORel] at hc ⊢
-    exact .var hc
-
-theorem resolveArgs_rel {G' : Ctx V₁ V₂} {env₁ : VEnv V₁} {env₂ : VEnv V₂}
-    (hE : EnvRel G' env₁ env₂) :
-    {ts : List Ty} → (args : Tup (Arg K) ts) →
-    ORel (TRel (ArgRel G')) (resolveArgs env₁ args) (resolveArgs env₂ args)
-  | [], () => .nil
-  | _ :: _, (a, as) => by
-    have ha := resolveArg_rel hE a
-    have has := resolveArgs_rel hE as
-    dsimp only [resolveArgs]
-    cases e₁ : resolveArg env₁ a <;> cases e₂ : resolveArg env₂ a <;> rw [e₁, e₂] at ha <;>
-      simp only [ORel] at ha ⊢ <;>
-      cases f₁ : resolveArgs env₁ as <;> cases f₂ : resolveArgs env₂ as <;> rw [f₁, f₂] at has <;>
-      simp only [ORel] at has ⊢
-    exact .cons ha has
 
 theorem emitHoists_wf {L₁ L₂ : List Ty → Type} {rs : List Ty} {D : Ctx L₁ L₂}
     {G : Ctx (GVal V₁) (GVal V₂)}
@@ -755,32 +652,6 @@ private theorem emitHoists_supportsSource (target : LegalTarget) {rs : List Ty}
             emitHoists_supportsSource target cont rest (b + h.ts.length) (nv + h.ts.length) nl
               _ _ hhs.2 hcont⟩
 
-private theorem toTBlocks_supportsSource_get (target : LegalTarget) {rs : List Ty} (nv nl : Nat) :
-    {sig : List (List Ty)} → (bs : Blocks K KL rs sig) →
-    (toTBlocks bs nv nl).supportsSource target = true →
-    ∀ {ts : List Ty} (i : Member ts sig),
-      (toTFlat (bs.get i (Tup.levels ts nv)) (nv + ts.length) nl).supportsSource target = true
-  | _ :: _, .cons _ _, h, _, .here => by
-    dsimp only [toTBlocks, TBlocks.supportsSource] at h
-    simp only [Bool.and_eq_true] at h; exact h.1.2
-  | _ :: _, .cons _ bs, h, _, .there i => by
-    dsimp only [toTBlocks, TBlocks.supportsSource] at h; simp only [Bool.and_eq_true] at h
-    exact toTBlocks_supportsSource_get target nv nl bs h.2 i
-
-private theorem toTBlocks_supportsSource_of_get (target : LegalTarget) {rs : List Ty}
-    (nv nl : Nat) :
-    {sig : List (List Ty)} → (bs : Blocks K KL rs sig) →
-    sig.all (·.all target.supportsTy) = true →
-    (∀ {ts : List Ty} (i : Member ts sig),
-      (toTFlat (bs.get i (Tup.levels ts nv)) (nv + ts.length) nl).supportsSource target = true) →
-    (toTBlocks bs nv nl).supportsSource target = true
-  | [], .nil, _, _ => rfl
-  | _ :: _, .cons _ bs, hsig, hget => by
-    simp only [List.all_cons, Bool.and_eq_true] at hsig
-    dsimp only [toTBlocks, TBlocks.supportsSource]; simp only [Bool.and_eq_true]
-    exact ⟨⟨hsig.1, hget .here⟩,
-      toTBlocks_supportsSource_of_get target nv nl bs hsig.2 fun i => hget (.there i)⟩
-
 private theorem HoistPlan.supports_node1 {target : LegalTarget} {plan : HoistPlan}
     (hplan : plan.supports target = true) :
     (match plan with | .node1 p => p | _ => .leaf).supports target = true := by
@@ -880,11 +751,12 @@ private theorem licmSweep_supportsSource (target : LegalTarget) {rs : List Ty}
         hsupp.1.2 i)
       (HoistBlocks.supports_get _ i hpg.2.1)
 
-/-! ## Closed-function theorems (`Func.licm_*`, `Fn.licm_*`) -/
+/-! ## Pure-pass closed-function theorems (`Func.licmPure_*`) -/
 
-/-- `Func.licm` preserves relational well-formedness. -/
-theorem Func.licm_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) : (Func.licm f).Wf := by
-  dsimp only [Func.licm]
+/-- `Func.licmPure` preserves relational well-formedness. -/
+theorem Func.licmPure_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.licmPure f).Wf := by
+  dsimp only [Func.licmPure]
   split
   · intro V₁ V₂ L₁ L₂ xs₁ xs₂
     have hwf := hf (GVal V₁) (GVal V₂) L₁ L₂ (freshGVals as xs₁ 0) (freshGVals as xs₂ 0)
@@ -896,11 +768,11 @@ theorem Func.licm_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) : (Func.licm
     exact licmSweep_wf hwf hrel as.length _ _ .empty .empty _ hE RelT.empty
   · exact hf
 
-/-- `Func.licm` refines function contracts: any source contract holds on `Func.licm f`. -/
-theorem Func.licm_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+/-- `Func.licmPure` refines function contracts. -/
+theorem Func.licmPure_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
-    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.licm f) xs m Q X := by
-  dsimp only [Func.licm]
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.licmPure f) xs m Q X := by
+  dsimp only [Func.licmPure]
   split
   · have hwf := hf (GVal Val) Val Cont Cont (freshGVals as xs 0) xs
     let ρ0 : FEnv := fun _ _ => default
@@ -912,11 +784,11 @@ theorem Func.licm_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
       (GoodT.empty _ _) m h
   · exact h
 
-/-- `Func.licm` preserves `Func.supportsSource target` for any `LegalTarget` and well-formed `f`. -/
-theorem Func.licm_supportsSource (target : LegalTarget) {as rs : List Ty} {f : Func as rs}
+/-- `Func.licmPure` preserves `Func.supportsSource target` for any `LegalTarget` and `f.Wf`. -/
+theorem Func.licmPure_supportsSource (target : LegalTarget) {as rs : List Ty} {f : Func as rs}
     (hf : f.Wf) (hsupp : f.supportsSource target = true) :
-    (Func.licm f).supportsSource target = true := by
-  dsimp only [Func.licm]
+    (Func.licmPure f).supportsSource target = true := by
+  dsimp only [Func.licmPure]
   split
   · simp only [Func.supportsSource, Bool.and_eq_true] at hsupp ⊢
     refine ⟨hsupp.1, ?_⟩
@@ -928,6 +800,39 @@ theorem Func.licm_supportsSource (target : LegalTarget) {as rs : List Ty} {f : F
       as.length (envInsertTup .empty 0 (Tup.levels as 0)) .empty _ as.length 0 as.length 0
       hsupp.2 hplan
   · exact hsupp
+
+/-- `Func.licm` preserves relational well-formedness. -/
+theorem Func.licm_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) : (Func.licm f).Wf := by
+  dsimp only [Func.licm]
+  have hf1 : f.licmPure.Wf := Func.licmPure_wf hf
+  split
+  · exact Func.licmPure_wf (roSweepFunc_wf hf1)
+  · exact hf1
+
+/-- `Func.licm` refines function contracts: any source contract holds on `Func.licm f`. -/
+theorem Func.licm_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.licm f) xs m Q X := by
+  dsimp only [Func.licm]
+  have hf1 : f.licmPure.Wf := Func.licmPure_wf hf
+  have hs1 : Func.spec Γ f.licmPure xs m Q X := Func.licmPure_spec hf h
+  split
+  · exact Func.licmPure_spec (roSweepFunc_wf hf1)
+      (roSweepFunc_spec hf1 (fun c hp args => OpCode.isLicmPure_spec c hp args) hs1)
+  · exact hs1
+
+/-- `Func.licm` preserves `Func.supportsSource target` for any `LegalTarget` and well-formed `f`. -/
+theorem Func.licm_supportsSource (target : LegalTarget) {as rs : List Ty} {f : Func as rs}
+    (hf : f.Wf) (hsupp : f.supportsSource target = true) :
+    (Func.licm f).supportsSource target = true := by
+  dsimp only [Func.licm]
+  have hf1 : f.licmPure.Wf := Func.licmPure_wf hf
+  have hs1 : f.licmPure.supportsSource target = true :=
+    Func.licmPure_supportsSource target hf hsupp
+  split
+  · exact Func.licmPure_supportsSource target (roSweepFunc_wf hf1)
+      (roSweepFunc_supportsSource target hf1 hs1)
+  · exact hs1
 
 /-- `Fn.licm` preserves relational well-formedness. -/
 theorem Fn.licm_wf {fn : Fn} (hf : fn.Wf) : (Fn.licm fn).Wf :=
