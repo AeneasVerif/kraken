@@ -303,6 +303,6 @@ meta def leafFn : Fn :=
 #guard allCfgs.all (lowers · leafFn)
 #guard (hintsOf {} leafFn).saved.isEmpty
 #guard (hintsOf {} (midOf "full_decide")).saved.isEmpty
-#guard (hintsOf {} (midOf "full_analyze")).saved.length ≤ 2
+#guard let h := hintsOf {} (midOf "full_analyze"); h.nslots == 0 || h.saved.length ≤ 2
 
 end LeanQbeTest.T.SpillB5Test

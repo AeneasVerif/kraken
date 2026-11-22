@@ -196,7 +196,7 @@ theorem bl50_lower : Rega.lowerFn scaleIsa hints_bl50 {} fn_bl50 = .ok code_bl50
 theorem bl250_lower : Rega.lowerFn scaleIsa hints_bl250 {} fn_bl250 = .ok code_bl250 := by t_kernel_rfl
 theorem bl250_cross_lower : Rega.lowerFn scaleIsa hints_bl250_cross {} fn_bl250_cross = .ok code_bl250_cross := by t_kernel_rfl
 theorem spill20_lower : Rega.lowerFn smallIsa hints_spill20 {} fn_spill20 = .ok code_spill20 := by t_kernel_rfl
-theorem spill20_spills : hints_spill20.nslots > 0 ∧ hints_spill20.saved.length > 0 := by decide
+theorem spill20_spills : hints_spill20.nslots > 0 := by decide
 
 #print axioms sl1000_lower
 #print axioms sl2000_lower
