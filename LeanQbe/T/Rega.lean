@@ -37,6 +37,21 @@ inductive SlotEntry where
 def SlotEntry.slots : SlotEntry → Nat
   | .gpr _ | .gprZ _ => 1 | .vec w _ => w.slots
 
+inductive RmwOp where
+  | add | sub | and | or | xor
+  deriving DecidableEq, Repr
+
+def RmwOp.toOpCode (w : Nat) : RmwOp → OpCode [.bits w, .bits w] [.bits w]
+  | .add => .add (.bits w)
+  | .sub => .sub (.bits w)
+  | .and => .and (.bits w)
+  | .or  => .or  (.bits w)
+  | .xor => .xor (.bits w)
+
+def RmwOp.isComm : RmwOp → Bool
+  | .add | .and | .or | .xor => true
+  | .sub => false
+
 inductive DefFact where
   | addImm64 (base : Nat) (disp : BitVec 64)
   | scaleOff (idx : Nat) (sh : Nat) (disp : BitVec 64)
@@ -44,6 +59,8 @@ inductive DefFact where
   | imm64 (c : BitVec 64)
   | andVarVar (w x y : Nat)
   | andVarImm (w x : Nat) (c : BitVec 64)
+  | binVarVar (w : Nat) (op : RmwOp) (x y : Nat)
+  | binVarImm (w : Nat) (op : RmwOp) (x : Nat) (c : BitVec 64)
   | sextVar (m n x : Nat)
   | zextVar (m n x : Nat)
   | cmpZeroVar (co : CmpOp) (w x : Nat)
@@ -552,15 +569,30 @@ def recordAddVarVar (defs : Trie DefFact) (x y : Nat) : DefFact :=
     let b2 := dfy?.bind (recordAddBase · x dfx?)
     (s1 <|> s2 <|> b1 <|> b2).getD (.addrSum x y 0 0)
 
+def recordRmwBin (w : Nat) (op : RmwOp) (a b : Arg VNat (.bits w)) : Option DefFact :=
+  if !Nat.ble w 64 then none
+  else match a, b with
+    | .var x, .var y => some (.binVarVar w op x y)
+    | .var x, .imm c => some (.binVarImm w op x (c.setWidth 64))
+    | .imm c, .var y => if op.isComm then some (.binVarImm w op y (c.setWidth 64)) else none
+    | _, _ => none
+
 def recordDef (defs : Trie DefFact) :
     {sig rs : List Ty} → OpCode sig rs → Tup (Arg VNat) sig → Option DefFact
   | _, _, .add (.bits n), (a, b, ()) =>
-    if !Nat.beq n 64 then none else match a, b with
+    if !Nat.beq n 64 then recordRmwBin n .add a b
+    else match a, b with
       | .var x, .imm c | .imm c, .var x => some (recordAddVarImm defs x (c.setWidth 64))
       | .var x, .var y => some (recordAddVarVar defs x y)
       | _, _ => none
-  | _, _, .sub (.bits n), (.var x, .imm c, ()) =>
-    if Nat.beq n 64 then some (recordAddVarImm defs x (-(c.setWidth 64))) else none
+  | _, _, .sub (.bits n), (a, b, ()) =>
+    match a, b with
+    | .var x, .imm c =>
+      if Nat.beq n 64 then some (recordAddVarImm defs x (-(c.setWidth 64)))
+      else recordRmwBin n .sub (.var x) (.imm c)
+    | _, _ => recordRmwBin n .sub a b
+  | _, _, .or  (.bits n), (a, b, ()) => recordRmwBin n .or a b
+  | _, _, .xor (.bits n), (a, b, ()) => recordRmwBin n .xor a b
   | _, _, .shl (.bits n), (.var x, .imm k, ()) =>
     let kn := k.toNat
     if !Nat.beq n 64 || !Nat.blt kn 64 then none else
@@ -788,6 +820,124 @@ def tryCmpMemVar (I : Isa) (st : SymState I) (co : CmpOp) (n x : Nat)
     else none
   | _ => none
 
+def isStdBitWidth (n : Nat) : Bool :=
+  Nat.beq n 8 || Nat.beq n 16 || Nat.beq n 32 || Nat.beq n 64
+
+def spAddr (I : Isa) (idx : Nat) : AddrArg I.Reg :=
+  .baseDisp I.frame.sp (Int64.ofNat (8 * idx))
+
+def findSlotGprGo (slots : Trie SlotEntry) (x : Nat) : Nat → Nat → Option Nat
+  | _, 0 => none
+  | i, fuel + 1 =>
+    match slots.find? i with
+    | some (.gpr sas) =>
+      if sas.any (symArgEq · (.var x)) then some i else findSlotGprGo slots x (i + 1) fuel
+    | some (.gprZ sas) =>
+      if sas.any (fun (sa, _) => symArgEq sa (.var x)) then some i
+      else findSlotGprGo slots x (i + 1) fuel
+    | _ => findSlotGprGo slots x (i + 1) fuel
+
+def findSlotGpr (nslots : Nat) (slots : Trie SlotEntry) (x : Nat) : Option Nat :=
+  findSlotGprGo slots x 0 nslots
+
+def tryTestSlot (I : Isa) (h : I.Hints) (st : SymState I) (neg : Bool) (n t : Nat)
+    (pd : PDst I.Reg I.VReg I.Cond .bool) : Option (List I.Directive × FlagMask) :=
+  if !isStdBitWidth n then none
+  else match st.defs.find? t with
+    | some (.andVarImm w x c) =>
+      if Nat.beq w n then
+        (findSlotGpr h.nslots st.slots x).bind fun idx =>
+          I.gpr.testMem n neg (spAddr I idx) (.imm (c.setWidth n)) pd
+      else none
+    | some (.andVarVar w x y) =>
+      if Nat.beq w n then
+        ((findSlotGpr h.nslots st.slots x).bind fun idx =>
+          tryArg I st [] (.bits n) (.var y) fun pb =>
+            I.gpr.testMem n neg (spAddr I idx) pb pd) <|>
+        ((findSlotGpr h.nslots st.slots y).bind fun idx =>
+          tryArg I st [] (.bits n) (.var x) fun pa =>
+            I.gpr.testMem n neg (spAddr I idx) pa pd)
+      else none
+    | _ => none
+
+def tryExtSlot (I : Isa) (h : I.Hints) (st : SymState I) (co : CmpOp) (n t : Nat) (c : BitVec n)
+    (pd : PDst I.Reg I.VReg I.Cond .bool) : Option (List I.Directive × FlagMask) :=
+  match st.defs.find? t with
+  | some (.sextVar m n' x) =>
+    if Nat.beq n' n && Nat.blt 0 m && Nat.blt m n && cmpIsSignedOrEq co &&
+        (c.truncate m).signExtend n == c && isStdBitWidth m then
+      (findSlotGpr h.nslots st.slots x).bind fun idx =>
+        I.gpr.cmpMem co m (spAddr I idx) (.imm (c.truncate m)) pd
+    else none
+  | some (.zextVar m n' x) =>
+    if Nat.beq n' n && Nat.blt 0 m && Nat.blt m n && cmpIsUnsignedOrEq co &&
+        (c.truncate m).zeroExtend n == c && isStdBitWidth m then
+      (findSlotGpr h.nslots st.slots x).bind fun idx =>
+        I.gpr.cmpMem co m (spAddr I idx) (.imm (c.truncate m)) pd
+    else none
+  | _ => none
+
+def tryAluSlot (I : Isa) (h : I.Hints) (st : SymState I) (n : Nat)
+    (code : OpCode [.bits n, .bits n] [.bits n])
+    (a b : Arg VNat (.bits n)) (rd : I.Reg) : Option (List I.Directive × FlagMask × Bool) :=
+  if !isStdBitWidth n then none
+  else
+    let res :=
+      (match a with
+       | .var x => (findSlotGpr h.nslots st.slots x).bind fun idx =>
+         tryArg I st [] (.bits n) b fun pb => I.gpr.aluMem n code false (spAddr I idx) pb rd
+       | _ => none) <|>
+      (match b with
+       | .var y => (findSlotGpr h.nslots st.slots y).bind fun idx =>
+         tryArg I st [] (.bits n) a fun pa => I.gpr.aluMem n code true (spAddr I idx) pa rd
+       | _ => none)
+    res.map fun (c, cl) => (c, cl, Nat.beq n 32 && I.gpr.zeroUpper32AluMem)
+
+def trySlotOp (I : Isa) (h : I.Hints) (st : SymState I) {sig ts : List Ty}
+    (code : OpCode sig ts) (args : Tup (Arg VNat) sig)
+    (dsts : Tup (PDst I.Reg I.VReg I.Cond) ts) : Option (List I.Directive × FlagMask × Bool) :=
+  match sig, ts, code, args, dsts with
+  | _, _, .cmp co (.bits n) .bool _, (a, b, ()), (pd, ()) =>
+    if !Nat.ble n 64 then none
+    else
+      let tFuse :=
+        if co == .eq || co == .ne then
+          let neg := co == .ne
+          match a, b with
+          | .var t, .imm c => if c == 0#n then tryTestSlot I h st neg n t pd else none
+          | .imm c, .var t => if c == 0#n then tryTestSlot I h st neg n t pd else none
+          | _, _ => none
+        else none
+      let eFuse := match a, b with
+        | .var t, .imm c => tryExtSlot I h st co n t c pd
+        | .imm c, .var t => tryExtSlot I h st co.swap n t c pd
+        | _, _ => none
+      let mFuse :=
+        if !isStdBitWidth n then none
+        else
+          (match a with
+           | .var x => (findSlotGpr h.nslots st.slots x).bind fun idx =>
+             tryArg I st [] (.bits n) b fun pb => I.gpr.cmpMem co n (spAddr I idx) pb pd
+           | _ => none) <|>
+          (match b with
+           | .var y => (findSlotGpr h.nslots st.slots y).bind fun idx =>
+             tryArg I st [] (.bits n) a fun pa => I.gpr.cmpMem co.swap n (spAddr I idx) pa pd
+           | _ => none)
+      (tFuse <|> eFuse <|> mFuse).map fun (c, cl) => (c, cl, false)
+  | _, _, .add (.bits n), (a, b, ()), (.gpr rd, ()) =>
+    tryAluSlot I h st n (.add (.bits n)) a b rd
+  | _, _, .sub (.bits n), (a, b, ()), (.gpr rd, ()) =>
+    tryAluSlot I h st n (.sub (.bits n)) a b rd
+  | _, _, .mul (.bits n), (a, b, ()), (.gpr rd, ()) =>
+    tryAluSlot I h st n (.mul (.bits n)) a b rd
+  | _, _, .and (.bits n), (a, b, ()), (.gpr rd, ()) =>
+    tryAluSlot I h st n (.and (.bits n)) a b rd
+  | _, _, .or  (.bits n), (a, b, ()), (.gpr rd, ()) =>
+    tryAluSlot I h st n (.or (.bits n)) a b rd
+  | _, _, .xor (.bits n), (a, b, ()), (.gpr rd, ()) =>
+    tryAluSlot I h st n (.xor (.bits n)) a b rd
+  | _, _, _, _, _ => none
+
 def tryFuseCmp (I : Isa) (st : SymState I) (vh : VariantHint) {sig ts : List Ty}
     (code : OpCode sig ts) (args : Tup (Arg VNat) sig) (dsts : Tup (PDst I.Reg I.VReg I.Cond) ts) :
     Option (List I.Directive × FlagMask) :=
@@ -884,13 +1034,15 @@ def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List 
           (c, cl, false, false)) <|>
         ((tryLoadSext I st1 vh op.code op.args dsts).map fun (c, cl) =>
           (c, cl, false, false)) <|>
-        pickPArgs I st1 (tupDstFlags dsts) op.args fun pas =>
+        (pickPArgs I st1 (tupDstFlags dsts) op.args fun pas =>
           if dstVecs.isEmpty && (tupArgVecs pas).isEmpty then
             ((I.gpr.op op.code pas dsts vh).map fun (c, cl) =>
               (c, cl, false, opProducesZ32 I op.code pas dsts)) <|>
             ((I.vec.vop op.code pas dsts vh).map fun (c, cl) => (c, cl, true, false))
           else (I.vec.vop op.code pas dsts vh).map fun (c, cl) =>
-            (c, cl, true, false)) : Option (List I.Directive × FlagMask × Bool × Bool)).map
+            (c, cl, true, false)) <|>
+        ((trySlotOp I h st1 op.code op.args dsts).map fun (c, cl, z32) =>
+          (c, cl, false, z32))) : Option (List I.Directive × FlagMask × Bool × Bool)).map
           fun (code, clob, isVec, z32) =>
           let vClob := if isVec then dstVecs ++ I.vec.vecScratch else []
           let killed := killRegs I (dstGprs ++ I.frame.scratch) vClob clob st1.regs
@@ -968,22 +1120,25 @@ def calleeAllowed (E : Ext) (f : Sym) (as bs : List Ty) : Bool :=
   E.callees.any fun (g, gas, gbs) => g == f && listTyEq gas as && listTyEq gbs bs
 def prepend {I : Isa} (pre : List I.Directive) : Res I → Res I
   | .ok (c, nv, nl, ip) => .ok (pre ++ c, nv, nl, ip) | .error e => .error e
-/-- Condition representation for `jnz`: flag, GPR bool, or deferred compare/bit-test fusion. -/
+/-- Condition representation for `jnz`: flag, GPR, stack slot, or deferred compare/bit-test fusion.
+-/
 inductive JnzCond (I : Isa) where
   | flag (c : I.Cond)
   | gpr (r : I.Reg)
+  | slot (idx : Nat)
   | cmpZero (co : CmpOp) (w : Nat) (r : I.Reg)
   | testImm (neg : Bool) (w : Nat) (r : I.Reg) (mask : BitVec w)
 
-def findJnzCond (I : Isa) (st : SymState I) (x : Nat) : Option (JnzCond I) :=
+def findJnzCond (I : Isa) (nslots : Nat) (st : SymState I) (x : Nat) : Option (JnzCond I) :=
   (findFlagFor I st.regs (.var x)).map .flag <|>
     (findGprFor I true st.regs (.var x)).map .gpr <|>
-    match st.defs.find? x with
-    | some (.cmpZeroVar co w y) =>
-      (findGprFor I true st.regs (.var y)).map fun r => .cmpZero co w r
-    | some (.testBitVar neg w y c) =>
-      (findGprFor I true st.regs (.var y)).map fun r => .testImm neg w r (c.setWidth w)
-    | _ => none
+    (match st.defs.find? x with
+     | some (.cmpZeroVar co w y) =>
+       (findGprFor I true st.regs (.var y)).map fun r => .cmpZero co w r
+     | some (.testBitVar neg w y c) =>
+       (findGprFor I true st.regs (.var y)).map fun r => .testImm neg w r (c.setWidth w)
+     | _ => none) <|>
+    (findSlotGpr nslots st.slots x).map .slot
 
 /-- `true` when `h.pre` at `ip` emits no moves or flag clears. -/
 def preEmpty {I : Isa} (h : I.Hints) (ip : Nat) : Bool :=
@@ -1054,6 +1209,11 @@ def jnzSetup {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE : Nat
     let tg := gprThread? I h fn ipT st1 r t
     let p := I.gpr.jnzGpr r (lname fn (tg.getD nl))
     some (false, tg, p.1, { st1 with regs := killRegs I I.frame.scratch [] p.2 st1.regs })
+  | .slot idx =>
+    let stB := { st1 with regs := killRegs I I.frame.scratch [] FlagMask.all st1.regs }
+    let p := jnzMode I h ipT ipE stB true t e ft
+    (I.gpr.jnzMem (spAddr I idx) p.1 (lname fn (p.2.getD nl))).bind fun (br, cl) =>
+      if cl == FlagMask.all then some (p.1, p.2, br, stB) else none
   | .cmpZero co w r =>
     fuseJnzChoice I h fn nl ipT ipE st1 t e ft fun inv l =>
       I.gpr.cmpZeroJcc (if inv then co.neg else co) w r l
@@ -1069,6 +1229,48 @@ def finishJnzBranch {rs : List Ty} (I : Isa) (fn : Sym) (nl : Nat) (tgt? : Optio
     | _ => .error "jnz: not jump"
   | none => .ok (br ++ c_ft ++ [I.frame.label (lname fn nl)] ++ c_taken, nv2, nl2, ip2)
 
+def rmwFact (w : Nat) : DefFact → Option (RmwOp × Nat × Arg VNat (.bits w))
+  | .addImm64 x d => if Nat.beq w 64 then some (.add, x, .imm (d.setWidth w)) else none
+  | .addrSum x y sh d =>
+    if Nat.beq w 64 && Nat.beq sh 0 && d == 0#64 then some (.add, x, .var y) else none
+  | .binVarVar w' op x y => if Nat.beq w' w then some (op, x, .var y) else none
+  | .binVarImm w' op x c => if Nat.beq w' w then some (op, x, .imm (c.setWidth w)) else none
+  | .andVarVar w' x y => if Nat.beq w' w then some (.and, x, .var y) else none
+  | .andVarImm w' x c => if Nat.beq w' w then some (.and, x, .imm (c.setWidth w)) else none
+  | _ => none
+
+def tryRmwHalf (I : Isa) (st1 : SymState I) (vh : VariantHint) (n : Nat)
+    (op : RmwOp) (x : Nat) (other : Arg VNat (.bits n)) (addr : Arg VNat i64) :
+    Option (List I.Directive × FlagMask) :=
+  match st1.memDefs.find? x with
+  | some (.bits m, loadAddr) =>
+    if Nat.beq m n then
+      tryAddr I st1 .default loadAddr fun aa1 =>
+        tryAddr I st1 vh addr fun aa2 =>
+          if aa1 == aa2 then
+            tryArg I st1 [] (.bits n) other fun pb =>
+              I.gpr.rmwMem n (op.toOpCode n) aa1 pb
+          else none
+    else none
+  | _ => none
+
+def tryRmwStore (I : Isa) (st1 : SymState I) (vh : VariantHint) :
+    (t : Ty) → Arg VNat t → Arg VNat i64 → Option (List I.Directive × FlagMask)
+  | .bits n, .var y, addr =>
+    if !Nat.ble n 64 then none
+    else
+      match st1.defs.find? y with
+      | some df =>
+        (rmwFact n df).bind fun (op, x, rhs) =>
+          tryRmwHalf I st1 vh n op x rhs addr <|>
+            if op.isComm then
+              match rhs with
+              | .var z => tryRmwHalf I st1 vh n op z (.var x) addr
+              | .imm _ => none
+            else none
+      | none => none
+  | _, _, _ => none
+
 def lowerStore (I : Isa) (st1 : SymState I) (vh : VariantHint) :
     (t : Ty) → Arg VNat t → Arg VNat i64 → Option (List I.Directive × SymState I)
   | .pair a b, v, addr =>
@@ -1079,8 +1281,10 @@ def lowerStore (I : Isa) (st1 : SymState I) (vh : VariantHint) :
             memDefs := .empty })
   | t, v, addr =>
     if !isGprTy I t then none
-    else (tryArg I st1 [] t v fun pa => tryAddr I st1 vh addr (I.gpr.store t pa)).map fun (c, clob) =>
-      (c, { st1 with regs := killRegs I I.frame.scratch [] clob st1.regs, memDefs := .empty })
+    else
+      ((tryArg I st1 [] t v fun pa => tryAddr I st1 vh addr (I.gpr.store t pa)) <|>
+       tryRmwStore I st1 vh t v addr).map fun (c, clob) =>
+        (c, { st1 with regs := killRegs I I.frame.scratch [] clob st1.regs, memDefs := .empty })
 
 /-- `some (m, n, x)` when the operation is `sext m n (.var x)`. -/
 def sextVar? : {sig ts : List Ty} → OpCode sig ts → Tup (Arg VNat) sig → Option (Nat × Nat × Nat)
@@ -1289,7 +1493,7 @@ def deferJnzNext {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nv nl ip : N
       | some (_, st2) =>
         match stepPre I h (ip + 1) st2 with
         | some (_, stAfter) =>
-          match findJnzCond I stAfter nv with
+          match findJnzCond I h.nslots stAfter nv with
           | some (.cmpZero co w r) => (I.gpr.cmpZeroJcc co w r (lname fn nl)).isSome
           | some (.testImm neg w r mask) => (I.gpr.testJcc neg w r mask (lname fn nl)).isSome
           | _ => false
@@ -1347,11 +1551,11 @@ def lowerExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
   | .jnz (.var cx) t e, nv, nl, ip, st, ft =>
     match stepPre I h ip st with
     | none => .error "jnz: pre"
-    | some (mc, st1) => match findJnzCond I st1 cx with
+    | some (mc, st1) => match findJnzCond I h.nslots st1 cx with
       | none => .error "jnz: cond"
       | some cond =>
         match jnzSetup I h fn nl (jnzIpT nv nl ip t e) (ip + 1) st1 t e ft cond with
-        | none => .error "jnz: cond"
+        | none => .error "jnz: setup"
         | some (inv, tgt?, br, stBr) =>
           let ftT := match tgt? with | some j => some j | none => ft
           let ftF := match tgt? with | some _ => ft | none => none
@@ -1451,6 +1655,13 @@ structure LabelClean (I : Isa) : Prop where
     by intro _ _ _ _ _ _ h; cases h
   testJcc : ∀ neg w r mask l c cl, I.gpr.testJcc neg w r mask l = some (c, cl) → NoLab I c :=
     by intro _ _ _ _ _ _ _ h; cases h
+  aluMem : ∀ w code memRhs a pb rd c cl,
+    I.gpr.aluMem w code memRhs a pb rd = some (c, cl) → NoLab I c :=
+    by intro _ _ _ _ _ _ _ _ h; cases h
+  jnzMem : ∀ a inv l c cl, I.gpr.jnzMem a inv l = some (c, cl) → NoLab I c :=
+    by intro _ _ _ _ _ h; cases h
+  rmwMem : ∀ w code a pb c cl, I.gpr.rmwMem w code a pb = some (c, cl) → NoLab I c :=
+    by intro _ _ _ _ _ _ h; cases h
   (load : ∀ t r a c cl, I.gpr.load t r a = some (c, cl) → NoLab I c)
   (store : ∀ t pa a c cl, I.gpr.store t pa a = some (c, cl) → NoLab I c)
   (clearFlags : NoLab I I.gpr.clearFlags) (vmov : ∀ w d s, NoLab I (I.vec.vmov w d s))

@@ -155,6 +155,20 @@ example : ⸨prog| testl $1, (%rdi,%rsi,4) ⸩ =
     [ins32 (.test (.mem (atSIB .rdi .rsi .s4 0)) (immBitsOp .W32 1#32))] := rfl
 example : ⸨prog| testb %al, (%rdi,%rsi,1) ⸩ =
     [ins8 (.test (.mem (atSIB .rdi .rsi .s1 0)) (.reg (b8 .rax)))] := rfl
+example : ⸨prog| addq 8(%rsp), %rax ⸩ =
+    [aluBinIns .W64 .add .rax (.regOrMem (.mem (atDisp .rsp 8)))] := rfl
+example : ⸨prog| subl 8(%rsp), %eax ⸩ =
+    [aluBinIns .W32 .sub .rax (.regOrMem (.mem (atDisp .rsp 8)))] := rfl
+example : ⸨prog| imulq 8(%rsp), %rax ⸩ =
+    [aluBinIns .W64 .mul .rax (.regOrMem (.mem (atDisp .rsp 8)))] := rfl
+example : ⸨prog| cmpb $0, 8(%rsp); jnz L0 ⸩ =
+    ((x64JnzMem (.baseDisp .rsp 8) false "L0").get rfl).1 := rfl
+example : ⸨prog| cmpb $0, 8(%rsp); je L0 ⸩ =
+    ((x64JnzMem (.baseDisp .rsp 8) true "L0").get rfl).1 := rfl
+example : ⸨prog| incq 8(%rdi) ⸩ = [ins (.inc (.mem (atDisp .rdi 8)))] := rfl
+example : ⸨prog| decl (%rdi) ⸩ = [ins32 (.dec (.mem (atReg .rdi)))] := rfl
+example : ⸨prog| addl %esi, (%rdi) ⸩ = [ins32 (.add (.mem (atReg .rdi)) (.reg (d .rsi)))] := rfl
+example : ⸨prog| xorq $7, (%rdi) ⸩ = [ins (.xor (.mem (atReg .rdi)) (immBitsOp .W64 7))] := rfl
 
 end ParserChecks
 
@@ -229,6 +243,21 @@ theorem x64Gpr_testMem_noLab {w : Nat} {neg : Bool} {a : AddrArg Reg64}
   emitCleanPair_noLab h
 theorem x64Gpr_loadSext_noLab {m n : Nat} {rd : Reg64} {a : AddrArg Reg64} {c : List Directive}
     {clob : FlagMask} (h : x64Gpr.loadSext m n rd a = some (c, clob)) :
+    ∀ l, Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab h
+theorem x64Gpr_aluMem_noLab {n : Nat} {code : OpCode [.bits n, .bits n] [.bits n]}
+    {memRhs : Bool} {a : AddrArg Reg64} {pb : PArg Reg64 RegMm CondCode (.bits n)}
+    {rd : Reg64} {c : List Directive} {clob : FlagMask}
+    (h : x64Gpr.aluMem n code memRhs a pb rd = some (c, clob)) :
+    ∀ l, Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab h
+theorem x64Gpr_jnzMem_noLab {a : AddrArg Reg64} {inv : Bool} {lbl : Sym} {c : List Directive}
+    {clob : FlagMask} (h : x64Gpr.jnzMem a inv lbl = some (c, clob)) :
+    ∀ l, Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab h
+theorem x64Gpr_rmwMem_noLab {n : Nat} {code : OpCode [.bits n, .bits n] [.bits n]}
+    {a : AddrArg Reg64} {pb : PArg Reg64 RegMm CondCode (.bits n)}
+    {c : List Directive} {clob : FlagMask} (h : x64Gpr.rmwMem n code a pb = some (c, clob)) :
     ∀ l, Kraken.Directive.label l ∉ c :=
   emitCleanPair_noLab h
 

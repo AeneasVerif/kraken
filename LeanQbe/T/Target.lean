@@ -294,6 +294,19 @@ structure GprIsa (Reg VReg Cond Directive : Type) where
   /-- Fused `(val &&& mask) ==/!= 0` branch (`neg = true` jumps on `!= 0`). -/
   testJcc : (neg : Bool) → (w : Nat) → Reg → BitVec w → Sym →
     Option (List Directive × FlagMask) := fun _ _ _ _ _ => none
+  /-- Lower binary scalar op with one memory operand (`memRhs`: memory is RHS vs LHS). -/
+  aluMem : (w : Nat) → OpCode [.bits w, .bits w] [.bits w] → (memRhs : Bool) →
+    AddrArg Reg → PArg Reg VReg Cond (.bits w) → Reg → Option (List Directive × FlagMask) :=
+    fun _ _ _ _ _ _ => none
+  /-- `true` when `aluMem` at `w = 32` zeroes bits `32..63` of `rd`. -/
+  zeroUpper32AluMem : Bool := false
+  /-- Branch to `sym` when low byte of `[addr]` is non-zero (or zero if `inv = true`). -/
+  jnzMem : AddrArg Reg → (inv : Bool) → Sym → Option (List Directive × FlagMask) :=
+    fun _ _ _ => none
+  /-- Fused memory read-modify-write `[addr] := op [addr] pb`. -/
+  rmwMem : (w : Nat) → OpCode [.bits w, .bits w] [.bits w] → AddrArg Reg →
+    PArg Reg VReg Cond (.bits w) → Option (List Directive × FlagMask) :=
+    fun _ _ _ _ => none
 
 structure VecIsa (Reg VReg Cond Directive : Type) where
   vecScratch : List VReg
@@ -662,6 +675,56 @@ structure GprTarget {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
       ((if neg then CmpOp.ne else CmpOp.eq).evalBits (v &&& mask) 0#w = false →
         M.Run h (k + c.length) s' post)) →
     M.Run h k s post := by intros; contradiction
+  aluMem_spec : ∀ {h k w memRhs} {code : OpCode [.bits w, .bits w] [.bits w]}
+      {a : AddrArg R} {pb : PArg R V C (.bits w)} {rd : R} {c : List D} {clob : FlagMask}
+      {va vb : BitVec w} {P : Tup Val [.bits w] → Prop} {s : M.MData} {post : M.State → Prop},
+    g.aluMem w code memRhs a pb rd = some (c, clob) →
+    (∀ r ∈ a.regs ++ pb.gprs, r ∉ scratch) → rd ∉ scratch →
+    loadVal (M.mem s) (.bits w) (a.eval (M.getGpr s)) = some va →
+    M.PArgHolds s (.bits w) pb vb →
+    code.wp (if memRhs then (vb, va, ()) else (va, vb, ())) P →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => (∃ rv : BitVec w, P (rv, ()) ∧ GprHolds (M.getGpr s' rd) (.bits w) rv) ∧
+        M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  aluMem_zero32 : g.zeroUpper32AluMem = true →
+    ∀ {h k memRhs} {code : OpCode [.bits 32, .bits 32] [.bits 32]}
+      {a : AddrArg R} {pb : PArg R V C (.bits 32)} {rd : R} {c : List D} {clob : FlagMask}
+      {va vb : BitVec 32} {P : Tup Val [.bits 32] → Prop} {s : M.MData} {post : M.State → Prop},
+    g.aluMem 32 code memRhs a pb rd = some (c, clob) →
+    (∀ r ∈ a.regs ++ pb.gprs, r ∉ scratch) → rd ∉ scratch →
+    loadVal (M.mem s) (.bits 32) (a.eval (M.getGpr s)) = some va →
+    M.PArgHolds s (.bits 32) pb vb →
+    code.wp (if memRhs then (vb, va, ()) else (va, vb, ())) P →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ M.getGpr s' rd = rv.setWidth 64) ∧
+        M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  jnzMem_spec : ∀ {h k j a inv l c clob} {v8 : BitVec 8} {b : Bool}
+      {s : M.MData} {post : M.State → Prop},
+    g.jnzMem a inv l = some (c, clob) →
+    c.IsInfixAt (M.prog h) k → M.labelAddr h l = M.addrOf h j →
+    (∀ r ∈ a.regs, r ∉ scratch) →
+    loadVal (M.mem s) (.bits 8) (a.eval (M.getGpr s)) = some v8 →
+    v8 = BitVec.ofNat 8 b.toNat →
+    (∀ s', M.Frame g.condReads s s' scratch [] clob → M.mem s' = M.mem s →
+      ((if inv then !b else b) = true → M.Run h j s' post) ∧
+      ((if inv then !b else b) = false → M.Run h (k + c.length) s' post)) →
+    M.Run h k s post :=
+    by intros; contradiction
+  rmwMem_spec : ∀ {h k w} {code : OpCode [.bits w, .bits w] [.bits w]}
+      {a : AddrArg R} {pb : PArg R V C (.bits w)} {c : List D} {clob : FlagMask}
+      {va vb : BitVec w} {P : Tup Val [.bits w] → Prop} {s : M.MData} {post : M.State → Prop},
+    g.rmwMem w code a pb = some (c, clob) →
+    (∀ r ∈ a.regs ++ pb.gprs, r ∉ scratch) →
+    loadVal (M.mem s) (.bits w) (a.eval (M.getGpr s)) = some va →
+    storeOk (M.mem s) (.bits w) (a.eval (M.getGpr s)) →
+    M.PArgHolds s (.bits w) pb vb →
+    code.wp (va, vb, ()) P →
+    M.FallsTo g.condReads h k c scratch [] clob s
+      (fun s' => ∃ rv : BitVec w, P (rv, ()) ∧
+        M.mem s' = storeMem (M.mem s) (.bits w) (a.eval (M.getGpr s)) rv) post :=
+    by intros; contradiction
 
 structure FramePreds {R V C D : Type} (M : Machine R V C D) : Type where
   RetAddr : BitVec 64 → M.Addr → Mem 64 → Prop

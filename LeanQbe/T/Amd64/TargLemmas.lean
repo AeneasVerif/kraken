@@ -48,6 +48,9 @@ theorem x64LabelClean : Rega.LabelClean x64Target.toIsa where
   cmpMem _ _ _ _ _ _ _ h l := x64Gpr_cmpMem_noLab h l
   testMem _ _ _ _ _ _ _ h l := x64Gpr_testMem_noLab h l
   loadSext _ _ _ _ _ _ h l := x64Gpr_loadSext_noLab h l
+  aluMem _ _ _ _ _ _ _ _ h l := x64Gpr_aluMem_noLab h l
+  jnzMem _ _ _ _ _ h l := x64Gpr_jnzMem_noLab h l
+  rmwMem _ _ _ _ _ _ h l := x64Gpr_rmwMem_noLab h l
   load _ _ _ _ _ h l := x64Gpr_load_noLab h l
   store _ _ _ _ _ h l := x64Gpr_store_noLab h l
   clearFlags l := x64Gpr_clearFlags_noLab l

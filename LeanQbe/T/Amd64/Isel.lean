@@ -1349,6 +1349,112 @@ def x64TestMem (n : Nat) (neg : Bool) (a : AddrArg Reg64)
     Option (List Directive × FlagMask) :=
   emitCleanPair (x64TestMemIns n neg a pb pd)
 
+/-- Map scalar binary arithmetic/logic `OpCode` to `AluBinKind`. -/
+def x64AluMemKind? : {n : Nat} → OpCode [.bits n, .bits n] [.bits n] → Option AluBinKind
+  | _, .add (.bits _) => some .add
+  | _, .sub (.bits _) => some .sub
+  | _, .and (.bits _) => some .and
+  | _, .or  (.bits _) => some .or
+  | _, .xor (.bits _) => some .xor
+  | _, .mul (.bits _) => some .mul
+  | _, _ => none
+
+/-- Lower binary op with one memory operand into `rd` (`memRhs = false` => `op mem pb`). -/
+def x64AluMemIns (n : Nat) (code : OpCode [.bits n, .bits n] [.bits n]) (memRhs : Bool)
+    (a : AddrArg Reg64) (pb : PArg Reg64 RegMm CondCode (.bits n)) (rd : Reg64) :
+    Option (List Instr × FlagMask) :=
+  if !x64AddrValid a then none else
+  match x64AluMemKind? code with
+  | none => none
+  | some k =>
+    if !(memRhs || k.isComm) || (k == .mul && n == 8) then none else
+    withWidth (F := fun m => PArg Reg64 RegMm CondCode (.bits m)) n pb fun w pb' =>
+      let pre := (addrToExprIns a).1
+      let addr := (addrToExprIns a).2.1
+      let alu := aluBinI w k rd (.regOrMem (.mem addr))
+      match pb' with
+      | .gpr rs =>
+        if rs == rd then some (pre ++ [alu], maskAll)
+        else if a.regs.contains rd then none
+        else some ([movWI w rd rs] ++ pre ++ [alu], maskAll)
+      | .imm cb =>
+        if a.regs.contains rd then none
+        else some ([moviI rd (cb.setWidth 64)] ++ pre ++ [alu], maskAll)
+      | .vec _ => none
+
+/-- Lower memory-operand binary ALU op into x64 directives. -/
+def x64AluMem (n : Nat) (code : OpCode [.bits n, .bits n] [.bits n]) (memRhs : Bool)
+    (a : AddrArg Reg64) (pb : PArg Reg64 RegMm CondCode (.bits n)) (rd : Reg64) :
+    Option (List Directive × FlagMask) :=
+  emitCleanPair (x64AluMemIns n code memRhs a pb rd)
+
+/-- Lower `jnz` on low byte at `[a]` (`cmpb $0, [a]; jcc cc l`). -/
+def x64JnzMemIns (a : AddrArg Reg64) (inv : Bool) (l : Sym) :
+    Option (List Instr × FlagMask) :=
+  if !x64AddrValid a then none else
+  let pre := (addrToExprIns a).1
+  let addr := (addrToExprIns a).2.1
+  let cc : CondCode := if inv then .z else .nz
+  some (pre ++ [x64InsI .W8 (.cmp (.mem addr) (immBitsOp .W8 0#8)),
+                x64InsI .W64 (.jcc cc l)], maskAll)
+
+/-- Lower memory-operand `jnz` into x64 directives. -/
+def x64JnzMem (a : AddrArg Reg64) (inv : Bool) (l : Sym) : Option (List Directive × FlagMask) :=
+  emitCleanPair (x64JnzMemIns a inv l)
+
+/-- Supported memory read-modify-write ALU kinds (`add`, `sub`, `and`, `or`, `xor`). -/
+inductive RmwKind | add | sub | and | or | xor
+  deriving DecidableEq
+
+/-- Map `OpCode` to `RmwKind` for memory read-modify-write. -/
+def x64RmwKind? : {n : Nat} → OpCode [.bits n, .bits n] [.bits n] → Option RmwKind
+  | _, .add (.bits _) => some .add
+  | _, .sub (.bits _) => some .sub
+  | _, .and (.bits _) => some .and
+  | _, .or  (.bits _) => some .or
+  | _, .xor (.bits _) => some .xor
+  | _, _ => none
+
+/-- Memory-destination ALU instruction `[addr] := [addr] op src`. -/
+def rmwMemI (w : Width) (k : RmwKind) (addr : AddrExpr) (src : Operand w) : Instr :=
+  match k with
+  | .add => x64InsI w (.add (.mem addr) src)
+  | .sub => x64InsI w (.sub (.mem addr) src)
+  | .and => x64InsI w (.and (.mem addr) src)
+  | .or  => x64InsI w (.or  (.mem addr) src)
+  | .xor => x64InsI w (.xor (.mem addr) src)
+
+/-- Lower `[a] := code [a] pb` using `inc`/`dec` (for `±1`) or `add`/`sub`/`and`/`or`/`xor`. -/
+def x64RmwMemIns (n : Nat) (code : OpCode [.bits n, .bits n] [.bits n])
+    (a : AddrArg Reg64) (pb : PArg Reg64 RegMm CondCode (.bits n)) :
+    Option (List Instr × FlagMask) :=
+  if !x64AddrValid a then none else
+  match x64RmwKind? code with
+  | none => none
+  | some k =>
+    withWidth (F := fun m => PArg Reg64 RegMm CondCode (.bits m)) n pb fun w pb' =>
+      let pre := (addrToExprIns a).1
+      let addr := (addrToExprIns a).2.1
+      match pb' with
+      | .gpr ry => some (pre ++ [rmwMemI w k addr (.reg (regW w ry))], maskAll)
+      | .imm cy =>
+        if (k == .add && cy == 1#w.bits) || (k == .sub && cy == -1#w.bits) then
+          some (pre ++ [x64InsI w (.inc (.mem addr))], maskDecInc)
+        else if (k == .sub && cy == 1#w.bits) || (k == .add && cy == -1#w.bits) then
+          some (pre ++ [x64InsI w (.dec (.mem addr))], maskDecInc)
+        else if w != .W64 || fitsImm32 (cy.setWidth 64) then
+          some (pre ++ [rmwMemI w k addr (immBitsOp w cy)], maskAll)
+        else
+          some (pre ++ [moviI .r11 (cy.setWidth 64),
+                        rmwMemI w k addr (.reg (regW w .r11))], maskAll)
+      | .vec _ => none
+
+/-- Lower fused memory RMW into x64 directives. -/
+def x64RmwMem (n : Nat) (code : OpCode [.bits n, .bits n] [.bits n])
+    (a : AddrArg Reg64) (pb : PArg Reg64 RegMm CondCode (.bits n)) :
+    Option (List Directive × FlagMask) :=
+  emitCleanPair (x64RmwMemIns n code a pb)
+
 /-- `true` when `x64Op` writes `[.bits 32]` to `.gpr rd` with bits `32..63` guaranteed zero. -/
 def x64ZeroUpper32Op : {sig rs : List Ty} → OpCode sig rs →
     Tup (PArg Reg64 RegMm CondCode) sig → Tup (PDst Reg64 RegMm CondCode) rs → Bool
@@ -1443,5 +1549,9 @@ def x64Gpr : GprIsa Reg64 RegMm CondCode Directive where
   cmpMem := x64CmpMem
   testMem := x64TestMem
   loadSext := x64LoadSext
+  aluMem := x64AluMem
+  zeroUpper32AluMem := true
+  jnzMem := x64JnzMem
+  rmwMem := x64RmwMem
 
 end LeanQbe.T.Amd64

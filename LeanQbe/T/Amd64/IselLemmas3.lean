@@ -472,7 +472,7 @@ private theorem wp_cmp_reg_mem [Host] {E : Int64 → MachineData → Prop} (w : 
   cases w <;> simp only [insW, regW, t_step_simp, MachineData.load, Effects.All_require_read_access,
     haddr, hi] <;> exact Or.inl ⟨trivial, rfl⟩
 
-private theorem wp_cmp_mem_imm [Host] {E : Int64 → MachineData → Prop} (w : Width)
+theorem wp_cmp_mem_imm [Host] {E : Int64 → MachineData → Prop} (w : Width)
     (s : MachineData) (addr : AddrExpr) (addrVal : BitVec 64) (va cy : BitVec w.bits)
     (haddr : ∀ [Labels] (p : Std.Rco Int64),
       (@AddrExpr.interp _ ⟨.W64⟩ addr s.regs p).zeroExtend 64 = addrVal)
