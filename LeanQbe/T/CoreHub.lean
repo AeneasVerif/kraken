@@ -72,6 +72,8 @@ public import LeanQbe.T.LoopRotateLemmas
 public import LeanQbe.T.ZeroPeel
 public import LeanQbe.T.ZeroPeelLemmas1
 public import LeanQbe.T.ZeroPeelLemmas
+public import LeanQbe.T.AssumeBits
+public import LeanQbe.T.AssumeBitsLemmas
 public import LeanQbe.T.Trie
 public import LeanQbe.T.Target
 public import LeanQbe.T.TargetLemmas
