@@ -593,12 +593,14 @@ theorem store_region8 {a : BitVec 64} (v : BitVec 64) {G : Mem 64 → Prop} {m :
   obtain ⟨v0, hv0⟩ := region8_cell64 h1
   exact (store_cell64 v ⟨f1, f2, hu, hd, hv0, h2⟩).2
 
-def frameSpec : FrameTarget mach frameIsa Cond.reads where
+def framePreds : FramePreds mach where
   RetAddr a (ra : Nat) m := ra < 2 ^ 64 ∧ cell64 a (BitVec.ofNat 64 ra) m
   raReg _ _ := True
   spEntry _ := True
   spOk _ := True
   Saved sp (ra : Nat) _ m := ra < 2 ^ 64 ∧ cell64 sp (BitVec.ofNat 64 ra) m
+
+theorem frameSpec_spec : FrameSpec mach frameIsa Cond.reads framePreds where
   sp_disj := by decide
   scratch_disj := by decide
   cs_disj := by decide
@@ -703,6 +705,10 @@ def frameSpec : FrameTarget mach frameIsa Cond.reads where
         (BitVec.toNat_ofNat (w := 64) (x := (ra : Nat))).trans (Nat.mod_eq_of_lt hlt)
       rw [loadValG_memOps, hl, Option.map_some, e]
     · exact hk _ (frame_setGpr Cond.reads _ _ _ _ (by simp [frameIsa]) [] 0).1 (fun _ _ => rfl) rfl rfl
+
+def frameSpec : FrameTarget mach frameIsa Cond.reads where
+  toFramePreds := framePreds
+  spec := frameSpec_spec
 
 open ProofUtil in
 theorem storeWords_region (ws : List (BitVec 64)) :

@@ -4,6 +4,8 @@ public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.LinkRecLemmas
 public import LeanQbe.T.Examples.LinkRec
 public import LeanQbe.T.MainSplice
+import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.FlatLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean

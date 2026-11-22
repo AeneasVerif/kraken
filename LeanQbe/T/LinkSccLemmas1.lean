@@ -3,6 +3,9 @@ module
 public import LeanQbe.T.LinkScc
 public import LeanQbe.T.LinkRecLemmas
 public import LeanQbe.T.SccLemmas
+import LeanQbe.T.OptLemmas
+import LeanQbe.T.LegalLemmas
+import LeanQbe.T.RegaLemmas
 
 /-!
 # Soundness of `LeanQbe.T.LinkScc` — Part 1 (`R-B`)

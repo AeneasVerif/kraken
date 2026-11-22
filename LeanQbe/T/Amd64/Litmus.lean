@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Examples.LitmusProgsLemmas
 public import LeanQbe.T.MainSplice
+import LeanQbe.T.Logic.MemLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
@@ -531,7 +532,8 @@ theorem tracer_x64_nonvacuous :
     ⟨0#64, emp, by rw [sep_emp]; rfl, fun _ hm' => ⟨rfl, by rwa [sep_emp] at hm'⟩⟩
   refine eventually_weaken _ _ _ _
     (fun st ⟨hpc, hrax, hm⟩ => ⟨hpc, hrax, by
-      simpa only [Target.Exit, x64Target, x64FrameSpec, x64Frame, x64Init] using hm⟩)
+      simpa only [Target.Exit, x64Target, x64FrameTarget, x64FramePreds, x64Frame, x64Init] using
+        hm⟩)
     (x64Init.run_ret1_sep_i64 tracerCompiled
       (tracer_fnspec 0 tracerCompiled.code_infix_host tracerCompiled.labelsUnique).2
       zeros8 (40#64, 2#64, 0x1000#64, ()) 42#64 (cell64 0x1000#64 42#64) (by decide) rfl hspec

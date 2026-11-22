@@ -1,21 +1,16 @@
 module
 
-public import LeanQbe.T.Amd64.Isel
-public import LeanQbe.T.Amd64.IselVec
-public import LeanQbe.T.Amd64.Frame
-public import LeanQbe.T.Amd64.IselLemmas5
-public import LeanQbe.T.Amd64.IselVecLemmas3
-public import LeanQbe.T.Amd64.FrameLemmas
-public import LeanQbe.T.Legal
+public import LeanQbe.T.Amd64.Isa
+import LeanQbe.T.Amd64.IselLemmas5
+import LeanQbe.T.Amd64.IselVecLemmas3
+import LeanQbe.T.Amd64.FrameLemmas
 
 /-!
 # SysV x64 `Target` Assembly & Legalization Parity (`T12i`)
 
-Assembles `x64Target : Target` from the verified x64 ISA components (`x64Mach`, `x64Gpr`,
-`x64Vec`, `x64Frame`, `x64GprSpec`, `x64VecSpec`, `x64FrameSpec`) and defines `x64LegalTarget :
-LegalTarget` aligned 1-for-1 with `x64Vec.supportsVecOp` (resolving `#008-B2` / `#294`: SHA-NI
-disabled, `shufd`/`shufb`/`alignr`/`blendw`/`fadd`/`fsub` restricted to 128-bit packed vectors,
-and `floatFmts := [.s]` matching `[i32, f32]` SIMD + `[8, 16, 32, 64]` scalar).
+Assembles `x64Target : Target` from the pure `x64Isa` components and private verification theorems
+(`x64_gprSpec`, `x64_vecSpec`, `x64_frameSpec`), preserving a strict module-system firewall against
+downstream rebuilds when `*Lemmas*` proofs change.
 -/
 
 set_option autoImplicit false
@@ -26,33 +21,34 @@ namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
 
-/-! ## 1. Target Assembly (`x64Target`) and Legalization Profile (`x64LegalTarget`) -/
+/-! ## 1. Target Assembly (`x64Target`) behind Module-System Proof Firewall -/
 
-/-- True iff `x64Load`/`x64Store`/`x64Vload`/`x64Vstore` encodes `[base + disp]` in one
-displacement operand without scratch materialization. -/
-def x64SupportsAddrDisp (t : Ty) (d : BitVec 64) : Bool :=
-  let okTy := match t with
-    | .bool => true
-    | .bits n => x64BitWidths.contains n
-    | .pair _ _ => (x64VecSlotWidth t).isSome
-    | .float _ => false
-  okTy && fitsImm32 d
+/-- Firewall theorem exposing `x64GprSpec` without exporting `*Lemmas*` proof terms. -/
+public theorem x64_gprSpec : GprTarget x64Mach x64Gpr x64Scratch :=
+  x64GprSpec
+
+/-- Firewall theorem exposing `x64VecSpec` without exporting `*Lemmas*` proof terms. -/
+public theorem x64_vecSpec :
+    VecTarget x64Mach x64Vec x64CondReads x64Frame.sp x64Scratch x64FramePreds.spOk :=
+  x64VecSpec
+
+/-- Firewall theorem exposing `x64FrameSpec.spec` without exporting `FrameLemmas`. -/
+public theorem x64_frameSpec : FrameSpec x64Mach x64Frame x64CondReads x64FramePreds :=
+  x64FrameSpec.spec
+
+/-- SysV x64 `FrameTarget` built from public `x64FramePreds` and `x64_frameSpec`. -/
+def x64FrameTarget : FrameTarget x64Mach x64Frame x64CondReads where
+  toFramePreds := x64FramePreds
+  spec := x64_frameSpec
 
 /-- Verified SysV x64 `Target` bundling scalar GPR, vector (`xmm`/`ymm`/`zmm`), and stack frame
 specifications. -/
 @[reducible] def x64Target : Target where
-  Reg := Reg64
-  VReg := RegMm
-  Cond := CondCode
-  Directive := Directive
-  gpr := x64Gpr
-  vec := x64Vec
-  frame := x64Frame
-  supportsAddrDisp := x64SupportsAddrDisp
+  toIsa := x64Isa
   mach := x64Mach
-  gprSpec := x64GprSpec
-  frameSpec := x64FrameSpec
-  vecSpec := x64VecSpec
+  gprSpec := x64_gprSpec
+  frameSpec := x64FrameTarget
+  vecSpec := x64_vecSpec
 
 theorem x64Target_toIsa :
     x64Target.toIsa =
@@ -60,27 +56,6 @@ theorem x64Target_toIsa :
         gpr := x64Gpr, vec := x64Vec, frame := x64Frame,
         supportsAddrDisp := x64SupportsAddrDisp } :=
   rfl
-
-/-- SysV x64 legalization capability record aligned with `x64Target` (`[8, 16, 32, 64]` scalar,
-`[128, 256, 512]` packed `[i32, f32]` SIMD, 128-bit SSE shuffle/float ops, no SHA-NI). -/
-def x64LegalTarget : LegalTarget :=
-  { LegalTarget.x64 [128, 256, 512] with
-    floatFmts := [.s]
-    vecIntOpSupported := fun {_ _} code t uniformImm =>
-      match code with
-      | .copy _ => true
-      | .add _ => isI32Vec t
-      | .and _ | .or _ | .xor _ | .not _ | .ternlog _ _ => true
-      | .rotr _ | .lshr _ => isI32Vec t && uniformImm
-      | .shufd _ _ | .shufb _ | .alignr _ _ | .blendw _ _ => t.size == 128
-      | _ => false
-    vecFloatOpSupported := fun {_ _} code t =>
-      match code with
-      | .fadd _ | .fsub _ => isF32Vec t && t.size == 128
-      | _ => false }
-
-theorem x64LegalTarget_valid : x64LegalTarget.valid = true := by
-  decide
 
 /-! ## 2. Parity Theorems (`x64LegalTarget` ↔ `x64Target.toIsa`) & Kernel Checks -/
 

@@ -7,7 +7,6 @@ public import Kraken.AArch64.WP
 public import Kraken.AArch64.Sep
 public import Kraken.AArch64.Regs
 public import LeanQbe.T.Target
-public import LeanQbe.T.TargetLemmas
 public import LeanQbe.T.StepSimp
 
 /-!

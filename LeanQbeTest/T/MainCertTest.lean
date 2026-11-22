@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.MainCert
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.FlatLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 public meta import Lean

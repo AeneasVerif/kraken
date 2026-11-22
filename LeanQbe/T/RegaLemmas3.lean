@@ -722,32 +722,6 @@ end Lemmas
 section Labels
 variable {I : Isa}
 
-/-- No directive of `c` is a label. -/
-def NoLab (I : Isa) (c : List I.Directive) : Prop := ∀ l, I.frame.label l ∉ c
-
-/-- Target-side side condition for `LabelsUnique`: `label` is injective and no `Isa` snippet emits
-a label directive. -/
-structure LabelClean (I : Isa) : Prop where
-  label_inj : ∀ a b, I.frame.label a = I.frame.label b → a = b
-  (mov : ∀ d s, NoLab I (I.gpr.mov d s)) (movi : ∀ d c, NoLab I (I.gpr.movi d c))
-  (setcc : ∀ d c, NoLab I (I.gpr.setcc d c)) (jmp : ∀ l, NoLab I (I.gpr.jmp l))
-  (jcc : ∀ c l, NoLab I (I.gpr.jcc c l)) (jnzGpr : ∀ r l, NoLab I (I.gpr.jnzGpr r l).1)
-  op : ∀ {sig rs : List Ty} (code : OpCode sig rs) pas dsts vh c cl,
-    I.gpr.op code pas dsts vh = some (c, cl) → NoLab I c
-  (load : ∀ t r a c cl, I.gpr.load t r a = some (c, cl) → NoLab I c)
-  (store : ∀ t pa a c cl, I.gpr.store t pa a = some (c, cl) → NoLab I c)
-  (clearFlags : NoLab I I.gpr.clearFlags) (vmov : ∀ w d s, NoLab I (I.vec.vmov w d s))
-  (vmovi : ∀ w d c code, I.vec.vmovi w d c = some code → NoLab I code)
-  (vslotSt : ∀ w i s, NoLab I (I.vec.vslotSt w i s)) (vslotLd : ∀ w d i, NoLab I (I.vec.vslotLd w d i))
-  vop : ∀ {sig rs : List Ty} (code : OpCode sig rs) pas dsts vh c cl,
-    I.vec.vop code pas dsts vh = some (c, cl) → NoLab I c
-  (vload : ∀ t d a c cl, I.vec.vload t d a = some (c, cl) → NoLab I c)
-  (vstore : ∀ t s a c cl, I.vec.vstore t s a = some (c, cl) → NoLab I c)
-  (prologue : ∀ n, NoLab I (I.frame.prologue n).1) (epilogue : ∀ n, NoLab I (I.frame.epilogue n).1)
-  (slotSt : ∀ i r, NoLab I (I.frame.slotSt i r)) (slotLd : ∀ r i, NoLab I (I.frame.slotLd r i))
-  (canonAbi : ∀ t r, NoLab I (I.frame.canonAbi t r).1) (call : ∀ f, NoLab I (I.frame.call f))
-  (exitJmp : ∀ f, NoLab I (I.frame.exitJmp f)) (ret : NoLab I I.frame.ret)
-
 theorem NoLab.nil : NoLab I [] := fun _ h => nomatch h
 
 theorem NoLab.append {a b : List I.Directive} (ha : NoLab I a) (hb : NoLab I b) :

@@ -1,8 +1,12 @@
 module
 
 public import LeanQbe.T.Amd64.Targ
-public import LeanQbe.T.RegaLemmas
 public import LeanQbe.T.MainLemmas
+import LeanQbe.T.RegaLemmas
+import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.Amd64.IselLemmas5
+import LeanQbe.T.Amd64.IselVecLemmas3
+import LeanQbe.T.Amd64.FrameLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 
@@ -217,7 +221,7 @@ private theorem x64AssignSig_cons {t : Ty} {ts : List Ty} {loc : AbiReg Reg64 Re
     cases gs with
     | nil => simp [Isa.assignSig] at h
     | cons r0 gs' =>
-      simp only [Isa.assignSig, x64Frame] at h
+      simp only [Isa.assignSig] at h
       cases hbw : [8, 16, 32, 64].contains n
       · simp only [hbw, Bool.false_eq_true, ↓reduceIte] at h; cases h
       · simp only [hbw, ↓reduceIte, Option.map_eq_some_iff] at h
@@ -350,7 +354,7 @@ def x64Init : TargetInit x64Target 2048 8192 where
   arg0 := .rdi
   initState := x64InitState
   get_sp := fun n bs {as} args => by
-    simp only [x64Target, x64Mach, x64Frame, x64InitState]
+    simp only [x64Target, x64Mach, x64InitState]
     cases h : x64Target.toIsa.assignArgs as with
     | none => rfl
     | some locs =>
@@ -362,7 +366,7 @@ def x64Init : TargetInit x64Target 2048 8192 where
     exact trel_x64_imp (fun t loc v h => by cases loc <;> exact h)
       (setX64AbiRegs_holds (by simp) (by simp) hlocs)
   raReg _ _ := by intros; trivial
-  spEntry := by dsimp only [x64Target, x64FrameSpec]; decide
+  spEntry := by dsimp only [x64Target, x64FrameTarget, x64FramePreds]; decide
   mem_entry n bs {_} _ hn hbs := x64InitMem_entry n 0x1234 bs hn hbs
   retsIn_singleton v s h := by
     obtain ⟨locs, hlocs, hrel⟩ := h

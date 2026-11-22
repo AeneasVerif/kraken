@@ -17,34 +17,6 @@ namespace LeanQbe.T
 
 section LegalWp
 
-/-- Lift a source return postcondition `Q : Post rs` to the legalized return tuple. -/
-def legalPost (target : LegalTarget) {rs : List Ty} (Q : Post rs) : Post (target.legalSig rs) :=
-  fun ys m => ∃ xs : Tup Val rs, encodeTup target rs xs = ys ∧ Q xs m
-
-/-- Lift a source abnormal-exit postcondition `X : XPost` across legalized exit signatures. -/
-def legalXPost (target : LegalTarget) (X : XPost) : XPost :=
-  fun g cs' ys m => ∃ (cs : List Ty) (hcs : target.legalSig cs = cs') (xs : Tup Val cs),
-    cast (congrArg (Tup Val) hcs) (encodeTup target cs xs) = ys ∧ X g cs xs m
-
-/-- Simulation relation between source callee environment `Γsrc` and target environment `Γtgt`. -/
-def EnvRefines (target : LegalTarget) (Γsrc Γtgt : Env) : Prop :=
-  ∀ f as bs xs m P E,
-    Γsrc f as bs xs m P E →
-    Γtgt f (target.legalSig as) (target.legalSig bs) (encodeTup target as xs) m
-      (legalPost target P) (legalXPost target E)
-
-/-- Canonical legalized environment transforming every source contract via `encodeTup` / `legalPost`
-  /
-`legalXPost` (with consequence closure matching `wp_env_mono`). -/
-def legalEnv (target : LegalTarget) (Γ : Env) : Env :=
-  fun f as' bs' xs' m' Q' X' =>
-    ∃ (as bs : List Ty) (has : target.legalSig as = as') (hbs : target.legalSig bs = bs')
-      (xs : Tup Val as) (P : Post bs) (E : XPost),
-      cast (congrArg (Tup Val) has) (encodeTup target as xs) = xs' ∧
-      (∀ r m, legalPost target P r m → Q' (cast (congrArg (Tup Val) hbs) r) m) ∧
-      (∀ g cs ys m, legalXPost target E g cs ys m → X' g cs ys m) ∧
-      Γ f as bs xs m' P E
-
 theorem envRefines_legalEnv (target : LegalTarget) (Γ : Env) :
   EnvRefines target Γ (legalEnv target Γ) :=
   fun _ as bs xs _ P E h =>

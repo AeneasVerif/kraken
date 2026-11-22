@@ -3,6 +3,9 @@ module
 public import LeanQbe.T.LinkRec
 public import LeanQbe.T.MainLemmas
 public import LeanQbe.T.AbiLemmas
+import LeanQbe.T.OptLemmas
+import LeanQbe.T.LegalLemmas
+import LeanQbe.T.RegaLemmas
 
 /-!
 # Soundness of `LeanQbe.T.LinkRec` (`B1.1`)

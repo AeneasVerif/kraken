@@ -656,15 +656,8 @@ theorem armRet_spec {h : Host} {k : Nat} {s : MachineData} {ra : Int64}
 
 /-! ## 5. `armFrameSpec : FrameTarget armMach armFrame armCondReads` -/
 
-def armFrameSpec : FrameTarget armMach armFrame armCondReads where
-  RetAddr sp _ := region sp 0
-  raReg s ra := get s (.reg .X30) = ra.toBitVec
-  spEntry sp := sp.toNat % 16 = 0
-  spOk sp := sp.toNat % 16 = 0
-  Saved sp ra ns :=
-    cell64 (sp - BitVec.ofNat 64 (armFrameSize ns) + BitVec.ofNat 64 (8 * ns)) ra.toBitVec ⋆
-      region (sp - BitVec.ofNat 64 (armFrameSize ns) + BitVec.ofNat 64 (8 * ns) + 8#64)
-        (armFrameSize ns - 8 * ns - 8)
+theorem armFrameSpec_spec :
+    FrameSpec armMach armFrame armCondReads armFramePreds where
   sp_disj := by simp
   scratch_disj := by simp
   cs_disj := by simp
@@ -672,7 +665,9 @@ def armFrameSpec : FrameTarget armMach armFrame armCondReads where
   argRegs_nodup := by decide
   retRegs_nodup := by decide
   retAddr_region _ _ _ h := h
-  raReg_of_raRegs _ _ _ h hra := by rw [← hra]; exact h (.reg .X30) (by simp)
+  raReg_of_raRegs _ _ _ h hra := by
+    dsimp [armFramePreds] at hra ⊢
+    rw [← hra]; exact h (.reg .X30) (by simp)
   slots_le_frameSize := armFrameSize_slots
   spOk_frame _ ns h := aligned16_sub h (armFrameSize_mod ns)
   spEntry_call sp ns h := by simpa [BitVec.sub_zero] using aligned16_sub h (armFrameSize_mod ns)
@@ -694,6 +689,10 @@ def armFrameSpec : FrameTarget armMach armFrame armCondReads where
     letI := h; armExitJmp_spec hc hk
   ret_spec {h} {_} {_} {_} {_} {_} hc hra _ hk :=
     letI := h; armRet_spec hc hra hk
+
+def armFrameSpec : FrameTarget armMach armFrame armCondReads where
+  toFramePreds := armFramePreds
+  spec := armFrameSpec_spec
 
 /-! ## 6. `NoLab` lemmas -/
 

@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.MainLemmas
+import LeanQbe.T.OptLemmas
 
 /-!
 # Verified `Module.optInline` Compilation Bridge (`C3`)

@@ -5,6 +5,7 @@ public import LeanQbe.T.MainLinkSplice
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.MainSplice
 public import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.FlatLemmas
 public meta import Lean
 public meta import LeanQbe.T.MainSplice
 public meta import LeanQbe.T.MainLinkSplice

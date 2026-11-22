@@ -3,6 +3,8 @@ module
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Examples.UnionFindLemmas
 public import LeanQbe.T.MainSplice
+import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.FlatLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
@@ -233,7 +235,8 @@ theorem find_arm64_nonvacuous :
   rintro st ⟨hpc, hx0, hm⟩
   refine ⟨hpc, ?_, ?_⟩
   · simpa [armInit, get_reg] using hx0
-  · simpa only [Target.Exit, armTarget, armFrameSpec, armFrame, armInit, Nat.add_zero] using hm
+  · simpa only [Target.Exit, armTarget, armFrameTarget, armFramePreds, armFrame, armInit,
+      Nat.add_zero] using hm
 
 private theorem unionLike_arm64_nonvacuous
     {fn : Fn} (hfn_mem : fn ∈ ufModule.fns) (has : fn.as = [i64, i64, i64]) (hrs : fn.rs = [])
@@ -254,7 +257,8 @@ private theorem unionLike_arm64_nonvacuous
   rintro st (⟨hpc, _, m', ⟨rfl, huf'⟩, _, hm'⟩ | ⟨_, _, _, _, hx, _⟩)
   · refine ⟨hpc, ?_, merge_init_1_2⟩
     rw [sep_emp] at huf'
-    simpa only [Target.Exit, armTarget, armFrameSpec, armFrame, armInit, Nat.add_zero] using
+    simpa only [Target.Exit, armTarget, armFrameTarget, armFramePreds, armFrame, armInit,
+      Nat.add_zero] using
       sep_mono (fun _ => sep_mono (fun _ e => e ▸ huf')) hm'
   · exact hx.elim
 

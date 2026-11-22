@@ -1,7 +1,6 @@
 module
 
 public import LeanQbe.T.Arm64.Base
-public import LeanQbe.T.AbiLemmas
 public import LeanQbe.T.IselStepAttr
 
 /-!
@@ -225,5 +224,16 @@ def armRetD : Directive := .instr armRetI
   call sym := emitClean [armCallI sym]
   exitJmp sym := emitClean [armJmpI sym]
   ret := emitClean [armRetI]
+
+/-- AAPCS64 Arm64 frame predicates (`Prop`-valued invariants, zero `*Lemmas*` imports). -/
+@[reducible] def armFramePreds : FramePreds armMach where
+  RetAddr sp _ := region sp 0
+  raReg s ra := get s (.reg .X30) = ra.toBitVec
+  spEntry sp := sp.toNat % 16 = 0
+  spOk sp := sp.toNat % 16 = 0
+  Saved sp ra ns :=
+    cell64 (sp - BitVec.ofNat 64 (armFrameSize ns) + BitVec.ofNat 64 (8 * ns)) ra.toBitVec ⋆
+      region (sp - BitVec.ofNat 64 (armFrameSize ns) + BitVec.ofNat 64 (8 * ns) + 8#64)
+        (armFrameSize ns - 8 * ns - 8)
 
 end LeanQbe.T.Arm64

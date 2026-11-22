@@ -3,6 +3,8 @@ module
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Examples.UnionFindLemmas
 public import LeanQbe.T.MainSplice
+import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.FlatLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
@@ -231,7 +233,8 @@ theorem find_x64_nonvacuous :
       (by simp [ufModule, ufFns] : (⟨"find", [i64, i64], [i64], find⟩ : Fn) ∈ ufModule.fns)).2
   refine eventually_weaken _ _ _ _
     (fun st ⟨hpc, hrax, hm⟩ => ⟨hpc, hrax, by
-      simpa only [Target.Exit, x64Target, x64FrameSpec, x64Frame, x64Init] using hm⟩)
+      simpa only [Target.Exit, x64Target, x64FrameTarget, x64FramePreds, x64Frame, x64Init] using
+        hm⟩)
     (x64Init.run_ret1_sep_i64 compiled hfn ufInitBytes (0x1000#64, 3#64, ()) 3#64
       (uf 0x1000#64 4 id) ufInitBytes_length rfl find_nonvacuous
       fun _ _ ⟨hr, hm⟩ => ⟨hr, by rwa [sep_emp] at hm⟩)
@@ -255,7 +258,7 @@ private theorem unionLike_x64_nonvacuous
   rintro st (⟨hpc, _, m', ⟨rfl, huf'⟩, _, hm'⟩ | ⟨_, _, _, _, hx, _⟩)
   · refine ⟨hpc, ?_, merge_init_1_2⟩
     rw [sep_emp] at huf'
-    simpa only [Target.Exit, x64Target, x64FrameSpec, x64Frame, x64Init] using
+    simpa only [Target.Exit, x64Target, x64FrameTarget, x64FramePreds, x64Frame, x64Init] using
       sep_mono (fun _ => sep_mono (fun _ e => e ▸ huf')) hm'
   · exact hx.elim
 

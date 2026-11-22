@@ -124,8 +124,6 @@ section Frame
 variable (T : Target) (hints : T.toIsa.Hints) (s₀ : T.mach.MData) (ra : T.mach.Addr) (n : Nat)
   (Rf : Mem 64 → Prop)
 
-abbrev frame : Nat := T.frame.frameSize hints.totalSlots
-
 abbrev base : BitVec 64 := T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 (frame T hints)
 
 def csSlots : Mem 64 → Prop :=

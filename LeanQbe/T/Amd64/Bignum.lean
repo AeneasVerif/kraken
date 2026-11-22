@@ -3,6 +3,8 @@ module
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Examples.Bignum
 public import LeanQbe.T.MainSplice
+import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.FlatLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
@@ -352,7 +354,7 @@ theorem mul4x4_x64_nonvacuous :
     nvMulBytes_length rfl hspec ?_
   rintro st (⟨hpc, _, m', hP, _, hm'⟩ | ⟨_, _, _, _, hx, _⟩)
   · refine ⟨hpc, ?_⟩
-    simpa only [Target.Exit, x64Target, x64FrameSpec, x64Frame, x64Init] using
+    simpa only [Target.Exit, x64Target, x64FrameTarget, x64FramePreds, x64Frame, x64Init] using
       sep_mono (fun _ => sep_mono (fun _ e => e ▸ hP)) hm'
   · exact hx.elim
 
@@ -427,7 +429,7 @@ theorem addMod25519_x64_nonvacuous :
     (0x1000#64, 0x1020#64, 0x1040#64, ()) nvAddBytes_length rfl hspec ?_
   rintro st (⟨hpc, _, m', hP, _, hm'⟩ | ⟨_, _, _, _, hx, _⟩)
   · refine ⟨hpc, ?_⟩
-    simpa only [Target.Exit, x64Target, x64FrameSpec, x64Frame, x64Init] using
+    simpa only [Target.Exit, x64Target, x64FrameTarget, x64FramePreds, x64Frame, x64Init] using
       sep_mono (fun _ => sep_mono (fun _ e => e ▸ hP)) hm'
   · exact hx.elim
 
@@ -486,7 +488,7 @@ theorem subMod25519_x64_nonvacuous :
     (0x1000#64, 0x1020#64, 0x1040#64, ()) nvSubBytes_length rfl hspec ?_
   rintro st (⟨hpc, _, m', hP, _, hm'⟩ | ⟨_, _, _, _, hx, _⟩)
   · refine ⟨hpc, ?_⟩
-    simpa only [Target.Exit, x64Target, x64FrameSpec, x64Frame, x64Init] using
+    simpa only [Target.Exit, x64Target, x64FrameTarget, x64FramePreds, x64Frame, x64Init] using
       sep_mono (fun _ => sep_mono (fun _ e => e ▸ hP)) hm'
   · exact hx.elim
 

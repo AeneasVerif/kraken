@@ -517,13 +517,15 @@ structure GprTarget {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
     M.FallsTo g.condReads h k c scratch [] clob s
       (fun s' => M.mem s' = storeMem (M.mem s) t (a.eval (M.getGpr s)) v) post
 
-structure FrameTarget {R V C D : Type} (M : Machine R V C D) (f : FrameIsa R D)
-    (condReads : C → FlagMask) : Type where
+structure FramePreds {R V C D : Type} (M : Machine R V C D) : Type where
   RetAddr : BitVec 64 → M.Addr → Mem 64 → Prop
   raReg : M.MData → M.Addr → Prop
   spEntry : BitVec 64 → Prop
   spOk : BitVec 64 → Prop
   Saved : BitVec 64 → M.Addr → Nat → Mem 64 → Prop
+
+structure FrameSpec {R V C D : Type} (M : Machine R V C D) (f : FrameIsa R D)
+    (condReads : C → FlagMask) (P : FramePreds M) : Prop where
   sp_disj : f.sp ∉ f.scratch ∧ f.sp ∉ f.allocatable ∧ f.sp ∉ f.calleeSaved ∧
     f.sp ∉ f.argRegs ∧ f.sp ∉ f.retRegs ∧ f.sp ∉ f.raRegs
   scratch_disj : ∀ r ∈ f.scratch,
@@ -533,43 +535,43 @@ structure FrameTarget {R V C D : Type} (M : Machine R V C D) (f : FrameIsa R D)
     r ∉ f.allocatable ∧ r ∉ f.scratch ∧ r ∉ f.calleeSaved ∧ r ∉ f.argRegs ∧ r ∉ f.retRegs
   argRegs_nodup : f.argRegs.Nodup
   retRegs_nodup : f.retRegs.Nodup
-  retAddr_region : ∀ a ra m, RetAddr a ra m → region a f.raBytes m
+  retAddr_region : ∀ a ra m, P.RetAddr a ra m → region a f.raBytes m
   raReg_of_raRegs : ∀ s s' ra,
-    (∀ r ∈ f.raRegs, M.getGpr s' r = M.getGpr s r) → raReg s ra → raReg s' ra
+    (∀ r ∈ f.raRegs, M.getGpr s' r = M.getGpr s r) → P.raReg s ra → P.raReg s' ra
   slots_le_frameSize : ∀ ns, 8 * ns ≤ f.frameSize ns
-  spOk_frame : ∀ sp ns, spEntry sp → spOk (sp - BitVec.ofNat 64 (f.frameSize ns))
-  spEntry_call : ∀ sp ns, spEntry sp →
-    spEntry (sp - BitVec.ofNat 64 (f.frameSize ns) - BitVec.ofNat 64 f.raBytes)
+  spOk_frame : ∀ sp ns, P.spEntry sp → P.spOk (sp - BitVec.ofNat 64 (f.frameSize ns))
+  spEntry_call : ∀ sp ns, P.spEntry sp →
+    P.spEntry (sp - BitVec.ofNat 64 (f.frameSize ns) - BitVec.ofNat 64 f.raBytes)
   labelAddr_eq : ∀ {h} {k : Nat} {l},
     (M.prog h)[k]? = some (f.label l) →
     (∀ j < k, (M.prog h)[j]? ≠ some (f.label l)) → M.labelAddr h l = M.addrOf h k
   label_spec : ∀ {h} {k : Nat} {l s post},
     (M.prog h)[k]? = some (f.label l) → M.Run h (k + 1) s post → M.Run h k s post
   prologue_spec : ∀ {h k ns s ra G post},
-    raReg s ra → spEntry (M.getGpr s f.sp) → f.frameSize ns + f.raBytes ≤ 2 ^ 64 →
-    (M.mem s =⋆ RetAddr (M.getGpr s f.sp) ra ⋆
+    P.raReg s ra → P.spEntry (M.getGpr s f.sp) → f.frameSize ns + f.raBytes ≤ 2 ^ 64 →
+    (M.mem s =⋆ P.RetAddr (M.getGpr s f.sp) ra ⋆
       region (M.getGpr s f.sp - BitVec.ofNat 64 (f.frameSize ns)) (f.frameSize ns) ⋆ G) →
     M.FallsTo condReads h k (f.prologue ns).1 (f.sp :: f.raRegs ++ f.scratch) [] (f.prologue ns).2 s
       (fun s' => M.getGpr s' f.sp = M.getGpr s f.sp - BitVec.ofNat 64 (f.frameSize ns) ∧
-        (M.mem s' =⋆ Saved (M.getGpr s f.sp) ra ns ⋆
+        (M.mem s' =⋆ P.Saved (M.getGpr s f.sp) ra ns ⋆
           region (M.getGpr s f.sp - BitVec.ofNat 64 (f.frameSize ns)) (8 * ns) ⋆ G)) post
   epilogue_spec : ∀ {h k ns s ra G post},
-    spOk (M.getGpr s f.sp) → f.frameSize ns + f.raBytes ≤ 2 ^ 64 →
-    (M.mem s =⋆ Saved (M.getGpr s f.sp + BitVec.ofNat 64 (f.frameSize ns)) ra ns ⋆ G) →
+    P.spOk (M.getGpr s f.sp) → f.frameSize ns + f.raBytes ≤ 2 ^ 64 →
+    (M.mem s =⋆ P.Saved (M.getGpr s f.sp + BitVec.ofNat 64 (f.frameSize ns)) ra ns ⋆ G) →
     M.FallsTo condReads h k (f.epilogue ns).1 (f.sp :: f.raRegs ++ f.scratch) [] (f.epilogue ns).2 s
       (fun s' => M.getGpr s' f.sp = M.getGpr s f.sp + BitVec.ofNat 64 (f.frameSize ns) ∧
-        raReg s' ra ∧
-        (M.mem s' =⋆ RetAddr (M.getGpr s f.sp + BitVec.ofNat 64 (f.frameSize ns)) ra ⋆
+        P.raReg s' ra ∧
+        (M.mem s' =⋆ P.RetAddr (M.getGpr s f.sp + BitVec.ofNat 64 (f.frameSize ns)) ra ⋆
           region (M.getGpr s f.sp + BitVec.ofNat 64 (8 * ns))
             (f.frameSize ns - 8 * ns) ⋆ G)) post
   slotSt_spec : ∀ {h k i r s G post},
-    r ∉ f.scratch → spOk (M.getGpr s f.sp) →
+    r ∉ f.scratch → P.spOk (M.getGpr s f.sp) →
     (M.mem s =⋆ region (M.getGpr s f.sp + BitVec.ofNat 64 (8 * i)) 8 ⋆ G) →
     M.FallsTo condReads h k (f.slotSt i r) f.scratch [] FlagMask.none s
       (fun s' => M.mem s' =⋆
         cell64 (M.getGpr s f.sp + BitVec.ofNat 64 (8 * i)) (M.getGpr s r) ⋆ G) post
   slotLd_spec : ∀ {h k i rd v s G post},
-    rd ∉ f.scratch → spOk (M.getGpr s f.sp) →
+    rd ∉ f.scratch → P.spOk (M.getGpr s f.sp) →
     (M.mem s =⋆ cell64 (M.getGpr s f.sp + BitVec.ofNat 64 (8 * i)) v ⋆ G) →
     M.FallsTo condReads h k (f.slotLd rd i) (rd :: f.scratch) [] FlagMask.none s
       (fun s' => M.getGpr s' rd = v ∧ M.mem s' = M.mem s) post
@@ -583,9 +585,9 @@ structure FrameTarget {R V C D : Type} (M : Machine R V C D) (f : FrameIsa R D)
     (M.mem s =⋆ region (M.getGpr s f.sp - BitVec.ofNat 64 f.raBytes) f.raBytes ⋆ G) →
     (∀ s', M.getGpr s' f.sp = M.getGpr s f.sp - BitVec.ofNat 64 f.raBytes →
       M.Frame condReads s s' (f.sp :: f.raRegs ++ f.scratch) [] FlagMask.all →
-      raReg s' (M.addrOf h (k + (f.call sym).length)) →
+      P.raReg s' (M.addrOf h (k + (f.call sym).length)) →
       (M.mem s' =⋆
-        RetAddr (M.getGpr s' f.sp) (M.addrOf h (k + (f.call sym).length)) ⋆ G) →
+        P.RetAddr (M.getGpr s' f.sp) (M.addrOf h (k + (f.call sym).length)) ⋆ G) →
       Eventually (M.step h) post (M.mkState s' (M.labelAddr h sym))) →
     M.Run h k s post
   exitJmp_spec : ∀ {h k sym s post},
@@ -594,12 +596,143 @@ structure FrameTarget {R V C D : Type} (M : Machine R V C D) (f : FrameIsa R D)
       Eventually (M.step h) post (M.mkState s' (M.labelAddr h sym))) →
     M.Run h k s post
   ret_spec : ∀ {h k s ra R post},
-    f.ret.IsInfixAt (M.prog h) k → raReg s ra →
-    (M.mem s =⋆ RetAddr (M.getGpr s f.sp) ra ⋆ R) →
+    f.ret.IsInfixAt (M.prog h) k → P.raReg s ra →
+    (M.mem s =⋆ P.RetAddr (M.getGpr s f.sp) ra ⋆ R) →
     (∀ s', M.KeepsGpr s s' (f.sp :: f.scratch) → M.KeepsVec s s' [] →
       M.getGpr s' f.sp = M.getGpr s f.sp + BitVec.ofNat 64 f.raBytes →
       M.mem s' = M.mem s → Eventually (M.step h) post (M.mkState s' ra)) →
     M.Run h k s post
+
+structure FrameTarget {R V C D : Type} (M : Machine R V C D) (f : FrameIsa R D)
+    (condReads : C → FlagMask) : Type extends FramePreds M where
+  spec : FrameSpec M f condReads toFramePreds
+
+namespace FrameTarget
+variable {R V C D : Type} {M : Machine R V C D} {f : FrameIsa R D} {condReads : C → FlagMask}
+
+theorem sp_disj (ft : FrameTarget M f condReads) :
+    f.sp ∉ f.scratch ∧ f.sp ∉ f.allocatable ∧ f.sp ∉ f.calleeSaved ∧
+    f.sp ∉ f.argRegs ∧ f.sp ∉ f.retRegs ∧ f.sp ∉ f.raRegs :=
+  ft.spec.sp_disj
+
+theorem scratch_disj (ft : FrameTarget M f condReads) : ∀ r ∈ f.scratch,
+    r ∉ f.allocatable ∧ r ∉ f.calleeSaved ∧ r ∉ f.argRegs ∧ r ∉ f.retRegs :=
+  ft.spec.scratch_disj
+
+theorem cs_disj (ft : FrameTarget M f condReads) :
+    ∀ r ∈ f.calleeSaved, r ∉ f.allocatable ∧ r ∉ f.argRegs ∧ r ∉ f.retRegs :=
+  ft.spec.cs_disj
+
+theorem ra_disj (ft : FrameTarget M f condReads) : ∀ r ∈ f.raRegs,
+    r ∉ f.allocatable ∧ r ∉ f.scratch ∧ r ∉ f.calleeSaved ∧ r ∉ f.argRegs ∧ r ∉ f.retRegs :=
+  ft.spec.ra_disj
+
+theorem argRegs_nodup (ft : FrameTarget M f condReads) : f.argRegs.Nodup :=
+  ft.spec.argRegs_nodup
+
+theorem retRegs_nodup (ft : FrameTarget M f condReads) : f.retRegs.Nodup :=
+  ft.spec.retRegs_nodup
+
+theorem retAddr_region (ft : FrameTarget M f condReads) :
+    ∀ a ra m, ft.RetAddr a ra m → region a f.raBytes m :=
+  ft.spec.retAddr_region
+
+theorem raReg_of_raRegs (ft : FrameTarget M f condReads) : ∀ s s' ra,
+    (∀ r ∈ f.raRegs, M.getGpr s' r = M.getGpr s r) → ft.raReg s ra → ft.raReg s' ra :=
+  ft.spec.raReg_of_raRegs
+
+theorem slots_le_frameSize (ft : FrameTarget M f condReads) : ∀ ns, 8 * ns ≤ f.frameSize ns :=
+  ft.spec.slots_le_frameSize
+
+theorem spOk_frame (ft : FrameTarget M f condReads) :
+    ∀ sp ns, ft.spEntry sp → ft.spOk (sp - BitVec.ofNat 64 (f.frameSize ns)) :=
+  ft.spec.spOk_frame
+
+theorem spEntry_call (ft : FrameTarget M f condReads) : ∀ sp ns, ft.spEntry sp →
+    ft.spEntry (sp - BitVec.ofNat 64 (f.frameSize ns) - BitVec.ofNat 64 f.raBytes) :=
+  ft.spec.spEntry_call
+
+theorem labelAddr_eq (ft : FrameTarget M f condReads) : ∀ {h} {k : Nat} {l},
+    (M.prog h)[k]? = some (f.label l) →
+    (∀ j < k, (M.prog h)[j]? ≠ some (f.label l)) → M.labelAddr h l = M.addrOf h k :=
+  ft.spec.labelAddr_eq
+
+theorem label_spec (ft : FrameTarget M f condReads) : ∀ {h} {k : Nat} {l s post},
+    (M.prog h)[k]? = some (f.label l) → M.Run h (k + 1) s post → M.Run h k s post :=
+  ft.spec.label_spec
+
+theorem prologue_spec (ft : FrameTarget M f condReads) : ∀ {h k ns s ra G post},
+    ft.raReg s ra → ft.spEntry (M.getGpr s f.sp) → f.frameSize ns + f.raBytes ≤ 2 ^ 64 →
+    (M.mem s =⋆ ft.RetAddr (M.getGpr s f.sp) ra ⋆
+      region (M.getGpr s f.sp - BitVec.ofNat 64 (f.frameSize ns)) (f.frameSize ns) ⋆ G) →
+    M.FallsTo condReads h k (f.prologue ns).1 (f.sp :: f.raRegs ++ f.scratch) [] (f.prologue ns).2 s
+      (fun s' => M.getGpr s' f.sp = M.getGpr s f.sp - BitVec.ofNat 64 (f.frameSize ns) ∧
+        (M.mem s' =⋆ ft.Saved (M.getGpr s f.sp) ra ns ⋆
+          region (M.getGpr s f.sp - BitVec.ofNat 64 (f.frameSize ns)) (8 * ns) ⋆ G)) post :=
+  ft.spec.prologue_spec
+
+theorem epilogue_spec (ft : FrameTarget M f condReads) : ∀ {h k ns s ra G post},
+    ft.spOk (M.getGpr s f.sp) → f.frameSize ns + f.raBytes ≤ 2 ^ 64 →
+    (M.mem s =⋆ ft.Saved (M.getGpr s f.sp + BitVec.ofNat 64 (f.frameSize ns)) ra ns ⋆ G) →
+    M.FallsTo condReads h k (f.epilogue ns).1 (f.sp :: f.raRegs ++ f.scratch) [] (f.epilogue ns).2 s
+      (fun s' => M.getGpr s' f.sp = M.getGpr s f.sp + BitVec.ofNat 64 (f.frameSize ns) ∧
+        ft.raReg s' ra ∧
+        (M.mem s' =⋆ ft.RetAddr (M.getGpr s f.sp + BitVec.ofNat 64 (f.frameSize ns)) ra ⋆
+          region (M.getGpr s f.sp + BitVec.ofNat 64 (8 * ns))
+            (f.frameSize ns - 8 * ns) ⋆ G)) post :=
+  ft.spec.epilogue_spec
+
+theorem slotSt_spec (ft : FrameTarget M f condReads) : ∀ {h k i r s G post},
+    r ∉ f.scratch → ft.spOk (M.getGpr s f.sp) →
+    (M.mem s =⋆ region (M.getGpr s f.sp + BitVec.ofNat 64 (8 * i)) 8 ⋆ G) →
+    M.FallsTo condReads h k (f.slotSt i r) f.scratch [] FlagMask.none s
+      (fun s' => M.mem s' =⋆
+        cell64 (M.getGpr s f.sp + BitVec.ofNat 64 (8 * i)) (M.getGpr s r) ⋆ G) post :=
+  ft.spec.slotSt_spec
+
+theorem slotLd_spec (ft : FrameTarget M f condReads) : ∀ {h k i rd v s G post},
+    rd ∉ f.scratch → ft.spOk (M.getGpr s f.sp) →
+    (M.mem s =⋆ cell64 (M.getGpr s f.sp + BitVec.ofNat 64 (8 * i)) v ⋆ G) →
+    M.FallsTo condReads h k (f.slotLd rd i) (rd :: f.scratch) [] FlagMask.none s
+      (fun s' => M.getGpr s' rd = v ∧ M.mem s' = M.mem s) post :=
+  ft.spec.slotLd_spec
+
+theorem canonAbi_spec (ft : FrameTarget M f condReads) : ∀ {h k t r v s post},
+    (t = .bool ∨ ∃ n ∈ f.bitWidths, t = .bits n) → r ∉ f.scratch →
+    GprHolds (M.getGpr s r) t v →
+    M.FallsTo condReads h k (f.canonAbi t r).1 (r :: f.scratch) [] (f.canonAbi t r).2 s
+      (fun s' => AbiGprHolds (M.getGpr s' r) t v ∧ M.mem s' = M.mem s) post :=
+  ft.spec.canonAbi_spec
+
+theorem call_spec (ft : FrameTarget M f condReads) : ∀ {h k sym s G post},
+    (f.call sym).IsInfixAt (M.prog h) k →
+    (M.mem s =⋆ region (M.getGpr s f.sp - BitVec.ofNat 64 f.raBytes) f.raBytes ⋆ G) →
+    (∀ s', M.getGpr s' f.sp = M.getGpr s f.sp - BitVec.ofNat 64 f.raBytes →
+      M.Frame condReads s s' (f.sp :: f.raRegs ++ f.scratch) [] FlagMask.all →
+      ft.raReg s' (M.addrOf h (k + (f.call sym).length)) →
+      (M.mem s' =⋆
+        ft.RetAddr (M.getGpr s' f.sp) (M.addrOf h (k + (f.call sym).length)) ⋆ G) →
+      Eventually (M.step h) post (M.mkState s' (M.labelAddr h sym))) →
+    M.Run h k s post :=
+  ft.spec.call_spec
+
+theorem exitJmp_spec (ft : FrameTarget M f condReads) : ∀ {h k sym s post},
+    (f.exitJmp sym).IsInfixAt (M.prog h) k →
+    (∀ s', M.Frame condReads s s' f.scratch [] FlagMask.none → M.mem s' = M.mem s →
+      Eventually (M.step h) post (M.mkState s' (M.labelAddr h sym))) →
+    M.Run h k s post :=
+  ft.spec.exitJmp_spec
+
+theorem ret_spec (ft : FrameTarget M f condReads) : ∀ {h k s ra R post},
+    f.ret.IsInfixAt (M.prog h) k → ft.raReg s ra →
+    (M.mem s =⋆ ft.RetAddr (M.getGpr s f.sp) ra ⋆ R) →
+    (∀ s', M.KeepsGpr s s' (f.sp :: f.scratch) → M.KeepsVec s s' [] →
+      M.getGpr s' f.sp = M.getGpr s f.sp + BitVec.ofNat 64 f.raBytes →
+      M.mem s' = M.mem s → Eventually (M.step h) post (M.mkState s' ra)) →
+    M.Run h k s post :=
+  ft.spec.ret_spec
+
+end FrameTarget
 
 structure VecTarget {R V C D : Type} (M : Machine R V C D) (v : VecIsa R V C D)
     (condReads : C → FlagMask) (sp : R) (scratch : List R) (spOk : BitVec 64 → Prop) : Prop where

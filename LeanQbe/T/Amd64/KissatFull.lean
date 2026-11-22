@@ -2,6 +2,7 @@ module
 public import LeanQbe.T.Amd64.KissatFullCert
 public import LeanQbe.T.Examples.Kissat.FullProof
 import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.Logic.MemLemmas
 import all Std.Sat.CNF.Basic
 import all Kraken.Mem
 import all Kraken.Separation
@@ -204,7 +205,8 @@ theorem full_unsat_nonvacuous_x64 [hh : Host] (k₀ : Nat)
     rw [show s.regs.get64 .rsp = 0x0ff8#64 from rfl]
     have h3 := sep_mono_mid (fun _ h => show region 0x1018#64 2048 _ from
       ⟨List.replicate 2048 0, List.length_replicate, h.symm⟩) h1
-    dsimp only [Target.Entry, x64Target, x64FrameSpec] at h3; simp only [sep_emp] at h3 ⊢; exact h3
+    dsimp only [Target.Entry, x64Target, x64FrameTarget, x64FramePreds] at h3
+    simp only [sep_emp] at h3 ⊢; exact h3
   have hhsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0 := by
     rw [show s.regs.get64 .rsp = 0x0ff8#64 from rfl]; decide
   refine ⟨0x1000#64, 0x1018#64, 1#64, nvBytes, 2048, s, 0x1234, emp, by decide, by decide, rfl,

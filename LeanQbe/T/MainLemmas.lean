@@ -1,11 +1,11 @@
 module
 
 public import LeanQbe.T.Main
-public import LeanQbe.T.OptLemmas
-public import LeanQbe.T.LegalLemmas
-public import LeanQbe.T.RegaLemmas
-public import LeanQbe.T.TargetLemmas
-public import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.OptLemmas
+import LeanQbe.T.LegalLemmas
+import LeanQbe.T.RegaLemmas
+import LeanQbe.T.TargetLemmas
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Soundness of `LeanQbe.T.Main` & `Compiled` Harness (`T12g`)

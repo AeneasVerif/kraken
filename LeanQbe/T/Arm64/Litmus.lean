@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Examples.LitmusProgsLemmas
 public import LeanQbe.T.MainSplice
+import LeanQbe.T.Logic.MemLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
@@ -550,7 +551,8 @@ theorem tracer_arm64_nonvacuous :
   rintro st ⟨hpc, hx0, hm⟩
   refine ⟨hpc, ?_, ?_⟩
   · simpa [armInit, get_reg] using hx0
-  · simpa only [Target.Exit, armTarget, armFrameSpec, armFrame, armInit, Nat.add_zero] using hm
+  · simpa only [Target.Exit, armTarget, armFrameTarget, armFramePreds, armFrame, armInit,
+      Nat.add_zero] using hm
 
 abbrev sumtoHost : Host := sumtoCompiled.host
 def sumtoState : MachineData :=

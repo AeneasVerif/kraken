@@ -459,14 +459,8 @@ theorem x64Ret_spec {h : Host} {k : Nat} {s : MachineData} {ra : Int64}
 
 /-! ## 4. `x64FrameSpec : FrameTarget x64Mach x64Frame x64CondReads` -/
 
-def x64FrameSpec : FrameTarget x64Mach x64Frame x64CondReads where
-  RetAddr sp ra := cell64 sp ra.toBitVec
-  raReg _ _ := True
-  spEntry sp := (sp + 8#64).toNat % 16 = 0
-  spOk _ := True
-  Saved sp ra ns :=
-    region (sp - BitVec.ofNat 64 (x64FrameSize ns) + BitVec.ofNat 64 (8 * ns))
-      (x64FrameSize ns - 8 * ns) ⋆ cell64 sp ra.toBitVec
+theorem x64FrameSpec_spec :
+    FrameSpec x64Mach x64Frame x64CondReads x64FramePreds where
   sp_disj := by simp
   scratch_disj := by simp
   cs_disj := by simp
@@ -496,6 +490,10 @@ def x64FrameSpec : FrameTarget x64Mach x64Frame x64CondReads where
     letI := h; x64ExitJmp_spec hc hk
   ret_spec {h} {_} {_} {_} {_} {_} hc _ hmem hk :=
     letI := h; x64Ret_spec hc hmem hk
+
+def x64FrameSpec : FrameTarget x64Mach x64Frame x64CondReads where
+  toFramePreds := x64FramePreds
+  spec := x64FrameSpec_spec
 
 /-! ## 5. `NoLab` lemmas -/
 

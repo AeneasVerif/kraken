@@ -1,7 +1,6 @@
 module
 
 public import LeanQbe.T.Amd64.Base
-public import LeanQbe.T.AbiLemmas
 public import LeanQbe.T.IselStepAttr
 
 /-!
@@ -176,5 +175,15 @@ def x64RetD : Directive := .instr x64RetI
   call sym := emitClean [x64CallI sym]
   exitJmp sym := emitClean [x64JmpI sym]
   ret := emitClean [x64RetI]
+
+/-- SysV x64 frame predicates (`Prop`-valued state/stack invariants, zero `*Lemmas*` imports). -/
+@[reducible] def x64FramePreds : FramePreds x64Mach where
+  RetAddr sp ra := cell64 sp ra.toBitVec
+  raReg _ _ := True
+  spEntry sp := (sp + 8#64).toNat % 16 = 0
+  spOk _ := True
+  Saved sp ra ns :=
+    region (sp - BitVec.ofNat 64 (x64FrameSize ns) + BitVec.ofNat 64 (8 * ns))
+      (x64FrameSize ns - 8 * ns) ⋆ cell64 sp ra.toBitVec
 
 end LeanQbe.T.Amd64

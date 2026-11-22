@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.Amd64.KissatFastSchedCert
 public import LeanQbe.T.Examples.Kissat.FullFastSchedLemmas
 import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.Logic.MemLemmas
 import all Std.Sat.CNF.Basic
 import all Kraken.Mem
 import all Kraken.Separation
@@ -328,7 +329,7 @@ theorem sched_unsat_nonvacuous_x64 [hh : Host] (hmok : ModuleOk schedEnv schedMo
     rw [show s.regs.get64 .rsp = 0x0ff8#64 from rfl]
     have h3 := sep_mono_mid (fun _ h => show region (schedNvWorkPtr schedNvUnsatBytes) 4096 _ from
       ⟨List.replicate 4096 0, List.length_replicate, h.symm⟩) h1
-    dsimp only [Target.Entry, x64Target, x64FrameSpec] at h3
+    dsimp only [Target.Entry, x64Target, x64FrameTarget, x64FramePreds] at h3
     simp only [sep_emp] at h3 ⊢; exact h3
   have hhsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0 := by
     rw [show s.regs.get64 .rsp = 0x0ff8#64 from rfl]; decide

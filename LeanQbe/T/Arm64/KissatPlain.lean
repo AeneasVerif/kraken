@@ -2,6 +2,8 @@ module
 
 public import LeanQbe.T.Arm64.KissatPlainCert
 public import LeanQbe.T.Examples.Kissat.PlainLemmas
+import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.AbiLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 meta import LeanQbe.T.Examples.Kissat.Plain

@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Amd64.Isel
 public import LeanQbe.T.OpsLemmas
+public import LeanQbe.T.TargetLemmas
 import Kraken.X64.Parser
 
 /-!

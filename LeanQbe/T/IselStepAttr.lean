@@ -1,7 +1,7 @@
 module
 
 public import Kraken.Layout
-public import LeanQbe.T.TargetLemmas
+public import LeanQbe.T.Target
 public meta import Lean.Elab.Tactic
 
 /-!

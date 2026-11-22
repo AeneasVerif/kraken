@@ -1,20 +1,15 @@
 module
 
-public import LeanQbe.T.Arm64.Isel
-public import LeanQbe.T.Arm64.Frame
-public import LeanQbe.T.Arm64.IselLemmas4
-public import LeanQbe.T.Arm64.FrameLemmas
-public import LeanQbe.T.Legal
+public import LeanQbe.T.Arm64.Isa
+import LeanQbe.T.Arm64.IselLemmas4
+import LeanQbe.T.Arm64.FrameLemmas
 
 /-!
 # AAPCS64 Arm64 `Target` Assembly & Legalization Parity (`T12i`)
 
-Assembles `armTarget : Target` from the verified AArch64 ISA components (`armMach`, `armGpr`,
-`VecIsa.empty`, `armFrame`, `armGprSpec`, `VecTarget.empty`, `armFrameSpec`) and defines
-`armLegalTarget := LegalTarget.aarch64` alongside capability parity theorems and kernel check suites
-documenting the exact scalar/width boundary (`popcnt := false`, `[32, 64]` for
-`clz`/`cls`/`rbit`/`ctz`/`fshl`/`fshr`/`addc`/`subb`/`umulw`/`smulw`, `[16, 32, 64]` for
-`bswap`, and `[8, 16, 32, 64]` otherwise; `#323`).
+Assembles `armTarget : Target` from `armIsa` and private verification theorems (`arm_gprSpec`,
+`arm_frameSpec`), preserving a strict module-system firewall against downstream rebuilds when
+`*Lemmas*` proofs change.
 -/
 
 set_option autoImplicit false
@@ -25,29 +20,28 @@ namespace LeanQbe.T.Arm64
 
 open LeanQbe.T
 
-/-! ## 1. Target Assembly (`armTarget`) and Legalization Profile (`armLegalTarget`) -/
+/-! ## 1. Target Assembly (`armTarget`) behind Module-System Proof Firewall -/
 
-/-- True iff `armLoad`/`armStore` encodes `[base + disp]` as one scaled unsigned offset without
-literal-pool `.X16` fallback. -/
-def armSupportsAddrDisp (t : Ty) (d : BitVec 64) : Bool :=
-  match armMemScale t with
-  | some sc => armFitsScaledOff sc (Int64.ofBitVec d)
-  | none => false
+/-- Firewall theorem exposing `armGprSpec` without exporting `*Lemmas*` proof terms. -/
+public theorem arm_gprSpec : GprTarget armMach armGpr armScratch :=
+  armGprSpec
+
+/-- Firewall theorem exposing `armFrameSpec.spec` without exporting `FrameLemmas`. -/
+public theorem arm_frameSpec : FrameSpec armMach armFrame armCondReads armFramePreds :=
+  armFrameSpec.spec
+
+/-- AAPCS64 Arm64 `FrameTarget` built from public `armFramePreds` and `arm_frameSpec`. -/
+def armFrameTarget : FrameTarget armMach armFrame armCondReads where
+  toFramePreds := armFramePreds
+  spec := arm_frameSpec
 
 /-- Verified AAPCS64 Arm64 scalar `Target` (`VecIsa.empty` / `VecTarget.empty`, `raBytes = 0`). -/
 @[reducible] def armTarget : Target where
-  Reg := Reg
-  VReg := Empty
-  Cond := ArmCond
-  Directive := Directive
-  gpr := armGpr
-  vec := VecIsa.empty Reg ArmCond Directive
-  frame := armFrame
-  supportsAddrDisp := armSupportsAddrDisp
+  toIsa := armIsa
   mach := armMach
-  gprSpec := armGprSpec
-  frameSpec := armFrameSpec
-  vecSpec := VecTarget.empty armMach armCondReads armFrame.sp armScratch armFrameSpec.spOk
+  gprSpec := arm_gprSpec
+  frameSpec := armFrameTarget
+  vecSpec := VecTarget.empty armMach armCondReads armFrame.sp armScratch armFramePreds.spOk
 
 theorem armTarget_toIsa :
     armTarget.toIsa =
@@ -55,12 +49,6 @@ theorem armTarget_toIsa :
         gpr := armGpr, vec := VecIsa.empty Reg ArmCond Directive, frame := armFrame,
         supportsAddrDisp := armSupportsAddrDisp } :=
   rfl
-
-/-- AArch64 scalar legalization capability record (`LegalTarget.aarch64`, no vectors/floats). -/
-def armLegalTarget : LegalTarget := LegalTarget.aarch64
-
-theorem armLegalTarget_valid : armLegalTarget.valid = true := by
-  decide
 
 /-! ## 2. Parity Theorems (`armLegalTarget` ↔ `armTarget.toIsa`) & Kernel Checks -/
 

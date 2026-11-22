@@ -10,6 +10,7 @@ public import LeanQbe.T.Amd64.IselVecLemmas1
 public import LeanQbe.T.Amd64.IselVecLemmas2
 public import LeanQbe.T.Amd64.IselVecLemmas3
 public import LeanQbe.T.Amd64.Isel
+public import LeanQbe.T.Amd64.Isa
 public import LeanQbe.T.Amd64.IselLemmas1
 public import LeanQbe.T.Amd64.IselLemmas2
 public import LeanQbe.T.Amd64.IselLemmas3
@@ -48,5 +49,7 @@ public import LeanQbe.T.Amd64.KissatM3Cert17
 public import LeanQbe.T.Amd64.KissatM3Cert
 public import LeanQbe.T.Amd64.KissatM3
 public import LeanQbe.T.Amd64.DebugAsm
+
+set_option autoImplicit false
 
 /-! Root of the active x64 library: imports `Kraken.X64` and active `LeanQbe.T.Amd64.*` modules. -/

@@ -3,6 +3,8 @@ module
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Examples.ChaCha
 public import LeanQbe.T.MainSplice
+import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.FlatLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
@@ -184,7 +186,7 @@ theorem rfc8439_vector_x64_nonvacuous :
           array (t := v4i32) 0x1040#64 rfc8439_test_init.toRows) ⋆
         region (0x0ff8#64 - BitVec.ofNat 64 (compiled.bound "chacha20Block"))
           (compiled.bound "chacha20Block" + 8) ⋆ emp := by
-      simpa only [Target.Exit, x64Target, x64FrameSpec, x64Frame, x64Init] using
+      simpa only [Target.Exit, x64Target, x64FrameTarget, x64FramePreds, x64Frame, x64Init] using
         sep_mono (fun _ => sep_mono (fun _ e => e ▸ hP)) hm'
     have hdmem_ac : (array (t := v4i32) 0x1000#64 (rfcChaCha20Core rfc8439_test_init).toRows ⋆
         (array (t := v4i32) 0x1040#64 rfc8439_test_init.toRows ⋆

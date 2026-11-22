@@ -1,8 +1,11 @@
 module
 
 public import LeanQbe.T.Arm64.Targ
-public import LeanQbe.T.RegaLemmas
 public import LeanQbe.T.MainLemmas
+import LeanQbe.T.RegaLemmas
+import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.Arm64.IselLemmas4
+import LeanQbe.T.Arm64.FrameLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 
@@ -149,7 +152,8 @@ theorem armInitMem_entry (n : Nat) (bs : List UInt8) (hn : n ≤ 2048) (hbs : bs
   have hsub : ∀ m, Eq ((stackZeros n).At (0x1000#64 - BitVec.ofNat 64 n)) m →
       armTarget.Entry 0x1000#64 0x1234 n m := by
     intro m hm
-    simp only [Target.Entry, armTarget, armFrameSpec, region_zero, Std.ExtHashMap.sep_emp]
+    simp only [Target.Entry, armTarget, armFrameTarget, armFramePreds,
+      region_zero, Std.ExtHashMap.sep_emp]
     exact ⟨stackZeros n, hzs, hm.symm⟩
   exact sep_mono_mid hsub h0
 
@@ -190,7 +194,7 @@ private theorem armAssignSig_cons {t : Ty} {ts : List Ty} {loc : AbiReg Reg Empt
     cases gs with
     | nil => simp [Isa.assignSig] at h
     | cons r0 gs' =>
-      simp only [Isa.assignSig, armFrame] at h
+      simp only [Isa.assignSig] at h
       cases hbw : [8, 16, 32, 64].contains n
       · simp only [hbw, Bool.false_eq_true, ↓reduceIte] at h; cases h
       · simp only [hbw, ↓reduceIte, Option.map_eq_some_iff] at h
@@ -333,7 +337,7 @@ def armInit : TargetInit armTarget 2048 8192 where
   arg0 := .reg .X0
   initState := armInitState
   get_sp := fun n bs {as} args => by
-    simp only [armTarget, armMach, armFrame, get, armInitState]
+    simp only [armTarget, armMach, get, armInitState]
     cases h : armTarget.toIsa.assignArgs as with
     | none => rfl
     | some locs =>
@@ -349,7 +353,7 @@ def armInit : TargetInit armTarget 2048 8192 where
         | vec vr => exact vr.elim)
       (setArmAbiRegs_holds (by simp) (by simp) hlocs)
   raReg := fun n bs {as} args => by
-    simp only [armTarget, armFrameSpec, get, get_reg, armInitState]
+    simp only [armTarget, armFrameTarget, armFramePreds, get, get_reg, armInitState]
     cases h : armTarget.toIsa.assignArgs as with
     | none => rfl
     | some locs =>
@@ -357,7 +361,7 @@ def armInit : TargetInit armTarget 2048 8192 where
         setArmAbiRegs_get_x30 (by simp) h
       change ((setArmAbiRegs locs args).X30).toBitVec = (0x1234 : Int64).toBitVec
       rw [hx]; rfl
-  spEntry := by dsimp only [armTarget, armFrameSpec]; decide
+  spEntry := by dsimp only [armTarget, armFrameTarget, armFramePreds]; decide
   mem_entry n bs {_} _ hn hbs := armInitMem_entry n bs hn hbs
   retsIn_singleton v s h := by
     obtain ⟨locs, hlocs, hrel⟩ := h
@@ -379,7 +383,8 @@ private theorem arm64_entry_mem {s : MachineData} {ra : Int64} {b : Nat} {P R : 
     armTarget.mach.mem s =⋆
       P ⋆ armTarget.Entry (armTarget.mach.getGpr s armTarget.frame.sp) ra b ⋆ R := by
   refine sep_mono (fun _ => sep_mono_r fun _ h => ?_) hmem
-  simp only [Target.Entry, armTarget, armFrameSpec, get, region_zero, Std.ExtHashMap.sep_emp]
+  simp only [Target.Entry, armTarget, armFrameTarget, armFramePreds,
+    get, region_zero, Std.ExtHashMap.sep_emp]
   exact h
 
 /-- Translates `armTarget.FnSpec` into the concrete Kraken-AArch64 `step1 Host.exe` statement. -/
@@ -415,7 +420,7 @@ theorem arm64_of_call [hh : Host] {sym : Sym} {b nX : Nat} {as bs : List Ty}
   rintro st (⟨hpc, rets, m', hQ, hrets, ⟨hcs, hsp'⟩, hm'⟩ |
     ⟨sym', cs, xs, m', hX, hdef, hpc, has, hspE, ra', n', F, hnX, _, _, hm'⟩)
   · refine Or.inl ⟨hpc, fun r hr => ?_, ?_, rets, m', hQ, hrets, ?_⟩
-    · have := hcs (.reg r) (by simp [armFrame] at hr ⊢; omega)
+    · have := hcs (.reg r) (by simp at hr ⊢; omega)
       exact UInt64.toBitVec_inj.mp this
     · have : get st.data .SP = get s .SP := by simpa [armFrame] using hsp'
       exact UInt64.toBitVec_inj.mp this

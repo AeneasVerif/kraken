@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.MainCert
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Examples.Kissat.SolverLemmas
+import LeanQbe.T.Logic.MemLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean

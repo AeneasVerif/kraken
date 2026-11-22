@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.Arm64.KissatM3Cert
 public import LeanQbe.T.Examples.Kissat.FullM3Proof
 import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.Logic.MemLemmas
 import all Std.Sat.CNF.Basic
 import all Kraken.Mem
 import all Kraken.Separation
@@ -293,7 +294,7 @@ theorem m3_arm64_unsat_nonvacuous [hh : Host] (k₀ : Nat)
     rw [show s.regs.SP.toBitVec = 0x1000#64 from rfl]
     have h3 := sep_mono_mid (fun _ h => show region 0x1018#64 2048 _ from
       ⟨List.replicate 2048 0, List.length_replicate, h.symm⟩) h1
-    dsimp only [Target.Entry, armTarget, armFrameSpec] at h3
+    dsimp only [Target.Entry, armTarget, armFrameTarget, armFramePreds] at h3
     simp only [region_zero, sep_emp] at h3 ⊢; exact h3
   have hhsp : s.regs.SP.toNat % 16 = 0 := by rw [show s.regs.SP = 4096 from rfl]; decide
   refine ⟨0x1000#64, 0x1018#64, 1#64, nvBytes, 2048, s, 0x1234, emp, by decide, by decide, rfl,

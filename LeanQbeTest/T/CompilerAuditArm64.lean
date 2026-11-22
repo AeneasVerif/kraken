@@ -1,6 +1,8 @@
 module
 
 public import LeanQbe.T.Arm64.TargLemmas
+public import LeanQbe.T.Arm64.IselLemmas4
+public import LeanQbe.T.Arm64.FrameLemmas
 public import LeanQbe.T.Arm64.IselStepRules
 public import LeanQbe.T.Arm64.LinkRec
 public import LeanQbe.T.Arm64.Litmus

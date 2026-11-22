@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.MainCert
 public import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.FlatLemmas
 meta import Lean
 meta import LeanQbe.T.MainCert
 meta import LeanQbe.T.Amd64.Targ
