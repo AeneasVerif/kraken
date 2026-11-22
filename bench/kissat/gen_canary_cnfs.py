@@ -1100,24 +1100,153 @@ def gen_family_10(out_dir, manifest):
         )
 
 
+def gen_family_11(out_dir, manifest):
+    """Family 11: 6 fast (<500ms) C3b/C1 regression canaries (chrono/compact/BVA/cong/viv/wcap)."""
+    fam = "11_c11_regressions"
+    # 1. c11_chrono_cnt2_2wl: dual gated PHP(6,5) cores + staggered 5-lit decision triggers.
+    rng = random.Random(1101)
+    nv1 = 96
+    sel = 1
+    cl1 = []
+    _, php_a = gen_php(6, 5, v_off=1)  # vars 2..31
+    _, php_b = gen_php(6, 5, v_off=31)  # vars 32..61
+    for cl in php_a:
+        cl1.append([sel] + cl)
+    for cl in php_b:
+        cl1.append([-sel] + cl)
+    for v in range(62, 94):
+        cl1.append([v, v + 1, v + 2, -sel if (v & 1) else sel, -(v - 30)])
+        cl1.append([-v, rng.randint(2, 31), rng.randint(32, 61), v + 1])
+    record(
+        manifest, out_dir, "c11_chrono_cnt2_2wl.cnf", fam, nv1, cl1,
+        {"desc": "chrono/2WL staggered decision backtracking", "cliff": "chrono cnt>=2 2WL"},
+    )
+
+    # 2. c11_compact_multisat: PHP(5,4) core + 1180 unit/pure/equiv variables that compact down.
+    nv2 = 1200
+    _, cl2_php = gen_php(5, 4)
+    cl2 = list(cl2_php)
+    for v in range(21, 421):
+        cl2.append([v if (v & 1) else -v])
+    for v in range(421, 821, 2):
+        cl2.extend([[-v, v + 1], [v, -(v + 1)]])
+        cl2.append([v, 1, 2, v - 400 if ((v - 400) & 1) else -(v - 400)])
+    for v in range(821, 1199):
+        cl2.append([v, v + 1, 421, 21])
+    cl2.append([1199, 1200, 21, 421])
+    record(
+        manifest, out_dir, "c11_compact_multisat.cnf", fam, nv2, cl2,
+        {"desc": "compact multi-sat variable shrinkage after units/BVE", "cliff": "compact"},
+    )
+
+    # 3. c11_bva_pure_kcnf_5k: ~5100-var factorable biclique + pure k-CNF + PHP(6,5) core.
+    nv3 = 5100
+    _, cl3_php = gen_php(6, 5)
+    cl3 = list(cl3_php)
+    for blk in range(31, 5088, 12):
+        a_set = [blk, blk + 1, blk + 2, blk + 3]
+        b_set = [blk + 4, blk + 5, blk + 6, blk + 7]
+        tail = [blk + 8, blk + 9, blk + 10, blk + 11]
+        for a in a_set:
+            for b in b_set:
+                cl3.append([a, b] + tail)
+    record(
+        manifest, out_dir, "c11_bva_pure_kcnf_5k.cnf", fam, nv3, cl3,
+        {"desc": "5k-var pure/BVA biclique k-CNF scaling", "cliff": "bva pure 5k"},
+    )
+
+    # 4. c11_sparse_bin_cong_sweep: congruent AND/XOR/ITE miter + sparse binary chain.
+    cb = CircuitBuilder(18)
+    a_nodes = list(range(1, 19))
+    b_nodes = list(range(1, 19))
+    for k in range(18):
+        pa, qa, ra = a_nodes[k], a_nodes[k + 5], a_nodes[k + 9]
+        ga = cb.add_and(pa, qa)
+        gx = cb.add_xor(ga, ra)
+        a_nodes.append(cb.add_ite(pa, gx, qa))
+        pb, qb, rb = b_nodes[k], b_nodes[k + 5], b_nodes[k + 9]
+        dor = cb.add_or(-pb, -qb)
+        gb = -dor
+        gxb = cb.add_ite(gb, -rb, rb)
+        b_nodes.append(cb.add_ite(pb, gxb, qb))
+    chain = [cb.fresh() for _ in range(48)]
+    for i in range(47):
+        cb.clauses.append([-chain[i], chain[i + 1]])
+    cb.clauses.append([-chain[-1], a_nodes[-1]])
+    cb.clauses.append([chain[0]])
+    cb.clauses.append([-b_nodes[-1]])
+    record(
+        manifest, out_dir, "c11_sparse_bin_cong_sweep.cnf", fam, cb.nvars, cb.clauses,
+        {"desc": "sparse binary watch + congruence/kitten sweep miter", "cliff": "cong sweep"},
+    )
+
+    # 5. c11_viv_prefix_2wl: equisatisfiable vivification-padded PHP(5,4) clauses.
+    nv5, cl5_base = gen_php(5, 4)
+    cl5 = []
+    for cl in cl5_base:
+        if len(cl) >= 3:
+            pads = [nv5 + 1, nv5 + 2, nv5 + 3, nv5 + 4]
+            nv5 += 4
+            cl5.append(cl + pads)
+            for p in pads:
+                cl5.append([-p, cl[0]])
+        else:
+            cl5.append(cl)
+    record(
+        manifest, out_dir, "c11_viv_prefix_2wl.cnf", fam, nv5, cl5,
+        {"desc": "vivification prefix strengthening + 2WL update", "cliff": "vivify 2wl"},
+    )
+
+    # 6. c11_tight_wcap_subst: Tarjan SCC binary equiv rings wrapping PHP(5,4) (820 vars).
+    _, cl6 = gen_php(5, 4)
+    nxt_v = 21
+    ring_len = 40
+    for base in range(1, 21):
+        ring = [base] + list(range(nxt_v, nxt_v + ring_len))
+        nxt_v += ring_len
+        n_r = len(ring)
+        for i, u in enumerate(ring):
+            v = ring[(i + 1) % n_r]
+            lu = u if (i % 2 == 0) else -u
+            lv = v if (((i + 1) % n_r) % 2 == 0) else -v
+            cl6.append([-lu, lv])
+        for hop in (2, 7, 15):
+            for i in range(0, n_r, 3):
+                u = ring[i]
+                v = ring[(i + hop) % n_r]
+                lu = u if (i % 2 == 0) else -u
+                lv = v if (((i + hop) % n_r) % 2 == 0) else -v
+                cl6.append([-lu, lv])
+    nv6 = nxt_v - 1
+    record(
+        manifest, out_dir, "c11_tight_wcap_subst.cnf", fam, nv6, cl6,
+        {"desc": "Tarjan SCC subst + dense binary watch_stk pressure", "cliff": "wcap subst"},
+    )
+
+
 def main():
-    ap = argparse.ArgumentParser(description="Generate 10-family tricky-UNSAT canary CNFs.")
+    ap = argparse.ArgumentParser(description="Generate 10-family (+ optional c11) UNSAT canaries.")
     ap.add_argument("out_dir", help="Output directory for generated .cnf files + manifest.json")
     ap.add_argument("--summary", action="store_true", help="Print per-family summary table")
+    ap.add_argument("--include-c11", action="store_true", help="Also emit 6 c11_* canaries")
+    ap.add_argument("--c11-only", action="store_true", help="Emit only the 6 c11_* canaries")
     args = ap.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
     manifest = []
-    gen_family_01(args.out_dir, manifest)
-    gen_family_02(args.out_dir, manifest)
-    gen_family_03(args.out_dir, manifest)
-    gen_family_04(args.out_dir, manifest)
-    gen_family_05(args.out_dir, manifest)
-    gen_family_06(args.out_dir, manifest)
-    gen_family_07(args.out_dir, manifest)
-    gen_family_08(args.out_dir, manifest)
-    gen_family_09(args.out_dir, manifest)
-    gen_family_10(args.out_dir, manifest)
+    if not args.c11_only:
+        gen_family_01(args.out_dir, manifest)
+        gen_family_02(args.out_dir, manifest)
+        gen_family_03(args.out_dir, manifest)
+        gen_family_04(args.out_dir, manifest)
+        gen_family_05(args.out_dir, manifest)
+        gen_family_06(args.out_dir, manifest)
+        gen_family_07(args.out_dir, manifest)
+        gen_family_08(args.out_dir, manifest)
+        gen_family_09(args.out_dir, manifest)
+        gen_family_10(args.out_dir, manifest)
+    if args.include_c11 or args.c11_only:
+        gen_family_11(args.out_dir, manifest)
 
     manifest_path = os.path.join(args.out_dir, "manifest.json")
     with open(manifest_path, "w", encoding="utf-8") as f:

@@ -142,15 +142,27 @@ def check_parity(label, c4_rec, c3b_rec):
     return diffs if diffs else None
 
 
+def format_canary_status(rec):
+    if rec.get("timeout"):
+        return "TO"
+    st = rec.get("status", -1)
+    if st == 3:
+        return "WFAIL"
+    return str(st)
+
+
 def evaluate_canary(entry, rec, baseline_rec=None, strict_gaps=False, kissat_rec=None):
     issues = []
     gaps = []
     fname = entry["file"]
     st = rec.get("status", -1)
-    if st == 10:
+    if st == 3:
+        issues.append(f"WITNESS_CHECK_FAIL (status=3, oom={rec.get('oom', 0)}) on {fname}!")
+    elif st == 10:
         issues.append(f"SOUNDNESS BUG: got SAT (10) on UNSAT canary {fname}!")
     elif st != 20:
-        msg = f"unsolved (status={st}, timeout={rec.get('timeout')}, oom={rec.get('oom', 0)})"
+        tag = "timeout" if rec.get("timeout") else "fuel_exhausted"
+        msg = f"{tag} (status={st}, timeout={rec.get('timeout')}, oom={rec.get('oom', 0)})"
         if entry.get("expected_gap") and not strict_gaps:
             gaps.append(f"[{entry['expected_gap']}] {msg}")
         else:
@@ -245,6 +257,155 @@ def collect_c1_ratios(results, cfg_k):
     return matched, time_max10, time_both5, confl_k100, confl_both100
 
 
+C3B_HARNESS_CPP = r"""
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <vector>
+
+#include "tqbe_rt.hpp"
+#include "kissat_verify.h"
+
+namespace tqbe_gen {
+#include "__GEN_HPP__"
+}
+
+static uint64_t rd64(const void *p, size_t w) {
+  uint64_t v = 0;
+  std::memcpy(&v, static_cast<const uint8_t *>(p) + w * 8ULL, 8ULL);
+  return v;
+}
+
+static void wr64(void *p, size_t w, uint64_t v) {
+  std::memcpy(static_cast<uint8_t *>(p) + w * 8ULL, &v, 8ULL);
+}
+
+int main(int argc, char **argv) {
+  if (argc < 4) return 2;
+  int idx = 1;
+  bool m2_alias = false;
+  if (std::strcmp(argv[idx], "--full-telemetry-m2") == 0) {
+    m2_alias = true;
+    ++idx;
+  } else if (std::strcmp(argv[idx], "--full-telemetry") == 0) {
+    ++idx;
+  }
+  uint64_t work_bytes = std::strtoull(argv[idx], nullptr, 10);
+  uint64_t fuel = std::strtoull(argv[idx + 1], nullptr, 10);
+  const char *cnf_path = argv[idx + 2];
+  FILE *f = std::fopen(cnf_path, "rb");
+  if (!f) return 2;
+  std::fseek(f, 0, SEEK_END);
+  long sz = std::ftell(f);
+  std::rewind(f);
+  std::vector<uint8_t> cnf(sz > 0 ? static_cast<size_t>(sz) : 0);
+  if (sz > 0 && std::fread(cnf.data(), 1, static_cast<size_t>(sz), f) != static_cast<size_t>(sz)) {
+    std::fclose(f);
+    return 2;
+  }
+  std::fclose(f);
+
+  std::vector<uint8_t> work(static_cast<size_t>(work_bytes), 0);
+  ::tqbe::Mem mem;
+  uint64_t cnf_addr = reinterpret_cast<uint64_t>(cnf.data());
+  uint64_t cnf_end = cnf_addr + static_cast<uint64_t>(cnf.size());
+  uint64_t hdr_addr = reinterpret_cast<uint64_t>(work.data());
+  uint64_t avail = work_bytes > 1152ULL ? (work_bytes - 1152ULL) : 0ULL;
+
+  auto t0 = std::chrono::steady_clock::now();
+  bool ok = tqbe_gen::full_init_state(
+      mem, ::tqbe::bits<64>(cnf_addr), ::tqbe::bits<64>(cnf_end),
+      ::tqbe::bits<64>(hdr_addr), ::tqbe::bits<64>(avail), ::tqbe::bits<64>(fuel));
+  uint64_t st = 0;
+  if (ok) {
+    uint64_t orig_mv = rd64(work.data(), 0);
+    uint64_t pb = tqbe_gen::full_parse_body(
+        mem, ::tqbe::bits<64>(hdr_addr), ::tqbe::bits<64>(cnf_end)).data;
+    if (pb != 1ULL) {
+      st = pb;
+    } else {
+      uint64_t pp = tqbe_gen::full_preprocess(mem, ::tqbe::bits<64>(hdr_addr)).data;
+      st = (pp == 1ULL) ? tqbe_gen::full_search(mem, ::tqbe::bits<64>(hdr_addr)).data : pp;
+    }
+    if (st == 10ULL) {
+      tqbe_gen::full_extend(mem, ::tqbe::bits<64>(hdr_addr));
+      wr64(work.data(), 0, orig_mv);
+      wr64(work.data(), 98, rd64(work.data(), 96) - orig_mv);
+      uint64_t vp = rd64(work.data(), 8);
+      uint64_t chk = tqbe_gen::kissat_check_model(
+          mem, ::tqbe::bits<64>(cnf_addr), ::tqbe::bits<64>(cnf_end),
+          ::tqbe::bits<64>(hdr_addr), ::tqbe::bits<64>(vp), ::tqbe::bits<64>(orig_mv)).data;
+      const int8_t *vals = reinterpret_cast<const int8_t *>(static_cast<uintptr_t>(vp));
+      int d = kissat_verify_dimacs_model(
+          reinterpret_cast<const char *>(cnf.data()), static_cast<uint64_t>(cnf.size()),
+          vals, orig_mv);
+      if (chk != 1ULL || d != 1) st = 3ULL;
+    }
+  }
+  auto t1 = std::chrono::steady_clock::now();
+  double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+  const void *h = work.data();
+  std::printf(
+      "%s\t%llu\t%.3f\tconflicts=%llu\tlearned_lits=%llu\tmin_removed=%llu\t"
+      "search_ticks=%llu\tswitched=%llu\trestarts=%llu\treductions=%llu\trephased=%llu\toom=%llu\t"
+      "otfs=%llu\teager_sub=%llu\tprobings=%llu\teliminations=%llu\telim_bound=%llu\t"
+      "hbr=%llu\ttrans=%llu\tviv=%llu\tsubst=%llu\tcong=%llu\tsweep=%llu\tbve=%llu\tbce=%llu\t"
+      "bva=%llu\twalks=%llu\t%s\n",
+      cnf_path, (unsigned long long)st, ms,
+      (unsigned long long)(ok ? rd64(h, 42) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 43) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 44) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 75) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 70) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 89) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 86) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 84) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 95) : 1ULL),
+      (unsigned long long)(ok ? rd64(h, 120) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 121) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 123) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 125) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 126) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 130) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 131) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 132) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 133) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 134) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 135) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 136) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 137) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 138) : 0ULL),
+      (unsigned long long)(ok ? rd64(h, 139) : 0ULL),
+      m2_alias ? "last_probe_ticks=0\tlast_elim_ticks=0" : "fwd_sub=0\tfwd_str=0");
+  return 0;
+}
+"""
+
+
+def compile_c3b_gen_hpp(spec, tmp_dir):
+    if "=" in spec:
+        label, hpp = spec.split("=", 1)
+    else:
+        label, hpp = "FullM4_C3b", spec
+    hpp_abs = os.path.abspath(hpp)
+    bench_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.abspath(os.path.join(bench_dir, "..", ".."))
+    cpp_path = os.path.join(tmp_dir, f"{label}_harness.cpp")
+    bin_path = os.path.join(tmp_dir, f"{label}_harness")
+    with open(cpp_path, "w", encoding="utf-8") as f:
+        f.write(C3B_HARNESS_CPP.replace("__GEN_HPP__", hpp_abs))
+    subprocess.run([
+        "timeout", "180", "clang++", "-std=c++20", "-O3", "-DTQBE_NATIVE_MEM",
+        f"-I{os.path.join(repo_root, 'LeanQbe', 'T', 'Runtime')}",
+        f"-I{os.path.join(repo_root, 'test', 'kissat')}",
+        f"-I{os.path.dirname(hpp_abs)}",
+        cpp_path, "-o", bin_path,
+    ], check=True)
+    return label, bin_path
+
+
 def main():
     ap = argparse.ArgumentParser(description="Run and verify 10-family Kissat UNSAT canaries.")
     ap.add_argument("--cnf-dir", help="Directory with generated canaries (auto-generated if omitted)")
@@ -265,14 +426,24 @@ def main():
     ap.add_argument("--commit", default="", help="Git commit SHA to stamp into baseline JSON")
     ap.add_argument("--strict-gaps", action="store_true", help="Treat known pre-M3 gaps as hard failures")
     ap.add_argument("--filter", default="", help="Substring filter on canary filename")
+    ap.add_argument(
+        "--include-c11", action="store_true", help="Include 6 c11_* regression canaries",
+    )
+    ap.add_argument(
+        "--c11-only", action="store_true", help="Run only the 6 c11_* regression canaries",
+    )
+    ap.add_argument(
+        "--c3b-gen-hpp", action="append", default=[], metavar="LABEL=HPP",
+        help="Compile witness-checking C3b harness from emitted *_gen.hpp",
+    )
     args = ap.parse_args()
 
     if not any([
         args.full_c4, args.full_c3b, args.fast_c4, args.fast_c3b,
-        args.m3_c4, args.m3_c3b, args.m4_c4, args.m4_c3b,
+        args.m3_c4, args.m3_c3b, args.m4_c4, args.m4_c3b, args.c3b_gen_hpp,
     ]):
         ap.error(
-            "specify at least one solver binary "
+            "specify at least one solver binary or --c3b-gen-hpp "
             "(--full-c4/--full-c3b/--fast-c4/--fast-c3b/--m3-c4/--m3-c3b/--m4-c4/--m4-c3b)"
         )
 
@@ -289,10 +460,19 @@ def main():
         tmp_ctx = tempfile.TemporaryDirectory(prefix="kissat-canaries-")
         cnf_dir = tmp_ctx.name
         gen_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gen_canary_cnfs.py")
-        subprocess.run(["timeout", "60", sys.executable, "-B", gen_script, cnf_dir], check=True)
+        gen_cmd = ["timeout", "60", sys.executable, "-B", gen_script, cnf_dir]
+        if args.c11_only:
+            gen_cmd.append("--c11-only")
+        elif args.include_c11:
+            gen_cmd.append("--include-c11")
+        subprocess.run(gen_cmd, check=True)
 
     with open(os.path.join(cnf_dir, "manifest.json"), encoding="utf-8") as f:
         manifest = json.load(f)["canaries"]
+    if args.c11_only:
+        manifest = [e for e in manifest if e["file"].startswith("c11_")]
+    elif not args.include_c11:
+        manifest = [e for e in manifest if not e["file"].startswith("c11_")]
     if args.filter:
         manifest = [e for e in manifest if args.filter in e["file"]]
 
@@ -301,6 +481,7 @@ def main():
         with open(args.baseline, encoding="utf-8") as f:
             baseline = json.load(f)
 
+    c3b_tmp_ctx = None
     configs = []
     if args.full_c4:
         configs.append(("Full_C4", args.full_c4, False))
@@ -318,6 +499,11 @@ def main():
         configs.append(("FullM4_C4", args.m4_c4, True))
     if args.m4_c3b:
         configs.append(("FullM4_C3b", args.m4_c3b, True))
+    if args.c3b_gen_hpp:
+        c3b_tmp_ctx = tempfile.TemporaryDirectory(prefix="kissat-c3b-harness-")
+        for spec in args.c3b_gen_hpp:
+            label, bpath = compile_c3b_gen_hpp(spec, c3b_tmp_ctx.name)
+            configs.append((label, bpath, True))
 
     results = {}
     hard_fails = []
@@ -348,7 +534,7 @@ def main():
         for name, bpath, is_m2 in configs:
             rec = run_one(bpath, cpath, args.work_bytes, args.fuel, args.per_timeout, is_m2)
             row["runs"][name] = compact_metrics(rec)
-            st_s = "TO" if rec.get("timeout") else str(rec["status"])
+            st_s = format_canary_status(rec)
             line = (
                 f"{fname:<28} {name:<12} {st_s:>3} {rec['ms']:>8.2f} "
                 f"{rec.get('conflicts', 0):>8} {rec.get('search_ticks', 0):>10} "
@@ -387,8 +573,10 @@ def main():
     print("\n== Canary Summary ==")
     for name, _, _ in configs:
         solved = sum(1 for r in results.values() if r["runs"][name].get("status") == 20)
+        wfail = sum(1 for r in results.values() if r["runs"][name].get("status") == 3)
         tot_ms = sum(r["runs"][name]["ms"] for r in results.values())
-        print(f"  {name:<14}: {solved:2d}/{tot} UNSAT solved  (total {tot_ms:.1f} ms)")
+        extra = f", WFAIL={wfail}" if wfail else ""
+        print(f"  {name:<14}: {solved:2d}/{tot} UNSAT solved{extra}  (total {tot_ms:.1f} ms)")
 
     for base_mod in ("Full", "FullFast", "FullM3", "FullM4"):
         c4_k, c3b_k = f"{base_mod}_C4", f"{base_mod}_C3b"
@@ -473,6 +661,8 @@ def main():
 
     if tmp_ctx is not None:
         tmp_ctx.cleanup()
+    if c3b_tmp_ctx is not None:
+        c3b_tmp_ctx.cleanup()
 
     if parity_fails:
         print("\nFAIL: C4 vs C3b bit-identical work parity mismatch:", file=sys.stderr)
