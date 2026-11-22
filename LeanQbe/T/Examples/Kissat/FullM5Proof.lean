@@ -2003,4 +2003,140 @@ non-vacuity environment). -/
 theorem m5UnsatEnv_moduleOk : ModuleOk m5UnsatEnv m5Module :=
   mkM5Env_moduleOk fullUnsatWitnessSpec (fun _ _ _ _ => fullSolveBytesCoreSpec_of_unsatWitness)
 
+/-! ## 6. Public Prefix-Agreement & Row Accessors for Additive Tail-Respec / SAT-NV Modules -/
+
+theorem m5Env_eq_mkM5Env : m5Env = mkM5Env fullSolveBytesSpec := by rfl
+
+/-- All `268` prefix entries (`0..267`) agree between `mkM5Env s₁` and `mkM5Env s₂`. -/
+theorem mkM5Env_agree_prefix (s₁ s₂ : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ f as bs, (f, as, bs) ∈ (m5Fns.take 268).map Fn.sig →
+      ∀ xs m Q X, mkM5Env s₁ f as bs xs m Q X ↔ mkM5Env s₂ f as bs xs m Q X := by
+  have htk : (m5SpecTable s₁).take 268 = (m5SpecTable s₂).take 268 := by t_kernel_rfl
+  have hsigs : ((m5SpecTable s₁).take 268).map (fun e => (e.name, e.as, e.rs)) =
+      (m5Fns.take 268).map Fn.sig := by
+    rw [List.map_take, List.map_take]
+    exact congrArg (List.take 268) (m5SpecTable_sigs s₁)
+  intro f as bs hmem xs m Q X
+  rw [← hsigs, List.mem_map] at hmem
+  obtain ⟨e, he_tk, hsig⟩ := hmem
+  rcases hsig with ⟨rfl, rfl, rfl⟩
+  exact m5_ofTable_agree_of_mem_both (List.mem_of_mem_take he_tk) (m5SpecTable_nodup s₁)
+    (List.mem_of_mem_take (htk ▸ he_tk)) (m5SpecTable_nodup s₂) xs m Q X
+
+theorem mkM5Env_solve_bytes_m5_iff (s : Spec [i64, i64, i64, i64, i64] [i64])
+    {xs : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost} :
+    mkM5Env s "kissat_solve_bytes_m5" [i64, i64, i64, i64, i64] [i64] xs m Q X ↔
+      s xs m Q (fun _ _ _ _ => False) := by
+  exact m5_ofTable_iff_of_mem
+    (List.mem_of_getElem? (by t_kernel_rfl : (m5SpecTable s)[268]? =
+      some ⟨"kissat_solve_bytes_m5", [i64, i64, i64, i64, i64], [i64], s, true⟩))
+    (m5SpecTable_nodup s)
+
+theorem mkM5Env_solve_bytes_iff (s : Spec [i64, i64, i64, i64, i64] [i64])
+    {xs : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost} :
+    mkM5Env s "kissat_solve_bytes" [i64, i64, i64, i64, i64] [i64] xs m Q X ↔
+      s xs m Q (fun _ _ _ _ => False) := by
+  exact m5_ofTable_iff_of_mem
+    (List.mem_of_getElem? (by t_kernel_rfl : (m5SpecTable s)[269]? =
+      some ⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64], s, true⟩))
+    (m5SpecTable_nodup s)
+
+theorem mkM5Env_skip_ws_comments (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, kissatSkipWsCommentsSpec a m Q X →
+      mkM5Env s "kissat_skip_ws_comments" [i64, i64] [i64] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 2
+    ⟨"kissat_skip_ws_comments", [i64, i64], [i64], kissatSkipWsCommentsSpec, true⟩
+
+theorem mkM5Env_parse_header (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, kissatParseHeaderSpec a m Q X →
+      mkM5Env s "kissat_parse_header" [i64, i64, i64] [.bool] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 5
+    ⟨"kissat_parse_header", [i64, i64, i64], [.bool], kissatParseHeaderSpec, true⟩
+
+theorem mkM5Env_next_lit (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, kissatNextLitSpec a m Q X →
+      mkM5Env s "kissat_next_lit" [i64, i64] [i64] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 6
+    ⟨"kissat_next_lit", [i64, i64], [i64], kissatNextLitSpec, true⟩
+
+theorem mkM5Env_check_model (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, kissatCheckModelExactSpec a m Q X →
+      mkM5Env s "kissat_check_model" [i64, i64, i64, i64, i64] [i64] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 7
+    ⟨"kissat_check_model", [i64, i64, i64, i64, i64], [i64], kissatCheckModelExactSpec, true⟩
+
+theorem mkM5Env_wstack_defrag (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, fullWstackDefragSpec a m Q X →
+      mkM5Env s "full_wstack_defrag" [i64] [] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 14
+    ⟨"full_wstack_defrag", [i64], [], fullWstackDefragSpec, true⟩
+
+theorem mkM5Env_zero_tables1 (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, fullZeroTables1Spec a m Q X →
+      mkM5Env s "full_zero_tables1" [i64] [] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 35
+    ⟨"full_zero_tables1", [i64], [], fullZeroTables1Spec, true⟩
+
+theorem mkM5Env_fixed_bytes (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, fullFixedBytesSpec a m Q X →
+      mkM5Env s "full_fixed_bytes" [i64] [i64] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 37
+    ⟨"full_fixed_bytes", [i64], [i64], fullFixedBytesSpec, true⟩
+
+theorem mkM5Env_calc_max_v (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, fullCalcMaxVSpec a m Q X →
+      mkM5Env s "full_calc_max_v" [i64, i64, i64, i64] [i64] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 40
+    ⟨"full_calc_max_v", [i64, i64, i64, i64], [i64], fullCalcMaxVSpec, true⟩
+
+theorem mkM5Env_calc_ext_cap_m5 (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, FullM5Orch.fullCalcExtCapM5Spec a m Q X →
+      mkM5Env s "full_calc_ext_cap_m5" [i64] [i64] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 41
+    ⟨"full_calc_ext_cap_m5", [i64], [i64], FullM5Orch.fullCalcExtCapM5Spec, true⟩
+    (hno := FullM5Orch.fullCalcExtCapM5Spec_noExit)
+
+theorem mkM5Env_calc_scr_cap_m5 (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, FullM5Orch.fullCalcScrCapM5Spec a m Q X →
+      mkM5Env s "full_calc_scr_cap_m5" [i64] [i64] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 42
+    ⟨"full_calc_scr_cap_m5", [i64], [i64], FullM5Orch.fullCalcScrCapM5Spec, true⟩
+    (hno := FullM5Orch.fullCalcScrCapM5Spec_noExit)
+
+theorem mkM5Env_init_arenas (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, fullInitArenasSpec a m Q X →
+      mkM5Env s "full_init_arenas" [i64, i64, i64, i64] [] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 43
+    ⟨"full_init_arenas", [i64, i64, i64, i64], [], fullInitArenasSpec, true⟩
+
+theorem mkM5Env_init_state_m5 (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, fullInitStateSpec a m Q X →
+      mkM5Env s "full_init_state_m5" [i64, i64, i64, i64, i64] [.bool] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 44
+    ⟨"full_init_state_m5", [i64, i64, i64, i64, i64], [.bool], fullInitStateSpec, true⟩
+
+theorem mkM5Env_parse_body (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, fullParseBodySpec a m Q X →
+      mkM5Env s "full_parse_body" [i64, i64] [i64] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 48
+    ⟨"full_parse_body", [i64, i64], [i64], fullParseBodySpec, true⟩
+
+theorem mkM5Env_extend (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, fullExtendSpec a m Q X →
+      mkM5Env s "full_extend" [i64] [] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 104
+    ⟨"full_extend", [i64], [], fullExtendSpec, true⟩
+
+theorem mkM5Env_preprocess_m5 (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, FullM4.m4PreprocessSpec a m Q X →
+      mkM5Env s "full_preprocess_m5" [i64] [i64] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 263
+    ⟨"full_preprocess_m5", [i64], [i64], FullM4.m4PreprocessSpec, true⟩
+
+theorem mkM5Env_search_m5 (s : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, FullM4.m4SearchSpec a m Q X →
+      mkM5Env s "full_search_m5" [i64] [i64] a m Q X := by
+  exact mkM5Env_row_at (mainSpec := s) 266
+    ⟨"full_search_m5", [i64], [i64], FullM4.m4SearchSpec, true⟩
+
 end LeanQbe.T.Examples.Kissat.FullM5

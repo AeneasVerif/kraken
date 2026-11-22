@@ -45,6 +45,7 @@ public import LeanQbe.T.Arm64.KissatM4Cert7
 public import LeanQbe.T.Arm64.KissatM4Cert8
 public import LeanQbe.T.Arm64.KissatM4Cert9
 public import LeanQbe.T.Arm64.KissatM4CertLink
+public import LeanQbe.T.Arm64.KissatM4Sound
 public import LeanQbe.T.Arm64.KissatM5
 public import LeanQbe.T.Arm64.KissatM5Bounds
 public import LeanQbe.T.Arm64.KissatM5Cert

@@ -41,6 +41,7 @@ public import LeanQbe.T.Examples.Kissat.FullM5ProbeProp
 public import LeanQbe.T.Examples.Kissat.FullM5ProbePropProof
 public import LeanQbe.T.Examples.Kissat.FullM5Proof
 public import LeanQbe.T.Examples.Kissat.FullM5Proof1
+public import LeanQbe.T.Examples.Kissat.FullM5SatNv
 public import LeanQbe.T.Examples.Kissat.FullM5Sched
 public import LeanQbe.T.Examples.Kissat.FullM5SchedLemmas
 public import LeanQbe.T.Examples.Kissat.FullM6BcpS15
