@@ -382,19 +382,31 @@ private theorem single_moduleOk {f : Fn} (hf : f ∈ allFns)
     ModuleOk litmusEnv ⟨[f], [], []⟩ :=
   moduleOk_of_subset hacyc (by intro g hg; simp at hg; subst hg; exact hf)
 
-theorem tracer_moduleOk  : ModuleOk litmusEnv tracerModule  := single_moduleOk (by simp [allFns]) tracerModule_acyclic
-theorem ifelse_moduleOk  : ModuleOk litmusEnv ifelseModule  := single_moduleOk (by simp [allFns]) ifelseModule_acyclic
-theorem sumto_moduleOk   : ModuleOk litmusEnv sumtoModule   := single_moduleOk (by simp [allFns]) sumtoModule_acyclic
-theorem evenodd_moduleOk : ModuleOk litmusEnv evenoddModule := single_moduleOk (by simp [allFns]) evenoddModule_acyclic
-theorem nested_moduleOk  : ModuleOk litmusEnv nestedModule  := single_moduleOk (by simp [allFns]) nestedModule_acyclic
-theorem swap_moduleOk    : ModuleOk litmusEnv swapModule    := single_moduleOk (by simp [allFns]) swapModule_acyclic
-theorem spill10_moduleOk : ModuleOk litmusEnv spill10Module := single_moduleOk (by simp [allFns]) spill10Module_acyclic
+private theorem pair_moduleOk {f g : Fn} {ex : List String} (hf : f ∈ allFns) (hg : g ∈ allFns)
+    (hacyc : ({ fns := [f, g], externs := [], exits := ex } : Module).checkAcyclic = true) :
+    ModuleOk litmusEnv ⟨[f, g], [], ex⟩ :=
+  moduleOk_of_subset hacyc (by intro x hx; simp at hx; rcases hx with rfl | rfl <;> assumption)
+
+theorem tracer_moduleOk : ModuleOk litmusEnv tracerModule :=
+  single_moduleOk (by simp [allFns]) tracerModule_acyclic
+theorem ifelse_moduleOk : ModuleOk litmusEnv ifelseModule :=
+  single_moduleOk (by simp [allFns]) ifelseModule_acyclic
+theorem sumto_moduleOk : ModuleOk litmusEnv sumtoModule :=
+  single_moduleOk (by simp [allFns]) sumtoModule_acyclic
+theorem evenodd_moduleOk : ModuleOk litmusEnv evenoddModule :=
+  single_moduleOk (by simp [allFns]) evenoddModule_acyclic
+theorem nested_moduleOk : ModuleOk litmusEnv nestedModule :=
+  single_moduleOk (by simp [allFns]) nestedModule_acyclic
+theorem swap_moduleOk : ModuleOk litmusEnv swapModule :=
+  single_moduleOk (by simp [allFns]) swapModule_acyclic
+theorem spill10_moduleOk : ModuleOk litmusEnv spill10Module :=
+  single_moduleOk (by simp [allFns]) spill10Module_acyclic
 theorem callinc_moduleOk : ModuleOk litmusEnv callincModule :=
-  moduleOk_of_subset callincModule_acyclic (by intro f hf; simp [callincModule] at hf; rcases hf with rfl | rfl <;> simp [allFns])
+  pair_moduleOk (by simp [allFns]) (by simp [allFns]) callincModule_acyclic
 theorem twice_moduleOk : ModuleOk litmusEnv twiceModule :=
-  moduleOk_of_subset twiceModule_acyclic (by intro f hf; simp [twiceModule] at hf; rcases hf with rfl | rfl <;> simp [allFns])
+  pair_moduleOk (by simp [allFns]) (by simp [allFns]) twiceModule_acyclic
 theorem sumcall_moduleOk : ModuleOk litmusEnv sumcallModule :=
-  moduleOk_of_subset sumcallModule_acyclic (by intro f hf; simp [sumcallModule] at hf; rcases hf with rfl | rfl <;> simp [allFns])
+  pair_moduleOk (by simp [allFns]) (by simp [allFns]) sumcallModule_acyclic
 
 /-! ## 5. Concrete Memory Non-Vacuity (`tracer_nonvacuous`) -/
 

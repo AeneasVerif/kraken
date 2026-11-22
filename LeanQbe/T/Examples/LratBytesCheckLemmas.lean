@@ -732,16 +732,20 @@ private theorem unsat_of_entails_empty {cnf₀ F : CNF Nat}
     exact CNF.Clause.eval_empty a
   grind
 
+/-- Pure RUP step soundness assumption parameterized across `checkPrfAux_sound_of` and
+`runLratCheckBytes_sound_of`. -/
+abbrev RupSoundHyp : Prop :=
+  ∀ {mv id : Nat} {clits : List (BitVec 64)}
+    {table : List (Option (List (BitVec 64)))} {bs bs' : List UInt8} {F : CNF Nat},
+    mv < dimacsBound →
+    (∀ x ∈ clits, IsValidLit mv x) →
+    (∀ aid < id, ∀ alits, table[aid]? = some (some alits) →
+      (∀ x ∈ alits, IsValidLit mv x) ∧ CNF.EntailsClause F (toClause alits)) →
+    rupCheckPure mv id clits table bs = some bs' →
+    CNF.EntailsClause F (toClause clits)
+
 /-- Pure soundness of `checkPrfAux` given RUP step soundness `hrup_sound`. -/
-private theorem checkPrfAux_sound_of
-    (hrup_sound : ∀ {mv id : Nat} {clits : List (BitVec 64)}
-      {table : List (Option (List (BitVec 64)))} {bs bs' : List UInt8} {F : CNF Nat},
-      mv < dimacsBound →
-      (∀ x ∈ clits, IsValidLit mv x) →
-      (∀ aid < id, ∀ alits, table[aid]? = some (some alits) →
-        (∀ x ∈ alits, IsValidLit mv x) ∧ CNF.EntailsClause F (toClause alits)) →
-      rupCheckPure mv id clits table bs = some bs' →
-      CNF.EntailsClause F (toClause clits))
+private theorem checkPrfAux_sound_of (hrup_sound : RupSoundHyp)
     {fuel mv nc poolRem : Nat} {table : List (Option (List (BitVec 64)))} {bs : List UInt8}
     {cnf₀ F : CNF Nat}
     (hmv : mv < dimacsBound)
@@ -839,14 +843,7 @@ theorem runLratCheckBytes_sound_of
         some (clauses.foldl (fun c lits => c.add (toClause lits)) CNF.empty) ∧
       clauses.length = nc ∧
       (∀ cl ∈ clauses, ∀ x ∈ cl, IsValidLit mv x))
-    (hrup_sound : ∀ {mv id : Nat} {clits : List (BitVec 64)}
-      {table : List (Option (List (BitVec 64)))} {bs bs' : List UInt8} {F : CNF Nat},
-      mv < dimacsBound →
-      (∀ x ∈ clits, IsValidLit mv x) →
-      (∀ aid < id, ∀ alits, table[aid]? = some (some alits) →
-        (∀ x ∈ alits, IsValidLit mv x) ∧ CNF.EntailsClause F (toClause alits)) →
-      rupCheckPure mv id clits table bs = some bs' →
-      CNF.EntailsClause F (toClause clits))
+    (hrup_sound : RupSoundHyp)
     {cnfBytes prfBytes : List UInt8} {work_len : Nat}
     (hrun : runLratCheckBytes cnfBytes prfBytes work_len = true) :
     ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat := by

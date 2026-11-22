@@ -5,8 +5,8 @@ public import LeanQbe.T.Target
 /-!
 # Shared Combinators and Framing Lemmas for `LeanQbe.T.Target` (`B1`)
 
-Target-generic framing, sequencing, and operand-preservation lemmas shared across `T7b` (`RegaLemmas`),
-`T8`/`T9` (`Gpr*`), `T10` (`Vec*`), and `T11b` (`Frame*`).
+Target-generic framing, sequencing, and operand-preservation lemmas shared across `T7b`
+(`RegaLemmas`), `T8`/`T9` (`Gpr*`), `T10` (`Vec*`), and `T11b` (`Frame*`).
 -/
 
 set_option autoImplicit false
@@ -18,7 +18,8 @@ namespace LeanQbe.T
 @[simp] theorem unpackSlotWords_length (w : SlotWidth) (v : BitVec 512) :
     (unpackSlotWords w v).length = w.slots := by cases w <;> rfl
 
-@[simp] theorem SlotWidth.bits_eq_64_mul_slots (w : SlotWidth) : w.bits = 64 * w.slots := by cases w <;> rfl
+@[simp] theorem SlotWidth.bits_eq_64_mul_slots (w : SlotWidth) :
+    w.bits = 64 * w.slots := by cases w <;> rfl
 theorem SlotWidth.slots_le_eight (w : SlotWidth) : w.slots ≤ 8 := by cases w <;> decide
 theorem SlotWidth.bits_le_512 (w : SlotWidth) : w.bits ≤ 512 := by cases w <;> decide
 
@@ -26,33 +27,34 @@ theorem SlotWidth.bits_le_512 (w : SlotWidth) : w.bits ≤ 512 := by cases w <;>
     FlagMask.disjoint reads FlagMask.none = true := by
   dsimp only [FlagMask.disjoint, FlagMask.none]; simp
 
+private theorem FlagMask.disjoint_iff_bits {reads m : FlagMask} :
+    FlagMask.disjoint reads m = true ↔ ∀ i (_ : i < 8), reads[i] = true → m[i] = false := by
+  simp only [FlagMask.disjoint, beq_iff_eq]
+  constructor
+  · intro h i hi hr
+    have hi0 : (reads &&& m)[i] = false := by rw [h]; simp
+    simp only [BitVec.getElem_and, hr, Bool.true_and] at hi0
+    exact hi0
+  · intro h
+    apply BitVec.eq_of_getElem_eq; intro i hi
+    cases hr : reads[i] <;> simp [hr, h i hi]
+
 theorem FlagMask.disjoint_or_iff (reads m₁ m₂ : FlagMask) :
     FlagMask.disjoint reads (m₁ ||| m₂) = true ↔
       FlagMask.disjoint reads m₁ = true ∧ FlagMask.disjoint reads m₂ = true := by
-  simp only [FlagMask.disjoint, beq_iff_eq]
-  constructor
-  · intro h
-    constructor <;> (
-      apply BitVec.eq_of_getElem_eq; intro i hi
-      have hi0 : (reads &&& (m₁ ||| m₂))[i] = false := by rw [h]; simp
-      simp only [BitVec.getElem_and, BitVec.getElem_or, BitVec.getElem_zero] at hi0 ⊢
-      cases hr : reads[i] <;> cases h1 : m₁[i] <;> cases h2 : m₂[i] <;> simp_all)
-  · rintro ⟨h₁, h₂⟩
-    apply BitVec.eq_of_getElem_eq; intro i hi
-    have hi₁ : (reads &&& m₁)[i] = false := by rw [h₁]; simp
-    have hi₂ : (reads &&& m₂)[i] = false := by rw [h₂]; simp
-    simp only [BitVec.getElem_and, BitVec.getElem_or, BitVec.getElem_zero] at hi₁ hi₂ ⊢
-    cases hr : reads[i] <;> cases h1 : m₁[i] <;> cases h2 : m₂[i] <;> simp_all
+  simp only [FlagMask.disjoint_iff_bits, BitVec.getElem_or, Bool.or_eq_false_iff]
+  exact ⟨fun h => ⟨fun i hi hr => (h i hi hr).1, fun i hi hr => (h i hi hr).2⟩,
+    fun ⟨h₁, h₂⟩ i hi hr => ⟨h₁ i hi hr, h₂ i hi hr⟩⟩
 
 theorem FlagMask.disjoint_of_sub {reads m₁ m₂ : FlagMask}
     (hsub : m₁ &&& ~~~m₂ = 0#8) (h : FlagMask.disjoint reads m₂ = true) :
     FlagMask.disjoint reads m₁ = true := by
-  simp only [FlagMask.disjoint, beq_iff_eq] at h ⊢
-  apply BitVec.eq_of_getElem_eq; intro i hi
+  rw [FlagMask.disjoint_iff_bits] at h ⊢
+  intro i hi hr
   have h1 : (m₁ &&& ~~~m₂)[i] = false := by rw [hsub]; simp
-  have h2 : (reads &&& m₂)[i] = false := by rw [h]; simp
-  simp only [BitVec.getElem_and, BitVec.getElem_not, BitVec.getElem_zero] at h1 h2 ⊢
-  cases hr : reads[i] <;> cases hm1 : m₁[i] <;> cases hm2 : m₂[i] <;> simp_all
+  simp only [BitVec.getElem_and, BitVec.getElem_not] at h1
+  have h2 := h i hi hr
+  cases hm1 : m₁[i] <;> simp_all
 
 namespace Machine
 variable {R V C D : Type} {M : Machine R V C D}
@@ -76,14 +78,16 @@ theorem KeepsVec.mono {s s' : M.MData} {v₁ v₂ : List V}
 @[simp] theorem UpdFlags.refl (cr : C → FlagMask) (s : M.MData) (mask : FlagMask) :
     M.UpdFlags cr s s mask := fun _ _ => rfl
 theorem UpdFlags.trans {cr : C → FlagMask} {s₁ s₂ s₃ : M.MData} {m₁ m₂ : FlagMask}
-    (h₁ : M.UpdFlags cr s₁ s₂ m₁) (h₂ : M.UpdFlags cr s₂ s₃ m₂) : M.UpdFlags cr s₁ s₃ (m₁ ||| m₂) := by
+    (h₁ : M.UpdFlags cr s₁ s₂ m₁) (h₂ : M.UpdFlags cr s₂ s₃ m₂) :
+    M.UpdFlags cr s₁ s₃ (m₁ ||| m₂) := by
   intro c hc; obtain ⟨h1, h2⟩ := (FlagMask.disjoint_or_iff (cr c) m₁ m₂).mp hc
   exact (h₂ c h2).trans (h₁ c h1)
 theorem UpdFlags.mono {cr : C → FlagMask} {s s' : M.MData} {m₁ m₂ : FlagMask}
     (h : M.UpdFlags cr s s' m₁) (hsub : m₁ &&& ~~~m₂ = 0#8) : M.UpdFlags cr s s' m₂ :=
   fun c hc => h c (FlagMask.disjoint_of_sub hsub hc)
 
-@[simp] theorem Frame.refl (cr : C → FlagMask) (s : M.MData) (g : List R) (v : List V) (f : FlagMask) :
+@[simp] theorem Frame.refl (cr : C → FlagMask) (s : M.MData)
+    (g : List R) (v : List V) (f : FlagMask) :
     M.Frame cr s s g v f := ⟨KeepsGpr.refl s g, KeepsVec.refl s v, UpdFlags.refl cr s f⟩
 theorem Frame.trans {cr : C → FlagMask} {s₁ s₂ s₃ : M.MData}
     {g₁ g₂ : List R} {v₁ v₂ : List V} {f₁ f₂ : FlagMask}
@@ -171,7 +175,8 @@ private def packSlotWordsAux : List (BitVec 64) → Nat → BitVec 512
   | [], _ => 0#512
   | w :: ws, shift => (w.setWidth 512 <<< shift) ||| packSlotWordsAux ws (shift + 64)
 
-/-- Pack `w.slots` 64-bit slot granules into a 512-bit vector word (inverse to `unpackSlotWords`). -/
+/-- Pack `w.slots` 64-bit slot granules into a 512-bit vector word
+(inverse to `unpackSlotWords`). -/
 def packSlotWords (w : SlotWidth) (ws : List (BitVec 64)) : BitVec 512 :=
   packSlotWordsAux (ws.take w.slots) 0
 
