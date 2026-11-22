@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.LinkSccLemmas1
+import LeanQbe.T.WPLemmas
 
 /-!
 # Soundness of `LeanQbe.T.LinkScc` — Part 2 (`R-B`)

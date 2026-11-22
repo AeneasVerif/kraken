@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.LinkSccLemmas2
+import LeanQbe.T.WPLemmas
 
 /-!
 # Knaster–Tarski `Env.lfp`, Kleene Approximants, and `link_scc_static` (`R-B` / `Lfp` Follow-Up)

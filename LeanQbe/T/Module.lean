@@ -1,7 +1,7 @@
 module
 
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.WfLemmas
+public import LeanQbe.T.WP
+public import LeanQbe.T.Wf
 
 /-!
 # Typed IR modules, acyclic `ModuleOk`, and `Env.ofModule` (`H2`)
@@ -62,24 +62,131 @@ theorem Blocks.callsOk_get {allowed : List SigEntry} {exits : List Sym} {rs : Li
   | _, .cons _ _, h, _, .here => h.1
   | _, .cons _ _, h, _, .there i => Blocks.callsOk_get h.2 i
 
+private theorem floatResultWp_mono {f : Fmt} {res : Float.Model.UnpackedFloat}
+    {p q : BitVec f.width → Prop} (h : ∀ r, p r → q r) :
+    floatResultWp f res p → floatResultWp f res q := by
+  unfold floatResultWp; split
+  · exact fun hp r hr => h r (hp r hr)
+  · exact h _
+
+private theorem liftFloatRel1_mono (op : Float.Model.Format → Float.Model.UnpackedFloat →
+      Float.Model.UnpackedFloat) :
+    ∀ (t : Ty) (a : Val t) (p q : Val t → Prop), (∀ r, p r → q r) →
+      liftFloatRel1 op t a p → liftFloatRel1 op t a q
+  | .float _, _, _, _, h, hp => floatResultWp_mono h hp
+  | .pair s u, a, _, _, h, hp =>
+      liftFloatRel1_mono op s a.1 _ _
+        (fun r1 => liftFloatRel1_mono op u a.2 _ _ (fun r2 => h (r1, r2))) hp
+  | .bool, _, _, _, _, hp => hp
+  | .bits _, _, _, _, _, hp => hp
+
+private theorem liftFloatRel2_mono (op : Float.Model.Format → Float.Model.UnpackedFloat →
+      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat) :
+    ∀ (t : Ty) (a b : Val t) (p q : Val t → Prop), (∀ r, p r → q r) →
+      liftFloatRel2 op t a b p → liftFloatRel2 op t a b q
+  | .float _, _, _, _, _, h, hp => floatResultWp_mono h hp
+  | .pair s u, a, b, _, _, h, hp =>
+      liftFloatRel2_mono op s a.1 b.1 _ _
+        (fun r1 => liftFloatRel2_mono op u a.2 b.2 _ _ (fun r2 => h (r1, r2))) hp
+  | .bool, _, _, _, _, _, hp => hp
+  | .bits _, _, _, _, _, _, hp => hp
+
+private theorem liftFloatRel3_mono (op : Float.Model.Format → Float.Model.UnpackedFloat →
+      Float.Model.UnpackedFloat → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat) :
+    ∀ (t : Ty) (a b c : Val t) (p q : Val t → Prop), (∀ r, p r → q r) →
+      liftFloatRel3 op t a b c p → liftFloatRel3 op t a b c q
+  | .float _, _, _, _, _, _, h, hp => floatResultWp_mono h hp
+  | .pair s u, a, b, c, _, _, h, hp =>
+      liftFloatRel3_mono op s a.1 b.1 c.1 _ _
+        (fun r1 => liftFloatRel3_mono op u a.2 b.2 c.2 _ _ (fun r2 => h (r1, r2))) hp
+  | .bool, _, _, _, _, _, _, hp => hp
+  | .bits _, _, _, _, _, _, _, hp => hp
+
+private theorem convertFloat_mono {src dst : Fmt} {b : BitVec src.width}
+    {p q : BitVec dst.width → Prop} (h : ∀ r, p r → q r) :
+    convertFloat src dst b p → convertFloat src dst b q := by
+  delta convertFloat
+  cases unpackFloat src b with
+  | notANumber => exact fun hp r hr => h r (hp r hr)
+  | finite _ _ _ _ => exact h _
+  | _ => exact h _
+
+private theorem opCode_wp_mono {as rs : List Ty} (c : OpCode as rs) (args : Tup Val as)
+    {p q : Tup Val rs → Prop} (h : ∀ r, p r → q r) (hp : c.wp args p) : c.wp args q := by
+  cases c
+  all_goals
+    try cases ‹_ = Ty.mask _›
+    try obtain ⟨_, _, _, ⟨⟩⟩ := args
+    try obtain ⟨_, _, ⟨⟩⟩ := args
+    try obtain ⟨_, ⟨⟩⟩ := args
+    delta OpCode.wp at hp ⊢
+    dsimp only at hp ⊢
+    try (split <;> simp only [*] at hp)
+  all_goals
+    first
+      | exact False.elim hp
+      | exact False.elim hp.2
+      | exact h _ hp
+      | exact ⟨hp.1, h _ hp.2⟩
+      | exact ⟨hp.1, hp.2.1, h _ hp.2.2⟩
+      | exact ⟨hp.1, hp.2.1, hp.2.2.1, h _ hp.2.2.2⟩
+      | exact liftFloatRel1_mono _ _ _ _ _ (fun _ => h _) hp
+      | exact liftFloatRel2_mono _ _ _ _ _ _ (fun _ => h _) hp
+      | exact liftFloatRel3_mono _ _ _ _ _ _ _ (fun _ => h _) hp
+      | exact convertFloat_mono (fun _ => h _) hp
+
+mutual
 theorem wp_env_agree_of_callsOk {Γ Γ' : Env} {allowed : List SigEntry} {exits : List Sym}
-    {rs : List Ty} {Q : Post rs} {X : XPost} {G : Ctx Val (fun _ => Unit)} {D : Ctx Cont (fun _ => Unit)}
+    {rs : List Ty} {Q : Post rs} {X : XPost} {G : Ctx Val (fun _ => Unit)}
+    {D : Ctx Cont (fun _ => Unit)}
     {e₁ : Expr Val Cont rs} {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs}
     (hwf : Wf G D e₁ e₂) (hcalls : e₂.callsOk allowed exits)
-    (hΓ : ∀ f as bs, (f, as, bs) ∈ allowed → ∀ xs m P E, Γ f as bs xs m P E → Γ' f as bs xs m P E) :
+    (hΓ : ∀ f as bs, (f, as, bs) ∈ allowed →
+      ∀ xs m P E, Γ f as bs xs m P E → Γ' f as bs xs m P E) :
     ∀ m, wp Γ Q X e₁ m → wp Γ' Q X e₁ m := by
-  induction hwf using Wf.induct with
-  | let_ _ _ ih => intro m h; exact Op.wp_mono (fun r => ih r (Tup.units _) hcalls m) h
-  | load _ _ _ ih => intro m ⟨v, hv, h⟩; exact ⟨v, hv, ih v () hcalls m h⟩
-  | store _ _ _ ih => intro m ⟨hok, h⟩; exact ⟨hok, ih hcalls _ h⟩
-  | call f _ _ ih =>
+  cases hwf with
+  | let_ _ hk =>
+    intro m h
+    exact opCode_wp_mono _ _
+      (fun r => wp_env_agree_of_callsOk (hk r (Tup.units _)) hcalls hΓ m) h
+  | load _ _ hk =>
+    intro m ⟨v, hv, h⟩
+    exact ⟨v, hv, wp_env_agree_of_callsOk (hk v ()) hcalls hΓ m h⟩
+  | store _ _ hk =>
+    intro m ⟨hok, h⟩
+    exact ⟨hok, wp_env_agree_of_callsOk hk hcalls hΓ _ h⟩
+  | call f _ hk =>
     intro m ⟨P, E, hG, hP, hE⟩
-    exact ⟨P, E, hΓ f _ _ hcalls.1 _ m P E hG, fun r m' hr => ih r (Tup.units _) hcalls.2 m' (hP r m' hr), hE⟩
-  | jnz _ _ _ iht ihe => intro m h; exact ⟨fun hc => iht hcalls.1 m (h.1 hc), fun hc => ihe hcalls.2 m (h.2 hc)⟩
+    exact ⟨P, E, hΓ f _ _ hcalls.1 _ m P E hG,
+      fun r m' hr =>
+        wp_env_agree_of_callsOk (hk r (Tup.units _)) hcalls.2 hΓ m' (hP r m' hr), hE⟩
+  | jnz _ ht he =>
+    intro m h
+    exact ⟨fun hc => wp_env_agree_of_callsOk ht hcalls.1 hΓ m (h.1 hc),
+      fun hc => wp_env_agree_of_callsOk he hcalls.2 hΓ m (h.2 hc)⟩
   | jump _ _ | ret _ | exit _ _ | hlt => intro _ h; exact h
-  | group _ _ ihb ihk =>
-    intro m h Js hc; refine ihk Js (Tup.units _) hcalls.2 m (h Js ?_); rw [closed_iff] at hc ⊢
-    exact fun i xs m' hb => hc i xs m' (ihb Js (Tup.units _) i xs (Tup.units _) (Blocks.callsOk_get hcalls.1 i) m' hb)
+  | group hb hk =>
+    intro m h Js hc
+    exact wp_env_agree_of_callsOk (hk Js (Tup.units _)) hcalls.2 hΓ m
+      (h Js (closed_env_agree_of_callsOk (hb Js (Tup.units _)) hcalls.1 hΓ hc))
+
+private theorem closed_env_agree_of_callsOk {Γ Γ' : Env} {allowed : List SigEntry}
+    {exits : List Sym} {rs : List Ty} {Q : Post rs} {X : XPost} {G : Ctx Val (fun _ => Unit)}
+    {D : Ctx Cont (fun _ => Unit)}
+    {sig : List (List Ty)} {bs₁ : Blocks Val Cont rs sig}
+    {bs₂ : Blocks (fun _ => Unit) (fun _ => Unit) rs sig}
+    (hwfb : WfB G D bs₁ bs₂) (hcalls : bs₂.callsOk allowed exits)
+    (hΓ : ∀ f as bs, (f, as, bs) ∈ allowed →
+      ∀ xs m P E, Γ f as bs xs m P E → Γ' f as bs xs m P E)
+    {Js : Tup Cont sig} (hc : Closed Γ' Q X bs₁ Js) :
+    Closed Γ Q X bs₁ Js := by
+  cases hwfb with
+  | nil => trivial
+  | cons hbh hbs =>
+    exact ⟨fun xs m hwp =>
+        hc.1 xs m (wp_env_agree_of_callsOk (hbh xs (Tup.units _)) hcalls.1 hΓ m hwp),
+      closed_env_agree_of_callsOk hbs hcalls.2 hΓ hc.2⟩
+end
 
 def Env.restrict (Γ : Env) (allowed : List SigEntry) : Env :=
   fun f as bs xs m Q X => (f, as, bs) ∈ allowed ∧ Γ f as bs xs m Q X
@@ -100,13 +207,17 @@ theorem ModuleOk.wp_restrict {Γ : Env} {M : Module} (hM : ModuleOk Γ M)
   wp_env_agree_of_callsOk (hwf Val (fun _ => Unit) Cont (fun _ => Unit) xs (Tup.units fn.as))
     hcalls (fun _ _ _ hmem _ _ _ _ hg => ⟨hmem, hg⟩) m (hwp xs m Q X hspec)
 
-theorem ModuleOk.ofModule {Γ : Env} {M : Module} (hM : ModuleOk Γ M) : ModuleOk (Env.ofModule M Γ) M := by
+theorem ModuleOk.ofModule {Γ : Env} {M : Module} (hM : ModuleOk Γ M) :
+    ModuleOk (Env.ofModule M Γ) M := by
   refine ⟨hM.nodup, fun pre fn post hsplit => ?_⟩
   have ⟨hwf, hcalls, _⟩ := hM.fnsOk pre fn post hsplit
-  refine ⟨hwf, hcalls, fun xs m Q X hspec => wp_env_mono (fun _ _ _ _ _ _ _ hg => ?_) _ m (hM.wp_restrict hsplit hspec.2)⟩
-  rcases List.mem_append.mp hg.1 with hp | he
-  · exact ⟨List.mem_append_left _ (by rw [hsplit, List.map_append]; exact List.mem_append_left _ hp), hg.2⟩
-  · exact ⟨List.mem_append_right _ he, hg.2⟩
+  refine ⟨hwf, hcalls, fun xs m Q X hspec =>
+    wp_env_agree_of_callsOk (hwf Val (fun _ => Unit) Cont (fun _ => Unit) xs (Tup.units fn.as))
+      hcalls (fun _ _ _ hmem _ _ _ _ hg => ⟨?_, hg.2⟩) m (hM.wp_restrict hsplit hspec.2)⟩
+  rcases List.mem_append.mp hmem with hp | he
+  · exact List.mem_append_left _
+      (by rw [hsplit, List.map_append]; exact List.mem_append_left _ hp)
+  · exact List.mem_append_right _ he
 
 private theorem sigs_map_fst (M : Module) : M.sigs.map Prod.fst = M.names := by
   simp [Module.sigs, Module.names, List.map_append, List.map_map, Function.comp_def, Fn.sig, Extern.sig]
