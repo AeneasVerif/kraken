@@ -421,12 +421,51 @@ theorem sumWhileFn_rot_callsOk : (Fn.loopRotate sumWhileFn).callsOk [] [] :=
   Fn.loopRotate_callsOk (fn := sumWhileFn) sumWhileLoop_wf defaultRotConfig (by
     simp [sumWhileFn, sumWhileLoop, loop1, Fn.callsOk, Expr.callsOk, Blocks.callsOk])
 
-/-! ## 5. Real-corpus validation (`LratBytes` & `Kissat.Full`) -/
+/-! ## 5. Pipeline integration (`Func.lateOpt`) -/
+
+theorem sumWhile_lateOpt_out : Func.lateOpt sumWhileLoop = fun _ _ (n, ()) =>
+    .group (sig := [[i64, i64]])
+      (fun (loopRot, ()) => .cons (fun (i, acc, ()) =>
+        .let_ (op2 (.add i64) (.var i) (.var acc)) fun (acc', ()) =>
+        .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+        .let_ (op2 (.ne i64) (.var i') (.imm 0)) fun (c1, ()) =>
+        .jnz (.var c1)
+          (.jump loopRot (.var i', .var acc', ()))
+          (.ret (.var acc', ()))) .nil)
+      (fun (loopRot, ()) =>
+        .let_ (op2 (.ne i64) (.var n) (.imm 0)) fun (c0, ()) =>
+        .jnz (.var c0) (.jump loopRot (.var n, .imm 0, ())) (.ret (.imm 0, ()))) := by
+  t_kernel_rfl
+
+theorem sumWhile_lateOpt_wf : (Func.lateOpt sumWhileLoop).Wf :=
+  Func.lateOpt_wf sumWhileLoop_wf
+
+theorem sumWhile_lateOpt_spec (Γ : Env) (n : BitVec 64) (m : Mem 64) (X : XPost) :
+    Func.spec Γ (Func.lateOpt sumWhileLoop) (n, ()) m
+      (fun (r, ()) m' => 2 * r.toNat % 2 ^ 64 = (n.toNat * (n.toNat + 1)) % 2 ^ 64 ∧ m' = m)
+      X :=
+  Func.lateOpt_spec sumWhileLoop_wf (sumWhileLoop_spec Γ n m X)
+
+theorem exitTrue_lateOpt_out : Func.lateOpt exitTrueLoop = fun _ _ (n, ()) =>
+    .group (sig := [[i64, i64]])
+      (fun (loopRot, ()) => .cons (fun (i, acc, ()) =>
+        .let_ (op2 (.add i64) (.var i) (.var acc)) fun (acc', ()) =>
+        .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+        .let_ (op2 (.eq i64) (.var i') (.imm 0)) fun (z1, ()) =>
+        .jnz (.var z1) (.ret (.var acc', ()))
+          (.jump loopRot (.var i', .var acc', ()))) .nil)
+      (fun (loopRot, ()) =>
+        .let_ (op2 (.eq i64) (.var n) (.imm 0)) fun (z0, ()) =>
+        .jnz (.var z0) (.ret (.imm 0, ())) (.jump loopRot (.var n, .imm 0, ()))) := by
+  t_kernel_rfl
+
+/-! ## 6. Real-corpus validation (`LratBytes` & `Kissat.Full`) -/
 
 #guard lratBytesFns.length == 6
 #guard lratBytesFns.all fun fn =>
   (Func.loopRotate (Func.earlyCore fn.body)).checkTFlat &&
-    (Fn.loopRotate fn).body.checkTFlat
+    (Fn.loopRotate fn).body.checkTFlat &&
+    (Func.lateOpt (Func.earlyOpt fn.body)).checkTFlat
 #guard lratBytesFns.any fun fn =>
   (buildRotPlan (as := fn.as) defaultRotConfig (reifyFunc (Func.earlyCore fn.body))).hasRot
 
@@ -434,7 +473,7 @@ theorem sumWhileFn_rot_callsOk : (Fn.loopRotate sumWhileFn).callsOk [] [] :=
 #guard fullFns.all fun fn =>
   (Func.loopRotate (Func.earlyCore fn.body)).checkTFlat
 
-/-! ## 6. Axiom audit (`⊆ [propext, Classical.choice, Quot.sound]`) -/
+/-! ## 7. Axiom audit (`⊆ [propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms LeanQbe.T.Func.loopRotateWithPlan_wf
 #print axioms LeanQbe.T.Func.loopRotateWithPlan_spec
@@ -448,6 +487,8 @@ theorem sumWhileFn_rot_callsOk : (Fn.loopRotate sumWhileFn).callsOk [] [] :=
 #print axioms LeanQbe.T.Fn.loopRotate_spec
 #print axioms LeanQbe.T.Fn.loopRotate_callsOk
 #print axioms LeanQbeTest.T.LoopRotateTest.sumWhileLoop_rot_spec
+#print axioms LeanQbeTest.T.LoopRotateTest.sumWhile_lateOpt_wf
+#print axioms LeanQbeTest.T.LoopRotateTest.sumWhile_lateOpt_spec
 #print axioms LeanQbeTest.T.LoopRotateTest.sumWhileFn_rot_callsOk
 #print axioms LeanQbeTest.T.LoopRotateTest.multiBackCallLoop_callsOk
 

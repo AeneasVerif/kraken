@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.OptLemmas
 public import LeanQbe.T.LicmLemmas
+public import LeanQbe.T.LoopRotateLemmas
 public import LeanQbe.T.DceParamLemmas
 public import LeanQbe.T.SimplifyGroupPlanLemmas
 public import LeanQbe.T.LegalLemmas
@@ -28,11 +29,11 @@ compositional multi-chunk linker (`MainLink`), and measure-indexed cyclic/mutual
 linking (`LinkRec`).
 
 ## What This Workstream Proves
-1. **Mid-end optimization (`OptLemmas`, `LicmLemmas`, `DceParamLemmas`,
-   `SimplifyGroupPlanLemmas`)**: `Func.earlyOpt`, `Func.lateCfg` (with `Func.licm`), `Func.lateOpt`,
-   legacy `Func.opt`, `Func.licm`, `Func.dceP`, `Func.simplifyGroupPlan`, and acyclic inlining +
-   renormalization (`Module.optInline`) preserve `Func.Wf`, refine `Func.spec`, and preserve
-   `ModuleOk`.
+1. **Mid-end optimization (`OptLemmas`, `LicmLemmas`, `LoopRotateLemmas`, `DceParamLemmas`,
+   `SimplifyGroupPlanLemmas`)**: `Func.earlyOpt`, `Func.lateCfg` (with `Func.licm`), `Func.lateOpt`
+   (with `Func.loopRotate`), legacy `Func.opt`, `Func.licm`, `Func.loopRotate`, `Func.dceP`,
+   `Func.simplifyGroupPlan`, and acyclic inlining + renormalization (`Module.optInline`) preserve
+   `Func.Wf`, refine `Func.spec`, and preserve `ModuleOk`.
 2. **Type and opcode legalization (`LegalLemmas`, `LegalCheck3`)**: `Func.legal` / `Fn.legal`
    refine `Func.spec` into `legalEnv` / `legalPost` / `legalXPost` and guarantee target legality
    (`isLegal target = true`).
@@ -152,6 +153,26 @@ theorem audit_sgp_plan_spec {as rs : List Ty} (plan : SgpImpl.SimpPlan)
     (h : Func.spec Γ f xs m Q X) :
     Func.spec Γ (Func.simplifyGroupWithPlan plan f) xs m Q X :=
   Func.simplifyGroupWithPlan_spec plan hf h
+
+theorem audit_loopRotate_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
+    (cfg : LoopRotate.RotConfig := LoopRotate.defaultRotConfig) :
+    (Func.loopRotate f cfg).Wf :=
+  Func.loopRotate_wf hf cfg
+
+theorem audit_loopRotate_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
+    (cfg : LoopRotate.RotConfig := LoopRotate.defaultRotConfig) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) :
+    Func.spec Γ (Func.loopRotate f cfg) xs m Q X :=
+  Func.loopRotate_spec hf cfg h
+
+theorem audit_loopRotate_callsOk {allowed : List SigEntry} {exits : List Sym}
+    {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
+    (cfg : LoopRotate.RotConfig := LoopRotate.defaultRotConfig)
+    (hc : (f (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits) :
+    ((Func.loopRotate f cfg) (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk
+      allowed exits :=
+  Func.loopRotate_callsOk hf cfg hc
 
 /-! ## 2. Legalization Correctness & Target Legality -/
 
@@ -586,6 +607,9 @@ end IselStepAttrAudit
 #print axioms audit_sgp_wf
 #print axioms audit_sgp_spec
 #print axioms audit_sgp_plan_spec
+#print axioms audit_loopRotate_wf
+#print axioms audit_loopRotate_spec
+#print axioms audit_loopRotate_callsOk
 #print axioms audit_legal_spec
 #print axioms audit_legal_ok
 #print axioms audit_rec_elide

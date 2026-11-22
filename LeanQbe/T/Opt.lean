@@ -12,6 +12,7 @@ public import LeanQbe.T.Peel
 public import LeanQbe.T.IfOpt
 public import LeanQbe.T.SimplifyGroupPlan
 public import LeanQbe.T.Licm
+public import LeanQbe.T.LoopRotate
 public import LeanQbe.T.Inline
 public import LeanQbe.T.Module
 
@@ -25,8 +26,9 @@ public import LeanQbe.T.Module
   chains).
 * `Func.lateOpt`: post-`Legal` pipeline (`renorm → fold → canon → divConst → copy → memLoad →
   gvn → renorm → simplifyGroupPlan → ifOptBits → simplifyGroupPlan → deadLoadElim → assumeElim →
-  renorm → licm → dceP → renorm`), running target-safe scalar division reduction, memory load
-  forwarding, machine-width if-conversion, loop-invariant code motion, and cleanup on legalized IR.
+  renorm → licm → dceP → loopRotate → renorm`), running target-safe scalar division reduction,
+  memory load forwarding, machine-width if-conversion, loop-invariant code motion, CFG loop
+  rotation, and cleanup on legalized IR.
 * `Fn.renorm` / `Module.optInline`: acyclic small-callee inlining followed by AST renormalization.
 
 Correctness (`LeanQbe/T/OptLemmas.lean`): `Func.opt_wf`, `Func.opt_spec`, `Func.earlyOpt_wf`,
@@ -150,9 +152,10 @@ def Func.lateCfg {as rs : List Ty} (f : Func as rs) : Func as rs :=
 
 /-- Stage 2 (`lateOpt`, post-`Legal`): strength-reduce constant division, forward memory loads,
 run machine-width `.bits` if-conversion (`ifOptBits`), clean up dead loads/blocks, hoist
-loop-invariant pure operations (`licm`), and renormalize before `Rega`. -/
+loop-invariant pure operations (`licm`), rotate header-tested loops (`loopRotate`), and
+renormalize before `Rega`. -/
 def Func.lateOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.renorm (Func.lateCfg (Func.lateCore f))
+  Func.renorm (Func.loopRotate (Func.lateCfg (Func.lateCore f)))
 
 theorem Func.earlyCore_eq {as rs : List Ty} (f : Func as rs) :
     Func.earlyCore f =
@@ -177,7 +180,7 @@ theorem Func.lateCfg_eq {as rs : List Ty} (f : Func as rs) :
   rfl
 
 theorem Func.lateOpt_eq {as rs : List Ty} (f : Func as rs) :
-    Func.lateOpt f = Func.renorm (Func.lateCfg (Func.lateCore f)) :=
+    Func.lateOpt f = Func.renorm (Func.loopRotate (Func.lateCfg (Func.lateCore f))) :=
   rfl
 
 attribute [irreducible] Func.earlyCore Func.earlyOpt Func.lateCore Func.lateCfg Func.lateOpt

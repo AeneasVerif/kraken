@@ -17,6 +17,7 @@ import LeanQbe.T.PeelLemmas
 import LeanQbe.T.IfOptLemmas
 import LeanQbe.T.SimplifyGroupPlanLemmas
 import LeanQbe.T.LicmLemmas
+import LeanQbe.T.LoopRotateLemmas
 
 /-!
 # Correctness of the Staged Typed-IR Mid-End Pipeline (`T6`, `O-M1`, `O-M2`)
@@ -209,7 +210,10 @@ theorem Func.lateOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : E
   rw [Func.lateOpt_eq]
   have hcore := Func.lateCore_wf hf
   have hscore := Func.lateCore_spec hf h
-  exact Func.renorm_spec (Func.lateCfg_wf hcore) (Func.lateCfg_spec hcore hscore)
+  have hcfg := Func.lateCfg_wf hcore
+  have hscfg := Func.lateCfg_spec hcore hscore
+  exact Func.renorm_spec (Func.loopRotate_wf hcfg)
+    (Func.loopRotate_spec hcfg LoopRotate.defaultRotConfig hscfg)
 
 /-- `Fn.renorm` unconditionally produces a well-formed function body. -/
 theorem Fn.renorm_wf (fn : Fn) : (Fn.renorm fn).Wf :=

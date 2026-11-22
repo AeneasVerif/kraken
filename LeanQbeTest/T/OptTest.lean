@@ -285,8 +285,9 @@ theorem lateSynergyProg_lateOpt_spec (Γ : Env) (x ptr o : BitVec 64) (cond : Bo
   exact ⟨fun _ => ⟨rfl, hm1⟩, fun h => by cases h⟩
 
 /-- Loop computing invariant clause-literal base `ar + ((zext cref + 3) * 4)` on every iteration
-while loading `i32` literals; `Func.lateOpt` folds `* 4` to `<< 2` and hoists the entire address
-chain before `.group` via `Func.licm`. -/
+while loading `i32` literals; `Func.lateOpt` folds `* 4` to `<< 2`, hoists the entire address
+chain before `.group` via `Func.licm`, and rotates the header test to the bottom via
+`Func.loopRotate`. -/
 def lateLicmAddrLoop : Func [i64, i32, i64] [i64] := fun _ _ (ar, cref, n, ()) =>
   loop1 (ts := [i64, i64])
     (fun lp (i, acc, ()) =>
@@ -313,16 +314,17 @@ theorem lateLicmAddrLoop_lateOpt_out : Func.lateOpt lateLicmAddrLoop =
       .let_ (op2 (.add i64) (.var ar) (.var off)) fun (base, ()) =>
       .group (sig := [[i64, i64]])
         (fun (lp, ()) => .cons (fun (i, acc, ()) =>
-          .let_ (op2 (.cmp .eq i64) (.var i) (.imm 0)) fun (z, ()) =>
-          .jnz (.var z) (.ret (.var acc, ()))
-            (.let_ (op2 (.shl i64) (.var i) (.imm 2)) fun (ioff, ()) =>
-             .let_ (op2 (.add i64) (.var base) (.var ioff)) fun (ptr, ()) =>
-             .load i32 (.var ptr) fun w =>
-             .let_ (op1 (.zext 32 64) (.var w)) fun (w64, ()) =>
-             .let_ (op2 (.add i64) (.var acc) (.var w64)) fun (acc', ()) =>
-             .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
-             .jump lp (.var i', .var acc', ()))) .nil)
-        (fun (lp, ()) => .jump lp (.var n, .imm 0, ())) := by
+          .let_ (op2 (.shl i64) (.var i) (.imm 2)) fun (ioff, ()) =>
+          .let_ (op2 (.add i64) (.var base) (.var ioff)) fun (ptr, ()) =>
+          .load i32 (.var ptr) fun w =>
+          .let_ (op1 (.zext 32 64) (.var w)) fun (w64, ()) =>
+          .let_ (op2 (.add i64) (.var acc) (.var w64)) fun (acc', ()) =>
+          .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
+          .let_ (op2 (.cmp .eq i64) (.var i') (.imm 0)) fun (z1, ()) =>
+          .jnz (.var z1) (.ret (.var acc', ())) (.jump lp (.var i', .var acc', ()))) .nil)
+        (fun (lp, ()) =>
+          .let_ (op2 (.cmp .eq i64) (.var n) (.imm 0)) fun (z0, ()) =>
+          .jnz (.var z0) (.ret (.imm 0, ())) (.jump lp (.var n, .imm 0, ()))) := by
   t_kernel_rfl
 
 theorem lateLicmAddrLoop_wf : lateLicmAddrLoop.Wf := by t_wf_reify
