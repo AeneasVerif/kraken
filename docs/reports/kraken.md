@@ -1,3 +1,5 @@
+> **[Historical design note]** Written during an earlier milestone; several `LeanQbe/*.lean` (E1) paths referenced below have since moved to `LeanQbe/T/`. See `README.md` for current paths.
+
 # Kraken worktrees and upstreamed lemmas (worker `kraken`)
 
 ## Worktrees

@@ -1,3 +1,5 @@
+> **[Historical design note]** Written during an earlier milestone; `scripts/headline.txt` referenced below has since been split into `scripts/headlines.d/*.txt`. See `README.md` for current paths.
+
 # `O-Track` Wave 3 Report: Staged Typed-IR Optimizer, Mid-End Unifications, & Benchmarks
 
 ## 1. Scope & Architecture (`o-wire` on `main @ a9503f6`)

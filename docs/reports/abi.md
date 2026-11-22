@@ -1,3 +1,5 @@
+> **[Historical design note]** Written during an earlier milestone; several `LeanQbe/*.lean` (E1) and `scripts/headline.txt` paths referenced below have since moved to `LeanQbe/T/` and `scripts/headlines.d/`. See `README.md` for current paths.
+
 # abi: target signature, function contract, x64 instance
 
 Owner: `abi`. Files: `LeanQbe/{Abi,AbiLemmas}.lean`, `LeanQbe/Amd64/{Targ,TargLemmas,FrameLemmas}.lean`,

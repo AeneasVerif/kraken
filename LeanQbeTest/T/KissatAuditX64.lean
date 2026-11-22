@@ -38,12 +38,21 @@ and proves each restatement by the corresponding library theorem. It imports `Kr
   input bytes are unchanged (read-only), the workspace is again a `region`, the stack frame is
   again a `region`, and `R` is untouched.
 
-## `D-Full` status
+## Active vs. legacy solver status
 
-The `D-Full` (166-function) theorems are **unconditional** (`166/166` `ModuleOk fullEnv fullModule`
-discharged by `FullProof.fullEnv_moduleOk`, combining `FullBridgeLemmas1`–`9`,
-`FullOneLitConflLemmas`, and `FullDeduce1UipLemmas`), matching `D-Plain`. Model reconstruction
-after inprocessing is intentionally unverified, so `10` is not certified; only UNSAT (`20`) is.
+This file audits the two **active** native Kissat x86-64 builds:
+* **`D-Plain`** (`LeanQbe.T.Amd64.KissatPlain`, `59` functions): **SAT (`10`) and UNSAT (`20`)**
+  soundness + closed concrete-host non-vacuity (`plainCert.host`), unconditional.
+* **`D-Full M3`** (`LeanQbe.T.Amd64.KissatM3`, `204` functions): **UNSAT (`20`)** soundness +
+  both arbitrary-host and closed concrete-host (`kissatM3_compiled_x64.host`) non-vacuity,
+  unconditional. Model reconstruction after inprocessing is intentionally unverified, so `10` is
+  not certified; `bench/kissat/kissat_cli.c` compiles with `-DKISSAT_UNSAT_ONLY=1` and reports
+  `s UNKNOWN` (exit `0`) if `10` is returned.
+
+Retired **`D-Full`** (`166` functions) and **`D-Full M2 Fast`** (`196` functions) machine-code
+theorems live in `LeanQbeLegacyTest/KissatLegacyAuditX64.lean` (checked when `INCLUDE_LEGACY=1`).
+**`D-Full M4`** (`231` functions) has source-level `ModuleOk` in `KissatAuditSpec.lean` only and
+no native `LinkedCert` yet.
 -/
 
 set_option autoImplicit false
@@ -253,6 +262,33 @@ theorem audit_m3_x64_nv [hh : Host] (k₀ : Nat)
         ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
   m3_x64_unsat_nonvacuous k₀ hc hu
 
+/-- **`D-Full M3` x86-64 closed concrete-host UNSAT non-vacuity** (`204` fns): instantiates
+`audit_m3_x64_nv` on the concrete compiled host `kissatM3_compiled_x64.host` (`k₀ = 0`). -/
+theorem audit_m3_x64_nv_closed :
+    letI : Host := kissatM3_compiled_x64.host
+    ∃ (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
+      (s : MachineData) (ra : Int64) (R : Mem 64 → Prop),
+      cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧
+      work_ptr.toNat + wlen < 2 ^ 64 ∧
+      s.regs.get64 .rdi = cnf_ptr ∧
+      s.regs.get64 .rsi = BitVec.ofNat 64 cnfBytes.length ∧
+      s.regs.get64 .rdx = work_ptr ∧
+      s.regs.get64 .rcx = BitVec.ofNat 64 wlen ∧
+      s.regs.get64 .r8 = fuel ∧
+      (s.regs.get64 .rsp + 8#64).toNat % 16 = 0 ∧
+      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
+        (region (s.regs.get64 .rsp - BitVec.ofNat 64
+              (kissatM3_compiled_x64.bound "kissat_solve_bytes"))
+            (kissatM3_compiled_x64.bound "kissat_solve_bytes") ⋆
+          cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) s.dmem ∧
+      Eventually (step1 Host.exe)
+        (fun st => st.pc = ra ∧ st.data.regs.get64 .rax = 20#64 ∧
+          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat)
+        ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
+  letI : Host := kissatM3_compiled_x64.host
+  m3_x64_unsat_nonvacuous 0
+    kissatM3_compiled_x64.code_infix_host kissatM3_compiled_x64.labelsUnique
+
 end M3X64
 
 /-! ## 3. Module shapes and `#print axioms` (one line each, standard axioms only) -/
@@ -267,3 +303,4 @@ end M3X64
 #print axioms audit_m3_x64_unsat
 #print axioms audit_m3_x64_sound
 #print axioms audit_m3_x64_nv
+#print axioms audit_m3_x64_nv_closed

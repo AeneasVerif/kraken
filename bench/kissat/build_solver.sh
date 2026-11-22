@@ -1,38 +1,46 @@
 #!/usr/bin/env bash
 # Build a native `kissat-leanqbe` binary from the verified LeanQbe Kissat solver.
 #
-#   bash bench/kissat/build_solver.sh [--module Full|FullFast|FullM3|FullM4|Plain] \
-#     [--arch x64|arm64] [--inline-max <N>] [--debug|-g] [--keep-asm] \
-#     [--save-asm <path>] [-o <output_bin>]
+#   bash bench/kissat/build_solver.sh [--module FullM3|Plain|Full|FullFast|FullM4] \
+#     [--arch x64|arm64] [--inline-max <N>] [--allow-uncertified] [--debug|-g] \
+#     [--keep-asm] [--save-asm <path>] [-o <output_bin>]
 #
 # 1. `lake build`s the solver module `LeanQbe.T.Examples.Kissat.<Module>` and the code generator
 #    (skipped when `STAGE_LEAN_PATH` is set).
-# 2. Applies `Module.optInline <N>` (default `40`; `0` disables) and compiles `<Module>Module`
-#    with `LeanQbe.T.compile` for x86-64 (`Kraken.X64.PrintATT`) or AArch64
-#    (`Kraken.AArch64.Print`) into a `.s` file.
-# 3. Links that assembly with bench/kissat/kissat_cli.c into <output_bin>.
+# 2. Compiles `<Module>Module` with `LeanQbe.T.compile` for x86-64 (`Kraken.X64.PrintATT`) or
+#    AArch64 (`Kraken.AArch64.Print`) into a `.s` file. Default `--inline-max 0` emits the exact IR
+#    certified by `LinkedCert`; `--inline-max <N>` (`N > 0`) and `--debug` apply uncertified
+#    transforms outside the `LinkedCert` proof.
+# 3. Links that assembly with `bench/kissat/kissat_cli.c` into `<output_bin>`. For all modules
+#    except `Plain`, compiles `kissat_cli.c` with `-DKISSAT_UNSAT_ONLY=1` so uncertified `10`
+#    returns print `s UNKNOWN` and exit `0`. `FullM4` has source-level `ModuleOk` only (no native
+#    `LinkedCert` yet) and requires `--allow-uncertified`.
 #
-# Defaults: --module Full --arch x64 --inline-max 40 -o /tmp/kissat-leanqbe-<module>[-arm64]. All
+# Defaults: --module FullM3 --arch x64 --inline-max 0 -o /tmp/kissat-leanqbe-<module>[-arm64]. All
 # intermediate files live in a temporary directory removed on exit; the repository is never written
 # to except for Lake's own .lake/ build cache. For --arch arm64 on a non-AArch64 host the binary
 # is built with aarch64-linux-gnu-gcc (override with CC=...) and runs under qemu-aarch64, e.g.
-#   qemu-aarch64 -L /usr/aarch64-linux-gnu /tmp/kissat-leanqbe-full-arm64 input.cnf
+#   qemu-aarch64 -L /usr/aarch64-linux-gnu /tmp/kissat-leanqbe-fullm3-arm64 input.cnf
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CALLER_PWD="$PWD"
-MODULE=Full
+MODULE=FullM3
 ARCH=x64
-INLINE_MAX="${INLINE_MAX:-40}"
+INLINE_MAX="${INLINE_MAX:-0}"
 OUTPUT=""
 DEBUG=0
 KEEP_ASM=0
 SAVE_ASM=""
+ALLOW_UNCERTIFIED=0
 
 usage() {
   echo "usage: bash bench/kissat/build_solver.sh" \
-    "[--module Full|FullFast|FullM3|FullM4|Plain] [--arch x64|arm64]" \
-    "[--inline-max <N>] [--debug|-g] [--keep-asm] [--save-asm <path>] [-o <output_bin>]"
+    "[--module FullM3|Plain|Full|FullFast|FullM4] [--arch x64|arm64]" \
+    "[--inline-max <N>] [--allow-uncertified] [--debug|-g] [--keep-asm]" \
+    "[--save-asm <path>] [-o <output_bin>]"
+  echo "  note: --inline-max > 0 and --debug rewrite IR/directives outside LinkedCert;" \
+    "FullM4 requires --allow-uncertified."
 }
 
 while [ $# -gt 0 ]; do
@@ -47,12 +55,19 @@ while [ $# -gt 0 ]; do
         -o) OUTPUT="$2" ;;
       esac
       shift 2 ;;
+    --allow-uncertified|--allow-uncertified-codegen) ALLOW_UNCERTIFIED=1; shift ;;
     --debug|-g) DEBUG=1; shift ;;
     --keep-asm) KEEP_ASM=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+case "$INLINE_MAX" in
+  ''|*[!0-9]*)
+    echo "ERROR: --inline-max expects a non-negative integer, got '$INLINE_MAX'" >&2
+    exit 2 ;;
+esac
 
 case "${MODULE,,}" in
   full) MODULE=Full; EXPR=LeanQbe.T.Examples.Kissat.Full.fullModule ;;
@@ -61,9 +76,31 @@ case "${MODULE,,}" in
   fullm4|m4) MODULE=FullM4; EXPR=LeanQbe.T.Examples.Kissat.FullM4.m4Module ;;
   plain) MODULE=Plain; EXPR=LeanQbe.T.Examples.Kissat.Plain.plainModule ;;
   *)
-    echo "ERROR: unknown module '$MODULE' (expected Full|FullFast|FullM3|FullM4|Plain)" >&2
+    echo "ERROR: unknown module '$MODULE' (expected FullM3|Plain|Full|FullFast|FullM4)" >&2
     exit 2 ;;
 esac
+
+if [ "$MODULE" = Full ] || [ "$MODULE" = FullFast ]; then
+  echo "WARNING: --module $MODULE is a retired legacy solver (moved to LeanQbeLegacy*;" \
+    "superseded by FullM3)." >&2
+fi
+if [ "$MODULE" = FullM4 ]; then
+  if [ "$ALLOW_UNCERTIFIED" != 1 ]; then
+    echo "ERROR: --module FullM4 has source-level ModuleOk only and no native LinkedCert yet;" \
+      "pass --allow-uncertified to build uncertified codegen." >&2
+    exit 2
+  fi
+  echo "WARNING: --module FullM4 has source-level ModuleOk only and NO native LinkedCert" \
+    "(--allow-uncertified)." >&2
+fi
+if [ "$INLINE_MAX" -gt 0 ]; then
+  echo "WARNING: --inline-max $INLINE_MAX applies Module.optInline; emitted assembly diverges" \
+    "from the kernel-checked LinkedCert (which certifies inline=0 only)." >&2
+fi
+if [ "$DEBUG" = 1 ]; then
+  echo "WARNING: --debug applies DebugAsm label-scrubbing and CFI directives outside the" \
+    "kernel-checked LinkedCert." >&2
+fi
 case "${ARCH,,}" in
   x64|amd64|x86_64) ARCH=x64; SUFFIX="" ;;
   arm64|aarch64) ARCH=arm64; SUFFIX="-arm64" ;;
@@ -126,7 +163,7 @@ else
   echo "== [1/3] Using prebuilt STAGE_LEAN_PATH=$STAGE_LEAN_PATH (0 lake build) =="
 fi
 
-echo "== [2/3] emit $ARCH assembly for ${EXPR} (optInline maxSize=$INLINE_MAX)"
+echo "== [2/3] emit $ARCH assembly for ${EXPR} (inline-max=$INLINE_MAX)"
 cat >"$TMP/Emit.lean" <<LEAN
 import LeanQbe.T.Examples.Kissat.$MODULE
 import LeanQbe.T.Opt
@@ -151,7 +188,14 @@ else
   timeout 600 lake env lean --run "$TMP/Emit.lean" "$TMP/solver.s"
 fi
 
-echo "== [3/3] $CC: kissat_cli.c + solver.s -> $OUTPUT"
+CFLAGS_SAT=()
+SAT_MODE="SAT+UNSAT"
+if [ "$MODULE" != Plain ]; then
+  CFLAGS_SAT=(-DKISSAT_UNSAT_ONLY=1)
+  SAT_MODE="UNSAT-only (-DKISSAT_UNSAT_ONLY=1)"
+fi
+
+echo "== [3/3] $CC: kissat_cli.c ($SAT_MODE) + solver.s -> $OUTPUT"
 ASM_SRC="$TMP/solver.s"
 if [ -n "$SAVE_ASM" ] || [ "$KEEP_ASM" = 1 ] || [ "$DEBUG" = 1 ]; then
   if [ -n "$SAVE_ASM" ]; then
@@ -163,13 +207,14 @@ if [ -n "$SAVE_ASM" ] || [ "$KEEP_ASM" = 1 ] || [ "$DEBUG" = 1 ]; then
   fi
   mkdir -p "$(dirname "$ASM_SRC")"
   cp "$TMP/solver.s" "$ASM_SRC"
-  echo "== kept debug assembly: $ASM_SRC"
+  echo "== kept assembly: $ASM_SRC"
 fi
 timeout 300 "$CC" -std=c99 -O2 -Wall -Wextra -Werror "${CFLAGS_ARCH[@]}" "${CFLAGS_DEBUG[@]}" \
-  bench/kissat/kissat_cli.c "$ASM_SRC" -o "$TMP/kissat-leanqbe" 2>"$TMP/cc.log" || {
+  "${CFLAGS_SAT[@]}" bench/kissat/kissat_cli.c "$ASM_SRC" -o "$TMP/kissat-leanqbe" \
+  2>"$TMP/cc.log" || {
     cat "$TMP/cc.log" >&2; exit 1; }
 grep -v -e 'SFrame' "$TMP/cc.log" >&2 || true
 mkdir -p "$(dirname "$OUTPUT")"
 mv "$TMP/kissat-leanqbe" "$OUTPUT"
-echo "built $OUTPUT ($MODULE, $ARCH)"
+echo "built $OUTPUT ($MODULE, $ARCH, $SAT_MODE, inline-max=$INLINE_MAX)"
 echo "usage: $OUTPUT [--work-mb <MB>] [--fuel <N>] <input.cnf | ->"

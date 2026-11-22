@@ -1,3 +1,5 @@
+> **[Historical design note]** Written during an earlier milestone; `scripts/headline.txt` referenced below has since been split into `scripts/headlines.d/*.txt`. See `README.md` for current paths.
+
 # opt: Typed-IR mid-end optimisations (`T6`)
 
 Owner: `opt`. Generic `LeanQbe.T` pass modules (`LeanQbe/T/{Fold,Copy,Gvn,Dce,Opt}*.lean`),

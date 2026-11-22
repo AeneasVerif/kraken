@@ -1,3 +1,5 @@
+> **[Historical design note]** Written during an earlier milestone; `scripts/headline.txt` referenced below has since been split into `scripts/headlines.d/*.txt`. See `README.md` for current paths.
+
 # opt: Target-parameterized typed-IR legalisation (`T5`, `G13`)
 
 Owner: `opt` (finished & modularized in Wave 0A by `t5-finisher`).

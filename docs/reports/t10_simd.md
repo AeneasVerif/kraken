@@ -1,3 +1,5 @@
+> **[Historical design note]** Written during an earlier milestone; `scripts/headline.txt` referenced below has since been split into `scripts/headlines.d/*.txt`. See `README.md` for current paths.
+
 # `t10-simd`: SysV x64 SIMD `VecIsa` & `VecTarget` (`T10`)
 
 Owner: `t10-simd` (forked from `main @ 2a28b05`).

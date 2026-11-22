@@ -38,6 +38,9 @@ LeanQbe.T.Amd64.KissatPlain LeanQbe.T.Amd64.KissatPlain.solve_x64_correct
 LeanQbe.T.Amd64.KissatPlain LeanQbe.T.Amd64.KissatPlain.solve_x64_sound
 LeanQbe.T.Amd64.KissatPlain LeanQbe.T.Amd64.KissatPlain.x64_unsat_nonvacuous
 LeanQbe.T.Amd64.KissatPlain LeanQbe.T.Amd64.KissatPlain.x64_sat_nonvacuous
+LeanQbeTest.T.KissatAuditX64 audit_plain_x64_correct
+LeanQbeTest.T.KissatAuditX64 audit_plain_x64_unsat_nonvacuous
+LeanQbeTest.T.KissatAuditX64 audit_plain_x64_sat_nonvacuous
 LeanQbe.T.Arm64.KissatPlainCert LeanQbe.T.Arm64.KissatPlainCert.plain_legalSig
 LeanQbe.T.Arm64.KissatPlainCert LeanQbe.T.Arm64.KissatPlainCert.mk_module_fnspec
 LeanQbe.T.Arm64.KissatPlainCert LeanQbe.T.Arm64.KissatPlainCert.solve_arm64_of_fnspec
@@ -46,3 +49,6 @@ LeanQbe.T.Arm64.KissatPlain LeanQbe.T.Arm64.KissatPlain.solve_arm64_correct
 LeanQbe.T.Arm64.KissatPlain LeanQbe.T.Arm64.KissatPlain.solve_arm64_sound
 LeanQbe.T.Arm64.KissatPlain LeanQbe.T.Arm64.KissatPlain.arm64_unsat_nonvacuous
 LeanQbe.T.Arm64.KissatPlain LeanQbe.T.Arm64.KissatPlain.arm64_sat_nonvacuous
+LeanQbeTest.T.KissatAuditArm64 audit_plain_arm64_correct
+LeanQbeTest.T.KissatAuditArm64 audit_plain_arm64_unsat_nonvacuous
+LeanQbeTest.T.KissatAuditArm64 audit_plain_arm64_sat_nonvacuous

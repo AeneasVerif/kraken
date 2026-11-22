@@ -3,8 +3,9 @@
  * Links against the machine code that LeanQbe.T emits for `kissat_solve_bytes` (see
  * bench/kissat/build_solver.sh). The input is mapped read-only and the workspace read-write,
  * each between PROT_NONE guard pages. Exit codes follow the SAT competition convention:
- * 10 = SATISFIABLE, 20 = UNSATISFIABLE, 0 = UNKNOWN (malformed input, out of fuel or memory),
- * 1 = usage or I/O error. */
+ * 20 = UNSATISFIABLE, 0 = UNKNOWN (malformed input, out of fuel or memory, or uncertified SAT
+ * under -DKISSAT_UNSAT_ONLY=1), 10 = SATISFIABLE (Plain SAT+UNSAT build only), 1 = usage,
+ * RLIMIT_STACK, or I/O error. */
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
 #include <stdint.h>
@@ -12,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 extern uint64_t kissat_solve_bytes(const uint8_t *cnf_ptr, uint64_t cnf_len,
@@ -34,16 +36,23 @@ static int parse_u64(const char *s, uint64_t *out) {
 }
 
 /* Maps `len` bytes (copied from `init` if non-NULL) between two PROT_NONE guard pages, ending
- * exactly at the upper guard page so any overrun faults. Returns NULL on failure. */
+ * at the upper guard page (or at `base + pg` when `len == 0` so no PROT_NONE pointer is formed).
+ * Returns NULL on failure. */
 static uint8_t *map_guarded(const uint8_t *init, size_t len, int writable) {
   size_t pg = (size_t)sysconf(_SC_PAGESIZE);
   size_t data = ((len ? len : 1) + pg - 1) / pg * pg;
   uint8_t *base = mmap(NULL, data + 2 * pg, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (base == MAP_FAILED) return NULL;
-  if (mprotect(base + pg, data, PROT_READ | PROT_WRITE) != 0) return NULL;
-  uint8_t *ptr = base + pg + data - len;
+  if (mprotect(base + pg, data, PROT_READ | PROT_WRITE) != 0) {
+    munmap(base, data + 2 * pg);
+    return NULL;
+  }
+  uint8_t *ptr = len ? (base + pg + data - len) : (base + pg);
   if (init && len) memcpy(ptr, init, len);
-  if (!writable && mprotect(base + pg, data, PROT_READ) != 0) return NULL;
+  if (!writable && mprotect(base + pg, data, PROT_READ) != 0) {
+    munmap(base, data + 2 * pg);
+    return NULL;
+  }
   return ptr;
 }
 
@@ -82,6 +91,12 @@ int main(int argc, char **argv) {
     }
   }
   if (!path) return usage("missing input file");
+  struct rlimit rl;
+  if (getrlimit(RLIMIT_STACK, &rl) != 0 ||
+      (rl.rlim_cur != RLIM_INFINITY && rl.rlim_cur < 65536)) {
+    fprintf(stderr, "kissat-leanqbe: insufficient RLIMIT_STACK (< 65536 B)\n");
+    return 1;
+  }
   FILE *f = strcmp(path, "-") ? fopen(path, "rb") : stdin;
   if (!f) { fprintf(stderr, "kissat-leanqbe: cannot open %s\n", path); return 1; }
   size_t cnf_len = 0;
@@ -95,7 +110,12 @@ int main(int argc, char **argv) {
   if (!cnf || !work) { fprintf(stderr, "kissat-leanqbe: out of memory\n"); return 1; }
   uint64_t r = kissat_solve_bytes(cnf, cnf_len, work, work_len, fuel);
   if (r == 20) { puts("s UNSATISFIABLE"); return 20; }
+#if defined(KISSAT_UNSAT_ONLY) && KISSAT_UNSAT_ONLY
+  /* SAT (r == 10) is intentionally uncertified for UNSAT-only inprocessing solvers. */
+  if (r == 10) { puts("s UNKNOWN"); return 0; }
+#else
   if (r == 10) { puts("s SATISFIABLE"); return 10; }
+#endif
   puts("s UNKNOWN");
   return 0;
 }

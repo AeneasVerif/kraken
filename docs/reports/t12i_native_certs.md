@@ -1,3 +1,5 @@
+> **[Historical design note]** Written during an earlier milestone; several `LeanQbe/*.lean` (E1) and `scripts/headline.txt` paths referenced below have since moved to `LeanQbe/T/` and `scripts/headlines.d/`. See `README.md` for current paths.
+
 # `T12i` & `T16` Report: Native x64 and AArch64 Kernel Certificates (`Litmus`, `UnionFind`, `LratBytes`)
 
 ## 1. Scope & Deliverables

@@ -47,10 +47,18 @@ import all Std.Sat.CNF.Sat
 # Kissat audit, part 1: the trusted specification boundary (architecture-independent)
 
 This file is meant to be read by a human auditor. It restates, with every type written out in
-full (no wrapper `abbrev`s introduced here), the statements on which the verified Kissat solvers
-`D-Plain` (`plainModule`, 59 functions) and `D-Full` (`fullModule`, 166 functions) rest. It
-imports neither `Kraken.X64` nor `Kraken.AArch64`; the machine-code theorems are audited in
-`KissatAuditX64.lean` and `KissatAuditArm64.lean`.
+full (no wrapper `abbrev`s introduced here), the source-level statements on which the verified
+Kissat solvers rest:
+* Active solvers with native certificates: `D-Plain` (`plainModule`, `59` functions, SAT+UNSAT)
+  and `D-Full M3` (`m3Module`, `204` functions, UNSAT-only), whose machine-code theorems are in
+  `KissatAuditX64.lean` and `KissatAuditArm64.lean`.
+* Active source-only solver (no native `LinkedCert` yet): `D-Full M4` (`m4Module`, `231`
+  functions, UNSAT-only).
+* Retired legacy solvers (machine-code theorems in `LeanQbeLegacyTest/KissatLegacyAudit*.lean`):
+  `D-Full` (`fullModule`, `166` functions), `D-Full M2 Fast` (`fastModule`, `196` functions), and
+  the superseded partial `FullFastSched` (`schedModule`, `173` functions, `16/173` rows proved).
+
+It imports neither `Kraken.X64` nor `Kraken.AArch64`.
 
 ## What must be trusted
 
@@ -570,8 +578,10 @@ theorem audit_fullUnsatEnv_moduleOk : ModuleOk Full.fullUnsatEnv Full.fullModule
 /-! ## 6. M2a Fast Scheduler (`FullFastSched`: `173` fns) & `FullFastBveBudgets` -/
 
 -- Source-level only (`FullFastSched` + `FullFastBveBudgets`); no `*Cert*` or arch imports.
--- Note: `schedEnv_moduleOk` does not exist on `a54ea11` (`sched_proved_rows_ok` covers `16/173`
--- rows plus top-level `Func.wp`); `FullFastBveBudgets` has unconditional `ModuleOk` (`7/7` fns).
+-- Partially proved: `schedEnv_moduleOk` does not exist (`sched_proved_rows_ok` covers `16/173`
+-- rows plus top-level `Func.wp`); legacy machine-code theorems take an undischarged
+-- `(hmok : ModuleOk schedEnv schedModule)` hypothesis (superseded by `FullFast` and `FullM3`).
+-- `FullFastBveBudgets` has unconditional `ModuleOk` (`7/7` fns).
 
 section M2aFastSchedAudit
 

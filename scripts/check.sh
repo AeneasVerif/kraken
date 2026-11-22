@@ -23,11 +23,16 @@
 #       Set to `1` to enable standalone Step 5 re-elaboration CPU timing.
 #
 # Steps (for Lean scopes `full`, `x64`, `arm64`):
-#  1. Builds scoped targets with warnings as errors (`lake build --wfail`).
-#  2. Fails on any `sorry` (build log and axiom reports), and on native-code tactics anywhere.
-#  3. Checks import closures (`LeanQbe` arch-free, `LeanQbeAmd64` no AArch64, `LeanQbeArm64` no X64,
-#     0 legacy Kissat certs in active `LeanQbe{Amd64,Arm64}` closures, reachability of `LeanQbe/T/`
-#     from active or `LeanQbeLegacy{Amd64,Arm64}` roots, no retired E1 files or imports).
+#  1. Builds scoped targets with warnings as errors (`lake build --wfail`, including
+#     `LeanQbeBootstrap0` & `LeanQbeBootstrap0Test` in `full` and `x64` scopes).
+#  2. Fails on any `sorry` (build log and source files) and scans all tracked `.lean` files
+#     for `sorry`, `admit`, non-meta `axiom `, `@[implemented_by]`, `@[extern]`, `trustCompiler`,
+#     and native-code tactics (`bv_decide`, `native_decide`, `decide +native`, `ofReduceBool`,
+#     `ofReduceNat`) outside comments and string/char literals.
+#  3. Checks import closures (`LeanQbe` arch-free, `LeanQbeAmd64` / `LeanQbeBootstrap0` /
+#     `LeanQbeBootstrap0Test` no AArch64, `LeanQbeArm64` no X64, 0 legacy Kissat certs in active
+#     `LeanQbe{Amd64,Arm64}` / `LeanQbeBootstrap0*` closures, reachability of `LeanQbe/T/` from
+#     active, `LeanQbeBootstrap0`, or `LeanQbeLegacy{Amd64,Arm64}` roots, no retired E1 files).
 #  3b. Incrementality firewall (`check_firewall.py --require-isa`) and barrel/hub lint
 #      (`sync_hubs.py --check` when present).
 #  4. Parallel axiom audit (`Audit_generic`, `Audit_x64`, `Audit_arm64`, isolated root-`main`
@@ -184,6 +189,111 @@ trap 'rm -rf "$TMP"' EXIT
 fail=0
 err() { echo "FAIL: $*"; fail=1; }
 
+scan_lean_forbidden_tokens() {
+  timeout 60 python3 -B - <<'PY'
+import pathlib, re, subprocess, sys
+
+raw = subprocess.check_output(
+    ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "*.lean", ":(exclude)Kraken", ":(exclude)Kraken*.lean", ":(exclude)Att2Intel.lean", ":(exclude)Bedrock2C.lean"]
+)
+files = [f.decode("utf-8") for f in raw.split(b"\0") if f]
+
+def strip_lean(src: str) -> str:
+    out = []
+    i = 0
+    n = len(src)
+    depth = 0
+    in_str = False
+    while i < n:
+        ch = src[i]
+        nxt = src[i + 1] if i + 1 < n else ""
+        if depth > 0:
+            if ch == "/" and nxt == "-":
+                depth += 1
+                i += 2
+                continue
+            if ch == "-" and nxt == "/":
+                depth -= 1
+                i += 2
+                continue
+            if ch == "\n":
+                out.append("\n")
+            i += 1
+            continue
+        if in_str:
+            if ch == "\\" and i + 1 < n:
+                if src[i + 1] == "\n":
+                    out.append("\n")
+                i += 2
+                continue
+            if ch == '"':
+                in_str = False
+                i += 1
+                continue
+            if ch == "\n":
+                out.append("\n")
+            i += 1
+            continue
+        if ch == "-" and nxt == "-":
+            while i < n and src[i] != "\n":
+                i += 1
+            continue
+        if ch == "/" and nxt == "-":
+            depth = 1
+            i += 2
+            continue
+        if ch == '"':
+            in_str = True
+            out.append('""')
+            i += 1
+            continue
+        if ch == "'" and (i == 0 or not (src[i - 1].isalnum() or src[i - 1] in "_'")):
+            if i + 2 < n and src[i + 1] == "\\":
+                j = i + 2
+                while j < n and src[j] != "\n" and src[j] != "'" and j - i < 12:
+                    j += 1
+                if j < n and src[j] == "'":
+                    out.append("''")
+                    i = j + 1
+                    continue
+            elif i + 2 < n and src[i + 1] != "\n" and src[i + 2] == "'":
+                out.append("''")
+                i += 3
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+tok_re = re.compile(
+    r"\b(sorry|admit|bv_decide|native_decide|ofReduceBool|ofReduceNat|trustCompiler)\b"
+    r"|decide\s+\+native"
+)
+axiom_re = re.compile(
+    r"(?:^|;)\s*(?:(?:public|private|protected|unsafe|noncomputable|local|scoped)\s+)*axiom\b"
+)
+attr_re = re.compile(r"@\[[^\]]*\b(?:implemented_by|extern)\b")
+
+hits = []
+for rel in files:
+    p = pathlib.Path(rel)
+    if not p.is_file():
+        hits.append(f"{rel}: tracked file missing from working tree")
+        continue
+    cleaned = strip_lean(p.read_text(encoding="utf-8"))
+    for lineno, line in enumerate(cleaned.splitlines(), 1):
+        m = tok_re.search(line) or axiom_re.search(line)
+        if m:
+            hits.append(f"{rel}:{lineno}: {line.strip()}")
+    for m in attr_re.finditer(cleaned):
+        lineno = cleaned[:m.start()].count("\n") + 1
+        hits.append(f"{rel}:{lineno}: {m.group(0)}")
+if hits:
+    for h in hits[:50]:
+        print(h, file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
 echo "== check.sh: scope=$RESOLVED_SCOPE (requested=$CHECK_SCOPE, INCLUDE_LEGACY=$INCLUDE_LEGACY)"
 
 # Collect active headline lines (<Module> <const>) into $TMP/headlines_all.txt
@@ -226,13 +336,9 @@ if [ "$RESOLVED_SCOPE" = "class0" ]; then
       python3 -m py_compile "${py_files[@]}" || err "python3 -m py_compile failed"
   fi
 
-  echo "== 3c0. native-code tactics & tracked-file hygiene (0 lake calls)"
-  git ls-files -z '*.lean' ':(exclude)Kraken' ':(exclude)Kraken*.lean' ':(exclude)Att2Intel.lean' ':(exclude)Bedrock2C.lean' >"$TMP/lean-files" || err "git ls-files failed"
-  nat_re='\b(bv_decide|native_decide)\b|decide \+native|ofReduceBool|ofReduceNat'
-  if (set +o pipefail; xargs -0 grep -HnE "$nat_re" <"$TMP/lean-files" 2>/dev/null \
-      | grep -vE '^[^:]+:[0-9]+:\s*--'); then
-    err "native-code tactic in a tracked .lean file"
-  fi
+  echo "== 3c0. forbidden tokens, native-code tactics & tracked-file hygiene (0 lake calls)"
+  scan_lean_forbidden_tokens \
+    || err "forbidden token (sorry/admit/axiom/@[implemented_by]/@[extern]/trustCompiler/native tactic) in a .lean file"
   if git ls-files --cached 'LeanQbe/*.lean' 'LeanQbe/**/*.lean' \
       | grep -v '^LeanQbe/T/'; then
     err "retired untyped E1 .lean files remain tracked under LeanQbe/ outside LeanQbe/T/"
@@ -309,7 +415,7 @@ def make_classifier(c_gen=frozenset(), x64_only=frozenset(), arm_only=frozenset(
                 arches.add("x64")
             elif imp == "LeanQbeArm64" or imp in arm_only or imp.startswith(ARM_PFX):
                 arches.add("arm64")
-            elif imp not in c_gen and imp.startswith(("LeanQbe.", "LeanQbeTest.")):
+            elif imp not in c_gen and imp.startswith(("LeanQbe.", "LeanQbeTest.", "LeanQbeBootstrap0Test.")):
                 sub = classify(imp, nxt)
                 if sub in ("x64", "arm64", "conflict"):
                     arches.add(sub)
@@ -336,7 +442,7 @@ def run_scoped_tests(scope, hpath, changed_path):
         if len(parts) < 2:
             continue
         mod = parts[0]
-        if not mod.startswith("LeanQbeTest.") or mod in seen:
+        if not mod.startswith(("LeanQbeTest.", "LeanQbeBootstrap0Test.")) or mod in seen:
             continue
         if classify(mod, set()) in ("generic", scope):
             seen.add(mod)
@@ -344,7 +450,11 @@ def run_scoped_tests(scope, hpath, changed_path):
 
     changed = [l.strip() for l in changed_path.read_text().splitlines() if l.strip()]
     for f in changed:
-        if f.startswith("LeanQbeTest/") and f.endswith(".lean") and pathlib.Path(f).is_file():
+        if (
+            f.startswith(("LeanQbeTest/", "LeanQbeBootstrap0Test/"))
+            and f.endswith(".lean")
+            and pathlib.Path(f).is_file()
+        ):
             mod = f[:-5].replace("/", ".")
             if mod not in seen:
                 seen.add(mod)
@@ -390,7 +500,10 @@ def run_audit_batches(tmp, scope):
             m = IMP_RE.match(line)
             if m:
                 imp = m.group(1)
-                if imp.startswith(("LeanQbe.", "LeanQbeTest.")) and has_root_main(imp, nxt):
+                if (
+                    imp.startswith(("LeanQbe.", "LeanQbeTest.", "LeanQbeBootstrap0Test."))
+                    and has_root_main(imp, nxt)
+                ):
                     found = True
                     break
             if ns_re.match(line):
@@ -468,11 +581,11 @@ PY
 
 # Determine scoped Step 1 build targets
 if [ "$RESOLVED_SCOPE" = "full" ]; then
-  TARGETS=(LeanQbe LeanQbeAmd64 LeanQbeArm64 LeanQbeTest leanqbe leanqbe-arm64)
+  TARGETS=(LeanQbe LeanQbeAmd64 LeanQbeArm64 LeanQbeTest LeanQbeBootstrap0 LeanQbeBootstrap0Test leanqbe leanqbe-arm64)
 else
   TARGETS=(LeanQbe)
   if [ "$RESOLVED_SCOPE" = "x64" ]; then
-    TARGETS+=(LeanQbeAmd64 leanqbe)
+    TARGETS+=(LeanQbeAmd64 LeanQbeBootstrap0 LeanQbeBootstrap0Test leanqbe)
   else
     TARGETS+=(LeanQbeArm64 leanqbe-arm64)
   fi
@@ -497,15 +610,9 @@ if grep -n "declaration uses 'sorry'\|declaration uses \`sorry\`\|sorryAx" "$TMP
   err "sorry in the build"
 fi
 
-echo "== 2b. native-code tactics (their axioms Lean.ofReduceBool etc. fail the bar, even off-headline)"
-git ls-files -z '*.lean' ':(exclude)Kraken' ':(exclude)Kraken*.lean' ':(exclude)Att2Intel.lean' ':(exclude)Bedrock2C.lean' >"$TMP/lean-files" || err "git ls-files failed; steps 2b and 3 check only the files known to git"
-# A line printed here is a failure whatever the commands exit with (grep: 2 if a tracked file is
-# missing from the working tree; xargs: 123 if it runs grep twice and one run finds nothing), so
-# this one pipeline runs without `pipefail`.
-if (set +o pipefail; xargs -0 grep -HnE '\b(bv_decide|native_decide)\b|decide \+native|ofReduceBool|ofReduceNat' <"$TMP/lean-files" 2>/dev/null \
-    | grep -vE '^[^:]+:[0-9]+:\s*--'); then
-  err "native-code tactic in a tracked .lean file"
-fi
+echo "== 2b. forbidden tokens & native-code tactics across all tracked .lean files"
+scan_lean_forbidden_tokens \
+  || err "forbidden token (sorry/admit/axiom/@[implemented_by]/@[extern]/trustCompiler/native tactic) in a .lean file"
 
 echo "== 3. import closures"
 closure() { # $1 = root module; prints the module names in its import closure
@@ -557,13 +664,13 @@ if [ "$RESOLVED_SCOPE" != "x64" ] \
   err "active LeanQbeArm64 closure imports legacy Kissat certs (modules above)"
 fi
 python3 - "$TMP" <<'PY'
-import pathlib, re, sys
+import pathlib, re, subprocess, sys
 tmp = pathlib.Path(sys.argv[1])
 imp_re = re.compile(
     r"^\s*(?:(?:public|private|meta)\s+)*import\s+(?:all\s+)?([A-Za-z0-9_.']+)"
 )
-def closure(root):
-    seen, stack = set(), [root]
+def closure(roots):
+    seen, stack = set(), list(roots)
     while stack:
         mod = stack.pop()
         if mod in seen:
@@ -577,9 +684,18 @@ def closure(root):
                     stack.append(m.group(1))
     return sorted(seen)
 for arch in ("Amd64", "Arm64"):
-    mods = closure(f"LeanQbeLegacy{arch}")
+    mods = closure([f"LeanQbeLegacy{arch}"])
     (tmp / f"legacy_closure_{arch}.txt").write_text("\n".join(mods) + "\n")
-(tmp / "bootstrap0_closure.txt").write_text("\n".join(closure("LeanQbeBootstrap0")) + "\n")
+(tmp / "bootstrap0_closure.txt").write_text("\n".join(closure(["LeanQbeBootstrap0"])) + "\n")
+raw_b0t = subprocess.check_output(
+    ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "LeanQbeBootstrap0Test"]
+)
+b0t_roots = [
+    f.decode("utf-8")[:-5].replace("/", ".")
+    for f in raw_b0t.split(b"\0")
+    if f and f.decode("utf-8").endswith(".lean")
+]
+(tmp / "bootstrap0_test_closure.txt").write_text("\n".join(closure(b0t_roots)) + "\n")
 PY
 if [ "$RESOLVED_SCOPE" != "arm64" ] \
    && grep -E '^Kraken\.AArch64(\.|$)|^LeanQbe\.T\.Arm64\.' "$TMP/legacy_closure_Amd64.txt"; then
@@ -588,6 +704,18 @@ fi
 if [ "$RESOLVED_SCOPE" != "arm64" ] \
    && grep -E '^Kraken\.AArch64(\.|$)|^LeanQbe\.T\.Arm64\.' "$TMP/bootstrap0_closure.txt"; then
   err "LeanQbeBootstrap0 imports AArch64/Arm64 modules (modules above)"
+fi
+if [ "$RESOLVED_SCOPE" != "arm64" ] \
+   && grep -E '^Kraken\.AArch64(\.|$)|^LeanQbe\.T\.Arm64\.' "$TMP/bootstrap0_test_closure.txt"; then
+  err "LeanQbeBootstrap0Test imports AArch64/Arm64 modules (modules above)"
+fi
+if [ "$RESOLVED_SCOPE" != "arm64" ] \
+   && grep -E "$legacy_cert_re" "$TMP/bootstrap0_closure.txt"; then
+  err "LeanQbeBootstrap0 closure imports legacy Kissat certs (modules above)"
+fi
+if [ "$RESOLVED_SCOPE" != "arm64" ] \
+   && grep -E "$legacy_cert_re" "$TMP/bootstrap0_test_closure.txt"; then
+  err "LeanQbeBootstrap0Test closure imports legacy Kissat certs (modules above)"
 fi
 if [ "$RESOLVED_SCOPE" != "x64" ] \
    && grep -E '^Kraken\.X64(\.|$)|^LeanQbe\.T\.Amd64\.' "$TMP/legacy_closure_Arm64.txt"; then
@@ -631,6 +759,10 @@ done < <(git ls-files --cached 'LeanQbe/T/*.lean' 'LeanQbe/T/**/*.lean' | sort -
 if git ls-files -z 'LeanQbe/T/*.lean' 'LeanQbe/T/**/*.lean' \
     | (set +o pipefail; xargs -0 grep -HnE '^\s*(public\s+|meta\s+)*import\s+(all\s+)?LeanQbe\.([^T]|T[^.])' 2>/dev/null); then
   err "LeanQbe/T module imports untyped E1 module (G5 violation)"
+fi
+if git ls-files -z 'LeanQbeBootstrap0Test/*.lean' 'LeanQbeBootstrap0Test/**/*.lean' \
+    | (set +o pipefail; xargs -0 grep -HnE '^\s*(public\s+|meta\s+)*import\s+(all\s+)?LeanQbe\.([^T]|T[^.])' 2>/dev/null); then
+  err "LeanQbeBootstrap0Test module imports untyped E1 module (G5 violation)"
 fi
 
 echo "== 3b. incrementality firewall & barrel hub lint"
