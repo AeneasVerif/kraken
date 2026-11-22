@@ -162,8 +162,12 @@ int main(int argc, char **argv) {
   bool has_ext = false;
   uint64_t del_addr = ok ? rd64(h, 16) : 0ULL;
   uint64_t del_cap = ok ? rd64(h, 56) : 0ULL;
-  if (del_addr && del_cap >= 22ULL) {
-    std::memcpy(ext, reinterpret_cast<const void *>(static_cast<uintptr_t>(del_addr)), sizeof(ext));
+  uintptr_t ws_lo = static_cast<uintptr_t>(hdr_addr);
+  uintptr_t ws_hi = static_cast<uintptr_t>(hdr_addr + avail);
+  uintptr_t del_ptr = static_cast<uintptr_t>(del_addr);
+  if (del_ptr && del_cap >= 22ULL && del_ptr >= ws_lo && del_ptr <= ws_hi &&
+      (ws_hi - del_ptr) >= sizeof(ext)) {
+    std::memcpy(ext, reinterpret_cast<const void *>(del_ptr), sizeof(ext));
     has_ext = (ext[0] == 0x4B54454C4D303031ULL);
   }
   std::printf(

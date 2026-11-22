@@ -397,7 +397,7 @@ inline void on_learn_enter(uint64_t hdr_addr, uint64_t glue, bool compute_nlvl) 
   }
   if (cur_lvl > 0ULL && jlvl >= cur_lvl) jlvl = cur_lvl - 1ULL;
   uint64_t nlvl = jlvl;
-  if (compute_nlvl && state().is_full && cur_lvl > 0ULL) {
+  if (compute_nlvl && state().is_full && cur_lvl > 0ULL && tlen > 1ULL) {
     uint64_t back = cur_lvl - 1ULL;
     uint64_t clim = detail::rd64(hdr_addr, 119);
     if (jlvl < back && back - jlvl > clim) nlvl = back;
@@ -421,8 +421,8 @@ inline void on_learn_enter(uint64_t hdr_addr, uint64_t glue, bool compute_nlvl) 
 #endif
 }
 
-inline void on_restart_exit(uint64_t hdr_addr) {
-  uint64_t reuse = detail::rd64(hdr_addr, 20);
+inline void on_restart_exit(uint64_t hdr_addr, bool use_cur_lvl = true) {
+  uint64_t reuse = use_cur_lvl ? detail::rd64(hdr_addr, 20) : 0ULL;
   State& s = state();
   s.counters[EXT_RESTART_REUSE_LVLS] += reuse;
 #ifdef KISSAT_LOCKSTEP_TRACE
@@ -635,7 +635,32 @@ struct UnitSrcScope {
   ~UnitSrcScope() { state().unit_src = prev; }
 };
 
-inline void on_kitten_solve_enter() { state().counters[EXT_KITTEN_CALLS]++; }
+struct KittenScope {
+  uint64_t scr_addr;
+  uint64_t tick_idx;
+  uint64_t t0;
+
+  KittenScope(uint64_t hdr_addr, uint64_t word_idx)
+      : scr_addr(0ULL), tick_idx(word_idx), t0(0ULL) {
+    State& s = state();
+    s.counters[EXT_KITTEN_CALLS]++;
+    uint64_t sb = detail::rd64(hdr_addr, 115);
+    uint64_t scap = detail::rd64(hdr_addr, 116);
+    if (sb && scap > word_idx) {
+      scr_addr = sb;
+      t0 = detail::rd32_arr(sb, static_cast<size_t>(word_idx));
+    }
+  }
+
+  ~KittenScope() {
+    if (scr_addr) {
+      uint64_t t1 = detail::rd32_arr(scr_addr, static_cast<size_t>(tick_idx));
+      uint64_t dt = (t1 >= t0) ? (t1 - t0) : t1;
+      state().counters[EXT_KITTEN_TICKS] += dt;
+    }
+  }
+};
+
 inline void on_otfs_subsume() { state().counters[EXT_OTFS_SUBSUME]++; }
 
 #else
@@ -648,16 +673,18 @@ inline void on_solve_exit(uint64_t, uint64_t) {}
 inline void on_decide_exit(uint64_t, uint64_t, uint64_t, uint64_t) {}
 inline void on_confl_enter(uint64_t) {}
 inline void on_learn_enter(uint64_t, uint64_t, bool) {}
-inline void on_restart_exit(uint64_t) {}
+inline void on_restart_exit(uint64_t, bool = true) {}
 inline void on_switch_mode_exit(uint64_t, uint64_t) {}
 inline uint64_t count_active_redundant(uint64_t) { return 0ULL; }
 inline void on_reduce_exit(uint64_t, uint64_t) {}
 inline void on_det_new_level_exit(uint64_t, uint64_t, uint64_t) {}
 inline void sync_dimacs_after_compact(uint64_t) {}
 inline void emit_unit0_range(uint64_t, uint64_t, uint64_t, const char*) {}
-inline void on_kitten_solve_enter() {}
 inline void on_otfs_subsume() {}
 
+struct KittenScope {
+  KittenScope(uint64_t, uint64_t) {}
+};
 struct PassScope {
   PassScope(uint64_t, const char*, PassKind) {}
 };

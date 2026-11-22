@@ -175,11 +175,14 @@ static void print_extended_telemetry(const uint64_t *hdr, size_t work_len, uintp
   if (work_len < pad + FULL_HDR_BYTES) return;
   uintptr_t del_addr = (uintptr_t)hdr[16];
   uint64_t del_cap = hdr[56];
-  if (!del_addr || del_cap < 22ULL) {
+  uintptr_t ws_lo = (uintptr_t)hdr;
+  uintptr_t ws_hi = ws_lo + (work_len - pad);
+  uint64_t ext[KT_EXT_WORDS];
+  if (!del_addr || del_cap < 22ULL ||
+      del_addr < ws_lo || del_addr > ws_hi || (ws_hi - del_addr) < sizeof(ext)) {
     printf("\text_telem=0");
     return;
   }
-  uint64_t ext[KT_EXT_WORDS];
   memcpy(ext, (const void *)del_addr, sizeof(ext));
   if (ext[0] != KT_EXT_MAGIC) {
     printf("\text_telem=0");

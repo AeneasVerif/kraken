@@ -62,7 +62,8 @@ HOOKED_FNS = [
     "full_add_unit", "full_substitute", "full_congruence_dense",
     "full_sweep_dense", "full_transitive", "full_probe_run", "full_vivify",
     "full_forward_sub", "full_elim_bve", "full_factor", "full_backbone",
-    "full_probe", "full_eliminate", "full_compact", "full_kitten_solve",
+    "full_probe", "full_eliminate", "full_compact",
+    "full_kitten_solve", "full_k512_solve", "full_m4_sweep_dense",
     "plain_parse_body", "plain_propagate", "plain_assign", "plain_decide",
     "plain_analyze", "plain_ema_update", "plain_restart_due",
     "plain_switch_mode", "plain_reduce",
@@ -307,7 +308,7 @@ def _build_wrapper_block(present):
             "inline ::tqbe::bits<64> plain_restart_due("
             "::tqbe::Mem& mem, ::tqbe::bits<64> h) {\n"
             "  auto r = raw_plain_restart_due(mem, h);\n"
-            "  if (r.data != 0ULL) ::c3b_trace::on_restart_exit(h.data);\n"
+            "  if (r.data != 0ULL) ::c3b_trace::on_restart_exit(h.data, false);\n"
             "  return r;\n"
             "}"
         )
@@ -337,6 +338,7 @@ def _build_wrapper_block(present):
         ("full_substitute", "subst", "PASS_SUBST"),
         ("full_congruence_dense", "cong", "PASS_CONG"),
         ("full_sweep_dense", "sweep", "PASS_SWEEP"),
+        ("full_m4_sweep_dense", "sweep", "PASS_SWEEP"),
         ("full_transitive", "trans", "PASS_TRANS"),
         ("full_probe_run", "probe", "PASS_PROBE"),
         ("full_vivify", "viv", "PASS_VIVIFY"),
@@ -344,8 +346,8 @@ def _build_wrapper_block(present):
         ("full_elim_bve", "bve", "PASS_ELIM"),
         ("full_factor", "bva", "PASS_FACTOR"),
         ("full_backbone", "backbone", "PASS_BACKBONE"),
-        ("full_probe", None, "PASS_PROBE"),
-        ("full_eliminate", None, "PASS_ELIM"),
+        ("full_probe", None, "PASS_NONE"),
+        ("full_eliminate", None, "PASS_NONE"),
     ]
     for fn, pname, pkind in inproc_specs:
         if fn in present:
@@ -369,14 +371,15 @@ def _build_wrapper_block(present):
             "  return r;\n"
             "}"
         )
-    if "full_kitten_solve" in present:
-        lines.append(
-            "template <typename... A> inline auto full_kitten_solve("
-            "::tqbe::Mem& mem, ::tqbe::bits<64> h, A... a) {\n"
-            "  ::c3b_trace::on_kitten_solve_enter();\n"
-            "  return raw_full_kitten_solve(mem, h, a...);\n"
-            "}"
-        )
+    for kfn, tick_off in (("full_kitten_solve", 270), ("full_k512_solve", 2315)):
+        if kfn in present:
+            lines.append(
+                f"template <typename... A> inline auto {kfn}("
+                f"::tqbe::Mem& mem, ::tqbe::bits<64> h, A... a) {{\n"
+                f"  ::c3b_trace::KittenScope ks(h.data, {tick_off}ULL);\n"
+                f"  return raw_{kfn}(mem, h, a...);\n"
+                f"}}"
+            )
     if "kissat_solve_bytes" in present:
         lines.append(
             "inline ::tqbe::bits<64> kissat_solve_bytes(\n"
