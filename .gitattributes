@@ -1,0 +1,9 @@
+# Additive per-subsystem headline theorem lists; parallel branches append new lines.
+scripts/headlines.d/*.txt merge=union
+
+# Optional local 3-way Lean import-set merge driver (add `*.lean merge=lean-imports`
+# to `.git/info/attributes` or uncomment below, and register the driver in `.git/config`):
+#   *.lean merge=lean-imports
+#
+#   git config merge.lean-imports.name "Lean 4 module import-set 3-way merger"
+#   git config merge.lean-imports.driver "python3 -B scripts/merge_lean_imports.py %O %A %B %P"
