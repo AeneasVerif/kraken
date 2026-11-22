@@ -811,7 +811,7 @@ def decideRot {rs : List Ty} (cfg : RotConfig) (ts : List Ty) (nv : Nat) (b : TF
           growthFull ≤ cfg.dupBudget
         if fullOk then
           some (.groupRot dir cand.hdr contMasks exitMode contInfo.plan exitInfo.plan infoK.plan)
-        else if condBack < backJumps then
+        else if condBack < backJumps && ts.length ≤ cfg.maxContLiveVars then
           match peelTFlatHdr cand.hdr dir b with
           | none => none
           | some contArm =>

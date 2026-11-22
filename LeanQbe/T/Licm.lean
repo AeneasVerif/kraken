@@ -198,35 +198,99 @@ end
 def ReachTree.reaches : ReachTree → Bool
   | .leaf r | .node1 r _ | .node2 r _ _ | .groupNode r _ _ => r
 
+/-- Record outer variable indices (`idx ≥ depth`, normalized by `idx - depth`) in `s`. -/
+def addOuterArg (depth : Nat) {t : Ty} : Arg K t → Trie Unit → Trie Unit
+  | .var idx, s => if depth ≤ idx then s.insert (idx - depth) () else s
+  | .imm _, s => s
+
+/-- Tuple companion of `addOuterArg`. -/
+def addOuterArgs (depth : Nat) : {ts : List Ty} → Tup (Arg K) ts → Trie Unit → Trie Unit
+  | [], (), s => s
+  | _ :: _, (a, as), s => addOuterArgs depth as (addOuterArg depth a s)
+
 mutual
-/-- Compute bottom-up backedge-reachability tree for `tf` against target label mask `mask`. -/
-def buildReach (mask : List Nat) {rs : List Ty} : TFlat rs → ReachTree
-  | .let_ _ k | .load _ _ k | .store _ _ k | .call _ _ _ k =>
-    let rk := buildReach mask k
-    .node1 rk.reaches rk
+/-- Collect distinct outer variable indices referenced inside `tf` relative to binder `depth`. -/
+def collectOuter (depth : Nat) {rs : List Ty} : TFlat rs → Trie Unit → Trie Unit
+  | .let_ (ts := ts) op k, s => collectOuter (depth + ts.length) k (addOuterArgs depth op.args s)
+  | .load _ a k, s => collectOuter (depth + 1) k (addOuterArg depth a s)
+  | .store v a k, s => collectOuter depth k (addOuterArg depth v (addOuterArg depth a s))
+  | .call _ (bs := bs) args k, s => collectOuter (depth + bs.length) k (addOuterArgs depth args s)
+  | .jnz c t e, s => collectOuter depth e (collectOuter depth t (addOuterArg depth c s))
+  | .jump _ args, s => addOuterArgs depth args s
+  | .ret vs, s => addOuterArgs depth vs s
+  | .exit _ args, s => addOuterArgs depth args s
+  | .hlt, s => s
+  | .group bodies k, s => collectOuter depth k (collectOuterB depth bodies s)
+
+/-- Block-list companion of `collectOuter`. -/
+def collectOuterB (depth : Nat) {rs : List Ty} :
+    {sig : List (List Ty)} → TBlocks rs sig → Trie Unit → Trie Unit
+  | _, .nil, s => s
+  | ts :: _, .cons b bs, s => collectOuterB depth bs (collectOuter (depth + ts.length) b s)
+end
+
+/-- Count occupied entries in a `Trie Unit`. -/
+def trieCard : Trie Unit → Nat
+  | .empty => 0
+  | .node v l r => trieCard l + (if v.isSome then 1 else 0) + trieCard r
+
+/-- True for cheap ops (comparisons) that should not be hoisted out of cold branches (`jnzD ≥ 2`)
+inside high-pressure loops (`> 8` outer live-in variables), since hoisting destroys flag fusion and
+adds a live boolean spill slot. -/
+def isColdSkipOp {as rs : List Ty} : OpCode as rs → Bool
+  | .cmp _ _ _ _ => true
+  | _ => false
+
+mutual
+/-- Compute bottom-up backedge-reachability tree for `tf` against target label mask `mask`,
+suppressing `.let_` hoist flags on cold-branch comparisons (`jnzD ≥ 2`) when `highPress` holds. -/
+def buildReachWith (highPress : Bool) (jnzD : Nat) (mask : List Nat) {rs : List Ty} :
+    TFlat rs → Bool × ReachTree
+  | .let_ op k =>
+    let (rkReach, rk) := buildReachWith highPress jnzD mask k
+    let skip := highPress && Nat.ble 2 jnzD && isColdSkipOp op.code
+    (rkReach, .node1 (rkReach && !skip) rk)
+  | .load _ _ k | .store _ _ k | .call _ _ _ k =>
+    let (rkReach, rk) := buildReachWith highPress jnzD mask k
+    (rkReach, .node1 rkReach rk)
   | .jnz _ t e =>
-    let rt := buildReach mask t
-    let re := buildReach mask e
-    .node2 (rt.reaches || re.reaches) rt re
-  | .jump j _ => .leaf (mask.contains j)
-  | .ret _ | .exit _ _ | .hlt => .leaf false
+    let (rtReach, rt) := buildReachWith highPress (jnzD + 1) mask t
+    let (reReach, re) := buildReachWith highPress (jnzD + 1) mask e
+    let r := rtReach || reReach
+    (r, .node2 r rt re)
+  | .jump j _ =>
+    let r := mask.contains j
+    (r, .leaf r)
+  | .ret _ | .exit _ _ | .hlt => (false, .leaf false)
   | .group (sig := sig) bodies k =>
     let outerMask := mask.map (· + sig.length)
     let ext := extReachMask outerMask bodies
     let mask' := ext ++ outerMask
-    let (rb, rbs) := buildReachB mask' bodies
-    let rk := buildReach mask' k
-    .groupNode (rb || rk.reaches) rbs rk
+    let (rb, rbs) := buildReachWithB highPress jnzD mask' bodies
+    let (rkReach, rk) := buildReachWith highPress jnzD mask' k
+    let r := rb || rkReach
+    (r, .groupNode r rbs rk)
 
-/-- Block-list companion of `buildReach`. -/
-def buildReachB (mask : List Nat) {rs : List Ty} :
+/-- Block-list companion of `buildReachWith`. -/
+def buildReachWithB (highPress : Bool) (jnzD : Nat) (mask : List Nat) {rs : List Ty} :
     {sig : List (List Ty)} → TBlocks rs sig → Bool × ReachBlocks
   | _, .nil => (false, .nil)
   | _, .cons b bs =>
-    let rb := buildReach mask b
-    let (rbs, rt) := buildReachB mask bs
-    (rb.reaches || rbs, .cons rb rt)
+    let (rbReach, rb) := buildReachWith highPress jnzD mask b
+    let (rbsReach, rt) := buildReachWithB highPress jnzD mask bs
+    (rbReach || rbsReach, .cons rb rt)
 end
+
+/-- Compute bottom-up backedge-reachability tree for `tf` against target label mask `mask`. -/
+def buildReach (mask : List Nat) {rs : List Ty} (tf : TFlat rs) : ReachTree :=
+  (buildReachWith false 0 mask tf).2
+
+/-- Block-list companion of `buildReach`, enabling the cold-branch pressure gate when `bodies`
+references `> 8` distinct outer live-in variables. -/
+def buildReachB (mask : List Nat) {rs : List Ty} {sig : List (List Ty)}
+    (bodies : TBlocks rs sig) : Bool × ReachBlocks :=
+  let highPress := Nat.blt 8 (trieCard (collectOuterB 0 bodies .empty))
+  buildReachWithB highPress 0 mask bodies
 
 /-- Erased `GvnTbl` used by the analyzer to track already-hoisted keys and their assigned levels. -/
 abbrev PlanTbl := GvnTbl (fun _ => Unit)
