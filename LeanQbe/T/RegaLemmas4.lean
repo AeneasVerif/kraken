@@ -330,10 +330,11 @@ theorem lowerBlocks_closed (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VC
 theorem run_congr {a b : Nat} {s : T.mach.MData} {p : T.mach.State → Prop} (h : a = b)
     (hr : T.mach.Run host a s p) : T.mach.Run host b s p := h ▸ hr
 
-theorem jnzMode_spec {I : Isa} {h : I.Hints} {st : SymState I} {canInv : Bool}
+theorem jnzMode_spec {I : Isa} {h : I.Hints} {ipT ipE : Nat} {st : SymState I} {canInv : Bool}
     {t e : Expr VNat LNat rs} {ft : Option Nat} {inv : Bool} {j : Nat}
-    (hm : jnzMode I h st canInv t e ft = (inv, some j)) :
-    (inv = false → zeroMoveJump? I h st t = some j) ∧ (inv = true → zeroMoveJump? I h st e = some j) := by
+    (hm : jnzMode I h ipT ipE st canInv t e ft = (inv, some j)) :
+    (inv = false → zeroMoveJump? I h ipT st t = some j) ∧
+    (inv = true → zeroMoveJump? I h ipE st e = some j) := by
   unfold jnzMode at hm
   split at hm <;> (try split at hm) <;> simp_all
 
@@ -341,8 +342,8 @@ theorem jnzMode_spec {I : Isa} {h : I.Hints} {st : SymState I} {canInv : Bool}
 theorem thread_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCtx} {D : Ctx Cont LNat}
     {tb₁ : Expr Val Cont rs} {tb₂ : Expr VNat LNat rs} (hwf : Wf G D tb₁ tb₂)
     (hD : DOk T host hints E fn s₀ ra n nX Rf Q X G D)
-    {stB : SymState T.toIsa} {j : Nat} {m : Mem 64}
-    (hz : zeroMoveJump? T.toIsa hints stB tb₂ = some j) :
+    {ip : Nat} {stB : SymState T.toIsa} {j : Nat} {m : Mem 64}
+    (hz : zeroMoveJump? T.toIsa hints ip stB tb₂ = some j) :
     ∃ kj, (T.mach.prog host)[kj]? = some (T.frame.label (lname fn j)) ∧
       (wp Γ Q X tb₁ m → ∀ nv s σ, Agree T G nv stB s σ →
         Inv T hints s₀ ra n Rf m s σ (isZeroLeaf T.toIsa hints E) →
@@ -350,25 +351,27 @@ theorem thread_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCtx} {D : 
   cases hwf with
   | @jump _ _ ts j₁ j₂ args₁ args₂ hj hargs =>
     simp only [zeroMoveJump?] at hz
-    cases hen : hints.entry.find? j₂ with
-    | none => simp [hen] at hz
-    | some en =>
-      cases hjt : jumpTargets T.toIsa args₂ en.ploc with
-      | none => simp [hen, hjt] at hz
-      | some argTgts =>
-        simp only [hen, hjt, Option.bind_some] at hz
-        split at hz
-        · rename_i hall
-          simp only [Option.some.injEq] at hz; subst hz
-          obtain ⟨⟨kℓ, hlab⟩, G', hGs, rfl⟩ := hD ts j₁ j₂ hj
-          refine ⟨kℓ, hlab, fun hwp nv s σ hA hI => ?_⟩
-          simp only [wp] at hwp
-          have hJ := hwp
-          refine enter_labJ hy hGs hargs hen hjt (fun p hp => ?_) hI hlab hJ
-          have := List.all_eq_true.mp hall p hp
-          simp only [Bool.and_eq_true] at this
-          exact holdsLoc_ok hA this.2
-        · simp at hz
+    split at hz
+    · simp at hz
+    · cases hen : hints.entry.find? j₂ with
+      | none => simp [hen] at hz
+      | some en =>
+        cases hjt : jumpTargets T.toIsa args₂ en.ploc with
+        | none => simp [hen, hjt] at hz
+        | some argTgts =>
+          simp only [hen, hjt, Option.bind_some] at hz
+          split at hz
+          · rename_i hall
+            simp only [Option.some.injEq] at hz; subst hz
+            obtain ⟨⟨kℓ, hlab⟩, G', hGs, rfl⟩ := hD ts j₁ j₂ hj
+            refine ⟨kℓ, hlab, fun hwp nv s σ hA hI => ?_⟩
+            simp only [wp] at hwp
+            have hJ := hwp
+            refine enter_labJ hy hGs hargs hen hjt (fun p hp => ?_) hI hlab hJ
+            have := List.all_eq_true.mp hall p hp
+            simp only [Bool.and_eq_true] at this
+            exact holdsLoc_ok hA this.2
+          · simp at hz
   | _ => simp [zeroMoveJump?] at hz
 
 theorem keep_of_frame_scratch {s s' : T.mach.MData} {v : List T.VReg} {f : FlagMask}
@@ -408,11 +411,12 @@ theorem finishJnzBranch_none {I : Isa} {fn : Sym} {nl : Nat} {b : Expr VNat LNat
   simp only [finishJnzBranch, Except.ok.injEq, Prod.mk.injEq] at h
   exact ⟨by rw [← h.1]; simp [List.append_assoc], h.2.1.symm, h.2.2.1.symm, h.2.2.2.symm⟩
 
-theorem jnzSetup_thread {I : Isa} {h : I.Hints} {nl : Nat} {st1 : SymState I}
+theorem jnzSetup_thread {I : Isa} {h : I.Hints} {nl ipT ipE : Nat} {st1 : SymState I}
     {t e : Expr VNat LNat rs} {ft : Option Nat} {cond : Sum I.Cond I.Reg} {inv : Bool} {j : Nat}
     {br : List I.Directive} {stBr : SymState I}
-    (hs : jnzSetup I h fn nl st1 t e ft cond = (inv, some j, br, stBr)) :
-    (inv = false → zeroMoveJump? I h stBr t = some j) ∧ (inv = true → zeroMoveJump? I h stBr e = some j) := by
+    (hs : jnzSetup I h fn nl ipT ipE st1 t e ft cond = (inv, some j, br, stBr)) :
+    (inv = false → zeroMoveJump? I h ipT stBr t = some j) ∧
+    (inv = true → zeroMoveJump? I h ipE stBr e = some j) := by
   cases cond with
   | inl cc =>
     simp only [jnzSetup, Prod.mk.injEq] at hs
@@ -429,32 +433,36 @@ theorem jnzSetup_thread {I : Isa} {h : I.Hints} {nl : Nat} {st1 : SymState I}
     · rename_i j' args
       have hj : j' = j := by
         simp only [zeroMoveJump?] at h2
-        cases hen : h.entry.find? j' with
-        | none => simp [hen] at h2
-        | some en =>
-          cases hjt : jumpTargets I args en.ploc with
-          | none => simp [hen, hjt] at h2
-          | some at' =>
-            simp only [hen, hjt, Option.bind_some] at h2
-            split at h2 <;> simp_all
+        split at h2
+        · simp at h2
+        · cases hen : h.entry.find? j' with
+          | none => simp [hen] at h2
+          | some en =>
+            cases hjt : jumpTargets I args en.ploc with
+            | none => simp [hen, hjt] at h2
+            | some at' =>
+              simp only [hen, hjt, Option.bind_some] at h2
+              split at h2 <;> simp_all
       subst hj; exact h2
     · cases h2
 
-theorem jnzSetup_memDefs {I : Isa} {h : I.Hints} {nl : Nat} {st1 : SymState I}
+theorem jnzSetup_memDefs {I : Isa} {h : I.Hints} {nl ipT ipE : Nat} {st1 : SymState I}
     {t e : Expr VNat LNat rs} {ft : Option Nat} {cond : Sum I.Cond I.Reg} {inv : Bool}
     {tgt : Option Nat} {br : List I.Directive} {stBr : SymState I}
-    (hs : jnzSetup I h fn nl st1 t e ft cond = (inv, tgt, br, stBr)) :
+    (hs : jnzSetup I h fn nl ipT ipE st1 t e ft cond = (inv, tgt, br, stBr)) :
     stBr.memDefs = st1.memDefs := by
   cases cond <;> simp only [jnzSetup, Prod.mk.injEq] at hs <;> rw [← hs.2.2.2]
 
 /-- Branch on the `jnz` condition (`jcc` on a flag or `jnzGpr` on a GPR). -/
-theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCtx} {nv nl : Nat}
-    {st1 stBr : SymState T.toIsa} {s1 : T.mach.MData} {σ1 : List (BitVec 64)} {m : Mem 64}
-    {cv : Bool} {cx : Nat} (hmem : (⟨.bool, cv, cx⟩ : (t : Ty) × Val t × VNat t) ∈ G)
+theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCtx}
+    {nv nl ipT ipE : Nat} {st1 stBr : SymState T.toIsa} {s1 : T.mach.MData}
+    {σ1 : List (BitVec 64)} {m : Mem 64} {cv : Bool} {cx : Nat}
+    (hmem : (⟨.bool, cv, cx⟩ : (t : Ty) × Val t × VNat t) ∈ G)
     (hA1 : Agree T G nv st1 s1 σ1) (hI1 : Inv T hints s₀ ra n Rf m s1 σ1 zl)
     {cond : Sum T.Cond T.Reg} (hfc : findJnzCond T.toIsa st1.regs cx = some cond)
     {t e : Expr VNat LNat rs} {ft : Option Nat} {inv : Bool} {tgt : Option Nat}
-    {br : List T.Directive} (hs : jnzSetup T.toIsa hints fn nl st1 t e ft cond = (inv, tgt, br, stBr))
+    {br : List T.Directive}
+    (hs : jnzSetup T.toIsa hints fn nl ipT ipE st1 t e ft cond = (inv, tgt, br, stBr))
     {kb kT : Nat} {post : T.mach.State → Prop} (hbr : br.IsInfixAt (T.mach.prog host) kb)
     (hlab : (T.mach.prog host)[kT]? = some (T.frame.label (lname fn (tgt.getD nl))))
     (kont : ∀ s', Agree T G nv stBr s' σ1 → Inv T hints s₀ ra n Rf m s' σ1 zl →
@@ -470,10 +478,10 @@ theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G :
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hs
     refine T.gprSpec.jcc_spec hbr hla fun s' hfr hm => ?_
     have := kont s' (hA1.kill hfr) (hI1.keep hm (keep_of_frame_scratch hfr))
-    have hev : T.mach.evalCond s1 (if (jnzMode T.toIsa hints
+    have hev : T.mach.evalCond s1 (if (jnzMode T.toIsa hints ipT ipE
         { st1 with regs := killRegs T.toIsa T.frame.scratch [] FlagMask.none st1.regs } true t e ft).1
         then T.gpr.negCond cc else cc) =
-        (if (jnzMode T.toIsa hints
+        (if (jnzMode T.toIsa hints ipT ipE
         { st1 with regs := killRegs T.toIsa T.frame.scratch [] FlagMask.none st1.regs } true t e ft).1
         then !cv else cv) := by
       split <;> simp_all [T.gprSpec.negCond_eval]
@@ -666,7 +674,9 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
         cases hfc : findJnzCond T.toIsa st1.regs cx with
         | none => simp [hp, hfc] at hl
         | some cond =>
-          rcases hs : jnzSetup T.toIsa hints fn nl st1 t₂ e₂ ft cond with ⟨inv, tgt, br, stBr⟩
+          rcases hs : jnzSetup T.toIsa hints fn nl
+              (jnzIpT nv nl ip t₂ e₂) (ip + 1) st1 t₂ e₂ ft cond with
+            ⟨inv, tgt, br, stBr⟩
           simp only [hp, hfc, hs] at hl
           split at hl; · simp at hl
           rename_i ce nv1 nl1 ip1 hle

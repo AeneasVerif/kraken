@@ -536,4 +536,73 @@ meta def movi32LeafFn : Fn :=
   | .ok (_, [(_, b)]) => b == 0
   | _ => false
 
+/-! ## 8. `jnz` jump-threading checks `Hints.pre` at the taken branch `ip` -/
+
+/-- `then`-arm is `.jump` at `ip = 4` (after a multi-step `else`-arm at `ip = 2, 3`). -/
+meta def jnzPreThenFn : Fn :=
+  ⟨"jnzPreThenX64", [i64, i64, i64], [i64], fun _ _ (x, y, p, ()) =>
+    .group (sig := [[i64]])
+      (fun (j, ()) => .cons (fun (q, ()) => .ret (.var q, ())) .nil)
+      (fun (j, ()) =>
+        .let_ (op2 (.cmp .eq i64) (.var x) (.imm 0#64)) fun (c, ()) =>
+        .jnz (.var c)
+          (.jump j (.var x, ()))
+          (.store (t := i64) (.var x) (.var p) (.jump j (.var y, ()))))⟩
+
+/-- `else`-arm is `.jump` at `ip = 2` (before a multi-step `then`-arm). -/
+meta def jnzPreElseFn : Fn :=
+  ⟨"jnzPreElseX64", [i64, i64, i64], [i64], fun _ _ (x, y, p, ()) =>
+    .group (sig := [[i64]])
+      (fun (j, ()) => .cons (fun (q, ()) => .ret (.var q, ())) .nil)
+      (fun (j, ()) =>
+        .let_ (op2 (.cmp .eq i64) (.var x) (.imm 0#64)) fun (c, ()) =>
+        .jnz (.var c)
+          (.store (t := i64) (.var x) (.var p) (.jump j (.var y, ())))
+          (.jump j (.var x, ())))⟩
+
+meta def jnzThreadHints (f : Fn) : x64Target.toIsa.Hints :=
+  let h0 := Fn.computeHints x64Target.toIsa x64LegalTarget f
+  { h0 with entry := h0.entry.insert 0 { live := [], ploc := [.gpr .rdi] } }
+
+meta def withPreAt (h : x64Target.toIsa.Hints) (ip : Nat)
+    (ps : PreStep Reg64 RegMm CondCode) : x64Target.toIsa.Hints :=
+  { h with pre := h.pre.insert ip ps }
+
+meta def chkHints (f : Fn) (h : x64Target.toIsa.Hints) : Bool :=
+  checkCompile x64Target x64Layout x64LegalTarget [] [] 0 [f] [h] 2048
+
+meta def rdiSymSt : Rega.SymState x64Target.toIsa :=
+  { regs := [(.var 0, .gpr .rdi), (.var 1, .gpr .rsi), (.var 2, .gpr .rdx)],
+    slots := .empty, defs := .empty, vecWidths := .empty }
+
+meta def jnzJump0 : Expr Rega.VNat Rega.LNat [i64] :=
+  .jump (ts := [i64]) 0 (Arg.var 0, ())
+
+#guard chk [jnzPreThenFn]
+#guard chk [jnzPreElseFn]
+#guard
+  let h := jnzThreadHints jnzPreThenFn
+  Rega.zeroMoveJump? x64Target.toIsa h 4 rdiSymSt jnzJump0 == some 0 &&
+    chkHints jnzPreThenFn h
+#guard
+  let h := withPreAt (jnzThreadHints jnzPreThenFn) 4 { moves := [.mov .rax .rsi] }
+  Rega.zeroMoveJump? x64Target.toIsa h 4 rdiSymSt jnzJump0 == none &&
+    chkHints jnzPreThenFn h
+#guard
+  let h := withPreAt (jnzThreadHints jnzPreThenFn) 4 { clearFlags := true }
+  Rega.zeroMoveJump? x64Target.toIsa h 4 rdiSymSt jnzJump0 == none &&
+    chkHints jnzPreThenFn h
+#guard
+  let h := jnzThreadHints jnzPreElseFn
+  Rega.zeroMoveJump? x64Target.toIsa h 2 rdiSymSt jnzJump0 == some 0 &&
+    chkHints jnzPreElseFn h
+#guard
+  let h := withPreAt (jnzThreadHints jnzPreElseFn) 2 { moves := [.mov .rax .rsi] }
+  Rega.zeroMoveJump? x64Target.toIsa h 2 rdiSymSt jnzJump0 == none &&
+    chkHints jnzPreElseFn h
+#guard
+  let h := withPreAt (jnzThreadHints jnzPreElseFn) 2 { clearFlags := true }
+  Rega.zeroMoveJump? x64Target.toIsa h 2 rdiSymSt jnzJump0 == none &&
+    chkHints jnzPreElseFn h
+
 end LeanQbeTest.T.FlagRaOptTest

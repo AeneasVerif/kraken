@@ -934,34 +934,47 @@ def prepend {I : Isa} (pre : List I.Directive) : Res I → Res I
 def findJnzCond (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) (x : Nat) : Option (Sum I.Cond I.Reg) :=
   (findFlagFor I R (.var x)).map .inl <|> (findGprFor I true R (.var x)).map .inr
 
-def zeroMoveJump? {rs : List Ty} (I : Isa) (h : I.Hints) (st : SymState I) : Expr VNat LNat rs → Option Nat
-  | .jump j args => (h.entry.find? j).bind fun en => (jumpTargets I args en.ploc).bind fun argTgts =>
-      if (en.live ++ argTgts).all (fun (sa, loc) => jumpLocOk I h.nslots loc && holdsLoc I st sa loc) then some j else none
+/-- `true` when `h.pre` at `ip` emits no moves or flag clears. -/
+def preEmpty {I : Isa} (h : I.Hints) (ip : Nat) : Bool :=
+  match h.pre.find? ip with
+  | none => true
+  | some ps => !ps.clearFlags && ps.moves.isEmpty
+
+def zeroMoveJump? {rs : List Ty} (I : Isa) (h : I.Hints) (ip : Nat) (st : SymState I) :
+    Expr VNat LNat rs → Option Nat
+  | .jump j args =>
+    if !preEmpty h ip then none
+    else (h.entry.find? j).bind fun en => (jumpTargets I args en.ploc).bind fun argTgts =>
+      if (en.live ++ argTgts).all
+          (fun (sa, loc) => jumpLocOk I h.nslots loc && holdsLoc I st sa loc) then
+        some j
+      else none
   | _ => none
 
-def jnzMode {rs : List Ty} (I : Isa) (h : I.Hints) (st : SymState I)
+def jnzMode {rs : List Ty} (I : Isa) (h : I.Hints) (ipT ipE : Nat) (st : SymState I)
     (canInv : Bool) (t e : Expr VNat LNat rs) (ft : Option Nat) : Bool × Option Nat :=
-  match zeroMoveJump? I h st t, if canInv then zeroMoveJump? I h st e else none with
+  match zeroMoveJump? I h ipT st t, if canInv then zeroMoveJump? I h ipE st e else none with
   | some jt, some je => if ft == some jt then (true, some je) else (false, some jt)
   | some jt, none => (false, some jt) | none, some je => (true, some je) | none, none => (false, none)
 
-def gprThread? {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (st1 : SymState I) (r : I.Reg) :
-    Expr VNat LNat rs → Option Nat
+def gprThread? {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (ipT : Nat) (st1 : SymState I)
+    (r : I.Reg) : Expr VNat LNat rs → Option Nat
   | .jump j args =>
-    zeroMoveJump? (rs := rs) I h
-      { st1 with regs := killRegs I I.frame.scratch [] (I.gpr.jnzGpr r (lname fn j)).2 st1.regs } (.jump j args)
+    zeroMoveJump? (rs := rs) I h ipT
+      { st1 with regs := killRegs I I.frame.scratch [] (I.gpr.jnzGpr r (lname fn j)).2 st1.regs }
+      (.jump j args)
   | _ => none
 
 /-- Branch selection for `jnz`: `(inverted?, threaded target, branch code, state after branch)`. -/
-def jnzSetup {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl : Nat) (st1 : SymState I)
-    (t e : Expr VNat LNat rs) (ft : Option Nat) :
+def jnzSetup {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE : Nat)
+    (st1 : SymState I) (t e : Expr VNat LNat rs) (ft : Option Nat) :
     Sum I.Cond I.Reg → Bool × Option Nat × List I.Directive × SymState I
   | .inl cc =>
     let stB := { st1 with regs := killRegs I I.frame.scratch [] FlagMask.none st1.regs }
-    let p := jnzMode I h stB true t e ft
+    let p := jnzMode I h ipT ipE stB true t e ft
     (p.1, p.2, I.gpr.jcc (if p.1 then I.gpr.negCond cc else cc) (lname fn (p.2.getD nl)), stB)
   | .inr r =>
-    let tg := gprThread? I h fn st1 r t
+    let tg := gprThread? I h fn ipT st1 r t
     let p := I.gpr.jnzGpr r (lname fn (tg.getD nl))
     (false, tg, p.1, { st1 with regs := killRegs I I.frame.scratch [] p.2 st1.regs })
 
@@ -1105,6 +1118,50 @@ def lowerTail {ts : List Ty} (I : Isa) (h : I.Hints) (E : Ext) (st1 : SymState I
         restoreCs I h.nslots h.saved ++ fnEpilogue I h E ++ tail, nv, nl, ip + 1)
 
 mutual
+/-- Instruction-pointer count consumed by `lowerExpr` on `e` starting at `(nv, nl)`. -/
+def exprIpCount {rs : List Ty} : Expr VNat LNat rs → Nat → Nat → Nat × Nat × Nat
+  | .let_ (ts := ts) _ k, nv, nl =>
+    let (nv1, nl1, d) := exprIpCount (k (Tup.levels ts nv)) (nv + ts.length) nl
+    (nv1, nl1, d + 1)
+  | .load _ _ k, nv, nl =>
+    let (nv1, nl1, d) := exprIpCount (k nv) (nv + 1) nl
+    (nv1, nl1, d + 1)
+  | .store _ _ k, nv, nl =>
+    let (nv1, nl1, d) := exprIpCount k nv nl
+    (nv1, nl1, d + 1)
+  | .call (bs := bs) _ _ k, nv, nl =>
+    let (nv1, nl1, d) := exprIpCount (k (Tup.levels bs nv)) (nv + bs.length) nl
+    (nv1, nl1, d + 1)
+  | .jnz (.imm b) t e, nv, nl =>
+    let (nv1, nl1, d) := if b then exprIpCount t nv nl else exprIpCount e nv nl
+    (nv1, nl1, d + 1)
+  | .jnz (.var _) t e, nv, nl =>
+    let (nv1, nl1, de) := exprIpCount e nv (nl + 1)
+    let (nv2, nl2, dt) := exprIpCount t nv1 nl1
+    (nv2, nl2, de + dt + 1)
+  | .jump _ _, nv, nl | .ret _, nv, nl | .exit _ _, nv, nl | .hlt, nv, nl => (nv, nl, 1)
+  | .group (sig := sig) bodies k, nv, nl =>
+    let ls := Tup.levels sig nl
+    let (nv1, nl1, dk) := exprIpCount (k ls) nv (nl + sig.length)
+    let (nv2, nl2, db) := blocksIpCount (bodies ls) nv1 nl1
+    (nv2, nl2, dk + db)
+
+def blocksIpCount {rs : List Ty} :
+    {sig : List (List Ty)} → Blocks VNat LNat rs sig → Nat → Nat → Nat × Nat × Nat
+  | _, .nil, nv, nl => (nv, nl, 0)
+  | _, .cons (ts := ts) b bs, nv, nl =>
+    let (nv1, nl1, db) := exprIpCount (b (Tup.levels ts nv)) (nv + ts.length) nl
+    let (nv2, nl2, dbs) := blocksIpCount bs nv1 nl1
+    (nv2, nl2, db + dbs)
+end
+
+/-- Instruction-pointer at which `lowerExpr` starts lowering the `then`-arm `t` of `jnz`. -/
+def jnzIpT {rs : List Ty} (nv nl ip : Nat) (t e : Expr VNat LNat rs) : Nat :=
+  match t with
+  | .jump _ _ => ip + 1 + (exprIpCount e nv (nl + 1)).2.2
+  | _ => ip + 1
+
+mutual
 def lowerExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
     Expr VNat LNat rs → Nat → Nat → Nat → SymState I → Option Nat → Res I
   | .let_ (ts := ts) op k, nv, nl, ip, st, ft =>
@@ -1154,7 +1211,8 @@ def lowerExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
     | some (mc, st1) => match findJnzCond I st1.regs cx with
       | none => .error "jnz: cond"
       | some cond =>
-        let (inv, tgt?, br, stBr) := jnzSetup I h fn nl st1 t e ft cond
+        let (inv, tgt?, br, stBr) :=
+          jnzSetup I h fn nl (jnzIpT nv nl ip t e) (ip + 1) st1 t e ft cond
         let ftT := match tgt? with | some j => some j | none => ft
         let ftF := match tgt? with | some _ => ft | none => none
         match lowerExpr I h E fn e nv (nl + 1) (ip + 1) stBr (if inv then ftT else ftF) with
