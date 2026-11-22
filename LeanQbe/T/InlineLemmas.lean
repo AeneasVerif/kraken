@@ -605,7 +605,7 @@ theorem Expr.checkCallsOk_of_callsOk {allowed : List SigEntry} {exits : List Sym
             ihb (Tup.units _) i (Tup.units _) (Blocks.callsOk_get hb i),
          ihk (Tup.units _) hk⟩
 
-private theorem checkFnsCallsOk_of_forall (exits : List Sym) (extSigs : List SigEntry) :
+theorem checkFnsCallsOk_of_forall (exits : List Sym) (extSigs : List SigEntry) :
     ∀ (seenSigs : List SigEntry) (rest : List Fn),
     (∀ pre fn post, rest = pre ++ fn :: post →
       fn.callsOk ((seenSigs ++ pre.map Fn.sig) ++ extSigs) exits) →

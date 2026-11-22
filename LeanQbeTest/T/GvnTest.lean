@@ -28,7 +28,8 @@ open LeanQbe.T
 
 /-! ## 1. E1 `prog` ported: CSE across `jnz` while keeping repeated `load`s -/
 
-/-- `x = add a b; y = add a b; jnz c, (u = add a b; z = mul y u; ret [z, x]), (load p; load p; ret [v, y])` -/
+/-- `x = add a b; y = add a b; jnz c, (u = add a b; z = mul y u; ret [z, x]),`
+`(load p; load p; ret [v, y])` -/
 def prog : Func [i64, i64, .bool, i64] [i64, i64] := fun _ _ p =>
   let a := p.1
   let b := p.2.1
@@ -44,7 +45,8 @@ def prog : Func [i64, i64, .bool, i64] [i64, i64] := fun _ _ p =>
      .load i64 (.var ptr) fun v =>
      .ret (.var v, .var y.1, ()))
 
-/-- Both repeated `add`s (including inside the `then` branch) are replaced by `x`; both `load`s stay. -/
+/-- Both repeated `add`s (including inside the `then` branch) are replaced by `x`;
+both `load`s stay. -/
 theorem prog_gvn_out : Func.gvn prog = fun _ _ p =>
     let a := p.1
     let b := p.2.1
@@ -214,11 +216,12 @@ theorem groupProg_wf : groupProg.Wf := by t_wf_reify
 
 theorem gvn_groupProg_wf : (Func.gvn groupProg).Wf := Func.gvn_wf groupProg_wf
 
-/-! ## 5. Float NaN (`OpCode.wp_self`) and proof-indexed `OpCode` (`cmp`/`blend`/`bitcast`/`fcmp`) CSE -/
+/-! ## 5. Float NaN (`OpCode.wp_self`) and proof-indexed `OpCode` CSE -/
 
 def qnan32 : BitVec 32 := 0x7fc00001#32
 
-def floatProofProg : Func [v4i32, v4i32, v4f32, v4f32] [f32, f32, Ty.mask v4i32, v4i32, i64, Ty.mask v4f32] :=
+def floatProofProg :
+    Func [v4i32, v4i32, v4f32, v4f32] [f32, f32, Ty.mask v4i32, v4i32, i64, Ty.mask v4f32] :=
   fun _ _ p =>
   let a := p.1
   let b := p.2.1

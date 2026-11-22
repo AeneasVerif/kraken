@@ -10,7 +10,7 @@ public import LeanQbe.T.Logic.Rules
 
 Ports E1's `FoldTest` to the typed IR `LeanQbe.T` and adds coverage for:
 - Multi-result constant folding and algebraic identities (`addc`, `subb`, `umulw`, `smulw`),
-- Strength reduction (`mul → shl`, `udiv → lshr`, `urem → and`, division by 1, safe `udiv0`/`sdiv0`),
+- Strength reduction (`mul → shl`, `udiv → lshr`, `urem → and`, div by 1, safe `udiv0`/`sdiv0`),
 - Non-foldable UB preservation (`udiv x 0` is kept),
 - Vector (`v4i32`, `v2i64`) folding, `ternlog`, `blend`, `shufd`,
 - Floating-point deterministic folding (`fneg`, `fabs`, finite `fadd`) and sound refinement of

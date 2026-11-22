@@ -177,12 +177,10 @@ identical operands (`fKeyBeq (ikey aT) (ikey aE)`) un-selected. -/
 def emitSelectTy {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (c : Arg V .bool) : (t : Ty) → Nat → Arg (IVal V) t → Arg (IVal V) t →
     (Nat → Arg V t → Expr V L rs) → Expr V L rs
-  | .bool, next, aT, aE, cont =>
+  | .bool, next, aT, aE, cont
+  | .bits _, next, aT, aE, cont =>
     if fKeyBeq (ikey aT) (ikey aE) then cont next (iout aT)
-    else .let_ (op3 (.select .bool) c (iout aT) (iout aE)) fun (r, ()) => cont next (.var r)
-  | .bits n, next, aT, aE, cont =>
-    if fKeyBeq (ikey aT) (ikey aE) then cont next (iout aT)
-    else .let_ (op3 (.select (.bits n)) c (iout aT) (iout aE)) fun (r, ()) => cont next (.var r)
+    else .let_ (op3 (.select _) c (iout aT) (iout aE)) fun (r, ()) => cont next (.var r)
   | .float _, next, aT, _, cont => cont next (iout aT)
   | .pair a b, next, aT, aE, cont =>
     if fKeyBeq (ikey aT) (ikey aE) then cont next (iout aT)

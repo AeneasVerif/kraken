@@ -11,7 +11,7 @@ public import LeanQbe.T.Logic.Rules
 Covers:
 - Multi-hop `OpCode.copy` propagation chains (`y = copy a; z = copy y; ret (add z 1)`),
 - Tuple copy propagation (`mkpair` + `unpair` elimination forwarding `fst`/`snd` directly),
-- Nested immediate pair decomposition (`unpair` on immediate pairs and constants produced from `mkpair`),
+- Nested immediate pair decomposition (`unpair` on immediate pairs and constants from `mkpair`),
 - Identity pair elimination (`x, y = unpair p; q = mkpair x y` → `q` resolves to `p`),
 - Cross-`jnz` and `group` block copy propagation,
 - Kernel reduction (`t_kernel_rfl`), well-formedness (`t_wf_reify`, `Func.copy_wf`), and WP
@@ -95,7 +95,8 @@ def pairIdentityProg : Func [i64.pair i64] [i64.pair i64, i64, i64] := fun _ _ p
   .let_ (op1 (.unpair i64 i64) (.var nest.1)) fun ab =>
   .ret (.var q.1, .var ab.1, .var nest.2.1, ())
 
-/-- `mkpair x y` folds away to `pr`, and nested immediate `unpair`s resolve directly to constants. -/
+/-- `mkpair x y` folds away to `pr`, and nested immediate `unpair`s resolve directly to
+constants. -/
 theorem pairIdentityProg_out : Func.copy pairIdentityProg = fun _ _ p =>
     let pr := p.1
     .let_ (op1 (.unpair i64 i64) (.var pr)) fun _ =>
@@ -104,7 +105,8 @@ theorem pairIdentityProg_out : Func.copy pairIdentityProg = fun _ _ p =>
 
 theorem pairIdentityProg_wf : pairIdentityProg.Wf := by t_wf_reify
 
-theorem copy_pairIdentityProg_wf : (Func.copy pairIdentityProg).Wf := Func.copy_wf pairIdentityProg_wf
+theorem copy_pairIdentityProg_wf : (Func.copy pairIdentityProg).Wf :=
+  Func.copy_wf pairIdentityProg_wf
 
 theorem pairIdentityProg_spec (Γ : Env) (a b : BitVec 64) (m : Mem 64) :
     Func.spec Γ (Func.copy pairIdentityProg) ((a, b), ()) m

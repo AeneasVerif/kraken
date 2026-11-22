@@ -13,12 +13,12 @@ exposing source-module hypotheses and source-level specifications without modify
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
 /-- Run acyclic policy-driven inlining on `M` and renormalize every function body. -/
-def Module.optInlinePolicy (M : Module) (policy : InlinePolicy := {}) : Module :=
+@[expose] def Module.optInlinePolicy (M : Module) (policy : InlinePolicy := {}) : Module :=
   let M' := M.inlinePolicy policy
   { M' with fns := M'.fns.map Fn.renorm }
 
@@ -26,28 +26,15 @@ theorem Module.optInline_eq_optInlinePolicy (M : Module) (maxSize : Nat := 40) :
     M.optInline maxSize = M.optInlinePolicy (InlinePolicy.const maxSize) :=
   rfl
 
-/-- Compile a module after verified policy-driven inlining and AST renormalization
-(`Module.optInlinePolicy policy`), using externally supplied hints for
-`(M.optInlinePolicy policy).fns`. -/
-def compileOptInlinePolicy (I : Isa) (lt : LegalTarget) (M : Module) (hints : List I.Hints)
-    (policy : InlinePolicy := {}) : Except String (List I.Directive) :=
-  compile I lt (M.optInlinePolicy policy).fns hints
-
 /-- Stack-checked module compilation after verified `Module.optInlinePolicy policy`. -/
-def compileModuleOptInlinePolicy (I : Isa) (lt : LegalTarget) (raBytes : Nat)
+@[expose] def compileModuleOptInlinePolicy (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX : Nat)
     (M : Module) (hints : List I.Hints) (policy : InlinePolicy := {}) :
     Except String (List I.Directive × List (Sym × Nat)) :=
   compileModule I lt raBytes extCallees exits nX (M.optInlinePolicy policy).fns hints
 
-/-- Compile a module after verified acyclic small-callee inlining and AST renormalization
-(`Module.optInline maxSize`), using externally supplied hints for `(M.optInline maxSize).fns`. -/
-def compileOptInline (I : Isa) (lt : LegalTarget) (M : Module) (hints : List I.Hints)
-    (maxSize : Nat := 40) : Except String (List I.Directive) :=
-  compile I lt (M.optInline maxSize).fns hints
-
 /-- Stack-checked module compilation after verified `Module.optInline maxSize`. -/
-def compileModuleOptInline (I : Isa) (lt : LegalTarget) (raBytes : Nat)
+@[expose] def compileModuleOptInline (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX : Nat)
     (M : Module) (hints : List I.Hints) (maxSize : Nat := 40) :
     Except String (List I.Directive × List (Sym × Nat)) :=
@@ -139,26 +126,11 @@ theorem Module.optInlinePolicy_ok {Γ : Env} {M : Module} (policy : InlinePolicy
     dsimp only [Module.optInlinePolicy, Module.inlinePolicy] at hcalls₀ ⊢
     simpa [Fn.callsOk, Fn.renorm, hsig] using Func.renorm_callsOk hwf₀ hcalls₀
 
-private theorem checkFnsCallsOk_of_forall_inline (exits : List Sym) (extSigs : List SigEntry) :
-    ∀ (seenSigs : List SigEntry) (rest : List Fn),
-    (∀ pre fn post, rest = pre ++ fn :: post →
-      fn.callsOk ((seenSigs ++ pre.map Fn.sig) ++ extSigs) exits) →
-    Module.checkFnsCallsOk exits extSigs seenSigs rest = true
-  | _, [], _ => rfl
-  | seenSigs, fn :: rest, h => by
-      have hhd := h [] fn rest rfl
-      simp only [List.map_nil, List.append_nil] at hhd
-      have htl := checkFnsCallsOk_of_forall_inline exits extSigs (seenSigs ++ [fn.sig]) rest
-        fun pre f post hsp => by
-          simpa [List.append_assoc] using h (fn :: pre) f post (by simp [hsp])
-      simp only [Module.checkFnsCallsOk, Bool.and_eq_true]
-      exact ⟨Expr.checkCallsOk_of_callsOk _ hhd, htl⟩
-
 private theorem checkAcyclic_of_moduleOk {Γ : Env} {M : Module} (hM : ModuleOk Γ M) :
     M.checkAcyclic = true := by
   simp only [Module.checkAcyclic, Bool.and_eq_true]
   refine ⟨listNodup_iff.mpr hM.nodup,
-    checkFnsCallsOk_of_forall_inline _ _ [] _ fun pre fn post hsp => ?_⟩
+    checkFnsCallsOk_of_forall _ _ [] _ fun pre fn post hsp => ?_⟩
   simpa using (hM.fnsOk pre fn post hsp).2.1
 
 private theorem optInlinePolicy_moduleOk_bot {M : Module} (policy : InlinePolicy)
@@ -217,6 +189,30 @@ private theorem optInlinePolicy_compile_hyps {M : Module} {Γ : Env} (policy : I
     simp only [Module.sigs, Module.optInlinePolicy_externs] at h
     exact List.append_cancel_right h
 
+/-- Bundled source-module well-formedness, support, and `Func.wp` hypotheses after inlining. -/
+abbrev InlModHyps (lt : LegalTarget) (m₁ m₂ : Module) (Γ : Env) (rest : Prop) : Prop :=
+  ∀ (_hacyc : m₁.checkAcyclic = true) (_hwf : ∀ f ∈ m₁.fns, f.Wf)
+    (_hsupp : ∀ f ∈ m₂.fns, (f.earlyOpt).body.supportsSource lt = true)
+    (_hwp : ∀ f ∈ m₁.fns, ∀ xs m Q X,
+      Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X),
+    rest
+
+/-- Bundled external-callee and exit hypotheses for inline compilation soundness. -/
+abbrev InlExtHyps (T : Target) (h : T.mach.Host) (lt : LegalTarget) (m₁ : Module) (Γ : Env)
+    (ext : List (SigEntry × Nat)) (exits : List Sym) (nX : Nat) (rest : Prop) : Prop :=
+  ∀ (_hext : ∀ p ∈ ext,
+      T.FnSpec h p.1.1 (legalEnv lt (Env.ofModule m₁ Γ) p.1.1 p.1.2.1 p.1.2.2) p.2 nX)
+    (_hext_uniq : (∀ p ∈ ext, ∀ q ∈ ext, p.1.1 = q.1.1 → p.2 = q.2) ∧
+      (∀ p ∈ ext, p.1.1 ∉ m₁.fns.map Fn.name))
+    (_hexits : ∀ g ∈ exits, T.Defined h g),
+    rest
+
+/-- Post-compilation `Defined ∧ FnSpec` target guarantee under source module `Env.ofModule m₁ Γ`. -/
+abbrev InlOutSpec (T : Target) (h : T.mach.Host) (lt : LegalTarget) (m₁ : Module) (Γ : Env)
+    (nm : Sym) (f : Fn) (b nX : Nat) : Prop :=
+  T.Defined h nm ∧ T.FnSpec h nm
+    (legalEnv lt (Env.ofModule m₁ Γ) nm (lt.legalSig f.as) (lt.legalSig f.rs)) b nX
+
 /-- End-to-end compilation soundness after verified `Module.optInlinePolicy policy`, exposing
 source module hypotheses `M` and source-level specifications under `Env.ofModule M Γ`. -/
 theorem compile_sound_optInlinePolicy (T : Target) (host : T.mach.Host) (lt : LegalTarget)
@@ -225,23 +221,14 @@ theorem compile_sound_optInlinePolicy (T : Target) (host : T.mach.Host) (lt : Le
     (bounds : List (Sym × Nat)) (k₀ : Nat)
     (hcm : compileModuleOptInlinePolicy T.toIsa lt T.frame.raBytes extCallees exits nX M hints
         policy = .ok (code, bounds))
-    (hc : code.IsInfixAt (T.mach.prog host) k₀) (hu : T.LabelsUnique host)
-    (hacyc : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf)
-    (hsupp : ∀ f ∈ (M.optInlinePolicy policy).fns, (f.earlyOpt).body.supportsSource lt = true)
-    (hwp : ∀ f ∈ M.fns, ∀ xs m Q X,
-      Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
-    (hext : ∀ p ∈ extCallees,
-      T.FnSpec host p.1.1 (legalEnv lt (Env.ofModule M Γ) p.1.1 p.1.2.1 p.1.2.2) p.2 nX)
-    (hext_uniq : (∀ p ∈ extCallees, ∀ q ∈ extCallees, p.1.1 = q.1.1 → p.2 = q.2) ∧
-      (∀ p ∈ extCallees, p.1.1 ∉ M.fns.map Fn.name))
-    (hexits : ∀ g ∈ exits, T.Defined host g) :
-    ∀ p ∈ bounds, ∃ f ∈ M.fns, p.1 = f.name ∧ T.Defined host p.1 ∧
-      T.FnSpec host p.1
-        (legalEnv lt (Env.ofModule M Γ) p.1 (lt.legalSig f.as) (lt.legalSig f.rs))
-        p.2 nX := by
+    (hc : code.IsInfixAt (T.mach.prog host) k₀) (hu : T.LabelsUnique host) :
+    InlModHyps lt M (M.optInlinePolicy policy) Γ
+      (InlExtHyps T host lt M Γ extCallees exits nX
+        (∀ p ∈ bounds, ∃ f ∈ M.fns, p.1 = f.name ∧
+          InlOutSpec T host lt M Γ p.1 f p.2 nX)) := by
+  intro hacyc hwf hsupp hwp hext hext_uniq hexits p hp
   obtain ⟨hacyc', hwf', hwp', hnames, hsigs⟩ :=
     optInlinePolicy_compile_hyps policy hacyc hwf hwp
-  intro p hp
   obtain ⟨f', hf', hnm, hdef, hspec⟩ :=
     compile_sound T host lt (M.optInlinePolicy policy) Γ extCallees exits nX hints code bounds
       k₀ hcm hc hu hacyc' hwf' hsupp hwp'
@@ -256,28 +243,7 @@ theorem compile_sound_optInlinePolicy (T : Target) (host : T.mach.Host) (lt : Le
   exact hspec
 
 /-- Alias for `compile_sound_optInlinePolicy`. -/
-theorem optInlinePolicy_sound (T : Target) (host : T.mach.Host) (lt : LegalTarget)
-    (M : Module) (Γ : Env) (extCallees : List (SigEntry × Nat)) (exits : List Sym)
-    (nX : Nat) (policy : InlinePolicy) (hints : List T.toIsa.Hints) (code : List T.Directive)
-    (bounds : List (Sym × Nat)) (k₀ : Nat)
-    (hcm : compileModuleOptInlinePolicy T.toIsa lt T.frame.raBytes extCallees exits nX M hints
-        policy = .ok (code, bounds))
-    (hc : code.IsInfixAt (T.mach.prog host) k₀) (hu : T.LabelsUnique host)
-    (hacyc : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf)
-    (hsupp : ∀ f ∈ (M.optInlinePolicy policy).fns, (f.earlyOpt).body.supportsSource lt = true)
-    (hwp : ∀ f ∈ M.fns, ∀ xs m Q X,
-      Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
-    (hext : ∀ p ∈ extCallees,
-      T.FnSpec host p.1.1 (legalEnv lt (Env.ofModule M Γ) p.1.1 p.1.2.1 p.1.2.2) p.2 nX)
-    (hext_uniq : (∀ p ∈ extCallees, ∀ q ∈ extCallees, p.1.1 = q.1.1 → p.2 = q.2) ∧
-      (∀ p ∈ extCallees, p.1.1 ∉ M.fns.map Fn.name))
-    (hexits : ∀ g ∈ exits, T.Defined host g) :
-    ∀ p ∈ bounds, ∃ f ∈ M.fns, p.1 = f.name ∧ T.Defined host p.1 ∧
-      T.FnSpec host p.1
-        (legalEnv lt (Env.ofModule M Γ) p.1 (lt.legalSig f.as) (lt.legalSig f.rs))
-        p.2 nX :=
-  compile_sound_optInlinePolicy T host lt M Γ extCallees exits nX policy hints code bounds k₀
-    hcm hc hu hacyc hwf hsupp hwp hext hext_uniq hexits
+abbrev optInlinePolicy_sound := @compile_sound_optInlinePolicy
 
 /-- End-to-end compilation soundness after verified `Module.optInline maxSize`, exposing source
 module hypotheses `M` and source-level specifications under `Env.ofModule M Γ`. -/
@@ -287,22 +253,14 @@ theorem compile_sound_optInline (T : Target) (host : T.mach.Host) (lt : LegalTar
     (bounds : List (Sym × Nat)) (k₀ : Nat)
     (hcm : compileModuleOptInline T.toIsa lt T.frame.raBytes extCallees exits nX M hints
         maxSize = .ok (code, bounds))
-    (hc : code.IsInfixAt (T.mach.prog host) k₀) (hu : T.LabelsUnique host)
-    (hacyc : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf)
-    (hsupp : ∀ f ∈ (M.optInline maxSize).fns, (f.earlyOpt).body.supportsSource lt = true)
-    (hwp : ∀ f ∈ M.fns, ∀ xs m Q X,
-      Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
-    (hext : ∀ p ∈ extCallees,
-      T.FnSpec host p.1.1 (legalEnv lt (Env.ofModule M Γ) p.1.1 p.1.2.1 p.1.2.2) p.2 nX)
-    (hext_uniq : (∀ p ∈ extCallees, ∀ q ∈ extCallees, p.1.1 = q.1.1 → p.2 = q.2) ∧
-      (∀ p ∈ extCallees, p.1.1 ∉ M.fns.map Fn.name))
-    (hexits : ∀ g ∈ exits, T.Defined host g) :
-    ∀ p ∈ bounds, ∃ f ∈ M.fns, p.1 = f.name ∧ T.Defined host p.1 ∧
-      T.FnSpec host p.1
-        (legalEnv lt (Env.ofModule M Γ) p.1 (lt.legalSig f.as) (lt.legalSig f.rs))
-        p.2 nX :=
-  compile_sound_optInlinePolicy T host lt M Γ extCallees exits nX (InlinePolicy.const maxSize)
-    hints code bounds k₀ hcm hc hu hacyc hwf hsupp hwp hext hext_uniq hexits
+    (hc : code.IsInfixAt (T.mach.prog host) k₀) (hu : T.LabelsUnique host) :
+    InlModHyps lt M (M.optInline maxSize) Γ
+      (InlExtHyps T host lt M Γ extCallees exits nX
+        (∀ p ∈ bounds, ∃ f ∈ M.fns, p.1 = f.name ∧
+          InlOutSpec T host lt M Γ p.1 f p.2 nX)) :=
+  fun hacyc hwf hsupp hwp hext hext_uniq hexits =>
+    compile_sound_optInlinePolicy T host lt M Γ extCallees exits nX (InlinePolicy.const maxSize)
+      hints code bounds k₀ hcm hc hu hacyc hwf hsupp hwp hext hext_uniq hexits
 
 namespace Compiled
 
@@ -314,19 +272,12 @@ variable {T : Target} {lt : LegalTarget} {extCallees : List (SigEntry × Nat)}
 theorem fnSpec_optInlinePolicy (M : Compiled T lt extCallees exits nX fs hints maxBound)
     (mod : Module) (policy : InlinePolicy) (hfs : (mod.optInlinePolicy policy).fns = fs)
     (h : T.mach.Host) (Γ : Env) (k₀ : Nat)
-    (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
-    (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
-    (hsupp : ∀ f ∈ (mod.optInlinePolicy policy).fns, (f.earlyOpt).body.supportsSource lt = true)
-    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X,
-      Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
-    (hext : ∀ p ∈ extCallees,
-      T.FnSpec h p.1.1 (legalEnv lt (Env.ofModule mod Γ) p.1.1 p.1.2.1 p.1.2.2) p.2 nX)
-    (hext_uniq : (∀ p ∈ extCallees, ∀ q ∈ extCallees, p.1.1 = q.1.1 → p.2 = q.2) ∧
-      (∀ p ∈ extCallees, p.1.1 ∉ mod.fns.map Fn.name))
-    (hexits : ∀ g ∈ exits, T.Defined h g) {f : Fn} (hf : f ∈ mod.fns) :
-    T.Defined h f.name ∧ T.FnSpec h f.name
-      (legalEnv lt (Env.ofModule mod Γ) f.name (lt.legalSig f.as) (lt.legalSig f.rs))
-      (M.bound f.name) nX := by
+    (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h) :
+    InlModHyps lt mod (mod.optInlinePolicy policy) Γ
+      (InlExtHyps T h lt mod Γ extCallees exits nX
+        (∀ {f : Fn} (_hf : f ∈ mod.fns),
+          InlOutSpec T h lt mod Γ f.name f (M.bound f.name) nX)) := by
+  intro hacyc hwf hsupp hwp hext hext_uniq hexits f hf
   obtain ⟨hacyc', hwf', hwp', hnames, hsigs⟩ :=
     optInlinePolicy_compile_hyps policy hacyc hwf hwp
   have hsigMem : f.sig ∈ (mod.optInlinePolicy policy).fns.map Fn.sig := by
@@ -345,30 +296,26 @@ theorem fnSpec_optInlinePolicy (M : Compiled T lt extCallees exits nX fs hints m
 `extCallees = []`. -/
 theorem fnSpec_host_optInlinePolicy (M : Compiled T lt [] exits nX fs hints maxBound)
     (mod : Module) (policy : InlinePolicy) (hfs : (mod.optInlinePolicy policy).fns = fs)
-    (Γ : Env) (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
-    (hsupp : ∀ f ∈ (mod.optInlinePolicy policy).fns, (f.earlyOpt).body.supportsSource lt = true)
-    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X,
-      Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
-    {f : Fn} (hf : f ∈ mod.fns) :
-    T.Defined M.host f.name ∧ T.FnSpec M.host f.name
-      (legalEnv lt (Env.ofModule mod Γ) f.name (lt.legalSig f.as) (lt.legalSig f.rs))
-      (M.bound f.name) nX :=
-  M.fnSpec_optInlinePolicy mod policy hfs M.host Γ 0 M.code_infix_host M.labelsUnique hacyc hwf
-    hsupp hwp (fun _ h => nomatch h) ⟨(fun _ h => nomatch h), (fun _ h => nomatch h)⟩
-    (fun _ hg => M.defined_exit_host hg) hf
+    (Γ : Env) :
+    InlModHyps lt mod (mod.optInlinePolicy policy) Γ
+      (∀ {f : Fn} (_hf : f ∈ mod.fns),
+        InlOutSpec T M.host lt mod Γ f.name f (M.bound f.name) nX) :=
+  fun hacyc hwf hsupp hwp {_f} hf =>
+    M.fnSpec_optInlinePolicy mod policy hfs M.host Γ 0 M.code_infix_host M.labelsUnique hacyc hwf
+      hsupp hwp (fun _ h => nomatch h) ⟨(fun _ h => nomatch h), (fun _ h => nomatch h)⟩
+      (fun _ hg => M.defined_exit_host hg) hf
 
 /-- `Module.optInlinePolicy` empty-extern, empty-exit `FnSpec` wrapper over any host `h`. -/
 theorem fnSpec_noExit_id_optInlinePolicy (M : Compiled T lt [] [] nX fs hints maxBound)
     (mod : Module) (policy : InlinePolicy) (hfs : (mod.optInlinePolicy policy).fns = fs)
     (h : T.mach.Host) (Γ : Env) (k₀ : Nat)
-    (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
-    (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
-    (hsupp : ∀ f ∈ (mod.optInlinePolicy policy).fns, (f.earlyOpt).body.supportsSource lt = true)
-    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X,
-      Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
-    {f : Fn} (hf : f ∈ mod.fns) (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs)
-    (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X') :
-    T.Defined h f.name ∧ T.FnSpec h f.name (Γ f.name f.as f.rs) (M.bound f.name) nX := by
+    (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h) :
+    InlModHyps lt mod (mod.optInlinePolicy policy) Γ
+      (∀ {f : Fn} (_hf : f ∈ mod.fns)
+        (_has : lt.legalSig f.as = f.as) (_hrs : lt.legalSig f.rs = f.rs)
+        (_hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X'),
+        T.Defined h f.name ∧ T.FnSpec h f.name (Γ f.name f.as f.rs) (M.bound f.name) nX) := by
+  intro hacyc hwf hsupp hwp f hf has hrs hnoex
   obtain ⟨hdef, hspec⟩ := M.fnSpec_optInlinePolicy mod policy hfs h Γ k₀ hc hu hacyc hwf hsupp hwp
     (fun _ h => nomatch h) ⟨(fun _ h => nomatch h), (fun _ h => nomatch h)⟩
     (fun _ h => nomatch h) hf
@@ -380,49 +327,37 @@ theorem fnSpec_noExit_id_optInlinePolicy (M : Compiled T lt [] [] nX fs hints ma
 theorem fnSpec_optInline (M : Compiled T lt extCallees exits nX fs hints maxBound)
     (mod : Module) (maxSize : Nat) (hfs : (mod.optInline maxSize).fns = fs)
     (h : T.mach.Host) (Γ : Env) (k₀ : Nat)
-    (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
-    (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
-    (hsupp : ∀ f ∈ (mod.optInline maxSize).fns, (f.earlyOpt).body.supportsSource lt = true)
-    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X,
-      Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
-    (hext : ∀ p ∈ extCallees,
-      T.FnSpec h p.1.1 (legalEnv lt (Env.ofModule mod Γ) p.1.1 p.1.2.1 p.1.2.2) p.2 nX)
-    (hext_uniq : (∀ p ∈ extCallees, ∀ q ∈ extCallees, p.1.1 = q.1.1 → p.2 = q.2) ∧
-      (∀ p ∈ extCallees, p.1.1 ∉ mod.fns.map Fn.name))
-    (hexits : ∀ g ∈ exits, T.Defined h g) {f : Fn} (hf : f ∈ mod.fns) :
-    T.Defined h f.name ∧ T.FnSpec h f.name
-      (legalEnv lt (Env.ofModule mod Γ) f.name (lt.legalSig f.as) (lt.legalSig f.rs))
-      (M.bound f.name) nX :=
-  M.fnSpec_optInlinePolicy mod (InlinePolicy.const maxSize) hfs h Γ k₀ hc hu hacyc hwf hsupp hwp
-    hext hext_uniq hexits hf
+    (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h) :
+    InlModHyps lt mod (mod.optInline maxSize) Γ
+      (InlExtHyps T h lt mod Γ extCallees exits nX
+        (∀ {f : Fn} (_hf : f ∈ mod.fns),
+          InlOutSpec T h lt mod Γ f.name f (M.bound f.name) nX)) :=
+  fun hacyc hwf hsupp hwp hext hext_uniq hexits {_f} hf =>
+    M.fnSpec_optInlinePolicy mod (InlinePolicy.const maxSize) hfs h Γ k₀ hc hu hacyc hwf hsupp hwp
+      hext hext_uniq hexits hf
 
 /-- `Module.optInline` specialization of `fnSpec_host` for `M.host` when `extCallees = []`. -/
 theorem fnSpec_host_optInline (M : Compiled T lt [] exits nX fs hints maxBound)
-    (mod : Module) (maxSize : Nat) (hfs : (mod.optInline maxSize).fns = fs) (Γ : Env)
-    (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
-    (hsupp : ∀ f ∈ (mod.optInline maxSize).fns, (f.earlyOpt).body.supportsSource lt = true)
-    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X,
-      Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
-    {f : Fn} (hf : f ∈ mod.fns) :
-    T.Defined M.host f.name ∧ T.FnSpec M.host f.name
-      (legalEnv lt (Env.ofModule mod Γ) f.name (lt.legalSig f.as) (lt.legalSig f.rs))
-      (M.bound f.name) nX :=
-  M.fnSpec_host_optInlinePolicy mod (InlinePolicy.const maxSize) hfs Γ hacyc hwf hsupp hwp hf
+    (mod : Module) (maxSize : Nat) (hfs : (mod.optInline maxSize).fns = fs) (Γ : Env) :
+    InlModHyps lt mod (mod.optInline maxSize) Γ
+      (∀ {f : Fn} (_hf : f ∈ mod.fns),
+        InlOutSpec T M.host lt mod Γ f.name f (M.bound f.name) nX) :=
+  fun hacyc hwf hsupp hwp {_f} hf =>
+    M.fnSpec_host_optInlinePolicy mod (InlinePolicy.const maxSize) hfs Γ hacyc hwf hsupp hwp hf
 
 /-- `Module.optInline` empty-extern, empty-exit `FnSpec` wrapper over any host `h`. -/
 theorem fnSpec_noExit_id_optInline (M : Compiled T lt [] [] nX fs hints maxBound)
     (mod : Module) (maxSize : Nat) (hfs : (mod.optInline maxSize).fns = fs)
     (h : T.mach.Host) (Γ : Env) (k₀ : Nat)
-    (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
-    (hacyc : mod.checkAcyclic = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
-    (hsupp : ∀ f ∈ (mod.optInline maxSize).fns, (f.earlyOpt).body.supportsSource lt = true)
-    (hwp : ∀ f ∈ mod.fns, ∀ xs m Q X,
-      Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X)
-    {f : Fn} (hf : f ∈ mod.fns) (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs)
-    (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X') :
-    T.Defined h f.name ∧ T.FnSpec h f.name (Γ f.name f.as f.rs) (M.bound f.name) nX :=
-  M.fnSpec_noExit_id_optInlinePolicy mod (InlinePolicy.const maxSize) hfs h Γ k₀ hc hu hacyc hwf
-    hsupp hwp hf has hrs hnoex
+    (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h) :
+    InlModHyps lt mod (mod.optInline maxSize) Γ
+      (∀ {f : Fn} (_hf : f ∈ mod.fns)
+        (_has : lt.legalSig f.as = f.as) (_hrs : lt.legalSig f.rs = f.rs)
+        (_hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X'),
+        T.Defined h f.name ∧ T.FnSpec h f.name (Γ f.name f.as f.rs) (M.bound f.name) nX) :=
+  fun hacyc hwf hsupp hwp {_f} hf has hrs hnoex =>
+    M.fnSpec_noExit_id_optInlinePolicy mod (InlinePolicy.const maxSize) hfs h Γ k₀ hc hu hacyc hwf
+      hsupp hwp hf has hrs hnoex
 
 end Compiled
 

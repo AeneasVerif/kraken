@@ -36,7 +36,8 @@ abbrev sc64 : LegalTarget := LegalTarget.scalar64
 
 /-! ## 1. `T1` `Examples` through `Func.legal` (`_wf`, `_isLegal` rfl, `_wp`/`_spec`) -/
 
--- 1a. `add128`: splits `u128 = .pair i64 i64` on both x64 and AArch64, eliminating `mkpair`/`unpair`
+-- 1a. `add128`: splits `u128 = .pair i64 i64` on both x64 and AArch64,
+-- eliminating `mkpair`/`unpair`
 
 theorem add128_legalSig_args_x64 :
     x64.legalSig [Examples.u128, Examples.u128] = [i64, i64, i64, i64] := rfl
@@ -264,13 +265,17 @@ theorem sumLanes_legal_x64_spec (Γ : Env) (X : XPost) (m : Mem 64) :
     (Smoke.sumLanes_correct Γ X m)
 
 theorem tracer_wf : Smoke.tracer.Wf := by t_wf_reify
-theorem tracer_legal_x64_isLegal_rfl : (Smoke.tracer.legal x64).isLegal x64 = true := by t_kernel_rfl
-theorem tracer_legal_arm_isLegal_rfl : (Smoke.tracer.legal arm).isLegal arm = true := by t_kernel_rfl
+theorem tracer_legal_x64_isLegal_rfl : (Smoke.tracer.legal x64).isLegal x64 = true := by
+  t_kernel_rfl
+theorem tracer_legal_arm_isLegal_rfl : (Smoke.tracer.legal arm).isLegal arm = true := by
+  t_kernel_rfl
 
 theorem caller_wf : Smoke.caller.Wf := by t_wf_reify
 theorem caller_supp_x64 : Smoke.caller.supportsSource x64 = true := by t_kernel_rfl
-theorem caller_legal_x64_isLegal_rfl : (Smoke.caller.legal x64).isLegal x64 = true := by t_kernel_rfl
-theorem caller_legal_arm_isLegal_rfl : (Smoke.caller.legal arm).isLegal arm = true := by t_kernel_rfl
+theorem caller_legal_x64_isLegal_rfl : (Smoke.caller.legal x64).isLegal x64 = true := by
+  t_kernel_rfl
+theorem caller_legal_arm_isLegal_rfl : (Smoke.caller.legal arm).isLegal arm = true := by
+  t_kernel_rfl
 theorem caller_legal_x64_spec (Γ : Env) (hg : Γ "g" [i64] [.bool, i64] = Smoke.gSpec)
     (a : BitVec 64) (m : Mem 64) :
     Func.spec (legalEnv x64 Γ) (Smoke.caller.legal x64)
@@ -366,8 +371,10 @@ theorem pairMemCallFn_legal_arm_isLegal_rfl : (pairMemCallFn.legal arm).isLegal 
   t_kernel_rfl
 
 /-- Rule (b): narrow/odd bit widths (`bits 12`, `bits 24`, `bits 7`, `bits 0`) covering arithmetic,
-signed/unsigned shifts, compares, division, widening/narrowing casts, bitops, and multi-result ops. -/
-def oddBitsFn : Func [Ty.bits 12, Ty.bits 12, Ty.bits 24, Ty.bits 7, Ty.bits 0] [Ty.bits 12, .bool] :=
+signed/unsigned shifts, compares, division, widening/narrowing casts, bitops, and
+multi-result ops. -/
+def oddBitsFn :
+    Func [Ty.bits 12, Ty.bits 12, Ty.bits 24, Ty.bits 7, Ty.bits 0] [Ty.bits 12, .bool] :=
   fun _ _ (a, b, c, d, z, ()) =>
     .let_ (op2 (.add (.bits 12)) (.var a) (.var b)) fun (s1, ()) =>
     .let_ (op2 (.sub (.bits 12)) (.var s1) (.var b)) fun (s2, ()) =>

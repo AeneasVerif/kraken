@@ -781,6 +781,11 @@ private theorem toTBlocks_supportsSource_of_get (target : LegalTarget) {rs : Lis
     exact ⟨⟨hsig.1, hget .here⟩,
       toTBlocks_supportsSource_of_get target nv nl bs hsig.2 fun i => hget (.there i)⟩
 
+private theorem HoistPlan.supports_node1 {target : LegalTarget} {plan : HoistPlan}
+    (hplan : plan.supports target = true) :
+    (match plan with | .node1 p => p | _ => .leaf).supports target = true := by
+  cases plan <;> simp [HoistPlan.supports] at hplan ⊢; exact hplan
+
 private theorem licmSweep_supportsSource (target : LegalTarget) {rs : List Ty}
     {G : Ctx K (GVal K)} {D : Ctx KL KL}
     {e₁ : Expr K KL rs} {e₂ : Expr (GVal K) KL rs}
@@ -795,10 +800,9 @@ private theorem licmSweep_supportsSource (target : LegalTarget) {rs : List Ty}
     cases hop with
     | mk code _ =>
       dsimp only [toTFlat, TFlat.supportsSource] at hsupp; simp only [Bool.and_eq_true] at hsupp
-      have hp' : (match plan with | .node1 p => p | _ => .leaf).supports target = true := by
-        cases plan <;> simp [HoistPlan.supports] at hplan ⊢; exact hplan
       rw [licmSweep_let]
       dsimp only
+      have hp' := HoistPlan.supports_node1 hplan
       cases tbl.find _ ts code (tupGKey _) with
       | some cached =>
         exact ih (Tup.levels ts nv₁) cached b env tbl _ (nv₁ + ts.length) nl₁ nv₂ nl₂ hsupp.2 hp'
@@ -810,26 +814,21 @@ private theorem licmSweep_supportsSource (target : LegalTarget) {rs : List Ty}
   | load t _ _ ih =>
     intro b env tbl plan nv₁ nl₁ nv₂ nl₂ hsupp hplan
     dsimp only [toTFlat, TFlat.supportsSource] at hsupp; simp only [Bool.and_eq_true] at hsupp
-    have hp' : (match plan with | .node1 p => p | _ => .leaf).supports target = true := by
-      cases plan <;> simp [HoistPlan.supports] at hplan ⊢; exact hplan
     dsimp only [licmSweep, toTFlat, TFlat.supportsSource]; simp only [Bool.and_eq_true]
-    exact ⟨hsupp.1, ih nv₁ (nv₂, b) (b + 1) _ tbl _ (nv₁ + 1) nl₁ (nv₂ + 1) nl₂ hsupp.2 hp'⟩
+    exact ⟨hsupp.1, ih nv₁ (nv₂, b) (b + 1) _ tbl _ (nv₁ + 1) nl₁ (nv₂ + 1) nl₂ hsupp.2
+      (HoistPlan.supports_node1 hplan)⟩
   | store _ _ _ ih =>
     intro b env tbl plan nv₁ nl₁ nv₂ nl₂ hsupp hplan
     dsimp only [toTFlat, TFlat.supportsSource] at hsupp; simp only [Bool.and_eq_true] at hsupp
-    have hp' : (match plan with | .node1 p => p | _ => .leaf).supports target = true := by
-      cases plan <;> simp [HoistPlan.supports] at hplan ⊢; exact hplan
     dsimp only [licmSweep, toTFlat, TFlat.supportsSource]; simp only [Bool.and_eq_true]
-    exact ⟨hsupp.1, ih b env tbl _ nv₁ nl₁ nv₂ nl₂ hsupp.2 hp'⟩
+    exact ⟨hsupp.1, ih b env tbl _ nv₁ nl₁ nv₂ nl₂ hsupp.2 (HoistPlan.supports_node1 hplan)⟩
   | call f _ _ ih =>
     intro b env tbl plan nv₁ nl₁ nv₂ nl₂ hsupp hplan
     dsimp only [toTFlat, TFlat.supportsSource] at hsupp; simp only [Bool.and_eq_true] at hsupp
-    have hp' : (match plan with | .node1 p => p | _ => .leaf).supports target = true := by
-      cases plan <;> simp [HoistPlan.supports] at hplan ⊢; exact hplan
     dsimp only [licmSweep, toTFlat, TFlat.supportsSource]; simp only [Bool.and_eq_true]
     exact ⟨hsupp.1,
       ih (Tup.levels _ nv₁) (freshGVals _ (Tup.levels _ nv₂) b) (b + _) _ tbl _
-        (nv₁ + _) nl₁ (nv₂ + _) nl₂ hsupp.2 hp'⟩
+        (nv₁ + _) nl₁ (nv₂ + _) nl₂ hsupp.2 (HoistPlan.supports_node1 hplan)⟩
   | jnz _ _ _ iht ihe =>
     intro b env tbl plan nv₁ nl₁ nv₂ nl₂ hsupp hplan
     dsimp only [toTFlat, TFlat.supportsSource] at hsupp; simp only [Bool.and_eq_true] at hsupp

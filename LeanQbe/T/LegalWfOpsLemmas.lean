@@ -778,7 +778,7 @@ theorem legalOp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {out
                 hk (fun _ p =>
                   q7 _ (p3 _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (p2 _ (p1 _ p)))))) _ _
                   (trelPairBits target n (hlo.weaken q7) hhi)
-  | udiv n =>
+  | udiv n | urem n =>
     rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
     rcases hargs with _ | ⟨ha, hargs⟩; rcases hargs with _ | ⟨hb, _⟩
     dsimp only [legalOp]
@@ -791,40 +791,7 @@ theorem legalOp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {out
     · exact .hlt
     · exact Wf.let2M _ ha' hb' fun h1 r₁ r₂ hr =>
         hk h1 _ _ (TRel.singleL target (TRel.single hr))
-  | urem n =>
-    rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
-    rcases hargs with _ | ⟨ha, hargs⟩; rcases hargs with _ | ⟨hb, _⟩
-    dsimp only [legalOp]
-    rcases ha1 : legalArg target a₁ with ⟨a₁', ⟨⟩⟩; rcases ha2 : legalArg target a₂ with ⟨a₂', ⟨⟩⟩
-    rcases hb1 : legalArg target b₁ with ⟨b₁', ⟨⟩⟩; rcases hb2 : legalArg target b₂ with ⟨b₂', ⟨⟩⟩
-    have ha' := legalArg_bits_rel target hc ha ha1 ha2
-    have hb' := legalArg_bits_rel target hc hb hb1 hb2
-    dsimp only
-    split
-    · exact .hlt
-    · exact Wf.let2M _ ha' hb' fun h1 r₁ r₂ hr =>
-        hk h1 _ _ (TRel.singleL target (TRel.single hr))
-  | sdiv n =>
-    rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
-    rcases hargs with _ | ⟨ha, hargs⟩; rcases hargs with _ | ⟨hb, _⟩
-    dsimp only [legalOp]
-    rcases ha1 : legalArg target a₁ with ⟨a₁', ⟨⟩⟩; rcases ha2 : legalArg target a₂ with ⟨a₂', ⟨⟩⟩
-    rcases hb1 : legalArg target b₁ with ⟨b₁', ⟨⟩⟩; rcases hb2 : legalArg target b₂ with ⟨b₂', ⟨⟩⟩
-    have ha' := legalArg_bits_rel target hc ha ha1 ha2
-    have hb' := legalArg_bits_rel target hc hb hb1 hb2
-    dsimp only
-    split
-    · exact .hlt
-    · split
-      · exact Wf.let2M _ ha' hb' fun h1 r₁ r₂ hr =>
-          hk h1 _ _ (TRel.singleL target (TRel.single hr))
-      · exact emitSextToW_wf n (target.widenWidth n) ha' fun h1 sa₁ sa₂ hsa =>
-          emitSextToW_wf n (target.widenWidth n) (hb'.weaken h1) fun h2 sb₁ sb₂ hsb =>
-            Wf.let2M _ (hsa.weaken h2) hsb fun h3 r₁ r₂ hr =>
-              emitMaskToN_wf n (target.widenWidth n) hr fun h4 rm₁ rm₂ hrm =>
-                hk (sub_trans h1 (sub_trans h2 (sub_trans h3 h4))) _ _
-                  (TRel.singleL target (TRel.single hrm))
-  | srem n =>
+  | sdiv n | srem n =>
     rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
     rcases hargs with _ | ⟨ha, hargs⟩; rcases hargs with _ | ⟨hb, _⟩
     dsimp only [legalOp]

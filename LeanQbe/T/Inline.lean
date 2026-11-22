@@ -232,12 +232,6 @@ def inlineCandidateOk (maxSize : Nat) (allowed : List SigEntry) (exits : List Sy
     (fn : Fn) : Bool :=
   Nat.ble fn.size maxSize && fn.checkCallsOk allowed exits
 
-/-- Incrementally inline prior small safe callees across a callee-first function list, keeping
-the original function order and signatures. -/
-def inlineFns (maxSize : Nat) (extSigs : List SigEntry) (exits : List Sym) :
-    List SigEntry → List Fn → List Fn → List Fn :=
-  inlineFnsPolicy (InlinePolicy.const maxSize) [] extSigs exits
-
 /-- Run acyclic small-callee inlining on `M` with node-size threshold `maxSize` (default `40`),
 preserving function order, signatures, `externs`, `exits`, `sigs`, and `namesNodup`. -/
 def Module.inline (M : Module) (maxSize : Nat := 40) : Module :=
