@@ -12,7 +12,7 @@ meta import LeanQbe.T.Bootstrap0.Mod0
 # `leanqbe0` Kernel Compilation Certificate Slice 1/12 on SysV x64
 
 Kernel-checked native compilation certificate (`cert1`) for slice `[0, 13)` (`13` functions,
-`1,420` directives) of `LeanQbe.T.Bootstrap0.leanqbe0Mod0.fns` on `x64Target`.
+`1,336` directives) of `LeanQbe.T.Bootstrap0.leanqbe0Mod0.fns` on `x64Target`.
 -/
 
 set_option autoImplicit false

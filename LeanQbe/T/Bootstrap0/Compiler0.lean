@@ -311,9 +311,11 @@ def checkBinOp0 (venv : List Ty0) (b : BinOp0) (t : Ty0) (args : List Arg0) : Bo
   | [a, bArg] => okTy && checkArg0 venv t a && checkArg0 venv t bArg
   | _ => false
 
-/-- Validate `.un` / `.bin` / `.select` opcodes (`args` match scalar signature). -/
+/-- Validate `.un` / `.bin` / `.select` opcodes (`args` match scalar signature). `.un .neg .bool` is
+rejected: `negb` maps `true` to `0xff`, whereas `OpCode.wp (.neg .bool)` is the identity. -/
 def checkOpArith0 (venv : List Ty0) (op : OpCode0) (args : List Arg0) : Bool :=
   match op with
+  | .un .neg .bool => false
   | .un _ t => match args with | [a] => checkArg0 venv t a | _ => false
   | .bin b t => checkBinOp0 venv b t args
   | .select t =>
@@ -576,19 +578,27 @@ def preInit0 (as : List Ty0) : List UInt32 × PreSt0 :=
     (Array.emptyWithCapacity cap) (Array.emptyWithCapacity cap)
   preBindLoop0 nArgs 0 [] pre0
 
-/-- Push one `.group` block onto `PreOut0` worklist. -/
+/-- Bind one `.group` block's parameters at a fresh scope and stage its item onto `out.work`. -/
 def prePushOne0 (entry : List Ty0 × TFlat0) (venv : List UInt32) (out : PreOut0) : PreOut0 :=
   let (pts, b) := entry
   let sB := out.nextScope
   let (venvB, st1) := preBindLoop0 (tyLenU0 pts 0) sB venv out.st
   PreOut0.mk st1 (sB + 1) (PreItem0.mk b venvB sB :: out.work)
 
-/-- Push all `.group` bodies onto `work` with fresh block scopes (`nextScope` passed by value). -/
+/-- Step 1 of `.group`: bind block parameters in forward order (`b_0..b_{m-1}`, matching
+`regaPrepGroup0`), staging items onto `out.work` in reverse (`[b_{m-1}, ..., b_0]`). -/
 def prePushGroup0 (bodies : List (List Ty0 × TFlat0)) (venv : List UInt32)
     (out : PreOut0) : PreOut0 :=
   match bodies with
   | [] => out
   | entry :: rest => prePushGroup0 rest venv (prePushOne0 entry venv out)
+
+/-- Step 2 of `.group`: push staged block items onto `work` so `b_0` ends on top (bodies are then
+popped as `b_0..b_{m-1}`, the exact `vid` binding order of `regaEnqueueGroup0`). -/
+def preEnqueueGroup0 (staged : List PreItem0) (work : List PreItem0) : List PreItem0 :=
+  match staged with
+  | [] => work
+  | item :: rest => preEnqueueGroup0 rest (item :: work)
 
 /-- Record operand uses for any `TFlat0` node without duplicating continuation binding. -/
 def preNoteNode0 (scope : UInt32) (venv : List UInt32) (node : TFlat0) (st : PreSt0) :
@@ -612,17 +622,15 @@ def preStepJnz0 (t e : TFlat0) (cur : PreItem0) (out : PreOut0) : PreOut0 :=
   PreOut0.mk out.st (sT + 2)
     (PreItem0.mk e cur.venv (sT + 1) :: PreItem0.mk t cur.venv sT :: out.work)
 
-/-- Append continuation item `k` at scope `sK` onto `res.work` (`4` args). -/
-def preGroupFinish0 (k : TFlat0) (sK : UInt32) (cur : PreItem0)
-    (res : PreOut0) : PreOut0 :=
-  PreOut0.mk res.st res.nextScope (PreItem0.mk k cur.venv sK :: res.work)
-
-/-- Push `.group` bodies and continuation onto `PreOut0` (`4` args, `0` `TFlat0` match). -/
+/-- Push `.group` bodies (staged via `prePushGroup0` from `out0`, whose `work` is `[]`, then
+enqueued via `preEnqueueGroup0`) and the continuation `k` (scope allocated after the bodies) onto
+`rest`, popping `k, b_0, ..., b_{m-1}` exactly like `groupEnqCont0` (`5` args, `0` `TFlat0`
+match). -/
 def preStepGroup0 (bodies : List (List Ty0 × TFlat0)) (k : TFlat0) (cur : PreItem0)
-    (out : PreOut0) : PreOut0 :=
-  let sK := out.nextScope
-  let res := prePushGroup0 bodies cur.venv (PreOut0.mk out.st (sK + 1) out.work)
-  preGroupFinish0 k sK cur res
+    (out0 : PreOut0) (rest : List PreItem0) : PreOut0 :=
+  let res := prePushGroup0 bodies cur.venv out0
+  let sK := res.nextScope
+  PreOut0.mk res.st (sK + 1) (PreItem0.mk k cur.venv sK :: preEnqueueGroup0 res.work rest)
 
 /-- Package straight-line `preBindLoop0` result into `PreOut0` (`5` args). -/
 def preLinFinish0 (k : TFlat0) (scope nextSc : UInt32) (vs : List UInt32 × PreSt0)
@@ -642,7 +650,7 @@ def preStepPush0 (cur : PreItem0) (st1 : PreSt0) (nextSc : UInt32)
   else
     match cur.node with
     | .jnz _ t e => preStepJnz0 t e cur (PreOut0.mk st1 nextSc rest)
-    | .group bodies k => preStepGroup0 bodies k cur (PreOut0.mk st1 nextSc rest)
+    | .group bodies k => preStepGroup0 bodies k cur (PreOut0.mk st1 nextSc []) rest
     | _ => preStepLin0 cur st1 nextSc rest
 
 /-- Iterative `UInt32`-bounded worklist pass for `PrePass0`. -/
@@ -671,7 +679,7 @@ def emitLoadArg0 (rd : Reg64) (a : Arg0) (venv : List UInt32) (vslot : Array Nat
   | .immBool b => pushDImm0 0 rd (if b then 1 else 0) acc
   | .immBits w val => pushDImm0 0 rd (maskImmW0 w val) acc
 
-/-- Emit unary op (`%rdi` → `%rax`). -/
+/-- Emit unary op (`%rdi` → `%rax`); `.neg .bool` never reaches here (see `checkOpArith0`). -/
 def emitUn0 (op : UnOp0) (t : Ty0) (acc : List Dir0) : List Dir0 :=
   let acc1 := pushDRR0 0 .W64 .rax .rdi acc
   let w := tyWidth0 t

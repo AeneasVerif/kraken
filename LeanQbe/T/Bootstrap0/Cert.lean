@@ -12,7 +12,7 @@ meta import LeanQbe.T.Bootstrap0.Mod0
 
 Combines the three group certificates (`CertA` `[0, 45)`, `CertB` `[45, 86)`, `CertC` `[86, 124)`)
 via two balanced `LinkedCert.append` steps into `leanqbe0Cert` over the complete lowered
-`leanqbe0Compile` module (`leanqbe0Mod0`, `124` functions, `17,150` directives) on `x64Target`, plus
+`leanqbe0Compile` module (`leanqbe0Mod0`, `124` functions, `16,447` directives) on `x64Target`, plus
 `leanqbe0Mod0_legalSig`.
 -/
 
