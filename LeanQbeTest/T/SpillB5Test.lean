@@ -25,7 +25,9 @@ compares the default configuration with `Spill.Cfg.legacy` or with a single swit
    register `Entry.ploc` (no store on every edge followed by an immediate reload).
 3. `regEntry`: the fast arm of a watch-scan shaped loop carries no stack traffic, because the
    loop header takes its spilled live-in in the register the back edges hold it in.
-4. `FullM4` / `LratBytes` hot functions lower under every configuration, and the default hints
+4. High-pressure GPR budget guards: `joinGuard` caps promotion within the block GPR budget, and
+   `regEntry` reserves GPRs for non-slot-direct parameters (`immJoverB5`, `regStealB5`).
+5. `FullM4` / `LratBytes` hot functions lower under every configuration, and the default hints
    need no more directives and no more spill moves than the legacy ones (strictly fewer
    directives on `full_prop_lit_raw`). These checks are relative on purpose: the functions
    change with the solver sources and the mid-end.
@@ -199,7 +201,73 @@ meta def scanFast : List Nat :=
 #guard movesAt (hintsOf {} scanFn) isSlotMove scanFast == 0
 #guard dirs {} scanFn ≤ dirs .legacy scanFn
 
-/-! ## 4. `FullM4` and `LratBytes` hot functions -/
+/-! ## 4. High-pressure GPR budget guards (`joinGuard` & `regEntry`) -/
+
+/-- Apply `mix xs` sequentially `n` times so `xs` hold high coloring weight. -/
+meta def heavyMix {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (xs : List (V i64)) (acc : V i64) : Nat → (V i64 → Expr V L rs) → Expr V L rs
+  | 0, k => k acc
+  | n + 1, k => mix xs acc fun acc' => heavyMix xs acc' n k
+
+/-- Join block with `11` GPR-homed live-ins (`ls`) and `5` early-read slot-homed parameters
+passed immediates on both arms: `joinGuard` must promote only within the block GPR budget. -/
+meta def immJoverFn : Fn :=
+  ⟨"immJoverB5", [i64, i64], [i64], fun _ _ (a, b, ()) =>
+    adds a 11 fun ls =>
+    .let_ (op2 (.cmp .eq i64) (.var b) (.imm 0)) fun (c, ()) =>
+    .group (sig := [[i64, i64, i64, i64, i64]])
+      (fun (_, ()) => .cons (fun (p0, p1, p2, p3, p4, ()) =>
+        .let_ (op2 (.add i64) (.var p0) (.var p1)) fun (u0, ()) =>
+        .let_ (op2 (.add i64) (.var p2) (.var p3)) fun (u1, ()) =>
+        .let_ (op2 (.xor i64) (.var u0) (.var p4)) fun (u2, ()) =>
+        .let_ (op2 (.add i64) (.var u1) (.var u2)) fun (u3, ()) =>
+        adds b 8 fun hs =>
+        heavyMix hs u3 2 fun zh =>
+        heavyMix ls zh 4 fun zl =>
+        .let_ (op2 (.xor i64) (.var zl) (.var p0)) fun (r0, ()) =>
+        .let_ (op2 (.xor i64) (.var r0) (.var p1)) fun (r1, ()) =>
+        .let_ (op2 (.xor i64) (.var r1) (.var p2)) fun (r2, ()) =>
+        .let_ (op2 (.xor i64) (.var r2) (.var p3)) fun (r3, ()) =>
+        .let_ (op2 (.xor i64) (.var r3) (.var p4)) fun (r4, ()) =>
+        .ret (.var r4, ())) .nil)
+      (fun (j, ()) => .jnz (.var c)
+        (.jump j (.imm 1, .imm 2, .imm 3, .imm 4, .imm 5, ()))
+        (.jump j (.imm 6, .imm 7, .imm 8, .imm 9, .imm 10, ())))⟩
+
+/-- Loop header with `2` early-read slot-homed params, heavy GPR live-ins (`ls` + `m`/`q`), and
+`1` spilled live-in (`x`): `pickRegIn` must reserve GPR budget for `pickPlocs`. -/
+meta def regStealFn : Fn :=
+  ⟨"regStealB5", [i64, i64, i64], [i64], fun _ _ (p, m, q, ()) =>
+    adds p 10 fun ls =>
+    .let_ (op2 (.add i64) (.var q) (.imm 77)) fun (x, ()) =>
+    loop1 (ts := [i64, i64])
+      (fun L (p0, p1, ()) =>
+        .let_ (op2 (.add i64) (.var p0) (.var p1)) fun (s0, ()) =>
+        .let_ (op2 (.cmp .ult i64) (.var s0) (.var m)) fun (c0, ()) =>
+        .jnz (.var c0)
+          (.let_ (op2 (.cmp .ult i64) (.var s0) (.var q)) fun (c1, ()) =>
+           .jnz (.var c1)
+             (.let_ (op2 (.xor i64) (.var x) (.var s0)) fun (y, ()) =>
+              .let_ (op2 (.add i64) (.var p0) (.imm 1)) fun (p0', ()) =>
+              .let_ (op2 (.add i64) (.var p1) (.imm 2)) fun (p1', ()) =>
+              heavyMix ls y 4 fun z =>
+              .let_ (op2 (.xor i64) (.var z) (.var p0)) fun (z1, ()) =>
+              .let_ (op2 (.xor i64) (.var z1) (.var p1)) fun (z2, ()) =>
+              .jump L (.var z2, .var p1', ()))
+             (adds q 14 fun hs =>
+              heavyMix hs x 3 fun zh =>
+              .jump L (.var zh, .var s0, ())))
+          (.ret (.var s0, ())))
+      (fun L => .jump L (.imm 1, .imm 2, ()))⟩
+
+meta def onlyJoinGuard : Spill.Cfg :=
+  { sink := false, joinGuard := true, cacheHint := false, regEntry := false }
+
+#guard (onlyJoinGuard :: allCfgs).all (lowers · immJoverFn)
+#guard slotPlocs (hintsOf {} immJoverFn) (Live.Tree.ofFn immJoverFn).2.2.2.1 ≥ 3
+#guard (onlyJoinGuard :: allCfgs).all (lowers · regStealFn)
+
+/-! ## 5. `FullM4` and `LratBytes` hot functions -/
 
 /-- Mid-end output (`Fn.mid`) of the named `FullM4` / `LratBytes` function. -/
 meta def midOf (name : Sym) : Fn :=

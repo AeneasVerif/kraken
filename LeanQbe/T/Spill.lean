@@ -831,29 +831,51 @@ private def firstUseW {I : Isa} (c : Ctx I) (p : Nat) : Nat → Tree → Nat
   | w, .exit _ _ _ _ args => if natMem p (tupVarIds args) then w else 0
   | _, .stop _ => 0
 
+/-- Number of distinct GPRs statically homed at entry to block `l` (`liveL` plus `ps`). -/
+private def blockUsedGpr {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
+    (l : Nat) (ps : List (Nat × Ty)) : Nat :=
+  (dedup (gprHomes home (c.lTrie.getD l [] ++ ps.map Prod.fst))).length
+
+/-- Number of block parameters `ps` needing a fresh GPR in `pickPlocs`, given `useSlot p` (whether
+`.slot _ .w64` keeps its slot directly). -/
+private def countPlocGprs {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
+    (useSlot : Nat → Bool) (ps : List (Nat × Ty)) : Nat :=
+  ps.foldl (fun n (p, _) =>
+    match home.getD p .none with
+    | .flag _ | .gpr _ | .vec _ => n
+    | .slot _ .w64 => if useSlot p then n else n + 1
+    | _ => if (c.banks.getD p .gpr).isVec then n else n + 1) 0
+
 /-- Determine which slot-homed GPR block parameters can safely use `.slot s .w64` directly as their
 `Entry.ploc` (avoiding jump-edge reload + block-entry store round-trips): safe when no other
 incoming jump arg or block live-in variable occupies slot `s`, and every jump needing a temporary
 register to materialize an immediate or copy from another slot has a free non-scratch GPR. With
 `cfg.joinGuard`, a parameter without a zero-move (same-slot) incoming edge that is read early
-in its block on at least half of the block's weight keeps a register `Entry.ploc` instead: the
-slot-direct form would store on every edge and reload at once (a join round-trip). -/
+in its block on at least half of the block's weight keeps a register `Entry.ploc` instead (bounded
+by the block's total GPR budget `nGpr + csIds.length`): the slot-direct form would store on every
+edge and reload at once (a join round-trip). -/
 def slotPlocMap {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     (bk : Trie (Nat × SlotWidth × Bool)) (usedCs : List Nat) (defWT : Trie Nat) (t : Tree) :
     Trie Bool :=
   let bad := scanSlotPlocBad c home bk usedCs .empty t
   let ident := if c.cfg.joinGuard then scanSlotIdent c.bparams home .empty t else .empty
+  let cap := c.nGpr + c.csIds.length
   let rec markOk (ok : Trie Bool) : List (Nat × List (Nat × Ty) × Tree) → Trie Bool
     | [] => ok
-    | (_, ps, b) :: rest =>
-      let ok' := ps.foldl (fun o (p, _) =>
+    | (l, ps, b) :: rest =>
+      let usedG := blockUsedGpr c home l ps
+      let fixedNeed := countPlocGprs c home (fun p => !bad.getD p false) ps
+      let (ok', _) := ps.foldl (fun (o, rem) (p, _) =>
         match home.getD p .none with
         | .slot _ .w64 =>
-          let wB := defWT.getD p baseMult
-          let hot := c.cfg.joinGuard && !ident.getD p false &&
-            Nat.ble wB (2 * firstUseW c p wB b)
-          if !bad.getD p false && !hot then o.insert p true else o
-        | _ => o) ok
+          if bad.getD p false then (o, rem)
+          else
+            let wB := defWT.getD p baseMult
+            let hot := c.cfg.joinGuard && !ident.getD p false &&
+              Nat.ble wB (2 * firstUseW c p wB b)
+            if hot && Nat.ble 1 rem then (o, rem - 1)
+            else (o.insert p true, rem)
+        | _ => (o, rem)) (ok, cap - (usedG + fixedNeed))
       markOk ok' rest
   markOk .empty t.blocks
 
@@ -1367,36 +1389,40 @@ register `r` when the predecessors mostly hold it there. `(x, r, false)` enters 
 only (its slot store stays deferred into the block); `(x, r, true)` enters in slot and register
 (no reload at the first read). Each choice must beat the slot-only entry on estimated cost. -/
 private def pickRegIn {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List Nat)
-    (cin : List (Nat × Nat × Nat × Bool × Nat)) (blocks : List (Nat × List (Nat × Ty) × Tree)) :
-    Trie (List (Nat × Nat × Bool)) :=
+    (slotOk : Trie Bool) (cin : List (Nat × Nat × Nat × Bool × Nat))
+    (blocks : List (Nat × List (Nat × Ty) × Tree)) : Trie (List (Nat × Nat × Bool)) :=
+  let gprBudget := c.nGpr + usedCs.length
   blocks.foldl (fun acc (l, ps, body) =>
     let es := cin.filter fun e => Nat.beq e.1 l
     if es.isEmpty then acc
     else
       let wj := c.inW.getD l 0
-      let busy0 := gprHomes home (c.lTrie.getD l [] ++ ps.map Prod.fst)
+      let busy0 := dedup (gprHomes home (c.lTrie.getD l [] ++ ps.map Prod.fst))
+      let needPloc := countPlocGprs c home (fun p => slotOk.getD p false) ps
       let sumW (xs : List (Nat × Nat × Nat × Bool × Nat)) := xs.foldl (fun a e => a + e.2.2.2.2) 0
       let (sel, _) := (dedup (es.map (·.2.1))).foldl (fun (sel, busy) x =>
-        let ex := es.filter fun e => Nat.beq e.2.1 x
-        let regs := (dedup (ex.map (·.2.2.1))).filter fun r =>
-          !natMem r busy && (Nat.ble (r + 1) c.nGpr || natMem r usedCs)
-        let best := regs.foldl (fun (b : Option (Nat × Nat)) r =>
-          let wr := sumW (ex.filter fun e => Nat.beq e.2.2.1 r)
-          match b with
-          | some (_, bw) => if Nat.blt bw wr then some (r, wr) else b
-          | none => some (r, wr)) none
-        match best with
-        | none => (sel, busy)
-        | some (r, wc) =>
-          let wd := sumW (ex.filter (·.2.2.2.1))
-          let miss := wj - wc
-          let costS := wd + firstUseW c x wj body
-          let costR := sinkCost c x wj false body + miss
-          let costSR := wd + miss
-          if Nat.ble 1 wd && Nat.blt costR costS && Nat.ble costR costSR then
-            ((x, r, false) :: sel, r :: busy)
-          else if Nat.blt costSR costS then ((x, r, true) :: sel, r :: busy)
-          else (sel, busy)) ([], busy0)
+        if !Nat.blt (busy.length + needPloc) gprBudget then (sel, busy)
+        else
+          let ex := es.filter fun e => Nat.beq e.2.1 x
+          let regs := (dedup (ex.map (·.2.2.1))).filter fun r =>
+            !natMem r busy && (Nat.ble (r + 1) c.nGpr || natMem r usedCs)
+          let best := regs.foldl (fun (b : Option (Nat × Nat)) r =>
+            let wr := sumW (ex.filter fun e => Nat.beq e.2.2.1 r)
+            match b with
+            | some (_, bw) => if Nat.blt bw wr then some (r, wr) else b
+            | none => some (r, wr)) none
+          match best with
+          | none => (sel, busy)
+          | some (r, wc) =>
+            let wd := sumW (ex.filter (·.2.2.2.1))
+            let miss := wj - wc
+            let costS := wd + firstUseW c x wj body
+            let costR := sinkCost c x wj false body + miss
+            let costSR := wd + miss
+            if Nat.ble 1 wd && Nat.blt costR costS && Nat.ble costR costSR then
+              ((x, r, false) :: sel, r :: busy)
+            else if Nat.blt costSR costS then ((x, r, true) :: sel, r :: busy)
+            else (sel, busy)) ([], busy0)
       if sel.isEmpty then acc else acc.insert l sel) .empty
 
 def maxSlotInMoves {I : Isa} (mvs : List I.Move) (acc : Nat) : Nat :=
@@ -1471,7 +1497,8 @@ def hints (I : Isa) (f : Fn)
     { variant := fh.variant, usedCs := cs.usedCs }
   let c := { c with jmpW := acc.jmpW, inW := acc.inW }
   let refine (c : Ctx I) : Ctx I :=
-    { c with regIn := pickRegIn c cs.hT cs.usedCs (emit { c with opt := true }).cin t.blocks }
+    let cin := (emit { c with opt := true }).cin
+    { c with regIn := pickRegIn c cs.hT cs.usedCs slotOk cin t.blocks }
   let c := if cfg.regEntry && cfg.sink then refine (refine c) else c
   let st := emit c
   let finalSlots :=
