@@ -616,6 +616,112 @@ example (Γ : Env) (arena : BitVec 64) (off k : BitVec 32) (ws : List (BitVec 32
   c0_steps!
   exact hQ hi
 
+section O1MemAndMData
+
+local elab "wrap_hyp_mdata" h:ident : tactic =>
+  Lean.Elab.Tactic.withMainContext do
+    let lctx ← Lean.getLCtx
+    let some decl := lctx.findFromUserName? h.getId
+      | throwError "unknown hypothesis {h.getId}"
+    let ty ← Lean.instantiateMVars decl.type
+    let g ← Lean.Elab.Tactic.getMainGoal
+    let g' ← g.changeLocalDecl decl.fvarId (Lean.mkMData {} ty) (checkDefEq := false)
+    Lean.Elab.Tactic.replaceMainGoal [g']
+
+local elab "wrap_goal_mdata" : tactic => do
+  let g ← Lean.Elab.Tactic.getMainGoal
+  let ty ← Lean.instantiateMVars (← g.getType)
+  let g' ← g.change (Lean.mkMData {} ty) (checkDefEq := false)
+  Lean.Elab.Tactic.replaceMainGoal [g']
+
+local elab "solve_load_with_c0step" : tactic => do
+  LeanQbe.T.C0Step.memSolve true (← Lean.Elab.Tactic.getMainGoal)
+
+local elab "solve_store_with_c0step" : tactic => do
+  LeanQbe.T.C0Step.memSolve false (← Lean.Elab.Tactic.getMainGoal)
+
+def O1FP (p : BitVec 64) (a : List (Val i32)) : Mem 64 → Prop :=
+  array (t := i32) p a
+
+@[scoped c0_load] theorem o1fp_bad_any {p addr : BitVec 64} {a : List (Val i32)}
+    {R : Mem 64 → Prop} {m : Mem 64} (hbad : False) (_hm : (O1FP p a ⋆ R) m) :
+    loadVal m i32 addr = some 0#32 :=
+  False.elim hbad
+
+@[scoped c0_load] theorem o1fp_good_off0 {p : BitVec 64} {a : List (Val i32)}
+    {R : Mem 64 → Prop} {m : Mem 64} (h0 : 0 < a.length) (hm : (O1FP p a ⋆ R) m) :
+    loadVal m i32 (p + 0#64) = some (a[0]'h0) := by
+  dsimp only [O1FP] at hm
+  solve_load_with_c0step
+
+@[scoped c0_store] theorem o1fp_store_any {p addr : BitVec 64} {a : List (Val i32)}
+    {v : Val i32} {R : Mem 64 → Prop} {m : Mem 64} (hbad : False)
+    (_hm : (O1FP p a ⋆ R) m) :
+    storeOk m i32 addr ∧ (O1FP p a ⋆ R) (storeMem m i32 addr v) :=
+  False.elim hbad
+
+@[scoped c0_store] theorem o1fp_store_off0 {p : BitVec 64} {a : List (Val i32)}
+    {v : Val i32} {R : Mem 64 → Prop} {m : Mem 64} (h0 : 0 < a.length)
+    (hm : (O1FP p a ⋆ R) m) :
+    storeOk m i32 (p + 0#64) ∧
+      (O1FP p (a.set 0 v) ⋆ R) (storeMem m i32 (p + 0#64) v) := by
+  dsimp only [O1FP] at hm
+  change storeOk m i32 (p + 0#64) ∧
+    (array (t := i32) p (a.set 0 v) ⋆ R) (storeMem m i32 (p + 0#64) v)
+  solve_store_with_c0step
+
+def O1FallbackFP (p : BitVec 64) (a : List (Val i32)) : Mem 64 → Prop :=
+  array (t := i32) p a
+
+@[reducible] def opaqueZeroPtr (p : BitVec 64) : BitVec 64 := p + 0#64
+
+@[scoped c0_load] theorem o1fb_load_opaque {p : BitVec 64} {a : List (Val i32)}
+    {R : Mem 64 → Prop} {m : Mem 64} (h0 : 0 < a.length)
+    (hm : (O1FallbackFP p a ⋆ R) m) :
+    loadVal m i32 (opaqueZeroPtr p) = some (a[0]'h0) := by
+  dsimp only [O1FallbackFP, opaqueZeroPtr] at hm ⊢
+  solve_load_with_c0step
+
+theorem o1_mem_addr_dispatch_wp {Γ : Env} {Q : Post [i32]} {X : XPost}
+    {p : BitVec 64} {a : List (Val i32)} {R : Mem 64 → Prop} {m : Mem 64}
+    (h0 : 0 < a.length) (hm : (O1FP p a ⋆ R) m)
+    (hQ : ∀ m', (O1FP p (a.set 0 (a[0]'h0 + 1#32)) ⋆ R) m' →
+      Q ((a[0]'h0 + 1#32), ()) m') :
+    wp Γ Q X
+      (.load i32 (Arg.imm (p + 0#64)) fun x =>
+        .let_ (op2 (.add i32) (Arg.var x) (Arg.imm 1#32)) fun (y, _) =>
+          .store (Arg.var y) (Arg.imm (p + 0#64)) (.ret (Arg.var y, ()))) m := by
+  c0_steps!
+  exact hQ _ hm
+
+theorem o1_mem_pass2_fallback_wp {Γ : Env} {Q : Post [i32]} {X : XPost}
+    {p : BitVec 64} {a : List (Val i32)} {R : Mem 64 → Prop} {m : Mem 64}
+    (h0 : 0 < a.length) (hm : (O1FallbackFP p a ⋆ R) m)
+    (hQ : Q (a[0]'h0, ()) m) :
+    wp Γ Q X (.load i32 (Arg.imm (p + 0#64)) fun x => .ret (Arg.var x, ())) m := by
+  c0_steps!
+  exact hQ
+
+theorem mem_solve_mdata_wp {Γ : Env} {Q : Post [i32]} {X : XPost}
+    {p : BitVec 64} {a : List (Val i32)} {R : Mem 64 → Prop} {m : Mem 64}
+    (h0 : 0 < a.length) (hm : (array (t := i32) p a ⋆ R) m)
+    (hQ : ∀ m', (array (t := i32) p (a.set 0 (a[0]'h0)) ⋆ R) m' → Q (a[0]'h0, ()) m') :
+    wp Γ Q X
+      (.load i32 (Arg.imm (p + 0#64)) fun x =>
+        .store (Arg.var x) (Arg.imm (p + 0#64)) (.ret (Arg.var x, ()))) m := by
+  wrap_hyp_mdata hm
+  refine wp_load_of (v := a[0]'h0) ?_ ?_
+  · wrap_goal_mdata
+    solve_load_with_c0step
+  · refine wp_store_sep (P := array (t := i32) p (a.set 0 (a[0]'h0))) (R := R) ?_ ?_
+    · wrap_goal_mdata
+      solve_store_with_c0step
+    · intro m' hm'
+      c0_steps!
+      exact hQ m' hm'
+
+end O1MemAndMData
+
 #print axioms nested_step_wp
 #print axioms deep_read_bump_wp
 #print axioms single_swap_wp
@@ -633,5 +739,8 @@ example (Γ : Env) (arena : BitVec 64) (off k : BitVec 32) (ws : List (BitVec 32
 #print axioms arr64_rw_zero_wp
 #print axioms arr8_get_zero_wp
 #print axioms arr32_deref_zero_wp
+#print axioms o1_mem_addr_dispatch_wp
+#print axioms o1_mem_pass2_fallback_wp
+#print axioms mem_solve_mdata_wp
 
 end LeanQbeTest.T.C0StepTest
