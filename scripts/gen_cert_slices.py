@@ -839,6 +839,8 @@ def autobalance_slices(
     chosen: list[tuple[int, int]] | None = None
 
     if target_slices is not None:
+        if target_slices <= 0:
+            raise ValueError(f"target_slices must be positive, got {target_slices}")
         min_possible = math.ceil(n / slice_size)
         eff_target = min(n, max(target_slices, min_possible))
         total_hi = sum(costs) + n * file_overhead
@@ -1591,9 +1593,24 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
     cert_mod = f"{arch.ns_prefix}.{cfg.prefix}Cert"
     link_mod = f"{arch.ns_prefix}.{cfg.prefix}CertLink"
     compiled_name = f"{cfg.camel_prefix}_compiled_{arch.arch_tag}"
+    bound_suffix = "" if cfg.max_bound == 2048 else f" [] [] 0 {cfg.max_bound}"
     compiled_ty = (
-        f"LinkedCert {arch.targ} {arch.layout} {arch.lt} {arch.cl} {cfg.mod}"
+        f"LinkedCert {arch.targ} {arch.layout} {arch.lt} {arch.cl} "
+        f"{cfg.mod}{bound_suffix}"
     )
+    if len(f"    {compiled_ty} :=") <= MAX_LINE_LEN:
+        compiled_decl = [
+            f"@[reducible] noncomputable def {compiled_name} :",
+            f"    {compiled_ty} :=",
+            f"  {cfg.prefix}Cert.{cfg.cert_name}",
+        ]
+    else:
+        compiled_decl = [
+            f"@[reducible] noncomputable def {compiled_name} :",
+            f"    LinkedCert {arch.targ} {arch.layout} {arch.lt} {arch.cl}",
+            f"      {cfg.mod}{bound_suffix} :=",
+            f"  {cfg.prefix}Cert.{cfg.cert_name}",
+        ]
 
     pub_imports = [
         f"public import {cert_mod}",
@@ -1632,9 +1649,7 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
             f"/-- Compiled `LinkedCert` for `{cfg.mod}` (`{cfg.total_fns}` "
             f"functions) on {arch.isa_title}. -/"
         ),
-        f"@[reducible] noncomputable def {compiled_name} :",
-        f"    {compiled_ty} :=",
-        f"  {cfg.prefix}Cert.{cfg.cert_name}",
+        *compiled_decl,
         "",
     ]
 
@@ -2067,6 +2082,9 @@ def build_config(args: argparse.Namespace) -> CertConfig:
     if args.slice_sizes:
         explicit_sizes = [int(x.strip()) for x in args.slice_sizes.split(",") if x.strip()]
 
+    if args.target_slices is not None and args.target_slices <= 0:
+        raise ValueError(f"target_slices must be positive, got {args.target_slices}")
+
     profile_metrics: tuple[FnMetric, ...] | None = None
     if args.profile:
         profile_metrics = load_profile_json(Path(args.profile))
@@ -2075,12 +2093,14 @@ def build_config(args: argparse.Namespace) -> CertConfig:
     if total_fns is None:
         if explicit_sizes is not None:
             total_fns = sum(explicit_sizes)
-        elif profile_metrics is not None:
-            total_fns = len(profile_metrics)
         else:
-            total_fns = detect_total_fns(root, source_mod, fns)
-            if total_fns is None and preset is not None:
+            detected_total = detect_total_fns(root, source_mod, fns)
+            if detected_total is not None:
+                total_fns = detected_total
+            elif preset is not None and preset.default_total_fns is not None:
                 total_fns = preset.default_total_fns
+            elif profile_metrics is not None:
+                total_fns = len(profile_metrics)
     if total_fns is None:
         raise ValueError(
             f"cannot infer --total-fns from {source_mod}; pass --total-fns N or --profile"

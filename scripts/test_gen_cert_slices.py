@@ -167,6 +167,69 @@ class GenCertSlicesTest(unittest.TestCase):
         self.assertLess(m4_cfg.after_stats.cost_max_mean, m4_cfg.before_stats.cost_max_mean)
         self._assert_hygiene(gcs.build_plan(m4_cfg, ["amd64", "arm64"]))
 
+    def test_max_bound_mismatched_profile_and_nonpositive_target_slices(self) -> None:
+        # 1. --max-bound != 2048 must match LinkedCert ... [] [] 0 <maxBound> in <Prefix>.lean.
+        mb_args = gcs.parse_args(
+            [
+                "--module",
+                "FullM5",
+                "--max-bound",
+                "4096",
+                "--target-slices",
+                "27",
+                "--root",
+                str(REPO_ROOT),
+                "--dry-run",
+            ]
+        )
+        mb_cfg = gcs.build_config(mb_args)
+        mb_files = dict(gcs.build_plan(mb_cfg, ["amd64"]))
+        self._assert_hygiene(list(mb_files.items()))
+        self.assertIn("m5Cert :", mb_files["LeanQbe/T/Amd64/KissatM5Cert.lean"])
+        self.assertIn("m5Module [] [] 0 4096 :=", mb_files["LeanQbe/T/Amd64/KissatM5Cert.lean"])
+        self.assertIn("m5Module [] [] 0 4096 :=", mb_files["LeanQbe/T/Amd64/KissatM5.lean"])
+
+        # 2. Mismatched --profile length must fail closed against known module counts.
+        with tempfile.TemporaryDirectory() as tmp:
+            bad_prof = Path(tmp) / "short_10.json"
+            rows = [
+                {"index": i, "name": f"fn_{i}", "mid_tflat_size": 50}
+                for i in range(10)
+            ]
+            bad_prof.write_text(json.dumps(rows), encoding="utf-8")
+            for mod in ("Plain", "FullM5"):
+                bad_args = gcs.parse_args(
+                    [
+                        "--module",
+                        mod,
+                        "--profile",
+                        str(bad_prof),
+                        "--root",
+                        str(REPO_ROOT),
+                        "--dry-run",
+                    ]
+                )
+                with self.assertRaises(ValueError):
+                    gcs.build_config(bad_args)
+
+        # 3. Non-positive --target-slices must fail with ValueError.
+        for bad_k in (0, -3):
+            with self.assertRaises(ValueError):
+                gcs.autobalance_slices(mb_cfg.fn_metrics, target_slices=bad_k)
+            bad_k_args = gcs.parse_args(
+                [
+                    "--module",
+                    "FullM5",
+                    "--target-slices",
+                    str(bad_k),
+                    "--root",
+                    str(REPO_ROOT),
+                    "--dry-run",
+                ]
+            )
+            with self.assertRaises(ValueError):
+                gcs.build_config(bad_k_args)
+
 
 if __name__ == "__main__":
     unittest.main()
