@@ -30,7 +30,9 @@ open Kraken.X64.Parser
 -- Moves, immediates, and extensions
 example : ⸨prog| mov %rsi, %rax ⸩ = [movD .rax .rsi] := rfl
 example : ⸨prog| movl %esi, %eax ⸩ = [movlD .rax .rsi] := rfl
-example : ⸨prog| mov $5, %rax ⸩ = [moviD .rax 5] := rfl
+example : ⸨prog| movl $5, %eax ⸩ = [moviD .rax 5] := rfl
+example : ⸨prog| movl $4294967295, %eax ⸩ = [moviD .rax 0xffffffff] := rfl
+example : ⸨prog| mov $4294967296, %rax ⸩ = [moviD .rax 0x100000000] := rfl
 example : ⸨prog| mov $-1, %rax ⸩ = [moviD .rax (-1)] := rfl
 example : ⸨prog| movzbl %sil, %eax ⸩ = [movW .W8 .rax .rsi] := rfl
 example : ⸨prog| movzwl %si, %eax ⸩ = [movW .W16 .rax .rsi] := rfl
@@ -139,6 +141,20 @@ example : ⸨prog| movzbl (%rdx,%rcx,1), %eax ⸩ =
     ((x64Load .bool .rax (.baseIdxDisp .rdx .rcx .s1 0)).get rfl).1 := rfl
 example : ⸨prog| movq %rsi, -16(%rdx,%rcx,8) ⸩ =
     ((x64Store (.bits 64) (.gpr .rsi) (.baseIdxDisp .rdx .rcx .s8 (-16))).get rfl).1 := rfl
+example : ⸨prog| leaq (%rdi,%r10,1), %r10 ⸩ =
+    [ins (.lea (q .r10) (atSIB .rdi .r10 .s1 0))] := rfl
+example : ⸨prog| testl %eax, %eax ⸩ =
+    [ins32 (.test (.reg (d .rax)) (.reg (d .rax)))] := rfl
+example : ⸨prog| testl $-2147483648, %eax ⸩ =
+    [ins32 (.test (.reg (d .rax)) (immBitsOp .W32 0x80000000#32))] := rfl
+example : ⸨prog| cmpb $0, (%rdi,%rsi,1) ⸩ =
+    [ins8 (.cmp (.mem (atSIB .rdi .rsi .s1 0)) (immBitsOp .W8 0#8))] := rfl
+example : ⸨prog| cmpq (%rdi,%rsi,8), %rcx ⸩ =
+    [ins (.cmp (.reg (q .rcx)) (.regOrMem (.mem (atSIB .rdi .rsi .s8 0))))] := rfl
+example : ⸨prog| testl $1, (%rdi,%rsi,4) ⸩ =
+    [ins32 (.test (.mem (atSIB .rdi .rsi .s4 0)) (immBitsOp .W32 1#32))] := rfl
+example : ⸨prog| testb %al, (%rdi,%rsi,1) ⸩ =
+    [ins8 (.test (.mem (atSIB .rdi .rsi .s1 0)) (.reg (b8 .rax)))] := rfl
 
 end ParserChecks
 
@@ -194,6 +210,21 @@ theorem x64Gpr_load_noLab {t : Ty} {rd : Reg64} {a : AddrArg Reg64} {c : List Di
   emitCleanPair_noLab h
 theorem x64Gpr_store_noLab {t : Ty} {pa : PArg Reg64 RegMm CondCode t} {a : AddrArg Reg64}
     {c : List Directive} {clob : FlagMask} (h : x64Gpr.store t pa a = some (c, clob)) :
+    ∀ l, Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab h
+theorem x64Gpr_testOp_noLab {w : Nat} {neg : Bool}
+    {pa pb : PArg Reg64 RegMm CondCode (.bits w)} {pd : PDst Reg64 RegMm CondCode .bool}
+    {c : List Directive} {clob : FlagMask} (h : x64Gpr.testOp w neg pa pb pd = some (c, clob)) :
+    ∀ l, Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab h
+theorem x64Gpr_cmpMem_noLab {co : CmpOp} {w : Nat} {a : AddrArg Reg64}
+    {pb : PArg Reg64 RegMm CondCode (.bits w)} {pd : PDst Reg64 RegMm CondCode .bool}
+    {c : List Directive} {clob : FlagMask} (h : x64Gpr.cmpMem co w a pb pd = some (c, clob)) :
+    ∀ l, Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab h
+theorem x64Gpr_testMem_noLab {w : Nat} {neg : Bool} {a : AddrArg Reg64}
+    {pb : PArg Reg64 RegMm CondCode (.bits w)} {pd : PDst Reg64 RegMm CondCode .bool}
+    {c : List Directive} {clob : FlagMask} (h : x64Gpr.testMem w neg a pb pd = some (c, clob)) :
     ∀ l, Kraken.Directive.label l ∉ c :=
   emitCleanPair_noLab h
 
@@ -472,6 +503,25 @@ theorem cond_subFlags {n : Nat} (hn : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64) (c
   · exact hsgt
   · exact hsge
 
+/-- Flags computed by Kraken's `test` for `a &&& b` at width `n`. -/
+def testFlags {n : Nat} (a b : BitVec n) (af : Bool) : StatusFlags :=
+  StatusFlags.from_result (a &&& b) { cf := false, af, of := false }
+
+theorem cond_testFlags_self {n : Nat} (x : BitVec n) (af : Bool) (cc : CondCode) :
+    cc.interp (testFlags x x af) = cc.interp (subFlags x 0#n) := by
+  have hsub : x - 0#n = x := BitVec.sub_zero x
+  have hand : x &&& x = x := BitVec.and_self
+  have h0u : (0#n).unsigned = 0 := by simp [BitVec.unsigned]
+  have h0s : (0#n).signed = 0 := by simp [BitVec.signed]
+  cases cc <;> simp [testFlags, subFlags, StatusFlags.from_result, CondCode.interp,
+    hand, hsub, h0u, h0s]
+
+theorem cond_testFlags_z {n : Nat} (a b : BitVec n) (af : Bool) (neg : Bool) :
+    (if neg then CondCode.nz else CondCode.z).interp (testFlags a b af) =
+      (if neg then CmpOp.ne else CmpOp.eq).evalBits (a &&& b) 0#n := by
+  cases neg <;> by_cases h : (a &&& b) = 0#n <;>
+    simp [testFlags, StatusFlags.from_result, CondCode.interp, CmpOp.evalBits, BitVec.zero, h]
+
 theorem loadVal_bool_spec {m : Mem 64} {a : BitVec 64} {b : Bool}
     (h : loadVal m .bool a = some b) :
     ∃ i : Int, m.loadInt a 1 = some i ∧ (i = 0 ∨ i = 1) ∧ b = (i == 1) := by
@@ -550,12 +600,32 @@ theorem fallsTo_movlD (s : MachineData) (rd rs : Reg64) :
   simp only [movlD, t_step_simp]
   exact hk _ rfl
 
+private theorem zeroExtend_truncate_of_fitsUImm32 {c : BitVec 64}
+    (h : fitsUImm32 c = true) : (c.truncate 32).zeroExtend 64 = c := by
+  have hsh : c >>> 32 = 0#64 := beq_iff_eq.mp h
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  simp only [BitVec.zeroExtend_eq_setWidth,
+    BitVec.getLsbD_setWidth, decide_eq_true hi, Bool.true_and]
+  by_cases h32 : i < 32
+  · simp [h32]
+  · simp only [decide_eq_false h32, Bool.false_and]
+    have hbit := congrArg (fun bv => bv.getLsbD (i - 32)) hsh
+    simp only [BitVec.getLsbD_ushiftRight, BitVec.getLsbD_zero,
+      show 32 + (i - 32) = i by omega] at hbit
+    exact hbit.symm
+
 theorem fallsTo_moviD (s : MachineData) (rd : Reg64) (c0 : BitVec 64) :
     Directive.FallsTo (moviD rd c0) s (· = { s with regs := s.regs.set64 rd c0 }) := by
   intro _ _ _ _ _ hk
-  simp only [moviD, t_step_simp, ConstExpr.interp, Int64.toBitVec_ofBitVec, BitVec.truncate_eq_setWidth,
-    BitVec.setWidth_eq]
-  exact hk _ rfl
+  unfold moviD moviI
+  split
+  · rename_i hfit
+    simp only [t_step_simp, ConstExpr.interp, Int64.toBitVec_ofBitVec,
+      zeroExtend_truncate_of_fitsUImm32 hfit]
+    exact hk _ rfl
+  · simp only [t_step_simp, ConstExpr.interp, Int64.toBitVec_ofBitVec,
+      BitVec.truncate_eq_setWidth, BitVec.setWidth_eq]
+    exact hk _ rfl
 
 theorem fallsTo_movW (w : Width) (s : MachineData) (rd rs : Reg64) :
     Directive.FallsTo (movW w rd rs) s
@@ -714,8 +784,9 @@ theorem wp_addrToExpr [Host] {E : Int64 → MachineData → Prop} (s s₀ : Mach
         refine _root_.Program.wp_singleton fun k _ => ?_
         have hs1r : (s.regs.set64 .r10 off.toBitVec).get64 r = s.regs.get64 r :=
           Reg64s.get64_set64_of_ne _ .r10 r _ hnr.1.symm
-        simp only [t_step_simp, Reg64s.get64_set64_same, hs1r, hr']
-        refine Or.inl ⟨trivial, ?_, ?_, trivial, trivial, ?_, updFlags_maskAll s _⟩
+        simp only [t_step_simp, atSIB_interp, AddrScale.shift, BitVec.shiftLeft_zero,
+          Int64.toBitVec_zero, BitVec.add_zero, Reg64s.get64_set64_same, hs1r, hr']
+        refine Or.inl ⟨trivial, ?_, ?_, trivial, trivial, ?_, updFlags_of_status_eq rfl _⟩
         · rw [Reg64s.get64_set64_of_ne _ .r10 .r11 _ (by decide),
               Reg64s.get64_set64_of_ne _ .r10 .r11 _ (by decide)]
         · intro r' hne
@@ -741,10 +812,9 @@ theorem wp_addrToExpr [Host] {E : Int64 → MachineData → Prop} (s s₀ : Mach
       refine _root_.Program.wp_singleton fun k _ => ?_
       have hs1b : (s.regs.set64 .r10 off.toBitVec).get64 rb = s.regs.get64 rb :=
         Reg64s.get64_set64_of_ne _ .r10 rb _ hrb.1.symm
-      have hs1i : (s.regs.set64 .r10 off.toBitVec).get64 ri = s.regs.get64 ri :=
-        Reg64s.get64_set64_of_ne _ .r10 ri _ hri.1.symm
-      simp only [t_step_simp, Reg64s.get64_set64_same, hs1b, hbr]
-      refine Or.inl ⟨trivial, ?_, ?_, trivial, trivial, ?_, updFlags_maskAll s _⟩
+      simp only [t_step_simp, atSIB_interp, AddrScale.shift, BitVec.shiftLeft_zero,
+        Int64.toBitVec_zero, BitVec.add_zero, Reg64s.get64_set64_same, hs1b, hbr]
+      refine Or.inl ⟨trivial, ?_, ?_, trivial, trivial, ?_, updFlags_of_status_eq rfl _⟩
       · rw [Reg64s.get64_set64_of_ne _ .r10 .r11 _ (by decide),
           Reg64s.get64_set64_of_ne _ .r10 .r11 _ (by decide)]
       · intro r' hne
@@ -757,8 +827,8 @@ theorem wp_addrToExpr [Host] {E : Int64 → MachineData → Prop} (s s₀ : Mach
           rw [hregs ri (by simp [AddrArg.regs]),
             Reg64s.get64_set64_of_ne _ .r10 ri _ hri.1.symm,
             Reg64s.get64_set64_of_ne _ .r10 ri _ hri.1.symm, hir]
-        rw [atSIB_interp, h10, hrr2]
-        simp only [AddrArg.eval, Int64.toBitVec_zero, BitVec.add_zero]
+        rw [h10, hrr2]
+        simp only [AddrArg.eval, AddrScale.shift]
         ac_rfl
   | imm addr =>
     refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD s .r10 addr)) ?_

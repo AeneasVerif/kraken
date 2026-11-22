@@ -100,6 +100,9 @@ private theorem defOk_addVarImm {G : VCtx} {nv x : Nat} {vx c : BitVec 64}
       obtain ⟨vb, vi, hb, hi, hvx⟩ := hdx vx hm
       exact ⟨vb, vi, List.mem_cons_of_mem _ hb, List.mem_cons_of_mem _ hi,
         by simp [hvx, BitVec.add_assoc]⟩
+    | andVarVar _ _ _ | andVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _ =>
+      intro v hv; cases mem_cons_top hlt hv
+      exact ⟨vx, List.mem_cons_of_mem _ hm, rfl⟩
 
 private theorem defOk_addScale {G : VCtx} {nv x y : Nat} {vx vy : BitVec 64}
     {dfx : DefFact} {dfy? : Option DefFact} {df : DefFact}
@@ -229,22 +232,13 @@ private theorem defOk_addVarVar {G : VCtx} {nv x y : Nat} {vx vy : BitVec 64}
 
 private theorem recordDef_rs {defs : Trie DefFact} {sig rs : List Ty} {code : OpCode sig rs}
     {args : Tup (Arg VNat) sig} {df : DefFact} (hd : recordDef defs code args = some df) :
-    rs = [i64] := by
+    ∃ w, rs = [.bits w] := by
   cases code with
-  | add t | sub t | shl t =>
+  | add t | sub t | shl t | copy t | and t =>
     cases t with
-    | bits n =>
-      rcases args with ⟨a, b, ⟨⟩⟩
-      cases a <;> cases b <;> by_cases hn : n = 64 <;> simp [recordDef, hn] at hd
-      all_goals subst hn; rfl
+    | bits n => exact ⟨n, rfl⟩
     | _ => simp [recordDef] at hd
-  | copy t =>
-    cases t with
-    | bits n =>
-      rcases args with ⟨a, ⟨⟩⟩
-      cases a <;> by_cases hn : n = 64 <;> simp [recordDef, hn] at hd
-      all_goals subst hn; rfl
-    | _ => simp [recordDef] at hd
+  | sext _ n | zext _ n => exact ⟨n, rfl⟩
   | _ => simp [recordDef] at hd
 
 theorem wp_recordDef {G : VCtx} {nv : Nat} {defs : Trie DefFact}
@@ -359,7 +353,8 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {defs : Trie DefFact}
                 obtain ⟨vi, hi, hvx⟩ := hxok _ hm
                 exact ⟨vi, List.mem_cons_of_mem _ hi, by simp [hvx, bv_shiftLeft_shiftLeft]⟩
               · cases hd
-            | addrSum _ _ _ _ =>
+            | addrSum _ _ _ _ | andVarVar _ _ _ | andVarImm _ _ _
+            | sextVar _ _ _ | zextVar _ _ _ =>
               cases hd; intro v hv; simp only [Tup.zip, Tup.levels] at hv
               cases mem_cons_top hlt hv
               exact ⟨_, List.mem_cons_of_mem _ hm, by simp⟩
@@ -381,36 +376,120 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {defs : Trie DefFact}
         simp only [Tup.zip, Tup.levels] at hm'; cases mem_cons_top hlt hm'; simp
       | var x =>
         simp only [recordDef, Nat.beq_eq, ↓reduceIte] at hd
-        cases hd
         cases h1 with | var hm =>
         dsimp only [vals, Arg.val] at hwp ⊢
         simp only [OpCode.wp_copy] at hwp ⊢
         refine ⟨hwp, by simp, ?_⟩
         cases hdx : defs.find? x with
         | none =>
-          rw [Option.getD_none]
+          rw [hdx] at hd; cases hd
           intro v hv; simp only [Tup.zip, Tup.levels] at hv; cases mem_cons_top hlt hv
           exact ⟨_, List.mem_cons_of_mem _ hm, by simp⟩
         | some d =>
-          rw [Option.getD_some]
+          rw [hdx] at hd
           have h' := hdefs x d hdx
           cases d with
           | imm64 c0 =>
+            simp only [DefFact.isAddr, ↓reduceIte, Option.some.injEq] at hd; subst hd
             intro v hv; simp only [Tup.zip, Tup.levels] at hv; cases mem_cons_top hlt hv
             simpa using h' _ hm
           | addImm64 b disp =>
+            simp only [DefFact.isAddr, ↓reduceIte, Option.some.injEq] at hd; subst hd
             intro v hv; simp only [Tup.zip, Tup.levels] at hv; cases mem_cons_top hlt hv
             obtain ⟨vb, hb, hvx⟩ := h' _ hm
             exact ⟨vb, List.mem_cons_of_mem _ hb, hvx⟩
           | scaleOff idx sh disp =>
+            simp only [DefFact.isAddr, ↓reduceIte, Option.some.injEq] at hd; subst hd
             intro v hv; simp only [Tup.zip, Tup.levels] at hv; cases mem_cons_top hlt hv
             obtain ⟨vi, hi, hvx⟩ := h' _ hm
             exact ⟨vi, List.mem_cons_of_mem _ hi, hvx⟩
           | addrSum b idx sh disp =>
+            simp only [DefFact.isAddr, ↓reduceIte, Option.some.injEq] at hd; subst hd
             intro v hv; simp only [Tup.zip, Tup.levels] at hv; cases mem_cons_top hlt hv
             obtain ⟨vb, vi, hb, hi, hvx⟩ := h' _ hm
             exact ⟨vb, vi, List.mem_cons_of_mem _ hb, List.mem_cons_of_mem _ hi, hvx⟩
+          | andVarVar _ _ _ | andVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _ =>
+            simp only [DefFact.isAddr, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at hd
+            subst hd
+            intro v hv; simp only [Tup.zip, Tup.levels] at hv; cases mem_cons_top hlt hv
+            exact ⟨_, List.mem_cons_of_mem _ hm, by simp⟩
     | _ => simp [recordDef] at hd
+  | and t =>
+    cases t with
+    | bits n =>
+      rcases args with ⟨a, b, ⟨⟩⟩
+      have hn : n ≤ 64 := Decidable.byContradiction fun hne => by
+        have hbf : Nat.ble n 64 = false := Bool.eq_false_iff.mpr (by simpa [Nat.ble_eq] using hne)
+        cases a <;> cases b <;> simp [recordDef, hbf] at hd
+      have hbt : Nat.ble n 64 = true := Nat.ble_eq.mpr hn
+      rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
+      cases a with
+      | var x =>
+        cases b with
+        | var y =>
+          simp only [recordDef, hbt, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
+            Option.some.injEq] at hd
+          subst hd; cases h1 with | var hmx => cases h2 with | var hmy =>
+          simp only [OpCode.wp_and, vals, Arg.val, lift2, Tup.zip, Tup.levels] at hwp ⊢
+          refine ⟨hwp, by simp, hn, fun v hv => ?_⟩
+          cases mem_cons_top hlt hv
+          exact ⟨_, _, List.mem_cons_of_mem _ hmx, List.mem_cons_of_mem _ hmy, rfl⟩
+        | imm c =>
+          simp only [recordDef, hbt, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
+            Option.some.injEq] at hd
+          subst hd; cases h1 with | var hmx => cases h2 with | imm =>
+          simp only [OpCode.wp_and, vals, Arg.val, lift2, Tup.zip, Tup.levels] at hwp ⊢
+          refine ⟨hwp, by simp, hn, fun v hv => ?_⟩
+          cases mem_cons_top hlt hv
+          exact ⟨_, List.mem_cons_of_mem _ hmx, by
+            rw [BitVec.setWidth_setWidth_of_le c hn, BitVec.setWidth_eq]⟩
+      | imm c =>
+        cases b with
+        | var y =>
+          simp only [recordDef, hbt, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
+            Option.some.injEq] at hd
+          subst hd; cases h1 with | imm => cases h2 with | var hmy =>
+          simp only [OpCode.wp_and, vals, Arg.val, lift2, Tup.zip, Tup.levels] at hwp ⊢
+          refine ⟨hwp, by simp, hn, fun v hv => ?_⟩
+          cases mem_cons_top hlt hv
+          exact ⟨_, List.mem_cons_of_mem _ hmy, by
+            rw [BitVec.setWidth_setWidth_of_le c hn, BitVec.setWidth_eq, BitVec.and_comm]⟩
+        | imm _ => simp [recordDef, hbt] at hd
+    | _ => simp [recordDef] at hd
+  | sext m n =>
+    rcases args with ⟨a, ⟨⟩⟩
+    cases a with
+    | imm _ => simp [recordDef] at hd
+    | var x =>
+      simp only [recordDef] at hd
+      split at hd
+      · rename_i hc
+        simp only [Bool.and_eq_true, Nat.blt_eq, Nat.ble_eq] at hc
+        cases hd
+        rcases hrel with _ | ⟨h1, -⟩
+        cases h1 with | var hmx =>
+        simp only [OpCode.wp_sext, vals, Arg.val, Tup.zip, Tup.levels] at hwp ⊢
+        refine ⟨hwp.1, hwp.2, by simp, hc.1.1, hc.1.2, hc.2, fun v hv => ?_⟩
+        cases mem_cons_top hlt hv
+        exact ⟨_, List.mem_cons_of_mem _ hmx, rfl⟩
+      · cases hd
+  | zext m n =>
+    rcases args with ⟨a, ⟨⟩⟩
+    cases a with
+    | imm _ => simp [recordDef] at hd
+    | var x =>
+      simp only [recordDef] at hd
+      split at hd
+      · rename_i hc
+        simp only [Bool.and_eq_true, Nat.blt_eq, Nat.ble_eq] at hc
+        cases hd
+        rcases hrel with _ | ⟨h1, -⟩
+        cases h1 with | var hmx =>
+        simp only [OpCode.wp_zext, vals, Arg.val, Tup.zip, Tup.levels] at hwp ⊢
+        refine ⟨hwp.1, hwp.2, by simp, hc.1.1, hc.1.2, hc.2, fun v hv => ?_⟩
+        cases mem_cons_top hlt hv
+        exact ⟨_, List.mem_cons_of_mem _ hmx, rfl⟩
+      · cases hd
   | _ => simp [recordDef] at hd
 
 theorem recordDef_elide_ok {G : VCtx} {nv : Nat} {defs : Trie DefFact}
@@ -419,24 +498,33 @@ theorem recordDef_elide_ok {G : VCtx} {nv : Nat} {defs : Trie DefFact}
     {args₁ : Tup (Arg Val) sig} {args : Tup (Arg VNat) sig}
     (hrel : TRel (ArgRel G) args₁ args) (hlt : ∀ p ∈ G, p.2.2 < nv) {P : Tup Val rs → Prop}
     (hwp : code.wp (vals args₁) P) {df : DefFact} (hd : recordDef defs code args = some df) :
-    ∃ (rvs : Tup Val rs), P rvs ∧ rs = [i64] ∧
+    ∃ (w : Nat) (_h : rs = [.bits w]) (rvs : Tup Val rs), P rvs ∧
       DefOk (Tup.zip rvs (Tup.levels rs nv) ++ G) nv df := by
-  have hrs := recordDef_rs hd
+  obtain ⟨w, hrs⟩ := recordDef_rs hd
   subst hrs
   have hwp' := wp_recordDef hdefs hrel hlt hwp hd
   cases code with
   | add _ =>
     simp only [OpCode.wp_add, Ty.hasFloat, Bool.false_eq_true, ite_false] at hwp'
-    exact ⟨_, hwp'.1, rfl, hwp'.2.2⟩
+    exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
   | sub _ =>
     simp only [OpCode.wp_sub, Ty.hasFloat, Bool.false_eq_true, ite_false] at hwp'
-    exact ⟨_, hwp'.1, rfl, hwp'.2.2⟩
+    exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
   | shl _ =>
     simp only [OpCode.wp_shl, Ty.hasFloat, Bool.false_eq_true, ite_false] at hwp'
-    exact ⟨_, hwp'.1, rfl, hwp'.2.2⟩
+    exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
   | copy _ =>
     simp only [OpCode.wp_copy] at hwp'
-    exact ⟨_, hwp'.1, rfl, hwp'.2.2⟩
+    exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
+  | and _ =>
+    simp only [OpCode.wp_and] at hwp'
+    exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
+  | sext _ _ =>
+    simp only [OpCode.wp_sext] at hwp'
+    exact ⟨w, rfl, _, hwp'.2.1, hwp'.2.2.2⟩
+  | zext _ _ =>
+    simp only [OpCode.wp_zext] at hwp'
+    exact ⟨w, rfl, _, hwp'.2.1, hwp'.2.2.2⟩
   | _ => simp [recordDef] at hd
 
 theorem zip_levels_mem {G : VCtx} : ∀ {ts : List Ty} {rvs : Tup Val ts} {nv : Nat} {p},
@@ -730,35 +818,53 @@ theorem keep_of_frame {s s' : T.mach.MData} {gs : List T.Reg}
   · simp [hgs r hm] at hr
   · simp [hm] at hr
 
-theorem Inv.store {m : Mem 64} {s s' : T.mach.MData} {σ : List (BitVec 64)} {t : Ty}
-    {a : BitVec 64} {v : Val t} (hI : Inv T hints s₀ ra n Rf m s σ)
+theorem Inv.store {zl : Bool} {m : Mem 64} {s s' : T.mach.MData} {σ : List (BitVec 64)} {t : Ty}
+    {a : BitVec 64} {v : Val t} (hI : Inv T hints s₀ ra n Rf m s σ zl)
     (hk : T.mach.KeepsGpr s s' T.frame.scratch) (hok : storeOk m t a)
     (hm : T.mach.mem s' = storeMem (T.mach.mem s) t a v) :
-    Inv T hints s₀ ra n Rf (storeMem m t a v) s' σ := by
-  obtain ⟨h1, h2, h3, h4, h5, h6⟩ := hI
-  refine ⟨h1, ?_, fun r hr hns => ?_, ?_, h5, h6⟩
+    Inv T hints s₀ ra n Rf (storeMem m t a v) s' σ zl := by
+  obtain ⟨h1, h2, h3, h4, h5, h6, h7⟩ := hI
+  refine ⟨h1, ?_, fun r hr hns => ?_, ?_, h5, h6, h7⟩
   · rw [hk _ T.frameSpec.sp_disj.1]; exact h2
   · rw [hk r (fun h => (T.frameSpec.scratch_disj r h).2.1 hr)]; exact h3 r hr hns
   · rw [hm]; exact storeMem_frame h4 hok v
 
 /-! ## Loads and stores -/
 
-theorem lowerLoad_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
+theorem lowerLoad_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
     (hsv : ∀ r ∈ hints.saved, r ∈ T.frame.calleeSaved) {G : VCtx} {nv ip : Nat}
     {st st' : SymState T.toIsa} {c : List T.Directive} {k : Nat} {s : T.mach.MData}
     {σ : List (BitVec 64)} {m : Mem 64} {t : Ty} {a₁ : Arg Val i64} {a : Arg VNat i64}
     (hrel : ArgRel G i64 a₁ a) (hl : lowerLoad T.toIsa hints nv ip st t a = some (c, st'))
     (hc : c.IsInfixAt (T.mach.prog host) k)
-    (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ)
+    (hA : Agree T G nv st s σ) (hM : MemDefsOk G m nv st.memDefs)
+    (hI : Inv T hints s₀ ra n Rf m s σ zl)
     {v : Val t} (hv : loadVal m t a₁.val = some v)
-    (kont : ∀ s', Agree T (⟨t, v, nv⟩ :: G) (nv + 1) st' s' σ → Inv T hints s₀ ra n Rf m s' σ →
+    (kont : ∀ s', Agree T (⟨t, v, nv⟩ :: G) (nv + 1) st' s' σ →
+      MemDefsOk (⟨t, v, nv⟩ :: G) m (nv + 1) st'.memDefs → Inv T hints s₀ ra n Rf m s' σ zl →
       T.mach.Run host (k + c.length) s' post) :
     T.mach.Run host k s post := by
   have _hspE := hspE
   have hload : ∀ (aa : AddrArg T.Reg), aa.eval (T.mach.getGpr s) = a₁.val →
       loadVal (T.mach.mem s) t (aa.eval (T.mach.getGpr s)) = some v :=
     fun aa hev => by rw [hev]; exact loadVal_frame hI.2.2.2.1 hv
+  have hMgrow : MemDefsOk (⟨t, v, nv⟩ :: G) m (nv + 1) st.memDefs :=
+    hM.grow (Nat.le_succ _)
+      (fun p hp => (List.mem_cons.mp hp).elim (fun h => Or.inr (h ▸ Nat.le_refl _)) Or.inl)
+      (fun _ h => List.mem_cons_of_mem _ h)
   unfold lowerLoad at hl
+  split at hl
+  · split at hl
+    · rename_i hgt
+      simp only [Option.some.injEq, Prod.mk.injEq] at hl
+      rcases hl with ⟨rfl, rfl⟩
+      have hpush := hA.push t v st.vecWidths (fun _ _ => rfl)
+        (fun w h => absurd (hA.vw_lt _ _ h) (Nat.lt_irrefl _))
+        (fun x hx => Option.eq_none_iff_forall_ne_some.mpr fun w h =>
+          absurd (hA.vw_lt _ _ h) (Nat.not_lt.mpr (Nat.le_of_lt hx)))
+        (fun _ => isGprTy_ne_pair hgt)
+      simpa using kont s { hpush with } (hM.insert hA.ctx_lt hrel hv) hI
+    · simp at hl
   split at hl
   · next d _ =>
     split at hl
@@ -775,7 +881,7 @@ theorem lowerLoad_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp)
         subst ht32
         have hzu1 : T.toIsa.gpr.zeroUpper32Load = true := hzu.1
         refine T.gprSpec.load_zero32 hzu1 hk (not_scratch_of_isAllocGpr hsv hcond.1) hreg
-          (hload aa hev) hc fun s' ⟨hg, hm⟩ hfr => kont s' ?_ ?_
+          (hload aa hev) hc fun s' ⟨hg, hm⟩ hfr => kont s' ?_ hMgrow ?_
         · have hk := hA.kill hfr
           refine (hk.push (.bits 32) v _ (fun _ _ => rfl)
             (fun w h => absurd (hk.vw_lt _ _ h) (Nat.lt_irrefl _))
@@ -794,7 +900,7 @@ theorem lowerLoad_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp)
       · have hzuf : (T.toIsa.gpr.zeroUpper32Load && tyEq t (.bits 32)) = false := by
           cases hb : T.toIsa.gpr.zeroUpper32Load && tyEq t (.bits 32) <;> simp_all
         refine T.gprSpec.load_spec hk (not_scratch_of_isAllocGpr hsv hcond.1) hreg
-          (hload aa hev) hc fun s' ⟨hg, hm⟩ hfr => kont s' ?_ ?_
+          (hload aa hev) hc fun s' ⟨hg, hm⟩ hfr => kont s' ?_ hMgrow ?_
         · have hk := hA.kill hfr
           have hpush := hk.push t v _ (fun _ _ => rfl)
             (fun w h => absurd (hk.vw_lt _ _ h) (Nat.lt_irrefl _))
@@ -816,7 +922,7 @@ theorem lowerLoad_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp)
       cases heq
       obtain ⟨aa, hk, hreg, hev⟩ := tryAddr_ok hA hrel hta
       refine T.vecSpec.vload_spec hk (not_vecScratch_of_isAllocVec hcond) hreg (hload aa hev) hc
-        fun s' ⟨hg, hm⟩ hfr => kont s' ?_ ?_
+        fun s' ⟨hg, hm⟩ hfr => kont s' ?_ hMgrow ?_
       · have hk := hA.kill hfr
         refine (hk.push t v _ (fun x hx => Trie.find?_insert_ne _ _ (Nat.ne_of_lt hx))
           (fun w' h => ?_) (fun x hx => ?_) (fun h => by simp [Trie.find?_insert_self] at h)).consReg (sa := .var nv)
@@ -829,15 +935,17 @@ theorem lowerLoad_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp)
       · exact hI.keep hm (keep_of_frame (gs := []) hfr.1 (by simp))
   · simp at hl
 
-theorem lowerStore_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
+theorem lowerStore_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
     {G : VCtx} {nv : Nat} {vh : VariantHint}
     {st st' : SymState T.toIsa} {c : List T.Directive} {k : Nat} {s : T.mach.MData}
     {σ : List (BitVec 64)} {m : Mem 64} {t : Ty} {v₁ : Arg Val t} {v : Arg VNat t}
     {a₁ : Arg Val i64} {a : Arg VNat i64} (hv : ArgRel G t v₁ v) (ha : ArgRel G i64 a₁ a)
     (hl : lowerStore T.toIsa st vh t v a = some (c, st'))
     (hc : c.IsInfixAt (T.mach.prog host) k)
-    (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ) (hok : storeOk m t a₁.val)
-    (kont : ∀ s', Agree T G nv st' s' σ → Inv T hints s₀ ra n Rf (storeMem m t a₁.val v₁.val) s' σ →
+    (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ zl) (hok : storeOk m t a₁.val)
+    (kont : ∀ s', Agree T G nv st' s' σ →
+      MemDefsOk G (storeMem m t a₁.val v₁.val) nv st'.memDefs →
+      Inv T hints s₀ ra n Rf (storeMem m t a₁.val v₁.val) s' σ zl →
       T.mach.Run host (k + c.length) s' post) :
     T.mach.Run host k s post := by
   have _hspE := hspE
@@ -854,7 +962,7 @@ theorem lowerStore_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp
     | vec vs =>
       obtain ⟨aa, hk', hreg, hev⟩ := tryAddr_ok hA ha hk
       refine T.vecSpec.vstore_spec hk' hreg (hpv vs rfl) hp (hsok aa hev) hc
-        fun s' hm hfr => kont s' (hA.kill hfr) ?_
+        fun s' hm hfr => kont s' { hA.kill hfr with } (MemDefsOk.empty _ _ _) ?_
       rw [hev] at hm
       exact hI.store hfr.1 hok hm
     | gpr _ | imm _ => simp at hk
@@ -867,7 +975,7 @@ theorem lowerStore_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp
       obtain ⟨pa, hk, hpg, -, hp⟩ := tryArg_ok hA hv hta
       obtain ⟨aa, hk', hreg, hev⟩ := tryAddr_ok hA ha hk
       refine T.gprSpec.store_spec hk' (fun r hr => ?_) hp (hsok aa hev) hc
-        fun s' hm hfr => kont s' (hA.kill hfr) ?_
+        fun s' hm hfr => kont s' { hA.kill hfr with } (MemDefsOk.empty _ _ _) ?_
       · exact (List.mem_append.mp hr).elim (hpg r) (hreg r)
       · rw [hev] at hm
         exact hI.store hfr.1 hok hm
@@ -972,22 +1080,394 @@ theorem bindDsts_ok {G' : VCtx} {s' : T.mach.MData} :
       exact step (.flag c) vw hdo (fun t' v' hm => by cases top t' v' hm; exact hd.symm)
         (fun _ _ => rfl) (fun _ _ h _ => Or.inl h) (fun _ => by simp)
 
-theorem lowerOp_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
+private theorem cmpOp_evalBits_signExtend {m n : Nat} (_hm : 0 < m) (hmn : m < n)
+    {co : CmpOp} (hco : cmpIsSignedOrEq co = true) (a : BitVec m) (c : BitVec n)
+    (hc : (c.truncate m).signExtend n = c) :
+    co.evalBits (a.signExtend n) c = co.evalBits a (c.truncate m) := by
+  have hle : m ≤ n := Nat.le_of_lt hmn
+  have ha : (a.signExtend n).toInt = a.toInt := BitVec.toInt_signExtend_of_le hle
+  have hci : c.toInt = (c.truncate m).toInt :=
+    calc c.toInt = ((c.truncate m).signExtend n).toInt := congrArg BitVec.toInt hc.symm
+      _ = (c.truncate m).toInt := BitVec.toInt_signExtend_of_le hle
+  have heq : (a.signExtend n = c) ↔ (a = c.truncate m) :=
+    ⟨fun h => BitVec.eq_of_toInt_eq (by rw [← ha, h, hci]), fun h => by rw [h, hc]⟩
+  cases co <;> simp only [cmpIsSignedOrEq] at hco <;> try (cases hco; done)
+  all_goals simp only [CmpOp.evalBits, BitVec.slt, BitVec.sle, Ne, ha, hci, heq]
+
+private theorem cmpOp_evalBits_zeroExtend {m n : Nat} (hmn : m < n)
+    {co : CmpOp} (hco : cmpIsUnsignedOrEq co = true) (a : BitVec m) (c : BitVec n)
+    (hc : (c.truncate m).zeroExtend n = c) :
+    co.evalBits (a.zeroExtend n) c = co.evalBits a (c.truncate m) := by
+  have hle : m ≤ n := Nat.le_of_lt hmn
+  have ha : (a.zeroExtend n).toNat = a.toNat := by
+    change (a.setWidth n).toNat = a.toNat
+    rw [BitVec.toNat_setWidth,
+      Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le a.isLt (Nat.pow_le_pow_right (by decide) hle))]
+  have hcn : c.toNat = (c.truncate m).toNat := by
+    calc c.toNat = ((c.truncate m).setWidth n).toNat := congrArg BitVec.toNat hc.symm
+      _ = (c.truncate m).toNat := by
+        rw [BitVec.toNat_setWidth,
+          Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le (c.truncate m).isLt
+            (Nat.pow_le_pow_right (by decide) hle))]
+  have heq : (a.zeroExtend n = c) ↔ (a = c.truncate m) :=
+    ⟨fun h => BitVec.eq_of_toNat_eq (by rw [← ha, h, hcn]), fun h => by rw [h, hc]⟩
+  cases co <;> simp only [cmpIsUnsignedOrEq] at hco <;> try (cases hco; done)
+  all_goals simp only [CmpOp.evalBits, BitVec.ult, BitVec.ule, Ne, ha, hcn, heq]
+
+private theorem tryTestMemVar_ok {zl : Bool} {G : VCtx} {nv w x k : Nat} {neg : Bool}
+    {st : SymState T.toIsa} {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
+    {vx : BitVec w} {other₁ : Arg Val (.bits w)} {other : Arg VNat (.bits w)}
+    {pd : PDst T.Reg T.VReg T.Cond .bool} {c : List T.Directive} {clob : FlagMask}
+    (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ zl)
+    (hM : MemDefsOk G m nv st.memDefs) (hmx : ⟨.bits w, vx, x⟩ ∈ G)
+    (hrel : ArgRel G (.bits w) other₁ other) (hdg : ∀ r ∈ pd.gprs, r ∉ T.frame.scratch)
+    (h : tryTestMemVar T.toIsa st neg w x other pd = some (c, clob)) :
+    T.mach.FallsTo T.gpr.condReads host k c (pd.gprs ++ T.frame.scratch) [] clob s
+      (fun s' =>
+        T.mach.PDstHolds s' .bool pd
+          ((if neg then CmpOp.ne else CmpOp.eq).evalBits (vx &&& other₁.val) 0#w) ∧
+        T.mach.mem s' = T.mach.mem s) post := by
+  unfold tryTestMemVar at h
+  cases hmd : st.memDefs.find? x with
+  | none => simp [hmd] at h
+  | some p =>
+    rcases p with ⟨tm, addr⟩
+    cases tm with
+    | bits w' =>
+      simp only [hmd] at h
+      split at h
+      · rename_i heq
+        have hw : w' = w := Nat.beq_eq.mp heq
+        subst hw
+        obtain ⟨-, hlv0⟩ := hM x (.bits w') addr hmd
+        obtain ⟨a₁, ha₁, hlv⟩ := hlv0 vx hmx
+        obtain ⟨aa, hk1, hreg, hev⟩ := tryAddr_ok hA ha₁ h
+        obtain ⟨pb, hk2, hpb, -, hphp⟩ := tryArg_ok hA hrel hk1
+        have hlm : loadVal (T.mach.mem s) (.bits w') (aa.eval (T.mach.getGpr s)) = some vx := by
+          rw [hev]; exact loadVal_frame hI.2.2.2.1 hlv
+        exact T.gprSpec.testMem_spec hk2
+          (fun r hr => (List.mem_append.mp hr).elim (hreg r) (hpb r)) hdg hlm hphp
+      · simp at h
+    | _ => simp [hmd] at h
+
+private theorem tryTestFuse_ok {zl : Bool} {G : VCtx} {nv w t k : Nat} {neg : Bool}
+    {st : SymState T.toIsa} {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
+    {vt : BitVec w} {pd : PDst T.Reg T.VReg T.Cond .bool} {c : List T.Directive} {clob : FlagMask}
+    (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ zl)
+    (hM : MemDefsOk G m nv st.memDefs) (hmt : ⟨.bits w, vt, t⟩ ∈ G)
+    (hdg : ∀ r ∈ pd.gprs, r ∉ T.frame.scratch)
+    (h : tryTestFuse T.toIsa st neg w t pd = some (c, clob)) :
+    T.mach.FallsTo T.gpr.condReads host k c (pd.gprs ++ T.frame.scratch) [] clob s
+      (fun s' =>
+        T.mach.PDstHolds s' .bool pd
+          ((if neg then CmpOp.ne else CmpOp.eq).evalBits vt 0#w) ∧
+        T.mach.mem s' = T.mach.mem s) post := by
+  unfold tryTestFuse at h
+  cases hdef : st.defs.find? t with
+  | none => simp [hdef] at h
+  | some df =>
+    cases df with
+    | andVarImm w' x ci =>
+      simp only [hdef] at h
+      split at h
+      · simp at h
+      · rename_i hne
+        have hw : w' = w := Nat.beq_eq.mp (by simpa using hne)
+        subst hw
+        obtain ⟨-, hfun⟩ := hA.defs t _ hdef
+        obtain ⟨vx, hmx, rfl⟩ := hfun vt hmt
+        rcases orElse_eq_some h with h1 | h2
+        · exact tryTestMemVar_ok hA hI hM hmx (.imm (ci.setWidth w')) hdg h1
+        · obtain ⟨pa, hk, hpa, -, hphp⟩ := tryArg_ok hA (.var hmx) h2
+          exact T.gprSpec.testOp_spec hk (by simpa [PArg.gprs] using hpa) hdg hphp rfl
+    | andVarVar w' x y =>
+      simp only [hdef] at h
+      split at h
+      · simp at h
+      · rename_i hne
+        have hw : w' = w := Nat.beq_eq.mp (by simpa using hne)
+        subst hw
+        obtain ⟨-, hfun⟩ := hA.defs t _ hdef
+        obtain ⟨vx, vy, hmx, hmy, rfl⟩ := hfun vt hmt
+        rcases orElse_eq_some h with h1 | h
+        · exact tryTestMemVar_ok hA hI hM hmx (.var hmy) hdg h1
+        rcases orElse_eq_some h with h2 | h3
+        · simpa [BitVec.and_comm] using tryTestMemVar_ok hA hI hM hmy (.var hmx) hdg h2
+        · obtain ⟨pa, hk1, hpa, -, hpaH⟩ := tryArg_ok hA (.var hmx) h3
+          obtain ⟨pb, hk2, hpb, -, hpbH⟩ := tryArg_ok hA (.var hmy) hk1
+          exact T.gprSpec.testOp_spec hk2
+            (fun r hr => (List.mem_append.mp hr).elim (hpa r) (hpb r)) hdg hpaH hpbH
+    | _ => simp [hdef] at h
+
+private theorem tryExtCmp_ok {zl : Bool} {G : VCtx} {nv w t k : Nat} {vh : VariantHint}
+    {co : CmpOp} {st : SymState T.toIsa} {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
+    {vt ci : BitVec w} {pd : PDst T.Reg T.VReg T.Cond .bool} {c : List T.Directive}
+    {clob : FlagMask} (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ zl)
+    (hM : MemDefsOk G m nv st.memDefs) (hmt : ⟨.bits w, vt, t⟩ ∈ G)
+    (hdg : ∀ r ∈ pd.gprs, r ∉ T.frame.scratch)
+    (h : tryExtCmp T.toIsa st vh co w t ci pd = some (c, clob)) :
+    T.mach.FallsTo T.gpr.condReads host k c (pd.gprs ++ T.frame.scratch) [] clob s
+      (fun s' =>
+        T.mach.PDstHolds s' .bool pd (co.evalBits vt ci) ∧
+        T.mach.mem s' = T.mach.mem s) post := by
+  unfold tryExtCmp at h
+  cases hdef : st.defs.find? t with
+  | none => simp [hdef] at h
+  | some df =>
+    cases df with
+    | sextVar mw nw x =>
+      simp only [hdef] at h
+      split at h
+      · simp at h
+      · rename_i hgd
+        simp only [Bool.not_eq_true', Bool.not_eq_false, Bool.and_eq_true, Nat.beq_eq, Nat.blt_eq,
+          beq_iff_eq] at hgd
+        obtain ⟨⟨⟨⟨rfl, hm0⟩, hmn⟩, hco⟩, hci⟩ := hgd
+        obtain ⟨-, -, -, hfun⟩ := hA.defs t _ hdef
+        obtain ⟨va, hmx, rfl⟩ := hfun vt hmt
+        have hev := cmpOp_evalBits_signExtend hm0 hmn hco va ci hci
+        rcases orElse_eq_some h with h1 | h2
+        · cases hmd : st.memDefs.find? x with
+          | none => simp [hmd] at h1
+          | some p =>
+            rcases p with ⟨tm, addr⟩
+            cases tm with
+            | bits m' =>
+              simp only [hmd] at h1
+              split at h1
+              · rename_i hmeq
+                have hm' : m' = mw := Nat.beq_eq.mp hmeq
+                subst hm'
+                obtain ⟨-, hlv0⟩ := hM x (.bits m') addr hmd
+                obtain ⟨a₁, ha₁, hlv⟩ := hlv0 va hmx
+                obtain ⟨aa, hk, hreg, haev⟩ := tryAddr_ok hA ha₁ h1
+                have hlm : loadVal (T.mach.mem s) (.bits m') (aa.eval (T.mach.getGpr s)) =
+                    some va := by
+                  rw [haev]; exact loadVal_frame hI.2.2.2.1 hlv
+                rw [hev]
+                exact T.gprSpec.cmpMem_spec hk (by simpa [PArg.gprs] using hreg) hdg hlm rfl
+              · simp at h1
+            | _ => simp [hmd] at h1
+        · split at h2
+          · obtain ⟨rx, hk, hrx, hgx⟩ := tryGpr_ok hA h2
+            intro hc hkont
+            refine T.gprSpec.op_spec (P := fun r => r = (co.evalBits va (ci.truncate mw), ()))
+              hk (by simpa [tupArgGprs, PArg.gprs] using hrx)
+              (by simpa [tupDstGprs] using hdg)
+              (.cons (hgx _ _ hmx) (.cons rfl .nil)) (by simp [OpCode.wp_cmp, liftCmp]) hc
+              fun s' ⟨⟨⟨b, ⟨⟩⟩, hb, hpd⟩, hm⟩ hfr => ?_
+            cases hb
+            cases hpd with | cons hd _ =>
+            exact hkont s' ⟨hev ▸ hd, hm⟩ (by simpa [tupDstGprs] using hfr)
+          · simp at h2
+    | zextVar mw nw x =>
+      simp only [hdef] at h
+      split at h
+      · simp at h
+      · rename_i hgd
+        simp only [Bool.not_eq_true', Bool.not_eq_false, Bool.and_eq_true, Nat.beq_eq, Nat.blt_eq,
+          beq_iff_eq] at hgd
+        obtain ⟨⟨⟨⟨rfl, _hm0⟩, hmn⟩, hco⟩, hci⟩ := hgd
+        obtain ⟨-, -, -, hfun⟩ := hA.defs t _ hdef
+        obtain ⟨va, hmx, rfl⟩ := hfun vt hmt
+        have hev := cmpOp_evalBits_zeroExtend hmn hco va ci hci
+        rcases orElse_eq_some h with h1 | h2
+        · cases hmd : st.memDefs.find? x with
+          | none => simp [hmd] at h1
+          | some p =>
+            rcases p with ⟨tm, addr⟩
+            cases tm with
+            | bits m' =>
+              simp only [hmd] at h1
+              split at h1
+              · rename_i hmeq
+                have hm' : m' = mw := Nat.beq_eq.mp hmeq
+                subst hm'
+                obtain ⟨-, hlv0⟩ := hM x (.bits m') addr hmd
+                obtain ⟨a₁, ha₁, hlv⟩ := hlv0 va hmx
+                obtain ⟨aa, hk, hreg, haev⟩ := tryAddr_ok hA ha₁ h1
+                have hlm : loadVal (T.mach.mem s) (.bits m') (aa.eval (T.mach.getGpr s)) =
+                    some va := by
+                  rw [haev]; exact loadVal_frame hI.2.2.2.1 hlv
+                rw [hev]
+                exact T.gprSpec.cmpMem_spec hk (by simpa [PArg.gprs] using hreg) hdg hlm rfl
+              · simp at h1
+            | _ => simp [hmd] at h1
+        · split at h2
+          · obtain ⟨rx, hk, hrx, hgx⟩ := tryGpr_ok hA h2
+            intro hc hkont
+            refine T.gprSpec.op_spec (P := fun r => r = (co.evalBits va (ci.truncate mw), ()))
+              hk (by simpa [tupArgGprs, PArg.gprs] using hrx)
+              (by simpa [tupDstGprs] using hdg)
+              (.cons (hgx _ _ hmx) (.cons rfl .nil)) (by simp [OpCode.wp_cmp, liftCmp]) hc
+              fun s' ⟨⟨⟨b, ⟨⟩⟩, hb, hpd⟩, hm⟩ hfr => ?_
+            cases hb
+            cases hpd with | cons hd _ =>
+            exact hkont s' ⟨hev ▸ hd, hm⟩ (by simpa [tupDstGprs] using hfr)
+          · simp at h2
+    | _ => simp [hdef] at h
+
+private theorem tryCmpMemVar_ok {zl : Bool} {G : VCtx} {nv w x k : Nat} {co : CmpOp}
+    {st : SymState T.toIsa} {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
+    {vx : BitVec w} {other₁ : Arg Val (.bits w)} {other : Arg VNat (.bits w)}
+    {pd : PDst T.Reg T.VReg T.Cond .bool} {c : List T.Directive} {clob : FlagMask}
+    (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ zl)
+    (hM : MemDefsOk G m nv st.memDefs) (hmx : ⟨.bits w, vx, x⟩ ∈ G)
+    (hrel : ArgRel G (.bits w) other₁ other) (hdg : ∀ r ∈ pd.gprs, r ∉ T.frame.scratch)
+    (h : tryCmpMemVar T.toIsa st co w x other pd = some (c, clob)) :
+    T.mach.FallsTo T.gpr.condReads host k c (pd.gprs ++ T.frame.scratch) [] clob s
+      (fun s' =>
+        T.mach.PDstHolds s' .bool pd (co.evalBits vx other₁.val) ∧
+        T.mach.mem s' = T.mach.mem s) post := by
+  unfold tryCmpMemVar at h
+  cases hmd : st.memDefs.find? x with
+  | none => simp [hmd] at h
+  | some p =>
+    rcases p with ⟨tm, addr⟩
+    cases tm with
+    | bits w' =>
+      simp only [hmd] at h
+      split at h
+      · rename_i heq
+        have hw : w' = w := Nat.beq_eq.mp heq
+        subst hw
+        obtain ⟨-, hlv0⟩ := hM x (.bits w') addr hmd
+        obtain ⟨a₁, ha₁, hlv⟩ := hlv0 vx hmx
+        obtain ⟨aa, hk1, hreg, hev⟩ := tryAddr_ok hA ha₁ h
+        obtain ⟨pb, hk2, hpb, -, hphp⟩ := tryArg_ok hA hrel hk1
+        have hlm : loadVal (T.mach.mem s) (.bits w') (aa.eval (T.mach.getGpr s)) = some vx := by
+          rw [hev]; exact loadVal_frame hI.2.2.2.1 hlv
+        exact T.gprSpec.cmpMem_spec hk2
+          (fun r hr => (List.mem_append.mp hr).elim (hreg r) (hpb r)) hdg hlm hphp
+      · simp at h
+    | _ => simp [hmd] at h
+
+private theorem tryFuseCmp_ok {zl : Bool} {G : VCtx} {nv k : Nat} {vh : VariantHint}
+    {st : SymState T.toIsa} {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
+    {sig ts : List Ty} {code : OpCode sig ts} {args₁ : Tup (Arg Val) sig}
+    {args : Tup (Arg VNat) sig} {dsts : Tup (PDst T.Reg T.VReg T.Cond) ts}
+    {P : Tup Val ts → Prop} {c : List T.Directive} {clob : FlagMask}
+    (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ zl)
+    (hM : MemDefsOk G m nv st.memDefs) (hargs : TRel (ArgRel G) args₁ args)
+    (hdg : ∀ r ∈ tupDstGprs dsts, r ∉ T.frame.scratch) (hwp : code.wp (vals args₁) P)
+    (h : tryFuseCmp T.toIsa st vh code args dsts = some (c, clob)) :
+    T.mach.FallsTo T.gpr.condReads host k c (tupDstGprs dsts ++ T.frame.scratch) [] clob s
+      (fun s' => (∃ rvs, P rvs ∧ TRel (T.mach.PDstHolds s') dsts rvs) ∧
+        T.mach.mem s' = T.mach.mem s) post := by
+  cases code with
+  | cmp co ty mty hm =>
+    cases ty with
+    | bits w =>
+      cases mty with
+      | bool =>
+        rcases args with ⟨a, b, ⟨⟩⟩
+        rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩
+        rcases dsts with ⟨pd, ⟨⟩⟩
+        cases hargs with | cons ha hb => cases hb with | cons hb _ =>
+        have hdg1 : ∀ r ∈ pd.gprs, r ∉ T.frame.scratch := fun r hr =>
+          hdg r (by simpa [tupDstGprs] using hr)
+        have hP : P (co.evalBits a₁.val b₁.val, ()) := by
+          simpa [OpCode.wp_cmp, vals, liftCmp] using hwp
+        have wrap : ∀ {bval : Bool}, bval = co.evalBits a₁.val b₁.val →
+            T.mach.FallsTo T.gpr.condReads host k c (pd.gprs ++ T.frame.scratch) [] clob s
+              (fun s' => T.mach.PDstHolds s' .bool pd bval ∧ T.mach.mem s' = T.mach.mem s) post →
+            T.mach.FallsTo T.gpr.condReads host k c
+              (tupDstGprs (ts := [.bool]) (pd, ()) ++ T.frame.scratch) [] clob s
+              (fun s' => (∃ rvs, P rvs ∧ TRel (T.mach.PDstHolds s') (as := [.bool]) (pd, ()) rvs) ∧
+                T.mach.mem s' = T.mach.mem s) post := by
+          intro bval heq hft hc hkont
+          refine hft hc fun s' ⟨hd, hms⟩ hfr =>
+            hkont s' ⟨⟨(co.evalBits a₁.val b₁.val, ()), hP, .cons (heq ▸ hd) .nil⟩, hms⟩
+              (by simpa [tupDstGprs] using hfr)
+        unfold tryFuseCmp at h
+        dsimp only at h
+        split at h
+        · simp at h
+        rcases orElse_eq_some h with ht | h
+        · split at ht
+          · rename_i hco
+            have hcoEq : (if co == .ne then CmpOp.ne else CmpOp.eq) = co := by
+              cases co <;> simp at hco ⊢
+            cases a with
+            | var t =>
+              cases b with
+              | imm c0 =>
+                dsimp only at ht
+                split at ht
+                · rename_i hc0
+                  have hc0' : c0 = 0#w := beq_iff_eq.mp hc0
+                  cases ha with | var hmt => cases hb with | imm =>
+                  refine wrap (by rw [hcoEq, hc0']; rfl)
+                    (tryTestFuse_ok hA hI hM hmt hdg1 ht)
+                · simp at ht
+              | var _ => simp at ht
+            | imm c0 =>
+              cases b with
+              | var t =>
+                dsimp only at ht
+                split at ht
+                · rename_i hc0
+                  have hc0' : c0 = 0#w := beq_iff_eq.mp hc0
+                  cases ha with | imm => cases hb with | var hmt =>
+                  refine wrap ?_ (tryTestFuse_ok hA hI hM hmt hdg1 ht)
+                  rw [hcoEq, ← CmpOp.swap_evalBits]
+                  cases co <;> simp [CmpOp.swap, hc0'] at hco ⊢
+                · simp at ht
+              | imm _ => simp at ht
+          · simp at ht
+        rcases orElse_eq_some h with he | hm'
+        · cases a with
+          | var t =>
+            cases b with
+            | imm ci =>
+              cases ha with | var hmt => cases hb with | imm =>
+              exact wrap rfl (tryExtCmp_ok hA hI hM hmt hdg1 he)
+            | var _ => simp at he
+          | imm ci =>
+            cases b with
+            | var t =>
+              cases ha with | imm => cases hb with | var hmt =>
+              exact wrap (CmpOp.swap_evalBits co _ _) (tryExtCmp_ok hA hI hM hmt hdg1 he)
+            | imm _ => simp at he
+        · rcases orElse_eq_some hm' with hm1 | hm2
+          · cases a with
+            | var x =>
+              cases ha with | var hmx =>
+              exact wrap rfl (tryCmpMemVar_ok hA hI hM hmx hb hdg1 hm1)
+            | imm _ => simp at hm1
+          · cases b with
+            | var y =>
+              cases hb with | var hmy =>
+              exact wrap (CmpOp.swap_evalBits co _ _)
+                (tryCmpMemVar_ok hA hI hM hmy ha hdg1 hm2)
+            | imm _ => simp at hm2
+      | _ => simp [tryFuseCmp] at h
+    | _ => simp [tryFuseCmp] at h
+  | _ => simp [tryFuseCmp] at h
+
+theorem lowerOp_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
     (hsv : ∀ r ∈ hints.saved, r ∈ T.frame.calleeSaved) {G : VCtx} {nv ip : Nat}
     {st st' : SymState T.toIsa} {c : List T.Directive} {k : Nat} {s : T.mach.MData}
     {σ : List (BitVec 64)} {m : Mem 64} {ts : List Ty} {op₁ : Op Val ts} {op : Op VNat ts}
     (hop : OpRel G op₁ op) (hl : lowerOp T.toIsa hints nv ip st op = some (c, st'))
     (hc : c.IsInfixAt (T.mach.prog host) k)
-    (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ)
+    (hA : Agree T G nv st s σ) (hM : MemDefsOk G m nv st.memDefs)
+    (hI : Inv T hints s₀ ra n Rf m s σ zl)
     {P : Tup Val ts → Prop} (hwp : op₁.wp P)
     (kont : ∀ (rvs : Tup Val ts) s', P rvs →
       Agree T (Tup.zip rvs (Tup.levels ts nv) ++ G) (nv + ts.length) st' s' σ →
-      Inv T hints s₀ ra n Rf m s' σ → T.mach.Run host (k + c.length) s' post) :
+      MemDefsOk (Tup.zip rvs (Tup.levels ts nv) ++ G) m (nv + ts.length) st'.memDefs →
+      Inv T hints s₀ ra n Rf m s' σ zl → T.mach.Run host (k + c.length) s' post) :
     T.mach.Run host k s post := by
   have _hspE := hspE
   cases hop with
   | mk code hargs =>
   rename_i sig args₁ args
+  have hMgrow : ∀ rvs : Tup Val ts,
+      MemDefsOk (Tup.zip rvs (Tup.levels ts nv) ++ G) m (nv + ts.length) st.memDefs := fun rvs =>
+    hM.grow (Nat.le_add_right _ _)
+      (fun p hp => (zip_levels_mem hp).imp id (·.1))
+      (fun _ h => List.mem_append_right _ h)
   unfold lowerOp at hl
   split at hl
   · cases hd : recordDef st.defs code args with
@@ -995,17 +1475,17 @@ theorem lowerOp_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
     | some df =>
       simp only [hd, Option.some.injEq, Prod.mk.injEq] at hl
       rcases hl with ⟨rfl, rfl⟩
-      obtain ⟨rvs, hP, hrs, hdef⟩ := recordDef_elide_ok hA.defs hargs hA.ctx_lt hwp hd
+      obtain ⟨w, hrs, rvs, hP, hdef⟩ := recordDef_elide_ok hA.defs hargs hA.ctx_lt hwp hd
       subst hrs
       rcases rvs with ⟨rv, ⟨⟩⟩
       have hvw0 : ∀ x < nv, st.vecWidths.find? x = st.vecWidths.find? x := fun _ _ => rfl
-      have hvw : ∀ w, st.vecWidths.find? nv = some w →
-          i64.size ≤ w.bits ∧ ∃ a b, i64 = .pair a b := fun w hw =>
+      have hvw : ∀ sw, st.vecWidths.find? nv = some sw →
+          (Ty.bits w).size ≤ sw.bits ∧ ∃ a b, Ty.bits w = .pair a b := fun sw hw =>
         absurd (hA.vw_lt _ _ hw) (Nat.lt_irrefl _)
       have hvw1 : ∀ x, nv < x → st.vecWidths.find? x = none := fun x hx =>
-        Option.eq_none_iff_forall_ne_some.mpr fun w hw =>
+        Option.eq_none_iff_forall_ne_some.mpr fun sw hw =>
           absurd (hA.vw_lt _ _ hw) (Nat.not_lt.mpr (Nat.le_of_lt hx))
-      have hA1 := hA.push i64 rv st.vecWidths hvw0 hvw hvw1 (by intro _ a b h; cases h)
+      have hA1 := hA.push (.bits w) rv st.vecWidths hvw0 hvw hvw1 (by intro _ a b h; cases h)
       refine kont (rv, ()) s hP
         { hA1 with
           defs := fun x d hx => by
@@ -1016,7 +1496,7 @@ theorem lowerOp_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
             rw [Trie.find?_insert] at hx; split at hx
             · subst_vars; exact Nat.lt_succ_self _
             · exact hA1.defs_lt x d hx }
-        hI
+        (hMgrow (rv, ())) hI
   simp only [Option.bind_eq_some_iff] at hl
   obtain ⟨dsts, hdst, hl⟩ := hl
   obtain ⟨⟨c', clob, isVec, z32⟩, hpick, heq⟩ := Option.map_eq_some_iff.mp hl
@@ -1072,7 +1552,7 @@ theorem lowerOp_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
       · exact ⟨hA1.defs x d hx, hA1.defs_lt x d hx⟩
     exact kont rvs s' hP ⟨hA1.ctx_lt, fun p hp => (hr1 p hp).1, hA1.slots, fun x d hx => (hd1 x d hx).1,
       hA1.vw, fun p hp => (hr1 p hp).2, hA1.slots_lt, fun x d hx => (hd1 x d hx).2, hA1.vw_lt, hA1.vt⟩
-      (hI.keep hm (keep_of_frame hfr.1 hdg))
+      (hMgrow rvs) (hI.keep hm (keep_of_frame hfr.1 hdg))
   by_cases hel : elideZext32? T.toIsa st.regs code args dsts = true
   · simp only [hel, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at hpick
     rcases hpick with ⟨rfl, rfl, rfl, rfl⟩
@@ -1101,71 +1581,75 @@ theorem lowerOp_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
                 TRel.cons ⟨by decide, by rw [hgr, BitVec.setWidth_eq]⟩ .nil⟩
                 rfl ⟨fun _ _ => rfl, fun _ _ => rfl, fun _ _ => rfl⟩ rfl
   · simp only [hel, Bool.false_eq_true, ↓reduceIte] at hpick
-    obtain ⟨pas, hk, hpg, hpv, hph⟩ := pickPArgs_ok hA hargs hpick
-    split at hk <;> (try rcases orElse_eq_some hk with hk | hk) <;>
-      obtain ⟨⟨c'', cl⟩, hop', he⟩ := Option.map_eq_some_iff.mp hk <;> cases he
-    · by_cases hz : opProducesZ32 T.toIsa code pas dsts = true
-      · have hz_eq := hz
-        cases ts with
-        | nil => simp [opProducesZ32] at hz
-        | cons t0 ts0 =>
-          cases ts0 with
-          | cons _ _ => simp [opProducesZ32] at hz
-          | nil =>
-            cases t0 with
-            | bool | float _ | pair _ _ => simp [opProducesZ32] at hz
-            | bits n0 =>
-              rcases dsts with ⟨d0, ⟨⟩⟩
-              cases d0 with
-              | vec _ => simp [opProducesZ32] at hz
-              | gpr rd =>
-                simp only [opProducesZ32, Bool.and_eq_true, Nat.beq_eq] at hz
-                obtain ⟨rfl, hzop⟩ := hz
-                have hrd : rd ∉ T.frame.scratch := hdg' rd (by simp [tupDstGprs])
-                refine T.gprSpec.op_zero32 hzop hop' rfl hpg hrd hph hwp' hc
-                  fun s' ⟨⟨rv, ⟨hP, hdef⟩, hrd_eq⟩, hm⟩ hfr => ?_
-                have hK := hA.kill hfr
-                have hnone : ∀ x, nv ≤ x → st.vecWidths.find? x = none := fun x hx =>
-                  Option.eq_none_iff_forall_ne_some.mpr fun w h =>
-                    absurd (hA.vw_lt _ _ h) (Nat.not_lt.mpr hx)
-                have hA1 := hK.push (.bits 32) rv st.vecWidths (fun _ _ => rfl)
-                  (fun w h => absurd (hnone nv (Nat.le_refl _)) (by simp [h]))
-                  (fun x hx => hnone x (Nat.le_of_lt hx)) (fun _ a b h => by cases h)
-                have hA2 := hA1.consReg (sa := .var nv) (rl := .gprZ rd)
-                  ⟨fun t' v' hm' => by
-                    cases mem_cons_top hA.ctx_lt hm'
-                    exact ⟨by decide, by rw [hrd_eq,
-                      BitVec.setWidth_setWidth_of_le _ (by decide), BitVec.setWidth_eq]⟩,
-                    fun v' hm' => by cases mem_cons_top hA.ctx_lt hm'; exact hrd_eq⟩
-                  (by simp [symArgScopeOk])
-                have hd1 : ∀ x d, Trie.find? (match recordDef st.defs code args with
-                    | some df => st.defs.insert nv df | none => st.defs) x = some d →
-                    DefOk (G' (rv, ())) x d ∧ x < nv + 1 := by
-                  intro x d hx; split at hx
-                  · rw [Trie.find?_insert] at hx; split at hx
-                    · cases hx; subst_vars; exact ⟨(hdef _ ‹_›).2, Nat.lt_succ_self _⟩
+    rcases orElse_eq_some hpick with hfuse | hpick
+    · obtain ⟨⟨c'', cl⟩, hfc, he⟩ := Option.map_eq_some_iff.mp hfuse
+      cases he
+      refine tryFuseCmp_ok hA hI hM hargs hdg' hwp' hfc hc fun s' ⟨hQ, hm⟩ hfr =>
+        fin rfl s' [] hQ hm hfr rfl
+    · obtain ⟨pas, hk, hpg, hpv, hph⟩ := pickPArgs_ok hA hargs hpick
+      split at hk <;> (try rcases orElse_eq_some hk with hk | hk) <;>
+        obtain ⟨⟨c'', cl⟩, hop', he⟩ := Option.map_eq_some_iff.mp hk <;> cases he
+      · by_cases hz : opProducesZ32 T.toIsa code pas dsts = true
+        · have hz_eq := hz
+          cases ts with
+          | nil => simp [opProducesZ32] at hz
+          | cons t0 ts0 =>
+            cases ts0 with
+            | cons _ _ => simp [opProducesZ32] at hz
+            | nil =>
+              cases t0 with
+              | bool | float _ | pair _ _ => simp [opProducesZ32] at hz
+              | bits n0 =>
+                rcases dsts with ⟨d0, ⟨⟩⟩
+                cases d0 with
+                | vec _ => simp [opProducesZ32] at hz
+                | gpr rd =>
+                  simp only [opProducesZ32, Bool.and_eq_true, Nat.beq_eq] at hz
+                  obtain ⟨rfl, hzop⟩ := hz
+                  have hrd : rd ∉ T.frame.scratch := hdg' rd (by simp [tupDstGprs])
+                  refine T.gprSpec.op_zero32 hzop hop' rfl hpg hrd hph hwp' hc
+                    fun s' ⟨⟨rv, ⟨hP, hdef⟩, hrd_eq⟩, hm⟩ hfr => ?_
+                  have hK := hA.kill hfr
+                  have hnone : ∀ x, nv ≤ x → st.vecWidths.find? x = none := fun x hx =>
+                    Option.eq_none_iff_forall_ne_some.mpr fun w h =>
+                      absurd (hA.vw_lt _ _ h) (Nat.not_lt.mpr hx)
+                  have hA1 := hK.push (.bits 32) rv st.vecWidths (fun _ _ => rfl)
+                    (fun w h => absurd (hnone nv (Nat.le_refl _)) (by simp [h]))
+                    (fun x hx => hnone x (Nat.le_of_lt hx)) (fun _ a b h => by cases h)
+                  have hA2 := hA1.consReg (sa := .var nv) (rl := .gprZ rd)
+                    ⟨fun t' v' hm' => by
+                      cases mem_cons_top hA.ctx_lt hm'
+                      exact ⟨by decide, by rw [hrd_eq,
+                        BitVec.setWidth_setWidth_of_le _ (by decide), BitVec.setWidth_eq]⟩,
+                      fun v' hm' => by cases mem_cons_top hA.ctx_lt hm'; exact hrd_eq⟩
+                    (by simp [symArgScopeOk])
+                  have hd1 : ∀ x d, Trie.find? (match recordDef st.defs code args with
+                      | some df => st.defs.insert nv df | none => st.defs) x = some d →
+                      DefOk (G' (rv, ())) x d ∧ x < nv + 1 := by
+                    intro x d hx; split at hx
+                    · rw [Trie.find?_insert] at hx; split at hx
+                      · cases hx; subst_vars; exact ⟨(hdef _ ‹_›).2, Nat.lt_succ_self _⟩
+                      · exact ⟨hA2.defs x d hx, hA2.defs_lt x d hx⟩
                     · exact ⟨hA2.defs x d hx, hA2.defs_lt x d hx⟩
-                  · exact ⟨hA2.defs x d hx, hA2.defs_lt x d hx⟩
-                have hA3 : Agree T (G' (rv, ())) (nv + [Ty.bits 32].length)
-                    { regs := (.var nv, RegLoc.gprZ rd) ::
-                        killRegs T.toIsa (rd :: T.frame.scratch) [] cl st.regs
-                      slots := st.slots
-                      defs := match recordDef st.defs code args with
-                        | some df => st.defs.insert nv df | none => st.defs
-                      vecWidths := st.vecWidths } s' σ :=
-                  { hA2 with
-                    defs := fun x d hx => (hd1 x d hx).1
-                    defs_lt := fun x d hx => (hd1 x d hx).2 }
-                have hI' := hI.keep hm (keep_of_frame (gs := [rd]) hfr.1
-                  (fun r hr => hdg r (by simpa [tupDstGprs] using hr)))
-                refine kont (rv, ()) s' hP ?_ hI'
-                dsimp only; rw [hz_eq]
-                dsimp only [tupDstGprs, tupFlatMap, PDst.gprs]
-                exact hA3
-      · refine T.gprSpec.op_spec hop' hpg hdg' hph hwp' hc fun s' ⟨hQ, hm⟩ hfr =>
-          fin (Bool.eq_false_iff.mpr hz) s' [] hQ hm hfr rfl
-    all_goals exact T.vecSpec.vop_spec hop' hpg hpv hdg' hdv' hph hwp' hc
-                fun s' ⟨hQ, hm⟩ hfr => fin rfl s' _ hQ hm hfr rfl
+                  have hA3 : Agree T (G' (rv, ())) (nv + [Ty.bits 32].length)
+                      { st with
+                        regs := (.var nv, RegLoc.gprZ rd) ::
+                          killRegs T.toIsa (rd :: T.frame.scratch) [] cl st.regs
+                        defs := match recordDef st.defs code args with
+                          | some df => st.defs.insert nv df | none => st.defs } s' σ :=
+                    { hA2 with
+                      defs := fun x d hx => (hd1 x d hx).1
+                      defs_lt := fun x d hx => (hd1 x d hx).2 }
+                  have hI' := hI.keep hm (keep_of_frame (gs := [rd]) hfr.1
+                    (fun r hr => hdg r (by simpa [tupDstGprs] using hr)))
+                  refine kont (rv, ()) s' hP ?_ (hMgrow (rv, ())) hI'
+                  dsimp only; rw [hz_eq]
+                  dsimp only [tupDstGprs, tupFlatMap, PDst.gprs]
+                  exact hA3
+        · refine T.gprSpec.op_spec hop' hpg hdg' hph hwp' hc fun s' ⟨hQ, hm⟩ hfr =>
+            fin (Bool.eq_false_iff.mpr hz) s' [] hQ hm hfr rfl
+      all_goals exact T.vecSpec.vop_spec hop' hpg hpv hdg' hdv' hph hwp' hc
+                  fun s' ⟨hQ, hm⟩ hfr => fin rfl s' _ hQ hm hfr rfl
 
 end Lemmas
 
@@ -1397,6 +1881,137 @@ theorem saveCs_clean : ∀ (base : Nat) (rs : List I.Reg), NoLab I (saveCs I bas
   | _, [] => NoLab.nil
   | _, _ :: rs => (hcl.slotSt _ _).append (saveCs_clean _ rs)
 
+omit hcl in
+private theorem tryGpr_some {st : SymState I} {α : Type} {sa : SymArg}
+    {k : I.Reg → Option α} {res : α} (h : tryGpr I st.regs sa k = some res) :
+    ∃ r, k r = some res := by
+  obtain ⟨⟨_, rl⟩, -, hb⟩ := List.exists_of_findSome?_eq_some h
+  cases rl <;> simp only at hb <;> (try split at hb) <;> first | exact ⟨_, hb⟩ | simp at hb
+
+private theorem tryTestMemVar_clean {st : SymState I} {neg : Bool} {w x : Nat}
+    {other : Arg VNat (.bits w)} {pd : PDst I.Reg I.VReg I.Cond .bool} {c : List I.Directive}
+    {cl : FlagMask} (h : tryTestMemVar I st neg w x other pd = some (c, cl)) : NoLab I c := by
+  unfold tryTestMemVar at h
+  cases hmd : st.memDefs.find? x with
+  | none => simp [hmd] at h
+  | some p =>
+    rcases p with ⟨tm, addr⟩
+    cases tm with
+    | bits w' =>
+      simp only [hmd] at h
+      split at h
+      · obtain ⟨_, h1⟩ := tryAddr_some h
+        obtain ⟨_, h2⟩ := tryArg_some h1
+        exact hcl.testMem _ _ _ _ _ _ _ h2
+      · simp at h
+    | _ => simp [hmd] at h
+
+private theorem tryCmpMemVar_clean {st : SymState I} {co : CmpOp} {w x : Nat}
+    {other : Arg VNat (.bits w)} {pd : PDst I.Reg I.VReg I.Cond .bool} {c : List I.Directive}
+    {cl : FlagMask} (h : tryCmpMemVar I st co w x other pd = some (c, cl)) : NoLab I c := by
+  unfold tryCmpMemVar at h
+  cases hmd : st.memDefs.find? x with
+  | none => simp [hmd] at h
+  | some p =>
+    rcases p with ⟨tm, addr⟩
+    cases tm with
+    | bits w' =>
+      simp only [hmd] at h
+      split at h
+      · obtain ⟨_, h1⟩ := tryAddr_some h
+        obtain ⟨_, h2⟩ := tryArg_some h1
+        exact hcl.cmpMem _ _ _ _ _ _ _ h2
+      · simp at h
+    | _ => simp [hmd] at h
+
+private theorem tryTestFuse_clean {st : SymState I} {neg : Bool} {w t : Nat}
+    {pd : PDst I.Reg I.VReg I.Cond .bool} {c : List I.Directive} {cl : FlagMask}
+    (h : tryTestFuse I st neg w t pd = some (c, cl)) : NoLab I c := by
+  unfold tryTestFuse at h
+  cases hdef : st.defs.find? t with
+  | none => simp [hdef] at h
+  | some df =>
+    cases df with
+    | andVarImm _ _ _ =>
+      simp only [hdef] at h; split at h; · simp at h
+      rcases orElse_eq_some h with h1 | h2
+      · exact tryTestMemVar_clean hcl h1
+      · obtain ⟨_, hk⟩ := tryArg_some h2; exact hcl.testOp _ _ _ _ _ _ _ hk
+    | andVarVar _ _ _ =>
+      simp only [hdef] at h; split at h; · simp at h
+      rcases orElse_eq_some h with h1 | h
+      · exact tryTestMemVar_clean hcl h1
+      rcases orElse_eq_some h with h2 | h3
+      · exact tryTestMemVar_clean hcl h2
+      · obtain ⟨_, hk1⟩ := tryArg_some h3
+        obtain ⟨_, hk2⟩ := tryArg_some hk1
+        exact hcl.testOp _ _ _ _ _ _ _ hk2
+    | _ => simp [hdef] at h
+
+private theorem tryExtCmp_clean {st : SymState I} {vh : VariantHint} {co : CmpOp} {w t : Nat}
+    {ci : BitVec w} {pd : PDst I.Reg I.VReg I.Cond .bool} {c : List I.Directive} {cl : FlagMask}
+    (h : tryExtCmp I st vh co w t ci pd = some (c, cl)) : NoLab I c := by
+  unfold tryExtCmp at h
+  cases hdef : st.defs.find? t with
+  | none => simp [hdef] at h
+  | some df =>
+    cases df with
+    | sextVar mw _ x | zextVar mw _ x =>
+      simp only [hdef] at h; split at h; · simp at h
+      rcases orElse_eq_some h with h1 | h2
+      · cases hmd : st.memDefs.find? x with
+        | none => simp [hmd] at h1
+        | some p =>
+          rcases p with ⟨tm, addr⟩
+          cases tm with
+          | bits _ =>
+            simp only [hmd] at h1; split at h1
+            · obtain ⟨_, hk⟩ := tryAddr_some h1; exact hcl.cmpMem _ _ _ _ _ _ _ hk
+            · simp at h1
+          | _ => simp [hmd] at h1
+      · split at h2
+        · obtain ⟨_, hk⟩ := tryGpr_some h2; exact hcl.op _ _ _ _ _ _ hk
+        · simp at h2
+    | _ => simp [hdef] at h
+
+private theorem tryFuseCmp_clean {st : SymState I} {vh : VariantHint} {sig ts : List Ty}
+    {code : OpCode sig ts} {args : Tup (Arg VNat) sig} {dsts : Tup (PDst I.Reg I.VReg I.Cond) ts}
+    {c : List I.Directive} {cl : FlagMask}
+    (h : tryFuseCmp I st vh code args dsts = some (c, cl)) : NoLab I c := by
+  cases code with
+  | cmp _ ty mty _ =>
+    cases ty with
+    | bits _ =>
+      cases mty with
+      | bool =>
+        rcases args with ⟨a, b, ⟨⟩⟩; rcases dsts with ⟨pd, ⟨⟩⟩
+        unfold tryFuseCmp at h; dsimp only at h
+        split at h; · simp at h
+        rcases orElse_eq_some h with ht | h
+        · split at ht
+          · cases a with
+            | var _ =>
+              cases b with
+              | imm _ =>
+                dsimp only at ht
+                split at ht <;> first | exact tryTestFuse_clean hcl ht | simp at ht
+              | var _ => simp at ht
+            | imm _ =>
+              cases b with
+              | var _ =>
+                dsimp only at ht
+                split at ht <;> first | exact tryTestFuse_clean hcl ht | simp at ht
+              | imm _ => simp at ht
+          · simp at ht
+        rcases orElse_eq_some h with he | hm
+        · cases a <;> cases b <;> first | exact tryExtCmp_clean hcl he | simp at he
+        · rcases orElse_eq_some hm with hm1 | hm2
+          · cases a <;> first | exact tryCmpMemVar_clean hcl hm1 | simp at hm1
+          · cases b <;> first | exact tryCmpMemVar_clean hcl hm2 | simp at hm2
+      | _ => simp [tryFuseCmp] at h
+    | _ => simp [tryFuseCmp] at h
+  | _ => simp [tryFuseCmp] at h
+
 theorem lowerOp_clean {h : I.Hints} {nv ip : Nat} {st st' : SymState I} {ts : List Ty}
     {op : Op VNat ts} {c : List I.Directive} (hl : lowerOp I h nv ip st op = some (c, st')) :
     NoLab I c := by
@@ -1411,6 +2026,9 @@ theorem lowerOp_clean {h : I.Hints} {nv ip : Nat} {st st' : SymState I} {ts : Li
   split at hp
   · simp only [Option.some.injEq, Prod.mk.injEq] at hp
     rcases hp with ⟨rfl, rfl, rfl, rfl⟩; exact NoLab.nil
+  rcases orElse_eq_some hp with hfuse | hp
+  · obtain ⟨⟨_, _⟩, hfc, he⟩ := Option.map_eq_some_iff.mp hfuse; cases he
+    exact tryFuseCmp_clean hcl hfc
   obtain ⟨pas, hk⟩ := pickPArgs_some hp
   have hv : (I.vec.vop op.code pas dsts (h.variant.getD ip .default)).map
       (fun x => (x.1, x.2, true, false)) = some (c', cl, iv, _z) → NoLab I c' := fun hk => by
@@ -1425,6 +2043,10 @@ theorem lowerLoad_clean {h : I.Hints} {nv ip : Nat} {st st' : SymState I} {t : T
     {a : Arg VNat i64} {c : List I.Directive} (hl : lowerLoad I h nv ip st t a = some (c, st')) :
     NoLab I c := by
   unfold lowerLoad at hl
+  split at hl
+  · split at hl
+    · simp only [Option.some.injEq, Prod.mk.injEq] at hl; rcases hl with ⟨rfl, -⟩; exact NoLab.nil
+    · simp at hl
   split at hl
   · split at hl; · simp at hl
     obtain ⟨⟨_, _⟩, hta, he⟩ := Option.map_eq_some_iff.mp hl; cases he
@@ -1451,16 +2073,27 @@ theorem lowerStore_clean {st st' : SymState I} {vh : VariantHint} {t : Ty} {v : 
     obtain ⟨⟨_, _⟩, hta, he⟩ := Option.map_eq_some_iff.mp hl; cases he
     obtain ⟨_, hk⟩ := tryArg_some hta; obtain ⟨_, hk⟩ := tryAddr_some hk; exact hcl.store _ _ _ _ _ hk
 
+theorem fnPrologue_clean (h : I.Hints) (E : Ext) : NoLab I (fnPrologue I h E) := by
+  unfold fnPrologue; split
+  · exact NoLab.nil
+  · exact hcl.prologue _
+
+theorem fnEpilogue_clean (h : I.Hints) (E : Ext) : NoLab I (fnEpilogue I h E) := by
+  unfold fnEpilogue; split
+  · exact NoLab.nil
+  · exact hcl.epilogue _
+
 omit hcl in
-theorem lowerTail_spec {h : I.Hints} {st : SymState I} {mc tail : List I.Directive} {ts : List Ty}
-    {args : Tup (Arg VNat) ts} {locs : Tup (AbiReg I.Reg I.VReg) ts} {nv nl ip : Nat}
+theorem lowerTail_spec {h : I.Hints} {E : Ext} {st : SymState I} {mc tail : List I.Directive}
+    {ts : List Ty} {args : Tup (Arg VNat) ts} {locs : Tup (AbiReg I.Reg I.VReg) ts} {nv nl ip : Nat}
     {c : List I.Directive} {nv' nl' ip' : Nat}
-    (hl : lowerTail I h st mc tail args locs nv nl ip = .ok (c, nv', nl', ip')) :
+    (hl : lowerTail I h E st mc tail args locs nv nl ip = .ok (c, nv', nl', ip')) :
     nv' = nv ∧ nl' = nl ∧ (LabelClean I → NoLab I mc → NoLab I tail → NoLab I c) := by
   unfold lowerTail at hl; repeat' (split at hl <;> try (simp at hl; done))
   simp only [Except.ok.injEq, Prod.mk.injEq] at hl; obtain ⟨rfl, rfl, rfl, -⟩ := hl
   exact ⟨rfl, rfl, fun hcl hm ht => ((((hm.append (shuffle_clean hcl ‹_›)).append
-    (canonAbiCode_clean hcl _)).append (restoreCs_clean hcl _ _)).append (hcl.epilogue _)).append ht⟩
+    (canonAbiCode_clean hcl _)).append (restoreCs_clean hcl _ _)).append
+      (fnEpilogue_clean hcl h E)).append ht⟩
 
 end Labels
 
@@ -1658,7 +2291,8 @@ theorem lowerFn_labOk {hints : I.Hints} {E : Ext} {f : Fn} {code : List I.Direct
   rename_i c _ _ _ he
   simp only [Except.ok.injEq] at hf; subst hf
   have h3 := (lowerExpr_labels _ _ _ _ _ _ _ _ _ _ he).2.2 hcl
-  refine (LabOk.single hcl f.name).append (h3.pre ((hcl.prologue _).append (saveCs_clean hcl _ _)))
+  refine (LabOk.single hcl f.name).append
+    (h3.pre ((fnPrologue_clean hcl hints E).append (saveCs_clean hcl _ _)))
     (fun l h1 h2 => ?_) (fun l h => ?_)
   · obtain ⟨j, -, -, rfl⟩ := h2; exact lname_ne h1
   · exact h.imp id fun ⟨j, _, _, e⟩ => ⟨j, e⟩

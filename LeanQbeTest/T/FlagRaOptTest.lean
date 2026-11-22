@@ -396,4 +396,144 @@ meta def zext32AfterTruncFn : Fn :=
 #guard chk [zext32AfterTruncFn]
 #guard countDirs isMovlRegDir (codeOf [zext32AfterTruncFn]) >= 1
 
+/-! ## 8. Track C4c Flag/Mem-Compare Fusion & Track C5 Zero-Frame Leaf Elision -/
+
+meta def isTestDir : Directive → Bool
+  | .instr (.regular _ _ (.test _ _)) => true
+  | _ => false
+
+meta def isTestMemDir : Directive → Bool
+  | .instr (.regular _ _ (.test (.mem _) _)) => true
+  | _ => false
+
+meta def isCmpDir : Directive → Bool
+  | .instr (.regular _ _ (.cmp _ _)) => true
+  | _ => false
+
+meta def isCmpbMemDir : Directive → Bool
+  | .instr (.regular _ .W8 (.cmp (.mem _) _)) => true
+  | _ => false
+
+meta def isCmpMemDir : Directive → Bool
+  | .instr (.regular _ _ (.cmp (.mem _) _)) => true
+  | _ => false
+
+meta def isAndDir : Directive → Bool
+  | .instr (.regular _ _ (.and _ _)) => true
+  | _ => false
+
+meta def isMovzxOrSxDir : Directive → Bool
+  | .instr (.regular _ _ (.movzx _ _)) => true
+  | .instr (.regular _ _ (.movsx _ _)) => true
+  | _ => false
+
+meta def isRspAdjDir : Directive → Bool
+  | .instr (.regular _ .W64 (.add (.reg (.low .rsp .W64)) _))
+  | .instr (.regular _ .W64 (.sub (.reg (.low .rsp .W64)) _)) => true
+  | _ => false
+
+meta def isMovi64Dir : Directive → Bool
+  | .instr (.regular _ .W64 (.mov (.reg (.low _ .W64)) (.imm _))) => true
+  | _ => false
+
+meta def isMovi32Dir : Directive → Bool
+  | .instr (.regular _ .W32 (.mov (.reg (.low _ .W32)) (.imm _))) => true
+  | _ => false
+
+/-- Kissat BCP binary-watch bit test `(w & 0x80000000) != 0` fuses into `testl` (`0 and`/`cmp`). -/
+meta def testImmFuseFn : Fn :=
+  ⟨"testImmFuseX64", [i32, i64, i64], [i64], fun _ _ (w, a, b, ()) =>
+    .let_ (op2 (.and i32) (.var w) (.imm 0x80000000#32)) fun (t, ()) =>
+    .let_ (op2 (.cmp .ne i32) (.var t) (.imm 0#32)) fun (c, ()) =>
+    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+
+/-- Kissat `(marks[var] & 1) == 0` fuses `load i32` + `and` + `cmp` into `testl [mem]`. -/
+meta def testMemFuseFn : Fn :=
+  ⟨"testMemFuseX64", [i64, i64, i64, i64], [i64], fun _ _ (base, idx, a, b, ()) =>
+    .let_ (op2 (.shl i64) (.var idx) (.imm 2#64)) fun (off, ()) =>
+    .let_ (op2 (.add i64) (.var base) (.var off)) fun (p, ()) =>
+    .load i32 (.var p) fun v =>
+    .let_ (op2 (.and i32) (.var v) (.imm 1#32)) fun (t, ()) =>
+    .let_ (op2 (.cmp .eq i32) (.var t) (.imm 0#32)) fun (c, ()) =>
+    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+
+/-- Kissat `vals[lit] < 0` (`sext 8 32 (load i8 [base+idx]) <s 0`) fuses into `cmpb $0, [mem]`. -/
+meta def cmpbMemSextFn : Fn :=
+  ⟨"cmpbMemSextX64", [i64, i64, i64, i64], [i64], fun _ _ (base, idx, a, b, ()) =>
+    .let_ (op2 (.add i64) (.var base) (.var idx)) fun (p, ()) =>
+    .load i8 (.var p) fun v =>
+    .let_ (op1 (.sext 8 32) (.var v)) fun (s, ()) =>
+    .let_ (op2 (.cmp .slt i32) (.var s) (.imm 0#32)) fun (c, ()) =>
+    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+
+/-- Unsigned byte compare `zext 8 32 (load i8 [base+idx]) == 5` fuses into `cmpb $5, [mem]`. -/
+meta def cmpbMemZextFn : Fn :=
+  ⟨"cmpbMemZextX64", [i64, i64, i64, i64], [i64], fun _ _ (base, idx, a, b, ()) =>
+    .let_ (op2 (.add i64) (.var base) (.var idx)) fun (p, ()) =>
+    .load i8 (.var p) fun v =>
+    .let_ (op1 (.zext 8 32) (.var v)) fun (z, ()) =>
+    .let_ (op2 (.cmp .eq i32) (.var z) (.imm 5#32)) fun (c, ()) =>
+    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+
+/-- Negative test: intervening `store` MUST block load-into-`cmp` elision (aliasing soundness). -/
+meta def cmpMemStoreBlockFn : Fn :=
+  ⟨"cmpMemStoreBlockX64", [i64, i64, i64, i64], [i64], fun _ _ (p, q, a, b, ()) =>
+    .load i32 (.var p) fun v =>
+    .store (t := i32) (.imm 0#32) (.var q) (
+    .let_ (op2 (.cmp .eq i32) (.var v) (.imm 0#32)) fun (c, ()) =>
+    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ())))⟩
+
+/-- Negative test: signed `<s` on `zext 8 32` MUST NOT narrow-fuse to signed `cmpb`. -/
+meta def cmpZextSignedNoFuseFn : Fn :=
+  ⟨"cmpZextSignedNoFuseX64", [i64, i64, i64], [i64], fun _ _ (p, a, b, ()) =>
+    .load i8 (.var p) fun v =>
+    .let_ (op1 (.zext 8 32) (.var v)) fun (z, ()) =>
+    .let_ (op2 (.cmp .slt i32) (.var z) (.imm 0#32)) fun (c, ()) =>
+    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+
+/-- Compact 5-byte `movl $uimm32` for unsigned 32-bit constants in 64-bit returns, and 0-slot leaf
+frame elision (`0` `%rsp` adjustments, stack bound `0`). -/
+meta def movi32LeafFn : Fn :=
+  ⟨"movi32LeafX64", [i64], [i64], fun _ _ (x, ()) =>
+    .let_ (op2 (.xor i64) (.var x) (.imm 0xdeadbeef#64)) fun (y, ()) =>
+    .ret (.var y, ())⟩
+
+#guard chk [testImmFuseFn]
+#guard countDirs isTestDir (codeOf [testImmFuseFn]) == 1
+#guard countDirs isAndDir (codeOf [testImmFuseFn]) == 0
+#guard countDirs isCmpDir (codeOf [testImmFuseFn]) == 0
+#guard countDirs isSetccDir (codeOf [testImmFuseFn]) == 0
+#guard countDirs isRspAdjDir (codeOf [testImmFuseFn]) == 0
+
+#guard chk [testMemFuseFn]
+#guard countDirs isTestMemDir (codeOf [testMemFuseFn]) == 1
+#guard countDirs isAndDir (codeOf [testMemFuseFn]) == 0
+#guard countDirs isCmpDir (codeOf [testMemFuseFn]) == 0
+#guard countDirs isRspAdjDir (codeOf [testMemFuseFn]) == 0
+
+#guard chk [cmpbMemSextFn]
+#guard countDirs isCmpbMemDir (codeOf [cmpbMemSextFn]) == 1
+#guard countDirs isMovzxOrSxDir (codeOf [cmpbMemSextFn]) == 0
+#guard countDirs isRspAdjDir (codeOf [cmpbMemSextFn]) == 0
+
+#guard chk [cmpbMemZextFn]
+#guard countDirs isCmpbMemDir (codeOf [cmpbMemZextFn]) == 1
+#guard countDirs isMovzxOrSxDir (codeOf [cmpbMemZextFn]) == 0
+
+#guard chk [cmpMemStoreBlockFn]
+#guard countDirs isCmpMemDir (codeOf [cmpMemStoreBlockFn]) == 0
+
+#guard chk [cmpZextSignedNoFuseFn]
+#guard countDirs isCmpbMemDir (codeOf [cmpZextSignedNoFuseFn]) == 0
+
+#guard chk [movi32LeafFn]
+#guard countDirs isMovi64Dir (codeOf [movi32LeafFn]) == 0
+#guard countDirs isMovi32Dir (codeOf [movi32LeafFn]) >= 1
+#guard countDirs isRspAdjDir (codeOf [movi32LeafFn]) == 0
+#guard
+  match compileModule x64Target.toIsa x64LegalTarget x64Target.frame.raBytes [] [] 0
+      [movi32LeafFn] [Fn.computeHints x64Target.toIsa x64LegalTarget movi32LeafFn] with
+  | .ok (_, [(_, b)]) => b == 0
+  | _ => false
+
 end LeanQbeTest.T.FlagRaOptTest

@@ -280,7 +280,8 @@ theorem x64SupportsScalarOp_complete {sig rs : List Ty} {code : OpCode sig rs} {
     rcases mem_x64BitWidths hsup with rfl | rfl | rfl | rfl <;>
       cases pa <;> cases pb <;> first
         | exact absurd rfl (ha _) | exact absurd rfl (hb _)
-        | ((dsimp only [x64OpIns]; simp [withWidth, opCmpIns, cmpDirectIns]; repeat' split) <;> rfl)
+        | ((dsimp only [x64OpIns]; simp [withWidth, opCmpIns, cmpDirectIns, cmpRegImmIns];
+            repeat' split) <;> rfl)
   case select t =>
     cases t <;> try exact false_ne_true_of (rfl : x64SupportsScalarOp _ u = false) hsup
     rename_i n; change x64BitWidths.contains n = true at hsup; have hc' := arg1_nv hp; have ha := arg2_nv hp; have hb := arg3_nv hp
@@ -592,6 +593,80 @@ theorem x64Gpr_op_zero32 {h : x64Mach.Host} {k : Nat} {sig : List Ty}
     rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
     have ha := trel1 hvs; dsimp only [x64OpIns] at hc
     exact opPostZ_fallsTo hwp fun {_} _ => opOfBool_zero32_spec hc ha
+  case clz | cls | ctz | popcnt =>
+    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+    have ha := trel1 hvs; dsimp only [x64OpIns, withWidth] at hc
+    dsimp only [OpCode.wp] at hwp
+    exact opPostZ_fallsTo hwp fun {_} _ =>
+      opBitcnt_zero32_spec _ hc (fun r hr => hargs r (by
+        cases pa with | gpr _ => simpa [tupArgGprs] using hr | _ => simp at hr)) ha
+  case udiv | sdiv | urem | srem =>
+    rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+    obtain ⟨ha, hb⟩ := trel2 hvs; dsimp only [x64OpIns, withWidth] at hc
+    dsimp only [OpCode.wp] at hwp
+    exact opPostZ_fallsTo hwp.2 fun {_} _ =>
+      opDiv_zero32_spec _ _ hc hrd (arg2_not_sc hargs) ha hb hwp.1
+  case trunc m =>
+    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+    change (m == 64 && _) = true at hz
+    rcases Bool.and_eq_true_iff.mp hz with ⟨hm64, hz'⟩
+    have hm64' : m = 64 := beq_iff_eq.mp hm64
+    subst hm64'
+    have ha := trel1 hvs; dsimp only [x64OpIns] at hc
+    have hne : pa ≠ .gpr rd := by
+      intro h; subst h; cases rd <;> exact Bool.false_ne_true hz'
+    exact opPostZ_fallsTo hwp.2 fun {_} _ => opTrunc_zero32_spec hne hc ha
+  case fshl | fshr =>
+    rcases pas with ⟨pa, pb, pc, ⟨⟩⟩; rcases vs with ⟨va, vb, vc, ⟨⟩⟩
+    obtain ⟨ha, hb, hc'⟩ := trel3 hvs; dsimp only [x64OpIns, withWideWidth] at hc
+    exact opPostZ_fallsTo hwp fun {_} _ =>
+      opFunnel_zero32_spec _ (pa := pa) (pb := pb) (pc := pc) (by
+        cases pc with
+        | gpr _ => trivial
+        | vec _ => exact Bool.false_ne_true hz
+        | imm cb =>
+          change (cb.toNat % 32 != 0 || _) = true at hz
+          rcases Bool.or_eq_true_iff.mp hz with hnz | hne
+          · exact Or.inl (bne_iff_ne.mp hnz)
+          · exact Or.inr fun h => by
+              first
+              | (rw [h] at hne; cases rd <;> exact Bool.false_ne_true hne)
+              | (simp only [↓reduceIte, Bool.false_eq_true] at h; rw [h] at hne;
+                 cases rd <;> exact Bool.false_ne_true hne))
+        hc hrd (arg3_not_sc hargs) ha hb hc'
+  case select =>
+    rcases pas with ⟨pc, pa, pb, ⟨⟩⟩; rcases vs with ⟨vc, va, vb, ⟨⟩⟩
+    obtain ⟨hc', ha, hb⟩ := trel3 hvs; dsimp only [x64OpIns, withWidth] at hc
+    cases pc with
+    | vec _ => exact absurd hz Bool.false_ne_true
+    | imm b0 =>
+      exact opPostZ_fallsTo hwp fun {_} _ =>
+        opSelect_zero32_spec (by
+          intro h; cases b0
+          · simp only [Bool.false_eq_true, ↓reduceIte] at h
+            rw [h] at hz; cases rd <;> exact Bool.false_ne_true hz
+          · simp only [↓reduceIte] at h
+            rw [h] at hz; cases rd <;> exact Bool.false_ne_true hz)
+          hc hrd (arg3_not_sc hargs) hc' ha hb
+    | flag _ | gpr _ =>
+      exact opPostZ_fallsTo hwp fun {_} _ =>
+        opSelect_zero32_spec (by
+          intro ra ⟨h1, h2, h3⟩; subst h1 h2 h3
+          cases ra <;> exact Bool.false_ne_true hz)
+          hc hrd (arg3_not_sc hargs) hc' ha hb
+  case bitcast t1 hb =>
+    cases t1 with
+    | bits m =>
+      have hm32 : m = 32 := hb
+      subst hm32
+      rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; have ha := trel1 hvs
+      dsimp only [x64OpIns, x64BitWidths, List.contains_eq_mem, List.mem_cons,
+        List.not_mem_nil, or_false, decide_true, ↓reduceIte, withWidth] at hc
+      dsimp only [OpCode.wp, toBits, ofBits, BitVec.cast] at hwp
+      have hne : pa ≠ .gpr rd := by
+        intro h; subst h; cases rd <;> exact Bool.false_ne_true hz
+      exact opPostZ_fallsTo hwp fun {_} _ => opCopyBits_zero32_spec hne hc ha
+    | _ => exact absurd hz Bool.false_ne_true
 
 /-- Assembled `GprTarget` proof package for `x64Gpr` over `x64Mach` and `x64Scratch`. -/
 theorem x64GprSpec : GprTarget x64Mach x64Gpr x64Scratch where
@@ -603,6 +678,9 @@ theorem x64GprSpec : GprTarget x64Mach x64Gpr x64Scratch where
   load_zero32 := fun h0 {_ _ _ _ _ _ s post v} hc hrd ha hlv =>
     x64Gpr_load_zero32 h0 (s := s) (post := post) (v := v) hc hrd ha hlv
   op_zero32 := x64Gpr_op_zero32
+  testOp_spec := x64Gpr_testOp_spec
+  cmpMem_spec := x64Gpr_cmpMem_spec
+  testMem_spec := x64Gpr_testMem_spec
 
 end
 

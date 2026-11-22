@@ -490,6 +490,7 @@ theorem x64FrameSpec_spec :
     letI := h; x64ExitJmp_spec hc hk
   ret_spec {h} {_} {_} {_} {_} {_} hc _ hmem hk :=
     letI := h; x64Ret_spec hc hmem hk
+  leafZeroFrame_ok _ := rfl
 
 @[expose] def x64FrameSpec : FrameTarget x64Mach x64Frame x64CondReads where
   toFramePreds := x64FramePreds

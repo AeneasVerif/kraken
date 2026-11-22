@@ -192,7 +192,13 @@ theorem audit_lower_fn (T : Target) (host : T.mach.Host) (hints : T.toIsa.Hints)
       Rega.frame T hints + T.frame.raBytes + bound g ≤ n)
     (hex : ∀ g, g ∈ E.exits → T.Defined host g ∧ nX ≤ n) :
     T.FnSpec host f.name (Func.spec Γ f.body) n nX :=
-  Rega.lowerFn_correct T host hints E f Γ n nX bound hwf hl hc hu hfr hn hcal hex
+  Rega.lowerFn_correct T host hints E f Γ n nX bound hwf hl hc hu
+    (Nat.le_trans (Rega.effFrame_le _ _ _) hfr) hn
+    (fun g as bs hm =>
+      let p := hcal g as bs hm
+      ⟨p.1, Nat.le_trans
+        (Nat.add_le_add_right (Nat.add_le_add_right (Rega.effFrame_le _ _ _) _) _) p.2⟩)
+    hex
 
 theorem audit_mono_stack (T : Target) {h : T.mach.Host} {sym : Sym} {as bs : List Ty}
     {spec : Spec as bs} {n n' nX : Nat}
@@ -228,7 +234,12 @@ theorem audit_compile_fn (T : Target) (host : T.mach.Host) (lt : LegalTarget)
     T.FnSpec host f.name
       (legalEnv lt (Env.ofModule M Γ) f.name (lt.legalSig f.as) (lt.legalSig f.rs)) n nX :=
   compileFn_correct T host lt M hnd hf hints Γ n nX bound
-    hwf hsupp hl hc hu hfr hn hsound hcal hex
+    hwf hsupp hl hc hu (Nat.le_trans (Rega.effFrame_le _ _ _) hfr) hn hsound
+    (fun g as bs hm =>
+      let p := hcal g as bs hm
+      ⟨p.1, Nat.le_trans
+        (Nat.add_le_add_right (Nat.add_le_add_right (Rega.effFrame_le _ _ _) _) _) p.2⟩)
+    hex
 
 theorem audit_compile_mod (T : Target) (host : T.mach.Host) (lt : LegalTarget)
     (M : Module) (Γ : Env) (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX : Nat)

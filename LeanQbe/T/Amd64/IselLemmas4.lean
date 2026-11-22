@@ -184,6 +184,17 @@ theorem imul1_low_W (w : Width) (hw : w = .W32 ∨ w = .W64) (a b : BitVec w.bit
 
 /-! ## 2. `opDiv_spec` (`udiv`/`sdiv`/`urem`/`srem` at `[8, 16, 32, 64]`) -/
 
+private theorem fallsTo_xorl_self (s : MachineData) (r : Reg64) :
+    Directive.FallsTo (ins32 (.xor (.reg (d r)) (.reg (d r)))) s (fun s' =>
+      ∃ status, s' = { s with regs := s.regs.set64 r 0#64, status }) := by
+  intro _ _ _ _ _ hk
+  simp only [t_step_simp, Effects.All]
+  intro af
+  have hzero : ((s.regs.get64 r).setWidth 32 ^^^ (s.regs.get64 r).setWidth 32) = 0#32 := by
+    apply BitVec.eq_of_getElem_eq; intro i hi; simp
+  rw [hzero, BitVec.zeroExtend_eq_setWidth]
+  exact hk _ ⟨_, rfl⟩
+
 private theorem fallsTo_divCore (w : Width) (hw : w = .W32 ∨ w = .W64) (isSigned : Bool) (s : MachineData)
     (va vb : BitVec w.bits) (hrax : (s.regs.get64 .rax).setWidth w.bits = va) (hr11 : (s.regs.get64 .r11).setWidth w.bits = vb)
     (hdef : if isSigned then sdivDefined va vb = true else vb ≠ 0#w.bits) :
@@ -191,6 +202,8 @@ private theorem fallsTo_divCore (w : Width) (hw : w = .W32 ∨ w = .W64) (isSign
       { s with regs := s.regs.set64 .rdx (if isSigned then ((if va.msb then BitVec.allOnes w.bits else 0#w.bits).setWidth 64) else 0#64) }
       (fun s' => ∃ rax' rdx' status', rax'.setWidth w.bits = (if isSigned then va.sdiv vb else va / vb) ∧
         rdx'.setWidth w.bits = (if isSigned then va.srem vb else va % vb) ∧
+        (w = .W32 → rax' = (if isSigned then va.sdiv vb else va / vb).setWidth 64 ∧
+          rdx' = (if isSigned then va.srem vb else va % vb).setWidth 64) ∧
         s' = { s with regs := (s.regs.set64 .rax rax').set64 .rdx rdx', status := status' }) := by
   intro _ _ _ _ _ hk
   have hr11_rdx : ((s.regs.set64 .rdx (if isSigned then (if va.msb then BitVec.allOnes w.bits else 0#w.bits).setWidth 64 else 0#64)).get64 .r11).setWidth w.bits = vb := by
@@ -211,12 +224,15 @@ private theorem fallsTo_divCore (w : Width) (hw : w = .W32 ∨ w = .W64) (isSign
         BitVec.zeroExtend_eq_setWidth, BitVec.setWidth_zero, hbnz_beq, hlo, hqlt, Effects.All]
       intro st; refine hk _ ⟨(BitVec.ofNat 32 (va.toNat / vb.toNat)).setWidth 64, (BitVec.ofNat 32 (va.toNat % vb.toNat)).setWidth 64, st,
         by simp [hq_ok, BitVec.setWidth_setWidth_of_le _ (by decide : 32 ≤ 64)],
-        by simp [hr_ok, BitVec.setWidth_setWidth_of_le _ (by decide : 32 ≤ 64)], ?_⟩
+        by simp [hr_ok, BitVec.setWidth_setWidth_of_le _ (by decide : 32 ≤ 64)],
+        fun _ => ⟨by simp [hq_ok], by simp [hr_ok]⟩, ?_⟩
       simp only [Reg64s.set64_set64_comm _ .rdx .rax _ _ (by decide), Reg64s.set64_set64_same]
     · dsimp only [Width.bits] at hlo hqlt hbnz_beq hr11_rdx hrax_rdx hq_ok hr_ok; rw [BitVec.setWidth_eq] at hr11_rdx hrax_rdx
       simp only [insW, regW, Width.bits, t_step_simp, show (Width.W64 == .W8) = false by decide,
         Bool.false_eq_true, ↓reduceIte, hr11_rdx, hrax_rdx, Reg64s.get64_set64_same, hbnz_beq, hlo, hqlt, Effects.All]
-      intro st; refine hk _ ⟨BitVec.ofNat 64 (va.toNat / vb.toNat), BitVec.ofNat 64 (va.toNat % vb.toNat), st, by simp [hq_ok], by simp [hr_ok], ?_⟩
+      intro st
+      refine hk _ ⟨BitVec.ofNat 64 (va.toNat / vb.toNat), BitVec.ofNat 64 (va.toNat % vb.toNat),
+        st, by simp [hq_ok], by simp [hr_ok], (fun h => by cases h), ?_⟩
       simp only [Reg64s.set64_set64_comm _ .rdx .rax _ _ (by decide), Reg64s.set64_set64_same]
   · simp only [↓reduceIte] at hr11_rdx hrax_rdx; have hwpos : 0 < w.bits := width_bits_pos w
     obtain ⟨hb0, ⟨hq_ge, hq_lt⟩, _⟩ := sdiv_bounds (by rcases hw with rfl | rfl <;> decide) va vb hdef
@@ -232,12 +248,16 @@ private theorem fallsTo_divCore (w : Width) (hw : w = .W32 ∨ w = .W64) (isSign
         Bool.false_eq_true, hr11_rdx, hrax_rdx, Reg64s.get64_set64_same, BitVec.zeroExtend_eq_setWidth, hn_eq, hguard, Effects.All]
       intro st; refine hk _ ⟨(BitVec.ofInt 32 (va.toInt.tdiv vb.toInt)).setWidth 64, (BitVec.ofInt 32 (va.toInt.tmod vb.toInt)).setWidth 64, st,
         by simp [hq_ok, BitVec.setWidth_setWidth_of_le _ (by decide : 32 ≤ 64)],
-        by simp [hr_ok, BitVec.setWidth_setWidth_of_le _ (by decide : 32 ≤ 64)], ?_⟩
+        by simp [hr_ok, BitVec.setWidth_setWidth_of_le _ (by decide : 32 ≤ 64)],
+        fun _ => ⟨by simp [hq_ok], by simp [hr_ok]⟩, ?_⟩
       simp only [Reg64s.set64_set64_comm _ .rdx .rax _ _ (by decide), Reg64s.set64_set64_same]
     · dsimp only [Width.bits] at hguard hr11_rdx hrax_rdx hn_eq hq_ok hr_ok; rw [BitVec.setWidth_eq] at hr11_rdx hrax_rdx hn_eq
       simp only [insW, regW, Width.bits, t_step_simp, ↓reduceIte, show (Width.W64 == .W8) = false by decide,
         Bool.false_eq_true, hr11_rdx, hrax_rdx, Reg64s.get64_set64_same, hn_eq, hguard, Effects.All]
-      intro st; refine hk _ ⟨BitVec.ofInt 64 (va.toInt.tdiv vb.toInt), BitVec.ofInt 64 (va.toInt.tmod vb.toInt), st, by simp [hq_ok], by simp [hr_ok], ?_⟩
+      intro st
+      refine hk _ ⟨BitVec.ofInt 64 (va.toInt.tdiv vb.toInt),
+        BitVec.ofInt 64 (va.toInt.tmod vb.toInt), st,
+        by simp [hq_ok], by simp [hr_ok], (fun h => by cases h), ?_⟩
       simp only [Reg64s.set64_set64_comm _ .rdx .rax _ _ (by decide), Reg64s.set64_set64_same]
 
 private def divExt32 (w : Width) (isSigned : Bool) (v : BitVec w.bits) : BitVec 32 :=
@@ -259,11 +279,11 @@ private def divCoreIns (w : Width) (isSigned : Bool) : List Instr :=
     if isSigned then
       [movI .rdx .rax, x64InsI .W64 (.sar (.reg (q .rdx)) (.imm8 (.int64 63))),
        x64InsI .W64 (.idiv (.reg (q .r11)))]
-    else [moviI .rdx 0, x64InsI .W64 (.div (.reg (q .r11)))]
+    else [x64InsI .W32 (.xor (.reg (d .rdx)) (.reg (d .rdx))), x64InsI .W64 (.div (.reg (q .r11)))]
   else if isSigned then
     [movlI .rdx .rax, x64InsI .W32 (.sar (.reg (d .rdx)) (.imm8 (.int64 31))),
      x64InsI .W32 (.idiv (.reg (d .r11)))]
-  else [moviI .rdx 0, x64InsI .W32 (.div (.reg (d .r11)))]
+  else [x64InsI .W32 (.xor (.reg (d .rdx)) (.reg (d .rdx))), x64InsI .W32 (.div (.reg (d .r11)))]
 
 private theorem opDiv_eq_parts (w : Width) (isSigned isRem : Bool)
     (pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)) (rd : Reg64) :
@@ -271,14 +291,17 @@ private theorem opDiv_eq_parts (w : Width) (isSigned isRem : Bool)
       (if rd == .r10 || rd == .r11 then none else do
          let da ← divArgExtI w isSigned .r10 pa; let db ← divArgExtI w isSigned .r11 pb
          let core := divCoreIns w isSigned; let res : Reg64 := if isRem then .rdx else .rax
+         let mvRes (dst src : Reg64) : List Instr :=
+           if dst == src then [] else [if w == .W64 then movI dst src else movlI dst src]
          let seq := if rd == .rax then
-             [da, db, movI .rax .r10, movI .r10 .rdx] ++ core ++ [movI .rax res, movI .rdx .r10]
+             [da, db, movI .rax .r10, movI .r10 .rdx] ++ core ++ mvRes .rax res ++ [movI .rdx .r10]
            else if rd == .rdx then
              [da, db, movI .rdx .rax, movI .rax .r10, movI .r10 .rdx] ++ core ++
-               [movI .rdx res, movI .rax .r10]
+               mvRes .rdx res ++ [movI .rax .r10]
            else
              [da, db, movI rd .rax, movI .rax .r10, movI .r10 .rdx] ++ core ++
-               [movI .r11 res, movI .rdx .r10, movI .rax rd, movI rd .r11]
+               [movI .r11 res, movI .rdx .r10, movI .rax rd,
+                if w == .W64 then movI rd .r11 else movlI rd .r11]
          some (seq, maskAll)) := by
   cases w <;> cases pa <;> cases pb <;> simp only [opDivIns, divArgExtI, divCoreIns] <;> rfl
 
@@ -386,6 +409,9 @@ private theorem wp_divCoreRun [Host] {E : Int64 → MachineData → Prop} (w : W
     _root_.Program.wp (emitClean (divCoreIns w isSigned)) (fun s' => ∃ rax' rdx' status',
       (if isRem then rdx' else rax').setWidth w.bits =
         (if isSigned then (if isRem then va.srem vb else va.sdiv vb) else (if isRem then va % vb else va / vb)) ∧
+      (w = .W32 → (if isRem then rdx' else rax') =
+        (if isSigned then (if isRem then va.srem vb else va.sdiv vb)
+         else (if isRem then va % vb else va / vb)).setWidth 64) ∧
       s' = { st0 with regs := (st0.regs.set64 .rax rax').set64 .rdx rdx', status := status' }) E st0 := by
   by_cases hw64 : w = .W64
   · subst w; simp only [show (Width.W64 == .W64) = true by decide, ↓reduceIte, BitVec.setWidth_eq] at ha_ok hb_ok
@@ -394,9 +420,13 @@ private theorem wp_divCoreRun [Host] {E : Int64 → MachineData → Prop} (w : W
     cases isSigned
     · simp only [divCoreIns, show (Width.W64 == .W64) = true by decide,
         Bool.false_eq_true, ↓reduceIte, emitClean_cons, emitClean_nil]
-      refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD st0 .rdx 0)) ?_; rintro s1 rfl
-      refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_divCore .W64 (.inr rfl) false st0 va vb hra hrb hdef)) ?_
-      rintro s' ⟨a', b', st', ha, hb, hs'⟩; exact ⟨a', b', st', by cases isRem <;> simpa using (by assumption), hs'⟩
+      refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_xorl_self st0 .rdx)) ?_
+      rintro s1 ⟨st1, rfl⟩
+      refine Program.wp.mono (Directive.FallsTo.wp
+        (fallsTo_divCore .W64 (.inr rfl) false { st0 with status := st1 } va vb hra hrb hdef)) ?_
+      rintro s' ⟨a', b', st', ha, hb, _, hs'⟩
+      exact ⟨a', b', st', by cases isRem <;> simpa using (by assumption),
+        (fun h => by cases h), hs'⟩
     · simp only [divCoreIns, show (Width.W64 == .W64) = true by decide, ↓reduceIte,
         emitClean_cons, emitClean_nil]
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_movD st0 .rdx .rax)) ?_; rintro s1 rfl
@@ -405,7 +435,9 @@ private theorem wp_divCoreRun [Host] {E : Int64 → MachineData → Prop} (w : W
       rintro s2 hs2
       have hs2' : s2 = { st0 with regs := st0.regs.set64 .rdx ((if va.msb then BitVec.allOnes 64 else 0#64).setWidth 64), status := s2.status } := by rw [hs2]; congr 1
       rw [hs2']; refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_divCore .W64 (.inr rfl) true { st0 with status := s2.status } va vb hra hrb hdef)) ?_
-      rintro s' ⟨a', b', st', ha, hb, hs'⟩; exact ⟨a', b', st', by cases isRem <;> simpa using (by assumption), hs'⟩
+      rintro s' ⟨a', b', st', ha, hb, _, hs'⟩
+      exact ⟨a', b', st', by cases isRem <;> simpa using (by assumption),
+        (fun h => by cases h), hs'⟩
   · have hbeq : (w == .W64) = false := by cases w <;> first | exact absurd rfl hw64 | decide
     simp only [hbeq, Bool.false_eq_true, ↓reduceIte] at ha_ok hb_ok
     obtain ⟨hdef32, hres32⟩ := divExt32_props w hw64 isSigned isRem va vb hdef
@@ -413,34 +445,50 @@ private theorem wp_divCoreRun [Host] {E : Int64 → MachineData → Prop} (w : W
     have fin32 : ∀ (isS : Bool) (hds : if isS then sdivDefined (divExt32 w isSigned va) (divExt32 w isSigned vb) = true else divExt32 w isSigned vb ≠ 0#32)
         (stS : StatusFlags),
         _root_.Program.wp [insW .W32 (if isS then .idiv (.reg (regW .W32 .r11)) else .div (.reg (regW .W32 .r11)))]
-          (fun s' => ∃ rax' rdx' status', (if isRem then rdx' else rax').setWidth 32 =
-            (if isS then (if isRem then (divExt32 w isSigned va).srem (divExt32 w isSigned vb) else (divExt32 w isSigned va).sdiv (divExt32 w isSigned vb))
-             else (if isRem then divExt32 w isSigned va % divExt32 w isSigned vb else divExt32 w isSigned va / divExt32 w isSigned vb)) ∧
+          (fun s' => ∃ rax' rdx' status',
+            (if isRem then rdx' else rax') =
+              (if isS then
+                (if isRem then (divExt32 w isSigned va).srem (divExt32 w isSigned vb)
+                 else (divExt32 w isSigned va).sdiv (divExt32 w isSigned vb))
+               else
+                (if isRem then divExt32 w isSigned va % divExt32 w isSigned vb
+                 else divExt32 w isSigned va / divExt32 w isSigned vb)).setWidth 64 ∧
             s' = { st0 with regs := (st0.regs.set64 .rax rax').set64 .rdx rdx', status := status' })
           E { st0 with regs := st0.regs.set64 .rdx (if isS then ((if (divExt32 w isSigned va).msb then BitVec.allOnes 32 else 0#32).setWidth 64) else 0#64), status := stS } := by
       intro isS hds stS; refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_divCore .W32 (.inl rfl) isS { st0 with status := stS }
         (divExt32 w isSigned va) (divExt32 w isSigned vb) ha_ok hb_ok hds)) ?_
-      rintro s' ⟨a', b', st', ha, hb, hs'⟩; exact ⟨a', b', st', by cases isRem <;> simpa using (by assumption), hs'⟩
+      rintro s' ⟨a', b', st', _, _, hz, hs'⟩
+      obtain ⟨hza, hzb⟩ := hz rfl
+      exact ⟨a', b', st', by cases isRem <;> simpa using (by assumption), hs'⟩
     cases isSigned
     · simp only [divCoreIns, hbeq, Bool.false_eq_true, ↓reduceIte, emitClean_cons, emitClean_nil]
-      refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD st0 .rdx 0)) ?_; rintro s1 rfl
-      exact Program.wp.mono (fin32 false hdef32 st0.status) fun s' ⟨a', b', st', hfin, hs'⟩ => ⟨a', b', st', by rw [← BitVec.setWidth_setWidth_of_le _ hwle, hfin]; exact hres32, hs'⟩
+      refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_xorl_self st0 .rdx)) ?_
+      rintro s1 ⟨st1, rfl⟩
+      refine Program.wp.mono (fin32 false hdef32 st1)
+        fun s' ⟨a', b', st', hfin, hs'⟩ => ⟨a', b', st', ?_, ?_, hs'⟩
+      · rw [hfin, BitVec.setWidth_setWidth_of_le _ (by omega)]; exact hres32
+      · intro hw32; subst hw32; rw [hfin]; simp [divExt32]
     · simp only [divCoreIns, hbeq, Bool.false_eq_true, ↓reduceIte, emitClean_cons, emitClean_nil]
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_movlD st0 .rdx .rax)) ?_; rintro s1 rfl
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_sarSign .W32 (.inl rfl) _ (divExt32 w true va)
         (by rw [Reg64s.get64_set64_of_ne _ .rdx .rax _ (by decide)]; exact ha_ok) (by rw [Reg64s.get64_set64_same]; simp))) ?_
       rintro s2 hs2
       have hs2' : s2 = { st0 with regs := st0.regs.set64 .rdx ((if (divExt32 w true va).msb then BitVec.allOnes 32 else 0#32).setWidth 64), status := s2.status } := by rw [hs2]; congr 1
-      rw [hs2']; exact Program.wp.mono (fin32 true hdef32 s2.status) fun s' ⟨a', b', st', hfin, hs'⟩ => ⟨a', b', st', by rw [← BitVec.setWidth_setWidth_of_le _ hwle, hfin]; exact hres32, hs'⟩
+      rw [hs2']
+      refine Program.wp.mono (fin32 true hdef32 s2.status)
+        fun s' ⟨a', b', st', hfin, hs'⟩ => ⟨a', b', st', ?_, ?_, hs'⟩
+      · rw [hfin, BitVec.setWidth_setWidth_of_le _ (by omega)]; exact hres32
+      · intro hw32; subst hw32; rw [hfin]; simp [divExt32]
 
-theorem opDiv_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (isSigned isRem : Bool)
+private theorem opDiv_z [Host] {E : Int64 → MachineData → Prop} (z32 : Bool)
+    (w : Width) (isSigned isRem : Bool)
     {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64}
     {c : List Instr} {clob : FlagMask} {va vb : BitVec w.bits} {s : MachineData}
     (hc : opDivIns w isSigned isRem pa pb rd = some (c, clob))
     (hrd : rd ∉ x64Scratch) (hargs : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch)
     (hpa : x64Mach.PArgHolds s (.bits w.bits) pa va) (hpb : x64Mach.PArgHolds s (.bits w.bits) pb vb)
     (hdef : if isSigned then sdivDefined va vb = true else vb ≠ 0#w.bits) :
-    _root_.Program.wp (emitClean c) (OpPost1 (.bits w.bits) rd
+    _root_.Program.wp (emitClean c) (OpPostZ z32 w rd
       (if isSigned then (if isRem then va.srem vb else va.sdiv vb) else (if isRem then va % vb else va / vb)) clob s) E s := by
   have hrd_sc := ne_of_not_mem_x64Scratch hrd; rw [opDiv_eq_parts] at hc
   have hguard : (rd == .r10 || rd == .r11) = false := by rcases hrd_sc with ⟨h1, h2⟩; cases rd <;> first | exact absurd rfl h1 | exact absurd rfl h2 | rfl
@@ -461,11 +509,11 @@ theorem opDiv_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (isSi
   have hprefix_cons : ∀ (xs : List Instr),
       (∀ rv10 rv11 : BitVec 64, (if (w == .W64) = true then rv10 = va.setWidth 64 else rv10.setWidth 32 = divExt32 w isSigned va) →
         (if (w == .W64) = true then rv11 = vb.setWidth 64 else rv11.setWidth 32 = divExt32 w isSigned vb) →
-        _root_.Program.wp (emitClean xs) (OpPost1 (.bits w.bits) rd
+        _root_.Program.wp (emitClean xs) (OpPostZ z32 w rd
           (if isSigned then (if isRem then va.srem vb else va.sdiv vb)
            else (if isRem then va % vb else va / vb)) maskAll s)
           E { s with regs := (s.regs.set64 .r10 rv10).set64 .r11 rv11 }) →
-      _root_.Program.wp (emitClean (da :: db :: xs)) (OpPost1 (.bits w.bits) rd
+      _root_.Program.wp (emitClean (da :: db :: xs)) (OpPostZ z32 w rd
         (if isSigned then (if isRem then va.srem vb else va.sdiv vb) else (if isRem then va % vb else va / vb)) maskAll s) E s := fun xs hxs => by
     change _root_.Program.wp ([.instr da, .instr db] ++ emitClean xs) _ E s
     exact Program.wp.append hp_prefix fun _ ⟨rv10, rv11, h10, h11, hs2⟩ => hs2 ▸ hxs rv10 rv11 h10 h11
@@ -474,6 +522,12 @@ theorem opDiv_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (isSi
       _root_.Program.wp (emitClean (movI a b :: rest)) Q E st := fun a b st rest Q h => by
     rw [emitClean_cons]
     exact Program.wp.cons (Directive.FallsTo.wp (fallsTo_movD st a b)) fun _ hr => hr ▸ h
+  have movlStep : ∀ (a b : Reg64) (st : MachineData) (rest : List Instr) (Q : MachineData → Prop),
+      _root_.Program.wp (emitClean rest) Q E
+        { st with regs := st.regs.set64 a (((st.regs.get64 b).setWidth 32).zeroExtend 64) } →
+      _root_.Program.wp (emitClean (movlI a b :: rest)) Q E st := fun a b st rest Q h => by
+    rw [emitClean_cons]
+    exact Program.wp.cons (Directive.FallsTo.wp (fallsTo_movlD st a b)) fun _ hr => hr ▸ h
   clear hc h1 hda hdb hseq hargs hpa hpb hp_prefix
   by_cases hrax : rd = .rax
   rotate_left
@@ -485,7 +539,7 @@ theorem opDiv_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (isSi
     | (have hrax_f : (rd == .rax) = false := by cases rd <;> first | exact absurd rfl hrax | rfl
        have hrdx_f : (rd == .rdx) = false := by cases rd <;> first | exact absurd rfl hrdx | rfl
        simp only [hrax_f, hrdx_f, Bool.false_eq_true, ↓reduceIte])
-    simp only [List.cons_append, List.nil_append]
+    simp only [List.cons_append, List.nil_append, List.append_assoc]
     refine hprefix_cons _ fun rv10 rv11 h10 h11 => ?_; clear hprefix_cons
     repeat' refine movStep _ _ _ _ _ ?_
     have h10' : ∀ x : BitVec 64, rv10 = x → (if (w == .W64) = true then x = va.setWidth 64 else x.setWidth 32 = divExt32 w isSigned va) := fun _ e => e ▸ h10
@@ -494,16 +548,73 @@ theorem opDiv_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (isSi
     refine Program.wp.append (wp_divCoreRun w isSigned isRem va vb hdef _ ?_ ?_) ?_
     · exact h10' _ (by simp only [Reg64s.get64_set64]; grind)
     · exact h11' _ (by simp only [Reg64s.get64_set64]; grind)
-    rintro _ ⟨rax', rdx', st', hres, rfl⟩
-    cases isRem <;> simp only [↓reduceIte, Bool.false_eq_true] at hres ⊢
+    rintro _ ⟨rax', rdx', st', hres, hresz, rfl⟩
+    cases isRem <;> simp only [↓reduceIte, Bool.false_eq_true] at hres hresz ⊢
     all_goals
-      repeat' refine movStep _ _ _ _ _ ?_
-      clear movStep
-      rw [emitClean_nil]
-      refine _root_.Program.wp_nil ⟨(GprHolds.bits_iff w _ _).2 ?_, rfl, x64_frame_of_eq (fun r hr => ?_) rfl (updFlags_maskAll _ _)⟩
-      · dsimp only [Machine.getGpr, x64Mach]; exact (congrArg (BitVec.setWidth w.bits) (by simp only [Reg64s.get64_set64]; grind)).trans hres
-      · simp only [List.mem_cons, List.mem_nil_iff, not_or, x64Scratch] at hr
-        dsimp only [Machine.getGpr, x64Mach]; simp only [Reg64s.get64_set64]; grind
+      (try simp only [show (Reg64.rax == .rax) = true by decide, ↓reduceIte])
+      (try simp only [show (Reg64.rax == .rdx) = false by decide, Bool.false_eq_true, ↓reduceIte])
+      (try simp only [show (Reg64.rdx == .rdx) = true by decide, ↓reduceIte])
+      (try simp only [show (Reg64.rdx == .rax) = false by decide, Bool.false_eq_true, ↓reduceIte])
+      by_cases hw64 : w = .W64
+      · subst hw64
+        try simp only [show (Width.W64 == .W64) = true by decide, ↓reduceIte]
+        try simp only [List.cons_append, List.nil_append]
+        repeat' first | refine movStep _ _ _ _ _ ?_ | refine movlStep _ _ _ _ _ ?_
+        clear movStep movlStep; rw [emitClean_nil]
+        refine _root_.Program.wp_nil ⟨⟨(GprHolds.bits_iff .W64 _ _).2 ?_, rfl,
+          x64_frame_of_eq (fun r hr => ?_) rfl (updFlags_maskAll _ _)⟩, fun _ hw32 => by cases hw32⟩
+        · dsimp only [Machine.getGpr, x64Mach]
+          exact (congrArg (BitVec.setWidth Width.W64.bits)
+            (by simp only [Reg64s.get64_set64]; grind)).trans hres
+        · simp only [List.mem_cons, List.mem_nil_iff, not_or, x64Scratch] at hr
+          dsimp only [Machine.getGpr, x64Mach]; simp only [Reg64s.get64_set64]; grind
+      · have hbeq : (w == .W64) = false := by cases w <;> first | exact absurd rfl hw64 | decide
+        have hwle : w.bits ≤ 32 := by cases w <;> first | exact absurd rfl hw64 | decide
+        try simp only [hbeq, Bool.false_eq_true, ↓reduceIte]
+        try simp only [List.cons_append, List.nil_append]
+        repeat' first | refine movStep _ _ _ _ _ ?_ | refine movlStep _ _ _ _ _ ?_
+        clear movStep movlStep; rw [emitClean_nil]
+        refine _root_.Program.wp_nil ⟨⟨(GprHolds.bits_iff w _ _).2 ?_, rfl,
+          x64_frame_of_eq (fun r hr => ?_) rfl (updFlags_maskAll _ _)⟩, fun _ hw32 => ?_⟩
+        · dsimp only [Machine.getGpr, x64Mach]
+          have h32_w (x : BitVec 64) :
+              ((x.setWidth 32).zeroExtend 64).setWidth w.bits = x.setWidth w.bits := by
+            rw [BitVec.zeroExtend_eq_setWidth,
+              BitVec.setWidth_setWidth_of_le _ (Nat.le_trans hwle (by decide : 32 ≤ 64)),
+              BitVec.setWidth_setWidth_of_le _ hwle]
+          simp only [Reg64s.get64_set64]
+          grind
+        · simp only [List.mem_cons, List.mem_nil_iff, not_or, x64Scratch] at hr
+          dsimp only [Machine.getGpr, x64Mach]; simp only [Reg64s.get64_set64]; grind
+        · subst hw32
+          have hz0 := hresz rfl
+          simp only [Reg64s.get64_set64, BitVec.zeroExtend_eq_setWidth, Width.bits] at hres hz0 ⊢
+          grind
+
+theorem opDiv_spec [Host] {E : Int64 → MachineData → Prop} (w : Width) (isSigned isRem : Bool)
+    {pa pb : PArg Reg64 RegMm CondCode (.bits w.bits)} {rd : Reg64}
+    {c : List Instr} {clob : FlagMask} {va vb : BitVec w.bits} {s : MachineData}
+    (hc : opDivIns w isSigned isRem pa pb rd = some (c, clob))
+    (hrd : rd ∉ x64Scratch) (hargs : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch)
+    (hpa : x64Mach.PArgHolds s (.bits w.bits) pa va)
+    (hpb : x64Mach.PArgHolds s (.bits w.bits) pb vb)
+    (hdef : if isSigned then sdivDefined va vb = true else vb ≠ 0#w.bits) :
+    _root_.Program.wp (emitClean c) (OpPost1 (.bits w.bits) rd
+      (if isSigned then (if isRem then va.srem vb else va.sdiv vb)
+       else (if isRem then va % vb else va / vb)) clob s) E s :=
+  Program.wp.mono (opDiv_z false w isSigned isRem hc hrd hargs hpa hpb hdef) fun _ h => h.1
+
+theorem opDiv_zero32_spec [Host] {E : Int64 → MachineData → Prop} (isSigned isRem : Bool)
+    {pa pb : PArg Reg64 RegMm CondCode (.bits 32)} {rd : Reg64}
+    {c : List Instr} {clob : FlagMask} {va vb : BitVec 32} {s : MachineData}
+    (hc : opDivIns .W32 isSigned isRem pa pb rd = some (c, clob))
+    (hrd : rd ∉ x64Scratch) (hargs : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch)
+    (hpa : x64Mach.PArgHolds s (.bits 32) pa va) (hpb : x64Mach.PArgHolds s (.bits 32) pb vb)
+    (hdef : if isSigned then sdivDefined va vb = true else vb ≠ 0#32) :
+    _root_.Program.wp (emitClean c) (OpPostZ true .W32 rd
+      (if isSigned then (if isRem then va.srem vb else va.sdiv vb)
+       else (if isRem then va % vb else va / vb)) clob s) E s :=
+  opDiv_z true .W32 isSigned isRem hc hrd hargs hpa hpb hdef
 
 /-! ## 3. `OpPost2`, `opAddc_spec`, and `opSubb_spec` -/
 

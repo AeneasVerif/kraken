@@ -531,12 +531,12 @@ theorem calleesBound_mem {F raBytes : Nat} {bounds : List (SigEntry × Nat)} :
 theorem checkAndBoundExt_spec {I : Isa} {raBytes : Nat} {exits : List Sym} {nX : Nat}
     {bounds : List (SigEntry × Nat)} {h : I.Hints} {ext : Rega.Ext} {n : Nat}
     (hc : checkAndBoundExt I raBytes exits nX bounds h ext = some n) :
-    I.frame.frameSize h.totalSlots ≤ n ∧ n + raBytes ≤ 2 ^ 64 ∧
+    Rega.effFrame I h ext ≤ n ∧ n + raBytes ≤ 2 ^ 64 ∧
       (∀ g ∈ ext.callees, ∃ bg, lookupBound bounds g = some bg ∧
-        I.frame.frameSize h.totalSlots + raBytes + bg ≤ n) ∧
+        Rega.effFrame I h ext + raBytes + bg ≤ n) ∧
       (∀ g ∈ ext.exits, g ∈ exits ∧ nX ≤ n) := by
   dsimp only [checkAndBoundExt] at hc
-  cases hcb : calleesBound (I.frame.frameSize h.totalSlots) raBytes bounds ext.callees with
+  cases hcb : calleesBound (Rega.effFrame I h ext) raBytes bounds ext.callees with
   | none => rw [hcb] at hc; cases hc
   | some n₁ =>
     rw [hcb] at hc
@@ -660,12 +660,12 @@ theorem compileFn_correct_iso (T : Target) (host : T.mach.Host) (lt : LegalTarge
     (hwf : f.Wf) (hsupp : (f.earlyOpt).body.supportsSource lt = true)
     (hl : Rega.lowerFn T.toIsa hints E (f.mid lt) = .ok code)
     (hc : code.IsInfixAt (T.mach.prog host) k₀) (hu : T.LabelsUnique host)
-    (hfr : Rega.frame T hints ≤ n) (hn : n + T.frame.raBytes ≤ 2 ^ 64)
+    (hfr : Rega.effFrame T.toIsa hints E ≤ n) (hn : n + T.frame.raBytes ≤ 2 ^ 64)
     (hiso : ∀ as bs xs m P E', Γ_src f.name as bs xs m P E' → as = f.as ∧ bs = f.rs)
     (hsound : ∀ xs m P E', Γ_src f.name f.as f.rs xs m P E' → Func.spec Γ_src f.body xs m P E')
     (hcal : ∀ g as bs, (g, as, bs) ∈ E.callees →
       T.FnSpec host g (legalEnv lt Γ_src g as bs) (bound g) nX ∧
-      Rega.frame T hints + T.frame.raBytes + bound g ≤ n)
+      Rega.effFrame T.toIsa hints E + T.frame.raBytes + bound g ≤ n)
     (hex : ∀ g, g ∈ E.exits → T.Defined host g ∧ nX ≤ n) :
     T.FnSpec host f.name
       (legalEnv lt Γ_src f.name (lt.legalSig f.as) (lt.legalSig f.rs)) n nX :=
@@ -685,12 +685,12 @@ theorem compileFn_correct (T : Target) (host : T.mach.Host) (lt : LegalTarget)
     (hwf : f.Wf) (hsupp : (f.earlyOpt).body.supportsSource lt = true)
     (hl : compileFn T.toIsa lt hints f = .ok code)
     (hc : code.IsInfixAt (T.mach.prog host) k₀) (hu : T.LabelsUnique host)
-    (hfr : Rega.frame T hints ≤ n) (hn : n + T.frame.raBytes ≤ 2 ^ 64)
+    (hfr : Rega.effFrame T.toIsa hints (f.mid lt).ext ≤ n) (hn : n + T.frame.raBytes ≤ 2 ^ 64)
     (hsound : ∀ xs m P E',
       Env.ofModule M Γ f.name f.as f.rs xs m P E' → Func.wp (Env.ofModule M Γ) f.body xs m P E')
     (hcal : ∀ g as bs, (g, as, bs) ∈ (f.mid lt).ext.callees →
       T.FnSpec host g (legalEnv lt (Env.ofModule M Γ) g as bs) (bound g) nX ∧
-      Rega.frame T hints + T.frame.raBytes + bound g ≤ n)
+      Rega.effFrame T.toIsa hints (f.mid lt).ext + T.frame.raBytes + bound g ≤ n)
     (hex : ∀ g, g ∈ (f.mid lt).ext.exits → T.Defined host g ∧ nX ≤ n) :
     T.FnSpec host f.name
       (legalEnv lt (Env.ofModule M Γ) f.name (lt.legalSig f.as) (lt.legalSig f.rs)) n nX :=
@@ -725,7 +725,8 @@ private theorem defined_of_lowerFn {T : Target} {host : T.mach.Host}
       | none => simp [hal, hrl] at hl
       | some _ =>
         simp only [hal, hrl] at hl
-        cases hb : Rega.bindAbiParams T.toIsa argLocs 0 ⟨[], .empty, .empty, .empty⟩ with
+        cases hb : Rega.bindAbiParams T.toIsa argLocs 0
+            { regs := [], slots := .empty, defs := .empty, vecWidths := .empty } with
         | none => simp [hb] at hl
         | some st0 =>
           simp only [hb] at hl
@@ -792,7 +793,7 @@ private theorem compile_sound_aux (T : Target) (host : T.mach.Host) (lt : LegalT
             | none => 0
           have hcal : ∀ g as bs', (g, as, bs') ∈ (f.mid lt).ext.callees →
               T.FnSpec host g (legalEnv lt (Env.ofModule M Γ) g as bs') (bound g) nX ∧
-              Rega.frame T hint + T.frame.raBytes + bound g ≤ b := by
+              Rega.effFrame T.toIsa hint (f.mid lt).ext + T.frame.raBytes + bound g ≤ b := by
             intro g as bs' hg
             obtain ⟨bg, hlk, hle⟩ := hcal_b (g, as, bs') hg
             have hmem : ((g, as, bs'), bg) ∈ extCallees := lookupBound_mem hlk

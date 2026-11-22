@@ -762,7 +762,8 @@ private theorem defined_of_lowerFn {T : Target} {host : T.mach.Host}
       | none => simp [hal, hrl] at hl
       | some _ =>
         simp only [hal, hrl] at hl
-        cases hb : Rega.bindAbiParams T.toIsa argLocs 0 ⟨[], .empty, .empty, .empty⟩ with
+        cases hb : Rega.bindAbiParams T.toIsa argLocs 0
+            { regs := [], slots := .empty, defs := .empty, vecWidths := .empty } with
         | none => simp [hb] at hl
         | some st0 =>
           simp only [hb] at hl
@@ -908,7 +909,12 @@ private theorem compileFn_correct_stepRec (T : Target) (host : T.mach.Host) (lt 
         (compileFn_stepRec_mid hwf hsupp recSigs extSigs Γrec Γext k hsound args m Q X h))
     (Rega.lowerFn_correct T host hints E (f.mid lt)
       (legalEnv lt (Env.stepRec recSigs extSigs Γrec Γext k)) n nX bound
-      (fn_mid_wf hwf) hl hc hu hfr hn hcal hex)
+      (fn_mid_wf hwf) hl hc hu (Nat.le_trans (Rega.effFrame_le T.toIsa hints E) hfr) hn
+      (fun g as bs hg =>
+        let ⟨h1, h2⟩ := hcal g as bs hg
+        ⟨h1, Nat.le_trans (Nat.add_le_add_right (Nat.add_le_add_right
+          (Rega.effFrame_le T.toIsa hints E) _) _) h2⟩)
+      hex)
 
 private theorem legalEnv_stepRec_nil_empty {lt : LegalTarget} {mod : Module}
     (hnd : mod.namesNodup) {Γrec : Nat → Env} {Γext : Env}

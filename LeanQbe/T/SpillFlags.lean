@@ -53,15 +53,20 @@ def mkDummyPDsts {I : Isa} (r0 r1 : I.Reg) (v0 v1 : Option I.VReg)
     (mkDummyPDsts r0 r1 v1 v0 fDst (nv0 + 1) ts).map (.vec v, ·)
   | .float _ :: _ => none
 
-def probeOp (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (fArg fDst : Nat → Option I.Cond)
+def probeOpLen (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (fArg fDst : Nat → Option I.Cond)
     (immF : Option I.Cond) (nv0 : Nat) {ts : List Ty} (op : Op VNat ts)
-    (vh : VariantHint) : Option FlagMask :=
+    (vh : VariantHint) : Option (FlagMask × Nat) :=
   (mkDummyPArgs r0 v0 fArg immF op.args).bind fun pas =>
     (mkDummyPDsts r0 r1 v0 v1 fDst nv0 ts).bind fun dsts =>
       if (tupDstVecs dsts).isEmpty && (tupArgVecs pas).isEmpty then
-        ((I.gpr.op op.code pas dsts vh).map Prod.snd) <|>
-          ((I.vec.vop op.code pas dsts vh).map Prod.snd)
-      else (I.vec.vop op.code pas dsts vh).map Prod.snd
+        ((I.gpr.op op.code pas dsts vh).map fun (ds, m) => (m, ds.length)) <|>
+          ((I.vec.vop op.code pas dsts vh).map fun (ds, m) => (m, ds.length))
+      else (I.vec.vop op.code pas dsts vh).map fun (ds, m) => (m, ds.length)
+
+def probeOp (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (fArg fDst : Nat → Option I.Cond)
+    (immF : Option I.Cond) (nv0 : Nat) {ts : List Ty} (op : Op VNat ts)
+    (vh : VariantHint) : Option FlagMask :=
+  (probeOpLen I r0 r1 v0 v1 fArg fDst immF nv0 op vh).map Prod.fst
 
 def altVariantsFor {ts : List Ty} (op : Op VNat ts) : List VariantHint :=
   let { sig := _, code, args } := op
@@ -389,7 +394,23 @@ def tryColorWeb (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List 
   let liveSet : Std.HashSet Nat := vars.foldl
     (fun s v => (info.varLiveIps.getD v []).foldl (fun s ip => s.insert ip) s) {}
   let liveIps := liveSet.toList.mergeSort (· ≤ ·)
-  conds.findSome? fun cc =>
+  let isFastCmp (cc : I.Cond) : Bool :=
+    let cmpDefs := vars.filterMap fun v =>
+      (info.defIp.find? v).bind fun ip =>
+        match info.nodeAt.find? ip with
+        | some (.let_ _ _ nv0 [.bool] op _) =>
+          let { sig := _, code, args := _ } := op
+          match code with
+          | .cmp _ (.bits _) .bool _ => some (nv0, op)
+          | _ => none
+        | _ => none
+    !cmpDefs.isEmpty && cmpDefs.all fun (nv0, op) =>
+      let fDst x := if Nat.beq x nv0 then some cc else none
+      match probeOpLen I r0 r1 v0 v1 st.flagHome.find? fDst none nv0 op .default with
+      | some (_, len) => len ≤ 1
+      | none => false
+  let ordConds := conds.filter isFastCmp ++ conds.filter (!isFastCmp ·)
+  ordConds.findSome? fun cc =>
     let fArg (x : Nat) := if varSet.contains x then some cc else st.flagHome.find? x
     let interfOk := vars.all fun v =>
       (info.interf.getD v []).all fun y =>

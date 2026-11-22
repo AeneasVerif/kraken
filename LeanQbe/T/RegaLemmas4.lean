@@ -21,7 +21,7 @@ namespace LeanQbe.T
 namespace Rega
 
 section Defs
-variable (T : Target) (host : T.mach.Host) (hints : T.toIsa.Hints) (fn : Sym)
+variable (T : Target) (host : T.mach.Host) (hints : T.toIsa.Hints) (E : Ext) (fn : Sym)
   (s₀ : T.mach.MData) (ra : T.mach.Addr) (n nX : Nat) (Rf : Mem 64 → Prop) {rs : List Ty}
   (Q : Post rs) (X : XPost)
 
@@ -30,17 +30,19 @@ def LabJ (G : VCtx) (ℓ : Nat) {ts : List Ty} : Cont ts := fun xs m =>
   ∃ k en, (T.mach.prog host)[k]? = some (T.frame.label (lname fn ℓ)) ∧
     hints.entry.find? ℓ = some en ∧
     ∀ s σ, (∀ p ∈ en.live, LocOk T.mach G s σ p.1 p.2) → ParamsOk T.mach s σ ts xs en.ploc →
-      Inv T hints s₀ ra n Rf m s σ → T.mach.Run host k s (FnPost T host s₀ ra n nX Rf Q X)
+      Inv T hints s₀ ra n Rf m s σ (isZeroLeaf T.toIsa hints E) →
+      T.mach.Run host k s (FnPost T host s₀ ra n nX Rf Q X)
 
 def makeLabJs (G : VCtx) : (sig : List (List Ty)) → Nat → Tup Cont sig
   | [], _ => ()
-  | ts :: sig, lid => (LabJ T host hints fn s₀ ra n nX Rf Q X G lid (ts := ts), makeLabJs G sig (lid + 1))
+  | ts :: sig, lid =>
+    (LabJ T host hints E fn s₀ ra n nX Rf Q X G lid (ts := ts), makeLabJs G sig (lid + 1))
 
 /-- Every join point in scope is a `LabJ` of an enclosing context. -/
 def DOk (G : VCtx) (D : Ctx Cont LNat) : Prop :=
   ∀ ts (J : Cont ts) (ℓ : Nat), ⟨ts, J, ℓ⟩ ∈ D →
     (∃ k : Nat, (T.mach.prog host)[k]? = some (T.frame.label (lname fn ℓ))) ∧
-    ∃ G', (∀ p ∈ G', p ∈ G) ∧ J = LabJ T host hints fn s₀ ra n nX Rf Q X G' ℓ
+    ∃ G', (∀ p ∈ G', p ∈ G) ∧ J = LabJ T host hints E fn s₀ ra n nX Rf Q X G' ℓ
 
 /-- Fallthrough obligation: code following position `k` starts with label `ft`. -/
 def FT (ft : Option Nat) (k : Nat) : Prop :=
@@ -49,7 +51,7 @@ def FT (ft : Option Nat) (k : Nat) : Prop :=
 end Defs
 
 section Basic
-variable {T : Target} {host : T.mach.Host} {hints : T.toIsa.Hints} {fn : Sym}
+variable {T : Target} {host : T.mach.Host} {hints : T.toIsa.Hints} {E : Ext} {fn : Sym}
   {s₀ : T.mach.MData} {ra : T.mach.Addr} {n nX : Nat} {Rf : Mem 64 → Prop} {rs : List Ty}
   {Q : Post rs} {X : XPost}
 
@@ -59,7 +61,8 @@ theorem labelAddr_of_unique (hu : T.LabelsUnique host) {j : Nat} {l : Sym}
   T.frameSpec.labelAddr_eq hj fun j' hj' e => by have := hu _ _ _ e hj; omega
 
 theorem DOk.weaken {G G' : VCtx} {D : Ctx Cont LNat} (hsub : ∀ p ∈ G, p ∈ G')
-    (hD : DOk T host hints fn s₀ ra n nX Rf Q X G D) : DOk T host hints fn s₀ ra n nX Rf Q X G' D := by
+    (hD : DOk T host hints E fn s₀ ra n nX Rf Q X G D) :
+    DOk T host hints E fn s₀ ra n nX Rf Q X G' D := by
   intro ts J ℓ hJ
   obtain ⟨hk, G'', hG'', rfl⟩ := hD ts J ℓ hJ
   exact ⟨hk, G'', fun p hp => hsub p (hG'' p hp), rfl⟩
@@ -67,9 +70,9 @@ theorem DOk.weaken {G G' : VCtx} {D : Ctx Cont LNat} (hsub : ∀ p ∈ G, p ∈ 
 theorem makeLabJs_dok {G : VCtx} :
     ∀ (sig : List (List Ty)) (lid : Nat) {D : Ctx Cont LNat},
     (∀ i, i < sig.length → ∃ k : Nat, (T.mach.prog host)[k]? = some (T.frame.label (lname fn (lid + i)))) →
-    DOk T host hints fn s₀ ra n nX Rf Q X G D →
-    DOk T host hints fn s₀ ra n nX Rf Q X G
-      (Tup.zip (makeLabJs T host hints fn s₀ ra n nX Rf Q X G sig lid) (Tup.levels sig lid) ++ D)
+    DOk T host hints E fn s₀ ra n nX Rf Q X G D →
+    DOk T host hints E fn s₀ ra n nX Rf Q X G
+      (Tup.zip (makeLabJs T host hints E fn s₀ ra n nX Rf Q X G sig lid) (Tup.levels sig lid) ++ D)
   | [], _, _, _, hD => by simpa [makeLabJs, Tup.levels, Tup.zip] using hD
   | ts :: sig, lid, D, hl, hD => by
     intro ts' J ℓ hmem
@@ -99,7 +102,9 @@ theorem jumpLocOk_spec {nslots : Nat} {loc : T.toIsa.Loc} (h : jumpLocOk T.toIsa
 /-- `Agree` for the block-entry base state (lexical `defs`/`vw` of the enclosing group). -/
 theorem Agree.base {G : VCtx} {nvg nv : Nat} {st : SymState T.toIsa} {s : T.mach.MData}
     {σ : List (BitVec 64)} (hA : Agree T G nvg st s σ) (hle : nvg ≤ nv) (s' : T.mach.MData)
-    (σ' : List (BitVec 64)) : Agree T G nv ⟨[], .empty, st.defs, st.vecWidths⟩ s' σ' where
+    (σ' : List (BitVec 64)) :
+    Agree T G nv
+      { regs := [], slots := .empty, defs := st.defs, vecWidths := st.vecWidths } s' σ' where
   ctx_lt p hp := Nat.lt_of_lt_of_le (hA.ctx_lt p hp) hle
   regs p hp := by simp at hp
   slots i se h := by simp [Trie.find?] at h
@@ -211,8 +216,9 @@ def Motive (T : Target) (host : T.mach.Host) (hints : T.toIsa.Hints) (E : Ext) (
     (nv' nl' ip' k : Nat) (s : T.mach.MData) (σ : List (BitVec 64)) (m : Mem 64),
   lowerExpr T.toIsa hints E fn e₂ nv nl ip st ft = .ok (c, nv', nl', ip') →
   c.IsInfixAt (T.mach.prog host) k → FT T host fn ft (k + c.length) →
-  DOk T host hints fn s₀ ra n nX Rf Q X G D → Agree T G nv st s σ →
-  Inv T hints s₀ ra n Rf m s σ → wp Γ Q X e₁ m →
+  DOk T host hints E fn s₀ ra n nX Rf Q X G D → Agree T G nv st s σ →
+  MemDefsOk G m nv st.memDefs →
+  Inv T hints s₀ ra n Rf m s σ (isZeroLeaf T.toIsa hints E) → wp Γ Q X e₁ m →
   T.mach.Run host k s (FnPost T host s₀ ra n nX Rf Q X)
 
 /-- Jump to a join point `J = LabJ G' j` after targets hold (shared by `jump` and `jnz` threads). -/
@@ -222,9 +228,9 @@ theorem enter_labJ (hy : Hyps T host hints E Γ s₀ n nX bound) {G G' : VCtx} (
     (hen : hints.entry.find? j = some en) (hjt : jumpTargets T.toIsa args en.ploc = some argTgts)
     {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
     (hok : ∀ p ∈ en.live ++ argTgts, LocOk T.mach G s σ p.1 p.2)
-    (hI : Inv T hints s₀ ra n Rf m s σ)
+    (hI : Inv T hints s₀ ra n Rf m s σ (isZeroLeaf T.toIsa hints E))
     (hlab : (T.mach.prog host)[k]? = some (T.frame.label (lname fn j)))
-    (hJ : LabJ T host hints fn s₀ ra n nX Rf Q X G' j (vals args₁) m) :
+    (hJ : LabJ T host hints E fn s₀ ra n nX Rf Q X G' j (vals args₁) m) :
     T.mach.Run host k s (FnPost T host s₀ ra n nX Rf Q X) := by
   obtain ⟨kℓ, en', hlab', hen', hrun⟩ := hJ
   rw [hen] at hen'; cases hen'
@@ -234,7 +240,7 @@ theorem enter_labJ (hy : Hyps T host hints E Γ s₀ n nX bound) {G G' : VCtx} (
   exact paramsOk_of_jumpTargets hargs hjt fun p hp => hok p (List.mem_append_right _ hp)
 
 theorem lowerBlocks_closed (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCtx} {D' : Ctx Cont LNat}
-    (hD' : DOk T host hints fn s₀ ra n nX Rf Q X G D') {nvg : Nat} {stg : SymState T.toIsa}
+    (hD' : DOk T host hints E fn s₀ ra n nX Rf Q X G D') {nvg : Nat} {stg : SymState T.toIsa}
     {sg : T.mach.MData} {σg : List (BitVec 64)} (hAg : Agree T G nvg stg sg σg) :
     ∀ {sig : List (List Ty)} {bs₁ : Blocks Val Cont rs sig} {bs₂ : Blocks VNat LNat rs sig},
     WfB G D' bs₁ bs₂ →
@@ -245,7 +251,7 @@ theorem lowerBlocks_closed (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VC
     nvg ≤ nv →
     lowerBlocks T.toIsa hints E fn bs₂ lid nv nl ip stg.defs stg.vecWidths ft = .ok (cb, nv', nl', ip') →
     cb.IsInfixAt (T.mach.prog host) kb → FT T host fn ft (kb + cb.length) →
-    Closed Γ Q X bs₁ (makeLabJs T host hints fn s₀ ra n nX Rf Q X G sig lid)
+    Closed Γ Q X bs₁ (makeLabJs T host hints E fn s₀ ra n nX Rf Q X G sig lid)
   | [], .nil, .nil, .nil, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => trivial
   | ts :: _, .cons b₁ bs₁, .cons b₂ bs₂, .cons _ hbs', ihb, lid, nv, nl, ip, ft, cb, nv', nl', ip', kb,
       hle, hpb, hcode, hft => by
@@ -257,7 +263,7 @@ theorem lowerBlocks_closed (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VC
       by_cases hsc : entryScopeOk nv en = true
       · simp only [hsc, Bool.not_true, Bool.false_eq_true, ite_false] at hpb
         cases hbe : buildEntryBase T.toIsa hints.nslots stg.vecWidths en.live
-            ⟨[], .empty, stg.defs, stg.vecWidths⟩ with
+            { regs := [], slots := .empty, defs := stg.defs, vecWidths := stg.vecWidths } with
         | none => simp [hbe] at hpb
         | some baseSt =>
           simp only [hbe] at hpb
@@ -285,9 +291,11 @@ theorem lowerBlocks_closed (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VC
                   simpa [entryScopeOk, List.all_eq_true] using hsc
                 have hA0 := buildEntryBase_ok hbe hlive hlt hσ (hAg.base hle s σ)
                 have hA1 := bindBlockParams_ok hbp hparams hσ hA0
+                have hmd : initSt.memDefs = .empty :=
+                  (bindBlockParams_memDefs hbp).trans (buildEntryBase_memDefs hbe)
                 refine ihb .here xs₁ (Tup.levels ts nv) (nv + ts.length) nl ip initSt _ cbb nv1 nl1 ip1
                   (kb + 1) s σ m' hlb hcbb ?_ (hD'.weaken fun _ hp => List.mem_append_right _ hp)
-                  hA1 hI hwpb
+                  hA1 (hmd ▸ MemDefsOk.empty _ _ _) hI hwpb
                 intro j hj
                 split at hj
                 · simp only [lowerBlocks, Except.ok.injEq, Prod.mk.injEq] at hpr
@@ -332,10 +340,12 @@ theorem jnzMode_spec {I : Isa} {h : I.Hints} {st : SymState I} {canInv : Bool}
 /-- A zero-move threaded jump (`jnz` taken branch straight to a join point). -/
 theorem thread_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCtx} {D : Ctx Cont LNat}
     {tb₁ : Expr Val Cont rs} {tb₂ : Expr VNat LNat rs} (hwf : Wf G D tb₁ tb₂)
-    (hD : DOk T host hints fn s₀ ra n nX Rf Q X G D) {stB : SymState T.toIsa} {j : Nat} {m : Mem 64}
+    (hD : DOk T host hints E fn s₀ ra n nX Rf Q X G D)
+    {stB : SymState T.toIsa} {j : Nat} {m : Mem 64}
     (hz : zeroMoveJump? T.toIsa hints stB tb₂ = some j) :
     ∃ kj, (T.mach.prog host)[kj]? = some (T.frame.label (lname fn j)) ∧
-      (wp Γ Q X tb₁ m → ∀ nv s σ, Agree T G nv stB s σ → Inv T hints s₀ ra n Rf m s σ →
+      (wp Γ Q X tb₁ m → ∀ nv s σ, Agree T G nv stB s σ →
+        Inv T hints s₀ ra n Rf m s σ (isZeroLeaf T.toIsa hints E) →
         T.mach.Run host kj s (FnPost T host s₀ ra n nX Rf Q X)) := by
   cases hwf with
   | @jump _ _ ts j₁ j₂ args₁ args₂ hj hargs =>
@@ -430,17 +440,24 @@ theorem jnzSetup_thread {I : Isa} {h : I.Hints} {nl : Nat} {st1 : SymState I}
       subst hj; exact h2
     · cases h2
 
+theorem jnzSetup_memDefs {I : Isa} {h : I.Hints} {nl : Nat} {st1 : SymState I}
+    {t e : Expr VNat LNat rs} {ft : Option Nat} {cond : Sum I.Cond I.Reg} {inv : Bool}
+    {tgt : Option Nat} {br : List I.Directive} {stBr : SymState I}
+    (hs : jnzSetup I h fn nl st1 t e ft cond = (inv, tgt, br, stBr)) :
+    stBr.memDefs = st1.memDefs := by
+  cases cond <;> simp only [jnzSetup, Prod.mk.injEq] at hs <;> rw [← hs.2.2.2]
+
 /-- Branch on the `jnz` condition (`jcc` on a flag or `jnzGpr` on a GPR). -/
-theorem branch_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCtx} {nv nl : Nat}
+theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCtx} {nv nl : Nat}
     {st1 stBr : SymState T.toIsa} {s1 : T.mach.MData} {σ1 : List (BitVec 64)} {m : Mem 64}
     {cv : Bool} {cx : Nat} (hmem : (⟨.bool, cv, cx⟩ : (t : Ty) × Val t × VNat t) ∈ G)
-    (hA1 : Agree T G nv st1 s1 σ1) (hI1 : Inv T hints s₀ ra n Rf m s1 σ1)
+    (hA1 : Agree T G nv st1 s1 σ1) (hI1 : Inv T hints s₀ ra n Rf m s1 σ1 zl)
     {cond : Sum T.Cond T.Reg} (hfc : findJnzCond T.toIsa st1.regs cx = some cond)
     {t e : Expr VNat LNat rs} {ft : Option Nat} {inv : Bool} {tgt : Option Nat}
     {br : List T.Directive} (hs : jnzSetup T.toIsa hints fn nl st1 t e ft cond = (inv, tgt, br, stBr))
     {kb kT : Nat} {post : T.mach.State → Prop} (hbr : br.IsInfixAt (T.mach.prog host) kb)
     (hlab : (T.mach.prog host)[kT]? = some (T.frame.label (lname fn (tgt.getD nl))))
-    (kont : ∀ s', Agree T G nv stBr s' σ1 → Inv T hints s₀ ra n Rf m s' σ1 →
+    (kont : ∀ s', Agree T G nv stBr s' σ1 → Inv T hints s₀ ra n Rf m s' σ1 zl →
       ((if inv then !cv else cv) = true → T.mach.Run host kT s' post) ∧
       ((if inv then !cv else cv) = false → T.mach.Run host (kb + br.length) s' post)) :
     T.mach.Run host kb s1 post := by
@@ -502,7 +519,8 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
   refine Wf.induct (motive := fun G D e₁ e₂ _ => Motive T host hints E Γ fn s₀ ra n nX Rf Q X G D e₁ e₂)
     ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ hwf
   · -- let_
-    intro G D ts op₁ op₂ k₁ k₂ hop _ ih nv nl ip st ft c nv' nl' ip' k s σ m hl hc hft hD hA hI hwp
+    intro G D ts op₁ op₂ k₁ k₂ hop _ ih nv nl ip st ft c nv' nl' ip' k s σ m
+      hl hc hft hD hA hM hI hwp
     simp only [lowerExpr] at hl
     cases hp : stepPre T.toIsa hints ip st with
     | none => simp [hp] at hl
@@ -517,13 +535,15 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
         obtain ⟨hc1, hck⟩ := List.IsInfixAt.append hc
         obtain ⟨hmc, hco⟩ := List.IsInfixAt.append hc1
         simp only [wp] at hwp
+        have hM1 : MemDefsOk G m nv st1.memDefs := stepPre_memDefs hp ▸ hM
         refine stepPre_ok hy.spE hp hmc hA hI fun s1 σ1 hA1 hI1 => ?_
-        refine lowerOp_ok hy.spE hy.saved_cs hop hlop hco hA1 hI1 hwp fun rvs s2 hP hA2 hI2 => ?_
-        refine run_congr (by simp [Nat.add_assoc]) (ih rvs (Tup.levels ts nv) (nv + ts.length) nl (ip + 1)
-          st2 ft ck nv' nl' ip' _ s2 σ1 m hlk hck (FT_congr (by simp [Nat.add_assoc]) hft)
-          (hD.weaken fun _ hp => List.mem_append_right _ hp) hA2 hI2 hP)
+        refine lowerOp_ok hy.spE hy.saved_cs hop hlop hco hA1 hM1 hI1 hwp
+          fun rvs s2 hP hA2 hM2 hI2 => ?_
+        refine run_congr (by simp [Nat.add_assoc]) (ih rvs (Tup.levels ts nv) (nv + ts.length) nl
+          (ip + 1) st2 ft ck nv' nl' ip' _ s2 σ1 m hlk hck (FT_congr (by simp [Nat.add_assoc]) hft)
+          (hD.weaken fun _ hp => List.mem_append_right _ hp) hA2 hM2 hI2 hP)
   · -- load
-    intro G D t a₁ a₂ k₁ k₂ ha _ ih nv nl ip st ft c nv' nl' ip' k s σ m hl hc hft hD hA hI hwp
+    intro G D t a₁ a₂ k₁ k₂ ha _ ih nv nl ip st ft c nv' nl' ip' k s σ m hl hc hft hD hA hM hI hwp
     simp only [lowerExpr] at hl
     cases hp : stepPre T.toIsa hints ip st with
     | none => simp [hp] at hl
@@ -539,13 +559,15 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
         obtain ⟨hmc, hco⟩ := List.IsInfixAt.append hc1
         simp only [wp] at hwp
         obtain ⟨v, hv, hwk⟩ := hwp
+        have hM1 : MemDefsOk G m nv st1.memDefs := stepPre_memDefs hp ▸ hM
         refine stepPre_ok hy.spE hp hmc hA hI fun s1 σ1 hA1 hI1 => ?_
-        refine lowerLoad_ok hy.spE hy.saved_cs ha hll hco hA1 hI1 hv fun s2 hA2 hI2 => ?_
+        refine lowerLoad_ok hy.spE hy.saved_cs ha hll hco hA1 hM1 hI1 hv fun s2 hA2 hM2 hI2 => ?_
         refine run_congr (by simp [Nat.add_assoc]) (ih v nv (nv + 1) nl (ip + 1) st2 ft ck nv' nl' ip' _
           s2 σ1 m hlk hck (FT_congr (by simp [Nat.add_assoc]) hft)
-          (hD.weaken fun _ hp => List.mem_cons_of_mem _ hp) hA2 hI2 hwk)
+          (hD.weaken fun _ hp => List.mem_cons_of_mem _ hp) hA2 hM2 hI2 hwk)
   · -- store
-    intro G D t v₁ v₂ a₁ a₂ k₁ k₂ hv ha _ ih nv nl ip st ft c nv' nl' ip' k s σ m hl hc hft hD hA hI hwp
+    intro G D t v₁ v₂ a₁ a₂ k₁ k₂ hv ha _ ih nv nl ip st ft c nv' nl' ip' k s σ m
+      hl hc hft hD hA _hM hI hwp
     simp only [lowerExpr] at hl
     cases hp : stepPre T.toIsa hints ip st with
     | none => simp [hp] at hl
@@ -561,11 +583,12 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
         obtain ⟨hmc, hco⟩ := List.IsInfixAt.append hc1
         simp only [wp] at hwp
         refine stepPre_ok hy.spE hp hmc hA hI fun s1 σ1 hA1 hI1 => ?_
-        refine lowerStore_ok hy.spE hv ha hls hco hA1 hI1 hwp.1 fun s2 hA2 hI2 => ?_
+        refine lowerStore_ok hy.spE hv ha hls hco hA1 hI1 hwp.1 fun s2 hA2 hM2 hI2 => ?_
         refine run_congr (by simp [Nat.add_assoc]) (ih nv nl (ip + 1) st2 ft ck nv' nl' ip' _ s2 σ1 _ hlk hck
-          (FT_congr (by simp [Nat.add_assoc]) hft) hD hA2 hI2 hwp.2)
+          (FT_congr (by simp [Nat.add_assoc]) hft) hD hA2 hM2 hI2 hwp.2)
   · -- call
-    intro G D f as bs args₁ args₂ k₁ k₂ hargs _ ih nv nl ip st ft c nv' nl' ip' k s σ m hl hc hft hD hA hI hwp
+    intro G D f as bs args₁ args₂ k₁ k₂ hargs _ ih nv nl ip st ft c nv' nl' ip' k s σ m
+      hl hc hft hD hA _hM hI hwp
     simp only [lowerExpr] at hl
     cases hp : stepPre T.toIsa hints ip st with
     | none => simp [hp] at hl
@@ -600,15 +623,18 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
                 obtain ⟨hsc, hcc⟩ := List.IsInfixAt.append hc2
                 simp only [wp] at hwp
                 obtain ⟨P, X', hspec, hk, hX⟩ := hwp
+                have hmd4 : st4.memDefs = .empty := bindAbiParams_memDefs hb
                 refine stepPre_ok hy.spE hp hmc hA hI fun s1 σ1 hA1 hI1 => ?_
                 refine shuffle_ok hy.spE hsh hsc hA1 hI1 fun s2 σ2 hok hA2 hI2 => ?_
                 refine call_ok hy hargs hcal hal hrl htg hb hcc hok hA2 hI2 hspec hX
                   fun rets m' s3 σ3 hP hA3 hI3 => ?_
                 refine run_congr (by simp; omega) (ih rets (Tup.levels bs nv) (nv + bs.length) nl
                   (ip + 1) st4 ft ck nv' nl' ip' _ s3 σ3 m' hlk hck (FT_congr (by simp; omega) hft)
-                  (hD.weaken fun _ hp => List.mem_append_right _ hp) hA3 hI3 (hk rets m' hP))
+                  (hD.weaken fun _ hp => List.mem_append_right _ hp) hA3
+                  (hmd4 ▸ MemDefsOk.empty _ _ _) hI3 (hk rets m' hP))
   · -- jnz
-    intro G D c₁ c₂ t₁ t₂ e₁ e₂ hcr ht he iht ihe nv nl ip st ft c nv' nl' ip' k s σ m hl hc hft hD hA hI hwp
+    intro G D c₁ c₂ t₁ t₂ e₁ e₂ hcr ht he iht ihe nv nl ip st ft c nv' nl' ip' k s σ m
+      hl hc hft hD hA hM hI hwp
     cases hcr with
     | imm b =>
       simp only [lowerExpr] at hl
@@ -620,13 +646,16 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
         obtain ⟨cb, hlb, rfl⟩ := prepend_ok hl
         obtain ⟨hmc, hcb⟩ := List.IsInfixAt.append hc
         simp only [wp, Arg.val] at hwp
+        have hM1 : MemDefsOk G m nv st1.memDefs := stepPre_memDefs hp ▸ hM
         refine stepPre_ok hy.spE hp hmc hA hI fun s1 σ1 hA1 hI1 => ?_
         have hft' : FT T host fn ft (k + mc.length + cb.length) := FT_congr (by simp [Nat.add_assoc]) hft
         cases b
         · simp only [Bool.false_eq_true, ite_false] at hlb
-          exact ihe nv nl (ip + 1) st1 ft cb nv' nl' ip' _ s1 σ1 m hlb hcb hft' hD hA1 hI1 (hwp.2 rfl)
+          exact ihe nv nl (ip + 1) st1 ft cb nv' nl' ip' _ s1 σ1 m
+            hlb hcb hft' hD hA1 hM1 hI1 (hwp.2 rfl)
         · simp only [ite_true] at hlb
-          exact iht nv nl (ip + 1) st1 ft cb nv' nl' ip' _ s1 σ1 m hlb hcb hft' hD hA1 hI1 (hwp.1 rfl)
+          exact iht nv nl (ip + 1) st1 ft cb nv' nl' ip' _ s1 σ1 m
+            hlb hcb hft' hD hA1 hM1 hI1 (hwp.1 rfl)
     | @var cv cx hmem =>
       simp only [lowerExpr] at hl
       cases hp : stepPre T.toIsa hints ip st with
@@ -646,6 +675,10 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
           obtain ⟨hmc, hcf⟩ := List.IsInfixAt.append hc
           simp only [wp, Arg.val] at hwp
           have hnv1 := (lowerExpr_nv_le hle).1
+          have hMBr : MemDefsOk G m nv stBr.memDefs :=
+            ((jnzSetup_memDefs hs).trans (stepPre_memDefs hp)) ▸ hM
+          have hMBr1 : MemDefsOk G m nv1 stBr.memDefs :=
+            hMBr.grow hnv1 (fun _ h => Or.inl h) (fun _ h => h)
           refine stepPre_ok hy.spE hp hmc hA hI fun s1 σ1 hA1 hI1 => ?_
           cases tgt with
           | none =>
@@ -661,9 +694,10 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
               refine branch_ok hy hmem hA1 hI1 hfc hs hbr hlab fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
               · refine T.frameSpec.label_spec hlab ?_
                 exact iht nv1 nl1 ip1 stBr ft ct _ _ _ _ s' σ1 m hlt hct
-                  (FT_congr (by simp; omega) hft) hD (hA'.mono_nv hnv1) hI' (hwp.1 (by simpa using htk))
-              · exact ihe nv (nl + 1) (ip + 1) stBr none ce nv1 nl1 ip1 _ s' σ1 m hle hce (FT_none _) hD hA' hI'
-                  (hwp.2 (by simpa using hnt))
+                  (FT_congr (by simp; omega) hft) hD (hA'.mono_nv hnv1) hMBr1 hI'
+                  (hwp.1 (by simpa using htk))
+              · exact ihe nv (nl + 1) (ip + 1) stBr none ce nv1 nl1 ip1 _ s' σ1 m
+                  hle hce (FT_none _) hD hA' hMBr hI' (hwp.2 (by simpa using hnt))
             | true =>
               simp only [ite_true] at hle hlt hfin
               obtain ⟨hcfe, rfl, rfl, rfl⟩ := finishJnzBranch_none hfin
@@ -674,9 +708,9 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
               refine branch_ok hy hmem hA1 hI1 hfc hs hbr hlab fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
               · refine T.frameSpec.label_spec hlab ?_
                 exact ihe nv (nl + 1) (ip + 1) stBr ft ce nv1 nl1 ip1 _ s' σ1 m hle hce
-                  (FT_congr (by simp; omega) hft) hD hA' hI' (hwp.2 (by simpa using htk))
+                  (FT_congr (by simp; omega) hft) hD hA' hMBr hI' (hwp.2 (by simpa using htk))
               · exact iht nv1 nl1 ip1 stBr none ct _ _ _ _ s' σ1 m hlt hct (FT_none _) hD
-                  (hA'.mono_nv hnv1) hI' (hwp.1 (by simpa using hnt))
+                  (hA'.mono_nv hnv1) hMBr1 hI' (hwp.1 (by simpa using hnt))
           | some j =>
             have hth := jnzSetup_thread hs
             cases inv with
@@ -688,7 +722,8 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
               refine branch_ok hy hmem hA1 hI1 hfc hs hbr hlab fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
               · exact hrun (hwp.1 (by simpa using htk)) nv s' σ1 hA' hI'
               · exact ihe nv (nl + 1) (ip + 1) stBr ft ce nv1 nl1 ip1 _ s' σ1 m hle hce
-                  (FT_congr (by simp [Nat.add_assoc]) hft) hD hA' hI' (hwp.2 (by simpa using hnt))
+                  (FT_congr (by simp [Nat.add_assoc]) hft) hD hA' hMBr hI'
+                  (hwp.2 (by simpa using hnt))
             | true =>
               simp only [ite_true] at hle hlt hfin
               obtain ⟨rfl, rfl, rfl, rfl⟩ := finishJnzBranch_some hfin
@@ -697,9 +732,11 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
               refine branch_ok hy hmem hA1 hI1 hfc hs hbr hlab fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
               · exact hrun (hwp.2 (by simpa using htk)) nv s' σ1 hA' hI'
               · exact iht nv1 nl1 ip1 stBr ft ct _ _ _ _ s' σ1 m hlt hct
-                  (FT_congr (by simp [Nat.add_assoc]) hft) hD (hA'.mono_nv hnv1) hI' (hwp.1 (by simpa using hnt))
+                  (FT_congr (by simp [Nat.add_assoc]) hft) hD (hA'.mono_nv hnv1) hMBr1 hI'
+                  (hwp.1 (by simpa using hnt))
   · -- jump
-    intro G D ts j₁ j₂ args₁ args₂ hj hargs nv nl ip st ft c nv' nl' ip' k s σ m hl hc hft hD hA hI hwp
+    intro G D ts j₁ j₂ args₁ args₂ hj hargs nv nl ip st ft c nv' nl' ip' k s σ m
+      hl hc hft hD hA _hM hI hwp
     simp only [lowerExpr] at hl
     cases hp : stepPre T.toIsa hints ip st with
     | none => simp [hp] at hl
@@ -741,7 +778,7 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
               exact LocOk.frame hfr (hok p hp) hjl.1 (fun _ _ => List.not_mem_nil)
                 (fun _ _ => FlagMask.disjoint_none _)
   · -- ret
-    intro G D vs₁ vs₂ hvs nv nl ip st ft c nv' nl' ip' k s σ m hl hc hft hD hA hI hwp
+    intro G D vs₁ vs₂ hvs nv nl ip st ft c nv' nl' ip' k s σ m hl hc hft hD hA _hM hI hwp
     simp only [lowerExpr] at hl
     cases hp : stepPre T.toIsa hints ip st with
     | none => simp [hp] at hl
@@ -768,7 +805,7 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
             refine shuffle_ok hy.spE hsh hsc hA1 hI1 fun s2 σ2 hok _ hI2 => ?_
             exact ret_ok hy hvs hrl htg (by simpa only [List.append_assoc] using hc3) hok hI2 hwp
   · -- exit
-    intro G D f as args₁ args₂ hargs nv nl ip st ft c nv' nl' ip' k s σ m hl hc hft hD hA hI hwp
+    intro G D f as args₁ args₂ hargs nv nl ip st ft c nv' nl' ip' k s σ m hl hc hft hD hA _hM hI hwp
     simp only [lowerExpr] at hl
     cases hp : stepPre T.toIsa hints ip st with
     | none => simp [hp] at hl
@@ -799,10 +836,11 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
             refine shuffle_ok hy.spE hsh hsc hA1 hI1 fun s2 σ2 hok _ hI2 => ?_
             exact exit_ok hy hargs hex hal htg (by simpa only [List.append_assoc] using hc3) hok hI2 hwp
   · -- hlt
-    intro G D nv nl ip st ft c nv' nl' ip' k s σ m _ _ _ _ _ _ hwp
+    intro G D nv nl ip st ft c nv' nl' ip' k s σ m _ _ _ _ _ _ _ hwp
     exact absurd hwp (by simp [wp])
   · -- group
-    intro G D sig b₁ b₂ k₁ k₂ hb _ ihb ihk nv nl ip st ft c nv' nl' ip' k s σ m hl hc hft hD hA hI hwp
+    intro G D sig b₁ b₂ k₁ k₂ hb _ ihb ihk nv nl ip st ft c nv' nl' ip' k s σ m
+      hl hc hft hD hA hM hI hwp
     simp only [lowerExpr] at hl
     split at hl; · simp at hl
     rename_i ck nv1 nl1 ip1 hlk
@@ -810,8 +848,8 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
     obtain ⟨hck, hcb⟩ := List.IsInfixAt.append hc
     have hlabs := lowerBlocks_labelPos (prog := T.mach.prog host) (b₂ (Tup.levels sig nl)) nl nv1 nl1 ip1
       st.defs st.vecWidths ft cb nv' nl' ip' _ hpb hcb
-    have hD' := makeLabJs_dok (T := T) (host := host) (hints := hints) (s₀ := s₀) (ra := ra) (n := n)
-      (nX := nX) (Rf := Rf) (Q := Q) (X := X) (G := G) sig nl hlabs.1 hD
+    have hD' := makeLabJs_dok (T := T) (host := host) (hints := hints) (E := E) (s₀ := s₀)
+      (ra := ra) (n := n) (nX := nX) (Rf := Rf) (Q := Q) (X := X) (G := G) sig nl hlabs.1 hD
     have hnv1 : nv ≤ nv1 := (lowerExpr_nv_le hlk).1
     have hnil : sig = [] → cb = [] := by
       intro hs; subst hs
@@ -821,8 +859,8 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
       (fun i xs₁ xs₂ => ihb _ (Tup.levels sig nl) i xs₁ xs₂) nl nv1 nl1 ip1 ft cb nv' nl' ip'
       (k + ck.length) hnv1 hpb hcb (FT_congr (by simp [Nat.add_assoc]) hft)
     simp only [wp] at hwp
-    refine ihk _ (Tup.levels sig nl) nv (nl + sig.length) ip st _ ck nv1 nl1 ip1 k s σ m hlk hck ?_ hD' hA hI
-      (hwp _ hClosed)
+    refine ihk _ (Tup.levels sig nl) nv (nl + sig.length) ip st _ ck nv1 nl1 ip1 k s σ m
+      hlk hck ?_ hD' hA hM hI (hwp _ hClosed)
     intro j hj
     split at hj
     · simpa [hnil rfl] using hft j hj
@@ -838,9 +876,10 @@ theorem lowerFn_correct (T : Target) (host : T.mach.Host) (hints : T.toIsa.Hints
     (Γ : Env) (n nX : Nat) (bound : Sym → Nat) {code : List T.Directive} {k₀ : Nat}
     (hwf : f.Wf) (hl : lowerFn T.toIsa hints E f = .ok code)
     (hc : code.IsInfixAt (T.mach.prog host) k₀) (hu : T.LabelsUnique host)
-    (hfr : frame T hints ≤ n) (hn : n + T.frame.raBytes ≤ 2 ^ 64)
+    (hfr : effFrame T.toIsa hints E ≤ n) (hn : n + T.frame.raBytes ≤ 2 ^ 64)
     (hcal : ∀ g as bs, (g, as, bs) ∈ E.callees →
-      T.FnSpec host g (Γ g as bs) (bound g) nX ∧ frame T hints + T.frame.raBytes + bound g ≤ n)
+      T.FnSpec host g (Γ g as bs) (bound g) nX ∧
+        effFrame T.toIsa hints E + T.frame.raBytes + bound g ≤ n)
     (hex : ∀ g, g ∈ E.exits → T.Defined host g ∧ nX ≤ n) :
     T.FnSpec host f.name (Func.spec Γ f.body) n nX := by
   unfold lowerFn at hl
@@ -854,7 +893,8 @@ theorem lowerFn_correct (T : Target) (host : T.mach.Host) (hints : T.toIsa.Hints
     | none => simp [hal, hrl] at hl
     | some retLocs =>
       simp only [hal, hrl] at hl
-      cases hb : bindAbiParams T.toIsa argLocs 0 ⟨[], .empty, .empty, .empty⟩ with
+      cases hb : bindAbiParams T.toIsa argLocs 0
+          { regs := [], slots := .empty, defs := .empty, vecWidths := .empty } with
       | none => simp [hb] at hl
       | some st0 =>
         simp only [hb] at hl
@@ -867,6 +907,7 @@ theorem lowerFn_correct (T : Target) (host : T.mach.Host) (hints : T.toIsa.Hints
             { unique := hu, spE := hspE, frame_le := hfr, frame_bound := by omega, stack_bound := hn,
               saved_cs := fun r hr => by simpa using hsv.2 r hr, saved_nodup := listNodup_nodup hsv.1,
               callees := hcal, exits := hex }
+          have hmd0 : st0.memDefs = .empty := bindAbiParams_memDefs hb
           obtain ⟨hlab, hrest⟩ := List.IsInfixAt.cons hc
           rw [labelAddr_of_unique hu hlab]
           refine T.frameSpec.label_spec hlab ?_
@@ -874,7 +915,8 @@ theorem lowerFn_correct (T : Target) (host : T.mach.Host) (hints : T.toIsa.Hints
           refine fn_entry_ok hy hargs hra hmem hal hb hpro fun s' σ hA hI => ?_
           exact lowerExpr_correct (fn := f.name) (Q := Q) (X := X) (Rf := R) (ra := ra) hy
             (hwf Val VNat Cont LNat args (Tup.levels f.as 0)) f.as.length 0 0 st0 none c nv' nl' ip' _ s' σ m
-            hle hbody (FT_none _) (fun _ _ _ h => nomatch h) hA hI hspec
+            hle hbody (FT_none _) (fun _ _ _ h => nomatch h) hA
+            (hmd0 ▸ MemDefsOk.empty _ _ _) hI hspec
         · simp at hl
 
 end Rega

@@ -171,7 +171,7 @@ private theorem checkAndBoundExt_mono_lookupBound {I : Isa} {raBytes : Nat}
     (hc : checkAndBoundExt I raBytes exits nX ext₁ h ext = some b) :
     checkAndBoundExt I raBytes exits nX ext₂ h ext = some b := by
   dsimp only [checkAndBoundExt] at hc ⊢
-  cases hcb : calleesBound (I.frame.frameSize h.totalSlots) raBytes ext₁ ext.callees with
+  cases hcb : calleesBound (Rega.effFrame I h ext) raBytes ext₁ ext.callees with
   | none => simp [hcb] at hc
   | some n₁ =>
     rw [hcb] at hc

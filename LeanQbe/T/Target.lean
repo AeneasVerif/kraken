@@ -273,6 +273,16 @@ structure GprIsa (Reg VReg Cond Directive : Type) where
     Tup (PDst Reg VReg Cond) rs → Bool := fun _ _ _ => false
   /-- `true` when `.zext 32 64` into `.gpr rd` may be elided when the input is upper-32 zero. -/
   elideZext32 : Bool := false
+  /-- Fused `(va &&& vb) ==/!= 0` bit-test lowering (`neg = false` -> `== 0`, `true` -> `!= 0`). -/
+  testOp : (w : Nat) → (neg : Bool) → PArg Reg VReg Cond (.bits w) →
+    PArg Reg VReg Cond (.bits w) → PDst Reg VReg Cond .bool →
+    Option (List Directive × FlagMask) := fun _ _ _ _ _ => none
+  /-- Fused memory-operand compare `co.evalBits (load (.bits w) addr) vb`. -/
+  cmpMem : (co : CmpOp) → (w : Nat) → AddrArg Reg → PArg Reg VReg Cond (.bits w) →
+    PDst Reg VReg Cond .bool → Option (List Directive × FlagMask) := fun _ _ _ _ _ => none
+  /-- Fused memory-operand bit-test `(load (.bits w) addr &&& vb) ==/!= 0`. -/
+  testMem : (w : Nat) → (neg : Bool) → AddrArg Reg → PArg Reg VReg Cond (.bits w) →
+    PDst Reg VReg Cond .bool → Option (List Directive × FlagMask) := fun _ _ _ _ _ => none
 
 structure VecIsa (Reg VReg Cond Directive : Type) where
   vecScratch : List VReg
@@ -317,6 +327,9 @@ structure FrameIsa (Reg Directive : Type) where
   call : Sym → List Directive
   exitJmp : Sym → List Directive
   ret : List Directive
+  /-- `true` when 0-slot leaf functions (`callees = []`, `totalSlots = 0`) elide prologue/epilogue
+  completely (`effFrame = 0`, `prologue = []`, `epilogue = []`). -/
+  leafZeroFrame : Bool := false
 
 structure Isa where
   Reg : Type
@@ -333,6 +346,12 @@ structure Isa where
   supportsAddrDisp : Ty → BitVec 64 → Bool := fun _ _ => false
   /-- Untrusted scaled-index legality predicate (`base + idx*scale + disp`) for elision. -/
   supportsAddrIdx : Ty → AddrScale → BitVec 64 → Bool := fun _ _ _ => false
+  /-- Untrusted flag indicating `(a & b) ==/!= 0` and narrow `sext`/`zext` compare fusion. -/
+  supportsTestFuse : Bool := false
+  /-- Untrusted predicate for fusing a single-use `load t` into `cmpMem`. -/
+  supportsCmpMem : Ty → Bool := fun _ => false
+  /-- Untrusted predicate for fusing a single-use `load t` into `testMem`. -/
+  supportsTestMem : Ty → Bool := fun _ => false
 
 attribute [instance] Isa.decEqReg Isa.decEqVReg Isa.decEqCond
 abbrev Isa.Loc (I : Isa) : Type := _root_.LeanQbe.T.Loc I.Reg I.VReg I.Cond
@@ -569,6 +588,33 @@ structure GprTarget {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
       (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ M.getGpr s' rd = rv.setWidth 64) ∧
         M.mem s' = M.mem s) post :=
     by intros; contradiction
+  testOp_spec : ∀ {h k w neg pa pb pd c clob va vb s post},
+    g.testOp w neg pa pb pd = some (c, clob) →
+    (∀ r ∈ pa.gprs ++ pb.gprs, r ∉ scratch) → (∀ r ∈ pd.gprs, r ∉ scratch) →
+    M.PArgHolds s (.bits w) pa va → M.PArgHolds s (.bits w) pb vb →
+    M.FallsTo g.condReads h k c (pd.gprs ++ scratch) [] clob s
+      (fun s' =>
+        M.PDstHolds s' .bool pd ((if neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& vb) 0#w) ∧
+        M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  cmpMem_spec : ∀ {h k co w a pb pd c clob va vb s post},
+    g.cmpMem co w a pb pd = some (c, clob) →
+    (∀ r ∈ a.regs ++ pb.gprs, r ∉ scratch) → (∀ r ∈ pd.gprs, r ∉ scratch) →
+    loadVal (M.mem s) (.bits w) (a.eval (M.getGpr s)) = some va →
+    M.PArgHolds s (.bits w) pb vb →
+    M.FallsTo g.condReads h k c (pd.gprs ++ scratch) [] clob s
+      (fun s' => M.PDstHolds s' .bool pd (co.evalBits va vb) ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  testMem_spec : ∀ {h k w neg a pb pd c clob va vb s post},
+    g.testMem w neg a pb pd = some (c, clob) →
+    (∀ r ∈ a.regs ++ pb.gprs, r ∉ scratch) → (∀ r ∈ pd.gprs, r ∉ scratch) →
+    loadVal (M.mem s) (.bits w) (a.eval (M.getGpr s)) = some va →
+    M.PArgHolds s (.bits w) pb vb →
+    M.FallsTo g.condReads h k c (pd.gprs ++ scratch) [] clob s
+      (fun s' =>
+        M.PDstHolds s' .bool pd ((if neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& vb) 0#w) ∧
+        M.mem s' = M.mem s) post :=
+    by intros; contradiction
 
 structure FramePreds {R V C D : Type} (M : Machine R V C D) : Type where
   RetAddr : BitVec 64 → M.Addr → Mem 64 → Prop
@@ -655,6 +701,7 @@ structure FrameSpec {R V C D : Type} (M : Machine R V C D) (f : FrameIsa R D)
       M.getGpr s' f.sp = M.getGpr s f.sp + BitVec.ofNat 64 f.raBytes →
       M.mem s' = M.mem s → Eventually (M.step h) post (M.mkState s' ra)) →
     M.Run h k s post
+  leafZeroFrame_ok : f.leafZeroFrame = true → f.raRegs = [] := by intro h; cases h
 
 structure FrameTarget {R V C D : Type} (M : Machine R V C D) (f : FrameIsa R D)
     (condReads : C → FlagMask) : Type extends FramePreds M where
@@ -784,6 +831,10 @@ theorem ret_spec (ft : FrameTarget M f condReads) : ∀ {h k s ra R post},
       M.mem s' = M.mem s → Eventually (M.step h) post (M.mkState s' ra)) →
     M.Run h k s post :=
   ft.spec.ret_spec
+
+theorem leafZeroFrame_ok (ft : FrameTarget M f condReads) :
+    f.leafZeroFrame = true → f.raRegs = [] :=
+  ft.spec.leafZeroFrame_ok
 
 end FrameTarget
 

@@ -175,6 +175,7 @@ def x64RetD : Directive := .instr x64RetI
   call sym := emitClean [x64CallI sym]
   exitJmp sym := emitClean [x64JmpI sym]
   ret := emitClean [x64RetI]
+  leafZeroFrame := true
 
 /-- SysV x64 frame predicates (`Prop`-valued state/stack invariants, zero `*Lemmas*` imports). -/
 @[reducible] def x64FramePreds : FramePreds x64Mach where

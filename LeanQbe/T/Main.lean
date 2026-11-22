@@ -145,7 +145,7 @@ def calleesBound (F raBytes : Nat) (bounds : List (SigEntry × Nat)) :
 /-- Compute and check the stack bound given pre-extracted `ext : Rega.Ext` and `h : I.Hints`. -/
 def checkAndBoundExt (I : Isa) (raBytes : Nat) (exits : List Sym) (nX : Nat)
     (bounds : List (SigEntry × Nat)) (h : I.Hints) (ext : Rega.Ext) : Option Nat :=
-  match calleesBound (I.frame.frameSize h.totalSlots) raBytes bounds ext.callees with
+  match calleesBound (Rega.effFrame I h ext) raBytes bounds ext.callees with
   | none => none
   | some n₁ =>
     if ext.exits.all (fun g => exits.contains g) then

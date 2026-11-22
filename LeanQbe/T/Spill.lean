@@ -320,10 +320,10 @@ def isTrivialTerm : Tree → Bool
 
 mutual
 def gather {I : Isa} (c : Ctx I) : List Nat → List Nat → Nat → Tree → GatherAcc → GatherAcc
-  | lps, lr, mult, .let_ lv _ nv0 ts op k, acc =>
+  | lps, lr, mult, .let_ lv ip nv0 ts op k, acc =>
     let la := k.lv
     let defs := (List.range ts.length).map (nv0 + ·)
-    let uses := dedup (opVarIds op)
+    let uses := dedup (c.addrDeps.getD ip (opVarIds op))
     let aff := match defs with
       | d0 :: _ =>
         (opAffVars op la).foldl (fun a (src, wf) => (d0, src, wf * mult) :: a) acc.affEdges
@@ -988,7 +988,7 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     Tree → Pend → List Nat → List Nat → List (Nat × Nat) → List (Nat × Nat) →
     EmitSt I → EmitSt I
   | .let_ lv ip nv0 ts op k, pd, ev, sv, gC, vC, st =>
-    let ops := opVarIds op
+    let ops := c.addrDeps.getD ip (opVarIds op)
     let rl := ops.filter (natMem · ev)
     let (rlWG, rlWV) := splitReloadRegs home rl
     let defs := (List.range ts.length).map (nv0 + ·)
@@ -1152,7 +1152,8 @@ def hints (I : Isa) (f : Fn)
   let nVec := I.vec.vecAllocatable.length
   let allVec := I.vec.vecAllocatable ++ I.vec.vecScratch ++ I.vec.vecArgRegs ++ I.vec.vecRetRegs
   let (t0, fnPs, nv, nl, nip, tys) := Tree.ofFn f
-  let (t1, elideIps, addrDeps) := elideAddrTreeDeps I t0
+  let (t1a, elideIps0, addrDeps0) := elideAddrTreeDeps I t0
+  let (t1, elideIps, addrDeps) := elideCmpTreeDeps I t1a elideIps0 addrDeps0
   let bs0 := t1.blocks
   let lTrie := liveLabels bs0 addrDeps
   let (_, t) := fillLive lTrie addrDeps t1

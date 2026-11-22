@@ -35,6 +35,11 @@ in one SIB+disp operand without scratch materialization. -/
 def x64SupportsAddrIdx (t : Ty) (_sc : AddrScale) (d : BitVec 64) : Bool :=
   x64SupportsAddrDisp t d
 
+/-- True iff `x64CmpMem` / `x64TestMem` supports a scalar memory operand of type `t`. -/
+def x64SupportsCmpMem : Ty → Bool
+  | .bits n => x64BitWidths.contains n
+  | _ => false
+
 /-- Pure SysV x64 `Isa` (zero `*Lemmas*` imports). -/
 @[reducible] def x64Isa : Isa where
   Reg := Reg64
@@ -46,6 +51,9 @@ def x64SupportsAddrIdx (t : Ty) (_sc : AddrScale) (d : BitVec 64) : Bool :=
   frame := x64Frame
   supportsAddrDisp := x64SupportsAddrDisp
   supportsAddrIdx := x64SupportsAddrIdx
+  supportsTestFuse := true
+  supportsCmpMem := x64SupportsCmpMem
+  supportsTestMem := x64SupportsCmpMem
 
 /-- SysV x64 legalization capability record aligned with `x64Isa` (`[8, 16, 32, 64]` scalar,
 `[128, 256, 512]` packed `[i32, f32]` SIMD, 128-bit SSE shuffle/float ops, no SHA-NI). -/

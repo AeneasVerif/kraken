@@ -112,6 +112,57 @@ def DefOk (G : VCtx) (x : Nat) : DefFact → Prop
     ∀ v, ⟨i64, v, x⟩ ∈ G → ∃ vb vi : BitVec 64, ⟨i64, vb, b⟩ ∈ G ∧ ⟨i64, vi, i⟩ ∈ G ∧
       v = vb + (vi <<< sh) + d
   | .imm64 c => ∀ v, ⟨i64, v, x⟩ ∈ G → v = c
+  | .andVarVar w a b => w ≤ 64 ∧ ∀ v : BitVec w, ⟨.bits w, v, x⟩ ∈ G →
+    ∃ va vb : BitVec w, ⟨.bits w, va, a⟩ ∈ G ∧ ⟨.bits w, vb, b⟩ ∈ G ∧ v = va &&& vb
+  | .andVarImm w a c => w ≤ 64 ∧ ∀ v : BitVec w, ⟨.bits w, v, x⟩ ∈ G →
+    ∃ va : BitVec w, ⟨.bits w, va, a⟩ ∈ G ∧ v = va &&& c.setWidth w
+  | .sextVar m n a => 0 < m ∧ m < n ∧ n ≤ 64 ∧ ∀ v : BitVec n, ⟨.bits n, v, x⟩ ∈ G →
+    ∃ va : BitVec m, ⟨.bits m, va, a⟩ ∈ G ∧ v = va.signExtend n
+  | .zextVar m n a => 0 < m ∧ m < n ∧ n ≤ 64 ∧ ∀ v : BitVec n, ⟨.bits n, v, x⟩ ∈ G →
+    ∃ va : BitVec m, ⟨.bits m, va, a⟩ ∈ G ∧ v = va.zeroExtend n
+
+/-- Validity of straight-line elided-load memory definitions against abstract heap `m`. -/
+def MemDefsOk (G : VCtx) (m : Mem 64) (nv : Nat) (md : Trie (Ty × Arg VNat i64)) : Prop :=
+  ∀ x t a, md.find? x = some (t, a) →
+    x < nv ∧ ∀ (v : Val t), ⟨t, v, x⟩ ∈ G →
+      ∃ (a₁ : Arg Val i64), ArgRel G i64 a₁ a ∧ loadVal m t a₁.val = some v
+
+theorem MemDefsOk.empty (G : VCtx) (m : Mem 64) (nv : Nat) : MemDefsOk G m nv .empty := by
+  intro _ _ _ h; simp [Trie.find?] at h
+
+theorem argRel_mono {G G' : VCtx} (hsub : ∀ p ∈ G, p ∈ G') {t : Ty} {a₁ : Arg Val t}
+    {a₂ : Arg VNat t} (h : ArgRel G t a₁ a₂) : ArgRel G' t a₁ a₂ := by
+  cases h with
+  | var hm => exact .var (hsub _ hm)
+  | imm c => exact .imm c
+
+theorem MemDefsOk.grow {G G' : VCtx} {m : Mem 64} {nv nv' : Nat}
+    {md : Trie (Ty × Arg VNat i64)} (hle : nv ≤ nv')
+    (hG : ∀ p ∈ G', p ∈ G ∨ nv ≤ p.2.2) (hsub : ∀ p ∈ G, p ∈ G')
+    (hM : MemDefsOk G m nv md) : MemDefsOk G' m nv' md := by
+  intro x t a hx
+  obtain ⟨hlt, hv⟩ := hM x t a hx
+  refine ⟨Nat.lt_of_lt_of_le hlt hle, fun v hm => ?_⟩
+  have hm0 : ⟨t, v, x⟩ ∈ G := (hG _ hm).resolve_right (Nat.not_le.mpr hlt)
+  obtain ⟨a₁, hr, hl⟩ := hv v hm0
+  exact ⟨a₁, argRel_mono hsub hr, hl⟩
+
+theorem MemDefsOk.insert {G : VCtx} {m : Mem 64} {nv : Nat} {md : Trie (Ty × Arg VNat i64)}
+    {t : Ty} {v : Val t} {a₁ : Arg Val i64} {a : Arg VNat i64}
+    (hltG : ∀ p ∈ G, p.2.2 < nv) (hrel : ArgRel G i64 a₁ a) (hlv : loadVal m t a₁.val = some v)
+    (hM : MemDefsOk G m nv md) :
+    MemDefsOk (⟨t, v, nv⟩ :: G) m (nv + 1) (md.insert nv (t, a)) := by
+  intro x t' a' hx
+  rw [Trie.find?_insert] at hx; split at hx
+  · rename_i hxn; simp only [Option.some.injEq, Prod.mk.injEq] at hx
+    rcases hx with ⟨rfl, rfl⟩; subst hxn
+    refine ⟨Nat.lt_succ_self _, fun v' hm => ?_⟩
+    rcases List.mem_cons.mp hm with heq | hm0
+    · cases heq; exact ⟨a₁, argRel_mono (fun _ h => List.mem_cons_of_mem _ h) hrel, hlv⟩
+    · exact absurd (hltG _ hm0) (Nat.lt_irrefl _)
+  · exact (hM.grow (Nat.le_succ _)
+      (fun p hp => (List.mem_cons.mp hp).elim (fun h => Or.inr (h ▸ Nat.le_refl _)) Or.inl)
+      (fun _ h => List.mem_cons_of_mem _ h)) x t' a' hx
 
 /-! ## 2. `Agree` -/
 
@@ -136,20 +187,41 @@ section Frame
 variable (T : Target) (hints : T.toIsa.Hints) (s₀ : T.mach.MData) (ra : T.mach.Addr) (n : Nat)
   (Rf : Mem 64 → Prop)
 
+abbrev frameZ (zl : Bool) : Nat := if zl then 0 else T.frame.frameSize hints.totalSlots
+
+theorem effFrame_le (I : Isa) (h : I.Hints) (E : Ext) :
+    effFrame I h E ≤ I.frame.frameSize h.totalSlots := by
+  unfold effFrame; split
+  · exact Nat.zero_le _
+  · exact Nat.le_refl _
 abbrev base : BitVec 64 := T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 (frame T hints)
+
+abbrev baseZ (zl : Bool) : BitVec 64 :=
+  T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 (frameZ T hints zl)
 
 def csSlots : Mem 64 → Prop :=
   array64 (base T hints s₀ + BitVec.ofNat 64 (8 * hints.nslots)) (hints.saved.map (T.mach.getGpr s₀))
+
+def csSlotsZ (zl : Bool) : Mem 64 → Prop :=
+  array64 (baseZ T hints s₀ zl + BitVec.ofNat 64 (8 * hints.nslots))
+    (hints.saved.map (T.mach.getGpr s₀))
 
 def Fr : Mem 64 → Prop :=
   csSlots T hints s₀ ⋆ (T.frameSpec.Saved (T.mach.getGpr s₀ T.frame.sp) ra hints.totalSlots ⋆
     (region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆ Rf))
 
-def Inv (m : Mem 64) (s : T.mach.MData) (σ : List (BitVec 64)) : Prop :=
-  σ.length = hints.nslots ∧ T.mach.getGpr s T.frame.sp = base T hints s₀ ∧
+def FrZ (zl : Bool) : Mem 64 → Prop :=
+  csSlotsZ T hints s₀ zl ⋆
+    ((if zl then T.frameSpec.RetAddr (T.mach.getGpr s₀ T.frame.sp) ra
+      else T.frameSpec.Saved (T.mach.getGpr s₀ T.frame.sp) ra hints.totalSlots) ⋆
+    (region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frameZ T hints zl) ⋆ Rf))
+
+def Inv (m : Mem 64) (s : T.mach.MData) (σ : List (BitVec 64)) (zl : Bool := false) : Prop :=
+  σ.length = hints.nslots ∧ T.mach.getGpr s T.frame.sp = baseZ T hints s₀ zl ∧
   (∀ r ∈ T.frame.calleeSaved, r ∉ hints.saved → T.mach.getGpr s r = T.mach.getGpr s₀ r) ∧
-  (T.mach.mem s =⋆ Eq m ⋆ (array64 (base T hints s₀) σ ⋆ Fr T hints s₀ ra n Rf)) ∧
-  (∀ r ∈ hints.saved, r ∈ T.frame.calleeSaved) ∧ hints.saved.Nodup
+  (T.mach.mem s =⋆ Eq m ⋆ (array64 (baseZ T hints s₀ zl) σ ⋆ FrZ T hints s₀ ra n Rf zl)) ∧
+  (∀ r ∈ hints.saved, r ∈ T.frame.calleeSaved) ∧ hints.saved.Nodup ∧
+  (zl = true → hints.totalSlots = 0 ∧ T.frameSpec.raReg s₀ ra ∧ T.frame.raRegs = [])
 
 end Frame
 
@@ -396,6 +468,110 @@ theorem DefOk.grow {G G' : VCtx} {nv x : Nat} {d : DefFact} (hG : ∀ p ∈ G', 
     intro v hv; obtain ⟨vb, vi, h1, h2, h3⟩ := h v (hm _ _ hv)
     exact ⟨vb, vi, hsub _ h1, hsub _ h2, h3⟩
   | imm64 c => intro v hv; exact h v (hm _ _ hv)
+  | andVarVar w a b =>
+    refine ⟨h.1, fun v hv => ?_⟩
+    obtain ⟨va, vb, h1, h2, h3⟩ := h.2 v (hm _ _ hv)
+    exact ⟨va, vb, hsub _ h1, hsub _ h2, h3⟩
+  | andVarImm w a c =>
+    refine ⟨h.1, fun v hv => ?_⟩
+    obtain ⟨va, h1, h2⟩ := h.2 v (hm _ _ hv)
+    exact ⟨va, hsub _ h1, h2⟩
+  | sextVar m n a =>
+    refine ⟨h.1, h.2.1, h.2.2.1, fun v hv => ?_⟩
+    obtain ⟨va, h1, h2⟩ := h.2.2.2 v (hm _ _ hv)
+    exact ⟨va, hsub _ h1, h2⟩
+  | zextVar m n a =>
+    refine ⟨h.1, h.2.1, h.2.2.1, fun v hv => ?_⟩
+    obtain ⟨va, h1, h2⟩ := h.2.2.2 v (hm _ _ hv)
+    exact ⟨va, hsub _ h1, h2⟩
+
+theorem execMove_memDefs {I : Isa} {nslots : Nat} {saved : List I.Reg} {mv : I.Move}
+    {st st' : SymState I} {c : List I.Directive}
+    (h : execMove I nslots saved mv st = some (c, st')) : st'.memDefs = st.memDefs := by
+  cases mv <;> simp only [execMove] at h <;> (repeat' split at h) <;>
+    first | (simp at h; done) |
+      (simp only [Option.some.injEq, Prod.mk.injEq] at h; obtain ⟨-, rfl⟩ := h; rfl)
+
+theorem execMoves_memDefs {I : Isa} {nslots : Nat} {saved : List I.Reg} :
+    ∀ {mvs : List I.Move} {st st' : SymState I} {c : List I.Directive},
+    execMoves I nslots saved mvs st = some (c, st') → st'.memDefs = st.memDefs
+  | [], _, _, _, h => by
+    simp only [execMoves, Option.some.injEq, Prod.mk.injEq] at h
+    exact congrArg SymState.memDefs h.2.symm
+  | _ :: _, _, _, _, h => by
+    simp only [execMoves, Option.bind_eq_some_iff, Option.map_eq_some_iff] at h
+    obtain ⟨⟨_, _⟩, h1, ⟨_, _⟩, h2, he⟩ := h
+    simp only [Prod.mk.injEq] at he; rw [← he.2]
+    exact (execMoves_memDefs h2).trans (execMove_memDefs h1)
+
+theorem stepPre_memDefs {I : Isa} {h : I.Hints} {ip : Nat} {st st' : SymState I}
+    {c : List I.Directive} (hs : stepPre I h ip st = some (c, st')) :
+    st'.memDefs = st.memDefs := by
+  unfold stepPre at hs; split at hs
+  · simp only [Option.some.injEq, Prod.mk.injEq] at hs; exact congrArg SymState.memDefs hs.2.symm
+  · obtain ⟨⟨_, _⟩, h1, he⟩ := Option.map_eq_some_iff.mp hs
+    simp only [execClearFlags] at he
+    split at he <;> simp only [Prod.mk.injEq] at he <;> rw [← he.2] <;>
+      simpa using execMoves_memDefs h1
+
+theorem shuffle_memDefs {I : Isa} {nslots : Nat} {saved : List I.Reg} {st st' : SymState I}
+    {tgts : List (SymArg × I.Loc)} {c : List I.Directive}
+    (hs : shuffle I nslots saved st tgts = some (c, st')) : st'.memDefs = st.memDefs := by
+  unfold shuffle at hs; split at hs
+  · simp only [Option.some.injEq, Prod.mk.injEq] at hs; exact congrArg SymState.memDefs hs.2.symm
+  · dsimp only at hs
+    cases hem : execMoves I nslots saved
+        (pmoveAux I nslots saved (2 * tgts.length + 4) st tgts []) st with
+    | none => simp [hem] at hs
+    | some p =>
+      rcases p with ⟨code, st1⟩
+      simp only [hem] at hs
+      split at hs
+      · simp only [Option.some.injEq, Prod.mk.injEq] at hs; rw [← hs.2]
+        exact execMoves_memDefs hem
+      · simp at hs
+
+theorem buildEntryBase_memDefs {I : Isa} {nslots : Nat} {vw : Trie SlotWidth} :
+    ∀ {xs : List (SymArg × I.Loc)} {st0 st' : SymState I},
+    buildEntryBase I nslots vw xs st0 = some st' → st'.memDefs = st0.memDefs
+  | [], _, _, h => by simp only [buildEntryBase, Option.some.injEq] at h; rw [h]
+  | (_, loc) :: _, _, _, h => by
+    cases loc <;> simp only [buildEntryBase] at h
+    · split at h; · simpa using buildEntryBase_memDefs h
+      · simp at h
+    · split at h; · simpa using buildEntryBase_memDefs h
+      · simp at h
+    · simpa using buildEntryBase_memDefs h
+    · split at h; · simp at h
+      · obtain ⟨_, -, h'⟩ := Option.bind_eq_some_iff.mp h; simpa using buildEntryBase_memDefs h'
+
+theorem bindBlockParams_memDefs {I : Isa} {nslots : Nat} :
+    ∀ {ts : List Ty} {locs : List I.Loc} {nv0 : Nat} {st0 st' : SymState I},
+    bindBlockParams I nslots ts locs nv0 st0 = some st' → st'.memDefs = st0.memDefs
+  | [], [], _, _, _, h => by simp only [bindBlockParams, Option.some.injEq] at h; rw [h]
+  | t :: _, loc :: _, _, _, _, h => by
+    cases loc <;> simp only [bindBlockParams] at h
+    · split at h; · simpa using bindBlockParams_memDefs h
+      · simp at h
+    · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h
+      split at h; · simpa using bindBlockParams_memDefs h
+      · simp at h
+    · cases t <;> simp at h; simpa using bindBlockParams_memDefs h
+    · split at h; · simp at h
+      · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h; simpa using bindBlockParams_memDefs h
+  | [], _ :: _, _, _, _, h | _ :: _, [], _, _, _, h => by simp [bindBlockParams] at h
+
+theorem bindAbiParams_memDefs {I : Isa} :
+    ∀ {ts : List Ty} {locs : Tup (AbiReg I.Reg I.VReg) ts} {nv0 : Nat} {st0 st' : SymState I},
+    bindAbiParams I locs nv0 st0 = some st' → st'.memDefs = st0.memDefs
+  | [], (), _, _, _, h => by simp only [bindAbiParams, Option.some.injEq] at h; rw [h]
+  | _ :: _, (.gpr _, _), _, _, _, h => by
+    simp only [bindAbiParams] at h; split at h
+    · simpa using bindAbiParams_memDefs h
+    · simp at h
+  | _ :: _, (.vec _, _), _, _, _, h => by
+    simp only [bindAbiParams] at h
+    obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h; simpa using bindAbiParams_memDefs h
 
 theorem keepRegLoc_frame {gClob : List T.Reg} {vClob : List T.VReg} {fClob : FlagMask}
     (hfr : T.mach.Frame T.gpr.condReads s s' gClob vClob fClob) {sa : SymArg} {rl : RegLoc T.Reg T.VReg T.Cond}
@@ -522,32 +698,38 @@ theorem FlagSym.toGpr {b : Bool} {w : BitVec 64} {sa : SymArg} (hb : GprHolds w 
 
 /-- The frame memory outside slots `[i, i + k)`. -/
 abbrev Rest (T : Target) (hints : T.toIsa.Hints) (s₀ : T.mach.MData) (ra : T.mach.Addr) (n : Nat)
-    (Rf : Mem 64 → Prop) (m : Mem 64) (σ : List (BitVec 64)) (i k : Nat) : Mem 64 → Prop :=
-  Eq m ⋆ ((array64 (base T hints s₀) (σ.take i) ⋆
-    array64 (base T hints s₀ + BitVec.ofNat 64 (8 * (i + k))) (σ.drop (i + k))) ⋆ Fr T hints s₀ ra n Rf)
+    (Rf : Mem 64 → Prop) (m : Mem 64) (σ : List (BitVec 64)) (i k : Nat)
+    (zl : Bool := false) : Mem 64 → Prop :=
+  Eq m ⋆ ((array64 (baseZ T hints s₀ zl) (σ.take i) ⋆
+    array64 (baseZ T hints s₀ zl + BitVec.ofNat 64 (8 * (i + k))) (σ.drop (i + k))) ⋆
+      FrZ T hints s₀ ra n Rf zl)
 
-theorem Inv.window (hI : Inv T hints s₀ ra n Rf m s σ) {i k : Nat} (h : i + k ≤ σ.length) : T.mach.mem s =⋆ array64
-    (T.mach.getGpr s T.frame.sp + BitVec.ofNat 64 (8 * i)) (slice σ i k) ⋆ Rest T hints s₀ ra n Rf m σ i k := by
-  obtain ⟨-, hsp, -, hmem, -, -⟩ := hI
-  have e := array64_splice_eq (base T hints s₀) (σ.take i) (slice σ i k) (σ.drop (i + k))
+theorem Inv.window {zl : Bool} (hI : Inv T hints s₀ ra n Rf m s σ zl) {i k : Nat}
+    (h : i + k ≤ σ.length) : T.mach.mem s =⋆ array64
+    (T.mach.getGpr s T.frame.sp + BitVec.ofNat 64 (8 * i)) (slice σ i k) ⋆
+      Rest T hints s₀ ra n Rf m σ i k zl := by
+  obtain ⟨-, hsp, -, hmem, -, -, -⟩ := hI
+  have e := array64_splice_eq (baseZ T hints s₀ zl) (σ.take i) (slice σ i k) (σ.drop (i + k))
   rw [List.length_take_of_le (by omega), slice_length h] at e
   rw [← splice_slice (σ := σ) (i := i) (k := k)] at hmem
   rw [show splice σ i k (slice σ i k) = σ.take i ++ slice σ i k ++ σ.drop (i + k) from rfl, e] at hmem
   rw [hsp]; dsimp only [Rest]; exact sep_cast hmem (by ac_rfl)
 
-theorem Inv.unwindow {σ ws : List (BitVec 64)} (hI : Inv T hints s₀ ra n Rf m s σ) {i k : Nat} (h : i + k ≤ σ.length)
+theorem Inv.unwindow {zl : Bool} {σ ws : List (BitVec 64)}
+    (hI : Inv T hints s₀ ra n Rf m s σ zl) {i k : Nat} (h : i + k ≤ σ.length)
     (hw : ws.length = k)
-    (hmem : T.mach.mem s' =⋆ array64 (T.mach.getGpr s T.frame.sp + BitVec.ofNat 64 (8 * i)) ws ⋆ Rest T hints s₀ ra n Rf m σ i k)
-    (hg : ∀ r, r ∉ T.frame.scratch → T.mach.getGpr s' r = T.mach.getGpr s r) : Inv T hints s₀ ra n Rf m s' (splice σ i k ws)
-    := by
-  obtain ⟨hl, hsp, hcs, -, hsv, hnd⟩ := hI
-  refine ⟨by rw [length_splice h hw, hl], ?_, fun r hr hns => ?_, ?_, hsv, hnd⟩
+    (hmem : T.mach.mem s' =⋆ array64 (T.mach.getGpr s T.frame.sp + BitVec.ofNat 64 (8 * i)) ws ⋆
+      Rest T hints s₀ ra n Rf m σ i k zl)
+    (hg : ∀ r, r ∉ T.frame.scratch → T.mach.getGpr s' r = T.mach.getGpr s r) :
+    Inv T hints s₀ ra n Rf m s' (splice σ i k ws) zl := by
+  obtain ⟨hl, hsp, hcs, -, hsv, hnd, hzl⟩ := hI
+  refine ⟨by rw [length_splice h hw, hl], ?_, fun r hr hns => ?_, ?_, hsv, hnd, hzl⟩
   · rw [hg _ T.frameSpec.sp_disj.1]; exact hsp
   · rw [hg r fun hs => (T.frameSpec.scratch_disj r hs).2.1 hr]; exact hcs r hr hns
-  · have e := array64_splice_eq (base T hints s₀) (σ.take i) ws (σ.drop (i + k))
+  · have e := array64_splice_eq (baseZ T hints s₀ zl) (σ.take i) ws (σ.drop (i + k))
     rw [List.length_take_of_le (by omega), hw] at e
-    show (Eq m ⋆ (array64 (base T hints s₀) (σ.take i ++ ws ++ σ.drop (i + k)) ⋆
-      Fr T hints s₀ ra n Rf)) (T.mach.mem s')
+    show (Eq m ⋆ (array64 (baseZ T hints s₀ zl) (σ.take i ++ ws ++ σ.drop (i + k)) ⋆
+      FrZ T hints s₀ ra n Rf zl)) (T.mach.mem s')
     rw [e]; rw [hsp] at hmem; dsimp only [Rest] at hmem; exact sep_cast hmem (by ac_rfl)
 
 theorem Agree.writeSlot (hA : Agree T G nv st s σ) {i k : Nat} (h : i + k ≤ σ.length) {ws : List (BitVec 64)}
@@ -604,13 +786,13 @@ theorem Agree.extend {G G' : VCtx} {nv nv' : Nat} {st : SymState T.toIsa} {s : T
     · exact hty _ hm h hn
 
 /-- `Inv` survives register writes outside `allocatable ∪ saved ∪ arg ∪ ret ∪ scratch`. -/
-theorem Inv.keep {m : Mem 64} {s s' : T.mach.MData} {σ : List (BitVec 64)}
-    (hI : Inv T hints s₀ ra n Rf m s σ) (hm : T.mach.mem s' = T.mach.mem s)
+theorem Inv.keep {zl : Bool} {m : Mem 64} {s s' : T.mach.MData} {σ : List (BitVec 64)}
+    (hI : Inv T hints s₀ ra n Rf m s σ zl) (hm : T.mach.mem s' = T.mach.mem s)
     (hs : ∀ r, isMoveGpr T.toIsa hints.saved r = false → T.mach.getGpr s' r = T.mach.getGpr s r) :
-    Inv T hints s₀ ra n Rf m s' σ := by
-  obtain ⟨hl, hsp, hcs, hmem, hsv, hnd⟩ := hI
+    Inv T hints s₀ ra n Rf m s' σ zl := by
+  obtain ⟨hl, hsp, hcs, hmem, hsv, hnd, hzl⟩ := hI
   have sd := T.frameSpec.sp_disj
-  refine ⟨hl, ?_, fun r hr hns => ?_, by rw [hm]; exact hmem, hsv, hnd⟩
+  refine ⟨hl, ?_, fun r hr hns => ?_, by rw [hm]; exact hmem, hsv, hnd, hzl⟩
   · rw [hs _ (isMoveGpr_false sd.2.1 (fun h => sd.2.2.1 (hsv _ h)) sd.2.2.2.1 sd.2.2.2.2.1 sd.1)]
     exact hsp
   · have cd := T.frameSpec.cs_disj r hr
@@ -636,13 +818,21 @@ theorem not_vecScratch_of_isAllocVec {v : T.VReg} (h : isAllocVec T.toIsa v = tr
   · exact sd.2.1 h
   · exact sd.2.2 h
 
-theorem inv_of_frame (hI : Inv T hints s₀ ra n Rf m s σ) (hm : T.mach.mem s' = T.mach.mem s) {gC : List T.Reg}
-    (hk : T.mach.KeepsGpr s s' gC) (hgc : ∀ r ∈ gC, isMoveGpr T.toIsa hints.saved r = true) : Inv T hints s₀ ra n Rf m s' σ :=
+theorem inv_of_frame {zl : Bool} (hI : Inv T hints s₀ ra n Rf m s σ zl)
+    (hm : T.mach.mem s' = T.mach.mem s) {gC : List T.Reg}
+    (hk : T.mach.KeepsGpr s s' gC) (hgc : ∀ r ∈ gC, isMoveGpr T.toIsa hints.saved r = true) :
+    Inv T hints s₀ ra n Rf m s' σ zl :=
   Inv.keep hI hm fun r hr => hk r fun h => by rw [hgc r h] at hr; cases hr
+
 theorem spOk_of_inv (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp)) {m : Mem 64}
-    {s : T.mach.MData} {σ : List (BitVec 64)} (hI : Inv T hints s₀ ra n Rf m s σ) :
+    {s : T.mach.MData} {σ : List (BitVec 64)} {zl : Bool}
+    (hI : Inv T hints s₀ ra n Rf m s σ zl) (hns : 0 < hints.nslots) :
     T.frameSpec.spOk (T.mach.getGpr s T.frame.sp) := by
-  rw [hI.2.1]; exact T.frameSpec.spOk_frame _ _ hspE
+  cases zl with
+  | false => rw [hI.2.1]; exact T.frameSpec.spOk_frame _ _ hspE
+  | true =>
+    have h0 := (hI.2.2.2.2.2.2 rfl).1
+    simp only [Hints.totalSlots] at h0; omega
 
 theorem Agree.addKill (hA : Agree T G nv st s σ) {gC : List T.Reg} {vC : List T.VReg} {fC : FlagMask}
     (hfr : T.mach.Frame T.gpr.condReads s s' gC vC fC) (L : List (SymArg × RegLoc T.Reg T.VReg T.Cond))
@@ -664,14 +854,16 @@ local macro "peel " he:ident hg:ident " : " t:term : tactic =>
 local macro "fin " he:ident : tactic =>
   `(tactic| (simp only [Option.some.injEq, Prod.mk.injEq] at $he:ident; obtain ⟨h₁, h₂⟩ := $he:ident; subst h₁ h₂))
 
-theorem execMove_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp)) {mv : T.toIsa.Move} {st st' : SymState T.toIsa}
+theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
+    {mv : T.toIsa.Move} {st st' : SymState T.toIsa}
     {c : List T.Directive} {k : Nat} (he : execMove T.toIsa hints.nslots hints.saved mv st = some (c, st'))
-    (hc : c.IsInfixAt (T.mach.prog host) k) (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ)
-    (kont : ∀ s' σ', Agree T G nv st' s' σ' → Inv T hints s₀ ra n Rf m s' σ' → T.mach.Run host (k + c.length) s' post)
+    (hc : c.IsInfixAt (T.mach.prog host) k) (hA : Agree T G nv st s σ)
+    (hI : Inv T hints s₀ ra n Rf m s σ zl)
+    (kont : ∀ s' σ', Agree T G nv st' s' σ' → Inv T hints s₀ ra n Rf m s' σ' zl →
+      T.mach.Run host (k + c.length) s' post)
     : T.mach.Run host k s post := by
   have hsv := hI.2.2.2.2.1
   have hscr : ∀ r ∈ T.frame.scratch, isMoveGpr T.toIsa hints.saved r = true := fun _ h => isMoveGpr_scratch h
-  have hsp := spOk_of_inv hspE hI
   have rsc : ∀ {sa rl}, (sa, rl) ∈ st.regs → symArgScopeOk nv sa = true := fun h => hA.regs_lt _ h
   cases mv with
   | mov d r =>
@@ -699,6 +891,7 @@ theorem execMove_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
     exact ⟨⟨Nat.le_refl _, by show (T.mach.getGpr s1 d).setWidth 64 = _; rw [hd1]⟩, rfl⟩
   | ld d i =>
     peel he hg : isAllocGpr T.toIsa hints.saved d = true ∧ i + 1 ≤ hints.nslots; fin he
+    have hsp := spOk_of_inv hspE hI (by omega)
     have hi : i < σ.length := by rw [hI.1]; omega
     have hw := hI.window (i := i) (k := 1) (by omega)
     rw [slice_one hi, array64_single] at hw
@@ -723,6 +916,7 @@ theorem execMove_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
     · simp at hp
   | st i r =>
     peel he hg : r ∉ T.frame.scratch ∧ i + 1 ≤ hints.nslots; fin he
+    have hsp := spOk_of_inv hspE hI (by omega)
     have hi : i < σ.length := by rw [hI.1]; omega
     have h1 : i + 1 ≤ σ.length := by omega
     have hw := hI.window h1
@@ -761,6 +955,8 @@ theorem execMove_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
     rw [List.mem_singleton.mp hp]; exact ⟨⟨SlotWidth.bits_le_512 w, hd1⟩, rfl⟩
   | vld w d i =>
     peel he hg : isAllocVec T.toIsa d = true ∧ i + w.slots ≤ hints.nslots; fin he
+    have hwpos : 0 < w.slots := by cases w <;> decide
+    have hsp := spOk_of_inv hspE hI (by omega)
     have hk : i + w.slots ≤ σ.length := by rw [hI.1]; exact hg.2
     obtain ⟨bv0, hb0⟩ : ∃ bv, unpackSlotWords w bv = slice σ i w.slots := ⟨_, unpack_packW (slice_length hk)⟩
     have hw := hI.window hk
@@ -776,6 +972,8 @@ theorem execMove_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
     · simp at hq
   | vst w i r =>
     peel he hg : r ∉ T.vec.vecScratch ∧ i + w.slots ≤ hints.nslots; fin he
+    have hwpos : 0 < w.slots := by cases w <;> decide
+    have hsp := spOk_of_inv hspE hI (by omega)
     have hk : i + w.slots ≤ σ.length := by rw [hI.1]; exact hg.2
     have hreg := sep_mono (fun f hf => array64_toRegion _ _ f
       (by rw [slice_length hk]; have := SlotWidth.slots_le_eight w; omega) hf) (hI.window hk)
@@ -788,14 +986,14 @@ theorem execMove_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
     obtain ⟨hm, wsa, hw, hle⟩ := mem_vecEntries hsa
     exact VecSym.narrow hA hw hle (hA.regs _ hm)
 
-theorem execMoves_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp)) {G : VCtx}
-    {nv : Nat} {m : Mem 64} :
+theorem execMoves_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
+    {G : VCtx} {nv : Nat} {m : Mem 64} :
     ∀ (mvs : List T.toIsa.Move) (st st' : SymState T.toIsa) (c : List T.Directive) (k : Nat)
       (s : T.mach.MData) (σ : List (BitVec 64)),
     execMoves T.toIsa hints.nslots hints.saved mvs st = some (c, st') →
     c.IsInfixAt (T.mach.prog host) k →
-    Agree T G nv st s σ → Inv T hints s₀ ra n Rf m s σ →
-    (∀ s' σ', Agree T G nv st' s' σ' → Inv T hints s₀ ra n Rf m s' σ' →
+    Agree T G nv st s σ → Inv T hints s₀ ra n Rf m s σ zl →
+    (∀ s' σ', Agree T G nv st' s' σ' → Inv T hints s₀ ra n Rf m s' σ' zl →
       T.mach.Run host (k + c.length) s' post) →
     T.mach.Run host k s post := by
   intro mvs; induction mvs with
@@ -813,12 +1011,12 @@ theorem execMoves_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp)
       ih st1 st2 c2 _ s1 σ1 h2 hc'.2 hA1 hI1 fun s2 σ2 hA2 hI2 => by
         simpa [List.length_append, Nat.add_assoc] using kont s2 σ2 hA2 hI2
 
-theorem stepPre_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp)) {G : VCtx}
+theorem stepPre_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp)) {G : VCtx}
     {nv : Nat} {m : Mem 64} {ip : Nat} {st st' : SymState T.toIsa} {c : List T.Directive}
     {k : Nat} {s : T.mach.MData} {σ : List (BitVec 64)}
     (he : stepPre T.toIsa hints ip st = some (c, st')) (hc : c.IsInfixAt (T.mach.prog host) k)
-    (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ)
-    (kont : ∀ s' σ', Agree T G nv st' s' σ' → Inv T hints s₀ ra n Rf m s' σ' →
+    (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ zl)
+    (kont : ∀ s' σ', Agree T G nv st' s' σ' → Inv T hints s₀ ra n Rf m s' σ' zl →
       T.mach.Run host (k + c.length) s' post) :
     T.mach.Run host k s post := by
   unfold stepPre at he; split at he
@@ -879,14 +1077,14 @@ theorem holdsLoc_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MD
         rw [List.mem_singleton] at hy; subst hy; exact GprSym.ofMatch he (h2 _ hmem).1
       · simp at hh
 
-theorem shuffle_ok (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp)) {G : VCtx}
+theorem shuffle_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp)) {G : VCtx}
     {nv : Nat} {m : Mem 64} {st st' : SymState T.toIsa} {tgts : List (SymArg × T.toIsa.Loc)}
     {c : List T.Directive} {k : Nat} {s : T.mach.MData} {σ : List (BitVec 64)}
     (hs : shuffle T.toIsa hints.nslots hints.saved st tgts = some (c, st'))
     (hc : c.IsInfixAt (T.mach.prog host) k)
-    (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ)
+    (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ zl)
     (kont : ∀ s' σ', (∀ p ∈ tgts, LocOk T.mach G s' σ' p.1 p.2) → Agree T G nv st' s' σ' →
-      Inv T hints s₀ ra n Rf m s' σ' → T.mach.Run host (k + c.length) s' post) :
+      Inv T hints s₀ ra n Rf m s' σ' zl → T.mach.Run host (k + c.length) s' post) :
     T.mach.Run host k s post := by
   unfold shuffle at hs; split at hs
   · rename_i hall
@@ -1245,10 +1443,12 @@ theorem bindAbiParams_aux {s : T.mach.MData} {σ : List (BitVec 64)} :
 theorem buildEntryBase_ok {G : VCtx} {nv : Nat} {vw : Trie SlotWidth} {defs : Trie DefFact}
     {live : List (SymArg × T.toIsa.Loc)} {st' : SymState T.toIsa} {s : T.mach.MData}
     {σ : List (BitVec 64)}
-    (hb : buildEntryBase T.toIsa hints.nslots vw live ⟨[], .empty, defs, vw⟩ = some st')
+    (hb : buildEntryBase T.toIsa hints.nslots vw live
+      { regs := [], slots := .empty, defs := defs, vecWidths := vw } = some st')
     (hlive : ∀ p ∈ live, LocOk T.mach G s σ p.1 p.2)
     (hlt : ∀ p ∈ live, symArgScopeOk nv p.1 = true) (hσ : σ.length = hints.nslots)
-    (hA : Agree T G nv ⟨[], .empty, defs, vw⟩ s σ) : Agree T G nv st' s σ :=
+    (hA : Agree T G nv { regs := [], slots := .empty, defs := defs, vecWidths := vw } s σ) :
+    Agree T G nv st' s σ :=
   buildEntryBase_aux hσ live _ _ rfl hb hlive hlt hA
 
 theorem bindBlockParams_ok {G : VCtx} {nv : Nat} :

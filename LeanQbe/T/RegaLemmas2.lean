@@ -42,13 +42,14 @@ def FnPost {rs : List Ty} (Q : Post rs) (X : XPost) : T.mach.State → Prop := f
 structure Hyps : Prop where
   unique : T.LabelsUnique host
   spE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp)
-  frame_le : frame T hints ≤ n
-  frame_bound : frame T hints + T.frame.raBytes ≤ 2 ^ 64
+  frame_le : effFrame T.toIsa hints E ≤ n
+  frame_bound : effFrame T.toIsa hints E + T.frame.raBytes ≤ 2 ^ 64
   stack_bound : n + T.frame.raBytes ≤ 2 ^ 64
   saved_cs : ∀ r ∈ hints.saved, r ∈ T.frame.calleeSaved
   saved_nodup : hints.saved.Nodup
   callees : ∀ g as bs, (g, as, bs) ∈ E.callees →
-    T.FnSpec host g (Γ g as bs) (bound g) nX ∧ frame T hints + T.frame.raBytes + bound g ≤ n
+    T.FnSpec host g (Γ g as bs) (bound g) nX ∧
+      effFrame T.toIsa hints E + T.frame.raBytes + bound g ≤ n
   exits : ∀ g, g ∈ E.exits → T.Defined host g ∧ nX ≤ n
 
 end Ctx
@@ -482,7 +483,8 @@ private theorem abi_not_leave {r : T.Reg} (h : IsAbi T r) :
   simp only [List.mem_append, List.mem_cons, not_or]
   exact ⟨h.not_cs, ⟨h.ne_sp, h.not_ra⟩, h.not_scratch⟩
 
-private theorem frame_close (hy : Hyps T host hints E Γ s₀ n nX bound) {m : Mem 64}
+private theorem frame_close (hy : Hyps T host hints E Γ s₀ n nX bound)
+    (hzl : isZeroLeaf T.toIsa hints E = false) {m : Mem 64}
     {σ : List (BitVec 64)} (hσ : σ.length = hints.nslots) {M : Mem 64}
     (hM : M =⋆ T.frameSpec.RetAddr (T.mach.getGpr s₀ T.frame.sp) ra ⋆
       region (base T hints s₀ + BitVec.ofNat 64 (8 * hints.totalSlots))
@@ -491,8 +493,12 @@ private theorem frame_close (hy : Hyps T host hints E Γ s₀ n nX bound) {m : M
         region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆ Rf)) :
     M =⋆ Eq m ⋆ (T.Entry (T.mach.getGpr s₀ T.frame.sp) ra n ⋆ Rf) := by
   have h8 : 8 * hints.totalSlots ≤ frame T hints := T.frameSpec.slots_le_frameSize _
-  have hF := hy.frame_bound
-  have hFn := hy.frame_le
+  have hF : frame T hints + T.frame.raBytes ≤ 2 ^ 64 := by
+    have := hy.frame_bound
+    simp only [effFrame, hzl, Bool.false_eq_true, ↓reduceIte] at this; exact this
+  have hFn : frame T hints ≤ n := by
+    have := hy.frame_le
+    simp only [effFrame, hzl, Bool.false_eq_true, ↓reduceIte] at this; exact this
   have hn := hy.stack_bound
   have h1 : M =⋆ (array64 (base T hints s₀) σ ⋆ csSlots T hints s₀) ⋆
       region (base T hints s₀ + BitVec.ofNat 64 (8 * hints.totalSlots))
@@ -516,72 +522,108 @@ private theorem frame_close (hy : Hyps T host hints E Γ s₀ n nX bound) {m : M
 private theorem leave_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {k : Nat}
     {s : T.mach.MData} {m : Mem 64} {σ : List (BitVec 64)}
     (hr : (restoreCs T.toIsa hints.nslots hints.saved).IsInfixAt (T.mach.prog host) k)
-    (he : (T.frame.epilogue hints.totalSlots).1.IsInfixAt (T.mach.prog host)
+    (he : (fnEpilogue T.toIsa hints E).IsInfixAt (T.mach.prog host)
       (k + (restoreCs T.toIsa hints.nslots hints.saved).length))
-    (hI : Inv T hints s₀ ra n Rf m s σ)
+    (hI : Inv T hints s₀ ra n Rf m s σ (isZeroLeaf T.toIsa hints E))
     (kont : ∀ s2, (∀ r ∈ T.frame.calleeSaved, T.mach.getGpr s2 r = T.mach.getGpr s₀ r) →
       T.mach.getGpr s2 T.frame.sp = T.mach.getGpr s₀ T.frame.sp → T.frameSpec.raReg s2 ra →
       T.mach.KeepsGpr s s2 (T.frame.calleeSaved ++ (T.frame.sp :: T.frame.raRegs ++ T.frame.scratch)) →
       (∀ v, T.mach.getVec s2 v = T.mach.getVec s v) →
       (T.mach.mem s2 =⋆ Eq m ⋆ (T.Entry (T.mach.getGpr s₀ T.frame.sp) ra n ⋆ Rf)) →
       T.mach.Run host (k + (restoreCs T.toIsa hints.nslots hints.saved).length +
-        (T.frame.epilogue hints.totalSlots).1.length) s2 post) :
+        (fnEpilogue T.toIsa hints E).length) s2 post) :
     T.mach.Run host k s post := by
-  obtain ⟨hσ, hsp, hcs, hmem, hsub, hnd⟩ := hI
-  have hspOk : T.frameSpec.spOk (base T hints s₀) := T.frameSpec.spOk_frame _ _ hy.spE
-  unfold Fr at hmem
-  refine restoreCs_ok (s₀ := s₀) hints.nslots hints.saved k s
-    (Eq m ⋆ array64 (base T hints s₀) σ ⋆
-      T.frameSpec.Saved (T.mach.getGpr s₀ T.frame.sp) ra hints.totalSlots ⋆
-      region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆ Rf)
-    hr (by rw [hsp]; exact hspOk) hnd hsub
-    (by
-      rw [hsp]
-      exact (sep_cast hmem (by ac_rfl) : (csSlots T hints s₀ ⋆ (Eq m ⋆ array64 (base T hints s₀) σ ⋆
+  cases hzl : isZeroLeaf T.toIsa hints E with
+  | true =>
+    rw [hzl] at hI
+    obtain ⟨hσ, hsp, hcs, hmem, -, -, hzlI⟩ := hI
+    obtain ⟨htot0, hra0, hraRegs⟩ := hzlI rfl
+    have htot0' : hints.nslots + hints.saved.length = 0 := htot0
+    have hns0 : hints.nslots = 0 := by omega
+    have hsaved : hints.saved = [] := List.eq_nil_of_length_eq_zero (by omega)
+    have hσnil : σ = [] := List.eq_nil_of_length_eq_zero (hσ.trans hns0)
+    have hsp' : T.mach.getGpr s T.frame.sp = T.mach.getGpr s₀ T.frame.sp := by
+      simpa [baseZ, frameZ] using hsp
+    have hra : T.frameSpec.raReg s ra :=
+      T.frameSpec.raReg_of_raRegs s₀ s ra (fun r hr => by rw [hraRegs] at hr; cases hr) hra0
+    have hm : T.mach.mem s =⋆ Eq m ⋆ (T.Entry (T.mach.getGpr s₀ T.frame.sp) ra n ⋆ Rf) := by
+      subst hσnil
+      simp only [FrZ, csSlotsZ, hsaved, List.map_nil, array64_nil, frameZ, ↓reduceIte,
+        Nat.sub_zero, emp_sep] at hmem
+      unfold Target.Entry
+      exact sep_cast hmem (by ac_rfl)
+    have hlen : k + (restoreCs T.toIsa hints.nslots hints.saved).length +
+        (fnEpilogue T.toIsa hints E).length = k := by
+      simp [restoreCs, fnEpilogue, hzl, hsaved]
+    rw [← hlen]
+    exact kont s (fun r hr => hcs r hr (by simp [hsaved])) hsp' hra
+      (fun _ _ => rfl) (fun _ => rfl) hm
+  | false =>
+    rw [hzl] at hI
+    simp only [fnEpilogue, hzl, Bool.false_eq_true, ↓reduceIte] at he kont ⊢
+    obtain ⟨hσ, hsp, hcs, hmem, hsub, hnd, -⟩ := hI
+    have hF : frame T hints + T.frame.raBytes ≤ 2 ^ 64 := by
+      have := hy.frame_bound
+      simp only [effFrame, hzl, Bool.false_eq_true, ↓reduceIte] at this; exact this
+    have hspOk : T.frameSpec.spOk (base T hints s₀) := T.frameSpec.spOk_frame _ _ hy.spE
+    have hsp' : T.mach.getGpr s T.frame.sp = base T hints s₀ := hsp
+    have hmem' :
+        T.mach.mem s =⋆ Eq m ⋆ (array64 (base T hints s₀) σ ⋆ Fr T hints s₀ ra n Rf) := hmem
+    unfold Fr at hmem'
+    refine restoreCs_ok (s₀ := s₀) hints.nslots hints.saved k s
+      (Eq m ⋆ array64 (base T hints s₀) σ ⋆
         T.frameSpec.Saved (T.mach.getGpr s₀ T.frame.sp) ra hints.totalSlots ⋆
-        region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆ Rf)) _))
-    fun s1 hrest1 hk1 hv1 hm1 => ?_
-  have hsp1 : T.mach.getGpr s1 T.frame.sp = base T hints s₀ := by
-    rw [hk1 _ (by
-      simp only [List.mem_append, not_or]
-      exact ⟨fun h => cs_ne_sp (hsub _ h) rfl, T.frameSpec.sp_disj.1⟩), hsp]
-  refine T.frameSpec.epilogue_spec (by rw [hsp1]; exact hspOk) hy.frame_bound
-    (G := Eq m ⋆ array64 (base T hints s₀) σ ⋆ csSlots T hints s₀ ⋆
-      region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆ Rf)
-    (by rw [hsp1, base_add_frame, hm1]; exact sep_cast hmem (by ac_rfl)) he
-    fun s2 hq2 hfr2 => ?_
-  obtain ⟨hsp2, hra2, hm2⟩ := hq2
-  rw [hsp1, base_add_frame] at hm2
-  have hk2 := hfr2.1
-  refine kont s2 (fun r hr => ?_) (by rw [hsp2, hsp1, base_add_frame]) hra2
-    ((hk1.trans hk2).mono fun r hr => ?_) (fun v => (hfr2.2.1 v List.not_mem_nil).trans (hv1 v))
-    (frame_close hy hσ hm2)
-  · have h2 : T.mach.getGpr s2 r = T.mach.getGpr s1 r := hk2 r (by
-      simp only [List.mem_cons, List.mem_append, not_or]
-      exact ⟨⟨cs_ne_sp hr, cs_not_ra hr⟩, cs_not_scratch hr⟩)
-    rw [h2]
-    by_cases hs : r ∈ hints.saved
-    · exact hrest1 r hs
-    · rw [hk1 r (by simp only [List.mem_append, not_or]; exact ⟨hs, cs_not_scratch hr⟩)]
-      exact hcs r hr hs
-  · simp only [List.mem_append, List.mem_cons] at hr ⊢
-    rcases hr with (h | h) | h
-    · exact .inl (hsub r h)
-    · exact .inr (.inr h)
-    · exact .inr h
+        region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆ Rf)
+      hr (by rw [hsp']; exact hspOk) hnd hsub
+      (by
+        rw [hsp']
+        exact (sep_cast hmem' (by ac_rfl) :
+          (csSlots T hints s₀ ⋆ (Eq m ⋆ array64 (base T hints s₀) σ ⋆
+          T.frameSpec.Saved (T.mach.getGpr s₀ T.frame.sp) ra hints.totalSlots ⋆
+          region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆ Rf)) _))
+      fun s1 hrest1 hk1 hv1 hm1 => ?_
+    have hsp1 : T.mach.getGpr s1 T.frame.sp = base T hints s₀ := by
+      rw [hk1 _ (by
+        simp only [List.mem_append, not_or]
+        exact ⟨fun h => cs_ne_sp (hsub _ h) rfl, T.frameSpec.sp_disj.1⟩), hsp']
+    refine T.frameSpec.epilogue_spec (by rw [hsp1]; exact hspOk) hF
+      (G := Eq m ⋆ array64 (base T hints s₀) σ ⋆ csSlots T hints s₀ ⋆
+        region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆ Rf)
+      (by rw [hsp1, base_add_frame, hm1]; exact sep_cast hmem' (by ac_rfl)) he
+      fun s2 hq2 hfr2 => ?_
+    obtain ⟨hsp2, hra2, hm2⟩ := hq2
+    rw [hsp1, base_add_frame] at hm2
+    have hk2 := hfr2.1
+    refine kont s2 (fun r hr => ?_) (by rw [hsp2, hsp1, base_add_frame]) hra2
+      ((hk1.trans hk2).mono fun r hr => ?_) (fun v => (hfr2.2.1 v List.not_mem_nil).trans (hv1 v))
+      (frame_close hy hzl hσ hm2)
+    · have h2 : T.mach.getGpr s2 r = T.mach.getGpr s1 r := hk2 r (by
+        simp only [List.mem_cons, List.mem_append, not_or]
+        exact ⟨⟨cs_ne_sp hr, cs_not_ra hr⟩, cs_not_scratch hr⟩)
+      rw [h2]
+      by_cases hs : r ∈ hints.saved
+      · exact hrest1 r hs
+      · rw [hk1 r (by simp only [List.mem_append, not_or]; exact ⟨hs, cs_not_scratch hr⟩)]
+        exact hcs r hr hs
+    · simp only [List.mem_append, List.mem_cons] at hr ⊢
+      rcases hr with (h | h) | h
+      · exact .inl (hsub r h)
+      · exact .inr (.inr h)
+      · exact .inr h
 
 /-- Canonicalization of the ABI targets, keeping the frame invariant. -/
-private theorem canon_inv {gs : List T.Reg} {vs : List T.VReg} (hy : Hyps T host hints E Γ s₀ n nX bound)
+private theorem canon_inv {zl : Bool} {gs : List T.Reg} {vs : List T.VReg}
+    (hy : Hyps T host hints E Γ s₀ n nX bound)
     (hgs : ∀ r ∈ gs, IsAbi T r) (hnd : gs.Nodup) {G : VCtx} {ts : List Ty}
     {args₁ : Tup (Arg Val) ts} {args : Tup (Arg VNat) ts} (hrel : TRel (ArgRel G) args₁ args)
     {locs : Tup (AbiReg T.Reg T.VReg) ts} (hloc : T.toIsa.assignSig ts gs vs = some locs)
     {tgts : List (SymArg × T.toIsa.Loc)} (htg : abiTargets T.toIsa args locs = some tgts)
     {k : Nat} {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
     (hc : (canonAbiCode T.toIsa locs).IsInfixAt (T.mach.prog host) k)
-    (hok : ∀ p ∈ tgts, LocOk T.mach G s σ p.1 p.2) (hI : Inv T hints s₀ ra n Rf m s σ)
+    (hok : ∀ p ∈ tgts, LocOk T.mach G s σ p.1 p.2) (hI : Inv T hints s₀ ra n Rf m s σ zl)
     (kont : ∀ s1, TRel (T.mach.AbiHolds s1) locs (vals args₁) →
       (∀ r ∈ T.frame.calleeSaved, T.mach.getGpr s1 r = T.mach.getGpr s r) →
-      Inv T hints s₀ ra n Rf m s1 σ →
+      Inv T hints s₀ ra n Rf m s1 σ zl →
       T.mach.Run host (k + (canonAbiCode T.toIsa locs).length) s1 post) :
     T.mach.Run host k s post := by
   have _ := hy
@@ -610,8 +652,9 @@ theorem ret_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q :
     {tgts : List (SymArg × T.toIsa.Loc)} (htg : abiTargets T.toIsa vs retLocs = some tgts)
     {k : Nat} {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
     (hc : (canonAbiCode T.toIsa retLocs ++ restoreCs T.toIsa hints.nslots hints.saved ++
-      (T.frame.epilogue hints.totalSlots).1 ++ T.frame.ret).IsInfixAt (T.mach.prog host) k)
-    (hok : ∀ p ∈ tgts, LocOk T.mach G s σ p.1 p.2) (hI : Inv T hints s₀ ra n Rf m s σ)
+      fnEpilogue T.toIsa hints E ++ T.frame.ret).IsInfixAt (T.mach.prog host) k)
+    (hok : ∀ p ∈ tgts, LocOk T.mach G s σ p.1 p.2)
+    (hI : Inv T hints s₀ ra n Rf m s σ (isZeroLeaf T.toIsa hints E))
     (hQ : Q (vals vs₁) m) :
     T.mach.Run host k s (FnPost T host s₀ ra n nX Rf Q X) := by
   obtain ⟨hc3, hc4⟩ := hc.append
@@ -646,8 +689,9 @@ theorem exit_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q 
     {tgts : List (SymArg × T.toIsa.Loc)} (htg : abiTargets T.toIsa args argLocs = some tgts)
     {k : Nat} {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
     (hc : (canonAbiCode T.toIsa argLocs ++ restoreCs T.toIsa hints.nslots hints.saved ++
-      (T.frame.epilogue hints.totalSlots).1 ++ T.frame.exitJmp f).IsInfixAt (T.mach.prog host) k)
-    (hok : ∀ p ∈ tgts, LocOk T.mach G s σ p.1 p.2) (hI : Inv T hints s₀ ra n Rf m s σ)
+      fnEpilogue T.toIsa hints E ++ T.frame.exitJmp f).IsInfixAt (T.mach.prog host) k)
+    (hok : ∀ p ∈ tgts, LocOk T.mach G s σ p.1 p.2)
+    (hI : Inv T hints s₀ ra n Rf m s σ (isZeroLeaf T.toIsa hints E))
     (hX : X f as (vals args₁) m) :
     T.mach.Run host k s (FnPost T host s₀ ra n nX Rf Q X) := by
   obtain ⟨hdef, hnX⟩ := hy.exits f (by simpa using hex)
@@ -685,12 +729,12 @@ theorem call_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q 
     {k : Nat} {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
     (hc : (canonAbiCode T.toIsa argLocs ++ T.frame.call f).IsInfixAt (T.mach.prog host) k)
     (hok : ∀ p ∈ tgts, LocOk T.mach G s σ p.1 p.2) (hA : Agree T G nv st s σ)
-    (hI : Inv T hints s₀ ra n Rf m s σ)
+    (hI : Inv T hints s₀ ra n Rf m s σ (isZeroLeaf T.toIsa hints E))
     {P : Post bs} {X' : XPost} (hspec : Γ f as bs (vals args₁) m P X')
     (hX : ∀ g cs xs m', X' g cs xs m' → X g cs xs m')
     (kont : ∀ (rets : Tup Val bs) (m' : Mem 64) s' σ', P rets m' →
       Agree T (Tup.zip rets (Tup.levels bs nv) ++ G) (nv + bs.length) st' s' σ' →
-      Inv T hints s₀ ra n Rf m' s' σ' →
+      Inv T hints s₀ ra n Rf m' s' σ' (isZeroLeaf T.toIsa hints E) →
       T.mach.Run host (k + (canonAbiCode T.toIsa argLocs ++ T.frame.call f).length) s'
         (FnPost T host s₀ ra n nX Rf Q X)) :
     T.mach.Run host k s (FnPost T host s₀ ra n nX Rf Q X) := by
@@ -699,14 +743,23 @@ theorem call_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q 
       listTyEq_iff] at hcal
     obtain ⟨⟨g, gas, gbs⟩, hmem, ⟨rfl, rfl⟩, rfl⟩ := hcal
     exact hmem
+  have hzl : isZeroLeaf T.toIsa hints E = false := by
+    cases hcE : E.callees with
+    | nil => simp [hcE] at hmemE
+    | cons _ _ => simp [isZeroLeaf, hcE]
+  rw [hzl] at hI
   obtain ⟨hf, hbd⟩ := hy.callees f as bs hmemE
+  simp only [effFrame, hzl, Bool.false_eq_true, ↓reduceIte] at hbd
   have hn := hy.stack_bound
   obtain ⟨hc1, hc2⟩ := hc.append
   refine canon_inv hy (fun r hr => .inl hr) T.frameSpec.argRegs_nodup hrel hal htg hc1 hok hI
     fun s1 hab hcs1 hI1 => ?_
-  obtain ⟨hσ, hsp1, hcsI, hmem1, hsub, hnd⟩ := hI1
-  unfold Fr at hmem1
-  rw [callee_split hbd (by omega)] at hmem1
+  obtain ⟨hσ, hsp1, hcsI, hmem1, hsub, hnd, -⟩ := hI1
+  have hsp1' : T.mach.getGpr s1 T.frame.sp = base T hints s₀ := hsp1
+  have hmem1' :
+      T.mach.mem s1 =⋆ Eq m ⋆ (array64 (base T hints s₀) σ ⋆ Fr T hints s₀ ra n Rf) := hmem1
+  unfold Fr at hmem1'
+  rw [callee_split hbd (by omega)] at hmem1'
   have hm1 : T.mach.mem s1 =⋆
       region (T.mach.getGpr s1 T.frame.sp - BitVec.ofNat 64 T.frame.raBytes) T.frame.raBytes ⋆
       (Eq m ⋆ region (base T hints s₀ - BitVec.ofNat 64 T.frame.raBytes -
@@ -715,9 +768,9 @@ theorem call_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q 
           T.frameSpec.Saved (T.mach.getGpr s₀ T.frame.sp) ra hints.totalSlots ⋆
           region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n)
             (n - frame T hints - (bound f + T.frame.raBytes))) ⋆ Rf)) := by
-    rw [hsp1]; exact sep_cast hmem1 (by ac_rfl)
+    rw [hsp1']; exact sep_cast hmem1' (by ac_rfl)
   refine T.frameSpec.call_spec hc2 hm1 fun s2 hsp2 hfr2 hra2 hm2 => ?_
-  rw [hsp1] at hsp2
+  rw [hsp1'] at hsp2
   have hk2 := hfr2.1
   have hab2 : TRel (T.mach.AbiHolds s2) argLocs (vals args₁) :=
     trel_keep abiHolds_keep (fun r hr => by
@@ -772,15 +825,18 @@ theorem call_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q 
           | vec _ => simp at hs
           | flag _ => simp at hs
         regs_lt := fun p hp => hA.regs_lt p (List.mem_filter.mp hp).1 }
-    have hI' : Inv T hints s₀ ra n Rf m' (T.mach.data st0) σ := by
-      refine ⟨hσ, by rw [hspr, hsp2, BitVec.sub_add_cancel],
-        fun r hr hns => (hkeep r hr).trans (hcsI r hr hns), ?_, hsub, hnd⟩
+    have hI' : Inv T hints s₀ ra n Rf m' (T.mach.data st0) σ false := by
+      refine ⟨hσ, by show T.mach.getGpr (T.mach.data st0) T.frame.sp = base T hints s₀
+                     rw [hspr, hsp2, BitVec.sub_add_cancel],
+        fun r hr hns => (hkeep r hr).trans (hcsI r hr hns), ?_, hsub, hnd, fun h => by cases h⟩
+      change T.mach.mem (T.mach.data st0) =⋆
+        Eq m' ⋆ (array64 (base T hints s₀) σ ⋆ Fr T hints s₀ ra n Rf)
       unfold Fr
       rw [callee_split' hbd (by omega)]
       unfold Target.Exit at hmx
       rw [hsp2] at hmx
       exact sep_cast hmx (by ac_rfl)
-    have := kont rets m' _ σ hP (bindAbiParams_ok hb hrets hA') hI'
+    have := kont rets m' _ σ hP (bindAbiParams_ok hb hrets hA') (by rw [hzl]; exact hI')
     rw [← T.mach.mk_eta st0, hpc]
     unfold Machine.Run at this
     rwa [List.length_append, ← Nat.add_assoc] at this
@@ -797,78 +853,116 @@ theorem fn_entry_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {as : List Ty}
     (hmem : T.mach.mem s₀ =⋆ Eq m ⋆ T.Entry (T.mach.getGpr s₀ T.frame.sp) ra n ⋆ Rf)
     {argLocs : Tup (AbiReg T.Reg T.VReg) as} (hal : T.toIsa.assignArgs as = some argLocs)
     {st0 : SymState T.toIsa}
-    (hb : bindAbiParams T.toIsa argLocs 0 ⟨[], .empty, .empty, .empty⟩ = some st0) {k : Nat}
-    (hc : ((T.frame.prologue hints.totalSlots).1 ++ saveCs T.toIsa hints.nslots hints.saved).IsInfixAt
+    (hb : bindAbiParams T.toIsa argLocs 0
+      { regs := [], slots := .empty, defs := .empty, vecWidths := .empty } = some st0) {k : Nat}
+    (hc : (fnPrologue T.toIsa hints E ++ saveCs T.toIsa hints.nslots hints.saved).IsInfixAt
       (T.mach.prog host) k)
     (kont : ∀ s' σ, Agree T (Tup.zip args (Tup.levels as 0)) as.length st0 s' σ →
-      Inv T hints s₀ ra n Rf m s' σ →
-      T.mach.Run host (k + ((T.frame.prologue hints.totalSlots).1 ++
+      Inv T hints s₀ ra n Rf m s' σ (isZeroLeaf T.toIsa hints E) →
+      T.mach.Run host (k + (fnPrologue T.toIsa hints E ++
         saveCs T.toIsa hints.nslots hints.saved).length) s' post) :
     T.mach.Run host k s₀ post := by
   obtain ⟨locs, hl, htr⟩ := hargs
   rw [hal, Option.some.injEq] at hl
   subst hl
-  have h8 : 8 * hints.totalSlots ≤ frame T hints := T.frameSpec.slots_le_frameSize _
-  have hF := hy.frame_bound
-  have hFn := hy.frame_le
-  have hn := hy.stack_bound
-  have htot : hints.totalSlots = hints.nslots + hints.saved.length := rfl
-  obtain ⟨hc1, hc2⟩ := hc.append
-  have hm0 : T.mach.mem s₀ =⋆ T.frameSpec.RetAddr (T.mach.getGpr s₀ T.frame.sp) ra ⋆
-      region (base T hints s₀) (frame T hints) ⋆
-      (Eq m ⋆ region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆ Rf) := by
-    unfold Target.Entry at hmem
-    rw [below_split hFn (by omega)] at hmem
-    exact sep_cast hmem (by ac_rfl)
-  refine T.frameSpec.prologue_spec hra hy.spE hF hm0 hc1 fun s1 hq1 hfr1 => ?_
-  obtain ⟨hsp1, hm1⟩ := hq1
-  have hsp1' : T.mach.getGpr s1 T.frame.sp = base T hints s₀ := hsp1
-  have hm1' : T.mach.mem s1 =⋆ region (base T hints s₀) (8 * hints.totalSlots) ⋆
-      (T.frameSpec.Saved (T.mach.getGpr s₀ T.frame.sp) ra hints.totalSlots ⋆
+  cases hzl : isZeroLeaf T.toIsa hints E with
+  | true =>
+    have hzl' := hzl
+    simp only [isZeroLeaf, Bool.and_eq_true, Nat.beq_eq] at hzl'
+    obtain ⟨⟨hleaf, htot0⟩, -⟩ := hzl'
+    have htot0' : hints.nslots + hints.saved.length = 0 := htot0
+    have hns0 : hints.nslots = 0 := by omega
+    have hsaved : hints.saved = [] := List.eq_nil_of_length_eq_zero (by omega)
+    have hI0 : Inv T hints s₀ ra n Rf m s₀ [] true := by
+      refine ⟨hns0.symm, by simp [baseZ, frameZ], fun _ _ _ => rfl, ?_, hy.saved_cs,
+        hy.saved_nodup, fun _ => ⟨htot0, hra, T.frameSpec.leafZeroFrame_ok hleaf⟩⟩
+      simp only [FrZ, csSlotsZ, hsaved, List.map_nil, array64_nil, frameZ, ↓reduceIte,
+        Nat.sub_zero, emp_sep]
+      unfold Target.Entry at hmem
+      exact sep_cast hmem (by ac_rfl)
+    have hA0 : Agree T [] 0
+        { regs := [], slots := .empty, defs := .empty, vecWidths := .empty } s₀ [] := by
+      constructor <;> intros <;> simp_all [Trie.find?]
+    have hA := bindAbiParams_ok hb htr hA0
+    rw [List.append_nil, Nat.zero_add] at hA
+    have hlen : k + (fnPrologue T.toIsa hints E ++
+        saveCs T.toIsa hints.nslots hints.saved).length = k := by
+      simp [fnPrologue, saveCs, hzl, hsaved]
+    rw [← hlen]
+    exact kont s₀ [] hA (by rw [hzl]; exact hI0)
+  | false =>
+    simp only [fnPrologue, hzl, Bool.false_eq_true, ↓reduceIte] at hc kont ⊢
+    have h8 : 8 * hints.totalSlots ≤ frame T hints := T.frameSpec.slots_le_frameSize _
+    have hF : frame T hints + T.frame.raBytes ≤ 2 ^ 64 := by
+      have := hy.frame_bound
+      simp only [effFrame, hzl, Bool.false_eq_true, ↓reduceIte] at this; exact this
+    have hFn : frame T hints ≤ n := by
+      have := hy.frame_le
+      simp only [effFrame, hzl, Bool.false_eq_true, ↓reduceIte] at this; exact this
+    have hn := hy.stack_bound
+    have htot : hints.totalSlots = hints.nslots + hints.saved.length := rfl
+    obtain ⟨hc1, hc2⟩ := hc.append
+    have hm0 : T.mach.mem s₀ =⋆ T.frameSpec.RetAddr (T.mach.getGpr s₀ T.frame.sp) ra ⋆
+        region (base T hints s₀) (frame T hints) ⋆
+        (Eq m ⋆
+          region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆ Rf) := by
+      unfold Target.Entry at hmem
+      rw [below_split hFn (by omega)] at hmem
+      exact sep_cast hmem (by ac_rfl)
+    refine T.frameSpec.prologue_spec hra hy.spE hF hm0 hc1 fun s1 hq1 hfr1 => ?_
+    obtain ⟨hsp1, hm1⟩ := hq1
+    have hsp1' : T.mach.getGpr s1 T.frame.sp = base T hints s₀ := hsp1
+    have hm1' : T.mach.mem s1 =⋆ region (base T hints s₀) (8 * hints.totalSlots) ⋆
+        (T.frameSpec.Saved (T.mach.getGpr s₀ T.frame.sp) ra hints.totalSlots ⋆
+          (Eq m ⋆ region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆
+            Rf)) := by
+      have hm1a :
+        T.mach.mem s1 =⋆ T.frameSpec.Saved (T.mach.getGpr s₀ T.frame.sp) ra hints.totalSlots ⋆
+        region (base T hints s₀) (8 * hints.totalSlots) ⋆
         (Eq m ⋆ region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆
-          Rf)) := by
-    have hm1a : T.mach.mem s1 =⋆ T.frameSpec.Saved (T.mach.getGpr s₀ T.frame.sp) ra hints.totalSlots ⋆
-      region (base T hints s₀) (8 * hints.totalSlots) ⋆
-      (Eq m ⋆ region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆
-        Rf) := hm1
-    exact sep_cast hm1a (by ac_rfl)
-  rw [slots_split (by omega), sep_assoc] at hm1'
-  obtain ⟨σ, hσ, hm1''⟩ := region_array64_sep (by omega) hm1'
-  have hk1 := hfr1.1
-  have hcs1 : ∀ r ∈ T.frame.calleeSaved, T.mach.getGpr s1 r = T.mach.getGpr s₀ r :=
-    fun r hr => hk1 r (by
-      simp only [List.mem_cons, List.mem_append, not_or]
-      exact ⟨⟨cs_ne_sp hr, cs_not_ra hr⟩, cs_not_scratch hr⟩)
-  refine saveCs_ok hints.nslots hints.saved _ s1
-    (array64 (base T hints s₀) σ ⋆
-      (T.frameSpec.Saved (T.mach.getGpr s₀ T.frame.sp) ra hints.totalSlots ⋆
-        (Eq m ⋆ region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆
-          Rf)))
-    hc2 (by rw [hsp1']; exact T.frameSpec.spOk_frame _ _ hy.spE) (by omega)
-    (fun r hr => cs_not_scratch (hy.saved_cs r hr))
-    (by rw [hsp1']; exact sep_cast hm1'' (by ac_rfl)) fun s2 hk2 hv2 hm2 => ?_
-  have hmap : hints.saved.map (T.mach.getGpr s1) = hints.saved.map (T.mach.getGpr s₀) :=
-    List.map_congr_left fun r hr => hcs1 r (hy.saved_cs r hr)
-  rw [hsp1', hmap] at hm2
-  have hI2 : Inv T hints s₀ ra n Rf m s2 σ := by
-    refine ⟨hσ, by rw [hk2 _ T.frameSpec.sp_disj.1, hsp1'],
-      fun r hr _ => (hk2 r (cs_not_scratch hr)).trans (hcs1 r hr), ?_, hy.saved_cs,
-      hy.saved_nodup⟩
-    unfold Fr csSlots
-    exact sep_cast hm2 (by ac_rfl)
-  have htr2 : TRel (T.mach.AbiHolds s2) argLocs args :=
-    trel_keep abiHolds_keep (fun r hr => by
-      have ha : IsAbi T r := .inl (abiGprs_sub hal r hr)
-      rw [hk2 r ha.not_scratch, hk1 r (by
+          Rf) := hm1
+      exact sep_cast hm1a (by ac_rfl)
+    rw [slots_split (by omega), sep_assoc] at hm1'
+    obtain ⟨σ, hσ, hm1''⟩ := region_array64_sep (by omega) hm1'
+    have hk1 := hfr1.1
+    have hcs1 : ∀ r ∈ T.frame.calleeSaved, T.mach.getGpr s1 r = T.mach.getGpr s₀ r :=
+      fun r hr => hk1 r (by
         simp only [List.mem_cons, List.mem_append, not_or]
-        exact ⟨⟨ha.ne_sp, ha.not_ra⟩, ha.not_scratch⟩)])
-      (fun v => (hv2 v).trans (hfr1.2.1 v List.not_mem_nil)) htr
-  have hA0 : Agree T [] 0 ⟨[], .empty, .empty, .empty⟩ s2 σ := by
-    constructor <;> intros <;> simp_all [Trie.find?]
-  have hA := bindAbiParams_ok hb htr2 hA0
-  rw [List.append_nil, Nat.zero_add] at hA
-  have := kont s2 σ hA hI2
-  rwa [List.length_append, ← Nat.add_assoc] at this
+        exact ⟨⟨cs_ne_sp hr, cs_not_ra hr⟩, cs_not_scratch hr⟩)
+    refine saveCs_ok hints.nslots hints.saved _ s1
+      (array64 (base T hints s₀) σ ⋆
+        (T.frameSpec.Saved (T.mach.getGpr s₀ T.frame.sp) ra hints.totalSlots ⋆
+          (Eq m ⋆ region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆
+            Rf)))
+      hc2 (by rw [hsp1']; exact T.frameSpec.spOk_frame _ _ hy.spE) (by omega)
+      (fun r hr => cs_not_scratch (hy.saved_cs r hr))
+      (by rw [hsp1']; exact sep_cast hm1'' (by ac_rfl)) fun s2 hk2 hv2 hm2 => ?_
+    have hmap : hints.saved.map (T.mach.getGpr s1) = hints.saved.map (T.mach.getGpr s₀) :=
+      List.map_congr_left fun r hr => hcs1 r (hy.saved_cs r hr)
+    rw [hsp1', hmap] at hm2
+    have hI2 : Inv T hints s₀ ra n Rf m s2 σ false := by
+      refine ⟨hσ, by
+          show T.mach.getGpr s2 T.frame.sp = base T hints s₀
+          rw [hk2 _ T.frameSpec.sp_disj.1, hsp1'],
+        fun r hr _ => (hk2 r (cs_not_scratch hr)).trans (hcs1 r hr), ?_, hy.saved_cs,
+        hy.saved_nodup, fun h => by cases h⟩
+      change T.mach.mem s2 =⋆ Eq m ⋆ (array64 (base T hints s₀) σ ⋆ Fr T hints s₀ ra n Rf)
+      unfold Fr csSlots
+      exact sep_cast hm2 (by ac_rfl)
+    have htr2 : TRel (T.mach.AbiHolds s2) argLocs args :=
+      trel_keep abiHolds_keep (fun r hr => by
+        have ha : IsAbi T r := .inl (abiGprs_sub hal r hr)
+        rw [hk2 r ha.not_scratch, hk1 r (by
+          simp only [List.mem_cons, List.mem_append, not_or]
+          exact ⟨⟨ha.ne_sp, ha.not_ra⟩, ha.not_scratch⟩)])
+        (fun v => (hv2 v).trans (hfr1.2.1 v List.not_mem_nil)) htr
+    have hA0 : Agree T [] 0
+        { regs := [], slots := .empty, defs := .empty, vecWidths := .empty } s2 σ := by
+      constructor <;> intros <;> simp_all [Trie.find?]
+    have hA := bindAbiParams_ok hb htr2 hA0
+    rw [List.append_nil, Nat.zero_add] at hA
+    have := kont s2 σ hA hI2
+    rwa [List.length_append, ← Nat.add_assoc] at this
 
 end Lemmas
 
