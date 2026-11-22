@@ -1,7 +1,8 @@
 module
 
 public import LeanQbe.T.DceParam
-public import LeanQbe.T.DceLemmas
+public import LeanQbe.T.OptUtilLemmas
+import LeanQbe.T.DceLemmas
 
 /-!
 # Soundness and Relational Well-Formedness of `Func.dceP`
@@ -17,7 +18,7 @@ Proves WP refinement and relational well-formedness for dead `.group` block-para
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -65,14 +66,18 @@ theorem narrow_argsSweep_vals {s : Trie Unit} {Gk : Ctx K (OptV Val)} {G : Ctx (
   | _ :: _, (true, m), (true, mk), hle, (_, _), (_, _), (_, _), .cons hka hkas, .cons h12a h12as,
       ⟨ha, has⟩ =>
     Prod.ext (argSweep_val_of_inSet hnd hG hka h12a ha)
-      (narrow_argsSweep_vals hnd hG m mk (by simpa [maskLe] using hle) hkas h12as has)
-  | _ :: _, (true, _), (false, _), hle, _, _, _, _, _, _ => by simp [maskLe] at hle
+      (narrow_argsSweep_vals hnd hG m mk (by
+        dsimp only [maskLe] at hle; simpa using hle) hkas h12as has)
+  | _ :: _, (true, _), (false, _), hle, _, _, _, _, _, _ => by
+      dsimp only [maskLe] at hle; simp at hle
   | _ :: _, (false, m), (true, mk), hle, (_, _), (_, _), (_, _), .cons _ hkas, .cons _ h12as,
       ⟨_, has⟩ =>
-    narrow_argsSweep_vals hnd hG m mk (by simpa [maskLe] using hle) hkas h12as has
+    narrow_argsSweep_vals hnd hG m mk (by
+        dsimp only [maskLe] at hle; simpa using hle) hkas h12as has
   | _ :: _, (false, m), (false, mk), hle, (_, _), (_, _), (_, _), .cons _ hkas, .cons _ h12as,
       has =>
-    narrow_argsSweep_vals hnd hG m mk (by simpa [maskLe] using hle) hkas h12as has
+    narrow_argsSweep_vals hnd hG m mk (by
+        dsimp only [maskLe] at hle; simpa using hle) hkas h12as has
 
 /-! ## Label invariants -/
 
@@ -99,7 +104,7 @@ theorem LblOk.append_wrap {D : Ctx (NLabel Cont) Cont} (hD : LblOk D) :
   | [], _, _ => hD
   | _ :: sig, (_, ms), (_, Js) => by
     intro p hp
-    simp only [wrapLabels, widenConts, Tup.zip, List.cons_append] at hp
+    dsimp only [wrapLabels, widenConts, Tup.zip, List.cons_append] at hp
     cases hp with
     | head => rfl
     | tail _ hp => exact LblOk.append_wrap hD sig ms Js p hp
@@ -123,9 +128,9 @@ theorem MaskOk.append_wrap {L : List Ty → Type} {Dk : Ctx KLM (NLabel L)} (hD 
     MaskOk (Tup.zip (f := KLM) gms (wrapLabels sig ms Js') ++ Dk)
   | [], _, _, _, _ => hD
   | _ :: sig, (_, gms), (_, ms), hle, (_, Js) => by
-    simp only [masksLe, Bool.and_eq_true] at hle
+    dsimp only [masksLe] at hle; simp only [Bool.and_eq_true] at hle
     intro p hp
-    simp only [wrapLabels, Tup.zip, List.cons_append] at hp
+    dsimp only [wrapLabels, Tup.zip, List.cons_append] at hp
     cases hp with
     | head => exact hle.1
     | tail _ hp => exact MaskOk.append_wrap hD sig gms ms hle.2 Js p hp
@@ -194,7 +199,7 @@ theorem liveVarsBP_masksLe (dl dld : Bool) {rs : List Ty} (b : Nat) :
   | [], _, .nil, _ => rfl
   | _ :: _, g, .cons _ tl, h => by
     simp only [liveVarsBP, Bool.and_eq_true] at h
-    simp only [masksLe, PBlocks.masksOf, PBlocks.mask, PBlocks.tl, Bool.and_eq_true]
+    dsimp only [masksLe, PBlocks.masksOf, PBlocks.mask, PBlocks.tl]; simp only [Bool.and_eq_true]
     exact ⟨h.1.1, liveVarsBP_masksLe dl dld b g.tl tl h.2⟩
 
 /-- Transport `Closed` across the narrowed signature by structural recursion on the blocks. -/
@@ -235,12 +240,12 @@ theorem dceP_wp (dl dld : Bool) {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
     | @mk sig _ code args₁ args₂ hargs₁₂ =>
       cases hopk with
       | @mk _ _ _ argsk _ hargsk =>
-        simp only [liveVarsP] at hnd hok ⊢
+        dsimp only [liveVarsP] at hnd hok ⊢
         cases hkeep : (!dl || anyLive b ts.length
             (liveVarsP dl dld g.sub1 (b + ts.length) (kk (Tup.levels ts b))).1) with
         | true =>
           simp only [hkeep, ↓reduceIte] at hnd hok ⊢
-          simp only [dceSweepP, wp, Op.wp] at hw ⊢
+          dsimp only [dceSweepP, wp, Op.wp] at hw ⊢
           have hvals : vals (argsSweep args₁) = vals args₂ :=
             argsSweep_vals_of_inSet hnd hG hargsk hargs₁₂ (ArgsInSet.addArgKeys argsk _)
           rw [hvals]
@@ -251,8 +256,8 @@ theorem dceP_wp (dl dld : Bool) {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
             (NoneDead.append_some_addArgKeys argsk b xs hnd) m hkx
         | false =>
           simp only [hkeep, Bool.false_eq_true, ↓reduceIte] at hnd hok ⊢
-          simp only [dceSweepP]
-          simp only [wp, Op.wp] at hw
+          dsimp only [dceSweepP]
+          dsimp only [wp, Op.wp] at hw
           obtain ⟨xs₂, hxs₂⟩ := OpCode.wp_exists code (vals args₂) hw
           exact ih (noneTup ts) xs₂ hD (SomeEq.append_none hG xs₂) g.sub1
             (b + ts.length) (kk (Tup.levels ts b))
@@ -261,13 +266,13 @@ theorem dceP_wp (dl dld : Bool) {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
   | load t ha _ ih =>
     intro hD hG Gk Dk g b ek hwk hMk hok hnd m hw
     rcases hwk.rhs_load with ⟨ak, kk, rfl, hak, hkk⟩
-    simp only [liveVarsP] at hnd hok ⊢
+    dsimp only [liveVarsP] at hnd hok ⊢
     rcases hw with ⟨v, hv, hk⟩
     cases hkeep : (!dld ||
         ((liveVarsP dl dld g.sub1 (b + 1) (kk b)).1.find? b).isSome) with
     | true =>
       simp only [hkeep, ↓reduceIte] at hnd hok ⊢
-      simp only [dceSweepP, wp]
+      dsimp only [dceSweepP, wp]
       have hval := argSweep_val_of_inSet hnd hG hak ha (Arg.InSet.addArgKey ak _)
       rw [hval]
       refine ⟨v, hv, ?_⟩
@@ -275,14 +280,14 @@ theorem dceP_wp (dl dld : Bool) {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
         hMk hok (NoneDead.cons_some_addArgKey ak b v hnd) m hk
     | false =>
       simp only [hkeep, Bool.false_eq_true, ↓reduceIte] at hnd hok ⊢
-      simp only [dceSweepP]
+      dsimp only [dceSweepP]
       exact ih none v hD (SomeEq.cons_none hG v) g.sub1 (b + 1) (kk b) (hkk b none) hMk hok
         (NoneDead.cons_none_of_not_keep b hkeep hnd) m hk
   | store hv ha _ ih =>
     intro hD hG Gk Dk g b ek hwk hMk hok hnd m hw
     rcases hwk.rhs_store with ⟨vk, ak, kk, rfl, hvk, hak, hkk⟩
-    simp only [liveVarsP] at hnd hok ⊢
-    simp only [dceSweepP, wp] at hw ⊢
+    dsimp only [liveVarsP] at hnd hok ⊢
+    dsimp only [dceSweepP, wp] at hw ⊢
     have hvval := argSweep_val_of_inSet hnd hG hvk hv (Arg.InSet.addArgKey vk _)
     have haval := argSweep_val_of_inSet hnd hG hak ha (Arg.InSet.addArgKey2 vk ak _)
     rw [hvval, haval]
@@ -290,8 +295,8 @@ theorem dceP_wp (dl dld : Bool) {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
   | @call _ _ f _ bs _ _ _ _ hargs _ ih =>
     intro hD hG Gk Dk g b ek hwk hMk hok hnd m hw
     rcases hwk.rhs_call with ⟨argsk, kk, rfl, hargsk, hkk⟩
-    simp only [liveVarsP] at hnd hok ⊢
-    simp only [dceSweepP, wp] at hw ⊢
+    dsimp only [liveVarsP] at hnd hok ⊢
+    dsimp only [dceSweepP, wp] at hw ⊢
     rcases hw with ⟨P, E, hΓ, hP, hE⟩
     have hvals := argsSweep_vals_of_inSet hnd hG hargsk hargs (ArgsInSet.addArgKeys argsk _)
     rw [hvals]
@@ -302,8 +307,8 @@ theorem dceP_wp (dl dld : Bool) {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
   | jnz hc _ _ iht ihe =>
     intro hD hG Gk Dk g b ek hwk hMk hok hnd m hw
     rcases hwk.rhs_jnz with ⟨ck, tk, ek', rfl, hck, htk, hek⟩
-    simp only [liveVarsP, Bool.and_eq_true] at hnd hok ⊢
-    simp only [dceSweepP, wp] at hw ⊢
+    dsimp only [liveVarsP] at hnd hok ⊢; simp only [Bool.and_eq_true] at hnd hok ⊢
+    dsimp only [dceSweepP, wp] at hw ⊢
     have hval := argSweep_val_of_inSet hnd hG hck hc (Arg.InSet.addArgKey ck _)
     rw [hval]
     exact ⟨fun h => iht hD hG g.subT b tk htk hMk hok.1
@@ -318,25 +323,25 @@ theorem dceP_wp (dl dld : Bool) {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
     cases j₁ with
     | mk msk l =>
       simp only [LblRel] at hrel
-      simp only [MaskRel] at hmrel
+      dsimp only [MaskRel] at hmrel
       subst hrel
-      simp only [liveVarsP] at hnd ⊢
-      simp only [dceSweepP, wp, widenCont] at hw ⊢
+      dsimp only [liveVarsP] at hnd ⊢
+      dsimp only [dceSweepP, wp, widenCont] at hw ⊢
       rw [vals_tupNarrow, narrow_argsSweep_vals hnd hG msk mk hmrel hargsk hargs
         (ArgsInSetM.addMasked mk argsk _)]
       exact hw
   | ret hvs =>
     intro _ hG Gk Dk g b ek hwk _ _ hnd m hw
     rcases hwk.rhs_ret with ⟨vsk, rfl, hvsk⟩
-    simp only [liveVarsP] at hnd ⊢
-    simp only [dceSweepP, wp] at hw ⊢
+    dsimp only [liveVarsP] at hnd ⊢
+    dsimp only [dceSweepP, wp] at hw ⊢
     rw [argsSweep_vals_of_inSet hnd hG hvsk hvs (ArgsInSet.addArgKeys vsk _)]
     exact hw
   | exit f hargs =>
     intro _ hG Gk Dk g b ek hwk _ _ hnd m hw
     rcases hwk.rhs_exit with ⟨argsk, rfl, hargsk⟩
-    simp only [liveVarsP] at hnd ⊢
-    simp only [dceSweepP, wp] at hw ⊢
+    dsimp only [liveVarsP] at hnd ⊢
+    dsimp only [dceSweepP, wp] at hw ⊢
     rw [argsSweep_vals_of_inSet hnd hG hargsk hargs (ArgsInSet.addArgKeys argsk _)]
     exact hw
   | hlt =>
@@ -346,8 +351,8 @@ theorem dceP_wp (dl dld : Bool) {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
   | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
     intro hD hG Gk Dk g b ek hwk hMk hok hnd m hw
     rcases hwk.rhs_group with ⟨bk, kk, rfl, hbk, hkk⟩
-    simp only [liveVarsP, Bool.and_eq_true] at hnd hok ⊢
-    simp only [dceSweepP, wp] at hw ⊢
+    dsimp only [liveVarsP] at hnd hok ⊢; simp only [Bool.and_eq_true] at hnd hok ⊢
+    dsimp only [dceSweepP, wp] at hw ⊢
     intro Js' hclosed
     have hMk' := MaskOk.append_wrap hMk sig (g.subB.masksOf sig) _
       (liveVarsBP_masksLe dl dld b g.subB (bk (g.subB.masksOf sig)) hok.1) Js'
@@ -391,7 +396,7 @@ theorem LblOk2.append_wrap {D : Ctx (NLabel L₁) (NLabel L₂)} {D' : Ctx L₁ 
   | [], _, _, _ => hD
   | _ :: sig, (m, ms), (_, Js₁), (_, Js₂) => by
     intro p hp
-    simp only [wrapLabels, Tup.zip, List.cons_append] at hp ⊢
+    dsimp only [wrapLabels, Tup.zip, List.cons_append] at hp ⊢
     cases hp with
     | head => exact .mk m List.mem_cons_self
     | tail _ hp =>
@@ -409,14 +414,18 @@ theorem TRel.narrow_argsSweep {s : Trie Unit}
   | _ :: _, (true, m), (true, mk), hle, (_, _), (_, _), (_, _), .cons hka hkas, .cons h12a h12as,
       ⟨ha, has⟩ =>
     .cons (argSweep_rel_of_inSet hnd hrel hka h12a ha)
-      (TRel.narrow_argsSweep hnd hrel m mk (by simpa [maskLe] using hle) hkas h12as has)
-  | _ :: _, (true, _), (false, _), hle, _, _, _, _, _, _ => by simp [maskLe] at hle
+      (TRel.narrow_argsSweep hnd hrel m mk (by
+        dsimp only [maskLe] at hle; simpa using hle) hkas h12as has)
+  | _ :: _, (true, _), (false, _), hle, _, _, _, _, _, _ => by
+      dsimp only [maskLe] at hle; simp at hle
   | _ :: _, (false, m), (true, mk), hle, (_, _), (_, _), (_, _), .cons _ hkas, .cons _ h12as,
       ⟨_, has⟩ =>
-    TRel.narrow_argsSweep hnd hrel m mk (by simpa [maskLe] using hle) hkas h12as has
+    TRel.narrow_argsSweep hnd hrel m mk (by
+        dsimp only [maskLe] at hle; simpa using hle) hkas h12as has
   | _ :: _, (false, m), (false, mk), hle, (_, _), (_, _), (_, _), .cons _ hkas, .cons _ h12as,
       has =>
-    TRel.narrow_argsSweep hnd hrel m mk (by simpa [maskLe] using hle) hkas h12as has
+    TRel.narrow_argsSweep hnd hrel m mk (by
+        dsimp only [maskLe] at hle; simpa using hle) hkas h12as has
 
 theorem DceRel.append_widen {G : Ctx (OptV V₁) (OptV V₂)} {G' : Ctx V₁ V₂} (hrel : DceRel G G') :
     (ts : List Ty) → (m : Mask ts) → (ys₁ : Tup V₁ (narrow ts m)) → (ys₂ : Tup V₂ (narrow ts m)) →
@@ -460,12 +469,12 @@ theorem dceP_wf (dl dld : Bool) {rs : List Ty}
     | @mk sig _ code args₁ args₂ hargs₁₂ =>
       cases hopk with
       | @mk _ _ _ argsk _ hargsk =>
-        simp only [liveVarsP] at hnd hok ⊢
+        dsimp only [liveVarsP] at hnd hok ⊢
         cases hkeep : (!dl || anyLive b ts.length
             (liveVarsP dl dld g.sub1 (b + ts.length) (kk (Tup.levels ts b))).1) with
         | true =>
           simp only [hkeep, ↓reduceIte] at hnd hok ⊢
-          simp only [dceSweepP]
+          dsimp only [dceSweepP]
           refine .let_ (.mk code (TRel.argsSweep_of_inSet hnd hrel hargsk hargs₁₂
             (ArgsInSet.addArgKeys argsk _))) fun xs₁ xs₂ => ?_
           exact ih (someTup ts xs₁) (someTup ts xs₂) (DceRel.append_some hrel xs₁ xs₂) hD g.sub1
@@ -474,7 +483,7 @@ theorem dceP_wf (dl dld : Bool) {rs : List Ty}
             (NoneDead.append_some_addArgKeys argsk b xs₁ hnd)
         | false =>
           simp only [hkeep, Bool.false_eq_true, ↓reduceIte] at hnd hok ⊢
-          simp only [dceSweepP]
+          dsimp only [dceSweepP]
           exact ih (noneTup ts) (noneTup ts) (DceRel.append_none hrel) hD g.sub1
             (b + ts.length) (kk (Tup.levels ts b))
             (hkk (Tup.levels ts b) (noneTup ts)) hMk hok
@@ -482,34 +491,34 @@ theorem dceP_wf (dl dld : Bool) {rs : List Ty}
   | load t ha _ ih =>
     intro G' D' hrel hD Gk Dk g b ek hwk hMk hok hnd
     rcases hwk.rhs_load with ⟨ak, kk, rfl, hak, hkk⟩
-    simp only [liveVarsP] at hnd hok ⊢
+    dsimp only [liveVarsP] at hnd hok ⊢
     cases hkeep : (!dld ||
         ((liveVarsP dl dld g.sub1 (b + 1) (kk b)).1.find? b).isSome) with
     | true =>
       simp only [hkeep, ↓reduceIte] at hnd hok ⊢
-      simp only [dceSweepP]
+      dsimp only [dceSweepP]
       refine .load t (argSweep_rel_of_inSet hnd hrel hak ha (Arg.InSet.addArgKey ak _))
         fun v₁ v₂ => ?_
       exact ih (some v₁) (some v₂) (DceRel.cons_some hrel v₁ v₂) hD g.sub1 (b + 1) (kk b)
         (hkk b (some v₁)) hMk hok (NoneDead.cons_some_addArgKey ak b v₁ hnd)
     | false =>
       simp only [hkeep, Bool.false_eq_true, ↓reduceIte] at hnd hok ⊢
-      simp only [dceSweepP]
+      dsimp only [dceSweepP]
       exact ih none none (DceRel.cons_none hrel) hD g.sub1 (b + 1) (kk b) (hkk b none) hMk hok
         (NoneDead.cons_none_of_not_keep b hkeep hnd)
   | store hv ha _ ih =>
     intro G' D' hrel hD Gk Dk g b ek hwk hMk hok hnd
     rcases hwk.rhs_store with ⟨vk, ak, kk, rfl, hvk, hak, hkk⟩
-    simp only [liveVarsP] at hnd hok ⊢
-    simp only [dceSweepP]
+    dsimp only [liveVarsP] at hnd hok ⊢
+    dsimp only [dceSweepP]
     exact .store (argSweep_rel_of_inSet hnd hrel hvk hv (Arg.InSet.addArgKey vk _))
       (argSweep_rel_of_inSet hnd hrel hak ha (Arg.InSet.addArgKey2 vk ak _))
       (ih hrel hD g.sub1 b kk hkk hMk hok (NoneDead.sub_addArgKey2 vk ak hnd))
   | @call _ _ f _ bs _ _ _ _ hargs _ ih =>
     intro G' D' hrel hD Gk Dk g b ek hwk hMk hok hnd
     rcases hwk.rhs_call with ⟨argsk, kk, rfl, hargsk, hkk⟩
-    simp only [liveVarsP] at hnd hok ⊢
-    simp only [dceSweepP]
+    dsimp only [liveVarsP] at hnd hok ⊢
+    dsimp only [dceSweepP]
     refine .call f (TRel.argsSweep_of_inSet hnd hrel hargsk hargs (ArgsInSet.addArgKeys argsk _))
       fun xs₁ xs₂ => ?_
     exact ih (someTup bs xs₁) (someTup bs xs₂) (DceRel.append_some hrel xs₁ xs₂) hD g.sub1
@@ -518,8 +527,8 @@ theorem dceP_wf (dl dld : Bool) {rs : List Ty}
   | jnz hc _ _ iht ihe =>
     intro G' D' hrel hD Gk Dk g b ek hwk hMk hok hnd
     rcases hwk.rhs_jnz with ⟨ck, tk, ek', rfl, hck, htk, hek⟩
-    simp only [liveVarsP, Bool.and_eq_true] at hnd hok ⊢
-    simp only [dceSweepP]
+    dsimp only [liveVarsP] at hnd hok ⊢; simp only [Bool.and_eq_true] at hnd hok ⊢
+    dsimp only [dceSweepP]
     exact .jnz (argSweep_rel_of_inSet hnd hrel hck hc (Arg.InSet.addArgKey ck _))
       (iht hrel hD g.subT b tk htk hMk hok.1 (NoneDead.sub_union_left_addArgKey ck hnd))
       (ihe hrel hD g.subE b ek' hek hMk hok.2 (NoneDead.sub_union_right_addArgKey ck hnd))
@@ -530,22 +539,22 @@ theorem dceP_wf (dl dld : Bool) {rs : List Ty}
     have hmrel : MaskRel ts mk j₁ := hMk _ hjk
     cases hl with
     | mk msk hmem =>
-      simp only [MaskRel] at hmrel
-      simp only [liveVarsP] at hnd ⊢
-      simp only [dceSweepP]
+      dsimp only [MaskRel] at hmrel
+      dsimp only [liveVarsP] at hnd ⊢
+      dsimp only [dceSweepP]
       exact .jump hmem (TRel.narrow_argsSweep hnd hrel msk mk hmrel hargsk hargs
         (ArgsInSetM.addMasked mk argsk _))
   | ret hvs =>
     intro G' D' hrel _ Gk Dk g b ek hwk _ _ hnd
     rcases hwk.rhs_ret with ⟨vsk, rfl, hvsk⟩
-    simp only [liveVarsP] at hnd ⊢
-    simp only [dceSweepP]
+    dsimp only [liveVarsP] at hnd ⊢
+    dsimp only [dceSweepP]
     exact .ret (TRel.argsSweep_of_inSet hnd hrel hvsk hvs (ArgsInSet.addArgKeys vsk _))
   | exit f hargs =>
     intro G' D' hrel _ Gk Dk g b ek hwk _ _ hnd
     rcases hwk.rhs_exit with ⟨argsk, rfl, hargsk⟩
-    simp only [liveVarsP] at hnd ⊢
-    simp only [dceSweepP]
+    dsimp only [liveVarsP] at hnd ⊢
+    dsimp only [dceSweepP]
     exact .exit f (TRel.argsSweep_of_inSet hnd hrel hargsk hargs (ArgsInSet.addArgKeys argsk _))
   | hlt =>
     intro _ _ _ _ _ _ _ _ ek hwk _ _ _
@@ -554,8 +563,8 @@ theorem dceP_wf (dl dld : Bool) {rs : List Ty}
   | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
     intro G' D' hrel hD Gk Dk g b ek hwk hMk hok hnd
     rcases hwk.rhs_group with ⟨bk, kk, rfl, hbk, hkk⟩
-    simp only [liveVarsP, Bool.and_eq_true] at hnd hok ⊢
-    simp only [dceSweepP]
+    dsimp only [liveVarsP] at hnd hok ⊢; simp only [Bool.and_eq_true] at hnd hok ⊢
+    dsimp only [dceSweepP]
     refine .group (fun Js₁ Js₂ => ?_) (fun Js₁ Js₂ => ?_)
     · have hMk' := MaskOk.append_wrap hMk sig (g.subB.masksOf sig) _
         (liveVarsBP_masksLe dl dld b g.subB (bk (g.subB.masksOf sig)) hok.1) Js₁
@@ -587,7 +596,7 @@ end WfP
 theorem maskLe_top : {ts : List Ty} → (m : Mask ts) → maskLe m (maskOf ts []) = true
   | [], _ => rfl
   | _ :: _, (x, m) => by
-    cases x <;> simp [maskLe, maskOf, maskLe_top m]
+    cases x <;> (dsimp only [maskLe, maskOf]; simp [maskLe_top m])
 
 mutual
 /-- The `.leaf` ("keep all") plan always passes `liveVarsP` validation. -/
@@ -595,33 +604,33 @@ theorem liveVarsP_leaf_ok (dl dld : Bool) {rs : List Ty} :
     (b : Nat) → (e : Expr K KLM rs) → (liveVarsP dl dld .leaf b e).2.2 = true
   | b, .let_ (ts := ts) _ k => by
     have ih := liveVarsP_leaf_ok dl dld (b + ts.length) (k (Tup.levels ts b))
-    simp only [liveVarsP, PTree.sub1]
+    dsimp only [liveVarsP, PTree.sub1]
     by_cases hc : (!dl || anyLive b ts.length
         (liveVarsP dl dld PTree.leaf (b + ts.length) (k (Tup.levels ts b))).1) = true
     · simp only [hc, ↓reduceIte]; exact ih
     · simp only [hc]; exact ih
   | b, .load _ _ k => by
     have ih := liveVarsP_leaf_ok dl dld (b + 1) (k b)
-    simp only [liveVarsP, PTree.sub1]
+    dsimp only [liveVarsP, PTree.sub1]
     by_cases hc :
         (!dld || ((liveVarsP dl dld PTree.leaf (b + 1) (k b)).1.find? b).isSome) = true
     · simp only [hc, ↓reduceIte]; exact ih
     · simp only [hc]; exact ih
   | b, .store _ _ k => by
-    simp only [liveVarsP, PTree.sub1]
+    dsimp only [liveVarsP, PTree.sub1]
     exact liveVarsP_leaf_ok dl dld b k
   | b, .call _ (bs := bs) _ k => by
-    simp only [liveVarsP, PTree.sub1]
+    dsimp only [liveVarsP, PTree.sub1]
     exact liveVarsP_leaf_ok dl dld (b + bs.length) (k (Tup.levels bs b))
   | b, .jnz _ t e => by
-    simp only [liveVarsP, PTree.subT, PTree.subE, Bool.and_eq_true]
+    dsimp only [liveVarsP, PTree.subT, PTree.subE]; simp only [Bool.and_eq_true]
     exact ⟨liveVarsP_leaf_ok dl dld b t, liveVarsP_leaf_ok dl dld b e⟩
   | _, .jump _ _ => rfl
   | _, .ret _ => rfl
   | _, .exit _ _ => rfl
   | _, .hlt => rfl
   | b, .group bodies k => by
-    simp only [liveVarsP, PTree.subB, PTree.subK, Bool.and_eq_true]
+    dsimp only [liveVarsP, PTree.subB, PTree.subK]; simp only [Bool.and_eq_true]
     exact ⟨liveVarsBP_nil_ok dl dld b (bodies _), liveVarsP_leaf_ok dl dld b (k _)⟩
 
 /-- Block-list companion of `liveVarsP_leaf_ok`. -/
@@ -643,8 +652,7 @@ open DceParam in
 /-- `Func.dcePWith` preserves relational well-formedness. -/
 theorem Func.dcePWith_wf (dl dld : Bool) (rounds : Nat := 0) {as rs : List Ty} {f : Func as rs}
     (hf : f.Wf) : (Func.dcePWith dl dld rounds f).Wf := by
-  unfold Func.dcePWith
-  dsimp only
+  dsimp only [Func.dcePWith]
   split
   · rename_i hok
     intro V₁ V₂ L₁ L₂ xs₁ xs₂
@@ -662,8 +670,7 @@ open DceParam in
 theorem Func.dcePWith_spec (dl dld : Bool) (rounds : Nat := 0) {as rs : List Ty} {f : Func as rs}
     (hf : f.Wf) {Γ : Env} {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.dcePWith dl dld rounds f) xs m Q X := by
-  unfold Func.dcePWith
-  dsimp only
+  dsimp only [Func.dcePWith]
   split
   · rename_i hok
     exact DceParam.dceP_wp dl dld (hf (OptV Val) Val (NLabel Cont) Cont (someTup as xs) xs)

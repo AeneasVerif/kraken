@@ -1,19 +1,22 @@
 module
 
 public import LeanQbe.T.Opt
+public import LeanQbe.T.Wf
+public import LeanQbe.T.WP
 public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.FoldLemmas
-public import LeanQbe.T.CanonLemmas
-public import LeanQbe.T.CopyLemmas
 public import LeanQbe.T.GvnLemmas
-public import LeanQbe.T.DceParamLemmas
-public import LeanQbe.T.DivConstLemmas
-public import LeanQbe.T.MemLoadLemmas
-public import LeanQbe.T.PeelLemmas
-public import LeanQbe.T.IfOptLemmas
-public import LeanQbe.T.SimplifyGroupPlanLemmas
-public import LeanQbe.T.LicmLemmas
 public import LeanQbe.T.InlineLemmas
+import LeanQbe.T.FoldLemmas
+import LeanQbe.T.CanonLemmas
+import LeanQbe.T.CopyLemmas
+import LeanQbe.T.DceLemmas
+import LeanQbe.T.DceParamLemmas
+import LeanQbe.T.DivConstLemmas
+import LeanQbe.T.MemLoadLemmas
+import LeanQbe.T.PeelLemmas
+import LeanQbe.T.IfOptLemmas
+import LeanQbe.T.SimplifyGroupPlanLemmas
+import LeanQbe.T.LicmLemmas
 
 /-!
 # Correctness of the Staged Typed-IR Mid-End Pipeline (`T6`, `O-M1`, `O-M2`)
@@ -24,7 +27,7 @@ Composes relational well-formedness (`*_wf`) and WP refinement (`*_spec`) across
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -51,7 +54,7 @@ theorem Func.opt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
 /-- `Func.simplifyGroupFast` preserves well-formedness. -/
 theorem Func.simplifyGroupFast_wf {as rs : List Ty} (f : Func as rs) :
     (Func.simplifyGroupFast f).Wf := by
-  unfold Func.simplifyGroupFast
+  dsimp only [Func.simplifyGroupFast]
   by_cases h : hasSimpGroup (tflatLoops (reifyFunc f) ≤ 1) (reifyFunc f) <;>
     simp only [h, ↓reduceIte, Bool.false_eq_true]
   · exact Func.renorm_wf _
@@ -63,7 +66,7 @@ theorem Func.simplifyGroupFast_spec {as rs : List Ty} {f : Func as rs} (hf : f.W
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.simplifyGroupFast f) xs m Q X := by
   have hwf := Func.renorm_wf f
   have hsp := Func.renorm_spec hf h
-  unfold Func.simplifyGroupFast
+  dsimp only [Func.simplifyGroupFast]
   by_cases hc : hasSimpGroup (tflatLoops (reifyFunc f) ≤ 1) (reifyFunc f) <;>
     simp only [hc, ↓reduceIte, Bool.false_eq_true]
   · exact Func.renorm_spec (Func.simplifyGroupPlan_wf hwf) (Func.simplifyGroupPlan_spec hwf hsp)
@@ -72,7 +75,7 @@ theorem Func.simplifyGroupFast_spec {as rs : List Ty} {f : Func as rs} (hf : f.W
 /-- `Func.peelFast` preserves well-formedness. -/
 theorem Func.peelFast_wf {as rs : List Ty} (f : Func as rs) (budget : Nat := 24) :
     (Func.peelFast f budget).Wf := by
-  unfold Func.peelFast
+  dsimp only [Func.peelFast]
   by_cases h : (tflatLoops (reifyFunc f) ≤ 1 && tflatSize (reifyFunc f) ≤ 40) = true <;>
     simp only [h, ↓reduceIte, Bool.false_eq_true]
   · exact Func.renorm_wf _
@@ -84,7 +87,7 @@ theorem Func.peelFast_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : 
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.peelFast f budget) xs m Q X := by
   have hwf := Func.renorm_wf f
   have hsp := Func.renorm_spec hf h
-  unfold Func.peelFast
+  dsimp only [Func.peelFast]
   by_cases hc : (tflatLoops (reifyFunc f) ≤ 1 && tflatSize (reifyFunc f) ≤ 40) = true <;>
     simp only [hc, ↓reduceIte, Bool.false_eq_true]
   · exact Func.renorm_spec (Func.peel_wf hwf budget) (Func.peel_spec hwf budget hsp)
@@ -242,49 +245,49 @@ theorem denote_toTFlat_callsOk {allowed : List SigEntry} {exits : List Sym} {rs 
   induction hwf using Wf.induct with
   | @let_ G D ts op₁ op₂ k₁ k₂ _ _ ih =>
     intro nv nl vs ls hc
-    simp only [toTFlat, denote]
+    dsimp only [toTFlat, denote]
     cases denoteArgs vs (idxArgs nv op₁.args) with
     | none => trivial
     | some _ => exact ih (Tup.levels ts nv) (Tup.units ts) (nv + ts.length) nl _ ls hc
   | load _ _ _ ih =>
     intro nv nl vs ls hc
-    simp only [toTFlat, denote]
+    dsimp only [toTFlat, denote]
     cases denoteArg vs (idxArg nv _) with
     | none => trivial
     | some _ => exact ih nv () (nv + 1) nl _ ls hc
   | store _ _ _ ih =>
     intro nv nl vs ls hc
-    simp only [toTFlat, denote]
+    dsimp only [toTFlat, denote]
     cases denoteArg vs _ <;> cases denoteArg vs _ <;> first | trivial | exact ih nv nl vs ls hc
   | call _ _ _ ih =>
     intro nv nl vs ls ⟨hf, hc⟩
-    simp only [toTFlat, denote]
+    dsimp only [toTFlat, denote]
     cases denoteArgs vs _ with
     | none => trivial
     | some _ =>
       exact ⟨hf, ih (Tup.levels _ nv) (Tup.units _) (nv + _) nl _ ls hc⟩
   | jnz _ _ _ iht ihe =>
     intro nv nl vs ls ⟨ht, he⟩
-    simp only [toTFlat, denote]
+    dsimp only [toTFlat, denote]
     cases denoteArg vs _ with
     | none => trivial
     | some _ => exact ⟨iht nv nl vs ls ht, ihe nv nl vs ls he⟩
   | jump _ _ =>
     intro nv nl vs ls _
-    simp only [toTFlat, denote]
+    dsimp only [toTFlat, denote]
     cases lookupL ls _ _ <;> cases denoteArgs vs _ <;> trivial
   | ret _ =>
     intro nv nl vs ls _
-    simp only [toTFlat, denote]
+    dsimp only [toTFlat, denote]
     cases denoteArgs vs _ <;> trivial
   | exit _ _ =>
     intro nv nl vs ls hf
-    simp only [toTFlat, denote]
+    dsimp only [toTFlat, denote]
     cases denoteArgs vs _ <;> trivial
   | hlt => intro _ _ _ _ _; trivial
   | @group _ _ sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
     intro nv nl vs ls ⟨hb, hk⟩
-    simp only [toTFlat, denote, Expr.callsOk]
+    dsimp only [toTFlat, denote, Expr.callsOk]
     refine ⟨denoteB_toTBlocks_callsOk nv (nl + sig.length) vs _ fun i => ?_,
             ihk (Tup.levels sig nl) (Tup.units sig) nv (nl + sig.length) vs _ hk⟩
     exact ihb (Tup.levels sig nl) (Tup.units sig) i (Tup.levels _ nv) (Tup.units _)

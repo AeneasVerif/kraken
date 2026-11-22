@@ -21,14 +21,14 @@ public meta import Lean.Elab.Tactic
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
 /-! ## Optional values and context relation -/
 
 /-- Both `none`, or both `some` and related by `R`. -/
-def ORel {α β : Type} (R : α → β → Prop) : Option α → Option β → Prop
+@[expose] def ORel {α β : Type} (R : α → β → Prop) : Option α → Option β → Prop
   | none, none => True
   | some a, some b => R a b
   | _, _ => False
@@ -88,7 +88,7 @@ theorem castTy_rel {G : Ctx V₁ V₂} {t' t : Ty} {v₁ : V₁ t'} {v₂ : V₂
   | bits m =>
     cases t with
     | bits n =>
-      simp only [castTy]
+      dsimp only [castTy]
       split <;> rename_i heq
       · subst heq; exact h
       · trivial
@@ -96,7 +96,7 @@ theorem castTy_rel {G : Ctx V₁ V₂} {t' t : Ty} {v₁ : V₁ t'} {v₂ : V₂
   | float f =>
     cases t with
     | float g =>
-      simp only [castTy]
+      dsimp only [castTy]
       split <;> rename_i heq
       · subst heq; exact h
       · trivial
@@ -104,7 +104,7 @@ theorem castTy_rel {G : Ctx V₁ V₂} {t' t : Ty} {v₁ : V₁ t'} {v₂ : V₂
   | pair a1 b1 =>
     cases t with
     | pair a2 b2 =>
-      simp only [castTy]
+      dsimp only [castTy]
       cases tyDecEq a1 a2 with
       | isFalse _ => trivial
       | isTrue h1 =>
@@ -116,7 +116,7 @@ theorem castTy_rel {G : Ctx V₁ V₂} {t' t : Ty} {v₁ : V₁ t'} {v₂ : V₂
 theorem castListTy_rel {D : Ctx L₁ L₂} {ts' ts : List Ty} {l₁ : L₁ ts'} {l₂ : L₂ ts'}
     (h : ⟨ts', l₁, l₂⟩ ∈ D) :
     ORel (fun x y => ⟨ts, x, y⟩ ∈ D) (castListTy ts' ts l₁) (castListTy ts' ts l₂) := by
-  simp only [castListTy]
+  dsimp only [castListTy]
   cases listTyDecEq ts' ts with
   | isTrue heq => subst heq; exact h
   | isFalse _ => trivial
@@ -124,18 +124,18 @@ theorem castListTy_rel {D : Ctx L₁ L₂} {ts' ts : List Ty} {l₁ : L₁ ts'} 
 theorem lookupV_rel {G : Ctx V₁ V₂} {vs₁ vs₂} (hvs : CtxRel G vs₁ vs₂) (t : Ty) (idx : Nat) :
     ORel (fun x y => ⟨t, x, y⟩ ∈ G) (lookupV vs₁ t idx) (lookupV vs₂ t idx) := by
   have hg := listGet?_rel hvs idx
-  simp only [lookupV]
+  dsimp only [lookupV]
   cases e₁ : listGet? vs₁ idx <;> cases e₂ : listGet? vs₂ idx <;> rw [e₁, e₂] at hg <;>
-    simp only [ORel] at hg ⊢
+    dsimp only [ORel] at hg ⊢
   rcases hg with ⟨a, x, y, rfl, rfl, hmem⟩
   exact castTy_rel hmem
 
 theorem lookupL_rel {D : Ctx L₁ L₂} {ls₁ ls₂} (hls : CtxRel D ls₁ ls₂) (ts : List Ty) (idx : Nat) :
     ORel (fun x y => ⟨ts, x, y⟩ ∈ D) (lookupL ls₁ ts idx) (lookupL ls₂ ts idx) := by
   have hg := listGet?_rel hls idx
-  simp only [lookupL]
+  dsimp only [lookupL]
   cases e₁ : listGet? ls₁ idx <;> cases e₂ : listGet? ls₂ idx <;> rw [e₁, e₂] at hg <;>
-    simp only [ORel] at hg ⊢
+    dsimp only [ORel] at hg ⊢
   rcases hg with ⟨a, x, y, rfl, rfl, hmem⟩
   exact castListTy_rel hmem
 
@@ -144,9 +144,9 @@ theorem denoteArg_rel {G : Ctx V₁ V₂} {vs₁ vs₂} (hvs : CtxRel G vs₁ vs
   cases a with
   | var idx =>
     have hl := lookupV_rel hvs t idx
-    simp only [denoteArg]
+    dsimp only [denoteArg]
     cases e₁ : lookupV vs₁ t idx <;> cases e₂ : lookupV vs₂ t idx <;> rw [e₁, e₂] at hl <;>
-      simp only [ORel] at hl ⊢
+      dsimp only [ORel] at hl ⊢
     exact .var hl
   | imm c => exact .imm c
 
@@ -157,11 +157,11 @@ theorem denoteArgs_rel {G : Ctx V₁ V₂} {vs₁ vs₂} (hvs : CtxRel G vs₁ v
   | _ :: _, (a, as) => by
     have ha := denoteArg_rel hvs a
     have has := denoteArgs_rel hvs as
-    simp only [denoteArgs]
+    dsimp only [denoteArgs]
     cases e₁ : denoteArg vs₁ a <;> cases e₂ : denoteArg vs₂ a <;> rw [e₁, e₂] at ha <;>
-      simp only [ORel] at ha ⊢ <;>
+      dsimp only [ORel] at ha ⊢ <;>
       cases f₁ : denoteArgs vs₁ as <;> cases f₂ : denoteArgs vs₂ as <;> rw [f₁, f₂] at has <;>
-      simp only [ORel] at has ⊢
+      dsimp only [ORel] at has ⊢
     exact .cons ha has
 
 end
@@ -178,65 +178,65 @@ theorem denote_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs :
     Wf G D (denote V₁ L₁ tf vs₁ ls₁) (denote V₂ L₂ tf vs₂ ls₂)
   | .let_ op k, _, _, vs₁, vs₂, ls₁, ls₂, hvs, hls => by
     have hr := denoteArgs_rel hvs op.args
-    simp only [denote]
+    dsimp only [denote]
     cases e₁ : denoteArgs vs₁ op.args <;> cases e₂ : denoteArgs vs₂ op.args <;>
-      rw [e₁, e₂] at hr <;> simp only [ORel] at hr ⊢
+      rw [e₁, e₂] at hr <;> dsimp only [ORel] at hr ⊢
     · exact .hlt
     · exact .let_ (.mk op.code hr) fun xs₁ xs₂ =>
         denote_wf k (ctxRel_pushTup xs₁ xs₂ hvs) hls
   | .load t a k, _, _, vs₁, vs₂, ls₁, ls₂, hvs, hls => by
     have hr := denoteArg_rel hvs a
-    simp only [denote]
+    dsimp only [denote]
     cases e₁ : denoteArg vs₁ a <;> cases e₂ : denoteArg vs₂ a <;>
-      rw [e₁, e₂] at hr <;> simp only [ORel] at hr ⊢
+      rw [e₁, e₂] at hr <;> dsimp only [ORel] at hr ⊢
     · exact .hlt
     · exact .load t hr fun v₁ v₂ =>
         denote_wf k (.cons List.mem_cons_self (hvs.mono fun _ hp => List.mem_cons_of_mem _ hp)) hls
   | .store v a k, _, _, vs₁, vs₂, ls₁, ls₂, hvs, hls => by
     have hv := denoteArg_rel hvs v
     have ha := denoteArg_rel hvs a
-    simp only [denote]
+    dsimp only [denote]
     cases e₁ : denoteArg vs₁ v <;> cases e₂ : denoteArg vs₂ v <;> rw [e₁, e₂] at hv <;>
-      simp only [ORel] at hv ⊢ <;>
+      dsimp only [ORel] at hv ⊢ <;>
       cases f₁ : denoteArg vs₁ a <;> cases f₂ : denoteArg vs₂ a <;> rw [f₁, f₂] at ha <;>
-      simp only [ORel] at ha ⊢ <;>
+      dsimp only [ORel] at ha ⊢ <;>
       first | exact .hlt | exact .store hv ha (denote_wf k hvs hls)
   | .call f _ args k, _, _, vs₁, vs₂, ls₁, ls₂, hvs, hls => by
     have hr := denoteArgs_rel hvs args
-    simp only [denote]
+    dsimp only [denote]
     cases e₁ : denoteArgs vs₁ args <;> cases e₂ : denoteArgs vs₂ args <;>
-      rw [e₁, e₂] at hr <;> simp only [ORel] at hr ⊢
+      rw [e₁, e₂] at hr <;> dsimp only [ORel] at hr ⊢
     · exact .hlt
     · exact .call f hr fun xs₁ xs₂ =>
         denote_wf k (ctxRel_pushTup xs₁ xs₂ hvs) hls
   | .jnz c t e, _, _, vs₁, vs₂, ls₁, ls₂, hvs, hls => by
     have hr := denoteArg_rel hvs c
-    simp only [denote]
+    dsimp only [denote]
     cases e₁ : denoteArg vs₁ c <;> cases e₂ : denoteArg vs₂ c <;>
-      rw [e₁, e₂] at hr <;> simp only [ORel] at hr ⊢
+      rw [e₁, e₂] at hr <;> dsimp only [ORel] at hr ⊢
     · exact .hlt
     · exact .jnz hr (denote_wf t hvs hls) (denote_wf e hvs hls)
   | .jump (ts := ts) j args, _, _, vs₁, vs₂, ls₁, ls₂, hvs, hls => by
     have hj := lookupL_rel hls ts j
     have hr := denoteArgs_rel hvs args
-    simp only [denote]
+    dsimp only [denote]
     cases e₁ : lookupL ls₁ ts j <;> cases e₂ : lookupL ls₂ ts j <;> rw [e₁, e₂] at hj <;>
-      simp only [ORel] at hj ⊢ <;>
+      dsimp only [ORel] at hj ⊢ <;>
       cases f₁ : denoteArgs vs₁ args <;> cases f₂ : denoteArgs vs₂ args <;> rw [f₁, f₂] at hr <;>
-      simp only [ORel] at hr ⊢ <;>
+      dsimp only [ORel] at hr ⊢ <;>
       first | exact .hlt | exact .jump hj hr
   | .ret vs, _, _, vs₁, vs₂, _, _, hvs, _ => by
     have hr := denoteArgs_rel hvs vs
-    simp only [denote]
+    dsimp only [denote]
     cases e₁ : denoteArgs vs₁ vs <;> cases e₂ : denoteArgs vs₂ vs <;>
-      rw [e₁, e₂] at hr <;> simp only [ORel] at hr ⊢
+      rw [e₁, e₂] at hr <;> dsimp only [ORel] at hr ⊢
     · exact .hlt
     · exact .ret hr
   | .exit f args, _, _, vs₁, vs₂, _, _, hvs, _ => by
     have hr := denoteArgs_rel hvs args
-    simp only [denote]
+    dsimp only [denote]
     cases e₁ : denoteArgs vs₁ args <;> cases e₂ : denoteArgs vs₂ args <;>
-      rw [e₁, e₂] at hr <;> simp only [ORel] at hr ⊢
+      rw [e₁, e₂] at hr <;> dsimp only [ORel] at hr ⊢
     · exact .hlt
     · exact .exit f hr
   | .hlt, _, _, _, _, _, _, _, _ => .hlt
@@ -291,10 +291,10 @@ theorem CtxTypes.push {α : Type} {f : α → Type} :
 
 private theorem castTy_self {V : Ty → Type} : ∀ (t : Ty) (v : V t), (castTy t t v).isSome = true
   | .bool, _ => rfl
-  | .bits n, _ => by simp [castTy]
-  | .float f, _ => by simp [castTy]
+  | .bits n, _ => by dsimp only [castTy]; simp
+  | .float f, _ => by dsimp only [castTy]; simp
   | .pair a b, v => by
-    simp only [castTy]
+    dsimp only [castTy]
     cases h1 : tyDecEq a a with
     | isFalse hne => exact absurd rfl hne
     | isTrue _ =>
@@ -309,14 +309,14 @@ theorem lookupV_isSome_of_check {V : Ty → Type} :
      | some t' => match tyDecEq t' t with | isTrue _ => true | isFalse _ => false
      | none => false) = true →
     (lookupV vs t idx).isSome = true
-  | [], [], .nil, _, idx, h => by cases idx <;> simp [listGet?] at h
+  | [], [], .nil, _, idx, h => by cases idx <;> (dsimp only [listGet?] at h; cases h)
   | t' :: _, ⟨_, v⟩ :: _, .cons _, t, 0, h => by
-    simp only [listGet?] at h
+    dsimp only [listGet?] at h
     cases hdec : tyDecEq t' t with
     | isFalse _ => simp [hdec] at h
-    | isTrue heq => subst heq; simpa [lookupV, listGet?] using castTy_self t' v
+    | isTrue heq => subst heq; dsimp only [lookupV, listGet?]; exact castTy_self t' v
   | _ :: _, _ :: _, .cons hrest, t, idx + 1, h => by
-    simpa [lookupV, listGet?] using lookupV_isSome_of_check hrest h
+    dsimp only [lookupV, listGet?]; exact lookupV_isSome_of_check hrest h
 
 theorem lookupL_isSome_of_check {L : List Ty → Type} :
     {Δ : List (List Ty)} → {ls : List ((ts : List Ty) × L ts)} → CtxTypes Δ ls →
@@ -325,19 +325,19 @@ theorem lookupL_isSome_of_check {L : List Ty → Type} :
      | some ts' => match listTyDecEq ts' ts with | isTrue _ => true | isFalse _ => false
      | none => false) = true →
     (lookupL ls ts idx).isSome = true
-  | [], [], .nil, _, idx, h => by cases idx <;> simp [listGet?] at h
+  | [], [], .nil, _, idx, h => by cases idx <;> (dsimp only [listGet?] at h; cases h)
   | ts' :: _, ⟨_, l⟩ :: _, .cons _, ts, 0, h => by
-    simp only [listGet?] at h
+    dsimp only [listGet?] at h
     cases hdec : listTyDecEq ts' ts with
     | isFalse _ => simp [hdec] at h
     | isTrue heq =>
       subst heq
-      simp only [lookupL, listGet?, castListTy]
+      dsimp only [lookupL, listGet?, castListTy]
       cases h2 : listTyDecEq ts' ts' with
       | isTrue _ => rfl
       | isFalse hne => exact absurd rfl hne
   | _ :: _, _ :: _, .cons hrest, ts, idx + 1, h => by
-    simpa [lookupL, listGet?] using lookupL_isSome_of_check hrest h
+    dsimp only [lookupL, listGet?]; exact lookupL_isSome_of_check hrest h
 
 theorem denoteArg_isSome_of_checkArg {V : Ty → Type} {Γ : List Ty} {vs : List ((t : Ty) × V t)}
     (hctx : CtxTypes Γ vs) {t : Ty} {a : Arg K t} (h : checkArg Γ t a = true) :
@@ -346,8 +346,8 @@ theorem denoteArg_isSome_of_checkArg {V : Ty → Type} {Γ : List Ty} {vs : List
   | var idx =>
     have hl := lookupV_isSome_of_check hctx h
     rcases Option.isSome_iff_exists.1 hl with ⟨v, hv⟩
-    simp [denoteArg, hv]
-  | imm c => simp [denoteArg]
+    dsimp only [denoteArg]; rw [hv]; rfl
+  | imm c => dsimp only [denoteArg]; rfl
 
 theorem denoteArgs_isSome_of_checkArgs {V : Ty → Type} {Γ : List Ty} {vs : List ((t : Ty) × V t)}
     (hctx : CtxTypes Γ vs) :
@@ -355,12 +355,12 @@ theorem denoteArgs_isSome_of_checkArgs {V : Ty → Type} {Γ : List Ty} {vs : Li
     (denoteArgs vs as).isSome = true
   | [], (), _ => rfl
   | _ :: _, (a, as), h => by
-    simp only [checkArgs, Bool.and_eq_true] at h
+    dsimp only [checkArgs] at h; simp only [Bool.and_eq_true] at h
     have ha := denoteArg_isSome_of_checkArg hctx h.1
     have has := denoteArgs_isSome_of_checkArgs hctx h.2
     rcases Option.isSome_iff_exists.1 ha with ⟨a', ha'⟩
     rcases Option.isSome_iff_exists.1 has with ⟨as', has'⟩
-    simp [denoteArgs, ha', has']
+    dsimp only [denoteArgs]; rw [ha', has']; rfl
 
 mutual
 /-- Structural predicate stating that an expression contains no `.hlt` node. -/
@@ -387,65 +387,65 @@ inductive Blocks.NoHlt {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
 end
 
 mutual
-/-- If `tf.wfCheck Γ Δ = true` and `tf.noHlt = true`, then `denote` never triggers `.hlt` fallback. -/
+/-- If `tf.wfCheck Γ Δ = true` and `tf.noHlt = true`, `denote` never hits `.hlt` fallback. -/
 theorem denote_noHlt_of_wfCheck {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
     (tf : TFlat rs) → {Γ : List Ty} → {Δ : List (List Ty)} →
     {vs : List ((t : Ty) × V t)} → {ls : List ((ts : List Ty) × L ts)} →
     CtxTypes Γ vs → CtxTypes Δ ls → tf.wfCheck Γ Δ = true → tf.noHlt = true →
     Expr.NoHlt (denote V L tf vs ls)
   | .let_ op k, _, _, vs, ls, hΓ, hΔ, hwf, hno => by
-    simp only [TFlat.wfCheck, Bool.and_eq_true] at hwf
-    simp only [TFlat.noHlt] at hno
+    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
+    dsimp only [TFlat.noHlt] at hno
     rcases Option.isSome_iff_exists.1 (denoteArgs_isSome_of_checkArgs hΓ hwf.1) with ⟨args', ha⟩
-    simp only [denote, ha]
+    dsimp only [denote]; rw [ha]
     exact .let_ fun xs => denote_noHlt_of_wfCheck k (CtxTypes.push xs hΓ) hΔ hwf.2 hno
   | .load t a k, _, _, vs, ls, hΓ, hΔ, hwf, hno => by
-    simp only [TFlat.wfCheck, Bool.and_eq_true] at hwf
-    simp only [TFlat.noHlt] at hno
+    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
+    dsimp only [TFlat.noHlt] at hno
     rcases Option.isSome_iff_exists.1 (denoteArg_isSome_of_checkArg hΓ hwf.1) with ⟨a', ha⟩
-    simp only [denote, ha]
+    dsimp only [denote]; rw [ha]
     exact .load fun v => denote_noHlt_of_wfCheck k (.cons hΓ) hΔ hwf.2 hno
   | .store v a k, _, _, vs, ls, hΓ, hΔ, hwf, hno => by
-    simp only [TFlat.wfCheck, Bool.and_eq_true] at hwf
-    simp only [TFlat.noHlt] at hno
+    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
+    dsimp only [TFlat.noHlt] at hno
     rcases Option.isSome_iff_exists.1 (denoteArg_isSome_of_checkArg hΓ hwf.1.1) with ⟨v', hv⟩
     rcases Option.isSome_iff_exists.1 (denoteArg_isSome_of_checkArg hΓ hwf.1.2) with ⟨a', ha⟩
-    simp only [denote, hv, ha]
+    dsimp only [denote]; rw [hv, ha]
     exact .store (denote_noHlt_of_wfCheck k hΓ hΔ hwf.2 hno)
   | .call f bs args k, _, _, vs, ls, hΓ, hΔ, hwf, hno => by
-    simp only [TFlat.wfCheck, Bool.and_eq_true] at hwf
-    simp only [TFlat.noHlt] at hno
+    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
+    dsimp only [TFlat.noHlt] at hno
     rcases Option.isSome_iff_exists.1 (denoteArgs_isSome_of_checkArgs hΓ hwf.1) with ⟨args', ha⟩
-    simp only [denote, ha]
+    dsimp only [denote]; rw [ha]
     exact .call fun xs => denote_noHlt_of_wfCheck k (CtxTypes.push xs hΓ) hΔ hwf.2 hno
   | .jnz c t e, _, _, vs, ls, hΓ, hΔ, hwf, hno => by
-    simp only [TFlat.wfCheck, Bool.and_eq_true] at hwf
-    simp only [TFlat.noHlt, Bool.and_eq_true] at hno
+    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
+    dsimp only [TFlat.noHlt] at hno; simp only [Bool.and_eq_true] at hno
     rcases Option.isSome_iff_exists.1 (denoteArg_isSome_of_checkArg hΓ hwf.1.1) with ⟨c', hc⟩
-    simp only [denote, hc]
+    dsimp only [denote]; rw [hc]
     exact .jnz (denote_noHlt_of_wfCheck t hΓ hΔ hwf.1.2 hno.1)
       (denote_noHlt_of_wfCheck e hΓ hΔ hwf.2 hno.2)
   | .jump (ts := ts) j args, _, _, vs, ls, hΓ, hΔ, hwf, _ => by
-    simp only [TFlat.wfCheck, Bool.and_eq_true] at hwf
+    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     rcases Option.isSome_iff_exists.1 (lookupL_isSome_of_check hΔ hwf.1) with ⟨j', hj⟩
     rcases Option.isSome_iff_exists.1 (denoteArgs_isSome_of_checkArgs hΓ hwf.2) with ⟨args', ha⟩
-    simp only [denote, hj, ha]
+    dsimp only [denote]; rw [hj, ha]
     exact .jump
   | .ret vs', _, _, vs, _, hΓ, _, hwf, _ => by
-    simp only [TFlat.wfCheck] at hwf
+    dsimp only [TFlat.wfCheck] at hwf
     rcases Option.isSome_iff_exists.1 (denoteArgs_isSome_of_checkArgs hΓ hwf) with ⟨vs'', hvs⟩
-    simp only [denote, hvs]
+    dsimp only [denote]; rw [hvs]
     exact .ret
   | .exit f args, _, _, vs, _, hΓ, _, hwf, _ => by
-    simp only [TFlat.wfCheck] at hwf
+    dsimp only [TFlat.wfCheck] at hwf
     rcases Option.isSome_iff_exists.1 (denoteArgs_isSome_of_checkArgs hΓ hwf) with ⟨args', ha⟩
-    simp only [denote, ha]
+    dsimp only [denote]; rw [ha]
     exact .exit
-  | .hlt, _, _, _, _, _, _, _, hno => by simp [TFlat.noHlt] at hno
+  | .hlt, _, _, _, _, _, _, _, hno => by dsimp only [TFlat.noHlt] at hno; cases hno
   | .group bodies k, _, _, vs, ls, hΓ, hΔ, hwf, hno => by
-    simp only [TFlat.wfCheck, Bool.and_eq_true] at hwf
-    simp only [TFlat.noHlt, Bool.and_eq_true] at hno
-    simp only [denote]
+    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
+    dsimp only [TFlat.noHlt] at hno; simp only [Bool.and_eq_true] at hno
+    dsimp only [denote]
     exact .group
       (fun Js => denoteB_noHlt_of_wfCheck bodies hΓ (CtxTypes.push Js hΔ) hwf.1 hno.1)
       (fun Js => denote_noHlt_of_wfCheck k hΓ (CtxTypes.push Js hΔ) hwf.2 hno.2)
@@ -458,8 +458,8 @@ theorem denoteB_noHlt_of_wfCheck {V : Ty → Type} {L : List Ty → Type} {rs : 
     Blocks.NoHlt (denoteB V L tb vs ls)
   | _, .nil, _, _, _, _, _, _, _, _ => .nil
   | _, .cons b bs, _, _, vs, ls, hΓ, hΔ, hwf, hno => by
-    simp only [TBlocks.wfCheck, Bool.and_eq_true] at hwf
-    simp only [TBlocks.noHlt, Bool.and_eq_true] at hno
+    dsimp only [TBlocks.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
+    dsimp only [TBlocks.noHlt] at hno; simp only [Bool.and_eq_true] at hno
     exact .cons (fun xs => denote_noHlt_of_wfCheck b (CtxTypes.push xs hΓ) hΔ hwf.1 hno.1)
       (denoteB_noHlt_of_wfCheck bs hΓ hΔ hwf.2 hno.2)
 end
@@ -503,10 +503,10 @@ macro "t_wf_reify" : tactic => `(tactic| (refine Func.wf_of_reify ?_; t_kernel_r
 
 private theorem castTy_self_eq {V : Ty → Type} : ∀ (t : Ty) (v : V t), castTy t t v = some v
   | .bool, _ => rfl
-  | .bits _, _ => by simp [castTy]
-  | .float _, _ => by simp [castTy]
+  | .bits _, _ => by dsimp only [castTy]; simp
+  | .float _, _ => by dsimp only [castTy]; simp
   | .pair a b, v => by
-    simp only [castTy]
+    dsimp only [castTy]
     cases h1 : tyDecEq a a with
     | isFalse hne => exact absurd rfl hne
     | isTrue heq1 =>
@@ -519,7 +519,7 @@ private theorem castTy_self_eq {V : Ty → Type} : ∀ (t : Ty) (v : V t), castT
 
 private theorem castListTy_self_eq {L : List Ty → Type} (ts : List Ty) (l : L ts) :
     castListTy ts ts l = some l := by
-  simp only [castListTy]
+  dsimp only [castListTy]
   cases h : listTyDecEq ts ts with
   | isFalse hne => exact absurd rfl hne
   | isTrue heq =>
@@ -528,19 +528,19 @@ private theorem castListTy_self_eq {L : List Ty → Type} (ts : List Ty) (l : L 
 
 private theorem lookupV_head {V : Ty → Type} (t : Ty) (v : V t) (vs : List ((u : Ty) × V u)) :
     lookupV (⟨t, v⟩ :: vs) t 0 = some v := by
-  simpa [lookupV, listGet?] using castTy_self_eq t v
+  dsimp only [lookupV, listGet?]; exact castTy_self_eq t v
 
 private theorem lookupL_head {L : List Ty → Type} (ts : List Ty) (l : L ts)
     (ls : List ((us : List Ty) × L us)) :
     lookupL (⟨ts, l⟩ :: ls) ts 0 = some l := by
-  simpa [lookupL, listGet?] using castListTy_self_eq ts l
+  dsimp only [lookupL, listGet?]; exact castListTy_self_eq ts l
 
 theorem pushTup_length {α : Type} {f : α → Type} :
     {as : List α} → (xs : Tup f as) → (acc : List ((a : α) × f a)) →
     (pushTup xs acc).length = acc.length + as.length
   | [], (), acc => rfl
   | _ :: as, (_, xs), acc => by
-    simp only [pushTup, List.length_cons]
+    dsimp only [pushTup]; simp only [List.length_cons]
     rw [pushTup_length xs _]
     simp only [List.length_cons]
     omega
@@ -586,14 +586,15 @@ theorem ctxMatch_pushTup {α : Type} {f : α → Type}
     {vs : List ((a : α) × f a)} → CtxMatch look G vs →
     CtxMatch look (Tup.zip (Tup.levels as vs.length) xs ++ G) (pushTup xs vs)
   | [], (), _, _, hvs => by
-    simp only [Tup.zip, List.nil_append]
+    dsimp only [Tup.zip]; simp only [List.nil_append]
     exact hvs
   | a :: as, (x, xs), G, vs, hvs => by
     have h1 := CtxMatch.cons hlook_head hlook_tail hvs a x
     have h2 := ctxMatch_pushTup hlook_head hlook_tail xs h1
     simp only [List.length_cons] at h2
     refine h2.mono fun p hp => ?_
-    simp only [Tup.levels, Tup.zip, List.cons_append, List.mem_append, List.mem_cons] at hp ⊢
+    dsimp only [Tup.levels, Tup.zip] at hp ⊢
+    simp only [List.cons_append, List.mem_append, List.mem_cons] at hp ⊢
     rcases hp with rfl | hp | hp
     · exact Or.inr (Or.inl rfl)
     · exact Or.inl hp
@@ -616,7 +617,7 @@ theorem denoteArg_idxArg {V : Ty → Type} {G : Ctx K V} {vs : List ((t : Ty) ×
   cases ha with
   | @var lvl v hm =>
     obtain ⟨hlt, hl⟩ := hvs _ hm
-    simp only [idxArg, hlt, ↓reduceIte, denoteArg, hl]
+    dsimp only [idxArg]; simp only [hlt, ↓reduceIte]; dsimp only [denoteArg]; rw [hl]
   | imm c => rfl
 
 theorem denoteArgs_idxArgs {V : Ty → Type} {G : Ctx K V} {vs : List ((t : Ty) × V t)}
@@ -626,7 +627,7 @@ theorem denoteArgs_idxArgs {V : Ty → Type} {G : Ctx K V} {vs : List ((t : Ty) 
     denoteArgs vs (idxArgs vs.length as₁) = some as₂
   | [], (), (), .nil => rfl
   | _ :: _, (_, _), (_, _), .cons h hs => by
-    simp only [idxArgs, denoteArgs, denoteArg_idxArg hvs h, denoteArgs_idxArgs hvs hs]
+    dsimp only [idxArgs, denoteArgs]; rw [denoteArg_idxArg hvs h, denoteArgs_idxArgs hvs hs]
 
 theorem denoteB_toTBlocks_get {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (nv nl : Nat) (vs : List ((t : Ty) × V t)) (ls : List ((ts : List Ty) × L ts)) :
@@ -651,7 +652,7 @@ theorem denote_wp_iff {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     cases hop with
     | @mk _ _ code args₁ args₂ hargs =>
       have hda := denoteArgs_idxArgs hvs hargs
-      simp only [toTFlat, denote, hda, wp]
+      dsimp only [toTFlat, denote]; rw [hda]; dsimp only [wp]
       refine ⟨fun h => OpCode.wp_mono code _ (fun xs hxs => ?_) h,
               fun h => OpCode.wp_mono code _ (fun xs hxs => ?_) h⟩
       · have hk := (ih (Tup.levels ts vs.length) xs (pushTup xs vs) ls
@@ -665,7 +666,7 @@ theorem denote_wp_iff {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   | load t ha _ ih =>
     intro vs ls hvs hls m
     have hda := denoteArg_idxArg hvs ha
-    simp only [toTFlat, denote, hda, wp]
+    dsimp only [toTFlat, denote]; rw [hda]; dsimp only [wp]
     constructor
     · rintro ⟨v, hv, hk⟩
       have h1 := CtxMatch.cons lookupV_head (fun _ _ _ _ _ => rfl) hvs t v
@@ -677,12 +678,12 @@ theorem denote_wp_iff {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     intro vs ls hvs hls m
     have hdv := denoteArg_idxArg hvs hv
     have hda := denoteArg_idxArg hvs ha
-    simp only [toTFlat, denote, hdv, hda, wp]
+    dsimp only [toTFlat, denote]; rw [hdv, hda]; dsimp only [wp]
     exact and_congr_right fun _ => ih vs ls hvs hls _
   | call f hargs _ ih =>
     intro vs ls hvs hls m
     have hda := denoteArgs_idxArgs hvs hargs
-    simp only [toTFlat, denote, hda, wp]
+    dsimp only [toTFlat, denote]; rw [hda]; dsimp only [wp]
     constructor
     · rintro ⟨P, E, hΓ, hP, hE⟩
       refine ⟨P, E, hΓ, fun r m' hr => ?_, hE⟩
@@ -699,7 +700,7 @@ theorem denote_wp_iff {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   | jnz hc _ _ iht ihe =>
     intro vs ls hvs hls m
     have hdc := denoteArg_idxArg hvs hc
-    simp only [toTFlat, denote, hdc, wp]
+    dsimp only [toTFlat, denote]; rw [hdc]; dsimp only [wp]
     exact and_congr
       (imp_congr_right fun _ => iht vs ls hvs hls m)
       (imp_congr_right fun _ => ihe vs ls hvs hls m)
@@ -707,21 +708,21 @@ theorem denote_wp_iff {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     intro vs ls hvs hls m
     obtain ⟨hlt, hl⟩ := hls _ hj
     have hda := denoteArgs_idxArgs hvs hargs
-    simp only [toTFlat, hlt, ↓reduceIte, denote, hl, hda]
+    dsimp only [toTFlat]; simp only [hlt, ↓reduceIte]; dsimp only [denote]; rw [hl, hda]
   | ret hvs' =>
     intro vs ls hvs _ _
     have hda := denoteArgs_idxArgs hvs hvs'
-    simp only [toTFlat, denote, hda]
+    dsimp only [toTFlat, denote]; rw [hda]
   | exit f hargs =>
     intro vs ls hvs _ _
     have hda := denoteArgs_idxArgs hvs hargs
-    simp only [toTFlat, denote, hda]
+    dsimp only [toTFlat, denote]; rw [hda]
   | hlt =>
     intro _ _ _ _ _
     rfl
   | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
     intro vs ls hvs hls m
-    simp only [toTFlat, denote, wp]
+    dsimp only [toTFlat, denote, wp]
     refine forall_congr' fun Js => ?_
     have hcl : Closed Γ Q X
         (denoteB Val Cont

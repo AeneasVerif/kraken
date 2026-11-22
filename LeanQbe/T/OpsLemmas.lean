@@ -16,7 +16,7 @@ import all Kraken.Mem
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -29,7 +29,7 @@ namespace LeanQbe.T
 
 theorem CmpOp.swap_evalBits {n : Nat} (o : CmpOp) (a b : BitVec n) :
     o.swap.evalBits b a = o.evalBits a b := by
-  cases o <;> simp [CmpOp.swap, CmpOp.evalBits, eq_comm]
+  cases o <;> dsimp only [CmpOp.swap, CmpOp.evalBits] <;> simp [eq_comm]
 
 theorem CmpOp.swap_evalBool (o : CmpOp) (a b : Bool) :
     o.swap.evalBool b a = o.evalBool a b := by
@@ -112,7 +112,7 @@ theorem liftFloatRel3_mono (op : Float.Model.Format → Float.Model.UnpackedFloa
 theorem convertFloat_mono (src dst : Fmt) (b : BitVec src.width)
     {p q : BitVec dst.width → Prop} (h : ∀ r, p r → q r) :
     convertFloat src dst b p → convertFloat src dst b q := by
-  unfold convertFloat
+  dsimp only [convertFloat]
   split
   · exact fun hp r hr => h r (hp r hr)
   · exact h _
@@ -192,12 +192,12 @@ theorem OpCode.wp_mono : {as rs : List Ty} → (c : OpCode as rs) → (args : Tu
   | _, _, .fabs _, (_, ()), _, _, h, hp => cond_false_mono (h _) hp
   | _, _, .fcmp _ _ _ rfl, (_, _, ()), _, _, h, hp => cond_false_mono (h _) hp
   | _, _, .fptoui f n, (a, ()), _, _, h, hp => by
-      simp only [OpCode.wp] at hp ⊢
+      dsimp only [OpCode.wp] at hp ⊢
       cases htr : truncToInt (unpackFloat f a) with
       | none => simp only [htr] at hp
       | some z => simp only [htr] at hp ⊢; exact ⟨hp.1, hp.2.1, h _ hp.2.2⟩
   | _, _, .fptosi f n, (a, ()), _, _, h, hp => by
-      simp only [OpCode.wp] at hp ⊢
+      dsimp only [OpCode.wp] at hp ⊢
       refine ⟨hp.1, ?_⟩
       have hp2 := hp.2
       cases htr : truncToInt (unpackFloat f a) with
@@ -617,7 +617,7 @@ theorem lane_lift2 (f : ∀ {n}, BitVec n → BitVec n → BitVec n) (g : Bool �
       lane k (lift2 f g (Ty.vec k t) a b) i = lift2 f g t (lane k a i) (lane k b i)
   | 0, _, _, _ => rfl
   | k + 1, a, b, i => by
-    simp only [lane, lift2]
+    dsimp only [lane, lift2]
     split <;> exact lane_lift2 f g t k _ _ _
 
 theorem lane_lift1 (f : ∀ {n}, BitVec n → BitVec n) (g : Bool → Bool) (t : Ty) :
@@ -625,7 +625,7 @@ theorem lane_lift1 (f : ∀ {n}, BitVec n → BitVec n) (g : Bool → Bool) (t :
       lane k (lift1 f g (Ty.vec k t) a) i = lift1 f g t (lane k a i)
   | 0, _, _ => rfl
   | k + 1, a, i => by
-    simp only [lane, lift1]
+    dsimp only [lane, lift1]
     split <;> exact lane_lift1 f g t k _ _
 
 /-! ## Memory round-trip on `Kraken.Mem 64` -/
@@ -692,8 +692,9 @@ theorem loadVal_storeMem (m : Mem 64) (t : Ty) (a : BitVec 64) (v : Val t)
     intro i hi
     exact get?_union_at m bs a i (hlen ▸ hi) (hlen ▸ hb)
   have hloadBytes : (storeMem m t a v).loadBytes a t.bytes = some bs := by
-    simp only [storeMem, Mem.storeInt, Mem.storeBytes, Mem.loadBytes]
-    have hmap : (List.range t.bytes).map (fun i => (m.union (bs.At a)).get? (a + BitVec.ofNat 64 i)) =
+    dsimp only [storeMem, Mem.storeInt, Mem.storeBytes, Mem.loadBytes]
+    have hmap :
+        (List.range t.bytes).map (fun i => (m.union (bs.At a)).get? (a + BitVec.ofNat 64 i)) =
         bs.map some := by
       apply List.ext_getElem
       · simp [hlen]
@@ -705,7 +706,7 @@ theorem loadVal_storeMem (m : Mem 64) (t : Ty) (a : BitVec 64) (v : Val t)
     simpa using List.mapM_pure (m := Option) (f := id) (l := bs)
   have hloadInt : (storeMem m t a v).loadInt a t.bytes = some (Int.ofBytes bs) := by
     simp [Mem.loadInt, hloadBytes]
-  simp only [loadVal, hloadInt, Option.bind_some]
+  dsimp only [loadVal]; rw [hloadInt]; simp only [Option.bind_some]
   have hbv : BitVec.ofInt (8 * t.bytes) (Int.ofBytes bs) = (toBits t v).setWidth (8 * t.bytes) :=
     BitVec.ofInt_ofBytes_toBytes (8 * t.bytes) t.bytes rfl _
   cases t with
@@ -762,8 +763,8 @@ theorem loadBytes_eq_none_of_unmapped {w : Nat} (m : Mem w) (a : BitVec w) (n : 
 theorem loadVal_of_unmapped (m : Mem 64) (t : Ty) (a : BitVec 64)
     (h : ∃ i < t.bytes, m.get? (a + BitVec.ofNat 64 i) = none) :
     loadVal m t a = none := by
-  simp only [loadVal, Mem.loadInt, loadBytes_eq_none_of_unmapped m a t.bytes h, Option.map_none,
-    Option.bind_none]
+  dsimp only [loadVal, Mem.loadInt]
+  rw [loadBytes_eq_none_of_unmapped m a t.bytes h]; rfl
 
 /-- Loading `.bool` from a byte outside `{0, 1}` fails (`none`, i.e. UB). -/
 theorem loadVal_bool_invalid (m : Mem 64) (a : BitVec 64) (b : UInt8)
@@ -772,7 +773,7 @@ theorem loadVal_bool_invalid (m : Mem 64) (a : BitVec 64) (b : UInt8)
   have hload : m.loadInt a Ty.bool.bytes = some (b.toNat : Int) := by
     rw [Std.ExtHashMap.get?_eq_getElem?] at hget
     simp [Ty.bytes, Ty.size, Mem.loadInt, Mem.loadBytes, List.range_succ, hget, Int.ofBytes]
-  simp only [loadVal, hload, Option.bind_some]
+  dsimp only [loadVal]; rw [hload]; dsimp only [Option.bind_some]
   have h0 : ((b.toNat : Int) == 0) = false := beq_false_of_ne (by omega)
   have h1 : ((b.toNat : Int) == 1) = false := beq_false_of_ne (by omega)
   simp [h0, h1]
@@ -808,13 +809,15 @@ theorem loadBytes_storeInt_disjoint (m : Mem 64) (a b : BitVec 64) (na nb : Nat)
 theorem loadVal_storeMem_disjoint (m : Mem 64) (t u : Ty) (a b : BitVec 64) (v : Val t)
     (hdisj : ∀ i j, i < t.bytes → j < u.bytes → b + BitVec.ofNat 64 j ≠ a + BitVec.ofNat 64 i) :
     loadVal (storeMem m t a v) u b = loadVal m u b := by
-  simp only [loadVal, storeMem, Mem.loadInt, loadBytes_storeInt_disjoint m a b t.bytes u.bytes _ hdisj]
+  dsimp only [loadVal, storeMem, Mem.loadInt]
+  rw [loadBytes_storeInt_disjoint m a b t.bytes u.bytes _ hdisj]
 
 /-- Disjoint-address preservation of `storeOk` across `storeMem`. -/
 theorem storeOk_storeMem_disjoint (m : Mem 64) (t u : Ty) (a b : BitVec 64) (v : Val t)
     (hdisj : ∀ i j, i < t.bytes → j < u.bytes → b + BitVec.ofNat 64 j ≠ a + BitVec.ofNat 64 i) :
     storeOk (storeMem m t a v) u b ↔ storeOk m u b := by
-  simp only [storeOk, storeMem, Mem.loadInt, loadBytes_storeInt_disjoint m a b t.bytes u.bytes _ hdisj]
+  dsimp only [storeOk, storeMem, Mem.loadInt]
+  rw [loadBytes_storeInt_disjoint m a b t.bytes u.bytes _ hdisj]
 
 /-- Storing never unmaps bytes: `storeOk` is preserved across any `storeMem`. -/
 theorem storeOk_storeMem (m : Mem 64) (t u : Ty) (a b : BitVec 64) (v : Val t)
@@ -832,7 +835,8 @@ theorem storeOk_storeMem (m : Mem 64) (t u : Ty) (a b : BitVec 64) (v : Val t)
     simp only [storeMem, Mem.storeInt, Mem.storeBytes, Std.ExtHashMap.get?_eq_getElem?,
       Std.ExtHashMap.union_eq, Std.ExtHashMap.getElem?_union] at hbyte ⊢
     rw [hbyte]
-    cases ((Int.toBytes t.bytes ((toBits t v).setWidth (8 * t.bytes)).toInt).At a)[b + BitVec.ofNat 64 j]? <;>
+    cases ((Int.toBytes t.bytes ((toBits t v).setWidth (8 * t.bytes)).toInt).At a)[
+        b + BitVec.ofNat 64 j]? <;>
       simp
   obtain ⟨bs', hbs'⟩ := mapM_id_isSome _ hsome
   refine ⟨Int.ofBytes bs', ?_⟩
@@ -893,7 +897,7 @@ private theorem liftFloatRel3_exists
 private theorem convertFloat_exists (src dst : Fmt) (a : BitVec src.width)
     (P : BitVec dst.width → Prop) (hw : convertFloat src dst a P) :
     ∃ r : BitVec dst.width, P r := by
-  simp only [convertFloat] at hw
+  dsimp only [convertFloat] at hw
   cases hu : unpackFloat src a with
   | notANumber =>
     simp only [hu] at hw

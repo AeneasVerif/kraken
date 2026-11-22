@@ -2,7 +2,7 @@ module
 
 public import LeanQbe.T.Fold
 public import LeanQbe.T.OptUtilLemmas
-public import LeanQbe.T.OpsLemmas
+import LeanQbe.T.OpsLemmas
 
 /-!
 # Correctness of `fold` (`T6`)
@@ -17,7 +17,7 @@ public import LeanQbe.T.OpsLemmas
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -40,10 +40,11 @@ theorem evalFloat1_sound
   refine liftFloatRel1_pred op (fun t a P => ∀ r, evalFloat1 op t a = some r → P r)
     (fun _ _ _ _ h hp r hr => h r (hp r hr))
     (fun f a _ hw r hr => by
-      simp only [evalFloat1, Option.some.injEq] at hr; subst hr
+      dsimp only [evalFloat1] at hr; simp only [Option.some.injEq] at hr; subst hr
       exact evalFloatLeaf_sound f _ hw)
     (fun s u a₁ a₂ _ hm r hr => by
-      simp only [evalFloat1, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
+      dsimp only [evalFloat1] at hr
+      simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
         Option.some.injEq] at hr
       rcases hr with ⟨r1, hr1, r2, hr2, rfl⟩
       exact hm r1 hr1 r2 hr2)
@@ -57,10 +58,11 @@ theorem evalFloat2_sound
   refine liftFloatRel2_pred op (fun t a b P => ∀ r, evalFloat2 op t a b = some r → P r)
     (fun _ _ _ _ _ h hp r hr => h r (hp r hr))
     (fun f a b _ hw r hr => by
-      simp only [evalFloat2, Option.some.injEq] at hr; subst hr
+      dsimp only [evalFloat2] at hr; simp only [Option.some.injEq] at hr; subst hr
       exact evalFloatLeaf_sound f _ hw)
     (fun s u a₁ a₂ b₁ b₂ _ hm r hr => by
-      simp only [evalFloat2, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
+      dsimp only [evalFloat2] at hr
+      simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
         Option.some.injEq] at hr
       rcases hr with ⟨r1, hr1, r2, hr2, rfl⟩
       exact hm r1 hr1 r2 hr2)
@@ -74,10 +76,11 @@ theorem evalFloat3_sound
   refine liftFloatRel3_pred op (fun t a b c P => ∀ r, evalFloat3 op t a b c = some r → P r)
     (fun _ _ _ _ _ _ h hp r hr => h r (hp r hr))
     (fun f a b c _ hw r hr => by
-      simp only [evalFloat3, Option.some.injEq] at hr; subst hr
+      dsimp only [evalFloat3] at hr; simp only [Option.some.injEq] at hr; subst hr
       exact evalFloatLeaf_sound f _ hw)
     (fun s u a₁ a₂ b₁ b₂ c₁ c₂ _ hm r hr => by
-      simp only [evalFloat3, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
+      dsimp only [evalFloat3] at hr
+      simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
         Option.some.injEq] at hr
       rcases hr with ⟨r1, hr1, r2, hr2, rfl⟩
       exact hm r1 hr1 r2 hr2)
@@ -87,7 +90,7 @@ theorem evalConvertFloat_sound (src dst : Fmt) (b : BitVec src.width)
     {post : BitVec dst.width → Prop} (hw : convertFloat src dst b post) :
     post (evalConvertFloat src dst b) := by
   simp only [convertFloat] at hw
-  simp only [evalConvertFloat]
+  dsimp only [evalConvertFloat]
   cases hu : unpackFloat src b with
   | notANumber =>
     simp only [hu] at hw
@@ -105,23 +108,23 @@ theorem OpCode.eval?_sound : {sig rs : List Ty} → (c : OpCode sig rs) → (arg
   | _, _, .popcnt _, (_, ()), _, _, h, hw | _, _, .ofBool _, (_, ()), _, _, h, hw
   | _, _, .unpair _ _, (_, ()), _, _, h, hw | _, _, .bitcast _ _ _, (_, ()), _, _, h, hw
   | _, _, .uitofp _ _, (_, ()), _, _, h, hw | _, _, .sitofp _ _, (_, ()), _, _, h, hw => by
-    simp only [OpCode.eval?, Option.some.injEq] at h; subst h; exact hw
+    dsimp only [OpCode.eval?] at h; simp only [Option.some.injEq] at h; subst h; exact hw
   | _, _, .and _, (_, _, ()), _, _, h, hw | _, _, .or _, (_, _, ()), _, _, h, hw
   | _, _, .xor _, (_, _, ()), _, _, h, hw | _, _, .umulw _, (_, _, ()), _, _, h, hw
   | _, _, .smulw _, (_, _, ()), _, _, h, hw | _, _, .udiv0 _, (_, _, ()), _, _, h, hw
   | _, _, .sdiv0 _, (_, _, ()), _, _, h, hw | _, _, .mkpair _ _, (_, _, ()), _, _, h, hw
   | _, _, .sha256msg1, (_, _, ()), _, _, h, hw | _, _, .sha256msg2, (_, _, ()), _, _, h, hw => by
-    simp only [OpCode.eval?, Option.some.injEq] at h; subst h; exact hw
+    dsimp only [OpCode.eval?] at h; simp only [Option.some.injEq] at h; subst h; exact hw
   | _, _, .ternlog _ _, (_, _, _, ()), _, _, h, hw | _, _, .fshl _, (_, _, _, ()), _, _, h, hw
   | _, _, .fshr _, (_, _, _, ()), _, _, h, hw | _, _, .select _, (_, _, _, ()), _, _, h, hw
   | _, _, .addc _, (_, _, _, ()), _, _, h, hw | _, _, .subb _, (_, _, _, ()), _, _, h, hw
   | _, _, .sha256rnds2, (_, _, _, ()), _, _, h, hw => by
-    simp only [OpCode.eval?, Option.some.injEq] at h; subst h; exact hw
+    dsimp only [OpCode.eval?] at h; simp only [Option.some.injEq] at h; subst h; exact hw
   | _, _, .neg _, (_, ()), _, _, h, hw | _, _, .bswap _, (_, ()), _, _, h, hw
   | _, _, .zext _ _, (_, ()), _, _, h, hw | _, _, .sext _ _, (_, ()), _, _, h, hw
   | _, _, .trunc _ _, (_, ()), _, _, h, hw | _, _, .shufd _ _, (_, ()), _, _, h, hw
   | _, _, .fneg _, (_, ()), _, _, h, hw | _, _, .fabs _, (_, ()), _, _, h, hw => by
-    simp only [OpCode.eval?] at h; split at h <;> simp_all [OpCode.wp]
+    dsimp only [OpCode.eval?] at h; dsimp only [OpCode.wp] at hw; split at h <;> simp_all
   | _, _, .add _, (_, _, ()), _, _, h, hw | _, _, .sub _, (_, _, ()), _, _, h, hw
   | _, _, .mul _, (_, _, ()), _, _, h, hw | _, _, .shl _, (_, _, ()), _, _, h, hw
   | _, _, .lshr _, (_, _, ()), _, _, h, hw | _, _, .ashr _, (_, _, ()), _, _, h, hw
@@ -130,40 +133,47 @@ theorem OpCode.eval?_sound : {sig rs : List Ty} → (c : OpCode sig rs) → (arg
   | _, _, .urem _, (_, _, ()), _, _, h, hw | _, _, .srem _, (_, _, ()), _, _, h, hw
   | _, _, .shufb _, (_, _, ()), _, _, h, hw | _, _, .alignr _ _, (_, _, ()), _, _, h, hw
   | _, _, .blendw _ _, (_, _, ()), _, _, h, hw => by
-    simp only [OpCode.eval?] at h; split at h <;> simp_all [OpCode.wp]
+    dsimp only [OpCode.eval?] at h; dsimp only [OpCode.wp] at hw; split at h <;> simp_all
   | _, _, .cmp _ _ _ h', (_, _, ()), _, _, h, hw => by
-    subst h'; simp only [OpCode.eval?, cast_eq] at h; split at h <;> simp_all [OpCode.wp_cmp]
+    subst h'; dsimp only [OpCode.eval?] at h; simp only [cast_eq] at h
+    split at h <;> simp_all [OpCode.wp_cmp]
   | _, _, .blend _ _ h', (_, _, _, ()), _, _, h, hw => by
-    subst h'; simp only [OpCode.eval?, cast_eq, Option.some.injEq] at h; subst h; exact hw
+    subst h'; dsimp only [OpCode.eval?] at h; simp only [cast_eq, Option.some.injEq] at h
+    subst h; exact hw
   | _, _, .fcmp _ _ _ h', (_, _, ()), _, _, h, hw => by
-    subst h'; simp only [OpCode.eval?, cast_eq] at h; split at h <;> simp_all [OpCode.wp_fcmp]
+    subst h'; dsimp only [OpCode.eval?] at h; simp only [cast_eq] at h
+    split at h <;> simp_all [OpCode.wp_fcmp]
   | _, _, .fadd t, (a, b, ()), _, post, h, hw | _, _, .fsub t, (a, b, ()), _, post, h, hw
   | _, _, .fmul t, (a, b, ()), _, post, h, hw | _, _, .fdiv t, (a, b, ()), _, post, h, hw => by
-    simp only [OpCode.eval?, Option.map_eq_some_iff] at h; rcases h with ⟨r, hr, rfl⟩
+    dsimp only [OpCode.eval?] at h; simp only [Option.map_eq_some_iff] at h
+    rcases h with ⟨r, hr, rfl⟩
     by_cases hf : !t.isFloatTree
-    · simp_all [OpCode.wp]
-    · simp only [OpCode.wp, hf, Bool.false_eq_true, ↓reduceIte] at hw
+    · dsimp only [OpCode.wp] at hw; simp_all
+    · dsimp only [OpCode.wp] at hw; simp only [hf, Bool.false_eq_true, ↓reduceIte] at hw
       exact evalFloat2_sound _ t a b r (fun x => post (x, ())) hr hw
   | _, _, .ffma t, (a, b, c, ()), _, post, h, hw => by
-    simp only [OpCode.eval?, Option.map_eq_some_iff] at h; rcases h with ⟨r, hr, rfl⟩
+    dsimp only [OpCode.eval?] at h; simp only [Option.map_eq_some_iff] at h
+    rcases h with ⟨r, hr, rfl⟩
     by_cases hf : !t.isFloatTree
     · simp only [OpCode.wp_ffma, hf, ↓reduceIte] at hw
     · simp only [OpCode.wp_ffma, hf, Bool.false_eq_true, ↓reduceIte] at hw
       exact evalFloat3_sound _ t a b c r (fun x => post (x, ())) hr hw
   | _, _, .fsqrt t, (a, ()), _, post, h, hw => by
-    simp only [OpCode.eval?, Option.map_eq_some_iff] at h; rcases h with ⟨r, hr, rfl⟩
+    dsimp only [OpCode.eval?] at h; simp only [Option.map_eq_some_iff] at h
+    rcases h with ⟨r, hr, rfl⟩
     by_cases hf : !t.isFloatTree
     · simp only [OpCode.wp_fsqrt, hf, ↓reduceIte] at hw
     · simp only [OpCode.wp_fsqrt, hf, Bool.false_eq_true, ↓reduceIte] at hw
       exact evalFloat1_sound _ t a r (fun x => post (x, ())) hr hw
   | _, _, .fptoui f n, (a, ()), _, _, h, hw => by
-    simp only [OpCode.eval?, Option.bind_eq_some_iff] at h; simp only [OpCode.wp_fptoui] at hw
+    dsimp only [OpCode.eval?] at h; simp only [Option.bind_eq_some_iff] at h
+    simp only [OpCode.wp_fptoui] at hw
     rcases h with ⟨z, hz, hr⟩; simp only [hz] at hw
     split at hr
     · simp only [Option.some.injEq] at hr; subst hr; exact hw.2.2
     · cases hr
   | _, _, .fptosi f n, (a, ()), _, _, h, hw => by
-    simp only [OpCode.eval?] at h; simp only [OpCode.wp_fptosi] at hw
+    dsimp only [OpCode.eval?] at h; simp only [OpCode.wp_fptosi] at hw
     split at h
     · simp only [Option.bind_eq_some_iff] at h; rcases h with ⟨z, hz, hr⟩; simp only [hz] at hw
       split at hr
@@ -171,7 +181,8 @@ theorem OpCode.eval?_sound : {sig rs : List Ty} → (c : OpCode sig rs) → (arg
       · cases hr
     · cases h
   | _, _, .fcvt f g, (a, ()), _, _, h, hw => by
-    simp only [OpCode.eval?, Option.some.injEq] at h; subst h; exact evalConvertFloat_sound f g a hw
+    dsimp only [OpCode.eval?] at h; simp only [Option.some.injEq] at h; subst h
+    exact evalConvertFloat_sound f g a hw
 
 /-! ## Algebraic identities, annihilators, and strength reduction lemmas -/
 
@@ -489,7 +500,7 @@ theorem Op.rewrite_wp {rs : List Ty} (op : Op Val rs) (P : Tup Val rs → Prop) 
   rcases op with ⟨code, args⟩
   cases code with
   | mul t =>
-    rcases args with ⟨a, b, ⟨⟩⟩; intro hw; simp only [Op.rewrite]
+    rcases args with ⟨a, b, ⟨⟩⟩; intro hw; dsimp only [Op.rewrite]
     by_cases hf : t.hasFloat
     · simp [hf]; exact hw
     · have hf0 : t.hasFloat = false := Bool.eq_false_iff.mpr hf
@@ -504,7 +515,7 @@ theorem Op.rewrite_wp {rs : List Ty} (op : Op Val rs) (P : Tup Val rs → Prop) 
             leafPow2Shift?_mul_r t a.val cb s hf0 hsb] using hw
         | none => exact Op.rewrite_mul_a_wp hf0 a (.imm cb) hw
   | udiv n | urem n =>
-    rcases args with ⟨a, b, ⟨⟩⟩; intro hw; simp only [Op.rewrite]
+    rcases args with ⟨a, b, ⟨⟩⟩; intro hw; dsimp only [Op.rewrite]
     cases b with
     | var _ => simp [Arg.imm?]; exact hw
     | imm cb =>
@@ -1197,7 +1208,7 @@ theorem OpRel.simpAct_sound {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → 
       FGood ρ b (Tup.zip (act.apply args₁) (SimpAct.vals (vals args₂) act) ++ G) := by
   have hfg := FGood.apply_simpAct hG hargs act
   refine ⟨?_, hfg⟩
-  unfold Op.simpAct at hact
+  delta Op.simpAct at hact
   dsimp only at hact
   cases hconst : (tupImms? (tupMapArg (fun _ => Arg.fout) args₁)).bind code.eval? with
     | some res =>
@@ -1435,7 +1446,8 @@ theorem OpRel.simpAct_sound {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → 
         rcases hargs with _ | ⟨ha, _⟩; dsimp only at hact
         split at hact
         · rename_i hmn; subst hmn; cases hact
-          simp only [SimpAct.vals, Tup.get, OpCode.wp, vals, cast_eq, BitVec.setWidth_eq] at hw ⊢
+          dsimp only [OpCode.wp] at hw
+          simp only [SimpAct.vals, Tup.get, vals, cast_eq, BitVec.setWidth_eq] at hw ⊢
           exact hw.2
         · cases hact
       | sext m n =>
@@ -1566,7 +1578,7 @@ theorem OpRel.foldRewrite_wp {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat →
     cases t with
     | bits n =>
       obtain ⟨hev, _, _, _⟩ := narrowCmp_sound hG o ha hb
-      simp only [Op.foldRewrite]
+      dsimp only [Op.foldRewrite]
       cases himm : (narrowCmp o n a₁ b₁).rhs.imm? with
       | some c =>
         have hrv := arg_imm?_val himm
@@ -1580,13 +1592,13 @@ theorem OpRel.foldRewrite_wp {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat →
     | float _ =>
       simp [OpCode.wp_cmp, Ty.hasFloat] at hw
     | bool =>
-      simp only [Op.foldRewrite]
+      dsimp only [Op.foldRewrite]
       split
       · simpa only [Op.wp, op2, OpCode.wp_cmp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
           vals, cast_eq, ha.fout_val hG, hb.fout_val hG, liftCmp_swap] using hw
       · simpa only [Op.wp, op2, vals, ha.fout_val hG, hb.fout_val hG] using hw
     | pair _ _ =>
-      simp only [Op.foldRewrite]
+      dsimp only [Op.foldRewrite]
       split
       · rename_i hcond
         simp only [Bool.and_eq_true, Bool.not_eq_true'] at hcond
@@ -1596,10 +1608,10 @@ theorem OpRel.foldRewrite_wp {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat →
   | sext m n =>
     rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
     rcases hargs with _ | ⟨ha, _⟩
-    simp only [Op.foldRewrite, Op.rewrite, Op.wp, OpCode.wp_sext, tupMapArg, vals,
+    dsimp only [Op.foldRewrite, Op.rewrite, Op.wp, tupMapArg, vals]; simp only [OpCode.wp_sext,
       ha.fout_val hG] at hw ⊢
     refine ⟨hw.1, hw.2, ?_⟩
-    simp only [Op.foldWrap]
+    dsimp only [Op.foldWrap]
     split
     · rename_i hpos
       split
@@ -1614,10 +1626,10 @@ theorem OpRel.foldRewrite_wp {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat →
   | zext m n =>
     rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
     rcases hargs with _ | ⟨ha, _⟩
-    simp only [Op.foldRewrite, Op.rewrite, Op.wp, OpCode.wp_zext, tupMapArg, vals,
+    dsimp only [Op.foldRewrite, Op.rewrite, Op.wp, tupMapArg, vals]; simp only [OpCode.wp_zext,
       ha.fout_val hG] at hw ⊢
     refine ⟨hw.1, hw.2, ?_⟩
-    simp only [Op.foldWrap]
+    dsimp only [Op.foldWrap]
     split
     · rename_i hpos
       split
@@ -1830,7 +1842,7 @@ theorem OpRel.simpAct_eq (hG : FRelG G' G) :
       ({ code := code, args := args₁ } : Op (FVal V₁) rs).simpAct =
       ({ code := code, args := args₂ } : Op (FVal V₂) rs).simpAct := by
   intro sig rs code args₁ args₂ hargs
-  unfold Op.simpAct
+  delta Op.simpAct
   dsimp only
   have himm : tupImms? (tupMapArg (fun _ => Arg.fout) args₁) =
       tupImms? (tupMapArg (fun _ => Arg.fout) args₂) :=
@@ -1923,7 +1935,7 @@ theorem OpRel.rewrite {rs : List Ty} {o₁ : Op V₁ rs} {o₂ : Op V₂ rs} (ho
   | mk code hargs =>
     cases code with
     | mul t =>
-      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩; simp only [Op.rewrite]
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩; dsimp only [Op.rewrite]
       split
       · exact .mk (.mul t) (.cons ha (.cons hb .nil))
       · cases hb with
@@ -1934,7 +1946,7 @@ theorem OpRel.rewrite {rs : List Ty} {o₁ : Op V₁ rs} {o₂ : Op V₂ rs} (ho
           | some s => exact .mk (.shl t) (.cons ha (.cons (.imm s) .nil))
           | none => exact OpRel.rewrite_mul_a ha (.imm cb)
     | udiv n | urem n =>
-      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩; simp only [Op.rewrite]
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩; dsimp only [Op.rewrite]
       cases hb with
       | @var _ _ hmb => exact .mk _ (.cons ha (.cons (.var hmb) .nil))
       | imm cb =>
@@ -1958,7 +1970,7 @@ theorem OpRel.foldRewrite_rel (hG : FRelG G' G) {sig rs : List Ty} {code : OpCod
     cases t with
     | bits n =>
       have hnc := narrowCmp_rel hG o ha hb
-      simp only [Op.foldRewrite]
+      dsimp only [Op.foldRewrite]
       generalize h1 : narrowCmp o n a₁ b₁ = nc₁ at hnc ⊢
       generalize h2 : narrowCmp o n a₂ b₂ = nc₂ at hnc ⊢
       cases hnc with
@@ -1968,7 +1980,7 @@ theorem OpRel.foldRewrite_rel (hG : FRelG G' G) {sig rs : List Ty} {code : OpCod
         | imm c => exact .mk _ (.cons hl (.cons (.imm _) .nil))
     | _ =>
       have ha' := ha.fout hG; have hb' := hb.fout hG
-      simp only [Op.foldRewrite, ha'.imm?_eq, hb'.imm?_eq]
+      dsimp only [Op.foldRewrite]; rw [ha'.imm?_eq, hb'.imm?_eq]
       split
       · exact .mk _ (.cons hb' (.cons ha' .nil))
       · exact .mk _ (.cons ha' (.cons hb' .nil))
@@ -1988,7 +2000,7 @@ theorem FRelG.foldWrap (hG : FRelG G' G) {sig ts : List Ty} {code : OpCode sig t
     rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
     rcases hargs with _ | ⟨ha, _⟩
     rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
-    simp only [Op.foldWrap]
+    dsimp only [Op.foldWrap]
     split
     · split
       · have hsub : ∀ p ∈ G', p ∈ (Tup.zip (as := [.bits n]) (r₁, ()) (r₂, ()) ++ G') :=
@@ -2015,6 +2027,16 @@ theorem foldB_get {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (b : N
   | _, _, .cons _ bs, .there i, xs => foldB_get b bs i xs
 
 /-- Weakest-precondition preservation for `fold`, proved via `Wf.induct`. -/
+private theorem fold_let {V : Ty → Type} {L : List Ty → Type} {ts rs : List Ty}
+    (next : Nat) (op : Op (FVal V) ts) (k : Tup (FVal V) ts → Expr (FVal V) L rs) :
+    fold next (.let_ op k) =
+      match op.simpAct with
+      | some act => fold next (k (act.apply op.args))
+      | none =>
+        .let_ op.foldRewrite fun xs => fold (next + ts.length) (k (op.foldWrap next xs)) := by
+  delta fold; dsimp only [Expr.brecOn, Expr.rec, fold._f]
+  cases op.simpAct <;> rfl
+
 theorem fold_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {G : Ctx (FVal Val) Val} {D : Ctx Cont Cont}
     {e₁ : Expr (FVal Val) Cont rs} {e₂ : Expr Val Cont rs}
@@ -2024,33 +2046,33 @@ theorem fold_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   induction hwf using Wf.induct with
   | @let_ G D ts op₁ op₂ k₁ k₂ hop _ ih =>
     intro hD b ρ hG m hw
-    simp only [wp] at hw
+    dsimp only [wp] at hw
     cases hop with
     | @mk sig _ code args₁ args₂ hargs =>
-      simp only [fold]
+      rw [fold_let]
       cases hact : ({ code := code, args := args₁ } : Op (FVal Val) ts).simpAct with
       | some act =>
         obtain ⟨hk2, hfg⟩ := OpRel.simpAct_sound hG hargs hact hw
         exact ih (act.apply args₁) (SimpAct.vals (vals args₂) act) hD b ρ hfg m hk2
       | none =>
-        simp only [wp]
+        dsimp only [wp]
         have hw' := OpRel.foldRewrite_wp hG hargs hw
         exact Op.wp_mono (fun xs ⟨hxs, hG'⟩ =>
           ih _ xs hD (b + ts.length) (fupdTup ρ b xs) hG' m hxs) hw'
   | load t ha _ ih =>
-    intro hD b ρ hG m hw; simp only [wp, fold] at hw ⊢; rcases hw with ⟨v, hv, hk⟩
+    intro hD b ρ hG m hw; dsimp only [wp, fold] at hw ⊢; rcases hw with ⟨v, hv, hk⟩
     exact ⟨v, ha.fout_val hG ▸ hv,
       ih (FVal.fresh v b) v hD (b + 1) (fupd ρ b v) (hG.freshOne v) m hk⟩
   | store hv ha _ ih =>
-    intro hD b ρ hG m hw; simp only [wp, fold] at hw ⊢; rw [ha.fout_val hG, hv.fout_val hG]
+    intro hD b ρ hG m hw; dsimp only [wp, fold] at hw ⊢; rw [ha.fout_val hG, hv.fout_val hG]
     exact ⟨hw.1, ih hD b ρ hG _ hw.2⟩
   | call f hargs _ ih =>
-    intro hD b ρ hG m hw; simp only [wp, fold] at hw ⊢; rcases hw with ⟨P, E, hΓ, hP, hE⟩
+    intro hD b ρ hG m hw; dsimp only [wp, fold] at hw ⊢; rcases hw with ⟨P, E, hΓ, hP, hE⟩
     rw [hargs.fout_vals hG]
     exact ⟨P, E, hΓ, fun r m' hp =>
       ih (freshFVals _ r b) r hD (b + _) (fupdTup ρ b r) (hG.freshFVals r) m' (hP r m' hp), hE⟩
   | @jnz G D c₁ c₂ t₁ t₂ e₁ e₂ hc _ _ iht ihe =>
-    intro hD b ρ hG m hw; simp only [wp] at hw; have hcv := hc.fout_val hG; simp only [fold]
+    intro hD b ρ hG m hw; dsimp only [wp] at hw; have hcv := hc.fout_val hG; dsimp only [fold]
     cases hcf : c₁.fout with
     | imm bv =>
       rw [hcf] at hcv
@@ -2058,16 +2080,16 @@ theorem fold_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
       · exact ihe hD b ρ hG m (hw.2 hcv.symm)
       · exact iht hD b ρ hG m (hw.1 hcv.symm)
     | var _ =>
-      rw [hcf] at hcv; simp only [wp]
+      rw [hcf] at hcv; dsimp only [wp]
       exact ⟨fun h => iht hD b ρ hG m (hw.1 (hcv ▸ h)), fun h => ihe hD b ρ hG m (hw.2 (hcv ▸ h))⟩
   | jump hj hargs =>
     intro hD b ρ hG m hw; have hj' := hD _ hj; dsimp only at hj'
-    simp only [wp, fold] at hw ⊢; rw [hj', hargs.fout_vals hG]; exact hw
+    dsimp only [wp, fold] at hw ⊢; rw [hj', hargs.fout_vals hG]; exact hw
   | ret hvs | exit _ hvs =>
-    intro _ b ρ hG m hw; simp only [wp, fold] at hw ⊢; rw [hvs.fout_vals hG]; exact hw
+    intro _ b ρ hG m hw; dsimp only [wp, fold] at hw ⊢; rw [hvs.fout_vals hG]; exact hw
   | hlt => intro _ _ _ _ _ hw; exact hw
   | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
-    intro hD b ρ hG m hw; simp only [wp, fold] at hw ⊢; intro Js hclosed
+    intro hD b ρ hG m hw; dsimp only [wp, fold] at hw ⊢; intro Js hclosed
     refine ihk Js Js (tup_zip_self_eq hD Js) b ρ hG m (hw Js ?_)
     rw [closed_iff] at hclosed ⊢; intro ts i xs m' hb
     have hfold := ihb Js Js i (freshFVals ts xs b) xs (tup_zip_self_eq hD Js)
@@ -2085,7 +2107,7 @@ theorem fold_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : L
     intro G' hG b
     cases hop with
     | @mk sig _ code args₁ args₂ hargs =>
-      rw [fold, fold, OpRel.simpAct_eq hG hargs (code := code)]
+      rw [fold_let, fold_let, OpRel.simpAct_eq hG hargs (code := code)]
       cases hact : ({ code := code, args := args₂ } : Op (FVal V₂) ts).simpAct with
       | some act => exact ih _ _ (hG.apply_simpAct hargs act) b
       | none =>
@@ -2098,7 +2120,7 @@ theorem fold_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : L
     intro _ hG b
     exact .call f (TRel.fout hG hargs) fun xs₁ xs₂ => ih _ _ (hG.freshFVals xs₁ xs₂ b) (b + _)
   | @jnz G D c₁ c₂ t₁ t₂ e₁ e₂ hc _ _ iht ihe =>
-    intro _ hG b; simp only [fold]
+    intro _ hG b; dsimp only [fold]
     cases hc with
     | @var v₁ v₂ h =>
       rcases v₁ with ⟨a₁, κ₁, ex₁⟩; rcases v₂ with ⟨a₂, κ₂, ex₂⟩

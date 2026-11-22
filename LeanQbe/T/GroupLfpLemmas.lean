@@ -35,14 +35,14 @@ followed by `Wf.group_inv` and friends); `DiagV`/`MonoD` start from `diag_zip` a
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
 /-! ## Tuples from positions -/
 
 /-- The tuple whose component at position `i` is `h i`. -/
-def Tup.ofMember {α : Type} {f : α → Type} :
+@[expose] def Tup.ofMember {α : Type} {f : α → Type} :
     (as : List α) → (∀ {a : α}, Member a as → f a) → Tup f as
   | [], _ => ()
   | _ :: as, h => (h .here, Tup.ofMember as fun i => h (.there i))
@@ -57,10 +57,10 @@ theorem Tup.get_ofMember {α : Type} {f : α → Type} :
 /-! ## Diagonal value contexts and monotone label contexts -/
 
 /-- A value context relating every variable to itself. -/
-def DiagV (G : Ctx Val Val) : Prop := ∀ p ∈ G, p.2.1 = p.2.2
+@[expose] def DiagV (G : Ctx Val Val) : Prop := ∀ p ∈ G, p.2.1 = p.2.2
 
 /-- A label context whose left continuations imply the right ones. -/
-def MonoD (D : Ctx Cont Cont) : Prop := ∀ p ∈ D, ∀ xs m, p.2.1 xs m → p.2.2 xs m
+@[expose] def MonoD (D : Ctx Cont Cont) : Prop := ∀ p ∈ D, ∀ xs m, p.2.1 xs m → p.2.2 xs m
 
 /-- The empty value context is diagonal. -/
 theorem DiagV.nil : DiagV [] := fun _ h => nomatch h
@@ -120,7 +120,7 @@ theorem argRel_val {G : Ctx Val Val} (hG : DiagV G) {t : Ty} {a₁ a₂ : Arg Va
 theorem trel_vals {G : Ctx Val Val} (hG : DiagV G) :
     {ts : List Ty} → {as₁ as₂ : Tup (Arg Val) ts} → TRel (ArgRel G) as₁ as₂ → vals as₁ = vals as₂
   | [], _, _, .nil => rfl
-  | _ :: _, _, _, .cons h hs => by simp only [vals, argRel_val hG h, trel_vals hG hs]
+  | _ :: _, _, _, .cons h hs => by dsimp only [vals]; rw [argRel_val hG h, trel_vals hG hs]
 
 /-! ## Label monotonicity of `wp` (parametricity from `Wf`) -/
 
@@ -134,42 +134,42 @@ theorem wp_label_mono {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   | let_ hop _ ih =>
     intro hG hD m h
     cases hop with | mk code hargs =>
-    simp only [wp, Op.wp] at h ⊢
+    dsimp only [wp, Op.wp] at h ⊢
     rw [← trel_vals hG hargs]
     exact OpCode.wp_mono code _ (fun r hr => ih r r (hG.append r) hD m hr) h
   | load t ha _ ih =>
     intro hG hD m ⟨v, hv, h⟩
-    simp only [wp]
+    dsimp only [wp]
     rw [← argRel_val hG ha]
     exact ⟨v, hv, ih v v (hG.cons v) hD m h⟩
   | store hv ha _ ih =>
     intro hG hD m ⟨hok, h⟩
-    simp only [wp]
+    dsimp only [wp]
     rw [← argRel_val hG hv, ← argRel_val hG ha]
     exact ⟨hok, ih hG hD _ h⟩
   | call f hargs _ ih =>
     intro hG hD m ⟨P, E, hΓ, hP, hE⟩
-    simp only [wp]
+    dsimp only [wp]
     rw [← trel_vals hG hargs]
     exact ⟨P, E, hΓ, fun r m' hr => ih r r (hG.append r) hD m' (hP r m' hr), hE⟩
   | jnz hc _ _ iht ihe =>
     intro hG hD m ⟨ht, he⟩
-    simp only [wp]
+    dsimp only [wp]
     rw [← argRel_val hG hc]
     exact ⟨fun h => iht hG hD m (ht h), fun h => ihe hG hD m (he h)⟩
   | jump hj hargs =>
     intro hG hD m h
-    simp only [wp] at h ⊢
+    dsimp only [wp] at h ⊢
     rw [← trel_vals hG hargs]
     exact hD _ hj _ m h
   | ret hvs =>
     intro hG _ m h
-    simp only [wp] at h ⊢
+    dsimp only [wp] at h ⊢
     rw [← trel_vals hG hvs]
     exact h
   | exit f hargs =>
     intro hG _ m h
-    simp only [wp] at h ⊢
+    dsimp only [wp] at h ⊢
     rw [← trel_vals hG hargs]
     exact h
   | hlt => intro _ _ _ h; exact h
@@ -194,7 +194,7 @@ theorem wp_labelfree_iff {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
 /-- The least closed label tuple of a group:
 `Js^*ᵢ xs m := ∀ Js, Closed Γ Q X (bodies Js) Js → Jsᵢ xs m`. The quantifier over `Js` is
 impredicative (`Prop`), so `lfp .. : Tup Cont sig` stays in `Type`. -/
-def lfp (Γ : Env) {rs : List Ty} (Q : Post rs) (X : XPost) {sig : List (List Ty)}
+@[expose] def lfp (Γ : Env) {rs : List Ty} (Q : Post rs) (X : XPost) {sig : List (List Ty)}
     (bodies : Tup Cont sig → Blocks Val Cont rs sig) : Tup Cont sig :=
   Tup.ofMember sig fun i xs m => ∀ Js, Closed Γ Q X (bodies Js) Js → Js.get i xs m
 
@@ -267,7 +267,7 @@ theorem group_let {ts : List Ty} (op : Op Val ts)
       WfB (Tup.zip r r ++ G) (Tup.zip Js₁ Js₂ ++ D) (bodies Js₁) (bodies Js₂) :=
     fun r Js₁ Js₂ => WfB.weaken_append _ (hb Js₁ Js₂)
   rw [wp_group_iff hG hD hb hk]
-  simp only [wp]
+  dsimp only [wp]
   exact ⟨Op.wp_mono fun r h => (wp_group_iff (hG.append r) hD (hbr r) (hkr r) m).2 h,
     Op.wp_mono fun r h => (wp_group_iff (hG.append r) hD (hbr r) (hkr r) m).1 h⟩
 
@@ -286,7 +286,7 @@ theorem group_load (t : Ty) (a : Arg Val i64)
       WfB (⟨t, v, v⟩ :: G) (Tup.zip Js₁ Js₂ ++ D) (bodies Js₁) (bodies Js₂) :=
     fun v Js₁ Js₂ => WfB.weaken_append [⟨t, v, v⟩] (hb Js₁ Js₂)
   rw [wp_group_iff hG hD hb hk]
-  simp only [wp]
+  dsimp only [wp]
   constructor
   · rintro ⟨v, hv, h⟩
     exact ⟨v, hv, (wp_group_iff (hG.cons v) hD (hbv v) (hkv v) m).2 h⟩
@@ -321,7 +321,7 @@ theorem group_call {f : Sym} {as bs : List Ty} (args : Tup (Arg Val) as)
       WfB (Tup.zip r r ++ G) (Tup.zip Js₁ Js₂ ++ D) (bodies Js₁) (bodies Js₂) :=
     fun r Js₁ Js₂ => WfB.weaken_append _ (hb Js₁ Js₂)
   rw [wp_group_iff hG hD hb hk]
-  simp only [wp]
+  dsimp only [wp]
   constructor
   · rintro ⟨P, E, hΓ, hP, hE⟩
     exact ⟨P, E, hΓ, fun r m' hr =>

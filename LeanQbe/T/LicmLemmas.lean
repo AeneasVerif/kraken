@@ -23,7 +23,7 @@ public import LeanQbe.T.Legal
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -174,7 +174,7 @@ theorem EnvWp.insertTup {ρ : FEnv} {b : Nat} {env : VEnv Val} (hE : EnvWp ρ b 
     EnvWp (fupdTup ρ b xs) (b + ts.length) (envInsertTup env b xs)
   | [], () => hE
   | _ :: ts, (x, xs) => by
-    simp only [envInsertTup, fupdTup, List.length_cons]
+    dsimp only [envInsertTup, fupdTup]; simp only [List.length_cons]
     have h1 := (hE.insert_fresh x).insertTup xs
     rwa [show b + 1 + ts.length = b + (ts.length + 1) by omega] at h1
 
@@ -184,7 +184,7 @@ theorem resolveArg_wp {ρ : FEnv} {b : Nat} {env : VEnv Val} (hE : EnvWp ρ b en
   cases a with
   | imm c => cases h; exact ⟨trivial, rfl⟩
   | var lvl =>
-    simp only [resolveArg] at h
+    dsimp only [resolveArg] at h
     cases hfind : env.find? lvl with
     | none => simp [hfind] at h
     | some p =>
@@ -205,7 +205,7 @@ theorem resolveArgs_wp {ρ : FEnv} {b : Nat} {env : VEnv Val} (hE : EnvWp ρ b e
     TupKeyLt b args ∧ vals vArgs = tupGev ρ args
   | [], (), (), _ => ⟨trivial, rfl⟩
   | _ :: _, (a, as), _, h => by
-    simp only [resolveArgs] at h
+    dsimp only [resolveArgs] at h
     cases ha : resolveArg env a with
     | none => simp [ha] at h
     | some a' =>
@@ -228,7 +228,7 @@ theorem emitHoists_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : M
       wp Γ Q X (emitHoists hoists b env tbl cont) m
   | [], b, ρ, env, tbl, hG, hE, hT, hcont => hcont b ρ env tbl hG hE hT
   | h :: rest, b, ρ, env, tbl, hG, hE, hT, hcont => by
-    simp only [emitHoists]
+    dsimp only [emitHoists]
     cases hp : h.code.isLicmPure with
     | false =>
       simp only [Bool.false_eq_true, ↓reduceIte]
@@ -243,7 +243,7 @@ theorem emitHoists_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : M
         | some vArgs =>
           obtain ⟨hlt, hvals⟩ := resolveArgs_wp hE hres
           obtain ⟨r, hr⟩ := OpCode.isLicmPure_spec h.code hp (vals vArgs)
-          simp only [wp, Op.wp]
+          dsimp only [wp, Op.wp]
           apply (hr _).2
           have hT' : GoodT (fupdTup ρ b r) (b + h.ts.length)
               (tbl.insert h.sig h.ts h.code h.args (freshGVals h.ts r b)) := by
@@ -278,6 +278,21 @@ theorem licmSweepB_get_eq {V : Ty → Type} {L : List Ty → Type} {rs : List Ty
   | _ :: _, .cons _ pt, .cons _ bs, _, .there i, xs => licmSweepB_get_eq b env tbl pt bs i xs
 
 /-- Weakest-precondition preservation for `licmSweep` under any untrusted `HoistPlan`. -/
+private theorem licmSweep_let {V : Ty → Type} {L : List Ty → Type} {sig ts rs : List Ty}
+    (next : Nat) (env : VEnv V) (tbl : GvnTbl V) (plan : HoistPlan)
+    (code : OpCode sig ts) (args : Tup (Arg (GVal V)) sig)
+    (k : Tup (GVal V) ts → Expr (GVal V) L rs) :
+    licmSweep next env tbl plan (.let_ ⟨code, args⟩ k) =
+      let kPlan := match plan with | .node1 p => p | _ => .leaf
+      match tbl.find sig ts code (tupGKey args) with
+      | some cached => licmSweep next env tbl kPlan (k cached)
+      | none =>
+        .let_ ⟨code, tupGOut args⟩ fun xs =>
+          licmSweep (next + ts.length) (envInsertTup env next xs) tbl kPlan
+            (k (freshGVals ts xs next)) := by
+  delta licmSweep; dsimp only [Expr.brecOn, Expr.rec, licmSweep._f]
+  cases plan <;> (cases tbl.find sig ts code (tupGKey args) <;> rfl)
+
 theorem licmSweep_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {G : Ctx (GVal Val) Val} {D : Ctx Cont Cont}
     {e₁ : Expr (GVal Val) Cont rs} {e₂ : Expr Val Cont rs}
@@ -288,11 +303,12 @@ theorem licmSweep_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   induction hwf using Wf.induct with
   | @let_ G D ts op₁ op₂ k₁ k₂ hop _ ih =>
     intro hD b ρ env tbl plan hG hE hT m hw
-    simp only [wp] at hw
+    dsimp only [wp] at hw
     cases hop with
     | @mk sig _ code args₁ args₂ hargs =>
       dsimp only [Op.wp] at hw
-      unfold licmSweep; dsimp only
+      rw [licmSweep_let]
+      dsimp only
       cases hfind : tbl.find sig ts code (tupGKey args₁) with
       | some cached =>
         dsimp only
@@ -311,7 +327,7 @@ theorem licmSweep_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
             (hT.upd_all xs) m hk2) hw
   | load t ha _ ih =>
     intro hD b ρ env tbl plan hG hE hT m hw
-    simp only [wp, licmSweep] at hw ⊢
+    dsimp only [wp, licmSweep] at hw ⊢
     rcases hw with ⟨v, hv, hk⟩
     exact ⟨v, ha.gout_val hG ▸ hv,
       ih (v, b) v hD (b + 1) (fupd ρ b v) (env.insert b ⟨t, v⟩) tbl _
@@ -319,12 +335,12 @@ theorem licmSweep_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
         (by simpa [fupdTup] using hT.upd_all (ts := [t]) (v, ())) m hk⟩
   | store hv ha _ ih =>
     intro hD b ρ env tbl plan hG hE hT m hw
-    simp only [wp, licmSweep] at hw ⊢
+    dsimp only [wp, licmSweep] at hw ⊢
     rw [ha.gout_val hG, hv.gout_val hG]
     exact ⟨hw.1, ih hD b ρ env tbl _ hG hE hT _ hw.2⟩
   | call f hargs _ ih =>
     intro hD b ρ env tbl plan hG hE hT m hw
-    simp only [wp, licmSweep] at hw ⊢
+    dsimp only [wp, licmSweep] at hw ⊢
     rcases hw with ⟨P, E, hΓ, hP, hE_ex⟩
     rw [hargs.gout_vals hG]
     exact ⟨P, E, hΓ, fun r m' hp =>
@@ -332,24 +348,24 @@ theorem licmSweep_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
         (hG.freshGVals r) (hE.insertTup r) (hT.upd_all r) m' (hP r m' hp), hE_ex⟩
   | jnz hc _ _ iht ihe =>
     intro hD b ρ env tbl plan hG hE hT m hw
-    simp only [wp, licmSweep] at hw ⊢
+    dsimp only [wp, licmSweep] at hw ⊢
     rw [hc.gout_val hG]
     exact ⟨fun h => iht hD b ρ env tbl _ hG hE hT m (hw.1 h),
            fun h => ihe hD b ρ env tbl _ hG hE hT m (hw.2 h)⟩
   | jump hj hargs =>
     intro hD b ρ env tbl plan hG _ _ m hw
     have hj' := hD _ hj; dsimp only at hj'
-    simp only [wp, licmSweep] at hw ⊢
+    dsimp only [wp, licmSweep] at hw ⊢
     rw [hj', hargs.gout_vals hG]
     exact hw
   | ret hvs =>
     intro _ b ρ env tbl plan hG _ _ m hw
-    simp only [wp, licmSweep] at hw ⊢
+    dsimp only [wp, licmSweep] at hw ⊢
     rw [hvs.gout_vals hG]
     exact hw
   | exit f hargs =>
     intro _ b ρ env tbl plan hG _ _ m hw
-    simp only [wp, licmSweep] at hw ⊢
+    dsimp only [wp, licmSweep] at hw ⊢
     rw [hargs.gout_vals hG]
     exact hw
   | hlt =>
@@ -357,9 +373,9 @@ theorem licmSweep_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     exact hw
   | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
     intro hD b ρ env tbl plan hG hE hT m hw
-    simp only [licmSweep]
+    dsimp only [licmSweep]
     refine emitHoists_wp _ _ b ρ env tbl hG hE hT fun b' ρ' env' tbl' hG' hE' hT' => ?_
-    simp only [wp] at hw ⊢
+    dsimp only [wp] at hw ⊢
     intro Js hclosed
     refine ihk Js Js (tup_zip_self_eq hD Js) b' ρ' env' tbl' _ hG' hE' hT' m (hw Js ?_)
     rw [closed_iff] at hclosed ⊢
@@ -423,7 +439,7 @@ theorem resolveArg_rel {G' : Ctx V₁ V₂} {env₁ : VEnv V₁} {env₂ : VEnv 
   | imm c => exact .imm c
   | var lvl =>
     have hl := hE lvl
-    simp only [resolveArg]
+    dsimp only [resolveArg]
     cases e₁ : env₁.find? lvl <;> cases e₂ : env₂.find? lvl <;> rw [e₁, e₂] at hl <;>
       simp only [ORel] at hl ⊢
     rcases hl with ⟨t', v₁, v₂, rfl, rfl, hm⟩
@@ -440,7 +456,7 @@ theorem resolveArgs_rel {G' : Ctx V₁ V₂} {env₁ : VEnv V₁} {env₂ : VEnv
   | _ :: _, (a, as) => by
     have ha := resolveArg_rel hE a
     have has := resolveArgs_rel hE as
-    simp only [resolveArgs]
+    dsimp only [resolveArgs]
     cases e₁ : resolveArg env₁ a <;> cases e₂ : resolveArg env₂ a <;> rw [e₁, e₂] at ha <;>
       simp only [ORel] at ha ⊢ <;>
       cases f₁ : resolveArgs env₁ as <;> cases f₂ : resolveArgs env₂ as <;> rw [f₁, f₂] at has <;>
@@ -460,7 +476,7 @@ theorem emitHoists_wf {L₁ L₂ : List Ty → Type} {rs : List Ty} {D : Ctx L�
       Wf G' D (emitHoists hoists b env₁ tbl₁ cont₁) (emitHoists hoists b env₂ tbl₂ cont₂)
   | [], b, _, env₁, env₂, tbl₁, tbl₂, hG, hE, hT, hcont => hcont b env₁ env₂ tbl₁ tbl₂ hG hE hT
   | h :: rest, b, G', env₁, env₂, tbl₁, tbl₂, hG, hE, hT, hcont => by
-    simp only [emitHoists]
+    dsimp only [emitHoists]
     cases h.code.isLicmPure with
     | false =>
       simp only [Bool.false_eq_true, ↓reduceIte]
@@ -501,8 +517,8 @@ theorem licmSweep_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {r
     | @mk sig _ code args₁ args₂ hargs =>
       have hkey : tupGKey args₁ = tupGKey args₂ := TRel.gkey_eq hG hargs
       have hfind := hT.find_rel sig ts code (tupGKey args₂)
-      unfold licmSweep; dsimp only
-      rw [hkey]
+      rw [licmSweep_let, licmSweep_let, hkey]
+      dsimp only
       generalize hfl1 : tbl₁.find sig ts code (tupGKey args₂) = r₁ at hfind
       generalize hfl2 : tbl₂.find sig ts code (tupGKey args₂) = r₂ at hfind
       cases hfind with
@@ -546,7 +562,7 @@ theorem licmSweep_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {r
     exact .hlt
   | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
     intro G' hG b env₁ env₂ tbl₁ tbl₂ plan hE hT
-    simp only [licmSweep]
+    dsimp only [licmSweep]
     refine emitHoists_wf _ _ _ b env₁ env₂ tbl₁ tbl₂ hG hE hT
       fun b' G'' env₁' env₂' tbl₁' tbl₂' hG' hE' hT' => ?_
     refine .group (fun Js₁ Js₂ => WfB.of_get fun i xs₁ xs₂ => ?_)
@@ -594,7 +610,7 @@ private theorem scanTFlat_supports (target : LegalTarget) {rs : List Ty} :
     (Licm.scanTFlat senv rt tf st).hoistsRev.all (HoistOp.supports target) = true
   | .let_ op k, senv, rt, st, hsupp, hacc => by
     simp only [TFlat.supportsSource, Bool.and_eq_true] at hsupp
-    unfold Licm.scanTFlat
+    dsimp only [Licm.scanTFlat]
     cases rt <;> dsimp only <;>
     · split
       · split
@@ -618,14 +634,14 @@ private theorem scanTFlat_supports (target : LegalTarget) {rs : List Ty} :
     exact scanTFlat_supports target k _ _ st hsupp.2 hacc
   | .jnz _ t e, senv, rt, st, hsupp, hacc => by
     simp only [TFlat.supportsSource, Bool.and_eq_true] at hsupp
-    simp only [Licm.scanTFlat]
+    dsimp only [Licm.scanTFlat]
     exact scanTFlat_supports target e senv _ _ hsupp.2
       (scanTFlat_supports target t senv _ st hsupp.1 hacc)
   | .jump _ _, _, _, _, _, hacc | .ret _, _, _, _, _, hacc
   | .exit _ _, _, _, _, _, hacc | .hlt, _, _, _, _, hacc => hacc
   | .group bodies k, senv, rt, st, hsupp, hacc => by
     simp only [TFlat.supportsSource, Bool.and_eq_true] at hsupp
-    simp only [Licm.scanTFlat]
+    dsimp only [Licm.scanTFlat]
     exact scanTFlat_supports target k senv _ _ hsupp.2
       (scanTBlocksAll_supports target bodies senv _ st hsupp.1.2 hacc)
 
@@ -653,11 +669,11 @@ private theorem scanLoopBlocks_supports (target : LegalTarget) (loopMask : List 
   | [], .nil, _, _, _, _, hacc => hacc
   | _ :: _, .cons b bs, senv, rbs, st, hsupp, hacc => by
     simp only [TBlocks.supportsSource, Bool.and_eq_true] at hsupp
-    unfold Licm.scanLoopBlocks; dsimp only
-    refine scanLoopBlocks_supports target loopMask bs senv _ _ hsupp.2 ?_
-    split
-    · exact scanTFlat_supports target b _ _ st hsupp.1.2 hacc
-    · exact hacc
+    cases rbs <;> (
+      refine scanLoopBlocks_supports target loopMask bs senv _ _ hsupp.2 ?_
+      split
+      · exact scanTFlat_supports target b _ _ st hsupp.1.2 hacc
+      · exact hacc)
 
 mutual
 private theorem analyzeTFlat_supports (target : LegalTarget) {rs : List Ty} :
@@ -719,7 +735,7 @@ private theorem emitHoists_supportsSource (target : LegalTarget) {rs : List Ty}
   | [], b, nv, _, env, tbl, _, hcont => hcont b nv env tbl
   | h :: rest, b, nv, nl, env, tbl, hhs, hcont => by
     simp only [List.all_cons, Bool.and_eq_true] at hhs
-    simp only [emitHoists]
+    dsimp only [emitHoists]
     cases h.code.isLicmPure with
     | false =>
       simp only [Bool.false_eq_true, ↓reduceIte]
@@ -734,7 +750,7 @@ private theorem emitHoists_supportsSource (target : LegalTarget) {rs : List Ty}
         | none =>
           exact emitHoists_supportsSource target cont rest b nv nl env tbl hhs.2 hcont
         | some _ =>
-          simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
+          dsimp only [toTFlat, TFlat.supportsSource]; simp only [Bool.and_eq_true]
           exact ⟨hhs.1,
             emitHoists_supportsSource target cont rest (b + h.ts.length) (nv + h.ts.length) nl
               _ _ hhs.2 hcont⟩
@@ -745,9 +761,10 @@ private theorem toTBlocks_supportsSource_get (target : LegalTarget) {rs : List T
     ∀ {ts : List Ty} (i : Member ts sig),
       (toTFlat (bs.get i (Tup.levels ts nv)) (nv + ts.length) nl).supportsSource target = true
   | _ :: _, .cons _ _, h, _, .here => by
-    simp only [toTBlocks, TBlocks.supportsSource, Bool.and_eq_true] at h; exact h.1.2
+    dsimp only [toTBlocks, TBlocks.supportsSource] at h
+    simp only [Bool.and_eq_true] at h; exact h.1.2
   | _ :: _, .cons _ bs, h, _, .there i => by
-    simp only [toTBlocks, TBlocks.supportsSource, Bool.and_eq_true] at h
+    dsimp only [toTBlocks, TBlocks.supportsSource] at h; simp only [Bool.and_eq_true] at h
     exact toTBlocks_supportsSource_get target nv nl bs h.2 i
 
 private theorem toTBlocks_supportsSource_of_get (target : LegalTarget) {rs : List Ty}
@@ -760,7 +777,7 @@ private theorem toTBlocks_supportsSource_of_get (target : LegalTarget) {rs : Lis
   | [], .nil, _, _ => rfl
   | _ :: _, .cons _ bs, hsig, hget => by
     simp only [List.all_cons, Bool.and_eq_true] at hsig
-    simp only [toTBlocks, TBlocks.supportsSource, Bool.and_eq_true]
+    dsimp only [toTBlocks, TBlocks.supportsSource]; simp only [Bool.and_eq_true]
     exact ⟨⟨hsig.1, hget .here⟩,
       toTBlocks_supportsSource_of_get target nv nl bs hsig.2 fun i => hget (.there i)⟩
 
@@ -777,44 +794,45 @@ private theorem licmSweep_supportsSource (target : LegalTarget) {rs : List Ty}
     intro b env tbl plan nv₁ nl₁ nv₂ nl₂ hsupp hplan
     cases hop with
     | mk code _ =>
-      simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true] at hsupp
+      dsimp only [toTFlat, TFlat.supportsSource] at hsupp; simp only [Bool.and_eq_true] at hsupp
       have hp' : (match plan with | .node1 p => p | _ => .leaf).supports target = true := by
         cases plan <;> simp [HoistPlan.supports] at hplan ⊢; exact hplan
-      unfold licmSweep; dsimp only
+      rw [licmSweep_let]
+      dsimp only
       cases tbl.find _ ts code (tupGKey _) with
       | some cached =>
         exact ih (Tup.levels ts nv₁) cached b env tbl _ (nv₁ + ts.length) nl₁ nv₂ nl₂ hsupp.2 hp'
       | none =>
-        simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
+        dsimp only [toTFlat, TFlat.supportsSource]; simp only [Bool.and_eq_true]
         exact ⟨hsupp.1,
           ih (Tup.levels ts nv₁) (freshGVals ts (Tup.levels ts nv₂) b)
             (b + ts.length) _ tbl _ (nv₁ + ts.length) nl₁ (nv₂ + ts.length) nl₂ hsupp.2 hp'⟩
   | load t _ _ ih =>
     intro b env tbl plan nv₁ nl₁ nv₂ nl₂ hsupp hplan
-    simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true] at hsupp
+    dsimp only [toTFlat, TFlat.supportsSource] at hsupp; simp only [Bool.and_eq_true] at hsupp
     have hp' : (match plan with | .node1 p => p | _ => .leaf).supports target = true := by
       cases plan <;> simp [HoistPlan.supports] at hplan ⊢; exact hplan
-    simp only [licmSweep, toTFlat, TFlat.supportsSource, Bool.and_eq_true]
+    dsimp only [licmSweep, toTFlat, TFlat.supportsSource]; simp only [Bool.and_eq_true]
     exact ⟨hsupp.1, ih nv₁ (nv₂, b) (b + 1) _ tbl _ (nv₁ + 1) nl₁ (nv₂ + 1) nl₂ hsupp.2 hp'⟩
   | store _ _ _ ih =>
     intro b env tbl plan nv₁ nl₁ nv₂ nl₂ hsupp hplan
-    simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true] at hsupp
+    dsimp only [toTFlat, TFlat.supportsSource] at hsupp; simp only [Bool.and_eq_true] at hsupp
     have hp' : (match plan with | .node1 p => p | _ => .leaf).supports target = true := by
       cases plan <;> simp [HoistPlan.supports] at hplan ⊢; exact hplan
-    simp only [licmSweep, toTFlat, TFlat.supportsSource, Bool.and_eq_true]
+    dsimp only [licmSweep, toTFlat, TFlat.supportsSource]; simp only [Bool.and_eq_true]
     exact ⟨hsupp.1, ih b env tbl _ nv₁ nl₁ nv₂ nl₂ hsupp.2 hp'⟩
   | call f _ _ ih =>
     intro b env tbl plan nv₁ nl₁ nv₂ nl₂ hsupp hplan
-    simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true] at hsupp
+    dsimp only [toTFlat, TFlat.supportsSource] at hsupp; simp only [Bool.and_eq_true] at hsupp
     have hp' : (match plan with | .node1 p => p | _ => .leaf).supports target = true := by
       cases plan <;> simp [HoistPlan.supports] at hplan ⊢; exact hplan
-    simp only [licmSweep, toTFlat, TFlat.supportsSource, Bool.and_eq_true]
+    dsimp only [licmSweep, toTFlat, TFlat.supportsSource]; simp only [Bool.and_eq_true]
     exact ⟨hsupp.1,
       ih (Tup.levels _ nv₁) (freshGVals _ (Tup.levels _ nv₂) b) (b + _) _ tbl _
         (nv₁ + _) nl₁ (nv₂ + _) nl₂ hsupp.2 hp'⟩
   | jnz _ _ _ iht ihe =>
     intro b env tbl plan nv₁ nl₁ nv₂ nl₂ hsupp hplan
-    simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true] at hsupp
+    dsimp only [toTFlat, TFlat.supportsSource] at hsupp; simp only [Bool.and_eq_true] at hsupp
     have hp2 :
         let p := match plan with | .node2 pt pe => (pt, pe) | _ => (.leaf, .leaf)
         p.1.supports target = true ∧ p.2.supports target = true := by
@@ -837,7 +855,7 @@ private theorem licmSweep_supportsSource (target : LegalTarget) {rs : List Ty}
     intro _ _ _ _ _ _ _ _ _ _; rfl
   | @group _ _ sig b₁ b₂ _ _ _ _ ihb ihk =>
     intro b env tbl plan nv₁ nl₁ nv₂ nl₂ hsupp hplan
-    simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true] at hsupp
+    dsimp only [toTFlat, TFlat.supportsSource] at hsupp; simp only [Bool.and_eq_true] at hsupp
     have hpg :
         let p := match plan with | .groupNode hs bsP kP => (hs, bsP, kP) | _ => ([], .nil, .leaf)
         p.1.all (HoistOp.supports target) = true ∧ p.2.1.supports target = true ∧
@@ -849,7 +867,7 @@ private theorem licmSweep_supportsSource (target : LegalTarget) {rs : List Ty}
       · exact ⟨hplan.1.1, hplan.1.2, hplan.2⟩
     dsimp only [licmSweep]
     refine emitHoists_supportsSource target _ _ b nv₂ nl₂ env tbl hpg.1 fun b' nv' env' tbl' => ?_
-    simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
+    dsimp only [toTFlat, TFlat.supportsSource]; simp only [Bool.and_eq_true]
     refine ⟨⟨hsupp.1.1, toTBlocks_supportsSource_of_get target nv' (nl₂ + sig.length) _ hsupp.1.1
       fun {ts} i => ?_⟩,
       ihk (Tup.levels sig nl₁) (Tup.levels sig nl₂) b' env' tbl' _ nv₁ (nl₁ + sig.length)
@@ -867,7 +885,7 @@ private theorem licmSweep_supportsSource (target : LegalTarget) {rs : List Ty}
 
 /-- `Func.licm` preserves relational well-formedness. -/
 theorem Func.licm_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) : (Func.licm f).Wf := by
-  unfold Func.licm; dsimp only
+  dsimp only [Func.licm]
   split
   · intro V₁ V₂ L₁ L₂ xs₁ xs₂
     have hwf := hf (GVal V₁) (GVal V₂) L₁ L₂ (freshGVals as xs₁ 0) (freshGVals as xs₂ 0)
@@ -883,7 +901,7 @@ theorem Func.licm_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) : (Func.licm
 theorem Func.licm_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.licm f) xs m Q X := by
-  unfold Func.licm; dsimp only
+  dsimp only [Func.licm]
   split
   · have hwf := hf (GVal Val) Val Cont Cont (freshGVals as xs 0) xs
     let ρ0 : FEnv := fun _ _ => default
@@ -899,7 +917,7 @@ theorem Func.licm_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
 theorem Func.licm_supportsSource (target : LegalTarget) {as rs : List Ty} {f : Func as rs}
     (hf : f.Wf) (hsupp : f.supportsSource target = true) :
     (Func.licm f).supportsSource target = true := by
-  unfold Func.licm; dsimp only
+  dsimp only [Func.licm]
   split
   · simp only [Func.supportsSource, Bool.and_eq_true] at hsupp ⊢
     refine ⟨hsupp.1, ?_⟩

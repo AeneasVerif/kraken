@@ -3,7 +3,6 @@ module
 public import LeanQbe.T.TargetLemmas
 public import LeanQbe.T.Logic.MemLemmas
 public import LeanQbe.T.Logic.Bytes
-import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
@@ -21,7 +20,7 @@ imports) supporting `FrameTarget` proofs and downstream `Rega`/`Main`:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -96,8 +95,8 @@ theorem aligned16_add8_sub_call {sp : BitVec 64} {n : Nat}
 
 theorem abiGprHolds_bool_of_gprHolds {w : BitVec 64} {b : Bool} (h : GprHolds w .bool b) :
     AbiGprHolds ((w.setWidth 8).setWidth 64) .bool b := by
-  simp only [GprHolds] at h
-  simp only [AbiGprHolds, h]
+  dsimp only [GprHolds] at h
+  dsimp only [AbiGprHolds]; rw [h]
   apply BitVec.eq_of_toNat_eq
   have hb : b.toNat < 2 := by cases b <;> decide
   simp [BitVec.toNat_setWidth, Nat.mod_eq_of_lt (by omega : b.toNat < 2 ^ 8),
@@ -106,12 +105,12 @@ theorem abiGprHolds_bool_of_gprHolds {w : BitVec 64} {b : Bool} (h : GprHolds w 
 theorem abiGprHolds_bits_of_gprHolds {n : Nat} {w : BitVec 64} {v : BitVec n}
     (h : GprHolds w (.bits n) v) :
     AbiGprHolds ((w.setWidth n).setWidth 64) (.bits n) v := by
-  simp only [GprHolds] at h
+  dsimp only [GprHolds] at h
   exact ⟨h.1, by rw [h.2]⟩
 
 theorem abiGprHolds_bits64_of_gprHolds {w v : BitVec 64} (h : GprHolds w (.bits 64) v) :
     AbiGprHolds w (.bits 64) v := by
-  simp only [GprHolds] at h
+  dsimp only [GprHolds] at h
   exact ⟨h.1, by simpa using h.2⟩
 
 /-! ## 3. `region`, `cell64`, and `array64` splitting/combining -/
@@ -208,7 +207,7 @@ theorem retAddr_of_entry' {m : Mem 64} {sp : BitVec 64} {ra : T.mach.Addr} {n : 
     (T.frameSpec.RetAddr sp ra ⋆ (Eq m ⋆ region (sp - BitVec.ofNat 64 n) n ⋆ R)) M := by
   have e : (Eq m ⋆ T.Entry sp ra n ⋆ R) =
       (T.frameSpec.RetAddr sp ra ⋆ (Eq m ⋆ region (sp - BitVec.ofNat 64 n) n ⋆ R)) := by
-    simp only [Entry]; ac_rfl
+    dsimp only [Entry]; ac_rfl
   exact e ▸ h
 
 theorem retAddr_of_entry {m : Mem 64} {sp : BitVec 64} {ra : T.mach.Addr} {n : Nat}
@@ -259,7 +258,7 @@ theorem FnSpec.mono_stack {h : T.mach.Host} {sym : Sym} {as bs : List Ty}
     have : (Eq m ⋆ T.Entry (T.mach.getGpr s T.frame.sp) ra n' ⋆ R) =
         (Eq m ⋆ T.Entry (T.mach.getGpr s T.frame.sp) ra n ⋆
           (region (T.mach.getGpr s T.frame.sp - BitVec.ofNat 64 n') (n' - n) ⋆ R)) := by
-      simp only [Target.Entry, hsplit]; ac_rfl
+      dsimp only [Target.Entry]; rw [hsplit]; ac_rfl
     exact this ▸ hmem
   refine eventually_weaken _ _ _ _ ?_ (hf args m Q X hspec s ra _ ha hr hsp hmem')
   rintro st (⟨hpc, rets, m', hQ, hrets, hres, hm⟩ |
@@ -268,7 +267,7 @@ theorem FnSpec.mono_stack {h : T.mach.Host} {sym : Sym} {as bs : List Ty}
     have hsplit' : T.Exit (T.mach.getGpr s T.frame.sp) n' =
         (region (T.mach.getGpr s T.frame.sp - BitVec.ofNat 64 n') (n' - n) ⋆
           T.Exit (T.mach.getGpr s T.frame.sp) n) := by
-      simp only [Target.Exit]
+      dsimp only [Target.Exit]
       have := region_split (a := T.mach.getGpr s T.frame.sp - BitVec.ofNat 64 n')
         (n1 := n' - n) (n2 := n + T.frame.raBytes) (by omega)
       grind

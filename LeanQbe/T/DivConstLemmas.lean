@@ -1,8 +1,10 @@
 module
 
 public import LeanQbe.T.DivConst
-public import LeanQbe.T.OptUtilLemmas
-public import LeanQbe.T.Logic.Arith
+public import LeanQbe.T.Wf
+public import LeanQbe.T.WP
+import LeanQbe.T.OptUtilLemmas
+import LeanQbe.T.Logic.Arith
 
 /-!
 # Correctness of `DivConst` (`O-M1`)
@@ -17,7 +19,7 @@ native tactics, together with WP refinement and relational well-formedness prese
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -957,7 +959,7 @@ private theorem divConstOp_wp {Γ : Env} {rs ts : List Ty} {Q : Post rs} {X : XP
       simpa [flattenOp, Op.wp, hvals] using hw
     have hfallback :
         wp Γ Q X (.let_ (flattenOp ⟨code, args₁⟩) fun xs => k₁ (toArgTup xs)) m := by
-      simp only [wp]
+      dsimp only [wp]
       exact Op.wp_mono (fun xs hxs => hk (toArgTup xs) xs (toArgTup_vals xs) hxs) hw_flat
     unfold divConstOp; dsimp only [flattenOp]
     cases code with
@@ -966,7 +968,7 @@ private theorem divConstOp_wp {Γ : Env} {rs ts : List Ty} {Q : Post rs} {X : XP
       dsimp only [flattenOp, flattenArgs, tupMapArg] at hw_flat hfallback ⊢
       cases hb : flattenArg b₁ <;> simp only [hb] at hw_flat hfallback ⊢
       · exact hfallback
-      · simp only [Op.wp, vals, Arg.val_imm, OpCode.wp_udiv] at hw_flat
+      · dsimp only [Op.wp, vals] at hw_flat; simp only [Arg.val_imm, OpCode.wp_udiv] at hw_flat
         exact divConstOp_bin_wp hfallback fun he => (emitUDivConst_wp he fun _ r hr =>
           hk (r, ()) ((flattenArg a₁).val / _, ()) (Prod.ext hr rfl) hw_flat.2).2
     | urem n =>
@@ -974,7 +976,7 @@ private theorem divConstOp_wp {Γ : Env} {rs ts : List Ty} {Q : Post rs} {X : XP
       dsimp only [flattenOp, flattenArgs, tupMapArg] at hw_flat hfallback ⊢
       cases hb : flattenArg b₁ <;> simp only [hb] at hw_flat hfallback ⊢
       · exact hfallback
-      · simp only [Op.wp, vals, Arg.val_imm, OpCode.wp_urem] at hw_flat
+      · dsimp only [Op.wp, vals] at hw_flat; simp only [Arg.val_imm, OpCode.wp_urem] at hw_flat
         exact divConstOp_bin_wp hfallback fun he => (emitURemConst_wp he fun _ r hr =>
           hk (r, ()) ((flattenArg a₁).val % _, ()) (Prod.ext hr rfl) hw_flat.2).2
     | sdiv n =>
@@ -982,7 +984,7 @@ private theorem divConstOp_wp {Γ : Env} {rs ts : List Ty} {Q : Post rs} {X : XP
       dsimp only [flattenOp, flattenArgs, tupMapArg] at hw_flat hfallback ⊢
       cases hb : flattenArg b₁ <;> simp only [hb] at hw_flat hfallback ⊢
       · exact hfallback
-      · simp only [Op.wp, vals, Arg.val_imm, OpCode.wp_sdiv] at hw_flat
+      · dsimp only [Op.wp, vals] at hw_flat; simp only [Arg.val_imm, OpCode.wp_sdiv] at hw_flat
         exact divConstOp_bin_wp hfallback fun he => (emitSDivConst_wp he fun _ _ r hr =>
           hk (r, ()) ((flattenArg a₁).val.sdiv _, ()) (Prod.ext hr rfl) hw_flat.2).2.2
     | srem n =>
@@ -990,7 +992,7 @@ private theorem divConstOp_wp {Γ : Env} {rs ts : List Ty} {Q : Post rs} {X : XP
       dsimp only [flattenOp, flattenArgs, tupMapArg] at hw_flat hfallback ⊢
       cases hb : flattenArg b₁ <;> simp only [hb] at hw_flat hfallback ⊢
       · exact hfallback
-      · simp only [Op.wp, vals, Arg.val_imm, OpCode.wp_srem] at hw_flat
+      · dsimp only [Op.wp, vals] at hw_flat; simp only [Arg.val_imm, OpCode.wp_srem] at hw_flat
         exact divConstOp_bin_wp hfallback fun he => (emitSRemConst_wp he fun _ _ r hr =>
           hk (r, ()) ((flattenArg a₁).val.srem _, ()) (Prod.ext hr rfl) hw_flat.2).2.2
     | _ => exact hfallback
@@ -1011,30 +1013,30 @@ theorem divConst_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
       wp Γ Q X e₂ m → wp Γ Q X (divConst e₁) m := by
   induction hwf using Wf.induct with
   | let_ hop _ ih =>
-    intro m hG hD hw; simp only [wp, divConst] at hw ⊢
+    intro m hG hD hw; dsimp only [wp, divConst] at hw ⊢
     exact divConstOp_wp hG hop
       (fun r₁ r₂ hr hkr => ih r₁ r₂ m (ctx_val_append (tup_zip_vals_val r₁ r₂ hr) hG) hD hkr) hw
   | load t ha _ ih =>
-    intro m hG hD ⟨v, hv, hk⟩; simp only [divConst, wp]; rw [flattenArg_val hG ha]
+    intro m hG hD ⟨v, hv, hk⟩; dsimp only [divConst, wp]; rw [flattenArg_val hG ha]
     exact ⟨v, hv, ih (.var v) v m (ctx_val_cons_var hG v) hD hk⟩
   | store hv ha _ ih =>
-    intro m hG hD ⟨hok, hk⟩; simp only [divConst, wp]
+    intro m hG hD ⟨hok, hk⟩; dsimp only [divConst, wp]
     rw [flattenArg_val hG hv, flattenArg_val hG ha]; exact ⟨hok, ih _ hG hD hk⟩
   | call f hargs _ ih =>
-    intro m hG hD ⟨P, E, hΓ, hP, hE⟩; simp only [divConst, wp]
+    intro m hG hD ⟨P, E, hΓ, hP, hE⟩; dsimp only [divConst, wp]
     rw [flattenArgs_vals hG hargs]
     exact ⟨P, E, hΓ, fun r m' hr =>
       ih (toArgTup r) r m' (ctx_val_append (toArgTup_zip_val r) hG) hD (hP r m' hr), hE⟩
   | jnz hc _ _ iht ihe =>
-    intro m hG hD ⟨ht, he⟩; simp only [divConst, wp]; rw [flattenArg_val hG hc]
+    intro m hG hD ⟨ht, he⟩; dsimp only [divConst, wp]; rw [flattenArg_val hG hc]
     exact ⟨fun h => iht m hG hD (ht h), fun h => ihe m hG hD (he h)⟩
   | jump hj hargs =>
-    intro m hG hD hw; simp only [divConst, wp] at hw ⊢
+    intro m hG hD hw; dsimp only [divConst, wp] at hw ⊢
     have hj' := hD _ hj; dsimp only at hj'; rw [hj', flattenArgs_vals hG hargs]; exact hw
   | ret hvs =>
-    intro m hG _ hw; simp only [divConst, wp] at hw ⊢; rw [flattenArgs_vals hG hvs]; exact hw
+    intro m hG _ hw; dsimp only [divConst, wp] at hw ⊢; rw [flattenArgs_vals hG hvs]; exact hw
   | exit f hargs =>
-    intro m hG _ hw; simp only [divConst, wp] at hw ⊢; rw [flattenArgs_vals hG hargs]; exact hw
+    intro m hG _ hw; dsimp only [divConst, wp] at hw ⊢; rw [flattenArgs_vals hG hargs]; exact hw
   | hlt => intro _ _ _ hw; exact hw
   | group _ _ ihb ihk =>
     intro m hG hD hw Js hc
@@ -1345,7 +1347,7 @@ theorem divConst_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs
       Wf G D (divConst e₁) (divConst e₂) := by
   induction hwf using Wf.induct with
   | let_ hop _ ih =>
-    intro G hG; simp only [divConst]
+    intro G hG; dsimp only [divConst]
     refine divConstOp_wf hG hop fun hsub r₁ r₂ hr => ih r₁ r₂ fun p hp => ?_
     rcases List.mem_append.1 hp with hp | hp
     · exact mem_zip_argRel hr p hp

@@ -1,8 +1,10 @@
 module
 
 public import LeanQbe.T.SimplifyGroupPlan
-public import LeanQbe.T.OptUtilLemmas
-public import LeanQbe.T.FlatLemmas
+public import LeanQbe.T.Wf
+public import LeanQbe.T.WP
+import LeanQbe.T.OptUtilLemmas
+import LeanQbe.T.FlatLemmas
 
 /-!
 # Correctness Proofs for `SimplifyGroupPlan`
@@ -19,7 +21,7 @@ no reachable `.jump` ever reaches `.dead`.
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -89,19 +91,19 @@ theorem expandKeepLabels_rel {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → 
         (expandKeepLabels (V := V₂) (rs := rs) ks sig Js₂))
   | _, [], (), (), _, hp => nomatch hp
   | [], _ :: sig, (), (), p, hp => by
-    simp only [expandKeepLabels, Tup.zip] at hp
+    dsimp only [expandKeepLabels, Tup.zip] at hp
     cases hp with
     | head => exact .dead
     | tail _ hp => exact deadTup_rel sig p hp
   | true :: ks, _ :: sig, (j₁, js₁), (j₂, js₂), p, hp => by
-    simp only [expandKeepLabels, Tup.zip] at hp ⊢
+    dsimp only [expandKeepLabels, Tup.zip] at hp ⊢
     cases hp with
     | head => exact .keep List.mem_cons_self
     | tail _ hp =>
       exact (expandKeepLabels_rel ks sig js₁ js₂ p hp).weaken (fun _ h => h)
         (fun _ h => List.mem_cons_of_mem _ h)
   | false :: ks, _ :: sig, js₁, js₂, p, hp => by
-    simp only [expandKeepLabels, Tup.zip] at hp
+    dsimp only [expandKeepLabels, Tup.zip] at hp
     cases hp with
     | head => exact .dead
     | tail _ hp => exact expandKeepLabels_rel ks sig js₁ js₂ p hp
@@ -119,20 +121,18 @@ theorem rewriteSpliceLabels_rel {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty �
       (Tup.zip (rewriteSpliceLabels idx pbs bs₁) (rewriteSpliceLabels idx pbs bs₂))
   | _, _, [], .nil, .nil, _, _, hp => nomatch hp
   | 0, .cons pb _, _ :: sig, .cons _ _, .cons _ _, hb, p, hp => by
-    simp only [rewriteSpliceLabels, Tup.zip] at hp
+    dsimp only [rewriteSpliceLabels, Tup.zip] at hp
     cases hp with
     | head => exact .splice fun hG hD a₁ a₂ ha => hb .here pb a₁ a₂ hG hD ha
     | tail _ hp => exact deadTup_rel sig p hp
   | idx + 1, .cons _ pbs, _ :: _, .cons _ bs₁, .cons _ bs₂, hb, p, hp => by
-    simp only [rewriteSpliceLabels, Tup.zip] at hp
+    dsimp only [rewriteSpliceLabels, Tup.zip] at hp
     cases hp with
     | head => exact .dead
     | tail _ hp => exact rewriteSpliceLabels_rel idx pbs (fun i => hb (.there i)) p hp
-  | _, .nil, _ :: sig, .cons _ _, .cons _ _, _, p, hp => by
-    simp only [rewriteSpliceLabels, Tup.zip] at hp
-    cases hp with
-    | head => exact .dead
-    | tail _ hp => exact deadTup_rel sig p hp
+  | idx, .nil, _ :: sig, .cons _ _, .cons _ _, _, p, hp => by
+    cases idx <;> (dsimp only [rewriteSpliceLabels, Tup.zip] at hp; cases hp with
+      | head => exact .dead | tail _ hp => exact deadTup_rel sig p hp)
 
 theorem rewriteFilteredBlocks_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G' : Ctx V₁ V₂} {D' : Ctx L₁ L₂} :
@@ -334,17 +334,17 @@ theorem validDk_oneTrue_splice {rs : List Ty} :
     ValidDk (Tup.zip (oneTrue idx sig) (rewriteSpliceLabels idx pbs bs₁))
   | _, _, [], .nil, .nil, hval, _, _, _ => by simp [validateSpliceBlock] at hval
   | 0, .cons pb _, _ :: sig, .cons _ _, .cons _ _, _, p, hp, h => by
-    simp only [oneTrue, rewriteSpliceLabels, Tup.zip] at hp
+    dsimp only [oneTrue, rewriteSpliceLabels, Tup.zip] at hp
     cases hp with
     | head => rfl
     | tail _ hp => exact validDk_allFalse_dead sig p hp h
   | idx + 1, .cons _ pbs, _ :: _, .cons _ bsk, .cons _ bs₁, hval, p, hp, h => by
-    simp only [validateSpliceBlock] at hval
-    simp only [oneTrue, rewriteSpliceLabels, Tup.zip] at hp
+    change validateSpliceBlock idx pbs bsk = true at hval
+    dsimp only [oneTrue, rewriteSpliceLabels, Tup.zip] at hp
     cases hp with
     | head => cases h
     | tail _ hp => exact validDk_oneTrue_splice idx pbs (bsk := bsk) (bs₁ := bs₁) hval p hp h
-  | _, .nil, _ :: _, .cons _ _, .cons _ _, hval, _, _, _ => by simp [validateSpliceBlock] at hval
+  | idx, .nil, _ :: _, .cons _ _, .cons _ _, hval, _, _, _ => by cases idx <;> cases hval
 
 theorem planWpD_splice (Γ : Env) {rs : List Ty} (Q : Post rs) (X : XPost) :
     (idx : Nat) → (pbs : SimpPlanB) → {sig : List (List Ty)} →
@@ -353,20 +353,18 @@ theorem planWpD_splice (Γ : Env) {rs : List Ty} (Q : Post rs) (X : XPost) :
       (Tup.zip (rewriteSpliceLabels idx pbs bs₁) (spliceSrcTup Γ Q X idx pbs bs₁))
   | _, _, [], .nil, _, hp => nomatch hp
   | 0, .cons pb _, _ :: sig, .cons b _, p, hp => by
-    simp only [rewriteSpliceLabels, spliceSrcTup, Tup.zip] at hp
+    dsimp only [rewriteSpliceLabels, spliceSrcTup, Tup.zip] at hp
     cases hp with
     | head => exact fun args m h => h args rfl
     | tail _ hp => exact planWpD_dead Γ Q X sig (tupTrue sig) p hp
   | idx + 1, .cons _ pbs, _ :: _, .cons _ bs₁, p, hp => by
-    simp only [rewriteSpliceLabels, spliceSrcTup, Tup.zip] at hp
+    dsimp only [rewriteSpliceLabels, spliceSrcTup, Tup.zip] at hp
     cases hp with
     | head => trivial
     | tail _ hp => exact planWpD_splice Γ Q X idx pbs bs₁ p hp
-  | _, .nil, _ :: sig, .cons _ _, p, hp => by
-    simp only [rewriteSpliceLabels, spliceSrcTup, Tup.zip] at hp
-    cases hp with
-    | head => trivial
-    | tail _ hp => exact planWpD_dead Γ Q X sig (tupTrue sig) p hp
+  | idx, .nil, _ :: sig, .cons _ _, p, hp => by
+    cases idx <;> (dsimp only [rewriteSpliceLabels, spliceSrcTup, Tup.zip] at hp; cases hp with
+      | head => trivial | tail _ hp => exact planWpD_dead Γ Q X sig (tupTrue sig) p hp)
 
 theorem spliceSrcTup_closed (Γ : Env) {rs : List Ty} (Q : Post rs) (X : XPost) :
     (idx : Nat) → (pbs : SimpPlanB) → {sig : List (List Ty)} →
@@ -380,17 +378,17 @@ theorem spliceSrcTup_closed (Γ : Env) {rs : List Ty} (Q : Post rs) (X : XPost) 
     Closed Γ Q X bs₂ (spliceSrcTup Γ Q X idx pbs bs₁)
   | _, _, [], .nil, .nil, .nil, _, _ => trivial
   | 0, .cons pb _, _ :: _, .cons _ _, .cons _ _, .cons _ bs₂, hval, hb => by
-    simp only [validateSpliceBlock] at hval
+    change validatePlan pb _ = true at hval
     simp only [spliceSrcTup, Closed]
     exact ⟨fun xs m hw args hargs => hb .here pb args xs hval hargs m hw,
       pureTrue_closed Γ Q X bs₂⟩
   | idx + 1, .cons _ pbs, _ :: _, .cons _ bsk, .cons _ bs₁, .cons _ bs₂, hval, hb => by
-    simp only [validateSpliceBlock] at hval
+    change validateSpliceBlock idx pbs bsk = true at hval
     simp only [spliceSrcTup, Closed]
     exact ⟨fun _ _ _ => trivial,
       spliceSrcTup_closed Γ Q X idx pbs bsk bs₁ bs₂ hval fun i => hb (.there i)⟩
-  | _, .nil, _ :: _, .cons _ _, .cons _ _, .cons _ _, hval, _ => by
-    simp [validateSpliceBlock] at hval
+  | idx, .nil, _ :: _, .cons _ _, .cons _ _, .cons _ _, hval, _ => by
+    cases idx <;> cases hval
 
 /-- Expand target `Js : Tup Cont (filterSig ks sig)` to source `Tup Cont sig`. -/
 def expandSrcConts : (ks : List Bool) → (sig : List (List Ty)) →
@@ -405,17 +403,17 @@ theorem validDk_filter {rs : List Ty} :
     ValidDk (Tup.zip (boolTup ks sig) (expandKeepLabels (V := Val) (rs := rs) ks sig Js))
   | _, [], (), _, hp, _ => nomatch hp
   | [], _ :: sig, (), p, hp, h => by
-    simp only [boolTup, expandKeepLabels, Tup.zip] at hp
+    dsimp only [boolTup, expandKeepLabels, Tup.zip] at hp
     cases hp with
     | head => cases h
     | tail _ hp => exact validDk_allFalse_dead sig p hp h
   | true :: ks, _ :: sig, (J, Js), p, hp, h => by
-    simp only [boolTup, expandKeepLabels, Tup.zip] at hp
+    dsimp only [boolTup, expandKeepLabels, Tup.zip] at hp
     cases hp with
     | head => rfl
     | tail _ hp => exact validDk_filter ks sig Js p hp h
   | false :: ks, _ :: sig, Js, p, hp, h => by
-    simp only [boolTup, expandKeepLabels, Tup.zip] at hp
+    dsimp only [boolTup, expandKeepLabels, Tup.zip] at hp
     cases hp with
     | head => cases h
     | tail _ hp => exact validDk_filter ks sig Js p hp h
@@ -426,17 +424,17 @@ theorem planWpD_filter (Γ : Env) {rs : List Ty} (Q : Post rs) (X : XPost) :
       (Tup.zip (expandKeepLabels (V := Val) (rs := rs) ks sig Js) (expandSrcConts ks sig Js))
   | _, [], (), _, hp => nomatch hp
   | [], _ :: sig, (), p, hp => by
-    simp only [expandKeepLabels, expandSrcConts, Tup.zip] at hp
+    dsimp only [expandKeepLabels, expandSrcConts, Tup.zip] at hp
     cases hp with
     | head => trivial
     | tail _ hp => exact planWpD_dead Γ Q X sig (tupTrue sig) p hp
   | true :: ks, _ :: sig, (_, Js), p, hp => by
-    simp only [expandKeepLabels, expandSrcConts, Tup.zip] at hp
+    dsimp only [expandKeepLabels, expandSrcConts, Tup.zip] at hp
     cases hp with
     | head => rfl
     | tail _ hp => exact planWpD_filter Γ Q X ks sig Js p hp
   | false :: ks, _ :: sig, Js, p, hp => by
-    simp only [expandKeepLabels, expandSrcConts, Tup.zip] at hp
+    dsimp only [expandKeepLabels, expandSrcConts, Tup.zip] at hp
     cases hp with
     | head => trivial
     | tail _ hp => exact planWpD_filter Γ Q X ks sig Js p hp
@@ -457,26 +455,24 @@ theorem expandSrcConts_closed (Γ : Env) {rs : List Ty} (Q : Post rs) (X : XPost
   | [], .nil, [], .nil, .nil, .nil, (), _, _, _ => trivial
   | true :: ks, .cons pb pbs, _ :: _, .cons _ bsk, .cons _ bs₁, .cons _ bs₂, (J, Js),
       hval, hcl, hb => by
-    simp only [validateFilteredBlocks, Bool.and_eq_true] at hval
+    change (validatePlan pb _ && validateFilteredBlocks ks pbs bsk) = true at hval
+    simp only [Bool.and_eq_true] at hval
     simp only [rewriteFilteredBlocks] at hcl
     simp only [expandSrcConts, Closed]
     exact ⟨fun xs m hw => hcl.1 xs m (hb .here pb xs hval.1 m hw),
       expandSrcConts_closed Γ Q X ks pbs bsk bs₁ bs₂ Js hval.2 hcl.2 fun i => hb (.there i)⟩
   | false :: ks, .cons _ pbs, _ :: _, .cons _ bsk, .cons _ bs₁, .cons _ bs₂, Js,
       hval, hcl, hb => by
-    simp only [validateFilteredBlocks] at hval
+    change validateFilteredBlocks ks pbs bsk = true at hval
     simp only [rewriteFilteredBlocks] at hcl
     simp only [expandSrcConts, Closed]
     exact ⟨fun _ _ _ => trivial,
       expandSrcConts_closed Γ Q X ks pbs bsk bs₁ bs₂ Js hval hcl fun i => hb (.there i)⟩
-  | [], .cons _ _, [], .nil, .nil, .nil, (), hval, _, _ => by
-    simp [validateFilteredBlocks] at hval
-  | _ :: _, _, [], .nil, .nil, .nil, (), hval, _, _ => by
-    simp [validateFilteredBlocks] at hval
-  | [], _, _ :: _, .cons _ _, .cons _ _, .cons _ _, (), hval, _, _ => by
-    simp [validateFilteredBlocks] at hval
-  | _ :: _, .nil, _ :: _, .cons _ _, .cons _ _, .cons _ _, _, hval, _, _ => by
-    simp [validateFilteredBlocks] at hval
+  | [], .cons _ _, [], .nil, .nil, .nil, (), hval, _, _ => by cases hval
+  | _ :: _, pbs, [], .nil, .nil, .nil, (), hval, _, _ => by cases pbs <;> cases hval
+  | [], pbs, _ :: _, .cons _ _, .cons _ _, .cons _ _, (), hval, _, _ => by cases pbs <;> cases hval
+  | k :: _, .nil, _ :: _, .cons _ _, .cons _ _, .cons _ _, _, hval, _, _ => by
+      cases k <;> cases hval
 
 /-- `rewriteExpr` refines `wp` whenever `validatePlan` accepts the plan. -/
 theorem rewriteExpr_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
@@ -497,99 +493,99 @@ theorem rewriteExpr_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     | node1 pk =>
       cases hop with
       | mk code hargs =>
-        simp only [validatePlan] at hval
-        simp only [rewriteExpr, flattenOp, wp, Op.wp] at hw2 ⊢
+        dsimp only [validatePlan] at hval
+        dsimp only [rewriteExpr, flattenOp, wp, Op.wp] at hw2 ⊢
         rw [flattenArgs_vals hG hargs]
         exact OpCode.wp_mono code _ (fun r =>
           ih (toArgTup r) r (hkk (Tup.units _) (toArgTup r)) pk hval
             (ctx_val_append (toArgTup_zip_val r) hG) hDk hD m) hw2
-    | _ => simp [validatePlan] at hval
+    | _ => dsimp only [validatePlan] at hval; cases hval
   | load t ha _ ih =>
     intro Gk Dk ek hwk plan hval hG hDk hD m ⟨v, hv, hw2⟩
     rcases hwk.rhs_load with ⟨_, kk, rfl, _, hkk⟩
     cases plan with
     | node1 pk =>
-      simp only [validatePlan] at hval
-      simp only [rewriteExpr, wp]
+      dsimp only [validatePlan] at hval
+      dsimp only [rewriteExpr, wp]
       rw [flattenArg_val hG ha]
       exact ⟨v, hv, ih (.var v) v (hkk () (.var v)) pk hval
         (ctx_val_cons_var hG v) hDk hD m hw2⟩
-    | _ => simp [validatePlan] at hval
+    | _ => dsimp only [validatePlan] at hval; cases hval
   | store hv ha _ ih =>
     intro Gk Dk ek hwk plan hval hG hDk hD m ⟨hok, hw2⟩
     rcases hwk.rhs_store with ⟨_, _, kk, rfl, _, _, hkk⟩
     cases plan with
     | node1 pk =>
-      simp only [validatePlan] at hval
-      simp only [rewriteExpr, wp]
+      dsimp only [validatePlan] at hval
+      dsimp only [rewriteExpr, wp]
       rw [flattenArg_val hG hv, flattenArg_val hG ha]
       exact ⟨hok, ih hkk pk hval hG hDk hD _ hw2⟩
-    | _ => simp [validatePlan] at hval
+    | _ => dsimp only [validatePlan] at hval; cases hval
   | call f hargs _ ih =>
     intro Gk Dk ek hwk plan hval hG hDk hD m ⟨P, E, hΓ, hP, hE⟩
     rcases hwk.rhs_call with ⟨_, kk, rfl, _, hkk⟩
     cases plan with
     | node1 pk =>
-      simp only [validatePlan] at hval
-      simp only [rewriteExpr, wp]
+      dsimp only [validatePlan] at hval
+      dsimp only [rewriteExpr, wp]
       rw [flattenArgs_vals hG hargs]
       exact ⟨P, E, hΓ, fun r m' hp =>
         ih (toArgTup r) r (hkk (Tup.units _) (toArgTup r)) pk hval
           (ctx_val_append (toArgTup_zip_val r) hG) hDk hD m' (hP r m' hp), hE⟩
-    | _ => simp [validatePlan] at hval
+    | _ => dsimp only [validatePlan] at hval; cases hval
   | jnz hc _ _ iht ihe =>
     intro Gk Dk ek hwk plan hval hG hDk hD m hw2
     rcases hwk.rhs_jnz with ⟨_, tk, ek', rfl, _, htk, hek⟩
     cases plan with
     | node2 pt pe =>
-      simp only [validatePlan, Bool.and_eq_true] at hval
-      simp only [rewriteExpr, wp] at hw2 ⊢
+      dsimp only [validatePlan] at hval; simp only [Bool.and_eq_true] at hval
+      dsimp only [rewriteExpr, wp] at hw2 ⊢
       rw [flattenArg_val hG hc]
       exact ⟨fun h => iht htk pt hval.1 hG hDk hD m (hw2.1 h),
              fun h => ihe hek pe hval.2 hG hDk hD m (hw2.2 h)⟩
-    | _ => simp [validatePlan] at hval
+    | _ => dsimp only [validatePlan] at hval; cases hval
   | @jump _ _ _ j₁ _ _ _ hj hargs =>
     intro Gk Dk ek hwk plan hval hG hDk hD m hw2
     rcases hwk.rhs_jump with ⟨ok, _, rfl, hjk, _⟩
     cases plan with
     | leaf =>
-      simp only [validatePlan] at hval
+      dsimp only [validatePlan] at hval
       have hlive : j₁.isLive = true := hDk _ hjk hval
       have hd := hD _ hj
       cases j₁ with
       | keep J =>
-        simp only [rewriteExpr, wp] at hw2 ⊢
+        dsimp only [rewriteExpr, wp] at hw2 ⊢
         dsimp only at hd
         rw [flattenArgs_vals hG hargs, hd]
         exact hw2
-      | dead => simp [PlanL.isLive] at hlive
+      | dead => dsimp only [PlanL.isLive] at hlive; cases hlive
       | splice body =>
-        simp only [rewriteExpr, wp] at hw2 ⊢
+        dsimp only [rewriteExpr, wp] at hw2 ⊢
         dsimp only at hd
         exact hd _ m (by rw [flattenArgs_vals hG hargs]; exact hw2)
-    | _ => simp [validatePlan] at hval
+    | _ => dsimp only [validatePlan] at hval; cases hval
   | ret hvs =>
     intro Gk Dk ek hwk plan hval hG _ _ m hw2
     rcases hwk.rhs_ret with ⟨_, rfl, _⟩
     cases plan with
     | leaf =>
-      simp only [rewriteExpr, wp] at hw2 ⊢
+      dsimp only [rewriteExpr, wp] at hw2 ⊢
       rwa [flattenArgs_vals hG hvs]
-    | _ => simp [validatePlan] at hval
+    | _ => dsimp only [validatePlan] at hval; cases hval
   | exit f hargs =>
     intro Gk Dk ek hwk plan hval hG _ _ m hw2
     rcases hwk.rhs_exit with ⟨_, rfl, _⟩
     cases plan with
     | leaf =>
-      simp only [rewriteExpr, wp] at hw2 ⊢
+      dsimp only [rewriteExpr, wp] at hw2 ⊢
       rwa [flattenArgs_vals hG hargs]
-    | _ => simp [validatePlan] at hval
+    | _ => dsimp only [validatePlan] at hval; cases hval
   | hlt =>
     intro Gk Dk ek hwk plan hval _ _ _ _ hw2
     rcases hwk.rhs_hlt with rfl
     cases plan with
     | leaf => exact hw2
-    | _ => simp [validatePlan] at hval
+    | _ => dsimp only [validatePlan] at hval; cases hval
   | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
     intro Gk Dk ek hwk plan hval hG hDk hD m hw2
     rcases hwk.rhs_group with ⟨bk, kk, rfl, hbk, hkk⟩
@@ -597,16 +593,16 @@ theorem rewriteExpr_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     | group act pbs pk =>
       cases act with
       | unwrap =>
-        simp only [validatePlan] at hval
-        simp only [rewriteExpr]
+        dsimp only [validatePlan] at hval
+        dsimp only [rewriteExpr]
         let Js₂ := tupTrue sig
         exact ihk (deadTup sig) Js₂ (hkk (allFalse sig) (deadTup sig)) pk hval hG
           ((validDk_allFalse_dead sig).append hDk)
           ((planWpD_dead Γ Q X sig Js₂).append hD)
           m (hw2 Js₂ (pureTrue_closed Γ Q X (b₂ Js₂)))
       | splice idx =>
-        simp only [validatePlan, Bool.and_eq_true] at hval
-        simp only [rewriteExpr]
+        dsimp only [validatePlan] at hval; simp only [Bool.and_eq_true] at hval
+        dsimp only [rewriteExpr]
         let Js₂ := spliceSrcTup Γ Q X idx pbs (b₁ (deadTup sig))
         have hcl₂ : Closed Γ Q X (b₂ Js₂) Js₂ :=
           spliceSrcTup_closed Γ Q X idx pbs (bk (allFalse sig)) (b₁ (deadTup sig)) (b₂ Js₂)
@@ -623,8 +619,8 @@ theorem rewriteExpr_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
           ((planWpD_splice Γ Q X idx pbs (b₁ (deadTup sig))).append hD)
           m (hw2 Js₂ hcl₂)
       | filter keep =>
-        simp only [validatePlan, Bool.and_eq_true] at hval
-        simp only [rewriteExpr, wp]
+        dsimp only [validatePlan] at hval; simp only [Bool.and_eq_true] at hval
+        dsimp only [rewriteExpr, wp]
         intro Js_out hcl_out
         let ls := expandKeepLabels (V := Val) (rs := rs) keep sig Js_out
         let Js₂ := expandSrcConts keep sig Js_out
@@ -637,7 +633,7 @@ theorem rewriteExpr_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
                 ((hbk (boolTup keep sig) ls).get i (Tup.units _) (toArgTup xs)) pb hvb
                 (ctx_val_append (toArgTup_zip_val xs) hG) hDk' hD' m' hw
         exact ihk ls Js₂ (hkk (boolTup keep sig) ls) pk hval.2 hG hDk' hD' m (hw2 Js₂ hcl₂)
-    | _ => simp [validatePlan] at hval
+    | _ => dsimp only [validatePlan] at hval; cases hval
 
 end SgpImpl
 
@@ -648,7 +644,7 @@ open SgpImpl
 /-- `Func.simplifyGroupWithPlan` preserves relational well-formedness `Func.Wf`. -/
 theorem Func.simplifyGroupWithPlan_wf {as rs : List Ty} (plan : SimpPlan) {f : Func as rs}
     (hf : f.Wf) : (Func.simplifyGroupWithPlan plan f).Wf := by
-  unfold Func.simplifyGroupWithPlan
+  dsimp only [Func.simplifyGroupWithPlan]
   split
   · intro V₁ V₂ L₁ L₂ xs₁ xs₂
     exact rewriteExpr_wf
@@ -660,7 +656,7 @@ theorem Func.simplifyGroupWithPlan_wf {as rs : List Ty} (plan : SimpPlan) {f : F
 theorem Func.simplifyGroupWithPlan_spec {as rs : List Ty} (plan : SimpPlan) {f : Func as rs}
     (hf : f.Wf) {Γ : Env} {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.simplifyGroupWithPlan plan f) xs m Q X := by
-  unfold Func.simplifyGroupWithPlan
+  dsimp only [Func.simplifyGroupWithPlan]
   split
   · rename_i hval
     have hwf := hf (Arg Val) Val (PlanL Val Cont rs) Cont (toArgTup xs) xs
@@ -672,8 +668,7 @@ theorem Func.simplifyGroupWithPlan_spec {as rs : List Ty} (plan : SimpPlan) {f :
 /-- `Func.simplifyGroupPlan` preserves relational well-formedness `Func.Wf`. -/
 theorem Func.simplifyGroupPlan_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
     (Func.simplifyGroupPlan f).Wf := by
-  unfold Func.simplifyGroupPlan
-  dsimp only
+  dsimp only [Func.simplifyGroupPlan]
   split
   · exact Func.simplifyGroupWithPlan_wf _ (Func.renorm_wf f)
   · exact Func.renorm_wf f
@@ -682,8 +677,7 @@ theorem Func.simplifyGroupPlan_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf
 theorem Func.simplifyGroupPlan_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.simplifyGroupPlan f) xs m Q X := by
-  unfold Func.simplifyGroupPlan
-  dsimp only
+  dsimp only [Func.simplifyGroupPlan]
   split
   · exact Func.simplifyGroupWithPlan_spec _ (Func.renorm_wf f) (Func.renorm_spec hf h)
   · exact Func.renorm_spec hf h

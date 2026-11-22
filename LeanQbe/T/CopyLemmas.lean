@@ -1,7 +1,10 @@
 module
 
 public import LeanQbe.T.Copy
-public import LeanQbe.T.FoldLemmas
+public import LeanQbe.T.Wf
+public import LeanQbe.T.WP
+import LeanQbe.T.OptUtilLemmas
+import LeanQbe.T.OpsLemmas
 
 /-!
 # Correctness of `copy` (`T6`)
@@ -15,7 +18,7 @@ public import LeanQbe.T.FoldLemmas
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -32,18 +35,18 @@ def cupdTup (ρ : CEnv) (b : Nat) : {ts : List Ty} → Tup Val ts → CEnv
 
 theorem cupd_eq (ρ : CEnv) {t : Ty} (b : Nat) (v : Val t) :
     cupd ρ b v b = some ⟨t, v⟩ := by
-  simp [cupd]
+  dsimp only [cupd]; simp
 
 theorem cupd_ne (ρ : CEnv) {t : Ty} {b k : Nat} (v : Val t) (h : k ≠ b) :
     cupd ρ b v k = ρ k := by
-  simp [cupd, h]
+  dsimp only [cupd]; simp [h]
 
 theorem cupdTup_lt (ρ : CEnv) :
     {ts : List Ty} → (xs : Tup Val ts) → {b k : Nat} →
     k < b → cupdTup ρ b xs k = ρ k
   | [], (), _, _, _ => rfl
   | _ :: _, (x, xs), b, k, hk => by
-    simp only [cupdTup]
+    dsimp only [cupdTup]
     rw [cupdTup_lt (cupd ρ b x) xs (by omega)]
     exact cupd_ne ρ x (by omega)
 
@@ -77,7 +80,7 @@ theorem CopyGood.mono {ρ ρ' : CEnv} {bound bound' : Nat}
     {t : Ty} → {c : CVal Val t} → {v : Val t} →
     CopyGood ρ bound c v → CopyGood ρ' bound' c v
   | _, .mk _ _ _ _ _, _, h => by
-    simp only [CopyGood] at h ⊢
+    dsimp only [CopyGood] at h ⊢
     rcases h with ⟨ho, hid, hp, hf, hs⟩
     exact ⟨ho,
       fun k hk => by obtain ⟨hlt, hpk⟩ := hid k hk; exact ⟨by omega, (hρ k hlt).trans hpk⟩,
@@ -89,7 +92,7 @@ theorem CGoodParts.mono {ρ ρ' : CEnv} {bound bound' : Nat}
     CGoodParts ρ bound p v → CGoodParts ρ' bound' p v
   | _, .unknown, _, _ => trivial
   | .pair _ _, .pair _ _, _, h => by
-    simp only [CGoodParts] at h ⊢
+    dsimp only [CGoodParts] at h ⊢
     exact ⟨CopyGood.mono hb hρ h.1, CopyGood.mono hb hρ h.2⟩
 
 theorem CGoodFst.mono {ρ ρ' : CEnv} {bound bound' : Nat}
@@ -98,7 +101,7 @@ theorem CGoodFst.mono {ρ ρ' : CEnv} {bound bound' : Nat}
     CGoodFst ρ bound f v → CGoodFst ρ' bound' f v
   | _, .none, _, _ => trivial
   | _, .some pid _, _, h => by
-    simp only [CGoodFst] at h ⊢
+    dsimp only [CGoodFst] at h ⊢
     rcases h with ⟨u, hlt, hp, hcg⟩
     exact ⟨u, by omega, (hρ pid hlt).trans hp, CopyGood.mono hb hρ hcg⟩
 
@@ -108,7 +111,7 @@ theorem CGoodSnd.mono {ρ ρ' : CEnv} {bound bound' : Nat}
     CGoodSnd ρ bound s v → CGoodSnd ρ' bound' s v
   | _, .none, _, _ => trivial
   | _, .some pid _, _, h => by
-    simp only [CGoodSnd] at h ⊢
+    dsimp only [CGoodSnd] at h ⊢
     rcases h with ⟨u, hlt, hp, hcg⟩
     exact ⟨u, by omega, (hρ pid hlt).trans hp, CopyGood.mono hb hρ hcg⟩
 end
@@ -125,11 +128,17 @@ theorem CopyGood.cupdTup {ρ : CEnv} {bound : Nat} {ts : List Ty} (xs : Tup Val 
 
 theorem CopyGood.ofImm (ρ : CEnv) (bound : Nat) :
     (t : Ty) → (c : Val t) → CopyGood ρ bound (CVal.ofImm t c) c
-  | .bool, c => by simp [CVal.ofImm, CopyGood, CGoodParts, CGoodFst, CGoodSnd]
-  | .bits _, c => by simp [CVal.ofImm, CopyGood, CGoodParts, CGoodFst, CGoodSnd]
-  | .float _, c => by simp [CVal.ofImm, CopyGood, CGoodParts, CGoodFst, CGoodSnd]
+  | .bool, c => by
+    dsimp only [CVal.ofImm, CopyGood, CGoodParts, CGoodFst, CGoodSnd]
+    exact ⟨rfl, (fun _ h => nomatch h), trivial, trivial, trivial⟩
+  | .bits _, c => by
+    dsimp only [CVal.ofImm, CopyGood, CGoodParts, CGoodFst, CGoodSnd]
+    exact ⟨rfl, (fun _ h => nomatch h), trivial, trivial, trivial⟩
+  | .float _, c => by
+    dsimp only [CVal.ofImm, CopyGood, CGoodParts, CGoodFst, CGoodSnd]
+    exact ⟨rfl, (fun _ h => nomatch h), trivial, trivial, trivial⟩
   | .pair a b, (c₁, c₂) => by
-    simp only [CVal.ofImm, CopyGood, CGoodParts, CGoodFst, CGoodSnd]
+    dsimp only [CVal.ofImm, CopyGood, CGoodParts, CGoodFst, CGoodSnd]
     exact ⟨rfl, (fun _ h => nomatch h), ⟨CopyGood.ofImm ρ bound a c₁, CopyGood.ofImm ρ bound b c₂⟩,
       trivial, trivial⟩
 
@@ -169,11 +178,11 @@ private theorem CGoodCtx.freshCVals_only (ρ : CEnv) :
     CGoodCtx (cupdTup ρ b xs) (b + ts.length) (Tup.zip (freshCVals ts xs b) xs)
   | [], (), _ => fun _ hp => nomatch hp
   | t :: ts, (x, xs), b => by
-    simp only [freshCVals, tupFreshWith, Tup.zip, cupdTup, List.length_cons]
+    dsimp only [freshCVals, tupFreshWith, Tup.zip, cupdTup]; simp only [List.length_cons]
     intro p hp
     cases hp with
     | head =>
-      simp only [CVal.fresh, CopyGood, CGoodParts, CGoodFst, CGoodSnd]
+      dsimp only [CVal.fresh, CopyGood, CGoodParts, CGoodFst, CGoodSnd]
       refine ⟨rfl, fun k hk => ?_, trivial, trivial, trivial⟩
       cases hk
       refine ⟨by omega, ?_⟩
@@ -193,7 +202,7 @@ theorem CGoodCtx.freshOne {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val}
     CGoodCtx (cupd ρ b v) (b + 1) (⟨t, CVal.fresh v b, v⟩ :: G) :=
   (hG.upd_all (ts := [t]) (v, ())).cons
     (by
-      simp only [CVal.fresh, CopyGood, CGoodParts, CGoodFst, CGoodSnd]
+      dsimp only [CVal.fresh, CopyGood, CGoodParts, CGoodFst, CGoodSnd]
       exact ⟨rfl, fun k hk => by cases hk; exact ⟨Nat.lt_succ_self b, cupd_eq ρ b v⟩,
         trivial, trivial, trivial⟩)
 
@@ -223,7 +232,7 @@ theorem CopyGood.fst_snd_pair {ρ : CEnv} {b : Nat} {a a₂ b₁ b₂ : Ty} {pid
     (hsnd : CGoodSnd ρ b (.some (a := a₂) pid p₂) vb) :
     CopyGood ρ b (cast (congrArg (fun u => CVal Val (.pair a u)) hb) p₁) (va, vb) := by
   subst hb
-  simp only [CGoodFst, CGoodSnd] at hfst hsnd
+  dsimp only [CGoodFst, CGoodSnd] at hfst hsnd
   rcases hfst with ⟨u₁, _, hρ₁, hp₁⟩
   rcases hsnd with ⟨u₂, _, hρ₂, _⟩
   rw [hρ₁] at hρ₂
@@ -241,17 +250,18 @@ private theorem mkpairEmitStep_wp {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val}
     | .elim res => ∃ ys, P ys ∧ CGoodCtx ρ b (Tup.zip res ys ++ G)
     | .emit op' next' wrap =>
       op'.wp fun ys => P ys ∧ ∃ ρ', CGoodCtx ρ' next' (Tup.zip (wrap ys) ys ++ G) := by
-  simp only [mkpairEmitStep, Op.wp, op2, OpCode.wp_mkpair, vals]
+  dsimp only [mkpairEmitStep, Op.wp, op2, vals]; simp only [OpCode.wp_mkpair]
   have hox : cx.out.val = vx := by cases cx; exact hcx.1
   have hoy : cy.out.val = vy := by cases cy; exact hcy.1
   rw [hox, hoy]
   refine ⟨hw, cupd ρ (t := .pair a b') b (vx, vy), ?_⟩
   have hcg : CopyGood (cupd ρ (t := .pair a b') b (vx, vy)) (b + 1)
       (.mk (.var (vx, vy)) (some b) (.pair cx cy) .none .none) (vx, vy) := by
-    simp only [CopyGood, CGoodParts, CGoodFst, CGoodSnd]
+    dsimp only [CopyGood, CGoodParts, CGoodFst, CGoodSnd]
     exact ⟨rfl, fun k hk => by cases hk; exact ⟨Nat.lt_succ_self b, cupd_eq ρ b _⟩,
       ⟨hcx.cupd, hcy.cupd⟩, trivial, trivial⟩
-  simpa [Tup.zip, cupdTup] using (hG.upd_all (ts := [.pair a b']) ((vx, vy), ())).cons hcg
+  dsimp only [Tup.zip, cupdTup]
+  exact (hG.upd_all (ts := [.pair a b']) ((vx, vy), ())).cons hcg
 
 private theorem mkpairProjStep_wp {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val}
     (hG : CGoodCtx ρ b G) {a b' : Ty} {cx : CVal Val a} {cy : CVal Val b'}
@@ -261,8 +271,7 @@ private theorem mkpairProjStep_wp {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val}
     | .elim res => ∃ ys, P ys ∧ CGoodCtx ρ b (Tup.zip res ys ++ G)
     | .emit op' next' wrap =>
       op'.wp fun ys => P ys ∧ ∃ ρ', CGoodCtx ρ' next' (Tup.zip (wrap ys) ys ++ G) := by
-  unfold mkpairProjStep
-  dsimp only
+  dsimp only [mkpairProjStep]
   cases hfst : cx.fstOf with
   | none =>
     cases hsnd : cy.sndOf <;> exact mkpairEmitStep_wp hG hcx hcy hw
@@ -291,7 +300,7 @@ private theorem mkpairProjStep_wp {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val}
           have hp1'_eq : CopyGood ρ b (.mk p₁.out p₁.id (.pair cx cy) p₁.fstOf p₁.sndOf)
               (vx, vy) := by
             cases p₁
-            simp only [CopyGood] at hp1' ⊢
+            dsimp only [CopyGood] at hp1' ⊢
             exact ⟨hp1'.1, hp1'.2.1, ⟨hcx, hcy⟩, hp1'.2.2.2.1, hp1'.2.2.2.2⟩
           simpa [Tup.zip] using hG.cons hp1'_eq
 
@@ -307,14 +316,13 @@ theorem OpRel.copyLet_wp {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val} (hG : CG
       op'.wp fun ys =>
         P ys ∧
           ∃ ρ', CGoodCtx ρ' next' (Tup.zip (wrap ys) ys ++ G) := by
-  unfold Op.copyLet
-  dsimp only
+  dsimp only [Op.copyLet]
   cases code with
   | copy t =>
     rcases args₁ with ⟨a₁, ⟨⟩⟩
     rcases args₂ with ⟨a₂, ⟨⟩⟩
     rcases hargs with _ | ⟨ha, _⟩
-    simp only [OpCode.wp_copy, vals] at hw
+    dsimp only [vals] at hw; simp only [OpCode.wp_copy] at hw
     exact ⟨(a₂.val, ()), hw, hG.cons (ha.toCVal_good hG)⟩
   | unpair a b' =>
     rcases args₁ with ⟨p₁, ⟨⟩⟩
@@ -322,7 +330,7 @@ theorem OpRel.copyLet_wp {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val} (hG : CG
     rcases hargs with _ | ⟨hp, _⟩
     dsimp only
     have hcp := hp.toCVal_good hG
-    simp only [OpCode.wp_unpair, vals] at hw
+    dsimp only [vals] at hw; simp only [OpCode.wp_unpair] at hw
     cases hparts : p₁.toCVal.parts with
     | pair x y =>
       cases hcp_eq : p₁.toCVal with
@@ -330,7 +338,7 @@ theorem OpRel.copyLet_wp {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val} (hG : CG
         rw [hcp_eq] at hcp hparts
         dsimp only [CVal.parts] at hparts
         subst hparts
-        simp only [CopyGood, CGoodParts] at hcp
+        dsimp only [CopyGood, CGoodParts] at hcp
         exact ⟨(p₂.val.1, p₂.val.2, ()), hw, (hG.cons hcp.2.2.1.2).cons hcp.2.2.1.1⟩
     | unknown =>
       dsimp only [Op.wp, op1, OpCode.wp_unpair, vals]
@@ -350,7 +358,7 @@ theorem OpRel.copyLet_wp {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val} (hG : CG
         rw [hcp_eq] at hcp' hid
         dsimp only [CVal.id] at hid
         subst hid
-        simp only [CopyGood] at hcp'
+        dsimp only [CopyGood] at hcp'
         obtain ⟨hplt, hpρ⟩ := hcp'.2.1 pid rfl
         have hp_mono : CopyGood (cupdTup ρ b (ts := [a, b']) (p₂.val.1, p₂.val.2, ())) (b + 2)
             p₁.toCVal p₂.val :=
@@ -361,20 +369,20 @@ theorem OpRel.copyLet_wp {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val} (hG : CG
           exact hpρ
         have hfst : CopyGood (cupdTup ρ b (ts := [a, b']) (p₂.val.1, p₂.val.2, ())) (b + 2)
             (.mk (.var p₂.val.1) (some b) .unknown (.some pid p₁.toCVal) .none) p₂.val.1 := by
-          simp only [CopyGood, CGoodParts, CGoodFst, CGoodSnd]
+          dsimp only [CopyGood, CGoodParts, CGoodFst, CGoodSnd]
           refine ⟨rfl, fun k hk => ?_, trivial,
             ⟨p₂.val.2, by omega, by simpa using hρpid, hp_mono⟩, trivial⟩
           cases hk
           refine ⟨by omega, ?_⟩
-          simp only [cupdTup]
+          dsimp only [cupdTup]
           rw [cupd_ne _ _ (by omega), cupd_eq]
         have hsnd : CopyGood (cupdTup ρ b (ts := [a, b']) (p₂.val.1, p₂.val.2, ())) (b + 2)
             (.mk (.var p₂.val.2) (some (b + 1)) .unknown .none (.some pid p₁.toCVal)) p₂.val.2 := by
-          simp only [CopyGood, CGoodParts, CGoodFst, CGoodSnd]
+          dsimp only [CopyGood, CGoodParts, CGoodFst, CGoodSnd]
           refine ⟨rfl, fun k hk => ?_, trivial, trivial,
             ⟨p₂.val.1, by omega, by simpa using hρpid, hp_mono⟩⟩
           cases hk
-          exact ⟨by omega, by simp [cupdTup, cupd_eq]⟩
+          exact ⟨by omega, by dsimp only [cupdTup]; exact cupd_eq _ _ _⟩
         have hf_eq : b + [a, b'].length = b + 2 := rfl
         rw [← hf_eq]
         simpa [Tup.zip, hcp_eq] using
@@ -386,8 +394,8 @@ theorem OpRel.copyLet_wp {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val} (hG : CG
     dsimp only
     have hcx := hx.toCVal_good hG
     have hcy := hy.toCVal_good hG
-    simp only [OpCode.wp_mkpair, vals] at hw
-    unfold mkpairStep
+    dsimp only [vals] at hw; simp only [OpCode.wp_mkpair] at hw
+    dsimp only [mkpairStep]
     cases hxout : x₁.toCVal.out with
     | var _ =>
       dsimp only
@@ -408,7 +416,7 @@ theorem OpRel.copyLet_wp {ρ : CEnv} {b : Nat} {G : Ctx (CVal Val) Val} (hG : CG
         have hcg : CopyGood ρ b
             (.mk (.imm (c₁, c₂)) none (.pair x₁.toCVal y₁.toCVal) .none .none)
             (x₂.val, y₂.val) := by
-          simp only [CopyGood, CGoodParts, CGoodFst, CGoodSnd]
+          dsimp only [CopyGood, CGoodParts, CGoodFst, CGoodSnd]
           exact ⟨Prod.ext h1 h2, (fun _ h => nomatch h), ⟨hcx, hcy⟩, trivial, trivial⟩
         simpa [Tup.zip] using hG.cons hcg
   | _ =>
@@ -426,6 +434,15 @@ theorem copyB_get {V₁ : Ty → Type} {L₁ : List Ty → Type} {rs : List Ty} 
   | _, _, .cons _ bs, .there i, xs => copyB_get b bs i xs
 
 /-- Weakest-precondition preservation for `copy`, proved via `Wf.induct`. -/
+private theorem copy_let {V : Ty → Type} {L : List Ty → Type} {ts rs : List Ty}
+    (next : Nat) (op : Op (CVal V) ts) (k : Tup (CVal V) ts → Expr (CVal V) L rs) :
+    copy next (.let_ op k) =
+      match op.copyLet next with
+      | .elim res => copy next (k res)
+      | .emit op' next' wrap => .let_ op' fun xs => copy next' (k (wrap xs)) := by
+  delta copy; dsimp only [Expr.brecOn, Expr.rec, copy._f]
+  cases op.copyLet next <;> rfl
+
 theorem copy_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {G : Ctx (CVal Val) Val} {D : Ctx Cont Cont}
     {e₁ : Expr (CVal Val) Cont rs} {e₂ : Expr Val Cont rs}
@@ -435,11 +452,11 @@ theorem copy_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   induction hwf using Wf.induct with
   | @let_ G D ts op₁ op₂ k₁ k₂ hop _ ih =>
     intro hD b ρ hG m hw
-    simp only [wp] at hw
+    dsimp only [wp] at hw
     cases hop with
     | @mk sig _ code args₁ args₂ hargs =>
       have hstep := OpRel.copyLet_wp hG hargs hw
-      simp only [copy]
+      rw [copy_let]
       cases hcl : ({ code := code, args := args₁ } : Op (CVal Val) ts).copyLet b with
       | elim res =>
         rw [hcl] at hstep
@@ -447,45 +464,45 @@ theorem copy_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
         exact ih res ys hD b ρ hG' m hk2
       | emit op' next' wrap =>
         rw [hcl] at hstep
-        simp only [wp]
+        dsimp only [wp]
         exact Op.wp_mono (fun ys ⟨hk2, ρ', hG'⟩ => ih (wrap ys) ys hD next' ρ' hG' m hk2) hstep
   | load t ha _ ih =>
     intro hD b ρ hG m hw
-    simp only [wp, copy] at hw ⊢
+    dsimp only [wp, copy] at hw ⊢
     rcases hw with ⟨v, hv, hk⟩
     exact ⟨v, ha.cout_val hG ▸ hv,
       ih (CVal.fresh v b) v hD (b + 1) (cupd ρ b v) (hG.freshOne v) m hk⟩
   | store hv ha _ ih =>
     intro hD b ρ hG m hw
-    simp only [wp, copy] at hw ⊢
+    dsimp only [wp, copy] at hw ⊢
     rw [ha.cout_val hG, hv.cout_val hG]
     exact ⟨hw.1, ih hD b ρ hG _ hw.2⟩
   | call f hargs _ ih =>
     intro hD b ρ hG m hw
-    simp only [wp, copy] at hw ⊢
+    dsimp only [wp, copy] at hw ⊢
     rcases hw with ⟨P, E, hΓ, hP, hE⟩
     rw [hargs.cout_vals hG]
     exact ⟨P, E, hΓ, fun r m' hp =>
       ih (freshCVals _ r b) r hD (b + _) (cupdTup ρ b r) (hG.freshCVals r) m' (hP r m' hp), hE⟩
   | jnz hc _ _ iht ihe =>
     intro hD b ρ hG m hw
-    simp only [wp, copy] at hw ⊢
+    dsimp only [wp, copy] at hw ⊢
     rw [hc.cout_val hG]
     exact ⟨fun h => iht hD b ρ hG m (hw.1 h), fun h => ihe hD b ρ hG m (hw.2 h)⟩
   | jump hj hargs =>
     intro hD b ρ hG m hw
     have hj' := hD _ hj; dsimp only at hj'
-    simp only [wp, copy] at hw ⊢
+    dsimp only [wp, copy] at hw ⊢
     rw [hj', hargs.cout_vals hG]
     exact hw
   | ret hvs =>
     intro _ b ρ hG m hw
-    simp only [wp, copy] at hw ⊢
+    dsimp only [wp, copy] at hw ⊢
     rw [hvs.cout_vals hG]
     exact hw
   | exit f hargs =>
     intro _ b ρ hG m hw
-    simp only [wp, copy] at hw ⊢
+    dsimp only [wp, copy] at hw ⊢
     rw [hargs.cout_vals hG]
     exact hw
   | hlt =>
@@ -493,7 +510,7 @@ theorem copy_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     exact hw
   | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
     intro hD b ρ hG m hw
-    simp only [wp, copy] at hw ⊢
+    dsimp only [wp, copy] at hw ⊢
     intro Js hclosed
     refine ihk Js Js (tup_zip_self_eq hD Js) b ρ hG m (hw Js ?_)
     rw [closed_iff] at hclosed ⊢
@@ -675,7 +692,7 @@ private theorem mkpairProjStep_rel {G' : Ctx V₁ V₂} (b : Nat) {a b' : Ty}
   | mk hox hpx hfx hsx =>
     cases hcy with
     | mk hoy hpy hfy hsy =>
-      simp only [mkpairProjStep, CVal.fstOf, CVal.sndOf]
+      dsimp only [mkpairProjStep, CVal.fstOf, CVal.sndOf]
       cases hfx with
       | none =>
         cases hsy <;> exact mkpairEmitStep_rel b hox hoy hcx' hcy'
@@ -703,8 +720,7 @@ theorem OpRel.copyLet_rel {G' : Ctx V₁ V₂} {G : Ctx (CVal V₁) (CVal V₂)}
     CopyStepRel G'
       (({ code := code, args := args₁ } : Op (CVal V₁) ts).copyLet b)
       (({ code := code, args := args₂ } : Op (CVal V₂) ts).copyLet b) := by
-  unfold Op.copyLet
-  dsimp only
+  dsimp only [Op.copyLet]
   cases code with
   | copy t =>
     rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
@@ -752,7 +768,7 @@ theorem OpRel.copyLet_rel {G' : Ctx V₁ V₂} {G : Ctx (CVal V₁) (CVal V₂)}
     | mk hox _ _ _ =>
       cases hcy with
       | mk hoy _ _ _ =>
-        unfold mkpairStep
+        dsimp only [mkpairStep]
         cases hox with
         | imm c₁ =>
           cases hoy with
@@ -778,7 +794,7 @@ theorem copy_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : L
     cases hop with
     | @mk sig _ code args₁ args₂ hargs =>
       have hrel := OpRel.copyLet_rel hG b hargs (code := code)
-      simp only [copy]
+      rw [copy_let, copy_let]
       generalize ({ code := code, args := args₁ } : Op (CVal V₁) ts).copyLet b = st₁ at hrel ⊢
       generalize ({ code := code, args := args₂ } : Op (CVal V₂) ts).copyLet b = st₂ at hrel ⊢
       cases hrel with

@@ -2,7 +2,7 @@ module
 
 public import LeanQbe.T.MemLoad
 public import LeanQbe.T.OptUtilLemmas
-public import LeanQbe.T.OpsLemmas
+import LeanQbe.T.OpsLemmas
 
 /-!
 # Correctness of `MemLoad` and `AssumeElim` (`O-M2`)
@@ -19,16 +19,16 @@ public import LeanQbe.T.OpsLemmas
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
 /-! ## Key equality, disjointness, `BaseOffGood`, and `stepBaseOff_good` -/
 
 theorem fkey64Beq_iff_eq : {a b : FKey i64} → fkey64Beq a b = true ↔ a = b
-  | .var i, .var j => by simp [fkey64Beq]
-  | .imm a, .imm b => by simp [fkey64Beq]
-  | .var _, .imm _ | .imm _, .var _ => by simp [fkey64Beq]
+  | .var i, .var j => by dsimp only [fkey64Beq]; simp
+  | .imm a, .imm b => by dsimp only [fkey64Beq]; simp
+  | .var _, .imm _ | .imm _, .var _ => by dsimp only [fkey64Beq]; simp
 
 theorem spanDisjoint_sound {off₁ : BitVec 64} {bytes₁ : Nat} {off₂ : BitVec 64} {bytes₂ : Nat}
     (h : spanDisjoint off₁ bytes₁ off₂ bytes₂ = true) (base : BitVec 64) :
@@ -140,7 +140,7 @@ theorem stepBaseOff_good (ρ : (t : Ty) → Nat → Val t) (next : Nat) (m : Bas
   | add t =>
     rcases kargs with ⟨x, y, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
     rcases hklt with ⟨hx, hy, _⟩
-    simp only [tupFev, vals, Prod.mk.injEq] at hvals
+    dsimp only [tupFev, vals] at hvals; simp only [Prod.mk.injEq] at hvals
     rcases hvals with ⟨hxa, hyb, _⟩
     cases t with
     | bits n =>
@@ -169,13 +169,13 @@ theorem stepBaseOff_good (ρ : (t : Ty) → Nat → Val t) (next : Nat) (m : Bas
             rw [show stepBaseOff next m (.add (.bits 64)) (.var v', .var v, ()) = m from rfl]
             exact ⟨hw, hm.upd_fupdTup _⟩
       · rw [show stepBaseOff next m (.add (.bits n)) (x, y, ()) = m by
-          simp only [stepBaseOff, dite_eq_right (fun h => absurd h hn)]]
+          dsimp only [stepBaseOff]; simp only [dite_eq_right (fun h => absurd h hn)]]
         exact OpCode.wp_mono _ _ (fun xs h => ⟨h, hm.upd_fupdTup xs⟩) hw
     | _ => exact OpCode.wp_mono _ _ (fun xs h => ⟨h, hm.upd_fupdTup xs⟩) hw
   | sub t =>
     rcases kargs with ⟨x, y, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
     rcases hklt with ⟨hx, hy, _⟩
-    simp only [tupFev, vals, Prod.mk.injEq] at hvals
+    dsimp only [tupFev, vals] at hvals; simp only [Prod.mk.injEq] at hvals
     rcases hvals with ⟨hxa, hyb, _⟩
     cases t with
     | bits n =>
@@ -195,24 +195,24 @@ theorem stepBaseOff_good (ρ : (t : Ty) → Nat → Val t) (next : Nat) (m : Bas
           rw [show stepBaseOff next m (.sub (.bits 64)) (x, .var v, ()) = m from rfl]
           exact ⟨hw, hm.upd_fupdTup _⟩
       · rw [show stepBaseOff next m (.sub (.bits n)) (x, y, ()) = m by
-          simp only [stepBaseOff, dite_eq_right (fun h => absurd h hn)]]
+          dsimp only [stepBaseOff]; simp only [dite_eq_right (fun h => absurd h hn)]]
         exact OpCode.wp_mono _ _ (fun xs h => ⟨h, hm.upd_fupdTup xs⟩) hw
     | _ => exact OpCode.wp_mono _ _ (fun xs h => ⟨h, hm.upd_fupdTup xs⟩) hw
   | copy t =>
     rcases kargs with ⟨x, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
     rcases hklt with ⟨hx, _⟩
-    simp only [tupFev, vals, Prod.mk.injEq] at hvals
+    dsimp only [tupFev, vals] at hvals; simp only [Prod.mk.injEq] at hvals
     cases t with
     | bits n =>
       by_cases hn : n = 64
       · subst hn
         obtain ⟨hflt, hev⟩ := resolveKey_good hm hx
-        simp only [OpCode.wp_copy, vals] at hw ⊢
+        dsimp only [vals] at hw ⊢; simp only [OpCode.wp_copy] at hw ⊢
         rw [show stepBaseOff next m (.copy (.bits 64)) (x, ()) =
           m.insert next (resolveKey m x) from rfl]
         exact ⟨hw, hm.insert_next _ hflt (hev.trans hvals.1)⟩
       · rw [show stepBaseOff next m (.copy (.bits n)) (x, ()) = m by
-          simp only [stepBaseOff, dite_eq_right (fun h => absurd h hn)]]
+          dsimp only [stepBaseOff]; simp only [dite_eq_right (fun h => absurd h hn)]]
         exact OpCode.wp_mono _ _ (fun xs h => ⟨h, hm.upd_fupdTup xs⟩) hw
     | _ => exact OpCode.wp_mono _ _ (fun xs h => ⟨h, hm.upd_fupdTup xs⟩) hw
   | _ =>
@@ -523,7 +523,7 @@ theorem lookupCache_mem {ρ : (t : Ty) → Nat → Val t} {next : Nat}
   induction cache with
   | nil => cases hl
   | cons e rest ih =>
-    simp only [lookupCache] at hl
+    dsimp only [lookupCache] at hl
     cases hbo : (fkey64Beq e.baseKey b && e.off == off)
     · rw [hbo] at hl
       exact ih (fun x hx => hc x (List.mem_cons_of_mem _ hx)) hl
@@ -556,7 +556,7 @@ theorem InvMemGood.of_cache {ρ : (t : Ty) → Nat → Val t} {next : Nat}
     {c : List (CacheEntry Val)} {m : Mem 64} (hc : MemCacheGood ρ next c m) :
     InvMemGood (cacheToInv ρ c) m := by
   intro e he
-  simp only [cacheToInv, List.mem_map] at he
+  dsimp only [cacheToInv] at he; simp only [List.mem_map] at he
   rcases he with ⟨ce, hce, rfl⟩
   exact (hc ce hce).2.2.2
 
@@ -564,7 +564,7 @@ theorem InvKeysGood.of_cache {ρ : (t : Ty) → Nat → Val t} {next : Nat}
     {c : List (CacheEntry Val)} {m : Mem 64} (hc : MemCacheGood ρ next c m) :
     InvKeysGood ρ next (cacheToInv ρ c) := by
   intro e he
-  simp only [cacheToInv, List.mem_map] at he
+  dsimp only [cacheToInv] at he; simp only [List.mem_map] at he
   rcases he with ⟨ce, hce, rfl⟩
   exact ⟨(hc ce hce).1, rfl⟩
 
@@ -590,16 +590,16 @@ theorem SummaryPreserves.join {s₁ s₂ : MemSummary} {inv : List InvEntry} :
     SummaryPreserves (s₁.join s₂) inv ↔ SummaryPreserves s₁ inv ∧ SummaryPreserves s₂ inv := by
   cases s₁ with
   | unknown =>
-    cases s₂ <;> simp only [SummaryPreserves, MemSummary.join]
+    cases s₂ <;> dsimp only [SummaryPreserves, MemSummary.join]
     · exact ⟨fun h => ⟨h, fun e he _ _ => False.elim (h e he)⟩, fun ⟨h, _⟩ => h⟩
     · exact ⟨fun h => ⟨h, h⟩, fun ⟨h, _⟩ => h⟩
   | exact ws₁ =>
     cases s₂ with
     | unknown =>
-      simp only [SummaryPreserves, MemSummary.join]
+      dsimp only [SummaryPreserves, MemSummary.join]
       exact ⟨fun h => ⟨fun e he _ _ => False.elim (h e he), h⟩, fun ⟨_, h⟩ => h⟩
     | exact ws₂ =>
-      simp only [SummaryPreserves, MemSummary.join]
+      dsimp only [SummaryPreserves, MemSummary.join]
       constructor
       · intro h
         exact ⟨fun e he w hw => h e he w (List.mem_append.2 (Or.inl hw)),
@@ -633,7 +633,7 @@ theorem SummaryPreserves.filterSummary (ρ : (t : Ty) → Nat → Val t)
     (s : MemSummary) (cache : List (CacheEntry Val)) :
     SummaryPreserves s (cacheToInv ρ (filterCacheSummary s cache)) := by
   intro e he
-  simp only [cacheToInv, List.mem_map, filterCacheSummary, List.mem_filter] at he
+  dsimp only [cacheToInv, filterCacheSummary] at he; simp only [List.mem_map, List.mem_filter] at he
   rcases he with ⟨ce, ⟨_, hdisj⟩, rfl⟩
   cases s with
   | unknown => simp [summaryDisjointEntry] at hdisj
@@ -709,6 +709,21 @@ theorem memLoadSweepB_analyzeMemB_get {V : Ty → Type} {L : List Ty → Type} {
   | _ :: _, .cons _ bkt, .cons _ bst, _, .there i', xs =>
     memLoadSweepB_analyzeMemB_get next baseOff baseOffK cache bkt bst i' xs
 
+private theorem memLoadSweep_load {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (next : Nat) (baseOff : BaseOffMap) (cache : List (CacheEntry V)) (kt : MemSumTree)
+    (t : Ty) (a : Arg (MVal V) i64) (k : MVal V t → Expr (MVal V) L rs) :
+    memLoadSweep next baseOff cache (.node1 kt) (.load t a k) =
+      match lookupCache (resolveKey baseOff a.mkey).1 (resolveKey baseOff a.mkey).2 t cache with
+      | some cached => memLoadSweep (next + 1) baseOff cache kt (k cached)
+      | none =>
+        .load t a.mout fun v =>
+          let cache' := ⟨(resolveKey baseOff a.mkey).1, (resolveKey baseOff a.mkey).2,
+            t, .var v, .var next⟩ :: cache
+          memLoadSweep (next + 1) baseOff cache' kt (k (MVal.fresh v next)) := by
+  delta memLoadSweep; dsimp only [Expr.brecOn, Expr.rec, memLoadSweep._f]
+  cases resolveKey baseOff a.mkey
+  cases lookupCache _ _ t cache <;> rfl
+
 /-- Weakest-precondition preservation for `memLoadSweep`, proved via `Wf.induct`. -/
 theorem memLoad_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {G : Ctx (MVal Val) Val} {D : Ctx Cont Cont}
@@ -732,7 +747,7 @@ theorem memLoad_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     | @mk sig _ code args₁ args₂ hargs =>
       cases hopk with
       | @mk _ _ _ argsk _ hargsk =>
-        simp only [analyzeMem, memLoadSweep, wp, Op.wp] at hsp hw ⊢
+        dsimp only [analyzeMem, memLoadSweep, wp, Op.wp] at hsp hw ⊢
         have hw1 := stepBaseOff_good ρ next baseOff hbo code (tupMKey args₁)
           (hargs.mkey_lt hG) args₂ (hargs.mkey_vals hG) _ hw
         have hw2 := stepBaseOff_good ρ next baseOffK hboK code argsk
@@ -746,7 +761,8 @@ theorem memLoad_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   | @load G D t a₁ a₂ k₁ k₂ ha _ ih =>
     intro Gk Dk next ρ baseOff baseOffK cache inv ek hwk hGk hG hbo hboK hD hsp m hml hw
     rcases hwk.rhs_load with ⟨ak, kk, rfl, _, hkk⟩
-    simp only [analyzeMem, memLoadSweep, wp] at hsp hw ⊢
+    dsimp only [analyzeMem, wp] at hsp hw ⊢
+    rw [memLoadSweep_load]
     rcases hw with ⟨v, hv, hk⟩
     obtain ⟨hbflt, hbev⟩ := resolveKey_good hbo (ha.mkey_lt hG)
     have haddr : (resolveKey baseOff a₁.mkey).1.fev ρ + (resolveKey baseOff a₁.mkey).2 = a₂.val :=
@@ -764,7 +780,7 @@ theorem memLoad_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
         (hbo.upd_fupd v) (hboK.upd_fupd v) hD hsp m ?_ hk
       exact ⟨hml.1.upd_one v, hml.2.1, hml.2.2.upd_one v⟩
     | none =>
-      simp only [wp]
+      dsimp only [wp]
       rw [ha.mout_val hG]
       refine ⟨v, hv, ?_⟩
       refine ih (MVal.fresh v next) v (next + 1) (fupd ρ next v) baseOff baseOffK _ inv (kk next)
@@ -774,7 +790,7 @@ theorem memLoad_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   | @store G D t v₁ v₂ a₁ a₂ k₁ k₂ hv ha _ ih =>
     intro Gk Dk next ρ baseOff baseOffK cache inv ek hwk hGk hG hbo hboK hD hsp m hml hw
     rcases hwk.rhs_store with ⟨vk, ak, kk, rfl, _, hak, hkk⟩
-    simp only [analyzeMem, memLoadSweep, wp] at hsp hw ⊢
+    dsimp only [analyzeMem, memLoadSweep, wp] at hsp hw ⊢
     obtain ⟨hdisj, hsp'⟩ := SummaryPreserves.addWrite.1 hsp
     obtain ⟨hbflt, hbev⟩ := resolveKey_good hbo (ha.mkey_lt hG)
     have haddr : (resolveKey baseOff a₁.mkey).1.fev ρ + (resolveKey baseOff a₁.mkey).2 = a₂.val :=
@@ -797,7 +813,7 @@ theorem memLoad_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   | @call G D f as bs args₁ args₂ k₁ k₂ hargs _ ih =>
     intro Gk Dk next ρ baseOff baseOffK _ inv ek hwk hGk hG hbo hboK hD hsp m hml hw
     rcases hwk.rhs_call with ⟨argsk, kk, rfl, _, hkk⟩
-    simp only [analyzeMem, memLoadSweep, wp] at hsp hw ⊢
+    dsimp only [analyzeMem, memLoadSweep, wp] at hsp hw ⊢
     rcases hw with ⟨P, E, hΓ, hP, hE⟩
     have hinv_nil : inv = [] := by
       cases inv with
@@ -813,7 +829,7 @@ theorem memLoad_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   | @jnz G D c₁ c₂ t₁ t₂ e₁' e₂' hc _ _ iht ihe =>
     intro Gk Dk next ρ baseOff baseOffK cache inv ek hwk hGk hG hbo hboK hD hsp m hml hw
     rcases hwk.rhs_jnz with ⟨ck, tk, ek', rfl, _, htk, hek⟩
-    simp only [analyzeMem, memLoadSweep, wp] at hsp hw ⊢
+    dsimp only [analyzeMem, memLoadSweep, wp] at hsp hw ⊢
     obtain ⟨hspt, hspe⟩ := SummaryPreserves.join.1 hsp
     rw [hc.mout_val hG]
     exact ⟨fun h => iht next ρ baseOff baseOffK cache inv tk htk hGk hG hbo hboK hD hspt m hml
@@ -823,18 +839,18 @@ theorem memLoad_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   | @jump G D ts j₁ j₂ args₁ args₂ hj hargs =>
     intro Gk Dk next ρ baseOff baseOffK cache inv ek hwk hGk hG hbo hboK hD hsp m hml hw
     rcases hwk.rhs_jump with ⟨jk, argsk, rfl, _, _⟩
-    simp only [memLoadSweep, wp] at hw ⊢
+    dsimp only [memLoadSweep, wp] at hw ⊢
     rw [hargs.mout_vals hG]
     exact hD _ hj (vals args₂) m hml.2.1 hw
   | ret hvs =>
     intro _ _ _ ρ _ _ _ _ ek hwk _ hG _ _ _ _ _ _ hw
     rcases hwk.rhs_ret with ⟨_, rfl, _⟩
-    simp only [memLoadSweep, wp] at hw ⊢
+    dsimp only [memLoadSweep, wp] at hw ⊢
     rw [hvs.mout_vals hG]; exact hw
   | exit f hargs =>
     intro _ _ _ ρ _ _ _ _ ek hwk _ hG _ _ _ _ _ _ hw
     rcases hwk.rhs_exit with ⟨_, rfl, _⟩
-    simp only [memLoadSweep, wp] at hw ⊢
+    dsimp only [memLoadSweep, wp] at hw ⊢
     rw [hargs.mout_vals hG]; exact hw
   | hlt =>
     intro _ _ _ _ _ _ _ _ ek hwk _ _ _ _ _ _ _ _ hw
@@ -842,7 +858,7 @@ theorem memLoad_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
     intro Gk Dk next ρ baseOff baseOffK cache inv ek hwk hGk hG hbo hboK hD hsp m hml hw
     rcases hwk.rhs_group with ⟨bk, kk, rfl, hbk, hkk⟩
-    simp only [analyzeMem, memLoadSweep, wp] at hsp hw ⊢
+    dsimp only [analyzeMem, memLoadSweep, wp] at hsp hw ⊢
     intro Js hclosed
     let ls := Tup.units sig
     let sum := (analyzeMemB next baseOffK (bk ls)).1.join (analyzeMem next baseOffK (kk ls)).1
@@ -1012,7 +1028,7 @@ theorem RelCache.lookup {G' : Ctx V₁ V₂} (b : FKey i64) (off : BitVec 64) (t
     MLookupRel G' t (lookupCache b off t c₁) (lookupCache b off t c₂)
   | _, _, .nil => .none
   | _, _, .cons (.mk harg) hr => by
-    simp only [lookupCache]
+    dsimp only [lookupCache]
     cases fkey64Beq _ b && _ == off
     · exact RelCache.lookup b off t hr
     · cases hty : tyDecEq _ t with
@@ -1039,7 +1055,7 @@ theorem memLoad_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs 
     rcases hwk.rhs_let with ⟨opk, kk, rfl, _, hkk⟩
     cases hop with
     | @mk sig _ code args₁ args₂ hargs =>
-      simp only [analyzeMem, memLoadSweep]
+      dsimp only [analyzeMem, memLoadSweep]
       rw [TRel.mkey_eq hG hargs]
       refine .let_ (.mk code (TRel.mout hG hargs)) fun xs₁ xs₂ => ?_
       have hsub : ∀ p ∈ G', p ∈ (Tup.zip xs₁ xs₂ ++ G') := fun _ hq => List.mem_append_right _ hq
@@ -1049,8 +1065,8 @@ theorem memLoad_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs 
   | @load G D t a₁ a₂ k₁ k₂ ha _ ih =>
     intro G' Gk Dk next baseOff baseOffK c₁ c₂ ek hG hc hwk
     rcases hwk.rhs_load with ⟨_, kk, rfl, _, hkk⟩
-    simp only [analyzeMem, memLoadSweep]
-    rw [ha.mkey_eq hG]
+    dsimp only [analyzeMem]
+    rw [memLoadSweep_load, memLoadSweep_load, ha.mkey_eq hG]
     have hlook := hc.lookup (resolveKey baseOff a₂.mkey).1 (resolveKey baseOff a₂.mkey).2 t
     generalize hl1 : lookupCache _ _ t c₁ = r₁ at hlook
     generalize hl2 : lookupCache _ _ t c₂ = r₂ at hlook
@@ -1066,7 +1082,7 @@ theorem memLoad_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs 
   | @store G D t v₁ v₂ a₁ a₂ k₁ k₂ hv ha _ ih =>
     intro G' Gk Dk next baseOff baseOffK c₁ c₂ ek hG hc hwk
     rcases hwk.rhs_store with ⟨_, _, kk, rfl, _, _, hkk⟩
-    simp only [analyzeMem, memLoadSweep]
+    dsimp only [analyzeMem, memLoadSweep]
     rw [ha.mkey_eq hG, hv.mkey_eq hG]
     refine .store (hv.mout hG) (ha.mout hG) ?_
     split
@@ -1076,14 +1092,14 @@ theorem memLoad_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs 
   | call f hargs _ ih =>
     intro G' Gk Dk next baseOff baseOffK c₁ c₂ ek hG hc hwk
     rcases hwk.rhs_call with ⟨_, kk, rfl, _, hkk⟩
-    simp only [analyzeMem, memLoadSweep]
+    dsimp only [analyzeMem, memLoadSweep]
     refine .call f (TRel.mout hG hargs) fun xs₁ xs₂ => ?_
     exact ih _ _ (next + _) baseOff baseOffK [] [] (kk (Tup.levels _ next))
       (hG.freshMVals xs₁ xs₂ next) .nil (hkk (Tup.levels _ next) (freshMVals _ xs₁ next))
   | jnz hcj _ _ iht ihe =>
     intro G' Gk Dk next baseOff baseOffK c₁ c₂ ek hG hc hwk
     rcases hwk.rhs_jnz with ⟨_, tk, ek', rfl, _, htk, hek⟩
-    simp only [analyzeMem, memLoadSweep]
+    dsimp only [analyzeMem, memLoadSweep]
     exact .jnz (hcj.mout hG) (iht next baseOff baseOffK c₁ c₂ tk hG hc htk)
       (ihe next baseOff baseOffK c₁ c₂ ek' hG hc hek)
   | jump hj hargs =>
@@ -1100,7 +1116,7 @@ theorem memLoad_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs 
   | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
     intro G' Gk Dk next baseOff baseOffK c₁ c₂ ek hG hc hwk
     rcases hwk.rhs_group with ⟨bk, kk, rfl, hbk, hkk⟩
-    simp only [analyzeMem, memLoadSweep]
+    dsimp only [analyzeMem, memLoadSweep]
     let ls := Tup.units sig
     refine .group (fun Js₁ Js₂ => WfB.of_get fun i xs₁ xs₂ => ?_) (fun Js₁ Js₂ => ?_)
     · rw [memLoadSweepB_analyzeMemB_get, memLoadSweepB_analyzeMemB_get]
@@ -1162,7 +1178,7 @@ theorem assumeElim_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   induction e using Expr.induct with
   | let_ op k ih =>
     intro m h
-    simp only [assumeElim, wp] at h ⊢
+    dsimp only [assumeElim, wp] at h ⊢
     exact Op.wp_mono (fun r => ih r m) h
   | load t a k ih => intro m ⟨v, hv, hk⟩; exact ⟨v, hv, ih v m hk⟩
   | store v a k ih => intro m ⟨hok, hk⟩; exact ⟨hok, ih _ hk⟩
@@ -1171,10 +1187,10 @@ theorem assumeElim_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     exact ⟨P, E, hΓ, fun r m' hr => ih r m' (hP r m' hr), hE⟩
   | jnz c t e iht ihe =>
     intro m h
-    simp only [assumeElim, mkJnzAssume]
+    dsimp only [assumeElim, mkJnzAssume]
     cases he : (assumeElim e).isHlt
     · cases ht : (assumeElim t).isHlt
-      · simp only [Bool.false_eq_true, ↓reduceIte, wp]
+      · simp only [Bool.false_eq_true, ↓reduceIte]; dsimp only [wp]
         exact ⟨fun hc => iht m (h.1 hc), fun hc => ihe m (h.2 hc)⟩
       · simp only [Bool.false_eq_true, ↓reduceIte]
         cases hc : c.val
@@ -1202,7 +1218,7 @@ theorem assumeElim_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {
   | store hv ha _ ih => exact .store hv ha ih
   | call f hargs _ ih => exact .call f hargs ih
   | jnz hc _ _ iht ihe =>
-    simp only [assumeElim, mkJnzAssume]; rw [iht.isHlt_eq, ihe.isHlt_eq]
+    dsimp only [assumeElim, mkJnzAssume]; rw [iht.isHlt_eq, ihe.isHlt_eq]
     split
     · exact iht
     · split

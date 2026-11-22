@@ -1,7 +1,9 @@
 module
 
 public import LeanQbe.T.Peel
-public import LeanQbe.T.OptUtilLemmas
+public import LeanQbe.T.Wf
+public import LeanQbe.T.WP
+import LeanQbe.T.OptUtilLemmas
 
 /-!
 # Correctness of Bounded 1-Iteration Loop Peeling (`O-M2`)
@@ -20,7 +22,7 @@ Style-A PHOAS soundness and relational well-formedness for `LeanQbe.T.Peel`:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -80,7 +82,8 @@ private theorem peelMetricsB_eq_of_get {V₁ V₂ : Ty → Type} {L₁ L₂ : Li
   | _, .cons b₁ _, .cons b₂ _, h => by
     have h0 : peelMetrics targetId nextId (b₁ (immDefaults V₁ _)) =
         peelMetrics targetId nextId (b₂ (immDefaults V₂ _)) := h .here
-    simp only [peelMetricsB, h0, peelMetricsB_eq_of_get targetId nextId fun i => h (.there i)]
+    dsimp only [peelMetricsB]
+    rw [h0, peelMetricsB_eq_of_get targetId nextId fun i => h (.there i)]
 
 theorem peelMetrics_eq {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G₀ : Ctx (Arg V₁) (Arg V₂)} {D₀ : Ctx (PeelL V₁ L₁ rs) (PeelL V₂ L₂ rs)}
@@ -91,23 +94,23 @@ theorem peelMetrics_eq {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} 
   induction hwf using Wf.induct with
   | let_ _ _ ih =>
     intro hD targetId nextId
-    simp only [peelMetrics]
+    dsimp only [peelMetrics]
     rw [ih (immDefaults V₁ _) (immDefaults V₂ _) hD targetId nextId]
   | load _ _ _ ih =>
     intro hD targetId nextId
-    simp only [peelMetrics]
+    dsimp only [peelMetrics]
     rw [ih (.imm default) (.imm default) hD targetId nextId]
   | store _ _ _ ih =>
     intro hD targetId nextId
-    simp only [peelMetrics]
+    dsimp only [peelMetrics]
     rw [ih hD targetId nextId]
   | call _ _ _ ih =>
     intro hD targetId nextId
-    simp only [peelMetrics]
+    dsimp only [peelMetrics]
     rw [ih (immDefaults V₁ _) (immDefaults V₂ _) hD targetId nextId]
   | jnz _ _ _ iht ihe =>
     intro hD targetId nextId
-    simp only [peelMetrics]
+    dsimp only [peelMetrics]
     rw [iht hD targetId nextId, ihe hD targetId nextId]
   | @jump _ _ _ j₁ j₂ _ _ hj _ =>
     intro hD targetId _
@@ -118,7 +121,7 @@ theorem peelMetrics_eq {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} 
     rfl
   | @group _ D sig b₁ b₂ _ _ _ _ ihb ihk =>
     intro hD targetId nextId
-    simp only [peelMetrics]
+    dsimp only [peelMetrics]
     have hD' : ∀ p ∈ Tup.zip (probeTup (V := V₁) (L := L₁) (rs := rs) sig nextId)
           (probeTup (V := V₂) (L := L₂) (rs := rs) sig nextId) ++ D,
         PeelLabelMatch p.1 p.2.1 p.2.2 := by
@@ -302,7 +305,7 @@ theorem wp_right_mono {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     | let_ hop₂ hk₂ =>
       cases hop₁ with | mk code hargs₁ =>
       cases hop₂ with | mk _ hargs₂ =>
-      simp only [wp, Op.wp] at h ⊢
+      dsimp only [wp, Op.wp] at h ⊢
       rw [← vals_eq_of_argRel_left hG hargs₁ hargs₂]
       exact OpCode.wp_mono code (vals _)
         (fun r hr => ih (toArgTup r) r n (ctx_val_append (toArgTup_zip_val r) hG) hn1 hn2 hD
@@ -311,21 +314,21 @@ theorem wp_right_mono {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     intro D₂ e₂' n hG hn1 hn2 hD h2 m ⟨v, hv, h⟩
     cases h2 with
     | load _ ha₂ hk₂ =>
-      simp only [wp]
+      dsimp only [wp]
       rw [← arg_val_eq_of_argRel_left hG ha₁ ha₂]
       exact ⟨v, hv, ih (.var v) v n (ctx_val_cons_var hG v) hn1 hn2 hD (hk₂ (.var v) v) m h⟩
   | store hv₁ ha₁ _ ih =>
     intro D₂ e₂' n hG hn1 hn2 hD h2 m ⟨hok, h⟩
     cases h2 with
     | store hv₂ ha₂ hk₂ =>
-      simp only [wp]
+      dsimp only [wp]
       rw [← arg_val_eq_of_argRel_left hG hv₁ hv₂, ← arg_val_eq_of_argRel_left hG ha₁ ha₂]
       exact ⟨hok, ih n hG hn1 hn2 hD hk₂ _ h⟩
   | call f hargs₁ _ ih =>
     intro D₂ e₂' n hG hn1 hn2 hD h2 m ⟨P, E, hΓ, hP, hE⟩
     cases h2 with
     | call _ hargs₂ hk₂ =>
-      simp only [wp]
+      dsimp only [wp]
       rw [← vals_eq_of_argRel_left hG hargs₁ hargs₂]
       exact ⟨P, E, hΓ, fun r m' hr =>
         ih (toArgTup r) r n (ctx_val_append (toArgTup_zip_val r) hG) hn1 hn2 hD
@@ -334,7 +337,7 @@ theorem wp_right_mono {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     intro D₂ e₂' n hG hn1 hn2 hD h2 m ⟨ht, he⟩
     cases h2 with
     | jnz hc₂ ht₂ he₂ =>
-      simp only [wp]
+      dsimp only [wp]
       rw [← arg_val_eq_of_argRel_left hG hc₁ hc₂]
       exact ⟨fun h => iht n hG hn1 hn2 hD ht₂ m (ht h),
              fun h => ihe n hG hn1 hn2 hD he₂ m (he h)⟩
@@ -342,21 +345,21 @@ theorem wp_right_mono {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     intro D₂ e₂' _ hG _ _ hD h2 m h
     cases h2 with
     | jump hj₂ hargs₂ =>
-      simp only [wp] at h ⊢
+      dsimp only [wp] at h ⊢
       rw [← vals_eq_of_argRel_left hG hargs₁ hargs₂]
       exact hD hj₁ hj₂ _ m h
   | ret hvs₁ =>
     intro D₂ e₂' _ hG _ _ _ h2 m h
     cases h2 with
     | ret hvs₂ =>
-      simp only [wp] at h ⊢
+      dsimp only [wp] at h ⊢
       rw [← vals_eq_of_argRel_left hG hvs₁ hvs₂]
       exact h
   | exit f hargs₁ =>
     intro D₂ e₂' _ hG _ _ _ h2 m h
     cases h2 with
     | exit _ hargs₂ =>
-      simp only [wp] at h ⊢
+      dsimp only [wp] at h ⊢
       rw [← vals_eq_of_argRel_left hG hargs₁ hargs₂]
       exact h
   | hlt =>
@@ -368,7 +371,7 @@ theorem wp_right_mono {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     cases h2 with
     | group hb₂ hk₂ =>
       intro Js' hc'
-      simp only [wp] at h
+      dsimp only [wp] at h
       have hD' : ∀ {ts} {j₁ : PeelL Val Cont rs ts} {j₂ j₂' : Cont ts},
           ⟨ts, j₁, j₂⟩ ∈ Tup.zip (probeTup sig n) Js' ++ D →
           ⟨ts, j₁, j₂'⟩ ∈ Tup.zip (probeTup sig n) Js' ++ D₂ →
@@ -595,7 +598,7 @@ theorem peelAux_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs 
         (fun Js₁ Js₂ => ihk (toOuterTup Js₁) (toOuterTup Js₂) hG
           (PeelLabelWf.append_outer hD Js₁ Js₂) budget depth)
     rcases sig with _ | ⟨ts, sig⟩
-    · simp only [peelAux]
+    · dsimp only [peelAux]
       exact hkeep
     · rcases sig with _ | ⟨ts', sig'⟩
       · have hMatchD : ∀ p ∈ D, PeelLabelMatch p.1 p.2.1 p.2.2 :=
@@ -619,7 +622,7 @@ theorem peelAux_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs 
             peelMetrics 0 1 (k₁ (.probe 0, ())) =
             peelMetrics 0 1 (k₂ (.probe 0, ())) :=
           peelMetrics_eq (hk (.probe 0, ()) (.probe 0, ())) hMatchD' 0 1
-        simp only [peelAux]
+        dsimp only [peelAux]
         rw [loopBlockMetrics_eq (b₁ (.probe 0, ())),
             loopBlockMetrics_eq (b₂ (.probe 0, ())), hmb_eq, hme_eq]
         cases hcan : canPeel budget
@@ -670,7 +673,7 @@ theorem peelAux_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs 
               remBudget (depth + 1)
           exact ihk (.subst (2 * depth + 1) iter1₁, ()) (.subst (2 * depth + 1) iter1₂, ()) hG
             (PeelLabelWf.cons_subst hD hIter1) budget (depth + 1)
-      · simp only [peelAux]
+      · dsimp only [peelAux]
         exact hkeep
 
 theorem peelAux_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
@@ -686,24 +689,24 @@ theorem peelAux_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     intro m budget depth hG hD hfun h
     cases hop with
     | mk code hargs =>
-      simp only [peelAux, wp, flattenOp, Op.wp] at h ⊢
+      dsimp only [peelAux, wp, flattenOp, Op.wp] at h ⊢
       rw [flattenArgs_vals hG hargs]
       exact OpCode.wp_mono code (vals _)
         (fun r hr => ih (toArgTup r) r m budget depth
           (ctx_val_append (toArgTup_zip_val r) hG) hD hfun hr) h
   | load t ha _ ih =>
     intro m budget depth hG hD hfun ⟨v, hv, hk⟩
-    simp only [peelAux, wp]
+    dsimp only [peelAux, wp]
     rw [flattenArg_val hG ha]
     exact ⟨v, hv, ih (.var v) v m budget depth (ctx_val_cons_var hG v) hD hfun hk⟩
   | store hv ha _ ih =>
     intro m budget depth hG hD hfun ⟨hok, hk⟩
-    simp only [peelAux, wp]
+    dsimp only [peelAux, wp]
     rw [flattenArg_val hG hv, flattenArg_val hG ha]
     exact ⟨hok, ih _ budget depth hG hD hfun hk⟩
   | call f hargs _ ih =>
     intro m budget depth hG hD hfun ⟨P, E, hΓ, hP, hE⟩
-    simp only [peelAux, wp]
+    dsimp only [peelAux, wp]
     rw [flattenArgs_vals hG hargs]
     exact ⟨P, E, hΓ,
       fun r m' hr => ih (toArgTup r) r m' budget depth
@@ -711,27 +714,27 @@ theorem peelAux_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
       hE⟩
   | jnz hc _ _ iht ihe =>
     intro m budget depth hG hD hfun ⟨ht, he⟩
-    simp only [peelAux, wp]
+    dsimp only [peelAux, wp]
     rw [flattenArg_val hG hc]
     exact ⟨fun h => iht m budget depth hG hD hfun (ht h),
            fun h => ihe m budget depth hG hD hfun (he h)⟩
   | @jump _ _ ts j₁ j₂ _ _ hj hargs =>
     intro m _ _ hG hD _ h
     have hlbl := hD _ hj
-    simp only [wp] at h
+    dsimp only [wp] at h
     rw [← flattenArgs_vals hG hargs] at h
     cases j₁ with
-    | outer l => simp only [peelAux, wp]; rw [hlbl]; exact h
+    | outer l => dsimp only [peelAux, wp]; rw [hlbl]; exact h
     | subst _ k => exact hlbl.2 _ m h
     | probe _ => exact False.elim hlbl
   | ret hvs =>
     intro m _ _ hG _ _ h
-    simp only [peelAux, wp] at h ⊢
+    dsimp only [peelAux, wp] at h ⊢
     rw [flattenArgs_vals hG hvs]
     exact h
   | exit f hargs =>
     intro m _ _ hG _ _ h
-    simp only [peelAux, wp] at h ⊢
+    dsimp only [peelAux, wp] at h ⊢
     rw [flattenArgs_vals hG hargs]
     exact h
   | hlt =>
@@ -743,7 +746,7 @@ theorem peelAux_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
         wp Γ Q X
           (.group (fun Js => peelBAux budget depth (b₁ (toOuterTup Js)))
                   (fun Js => peelAux budget depth (k₁ (toOuterTup Js)))) m := by
-      simp only [wp]
+      dsimp only [wp]
       intro Js hc
       refine ihk (toOuterTup Js) Js m budget depth hG (PeelLabelWp.append_outer hD Js)
         (peelDFun_append_outer hD hfun Js) (h Js ?_)
@@ -755,10 +758,10 @@ theorem peelAux_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
           (ctx_val_append (toArgTup_zip_val xs) hG)
           (PeelLabelWp.append_outer hD Js) (peelDFun_append_outer hD hfun Js) hbi)
     rcases sig with _ | ⟨ts, sig⟩
-    · simp only [peelAux]
+    · dsimp only [peelAux]
       exact hkeep
     · rcases sig with _ | ⟨ts', sig'⟩
-      · simp only [peelAux]
+      · dsimp only [peelAux]
         rw [loopBlockMetrics_eq (b₁ (.probe 0, ()))]
         cases hcan : canPeel budget
             (peelMetrics 0 1 ((b₁ (.probe 0, ())).get .here (immDefaults Val ts)))
@@ -857,7 +860,7 @@ theorem peelAux_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
             (PeelLabelWp.cons_subst (by omega) hD hIter1)
             (peelDFun_cons_subst hD hfun (by omega) iter1 J_src)
             (h (J_src, ()) hclosed_src)
-      · simp only [peelAux]
+      · dsimp only [peelAux]
         exact hkeep
 
 end Peel

@@ -13,7 +13,7 @@ public import LeanQbe.T.Ty
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -93,7 +93,8 @@ theorem toBits_ofBits : ∀ (t : Ty) (x : BitVec t.size), toBits t (ofBits t x) 
     split <;> rename_i h
     · simp only [Nat.zero_add]
       exact BitVec.getLsbD_eq_getElem (by omega)
-    · rw [BitVec.getLsbD_eq_getElem (by show a.size + (i - a.size) < (a.pair b).size; simp only [Ty.size]; omega)]
+    · rw [BitVec.getLsbD_eq_getElem
+        (by show a.size + (i - a.size) < (a.pair b).size; simp only [Ty.size]; omega)]
       congr 1; omega
 
 theorem toBits_inj {t : Ty} {x y : Val t} (h : toBits t x = toBits t y) : x = y := by

@@ -15,7 +15,7 @@ Top-level `CompiledRec`-backed theorems:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.LinkScc
 

@@ -26,58 +26,58 @@ and `DceLemmas`:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
 /-! ## Symbolic `FKey` equality, valuation updates, and key bounds (`#016-B1`) -/
 
 theorem valBeq_iff_eq : {t : Ty} → {a b : Val t} → valBeq t a b = true ↔ a = b
-  | .bool, a, b => by simp [valBeq]
-  | .bits _, a, b => by simp [valBeq]
-  | .float _, a, b => by simp [valBeq]
+  | .bool, a, b => by dsimp only [valBeq]; simp
+  | .bits _, a, b => by dsimp only [valBeq]; simp
+  | .float _, a, b => by dsimp only [valBeq]; simp
   | .pair s u, (a₁, a₂), (b₁, b₂) => by
-    simp only [valBeq, Bool.and_eq_true, valBeq_iff_eq (t := s), valBeq_iff_eq (t := u),
-      Prod.mk.injEq]
+    dsimp only [valBeq]
+    simp only [Bool.and_eq_true, valBeq_iff_eq (t := s), valBeq_iff_eq (t := u), Prod.mk.injEq]
 
 theorem fKeyBeq_iff_eq {t : Ty} : {a b : FKey t} → fKeyBeq a b = true ↔ a = b
-  | .var i, .var j => by simp [fKeyBeq]
-  | .imm a, .imm b => by simp [fKeyBeq, valBeq_iff_eq]
-  | .var _, .imm _ | .imm _, .var _ => by simp [fKeyBeq]
+  | .var i, .var j => by dsimp only [fKeyBeq]; simp
+  | .imm a, .imm b => by dsimp only [fKeyBeq]; simp [valBeq_iff_eq]
+  | .var _, .imm _ | .imm _, .var _ => by dsimp only [fKeyBeq]; simp
 
 /-- Evaluation environment for symbolic `FKey` variables. -/
 abbrev FEnv := (t : Ty) → Nat → Val t
 
-def FKey.fev (ρ : FEnv) : {t : Ty} → FKey t → Val t
+@[expose] def FKey.fev (ρ : FEnv) : {t : Ty} → FKey t → Val t
   | t, .var i => ρ t i
   | _, .imm c => c
 
-def FKey.FLt (b : Nat) : {t : Ty} → FKey t → Prop
+@[expose] def FKey.FLt (b : Nat) : {t : Ty} → FKey t → Prop
   | _, .var i => i < b
   | _, .imm _ => True
 
-def fupd (ρ : FEnv) {t : Ty} (b : Nat) (v : Val t) : FEnv :=
+@[expose] def fupd (ρ : FEnv) {t : Ty} (b : Nat) (v : Val t) : FEnv :=
   fun t' i => if i = b then match tyDecEq t t' with | isTrue h => h ▸ v | isFalse _ => ρ t' i
     else ρ t' i
 
-def fupdTup (ρ : FEnv) (b : Nat) : {ts : List Ty} → Tup Val ts → FEnv
+@[expose] def fupdTup (ρ : FEnv) (b : Nat) : {ts : List Ty} → Tup Val ts → FEnv
   | [], (), t', i => ρ t' i
   | _ :: _, (x, xs), t', i => fupdTup (fupd ρ b x) (b + 1) xs t' i
 
 theorem fupd_eq (ρ : FEnv) {t : Ty} (b : Nat) (v : Val t) : fupd ρ b v t b = v := by
-  simp only [fupd, ↓reduceIte]
+  dsimp only [fupd]; simp only [↓reduceIte]
   cases h : tyDecEq t t with | isTrue _ => rfl | isFalse hne => exact absurd rfl hne
 
 theorem fupd_ne (ρ : FEnv) {t t' : Ty} {b i : Nat} (v : Val t) (h : i ≠ b) :
     fupd ρ b v t' i = ρ t' i := by
-  simp [fupd, h]
+  dsimp only [fupd]; simp [h]
 
 theorem fupdTup_lt (ρ : FEnv) :
     {ts : List Ty} → (xs : Tup Val ts) → {b : Nat} → {t' : Ty} → {i : Nat} →
     i < b → fupdTup ρ b xs t' i = ρ t' i
   | [], (), _, _, _, _ => rfl
   | _ :: _, (x, xs), b, t', i, hi => by
-    simp only [fupdTup]
+    dsimp only [fupdTup]
     rw [fupdTup_lt (fupd ρ b x) xs (by omega)]
     exact fupd_ne ρ x (by omega)
 
@@ -251,15 +251,15 @@ theorem mem_zip_argRel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
 
 theorem find?_trieUnion : ∀ (t₁ t₂ : Trie Unit) (x : Nat),
     (trieUnion t₁ t₂).find? x = (t₁.find? x).or (t₂.find? x)
-  | .empty, t₂, x => by simp [trieUnion]
-  | .node _ _ _, .empty, _ => by simp [trieUnion]
+  | .empty, t₂, x => by dsimp only [trieUnion]; simp
+  | .node _ _ _, .empty, _ => by dsimp only [trieUnion]; simp
   | .node (some ()) _ _, .node _ _ _, 0 => rfl
   | .node none _ _, .node _ _ _, 0 => rfl
   | .node (some ()) e₁ o₁, .node _ e₂ o₂, x + 1 => by
-    simp only [trieUnion, Trie.find?]
+    dsimp only [trieUnion, Trie.find?]
     split <;> exact find?_trieUnion _ _ (x / 2)
   | .node none e₁ o₁, .node _ e₂ o₂, x + 1 => by
-    simp only [trieUnion, Trie.find?]
+    dsimp only [trieUnion, Trie.find?]
     split <;> exact find?_trieUnion _ _ (x / 2)
 
 theorem trieMem_union_left {t₁ t₂ : Trie Unit} {x : Nat}
@@ -271,7 +271,7 @@ theorem trieMem_union_right {t₁ t₂ : Trie Unit} {x : Nat}
   rw [find?_trieUnion]; cases h₁ : t₁.find? x <;> simp_all
 
 /-- Subset relation on `Trie Unit` liveness sets. -/
-def TrieSub (s₁ s₂ : Trie Unit) : Prop :=
+@[expose] def TrieSub (s₁ s₂ : Trie Unit) : Prop :=
   ∀ x : Nat, (s₁.find? x).isSome = true → (s₂.find? x).isSome = true
 
 theorem TrieSub.refl (s : Trie Unit) : TrieSub s s := fun _ h => h
@@ -306,7 +306,7 @@ theorem anyLive_eq_false :
       ∀ i, b ≤ i → i < b + k → (s.find? i).isSome = false
   | 0, _, _, _, _, h1, h2 => by omega
   | k + 1, b, s, h, i, h1, h2 => by
-    simp only [anyLive, Bool.or_eq_false_iff] at h
+    dsimp only [anyLive] at h; simp only [Bool.or_eq_false_iff] at h
     rcases Nat.eq_or_lt_of_le h1 with rfl | hlt
     · exact h.1
     · exact anyLive_eq_false k (b + 1) s h.2 i hlt (by omega)
@@ -314,7 +314,7 @@ theorem anyLive_eq_false :
 /-! ## `OptV` liveness and binder invariants (`NoneDead`, `SomeEq`, `DceRel`, `argSweep`) -/
 
 /-- Every dropped (`none`) binder level in `Gk` is absent from liveness set `s`. -/
-def NoneDead {V : Ty → Type} (s : Trie Unit) (Gk : Ctx K (OptV V)) : Prop :=
+@[expose] def NoneDead {V : Ty → Type} (s : Trie Unit) (Gk : Ctx K (OptV V)) : Prop :=
   ∀ {t : Ty} {k : Nat} {o : OptV V t}, ⟨t, k, o⟩ ∈ Gk → o = none → (s.find? k).isSome = false
 
 theorem NoneDead.sub {V : Ty → Type} {s₁ s₂ : Trie Unit} {Gk : Ctx K (OptV V)}
@@ -351,7 +351,7 @@ theorem NoneDead.append_none {V : Ty → Type} {s : Trie Unit} {Gk : Ctx K (OptV
     NoneDead s (Tup.zip (Tup.levels ts b) (noneTup (V := V) ts) ++ Gk)
   | [], _, _ => hnd
   | _ :: ts, b, hfalse => by
-    simp only [Tup.levels, noneTup, Tup.zip, List.cons_append]
+    dsimp only [Tup.levels, noneTup, Tup.zip, List.cons_append]
     intro hm ho
     cases hm with
     | head => exact hfalse _ (Nat.le_refl _) (by simp)
@@ -362,7 +362,7 @@ theorem NoneDead.append_none {V : Ty → Type} {s : Trie Unit} {Gk : Ctx K (OptV
         hm' ho
 
 /-- Every kept (`some`) binder in `G` agrees with its semantic value in `Val`. -/
-def SomeEq (G : Ctx (OptV Val) Val) : Prop :=
+@[expose] def SomeEq (G : Ctx (OptV Val) Val) : Prop :=
   ∀ {t : Ty} {o : OptV Val t} {v : Val t}, ⟨t, o, v⟩ ∈ G → ∀ w, o = some w → w = v
 
 theorem SomeEq.cons_some {G : Ctx (OptV Val) Val} (hG : SomeEq G) {t : Ty} (v : Val t) :
@@ -383,12 +383,12 @@ theorem SomeEq.append_none {G : Ctx (OptV Val) Val} (hG : SomeEq G) :
     {ts : List Ty} → (xs : Tup Val ts) → SomeEq (Tup.zip (noneTup ts) xs ++ G)
   | [], () => hG
   | _ :: _, (_, xs) => by
-    simp only [noneTup, Tup.zip, List.cons_append]
+    dsimp only [noneTup, Tup.zip, List.cons_append]
     intro hm w hw
     cases hm with | head => cases hw | tail _ hm' => exact SomeEq.append_none hG xs hm' w hw
 
 /-- Lockstep `Option` binder invariant: both dropped (`none, none`) or both kept (`some`). -/
-def DceRel {V₁ V₂ : Ty → Type} (G : Ctx (OptV V₁) (OptV V₂)) (G' : Ctx V₁ V₂) : Prop :=
+@[expose] def DceRel {V₁ V₂ : Ty → Type} (G : Ctx (OptV V₁) (OptV V₂)) (G' : Ctx V₁ V₂) : Prop :=
   ∀ {t : Ty} {o₁ : OptV V₁ t} {o₂ : OptV V₂ t}, ⟨t, o₁, o₂⟩ ∈ G →
     (o₁ = none ∧ o₂ = none) ∨ ∃ v₁ v₂, o₁ = some v₁ ∧ o₂ = some v₂ ∧ ⟨t, v₁, v₂⟩ ∈ G'
 
@@ -424,7 +424,7 @@ theorem DceRel.append_none {V₁ V₂ : Ty → Type} {G : Ctx (OptV V₁) (OptV 
     {ts : List Ty} → DceRel (Tup.zip (noneTup (V := V₁) ts) (noneTup (V := V₂) ts) ++ G) G'
   | [] => hrel
   | _ :: _ => by
-    simp only [noneTup, Tup.zip, List.cons_append]
+    dsimp only [noneTup, Tup.zip, List.cons_append]
     intro hm
     cases hm with
     | head => exact Or.inl ⟨rfl, rfl⟩
@@ -432,7 +432,7 @@ theorem DceRel.append_none {V₁ V₂ : Ty → Type} {G : Ctx (OptV V₁) (OptV 
 
 /-! ## Operand liveness predicates and `argSweep` transport lemmas -/
 
-def Arg.InSet (s : Trie Unit) {t : Ty} : Arg K t → Prop
+@[expose] def Arg.InSet (s : Trie Unit) {t : Ty} : Arg K t → Prop
   | .var k => (s.find? k).isSome = true
   | .imm _ => True
 
@@ -442,9 +442,11 @@ theorem Arg.InSet.mono {s₁ s₂ : Trie Unit} (hsub : TrieSub s₁ s₂) {t : T
 
 theorem Arg.InSet.addArgKey {t : Ty} (a : Arg K t) (s : Trie Unit) :
     a.InSet (addArgKey a s) := by
-  cases a with | var k => simp [Arg.InSet, LeanQbe.T.addArgKey] | imm _ => trivial
+  cases a with
+  | var k => dsimp only [Arg.InSet, LeanQbe.T.addArgKey]; simp
+  | imm _ => trivial
 
-def ArgsInSet (s : Trie Unit) : {ts : List Ty} → Tup (Arg K) ts → Prop
+@[expose] def ArgsInSet (s : Trie Unit) : {ts : List Ty} → Tup (Arg K) ts → Prop
   | [], () => True
   | _ :: _, (a, as) => a.InSet s ∧ ArgsInSet s as
 

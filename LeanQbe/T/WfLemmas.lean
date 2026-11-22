@@ -16,7 +16,7 @@ public import LeanQbe.T.TyLemmas
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -119,7 +119,8 @@ variable {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
   (exit : ∀ {G D} (f : Sym) {as args₁ args₂} (hargs : TRel (ArgRel G) args₁ args₂),
     motive G D (.exit f (as := as) args₁) (.exit f args₂) (.exit f hargs))
   (hlt : ∀ {G D}, motive G D .hlt .hlt .hlt)
-  (group : ∀ {G D sig} {b₁ : Tup L₁ sig → Blocks V₁ L₁ rs sig} {b₂ : Tup L₂ sig → Blocks V₂ L₂ rs sig}
+  (group : ∀ {G D sig} {b₁ : Tup L₁ sig → Blocks V₁ L₁ rs sig}
+    {b₂ : Tup L₂ sig → Blocks V₂ L₂ rs sig}
     {k₁ : Tup L₁ sig → Expr V₁ L₁ rs} {k₂ : Tup L₂ sig → Expr V₂ L₂ rs}
     (hb : ∀ Js₁ Js₂, WfB G (Tup.zip Js₁ Js₂ ++ D) (b₁ Js₁) (b₂ Js₂))
     (hk : ∀ Js₁ Js₂, Wf G (Tup.zip Js₁ Js₂ ++ D) (k₁ Js₁) (k₂ Js₂)),
@@ -131,7 +132,8 @@ include let_ load store call jnz jump ret exit hlt group
 
 mutual
 /-- Dependent one-motive induction on `Wf`, usable with `induction hwf using Wf.induct`. -/
-theorem Wf.induct : {G : Ctx V₁ V₂} → {D : Ctx L₁ L₂} → {e₁ : Expr V₁ L₁ rs} → {e₂ : Expr V₂ L₂ rs} →
+theorem Wf.induct : {G : Ctx V₁ V₂} → {D : Ctx L₁ L₂} →
+    {e₁ : Expr V₁ L₁ rs} → {e₂ : Expr V₂ L₂ rs} →
     (h : Wf G D e₁ e₂) → motive G D e₁ e₂ h
   | _, _, _, _, .let_ hop hk => let_ hop hk fun xs₁ xs₂ => Wf.induct (hk xs₁ xs₂)
   | _, _, _, _, .load t ha hk => load t ha hk fun v₁ v₂ => Wf.induct (hk v₁ v₂)
@@ -286,7 +288,7 @@ theorem OpRel.mapV {V₁ V₂ W₁ W₂ : Ty → Type}
 /-! ## Symmetry and inversion / congruence lemmas -/
 
 /-- Flip every pair in a relational context. -/
-def Ctx.flip {α : Type} {f g : α → Type} (G : Ctx f g) : Ctx g f :=
+@[expose] def Ctx.flip {α : Type} {f g : α → Type} (G : Ctx f g) : Ctx g f :=
   G.map fun ⟨a, x, y⟩ => ⟨a, y, x⟩
 
 theorem mem_ctx_flip {α : Type} {f g : α → Type} {G : Ctx f g} {a : α} {x : f a} {y : g a}

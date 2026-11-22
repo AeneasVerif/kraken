@@ -18,7 +18,7 @@ public import LeanQbe.T.OpsLemmas
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -76,9 +76,10 @@ theorem closed_iff (Γ : Env) {rs : List Ty} (Q : Post rs) (X : XPost) :
     {sig : List (List Ty)} → (bs : Blocks Val Cont rs sig) → (Js : Tup Cont sig) →
     (Closed Γ Q X bs Js ↔
       ∀ {ts} (i : Member ts sig) xs m, wp Γ Q X (bs.get i xs) m → Js.get i xs m)
-  | [], .nil, () => by simp only [Closed, true_iff]; intro _ i; exact nomatch i
-  | _ :: _, .cons b bs, Js => by
-    simp only [Closed, closed_iff Γ Q X bs Js.2]
+  | [], .nil, () => by dsimp only [Closed]; simp only [true_iff]; intro _ i; exact nomatch i
+  | _ :: _, .cons b bs, (J, Js) => by
+    change ((∀ xs m, wp Γ Q X (b xs) m → J xs m) ∧ Closed Γ Q X bs Js) ↔ _
+    rw [closed_iff Γ Q X bs Js]
     constructor
     · rintro ⟨hb, hbs⟩ _ i xs m h
       cases i with
@@ -96,7 +97,7 @@ theorem wp_mono {Γ : Env} {rs : List Ty} {Q Q' : Post rs} {X X' : XPost}
   induction e using Expr.induct with
   | let_ op k ih =>
     intro m h
-    simp only [wp] at h ⊢
+    dsimp only [wp] at h ⊢
     exact Op.wp_mono (fun r => ih r m) h
   | load t a k ih =>
     intro m ⟨v, hv, h⟩
@@ -106,7 +107,8 @@ theorem wp_mono {Γ : Env} {rs : List Ty} {Q Q' : Post rs} {X X' : XPost}
     exact ⟨hok, ih _ h⟩
   | call f args k ih =>
     intro m ⟨P, E, hΓ, hP, hE⟩
-    exact ⟨P, E, hΓ, fun r m' hr => ih r m' (hP r m' hr), fun g cs xs m' he => hX g cs xs m' (hE g cs xs m' he)⟩
+    exact ⟨P, E, hΓ, fun r m' hr => ih r m' (hP r m' hr),
+      fun g cs xs m' he => hX g cs xs m' (hE g cs xs m' he)⟩
   | jnz c t e iht ihe =>
     intro m h
     exact ⟨fun hc => iht m (h.1 hc), fun hc => ihe m (h.2 hc)⟩
@@ -129,7 +131,7 @@ theorem wp_mono {Γ : Env} {rs : List Ty} {Q Q' : Post rs} {X X' : XPost}
     exact fun i xs m' hb => hc i xs m' (ihb Js i xs m' hb)
 
 /-- A typed function contract is monotone in both postconditions. -/
-def Spec.Mono {as bs : List Ty} (spec : Spec as bs) : Prop :=
+@[expose] def Spec.Mono {as bs : List Ty} (spec : Spec as bs) : Prop :=
   ∀ xs m (Q Q' : Post bs) (X X' : XPost),
     (∀ vs m, Q vs m → Q' vs m) →
     (∀ f cs ys m, X f cs ys m → X' f cs ys m) →
@@ -144,7 +146,7 @@ theorem wp_env_mono {Γ Γ' : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   induction e using Expr.induct with
   | let_ op k ih =>
     intro m h
-    simp only [wp] at h ⊢
+    dsimp only [wp] at h ⊢
     exact Op.wp_mono (fun r => ih r m) h
   | load t a k ih =>
     intro m ⟨v, hv, h⟩
@@ -185,14 +187,16 @@ theorem wp_loop {Γ : Env} {rs ts : List Ty} {Q : Post rs} {X : XPost} {m : Mem 
       (∀ n' ys m', n' < n → Inv n' ys m' → J ys m') →
       Inv n xs m → wp Γ Q X (body J xs) m)
     (hentry : ∀ J : Cont ts, (∀ n xs m, Inv n xs m → J xs m) → wp Γ Q X (entry J) m) :
-    wp Γ Q X (.group (sig := [ts]) (fun Js => .cons (body Js.1) .nil) (fun Js => entry Js.1)) m := by
-  simp only [wp]
-  intro Js hc
-  simp only [Closed, and_true] at hc
+    wp Γ Q X (.group (sig := [ts]) (fun Js => .cons (body Js.1) .nil)
+      (fun Js => entry Js.1)) m := by
+  dsimp only [wp]
+  intro ⟨J, ⟨⟩⟩ hc
+  have hc : ∀ xs m, wp Γ Q X (body J xs) m → J xs m := hc.1
   apply hentry
   intro n
   induction n using Nat.strongRecOn with
-  | _ n ih => exact fun xs m hinv => hc xs m (hbody Js.1 n xs m (fun n' ys m' h => ih n' h ys m') hinv)
+  | _ n ih =>
+    exact fun xs m hinv => hc xs m (hbody J n xs m (fun n' ys m' h => ih n' h ys m') hinv)
 
 /-- `wp_loop` specialized to `loop1`. -/
 theorem wp_loop1 {Γ : Env} {rs ts : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
@@ -222,50 +226,40 @@ section
 variable {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
 
 theorem wp_let {ts : List Ty} (op : Op Val ts) (k : Tup Val ts → Expr Val Cont rs) :
-    wp Γ Q X (.let_ op k) m = op.wp (fun r => wp Γ Q X (k r) m) := by
-  simp [wp]
+    wp Γ Q X (.let_ op k) m = op.wp (fun r => wp Γ Q X (k r) m) := rfl
 
 @[simp] theorem wp_let_op1 {t ts} (c : OpCode [t] ts) (a : Arg Val t)
     (k : Tup Val ts → Expr Val Cont rs) :
-    wp Γ Q X (.let_ (op1 c a) k) m = c.wp (a.val, ()) (fun r => wp Γ Q X (k r) m) := by
-  simp [wp, Op.wp, op1, vals]
+    wp Γ Q X (.let_ (op1 c a) k) m = c.wp (a.val, ()) (fun r => wp Γ Q X (k r) m) := rfl
 
 @[simp] theorem wp_let_op2 {t u ts} (c : OpCode [t, u] ts) (a : Arg Val t) (b : Arg Val u)
     (k : Tup Val ts → Expr Val Cont rs) :
     wp Γ Q X (.let_ (op2 c a b) k) m =
-      c.wp (a.val, b.val, ()) (fun r => wp Γ Q X (k r) m) := by
-  simp [wp, Op.wp, op2, vals]
+      c.wp (a.val, b.val, ()) (fun r => wp Γ Q X (k r) m) := rfl
 
 @[simp] theorem wp_let_op3 {t u w ts} (c : OpCode [t, u, w] ts) (a : Arg Val t) (b : Arg Val u)
     (d : Arg Val w) (k : Tup Val ts → Expr Val Cont rs) :
     wp Γ Q X (.let_ (op3 c a b d) k) m =
-      c.wp (a.val, b.val, d.val, ()) (fun r => wp Γ Q X (k r) m) := by
-  simp [wp, Op.wp, op3, vals]
+      c.wp (a.val, b.val, d.val, ()) (fun r => wp Γ Q X (k r) m) := rfl
 
 @[simp] theorem wp_jnz (c : Arg Val .bool) (t e : Expr Val Cont rs) :
     wp Γ Q X (.jnz c t e) m =
-      ((c.val = true → wp Γ Q X t m) ∧ (c.val = false → wp Γ Q X e m)) := by
-  simp [wp]
+      ((c.val = true → wp Γ Q X t m) ∧ (c.val = false → wp Γ Q X e m)) := rfl
 
 @[simp] theorem wp_jump {ts} (j : Cont ts) (args : Tup (Arg Val) ts) :
-    wp Γ Q X (.jump j args) m = j (vals args) m := by
-  simp [wp]
+    wp Γ Q X (.jump j args) m = j (vals args) m := rfl
 
 @[simp] theorem wp_ret (vs : Tup (Arg Val) rs) :
-    wp Γ Q X (.ret vs) m = Q (vals vs) m := by
-  simp [wp]
+    wp Γ Q X (.ret vs) m = Q (vals vs) m := rfl
 
 @[simp] theorem wp_exit (f : Sym) {as : List Ty} (args : Tup (Arg Val) as) :
-    wp Γ Q X (.exit f args) m = X f as (vals args) m := by
-  simp [wp]
+    wp Γ Q X (.exit f args) m = X f as (vals args) m := rfl
 
 theorem wp_load (t : Ty) (a : Arg Val i64) (k : Val t → Expr Val Cont rs) :
-    wp Γ Q X (.load t a k) m = (∃ v, loadVal m t a.val = some v ∧ wp Γ Q X (k v) m) := by
-  simp [wp]
+    wp Γ Q X (.load t a k) m = (∃ v, loadVal m t a.val = some v ∧ wp Γ Q X (k v) m) := rfl
 
 theorem wp_store {t : Ty} (v : Arg Val t) (a : Arg Val i64) (k : Expr Val Cont rs) :
-    wp Γ Q X (.store v a k) m = (storeOk m t a.val ∧ wp Γ Q X k (storeMem m t a.val v.val)) := by
-  simp [wp]
+    wp Γ Q X (.store v a k) m = (storeOk m t a.val ∧ wp Γ Q X k (storeMem m t a.val v.val)) := rfl
 
 theorem wp_call_of_spec {f : Sym} {as bs : List Ty} (args : Tup (Arg Val) as)
     (k : Tup Val bs → Expr Val Cont rs)

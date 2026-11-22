@@ -2,7 +2,7 @@ module
 
 public import LeanQbe.T.Gvn
 public import LeanQbe.T.OptUtilLemmas
-public import LeanQbe.T.OpsLemmas
+import LeanQbe.T.OpsLemmas
 
 /-!
 # Correctness of lexical GVN / CSE (`T6`)
@@ -17,7 +17,7 @@ public import LeanQbe.T.OpsLemmas
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -251,11 +251,11 @@ theorem OpCode.wp_self : {sig rs : List Ty} → (c : OpCode sig rs) → (args : 
 
 /-! ## Valuation updates, `GoodG`, `GoodT`, and `GvnTbl.find_mem` -/
 
-def tupGev (ρ : FEnv) : {ts : List Ty} → Tup (Arg K) ts → Tup Val ts
+@[expose] def tupGev (ρ : FEnv) : {ts : List Ty} → Tup (Arg K) ts → Tup Val ts
   | [], () => ()
   | _ :: _, (a, as) => (FKey.fev ρ a, tupGev ρ as)
 
-def TupKeyLt (b : Nat) : {ts : List Ty} → Tup (Arg K) ts → Prop
+@[expose] def TupKeyLt (b : Nat) : {ts : List Ty} → Tup (Arg K) ts → Prop
   | [], () => True
   | _ :: _, (a, as) => FKey.FLt b a ∧ TupKeyLt b as
 
@@ -271,11 +271,11 @@ theorem tupGev_fupdTup (ρ : FEnv) {b : Nat} {ts : List Ty} (xs : Tup Val ts) :
   | _ :: _, (_, _), ⟨ha, has⟩ =>
     Prod.ext (FKey.fev_fupdTup xs ha) (tupGev_fupdTup ρ xs has)
 
-def gvalVals : {ts : List Ty} → Tup (GVal Val) ts → Tup Val ts
+@[expose] def gvalVals : {ts : List Ty} → Tup (GVal Val) ts → Tup Val ts
   | [], () => ()
   | _ :: _, ((v, _), xs) => (v, gvalVals xs)
 
-def TupGValGood (ρ : (t : Ty) → Nat → Val t) (b : Nat) :
+@[expose] def TupGValGood (ρ : (t : Ty) → Nat → Val t) (b : Nat) :
     {ts : List Ty} → Tup (GVal Val) ts → Prop
   | [], () => True
   | t :: _, ((v, id), xs) => id < b ∧ ρ t id = v ∧ TupGValGood ρ b xs
@@ -295,7 +295,7 @@ theorem GvnBucket.find_mem :
     ⟨⟨sig, rs, code, args⟩, res⟩ ∈ bkt
   | _, [], _, _, _, _, _, h => nomatch h
   | _, ⟨k', v⟩ :: rest, sig, rs, code, args, res, h => by
-    simp only [GvnBucket.find] at h
+    dsimp only [GvnBucket.find] at h
     cases hk : gvnKeyDecEq k' ⟨sig, rs, code, args⟩ with
     | isTrue heq =>
       rw [hk] at h
@@ -315,7 +315,7 @@ theorem GvnTbl.find_mem {V : Ty → Type} (tbl : GvnTbl V) {sig rs : List Ty}
   unfold GvnTbl.find at h
   exact GvnBucket.find_mem _ h
 
-def GoodG (ρ : (t : Ty) → Nat → Val t) (b : Nat) (G : Ctx (GVal Val) Val) : Prop :=
+@[expose] def GoodG (ρ : (t : Ty) → Nat → Val t) (b : Nat) (G : Ctx (GVal Val) Val) : Prop :=
   ∀ p ∈ G, p.2.1.1 = p.2.2 ∧ p.2.1.2 < b ∧ ρ p.1 p.2.1.2 = p.2.2
 
 theorem GoodG.cons {ρ : (t : Ty) → Nat → Val t} {b : Nat} {G : Ctx (GVal Val) Val}
@@ -381,7 +381,7 @@ theorem TupGValGood.freshGVals (ρ : (t : Ty) → Nat → Val t) :
   | [], (), _ => trivial
   | _ :: ts, (x, xs), b => by
     unfold LeanQbe.T.freshGVals
-    simp only [tupFreshWith, TupGValGood, fupdTup, List.length_cons]
+    dsimp only [tupFreshWith, TupGValGood, fupdTup]; simp only [List.length_cons]
     refine ⟨by omega, ?_, ?_⟩
     · rw [fupdTup_lt (fupd ρ b x) xs (by omega), fupd_eq]
     · have ih := TupGValGood.freshGVals (fupd ρ b x) xs (b + 1)
@@ -430,12 +430,12 @@ theorem TRel.gkey_vals {ρ : (t : Ty) → Nat → Val t} {b : Nat} {G : Ctx (GVa
   | [], (), (), .nil => rfl
   | _ :: _, (_, _), (_, _), .cons h hs => Prod.ext (h.gkey_ev hG) (TRel.gkey_vals hG hs)
 
-def GoodEntry (ρ : (t : Ty) → Nat → Val t) (b : Nat) (e : GvnEntry Val) : Prop :=
+@[expose] def GoodEntry (ρ : (t : Ty) → Nat → Val t) (b : Nat) (e : GvnEntry Val) : Prop :=
   TupKeyLt b e.1.2.2.2 ∧
   TupGValGood ρ b e.2 ∧
   ∀ P : Tup Val e.1.2.1 → Prop, e.1.2.2.1.wp (tupGev ρ e.1.2.2.2) P → P (gvalVals e.2)
 
-def GoodT (ρ : (t : Ty) → Nat → Val t) (b : Nat) (tbl : GvnTbl Val) : Prop :=
+@[expose] def GoodT (ρ : (t : Ty) → Nat → Val t) (b : Nat) (tbl : GvnTbl Val) : Prop :=
   ∀ h e, e ∈ Trie.getD tbl h [] → GoodEntry ρ b e
 
 theorem GoodT.empty (ρ : (t : Ty) → Nat → Val t) (b : Nat) : GoodT ρ b .empty :=
@@ -474,6 +474,19 @@ theorem gvnB_get {V₁ : Ty → Type} {L₁ : List Ty → Type} {rs : List Ty} (
   | _, _, .cons _ bs, .there i, xs => gvnB_get b tbl bs i xs
 
 /-- Weakest-precondition preservation for `gvn`, proved via `Wf.induct`. -/
+private theorem gvn_let {V : Ty → Type} {L : List Ty → Type} {sig ts rs : List Ty}
+    (next : Nat) (tbl : GvnTbl V) (code : OpCode sig ts) (args : Tup (Arg (GVal V)) sig)
+    (k : Tup (GVal V) ts → Expr (GVal V) L rs) :
+    gvn next tbl (.let_ ⟨code, args⟩ k) =
+      match tbl.find sig ts code (tupGKey args) with
+      | some cached => gvn next tbl (k cached)
+      | none =>
+        .let_ ⟨code, tupGOut args⟩ fun xs =>
+          let gs := freshGVals ts xs next
+          gvn (next + ts.length) (tbl.insert sig ts code (tupGKey args) gs) (k gs) := by
+  delta gvn; dsimp only [Expr.brecOn, Expr.rec, gvn._f]
+  cases tbl.find sig ts code (tupGKey args) <;> rfl
+
 theorem gvn_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {G : Ctx (GVal Val) Val} {D : Ctx Cont Cont}
     {e₁ : Expr (GVal Val) Cont rs} {e₂ : Expr Val Cont rs}
@@ -483,11 +496,11 @@ theorem gvn_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   induction hwf using Wf.induct with
   | @let_ G D ts op₁ op₂ k₁ k₂ hop _ ih =>
     intro hD b ρ tbl hG hT m hw
-    simp only [wp] at hw
+    dsimp only [wp] at hw
     cases hop with
     | @mk sig _ code args₁ args₂ hargs =>
       dsimp only [Op.wp] at hw
-      simp only [gvn]
+      rw [gvn_let]
       cases hfind : tbl.find sig ts code (tupGKey args₁) with
       | some cached =>
         dsimp only
@@ -514,19 +527,19 @@ theorem gvn_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
         exact hself P hP
   | load t ha _ ih =>
     intro hD b ρ tbl hG hT m hw
-    simp only [wp, gvn] at hw ⊢
+    dsimp only [wp, gvn] at hw ⊢
     rcases hw with ⟨v, hv, hk⟩
     exact ⟨v, ha.gout_val hG ▸ hv,
       ih (v, b) v hD (b + 1) (fupd ρ b v) tbl (hG.freshOne v)
         (by simpa [fupdTup] using hT.upd_all (ts := [t]) (v, ())) m hk⟩
   | store hv ha _ ih =>
     intro hD b ρ tbl hG hT m hw
-    simp only [wp, gvn] at hw ⊢
+    dsimp only [wp, gvn] at hw ⊢
     rw [ha.gout_val hG, hv.gout_val hG]
     exact ⟨hw.1, ih hD b ρ tbl hG hT _ hw.2⟩
   | call f hargs _ ih =>
     intro hD b ρ tbl hG hT m hw
-    simp only [wp, gvn] at hw ⊢
+    dsimp only [wp, gvn] at hw ⊢
     rcases hw with ⟨P, E, hΓ, hP, hE⟩
     rw [hargs.gout_vals hG]
     exact ⟨P, E, hΓ, fun r m' hp =>
@@ -534,23 +547,23 @@ theorem gvn_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
         (hT.upd_all r) m' (hP r m' hp), hE⟩
   | jnz hc _ _ iht ihe =>
     intro hD b ρ tbl hG hT m hw
-    simp only [wp, gvn] at hw ⊢
+    dsimp only [wp, gvn] at hw ⊢
     rw [hc.gout_val hG]
     exact ⟨fun h => iht hD b ρ tbl hG hT m (hw.1 h), fun h => ihe hD b ρ tbl hG hT m (hw.2 h)⟩
   | jump hj hargs =>
     intro hD b ρ tbl hG _ m hw
     have hj' := hD _ hj; dsimp only at hj'
-    simp only [wp, gvn] at hw ⊢
+    dsimp only [wp, gvn] at hw ⊢
     rw [hj', hargs.gout_vals hG]
     exact hw
   | ret hvs =>
     intro _ b ρ tbl hG _ m hw
-    simp only [wp, gvn] at hw ⊢
+    dsimp only [wp, gvn] at hw ⊢
     rw [hvs.gout_vals hG]
     exact hw
   | exit f hargs =>
     intro _ b ρ tbl hG _ m hw
-    simp only [wp, gvn] at hw ⊢
+    dsimp only [wp, gvn] at hw ⊢
     rw [hargs.gout_vals hG]
     exact hw
   | hlt =>
@@ -558,7 +571,7 @@ theorem gvn_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     exact hw
   | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
     intro hD b ρ tbl hG hT m hw
-    simp only [wp, gvn] at hw ⊢
+    dsimp only [wp, gvn] at hw ⊢
     intro Js hclosed
     refine ihk Js Js (tup_zip_self_eq hD Js) b ρ tbl hG hT m (hw Js ?_)
     rw [closed_iff] at hclosed ⊢
@@ -573,14 +586,14 @@ theorem gvn_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
 section
 variable {V₁ V₂ : Ty → Type}
 
-def RelGVal (G' : Ctx V₁ V₂) (t : Ty) (g₁ : GVal V₁ t) (g₂ : GVal V₂ t) : Prop :=
+@[expose] def RelGVal (G' : Ctx V₁ V₂) (t : Ty) (g₁ : GVal V₁ t) (g₂ : GVal V₂ t) : Prop :=
   ⟨t, g₁.1, g₂.1⟩ ∈ G' ∧ g₁.2 = g₂.2
 
 theorem RelGVal.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂)
     {t : Ty} {g₁ : GVal V₁ t} {g₂ : GVal V₂ t} (h : RelGVal G₁ t g₁ g₂) : RelGVal G₂ t g₁ g₂ :=
   ⟨hsub _ h.1, h.2⟩
 
-def RelG (G' : Ctx V₁ V₂) (G : Ctx (GVal V₁) (GVal V₂)) : Prop :=
+@[expose] def RelG (G' : Ctx V₁ V₂) (G : Ctx (GVal V₁) (GVal V₂)) : Prop :=
   ∀ p ∈ G, RelGVal G' p.1 p.2.1 p.2.2
 
 theorem RelG.cons {G' : Ctx V₁ V₂} {G : Ctx (GVal V₁) (GVal V₂)} (hG : RelG G' G)
@@ -674,7 +687,7 @@ theorem RelBucket.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p �
   | _, _, .nil => .nil
   | _, _, .cons k hv hr => .cons k (hv.weaken_gval hsub) (hr.weaken hsub)
 
-def RelT (G' : Ctx V₁ V₂) (t₁ : GvnTbl V₁) (t₂ : GvnTbl V₂) : Prop :=
+@[expose] def RelT (G' : Ctx V₁ V₂) (t₁ : GvnTbl V₁) (t₂ : GvnTbl V₂) : Prop :=
   ∀ h, RelBucket G' (Trie.getD t₁ h []) (Trie.getD t₂ h [])
 
 theorem RelT.empty {G' : Ctx V₁ V₂} : RelT G' .empty .empty := fun _ => .nil
@@ -707,7 +720,7 @@ theorem RelBucket.find_rel {G' : Ctx V₁ V₂} :
     GvnFindRel G' rs (GvnBucket.find b₁ sig rs code args) (GvnBucket.find b₂ sig rs code args)
   | _, _, .nil, _, _, _, _ => .none
   | _, _, .cons k hv hr, sig, rs, code, args => by
-    simp only [GvnBucket.find]
+    dsimp only [GvnBucket.find]
     cases hk : gvnKeyDecEq k ⟨sig, rs, code, args⟩ with
     | isTrue heq =>
       dsimp only
@@ -739,8 +752,7 @@ theorem gvn_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : Li
     | @mk sig _ code args₁ args₂ hargs =>
       have hkey : tupGKey args₁ = tupGKey args₂ := TRel.gkey_eq hG hargs
       have hfind := hT.find_rel sig ts code (tupGKey args₂)
-      simp only [gvn]
-      rw [hkey]
+      rw [gvn_let, gvn_let, hkey]
       generalize hfl1 : tbl₁.find sig ts code (tupGKey args₂) = r₁ at hfind
       generalize hfl2 : tbl₂.find sig ts code (tupGKey args₂) = r₂ at hfind
       cases hfind with

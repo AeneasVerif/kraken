@@ -1,7 +1,9 @@
 module
 
 public import LeanQbe.T.Inline
-public import LeanQbe.T.OptUtilLemmas
+public import LeanQbe.T.Wf
+public import LeanQbe.T.WP
+import LeanQbe.T.OptUtilLemmas
 
 /-!
 # Correctness of Acyclic Small-Callee Inlining (`O-M1`)
@@ -18,7 +20,7 @@ public import LeanQbe.T.OptUtilLemmas
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -29,9 +31,9 @@ theorem lookupCallee_mem :
     lookupCallee cands f as bs = some callee →
     ∃ fn ∈ cands, fn.name = f ∧
       ∃ (ha : fn.as = as) (hr : fn.rs = bs), callee = (ha ▸ hr ▸ fn.body)
-  | [], _, _, _, _, h => by simp [lookupCallee] at h
+  | [], _, _, _, _, h => by dsimp only [lookupCallee] at h; cases h
   | fn :: rest, f, as, bs, callee, h => by
-      simp only [lookupCallee] at h
+      dsimp only [lookupCallee] at h
       split at h
       · rename_i hname
         have hname' : fn.name = f := eq_of_beq hname
@@ -116,23 +118,23 @@ theorem spliceRet_wp {Γ : Env} {calleeRs callerRs : List Ty}
       intro m hG hD h
       cases hop with
       | mk code hargs =>
-          simp only [spliceRet, wp, flattenOp, Op.wp] at h ⊢
+          dsimp only [spliceRet, wp, flattenOp, Op.wp] at h ⊢
           rw [flattenArgs_vals hG hargs]
           exact OpCode.wp_mono code (vals _)
             (fun r hr => ih (toArgTup r) r m (ctx_val_append (toArgTup_zip_val r) hG) hD hr) h
   | load t ha _ ih =>
       intro m hG hD ⟨v, hv, hk⟩
-      simp only [spliceRet, wp]
+      dsimp only [spliceRet, wp]
       rw [flattenArg_val hG ha]
       exact ⟨v, hv, ih (.var v) v m (ctx_val_cons_var hG v) hD hk⟩
   | store hv ha _ ih =>
       intro m hG hD ⟨hok, hk⟩
-      simp only [spliceRet, wp]
+      dsimp only [spliceRet, wp]
       rw [flattenArg_val hG hv, flattenArg_val hG ha]
       exact ⟨hok, ih _ hG hD hk⟩
   | call f hargs _ ih =>
       intro m hG hD ⟨P, E, hΓ, hP, hE⟩
-      simp only [spliceRet, wp]
+      dsimp only [spliceRet, wp]
       rw [flattenArgs_vals hG hargs]
       exact ⟨P, E, hΓ,
         fun r m' hr =>
@@ -140,24 +142,24 @@ theorem spliceRet_wp {Γ : Env} {calleeRs callerRs : List Ty}
         hE⟩
   | jnz hc _ _ iht ihe =>
       intro m hG hD ⟨ht, he⟩
-      simp only [spliceRet, wp]
+      dsimp only [spliceRet, wp]
       rw [flattenArg_val hG hc]
       exact ⟨fun h => iht m hG hD (ht h), fun h => ihe m hG hD (he h)⟩
   | jump hj hargs =>
       intro m hG hD h
-      simp only [spliceRet, wp] at h ⊢
+      dsimp only [spliceRet, wp] at h ⊢
       have hj' := hD _ hj
       dsimp only at hj'
       rw [hj', flattenArgs_vals hG hargs]
       exact h
   | ret hvs =>
       intro m hG _ h
-      simp only [spliceRet, wp] at h ⊢
+      dsimp only [spliceRet, wp] at h ⊢
       rw [flattenArgs_vals hG hvs]
       exact h
   | exit f hargs =>
       intro m hG _ h
-      simp only [spliceRet, wp] at h ⊢
+      dsimp only [spliceRet, wp] at h ⊢
       rw [flattenArgs_vals hG hargs]
       exact h
   | hlt =>
@@ -256,22 +258,35 @@ theorem spliceRet_callsOk {allowed : List SigEntry} {exits : List Sym}
 /-! ## Expression- and function-level inlining correctness -/
 
 /-- Candidate invariant needed for `inline_wp` and `Func.inline_spec`. -/
-def CandsWpOk (Γ : Env) (cands : List Fn) : Prop :=
+@[expose] def CandsWpOk (Γ : Env) (cands : List Fn) : Prop :=
   ∀ fn ∈ cands, fn.Wf ∧
     ∀ xs m Q X, Γ fn.name fn.as fn.rs xs m Q X → Func.wp Γ fn.body xs m Q X
 
 /-- Candidate invariant needed for `inline_wf`. -/
-def CandsWfOk (cands : List Fn) : Prop :=
+@[expose] def CandsWfOk (cands : List Fn) : Prop :=
   ∀ fn ∈ cands, fn.Wf
 
 /-- Candidate invariant needed for `inline_callsOk`. -/
-def CandsCallsOk (allowed : List SigEntry) (exits : List Sym) (cands : List Fn) : Prop :=
+@[expose] def CandsCallsOk (allowed : List SigEntry) (exits : List Sym) (cands : List Fn) : Prop :=
   ∀ fn ∈ cands, fn.Wf ∧ fn.callsOk allowed exits
 
 theorem CandsWpOk.wfOk {Γ : Env} {cands : List Fn} (h : CandsWpOk Γ cands) : CandsWfOk cands :=
   fun fn hfn => (h fn hfn).1
 
 /-- Expression-level WP soundness of `inlineExpr` under `CandsWpOk Γ cands`. -/
+private theorem inlineExpr_call (cands : List Fn) {V : Ty → Type} {L : List Ty → Type}
+    {as bs rs : List Ty} (f : Sym) (args : Tup (Arg V) as) (k : Tup V bs → Expr V L rs) :
+    inlineExpr cands (.call f args k) =
+      match lookupCallee cands f as bs with
+      | some callee =>
+          .group (sig := [bs])
+            (fun _ => .cons (fun xs => inlineExpr cands (k xs)) .nil)
+            (fun Js => spliceRet Js.1 (callee (Arg V) L args))
+      | none =>
+          .call f args fun xs => inlineExpr cands (k xs) := by
+  delta inlineExpr; dsimp only [Expr.brecOn, Expr.rec, inlineExpr._f]
+  cases lookupCallee cands f as bs <;> rfl
+
 theorem inline_wp {Γ : Env} {cands : List Fn} (hcands : CandsWpOk Γ cands)
     {rs : List Ty} {Q : Post rs} {X : XPost} (e : Expr Val Cont rs) :
     ∀ m, wp Γ Q X e m → wp Γ Q X (inlineExpr cands e) m := by
@@ -287,7 +302,7 @@ theorem inline_wp {Γ : Env} {cands : List Fn} (hcands : CandsWpOk Γ cands)
       exact ⟨hok, ih _ h⟩
   | call f args k ih =>
       intro m ⟨P, E, hΓ, hP, hE⟩
-      unfold inlineExpr
+      rw [inlineExpr_call]
       cases hlook : lookupCallee cands f _ _ with
       | none => exact ⟨P, E, hΓ, fun r m' hr => ih r m' (hP r m' hr), hE⟩
       | some callee =>
@@ -295,7 +310,7 @@ theorem inline_wp {Γ : Env} {cands : List Fn} (hcands : CandsWpOk Γ cands)
           subst ha; subst hr
           intro Js hc
           rcases Js with ⟨joinLbl, ⟨⟩⟩
-          simp only [Closed, and_true] at hc
+          have hc := hc.1
           have ⟨hwf, hspec⟩ := hcands fn hfn
           have hbody : wp Γ joinLbl X (fn.body Val Cont (vals args)) m :=
             wp_mono (fun r m' hr => hc r m' (ih r m' (hP r m' hr))) hE
@@ -326,7 +341,7 @@ theorem inline_wf {cands : List Fn} (hcands : CandsWfOk cands)
   | load t ha _ ih => exact .load t ha ih
   | store hv ha _ ih => exact .store hv ha ih
   | call f hargs _ ih =>
-      unfold inlineExpr
+      rw [inlineExpr_call, inlineExpr_call]
       cases hlook : lookupCallee cands f _ _ with
       | none => exact .call f hargs ih
       | some callee =>
@@ -361,13 +376,13 @@ theorem inline_callsOk {allowed : List SigEntry} {exits : List Sym} {cands : Lis
   | store _ _ _ ih => intro h; exact ih h
   | call f args k ih =>
       intro ⟨hmem, hk⟩
-      unfold inlineExpr
+      rw [inlineExpr_call]
       cases hlook : lookupCallee cands f _ _ with
       | none => exact ⟨hmem, ih (Tup.units _) hk⟩
       | some callee =>
           obtain ⟨fn, hfn, _, ha, hr, rfl⟩ := lookupCallee_mem hlook
           subst ha; subst hr
-          simp only [Expr.callsOk, Blocks.callsOk, and_true]
+          dsimp only [Expr.callsOk, Blocks.callsOk]; simp only [and_true]
           have ⟨hwf, hcalls⟩ := hcands fn hfn
           exact ⟨ih (Tup.units _) hk,
             spliceRet_callsOk (hwf (Arg _) _ _ _ args (Tup.units fn.as)) hcalls⟩
@@ -409,7 +424,7 @@ private theorem inlineFns_map_sig (maxSize : Nat) (extSigs : List SigEntry) (exi
     (inlineFns maxSize extSigs exits seenSigs cands fns).map Fn.sig = fns.map Fn.sig
   | _, _, [] => rfl
   | seenSigs, cands, fn :: rest => by
-      simp only [inlineFns, List.map_cons, Fn.inline, Fn.sig]
+      dsimp only [inlineFns, Fn.inline, Fn.sig]; simp only [List.map_cons]
       exact congrArg (_ :: ·) (inlineFns_map_sig maxSize extSigs exits _ _ rest)
 
 private theorem inlineFns_map_name (maxSize : Nat) (extSigs : List SigEntry) (exits : List Sym) :
@@ -417,7 +432,7 @@ private theorem inlineFns_map_name (maxSize : Nat) (extSigs : List SigEntry) (ex
     (inlineFns maxSize extSigs exits seenSigs cands fns).map Fn.name = fns.map Fn.name
   | _, _, [] => rfl
   | seenSigs, cands, fn :: rest => by
-      simp only [inlineFns, List.map_cons, Fn.inline]
+      dsimp only [inlineFns, Fn.inline]; simp only [List.map_cons]
       exact congrArg (_ :: ·) (inlineFns_map_name maxSize extSigs exits _ _ rest)
 
 theorem Module.inline_sigs (M : Module) (maxSize : Nat := 40) :
@@ -450,7 +465,8 @@ private theorem inlineFns_ok {Γ : Env} (maxSize : Nat) (extSigs : List SigEntry
       inlineFns maxSize extSigs exits seenSigs cands rest = pre' ++ fn' :: post' →
       fn'.Wf ∧ fn'.callsOk ((seenSigs ++ pre'.map Fn.sig) ++ extSigs) exits ∧
       ∀ xs m Q X, Γ fn'.name fn'.as fn'.rs xs m Q X → Func.wp Γ fn'.body xs m Q X
-  | _, _, [], _, _, _, pre', _, _, hsplit => by cases pre' <;> simp [inlineFns] at hsplit
+  | _, _, [], _, _, _, pre', _, _, hsplit => by
+      cases pre' <;> (dsimp only [inlineFns] at hsplit; simp at hsplit)
   | seenSigs, cands, fn :: rest, hwp, hcalls, hrest, pre', fn', post', hsplit => by
       have ⟨hfn_wf, hfn_calls, hfn_spec⟩ := hrest [] fn rest rfl
       simp only [List.map_nil, List.append_nil] at hfn_calls
@@ -494,11 +510,11 @@ private theorem inlineFns_ok {Γ : Env} (maxSize : Nat) (extSigs : List SigEntry
         simpa [List.append_assoc] using h
       cases pre' with
       | nil =>
-          simp only [inlineFns, List.nil_append, List.cons.injEq] at hsplit
+          dsimp only [inlineFns] at hsplit; simp only [List.nil_append, List.cons.injEq] at hsplit
           rcases hsplit with ⟨rfl, _⟩
           simpa [List.append_nil] using And.intro hfn0_wf (And.intro hfn0_calls hfn0_spec)
       | cons hd tl =>
-          simp only [inlineFns, List.cons_append, List.cons.injEq] at hsplit
+          dsimp only [inlineFns] at hsplit; simp only [List.cons_append, List.cons.injEq] at hsplit
           rcases hsplit with ⟨rfl, htl⟩
           have hsig : (fn.inline cands).sig = fn.sig := rfl
           have ih := inlineFns_ok maxSize extSigs exits (seenSigs ++ [fn.sig]) cands' rest

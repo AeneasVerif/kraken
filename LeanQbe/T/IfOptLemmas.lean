@@ -2,7 +2,7 @@ module
 
 public import LeanQbe.T.IfOpt
 public import LeanQbe.T.OptUtilLemmas
-public import LeanQbe.T.OpsLemmas
+import LeanQbe.T.OpsLemmas
 
 /-!
 # Correctness of `ifOpt` (`O-M2`, `MB3`)
@@ -16,7 +16,7 @@ public import LeanQbe.T.OpsLemmas
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -33,24 +33,29 @@ theorem OpCode.wp_of_isSafeOp {sig rs : List Ty} (code : OpCode sig rs)
   | copy _ => exact hP _
   | add t | sub t | mul t | shl t | lshr t | ashr t | rotl t | rotr t =>
     rcases args with ⟨a, b, ⟨⟩⟩
-    have hf : t.hasFloat = false := by simpa [isSafeOp] using hs
-    simp [OpCode.wp, hf, hP]
+    dsimp only [isSafeOp] at hs
+    have hf : t.hasFloat = false := by cases h : t.hasFloat <;> simp_all
+    dsimp only [OpCode.wp]; simp [hf, hP]
   | neg t =>
     rcases args with ⟨a, ⟨⟩⟩
-    have hf : t.hasFloat = false := by simpa [isSafeOp] using hs
-    simp [OpCode.wp, hf, hP]
+    dsimp only [isSafeOp] at hs
+    have hf : t.hasFloat = false := by cases h : t.hasFloat <;> simp_all
+    dsimp only [OpCode.wp]; simp [hf, hP]
   | cmp o t m h =>
     subst h
     rcases args with ⟨a, b, ⟨⟩⟩
-    have hf : t.hasFloat = false := by simpa [isSafeOp] using hs
-    simp [OpCode.wp, hf, hP]
+    dsimp only [isSafeOp] at hs
+    have hf : t.hasFloat = false := by cases h : t.hasFloat <;> simp_all
+    dsimp only [OpCode.wp]; simp [hf, hP]
   | zext m n | sext m n =>
     rcases args with ⟨a, ⟨⟩⟩
-    have hle : m ≤ n := by simpa [isSafeOp] using hs
+    dsimp only [isSafeOp] at hs
+    have hle : m ≤ n := of_decide_eq_true hs
     exact ⟨hle, hP _⟩
   | trunc m n =>
     rcases args with ⟨a, ⟨⟩⟩
-    have hle : n ≤ m := by simpa [isSafeOp] using hs
+    dsimp only [isSafeOp] at hs
+    have hle : n ≤ m := of_decide_eq_true hs
     exact ⟨hle, hP _⟩
   | and _ | or _ | xor _ | not _ | fshl _ | fshr _ | clz _ | cls _ | rbit _ | ctz _ | popcnt _
   | select _ | ofBool _ | addc _ | subb _ | umulw _ | smulw _ | udiv0 _ | sdiv0 _
@@ -60,7 +65,7 @@ theorem OpCode.wp_of_isSafeOp {sig rs : List Ty} (code : OpCode sig rs)
   | shufd _ _ | shufb _ | alignr _ _ | blendw _ _ | sha256rnds2 | sha256msg1 | sha256msg2
   | fadd _ | fsub _ | fmul _ | fdiv _ | ffma _ | fsqrt _ | fneg _ | fabs _ | fcmp _ _ _ _
   | fptoui _ _ | fptosi _ _ | uitofp _ _ | sitofp _ _ | fcvt _ _ =>
-    simp [isSafeOp] at hs
+    dsimp only [isSafeOp] at hs; cases hs
 
 /-! ## Semantic invariant `IGood` over `FEnv` / `FKey` -/
 
@@ -164,7 +169,7 @@ private theorem mkPairArg_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {a b : Ty} (x : Arg Val a) (y : Arg Val b) {cont : Arg Val (.pair a b) → Expr Val Cont rs}
     (h : ∀ p : Arg Val (.pair a b), p.val = (x.val, y.val) → wp Γ Q X (cont p) m) :
     wp Γ Q X (mkPairArg x y cont) m := by
-  cases x <;> cases y <;> simp only [mkPairArg]
+  cases x <;> cases y <;> dsimp only [mkPairArg]
   · exact h _ rfl
   · exact h _ rfl
   · exact h _ rfl
@@ -179,7 +184,7 @@ private theorem splitPairIVal_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XP
       IArgGood ρ' next' p₁ v.1 → IArgGood ρ' next' p₂ v.2 →
       wp Γ Q X (cont next' p₁ p₂) m) :
     wp Γ Q X (splitPairIVal next p cont) m := by
-  unfold splitPairIVal
+  dsimp only [splitPairIVal]
   cases hio : iout p with
   | imm c =>
     rcases c with ⟨c₁, c₂⟩
@@ -215,7 +220,7 @@ private theorem emitSelectTy_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
     wp Γ Q X (emitSelectTy c t next aT aE cont) m
   | .bool, _, ρ, next, aT, aE, vT, vE, hT, hE, cont, hcont
   | .bits _, _, ρ, next, aT, aE, vT, vE, hT, hE, cont, hcont => by
-    simp only [emitSelectTy]
+    dsimp only [emitSelectTy]
     cases hbeq : fKeyBeq (ikey aT) (ikey aE)
     · simp only [Bool.false_eq_true, ↓reduceIte, wp_let_op3, OpCode.wp_select]
       exact hcont next _ (Nat.le_refl _) (by rw [hT.1, hE.1]; rfl)
@@ -228,7 +233,7 @@ private theorem emitSelectTy_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
     simp only [isSelectTy, Ty.hasFloat, Bool.or_eq_false_iff, Bool.not_eq_true'] at ht
     have hta : isSelectTy a = true := by simp [isSelectTy, ht.1]
     have htb : isSelectTy b = true := by simp [isSelectTy, ht.2]
-    simp only [emitSelectTy]
+    dsimp only [emitSelectTy]
     cases hbeq : fKeyBeq (ikey aT) (ikey aE)
     · simp only [Bool.false_eq_true, ↓reduceIte]
       refine splitPairIVal_wp ρ next aT vT hT fun ρ₁ next₁ aT₁ aT₂ hle₁ hev₁ hT₁ hT₂ => ?_
@@ -261,7 +266,7 @@ theorem emitSelectTup_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m 
   | t :: ts, hts, ρ, next, (aT, asT), (aE, asE), (vT, vsT), (vE, vsE),
     ⟨haT, hasT⟩, ⟨haE, hasE⟩, cont, hcont => by
     simp only [isSelectSig, List.all_cons, Bool.and_eq_true] at hts
-    simp only [emitSelectTup]
+    dsimp only [emitSelectTup]
     refine emitSelectTy_wp c t hts.1 ρ next haT haE fun next' r hle hr => ?_
     refine emitSelectTup_wp c ts hts.2 ρ next' (iargsGood_mono hle (fun _ _ => rfl) hasT)
       (iargsGood_mono hle (fun _ _ => rfl) hasE) fun rs' hrs' => ?_
@@ -272,7 +277,7 @@ private theorem isSelectTyWith_imp :
   | false, _, h => h
   | true, .bits _, _ => rfl
   | true, .bool, h | true, .float _, h | true, .pair _ _, h => by
-      simp [isSelectTyWith] at h
+      dsimp only [isSelectTyWith] at h; cases h
 
 private theorem isSelectSigWith_imp (bitsOnly : Bool) (ts : List Ty)
     (h : isSelectSigWith bitsOnly ts = true) : isSelectSig ts = true := by
@@ -414,7 +419,7 @@ private theorem splitPairIVal_wf {rs : List Ty} {G' : Ctx V₁ V₂} {D' : Ctx L
       Wf G'' D' (cont₁ next' a₁ b₁) (cont₂ next' a₂ b₂)) :
     Wf G' D' (splitPairIVal next p₁ cont₁) (splitPairIVal next p₂ cont₂) := by
   have hio := hp.1
-  simp only [splitPairIVal]
+  dsimp only [splitPairIVal]
   cases ho1 : iout p₁ <;> cases ho2 : iout p₂ <;> rw [ho1, ho2] at hio
   · next v₁ v₂ =>
     have hv : ⟨.pair a b, v₁, v₂⟩ ∈ G' := ArgRel.var_iff.1 hio
@@ -441,7 +446,7 @@ private theorem emitSelectTy_wf {rs : List Ty} {G' : Ctx V₁ V₂} {D' : Ctx L�
     Wf G' D' (emitSelectTy c₁ t next aT₁ aE₁ cont₁) (emitSelectTy c₂ t next aT₂ aE₂ cont₂)
   | .bool, next, aT₁, aE₁, aT₂, aE₂, hT, hE, cont₁, cont₂, hcont
   | .bits _, next, aT₁, aE₁, aT₂, aE₂, hT, hE, cont₁, cont₂, hcont => by
-    simp only [emitSelectTy, hT.2, hE.2]
+    dsimp only [emitSelectTy]; rw [hT.2, hE.2]
     cases fKeyBeq (ikey aT₂) (ikey aE₂)
     · simp only [Bool.false_eq_true, ↓reduceIte]
       refine .let_ (.mk (.select _) (.cons hc (.cons hT.1 (.cons hE.1 .nil))))
@@ -452,7 +457,7 @@ private theorem emitSelectTy_wf {rs : List Ty} {G' : Ctx V₁ V₂} {D' : Ctx L�
   | .float _, next, _, _, _, _, hT, _, _, _, hcont =>
     hcont G' next _ _ (fun _ h => h) hT.1
   | .pair a b, next, aT₁, aE₁, aT₂, aE₂, hT, hE, cont₁, cont₂, hcont => by
-    simp only [emitSelectTy, hT.2, hE.2]
+    dsimp only [emitSelectTy]; rw [hT.2, hE.2]
     cases fKeyBeq (ikey aT₂) (ikey aE₂)
     · simp only [Bool.false_eq_true, ↓reduceIte]
       refine splitPairIVal_wf next hT fun G₁ next₁ aT₁₁ aT₂₁ aT₁₂ aT₂₂ hsub₁ hT₁ hT₂ => ?_
@@ -485,7 +490,7 @@ private theorem emitSelectTup_wf {rs : List Ty} {G' : Ctx V₁ V₂} {D' : Ctx L
     hcont G' () () (fun _ h => h) .nil
   | t :: ts, next, (aT₁, asT₁), (aE₁, asE₁), (aT₂, asT₂), (aE₂, asE₂),
     .cons hT hsT, .cons hE hsE, cont₁, cont₂, hcont => by
-    simp only [emitSelectTup]
+    dsimp only [emitSelectTup]
     refine emitSelectTy_wf hc t next hT hE fun G₁ next' r₁ r₂ hsub₁ hr => ?_
     have hsT' : TRel (fun _ => IArgRel G₁) asT₁ asT₂ :=
       TRel.mono (fun _ _ _ h => iargRel_weaken hsub₁ h) hsT
@@ -597,7 +602,7 @@ private theorem hasArmShape_of_checkArm {rs : List Ty} (jId : Nat) (jTs : List T
     cases j₁ with
     | outer _ => simp [checkArm] at hc
     | loc id =>
-      simp only [checkArm] at hc
+      unfold checkArm at hc
       split at hc
       · simp only [Option.some.injEq] at hc
         subst hc
@@ -632,25 +637,25 @@ private theorem checkDiamond_peel_of_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : L
       {e₁ : Expr (IVal V₁) (JLabel L₁) rs} {e₂ : Expr V₂ L₂ rs},
     Wf G D e₁ e₂ → checkDiamondWith bitsOnly jId jTs next e₁ = some plan → P plan e₂
   | next, _, _, _, _, .let_ _ hk, hc => by
-    simp only [checkDiamondWith, Option.map_eq_some_iff] at hc
+    dsimp only [checkDiamondWith] at hc; simp only [Option.map_eq_some_iff] at hc
     rcases hc with ⟨rest, hr, rfl⟩
     exact hlet fun xs₂ =>
       checkDiamond_peel_of_wf bitsOnly jId jTs P hlet hload hstore hcall hjnz
         (next + _) rest (hk (dummyIVals _ next) xs₂) hr
   | next, _, _, _, _, .load _ _ hk, hc => by
-    simp only [checkDiamondWith, Option.map_eq_some_iff] at hc
+    dsimp only [checkDiamondWith] at hc; simp only [Option.map_eq_some_iff] at hc
     rcases hc with ⟨rest, hr, rfl⟩
     exact hload fun v₂ =>
       checkDiamond_peel_of_wf bitsOnly jId jTs P hlet hload hstore hcall hjnz
         (next + 1) rest (hk (.imm default, .var next) v₂) hr
   | next, _, _, _, _, .store _ _ hk, hc => by
-    simp only [checkDiamondWith, Option.map_eq_some_iff] at hc
+    dsimp only [checkDiamondWith] at hc; simp only [Option.map_eq_some_iff] at hc
     rcases hc with ⟨rest, hr, rfl⟩
     exact hstore
       (checkDiamond_peel_of_wf bitsOnly jId jTs P hlet hload hstore hcall hjnz
         next rest hk hr)
   | next, _, _, _, _, .call _ _ hk, hc => by
-    simp only [checkDiamondWith, Option.map_eq_some_iff] at hc
+    dsimp only [checkDiamondWith] at hc; simp only [Option.map_eq_some_iff] at hc
     rcases hc with ⟨rest, hr, rfl⟩
     exact hcall fun xs₂ =>
       checkDiamond_peel_of_wf bitsOnly jId jTs P hlet hload hstore hcall hjnz
@@ -666,7 +671,7 @@ private theorem checkDiamond_peel_of_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : L
   | _, _, _, _, _, .jump _ _, hc | _, _, _, _, _, .ret _, hc
   | _, _, _, _, _, .exit _ _, hc | _, _, _, _, _, .hlt, hc
   | _, _, _, _, _, .group _ _, hc => by
-    simp [checkDiamondWith] at hc
+    dsimp only [checkDiamondWith] at hc; cases hc
 
 private theorem hasDiamondShape_of_checkDiamond {rs : List Ty}
     (bitsOnly : Bool) (jId : Nat) (jTs : List Ty)
@@ -746,7 +751,7 @@ private theorem hoistArm_jump_eq {V : Ty → Type} {L : List Ty → Type} {rs : 
     (ts : List Ty) (next : Nat) (j : JLabel L ts) (args : Tup (Arg (IVal V)) ts)
     (cont : Nat → Tup (Arg (IVal V)) ts → Expr V L rs) :
     hoistArm ts 0 next (.jump j args) cont = cont next args := by
-  simp only [hoistArm]
+  dsimp only [hoistArm]
   cases listTyDecEq ts ts with
   | isFalse hne => exact absurd rfl hne
   | isTrue _ => rfl
@@ -776,7 +781,7 @@ private theorem hoistArm_wf {rs : List Ty} (jTs : List Ty) {D' : Ctx L₁ L₂} 
     | let_ hop hk =>
       cases hop with
       | mk code hargs =>
-        simp only [hoistArm]
+        dsimp only [hoistArm]
         refine .let_ (.mk code (trel_iout hG hargs)) fun xs₁ xs₂ => ?_
         have hG'' : IRelG (Tup.zip xs₁ xs₂ ++ G')
             (Tup.zip (freshIVals _ xs₁ next) (freshIVals _ xs₂ next) ++ G) :=
@@ -799,7 +804,7 @@ private theorem hoistDiamond_wf {rs : List Ty} {jTs : List Ty} {D' : Ctx L₁ L�
     cases hwf with
     | jnz hc ht he =>
       rcases hsh with ⟨hshT, hshE⟩
-      simp only [hoistDiamond]
+      dsimp only [hoistDiamond]
       refine hoistArm_wf jTs nT next ht hshT hG fun G₁ next₁ argsT₁ argsT₂ hsub₁ hG₁ hargsT => ?_
       refine hoistArm_wf jTs nE next₁ he hshE hG₁ fun G₂ next₂ argsE₁ argsE₂ hsub₂ hG₂ hargsE => ?_
       have hc₂ := (argRel_iout hG hc).weaken (fun p hp => hsub₂ p (hsub₁ p hp))
@@ -813,7 +818,7 @@ private theorem hoistDiamond_wf {rs : List Ty} {jTs : List Ty} {D' : Ctx L₁ L�
     | let_ hop hk =>
       cases hop with
       | mk code hargs =>
-        simp only [hoistDiamond]
+        dsimp only [hoistDiamond]
         refine .let_ (.mk code (trel_iout hG hargs)) fun xs₁ xs₂ => ?_
         exact hoistDiamond_wf hj rest (next + _)
           (hk (freshIVals _ xs₁ next) (freshIVals _ xs₂ next))
@@ -823,7 +828,7 @@ private theorem hoistDiamond_wf {rs : List Ty} {jTs : List Ty} {D' : Ctx L₁ L�
   | .load rest, next, _, G', _, _, _, hwf, hsh, hG => by
     cases hwf with
     | load t ha hk =>
-      simp only [hoistDiamond]
+      dsimp only [hoistDiamond]
       refine .load t (argRel_iout hG ha) fun v₁ v₂ => ?_
       exact hoistDiamond_wf hj rest (next + 1) (hk (.var v₁, .var next) (.var v₂, .var next))
         (hsh (.var v₁, .var next)) (hG.freshOne v₁ v₂ next)
@@ -832,14 +837,14 @@ private theorem hoistDiamond_wf {rs : List Ty} {jTs : List Ty} {D' : Ctx L₁ L�
   | .store rest, next, _, G', _, _, _, hwf, hsh, hG => by
     cases hwf with
     | store hv ha hk =>
-      simp only [hoistDiamond]
+      dsimp only [hoistDiamond]
       exact .store (argRel_iout hG hv) (argRel_iout hG ha) (hoistDiamond_wf hj rest next hk hsh hG)
     | let_ _ _ | load _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _ | exit _ _ | hlt
     | group _ _ => exact False.elim hsh
   | .call rest, next, _, G', _, _, _, hwf, hsh, hG => by
     cases hwf with
     | call f hargs hk =>
-      simp only [hoistDiamond]
+      dsimp only [hoistDiamond]
       refine .call f (trel_iout hG hargs) fun xs₁ xs₂ => ?_
       exact hoistDiamond_wf hj rest (next + _)
         (hk (freshIVals _ xs₁ next) (freshIVals _ xs₂ next))
@@ -989,7 +994,7 @@ private theorem hoistArm_taken_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : X
     | @jump _ _ ts _ _ args₁ args₂ _ hargs =>
       rcases hsp with ⟨rfl, rfl⟩
       rw [hoistArm_jump_eq]
-      simp only [wp] at hwp
+      dsimp only [wp] at hwp
       exact hcont next ρ args₁ (vals args₂) (Nat.le_refl _) (fun _ _ => rfl)
         (IArgsGood.of_trel hG hargs) hwp
     | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | ret _ | exit _ _ | hlt
@@ -1000,7 +1005,7 @@ private theorem hoistArm_taken_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : X
       cases hop with
       | @mk _ _ code args₁ args₂ hargs =>
         rcases hsp with ⟨_, hsp'⟩
-        simp only [hoistArm, wp, Op.wp] at hwp ⊢
+        dsimp only [hoistArm, wp, Op.wp] at hwp ⊢
         rw [TRel.iout_vals hG hargs]
         refine OpCode.wp_mono code (vals args₂) (fun r hr => ?_) hwp
         refine hoistArm_taken_wp j n (next + _) (hk (freshIVals _ r next) r)
@@ -1036,7 +1041,7 @@ private theorem hoistArm_untaken_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X :
       cases hop with
       | @mk _ _ code args₁ args₂ hargs =>
         rcases hsp with ⟨hsafe, hsp'⟩
-        simp only [hoistArm, wp, Op.wp]
+        dsimp only [hoistArm, wp, Op.wp]
         refine OpCode.wp_of_isSafeOp code hsafe (vals (tupIOut args₁)) fun r => ?_
         refine hoistArm_untaken_wp j n (next + _) (hk (freshIVals _ r next) r)
           (hsp' r) (hG.freshIVals r) fun next' ρ' args₁ vs₂ hle hev hargs' => ?_
@@ -1056,7 +1061,7 @@ private theorem hoistDiamond_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
     cases hwf with
     | jnz hc ht he =>
       rcases hsp with ⟨hsel, hspT, hspE⟩
-      simp only [hoistDiamond, wp] at hwp ⊢
+      dsimp only [hoistDiamond, wp] at hwp ⊢
       have hce := argRel_iout_val hG hc
       refine bool_val_cases hce (fun hcv hcv1 => ?_) (fun hcv hcv1 => ?_)
       · refine hoistArm_taken_wp j nT next ht hspT hG (hwp.1 hcv)
@@ -1065,7 +1070,7 @@ private theorem hoistDiamond_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
           fun next₂ ρ₂ argsE vsE hle₂ hev₂ hargsE => ?_
         have hargsT₂ := iargsGood_mono hle₂ hev₂ hargsT
         refine emitSelectTup_wp (iout _) jTs hsel ρ₂ next₂ hargsT₂ hargsE fun sel hsel_eq => ?_
-        simp only [wp, hsel_eq, hcv1, ↓reduceIte]
+        dsimp only [wp]; simp only [hsel_eq, hcv1, ↓reduceIte]
         exact hjT
       · refine hoistArm_untaken_wp j nT next ht hspT hG
           fun next₁ ρ₁ argsT vsT hle₁ hev₁ hargsT => ?_
@@ -1073,7 +1078,7 @@ private theorem hoistDiamond_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
           fun next₂ ρ₂ argsE vsE hle₂ hev₂ hargsE hjE => ?_
         have hargsT₂ := iargsGood_mono hle₂ hev₂ hargsT
         refine emitSelectTup_wp (iout _) jTs hsel ρ₂ next₂ hargsT₂ hargsE fun sel hsel_eq => ?_
-        simp only [wp, hsel_eq, hcv1, Bool.false_eq_true, ↓reduceIte]
+        dsimp only [wp]; simp only [hsel_eq, hcv1, Bool.false_eq_true, ↓reduceIte]
         exact hjE
     | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jump _ _ | ret _ | exit _ _ | hlt
     | group _ _ => exact False.elim hsp
@@ -1082,7 +1087,7 @@ private theorem hoistDiamond_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
     | let_ hop hk =>
       cases hop with
       | @mk _ _ code _ args₂ hargs =>
-        simp only [hoistDiamond, wp, Op.wp] at hwp ⊢
+        dsimp only [hoistDiamond, wp, Op.wp] at hwp ⊢
         rw [TRel.iout_vals hG hargs]
         exact OpCode.wp_mono code (vals args₂) (fun r hr =>
           hoistDiamond_wp j rest (next + _) (hk (freshIVals _ r next) r)
@@ -1092,7 +1097,7 @@ private theorem hoistDiamond_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
   | .load rest, next, ρ, G, D, _, _, hwf, hsp, hG, m, hwp => by
     cases hwf with
     | load t ha hk =>
-      simp only [hoistDiamond, wp] at hwp ⊢
+      dsimp only [hoistDiamond, wp] at hwp ⊢
       rcases hwp with ⟨v, hv, hk2⟩
       rw [argRel_iout_val hG ha]
       exact ⟨v, hv, hoistDiamond_wp j rest (next + 1) (hk (.var v, .var next) v)
@@ -1102,7 +1107,7 @@ private theorem hoistDiamond_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
   | .store rest, next, ρ, G, D, _, _, hwf, hsp, hG, m, hwp => by
     cases hwf with
     | store hv ha hk =>
-      simp only [hoistDiamond, wp] at hwp ⊢
+      dsimp only [hoistDiamond, wp] at hwp ⊢
       rw [argRel_iout_val hG hv, argRel_iout_val hG ha]
       exact ⟨hwp.1, hoistDiamond_wp j rest next hk hsp hG _ hwp.2⟩
     | let_ _ _ | load _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _ | exit _ _ | hlt
@@ -1110,7 +1115,7 @@ private theorem hoistDiamond_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
   | .call rest, next, ρ, G, D, _, _, hwf, hsp, hG, m, hwp => by
     cases hwf with
     | call f hargs hk =>
-      simp only [hoistDiamond, wp] at hwp ⊢
+      dsimp only [hoistDiamond, wp] at hwp ⊢
       rcases hwp with ⟨P, E, hΓ, hP, hE⟩
       rw [TRel.iout_vals hG hargs]
       exact ⟨P, E, hΓ, fun r m' hp =>
@@ -1129,7 +1134,7 @@ private theorem ifOpt_jump_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty →
     Wf G' D' (ifOptWith bitsOnly depth next (.jump (rs := rs) j₁ args₁))
              (ifOptWith bitsOnly depth next (.jump (rs := rs) j₂ args₂)) := by
   have hj' := hD _ hj
-  cases j₁ <;> cases j₂ <;> simp_all [ifOptWith]
+  cases j₁ <;> cases j₂ <;> dsimp only [ifOptWith] <;> simp_all
   exact .jump hj' (trel_iout hG hargs)
 
 private theorem ifOpt_jump_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
@@ -1144,7 +1149,7 @@ private theorem ifOpt_jump_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost
   cases j₁ with
   | outer l =>
     dsimp only at hj'
-    simp only [ifOptWith, wp] at hw ⊢
+    dsimp only [ifOptWith, wp] at hw ⊢
     rw [hj', TRel.iout_vals hG hargs]
     exact hw
   | loc _ => exact False.elim hj'
@@ -1221,7 +1226,7 @@ theorem ifOptWith_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {r
             checkDiamondWith bitsOnly depth ts next (k₂ (.loc depth, ())) :=
           checkDiamond_eq_of_wf bitsOnly depth ts (outerD_head_compat hD depth)
             next (hk (.loc depth, ()) (.loc depth, ()))
-        simp only [ifOptWith]
+        dsimp only [ifOptWith]
         refine .group (fun Js₁ Js₂ => WfB.of_get fun i xs₁ xs₂ => ?_) fun Js₁ Js₂ => ?_
         · rw [ifOptB_get, ifOptB_get]
           exact ihb (Js₁.map fun _ l => .outer l) (Js₂.map fun _ l => .outer l)
@@ -1271,32 +1276,32 @@ theorem ifOptWith_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     intro hD depth next ρ hG m hw
     cases hop with
     | @mk _ _ code _ args₂ hargs =>
-      simp only [ifOptWith, wp, Op.wp] at hw ⊢
+      dsimp only [ifOptWith, wp, Op.wp] at hw ⊢
       rw [TRel.iout_vals hG hargs]
       exact OpCode.wp_mono code (vals args₂) (fun r hr =>
         ih (freshIVals _ r next) r hD depth (next + _) (fupdTup ρ next r)
           (hG.freshIVals r) m hr) hw
   | load t ha _ ih =>
     intro hD depth next ρ hG m ⟨v, hv, hk⟩
-    simp only [ifOptWith, wp]
+    dsimp only [ifOptWith, wp]
     rw [argRel_iout_val hG ha]
     exact ⟨v, hv, ih (.var v, .var next) v hD depth (next + 1) (fupd ρ next v)
       (hG.freshOne v) m hk⟩
   | store hv ha _ ih =>
     intro hD depth next ρ hG m ⟨hok, hk⟩
-    simp only [ifOptWith, wp]
+    dsimp only [ifOptWith, wp]
     rw [argRel_iout_val hG hv, argRel_iout_val hG ha]
     exact ⟨hok, ih hD depth next ρ hG _ hk⟩
   | call f hargs _ ih =>
     intro hD depth next ρ hG m ⟨P, E, hΓ, hP, hE⟩
-    simp only [ifOptWith, wp]
+    dsimp only [ifOptWith, wp]
     rw [TRel.iout_vals hG hargs]
     exact ⟨P, E, hΓ, fun r m' hp =>
       ih (freshIVals _ r next) r hD depth (next + _) (fupdTup ρ next r)
         (hG.freshIVals r) m' (hP r m' hp), hE⟩
   | jnz hc _ _ iht ihe =>
     intro hD depth next ρ hG m hw
-    simp only [ifOptWith, wp] at hw ⊢
+    dsimp only [ifOptWith, wp] at hw ⊢
     rw [argRel_iout_val hG hc]
     exact ⟨fun h => iht hD depth next ρ hG m (hw.1 h),
            fun h => ihe hD depth next ρ hG m (hw.2 h)⟩
@@ -1305,12 +1310,12 @@ theorem ifOptWith_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     exact ifOpt_jump_wp hj hargs hD hG hw
   | ret hvs =>
     intro _ _ _ ρ hG m hw
-    simp only [ifOptWith, wp] at hw ⊢
+    dsimp only [ifOptWith, wp] at hw ⊢
     rw [TRel.iout_vals hG hvs]
     exact hw
   | exit f hargs =>
     intro _ _ _ ρ hG m hw
-    simp only [ifOptWith, wp] at hw ⊢
+    dsimp only [ifOptWith, wp] at hw ⊢
     rw [TRel.iout_vals hG hargs]
     exact hw
   | hlt =>
@@ -1320,7 +1325,7 @@ theorem ifOptWith_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     intro hD depth next ρ hG m hw
     cases sig with
     | nil =>
-      simp only [ifOptWith, wp] at hw ⊢
+      dsimp only [ifOptWith, wp] at hw ⊢
       intro Js hclosed
       refine ihk (Js.map fun _ l => .outer l) Js (OuterContD.append_outer hD Js) depth next ρ hG
         m (hw Js ?_)
@@ -1330,7 +1335,7 @@ theorem ifOptWith_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     | cons ts sig' =>
       cases sig' with
       | nil =>
-        simp only [ifOptWith, wp] at hw ⊢
+        dsimp only [ifOptWith, wp] at hw ⊢
         intro Js hclosed
         have hclosed₂ : Closed Γ Q X (b₂ Js) Js := by
           rw [closed_iff] at hclosed ⊢
@@ -1350,7 +1355,7 @@ theorem ifOptWith_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
             (hk (.loc depth, ()) Js) hplan
           exact hoistDiamond_wp Js.1 plan next (hk (.outer Js.1, ()) Js) hsp hG m hw₂
       | cons ts₂ rest =>
-        simp only [ifOptWith, wp] at hw ⊢
+        dsimp only [ifOptWith, wp] at hw ⊢
         intro Js hclosed
         refine ihk (Js.map fun _ l => .outer l) Js (OuterContD.append_outer hD Js)
           (depth + rest.length + 2) next ρ hG m (hw Js ?_)

@@ -23,7 +23,7 @@ import LeanQbe.T.RegaLemmas
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.LinkRec
 
@@ -142,7 +142,7 @@ theorem Env.sound_rec {Γrec : Nat → Env} {Γext : Env} {M : Module}
 /-- `k`-step semantic unfolding of `M` over fixed external environment `Γext`:
 at `k = 0`, only external calls in `M.externs` are permitted; at `k + 1`, cyclic callees
 in `M.fns` may invoke steps `≤ k`. -/
-def Env.unfoldRecBelow (M : Module) (Γext : Env) : Nat → Env
+@[expose] def Env.unfoldRecBelow (M : Module) (Γext : Env) : Nat → Env
   | 0 => fun f as bs xs m Q X =>
       (f, as, bs) ∈ M.externs.map Extern.sig ∧ Γext f as bs xs m Q X
   | k + 1 => fun f as bs xs m Q X =>
@@ -152,7 +152,7 @@ def Env.unfoldRecBelow (M : Module) (Γext : Env) : Nat → Env
           Func.wp (Env.unfoldRecBelow M Γext k) fn.body (ha ▸ xs) m (hr ▸ Q) X)
 
 /-- Measure-`k` semantic environment for `M`: executes `fn ∈ M.fns` against `k` unrolled steps. -/
-def Env.unfoldRecAt (M : Module) (Γext : Env) (k : Nat) : Env :=
+@[expose] def Env.unfoldRecAt (M : Module) (Γext : Env) (k : Nat) : Env :=
   Env.unfoldRecBelow M Γext (k + 1)
 
 private theorem unfoldRecBelow_mono {M : Module} {Γext : Env} :
@@ -258,7 +258,7 @@ theorem calleesBoundRec_ge {F raBytes : Nat} {recSigs : List SigEntry}
       calleesBoundRec F raBytes recSigs extCallees gs = some n → F ≤ n
   | [], _, h => by cases h; exact Nat.le_refl _
   | g :: gs, n, h => by
-    simp only [calleesBoundRec] at h
+    dsimp only [calleesBoundRec] at h
     split at h
     · simp only [Option.map_eq_some_iff] at h
       obtain ⟨rest, hrest, rfl⟩ := h
@@ -276,7 +276,7 @@ theorem calleesBoundRec_mem {F raBytes : Nat} {recSigs : List SigEntry}
         (g ∉ recSigs ∧ ∃ bg, lookupBound extCallees g = some bg ∧ F + raBytes + bg ≤ n)
   | [], _, _, _, h => nomatch h
   | _ :: gs, n, h, g, hmem => by
-    simp only [calleesBoundRec] at h
+    dsimp only [calleesBoundRec] at h
     split at h
     · rename_i hrec
       simp only [Option.map_eq_some_iff] at h
@@ -312,7 +312,7 @@ theorem checkAndBoundRecExt_spec {I : Isa} {raBytes : Nat} {recSigs : List SigEn
         (g ∉ recSigs ∧ ∃ bg, lookupBound extCallees g = some bg ∧
           I.frame.frameSize h.totalSlots + raBytes + bg ≤ b)) ∧
       (∀ g ∈ ext.exits, g ∈ exits ∧ nX ≤ b) := by
-  simp only [checkAndBoundRecExt] at hc
+  dsimp only [checkAndBoundRecExt] at hc
   cases hcb : calleesBoundRec (I.frame.frameSize h.totalSlots) raBytes recSigs extCallees
       ext.callees with
   | none => rw [hcb] at hc; cases hc
@@ -343,10 +343,10 @@ theorem compileRec_of_compileModuleRecAux {I : Isa} {lt : LegalTarget} {raBytes 
       compileModuleRecAux I lt raBytes recSigs extCallees exits nX fs hints = .ok (code, b, s) →
       compile I lt fs hints = .ok code
   | [], [], _, _, _, h => by
-    simp only [compileModuleRecAux, Except.ok.injEq, Prod.mk.injEq] at h
+    dsimp only [compileModuleRecAux] at h; simp only [Except.ok.injEq, Prod.mk.injEq] at h
     rcases h with ⟨rfl, _, _⟩; rfl
-  | [], _ :: _, _, _, _, h => by simp [compileModuleRecAux] at h
-  | _ :: _, [], _, _, _, h => by simp [compileModuleRecAux] at h
+  | [], _ :: _, _, _, _, h => by dsimp only [compileModuleRecAux] at h; cases h
+  | _ :: _, [], _, _, _, h => by dsimp only [compileModuleRecAux] at h; cases h
   | _ :: _, _ :: _, _, _, _, h => by
     dsimp only [compileModuleRecAux] at h
     split at h
@@ -393,7 +393,7 @@ theorem compileModuleRecAux_mem {I : Isa} {lt : LegalTarget} {raBytes : Nat}
           some (bf, sf) ∧
         bf ≤ base ∧ sf ≤ step
   | [], _, _, _, _, _, _, hf => nomatch hf
-  | _ :: _, [], _, _, _, h, _, _ => by simp [compileModuleRecAux] at h
+  | _ :: _, [], _, _, _, h, _, _ => by dsimp only [compileModuleRecAux] at h; cases h
   | g :: fs, hint :: hints, code, base, step, h, f, hf => by
     dsimp only [compileModuleRecAux] at h
     split at h
@@ -445,11 +445,11 @@ theorem compileModuleRecAux_code_labels {T : Target} (hcl : Rega.LabelClean T.to
       (∀ (i j : Nat) (l : Sym), code[i]? = some (T.frame.label l) →
         code[j]? = some (T.frame.label l) → i = j)
   | [], [], _, _, _, hcm, _, _ => by
-    simp only [compileModuleRecAux, Except.ok.injEq, Prod.mk.injEq] at hcm
+    dsimp only [compileModuleRecAux] at hcm; simp only [Except.ok.injEq, Prod.mk.injEq] at hcm
     rcases hcm with ⟨rfl, _, _⟩
     exact ⟨fun _ _ hi => by simp at hi, fun _ _ _ hi => by simp at hi⟩
-  | [], _ :: _, _, _, _, hcm, _, _ => by simp [compileModuleRecAux] at hcm
-  | _ :: _, [], _, _, _, hcm, _, _ => by simp [compileModuleRecAux] at hcm
+  | [], _ :: _, _, _, _, hcm, _, _ => by dsimp only [compileModuleRecAux] at hcm; cases hcm
+  | _ :: _, [], _, _, _, hcm, _, _ => by dsimp only [compileModuleRecAux] at hcm; cases hcm
   | f :: fs, h :: hs, code, b, s, hcm, hnd, hok => by
     simp only [List.map_cons, List.nodup_cons, List.mem_map, not_exists, not_and] at hnd
     simp only [List.all_cons, Bool.and_eq_true] at hok
@@ -584,10 +584,10 @@ theorem checkCompileRecResult_parts {D : Type} {label : Sym → D} {progSmall : 
       fnNames.all fnNameOk = true ∧ exits.all fnNameOk = true ∧
       (fnNames ++ exits).Nodup ∧ progSmall (extractRecCode res ++ exits.map label) = true := by
   cases res with
-  | error _ => simp [checkCompileRecResult] at h
+  | error _ => dsimp only [checkCompileRecResult] at h; cases h
   | ok cbs =>
     rcases cbs with ⟨c, b, s⟩
-    simp only [checkCompileRecResult, Bool.and_eq_true] at h
+    dsimp only [checkCompileRecResult] at h; simp only [Bool.and_eq_true] at h
     unfold extractRecCode extractRecBase extractRecStep
     exact ⟨rfl, h.1.1.1, h.1.1.2, stringsNodup_nodup h.1.2, h.2⟩
 
@@ -634,7 +634,7 @@ variable {T : Target} {lt : LegalTarget} {extCallees : List (SigEntry × Nat)}
   {maxBound : Nat}
 
 /-- Stack bound at recursion measure `k`: `baseBound + k * stepBound`. -/
-def boundAt (M : CompiledRec T lt extCallees exits nX fuel fs hints maxBound)
+@[expose] def boundAt (M : CompiledRec T lt extCallees exits nX fuel fs hints maxBound)
     (k : Nat) : Nat :=
   M.baseBound + k * M.stepBound
 
@@ -663,7 +663,7 @@ theorem defined_exit_host (M : CompiledRec T lt extCallees exits nX fuel fs hint
 end CompiledRec
 
 /-- Single boolean predicate checked once by `t_kernel_rfl` for a cyclic/recursive module. -/
-def checkCompileRec (T : Target) (L : TargetLayout T) (lt : LegalTarget)
+@[expose] def checkCompileRec (T : Target) (L : TargetLayout T) (lt : LegalTarget)
     (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX fuel : Nat)
     (fs : List Fn) (hints : List T.toIsa.Hints) (maxBound : Nat := 2048) : Bool :=
   checkCompileRecResult T.frame.label L.progSmall
@@ -671,7 +671,7 @@ def checkCompileRec (T : Target) (L : TargetLayout T) (lt : LegalTarget)
     (fs.map Fn.name) exits
 
 /-- Construct `CompiledRec` from `checkCompileRec = true` and `hcl : Rega.LabelClean T.toIsa`. -/
-def compileRecChecked (T : Target) (L : TargetLayout T) (lt : LegalTarget)
+@[expose] def compileRecChecked (T : Target) (L : TargetLayout T) (lt : LegalTarget)
     (hcl : Rega.LabelClean T.toIsa) (extCallees : List (SigEntry × Nat)) (exits : List Sym)
     (nX fuel : Nat) (fs : List Fn) (hints : List T.toIsa.Hints) (maxBound : Nat := 2048)
     (h : checkCompileRec T L lt extCallees exits nX fuel fs hints maxBound = true) :
@@ -699,7 +699,7 @@ def compileRecChecked (T : Target) (L : TargetLayout T) (lt : LegalTarget)
       (by simp only [List.all_append, Bool.and_eq_true]; exact ⟨hp.2.1, hp.2.2.1⟩) i j l hi hj
 
 /-- Variant boolean predicate checking label uniqueness via `L.labelsNodup`. -/
-def checkCompileRecWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTarget)
+@[expose] def checkCompileRecWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTarget)
     (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX fuel : Nat)
     (fs : List Fn) (hints : List T.toIsa.Hints) (maxBound : Nat := 2048) : Bool :=
   checkCompileRecResultWithLabels T.frame.label L.labelsNodup L.progSmall
@@ -707,7 +707,7 @@ def checkCompileRecWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTarge
     exits
 
 /-- Construct `CompiledRec` via `L.labelsNodup` and `L.labelsUnique_layoutOf`. -/
-def compileRecCheckedWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTarget)
+@[expose] def compileRecCheckedWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTarget)
     (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX fuel : Nat)
     (fs : List Fn) (hints : List T.toIsa.Hints) (maxBound : Nat := 2048)
     (h : checkCompileRecWithLabels T L lt extCallees exits nX fuel fs hints maxBound = true) :
@@ -1030,7 +1030,8 @@ theorem compileRec_sound (T : Target) (host : T.mach.Host) (lt : LegalTarget)
           refine ⟨?_, ?_⟩
           · intro args m0 Q X hleg
             exact absurd hleg (legalEnv_stepRec_nil_empty hnd hmem_nm)
-          · simp only [bound, recCallBound, hcon, ↓reduceIte, Nat.add_zero, Nat.zero_mul]
+          · dsimp only [bound, recCallBound]
+            simp only [hcon, ↓reduceIte, Nat.add_zero, Nat.zero_mul]
             exact Nat.le_trans hstep_b hbf
         | succ m =>
           have hbd : bound gfn.name = baseBound + m * stepBound := by
