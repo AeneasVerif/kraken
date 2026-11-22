@@ -6,6 +6,9 @@ public import LeanQbe.T.WP
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.GvnLemmas
 public import LeanQbe.T.InlineLemmas
+import LeanQbe.T.OptUtilLemmas
+import LeanQbe.T.WfLemmas
+import LeanQbe.T.WPLemmas
 import LeanQbe.T.FoldLemmas
 import LeanQbe.T.CanonLemmas
 import LeanQbe.T.CopyLemmas
@@ -99,6 +102,129 @@ theorem Func.peelFast_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : 
     simp only [hc, ↓reduceIte, Bool.false_eq_true]
   · exact Func.renorm_spec (Func.peel_wf hwf budget) (Func.peel_spec hwf budget hsp)
   · exact hsp
+
+theorem Blocks.mergeRets_get {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (exit_lbl : L rs) :
+    {sig : List (List Ty)} → {bs : Blocks V L rs sig} →
+    {ts : List Ty} → (i : Member ts sig) → (xs : Tup V ts) →
+    (bs.mergeRets exit_lbl).get i xs = (bs.get i xs).mergeRets exit_lbl
+  | _, .cons _ _, _, .here, _ => rfl
+  | _, .cons _ _, _, .there i, xs => Blocks.mergeRets_get exit_lbl i xs
+
+theorem Expr.mergeRets_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
+    {exit₁ : L₁ rs} {exit₂ : L₂ rs}
+    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (hexit : ⟨rs, exit₁, exit₂⟩ ∈ D)
+    {e₁ : Expr V₁ L₁ rs} {e₂ : Expr V₂ L₂ rs}
+    (hwf : Wf G D e₁ e₂) :
+    Wf G D (e₁.mergeRets exit₁) (e₂.mergeRets exit₂) := by
+  induction hwf using Wf.induct with
+  | let_ hop _ ih =>
+    exact .let_ hop fun xs₁ xs₂ => ih xs₁ xs₂ hexit
+  | load t ha _ ih =>
+    exact .load t ha fun v₁ v₂ => ih v₁ v₂ hexit
+  | store hv ha _ ih =>
+    exact .store hv ha (ih hexit)
+  | call f hargs _ ih =>
+    exact .call f hargs fun xs₁ xs₂ => ih xs₁ xs₂ hexit
+  | jnz hc _ _ iht ihe =>
+    exact .jnz hc (iht hexit) (ihe hexit)
+  | jump hj hargs =>
+    exact .jump hj hargs
+  | ret hvs =>
+    exact .jump hexit hvs
+  | exit f hargs =>
+    exact .exit f hargs
+  | hlt =>
+    exact .hlt
+  | group _ _ ihb ihk =>
+    refine .group (fun Js₁ Js₂ => WfB.of_get fun i xs₁ xs₂ => ?_) (fun Js₁ Js₂ => ?_)
+    · simp only [Blocks.mergeRets_get]
+      exact ihb Js₁ Js₂ i xs₁ xs₂ (List.mem_append_right _ hexit)
+    · exact ihk Js₁ Js₂ (List.mem_append_right _ hexit)
+
+/-- `Func.mergeRets` preserves well-formedness. -/
+theorem Func.mergeRets_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.mergeRets f).Wf := by
+  rw [Func.mergeRets_eq]
+  dsimp only
+  by_cases hc : tflatRets (reifyFunc f) ≥ 2 <;> simp only [hc, ↓reduceIte]
+  · intro V₁ V₂ L₁ L₂ xs₁ xs₂
+    dsimp only
+    refine .group (sig := [rs])
+      (fun (_, ()) (_, ()) => .cons (fun r₁ r₂ => ?_) .nil)
+      (fun (exit₁, ()) (exit₂, ()) => ?_)
+    · exact .ret (TRel.toArgTup_mem r₁ r₂)
+    · have hf_weaken := (hf V₁ V₂ L₁ L₂ xs₁ xs₂).weaken_D
+        (D' := [⟨rs, exit₁, exit₂⟩]) (by intro _ hp; nomatch hp)
+      exact Expr.mergeRets_wf (List.mem_singleton_self _) hf_weaken
+  · exact hf
+
+theorem Expr.mergeRets_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+    {exit_lbl : Cont rs} (hexit : ∀ vs m, Q vs m → exit_lbl vs m)
+    (e : Expr Val Cont rs) : ∀ m, wp Γ Q X e m → wp Γ Q X (e.mergeRets exit_lbl) m := by
+  induction e using Expr.induct with
+  | let_ op k ih =>
+    intro m h
+    dsimp only [Expr.mergeRets, wp] at h ⊢
+    exact Op.wp_mono (fun r => ih r m) h
+  | load t a k ih =>
+    intro m ⟨v, hv, h⟩
+    dsimp only [Expr.mergeRets, wp]
+    exact ⟨v, hv, ih v m h⟩
+  | store v a k ih =>
+    intro m ⟨hok, h⟩
+    dsimp only [Expr.mergeRets, wp]
+    exact ⟨hok, ih (storeMem m _ a.val v.val) h⟩
+  | call f args k ih =>
+    intro m ⟨P, E, hG, hP, hE⟩
+    dsimp only [Expr.mergeRets, wp]
+    exact ⟨P, E, hG, fun r m' hr => ih r m' (hP r m' hr), hE⟩
+  | jnz c t e iht ihe =>
+    intro m h
+    dsimp only [Expr.mergeRets, wp]
+    exact ⟨fun hc => iht m (h.1 hc), fun hc => ihe m (h.2 hc)⟩
+  | jump j args =>
+    intro m h
+    exact h
+  | ret vs =>
+    intro m h
+    dsimp only [Expr.mergeRets, wp] at h ⊢
+    exact hexit (vals vs) m h
+  | exit f args =>
+    intro m h
+    exact h
+  | hlt =>
+    intro m h
+    exact h
+  | group bodies k ihb ihk =>
+    intro m h Js hc
+    dsimp only [Expr.mergeRets, wp]
+    refine ihk Js m (h Js ?_)
+    rw [closed_iff] at hc ⊢
+    intro ts i xs m' hb
+    have hc' := hc i xs m'
+    dsimp only at hc'
+    rw [Blocks.mergeRets_get] at hc'
+    exact hc' (ihb Js i xs m' hb)
+
+/-- `Func.mergeRets` refines function contracts. -/
+theorem Func.mergeRets_spec {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.mergeRets f) xs m Q X := by
+  rw [Func.mergeRets_eq]
+  dsimp only
+  by_cases hc : tflatRets (reifyFunc f) ≥ 2 <;> simp only [hc, ↓reduceIte]
+  · dsimp only [Func.spec, Func.wp, wp]
+    intro (exit_lbl, ()) hClosed
+    dsimp only [Closed] at hClosed
+    have hexit : ∀ vs m', Q vs m' → exit_lbl vs m' := by
+      intro vs m' hq
+      have h1 := hClosed.1 vs m'
+      change (Q (vals (toArgTup vs)) m' → exit_lbl vs m') at h1
+      rw [toArgTup_vals] at h1
+      exact h1 hq
+    exact Expr.mergeRets_wp hexit (f Val Cont xs) m h
+  · exact h
 
 /-- `Func.earlyCore` preserves well-formedness. -/
 theorem Func.earlyCore_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
@@ -260,15 +386,18 @@ theorem Func.lateCfgPost_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ
 theorem Func.lateLoopRotate_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
     (Func.lateLoopRotate f).Wf := by
   rw [Func.lateLoopRotate_eq]
-  exact Func.loopRotate_wf (Func.lateCfgPost_wf hf)
+  exact Func.mergeRets_wf (Func.loopRotate_wf (Func.lateCfgPost_wf hf))
 
 /-- `Func.lateLoopRotate` refines function contracts. -/
 theorem Func.lateLoopRotate_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateLoopRotate f) xs m Q X := by
   rw [Func.lateLoopRotate_eq]
-  exact Func.loopRotate_spec (Func.lateCfgPost_wf hf) LoopRotate.defaultRotConfig
-    (Func.lateCfgPost_spec hf h)
+  have hcfg := Func.lateCfgPost_wf hf
+  have hscfg := Func.lateCfgPost_spec hf h
+  have hrot_wf := Func.loopRotate_wf hcfg
+  have hrot_sp := Func.loopRotate_spec hcfg LoopRotate.defaultRotConfig hscfg
+  exact Func.mergeRets_spec hrot_wf hrot_sp
 
 /-- `Func.lateCfg` preserves well-formedness. -/
 theorem Func.lateCfg_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
@@ -306,8 +435,9 @@ theorem Func.lateOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : E
   have hscore := Func.lateCore_spec hf h
   have hcfg := Func.lateCfg_wf hcore
   have hscfg := Func.lateCfg_spec hcore hscore
-  exact Func.renorm_spec (Func.loopRotate_wf hcfg)
-    (Func.loopRotate_spec hcfg LoopRotate.defaultRotConfig hscfg)
+  have hrot := Func.lateLoopRotate_wf hcfg
+  have hsrot := Func.lateLoopRotate_spec hcfg hscfg
+  exact Func.renorm_spec hrot hsrot
 
 /-- `Fn.renorm` unconditionally produces a well-formed function body. -/
 theorem Fn.renorm_wf (fn : Fn) : (Fn.renorm fn).Wf :=

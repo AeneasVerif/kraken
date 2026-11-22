@@ -94,11 +94,14 @@ def abMaskProg : Func [i32] [i64] := fun _ _ (w0, ()) =>
     (.ret (.imm 0, ()))
 
 theorem abMask_late_out : Func.lateOpt abMaskProg = fun _ _ (w0, ()) =>
-    .let_ (op2 (.and i32) (.var w0) (.imm 0x80000000)) fun (bin, ()) =>
-    .let_ (op2 (.eq i32) (.var bin) (.imm 0)) fun (c, ()) =>
-    .jnz (.var c)
-      (.let_ (op1 (.zext 32 64) (.var w0)) fun (z, ()) => .ret (.var z, ()))
-      (.ret (.imm 0, ())) := by
+    .group (sig := [[i64]])
+      (fun (_, ()) => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
+      (fun (exit_lbl, ()) =>
+        .let_ (op2 (.and i32) (.var w0) (.imm 0x80000000)) fun (bin, ()) =>
+        .let_ (op2 (.eq i32) (.var bin) (.imm 0)) fun (c, ()) =>
+        .jnz (.var c)
+          (.let_ (op1 (.zext 32 64) (.var w0)) fun (z, ()) => .jump exit_lbl (.var z, ()))
+          (.jump exit_lbl (.imm 0, ()))) := by
   t_kernel_rfl
 
 theorem abMask_wf : abMaskProg.Wf := by t_wf_reify
@@ -109,8 +112,8 @@ private theorem abMask_src_spec (Γ : Env) (w0 : BitVec 32) (m : Mem 64) :
         r = (if w0 &&& 0x80000000#32 == 0#32 then (w0 &&& 0x7fffffff#32).setWidth 64
              else 0#64) ∧ m' = m)
       (fun _ _ _ _ => False) := by
-  dsimp only [Func.spec, Func.wp, abMaskProg]
-  wp_unfold_all
+  dsimp only [Func.spec, Func.wp, abMaskProg, wp, Op.wp, OpCode.wp, op1, op2, vals, Arg.val,
+    lift1, lift2, lift3, liftCmp, CmpOp.evalBits, i32, i64, Closed]
   by_cases h : w0 &&& 0x80000000#32 = 0#32 <;> simp [h]
 
 theorem abMask_late_spec (Γ : Env) (w0 : BitVec 32) (m : Mem 64) :
@@ -146,8 +149,8 @@ theorem cf_lateCfg_spec (Γ : Env) (x : BitVec 64) (c : Bool) (m : Mem 64) :
         (if c then r0 = x + 1#64 ∧ r1 = x + 1#64 else r0 = 0#64 ∧ r1 = 0#64) ∧ m' = m)
       (fun _ _ _ _ => False) := by
   apply Func.lateCfg_spec cf_wf
-  dsimp only [Func.spec, Func.wp, cfProg]
-  wp_unfold_all
+  dsimp only [Func.spec, Func.wp, cfProg, wp, Op.wp, OpCode.wp, op2, vals, Arg.val,
+    lift1, lift2, lift3, Closed]
   cases c <;> simp
 
 /-! ## 4. Materialized `Fn.renorm` definition & contract -/
