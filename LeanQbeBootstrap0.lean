@@ -26,6 +26,19 @@ public import LeanQbe.T.Bootstrap0.Dummies0
 public import LeanQbe.T.Bootstrap0.Mod0
 public import LeanQbe.T.Bootstrap0.PrintDir0
 public import LeanQbe.T.Bootstrap0.PrintDir0Lemmas
+public import LeanQbe.T.Bootstrap0.Sound0
+public import LeanQbe.T.Bootstrap0.Sound0Part1
+public import LeanQbe.T.Bootstrap0.Sound0Part10
+public import LeanQbe.T.Bootstrap0.Sound0Part11
+public import LeanQbe.T.Bootstrap0.Sound0Part12
+public import LeanQbe.T.Bootstrap0.Sound0Part2
+public import LeanQbe.T.Bootstrap0.Sound0Part3
+public import LeanQbe.T.Bootstrap0.Sound0Part4
+public import LeanQbe.T.Bootstrap0.Sound0Part5
+public import LeanQbe.T.Bootstrap0.Sound0Part6
+public import LeanQbe.T.Bootstrap0.Sound0Part7
+public import LeanQbe.T.Bootstrap0.Sound0Part8
+public import LeanQbe.T.Bootstrap0.Sound0Part9
 public import LeanQbe.T.Bootstrap0.Splice0
 public import LeanQbe.T.Bootstrap0.Types0
 
